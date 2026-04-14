@@ -1,0 +1,25 @@
+{
+  "name": "geopbf",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "sass": "^1.99.0",
+    "sass-embedded": "^1.99.0",
+    "vite": "^8.0.1"
+  },
+  "dependencies": {
+    "encoding-japanese": "^2.2.0",
+    "fast-sjis-encoder": "^1.1.1",
+    "native-bucket": "*",
+    "common":"*",
+    "pbf": "^4.0.1",
+    "polygon-clipping": "^0.15.7",
+    "terser": "^5.46.1"
+  }
+}

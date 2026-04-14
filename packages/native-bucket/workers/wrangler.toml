@@ -1,0 +1,18 @@
+name = "native-bucket"
+main = "index.js"
+compatibility_date = "2026-04-01"
+
+[assets]
+directory = "../demo"
+
+[[r2_buckets]]
+# [DO NOT CHANGE] Internal link required for the library to function
+binding = "MY_BUCKET"
+
+# [REQUIRED] Enter the name of the R2 bucket you created in Cloudflare
+bucket_name = "my-native-bucket" # <===
+
+[vars]
+# [WHITELIST] List your website domains (separated by comma)
+# Example: "yourdomain.com,localhost:5173"
+ALLOWED_DOMAINS = "ortho-earth.com,kenjiyoshidahome2026-bit.github.io,localhost:5173" # <===

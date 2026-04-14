@@ -1,0 +1,22 @@
+{
+  "name": "native-bucket",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "npm run build && wrangler dev",
+    "deploy": "npm run build && wrangler deploy"
+  },
+  "devDependencies": {
+    "@cloudflare/vite-plugin": "^1.30.3",
+    "sass-embedded": "^1.98.0",
+    "terser": "^5.46.1",
+    "vite": "^8.0.1",
+    "wrangler": "^4.79.0"
+  },
+"dependencies": {
+    "common": "*"
+  }
+}

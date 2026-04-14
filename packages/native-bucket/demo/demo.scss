@@ -1,0 +1,103 @@
+$color-bg: #0b0e14;
+$color-panel: #151921;
+$color-accent: #00a3ff;
+$color-success: #00e676;
+$color-warn: #ffab00;
+$color-error: #ff5252;
+$color-text: #e0e6ed;
+$color-border: #232936;
+
+// --- Base ---
+body { background: $color-bg; color: $color-text;
+    font-family: 'Inter', sans-serif;
+    margin: 0; overflow: hidden;
+}
+
+.dashboard {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+}
+
+// --- Header ---
+.app-header {
+    background: $color-panel;
+    padding: 20px 40px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid $color-border;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+
+    h1 { margin: 0; font-size: 1.5rem; }
+    .badge { font-size: 0.8rem; color: $color-accent; opacity: 0.8; }
+    .header-meta { font-size: 0.9rem; opacity:1.0; }
+}
+
+// --- Buttons ---
+.btn-premium {
+    background: linear-gradient(135deg, #00c6ff 0%, #0072ff 100%);
+    color: white; border: none; padding: 14px 32px; border-radius: 8px;
+    font-weight: 800; cursor: pointer; transition: 0.3s;
+    box-shadow: 0 0 20px rgba(0, 114, 255, 0.4);
+
+    &:hover:not(:disabled) { transform: scale(1.05); filter: brightness(1.1); }
+    &:disabled { background: #374151; box-shadow: none; opacity: 0.5; cursor: not-allowed; }
+}
+
+// --- Log Screen & Console ---
+.content-single {
+    flex: 1; padding: 20px; display: flex; flex-direction: column; overflow: hidden;
+}
+
+#log-screen {
+    flex: 1; padding: 20px; overflow-y: auto;
+    background: #05070a; border: 1px solid $color-border; border-radius: 6px;
+    font-family: 'Fira Code', monospace; font-size: 0.9rem; line-height: 1.6;
+}
+
+.log-entry {
+    margin-bottom: 8px; display: flex;
+    &.log-cmd { 
+        background: #11141b; margin: 5px 0 10px 130px; padding: 10px; 
+        border-left: 4px solid $color-accent; border-radius: 4px;
+        code { color: #58a6ff; font-size: 1.1rem; }
+    }
+    &.log-error { color: $color-error; }
+    &.log-success { color: $color-success; }
+}
+
+.log-time {
+    color: $color-accent; width: 110px; flex-shrink: 0;
+    border-right: 1px solid $color-border; margin-right: 20px;
+}
+
+.log-step {
+    background: $color-accent; color: $color-text; 
+    border: 1px solid $color-text; border-radius: 4px; padding: 2px 8px;
+}
+
+// --- Inline Lists (ZIP exploration) ---
+.inline-file-list {
+    background: #0d1117; border: 1px solid #30363d; border-radius: 8px;
+    margin: 0 0 20px 130px; padding: 15px; max-width: 500px;
+    
+    .file-row {
+        display: flex; justify-content: space-between; font-size: 0.8rem;
+        padding: 5px 0; border-bottom: 1px solid #21262d;
+        b { color: $color-accent; }
+        &:last-child { border-bottom: none; }
+    }
+}
+
+// --- Benchmarking Highlights ---
+.highlight-speed { font-weight: 800; color: $color-success; text-shadow: 0 0 8px rgba(0,230,118,0.3); }
+
+// --- Progress Bar ---
+.global-progress-container {
+    position: fixed; top: 0; left: 0; width: 100%; height: 4px; z-index: 1000;
+    .progress-bar { 
+        height: 100%; background: $color-accent; width: 0%; transition: width 0.2s;
+        box-shadow: 0 0 10px $color-accent;
+    }
+}

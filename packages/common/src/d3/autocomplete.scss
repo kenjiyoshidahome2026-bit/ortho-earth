@@ -1,0 +1,48 @@
+.autocomplete-wrapper {
+    position: relative;
+    width: 100%;
+
+    input {
+        width: 100%;
+        padding: 10px;
+        border: 1px solid #ddd;
+        border-radius: 6px;
+        outline: none;
+        &:focus { border-color: #007bff; box-shadow: 0 0 0 2px rgba(0,123,255,0.25); }
+    }
+}
+
+.autocomplete-list {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    background: white;
+    border-radius: 6px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    margin-top: 5px;
+    max-height: 200px;
+    overflow-y: auto;
+    z-index: 10001;
+
+    .autocomplete-item {
+        padding: 10px;
+        cursor: pointer;
+        border-bottom: 1px solid #f0f0f0;
+        &:last-child { border-bottom: none; }
+        
+        // キーボード選択中またはホバー中
+        &.active, &:hover {
+            background-color: #f8f9fa;
+            color: #007bff;
+        }
+
+        // 一致部分の強調
+        mark {
+            background: transparent;
+            color: #ff4500;
+            font-weight: bold;
+            text-decoration: underline;
+        }
+    }
+}

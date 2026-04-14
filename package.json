@@ -1,0 +1,8 @@
+{
+  "name": "gis-hub-workspace",
+  "private": true,
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ]
+}

@@ -1,0 +1,19 @@
+# .gitignore (ルート直下)
+
+# 依存関係
+node_modules/
+npm-debug.log*
+
+# ビルド出力
+dist/
+dist-tsc/
+build/
+
+# 環境変数
+.env
+.env.local
+
+# OSのシステムファイル
+.DS_Store
+Thumbs.db
+

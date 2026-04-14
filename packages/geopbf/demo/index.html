@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <fabicon></fabicon>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GeoPBF Hub - GIS Tinker Station</title>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>GeoPBF <span>Hub</span></h1>
+            <p>~ new GIS File solution ~</p>
+        </header>
+        <main class="stream-layout">
+            <section class="control-panel">
+                <div class="input-section">
+                    <label>Remote Resource: [ CORS free / (url name)#(file name) is available for zip. ]</label>
+                    <div class="url-input-group">
+                        <input type="text" id="url-field" placeholder="https://" />
+                        <button id="run-url" class="btn-primary">Fetch & Process</button>
+                    </div>
+                </div>
+                <div class="input-section">
+                    <label>Local Files:</label>
+                    <div id="drop-zone" class="drop-zone">
+                        <div class="dz-content">
+                            <span class="icon">🔬</span>
+                            <p>Drop <strong>GIS Files</strong> here (or Click here to select your file)</p>
+                            <small>GeoJSON/TopoJSON/Shape(zip)/KMZ/KML/GML and GeoPBF (width gzip/zip available)</small>
+                        </div>
+                        <input type="file" id="file-picker" multiple style="display:none" />
+                    </div>
+                </div>
+                <div>Examples:</div>
+                <div><span>https://</span></div>
+            </section>
+            <div id="test-list" class="test-feed"></div>
+        </main>
+    </div>
+    <script type="module" src="./demo.js"></script>
+</body>
+</html>

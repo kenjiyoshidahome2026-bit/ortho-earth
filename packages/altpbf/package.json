@@ -1,0 +1,21 @@
+{
+  "name": "altpbf",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "vite": "^8.0.4"
+  },
+  "dependencies": {
+    "geotiff": "^3.0.5",
+    "native-bucket": "*",
+    "common":"*",
+    "pbf": "^4.0.1",
+    "three": "^0.183.2"
+  }
+}
