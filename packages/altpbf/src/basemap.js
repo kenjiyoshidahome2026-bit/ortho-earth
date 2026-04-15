@@ -1,7 +1,7 @@
 import { nativeBucket } from "native-bucket"; 
 import { tiff2canvas, exr2canvas, tile2canvas } from './file2canvas';
 import { comma } from "common/src/utility.js"; 
-import { resources } from "common/src/resources.js";
+import { resources } from "ortho-map/src/modules/resources.js";
 export async function createBaseMap(name, dirName = "GIS") {
     const { Fetch, Bucket, Cache } = nativeBucket();
     var dt = new Date();
@@ -25,7 +25,7 @@ export async function createBaseMap(name, dirName = "GIS") {
         await saveWEBPs(await tile2canvas(url), base);
     }
     async function url2rect(url, base) {
-        const tiff = (await unzipit(url, { filter: name => name.match(/\.tif$/), cors: true, save: true }))[0];
+        const tiff = await Fetch(url, { target: "HYP_LR_SR_OB_DR.tif", cors: true });
         await saveWEBPs(await tiff2canvas(tiff), base);
     }
     async function moon(base) {

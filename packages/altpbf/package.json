@@ -14,6 +14,7 @@
   "dependencies": {
     "geotiff": "^3.0.5",
     "native-bucket": "*",
+    "ortho-map": "*",
     "common":"*",
     "pbf": "^4.0.1",
     "three": "^0.183.2"
