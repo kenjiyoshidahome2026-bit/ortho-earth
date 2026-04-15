@@ -1,6 +1,6 @@
 import { fromBlob } from 'geotiff'; 
-import { decodeZIP } from "../../../native-bucket/src/decodeZIP.js";
-import { Fetch } from "../../../native-bucket/src/Fetch.js";
+import { decodeZIP } from "native-bucket";
+import { Fetch } from "native-bucket";
 import { thenEach,comma,min,sum } from "../../common/src/utility.js";
 import { altpbf } from "./altpbf.js";
 const { save, fileName, lnglat, size, saveIndex, loadIndex } = await altpbf();

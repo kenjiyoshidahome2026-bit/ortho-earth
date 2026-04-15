@@ -5,14 +5,15 @@ import { Cache } from "./Cache.js";
 function nativeBucket(apiUrl = null) {
     const API_BASE = apiUrl || `https://api.ortho-earth.com`;
 	const proxyOption = opts => ({ proxy: `${API_BASE}/proxy/`, ...opts });
-	const bucketyOption = opts => ({ baseUrl: `${API_BASE}/bucket/`, ...opts });
+	const bucketOption = opts => ({ baseUrl: `${API_BASE}/bucket/`, ...opts });
     return {
         Fetch: (url, opt = {}) => _Fetch(url, proxyOption(opt)),
-        Bucket: async function(dir, opts) { const instance = new _Bucket(dir, bucketyOption(opts)); 
+        Bucket: async function(dir, opts) { const instance = new _Bucket(dir, bucketOption(opts)); 
             if (instance.offline()) return instance;
       		try { await instance.list(1); return instance;
 			} catch (e) {
-                console.warn(`[native-bucket] Failed to connect to Bucket "${dir}" at ${BUCKET_URL}.`);
+                const targetUrl = bucketOption(opts).baseUrl;
+                console.warn(`[native-bucket] Failed to connect to Bucket "${dir}" at ${targetUrl}.`);
                 return null;
             }
 		},
@@ -24,3 +25,9 @@ const target = (typeof window === 'undefined') ? (typeof self === 'undefined') ?
 if (target) target.nativeBucket = nativeBucket;
 
 export default nativeBucket;
+export * from "./Fetch.js"
+export * from "./Cache.js"
+export * from "./Bucket.js"
+export * from "./encodeZIP.js"
+export * from "./decodeZIP.js"
+export * from "./gzip.js"

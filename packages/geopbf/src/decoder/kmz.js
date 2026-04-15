@@ -1,5 +1,5 @@
 import { GeoPBF } from "../pbf-base.js";
-import { decodeZIP } from "../../../native-bucket/src/decodeZIP.js";
+import { decodeZIP } from "native-bucket";
 
 const parseCoords = (s) => s.trim().split(/\s+/).map(t => t.split(",").map(Number).slice(0, 2));
 

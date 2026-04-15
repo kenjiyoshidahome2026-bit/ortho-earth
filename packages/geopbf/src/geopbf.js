@@ -2,7 +2,7 @@ import { GeoPBF } from "./pbf-base.js";
 import { pbfio } from "./pbf-io.js";
 import { Logger } from "./modules/logger.js";
 import { topo2geo } from "./modules/topo2geo.js";
-import { gunzip, isGzip } from "../../native-bucket/src/gzip.js";
+import { gunzip, isGzip } from "native-bucket";
 
 const logger = new Logger();
 let serverPromise = null;

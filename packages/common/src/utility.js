@@ -6,8 +6,9 @@ export const isDOM = _ => _ instanceof Element;
 export const toArray = _ => (_ != null ? isArray(_) ? _ : [_] : []);
 export const isObject = _ => _ !== null && typeof _ === 'object' && !isArray(_);
 export const isBuffer = _ => (_ instanceof ArrayBuffer || ArrayBuffer.isView(_));
-export const isFile = _ => (_ instanceof Blob && ("name" in _));
-export const isURL = _ => isString(_) && (_.match(/^https?\:\/\//));
+export const isBlob = _ => (_ instanceof Blob);
+export const isFile = _ => (isBlob(_) && ("name" in _));
+export const isURL = _ => (isString(_) && (_.match(/^https?\:\/\//)));
 ////-----------------------------------------------------------------------------------------------
 export const trim = _ => ("" + _).replace(/\s+/g, " ").replace(/(^\s+|\s+$)/g, "");
 export const strfix = _ => trim(_).normalize('NFKC');

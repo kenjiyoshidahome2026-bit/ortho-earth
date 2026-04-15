@@ -1,5 +1,5 @@
 import { GeoPBF } from "../pbf-base.js";
-import { decodeZIP } from "../../../native-bucket/src/decodeZIP.js";
+import { decodeZIP } from "native-bucket";
 
 const view = a => new DataView(a.buffer, a.byteOffset, a.byteLength);
 const thenMap = async (a, f) => {

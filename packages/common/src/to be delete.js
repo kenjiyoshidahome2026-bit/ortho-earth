@@ -166,11 +166,6 @@ d3.history = async(opts) => {
 
 }
 ////-----------------------------------------------------------------------------------------------
-d3.escape = func => { d3.select("body").on("keyup.escape", null).on("keyup.escape", e => {
-    if (e.which == 27) { e.stopPropagation(); e.preventDefault();
-        d3.isFunction(func)? func(e): (Synquery && Synquery.TOP && d3.isFunction(Synquery.TOP.logout) && Synquery.TOP.logout());
-    }
-})};
 d3.laptime = (() => {
     var start = + new Date(), time = + new Date(), func = console.log;
     return (evnt) => {

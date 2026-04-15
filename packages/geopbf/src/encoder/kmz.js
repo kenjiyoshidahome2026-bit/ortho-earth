@@ -1,5 +1,5 @@
 import { GeoPBF } from "../pbf-base.js";
-import { encodeZIP } from "../../../native-bucket/src/encodeZIP.js";
+import { encodeZIP } from "native-bucket";
 
 // Webカラー(#RRGGBB) または [r,g,b,a] を KML形式(aabbggrr)に変換
 const toKMLColor = (c, opacity = 1) => {

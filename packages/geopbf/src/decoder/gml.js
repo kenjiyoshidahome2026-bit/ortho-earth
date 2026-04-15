@@ -1,5 +1,5 @@
 import { GeoPBF } from "../pbf-base.js";
-import { decodeZIP } from "../../../native-bucket/src/decodeZIP.js";
+import { decodeZIP } from "native-bucket";
 
 function* getTags(src, tag) {
     const regex = new RegExp(`<${tag}[^>]*>([\\s\\S]*?)<\\/${tag}>`, 'gi');

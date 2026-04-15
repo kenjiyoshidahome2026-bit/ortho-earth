@@ -1,18 +1,19 @@
 import { nativeBucket } from "native-bucket"; 
 import { tiff2canvas, exr2canvas, tile2canvas } from './file2canvas';
-import { thenEach, comma, min, sum } from "../../common/src/utility.js";
-export async function createBaseMap(name) {
+import { comma } from "common/src/utility.js"; 
+import { resources } from "common/src/resources.js";
+export async function createBaseMap(name, dirName = "GIS") {
     const { Fetch, Bucket, Cache } = nativeBucket();
     var dt = new Date();
-    const bucket = await Bucket(Resources.WhiteEarthBASE);
-    const cache = await Cache(Resources.WhiteEarthBASE);
+    const bucket = await Bucket(`${dirName}/base`);
+    const cache = await Cache(`${dirName}/base`);
     const NaturalEarth10m = name => `https://naciscdn.org/naturalearth/10m/raster/${name}.zip`;
     console.log(`--------------------------------------------`);
     console.log(`%c${name}`, "font-size:2em")
     console.log(`--------------------------------------------`);
     switch (name) {
-        case "google.satellite": await tile2rect(Resources.tileURL(name), name); break;
-        case "osm.satellite": await tile2rect(Resources.tileURL(name), name); break;
+        case "google.satellite": await tile2rect(resources.tileURL(name), name); break;
+        case "osm.satellite": await tile2rect(resources.tileURL(name), name); break;
         case "naturalEarth": await url2rect(NaturalEarth10m("HYP_LR_SR_OB_DR"), name); break;
         case "whiteEarth": await url2rect(NaturalEarth10m("GRAY_LR_SR_OB_DR"), name); break;
         case "moon": await moon(name); break;
