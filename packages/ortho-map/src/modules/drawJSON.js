@@ -1,3 +1,5 @@
+import * as d3 from 'd3';
+import { max } from "common/src/utility.js";
 export function drawJSON(features, prop = {}) {
     const { ctx, proj, zoom, path, width, height } = this;
     const toFeatures = a => a ? a.features ? a.features : Array.isArray(a) ? a : [a] : [];
@@ -48,7 +50,7 @@ export function drawJSON(features, prop = {}) {
             }
             if ("hatch" in p) {
                 const v = calcArea(feature); if (!v) return;
-                const [x, y, w, h] = [v[0], v[1], v[2] - v[0], v[3] - v[1]], r = d3.max([w, h]);
+                const [x, y, w, h] = [v[0], v[1], v[2] - v[0], v[3] - v[1]], r = max([w, h]);
                 const delta = p.delta || 5, color = p.hatch || "red"; //console.log(color)
                 ctx.save();
                 ctx.beginPath(); path(feature); ctx.clip();

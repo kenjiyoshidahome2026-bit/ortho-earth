@@ -2,6 +2,7 @@ import * as d3 from 'd3';
 import { geopbf } from "geopbf";
 import { statements, sphere, graticule, land110 } from "common/src/resources.js"; 
 import { comma } from "common/src/utility.js";
+
 export function createAccessories(opts) {
     const map = this;
     const layer = map.createLayer({ name: "Accessories", append: map.mapFrame });

@@ -1,4 +1,5 @@
-import { max, isString, isFunction } from "common/src/utility";
+import * as d3 from 'd3';
+import { max, isString, isFunction } from "common/src/utility.js";
 let loadings = [];
 export function setProp(div, prop) {
     const { fontSize, fontFamily, background, color, borderWidth, borderColor, radius, hoverColor } = prop;

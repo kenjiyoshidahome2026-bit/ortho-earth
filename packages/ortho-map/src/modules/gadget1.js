@@ -1,9 +1,9 @@
 import * as d3 from 'd3'; 
 import html2canvas from 'html2canvas';
-import { datimArray, download } from "common/src/utility";
-import { cleanup } from "common/src/d3/tip-pop"
-import { createPolygon } from "common/src/createPolygon";
-import { icons, tooltips, statements } from "common/src/resources";
+import { datimArray, download } from "common/src/utility.js";
+import { cleanup } from "common/src/d3/tip-pop.js"
+import { createPolygon } from "common/src/createPolygon.js";
+import { icons, tooltips, statements } from "common/src/resources.js";
 
 function createButton(map, name, opts) {
     const target = map.addFrame(opts.target || "leftTop"); if (!target) return console.error("Frame Error");

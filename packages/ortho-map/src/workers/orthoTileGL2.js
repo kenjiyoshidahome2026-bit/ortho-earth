@@ -1,4 +1,4 @@
-function orthoTileGL2(gl, dpr) {
+export function orthoTileGL2(gl, dpr) {
     // 1. シェーダーの定義 (GLSL ES 3.00 形式)
     const vsSource = `#version 300 es
         layout(location = 0) in vec2 a_position;

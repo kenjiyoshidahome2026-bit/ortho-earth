@@ -1,6 +1,6 @@
 import { Bucket, Cache } from "native-bucket";
-import { geoOrthographic } from "./geoOrthoGraphic";
-import orthoBaseGL2 from "./orthoBaseGL2";
+import { geoOrthographic } from "./geoOrthoGraphic.js";
+import orthoBaseGL2 from "./orthoBaseGL2.js";
 const dire = "WhiteEarth/BASE";
 let canvas, gl, proj, width, height, path, cache, bucket, baseName = "", texture = null;
 proj = geoOrthographic();

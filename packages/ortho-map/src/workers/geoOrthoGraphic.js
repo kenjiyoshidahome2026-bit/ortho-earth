@@ -1,5 +1,4 @@
-const { PI, floor, ceil, max, min, round, hypot, sin, asin, sinh, tanh, atanh, atan, atan2, cos, abs, log2, sqrt } = Math;
-const rad = PI / 180, deg = 180 / PI;
+const { PI, max, min,  sin, asin, atan2, cos, sqrt } = Math, rad = PI / 180;
 
 export function geoOrthographic() {
     let r = [0, 0, 0], s = 150, t = [480, 250], sφ, cφ, sγ, cγ;

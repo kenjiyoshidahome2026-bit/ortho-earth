@@ -32,23 +32,6 @@ export function createTileServer(urlFunc) {
     };
 }
 // ==========================================
-// タイルの内外判定
-// ==========================================
-export function inside([x, y, z]) {
-    const n = 1 << z, invN = 1 / n; // 除算を1回に減らす
-    const xmin = x * invN * 360 - 180, xmax = (x + 1) * invN * 360 - 180;
-    const ymax = Math.atan(Math.sinh(PI * (1 - 2 * y * invN))) * deg;
-    const ymin = Math.atan(Math.sinh(PI * (1 - 2 * (y + 1) * invN))) * deg;
-    let p;
-    p = proj([xmin, ymax]); if (p && p[0] >= 0 && p[0] <= width && p[1] >= 0 && p[1] <= height) return true;
-    p = proj([xmax, ymax]); if (p && p[0] >= 0 && p[0] <= width && p[1] >= 0 && p[1] <= height) return true;
-    p = proj([xmax, ymin]); if (p && p[0] >= 0 && p[0] <= width && p[1] >= 0 && p[1] <= height) return true;
-    p = proj([xmin, ymin]); if (p && p[0] >= 0 && p[0] <= width && p[1] >= 0 && p[1] <= height) return true;
-    p = proj([(xmin + xmax) / 2, (ymin + ymax) / 2]);
-    if (p && p[0] >= 0 && p[0] <= width && p[1] >= 0 && p[1] <= height) return true;
-    return false;
-}
-// ==========================================
 // タイルアレイの生成
 // ==========================================
 export function getTileArray() {

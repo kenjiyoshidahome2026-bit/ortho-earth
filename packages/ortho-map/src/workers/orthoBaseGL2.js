@@ -1,4 +1,4 @@
-function orthoBaseGL2(gl, dpr) {
+export function orthoBaseGL2(gl, dpr) {
     // WebGL2用シェーダーソース (GLSL 300 es)
     const vsSource = `#version 300 es
     in vec2 position;
