@@ -2,7 +2,8 @@ import { GeoPBF } from "./pbf-base.js";
 import { pbfio } from "./pbf-io.js";
 import { Logger } from "./modules/logger.js";
 import { topo2geo } from "./modules/topo2geo.js";
-import { gunzip, isGzip } from "native-bucket";
+import { gunzip, isGzip } from "native-bucket/src/gzip.js";
+import { isString, isURL, isFile, isObject, isBuffer } from "common/src/utility.js"
 
 const logger = new Logger();
 let serverPromise = null;
@@ -12,12 +13,7 @@ const getServer = async () => serverPromise || (serverPromise = pbfio("GIS")
 //  ----------------------------------------------------------------------------------------
 export async function geopbf(data, options = {}) {
     if (isString(options)) options = { name: options };
-    logger.title("geopbf"); const isString = _ => (typeof _ == "string");
-
-    const isObject = _ => (Object.prototype.toString.call(_) === '[object Object]' || Array.isArray(_));
-    const isBuffer = _ => (_ instanceof ArrayBuffer || ArrayBuffer.isView(_));
-    const isFile = _ => (_ instanceof Blob && ("name" in _));
-    const isURL = _ => (_.match(/^https?\:\/\//));
+    logger.title("geopbf"); 
     const isInZip = _ => (_.match(/.+\.zip#.+/i));
     const isPBF = _ => (_ instanceof GeoPBF);
 

@@ -1,11 +1,11 @@
 import * as d3 from 'd3';
-import { gadgetIcons, tooltips, statements } from ",/icons.js"
-import { geopbf } from "geopbf";
-const lang = (this.Language = this.Language || "en");
+import { gadgetIcons, tooltips, statements } from "./icons.js"
+import { geopbf } from "geopbf/src/geopbf.js";
+const lang = navigator.language.slice(0, 2);
 const resources = {
-    gadgetIcons: gadgetIcons,
-    tooltips: tooltips[lang],
-    statements: statements[lang],
+    icons: gadgetIcons,
+    tooltips: tooltips[lang] || tooltips.en,
+    statements: statements[lang] || statements.en,
     baseName: name => {
         const whiteEarth = "White Earth";
         const naturalEarth = "Natural Earth";

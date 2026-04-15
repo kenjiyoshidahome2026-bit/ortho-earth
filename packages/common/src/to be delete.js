@@ -3,17 +3,9 @@ import * as d3Overlay from 'd3-overlay';
 import {createAutocomplete} from 'd3-autocomplete';
 import * as d3Loader from 'd3-loader';
 
-////-----------------------------------------------------------------------------------
-d3.dateArray = n => { const d = n==null? new Date(): new Date(n); return [d.getFullYear()].concat([d.getMonth()+1,d.getDate()].map(L2));};
-d3.timeArray = n => { const d = n==null? new Date(): new Date(n); return [d.getHours(),d.getMinutes(),d.getSeconds()].map(L2);};
-d3.datimArray = n => [d3.dateArray(n), d3.timeArray(n)].flat();
-////-----------------------------------------------------------------------------------------------
-d3.jsonSize = f => (new Blob([JSON.stringify(f)],{type: "text/plain"}).size/1e6).toFixed(3)+" MB"
-////-----------------------------------------------------------------------------------------------
-d3.strfix = s => s.normalize('NFKC');
 ////-----------------------------------------------------------------------------------------------
 async function urlBOX(url) {
-//	if (!await check(url)) return window.open(url,"_web_");
+	if (!await check(url)) return window.open(url,"_web_");
     let plane = d3.select("body").append("div").classed("overlay-urlbox", true);
     let div = plane.append("div").classed("body", true);
     plane.append("div").classed("head", true).html(`閉じる [ <i>${url}</i> ]`)
@@ -35,12 +27,6 @@ async function urlBOX(url) {
 }
 ////-----------------------------------------------------------------------------------------------
 
-d3.dynamicWebWorker = (worker_url, val) => new Promise((resolve,reject)=>{
-    let worker = new Worker(worker_url);
-    worker.onmessage = e=>{ worker.terminate(); worker = null; resolve(e.data);}
-    worker.onerror = e=>{ worker.terminate(); reject(e); }
-    worker.postMessage(val);
-});
 d3.context2D = (w = 300, h = 150, opts = {}) => {
     const canvas = document.createElement("canvas");
     const ctx = canvas.getContext("2d");
@@ -58,11 +44,8 @@ d3.context2D = (w = 300, h = 150, opts = {}) => {
     ctx.hide = () => (d3.select(canvas).hide(),ctx);
     return ctx;
 };
-d3.clearObject = q => {	
-    for (const _ of Object.getOwnPropertyNames(q)) delete q[_];
-};
 ////-----------------------------------------------------------------------------------------------
-d3.body = ()=> d3.select("body");
+d3.body = () => d3.select("body");
 d3.selection.prototype.parent = function() { return d3.select(this.node().parentNode); };
 d3.selection.prototype.prepend = function(elem) { return this.insert(elem,":first-child"); };
 d3.selection.prototype.getSize = function() { let rect = this.node().getBoundingClientRect(); return [rect.width, rect.height]; };

@@ -1,9 +1,10 @@
-import * as d3 from 'd3'; 
+import * as d3 from 'd3';
 import html2canvas from 'html2canvas';
 import { datimArray, download } from "common/src/utility.js";
 import { cleanup } from "common/src/d3/tip-pop.js"
 import { createPolygon } from "common/src/createPolygon.js";
-import { icons, tooltips, statements } from "common/src/resources.js";
+import { resources } from "./resources.js";
+const { icons, tooltips, statements } = resources;
 
 function createButton(map, name, opts) {
     const target = map.addFrame(opts.target || "leftTop"); if (!target) return console.error("Frame Error");
@@ -133,12 +134,14 @@ export async function cpos(opts = {}) {
         }
     });
     map.onDrawing(name, draw);
-    async function getCurrentPosition() { return new Promise(resolve => {
-        let success = q => q.coords && resolve([q.coords.longitude, q.coords.latitude]);
-        let fail = () => { console.warn("getCurrentPosition error"); resolve(null); };
-        let opt = { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 };
-        navigator.geolocation.getCurrentPosition(success, fail, opt);
-    })};
+    async function getCurrentPosition() {
+        return new Promise(resolve => {
+            let success = q => q.coords && resolve([q.coords.longitude, q.coords.latitude]);
+            let fail = () => { console.warn("getCurrentPosition error"); resolve(null); };
+            let opt = { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 };
+            navigator.geolocation.getCurrentPosition(success, fail, opt);
+        })
+    };
     function draw() {
         if (!flag) return;
         const p = map.tester(cpos); if (!p) return target.hide();

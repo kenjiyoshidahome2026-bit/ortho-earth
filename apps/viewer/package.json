@@ -11,11 +11,12 @@
   "devDependencies": {
     "vite": "^8.0.4"
   },
- "dependencies": {
+  "dependencies": {
     "altpbf": "*",
-    "geopbf": "*",
-   "ortho-map": "*",
     "common": "*",
-    "native-bucket": "*"
+    "d3": "^7.9.0",
+    "geopbf": "*",
+    "native-bucket": "*",
+    "ortho-map": "*"
   }
 }

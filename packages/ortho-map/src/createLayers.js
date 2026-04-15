@@ -1,19 +1,15 @@
 import * as d3 from 'd3';
-import { sphere, graticule, border, maritime, lines } from "common/src/resources.js"; 
 import { drawJSON } from "./modules/drawJSON.js";
 import { createGetHeight } from "altpbf/src/createGetHeight.js";
-import { resources } from "common/src/resources.js";
-export async function createLayers() {
-    const map = this;
+export async function createLayers(map) {
+    const { baseName, sphere, graticule, border, maritime, lines } = map.resources;
     const layers = map.layers = {};
-    const baseName = resources.baseName;
-     {////--------------------------------------------------------------------------
-        map.createLayer = opts => createLayer.call(map, opts);
-        map.createRemoteLayer = opts => createRemoteLayer.call(map, opts);
-        map.getLayer = name => layers[name] || map.createLayer({ name });
-        map.removeLayer = name => (layers[name] && layers[name].destroy(), map);
-        map.listOfLayers = () => Object.values(map.layers).map(layer => (layer.toString())).join("\n");
-    }////--------------------------------------------------------------------------
+    map.createLayer = opts => createLayer.call(map, opts);
+    map.createRemoteLayer = opts => createRemoteLayer.call(map, opts);
+    map.getLayer = name => layers[name] || map.createLayer({ name });
+    map.removeLayer = name => (layers[name] && layers[name].destroy(), map);
+    map.listOfLayers = () => Object.values(map.layers).map(layer => (layer.toString())).join("\n");
+    ////--------------------------------------------------------------------------
     (await map.createRemoteLayer({ name: "OrthoBase", type: "base", append: map.mapFrame }));
     (await map.createRemoteLayer({ name: "OrthoTile", type: "tile", append: map.mapFrame }));
     (await map.createRemoteLayer({ name: "OrthoBorder", append: map.mapFrame }));
@@ -48,9 +44,6 @@ export async function createLayers() {
         layer.set("geojson", maritime, { maxZoom, minZoom, stroke: "rgba(128,128,255,0.8)", width: 0.8, dash: [3, 1] });
     };
 }
-// #inline("93WiBZMa");// baseWorker
-// #inline("IquCeiub");// tileWorker
-// #inline("3yObWUeP");// imageOverlayWorker
 ////=====================================================================================
 function initLayer(map, param = {}) {
     param.name = param.name || "Layer";

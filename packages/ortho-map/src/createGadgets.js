@@ -1,7 +1,6 @@
-import { leftPanel, rightPanel, layers, zoom, north, cpos, full, shot, print, measure } from "./module/gadget1.js"
-import { explain, legend, loading, tip, pop, contextmenu } from "./module/gadget2.js"
-export function createGadgets() {
-    const map = this;
+import { leftPanel, rightPanel, layers, zoom, north, cpos, full, shot, print, measure } from "./modules/gadget1.js"
+import { explain, legend, loading, tip, pop, contextmenu } from "./modules/gadget2.js"
+export function createGadgets(map) {
     const appendFrame = (name, parent) => map[name] = map[name] || map[parent].append("div").attr("name", name);
     const prependFrame = (name, parent) => map[name] = map[name] || map[parent].prepend("div").attr("name", name);
     function underlaysFrames() {

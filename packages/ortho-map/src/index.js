@@ -1,18 +1,20 @@
+import * as d3 from 'd3';
+import "common/src/d3/selection.js";
+import { resources } from "./modules/resources.js";
 import { orthographic } from "./orthographic.js";
-import { createLayers } from "./createLayers.js"
-import { createAccessories } from "./createAccessories.js"
-import { createGadgets } from "./createGadgets.js"
-import "index.scss";
-async function orthoEarth(opts = {}) { 
+import { createLayers } from "./createLayers.js";
+import { createAccessories } from "./createAccessories.js";
+import { createGadgets } from "./createGadgets.js";
+import "./index.scss";
+export async function orthoEarth(opts = {}) {
 	console.clear();
 	const systemName = orthoEarth.name;
 	console.time(systemName)
-	console.log("--------------------------\n%c White Earth%c\n--------------------------",
-		"font-size:2em", "font-size:1em");
+	console.log("--------------------------\n%c ortho Earth%c\n--------------------------", "font-size:2em", "font-size:1em");
 	////------------------------------------------------------------------------------------------------
 	const base = (opts.target || d3.select("body")).empty();
 	const map = base.append("div");
-	map.base = base.classed("WhiteEarthBase", true);
+	map.base = base.classed("orthoEarthBase", true);
 	map.mapFrame = map.attr("name", "mapFrame");
 	//------------------------------------------------------------------------------------------------
 	map.setProperties = q => {
@@ -26,17 +28,18 @@ async function orthoEarth(opts = {}) {
 			props.includes(name) && document.documentElement.style.setProperty(name, prop);
 		});
 	};
+	map.resources = resources;
 	//------------------------------------------------------------------------------------------------
-	const loader = map.prepend("div").loader({ mess: "<small>synquery</small><br/>White Earth" });
-	await orthographic.call(map, opts || {});
+	const loader = map.prepend("div").loader({ mess: "<small>synquery</small><br/>ortho Earth" });
+	await orthographic(map, opts || {});
 	loader.removeLoader(); //ローダーの消去
-	await createLayers.call(map);
-	// Accessories (latlng scale credit globe night)
-	opts.noAccessories || createAccessories.call(map, opts || {});
+	await createLayers(map);
+	// latlng scale credit globe night
+	opts.noAccessories || createAccessories(map, opts || {});
 	// 1) leftPanel, rightPanel, layers, zoom, north, cpos, full, shot, print, measure
 	// 2) explain, legend, loading, tip, pop, contextmenu
-	opts.noGadgets || createGadgets.call(map);
-	console.log("----- Layer List -----\n"+map.listOfLayers());
+	opts.noGadgets || createGadgets(map);
+	console.log("----- Layer List -----\n" + map.listOfLayers());
 	console.timeEnd(systemName);
 	console.log("--------------------------");
 	return map;

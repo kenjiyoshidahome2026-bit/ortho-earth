@@ -1,5 +1,7 @@
 import Pbf from 'pbf';
-import { Bucket, Cache, deflateRaw, inflateRaw } from "native-bucket";
+import { Bucket } from "native-bucket/src/Bucket.js";
+import { Cache } from "native-bucket/src/Cache.js";
+import { deflateRaw, inflateRaw } from "native-bucket/src/gzip.js";
 import { ALT_TAGS as TAGS } from "./alt-tag.js";
 
 export async function altpbf(db = "GIS") {

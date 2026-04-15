@@ -3,12 +3,12 @@ export const isNumber = _ => typeof _ === 'number' && Number.isFinite(_);
 export const isString = _ => typeof _ === 'string';
 export const isFunction = _ => typeof _ == 'function';
 export const isDOM = _ => _ instanceof Element;
-export const toArray = _ => (_ != null ? isArray(_) ? _ : [_] : []);
 export const isObject = _ => _ !== null && typeof _ === 'object' && !isArray(_);
 export const isBuffer = _ => (_ instanceof ArrayBuffer || ArrayBuffer.isView(_));
 export const isBlob = _ => (_ instanceof Blob);
 export const isFile = _ => (isBlob(_) && ("name" in _));
 export const isURL = _ => (isString(_) && (_.match(/^https?\:\/\//)));
+export const toArray = _ => (_ != null ? isArray(_) ? _ : [_] : []);
 ////-----------------------------------------------------------------------------------------------
 export const trim = _ => ("" + _).replace(/\s+/g, " ").replace(/(^\s+|\s+$)/g, "");
 export const strfix = _ => trim(_).normalize('NFKC');
@@ -18,6 +18,8 @@ export const comma = _ => { if (typeof _ === 'number') return _.toLocaleString()
     parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ",");
     return parts.join(".");
 };
+export const jsonSize = f => (new Blob([JSON.stringify(f)],{type: "text/plain"}).size/1024/1024).toFixed(3)+" MB";
+export const clearObject = q => { for (const _ of Object.getOwnPropertyNames(q)) delete q[_]; };
 ////-----------------------------------------------------------------------------------------------
 const pad = (n, len) => String(n).padStart(len, '0');
 export const L2 = n => pad(n, 2);
@@ -77,14 +79,14 @@ export const escape = func => { if (typeof document === 'undefined') return;
 };
 ////-----------------------------------------------------------------------------------------------
 let saveDire = null;
-export function download(blob, name) {
+export const download = (blob, name) => {
     name = name || blob.name || "download";
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url; a.download = name; a.click();
     setTimeout(() => { URL.revokeObjectURL(url); document.body.removeChild(a); }, 1000);
 };
-export async function saveTo(blob, name) {
+export const saveTo = async(blob, name) => {
     try {
         if (!saveDire) {
             saveDire = await window.showDirectoryPicker({ mode: 'readwrite' });
@@ -107,4 +109,10 @@ export async function saveTo(blob, name) {
         console.error("Save failed:", err);
         throw err;
     }
-}
+};
+export const dynamicWebWorker = (worker_url, val) => new Promise((resolve,reject)=>{
+    let worker = new Worker(worker_url);
+    worker.onmessage = e=>{ worker.terminate(); worker = null; resolve(e.data);}
+    worker.onerror = e=>{ worker.terminate(); reject(e); }
+    worker.postMessage(val);
+});

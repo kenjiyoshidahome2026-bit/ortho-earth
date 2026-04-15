@@ -1,10 +1,9 @@
 import * as d3 from 'd3';
-import { geopbf } from "geopbf";
-import { statements, sphere, graticule, land110 } from "common/src/resources.js"; 
+import { geopbf } from "geopbf/src/geopbf.js";
 import { comma } from "common/src/utility.js";
 
-export function createAccessories(opts) {
-    const map = this;
+export function createAccessories(map, opts) {
+    const { statements, sphere, graticule, land110 } = map.resources; 
     const layer = map.createLayer({ name: "Accessories", append: map.mapFrame });
     const context = layer.context;
     const narrow = map.isNarrow;

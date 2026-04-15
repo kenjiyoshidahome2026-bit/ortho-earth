@@ -2,7 +2,7 @@ import { GeoPBF } from "./pbf-base.js";
 class PBFIO {
     constructor(dire) { this.dire = dire || "GIS"; }
     async open() {
-        const { default: nativeBucket } = await import("native-bucket")
+        const { default: nativeBucket } = await import("native-bucket/src/index.js")
             .catch(e => { console.error("native-bucket load error", e); return {}; });
 
         const { Bucket, Cache, Fetch } = nativeBucket(); // 最新形式
