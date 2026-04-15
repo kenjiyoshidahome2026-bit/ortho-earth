@@ -1,3 +1,8 @@
+import * as d3 from 'd3';
+import { isString, isFunction } from "common/src/utility.js"; 
+import { cleanup } from "common/src/d3/tip-pop.js";
+import { Cache } from "native-bucket";
+
 export async function orthographic(opts = {}) {
     const map = this;
     map.isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
@@ -10,7 +15,7 @@ export async function orthographic(opts = {}) {
     map.refreshRate = 4; // リフレッシュの間引き
     map.simultaneousTileLoading = 4; // タイルを読み込み・加工させるワーカーの数
     map.zoomSensitivity = 0.5; // ズームの感度(0.5~2.0)
-    map.stat = await CacheIO(Resources.WhiteEarthSTAT).catch(console.error); // 
+    map.stat = await Cache(Resources.WhiteEarthSTAT).catch(console.error); // 
     map.baseName = await map.stat("base") || "osm.street";// ベースの地図
     map.view = await map.stat("view") || [[135, 35, 0], 2]; // [[経度,緯度,回転],ズーム値]
     ////-------------------------------------------------------------------------------------------
@@ -69,7 +74,7 @@ export async function orthographic(opts = {}) {
         const { cartesian, delta, multiply, rotation } = versor;
         ////-------------------------------------------------------------------------------------------
         panZoom(map).on("start.ortho", onstart).on("zoom.ortho", tween).on("end.ortho", drawn);
-        function onstart() { d3.cleanup(); }
+        function onstart() { cleanup(); }
         ////-------------------------------------------------------------------------------------------
         function panZoom(map) { //const proj = map.proj;
             const { sin, cos, sign, sqrt, atan2, PI } = Math;
@@ -152,7 +157,7 @@ export async function orthographic(opts = {}) {
         function makeEvent(event) {
             const D4 = n => ("0000" + n).slice(-4);
             return (header, func) => {
-                if (d3.isFunction(header) && func === undefined) {
+                if (isFunction(header) && func === undefined) {
                     func = header; // User Events
                     const num = (eventNumber[event] = (eventNumber[event] || 0));
                     header = D4(eventNumber[event] = num + 1);
@@ -163,7 +168,7 @@ export async function orthographic(opts = {}) {
                     func == null ? (delete ev[header]) : ev[header] = func;
                     func.destroy = () => { dispatcher.on(name, null), func = null };
                     return func;
-                } else if (d3.isString(header) && d3.isFunction(func)) { // System Events
+                } else if (isString(header) && isFunction(func)) { // System Events
                     dispatcher.on(`${event}.${header}`, func);
                     const ev = eventTub[event] = eventTub[event] || {};
                     func == null ? (delete ev[header]) : ev[header] = func;

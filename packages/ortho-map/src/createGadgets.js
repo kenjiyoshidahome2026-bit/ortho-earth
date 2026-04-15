@@ -1,5 +1,5 @@
-import { leftPanel, rightPanel, layers, zoom, north, cpos, full, shot, print, measure } from "./module/cadget1.js"
-import { explain, legend, loading, tip, pop, contextmenu } from "./module/cadget2.js"
+import { leftPanel, rightPanel, layers, zoom, north, cpos, full, shot, print, measure } from "./module/gadget1.js"
+import { explain, legend, loading, tip, pop, contextmenu } from "./module/gadget2.js"
 export function createGadgets() {
     const map = this;
     const appendFrame = (name, parent) => map[name] = map[name] || map[parent].append("div").attr("name", name);
