@@ -5,9 +5,9 @@ const tostr = s => s? s instanceof Element? s.outerHTML:
     Array.isArray(s)? s.map(trim).filter(t=>t).join("<br/>"): s: null;
 d3.selection.prototype.tip = function(s) { return tip(this, s); };
 d3.selection.prototype.pop = function(s) { return this.each(function(t,i){ d3.select(this).on("click",e=>pop(e, isFunction(s)?(()=>s(t,i)):s))}); };
-d3.cleanup = function() { d3.select(".overlap-tooltip").hide();
+export const cleanup = function() { d3.select(".overlap-tooltip").hide();
     d3.selectAll(".popup-frame").remove(); d3.selectAll(".popup-content").hide();
-}
+};
 function tip(target, s) {
     const body = d3.select("body");
     let tooltip = body.select(".overlap-tooltip");

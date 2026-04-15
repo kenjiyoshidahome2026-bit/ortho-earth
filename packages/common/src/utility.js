@@ -74,4 +74,37 @@ export const escape = func => { if (typeof document === 'undefined') return;
     };
    document.addEventListener("keyup", handler);
     _prevEscapeHandler = handler;
-};////-----------------------------------------------------------------------------------------------
+};
+////-----------------------------------------------------------------------------------------------
+let saveDire = null;
+export function download(blob, name) {
+    name = name || blob.name || "download";
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = name; a.click();
+    setTimeout(() => { URL.revokeObjectURL(url); document.body.removeChild(a); }, 1000);
+};
+export async function saveTo(blob, name) {
+    try {
+        if (!saveDire) {
+            saveDire = await window.showDirectoryPicker({ mode: 'readwrite' });
+        } else {
+            const status = await saveDire.queryPermission({ mode: 'readwrite' });
+            if (status !== 'granted') {
+                saveDire = await window.showDirectoryPicker({ mode: 'readwrite' });
+            }
+        }
+        const fileName = name || blob.name || "download";
+        const fileHandle = await saveDire.getFileHandle(fileName, { create: true });
+        const writable = await fileHandle.createWritable();
+        await writable.write(blob);
+        await writable.close();
+        console.info(`Saved: ${fileName}`);
+        return true;
+    } catch (err) {
+        if (err.name === 'AbortError') return false;
+        saveDire = null;
+        console.error("Save failed:", err);
+        throw err;
+    }
+}
