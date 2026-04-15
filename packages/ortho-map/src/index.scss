@@ -1,0 +1,171 @@
+//// =================================================================================================
+////	Base CSS for ortho Earth
+//// =================================================================================================
+:root { // Define the parameters
+	--space-color: #000;
+	--earth-filter: drop-shadow(0 0 20px rgba(200,200,200,0.5)) drop-shadow(0 0 5px #006);
+	--bg-color: rgba(0,0,0,0.8);
+	--fg-color: rgba(255,255,255,0.8);
+	--border-width: 2px;
+	--border-color: #444;
+	--border-hover: white;
+	--radius: 5px;
+	--button-size: 35px;
+	--modal-color: rgba(0,0,0,0.2);
+	--font-size: 13px;
+	--font-family: Verdana, Arial, "Hiragino Kaku Gothic ProN", "Hiragino Sans", Meiryo, sans-serif;
+	--gadget-filter: drop-shadow(0 0 5px rgba(255,255,255,0.5));
+	--bg-backpanel: #222;
+	--fg-backpanel: white;
+	--backpanel-filter: -2px 0px 2px inset rgba(255,255,255,0.1);
+}
+//// =================================================================================================
+html, body { touch-action: none; -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+//// =================================================================================================
+.overlap-tooltip { font-size: var(--font-size);
+	background: var(--bg-color); color: var(--fg-color);
+	border-color: var(--border-color); border-radius: var(--radius);
+}
+//// =================================================================================================
+.WhiteEarthBase { * { box-sizing: border-box; -webkit-user-select: none; user-select: none; }
+	-webkit-text-size-adjust: 100%;
+	h1, h2, h3 { margin: 0.25em; padding: 0; font-weight: bold; text-align: center; }
+	h1 { font-size: 200%; }
+	h2 { font-size: 150%; }
+	h3 { font-size: 125%; }
+	p { margin: 0.25em; padding: 0; }
+	small { font-size: 85%; }
+	a { text-decoration: none; cursor: pointer; pointer-events: auto; }
+//// ---------------------------------------------------------
+	[name=whiteEarth] { position: absolute; inset: 0; padding: 0; margin: 0; 
+		font-size: var(--font-size); font-family: var(--font-family);
+	}
+	[name=modalFrame] { position: absolute; inset: 0; pointer-events: auto; background: var(--modal-color); cursor: pointer; }
+	[name=leftFrame], [name=rightFrame] { position: absolute; width: 0; inset: 0;
+		background: var(--bg-backpanel); color: var(--fg-backpanel); box-shadow: var(--backpanel-filter);
+		> div.content { position:absolute; overflow:auto; touch-action: auto;　scrollbar-gutter: stable; 
+			&::-webkit-scrollbar { width: 15px; }
+   			&::-webkit-scrollbar-track { background: transparent; }
+			&::-webkit-scrollbar-thumb {
+				background-color: rgba(255, 255, 255, 0.2);
+				border-radius: 7.5px; /* 丸み */
+				border: 3px solid transparent;
+				background-clip: content-box;
+				&:hover { background-color: rgba(255, 255, 255, 0.7); }
+			}
+		}
+	}
+	[name=leftFrame] { right:auto; > div.content { inset:15px 0 15px 15px; direction: ltr; > * { direction: ltr; }}}
+	[name=rightFrame] { left:auto; > div.content { inset:15px 15px 15px 0; direction: rtl; > * { direction: ltr; }}}
+//// ---------------------------------------------------------
+	[name=mapFrame] { position: absolute; inset: 0; background: var(--space-color);
+		canvas { position: absolute; inset: 0; pointer-events: none; }
+		canvas[name=OrthoBase] { filter: var(--earth-filter); clip-path: inset(0px); }
+		canvas[name=OrthoTile] {}
+		canvas[name=OrthoBorder] { filter: drop-shadow(0 0 5px rgba(0,0,0,1)); }
+		canvas[name=Accessories] { filter: drop-shadow(0 0 5px rgba(0,0,0,1)); }
+		canvas[name=PopLines] { filter: drop-shadow(0 0 5px rgba(255,255,255,1)); }
+	}
+//// ---------------------------------------------------------
+	[name=overlays] { position: absolute; pointer-events: none; inset: 0; }
+	[name=leftTop] { position: absolute; inset: 5px auto auto 5px; }
+	[name=rightTop] { position: absolute; inset: 5px 5px auto auto; }
+	[name=leftBottom] { position: absolute; inset: auto auto 25px 5px; }
+	[name=rightBottom] { position: absolute; inset: auto 5px 25px auto; }
+//// ---------------------------------------------------------
+	svg[name=cpos] { position: absolute; width: 32px; height: 32px; margin: -16px 0 0 -16px; }
+//// ---------------------------------------------------------
+	[name=loading], [name=explain], [name=legend], [name=tip], [name=pop], [name=contextmenu] {
+		position: absolute; inset: 0; pointer-events: none;
+		background: var(--bg-color); color: var(--fg-color); filter: var(--gadget-filter);
+		border-style:solid; border-width:var(--border-width);
+		border-color: var(--border-color); border-radius: var(--radius);
+		&:hover { border-color: var(--border-hover); }
+		font-size: var(--font-size); font-family: var(--font-family); line-height: 1.4em; padding: 0.5em 1em;
+		&.active { pointer-events: auto; cursor: pointer; }
+		> button {
+			position: absolute; width: 20px; height: 20px; margin: 0; padding: 0; display: none;
+			border: 1px solid; background: var(--bg-color); border-color: var(--border-color);
+			svg { width: 100%; height: 100%; fill: var(--fg-color); stroke: var(--fg-color); }
+		}
+		&:hover > button { display: block; border-color: var(--border-hover); }
+		button.close { inset: 3px 3px auto auto; }
+		button.pin { inset: 3px auto auto 3px;
+			.open { display: block; } &.on .open { display: none; }
+			.close { display: none; } &.on .close { display: block; }
+		}
+	}
+	[name=loading] { inset: auto 0 0 0; margin: 5px auto; width: 0; white-space: nowrap; }
+	[name=explain] { inset: 0 0 auto 0; margin: 5px auto; max-width: 400px; }
+	[name=legend] { inset: auto auto 0 5px; margin: 5px; max-width: 400px; }
+	[name=tip] { inset: auto; max-width: 400px; min-width: 100px; display: block; max-height: 500px; z-index: 9999; }
+	[name=pop] { inset: auto; max-width: 400px; min-width: 100px; display: block; max-height: 500px; pointer-events: auto; cursor: pointer; }
+	[name=contextmenu] {
+		inset: auto; white-space: nowrap; pointer-events: auto; display: block; padding: 3px;
+		> p {
+			border-style:solid; border-width:var(--border-width);
+			border-color: var(--border-color); border-radius: var(--radius);
+			padding: 0; margin: 0; cursor: pointer;
+			&:hover { border-color: var(--border-hover); }
+			> svg { display: inline-block; width: 30px; height: 30px; margin: 0; vertical-align: middle;
+				fill: var(--fg-color); stroke: var(--fg-color);
+			}
+			> span { display: inline-block; padding: 0 1em; }
+		}
+	}
+//// ---------------------------------------------------------
+	button.gadget {
+		display: block; padding: 0; margin: 5px;
+		width: var(--button-size); height: var(--button-size);
+		background: var(--bg-color); color: var(--fg-color);
+		border-style:solid; border-width:var(--border-width);
+		border-color: var(--border-color); border-radius: var(--radius);
+		font-size: var(--font-size); font-family: var(--font-family);
+		outline: none; cursor: pointer; pointer-events: auto;
+		svg { width: 100%; height: 100%; fill: var(--fg-color); stroke: var(--fg-color); }
+		&:hover { border-color: var(--border-hover); }
+		&.big { width: calc(var(--button-size) * 1.25); height: calc(var(--button-size) * 1.25); }
+		&.text { line-height: 31px; padding: 0 1em; width: auto; white-space: nowrap; user-select: none; }
+		&.upper { border-bottom-left-radius: 0; border-bottom-right-radius: 0; margin-bottom: -1px !important; }
+		&.lower { border-top-left-radius: 0; border-top-right-radius: 0; margin-top: -1px !important; }
+		&.left { border-top-right-radius: 0; border-bottom-right-radius: 0; margin-right: -1px !important; }
+		&.right { border-top-left-radius: 0; border-bottom-left-radius: 0; margin-left: -1px !important; }
+		&.flip { background: var(--fg-color); color: var(--bg-color);
+			svg { fill: var(--bg-color); stroke: var(--bg-color); }
+		}
+	}
+//// ---------------------------------------------------------
+	[name=layerList] {
+		position: absolute; inset: 10px auto auto 55px; width: 160px;
+		border: 1px solid; border-color: var(--border-color); border-radius: var(--radius);
+		> button.gadget {
+			display: block; width: 100%; border-radius: 0; padding: 0 1em; margin: 0;
+			border: 1px solid; border-color: var(--border-color);
+			&:hover { border-color: var(--border-hover); }
+			white-space: nowrap; overflow: auto; text-align: left;
+			&:first-child { border-top-left-radius: var(--radius); border-top-right-radius: var(--radius); }
+			&:last-child { border-bottom-left-radius: var(--radius); border-bottom-right-radius: var(--radius); }
+		}
+	}
+//// ---------------------------------------------------------
+	div.range { line-height:1.6em; width:250px;
+		span { display:inline-block; font-size:14px; width:20px; font-weight:700;text-align:center; }
+		input[type=range] { display:inline-block; pointer-events:auto;
+			-webkit-appearance: none; appearance: none;
+			background-color: #eee; box-shadow:1px 1px 2px #444 inset;
+			height: 6px; width:200px; border-radius: 3px; outline: none;
+			&::-webkit-slider-thumb {
+				-webkit-appearance: none; appearance: none;
+				position: relative; border: 2px solid #222;
+				width: 22px; height: 22px; display: block;
+				background-color: #444; border-radius: 50%;
+				cursor: pointer;
+			}
+			&:active::-webkit-slider-thumb {
+				box-shadow: 0 0 0 4px rgba(255, 255, 255, .6);
+				transition: .4s;
+			}
+		}
+	}
+}
+//// =================================================================================================
