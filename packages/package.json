@@ -1,0 +1,12 @@
+{
+  "name": "ortho-map",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "src/orthographic.js", 
+  "dependencies": {
+    "common": "*",
+    "native-bucket": "*",
+    "geopbf": "*",
+    "altpbf": "*"
+  }
+}
