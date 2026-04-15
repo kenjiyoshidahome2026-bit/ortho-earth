@@ -1,5 +1,5 @@
 import * as d3 from 'd3';
-import './d3-tip.scss';
+import './tip.scss';
 const tostr = s => s? s instanceof Element? s.outerHTML:
     typeof s == 'function'? s():
     Array.isArray(s)? s.map(trim).filter(t=>t).join("<br/>"): s: null;

@@ -1,6 +1,6 @@
 import * as d3 from 'd3';
 import {createAutocomplete} from 'd3-autocomplete';
-import './d3-overlay.scss';
+import './overlay.scss';
 
 d3.emoji = _ => `<span class="emoji">&#x${_};</span>`;
 d3.comma = _ => { for (_=(new String(_)).replace(/,/g,""); _!=(_=_.replace(/^(-?\d+)(\d{3})/,"$1,$2"));){}; return _; };

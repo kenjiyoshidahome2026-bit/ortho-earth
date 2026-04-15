@@ -1,5 +1,5 @@
 import * as d3 from 'd3';
-import './d3-loader.scss';
+import './loader.scss';
 d3.selection.prototype.loader = function(opts = {}) { const size = opts.size||100;
     const canvas = this.prepend("canvas").classed("loader", true).attr("width", size).attr("height", size).node();
     opts.mess && this.append("div").html(opts.mess).classed("loader", true)

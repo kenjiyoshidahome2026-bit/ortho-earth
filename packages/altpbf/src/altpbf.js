@@ -1,6 +1,6 @@
 import Pbf from 'pbf';
 import { Bucket, Cache, deflateRaw, inflateRaw } from "native-bucket";
-import { ALT_TAGS as TAGS } from "./alt-tags.js";
+import { ALT_TAGS as TAGS } from "./alt-tag.js";
 
 export async function altpbf(db = "GIS") {
     const bucket = await Bucket(`${db}/alt`, { silent: true });
