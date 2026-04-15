@@ -43,7 +43,7 @@ html, body { touch-action: none; -webkit-touch-callout: none; -webkit-user-selec
 	[name=modalFrame] { position: absolute; inset: 0; pointer-events: auto; background: var(--modal-color); cursor: pointer; }
 	[name=leftFrame], [name=rightFrame] { position: absolute; width: 0; inset: 0;
 		background: var(--bg-backpanel); color: var(--fg-backpanel); box-shadow: var(--backpanel-filter);
-		> div.content { position:absolute; overflow:auto; touch-action: auto;　scrollbar-gutter: stable; 
+		> div.content { position:absolute; overflow:auto; touch-action: auto; scrollbar-gutter: stable; 
 			&::-webkit-scrollbar { width: 15px; }
    			&::-webkit-scrollbar-track { background: transparent; }
 			&::-webkit-scrollbar-thumb {
@@ -61,7 +61,7 @@ html, body { touch-action: none; -webkit-touch-callout: none; -webkit-user-selec
 	[name=mapFrame] { position: absolute; inset: 0; background: var(--space-color);
 		canvas { position: absolute; inset: 0; pointer-events: none; }
 		canvas[name=OrthoBase] { filter: var(--earth-filter); clip-path: inset(0px); }
-		canvas[name=OrthoTile] {}
+		canvas[name=OrthoTile] { filter:none; }
 		canvas[name=OrthoBorder] { filter: drop-shadow(0 0 5px rgba(0,0,0,1)); }
 		canvas[name=Accessories] { filter: drop-shadow(0 0 5px rgba(0,0,0,1)); }
 		canvas[name=PopLines] { filter: drop-shadow(0 0 5px rgba(255,255,255,1)); }
@@ -168,4 +168,3 @@ html, body { touch-action: none; -webkit-touch-callout: none; -webkit-user-selec
 		}
 	}
 }
-//// =================================================================================================
