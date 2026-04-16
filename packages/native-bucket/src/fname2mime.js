@@ -65,7 +65,9 @@ export function fname2mime(name) {
         "xslt":"application/xslt+xml", "xz":"application/x-xz", "zip":"application/x-zip-compressed",
         "pages":"application/vnd.apple.pages", "numbers":"application/vnd.apple.numbers", "key":"application/vnd.apple.keynote",
         "shp":"application/octet-stream", "dbf":"application/x-dbf", "shx":"application/octet-stream",
-        "geojson":"application/json", "topojson":"application/json", "gpx":"application/gpx+xml"
+        "geojson":"application/geo+json", "topojson":"application/json", "gpx":"application/gpx+xml",
+        "altpbf": "application/x-altpbf",
+        "geopbf": "application/x-geopbf",
     };
     return MIME_MAP[name.split(".").reverse()[0].toLowerCase()] || "application/octet-stream";
 }
