@@ -1,4 +1,4 @@
-import { createBaseMap } from "altpbf/src/basemap.js";
+import { createBaseMap } from "./basemap.js";
 
 await createBaseMap("google.satellite");
 //await createBaseMap("osm.satellite");
