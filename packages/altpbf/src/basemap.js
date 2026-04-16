@@ -1,4 +1,4 @@
-import { nativeBucket } from "native-bucket"; 
+import nativeBucket from "native-bucket"; 
 import { tiff2canvas, exr2canvas, tile2canvas } from './file2canvas';
 import { comma } from "common/src/utility.js"; 
 import { resources } from "ortho-map/src/modules/resources.js";
