@@ -3,10 +3,9 @@ import html2canvas from 'html2canvas';
 import { datimArray, download } from "common/src/utility.js";
 import { cleanup } from "common/src/d3/tip-pop.js"
 import { createPolygon } from "common/src/createPolygon.js";
-import { resources } from "./resources.js";
-const { icons, tooltips, statements } = resources;
 
 function createButton(map, name, opts) {
+    const { icons, tooltips } = map.resources;
     const target = map.addFrame(opts.target || "leftTop"); if (!target) return console.error("Frame Error");
     var btn = target.append("button").classed("gadget", true).classed("big", opts.big).html(opts.icon || icons[name] || "<svg/>").tip(opts.tip || tooltips[name]);
     btn.icon = name => btn.html(icons[name]).tip(tooltips[name]);
@@ -17,6 +16,7 @@ function createButton(map, name, opts) {
 /////--------------------------------------------------------- パネル開閉関数の生成(flag:true => 右, flag:false => 左)
 const createPanel = flag => function (opts = {}) {
     const map = this, width = Math.min(opts.width || 300, map.width) + 30;
+    const { tooltips } = map.resources;
     const C = map.mapFrame;
     const [name, rname, tip, move] = flag ? ["right", "left", "closeR", -width] : ["left", "right", "closeL", width];
     let left = 0, right = 0, trans = 0;
@@ -59,6 +59,7 @@ export const rightPanel = createPanel(true);
 ////--------------------------------------------------------- 背景地図の変更
 export async function layers(opts = {}) {
     const map = this, name = "layers";
+    const { statements } = map.resources;
     const btn = createButton(map, "layer", opts);
     const listArea = map.overlays.append("div").attr("name", "layerList").classed("noprint", "true").hide();
     listArea.on("mousemove touchmove", e => e.stopPropagation(), { passive: true });

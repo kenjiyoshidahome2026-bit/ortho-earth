@@ -1,10 +1,15 @@
 {
   "name": "gis-hub-workspace",
   "private": true,
+  "type": "module",
   "workspaces": [
     "packages/*",
     "apps/*"
   ],
+  "scripts": {
+    "dev:viewer": "npm run dev -w viewer",
+    "dev:uploader": "npm run dev -w uploader"
+  },
   "dependencies": {
     "html2canvas": "^1.4.1"
   }
