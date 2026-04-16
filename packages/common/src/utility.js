@@ -2,6 +2,7 @@ export const isArray = Array.isArray;
 export const isNumber = _ => typeof _ === 'number' && Number.isFinite(_);
 export const isString = _ => typeof _ === 'string';
 export const isFunction = _ => typeof _ == 'function';
+export const isAsync = _ => _[Symbol.toStringTag] === 'AsyncFunction';
 export const isDOM = _ => _ instanceof Element;
 export const isObject = _ => _ !== null && typeof _ === 'object' && !isArray(_);
 export const isBuffer = _ => (_ instanceof ArrayBuffer || ArrayBuffer.isView(_));
@@ -12,7 +13,8 @@ export const toArray = _ => (_ != null ? isArray(_) ? _ : [_] : []);
 ////-----------------------------------------------------------------------------------------------
 export const trim = _ => ("" + _).replace(/\s+/g, " ").replace(/(^\s+|\s+$)/g, "");
 export const strfix = _ => trim(_).normalize('NFKC');
-export const tostr = _ => _ ? isDOM(_) ? _.outerHTML : isFunction(_) ? _() : isArray(_) ? _.map(trim).filter(t => t).join("<br/>") : _ : null;
+export const tostr = async _ => _ ? isDOM(_) ? _.outerHTML : isFunction(_) ? isAsync(_)? await _(): _() :
+    isArray(_) ? _.map(trim).filter(t => t).join("<br/>") : String(_) : "";
 export const comma = _ => { if (typeof _ === 'number') return _.toLocaleString();
     let s = String(_ ?? "").replace(/,/g, ""); const parts = s.split(".");
     parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ",");
