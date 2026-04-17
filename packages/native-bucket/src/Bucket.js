@@ -2,7 +2,7 @@ import {fname2mime} from "./fname2mime.js";
 import {decodeZIP} from "./decodeZIP.js";
 import {encodeZIP} from "./encodeZIP.js";
 import {gzip, gunzip, isGzip} from "./gzip.js";
-export class Bucket {
+class _Bucket {
 	constructor(directory, opts = {}) {
 		const globalScope = typeof window !== 'undefined' ? window : (typeof self !== 'undefined' ? self : null);
 		this.baseUrl = opts.baseUrl ||`https://api.ortho-earth.com/bucket/`;
@@ -182,5 +182,14 @@ export class Bucket {
 	async puts(name, files) {
 		const blob = await encodeZIP(files);
 		return this.put(new File([blob], name, {type:blob.type}));
+	}
+}
+export async function Bucket(dir, opts) {
+	const instance = new _Bucket(dir, opts); 
+	if (instance.offline()) return instance;
+	try { await instance.list(1); return instance;
+	} catch (e) {
+		console.warn(`Bucket failed to connect to "${dir}" at ${instance.baseUrl}.`);
+		return null;
 	}
 }

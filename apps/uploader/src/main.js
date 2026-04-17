@@ -1,8 +1,9 @@
 import { createBaseMap } from "./basemap.js";
 
-await createBaseMap("google.satellite");
+
+//await createBaseMap("google.satellite");
 //await createBaseMap("osm.satellite");
-//await createBaseMap("naturalEarth");
+await createBaseMap("naturalEarth");
 //await createBaseMap("whiteEarth");
 //await createBaseMap("moon");
 //await createBaseMap("universe");
