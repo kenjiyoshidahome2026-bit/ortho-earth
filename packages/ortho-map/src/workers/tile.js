@@ -1,7 +1,8 @@
 import { geoOrthographic } from "./geoOrthoGraphic.js";
 import { orthoTileGL2 } from "./orthoTileGL2.js";
 import { createTileServer, getTileArray } from "./getTileArray.js";
-import { tileURL } from "common/src/resources.js";
+import { Resources } from "../modules/resources.js";
+const { tileURL } = Resources; 
 
 const src = async e => {
     try {

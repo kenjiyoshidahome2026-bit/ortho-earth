@@ -1,5 +1,5 @@
-import geoOrthographic from "./geoOrthoGraphic.js";
-import orthoTileGL2 from "./orthoTileGL2.js";
+import { geoOrthographic } from "./geoOrthoGraphic.js";
+import { orthoTileGL2 } from "./orthoTileGL2.js";
 
 const counter_clockwise = a => //反時計回りは地球の裏側
     (a[1][0] - a[0][0]) * (a[1][1] + a[0][1]) + (a[2][0] - a[1][0]) * (a[2][1] + a[1][1]) +

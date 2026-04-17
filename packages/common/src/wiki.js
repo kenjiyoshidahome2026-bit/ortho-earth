@@ -1,10 +1,12 @@
 import { thenMap, slice, isNumber, isArray, xy2yx } from "common/src/utility.js";
+import { Fetch } from "native-bucket/src/Fetch.js";
 import { Cache } from "native-bucket/src/Cache.js";
-const paser = new DOMParser();
+const parser = new DOMParser(), parseHTML = s => parser.parseFromString(s, "text/html");
 const divide_length = 25;
 const wikiDB = {}, wikiExtract = {};
 const wikiAPI = (q, lang = "ja") => `https://${lang}.wikipedia.org/w/api.php?format=json&origin=*&` + Object.entries(q).map(t => t[1] === true ? t[0] : t.join("=")).join("&");
-const fetchJSON = url => fetch(url).then(t => t.json()).catch(console.error);
+const fetchJSON = url => Fetch(url, { "type": "json" });
+const fetchHTML = url => Fetch(url, { "type": "html" });
 const tohtml = str => new DOMParser().parseFromString(str, 'text/html');
 export const logo = 'https://upload.wikimedia.org/wikipedia/commons/8/80/Wikipedia-logo-v2.svg'
 export const clean = str => str.replace(/（[^）]*）/g, "").replace(/\s?\([^\)]*\)\s?/g, "").replace(/\[[^\]]*\]/g, "").replace(/\&nbsp\;/g, " ");
@@ -67,7 +69,7 @@ async function extract(id, lang = "ja") {
     const func = { action: "query", pageids: id, prop: "extracts", exintro: true/*,explaintext:true*/ }
     v = await fetchJSON(wikiAPI(func, lang));
     if (!(v && v.query)) return console.error("wiki-api:failed:", v);
-    v = paser.parseFromString(v.query.pages[id].extract, "text/html");
+    v = parseHTML(v.query.pages[id].extract);
     [...v.querySelectorAll("body sup[class]")].forEach(t => t.remove());
     v = clean([...v.querySelectorAll("body >p")].map(t => t.innerText).join(""));
     await idb(id, v); return v;
@@ -81,7 +83,7 @@ async function get(title, lang = "ja") {
 };
 export async function getContent(id, lang = "ja") {
     var idb = wikiDB[lang] = wikiDB[lang] || (await Cache(["wikiDB", lang].join("/")));
-    var v = await idb(id); if (v) return paser.parseFromString(v, "text/html");
+    var v = await idb(id); if (v) return parseHTML(v);
     v = await get(id); if (!v) return console.error("fail to get data: ", id, lang)
     await idb(id, v);
     return getContent(id, lang);
@@ -114,7 +116,7 @@ export async function title2qid(title, lang = "ja") {
     }
 }
 export async function qid2titles(qid, flag = false) {
-    const v = await bucket.fetchURL(`https://www.wikidata.org/wiki/${qid}`);
+    const v = await fetchHTML(`https://www.wikidata.org/wiki/${qid}`);
     const langs = ["en", "de", "es", "fr", "pt", "ru", "zh", "ar", "bn", "el", "hi", "hu", "id", "it", "ja", "ko", "nl", "pl", "sv", "tr", "vi", "fa", "he", "uk", "ur", "zht"];
     const a = [...v.querySelectorAll("a:not(.external)")], q = {};
     a.forEach(t => {
@@ -126,7 +128,7 @@ export async function qid2titles(qid, flag = false) {
 }
 ////------------------------------------------------------------------------------------------------------------------------
 export async function openWikipediaByQID(qid, lang) {
-    const v = await bucket.fetchURL(`https://www.wikidata.org/wiki/${qid}`);
+    const v = await fetchHTML(`https://www.wikidata.org/wiki/${qid}`);
     const a = [...v.querySelectorAll("a:not(.external)")];
     const wiki = _ => `^https://${_}.wikipedia.org/wiki/`;
     const url = a.filter(t => t.href.match(wiki(lang))).map(t => t.href)[0]
@@ -179,7 +181,7 @@ export async function getCoords(id, lang) {
         return null;
     }
     var html = await get(id, lang); if (!html) return null;
-    html = paser.parseFromString(html, "text/html");
+    html = parseHTML(html);
     var info = html.querySelector(".infobox"); if (!info) return null;
     var [lng, lat] = [info.querySelector(".longitude"), info.querySelector(".latitude")];
     if (!lng || !lat) return null;

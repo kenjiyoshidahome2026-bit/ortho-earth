@@ -108,13 +108,11 @@ export function createLayer(param = {}) {
 }
 ////=====================================================================================
 export async function createRemoteLayer(param = {}) {
-    const map = this;
+    const map = this, type = param.type || "standard";
     const layer = initLayer(map, param).hide(), { canvas, name, proj, dpr } = layer;
     const offscreen = canvas.transferControlToOffscreen();
     layer.context = null;
-    const workerFunc = { base: baseWorker, tile: tileWorker, imageOverlay: imageOverlayWorker }[param.type] || standardWorker;
-    const workerUrl = URL.createObjectURL(toWorkerBlob(workerFunc));
-    const worker = new Worker(workerUrl);
+    const worker = new Worker(`./worker/${type}.js`, import.meta.url);
     const workers = map.simultaneousTileLoading || navigator.hardwareConcurrency || 4;
     const threshold = map.threshold;
     return new Promise(resolve => {

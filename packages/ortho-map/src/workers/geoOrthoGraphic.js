@@ -1,6 +1,6 @@
-const { PI, max, min,  sin, asin, atan2, cos, sqrt } = Math, rad = PI / 180;
 
 export function geoOrthographic() {
+    const { PI, max, min,  sin, asin, atan2, cos, sqrt } = Math, rad = PI / 180;
     let r = [0, 0, 0], s = 150, t = [480, 250], sφ, cφ, sγ, cγ;
     const up = () => (sφ = sin(r[1] * rad), cφ = cos(r[1] * rad), sγ = sin(r[2] * rad), cγ = cos(r[2] * rad));
     const p = ([ln, lt]) => {
