@@ -11,6 +11,7 @@
     "dev:uploader": "npm run dev -w uploader"
   },
   "dependencies": {
+    "geotiff": "^3.0.5",
     "html2canvas": "^1.4.1"
   }
 }

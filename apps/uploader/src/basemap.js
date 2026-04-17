@@ -3,11 +3,10 @@ import { Fetch, Bucket, Cache } from "native-bucket";
 ///import Cache from "native-bucket";
 import { tiff2canvas, exr2canvas, tile2canvas } from './file2canvas';
 import { comma } from "common/src/utility.js"; 
-import { Resources } from "ortho-map/src/modules/resources.js";
 export async function createBaseMap(name, dirName = "GIS") {
  //   const { Cache } = nativeBucket();
     var dt = new Date();
-    const resources = await Resources(false), dire = `${dirName}/base`;
+    const dire = `${dirName}/base`;
     const bucket = await Bucket(dire);
     const cache = await Cache(dire);
     const NaturalEarth10m = name => `https://naciscdn.org/naturalearth/10m/raster/${name}.zip`;

@@ -8,8 +8,9 @@
   },
   "dependencies": {
     "altpbf": "*",
-    "native-bucket": "*",
-    "common": "*"
+    "common": "*",
+    "geotiff": "^3.0.5",
+    "native-bucket": "*"
   },
   "devDependencies": {
     "vite": "^6.0.0"

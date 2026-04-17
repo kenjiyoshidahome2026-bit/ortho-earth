@@ -3,10 +3,13 @@ import { geopbf } from "geopbf/src/geopbf.js";
 import { comma } from "common/src/utility.js";
 
 export function createAccessories(map, opts) {
-    const { statements, sphere, graticule, land110 } = map.resources; 
+    const { sphere, graticule, land110 } = map.resources; 
     const layer = map.createLayer({ name: "Accessories", append: map.mapFrame });
     const context = layer.context;
     const narrow = map.isNarrow;
+    const _lat = { ja: "緯度", en: "LAT", zh: "纬度", ko: "위도" }[lang];
+    const _lng = { ja: "経度", en: "LNG", zh: "经度", ko: "경도" };
+    const _alt = { ja: "標高", en: "ALT", zh: "海拔", ko: "고도" };
     Object.entries({ latlng, scale, credit, globe, night })
         .forEach(([name, func]) => map[name] = function () { return func.apply(map, arguments) });
     opts.latlng === false || map.latlng();//左下の緯度経度標高表示
@@ -22,7 +25,7 @@ export function createAccessories(map, opts) {
         async function move(q) {
             if (!q || !map.isEditable()) return clear();
             const h = await map.getHeight(q.lng, q.lat, q.zoom);
-            str = `${statements.lat}: ${q.lat.toFixed(6)} ${statements.lng}: ${q.lng.toFixed(6)}${h ? ` ${statements.alt}: ${h.toFixed(1)}[m]` : ""}`;
+            str = `${_lat}: ${q.lat.toFixed(6)} ${_lng}: ${q.lng.toFixed(6)}${h ? ` ${_alt}: ${h.toFixed(1)}[m]` : ""}`;
             draw();
         }
         async function draw() {

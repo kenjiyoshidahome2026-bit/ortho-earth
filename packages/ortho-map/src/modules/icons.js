@@ -11,7 +11,7 @@ export const gadgetIcons = {
     cpos: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400"><path d="M188 36L188 66C123 72 71 122 65 186L30 186 30 209 65 209C71 274 126 325 193 329L193 361 217 361 217 328C282 321 333 270 337 206L374 206 374 182 337 182C329 120 277 71 212 66L212 36 188 36zM212 91C263 96 304 134 311 182L284 182 284 206 312 206C308 256 268 296 217 303L217 271 193 271 193 304C139 300 96 260 90 209L119 209 119 186 90 186C95 136 136 97 188 91L188 125 212 125 212 91zM200 166A29 28 0 0 0 171 194 29 28 0 0 0 200 222 29 28 0 0 0 229 194 29 28 0 0 0 200 166z"/></svg>`,
     measure: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="-100 -100 657 657"><path d="m454 108-105-105c-3-3-9-3-13 0l-334 334c-4 4-4 9 0 13l105 105c2 2 4 3 6 3 2 0 5-1 6-3l334-334c4-4 4-9 0-13zm-84 71-17-17c-4-4-9-4-13 0-4 4-4 9 0 13l17 17-24 24-27-27c-4-4-9-4-13 0-4 4-4 9 0 13l27 27-24 24-17-17c-4-4-9-4-13 0-4 4-4 9 0 13l17 17-24 24-27-27c-4-4-9-4-13 0-4 4-4 9 0 13l27 27-24 24-17-17c-4-4-9-4-13 0-4 4-4 9 0 13l17 17-24 24-27-27c-4-4-9-4-13 0-4 4-4 9 0 13l27 27-24 24-17-17c-4-4-9-4-13 0s-4 9 0 13l17 17-22 22-92-92 321-321 92 92zm0 0"/><path d="m326 102c0 8 3 15 8 20 5 5 13 8 20 8h0c8 0 15-3 20-8 0 0 0 0 0 0 11-11 11-30 0-41-11-11-30-11-41 0-5 5-8 13-8 21zm21-8c2-2 5-3 8-3 3 0 6 1 8 3 4 4 4 11 0 15-2 2-5 3-8 3 0 0 0 0 0 0-3 0-6-1-8-3-2-2-3-5-3-8 0-3 1-6 3-8zm0 0"/></svg>`,
     shot: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="-10 -10 532 532"><path d="m401,111c-39-39-90-60-145-60s-106,21-145,60c-39,39-60,90-60,145s21,106,60,145c39,39,90,60,145,60s106-21,145-60c39-39,60-90,60-145s-21-106-60-145zm1,36l-50,86l-92-159c58,1,110,30,142,73zm-64,109l-41,70h-81l-41-71l41-71h82l41,71zm-104-181l50,87h-183c28-47,77-80,133-87zm-159,180c0-25,5-49,14-71h100l-92,159c-14-26-23-56-23-88zm37,109l50-87l93,159c-58-1-110-29-143-72zm168,71l-50-87h75h108c-28,46-76,79-132,87zm44-109l92-158c14,26,22,55,22,87c0,25-5,49-14,71h-100z"/></svg>`,
-    legend: `<svg viewBox="-3 -3 38 38" xmlns="http://www.w3.org/2000/svg" version="1.1"><circle cx="6" cy="6" r="3"/><path d="M6 12L9.5 19L2.5 19Z"/><rect x="3" y="23" width="6" height="6"/><path d="M12 6H28 M12 16H28 M12 26H28" stroke-width="3"/></svg>`,
+    legend: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="-3 -3 38 38" version="1.1"><circle cx="6" cy="6" r="3"/><path d="M6 12L9.5 19L2.5 19Z"/><rect x="3" y="23" width="6" height="6"/><path d="M12 6H28 M12 16H28 M12 26H28" stroke-width="3"/></svg>`,
     close: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><path d="m368,320l-64-64l64-64l-32-32l-64,64l-64-64l-32,32l64,64l-64,64l32,32l64-64l64,64z"/></svg>`,
     pin: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="-100 -100 712 712"><path class="open" d="M112 347 162 397 0 509Z"></path><path class="open" d="M387 122C335 70 305 17 318 3c-50 50-39 123 12 175 51 52 122 66 172 16l-1-1c-17 6-66-23-114-71m-76 268c2-21-2-44-12-68-50-63-54-65-113-113l0 0c-24-10-47-14-69-12-40 4-64 46-48 83 13 28 36 61 66 91 31 31 63 54 91 66 39 17 81-7 85-47"></path><path class="open" d="m342 279 59-59c-25-7-49-21-70-42-21-21-35-46-41-71l-60 60-49 49c6 25 23 48 44 69 21 21 44 37 69 44l48-50zM506 191C492 205 439 174 387 122 335 70 305 17 318 3c13-14 67 17 119 69 52 52 82 105 69 119"></path><circle class="close" cx="256" cy="256" r="140"></path></svg>`,
 };
@@ -73,7 +73,6 @@ export const tooltips = ({
         legend: "显示图例",
         lock: "打开和关闭弹出式锁定",
         popClose: "关闭弹出窗口",
-
     },
     ko: {
         layer: "기본 레이어 변경",
@@ -93,56 +92,5 @@ export const tooltips = ({
         legend: "범례 표시",
         lock: "팝업 잠금을 켜고 끕니다.\n잠금 시 화면에 고정됩니다.",
         popClose: "이 팝업을 닫습니다",
-
-    }
-});
-export const statements = ({
-    ja: {
-        lat: "緯度", lng: "経度", alt: "標高",
-        "whiteEarth": "白地図",
-        "google.street": "google:ストリート",
-        "google.satellite": "google:航空写真",
-        "google.hybrid": "google:ハイブリッド",
-        "google.terrain": "google:テライン",
-        "osm.street": "OSM:ストリート",
-        "osm.satellite": "OSM:航空写真",
-        "cyberjapan.std": "国土地理院:標準地図",
-        "cyberjapan.pale": "国土地理院:淡色地図",
-    },
-    en: {
-        lat: "LAT", lng: "LNG", alt: "ALT",
-        "whiteEarth": "whiteEarth",
-        "google.street": "google:street",
-        "google.satellite": "google:satellite",
-        "google.hybrid": "google:hybrid",
-        "google.terrain": "google:terrain",
-        "osm.street": "OSM:street",
-        "osm.satellite": "OSM:satellite",
-        "cyberjapan.std": "GIAJ:standard",
-        "cyberjapan.pale": "GIAJ:pale",
-    },
-    zh: {
-        lat: "纬度", lng: "经度", alt: "海拔",
-        "whiteEarth": "白地图",
-        "google.street": "Google:街道",
-        "google.satellite": "Google:卫星",
-        "google.hybrid": "Google:混合",
-        "google.terrain": "Google:地形",
-        "osm.street": "OSM:街道",
-        "osm.satellite": "OSM:卫星",
-        "cyberjapan.std": "国土地理院:标准",
-        "cyberjapan.pale": "国土地理院:淡色",
-    },
-    ko: {
-        lat: "위도", lng: "경도", alt: "고도",
-        "whiteEarth": "흰색 지도",
-        "google.street": "Google: 거리",
-        "google.satellite": "Google: 위성",
-        "google.hybrid": "Google: 하이브리드",
-        "google.terrain": "Google: 지형",
-        "osm.street": "OSM: 거리",
-        "osm.satellite": "OSM: 위성",
-        "cyberjapan.std": "국토지리원: 표준",
-        "cyberjapan.pale": "국토지리원: 연한색",
     }
 });

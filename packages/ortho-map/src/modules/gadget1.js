@@ -3,12 +3,16 @@ import html2canvas from 'html2canvas';
 import { datimArray, download } from "common/src/utility.js";
 import { cleanup } from "common/src/d3/tip-pop.js"
 import { createPolygon } from "common/src/createPolygon.js";
+import { lang } from "./language.js";
+import { layerList } from "./layerList.js";
+import { gadgetIcons, tooltips } from "./icons.js"
 
 function createButton(map, name, opts) {
-    const { icons, tooltips } = map.resources;
+    const icon = opts.icon || gadgetIcons[name]||"<svg/>";
+    const tip = opts.tip || (tooltips[lang] || tooltips.en)[name];
     const target = map.addFrame(opts.target || "leftTop"); if (!target) return console.error("Frame Error");
-    var btn = target.append("button").classed("gadget", true).classed("big", opts.big).html(opts.icon || icons[name] || "<svg/>").tip(opts.tip || tooltips[name]);
-    btn.icon = name => btn.html(icons[name]).tip(tooltips[name]);
+    var btn = target.append("button").classed("gadget", true).classed("big", opts.big).html(icon).tip(tip);
+    btn.icon = name => btn.html(icons[name]).tip(tips[name]);
     btn.tooltip = s => btn.tip(s);
     btn.onClick = func => btn.on("click", e => (e.stopPropagation(), func(e)));
     return btn;
@@ -59,24 +63,19 @@ export const rightPanel = createPanel(true);
 ////--------------------------------------------------------- 背景地図の変更
 export async function layers(opts = {}) {
     const map = this, name = "layers";
-    const { statements } = map.resources;
     const btn = createButton(map, "layer", opts);
     const listArea = map.overlays.append("div").attr("name", "layerList").classed("noprint", "true").hide();
     listArea.on("mousemove touchmove", e => e.stopPropagation(), { passive: true });
-    const list = opts.list || ["whiteEarth",
-        "google.street", "google.satellite", "google.hybrid", "google.terrain",
-        "osm.street", "osm.satellite",
-        "cyberjapan.std", "cyberjapan.pale"];
     map.onClick(() => (listArea.shrinkHide(btn), btn.classed("flip", false)));
     btn.onClick(() => {
         let flip = btn.classed("flip");
         btn.classed("flip", !flip); if (!btn.classed("flip")) return listArea.shrinkHide(btn);
-        listArea.empty().selectAll("button").data(list).enter().append("button").classed("gadget", true)
-            .text(d => statements[d]).classed("flip", d => d === map.baseName)
+        listArea.empty().selectAll("button").data(layerList).enter().append("button").classed("gadget", true)
+            .text(d => d.trans(lang)).classed("flip", d => d.name === map.baseName)
             .on("click", (e, d) => {
-                e.stopPropagation(); if (d === map.baseName) return;
+                e.stopPropagation(); if (d.name === map.baseName) return;
                 listArea.shrinkHide(btn); btn.classed("flip", false);
-                map.setBase(d);
+                map.setBase(d.name);
             });
         listArea.resumeShow(btn)
     });

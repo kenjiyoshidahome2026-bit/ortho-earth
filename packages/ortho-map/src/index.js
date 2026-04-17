@@ -1,6 +1,6 @@
 import * as d3 from 'd3';
 import "common/src/d3/selection.js";
-import { Resources } from "./modules/resources.js";
+//import { Resources } from "./modules/borderJSONs.js";
 import { orthographic } from "./orthographic.js";
 import { createLayers } from "./createLayers.js";
 import { createAccessories } from "./createAccessories.js";
@@ -28,7 +28,7 @@ export async function orthoEarth(opts = {}) {
 			props.includes(name) && document.documentElement.style.setProperty(name, prop);
 		});
 	};
-	map.resources = await Resources();
+//	map.resources = await Resources();
 	//------------------------------------------------------------------------------------------------
 	const loader = map.prepend("div").loader({ mess: "<small>synquery</small><br/>ortho Earth" });
 	await orthographic(map, opts || {});
