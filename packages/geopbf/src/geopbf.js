@@ -1,6 +1,6 @@
 import { GeoPBF } from "./pbf-base.js";
 import { pbfio } from "./pbf-io.js";
-import { Logger } from "./modules/logger.js";
+import { Logger } from "common/src/logger.js";
 import { topo2geo } from "./modules/topo2geo.js";
 import { gunzip, isGzip } from "native-bucket/src/gzip.js";
 import { isString, isURL, isFile, isObject, isBuffer } from "common/src/utility.js"
@@ -32,25 +32,25 @@ export async function geopbf(data, options = {}) {
     const pbf = await _geopbf(data);
     pbf && logger.success(`geopbf: ${pbf.name} (${pbf.size.toLocaleString()} bytes)`);
     return pbf || new GeoPBF(options);
-    async function _geopbf(q) {
+    async function _geopbf(q) { //console.log(q); debugger
         if (!q) return null;
         if (isPBF(q)) return q;
         if (isBuffer(q)) return new GeoPBF(options).set(q);
-        if (isObject(q)) {
-            q = toFeatureCollection(q);
-            return (q && q.features.length > 0) ? await new GeoPBF(options).set(q) : null;
-        }
         if (isFile(q)) {
             if (await isGzip(q)) return _geopbf(await gunzip(q));
             const name = q.name;
             options.name = options.name || name.replace(/\.[^\.]+$/, "");
             if (name.match(/\.(geo)?pbf$/i)) return _geopbf(await q.arrayBuffer());
-            if (name.match(/\.(geo|topo)?json$/i)) return _geopbf(await file2json(q));
+            if (name.match(/\.(geo|topo)?json$/i)) return _geopbf(await decoder("json", q));
             if (name.match(/\.zip$/i)) return _geopbf(await decoder("shape", q));
             if (name.match(/\.kmz$/i)) return _geopbf(await decoder("kmz", q));
             if (name.match(/\.(gml|xml)$/i)) return _geopbf(await decoder("gml", q));
             if (name.match(/\.gz(ip)?$/i)) return _geopbf(await gunzip(q));
             logger.warn("illegal file:", name);
+        }
+        if (isObject(q)) {
+            q = toFeatureCollection(q);
+            return (q && q.features.length > 0) ? await new GeoPBF(options).set(q) : null;
         }
         const server = await getServer();
         if (isString(q) && server) {

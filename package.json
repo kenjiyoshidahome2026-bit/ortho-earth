@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "geotiff": "^3.0.5",
-    "html2canvas": "^1.4.1"
+    "html2canvas": "^1.4.1",
+    "polygon-clipping": "^0.15.7"
   }
 }

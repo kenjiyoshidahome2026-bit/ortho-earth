@@ -2,15 +2,26 @@ import { comma, thenEach } from "common/src/utility.js"
 import { layerList } from "ortho-map/src/modules/layerList.js";
 import { Fetch, Bucket } from "native-bucket";
 import { tiff2canvas, exr2canvas, tile2canvas } from './file2canvas';
+import { geopbf } from "geopbf";
 const layers = {};
 layerList.forEach(t=>layers[t.name] = t);
 console.log(layers);
-const bucket = await Bucket(`GIS/base`);
-console.log(await bucket.list());
+const bucket_pbf = await Bucket(`GIS/pbf`);
+const bucket_base = await Bucket(`GIS/base`);
+const nvkelso = _ => `https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/${_}.geojson`;
+const ofrohn = _ => `https://raw.githubusercontent.com/ofrohn/d3-celestial/master/data/${_}.json`;
+console.log(await Fetch(nvkelso("ne_110m_land")));
+const pbf = await geopbf(nvkelso("ne_110m_land"));
+console.log(pbf.geojson)
+
+
+
+
+console.log(await bucket_base.list());
 const baseMap = {};
 await thenEach(Object.values(layers), async t =>{
 	const base = t.base; if (base in baseMap) return;
-	baseMap[base] = await bucket.get(base) || await createBaseMap(t);
+	baseMap[base] = await bucket_base.get(base) || await createBaseMap(t);
 });
 console.log(baseMap);
 async function createBaseMap(layer) {
@@ -48,7 +59,27 @@ async function createBaseMap(layer) {
 		const target = new OffscreenCanvas(dstX, dstY);
 		target.getContext("2d").drawImage(img, 0, 0, w, h, 0, 0, dstX, dstY);
 		const file = new File([await target.convertToBlob({ type, quality })], base, { type });
-		await bucket.put(file);
+		await bucket_base.put(file);
 		console.log(`%c${file.name}: [ ${comma(dstX)} x ${comma(dstY)} ] ${comma(file.size)} bytes`, "font-size:1.5em");
 	}
 }
+// async function createPBFs() {
+// 	const nvkelso = _ => `https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/${_}.geojson`;
+// 	const ofrohn = _ => `https://raw.githubusercontent.com/ofrohn/d3-celestial/master/data/${_}.json`;
+
+	
+// 		await geopbf(nvkelso("ne_110m_land")),
+// 		nvkelso("ne_50m_land"),
+// 		nvkelso("ne_50m_admin_0_boundary_lines_land"),
+// 		nvkelso("ne_50m_admin_0_boundary_lines_maritime_indicator"),
+// 		nvkelso("ne_50m_geographic_lines"),
+// 		ofrohn("stars.6"),
+// 		ofrohn("stars.8"),
+// 	].map(Resources.nvkelso);
+// 	console.log(await dire.files())
+// 	await d3.thenEach(urls, async url => dire.save(await geopbf(url, { precision: 4, noprop: true, nocache: true })));
+// 	await dire.save(await geopbf("https://raw.githubusercontent.com/ofrohn/d3-celestial/master/data/stars.6.json", { precision: 4, nocache: true }));
+// 	await dire.save(await geopbf("https://raw.githubusercontent.com/ofrohn/d3-celestial/master/data/stars.8.json", { precision: 4, nocache: true }));
+// 	console.log(await dire.load("stars.6"))
+// 	console.log(await dire.load("stars.8"))
+// }
