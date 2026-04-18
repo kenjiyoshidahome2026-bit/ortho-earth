@@ -7,7 +7,7 @@ import { isString, isURL, isFile, isObject, isBuffer } from "common/src/utility.
 
 const logger = new Logger();
 let serverPromise = null;
-const getServer = async () => serverPromise || (serverPromise = pbfio("GIS")
+export const getServer = async () => serverPromise || (serverPromise = pbfio("GIS")
     .catch(e => { logger.warn("PBFIO initialization failed.", e); return null; }));
 
 //  ----------------------------------------------------------------------------------------
@@ -44,6 +44,7 @@ export async function geopbf(data, options = {}) {
             if (name.match(/\.(geo|topo)?json$/i)) return _geopbf(await decoder("json", q));
             if (name.match(/\.zip$/i)) return _geopbf(await decoder("shape", q));
             if (name.match(/\.kmz$/i)) return _geopbf(await decoder("kmz", q));
+            if (name.match(/\.gpx$/i)) return _geopbf(await decoder("gpx", q));
             if (name.match(/\.(gml|xml)$/i)) return _geopbf(await decoder("gml", q));
             if (name.match(/\.gz(ip)?$/i)) return _geopbf(await gunzip(q));
             logger.warn("illegal file:", name);
@@ -96,6 +97,7 @@ const methods = {
     async topojsonFile(flag) { return encoder(this, "topojson", flag); },
     async shape(encoding = "utf8") { return encoder(this, "shape", false, encoding); },
     async kmz(flag = true) { return encoder(this, "kmz", flag); },//flag: true=>kmz, false=>kml
+    async gpx(flag) { return encoder(this, "gpx", flag); },
     async gml(flag) { return encoder(this, "gml", flag); }
 };
 

@@ -50,18 +50,10 @@ class PBFIO {
     }
     async save(pbf) {
         const name = pbf.name(); if (!name) return null;
-        //    console.log("PBFIO.save check:", { name, pbf }); // ★ここをチェック
-        const file = new File([pbf.arrayBuffer], pbf._name + ".geopbf", { type: "application/x-geopbf" });
-        //    const file = await pbf.pbfFile();
-        console.log("pbffile", file)
-        if (!file) return null;
+        const file = new File([pbf.arrayBuffer], pbf._name, { type: "application/x-geopbf" });
         await this.bucket.put(file);
         const ETag = await this.bucket.etag(name);
-        console.log(ETag);
-        await this.cache(name, {
-            ETag,
-            Buff: pbf.arrayBuffer
-        });
+        await this.cache(name, { ETag, Buff: pbf.arrayBuffer });
         return name;
     }
     async delete(name) {
