@@ -1,13 +1,16 @@
-import { comma, thenEach } from "common/src/utility.js"
+import { comma, thenEach } from "common/src/utility.js";
+import { Logger } from "common/src/logger.js";
 import { layerList } from "ortho-map/src/modules/layerList.js";
 import { Fetch, Bucket } from "native-bucket";
 import { tiff2canvas, exr2canvas, tile2canvas } from './file2canvas';
-import { geopbf, getServer } from "geopbf";
+import { geopbf } from "geopbf";
+
+const logger = new Logger();
+debugger
 const layers = {};
 layerList.forEach(t=>layers[t.name] = t);
 console.log(layers);
-const bucket_pbf = await Bucket(`GIS/pbf`);
-const bucket_base = await Bucket(`GIS/base`);
+
 const nvkelso = _ => `https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/${_}.geojson`;
 const ofrohn = _ => `https://raw.githubusercontent.com/ofrohn/d3-celestial/master/data/${_}.json`;
 await (await geopbf(nvkelso("ne_110m_land"))).save();
@@ -20,7 +23,7 @@ await (await geopbf(ofrohn("stars.8"))).save();
 
 
 
-
+const bucket_base = await Bucket(`GIS/base`);
 console.log(await bucket_base.list());
 const baseMap = {};
 await thenEach(Object.values(layers), async t => {
@@ -30,9 +33,9 @@ await thenEach(Object.values(layers), async t => {
 console.log(baseMap);
 async function createBaseMap(layer) {
 	const base = layer.base;
-	console.log(`--------------------------------------------`);
-	console.log(`%c${base}`, "font-size:2em")
-	console.log(`--------------------------------------------`);
+	//console.log(`--------------------------------------------`);
+	logger.title(base)
+	//console.log(`--------------------------------------------`);
 	switch (base) {
 		case "naturalEarth.webp": await NaturalEarth("HYP_LR_SR_OB_DR"); break;
 		case "whiteEarth.webp": await NaturalEarth("GRAY_LR_SR_OB_DR"); break;

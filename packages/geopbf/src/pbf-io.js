@@ -5,7 +5,7 @@ class PBFIO {
         const { default: nativeBucket } = await import("native-bucket/src/index.js")
             .catch(e => { console.error("native-bucket load error", e); return {}; });
 
-        const { Bucket, Cache, Fetch } = nativeBucket(); // 最新形式
+        const { Bucket, Cache, Fetch } = nativeBucket();
         this.bucket = await Bucket(`${this.dire}/pbf`);
         this.bucket.isAlive().then(flag => flag || console.warn("Bucket failed to nonnect: "));
         console.log(this.bucket)
@@ -32,7 +32,7 @@ class PBFIO {
     async fetch(name, useCache = true) {
         if (useCache && this.fetchCache) { const v = await this.fetchCache(name); if (v) return v; }
         const [url, target] = name.split(/\#/);
-        const file = target ? await this.fetch(url, { target }) : await this.nativeFetch(url);
+        const file = target ? await this.nativeFetch(url, { target }) : await this.nativeFetch(url);
         if (this.fetchCache) await this.fetchCache(name, file);
         return file;
     }

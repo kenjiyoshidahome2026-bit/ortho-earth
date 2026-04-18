@@ -4,12 +4,12 @@ import { Logger } from "common/src/logger.js";
 import { topo2geo } from "./modules/topo2geo.js";
 import { gunzip, isGzip } from "native-bucket/src/gzip.js";
 import { isString, isURL, isFile, isObject, isBuffer } from "common/src/utility.js"
-
 const logger = new Logger();
-let serverPromise = null;
-export const getServer = async () => serverPromise || (serverPromise = pbfio("GIS")
-    .catch(e => { logger.warn("PBFIO initialization failed.", e); return null; }));
-
+let server = null;
+const getServer = async () => {
+    server = server || pbfio("GIS").catch(e => { logger.warn("PBFIO initialization failed.", e); return null; });
+    return server;
+}
 //  ----------------------------------------------------------------------------------------
 export async function geopbf(data, options = {}) {
     if (isString(options)) options = { name: options };
@@ -30,7 +30,7 @@ export async function geopbf(data, options = {}) {
     }
 
     const pbf = await _geopbf(data);
-    pbf && logger.success(`geopbf: ${pbf.name} (${pbf.size.toLocaleString()} bytes)`);
+    pbf && logger.success(`geopbf: ${pbf.name()} (${pbf.size.toLocaleString()} bytes)`);
     return pbf || new GeoPBF(options);
     async function _geopbf(q) { //console.log(q); debugger
         if (!q) return null;
@@ -91,10 +91,11 @@ const encoder = async (pbf, type, gz, encoding) => {
     });
 };
 const methods = {
-    async save() { const s = await getServer(); return s && await s.save(this) ? this : null; },
+    async save() { const s = await getServer(); return (s && await s.save(this)) ? this : null; },
     async pbfFile(flag) { return encoder(this, "pbf", flag); },
     async geojsonFile(flag) { return encoder(this, "geojson", flag); },
     async topojsonFile(flag) { return encoder(this, "topojson", flag); },
+    async fgbFile(flag) { return encoder(this, "fgb", flag); }, 
     async shape(encoding = "utf8") { return encoder(this, "shape", false, encoding); },
     async kmz(flag = true) { return encoder(this, "kmz", flag); },//flag: true=>kmz, false=>kml
     async gpx(flag) { return encoder(this, "gpx", flag); },
