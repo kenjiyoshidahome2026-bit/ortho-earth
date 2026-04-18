@@ -5,22 +5,28 @@ import { Fetch, Bucket } from "native-bucket";
 import { tiff2canvas, exr2canvas, tile2canvas } from './file2canvas';
 import { geopbf } from "geopbf";
 
-const logger = new Logger();
-debugger
-const layers = {};
-layerList.forEach(t=>layers[t.name] = t);
-console.log(layers);
 
 const nvkelso = _ => `https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/${_}.geojson`;
 const ofrohn = _ => `https://raw.githubusercontent.com/ofrohn/d3-celestial/master/data/${_}.json`;
-await (await geopbf(nvkelso("ne_110m_land"))).save();
-await (await geopbf(nvkelso("ne_50m_land"))).save();
-await (await geopbf(nvkelso("ne_50m_admin_0_boundary_lines_land"))).save();
-await (await geopbf(nvkelso("ne_50m_admin_0_boundary_lines_maritime_indicator"))).save();
-await (await geopbf(nvkelso("ne_50m_geographic_lines"))).save();
-await (await geopbf(ofrohn("stars.6"))).save();
-await (await geopbf(ofrohn("stars.8"))).save();
+const pbfs = {
+	"ne_110m_land": nvkelso("ne_110m_land"),
+	"ne_50m_land": nvkelso("ne_50m_land"),
+	"ne_50m_admin_0_boundary_lines_land": nvkelso("ne_50m_admin_0_boundary_lines_land"),
+	"ne_50m_admin_0_boundary_lines_maritime_indicator": nvkelso("ne_50m_admin_0_boundary_lines_maritime_indicator"),
+	"ne_50m_geographic_lines": nvkelso("ne_50m_geographic_lines"),
+	"stars.6": ofrohn("stars.6"),
+	"stars.8": ofrohn("stars.8")
+};
+await thenEach(Object.entries(pbfs), async ([name, original])=>{
+	const pbf = await geopbf(name) || await (await geopbf(original)).save();
+	console.log(pbf.lint)
+	console.log(pbf);
+})
 
+const logger = new Logger();
+const layers = {};
+layerList.forEach(t=>layers[t.name] = t);
+console.log(layers);
 
 
 const bucket_base = await Bucket(`GIS/base`);

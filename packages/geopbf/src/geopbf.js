@@ -1,4 +1,4 @@
-import { GeoPBF } from "./pbf-base.js";
+import { GeoPBF } from "./pbf.js";
 import { pbfio } from "./pbf-io.js";
 import { Logger } from "common/src/logger.js";
 import { topo2geo } from "./modules/topo2geo.js";
