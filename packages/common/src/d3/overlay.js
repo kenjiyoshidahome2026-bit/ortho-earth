@@ -1,72 +1,9 @@
 import * as d3 from 'd3';
-import {createAutocomplete} from 'd3-autocomplete';
 import './overlay.scss';
+import {createAutocomplete} from './autocomplete';
 
-d3.emoji = _ => `<span class="emoji">&#x${_};</span>`;
-d3.comma = _ => { for (_=(new String(_)).replace(/,/g,""); _!=(_=_.replace(/^(-?\d+)(\d{3})/,"$1,$2"));){}; return _; };
-
-d3.selection.prototype.show = function() { return this.classed("hidden", false); };
-d3.selection.prototype.hide = function() { return this.classed("hidden", true); };
-d3.selection.prototype.toggle = function() { return this.classed("hidden", !this.classed("hidden")); };
-d3.selection.prototype.showIF = function(flag) { return this.classed("hidden", !flag); };
-d3.selection.prototype.isVisible = function() { return !this.classed("hidden"); };
-
-d3.selection.prototype.shrinkHide = function(target, opts) { return shrinkHide(this, target, opts); };
-d3.selection.prototype.resumeShow = function(target, opts) { return resumeShow(this, target, opts); };
-
+const emoji = _ => `<span class="emoji">&#x${_};</span>`;
 d3.overlay = overlay();
-
-function clone(dom, target) {
-    if (target && target.node) target = target.node();
-    const div = document.createElement("div");
-    div.appendChild(dom.cloneNode(true));
-    dom.parentNode.appendChild(div);
-
-    const setOrigin = () => {
-        if (!target) return "50% 50%";
-        const tr = target.getBoundingClientRect();
-        const dr = div.getBoundingClientRect();
-        const ox = (tr.left + tr.width / 2) - dr.left;
-        const oy = (tr.top + tr.height / 2) - dr.top;
-        return `${ox}px ${oy}px`;
-    };
-
-    return d3.select(div)
-        .classed("overlay-fullbody", true)
-        .style("transform-origin", setOrigin());
-}
-function shrinkHide(selection, target, opts = {}) {
-    const cover = clone(selection.node(), target);
-    selection.hide();
-    return new Promise(resolve => {
-        cover.transition()
-            .ease(opts.ease || d3.easeCubic)
-            .duration(opts.trans || 500)
-            .style("transform", "scale(0)")
-            .on("end", () => {
-                cover.remove();
-                if (opts.fallback) opts.fallback(selection);
-                resolve(selection);
-            });
-    });
-}
-function resumeShow(selection, target, opts = {}) {
-    selection.show();
-    const cover = clone(selection.node(), target).style("transform", "scale(0)");
-    selection.hide();
-    return new Promise(resolve => {
-        cover.transition()
-            .ease(opts.ease || d3.easeCubic)
-            .duration(opts.trans || 500)
-            .style("transform", "scale(1)")
-            .on("end", () => {
-                selection.show();
-                cover.remove();
-                if (opts.fallback) opts.fallback(selection);
-                resolve(selection);
-            });
-    });
-}
 
 function overlay() {
     // 共通のベース生成処理
@@ -117,14 +54,14 @@ function overlay() {
 
     // Alert / Warn の統合
     const dialog = (mess, type) => new Promise(resolve => {
-        const icon = type === "warn" ? d3.emoji("26A0") : "";
+        const icon = type === "warn" ? emoji("26A0") : "";
         const div = overlay(`${icon}${mess}`, type);
         div.parent.on("click", () => div.clear().then(resolve));
     });
 
     overlay.alert = mess => dialog(mess, "alert");
     overlay.warn  = mess => dialog(mess, "warn");
-    overlay.wait  = (mess = "Wait a moment!") => overlay(`${d3.emoji("23F3")}${mess}`, "wait");
+    overlay.wait  = (mess = "Wait a moment!") => overlay(`${emoji("23F3")}${mess}`, "wait");
 
     // ボタン選択系の統合 (Confirm / Execute)
     overlay.execute = (mess, obj, target, fallback = null) => new Promise(resolve => {

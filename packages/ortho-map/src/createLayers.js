@@ -1,8 +1,10 @@
 import * as d3 from 'd3';
+import "common/src/d3/selection.js";
 import { drawJSON } from "./modules/drawJSON.js";
 import { createGetHeight } from "altpbf/src/createGetHeight.js";
 export async function createLayers(map) {
-    const { baseName, sphere, graticule, border, maritime, lines } = map.resources;
+    const { sphere, graticule, border, maritime, lines } = map.resources.borders;
+    console.log({ sphere, graticule, border, maritime, lines });
     const layers = map.layers = {};
     map.createLayer = opts => createLayer.call(map, opts);
     map.createRemoteLayer = opts => createRemoteLayer.call(map, opts);
@@ -59,6 +61,7 @@ function initLayer(map, param = {}) {
     layer.proj = map.proj;
     layer.canvas = layer.node();
     layer.opacity = v => v == null ? _opacity : layer.style("opacity", (_opacity = v));
+    console.log(layer)
     return map.layers[name] = layer;
 }
 ////=====================================================================================
@@ -112,7 +115,8 @@ export async function createRemoteLayer(param = {}) {
     const layer = initLayer(map, param).hide(), { canvas, name, proj, dpr } = layer;
     const offscreen = canvas.transferControlToOffscreen();
     layer.context = null;
-    const worker = new Worker(`./worker/${type}.js`, import.meta.url);
+    const url = new URL(`./workers/${type}.js`, import.meta.url);
+    const worker = new Worker(url, { type: 'module' });
     const workers = map.simultaneousTileLoading || navigator.hardwareConcurrency || 4;
     const threshold = map.threshold;
     return new Promise(resolve => {

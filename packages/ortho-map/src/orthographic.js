@@ -1,7 +1,10 @@
 import * as d3 from 'd3';
+import "common/src/d3/selection.js";
+import "common/src/d3/fileio.js";
 import { isString, isFunction } from "common/src/utility.js"; 
 import { cleanup } from "common/src/d3/tip-pop.js";
 import { Cache } from "native-bucket/src/Cache.js";
+import versor from "versor";
 
 export async function orthographic(map, opts = {}) {
     map.isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
@@ -14,7 +17,7 @@ export async function orthographic(map, opts = {}) {
     map.refreshRate = 4; // リフレッシュの間引き
     map.simultaneousTileLoading = 4; // タイルを読み込み・加工させるワーカーの数
     map.zoomSensitivity = 0.5; // ズームの感度(0.5~2.0)
-    map.stat = await Cache(Resources.WhiteEarthSTAT).catch(console.error); // 
+    map.stat = await Cache("GIS/stat").catch(console.error); // 
     map.baseName = await map.stat("base") || "osm.street";// ベースの地図
     map.view = await map.stat("view") || [[135, 35, 0], 2]; // [[経度,緯度,回転],ズーム値]
     ////-------------------------------------------------------------------------------------------
@@ -69,7 +72,7 @@ export async function orthographic(map, opts = {}) {
             const [lng, lat] = pos;
             return { lng, lat, x, y, shiftKey, metaKey, proj, zoom };
         };
-        const versor = await Resources.versor();
+    //    const versor = await Resources.versor();
         const { cartesian, delta, multiply, rotation } = versor;
         ////-------------------------------------------------------------------------------------------
         panZoom(map).on("start.ortho", onstart).on("zoom.ortho", tween).on("end.ortho", drawn);

@@ -3,13 +3,10 @@ import html2canvas from 'html2canvas';
 import { datimArray, download } from "common/src/utility.js";
 import { cleanup } from "common/src/d3/tip-pop.js"
 import { createPolygon } from "common/src/createPolygon.js";
-import { lang } from "./language.js";
-import { layerList } from "./layerList.js";
-import { gadgetIcons, tooltips } from "./icons.js"
 
-function createButton(map, name, opts) {
-    const icon = opts.icon || gadgetIcons[name]||"<svg/>";
-    const tip = opts.tip || (tooltips[lang] || tooltips.en)[name];
+function createButton(map, name, opts) { const { icons, tips } = map.resources;
+    const icon = opts.icon || icons[name]||"<svg/>";
+    const tip = opts.tip || tips[name]||"";
     const target = map.addFrame(opts.target || "leftTop"); if (!target) return console.error("Frame Error");
     var btn = target.append("button").classed("gadget", true).classed("big", opts.big).html(icon).tip(tip);
     btn.icon = name => btn.html(icons[name]).tip(tips[name]);
@@ -20,7 +17,7 @@ function createButton(map, name, opts) {
 /////--------------------------------------------------------- パネル開閉関数の生成(flag:true => 右, flag:false => 左)
 const createPanel = flag => function (opts = {}) {
     const map = this, width = Math.min(opts.width || 300, map.width) + 30;
-    const { tooltips } = map.resources;
+    const { tips } = map.resources;
     const C = map.mapFrame;
     const [name, rname, tip, move] = flag ? ["right", "left", "closeR", -width] : ["left", "right", "closeL", width];
     let left = 0, right = 0, trans = 0;
@@ -48,12 +45,12 @@ const createPanel = flag => function (opts = {}) {
     }
     async function modal() {
         const revoke = e => { e.stopPropagation(); panel(0, false).then(() => (map.removeFrame("modalFrame"), cleanup(), btn.show())); }
-        map.addFrame("modalFrame").tip(tooltips[tip]).on("click", revoke); btn.hide();
+        map.addFrame("modalFrame").tip(tips[tip]).on("click", revoke); btn.hide();
         await panel(move, false);
     }
     async function active() {
         const revoke = e => panel(0, true).then(() => btn.icon(rname).onClick(active));
-        await panel(move, true); btn.icon(name).tooltip(tooltips[tip]).onClick(revoke);
+        await panel(move, true); btn.icon(name).tooltip(tips[tip]).onClick(revoke);
     }
 };
 
@@ -70,8 +67,8 @@ export async function layers(opts = {}) {
     btn.onClick(() => {
         let flip = btn.classed("flip");
         btn.classed("flip", !flip); if (!btn.classed("flip")) return listArea.shrinkHide(btn);
-        listArea.empty().selectAll("button").data(layerList).enter().append("button").classed("gadget", true)
-            .text(d => d.trans(lang)).classed("flip", d => d.name === map.baseName)
+        listArea.empty().selectAll("button").data(map.resources.layers).enter().append("button").classed("gadget", true)
+            .text(d => d.trans(map.resources.lang)).classed("flip", d => d.name === map.baseName)
             .on("click", (e, d) => {
                 e.stopPropagation(); if (d.name === map.baseName) return;
                 listArea.shrinkHide(btn); btn.classed("flip", false);

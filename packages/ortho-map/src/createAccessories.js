@@ -1,15 +1,12 @@
 import * as d3 from 'd3';
 import { geopbf } from "geopbf/src/geopbf.js";
 import { comma } from "common/src/utility.js";
+//import { borderJSONs } from "./modules/borderJSONs.js"
 
 export function createAccessories(map, opts) {
-    const { sphere, graticule, land110 } = map.resources; 
     const layer = map.createLayer({ name: "Accessories", append: map.mapFrame });
     const context = layer.context;
-    const narrow = map.isNarrow;
-    const _lat = { ja: "緯度", en: "LAT", zh: "纬度", ko: "위도" }[lang];
-    const _lng = { ja: "経度", en: "LNG", zh: "经度", ko: "경도" };
-    const _alt = { ja: "標高", en: "ALT", zh: "海拔", ko: "고도" };
+ 
     Object.entries({ latlng, scale, credit, globe, night })
         .forEach(([name, func]) => map[name] = function () { return func.apply(map, arguments) });
     opts.latlng === false || map.latlng();//左下の緯度経度標高表示
@@ -20,6 +17,10 @@ export function createAccessories(map, opts) {
     ////--------------------------------------------------------- 左下の緯度・経度・標高
     function latlng() {
         const map = this, name = "latlng";
+        const {lang} = map.resources
+        const _lat = { ja: "緯度", en: "LAT", zh: "纬度", ko: "위도" }[lang];
+        const _lng = { ja: "経度", en: "LNG", zh: "经度", ko: "경도" }[lang];
+        const _alt = { ja: "標高", en: "ALT", zh: "海拔", ko: "고도" }[lang];
         let str = "";
         map.onMove(name, move).onLeave(name, clear).onDrawing(name, draw);
         async function move(q) {
@@ -32,13 +33,13 @@ export function createAccessories(map, opts) {
             clear();
             context.save();
             context.font = "12px Verdana"; context.textBaseline = "middle"; context.fillStyle = "white";
-            context.textAlign = narrow ? "center" : "left";
-            context.fillText(str, narrow ? map.width / 2 : 10, narrow ? 10 : map.height - 10);
+            context.textAlign = map.isNarrow ? "center" : "left";
+            context.fillText(str, map.isNarrow ? map.width / 2 : 10, map.isNarrow ? 10 : map.height - 10);
             context.restore();
         }
         function clear() {
             const w = 350, h = 25;
-            narrow ? context.clearRect((map.width - w) / 2, 0, w, h) : context.clearRect(0, map.height - h, w, h);
+            map.isNarrow ? context.clearRect((map.width - w) / 2, 0, w, h) : context.clearRect(0, map.height - h, w, h);
         }
     }
     ////--------------------------------------------------------- 中央下のスケール・ズーム
@@ -72,7 +73,7 @@ export function createAccessories(map, opts) {
             ctx.lineWidth = 1; ctx.stroke();
             ctx.fillText(str, M, 15);
             ctx.restore();
-            context.drawImage(canvas, 0, 0, W, H, (w - W0) / 2, h - H0 - (narrow ? 20 : 0), W0, H0);
+            context.drawImage(canvas, 0, 0, W, H, (w - W0) / 2, h - H0 - (map.isNarrow ? 20 : 0), W0, H0);
         }
     }
     ////--------------------------------------------------------- 右下のクレジットを挿入する関数の生成
@@ -82,15 +83,16 @@ export function createAccessories(map, opts) {
         function draw() {
             context.save();
             context.font = "12px Verdana"; context.textBaseline = "middle"; context.fillStyle = "white";
-            context.textAlign = narrow ? "center" : "right";
-            context.fillText(map.attribution, narrow ? map.width / 2 : map.width - 10, map.height - 10);
+            context.textAlign = map.isNarrow ? "center" : "right";
+            context.fillText(map.attribution, map.isNarrow ? map.width / 2 : map.width - 10, map.height - 10);
             context.restore();
         }
     }
     ////--------------------------------------------------------- サブマップ地球(globe)
     async function globe(opts = {}) {
         const map = this, name = "globe";
-        const bottom = narrow ? 55 : 30, right = 20;
+        const { sphere, graticule, land110 } = map.resources.borders;
+        const bottom = map.isNarrow ? 55 : 30, right = 20;
         const size0 = opts.size || 125, size = size0 * window.devicePixelRatio;
         const maxZoom = opts.maxZoom || 9;
         const canvas = new OffscreenCanvas(size, size), ctx = canvas.getContext("2d");
