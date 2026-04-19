@@ -8,6 +8,7 @@
     "./*": "./*"
   },
   "dependencies": {
-    "pbf": "^4.0.1"
+    "pbf": "^4.0.1",
+    "native-bucket": "*"
   }
 }
