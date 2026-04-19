@@ -4,16 +4,12 @@
   "type": "module",
   "main": "src/altpbf.js",
   "exports": {
-    ".": "./src/altpbf.js",
-    "./*": "./*"
+    ".": "./src/altpbf.js"
   },
   "dependencies": {
-    "geotiff": "^3.0.5",
-    "native-bucket": "*",
-    "ortho-map": "*",
     "common": "*",
+    "geopbf": "*",
     "pbf": "^4.0.1",
-    "three": "^0.183.2",
-    "unzipit": "^1.4.3"
+    "three": "^0.183.2"
   }
 }
