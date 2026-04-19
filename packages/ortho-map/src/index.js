@@ -1,15 +1,14 @@
 import * as d3 from 'd3';
 import "common/src/d3/selection.js";
 import "common/src/d3/loader.js";
-//import { language } from "./modules/language.js";
 import { gadgetIcons, tooltips } from "./modules/icons.js"
 import { layerList } from "./modules/layerList.js"
 import { borderJSONs } from "./modules/borderJSONs.js"
 ////-------------------------------------------------------
 import { orthographic } from "./orthographic.js";
 import { createLayers } from "./createLayers.js";
-// import { createAccessories } from "./createAccessories.js";
-// import { createGadgets } from "./createGadgets.js";
+import { createAccessories } from "./createAccessories.js";
+import { createGadgets } from "./createGadgets.js";
 import "./index.scss";
 export async function orthoEarth(opts = {}) {
 //	console.clear();
@@ -42,13 +41,13 @@ export async function orthoEarth(opts = {}) {
 	await orthographic(map, opts || {});
 	loader.removeLoader(); //ローダーの消去
 	await createLayers(map);
-	// // latlng scale credit globe night
-	// opts.noAccessories || createAccessories(map, opts || {});
-	// // 1) leftPanel, rightPanel, layers, zoom, north, cpos, full, shot, print, measure
-	// // 2) explain, legend, loading, tip, pop, contextmenu
-	// opts.noGadgets || createGadgets(map);
-	// console.log("----- Layer List -----\n" + map.listOfLayers());
-	// console.timeEnd(systemName);
-	// console.log("--------------------------");
+	// latlng scale credit globe night
+	opts.noAccessories || createAccessories(map, opts || {});
+	// 1) leftPanel, rightPanel, layers, zoom, north, cpos, full, shot, print, measure
+	// 2) explain, legend, loading, tip, pop, contextmenu
+	opts.noGadgets || createGadgets(map);
+	console.log("----- Layer List -----\n" + map.listOfLayers());
+	console.timeEnd(systemName);
+	console.log("--------------------------");
 	return map;
 };

@@ -50,4 +50,4 @@ const tileURL = function (type) {
 }; 
 	
 export const layerList = layers.map(([name, base, tile, maxZoom, attr, trans])=>
-		({ name, base:base+".webp", tile: tileURL(tile), maxZoom, attr: "orthoEarth / " + attr, trans:lang=>trans[lang]||trans.en}));
+		({ name, base:base+".webp", tile: tileURL(tile), maxZoom, attr: "orthoEarth / " + attr, trans:lang=>trans[lang]}));

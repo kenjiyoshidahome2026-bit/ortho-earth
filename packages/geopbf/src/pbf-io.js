@@ -8,7 +8,6 @@ class PBFIO {
         const { Bucket, Cache, Fetch } = nativeBucket();
         this.bucket = await Bucket(`${this.dire}/pbf`);
         this.bucket.isAlive().then(flag => flag || console.warn("Bucket failed to nonnect: "));
-        console.log(this.bucket)
         this.cache = await Cache(`${this.dire}/pbf`);
         this.nativeFetch = Fetch; // インスタンスに保存
         this.fetchCache = await Cache(`${this.dire}/loaded`);
