@@ -2,9 +2,16 @@ import * as d3 from 'd3';
 import "common/d3/selection.js";
 import { drawJSON } from "./modules/drawJSON.js";
 import { createGetHeight } from "altpbf/createGetHeight.js";
-export async function createLayers(map) { debugger
+
+// 🚨 修正1: Vite に確実に見つけさせ、URLだけを取得する専用構文
+import baseWorkerUrl from './workers/base.js?worker&url';
+import tileWorkerUrl from './workers/tile.js?worker&url';
+import imageOverlayWorkerUrl from './workers/imageOverlay.js?worker&url';
+import standardWorkerUrl from './workers/standard.js?worker&url';
+
+export async function createLayers(map) {
+    debugger
     const { sphere, graticule, border, maritime, lines } = map.resources.borders;
- //   console.log({ sphere, graticule, border, maritime, lines });
     const layers = map.layers = {};
     map.createLayer = opts => createLayer.call(map, opts);
     map.createRemoteLayer = opts => createRemoteLayer.call(map, opts);
@@ -53,8 +60,8 @@ function initLayer(map, param = {}) {
     while (name in map.layers) name = `${param.name}(${++count})`;
     const layer = param.before ? param.before.parent().insert("canvas", () => param.before.node()) :
         param.after ? param.after.parent().insert("canvas", () => param.after.node().nextSibling) :
-        param.prepend ? param.prepend.prepend("canvas") :
-        param.append ? param.append.append("canvas") : map.mapFrame.append("canvas");
+            param.prepend ? param.prepend.prepend("canvas") :
+                param.append ? param.append.append("canvas") : map.mapFrame.append("canvas");
     layer.name = name, layer.attr("name", name);
     layer.base = map;
     layer.dpr = param.scale || window.devicePixelRatio || 1;
@@ -82,7 +89,7 @@ export function createLayer(param = {}) {
     }
     console.log(layer.toString());
     return layer;
-////------------------------------------------------------------------------
+    ////------------------------------------------------------------------------
     function set(cmd, data, prop) {
         const toFeatures = json => (json ? json.features ? json.features : Array.isArray(json) ? json : [json] : []);
         cmd == "geojson" && jsons.push([toFeatures(data), prop]);
@@ -112,29 +119,50 @@ export function createLayer(param = {}) {
 ////=====================================================================================
 export async function createRemoteLayer(param = {}) {
     const map = this;
-    const url = {
-        base: new URL('./workers/base.js', import.meta.url),
-        tile: new URL('./workers/tile.js', import.meta.url),
-        imageOverlay: new URL('./workers/imageOverlay.js', import.meta.url),
-    }[param.type] || new URL('./workers/standard.js', import.meta.url);
     const layer = initLayer(map, param).hide(), { canvas, name, proj, dpr } = layer;
     const offscreen = canvas.transferControlToOffscreen();
     layer.context = null;
+
+    // 🚨 修正2: 取得したURLを変数に割り当てて起動する
+    let url;
+    if (param.type === 'base') url = baseWorkerUrl;
+    else if (param.type === 'tile') url = tileWorkerUrl;
+    else if (param.type === 'imageOverlay') url = imageOverlayWorkerUrl;
+    else url = standardWorkerUrl;
+
     const worker = new Worker(url, { type: 'module' });
+
     worker.onerror = (e) => {
-        console.error("🛑 Worker Error:", e.message, "\nFile:", e.filename, "\nLine:", e.lineno);
+        if (e.message) {
+            console.error(`🛑 Worker Error [${name}]:`, e.message, "\nFile:", e.filename, "\nLine:", e.lineno);
+        } else {
+            console.error(`🛑 Worker Network Error [${name}]: スクリプトの読み込みに失敗しました。`, url);
+        }
     };
+
     const workers = map.simultaneousTileLoading || navigator.hardwareConcurrency || 4;
     const threshold = map.threshold;
     return new Promise(resolve => {
         let ctxType = null;
         worker.onmessage = e => {
-            const data = e.data; if (data.action !== "done") return;
-            data.type == "init" && (ctxType = e.data.ctx, console.log(layer.toString()), resolve(layer));
-            data.type == "destroy" && terminate();
-            data.type == "resize" && drawing();
-            data.type == "set" && (layer.show(), drawing());
-            data.type == "set" && data.cmd == "base" && map.trigger("LoadEnd", data.data);//<===============================
+            const data = e.data;
+            if (data.action === "error") {
+                console.error(`🛑 Worker Runtime Error [${name}]:`, data.message, "\n", data.stack);
+                return;
+            }
+            if (data.action !== "done") return;
+            if (data.type === "init") {
+                ctxType = data.ctx;
+                console.log(layer.toString());
+                resolve(layer);
+            }
+            if (data.type === "destroy") terminate();
+            if (data.type === "resize") drawing();
+            if (data.type === "set") {
+                layer.show();
+                drawing();
+                if (data.cmd === "base") map.trigger("LoadEnd", data.data);
+            }
         };
         Object.entries({ set, destroy, toString }).forEach(([name, func]) => layer[name] = func);
         map.dispatcher.on(`Drawing.${name}`, drawing);
@@ -145,7 +173,7 @@ export async function createRemoteLayer(param = {}) {
         function init() { worker.postMessage({ type: "init", offscreen, dpr, workers, threshold }, [offscreen]); }
         function set(cmd, data, prop) {
             worker.postMessage({ type: "set", cmd, data, prop });
-            (cmd == "base") && map.trigger("LoadStart", data);//<===============================
+            (cmd === "base") && map.trigger("LoadStart", data);
         }
         function drawing() { worker.postMessage({ type: "drawing", scale: proj.scale(), rotate: proj.rotate() }); }
         function drawn() { worker.postMessage({ type: "drawn", scale: proj.scale(), rotate: proj.rotate() }); }
@@ -157,18 +185,9 @@ export async function createRemoteLayer(param = {}) {
         function destroy() { worker.postMessage({ type: "destroy" }); }
         function terminate() {
             worker.terminate();
-            URL.revokeObjectURL(workerUrl);
             map.dispatcher.on(`.${name}`, null);
             layer.remove(); delete map.layers[name];
         }
         function toString() { return `Layer ("${layer.name}": ${ctxType} [ ${map.width} x ${map.height} ] x ${dpr}) is append to "${layer.parent().attr("name")}".`; }
-    });////------------------------------------------------------------------------
-    // function toWorkerBlob(func) {
-    //     let s = func.toString();
-    //     const s1 = /^function\s+.+\(\s*\)\s*\{/, s2 = /\(\s*\)\s*\=\>\s*\{/, e = /\}$/;
-    //     if (s.match(s1) && s.match(e)) s = s.replace(s1, "").replace(e, "");
-    //     else if (s.match(s2) && s.match(e)) s = s.replace(s2, "").replace(e, "");
-    //     else return console.error("no worker string");
-    //     return new Blob([s], { type: "text/javascript" });
-    // }
+    });
 }

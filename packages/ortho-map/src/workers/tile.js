@@ -1,9 +1,12 @@
 import { geoOrthographic } from "./geoOrthoGraphic.js";
 import { orthoTileGL2 } from "./orthoTileGL2.js";
 import { createTileServer, getTileArray } from "./getTileArray.js";
-import { Resources } from "../modules/borderJSONs.js";
-const { tileURL } = Resources;
-
+import { layerList } from "../modules/layerList.js";
+const { PI, log2 } = Math;
+const deg = 180 / PI; 
+const tiles = {};
+layerList.forEach(t=>tiles[t.name]= t.tile);
+console.log(tiles)
 const src = async e => {
     try {
         const res = await fetch(e.data, { cache: 'force-cache' });
@@ -50,7 +53,7 @@ async function set(data) {
         TileTub.forEach((img, key) => img && removeImage(img));
         TileTub.clear();
     }
-    TileServer = createTileServer(tileURL(data.data));
+    TileServer = createTileServer(tiles[data.data]);
     if (gl) gl.clearContext();
     finalize();
     postMessage({ type: data.type, action: "done" });

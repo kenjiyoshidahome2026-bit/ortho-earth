@@ -1,6 +1,6 @@
 import Pbf from 'pbf';
-import { inflateRaw } from "../../../native-bucket/src/gzip.js";
-import { ALT_TAGS as TAGS } from "./alt-tags.js";
+import { inflateRaw } from "native-bucket/gzip.js";
+import { ALT_TAGS as TAGS } from "./alt-tag.js";
 
 self.onmessage = async function (e) {
     try {

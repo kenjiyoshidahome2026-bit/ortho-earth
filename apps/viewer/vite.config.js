@@ -1,32 +1,29 @@
+// apps/viewer/vite.config.js
 import { defineConfig } from 'vite';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
-// ESM環境で__dirnameを定義
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
     resolve: {
+        // オブジェクトの配列にすることで、「単体で呼ばれた時」と「サブファイルが呼ばれた時」を完璧に振り分けます
         alias: {
-            // ここが命です：パッケージ名を実際のソースパスに紐付けます
-            'ortho-map': path.resolve(__dirname, '../../packages/ortho-map/src/index.js'),
-            'common': path.resolve(__dirname, '../../packages/common/src/index.js'),
-            'geopbf': path.resolve(__dirname, '../../packages/geopbf/src/geopbf.js'),
-            'altpbf': path.resolve(__dirname, '../../packages/altpbf/src/altpbf.js'),
-            'native-bucket': path.resolve(__dirname, '../../packages/native-bucket/src/index.js'),
+            'common': path.resolve(__dirname, '../../packages/common/src'),
+            'native-bucket': path.resolve(__dirname, '../../packages/native-bucket/src'),
+            'altpbf': path.resolve(__dirname, '../../packages/altpbf/src'),
+            'geopbf': path.resolve(__dirname, '../../packages/geopbf/src'),
+            'ortho-map': path.resolve(__dirname, '../../packages/ortho-map/src')        
         }
     },
     optimizeDeps: {
-        // エイリアスを貼ったので、事前バンドルのキャッシュ対象から完全に外します
         exclude: ['ortho-map', 'common', 'geopbf', 'altpbf', 'native-bucket']
     },
     server: {
-        fs: {
-            allow: ['../..'] // ワークスペース全体へのアクセスを許可
-        }
+        fs: { allow: ['../..'] }
     },
     worker: {
-        format: 'es' // WorkerをESモジュールとして扱う
+        format: 'es'
     },
     build: {
         sourcemap: true
