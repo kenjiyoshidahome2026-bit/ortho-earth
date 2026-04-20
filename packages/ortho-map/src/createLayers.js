@@ -1,7 +1,7 @@
 import * as d3 from 'd3';
-import "../../common/src/d3/selection.js";
+import "common/d3/selection.js";
 import { drawJSON } from "./modules/drawJSON.js";
-import { createGetHeight } from "../../altpbf/src/createGetHeight.js";
+import { createGetHeight } from "altpbf/createGetHeight.js";
 export async function createLayers(map) { debugger
     const { sphere, graticule, border, maritime, lines } = map.resources.borders;
  //   console.log({ sphere, graticule, border, maritime, lines });

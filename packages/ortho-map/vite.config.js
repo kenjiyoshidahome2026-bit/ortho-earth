@@ -1,21 +1,18 @@
-// packages/ortho-map/vite.config.js
 import { defineConfig } from 'vite';
 import { resolve } from 'path';
 
 export default defineConfig({
     resolve: {
         alias: {
-            // これがないと Worker は他のパッケージを見つけられません
-            'common': resolve(__dirname, '../common/src/index.js'),
-            'native-bucket': resolve(__dirname, '../native-bucket/src/index.js'),
-            'geopbf': resolve(__dirname, '../geopbf/src/geopbf.js'),
+            'common': resolve(__dirname, '../common/src'),
+            'native-bucket': resolve(__dirname, '../native-bucket/src'),
+            'geopbf': resolve(__dirname, '../geopbf/src'),
+            'altpbf': resolve(__dirname, '../altpbf/src'),
         }
     },
-    worker: {
-        format: 'es', // WorkerをESMとして扱う
-    },
+    worker: { format: 'es' },
     build: {
-        minify: false, // エラー内容を見えるようにする
+        minify: false,
         sourcemap: true,
         lib: {
             entry: './src/index.js',
