@@ -1,9 +1,9 @@
 import * as d3 from 'd3';
-import "common/src/d3/selection.js";
-import "common/src/d3/fileio.js";
-import { isString, isFunction } from "common/src/utility.js"; 
-import { cleanup } from "common/src/d3/tip-pop.js";
-import { Cache } from "native-bucket/src/Cache.js";
+import "../../common/src/d3/selection.js";
+import "../../common/src/d3/fileio.js";
+import { isString, isFunction } from "../../common/src/utility.js"; 
+import { cleanup } from "../../common/src/d3/tip-pop.js";
+import { Cache } from "../../native-bucket/src/Cache.js";
 import versor from "versor";
 
 export async function orthographic(map, opts = {}) {

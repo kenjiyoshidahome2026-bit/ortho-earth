@@ -1,6 +1,6 @@
 import * as d3 from 'd3';
-import { geopbf } from "geopbf/src/geopbf.js";
-import { comma } from "common/src/utility.js";
+import { geopbf } from "geopbf";
+import { comma } from "../../common/src/utility.js";
 //import { borderJSONs } from "./modules/borderJSONs.js"
 
 export function createAccessories(map, opts) {

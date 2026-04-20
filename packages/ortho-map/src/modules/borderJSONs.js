@@ -1,5 +1,5 @@
 import * as d3 from "d3";
-import { geopbf } from "geopbf/src/geopbf.js";
+import { geopbf } from "geopbf";
 export const borderJSONs = async () => ({
 	sphere: { type: "Sphere" },
 	graticule: d3.geoGraticule10(),

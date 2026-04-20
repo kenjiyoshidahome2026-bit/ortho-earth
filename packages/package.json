@@ -2,7 +2,11 @@
   "name": "ortho-map",
   "version": "1.0.0",
   "type": "module",
-  "main": "src/orthographic.js", 
+  "main": "src/index.js", 
+  "exports": {
+    ".": "./src/index.js",
+    "./src/*": "./src/*" 
+  },
   "dependencies": {
     "common": "*",
     "native-bucket": "*",

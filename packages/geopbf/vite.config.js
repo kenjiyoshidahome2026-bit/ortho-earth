@@ -21,15 +21,23 @@ server: {
     }
   },		resolve: {
 			alias: {
-				'native-bucket': resolve(__dirname, '../native-bucket/src/index.js'), 
+          'ortho-map': path.resolve(__dirname, '../../packages/ortho-map/src/index.js'),
+          'common': path.resolve(__dirname, '../../packages/common/src/index.js'),
+          'geopbf': path.resolve(__dirname, '../../packages/geopbf/src/geopbf.js'),
+          'altpbf': path.resolve(__dirname, '../../packages/altpbf/src/altpbf.js'), 
+          'native-bucket': resolve(__dirname, '../native-bucket/src/index.js'), 
 			}
 		},
 	    worker: {
 			format: 'es', 
 		},
 		optimizeDeps: {
-        	exclude: ['native-bucket']
-    	},
+            exclude: ['ortho-map', 'common', 'geopbf', 'altpbf', 'native-bucket']
+    }, server: {
+        fs: {
+            allow: ['../..'] // プロジェクトルートを許可
+        }
+    },
 	    build: {
         target: 'esnext',
         sourcemap: true,

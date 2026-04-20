@@ -1,5 +1,5 @@
 import * as d3 from 'd3';
-import { max } from "common/src/utility.js";
+import { max } from "../../../common/src/utility.js";
 export function drawJSON(features, prop = {}) {
     const { ctx, proj, zoom, path, width, height } = this;
     const toFeatures = a => a ? a.features ? a.features : Array.isArray(a) ? a : [a] : [];

@@ -1,8 +1,8 @@
 import * as d3 from 'd3';
 import html2canvas from 'html2canvas';
-import { datimArray, download } from "common/src/utility.js";
-import { cleanup } from "common/src/d3/tip-pop.js"
-import { createPolygon } from "common/src/createPolygon.js";
+import { datimArray, download } from "../../../common/src/utility.js";
+import { cleanup } from "../../../common/src/d3/tip-pop.js"
+import { createPolygon } from "../../../common/src/createPolygon.js";
 
 function createButton(map, name, opts) { const { icons, tips } = map.resources;
     const icon = opts.icon || icons[name]||"<svg/>";

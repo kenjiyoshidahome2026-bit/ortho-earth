@@ -1,6 +1,6 @@
 import * as d3 from 'd3';
 import {comma} from "./utility";
-import {antimeridianCut} from "geopbf/src/modules/antimeridianCut";
+import {antimeridianCut} from "../../geopbf/src/modules/antimeridianCut";
 
 export function createPolygon(layer, opts = {}) {
     const map = layer.base, { dispatcher, proj, layers, cursor, isTouchDevice, isEditable } = map;

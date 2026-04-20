@@ -1,7 +1,7 @@
 import * as d3 from 'd3';
-import "common/src/d3/selection.js";
+import "../../common/src/d3/selection.js";
 import { drawJSON } from "./modules/drawJSON.js";
-import { createGetHeight } from "altpbf/src/createGetHeight.js";
+import { createGetHeight } from "../../altpbf/src/createGetHeight.js";
 export async function createLayers(map) {
     const { sphere, graticule, border, maritime, lines } = map.resources.borders;
     console.log({ sphere, graticule, border, maritime, lines });
@@ -115,8 +115,12 @@ export async function createRemoteLayer(param = {}) {
     const layer = initLayer(map, param).hide(), { canvas, name, proj, dpr } = layer;
     const offscreen = canvas.transferControlToOffscreen();
     layer.context = null;
-    const url = new URL(`./workers/${type}.js`, import.meta.url);
+    const url = new URL(`../../../ortho-map/src/workers/${type}.js`, import.meta.url);
+    console.log(type, url)
     const worker = new Worker(url, { type: 'module' });
+    worker.onerror = (e) => {
+        console.error("🛑 Worker Error:", e.message, "\nFile:", e.filename, "\nLine:", e.lineno);
+    };
     const workers = map.simultaneousTileLoading || navigator.hardwareConcurrency || 4;
     const threshold = map.threshold;
     return new Promise(resolve => {

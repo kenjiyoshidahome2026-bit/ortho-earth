@@ -1,6 +1,6 @@
 import * as d3 from 'd3';
-import "common/src/d3/selection.js";
-import "common/src/d3/loader.js";
+import "../../common/src/d3/selection.js";
+import "../../common/src/d3/loader.js";
 import { gadgetIcons, tooltips } from "./modules/icons.js"
 import { layerList } from "./modules/layerList.js"
 import { borderJSONs } from "./modules/borderJSONs.js"
