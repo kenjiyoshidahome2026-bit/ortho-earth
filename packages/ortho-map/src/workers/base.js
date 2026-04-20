@@ -1,27 +1,29 @@
 import { geoOrthographic } from "./geoOrthoGraphic.js";
+import { orthoBaseGL2 } from "./orthoBaseGL2.js";
 import nativeBucket from "native-bucket";
-import orthoBaseGL2 from "./orthoBaseGL2.js";
 const dire = "GIS/base";
 const { Bucket, Cache } = nativeBucket();
 let canvas, gl, proj, width, height, path, cache, bucket, baseName = "", texture = null;
 proj = geoOrthographic();
-const funcs = { init, set, drawing, drawn, resize, destroy };
-onmessage = e => funcs[e.data.type](e.data);
+onmessage = e => { 
+    const funcs = { init, set, drawing, drawn, resize, destroy };
+    funcs[e.data.type](e.data);
+};
 function init(data) {
     canvas = data.offscreen;
     gl = orthoBaseGL2(canvas.getContext("webgl2"), data.dpr);
     delete data.offscreen;
     postMessage(Object.assign(data, { action: "done", ctx: gl.constructor.name }));
 }
-async function set(data) {
+ async function set(data) {
     if (data.cmd != "base") return;
     const bname = data.data;
     if (baseName == data.data) return postMessage(Object.assign(data, { action: "done" }));
     const key = `- loading Base Image "(${bname})"`
     console.time(key)
     cache = cache || await Cache(dire);
-    const big = `${bname}.${5}.webp`, small = `${bname}.${4}.webp`;
-    let bm = await cache(bname);
+    const big = `${bname}.webp`;//, small = `${bname}.webp`;
+    let bm = await cache(big);
     if (!bm) {
         bucket = bucket || await Bucket(dire);
         texture && gl.deleteTexture(texture); texture = null;

@@ -8,60 +8,47 @@ const banner = `/*!
 */`;
 
 export default defineConfig({
-server: {
-    proxy: {
-      // '/api' で始まるリクエストを https://api.ortho-earth.com に転送
-      '/api': {
-        target: 'https://api.ortho-earth.com',
-        changeOrigin: true, // これを true にすることで、Originヘッダーをターゲットに合わせます
-        rewrite: (path) => path.replace(/^\/api/, ''), // 先頭の '/api' を削除して転送
-        // SSL証明書関連でエラーが出る場合は以下を追加
-        // secure: false,
-      }
-    }
-  },		resolve: {
-			alias: {
-          'ortho-map': path.resolve(__dirname, '../../packages/ortho-map/src/index.js'),
-          'common': path.resolve(__dirname, '../../packages/common/src/index.js'),
-          'geopbf': path.resolve(__dirname, '../../packages/geopbf/src/geopbf.js'),
-          'altpbf': path.resolve(__dirname, '../../packages/altpbf/src/altpbf.js'), 
-          'native-bucket': resolve(__dirname, '../native-bucket/src/index.js'), 
-			}
-		},
-	    worker: {
-			format: 'es', 
-		},
-		optimizeDeps: {
-            exclude: ['ortho-map', 'common', 'geopbf', 'altpbf', 'native-bucket']
-    }, server: {
-        fs: {
-            allow: ['../..'] // プロジェクトルートを許可
+    resolve: {
+        alias: {
+            // path.resolve ではなく、import した resolve を使います
+            'ortho-map': resolve(__dirname, '../../packages/ortho-map/src/index.js'),
+            'common': resolve(__dirname, '../../packages/common/src/index.js'),
+            'geopbf': resolve(__dirname, './src/geopbf.js'),
+            'altpbf': resolve(__dirname, '../../packages/altpbf/src/altpbf.js'),
+            'native-bucket': resolve(__dirname, '../native-bucket/src/index.js'),
         }
     },
-	    build: {
+    server: {
+        fs: {
+            allow: ['../..']
+        },
+        proxy: {
+            '/api': {
+                target: 'https://api.ortho-earth.com',
+                changeOrigin: true,
+                rewrite: (path) => path.replace(/^\/api/, ''),
+            }
+        }
+    },
+    worker: {
+        format: 'es',
+    },
+    optimizeDeps: {
+        // ここで除外しているのは正解です
+        exclude: ['ortho-map', 'common', 'geopbf', 'altpbf', 'native-bucket']
+    },
+    build: {
         target: 'esnext',
         sourcemap: true,
-        rollupOptions: {
-            output: {
-                codeSplitting: true, 
-                chunkFileNames: 'chunks/[name]-[hash].js',
-                assetFileNames: 'assets/[name]-[hash][extname]',
-            },
-           external: [ 'encoding-japanese']
-        },
-        minify: 'terser',
-        terserOptions: {
-            format: {
-                comments: /^\!/, 
-                preamble: banner  
-            }
-        },
+        minify: false, // 🛑 デバッガを効かせるため、一旦 false に！
         lib: {
-            entry: resolve(__dirname, 'src/geopbf.js'), 
+            entry: resolve(__dirname, 'src/geopbf.js'),
             name: 'geopbf',
             fileName: 'geopbf',
-            formats: ['esm']
+            formats: ['es'] // 'esm' ではなく 'es' が Vite の標準です
         },
-        outDir: 'dist',
+        rollupOptions: {
+            external: ['encoding-japanese']
+        }
     }
 })

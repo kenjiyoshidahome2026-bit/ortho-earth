@@ -1,7 +1,7 @@
 import { comma, thenEach } from "common/src/utility.js";
 import { Logger } from "common/src/logger.js";
 import { layerList } from "ortho-map/src/modules/layerList.js";
-import { Fetch, Bucket } from "native-bucket";
+import { Fetch, Bucket, Cache } from "native-bucket";
 import { tiff2canvas, exr2canvas, tile2canvas } from './file2canvas';
 import { geopbf } from "geopbf";
 
@@ -30,11 +30,14 @@ console.log(layers);
 
 
 const bucket_base = await Bucket(`GIS/base`);
+const cache = await Cache(`GIS/base`);
 console.log(await bucket_base.list());
 const baseMap = {};
 await thenEach(Object.values(layers), async t => {
 	const base = t.base; if (base in baseMap) return;
 	baseMap[base] = await bucket_base.get(base) || await createBaseMap(t);
+	console.log(base, baseMap[base]);
+	await cache(base, await createImageBitmap(baseMap[base]))
 });
 console.log(baseMap);
 async function createBaseMap(layer) {

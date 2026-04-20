@@ -2,9 +2,9 @@ import * as d3 from 'd3';
 import "../../common/src/d3/selection.js";
 import { drawJSON } from "./modules/drawJSON.js";
 import { createGetHeight } from "../../altpbf/src/createGetHeight.js";
-export async function createLayers(map) {
+export async function createLayers(map) { debugger
     const { sphere, graticule, border, maritime, lines } = map.resources.borders;
-    console.log({ sphere, graticule, border, maritime, lines });
+ //   console.log({ sphere, graticule, border, maritime, lines });
     const layers = map.layers = {};
     map.createLayer = opts => createLayer.call(map, opts);
     map.createRemoteLayer = opts => createRemoteLayer.call(map, opts);
@@ -111,12 +111,15 @@ export function createLayer(param = {}) {
 }
 ////=====================================================================================
 export async function createRemoteLayer(param = {}) {
-    const map = this, type = param.type || "standard";
+    const map = this;
+    const url = {
+        base: new URL('./workers/base.js', import.meta.url),
+        tile: new URL('./workers/tile.js', import.meta.url),
+        imageOverlay: new URL('./workers/imageOverlay.js', import.meta.url),
+    }[param.type] || new URL('./workers/standard.js', import.meta.url);
     const layer = initLayer(map, param).hide(), { canvas, name, proj, dpr } = layer;
     const offscreen = canvas.transferControlToOffscreen();
     layer.context = null;
-    const url = new URL(`../../../ortho-map/src/workers/${type}.js`, import.meta.url);
-    console.log(type, url)
     const worker = new Worker(url, { type: 'module' });
     worker.onerror = (e) => {
         console.error("🛑 Worker Error:", e.message, "\nFile:", e.filename, "\nLine:", e.lineno);
@@ -160,12 +163,12 @@ export async function createRemoteLayer(param = {}) {
         }
         function toString() { return `Layer ("${layer.name}": ${ctxType} [ ${map.width} x ${map.height} ] x ${dpr}) is append to "${layer.parent().attr("name")}".`; }
     });////------------------------------------------------------------------------
-    function toWorkerBlob(func) {
-        let s = func.toString();
-        const s1 = /^function\s+.+\(\s*\)\s*\{/, s2 = /\(\s*\)\s*\=\>\s*\{/, e = /\}$/;
-        if (s.match(s1) && s.match(e)) s = s.replace(s1, "").replace(e, "");
-        else if (s.match(s2) && s.match(e)) s = s.replace(s2, "").replace(e, "");
-        else return console.error("no worker string");
-        return new Blob([s], { type: "text/javascript" });
-    }
+    // function toWorkerBlob(func) {
+    //     let s = func.toString();
+    //     const s1 = /^function\s+.+\(\s*\)\s*\{/, s2 = /\(\s*\)\s*\=\>\s*\{/, e = /\}$/;
+    //     if (s.match(s1) && s.match(e)) s = s.replace(s1, "").replace(e, "");
+    //     else if (s.match(s2) && s.match(e)) s = s.replace(s2, "").replace(e, "");
+    //     else return console.error("no worker string");
+    //     return new Blob([s], { type: "text/javascript" });
+    // }
 }

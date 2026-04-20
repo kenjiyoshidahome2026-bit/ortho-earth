@@ -10,7 +10,7 @@ import { createLayers } from "./createLayers.js";
 import { createAccessories } from "./createAccessories.js";
 import { createGadgets } from "./createGadgets.js";
 import "./index.scss";
-export async function orthoEarth(opts = {}) {
+export async function orthoEarth(opts = {}) { debugger
 	console.clear();
 	const systemName = orthoEarth.name;
 	console.time(systemName)
@@ -40,7 +40,7 @@ export async function orthoEarth(opts = {}) {
 	console.log(map.resources);
 	await orthographic(map, opts || {});
 	loader.removeLoader(); //ローダーの消去
-	debugger
+	console.log(map);
 	await createLayers(map);
 	// latlng scale credit globe night
 	opts.noAccessories || createAccessories(map, opts || {});
