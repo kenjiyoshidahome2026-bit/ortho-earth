@@ -10,7 +10,8 @@
     "altpbf": "*",
     "common": "*",
     "geotiff": "^3.0.5",
-    "native-bucket": "*"
+    "native-bucket": "*",
+    "ortho-map":"*"
   },
   "devDependencies": {
     "vite": "^6.0.0"

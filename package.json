@@ -11,8 +11,6 @@
     "dev:uploader": "npm run dev -w uploader"
   },
   "dependencies": {
-    "d3": "^7.9.0",
-    "geotiff": "^3.0.5",
     "html2canvas": "^1.4.1",
     "polygon-clipping": "^0.15.7",
     "versor": "^0.2.0"
