@@ -27,7 +27,7 @@ function init(data) {
     if (!bm) {
         bucket = bucket || await Bucket(dire);
         texture && gl.deleteTexture(texture); texture = null;
-        texture = gl.setImage(bm = await createImageBitmap(await bucket.get(small))); bm = null;
+      //  texture = gl.setImage(bm = await createImageBitmap(await bucket.get(small))); bm = null;
         await cache(bname, bm = await createImageBitmap(await bucket.get(big)));
     }
     texture && gl.deleteTexture(texture); texture = null;

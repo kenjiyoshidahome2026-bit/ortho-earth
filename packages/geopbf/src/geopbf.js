@@ -1,6 +1,6 @@
 import { GeoPBF } from "./pbf.js";
 import { pbfio } from "./pbf-io.js";
-import { Logger } from "../../common/src/logger.js";
+import { Logger } from "common/src/logger.js";
 import { topo2geo } from "./modules/topo2geo.js";
 import { gunzip, isGzip } from "native-bucket";
 import { isString, isURL, isFile, isObject, isBuffer } from "../../common/src/utility.js"
