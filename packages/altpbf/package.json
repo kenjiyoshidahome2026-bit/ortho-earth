@@ -4,7 +4,8 @@
   "type": "module",
   "main": "src/altpbf.js",
   "exports": {
-    ".": "./src/altpbf.js"
+    ".": "./src/altpbf.js",
+    "./src/*": "./src/*"
   },
   "dependencies": {
     "common": "*",
