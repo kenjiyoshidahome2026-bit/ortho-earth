@@ -37,10 +37,10 @@ export async function orthoEarth(opts = {}) {
 	const language = navigator.language.slice(0, 2);
 	const lang = tooltips[language] ? language: "en";
 	map.resources = { lang, layers:layerList, borders: await borderJSONs(), icons:gadgetIcons, tips:tooltips[lang] };
-	console.log(map.resources); debugger
+	console.log(map.resources);
 	await orthographic(map, opts || {});
 	loader.removeLoader(); //ローダーの消去
-	
+	debugger
 	await createLayers(map);
 	// latlng scale credit globe night
 	opts.noAccessories || createAccessories(map, opts || {});

@@ -17,7 +17,7 @@ d3.selection.prototype.getOuterSize = function() { let rect = this.node().getBou
 	const {marginTop, marginRight, marginBottom, marginLeft} = window.getComputedStyle(this.node());
 	return [rect.width + num(marginRight)+num(marginLeft), rect.height + num(marginTop)+num(marginBottom)]; };
 d3.selection.prototype.toggleClass = function(name) { let flag = !this.classed(name); this.classed(name, flag); return flag; };
-d3.selection.prototype.empty = function(flag) { return this.html(""); };
+d3.selection.prototype.empty = function() { return this.html(""); };
 d3.selection.prototype.prependNode = function(el) { this.node().insertBefore(el, this.node().childNodes[0]); return this; }
 d3.selection.prototype.appendNode = function(el) { this.node().appendChild(el); return this; }
 d3.selection.prototype.editable = function(def, exec) {

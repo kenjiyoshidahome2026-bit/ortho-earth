@@ -124,3 +124,26 @@ function encodeFGBFeature(f, keys) {
 
 	return builder.asUint8ArrayWithLengthPrefix(); // 先頭4バイトにサイズを付与
 }
+// packages/geopbf/src/encoder/fgb.js に必要なヘルパー（抜粋）
+function flattenCoordinates(geometry) {
+	const pts = [];
+	const walk = coords => {
+		if (typeof coords[0] === 'number') pts.push(...coords);
+		else coords.forEach(walk);
+	};
+	walk(geometry.coordinates);
+	return new Float64Array(pts);
+}
+
+const concatUint8 = arrays => {
+	const total = arrays.reduce((acc, a) => acc + a.byteLength, 0);
+	const res = new Uint8Array(total);
+	let off = 0;
+	arrays.forEach(a => { res.set(a, off); off += a.byteLength; });
+	return res;
+};
+
+// 簡易版 FlatBuffer ビルダー（スペックに準拠したバイナリ生成用）
+class FlatBufferBuilder {
+	// ...ここにバイナリ構築ロジックが必要...
+}

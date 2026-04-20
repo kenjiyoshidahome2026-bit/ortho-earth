@@ -9,7 +9,7 @@ export default defineConfig({
     server: {
         fs: {
             // ワークスペース全体（packagesフォルダ）のファイル参照を許可
-            allow: ['..']
+            allow: ['../..']
         }
     },
     build: {

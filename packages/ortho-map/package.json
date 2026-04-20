@@ -5,6 +5,8 @@
   "main": "src/index.js",
   "exports": {
     ".": "./src/index.js",
+    "./src/*": "./src/*",
+    "./src/workers/*": "./src/workers/*",
     "./*": "./*"
   },
   "dependencies": {
