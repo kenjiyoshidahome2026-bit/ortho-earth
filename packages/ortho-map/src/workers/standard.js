@@ -1,7 +1,8 @@
-import * as d3 from 'd3';
+//import * as d3 from 'd3';
+import { geoOrthographic } from "./geoOrthoGraphic.js";
 //import drawJSON from "../modules/drawJSON.js"
 let canvas, ctx, width, height, dpr, path;
-let proj = d3.geoOrthographic(), zoom;
+let proj = geoOrthographic(), zoom;
 let jsons = [];
 const funcs = { init, set, drawing, drawn, resize, destroy };
 onmessage = e => funcs[e.data.type](e.data);
@@ -23,12 +24,12 @@ function resize(data) {
     postMessage({ type: data.type, action: "done" });
 }
 function drawing(data) {
-    requestAnimationFrame(() => {
+    //requestAnimationFrame(() => {
         proj.rotate(data.rotate).scale(data.scale);
         zoom = Math.log2(data.scale * Math.PI * 2 / 256);
         ctx.clearRect(0, 0, width, height);
         jsons.forEach(t => drawJSON.call({ ctx, proj, zoom, path, width, height }, ...t))
-    })
+    //})
 }
 function drawn() {
 
