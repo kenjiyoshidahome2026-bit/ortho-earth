@@ -29,7 +29,7 @@ export async function createLayers(map) {
         onend: name => map.trigger("LoadEnd", name)
     };
     await Promise.all([setBase(map, map.baseName),
-        /*createGetHeight(option).then(v => map.getHeight = v).then(() => *///setBorder(map)
+        /*createGetHeight(option).then(v => map.getHeight = v).then(() => */setBorder(map)
     ]);
     ////--------------------------------------------------------------------------
     async function setBase(map, name) {

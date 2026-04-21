@@ -1,3 +1,4 @@
+import * as d3 from "d3";
 export function drawJSON(features, prop = {}) {
     const { ctx, proj, zoom, path, width, height } = this;
     const toFeatures = a => a ? a.features ? a.features : Array.isArray(a) ? a : [a] : [];
@@ -63,7 +64,7 @@ export function drawJSON(features, prop = {}) {
                 stroke(p.stroke || color, p.width || 2);
                 return;
             }
-        } else {
+        } else { console.log(feature)
             ctx.beginPath(); path(feature);
             p.emboss && stroke(p.emboss === true ? "rgba(255,255,255,0.5)" : p.emboss, p.embossWidth || (p.width || 1) + 2);
             stroke(p.stroke, p.width, p.dash);
