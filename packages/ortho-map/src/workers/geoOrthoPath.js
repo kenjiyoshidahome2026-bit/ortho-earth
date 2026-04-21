@@ -1,3 +1,61 @@
+export function createFastOrtho(radius, center, rotate) {
+	const rad = Math.PI / 180;
+	const [λ, φ, γ] = rotate.map(v => v * rad);
+	const [cx, cy] = center;
+
+	// 3軸回転行列の合成係数を事前計算 (3x3行列の要素)
+	const sλ = Math.sin(λ), cλ = Math.cos(λ);
+	const sφ = Math.sin(φ), cφ = Math.cos(φ);
+	const sγ = Math.sin(γ), cγ = Math.cos(γ);
+
+	// λ(y軸), φ(x軸), γ(z軸) の回転を合成
+	const m0 = cλ * cγ - sλ * sφ * sγ;
+	const m1 = -cφ * sγ;
+	const m2 = sλ * cγ + cλ * sφ * sγ;
+	const m3 = cλ * sγ + sλ * sφ * cγ;
+	const m4 = cφ * cγ;
+	const m5 = sλ * sγ - cλ * sφ * cγ;
+	const m6 = -sλ * cφ;
+	const m7 = sφ;
+	const m8 = cλ * cφ;
+
+	/**
+	 * @param {CanvasRenderingContext2D} ctx
+	 * @param {Float32Array|Array} ring - [lon, lat, lon, lat...]
+	 */
+	return function renderRing(ctx, ring) {
+		let first = true;
+		for (let i = 0; i < ring.length; i += 2) {
+			const lon = ring[i] * rad;
+			const lat = ring[i + 1] * rad;
+
+			const cp = Math.cos(lat);
+			const x = cp * Math.sin(lon);
+			const y = Math.sin(lat);
+			const z = cp * Math.cos(lon);
+
+			// 行列演算 (回転後の座標)
+			const zr = x * m6 + y * m7 + z * m8;
+
+			if (zr > 0) { // 可視判定
+				const xr = x * m0 + y * m1 + z * m2;
+				const yr = x * m3 + y * m4 + z * m5;
+
+				const px = cx + radius * xr;
+				const py = cy - radius * yr;
+
+				if (first) {
+					ctx.moveTo(px, py);
+					first = false;
+				} else {
+					ctx.lineTo(px, py);
+				}
+			} else {
+				first = true; // 裏側に回ったらパスを切断
+			}
+		}
+	};
+} 
 class geoOrthoPath {
 	constructor(ctx, radius, center) {
 		this.ctx = ctx;
