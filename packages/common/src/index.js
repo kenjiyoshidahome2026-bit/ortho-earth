@@ -1,6 +1,6 @@
 export * from "./utility.js";
 export * from "./logger.js";
-export * from "./wiki.js";
+//export * from "./wiki.js";
 export * from "./cleanCoords.js";
 export * from "./antimeridianCut.js";
 export * from "./antimeridianFeature.js";

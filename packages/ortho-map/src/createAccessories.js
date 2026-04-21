@@ -118,8 +118,8 @@ export function createAccessories(map, opts) {
     async function night() {
         const { sin, cos, asin, hypot, atan2, PI } = Math, rad = PI / 180;
         const map = this, name = "night";
-        const strrsJSON = (await geopbf("stars.8")).geojson;
-        const stars = strrsJSON.features.map(f => {
+        const starsJSON = (await geopbf("stars.8")).geojson;
+        const stars = starsJSON.features.map(f => {
             const c = f.geometry.coordinates, p = f.properties;
             const bv = (v => v < -0.3 ? "#b2c8ff" : v < 0.0 ? "#d9e2ff" : v < 0.3 ? "#f8faff" : v < 0.6 ? "#fff8f0" :
                 v < 0.8 ? "#fff2c8" : v < 1.1 ? "#ffe0b5" : v < 1.4 ? "#ffcc99" : "#ffab91")(p.bv);

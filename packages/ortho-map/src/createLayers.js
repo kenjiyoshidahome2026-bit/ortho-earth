@@ -1,15 +1,15 @@
 import * as d3 from 'd3';
 import "common/d3/selection.js";
 import { drawJSON } from "./modules/drawJSON.js";
-import { borderJSONs } from "./modules/borderJSONs.js"
+//import { borderJSONs } from "./modules/borderJSONs.js"
 import { layerList } from "./modules/layerList.js";
 import { createGetHeight } from "altpbf";
 
-import base from './workers/base.js?worker&url';
-import tile from './workers/tile.js?worker&url';
+import base from './workers/base.js?worker&url'; 
+import border from './workers/border.js?worker&url';
 import image from './workers/image.js?worker&url';
 import standard from './workers/standard.js?worker&url';
-const tileurl = s => ({ base, tile, image }[s] || standard);
+const workerURL = s => ({ base, border, image }[s] || standard);
 
 export async function createLayers(map) {
     const layers = map.layers = {};
@@ -19,9 +19,8 @@ export async function createLayers(map) {
     map.removeLayer = name => (layers[name] && layers[name].destroy(), map);
     map.listOfLayers = () => Object.values(map.layers).map(layer => (layer.toString())).join("\n");
     ////--------------------------------------------------------------------------
-    (await map.createRemoteLayer({ name: "OrthoBase", type: "base", append: map.mapFrame }));
-    (await map.createRemoteLayer({ name: "OrthoTile", type: "tile", append: map.mapFrame }));
-    (await map.createRemoteLayer({ name: "OrthoBorder", append: map.mapFrame }));
+    (await map.createRemoteLayer({ name: "OrthoMapGL", type: "base", append: map.mapFrame }));
+    (await map.createRemoteLayer({ name: "OrthoBorder", type: "border", append: map.mapFrame }));
     ////--------------------------------------------------------------------------
     map.setBase = name => setBase(map, name);
     const option = {
@@ -29,30 +28,31 @@ export async function createLayers(map) {
         onend: name => map.trigger("LoadEnd", name)
     };
     await Promise.all([setBase(map, map.baseName),
-        /*createGetHeight(option).then(v => map.getHeight = v).then(() => */setBorder(map)
+        /*createGetHeight(option).then(v => map.getHeight = v).then(() => *///setBorder(map)
     ]);
     ////--------------------------------------------------------------------------
     async function setBase(map, name) {
-        await Promise.all([
-            map.layers.OrthoBase && map.layers.OrthoBase.set("base", name),
-            map.layers.OrthoTile && map.layers.OrthoTile.set("tile", name, map.threshold)
-        ]);
+        const layer = map.layers.OrthoMapGL;
+        if (layer) {
+            layer.set("base", name);
+            layer.set("tile", name, map.threshold);
+        }
         const { maxZoom, attr } = layerList[name];
         map.attribution = attr;
         map.setRange(map.minZoom, Math.min(maxZoom, map.maxZoom));
         if (map.zoom > maxZoom) map.setZoom(maxZoom);
         map.stat("base", map.baseName = name);
     };
-    async function setBorder(map) {
-        const { sphere, graticule, border, maritime, lines } = await borderJSONs();
-        const layer = map.layers.OrthoBorder;
-        const maxZoom = map.maxBorder, minZoom = map.minEdit;
-        layer.set("geojson", sphere, { maxZoom: 0, minZoom, stroke: "rgba(255,255,255,0.8)", width: 0.8 });
-        layer.set("geojson", graticule, { maxZoom, minZoom, stroke: "rgba(255,255,255,0.5)", width: 0.5 });
-        layer.set("geojson", lines, { maxZoom, minZoom, stroke: "rgba(255,255,255,1)", width: 0.5, dash: [4, 2] });
-        layer.set("geojson", border, { maxZoom, minZoom, stroke: "rgba(255,255,255,0.8)", width: 1, dash: [3, 1] });
-        layer.set("geojson", maritime, { maxZoom, minZoom, stroke: "rgba(128,128,255,0.8)", width: 0.8, dash: [3, 1] });
-    };
+    // async function setBorder(map) {
+    //     const { sphere, graticule, border, maritime, lines } = await borderJSONs();
+    //     const layer = map.layers.OrthoBorder;
+    //     const maxZoom = map.maxBorder, minZoom = map.minEdit;
+    //     layer.set("geojson", sphere, { maxZoom, minZoom, stroke: "rgba(200,200,200,0.8)", width: 0.8 });
+    //     layer.set("geojson", graticule, { maxZoom, minZoom, stroke: "rgba(255,255,255,0.5)", width: 0.5 });
+    //     layer.set("geojson", lines, { maxZoom, minZoom, stroke: "rgba(255,255,255,1)", width: 0.5, dash: [4, 2] });
+    //     layer.set("geojson", border, { maxZoom, minZoom, stroke: "rgba(255,255,255,0.8)", width: 1, dash: [3, 1] });
+    //     layer.set("geojson", maritime, { maxZoom, minZoom, stroke: "rgba(128,128,255,0.8)", width: 0.8, dash: [3, 1] });
+    // };
 }
 ////=====================================================================================
 function initLayer(map, param = {}) {
@@ -61,8 +61,8 @@ function initLayer(map, param = {}) {
     while (name in map.layers) name = `${param.name}(${++count})`;
     const layer = param.before ? param.before.parent().insert("canvas", () => param.before.node()) :
         param.after ? param.after.parent().insert("canvas", () => param.after.node().nextSibling) :
-            param.prepend ? param.prepend.prepend("canvas") :
-                param.append ? param.append.append("canvas") : map.mapFrame.append("canvas");
+        param.prepend ? param.prepend.prepend("canvas") :
+        param.append ? param.append.append("canvas") : map.mapFrame.append("canvas");
     layer.name = name, layer.attr("name", name);
     layer.base = map; layer.context = null;
     layer.dpr = param.scale || window.devicePixelRatio || 1;
@@ -120,7 +120,8 @@ export function createLayer(param = {}) {
 export async function createRemoteLayer(param = {}) { const map = this;
     const layer = initLayer(map, param).hide(), { canvas, name, proj, dpr } = layer;
     const offscreen = canvas.transferControlToOffscreen();
-    const worker = new Worker(tileurl(param.type), { type: 'module' });
+    const worker = new Worker(workerURL(param.type), { type: 'module' });
+    worker.onerror = e => console.error("Worker Error:", e.message, e.filename, e.lineno);
     const workers = map.simultaneousTileLoading || navigator.hardwareConcurrency || 4;
     const threshold = map.threshold;
     return new Promise(resolve => {
@@ -145,6 +146,7 @@ export async function createRemoteLayer(param = {}) { const map = this;
         map.dispatcher.on(`Drawing.${name}`, drawing);
         map.dispatcher.on(`Drawn.${name}`, drawn);
         map.dispatcher.on(`Resize.${name}`, resize);
+        console.log("INIT!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
         init(); resize();
         ////------------------------------------------------------------------------
         function init() { worker.postMessage({ type: "init", offscreen, dpr, workers, threshold }, [offscreen]); }
