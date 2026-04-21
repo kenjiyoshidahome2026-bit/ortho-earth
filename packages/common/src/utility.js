@@ -86,7 +86,7 @@ export const download = (blob, name) => {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url; a.download = name; a.click();
-    setTimeout(() => { URL.revokeObjectURL(url); document.body.removeChild(a); }, 1000);
+    setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 1000);
 };
 export const saveTo = async(blob, name) => {
     try {
