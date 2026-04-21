@@ -1,34 +1,16 @@
 // packages/ortho-map/src/workers/base.js
+import nativeBucket from "native-bucket";
 import { geoOrthographic } from "./geoOrthoGraphic.js";
 import { orthoBaseGL2 } from "./orthoBaseGL2.js";
-// ViteのAliasバグを回避するため、確実な相対パスを使います
-import nativeBucket from "../../../native-bucket/src/index.js";
-
+import { layerList } from "../modules/layerList.js";
+const { Bucket, Cache } = nativeBucket();
 const dire = "GIS/base";
-let canvas, gl, proj, width, height, path, cache, bucket, baseName = "", texture = null;
-let Bucket, Cache;
+const proj = geoOrthographic();
+let canvas, gl, width, height, path, cache, bucket, baseName = "", texture = null;
 
-// 🚨 トップレベルでの実行を遅延させ、確実にWorkerを起動させます
 onmessage = async e => {
-    try {
-        if (!Bucket) {
-            const nb = (typeof nativeBucket === 'function') ? nativeBucket() :
-                (nativeBucket && typeof nativeBucket.default === 'function') ? nativeBucket.default() : null;
-            if (!nb) throw new Error("native-bucket モジュールが正しく読み込めませんでした");
-
-            Bucket = nb.Bucket;
-            Cache = nb.Cache;
-            proj = geoOrthographic();
-        }
-
-        const funcs = { init, set, drawing, drawn, resize, destroy };
-        if (funcs[e.data.type]) {
-            funcs[e.data.type](e.data);
-        }
-    } catch (err) {
-        // エラーが発生した場合はメインスレッドのコンソールに詳細を送ります
-        postMessage({ action: "error", message: err.message, stack: err.stack });
-    }
+    const funcs = { init, set, drawing, drawn, resize, destroy };
+    funcs[e.data.type](e.data);
 };
 
 function init(data) {
@@ -38,21 +20,18 @@ function init(data) {
     postMessage(Object.assign(data, { action: "done", type: "init", ctx: gl.constructor.name }));
 }
 
-async function set(data) {
+async function set(data) { 
     if (data.cmd != "base") return;
-    const bname = data.data;
-    if (baseName == data.data) return postMessage(Object.assign(data, { action: "done", type: "set" }));
+    const bname = layerList[data.data].base;
+    if (baseName == bname) return postMessage(Object.assign(data, { action: "done", type: "set" }));
     const key = `- loading Base Image "(${bname})"`;
     console.time(key);
     cache = cache || await Cache(dire);
-
-    const big = `${bname}.webp`, small = `${bname}.webp`;
-
-    let bm = await cache(big);
+    let bm = await cache(bname);
     if (!bm) {
         bucket = bucket || await Bucket(dire);
         texture && gl.deleteTexture(texture); texture = null;
-        await cache(bname, bm = await createImageBitmap(await bucket.get(big)));
+        await cache(bname, bm = await createImageBitmap(await bucket.get(bname)));
     }
     texture && gl.deleteTexture(texture); texture = null;
     texture = gl.setImage(bm); bm = null; baseName = bname;
@@ -76,7 +55,6 @@ function drawn() { }
 
 function destroy(data) {
     canvas && (canvas.width = 0, canvas.height = 0); canvas = null;
-    // 🚨 タイポ修正: layer は無いので gl.deleteTexture に修正
     texture && gl.deleteTexture(texture); texture = null;
     gl = path = proj = null;
     postMessage(Object.assign(data, { action: "done", type: "destroy" }));

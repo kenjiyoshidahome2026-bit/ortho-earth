@@ -1,16 +1,13 @@
 import * as d3 from 'd3';
-import "../../common/src/d3/selection.js";
-import "../../common/src/d3/loader.js";
-import { gadgetIcons, tooltips } from "./modules/icons.js"
-import { layerList } from "./modules/layerList.js"
-import { borderJSONs } from "./modules/borderJSONs.js"
+import "common/d3/selection.js";
+import "common/d3/loader.js";
 ////-------------------------------------------------------
 import { orthographic } from "./orthographic.js";
 import { createLayers } from "./createLayers.js";
 import { createAccessories } from "./createAccessories.js";
 import { createGadgets } from "./createGadgets.js";
 import "./index.scss";
-export async function orthoEarth(opts = {}) { debugger
+export async function orthoEarth(opts = {}) {
 	console.clear();
 	const systemName = orthoEarth.name;
 	console.time(systemName)
@@ -34,18 +31,10 @@ export async function orthoEarth(opts = {}) { debugger
 	};
 	//------------------------------------------------------------------------------------------------
 	const loader = map.prepend("div").loader({ mess: "ortho-earth" });
-	const language = navigator.language.slice(0, 2);
-	const lang = tooltips[language] ? language: "en";
-	map.resources = { lang, layers:layerList, borders: await borderJSONs(), icons:gadgetIcons, tips:tooltips[lang] };
-	console.log(map.resources);
 	await orthographic(map, opts || {});
 	loader.removeLoader(); //ローダーの消去
-	console.log(map);
 	await createLayers(map);
-	// latlng scale credit globe night
 	opts.noAccessories || createAccessories(map, opts || {});
-	// 1) leftPanel, rightPanel, layers, zoom, north, cpos, full, shot, print, measure
-	// 2) explain, legend, loading, tip, pop, contextmenu
 	opts.noGadgets || createGadgets(map);
 	console.log("----- Layer List -----\n" + map.listOfLayers());
 	console.timeEnd(systemName);

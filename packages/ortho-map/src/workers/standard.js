@@ -1,4 +1,5 @@
 import * as d3 from 'd3';
+//import drawJSON from "../modules/drawJSON.js"
 let canvas, ctx, width, height, dpr, path;
 let proj = d3.geoOrthographic(), zoom;
 let jsons = [];

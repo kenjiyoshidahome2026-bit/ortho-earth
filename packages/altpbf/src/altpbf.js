@@ -1,7 +1,6 @@
 import Pbf from 'pbf';
 import { Bucket, Cache, deflateRaw, inflateRaw } from "native-bucket";
 import { ALT_TAGS as TAGS } from "./alt-tag.js";
-
 export async function altpbf(db = "GIS") {
     const bucket = await Bucket(`${db}/alt`, { silent: true });
     const cache = await Cache(`${db}/alt`);
@@ -88,6 +87,8 @@ export async function altpbf(db = "GIS") {
             });
         }
     }
+    
+    function isLoading() { return loading; }
 
     function fileName([lng, lat], level = 1) {
         const L2 = n => ("00" + Math.abs(n)).slice(-2);

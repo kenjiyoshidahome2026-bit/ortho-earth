@@ -1,17 +1,17 @@
 import * as d3 from 'd3';
 import "common/d3/selection.js";
 import { drawJSON } from "./modules/drawJSON.js";
-import { createGetHeight } from "altpbf/createGetHeight.js";
+import { borderJSONs } from "./modules/borderJSONs.js"
+import { layerList } from "./modules/layerList.js";
+import { createGetHeight } from "altpbf";
 
-// 🚨 修正1: Vite に確実に見つけさせ、URLだけを取得する専用構文
-import baseWorkerUrl from './workers/base.js?worker&url';
-import tileWorkerUrl from './workers/tile.js?worker&url';
-import imageOverlayWorkerUrl from './workers/imageOverlay.js?worker&url';
-import standardWorkerUrl from './workers/standard.js?worker&url';
+import base from './workers/base.js?worker&url';
+import tile from './workers/tile.js?worker&url';
+import image from './workers/image.js?worker&url';
+import standard from './workers/standard.js?worker&url';
+const tileurl = s => ({ base, tile, image }[s] || standard);
 
 export async function createLayers(map) {
-    debugger
-    const { sphere, graticule, border, maritime, lines } = map.resources.borders;
     const layers = map.layers = {};
     map.createLayer = opts => createLayer.call(map, opts);
     map.createRemoteLayer = opts => createRemoteLayer.call(map, opts);
@@ -29,21 +29,22 @@ export async function createLayers(map) {
         onend: name => map.trigger("LoadEnd", name)
     };
     await Promise.all([setBase(map, map.baseName),
-    createGetHeight(option).then(v => map.getHeight = v).then(() => setBorder(map))
+        /*createGetHeight(option).then(v => map.getHeight = v).then(() => *///setBorder(map)
     ]);
     ////--------------------------------------------------------------------------
     async function setBase(map, name) {
-        const { base, tile, maxZoom, attribution } = baseName(name);
         await Promise.all([
-            map.layers.OrthoBase && map.layers.OrthoBase.set("base", base),
-            map.layers.OrthoTile && map.layers.OrthoTile.set("tile", tile, map.threshold)
+            map.layers.OrthoBase && map.layers.OrthoBase.set("base", name),
+            map.layers.OrthoTile && map.layers.OrthoTile.set("tile", name, map.threshold)
         ]);
-        map.attribution = attribution;
+        const { maxZoom, attr } = layerList[name];
+        map.attribution = attr;
         map.setRange(map.minZoom, Math.min(maxZoom, map.maxZoom));
         if (map.zoom > maxZoom) map.setZoom(maxZoom);
         map.stat("base", map.baseName = name);
     };
     async function setBorder(map) {
+        const { sphere, graticule, border, maritime, lines } = await borderJSONs();
         const layer = map.layers.OrthoBorder;
         const maxZoom = map.maxBorder, minZoom = map.minEdit;
         layer.set("geojson", sphere, { maxZoom: 0, minZoom, stroke: "rgba(255,255,255,0.8)", width: 0.8 });
@@ -63,12 +64,11 @@ function initLayer(map, param = {}) {
             param.prepend ? param.prepend.prepend("canvas") :
                 param.append ? param.append.append("canvas") : map.mapFrame.append("canvas");
     layer.name = name, layer.attr("name", name);
-    layer.base = map;
+    layer.base = map; layer.context = null;
     layer.dpr = param.scale || window.devicePixelRatio || 1;
     layer.proj = map.proj;
     layer.canvas = layer.node();
     layer.opacity = v => v == null ? _opacity : layer.style("opacity", (_opacity = v));
-    console.log(layer)
     return map.layers[name] = layer;
 }
 ////=====================================================================================
@@ -117,39 +117,16 @@ export function createLayer(param = {}) {
     function toString() { return `Layer ("${layer.name}": ${ctx.constructor.name} [ ${map.width} x ${map.height} ] x ${dpr}) is append to "${layer.parent().attr("name")}".`; }
 }
 ////=====================================================================================
-export async function createRemoteLayer(param = {}) {
-    const map = this;
+export async function createRemoteLayer(param = {}) { const map = this;
     const layer = initLayer(map, param).hide(), { canvas, name, proj, dpr } = layer;
     const offscreen = canvas.transferControlToOffscreen();
-    layer.context = null;
-
-    // 🚨 修正2: 取得したURLを変数に割り当てて起動する
-    let url;
-    if (param.type === 'base') url = baseWorkerUrl;
-    else if (param.type === 'tile') url = tileWorkerUrl;
-    else if (param.type === 'imageOverlay') url = imageOverlayWorkerUrl;
-    else url = standardWorkerUrl;
-
-    const worker = new Worker(url, { type: 'module' });
-
-    worker.onerror = (e) => {
-        if (e.message) {
-            console.error(`🛑 Worker Error [${name}]:`, e.message, "\nFile:", e.filename, "\nLine:", e.lineno);
-        } else {
-            console.error(`🛑 Worker Network Error [${name}]: スクリプトの読み込みに失敗しました。`, url);
-        }
-    };
-
+    const worker = new Worker(tileurl(param.type), { type: 'module' });
     const workers = map.simultaneousTileLoading || navigator.hardwareConcurrency || 4;
     const threshold = map.threshold;
     return new Promise(resolve => {
         let ctxType = null;
-        worker.onmessage = e => {
+        worker.onmessage = e => { console.log(e)
             const data = e.data;
-            if (data.action === "error") {
-                console.error(`🛑 Worker Runtime Error [${name}]:`, data.message, "\n", data.stack);
-                return;
-            }
             if (data.action !== "done") return;
             if (data.type === "init") {
                 ctxType = data.ctx;
@@ -170,8 +147,8 @@ export async function createRemoteLayer(param = {}) {
         map.dispatcher.on(`Resize.${name}`, resize);
         init(); resize();
         ////------------------------------------------------------------------------
-        function init() { worker.postMessage({ type: "init", offscreen, dpr, workers, threshold }, [offscreen]); }
-        function set(cmd, data, prop) {
+        function init() { console.log("init") ; worker.postMessage({ type: "init", offscreen, dpr, workers, threshold }, [offscreen]); }
+        function set(cmd, data, prop) { console.log("set")
             worker.postMessage({ type: "set", cmd, data, prop });
             (cmd === "base") && map.trigger("LoadStart", data);
         }

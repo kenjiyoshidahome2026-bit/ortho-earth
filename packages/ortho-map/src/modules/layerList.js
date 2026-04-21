@@ -49,5 +49,13 @@ const tileURL = function (type) {
 	return ({ cyberjapan, osm, google })[type[0]](type[1]);
 }; 
 	
-export const layerList = layers.map(([name, base, tile, maxZoom, attr, trans])=>
-		({ name, base:base+".webp", tile: tileURL(tile), maxZoom, attr: "orthoEarth / " + attr, trans:lang=>trans[lang]}));
+export const layerList = {};
+layers.map(([name, base, tile, maxZoom, attr, trans])=> {
+	layerList[name] = {
+		base:base+".webp",
+		tile: tileURL(tile),
+		maxZoom, 
+		attr: "orthoEarth / " + attr,
+		trans:lang=>trans[lang]
+	};
+});

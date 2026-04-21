@@ -1,6 +1,5 @@
-import { thenMap, slice, isNumber, isArray, xy2yx } from "common/src/utility.js";
-import { Fetch } from "native-bucket/src/Fetch.js";
-import { Cache } from "native-bucket/src/Cache.js";
+import { thenMap, slice, isNumber, isArray, xy2yx } from "common";
+import { Fetch, Cache } from "native-bucket";
 const parser = new DOMParser(), parseHTML = s => parser.parseFromString(s, "text/html");
 const divide_length = 25;
 const wikiDB = {}, wikiExtract = {};

@@ -2,6 +2,8 @@
 ////	Base CSS for ortho Earth
 //// =================================================================================================
 :root { // Define the parameters
+	--font-size: 13px;
+	--font-family: Verdana, Arial, "Hiragino Kaku Gothic ProN", "Hiragino Sans", Meiryo, sans-serif;
 	--space-color: #000;
 	--earth-filter: drop-shadow(0 0 20px rgba(200,200,200,0.5)) drop-shadow(0 0 5px #006);
 	--bg-color: rgba(0,0,0,0.8);
@@ -12,15 +14,14 @@
 	--radius: 5px;
 	--button-size: 35px;
 	--modal-color: rgba(0,0,0,0.2);
-	--font-size: 13px;
-	--font-family: Verdana, Arial, "Hiragino Kaku Gothic ProN", "Hiragino Sans", Meiryo, sans-serif;
 	--gadget-filter: drop-shadow(0 0 5px rgba(255,255,255,0.5));
 	--bg-backpanel: #222;
 	--fg-backpanel: white;
 	--backpanel-filter: -2px 0px 2px inset rgba(255,255,255,0.1);
 }
 //// =================================================================================================
-html, body { touch-action: none; -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+html, body { position:absolute; inset:0; background:#000; margin:0; padding:0; overscroll-behavior: none;
+       touch-action: none; -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
 //// =================================================================================================
 .overlap-tooltip { font-size: var(--font-size);
 	background: var(--bg-color); color: var(--fg-color);
