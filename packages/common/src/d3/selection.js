@@ -30,12 +30,23 @@ d3.selection.prototype.editable = function(def, exec) {
 ////====================================================
 //// jQuery: css
 ////====================================================
-d3.selection.prototype.css = function(q) {
-	const isNumber = _ => _ != null && _.constructor == Number;
-	const unCamel = _ => _.replace(/[A-Z]/g,t=>"-"+t.toLowerCase());
-	const PX = ["top","buttom","left","right","margin","padding"]
-	Object.entries(q).forEach(([key,val])=>this.style(unCamel(key),(val && isNumber(val) && PX.includes(key))?val+"px":val));
-	return this;
+const unCamel = str => str.replace(/[A-Z]/g, t => "-" + t.toLowerCase());
+const pxProps = new Set([
+    "top", "bottom", "left", "right",
+    "margin", "padding", "width", "height",
+    "margin-top", "margin-bottom", "margin-left", "margin-right",
+    "padding-top", "padding-bottom", "padding-left", "padding-right",
+    "font-size", "border-width"
+]);
+d3.selection.prototype.css = function (q) {
+    Object.entries(q).forEach(([key, val]) => {
+        const kebabKey = unCamel(key);
+        if (typeof val === 'number' && !isNaN(val) && pxProps.has(kebabKey)) {
+            val = val + "px";
+        }
+        this.style(kebabKey, val);
+    });
+    return this;
 };
 ////====================================================
 //// 横方向にスライドするdiv
