@@ -1,6 +1,6 @@
 import * as d3 from 'd3';
-import {comma} from "./utility";
-import {antimeridianCut} from "../../geopbf/src/modules/antimeridianCut";
+import { comma } from "./utility";
+import { antimeridianCut } from "./antimeridianCut";
 
 export function createPolygon(layer, opts = {}) {
     const map = layer.base, { dispatcher, proj, layers, cursor, isTouchDevice, isEditable } = map;
@@ -8,13 +8,16 @@ export function createPolygon(layer, opts = {}) {
     let points = [], cpos, isGenerating = true;
     const { color, width, dash, radius, measure } = Object.assign({ color: "#880000", width: 2, dash: [], radius: [4, 2], measure: false }, opts);
     const fill = `rgba(${[1, 3, 5].map(i => parseInt("0x" + color.substring(i, i + 2))).concat([0.1]).join(",")})`;
+
     cursor("crosshair");
     dispatcher.on("Drawing.polygon", render);
     isTouchDevice || dispatcher.on("Move.polygon", render);
     const reciever = map.overlays.style("pointer-events", "auto");
     const nearDef = ([px, py], err) => { const err2 = err * err; return ([x, y]) => ((px - x) * (px - x) + (py - y) * (py - y) < err2); }
     reciever.on((isTouchDevice ? "touchstart" : "mousedown") + ".generate", generate);
-    layer.get = () => isGenerating ? null : turf.multiPolygon(antimeridianCut(points)).geometry.coordinates;
+
+    layer.get = () => isGenerating ? null : antimeridianCut(points);
+
     layer.exit = () => {
         layer.clear();
         dispatcher.on(".polygon", null);
@@ -31,7 +34,8 @@ export function createPolygon(layer, opts = {}) {
             return edit();
         }
         if (points.length > 2) {
-            if (near(proj(points[points.length - 1])) || near(proj(points[0]))) return edit();
+            const p1 = proj(points[points.length - 1]), p0 = proj(points[0]);
+            if ((p1 && near(p1)) || (p0 && near(p0))) return edit();
         }
         points.push(pt);
         render();
@@ -47,17 +51,20 @@ export function createPolygon(layer, opts = {}) {
             const doc = d3.select(document)
                 .on("mouseup.point mouseleave.point touchend.point", () => { cursor("grab"); doc.on(".point", null); })
                 .on("mousemove.point touchmove.point", e => {
-                    cursor("grabbing"); //e.preventDefault(); e.stopPropagation();
+                    cursor("grabbing");
                     points[num] = proj.invert(map.pointer(e));
                     num == 0 && (points[points.length - 1] = points[0]);
                     render();
                 });
             function search() {
                 const near = nearDef(map.pointer(e), isTouchDevice ? 12 : 6);
-                for (let i = 0; i < points.length - 1; i++) if (near(proj(points[i]))) return i;
                 for (let i = 0; i < points.length - 1; i++) {
-                    var p = proj(turf.midpoint(points[i], points[i + 1]).geometry.coordinates);
-                    if (near(p)) { points.splice(i + 1, 0, p);; return i + 1; }
+                    const p = proj(points[i]);
+                    if (p && near(p)) return i;
+                }
+                for (let i = 0; i < points.length - 1; i++) {
+                    const p = proj(d3.geoInterpolate(points[i], points[i + 1])(0.5));
+                    if (p && near(p)) { points.splice(i + 1, 0, p); return i + 1; }
                 }
                 return -1;
             }
@@ -72,8 +79,9 @@ export function createPolygon(layer, opts = {}) {
         var f = pts2feature(); if (!f) return null;
         draw();
         p.forEach(t => mark(t, radius[0]));
-        p.map((t, i) => i ? turf.midpoint(p[i - 1], t).geometry.coordinates : null).slice(1).forEach(t => mark(t, radius[1]));
+        p.map((t, i) => i ? d3.geoInterpolate(p[i - 1], t)(0.5) : null).slice(1).forEach(t => mark(t, radius[1]));
         measure && distance();
+
         function onGenerating() {
             cpos = (e && e.lng && e.lat) ? [e.lng, e.lat] : cpos;
             cpos && p.length >= 1 && (p = p.concat([cpos]));
@@ -86,30 +94,69 @@ export function createPolygon(layer, opts = {}) {
             ctx.strokeStyle = color; ctx.lineWidth = width; ctx.setLineDash(dash.map(t => t * width / 2)); ctx.stroke();
         }
         function mark(pos, r) {
-            const [x, y] = proj(pos);
+            const projected = proj(pos);
+            if (!projected) return;
+            const [x, y] = projected;
             ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fillStyle = "#fff"; ctx.fill();
             ctx.strokeStyle = color; ctx.lineWidth = width; ctx.stroke();
         }
         function pts2feature() {
-            return p.length > 3 && p[0] == p[p.length - 1] ? turf.multiPolygon(antimeridianCut(p)) :
-                p.length > 1 ? turf.lineString(p) : null;
+            if (p.length > 3 && p[0] == p[p.length - 1]) {
+                const coords = antimeridianCut(p);
+
+                // 🚨 修正点1: 穴あきポリゴンではなく、必ず「独立した複数のリング（MultiPolygon）」として構造化する
+                const isFlat = typeof coords[0][0] === 'number';
+                let multiCoords = isFlat ? [[coords]] : coords.map(ring => [ring]);
+
+                const f = { type: "Feature", geometry: { type: "MultiPolygon", coordinates: multiCoords } };
+
+                // 🚨 修正点2: D3が「地球全体」を塗ってしまうのを防ぐため、面積が半球以上なら点を逆回りにして反転させる
+                if (d3.geoArea(f) > 2 * Math.PI) {
+                    multiCoords = multiCoords.map(poly => poly.map(ring => [...ring].reverse()));
+                    f.geometry.coordinates = multiCoords;
+                }
+
+                return f;
+            } else if (p.length > 1) {
+                return { type: "Feature", geometry: { type: "LineString", coordinates: p } };
+            }
+            return null;
         }
         function distance() {
-            const radius = 6471; let sum = 0;
+            const radius = 6371; // 地球の半径 km
+            let sum = 0;
             const fix = (m, n = 0) => comma(m.toFixed(n));
             const FIX = d => d < 0.1 ? fix(d * 1000, 1) + " m" : d < 1 ? fix(d * 1000, 0) + " m" : d < 10 ? fix(d, 2) + " km" : d < 100 ? fix(d, 1) + " km" : fix(d, 0) + " km";
             const FIXA = d => d < 1e6 ? fix(d) + " m2" : d < 1e9 ? fix(d / 1e6, 3) + " km2" : fix(d / 1e6) + " km2";
             ctx.save();
-            ctx.fillStyle = "#fff"; ctx.font = "12px Arial", ctx.shadowColor = "#000", ctx.shadowBlur = 5;
+            ctx.fillStyle = "#fff"; ctx.font = "12px Arial"; ctx.shadowColor = "#000"; ctx.shadowBlur = 5;
             ctx.textAlign = "center"; ctx.textBaseline = "middle";
+
             for (let i = 0; i < p.length - 1; i++) {
                 var d = d3.geoDistance(p[i], p[i + 1]) * radius; sum += d;
-                ctx.fillText(FIX(d), ...proj(d3.geoInterpolate(p[i], p[i + 1])(0.5)));
+                const mid = proj(d3.geoInterpolate(p[i], p[i + 1])(0.5));
+                if (mid) ctx.fillText(FIX(d), ...mid);
             }
+
             if (p.length > 3) {
-                const [x, y] = proj(d3.geoCentroid(f));
-                ctx.fillText("L= " + FIX(sum), x, y - 8);
-                ctx.fillText("S= " + FIXA(turf.area(f)), x, y + 8);
+                // Featureは常に反転修正されているため、面積は純粋に計算してOK
+                const areaRad = d3.geoArea(f);
+                const areaSqMeters = areaRad * 6371000 * 6371000; // 半径(m)の2乗
+
+                let center = d3.geoCentroid(f);
+                let projected = proj(center);
+                if (!projected) {
+                    let lon = 0, lat = 0;
+                    for (let i = 0; i < p.length - 1; i++) { lon += p[i][0]; lat += p[i][1]; }
+                    center = [lon / (p.length - 1), lat / (p.length - 1)];
+                    projected = proj(center);
+                }
+
+                if (projected) {
+                    const [x, y] = projected;
+                    ctx.fillText("L= " + FIX(sum), x, y - 8);
+                    ctx.fillText("S= " + FIXA(areaSqMeters), x, y + 8);
+                }
             }
             ctx.restore();
         }

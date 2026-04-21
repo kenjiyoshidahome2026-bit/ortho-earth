@@ -1,7 +1,6 @@
 import Pbf from 'pbf';
 import { bufferTub, readBufs } from "./modules/bufferTub.js";
-import { antimeridianFeature } from "./modules/antimeridianFeature.js";
-import { cleanCoords } from "./modules/cleanCoords.js";
+import { cleanCoords, antimeridianFeature } from "common";
 
 const isSimpleObject = _ => Object.prototype.toString.call(_) === '[object Object]' && Object.keys(_).length;
 const isNumber = _ => typeof _ == "number";

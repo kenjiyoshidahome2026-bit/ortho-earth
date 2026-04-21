@@ -1,5 +1,6 @@
 import * as d3 from 'd3';
-import { max, isString, isFunction } from "../../../common/src/utility.js";
+import { max, isString, isFunction } from "common";
+import { gadgetIcons, tooltips } from "../modules/icons.js"
 let loadings = [];
 export function setProp(div, prop) {
     const { fontSize, fontFamily, background, color, borderWidth, borderColor, radius, hoverColor } = prop;
@@ -39,7 +40,7 @@ export function explain(opts = {}) {
     opts.width && div.style("width", opts.width + "px");
     if (!opts.permanent) {
         div.classed("active", true).on("click", e => { e.stopPropagation(); div.empty().hide() });
-        div.append("button").classed("close", true).html(icons.close)
+        div.append("button").classed("close", true).html(gadgetIcons.close)
         //.on("click", e =>{ e.stopPropagation(); div.empty().hide() });
     }
     map.onDrawing(name, () => div.showIF(map.isEditable() && div.text()));
@@ -64,7 +65,7 @@ export function legend(opts = {}) {
         const open = () => (div.resumeShow(btn), btn.hide());
         const close = () => (btn.show().style("visibility", "hidden"), div.shrinkHide(btn, { fallback: () => btn.style("visibility", "visible") }));;;
         div.classed("active", true).on("click", e => (e.stopPropagation(), close(), flag = false));
-        div.append("button").classed("close", true).html(icons.close)
+        div.append("button").classed("close", true).html(gadgetIcons.close)
         const btn = createButton(map, name, opts).hide().onClick(() => (open(), flag = true));
     }
     map.onDrawing(name, () => div.showIF(map.isEditable() && div.text() && flag));
@@ -125,9 +126,9 @@ export function pop(opts = {}) {
         setProp(div, opts);
         const node = div.node();
         const tip = map.select("[name=tip]");
-        const close = div.append("button").classed("close", true).html(icons.close).tip(tooltips.popClose);
+        const close = div.append("button").classed("close", true).html(gadgetIcons.close).tip(tooltips.popClose);
         close.on("click", () => { pops = pops.filter(t => t != div); div.remove(); drawing(); });
-        const pin = div.append("button").classed("pin", true).html(icons.pin).tip(tooltips.lock);
+        const pin = div.append("button").classed("pin", true).html(gadgetIcons.pin).tip(tooltips.lock);
         pin.on("click", () => { close.showIF(!(div.locked = pin.toggleClass("on"))); div.style("cursor", div.locked ? "default" : "grab"); });
         div.on("mouseenter", () => tip.style("display", "none"));
         div.on("mouseleave", () => tip.style("display", "block"));

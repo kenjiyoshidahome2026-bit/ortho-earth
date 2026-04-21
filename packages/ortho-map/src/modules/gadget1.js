@@ -4,16 +4,37 @@ import { datimArray, download } from "common";
 import { cleanup } from "common/d3/tip-pop.js"
 import { createPolygon } from "common";
 import { gadgetIcons, tooltips } from "../modules/icons.js"
+import { layerList } from "../modules/layerList.js";
 
 function createButton(map, name, opts) {
     const icon = opts.icon || gadgetIcons[name]||"<svg/>";
     const tip = opts.tip || tooltips[map.lang][name]||"";
     const target = map.addFrame(opts.target || "leftTop"); if (!target) return console.error("Frame Error");
     var btn = target.append("button").classed("gadget", true).classed("big", opts.big).html(icon).tip(tip);
-    btn.icon = s => btn.html(icons[s]).tip(tooltips[map.lang][s]);
+    btn.icon = s => btn.html(gadgetIcons[s]).tip(tooltips[map.lang][s]);
     btn.tooltip = s => btn.tip(s);
     btn.onClick = func => btn.on("click", e => (e.stopPropagation(), func(e)));
     return btn;
+}
+////--------------------------------------------------------- 背景地図の変更
+export async function layers(opts = {}) {
+    const map = this, name = "layers";
+    const btn = createButton(map, "layer", opts);
+    const listArea = map.overlays.append("div").attr("name", "layerList").classed("noprint", "true").hide();
+    listArea.on("mousemove touchmove", e => e.stopPropagation(), { passive: true });
+    map.onClick(() => (listArea.shrinkHide(btn), btn.classed("flip", false)));
+    btn.onClick(() => {
+        let flip = btn.classed("flip");
+        btn.classed("flip", !flip); if (!btn.classed("flip")) return listArea.shrinkHide(btn);
+        listArea.empty().selectAll("button").data(Object.values(layerList)).enter().append("button").classed("gadget", true)
+            .text(d => d.trans(map.lang)).classed("flip", d => d.name === map.baseName)
+            .on("click", (e, d) => {
+                e.stopPropagation(); if (d.name === map.baseName) return;
+                listArea.shrinkHide(btn); btn.classed("flip", false);
+                map.setBase(d.name);
+            });
+        listArea.resumeShow(btn)
+    });
 }
 /////--------------------------------------------------------- パネル開閉関数の生成(flag:true => 右, flag:false => 左)
 const createPanel = flag => function (opts = {}) {
@@ -57,26 +78,6 @@ const createPanel = flag => function (opts = {}) {
 ////--------------------------------------------------------- 左右パネル開閉
 export const leftPanel = createPanel(false);
 export const rightPanel = createPanel(true);
-////--------------------------------------------------------- 背景地図の変更
-export async function layers(opts = {}) {
-    const map = this, name = "layers";
-    const btn = createButton(map, "layer", opts);
-    const listArea = map.overlays.append("div").attr("name", "layerList").classed("noprint", "true").hide();
-    listArea.on("mousemove touchmove", e => e.stopPropagation(), { passive: true });
-    map.onClick(() => (listArea.shrinkHide(btn), btn.classed("flip", false)));
-    btn.onClick(() => {
-        let flip = btn.classed("flip");
-        btn.classed("flip", !flip); if (!btn.classed("flip")) return listArea.shrinkHide(btn);
-        listArea.empty().selectAll("button").data(map.resources.layers).enter().append("button").classed("gadget", true)
-            .text(d => d.trans(map.lang)).classed("flip", d => d.name === map.baseName)
-            .on("click", (e, d) => {
-                e.stopPropagation(); if (d.name === map.baseName) return;
-                listArea.shrinkHide(btn); btn.classed("flip", false);
-                map.setBase(d.name);
-            });
-        listArea.resumeShow(btn)
-    });
-}
 ////--------------------------------------------------------- 地図のズームイン・ズームアウト
 export async function zoom(opts = {}) {
     const map = this, name = "zoom";

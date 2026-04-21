@@ -1,5 +1,5 @@
 import polygonClipping from 'polygon-clipping';
-import { antimeridianCut } from "./antimeridianCut.js";
+import { antimeridianCut } from "common/antimeridianCut.js";
 export function antimeridianFeature(feature) {
     const { PI, sin, cos, sqrt, asin, atan2, floor, abs, min, max } = Math, d2r = PI / 180, r2d = 180 / PI;
     const p = feature.properties = feature.properties || {}, geom = feature.geometry, type = geom.type;
@@ -42,23 +42,23 @@ export function antimeridianFeature(feature) {
             if (f.length && (f[0][0] !== f[f.length - 1][0] || f[0][1] !== f[f.length - 1][1])) f.push([f[0][0], f[0][1]]);
             return f.length >= 4 ? f : null;
         }).filter(r => r)).filter(p => p.length && p[0].length >= 4);
-		function divideCoords(coords, tub) {
-			return coords.map(poly => (poly || []).map(ring => (ring || []).reduce((q, p1, i) => {
-				if (!i) return [p1];
-				const p0 = ring[i - 1], d = abs(p0[0] - p1[0]), n = 1 + floor(d > 180 ? 360 - d : d);
-				if (n > 2) greatCircleArc(p0, p1, n).forEach(p => (tub[`${p[0].toFixed(10)},${p[1].toFixed(10)}`] = 1, q.push(p)));
-				return q.push(p1), q;
-			}, [])));
-		}
+        function divideCoords(coords, tub) {
+            return coords.map(poly => (poly || []).map(ring => (ring || []).reduce((q, p1, i) => {
+                if (!i) return [p1];
+                const p0 = ring[i - 1], d = abs(p0[0] - p1[0]), n = 1 + floor(d > 180 ? 360 - d : d);
+                if (n > 2) greatCircleArc(p0, p1, n).forEach(p => (tub[`${p[0].toFixed(10)},${p[1].toFixed(10)}`] = 1, q.push(p)));
+                return q.push(p1), q;
+            }, [])));
+        }
     }
     function toClockwise(f) {
-		const fix = r => {
-			let s = 0; for (let j = 0; j < r.length - 1; j++) s += (r[j + 1][0] - r[j][0]) * (r[j + 1][1] + r[j][1]);
-			return s;
-		};
-		const rw = t => (t.type === "Polygon" ? [t.coordinates] : t.coordinates || []).forEach(p => p.forEach((r, i) => {
-			const s = fix(r); if ((!i && s < 0) || (i && s > 0)) r.reverse();
-		}));
-		rw(f.geometry || f); return f;
+        const fix = r => {
+            let s = 0; for (let j = 0; j < r.length - 1; j++) s += (r[j + 1][0] - r[j][0]) * (r[j + 1][1] + r[j][1]);
+            return s;
+        };
+        const rw = t => (t.type === "Polygon" ? [t.coordinates] : t.coordinates || []).forEach(p => p.forEach((r, i) => {
+            const s = fix(r); if ((!i && s < 0) || (i && s > 0)) r.reverse();
+        }));
+        rw(f.geometry || f); return f;
     }
 }

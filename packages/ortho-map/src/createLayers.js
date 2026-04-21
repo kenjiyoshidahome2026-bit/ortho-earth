@@ -147,8 +147,8 @@ export async function createRemoteLayer(param = {}) { const map = this;
         map.dispatcher.on(`Resize.${name}`, resize);
         init(); resize();
         ////------------------------------------------------------------------------
-        function init() { console.log("init") ; worker.postMessage({ type: "init", offscreen, dpr, workers, threshold }, [offscreen]); }
-        function set(cmd, data, prop) { console.log("set")
+        function init() { worker.postMessage({ type: "init", offscreen, dpr, workers, threshold }, [offscreen]); }
+        function set(cmd, data, prop) {
             worker.postMessage({ type: "set", cmd, data, prop });
             (cmd === "base") && map.trigger("LoadStart", data);
         }

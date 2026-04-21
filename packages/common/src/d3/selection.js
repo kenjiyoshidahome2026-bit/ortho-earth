@@ -1,6 +1,6 @@
 import * as d3 from 'd3'; 
 import { isString } from '../utility.js';
-import './loader.scss';
+import './selection.scss';
 d3.selection.prototype.show = function() { return this.classed("hidden", false); };
 d3.selection.prototype.hide = function() { return this.classed("hidden", true); };
 d3.selection.prototype.toggle = function() { return this.classed("hidden", !this.classed("hidden")); };

@@ -11,10 +11,9 @@ function init(data) {
     path = d3.geoPath(proj, ctx = canvas.getContext("2d"));
     postMessage({ type: data.type, action: "done", ctx: ctx.constructor.name });
 }
-async function set(data) { console.log("SET", data.data)
+async function set(data) {
     const toFeatures = json => (json ? json.features ? json.features : Array.isArray(json) ? json : [json] : []);
     data.cmd == "geojson" && jsons.push([toFeatures(data.data), data.prop]);
-    console.log(jsons)
     postMessage({ type: data.type, action: "done" });
 }
 function resize(data) {

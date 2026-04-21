@@ -51,7 +51,7 @@ const tileURL = function (type) {
 	
 export const layerList = {};
 layers.map(([name, base, tile, maxZoom, attr, trans])=> {
-	layerList[name] = {
+	layerList[name] = { name,
 		base:base+".webp",
 		tile: tileURL(tile),
 		maxZoom, 

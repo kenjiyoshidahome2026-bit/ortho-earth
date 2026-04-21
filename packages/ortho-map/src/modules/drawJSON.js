@@ -64,7 +64,7 @@ export function drawJSON(features, prop = {}) {
                 stroke(p.stroke || color, p.width || 2);
                 return;
             }
-        } else { console.log(feature)
+        } else {
             ctx.beginPath(); path(feature);
             p.emboss && stroke(p.emboss === true ? "rgba(255,255,255,0.5)" : p.emboss, p.embossWidth || (p.width || 1) + 2);
             stroke(p.stroke, p.width, p.dash);

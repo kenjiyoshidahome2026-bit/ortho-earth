@@ -1,5 +1,8 @@
+import * as d3 from 'd3';
+import "common/d3/selection.js";
 import { leftPanel, rightPanel, layers, zoom, north, cpos, full, shot, print, measure } from "./modules/gadget1.js"
-import { explain, legend, loading, tip, pop, contextmenu } from "./modules/gadget2.js"
+import { explain, legend, loading, tip, pop, contextmenu } from "./modules/gadget2.js";
+
 export function createGadgets(map) {
     const appendFrame = (name, parent) => map[name] = map[name] || map[parent].append("div").attr("name", name);
     const prependFrame = (name, parent) => map[name] = map[name] || map[parent].prepend("div").attr("name", name);
