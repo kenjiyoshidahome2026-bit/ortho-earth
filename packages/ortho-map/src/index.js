@@ -17,6 +17,7 @@ export async function orthoEarth(opts = {}) {
 	const map = base.append("div");
 	map.base = base.classed("orthoEarthBase", true);
 	map.mapFrame = map.attr("name", "mapFrame");
+	map.lang = { "ja": "ja", "en": "en", "zh": "zh", "ko": "ko" }[navigator.language.slice(0, 2)]||"en";
 	//------------------------------------------------------------------------------------------------
 	map.setProperties = q => {
 		const props = [

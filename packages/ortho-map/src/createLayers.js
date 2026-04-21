@@ -125,7 +125,7 @@ export async function createRemoteLayer(param = {}) { const map = this;
     const threshold = map.threshold;
     return new Promise(resolve => {
         let ctxType = null;
-        worker.onmessage = e => { console.log(e)
+        worker.onmessage = e => {
             const data = e.data;
             if (data.action !== "done") return;
             if (data.type === "init") {

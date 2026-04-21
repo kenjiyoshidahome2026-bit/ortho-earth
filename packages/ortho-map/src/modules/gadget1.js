@@ -4,15 +4,13 @@ import { datimArray, download } from "common";
 import { cleanup } from "common/d3/tip-pop.js"
 import { createPolygon } from "common";
 import { gadgetIcons, tooltips } from "../modules/icons.js"
-const language = navigator.language.slice(0, 2);
-const lang = tooltips[language] ? language : "en";
 
 function createButton(map, name, opts) {
     const icon = opts.icon || gadgetIcons[name]||"<svg/>";
-    const tip = opts.tip || tooltips[lang][name]||"";
+    const tip = opts.tip || tooltips[map.lang][name]||"";
     const target = map.addFrame(opts.target || "leftTop"); if (!target) return console.error("Frame Error");
     var btn = target.append("button").classed("gadget", true).classed("big", opts.big).html(icon).tip(tip);
-    btn.icon = s => btn.html(icons[s]).tip(tooltips[lang][s]);
+    btn.icon = s => btn.html(icons[s]).tip(tooltips[map.lang][s]);
     btn.tooltip = s => btn.tip(s);
     btn.onClick = func => btn.on("click", e => (e.stopPropagation(), func(e)));
     return btn;
@@ -47,12 +45,12 @@ const createPanel = flag => function (opts = {}) {
     }
     async function modal() {
         const revoke = e => { e.stopPropagation(); panel(0, false).then(() => (map.removeFrame("modalFrame"), cleanup(), btn.show())); }
-        map.addFrame("modalFrame").tip(tooltips[lang][tip]).on("click", revoke); btn.hide();
+        map.addFrame("modalFrame").tip(tooltips[map.lang][tip]).on("click", revoke); btn.hide();
         await panel(move, false);
     }
     async function active() {
         const revoke = e => panel(0, true).then(() => btn.icon(rname).onClick(active));
-        await panel(move, true); btn.icon(name).tooltip(tooltips[lang][tip]).onClick(revoke);
+        await panel(move, true); btn.icon(name).tooltip(tooltips[map.lang][tip]).onClick(revoke);
     }
 };
 
@@ -70,7 +68,7 @@ export async function layers(opts = {}) {
         let flip = btn.classed("flip");
         btn.classed("flip", !flip); if (!btn.classed("flip")) return listArea.shrinkHide(btn);
         listArea.empty().selectAll("button").data(map.resources.layers).enter().append("button").classed("gadget", true)
-            .text(d => d.trans(map.resources.lang)).classed("flip", d => d.name === map.baseName)
+            .text(d => d.trans(map.lang)).classed("flip", d => d.name === map.baseName)
             .on("click", (e, d) => {
                 e.stopPropagation(); if (d.name === map.baseName) return;
                 listArea.shrinkHide(btn); btn.classed("flip", false);

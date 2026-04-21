@@ -1,7 +1,7 @@
 import * as d3 from 'd3';
 import { geopbf } from "geopbf";
 import { comma } from "../../common/src/utility.js";
-//import { borderJSONs } from "./modules/borderJSONs.js"
+import { borderJSONs } from "./modules/borderJSONs.js"
 
 export function createAccessories(map, opts) {
     const layer = map.createLayer({ name: "Accessories", append: map.mapFrame });
@@ -17,15 +17,14 @@ export function createAccessories(map, opts) {
     ////--------------------------------------------------------- 左下の緯度・経度・標高
     function latlng() {
         const map = this, name = "latlng";
-        const {lang} = map.resources
-        const _lat = { ja: "緯度", en: "LAT", zh: "纬度", ko: "위도" }[lang];
-        const _lng = { ja: "経度", en: "LNG", zh: "经度", ko: "경도" }[lang];
-        const _alt = { ja: "標高", en: "ALT", zh: "海拔", ko: "고도" }[lang];
+        const _lat = { ja: "緯度", en: "LAT", zh: "纬度", ko: "위도" }[map.lang];
+        const _lng = { ja: "経度", en: "LNG", zh: "经度", ko: "경도" }[map.lang];
+        const _alt = { ja: "標高", en: "ALT", zh: "海拔", ko: "고도" }[map.lang];
         let str = "";
         map.onMove(name, move).onLeave(name, clear).onDrawing(name, draw);
         async function move(q) {
             if (!q || !map.isEditable()) return clear();
-            const h = await map.getHeight(q.lng, q.lat, q.zoom);
+            const h = 0//await map.getHeight(q.lng, q.lat, q.zoom);//TODO
             str = `${_lat}: ${q.lat.toFixed(6)} ${_lng}: ${q.lng.toFixed(6)}${h ? ` ${_alt}: ${h.toFixed(1)}[m]` : ""}`;
             draw();
         }
@@ -91,7 +90,7 @@ export function createAccessories(map, opts) {
     ////--------------------------------------------------------- サブマップ地球(globe)
     async function globe(opts = {}) {
         const map = this, name = "globe";
-        const { sphere, graticule, land110 } = map.resources.borders;
+        const { sphere, graticule, land110 } = await borderJSONs();
         const bottom = map.isNarrow ? 55 : 30, right = 20;
         const size0 = opts.size || 125, size = size0 * window.devicePixelRatio;
         const maxZoom = opts.maxZoom || 9;
