@@ -1,4 +1,4 @@
-//import * as d3 from 'd3';
+import * as d3 from 'd3';
 import { geoOrthographic } from "./geoOrthoGraphic.js";
 //import drawJSON from "../modules/drawJSON.js"
 let canvas, ctx, width, height, dpr, path;
