@@ -4,7 +4,6 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-
 export default defineConfig({
     resolve: {
         // オブジェクトの配列にすることで、「単体で呼ばれた時」と「サブファイルが呼ばれた時」を完璧に振り分けます
@@ -26,6 +25,7 @@ export default defineConfig({
         format: 'es'
     },
     build: {
-        sourcemap: true
-    }
+        sourcemap: true,
+       target: 'esnext' // または 'es2022'
+     }
 });

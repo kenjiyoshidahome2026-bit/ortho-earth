@@ -15,4 +15,4 @@ bucket_name = "my-native-bucket" # <===
 [vars]
 # [WHITELIST] List your website domains (separated by comma)
 # Example: "yourdomain.com,localhost:5173"
-ALLOWED_DOMAINS = "ortho-earth.com,kenjiyoshidahome2026-bit.github.io,localhost:5173" # <===
+ALLOWED_DOMAINS = "ortho-earth.com,kenjiyoshidahome2026-bit.github.io,localhost:5173,localhost:4173" # <===

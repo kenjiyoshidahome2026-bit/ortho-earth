@@ -1,0 +1,14 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "native-bucket",
+  "compatibility_date": "2026-04-22",
+  "observability": {
+    "enabled": true
+  },
+  "assets": {
+    "directory": "dist/client"
+  },
+  "compatibility_flags": [
+    "nodejs_compat"
+  ]
+}
