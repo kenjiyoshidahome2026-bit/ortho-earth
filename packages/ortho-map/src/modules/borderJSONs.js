@@ -1,7 +1,8 @@
 import * as d3 from "d3";
 import { geopbf } from "geopbf";
 const borders = {};
-export const borderJSONs = async () => { if (borders.sphere) return borders;
+export const borderJSONs = async () => {
+	if (borders.sphere) return borders;
 	borders.sphere = { type: "Sphere" };
 	borders.graticule = d3.geoGraticule10();
 	await Promise.all(Object.entries({
@@ -12,5 +13,6 @@ export const borderJSONs = async () => { if (borders.sphere) return borders;
 		"land110": "ne_110m_land",
 		"stars": "stars.8"
 	}).map(([k, v]) => (async() => borders[k] = borders[k] || (await geopbf(v)).geojson)()));
+	console.log(borders)
 	return borders;
 }

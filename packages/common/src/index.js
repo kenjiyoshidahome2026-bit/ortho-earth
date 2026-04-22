@@ -6,9 +6,9 @@ export * from "./antimeridianCut.js";
 export * from "./antimeridianFeature.js";
 export * from "./createPolygon.js";
 export * from "./douglasPeuckerOrtho.js";
-export * from "./history.js";
-export * from "./context2D.js";
-export * from "./urlBOX.js";
-export * from "./laptime.js";
+//export * from "./history.js";
+//export * from "./context2D.js";
+//export * from "./urlBOX.js";
+//export * from "./laptime.js";
 // D3拡張は副作用を伴うので、ここからさらに export はせず
 // 使う側で import "common/d3/selection.js" と書く運用にします

@@ -49,7 +49,7 @@ function drawing(data) {
 	requestAnimationFrame(() => {
 		proj.rotate(data.rotate).scale(data.scale);
 		zoom = Math.log2(data.scale * Math.PI * 2 / 256);
-		if (!ctx || !stars.length) return;
+		if (!ctx || !_star.length) return;
 		ctx.clearRect(0, 0, width, height);
 		(zoom < 2)? drawSky():
 		jsons.forEach(t => drawJSON.call({ ctx, proj, zoom, path, width, height }, ...t));

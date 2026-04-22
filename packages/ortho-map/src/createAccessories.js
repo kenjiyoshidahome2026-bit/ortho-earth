@@ -123,7 +123,7 @@ export function createAccessories(map, opts) {
             const c = f.geometry.coordinates, p = f.properties;
             const bv = (v => v < -0.3 ? "#b2c8ff" : v < 0.0 ? "#d9e2ff" : v < 0.3 ? "#f8faff" : v < 0.6 ? "#fff8f0" :
                 v < 0.8 ? "#fff2c8" : v < 1.1 ? "#ffe0b5" : v < 1.4 ? "#ffcc99" : "#ffab91")(p.bv);
-            return { x: c[0] * rad, y: c[1] * rad, bv, a: 1 - p.mag / 8, mag: p.mag, r: (9 - p.mag) * 0.25 };
+            return { x: c[0] * rad, y: c[1] * rad, bv, a: 1 - p.mag / 25, mag: p.mag, r: (9 - p.mag) * 0.25 };
         });
         const getSidereal = d => ((18.697374 + 24.0657098 * ((d.getTime() + d.getTimezoneOffset() * 60000) / 864e5 + 2440587.5 - 2451545.0)) * 15) % 360;
         function draw() {
@@ -144,7 +144,7 @@ export function createAccessories(map, opts) {
                 const dx = px - cx, dy = py - cy;
                 if (dx * dx + dy * dy < er2 || px < 0 || px > map.width || py < 0 || py > map.height) continue;
                 context.fillStyle = s.bv; context.globalAlpha = s.a;
-                context.beginPath(); context.arc(px, py, s.r || 0.5, 0, PI * 2); context.fill();
+                context.beginPath(); context.arc(px, py, s.r, 0, PI * 2); context.fill();
             }
             context.restore(); context.save();
             const halo = context.createRadialGradient(cx, cy, er, cx, cy, er + 15);
@@ -153,8 +153,8 @@ export function createAccessories(map, opts) {
             context.beginPath(); context.arc(cx, cy, er + 15, 0, PI * 2); context.fill();
             context.beginPath(); context.arc(cx, cy, er, 0, PI * 2); context.clip();
             layer.drawJSON(nightJSON(dt, 0), { fill: "rgba(0, 5, 20, 0.2)" });
-            layer.drawJSON(nightJSON(dt, 3), { fill: "rgba(0, 5, 20, 0.2)" });
-            layer.drawJSON(nightJSON(dt, -3), { fill: "rgba(0, 5, 20, 0.2)" });
+            layer.drawJSON(nightJSON(dt, 5), { fill: "rgba(0, 5, 20, 0.2)" });
+            layer.drawJSON(nightJSON(dt, -5), { fill: "rgba(0, 5, 20, 0.2)" });
             context.restore();
             const L2 = n => n.toString().padStart(2, '0');
             context.textAlign = "center"; context.textBaseline = "middle"; context.fillStyle = "#fff";
@@ -167,8 +167,8 @@ export function createAccessories(map, opts) {
             if (!date) return;
             const fix = n => (n + 180) % 360 - (n < -180 ? -180 : 180);
             const d = date.getTime() / 864e5, y = (d / 365.24 % 1 - 0.225) * PI * 2;
-            const lon = fix(d % 1 * -360 + 180 + offset), lat = 23.4 * sin(y);
-            const ra = 90 * rad, phi = lat * rad, lam = lon * rad;
+            const lng = fix(d % 1 * -360 + 180), lat = 23.4 * sin(y);
+            const ra = (90+offset) * rad, phi = lat * rad, lam = lng * rad;
             const coords = Array.from({ length: 31 }, (_, i) => {
                 const a = (360 - i * 360 / 30) * rad;
                 const lt2 = asin(sin(phi) * cos(ra) + cos(phi) * sin(ra) * cos(a));

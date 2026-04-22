@@ -1,15 +1,14 @@
 import * as d3 from 'd3';
 import "common/d3/selection.js";
 import { drawJSON } from "./modules/drawJSON.js";
-//import { borderJSONs } from "./modules/borderJSONs.js"
+import { borderJSONs } from "./modules/borderJSONs.js"
 import { layerList } from "./modules/layerList.js";
 import { createGetHeight } from "altpbf";
 
 import base from './workers/base.js?worker&url'; 
-import border from './workers/border.js?worker&url';
 import image from './workers/image.js?worker&url';
 import standard from './workers/standard.js?worker&url';
-const workerURL = s => ({ base, border, image }[s] || standard);
+const workerURL = s => ({ base, image }[s] || standard);
 
 export async function createLayers(map) {
     const layers = map.layers = {};
@@ -20,7 +19,7 @@ export async function createLayers(map) {
     map.listOfLayers = () => Object.values(map.layers).map(layer => (layer.toString())).join("\n");
     ////--------------------------------------------------------------------------
     (await createRemoteLayer.call(map, { name: "OrthoMapGL", type: "base", append: map.mapFrame }));
-    (await createBorderLayer.call(map, { name: "OrthoBorder", type: "border", append: map.mapFrame }));
+    (await createRemoteLayer.call(map, { name: "OrthoBorder", append: map.mapFrame }));
     ////--------------------------------------------------------------------------
     map.setBase = name => setBase(map, name);
     const option = {
@@ -28,7 +27,8 @@ export async function createLayers(map) {
         onend: name => map.trigger("LoadEnd", name)
     };
     await Promise.all([setBase(map, map.baseName),
-        /*createGetHeight(option).then(v => map.getHeight = v).then(() => *///setBorder(map)
+        /*createGetHeight(option).then(v => map.getHeight = v).then(() => */
+        setBorder(map)
     ]);
     ////--------------------------------------------------------------------------
     async function setBase(map, name) {
@@ -43,16 +43,16 @@ export async function createLayers(map) {
         if (map.zoom > maxZoom) map.setZoom(maxZoom);
         map.stat("base", map.baseName = name);
     };
-    // async function setBorder(map) {
-    //     const { sphere, graticule, border, maritime, lines } = await borderJSONs();
-    //     const layer = map.layers.OrthoBorder;
-    //     const maxZoom = map.maxBorder, minZoom = map.minEdit;
-    //     layer.set("geojson", sphere, { maxZoom, minZoom, stroke: "rgba(200,200,200,0.8)", width: 0.8 });
-    //     layer.set("geojson", graticule, { maxZoom, minZoom, stroke: "rgba(255,255,255,0.5)", width: 0.5 });
-    //     layer.set("geojson", lines, { maxZoom, minZoom, stroke: "rgba(255,255,255,1)", width: 0.5, dash: [4, 2] });
-    //     layer.set("geojson", border, { maxZoom, minZoom, stroke: "rgba(255,255,255,0.8)", width: 1, dash: [3, 1] });
-    //     layer.set("geojson", maritime, { maxZoom, minZoom, stroke: "rgba(128,128,255,0.8)", width: 0.8, dash: [3, 1] });
-    // };
+    async function setBorder(map) {
+        const { sphere, graticule, border, maritime, lines } = await borderJSONs();
+        const layer = map.layers.OrthoBorder;
+        const maxZoom = map.maxBorder, minZoom = map.minEdit;
+        layer.set("geojson", sphere, { maxZoom, minZoom, stroke: "rgba(200,200,200,0.8)", width: 0.8 });
+        layer.set("geojson", graticule, { maxZoom, minZoom, stroke: "rgba(255,255,255,0.5)", width: 0.5 });
+        layer.set("geojson", lines, { maxZoom, minZoom, stroke: "rgba(255,255,255,1)", width: 0.5, dash: [4, 2] });
+        layer.set("geojson", border, { maxZoom, minZoom, stroke: "rgba(255,255,255,0.8)", width: 1, dash: [3, 1] });
+        layer.set("geojson", maritime, { maxZoom, minZoom, stroke: "rgba(128,128,255,0.8)", width: 0.8, dash: [3, 1] });
+    };
 }
 ////=====================================================================================
 function initLayer(map, param = {}) {
@@ -170,52 +170,3 @@ async function createRemoteLayer(param = {}) {
         function toString() { return `Layer ("${layer.name}": ${ctxType} [ ${map.width} x ${map.height} ] x ${dpr}) is append to "${layer.parent().attr("name")}".`; }
     });
 }
-async function createBorderLayer(param = {}) { return new Promise(resolve => {
-    const map = this;
-    const workers = map.simultaneousTileLoading || navigator.hardwareConcurrency || 4;
-    const threshold = map.threshold;
-    const layer = initLayer(map, param).hide(), { canvas, name, proj, dpr } = layer;
-    const offscreen = canvas.transferControlToOffscreen();
-    const worker = new Worker(workerURL(param.type), { type: 'module' });
-    worker.onerror = e => console.error("Worker Error:", e.message, e.filename, e.lineno);
-    worker.onmessage = e => {
-        console.log("READY")
-        if (e.data.type !== "ready") return;  
-        let ctxType = null;
-        worker.onmessage = e => {
-            const data = e.data;
-            if (data.action !== "done") return;
-            if (data.type === "init") {
-                ctxType = data.ctx;
-                console.log(layer.toString());
-                resolve(layer);
-            }
-            if (data.type === "destroy") terminate();
-            if (data.type === "resize") drawing();
-        };
-        Object.entries({ set, destroy, toString }).forEach(([name, func]) => layer[name] = func);
-        map.dispatcher.on(`Drawing.${name}`, drawing);
-        map.dispatcher.on(`Resize.${name}`, resize);
-        console.log("INIT!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
-        init(); resize();
-        ////------------------------------------------------------------------------
-        function init() { worker.postMessage({ type: "init", offscreen, dpr, workers, threshold }, [offscreen]); }
-        function set(cmd, data, prop) {
-            worker.postMessage({ type: "set", cmd, data, prop });
-            (cmd === "base") && map.trigger("LoadStart", data);
-        }
-        function drawing() { worker.postMessage({ type: "drawing", scale: proj.scale(), rotate: proj.rotate() }); }
-        function resize() {
-            const { width, height } = map;
-            layer.css({ width: width + "px", height: height + "px" });
-            worker.postMessage({ type: "resize", width, height });
-        }
-        function destroy() { worker.postMessage({ type: "destroy" }); }
-        function terminate() {
-            worker.terminate();
-            map.dispatcher.on(`.${name}`, null);
-            layer.remove(); delete map.layers[name];
-        }
-        function toString() { return `Layer ("${layer.name}": ${ctxType} [ ${map.width} x ${map.height} ] x ${dpr}) is append to "${layer.parent().attr("name")}".`; }
-    }
-})}
