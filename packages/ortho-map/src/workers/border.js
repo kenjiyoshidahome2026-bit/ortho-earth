@@ -6,16 +6,12 @@ let canvas, ctx, width, height, dpr, path, zoom;
 const proj = d3.geoOrthographic();
 const { PI, sin, cos, hypot } = Math, rad = PI / 180;
 const getSidereal = d => ((18.697374 + 24.0657098 * ((d.getTime() + d.getTimezoneOffset() * 60000) / 864e5 + 2440587.5 - 2451545.0)) * 15) % 360;
-const funcs = { init, set:()=>{}, drawing, drawn: ()=>{}, resize, destroy };
-onmessage = e => { //console.log(e)
-	funcs[e.data.type] && funcs[e.data.type](e.data);
-}
-
-async function init(data) { console.log("INIT",data)
-let jsons = [], stars = [];
-const { sphere, graticule, border, maritime, lines, stars:starJSON } = await borderJSONs();
+//console.log(await borderJSONs())//let jsons = [], stars = [];
+const borders = await borderJSONs();
+console.log(borders)
+const { sphere, graticule, border, maritime, lines, stars } = borders;
 const maxZoom = 7, minZoom = 2; console.log(graticule, sphere)
-jsons = [
+const jsons = [
 	[ [sphere], { maxZoom, minZoom, stroke: "rgba(255,255,255,0.8)", width: 0.8 }],
 	[ [graticule], { maxZoom, minZoom, stroke: "rgba(255,255,255,0.5)", width: 0.5 }],
 	[ lines.features, { maxZoom, minZoom, stroke: "rgba(255,255,255,1)", width: 0.5, dash: [4, 2] }],
@@ -23,14 +19,20 @@ jsons = [
 	[ maritime.features, { maxZoom, minZoom, stroke: "rgba(128,128,255,0.8)", width: 0.8, dash: [3, 1] }]
 ];
 console.log(jsons)
-stars = starJSON.features.map(f => {
+const _star = stars.features.map(f => {
 	const c = f.geometry.coordinates, p = f.properties;
 	const bv = (v => v < -0.3 ? "#b2c8ff" : v < 0.0 ? "#d9e2ff" : v < 0.3 ? "#f8faff" : v < 0.6 ? "#fff8f0" :
 		v < 0.8 ? "#fff2c8" : v < 1.1 ? "#ffe0b5" : v < 1.4 ? "#ffcc99" : "#ffab91")(p.bv);
 	return { x: c[0] * rad, y: c[1] * rad, bv, a: 1 - p.mag / 8, mag: p.mag, r: (9 - p.mag) * 0.25 };
 });
+postMessage({ type:"ready"});
+console.log(_star);
+const funcs = { init, drawing, resize, destroy };
+onmessage = e => { //console.log(e)
+	funcs[e.data.type] && funcs[e.data.type](e.data);
+}
 
-console.log(starJSON, stars);
+async function init(data) { console.log("INIT",data)
 	canvas = data.offscreen;
 	dpr = data.dpr;
 	path = d3.geoPath(proj, ctx = canvas.getContext("2d"));
@@ -68,7 +70,7 @@ function drawSky() {
 	const skyRot = (getSidereal(dt) - r[0]) * rad;
 	const sφ = sin(r[1] * rad), cφ = cos(r[1] * rad), sγ = sin(r[2] * rad), cγ = cos(r[2] * rad);
 	ctx.save();
-	for (let s of stars) {
+	for (let s of _star) {
 		const l = s.x - skyRot, cl = cos(l), sl = -sin(l);
 		const cp = cos(s.y), sp = sin(s.y);
 		const x = cp * sl, y = cφ * sp - sφ * cp * cl, z = sφ * sp + cφ * cp * cl;

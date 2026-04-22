@@ -19,8 +19,8 @@ export async function createLayers(map) {
     map.removeLayer = name => (layers[name] && layers[name].destroy(), map);
     map.listOfLayers = () => Object.values(map.layers).map(layer => (layer.toString())).join("\n");
     ////--------------------------------------------------------------------------
-    (await map.createRemoteLayer({ name: "OrthoMapGL", type: "base", append: map.mapFrame }));
-    (await map.createRemoteLayer({ name: "OrthoBorder", type: "border", append: map.mapFrame }));
+    (await createRemoteLayer.call(map, { name: "OrthoMapGL", type: "base", append: map.mapFrame }));
+    (await createBorderLayer.call(map, { name: "OrthoBorder", type: "border", append: map.mapFrame }));
     ////--------------------------------------------------------------------------
     map.setBase = name => setBase(map, name);
     const option = {
@@ -117,7 +117,8 @@ export function createLayer(param = {}) {
     function toString() { return `Layer ("${layer.name}": ${ctx.constructor.name} [ ${map.width} x ${map.height} ] x ${dpr}) is append to "${layer.parent().attr("name")}".`; }
 }
 ////=====================================================================================
-export async function createRemoteLayer(param = {}) { const map = this;
+async function createRemoteLayer(param = {}) {
+    const map = this;
     const layer = initLayer(map, param).hide(), { canvas, name, proj, dpr } = layer;
     const offscreen = canvas.transferControlToOffscreen();
     const worker = new Worker(workerURL(param.type), { type: 'module' });
@@ -146,8 +147,7 @@ export async function createRemoteLayer(param = {}) { const map = this;
         map.dispatcher.on(`Drawing.${name}`, drawing);
         map.dispatcher.on(`Drawn.${name}`, drawn);
         map.dispatcher.on(`Resize.${name}`, resize);
-        console.log("INIT!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
-        init(); resize();
+         init(); resize();
         ////------------------------------------------------------------------------
         function init() { worker.postMessage({ type: "init", offscreen, dpr, workers, threshold }, [offscreen]); }
         function set(cmd, data, prop) {
@@ -170,3 +170,52 @@ export async function createRemoteLayer(param = {}) { const map = this;
         function toString() { return `Layer ("${layer.name}": ${ctxType} [ ${map.width} x ${map.height} ] x ${dpr}) is append to "${layer.parent().attr("name")}".`; }
     });
 }
+async function createBorderLayer(param = {}) { return new Promise(resolve => {
+    const map = this;
+    const workers = map.simultaneousTileLoading || navigator.hardwareConcurrency || 4;
+    const threshold = map.threshold;
+    const layer = initLayer(map, param).hide(), { canvas, name, proj, dpr } = layer;
+    const offscreen = canvas.transferControlToOffscreen();
+    const worker = new Worker(workerURL(param.type), { type: 'module' });
+    worker.onerror = e => console.error("Worker Error:", e.message, e.filename, e.lineno);
+    worker.onmessage = e => {
+        console.log("READY")
+        if (e.data.type !== "ready") return;  
+        let ctxType = null;
+        worker.onmessage = e => {
+            const data = e.data;
+            if (data.action !== "done") return;
+            if (data.type === "init") {
+                ctxType = data.ctx;
+                console.log(layer.toString());
+                resolve(layer);
+            }
+            if (data.type === "destroy") terminate();
+            if (data.type === "resize") drawing();
+        };
+        Object.entries({ set, destroy, toString }).forEach(([name, func]) => layer[name] = func);
+        map.dispatcher.on(`Drawing.${name}`, drawing);
+        map.dispatcher.on(`Resize.${name}`, resize);
+        console.log("INIT!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+        init(); resize();
+        ////------------------------------------------------------------------------
+        function init() { worker.postMessage({ type: "init", offscreen, dpr, workers, threshold }, [offscreen]); }
+        function set(cmd, data, prop) {
+            worker.postMessage({ type: "set", cmd, data, prop });
+            (cmd === "base") && map.trigger("LoadStart", data);
+        }
+        function drawing() { worker.postMessage({ type: "drawing", scale: proj.scale(), rotate: proj.rotate() }); }
+        function resize() {
+            const { width, height } = map;
+            layer.css({ width: width + "px", height: height + "px" });
+            worker.postMessage({ type: "resize", width, height });
+        }
+        function destroy() { worker.postMessage({ type: "destroy" }); }
+        function terminate() {
+            worker.terminate();
+            map.dispatcher.on(`.${name}`, null);
+            layer.remove(); delete map.layers[name];
+        }
+        function toString() { return `Layer ("${layer.name}": ${ctxType} [ ${map.width} x ${map.height} ] x ${dpr}) is append to "${layer.parent().attr("name")}".`; }
+    }
+})}
