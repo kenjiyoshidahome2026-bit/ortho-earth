@@ -26,6 +26,6 @@ export default defineConfig({
     },
     build: {
         sourcemap: true,
-       target: 'esnext' // または 'es2022'
-     }
+		target: 'esnext' // または 'es2022'
+    }
 });
