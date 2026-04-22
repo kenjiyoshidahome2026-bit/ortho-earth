@@ -1,19 +1,19 @@
 {
-  "name": "uploader",
-  "private": true,
-  "type": "module",
-  "scripts": {
-    "dev": "vite",
-    "build": "vite build"
-  },
-  "dependencies": {
-    "altpbf": "*",
-    "common": "*",
-    "geotiff": "^3.0.5",
-    "native-bucket": "*",
-    "ortho-map":"*"
-  },
-  "devDependencies": {
-    "vite": "^6.0.0"
-  }
+	"name": "uploader",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"dev": "vite",
+		"build": "vite build"
+	},
+	"dependencies": {
+		"altpbf": "*",
+		"common": "*",
+		"geotiff": "^3.0.5",
+		"native-bucket": "*",
+		"ortho-map":"*"
+	},
+	"devDependencies": {
+		"vite": "^6.0.0"
+	}
 }

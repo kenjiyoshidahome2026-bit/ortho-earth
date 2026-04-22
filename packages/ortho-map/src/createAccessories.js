@@ -1,6 +1,6 @@
 import * as d3 from 'd3';
 import { geopbf } from "geopbf";
-import { comma } from "../../common/src/utility.js";
+import { comma, dateArray, timeArray, L2 } from "common";
 import { borderJSONs } from "./modules/borderJSONs.js"
 
 export function createAccessories(map, opts) {
@@ -118,12 +118,12 @@ export function createAccessories(map, opts) {
     async function night() {
         const { sin, cos, asin, hypot, atan2, PI } = Math, rad = PI / 180;
         const map = this, name = "night";
-        const starsJSON = (await geopbf("stars.8")).geojson;
+        const starsJSON = (await geopbf("stars.6")).geojson;
         const stars = starsJSON.features.map(f => {
             const c = f.geometry.coordinates, p = f.properties;
             const bv = (v => v < -0.3 ? "#b2c8ff" : v < 0.0 ? "#d9e2ff" : v < 0.3 ? "#f8faff" : v < 0.6 ? "#fff8f0" :
                 v < 0.8 ? "#fff2c8" : v < 1.1 ? "#ffe0b5" : v < 1.4 ? "#ffcc99" : "#ffab91")(p.bv);
-            return { x: c[0] * rad, y: c[1] * rad, bv, a: 1 - p.mag / 25, mag: p.mag, r: (9 - p.mag) * 0.25 };
+            return { x: c[0] * rad, y: c[1] * rad, bv, a: 1 - p.mag / 15, mag: p.mag, r: (9 - p.mag) * 0.20 };
         });
         const getSidereal = d => ((18.697374 + 24.0657098 * ((d.getTime() + d.getTimezoneOffset() * 60000) / 864e5 + 2440587.5 - 2451545.0)) * 15) % 360;
         function draw() {
@@ -152,16 +152,17 @@ export function createAccessories(map, opts) {
             context.fillStyle = halo;
             context.beginPath(); context.arc(cx, cy, er + 15, 0, PI * 2); context.fill();
             context.beginPath(); context.arc(cx, cy, er, 0, PI * 2); context.clip();
+            layer.drawJSON(nightJSON(dt, -2), { fill: "rgba(0, 5, 20, 0.1)" });
             layer.drawJSON(nightJSON(dt, 0), { fill: "rgba(0, 5, 20, 0.2)" });
-            layer.drawJSON(nightJSON(dt, 5), { fill: "rgba(0, 5, 20, 0.2)" });
-            layer.drawJSON(nightJSON(dt, -5), { fill: "rgba(0, 5, 20, 0.2)" });
+            layer.drawJSON(nightJSON(dt, 2), { fill: "rgba(0, 5, 20, 0.4)" });
             context.restore();
-            const L2 = n => n.toString().padStart(2, '0');
             context.textAlign = "center"; context.textBaseline = "middle"; context.fillStyle = "#fff";
             context.font = `${32 * (2 - z) + 16}px Verdana`;
-            context.fillText(`${L2(dt.getHours())}:${L2(dt.getMinutes())}:${L2(dt.getSeconds())}`, cx, map.height / 5);
+            const [Y, M, D] = dateArray()
+            const [h, m, s] = timeArray()
+            context.fillText(`${L2(h)}:${L2(m)}:${L2(s)}`, cx, map.height / 5);
             context.font = `${12 * (2 - z) + 8}px Verdana`;
-            context.fillText(`${dt.getFullYear()}/${L2(dt.getMonth() + 1)}/${L2(dt.getDate())} (${["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][dt.getDay()]})`, cx, map.height * 0.85);
+            context.fillText(`${Y}/${L2(M)}/${L2(D)} (${["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][dt.getDay()]})`, cx, map.height * 0.85);
         }
         function nightJSON(date, offset = 0) {
             if (!date) return;

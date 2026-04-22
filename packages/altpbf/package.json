@@ -1,16 +1,16 @@
 {
-  "name": "altpbf",
-  "version": "1.0.0",
-  "type": "module",
-  "main": "src/altpbf.js",
-  "exports": {
-    ".": "./src/altpbf.js",
-    "./src/*": "./src/*"
-  },
-  "dependencies": {
-    "common": "*",
-    "geopbf": "*",
-    "pbf": "^4.0.1",
-    "three": "^0.183.2"
-  }
+	"name": "altpbf",
+	"version": "1.0.0",
+	"type": "module",
+	"main": "src/index.js",
+	"exports": {
+		".": "./src/index.js",
+		"./src/*": "./src/*"
+	},
+	"dependencies": {
+		"common": "*",
+		"geopbf": "*",
+		"pbf": "^4.0.1",
+		"three": "^0.183.2"
+	}
 }

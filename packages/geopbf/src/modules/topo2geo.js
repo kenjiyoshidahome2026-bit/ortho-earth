@@ -1,4 +1,3 @@
-import { GeoPBF } from "../pbf-base.js";
 export function topo2geo(topo) {
     const { arcs, transform, objects } = topo;
     const { scale = [1, 1], translate = [0, 0] } = transform || {};
@@ -14,15 +13,15 @@ export function topo2geo(topo) {
         });
         return coords;
     };
-    const geom = g => { const {type} = g;
-        switch (GeoPBF.geometryMap[type]) {
-            case 0: return { type, coordinates: tran(g.coordinates)};
-            case 1: return { type, coordinates: decodePoints(g.coordinates)};
-            case 2: return { type, coordinates: getCoords(g.arcs)};
-            case 3: return { type, coordinates: g.arcs.map(getCoords)};
-            case 4: return { type, coordinates: g.arcs.map(getCoords)};
-            case 5: return { type, coordinates: g.arcs.map(t => t.map(getCoords))};
-            case 6: return { type, geometries: g.geometries.map(geom)};
+    const geom = g => {
+        switch (g.type) {
+            case "Point": return { type, coordinates: tran(g.coordinates)};
+            case "MultiPoint": return { type, coordinates: decodePoints(g.coordinates)};
+            case "LineString": return { type, coordinates: getCoords(g.arcs)};
+            case "MultiLineString": return { type, coordinates: g.arcs.map(getCoords)};
+            case "Polygon": return { type, coordinates: g.arcs.map(getCoords)};
+            case "MultiPolygon": return { type, coordinates: g.arcs.map(t => t.map(getCoords))};
+            case "GeometryCollection": return { type, geometries: g.geometries.map(geom)};
         }
     }
     const toFeature = g => {

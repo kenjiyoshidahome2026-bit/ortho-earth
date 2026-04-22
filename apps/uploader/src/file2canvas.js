@@ -1,6 +1,6 @@
 import { fromBlob } from 'geotiff'; 
 import { EXRLoader } from 'three/addons/loaders/EXRLoader.js';
-import { comma, thenEach } from "common/src/utility.js";
+import { comma, thenEach } from "common";
 ////================================================================================================
 //// tiffファイルから、equirectangularのcanvasを作成
 ////================================================================================================

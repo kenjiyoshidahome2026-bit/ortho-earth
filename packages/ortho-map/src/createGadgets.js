@@ -23,6 +23,18 @@ export function createGadgets(map) {
     }[name](v));
     map.removeFrame = name => map[name] && (map[name].remove(), map[name] = null);
     ////-----------------------------------------------------------------------------------		
+    map.setProperties = q => {
+        const props = [
+            "--space-color", "--earth-filter", "--bg-color", "--fg-color",
+            "--border-width", "--border-color", "--border-hover", "--radius",
+            "--button-size", "--modal-color", "--font-size", "--font-family",
+            "--gadget-filter", "--bg-backpanel", "--fg-backpanel", "--backpanel-filter"];
+        Object.entries(q).forEach(([name, prop]) => {
+            name = "--" + name.split("").map(t => t.match(/[A-Z]/) ? "-" + t.toLowerCase() : t).join("");
+            props.includes(name) && document.documentElement.style.setProperty(name, prop);
+        });
+    };
+    ////-----------------------------------------------------------------------------------		
     map.gadget = function (name, func) {
         typeof name == 'function' && name.name && (func = name, name = func.name);
         map.gadget[name] = function () { return func.apply(map, arguments) }

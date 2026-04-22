@@ -1,16 +1,16 @@
 {
-  "name": "viewer",
-  "private": true,
-  "type": "module",
-  "scripts": {
-    "dev": "vite",
-    "build": "vite build"
-  },
-  "dependencies": {
-    "ortho-map": "*",
-    "common": "*"
-  },
-  "devDependencies": {
-    "vite": "^6.0.0"
-  }
+	"name": "viewer",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"dev": "vite",
+		"build": "vite build"
+	},
+	"dependencies": {
+		"ortho-map": "*",
+		"common": "*"
+	},
+	"devDependencies": {
+		"vite": "^6.0.0"
+	}
 }

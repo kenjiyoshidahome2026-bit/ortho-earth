@@ -1,14 +1,14 @@
 {
-  "name": "geopbf",
-  "version": "1.0.0",
-  "type": "module",
-  "main": "src/geopbf.js",
-  "exports": {
-    ".": "./src/geopbf.js",
-    "./*": "./*"
-  },
-  "dependencies": {
-    "pbf": "^4.0.1",
-    "native-bucket": "*"
-  }
+	"name": "geopbf",
+	"version": "1.0.0",
+	"type": "module",
+	"main": "src/index.js",
+	"exports": {
+		".": "./src/index.js",
+		"./*": "./*"
+	},
+	"dependencies": {
+		"pbf": "^4.0.1",
+		"native-bucket": "*"
+	}
 }

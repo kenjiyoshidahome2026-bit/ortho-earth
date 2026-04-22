@@ -129,17 +129,17 @@ export async function ALOS(start, count = 10, flag) {
     }
 }
 ////==================================================================================================
-export function HGTColor(n, flag = false) {
-    const AltitudeColor = n =>
+export function AltitudeColor(n, flag = false) {
+    const Altitude = n =>
         n < 200 ? [85, 107, 47, 255] :
             n < 500 ? [124, 150, 90, 255] :
                 n < 1000 ? [189, 183, 107, 255] :
                     n < 2000 ? [180, 130, 70, 255] :
                         n < 4000 ? [130, 80, 60, 255] :
                             n < 6000 ? [100, 60, 40, 255] : [200, 200, 200, 255];
-    const DepthColor = n =>
+    const Depth = n =>
         n < 200 ? [170, 220, 240, 255] :
             n < 2000 ? [100, 180, 210, 255] :
                 n < 6000 ? [40, 100, 150, 255] : [20, 50, 100, 255];
-    return n > 0 ? AltitudeColor(n) : flag ? [0, 0, 0, 0] : DepthColor(n);
+    return n > 0 ? Altitude(n) : flag ? [0, 0, 0, 0] : Depth(n);
 }

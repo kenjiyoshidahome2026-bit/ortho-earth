@@ -1,5 +1,5 @@
-import { comma, thenEach } from "common/src/utility.js";
-import { Logger } from "common/src/logger.js";
+import { comma, thenEach } from "common";
+import { Logger } from "common";
 import { layerList } from "ortho-map/src/modules/layerList.js";
 import { Fetch, Bucket, Cache } from "native-bucket";
 import { tiff2canvas, exr2canvas, tile2canvas } from './file2canvas';
@@ -25,7 +25,7 @@ await thenEach(Object.entries(pbfs), async ([name, original])=>{
 
 const logger = new Logger();
 const layers = {};
-layerList.forEach(t=>layers[t.name] = t);
+Object.values(layerList).forEach(t=>layers[t.name] = t);
 console.log(layers);
 
 
