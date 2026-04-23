@@ -1,26 +1,32 @@
 html, body { position:absolute; inset:0; background:#000; margin:0; padding:0; overscroll-behavior: none;
        touch-action: none; -webkit-touch-callout: none;
-	   font-size:13px;
-	div.cmd { position:absolute; inset:0; right:auto; width:300px;
-		background:#000; padding:0.5em;
+	   font-size:13px; overflow: hidden; 
+	div.command { position:absolute; inset:0; right:auto; width:300px;
+		background:#000; color:#fff; padding:0.5em;
+        h1,h2,h3 { font-size:20px; margin:1em; margin:0.5em; padding:0.5em; text-align:center; }
 		button { font-size:16px; display:block; margin:0.5em; padding:0.5em 1em; cursor:pointer;
 			background:#222; color:#fff; border:1px solid #fff; border-radius:3px;
 			font-family:'Lucida Sans', 'Lucida Sans Regular', 'Lucida Grande', 'Lucida Sans Unicode', Geneva, Verdana, sans-serif;
 			&:hover { background:#eee; color:#000; }
 		}
 	}
-	div.log { position:absolute; inset:0; left:300px;
-		background:#222; color:#fff;
+	div.logArea { position:absolute; inset:0; left:300px; background:#222; color:#fff; overflow:auto; }
+    div.log {
 		font-size:13px; font-family:'Courier New', Courier, monospace; line-height: 1.4em;
-		> p { margin:0; padding:0;
-			table { border-collapse: collapse;
-				tr { 
+		> p { margin:0.5em 1em; padding:0;
+			> table { border-collapse: collapse;
+				tr { &:nth-child(odd) { background:#000; }
 					td { padding:0.1em 0.5em; border:1px solid #888;
 						&.right { text-align:right; }
 					}
 				}
 			}
+            > img { width:100%; }
+            > span { padding-right:1em; }
+            &.title { font-size:150%; font-weight:bold; }
+            &.success { font-size:110%; font-weight:bold; }
+            &.warn { font-size:110%; font-weight:bold; color:#ff0; }
+            &.error { font-size:110%; font-weight:bold; color:#f08; }
 		}
-
 	}
 }

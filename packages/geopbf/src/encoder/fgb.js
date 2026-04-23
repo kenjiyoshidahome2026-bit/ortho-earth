@@ -124,7 +124,7 @@ function encodeFGBFeature(f, keys) {
 
 	return builder.asUint8ArrayWithLengthPrefix(); // 先頭4バイトにサイズを付与
 }
-// packages/geopbf/src/encoder/fgb.js に必要なヘルパー（抜粋）
+
 function flattenCoordinates(geometry) {
 	const pts = [];
 	const walk = coords => {

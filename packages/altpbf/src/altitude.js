@@ -10,7 +10,7 @@ const { save, fileName, lnglat, size, saveIndex, loadIndex } = await altpbf();
 ////	10 degree => 2400 size tile : HGT10
 ////	90 degree => 2400 size tile : HGT90
 ////================================================================================================
-export async function GEBCO(flag = true) {
+export async function GEBCO(flag = true) { debugger
     const source = "GEBCO 2025";
     const SIZE = 21600; console.clear();
     const url = flag ? // true: with ice / false: without ice
@@ -102,7 +102,7 @@ export async function ALOS(start, count = 10, flag) {
             console.log(`[${pos}] ${fname} : complete( ${comma(sum(sizes))} bytes / ${file.length} files )`) :
             console.log(`%c[${pos}] ${fname} : incomplete( ${file.length} files )`, 'color:yellow;');
     }
-    async function createIndex() {
+    async function createIndex() { debugger
         const url = `https://www.eorc.jaxa.jp/ALOS/jp/dataset/aw3d30/data/List_of_all_tiles_in_AW3D30.txt`;
         const L3 = n => ("000" + Math.abs(n)).slice(-3);
         const f3 = n => (n < 0 ? Math.ceil : Math.floor)(Math.abs(n) / 5) * 5 * (n < 0 ? -1 : 1);
