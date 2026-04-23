@@ -9,6 +9,7 @@ GeoPBF is an optimized binary format for geospatial data, built upon Google's Pr
 A GeoPBF file consists of two primary sections: the **Header Section** and the **Body Section**.
 
 ### 1.1 Header Section
+
 The header contains metadata, global dictionaries for property keys, and binary data pools.
 
 | Tag | Field Name  | Protobuf Type | Description |
@@ -21,6 +22,7 @@ The header contains metadata, global dictionaries for property keys, and binary 
 | 4 | `BUFS` | Repeated Bytes | A pool for binary data like Blobs or raw pixel data. |
 
 ### 1.2 Body Section (FARRAY)
+
 The body is a single container field that holds an array of Features.
 
 | Tag | Field Name | Protobuf Type | Description |
@@ -34,6 +36,7 @@ The body is a single container field that holds an array of Features.
 Each Feature contains its geometry and associated properties.
 
 ### 2.1 Geometry Message (Tag 7)
+
 Coordinates are stored as integers (after applying the precision multiplier) and are delta-encoded to minimize storage.
 
 | Tag | Field Name | Protobuf Type | Description |
@@ -44,12 +47,14 @@ Coordinates are stored as integers (after applying the precision multiplier) and
 | 13 | `GARRAY` | Repeated Message | Nested Geometry messages for `GeometryCollection`. |
 
 ### 2.2 Property Encoding (Tags 11, 12)
+
 Properties are encoded using a separate key-index system to avoid redundant strings.
 
 * **Tag 12 (`INDEX`)**: A `Packed Varint` pointing to the indices in the global `KEYS` array.
 * **Tag 11 (`VALUE`)**: A `Repeated Message` containing the actual data, tagged by its type.
 
 #### Supported Data Types (Internal Tag 11)
+
 | Type ID | Name | Format |
 | :--- | :--- | :--- |
 | 0 | `NULL` | None |
@@ -71,10 +76,12 @@ Properties are encoded using a separate key-index system to avoid redundant stri
 GeoPBF utilizes `gint` (Geospatial Integer), a 64-bit coordinate representation based on the Morton curve (Z-order). This allows for extremely fast spatial queries and topological integrity.
 
 ### 3.1 Bit Structure
+
 * **Bit 63 (Terminal Bit)**: If `1`, it represents an **L1 node** (fixed precision, $10^{-7}$). If `0`, it represents an **L2 node**.
 * **Bits 0-5 (VW Weight)**: For L2 nodes, these bits store the Visvalingam-Whyatt (VW) rank (0-63), defining the importance of a vertex for dynamic simplification.
 
 ### 3.2 Benefits
+
 By converting 2D coordinates into a 1D Morton integer, spatial proximity is preserved in numerical order, enabling binary searches for features within a specific area.
 
 ---
