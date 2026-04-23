@@ -1,21 +1,19 @@
 {
-  "name": "gis-hub-workspace",
-  "private": true,
-  "type": "module",
-  "workspaces": [
-    "packages/*",
-    "apps/*"
-  ],
-  "scripts": {
-    "dev:viewer": "npm run dev -w viewer",
-    "dev:uploader": "npm run dev -w uploader"
-  },
-  "dependencies": {
-    "html2canvas": "^1.4.1",
-    "polygon-clipping": "^0.15.7",
-    "versor": "^0.2.0"
-  },
-  "devDependencies": {
-    "sass-embedded": "^1.99.0"
-  }
+	"name": "gis-hub-workspace",
+	"private": true,
+	"type": "module",
+	"workspaces": [ "packages/*", "apps/*" ],
+	"scripts": {
+		"dev:viewer": "npm run dev -w viewer",
+		"dev:uploader": "npm run dev -w uploader"
+	},
+	"dependencies": {
+		"html2canvas": "^1.4.1",
+		"linkedom": "^0.18.12",
+		"polygon-clipping": "^0.15.7",
+		"versor": "^0.2.0"
+	},
+	"devDependencies": {
+		"sass-embedded": "^1.99.0"
+	}
 }

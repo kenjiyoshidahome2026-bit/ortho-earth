@@ -17,6 +17,10 @@ export default defineConfig({
         lib: {
             entry: './src/index.js',
             formats: ['es']
-        }
-    }
+        },
+        external: ['canvas'],
+    },
+	optimizeDeps: {
+		exclude: ['canvas']// 依存関係の事前ビルドからも除外
+	}
 });

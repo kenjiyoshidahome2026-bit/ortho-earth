@@ -1,4 +1,5 @@
 import * as d3 from 'd3';
+import { DOMParser } from 'linkedom';
 import html2canvas from 'html2canvas';
 import { datimArray, download } from "common";
 import { cleanup } from "common/d3/tip-pop.js"

@@ -1,5 +1,6 @@
-import {fname2mime} from "./fname2mime.js";
-import {decodeZIP} from "./decodeZIP.js";
+import { DOMParser } from 'linkedom';
+import { fname2mime } from "./fname2mime.js";
+import { decodeZIP } from "./decodeZIP.js";
 
 /**
  * Fetch - スマートプロキシ対応・キャッシュ対策済み通信ユーティリティ

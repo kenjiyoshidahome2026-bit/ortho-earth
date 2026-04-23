@@ -1,3 +1,4 @@
+import { DOMParser } from 'linkedom';
 import { thenMap, slice, isNumber, isArray, xy2yx } from "common";
 import { Fetch, Cache } from "native-bucket";
 const parser = new DOMParser(), parseHTML = s => parser.parseFromString(s, "text/html");
