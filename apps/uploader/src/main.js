@@ -49,7 +49,6 @@ CMD.append("h1").text("DB Updater");
 CMD.append("button").text("GEBCO(90/10)").on("click", () => GEBCO());
 CMD.append("button").text("base ER pictures").on("click", () => base(q, Object.values(layerList)));
 CMD.append("button").text("borders and stars").on("click", () => borders(q));
-debugger
 await ALOS(0, 1); 
 async function base(q, list) {
 	const dire = `GIS/base`;

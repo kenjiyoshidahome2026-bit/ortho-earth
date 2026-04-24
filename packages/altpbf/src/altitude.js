@@ -1,7 +1,8 @@
 import { fromBlob } from 'geotiff'; 
 import { Fetch, decodeZIP } from "native-bucket";
-import { thenEach, comma, min, sum } from "common";
+import { thenEach, comma, min, sum, L3 } from "common";
 import { altpbf } from "./altpbf.js";
+import { TriangleFanDrawMode } from 'three/src/constants.js';
 const { save, fileName, lnglat, size, saveIndex, loadIndex } = await altpbf();
 
 ////================================================================================================
@@ -10,7 +11,7 @@ const { save, fileName, lnglat, size, saveIndex, loadIndex } = await altpbf();
 ////	10 degree => 2400 size tile : HGT10
 ////	90 degree => 2400 size tile : HGT90
 ////================================================================================================
-export async function GEBCO(flag = true) { debugger
+export async function GEBCO(flag = true) {
     const source = "GEBCO 2025";
     const SIZE = 21600; console.clear();
     const url = flag ? // true: with ice / false: without ice
@@ -74,27 +75,19 @@ export async function GEBCO(flag = true) { debugger
 ////================================================================================================
 export async function ALOS(start, count = 10, flag) {
     const source = "ALOS AW3D30";
-    let error = false; console.clear();
-    const index = await loadIndex() || await createIndex(); console.log(index);
-    const func = flag ? checkTiles : createTiles;
-    thenEach(index.slice(start, start + count), (t, i) => func(start + i, ...t));
+ //   console.clear();
+    const index = (await loadIndex()) || (await createIndex()); console.log(index);
+    thenEach(Object.keys(index).slice(0, 100), t => createTile(t));
     //	---------------------------------------------------------------------------
-    async function createTiles(pos, fname, file) {
-        if (error) return;
-        var dt = new Date();
-        console.log(`-----------------------------------------------------------`);
-        console.log(`%c [${pos}] ${fname} (${file.length})`, 'font-size: 1.5em;');
-        console.log(`-----------------------------------------------------------`);
-        const url = `https://www.eorc.jaxa.jp/ALOS/aw3d30/data/release_v2404/${fname}.zip`;
-        const files = await unzipit(url, { filter: name => name.match(/[NS]\d{3}[WE]\d{3}_DSM\.tif$/), cors: true });
-        if (!files.length) { error = true; console.warn("fail to read: ", url); return }
-        if (files.length != file.length) { error = true; console.warn("mismatch", files.map(t => t.name).sort(), file); return; }
-        console.log(`-----------------------------------------------------------`);
-        await Promise.all(files.map(create01)).catch(e => (error = true, null));
-        files.length = 0;
-        const sizes = await Promise.all(file.map(t => size("HGT01" + t[0])));
-        if (!min(sizes)) { error = true; return; }
-        console.log(`%c${fname} ( ${comma(sum(sizes))} / ${file.length} ) => ${(new Date() - dt) / 1000}[sec]`, 'font-size: 1.5em;');
+    async function createTile(fname) {
+        const dname = get_dname(fname)
+        const dt = new Date();
+        const url = `https://www.eorc.jaxa.jp/ALOS/aw3d30/data/release_v2404/${dname}.zip`, cors = true;
+        const target = `${dname}/ALPSMLC30_${fname}_DSM.tif`
+        console.log(`${url}#${target}`);
+        const file = await Fetch(url, { target, cors });
+        await create01(file);
+        console.log(`${target} ( ${comma(file.size)} ) => ${(new Date() - dt) / 1000}[sec]`);
     }
     async function checkTiles(pos, fname, file) {
         const sizes = await Promise.all(file.map(t => size("HGT01" + t[0])));
@@ -102,22 +95,21 @@ export async function ALOS(start, count = 10, flag) {
             console.log(`[${pos}] ${fname} : complete( ${comma(sum(sizes))} bytes / ${file.length} files )`) :
             console.log(`%c[${pos}] ${fname} : incomplete( ${file.length} files )`, 'color:yellow;');
     }
-    async function createIndex() { debugger
+    async function createIndex() { 
         const url = `https://www.eorc.jaxa.jp/ALOS/jp/dataset/aw3d30/data/List_of_all_tiles_in_AW3D30.txt`;
-        const L3 = n => ("000" + Math.abs(n)).slice(-3);
+        const Q = {};
+        const txt = (await Fetch(url, "text")).split("\n");
+        txt.forEach(t => { const [fname, ver] = t.split(/\s+/);
+            lnglat(fname) && (Q[fname] = ver);
+        });
+        return saveIndex(Q);
+    }
+    function get_dname(fname) {
         const f3 = n => (n < 0 ? Math.ceil : Math.floor)(Math.abs(n) / 5) * 5 * (n < 0 ? -1 : 1);
         const LNG = n => (n < 0 ? "W" : "E") + L3(n), LAT = n => (n < 0 ? "S" : "N") + L3(n);
         const dname = ([x, y]) => LAT(f3(y)) + LNG(f3(x)) + "_" + LAT(f3(y + 5)) + LNG(f3(x + 5));
-        const Q = {};
-        (await Fetch(url, "text")).split("\n").forEach(t => {
-            t = t.split(/\s+/);
-            const xy = lnglat(t[0]); if (!xy) return;
-            const s = dname(xy);
-            Q[s] = Q[s] || []; Q[s].push([t[0], t[1], xy]);
-        })
-        const sort = (p, q) => (p[2][1] == q[2][1]) ? (p[2][0] > q[2][0]) ? 1 : -1 : (p[2][1] > q[2][1]) ? 1 : -1;
-        return saveIndex(Object.entries(Q).map(t => [t[0], t[1].sort(sort), lnglat(t[0])]).sort(sort));
-    }
+        return dname(lnglat(fname));
+     }
     async function create01(file) {
         const name = fileName(lnglat(file.name));
         const tiff = await fromBlob(file); file = null;
@@ -125,7 +117,7 @@ export async function ALOS(start, count = 10, flag) {
         const raster = await image.readRasters();
         if (!raster) return console.error("raster size error", raster);
         const { width, height } = raster, data = raster[0];
-        await save(name, { width, height, data, source });
+        console.log(name, { width, height, data, source });
     }
 }
 ////==================================================================================================

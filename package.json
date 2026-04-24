@@ -2,7 +2,10 @@
 	"name": "gis-hub-workspace",
 	"private": true,
 	"type": "module",
-	"workspaces": [ "packages/*", "apps/*" ],
+	"workspaces": [
+		"packages/*",
+		"apps/*"
+	],
 	"scripts": {
 		"dev:viewer": "npm run dev -w viewer",
 		"dev:uploader": "npm run dev -w uploader"

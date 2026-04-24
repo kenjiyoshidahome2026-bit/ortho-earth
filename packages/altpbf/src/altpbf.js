@@ -89,15 +89,14 @@ export async function altpbf(db = "GIS") {
     }
     
     function isLoading() { return loading; }
-
     function fileName([lng, lat], level = 1) {
         const L2 = n => ("00" + Math.abs(n)).slice(-2);
         const L3 = n => ("000" + Math.abs(n)).slice(-3);
-        return `HGT${L2(level)}${(lat < 0 ? "S" : "N") + L2(lat)}${(lng < 0 ? "W" : "E") + L3(lng)}`;
+        return `HGT${L2(level)}${(lat < 0 ? "S" : "N") + L3(lat)}${(lng < 0 ? "W" : "E") + L3(lng)}`;
     }
 
     function lnglat(s) { // HGT01N35E139 のような形式に対応
-        const r = s.match(/([NS])(\d{2})([WE])(\d{3})/);
+        const r = s.match(/([NS])(\d{3})([WE])(\d{3})/);
         return r ? [(r[3] == "E" ? 1 : -1) * (+r[4]), (r[1] == "N" ? 1 : -1) * (+r[2])] : null;
     }
 
@@ -108,5 +107,5 @@ export async function altpbf(db = "GIS") {
         await bucket.put(file);
         return json;
     }
-    async function loadIndex() { return bucket.exist(IndexName) ? bucket.get(IndexName, "json") : null; }
+    async function loadIndex() { debugger; return (await bucket.exist(IndexName)) ? bucket.get(IndexName, "json") : null; }
 }
