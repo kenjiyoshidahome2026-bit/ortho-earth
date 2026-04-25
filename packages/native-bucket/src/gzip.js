@@ -26,11 +26,11 @@ export async function gzip(file) { //console.log("gzip");
     }
 }
 async function raw(data, flag) {
-    const stream = flag ? CompressionStream : DecompressionStream;
-    const ds = new stream('deflate-raw');
-    const writer = ds.writable.getWriter();
-    await writer.write(data); writer.close();
-    const response = new Response(ds.readable);
+    const streamType = flag ? CompressionStream : DecompressionStream;
+    const ds = new streamType('deflate-raw');
+    const sourceStream = new Blob([data]).stream();
+    const decompressedStream = sourceStream.pipeThrough(ds);
+    const response = new Response(decompressedStream);
     return new Uint8Array(await response.arrayBuffer());
 }
 export async function deflateRaw(data) { return raw(data, true); }

@@ -1,0 +1,18 @@
+div.log {
+	font-size:13px; font-family:'Courier New', Courier, monospace; line-height: 1.4em;
+	> p { margin:0.5em 1em; padding:0;
+		> table { border-collapse: collapse;
+			tr { &:nth-child(odd) { background:#000; }
+				td { padding:0.1em 0.5em; border:1px solid #888;
+					&.right { text-align:right; }
+				}
+			}
+		}
+		> img { width:100%; }
+		> span { padding-right:1em; }
+		&.title { font-size:150%; font-weight:bold; }
+		&.success { font-size:110%; font-weight:bold; }
+		&.warn { font-size:110%; font-weight:bold; color:#ff0; }
+		&.error { font-size:110%; font-weight:bold; color:#f08; }
+	}
+}

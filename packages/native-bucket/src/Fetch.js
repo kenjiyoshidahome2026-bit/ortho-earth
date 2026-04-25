@@ -38,7 +38,7 @@ export async function Fetch(url, opts = {}) {
         // 1. 部分取得 (Rangeリクエスト) を利用する場合
         if (range && target != null) {
             const file = await decodeZIP(targetURL, target);
-            if (file === false) return file; // メタデータ取得モード
+            if (target === false) return file; // メタデータ取得モード
             if (!file) { 
                 console.warn(`file is not exist: ${target} in ${url}`);
                 console.log("zip file includes:", await decodeZIP(targetURL, false));

@@ -1,55 +1,26 @@
 import * as d3 from "d3";
 import "common/d3/selection.js";
+import "./main.scss";
+import { screenLogger } from "./screenLogger.js";
+import "./screenLogger.scss";
 import { comma, isArray, isString, isNumber, isObject, isBlob, unique, concat, thenEach } from "common";
 import { layerList } from "ortho-map/modules/layerList.js";
 import { Fetch, Bucket, Cache } from "native-bucket";
+
 import { tiff2canvas, exr2canvas, tile2canvas } from './file2canvas';
 import { geopbf } from "geopbf";
-import { GEBCO, ALOS } from "altpbf";
-import "./main.scss";
+import { GEBCO } from "altpbf";
 
-class screenLogger {
-	constructor (div) { this.target = div.classed("log", true); }
-	clear(s) { this.target.empty(); }
-	log(...a) {
-		const toS = _ => isString(_)? _.replace(/\n/g,"<br/>"): isNumber(_)? comma(_): JSON.stringify(_);
-		const o2a = o => {
-			const a = unique(concat(o.map(t=>Object.keys(t))));
-			const b = o.map(t=> a.map(v=>t[v]||""));
-			return [a].concat(b);
-		}
-		const isImageBlob = _ => isBlob(_) && _.type.match(/^image/);
-		const p = this.target.append("p");
-		if (a.length == 1) { a = a[0];
-			if (isArray(a) && a.length > 1) { 
-				if (a.every(isObject)) a = o2a(a);
-				if (a.every(isArray)) { const table = p.append("table");
-					a.forEach(t=>{ const tr = table.append("tr");
-						t.forEach(t=>tr.append("td").text(t).classed("right", isNumber(t)))
-					});
-					return
-				}
-			} else if (isImageBlob(a)) {
-				return p.append("img").attr("src", URL.createObjectURL(a));
-			}
-			return p.append("span").html(toS(a));
-		} 
-		a.forEach(t=>p.append("span").html(toS(t)));
-	}
-	title(s) { this.target.append("p").classed("title", true).text("✨ " + s +" ✨"); }
-	warn(s) { this.target.append("p").classed("warn", true).text("⚠️ " + s); }
-	error(s) { this.target.append("p").classed("error", true).text("❌ " + s); }
-	success(s) { this.target.append("p").classed("success", true).text("✅ " + s); }
-}
 const body = d3.select("body");
 const CMD = body.append("div").classed("command", true);
 const LOG = body.append("div").classed("logArea", true);
 const q = new screenLogger(LOG);
+
 CMD.append("h1").text("DB Updater");
-CMD.append("button").text("GEBCO(90/10)").on("click", () => GEBCO());
+CMD.append("button").text("create GEBCO(R90/R10)").on("click", () => GEBCO({year:2026, log:q}));
 CMD.append("button").text("base ER pictures").on("click", () => base(q, Object.values(layerList)));
 CMD.append("button").text("borders and stars").on("click", () => borders(q));
-await ALOS(0, 1); 
+
 async function base(q, list) {
 	const dire = `GIS/base`;
 	const bucket = await Bucket(dire);
