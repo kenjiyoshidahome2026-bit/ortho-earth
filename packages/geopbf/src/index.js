@@ -11,6 +11,7 @@ const getServer = async () => {
     return server;
 }
 //  ----------------------------------------------------------------------------------------
+export { GeoPBF };
 export async function geopbf(data, options = {}) {
     if (isString(options)) options = { name: options };
     logger.title("geopbf"); 

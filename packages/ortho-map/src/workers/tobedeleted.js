@@ -1,41 +1,45 @@
 import * as d3 from 'd3';
-import { drawJSON } from "../modules/drawJSON.js";
+import { drawPBF } from "../modules/drawPBF.js"; // 🌟 drawPBFに変更
 import { borderJSONs } from "../modules/borderJSONs.js";
 
-let canvas, ctx, width, height, dpr, path, zoom;
+let canvas, ctx, width, height, dpr, zoom;
 const proj = d3.geoOrthographic();
 const { PI, sin, cos, hypot } = Math, rad = PI / 180;
 const getSidereal = d => ((18.697374 + 24.0657098 * ((d.getTime() + d.getTimezoneOffset() * 60000) / 864e5 + 2440587.5 - 2451545.0)) * 15) % 360;
-//console.log(await borderJSONs())//let jsons = [], stars = [];
-const borders = await borderJSONs();
-console.log(borders)
-const { sphere, graticule, border, maritime, lines, stars } = borders;
-const maxZoom = 7, minZoom = 2; console.log(graticule, sphere)
-const jsons = [
-	[ [sphere], { maxZoom, minZoom, stroke: "rgba(255,255,255,0.8)", width: 0.8 }],
-	[ [graticule], { maxZoom, minZoom, stroke: "rgba(255,255,255,0.5)", width: 0.5 }],
-	[ lines.features, { maxZoom, minZoom, stroke: "rgba(255,255,255,1)", width: 0.5, dash: [4, 2] }],
-	[ border.features, { maxZoom, minZoom, stroke: "rgba(255,255,255,0.8)", width: 1, dash: [3, 1] }],
-	[ maritime.features, { maxZoom, minZoom, stroke: "rgba(128,128,255,0.8)", width: 0.8, dash: [3, 1] }]
-];
-console.log(jsons)
-const _star = stars.features.map(f => {
-	const c = f.geometry.coordinates, p = f.properties;
-	const bv = (v => v < -0.3 ? "#b2c8ff" : v < 0.0 ? "#d9e2ff" : v < 0.3 ? "#f8faff" : v < 0.6 ? "#fff8f0" :
-		v < 0.8 ? "#fff2c8" : v < 1.1 ? "#ffe0b5" : v < 1.4 ? "#ffcc99" : "#ffab91")(p.bv);
-	return { x: c[0] * rad, y: c[1] * rad, bv, a: 1 - p.mag / 8, mag: p.mag, r: (9 - p.mag) * 0.25 };
-});
-postMessage({ type:"ready"});
-console.log(_star);
-const funcs = { init, drawing, resize, destroy };
-onmessage = e => { //console.log(e)
-	funcs[e.data.type] && funcs[e.data.type](e.data);
-}
 
-async function init(data) { console.log("INIT",data)
+const borders = await borderJSONs();
+const { sphere, graticule, border, maritime, lines, stars } = borders;
+console.log(borders)
+const maxZoom = 7, minZoom = 2; 
+
+// 🌟 .features を外して、GeoPBFをそのまま渡す
+const jsons = [
+	[ sphere, { maxZoom, minZoom, stroke: "rgba(255,255,255,0.8)", width: 0.8 }],
+	[ graticule, { maxZoom, minZoom, stroke: "rgba(255,255,255,0.5)", width: 0.5 }],
+	[ lines, { maxZoom, minZoom, stroke: "rgba(255,255,255,1)", width: 0.5, dash: [4, 2] }],
+	[ border, { maxZoom, minZoom, stroke: "rgba(255,255,255,0.8)", width: 1, dash: [3, 1] }],
+	[ maritime, { maxZoom, minZoom, stroke: "rgba(128,128,255,0.8)", width: 0.8, dash: [3, 1] }]
+];
+
+let _star = [];
+if (stars && stars.features) {
+    _star = stars.features.map(f => {
+        const c = f.geometry.coordinates, p = f.properties;
+        const bv = (v => v < -0.3 ? "#b2c8ff" : v < 0.0 ? "#d9e2ff" : v < 0.3 ? "#f8faff" : v < 0.6 ? "#fff8f0" :
+            v < 0.8 ? "#fff2c8" : v < 1.1 ? "#ffe0b5" : v < 1.4 ? "#ffcc99" : "#ffab91")(p.bv);
+        return { x: c[0] * rad, y: c[1] * rad, bv, a: 1 - p.mag / 8, mag: p.mag, r: (9 - p.mag) * 0.25 };
+    });
+}
+postMessage({ type:"ready"});
+
+const funcs = { init, drawing, resize, destroy };
+onmessage = e => funcs[e.data.type] && funcs[e.data.type](e.data);
+
+async function init(data) { 
 	canvas = data.offscreen;
 	dpr = data.dpr;
-	path = d3.geoPath(proj, ctx = canvas.getContext("2d"));
+    // 🌟 path = d3.geoPath() が完全に消滅しました！
+	ctx = canvas.getContext("2d");
 	postMessage({ type: data.type, action: "done", ctx: ctx.constructor.name });
 }
 
@@ -45,22 +49,25 @@ function resize(data) {
 	proj.fitExtent([[1, 1], [width - 1, height - 1]], { type: "Sphere" });
 	ctx.scale(dpr, dpr);
 }
+
 function drawing(data) {
 	requestAnimationFrame(() => {
 		proj.rotate(data.rotate).scale(data.scale);
 		zoom = Math.log2(data.scale * Math.PI * 2 / 256);
-		if (!ctx || !_star.length) return;
+		if (!ctx) return;
 		ctx.clearRect(0, 0, width, height);
-		(zoom < 2)? drawSky():
-		jsons.forEach(t => drawJSON.call({ ctx, proj, zoom, path, width, height }, ...t));
+		(zoom < 2 && _star.length) ? drawSky() :
+		jsons.forEach(t => drawPBF.call({ ctx, proj, zoom, width, height }, ...t)); // 🌟 drawPBFに変更
 	});
 }
+
 function destroy(data) {
 	canvas && (canvas.width = 0, canvas.height = 0); canvas = null;
-	jsons.length = 0; stars = null;
-	ctx = path = proj = null;
+	jsons.length = 0; _star = [];
+	ctx = proj = null;
 	postMessage({ type: data.type, action: "done" });
 }
+
 function drawSky() {
 	const dt = new Date();
 	const cx = width / 2, cy = height / 2;

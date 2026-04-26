@@ -16,8 +16,9 @@ export async function createLayers(map) {
     map.getLayer = name => layers[name] || map.createLayer({ name });
     map.removeLayer = name => (layers[name] && layers[name].destroy(), map);
     map.listOfLayers = () => Object.values(map.layers).map(layer => (layer.toString())).join("\n");
+    map.setBase = name => setBase(map, name);
     ////--------------------------------------------------------------------------
-    (await createRemoteLayer.call(map, { name: "OrthoMapGL", type: "base", append: map.mapFrame }));
+    (await createRemoteLayer.call(map, { name: "OrthoMapGL", append: map.mapFrame, type: "base" }));
     (await createRemoteLayer.call(map, { name: "OrthoBorder", append: map.mapFrame }));
     ////--------------------------------------------------------------------------
     await Promise.all([setBase(map, map.baseName), setBorder(map) ]);
@@ -36,13 +37,14 @@ export async function createLayers(map) {
     };
     async function setBorder(map) {
         const { sphere, graticule, border, maritime, lines } = await borderJSONs();
+        console.log({ sphere, graticule, border, maritime, lines });
         const layer = map.layers.OrthoBorder;
         const maxZoom = map.maxBorder, minZoom = map.minEdit;
-        layer.set("geojson", sphere, { maxZoom, minZoom, stroke: "rgba(200,200,200,0.8)", width: 0.8 });
-        layer.set("geojson", graticule, { maxZoom, minZoom, stroke: "rgba(255,255,255,0.5)", width: 0.5 });
-        layer.set("geojson", lines, { maxZoom, minZoom, stroke: "rgba(255,255,255,1)", width: 0.5, dash: [4, 2] });
-        layer.set("geojson", border, { maxZoom, minZoom, stroke: "rgba(255,255,255,0.8)", width: 1, dash: [3, 1] });
-        layer.set("geojson", maritime, { maxZoom, minZoom, stroke: "rgba(128,128,255,0.8)", width: 0.8, dash: [3, 1] });
+        layer.set("geopbf", sphere, { maxZoom, minZoom, stroke: "rgba(200,200,200,0.8)", width: 0.8 });
+        layer.set("geopbf", graticule, { maxZoom, minZoom, stroke: "rgba(255,255,255,0.5)", width: 0.5 });
+        layer.set("geopbf", lines, { maxZoom, minZoom, stroke: "rgba(255,255,255,1)", width: 0.5, dash: [4, 2] });
+        layer.set("geopbf", border, { maxZoom, minZoom, stroke: "rgba(255,255,255,0.8)", width: 1, dash: [3, 1] });
+        layer.set("geopbf", maritime, { maxZoom, minZoom, stroke: "rgba(128,128,255,0.8)", width: 0.8, dash: [3, 1] });
     };
 }
 ////=====================================================================================
@@ -112,8 +114,9 @@ async function createRemoteLayer(param = {}) {
     const map = this;
     const layer = initLayer(map, param).hide(), { canvas, name, proj, dpr } = layer;
     const offscreen = canvas.transferControlToOffscreen();
+    console.log(param.type, param)
     const worker = new Worker(workerURL(param.type), { type: 'module' });
-    worker.onerror = e => console.error("Worker Error:", e.message, e.filename, e.lineno);
+    worker.onerror = e => console.error("Worker Error:", e);
     const workers = map.simultaneousTileLoading || navigator.hardwareConcurrency || 4;
     const threshold = map.threshold;
     return new Promise(resolve => {

@@ -1,5 +1,5 @@
 import * as d3 from 'd3';
-import { DOMParser } from 'linkedom';
+import "common/d3/selection.js";
 import html2canvas from 'html2canvas';
 import { datimArray, download } from "common";
 import { cleanup } from "common/d3/tip-pop.js"
@@ -122,6 +122,7 @@ export async function cpos(opts = {}) {
 	</svg>`;
     let flag = false, cpos = [0, 0];
     const svg = (new DOMParser()).parseFromString(blink, 'image/svg+xml').documentElement;
+//    console.log(map.overlays, svg)
     map.overlays.appendNode(svg);
     const target = map.select("svg[name=cpos]").hide();
     const btn = createButton(map, "cpos", opts).onClick(async () => {

@@ -1,9 +1,11 @@
 import * as d3 from 'd3';
 import { geoOrthographic } from "./geoOrthoGraphic.js";
+import { GeoPBF } from "geopbf";
+import  { drawPBF } from "../modules/drawPBF.js"
 import  { drawJSON } from "../modules/drawJSON.js"
 let canvas, ctx, width, height, dpr, path;
 let proj = d3.geoOrthographic(), zoom;
-let jsons = [];
+let pbfs = [], jsons = [];
 const funcs = { init, set, drawing, drawn, resize, destroy };
 onmessage = e => funcs[e.data.type](e.data);
 function init(data) {
@@ -13,6 +15,12 @@ function init(data) {
 }
 async function set(data) {
     const toFeatures = json => (json ? json.features ? json.features : Array.isArray(json) ? json : [json] : []);
+//    data.cmd == "geopbf" && pbfs.push([data.data, data.prop]);
+    if (data.cmd == "geopbf") {
+        // 🌟 メインスレッドからはバイナリ(ArrayBuffer)を受け取り、ここでGeoPBFに復元する
+        const pbf = new GeoPBF().set(data.data);
+        pbfs.push([pbf, data.prop]);
+    }
     data.cmd == "geojson" && jsons.push([toFeatures(data.data), data.prop]);
     postMessage({ type: data.type, action: "done" });
 }
@@ -28,6 +36,7 @@ function drawing(data) {
         proj.rotate(data.rotate).scale(data.scale);
         zoom = Math.log2(data.scale * Math.PI * 2 / 256);
         ctx.clearRect(0, 0, width, height);
+        pbfs.forEach(t => drawPBF.call({ ctx, proj, zoom }, ...t))
         jsons.forEach(t => drawJSON.call({ ctx, proj, zoom, path, width, height }, ...t))
     });
 }
