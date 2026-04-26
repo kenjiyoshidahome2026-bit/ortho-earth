@@ -20,7 +20,7 @@ export class ALOS {
 		this.cache = await Cache(this.dire);
 		const indexName = "index", bucket = this.bucket;
 		this.index = (await loadIndex()) || (await createIndex());
-		console.log(Object.entries(this.index));
+	//	console.log(Object.entries(this.index));
 		return this;
 		async function loadIndex() { return (await bucket.exist(indexName)) ? bucket.get(indexName, "json") : null; }
 		async function createIndex() { const tub = {};

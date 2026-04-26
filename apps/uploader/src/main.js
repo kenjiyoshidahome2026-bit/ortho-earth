@@ -21,9 +21,8 @@ CMD.append("button").text("create GEBCO(R90/R10)").on("click", () => GEBCO({year
 CMD.append("button").text("base ER pictures").on("click", () => base(q, Object.values(layerList)));
 CMD.append("button").text("borders and stars").on("click", () => borders(q));
 
-var getHeight = await createGetHeight({onstart:s=>console.log("start: "+s)});
-console.log(getHeight)
-console.log(await getHeight(135.2,35.2).catch(console.error));
+var getHeight = await createGetHeight({onstart:s=>console.log("start: "+s),onend:s=>console.log("end: "+s)});
+console.log(await getHeight(135.2,35.2,10));
 
 async function base(q, list) {
 	const dire = `GIS/base`;

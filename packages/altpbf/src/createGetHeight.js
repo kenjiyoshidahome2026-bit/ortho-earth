@@ -4,34 +4,46 @@ export async function createGetHeight(opts = {}) {
 	const { max, min, floor } = Math;
 	let clng = null, clat = null, crange = null, current = null;
     const worker = new Worker(new URL(`./worker.js`, import.meta.url), { type: 'module' });
-	let loading = false;
+    const resolvers = new Map();
+    worker.onmessage = e => {
+        const { req_lng, req_lat, req_range, error } = e.data;
+        const key = `${req_lng}_${req_lat}_${req_range}`;
+        const resolve = resolvers.get(key);
+        if (resolve) {
+            resolvers.delete(key);
+            opts.onend && opts.onend(altpbfName(req_lng, req_lat, req_range));
+            if (error) {
+                console.warn("Worker Error:", error);
+                resolve(null);
+            } else {
+                clng = req_lng; clat = req_lat; crange = req_range;
+               resolve.resolve(current = e.data);
+            }
+        }
+    };
+    worker.onerror = e => console.error("Worker Exception:", e);
 	////---------------------------------------------------------------------------------------
-	return async(lng, lat, zoom = Infinity) => {
+	return async (lng, lat, zoom = Infinity) => {
 		const range = (zoom < level1) ? 90 : (zoom < level2) ? 10 : 1;
 		lng += lng < -180 ? 360 : lng > 180 ? -360 : 0;
 		lat = max(min(lat, 89.999), -89.999);
 		const lng0 = floor(lng / range) * range, lat0 = floor(lat / range) * range;
-		console.log(lng0, lat0,range);
-		const v = await load(lng0, lat0, range);
-		return calcHeight((lng - lng0) / range, (lat - lat0) / range, v);
+		return calcHeight((lng - lng0) / range, (lat - lat0) / range, await load(lng0, lat0, range));
 	};
 	////---------------------------------------------------------------------------------------
 	async function load(lng, lat, range) {
-		if (clng == lng && clat == lat && crange == range) return current;
+		if (clng === lng && clat === lat && crange === range) return current;
+        const key = `${lng}_${lat}_${range}`;
+        if (resolvers.has(key)) return resolvers.get(key).promise;
 		const name = altpbfName(lng, lat, range);
-		if (loading) return null;
-		return new Promise(resolve=>{ loading = true;
-			worker.onmessage = e => { loading = false;
-				opts.onend && opts.onend(name);
-				clng = lng, clat = lat, crange = range;
-				resolve(current = e.data);
-			};
-			worker.onerror = e => console.log(e);
-			console.log(worker);
-			worker.postMessage({lng, lat, range});
-			opts.onstart && opts.onstart(name);
-		})
+        let resolveFunc;
+        const promise = new Promise(resolve => { resolveFunc = resolve; });
+        resolvers.set(key, { promise, resolve: resolveFunc });
+        worker.postMessage({ lng, lat, range });
+        opts.onstart && opts.onstart(name);
+        return promise;
 	}
+
 	function calcHeight(x, y, v) {
 		if (!v || !v.data) return 0;
 		const a = v.data, w = v.width, h = v.height;
