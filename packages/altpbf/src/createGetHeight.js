@@ -1,8 +1,9 @@
+import { altpbfName } from "./altpbf.js";
 export async function createGetHeight(opts = {}) {
 	const level1 = opts.level1 || 7, level2 = opts.level2 || 12;
 	const { max, min, floor } = Math;
 	let clng = null, clat = null, crange = null, current = null;
-    const w = new Worker(new URL(`./worker.js`, import.meta.url), { type: 'module' });
+    const worker = new Worker(new URL(`./worker.js`, import.meta.url), { type: 'module' });
 	let loading = false;
 	////---------------------------------------------------------------------------------------
 	return async(lng, lat, zoom = Infinity) => {
@@ -10,21 +11,25 @@ export async function createGetHeight(opts = {}) {
 		lng += lng < -180 ? 360 : lng > 180 ? -360 : 0;
 		lat = max(min(lat, 89.999), -89.999);
 		const lng0 = floor(lng / range) * range, lat0 = floor(lat / range) * range;
-		const v = await load(lng, lat, range);
+		console.log(lng0, lat0,range);
+		const v = await load(lng0, lat0, range);
 		return calcHeight((lng - lng0) / range, (lat - lat0) / range, v);
 	};
 	////---------------------------------------------------------------------------------------
 	async function load(lng, lat, range) {
 		if (clng == lng && clat == lat && crange == range) return current;
+		const name = altpbfName(lng, lat, range);
 		if (loading) return null;
 		return new Promise(resolve=>{ loading = true;
-			opts.onstart && opts.onstart(name);
-			w.postMessage({lng, lat, range});
-			w.onmessage = e => { loading = false;
+			worker.onmessage = e => { loading = false;
 				opts.onend && opts.onend(name);
 				clng = lng, clat = lat, crange = range;
 				resolve(current = e.data);
-			}
+			};
+			worker.onerror = e => console.log(e);
+			console.log(worker);
+			worker.postMessage({lng, lat, range});
+			opts.onstart && opts.onstart(name);
 		})
 	}
 	function calcHeight(x, y, v) {

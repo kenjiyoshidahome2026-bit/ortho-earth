@@ -9,7 +9,7 @@ import { Fetch, Bucket, Cache } from "native-bucket";
 
 import { tiff2canvas, exr2canvas, tile2canvas } from './file2canvas';
 import { geopbf } from "geopbf";
-import { GEBCO } from "altpbf";
+import { GEBCO, createGetHeight } from "altpbf";
 
 const body = d3.select("body");
 const CMD = body.append("div").classed("command", true);
@@ -20,6 +20,10 @@ CMD.append("h1").text("DB Updater");
 CMD.append("button").text("create GEBCO(R90/R10)").on("click", () => GEBCO({year:2026, log:q}));
 CMD.append("button").text("base ER pictures").on("click", () => base(q, Object.values(layerList)));
 CMD.append("button").text("borders and stars").on("click", () => borders(q));
+
+var getHeight = await createGetHeight({onstart:s=>console.log("start: "+s)});
+console.log(getHeight)
+console.log(await getHeight(135.2,35.2).catch(console.error));
 
 async function base(q, list) {
 	const dire = `GIS/base`;
