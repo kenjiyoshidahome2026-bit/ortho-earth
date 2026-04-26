@@ -1,6 +1,7 @@
-import { decode } from "./altpbf.js";
 import { Bucket, Cache } from "native-bucket";
-import { ALOS } from "./altitude.js"
+import { ALOS } from "./alos.js";
+import { decode } from "./altpbf.js";
+
 const bucket = await Bucket("GIS/alt"), cache = await Cache("GIS/alt");
 const alos = new ALOS();
 
