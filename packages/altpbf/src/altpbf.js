@@ -48,9 +48,15 @@ export async function decode(v) {
 	return obj;
 }
 
-export function altpbfName(lng, lat, range) {
+export function encodeName(lng, lat, range) {
 	const latlng = `${(lat < 0 ? "S" : "N")}${L3(Math.abs(lat))}${(lng < 0 ? "W" : "E")}${L3(Math.abs(lng))}`;
 	return (range? `R${L2(range)}`: "") + latlng;
+}
+export function decodeName(s) {
+	const range = +s.substring(1,3);
+	const lat = +s.substring(4, 7)*(s.substring(3, 4)=="S"?-1:1);
+	const lng = +s.substring(8, 11)*(s.substring(7, 8)=="W"?-1:1);
+	return [lng,lat,range];
 }
 
 export async function tiff2raster(file) {

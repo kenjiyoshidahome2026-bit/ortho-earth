@@ -7,7 +7,7 @@
 ////================================================================================================
 import { Fetch, Bucket, Cache } from "native-bucket";
 import { thenEach, comma, L2, L3 } from "common";
-import { encode, decode, altpbfName, tiff2raster } from "./altpbf.js";
+import { encode, decode, encodeName, tiff2raster } from "./altpbf.js";
 export class ALOS {
 	constructor () {
 		this.baseUrl = "https://www.eorc.jaxa.jp/ALOS";
@@ -33,9 +33,9 @@ export class ALOS {
 		}
 	}
 	async get(lng,lat) {
-		const fname = altpbfName(lng, lat); if (!this.index[fname]) return false;
+		const fname = encodeName(lng, lat); if (!this.index[fname]) return false;
 		const range = 1;
-		const name = altpbfName(lng, lat, range);
+		const name = encodeName(lng, lat, range);
 		const source = [this.source, this.index[fname]].join(" ");
 		const buf = await this.cache(name);
 		if (buf) { const v = await decode(buf);

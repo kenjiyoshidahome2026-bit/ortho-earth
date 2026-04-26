@@ -1,6 +1,6 @@
 import { Fetch, Bucket, Cache } from "native-bucket";
 import { thenEach, comma, L2, L3 } from "common";
-import { encode, decode, altpbfName, tiff2raster } from "./altpbf.js";
+import { encode, decode, encodeName, tiff2raster } from "./altpbf.js";
 
 ////================================================================================================
 ////	GEBCO
@@ -45,7 +45,7 @@ export async function GEBCO(opts = {}) {
 	}));
 
 	async function create90(lng, lat, a) { const range = 90;
-		const name = altpbfName(lng, lat, range);
+		const name = encodeName(lng, lat, range);
 		const n = 8, width = SIZE / n, height = SIZE / n;
 		const data = new Int16Array(width * height);
 		let k = 0;
@@ -57,7 +57,7 @@ export async function GEBCO(opts = {}) {
 		await save({name, source, lng, lat, range, width, height, data });
 	}
 	async function create10(lng, lat, a, width, height, x, y) { const range = 10;
-		const name = altpbfName(lng, lat, range);
+		const name = encodeName(lng, lat, range);
 		const data = new Int16Array(width * height);
 		let i, j, n = 0;
 		for (j = 0; j < height; j++) for (i = 0; i < width; i++) {

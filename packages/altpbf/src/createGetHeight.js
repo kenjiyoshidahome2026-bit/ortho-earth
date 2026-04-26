@@ -1,27 +1,25 @@
-import { altpbfName } from "./altpbf.js";
+import { encodeName, decodeName } from "./altpbf.js";
 export async function createGetHeight(opts = {}) {
 	const level1 = opts.level1 || 7, level2 = opts.level2 || 12;
 	const { max, min, floor } = Math;
 	let clng = null, clat = null, crange = null, current = null;
     const worker = new Worker(new URL(`./worker.js`, import.meta.url), { type: 'module' });
     const resolvers = new Map();
+    worker.onerror = e => console.error("Worker Exception:", e);
     worker.onmessage = e => {
-        const { req_lng, req_lat, req_range, error } = e.data;
-        const key = `${req_lng}_${req_lat}_${req_range}`;
-        const resolve = resolvers.get(key);
-        if (resolve) {
-            resolvers.delete(key);
-            opts.onend && opts.onend(altpbfName(req_lng, req_lat, req_range));
-            if (error) {
-                console.warn("Worker Error:", error);
-                resolve(null);
-            } else {
-                clng = req_lng; clat = req_lat; crange = req_range;
-               	resolve(current = e.data);
+        const { name } = e.data;
+        const item = resolvers.get(name);
+        if (item) { resolvers.delete(name);
+            opts.onend && opts.onend(name);
+            if (e.error) {
+                console.warn("Worker Error:", e.error);
+                item.resolve(null);
+            } else { 
+				[clng,clat,crange] = decodeName(name);
+	           	item.resolve(current = e.data);
             }
         }
     };
-    worker.onerror = e => console.error("Worker Exception:", e);
 	////---------------------------------------------------------------------------------------
 	return async (lng, lat, zoom = Infinity) => {
 		const range = (zoom < level1) ? 90 : (zoom < level2) ? 10 : 1;
@@ -33,13 +31,12 @@ export async function createGetHeight(opts = {}) {
 	////---------------------------------------------------------------------------------------
 	async function load(lng, lat, range) {
 		if (clng === lng && clat === lat && crange === range) return current;
-        const key = `${lng}_${lat}_${range}`;
-        if (resolvers.has(key)) return resolvers.get(key).promise;
-		const name = altpbfName(lng, lat, range);
+		const name = encodeName(lng, lat, range);
+        if (resolvers.has(name)) return resolvers.get(name).promise;
         let resolveFunc;
         const promise = new Promise(resolve => { resolveFunc = resolve; });
-        resolvers.set(key, resolveFunc);
-        worker.postMessage({ lng, lat, range });
+        resolvers.set(name, { promise, resolve: resolveFunc }); 
+        worker.postMessage({ name, lng, lat, range });
         opts.onstart && opts.onstart(name);
         return promise;
 	}
