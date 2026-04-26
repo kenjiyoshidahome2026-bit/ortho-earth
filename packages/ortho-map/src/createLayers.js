@@ -3,7 +3,6 @@ import "common/d3/selection.js";
 import { drawJSON } from "./modules/drawJSON.js";
 import { borderJSONs } from "./modules/borderJSONs.js"
 import { layerList } from "./modules/layerList.js";
-import { createGetHeight } from "altpbf";
 
 import base from './workers/base.js?worker&url'; 
 import image from './workers/image.js?worker&url';
@@ -21,15 +20,7 @@ export async function createLayers(map) {
     (await createRemoteLayer.call(map, { name: "OrthoMapGL", type: "base", append: map.mapFrame }));
     (await createRemoteLayer.call(map, { name: "OrthoBorder", append: map.mapFrame }));
     ////--------------------------------------------------------------------------
-    map.setBase = name => setBase(map, name);
-    const option = {
-        onstart: name => map.trigger("LoadStart", name),
-        onend: name => map.trigger("LoadEnd", name)
-    };
-    await Promise.all([setBase(map, map.baseName),
-        /*createGetHeight(option).then(v => map.getHeight = v).then(() => */
-        setBorder(map)
-    ]);
+    await Promise.all([setBase(map, map.baseName), setBorder(map) ]);
     ////--------------------------------------------------------------------------
     async function setBase(map, name) {
         const layer = map.layers.OrthoMapGL;
