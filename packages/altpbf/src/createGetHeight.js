@@ -17,7 +17,7 @@ export async function createGetHeight(opts = {}) {
                 resolve(null);
             } else {
                 clng = req_lng; clat = req_lat; crange = req_range;
-               resolve.resolve(current = e.data);
+               	resolve(current = e.data);
             }
         }
     };
@@ -38,12 +38,11 @@ export async function createGetHeight(opts = {}) {
 		const name = altpbfName(lng, lat, range);
         let resolveFunc;
         const promise = new Promise(resolve => { resolveFunc = resolve; });
-        resolvers.set(key, { promise, resolve: resolveFunc });
+        resolvers.set(key, resolveFunc);
         worker.postMessage({ lng, lat, range });
         opts.onstart && opts.onstart(name);
         return promise;
 	}
-
 	function calcHeight(x, y, v) {
 		if (!v || !v.data) return 0;
 		const a = v.data, w = v.width, h = v.height;
