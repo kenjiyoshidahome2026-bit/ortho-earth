@@ -2,10 +2,13 @@ import * as d3 from 'd3';
 import { geopbf } from "geopbf";
 import { comma, dateArray, timeArray, L2 } from "common";
 import { borderJSONs } from "./modules/borderJSONs.js"
+import { createGetHeight } from "altpbf";
 
-export function createAccessories(map, opts) {
+export async function createAccessories(map, opts) {
     const layer = map.createLayer({ name: "Accessories", append: map.mapFrame });
     const context = layer.context;
+    const option = { onstart: name => map.trigger("LoadStart", name), onend: name => map.trigger("LoadEnd", name) };
+    opts.altitude === false || (map.getHeight = await createGetHeight(option));
  
     Object.entries({ latlng, scale, credit, globe, night })
         .forEach(([name, func]) => map[name] = function () { return func.apply(map, arguments) });
@@ -24,7 +27,7 @@ export function createAccessories(map, opts) {
         map.onMove(name, move).onLeave(name, clear).onDrawing(name, draw);
         async function move(q) {
             if (!q || !map.isEditable()) return clear();
-            const h = 0//await map.getHeight(q.lng, q.lat, q.zoom);//TODO
+            const h = map.getHeight? await map.getHeight(q.lng, q.lat, q.zoom): 0;
             str = `${_lat}: ${q.lat.toFixed(6)} ${_lng}: ${q.lng.toFixed(6)}${h ? ` ${_alt}: ${h.toFixed(1)}[m]` : ""}`;
             draw();
         }
