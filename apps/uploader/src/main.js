@@ -4,7 +4,7 @@ import "./main.scss";
 import { screenLogger } from "./screenLogger.js";
 import "./screenLogger.scss";
 import { comma, isArray, isString, isNumber, isObject, isBlob, unique, concat, thenEach } from "common";
-import { layerList } from "ortho-map/modules/layerList.js";
+import { Layers } from "ortho-map/modules/Layers.js";
 import { Fetch, Bucket, Cache } from "native-bucket";
 
 import { tiff2canvas, exr2canvas, tile2canvas } from './file2canvas';
@@ -18,7 +18,7 @@ const q = new screenLogger(LOG);
 
 CMD.append("h1").text("DB Updater");
 CMD.append("button").text("create GEBCO(R90/R10)").on("click", () => GEBCO({year:2026, log:q}));
-CMD.append("button").text("base ER pictures").on("click", () => base(q, Object.values(layerList)));
+CMD.append("button").text("base ER pictures").on("click", () => base(q, Object.values(Layers)));
 CMD.append("button").text("borders and stars").on("click", () => borders(q));
 
 var getHeight = await createGetHeight({onstart:s=>console.log("start: "+s),onend:s=>console.log("end: "+s)});

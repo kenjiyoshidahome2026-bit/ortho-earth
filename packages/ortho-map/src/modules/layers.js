@@ -49,9 +49,9 @@ const tileURL = function (type) {
 	return ({ cyberjapan, osm, google })[type[0]](type[1]);
 }; 
 	
-export const layerList = {};
+export const Layers = {};
 layers.map(([name, base, tile, maxZoom, attr, trans])=> {
-	layerList[name] = { name,
+	Layers[name] = { name,
 		base:base+".webp",
 		tile: tileURL(tile),
 		maxZoom, 

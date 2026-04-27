@@ -136,7 +136,7 @@ html, body { position:absolute; inset:0; background:#000; margin:0; padding:0; o
 		}
 	}
 //// ---------------------------------------------------------
-	[name=layerList] {
+	[name=Layers] {
 		position: absolute; inset: 10px auto auto 55px; width: 160px;
 		border: 1px solid; border-color: var(--border-color); border-radius: var(--radius);
 		> button.gadget {

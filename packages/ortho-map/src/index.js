@@ -1,5 +1,5 @@
 import * as d3 from 'd3';
-import {Logger} from "common";
+import { Logger } from "common";
 import "common/d3/selection.js";
 import "common/d3/loader.js";
 ////-------------------------------------------------------

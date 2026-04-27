@@ -5,7 +5,7 @@ import { datimArray, download } from "common";
 import { cleanup } from "common/d3/tip-pop.js"
 import { createPolygon } from "common";
 import { gadgetIcons, tooltips } from "../modules/icons.js"
-import { layerList } from "../modules/layerList.js";
+import { Layers } from "./layers.js";
 
 function createButton(map, name, opts) {
     const icon = opts.icon || gadgetIcons[name]||"<svg/>";
@@ -21,13 +21,13 @@ function createButton(map, name, opts) {
 export async function layers(opts = {}) {
     const map = this, name = "layers";
     const btn = createButton(map, "layer", opts);
-    const listArea = map.overlays.append("div").attr("name", "layerList").classed("noprint", "true").hide();
+    const listArea = map.overlays.append("div").attr("name", "Layers").classed("noprint", "true").hide();
     listArea.on("mousemove touchmove", e => e.stopPropagation(), { passive: true });
     map.onClick(() => (listArea.shrinkHide(btn), btn.classed("flip", false)));
     btn.onClick(() => {
         let flip = btn.classed("flip");
         btn.classed("flip", !flip); if (!btn.classed("flip")) return listArea.shrinkHide(btn);
-        listArea.empty().selectAll("button").data(Object.values(layerList)).enter().append("button").classed("gadget", true)
+        listArea.empty().selectAll("button").data(Object.values(Layers)).enter().append("button").classed("gadget", true)
             .text(d => d.trans(map.lang)).classed("flip", d => d.name === map.baseName)
             .on("click", (e, d) => {
                 e.stopPropagation(); if (d.name === map.baseName) return;

@@ -1,20 +1,17 @@
 import { GeoPBF } from "./pbf.js";
 import { pbfio } from "./pbf-io.js";
-import { Logger } from "common";
 import { topo2geo } from "./modules/topo2geo.js";
 import { gunzip, isGzip } from "native-bucket";
-import { isString, isURL, isFile, isObject, isBuffer } from "common/utility.js"
-const logger = new Logger();
+import { isString, isURL, isFile, isObject, isBuffer } from "common"
+//const console = new Logger();
 let server = null;
 const getServer = async () => {
-    server = server || pbfio("GIS").catch(e => { logger.warn("PBFIO initialization failed.", e); return null; });
+    server = server || pbfio("GIS").catch(e => { console.warn("PBFIO initialization failed.", e); return null; });
     return server;
 }
 //  ----------------------------------------------------------------------------------------
-export { GeoPBF };
-export async function geopbf(data, options = {}) {
-    if (isString(options)) options = { name: options };
-    logger.title("geopbf"); 
+export async function geopbf(data, options = {}) { if (isString(options)) options = { name: options };
+    const dt = performance.now();
     const isInZip = _ => (_.match(/.+\.zip#.+/i));
     const isPBF = _ => (_ instanceof GeoPBF);
 
@@ -25,15 +22,15 @@ export async function geopbf(data, options = {}) {
         const w = new Worker(url, { type: 'module' });
         return new Promise(resolve => {
             w.onmessage = async e => { w.terminate(); resolve(e.data ? new GeoPBF(options).set(e.data.data) : null); };
-            w.onerror = () => { w.terminate(); logger.error(`file decode error: [${type}]`); resolve(null); };
+            w.onerror = () => { w.terminate(); console.error(`file decode error: [${type}]`); resolve(null); };
             w.postMessage(params);
         });
     }
 
     const pbf = await _geopbf(data);
-    pbf && logger.success(`geopbf: ${pbf.name()} (${pbf.size.toLocaleString()} bytes)`);
+    pbf && console.log(`[geopbf] ✅ ${pbf.name()} (${pbf.size.toLocaleString()} bytes) ${(performance.now()-dt).toFixed(2)} msec`);
     return pbf || new GeoPBF(options);
-    async function _geopbf(q) { //console.log(q); debugger
+    async function _geopbf(q) {
         if (!q) return null;
         if (isPBF(q)) return q;
         if (isBuffer(q)) return new GeoPBF(options).set(q);
@@ -48,7 +45,7 @@ export async function geopbf(data, options = {}) {
             if (name.match(/\.gpx$/i)) return _geopbf(await decoder("gpx", q));
             if (name.match(/\.(gml|xml)$/i)) return _geopbf(await decoder("gml", q));
             if (name.match(/\.gz(ip)?$/i)) return _geopbf(await gunzip(q));
-            logger.warn("illegal file:", name);
+            console.warn("illegal file:", name);
         }
         if (isObject(q)) {
             q = toFeatureCollection(q);
@@ -87,7 +84,7 @@ const encoder = async (pbf, type, gz, encoding) => {
     const name = pbf._name, buf = pbf.arrayBuffer;
     return new Promise(resolve => {
         w.onmessage = e => { w.terminate(); resolve(e.data); };
-        w.onerror = () => { w.terminate(); logger.error(`pbf encode error: [${type}]`); resolve(null); };
+        w.onerror = () => { w.terminate(); console.error(`pbf encode error: [${type}]`); resolve(null); };
         w.postMessage({ buf, name, gz, encoding }, [buf]);
     });
 };

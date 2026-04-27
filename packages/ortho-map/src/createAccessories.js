@@ -1,9 +1,8 @@
 import * as d3 from 'd3';
 import { geopbf } from "geopbf";
 import { comma, dateArray, timeArray, L2 } from "common";
-import { Borders } from "./modules/Borders.js"
 import { createGetHeight } from "altpbf";
-import { drawPBF } from "./modules/drawPBF.js"; // 🌟 drawPBFをインポートしておく
+import { drawPBF } from "./modules/_drawPBF.js"; // 🌟 drawPBFをインポートしておく
 
 export async function createAccessories(map, opts) {
     const layer = map.createLayer({ name: "Accessories", append: map.mapFrame });
@@ -94,9 +93,9 @@ export async function createAccessories(map, opts) {
     ////--------------------------------------------------------- サブマップ地球(globe)
     async function globe() {
         const map = this, name = "globe";
-        const { graticule: _graticule, land110: _land110 } = await Borders();
         const sphere = { type: "Sphere" };
-        const graticule = _graticule.geojson, land110 = _land110.geojson;
+        const graticule = d3.geoGraticule10();
+        const land110 = (await geopbf("ne_110m_land")).geojson;
         const bottom = map.isNarrow ? 55 : 30, right = 20;
         const size0 = 125, size = size0 * dpr;
         const maxZoom = 9;
@@ -124,8 +123,7 @@ export async function createAccessories(map, opts) {
     async function night() {
         const map = this, name = "night";
         const { sin, cos, asin, hypot, atan2, PI } = Math, rad = PI / 180;
-        const { stars } = await Borders();
-        const starList = stars.geojson.features.map(f => {
+        const stars = (await geopbf("stars.6")).geojson.features.map(f => {
             const c = f.geometry.coordinates, p = f.properties;
             const bv = (v => v < -0.3 ? "#b2c8ff" : v < 0.0 ? "#d9e2ff" : v < 0.3 ? "#f8faff" : v < 0.6 ? "#fff8f0" :
                 v < 0.8 ? "#fff2c8" : v < 1.1 ? "#ffe0b5" : v < 1.4 ? "#ffcc99" : "#ffab91")(p.bv);
@@ -142,7 +140,7 @@ export async function createAccessories(map, opts) {
             const skyRot = (getSidereal(dt) - r[0]) * rad;
             const sφ = sin(r[1] * rad), cφ = cos(r[1] * rad), sγ = sin(r[2] * rad), cγ = cos(r[2] * rad);
             layer.clear(); context.save();
-            for (let s of starList) {
+            for (let s of stars) {
                 const l = s.x - skyRot, cl = cos(l), sl = -sin(l);
                 const cp = cos(s.y), sp = sin(s.y);
                 const x = cp * sl, y = cφ * sp - sφ * cp * cl, z = sφ * sp + cφ * cp * cl; if (z < 0) continue;

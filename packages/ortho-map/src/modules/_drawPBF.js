@@ -1,4 +1,4 @@
-import { GeoPBF } from "geopbf";
+//import { GeoPBF } from "geopbf";
 import { isFunction, isArray } from "common";
 
 export function drawPBF(data, prop = {}) {

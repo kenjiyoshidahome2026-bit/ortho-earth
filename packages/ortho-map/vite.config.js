@@ -10,15 +10,33 @@ export default defineConfig({
             'altpbf': resolve(__dirname, '../altpbf/src'),
         }
     },
-    worker: { format: 'es' },
+    worker: {
+        format: 'es',
+        // Worker内で使われるライブラリをすべて一つのファイルにまとめる設定
+        rollupOptions: {
+            output: {
+                inlineDynamicImports: true
+            }
+        }
+    },
     build: {
         minify: false,
         sourcemap: true,
         lib: {
             entry: './src/index.js',
+            fileName: 'index',
             formats: ['es']
         },
-        external: ['canvas'],
+        rollupOptions: {
+            // ライブラリモードで外部依存関係を正しく処理するため
+            external: ['canvas', 'd3'], 
+            output: {
+                globals: {
+                    canvas: 'Canvas',
+                    d3: 'd3'
+                }
+            }
+        }
     },
 	optimizeDeps: {
 		exclude: ['canvas']// 依存関係の事前ビルドからも除外

@@ -1,16 +1,15 @@
 import nativeBucket from "native-bucket";
 import { geoOrthographic } from "./geoOrthoGraphic.js";
 import { orthoGL2 } from "./orthoGL2.js";
-import { layerList } from "../modules/layerList.js";
+import { Layers } from "../modules/Layers.js";
 
 const { Bucket, Cache } = nativeBucket();
-const dire = "GIS/base";
-const proj = geoOrthographic();
 
-let canvas, gl, width, height, dpr;
+const proj = geoOrthographic();
+let bucket, cache, canvas, gl, width, height;
 let isMoving = false;
 
-let baseCache, baseBucket, baseName = "", baseTexture = null;
+let baseName = "", baseTexture = null;
 
 const { PI, floor, ceil, max, min, round, hypot, sin, asin, sinh, tanh, atanh, atan, atan2, cos, abs, log2, sqrt } = Math;
 const rad = PI / 180, deg = 180 / PI;
@@ -35,47 +34,38 @@ let layerSession = 0;
 const funcs = { init, set, drawing, drawn, resize, destroy };
 onmessage = e => funcs[e.data.type](e.data);
 
-function init(data) {
-	dpr = data.dpr;
+async function init(data) {
 	canvas = data.offscreen;
-	gl = orthoGL2(canvas.getContext("webgl2"), dpr);
-
+	gl = orthoGL2(canvas.getContext("webgl2"), data.dpr);
+	const dire = "GIS/base";
+	bucket = bucket || await Bucket(dire);
+	cache = cache || await Cache(dire);
 	MasterTub = []; WorkerTub = [];
 	for (let i = 0; i < data.workers; i++) {
 		const w = new Worker(workerURL);
 		MasterTub.push(w);
 		WorkerTub.push(w);
 	}
-
 	delete data.offscreen;
 	postMessage(Object.assign(data, { action: "done", type: "init", ctx: gl.constructor.name }));
 }
 
 async function set(data) {
 	if (data.cmd === "base") {
-		const bname = layerList[data.data].base;
+		const bname = Layers[data.data].base;
 		if (baseName === bname) return postMessage(Object.assign(data, { action: "done", type: "set" }));
-		const key = `- loading Base Image "(${bname})"`;
-		console.time(key);
-		baseCache = baseCache || await Cache(dire);
-		let bm = await baseCache(bname);
+		const dt = performance.now();
+		let bm = await cache(bname);
 		if (!bm) {
-			baseBucket = baseBucket || await Bucket(dire);
 			baseTexture && gl.deleteTexture(baseTexture); baseTexture = null;
-			await baseCache(bname, bm = await createImageBitmap(await baseBucket.get(bname)));
+			await cache(bname, bm = await createImageBitmap(await bucket.get(bname)));
 		}
+		console.log(`[orth-earth] ✅ Base Image "${bname}" ${(performance.now()-dt).toFixed(2)} msec`);
 		baseTexture && gl.deleteTexture(baseTexture); baseTexture = null;
-
-		// ✅ ここでベース専用の関数を使う
 		baseTexture = gl.createBaseTexture(bm);
-
 		bm = null; baseName = bname;
-		console.timeEnd(key);
-		postMessage(Object.assign(data, { action: "done", type: "set" }));
-
 		drawing();
-	}
-	else if (data.cmd === "tile" && data.data) {
+	////--------------------------------------------------
 		layerSession++;
 		minZoom = data.prop;
 		const count = MasterTub.length;
@@ -91,7 +81,7 @@ async function set(data) {
 			TileTub.forEach((img, key) => img && removeImage(img));
 			TileTub.clear();
 		}
-		TileServer = createTileServer(layerList[data.data].tile);
+		TileServer = createTileServer(Layers[data.data].tile);
 		finalize();
 		postMessage(Object.assign(data, { action: "done", type: "set" }));
 	}
@@ -109,10 +99,8 @@ function drawing(data) {
 		proj.rotate(data.rotate).scale(data.scale);
 		zoom = log2(data.scale * PI * 2 / 256);
 	}
-
 	gl.clearContext();
 	if (baseTexture) gl.drawBase(baseTexture, proj);
-
 	if (TileServer && zoom > minZoom) {
 		getTileArray().forEach(([key, [img, locs]]) => {
 			if (img) {
