@@ -44,7 +44,7 @@ class PBFIO {
             console.error(`PBF get error: file(${name}) is not exist.`);
             if (val) await this.cache(name, null);
             return null;
-        } else if (ETag == val.ETag) {
+        } else if (val && ETag == val.ETag) {
             return new GeoPBF().set(val.Buff);        
         }
         return new GeoPBF().set(await this._sync(name, ETag));
