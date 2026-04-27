@@ -1,15 +1,17 @@
 import * as d3 from 'd3';
 import { geopbf } from "geopbf";
 import { comma, dateArray, timeArray, L2 } from "common";
-import { borderJSONs } from "./modules/borderJSONs.js"
+import { Borders } from "./modules/Borders.js"
 import { createGetHeight } from "altpbf";
+import { drawPBF } from "./modules/drawPBF.js"; // 🌟 drawPBFをインポートしておく
 
 export async function createAccessories(map, opts) {
     const layer = map.createLayer({ name: "Accessories", append: map.mapFrame });
+    const dpr = window.devicePixelRatio || 1;
     const context = layer.context;
     const option = { onstart: name => map.trigger("LoadStart", name), onend: name => map.trigger("LoadEnd", name) };
     opts.altitude === false || (map.getHeight = await createGetHeight(option));
- 
+
     Object.entries({ latlng, scale, credit, globe, night })
         .forEach(([name, func]) => map[name] = function () { return func.apply(map, arguments) });
     opts.latlng === false || map.latlng();//左下の緯度経度標高表示
@@ -20,14 +22,14 @@ export async function createAccessories(map, opts) {
     ////--------------------------------------------------------- 左下の緯度・経度・標高
     function latlng() {
         const map = this, name = "latlng";
-        const _lat = { ja: "緯度", en: "LAT", zh: "纬度", ko: "위도" }[map.lang];
-        const _lng = { ja: "経度", en: "LNG", zh: "经度", ko: "경도" }[map.lang];
-        const _alt = { ja: "標高", en: "ALT", zh: "海拔", ko: "고도" }[map.lang];
+        const _lat = { en: "LAT", ja: "緯度", zh: "纬度", ko: "위도" }[map.lang];
+        const _lng = { en: "LNG", ja: "経度", zh: "经度", ko: "경도" }[map.lang];
+        const _alt = { en: "ALT", ja: "標高", zh: "海拔", ko: "고도" }[map.lang];
         let str = "";
         map.onMove(name, move).onLeave(name, clear).onDrawing(name, draw);
         async function move(q) {
             if (!q || !map.isEditable()) return clear();
-            const h = map.getHeight? await map.getHeight(q.lng, q.lat, q.zoom): 0;
+            const h = map.getHeight ? await map.getHeight(q.lng, q.lat, q.zoom) : 0;
             str = `${_lat}: ${q.lat.toFixed(6)} ${_lng}: ${q.lng.toFixed(6)}${h ? ` ${_alt}: ${h.toFixed(1)}[m]` : ""}`;
             draw();
         }
@@ -47,7 +49,6 @@ export async function createAccessories(map, opts) {
     ////--------------------------------------------------------- 中央下のスケール・ズーム
     function scale() {
         const map = this, name = "scale";
-        const dpr = window.devicePixelRatio || 1;
         const W0 = 300, H0 = 30, W = W0 * dpr, H = H0 * dpr, M = W0 / 2, R = 6372000 * 2; // 地球の直径
         const { PI, floor, log10 } = Math;
         const canvas = new OffscreenCanvas(W, H), ctx = canvas.getContext("2d"); ctx.scale(dpr, dpr)
@@ -91,12 +92,14 @@ export async function createAccessories(map, opts) {
         }
     }
     ////--------------------------------------------------------- サブマップ地球(globe)
-    async function globe(opts = {}) {
+    async function globe() {
         const map = this, name = "globe";
-        const { sphere, graticule, land110 } = await borderJSONs();
+        const { graticule: _graticule, land110: _land110 } = await Borders();
+        const sphere = { type: "Sphere" };
+        const graticule = _graticule.geojson, land110 = _land110.geojson;
         const bottom = map.isNarrow ? 55 : 30, right = 20;
-        const size0 = opts.size || 125, size = size0 * window.devicePixelRatio;
-        const maxZoom = opts.maxZoom || 9;
+        const size0 = 125, size = size0 * dpr;
+        const maxZoom = 9;
         const canvas = new OffscreenCanvas(size, size), ctx = canvas.getContext("2d");
         const project = d3.geoOrthographic().fitExtent([[1, 1], [size - 1, size - 1]], sphere).precision(0.1);
         const path = d3.geoPath(project, ctx);
@@ -107,22 +110,22 @@ export async function createAccessories(map, opts) {
             const [x, y] = [w - size0 - right, h - size0 - bottom];
             const bounds = [[0, 0], [w, 0], [w, h], [0, h]].map(map.proj.invert);
             const r = map.proj.rotate(); project.rotate([r[0], r[1], 0]);
-            ctx.clearRect(0, 0, ctx.canvas.clientWidth, ctx.canvas.clientHeight);
+            ctx.clearRect(0, 0, size, size);
             ctx.beginPath(); path(sphere); ctx.fillStyle = "rgb(200,240,255)"; ctx.fill();
             ctx.beginPath(); path(land110); ctx.fillStyle = "rgb(160,200,160)"; ctx.fill();
             ctx.beginPath(); path(graticule); ctx.strokeStyle = "rgba(255,255,255,0.5)"; ctx.lineWidth = 1; ctx.stroke();
             ctx.beginPath(); path(sphere); ctx.strokeStyle = "rgba(255,255,255,0.5)"; ctx.lineWidth = 2; ctx.stroke();
             ctx.beginPath(); bounds.map(project).forEach((t, i) => ctx[i ? "lineTo" : "moveTo"](t[0], t[1])); ctx.closePath();
-            ctx.strokeStyle = "rgb(100,0,0)"; ctx.lineWidth = 2; ctx.stroke();
+            ctx.strokeStyle = "rgb(150,0,0)"; ctx.lineWidth = 1.5; ctx.stroke();
             context.drawImage(canvas, 0, 0, size, size, x, y, size0, size0);
         }
     }
-    ////--------------------------------------------------------- 昼夜：時間表示
+////--------------------------------------------------------- 昼夜：時間表示
     async function night() {
-        const { sin, cos, asin, hypot, atan2, PI } = Math, rad = PI / 180;
         const map = this, name = "night";
-        const starsJSON = (await geopbf("stars.6")).geojson;
-        const stars = starsJSON.features.map(f => {
+        const { sin, cos, asin, hypot, atan2, PI } = Math, rad = PI / 180;
+        const { stars } = await Borders();
+        const starList = stars.geojson.features.map(f => {
             const c = f.geometry.coordinates, p = f.properties;
             const bv = (v => v < -0.3 ? "#b2c8ff" : v < 0.0 ? "#d9e2ff" : v < 0.3 ? "#f8faff" : v < 0.6 ? "#fff8f0" :
                 v < 0.8 ? "#fff2c8" : v < 1.1 ? "#ffe0b5" : v < 1.4 ? "#ffcc99" : "#ffab91")(p.bv);
@@ -139,7 +142,7 @@ export async function createAccessories(map, opts) {
             const skyRot = (getSidereal(dt) - r[0]) * rad;
             const sφ = sin(r[1] * rad), cφ = cos(r[1] * rad), sγ = sin(r[2] * rad), cγ = cos(r[2] * rad);
             layer.clear(); context.save();
-            for (let s of stars) {
+            for (let s of starList) {
                 const l = s.x - skyRot, cl = cos(l), sl = -sin(l);
                 const cp = cos(s.y), sp = sin(s.y);
                 const x = cp * sl, y = cφ * sp - sφ * cp * cl, z = sφ * sp + cφ * cp * cl; if (z < 0) continue;
@@ -172,7 +175,7 @@ export async function createAccessories(map, opts) {
             const fix = n => (n + 180) % 360 - (n < -180 ? -180 : 180);
             const d = date.getTime() / 864e5, y = (d / 365.24 % 1 - 0.225) * PI * 2;
             const lng = fix(d % 1 * -360 + 180), lat = 23.4 * sin(y);
-            const ra = (90+offset) * rad, phi = lat * rad, lam = lng * rad;
+            const ra = (90 + offset) * rad, phi = lat * rad, lam = lng * rad;
             const coords = Array.from({ length: 31 }, (_, i) => {
                 const a = (360 - i * 360 / 30) * rad;
                 const lt2 = asin(sin(phi) * cos(ra) + cos(phi) * sin(ra) * cos(a));

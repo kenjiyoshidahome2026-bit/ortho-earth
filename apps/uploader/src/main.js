@@ -23,6 +23,7 @@ CMD.append("button").text("borders and stars").on("click", () => borders(q));
 
 var getHeight = await createGetHeight({onstart:s=>console.log("start: "+s),onend:s=>console.log("end: "+s)});
 console.log(await getHeight(135.2,35.2,10));
+console.log((await geopbf({type:"Feature", geometry:d3.geoGraticule10()})).geojson);
 
 async function base(q, list) {
 	const dire = `GIS/base`;

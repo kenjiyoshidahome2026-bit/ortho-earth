@@ -1,10 +1,10 @@
 import * as d3 from 'd3';
 import "common/d3/selection.js";
 import { drawJSON } from "./modules/drawJSON.js";
-import { borderJSONs } from "./modules/borderJSONs.js"
+import { Borders } from "./modules/Borders.js";
 import { layerList } from "./modules/layerList.js";
 
-import base from './workers/base.js?worker&url'; 
+import base from './workers/base.js?worker&url';
 import image from './workers/image.js?worker&url';
 import standard from './workers/standard.js?worker&url';
 const workerURL = s => ({ base, image }[s] || standard);
@@ -21,7 +21,7 @@ export async function createLayers(map) {
     (await createRemoteLayer.call(map, { name: "OrthoMapGL", append: map.mapFrame, type: "base" }));
     (await createRemoteLayer.call(map, { name: "OrthoBorder", append: map.mapFrame }));
     ////--------------------------------------------------------------------------
-    await Promise.all([setBase(map, map.baseName), setBorder(map) ]);
+    await Promise.all([setBase(map, map.baseName), setBorder(map)]);
     ////--------------------------------------------------------------------------
     async function setBase(map, name) {
         const layer = map.layers.OrthoMapGL;
@@ -36,15 +36,14 @@ export async function createLayers(map) {
         map.stat("base", map.baseName = name);
     };
     async function setBorder(map) {
-        const { sphere, graticule, border, maritime, lines } = await borderJSONs();
-        console.log({ sphere, graticule, border, maritime, lines });
+        const { graticule, border, maritime, lines } = await Borders();
         const layer = map.layers.OrthoBorder;
         const maxZoom = map.maxBorder, minZoom = map.minEdit;
-        layer.set("geopbf", sphere, { maxZoom, minZoom, stroke: "rgba(200,200,200,0.8)", width: 0.8 });
-        layer.set("geopbf", graticule, { maxZoom, minZoom, stroke: "rgba(255,255,255,0.5)", width: 0.5 });
-        layer.set("geopbf", lines, { maxZoom, minZoom, stroke: "rgba(255,255,255,1)", width: 0.5, dash: [4, 2] });
-        layer.set("geopbf", border, { maxZoom, minZoom, stroke: "rgba(255,255,255,0.8)", width: 1, dash: [3, 1] });
-        layer.set("geopbf", maritime, { maxZoom, minZoom, stroke: "rgba(128,128,255,0.8)", width: 0.8, dash: [3, 1] });
+        layer.set("geojson", { type: "Sphere" }, { maxZoom, minZoom, stroke: "rgba(200,200,200,0.8)", width: 0.8 });
+        layer.set("geojson", graticule.geojson, { maxZoom, minZoom, stroke: "rgba(255,255,255,0.5)", width: 0.5 });
+        layer.set("geojson", lines.geojson, { maxZoom, minZoom, stroke: "rgba(255,255,255,1)", width: 0.5, dash: [4, 2] });
+        layer.set("geojson", border.geojson, { maxZoom, minZoom, stroke: "rgba(255,255,255,0.8)", width: 1, dash: [3, 1] });
+        layer.set("geojson", maritime.geojson, { maxZoom, minZoom, stroke: "rgba(128,128,255,0.8)", width: 0.8, dash: [3, 1] });
     };
 }
 ////=====================================================================================
@@ -141,7 +140,7 @@ async function createRemoteLayer(param = {}) {
         map.dispatcher.on(`Drawing.${name}`, drawing);
         map.dispatcher.on(`Drawn.${name}`, drawn);
         map.dispatcher.on(`Resize.${name}`, resize);
-         init(); resize();
+        init(); resize();
         ////------------------------------------------------------------------------
         function init() { worker.postMessage({ type: "init", offscreen, dpr, workers, threshold }, [offscreen]); }
         function set(cmd, data, prop) {
