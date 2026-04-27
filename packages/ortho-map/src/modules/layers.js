@@ -33,11 +33,11 @@ const tileURL = function (type) {
 		const { PI, cos, tan, log } = Math;
 		const xmin = (122 + 180) / 360;
 		const xmax = (154 + 180) / 360;
-		const ymin = (1 - log(tan(46 * PI / 180) + 1 / cos(46 * PI / 180)) / PI) / 2;
+		const ymin = (1 - log(tan(48 * PI / 180) + 1 / cos(48 * PI / 180)) / PI) / 2;
 		const ymax = (1 - log(tan(20 * PI / 180) + 1 / cos(20 * PI / 180)) / PI) / 2;
 		return ([x, y, z]) => {
 			const n = 1 << z;
-			return (z < 5 || x < xmin * n || x > xmax * n || y < ymin * n || y > ymax * n) ?
+			return (z < 7 || x < xmin * n || x > xmax * n || y < ymin * n || y > ymax * n) ?
 				osm0([x, y, z]) : `https://cyberjapandata.gsi.go.jp/xyz/${type}/${z}/${x}/${y}.png`;
 		};
 	};

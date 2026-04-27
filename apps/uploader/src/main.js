@@ -1,5 +1,4 @@
-import * as d3 from "d3";
-import "common/d3/selection.js";
+import { selection, select } from 'd3-selection';
 import "./main.scss";
 import { screenLogger } from "./screenLogger.js";
 import "./screenLogger.scss";

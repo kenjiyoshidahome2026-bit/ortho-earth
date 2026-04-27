@@ -1,10 +1,8 @@
 import * as d3 from 'd3';
+import { datimArray, download, createPolygon } from "common";
 import "common/d3/selection.js";
-import html2canvas from 'html2canvas';
-import { datimArray, download } from "common";
-import { cleanup } from "common/d3/tip-pop.js"
-import { createPolygon } from "common";
-import { gadgetIcons, tooltips } from "../modules/icons.js"
+import { cleanup } from "common/d3/tip-pop.js";
+import { gadgetIcons, tooltips } from "../modules/icons.js";
 import { Layers } from "./layers.js";
 
 function createButton(map, name, opts) {
@@ -150,6 +148,7 @@ export async function cpos(opts = {}) {
 }
 ////--------------------------------------------------------- スクリーンショット
 async function map2canvas(map, dpr) {
+    const html2canvas = await import('html2canvas');
     dpr = dpr || window.devicePixelRatio || 1;
     const width = map.width * dpr, height = map.height * dpr;
     const canvas = new OffscreenCanvas(width, height);
