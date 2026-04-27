@@ -11,7 +11,7 @@ const ColumnType = {
 	Json: 12,    // 補強：geopbf のリッチな属性を活かすならこれ！
 	DateTime: 14 // 補強：GPX の time タグを活かすならこれ！
 };
-self.onmessage = async (e) => {
+onmessage = async (e) => {
 	const { buf, name, gz } = e.data;
 	try {
 		// 解析済みの GeoPBF インスタンスを再現
@@ -43,11 +43,11 @@ self.onmessage = async (e) => {
 		})();
 
 		const b = await bPromise;
-		self.postMessage(new File([b], `${name}.fgb${gz ? ".gz" : ""}`, {
+		postMessage(new File([b], `${name}.fgb${gz ? ".gz" : ""}`, {
 			type: gz ? "application/gzip" : "application/octet-stream"
 		}));
 	} catch (err) {
-		self.postMessage(null);
+		postMessage(null);
 	}
 };
 

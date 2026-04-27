@@ -38,7 +38,7 @@ const kmlToFeatures = (text, nameToRes) => {
     return features;
 };
 
-self.onmessage = async (e) => {
+onmessage = async (e) => {
     const { file, precision } = e.data;
     const entries = await decodeZIP(file);
     if (!entries) return;
@@ -60,5 +60,5 @@ self.onmessage = async (e) => {
     });
     pbf.close();
     const res = pbf.arrayBuffer;
-    self.postMessage({ type: "kmzdec", data: res }, [res]);
+    postMessage({ type: "kmzdec", data: res }, [res]);
 };

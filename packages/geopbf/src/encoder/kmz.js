@@ -12,7 +12,7 @@ const toKMLColor = (c, opacity = 1) => {
     return a + b + g + r;
 };
 
-self.onmessage = async (e) => {
+onmessage = async (e) => {
     const { buf, name, gz } = e.data;
     try {
         const pbf = await new GeoPBF().name(name).set(buf);
@@ -76,9 +76,9 @@ self.onmessage = async (e) => {
         if (gz) {
             // KMZとしてパッケージング。doc.kml と files/ を同梱
             const zip = await encodeZIP([kmlFile, ...embeddedFiles], `${name}.kmz`);
-            self.postMessage(zip);
+            postMessage(zip);
         } else {
-            self.postMessage(kmlFile);
+            postMessage(kmlFile);
         }
-    } catch (err) { self.postMessage(null); }
+    } catch (err) { postMessage(null); }
 };

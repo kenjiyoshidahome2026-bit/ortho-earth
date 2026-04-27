@@ -1,7 +1,7 @@
 import { GeoPBF } from "../pbf-base.js"; //
 const enc = new TextEncoder();
 
-self.onmessage = async (e) => {
+onmessage = async (e) => {
 	const { buf, name, gz } = e.data;
 	try {
 		const pbf = await new GeoPBF().name(name).set(buf);
@@ -27,6 +27,6 @@ self.onmessage = async (e) => {
 		})();
 
 		const b = await bPromise;
-		self.postMessage(new File([b], `${name}.gpx${gz ? ".gz" : ""}`, { type: "application/gpx+xml" })); //
-	} catch (err) { self.postMessage(null); }
+		postMessage(new File([b], `${name}.gpx${gz ? ".gz" : ""}`, { type: "application/gpx+xml" })); //
+	} catch (err) { postMessage(null); }
 };

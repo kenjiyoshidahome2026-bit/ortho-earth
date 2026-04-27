@@ -1,7 +1,7 @@
 import { GeoPBF } from "../pbf-base.js";
 const enc = new TextEncoder();
 
-self.onmessage = async (e) => {
+onmessage = async (e) => {
     const { buf, name, gz } = e.data;
     try {
         const pbf = await new GeoPBF().name(name).set(buf);
@@ -23,6 +23,6 @@ self.onmessage = async (e) => {
         })();
 
         const b = await bPromise;
-        self.postMessage(new File([b], `${name}.geojson${gz ? ".gz" : ""}`, { type: gz ? "application/gzip" : "application/geo+json" }));
-    } catch (err) { self.postMessage(null); }
+        postMessage(new File([b], `${name}.geojson${gz ? ".gz" : ""}`, { type: gz ? "application/gzip" : "application/geo+json" }));
+    } catch (err) { postMessage(null); }
 };

@@ -1,7 +1,7 @@
 import { GeoPBF } from "../pbf-base.js";
 import { encodeZIP } from "native-bucket";
 
-self.onmessage = async (e) => {
+onmessage = async (e) => {
     const { buf, name, gz } = e.data; // gzフラグをZIP/GZIPの切り替えに流用
     try {
         const pbf = await new GeoPBF().name(name).set(buf);
@@ -45,9 +45,9 @@ self.onmessage = async (e) => {
         // gzフラグが立っていればZIP圧縮、そうでなければ生のGML
         if (gz) {
             const zip = await encodeZIP([gmlFile], `${name}_gml.zip`);
-            self.postMessage(zip);
+            postMessage(zip);
         } else {
-            self.postMessage(gmlFile);
+            postMessage(gmlFile);
         }
-    } catch (err) { self.postMessage(null); }
+    } catch (err) { postMessage(null); }
 };

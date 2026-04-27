@@ -1,6 +1,6 @@
 import { GeoPBF } from "../pbf-base.js"; //
 
-self.onmessage = async (e) => {
+onmessage = async (e) => {
 	const { file, precision } = e.data;
 	const text = await file.text();
 	const pbf = new GeoPBF({ name: file.name.replace(/\.[^\.]+$/, ""), precision: precision || 6 });
@@ -26,5 +26,5 @@ self.onmessage = async (e) => {
 
 	pbf.close();
 	const res = pbf.arrayBuffer;
-	self.postMessage({ type: "gpxdec", data: res }, [res]); //
+	postMessage({ type: "gpxdec", data: res }, [res]); //
 };

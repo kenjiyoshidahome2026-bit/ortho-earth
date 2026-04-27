@@ -102,7 +102,7 @@ class SHP {
 		return type === this.type ? this.parse(view(s)) : this.read();
 	}
 }
-self.onmessage = async (e) => {
+onmessage = async (e) => {
 	const { file, encoding, precision } = e.data, name = file.name;
 	const entries = await decodeZIP(file);
 	const keySet = new Set();
@@ -132,5 +132,5 @@ self.onmessage = async (e) => {
 	});
 	pbf.close();
 	const res = pbf.arrayBuffer;
-	self.postMessage({ type: "shpdec", data: res }, [res]);
+	postMessage({ type: "shpdec", data: res }, [res]);
 };

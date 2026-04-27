@@ -7,7 +7,7 @@ function* getTags(src, tag) {
     while ((match = regex.exec(src)) !== null) yield match[1];
 }
 
-self.onmessage = async (e) => {
+onmessage = async (e) => {
     const { file, precision } = e.data;
     let gmlStr = "";
     if (file.name.match(/\.zip$/i)) {
@@ -82,5 +82,5 @@ self.onmessage = async (e) => {
 
     pbf.close();
     const res = pbf.arrayBuffer;
-    self.postMessage({ type: "gmldec", data: res }, [res]);
+    postMessage({ type: "gmldec", data: res }, [res]);
 };

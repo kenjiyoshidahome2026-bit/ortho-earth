@@ -61,7 +61,7 @@ const getFeatures = (file, callback, isSync = false) => {
         });
     }
 };
-self.onmessage = async (e) => {
+onmessage = async (e) => {
     const { file, precision } = e.data;
     const threshold = 50 * 1024 * 1024;
     if (file.size < threshold) {
@@ -69,7 +69,7 @@ self.onmessage = async (e) => {
         const pbf = new GeoPBF({ name: file.name.replace(/\.[^\.]+$/, ""), precision });
         await pbf.set(json);
         const res = pbf.arrayBuffer;
-        self.postMessage({ type: "jsondec", data: res }, [res]);
+        postMessage({ type: "jsondec", data: res }, [res]);
     } else {
         const keySet = new Set();
         await getFeatures(file, f => {
@@ -90,6 +90,6 @@ self.onmessage = async (e) => {
         });
         pbf.close();
         const res = pbf.arrayBuffer;
-        self.postMessage({ type: "jsondec", data: res }, [res]);
+        postMessage({ type: "jsondec", data: res }, [res]);
     }
 };

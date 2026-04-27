@@ -183,7 +183,7 @@ function writeDbf(pbf, name, farray, encoding, encoder) {
     return new File([DBF.buffer()], name + '.dbf', {type:"application/octet-stream"});
 }
 ////=======================================================================================================================
-self.onmessage = async (e) => {
+onmessage = async (e) => {
     const {buf, name, encoding} = e.data;
     const encoder = await getEncoder(encoding);
 	const prj  = `GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137.0,298.257223563]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]]`;
@@ -208,5 +208,5 @@ self.onmessage = async (e) => {
 	console.log(`preparing deflation...`);
 	const file = await encodeZIP(zipFiles, name+".zip");
 	console.log(" => Done : ", file.name, "size: " + file.size.toLocaleString() + " bytes");
-	self.postMessage(file);
+	postMessage(file);
 };
