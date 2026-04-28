@@ -1,5 +1,4 @@
 import * as d3 from 'd3';
-import { Logger } from "common";
 import "common/d3/selection.js";
 import "common/d3/loader.js";
 ////-------------------------------------------------------
@@ -8,12 +7,9 @@ import { createLayers } from "./createLayers.js";
 import { createAccessories } from "./createAccessories.js";
 import { createGadgets } from "./createGadgets.js";
 import "./index.scss";
-const logger = new Logger();
 export async function orthoEarth(opts = {}) {
-	console.clear();
-	const systemName = orthoEarth.name;
-	console.time(systemName)
-	logger.title("ortho Earth");
+	const dt = performance.now(); console.clear();
+	console.log(`%c ✨ ortho-earth ✨ `, 'background: #2c3e50; color: #ecf0f1; padding: 2px 10px; border-radius: 5px; font-size: 1.5em;');
 	////------------------------------------------------------------------------------------------------
 	const base = (opts.target || d3.select("body")).empty();
 	const map = base.append("div");
@@ -27,8 +23,7 @@ export async function orthoEarth(opts = {}) {
 	await createLayers(map);
 	opts.noAccessories || createAccessories(map, opts || {});
 	opts.noGadgets || createGadgets(map);
-	console.log("----- Layer List -----\n" + map.listOfLayers());
-	console.timeEnd(systemName);
-	console.log("--------------------------");
+	const meas = (performance.now() - dt).toFixed(2);
+	console.log(`[ortho-earth] %c✅ [SUCCESS] %c launched in %c${meas}%c [msec]`, 'color: #2ecc71; font-weight: bold;', 'color: inherit;', 'color: #00FFFF; font-weight: bold;', 'color: inherit;');
 	return map;
 };

@@ -66,7 +66,7 @@ export function createLayer(param = {}) {
         const { zoom, width, height } = map;
         drawJSON.call({ ctx, proj, zoom, path, width, height }, json, prop);
     }
-    console.log(layer.toString());
+    console.log(`[ortho-earth] 🗺️ Layer ("${layer.name}": ${ctx.constructor.name} [ ${map.width} x ${map.height} ] x ${dpr}) is append to "${layer.parent().attr("name")}".`);
     return layer;
     ////------------------------------------------------------------------------
     function set(cmd, data, prop) {
@@ -93,8 +93,7 @@ export function createLayer(param = {}) {
         jsons.forEach(t => t = null); jsons.length = 0; jsons = null;
         layer.remove(); delete map.layers[name];
     }
-    function toString() { return `Layer ("${layer.name}": ${ctx.constructor.name} [ ${map.width} x ${map.height} ] x ${dpr}) is append to "${layer.parent().attr("name")}".`; }
-}
+ }
 ////=====================================================================================
 async function createRemoteLayer(param = {}) {
     const map = this;
@@ -111,7 +110,7 @@ async function createRemoteLayer(param = {}) {
             if (data.action !== "done") return;
             if (data.type === "init") {
                 ctxType = data.ctx;
-                console.log(layer.toString());
+                console.log(`[ortho-earth] 🗺️ Layer ("${layer.name}": ${ctxType} [ ${map.width} x ${map.height} ] x ${dpr}) is append to "${layer.parent().attr("name")}".`);
                 resolve(layer);
             }
             if (data.type === "destroy") terminate();
@@ -122,7 +121,7 @@ async function createRemoteLayer(param = {}) {
                 if (data.cmd === "base") map.trigger("LoadEnd", data.data);
             }
         };
-        Object.entries({ set, destroy, toString }).forEach(([name, func]) => layer[name] = func);
+        Object.entries({ set, destroy }).forEach(([name, func]) => layer[name] = func);
         map.dispatcher.on(`Drawing.${name}`, drawing);
         map.dispatcher.on(`Drawn.${name}`, drawn);
         map.dispatcher.on(`Resize.${name}`, resize);
@@ -146,6 +145,5 @@ async function createRemoteLayer(param = {}) {
             map.dispatcher.on(`.${name}`, null);
             layer.remove(); delete map.layers[name];
         }
-        function toString() { return `Layer ("${layer.name}": ${ctxType} [ ${map.width} x ${map.height} ] x ${dpr}) is append to "${layer.parent().attr("name")}".`; }
     });
 }

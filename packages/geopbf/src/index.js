@@ -28,7 +28,7 @@ export async function geopbf(data, options = {}) { if (isString(options)) option
     }
 
     const pbf = await _geopbf(data);
-    pbf && console.log(`[geopbf] ✅ ${pbf.name()} (${pbf.size.toLocaleString()} bytes) ${(performance.now()-dt).toFixed(2)} msec`);
+    pbf && console.log(`[geopbf] 📥 ${pbf.name()} (${pbf.size.toLocaleString()} bytes) ${(performance.now()-dt).toFixed(2)} msec`);
     return pbf || new GeoPBF(options);
     async function _geopbf(q) {
         if (!q) return null;

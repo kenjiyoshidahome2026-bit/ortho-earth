@@ -164,7 +164,7 @@ export async function orthographic(map, opts = {}) {
                     const num = (eventNumber[event] = (eventNumber[event] || 0));
                     header = D4(eventNumber[event] = num + 1);
                     const name = `${event}.${header}`;
-                    console.log(`New user event ("${name}") is settled.`);
+                    console.log(`[ortho-earth] 🔔 New user event ("${name}") is settled.`);
                     dispatcher.on(name, func);
                     const ev = eventTub[event] = eventTub[event] || {};
                     func == null ? (delete ev[header]) : ev[header] = func;
@@ -214,8 +214,8 @@ export async function orthographic(map, opts = {}) {
         proj.rotate(rotate).scale(scale);
         map.isNarrow = width < 1000;
         map.noCircle = scale2zval(Math.hypot(width, height) / 2);
-        map.radius =
-            trigger("Resize", { width, height });
+        trigger("Resize", { width, height });
+        console.log(`[ortho-earth] ⛶ resized (width: ${width} / height: ${height})`);
         getView();
         draw();
     }

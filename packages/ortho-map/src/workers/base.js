@@ -60,7 +60,7 @@ async function set(data) {
 			baseTexture && gl.deleteTexture(baseTexture); baseTexture = null;
 			await cache(bname, bm = await createImageBitmap(await bucket.get(bname)));
 		}
-		console.log(`[orth-earth] ✅ Base Image "${bname}" ${(performance.now()-dt).toFixed(2)} msec`);
+		console.log(`[orth-earth] 📥 Base Image "${bname}" ${(performance.now()-dt).toFixed(2)} msec`);
 		baseTexture && gl.deleteTexture(baseTexture); baseTexture = null;
 		baseTexture = gl.createBaseTexture(bm);
 		bm = null; baseName = bname;
