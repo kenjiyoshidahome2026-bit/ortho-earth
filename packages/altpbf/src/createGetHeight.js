@@ -13,7 +13,7 @@ export async function createGetHeight(opts = {}) {
 	const level1 = opts.level1||7, level2 = opts.level2||12;
 	const {max, min, floor} = Math;
 	let cname = null, current = null;
-    const worker = new Worker(new URL(`./worker.js`, import.meta.url), { type: 'module' });
+    const worker = new Worker(new URL(`./worker.js?worker&url`, import.meta.url), { type: 'module' });
     worker.onerror = e => console.error("Worker Exception:", e);
 ////---------------------------------------------------------------------------------------
 	return (lng, lat, zoom = Infinity) => {
