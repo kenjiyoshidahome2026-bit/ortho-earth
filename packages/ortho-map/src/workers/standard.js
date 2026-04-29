@@ -1,4 +1,4 @@
-import { geoPath, geoOrthographic } from 'd3';
+import { geoPath, geoOrthographic } from 'd3-geo';
 import { geopbf } from "geopbf";
 import  { drawJSON } from "../modules/drawJSON.js"
 let canvas, ctx, width, height, dpr, path;
