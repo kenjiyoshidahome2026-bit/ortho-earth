@@ -81,8 +81,8 @@ export const rightPanel = createPanel(true);
 export async function zoom(opts = {}) {
     const map = this, name = "zoom";
     const duration = opts.duration || 1000;
-    const zoomin = () => map.mag(map.zval2scale(Math.floor(map.zoom + 1)) / map.zval2scale(map.zoom), duration); 
-    const zoomout = () => map.mag(map.zval2scale(Math.ceil(map.zoom - 1)) / map.zval2scale(map.zoom), duration); 
+    const zoomin = () => map.mag(map.zval2scale(Math.floor(map.zoom + 1)) / map.zval2scale(map.zoom), duration*(Math.floor(map.zoom + 1)-map.zoom)); 
+    const zoomout = () => map.mag(map.zval2scale(Math.ceil(map.zoom - 1)) / map.zval2scale(map.zoom), duration*(map.zoom-Math.ceil(map.zoom - 1))); 
     createButton(map, "plus", opts).classed("upper", true).onClick(zoomin);
     createButton(map, "minus", opts).classed("lower", true).onClick(zoomout);
 }
