@@ -1,15 +1,14 @@
-import * as d3 from 'd3';
-import { geoOrthographic } from "./geoOrthoGraphic.js";
+import { geoPath, geoOrthographic } from 'd3';
 import { geopbf } from "geopbf";
 import  { drawJSON } from "../modules/drawJSON.js"
 let canvas, ctx, width, height, dpr, path;
-let proj = d3.geoOrthographic(), zoom;
+let proj = geoOrthographic(), zoom;
 let jsons = [];
 const funcs = { init, set, drawing, drawn, resize, destroy };
 onmessage = e => funcs[e.data.type](e.data);
 function init(data) {
     canvas = data.offscreen, dpr = data.dpr;
-    path = d3.geoPath(proj, ctx = canvas.getContext("2d"));
+    path = geoPath(proj, ctx = canvas.getContext("2d"));
     postMessage({ type: data.type, action: "done", ctx: ctx.constructor.name });
 }
 async function set(data) {

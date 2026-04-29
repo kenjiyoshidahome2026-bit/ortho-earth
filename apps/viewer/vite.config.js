@@ -2,18 +2,28 @@ import { defineConfig } from 'vite';
 import { visualizer } from 'rollup-plugin-visualizer';
 
 export default defineConfig({
-	plugins: [
+    plugins: [
         visualizer({
-            open: true,           // ビルド完了時に自動でブラウザを開く
-            filename: 'stats.html', // 生成されるファイル名
-            gzipSize: true,        // gzip後のサイズも表示
-            brotliSize: true,      // brotli後のサイズも表示
+            open: true,
+            filename: 'stats.html',
+            gzipSize: true,
+            brotliSize: true,
         })
-    ],    // WorkerのフォーマットをESモジュールに指定
+    ],
     worker: { format: 'es' },
     build: {
         target: 'esnext',
         sourcemap: true,
-		chunkSizeWarningLimit: 1000,
+        chunkSizeWarningLimit: 1000,
+        // 🌟 manualChunks は rollupOptions -> output の中に書くのが正解です
+        rollupOptions: {
+            output: {
+                manualChunks: {
+                    'vendor-dom': ['linkedom', 'entities', 'cssom', 'htmlparser2'],
+    				'vendor-d3': ['d3-geo', 'd3-zoom', 'd3-selection', 'd3-dispatch',
+						 'd3-array', 'd3-scale', 'd3-interpolate', 'd3-transition', 'd3-ease']
+                }
+            }
+        }
     }
 });
