@@ -53,18 +53,19 @@ async function init(data) {
 async function set(data) {
 	if (data.cmd === "base") {
 		const bname = Layers[data.data].base;
-		if (baseName === bname) return postMessage(Object.assign(data, { action: "done", type: "set" }));
-		const dt = performance.now();
-		let bm = await cache(bname);
-		if (!bm) {
+		if (baseName !== bname) {
+			const dt = performance.now();
+			let bm = await cache(bname);
+			if (!bm) {
+				baseTexture && gl.deleteTexture(baseTexture); baseTexture = null;
+				await cache(bname, bm = await createImageBitmap(await bucket.get(bname)));
+			}
+			console.log(`[orth-earth] 📥 Base Image "${bname}" ${(performance.now()-dt).toFixed(2)} msec`);
 			baseTexture && gl.deleteTexture(baseTexture); baseTexture = null;
-			await cache(bname, bm = await createImageBitmap(await bucket.get(bname)));
+			baseTexture = gl.createBaseTexture(bm);
+			bm = null; baseName = bname;
+			drawing();
 		}
-		console.log(`[orth-earth] 📥 Base Image "${bname}" ${(performance.now()-dt).toFixed(2)} msec`);
-		baseTexture && gl.deleteTexture(baseTexture); baseTexture = null;
-		baseTexture = gl.createBaseTexture(bm);
-		bm = null; baseName = bname;
-		drawing();
 	////--------------------------------------------------
 		layerSession++;
 		minZoom = data.prop;
