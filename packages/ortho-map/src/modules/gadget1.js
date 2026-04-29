@@ -9,7 +9,7 @@ function createButton(map, name, opts) {
     const icon = opts.icon || gadgetIcons[name]||"<svg/>";
     const tip = opts.tip || tooltips[map.lang][name]||"";
     const target = map.addFrame(opts.target || "leftTop"); if (!target) return console.error("Frame Error");
-    var btn = target.append("button").classed("gadget", true).classed("big", opts.big).html(icon).tip(tip);
+    var btn = target.append("button").classed("gadget", true).classed("big", opts.big).attr("aria-label", tip).html(icon).tip(tip);
     btn.icon = s => btn.html(gadgetIcons[s]).tip(tooltips[map.lang][s]);
     btn.tooltip = s => btn.tip(s);
     btn.onClick = func => btn.on("click", e => (e.stopPropagation(), func(e)));

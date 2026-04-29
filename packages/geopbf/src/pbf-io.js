@@ -35,17 +35,35 @@ class PBFIO {
         if (this.fetchCache) await this.fetchCache(name, file);
         return file;
     }
+    // async load(name) {
+    //     const [val, ETag] = await Promise.all([this.cache(name), this.bucket.etag(name)]).catch(console.error);
+    //     if (ETag === false) { // Etag === false はオフラインまたは通信異常
+    //         console.warn(`PBF get warning: server is unreachable. Using local cache for ${name} if available.`);
+    //         return (val && val.Buff) ? new GeoPBF().set(val.Buff) : null;
+    //     } else if (ETag === null) { // Etag === null はサーバー上にファイルが存在しないことを意味する。ローカルにあっても消去するべき。
+    //         console.error(`PBF get error: file(${name}) is not exist.`);
+    //         if (val) await this.cache(name, null);
+    //         return null;
+    //     } else if (val && ETag == val.ETag) {
+    //         return new GeoPBF().set(val.Buff);        
+    //     }
+    //     return new GeoPBF().set(await this._sync(name, ETag));
+    // }
     async load(name) {
-        const [val, ETag] = await Promise.all([this.cache(name), this.bucket.etag(name)]).catch(console.error);
-        if (ETag === false) { // Etag === false はオフラインまたは通信異常
-            console.warn(`PBF get warning: server is unreachable. Using local cache for ${name} if available.`);
-            return (val && val.Buff) ? new GeoPBF().set(val.Buff) : null;
-        } else if (ETag === null) { // Etag === null はサーバー上にファイルが存在しないことを意味する。ローカルにあっても消去するべき。
-            console.error(`PBF get error: file(${name}) is not exist.`);
-            if (val) await this.cache(name, null);
-            return null;
-        } else if (val && ETag == val.ETag) {
-            return new GeoPBF().set(val.Buff);        
+        const val = await this.cache(name);
+        
+        // 🌟 キャッシュがなければ、ETag確認をスキップして即フェッチ
+        if (!val) {
+            // _syncの中で fetch と保存を同時に行う
+            // (ETagはfetchのレスポンスから取得するようにBucket側を調整するか、
+            //  一旦ETagなしで保存して次回の起動時に更新する構成にします)
+            return new GeoPBF().set(await this._sync(name)); 
+        }
+
+        // キャッシュがある場合のみ、最新かどうかを確認する
+        const ETag = await this.bucket.etag(name);
+        if (ETag === val.ETag) {
+            return new GeoPBF().set(val.Buff);
         }
         return new GeoPBF().set(await this._sync(name, ETag));
     }

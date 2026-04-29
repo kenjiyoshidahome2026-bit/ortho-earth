@@ -1,6 +1,6 @@
 import Pbf from 'pbf';
 import { bufferTub, readBufs } from "./modules/bufferTub.js";
-import { cleanCoords, antimeridianFeature } from "common";
+import { cleanCoords, antimeridianFeature, loadPolygonClipping } from "common";
 
 const isSimpleObject = _ => Object.prototype.toString.call(_) === '[object Object]' && Object.keys(_).length;
 const isNumber = _ => typeof _ == "number";
@@ -33,6 +33,7 @@ class GeoPBF {
     empty() { this.pbf = new Pbf(); this.init(); this.name(""); return this; }
 
     async set(q) {
+        await loadPolygonClipping();
         if (q instanceof ArrayBuffer || ArrayBuffer.isView(q)) this.pbf = new Pbf(q);
         else if (isSimpleObject(q)) {
             const [keys, buffs] = this.noprop ? [[], []] : await makeKeys(q.features.map(t => t.properties));

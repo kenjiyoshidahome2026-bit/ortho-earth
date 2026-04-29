@@ -1,5 +1,9 @@
-import polygonClipping from 'polygon-clipping';
+//import polygonClipping from 'polygon-clipping';
 import { antimeridianCut } from "common/antimeridianCut.js";
+let polygonClipping = null;
+export async function loadPolygonClipping() {
+    polygonClipping = polygonClipping || (await import('polygon-clipping')).default;
+}
 export function antimeridianFeature(feature) {
     const { PI, sin, cos, sqrt, asin, atan2, floor, abs, min, max } = Math, d2r = PI / 180, r2d = 180 / PI;
     const p = feature.properties = feature.properties || {}, geom = feature.geometry, type = geom.type;

@@ -84,7 +84,7 @@ export function tip(opts = {}) {
         if (typeof str === 'string' && str.includes('\n')) return toHTML(str.split(/\n/));
         return str;
     };
-    const div = map.overlays.append("div").attr("name", name);
+    const div = map.overlays.append("div").attr("name", name).hide();
     setProp(div, opts);
     let cachedSize = { w: 0, h: 0 };
     const hide = () => div.style("display", "none");

@@ -1,0 +1,5 @@
+User-agent: *
+Allow: /
+
+# サイトマップがある場合は以下を追記（任意）
+# Sitemap: https://your-domain.com/sitemap.xml

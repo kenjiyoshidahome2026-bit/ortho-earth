@@ -10,18 +10,8 @@ export default defineConfig({
             brotliSize: true,      // brotli後のサイズも表示
         })
     ],    // WorkerのフォーマットをESモジュールに指定
-    worker: {
-        format: 'es',
-		rollupOptions: {
-            output: {
-                // 🌟 Worker内で使われるすべてのコードを、
-                // 分割せずにWorkerファイル（border-xxx.js）の中に含めてしまう設定
-                inlineDynamicImports: true 
-            }
-        }
-    },
+    worker: { format: 'es' },
     build: {
-        // ESモジュールのWorkerをフルサポートさせるため、ターゲットをモダンブラウザに設定
         target: 'esnext',
         sourcemap: true,
 		chunkSizeWarningLimit: 1000,
