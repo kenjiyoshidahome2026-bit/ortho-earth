@@ -20,6 +20,7 @@ export async function orthographic(map, opts = {}) {
     map.stat = await Cache("GIS/stat").catch(console.error); // 
     map.baseName = await map.stat("base") || "osm.street";// ベースの地図
     map.view = await map.stat("view") || [[135, 35, 0], 2]; // [[経度,緯度,回転],ズーム値]
+    isNaN(map.view[1]) && (map.view[1] = 2);
     ////-------------------------------------------------------------------------------------------
     //// オプションによる初期値の変更
     ////-------------------------------------------------------------------------------------------

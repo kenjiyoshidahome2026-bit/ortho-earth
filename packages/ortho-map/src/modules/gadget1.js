@@ -80,11 +80,11 @@ export const rightPanel = createPanel(true);
 ////--------------------------------------------------------- 地図のズームイン・ズームアウト
 export async function zoom(opts = {}) {
     const map = this, name = "zoom";
-    const mag = opts.mag || 2, duration = opts.duration || 1000;
+    const duration = opts.duration || 1000;
+    const zoomin = () => map.mag(map.zval2scale(Math.floor(map.zoom + 1)) / map.zval2scale(map.zoom), duration); 
+    const zoomout = () => map.mag(map.zval2scale(Math.ceil(map.zoom - 1)) / map.zval2scale(map.zoom), duration); 
     createButton(map, "plus", opts).classed("upper", true).onClick(zoomin);
     createButton(map, "minus", opts).classed("lower", true).onClick(zoomout);
-    async function zoomin() { await map.mag(mag, duration); return false; }
-    async function zoomout() { await map.mag(1 / mag, duration); return false; }
 }
 ////--------------------------------------------------------- 地図の全画面表示
 export async function full(opts = {}) {
