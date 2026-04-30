@@ -1,8 +1,6 @@
 import Pbf from 'pbf';
 import { L2, L3 } from "common";
-import { deflateRaw, inflateRaw } from "native-bucket";
-import { fromBlob } from 'geotiff';
-import { Fetch, Bucket } from "native-bucket";
+import { Fetch, Bucket, deflateRaw, inflateRaw } from "native-bucket";
 
 const dire = `GIS/alt`;
 const bucket = await Bucket(dire, { silent: true });
@@ -31,9 +29,8 @@ async function load_alos(lng, lat) {
 	const url = `${baseUrl}/aw3d30/data/release_v2404/${dname}.zip`;
 	const target = `${dname}/ALPSMLC30_${fname}_DSM.tif`;
 	const file = await Fetch(url, { target, cors:true });
-	const raster = await tiff2raster(file);
-	if (!raster || !raster[0]) { console.error("geotiff raster error", raster); return null; }
-	const { width, height } = raster, data = raster[0];
+	const raster = await tiff2data(file); if (!raster) { console.error("geotiff raster error", raster); return null; }
+	const { width, height, data } = raster;
 	return { name, source, lng, lat, range, width, height, data };
 }
 async function load_gepco(name) {
@@ -81,6 +78,7 @@ export async function decode(v) {
 		else if (tag === TAGS.DATA) pbf.readPackedSVarint(deltas);
 	});
 	let sum = 0; obj.data = new Int16Array(deltas.map(d => sum += d));
+	console.log(obj)
 	return obj;
 }
 
@@ -95,22 +93,46 @@ export function decodeName(s) {
 	return [lng,lat,range];
 }
 
-export async function tiff2raster(file) {
-	try { return (await (await fromBlob(file)).getImage()).readRasters();
-	} catch(e) { return null; }
+async function tiff2data(file) {
+	try {
+		const buffer = await file.arrayBuffer();
+		const view = new DataView(buffer);
+		const isLittle = view.getUint16(0) === 0x4949;
+		let ifdOffset = view.getUint32(4, isLittle);
+		const numEntries = view.getUint16(ifdOffset, isLittle);
+		let width, height, dataOffset;
+		for (let i = 0; i < numEntries; i++) {
+			const entryOffset = ifdOffset + 2 + (i * 12);
+			const tag = view.getUint16(entryOffset, isLittle);
+			const type = view.getUint16(entryOffset + 2, isLittle);
+			const getVal = () => (type === 3)
+				? view.getUint16(entryOffset + 8, isLittle)
+				: view.getUint32(entryOffset + 8, isLittle);
+
+			if (tag === 256) width = getVal();      // ImageWidth
+			if (tag === 257) height = getVal();     // ImageLength (Height)
+			if (tag === 273) dataOffset = getVal(); // StripOffsets
+		}
+		if (!width || !height || !dataOffset) return null;
+		const data = new Int16Array(buffer, dataOffset, width * height);
+		return { width, hright, data }
+	} catch (e) {
+		console.error("TIFF parse error:", e);
+		return null;
+	}
 }
 
 export function AltitudeColor(n, flag = false) {
-		const Altitude = n =>
-			n < 200 ? [85, 107, 47, 255] :
+	const Altitude = n =>
+		n < 200 ? [85, 107, 47, 255] :
 			n < 500 ? [124, 150, 90, 255] :
-			n < 1000 ? [189, 183, 107, 255] :
-			n < 2000 ? [180, 130, 70, 255] :
-			n < 4000 ? [130, 80, 60, 255] :
-			n < 6000 ? [100, 60, 40, 255] : [200, 200, 200, 255];
-		const Depth = n =>
-			n < 200 ? [170, 220, 240, 255] :
+				n < 1000 ? [189, 183, 107, 255] :
+					n < 2000 ? [180, 130, 70, 255] :
+						n < 4000 ? [130, 80, 60, 255] :
+							n < 6000 ? [100, 60, 40, 255] : [200, 200, 200, 255];
+	const Depth = n =>
+		n < 200 ? [170, 220, 240, 255] :
 			n < 2000 ? [100, 180, 210, 255] :
-			n < 6000 ? [40, 100, 150, 255] : [20, 50, 100, 255];
-    return n > 0 ? Altitude(n) : flag ? [0, 0, 0, 0] : Depth(n);
+				n < 6000 ? [40, 100, 150, 255] : [20, 50, 100, 255];
+	return n > 0 ? Altitude(n) : flag ? [0, 0, 0, 0] : Depth(n);
 }

@@ -1,6 +1,7 @@
 import { Fetch, Bucket, Cache } from "native-bucket";
 import { thenEach, comma, L2, L3 } from "common";
-import { encode, decode, encodeName, tiff2raster } from "./altpbf.js";
+import { encode, decode, encodeName } from "./altpbf.js";
+import { fromBlob } from 'geotiff';
 
 ////================================================================================================
 ////	GEBCO
@@ -75,5 +76,9 @@ export async function GEBCO(opts = {}) {
 		await bucket.put(file);
 		await cache(new File([await bucket.get(name)], name, {type:"application/x-altpbf"}));
 	//	console.log(await decode(await cache(name)));
+	}
+	async function tiff2raster(file) {
+		try { return (await (await fromBlob(file)).getImage()).readRasters();
+		} catch(e) { return null; }
 	}
 }
