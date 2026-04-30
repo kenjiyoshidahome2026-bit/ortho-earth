@@ -8,7 +8,7 @@ npm-debug.log*
 dist/
 dist-tsc/
 build/
-
+stats.html
 # 環境変数
 .env
 .env.local
