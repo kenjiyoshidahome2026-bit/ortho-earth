@@ -26,7 +26,7 @@ export async function createGetHeight(opts = {}) {
 	async function load(lng, lat, range) {
 		const name = encodeName(lng, lat, range);
 		if (cname == name) return current;
-		const obj = cache(name); if (obj) return obj;
+		const obj = await cache(name); if (obj) return obj;
 		if (isLoading) return null;
 		return new Promise(res=>{
 			isLoading = performance.now();
