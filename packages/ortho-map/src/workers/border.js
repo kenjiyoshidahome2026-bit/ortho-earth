@@ -1,9 +1,9 @@
 import { geoPath, geoOrthographic, geoGraticule10 } from 'd3-geo';
-import { geopbf } from "geopbf";
 import  { drawJSON } from "../modules/drawJSON.js"
 let canvas, ctx, width, height, dpr, path;
 let proj = geoOrthographic(), zoom;
 let jsons = [];
+let geopbf;
 const funcs = { init, set, drawing, drawn, resize, destroy };
 onmessage = e => funcs[e.data.type](e.data);
 function init(data) {
@@ -12,6 +12,8 @@ function init(data) {
  	postMessage({ type: data.type, action: "done", ctx: ctx.constructor.name });
 }
 async function set(data) {
+	geopbf = geopbf || (geopbf = (await import("geopbf")).geopbf);
+	console.log(geopbf);
 	const toFeatures = json => (json ? json.features ? json.features : Array.isArray(json) ? json : [json] : []);
 	data.cmd == "geojson" && jsons.push([toFeatures(data.data), data.prop]);
     const maxZoom = data.maxZoom || 7, minZoom = data.minZoom || 2;
