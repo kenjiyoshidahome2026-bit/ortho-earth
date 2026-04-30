@@ -1,7 +1,7 @@
 import nativeBucket from "native-bucket";
 import { geoOrthographic } from "./geoOrthoGraphic.js";
 import { orthoGL2 } from "./orthoGL2.js";
-import { Layers } from "../modules/Layers.js";
+import { Layers } from "../modules/layers.js";
 
 const { Bucket, Cache } = nativeBucket();
 
