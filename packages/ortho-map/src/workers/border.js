@@ -1,5 +1,5 @@
 import { geoPath, geoOrthographic, geoGraticule10 } from 'd3-geo';
-import { GeoPBF } from "geopbf/src/pbf-base.js";
+import { geopbf } from "geopbf";
 import  { drawJSON } from "../modules/drawJSON.js"
 let canvas, ctx, width, height, dpr, path;
 let proj = geoOrthographic(), zoom;
@@ -18,7 +18,7 @@ async function set(data) {
 	const pbfs = await Promise.all([
 		"ne_50m_admin_0_boundary_lines_land",
         "ne_50m_admin_0_boundary_lines_maritime_indicator",
-        "ne_50m_geographic_lines"].map(t=>(new GeoPBF()).set(t)));
+        "ne_50m_geographic_lines"].map(geopbf));
  	jsons.push([{ type: "Sphere" }, { maxZoom, minZoom, stroke: "rgba(200,200,200,0.8)", width: 0.8 }]);
 	jsons.push([geoGraticule10(), { maxZoom, minZoom, stroke: "rgba(255, 255, 255, 0.5)", width: 0.5 }]);
 	jsons.push([pbfs[0].geojson, { maxZoom, minZoom, stroke: "rgba(255,255,255,0.8)", width: 1, dash: [3, 1] }]);
