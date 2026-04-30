@@ -1,12 +1,7 @@
 import Pbf from 'pbf';
 import { bufferTub, readBufs } from "./modules/bufferTub.js";
+import { isSimpleObject, isNumber, isFloat, isBbox } from "common";
 import { cleanCoords, antimeridianFeature, loadPolygonClipping } from "common";
-
-const isSimpleObject = _ => Object.prototype.toString.call(_) === '[object Object]' && Object.keys(_).length;
-const isNumber = _ => typeof _ == "number";
-const isFloat = _ => isNumber(_) && (_ % 1 !== 0);
-const isBbox = _ => _ && _.length == 4 && _.every(isNumber)
-    && (-180 <= _[0] && _[0] <= _[2] && _[2] <= 180) && (-90 <= _[1] && _[1] <= _[3] && _[3] <= 90);
 
 const TAGS = { NAME: 1, KEYS: 2, PRECISION: 3, BUFS: 4, FARRAY: 5, FEATURE: 6, GEOMETRY: 7, GTYPE: 8, LENGTH: 9, COORDS: 10, VALUE: 11, INDEX: 12, GARRAY: 13, DESCRIPTION: 14, LICENSE: 15 };
 const geometryTypes = ["Point", "MultiPoint", "LineString", "MultiLineString", "Polygon", "MultiPolygon", "GeometryCollection"];

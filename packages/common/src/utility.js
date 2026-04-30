@@ -1,14 +1,18 @@
 export const isArray = Array.isArray;
 export const isNumber = _ => typeof _ === 'number' && Number.isFinite(_);
+export const isFloat = _ => isNumber(_) && (_ % 1 !== 0);
 export const isString = _ => typeof _ === 'string';
 export const isFunction = _ => typeof _ == 'function';
 export const isAsync = _ => _[Symbol.toStringTag] === 'AsyncFunction';
 export const isDOM = _ => _ instanceof Element;
 export const isObject = _ => _ !== null && typeof _ === 'object' && !isArray(_);
+export const isSimpleObject = _ => Object.prototype.toString.call(_) === '[object Object]' && Object.keys(_).length;
 export const isBuffer = _ => (_ instanceof ArrayBuffer || ArrayBuffer.isView(_));
 export const isBlob = _ => (_ instanceof Blob);
 export const isFile = _ => (isBlob(_) && ("name" in _));
 export const isURL = _ => (isString(_) && (_.match(/^https?\:\/\//)));
+export const isBbox = _ => _ && _.length == 4 && _.every(isNumber)
+    && (-180 <= _[0] && _[0] <= _[2] && _[2] <= 180) && (-90 <= _[1] && _[1] <= _[3] && _[3] <= 90);
 export const toArray = _ => (_ != null ? isArray(_) ? _ : [_] : []);
 ////-----------------------------------------------------------------------------------------------
 export const trim = _ => ("" + _).replace(/\s+/g, " ").replace(/(^\s+|\s+$)/g, "");
