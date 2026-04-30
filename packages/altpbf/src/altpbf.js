@@ -78,7 +78,6 @@ export async function decode(v) {
 		else if (tag === TAGS.DATA) pbf.readPackedSVarint(deltas);
 	});
 	let sum = 0; obj.data = new Int16Array(deltas.map(d => sum += d));
-	console.log(obj)
 	return obj;
 }
 
