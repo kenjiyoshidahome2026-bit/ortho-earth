@@ -13,7 +13,6 @@ function init(data) {
 }
 async function set(data) {
 	geopbf = geopbf || (geopbf = (await import("geopbf")).geopbf);
-	console.log(geopbf);
 	const toFeatures = json => (json ? json.features ? json.features : Array.isArray(json) ? json : [json] : []);
 	data.cmd == "geojson" && jsons.push([toFeatures(data.data), data.prop]);
     const maxZoom = data.maxZoom || 7, minZoom = data.minZoom || 2;
