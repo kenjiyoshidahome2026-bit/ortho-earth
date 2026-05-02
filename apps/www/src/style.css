@@ -1,0 +1,165 @@
+/* リセットと基本設定 */
+:root {
+	--bg-color: #0a0a0f;
+	--text-primary: #ffffff;
+	--text-secondary: #a0a0b0;
+	--accent-color: #00ffcc;
+	--accent-glow: rgba(0, 255, 204, 0.4);
+	--glass-bg: rgba(10, 10, 15, 0.6);
+	--glass-border: rgba(255, 255, 255, 0.1);
+}
+
+* {
+	margin: 0;
+	padding: 0;
+	box-sizing: border-box;
+}
+
+body {
+	font-family: 'Helvetica Neue', Arial, 'Hiragino Kaku Gothic ProN', sans-serif;
+	background-color: var(--bg-color);
+	color: var(--text-primary);
+	overflow: hidden;
+	/* デモマップをフルスクリーンにするため */
+}
+
+/* マップの背景領域 */
+#map-container {
+	position: absolute;
+	top: 0;
+	left: 0;
+	width: 100vw;
+	height: 100vh;
+	z-index: 0;
+	/* マップが実装されるまでのプレースホルダーグラデーション */
+	background: radial-gradient(circle at center, #1a1a2e 0%, #0a0a0f 100%);
+}
+
+/* UIのオーバーレイ（グラスモーフィズム） */
+.overlay {
+	position: relative;
+	z-index: 10;
+	width: 100vw;
+	height: 100vh;
+	display: flex;
+	flex-direction: column;
+	pointer-events: none;
+	/* マップへのクリックを透過させる */
+}
+
+/* ナビゲーションバー */
+.navbar {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	padding: 1.5rem 3rem;
+	background: var(--glass-bg);
+	backdrop-filter: blur(12px);
+	-webkit-backdrop-filter: blur(12px);
+	border-bottom: 1px solid var(--glass-border);
+	pointer-events: auto;
+}
+
+.logo {
+	font-size: 1.5rem;
+	font-weight: 800;
+	letter-spacing: 2px;
+	background: linear-gradient(90deg, #fff, #a0a0b0);
+	-webkit-background-clip: text;
+	-webkit-text-fill-color: transparent;
+}
+
+.links a {
+	color: var(--text-primary);
+	text-decoration: none;
+	margin-left: 2rem;
+	font-size: 0.9rem;
+	font-weight: 500;
+	transition: color 0.2s;
+}
+
+.links a:hover {
+	color: var(--accent-color);
+}
+
+/* ヒーローセクション */
+.hero {
+	flex: 1;
+	display: flex;
+	flex-direction: column;
+	justify-content: center;
+	align-items: center;
+	text-align: center;
+	padding: 0 2rem;
+	pointer-events: auto;
+}
+
+.title {
+	font-size: clamp(3rem, 6vw, 5rem);
+	font-weight: 900;
+	line-height: 1.1;
+	margin-bottom: 1.5rem;
+}
+
+.highlight {
+	color: var(--accent-color);
+	text-shadow: 0 0 30px var(--accent-glow);
+}
+
+.description {
+	font-size: clamp(1rem, 2vw, 1.25rem);
+	color: var(--text-secondary);
+	margin-bottom: 3rem;
+	line-height: 1.6;
+	max-width: 600px;
+}
+
+/* ボタン群 */
+.actions {
+	display: flex;
+	gap: 1.5rem;
+}
+
+.btn {
+	padding: 0.8rem 2rem;
+	font-size: 1rem;
+	font-weight: 600;
+	border-radius: 50px;
+	cursor: pointer;
+	transition: all 0.3s ease;
+	border: none;
+}
+
+.btn.primary {
+	background-color: var(--accent-color);
+	color: #000;
+	box-shadow: 0 0 20px var(--accent-glow);
+}
+
+.btn.primary:hover {
+	transform: translateY(-2px);
+	box-shadow: 0 0 30px var(--accent-glow);
+}
+
+.btn.secondary {
+	background-color: transparent;
+	color: var(--text-primary);
+	border: 1px solid var(--glass-border);
+	backdrop-filter: blur(10px);
+}
+
+.btn.secondary:hover {
+	background-color: rgba(255, 255, 255, 0.1);
+	transform: translateY(-2px);
+}
+
+/* フッター */
+.footer {
+	padding: 1.5rem;
+	text-align: center;
+	font-size: 0.8rem;
+	color: var(--text-secondary);
+	background: var(--glass-bg);
+	backdrop-filter: blur(12px);
+	border-top: 1px solid var(--glass-border);
+}

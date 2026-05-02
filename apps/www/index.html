@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+	<meta charset="UTF-8" />
+	<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+	<title>Ortho Map | Modern Orthographic Renderer</title>
+</head>
+
+<body>
+	<div id="app">
+		<!-- 背景用のマップコンテナ（ここに ortho-map を描画します） -->
+		<div id="map-container"></div>
+
+		<!-- UIオーバーレイ -->
+		<div class="overlay">
+			<nav class="navbar">
+				<div class="logo">Ortho Map</div>
+				<div class="links">
+					<a href="https://github.com/your-username/ortho-map" target="_blank" rel="noopener">GitHub</a>
+					<a href="#docs">Docs</a>
+				</div>
+			</nav>
+
+			<main class="hero">
+				<h1 class="title">Explore the World<br><span class="highlight">Orthographically.</span></h1>
+				<p class="description">
+					A fast, modern, and lightweight orthographic map renderer.<br>
+					Built for the Edge. Ready for Vite & Cloudflare.
+				</p>
+				<div class="actions">
+					<button class="btn primary" id="btn-demo">Launch Demo</button>
+					<button class="btn secondary" id="btn-docs">Documentation</button>
+				</div>
+			</main>
+
+			<footer class="footer">
+				<p>Released under the MIT License.</p>
+			</footer>
+		</div>
+	</div>
+	<script type="module" src="/src/main.js"></script>
+</body>
+
+</html>
