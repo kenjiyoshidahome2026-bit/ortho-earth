@@ -1,4 +1,4 @@
-import { YMD2JDN, DAY_NUMBER } from "./共通関数.js"
+import { ymd2jdn, dayNumber } from "./共通関数.js"
 const 旧暦表 = {
     1999: [[], [], [], [], [], [], [], [], [], [], [342, 11], [372, 12]],
     2000: [[36, 1], [66, 2], [96, 3], [125, 4], [154, 5], [184, 6], [213, 7], [242, 8], [272, 9], [301, 10], [331, 11], [361, 12]],
@@ -34,7 +34,7 @@ const 旧暦表 = {
     2030: [[34, 1], [63, 2], [93, 3], [122, 4], [152, 5], [182, 6], [211, 7], [241, 8], [270, 9], [300, 10], [329, 11], [359, 12]]
 };
 export function 旧暦計算(YMD) {
-	const 年通日 = DAY_NUMBER(YMD) + 1;
+	const 年通日 = dayNumber(YMD) + 1;
     const 旧暦 = { 年: 0, 月: 0, 日: 0, 閏: false };
     if (!旧暦表[YMD[0]]) return 旧暦計算0();
 	const last = 年通日 < 旧暦表[YMD[0]][0][0];
@@ -107,7 +107,7 @@ export function 旧暦計算(YMD) {
 			return (b = (pr_m[0][i] * t + pr_m[1][i] + th) % 360) < 0 ? 360 + b: b;
 		};
 	//		var ymd = [this.getFullYear(), this.getMonth() + 1, this.getDate()];
-		var JD = YMD2JDN(YMD, true)-1;
+		var JD = ymd2jdn(YMD, true)-1;
 		var chu = [nibun(JD)], saku = [];
 		for (let i = 1; i < 4; i++) chu[i] = chuki(chu[i - 1][0] + 32);
 		saku[0] = julius(chu[0][0]);
@@ -161,7 +161,7 @@ const 九星表 = {
 	2049: [69610, 69790], 2050: [69970, 70150]
 };
 export function 九星計算(YMD, 節日) {
-    const 通日 = YMD2JDN(YMD);
+    const 通日 = ymd2jdn(YMD);
     const 九星 = {
         年: 8 - (節日.年 - 2) % 9,
         月: (18 + [7, 4, 1][(節日.年 + 2) % 3] - (節日.月 - 1)) % 9,

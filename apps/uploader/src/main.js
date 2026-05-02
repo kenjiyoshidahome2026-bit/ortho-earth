@@ -10,7 +10,7 @@ import { tiff2canvas, exr2canvas, tile2canvas } from './file2canvas';
 import { geopbf } from "geopbf";
 import { GEBCO, createGetHeight } from "altpbf";
 
-//import { 日めくり } from '../../../packages/calender/src/index.js';
+import { 日カレンダー } from 'calender';
 
 const body = d3.select("body");
 const CMD = body.append("div").classed("command", true);
@@ -22,7 +22,7 @@ CMD.append("button").text("create GEBCO(R90/R10)").on("click", () => GEBCO({year
 CMD.append("button").text("base ER pictures").on("click", () => base(q, Object.values(Layers)));
 CMD.append("button").text("borders and stars").on("click", () => borders(q));
 
-//LOG.append("div").html(日めくり([2026,5,13]));
+LOG.append("div").html(日カレンダー([2026,5,2]));
 // var getHeight = await createGetHeight({onstart:s=>console.log("start: "+s),onend:s=>console.log("end: "+s)});
 // console.log(await getHeight(135.2,35.2,10));
 // console.log((await geopbf({type:"Feature", geometry:d3.geoGraticule10()})).geojson);

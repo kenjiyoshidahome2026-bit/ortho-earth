@@ -1,24 +1,24 @@
 const div = (m, n) => Math.floor(m / n);
 const mod = (m, n) => (m + n) % n;
-const IS_LEAP = Y => !(Y % 400) || !(Y % 4) && (Y % 100);
+const isLeap = Y => !(Y % 400) || !(Y % 4) && (Y % 100);
 
 export const r360 = r => { while (r < 0) r += 360; while (r >= 360) r -= 360; return r; };
-export const DATE2YMD = (dt = new Date()) => [dt.getFullYear(), dt.getMonth() + 1, dt.getDate(), dt.getHours(), dt.getMinutes(), dt.getSeconds()];
-export const YEAR_LENGTH = Y => IS_LEAP(Y) ? 366 : 365;
-export const MONTH_LENGTH = YM => [31, IS_LEAP(YM[0]) ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][YM[1] - 1];
-export const DAY_AFTER = (YMD, n) => JDN2YMD(YMD2JDN(YMD) + n);
-export const DAY_NUMBER = YMD => YMD2JDN(YMD) - YMD2JDN([YMD[0], 1, 1]);
-export const YMD_COMP = (d1, d2) => YMD2JDN(d1) - YMD2JDN(d2 ? d2 : DATE2YMD().slice(0, 3));
-export const YEAR_DAY = (Y, n) => DAY_AFTER([Y, 1, 1], n);
-export const YMD2DAY = YMD => (YMD2JDN(YMD) + 3) % 7;
+export const date2ymd = (dt = new Date()) => [dt.getFullYear(), dt.getMonth() + 1, dt.getDate(), dt.getHours(), dt.getMinutes(), dt.getSeconds()];
+export const yearLength = Y => isLeap(Y) ? 366 : 365;
+export const monthLength = YM => [31, isLeap(YM[0]) ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][YM[1] - 1];
+export const dayAfter = (YMD, n) => jdn2ymd(ymd2jdn(YMD) + n);
+export const dayNumber = YMD => ymd2jdn(YMD) - ymd2jdn([YMD[0], 1, 1]);
+export const ymdComp = (d1, d2) => ymd2jdn(d1) - ymd2jdn(d2 ? d2 : date2ymd().slice(0, 3));
+export const yearDay = (Y, n) => dayAfter([Y, 1, 1], n);
+export const ymd2day = YMD => (ymd2jdn(YMD) + 3) % 7;
 
-export function YMD2JDN(YMD, flag) {
+export function ymd2jdn(YMD, flag=false) {
     const y = YMD[0] + div((YMD[1] - 3), 12);
     const m = mod(YMD[1] - 3, 12), d = YMD[2] - 1;
     return d + div((153 * m + 2), 5) + 365 * y + div(y, 4) - div(y, 100) + div(y, 400) - 678881 + (flag ? 2400001 : 0);
 }
 
-export function JDN2YMD(n, flag) {
+export function jdn2ymd(n, flag=false) {
     n = n + (flag ? 0 : 2400001);
     const a = 4 * (n + 1401 - 38 + div(div(4 * n + 274277, 146097) * 3, 4)) + 3;
     const b = 5 * div(mod(a, 1461), 4) + 2;
@@ -42,8 +42,8 @@ export function SunDegree(T) {
 	return r360(sum + d);
 }
 
-export function SunDegreeDay(Y, degree) {
-	let t0 = YMD2JDN([Y, 1, 0]) - YMD2JDN([2000, 1, 1.5]);
+export function SunDegreeDay(year, degree) {
+	let t0 = ymd2jdn([year, 1, 0]) - ymd2jdn([2000, 1, 1.5]);
 	let r0 = SunDegree(t0);
 	const ofs = (degree < r0) ? 360 : 0;
 	let t = Math.floor((degree - r0 + ofs) * 0.9);
