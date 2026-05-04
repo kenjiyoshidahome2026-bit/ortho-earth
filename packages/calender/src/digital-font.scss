@@ -1,0 +1,33 @@
+@font-face {
+	font-family: 'DSEG14';
+	src: url('./assets/fonts/DSEG14Classic-Regular.woff') format('woff');
+	font-display: swap;
+}
+@font-face {
+	font-family: 'DSEG7';
+	src: url('./assets/fonts/DSEG7Classic-Regular.woff') format('woff');
+	font-display: swap;
+}
+.digital-text {
+	font-family: 'DSEG7';
+	color: #00ff00;
+	/* グリーンLED風 */
+	background-color: #001100;
+	padding: 8px;
+	line-height: 1;
+
+	/* 14セグメント特有の「にじみ」を表現する光彩 */
+	text-shadow: 0 0 8px rgba(0, 255, 0, 0.6);
+
+	/* 消灯セグメントを背景に置く高度なテクニック */
+	position: relative;
+
+	&::before {
+		content: "~~~~~~~~";
+		/* 14セグの全点灯は ~（チルダ）などで代用 */
+		position: absolute;
+		color: rgba(0, 255, 0, 0.05);
+		/* 非常に薄く表示 */
+		z-index: 0;
+	}
+}

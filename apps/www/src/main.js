@@ -1,32 +1,59 @@
-import './style.css';
-// import { initOrthoMap } from 'ortho-map'; // パッケージ化・切り出し後にインポートします
+import * as d3 from "d3";
+import "common/d3/selection.js";
+import './style.scss';
+import { orthoEarth } from 'ortho-map';
 
-document.addEventListener('DOMContentLoaded', () => {
-  console.log('✨ Ortho Map Homepage Loaded');
+const mapContainer = d3.select('#mapContainer');
+const demoOverlay = d3.select('#demoOverlay');
+const execDemo = d3.select('#execDemo');
+const exitDemo = d3.select('#exitDemo').style("visibility","none");
+const main = demoOverlay.select('main');
 
-  const btnDemo = document.getElementById('btn-demo');
-  const btnDocs = document.getElementById('btn-docs');
-  const heroSection = document.querySelector('.hero');
+let timer;
+const mapInst = await orthoEarth({target:mapContainer});
+await initDemo();
+execDemo.on('click', startDemo);
+exitDemo.on('click', endDemo);
 
-  // 「Launch Demo」ボタンを押したときのアクション
-  btnDemo.addEventListener('click', () => {
-    // ヒーローセクションをフェードアウトさせて地図を全画面で見せる演出
-    heroSection.style.transition = 'opacity 0.5s ease, transform 0.5s ease';
-    heroSection.style.opacity = '0';
-    heroSection.style.transform = 'translateY(-20px)';
-    heroSection.style.pointerEvents = 'none';
+async function initDemo() {
+	mapInst.explain = mapInst.gadget.explain({ width: 350 });
+	mapInst.gadget.loading();//ファイル読み込み中表示
+	mapInst.gadget.layers();//レイヤーの切り替え
+	mapInst.isNarrow || mapInst.gadget.zoom();//ズームイン・ズームアウト
+	mapInst.isNarrow || mapInst.gadget.full();//全画面表示
+	mapInst.gadget.north();//北向きに修正
+	mapInst.gadget.shot();//スクリーンショット
+	mapInst.isNarrow || mapInst.gadget.print();//印刷
+	mapInst.gadget.cpos();//現在地表示
+	mapInst.gadget.measure();//距離測定
+	const mess = `This is the demonstration for orthographic renderer platfrom.
+	You can draw your own geo features. Mousedown for "pan", scroll for "scaling" and (^|⌘)+scroll for "rotate".`
+	mapInst.explain(`<h3 translate="no">Ortho Earth Demo</h3><p>${mess}</p>`);
+	endDemo();
+}
+function startDemo() {
+    timer && timer.stop();
+	exitDemo.show();
+	mapInst.overlays.style("opacity",1);
+	demoOverlay.style("opacity",0).style("pointer-events",'none');
+	main.style("transform", 'translateY(-20px)');
+	exitDemo.style("visibility","visible");
+}
+function endDemo() {
+	exitDemo.hide();
+	mapInst.setView([0,0],3);
+	mapInst.overlays.style("opacity",0);
+	demoOverlay.style("opacity",1).style("pointer-events",'auto');
+	main.style("transform",'translateY(0)');
+	exitDemo.style("visibility","none");
+	setTimeout(autoRotate, 100);
+	function autoRotate() {
+		const velocity = 0.01;
+		timer = d3.timer((elapsed) => {
+			const r = mapInst.proj.rotate();
+			mapInst.proj.rotate([elapsed * velocity, r[1], r[2]]);
+			mapInst.draw();
+		});
+	}
+}
 
-    // ここで ortho-map を #map-container に描画・アクティブにする処理を呼ぶ
-    // initOrthoMap(document.getElementById('map-container'));
-    
-    console.log('Demo started! The UI is hidden to show the map.');
-  });
-
-  btnDocs.addEventListener('click', () => {
-    window.location.href = '#docs';
-  });
-
-  // （モック）背景になんとなく地図っぽいものを描画して待機するなどの初期化処理
-  const mapContainer = document.getElementById('map-container');
-  // mapContainer.innerHTML = `<canvas></canvas>`; 
-});

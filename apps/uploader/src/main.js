@@ -2,6 +2,7 @@ import * as d3 from 'd3';
 import "./main.scss";
 import { screenLogger } from "./screenLogger.js";
 import "./screenLogger.scss";
+import "common/d3/selection.js";
 import { comma, isArray, isString, isNumber, isObject, isBlob, unique, concat, thenEach } from "common";
 import { Layers } from "ortho-map/modules/Layers.js";
 import { Fetch, Bucket, Cache } from "native-bucket";
@@ -10,11 +11,15 @@ import { tiff2canvas, exr2canvas, tile2canvas } from './file2canvas';
 import { geopbf } from "geopbf";
 import { GEBCO, createGetHeight } from "altpbf";
 
-import { 日カレンダー } from 'calender';
+import { 世界時計 } from 'calender';
+const clock = 世界時計({});
+//clock.redraw({digital:false})
 
 const body = d3.select("body");
 const CMD = body.append("div").classed("command", true);
-const LOG = body.append("div").classed("logArea", true);
+const LOG = body.append("div").attr("id","logArea").classed("logArea", true);
+LOG.appendNode(clock);
+
 const q = new screenLogger(LOG);
 
 CMD.append("h1").text("DB Updater");
@@ -22,7 +27,6 @@ CMD.append("button").text("create GEBCO(R90/R10)").on("click", () => GEBCO({year
 CMD.append("button").text("base ER pictures").on("click", () => base(q, Object.values(Layers)));
 CMD.append("button").text("borders and stars").on("click", () => borders(q));
 
-LOG.append("div").html(日カレンダー([2026,5,2]));
 // var getHeight = await createGetHeight({onstart:s=>console.log("start: "+s),onend:s=>console.log("end: "+s)});
 // console.log(await getHeight(135.2,35.2,10));
 // console.log((await geopbf({type:"Feature", geometry:d3.geoGraticule10()})).geojson);

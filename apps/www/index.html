@@ -1,45 +1,40 @@
 <!DOCTYPE html>
-<html lang="ja">
-
+<html lang="en">
 <head>
 	<meta charset="UTF-8" />
 	<meta name="viewport" content="width=device-width, initial-scale=1.0" />
 	<title>Ortho Earth | Modern Orthographic Renderer</title>
+	<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+	<link rel="apple-touch-icon" href="/favicon.svg" />
 </head>
-
 <body>
 	<div id="app">
-		<!-- 背景用のマップコンテナ（ここに ortho-map を描画します） -->
-		<div id="map-container"></div>
-
-		<!-- UIオーバーレイ -->
-		<div class="overlay">
-			<nav class="navbar">
-				<div class="logo">Ortho Earth</div>
+		<div id="mapContainer"></div>
+		<button id="exitDemo" class="btn primary">← Back to Home</button>
+		<div id="demoOverlay">
+			<nav class="header">
+				<div class="logo" translate="no"><img src="/favicon.svg" />Ortho Earth</div>
 				<div class="links">
-					<a href="https://github.com/your-username/ortho-map" target="_blank" rel="noopener">GitHub</a>
+					<a href="https://github.com/kenjiyoshidahome2026-bit/ortho-earth" target="_blank" rel="noopener">GitHub</a>
 					<a href="#docs">Docs</a>
 				</div>
 			</nav>
-
-			<main class="hero">
-				<h1 class="title">Explore the World<br><span class="highlight">Orthographically.</span></h1>
+			<main class="main">
+				<h1 class="title" translate="no">Explore the World<br><span class="highlight">Orthographically.</span></h1>
 				<p class="description">
 					A fast, modern, and lightweight orthographic map renderer.<br>
 					Built for the Edge. Ready for Vite & Cloudflare.
 				</p>
 				<div class="actions">
-					<button class="btn primary" id="btn-demo">Launch Demo</button>
-					<button class="btn secondary" id="btn-docs">Documentation</button>
+					<button id="execDemo" class="btn primary">Launch Demo</button>
+					<button id="btn-docs" class="btn secondary">Documentation</button>
 				</div>
 			</main>
-
 			<footer class="footer">
-				<p>Released under the MIT License.</p>
+				<p>Released under the MIT License. ©︎ 2026 <span translate="no">Kenji Yoshida</span></p>
 			</footer>
 		</div>
 	</div>
 	<script type="module" src="/src/main.js"></script>
 </body>
-
 </html>

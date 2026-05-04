@@ -7,5 +7,6 @@
     "preview": "vite preview"
   },
   "dependencies": {
+	"ortho-map": "*"
   }
 }
