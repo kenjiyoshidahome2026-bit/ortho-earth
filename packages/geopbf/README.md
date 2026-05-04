@@ -19,15 +19,19 @@
 ## ⚡️ Key Technical Advantages
 
 ### 1. Memory Efficiency & Performance
+
 While GeoJSON is excellent for readability and ease of use, large datasets can become memory-intensive. `geopbf.js` addresses this by utilizing a binary structure that minimizes the memory footprint and significantly reduces parsing time.
 
 ### 2. $O(1)$ Header Updates
+
 The binary architecture allows for instant updates to metadata (Name, Description, License). By manipulating the file header directly, these changes are completed in constant time $O(1)$, ensuring that the data's integrity and indexing remain intact without needing to re-encode the entire dataset.
 
 ### 3. Integrated Topology Support
+
 Building on the concepts of TopoJSON, `geopbf.js` includes a topology engine that identifies shared boundaries. This results in even smaller file sizes and ensures topological consistency for complex spatial analysis and visualization.
 
 ### 4. Zero-Latency Rendering Pipeline
+
 By streaming binary coordinates directly to Canvas or WebGL contexts, the library avoids the overhead of intermediate object creation. This "Binary-to-Pixel" approach allows for smooth rendering of large-scale datasets while maintaining a responsive UI.
 
 ---
@@ -35,7 +39,9 @@ By streaming binary coordinates directly to Canvas or WebGL contexts, the librar
 ## 🚀 API Overview
 
 ### `geopbf(input, options)`
+
 The main entry point for synchronizing various GIS formats into the binary hub.
+
 * **Input**: Supports `File`, `Blob`, `ArrayBuffer`, and `Object` (GeoJSON).
 * **Automatic Detection**: Handles Shapefiles (.zip), KMZ, GML, and GeoJSON automatically.
 

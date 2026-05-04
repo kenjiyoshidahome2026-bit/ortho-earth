@@ -15,11 +15,13 @@ hero:
       link: /api-examples
 
 features:
-  - title: Feature A
+  - title: orth earth
+    details: High-performance, lightweight orthographic map engine utilizing Web Workers and Canvas2D / WebGL2. Renders PBF binary data directly for a seamless experience.
+  - title: geopbf
+    details: geopbf is a lightweight, Protocol Buffers (PBF) based data engine. It is designed to complement existing GIS standards like GeoJSON and Shapefiles by providing a high-performance binary alternative that enhances memory efficiency and rendering speed in the browser.
+  - title: altpbf
     details: Lorem ipsum dolor sit amet, consectetur adipiscing elit
-  - title: Feature B
-    details: Lorem ipsum dolor sit amet, consectetur adipiscing elit
-  - title: Feature C
+  - title: native-bucket
     details: Lorem ipsum dolor sit amet, consectetur adipiscing elit
 ---
 
