@@ -114,24 +114,49 @@ async function tiff2data(file) {
 		}
 		if (!width || !height || !dataOffset) return null;
 		const data = new Int16Array(buffer, dataOffset, width * height);
-		return { width, hright, data }
+		return { width, height, data }
 	} catch (e) {
 		console.error("TIFF parse error:", e);
 		return null;
 	}
 }
-
-export function AltitudeColor(n, flag = false) {
+export async function altpbf2png(pbf, opts = {}) {
+	const { size, colorMap } = Object.assign({size:256, colorMap}, opts);
+    const { width, height, data } = await decode(pbf);
+    const canvas = new OffscreenCanvas(size, size);
+    const ctx = canvas.getContext('2d');
+    const imageData = ctx.createImageData(size, size);
+    const pixels = imageData.data;
+    const xRatio = width / size, yRatio = height / size;
+    for (let y = 0; y < size; y++) {
+        const srcY = Math.floor(y * yRatio);
+        const rowOffset = srcY * width;
+        const targetRowOffset = y * size;
+        for (let x = 0; x < size; x++) {
+            const srcX = Math.floor(x * xRatio);
+            const h = data[rowOffset + srcX];
+            const [r, g, b] = colorMap(h);
+            const i = (targetRowOffset + x) * 4;
+            pixels[i]     = r;
+            pixels[i + 1] = g;
+            pixels[i + 2] = b;
+            pixels[i + 3] = 255;
+        }
+    }
+    ctx.putImageData(imageData, 0, 0);
+    return canvas.convertToBlob({ type: 'image/png' });
+}
+function colorMap(n, flag = false) {
 	const Altitude = n =>
 		n < 200 ? [85, 107, 47, 255] :
-			n < 500 ? [124, 150, 90, 255] :
-				n < 1000 ? [189, 183, 107, 255] :
-					n < 2000 ? [180, 130, 70, 255] :
-						n < 4000 ? [130, 80, 60, 255] :
-							n < 6000 ? [100, 60, 40, 255] : [200, 200, 200, 255];
+		n < 500 ? [124, 150, 90, 255] :
+		n < 1000 ? [189, 183, 107, 255] :
+		n < 2000 ? [180, 130, 70, 255] :
+		n < 4000 ? [130, 80, 60, 255] :
+		n < 6000 ? [100, 60, 40, 255] : [200, 200, 200, 255];
 	const Depth = n =>
 		n < 200 ? [170, 220, 240, 255] :
-			n < 2000 ? [100, 180, 210, 255] :
-				n < 6000 ? [40, 100, 150, 255] : [20, 50, 100, 255];
+		n < 2000 ? [100, 180, 210, 255] :
+		n < 6000 ? [40, 100, 150, 255] : [20, 50, 100, 255];
 	return n > 0 ? Altitude(n) : flag ? [0, 0, 0, 0] : Depth(n);
 }
