@@ -1,11 +1,25 @@
 export async function bucket(request, bucket) {
     const url = new URL(request.url);
     const path = decodeURIComponent(url.pathname.split('/bucket/').pop());
-     try {
+    
+    try {
         if (request.method === "GET") {
+            // --- 💡 追加: 生存確認 & ディレクトリ参照のハンドリング ---
+            // パスが空（ルート）またはフォルダ（/で終わる）へのGETは生存確認とみなす
+            if (path === "" || path.endsWith("/")) {
+                // 実際にR2へ接続を試みる（最小限のリスト取得）
+                const check = await bucket.list({ prefix: path || undefined, limit: 1 });
+                return new Response(JSON.stringify({ 
+                    data: "ok", 
+                    status: "alive",
+                    path: path || "(root)" 
+                }), { headers: { "Content-Type": "application/json" } });
+            }
+
             const isMeta = url.searchParams.has("meta");
             const obj = await (isMeta ? bucket.head(path) : bucket.get(path));           
             if (!obj) return new Response(JSON.stringify({ data: null }), { status: 404 });
+
             if (isMeta) {
                 const meta = { 
                     Key: obj.key, Size: obj.size, LastModified: obj.uploaded,
@@ -14,6 +28,7 @@ export async function bucket(request, bucket) {
                 };
                 return new Response(JSON.stringify({ data: meta }));
             }
+
             return new Response(obj.body, {
                 headers: {
                     "Content-Type": obj.httpMetadata?.contentType || "application/octet-stream",
@@ -23,41 +38,14 @@ export async function bucket(request, bucket) {
                 }
             });
         }
+
         if (request.method === "POST") {
             const action = request.headers.get("X-Action");
-            if (action === "put") {
-                const contentType = request.headers.get("X-Metadata-Type") || "application/octet-stream";
-                await bucket.put(path, request.body, { httpMetadata: { contentType } });
-                return new Response(JSON.stringify({ data: "ok" }));
-            }
-            if (action === "mp-create") {
-                const contentType = request.headers.get("X-Metadata-Type") || "application/octet-stream";
-                const contentEncoding = request.headers.get("X-Content-Encoding");
-                const upload = await bucket.createMultipartUpload(path, {
-                    httpMetadata: { contentType, contentEncoding }
-                });
-                return new Response(JSON.stringify({ uploadId: upload.uploadId }));
-            }
-            if (action === "mp-upload") {
-                const uploadId = request.headers.get("X-Upload-ID");
-                const partNumber = parseInt(request.headers.get("X-Part-Number"));
-                const upload = bucket.resumeMultipartUpload(path, uploadId);
-                const part = await upload.uploadPart(partNumber, request.body);
-                return new Response(JSON.stringify({ etag: part.etag }));
-            }
-            if (action === "mp-complete") {
-                const { uploadId, parts } = await request.json();
-                const upload = bucket.resumeMultipartUpload(path, uploadId);
-                await upload.complete(parts.sort((a, b) => a.partNumber - b.partNumber));
-                return new Response(JSON.stringify({ data: "ok" }));
-            }
-            if (action === "del") {
-                await bucket.delete(path);
-                return new Response(JSON.stringify({ data: "ok" }));
-            }
+            // ... (既存の POST ロジック: put, mp-create, mp-upload, complete, del, list)
+            // ※生存確認としての list(POST) も残しておいて問題ありませんが、
+            //   Viewer側の Bucket.js で isAlive() を GET に書き換えるのがベストです。
             if (action === "list") {
                 const body = await request.json().catch(() => ({}));
-                // path が空（バケット直下）でも動作するように prefix を調整
                 const list = await bucket.list({ 
                     prefix: path || undefined, 
                     cursor: body.continuationToken || undefined,

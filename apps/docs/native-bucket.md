@@ -8,6 +8,7 @@ A high-performance bridge between **Cloudflare Edge (R2/Workers)** and **Browser
   <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT"></a>
   <img src="https://img.shields.io/badge/Size-6.6KB-brightgreen.svg" alt="Size">
 </div>
+
 ---
 
 ## 🏗 System Architecture

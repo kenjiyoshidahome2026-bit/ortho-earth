@@ -5,6 +5,7 @@ export default defineConfig({
   build: {
     minify: false, // デバッガを効かせるため
     sourcemap: true,
+    outDir: 'dist/client',
     rollupOptions: { external: ['canvas'], },
     lib: {
       entry: resolve(__dirname, 'src/index.js'),
