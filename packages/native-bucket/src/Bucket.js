@@ -12,23 +12,14 @@ class _Bucket {
 		this.event = (typeof CustomEvent === 'undefined')? null: opts.eventTarget || globalScope;
 	}
 	offline() { return typeof navigator !== 'undefined' && navigator.onLine === false; }
-	// async isAlive() { if (this.offline()) return false;
-    //     try {
-    //         const controller = new AbortController();
-    //         const timeout = setTimeout(() => controller.abort(), 2000);
-    //         const result = await this._request('', { action:"list", limit:1, signal: controller.signal });
-    //         clearTimeout(timeout);
-    //         return !!result;
-    //     } catch (e) { return false; }
-    // }
-	async isAlive() {
-        if (this.offline()) return false;
+	async isAlive() { if (this.offline()) return false;
         try {
-            const res = await fetch(this.url, { method: "GET" }); 
-            return res.ok;
-        } catch (e) {
-            return false;
-        }
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), 2000);
+            const result = await this._request('', { action:"list", limit:1, signal: controller.signal });
+            clearTimeout(timeout);
+            return !!result;
+        } catch (e) { return false; }
     }
 	async _request(path, json = null) {
 		const url = this.url + path.replace(/^\//, "");
@@ -196,11 +187,7 @@ class _Bucket {
 export async function Bucket(dir, opts) {
 	const instance = new _Bucket(dir, opts); 
 	if (instance.offline()) return instance;
-	try {
-	//	await instance.list(1); return instance;
-		const alive = await instance.isAlive(); 
-        if (!alive) throw new Error("Connection failed");
-        return instance;
+	try { await instance.list(1); return instance;
 	} catch (e) {
 		console.warn(`Bucket failed to connect to "${dir}" at ${instance.baseUrl}.`);
 		return null;
