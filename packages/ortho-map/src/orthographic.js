@@ -49,6 +49,7 @@ export async function orthographic(map, opts = {}) {
     const initZoom = () => map.property("__zoom", d3.zoomIdentity.scale(proj.scale()));
     const pointer = e => d3.pointer(e, map.node());
     const pointers = e => d3.pointers(e, map.node());
+    const isNarrow = () => map.width < 1000;
     const isEditable = () => map.zoom >= map.minEdit;
     const xy2pos = ([x, y]) => (Math.hypot(x - map.width / 2, y - map.height / 2) < proj.scale()) ? proj.invert([x, y]) : null;
     ///------------------------------------------------------------------------------------------------
@@ -151,7 +152,7 @@ export async function orthographic(map, opts = {}) {
         map.dropFile(file => trigger("Drop", file));
     } {////------------------------------------------------------------------------------------------------	
         const funcs = {
-            draw, trigger, resize, isEditable, cursor, bbox, setRange, setView, setZoom,
+            draw, trigger, resize, isEditable, isNarrow, cursor, bbox, setRange, setView, setZoom,
             setFeature, flyToFeature, mag, north, /*projectTester,*/ tester, xy2pos, zval2scale, scale2zval, pointer, pointers
         };
         Object.entries(funcs).forEach(([name, func]) => map[name] = func);
@@ -213,8 +214,6 @@ export async function orthographic(map, opts = {}) {
         const rotate = proj.rotate(), scale = proj.scale();
         proj.fitExtent([[1, 1], [width - 1, height - 1]], { type: "Sphere" });
         proj.rotate(rotate).scale(scale);
-        map.isNarrow = width < 1000;
-        map.noCircle = scale2zval(Math.hypot(width, height) / 2);
         trigger("Resize", { width, height });
         console.log(`[ortho-earth] ⛶ resized (width: ${width} / height: ${height})`);
         getView();

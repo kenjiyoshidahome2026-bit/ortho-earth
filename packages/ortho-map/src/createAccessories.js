@@ -1,34 +1,31 @@
-import * as d3 from 'd3';
-import { geopbf } from "geopbf";
+import { geoPath, geoOrthographic, geoGraticule10 } from 'd3-geo';
 import { comma, dateArray, timeArray, L2 } from "common";
 import { createGetHeight } from "altpbf";
-import { drawPBF } from "./modules/_drawPBF.js"; // 🌟 drawPBFをインポートしておく
+import { geopbf } from "geopbf";
 
 export async function createAccessories(map, opts) {
     const layer = map.createLayer({ name: "Accessories", append: map.mapFrame });
+    const { onMove, onDrawing, isNarrow, isEditable } = map;
     const dpr = window.devicePixelRatio || 1;
     const context = layer.context;
     const option = { onstart: name => map.trigger("LoadStart", name), onend: name => map.trigger("LoadEnd", name) };
-    opts.altitude === false || (map.getHeight = await createGetHeight(option));
-
-    Object.entries({ latlng, scale, credit, globe, night })
-        .forEach(([name, func]) => map[name] = function () { return func.apply(map, arguments) });
-    opts.latlng === false || map.latlng();//左下の緯度経度標高表示
-    opts.scale === false || map.scale();//中央下のスケール表示
-    opts.credit === false || map.credit();//右下のクレジット
-    opts.globe === false || map.globe();//右下の地球の表示
-    opts.night === false || map.night();//zoom2以下で時計を表示
+    const getHeight = opts.altitude === false? null: await createGetHeight(option);
+    opts.latlng === false || latlng();//左下の緯度経度標高表示
+    opts.scale === false || scale();//中央下のスケール表示
+    opts.credit === false || credit();//右下のクレジット
+    opts.globe === false || globe();//右下の地球の表示
+    opts.night === false || night();//zoom2以下で時計を表示
     ////--------------------------------------------------------- 左下の緯度・経度・標高
     function latlng() {
-        const map = this, name = "latlng";
+        const name = "latlng";
         const _lat = { en: "LAT", ja: "緯度", zh: "纬度", ko: "위도" }[map.lang];
         const _lng = { en: "LNG", ja: "経度", zh: "经度", ko: "경도" }[map.lang];
         const _alt = { en: "ALT", ja: "標高", zh: "海拔", ko: "고도" }[map.lang];
         let str = "";
-        map.onMove(name, move).onLeave(name, clear).onDrawing(name, draw);
+        onMove(name, move).onLeave(name, clear).onDrawing(name, draw);
         async function move(q) {
-            if (!q || !map.isEditable()) return clear();
-            const h = map.getHeight ? await map.getHeight(q.lng, q.lat, q.zoom) : 0;
+            if (!q || !isEditable()) return clear();
+            const h = getHeight ? await getHeight(q.lng, q.lat, q.zoom) : 0;
             str = `${_lat}: ${q.lat.toFixed(6)} ${_lng}: ${q.lng.toFixed(6)}${h ? ` ${_alt}: ${h.toFixed(1)}[m]` : ""}`;
             draw();
         }
@@ -36,22 +33,22 @@ export async function createAccessories(map, opts) {
             clear();
             context.save();
             context.font = "12px Verdana"; context.textBaseline = "middle"; context.fillStyle = "white";
-            context.textAlign = map.isNarrow ? "center" : "left";
-            context.fillText(str, map.isNarrow ? map.width / 2 : 10, map.isNarrow ? 10 : map.height - 10);
+            context.textAlign = isNarrow() ? "center" : "left";
+            context.fillText(str, isNarrow() ? map.width / 2 : 10, isNarrow() ? 10 : map.height - 10);
             context.restore();
         }
         function clear() {
             const w = 350, h = 25;
-            map.isNarrow ? context.clearRect((map.width - w) / 2, 0, w, h) : context.clearRect(0, map.height - h, w, h);
+            isNarrow() ? context.clearRect((map.width - w) / 2, 0, w, h) : context.clearRect(0, map.height - h, w, h);
         }
     }
     ////--------------------------------------------------------- 中央下のスケール・ズーム
     function scale() {
-        const map = this, name = "scale";
+        const name = "scale";
         const W0 = 300, H0 = 30, W = W0 * dpr, H = H0 * dpr, M = W0 / 2, R = 6372000 * 2; // 地球の直径
         const { PI, floor, log10 } = Math;
         const canvas = new OffscreenCanvas(W, H), ctx = canvas.getContext("2d"); ctx.scale(dpr, dpr)
-        map.onDrawing(name, draw); draw();
+        onDrawing(name, draw); draw();
         function draw() {
             const [w, h] = [map.width, map.height];
             const [n, v] = (function () {
@@ -75,36 +72,37 @@ export async function createAccessories(map, opts) {
             ctx.lineWidth = 1; ctx.stroke();
             ctx.fillText(str, M, 15);
             ctx.restore();
-            context.drawImage(canvas, 0, 0, W, H, (w - W0) / 2, h - H0 - (map.isNarrow ? 20 : 0), W0, H0);
+            context.drawImage(canvas, 0, 0, W, H, (w - W0) / 2, h - H0 - (isNarrow() ? 20 : 0), W0, H0);
         }
     }
     ////--------------------------------------------------------- 右下のクレジットを挿入する関数の生成
     function credit() {
-        const map = this, name = "credit";
-        map.onDrawing(name, draw); draw();
+        const name = "credit";
+        onDrawing(name, draw); draw();
         function draw() {
             context.save();
             context.font = "12px Verdana"; context.textBaseline = "middle"; context.fillStyle = "white";
-            context.textAlign = map.isNarrow ? "center" : "right";
-            context.fillText(map.attribution, map.isNarrow ? map.width / 2 : map.width - 10, map.height - 10);
+            context.textAlign = isNarrow() ? "center" : "right";
+            context.fillText(map.attribution, isNarrow() ? map.width / 2 : map.width - 10, map.height - 10);
             context.restore();
         }
     }
     ////--------------------------------------------------------- サブマップ地球(globe)
     async function globe() {
-        const map = this, name = "globe";
+        const name = "globe";
         const sphere = { type: "Sphere" };
-        const graticule = d3.geoGraticule10();
+        const graticule = geoGraticule10();
         const land110 = (await geopbf("ne_110m_land")).geojson;
-        const bottom = map.isNarrow ? 55 : 30, right = 20;
+        const bottom = isNarrow() ? 55 : 30, right = 20;
         const size0 = 125, size = size0 * dpr;
         const maxZoom = 9;
         const canvas = new OffscreenCanvas(size, size), ctx = canvas.getContext("2d");
-        const project = d3.geoOrthographic().fitExtent([[1, 1], [size - 1, size - 1]], sphere).precision(0.1);
-        const path = d3.geoPath(project, ctx);
-        map.onDrawing(name, draw); draw();
+        const project = geoOrthographic().fitExtent([[1, 1], [size - 1, size - 1]], sphere).precision(0.1);
+        const path = geoPath(project, ctx);
+        onDrawing(name, draw); draw();
         function draw() {
-            if (map.zoom > maxZoom || map.zoom < map.noCircle) return;
+            const noCircle = map.scale2zval(Math.hypot(map.width, map.height) / 2);
+            if (map.zoom > maxZoom || map.zoom < noCircle) return;
             const [w, h] = [map.width, map.height];
             const [x, y] = [w - size0 - right, h - size0 - bottom];
             const bounds = [[0, 0], [w, 0], [w, h], [0, h]].map(map.proj.invert);
@@ -121,7 +119,7 @@ export async function createAccessories(map, opts) {
     }
 ////--------------------------------------------------------- 昼夜：時間表示
     async function night() {
-        const map = this, name = "night";
+        const name = "night";
         const { sin, cos, asin, hypot, atan2, PI } = Math, rad = PI / 180;
         const stars = (await geopbf("stars.6")).geojson.features.map(f => {
             const c = f.geometry.coordinates, p = f.properties;
@@ -162,8 +160,7 @@ export async function createAccessories(map, opts) {
             context.restore();
             context.textAlign = "center"; context.textBaseline = "middle"; context.fillStyle = "#fff";
             context.font = `${32 * (2 - z) + 16}px Verdana`;
-            const [Y, M, D] = dateArray()
-            const [h, m, s] = timeArray()
+            const [Y, M, D] = dateArray(), [h, m, s] = timeArray();
             context.fillText(`${L2(h)}:${L2(m)}:${L2(s)}`, cx, map.height / 5);
             context.font = `${12 * (2 - z) + 8}px Verdana`;
             context.fillText(`${Y}/${L2(M)}/${L2(D)} (${["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][dt.getDay()]})`, cx, map.height * 0.85);
@@ -183,7 +180,6 @@ export async function createAccessories(map, opts) {
             return { type: "Feature", geometry: { type: "Polygon", coordinates: [coords] } };
         }
         setInterval(draw, 1000);
-        map.onDrawing(name, draw);
-        draw();
+        onDrawing(name, draw); draw();
     }
 }

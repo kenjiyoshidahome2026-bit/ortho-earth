@@ -19,11 +19,11 @@ async function initDemo() {
 	mapInst.explain = mapInst.gadget.explain({ width: 350 });
 	mapInst.gadget.loading();//ファイル読み込み中表示
 	mapInst.gadget.layers();//レイヤーの切り替え
-	mapInst.isNarrow || mapInst.gadget.zoom();//ズームイン・ズームアウト
-	mapInst.isNarrow || mapInst.gadget.full();//全画面表示
+	mapInst.isNarrow() || mapInst.gadget.zoom();//ズームイン・ズームアウト
+	mapInst.isNarrow() || mapInst.gadget.full();//全画面表示
 	mapInst.gadget.north();//北向きに修正
 	mapInst.gadget.shot();//スクリーンショット
-	mapInst.isNarrow || mapInst.gadget.print();//印刷
+	mapInst.isNarrow() || mapInst.gadget.print();//印刷
 	mapInst.gadget.cpos();//現在地表示
 	mapInst.gadget.measure();//距離測定
 	const mess = `This is the demonstration for orthographic renderer platfrom.

@@ -1,6 +1,6 @@
-import * as d3 from 'd3';
-import "common/d3/selection.js";
-import "common/d3/loader.js";
+//import * as d3 from 'd3';
+//import "common/d3/selection.js";
+//import "common/d3/loader.js";
 ////-------------------------------------------------------
 import { orthographic } from "./orthographic.js";
 import { createLayers } from "./createLayers.js";
@@ -17,9 +17,9 @@ export async function orthoEarth(opts = {}) {
 	map.mapFrame = map.attr("name", "mapFrame");
 	map.lang = { "ja": "ja", "en": "en", "zh": "zh", "ko": "ko" }[navigator.language.slice(0, 2)]||"en";
 	//------------------------------------------------------------------------------------------------
-	const loader = map.prepend("div").loader({ mess: "ortho-earth" });
+//	const loader = map.prepend("div").loader({ mess: "ortho-earth" });
 	await orthographic(map, opts || {});
-	loader.removeLoader(); //ローダーの消去
+//	loader.removeLoader(); //ローダーの消去
 	await createLayers(map);
 	opts.noAccessories || createAccessories(map, opts || {});
 	opts.noGadgets || createGadgets(map);

@@ -28,7 +28,7 @@ export function loading(opts = {}) {
     function reset() { div.empty().hide(); }
     function LoadStart(name) { loadings.push(name); set(); }
     function LoadEnd(name) { loadings = loadings.filter(t => t != name); loadings.length ? set() : reset(); }
-    function resize() { div.style("bottom", (map.isNarrow ? 50 : 30) + "px"); }
+    function resize() { div.style("bottom", (map.isNarrow() ? 50 : 30) + "px"); }
 }
 ////--------------------------------------------------------- 左上に説明を追加する
 export function explain(opts = {}) {
@@ -49,7 +49,7 @@ export function explain(opts = {}) {
         isFunction(html) ? html(contents) :
             html ? (div.showIF(map.isEditable()), contents.html(html)) : (div.hide(), contents.empty());
     };
-    function resize() { div.style("top", (map.isNarrow ? 25 : 5) + "px"); }
+    function resize() { div.style("top", (map.isNarrow() ? 25 : 5) + "px"); }
 };
 ////--------------------------------------------------------- 右下に凡例を表示する
 export function legend(opts = {}) {
@@ -74,7 +74,7 @@ export function legend(opts = {}) {
         isFunction(html) ? html(contents) :
             html ? (div.showIF(map.isEditable()), contents.html(html)) : (div.hide(), contents.empty());
     };
-    function resize() { div.style("bottom", (map.isNarrow ? 50 : 30) + "px"); }
+    function resize() { div.style("bottom", (map.isNarrow() ? 50 : 30) + "px"); }
 }
 //---------------------------------------------------------------------------------------
 export function tip(opts = {}) {
