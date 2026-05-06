@@ -175,7 +175,7 @@ function destroy(data) {
 	postMessage(Object.assign(data, { action: "done", type: "destroy" }));
 }
 
-export function createTileServer(urlFunc) {
+export function createTileServer(urlFunc) { if (!urlFunc) return;
 	const session = layerSession;
 	const next = w => {
 		const xyz = urlTub.shift();
