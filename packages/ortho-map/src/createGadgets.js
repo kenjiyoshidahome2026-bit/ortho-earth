@@ -49,7 +49,7 @@ export function createGadgets(map) {
     map.overlays.showIF(map.isEditable());
     map.onResize("overlays", resize); resize();
     function resize() {
-        const narrow = map.isNarrow ? 20 : 0;
+        const narrow = map.isNarrow() ? 20 : 0;
         map.leftTop && map.leftTop.style("top", (narrow + 5) + "px");
         map.rightTop && map.rightTop.style("top", (narrow + 5) + "px");
         map.leftBottom && map.leftBottom.style("bottom", (narrow + 30) + "px");
