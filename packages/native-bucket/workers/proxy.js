@@ -18,14 +18,10 @@ export async function proxy(req) {
 				mustUseProxy: !hasCors, url: target
 			}), { headers: { 'Content-Type': 'application/json' } });
 		}
-		const h = new Headers();
-		for (const [k, v] of req.headers) {
-			if (SAFE_HEADERS.includes(k.toLowerCase())) h.set(k, v);
-		}
-		h.set('User-Agent', 'nativeBucket-Proxy/1.1');
-		const res = await fetch(target, { method: req.method, headers: h,
-			body: (req.method !== 'GET' && req.method !== 'HEAD') ? req.body : null,
-		});
-		return res;
+		const headers = new Headers(), method = req.method;
+		const body = (method !== 'GET' && method !== 'HEAD') ? req.body : null;
+		for (const [k, v] of req.headers) SAFE_HEADERS.includes(k.toLowerCase()) && headers.set(k, v);
+		headers.set('User-Agent', 'nativeBucket-Proxy/1.1');
+		return await fetch(target, { method, headers, body });
 	} catch (e) { return new Response(JSON.stringify({ error: e.message }), { status: 500 });}
 }

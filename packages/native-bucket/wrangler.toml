@@ -13,3 +13,4 @@ bucket_name = "my-native-bucket"
 
 [vars]
 ALLOWED_DOMAINS = "www.ortho-earth.com,ortho-earth.com,kenjiyoshidahome2026-bit.github.io,localhost:5173,localhost:4173"
+API_KEY = "my-lovely-dog-betty-was-born-on-2019-09-01"
