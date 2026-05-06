@@ -1,0 +1,15 @@
+name = "native-bucket"
+main = "workers/index.js"
+compatibility_date = "2024-01-01"
+
+[assets]
+directory = "dist/client"
+# このバインディング名を追加することで、WorkerとAssetsを統合します
+binding = "ASSETS"
+
+[[r2_buckets]]
+binding = "MY_BUCKET"
+bucket_name = "my-native-bucket"
+
+[vars]
+ALLOWED_DOMAINS = "www.ortho-earth.com,ortho-earth.com,kenjiyoshidahome2026-bit.github.io,localhost:5173,localhost:4173"

@@ -181,7 +181,7 @@ export async function orthographic(map, opts = {}) {
         }
         Events.forEach(t => map["on" + t] = makeEvent(t));
         let calceledEventList = [];
-        map.cancelEvent = name => { //debugger
+        map.cancelEvent = name => {
             Object.entries(eventTub[name] || {})
                 .forEach(([header, func]) => { calceledEventList.push([name, header, func]); dispatcher.on(`${name}.${header}`, null) })
         };
