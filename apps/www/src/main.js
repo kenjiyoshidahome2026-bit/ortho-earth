@@ -8,6 +8,7 @@ const demoOverlay = d3.select('#demoOverlay');
 const execDemo = d3.select('#execDemo');
 const exitDemo = d3.select('#exitDemo').hide();
 const main = demoOverlay.select('main');
+d3.select('#btn-docs').on('click', () => window.location.href = '/docs/');
 
 let timer;
 const mapInst = await orthoEarth({target:mapContainer});
