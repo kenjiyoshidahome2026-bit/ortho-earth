@@ -9,7 +9,7 @@ export default defineConfig({
     // https://vitepress.dev/reference/default-theme-config
     nav: [
       { text: 'home', link: '/' },
-      { text: 'www', link: 'https://www.ortho-earth.com/' },
+      { text: 'www', link: '../' },
       { text: 'Examples', link: '/markdown-examples' }
     ],
 
