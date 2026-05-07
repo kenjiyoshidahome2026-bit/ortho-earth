@@ -2,6 +2,7 @@ import { defineConfig } from 'vitepress'
 
 // https://vitepress.dev/reference/site-config
 export default defineConfig({
+  base: "/docs",
   title: "Ortho Earth",
   description: "A modern orthographic map renderer.",
   themeConfig: {

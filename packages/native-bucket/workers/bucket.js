@@ -1,6 +1,10 @@
-export async function bucket(request, bucket) {
+export async function bucket(request, bucket, ctx) {
     const url = new URL(request.url);
     const path = decodeURIComponent(url.pathname.split('/bucket/').pop());
+    const cache = caches.default;
+    if (request.method === "GET") {
+        const res = await cache.match(request); if (res) return res;
+    } 
     try {
         if (request.method === "GET") {
              if (path.endsWith('/') || path === "") {
@@ -30,22 +34,22 @@ export async function bucket(request, bucket) {
             const obj = await (isMeta ? bucket.head(path) : bucket.get(path));
             if (!obj) return new Response(JSON.stringify({ data: null }), { status: 404 });
             if (isMeta) {
-                const meta = {
-                    Key: obj.key,
-                    Size: obj.size,
-                    LastModified: obj.uploaded,
+                const meta = { Key: obj.key, Size: obj.size, LastModified: obj.uploaded,
                     ETag: (obj.httpEtag || "").replace(/"/g, ""),
                     ContentEncoding: obj.httpMetadata?.contentEncoding || ""
                 };
                 return new Response(JSON.stringify({ data: meta }), { headers: { "Content-Type": "application/json" } });
             }
-            return new Response(obj.body, {
+            const response = new Response(obj.body, {
                 headers: {
                     "Content-Type": obj.httpMetadata?.contentType || "application/octet-stream",
                     "Content-Encoding": obj.httpMetadata?.contentEncoding || "",
-                    "Content-Length": obj.size, "ETag": obj.httpEtag
+                    "Content-Length": obj.size, "ETag": obj.httpEtag,
+                    "Cache-Control": "public, s-maxage=3600, max-age=60"
                 }
             });
+            (response.status === 200) && ctx.waitUntil(cache.put(request, response.clone()));
+            return response;
         }
          if (request.method === "POST") {
             const clientApiKey = request.headers.get("X-API-Key");
