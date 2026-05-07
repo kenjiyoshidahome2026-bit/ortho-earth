@@ -98,12 +98,12 @@ A smart proxy that bypasses CORS and can surgically extract specific files from 
 
 | Parameter | Type | Description |
 | :--- | :---: | :--- |
-| `type` | String | Output format: `"file"` (Default), `"blob"`, `"json"`, `"text"`. |
-| `cors` | Boolean | true/false: pre-flight check without this parameter |
-| `target` | String | Path inside the ZIP to extract a specific file. |
-| `encoding` | String | encoding (default:`"utf8"`) |
-| `silent` | Boolean | if true then no progress log |
-| `eventTarget` | dom | target of event (default: window or self[webWorker]) |
+| `type` | `String` | Output format: `"file"` (Default), `"blob"`, `"json"`, `"text"`. |
+| `cors` | `Boolean` | true/false: pre-flight check without this parameter |
+| `target` | `String` | Path inside the ZIP to extract a specific file. |
+| `encoding` | `String` | encoding (default:`"utf8"`) |
+| `silent` | `Boolean` | if true then no progress log |
+| `eventTarget` | `dom` | target of event (default: window or self[webWorker]) |
 
 ```javascript
 // get en entire renote zip file

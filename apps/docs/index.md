@@ -26,8 +26,8 @@ features:
   - title: geopbf
     details: geopbf is a lightweight, Protocol Buffers (PBF) based data engine. It is designed to complement existing GIS standards like GeoJSON and Shapefiles by providing a high-performance binary alternative that enhances memory efficiency and rendering speed in the browser.
   - title: altpbf
-    details: Lorem ipsum dolor sit amet, consectetur adipiscing elit
+    details: A specialized engine for altitude and terrain data. Leveraging binary PBF formats to handle high-resolution elevation mapping and 3D geospatial calculations with minimal overhead.
   - title: native-bucket
-    details: Lorem ipsum dolor sit amet, consectetur adipiscing elit
+    details: A minimalist storage utility optimized for Cloudflare R2. Facilitates a "Direct-to-Edge" data delivery model, managing public data access and secure updates with a simple, serverless-first approach.
 ---
 
