@@ -19,7 +19,7 @@ exitDemo.on('click', endDemo);
 async function initDemo() {
 	mapInst.explain = mapInst.gadget.explain({ width: 300 });
 	mapInst.gadget.loading();//ファイル読み込み中表示
-	mapInst.gadget.layers();//レイヤーの切り替え
+	mapInst.gadget.layers({big:true});//レイヤーの切り替え
 	mapInst.isNarrow() || mapInst.gadget.zoom();//ズームイン・ズームアウト
 	mapInst.isNarrow() || mapInst.gadget.full();//全画面表示
 	mapInst.gadget.north();//北向きに修正
