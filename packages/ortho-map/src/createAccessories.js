@@ -150,13 +150,14 @@ export async function createAccessories(map, opts) {
             }
             context.restore(); context.save();
             const halo = context.createRadialGradient(cx, cy, er, cx, cy, er + 15);
+            const path = geoPath(map.proj, context);
             halo.addColorStop(0, "rgba(100, 150, 255, 0.05)"); halo.addColorStop(1, "rgba(100, 150, 255, 0)");
             context.fillStyle = halo;
             context.beginPath(); context.arc(cx, cy, er + 15, 0, PI * 2); context.fill();
             context.beginPath(); context.arc(cx, cy, er, 0, PI * 2); context.clip();
-            layer.drawJSON(nightJSON(dt, -2), { fill: "rgba(0, 5, 20, 0.1)" });
-            layer.drawJSON(nightJSON(dt, 0), { fill: "rgba(0, 5, 20, 0.2)" });
-            layer.drawJSON(nightJSON(dt, 2), { fill: "rgba(0, 5, 20, 0.4)" });
+            context.beginPath(); path(nightJSON(dt, -2)); context.fillStyle = "rgba(0, 5, 20, 0.1)"; context.fill();
+            context.beginPath(); path(nightJSON(dt, 0)); context.fillStyle = "rgba(0, 5, 20, 0.2)"; context.fill();
+            context.beginPath(); path(nightJSON(dt, 2)); context.fillStyle = "rgba(0, 5, 20, 0.4)"; context.fill();
             context.restore();
             context.textAlign = "center"; context.textBaseline = "middle"; context.fillStyle = "#fff";
             context.font = `${32 * (2 - z) + 16}px Verdana`;

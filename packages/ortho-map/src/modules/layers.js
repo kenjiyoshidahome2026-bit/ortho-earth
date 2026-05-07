@@ -1,22 +1,22 @@
 const layers = [
 	["whiteEarth", "whiteEarth", null, 7, "Natural Earth", 
-		{ ja: "白地図", en: "whiteEarth", zh: "白地图", ko: "흰색 지도" }],
+		{ en: "whiteEarth", ja: "白地図", zh: "白地图", ko: "흰색 지도" }],
 	["google.street","naturalEarth", "google.streets", 22, "Natural Earth / ©︎ Google", 
-		{ ja: "google:ストリート", en: "google:street", zh: "Google:街道", ko: "Google: 거리" }],
+		{ en: "google:street", ja: "google:ストリート", zh: "Google:街道", ko: "Google: 거리" }],
 	["google.terrain","naturalEarth", "google.terrain", 22, "Natural Earth / ©︎ Google",
-		{ ja: "google:テライン", en: "google:terrain", zh: "Google:地形", ko: "Google: 지형" }],
+		{ en: "google:terrain", ja: "google:テライン", zh: "Google:地形", ko: "Google: 지형" }],
 	["google.satellite","google.satellite", "google.satellite", 22, "©︎ Google",
-		{ ja: "google:航空写真", en: "google:satellite", zh: "Google:卫星", ko: "Google: 위성" }],
+		{ en: "google:satellite", ja: "google:航空写真", zh: "Google:卫星", ko: "Google: 위성" }],
 	["google.hybrid","google.satellite", "google.hybrid", 22, "©︎ Google", 
-		{ ja: "google:ハイブリッド", en: "google:hybrid", zh: "Google:混合", ko: "Google: 하이브리드" }],
+		{ en: "google:hybrid", ja: "google:ハイブリッド", zh: "Google:混合", ko: "Google: 하이브리드" }],
 	["osm.street", "naturalEarth", "osm.street", 19, "Natural Earth / ©︎ OpenStreetMap contributors",
-		{ ja: "OSM:ストリート", en: "OSM:street", zh: "OSM:街道", ko: "OSM: 거리" }],
+		{ en: "OSM:street", ja: "OSM:ストリート", zh: "OSM:街道", ko: "OSM: 거리" }],
 	["osm.satellite", "osm.satellite", "osm.satellite", 19, "© Microsoft",
-		{ ja: "OSM:航空写真", en: "OSM:satellite", zh: "OSM:卫星", ko: "OSM: 위성" }],
+		{ en: "OSM:satellite", ja: "OSM:航空写真", zh: "OSM:卫星", ko: "OSM: 위성" }],
 	["cyberjapan.std", "naturalEarth", "cyberjapan.std", 19, "Natural Earth / ©︎ 国土地理院",
-		{ ja: "国土地理院:標準地図", en: "GIAJ:standard", zh: "国土地理院:标准", ko: "국토지리원: 표준" }],
+		{ en: "GIAJ:standard", ja: "国土地理院:標準地図", zh: "国土地理院:标准", ko: "국토지리원: 표준" }],
 	["cyberjapan.pale", "naturalEarth", "cyberjapan.pale", 19, "Natural Earth / ©︎ 国土地理院",
-		{ ja: "国土地理院:淡色地図", en: "GIAJ:pale", zh: "国土地理院:淡色", ko: "국토지리원: 연한색" }]
+		{ en: "GIAJ:pale", ja: "国土地理院:淡色地図", zh: "国土地理院:淡色", ko: "국토지리원: 연한색" }]
 ];
 const tileURL = function (type) {
 	if (!type) return null;
@@ -51,11 +51,5 @@ const tileURL = function (type) {
 	
 export const Layers = {};
 layers.map(([name, base, tile, maxZoom, attr, trans])=> {
-	Layers[name] = { name,
-		base:base+".webp",
-		tile: tileURL(tile),
-		maxZoom, 
-		attr: "orthoEarth / " + attr,
-		trans:lang=>trans[lang]
-	};
+	Layers[name] = { name, base:base+".webp", tile: tileURL(tile), maxZoom,  attr: "orthoEarth / " + attr, trans:lang=>trans[lang]||trans.en };
 });

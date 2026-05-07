@@ -6,7 +6,7 @@ import { orthoEarth } from 'ortho-map';
 const mapContainer = d3.select('#mapContainer');
 const demoOverlay = d3.select('#demoOverlay');
 const execDemo = d3.select('#execDemo');
-const exitDemo = d3.select('#exitDemo').style("visibility","none");
+const exitDemo = d3.select('#exitDemo').hide();
 const main = demoOverlay.select('main');
 
 let timer;
@@ -16,7 +16,7 @@ execDemo.on('click', startDemo);
 exitDemo.on('click', endDemo);
 
 async function initDemo() {
-	mapInst.explain = mapInst.gadget.explain({ width: 350 });
+	mapInst.explain = mapInst.gadget.explain({ width: 300 });
 	mapInst.gadget.loading();//ファイル読み込み中表示
 	mapInst.gadget.layers();//レイヤーの切り替え
 	mapInst.isNarrow() || mapInst.gadget.zoom();//ズームイン・ズームアウト

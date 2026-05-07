@@ -24,13 +24,12 @@ body { font-family: 'Helvetica Neue', Arial, 'Hiragino Kaku Gothic ProN', sans-s
 				img { vertical-align: top; display: inline-block; height: 1.2em; padding-right: 0.5em; }
 			}
 			.links a { color: var(--text-primary); text-decoration: none;
-				margin-left: 2rem; font-size: 0.9rem; font-weight: 500; transition: color 0.2s;
+				margin-left: 1rem; font-size: 1.2rem; font-weight: 500; transition: color 0.2s;
 				&:hover { color: var(--accent-color); }
 			}
 		}
 		main { flex: 1; display: flex; flex-direction: column;
-			background:rgba(0,0,0,0.6);
-			padding: 0 2rem;
+			background:rgba(0,0,0,0.6); padding: 0 2rem;
 			justify-content: center; align-items: center; text-align: center;
 			.title { font-size: clamp(3rem, 6vw, 5rem); font-weight: 900; line-height: 1.1; margin-bottom: 1.5rem; }
 			.highlight { color: var(--accent-color); text-shadow: 0 0 30px var(--accent-glow); }
@@ -40,14 +39,15 @@ body { font-family: 'Helvetica Neue', Arial, 'Hiragino Kaku Gothic ProN', sans-s
 		}
 		footer { padding: 1.5rem; text-align: center; font-size: 0.8rem;
 			color: var(--text-secondary); background: var(--glass-bg);
-			backdrop-filter: blur(12px); border-top: 1px solid var(--glass-border); }
+			backdrop-filter: blur(12px); border-top: 1px solid var(--glass-border);
+			a { color:#fff; text-decoration: none; }
+		}
 	}
 	button.btn { padding: 0.8rem 2rem; font-size: 1rem; font-weight: 600; border-radius: 50px;
 		background-color: var(--accent-color); color: #000;
 		cursor: pointer; transition: all 0.5s ease; border: none;
-			&:hover { transform: translateY(-2px); }
-		&.primary { 
-			box-shadow: 0 0 20px var(--accent-glow);
+		&:hover { transform: translateY(-2px); }
+		&.primary {  box-shadow: 0 0 20px var(--accent-glow);
 			&:hover { box-shadow: 0 0 30px var(--accent-glow); }
 		}
 		&.secondary { background-color: transparent; color: var(--text-primary);
