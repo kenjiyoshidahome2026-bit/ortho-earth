@@ -8,7 +8,8 @@
 	],
 	"scripts": {
 		"dev:viewer": "npm run dev -w viewer",
-		"dev:uploader": "npm run dev -w uploader"
+		"dev:uploader": "npm run dev -w uploader",
+		"summary": "find . \\( -name 'node_modules' -o -name 'dist' -o -name '.git' -o -name '.wrangler' -o -name 'assets' \\) -prune -o -type f \\( -name '*.js' -o -name '*.json' -o -name '*.html' -o -name '*.css' -o -name '*.toml' \\) -not -name 'package-lock.json' -not -name '*.min.js' -not -name '*.map' -print0 | xargs -0 -I {} sh -c 'echo \"FILE: {}\"; cat \"{}\"; echo \"\\n---\"' > project_summary.txt"
 	},
 	"dependencies": {
 		"html2canvas": "^1.4.1",
