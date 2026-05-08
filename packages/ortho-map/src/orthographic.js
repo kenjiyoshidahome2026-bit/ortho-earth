@@ -5,6 +5,7 @@ import { isString, isFunction } from "common";
 import { cleanup } from "common/d3/tip-pop.js";
 import { Cache } from "native-bucket";
 import versor from "versor";
+import { createGetHeight } from "altpbf";
 
 export async function orthographic(map, opts = {}) {
     map.isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
@@ -66,13 +67,13 @@ export async function orthographic(map, opts = {}) {
     ////-------------------------------------------------------------------------------------------
     {
         const isCtrl = e => e.metaKey || e.ctrlKey, isShift = e => e.shiftKey;
-        const getInfo = e => {
+        const getInfo = async e => {
             e = e.sourceEvent || e;
             const zoom = map.zoom, metaKey = isCtrl(e), shiftKey = isShift(e);
             const [x, y] = pointer(e);
             const pos = xy2pos([x, y]); if (!pos) return null;
-            const [lng, lat] = pos;
-            return { lng, lat, x, y, shiftKey, metaKey, proj, zoom };
+            const [lng, lat] = pos, alt = map.getHeight ? await map.getHeight(lng,lat, zoom): 0;
+            return { lng, lat, alt, x, y, shiftKey, metaKey };
         };
     //    const versor = await Resources.versor();
         const { cartesian, delta, multiply, rotation } = versor;
@@ -145,15 +146,18 @@ export async function orthographic(map, opts = {}) {
         map.on("contextmenu", e => trigger("ContextMenu", e));
         map.on("dblclick.zoom", null);//ダブルクリックで拡大しない!!!
         ////------------------------------------------------------------------------------------------------	
-        map.on("click", e => trigger("Click", getInfo(e)), { passive: true });
-        map.on("mousemove touchmove", e => trigger("Move", getInfo(e)), { passive: true });
-        map.on("mouseenter touchstart", e => trigger("Enter", getInfo(e)), { passive: true });
+        map.on("click", async e => trigger("Click", await getInfo(e)), { passive: true });
+        map.on("mousemove touchmove", async e => trigger("Move", await getInfo(e)), { passive: true });
+        map.on("mouseenter touchstart", async e => trigger("Enter", await getInfo(e)), { passive: true });
         map.on("mouseleave mouseout touchend", e => trigger("Leave", {}));
         map.dropFile(file => trigger("Drop", file));
+        const option = { onstart: name => map.trigger("LoadStart", name), onend: name => map.trigger("LoadEnd", name) };
+        map.getHeight = opts.altitude === false ? null : await createGetHeight(option);
+
     } {////------------------------------------------------------------------------------------------------	
         const funcs = {
             draw, trigger, resize, isEditable, isNarrow, cursor, bbox, setRange, setView, setZoom,
-            setFeature, flyToFeature, mag, north, /*projectTester,*/ tester, xy2pos, zval2scale, scale2zval, pointer, pointers
+            setFeature, flyToFeature, mag, north, tester, xy2pos, zval2scale, scale2zval, pointer, pointers
         };
         Object.entries(funcs).forEach(([name, func]) => map[name] = func);
     } {////------------------------------------------------------------------------------------------------	

@@ -9,7 +9,7 @@ import image from './workers/image.js?worker&url';
 import standard from './workers/standard.js?worker&url';
 const workerURL = s => ({ base, border, image }[s] || standard);
 
-export async function createLayers(map) {
+export async function createLayers(map, opts) {
     const layers = map.layers = {};
     map.createLayer = opts => createLayer.call(map, opts);
     map.createRemoteLayer = opts => createRemoteLayer.call(map, opts);
@@ -22,7 +22,10 @@ export async function createLayers(map) {
     const borderLayer = (await createRemoteLayer.call(map, { name: "OrthoBorder", append: map.mapFrame, type: "border" }));
     ////--------------------------------------------------------------------------
     await map.setBase(map.baseName);
-    await borderLayer.set({maxZoom:7, minZoom:2})
+    // const lat = { en: "LAT", ja: "緯度", zh: "纬度", ko: "위도" }[map.lang];
+    // const lng = { en: "LNG", ja: "経度", zh: "经度", ko: "경도" }[map.lang];
+    // const alt = { en: "ALT", ja: "標高", zh: "海拔", ko: "고도" }[map.lang];
+    await borderLayer.set("set", opts, { lang: map.lang });
     ////--------------------------------------------------------------------------
     async function setBase(map, name) {
         baseLayer.set("base", name, map.threshold);
@@ -124,6 +127,8 @@ async function createRemoteLayer(param = {}) {
         Object.entries({ set, destroy }).forEach(([name, func]) => layer[name] = func);
         map.dispatcher.on(`Drawing.${name}`, drawing);
         map.dispatcher.on(`Drawn.${name}`, drawn);
+        map.dispatcher.on(`Move.${name}`, move);
+        map.dispatcher.on(`Leave.${name}`, leave);
         map.dispatcher.on(`Resize.${name}`, resize);
         init(); resize();
         ////------------------------------------------------------------------------
@@ -132,8 +137,10 @@ async function createRemoteLayer(param = {}) {
             worker.postMessage({ type: "set", cmd, data, prop });
             (cmd === "base") && map.trigger("LoadStart", data);
         }
-        function drawing() { worker.postMessage({ type: "drawing", scale: proj.scale(), rotate: proj.rotate() }); }
+        function drawing() { worker.postMessage({ type: "drawing", scale: proj.scale(), rotate: proj.rotate(), attr:map.attribution }); }
         function drawn() { worker.postMessage({ type: "drawn", scale: proj.scale(), rotate: proj.rotate() }); }
+        function move(e = {}) { worker.postMessage({ type: "move", ...e }); }
+        function leave() { worker.postMessage({ type: "leave" }); }
         function resize() {
             const { width, height } = map;
             layer.css({ width: width + "px", height: height + "px" });

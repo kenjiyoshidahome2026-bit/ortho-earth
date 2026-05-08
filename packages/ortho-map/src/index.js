@@ -1,4 +1,4 @@
-//import * as d3 from 'd3';
+import * as d3 from 'd3';
 //import "common/d3/selection.js";
 //import "common/d3/loader.js";
 ////-------------------------------------------------------
@@ -20,7 +20,7 @@ export async function orthoEarth(opts = {}) {
 //	const loader = map.prepend("div").loader({ mess: "ortho-earth" });
 	await orthographic(map, opts || {});
 //	loader.removeLoader(); //ローダーの消去
-	await createLayers(map);
+	await createLayers(map, opts || {});
 	opts.noAccessories || createAccessories(map, opts || {});
 	opts.noGadgets || createGadgets(map);
 	const meas = (performance.now() - dt).toFixed(2);
