@@ -1,5 +1,5 @@
 import { orthoEarth } from 'ortho-map';
-const map = await orthoEarth();
+const map = await orthoEarth({border:{maxZoom:7, minZoom:2}});
 map.explain = map.gadget.explain({ width: 300 });
 map.tip = map.gadget.tip({});
 map.pop = map.gadget.pop({});

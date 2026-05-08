@@ -16,7 +16,7 @@ export async function createAccessories(map, opts) {
     opts.globe === false || globe();//右下の地球の表示
     opts.night === false || night();//zoom2以下で時計を表示
     ////--------------------------------------------------------- 左下の緯度・経度・標高
-    function latlng() {
+    function latlng() { return
         const name = "latlng";
         const _lat = { en: "LAT", ja: "緯度", zh: "纬度", ko: "위도" }[map.lang];
         const _lng = { en: "LNG", ja: "経度", zh: "经度", ko: "경도" }[map.lang];
@@ -43,7 +43,7 @@ export async function createAccessories(map, opts) {
         }
     }
     ////--------------------------------------------------------- 中央下のスケール・ズーム
-    function scale() {
+    function scale() { return
         const name = "scale";
         const W0 = 300, H0 = 30, W = W0 * dpr, H = H0 * dpr, M = W0 / 2, R = 6372000 * 2; // 地球の直径
         const { PI, floor, log10 } = Math;
@@ -76,7 +76,7 @@ export async function createAccessories(map, opts) {
         }
     }
     ////--------------------------------------------------------- 右下のクレジットを挿入する関数の生成
-    function credit() {
+    function credit() { return;
         const name = "credit";
         onDrawing(name, draw); draw();
         function draw() {
