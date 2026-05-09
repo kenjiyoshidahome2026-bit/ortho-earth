@@ -88,7 +88,7 @@ export async function createAccessories(map, opts) {
         }
     }
     ////--------------------------------------------------------- サブマップ地球(globe)
-    async function globe() {
+    async function globe() { return
         const name = "globe";
         const sphere = { type: "Sphere" };
         const graticule = geoGraticule10();
@@ -118,7 +118,7 @@ export async function createAccessories(map, opts) {
         }
     }
 ////--------------------------------------------------------- 昼夜：時間表示
-    async function night() {
+    async function night() { return
         const name = "night";
         const { sin, cos, asin, hypot, atan2, PI } = Math, rad = PI / 180;
         const stars = (await geopbf("stars.6")).geojson.features.map(f => {

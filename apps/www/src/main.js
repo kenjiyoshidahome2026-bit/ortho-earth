@@ -1,7 +1,7 @@
 import * as d3 from "d3";
 import "common/d3/selection.js";
 import './style.scss';
-import { orthoEarth } from 'ortho-map';
+import orthoMap from 'ortho-map';
 
 const mapContainer = d3.select('#mapContainer');
 const demoOverlay = d3.select('#demoOverlay');
@@ -11,7 +11,7 @@ const main = demoOverlay.select('main');
 d3.select('#btn-docs').on('click', () => window.location.href = '/docs/');
 
 let timer;
-const mapInst = await orthoEarth({target:mapContainer});
+const mapInst = await orthoMap({target:mapContainer});
 await initDemo();
 execDemo.on('click', startDemo);
 exitDemo.on('click', endDemo);
