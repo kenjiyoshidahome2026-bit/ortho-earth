@@ -1,183 +1,254 @@
 import { geoPath, geoOrthographic, geoGraticule10 } from 'd3-geo';
+import { comma, dateArray, timeArray, L2, isObject } from "common";
 import { geopbf } from "geopbf";
-//import { createGetHeight } from "altpbf";
 
-let canvas, ctx, width, height, dpr, path, zoom, maxZoom, minZoom, attribution;
-let displayBorders = {}, displayLnglat = true, displayScale = true, displayCredit = true, displayGlobe = {size:128};
+let canvas, layer, width, height, dpr, path, zoom, attribution;
+const accessories = {
+	borders:{minZoom:2, maxZoom:7, graticule:true, border:true, maritime:true, geolines:true },
+	globe:{maxZoom:8, size:125, bottom:30, right:20, land:"rgb(160,200,160)",sea:"rgb(200,240,255)",line:"rgb(150,0,0)"},
+	stars:{maxZoom:3, maxCount:Infinity},
+	night:{maxZoom:2},
+	latlng:{minZoom:2, color:"white"},
+	scale:{minZoom:2, color:"white", unit: "metric"},
+	credit:{minZoom:2, color:"white"},
+};
 
-let proj = geoOrthographic();
-let borders = [], latlngalt = null, latlngString;
-let scaleCanvas = null, scaleCtx = null;
-let globeCanvas = null, globeCtx = null;
+const { sin, cos, asin, hypot, atan2, log2, log10, floor, PI } = Math, rad = PI / 180;
+const getSidereal = d => ((18.697374 + 24.0657098 * ((d.getTime() + d.getTimezoneOffset() * 60000) / 864e5 + 2440587.5 - 2451545.0)) * 15) % 360;
+
+const proj = geoOrthographic();
+let active = false;
 let noCircle = 1;
-let land110, stars;
-const funcs = { init, set, drawing, drawn, move, leave, resize, destroy };
-const isNarrow = () => width < 1000;
-const isEditable = () => zoom > 2;
+let isNarrow = false;
 const sphere = { type: "Sphere" };
 const graticule = geoGraticule10();
+let land110, stars;
+
+
+
+const funcs = { init, set, drawing, drawn, move, leave, resize, destroy };
 onmessage = e => funcs[e.data.type](e.data);
+
 function init(data) {
 	canvas = data.offscreen, dpr = data.dpr;
-	path = geoPath(proj, ctx = canvas.getContext("2d"));
- 	postMessage({ type: data.type, action: "done", ctx: ctx.constructor.name });
+	path = geoPath(proj, layer = canvas.getContext("2d"));
+ 	postMessage({ type: data.type, action: "done", ctx: layer.constructor.name });
 }
-async function set(data) {
-	displayBorders = data.data.borders !== false ? data.data.borders || displayBorders : false;
-	displayLnglat = data.data.latlng !== false;
-	displayScale = data.data.scale !== false;
-	displayCredit = data.data.credit !== false;
-	displayGlobe = data.data.globe !== false ? data.data.globe || displayGlobe : false;
-	let lang = data.prop.lang;
-	latlngalt = [
+async function set(data) { if (data.data != "options") return postMessage({ type: data.type, action: "failed" });
+	const opts = data.prop || {};
+	const lang = opts.lang||"en";
+	for (let i in accessories) {
+		if (opts[i]===false) { accessories[i] = null;
+		} else if (isObject(opts[i])) {
+			for (let j in accessories[i]) accessories[i][j] = opts[i][j];
+		}
+	}
+	console.log(accessories)
+	accessories.latlng.names = [
 		{ en: "LAT", ja: "緯度", zh: "纬度", ko: "위도" }[lang],
 		{ en: "LNG", ja: "経度", zh: "经度", ko: "경도" }[lang],
 		{ en: "ALT", ja: "標高", zh: "海拔", ko: "고도" }[lang]
 	];
-	borders = [[sphere, { stroke: "rgba(200,200,200,0.8)", width: 0.8 }]];
-	if (displayBorders) {
-		maxZoom = displayBorders.maxZoom || 7, minZoom = displayBorders.minZoom || 2;
-		const jsons = (await Promise.all([
-			"ne_50m_admin_0_boundary_lines_land",
-			"ne_50m_admin_0_boundary_lines_maritime_indicator",
-			"ne_50m_geographic_lines",
-			"ne_110m_land", "stars.6"].map(geopbf))).map(t=>t.geojson);
-		displayBorders.graticule === false || borders.push([graticule, { stroke: "rgba(255, 255, 255, 0.5)", width: 0.5 }]);
-		displayBorders.boundary_lines === false || borders.push([jsons[0], { stroke: "rgba(255,255,255,0.8)", width: 1, dash: [3, 1] }]);
-		displayBorders.boundary_maritime === false || borders.push([jsons[1], { stroke: "rgba(128,128,255,0.8)", width: 0.8, dash: [3, 1] }]);
-		displayBorders.geographic_lines === false || borders.push([jsons[2], { stroke: "rgba(255,255,255,1)", width: 0.5, dash: [4, 2] }]);
-		land110 = jsons[3];
-		stars = jsons[4];
-		
+	const jsons = (await Promise.all([
+		"ne_50m_admin_0_boundary_lines_land",
+		"ne_50m_admin_0_boundary_lines_maritime_indicator",
+		"ne_50m_geographic_lines",
+		"ne_110m_land", "stars.6"].map(geopbf))).map(t=>t.geojson);
+	if (accessories.borders) {
+		const borders = accessories.borders.jsons = [[sphere, { stroke: "rgba(200,200,200,0.8)", width: 0.8 }]];
+		accessories.borders.graticule === false || borders.push([graticule, { stroke: "rgba(255, 255, 255, 0.5)", width: 0.5 }]);
+		accessories.borders.border === false || borders.push([jsons[0], { stroke: "rgba(255,255,255,0.8)", width: 1, dash: [3, 1] }]);
+		accessories.borders.maritime === false || borders.push([jsons[1], { stroke: "rgba(128,128,255,0.8)", width: 0.8, dash: [3, 1] }]);
+		accessories.borders.geolines === false || borders.push([jsons[2], { stroke: "rgba(255,255,255,1)", width: 0.5, dash: [4, 2] }]);
 	}
-	scaleCanvas = new OffscreenCanvas(600, 60);//debugger;
-	scaleCtx = scaleCanvas.getContext("2d"); scaleCtx.scale(dpr, dpr);
-	globeCanvas = new OffscreenCanvas(128, 128);//debugger;
-	globeCtx = globeCanvas.getContext("2d"); scaleCtx.scale(dpr, dpr);
+	land110 = jsons[3];
+	stars = jsons[4].features.map(f => {
+		const c = f.geometry.coordinates, p = f.properties;
+		const bv = (v => v < -0.3 ? "#b2c8ff" : v < 0.0 ? "#d9e2ff" : v < 0.3 ? "#f8faff" : v < 0.6 ? "#fff8f0" :
+			v < 0.8 ? "#fff2c8" : v < 1.1 ? "#ffe0b5" : v < 1.4 ? "#ffcc99" : "#ffab91")(p.bv);
+		return { x: c[0] * rad, y: c[1] * rad, mag: p.mag, bv };
+	}).sort((p,q)=>p.mag>q.mag?1:-1).slice(0,accessories.stars.maxCount);
+	active = true;
+	setInterval(()=>{accessories.night.json = nightJSON(new Date()), draw_night(); draw_stars()},1000);
 	postMessage({ type: data.type, action: "done" });
 }
 function resize(data) {
 	width = data.width; height = data.height;
 	canvas.width = width * dpr; canvas.height = height * dpr;
 	proj.fitExtent([[1, 1], [width - 1, height - 1]], { type: "Sphere" });
-	ctx.scale(dpr, dpr);
-	noCircle = Math.log2(Math.hypot(width, height) / 2 / 256);
+	layer.scale(dpr, dpr);
+    noCircle = log2(hypot(width, height) * PI / 256);
+	isNarrow = width < 1000;
 	postMessage({ type: data.type, action: "done" });
 }
-function drawing(data) { console.log(data)
-	requestAnimationFrame(() => {
-		ctx.clearRect(0, 0, width, height);
+function drawing(data) {
+	active && requestAnimationFrame(() => {
+		layer.clearRect(0, 0, width, height);
 		proj.rotate(data.rotate).scale(data.scale);
-		zoom = Math.log2(data.scale * Math.PI * 2 / 256);
+		zoom = log2(data.scale * PI * 2 / 256);
 		attribution = data.attr;
-		displayBorders && draw_border();
-		displayLnglat && draw_latlng();
-		displayScale && draw_scale();
-		displayCredit && draw_credit();
-		
+		draw_border();
+		draw_globe();
+		draw_night(); 
+		draw_stars(); 
+		draw_latlng();
+		draw_scale();
+		draw_credit();
 	});
 }
-function move(data) {
-	if (!latlngalt || !data.lat || !isEditable()) return leave();
-	latlngString = `${latlngalt[0]}: ${data.lat.toFixed(6)} ${latlngalt[1]}: ${data.lng.toFixed(6)}${data.alt ? ` ${latlngalt[2]}: ${data.alt.toFixed(1)}[m]` : ""}`;
+function move(data) { const q = accessories.latlng.names;
+	accessories.latlng.string = data.lat?`${q[0]}: ${data.lat.toFixed(6)} ${q[1]}: ${data.lng.toFixed(6)}${data.alt ? ` ${q[2]}: ${data.alt.toFixed(1)}[m]` : ""}`:"";
 	draw_latlng();
 }
 function leave() { const w = 350, h = 25;
-	isNarrow() ? ctx.clearRect((width - w) / 2, 0, w, h) : ctx.clearRect(0, height - h, w, h);
+	isNarrow ? layer.clearRect((width - w) / 2, 0, w, h) : layer.clearRect(0, height - h, w, h);
 }
 function drawn() {}
 
 function destroy(data) {
 	canvas && (canvas.width = 0, canvas.height = 0); canvas = null;
 	borders.forEach(t => t = null); borders.length = 0; borders = null;
-	ctx = path = proj = null;
+	layer = path = proj = null;
 	postMessage({ type: data.type, action: "done" });
 }
 ////--------------------------------------------------------------
-async function draw_border() {
-	if (zoom < minZoom || maxZoom < zoom) return;
-	borders.forEach(([json, prop]) => {
-		ctx.beginPath(); path(json);
-		ctx.strokeStyle = prop.stroke;
-		ctx.lineWidth = prop.width || 1;
-		ctx.setLineDash(prop.dash ||[]);
-		ctx.stroke();
+function draw_border() {
+	if (!accessories.borders || zoom < accessories.borders.minZoom || accessories.borders.maxZoom < zoom) return;
+	accessories.borders.jsons.forEach(([json, prop]) => {
+		layer.save();
+		layer.beginPath(); path(json);
+		layer.strokeStyle = prop.stroke;
+		layer.lineWidth = prop.width || 1;
+		layer.setLineDash(prop.dash ||[]);
+		layer.stroke();
+		layer.restore();
 	});
 }
-async function draw_latlng() { leave();
-	if (!latlngString) return;
-	ctx.save();
-	ctx.font = "12px Verdana"; ctx.textBaseline = "middle"; ctx.fillStyle = "white";
-	ctx.textAlign = isNarrow() ? "center" : "left";
-	ctx.fillText(latlngString, isNarrow() ? width / 2 : 10, isNarrow() ? 10 : height - 10);
-	ctx.restore();
+function draw_latlng() { leave()
+	if (!accessories.latlng || zoom < accessories.latlng.minZoom||!accessories.latlng.string) return;
+	layer.save();
+	layer.font = "12px Verdana"; layer.textBaseline = "middle"; layer.fillStyle = accessories.latlng.color;
+	layer.textAlign = isNarrow ? "center" : "left";
+	layer.fillText(accessories.latlng.string, isNarrow ? width / 2 : 10, isNarrow ? 10 : height - 10);
+	layer.restore();
 }
 function draw_scale() {
-	if (!scaleCtx) return;
-	const canvas = scaleCtx.canvas
-	const W = canvas.width, H = canvas.height;
-	draw(scaleCtx);
-	ctx.drawImage(canvas, 0, 0, W, H, (width - W / dpr) / 2, height - H / dpr - (isNarrow() ? 20 : 0), W / dpr, H / dpr);
-	function draw(ctx) {
-		const w = W /dpr, h = H/dpr, M = w / 2, R = 6372000 * 2; // 地球の直径
-		const { PI, floor, log10 } = Math;
-		const [n, v] = (function () {
-			const n = (R * PI) / 2 ** zoom; // 256ピクセルでの距離
-			const r = 10 ** floor(log10(n));
-			const m = n / r;
-			const v = m > 5 ? 5 : m > 2 ? 2 : 1;
-			return [256 * v / m, v * r];
-		})();
-		ctx.clearRect(0, 0, w, h);
-		let str = (v < 1000 ? (v).toFixed(0) + "m" : (v / 1000).toFixed(0) + "km") + " (z=" + zoom.toFixed(2) + ")";
-		ctx.save();
-		ctx.font = "12px Verdana"; ctx.textBaseline = "bottom"; ctx.textAlign = "center";
-		ctx.strokeStyle = ctx.fillStyle = "white";
-		ctx.beginPath();
-		ctx.moveTo(M - n / 2, 20); ctx.lineTo(M + n / 2, 20);
-		ctx.lineWidth = 3; ctx.stroke();
-		ctx.beginPath();
-		ctx.moveTo(M - n / 2, 10); ctx.lineTo(M - n / 2, 25);
-		ctx.moveTo(M + n / 2, 10); ctx.lineTo(M + n / 2, 25);
-		ctx.lineWidth = 1; ctx.stroke();
-		ctx.fillText(str, M, 15);
-		ctx.restore();
-	}
+    if (!accessories.scale || zoom < accessories.scale.minZoom) return;
+    const R = 6372000 * 2, M = width / 2, H = height - 30 - (isNarrow ? 20 : 0);
+    const useImperial = accessories.scale.unit === "imperial";
+    const [n, v, unit] = (function () {
+        const d256m = (R * PI) / 2 ** zoom; // 256pxあたりのメートル
+        if (useImperial) {
+            const d256mi = d256m / 1609.344;
+            const r = 10 ** floor(log10(d256mi));
+            const v_mi = (d256mi / r) > 5 ? 5 : (d256mi / r) > 2 ? 2 : 1;
+            const val = v_mi * r;
+            return val < 0.25 
+                ? [256 * val / d256mi, val * 5280, "ft"] 
+                : [256 * val / d256mi, val, "mi"];
+        } else {
+            const r = 10 ** floor(log10(d256m));
+            const v_m = (d256m / r) > 5 ? 5 : (d256m / r) > 2 ? 2 : 1;
+            const val = v_m * r;
+            return val >= 1000 
+                ? [256 * val / d256m, val / 1000, "km"] 
+                : [256 * val / d256m, val, "m"];
+        }
+    })();
+    const decimal = (v < 10 && unit !== "m" && unit !== "ft") ? 1 : 0;
+    const str = `${comma(v.toFixed(decimal))}${unit} (z=${zoom.toFixed(2)})`;
+    layer.save();
+    layer.font = "12px Verdana"; layer.textBaseline = "bottom"; layer.textAlign = "center";
+    layer.strokeStyle = layer.fillStyle = accessories.scale.color;
+    layer.beginPath();
+    layer.moveTo(M - n / 2, H + 20); layer.lineTo(M + n / 2, H + 20);
+    layer.lineWidth = 3; layer.stroke();
+    layer.beginPath();
+    layer.moveTo(M - n / 2, H + 10); layer.lineTo(M - n / 2, H + 25);
+    layer.moveTo(M + n / 2, H + 10); layer.lineTo(M + n / 2, H + 25);
+    layer.lineWidth = 1; layer.stroke();
+    layer.fillText(str, M, H + 15);
+    layer.restore();
 }
 function draw_credit() {
-	ctx.save();
-	ctx.font = "12px Verdana"; ctx.textBaseline = "middle"; ctx.fillStyle = "white";
-	ctx.textAlign = isNarrow() ? "center" : "right";
-	ctx.fillText(attribution, isNarrow() ? width / 2 : width - 10, height - 10);
-	ctx.restore();
+	if (!accessories.credit || zoom < accessories.credit.minZoom) return;
+	layer.save();
+	layer.font = "12px Verdana"; layer.textBaseline = "middle"; layer.fillStyle = accessories.credit.color;
+	layer.textAlign = isNarrow ? "center" : "right";
+	layer.fillText(attribution, isNarrow ? width / 2 : width - 10, height - 10);
+	layer.restore();
 }
-async function draw_globe() {
-//	const name = "globe";
-//	const sphere = { type: "Sphere" };
-//	const graticule = geoGraticule10();
-//	const land110 = (await geopbf("ne_110m_land")).geojson;
-	const bottom = isNarrow() ? 55 : 30, right = 20;
-	const size0 = 125, size = size0 * dpr;
-	const maxZoom = 9;
-//	const canvas = new OffscreenCanvas(size, size), ctx = canvas.getContext("2d");
-	const project = geoOrthographic().fitExtent([[1, 1], [size - 1, size - 1]], sphere).precision(0.1);
-	const path = geoPath(project, ctx);
-	draw(globCtx);
-	const [x, y] = [width - size0 - right, height - size0 - bottom];
-	globCtx.drawImage(canvas, 0, 0, size, size, x, y, size0, size0);
-	function draw(ctx) {
-	//	const noCircle = map.scale2zval(Math.hypot(width, height) / 2);
-		if (zoom > maxZoom || zoom < noCircle) return;
-	//	const [w, h] = [map.width, map.height];
-	//	const [x, y] = [w - size0 - right, h - size0 - bottom];
-		const bounds = [[0, 0], [width, 0], [width, height], [0, height]].map(proj.invert);
-		const r = proj.rotate(); project.rotate([r[0], r[1], 0]);
-		ctx.clearRect(0, 0, size, size);
-		ctx.beginPath(); path(sphere); ctx.fillStyle = "rgb(200,240,255)"; ctx.fill();
-		ctx.beginPath(); path(land110); ctx.fillStyle = "rgb(160,200,160)"; ctx.fill();
-		ctx.beginPath(); path(graticule); ctx.strokeStyle = "rgba(255,255,255,0.5)"; ctx.lineWidth = 1; ctx.stroke();
-		ctx.beginPath(); path(sphere); ctx.strokeStyle = "rgba(255,255,255,0.5)"; ctx.lineWidth = 2; ctx.stroke();
-		ctx.beginPath(); bounds.map(project).forEach((t, i) => ctx[i ? "lineTo" : "moveTo"](t[0], t[1])); ctx.closePath();
-		ctx.strokeStyle = "rgb(150,0,0)"; ctx.lineWidth = 1.5; ctx.stroke();
+function draw_globe() {
+	if (!accessories.globe || zoom > accessories.globe.maxZoom || zoom < noCircle) return;
+	const size = accessories.globe.size || 125, gap = isNarrow ? 25:0;
+	const x0 = accessories.globe.left? accessories.globe.left: width - size - (accessories.globe.bottom||20);
+	const y0 = accessories.globe.top? accessories.globe.top + gap: height - size - (accessories.globe.bottom||30) - gap;
+	const project = geoOrthographic().fitExtent([[x0, y0], [x0+size, y0+size]], sphere).precision(0.1);
+	const r = proj.rotate(); project.rotate([r[0], r[1], 0]);
+	const path = geoPath(project, layer);
+	const bounds = [[0, 0], [width, 0], [width, height], [0, height]].map(proj.invert).map(project);
+	layer.save();
+	layer.clearRect(x0, y0, x0+size, y0+size);
+	layer.beginPath(); path(sphere); layer.fillStyle = accessories.globe.sea; layer.fill();
+	layer.beginPath(); path(land110); layer.fillStyle = accessories.globe.land; layer.fill();
+	layer.beginPath(); path(graticule); layer.strokeStyle = "rgba(255,255,255,0.5)"; layer.lineWidth = 1; layer.stroke();
+	layer.beginPath(); path(sphere); layer.strokeStyle = "rgba(255,255,255,0.5)"; layer.lineWidth = 2; layer.stroke();
+	layer.beginPath(); bounds.forEach((t, i) => layer[i ? "lineTo" : "moveTo"](t[0], t[1])); layer.closePath();
+	layer.strokeStyle = accessories.globe.line; layer.lineWidth = 1.5; layer.stroke();
+	layer.restore();
+}
+function draw_stars() { if (!accessories.stars || zoom > accessories.stars.maxZoom) return;
+	const dt = new Date();
+	const cx = width / 2, cy = height / 2, er = proj.scale(), er2 = er * er;
+	const sr = hypot(width, height) * (0.4 + zoom * 0.3);
+	const r = proj?.rotate() || [0, 0, 0];
+	const skyRot = (getSidereal(dt) - r[0]) * rad;
+	const sφ = sin(r[1] * rad), cφ = cos(r[1] * rad), sγ = sin(r[2] * rad), cγ = cos(r[2] * rad);
+	layer.save();
+	for (let s of stars) {
+		const l = s.x - skyRot, cl = cos(l), sl = -sin(l);
+		const cp = cos(s.y), sp = sin(s.y);
+		const x = cp * sl, y = cφ * sp - sφ * cp * cl, z = sφ * sp + cφ * cp * cl; if (z < 0) continue;
+		const px = cx + sr * (x * cγ - y * sγ), py = cy - sr * (x * sγ + y * cγ);
+		const dx = px - cx, dy = py - cy;
+		if (dx * dx + dy * dy < er2 || px < 0 || px > width || py < 0 || py > height) continue;
+		layer.fillStyle = s.bv; layer.globalAlpha = 1 - s.mag / 15;
+		layer.beginPath(); layer.arc(px, py, (9 - s.mag) * 0.20, 0, PI * 2); layer.fill();
 	}
+	layer.restore();
+}
+function draw_night() { if (!accessories.night || zoom > accessories.night.maxZoom) return;
+	const dt = new Date();
+	const cx = width / 2, cy = height / 2, er = proj.scale(), er2 = er * er;	
+	const halo = layer.createRadialGradient(cx, cy, er, cx, cy, er + 15);
+	halo.addColorStop(0, "rgba(100, 150, 255, 0.05)"); halo.addColorStop(1, "rgba(100, 150, 255, 0)");
+	const path = geoPath(proj, layer);
+	layer.clearRect(0,0,width,height);
+	layer.save();
+	layer.fillStyle = halo;
+	layer.beginPath(); layer.arc(cx, cy, er + 15, 0, PI * 2); layer.fill();
+	layer.beginPath(); layer.arc(cx, cy, er, 0, PI * 2); layer.clip();
+	layer.beginPath(); path(accessories.night.json); layer.fillStyle = "rgba(0, 5, 20, 0.5)"; layer.fill();
+	layer.restore();
+	layer.textAlign = "center"; layer.textBaseline = "middle"; layer.fillStyle = "#fff";
+	layer.font = `${32 * (2 - zoom) + 16}px Verdana`;
+	const [Y, M, D] = dateArray(), [h, m, s] = timeArray();
+	layer.fillText(`${L2(h)}:${L2(m)}:${L2(s)}`, cx, height / 5);
+	layer.font = `${12 * (2 - zoom) + 8}px Verdana`;
+	layer.fillText(`${Y}/${L2(M)}/${L2(D)} (${["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][dt.getDay()]})`, cx, height * 0.85);
+}
+function nightJSON(date, offset = 0) {
+	const R = PI / 180, D = 180 / PI;
+	const d = date.getTime() / 864e5, y = (d / 365.24 % 1 - 0.225) * PI * 2;
+	const lat = 23.4 * sin(y), lng = ((d % 1 * -360 + 360) % 360) - 180;
+	const ra = (90 + offset) * R, phi = lat * R, lam = lng * R;
+	const sP = sin(phi), cP = cos(phi), sR = sin(ra), cR = cos(ra), sRcP = sR * cP;
+	const coords = new Array(31);
+	for (let i = 0; i <= 30; i++) {
+		const a = (360 - i * 12) * R, sA = sin(a), cA = cos(a);
+		const sLt = sP * cR + cP * sR * cA, lt = asin(sLt);
+		const ln = lam + atan2(sA * sRcP, cR - sP * sLt);
+		coords[i] = [((ln * D + 180) % 360 + 360) % 360 - 180, lt * D];
+	}
+	return { type: "Feature", geometry: { type: "Polygon", coordinates: [coords] } };
 }

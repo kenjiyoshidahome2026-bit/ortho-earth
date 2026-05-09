@@ -17,15 +17,14 @@ export async function createLayers(map, opts) {
     map.removeLayer = name => (layers[name] && layers[name].destroy(), map);
     map.listOfLayers = () => Object.values(map.layers).map(layer => (layer.toString())).join("\n");
     map.setBase = name => setBase(map, name);
-    ////--------------------------------------------------------------------------
+////--------------------------------------------------------------------------
     const baseLayer = (await createRemoteLayer.call(map, { name: "OrthoMapGL", append: map.mapFrame, type: "base" }));
-    const borderLayer = (await createRemoteLayer.call(map, { name: "OrthoBorder", append: map.mapFrame, type: "border" }));
-    ////--------------------------------------------------------------------------
     await map.setBase(map.baseName);
-    // const lat = { en: "LAT", ja: "緯度", zh: "纬度", ko: "위도" }[map.lang];
-    // const lng = { en: "LNG", ja: "経度", zh: "经度", ko: "경도" }[map.lang];
-    // const alt = { en: "ALT", ja: "標高", zh: "海拔", ko: "고도" }[map.lang];
-    await borderLayer.set("set", opts, { lang: map.lang });
+////--------------------------------------------------------------------------
+    if (opts.accessories === false) return;
+    const borderLayer = (await createRemoteLayer.call(map, { name: "Accessories", append: map.mapFrame, type: "border" }));
+    const param = opts.accessories ||{}; param.lang = map.lang;
+    await borderLayer.set("set", "options", param);
     ////--------------------------------------------------------------------------
     async function setBase(map, name) {
         baseLayer.set("base", name, map.threshold);
