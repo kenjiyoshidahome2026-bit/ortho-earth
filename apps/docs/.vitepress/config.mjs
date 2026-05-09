@@ -64,7 +64,7 @@ export default defineConfig({
 		sidebar: [
 			{	text: 'Packages',
 				items: [
-					{ text: 'ortho-earth', link: '/ortho-earth' },
+					{ text: 'ortho-map', link: '/ortho-map' },
 					{ text: 'geopbf', link: '/geopbf' },
 					{ text: 'altpbf', link: '/altpbf' },
 					{ text: 'native-bucket', link: '/native-bucket' }
