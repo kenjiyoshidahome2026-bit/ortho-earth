@@ -1,0 +1,32 @@
+$bg: #000; $text: #e3e3e3; $accent: #4b90ff;
+
+body, html { font-family: 'Inter', sans-serif; overflow: hidden; }
+* { margin:0; padding:0; box-sizing: border-box;}
+.map-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: $bg;
+	.close-btn {
+		position: absolute; top: 24px; right: 24px;
+		background: rgba(255, 255, 255, 0.1); color: #fff;
+		border: 1px solid #444; padding: 8px 20px; border-radius: 20px; cursor: pointer;
+		&:hover { background: rgba(255, 255, 255, 0.2); }
+	}
+	#ortho-map-container { width: 100%; height: 100%; }
+}
+.gishub-app { position: absolute; inset: 0px; background: $bg; color: $text;
+	.sidebar { position: absolute; inset: 0px; width:300px;
+		border-right: 1px solid #333; padding: 1rem; overflow-y: auto;
+		h1 { font-size: 1.4rem; color: $accent; vertical-align: middle;
+			img { width:28px; vertical-align: middle; }
+			span { display:inline-block; margin-top:1rem; padding-left:1rem;}
+		}
+		.group-section { margin-bottom: 24px;
+			h2 { font-size: 0.8rem; color: #666; margin-bottom: 12px; letter-spacing: 0.05em; }
+		}
+		.card { padding: 12px; border: 1px solid #222; border-radius: 8px; cursor: pointer;
+			margin-bottom: 8px; transition: background 0.2s;
+			&:hover { background: #111; border-color: #444; }
+			.card-name { font-weight: bold; font-size: 0.9rem; }
+			.card-meta { font-size: 0.7rem; color: #555; margin-top: 4px; }
+		}
+	}
+	.main-content { position: absolute; inset: 0px; left:300px; padding: 40px; overflow-y: auto; }
+}
