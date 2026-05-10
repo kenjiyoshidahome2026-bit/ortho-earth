@@ -1,7 +1,11 @@
 import { comma, isArray, isString, isNumber, isObject, isBlob, unique, concat } from "common";
-
+import "./screenLogger.scss";
 export class screenLogger {
-	constructor (div) { this.target = div.classed("log", true); }
+	constructor (div) {
+		this.target = div.classed("log", true); this.time = performance.now();
+		this.dots = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+		this.bars = {}; 
+	} 
 	clear(s) { this.target.empty(); }
 	log(...a) {
 		const toS = _ => isString(_)? _.replace(/\n/g,"<br/>"): isNumber(_)? comma(_): JSON.stringify(_);
@@ -28,8 +32,28 @@ export class screenLogger {
 		} 
 		a.forEach(t=>p.append("span").html(toS(t)));
 	}
-	title(s) { this.target.append("p").classed("title", true).text("✨ " + s +" ✨"); }
-	warn(s) { this.target.append("p").classed("warn", true).text("⚠️ " + s); }
-	error(s) { this.target.append("p").classed("error", true).text("❌ " + s); }
-	success(s) { this.target.append("p").classed("success", true).text("✅ " + s); }
+	progress(name, type, total) {
+		if (type === "start") {
+			this.bars[name] = [this.target.append("p").classed("progress", true).text("⏳ " + name), performance.now(), 0];
+		} else if (type === "end" && this.bars[name]) {
+			const bar = this.bars[name][0], start = this.bars[name][1];
+			const time = ((performance.now() - start)/1000).toFixed(3);
+			bar.text(`⏳ ${name}: ${comma(total)} bytes / ${comma(time)}sec (${comma((total/time).toFixed(2))} bytes/sec)`);
+			delete this.bars[name];
+		} else if (isNumber(type) && this.bars[name]) {
+			const bar = this.bars[name][0], count = this.bars[name][2] = this.bars[name][2]+1;
+			const pct = Math.round((type / total) * 100), n = Math.floor(pct / 5);
+			const p = `<span class='done'>${"▓".repeat(n)}</span><span class='rest'>${"░".repeat(20 - n)}</span>`;
+			const d = this.dots[count % this.dots.length];
+			bar.html(`⏳ ${name}: ${d}[${p}] ${pct}% (${comma(type)}/${comma(total)})`);
+		}
+	}	
+	warn(s) { this.target.append("p").classed("warn", true).text("⚠️ [WARNING] " + s); }
+	error(s) { this.target.append("p").classed("error", true).text("❌ [ERROR] " + s); }
+	title(s) { this.target.append("p").classed("title", true).text("✨ " + s +" ✨"); 
+		this.time = performance.now();
+	}
+	success(s) { const time = ((performance.now() - this.time)/1000).toFixed(3);
+		this.target.append("p").classed("success", true).text("✅ [SUCCESS] " + s + ` (${comma(time)}sec)`); 
+	}
 }
