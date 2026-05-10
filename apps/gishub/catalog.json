@@ -1,0 +1,12 @@
+{
+	"group":"国土数値情報",
+	"contents":[
+		{
+			"name": "2026 行政区域 (全国)",
+			"src": "https://nlftp.mlit.go.jp/ksj/gml/data/N03/N03-2026/N03-20260101_GML.zip",
+			"target": "N03-20260101.geojson",
+			"description": "国土交通省 国土数値情報（行政区域）",
+			"license": "CC BY 4.0"
+		}
+	]
+}

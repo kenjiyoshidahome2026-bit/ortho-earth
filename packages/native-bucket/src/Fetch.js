@@ -37,7 +37,7 @@ export async function Fetch(url, opts = {}) {
 
         // 1. 部分取得 (Rangeリクエスト) を利用する場合
         if (range && target != null) {
-            const file = await decodeZIP(targetURL, target);
+            const file = await decodeZIP(targetURL, { target, encoding, eventTarget });
             if (target === false) return file; // メタデータ取得モード
             if (!file) { 
                 console.warn(`file is not exist: ${target} in ${url}`);
@@ -62,6 +62,7 @@ export async function Fetch(url, opts = {}) {
         
         let loaded = 0, n = 0;
         event("FetchStart", {name});
+		const start = performance.now();
 
         while (true) {
             const { done, value } = await reader.read(); if (done) break;
@@ -72,10 +73,10 @@ export async function Fetch(url, opts = {}) {
                 event("FetchProgress", { name, loaded, total }); 
             }
         }
-        logProgress(loaded);
-        event("FetchEnd", {name});
-
         let rawBlob = new Blob(chunks);
+        logProgress(loaded);
+        event("FetchEnd", {name, size:rawBlob.size, time: performance.now() - start});
+
         const head = new Uint8Array(await rawBlob.slice(0, 2).arrayBuffer());
         
         if (head[0] === 0x1f && head[1] === 0x8b) { // Gzip展開
