@@ -1,10 +1,18 @@
+import {isBlob, isObject} from "common";
 import {fname2mime} from "./fname2mime.js";
 export async function decodeZIP(source, target = null, encoding = null) {//基本的にencodingは自動判定
+	let eventTarget = (typeof window !== 'undefined' ? window : (typeof self !== 'undefined' ? self : null));
+	const event = (type, detail) => eventTarget && eventTarget.dispatchEvent(new CustomEvent(type, { detail }));
+	if (isObject(target)) {
+		encoding = target.encoding;
+		target = target.target;
+		eventTarget = target.eventTarget;
+	}
 	const safeFetch = async (url, opt) => {
 		try { const r = await fetch(url, opt); return (!r.ok && r.status !== 206) ? null : r; } catch (e) { return null; }
 	};
 	const parseDosDate = (d, t) => new Date(((d >> 9) & 127) + 1980, ((d >> 5) & 15) - 1, d & 31, (t >> 11) & 31, (t >> 5) & 63, (t & 31) * 2).getTime();
-	const isBlob = (q) => q && typeof q.size === 'number' && typeof q.slice === 'function';
+//	const isBlob = (q) => q && typeof q.size === 'number' && typeof q.slice === 'function';
 	let isFile = isBlob(source), totalLength = 0;
 	if (isFile) {
 		totalLength = source.size;
@@ -15,9 +23,20 @@ export async function decodeZIP(source, target = null, encoding = null) {//基�
 		totalLength = cr ? parseInt(cr.split('/').pop()) : parseInt(res.headers.get('content-length'));
 		if (res.status !== 206) { source = await fetch(source).then(r => r.blob()); isFile = true; }
 	}
-	const read = async (from, len) => {
+	// const read = async (from, len) => {
+	// 	if (isFile) return new Uint8Array(await source.slice(from, from + len).arrayBuffer());
+	// 	return new Uint8Array(await fetch(source, { headers: { Range: `bytes=${from}-${from + len - 1}` } }).then(r => r.arrayBuffer()));
+	// };
+	const read = async (from, len, name = "Data") => {
 		if (isFile) return new Uint8Array(await source.slice(from, from + len).arrayBuffer());
-		return new Uint8Array(await fetch(source, { headers: { Range: `bytes=${from}-${from + len - 1}` } }).then(r => r.arrayBuffer()));
+		const res = await fetch(source, { headers: { Range: `bytes=${from}-${from + len - 1}` } });
+		const reader = res.body.getReader(), bin = new Uint8Array(len);
+		let pos = 0;
+		while (true) { const { done, value } = await reader.read(); if (done) break;
+			bin.set(value, pos); pos += value.length;
+			event("FetchProgress", { name, loaded: pos, total: len });
+		}
+		return bin;
 	};
 	try {
 		const bufSize = Math.min(totalLength, 65558);
@@ -46,12 +65,18 @@ export async function decodeZIP(source, target = null, encoding = null) {//基�
 			}
 			if (typeof target === 'string' && target !== name) continue;// 特定ファイル指定の場合、一致しなければスキップ
 			const extract = async () => {
-				const head = await read(loc, 30), hv = new DataView(head.buffer);
-				const data = await read(loc + 30 + hv.getUint16(26, true) + hv.getUint16(28, true), cSiz);
-				if (!meth) return new Blob([data]);
-				const ds = new DecompressionStream("deflate-raw"), w = ds.writable.getWriter();
-				w.write(data); w.close();
-				return await new Response(ds.readable).blob();
+				event("FetchStart", {name});
+				const start = performance.now();
+				const hv = new DataView((await read(loc, 30)).buffer);
+				const data = await read(loc + 30 + hv.getUint16(26, true) + hv.getUint16(28, true), cSiz, name);
+				let resBlob = new Blob([data]);
+				if (meth) {
+					const ds = new DecompressionStream("deflate-raw"), w = ds.writable.getWriter();
+					w.write(data); w.close();
+					resBlob = await new Response(ds.readable).blob();
+				}
+				event("FetchEnd", { name, size: uSiz, time: performance.now() - start });
+				return resBlob;
 			};
 			const filePromise = (async () => new File([await extract()], name, { type, lastModified }))();
 			if (typeof target === 'string') return await filePromise;
