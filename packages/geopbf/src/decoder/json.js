@@ -58,24 +58,47 @@ const getFeaturesFast = (file, callback, isSync = false) => {
 
     const extractJsonString = (start, end) => {
         const length = end - start;
-        const res = new Uint8Array(length);
-        let offset = 0;
-        let resOffset = 0;
-        
+        let currentOffset = 0;
+
+        // 1. 【高速化ルート】単一チャンク内に完全に収まっているかの判定
         for (let i = 0; i < chunks.length; i++) {
             const c = chunks[i];
-            const cStart = offset;
-            const cEnd = offset + c.length;
-            
+            const cStart = currentOffset;
+            const cEnd = currentOffset + c.length;
+
+            // 要求範囲がこのチャンク内に完全に包含されている場合
+            if (start >= cStart && end <= cEnd) {
+                const localStart = start - cStart;
+                const localEnd = end - cStart;
+                // subarray はメモリを再確保せず元のバッファのビューを作るため、ゼロコピーで極めて高速
+                return decoder.decode(c.subarray(localStart, localEnd));
+            }
+
+            currentOffset += c.length;
+            // 探索中のオフセットが要求終端を超えたら、単一チャンク包含の可能性はないので抜ける
+            if (currentOffset >= end) break;
+        }
+
+        // 2. 【安全ルート】複数のチャンクを跨いでいる場合のバッファ結合処理
+        const res = new Uint8Array(length);
+        currentOffset = 0;
+        let resOffset = 0;
+
+        for (let i = 0; i < chunks.length; i++) {
+            const c = chunks[i];
+            const cStart = currentOffset;
+            const cEnd = currentOffset + c.length;
+
             if (start < cEnd && end > cStart) {
                 const copyStart = Math.max(0, start - cStart);
                 const copyEnd = Math.min(c.length, end - cStart);
                 res.set(c.subarray(copyStart, copyEnd), resOffset);
                 resOffset += (copyEnd - copyStart);
             }
-            offset += c.length;
+            currentOffset += c.length;
             if (resOffset >= length) break;
         }
+
         return decoder.decode(res);
     };
 

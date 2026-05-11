@@ -32,24 +32,24 @@ export class screenLogger {
 		} 
 		a.forEach(t=>p.append("span").html(toS(t)));
 	}
-	progress(name, type, total) {
+	progress(type, detail) {
+		const { name, loaded, total, size } = detail;
 		if (type === "start") { if (this.bars[name]) return;
 			const bar = this.target.append("p").classed("progress", true).text("⏳ " + name)
 			this.bars[name] = [bar, performance.now(), 0];
+		} else if (type === "progress" && this.bars[name]) {
+			const bar = this.bars[name][0], count = this.bars[name][2] = this.bars[name][2]+1;
+			const pct = Math.round((loaded / total) * 100), n = Math.floor(pct / 5);
+			const p = `<span class='done'>${"█".repeat(n)}</span><span class='rest'>${"█".repeat(20 - n)}</span>`;
+			const d = this.dots[count % this.dots.length];
+			bar.html(`⏳ ${name}: ${d}[${p}] ${pct}% (${comma(loaded)}/${comma(total)})`);
 		} else if (type === "end" && this.bars[name]) {
 			const bar = this.bars[name][0], start = this.bars[name][1];
 			const time = ((performance.now() - start)/1000).toFixed(3);
-			const speed = comma((total / time / 1024 / 1024).toFixed(2));
-			bar.text(`⏳ ${name}: ${comma(total)} bytes / ${comma(time)}sec (${speed} Mbytes/sec)`);
+			const speed = comma((size / time / 1024 / 1024).toFixed(2));
+			bar.text(`⏳ ${name}: ${comma(size)} bytes / ${comma(time)}sec (${speed} Mbytes/sec)`);
 			this.bars[name] = null;
 			delete this.bars[name];
-		//	console.log(this.bars);
-		} else if (isNumber(type) && this.bars[name]) {
-			const bar = this.bars[name][0], count = this.bars[name][2] = this.bars[name][2]+1;
-			const pct = Math.round((type / total) * 100), n = Math.floor(pct / 5);
-			const p = `<span class='done'>${"█".repeat(n)}</span><span class='rest'>${"█".repeat(20 - n)}</span>`;
-			const d = this.dots[count % this.dots.length];
-			bar.html(`⏳ ${name}: ${d}[${p}] ${pct}% (${comma(type)}/${comma(total)})`);
 		}
 	}	
 	warn(s) { this.target.append("p").classed("warn", true).text("⚠️ [WARNING] " + s); }

@@ -4,21 +4,21 @@
 		{
 			"name": "N03-20260101",
 			"target": "https://nlftp.mlit.go.jp/ksj/gml/data/N03/N03-2026/N03-20260101_GML.zip#N03-20260101.geojson",
-			"description": "行政区域データ(2026)",
+			"description": "行政区域データ(市区町村:2026)",
 			"link": "https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-N03-2026.html",
 			"license": "CC BY 4.0"
 		},
 		{
-			"name": "N03-20260101",
+			"name": "N03-20260101_prefecture",
 			"target": "https://nlftp.mlit.go.jp/ksj/gml/data/N03/N03-2026/N03-20260101_GML.zip#N03-20260101_prefecture.geojson",
-			"description": "行政区域データ(2026)",
+			"description": "行政区域データ(都道府県:2026)",
 			"link": "https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-N03-2026.html",
 			"license": "CC BY 4.0"
 		},
 		{
-			"name": "N02-25",
+			"name": "N02-25_RailroadSection",
 			"target": "https://nlftp.mlit.go.jp/ksj/gml/data/N02/N02-25/N02-25_GML.zip#N02-25_GML/UTF-8/N02-25_RailroadSection.geojson",
-			"description": "鉄道データ(2025)",
+			"description": "鉄道データ(線路:2025)",
 			"link":"https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-N02-2025.html",
 			"license": "CC BY 4.0"
 		}
