@@ -26,7 +26,6 @@ export async function geopbf(data, options = {}) { if (isString(options)) option
             w.postMessage(params);
         });
     }
-
     const pbf = await _geopbf(data);
     pbf && console.log(`[geopbf] 📥 ${pbf.name()} (${pbf.size.toLocaleString()} bytes) ${(performance.now()-dt).toFixed(2)} msec`);
     return pbf || new GeoPBF(options);
@@ -71,9 +70,9 @@ export async function geopbf(data, options = {}) { if (isString(options)) option
             const f = g => ({ type: "Feature", geometry: g, properties: {} });
             return Array.isArray(q) ? fc(q.filter(t => isObject(t) && t.type == "Feature")) :
                 (q.type == "Topology") ? topo2geo(q) :
-                    (q.type == "FeatureCollection") ? q :
-                        (q.type == "Feature") ? fc([q]) :
-                            (q.type == "GeometryCollection") ? fc(q.map(f)) : fc([]);
+                (q.type == "FeatureCollection") ? q :
+                (q.type == "Feature") ? fc([q]) :
+                (q.type == "GeometryCollection") ? fc(q.map(f)) : fc([]);
         }
     }
 }

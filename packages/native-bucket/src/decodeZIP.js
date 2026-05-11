@@ -1,52 +1,125 @@
-import {isBlob, isObject} from "common";
-import {fname2mime} from "./fname2mime.js";
-export async function decodeZIP(source, target = null, encoding = null) {//基本的にencodingは自動判定
+import { isBlob, isObject } from "common";
+import { fname2mime } from "./fname2mime.js";
+
+export async function decodeZIP(source, target = null, encoding = null) {
 	let eventTarget = (typeof window !== 'undefined' ? window : (typeof self !== 'undefined' ? self : null));
 	const event = (type, detail) => eventTarget && eventTarget.dispatchEvent(new CustomEvent(type, { detail }));
+
 	if (isObject(target)) {
-		encoding = target.encoding;
+		encoding = target.encoding || encoding;
+		eventTarget = target.eventTarget || eventTarget;
 		target = target.target;
-		eventTarget = target.eventTarget;
 	}
+
+	// 🚀 キャッシュバスター: Cloudflare等のエッジに古いエラーを即答させないための処置
+	const getCleanUrl = (url) => {
+		if (typeof url !== 'string') return url;
+		const sep = url.includes('?') ? '&' : '?';
+		return `${url}${sep}nocache=${Date.now()}`;
+	};
+
 	const safeFetch = async (url, opt) => {
 		try { const r = await fetch(url, opt); return (!r.ok && r.status !== 206) ? null : r; } catch (e) { return null; }
 	};
 	const parseDosDate = (d, t) => new Date(((d >> 9) & 127) + 1980, ((d >> 5) & 15) - 1, d & 31, (t >> 11) & 31, (t >> 5) & 63, (t & 31) * 2).getTime();
-//	const isBlob = (q) => q && typeof q.size === 'number' && typeof q.slice === 'function';
+
 	let isFile = isBlob(source), totalLength = 0;
+	let supportRange = true;
+
+	// 🏛️ フェーズ1: HEAD先行による事前問診と安全なバッファ構築
 	if (isFile) {
 		totalLength = source.size;
 	} else {
-		const res = await safeFetch(source, { headers: { Range: 'bytes=0-0' } });
-		if (!res) throw new Error("CORS/Network Error");
-		const cr = res.headers.get('content-range');
-		totalLength = cr ? parseInt(cr.split('/').pop()) : parseInt(res.headers.get('content-length'));
-		if (res.status !== 206) { source = await fetch(source).then(r => r.blob()); isFile = true; }
+		const cleanUrl = getCleanUrl(source);
+
+		// 問診開始: 通信量ゼロでサイズとRange対応を聞き出す
+		const headRes = await safeFetch(cleanUrl, { method: 'HEAD' });
+		if (!headRes) throw new Error("CORS/Network Error");
+
+		const cl = headRes.headers.get('content-length');
+		const acceptRanges = headRes.headers.get('accept-ranges');
+		totalLength = cl ? parseInt(cl) : 0;
+
+		if (acceptRanges === 'none') {
+			supportRange = false;
+		} else if (totalLength > 0) {
+			// 念のための末尾確認テスト（プロキシの Range 無視トラップを完全に検知）
+			const rangeRes = await safeFetch(cleanUrl, { headers: { Range: `bytes=${totalLength - 1}-${totalLength - 1}` } });
+			supportRange = (rangeRes && rangeRes.status === 206);
+		}
+
+		// 問診結果: Range非対応プロキシ、または極小ファイルの場合は一括ローカルキャッシュ化
+		if (!supportRange || totalLength <= 1) {
+			console.warn("Proxy limits detected. Initializing robust local memory stream...");
+			event("FetchStart", { name: "Initializing Global Storage Buffer" });
+
+			source = await fetch(cleanUrl).then(r => r.blob());
+			totalLength = source.size;
+			isFile = true; // 以降の IO はすべてメモリ上のスライス処理へ完全移行
+
+			event("FetchEnd", { name: "Initializing Global Storage Buffer", size: totalLength });
+		}
 	}
-	// const read = async (from, len) => {
-	// 	if (isFile) return new Uint8Array(await source.slice(from, from + len).arrayBuffer());
-	// 	return new Uint8Array(await fetch(source, { headers: { Range: `bytes=${from}-${from + len - 1}` } }).then(r => r.arrayBuffer()));
-	// };
+
+	// 🏛️ フェーズ2: ハイブリッド対応の強靭な read 関数
 	const read = async (from, len, name = "Data") => {
 		if (isFile) return new Uint8Array(await source.slice(from, from + len).arrayBuffer());
-		const res = await fetch(source, { headers: { Range: `bytes=${from}-${from + len - 1}` } });
+
+		const res = await fetch(getCleanUrl(source), { headers: { Range: `bytes=${from}-${from + len - 1}` } });
+		if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+		// 万が一の安全装置: 読み込み中の Range 無視バッファ溢れを防ぎ、その場で進化
+		if (res.status === 200) {
+			source = await res.blob();
+			isFile = true;
+			totalLength = source.size;
+			return new Uint8Array(await source.slice(from, from + len).arrayBuffer());
+		}
+
 		const reader = res.body.getReader(), bin = new Uint8Array(len);
 		let pos = 0;
-		while (true) { const { done, value } = await reader.read(); if (done) break;
-			bin.set(value, pos); pos += value.length;
+		while (true) {
+			const { done, value } = await reader.read();
+			if (done) break;
+			const copyLen = Math.min(value.length, len - pos);
+			bin.set(value.subarray(0, copyLen), pos);
+			pos += copyLen;
 			event("FetchProgress", { name, loaded: pos, total: len });
+			if (pos >= len) { reader.cancel(); break; }
 		}
+		if (pos < len) throw new Error(`Truncated: ${pos}/${len}`);
 		return bin;
 	};
+
 	try {
-		const bufSize = Math.min(totalLength, 65558);
-		const endBuf = await read(totalLength - bufSize, bufSize), ev = new DataView(endBuf.buffer);
-		let p = -1;
-		for (let i = bufSize - 22; i >= 0; i--) if (ev.getUint32(i, true) === 0x06054b50) { p = i; break; }
-		if (p === -1) throw new Error("Invalid ZIP");
-		const count = ev.getUint16(p + 10, true), cdSize = ev.getUint32(p + 12, true), cdOff = ev.getUint32(p + 16, true);
-		const cd = await read(cdOff, cdSize), cv = new DataView(cd.buffer);
+		// 🏛️ フェーズ3: スマート EOCD（目次サイン）狙撃
+		const findEOCD = async (searchSize) => {
+			const size = Math.min(totalLength, searchSize);
+			const buf = await read(totalLength - size, size, "Scanning ZIP Terminal");
+			const ev = new DataView(buf.buffer);
+			for (let i = size - 22; i >= 0; i--) {
+				if (ev.getUint32(i, true) === 0x06054b50) return { p: i, buf, size };
+			}
+			return null;
+		};
+
+		// まずは超軽量バッファ(512B)で一瞬で探索
+		let eocd = await findEOCD(512);
+		if (!eocd) eocd = await findEOCD(65558); // コメント付きZIPのフェイルセーフ
+		if (!eocd) throw new Error("Invalid ZIP: EOCD Signature missing");
+
+		const { p, buf } = eocd;
+		const ev = new DataView(buf.buffer);
+		const count = ev.getUint16(p + 10, true);
+		const cdSize = ev.getUint32(p + 12, true);
+		const cdOff = ev.getUint32(p + 16, true);
+
+		// 目次リスト一括ロード
+		const cd = await read(cdOff, cdSize, "Loading Repository Catalog");
+		const cv = new DataView(cd.buffer);
 		const entries = [];
+
+		// 🏛️ フェーズ4: 目次解析と抽出ストリーム
 		for (let i = 0, off = 0; i < count; i++) {
 			const flags = cv.getUint16(off + 8, true), meth = cv.getUint16(off + 10, true);
 			const time = cv.getUint16(off + 12, true), date = cv.getUint16(off + 14, true);
@@ -54,34 +127,49 @@ export async function decodeZIP(source, target = null, encoding = null) {//基�
 			const nLen = cv.getUint16(off + 28, true), eLen = cv.getUint16(off + 30, true), cLen = cv.getUint16(off + 32, true);
 			const loc = cv.getUint32(off + 42, true);
 			const name = new TextDecoder(encoding || (flags & 0x0800) ? 'utf-8' : 'shift-jis').decode(cd.subarray(off + 46, off + 46 + nLen)).normalize("NFC");
-			const currentEntryOff = off;
-			off += 46 + nLen + eLen + cLen; // 次のループのためにオフセットを更新
+
+			off += 46 + nLen + eLen + cLen;
 			if (name.endsWith('/')) continue;
+
 			const lastModified = parseDosDate(date, time);
 			const type = fname2mime(name);
-			if (target === false) { // targetがfalseの場合はメタデータのみ収集
+
+			if (target === false) {
 				entries.push({ name, size: uSiz, cSize: cSiz, lastModified, type });
 				continue;
 			}
-			if (typeof target === 'string' && target !== name) continue;// 特定ファイル指定の場合、一致しなければスキップ
+			if (typeof target === 'string' && target !== name) continue;
+
+			// シンプルかつ最も安定した抽出パイプライン
 			const extract = async () => {
-				event("FetchStart", {name});
-				const start = performance.now();
-				const hv = new DataView((await read(loc, 30)).buffer);
-				const data = await read(loc + 30 + hv.getUint16(26, true) + hv.getUint16(28, true), cSiz, name);
-				let resBlob = new Blob([data]);
+				event("FetchStart", { name });
+				const lfhBuf = await read(loc, 30, `${name} Header`);
+				const hv = new DataView(lfhBuf.buffer);
+				if (hv.getUint32(0, true) !== 0x04034b50) throw new Error(`Invalid Local Header for ${name}`);
+
+				const nLen = hv.getUint16(26, true);
+				const eLen = hv.getUint16(28, true);
+				const dataOff = loc + 30 + nLen + eLen;
+
+				const data = await read(dataOff, cSiz, name);
+
+				let resBlob;
 				if (meth) {
-					const ds = new DecompressionStream("deflate-raw"), w = ds.writable.getWriter();
-					w.write(data); w.close();
-					resBlob = await new Response(ds.readable).blob();
+					const ds = new DecompressionStream("deflate-raw");
+					const stream = new Response(data).body.pipeThrough(ds);
+					resBlob = await new Response(stream).blob();
+				} else {
+					resBlob = new Blob([data]);
 				}
-				event("FetchEnd", { name, size: uSiz, time: performance.now() - start });
+
+				event("FetchEnd", { name, size: uSiz });
 				return resBlob;
 			};
+
 			const filePromise = (async () => new File([await extract()], name, { type, lastModified }))();
 			if (typeof target === 'string') return await filePromise;
 			entries.push(filePromise);
 		}
-		return target === false ? entries : target? null: await Promise.all(entries);
+		return target === false ? entries : target ? null : await Promise.all(entries);
 	} catch (e) { console.warn("ZIP Error:", e.message); return null; }
 }

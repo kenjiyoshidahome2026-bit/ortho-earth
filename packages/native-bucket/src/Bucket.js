@@ -59,7 +59,6 @@ class _Bucket {
             if (!res.ok) throw new Error("Load failed");
             let blob = await res.blob();
             this._log(` => total loaded: ${blob.size.toLocaleString()} bytes`);
-            // 必要に応じて解凍
             blob = await gunzip(blob);
             this._log(` => total expanded: ${blob.size.toLocaleString()} bytes`);
             blob = new Blob([blob], { type: fname2mime(name) });

@@ -8,6 +8,7 @@ import { decodeZIP } from "./decodeZIP.js";
 export async function Fetch(url, opts = {}) {
     const type = ((typeof opts == "string")? opts: opts.type || "file").toLowerCase();
     const PROXY_URL = opts.proxy || `https://api.ortho-earth.com/proxy`;
+    const timestamp = new Date().getTime();
     const proxy = s => `${PROXY_URL}?url=${encodeURIComponent(s)}`;
     const encoding = (opts.encoding||"utf8").toLowerCase().replace(/[\-\_]/g,"").replace(/shiftjis/,"sjis");
     const silent = !!opts.silent || console === undefined;
@@ -62,8 +63,7 @@ export async function Fetch(url, opts = {}) {
         
         let loaded = 0, n = 0;
         event("FetchStart", {name});
-		const start = performance.now();
-
+	//	const start = performance.now();
         while (true) {
             const { done, value } = await reader.read(); if (done) break;
             chunks.push(value);
@@ -75,7 +75,7 @@ export async function Fetch(url, opts = {}) {
         }
         let rawBlob = new Blob(chunks);
         logProgress(loaded);
-        event("FetchEnd", {name, size:rawBlob.size, time: performance.now() - start});
+        event("FetchEnd", {name, size:rawBlob.size/*, time: performance.now() - start*/});
 
         const head = new Uint8Array(await rawBlob.slice(0, 2).arrayBuffer());
         
