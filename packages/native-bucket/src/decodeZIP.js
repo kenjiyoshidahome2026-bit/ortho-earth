@@ -31,34 +31,21 @@ export async function decodeZIP(source, target = null, encoding = null) {
 		totalLength = source.size;
 	} else {
 		const cleanUrl = getCleanUrl(source);
-
-		// 問診開始: 通信量ゼロでサイズとRange対応を聞き出す
 		const headRes = await safeFetch(cleanUrl, { method: 'HEAD' });
 		if (!headRes) throw new Error("CORS/Network Error");
-
 		const cl = headRes.headers.get('content-length');
 		const acceptRanges = headRes.headers.get('accept-ranges');
 		totalLength = cl ? parseInt(cl) : 0;
-
-		if (acceptRanges === 'none') {
-			supportRange = false;
-		} else if (totalLength > 0) {
-			// 念のための末尾確認テスト（プロキシの Range 無視トラップを完全に検知）
-			const rangeRes = await safeFetch(cleanUrl, { headers: { Range: `bytes=${totalLength - 1}-${totalLength - 1}` } });
-			supportRange = (rangeRes && rangeRes.status === 206);
-		}
-
-		// 問診結果: Range非対応プロキシ、または極小ファイルの場合は一括ローカルキャッシュ化
-		if (!supportRange || totalLength <= 1) {
-			console.warn("Proxy limits detected. Initializing robust local memory stream...");
-			event("FetchStart", { name: "Initializing Global Storage Buffer" });
-
-			source = await fetch(cleanUrl).then(r => r.blob());
-			totalLength = source.size;
-			isFile = true; // 以降の IO はすべてメモリ上のスライス処理へ完全移行
-
-			event("FetchEnd", { name: "Initializing Global Storage Buffer", size: totalLength });
-		}
+		if (headRes.body) await headRes.body.cancel().catch(() => {});
+		supportRange = (totalLength > 1 && acceptRanges !== 'none');
+		if (!supportRange) {
+            console.warn("Origin explicitly rejects Range. Initializing robust local memory stream...");
+            event("FetchStart", { name: "Initializing Global Storage Buffer" });
+            source = await fetch(cleanUrl).then(r => r.blob());
+            totalLength = source.size;
+            isFile = true; 
+            event("FetchEnd", { name: "Initializing Global Storage Buffer", size: totalLength });
+        }
 	}
 
 	// 🏛️ フェーズ2: ハイブリッド対応の強靭な read 関数
