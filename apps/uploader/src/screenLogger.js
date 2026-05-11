@@ -46,8 +46,8 @@ export class screenLogger {
 		} else if (type === "end" && this.bars[name]) {
 			const bar = this.bars[name][0], start = this.bars[name][1];
 			const time = ((performance.now() - start)/1000).toFixed(3);
-			const speed = comma((size / time / 1024 / 1024).toFixed(2));
-			bar.text(`⏳ ${name}: ${comma(size)} bytes / ${comma(time)}sec (${speed} Mbytes/sec)`);
+			const speed = comma(((size||total) / time / 1024 / 1024).toFixed(2));
+			bar.text(`⏳ ${name}: ${comma(size||total)} bytes / ${comma(time)}sec (${speed} Mbytes/sec)`);
 			this.bars[name] = null;
 			delete this.bars[name];
 		}

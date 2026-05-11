@@ -12,19 +12,43 @@ class PBFIO {
         return this;
     }
     async files() { return await this.bucket.list(); }
-    async _sync(name, ETag) {
-        const blob = await this.bucket.get(name);
-        const Buff = await blob.arrayBuffer();
-        await this.cache(name, { ETag, Buff });
-        return Buff
-    }
+    // async _sync(name, ETag) {
+    //     const blob = await this.bucket.get(name);
+    //     const Buff = await blob.arrayBuffer();
+    //     await this.cache(name, { ETag, Buff });
+    //     return Buff
+    // }
+    // async sync() {
+    //     const localKeys = (await this.cache()) || [];
+    //     for (const name of localKeys) {
+    //         const ETag = await this.bucket.etag(name);
+    //         if (ETag === false) break
+    //         (ETag === null) ? await this.delete(name) : await this._sync(name, ETag);
+    //     }
+    // }
     async sync() {
         const localKeys = (await this.cache()) || [];
-        for (const name of localKeys) {
-            const ETag = await this.bucket.etag(name);
-            if (ETag === false) break
-            (ETag === null) ? await this.delete(name) : await this._sync(name, ETag);
-        }
+        if (localKeys.length === 0) return;
+        this._log(` 🔄 Syncing ${localKeys.length} files...`);
+        await Promise.all(localKeys.map(async (name) => {
+            try {
+                const val = await this.cache(name);
+                const headers = val?.ETag ? { "If-None-Match": val.ETag } : {};
+                const res = await fetch(`${this.bucket.url}${name}`, { headers });
+                if (res.status === 304) return;
+                if (res.status === 404) {
+                    this._log(` ⚠️ Not found on remote: ${name} (Kept local cache)`);
+                    return;
+                }
+                if (res.ok) {
+                    const ETag = res.headers.get("etag")?.replace(/"/g, "");
+                    const Buff = await res.arrayBuffer();
+                    await this.cache(name, { ETag, Buff });
+                    this._log(` 🆕 Updated: ${name}`);
+                }
+            } catch (e) { console.error(`Sync failed for [${name}]:`, e); }
+        }));
+        this._log(" ✅ Sync complete.");
     }
     async fetch(name, useCache = true) {
         if (useCache && this.fetchCache) { const v = await this.fetchCache(name); if (v) return v; }
@@ -33,12 +57,23 @@ class PBFIO {
         if (this.fetchCache) await this.fetchCache(name, file);
         return file;
     }
+    // async load(name) {
+    //     const val = await this.cache(name);
+    //     if (!val) return new GeoPBF().set(await this._sync(name)); 
+    //     const ETag = await this.bucket.etag(name);
+    //     if (ETag === val.ETag) return new GeoPBF().set(val.Buff);
+    //     return new GeoPBF().set(await this._sync(name, ETag));
+    // }
     async load(name) {
         const val = await this.cache(name);
-        if (!val) return new GeoPBF().set(await this._sync(name)); 
-        const ETag = await this.bucket.etag(name);
-        if (ETag === val.ETag) return new GeoPBF().set(val.Buff);
-        return new GeoPBF().set(await this._sync(name, ETag));
+        const headers = val?.ETag ? { "If-None-Match": val.ETag } : {};
+        const res = await fetch(`${this.bucket.url}${name}`, { headers });
+        if (res.status === 304 && val) return new GeoPBF().set(val.Buff);
+        if (!res.ok) throw new Error(`Failed to load: ${name} (HTTP ${res.status})`);
+        const ETag = res.headers.get("etag")?.replace(/"/g, "");
+        const Buff = await res.arrayBuffer();
+        await this.cache(name, { ETag, Buff });
+        return new GeoPBF().set(Buff);
     }
     async save(pbf) {
         const name = pbf.name(); if (!name) return null;
