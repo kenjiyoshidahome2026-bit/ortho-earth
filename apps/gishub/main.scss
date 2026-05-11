@@ -26,7 +26,7 @@ body, html { font-family: 'Inter', sans-serif; overflow: hidden; }
 			&:hover { background: #000; border-color: #ccc; }
 			.card-name { font-weight: bold; font-size: 0.8rem; }
 			.card-desc { font-size: 0.7rem; color: #aaa; margin-top: 4px; }
-			.license { position:absolute; font-size: 0.7rem; color: #aaa; top:1em; right:1em; }
+			.license { position:absolute; font-size: 0.5rem; color: #aaa; top:1em; right:1em; }
 		}
 	}
 	.main-content { position: absolute; inset: 0px; left:300px; padding: 40px; overflow-y: auto; }
