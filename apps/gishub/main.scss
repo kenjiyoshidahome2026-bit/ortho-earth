@@ -14,18 +14,19 @@ body, html { font-family: 'Inter', sans-serif; overflow: hidden; }
 .gishub-app { position: absolute; inset: 0px; background: $bg; color: $text;
 	.sidebar { position: absolute; inset: 0px; width:300px;
 		border-right: 1px solid #333; padding: 1rem; overflow-y: auto;
-		h1 { font-size: 1.4rem; color: $accent; vertical-align: middle;
+		h1 { font-size: 1.4rem; color: $accent; vertical-align: middle; margin-bottom:1rem;
 			img { width:28px; vertical-align: middle; }
 			span { display:inline-block; margin-top:1rem; padding-left:1rem;}
 		}
-		.group-section { margin-bottom: 24px;
-			h2 { font-size: 0.8rem; color: #666; margin-bottom: 12px; letter-spacing: 0.05em; }
+		.group-section { margin-bottom: 16px;
+			h2 { font-size: 0.8rem; color: #aaa; margin-bottom: 5px; letter-spacing: 0.05em; }
 		}
-		.card { padding: 12px; border: 1px solid #222; border-radius: 8px; cursor: pointer;
-			margin-bottom: 8px; transition: background 0.2s;
-			&:hover { background: #111; border-color: #444; }
-			.card-name { font-weight: bold; font-size: 0.9rem; }
-			.card-meta { font-size: 0.7rem; color: #555; margin-top: 4px; }
+		.card { position:relative; padding: 8px; border: 1px solid #666; border-radius: 8px; cursor: pointer;
+			margin-bottom: 5px; transition: background 0.2s;
+			&:hover { background: #000; border-color: #ccc; }
+			.card-name { font-weight: bold; font-size: 0.8rem; }
+			.card-desc { font-size: 0.7rem; color: #aaa; margin-top: 4px; }
+			.license { position:absolute; font-size: 0.7rem; color: #aaa; top:1em; right:1em; }
 		}
 	}
 	.main-content { position: absolute; inset: 0px; left:300px; padding: 40px; overflow-y: auto; }
