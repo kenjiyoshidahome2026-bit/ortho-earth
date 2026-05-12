@@ -49,20 +49,18 @@ export async function decodeZIP(source, target = null, encoding = null) {
 	}
 
 	// 🏛️ フェーズ2: ハイブリッド対応の強靭な read 関数
-	const read = async (from, len, name = "Data") => {
+	const read = async (from, len, name) => {
 		if (isFile) return new Uint8Array(await source.slice(from, from + len).arrayBuffer());
-
 		const res = await fetch(getCleanUrl(source), { headers: { Range: `bytes=${from}-${from + len - 1}` } });
 		if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
 		// 万が一の安全装置: 読み込み中の Range 無視バッファ溢れを防ぎ、その場で進化
-		if (res.status === 200) {
-			source = await res.blob();
-			isFile = true;
-			totalLength = source.size;
-			return new Uint8Array(await source.slice(from, from + len).arrayBuffer());
-		}
-
+		// if (res.status === 200) {
+		// 	source = await res.blob();
+		// 	isFile = true;
+		// 	totalLength = source.size;
+		// 	return new Uint8Array(await source.slice(from, from + len).arrayBuffer());
+		// }
 		const reader = res.body.getReader(), bin = new Uint8Array(len);
 		let pos = 0;
 		while (true) {
@@ -71,7 +69,7 @@ export async function decodeZIP(source, target = null, encoding = null) {
 			const copyLen = Math.min(value.length, len - pos);
 			bin.set(value.subarray(0, copyLen), pos);
 			pos += copyLen;
-			event("FetchProgress", { name, loaded: pos, total: len });
+			name && event("FetchProgress", { name, loaded: pos, total: len });
 			if (pos >= len) { reader.cancel(); break; }
 		}
 		if (pos < len) throw new Error(`Truncated: ${pos}/${len}`);
@@ -82,7 +80,7 @@ export async function decodeZIP(source, target = null, encoding = null) {
 		// 🏛️ フェーズ3: スマート EOCD（目次サイン）狙撃
 		const findEOCD = async (searchSize) => {
 			const size = Math.min(totalLength, searchSize);
-			const buf = await read(totalLength - size, size, "Scanning ZIP Terminal");
+			const buf = await read(totalLength - size, size);
 			const ev = new DataView(buf.buffer);
 			for (let i = size - 22; i >= 0; i--) {
 				if (ev.getUint32(i, true) === 0x06054b50) return { p: i, buf, size };
@@ -102,7 +100,7 @@ export async function decodeZIP(source, target = null, encoding = null) {
 		const cdOff = ev.getUint32(p + 16, true);
 
 		// 目次リスト一括ロード
-		const cd = await read(cdOff, cdSize, "Loading Repository Catalog");
+		const cd = await read(cdOff, cdSize);
 		const cv = new DataView(cd.buffer);
 		const entries = [];
 

@@ -30,10 +30,13 @@ d3.json("./catalog.json").then(groups => { console.log("Catalog loaded:", groups
 });
 
 async function exec(info) {
-    logger.log(`Requesting: ${info.target}...`)
-    window.addEventListener("FetchStart", e => logger.progress("start", e.detail)); 
-    window.addEventListener("FetchProgress", e => logger.progress("progress", e.detail));
-    window.addEventListener("FetchEnd", e => logger.progress("end", e.detail));
+    logger.title(info.name);
+    logger.log(`Requesting: ${info.target}`)
+    addEventListener("FetchStart", e => logger.progress("start", e)); 
+    addEventListener("FetchProgress", e => logger.progress("progress", e));
+    addEventListener("FetchEnd", e => logger.progress("end", e));
+    addEventListener("ConvertStart", e => logger.event("start", e));
+    addEventListener("ConvertEnd", e => logger.event("end", e));
     try {
         const pbf = await geopbf(`${info.target}`, {
 			name: info.name,
@@ -41,7 +44,7 @@ async function exec(info) {
             description: info.description
         });
 		console.log("PBF loaded:", pbf);
-		logger.log(`✅ Successfully loaded ${info.name} (${comma(pbf.size)} bytes)`);
+		logger.success(`loaded ${info.name} (${comma(pbf.size)} bytes)`);
 
     } catch (err) {
 		logger.error(`Failed to load ${info.target}: ${err.message}`);

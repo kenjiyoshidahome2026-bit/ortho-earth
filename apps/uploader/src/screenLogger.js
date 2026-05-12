@@ -4,7 +4,8 @@ export class screenLogger {
 	constructor (div) {
 		this.target = div.classed("log", true); this.time = performance.now();
 		this.dots = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
-		this.bars = {}; 
+		this.bars = {};
+		this.mess = {};
 	} 
 	clear(s) { this.target.empty(); }
 	log(...a) {
@@ -32,8 +33,8 @@ export class screenLogger {
 		} 
 		a.forEach(t=>p.append("span").html(toS(t)));
 	}
-	progress(type, detail) {
-		const { name, loaded, total, size } = detail;
+	progress(type, e) { console.log(type, e)
+		const { name, loaded, total, size } = e.detail;
 		if (type === "start") { if (this.bars[name]) return;
 			const bar = this.target.append("p").classed("progress", true).text("⏳ " + name)
 			this.bars[name] = [bar, performance.now(), 0];
@@ -52,9 +53,23 @@ export class screenLogger {
 			delete this.bars[name];
 		}
 	}	
+	event(type, e) {
+		const { name, event, done, error } = e.detail;
+		if (type === "start") { if (this.mess[name]) return;
+			const bar = this.target.append("p").classed("event", true).text(`🔄 ${name}: ${event} `);
+			this.mess[name] = [bar, performance.now()]
+		} else if (type === "end" && this.mess[name]) {
+			const bar = this.mess[name][0], start = this.mess[name][1];
+			const time = ((performance.now() - start) / 1000).toFixed(3);
+			error ? bar.classed("error", true).text("❌ [ERROR] " + error):
+			bar.text(`🔄 ${name}: ${event} (${comma(time)}sec)`);
+			this.mess[name] = null;
+			delete this.mess[name];
+		}
+	}	
 	warn(s) { this.target.append("p").classed("warn", true).text("⚠️ [WARNING] " + s); }
 	error(s) { this.target.append("p").classed("error", true).text("❌ [ERROR] " + s); }
-	title(s) { this.target.append("p").classed("title", true).text("✨ " + s +" ✨"); 
+	title(s) { this.target.append("p").classed("title", true).html(`<span>✨ ${s} ✨</span>`); 
 		this.time = performance.now();
 	}
 	success(s) { const time = ((performance.now() - this.time)/1000).toFixed(3);
