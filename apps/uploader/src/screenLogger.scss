@@ -10,10 +10,13 @@ div.log {
 		}
 		> img { width:100%; }
 		> span { padding-right:1em; }
-		&.title { font-size:150%; font-weight:bold; }
+		&.title { font-size:150%; font-weight:bold; margin:2rem 0 1rem 0;
+			> span { background:#444; padding:0.5rem 1rem; border-radius:5px; }
+		}
 		&.success { font-size:110%; font-weight:bold; }
 		&.warn { font-size:110%; font-weight:bold; color:#ff0; }
 		&.error { font-size:110%; font-weight:bold; color:#f08; }
-		&.progress { .done { color:#0c0; padding-right:0; } .rest { color:#008; padding-right: 0; }}
+		&.progress { font-size:100%; .done { color:#0c0; padding-right:0; } .rest { color:#008; padding-right: 0; }}
+		&.event { font-size: 100%; }
 	}
 }

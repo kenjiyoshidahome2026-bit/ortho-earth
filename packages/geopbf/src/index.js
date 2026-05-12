@@ -14,15 +14,24 @@ export async function geopbf(data, options = {}) { if (isString(options)) option
     const dt = performance.now();
     const isInZip = _ => (_.match(/.+\.zip#.+/i));
     const isPBF = _ => (_ instanceof GeoPBF);
+    let eventTarget = options.eventTarget || (typeof window !== 'undefined' ? window : (typeof self !== 'undefined' ? self : null));
+    if (typeof CustomEvent === 'undefined' || !eventTarget.dispatchEvent) eventTarget = null;
+    const event = (type, detail) => eventTarget && eventTarget.dispatchEvent(new CustomEvent(type, { detail }));
 
     const decoder = async (type, file) => {
+        event("ConvertStart",{name:file.name, event: `convrsion from ${type} to GeoPBF`});
         const encoding = (options.encoding || "utf8").toLowerCase().replace(/[\-\_]/g, "").replace(/shiftjis/, "sjis");
         const params = { file, precision: options.precision || 6, encoding, };
         const url = new URL(`./decoder/${type}.js`, import.meta.url);
         const w = new Worker(url, { type: 'module' });
         return new Promise(resolve => {
-            w.onmessage = async e => { w.terminate(); resolve(e.data ? new GeoPBF(options).set(e.data.data) : null); };
-            w.onerror = () => { w.terminate(); console.error(`file decode error: [${type}]`); resolve(null); };
+            w.onmessage = async e => {
+                event("ConvertEnd", { name: file.name, event: `convrsion from ${type} to GeoPBF` });
+                w.terminate(); resolve(e.data ? new GeoPBF(options).set(e.data.data) : null); };
+            w.onerror = e => {
+                event("ConvertEnd", { name: file.name, error: `file decode error: [${type}]` });
+                w.terminate(); console.error(`file decode error: [${type}]`); resolve(null);
+            };
             w.postMessage(params);
         });
     }

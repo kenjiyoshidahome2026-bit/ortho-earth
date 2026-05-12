@@ -19,7 +19,21 @@
 			"name": "N02-25_RailroadSection",
 			"target": "https://nlftp.mlit.go.jp/ksj/gml/data/N02/N02-25/N02-25_GML.zip#N02-25_GML/UTF-8/N02-25_RailroadSection.geojson",
 			"description": "鉄道データ(線路:2025)",
-			"link":"https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-N02-2025.html",
+			"link": "https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-N02-2025.html",
+			"license": "CC BY 4.0"
+		},
+		{
+			"name": "N02-25_Station",
+			"target": "https://nlftp.mlit.go.jp/ksj/gml/data/N02/N02-25/N02-25_GML.zip#N02-25_GML/UTF-8/N02-25_Station.geojson",
+			"description": "鉄道データ(駅:2025)",
+			"link": "https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-N02-2025.html",
+			"license": "CC BY 4.0"
+		},
+		{
+			"name": "A45-19_01",
+			"target": "https://nlftp.mlit.go.jp/ksj/gml/data/A45/A45-19/A45-19_01_GML.zip#A45-19_01.geojson",
+			"description": "森林データ(北海道:2018)",
+			"link": "https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-A45.html",
 			"license": "CC BY 4.0"
 		}
 	]
