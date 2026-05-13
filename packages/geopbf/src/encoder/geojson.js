@@ -8,7 +8,7 @@ onmessage = async (e) => {
         const { readable, writable } = new TransformStream();
         const writer = writable.getWriter();
         const out = gz ? readable.pipeThrough(new CompressionStream("gzip")) : readable;
-        const bPromise = new Response(out).blob();
+        const promise = new Response(out).blob();
 
         (async () => {
             await writer.write(enc.encode('{"type":"FeatureCollection","features":[\n'));
@@ -22,7 +22,7 @@ onmessage = async (e) => {
             await writer.close();
         })();
 
-        const b = await bPromise;
+        const b = await promise;
         postMessage(new File([b], `${name}.geojson${gz ? ".gz" : ""}`, { type: gz ? "application/gzip" : "application/geo+json" }));
     } catch (err) { postMessage(null); }
 };

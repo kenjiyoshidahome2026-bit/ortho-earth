@@ -18,5 +18,8 @@ div.log {
 		&.error { font-size:110%; font-weight:bold; color:#f08; }
 		&.progress { font-size:100%; .done { color:#0c0; padding-right:0; } .rest { color:#008; padding-right: 0; }}
 		&.event { font-size: 100%; }
+		&.prompt { font-size: 110%; font-weight: bold;
+			.answer { min-width:10em; display:inline-block; padding:0.2rem 1rem; margin:0 1em;}
+		}
 	}
 }
