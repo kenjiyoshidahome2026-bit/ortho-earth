@@ -1,11 +1,9 @@
 import * as d3 from 'd3';
-import './overlay.scss';
+import './overlays.scss';
 import {createAutocomplete} from './autocomplete';
-
 const emoji = _ => `<span class="emoji">&#x${_};</span>`;
-d3.overlay = overlay();
 
-function overlay() {
+export default function overlay() {
     // 共通のベース生成処理
     const createBase = (className, html) => {
         const plane = d3.select("body").append("div").classed("overlay-fullbody", true);

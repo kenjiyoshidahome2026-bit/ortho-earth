@@ -16,28 +16,29 @@ export async function geopbf(data, options = {}) { if (isString(options)) option
     const isPBF = _ => (_ instanceof GeoPBF);
     let eventTarget = options.eventTarget || (typeof window !== 'undefined' ? window : (typeof self !== 'undefined' ? self : null));
     if (typeof CustomEvent === 'undefined' || !eventTarget.dispatchEvent) eventTarget = null;
-    const event = (type, detail) => eventTarget && eventTarget.dispatchEvent(new CustomEvent(type, { detail }));
-
+    const throwEvent = (type, detail) => eventTarget && eventTarget.dispatchEvent(new CustomEvent(type, { detail }));
     const decoder = async (type, file) => {
-        event("ConvertStart",{name:file.name, event: `convrsion from ${type} to GeoPBF`});
+        const name = file.name, event = `convrsion from ${type} to GeoPBF`;
+        throwEvent("ConvertStart",{name, event});
         const encoding = (options.encoding || "utf8").toLowerCase().replace(/[\-\_]/g, "").replace(/shiftjis/, "sjis");
         const params = { file, precision: options.precision || 6, encoding, };
         const url = new URL(`./decoder/${type}.js`, import.meta.url);
         const w = new Worker(url, { type: 'module' });
         return new Promise(resolve => {
             w.onmessage = async e => {
-                event("ConvertEnd", { name: file.name, event: `convrsion from ${type} to GeoPBF` });
+                throwEvent("ConvertEnd", { name, event });
                 w.terminate(); resolve(e.data ? new GeoPBF(options).set(e.data.data) : null); };
             w.onerror = e => {
-                event("ConvertEnd", { name: file.name, error: `file decode error: [${type}]` });
+                throwEvent("ConvertEnd", { name, error: `file decode error: [${type}]` });
                 w.terminate(); console.error(`file decode error: [${type}]`); resolve(null);
             };
             w.postMessage(params);
         });
-    }
+    };
     const pbf = await _geopbf(data);
     pbf && console.log(`[geopbf] 📥 ${pbf.name()} (${pbf.size.toLocaleString()} bytes) ${(performance.now()-dt).toFixed(2)} msec`);
     return pbf || new GeoPBF(options);
+////===========================================================================================
     async function _geopbf(q) {
         if (!q) return null;
         if (isPBF(q)) return q;
@@ -87,25 +88,33 @@ export async function geopbf(data, options = {}) { if (isString(options)) option
 }
 //  ----------------------------------------------------------------------------------------
 const encoder = async (pbf, type, gz, encoding) => {
+    const name = pbf._name, buf = pbf.arrayBuffer, event = `convrsion from GeoPBF to ${type}`;
+    const throwEvent = (type, detail) => window.dispatchEvent(new CustomEvent(type, { detail }));
+    throwEvent("ConvertStart", { name, event });
     const url = new URL(`./encoder/${type}.js`, import.meta.url)
     const w = new Worker(url, { type: 'module' });
-    const name = pbf._name, buf = pbf.arrayBuffer;
     return new Promise(resolve => {
-        w.onmessage = e => { w.terminate(); resolve(e.data); };
-        w.onerror = () => { w.terminate(); console.error(`pbf encode error: [${type}]`); resolve(null); };
+        w.onmessage = e => {
+            throwEvent("ConvertEnd", { name, event });
+            w.terminate(); resolve(e.data);
+        };
+        w.onerror = () => {
+            throwEvent("ConvertEnd", { name, error: `file encode error: [${type}]` });
+            w.terminate(); console.error(`pbf encode error: [${type}]`); resolve(null);
+        };
         w.postMessage({ buf, name, gz, encoding }, [buf]);
     });
 };
 const methods = {
     async save() { const s = await getServer(); return (s && await s.save(this)) ? this : null; },
-    async pbfFile(flag) { return encoder(this, "pbf", flag); },
+    async geopbfFile() { return encoder(this, "geopbf", true); },
     async geojsonFile(flag) { return encoder(this, "geojson", flag); },
     async topojsonFile(flag) { return encoder(this, "topojson", flag); },
-    async fgbFile(flag) { return encoder(this, "fgb", flag); }, 
-    async shape(encoding = "utf8") { return encoder(this, "shape", false, encoding); },
-    async kmz(flag = true) { return encoder(this, "kmz", flag); },//flag: true=>kmz, false=>kml
-    async gpx(flag) { return encoder(this, "gpx", flag); },
-    async gml(flag) { return encoder(this, "gml", flag); }
+    async shapeFile(encoding = "utf8") { return encoder(this, "shape", false, encoding); },
+    async kmzFile(flag = true) { return encoder(this, "kmz", flag); },//flag: true=>kmz, false=>kml
+    async gpxFile(flag) { return encoder(this, "gpx", flag); },
+    async gmlFile(flag) { return encoder(this, "gml", flag); },
+ //   async fgbFile(flag) { return encoder(this, "fgb", flag); }, 
 };
 
 Object.entries(methods).forEach(([name, func]) => {

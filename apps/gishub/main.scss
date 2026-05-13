@@ -31,3 +31,7 @@ body, html { font-family: 'Inter', sans-serif; overflow: hidden; }
 	}
 	.main-content { position: absolute; inset: 0px; left:300px; padding: 40px; overflow-y: auto; }
 }
+p button { padding:0.5em 1em; margin:0.5em; background:#444; color:#fff;
+	border:1px solid #ccc; border-radius:5px; min-width:6em;
+		&:hover { background: rgba(255, 255, 255, 0.2); }
+}
