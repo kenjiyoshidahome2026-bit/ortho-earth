@@ -63,7 +63,7 @@ async function set(data) { if (data.data != "options") return postMessage({ type
 		return { x: c[0] * rad, y: c[1] * rad, mag: p.mag, bv };
 	}).sort((p,q)=>p.mag>q.mag?1:-1).slice(0,accessories.stars.maxCount);
 	active = true;
-	setInterval(()=>{accessories.night.json = nightJSON(new Date()), draw()},1000);
+	setInterval(() => { accessories.night.json = nightJSON(new Date()); draw_night(); draw_stars(); },1000);
 	postMessage({ type: data.type, action: "done" });
 }
 function resize(data) {
