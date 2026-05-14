@@ -11,8 +11,8 @@ body, html { font-family: 'Inter', sans-serif; overflow: hidden; }
 	}
 	#ortho-map-container { width: 100%; height: 100%; }
 }
-.gishub-app { position: absolute; inset: 0px; background: $bg; color: $text;
-	.sidebar { position: absolute; inset: 0px; width:300px;
+.gishub { position: absolute; inset: 0px; background: $bg; color: $text;
+	.left { position: absolute; inset: 0px; width:300px;
 		border-right: 1px solid #333; padding: 1rem; overflow-y: auto;
 		h1 { font-size: 1.4rem; color: $accent; vertical-align: middle; margin-bottom:1rem;
 			img { width:28px; vertical-align: middle; }
@@ -29,9 +29,5 @@ body, html { font-family: 'Inter', sans-serif; overflow: hidden; }
 			.license { position:absolute; font-size: 0.5rem; color: #aaa; top:1em; right:1em; }
 		}
 	}
-	.main-content { position: absolute; inset: 0px; left:300px; padding: 40px; overflow-y: auto; }
-}
-p button { padding:0.5em 1em; margin:0.5em; background:#444; color:#fff;
-	border:1px solid #ccc; border-radius:5px; min-width:6em;
-		&:hover { background: rgba(255, 255, 255, 0.2); }
+	.main { position: absolute; inset: 0px; left:300px; padding: 40px; overflow-y: auto; }
 }

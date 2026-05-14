@@ -71,16 +71,69 @@ export class screenLogger {
 	}	
 	warn(s) { this.empty().classed("warn", true).text(`⚠️ [WARNING] ${s}`); }
 	error(s) { this.empty().classed("error", true).text(`❌ [ERROR] ${s}`); }
-	title(s) { const p = this.empty().classed("title", true).html(`<span>✨ ${s} ✨</span>`); 
+	title(s,sub="") { const p = this.empty().html(`<span class="title">✨ ${s} ✨</span><span class="subtitle">${sub}</span>`); 
 		this.time = performance.now();
 		return p;
 	}
 	success(s) { const time = ((performance.now() - this.time)/1000).toFixed(3);
 		this.empty().classed("success", true).text(`✅ [SUCCESS] ${s} (${comma(time)}sec)`); 
 	}
-	async prompt(s, def = "") {
-		const p = this.empty().classed("prompt", true).append("span").text(`> ${s}?`);
-		p.append("span").classed("answer", true).attr("contenteditable", true).text(def);
+    async prompt(s, def = "") {
+        return new Promise(resolve => {
+            const p = this.empty().classed("prompt", true);
+            p.append("span").text(`> ${s}: `);
+            const ans = p.append("span").classed("answer", true).attr("contenteditable", true)
+            const btn = p.append("button").text("OK").style("margin-left", "10px");
+            const submit = () => {
+                const result = ans.text();
+                ans.attr("contenteditable", false); // 入力不可にする
+                btn.remove(); // ボタンを消す
+                resolve(result||def); // 結果を返す
+            };
+            btn.on("click", submit);
+            ans.on("keydown", e => { if (e.key === "Enter") { e.preventDefault(); submit(); }});
+            ans.node().focus();
+        });
+    }
+	async confirm(s, def = true) {
+        return new Promise(resolve => {
+            let current = def; // 現在の選択状態
+            const p = this.empty().classed("prompt", true).attr("tabindex", 0); // キーイベント取得のためtabindex付与
+            p.append("span").text(`> ${s} `);
+            const btnYes = p.append("button").text("Yes");
+            const btnNo = p.append("button").text("No");
+            const updateUI = () => {
+                btnYes.style("outline", current ? "2px solid #007bff" : "none");
+                btnNo.style("outline", !current ? "2px solid #007bff" : "none");
+            };
+            const done = (res) => {
+                p.on("keydown", null); // イベント解除
+                p.append("span").text(` -> ${res ? "Yes" : "No"}`).classed(res ? "success" : "warn", true);
+                btnYes.remove();
+                btnNo.remove();
+                p.attr("tabindex", null);
+                resolve(res);
+            };
 
-	}
+            // キーボードイベント
+            p.on("keydown", (e) => {
+                if (e.key === "ArrowLeft" || e.key === "ArrowRight" || e.key === "Tab"|| e.key === " ") {
+                    current = !current;
+                    updateUI();
+                } else if (e.key === "Enter") {
+                    done(current);
+                } else if (e.key.toLowerCase() === "y") {
+                    done(true);
+                } else if (e.key.toLowerCase() === "n") {
+                    done(false);
+                }
+            });
+
+            btnYes.on("click", () => done(true));
+            btnNo.on("click", () => done(false));
+
+            updateUI();
+            p.node().focus(); // 自動でフォーカスしてキー入力を有効にする
+        });
+    }
 }
