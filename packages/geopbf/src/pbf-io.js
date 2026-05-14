@@ -8,7 +8,7 @@ class PBFIO {
         this.bucket = await Bucket(`${this.dire}/pbf`);
         this.cache = await Cache(`${this.dire}/pbf`);
         this.nativeFetch = Fetch; // インスタンスに保存
-        this.fetchCache = await Cache(`${this.dire}/loaded`);
+    //    this.fetchCache = await Cache(`${this.dire}/loaded`);
         return this;
     }
     async files() { return await this.bucket.list(); }
@@ -50,7 +50,7 @@ class PBFIO {
         }));
         this._log(" ✅ Sync complete.");
     }
-    async fetch(name, useCache = true) {
+    async fetch(name, useCache = false) {
         if (useCache && this.fetchCache) { const v = await this.fetchCache(name); if (v) return v; }
         const [url, target] = name.split(/\#/);
         const file = target ? await this.nativeFetch(url, { target }) : await this.nativeFetch(url);

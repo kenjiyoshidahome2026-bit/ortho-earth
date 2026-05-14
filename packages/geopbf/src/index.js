@@ -37,6 +37,7 @@ export async function geopbf(data, options = {}) { if (isString(options)) option
     };
     const pbf = await _geopbf(data);
     pbf && console.log(`[geopbf] 📥 ${pbf.name()} (${pbf.size.toLocaleString()} bytes) ${(performance.now()-dt).toFixed(2)} msec`);
+    pbf && isInZip(data) && getServer().then(server => server && server.cache(data, { Buff: pbf.arrayBuffer }));
     return pbf || new GeoPBF(options);
 ////===========================================================================================
     async function _geopbf(q) {
@@ -65,7 +66,9 @@ export async function geopbf(data, options = {}) { if (isString(options)) option
             const usecache = !options.nocache;
             if (isURL(q)) {
                 const fetchUrl = isInZip(q) ? q : (q.match(/\.zip$/) && options.target) ? [q, options.target].join("#") : q;
-                return _geopbf(await server.fetch(fetchUrl, usecache));
+                const v = await server.cache(fetchUrl);
+                if (v) return new GeoPBF(options).set(v.Buff);
+                return _geopbf(await server.fetch(fetchUrl));
             }
             return _geopbf(await server.load(q));
         }
@@ -108,8 +111,8 @@ const encoder = async (pbf, type, gz, encoding) => {
 const methods = {
     async save() { const s = await getServer(); return (s && await s.save(this)) ? this : null; },
     async geopbfFile() { return encoder(this, "geopbf", true); },
-    async geojsonFile(flag) { return encoder(this, "geojson", flag); },
-    async topojsonFile(flag) { return encoder(this, "topojson", flag); },
+    async geojsonFile(flag = false) { return flag !=="cancel" && encoder(this, "geojson", flag); },
+    async topojsonFile(flag = false) { return encoder(this, "topojson", flag); },
     async shapeFile(encoding = "utf8") { return encoder(this, "shape", false, encoding); },
     async kmzFile(flag = true) { return encoder(this, "kmz", flag); },//flag: true=>kmz, false=>kml
     async gpxFile(flag) { return encoder(this, "gpx", flag); },

@@ -6,6 +6,7 @@
 			"description": "行政区域データ(市区町村:2026)",
 			"target": "https://nlftp.mlit.go.jp/ksj/gml/data/N03/N03-2026/N03-20260101_GML.zip#N03-20260101.geojson",
 			"link": "https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-N03-2026.html",
+			"attribution":"国土交通省 国土数値情報",
 			"license": "CC_BY_4.0"
 		},
 		{
@@ -13,6 +14,7 @@
 			"description": "行政区域データ(都道府県:2026)",
 			"target": "https://nlftp.mlit.go.jp/ksj/gml/data/N03/N03-2026/N03-20260101_GML.zip#N03-20260101_prefecture.geojson",
 			"link": "https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-N03-2026.html",
+			"attribution":"国土交通省 国土数値情報",
 			"license": "CC_BY_4.0"
 		},
 		{
@@ -20,6 +22,7 @@
 			"description": "鉄道データ(線路:2025)",
 			"target": "https://nlftp.mlit.go.jp/ksj/gml/data/N02/N02-25/N02-25_GML.zip#N02-25_GML/UTF-8/N02-25_RailroadSection.geojson",
 			"link": "https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-N02-2025.html",
+			"attribution":"国土交通省 国土数値情報",
 			"license": "CC_BY_4.0"
 		},
 		{
@@ -27,6 +30,7 @@
 			"description": "鉄道データ(駅:2025)",
 			"target": "https://nlftp.mlit.go.jp/ksj/gml/data/N02/N02-25/N02-25_GML.zip#N02-25_GML/UTF-8/N02-25_Station.geojson",
 			"link": "https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-N02-2025.html",
+			"attribution":"国土交通省 国土数値情報",
 			"license": "CC_BY_4.0"
 		},
 		{
@@ -34,6 +38,7 @@
 			"description": "国有林野データ(北海道:2018)",
 			"target": "https://nlftp.mlit.go.jp/ksj/gml/data/A45/A45-19/A45-19_01_GML.zip#A45-19_01.geojson",
 			"link": "https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-A45.html",
+			"attribution":"国土交通省 国土数値情報",
 			"license": "CC_BY_4.0"
 		}
 	]
