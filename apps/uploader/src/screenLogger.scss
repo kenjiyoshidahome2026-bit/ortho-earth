@@ -14,9 +14,11 @@ div.log {
 		}
 		> span.big { font-size: 110%; font-weight: bold;}
 		> img { width:100%; }
-		> span { padding:0 0.5em; }
-		> span.title { font-size:150%; font-weight:bold; margin:2rem 0 1rem 0; background:#444; padding:0.5rem 1rem; border-radius:5px;}
-		> span.subtitle { font-size:110%; font-weight: bold; margin-left: 1rem; }
+		> span { padding:0 1em 0 0; }
+		&.title { margin:2rem 0 1rem 0;
+			> span.title { font-size:150%; font-weight:bold; background:#444; padding:0.5rem 1rem; border-radius:5px;}
+			> span.subtitle { font-size:110%; font-weight: bold; margin-left: 1rem; }
+		}
 		&.success { font-size:110%; font-weight:bold; }
 		&.warn { font-size:110%; font-weight:bold; color:#ff0; }
 		&.error { font-size:110%; font-weight:bold; color:#f08; }
@@ -25,17 +27,17 @@ div.log {
 		&.prompt { font-size: 110%; font-weight: bold;
 			.answer { min-width:10em; display:inline-block; padding:0.5rem 1rem; margin:0 1em;}
 		}
-p button {
-	padding: 0.5em 1em;
-	margin: 0.5em;
-	background: #444;
-	color: #fff;
-	border: 1px solid #ccc;
-	border-radius: 5px;
-	min-width: 6em;
-
-	&:hover {
-		background: rgba(255, 255, 255, 0.2);
+		button {
+			padding: 0.5em 1em; margin: 0.5em; background: #444; color: #fff; border: 1px solid #ccc;
+			border-radius: 5px; min-width: 5em;
+			&:hover { background: #ccc; color:#000; }
+		}
+		.select-buttons { margin: 0 5px; font-size: 0; display:inline-block; margin: 0.5em;
+			> button { border-radius: 0; border-width: 1px 0.5px; margin: 0;
+				&:first-child { border-radius: 5px 0 0 5px; border-left-width: 1px; }
+				&:last-child { border-radius: 0 5px 5px 0; border-right-width: 1px; }
+				&.selected { background: #ccc; color: #000; }
+			}
+		}
 	}
-}	}
 }

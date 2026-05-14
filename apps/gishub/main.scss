@@ -1,7 +1,7 @@
 $bg: #000; $text: #e3e3e3; $accent: #4b90ff;
 
 body, html { font-family: 'Inter', sans-serif; overflow: hidden; }
-* { margin:0; padding:0; box-sizing: border-box;}
+* { margin:0; padding:0; box-sizing: border-box; outline:none; }
 .map-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: $bg;
 	.close-btn {
 		position: absolute; top: 24px; right: 24px;
@@ -12,22 +12,35 @@ body, html { font-family: 'Inter', sans-serif; overflow: hidden; }
 	#ortho-map-container { width: 100%; height: 100%; }
 }
 .gishub { position: absolute; inset: 0px; background: $bg; color: $text;
-	.left { position: absolute; inset: 0px; width:300px;
-		border-right: 1px solid #333; padding: 1rem; overflow-y: auto;
-		h1 { font-size: 1.4rem; color: $accent; vertical-align: middle; margin-bottom:1rem;
-			img { width:28px; vertical-align: middle; }
-			span { display:inline-block; margin-top:1rem; padding-left:1rem;}
+	.left { position: absolute; inset: 0px; width:300px; transition: all 250ms ease-in-out;
+		border-right: 1px solid #333; padding: 0; overflow-y: auto;
+		> img { display: inline-block; width:30px; vertical-align: middle; margin:10px;  border-radius:5px; 
+			&:hover {border: 1px solid #fff; }
 		}
-		.group-section { margin-bottom: 16px;
+		> input { display:inline-block; height:30px; width:240px; margin:10px 0; border-radius:5px;
+			background:#181818; border:none; color:#ccc; padding-left:1rem; font-size:1rem;
+		}
+		.group-section { padding:0.5em 1rem;
 			h2 { font-size: 0.8rem; color: #aaa; margin-bottom: 5px; letter-spacing: 0.05em; }
-		}
-		.card { position:relative; padding: 8px; border: 1px solid #666; border-radius: 8px; cursor: pointer;
-			margin-bottom: 5px; transition: background 0.2s;
-			&:hover { background: #000; border-color: #ccc; }
-			.card-name { font-weight: bold; font-size: 0.8rem; }
-			.card-desc { font-size: 0.7rem; color: #aaa; margin-top: 4px; }
-			.license { position:absolute; font-size: 0.5rem; color: #aaa; top:1em; right:1em; }
+			.card { position:relative; padding: 8px; border: 1px solid #666; border-radius: 8px; cursor: pointer;
+				margin-bottom: 5px; transition: background 0.2s;
+				&:hover { background: #000; border-color: #ccc; }
+				.card-name { font-weight: bold; font-size: 0.8rem; }
+				.card-desc { font-size: 0.7rem; color: #aaa; margin-top: 4px; }
+				.license { position:absolute; font-size: 0.5rem; color: #aaa; top:1em; right:1em; }
+			}
 		}
 	}
-	.main { position: absolute; inset: 0px; left:300px; padding: 40px; overflow-y: auto; }
+	.main { position: absolute; inset: 0px; left:300px;transition: all 250ms ease-in-out;
+		h1 { font-size: 1.4rem; color: $accent; vertical-align: middle; margin: 30px 30px;
+			img { width: 28px; vertical-align: middle; }
+			span { display: inline-block; padding-left: 1rem; }
+		}
+		> div { position: absolute; inset:70px 30px 30px; overflow-y: auto; }
+	}
+	.accent { background: $accent; font-weight:bold }
+	&.close { 
+		.left { width:50px; input,.group-section {display:none; } }
+		.main { left: 50px; }
+	}
 }

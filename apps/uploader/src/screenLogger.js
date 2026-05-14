@@ -71,7 +71,7 @@ export class screenLogger {
 	}	
 	warn(s) { this.empty().classed("warn", true).text(`⚠️ [WARNING] ${s}`); }
 	error(s) { this.empty().classed("error", true).text(`❌ [ERROR] ${s}`); }
-	title(s,sub="") { const p = this.empty().html(`<span class="title">✨ ${s} ✨</span><span class="subtitle">${sub}</span>`); 
+	title(s,sub="") { const p = this.empty().classed("title", true).html(`<span class="title">✨ ${s} ✨</span><span class="subtitle">${sub}</span>`); 
 		this.time = performance.now();
 		return p;
 	}
@@ -81,7 +81,7 @@ export class screenLogger {
     async prompt(s, def = "") {
         return new Promise(resolve => {
             const p = this.empty().classed("prompt", true);
-            p.append("span").text(`> ${s}: `);
+            p.append("span").text(`> ${s} ? `);
             const ans = p.append("span").classed("answer", true).attr("contenteditable", true)
             const btn = p.append("button").text("OK").style("margin-left", "10px");
             const submit = () => {
@@ -95,45 +95,36 @@ export class screenLogger {
             ans.node().focus();
         });
     }
-	async confirm(s, def = true) {
+	async select(s, sel = {"Yes": true, "No": false}) {
+		sel = isArray(sel) ? sel.map(t=>isArray(t)?t:[t,t]) : Object.entries(sel);
         return new Promise(resolve => {
-            let current = def; // 現在の選択状態
-            const p = this.empty().classed("prompt", true).attr("tabindex", 0); // キーイベント取得のためtabindex付与
-            p.append("span").text(`> ${s} `);
-            const btnYes = p.append("button").text("Yes");
-            const btnNo = p.append("button").text("No");
-            const updateUI = () => {
-                btnYes.style("outline", current ? "2px solid #007bff" : "none");
-                btnNo.style("outline", !current ? "2px solid #007bff" : "none");
-            };
             const done = (res) => {
-                p.on("keydown", null); // イベント解除
-                p.append("span").text(` -> ${res ? "Yes" : "No"}`).classed(res ? "success" : "warn", true);
-                btnYes.remove();
-                btnNo.remove();
-                p.attr("tabindex", null);
+                this.target.on("keydown.select", false); // イベント解除
+                p.remove();
                 resolve(res);
             };
+        	this.target.on("keydown.select", e =>{
 
-            // キーボードイベント
-            p.on("keydown", (e) => {
-                if (e.key === "ArrowLeft" || e.key === "ArrowRight" || e.key === "Tab"|| e.key === " ") {
-                    current = !current;
-                    updateUI();
-                } else if (e.key === "Enter") {
-                    done(current);
-                } else if (e.key.toLowerCase() === "y") {
-                    done(true);
-                } else if (e.key.toLowerCase() === "n") {
-                    done(false);
-                }
-            });
+			});
+            const p = this.empty().classed("select", true);
+            p.append("span").text(`> ${s} ? `);
+			const div = p.append("div").classed("select-buttons", true);
+			div.selectAll("button").data(sel).join("button")
+			.each((d, i, nodes) => d3.select(nodes[i]).text(d[0]).on("click", () => done(d[1])));
 
-            btnYes.on("click", () => done(true));
-            btnNo.on("click", () => done(false));
-
-            updateUI();
-            p.node().focus(); // 自動でフォーカスしてキー入力を有効にする
-        });
+		});
+        
     }
-}
+	async confirm(s, def = false) { return this.select(s, { "Yes": true, "No": false}); }
+};
+// d3.selection.prototype.selectButtons = function(data, func, init, trans = true) { var div = this;
+// 	if (!Array.isArray(data[0])) data = data.map(t=>[t,t]), trans = false;
+// 	div.empty().classed("sel", true).selectAll("button").data(data).enter().append("button")
+// 	.each(function(d){ this.innerHTML = d[0]; this.value = d[1]; trans && this.setAttribute("trans", d[0]);
+// 		const btn = d3.select(this);
+// 		this.value === init && btn.classed("flip", true);
+// 		btn.on("click",()=>{ div.selectAll("button").classed("flip", false);　btn.classed("flip", true);
+// 			func(this.value);
+// 		});
+// 	});
+// };
