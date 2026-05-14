@@ -1,6 +1,6 @@
 import { geoOrthographic } from "./geoOrthoGraphic.js";
 const { PI, log2, max, sin, cos, round } = Math;
-let canvas, gl, width, height, zoom;
+let gl, width, height, zoom;
 let proj = geoOrthographic();
 
 // WebGLリソース群
@@ -14,8 +14,7 @@ onmessage = async e => {
 };
 
 async function init(data) {
-	canvas = data.offscreen;
-	gl = initWebGL(canvas.getContext("webgl2"), data.dpr);
+	gl = initWebGL(data.offscreen.getContext("webgl2"), data.dpr);
 	await loadGintBuffers();
 	postMessage({ action: 'done', type: 'init' });
 }
