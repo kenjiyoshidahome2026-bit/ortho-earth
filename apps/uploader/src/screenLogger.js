@@ -45,7 +45,7 @@ export class screenLogger {
 			const bar = this.bars[name][0], count = this.bars[name][2] = this.bars[name][2]+1;
 			const pct = Math.round((loaded / total) * 100), n = Math.floor(pct / 5);
 			const p = `<span class='done'>${"█".repeat(n)}</span><span class='rest'>${"█".repeat(20 - n)}</span>`;
-			const d = this.dots[~~(count/5) % this.dots.length];
+			const d = this.dots[~~(count/10) % this.dots.length];
 			bar.html(`⏳ ${name}: ${d}[${p}] ${pct}% (${comma(loaded)}/${comma(total)})`);
 		} else if (type === "end" && this.bars[name]) {
 			const bar = this.bars[name][0], start = this.bars[name][1];
@@ -56,16 +56,19 @@ export class screenLogger {
 			delete this.bars[name];
 		}
 	}	
-	event(type, e) {
+	event(type, e) { let timer = null, count = 0;
 		const { name, event, done, error } = e.detail;
 		if (type === "start") { if (this.mess[name]) return;
-			const bar = this.empty().classed("event", true).text(`🔄 ${name}: ${event} `);
+			const bar = this.empty().classed("event", true).html(`🔄 ${name}: ${event} <span id="spinner"/>`);
 			this.mess[name] = [bar, performance.now()]
+			const spinner = bar.select("#spinner");
+			const updateSpinner = () => spinner.text(this.dots[~~(count++) % this.dots.length]);
+			timer = setInterval(updateSpinner, 250);
 		} else if (type === "end" && this.mess[name]) {
+			clearInterval(timer)
 			const bar = this.mess[name][0], start = this.mess[name][1];
 			const time = ((performance.now() - start) / 1000).toFixed(3);
 			!error ? bar.text(`🔄 ${name}: ${event} (${comma(time)}sec)`): this.error(error);
-		//	this.mess[name] = null;
 			delete this.mess[name];
 		}
 	}	

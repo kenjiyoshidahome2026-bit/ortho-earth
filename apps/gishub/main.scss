@@ -30,6 +30,7 @@ body, html { font-family: 'Inter', sans-serif; overflow: hidden; }
 				.license { position:absolute; font-size: 0.5rem; color: #aaa; top:1em; right:1em; }
 			}
 		}
+		.highlight { background: $accent; }
 	}
 	.main { position: absolute; inset: 0px; left:300px;transition: all 250ms ease-in-out;
 		h1 { font-size: 1.4rem; color: $accent; vertical-align: middle; margin: 30px 30px;
