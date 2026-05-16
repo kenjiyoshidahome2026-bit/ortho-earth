@@ -8,11 +8,11 @@ import "./main.scss";
 const mapLayer = d3.select("body").append("section").attr("class", "map-layer");
 mapLayer.append("div").attr("id", "ortho-map-container");
 mapLayer.append("button").attr("class", "close-btn").text("Back to Log")
-    .on("click", () => app.classed("active", true));
+    .on("click", () => gishub.classed("active", true));
 
-const app = d3.select("body").append("div").attr("class", "gishub");
-const left = app.append("aside").attr("class", "left");
-const main = app.append("main").attr("class", "main");
+const gishub = d3.select("body").append("div").attr("class", "gishub");
+const left = gishub.append("aside").attr("class", "left");
+const main = gishub.append("main").attr("class", "main");
 main.append("h1").html(`<img src="favicon.svg" alt="GIS-HUB"/><span>GIS-HUB</span>`);
 
 
@@ -24,7 +24,7 @@ addEventListener("ConvertStart", e => logger.event("start", e));
 addEventListener("ConvertEnd", e => logger.event("end", e));
 
 const groups = await d3.json("./catalog.json");
-left.append("img").attr("src", "menu.svg").attr("alt", "MENU").on("click", () => app.classed("close", !app.classed("close")))	;
+left.append("img").attr("src", "menu.svg").attr("alt", "MENU").on("click", () => gishub.classed("close", !gishub.classed("close")))	;
 left.append("input").attr("type", "text").attr("name", "search").attr("placeholder", "Search...")
 .on("input", function() {
 	const keyword = this.value.trim().toLowerCase(), exist = s => s.toLowerCase().includes(keyword);
