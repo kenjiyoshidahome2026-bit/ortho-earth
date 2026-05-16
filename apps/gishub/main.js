@@ -1,6 +1,7 @@
 import * as d3 from "d3";
-import { screenLogger } from "../uploader/src/screenLogger.js";
 import { comma, download, saveTo } from "common";
+import  "common/d3/highlight.js";
+import { screenLogger } from "../uploader/src/screenLogger.js";
 import { geopbf } from "geopbf";
 import "./main.scss";
 
@@ -29,7 +30,7 @@ left.append("input").attr("type", "text").attr("name", "search").attr("placehold
 	const keyword = this.value.trim().toLowerCase(), exist = s => s.toLowerCase().includes(keyword);
 	const hasKeyword = d => exist(d.name) || exist(d.description) || exist(d.license);
 	left.selectAll(".group-section").style("display", d => d.contents.some(c => hasKeyword(c)) ? null : "none");
-	left.selectAll(".card").style("display", d => hasKeyword(d) ? null : "none");
+	left.selectAll(".card").style("display", d => hasKeyword(d) ? null : "none").highlight(keyword);
 });
 const section = left.append("nav").selectAll(".group-section").data(groups).join("section").attr("class", "group-section");
 section.append("h2").text(d => d.group);
@@ -43,7 +44,7 @@ async function exec(info) {
     logger.title(name, description).style("cursor","pointer").on("click", ()=>open(link,"_link_"));
     logger.log(`Requesting: ${target}`)
     try {
-        const pbf = await geopbf(`${target}`, { name, license, description });
+        const pbf = await geopbf(target, { name, license, description });
 		console.log("PBF loaded:", pbf);
 		logger.success(`${name} (${comma(pbf.size)} bytes)`);
         logger.log(pbf.lint);
