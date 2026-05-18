@@ -180,15 +180,18 @@ function draw_globe() { const q = accessories.globe;
 	const project = geoOrthographic().fitExtent([[x0, y0], [x0+size, y0+size]], sphere).precision(0.1);
 	const r = proj.rotate(); project.rotate([r[0], r[1], 0]);
 	const path = geoPath(project, layer);
-	const bounds = [[0, 0], [width, 0], [width, height], [0, height]].map(proj.invert).map(project);
+	const bounds = [[0, 0], [width, 0], [width, height], [0, height]].map(p => proj.invert(p)).filter(p => p != null)
+        .map(p => project(p)).filter(p => p != null);
 	layer.save();
 	layer.clearRect(x0, y0, x0+size, y0+size);
 	layer.beginPath(); path(sphere); layer.fillStyle = q.sea; layer.fill();
 	layer.beginPath(); path(q.json); layer.fillStyle = q.land; layer.fill();
 	layer.beginPath(); path(graticule); layer.strokeStyle = "rgba(255,255,255,0.5)"; layer.lineWidth = 1; layer.stroke();
 	layer.beginPath(); path(sphere); layer.strokeStyle = "rgba(255,255,255,0.5)"; layer.lineWidth = 2; layer.stroke();
-	layer.beginPath(); bounds.forEach((t, i) => layer[i ? "lineTo" : "moveTo"](t[0], t[1])); layer.closePath();
-	layer.strokeStyle = q.line; layer.lineWidth = 1.5; layer.stroke();
+	if (bounds.length > 0) {
+		layer.beginPath(); bounds.forEach((t, i) => layer[i ? "lineTo" : "moveTo"](t[0], t[1])); layer.closePath();
+		layer.strokeStyle = q.line; layer.lineWidth = 1.5; layer.stroke();
+	}
 	layer.restore();
 }
 function draw_stars() { const q = accessories.stars;
