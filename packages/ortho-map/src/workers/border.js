@@ -15,7 +15,7 @@ const { sin, cos, asin, hypot, atan2, log2, log10, floor, PI } = Math, rad = PI 
 const getSidereal = d => ((18.697374 + 24.0657098 * ((d.getTime() + d.getTimezoneOffset() * 60000) / 864e5 + 2440587.5 - 2451545.0)) * 15) % 360;
 let canvas, layer, width, height, dpr, path, zoom, attribution;
 let active = false, noCircle = 3, isNarrow = false;
-
+let intervalId;
 const proj = geoOrthographic();
 const sphere = { type: "Sphere" };
 const graticule = geoGraticule10();
@@ -63,7 +63,7 @@ async function set(data) { if (data.data != "options") return postMessage({ type
 		return { x: c[0] * rad, y: c[1] * rad, mag: p.mag, bv };
 	}).sort((p,q)=>p.mag>q.mag?1:-1).slice(0,accessories.stars.maxCount);
 	active = true;
-	setInterval(() => { accessories.night.json = nightJSON(new Date()); draw_night(); draw_stars(); },1000);
+	intervalId =setInterval(() => { if (!active || !layer) return; accessories.night.json = nightJSON(new Date()); draw_night(); draw_stars(); },1000);
 	postMessage({ type: data.type, action: "done" });
 }
 function resize(data) {
@@ -76,7 +76,7 @@ function resize(data) {
 	postMessage({ type: data.type, action: "done" });
 }
 function drawing(data) {
-	active && requestAnimationFrame(() => {
+	active && requestAnimationFrame(() => { if (!active || !layer || !proj) return;
 		layer.clearRect(0, 0, width, height);
 		proj.rotate(data.rotate).scale(data.scale);
 		zoom = log2(data.scale * PI * 2 / 256);
@@ -100,10 +100,13 @@ function leave() { const w = 350, h = 25;
 function drawn() {}
 
 function destroy(data) {
-	canvas && (canvas.width = 0, canvas.height = 0); canvas = null;
-	borders.forEach(t => t = null); borders.length = 0; borders = null;
-	layer = path = proj = null;
-	postMessage({ type: data.type, action: "done" });
+    canvas && (canvas.width = 0, canvas.height = 0); canvas = null;
+    if (accessories.borders && accessories.borders.jsons) {
+        accessories.borders.jsons.forEach(t => t = null);
+        accessories.borders.jsons.length = 0;
+    }
+    layer = path = proj = null;
+    postMessage({ type: data.type, action: "done" });
 }
 ////--------------------------------------------------------------
 function draw_border() { const q = accessories.borders;
