@@ -83,7 +83,7 @@ async function set(data) {
 		draw_night();
 		draw_stars();
 	}, 1000);
-
+	console.log("【確認1】set完了、メインスレッドへdoneを送信します"); // ← これを追加
 	postMessage({ type: data.type, action: "done" });
 }
 function resize(data) {
@@ -97,7 +97,13 @@ function resize(data) {
 }
 function drawing(data) {
 //	active && requestAnimationFrame(() => {
-		if (!active || !layer) return;
+	console.log("【確認2】drawing呼ばれた！ active:", active); // ← これを追加
+
+	if (!active || !layer || !proj) {
+		console.log("【確認3】条件不足で描画スキップ"); // ← これを追加
+		return;
+	}
+	//		if (!active || !layer) return;
 		layer.clearRect(0, 0, width, height);
 		proj.rotate(data.rotate).scale(data.scale);
 		zoom = log2(data.scale * PI * 2 / 256);
