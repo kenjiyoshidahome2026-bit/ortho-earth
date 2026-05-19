@@ -97,8 +97,10 @@ async function borders(q) {
 	};
 	q.clear();
 	q.title("borders and stars");
-	await thenEach(Object.entries(pbfs), async ([name, original]) => {
-		const pbf = await geopbf(name) || await (await geopbf(original)).save();
+	await thenEach(Object.entries(pbfs), async ([name, original]) => { 
+		const pbf = await geopbf(original);/*await geopbf(name) || */
+		console.log(pbf)
+	//	await (pbf).save();
 		q.success(`${name}: (<= ${original})`)
 		q.log(pbf.lint);
 	})
