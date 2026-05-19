@@ -98,6 +98,7 @@ export function createLayer(param = {}) {
  }
 ////=====================================================================================
 async function createRemoteLayer(param = {}) {
+    console.log("【テスト】メインスレッドのファイルが確実に更新されました");
     const map = this;
     const layer = initLayer(map, param).hide(), { canvas, name, proj, dpr } = layer;
 
