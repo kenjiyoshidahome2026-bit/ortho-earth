@@ -96,8 +96,8 @@ function resize(data) {
 	postMessage({ type: data.type, action: "done" });
 }
 function drawing(data) {
-	active && requestAnimationFrame(() => {
-		if (!layer) return;
+//	active && requestAnimationFrame(() => {
+		if (!active || !layer) return;
 		layer.clearRect(0, 0, width, height);
 		proj.rotate(data.rotate).scale(data.scale);
 		zoom = log2(data.scale * PI * 2 / 256);
@@ -109,7 +109,7 @@ function drawing(data) {
 		draw_latlng();
 		draw_scale();
 		draw_credit();
-	});
+//	});
 }
 function move(data) {
 	const q = accessories.latlng, names = q.names;
