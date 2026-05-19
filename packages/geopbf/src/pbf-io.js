@@ -2,13 +2,7 @@ import { GeoPBF } from "./pbf-base.js";
 import { gzip, gunzip, isGzip } from "native-bucket";
 
 class PBFIO {
-    constructor(dire) {
-        this.dire = dire || "GIS";
-    }
-
-    /**
-     * バケットとキャッシュ（IndexedDB）を初期化する
-     */
+    constructor(dire) { this.dire = dire || "GIS"; }
     async open() {
         const { nativeBucket } = await import("native-bucket")
             .catch(e => { console.error("native-bucket load error", e); return {}; });
@@ -19,24 +13,16 @@ class PBFIO {
         return this;
     }
     async files() { return await this.bucket.list(); }
-
-    /**
-     * 同期処理（ブラウザ自動キャッシュ連動版）
-     */
     async sync() {
-        const localKeys = (await this.cache()) || [];
-        if (localKeys.length === 0) return;
-        console.log(` 🔄 Syncing ${localKeys.length} files...`);
+        const localKeys = (await this.cache()) || []; if (localKeys.length === 0) return;
         await Promise.all(localKeys.map(async (name) => {
             try {
-                // 💡 手動ヘッダーは一切送らず、ブラウザの標準キャッシュ機能に任せる
-                const res = await fetch(`${this.bucket.url}${name}`, {
-                    cache: 'default'
-                });
-
+                const val = await this.cache(name); if (!val.etag) return; 
+                console.log(` 🔄 Syncing ${name} ...`);
+                const res = await fetch(`${this.bucket.url}${name}`, { cache: 'default' });
                 if (res.ok) {
-                    const ETag = res.headers.get("etag");
-                    const Buff = await res.arrayBuffer();
+                    const ETag = res.headers.get("etag"); if (ETag == val.ETag) return;
+                    const Buff = await gunzip(await res.blob()).arrayBuffer();
                     await this.cache(name, { ETag, Buff });
                 }
             } catch (e) { console.error(`Sync failed:`, e); }
@@ -54,30 +40,19 @@ class PBFIO {
         const val = await this.cache(name).catch(console.error);
         try {
             const res = await fetch(`${this.bucket.url}${name}`, { cache: 'default' });
-            if (!res.ok) {
-                if (val && val.Buff) {
-                    console.warn(` ⚠️ Server Error (${res.status}). Using local cache.`);
-                    return new GeoPBF().set(val.Buff);
-                }
-                throw new Error(`Failed to load: ${name} (HTTP ${res.status})`);
-            }
+            if (!res.ok) throw new Error(`Failed to fetch: ${name} (HTTP ${res.status})`);
             const ETag = res.headers.get("etag");
-            let Buff = await res.arrayBuffer();
-
-            if (val && val.ETag === ETag) {
-                console.log(` 🟢 【304成功】サーバーデータに変更なし（キャッシュ利用）: ${name}`);
-                return new GeoPBF({name}).set(val.Buff); // 保存してあったバイナリをそのまま使い、超高速で描画
-            }
-            let file = new File([Buff], name, { type: "application/x-geopbf" });
-            (await isGzip(file)) && (file = await gunzip(file));
-            Buff = await file.arrayBuffer();
+            if (val && val.ETag === ETag)  return new GeoPBF({name}).set(val.Buff);
+            const blob = await gunzip(await res.blob());
+            const Buff = await blob.arrayBuffer();
             await this.cache(name, { ETag, Buff });
             return new GeoPBF().set(Buff);
-
-        } catch (fetchError) {
-            console.error(`[Fetch Error]`, fetchError);
-            if (val && val.Buff) return new GeoPBF().set(val.Buff); // オフライン時の救済
-            throw fetchError;
+        } catch (e) {
+            if (val && val.Buff) {
+                console.warn(e);
+                return new GeoPBF().set(val.Buff);
+            }
+            console.error(`[Fetch Error]`, e);
         }
     }
     async save(pbf) {
@@ -94,5 +69,4 @@ class PBFIO {
         return name;
     }
 }
-
 export async function pbfio(dire) { return new PBFIO(dire).open(); }
