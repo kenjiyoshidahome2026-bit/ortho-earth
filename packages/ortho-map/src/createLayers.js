@@ -100,12 +100,27 @@ export function createLayer(param = {}) {
 async function createRemoteLayer(param = {}) {
     const map = this;
     const layer = initLayer(map, param).hide(), { canvas, name, proj, dpr } = layer;
-    const offscreen = canvas.transferControlToOffscreen();
+
+    // 【Safari対策 1】 転送前にキャンバスの初期サイズを確定させる（0x0だとSafariが転送に失敗するバグを回避）
+    canvas.width = map.width * dpr || 1;
+    canvas.height = map.height * dpr || 1;
+
+    let offscreen;
+    try {
+        // 【Safari対策 2】 すでに転送済みのCanvasを再転送しようとする InvalidStateError をキャッチする
+        offscreen = canvas.transferControlToOffscreen();
+    } catch (e) {
+        console.error(`🚨 [${name}] CanvasのOffscreen化に失敗しました。すでに転送済みの可能性があります:`, e);
+        return Promise.reject(e); // 失敗したらここで安全に処理を止める
+    }
+
     const worker = new Worker(workerURL(param.type), { type: 'module' });
-    worker.onerror = e => console.error("Worker Error:", e);
+    worker.onerror = e => console.error(`🚨 [${name}] Worker Error:`, e);
+
     const workers = map.simultaneousTileLoading || navigator.hardwareConcurrency || 4;
     const threshold = map.threshold;
-    return new Promise(resolve => {
+
+    return new Promise((resolve, reject) => {
         let ctxType = null;
         worker.onmessage = e => {
             const data = e.data;
@@ -123,20 +138,37 @@ async function createRemoteLayer(param = {}) {
                 if (data.cmd === "base") map.trigger("LoadEnd", data.data);
             }
         };
+
         Object.entries({ set, destroy }).forEach(([name, func]) => layer[name] = func);
+
         map.dispatcher.on(`Drawing.${name}`, drawing);
         map.dispatcher.on(`Drawn.${name}`, drawn);
         map.dispatcher.on(`Move.${name}`, move);
         map.dispatcher.on(`Leave.${name}`, leave);
         map.dispatcher.on(`Resize.${name}`, resize);
-        init(); resize();
+
+        init();
+        resize();
+
         ////------------------------------------------------------------------------
-        function init() { worker.postMessage({ type: "init", offscreen, dpr, workers, threshold }, [offscreen]); }
+        function init() {
+            try {
+                // 【Safari対策 3】 転送エラー(DataCloneError)をキャッチして、原因を可視化する
+                worker.postMessage({ type: "init", offscreen, dpr, workers, threshold }, [offscreen]);
+            } catch (err) {
+                console.error(`🚨 [${name}] WorkerへのCanvas転送に失敗しました:`, err);
+                reject(err);
+            }
+        }
         function set(cmd, data, prop) {
             worker.postMessage({ type: "set", cmd, data, prop });
             (cmd === "base") && map.trigger("LoadStart", data);
         }
-        function drawing() { worker.postMessage({ type: "drawing", scale: proj.scale(), rotate: proj.rotate(), attr:map.attribution }); }
+        function drawing() {
+            // 【Safari対策 4】 初期化が成功(ctxType取得)するまでは描画命令を送らない
+            if (!ctxType) return;
+            worker.postMessage({ type: "drawing", scale: proj.scale(), rotate: proj.rotate(), attr: map.attribution });
+        }
         function drawn() { worker.postMessage({ type: "drawn", scale: proj.scale(), rotate: proj.rotate() }); }
         function move(e = {}) { worker.postMessage({ type: "move", ...e }); }
         function leave() { worker.postMessage({ type: "leave" }); }
