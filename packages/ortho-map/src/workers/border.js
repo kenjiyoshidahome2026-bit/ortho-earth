@@ -1,6 +1,3 @@
-// 【キャッシュ強制破棄用】この1行があることで、Viteが必ず新しいハッシュ(ファイル名)を生成します
-console.log("Earth Worker Updated V2");
-
 import { geoPath, geoOrthographic, geoGraticule10 } from 'd3-geo';
 import { comma, dateArray, timeArray, L2, isObject } from "common";
 import { geopbf } from "geopbf";
@@ -17,6 +14,7 @@ const accessories = {
 const { sin, cos, asin, hypot, atan2, log2, log10, floor, PI } = Math, rad = PI / 180;
 const getSidereal = d => ((18.697374 + 24.0657098 * ((d.getTime() + d.getTimezoneOffset() * 60000) / 864e5 + 2440587.5 - 2451545.0)) * 15) % 360;
 
+// 【修正】タイマーを管理する変数 `timer` を追加
 let canvas, layer, width, height, dpr, path, zoom, attribution;
 let active = false, noCircle = 3, isNarrow = false, timer = null;
 
@@ -25,41 +23,12 @@ const sphere = { type: "Sphere" };
 const graticule = geoGraticule10();
 
 const funcs = { init, set, drawing, drawn, move, leave, resize, destroy };
-
-// 【究極のストッパー】破棄されたあとに遅れて届いたメッセージは全て無視する
-onmessage = e => {
-	console.log(`【受信】${e.data.type} | layer存在確認:`, !!layer);
-
-	if (!layer && e.data.type !== 'init') {
-		return; // エラー回避のためスキップ
-	}
-		if (!layer && e.data.type !== 'init') return;
-	funcs[e.data.type](e.data);
-};
+onmessage = e => funcs[e.data.type](e.data);
 
 function init(data) {
-	console.log("【init開始】メインスレッドから渡されたデータ:", data);
-
-	canvas = data.offscreen;
-	dpr = data.dpr;
-
-	if (!canvas) {
-		console.error("🚨 【異常事態】Safariからキャンバス(offscreen)が渡されていません！");
-		return;
-	}
-
-	layer = canvas.getContext("2d");
-
-	if (!layer) {
-		console.error("🚨 【異常事態】Safariで2Dコンテキスト(layer)の作成に失敗しました！");
-		return;
-	}
-
-	console.log("✅ 【init成功】layerの作成に成功しました！");
+	canvas = data.offscreen, dpr = data.dpr;
+	path = geoPath(proj, layer = canvas.getContext("2d"));
 	postMessage({ type: data.type, action: "done", ctx: layer.constructor.name });
-	// canvas = data.offscreen, dpr = data.dpr;
-	// path = geoPath(proj, layer = canvas.getContext("2d"));
-	// postMessage({ type: data.type, action: "done", ctx: layer.constructor.name });
 }
 async function set(data) {
 	if (data.data != "options") return postMessage({ type: data.type, action: "failed" });
@@ -100,6 +69,7 @@ async function set(data) {
 	}).sort((p, q) => p.mag > q.mag ? 1 : -1).slice(0, accessories.stars.maxCount);
 	active = true;
 
+	// 【修正】タイマーを安全に登録し、layerが消滅していたら実行しない
 	if (timer) clearInterval(timer);
 	timer = setInterval(() => {
 		if (!layer) return;
@@ -107,7 +77,7 @@ async function set(data) {
 		draw_night();
 		draw_stars();
 	}, 1000);
-	console.log("【確認1】set完了、メインスレッドへdoneを送信します"); // ← これを追加
+
 	postMessage({ type: data.type, action: "done" });
 }
 function resize(data) {
@@ -120,14 +90,9 @@ function resize(data) {
 	postMessage({ type: data.type, action: "done" });
 }
 function drawing(data) {
-//	active && requestAnimationFrame(() => {
-	console.log("【確認2】drawing呼ばれた！ active:", active); // ← これを追加
-
-	if (!active || !layer || !proj) {
-		console.log("【確認3】条件不足で描画スキップ"); // ← これを追加
-		return;
-	}
-	//		if (!active || !layer) return;
+	active && requestAnimationFrame(() => {
+		// 【修正】layerやprojが消滅していたら実行しない
+		if (!layer || !proj) return;
 		layer.clearRect(0, 0, width, height);
 		proj.rotate(data.rotate).scale(data.scale);
 		zoom = log2(data.scale * PI * 2 / 256);
@@ -139,22 +104,21 @@ function drawing(data) {
 		draw_latlng();
 		draw_scale();
 		draw_credit();
-//	});
+	});
 }
 function move(data) {
 	const q = accessories.latlng, names = q.names;
 	q.string = data.lat ? `${names[0]}: ${data.lat.toFixed(6)} ${names[1]}: ${data.lng.toFixed(6)}${data.alt ? ` ${names[2]}: ${data.alt.toFixed(1)}[m]` : ""}` : "";
 	draw_latlng();
 }
-
 function leave() {
-	if (!layer) return; // 【v.clearRect エラーの真の原因】ここにもガードが必要でした
 	const w = 350, h = 25;
 	isNarrow ? layer.clearRect((width - w) / 2, 0, w, h) : layer.clearRect(0, height - h, w, h);
 }
 function drawn() { }
 
 function destroy(data) {
+	// 【修正】タイマーを停止し、未定義変数の参照エラーを回避する
 	if (timer) clearInterval(timer);
 	canvas && (canvas.width = 0, canvas.height = 0); canvas = null;
 	if (accessories.borders && accessories.borders.jsons) accessories.borders.jsons.length = 0;
@@ -165,13 +129,9 @@ function destroy(data) {
 function draw_border() {
 	const q = accessories.borders;
 	if (!q || zoom < q.minZoom || q.maxZoom < zoom) return;
-
-	// 【Safariミニファイ対策】配列の分割代入をやめて堅牢に
-	q.jsons.forEach(item => {
-		if (!item || !item[0]) return;
-		const json = item[0];
-		const prop = item[1];
-
+	q.jsons.forEach(([json, prop]) => {
+		// 【修正】ETag/キャッシュ不整合等でjsonが空の場合はスキップ
+		if (!json) return;
 		layer.save();
 		layer.beginPath(); path(json);
 		layer.strokeStyle = prop.stroke;
@@ -196,7 +156,7 @@ function draw_scale() {
 	const R = 6372000 * 2, M = width / 2, H = height - 30 - (isNarrow ? 20 : 0);
 	const useImperial = q.unit === "imperial";
 	const [n, v, unit] = (function () {
-		const d256m = (R * PI) / 2 ** zoom;
+		const d256m = (R * PI) / 2 ** zoom; // 256pxあたりのメートル
 		if (useImperial) {
 			const d256mi = d256m / 1609.344;
 			const r = 10 ** floor(log10(d256mi));
@@ -248,18 +208,11 @@ function draw_globe() {
 	const r = proj.rotate(); project.rotate([r[0], r[1], 0]);
 	const path = geoPath(project, layer);
 
-	// 【Safariミニファイ対策】配列メソッド(.map)をfor文に展開し、n[0]エラーを完璧に回避
-	const corners = [[0, 0], [width, 0], [width, height], [0, height]];
-	const bounds = [];
-	for (let i = 0; i < corners.length; i++) {
-		const inv = proj.invert(corners[i]);
-		if (inv && inv[0] !== undefined) {
-			const prj = project(inv);
-			if (prj && prj[0] !== undefined) {
-				bounds.push(prj);
-			}
-		}
-	}
+	// 【修正】四隅が宇宙空間（null）になった場合のクラッシュを回避
+	const bounds = [[0, 0], [width, 0], [width, height], [0, height]]
+		.map(proj.invert)
+		.map(p => p ? project(p) : null)
+		.filter(p => p != null);
 
 	layer.save();
 	layer.clearRect(x0, y0, x0 + size, y0 + size);
@@ -268,13 +221,10 @@ function draw_globe() {
 	layer.beginPath(); path(graticule); layer.strokeStyle = "rgba(255,255,255,0.5)"; layer.lineWidth = 1; layer.stroke();
 	layer.beginPath(); path(sphere); layer.strokeStyle = "rgba(255,255,255,0.5)"; layer.lineWidth = 2; layer.stroke();
 
+	// 【修正】有効な座標が残っている場合のみ線を描画
 	if (bounds.length > 0) {
 		layer.beginPath();
-		bounds.forEach((t, i) => {
-			if (t && t[0] !== undefined && t[1] !== undefined) {
-				layer[i === 0 ? "moveTo" : "lineTo"](t[0], t[1]);
-			}
-		});
+		bounds.forEach((t, i) => layer[i === 0 ? "moveTo" : "lineTo"](t[0], t[1]));
 		layer.closePath();
 		layer.strokeStyle = q.line; layer.lineWidth = 1.5; layer.stroke();
 	}

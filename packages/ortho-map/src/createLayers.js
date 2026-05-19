@@ -10,11 +10,7 @@ import standard from './workers/standard.js?worker&url';
 const workerURL = s => ({ base, border, image }[s] || standard);
 
 export async function createLayers(map, opts) {
-    if (map.__isLayersCreated) {
-        console.log("[ortho-earth] ♻️ createLayersの二重呼び出しをブロックしました");
-        return;
-    }
-    map.__isLayersCreated = true;   const layers = map.layers = {};
+    const layers = map.layers = {};
     map.createLayer = opts => createLayer.call(map, opts);
     map.createRemoteLayer = opts => createRemoteLayer.call(map, opts);
     map.getLayer = name => layers[name] || map.createLayer({ name });
@@ -103,14 +99,6 @@ export function createLayer(param = {}) {
 ////=====================================================================================
 async function createRemoteLayer(param = {}) {
     const map = this;
-
-    // 【最重要・防波堤】すでに同じベース名のレイヤーが存在する場合は、新しく作らずに既存のものを返す！
-    const baseName = param.name || "Layer";
-    if (map.layers && map.layers[baseName]) {
-        console.log(`[ortho-earth] ♻️ レイヤー "${baseName}" は既に存在するため再利用します（二重起動ブロック）`);
-        return Promise.resolve(map.layers[baseName]);
-    }
-
     const layer = initLayer(map, param).hide(), { canvas, name, proj, dpr } = layer;
 
     // 【Safari対策 1】 転送前にキャンバスの初期サイズを確定させる（0x0だとSafariが転送に失敗するバグを回避）
