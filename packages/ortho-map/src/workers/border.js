@@ -28,26 +28,38 @@ const funcs = { init, set, drawing, drawn, move, leave, resize, destroy };
 
 // 【究極のストッパー】破棄されたあとに遅れて届いたメッセージは全て無視する
 onmessage = e => {
-	console.log("【受信】メインスレッドからの命令:", e.data.type);
+	console.log(`【受信】${e.data.type} | layer存在確認:`, !!layer);
 
 	if (!layer && e.data.type !== 'init') {
-		console.log("【警告】layerが無いのでスキップ:", e.data.type);
-		return;
+		return; // エラー回避のためスキップ
 	}
-
-	if (funcs[e.data.type]) {
-		funcs[e.data.type](e.data);
-	} else {
-		console.log("【エラー】存在しない関数が呼ばれました:", e.data.type);
-	}
-	if (!layer && e.data.type !== 'init') return;
+		if (!layer && e.data.type !== 'init') return;
 	funcs[e.data.type](e.data);
 };
 
 function init(data) {
-	canvas = data.offscreen, dpr = data.dpr;
-	path = geoPath(proj, layer = canvas.getContext("2d"));
+	console.log("【init開始】メインスレッドから渡されたデータ:", data);
+
+	canvas = data.offscreen;
+	dpr = data.dpr;
+
+	if (!canvas) {
+		console.error("🚨 【異常事態】Safariからキャンバス(offscreen)が渡されていません！");
+		return;
+	}
+
+	layer = canvas.getContext("2d");
+
+	if (!layer) {
+		console.error("🚨 【異常事態】Safariで2Dコンテキスト(layer)の作成に失敗しました！");
+		return;
+	}
+
+	console.log("✅ 【init成功】layerの作成に成功しました！");
 	postMessage({ type: data.type, action: "done", ctx: layer.constructor.name });
+	// canvas = data.offscreen, dpr = data.dpr;
+	// path = geoPath(proj, layer = canvas.getContext("2d"));
+	// postMessage({ type: data.type, action: "done", ctx: layer.constructor.name });
 }
 async function set(data) {
 	if (data.data != "options") return postMessage({ type: data.type, action: "failed" });
