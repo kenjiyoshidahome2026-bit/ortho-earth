@@ -28,6 +28,18 @@ const funcs = { init, set, drawing, drawn, move, leave, resize, destroy };
 
 // 【究極のストッパー】破棄されたあとに遅れて届いたメッセージは全て無視する
 onmessage = e => {
+	console.log("【受信】メインスレッドからの命令:", e.data.type);
+
+	if (!layer && e.data.type !== 'init') {
+		console.log("【警告】layerが無いのでスキップ:", e.data.type);
+		return;
+	}
+
+	if (funcs[e.data.type]) {
+		funcs[e.data.type](e.data);
+	} else {
+		console.log("【エラー】存在しない関数が呼ばれました:", e.data.type);
+	}
 	if (!layer && e.data.type !== 'init') return;
 	funcs[e.data.type](e.data);
 };
