@@ -10,7 +10,11 @@ import standard from './workers/standard.js?worker&url';
 const workerURL = s => ({ base, border, image }[s] || standard);
 
 export async function createLayers(map, opts) {
-    const layers = map.layers = {};
+    if (map.__isLayersCreated) {
+        console.log("[ortho-earth] ♻️ createLayersの二重呼び出しをブロックしました");
+        return;
+    }
+    map.__isLayersCreated = true;   const layers = map.layers = {};
     map.createLayer = opts => createLayer.call(map, opts);
     map.createRemoteLayer = opts => createRemoteLayer.call(map, opts);
     map.getLayer = name => layers[name] || map.createLayer({ name });
