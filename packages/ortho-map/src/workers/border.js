@@ -58,6 +58,7 @@ async function set(data) {
 		"ne_50m_admin_0_boundary_lines_maritime_indicator",
 		"ne_50m_geographic_lines",
 		"ne_110m_land", "stars.6"].map(geopbf))).map(t => t.geojson);
+		console.log(jsons);
 	const q = accessories.borders;
 	if (q) {
 		const borders = q.jsons = [[sphere, { stroke: "rgba(200,200,200,0.8)", width: 0.8 }]];
