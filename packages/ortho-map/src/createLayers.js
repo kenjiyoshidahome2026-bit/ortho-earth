@@ -2,12 +2,35 @@ import * as d3 from 'd3';
 import "common/d3/selection.js";
 import { drawJSON } from "./modules/drawJSON.js";
 import { Layers } from "./modules/layers.js";
+import { geopbf } from "geopbf";
 
 import base from './workers/base.js?worker&url';
 import border from './workers/border.js?worker&url';
 import image from './workers/image.js?worker&url';
 import standard from './workers/standard.js?worker&url';
 const workerURL = s => ({ base, border, image }[s] || standard);
+
+let borderRawBuffers = null;
+
+async function getBorderRawBuffers() {
+    if (borderRawBuffers) return borderRawBuffers;
+
+    console.log('【Main】border用 raw data を取得中...');
+
+    const names = [
+        "ne_50m_admin_0_boundary_lines_land",
+        "ne_50m_admin_0_boundary_lines_maritime_indicator",
+        "ne_50m_geographic_lines",
+        "ne_110m_land",
+        "stars.6"
+    ];
+
+    const results = await Promise.all(names.map(name => geopbf(name)));
+    borderRawBuffers = results.map(r => r.arrayBuffer || r); // ArrayBuffer確保
+
+    console.log('【Main】raw data 取得完了', borderRawBuffers.length);
+    return borderRawBuffers;
+}
 
 export async function createLayers(map, opts) {
     const layers = map.layers = {};
@@ -47,6 +70,8 @@ function initLayer(map, param = {}) {
     layer.name = name, layer.attr("name", name);
     layer.base = map; layer.context = null;
     layer.dpr = param.scale || window.devicePixelRatio || 1;
+    layer.width = window.innerWidth * layer.dpr;
+    layer.height = window.innerHeight * layer.dpr;
     layer.proj = map.proj;
     layer.canvas = layer.node();
     layer.opacity = v => v == null ? _opacity : layer.style("opacity", (_opacity = v));
@@ -63,7 +88,7 @@ export function createLayer(param = {}) {
     map.dispatcher.on(`Drawn.${name}`, drawn);
     map.dispatcher.on(`Resize.${name}`, resize);
     resize();
-    layer.clear = () => ctx.clearRect(0, 0, map.width, map.height);
+    layer.clear = () => ctx.clearRect(0, 0, ~~map.width, ~~map.height);
     layer.drawJSON = (json, prop) => {
         const { zoom, width, height } = map;
         drawJSON.call({ ctx, proj, zoom, path, width, height }, json, prop);
@@ -100,14 +125,8 @@ export function createLayer(param = {}) {
 async function createRemoteLayer(param = {}) {
     const map = this;
     const layer = initLayer(map, param).hide(), { canvas, name, proj, dpr } = layer;
-
-    // 【Safari対策 1】 転送前にキャンバスの初期サイズを確定させる（0x0だとSafariが転送に失敗するバグを回避）
-    canvas.width = map.width * dpr || 1;
-    canvas.height = map.height * dpr || 1;
-
     let offscreen;
     try {
-        // 【Safari対策 2】 すでに転送済みのCanvasを再転送しようとする InvalidStateError をキャッチする
         offscreen = canvas.transferControlToOffscreen();
     } catch (e) {
         console.error(`🚨 [${name}] CanvasのOffscreen化に失敗しました。すでに転送済みの可能性があります:`, e);
@@ -153,7 +172,6 @@ async function createRemoteLayer(param = {}) {
         ////------------------------------------------------------------------------
         function init() {
             try {
-                // 【Safari対策 3】 転送エラー(DataCloneError)をキャッチして、原因を可視化する
                 worker.postMessage({ type: "init", offscreen, dpr, workers, threshold }, [offscreen]);
             } catch (err) {
                 console.error(`🚨 [${name}] WorkerへのCanvas転送に失敗しました:`, err);
@@ -161,8 +179,16 @@ async function createRemoteLayer(param = {}) {
             }
         }
         function set(cmd, data, prop) {
-            worker.postMessage({ type: "set", cmd, data, prop });
-            (cmd === "base") && map.trigger("LoadStart", data);
+            if (data === "options") {
+                getBorderRawBuffers().then(buffers => {
+                    worker.postMessage({
+                        type: "set", cmd, data, prop, rawBuffers: buffers   // ArrayBuffer配列
+                    }, buffers);              // Transferableでゼロコピー転送
+                });
+            } else {
+               worker.postMessage({ type: "set", cmd, data, prop });
+                (cmd === "base") && map.trigger("LoadStart", data);
+            }
         }
         function drawing() {
             // 【Safari対策 4】 初期化が成功(ctxType取得)するまでは描画命令を送らない

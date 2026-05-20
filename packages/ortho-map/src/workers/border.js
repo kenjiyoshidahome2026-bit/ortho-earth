@@ -14,10 +14,9 @@ const accessories = {
 const { sin, cos, asin, hypot, atan2, log2, log10, floor, PI } = Math, rad = PI / 180;
 const getSidereal = d => ((18.697374 + 24.0657098 * ((d.getTime() + d.getTimezoneOffset() * 60000) / 864e5 + 2440587.5 - 2451545.0)) * 15) % 360;
 
-// 【修正】タイマーを管理する変数 `timer` を追加
 let canvas, layer, width, height, dpr, path, zoom, attribution;
 let active = false, noCircle = 3, isNarrow = false, timer = null;
-
+let jsons = null;
 const proj = geoOrthographic();
 const sphere = { type: "Sphere" };
 const graticule = geoGraticule10();
@@ -27,11 +26,22 @@ onmessage = e => funcs[e.data.type](e.data);
 
 function init(data) {
 	canvas = data.offscreen, dpr = data.dpr;
-	path = geoPath(proj, layer = canvas.getContext("2d"));
+//	canvas.width = 150; canvas.height = 150;
+	layer =  canvas.getContext("2d"); if (!layer) console.error('Context取得失敗 - Safariのバージョン確認');
+	path = geoPath(proj, layer);
 	postMessage({ type: data.type, action: "done", ctx: layer.constructor.name });
 }
 async function set(data) {
 	if (data.data != "options") return postMessage({ type: data.type, action: "failed" });
+	if (!layer) return console.error('set: layerがありません');
+	if (data.rawBuffers && !jsons) {
+		console.log('【Worker】raw data を geojson 化中...');
+
+		jsons = await Promise.all(data.rawBuffers.map(t=>geopbf(t)))
+		console.log(jsons);
+		jsons = jsons.map(pbf => pbf.geojson);
+		console.log('【Worker】geojson化完了', jsons);
+	}
 	const opts = data.prop || {};
 	const lang = opts.lang || "en";
 	for (let i in accessories) {
@@ -46,12 +56,12 @@ async function set(data) {
 		{ en: "LNG", ja: "経度", zh: "经度", ko: "경도" }[lang],
 		{ en: "ALT", ja: "標高", zh: "海拔", ko: "고도" }[lang]
 	];
-	const jsons = (await Promise.all([
-		"ne_50m_admin_0_boundary_lines_land",
-		"ne_50m_admin_0_boundary_lines_maritime_indicator",
-		"ne_50m_geographic_lines",
-		"ne_110m_land", "stars.6"].map(geopbf))).map(t => t.geojson);
-		console.log(jsons);
+	// const jsons = (await Promise.all([
+	// 	"ne_50m_admin_0_boundary_lines_land",
+	// 	"ne_50m_admin_0_boundary_lines_maritime_indicator",
+	// 	"ne_50m_geographic_lines",
+	// 	"ne_110m_land", "stars.6"].map(geopbf))).map(t => t.geojson);
+	// 	console.log(jsons);
 	const q = accessories.borders;
 	if (q) {
 		const borders = q.jsons = [[sphere, { stroke: "rgba(200,200,200,0.8)", width: 0.8 }]];
@@ -82,7 +92,7 @@ async function set(data) {
 }
 function resize(data) {
 	width = data.width; height = data.height;
-	canvas.width = width * dpr; canvas.height = height * dpr;
+	canvas.width = ~~(width * dpr); canvas.height = ~~(height * dpr);
 	proj.fitExtent([[1, 1], [width - 1, height - 1]], { type: "Sphere" });
 	layer.scale(dpr, dpr);
 	noCircle = log2(hypot(width, height) * PI / 256);
@@ -91,8 +101,7 @@ function resize(data) {
 }
 function drawing(data) {
 	active && requestAnimationFrame(() => {
-		// 【修正】layerやprojが消滅していたら実行しない
-		if (!layer || !proj) return;
+	//	if (!layer || !proj) return;
 		layer.clearRect(0, 0, width, height);
 		proj.rotate(data.rotate).scale(data.scale);
 		zoom = log2(data.scale * PI * 2 / 256);
@@ -104,14 +113,19 @@ function drawing(data) {
 		draw_latlng();
 		draw_scale();
 		draw_credit();
+		// if (typeof layer.commit === 'function') {
+		// 	layer.commit();
+		// }
 	});
 }
 function move(data) {
+	if (!active) return;
 	const q = accessories.latlng, names = q.names;
 	q.string = data.lat ? `${names[0]}: ${data.lat.toFixed(6)} ${names[1]}: ${data.lng.toFixed(6)}${data.alt ? ` ${names[2]}: ${data.alt.toFixed(1)}[m]` : ""}` : "";
 	draw_latlng();
 }
 function leave() {
+	if (!active) return;
 	const w = 350, h = 25;
 	isNarrow ? layer.clearRect((width - w) / 2, 0, w, h) : layer.clearRect(0, height - h, w, h);
 }
