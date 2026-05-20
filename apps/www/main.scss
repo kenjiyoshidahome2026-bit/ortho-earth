@@ -9,15 +9,13 @@ body { font-family: 'Helvetica Neue', Arial, 'Hiragino Kaku Gothic ProN', sans-s
 	background-color: var(--bg-color); color: var(--text-primary); overflow: hidden;
 	#demoOverlay { position: absolute; width: 100vw; height: 100vh;
 		transition: all 1s ease; display: flex; flex-direction: column;
-		nav { display: flex; justify-content: space-between; align-items: center; padding: 1.5rem 3rem;
-			background: var(--glass-bg); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+		nav, footer { background: var(--glass-bg); color: var(--text-secondary); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
+		nav { display: flex; justify-content: space-between; align-items: center; padding: 1.5rem 2rem;
 			border-bottom: 1px solid var(--glass-border);
 			.logo { font-size: 1.5em; font-weight: 800;
-				background: linear-gradient(90deg, #fff, #a0a0b0);
-				background-clip: text; -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-				img { vertical-align: top; display: inline-block; height: 1.2em; padding-right: 0.5em; }
+				svg { vertical-align: top; display: inline-block; height: 1.2em; padding-right: 0.2em; stroke:var(--text-secondary); fill:none; stroke-width:6px;}
 			}
-			.links a { color: var(--text-primary); text-decoration: none;
+			.links a { color: var(--text-secondary); text-decoration: none;
 				margin-left: 1rem; font-size: 1.2rem; font-weight: 500; transition: color 0.2s;
 				&:hover { color: var(--accent-color); }
 			}
@@ -31,10 +29,8 @@ body { font-family: 'Helvetica Neue', Arial, 'Hiragino Kaku Gothic ProN', sans-s
 				margin-bottom: 3rem; line-height: 1.6; max-width: 600px; }
 			.actions { display: flex; gap: 1.5rem; }
 		}
-		footer { padding: 1.5rem; text-align: center; font-size: 0.8rem;
-			color: var(--text-secondary); background: var(--glass-bg);
-			backdrop-filter: blur(12px); border-top: 1px solid var(--glass-border);
-			a { color:#fff; text-decoration: none; }
+		footer { padding: 1.5rem; text-align: center; font-size: 0.8rem; border-top: 1px solid var(--glass-border);
+			a { color:var(--text-secondary); text-decoration: none; }
 		}
 	}
 	#exitDemo { position: absolute; bottom: 4rem; right: 2rem;}

@@ -1,13 +1,17 @@
 import * as d3 from "d3";
-import './style.scss';
+import './main.scss';
 import orthoMap from 'ortho-map';
 //------------------------------------------------------
+var svg = await fetch("/favicon.svg")
+svg = await svg.text();
+d3.select(".logo").html(`${svg}Ortho Earth`);
 const zoom = Math.log2(Math.min(window.innerWidth, window.innerHeight)/2*0.8 / 256 * Math.PI * 2);
 const mapInst = await orthoMap({target:d3.select('#mapContainer'), center:[0,0], zoom});
 await initDemo(mapInst);
 d3.select('#execDemo').on('click', execDemo);
 d3.select('#exitDemo').on('click', exitDemo);
 d3.select('#showDocs').on('click', showDocs);
+console.log(svg);
 //------------------------------------------------------
 async function initDemo(map) {
 	map.explain = map.gadget.explain({ width: 300 });
