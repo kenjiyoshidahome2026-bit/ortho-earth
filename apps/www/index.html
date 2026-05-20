@@ -15,35 +15,33 @@
 	<link rel="apple-touch-icon" href="/favicon.svg" />
 </head>
 <body>
-	<div id="app">
-		<div id="mapContainer"></div>
-		<button id="exitDemo" class="btn primary">← Back to Home</button>
-		<div id="demoOverlay">
-			<nav class="header">
-				<div class="logo" translate="no"><img alt="logo" src="/favicon.svg" />Ortho Earth</div>
-				<div class="links">
-					<a href="https://github.com/kenjiyoshidahome2026-bit/ortho-earth" target="_blank" rel="noopener">GitHub</a>
-					<a href="/docs/">Docs</a>
-				</div>
-			</nav>
-			<main class="main">
-				<h1 class="title" translate="no">Explore the World<br><span class="highlight">Orthographically.</span></h1>
-				<p class="description">
-					A fast, modern, and lightweight orthographic map renderer.<br>
-					Built for the Edge. Ready for Vite & Cloudflare.
-				</p>
-				<div class="actions">
-					<button id="execDemo" class="btn primary">Launch Demo</button>
-					<button id="btn-docs" class="btn secondary">Documentation</button>
-				</div>
-			</main>
-			<footer class="footer">
-				<p>Released under the MIT License. ©︎ 2026 
-					<a href="https://github.com/kenjiyoshidahome2026-bit" target="_blank" translate="no" rel="noopener">Kenji Yoshida</a>
-				</p>
-			</footer>
-		</div>
+	<div id="mapContainer"></div>
+	<div id="demoOverlay">
+		<nav class="header">
+			<div class="logo" translate="no"><img alt="logo" src="/favicon.svg" />Ortho Earth</div>
+			<div class="links">
+				<a href="https://github.com/kenjiyoshidahome2026-bit/ortho-earth" target="_blank" rel="noopener">GitHub</a>
+				<a href="/docs/">Docs</a>
+			</div>
+		</nav>
+		<main class="main">
+			<h1 class="title" translate="no">Explore the World<br><span class="highlight">Orthographically.</span></h1>
+			<p class="description">
+				A fast, modern, and lightweight orthographic map renderer.<br>
+				Built for the Edge. Ready for Vite & Cloudflare.
+			</p>
+			<div class="actions">
+				<button id="execDemo" class="primary">Launch Demo</button>
+				<button id="showDocs" class="secondary">Documentation</button>
+			</div>
+		</main>
+		<footer class="footer">
+			<p>Released under the MIT License. ©︎ 2026 
+				<a href="https://github.com/kenjiyoshidahome2026-bit" target="_blank" translate="no" rel="noopener">Kenji Yoshida</a>
+			</p>
+		</footer>
 	</div>
-	<script type="module" src="/src/main.js"></script>
+	<button id="exitDemo" class="primary hidden">← Back to Home</button>
+	<script type="module" src="/main.js"></script>
 </body>
 </html>
