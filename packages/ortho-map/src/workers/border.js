@@ -26,22 +26,13 @@ onmessage = e => funcs[e.data.type](e.data);
 
 function init(data) {
 	canvas = data.offscreen, dpr = data.dpr;
-//	canvas.width = 150; canvas.height = 150;
 	layer =  canvas.getContext("2d"); if (!layer) console.error('Context取得失敗 - Safariのバージョン確認');
 	path = geoPath(proj, layer);
 	postMessage({ type: data.type, action: "done", ctx: layer.constructor.name });
 }
 async function set(data) {
 	if (data.data != "options") return postMessage({ type: data.type, action: "failed" });
-	if (!layer) return console.error('set: layerがありません');
-	if (data.rawBuffers && !jsons) {
-		console.log('【Worker】raw data を geojson 化中...');
-
-		jsons = await Promise.all(data.rawBuffers.map(t=>geopbf(t)))
-		console.log(jsons);
-		jsons = jsons.map(pbf => pbf.geojson);
-		console.log('【Worker】geojson化完了', jsons);
-	}
+	if (data.rawBuffers && !jsons) jsons = await Promise.all(data.rawBuffers.map(async t=>(await geopbf(t)).geojson));
 	const opts = data.prop || {};
 	const lang = opts.lang || "en";
 	for (let i in accessories) {
@@ -56,12 +47,6 @@ async function set(data) {
 		{ en: "LNG", ja: "経度", zh: "经度", ko: "경도" }[lang],
 		{ en: "ALT", ja: "標高", zh: "海拔", ko: "고도" }[lang]
 	];
-	// const jsons = (await Promise.all([
-	// 	"ne_50m_admin_0_boundary_lines_land",
-	// 	"ne_50m_admin_0_boundary_lines_maritime_indicator",
-	// 	"ne_50m_geographic_lines",
-	// 	"ne_110m_land", "stars.6"].map(geopbf))).map(t => t.geojson);
-	// 	console.log(jsons);
 	const q = accessories.borders;
 	if (q) {
 		const borders = q.jsons = [[sphere, { stroke: "rgba(200,200,200,0.8)", width: 0.8 }]];
@@ -78,8 +63,6 @@ async function set(data) {
 		return { x: c[0] * rad, y: c[1] * rad, mag: p.mag, bv };
 	}).sort((p, q) => p.mag > q.mag ? 1 : -1).slice(0, accessories.stars.maxCount);
 	active = true;
-
-	// 【修正】タイマーを安全に登録し、layerが消滅していたら実行しない
 	if (timer) clearInterval(timer);
 	timer = setInterval(() => {
 		if (!layer) return;
@@ -132,7 +115,6 @@ function leave() {
 function drawn() { }
 
 function destroy(data) {
-	// 【修正】タイマーを停止し、未定義変数の参照エラーを回避する
 	if (timer) clearInterval(timer);
 	canvas && (canvas.width = 0, canvas.height = 0); canvas = null;
 	if (accessories.borders && accessories.borders.jsons) accessories.borders.jsons.length = 0;
