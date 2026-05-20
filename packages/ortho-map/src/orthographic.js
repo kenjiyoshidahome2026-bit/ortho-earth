@@ -157,7 +157,7 @@ export async function orthographic(map, opts = {}) {
     } {////------------------------------------------------------------------------------------------------	
         const funcs = {
             draw, trigger, resize, isEditable, isNarrow, cursor, bbox, setRange, setView, setZoom,
-            setFeature, flyToFeature, mag, north, tester, xy2pos, zval2scale, scale2zval, pointer, pointers
+            setFeature, flyToFeature, mag, north, tester, xy2pos, zval2scale, scale2zval, pointer, pointers, autoRotate
         };
         Object.entries(funcs).forEach(([name, func]) => map[name] = func);
     } {////------------------------------------------------------------------------------------------------	
@@ -205,14 +205,14 @@ export async function orthographic(map, opts = {}) {
         window.addEventListener("resize", () => { clearTimeout(timer); timer = setTimeout(resize, 50); });
         resize();
     }
-    ////===================================================================================================================
+////===================================================================================================================
     function getView() {
         map.view = [proj.rotate(), map.zoom = scale2zval(proj.scale())];
         map.center = [-map.view[0][0], -map.view[0][1]];
         map.angle = map.view[0][2];
         return map.view;
     }
-    ////-------------------------------------------------------------------------------------------
+////-------------------------------------------------------------------------------------------
     function resize() {
         const [width, height] = [map.width, map.height] = map.getSize();
         const rotate = proj.rotate(), scale = proj.scale();
@@ -223,13 +223,13 @@ export async function orthographic(map, opts = {}) {
         getView();
         draw();
     }
-    ////-------------------------------------------------------------------------------------------
+////-------------------------------------------------------------------------------------------
     function tester(q) {
         if (d3.geoDistance(map.center, q) > Math.PI / 2) return null;
         const [x, y] = proj(q);
         return (x < 0 || x > map.width || y < 0 || y > map.height) ? null : [x, y];
     }
-    ////-------------------------------------------------------------------------------------------
+////-------------------------------------------------------------------------------------------
     function bbox(q, maxZoom = map.maxZoom) {
         return q ? setBBOX(q) : getBBOX();
         function getBBOX() {
@@ -254,7 +254,7 @@ export async function orthographic(map, opts = {}) {
             setFeature(feature, maxZoom);
         }
     };
-    ////-------------------------------------------------------------------------------------------
+////-------------------------------------------------------------------------------------------
     function setZoom(zoom) {
         proj.scale(zval2scale(zoom));
         map.stat("view", getView());
@@ -268,7 +268,7 @@ export async function orthographic(map, opts = {}) {
     function setRange(min, max) {
         map.scaleExtent([zval2scale(min), zval2scale(max)]);
     }
-    ////-------------------------------------------------------------------------------------------
+////-------------------------------------------------------------------------------------------
     function setFeature(feature, maxZoom = map.maxZoom) {
         const { width, height } = map;
         const c = d3.geoCentroid(feature);
@@ -277,7 +277,7 @@ export async function orthographic(map, opts = {}) {
         const zval = Math.min(scale2zval(p.scale()), maxZoom)
         setView([c[0], c[1]], zval);
     }
-    ////-------------------------------------------------------------------------------------------
+////-------------------------------------------------------------------------------------------
     async function flyToFeature(feature, opts = {}) {
         const { width, height, maxZoom } = map;
         const size = Math.min(width, height);
@@ -301,7 +301,7 @@ export async function orthographic(map, opts = {}) {
             })
             .end().then(drawn);
     }
-    ////-------------------------------------------------------------------------------------------
+////-------------------------------------------------------------------------------------------
     function mag(n, duration = 1000) {
         const scale = proj.scale();
         const maxScale = zval2scale(map.maxZoom);
@@ -310,11 +310,27 @@ export async function orthographic(map, opts = {}) {
             .tween("render", () => t => { proj.scale(Math.max(Math.min((1 + (n - 1) * t) * scale, maxScale), minScale)); tween(); })
             .on("end", drawn).end();
     }
-    ////-------------------------------------------------------------------------------------------
+////-------------------------------------------------------------------------------------------
     function north(duration = 1000) {
         const zaxis = proj.rotate()[2];
         return d3.transition().ease(d3.easeCubic).duration(duration)
             .tween("render", () => t => { let r = proj.rotate(); r[2] = (1 - t) * zaxis; proj.rotate(r); tween(); })
             .on("end", drawn).end();
     }
+////-------------------------------------------------------------------------------------------
+    function autoRotate(flag) {
+        const velocity = 0.01;
+        if (flag) {
+            map.overlays && map.overlays.style("opacity", 0);
+            map.rotateTimer = d3.timer(n => {
+                const r = map.proj.rotate();
+                map.proj.rotate([n * velocity, r[1], r[2]]);
+                map.draw();
+            });
+        } else {
+            map.overlays && map.overlays.style("opacity", 1);
+            map.rotateTimer && map.rotateTimer.stop();
+            map.rotateTimer = null;
+        }
+    }   
 }

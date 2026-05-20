@@ -1,20 +1,14 @@
 :root {
 	--bg-color: #0a0a0f; --text-primary: #fff; --text-secondary: #ccc; --accent-color: #00ffcc;
+	--glass-bg: rgba(10, 10, 15, 0.6); --glass-border: rgba(255, 255, 255, 0.1);
 	--accent-glow: rgba(0, 255, 204, 0.4);
-	--glass-bg: rgba(10, 10, 15, 0.6);
-	--glass-border: rgba(255, 255, 255, 0.1);
 }
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
 body { font-family: 'Helvetica Neue', Arial, 'Hiragino Kaku Gothic ProN', sans-serif;
 	background-color: var(--bg-color); color: var(--text-primary); overflow: hidden;
-	#mapContainer { position: absolute; top: 0; left: 0; width: 100vw; height: 100vh;
-		background: radial-gradient(circle at center, #1a1a2e 0%, #0a0a0f 100%);
-	}
-	#exitDemo { position: absolute; top: 2rem; right: 2rem; }
-	#demoOverlay { position: absolute; z-index: 10; width: 100vw; height: 100vh;
-		transition: all 0.5s ease;
-		display: flex; flex-direction: column;
+	#demoOverlay { position: absolute; width: 100vw; height: 100vh;
+		transition: all 1s ease; display: flex; flex-direction: column;
 		nav { display: flex; justify-content: space-between; align-items: center; padding: 1.5rem 3rem;
 			background: var(--glass-bg); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
 			border-bottom: 1px solid var(--glass-border);
@@ -43,7 +37,8 @@ body { font-family: 'Helvetica Neue', Arial, 'Hiragino Kaku Gothic ProN', sans-s
 			a { color:#fff; text-decoration: none; }
 		}
 	}
-	button.btn { padding: 0.8rem 2rem; font-size: 1rem; font-weight: 600; border-radius: 50px;
+	#exitDemo { position: absolute; bottom: 4rem; right: 2rem;}
+	button { padding: 0.8rem 2rem; font-size: 1rem; font-weight: 600; border-radius: 50px;
 		background-color: var(--accent-color); color: #000;
 		cursor: pointer; transition: all 0.5s ease; border: none;
 		&:hover { transform: translateY(-2px); }
