@@ -12,7 +12,7 @@ const getServer = async () => {
 //  ----------------------------------------------------------------------------------------
 export async function geopbf(data, options = {}) { if (isString(options)) options = { name: options };
     const dt = performance.now();
-    const isInZip = _ => (_.match(/.+\.zip#.+/i));
+    const isInZip = _ => (isString(_) && _.match(/.+\.zip#.+/i));
     const isPBF = _ => (_ instanceof GeoPBF);
     let eventTarget = options.eventTarget || (typeof window !== 'undefined' ? window : (typeof self !== 'undefined' ? self : null));
     if (typeof CustomEvent === 'undefined' || !eventTarget.dispatchEvent) eventTarget = null;

@@ -11,8 +11,8 @@ d3.selection.prototype.resumeShow = function(target, opts) { return resumeShow(t
 
 d3.selection.prototype.parent = function() { return d3.select(this.node().parentNode); };
 d3.selection.prototype.prepend = function(elem) { return this.insert(elem,":first-child"); };
-d3.selection.prototype.getSize = function() { let rect = this.node().getBoundingClientRect(); return [rect.width, rect.height]; };
-d3.selection.prototype.getOffset = function() { let rect = this.node().getBoundingClientRect(); return [rect.left, rect.top]; };
+d3.selection.prototype.getSize = function() { let rect = this.node().getBoundingClientRect(); return [~~rect.width, ~~rect.height]; };
+d3.selection.prototype.getOffset = function() { let rect = this.node().getBoundingClientRect(); return [~~rect.left, ~~rect.top]; };
 d3.selection.prototype.getOuterSize = function() { let rect = this.node().getBoundingClientRect();
 	const num = s => +s.replace(/px$/,"");
 	const {marginTop, marginRight, marginBottom, marginLeft} = window.getComputedStyle(this.node());
