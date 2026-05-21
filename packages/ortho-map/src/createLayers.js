@@ -14,9 +14,6 @@ let borderRawBuffers = null;
 
 async function getBorderRawBuffers() {
     if (borderRawBuffers) return borderRawBuffers;
-
-    console.log('【Main】border用 raw data を取得中...');
-
     const names = [
         "ne_50m_admin_0_boundary_lines_land",
         "ne_50m_admin_0_boundary_lines_maritime_indicator",
@@ -24,11 +21,8 @@ async function getBorderRawBuffers() {
         "ne_110m_land",
         "stars.6"
     ];
-
     const results = await Promise.all(names.map(name => geopbf(name)));
     borderRawBuffers = results.map(r => r.arrayBuffer || r); // ArrayBuffer確保
-
-    console.log('【Main】raw data 取得完了', borderRawBuffers.length);
     return borderRawBuffers;
 }
 
