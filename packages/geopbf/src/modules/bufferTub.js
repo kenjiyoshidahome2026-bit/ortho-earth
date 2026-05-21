@@ -1,10 +1,10 @@
+import { thenMap } from "common";
 ////---------------------------------------------------------------------------------------------------------
 //// ArrayBufferの圧縮・伸長
 ////---------------------------------------------------------------------------------------------------------
 const pipe = async(q, filter) => new Response(new Blob([q]).stream().pipeThrough(filter)).arrayBuffer();
 const enc = q => pipe(q, new CompressionStream("deflate-raw"));
 const dec = q => pipe(q, new DecompressionStream("deflate-raw"));
-const thenMap = (a, func) => Promise.all(a.map((v, i) => func(v, i).catch(console.error)));
 ////---------------------------------------------------------------------------------------------------------
 //// bufferTub (ArrayBufferを効率的に、アレイ化)
 ////---------------------------------------------------------------------------------------------------------

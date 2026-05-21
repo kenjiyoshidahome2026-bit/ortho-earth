@@ -10,7 +10,10 @@ export class screenLogger {
 		this.mess = {};
 	} 
 	clear() { this.target.empty(); }
-	empty() { return this.target.append("p"); }
+	empty() { const div = this.target, p = div.append("p");
+		setTimeout(() => div.node().scrollTop = div.node().scrollHeight, 500);
+		return p;
+	}
 	log(...a) {
 		const toS = _ => isString(_)? _.replace(/\n/g,"<br/>"): isNumber(_)? comma(_): JSON.stringify(_);
 		const o2a = o => {
@@ -98,27 +101,28 @@ export class screenLogger {
             ans.node().focus();
         });
     }
-	async select(s, sel = {"Yes": true, "No": false}) {
+	async select(s, sel) { return new Promise(resolve => { let idx = 0;
 		sel = isArray(sel) ? sel.map(t=>isArray(t)?t:[t,t]) : Object.entries(sel);
-        return new Promise(resolve => {
-            const done = (res) => {
-                this.target.on("keydown.select", false); // イベント解除
-                p.remove();
-                resolve(res);
-            };
-        	this.target.on("keydown.select", e =>{
-
-			});
-            const p = this.empty().classed("select", true);
-            p.append("span").text(`> ${s} ? `);
-			const div = p.append("div").classed("select-buttons", true);
-			div.selectAll("button").data(sel).join("button")
-			.each((d, i, nodes) => d3.select(nodes[i]).text(d[0]).on("click", () => done(d[1])));
-
+		const p = this.empty().classed("select", true).append("span").text(`> ${s} ? `);
+		p.append("div").classed("select-buttons", true).selectAll("button").data(sel).join("button")
+		.each((d, i, nodes) => d3.select(nodes[i]).text(d[0]).on("click", () => done(d[1])));
+		const btns = p.selectAll("button"), len = sel.length;
+		const flip = n => btns.classed("flip", (d, i) => n === i); flip(idx);
+		const done = (res) => {
+			this.target.on("keydown.select", false); // イベント解除
+			p.remove();
+			resolve(res);
+		};
+		this.target.on("keydown.select", e =>{ console.log(e, idx);
+			if (e.code === 'Space') { e.preventDefault();
+				if (++idx == len) idx = 0; flip(idx);
+			} else if (e.code === 'Enter') { e.preventDefault();
+				const btn = p.selectAll("button").filter((d, i) => i === idx);
+				btn.node().click();
+			}
 		});
-        
-    }
-	async confirm(s, def = false) { return this.select(s, { "Yes": true, "No": false}); }
+	}); }
+	async confirm(s, def = true) { return this.select(s, def? { "Yes": true, "No": false}: { "No": false, "Yes": true}); }
 };
 // d3.selection.prototype.selectButtons = function(data, func, init, trans = true) { var div = this;
 // 	if (!Array.isArray(data[0])) data = data.map(t=>[t,t]), trans = false;

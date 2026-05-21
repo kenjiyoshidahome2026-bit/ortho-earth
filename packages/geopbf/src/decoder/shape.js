@@ -1,12 +1,8 @@
+import { thenMap } from "common";
 import { GeoPBF } from "../pbf-base.js";
 import { decodeZIP } from "native-bucket";
 
 const view = a => new DataView(a.buffer, a.byteOffset, a.byteLength);
-const thenMap = async (a, f) => {
-	const r = [];
-	for (let i = 0; i < a.length; i++) r.push(await f(a[i], i).catch(console.error));
-	return r;
-};
 const getbbox = r => {
 	let xmin = Infinity, ymin = Infinity, xmax = -Infinity, ymax = -Infinity;
 	r.forEach(p => {

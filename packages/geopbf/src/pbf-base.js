@@ -222,6 +222,16 @@ class GeoPBF {
         out.pbf.writeBytes(bodyData);
         return out.close().arrayBuffer;
     }
+    destroy() {
+        try {
+            if (this.bufs) { this.bufs.length = 0; this.bufs = null; }
+            if (this.props) { this.props.length = 0; this.props = null; }
+            if (this.keys) { this.keys.length = 0; this.keys = null; }
+            this.fmap = this.bin = this.pbf = null;
+            this._name = this._description = this._license = null;
+
+        } catch (e) {}
+    }
 }
 
 async function makeKeys(q) {
