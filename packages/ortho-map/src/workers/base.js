@@ -19,8 +19,8 @@ const src = async e => {
 		const res = await fetch(e.data, { cache: 'force-cache' });
 		if (!res.ok) return postMessage({ error: 'HTTP error' });
 		const blob = await res.blob();
-		const bm = await createImageBitmap(blob);
-		postMessage({ bitmap: bm }, [bm]);
+		const bitmap = await createImageBitmap(blob);
+		postMessage({ bitmap, blob }, [bitmap]);
 	} catch (err) {
 		postMessage({ error: err.message });
 	}
@@ -56,9 +56,17 @@ async function set(data) {
 		if (baseName !== bname) {
 			const dt = performance.now();
 			let bm = await cache(bname);
-			if (!bm) {
-				baseTexture && gl.deleteTexture(baseTexture); baseTexture = null;
-				await cache(bname, bm = await createImageBitmap(await bucket.get(bname)));
+			if (navigator.userAgent.includes("Firefox")) {
+				if (!bm) await cache(bname, bm = await bucket.get(bname));
+				const canvas = new OffscreenCanvas(8192, 4096);
+				const ctx = canvas.getContext('2d');
+				const tempBm = await createImageBitmap(bm); // まず生のビットマップを作る
+				ctx.drawImage(tempBm, 0, 0, 8192, 4096);
+				tempBm.close(); // 使い終わった生データは即メモリ解放
+				bm = canvas.transferToImageBitmap();
+				bm = await createImageBitmap(bm, { resizeWidth: 8192, resizeHeight: 4096, resizeQuality: "high" });
+			} else {
+				if (!bm) await cache(bname, bm = await createImageBitmap(await bucket.get(bname)));
 			}
 			console.log(`[orth-earth] 📥 Base Image "${bname}" ${(performance.now()-dt).toFixed(2)} msec`);
 			baseTexture && gl.deleteTexture(baseTexture); baseTexture = null;

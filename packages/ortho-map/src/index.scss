@@ -123,7 +123,7 @@ html, body { position:absolute; inset:0; background:#000; margin:0; padding:0; o
 		border-color: var(--border-color); border-radius: var(--radius);
 		font-size: var(--font-size); font-family: var(--font-family);
 		outline: none; cursor: pointer; pointer-events: auto;
-		svg { width: 100%; height: 100%; fill: var(--fg-color); stroke: var(--fg-color); }
+			svg * { width: 100%; height: 100%; fill: var(--fg-color); stroke: var(--fg-color); stroke-width:1px; }
 		&:hover { border-color: var(--border-hover); }
 		&.big { width: calc(var(--button-size) * 1.25); height: calc(var(--button-size) * 1.25); }
 		&.text { line-height: 31px; padding: 0 1em; width: auto; white-space: nowrap; user-select: none; }
@@ -132,7 +132,7 @@ html, body { position:absolute; inset:0; background:#000; margin:0; padding:0; o
 		&.left { border-top-right-radius: 0; border-bottom-right-radius: 0; margin-right: -1px !important; }
 		&.right { border-top-left-radius: 0; border-bottom-left-radius: 0; margin-left: -1px !important; }
 		&.flip { background: var(--fg-color); color: var(--bg-color);
-			svg { fill: var(--bg-color); stroke: var(--bg-color); }
+			svg * { fill: var(--bg-color); stroke: var(--bg-color); }
 		}
 	}
 //// ---------------------------------------------------------
