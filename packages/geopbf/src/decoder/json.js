@@ -230,7 +230,7 @@ onmessage = async (e) => {
         postMessage({ type: "jsondec", data: res }, [res]);
     } else {
         const keySet = new Set();
-        await getFeaturesFast(file, f => { //console.log("Feature:", f);
+        await getFeaturesFast(file, f => {
             if (f.properties) {
                 for (const k in f.properties) {
                     keySet.add(k);

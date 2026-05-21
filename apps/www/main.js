@@ -10,7 +10,6 @@ await initDemo(mapInst);
 d3.select('#execDemo').on('click', execDemo);
 d3.select('#exitDemo').on('click', exitDemo);
 d3.select('#showDocs').on('click', showDocs);
-console.log(svg);
 //------------------------------------------------------
 async function initDemo(map) {
 	map.explain = map.gadget.explain({ width: 300 });

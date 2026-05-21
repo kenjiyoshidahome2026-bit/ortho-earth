@@ -18,7 +18,7 @@ function douglasPeuckerOrtho(a, err = 1e-6) {
 	}
 	function DP(a) {
 		a = filter(a);
-		const last = a.length - 1;// if (last < 3) console.log(a)
+		const last = a.length - 1;
 		let b = [a[0]]; loop(0, last); b.push(a[last]);
 		return b;
 		function loop(first, last) {
