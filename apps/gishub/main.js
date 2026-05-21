@@ -29,7 +29,7 @@ left.append("input").attr("type", "text").attr("name", "search").attr("placehold
 .on("input", function() {
 	const keyword = this.value.trim().toLowerCase(), exist = s => s.toLowerCase().includes(keyword);
 	const hasKeyword = d => exist(d.name) || exist(d.description) || exist(d.license);
-	left.selectAll(".group-section").style("display", d => d.contents.some(c => hasKeyword(c)) ? null : "none");
+	left.selectAll(".group-section").style("display", d => (d.contents.some(c => hasKeyword(c))|| exist(d.group))? null : "none").highlight(keyword);
 	left.selectAll(".card").style("display", d => hasKeyword(d) ? null : "none").highlight(keyword);
 });
 const section = left.append("nav").selectAll(".group-section").data(groups).join("section").attr("class", "group-section");
@@ -43,22 +43,40 @@ async function exec(info) {
     logger.clear();
     logger.title(name, description).style("cursor","pointer").on("click", ()=>open(link,"_link_"));
     logger.log(`Requesting: ${target}`)
-    try {
+    try { let p;
         const pbf = await geopbf(target, { name, license, description });
 		console.log("PBF loaded:", pbf);
 		logger.success(`${name} (${comma(pbf.size)} bytes)`);
         logger.log(pbf.lint);
-        const p = logger.empty();
-        p.append("span").text("📥 [DOWNLOAD]").classed("big",true);
-        p.append("button").classed("accent", true).text("GeoPBF").on("click", async() => { saveTo(await pbf.geopbfFile(true)) });
-        p.append("button").text("GeoJSON").on("click", async () => { saveTo(await pbf.geojsonFile(await logger.confirm(`Gzipped`,false))) });
-        p.append("button").text("TopoJSON").on("click", async () => { saveTo(await pbf.topojsonFile(await logger.confirm(`Gzipped`,false))) });
-        p.append("button").text("ShapeFile").on("click", async() => { saveTo(await pbf.shapeFile(await logger.prompt(`encoding (default: utf8)`,"utf8"))) });
-        p.append("button").text("FGB").on("click", () => { });
-        p.append("button").text("KMZ").on("click", () => { });
-        p.append("button").text("GML").on("click", () => { });
-        p.append("button").text("GPX").on("click", () => { });
+        p =logger.empty();
+        p.append("span").text("🔔 [ACTIONs]").classed("big",true);
+        p.append("button").classed("accent", true).text("View in Ortho-Map").on("click", async() => {
+ 
+        });
+        p.append("button").text("Done").on("click", async() => {
+            pbf.destroy();
+            logger.clear();
+        });
+        p.append("button").text("Reload").on("click", async() => {
+ 
+        });
+        const save = async s => { const v = await saveTo(s); if (v) logger.log(`📥 Saved: ${s.name} (${comma(s.size)} bytes)`); }
+        const funcs = [
+            async function GeoPBF() { save(await pbf.geopbfFile(true)) },
+            async function GeoJSON() { const v = await logger.confirm("GeoJSON Gzipped", false); save(await pbf.geojsonFile(v)) },
+            async function TopoJSON() { const v = await logger.confirm("TopoJSON Gzipped", false); save(await pbf.topojsonFile(v)) },
+            async function FGB() { save(await pbf.fgbFile()) },
+            async function KMZ() { },
+            async function ShapeFile() { const v = await logger.prompt(`encoding (default: utf8)`,"utf8"); save(await pbf.shapeFile(v)) },
+            async function GML() { },
+            async function GPX() { },
+        ];
+        p = logger.empty();
+        const active = v => logger.target.selectAll("button").attr("disabled", v ? null : true);
+        p.append("span").text("📥 [DOWNLOADs]").classed("big",true);
+        funcs.forEach(f => p.append("button").classed("accent", f.name === "GeoPBF").text(f.name)
+        .on("click", async () => { active(false); await f(); active(true); }));
     } catch (err) {
-		logger.error(`Failed to load ${target}: ${err.message}`);
+        logger.error(`Failed to load ${target}: ${err.message}`);
     }
 }

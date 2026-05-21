@@ -1,13 +1,8 @@
 import { GeoPBF } from "../pbf-base.js";
-
-const thenMap = async (a, func) => {
-    const q = []; for (let i = 0; i < a.length; i++) q.push(await func(a[i], i).catch(console.error));
-    return q;
-};
+import { saveTo, thenMap, sum, comma } from "common";
 
 export function count(self) {
-    const sum = a => { let n = 0; a.forEach(t => n += t); return n; };
-    if (self.counts) return self.counts;
+     if (self.counts) return self.counts;
     const counts = [0, 0, 0, 0];
     const sumup = g => {
         const { type, coordinates: c } = g; if (!c) return;
@@ -30,12 +25,11 @@ export function count(self) {
 }
 
 export function lint(self) {
-    const comma = _ => String(_).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
     let str = []; const countArr = [0, 0, 0, 0, 0, 0, 0, 0];
     self.each((i, fmap) => countArr[fmap[2]]++);
-    const types = countArr.map((n, i) => n ? `#${GeoPBF.geometryTypes[i]}: ${n}` : ``).filter(t => t);
+    const types = countArr.map((n, i) => n ? `#${GeoPBF.geometryTypes[i]}: ${comma(n)}` : ``).filter(t => t);
     str.push(`-------------------------------------------------`, ` GEOPBF ${self._name}`, `-------------------------------------------------`);
-    str.push(` FEATURES: ${self.length} ( ${types.join(" , ")} )`, ` SIZE: ${comma(self.size)} [bytes]`, ` PRECiSION: ${self._precision} [${1 / self.e}]`, ` BBOX: ${JSON.stringify(self.bbox)}`);
+    str.push(` FEATURES: ${comma(self.length)} ( ${types.join(" , ")} )`, ` SIZE: ${comma(self.size)} [bytes]`, ` PRECISION: ${self._precision} [${1 / self.e}]`, ` BBOX: ${JSON.stringify(self.bbox)}`);
     const [point_count, line_count, poly_count, coords_count] = self.count.map(comma);
     str.push(`-------------------------------------------------`, ` GEOMETRY SECTION`, `-------------------------------------------------`, ` # POINT: ${point_count}`, ` # LINE: ${line_count}`, ` # POLYGON: ${poly_count}`, ` # TOTAL COORDINATES: ${coords_count}`);
     str.push(`-------------------------------------------------`, ` PROPERTIES SECTION (${self.keys.length} properties)`, `-------------------------------------------------`);
