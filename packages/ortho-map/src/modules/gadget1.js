@@ -120,7 +120,6 @@ export async function cpos(opts = {}) {
 	</svg>`;
     let flag = false, cpos = [0, 0];
     const svg = (new DOMParser()).parseFromString(blink, 'image/svg+xml').documentElement;
-//    console.log(map.overlays, svg)
     map.overlays.appendNode(svg);
     const target = map.select("svg[name=cpos]").hide();
     const btn = createButton(map, "cpos", opts).onClick(async () => {

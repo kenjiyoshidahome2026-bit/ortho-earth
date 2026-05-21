@@ -51,7 +51,7 @@ export function drawJSON(features, prop = {}) {
                     Array.from({ length: Math.ceil((stop - start) / step) }, (_, i) => start + i * step);
                 const v = calcArea(feature); if (!v) return;
                 const [x, y, w, h] = [v[0], v[1], v[2] - v[0], v[3] - v[1]], r = Math.max(w, h);
-                const delta = p.delta || 5, color = p.hatch || "red"; //console.log(color)
+                const delta = p.delta || 5, color = p.hatch || "red";
                 ctx.save();
                 ctx.beginPath(); path(feature); ctx.clip();
                 ctx.beginPath(); p.mode ?
@@ -89,7 +89,6 @@ export function deawText(text, pts, opts = {}, save = true) {
         const { bold, fontSize, fontFamily, textAlign, textBaseline, fillStyle, lineHeight } = layer.prop;
         if (save) {
             layer.prop = { bold, fontSize, fontFamily, textAlign, textBaseline, fillStyle, lineHeight };
-            console.log(layer.prop)
         } else {
             layer.save(); saved = true;
         }
