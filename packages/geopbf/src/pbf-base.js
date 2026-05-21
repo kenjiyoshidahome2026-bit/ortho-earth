@@ -232,6 +232,11 @@ class GeoPBF {
 
         } catch (e) {}
     }
+    async filesize() {
+        const stream = new Response(this.pbf.buf.buffer).body.pipeThrough(new CompressionStream('gzip'));
+        const compressed = await new Response(stream).arrayBuffer();
+        return compressed.byteLength;
+    }
 }
 
 async function makeKeys(q) {
