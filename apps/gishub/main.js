@@ -46,7 +46,7 @@ async function exec(info) {
     try { let p;
         const pbf = await geopbf(target, { name, license, description });
 		console.log("PBF loaded:", pbf);
-		logger.success(`${name} (${comma(pbf.size)} bytes)`);
+		logger.success(`${name} (${comma(await pbf.filesize())} bytes)`);
         logger.log(pbf.lint);
         p =logger.empty();
         p.append("span").text("🔔 [ACTIONs]").classed("big",true);
@@ -73,7 +73,7 @@ async function exec(info) {
         ];
         p = logger.empty();
         const active = v => logger.target.selectAll("button").attr("disabled", v ? null : true);
-        p.append("span").text("📥 [DOWNLOADs]").classed("big",true);
+        p.append("span").text("📥 [DOWNLOAD]").classed("big",true);
         funcs.forEach(f => p.append("button").classed("accent", f.name === "GeoPBF").text(f.name)
         .on("click", async () => { active(false); await f(); active(true); }));
     } catch (err) {
