@@ -50,6 +50,7 @@ export async function geopbf(data, options = {}) { if (isString(options)) option
             options.name = options.name || name.replace(/\.[^\.]+$/, "");
             if (name.match(/\.(geo)?pbf$/i)) return _geopbf(await q.arrayBuffer());
             if (name.match(/\.(geo|topo)?json$/i)) return _geopbf(await decoder("json", q));
+            if (name.match(/\.fgb$/i)) return _geopbf(await decoder("fgb", q));
             if (name.match(/\.zip$/i)) return _geopbf(await decoder("shape", q));
             if (name.match(/\.kmz$/i)) return _geopbf(await decoder("kmz", q));
             if (name.match(/\.gpx$/i)) return _geopbf(await decoder("gpx", q));
@@ -117,7 +118,7 @@ const methods = {
     async kmzFile(flag = true) { return encoder(this, "kmz", flag); },//flag: true=>kmz, false=>kml
     async gpxFile(flag) { return encoder(this, "gpx", flag); },
     async gmlFile(flag) { return encoder(this, "gml", flag); },
- //   async fgbFile(flag) { return encoder(this, "fgb", flag); }, 
+    async fgbFile(flag) { return encoder(this, "fgb", flag); }, 
 };
 
 Object.entries(methods).forEach(([name, func]) => {
