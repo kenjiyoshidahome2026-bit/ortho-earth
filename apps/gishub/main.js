@@ -54,6 +54,7 @@ async function exec(info) {
         p.append("button").text("GeoJSON").on("click", async () => { saveTo(await pbf.geojsonFile(await logger.confirm(`Gzipped`,false))) });
         p.append("button").text("TopoJSON").on("click", async () => { saveTo(await pbf.topojsonFile(await logger.confirm(`Gzipped`,false))) });
         p.append("button").text("ShapeFile").on("click", async() => { saveTo(await pbf.shapeFile(await logger.prompt(`encoding (default: utf8)`,"utf8"))) });
+        p.append("button").text("FGB").on("click", () => { });
         p.append("button").text("KMZ").on("click", () => { });
         p.append("button").text("GML").on("click", () => { });
         p.append("button").text("GPX").on("click", () => { });
