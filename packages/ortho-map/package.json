@@ -10,6 +10,9 @@
 		"./src/modules/*": "./src/modules/*",
 		"./*": "./*"
 	},
+	"scripts": {
+		"summary": "repomix --style markdown --output project_summary.md"
+	},
 	"dependencies": {
 		"common": "*",
 		"native-bucket": "*",

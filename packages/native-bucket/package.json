@@ -17,6 +17,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "deploy": "npm run build && npx wrangler deploy"
-  }
+    "deploy": "npm run build && npx wrangler deploy",
+    "summary": "repomix --style markdown --output project_summary.md"
+}
 }

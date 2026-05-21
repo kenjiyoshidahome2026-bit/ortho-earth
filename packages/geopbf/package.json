@@ -7,8 +7,12 @@
 		".": "./src/index.js",
 		"./*": "./*"
 	},
+	"scripts": {
+		"summary": "repomix --style markdown --output project_summary.md"
+	},
 	"dependencies": {
 		"pbf": "^4.0.1",
+		"repomix": "^1.0.0",
 		"native-bucket": "*"
 	}
 }

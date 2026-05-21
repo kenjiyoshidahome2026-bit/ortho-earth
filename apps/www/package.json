@@ -7,6 +7,9 @@
     "preview": "vite preview"
   },
   "dependencies": {
-	"ortho-map": "*"
+    "ortho-map": "*"
+  },
+  "devDependencies": {
+    "repomix": "^1.14.0"
   }
 }
