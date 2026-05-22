@@ -24,11 +24,12 @@ export function count(self) {
     return (self.counts = counts);
 }
 
-export function lint(self) {
+export function lint(self, options = {}) {
     let str = []; const countArr = [0, 0, 0, 0, 0, 0, 0, 0];
     self.each((i, fmap) => countArr[fmap[2]]++);
     const types = countArr.map((n, i) => n ? `#${GeoPBF.geometryTypes[i]}: ${comma(n)}` : ``).filter(t => t);
-    str.push(`-------------------------------------------------`, ` GEOPBF ${self._name}`, `-------------------------------------------------`);
+    str.push(`-------------------------------------------------`)
+    options.nohead || str.push(` GEOPBF ${self._name}`, `-------------------------------------------------`);
     str.push(` FEATURES: ${comma(self.length)} ( ${types.join(" , ")} )`, ` SIZE: ${comma(self.size)} [bytes]`, ` PRECISION: ${self._precision} [${1 / self.e}]`, ` BBOX: ${JSON.stringify(self.bbox)}`);
     const [point_count, line_count, poly_count, coords_count] = self.count.map(comma);
     str.push(`-------------------------------------------------`, ` GEOMETRY SECTION`, `-------------------------------------------------`, ` # POINT: ${point_count}`, ` # LINE: ${line_count}`, ` # POLYGON: ${poly_count}`, ` # TOTAL COORDINATES: ${coords_count}`);
@@ -44,7 +45,8 @@ export function lint(self) {
         var typeStr = typesort(values.map(t => GeoPBF.dataType(t))).map(t => `${GeoPBF.dataTypeNames[t[0]]}:${t[1]}`).join("|");
         str.push(` ${self.keys[i]}: ${typeStr}`);
     });
-    str.push(`-------------------------------------------------`, new Date().toString());
+    str.push(`-------------------------------------------------`);
+    options.nofoot || str.push(new Date().toString());
     return str.join("\n") + "\n";
 }
 

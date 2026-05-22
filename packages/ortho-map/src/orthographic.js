@@ -332,5 +332,6 @@ export async function orthographic(map, opts = {}) {
             map.rotateTimer && map.rotateTimer.stop();
             map.rotateTimer = null;
         }
+        return map;
     }   
 }

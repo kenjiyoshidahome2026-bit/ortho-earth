@@ -68,5 +68,9 @@ class PBFIO {
         await this.cache(name, null);
         return name;
     }
+    async clean(name) {
+        await this.cache(name, null);
+        return name;
+    }
 }
 export async function pbfio(dire) { return new PBFIO(dire).open(); }

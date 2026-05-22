@@ -2,8 +2,7 @@ import * as d3 from "d3";
 import './main.scss';
 import orthoMap from 'ortho-map';
 //------------------------------------------------------
-const svg = await (await fetch("/favicon.svg")).text();
-d3.select(".logo").html(`${svg}Ortho Earth`);
+d3.select(".logo").html(`${await (await fetch("/favicon.svg")).text() }Ortho Earth`);
 const zoom = Math.log2(Math.min(window.innerWidth, window.innerHeight)/2*0.8 / 256 * Math.PI * 2);
 const mapInst = await orthoMap({target:d3.select('#mapContainer'), center:[0,0], zoom});
 await initDemo(mapInst);

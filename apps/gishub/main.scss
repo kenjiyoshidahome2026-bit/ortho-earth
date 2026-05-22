@@ -2,16 +2,12 @@ $bg: #000; $text: #e3e3e3; $accent: #4b90ff;
 
 body, html { font-family: 'Inter', sans-serif; overflow: hidden; }
 * { margin:0; padding:0; box-sizing: border-box; outline:none; }
-.map-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: $bg;
-	.close-btn {
-		position: absolute; top: 24px; right: 24px;
-		background: rgba(255, 255, 255, 0.1); color: #fff;
-		border: 1px solid #444; padding: 8px 20px; border-radius: 20px; cursor: pointer;
-		&:hover { background: rgba(255, 255, 255, 0.2); }
-	}
-	#ortho-map-container { width: 100%; height: 100%; }
+button.close {
+	position: absolute; top: 24px; right: 24px; width:40px; height:40px; border-radius: 20px; border:none;
+	background: none; color: #fff; cursor: pointer;
+	&:hover { background: rgba(255, 255, 255, 0.3); }
 }
-.gishub { position: absolute; inset: 0px; background: $bg; color: $text;
+.gishub { position: absolute; inset: 0px; background: #000; color: $text; opacity:0.8; transition: all 500ms ease-in-out;
 	.left { position: absolute; inset: 0px; width:300px; transition: all 250ms ease-in-out;
 		border-right: 1px solid #333; padding: 0;
 		> img { display: inline-block; width:30px; vertical-align: middle; margin:10px;  border-radius:5px; 
@@ -35,11 +31,22 @@ body, html { font-family: 'Inter', sans-serif; overflow: hidden; }
 		}
 	}
 	.main { position: absolute; inset: 0px; left:300px;transition: all 250ms ease-in-out;
-		h1 { font-size: 1.4rem; color: $accent; vertical-align: middle; margin: 20px 30px;
+		h1 { font-size: 1.4rem; color: $accent; vertical-align: middle; margin: 20px 30px; text-align:left;
 			img { width: 28px; vertical-align: middle; }
 			span { display: inline-block; padding-left: 1rem; }
 		}
-		> div { position: absolute; inset:70px 30px 30px; overflow-y: auto; }
+		> .log { position: absolute; inset:70px 30px 30px; overflow-y: auto; }
+		> .uploads { position: absolute; inset:70px 30px 30px; display:flex; flex-wrap: wrap; gap:10px; padding:10px; border-radius:10px;
+			input[type=text] { display:block; position:absolute; top:10%; width:80%; left:10%;
+				font-family: 'Courier New', Courier, monospace;
+				background:#181818; border:1px solid #888; color:#fff; border-radius:5px; padding:10px; font-size:1.2rem;
+			//	backdrop-filter: blur(12px); color:#ccc;
+				&:focus { border-color: $accent; }
+				&::placeholder { font-family: 'Inter', sans-serif; color:#555; text-align: center;font-size: 0.9rem; font-weight:700; font-style: oblique;}
+
+			}
+			&.drag-over { background: rgba(255, 255, 255, 0.1); border: 2px dashed $accent; }
+		}
 	}
 	.accent { background: $accent; font-weight:bold }
 	&.close { 
