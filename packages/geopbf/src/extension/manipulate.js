@@ -28,11 +28,16 @@ export function lint(self, options = {}) {
     let str = []; const countArr = [0, 0, 0, 0, 0, 0, 0, 0];
     self.each((i, fmap) => countArr[fmap[2]]++);
     const types = countArr.map((n, i) => n ? `#${GeoPBF.geometryTypes[i]}: ${comma(n)}` : ``).filter(t => t);
+    options.nohead || str.push(`-------------------------------------------------`,` GEOPBF ${self._name}`);
     str.push(`-------------------------------------------------`)
-    options.nohead || str.push(` GEOPBF ${self._name}`, `-------------------------------------------------`);
-    str.push(` FEATURES: ${comma(self.length)} ( ${types.join(" , ")} )`, ` SIZE: ${comma(self.size)} [bytes]`, ` PRECISION: ${self._precision} [${1 / self.e}]`, ` BBOX: ${JSON.stringify(self.bbox)}`);
+    str.push(` FEATURES: ${comma(self.length)} ( ${types.join(" , ")} )`,
+        ` SIZE: ${comma(self.size)} [bytes]`,
+        ` PRECISION: ${self._precision} [${1 / self.e}]`,
+        ` BBOX: ${JSON.stringify(self.bbox)}`);
+    str.push(`-------------------------------------------------`, ` GEOMETRY SECTION`, `-------------------------------------------------`)
     const [point_count, line_count, poly_count, coords_count] = self.count.map(comma);
-    str.push(`-------------------------------------------------`, ` GEOMETRY SECTION`, `-------------------------------------------------`, ` # POINT: ${point_count}`, ` # LINE: ${line_count}`, ` # POLYGON: ${poly_count}`, ` # TOTAL COORDINATES: ${coords_count}`);
+    str.push(` # POINT: ${point_count}`, ` # LINE: ${line_count}`, ` # POLYGON: ${poly_count}`, ` # TOTAL COORDINATES: ${coords_count}`);
+    
     str.push(`-------------------------------------------------`, ` PROPERTIES SECTION (${self.keys.length} properties)`, `-------------------------------------------------`);
     const typesort = a => {
         const q = {}; a.forEach(t => q[t] = (q[t] || 0) + 1);

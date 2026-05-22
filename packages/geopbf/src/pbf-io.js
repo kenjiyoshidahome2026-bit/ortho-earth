@@ -37,7 +37,7 @@ class PBFIO {
         return file;
     }
     async load(name) {
-        const val = await this.cache(name).catch(console.error);
+        const val = await this.cache(name, { worker: true }).catch(console.error);
         try {
             const res = await fetch(`${this.bucket.url}${name}`, { cache: 'default' });
             if (!res.ok) throw new Error(`Failed to fetch: ${name} (HTTP ${res.status})`);

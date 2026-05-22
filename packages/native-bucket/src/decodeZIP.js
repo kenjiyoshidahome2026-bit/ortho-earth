@@ -49,7 +49,7 @@ export async function decodeZIP(source, target = null, encoding = null) {
 	}
 
 	// 🏛️ フェーズ2: ハイブリッド対応の強靭な read 関数
-	const read = async (from, len, name) => {
+	const read = async (from, len, name, uSiz) => {
 		if (isFile) return new Uint8Array(await source.slice(from, from + len).arrayBuffer());
 		const res = await fetch(getCleanUrl(source), { headers: { Range: `bytes=${from}-${from + len - 1}` } });
 		if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -69,7 +69,7 @@ export async function decodeZIP(source, target = null, encoding = null) {
 			const copyLen = Math.min(value.length, len - pos);
 			bin.set(value.subarray(0, copyLen), pos);
 			pos += copyLen;
-			name && event("FetchProgress", { name, loaded: pos, total: len });
+			name && uSiz && event("FetchProgress", { name, loaded: ~~(pos/len*uSiz), total: uSiz });
 			if (pos >= len) { reader.cancel(); break; }
 		}
 		if (pos < len) throw new Error(`Truncated: ${pos}/${len}`);
@@ -136,7 +136,7 @@ export async function decodeZIP(source, target = null, encoding = null) {
 				const eLen = hv.getUint16(28, true);
 				const dataOff = loc + 30 + nLen + eLen;
 
-				const data = await read(dataOff, cSiz, name);
+				const data = await read(dataOff, cSiz, name, uSiz);
 
 				let resBlob;
 				if (meth) {
