@@ -37,7 +37,10 @@ export async function geopbf(data, options = {}) { if (isString(options)) option
     };
     const pbf = await _geopbf(data);
     pbf && console.log(`[geopbf] 📥 ${pbf.name()} (${pbf.size.toLocaleString()} bytes) ${(performance.now()-dt).toFixed(2)} msec`);
-    pbf && isInZip(data) && getServer().then(server => server && server.cache(data, { Buff: pbf.arrayBuffer }));
+    if (pbf && isURL(data)) {
+        pbf.originalURL = data;
+        getServer().then(server => server && server.cache(data, { Buff: pbf.arrayBuffer }));
+    }
     return pbf || new GeoPBF(options);
 ////===========================================================================================
     async function _geopbf(q) {
@@ -110,6 +113,7 @@ const encoder = async (pbf, type, gz, encoding) => {
     });
 };
 const methods = {
+    async clean() { const s = await getServer(); return (s && await s.clean(this.originalURL)) ? this : null; },
     async save() { const s = await getServer(); return (s && await s.save(this)) ? this : null; },
     async geopbfFile() { return encoder(this, "geopbf", true); },
     async geojsonFile(flag = false) { return flag !=="cancel" && encoder(this, "geojson", flag); },

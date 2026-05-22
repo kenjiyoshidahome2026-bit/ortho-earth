@@ -1,28 +1,20 @@
 import * as d3 from "d3";
-import { comma, download, saveTo } from "common";
-import  "common/d3/highlight.js";
-import { screenLogger } from "../uploader/src/screenLogger.js";
+import orthoMap from 'ortho-map';
 import { geopbf } from "geopbf";
+import { screenLogger } from "../uploader/src/screenLogger.js";
+import { comma, download, saveTo } from "common";
+import "common/d3/highlight.js";
+import "common/d3/fileio.js";
 import "./main.scss";
 
-const mapLayer = d3.select("body").append("section").attr("class", "map-layer");
-mapLayer.append("div").attr("id", "ortho-map-container");
-mapLayer.append("button").attr("class", "close-btn").text("Back to Log")
-    .on("click", () => gishub.classed("active", true));
+const initialZoom = Math.log2(Math.min(window.innerWidth, window.innerHeight)/2*0.5 / 256 * Math.PI * 2);
+const mapInst = (await orthoMap({target:d3.select('body'), center:[0,0], zoom: initialZoom})).autoRotate(true);
+const exitButton = mapInst.append("button").attr("class", "close").html(`<img src="close.svg"/>`)
+    .on("click", exitView).hide();
 
 const gishub = d3.select("body").append("div").attr("class", "gishub");
+////------------------------------------------------------
 const left = gishub.append("aside").attr("class", "left");
-const main = gishub.append("main").attr("class", "main");
-main.append("h1").html(`<img src="favicon.svg" alt="GIS-HUB"/><span>GIS-HUB</span>`);
-
-
-const logger = new screenLogger(main.append("div"));
-addEventListener("FetchStart", e => logger.progress("start", e)); 
-addEventListener("FetchProgress", e => logger.progress("progress", e));
-addEventListener("FetchEnd", e => logger.progress("end", e));
-addEventListener("ConvertStart", e => logger.event("start", e));
-addEventListener("ConvertEnd", e => logger.event("end", e));
-
 const groups = await d3.json("./catalog.json");
 left.append("img").attr("src", "menu.svg").attr("alt", "MENU").on("click", () => gishub.classed("close", !gishub.classed("close")))	;
 left.append("input").attr("type", "text").attr("name", "search").attr("placeholder", "Search...")
@@ -36,40 +28,74 @@ const section = left.append("nav").selectAll(".group-section").data(groups).join
 section.append("h2").text(d => d.group);
 section.selectAll(".card").data(d => d.contents).join("div").attr("class", "card")
 	.html(d => `<div class="card-name">${d.name}</div><div class="card-desc">${d.description}</div><div class="license">${d.license}</div>`)
-	.on("click", (e, d) => exec(d));
+	.on("click", (e, d) => execCatalog(d));
+////------------------------------------------------------
+const main = gishub.append("main").attr("class", "main");
+main.append("h1").html(`<img src="favicon.svg" alt="GIS-HUB"/><span>GIS-HUB</span>`);
+////------------------------------------------------------
+const logger = new screenLogger(main.append("div"));
+addEventListener("FetchStart", e => logger.progress("start", e)); 
+addEventListener("FetchProgress", e => logger.progress("progress", e));
+addEventListener("FetchEnd", e => logger.progress("end", e));
+addEventListener("ConvertStart", e => logger.event("start", e));
+addEventListener("ConvertEnd", e => logger.event("end", e));
+////------------------------------------------------------
+const uploads = main.append("div").attr("class", "uploads").dropFile(execFile);
+uploads.append("input").attr("type","text").attr("placeholder", `"Enter URL" or "Drag & drop a file" or "Double-click to select file."`)
+.on("keypress", function(e) { if (e.key === "Enter") execURL(this.value); })
+.on("dblclick", function () {
+    const input = d3.select("body").append("input").attr("type", "file").style("display", "none")
+    .on("change", e => { execFile(e.target.files[0]); input.remove(); });
+    input.node().click();
+});
+////------------------------------------------------------
+async function execFile(file) { uploads.hide(); logger.clear();
+    logger.title(`${file.name} :dropped`);
+    try {
+        const pbf = await geopbf(file);
+		logger.success(`${pbf.name()} (${comma(await pbf.filesize())} bytes)`);
+        await execPBF(pbf);
+    } catch (err) { logger.error(`Failed to load ${file.name}: ${err.message}`); uploads.show(); }
+}
+async function execURL(target) { uploads.hide(); logger.clear();
+    logger.title(`${file.name} :dropped`);
+    try {
+        const pbf = await geopbf(file);
+        logger.success(`${pbf.name()} (${comma(await pbf.filesize())} bytes)`);
+        await execPBF(pbf);
+    } catch (err) { logger.error(`Failed to load ${file.name}: ${err.message}`); uploads.show(); }
+}
 
-async function exec(info) {
-    const {name, target, license, description, link} = info;
-    logger.clear();
-    logger.title(name, description).style("cursor","pointer").on("click", ()=>open(link,"_link_"));
-    logger.log(`Requesting: ${target}`)
-    try { let p;
+async function execCatalog(info) { uploads.hide(); logger.clear();
+    const { name, target, license, description, link } = info;
+    logger.title(name, description).style("cursor", "pointer").on("click", () => open(link, "_link_"));
+    logger.log(`Requesting: ${target}`);
+    try {
         const pbf = await geopbf(target, { name, license, description });
-		console.log("PBF loaded:", pbf);
-		logger.success(`${name} (${comma(await pbf.filesize())} bytes)`);
-        logger.log(pbf.lint);
-        p =logger.empty();
+        logger.success(`${pbf.name()} (${comma(await pbf.filesize())} bytes)`);
+        await execPBF(pbf, info);
+    } catch (err) { logger.error(`Failed to load ${file.name}: ${err.message}`); uploads.show(); }
+}
+async function execPBF(pbf, info) { uploads.hide();
+    try {
+        logger.log(pbf.lint({nohead:true, nofoot:true}));
+        let p =logger.empty();
         p.append("span").text("🔔 [ACTIONs]").classed("big",true);
         p.append("button").classed("accent", true).text("View in Ortho-Map").on("click", async() => {
- 
+            execView();
         });
-        p.append("button").text("Done").on("click", async() => {
-            pbf.destroy();
-            logger.clear();
-        });
-        p.append("button").text("Reload").on("click", async() => {
- 
-        });
+        p.append("button").text("Done").on("click", async () => { pbf.destroy(); logger.clear(); uploads.show(); });
+        info && pbf.originalURL && p.append("button").text("Reload from original url").on("click", async() => { await pbf.clean(); pbf.destroy(); execCatalog(info);});
         const save = async s => { const v = await saveTo(s); if (v) logger.log(`📥 Saved: ${s.name} (${comma(s.size)} bytes)`); }
         const funcs = [
             async function GeoPBF() { save(await pbf.geopbfFile(true)) },
-            async function GeoJSON() { const v = await logger.confirm("GeoJSON Gzipped", false); save(await pbf.geojsonFile(v)) },
-            async function TopoJSON() { const v = await logger.confirm("TopoJSON Gzipped", false); save(await pbf.topojsonFile(v)) },
+            async function GeoJSON() { const v = await logger.confirm("GeoJSON Gzipped", false); save(await pbf.geojsonFile(v)); },
+            async function TopoJSON() { const v = await logger.confirm("TopoJSON Gzipped", false); save(await pbf.topojsonFile(v)); },
             async function FGB() { save(await pbf.fgbFile()) },
-            async function KMZ() { },
+            async function KMZ() { const v = await logger.select("KMZ or KML", {KMZ:true, KML:false}); save(await pbf.kmzFile(v)); },
             async function ShapeFile() { const v = await logger.prompt(`encoding (default: utf8)`,"utf8"); save(await pbf.shapeFile(v)) },
-            async function GML() { },
-            async function GPX() { },
+            async function GML() { const v = await logger.confirm("GML Gzipped", false); save(await pbf.gmlFile(v)); },
+            async function GPX() { const v = await logger.confirm("GPX Gzipped", false); save(await pbf.gpxFile(v)); },
         ];
         p = logger.empty();
         const active = v => logger.target.selectAll("button").attr("disabled", v ? null : true);
@@ -79,4 +105,15 @@ async function exec(info) {
     } catch (err) {
         logger.error(`Failed to load ${target}: ${err.message}`);
     }
+}
+function execView() {
+    mapInst.autoRotate(false);
+    exitButton.show();
+    gishub.style("opacity",0).style("pointer-events",'none');
+}
+function exitView() {
+    mapInst.setView([0,0], initialZoom);
+    setTimeout(()=>mapInst.autoRotate(true), 250);
+    exitButton.hide();
+    gishub.style("opacity",0.8).style("pointer-events",'auto');
 }

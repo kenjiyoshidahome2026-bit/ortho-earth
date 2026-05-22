@@ -8,9 +8,11 @@ Object.assign(d3.selection.prototype, {
 });
 
 async function dropFiles(self, func) {
-    return self.on("dragover", e => e.preventDefault()).on("drop", drop);
+    return self.on("drop", drop)
+        .on("dragover", e => { e.preventDefault(); self.Classed("drag-over", true) })
+        .on("dragleave", e => { e.preventDefault(); self.Classed("drag-over", false) });
     async function drop(e) {
-        e.preventDefault();
+        e.preventDefault(); self.classed("drag-over", false);
         if (self.property("disabled") || self.attr("disabled")) return;
         const items = Array.from(e.dataTransfer.items || []);
         if (!items.length) return;
@@ -34,8 +36,11 @@ async function dropFiles(self, func) {
     };
 }
 function dropFile(self, func) {
-    return self.on("dragover", e => e.preventDefault()).on("drop", drop);
-    function drop(e) { e.preventDefault();
+    return self.on("drop", drop)
+        .on("dragover", e => { e.preventDefault(); self.classed("drag-over", true) })
+        .on("dragleave", e => { e.preventDefault(); self.classed("drag-over", false) });
+    function drop(e) {
+        e.preventDefault(); self.classed("drag-over", false);
         self.property("disabled") || self.attr("disabled") || func(e.dataTransfer.files[0]);
     }
 }

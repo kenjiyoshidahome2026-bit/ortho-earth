@@ -14,7 +14,7 @@ Object.defineProperty(GeoPBF, 'update', { value: manipulate.update, configurable
 Object.defineProperty(GeoPBF, 'concatinate', { value: manipulate.concatinate, configurable: false, enumerable: false });
 
 setGetter("count", function () { return manipulate.count(this); });
-setGetter("lint", function () { return manipulate.lint(this); });
+setPrototype("lint", function (opts={}) { return manipulate.lint(this, opts); });
 
 setPrototype("centroid", function (i) { return spatial.centroid(this, i); });
 setPrototype("area", function (i) { return spatial.area(this, i); });
