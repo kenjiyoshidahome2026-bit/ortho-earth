@@ -41,40 +41,51 @@ addEventListener("ConvertStart", e => logger.event("start", e));
 addEventListener("ConvertEnd", e => logger.event("end", e));
 ////------------------------------------------------------
 const uploads = main.append("div").attr("class", "uploads").dropFile(execFile);
+const infoIntro = uploads.append("div").attr("class", "info-intro");
+infoIntro.append("p").text(`GIS-HUB is a next-generation, high-performance web GIS station powered by an in-memory binary engine (GeoPBF) and WebGL2 rendering (ortho-map).
+ It effortlessly unifies heavy open data into a fluid, zero-latency 3D map inside your browser.`);
+
+const infoGuide = uploads.append("div").attr("class", "info-guide");
+infoGuide.append("h2").text("🔬 Quick Start Guide");
+infoGuide.append("ul").html(`
+    <li><b>Explore Catalog:</b> Click sidebar cards to fetch open data on the fly.</li>
+    <li><b>Bring Data:</b> Drag & drop files, double-click to browse, or enter a URL.</li>
+    <li><b>Visualize:</b> Click "View in Ortho-Map" for a buttery-smooth WebGL2 experience.</li>
+    <li><b>Convert:</b> Export seamlessly to FlatGeobuf, GeoPBF, or traditional GIS formats.</li>
+`);
+uploads.append("img").attr("src", "gishub.svg");
 uploads.append("input").attr("type","text").attr("placeholder", `"Enter URL" or "Drag & drop a file" or "Double-click to select file."`)
 .on("keypress", function(e) { if (e.key === "Enter") execURL(this.value); })
 .on("dblclick", function () {
     const input = d3.select("body").append("input").attr("type", "file").style("display", "none")
-    .on("change", e => { execFile(e.target.files[0]); input.remove(); });
+    .on("change", e => { execFile(e.target.files[0], true); input.remove(); });
     input.node().click();
 });
+
 ////------------------------------------------------------
-async function execFile(file) { uploads.hide(); logger.clear();
-    logger.title(`${file.name} :dropped`);
+async function execFile(file, flag) { uploads.hide(); logger.clear();
+    const name = file.name;
+    logger.title(`${name} :${flag === true ? "selected" : "dropped"}`);
     try {
         const pbf = await geopbf(file);
-		logger.success(`${pbf.name()} (${comma(await pbf.filesize())} bytes)`);
+		logger.success(`${pbf.name()} (length: ${comma(pbf.size)})`);
         await execPBF(pbf);
-    } catch (err) { logger.error(`Failed to load ${file.name}: ${err.message}`); uploads.show(); }
+    } catch (err) { logger.error(`Failed to load ${name}: ${err.message}`); uploads.show(); }
 }
 async function execURL(target) { uploads.hide(); logger.clear();
-    logger.title(`${file.name} :dropped`);
-    try {
-        const pbf = await geopbf(file);
-        logger.success(`${pbf.name()} (${comma(await pbf.filesize())} bytes)`);
-        await execPBF(pbf);
-    } catch (err) { logger.error(`Failed to load ${file.name}: ${err.message}`); uploads.show(); }
+    const name = target.split('/').pop().split('?')[0].replace(/\..+$/i, '');
+    await execCatalog({ target, name, license:"", description:"", link:"" });
 }
 
 async function execCatalog(info) { uploads.hide(); logger.clear();
-    const { name, target, license, description, link } = info;
-    logger.title(name, description).style("cursor", "pointer").on("click", () => open(link, "_link_"));
+    const { target, name, license, description, link } = info;
+    logger.title(name, description).style("cursor", "pointer").on("click", () => link && open(link, "_link_"));
     logger.log(`Requesting: ${target}`);
     try {
         const pbf = await geopbf(target, { name, license, description });
-        logger.success(`${pbf.name()} (${comma(await pbf.filesize())} bytes)`);
+        logger.success(`${name} (length: ${comma(pbf.size)})`);
         await execPBF(pbf, info);
-    } catch (err) { logger.error(`Failed to load ${file.name}: ${err.message}`); uploads.show(); }
+    } catch (err) { logger.error(`Failed to load ${name}: ${err.message}`); uploads.show(); logger.clear(); }
 }
 async function execPBF(pbf, info) { uploads.hide();
     try {

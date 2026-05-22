@@ -102,7 +102,7 @@ async function borders(q) {
 		console.log(pbf)
 	//	await (pbf).save();
 		q.success(`${name}: (<= ${original})`)
-		q.log(pbf.lint);
+		q.log(pbf.lint());
 	})
 }
 

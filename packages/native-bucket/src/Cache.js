@@ -1,6 +1,72 @@
 const _cacheTub = {};
 const _initQueue = {}; 
 
+// 🔥 汎用Workerインスタンスのキャッシュ用
+let _sharedCacheWorker = null;
+const _workerCallbacks = new Map();
+let _callbackId = 0;
+
+// 🔥 Worker側の処理ロジック（文字列として定義し、BlobURL化してWorkerを動的起動）
+const workerCode = `
+    const _cacheTub = {};
+    
+    // メインスレッドから流れてきたリクエストを処理
+    onmessage = async (e) => {
+        const { id, dbname, tblname, operation, key, val } = e.data;
+        try {
+            // Worker内で直接IndexedDBを初期化・接続
+            if (!_cacheTub[dbname]) {
+                _cacheTub[dbname] = await new Promise((resolve, reject) => {
+                    const req = indexedDB.open(dbname);
+                    req.onsuccess = ev => resolve(ev.target.result);
+                    req.onerror = ev => reject(ev.target.error);
+                });
+            }
+            const db = _cacheTub[dbname];
+            
+            const result = await new Promise((resolve, reject) => {
+                const tx = db.transaction([tblname], val === undefined ? "readonly" : "readwrite");
+                const tbl = tx.objectStore(tblname);
+                const req = val === undefined 
+                    ? (key === undefined ? tbl.getAllKeys() : tbl.get(key))
+                    : (val === false || val === null ? tbl.delete(key) : tbl.put(val, key));
+                req.onsuccess = () => resolve(req.result);
+                req.onerror = ev => reject(ev.target.error);
+            });
+
+            // 🌟 結果が ArrayBuffer や Blob などのバイナリの場合、Transferable でゼロコピー高速返却
+            if (result && result.Buff instanceof ArrayBuffer) {
+                postMessage({ id, success: true, result }, [result.Buff]);
+            } else if (result instanceof ArrayBuffer) {
+                postMessage({ id, success: true, result }, [result]);
+            } else {
+                postMessage({ id, success: true, result });
+            }
+        } catch (err) {
+            postMessage({ id, success: false, error: err.message });
+        }
+    };
+`;
+
+function getSharedWorker() {
+    if (_sharedCacheWorker) return _sharedCacheWorker;
+    const blob = new Blob([workerCode], { type: "application/javascript" });
+    const url = URL.createObjectURL(blob);
+    _sharedCacheWorker = new Worker(url);
+    
+    _sharedCacheWorker.onmessage = (e) => {
+        const { id, success, result, error } = e.data;
+        const cb = _workerCallbacks.get(id);
+        if (cb) {
+            _workerCallbacks.delete(id);
+            if (success) cb.resolve(result);
+            else cb.reject(new Error(error));
+        }
+    };
+    URL.revokeObjectURL(url);
+    return _sharedCacheWorker;
+}
+
 export async function Cache(name) {
     const isFile = v => ((v instanceof File) || (v instanceof Blob && v.name));
     let [dbname, tblname] = name.split(/[\.\/]/); 
@@ -41,9 +107,8 @@ export async function Cache(name) {
         return db;
     };
 
-    // --- エラー防止用の実行ラッパー ---
+    // --- メインスレッド側の実行ラッパー ---
     const exec = async (operation, key, val) => {
-        // 接続が閉じている、または存在しない場合は再初期化を待つ
         if (!_cacheTub[dbname] || _cacheTub[dbname].objectStoreNames.contains(tblname) === false) {
             _initQueue[dbname] = initDB();
             await _initQueue[dbname];
@@ -62,20 +127,45 @@ export async function Cache(name) {
                 req.onerror = e => reject(e.target.error);
             });
         } catch (e) {
-            // "Database connection is closing" が出た場合、一度だけ初期化し直してリトライ
             if (e.name === "InvalidStateError") {
                 delete _cacheTub[dbname];
-                const retryDb = await initDB();
+                await initDB();
                 return exec(operation, key, val); 
             }
             throw e;
         }
     };
 
+    // --- 🌟 フラグが立っている場合の Worker 実行移譲ラッパー ---
+    const execInWorker = (operation, key, val) => { console.log(`Worker exec: ${operation} ${key} ...`);
+        const worker = getSharedWorker();
+        const id = _callbackId++;
+        
+        return new Promise((resolve, reject) => {
+            _workerCallbacks.set(id, { resolve, reject });
+            
+            // データの所有権移転（Transferable）に対応
+            const transfer = [];
+            if (val && val.Buff instanceof ArrayBuffer) transfer.push(val.Buff);
+            else if (val instanceof ArrayBuffer) transfer.push(val);
+
+            worker.postMessage({ id, dbname, tblname, operation, key, val }, transfer);
+        });
+    };
+
     if (!_initQueue[dbname]) _initQueue[dbname] = initDB();
     await _initQueue[dbname];
 
-    return (key, val) => val === undefined 
-        ? (isFile(key) ? exec("put", key.name, key) : exec("get", key)) 
-        : exec("put", key, val);
+    // 🌟 返却関数を拡張：第3引数に { worker: true } オプションを受け付け可能に
+    return (key, val, options = {}) => {
+        // cache("key", undefined, { worker: true }) のようなケースへの対応
+        const opt = (typeof val === "object" && val !== null && val.worker !== undefined) ? val : options;
+        const actualVal = opt === val ? undefined : val;
+        
+        const run = opt.worker ? execInWorker : exec;
+
+        return actualVal === undefined 
+            ? (isFile(key) ? run("put", key.name, key) : run("get", key)) 
+            : run("put", key, actualVal);
+    };
 }

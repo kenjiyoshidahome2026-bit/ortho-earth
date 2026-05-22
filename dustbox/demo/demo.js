@@ -120,7 +120,7 @@ async function runTest(test) {
         previewContainer.onclick = () => alert("高速描画システムを起動します");
 
         statsEl.innerHTML = `Features: <b>${pbf.length}</b> | PBF: <b>${(pbf.size / 1024).toFixed(1)} KB</b>`;
-        log(pbf.lint);
+        log(pbf.lint());
 
         // PBFのダウンロードボタン
         const pbfBlob = new Blob([pbf.arrayBuffer], { type: "application/octet-stream" });

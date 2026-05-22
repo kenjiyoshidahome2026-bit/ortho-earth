@@ -35,11 +35,12 @@ export async function geopbf(data, options = {}) { if (isString(options)) option
             w.postMessage(params);
         });
     };
+    let readFromCache = false;
     const pbf = await _geopbf(data);
     pbf && console.log(`[geopbf] 📥 ${pbf.name()} (${pbf.size.toLocaleString()} bytes) ${(performance.now()-dt).toFixed(2)} msec`);
     if (pbf && isURL(data)) {
         pbf.originalURL = data;
-        getServer().then(server => server && server.cache(data, { Buff: pbf.arrayBuffer }));
+        readFromCache || getServer().then(server => server && server.cache(data, { Buff: pbf.arrayBuffer }, { worker: true })).catch(console.error);
     }
     return pbf || new GeoPBF(options);
 ////===========================================================================================
@@ -70,8 +71,8 @@ export async function geopbf(data, options = {}) { if (isString(options)) option
             const usecache = !options.nocache;
             if (isURL(q)) {
                 const fetchUrl = isInZip(q) ? q : (q.match(/\.zip$/) && options.target) ? [q, options.target].join("#") : q;
-                const v = await server.cache(fetchUrl);
-                if (v) return new GeoPBF(options).set(v.Buff);
+                const v = await server.cache(fetchUrl, {worker:true}).catch(console.error);
+                if (v) { readFromCache = true; return new GeoPBF(options).set(v.Buff); }
                 return _geopbf(await server.fetch(fetchUrl));
             }
             return _geopbf(await server.load(q));

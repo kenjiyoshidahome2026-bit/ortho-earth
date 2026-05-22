@@ -3,7 +3,7 @@ import { bufferTub, readBufs } from "./modules/bufferTub.js";
 import { isSimpleObject, isNumber, isFloat, isBbox } from "common";
 import { cleanCoords, antimeridianFeature, loadPolygonClipping } from "common";
 
-const TAGS = { NAME: 1, KEYS: 2, PRECISION: 3, BUFS: 4, FARRAY: 5, FEATURE: 6, GEOMETRY: 7, GTYPE: 8, LENGTH: 9, COORDS: 10, VALUE: 11, INDEX: 12, GARRAY: 13, DESCRIPTION: 14, LICENSE: 15 };
+const TAGS = { NAME: 1, KEYS: 2, PRECISION: 3, BUFS: 4, FARRAY: 5, FEATURE: 6, GEOMETRY: 7, GTYPE: 8, LENGTH: 9, COORDS: 10, VALUE: 11, INDEX: 12, GARRAY: 13, DESCRIPTION: 14, LICENSE: 15, ATTRIBUTION: 16 };
 const geometryTypes = ["Point", "MultiPoint", "LineString", "MultiLineString", "Polygon", "MultiPolygon", "GeometryCollection"];
 const geometryMap = {}; geometryTypes.forEach((t, i) => geometryMap[t] = i);
 const dataTypeNames = ["NULL", "BOOL", "INTEGER", "FLOAT", "STRING", "DATE", "COLOR", "FUNC", "JSON", "BBOX", "BLOB", "IMAGE"];
@@ -15,6 +15,7 @@ class GeoPBF {
         this._name = options.name || "";
         this._description = options.description || "";
         this._license = options.license || "";
+        this._attribution = options.attribution || "";
         this.e = Math.pow(10, this._precision = options.precision || 6);
         this.noprop = !!options.noprop;
         this.keys = [], this.bufs = [], this.fmap = [], this.bin = {}; this.props = [];
@@ -23,6 +24,7 @@ class GeoPBF {
     name(s) { if (s === undefined) return this._name; this._name = s; return this; }
     description(s) { if (s === undefined) return this._description; this._description = s; return this; }
     license(s) { if (s === undefined) return this._license; this._license = s; return this; }
+    attribution(s) { if (s === undefined) return this._attribution; this._attribution = s; return this; }
     precision(s) { if (s === undefined) return this._precision; this.e = Math.pow(10, this._precision = s); return this; }
     init() { this.keys = [], this.bufs = [], this.fmap = [], this.bin = {}; this.props = []; delete this.end; delete this.ctx; delete this.proj; return this; }
     empty() { this.pbf = new Pbf(); this.init(); this.name(""); return this; }
@@ -46,6 +48,7 @@ class GeoPBF {
             if (tag === TAGS.NAME) this.name(pbf.readString());
             else if (tag === TAGS.DESCRIPTION) this.description(pbf.readString());
             else if (tag === TAGS.LICENSE) this.license(pbf.readString());
+            else if (tag === TAGS.ATTRIBUTION) this.attribution(pbf.readString());
             else if (tag === TAGS.KEYS) keys.push(pbf.readString());
             else if (tag === TAGS.BUFS) bufsReader.set(pbf.readBytes());
             else if (tag === TAGS.PRECISION) this.e = Math.pow(10, this._precision = pbf.readVarint());
@@ -95,6 +98,7 @@ class GeoPBF {
         if (meta.name !== undefined) this._name = meta.name;
         if (meta.description !== undefined) this._description = meta.description;
         if (meta.license !== undefined) this._license = meta.license;
+        if (meta.attribution !== undefined) this._attribution = meta.attribution;
         if (meta.precision !== undefined) this.precision(meta.precision);
 
         this.keys = keys || this.keys;
@@ -104,6 +108,7 @@ class GeoPBF {
         this._name && this.pbf.writeStringField(TAGS.NAME, this._name);
         this._description && this.pbf.writeStringField(TAGS.DESCRIPTION, this._description);
         this._license && this.pbf.writeStringField(TAGS.LICENSE, this._license);
+        this._attribution && this.pbf.writeStringField(TAGS.ATTRIBUTION, this._attribution);
         this._precision == 6 || this.pbf.writeVarintField(TAGS.PRECISION, this._precision);
         this.keys.forEach((t, i) => { this.pbf.writeStringField(TAGS.KEYS, t); this.keytub[t] = i; });
         this.bufs.forEach((t, i) => { this.pbf.writeBytesField(TAGS.BUFS, new Uint8Array(t)) });
@@ -209,6 +214,7 @@ class GeoPBF {
             if (tag === TAGS.NAME) head.name = pbf.readString();
             else if (tag === TAGS.DESCRIPTION) head.description = pbf.readString();
             else if (tag === TAGS.LICENSE) head.license = pbf.readString();
+            else if (tag === TAGS.ATTRIBUTION) head.attribution = pbf.readString();
             else if (tag === TAGS.KEYS) head.keys.push(pbf.readString());
             else if (tag === TAGS.BUFS) head.bufs.push(pbf.readBytes());
             else if (tag === TAGS.PRECISION) head.precision = pbf.readVarint();
@@ -228,7 +234,7 @@ class GeoPBF {
             if (this.props) { this.props.length = 0; this.props = null; }
             if (this.keys) { this.keys.length = 0; this.keys = null; }
             this.fmap = this.bin = this.pbf = null;
-            this._name = this._description = this._license = null;
+            this._name = this._description = this._license = this._attribution = null;
 
         } catch (e) {}
     }
