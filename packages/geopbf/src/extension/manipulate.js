@@ -24,20 +24,23 @@ export function count(self) {
     return (self.counts = counts);
 }
 
-export function lint(self, options = {}) {
+export function lint(self, options = {}) { //console.log(self); debugger
     let str = []; const countArr = [0, 0, 0, 0, 0, 0, 0, 0];
     self.each((i, fmap) => countArr[fmap[2]]++);
     const types = countArr.map((n, i) => n ? `#${GeoPBF.geometryTypes[i]}: ${comma(n)}` : ``).filter(t => t);
     options.nohead || str.push(`-------------------------------------------------`,` GEOPBF ${self._name}`);
     str.push(`-------------------------------------------------`)
-    str.push(` FEATURES: ${comma(self.length)} ( ${types.join(" , ")} )`,
-        ` SIZE: ${comma(self.size)} [bytes]`,
-        ` PRECISION: ${self._precision} [${1 / self.e}]`,
-        ` BBOX: ${JSON.stringify(self.bbox)}`);
+    str.push(` FEATURES: ${comma(self.length)} ( ${types.join(" , ")} )`);
+    str.push(` SIZE: ${comma(self.size)} [bytes]`);
+    str.push(` PRECISION: ${self._precision} [${1 / self.e}]`);
+    str.push(` BBOX: ${JSON.stringify(self.bbox)}`);
+    self._description && str.push(` DESCRIPTION: ${self._description}`);
+    self._attribution && str.push(` ATTRIBUTION: ${self._attribution}`);
+    self._license && str.push(` LICENSE: ${self._license}`);
     str.push(`-------------------------------------------------`, ` GEOMETRY SECTION`, `-------------------------------------------------`)
     const [point_count, line_count, poly_count, coords_count] = self.count.map(comma);
     str.push(` # POINT: ${point_count}`, ` # LINE: ${line_count}`, ` # POLYGON: ${poly_count}`, ` # TOTAL COORDINATES: ${coords_count}`);
-    
+
     str.push(`-------------------------------------------------`, ` PROPERTIES SECTION (${self.keys.length} properties)`, `-------------------------------------------------`);
     const typesort = a => {
         const q = {}; a.forEach(t => q[t] = (q[t] || 0) + 1);

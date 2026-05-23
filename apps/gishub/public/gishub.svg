@@ -1,28 +1,28 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 270">
 <path d="M60 30L300 150 M300 30L60 150M60 90H300M180 30V210" fill="none" stroke="#fff" stroke-width="5"/>
 <path d="M180 220L170 190L190 190Z" fill="#fff"/>
-<g fill="#888" stroke="#fff" stroke-width="3">
+<g fill="#222" stroke="#fff" stroke-width="2">
 <rect x="8" y="10" width="104" height="40" rx="10" ry="10"/>
 <rect x="128" y="10" width="104" height="40" rx="10" ry="10"/>
 <rect x="248" y="10" width="104" height="40" rx="10" ry="10"/>
 <rect x="8" y="70" width="104" height="40" rx="10" ry="10"/>
-<rect x="125" y="65" width="110" height="50" rx="25" ry="25" fill="#4b90ff"/>
+<rect x="125" y="65" width="110" height="50" rx="25" ry="25" fill="#4b90ff" stroke-width="3"/>
 <rect x="248" y="70" width="104" height="40" rx="10" ry="10"/>
 <rect x="8" y="130" width="104" height="40" rx="10" ry="10"/>
-<rect x="128" y="130" width="104" height="40" rx="10" ry="10" fill="#4b90ff"/>
+<rect x="128" y="130" width="104" height="40" rx="10" ry="10" fill="#4b90ff" stroke-width="3"/>
 <rect x="248" y="130" width="104" height="40" rx="10" ry="10"/>
-<rect x="120" y="220" width="120" height="40" rx="20" ry="20" fill="#4b90ff"/>
+<rect x="120" y="220" width="120" height="40" rx="20" ry="20" fill="#4b90ff" stroke-width="3"/>
 </g>
-<g fill="#fff" stroke="none" font-size="17" dominant-baseline="middle" text-anchor="middle">
-<text x="60" y="30">GeoJSON</text>
-<text x="180" y="30">FlatGeobuf</text>
-<text x="300" y="30">GPX</text>
-<text x="60" y="90">Shape</text>
-<text x="180" y="90" font-weight="600" font-size="19">GIS-HUB</text>
-<text x="300" y="90">GML</text>
-<text x="60" y="150">TopoJSON</text>
-<text x="180" y="150" font-weight="600">GeoPBF</text>
-<text x="300" y="150">KMZ/KML</text>
-<text x="180" y="240" font-weight="600">ortho-map</text>
+<g fill="#fff" stroke="none" font-size="15" dominant-baseline="middle" text-anchor="middle">
+<text x="60" y="31">GeoJSON</text>
+<text x="180" y="31">FlatGeobuf</text>
+<text x="300" y="31">GPX</text>
+<text x="60" y="91">Shape</text>
+<text x="180" y="91" font-weight="600" font-size="18">GIS-HUB</text>
+<text x="300" y="91">GML</text>
+<text x="60" y="151">TopoJSON</text>
+<text x="180" y="151" font-weight="600">GeoPBF</text>
+<text x="300" y="151">KMZ/KML</text>
+<text x="180" y="241" font-weight="600">ortho-map</text>
 </g>
 </svg>

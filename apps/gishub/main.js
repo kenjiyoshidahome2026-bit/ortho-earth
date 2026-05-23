@@ -2,7 +2,7 @@ import * as d3 from "d3";
 import orthoMap from 'ortho-map';
 import { geopbf } from "geopbf";
 import { screenLogger } from "../uploader/src/screenLogger.js";
-import { comma, download, saveTo } from "common";
+import { comma, download, openDirectory, saveTo } from "common";
 import "common/d3/highlight.js";
 import "common/d3/fileio.js";
 import "./main.scss";
@@ -44,12 +44,11 @@ const uploads = main.append("div").attr("class", "uploads").dropFile(execFile);
 const infoIntro = uploads.append("div").attr("class", "info-intro");
 infoIntro.append("p").text(`GIS-HUB is a next-generation, high-performance web GIS station powered by an in-memory binary engine (GeoPBF) and WebGL2 rendering (ortho-map).
  It effortlessly unifies heavy open data into a fluid, zero-latency 3D map inside your browser.`);
-
 const infoGuide = uploads.append("div").attr("class", "info-guide");
 infoGuide.append("h2").text("🔬 Quick Start Guide");
 infoGuide.append("ul").html(`
     <li><b>Explore Catalog:</b> Click sidebar cards to fetch open data on the fly.</li>
-    <li><b>Bring Data:</b> Drag & drop files, double-click to browse, or enter a URL.</li>
+    <li><b>Bring Data:</b> Drag & drop a file, double-click to browse, or enter a URL.</li>
     <li><b>Visualize:</b> Click "View in Ortho-Map" for a buttery-smooth WebGL2 experience.</li>
     <li><b>Convert:</b> Export seamlessly to FlatGeobuf, GeoPBF, or traditional GIS formats.</li>
 `);
@@ -78,11 +77,11 @@ async function execURL(target) { uploads.hide(); logger.clear();
 }
 
 async function execCatalog(info) { uploads.hide(); logger.clear();
-    const { target, name, license, description, link } = info;
+    const { target, name, license, description, attribution, link } = info;
     logger.title(name, description).style("cursor", "pointer").on("click", () => link && open(link, "_link_"));
     logger.log(`Requesting: ${target}`);
     try {
-        const pbf = await geopbf(target, { name, license, description });
+        const pbf = await geopbf(target, { name, license, description, attribution });
         logger.success(`${name} (length: ${comma(pbf.size)})`);
         await execPBF(pbf, info);
     } catch (err) { logger.error(`Failed to load ${name}: ${err.message}`); uploads.show(); logger.clear(); }
@@ -100,7 +99,7 @@ async function execPBF(pbf, info) { uploads.hide();
         const save = async s => { const v = await saveTo(s); if (v) logger.log(`📥 Saved: ${s.name} (${comma(s.size)} bytes)`); }
         const funcs = [
             async function GeoPBF() { save(await pbf.geopbfFile(true)) },
-            async function GeoJSON() { const v = await logger.confirm("GeoJSON Gzipped", false); save(await pbf.geojsonFile(v)); },
+            async function GeoJSON() { await openDirectory(); const v = await logger.confirm("GeoJSON Gzipped", false); save(await pbf.geojsonFile(v)); },
             async function TopoJSON() { const v = await logger.confirm("TopoJSON Gzipped", false); save(await pbf.topojsonFile(v)); },
             async function FGB() { save(await pbf.fgbFile()) },
             async function KMZ() { const v = await logger.select("KMZ or KML", {KMZ:true, KML:false}); save(await pbf.kmzFile(v)); },
