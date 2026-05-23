@@ -92,16 +92,18 @@ export const download = (blob, name) => {
     a.href = url; a.download = name; a.click();
     setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 1000);
 };
+export const openDirectory = async() => {
+    try { saveDire = saveDire || await window.showDirectoryPicker({ mode: 'readwrite' });
+        const status = await saveDire.queryPermission({ mode: 'readwrite' });
+        if (status !== 'granted') {
+            throw new Error('Permission to access the directory was denied.');
+            saveDire = null;
+        }
+    } catch (err) { console.error("Failed to open directory:", err); }
+};
 export const saveTo = async(blob, name) => {
     try {
-        if (!saveDire) {
-            saveDire = await window.showDirectoryPicker({ mode: 'readwrite' });
-        } else {
-            const status = await saveDire.queryPermission({ mode: 'readwrite' });
-            if (status !== 'granted') {
-                saveDire = await window.showDirectoryPicker({ mode: 'readwrite' });
-            }
-        }
+        await openDirectory();
         const fileName = name || blob.name || "download";
         const fileHandle = await saveDire.getFileHandle(fileName, { create: true });
         const writable = await fileHandle.createWritable();
