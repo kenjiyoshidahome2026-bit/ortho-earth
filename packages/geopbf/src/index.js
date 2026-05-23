@@ -96,7 +96,8 @@ export async function geopbf(data, options = {}) { if (isString(options)) option
 }
 //  ----------------------------------------------------------------------------------------
 const encoder = async (pbf, type, gz, encoding) => {
-    const name = pbf._name, buf = pbf.arrayBuffer, event = `convrsion from GeoPBF to ${type}`;
+    const name = pbf._name, buf = pbf.arrayBuffer;
+    const event = type =="profile"? `profiling` : `conversion from GeoPBF to ${type}`;
     const throwEvent = (type, detail) => window.dispatchEvent(new CustomEvent(type, { detail }));
     throwEvent("ConvertStart", { name, event });
     const url = new URL(`./encoder/${type}.js`, import.meta.url)
@@ -116,6 +117,7 @@ const encoder = async (pbf, type, gz, encoding) => {
 const methods = {
     async clean() { const s = await getServer(); return (s && await s.clean(this.originalURL)) ? this : null; },
     async save() { const s = await getServer(); return (s && await s.save(this)) ? this : null; },
+    async profile(opts) { return encoder(this, "profile", opts); },
     async geopbfFile() { return encoder(this, "geopbf", true); },
     async geojsonFile(flag = false) { return flag !=="cancel" && encoder(this, "geojson", flag); },
     async topojsonFile(flag = false) { return encoder(this, "topojson", flag); },
