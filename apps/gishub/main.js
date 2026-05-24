@@ -79,7 +79,7 @@ async function execURL(target) { uploads.hide(); logger.clear();
 async function execCatalog(info) { uploads.hide(); logger.clear();
     const { target, name, license, description, attribution, link } = info;
     logger.title(name, description).style("cursor", "pointer").on("click", () => link && open(link, "_link_"));
-    const p =logger.log(`Requesting: ${target} <span class="cancel">[cancel]</span>`)
+    const p =logger.log(`Requesting: ${target} <span class="remark">[cancel]</span>`)
     const cancel = p.select("span").hide().on("click", () => location.reload());
     try {
         cancel.show();
