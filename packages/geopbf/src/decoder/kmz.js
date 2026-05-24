@@ -39,7 +39,7 @@ const kmlToFeatures = (text, nameToRes) => {
 };
 
 onmessage = async (e) => {
-    const { file, precision } = e.data;
+    const { file, name, precision } = e.data;
     const entries = await decodeZIP(file);
     if (!entries) return;
     const nameToRes = {};
@@ -53,11 +53,9 @@ onmessage = async (e) => {
         allFeatures.push(...kmlToFeatures(text, nameToRes));
     }
     const [keys, bufs] = await GeoPBF.makeKeys(allFeatures.map(f => f.properties));
-    const pbf = new GeoPBF({ name: file.name.replace(/\.kmz$/, ""), precision });
+    const pbf = new GeoPBF({ name: name || file.name.replace(/\.kmz$/, ""), precision });
     pbf.setHead(keys, bufs);
-    pbf.setBody(() => {
-        allFeatures.forEach(f => pbf.setFeature(f));
-    });
+    pbf.setBody(() => allFeatures.forEach(f => pbf.setFeature(f)));
     pbf.close();
     const res = pbf.arrayBuffer;
     postMessage({ type: "kmzdec", data: res }, [res]);

@@ -88,7 +88,7 @@ async function execCatalog(info) { uploads.hide(); logger.clear();
 }
 async function execPBF(pbf, info) { uploads.hide();
     try {
-        logger.log(await pbf.profile({nohead:true, nofoot:true}));
+        logger.log(await pbf.profile({nohead:true}));
         let p =logger.empty();
         p.append("span").text("🔔 [ACTIONs]").classed("big",true);
         p.append("button").classed("accent", true).text("View in Ortho-Map").on("click", async() => {

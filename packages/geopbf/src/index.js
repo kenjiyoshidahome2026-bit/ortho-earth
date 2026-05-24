@@ -3,7 +3,6 @@ import { pbfio } from "./pbf-io.js";
 import { topo2geo } from "./modules/topo2geo.js";
 import { gunzip, isGzip } from "native-bucket";
 import { isString, isURL, isFile, isObject, isBuffer } from "common"
-//const console = new Logger();
 let server = null;
 const getServer = async () => {
     server = server || pbfio("GIS").catch(e => { console.warn("PBFIO initialization failed.", e); return null; });
@@ -17,11 +16,15 @@ export async function geopbf(data, options = {}) { if (isString(options)) option
     let eventTarget = options.eventTarget || (typeof window !== 'undefined' ? window : (typeof self !== 'undefined' ? self : null));
     if (typeof CustomEvent === 'undefined' || !eventTarget.dispatchEvent) eventTarget = null;
     const throwEvent = (type, detail) => eventTarget && eventTarget.dispatchEvent(new CustomEvent(type, { detail }));
+////===========================================================================================
     const decoder = async (type, file) => {
-        const name = file.name, event = `convrsion from ${type} to GeoPBF`;
-        throwEvent("ConvertStart",{name, event});
+        const name = options.name || file.name.replace(/\.[^\.]+$/, "");
+        const precision = options.precision || 6;
         const encoding = (options.encoding || "utf8").toLowerCase().replace(/[\-\_]/g, "").replace(/shiftjis/, "sjis");
-        const params = { file, precision: options.precision || 6, encoding, };
+        const { description, license, attribution } = options;
+        const params = { file, name, precision, encoding, description, license, attribution };
+        const event = `convrsion from ${type} to GeoPBF`;
+        throwEvent("ConvertStart",{name, event});
         const url = new URL(`./decoder/${type}.js`, import.meta.url);
         const w = new Worker(url, { type: 'module' });
         return new Promise(resolve => {
