@@ -1,7 +1,7 @@
 import * as d3 from "d3";
 import orthoMap from 'ortho-map';
 import { geopbf } from "geopbf";
-import { screenLogger } from "../uploader/src/screenLogger.js";
+import { screenLogger } from "./screenLogger.js";
 import { comma, download, openDirectory, saveTo } from "common";
 import "common/d3/highlight.js";
 import "common/d3/fileio.js";
@@ -79,9 +79,12 @@ async function execURL(target) { uploads.hide(); logger.clear();
 async function execCatalog(info) { uploads.hide(); logger.clear();
     const { target, name, license, description, attribution, link } = info;
     logger.title(name, description).style("cursor", "pointer").on("click", () => link && open(link, "_link_"));
-    logger.log(`Requesting: ${target}`);
+    const p =logger.log(`Requesting: ${target} <span class="cancel">[cancel]</span>`)
+    const cancel = p.select("span").hide().on("click", () => location.reload());
     try {
+        cancel.show();
         const pbf = await geopbf(target, { name, license, description, attribution });
+        cancel.hide();
         logger.success(`${name} (length: ${comma(pbf.size)})`);
         await execPBF(pbf, info);
     } catch (err) { logger.error(`Failed to load ${name}: ${err.message}`); uploads.show(); logger.clear(); }
