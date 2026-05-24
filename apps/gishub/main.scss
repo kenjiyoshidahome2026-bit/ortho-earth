@@ -1,33 +1,36 @@
-$bg: #000; $text: #e3e3e3; $accent: #4b90ff;
+$bg: #000; $dark:#222; $mid:#888; $text: #ccc; $highlight: #fff; $accent: #4b90ff; $remark: #c40;
 
 body, html { font-family: 'Inter', sans-serif; overflow: hidden; }
 * { margin:0; padding:0; box-sizing: border-box; outline:none; }
 button.close {
 	position: absolute; top: 24px; right: 24px; width:40px; height:40px; border-radius: 20px; border:none;
-	background: none; color: #fff; cursor: pointer;
-	&:hover { background: rgba(255, 255, 255, 0.3); }
+	background: none; color: $highlight; cursor: pointer; transition: all 500ms ease-in-out;
+	&:hover { background: $remark; }
 }
 .gishub { position: absolute; inset: 0px; background: $bg; color: $text; opacity:0.8; transition: all 500ms ease-in-out;
 	.left { position: absolute; inset: 0px; width:300px; transition: all 250ms ease-in-out;
-		border-right: 1px solid #333; padding: 0;
+		border-right: 1px solid $dark; padding: 0;
 		> img { display: inline-block; width:30px; vertical-align: middle; margin:10px;  border-radius:5px; 
-			&:hover {border: 1px solid #ccc; }
+			&:hover {border: 1px solid $text; }
 		}
 		> input { display:inline-block; height:30px; width:240px; margin:10px 0; border-radius:5px;
-			background:#181818; border:none; color:#ccc; padding-left:1rem; font-size:1rem;
+			background:$dark; border:none; color:$text; padding-left:1rem; font-size:1rem;
 		}
 		nav { position:absolute; inset:0; top:50px; overflow-y: auto;
 			.group-section { padding:0.5em 1rem;
-				h2 { font-size: 0.8rem; color: #aaa; margin-bottom: 5px; letter-spacing: 0.05em; }
-				.card { position:relative; padding: 8px; border: 1px solid #666; border-radius: 8px; cursor: pointer;
+				h2 { font-size: 0.8rem; color: $mid; margin-bottom: 5px; text-align: left;}
+				.card { position:relative; padding: 8px; border: 1px solid $mid; border-radius: 8px; cursor: pointer;
 					margin-bottom: 5px; transition: background 0.2s;
-					&:hover { background: #000; border-color: #ccc; }
 					.card-name { font-weight: bold; font-size: 0.8rem; }
-					.card-desc { font-size: 0.7rem; color: #aaa; margin-top: 4px; }
-					.license { position:absolute; font-size: 0.5rem; color: #aaa; top:1em; right:1em; }
+					.card-desc { font-size: 0.7rem; color: $mid; margin-top: 4px; }
+					.license { position:absolute; font-size: 0.5rem; color: $mid; top:1em; right:1em; }
+					&:hover { background: $accent; color:$highlight; border-color: $highlight; 
+						.license { color: $highlight; }
+						.card-desc { color: $highlight; }	
+					}
 				}
 			}
-			.highlight { background: #c40; color:#fff; }
+			.highlight { background: $remark; color:$highlight; }
 		}
 	}
 	.main { position: absolute; inset: 0px; left:300px;transition: all 250ms ease-in-out;
@@ -36,22 +39,23 @@ button.close {
 			span { display: inline-block; padding-left: 1rem; }
 		}
 		> .log { position: absolute; inset:70px 30px 30px; overflow-y: auto; }
-		> .uploads { position: absolute; inset:70px 30px 30px; * {max-width: 700px;}
-			h2 { font-size: 1.2rem; text-align: left; }
-			p,ul { margin-bottom:1rem; padding-left:3rem; }
+		> .uploads { position: absolute; inset:70px 30px 30px; border:2px solid transparent; * {max-width: 700px;}
+			h2 { font-size: 1.2rem; text-align: left; color: $highlight;}
+			p,ul { margin-bottom:1rem; padding-left:3rem; color:$text; }
 			li { list-style-type: square; }
 			img { width:80%; margin:0 10%; max-width:400px; margin-bottom: 1rem;}
 			input[type=text] { display:inline-block; width:100%;
 				font-family: 'Courier New', Courier, monospace;
-				background:#181818; border:1px solid #888; color:#fff; border-radius:5px; padding:10px; font-size:1.2rem;
+				background:$dark; border:1px solid $mid; color:$highlight; border-radius:5px; padding:10px; font-size:1.2rem;
 				&:focus { border-color: $accent; }
-				&::placeholder { font-family: 'Inter', sans-serif; color:#555; text-align: center;font-size: 0.9rem; font-weight:700; font-style: oblique;}
+				&::placeholder { font-family: 'Inter', sans-serif; color:$mid; text-align: center;font-size: 0.9rem; font-weight:700; font-style: oblique;}
 
 			}
-			&.drag-over { background: rgba(255, 255, 255, 0.1); border: 2px dashed $accent; }
+			&.drag-over { background: $dark; border: 2px dashed $remark; }
 		}
 	}
-	.accent { background: $accent; font-weight:bold }
+	.remark{ color: $remark; font-weight: bold; }
+	.accent { background: $accent; font-weight:bold; }
 	&.close { 
 		.left { width:50px; input,.group-section {display:none; } }
 		.main { left: 50px; }

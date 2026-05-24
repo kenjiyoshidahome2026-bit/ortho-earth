@@ -13,16 +13,18 @@
 <rect x="248" y="130" width="104" height="40" rx="10" ry="10"/>
 <rect x="120" y="220" width="120" height="40" rx="20" ry="20" fill="#4b90ff" stroke-width="3"/>
 </g>
-<g fill="#fff" stroke="none" font-size="15" dominant-baseline="middle" text-anchor="middle">
+<g fill="#ccc" stroke="none" font-size="15" dominant-baseline="middle" text-anchor="middle">
 <text x="60" y="31">GeoJSON</text>
 <text x="180" y="31">FlatGeobuf</text>
 <text x="300" y="31">GPX</text>
 <text x="60" y="91">Shape</text>
-<text x="180" y="91" font-weight="600" font-size="18">GIS-HUB</text>
 <text x="300" y="91">GML</text>
 <text x="60" y="151">TopoJSON</text>
-<text x="180" y="151" font-weight="600">GeoPBF</text>
 <text x="300" y="151">KMZ/KML</text>
-<text x="180" y="241" font-weight="600">ortho-map</text>
+<g fill="#fff" font-weight="600">
+<text x="180" y="91" font-size="18">GIS-HUB</text>
+<text x="180" y="151">GeoPBF</text>
+<text x="180" y="241">ortho-map</text>
+</g>
 </g>
 </svg>
