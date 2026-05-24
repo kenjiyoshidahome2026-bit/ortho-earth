@@ -30,13 +30,13 @@ export function lint(self, options = {}) { //console.log(self); debugger
     const types = countArr.map((n, i) => n ? `#${GeoPBF.geometryTypes[i]}: ${comma(n)}` : ``).filter(t => t);
     options.nohead || str.push(`-------------------------------------------------`,` GEOPBF ${self._name}`);
     str.push(`-------------------------------------------------`)
+    self._description && str.push(` DESCRIPTION: ${self._description}`);
     str.push(` FEATURES: ${comma(self.length)} ( ${types.join(" , ")} )`);
     str.push(` SIZE: ${comma(self.size)} [bytes]`);
     str.push(` PRECISION: ${self._precision} [${1 / self.e}]`);
-    str.push(` BBOX: ${JSON.stringify(self.bbox)}`);
-    self._description && str.push(` DESCRIPTION: ${self._description}`);
     self._attribution && str.push(` ATTRIBUTION: ${self._attribution}`);
     self._license && str.push(` LICENSE: ${self._license}`);
+    str.push(` BBOX: ${JSON.stringify(self.bbox)}`);
     str.push(`-------------------------------------------------`, ` GEOMETRY SECTION`, `-------------------------------------------------`)
     const [point_count, line_count, poly_count, coords_count] = self.count.map(comma);
     str.push(` # POINT: ${point_count}`, ` # LINE: ${line_count}`, ` # POLYGON: ${poly_count}`, ` # TOTAL COORDINATES: ${coords_count}`);
@@ -54,7 +54,7 @@ export function lint(self, options = {}) { //console.log(self); debugger
         str.push(` ${self.keys[i]}: ${typeStr}`);
     });
     str.push(`-------------------------------------------------`);
-    options.nofoot || str.push(new Date().toString());
+    options.nohead || str.push(new Date().toString());
     return str.join("\n") + "\n";
 }
 
