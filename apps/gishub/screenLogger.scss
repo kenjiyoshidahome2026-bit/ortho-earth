@@ -8,15 +8,11 @@ div.log {
 				}
 			}
 		}
-		// > button { padding: 0.5rem 1rem; margin: 0.5rem; background: #444; color: #fff;
-		// 	border: 1px solid #ccc; border-radius: 5px; min-width: 6em;
-		// 	&:hover { background: rgba(255, 255, 255, 0.2); }
-		// }
 		> span.big { font-size: 110%; font-weight: bold;}
 		> img { width:100%; }
 		> span { padding:0 1em 0 0; }
 		&.title { margin:2rem 0 1rem 0;
-			> span.title { font-size:150%; font-weight:bold; background:#444; padding:0.5rem 1rem; border-radius:5px;}
+			> span.title { font-size:150%; font-weight:bold; background:#222; padding:0.5rem 1rem; border-radius:5px;}
 			> span.subtitle { font-size:110%; font-weight: bold; margin-left: 1rem; }
 		}
 		&.success { font-size:110%; font-weight:bold; }
@@ -38,7 +34,6 @@ div.log {
 				&:first-child { border-radius: 8px 0 0 8px; border-left-width: 1px; }
 				&:last-child { border-radius: 0 8px 8px 0; border-right-width: 1px; }
 				&.flip { background: #ccc; color: #000; }
-
 			}
 		}
 	}
