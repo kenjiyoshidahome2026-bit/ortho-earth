@@ -85,6 +85,21 @@ export const escape = func => { if (typeof document === 'undefined') return;
 };
 ////-----------------------------------------------------------------------------------------------
 let saveDire = null;
+
+export async function inputFile(accept = "") {
+    return new Promise((resolve) => {
+        const input = document.createElement("input");
+        input.type = "file";
+        input.style.display = "none";
+        if (accept) input.accept = accept;
+        input.addEventListener("change", (e) => {
+            resolve(e.target.files[0] || null);
+            setTimeout(() => input.remove(), 50);
+        });
+        document.body.appendChild(input);
+        input.click();
+    });
+}
 export const download = (blob, name) => {
     name = name || blob.name || "download";
     const url = URL.createObjectURL(blob);
@@ -95,15 +110,18 @@ export const download = (blob, name) => {
 export const openDirectory = async() => {
     try { saveDire = saveDire || await window.showDirectoryPicker({ mode: 'readwrite' });
         const status = await saveDire.queryPermission({ mode: 'readwrite' });
-        if (status !== 'granted') {
+        if (status === 'granted') return saveDire;
+        if (status === 'prompt') {
+            const newStatus = await saveDire.requestPermission({ mode: 'readwrite' });
+            if (newStatus === 'granted') return saveDire;
             throw new Error('Permission to access the directory was denied.');
-            saveDire = null;
+            return (saveDire = null);
         }
-    } catch (err) { console.error("Failed to open directory:", err); }
+    } catch (err) { console.error("Failed to open directory:", err); return null;}
 };
 export const saveTo = async(blob, name) => {
     try {
-        await openDirectory();
+        if (!await openDirectory()) return false;
         const fileName = name || blob.name || "download";
         const fileHandle = await saveDire.getFileHandle(fileName, { create: true });
         const writable = await fileHandle.createWritable();

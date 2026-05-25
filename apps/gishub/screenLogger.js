@@ -8,6 +8,11 @@ export class screenLogger {
 		this.dots = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 		this.bars = {};
 		this.mess = {};
+		addEventListener("FetchStart", e => this.progress("start", e));
+		addEventListener("FetchProgress", e => this.progress("progress", e));
+		addEventListener("FetchEnd", e => this.progress("end", e));
+		addEventListener("ConvertStart", e => this.event("start", e));
+		addEventListener("ConvertEnd", e => this.event("end", e));
 	} 
 	clear() { this.target.empty(); }
 	empty() { const div = this.target, p = div.append("p");
@@ -124,14 +129,3 @@ export class screenLogger {
 	}); }
 	async confirm(s, def = true) { return this.select(s, def? { "Yes": true, "No": false}: { "No": false, "Yes": true}); }
 };
-// d3.selection.prototype.selectButtons = function(data, func, init, trans = true) { var div = this;
-// 	if (!Array.isArray(data[0])) data = data.map(t=>[t,t]), trans = false;
-// 	div.empty().classed("sel", true).selectAll("button").data(data).enter().append("button")
-// 	.each(function(d){ this.innerHTML = d[0]; this.value = d[1]; trans && this.setAttribute("trans", d[0]);
-// 		const btn = d3.select(this);
-// 		this.value === init && btn.classed("flip", true);
-// 		btn.on("click",()=>{ div.selectAll("button").classed("flip", false);　btn.classed("flip", true);
-// 			func(this.value);
-// 		});
-// 	});
-// };

@@ -1,13 +1,16 @@
 $bg: #000; $dark:#222; $mid:#888; $text: #ccc; $highlight: #fff; $accent: #4b90ff; $remark: #c40;
+$font: 'Verdana', "Inter", 'Hiragino Kaku Gothic ProN', Arial, sans-serif;
+$mono: 'Courier New', Courier, monospace;
 
-body, html { font-family: 'Inter', sans-serif; overflow: hidden; }
+body, html { overflow: hidden; width:100%; height:100%; background:$bg; color:$text; }
 * { margin:0; padding:0; box-sizing: border-box; outline:none; }
 button.close {
 	position: absolute; top: 24px; right: 24px; width:40px; height:40px; border-radius: 20px; border:none;
 	background: none; color: $highlight; cursor: pointer; transition: all 500ms ease-in-out;
 	&:hover { background: $remark; }
 }
-.gishub { position: absolute; inset: 0px; background: $bg; color: $text; opacity:0.8; transition: all 500ms ease-in-out;
+.gishub { position: absolute; inset: 0px; background: $bg; color: $text; opacity:0.8; pointer-events: auto;
+	transition: all 500ms ease-in-out; font-family: $font;
 	.left { position: absolute; inset: 0px; width:300px; transition: all 250ms ease-in-out;
 		border-right: 1px solid $dark; padding: 0;
 		> img { display: inline-block; width:30px; vertical-align: middle; margin:10px;  border-radius:5px; 
@@ -17,16 +20,21 @@ button.close {
 			background:$dark; border:none; color:$text; padding-left:1rem; font-size:1rem;
 		}
 		nav { position:absolute; inset:0; top:50px; overflow-y: auto;
-			.group-section { padding:0.5em 1rem;
+			.group { padding:0.5em 1rem;
 				h2 { font-size: 0.8rem; color: $mid; margin-bottom: 5px; text-align: left;}
-				.card { position:relative; padding: 8px; border: 1px solid $mid; border-radius: 8px; cursor: pointer;
-					margin-bottom: 5px; transition: background 0.2s;
-					.card-name { font-weight: bold; font-size: 0.8rem; }
-					.card-desc { font-size: 0.7rem; color: $mid; margin-top: 4px; }
+				.card { display:block; background: $bg; color: $text; position:relative; width:100%; text-align: left;
+					padding: 8px; border: 1px solid $mid; border-radius: 8px; cursor: pointer;
+					margin-bottom: 5px; transition: background 300ms;
+					.name { font-weight: bold; font-size: 0.9rem; }
+					.desc { font-size: 0.7rem; color: $mid; margin-top: 4px; }
 					.license { position:absolute; font-size: 0.5rem; color: $mid; top:1em; right:1em; }
 					&:hover { background: $accent; color:$highlight; border-color: $highlight; 
-						.license { color: $highlight; }
-						.card-desc { color: $highlight; }	
+						.license, .desc { color: $highlight; }
+					}
+					&[disabled] { opacity:0.5; cursor: not-allowed;
+						&:hover { background: $bg; color:$text; border-color: $mid; 
+							.license, .desc { color: $mid; }
+						}
 					}
 				}
 			}
@@ -38,26 +46,28 @@ button.close {
 			img { width: 28px; vertical-align: middle; }
 			span { display: inline-block; padding-left: 1rem; }
 		}
-		> .log { position: absolute; inset:70px 30px 30px; overflow-y: auto; }
-		> .uploads { position: absolute; inset:70px 30px 30px; border:2px solid transparent; * {max-width: 700px;}
+		> .log { position: absolute; inset:70px 30px 30px; overflow-y: auto; font-family:$mono;}
+		> .uploads { position: absolute; inset:70px 30px 30px; border:2px solid transparent; line-height:1.6em;
+			* { max-width: 700px; }
 			h2 { font-size: 1.2rem; text-align: left; color: $highlight;}
 			p,ul { margin-bottom:1rem; padding-left:3rem; color:$text; }
 			li { list-style-type: square; }
 			img { width:80%; margin:0 10%; max-width:400px; margin-bottom: 1rem;}
 			input[type=text] { display:inline-block; width:100%;
-				font-family: 'Courier New', Courier, monospace;
+				font-family: $mono;
 				background:$dark; border:1px solid $mid; color:$highlight; border-radius:5px; padding:10px; font-size:1.2rem;
 				&:focus { border-color: $accent; }
-				&::placeholder { font-family: 'Inter', sans-serif; color:$mid; text-align: center;font-size: 0.9rem; font-weight:700; font-style: oblique;}
+				&::placeholder { font-family: $font; color:$mid; text-align: center;font-size: 0.9rem; font-weight:500; font-style: oblique;}
 
 			}
 			&.drag-over { background: $dark; border: 2px dashed $remark; }
 		}
+		.remark{ color: $remark; font-weight: bold; }
+		.accent { background: $accent; font-weight:bold; }
 	}
-	.remark{ color: $remark; font-weight: bold; }
-	.accent { background: $accent; font-weight:bold; }
 	&.close { 
 		.left { width:50px; input,.group-section {display:none; } }
 		.main { left: 50px; }
 	}
+	&.viewing { opacity:0; pointer-events:none; }
 }
