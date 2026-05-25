@@ -14,7 +14,18 @@ const exitButton = mapInst.append("button").attr("class", "close").html(`<img sr
 const gishub = d3.select("body").append("div").attr("class", "gishub");
 ////------------------------------------------------------
 const left = gishub.append("aside").attr("class", "left");
-const groups = await d3.json("./catalog.json");
+// const tub = {};
+// (await d3.json("./catalog.json")).forEach(d => {
+//     const group = tub[d.attribution] = tub[d.attribution] || { group: d.attribution, contents: [] };
+//     group.contents.push(d);
+// });
+const groups = (a => { const tub = new Map();
+    a.forEach(d => {
+        const group = tub[d.attribution] = tub[d.attribution] || { group: d.attribution, contents: [] };
+        group.contents.push(d);
+    });
+    return Object.values(tub);
+})(await d3.json("./catalog.json"));
 left.append("img").attr("src", "menu.svg").attr("alt", "MENU").on("click", () => gishub.classed("close", !gishub.classed("close")))	;
 left.append("input").attr("type", "text").attr("name", "search").attr("placeholder", "Search...")
 .on("input", function() {
