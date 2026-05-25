@@ -20,30 +20,91 @@ async function init(data) {
 }
 
 
+// src/workers/gint.js の loadGintBuffers() を完全実装に格上げ
 
-async function loadGintBuffers() {
-	// 実際の実装では IndexedDB 等から ArrayBuffer を直読みして転送
-	// ここでは構造定義のスケルトンを示します
+let mortonPoolTex, stitchedIboTex; // バッファテクスチャの参照保持
+
+async function loadGintBuffers(pbfPolygonData) {
+	// メメインスレッドの GeoPBF から引き渡されたトポロジーオブジェクト
+	// pbfPolygonData = { buffer, meta, mlen, count }
+	const { buffer, meta, mlen, count } = pbfPolygonData;
+
 	sharedVAO = gl.createVertexArray();
 	gl.bindVertexArray(sharedVAO);
 
-	// --- Buffer 0: メタデータ(ポリゴン単位/Divisor=1) ---
-	// [offset(uint), len(uint), id(uint)]
+	// =================================================================
+	// 📊 Buffer 0: インスタンス属性（ポリゴン単位で1回進む / Divisor=1）
+	// =================================================================
+	// 各ポリゴンが「IBO内のどこから」「何頂点分」描画されるかのメタデータ
+	const polyMeta = new Uint32Array(count * 3); // [offset, len, poly_id]
+
+	let currentArcOffset = 0;
+	const indicesStream = [];
+
+	for (let i = 0; i < count; i++) {
+		const off = meta[i * mlen];     // 全体バッファにおけるリングの開始位置
+		const len = meta[i * mlen + 1]; // このリングの持つ頂点数（LOD前の生数）
+
+		if (len < 3) continue;
+
+		// 🌟 ここで「LOD対応の三角形ファン（Fan）ストリーム」を切り出す
+		// 頂点シェーダー側が gl.TRIANGLE_FAN でインスタンス描画するため、
+		// IBOストリームには「元バッファの絶対インデックス」をそのまま順番通りに敷き詰める
+		polyMeta[totalPolygons * 3 + 0] = currentArcOffset; // a_arc_offset
+		polyMeta[totalPolygons * 3 + 1] = len;             // a_arc_len
+		polyMeta[totalPolygons * 3 + 2] = i;               // a_poly_id (属性テーブルの行番号)
+
+		// このポリゴンを構成するインデックス（絶対位置）をストリームにプッシュ
+		for (let k = 0; k < len; k++) {
+			indicesStream.push(off + k);
+		}
+
+		currentArcOffset += len;
+		totalPolygons++;
+	}
+
+	// GPUへインスタンスメタデータを転送
 	const metaBuffer = gl.createBuffer();
-	// ... gl.bufferData ...
+	gl.bindBuffer(gl.ARRAY_BUFFER, metaBuffer);
+	gl.bufferData(gl.ARRAY_BUFFER, polyMeta.subarray(0, totalPolygons * 3), gl.STATIC_DRAW);
 
-	// 各属性の有効化とDivisor設定
-	// a_arc_offset, a_arc_len, a_poly_id ...
-	// gl.vertexAttribDivisor(loc, 1);
+	// a_arc_offset (Location 1)
+	gl.enableVertexAttribArray(1);
+	gl.vertexAttribPointer(1, 1, gl.UNSIGNED_INT, false, 12, 0);
+	gl.vertexAttribDivisor(1, 1); // インスタンスごとに1進める
 
-	// --- Texture Buffer 0: 接続済みIBO ---
-	// uintの1Dストリームとしてバッファテクスチャ化
+	// a_arc_len (Location 2)
+	gl.enableVertexAttribArray(2);
+	gl.vertexAttribPointer(2, 1, gl.UNSIGNED_INT, false, 12, 4);
+	gl.vertexAttribDivisor(2, 1);
 
-	// --- Texture Buffer 1: Morton Pool ---
-	// uvec2 (8byte) の1Dストリームとしてバッファテクスチャ化
+	// a_arc_id (Location 3)
+	gl.enableVertexAttribArray(3);
+	gl.vertexAttribPointer(3, 1, gl.UNSIGNED_INT, false, 12, 8);
+	gl.vertexAttribDivisor(3, 1);
 
-	// --- Texture 2: 属性テーブル (CSV) ---
-	// 1Dのカラーパレット画像としてロード
+	// =================================================================
+	// 🧵 Texture Buffer 0: 接続済み IBO (SamplerBuffer)
+	// =================================================================
+	const iboBuffer = gl.createBuffer();
+	gl.bindBuffer(gl.TEXTURE_BUFFER, iboBuffer);
+	gl.bufferData(gl.TEXTURE_BUFFER, new Uint32Array(indicesStream), gl.STATIC_DRAW);
+
+	stitchedIboTex = gl.createTexture();
+	gl.bindTexture(gl.TEXTURE_BUFFER, stitchedIboTex);
+	gl.texBuffer(gl.TEXTURE_BUFFER, gl.R32UI, iboBuffer); // 32bit型整数ストリームとして宣言
+
+	// =================================================================
+	// 💎 Texture Buffer 1: Morton Pool (BigUint64Array のダイレクト転送)
+	// =================================================================
+	// GeoPBFから引き抜いた 64bit整数の生配列を、そのままVRAMへ滑り込ませる
+	const mortonBuffer = gl.createBuffer();
+	gl.bindBuffer(gl.TEXTURE_BUFFER, mortonBuffer);
+	gl.bufferData(gl.TEXTURE_BUFFER, buffer, gl.STATIC_DRAW); // CPUでのループ展開は完全ゼロ！
+
+	mortonPoolTex = gl.createTexture();
+	gl.bindTexture(gl.TEXTURE_BUFFER, mortonPoolTex);
+	gl.texBuffer(gl.TEXTURE_BUFFER, gl.RG32UI, mortonBuffer); // 64bitを「32bit×2(RG)」としてシェーダーへマッピング！
 
 	gl.bindVertexArray(null);
 }
@@ -53,20 +114,37 @@ function resize(data) {
 	proj.fitExtent([[1, 1], [width - 1, height - 1]], { type: "Sphere" });
 }
 
+// src/workers/gint.js の drawing(data) の完全統合版
 function drawing(data) {
+	if (!totalPolygons) return; // データロード前ならスキップ
+
 	proj.rotate(data.rotate).scale(data.scale);
 	zoom = log2(data.scale * PI * 2 / 256);
-	gl.clear(gl.COLOR_BUFFER_BIT); if (zoom < 5) return;
+
+	gl.clear(gl.COLOR_BUFFER_BIT);
+	if (zoom < 5) return; // ズームが引きすぎている時はLOD制御のため非表示
+
+	// ヤコビアンマトリクス（歪み・回転・スケールの統合演算）の適用
 	const jacob = updateJacobian(proj, width, height);
+	gl.useProgram(gl.programInstance); // 有効化
+
 	gl.uniformMatrix2fv(gl.jacobian_loc, false, jacob.matrix);
 	gl.uniform2iv(gl.center_int_loc, jacob.centerInt);
 
-	// 現在のズームに応じたLOD閾値の算出 (例: 線形マッピング)
-	const lodThresh = max(0, 63 - (zoom - SWITCH_ZOOM) * 10);
+	// 🌟 現在のズーム（0.0 〜 22.0）に応じて、シェーダー内の1px-LOD閾値（0 〜 63）を動的に叩き込む！
+	const SWITCH_ZOOM = 5.0;
+	const lodThresh = max(0, 63 - (zoom - SWITCH_ZOOM) * 8); // ズームインするほど閾値が下がり、細かい頂点が出現
 	gl.uniform1f(gl.lod_thresh_loc, lodThresh);
 
-	// 一撃描画 (Single Dispatch)
-	// CPUはループを回さず、すべての描画をGPUへ丸投げする
+	// 🌟 テクスチャバッファのユニット結合（0番と1番を完全確保）
+	gl.activeTexture(gl.TEXTURE0);
+	gl.bindTexture(gl.TEXTURE_BUFFER, stitchedIboTex); // u_stitched_ibo
+
+	gl.activeTexture(gl.TEXTURE1);
+	gl.bindTexture(gl.TEXTURE_BUFFER, mortonPoolTex);   // u_morton_pool
+
+	// 🚀 一撃インスタンスドロー（Single Dispatch !!）
+	// ループも回さず、数百万の三角形ファンがGPUのコアに直列分散されて一瞬で描画される
 	gl.bindVertexArray(sharedVAO);
 	gl.drawArraysInstanced(gl.TRIANGLE_FAN, 0, maxPolyVertices, totalPolygons);
 	gl.bindVertexArray(null);
