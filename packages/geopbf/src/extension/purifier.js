@@ -34,25 +34,30 @@ export const purify = (topo) => {
     });
 
     for (const segIds of grid.values()) {
-        if (segIds.length < 2 || segIds.length > 1500) continue;
+        // 1セルあたりの詰め込み上限を少し絞る（過密エリアのノイズ対策）
+        if (segIds.length < 2 || segIds.length > 1000) continue;
+
         for (let i = 0; i < segIds.length; i++) {
             const s1 = segments[segIds[i]];
             for (let j = i + 1; j < segIds.length; j++) {
                 const s2 = segments[segIds[j]];
+
+                // 同じラインの隣り合うセグメントはスキップ
                 if (s1.lineIdx === s2.lineIdx && Math.abs(s1.sIdx - s2.sIdx) <= 1) continue;
-                const pairKey = BigInt(s1.id) << 32n | BigInt(s2.id);
-                if (checkedPairs.has(pairKey)) continue;
-                checkedPairs.add(pairKey);
+
+                // 🌟 高速な Bounding Box の重なりチェック（これで大半の無駄なペアが弾かれる）
                 if (s1.bx2 < s2.bx1 || s1.bx1 > s2.bx2 || s1.by2 < s2.by1 || s1.by1 > s2.by2) continue;
+
+                // 🌟 重なりがある場合のみ、直接交差計算へ流す
                 const pts = solver(s1, s2, SNAP_DIST_SQ, GRID_UNIT);
                 if (pts) pts.forEach(pt => {
                     const key = packXY(pt.x, pt.y);
-                    s1.intersections.set(key, pt); s2.intersections.set(key, pt);
+                    s1.intersections.set(key, pt);
+                    s2.intersections.set(key, pt);
                 });
             }
         }
     }
-
     topo.forEach((line, lineIdx) => {
         const final = [], original = line.coords;
         const pushClean = (p) => {

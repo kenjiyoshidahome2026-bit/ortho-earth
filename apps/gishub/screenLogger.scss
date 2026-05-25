@@ -16,8 +16,8 @@ div.log {
 			> span.subtitle { font-size:110%; font-weight: bold; margin-left: 1rem; }
 		}
 		&.success { font-size:110%; font-weight:bold; }
-		&.warn { font-size:110%; font-weight:bold; color:#ff0; }
-		&.error { font-size:110%; font-weight:bold; color:#f08; }
+		&.warn { font-size:110%; font-weight:bold; color:#cc0; }
+		&.error { font-size:110%; font-weight:bold; color:#800; }
 		&.progress { font-size:100%; .done { color:#0c0; padding-right:0; } .rest { color:#008; padding-right: 0; }}
 		&.event { font-size: 100%; }
 		&.prompt { font-size: 110%; font-weight: bold;
