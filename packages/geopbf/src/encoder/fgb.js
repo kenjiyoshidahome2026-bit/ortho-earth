@@ -263,7 +263,7 @@ const concatUint8 = arrays => {
 
 // --- 🌐 Worker メインループ ---
 onmessage = async (e) => {
-	const { buf, name, gz } = e.data; //
+	const { buf, name, opts } = e.data, gz = opts && opts.gz; //
 	try {
 		const pbf = await new GeoPBF().name(name).set(buf); //
 		const { readable, writable } = new TransformStream(); //

@@ -1,8 +1,8 @@
 onmessage = async (e) => {
-    const { buf, name, gz } = e.data;
+    const { buf, name } = e.data;
     try {
         let blob = new Blob([buf]);
-        if (gz !== false) blob = await (new Response(blob.stream().pipeThrough(new CompressionStream("gzip")))).blob();
+        blob = await (new Response(blob.stream().pipeThrough(new CompressionStream("gzip")))).blob();
         postMessage(new File([blob], `${name}.geopbf`, { type: "application/x-geopbf" }));
     } catch (err) { postMessage(null); }
 };

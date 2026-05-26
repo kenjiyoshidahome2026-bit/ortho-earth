@@ -82,14 +82,14 @@ async function exec(info) {
         attribution && pbf.originalURL && p.append("button").text("Reload from original url").on("click", async() => { await pbf.clean(); pbf.destroy(); exec(info);});
         const save = async s => { const v = await saveTo(s); if (v) logger.log(`📥 Saved: ${s.name} (${comma(s.size)} bytes)`); }
         const funcs = [
-            async function GeoPBF() { save(await pbf.geopbfFile(true)) },
-            async function GeoJSON() { await openDirectory(); const v = await logger.confirm("GeoJSON Gzipped", false); save(await pbf.geojsonFile(v)); },
-            async function TopoJSON() { const v = await logger.confirm("TopoJSON Gzipped", false); save(await pbf.topojsonFile(v)); },
-            async function FGB() { save(await pbf.fgbFile()) },
-            async function KMZ() { const v = await logger.select("KMZ or KML", {KMZ:true, KML:false}); save(await pbf.kmzFile(v)); },
-            async function Shape() { const v = await logger.prompt(`encoding (default: utf8)`,"utf8"); save(await pbf.shapeFile(v)) },
-            async function GML() { const v = await logger.confirm("GML Gzipped", false); save(await pbf.gmlFile(v)); },
-            async function GPX() { const v = await logger.confirm("GPX Gzipped", false); save(await pbf.gpxFile(v)); },
+            async function GeoPBF() { save(await pbf.geopbfFile()) },
+            async function GeoJSON() { save(await pbf.geojsonFile(await logger.confirm("GeoJSON Gzipped", false))); },
+            async function TopoJSON() { save(await pbf.topojsonFile(await logger.confirm("TopoJSON Gzipped", false))); },
+            async function FGB() { save(await pbf.fgbFile(await logger.confirm("FGB Gzipped", false))) },
+            async function KMZ() { save(await pbf.kmzFile(await logger.select("KMZ or KML", { KMZ: true, KML: false }))); },
+            async function Shape() { save(await pbf.shapeFile(await logger.prompt(`encoding (default: utf8)`, "utf8"))) },
+            async function GML() { save(await pbf.gmlFile(await logger.confirm("GML Gzipped", false))); },
+            async function GPX() { save(await pbf.gpxFile(await logger.confirm("GPX Gzipped", false))); },
         ];
         p = logger.empty();
         const active = v => logger.target.selectAll("button").attr("disabled", v ? null : true);

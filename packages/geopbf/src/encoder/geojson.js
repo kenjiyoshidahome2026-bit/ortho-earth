@@ -2,7 +2,7 @@ import { GeoPBF } from "../pbf-base.js";
 const enc = new TextEncoder();
 
 onmessage = async (e) => {
-    const { buf, name, gz } = e.data;
+    const { buf, name, opts } = e.data, gz = opts && opts.gz;
     try {
         const pbf = await new GeoPBF().name(name).set(buf);
         const { readable, writable } = new TransformStream();

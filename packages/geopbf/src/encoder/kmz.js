@@ -13,7 +13,7 @@ const toKMLColor = (c, opacity = 1) => {
 };
 
 onmessage = async (e) => {
-    const { buf, name, gz } = e.data;
+    const { buf, name, opts } = e.data, kmz = opts && opts.kmz !== undefined ? opts.kmz : true; // kmzフラグのデフォルトはtrue
     try {
         const pbf = await new GeoPBF().name(name).set(buf);
         const embeddedFiles = []; // ZIPに同梱するファイルのリスト
@@ -73,7 +73,7 @@ onmessage = async (e) => {
 
         const kmlFile = new File([kml], `doc.kml`, { type: "application/vnd.google-earth.kml+xml" });
 
-        if (gz) {
+        if (kmz) {
             // KMZとしてパッケージング。doc.kml と files/ を同梱
             const zip = await encodeZIP([kmlFile, ...embeddedFiles], `${name}.kmz`);
             postMessage(zip);

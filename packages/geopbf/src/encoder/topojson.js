@@ -1,19 +1,16 @@
 import { GeoPBF } from "../pbf.js";
 
 onmessage = async (e) => {
-    const { buf, name, gz } = e.data;
+    const { buf, name, opts } = e.data, gz = opts && opts.gz;
     try {
         const pbf = await new GeoPBF({ name }).set(buf);
-        const topo = pbf.topojson;
-        const resStr = JSON.stringify(topo);
-        let res = resStr;
+        const topo = await pbf.topojson();
+        let str = JSON.stringify(topo);
         if (gz) {
-            const out = new Response(new Blob([resStr]).stream().pipeThrough(new CompressionStream("gzip")));
-            res = await out.blob();
+            const out = new Response(new Blob([str]).stream().pipeThrough(new CompressionStream("gzip")));
+            str = await out.blob();
         }
-        postMessage(new File([res], `${name}.topojson${gz ? ".gz" : ""}`, {
-            type: gz ? "application/gzip" : "application/json"
-        }));
+        postMessage(new File([str], `${name}.topojson${gz ? ".gz" : ""}`, {type: gz ? "application/gzip" : "application/json"}));
     } catch (err) {
         console.error("Topojson encode Worker Error:", err);
         postMessage(null);
