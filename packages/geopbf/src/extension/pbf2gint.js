@@ -176,3 +176,35 @@ export function pbf2gint(self) {
 
     return outBuffer;
 }
+export function unpackGintAll(arrayBuffer) {
+    // 1. 先頭24バイトからヘッダー情報を一撃で読み解く
+    const headerView = new Uint32Array(arrayBuffer, 0, 6);
+
+    const counts = {
+        polygonCount: headerView[0],
+        polylineCount: headerView[1],
+        pointCount: headerView[2]
+    };
+
+    const metaBytes = headerView[3];
+    const indicesBytes = headerView[4];
+    const bufferBytes = headerView[5];
+
+    // 2. 各ストリームの開始オフセット（バイト位置）を確定
+    const metaStart = 24;
+    const indicesStart = metaStart + metaBytes;
+    const bufferStart = indicesStart + indicesBytes;
+
+    // 3. ゼロコピーで TypedArray のポインタを再マッピング
+    // ※ 底層のメモリを共有したまま、一瞬でビューを被せる
+    const meta = new Uint32Array(arrayBuffer, metaStart, metaBytes / 4);
+    const indices = new Uint32Array(arrayBuffer, indicesStart, indicesBytes / 4);
+    const buffer = new BigUint64Array(arrayBuffer, bufferStart, bufferBytes / 8);
+
+    return {
+        counts,   // 各種フィーチャ・アークの総数
+        meta,     // 各フィーチャIDが「どのアーク」を繋いでいるかのトポロジー接続ストリーム
+        indices,  // 各アークの [絶対バイトオフセット, 頂点数, 左所有者, 右所有者]
+        buffer    // 空間清浄化＆LOD Weightが焼き付けられた 1D Morton頂点の海
+    };
+}
