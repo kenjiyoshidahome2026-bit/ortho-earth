@@ -4,7 +4,8 @@
 	"target": "https://nlftp.mlit.go.jp/ksj/gml/data/N03/N03-2026/N03-20260101_GML.zip#N03-20260101.geojson",
 	"link": "https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-N03-2026.html",
 	"attribution":"国土交通省 国土数値情報",
-	"license": "CC_BY_4.0"
+	"license": "CC_BY_4.0",
+	"precision":7
 },{
 	"name": "N03-20260101_prefecture",
 	"description": "行政区域データ(都道府県:2026)",

@@ -14,11 +14,6 @@ const exitButton = mapInst.append("button").attr("class", "close").html(`<img sr
 const gishub = d3.select("body").append("div").attr("class", "gishub");
 ////------------------------------------------------------
 const left = gishub.append("aside").attr("class", "left");
-// const tub = {};
-// (await d3.json("./catalog.json")).forEach(d => {
-//     const group = tub[d.attribution] = tub[d.attribution] || { group: d.attribution, contents: [] };
-//     group.contents.push(d);
-// });
 const groups = (a => { const tub = new Map();
     a.forEach(d => {
         const group = tub[d.attribution] = tub[d.attribution] || { group: d.attribution, contents: [] };
@@ -51,10 +46,11 @@ uploads.append("p").text(`GIS-HUB is a next-generation, high-performance web GIS
  It effortlessly unifies heavy open data into a fluid, zero-latency 3D map inside your browser.`);
 uploads.append("h2").text("🔬 Quick Start Guide");
 uploads.append("ul").html(`
-    <li><b>Explore Catalog:</b> Click sidebar cards to fetch open data on the fly.</li>
-    <li><b>Bring Data:</b> Drag & drop a file, double-click to browse, or enter a URL.</li>
-    <li><b>Visualize:</b> Click "View in Ortho-Map" for a buttery-smooth WebGL2 experience.</li>
-    <li><b>Convert:</b> Export seamlessly to FlatGeobuf, GeoPBF, or traditional GIS formats.</li>
+    <li><b>Explore Catalog: </b>Click sidebar cards to fetch open data on the fly.</li>
+    <li><b>Bring Data: </b>Drag & drop a file, double-click to browse, or enter a URL.</li>
+    <li><b>On-the-fly zip extraction: </b>zip-url#file-name is available.</li>
+    <li><b>Visualize: </b>Click "View in Ortho-Map" for a buttery-smooth WebGL2 experience.</li>
+    <li><b>Convert: </b>Export seamlessly to FlatGeobuf, GeoPBF, or traditional GIS formats.</li>
 `);
 uploads.append("img").attr("src", "gishub.svg");
 uploads.append("input").attr("type","text").attr("placeholder", `"Enter URL" or "Drag & drop a file" or "Double-click to select file."`)
@@ -63,23 +59,26 @@ uploads.append("input").attr("type","text").attr("placeholder", `"Enter URL" or 
 ////------------------------------------------------------
 async function exec(info) {
     try { uploads.hide(); logger.clear();
-        let inExec = true; left.selectAll(".card").attr("disabled", true);
-        const { target, name, license, description, attribution, link } = info;
+        let inExec = true, success = false; left.selectAll(".card").attr("disabled", true);
+        const def = {target:"", name: "", precision:6, license:"", description:"", attribution:"", link:""};
+        const { target, name, precision, license, description, attribution, link } = Object.assign(def, info);
         let p = logger.title(name, description);
         link && p.style("cursor", "pointer").on("click", () => open(link, "_link_"));
         p = logger.log(`Requesting: ${target.name || target} <span class="remark">[cancel]</span>`)
         const cancel = p.select("span").hide().on("click", () => location.reload());
         setTimeout(() => inExec && cancel.show(),1000);
-        const pbf = await geopbf(target, { name, license, description, attribution });
-        logger.success(`${name} (length: ${comma(pbf.size)})`);
-        logger.log(await pbf.profile({nohead:true}));
-        inExec = false; left.selectAll(".card").attr("disabled", null);
-        cancel.hide();
-        p =logger.empty();
-        p.append("span").text("🔔 [ACTIONs]").classed("big",true);
-        p.append("button").classed("accent", true).text("View in Ortho-Map").on("click", execView);
-        p.append("button").text("Done").on("click", async () => { pbf.destroy(); logger.clear(); uploads.show(); });
-        attribution && pbf.originalURL && p.append("button").text("Reload from original url").on("click", async() => { await pbf.clean(); pbf.destroy(); exec(info);});
+        const pbf = await geopbf(target, { name, precision, license, description, attribution });
+        if (pbf && pbf.length) { success = true;
+            logger.success(`${name} (length: ${comma(pbf.size)})`);
+            logger.log(await pbf.profile({nohead:true}));
+        } else logger.error("Failed to load data.");
+        inExec = false; left.selectAll(".card").attr("disabled", null); cancel.hide();
+        p = logger.empty(); p.append("span").text("🔔 [ACTIONs]").classed("big",true);
+        success && p.append("button").classed("accent", true).text("View in Ortho-Map").on("click", execView);
+        p.append("button").text("Done").on("click", async () => { pbf && pbf.destroy(); logger.clear(); uploads.show(); });
+        attribution && pbf.originalURL && p.append("button").text("Reload from original url")
+            .on("click", async() => { pbf && (await pbf.clean(), pbf.destroy()); exec(info);});
+        if (!success) return;
         const save = async s => { const v = await saveTo(s); if (v) logger.log(`📥 Saved: ${s.name} (${comma(s.size)} bytes)`); }
         const funcs = [
             async function GeoPBF() { save(await pbf.geopbfFile()) },

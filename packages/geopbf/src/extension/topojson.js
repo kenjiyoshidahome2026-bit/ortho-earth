@@ -142,7 +142,7 @@ export function merge(unpackedGint, filterFunc = () => true) {
 
 /**
  * .gintのインデックス構造から直接、条件に合う境界線を抽出する
- * @param {Object} unpackedGint - unpackGintAll() で復元されたオブジェクト
+ * @param {Object} unpackedGint - unPackGint() で復元されたオブジェクト
  * @param {Function} filterFunc - 各ポリゴンIDに対するフィルタ条件
  * @return {Object} MultiLineString 形式のジオメトリ
  */

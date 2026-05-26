@@ -55,9 +55,9 @@ button.close {
 			img { width:80%; margin:0 10%; max-width:400px; margin-bottom: 1rem;}
 			input[type=text] { display:inline-block; width:100%;
 				font-family: $mono;
-				background:$dark; border:1px solid $mid; color:$highlight; border-radius:5px; padding:10px; font-size:1.2rem;
+				background:$dark; border:1px solid $mid; color:$highlight; border-radius:5px; padding:10px; font-size:0.9rem;
 				&:focus { border-color: $accent; }
-				&::placeholder { font-family: $font; color:$mid; text-align: center;font-size: 0.9rem; font-weight:500; font-style: oblique;}
+				&::placeholder { font-family: $font; color:$accent; text-align: center;font-size: 0.9rem; font-weight:500; font-style: oblique;}
 
 			}
 			&.drag-over { background: $dark; border: 2px dashed $remark; }
@@ -66,7 +66,7 @@ button.close {
 		.accent { background: $accent; font-weight:bold; }
 	}
 	&.close { 
-		.left { width:50px; input,.group-section {display:none; } }
+		.left { width:50px; input,nav {display:none; } }
 		.main { left: 50px; }
 	}
 	&.viewing { opacity:0; pointer-events:none; }
