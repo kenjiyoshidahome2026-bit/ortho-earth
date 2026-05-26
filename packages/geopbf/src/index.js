@@ -98,7 +98,7 @@ export async function geopbf(data, options = {}) { if (isString(options)) option
     }
 }
 //  ----------------------------------------------------------------------------------------
-const encoder = async (pbf, type, gz, encoding) => {
+const encoder = async (pbf, type, opts = {}) => {
     const name = pbf._name, buf = pbf.arrayBuffer;
     const event = type =="profile"? `profiling` : `conversion from GeoPBF to ${type}`;
     const throwEvent = (type, detail) => window.dispatchEvent(new CustomEvent(type, { detail }));
@@ -114,21 +114,23 @@ const encoder = async (pbf, type, gz, encoding) => {
             throwEvent("ConvertEnd", { name, error: `file encode error: [${type}]` });
             w.terminate(); console.error(`pbf encode error: [${type}]`); resolve(null);
         };
-        w.postMessage({ buf, name, gz, encoding }, [buf]);
+        w.postMessage({ buf, name, opts }, [buf]);
     });
 };
 const methods = {
     async clean() { const s = await getServer(); return (s && await s.clean(this.originalURL)) ? this : null; },
     async save() { const s = await getServer(); return (s && await s.save(this)) ? this : null; },
-    async profile(opts) { return encoder(this, "profile", opts); },
-    async geopbfFile() { return encoder(this, "geopbf", true); },
-    async geojsonFile(flag = false) { return flag !=="cancel" && encoder(this, "geojson", flag); },
-    async topojsonFile(flag = false) { return encoder(this, "topojson", flag); },
-    async shapeFile(encoding = "utf8") { return encoder(this, "shape", false, encoding); },
-    async kmzFile(flag = true) { return encoder(this, "kmz", flag); },//flag: true=>kmz, false=>kml
-    async gpxFile(flag) { return encoder(this, "gpx", flag); },
-    async gmlFile(flag) { return encoder(this, "gml", flag); },
-    async fgbFile(flag) { return encoder(this, "fgb", flag); }, 
+    async profile(opts = {}) { return encoder(this, "profile", opts); },
+    async gint() { return encoder(this, "gint"); },
+    async geopbfFile() { return encoder(this, "geopbf"); },
+    async geojsonFile(gz = false) { return encoder(this, "geojson", { gz }); },
+    async topojsonFile(gz = false) { return encoder(this, "topojson", { gz }); },
+    async shapeFile(encoding = "utf8") { return encoder(this, "shape", { encoding }); },
+    async kmzFile(kmz = true) { return encoder(this, "kmz", { kmz }); },
+    async gpxFile(gz = false) { return encoder(this, "gpx", { gz }); },
+    async gmlFile(gz = false) { return encoder(this, "gml", { gz }); },
+    async fgbFile(gz = false) { return encoder(this, "fgb", { gz }); }, 
+
 };
 
 Object.entries(methods).forEach(([name, func]) => {

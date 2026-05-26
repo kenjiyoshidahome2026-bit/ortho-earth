@@ -4,8 +4,8 @@ import * as manipulate from "./extension/manipulate.js";
 import { nearPoint } from "./extension/nearPoint.js";
 import { contain } from "./extension/contain.js";
 import { dissolve } from "./extension/dissolve.js";
-import { analyzeTopology, neighbors, mesh, merge } from "./extension/topology.js"; // 変更
-import { toTopoJSON } from "./extension/topojson.js";
+import { pbf2gint } from "./extension/pbf2gint.js"; // 変更
+import { topojson, neighbors, mesh, merge } from "./extension/topojson.js";
 import { drawGeometry, view } from "./extension/view.js";
 
 const setGetter = (name, func) => { Object.defineProperty(GeoPBF.prototype, name, { get: func, configurable: false, enumerable: false }); };
@@ -14,7 +14,7 @@ Object.defineProperty(GeoPBF, 'update', { value: manipulate.update, configurable
 Object.defineProperty(GeoPBF, 'concatinate', { value: manipulate.concatinate, configurable: false, enumerable: false });
 
 setGetter("count", function () { return manipulate.count(this); });
-setPrototype("lint", function (opts={}) { return manipulate.lint(this, opts); });
+setPrototype("lint", function (opts = {}) { return manipulate.lint(this, opts); });
 
 setPrototype("centroid", function (i) { return spatial.centroid(this, i); });
 setPrototype("area", function (i) { return spatial.area(this, i); });
@@ -30,11 +30,10 @@ setPrototype("header", function (meta) { return manipulate.header(this, meta); }
 setPrototype("concat", function (...args) { return manipulate.concatinate([this, ...args], this.name()); });
 setPrototype("dissolve", function (p) { return dissolve(this, p); });
 
-setPrototype("analyzeTopology", function () { return analyzeTopology(this); });
 setPrototype("neighbors", function (id) { return neighbors(this, id); });
 setPrototype("mesh", function (f) { return mesh(this, f); });   // 追加
 setPrototype("merge", function (f) { return merge(this, f); }); // 追加
-setGetter("topojson", function () { return toTopoJSON(this); });
+setPrototype("topojson", function () { return topojson(this); });
 
 setPrototype("drawGeometry", function (n) { return drawGeometry(this, n); });
 setPrototype("context", function (ctx, proj) { this.ctx = ctx; this.proj = proj; return this; });
