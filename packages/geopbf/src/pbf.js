@@ -4,7 +4,7 @@ import * as manipulate from "./extension/manipulate.js";
 import { nearPoint } from "./extension/nearPoint.js";
 import { contain } from "./extension/contain.js";
 import { dissolve } from "./extension/dissolve.js";
-import { pbf2gint } from "./extension/pbf2gint.js"; // 変更
+import { Gint } from "./extension/pbf2gint.js"; // 変更
 import { topojson, neighbors, mesh, merge } from "./extension/topojson.js";
 import { drawGeometry, view } from "./extension/view.js";
 
@@ -30,6 +30,7 @@ setPrototype("header", function (meta) { return manipulate.header(this, meta); }
 setPrototype("concat", function (...args) { return manipulate.concatinate([this, ...args], this.name()); });
 setPrototype("dissolve", function (p) { return dissolve(this, p); });
 
+setPrototype("Gint", function () { return Gint(this); });
 setPrototype("neighbors", function (id) { return neighbors(this, id); });
 setPrototype("mesh", function (f) { return mesh(this, f); });   // 追加
 setPrototype("merge", function (f) { return merge(this, f); }); // 追加

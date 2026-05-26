@@ -2,14 +2,10 @@ import { GeoPBF } from "../pbf-base.js";
 import { gint } from "./gint.js";
 import { purify } from "./purifier.js";
 import { simplify } from "./simplify.js";
-
 const TAGS = GeoPBF.TAGS;
-
+////===============================================================================================
 export function pbf2gint(self) {
-    const structures = [[], [], []];
-    const S = 1 / self.e;
-
-    // 1. 3レイヤーへの解体ステージ
+    const structures = [[], [], []], S = 1 / self.e;
     self.each((id, map) => {
         const process = (pos, type) => {
             self.pbf.pos = pos;
@@ -53,34 +49,22 @@ export function pbf2gint(self) {
         if (map[2] === 6) map[3].forEach((p, j) => process(p, map[4][j]));
         else process(map[1], map[2]);
     });
-
-    // 空間清浄化
+////-----------------------------------------------------------------------------------------------
     structures[0].forEach(t => {
         const tempRings = t.coords.map(ring => ({ coords: ring }));
         purify(tempRings);
         t.coords = tempRings.map(obj => obj.coords);
     });
     purify(structures[1]);
-
-    // 一元プールへのノンストップ書き込み
-    const globalMortonPool = [];
-    const globalIndices = [];
-    const featureMeta = [];
-
-    const aHash = new Map();
-    const vHash = new Map();
-
-    let polygonCount = 0;
-    let polylineCount = 0;
-    let pointCount = 0;
-
+    const globalMortonPool = [], globalIndices = [], featureMeta = [];
+    const aHash = new Map(), vHash = new Map();
+    let polygonCount = 0, polylineCount = 0, pointCount = 0;
+////-----------------------------------------------------------------------------------------------
     const buildLayerArcs = (topo, type) => {
         const isTerm = (arc, i) => (i === 0 || i === arc.length - 1 || (vHash.get(arc[i]) || 0) > 2);
         const flatten = type === "polygon" ? topo.flatMap(t => t.coords.flat()) : topo.flatMap(t => t.coords);
         flatten.forEach(arc => arc.forEach(p => vHash.set(p, (vHash.get(p) || 0) + 1)));
-
         const arcMetaLookup = new Map();
-
         topo.forEach(t => {
             const processArcStream = (arc) => {
                 let i = 0, indices = [], n = arc.length;
@@ -91,15 +75,12 @@ export function pbf2gint(self) {
                     const p = seg[0], q = seg[seg.length - 1];
                     const [min, max] = p > q ? [q, p] : [p, q];
                     const aKey = (min << 96n) | (max << 32n) | BigInt(seg.length);
-
                     if (!aHash.has(aKey)) {
                         const arcId = aHash.size;
                         aHash.set(aKey, arcId);
                         simplify(seg);
-
                         const absoluteByteOffset = globalMortonPool.length * 8;
                         seg.forEach(m => globalMortonPool.push(m));
-
                         const idxPos = globalIndices.length;
                         globalIndices.push(absoluteByteOffset, seg.length, t.id, 0xFFFFFFFF);
                         arcMetaLookup.set(arcId, { pos: idxPos, rev: p !== seg[0] });
@@ -110,14 +91,12 @@ export function pbf2gint(self) {
                             globalIndices[metaInfo.pos + 3] = t.id;
                         }
                     }
-
                     const idx = aHash.get(aKey);
                     indices.push(p === seg[0] ? idx : ~idx);
                     i = j;
                 }
                 return indices;
             };
-
             if (type === "polygon") {
                 t.arcs = t.coords.map(r => processArcStream(r));
                 const flatArcs = t.arcs.flat();
@@ -135,15 +114,13 @@ export function pbf2gint(self) {
             }
         });
     };
-
+////-----------------------------------------------------------------------------------------------
     buildLayerArcs(structures[0], "polygon");
     buildLayerArcs(structures[1], "polyline");
-
     if (structures[2].length) {
         const hash = new Map();
         structures[2].forEach(({ id, coords }) => { const a = hash.get(coords[0]) || []; a.push(id); hash.set(coords[0], a); });
         const buff = [...hash.entries()].sort((p, q) => p[0] > q[0] ? 1 : -1);
-
         buff.forEach(([key, owners]) => {
             const absoluteVertexIndex = globalMortonPool.length;
             globalMortonPool.push(key);
@@ -153,58 +130,40 @@ export function pbf2gint(self) {
             });
         });
     }
-
-    // 鋳造ステージ
+////-----------------------------------------------------------------------------------------------
     const metaArray = new Uint32Array(featureMeta);
     const indicesArray = new Uint32Array(globalIndices);
     const bufferArray = new BigUint64Array(globalMortonPool);
-
     const totalBytes = 24 + metaArray.byteLength + indicesArray.byteLength + bufferArray.byteLength;
-    const outBuffer = new ArrayBuffer(totalBytes);
-
-    const headerView = new Uint32Array(outBuffer, 0, 6);
+    const GintBUF = new ArrayBuffer(totalBytes);
+    const headerView = new Uint32Array(GintBUF, 0, 6);
     headerView[0] = polygonCount;
     headerView[1] = polylineCount;
     headerView[2] = pointCount;
     headerView[3] = metaArray.byteLength;
     headerView[4] = indicesArray.byteLength;
     headerView[5] = bufferArray.byteLength;
-
-    new Uint8Array(outBuffer, 24).set(new Uint8Array(metaArray.buffer));
-    new Uint8Array(outBuffer, 24 + metaArray.byteLength).set(new Uint8Array(indicesArray.buffer));
-    new Uint8Array(outBuffer, 24 + metaArray.byteLength + indicesArray.byteLength).set(new Uint8Array(bufferArray.buffer));
-
-    return outBuffer;
+    new Uint8Array(GintBUF, 24).set(new Uint8Array(metaArray.buffer));
+    new Uint8Array(GintBUF, 24 + metaArray.byteLength).set(new Uint8Array(indicesArray.buffer));
+    new Uint8Array(GintBUF, 24 + metaArray.byteLength + indicesArray.byteLength).set(new Uint8Array(bufferArray.buffer));
+    return GintBUF;
 }
-export function unpackGintAll(arrayBuffer) {
-    // 1. 先頭24バイトからヘッダー情報を一撃で読み解く
-    const headerView = new Uint32Array(arrayBuffer, 0, 6);
-
-    const counts = {
-        polygonCount: headerView[0],
-        polylineCount: headerView[1],
-        pointCount: headerView[2]
-    };
-
-    const metaBytes = headerView[3];
-    const indicesBytes = headerView[4];
-    const bufferBytes = headerView[5];
-
-    // 2. 各ストリームの開始オフセット（バイト位置）を確定
-    const metaStart = 24;
-    const indicesStart = metaStart + metaBytes;
-    const bufferStart = indicesStart + indicesBytes;
-
-    // 3. ゼロコピーで TypedArray のポインタを再マッピング
-    // ※ 底層のメモリを共有したまま、一瞬でビューを被せる
-    const meta = new Uint32Array(arrayBuffer, metaStart, metaBytes / 4);
-    const indices = new Uint32Array(arrayBuffer, indicesStart, indicesBytes / 4);
-    const buffer = new BigUint64Array(arrayBuffer, bufferStart, bufferBytes / 8);
-
-    return {
-        counts,   // 各種フィーチャ・アークの総数
-        meta,     // 各フィーチャIDが「どのアーク」を繋いでいるかのトポロジー接続ストリーム
-        indices,  // 各アークの [絶対バイトオフセット, 頂点数, 左所有者, 右所有者]
-        buffer    // 空間清浄化＆LOD Weightが焼き付けられた 1D Morton頂点の海
-    };
+////===============================================================================================
+function unPackGint(GintBUF) {
+    const headerView = new Uint32Array(GintBUF, 0, 6);
+    const counts = { polygonCount: headerView[0], polylineCount: headerView[1], pointCount: headerView[2] };
+    const metaBytes = headerView[3], indicesBytes = headerView[4], bufferBytes = headerView[5];
+    const metaStart = 24, indicesStart = metaStart + metaBytes, bufferStart = indicesStart + indicesBytes;
+    const meta = new Uint32Array(GintBUF, metaStart, metaBytes / 4);
+    const indices = new Uint32Array(GintBUF, indicesStart, indicesBytes / 4);
+    const buffer = new BigUint64Array(GintBUF, bufferStart, bufferBytes / 8);
+    return { counts, meta, indices, buffer };
+}
+////===============================================================================================
+export function Gint(self) {
+    self.GintBUF = pbf2gint(self);
+    self.unPackGint = unPackGint(self.GintBUF);
+//    self.unPackGint.GintBUF = self.GintBUF;
+//    self.unPackGint.pbf = self;
+   return self;
 }

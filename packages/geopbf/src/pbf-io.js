@@ -1,16 +1,17 @@
 import { GeoPBF } from "./pbf-base.js";
-import { gzip, gunzip, isGzip } from "native-bucket";
+import { nativeBucket, gzip, gunzip, isGzip } from "native-bucket";
+const { Bucket, Cache, Fetch } = nativeBucket();
 
 class PBFIO {
     constructor(dire) { this.dire = dire || "GIS"; }
     async open() {
-        const { nativeBucket } = await import("native-bucket")
-            .catch(e => { console.error("native-bucket load error", e); return {}; });
-        const { Bucket, Cache, Fetch } = nativeBucket();
         this.bucket = await Bucket(`${this.dire}/pbf`);
         this.cache = await Cache(`${this.dire}/pbf`);
-        this.nativeFetch = Fetch;
         return this;
+    }
+    async fetch(name) {
+        const [url, target] = name.split(/\#/);
+        return target ? await Fetch(url, { target }) : await Fetch(url);
     }
     async files() { return await this.bucket.list(); }
     async sync() {
@@ -28,13 +29,6 @@ class PBFIO {
             } catch (e) { console.error(`Sync failed:`, e); }
         }));
         console.log(" ✅ Sync complete.");
-    }
-    async fetch(name, useCache = false) {
-        if (useCache && this.fetchCache) { const v = await this.fetchCache(name); if (v) return v; }
-        const [url, target] = name.split(/\#/);
-        const file = target ? await this.nativeFetch(url, { target }) : await this.nativeFetch(url);
-        if (this.fetchCache) await this.fetchCache(name, file);
-        return file;
     }
     async load(name) {
         const val = await this.cache(name, { worker: true }).catch(console.error);
