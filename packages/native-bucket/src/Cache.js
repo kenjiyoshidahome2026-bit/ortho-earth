@@ -158,14 +158,22 @@ export async function Cache(name) {
 
     // 🌟 返却関数を拡張：第3引数に { worker: true } オプションを受け付け可能に
     return (key, val, options = {}) => {
+        if (typeof key === "object" && key !== null && key.worker !== undefined) {
+            options = key;
+            key = undefined;
+            val = undefined;
+        }
+        if (typeof val === "object" && val !== null && val.worker !== undefined) {
+            options = val;
+            val = undefined;
+        }   
         // cache("key", undefined, { worker: true }) のようなケースへの対応
-        const opt = (typeof val === "object" && val !== null && val.worker !== undefined) ? val : options;
-        const actualVal = opt === val ? undefined : val;
+ //       const opt = (typeof val === "object" && val !== null && val.worker !== undefined) ? val : options;
+ //       const actualVal = opt === val ? undefined : val;
         
-        const run = opt.worker ? execInWorker : exec;
-
-        return actualVal === undefined 
+        const run = options.worker ? execInWorker : exec;
+        return val === undefined 
             ? (isFile(key) ? run("put", key.name, key) : run("get", key)) 
-            : run("put", key, actualVal);
+            : run("put", key, val === false || val === null ? null : val);
     };
 }

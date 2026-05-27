@@ -2,6 +2,7 @@ import { GeoPBF } from "../pbf-base.js";
 import { gint } from "./gint.js";
 import { purify } from "./purifier.js";
 import { simplify } from "./simplify.js";
+
 const TAGS = GeoPBF.TAGS;
 ////===============================================================================================
 export function pbf2gint(self) {
@@ -134,36 +135,29 @@ export function pbf2gint(self) {
     const metaArray = new Uint32Array(featureMeta);
     const indicesArray = new Uint32Array(globalIndices);
     const bufferArray = new BigUint64Array(globalMortonPool);
+    console.log(metaArray.byteLength/4, indicesArray.byteLength/4, bufferArray.byteLength/8)
     const totalBytes = 24 + metaArray.byteLength + indicesArray.byteLength + bufferArray.byteLength;
     const GintBUF = new ArrayBuffer(totalBytes);
     const headerView = new Uint32Array(GintBUF, 0, 6);
     headerView[0] = polygonCount;
     headerView[1] = polylineCount;
     headerView[2] = pointCount;
-    headerView[3] = metaArray.byteLength;
+    headerView[3] = bufferArray.byteLength;
     headerView[4] = indicesArray.byteLength;
-    headerView[5] = bufferArray.byteLength;
-    new Uint8Array(GintBUF, 24).set(new Uint8Array(metaArray.buffer));
-    new Uint8Array(GintBUF, 24 + metaArray.byteLength).set(new Uint8Array(indicesArray.buffer));
-    new Uint8Array(GintBUF, 24 + metaArray.byteLength + indicesArray.byteLength).set(new Uint8Array(bufferArray.buffer));
+    headerView[5] = metaArray.byteLength;
+    new Uint8Array(GintBUF, 24).set(new Uint8Array(bufferArray.buffer));
+    new Uint8Array(GintBUF, 24 + bufferArray.byteLength).set(new Uint8Array(indicesArray.buffer));
+    new Uint8Array(GintBUF, 24 + bufferArray.byteLength + indicesArray.byteLength).set(new Uint8Array(metaArray.buffer));
     return GintBUF;
 }
 ////===============================================================================================
-function unPackGint(GintBUF) {
+export function unPackGint(GintBUF) {
     const headerView = new Uint32Array(GintBUF, 0, 6);
     const counts = { polygonCount: headerView[0], polylineCount: headerView[1], pointCount: headerView[2] };
     const metaBytes = headerView[3], indicesBytes = headerView[4], bufferBytes = headerView[5];
-    const metaStart = 24, indicesStart = metaStart + metaBytes, bufferStart = indicesStart + indicesBytes;
-    const meta = new Uint32Array(GintBUF, metaStart, metaBytes / 4);
-    const indices = new Uint32Array(GintBUF, indicesStart, indicesBytes / 4);
+    const bufferStart = 24, indicesStart = bufferStart + bufferBytes, metaStart = indicesStart + indicesBytes;
     const buffer = new BigUint64Array(GintBUF, bufferStart, bufferBytes / 8);
+    const indices = new Uint32Array(GintBUF, indicesStart, indicesBytes / 4);
+    const meta = new Uint32Array(GintBUF, metaStart, metaBytes / 4);
     return { counts, meta, indices, buffer };
-}
-////===============================================================================================
-export function Gint(self) {
-    self.GintBUF = pbf2gint(self);
-    self.unPackGint = unPackGint(self.GintBUF);
-//    self.unPackGint.GintBUF = self.GintBUF;
-//    self.unPackGint.pbf = self;
-   return self;
 }

@@ -23,29 +23,27 @@ class PBFIO {
                 const res = await fetch(`${this.bucket.url}${name}`, { cache: 'default' });
                 if (res.ok) {
                     const ETag = res.headers.get("etag"); if (ETag == val.ETag) return;
-                    const Buff = await gunzip(await res.blob()).arrayBuffer();
-                    await this.cache(name, { ETag, Buff });
+                    const PBF = await gunzip(await res.blob()).arrayBuffer();
+                    await this.cache(name, { ETag, PBF });
                 }
             } catch (e) { console.error(`Sync failed:`, e); }
         }));
         console.log(" ✅ Sync complete.");
     }
-    async load(name) {
+    async load(name, opts = {}) {
         const val = await this.cache(name, { worker: true }).catch(console.error);
         try {
             const res = await fetch(`${this.bucket.url}${name}`, { cache: 'default' });
             if (!res.ok) throw new Error(`Failed to fetch: ${name} (HTTP ${res.status})`);
             const ETag = res.headers.get("etag");
-            if (val && val.ETag === ETag)  return new GeoPBF({name}).set(val.Buff);
+            if (val && val.ETag === ETag && val.PBF && val.GINT) return (await new GeoPBF().set(val.PBF)).setGintBUF(val.GINT);
             const blob = await gunzip(await res.blob());
-            const Buff = await blob.arrayBuffer();
-            await this.cache(name, { ETag, Buff });
-            return new GeoPBF().set(Buff);
+            const pbf = await new GeoPBF().set(await blob.arrayBuffer());
+            await pbf.gint({ nogint: opts.nogint });
+            await this.cache(name, { ETag, PBF: pbf.arrayBuffer, GINT: pbf.GintBUF }, { worker: true});
+            return pbf;
         } catch (e) {
-            if (val && val.Buff) {
-                console.warn(e);
-                return new GeoPBF().set(val.Buff);
-            }
+            if (val && val.PBF && val.GINT) return (await new GeoPBF().set(val.PBF)).setGintBUF(val.GINT);
             console.error(`[Fetch Error]`, e);
         }
     }
@@ -54,7 +52,7 @@ class PBFIO {
         const file = new File([pbf.arrayBuffer], pbf._name, { type: "application/x-geopbf" });
         await this.bucket.put(file);
         const ETag = await this.bucket.etag(name);
-        await this.cache(name, { ETag, Buff: pbf.arrayBuffer });
+        await this.cache(name, { ETag, PBF: pbf.arrayBuffer });
         return name;
     }
     async delete(name) {
