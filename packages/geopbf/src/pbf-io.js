@@ -39,8 +39,9 @@ class PBFIO {
             if (val && val.ETag === ETag && val.PBF && val.GINT) return (await new GeoPBF().set(val.PBF)).setGintBUF(val.GINT);
             const blob = await gunzip(await res.blob());
             const pbf = await new GeoPBF().set(await blob.arrayBuffer());
+            pbf._etag = ETag;
             await pbf.gint({ nogint: opts.nogint });
-            await this.cache(name, { ETag, PBF: pbf.arrayBuffer, GINT: pbf.GintBUF }, { worker: true});
+            await this.put(pbf);
             return pbf;
         } catch (e) {
             if (val && val.PBF && val.GINT) return (await new GeoPBF().set(val.PBF)).setGintBUF(val.GINT);
@@ -51,8 +52,16 @@ class PBFIO {
         const name = pbf.name(); if (!name) return null;
         const file = new File([pbf.arrayBuffer], pbf._name, { type: "application/x-geopbf" });
         await this.bucket.put(file);
-        const ETag = await this.bucket.etag(name);
-        await this.cache(name, { ETag, PBF: pbf.arrayBuffer });
+        pbf._etag = await this.bucket.etag(name);
+        await this.put(pbf);
+        return name;
+    }
+    async put(pbf) { //console.log("put", pbf); debugger
+        const name = pbf.name(); if (!name) return null;
+        const val = { PBF: pbf.arrayBuffer };
+        pbf._etag && (val.ETag = pbf._etag);
+        pbf._gintBuffer && (val.GINT = new Uint8Array(pbf._gintBuffer).slice().buffer);
+        await this.cache(name, val, { worker: true });
         return name;
     }
     async delete(name) {

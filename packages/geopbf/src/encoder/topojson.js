@@ -1,9 +1,9 @@
 import { GeoPBF } from "../pbf.js";
 
 onmessage = async (e) => {
-    const { buf, name, opts } = e.data, gz = opts && opts.gz;
-    try {
-        const pbf = await new GeoPBF({ name }).set(buf);
+    const { buf, name, opts, gint } = e.data, gz = opts && opts.gz;
+    try { debugger
+        const pbf = (await new GeoPBF().set(buf)).setGintBUF(gint);
         const topo = await pbf.topojson();
         let str = JSON.stringify(topo);
         if (gz) {
