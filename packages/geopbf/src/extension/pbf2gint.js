@@ -135,7 +135,7 @@ export function pbf2gint(self) {
     const metaArray = new Uint32Array(featureMeta);
     const indicesArray = new Uint32Array(globalIndices);
     const bufferArray = new BigUint64Array(globalMortonPool);
-    console.log(metaArray.byteLength/4, indicesArray.byteLength/4, bufferArray.byteLength/8)
+ //   console.log(metaArray.byteLength/4, indicesArray.byteLength/4, bufferArray.byteLength/8)
     const totalBytes = 24 + metaArray.byteLength + indicesArray.byteLength + bufferArray.byteLength;
     const GintBUF = new ArrayBuffer(totalBytes);
     const headerView = new Uint32Array(GintBUF, 0, 6);
