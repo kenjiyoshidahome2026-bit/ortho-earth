@@ -1,5 +1,6 @@
 import { GeoPBF } from "./pbf.js";
 import { pbfio } from "./pbf-io.js";
+import { unPackGint } from "./extension/pbf2gint.js";
 import { topo2geo } from "./modules/topo2geo.js";
 import { gunzip, isGzip } from "native-bucket";
 import { isString, isURL, isFile, isObject, isBuffer } from "common"
@@ -38,12 +39,10 @@ export async function geopbf(data, options = {}) { if (isString(options)) option
             w.postMessage(params);
         });
     };
-    let readFromCache = false;
-    const pbf = await _geopbf(data);
+    const pbf = await _geopbf(data); await pbf.gint({ nogint: options.nogint});
     pbf && console.log(`[geopbf] 📥 ${pbf.name()} (${pbf.size.toLocaleString()} bytes) ${(performance.now()-dt).toFixed(2)} msec`);
-    if (pbf && isURL(data)) {
-        pbf.originalURL = data;
-        readFromCache || getServer().then(server => server && server.cache(data, { Buff: pbf.arrayBuffer }, { worker: true })).catch(console.error);
+    if (pbf && !pbf.originalURL) {
+        getServer().then(server => server && server.cache(data, { PBF: pbf.arrayBuffer, GINT:pbf.GintBUF }, { worker: true })).catch(console.error);
     }
     return pbf || new GeoPBF(options);
 ////===========================================================================================
@@ -71,14 +70,16 @@ export async function geopbf(data, options = {}) { if (isString(options)) option
         }
         const server = await getServer();
         if (isString(q) && server) {
-            const usecache = !options.nocache;
             if (isURL(q)) {
                 const fetchUrl = isInZip(q) ? q : (q.match(/\.zip$/) && options.target) ? [q, options.target].join("#") : q;
-                const v = await server.cache(fetchUrl, {worker:true}).catch(console.error);
-                if (v) { readFromCache = true; return new GeoPBF(options).set(v.Buff); }
+                const v = options.nocache == true? undefined: await server.cache(fetchUrl, {worker:true}).catch(console.error);
+                if (v && v.PBF && v.GINT) { const pbf = (await new GeoPBF(options).set(v.PBF)).setGintBUF(v.GINT);
+                    pbf.originalURL = q;
+                    return pbf;
+                }
                 return _geopbf(await server.fetch(fetchUrl));
             }
-            return _geopbf(await server.load(q));
+            return _geopbf(await server.load(q, { nogint: options.nogint }));
         }
         return null;
         async function file2json(file) {
@@ -99,9 +100,10 @@ export async function geopbf(data, options = {}) { if (isString(options)) option
 }
 //  ----------------------------------------------------------------------------------------
 const encoder = async (pbf, type, opts = {}) => {
+    const eventTarget = typeof window !== "undefined" ? window : (typeof self !== "undefined" ? self : null);
     const name = pbf._name, buf = pbf.arrayBuffer;
     const event = type =="profile"? `profiling` : `conversion from GeoPBF to ${type}`;
-    const throwEvent = (type, detail) => window.dispatchEvent(new CustomEvent(type, { detail }));
+    const throwEvent = (type, detail) => eventTarget && !opts.silent && eventTarget.dispatchEvent(new CustomEvent(type, { detail }));
     throwEvent("ConvertStart", { name, event });
     const url = new URL(`./encoder/${type}.js`, import.meta.url)
     const w = new Worker(url, { type: 'module' });
@@ -118,18 +120,23 @@ const encoder = async (pbf, type, opts = {}) => {
     });
 };
 const methods = {
-    async clean() { const s = await getServer(); return (s && await s.clean(this.originalURL)) ? this : null; },
     async save() { const s = await getServer(); return (s && await s.save(this)) ? this : null; },
     async profile(opts = {}) { return encoder(this, "profile", opts); },
-    async gint() { return encoder(this, "gint"); },
-    async geopbfFile() { return encoder(this, "geopbf"); },
-    async geojsonFile(gz = false) { return encoder(this, "geojson", { gz }); },
-    async topojsonFile(gz = false) { return encoder(this, "topojson", { gz }); },
-    async shapeFile(encoding = "utf8") { return encoder(this, "shape", { encoding }); },
-    async kmzFile(kmz = true) { return encoder(this, "kmz", { kmz }); },
-    async gpxFile(gz = false) { return encoder(this, "gpx", { gz }); },
-    async gmlFile(gz = false) { return encoder(this, "gml", { gz }); },
-    async fgbFile(gz = false) { return encoder(this, "fgb", { gz }); }, 
+    async gintbuf(opts = {}) { return encoder(this, "gint", opts); },
+    async geopbfFile(opts = {}) { return encoder(this, "geopbf", opts); },
+    async geojsonFile(opts = {}) { return encoder(this, "geojson", opts); },
+    async topojsonFile(opts = {}) { return encoder(this, "topojson", opts); },
+    async shapeFile(opts = {}) { return encoder(this, "shape", opts); },
+    async kmzFile(opts = {}) { return encoder(this, "kmz", opts); },
+    async gpxFile(opts = {}) { return encoder(this, "gpx", opts); },
+    async gmlFile(opts = {}) { return encoder(this, "gml", opts); },
+    async fgbFile(opts = {}) { return encoder(this, "fgb", opts); },
+    async gint(opts = {}) { console.log(opts);
+        if (opts.nogint) return this;
+        this.unPackGint || this.setGintBUF(await encoder(this, "gint", opts));
+        if (!this.unPackGint) throw new Error("Failed to encode Gint buffer.");
+        return this;
+    },
 
 };
 

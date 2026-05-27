@@ -21,7 +21,7 @@ async function getBorderRawBuffers() {
         "ne_110m_land",
         "stars.6"
     ];
-    const results = await Promise.all(names.map(name => geopbf(name)));
+    const results = await Promise.all(names.map(name => geopbf(name,{nogint:true})));
     borderRawBuffers = results.map(r => r.arrayBuffer || r); // ArrayBuffer確保
     return borderRawBuffers;
 }

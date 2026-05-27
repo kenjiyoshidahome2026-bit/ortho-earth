@@ -7,6 +7,7 @@ const accessories = {
 	globe: { maxZoom: 8, size: 125, bottom: 30, right: 20, land: "rgb(160,200,160)", sea: "rgb(200,240,255)", line: "rgb(150,0,0)" },
 	stars: { maxZoom: 2, maxCount: Infinity },
 	night: { maxZoom: 2 },
+	clock: { maxZoom: 2 },
 	latlng: { minZoom: 2, color: "white" },
 	scale: { minZoom: 2, color: "white", unit: "metric" },
 	credit: { minZoom: 2, color: "white" },
@@ -32,7 +33,7 @@ function init(data) {
 }
 async function set(data) {
 	if (data.data != "options") return postMessage({ type: data.type, action: "failed" });
-	if (data.rawBuffers && !jsons) jsons = await Promise.all(data.rawBuffers.map(async t=>(await geopbf(t)).geojson));
+	if (data.rawBuffers && !jsons) jsons = await Promise.all(data.rawBuffers.map(async t=>(await geopbf(t,{nogint:true})).geojson));
 	const opts = data.prop || {};
 	const lang = opts.lang || "en";
 	for (let i in accessories) {
@@ -66,7 +67,6 @@ async function set(data) {
 	if (timer) clearInterval(timer);
 	timer = setInterval(() => {
 		if (!layer) return;
-		accessories.night.json = nightJSON(new Date());
 		draw_night();
 		draw_stars();
 	}, 1000);
@@ -249,26 +249,33 @@ function draw_stars() {
 	layer.restore();
 }
 function draw_night() {
-	const q = accessories.night;
-	if (!q || zoom > q.maxZoom) return;
+	let q = accessories.night;
 	const dt = new Date();
-	const cx = width / 2, cy = height / 2, er = proj.scale(), er2 = er * er;
-	const halo = layer.createRadialGradient(cx, cy, er, cx, cy, er + 15);
-	halo.addColorStop(0, "rgba(100, 150, 255, 0.05)"); halo.addColorStop(1, "rgba(100, 150, 255, 0)");
-	const path = geoPath(proj, layer);
-	layer.clearRect(0, 0, width, height);
-	layer.save();
-	layer.fillStyle = halo;
-	layer.beginPath(); layer.arc(cx, cy, er + 15, 0, PI * 2); layer.fill();
-	layer.beginPath(); layer.arc(cx, cy, er, 0, PI * 2); layer.clip();
-	layer.beginPath(); path(q.json); layer.fillStyle = "rgba(0, 5, 20, 0.5)"; layer.fill();
-	layer.restore();
-	layer.textAlign = "center"; layer.textBaseline = "middle"; layer.fillStyle = "#fff";
-	layer.font = `${32 * (2 - zoom) + 16}px Verdana`;
-	const [Y, M, D] = dateArray(), [h, m, s] = timeArray();
-	layer.fillText(`${L2(h)}:${L2(m)}:${L2(s)}`, cx, height / 5);
-	layer.font = `${12 * (2 - zoom) + 8}px Verdana`;
-	layer.fillText(`${Y}/${L2(M)}/${L2(D)} (${["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][dt.getDay()]})`, cx, height * 0.85);
+	if (q && zoom < q.maxZoom) {
+		const json = nightJSON(dt);
+		const cx = width / 2, cy = height / 2, er = proj.scale(), er2 = er * er;
+		const halo = layer.createRadialGradient(cx, cy, er, cx, cy, er + 15);
+		halo.addColorStop(0, "rgba(100, 150, 255, 0.05)"); halo.addColorStop(1, "rgba(100, 150, 255, 0)");
+		const path = geoPath(proj, layer);
+		layer.save();
+		layer.clearRect(0, 0, width, height);
+		layer.fillStyle = halo;
+		layer.beginPath(); layer.arc(cx, cy, er + 15, 0, PI * 2); layer.fill();
+		layer.beginPath(); layer.arc(cx, cy, er, 0, PI * 2); layer.clip();
+		layer.beginPath(); path(json); layer.fillStyle = "rgba(0, 5, 20, 0.5)"; layer.fill();
+		layer.restore();
+	}
+	q = accessories.clock;
+	if (q && zoom < q.maxZoom) {
+		layer.save();
+		layer.textAlign = "center"; layer.textBaseline = "middle"; layer.fillStyle = "#fff";
+		layer.font = `${32 * (2 - zoom) + 16}px Verdana`;
+		const [Y, M, D] = dateArray(), [h, m, s] = timeArray();
+		layer.fillText(`${L2(h)}:${L2(m)}:${L2(s)}`, cx, height / 5);
+		layer.font = `${12 * (2 - zoom) + 8}px Verdana`;
+		layer.fillText(`${Y}/${L2(M)}/${L2(D)} (${["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][dt.getDay()]})`, cx, height * 0.85);
+		layer.restore();
+	}
 }
 function nightJSON(date, offset = 0) {
 	const R = PI / 180, D = 180 / PI;

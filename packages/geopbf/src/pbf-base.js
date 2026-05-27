@@ -1,7 +1,6 @@
 import Pbf from 'pbf';
 import { bufferTub, readBufs } from "./modules/bufferTub.js";
-import { isSimpleObject, isNumber, isFloat, isBbox } from "common";
-import { cleanCoords, antimeridianFeature, loadPolygonClipping } from "common";
+import { isSimpleObject, isNumber, isFloat, isBbox, cleanCoords, antimeridianFeature, loadPolygonClipping } from "common";
 
 const TAGS = { NAME: 1, KEYS: 2, PRECISION: 3, BUFS: 4, FARRAY: 5, FEATURE: 6, GEOMETRY: 7, GTYPE: 8, LENGTH: 9, COORDS: 10, VALUE: 11, INDEX: 12, GARRAY: 13, DESCRIPTION: 14, LICENSE: 15, ATTRIBUTION: 16 };
 const geometryTypes = ["Point", "MultiPoint", "LineString", "MultiLineString", "Polygon", "MultiPolygon", "GeometryCollection"];
@@ -235,7 +234,6 @@ class GeoPBF {
             if (this.keys) { this.keys.length = 0; this.keys = null; }
             this.fmap = this.bin = this.pbf = null;
             this._name = this._description = this._license = this._attribution = null;
-
         } catch (e) {}
     }
     async filesize() {
