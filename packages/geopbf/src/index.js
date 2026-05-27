@@ -131,7 +131,7 @@ const methods = {
     async gpxFile(opts = {}) { return encoder(this, "gpx", opts); },
     async gmlFile(opts = {}) { return encoder(this, "gml", opts); },
     async fgbFile(opts = {}) { return encoder(this, "fgb", opts); },
-    async gint(opts = {}) { console.log(opts);
+    async gint(opts = {}) { //console.log(opts);
         if (opts.nogint) return this;
         this.unPackGint || this.setGintBUF(await encoder(this, "gint", opts));
         if (!this.unPackGint) throw new Error("Failed to encode Gint buffer.");
