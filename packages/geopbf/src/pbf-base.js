@@ -56,7 +56,7 @@ class GeoPBF {
         this.bufs = await bufsReader.close();
         this.end = pbf.pos;
         if (!pos) return this;
-        this.bodyPos = pos;
+        this._bodyPos = pos;
         pbf.pos = pos;
         pbf.readMessage(tag => {
             if (tag !== TAGS.FEATURE) return;
@@ -183,7 +183,7 @@ class GeoPBF {
     get geojson() { return { type: "FeatureCollection", features: this.features, name: this.name() }; }
 
     updateHeader(meta = {}) {
-        const oldBodyPos = this.bodyPos;
+        const oldBodyPos = this._bodyPos;
         const bodyData = this.pbf.buf.subarray(oldBodyPos, this.end);
         this.pbf = new Pbf();
         this.setHead(this.keys, this.bufs, meta);
@@ -199,7 +199,7 @@ class GeoPBF {
                 if (f[2] === 6 && f[3]) f[3] = f[3].map(p => p + diff);
             });
         }
-        this.bodyPos = newBodyPos;
+        this._bodyPos = newBodyPos;
         return this;
     }
 

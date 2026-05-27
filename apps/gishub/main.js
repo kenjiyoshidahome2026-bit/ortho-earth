@@ -8,7 +8,7 @@ import "common/d3/fileio.js";
 import "./main.scss";
 
 const initialZoom = Math.log2(Math.min(window.innerWidth, window.innerHeight)/2*0.5 / 256 * Math.PI * 2);
-const mapInst = (await orthoMap({target:d3.select('body'), center:[0,0], zoom: initialZoom})).autoRotate(true);
+const mapInst = (await orthoMap({target:d3.select('body'), center:[0,0], zoom: initialZoom, accessories:{clock:false}})).autoRotate(true);
 const exitButton = mapInst.append("button").attr("class", "close").html(`<img src="close.svg"/>`)
     .on("click", exitView).hide();
 const gishub = d3.select("body").append("div").attr("class", "gishub");
@@ -58,10 +58,10 @@ uploads.append("input").attr("type","text").attr("placeholder", `"Enter URL" or 
 .on("dblclick", function () { inputFile().then(f => f && exec({ name: fname(f.name), target: f, description: "selected file" }));});
 ////------------------------------------------------------
 async function exec(info) {
+    const def = {target:"", name: "", precision:6, license:"", description:"", attribution:"", link:"", nocache:false};
+    const { target, name, precision, license, description, attribution, link, nocache } = Object.assign(def, info);
     try { uploads.hide(); logger.clear();
         let inExec = true, success = false; left.selectAll(".card").attr("disabled", true);
-        const def = {target:"", name: "", precision:6, license:"", description:"", attribution:"", link:"", nocache:false};
-        const { target, name, precision, license, description, attribution, link, nocache } = Object.assign(def, info);
         let p = logger.title(name, description);
         link && p.style("cursor", "pointer").on("click", () => open(link, "_link_"));
         p = logger.log(`Requesting: ${target.name || target} <span class="remark">[cancel]</span>`)
@@ -71,7 +71,9 @@ async function exec(info) {
         if (pbf && pbf.length) { success = true;
             logger.success(`${name} (length: ${comma(pbf.size)})`);
         } else logger.error("Failed to load data.");
+        console.log(pbf);
         success && logger.log(await pbf.profile({nohead:true}));
+        console.log(pbf);
         inExec = false; left.selectAll(".card").attr("disabled", null); cancel.hide();
         p = logger.empty(); p.append("span").text("🔔 [ACTIONs]").classed("big",true);
         success && p.append("button").classed("accent", true).text("View in Ortho-Map").on("click", execView);
@@ -79,6 +81,7 @@ async function exec(info) {
         attribution && pbf.originalURL && p.append("button").text("Reload from original url")
             .on("click", async() => { pbf && (pbf.destroy()); exec(Object.assign({}, info, {nocache:true}));});
         if (!success) return;
+        console.log(pbf);
         const save = async s => { const v = await saveTo(s); if (v) logger.log(`📥 Saved: ${s.name} (${comma(s.size)} bytes)`); }
         const funcs = [
             async function GeoPBF() { save(await pbf.geopbfFile()) },

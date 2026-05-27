@@ -1,77 +1,68 @@
 import { gint } from "./gint.js";
 
-export function topojson(unpackedGint, precisionRegulator = 1e7) {
-    const { counts, meta, indices, buffer } = unpackedGint;
-
-    // 1. 全アークの座標配列を相対デルタ化して抽出
-    const topoArcs = [];
-    const totalArcs = counts.polygonCount + counts.polylineCount;
-
-    for (let i = 0; i < totalArcs * 4; i += 4) {
-        const startIdx = indices[i + 0] / 8;
-        const len = indices[i + 1];
-
-        const arcDelta = [];
+export function topojson(self) {
+    const { e, bbox, unPackGint } = self;
+    const { counts, meta, indices, buffer } = unPackGint;
+    const shift = i => (i < 0 ? ~((~i) + counts.polygonCount) : i + counts.polygonCount);
+    const elem = (a, n) => {
+        const properties = this.getProperties(n);
+        const len = a.map(t => t.length);
+        if (len[0] && !len[1] && !len[2]) return _point(a[0]);
+        if (!len[0] && len[1] && !len[2]) return _polyline(a[1]);
+        if (!len[0] && !len[1] && len[2]) return _polygon(a[2]);
+        const type = PBF.geometryTypes[6], geometries = [];
+        len[0] && geometries.push(_point(a[0]));
+        len[1] && geometries.push(_polyline(a[1]));
+        len[2] && geometries.push(_polygon(a[2]));
+        return { type, geometries, properties };
+        function _point(p) {
+            const isM = p.length > 1, type = PBF.geometryTypes[isM ? 1 : 0];
+            const trans = p => gint.unpack(buffer[p]).map(t => Math.round(t * e));
+            return { type, coordinates: isM ? p.map(trans) : trans(p[0]), properties };
+        }
+        function _polyline(p) {
+            const isM = p.length > 1, type = PBF.geometryTypes[isM ? 3 : 2];
+            return { type, arcs: isM ? p.map(t => t.map(shift)) : p[0].map(shift), properties };
+        }
+        function _polygon(p) {
+            const isM = p.length > 1, type = PBF.geometryTypes[isM ? 5 : 4];
+            return { type, arcs: isM ? p : p[0], properties };
+        }
+    };
+    const arcs = [];
+    for (let i = 0; i < indices.length; i += 4) {
+        const off = indices[i + 0] / 8, len = indices[i + 1], arc = new Array(len);
         let px = 0, py = 0;
-
-        for (let k = 0; k < len; k++) {
-            const [cx, cy] = gint.unpack(buffer[startIdx + k]);
-            const rx = Math.round(cx * precisionRegulator);
-            const ry = Math.round(cy * precisionRegulator);
-
-            arcDelta.push([rx - px, ry - py]); // 🌟 TopoJSON特有の相対デルタ圧縮！
-            px = rx; py = ry;
+        for (let j = 0; j < len; j++) {
+            const [cx, cy] = gint.unpack(buffer[off + j]);
+            arc[j] = [Math.round((cx - px) * e), Math.round((cy - py) * e)];
+            px = cx; py = cy;
         }
-        topoArcs.push(arcDelta);
+        arcs.push(arc);
     }
-
-    // 2. metaストリームを解析して、各ジオメトリオブジェクトを復元
     const geometries = [];
-    let i = 0;
-
-    while (i < meta.length) {
-        const offset = meta[i + 0];
-        const arcLength = meta[i + 1];
-        const featId = meta[i + 2];
-        const type = meta[i + 3];
-
-        const res = { type: "GeometryCollection", geometries: [], properties: { id: featId } };
-        const refArcs = [];
-        for (let a = 0; a < arcLength; a++) {
-            refArcs.push(meta[offset + a]);
-        }
-
-        if (type === 0) { // Polygon
-            // 単純化のため、平坦化されたアークを1つのリングとしてマッピング
-            res.geometries.push({ type: "Polygon", arcs: [refArcs] });
-        } else if (type === 1) { // LineString
-            res.geometries.push({ type: "MultiLineString", arcs: [refArcs] });
-        } else if (type === 2) { // Point
-            // Pointの場合は offset 自体が buffer の絶対位置を指している
-            res.geometries.push({ type: "Point", coordinates: gint.unpack(buffer[offset]) });
-        }
-
-        geometries.push(res);
-        i += 4 + arcLength; // 次のフィーチャへジャンプ
+    for (let i = 0; i < meta.length; i += 4) {
+        const off = meta[i + 0], len = meta[i + 1], id = meta[i + 2], type = meta[i + 3];
+        const a = [[], [], []], ref = [];
+        for (let j = 0; j < len; j++) ref.push(meta[off + j]);
+        if (type === 0 || type === 4) a[0] = [off];
+        else if (type === 1 || type === 2) a[1] = [ref];
+        else if (type === 3 || type === 5) a[2] = [ref];
+        geometries.push(elem(a, id));
     }
-
-    return {
-        type: "Topology",
-        arcs: topoArcs,
-        transform: { scale: [1 / precisionRegulator, 1 / precisionRegulator], translate: [0, 0] },
+    logger.success("output topojson");
+    return { type: "Topology", bbox: [...bbox], arcs,
+        transform: { scale: [1 / e, 1 / e], translate: [0, 0] },
         objects: { collection: { type: "GeometryCollection", geometries } }
     };
 }
-
 /**
  * 条件に合致するポリゴン群を完全に融合させた MultiPolygon を生成する
  */
-export function merge(unpackedGint, filterFunc = () => true) {
-    const { counts, indices, buffer } = unpackedGint;
-
+export function merge(self, filterFunc = () => true) {
+    const { counts, indices, buffer } = self.unPackGint;
     const externalArcs = new Map(); // 外周アークを追跡 [arcId -> 方向フラグ]
     const nodes = new Map();        // リング縫合用のトポロジーノード
-
     // 1. 外周アークの抽出ステージ
     for (let i = 0; i < counts.polygonCount * 4; i += 4) {
         const arcId = i / 4;
@@ -142,12 +133,12 @@ export function merge(unpackedGint, filterFunc = () => true) {
 
 /**
  * .gintのインデックス構造から直接、条件に合う境界線を抽出する
- * @param {Object} unpackedGint - unPackGint() で復元されたオブジェクト
+ * @param {Object} unPackGint - unPackGint() で復元されたオブジェクト
  * @param {Function} filterFunc - 各ポリゴンIDに対するフィルタ条件
  * @return {Object} MultiLineString 形式のジオメトリ
  */
-export function mesh(unpackedGint, filterFunc = () => true) {
-    const { counts, indices, buffer } = unpackedGint;
+export function mesh(self, filterFunc = () => true) {
+    const { counts, indices, buffer } = self.unPackGint;
     const coordinates = [];
 
     // indices ストリーム（4要素ずつ）を全走査
@@ -181,11 +172,11 @@ export function mesh(unpackedGint, filterFunc = () => true) {
 
 /**
  * 全ポリゴンの隣接関係マップを 1 パスで構築する
- * @param {Object} unpackedGint
+ * @param {Object} unPackGint
  * @return {Array<Array<number>>} 各IDごとの隣接ID配列
  */
-export function neighbors(unpackedGint) {
-    const { counts, indices } = unpackedGint;
+export function neighbors(self) {
+    const { counts, indices } = self.unPackGint;
     const table = [];
 
     for (let i = 0; i < counts.polygonCount * 4; i += 4) {

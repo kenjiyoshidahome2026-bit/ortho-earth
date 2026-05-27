@@ -39,6 +39,7 @@ export async function geopbf(data, options = {}) { if (isString(options)) option
             w.postMessage(params);
         });
     };
+////===========================================================================================
     const pbf = await _geopbf(data); await pbf.gint({ nogint: options.nogint});
     pbf && console.log(`[geopbf] 📥 ${pbf.name()} (${pbf.size.toLocaleString()} bytes) ${(performance.now()-dt).toFixed(2)} msec`);
     if (pbf && !pbf.originalURL) {
@@ -99,9 +100,10 @@ export async function geopbf(data, options = {}) { if (isString(options)) option
     }
 }
 //  ----------------------------------------------------------------------------------------
-const encoder = async (pbf, type, opts = {}) => {
+const encoder = async (pbf, type, opts = {}) => { //console.log(pbf, type, opts);
     const eventTarget = typeof window !== "undefined" ? window : (typeof self !== "undefined" ? self : null);
-    const name = pbf._name, buf = pbf.arrayBuffer;
+    const name = pbf._name, buf = pbf.arrayBuffer, gint = pbf._gintBuffer;
+    console.log(name, buf, gint, type, opts);
     const event = type =="profile"? `profiling` : `conversion from GeoPBF to ${type}`;
     const throwEvent = (type, detail) => eventTarget && !opts.silent && eventTarget.dispatchEvent(new CustomEvent(type, { detail }));
     throwEvent("ConvertStart", { name, event });
@@ -116,7 +118,7 @@ const encoder = async (pbf, type, opts = {}) => {
             throwEvent("ConvertEnd", { name, error: `file encode error: [${type}]` });
             w.terminate(); console.error(`pbf encode error: [${type}]`); resolve(null);
         };
-        w.postMessage({ buf, name, opts }, [buf]);
+        w.postMessage({ buf, gint, name, opts }, [buf]);
     });
 };
 const methods = {

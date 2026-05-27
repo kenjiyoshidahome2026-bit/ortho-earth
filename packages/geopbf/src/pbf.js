@@ -4,7 +4,6 @@ import * as manipulate from "./extension/manipulate.js";
 import { nearPoint } from "./extension/nearPoint.js";
 import { contain } from "./extension/contain.js";
 import { dissolve } from "./extension/dissolve.js";
-//import { Gint } from "./extension/pbf2gint.js"; // 変更
 import { topojson, neighbors, mesh, merge } from "./extension/topojson.js";
 import { drawGeometry, view } from "./extension/view.js";
 import { unPackGint } from "./extension/pbf2gint.js";
@@ -14,31 +13,34 @@ const setPrototype = (name, func) => { Object.defineProperty(GeoPBF.prototype, n
 Object.defineProperty(GeoPBF, 'update', { value: manipulate.update, configurable: false, enumerable: false });
 Object.defineProperty(GeoPBF, 'concatinate', { value: manipulate.concatinate, configurable: false, enumerable: false });
 
-setGetter("count", function () { return manipulate.count(this); });
-setPrototype("lint", function (opts = {}) { return manipulate.lint(this, opts); });
+setGetter("count", function() { return manipulate.count(this); });
+setPrototype("lint", function(opts = {}) { return manipulate.lint(this, opts); });
 
-setPrototype("centroid", function (i) { return spatial.centroid(this, i); });
-setPrototype("area", function (i) { return spatial.area(this, i); });
-setPrototype("contain", function (pt, one) { return contain(this, pt, one); });
-setPrototype("nearPoint", function (pt, count, dist) { return nearPoint(this, pt, count, dist); });
+setPrototype("centroid", function(i) { return spatial.centroid(this, i); });
+setPrototype("area", function(i) { return spatial.area(this, i); });
+setPrototype("contain", function(pt, one) { return contain(this, pt, one); });
+setPrototype("nearPoint", function(pt, count, dist) { return nearPoint(this, pt, count, dist); });
 
-setPrototype("clone", function (opt) { return manipulate.clone(this, opt); });
-setPrototype("rename", function (name) { return manipulate.clone(this, { name }); });
-setPrototype("filter", function (f) { return manipulate.clone(this, { filter: f }); });
-setPrototype("map", function (m) { return manipulate.clone(this, { map: m }); });
-setPrototype("classify", function (k) { return manipulate.classify(this, k); });
-setPrototype("header", function (meta) { return manipulate.header(this, meta); });
-setPrototype("concat", function (...args) { return manipulate.concatinate([this, ...args], this.name()); });
-setPrototype("dissolve", function (p) { return dissolve(this, p); });
+setPrototype("clone", function(opt) { return manipulate.clone(this, opt); });
+setPrototype("rename", function(name) { return manipulate.clone(this, { name }); });
+setPrototype("filter", function(f) { return manipulate.clone(this, { filter: f }); });
+setPrototype("map", function(m) { return manipulate.clone(this, { map: m }); });
+setPrototype("classify", function(k) { return manipulate.classify(this, k); });
+setPrototype("header", function(meta) { return manipulate.header(this, meta); });
+setPrototype("concat", function(...args) { return manipulate.concatinate([this, ...args], this.name()); });
+setPrototype("dissolve", function(p) { return dissolve(this, p); });
 
-//setPrototype("Gint", function () { return Gint(this); });
-setPrototype("neighbors", function (id) { return neighbors(this, id); });
-setPrototype("mesh", function (f) { return mesh(this, f); });   // 追加
-setPrototype("merge", function (f) { return merge(this, f); }); // 追加
-setPrototype("topojson", function () { return topojson(this); });
+setPrototype("neighbors", function(id) { return neighbors(this, id); });
+setPrototype("mesh", function(f) { return mesh(this, f); });
+setPrototype("merge", function(f) { return merge(this, f); });
+setPrototype("topojson", function() { return topojson(this); });
 
-setPrototype("drawGeometry", function (n) { return drawGeometry(this, n); });
-setPrototype("context", function (ctx, proj) { this.ctx = ctx; this.proj = proj; return this; });
-setPrototype("view", function (canvas, props) { return view(this, canvas, props); });
-setPrototype("setGintBUF", function(buf) { this.unPackGint = unPackGint(this.GintBUF = buf); return this; });
+setPrototype("drawGeometry", function(n) { return drawGeometry(this, n); });
+setPrototype("context", function(ctx, proj) { this.ctx = ctx; this.proj = proj; return this; });
+setPrototype("view", function(canvas, props) { return view(this, canvas, props); });
+setPrototype("setGintBUF", function(buf) { 
+	if (typeof SharedArrayBuffer === 'undefined') throw new Error("SharedArrayBuffer is not supported in this environment. Please set headers.");
+	const sab = new SharedArrayBuffer(buf.byteLength);
+    new Uint8Array(sab).set(new Uint8Array(buf));
+	this._gintBuffer = sab; this.unPackGint = unPackGint(sab); return this; });
 export { GeoPBF };
