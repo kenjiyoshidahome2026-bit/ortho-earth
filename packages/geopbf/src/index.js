@@ -42,8 +42,8 @@ export async function geopbf(data, options = {}) { if (isString(options)) option
 ////===========================================================================================
     const pbf = await _geopbf(data); await pbf.gint({ nogint: options.nogint});
     pbf && console.log(`[geopbf] 📥 ${pbf.name()} (${pbf.size.toLocaleString()} bytes) ${(performance.now()-dt).toFixed(2)} msec`);
-    if (pbf && !pbf.originalURL) {
-        getServer().then(server => server && server.cache(data, { PBF: pbf.arrayBuffer, GINT:pbf.GintBUF }, { worker: true })).catch(console.error);
+    if (pbf && !pbf.originalURL) { //debugger
+        getServer().then(server => server && server.put(pbf)).catch(console.error);
     }
     return pbf || new GeoPBF(options);
 ////===========================================================================================
@@ -73,8 +73,9 @@ export async function geopbf(data, options = {}) { if (isString(options)) option
         if (isString(q) && server) {
             if (isURL(q)) {
                 const fetchUrl = isInZip(q) ? q : (q.match(/\.zip$/) && options.target) ? [q, options.target].join("#") : q;
-                const v = options.nocache == true? undefined: await server.cache(fetchUrl, {worker:true}).catch(console.error);
-                if (v && v.PBF && v.GINT) { const pbf = (await new GeoPBF(options).set(v.PBF)).setGintBUF(v.GINT);
+                const val = options.nocache == true? undefined: await server.cache(fetchUrl, {worker:true}).catch(console.error);
+                if (val && val.PBF) { const pbf = (await new GeoPBF(options).set(val.PBF))
+                    val.GINT && pbf.setGintBUF(val.GINT);
                     pbf.originalURL = q;
                     return pbf;
                 }
