@@ -137,7 +137,7 @@ export async function Cache(name) {
     };
 
     // --- 🌟 フラグが立っている場合の Worker 実行移譲ラッパー ---
-    const execInWorker = (operation, key, val) => { console.log(`Worker exec: ${operation} ${key} ...`);
+    const execInWorker = (operation, key, val) => { //console.log(`Worker exec: ${operation} ${key} ...`);
         const worker = getSharedWorker();
         const id = _callbackId++;
         
