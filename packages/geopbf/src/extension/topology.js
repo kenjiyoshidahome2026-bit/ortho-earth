@@ -1,0 +1,731 @@
+import { GeoPBF } from "../pbf-base.js";
+import { gint } from "./gint.js";
+const RAD = Math.PI / 180;
+const Radius = 6371008.8; // 地球平均半径 (Meters)
+////===============================================================================================================
+////	BBOX & Coherence
+////===============================================================================================================
+function initBbox() { return new Uint32Array([0xFFFFFFFF, 0xFFFFFFFF, 0, 0]); }
+function updateBbox(BBOX, bbox) {
+	if (bbox[0] < BBOX[0]) BBOX[0] = bbox[0]; else if (bbox[2] > BBOX[2]) BBOX[2] = bbox[2];
+	if (bbox[1] < BBOX[1]) BBOX[1] = bbox[1]; else if (bbox[3] > BBOX[3]) BBOX[3] = bbox[3];
+}
+function checkCoherence(fB, vB) { // コヒーレンス判定: 0:Outside, 1:Partial, 2:Full-In
+	if (fB[2] < vB.minX || fB[0] > vB.maxX || fB[3] < vB.minY || fB[1] > vB.maxY) return 0; // 完全に画面外 (Cull)
+	if (fB[0] >= vB.minX && fB[2] <= vB.maxX && fB[1] >= vB.minY && fB[3] <= vB.maxY) return 2; // 完全に画面内 (No Clip)
+	return 1; // 一部が重なっている (Partial)
+}
+////===============================================================================================================
+export function topology(self) { if (self.structures) return self.structures;
+	const { pbf, e } = self;
+	const structures = self.structures = [[], [], []], S = 1 / e;
+	self.each((id, map) => {
+		const process = (pos, type) => {
+			pbf.pos = pos;
+			let lens = [], coords = [];
+			pbf.readMessage((tag) => {
+				if (tag === GeoPBF.TAGS.LENGTH) pbf.readPackedVarint(lens);
+				else if (tag === GeoPBF.TAGS.COORDS) {
+					const end = pbf.readVarint() + pbf.pos;
+					let x = 0, y = 0;
+					const read = (n) => {
+						let c = [];
+						const grab = () => {
+							let dx = pbf.readSVarint(), dy = pbf.readSVarint();
+							if (dx || dy) { x += dx; y += dy; c.push(gint.pack([x * S, y * S])); }
+						};
+						if (n === undefined) { while (pbf.pos < end) grab(); }
+						else { while (n-- > 0) grab(); }
+						return new BigUint64Array(c);
+					};
+					const typeGroups = [
+						() => [read(1)], // Point
+						() => [read()],  // MultiPoint
+						() => [read()],  // LineString
+						() => lens.map(t => read(t)), // MultiLineString
+						() => [lens.map(t => read(t))], // Polygon
+						() => { // MultiPolygon
+							const c = []; let p = 0;
+							for (let i = 0; i < lens[0]; i++) {
+								let len = lens[++p]; c[i] = [];
+								for (let j = 0; j < len; j++) c[i].push(read(lens[++p]));
+							}
+							return c;
+						}
+					];
+					coords = typeGroups[type]();
+				}
+			});
+			const tIndex = type < 2 ? 0 : type < 4 ? 1 : 2;
+			coords.forEach(c => structures[tIndex].push({ id, coords: c }));
+		};
+		(map[2] === 6)? map[3].forEach((p, j) => process(p, map[4][j])): process(map[1], map[2]);
+	});
+////-----------------------------------------------------------------------------------------------
+console.log(structures); //debugger
+	self.point = buildPoints(structures[0]);
+	self.polyline = buildPolylines(structures[1]);
+	self.polygon = buildPolygons(structures[2]);
+	return self.structures;
+}
+////-----------------------------------------------------------------GeoJSONからtopojsonを作成
+function buildTopology(topos) {
+	const topologies = [];
+	[0, 1, 2].forEach(type => topos[type].forEach(({ id, arcs }) => {
+		topologies[id] = topologies[id] || [[], [], []];
+		topologies[id][type].push(arcs);
+	}));
+	return topologies;
+}
+////-----------------------------------------------------------------GeoJSONからtopojsonを作成
+export function Topojson(self) {
+	topology(self)
+	const { e, bbox } = self;
+	const topo = buildTopology(self.structures);
+	const point_buffer = self.point ? self.point.buffer : [];
+	const n_poly = self.polygon ? self.polygon.count : 0;
+	const shift = i => (i < 0 ? ~((~i) + n_poly) : i + n_poly); // polygonのarcsのオフセットを加える
+	const elem = (a, n) => {
+		const properties = self.getProperties(n);//下位クラスからpropertiesを取得
+		const len = a.map(t => t.length);
+		if (len[0] && !len[1] && !len[2]) return _point(a[0]);
+		if (!len[0] && len[1] && !len[2]) return _polyline(a[1]);
+		if (!len[0] && !len[1] && len[2]) return _polygon(a[2]);
+		const type = GeoPBF.geometryTypes[6], geometries = [];
+		len[0] && geometries.push(_point(a[0]));
+		len[1] && geometries.push(_polyline(a[1]));
+		len[2] && geometries.push(_polygon(a[2]));
+		return { type, geometries, properties };
+		function _point(p) {
+			const isM = p.length > 1, type = GeoPBF.geometryTypes[isM ? 1 : 0];
+			const trans = p => gint.unpack(point_buffer[p]).map(t => Math.round(t * e));
+			return { type, coordinates: isM ? p.map(trans) : trans(p[0]), properties };
+		}
+		function _polyline(p) {
+			const isM = p.length > 1, type = GeoPBF.geometryTypes[isM ? 3 : 2];
+			p = p.map(t => t.map(shift));
+			return { type, arcs: isM ? p : p[0], properties };
+		}
+		function _polygon(p) {
+			const isM = p.length > 1, type = GeoPBF.geometryTypes[isM ? 5 : 4];;
+			return { type, arcs: isM ? p : p[0], properties };
+		}
+	};
+	const arcs = [];
+	const process = ({ buffer, meta, count, mlen }) => {
+		for (let i = 0; i < count; i++) {
+			const off = meta[i * mlen], len = meta[i * mlen + 1], arc = new Array(len);
+			let px = 0, py = 0;
+			for (let j = 0; j < len; j++) {
+				const k = off + j;
+				const [cx, cy] = gint.unpack(buffer[k]);
+				arc[j] = [Math.round((cx - px) * e), Math.round((cy - py) * e)]; px = cx; py = cy;
+			}
+			arcs.push(arc);
+		}
+	};
+	self.polygon && process(self.polygon);
+	self.polyline && process(self.polyline);
+	const transform = { scale: [1 / e, 1 / e], translate: [0, 0] };
+	return {
+		type: "Topology", bbox: [...bbox], arcs, transform,
+		objects: { collection: { type: "GeometryCollection", geometries: topo.map(elem) } }
+	};
+}
+////----------------------------------------------------------------- 指定したインデックスのFeatureと「Arcを共有している」隣接Featureを返す
+function neighbors(self, id) {
+	const neighbor = buildNeighber(self.structures[2]);
+	return id == undefined ? neighbor : neighbor[id] || [];
+}
+////----------------------------------------------------------------- 境界線のみを抽出する mesh (条件: filterFunc(a, b) で隣接関係を判定)
+function mesh(self, opts = {}) {
+	const type = GeoPBF.geometryTypes[3];
+	const arcs = self.findArcs(opts.filter).filter(([id, t]) => (t.length == 2)).map(t => t[0]);
+	if (!!opts.arc) return { type, arcs };
+	const coordinates = arcs.map(id => self.arcCoords(id));
+	return { type, coordinates };
+}
+////-----------------------------------------------------------------  複数のポリゴンを単一の外郭に合体させる
+function merge(self, opts = {}) {
+	const type = GeoPBF.geometryTypes[5];
+	let arcs = self.findArcs(opts.filter).filter(([id, t]) => (t.length == 1)).map(t => t[0]);
+	arcs = self.stitchRings(arcs);
+	if (!!opts.arc) return { type, arcs };
+	const coordinates = [arcs.map(t => self.ringCoords(t))];
+	return { type, coordinates };
+}
+////----------------------------------------------------------------- バラバラの外郭Arcを繋いで閉じたリング(一筆書き)を作る
+function stitchRings(self, arcs) {
+	if (!arcs || !arcs.length) return [];
+	const { buffer, meta, mlen } = self.polygon;
+	const pos = n => [meta[n * mlen], meta[n * mlen + 1]];
+	const nodes = new Map(), used = new Set(), rings = [];
+	arcs.forEach(id => {
+		const [off, len] = pos(id)
+		const p = buffer[off], q = buffer[off + len - 1];
+		nodes.has(p) || nodes.set(p, []); nodes.get(p).push({ id, rev: false });
+		nodes.has(q) || nodes.set(q, []); nodes.get(q).push({ id, rev: true });
+	});
+	for (const id of arcs) {
+		if (used.has(id)) continue;
+		let ring = [], curr = { id, rev: false };
+		while (curr && !used.has(curr.id)) {
+			used.add(curr.id);
+			ring.push(curr.rev ? ~curr.id : curr.id);
+			const [off, len] = pos(curr.id)
+			const next = buffer[curr.rev ? off : off + len - 1];
+			curr = (nodes.get(next) || []).find(n => !used.has(n.id));
+		}
+		if (ring.length) rings.push(ring);
+	}
+	return rings;
+}
+////----------------------------------------------------------------- arc => coordinates
+function findArcs(self, filter) {
+	filter = (typeof filter == 'function') ? filter : (t => true);
+	const topo = buildTopology(self.topology);
+	const hash = [];
+	const set = (arc, id) => {
+		arc.flat(Infinity).forEach(n => {
+			const aid = n < 0 ? ~n : n;
+			(hash[aid] = hash[aid] || []).push(n < 0 ? ~id : id);
+		});
+	};
+	topo.forEach((t, id) => filter(self.getProperties(id)) && t[2].forEach(q => set(q, id)));
+	return hash.map((t, id) => [id, t]);
+}
+function ringCoords(self, ring) {
+	let coords = [];
+	ring.forEach((aid, n) => {
+		const a = self.arcCoords(aid);
+		coords = coords.concat(n ? a.slice(1) : a)
+	});
+	return coords;
+}
+function arcCoords(self, aid) {
+	const { buffer, meta, mlen } = self.polygon;
+	const id = aid < 0 ? ~aid : aid;
+	const off = meta[id * mlen], len = meta[id * mlen + 1];
+	let pts = new Array(len);
+	for (let i = 0; i < len; i++) pts[i] = gint.unpack(buffer[off + i]);
+	return aid < 0 ? pts.reverse() : pts;
+}
+////===============================================================================================================
+////	POINT
+////===============================================================================================================
+function buildPoints(topo) { if (!topo.length) return;
+	const hash = new Map();
+	topo.forEach(({ id, coords }) => { const a = hash.get(coords) || []; a.push(id); hash.set(coords, a); });
+	const buff = [...hash.entries()].sort((p, q) => p[0] > q[0] ? 1 : -1), count = buff.length;
+	const buffer = new BigUint64Array(count), owner = new Array(count);
+	const order = [];
+	const bbox = initBbox();
+	buff.forEach(([key, own], i) => {
+		buffer[i] = key;
+		const [x, y] = gint.unpackToInt(key);
+		updateBbox(bbox, [x, y, x, y]);
+		owner[i] = own;
+		own.forEach(id => order[id] = i);
+	});
+	topo.forEach(q => {
+		q.arcs = order[q.id];
+		delete q.coords
+	})
+	return { count, buffer, owner, bbox };
+}
+////===============================================================================================================
+////	POLYLINE
+////===============================================================================================================
+function buildPolylines(topo) { if (!topo.length) return;
+	purifier(topo);
+	const buffs = cutPolyline(topo);
+	const meta = metaArc(buffs);
+	metaPolyline(meta, topo);
+	return buildArcs(buffs, meta);
+}
+function purifier(topo) { if (!topo || !topo.length) return 0;
+	const GRID_SHIFT = 16;
+	const SNAP_DIST_SQ = 125n; // 11cm
+	const GRID_UNIT = 10n;     // 10cm格子
+	const checkedPairs = new Set();
+	const segments = [];
+	const grid = new Map();
+	const segLookup = new Map();
+	const packXY = (x, y) => (BigInt(x) << 32n) | (BigInt(y) & 0xFFFFFFFFn);// 座標パッキング用：(x, y) -> BigInt
+	let globalSegIdx = 0;// セグメント登録
+	topo.forEach((line, lineIdx) => {
+		const coords = line.coords;
+		for (let i = 0; i < coords.length - 1; i++) {
+			if (coords[i] === coords[i + 1]) continue;
+			const p1 = gint.unpackToInt(coords[i]), p2 = gint.unpackToInt(coords[i + 1]);
+			const sid = globalSegIdx++;
+			const seg = {
+				id: sid, lineIdx, sIdx: i,
+				bx1: Math.min(p1[0], p2[0]), bx2: Math.max(p1[0], p2[0]),
+				by1: Math.min(p1[1], p2[1]), by2: Math.max(p1[1], p2[1]),
+				x1: BigInt(p1[0]), y1: BigInt(p1[1]),
+				x2: BigInt(p2[0]), y2: BigInt(p2[1]),
+				origP1: coords[i], origP2: coords[i + 1],
+				intersections: new Map() // Key: PackedBigInt, Value: {x, y, packed}
+			};
+			segments.push(seg);
+			segLookup.set(`${lineIdx}-${i}`, seg);
+			for (let gx = seg.bx1 >>> GRID_SHIFT; gx <= seg.bx2 >>> GRID_SHIFT; gx++) {
+				for (let gy = seg.by1 >>> GRID_SHIFT; gy <= seg.by2 >>> GRID_SHIFT; gy++) {
+					const key = (gx << 16) | gy;
+					let cell = grid.get(key);
+					if (!cell) grid.set(key, cell = []);
+					cell.push(sid);
+				}
+			}
+		}
+	});
+	for (const segIds of grid.values()) {// 高精度交差エンジン
+		if (segIds.length < 2 || segIds.length > 1500) continue;
+		for (let i = 0; i < segIds.length; i++) {
+			const s1 = segments[segIds[i]];
+			for (let j = i + 1; j < segIds.length; j++) {
+				const s2 = segments[segIds[j]];
+				if (s1.lineIdx === s2.lineIdx && Math.abs(s1.sIdx - s2.sIdx) <= 1) continue;
+				const pairKey = BigInt(s1.id) << 32n | BigInt(s2.id);// ペアリングのハッシュ化
+				if (checkedPairs.has(pairKey)) continue;
+				checkedPairs.add(pairKey);
+				if (s1.bx2 < s2.bx1 || s1.bx1 > s2.bx2 || s1.by2 < s2.by1 || s1.by1 > s2.by2) continue;
+				const pts = solver(s1, s2, SNAP_DIST_SQ, GRID_UNIT);
+				if (pts) pts.forEach(pt => {
+					const key = packXY(pt.x, pt.y);
+					s1.intersections.set(key, pt); s2.intersections.set(key, pt);
+				});
+			}
+		}
+	}
+	checkedPairs.clear();
+	topo.forEach((line, lineIdx) => {
+		const final = [];
+		const original = line.coords;
+		const pushClean = (p) => {
+			const len = final.length;
+			if (len > 0 && final[len - 1] === p) return;
+			if (len > 1 && final[len - 2] === p) { final.pop(); return; }// A-B-A スパイク除去
+			final.push(p);
+		};
+		for (let i = 0; i < original.length - 1; i++) {
+			pushClean(original[i]);
+			const seg = segLookup.get(`${lineIdx}-${i}`);
+			if (seg && seg.intersections.size > 0) {
+				const x1 = Number(seg.x1), y1 = Number(seg.y1);
+				const pts = Array.from(seg.intersections.values());
+				// 距離二乗: $d^2 = (x - x_1)^2 + (y - y_1)^2$
+				pts.sort((a, b) => ((a.x - x1) ** 2 + (a.y - y1) ** 2) - ((b.x - x1) ** 2 + (b.y - y1) ** 2));
+				pts.forEach(pt => pushClean(pt.packed));
+			}
+		}
+		pushClean(original[original.length - 1]);
+		if (final.length >= 2) line.coords = new BigUint64Array(final);
+	});
+	function solver(s1, s2, snap, unit) {
+		const dx1 = s1.x2 - s1.x1, dy1 = s1.y2 - s1.y1;
+		const dx2 = s2.x2 - s2.x1, dy2 = s2.y2 - s2.y1;
+		const det = dx1 * dy2 - dy1 * dx2; // 行列式: $det = \Delta x_1 \Delta y_2 - \Delta y_1 \Delta x_2$
+		const pts = [];
+		const eps = [
+			{ x: s1.x1, y: s1.y1, p: s1.origP1 }, { x: s1.x2, y: s1.y2, p: s1.origP2 },
+			{ x: s2.x1, y: s2.y1, p: s2.origP1 }, { x: s2.x2, y: s2.y2, p: s2.origP2 }
+		];
+		const getPt = (ix, iy) => {
+			for (const ep of eps) {
+				if ((ix - ep.x) ** 2n + (iy - ep.y) ** 2n <= snap) return { x: Number(ep.x), y: Number(ep.y), packed: ep.p };
+			}
+			const sx = Number((BigInt(ix) + unit / 2n) / unit * unit);
+			const sy = Number((BigInt(iy) + unit / 2n) / unit * unit);
+			return { x: sx, y: sy, packed: gint.packFromInt(sx, sy) };
+		};
+		if (det === 0n) {
+			const cross = (s2.x1 - s1.x1) * dy1 - (s2.y1 - s1.y1) * dx1;
+			if (cross === 0n) {
+				const on = (px, py, lx1, ly1, lx2, ly2) => {
+					const dot = (px - lx1) * (lx2 - lx1) + (py - ly1) * (ly2 - ly1);
+					return dot > 0n && dot < (lx2 - lx1) ** 2n + (ly2 - ly1) ** 2n;
+				};
+				eps.forEach(ep => { if (on(ep.x, ep.y, s1.x1, s1.y1, s1.x2, s1.y2) || on(ep.x, ep.y, s2.x1, s2.y1, s2.x2, s2.y2)) pts.push({ x: Number(ep.x), y: Number(ep.y), packed: ep.p }); });
+			}
+		} else {
+			const nT = (s2.x1 - s1.x1) * dy2 - (s2.y1 - s1.y1) * dx2;
+			const nU = (s2.x1 - s1.x1) * dy1 - (s2.y1 - s1.y1) * dx1;
+			const isIn = (n, d) => d > 0n ? (n >= 0n && n <= d) : (n <= 0n && n >= d);
+			if (isIn(nT, det) && isIn(nU, det)) pts.push(getPt(s1.x1 + (nT * dx1) / det, s1.y1 + (nT * dy1) / det));
+		}
+		const proj = (px, py, lx1, ly1, lx2, ly2) => {
+			const ldx = lx2 - lx1, ldy = ly2 - ly1, d2 = ldx * ldx + ldy * ldy;
+			if (d2 === 0n) return null;
+			const t = (px - lx1) * ldx + (py - ly1) * ldy;
+			if (t <= 0n || t >= d2) return null;
+			const crs = (px - lx1) * ldy - (py - ly1) * ldx;
+			if ((crs * crs) / d2 <= snap) return getPt(lx1 + (t * ldx) / d2, ly1 + (t * ldy) / d2);
+			return null;
+		};
+		[proj(s2.x1, s2.y1, s1.x1, s1.y1, s1.x2, s1.y2), proj(s2.x2, s2.y2, s1.x1, s1.y1, s1.x2, s1.y2),
+		proj(s1.x1, s1.y1, s2.x1, s2.y1, s2.x2, s2.y2), proj(s1.x2, s1.y2, s2.x1, s2.y1, s2.x2, s2.y2)]
+			.forEach(p => p && pts.push(p));
+		return pts.length ? pts : null;
+	}
+}
+function cutPolyline(topo) {
+	const buffs = [];
+	let hash = new Map(), aHash = new Map();
+	topo.forEach(setHash);
+	topo.forEach(setEdge);
+	hash.clear(); aHash.clear(); hash = null; aHash = null;
+	return buffs;
+	function setHash(q) { q.coords.forEach(t => hash.set(t, (hash.get(t) || 0) + 1)); }
+	function setEdge(q) { //const {id, coords} = q; //const arc = coords;
+		const isTerm = (arc, i) => {
+			const n = arc.length, count = hash.get(arc[i]);
+			return (i === 0 || i === n - 1 || count > 2);
+		};
+		q.arcs = splitArc(q.coords);//.map();
+		delete q.coords;
+		function splitArc(arc) {
+			let i = 0;
+			const indices = [], n = arc.length;
+			while (i < n - 1) {
+				let j = i + 1;
+				while (j < n - 1 && !isTerm(arc, j)) j++;
+				const seg = arc.subarray(i, j + 1);
+				const p = seg[0], q = seg[seg.length - 1];
+				const [min, max] = p > q ? [q, p] : [p, q];
+				const aKey = (min << 96n) | (max << 32n) | BigInt(seg.length);
+				if (!aHash.has(aKey)) { aHash.set(aKey, buffs.length); buffs.push(seg); }
+				const idx = aHash.get(aKey);
+				const forward = p === buffs[idx][0];
+				indices.push(forward ? idx : ~idx);
+				i = j;
+			}
+			return indices;
+		}
+	}
+}
+function metaPolyline(metas, topo) {
+	topo.forEach(calcMeta);
+	topo.sort((p, q) => p.length > q.length ? -1 : 1);
+	metas.sort((p, q) => p.length > q.length ? -1 : 1);
+	metas.forEach(q => { q.weight = q.length; delete q.length; });
+	var map = new Array(metas.length);
+	for (let i = 0; i < metas.length; i++) map[metas[i].aid] = i;
+	topo.forEach(t => t.arcs = t.arcs.map(t => t < 0 ? ~map[~t] : map[t]));
+	function calcMeta(q) {
+		const { id, arcs } = q;
+		q.length = 0;
+		arcs.forEach(aid => {
+			const p = metas[aid < 0 ? ~aid : aid];
+			q.length += p.length;
+			(p.owner = p.owner || []).push(aid < 0 ? ~id : id);
+		});
+	}
+}
+////===============================================================================================================
+////	POLYLGON
+////===============================================================================================================
+function buildPolygons(topo) {
+	if (!topo.length) return;
+	const buffs = cutPolygon(topo);
+	const meta = metaArc(buffs);
+	metaPolygon(meta, topo);
+	return buildArcs(buffs, meta);
+}
+function cutPolygon(topo) {
+	const buffs = [];
+	let hash = new Map(), aHash = new Map();
+	topo.forEach(setHash);
+	topo.forEach(setEdge);
+	hash.clear(); aHash.clear(); hash = null; aHash = null;
+	return buffs;
+	function setHash(q) { q.coords.forEach(t => t.forEach(t => hash.set(t, (hash.get(t) || 0) + 1))); }
+	function setEdge(q) { //const {id, coords} = q;
+		const isTerm = (arc, i) => {//端点かどうかの判定
+			const n = arc.length, count = hash.get(arc[i]);
+			if (count > 2) return true;
+			if (count == 2 && hash.get(arc[(i - 1 + n) % n]) == 1) return true;
+			if (count == 2 && hash.get(arc[(i + 1) % n]) == 1) return true;
+			return false;
+		};
+		q.arcs = q.coords.map(splitRing);
+		delete q.coords;
+		////------------------------------------------
+		function splitArc(arc, loop) {
+			let i = 0;
+			const indices = [], n = arc.length;
+			if (loop) { // 単独ポリゴン(島・飛地等)
+				const aKey = (arc[0] << 32n) | BigInt(n);
+				if (!aHash.has(aKey)) { aHash.set(aKey, buffs.length); buffs.push(arc); }
+				const idx = aHash.get(aKey);
+				return [loop > 0 ? idx : ~idx];
+			}
+			while (i < n - 1) {
+				let j = i + 1;
+				while (j < n - 1 && !isTerm(arc, j)) j++;
+				const seg = arc.subarray(i, j + 1);
+				const p = seg[0], q = seg[seg.length - 1];
+				const [min, max] = p > q ? [q, p] : [p, q];
+				const aKey = (min << 96n) | (max << 32n) | BigInt(seg.length);
+				if (!aHash.has(aKey)) { aHash.set(aKey, buffs.length); buffs.push(seg); }
+				const idx = aHash.get(aKey);
+				const forward = p === buffs[idx][0];
+				indices.push(forward ? idx : ~idx);
+				i = j;
+			}
+			return indices;
+		}
+		function splitRing(ring) {
+			let start = 0, loop = 0;
+			let n = ring.length;
+			while (ring[0] == ring[n - 1] && n > 2) n--;
+			if (n < 3) return [];
+			for (let k = 0; k < n; k++) if (isTerm(ring, k)) { start = k; break; }
+			isTerm(ring, start) || cutRing(ring); //ループしているポリゴンはどこで始まるか分からないので最大値で切る。
+			const rotated = new BigUint64Array(n + 1);
+			rotated.set(ring.subarray(start, n), 0);
+			rotated.set(ring.subarray(0, start), n - start);
+			rotated[n] = ring[start];
+			return splitArc(rotated, loop);
+			function cutRing(ring) {
+				const len = ring.length;
+				const c = [];
+				for (let i = 0; i < len; i++) c[i] = gint.unpack(ring[i])
+				let sum = 0, max = 0;
+				for (let i = 0; i < len; i++) {
+					const p = c[i], q = i + 1 == len ? c[0] : c[i + 1];
+					sum += (q[0] - p[0]) * (q[1] + p[1]);
+					if (ring[i] > max) { max = ring[i]; start = i; }
+				}
+				c.length = 0;
+				loop = sum > 0 ? 1 : -1;// 1:時計回り、-1:反時計回り
+			}
+		}
+	}
+}
+function metaPolygon(metas, topo) {
+	topo.forEach(calcMeta)
+	metas.forEach(neighbor);
+	topo.sort((p, q) => p.weight > q.weight ? -1 : 1);
+	const max_weight = topo[0].weight;
+	metas.forEach(p => p.owner.length == 1 && !p.closed && (p.weight = max_weight));
+	metas.sort((p, q) => p.weight > q.weight ? -1 : 1);
+	var map = new Array(metas.length);
+	for (let i = 0; i < metas.length; i++) map[metas[i].aid] = i;
+	topo.forEach(t => t.arcs = t.arcs.map(t => t.map(t => t < 0 ? ~map[~t] : map[t])));
+	function calcMeta(q) {
+		const { id, arcs } = q;
+		let A = 0, L = 0;
+		q.bbox = initBbox();
+		arcs[0].forEach(aid => {//debugger
+			const { area, length, bbox } = metas[aid < 0 ? ~aid : aid];
+			L += length, A += aid < 0 ? -area : area;
+			updateBbox(q.bbox, bbox)
+		});
+		for (let i = 1; i < arcs.length; i++) {
+			arcs[i].forEach(aid => {
+				const { area } = metas[aid < 0 ? ~aid : aid];
+				A += aid < 0 ? -area : area;
+			});
+		}
+		q.weight = Math.sqrt(Math.abs(A) / 2) + L / 4;
+		q.neighbor = [];
+		arcs.forEach(arc => arc.forEach(aid => {
+			const p = metas[aid < 0 ? ~aid : aid];
+			(p.owner = p.owner || []).push(aid < 0 ? ~q.id : q.id)
+			p.weight = Math.max(p.weight || 0, q.weight);
+		}));
+
+	}
+	function neighbor(p) {
+		const owner = p.owner, len = owner.length;
+		for (let i = 0; i < len; i++) {
+			const p = owner[i] < 0 ? ~owner[i] : owner[i];
+			for (let j = i + 1; j < len; j++) {
+				const q = owner[j] < 0 ? ~owner[j] : owner[j];
+				topo[p].neighbor.push(q);
+				topo[q].neighbor.push(p);
+			}
+		}
+	}
+}
+////===============================================================================================================
+function metaArc(buffs) {
+	return buffs.map(calcMeta);
+	function calcMeta(buff, aid) {
+		const n = buff.length;
+		const closed = buff[0] == buff[n - 1]
+		let L = 0, A = 0;
+		let [x0, y0] = gint.unpackToInt(buff[0]), [lng0, lat0] = gint.intToVal([x0, y0]);
+		const bbox = new Uint32Array([x0, y0, x0, y0]);
+		for (let i = 1; i < n; i++) {
+			const [x1, y1] = gint.unpackToInt(buff[i]), [lng1, lat1] = gint.intToVal([x1, y1]);
+			const cosLat = Math.cos(((lat0 + lat1) / 2) * RAD);
+			const dx = (lng1 - lng0) * RAD * cosLat, dy = (lat1 - lat0) * RAD;
+			L += Math.sqrt(dx * dx + dy * dy);
+			A += (lng1 - lng0) * RAD * (2 + Math.sin(lat0 * RAD) + Math.sin(lat1 * RAD));
+			updateBbox(bbox, [x1, y1, x1, y1]);
+			x0 = x1; y0 = y1; lng0 = lng1; lat0 = lat1;
+		}
+		return { aid, length: L * Radius, area: A * Radius * Radius / 2, closed, bbox };
+	}
+}
+function buildArcs(buffs, metas) { // 複数Arcの一括パルス化
+	const count = buffs.length, mlen = 8;
+	let total = 0, offset = 0;
+	for (let i = 0; i < count; i++) total += buffs[i].length;
+	const buffer = new BigUint64Array(total);
+	const meta = new Uint32Array(count * mlen);
+	const owner = new Array(count);
+	const bbox = initBbox();
+	for (let i = 0; i < count; i++) {
+		const q = metas[i], arc = buffs[q.aid];
+		L1toL2(arc);
+		buffer.set(arc, offset);
+		meta.set([offset, arc.length, q.weight, 0, ...bbox], i * mlen);
+		owner[i] = q.owner;
+		offset += arc.length;
+		updateBbox(bbox, q.bbox);
+	}
+	return { count, buffer, meta, mlen, owner, bbox };
+}	
+function buildNeighber(topo) {
+	const neighbors = [];
+	topo.forEach(q => neighbors[q.id] = q.neighbor);
+	return neighbors;
+}
+////===============================================================================================================
+function L1toL2(arc) { // VisvalingamWhyatt
+	const n = arc.length; if (n < 3) return;
+	const xs = new Float64Array(n), ys = new Float64Array(n), prev = new Int32Array(n), next = new Int32Array(n);
+	const areas = new Float64Array(n), heap = new Int32Array(n), pos = new Int32Array(n).fill(-1), eff = new Float64Array(n);
+	let minLat = Infinity, maxLat = -Infinity;
+	for (let i = 0; i < n; i++) {
+		const [lng, lat] = gint.unpack(arc[i]); xs[i] = lng; ys[i] = lat; prev[i] = i - 1; next[i] = i + 1;
+		if (lat < minLat) minLat = lat; if (lat > maxLat) maxLat = lat;
+	}
+	const cosLat = Math.cos(((minLat + maxLat) / 2) * RAD);
+	const getArea = (i) => {
+		const p = prev[i], nx = next[i]; if (p < 0 || nx >= n) return Infinity;
+		return Math.abs((xs[i] - xs[p]) * cosLat * (ys[nx] - ys[p]) - (xs[nx] - xs[p]) * cosLat * (ys[i] - ys[p])) * 0.5;
+	};
+	const swap = (a, b) => { [heap[a], heap[b]] = [heap[b], heap[a]]; pos[heap[a]] = a; pos[heap[b]] = b; };
+	const up = (i) => { for (; i > 0 && areas[heap[i]] < areas[heap[(i - 1) >>> 1]]; i = (i - 1) >>> 1) swap(i, (i - 1) >>> 1); };
+	const down = (i) => {
+		while (true) {
+			let l = (i << 1) + 1, r = l + 1, d = l; if (l >= heapSize) break;
+			if (r < heapSize && areas[heap[r]] < areas[heap[l]]) d = r;
+			if (areas[heap[d]] >= areas[heap[i]]) break; swap(i, d); i = d;
+		}
+	};
+	let heapSize = 0; for (let i = 1; i < n - 1; i++) { areas[i] = getArea(i); heap[heapSize] = i; pos[i] = heapSize; up(heapSize++); }
+	let maxA = 0; while (heapSize > 0) {
+		const curr = heap[0]; pos[curr] = -1; if (--heapSize > 0) { heap[0] = heap[heapSize]; pos[heap[0]] = 0; down(0); }
+		maxA = Math.max(maxA, areas[curr]); eff[curr] = maxA;
+		const p = prev[curr], nx = next[curr]; if (p >= 0) next[p] = nx; if (nx < n) prev[nx] = p;
+		[p, nx].forEach(idx => { if (idx > 0 && idx < n - 1 && pos[idx] !== -1) { areas[idx] = Math.max(getArea(idx), maxA); up(pos[idx]); down(pos[idx]); } });
+	}
+	const getPhysRank = (area) => {
+		if (area <= 0) return 0;
+		/* ------------------------------------------------
+		 * 論理式の導出:
+		 * 1px相当の距離 L = 14,062,500 / 2^z
+		 * 面積 A = L^2 = (14,062,500^2) / 4^z
+		 * log2(A) = log2(14,062,500^2) - 2z
+		 * z = (47.491 - log2(A)) / 2
+		 * * Rank = (21 - z) * 3  (ズーム21を0、0を63とする)
+		 * Rank = (21 - (47.491 - log2(A)) / 2) * 3
+		 * Rank = (21 - 23.745 + 0.5 * log2(A)) * 3
+		 * Rank = 1.5 * log2(A) - 8.2365
+		 * ------------------------------------------------ */
+		const rank = Math.floor(1.5 * Math.log2(area) - 8.2365);
+		return Math.min(63, Math.max(0, rank));// 0-63の範囲にクランプ
+	};
+	for (let i = 1; i < n - 1; i++) gint.toL2(arc[i], getPhysRank(eff[i]));
+}
+////===============================================================================================================
+export function identify(self, mx, my, scale, options = {}) {
+	const pointError = ((options.point || 10) / scale) * 1e7;
+	const polylineError = ((options.polyline || 5) / scale) * 1e7;
+	const arcThreshold = (Radius / scale) * 0.5;
+	const geo = unproject(mx, my); if (!geo) return null;
+	const [mix, miy] = geo;
+	if (self.points) {
+		const owner = findPoint(self.points, mix, miy, pointError);
+		if (owner !== null) return owner;
+	}
+	if (self.polylines) {
+		const owner = findPolyline(self.polylines, mix, miy, polylineError, arcThreshold);
+		if (owner !== null) return owner;
+	}
+	if (self.polygons) {
+		const owner = findPolygon(self.polygons, mix, miy, self.structures[2]);
+		if (owner !== null) return owner;
+	}
+	return null;
+}
+function findPoint(layer, mix, miy, error) {
+	const { count, buffer, owners } = layer;
+	const mMin = gint.packFromInt(mix - error, miy - error);
+	const mMax = gint.packFromInt(mix + error, miy + error);
+	const errSq = error * error;
+	let low = 0, high = count - 1, start = 0;
+	while (low <= high) { // Binary search to find mMin start
+		let mid = (low + high) >>> 1;
+		if (buffer[mid] < mMin) { low = mid + 1; start = low; }
+		else high = mid - 1;
+	}
+	for (let i = start; i < count; i++) {
+		const m = buffer[i];
+		if (m > mMax) break;
+		const [ix, iy] = gint.unpackToInt(m);
+		const dx = ix - mix, dy = iy - miy;
+		if (dx * dx + dy * dy <= errSq) return owners[i];
+	}
+	return null;
+}
+function findPolyline(layer, mix, miy, error, threshold) {
+	const { count, buffer, meta, owners } = layer;
+	const errSq = error * error;
+	for (let i = 0; i < count; i += 8) {
+		if (meta[i + 2] < threshold && meta[i + 2] !== 0) break; // Early Exit
+		if (mix < meta[i + 4] - error || mix > meta[i + 6] + error ||
+			miy < meta[i + 5] - error || miy > meta[i + 7] + error) continue;
+		const offset = meta[i], len = meta[i + 1];
+		for (let j = 0; j < len - 1; j++) {
+			const d2 = distToSegSq(mix, miy, buffer[offset + j], buffer[offset + j + 1]);
+			if (d2 <= errSq) return owners[i >> 3];
+		}
+	}
+	return null;
+	function distToSegSq(px, py, p1, p2) {
+		const [x1, y1] = gint.unpackToInt(p1), [x2, y2] = gint.unpackToInt(p2);
+		const l2 = (x2 - x1) ** 2 + (y2 - y1) ** 2;
+		if (l2 === 0) return (px - x1) ** 2 + (py - y1) ** 2;
+		let t = Math.max(0, Math.min(1, ((px - x1) * (x2 - x1) + (py - y1) * (y2 - y1)) / l2));
+		return (px - (x1 + t * (x2 - x1))) ** 2 + (py - (y1 + t * (y2 - y1))) ** 2;
+	}
+}
+function findPolygon(layer, mix, miy, structures) {
+	const { buffer, meta } = layer;
+	for (let i = 0; i < structures.length; i++) {
+		const { id, bbox, coords } = structures[i];
+		if (mix < bbox[0] || mix > bbox[2] || miy < bbox[1] || miy > bbox[3]) continue;
+		let inside = false;
+		for (const ring of coords) {
+			for (const arcIdx of ring) {
+				const aid = arcIdx < 0 ? ~arcIdx : arcIdx;
+				const off = meta[aid << 3], len = meta[(aid << 3) + 1];
+				for (let k = 0; k < len - 1; k++) {
+					const [ix1, iy1] = gint.unpackToInt(buffer[off + k]);
+					const [ix2, iy2] = gint.unpackToInt(buffer[off + k + 1]);
+					if (((iy1 > miy) !== (iy2 > miy)) &&
+						(mix < (ix2 - ix1) * (miy - iy1) / (iy2 - iy1) + ix1)) inside = !inside;
+				}
+			}
+		}
+		if (inside) return id;
+	}
+	return null;
+}

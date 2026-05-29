@@ -82,7 +82,7 @@ async function exec(info) {
             .on("click", async() => { pbf && (pbf.destroy()); exec(Object.assign({}, info, {nocache:true}));});
         if (!success) return;
         console.log(pbf);
-        const save = async s => { const v = await saveTo(s); if (v) logger.log(`📥 Saved: ${s.name} (${comma(s.size)} bytes)`); }
+        const save = async s => { if (!s) return; const v = await saveTo(s); if (v) logger.log(`📥 Saved: ${s.name} (${comma(s.size)} bytes)`); }
         const funcs = [
             async function GeoPBF() { save(await pbf.geopbfFile()) },
             async function GeoJSON() { save(await pbf.geojsonFile({gz: await logger.confirm("GeoJSON Gzipped", false)})); },
