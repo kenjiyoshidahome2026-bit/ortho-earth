@@ -1,10 +1,11 @@
 import { GeoPBF } from "../pbf.js";
+import { Topojson } from "../extension/topology.js";
 
 onmessage = async (e) => {
     const { buf, name, opts, gint } = e.data, gz = opts && opts.gz;
-    try { debugger
+    try {
         const pbf = (await new GeoPBF().set(buf)).setGintBUF(gint);
-        const topo = await pbf.topojson();
+        const topo = await Topojson(pbf);
         let str = JSON.stringify(topo);
         if (gz) {
             const out = new Response(new Blob([str]).stream().pipeThrough(new CompressionStream("gzip")));
