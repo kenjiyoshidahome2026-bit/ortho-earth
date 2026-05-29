@@ -4,7 +4,7 @@ import * as manipulate from "./extension/manipulate.js";
 import { nearPoint } from "./extension/nearPoint.js";
 import { contain } from "./extension/contain.js";
 import { dissolve } from "./extension/dissolve.js";
-import { topojson, neighbors, mesh, merge } from "./extension/topojson.js";
+import { topojson, neighbors, mesh, merge, identify } from "./extension/topojson.js";
 import { drawGeometry, view } from "./extension/view.js";
 import { unPackGint } from "./extension/pbf2gint.js";
 
@@ -30,10 +30,11 @@ setPrototype("header", function(meta) { return manipulate.header(this, meta); })
 setPrototype("concat", function(...args) { return manipulate.concatinate([this, ...args], this.name()); });
 setPrototype("dissolve", function(p) { return dissolve(this, p); });
 
+setPrototype("topojson", function() { return topojson(this); });
 setPrototype("neighbors", function(id) { return neighbors(this, id); });
 setPrototype("mesh", function(f) { return mesh(this, f); });
 setPrototype("merge", function(f) { return merge(this, f); });
-setPrototype("topojson", function() { return topojson(this); });
+setPrototype("identify", function(mx, my, scale, options) { return identify(this, mx, my, scale, options); });
 
 setPrototype("drawGeometry", function(n) { return drawGeometry(this, n); });
 setPrototype("context", function(ctx, proj) { this.ctx = ctx; this.proj = proj; return this; });
