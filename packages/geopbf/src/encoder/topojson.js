@@ -1,12 +1,12 @@
 import { GeoPBF } from "../pbf.js";
 import { gzip } from "native-bucket";
-import { Topojson } from "../extension/topology.js";
+import { topojson } from "../extension/topojson.js";
 
 onmessage = async (e) => {
     const { buf, name, opts, gint } = e.data, gz = opts && opts.gz;
     try {
         const pbf = (await new GeoPBF().set(buf)).setGintBUF(gint);
-        const topo = await Topojson(pbf);
+        const topo = await topojson(pbf);
         let out = new File([JSON.stringify(topo)], `${name}.topojson`, { type: "application/json" })
         if (gz) out = await gzip(out);
         postMessage(out);
