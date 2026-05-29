@@ -361,11 +361,12 @@ function writeGeometry(self, q) {
     const { pbf, e } = self;
     return self.setMessage(TAGS.GEOMETRY, () => {
         const fix = n => { while (n < -180) n += 360; while (n > 180) n -= 360; return n; };
-        const type = geometryMap[q.type];
+        let type = geometryMap[q.type];
+        let c = q.coordinates;
         if (type == null) return console.error("illegal geometry type: ", q.type);
+        if (type % 2 == 1 && c.length == 1) { type--; c = c[0];}
         pbf.writeVarintField(TAGS.GTYPE, type);
         if (type == 6) return pbf.writeMessage(TAGS.GARRAY, () => q.geometries.forEach(t => writeGeometry(self, t)));
-        let c = q.coordinates;
         [write0, write1, write1, write2, write2, write3][type]();
         pbf.writePackedSVarint(TAGS.COORDS, c.flat(Infinity));
         function len2() { return c.map(t => t.length); }
