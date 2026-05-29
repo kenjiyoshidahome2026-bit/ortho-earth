@@ -1,4 +1,5 @@
 import { GeoPBF } from "../pbf.js";
+import { gzip } from "native-bucket";
 import { Topojson } from "../extension/topology.js";
 
 onmessage = async (e) => {
@@ -6,12 +7,9 @@ onmessage = async (e) => {
     try {
         const pbf = (await new GeoPBF().set(buf)).setGintBUF(gint);
         const topo = await Topojson(pbf);
-        let str = JSON.stringify(topo);
-        if (gz) {
-            const out = new Response(new Blob([str]).stream().pipeThrough(new CompressionStream("gzip")));
-            str = await out.blob();
-        }
-        postMessage(new File([str], `${name}.topojson${gz ? ".gz" : ""}`, {type: gz ? "application/gzip" : "application/json"}));
+        let out = new File([JSON.stringify(topo)], `${name}.topojson`, { type: "application/json" })
+        if (gz) out = await gzip(out);
+        postMessage(out);
     } catch (err) {
         console.error("Topojson encode Worker Error:", err);
         postMessage(null);
