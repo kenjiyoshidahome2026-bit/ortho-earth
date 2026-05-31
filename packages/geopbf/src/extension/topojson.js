@@ -1,68 +1,58 @@
-import { GeoPBF } from "../pbf-base.js";
+//import { GeoPBF } from "../pbf-base.js";
 import { gint } from "./gint.js";
-import { topology } from "./topology.js";
+import { topology, unPackGintBuffer } from "./topology.js";
 ////-----------------------------------------------------------------GeoJSONからtopojsonを作成
-function buildTopology(topos) {
-	const topologies = [];
-	[0, 1, 2].forEach(type => topos[type].forEach(({ id, arcs }) => {
-		topologies[id] = topologies[id] || [[], [], []];
-		topologies[id][type].push(arcs);
-	}));
-	return topologies;
-}
+const types = ["Point", "MultiPoint", "LineString", "MultiLineString", "Polygon", "MultiPolygon", "GeometryCollection"];
 export function topojson(self) {
-    topology(self)
-    const { e, bbox } = self;
-    const topo = buildTopology(self.structures);
-    const point_buffer = self.point ? self.point.buffer : [];
-    const n_poly = self.polygon ? self.polygon.count : 0;
-    const shift = i => (i < 0 ? ~((~i) + n_poly) : i + n_poly); // polygonのarcsのオフセットを加える
-    const elem = (a, n) => {
-        const properties = self.getProperties(n);//下位クラスからpropertiesを取得
+    const buffer = topology(self);
+    const unPackGint = unPackGintBuffer(buffer);
+    const { bbox, pointCount, pointBuffer, point, arcCount, arcBuffer, arcMeta, polygon, polyline } = unPackGint;
+    const e = self.e;
+    const arcs = [], mlen = 8;
+    for (let i = 0; i < arcCount; i++) { let px = 0, py = 0;
+        const off = arcMeta[i * mlen], len = arcMeta[i * mlen + 1], arc = new Array(len);
+        for (let j = 0; j < len; j++) { const k = off + j;
+            const [cx, cy] = gint.unpack(arcBuffer[k]);
+            arc[j] = [Math.round((cx - px) * e), Math.round((cy - py) * e)]; px = cx; py = cy;
+        }
+        arcs.push(arc);
+    }
+	const topologies = {};
+    [polygon, polyline, point].forEach((layer, type) => (layer||[]).forEach(([id, arcs]) => {
+        topologies[id] = topologies[id] || [[], [], []];
+        topologies[id][type] = arcs;
+    }));
+    const elem = ([id, a]) => { id = Number(id);
+        const properties = self.getProperties(id);//下位クラスからpropertiesを取得
         const len = a.map(t => t.length);
-        if (len[0] && !len[1] && !len[2]) return _point(a[0]);
+        if (len[0] && !len[1] && !len[2]) return _polygon(a[0]);
         if (!len[0] && len[1] && !len[2]) return _polyline(a[1]);
-        if (!len[0] && !len[1] && len[2]) return _polygon(a[2]);
-        const type = GeoPBF.geometryTypes[6], geometries = [];
-        len[0] && geometries.push(_point(a[0]));
+        if (!len[0] && !len[1] && len[2]) return _point(a[2]);
+        const type = types[6], geometries = [];
+        len[0] && geometries.push(_polygon(a[0]));
         len[1] && geometries.push(_polyline(a[1]));
-        len[2] && geometries.push(_polygon(a[2]));
+        len[2] && geometries.push(_point(a[2]));
         return { type, geometries, properties };
-        function _point(p) {
-            const isM = p.length > 1, type = GeoPBF.geometryTypes[isM ? 1 : 0];
-            const trans = p => gint.unpack(point_buffer[p]).map(t => Math.round(t * e));
-            return { type, coordinates: isM ? p.map(trans) : trans(p[0]), properties };
+        function _polygon(p) {
+            const isM = p.length > 1, type = types[isM ? 5 : 4];;
+            return { type, arcs: isM ? p : p[0], properties };
         }
         function _polyline(p) {
-            const isM = p.length > 1, type = GeoPBF.geometryTypes[isM ? 3 : 2];
-            p = p.map(t => t.map(shift));
+            const isM = p.length > 1, type = types[isM ? 3 : 2];
             return { type, arcs: isM ? p : p[0], properties };
         }
-        function _polygon(p) {
-            const isM = p.length > 1, type = GeoPBF.geometryTypes[isM ? 5 : 4];;
-            return { type, arcs: isM ? p : p[0], properties };
+        function _point(p) {
+            const isM = p.length > 1, type = types[isM ? 1 : 0];
+            const trans = p => gint.unpack(pointBuffer[p]).map(t => Math.round(t * e));
+            return { type, coordinates: isM ? p.map(trans) : trans(p[0]), properties };
         }
     };
-    const arcs = [];
-    const process = ({ buffer, meta, count, mlen }) => {
-        for (let i = 0; i < count; i++) {
-            const off = meta[i * mlen], len = meta[i * mlen + 1], arc = new Array(len);
-            let px = 0, py = 0;
-            for (let j = 0; j < len; j++) {
-                const k = off + j;
-                const [cx, cy] = gint.unpack(buffer[k]);
-                arc[j] = [Math.round((cx - px) * e), Math.round((cy - py) * e)]; px = cx; py = cy;
-            }
-            arcs.push(arc);
-        }
-    };
-    self.polygon && process(self.polygon);
-    self.polyline && process(self.polyline);
+    const type = "Topology";
+    const BBOX = [...gint.intToVal([bbox[0], bbox[1]]), ...gint.intToVal([bbox[2], bbox[3]])];
+    const geometries = Object.entries(topologies).map(elem);
+    const collection = { type: types[6], geometries };
     const transform = { scale: [1 / e, 1 / e], translate: [0, 0] };
-    return {
-        type: "Topology", bbox: [...bbox], arcs, transform,
-        objects: { collection: { type: "GeometryCollection", geometries: topo.map(elem) } }
-    };
+    return { type, bbox: BBOX, arcs, transform, objects: { collection } };
 }
 ////----------------------------------------------------------------- 指定したインデックスのFeatureと「Arcを共有している」隣接Featureを返す
 export function neighbors(self, id) {
@@ -76,7 +66,7 @@ function buildNeighber(topo) {
 }
 ////----------------------------------------------------------------- 境界線のみを抽出する mesh (条件: filterFunc(a, b) で隣接関係を判定)
 export function mesh(self, opts = {}) {
-    const type = GeoPBF.geometryTypes[3];
+    const type = types[3];
     const arcs = self.findArcs(opts.filter).filter(([id, t]) => (t.length == 2)).map(t => t[0]);
     if (!!opts.arc) return { type, arcs };
     const coordinates = arcs.map(id => self.arcCoords(id));
@@ -84,7 +74,7 @@ export function mesh(self, opts = {}) {
 }
 ////-----------------------------------------------------------------  複数のポリゴンを単一の外郭に合体させる
 export function merge(self, opts = {}) {
-    const type = GeoPBF.geometryTypes[5];
+    const type = types[5];
     let arcs = self.findArcs(opts.filter).filter(([id, t]) => (t.length == 1)).map(t => t[0]);
     arcs = self.stitchRings(arcs);
     if (!!opts.arc) return { type, arcs };

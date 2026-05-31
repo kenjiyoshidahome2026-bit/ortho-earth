@@ -361,8 +361,7 @@ function writeGeometry(self, q) {
     const { pbf, e } = self;
     return self.setMessage(TAGS.GEOMETRY, () => {
         const fix = n => { while (n < -180) n += 360; while (n > 180) n -= 360; return n; };
-        let type = geometryMap[q.type];
-        let c = q.coordinates;
+        let type = geometryMap[q.type], c = q.coordinates;
         if (type == null) return console.error("illegal geometry type: ", q.type);
         if (type % 2 == 1 && c.length == 1) { type--; c = c[0];}
         pbf.writeVarintField(TAGS.GTYPE, type);

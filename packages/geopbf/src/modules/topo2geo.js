@@ -13,8 +13,8 @@ export function topo2geo(topo) {
         });
         return coords;
     };
-    const geom = g => {
-        switch (g.type) {
+    const geom = g => { const type = g.type;
+        switch (type) {
             case "Point": return { type, coordinates: tran(g.coordinates)};
             case "MultiPoint": return { type, coordinates: decodePoints(g.coordinates)};
             case "LineString": return { type, coordinates: getCoords(g.arcs)};
