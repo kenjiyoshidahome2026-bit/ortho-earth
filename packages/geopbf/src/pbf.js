@@ -4,7 +4,8 @@ import * as manipulate from "./extension/manipulate.js";
 import { nearPoint } from "./extension/nearPoint.js";
 import { contain } from "./extension/contain.js";
 import { dissolve } from "./extension/dissolve.js";
-import { topojson, neighbors, mesh, merge, identify } from "./extension/topojson.js";
+import { topojson, neighbors, mesh, merge } from "./extension/topojson.js";
+import { identify } from "./extension/identify.js";
 import { drawGeometry, view } from "./extension/view.js";
 import { unPackGint } from "./extension/pbf2gint.js";
 
@@ -41,7 +42,7 @@ setPrototype("context", function(ctx, proj) { this.ctx = ctx; this.proj = proj; 
 setPrototype("view", function(canvas, props) { return view(this, canvas, props); });
 setPrototype("setGintBUF", function(buf) { 
 	if (typeof SharedArrayBuffer === 'undefined') throw new Error("SharedArrayBuffer is not supported in this environment. Please set headers.");
-	const sab = new SharedArrayBuffer(buf.byteLength);
+	const sab = this._gintBuffer = new SharedArrayBuffer(buf.byteLength);
     new Uint8Array(sab).set(new Uint8Array(buf));
-	this._gintBuffer = sab; this.unPackGint = unPackGint(sab); return this; });
+	this.unPackGint = unPackGint(sab); return this; });
 export { GeoPBF };
