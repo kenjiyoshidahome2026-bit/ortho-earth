@@ -56,7 +56,8 @@ export async function geopbf(data, options = {}) { if (isString(options)) option
             const name = q.name;
             options.name = options.name || name.replace(/\.[^\.]+$/, "");
             if (name.match(/\.(geo)?pbf$/i)) return _geopbf(await q.arrayBuffer());
-            if (name.match(/\.(geo|topo)?json$/i)) return _geopbf(await decoder("json", q));
+            if (name.match(/\.geojson$/i)) return _geopbf(await decoder("json", q));
+            if (name.match(/\.(topo)?json$/i)) return _geopbf(await file2json(q));
             if (name.match(/\.fgb$/i)) return _geopbf(await decoder("fgb", q));
             if (name.match(/\.zip$/i)) return _geopbf(await decoder("shape", q));
             if (name.match(/\.kmz$/i)) return _geopbf(await decoder("kmz", q));
