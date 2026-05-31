@@ -18,16 +18,16 @@ export function checkCoherence(fB, vB) { // コヒーレンス判定: 0:Outside,
 	return 1; // 一部が重なっている (Partial)
 }
 ////===============================================================================================================
-export function topology(self) { if (self.structures) return self.structures;
+export function topology(self) { //if (self.structures) return self.structures;
 	const { pbf, e } = self;
 	const structures = [[], [], []], S = 1 / e;
 	const elemCount = [0, 0, 0, 0];
 	let propTub = new Map(); let propCount = 0;
-	let IDTUB = new Array(self.length);
+//	let IDTUB = new Array(self.length);
 	self.each((i, map) => { const key = self.props[i].join("|");
 		if (!propTub.has(key)) propTub.set(key, i);
 		const id = propTub.get(key);
-		IDTUB[i] = id;
+	//	IDTUB[i] = id;
 		const process = (pos, type) => {
 			pbf.pos = pos;
 			let lens = [], coords = [];
@@ -82,7 +82,7 @@ export function topology(self) { if (self.structures) return self.structures;
 	structures[1].forEach(({ id, arcs }) => { polylineTub[id] = polylineTub[id] || []; polylineTub[id].push(arcs); });
 	structures[0].forEach(({ id, arcs }) => { 
 		arcs.forEach(t=>{ t.forEach(arc=>{ arc = arc < 0 ? ~arc : arc;
-			owner[arc] = owner[arc] || []; owner[arc].push(IDTUB[id]);
+			owner[arc] = owner[arc] || []; owner[arc].push(id);
 		});});
 	});
 	owner.filter(ids=>ids.length > 1).forEach(ids => {
@@ -103,7 +103,7 @@ export function topology(self) { if (self.structures) return self.structures;
 	const header = new Uint32Array([gintHeader, gintVersion, ...elemCount, arcLength, arcCount, ...bbox]);
 	const headLength = header.length;
 	const totalLength = headLength * 4 + arcLength * 8 + arcCount * mlen * 4 + pointCount * (8+4) + topology.length;
-	const buffer = new ArrayBuffer(totalLength), view = new Uint8Array(buffer);
+	const GintBUF = new ArrayBuffer(totalLength), view = new Uint8Array(GintBUF);
 	let ptr = 0;
 	view.set(new Uint8Array(header.buffer), 0); ptr += headLength * 4;
 	polygon && (view.set(new Uint8Array(polygon.buffer.buffer), ptr), ptr += polygon.buffer.length * 8);
@@ -113,23 +113,23 @@ export function topology(self) { if (self.structures) return self.structures;
 	polyline && (view.set(new Uint8Array(polyline.meta.buffer), ptr), ptr += polyline.meta.length * 4);
 	point && (view.set(new Uint8Array(point.owner.buffer), ptr), ptr += point.owner.length * 4);
 	view.set(new Uint8Array(new TextEncoder().encode(topology)), ptr), ptr += topology.length;
-	if (totalLength !== ptr) throw new Error(`Buffer length mismatch: expected ${totalLength}, got ${ptr}`);
-	console.log(unPackGintBuffer(buffer));
-	return buffer;
+	if (totalLength !== ptr) throw new Error(`GintBUF length mismatch: expected ${totalLength}, got ${ptr}`);
+//	console.log(unPackGintBuffer(GintBUF));
+	return GintBUF;
 }
-export function unPackGintBuffer(buffer) {
+export function unPackGintBuffer(GintBUF) {
 	try { let ptr = 0;
-		const view = new Uint8Array(buffer), mlen = 8;
-		const header = new Uint32Array(buffer, 0, 12); ptr += header.length * 4;
+		const view = new Uint8Array(GintBUF), mlen = 8;
+		const header = new Uint32Array(GintBUF, 0, 12); ptr += header.length * 4;
 		if (header[0] != 1953392967) throw new Error("Invalid Gint buffer");
 		if (header[1] != 1) throw new Error("Unsupported Gint version");
 		const polygonCount = header[2], polylineCount = header[3], pointCount = header[4], nodeCount = header[5];
 		const arcLength = header[6], arcCount = header[7], bbox = header.slice(8, 12);
-		const arcBuffer = arcLength ? new BigUint64Array(buffer, ptr, arcLength) : null; ptr += arcLength * 8;
-		const pointBuffer = pointCount ? new BigUint64Array(buffer, ptr, pointCount) : null; ptr += pointCount * 8;
-		const arcMeta = arcCount ? new Uint32Array(buffer, ptr, arcCount * mlen) : null; ptr += arcCount * mlen * 4;
-		const point = pointCount ? new Uint32Array(buffer, ptr, pointCount) : null; ptr += pointCount * 4;
-		const [polygon, polyline, neighbors] = JSON.parse(new TextDecoder().decode(new Uint8Array(buffer, ptr)));
+		const arcBuffer = arcLength ? new BigUint64Array(GintBUF, ptr, arcLength) : null; ptr += arcLength * 8;
+		const pointBuffer = pointCount ? new BigUint64Array(GintBUF, ptr, pointCount) : null; ptr += pointCount * 8;
+		const arcMeta = arcCount ? new Uint32Array(GintBUF, ptr, arcCount * mlen) : null; ptr += arcCount * mlen * 4;
+		const point = pointCount ? new Uint32Array(GintBUF, ptr, pointCount) : null; ptr += pointCount * 4;
+		const [polygon, polyline, neighbors] = JSON.parse(new TextDecoder().decode(new Uint8Array(GintBUF, ptr)));
 		return { polygonCount, polylineCount, pointCount, nodeCount, arcCount, bbox,
 			arcBuffer, arcMeta, polygon, polyline, pointBuffer, point, neighbors }
 	} catch (e) { console.error("Failed to unpack Gint buffer:", e); return null; }

@@ -1,12 +1,9 @@
-//import { GeoPBF } from "../pbf-base.js";
 import { gint } from "./gint.js";
 import { topology, unPackGintBuffer } from "./topology.js";
 ////-----------------------------------------------------------------GeoJSONからtopojsonを作成
 const types = ["Point", "MultiPoint", "LineString", "MultiLineString", "Polygon", "MultiPolygon", "GeometryCollection"];
 export function topojson(self) {
-    const buffer = topology(self);
-    const unPackGint = unPackGintBuffer(buffer);
-    const { bbox, pointCount, pointBuffer, point, arcCount, arcBuffer, arcMeta, polygon, polyline } = unPackGint;
+    const { bbox, pointCount, pointBuffer, point, arcCount, arcBuffer, arcMeta, polygon, polyline } = self.unPackGint;
     const e = self.e;
     const arcs = [], mlen = 8;
     for (let i = 0; i < arcCount; i++) { let px = 0, py = 0;
@@ -34,7 +31,7 @@ export function topojson(self) {
         len[2] && geometries.push(_point(a[2]));
         return { type, geometries, properties };
         function _polygon(p) {
-            const isM = p.length > 1, type = types[isM ? 5 : 4];;
+            const isM = p.length > 1, type = types[isM ? 5 : 4];
             return { type, arcs: isM ? p : p[0], properties };
         }
         function _polyline(p) {
@@ -56,30 +53,25 @@ export function topojson(self) {
 }
 ////----------------------------------------------------------------- 指定したインデックスのFeatureと「Arcを共有している」隣接Featureを返す
 export function neighbors(self, id) {
-    const neighbor = buildNeighber(self.structures[2]);
-    return id == undefined ? neighbor : neighbor[id] || [];
-}
-function buildNeighber(topo) {
-	const neighbors = [];
-	topo.forEach(q => neighbors[q.id] = q.neighbor);
-	return neighbors;
+    const buffer = topology(self);
+    const unPackGint = unPackGintBuffer(buffer);
+    const {neighbors} = unPackGint;
+    return id == undefined ? neighbors : neighbors[id] || [];
 }
 ////----------------------------------------------------------------- 境界線のみを抽出する mesh (条件: filterFunc(a, b) で隣接関係を判定)
 export function mesh(self, opts = {}) {
-    const type = types[3];
     const arcs = self.findArcs(opts.filter).filter(([id, t]) => (t.length == 2)).map(t => t[0]);
     if (!!opts.arc) return { type, arcs };
     const coordinates = arcs.map(id => self.arcCoords(id));
-    return { type, coordinates };
+    return { type:types[3], coordinates };
 }
 ////-----------------------------------------------------------------  複数のポリゴンを単一の外郭に合体させる
 export function merge(self, opts = {}) {
-    const type = types[5];
     let arcs = self.findArcs(opts.filter).filter(([id, t]) => (t.length == 1)).map(t => t[0]);
     arcs = self.stitchRings(arcs);
     if (!!opts.arc) return { type, arcs };
     const coordinates = [arcs.map(t => self.ringCoords(t))];
-    return { type, coordinates };
+    return { type:types[5], coordinates };
 }
 ////----------------------------------------------------------------- バラバラの外郭Arcを繋いで閉じたリング(一筆書き)を作る
 function stitchRings(self, arcs) {
@@ -138,87 +130,3 @@ function arcCoords(self, aid) {
     return aid < 0 ? pts.reverse() : pts;
 }
 ////===============================================================================================================
-export function identify(self, mx, my, scale, options = {}) {
-	const pointError = ((options.point || 10) / scale) * 1e7;
-	const polylineError = ((options.polyline || 5) / scale) * 1e7;
-	const arcThreshold = (Radius / scale) * 0.5;
-	const geo = unproject(mx, my); if (!geo) return null;
-	const [mix, miy] = geo;
-	if (self.points) {
-		const owner = findPoint(self.points, mix, miy, pointError);
-		if (owner !== null) return owner;
-	}
-	if (self.polylines) {
-		const owner = findPolyline(self.polylines, mix, miy, polylineError, arcThreshold);
-		if (owner !== null) return owner;
-	}
-	if (self.polygons) {
-		const owner = findPolygon(self.polygons, mix, miy, self.structures[2]);
-		if (owner !== null) return owner;
-	}
-	return null;
-}
-function findPoint(layer, mix, miy, error) {
-	const { count, buffer, owners } = layer;
-	const mMin = gint.packFromInt(mix - error, miy - error);
-	const mMax = gint.packFromInt(mix + error, miy + error);
-	const errSq = error * error;
-	let low = 0, high = count - 1, start = 0;
-	while (low <= high) { // Binary search to find mMin start
-		let mid = (low + high) >>> 1;
-		if (buffer[mid] < mMin) { low = mid + 1; start = low; }
-		else high = mid - 1;
-	}
-	for (let i = start; i < count; i++) {
-		const m = buffer[i];
-		if (m > mMax) break;
-		const [ix, iy] = gint.unpackToInt(m);
-		const dx = ix - mix, dy = iy - miy;
-		if (dx * dx + dy * dy <= errSq) return owners[i];
-	}
-	return null;
-}
-function findPolyline(layer, mix, miy, error, threshold) {
-	const { count, buffer, meta, owners } = layer;
-	const errSq = error * error;
-	for (let i = 0; i < count; i += 8) {
-		if (meta[i + 2] < threshold && meta[i + 2] !== 0) break; // Early Exit
-		if (mix < meta[i + 4] - error || mix > meta[i + 6] + error ||
-			miy < meta[i + 5] - error || miy > meta[i + 7] + error) continue;
-		const offset = meta[i], len = meta[i + 1];
-		for (let j = 0; j < len - 1; j++) {
-			const d2 = distToSegSq(mix, miy, buffer[offset + j], buffer[offset + j + 1]);
-			if (d2 <= errSq) return owners[i >> 3];
-		}
-	}
-	return null;
-	function distToSegSq(px, py, p1, p2) {
-		const [x1, y1] = gint.unpackToInt(p1), [x2, y2] = gint.unpackToInt(p2);
-		const l2 = (x2 - x1) ** 2 + (y2 - y1) ** 2;
-		if (l2 === 0) return (px - x1) ** 2 + (py - y1) ** 2;
-		let t = Math.max(0, Math.min(1, ((px - x1) * (x2 - x1) + (py - y1) * (y2 - y1)) / l2));
-		return (px - (x1 + t * (x2 - x1))) ** 2 + (py - (y1 + t * (y2 - y1))) ** 2;
-	}
-}
-function findPolygon(layer, mix, miy, structures) {
-	const { buffer, meta } = layer;
-	for (let i = 0; i < structures.length; i++) {
-		const { id, bbox, coords } = structures[i];
-		if (mix < bbox[0] || mix > bbox[2] || miy < bbox[1] || miy > bbox[3]) continue;
-		let inside = false;
-		for (const ring of coords) {
-			for (const arcIdx of ring) {
-				const aid = arcIdx < 0 ? ~arcIdx : arcIdx;
-				const off = meta[aid << 3], len = meta[(aid << 3) + 1];
-				for (let k = 0; k < len - 1; k++) {
-					const [ix1, iy1] = gint.unpackToInt(buffer[off + k]);
-					const [ix2, iy2] = gint.unpackToInt(buffer[off + k + 1]);
-					if (((iy1 > miy) !== (iy2 > miy)) &&
-						(mix < (ix2 - ix1) * (miy - iy1) / (iy2 - iy1) + ix1)) inside = !inside;
-				}
-			}
-		}
-		if (inside) return id;
-	}
-	return null;
-}
