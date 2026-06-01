@@ -3,9 +3,9 @@ import { gzip } from "native-bucket";
 import { topojson } from "../extension/topojson.js";
 
 onmessage = async (e) => {
-    const { buf, name, opts, gint } = e.data, gz = opts && opts.gz;
+    const { buf, name, opts, gintbuf } = e.data, gz = opts && opts.gz;
     try {
-        const pbf = (await new GeoPBF().set(buf)).setGintBUF(gint);
+        const pbf = (await new GeoPBF().set(buf)).setGintBUF(gintbuf);
         const topo = await topojson(pbf);
         let out = new File([JSON.stringify(topo)], `${name}.topojson`, { type: "application/json" })
         if (gz) out = await gzip(out);
