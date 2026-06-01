@@ -1,7 +1,6 @@
 import { GeoPBF } from "./pbf.js";
 import { pbfio } from "./pbf-io.js";
-import { unPackGint } from "./extension/pbf2gint.js";
-import { topo2geo } from "./modules/topo2geo.js";
+import { topology } from "./extension/topology.js";
 import { gunzip, isGzip } from "native-bucket";
 import { isString, isURL, isFile, isObject, isBuffer } from "common"
 let server = null;
@@ -96,7 +95,7 @@ export async function geopbf(data, options = {}) { if (isString(options)) option
             const fc = a => ({ type: "FeatureCollection", features: a });
             const f = g => ({ type: "Feature", geometry: g, properties: {} });
             return Array.isArray(q) ? fc(q.filter(t => isObject(t) && t.type == "Feature")) :
-                (q.type == "Topology") ? topo2geo(q) :
+                (q.type == "Topology") ? topology(q) :
                 (q.type == "FeatureCollection") ? q :
                 (q.type == "Feature") ? fc([q]) :
                 (q.type == "GeometryCollection") ? fc(q.map(f)) : fc([]);

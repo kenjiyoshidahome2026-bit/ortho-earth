@@ -114,22 +114,22 @@ export function topology(self) { //if (self.structures) return self.structures;
 	point && (view.set(new Uint8Array(point.owner.buffer), ptr), ptr += point.owner.length * 4);
 	view.set(new Uint8Array(new TextEncoder().encode(topology)), ptr), ptr += topology.length;
 	if (totalLength !== ptr) throw new Error(`GintBUF length mismatch: expected ${totalLength}, got ${ptr}`);
-//	console.log(unPackGintBuffer(GintBUF));
+	console.log(unPackGintBuffer(GintBUF));
 	return GintBUF;
 }
-export function unPackGintBuffer(GintBUF) {
+export function unPackGintBuffer(GintBUF) { //const view = new Uint8Array(GintBUF), mlen = 8;
 	try { let ptr = 0;
-		const view = new Uint8Array(GintBUF), mlen = 8;
-		const header = new Uint32Array(GintBUF, 0, 12); ptr += header.length * 4;
+		const buf = new Uint8Array(GintBUF).slice().buffer, mlen = 8;
+		const header = new Uint32Array(buf, 0, 12); ptr += header.length * 4;
 		if (header[0] != 1953392967) throw new Error("Invalid Gint buffer");
 		if (header[1] != 1) throw new Error("Unsupported Gint version");
 		const polygonCount = header[2], polylineCount = header[3], pointCount = header[4], nodeCount = header[5];
 		const arcLength = header[6], arcCount = header[7], bbox = header.slice(8, 12);
-		const arcBuffer = arcLength ? new BigUint64Array(GintBUF, ptr, arcLength) : null; ptr += arcLength * 8;
-		const pointBuffer = pointCount ? new BigUint64Array(GintBUF, ptr, pointCount) : null; ptr += pointCount * 8;
-		const arcMeta = arcCount ? new Uint32Array(GintBUF, ptr, arcCount * mlen) : null; ptr += arcCount * mlen * 4;
-		const point = pointCount ? new Uint32Array(GintBUF, ptr, pointCount) : null; ptr += pointCount * 4;
-		const [polygon, polyline, neighbors] = JSON.parse(new TextDecoder().decode(new Uint8Array(GintBUF, ptr)));
+		const arcBuffer = arcLength ? new BigUint64Array(buf, ptr, arcLength) : null; ptr += arcLength * 8;
+		const pointBuffer = pointCount ? new BigUint64Array(buf, ptr, pointCount) : null; ptr += pointCount * 8;
+		const arcMeta = arcCount ? new Uint32Array(buf, ptr, arcCount * mlen) : null; ptr += arcCount * mlen * 4;
+		const point = pointCount ? new Uint32Array(buf, ptr, pointCount) : null; ptr += pointCount * 4;
+		const [polygon, polyline, neighbors] = JSON.parse(new TextDecoder().decode(new Uint8Array(buf, ptr)));
 		return { polygonCount, polylineCount, pointCount, nodeCount, arcCount, bbox,
 			arcBuffer, arcMeta, polygon, polyline, pointBuffer, point, neighbors }
 	} catch (e) { console.error("Failed to unpack Gint buffer:", e); return null; }

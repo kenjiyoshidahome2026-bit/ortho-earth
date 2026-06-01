@@ -7,7 +7,7 @@ import { dissolve } from "./extension/dissolve.js";
 import { topojson, neighbors, mesh, merge } from "./extension/topojson.js";
 import { identify } from "./extension/identify.js";
 import { drawGeometry, view } from "./extension/view.js";
-import { unPackGint } from "./extension/pbf2gint.js";
+import { unPackGintBuffer } from "./extension/topology.js";
 
 const setGetter = (name, func) => { Object.defineProperty(GeoPBF.prototype, name, { get: func, configurable: false, enumerable: false }); };
 const setPrototype = (name, func) => { Object.defineProperty(GeoPBF.prototype, name, { value: func, configurable: false, enumerable: false }); };
@@ -44,5 +44,5 @@ setPrototype("setGintBUF", function(buf) {
 	if (typeof SharedArrayBuffer === 'undefined') throw new Error("SharedArrayBuffer is not supported in this environment. Please set headers.");
 	const sab = this._gintBuffer = new SharedArrayBuffer(buf.byteLength);
     new Uint8Array(sab).set(new Uint8Array(buf));
-	this.unPackGint = unPackGint(sab); return this; });
+	this.unPackGint = unPackGintBuffer(sab); return this; });
 export { GeoPBF };
