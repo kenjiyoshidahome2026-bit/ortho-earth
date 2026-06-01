@@ -53,30 +53,40 @@ export function topojson(self) {
 }
 ////----------------------------------------------------------------- 指定したインデックスのFeatureと「Arcを共有している」隣接Featureを返す
 export function neighbors(self, id) {
-    const buffer = topology(self);
-    const unPackGint = unPackGintBuffer(buffer);
-    const {neighbors} = unPackGint;
+    const {neighbors} = self.unPackGint;
     return id == undefined ? neighbors : neighbors[id] || [];
 }
 ////----------------------------------------------------------------- 境界線のみを抽出する mesh (条件: filterFunc(a, b) で隣接関係を判定)
 export function mesh(self, opts = {}) {
-    const arcs = self.findArcs(opts.filter).filter(([id, t]) => (t.length == 2)).map(t => t[0]);
+    const arcs = findArcs(self, opts.filter).filter(([id, t]) => (t.length == 2)).map(t => t[0]);
     if (!!opts.arc) return { type, arcs };
     const coordinates = arcs.map(id => self.arcCoords(id));
     return { type:types[3], coordinates };
 }
 ////-----------------------------------------------------------------  複数のポリゴンを単一の外郭に合体させる
 export function merge(self, opts = {}) {
-    let arcs = self.findArcs(opts.filter).filter(([id, t]) => (t.length == 1)).map(t => t[0]);
-    arcs = self.stitchRings(arcs);
+    let arcs = findArcs(self, opts.filter).filter(([id, t]) => (t.length == 1)).map(t => t[0]);
+    arcs = stitchRings(self, arcs);
     if (!!opts.arc) return { type, arcs };
-    const coordinates = [arcs.map(t => self.ringCoords(t))];
+    const coordinates = [arcs.map(t => ringCoords(self, t))];
     return { type:types[5], coordinates };
 }
 ////----------------------------------------------------------------- バラバラの外郭Arcを繋いで閉じたリング(一筆書き)を作る
-function stitchRings(self, arcs) {
-    if (!arcs || !arcs.length) return [];
-    const { buffer, meta, mlen } = self.polygon;
+function findArcs(self, filter) {
+    filter = (typeof filter == 'function') ? filter : (t => true);
+    const topo = buildTopology(self.topology);
+    const hash = [];
+    const set = (arc, id) => {
+        arc.flat(Infinity).forEach(n => {
+            const aid = n < 0 ? ~n : n;
+            (hash[aid] = hash[aid] || []).push(n < 0 ? ~id : id);
+        });
+    };
+    topo.forEach((t, id) => filter(self.getProperties(id)) && t[2].forEach(q => set(q, id)));
+    return hash.map((t, id) => [id, t]);
+}
+function stitchRings(self, arcs) { if (!arcs || !arcs.length) return [];
+    const { buffer, meta, mlen } = self.unPackGint;
     const pos = n => [meta[n * mlen], meta[n * mlen + 1]];
     const nodes = new Map(), used = new Set(), rings = [];
     arcs.forEach(id => {
@@ -100,19 +110,6 @@ function stitchRings(self, arcs) {
     return rings;
 }
 ////----------------------------------------------------------------- arc => coordinates
-function findArcs(self, filter) {
-    filter = (typeof filter == 'function') ? filter : (t => true);
-    const topo = buildTopology(self.topology);
-    const hash = [];
-    const set = (arc, id) => {
-        arc.flat(Infinity).forEach(n => {
-            const aid = n < 0 ? ~n : n;
-            (hash[aid] = hash[aid] || []).push(n < 0 ? ~id : id);
-        });
-    };
-    topo.forEach((t, id) => filter(self.getProperties(id)) && t[2].forEach(q => set(q, id)));
-    return hash.map((t, id) => [id, t]);
-}
 function ringCoords(self, ring) {
     let coords = [];
     ring.forEach((aid, n) => {
