@@ -44,5 +44,16 @@ setPrototype("setGintBUF", function(buf) {
 	if (typeof SharedArrayBuffer === 'undefined') throw new Error("SharedArrayBuffer is not supported in this environment. Please set headers.");
 	const sab = this._gintBuffer = new SharedArrayBuffer(buf.byteLength);
     new Uint8Array(sab).set(new Uint8Array(buf));
-	this.unPackGint = unPackGintBuffer(sab); return this; });
+	this.unPackGint = unPackGintBuffer(sab); return this;
+});
+
+setPrototype("fileSize", async function() { 
+	const buf = this.arrayBuffer;
+	const url = new URL(`./encoder/fileSize.js`, import.meta.url);
+	const w = new Worker(url, { type: 'module' });
+	return new Promise(resolve => {
+		w.onmessage = e => { w.terminate(); resolve(e.data); };
+		w.postMessage(buf, [buf]);
+	});
+ });
 export { GeoPBF };

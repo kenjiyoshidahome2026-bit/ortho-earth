@@ -72,8 +72,7 @@ async function exec(info) {
             logger.success(`${name} (length: ${comma(pbf.size)})`);
         } else logger.error("Failed to load data.");
         console.log(pbf);
-        success && logger.log(await pbf.profile({nohead:true}));
-        console.log(pbf);
+        success && logger.log(await pbf.profile({ nohead: true }));
         inExec = false; left.selectAll(".card").attr("disabled", null); cancel.hide();
         p = logger.empty(); p.append("span").text("🔔 [ACTIONs]").classed("big",true);
         success && p.append("button").classed("accent", true).text("View in Ortho-Map").on("click", execView);
@@ -81,7 +80,6 @@ async function exec(info) {
         attribution && pbf.originalURL && p.append("button").text("Reload from original url")
             .on("click", async() => { pbf && (pbf.destroy()); exec(Object.assign({}, info, {nocache:true}));});
         if (!success) return;
-        console.log(pbf);
         const save = async s => { if (!s) return; const v = await saveTo(s); if (v) logger.log(`📥 Saved: ${s.name} (${comma(s.size)} bytes)`); }
         const funcs = [
             async function GeoPBF() { save(await pbf.geopbfFile()) },

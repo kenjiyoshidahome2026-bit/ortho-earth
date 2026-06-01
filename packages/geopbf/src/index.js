@@ -1,6 +1,7 @@
 import { GeoPBF } from "./pbf.js";
 import { pbfio } from "./pbf-io.js";
 import { topology } from "./extension/topology.js";
+import { topo2geo } from "./modules/topo2geo.js";
 import { gunzip, isGzip } from "native-bucket";
 import { isString, isURL, isFile, isObject, isBuffer } from "common"
 let server = null;
@@ -46,6 +47,7 @@ export async function geopbf(data, options = {}) { if (isString(options)) option
              const GINT = new Uint8Array(pbf._gintBuffer).slice().buffer;
             server.cache(data, { PBF: pbf.arrayBuffer, GINT }, { worker: true }).catch(console.error); })
     }
+    pbf && (pbf._fileSize = pbf._fileSize || await pbf.fileSize());
     return pbf || new GeoPBF(options);
 ////===========================================================================================
     async function _geopbf(q) {
@@ -95,7 +97,7 @@ export async function geopbf(data, options = {}) { if (isString(options)) option
             const fc = a => ({ type: "FeatureCollection", features: a });
             const f = g => ({ type: "Feature", geometry: g, properties: {} });
             return Array.isArray(q) ? fc(q.filter(t => isObject(t) && t.type == "Feature")) :
-                (q.type == "Topology") ? topology(q) :
+                (q.type == "Topology") ? topo2geo(q) :
                 (q.type == "FeatureCollection") ? q :
                 (q.type == "Feature") ? fc([q]) :
                 (q.type == "GeometryCollection") ? fc(q.map(f)) : fc([]);
@@ -105,23 +107,23 @@ export async function geopbf(data, options = {}) { if (isString(options)) option
 //  ----------------------------------------------------------------------------------------
 const encoder = async (pbf, type, opts = {}) => { //console.log(pbf, type, opts);
     const eventTarget = typeof window !== "undefined" ? window : (typeof self !== "undefined" ? self : null);
-    const name = pbf._name, buf = pbf.arrayBuffer, gint = pbf._gintBuffer;
-    console.log(name, buf, gint, type, opts);
+    const name = pbf._name, buf = pbf.arrayBuffer, gintbuf = pbf._gintBuffer;
+    console.log(name, buf, gintbuf, type, opts);
     const event = type =="profile"? `profiling` : `conversion from GeoPBF to ${type}`;
     const throwEvent = (type, detail) => eventTarget && !opts.silent && eventTarget.dispatchEvent(new CustomEvent(type, { detail }));
-    throwEvent("ConvertStart", { name, event });
+    opts.message == false || throwEvent("ConvertStart", { name, event });
     const url = new URL(`./encoder/${type}.js`, import.meta.url)
     const w = new Worker(url, { type: 'module' });
     return new Promise(resolve => {
         w.onmessage = e => {
-            throwEvent("ConvertEnd", { name, event });
+            opts.message == false || throwEvent("ConvertEnd", { name, event });
             w.terminate(); resolve(e.data);
         };
         w.onerror = () => {
-            throwEvent("ConvertEnd", { name, error: `file encode error: [${type}]` });
+            opts.message == false || throwEvent("ConvertEnd", { name, error: `file encode error: [${type}]` });
             w.terminate(); console.error(`pbf encode error: [${type}]`); resolve(null);
         };
-        w.postMessage({ buf, gint, name, opts }, [buf]);
+        w.postMessage({ buf, gintbuf, name, opts }, [buf]);
     });
 };
 const methods = {
@@ -136,13 +138,11 @@ const methods = {
     async gpxFile(opts = {}) { return encoder(this, "gpx", opts); },
     async gmlFile(opts = {}) { return encoder(this, "gml", opts); },
     async fgbFile(opts = {}) { return encoder(this, "fgb", opts); },
-    async gint(opts = {}) { //console.log(opts);
-        if (opts.nogint) return this;
+    async gint(opts = {}) { if (opts.nogint) return this;
         this.unPackGint || this.setGintBUF(await encoder(this, "gint", opts));
         if (!this.unPackGint) throw new Error("Failed to encode Gint buffer.");
         return this;
     },
-
 };
 
 Object.entries(methods).forEach(([name, func]) => {

@@ -22,7 +22,7 @@ export function topology(self) { //if (self.structures) return self.structures;
 	const { pbf, e } = self;
 	const structures = [[], [], []], S = 1 / e;
 	const elemCount = [0, 0, 0, 0];
-	let propTub = new Map(); let propCount = 0;
+	let propTub = new Map();// let propCount = 0;
 //	let IDTUB = new Array(self.length);
 	self.each((i, map) => { const key = self.props[i].join("|");
 		if (!propTub.has(key)) propTub.set(key, i);
