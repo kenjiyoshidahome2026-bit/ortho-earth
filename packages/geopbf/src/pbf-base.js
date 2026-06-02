@@ -24,6 +24,10 @@ class GeoPBF {
     description(s) { if (s === undefined) return this._description; this._description = s; return this; }
     license(s) { if (s === undefined) return this._license; this._license = s; return this; }
     attribution(s) { if (s === undefined) return this._attribution; this._attribution = s; return this; }
+    // name(s) { return (s === undefined) ? this._name : this.updateHeader({ name: s }); }
+    // description(s) { return (s === undefined) ? this._description : this.updateHeader({ description: s }); }
+    // license(s) { return (s === undefined) ? this._license : this.updateHeader({ license: s }); }
+    // attribution(s) { return (s === undefined) ? this._attribution : this.updateHeader({ attribution: s }); }
     precision(s) { if (s === undefined) return this._precision; this.e = Math.pow(10, this._precision = s); return this; }
     init() { this.keys = [], this.bufs = [], this.fmap = [], this.bin = {}; this.props = []; delete this.end; delete this.ctx; delete this.proj; return this; }
     empty() { this.pbf = new Pbf(); this.init(); this.name(""); return this; }
@@ -183,33 +187,63 @@ class GeoPBF {
     get geojson() { return { type: "FeatureCollection", features: this.features, name: this.name() }; }
 
     updateHeader(meta = {}) {
+        if (!this._bodyPos || !this.end) {
+            console.warn("updateHeader: ボディ位置情報がありません。先に set() または getPosition() を実行してください。");
+            return this;
+        }
         const oldBodyPos = this._bodyPos;
         const bodyData = this.pbf.buf.subarray(oldBodyPos, this.end);
         this.pbf = new Pbf();
         this.setHead(this.keys, this.bufs, meta);
         this.pbf.writeVarint(TAGS.FARRAY << 3 | 2);
+
+        // ボディ長を書き込む（Varint）
+        const bodyLengthVarintPos = this.pbf.pos;
         this.pbf.writeVarint(bodyData.length);
+
+        // ここがボディの開始位置（重要）
         const newBodyPos = this.pbf.pos;
+
+        // ボディデータを書き込む
         this.pbf.writeBytes(bodyData);
+
         this.close();
+
+        // 位置のずれを計算
         const diff = newBodyPos - oldBodyPos;
+
+        // fmapの位置情報をすべて修正
         if (this.fmap && diff !== 0) {
             this.fmap.forEach(f => {
-                f[0] += diff; f[1] += diff;
-                if (f[2] === 6 && f[3]) f[3] = f[3].map(p => p + diff);
+                f[0] += diff;  // feature位置
+                f[1] += diff;  // geometry位置
+
+                // GeometryCollectionの場合
+                if (f[2] === 6 && f[3]) {
+                    f[3] = f[3].map(p => p + diff);
+                }
             });
         }
+
         this._bodyPos = newBodyPos;
+
         return this;
     }
 
     static async update(buffer, meta = {}) {
-        const pbf = new Pbf(new Uint8Array(buffer));
+        const uint8 = new Uint8Array(buffer);
+        const pbf = new Pbf(uint8);
         const head = { keys: [], bufs: [], precision: 6 };
         let bodyPos = -1;
+        let bodyLength = 0;
         while (pbf.pos < pbf.length) {
-            const val = pbf.readVarint(), tag = val >> 3;
-            if (tag === TAGS.FARRAY) { pbf.readVarint(); bodyPos = pbf.pos; break; }
+            const val = pbf.readVarint();
+            const tag = val >> 3;
+            if (tag === TAGS.FARRAY) {
+                bodyLength = pbf.readVarint();
+                bodyPos = pbf.pos;
+                break;
+            }
             if (tag === TAGS.NAME) head.name = pbf.readString();
             else if (tag === TAGS.DESCRIPTION) head.description = pbf.readString();
             else if (tag === TAGS.LICENSE) head.license = pbf.readString();
@@ -219,13 +253,17 @@ class GeoPBF {
             else if (tag === TAGS.PRECISION) head.precision = pbf.readVarint();
             else pbf.skip(val);
         }
+        if (bodyPos === -1) throw new Error("FARRAY field not found");
         const out = new GeoPBF();
-        out.setHead(head.keys, head.bufs, Object.assign(head, meta));
+        out.setHead(head.keys, head.bufs, Object.assign({}, head, meta));
+        // FARRAY フィールド書き込み
         out.pbf.writeVarint(TAGS.FARRAY << 3 | 2);
-        const bodyData = new Uint8Array(buffer).subarray(bodyPos);
-        out.pbf.writeVarint(bodyData.length);
-        out.pbf.writeBytes(bodyData);
-        return out.close().arrayBuffer;
+        out.pbf.writeVarint(bodyLength);
+        const newBodyPos = out.pbf.pos;
+        out.pbf.writeBytes(uint8.subarray(bodyPos, bodyPos + bodyLength));
+        out.close();
+        out._bodyPos = newBodyPos;
+        return out;
     }
     destroy() {
         try {

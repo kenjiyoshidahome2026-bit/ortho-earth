@@ -40,12 +40,15 @@ export async function geopbf(data, options = {}) { if (isString(options)) option
         });
     };
 ////===========================================================================================
-    const pbf = await _geopbf(data); await pbf.gint({ nogint: options.nogint});
+    const pbf = await _geopbf(data);
+    await pbf.gint({ nogint: options.nogint});
+ //   debugger
+//    pbf.updateHeader({license:"なんちゃって"});////.description("なんちゃって").attribution("なんちゃって");
     pbf && console.log(`[geopbf] 📥 ${pbf.name()} (${pbf.size.toLocaleString()} bytes) ${(performance.now()-dt).toFixed(2)} msec`);
     if (pbf && isURL(data) && !pbf.originalURL) {
-        getServer().then(server => { if (!server) return;
-             const GINT = new Uint8Array(pbf._gintBuffer).slice().buffer;
-            server.cache(data, { PBF: pbf.arrayBuffer, GINT }, { worker: true }).catch(console.error); })
+        const server = await getServer(); if (!server) return;
+        const GINT = new Uint8Array(pbf._gintBuffer).slice().buffer;
+        server.cache(data, { PBF: pbf.arrayBuffer, GINT }, { worker: true }).catch(console.error);
     }
     pbf && (pbf._fileSize = pbf._fileSize || await pbf.fileSize());
     return pbf || new GeoPBF(options);
