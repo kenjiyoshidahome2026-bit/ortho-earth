@@ -5,13 +5,14 @@ export async function decodeZIP(source, target = null, encoding = null) {
 	let eventTarget = (typeof window !== 'undefined' ? window : (typeof self !== 'undefined' ? self : null));
 	const event = (type, detail) => eventTarget && eventTarget.dispatchEvent(new CustomEvent(type, { detail }));
 
+	let passedTotalLength = 0;
 	if (isObject(target)) {
 		encoding = target.encoding || encoding;
 		eventTarget = target.eventTarget || eventTarget;
+		if (target.totalLength) passedTotalLength = target.totalLength;
 		target = target.target;
 	}
 
-	// 🚀 キャッシュバスター: Cloudflare等のエッジに古いエラーを即答させないための処置
 	const getCleanUrl = (url) => {
 		if (typeof url !== 'string') return url;
 		const sep = url.includes('?') ? '&' : '?';
@@ -26,9 +27,11 @@ export async function decodeZIP(source, target = null, encoding = null) {
 	let isFile = isBlob(source), totalLength = 0;
 	let supportRange = true;
 
-	// 🏛️ フェーズ1: HEAD先行による事前問診と安全なバッファ構築
 	if (isFile) {
 		totalLength = source.size;
+	} else if (passedTotalLength > 0) {
+		totalLength = passedTotalLength;
+		supportRange = true;
 	} else {
 		const cleanUrl = getCleanUrl(source);
 		const headRes = await safeFetch(cleanUrl, { method: 'HEAD' });
@@ -38,29 +41,22 @@ export async function decodeZIP(source, target = null, encoding = null) {
 		totalLength = cl ? parseInt(cl) : 0;
 		if (headRes.body) await headRes.body.cancel().catch(() => {});
 		supportRange = (totalLength > 1 && acceptRanges !== 'none');
-		if (!supportRange) {
-            console.warn("Origin explicitly rejects Range. Initializing robust local memory stream...");
-            event("FetchStart", { name: "Initializing Global Storage Buffer" });
-            source = await fetch(cleanUrl).then(r => r.blob());
-            totalLength = source.size;
-            isFile = true; 
-            event("FetchEnd", { name: "Initializing Global Storage Buffer", size: totalLength });
-        }
 	}
 
-	// 🏛️ フェーズ2: ハイブリッド対応の強靭な read 関数
+	if (!isFile && (!supportRange || totalLength <= 0)) {
+		console.warn("Origin explicitly rejects Range or size missing. Initializing robust local memory stream...");
+		event("FetchStart", { name: "Initializing Global Storage Buffer" });
+		source = await fetch(getCleanUrl(source)).then(r => r.blob());
+		totalLength = source.size;
+		isFile = true; 
+		event("FetchEnd", { name: "Initializing Global Storage Buffer", size: totalLength });
+	}
+
 	const read = async (from, len, name, uSiz) => {
 		if (isFile) return new Uint8Array(await source.slice(from, from + len).arrayBuffer());
 		const res = await fetch(getCleanUrl(source), { headers: { Range: `bytes=${from}-${from + len - 1}` } });
 		if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
-		// 万が一の安全装置: 読み込み中の Range 無視バッファ溢れを防ぎ、その場で進化
-		// if (res.status === 200) {
-		// 	source = await res.blob();
-		// 	isFile = true;
-		// 	totalLength = source.size;
-		// 	return new Uint8Array(await source.slice(from, from + len).arrayBuffer());
-		// }
 		const reader = res.body.getReader(), bin = new Uint8Array(len);
 		let pos = 0;
 		while (true) {
@@ -77,7 +73,6 @@ export async function decodeZIP(source, target = null, encoding = null) {
 	};
 
 	try {
-		// 🏛️ フェーズ3: スマート EOCD（目次サイン）狙撃
 		const findEOCD = async (searchSize) => {
 			const size = Math.min(totalLength, searchSize);
 			const buf = await read(totalLength - size, size);
@@ -88,9 +83,8 @@ export async function decodeZIP(source, target = null, encoding = null) {
 			return null;
 		};
 
-		// まずは超軽量バッファ(512B)で一瞬で探索
 		let eocd = await findEOCD(512);
-		if (!eocd) eocd = await findEOCD(65558); // コメント付きZIPのフェイルセーフ
+		if (!eocd) eocd = await findEOCD(65558); 
 		if (!eocd) throw new Error("Invalid ZIP: EOCD Signature missing");
 
 		const { p, buf } = eocd;
@@ -99,12 +93,10 @@ export async function decodeZIP(source, target = null, encoding = null) {
 		const cdSize = ev.getUint32(p + 12, true);
 		const cdOff = ev.getUint32(p + 16, true);
 
-		// 目次リスト一括ロード
 		const cd = await read(cdOff, cdSize);
 		const cv = new DataView(cd.buffer);
 		const entries = [];
 
-		// 🏛️ フェーズ4: 目次解析と抽出ストリーム
 		for (let i = 0, off = 0; i < count; i++) {
 			const flags = cv.getUint16(off + 8, true), meth = cv.getUint16(off + 10, true);
 			const time = cv.getUint16(off + 12, true), date = cv.getUint16(off + 14, true);
@@ -125,7 +117,6 @@ export async function decodeZIP(source, target = null, encoding = null) {
 			}
 			if (typeof target === 'string' && target !== name) continue;
 
-			// シンプルかつ最も安定した抽出パイプライン
 			const extract = async () => {
 				event("FetchStart", { name });
 				const lfhBuf = await read(loc, 30, `${name} Header`);

@@ -1,14 +1,9 @@
-//import { DOMParser } from 'linkedom';
 import { fname2mime } from "./fname2mime.js";
 import { decodeZIP } from "./decodeZIP.js";
 
-/**
- * Fetch - スマートプロキシ対応・キャッシュ対策済み通信ユーティリティ
- */
 export async function Fetch(url, opts = {}) {
     const type = ((typeof opts == "string")? opts: opts.type || "file").toLowerCase();
     const PROXY_URL = opts.proxy || `https://api.ortho-earth.com/proxy`;
-    const timestamp = new Date().getTime();
     const proxy = s => `${PROXY_URL}?url=${encodeURIComponent(s)}`;
     const encoding = (opts.encoding||"utf8").toLowerCase().replace(/[\-\_]/g,"").replace(/shiftjis/,"sjis");
     const silent = !!opts.silent || console === undefined;
@@ -23,23 +18,20 @@ export async function Fetch(url, opts = {}) {
     if (target) { name = target }; 
 
     try {
-        let cors = false, range = true;
-        if (opts.cors !== undefined) {
-            cors = !!opts.cors;
-        } else {
-            const checkRes = await fetch(`${proxy(url)}&mode=check`);
-            const info = await checkRes.json();
-            if (!info.exists) { console.warn(`file is not exist: ${url}`); return null; }
-            cors = info.mustUseProxy;
-            range = info.supportsRange;
-        }
-
+        let cors = false, range = true, knownSize = 0;
+        const checkRes = await fetch(`${proxy(url)}&mode=check`);
+        const info = await checkRes.json();
+        if (!info.exists) { console.warn(`file is not exist: ${url}`); return null; }
+        cors = opts.cors !== undefined ? !!opts.cors : info.mustUseProxy;
+        range = info.supportsRange;
+        knownSize = info.contentLength ? parseInt(info.contentLength, 10) : 0;
         const targetURL = cors ? proxy(url) : url;
 
         // 1. 部分取得 (Rangeリクエスト) を利用する場合
         if (range && target != null) {
-            const file = await decodeZIP(targetURL, { target, encoding, eventTarget });
-            if (target === false) return file; // メタデータ取得モード
+            // 🌟 確定した既知のサイズ（knownSize）を引数として decodeZIP に引き渡す
+            const file = await decodeZIP(targetURL, { target, encoding, eventTarget, totalLength: knownSize });
+            if (target === false) return file; 
             if (!file) { 
                 console.warn(`file is not exist: ${target} in ${url}`);
                 console.log("zip file includes:", await decodeZIP(targetURL, false));
@@ -47,8 +39,7 @@ export async function Fetch(url, opts = {}) {
             return await convert(file, type, encoding);
         }
 
-        // 🚀 2. 全体取得 (修正ポイント: キャッシュバスターと no-store を追加)
-        // URLにランダムなクエリを付与し、ブラウザ/プロキシの古いキャッシュをバイパスする
+        // 2. 全体取得
         const finalURL = `${targetURL}${targetURL.includes('?') ? '&' : '?'}_t=${Date.now()}`;
         const res = await fetch(finalURL, { cache: 'no-store' }); 
         
@@ -58,32 +49,24 @@ export async function Fetch(url, opts = {}) {
         const total = parseInt(res.headers.get('Content-Length') || 0, 10) || 0;
         const totalLength = total ? total.toLocaleString() : "(unknown)";
         
-        silent || console.log(`${url}: contentLength = ${total} bytes ${cors?"[PROXY]":""}`);
-        const logProgress = len => silent || console.log(` => ${name}: ${len.toLocaleString()} / ${totalLength} bytes`);
-        
         let loaded = 0, n = 0;
         event("FetchStart", {name});
-	//	const start = performance.now();
         while (true) {
             const { done, value } = await reader.read(); if (done) break;
             chunks.push(value);
             loaded += value.length;
             if (++n % 256 === 0) { 
-                logProgress(loaded); 
                 event("FetchProgress", { name, loaded, total }); 
             }
         }
         let rawBlob = new Blob(chunks);
-        logProgress(loaded);
-        event("FetchEnd", {name, size:rawBlob.size/*, time: performance.now() - start*/});
+        event("FetchEnd", {name, size:rawBlob.size});
 
         const head = new Uint8Array(await rawBlob.slice(0, 2).arrayBuffer());
-        
-        if (head[0] === 0x1f && head[1] === 0x8b) { // Gzip展開
+        if (head[0] === 0x1f && head[1] === 0x8b) { 
             const ds = new DecompressionStream("gzip");
             rawBlob = await new Response(rawBlob.stream().pipeThrough(ds)).blob();
             name = name.replace(/\.gz(ip)?$/i, "");
-            silent || console.log(` => ${name}: Decompressed (Gzip)`);
         }
 
         let file = new File([rawBlob], name, {type: fname2mime(name)});
@@ -123,6 +106,6 @@ export async function Fetch(url, opts = {}) {
                 }
             });
             return a;
-        };
+        }
     }
 }
