@@ -1,0 +1,21 @@
+[package]
+name = "gishub-wasm"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+# WASMライブラリとしてコンパイルするための指定
+crate-type = ["cdylib"]
+
+[dependencies]
+# JavaScript (V8) と Rust のメモリ・関数を安全に繋ぐライブラリ
+wasm-bindgen = "0.2"
+
+[target.wasm32-unknown-unknown]
+rustflags = [
+    # 🌟 起動した最初の1秒から、最初から「128MB（2048ページ × 64KB）」の広大な滑走路を確保して起動する！
+    "-C", "link-arg=--initial-memory=134217728",
+    
+    # 最大は2GBまで拡張可能にする
+    "-C", "link-arg=--max-memory=2147483648"
+]

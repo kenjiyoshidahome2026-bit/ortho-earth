@@ -12,7 +12,8 @@
 	},
 	"dependencies": {
 		"native-bucket": "*",
-		"pbf": "^4.0.1"
+		"pbf": "^4.0.1",
+		"gishub-wasm":"*"
 	},
 	"devDependencies": {
 		"repomix": "^1.14.0"
