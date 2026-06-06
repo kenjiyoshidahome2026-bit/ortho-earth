@@ -4,7 +4,8 @@
 	"type": "module",
 	"workspaces": [
 		"packages/*",
-		"apps/*"
+		"apps/*",
+		"packages/wasm/pkg"
 	],
 	"scripts": {
 		"dev:www": "npm run dev -w www",
@@ -13,7 +14,7 @@
 		"dev:docs": "npm run dev -w docs",
 		"build:all": "npm run build -w www && npm run build -w docs && rm -rf apps/www/dist/docs && cp -r apps/docs/.vitepress/dist apps/www/dist/docs",
 		"preview:all": "npm run preview -w www",
-		"summary": "find . \\( -name 'node_modules' -o -name 'dist' -o -name '.git' -o -name '.wrangler' -o -name 'assets' -o -name 'dustbox' -o -name 'deps*' \\) -prune -o -type f \\( -name '*.js' -o -name '*.mjs' -o -name '*.json' -o -name '*.html' -o -name '*.scss' -o -name '*.css' -o -name '*.toml' -o -name '*.md' \\) -not -name 'package-lock.json' -not -name 'stats.html' -exec printf \"FILE: %s\\n\" {} \\; -exec cat {} \\; -exec printf \"\\n---\\n\" \\; > project_summary.txt"
+		"summary": "repomix --style markdown --output project_summary.md"
 	},
 	"dependencies": {
 		"html2canvas": "^1.4.1",
@@ -23,6 +24,8 @@
 		"versor": "^0.2.0"
 	},
 	"devDependencies": {
-		"sass-embedded": "^1.99.0"
+		"sass-embedded": "^1.99.0",
+		"top-level-await": "^1.1.0",
+		"vite-plugin-wasm": "^3.6.0"
 	}
 }
