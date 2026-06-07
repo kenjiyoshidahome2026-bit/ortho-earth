@@ -35,8 +35,9 @@ section.selectAll(".card").data(d => d.contents).join("button").attr("class", "c
 	.html(d => `<div class="name">${d.name}</div><div class="desc">${d.description}</div><div class="license">${d.license}</div>`)
 	.on("click", (e, d) => exec(d));
 ////------------------------------------------------------
+const reset = () => { logger.clear(); uploads.show(); left.selectAll(".card").attr("disabled", null); };
 const main = gishub.append("main").attr("class", "main");
-main.append("h1").html(`<img src="favicon.svg" alt="GIS-HUB"/><span>GIS-HUB</span>`).on("click", () => {logger.clear(); uploads.show();});
+main.append("h1").html(`<img src="favicon.svg" alt="GIS-HUB"/><span>GIS-HUB</span>`).on("click", reset);
 ////------------------------------------------------------
 const logger = new screenLogger(main.append("div"));
 ////------------------------------------------------------
@@ -76,7 +77,7 @@ async function exec(info) {
         inExec = false; left.selectAll(".card").attr("disabled", null); cancel.hide();
         p = logger.empty(); p.append("span").text("🔔 [ACTIONs]").classed("big",true);
         success && p.append("button").classed("accent", true).text("View in Ortho-Map").on("click", execView);
-        p.append("button").text("Done").on("click", async () => { pbf && pbf.destroy(); logger.clear(); uploads.show(); });
+        p.append("button").text("Done").on("click", async () => { pbf && pbf.destroy(); reset(); });
         attribution && pbf.originalURL && p.append("button").text("Reload from original url")
             .on("click", async() => { pbf && (pbf.destroy()); exec(Object.assign({}, info, {nocache:true}));});
         if (!success) return;
