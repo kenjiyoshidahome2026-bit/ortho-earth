@@ -1,21 +1,20 @@
 [package]
-name = "gishub-wasm"
+name = "gint-wasm"
 version = "0.1.0"
 edition = "2021"
 
+# 🌟 1. WASMライブラリ（cdylib）としてコンパイルするための必須設定
 [lib]
-# WASMライブラリとしてコンパイルするための指定
-crate-type = ["cdylib"]
+crate-type = ["cdylib", "rlib"]
 
+# 🌟 2. 必要な依存ライブラリの定義
 [dependencies]
-# JavaScript (V8) と Rust のメモリ・関数を安全に繋ぐライブラリ
+# JavaScriptとの仲介役（ラッパー生成など）を担う必須クレート
 wasm-bindgen = "0.2"
 
-[target.wasm32-unknown-unknown]
-rustflags = [
-    # 🌟 起動した最初の1秒から、最初から「128MB（2048ページ × 64KB）」の広大な滑走路を確保して起動する！
-    "-C", "link-arg=--initial-memory=134217728",
-    
-    # 最大は2GBまで拡張可能にする
-    "-C", "link-arg=--max-memory=2147483648"
-]
+# 🌟 3. 本番ビルド（WASMファイル）をさらに軽量・高速にするための最適化設定
+[profile.release]
+opt-level = 3        # 最高レベルの速度最適化を適用
+lto = true           # リンク時最適化（LTO）により不要なコードを徹底排除
+codegen-units = 1    # コンパイル単位を1つにして最適化の効率を最大化
+panic = "abort"      # エラー時のバックトレースを削りバイナリサイズを削減

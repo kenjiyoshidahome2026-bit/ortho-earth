@@ -475,6 +475,7 @@ function buildArcs(buffs, metas) { // 複数Arcの一括パルス化
 	const buffer = new BigUint64Array(total);
 	const meta = new Uint32Array(count * mlen);
 	const bbox = initBbox();
+	console.time("buildArcs");
 	for (let i = 0; i < count; i++) {
 		const q = metas[i], arc = buffs[q.aid];
 		gint.L1toL2(arc);
@@ -482,5 +483,6 @@ function buildArcs(buffs, metas) { // 複数Arcの一括パルス化
 		meta.set([offset, arc.length, q.weight, 0, ...bbox], i * mlen); offset += arc.length;
 		updateBbox(bbox, q.bbox);
 	}
+	console.timeEnd("buildArcs");
 	return { count, buffer, meta, mlen, bbox };
 }	
