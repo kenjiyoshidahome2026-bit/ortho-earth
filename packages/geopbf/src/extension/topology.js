@@ -1,33 +1,22 @@
 import { GeoPBF } from "../pbf-base.js";
 import { gint } from "./gint.js";
-const RAD = Math.PI / 180;
-const Radius = 6371008.8; // 地球平均半径 (Meters)
-////===============================================================================================================
-////	BBOX & Coherence
-////===============================================================================================================
-function initBbox() { return new Uint32Array([0xFFFFFFFF, 0xFFFFFFFF, 0, 0]); }
-function updateBbox(BBOX, bbox) {
-	if (bbox[0] < BBOX[0]) BBOX[0] = bbox[0];
-	if (bbox[2] > BBOX[2]) BBOX[2] = bbox[2];
-	if (bbox[1] < BBOX[1]) BBOX[1] = bbox[1];
-	if (bbox[3] > BBOX[3]) BBOX[3] = bbox[3];
-}
-export function checkCoherence(fB, vB) { // コヒーレンス判定: 0:Outside, 1:Partial, 2:Full-In
-	if (fB[2] < vB.minX || fB[0] > vB.maxX || fB[3] < vB.minY || fB[1] > vB.maxY) return 0; // 完全に画面外 (Cull)
-	if (fB[0] >= vB.minX && fB[2] <= vB.maxX && fB[1] >= vB.minY && fB[3] <= vB.maxY) return 2; // 完全に画面内 (No Clip)
-	return 1; // 一部が重なっている (Partial)
-}
-////===============================================================================================================
-export function topology(self) { //if (self.structures) return self.structures;
+
+export function topology(self) {
 	const { pbf, e } = self;
-	const structures = [[], [], []], S = 1 / e;
+	const structures = [[], [], []];
 	const elemCount = [0, 0, 0, 0];
+	const factor = gint.SCALE_E < e? gint.SCALE_E / e: Math.round(gint.SCALE_E / e);
+	const fit = (factor >= 1) ? (val) => val * factor: (val) => Math.round(val * factor);
+	const scaleFactor = Math.round(gint.SCALE_E / e);
+	const bbox = [Infinity, Infinity, -Infinity, -Infinity];
+	const updateBbox = (x,y) => {
+		if (x < bbox[0]) bbox[0] = x; else if (x > bbox[2]) bbox[2] = x;
+		if (y < bbox[1]) bbox[1] = y; else if (y > bbox[3]) bbox[3] = y;
+	};
 	let propTub = new Map();// let propCount = 0;
-//	let IDTUB = new Array(self.length);
 	self.each((i, map) => { const key = self.props[i].join("|");
 		if (!propTub.has(key)) propTub.set(key, i);
 		const id = propTub.get(key);
-	//	IDTUB[i] = id;
 		const process = (pos, type) => {
 			pbf.pos = pos;
 			let lens = [], coords = [];
@@ -39,9 +28,13 @@ export function topology(self) { //if (self.structures) return self.structures;
 					const read = (n) => { elemCount[3]++;
 						let x = 0, y = 0;
 						const stream = gint.XY2L1(n || 4096);
-						const grab = () => { elemCount[3]++;
+						const grab = () => { 
 							let dx = pbf.readSVarint(), dy = pbf.readSVarint();
-							if (dx || dy) stream.set(x += dx, y += dy);
+							if (dx || dy) { x += dx, y += dy;
+								updateBbox(x, y);
+								stream.set(fit(x), fit(y));
+								elemCount[3]++;
+							}
 						};
 						if (n === undefined) { while (pbf.pos < end) grab(); }
 						else { while (n-- > 0) grab(); }
@@ -72,7 +65,9 @@ export function topology(self) { //if (self.structures) return self.structures;
 		(map[2] === 6)? map[3].forEach((p, j) => process(p, map[4][j])): process(map[1], map[2]);
 	});
 	propTub.clear(); propTub = null;
-////-----------------------------------------------------------------------------------------------
+	bbox[0] = Math.round(((bbox[0] / e)+180) * gint.SCALE_E); bbox[1] = Math.round(((bbox[1] / e)+90) * gint.SCALE_E);
+	bbox[2] = Math.round(((bbox[2] / e)+180) * gint.SCALE_E); bbox[3] = Math.round(((bbox[3] / e)+90) * gint.SCALE_E);
+	////-----------------------------------------------------------------------------------------------
 	const polygon = buildPolygons(structures[0]);
 	const polyline = buildPolylines(structures[1], polygon? polygon.count: 0);
 	const point = buildPoints(structures[2]);
@@ -94,10 +89,6 @@ export function topology(self) { //if (self.structures) return self.structures;
 	polylineTub = Object.entries(polylineTub).map(([k, v]) => [Number(k), v]);
 	neighborTub = Object.entries(neighborTub).map(([k, v]) => [Number(k), [...v].sort((a, b) => a - b)]);
 	const topology = JSON.stringify([polygonTub, polylineTub, neighborTub]);
-	const bbox = initBbox();
-	polygon && updateBbox(bbox, polygon.bbox);
-	polyline && updateBbox(bbox, polyline.bbox);
-	point && updateBbox(bbox, point.bbox);
 	const arcLength = ((polygon? polygon.buffer.length : 0) + (polyline? polyline.buffer.length : 0));
 	const arcCount = (polygon? polygon.count:0) + (polyline? polyline.count:0), mlen = 8;
 	const gintHeader = new Uint32Array(new TextEncoder().encode("Gint").buffer)[0], gintVersion = 1;
@@ -118,14 +109,17 @@ export function topology(self) { //if (self.structures) return self.structures;
 	console.log(unPackGintBuffer(GintBUF));
 	return GintBUF;
 }
+////===============================================================================================================
 export function unPackGintBuffer(GintBUF) { //const view = new Uint8Array(GintBUF), mlen = 8;
 	try { let ptr = 0;
-		const buf = new Uint8Array(GintBUF).slice().buffer, mlen = 8;
+		const buf = new Uint8Array(GintBUF).slice().buffer, mlen = 8, SCALE = gint.SCALE_E;
 		const header = new Uint32Array(buf, 0, 12); ptr += header.length * 4;
 		if (header[0] != 1953392967) throw new Error("Invalid Gint buffer");
 		if (header[1] != 1) throw new Error("Unsupported Gint version");
 		const polygonCount = header[2], polylineCount = header[3], pointCount = header[4], nodeCount = header[5];
-		const arcLength = header[6], arcCount = header[7], bbox = header.slice(8, 12);
+		const arcLength = header[6], arcCount = header[7], bbox = [...header.slice(8, 12)];
+		bbox[0] = (bbox[0] - 180 * SCALE) / SCALE; bbox[1] = (bbox[1] - 90 * SCALE) / SCALE;
+		bbox[2] = (bbox[2] - 180 * SCALE) / SCALE; bbox[3] = (bbox[3] - 90 * SCALE) / SCALE;
 		const arcBuffer = arcLength ? new BigUint64Array(buf, ptr, arcLength) : null; ptr += arcLength * 8;
 		const pointBuffer = pointCount ? new BigUint64Array(buf, ptr, pointCount) : null; ptr += pointCount * 8;
 		const arcMeta = arcCount ? new Uint32Array(buf, ptr, arcCount * mlen) : null; ptr += arcCount * mlen * 4;
@@ -136,15 +130,21 @@ export function unPackGintBuffer(GintBUF) { //const view = new Uint8Array(GintBU
 	} catch (e) { console.error("Failed to unpack Gint buffer:", e); return null; }
 }
 ////===============================================================================================================
+export function checkCoherence(fB, vB) { // コヒーレンス判定: 0:Outside, 1:Partial, 2:Full-In
+	if (fB[2] < vB.minX || fB[0] > vB.maxX || fB[3] < vB.minY || fB[1] > vB.maxY) return 0; // 完全に画面外 (Cull)
+	if (fB[0] >= vB.minX && fB[2] <= vB.maxX && fB[1] >= vB.minY && fB[3] <= vB.maxY) return 2; // 完全に画面内 (No Clip)
+	return 1; // 一部が重なっている (Partial)
+}
+////===============================================================================================================
 ////	POINT
 ////===============================================================================================================
 function buildPoints(topo) { if (!topo.length) return null;
 	const a = topo.map(({ id, coords })=>[coords, id]).sort((a, b) => a[0] > b[0] ? 1 : -1), count = a.length;
-	const buffer = new BigUint64Array(count), meta = new Uint32Array(count), bbox = initBbox();
+	const buffer = new BigUint64Array(count), meta = new Uint32Array(count);//, bbox = initBbox();
 	a.forEach(([coords, id], i) => { buffer[i] = coords; meta[i] = id;
-		const [x, y] = gint.unpackToInt(coords); updateBbox(bbox, [x, y, x, y]);
+		const [x, y] = gint.unpackToInt(coords);
 	});
-	return { count, buffer, meta, bbox };
+	return { count, buffer, meta };
 }
 ////===============================================================================================================
 ////	POLYLINE
@@ -428,11 +428,9 @@ function metaPolygon(metas, topo) {
 	function calcMeta(q) {
 		const { id, arcs } = q;
 		let A = 0, L = 0;
-		q.bbox = initBbox();
-		arcs[0].forEach(aid => {//debugger
-			const { area, length, bbox } = metas[aid < 0 ? ~aid : aid];
+		arcs[0].forEach(aid => {
+			const { area, length } = metas[aid < 0 ? ~aid : aid];
 			L += length, A += aid < 0 ? -area : area;
-			updateBbox(q.bbox, bbox)
 		});
 		for (let i = 1; i < arcs.length; i++) {
 			arcs[i].forEach(aid => {
@@ -449,7 +447,10 @@ function metaPolygon(metas, topo) {
 	}
 }
 ////===============================================================================================================
+////	ARC
+////===============================================================================================================
 function metaArc(buffs) {
+	const Radius = 6371008.8, RAD = Math.PI / 180;
 	return buffs.map(calcMeta);
 	function calcMeta(buff, aid) {
 		const n = buff.length;
@@ -463,7 +464,8 @@ function metaArc(buffs) {
 			const dx = (lng1 - lng0) * RAD * cosLat, dy = (lat1 - lat0) * RAD;
 			L += Math.sqrt(dx * dx + dy * dy);
 			A += (lng1 - lng0) * RAD * (2 + Math.sin(lat0 * RAD) + Math.sin(lat1 * RAD));
-			updateBbox(bbox, [x1, y1, x1, y1]);
+			if (x1 < bbox[0]) bbox[0] = x1; else if (x1 > bbox[2]) bbox[2] = x1;
+			if (y1 < bbox[1]) bbox[1] = y1; else if (y1 > bbox[3]) bbox[3] = y1;
 			x0 = x1; y0 = y1; lng0 = lng1; lat0 = lat1;
 		}
 		return { aid, length: L * Radius, area: A * Radius * Radius / 2, closed, bbox };
@@ -475,15 +477,13 @@ function buildArcs(buffs, metas) { // 複数Arcの一括パルス化
 	for (let i = 0; i < count; i++) total += buffs[i].length;
 	const buffer = new BigUint64Array(total);
 	const meta = new Uint32Array(count * mlen);
-	const bbox = initBbox();
 	console.time("buildArcs");
 	for (let i = 0; i < count; i++) {
 		const q = metas[i], arc = buffs[q.aid];
 		gint.L1toL2(arc);
 		buffer.set(arc, offset);
-		meta.set([offset, arc.length, q.weight, 0, ...bbox], i * mlen); offset += arc.length;
-		updateBbox(bbox, q.bbox);
+		meta.set([offset, arc.length, q.weight, 0, ...q.bbox], i * mlen); offset += arc.length;
 	}
 	console.timeEnd("buildArcs");
-	return { count, buffer, meta, mlen, bbox };
-}	
+	return { count, buffer, meta, mlen };
+}

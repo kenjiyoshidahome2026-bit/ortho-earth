@@ -67,6 +67,10 @@ export class gint {
         return [ix, iy];
     }
 
+    static valToInt([ix, iy]) {
+        return [(ix + 180) * this.SCALE_E, (iy + 90) * this.SCALE_E].map(t => Number(t.toFixed(0)));
+    }
+
     static intToVal([ix, iy]) {
         return [(ix * this.INV_SCALE_E) - 180, (iy * this.INV_SCALE_E) - 90].map(t => Number(t.toFixed(this.PRECISION)));
     }
