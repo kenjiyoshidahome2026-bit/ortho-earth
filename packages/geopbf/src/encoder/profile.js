@@ -2,12 +2,10 @@ import { GeoPBF } from "../pbf.js";
 import { gint } from "../extension/gint.js";
 import { comma } from "common"; 
 onmessage = async (e) => {
-    try { //debugger
+    try {
 		const { buf, gintbuf, opts } = e.data;
 		const self = (await new GeoPBF().set(buf)).setGintBUF(gintbuf);
 		let { polygonCount, polylineCount, pointCount, nodeCount, arcCount, bbox, polygon, polyline, point } = self.unPackGint;
-	//	debugger
-		console.log("unPackGint", { polygon, polyline, point });
 		const struct = {};
 		[point, polyline, polygon].forEach((layer, type) => (layer || []).forEach(([id, arcs]) => {
 			struct[id] = struct[id] || [0, 0, 0];
@@ -22,12 +20,8 @@ onmessage = async (e) => {
 			else if (!t[0] && !t[1] && t[2]) countArr[t[2] > 1 ? 5 : 4]++;
 			else countArr[6]++;
 		});
-		console.log("count", ids, counts);
-
-		bbox = [...gint.intToVal([bbox[0], bbox[1]]), ...gint.intToVal([bbox[2], bbox[3]])];
 		const br = "-".repeat(50);
-		let str = []; //const countArr = [0, 0, 0, 0, 0, 0, 0, 0];
-	//	self.each((i, fmap) => countArr[fmap[2]]++);
+		let str = [];
 		const types = countArr.map((n, i) => n ? `#${GeoPBF.geometryTypes[i]}: ${comma(n)}` : ``).filter(t => t);
 		str.push(br);
 		self._name && str.push(` NAME: ${self._name}`);

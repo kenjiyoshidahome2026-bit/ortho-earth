@@ -45,11 +45,10 @@ export function topojson(self) {
         }
     };
     const type = "Topology";
-    const BBOX = [...gint.intToVal([bbox[0], bbox[1]]), ...gint.intToVal([bbox[2], bbox[3]])];
     const geometries = Object.entries(topologies).map(elem);
     const collection = { type: types[6], geometries };
     const transform = { scale: [1 / e, 1 / e], translate: [0, 0] };
-    return { type, bbox: BBOX, arcs, transform, objects: { collection } };
+    return { type, bbox, arcs, transform, objects: { collection } };
 }
 ////----------------------------------------------------------------- 指定したインデックスのFeatureと「Arcを共有している」隣接Featureを返す
 export function neighbors(self, id) {
