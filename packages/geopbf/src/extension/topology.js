@@ -36,15 +36,16 @@ export function topology(self) { //if (self.structures) return self.structures;
 				else if (tag === GeoPBF.TAGS.COORDS) {
 					const end = pbf.readVarint() + pbf.pos;
 					let x = 0, y = 0;
-					const read = (n) => {
-						let c = [];
+					const read = (n) => { elemCount[3]++;
+						let x = 0, y = 0;
+						const stream = gint.XY2L1(n || 4096);
 						const grab = () => { elemCount[3]++;
 							let dx = pbf.readSVarint(), dy = pbf.readSVarint();
-							if (dx || dy) { x += dx; y += dy; c.push(gint.pack([x * S, y * S])); }
+							if (dx || dy) stream.set(x += dx, y += dy);
 						};
 						if (n === undefined) { while (pbf.pos < end) grab(); }
 						else { while (n-- > 0) grab(); }
-						return new BigUint64Array(c);
+						return stream.close();
 					};
 					const typeGroups = [
 						() => [read(1)], // Point

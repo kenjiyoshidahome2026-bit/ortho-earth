@@ -29,6 +29,7 @@ export class gint {
         }
     }
 
+ //   static get memory() { return wasmMemoryBuffer; }
     /**
      * 共有バッファのサイズチェックと拡張
      */
@@ -173,32 +174,36 @@ export class gint {
         };
         for (let i = 1; i < n - 1; i++) L1arc[i] = this.toL2(L1arc[i], getPhysRank(eff[i]));
     }
-    static XYtoL1(xyArray) {
-        const vertexCount = xyArray.length >> 1;
-        if (vertexCount === 0) return new BigInt64Array(0);
+    static XY2L1(estimatedPoints = 4096) {
+        let count = 0;
+        let i32Idx = 0;
+        let bufSize = estimatedPoints * 2;
 
-        // 🌟 条件判定を「alloc_wasm_memory」が存在するかに変更
-        if (wasmReady && typeof L1toL2_wasm === 'function' && typeof alloc_wasm_memory === 'function' && sharedWasmPtr !== 0) {
-            const byteLength = n * 8;
-            const ptr = this._ensureBufferSize(byteLength);
+        let ptr = this._ensureBufferSize(bufSize * 4);
+        let view = new Int32Array(wasmMemoryBuffer.buffer, ptr, bufSize);
 
-            // 🌟 インスタンス化された正確な線形メモリ領域へコピー
-            const wasmU8Memory = new Uint8Array(wasmMemoryBuffer.buffer);
-            const inputU8 = new Uint8Array(L1arc.buffer, L1arc.byteOffset, byteLength);
-            wasmU8Memory.set(inputU8, ptr);
+        return {
+            set(x, y) {
+                if (i32Idx + 2 >= view.length) {
+                    bufSize *= 2;
+                    ptr = gint._ensureBufferSize(bufSize * 4);
+                    view = new Int32Array(wasmMemoryBuffer.buffer, ptr, bufSize);
+                }
+                view[i32Idx++] = x;
+                view[i32Idx++] = y;
+                count++;
+            },
+            close() {
+                if (count === 0) return new BigUint64Array(0);
 
-            // 🌟 【ここで初めて、本当のRust/WASMエンジンが着火して走ります！】
-            L1toL2_wasm(ptr, n);
+                // 1. 逆順インプレースWASMエンジンで最速パッキング
+                XYtoL1_wasm(ptr, count);
 
-            const resultU8 = wasmU8Memory.subarray(ptr, ptr + byteLength);
-            inputU8.set(resultU8);
-            return;
-        }
-        // 以下、万が一のFallbackロジック（既存のまま）
-        const l1Array = new BigInt64Array(vertexCount);
-        for (let i = 0; i < vertexCount; i++) {
-            l1Array[i] = this.packFromInt(xyArray[i * 2], xyArray[i * 2 + 1]);
-        }
-        return l1Array;
+                // 2. 🌟 修正：次の read(t) によるメモリ上書きからデータを守るため、
+                // この要素（アーク）専用の独立した BigUint64Array としてコピーを切り出して返却する！
+                const u64View = new BigUint64Array(wasmMemoryBuffer.buffer, ptr, count);
+                return u64View.slice();
+            }
+        };
     }
 }
