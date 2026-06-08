@@ -1,4 +1,4 @@
-import init, { L1toL2_wasm, XYtoL1_wasm, alloc_wasm_memory, free_wasm_memory, init_panic_hook } from "../../../wasm/pkg/gint_wasm.js";
+import init, { L1toL2_wasm, XYtoL1_wasm, alloc_wasm_memory, free_wasm_memory, init_panic_hook } from "../../wasm/pkg/gint_wasm.js";
 let wasmReady = false;
 let wasmMemoryBuffer = null; // 🌟 生のメモリ配列への参照をキープする用
 let sharedWasmPtr = 0;
@@ -11,32 +11,18 @@ export class gint {
     static INV_SCALE_E = 1/this.SCALE_E;
     static RAD = Math.PI / 180;
 
-    static async initialize() {
-        if (wasmReady) return;
+    static async initialize() { if (wasmReady) return;
         const exports = await init();
         if (typeof init_panic_hook === 'function') {
             init_panic_hook();
             wasmReady = true;
-
-            // 🌟 保持した生バッファを参照
             wasmMemoryBuffer = exports.memory;
-
-            // 🌟 初期化時に、32MBの共有領域を正規のRust関数経由で1回だけドカンと確保！
             sharedWasmSize = 32 * 1024 * 1024;
-            if (typeof alloc_wasm_memory === 'function') {
-                sharedWasmPtr = alloc_wasm_memory(sharedWasmSize);
-            }
+            if (typeof alloc_wasm_memory === 'function') sharedWasmPtr = alloc_wasm_memory(sharedWasmSize);
         }
     }
 
- //   static get memory() { return wasmMemoryBuffer; }
-    /**
-     * 共有バッファのサイズチェックと拡張
-     */
-    static _ensureBufferSize(requiredBytes) {
-        if (requiredBytes <= sharedWasmSize) return sharedWasmPtr;
-        
-        // 拡張が必要な場合も、正規のRust関数で安全に解放して再確保
+    static _ensureBufferSize(requiredBytes) { if (requiredBytes <= sharedWasmSize) return sharedWasmPtr;
         if (typeof free_wasm_memory === 'function' && sharedWasmPtr !== 0) {
             free_wasm_memory(sharedWasmPtr, sharedWasmSize);
         }
@@ -65,10 +51,6 @@ export class gint {
         const ix = ((this._compact16(high32) << 16) | this._compact16(low32)) >>> 0;
         const iy = ((this._compact16(high32 >>> 1) << 16) | this._compact16(low32 >>> 1)) >>> 0;
         return [ix, iy];
-    }
-
-    static valToInt([ix, iy]) {
-        return [(ix + 180) * this.SCALE_E, (iy + 90) * this.SCALE_E].map(t => Number(t.toFixed(0)));
     }
 
     static intToVal([ix, iy]) {
@@ -116,17 +98,12 @@ export class gint {
     static L1toL2(L1arc) { // VisvalingamWhyatt
         const n = L1arc.length; if (n < 3) return;
         if (wasmReady && typeof L1toL2_wasm === 'function' && typeof alloc_wasm_memory === 'function' && sharedWasmPtr !== 0) {
-            const byteLength = n * 8; // 8バイト(u64) × 要素数
+            const byteLength = n * 8;
             const ptr = this._ensureBufferSize(byteLength);
-
             let wasmU8Memory = new Uint8Array(wasmMemoryBuffer.buffer);
-            
-            // 🌟 データのズレを防ぐため、L1arc の正確な byteOffset と byteLength を指定してコピー
             const inputU8 = new Uint8Array(L1arc.buffer, L1arc.byteOffset, byteLength);
             wasmU8Memory.set(inputU8, ptr);
-
             L1toL2_wasm(ptr, n);
-
             wasmU8Memory = new Uint8Array(wasmMemoryBuffer.buffer);
             const resultU8 = wasmU8Memory.subarray(ptr, ptr + byteLength);
             inputU8.set(resultU8);
@@ -179,32 +156,20 @@ export class gint {
         for (let i = 1; i < n - 1; i++) L1arc[i] = this.toL2(L1arc[i], getPhysRank(eff[i]));
     }
     static XY2L1(estimatedPoints = 4096) {
-        let count = 0;
-        let i32Idx = 0;
-        let bufSize = estimatedPoints * 2;
-
+        let count = 0, i32Idx = 0, bufSize = estimatedPoints * 2;
         let ptr = this._ensureBufferSize(bufSize * 4);
         let view = new Int32Array(wasmMemoryBuffer.buffer, ptr, bufSize);
-
         return {
             set(x, y) {
-                if (i32Idx + 2 >= view.length) {
-                    bufSize *= 2;
+                if (i32Idx + 2 >= view.length) { bufSize *= 2;
                     ptr = gint._ensureBufferSize(bufSize * 4);
                     view = new Int32Array(wasmMemoryBuffer.buffer, ptr, bufSize);
                 }
-                view[i32Idx++] = x;
-                view[i32Idx++] = y;
-                count++;
+                view[i32Idx++] = x; view[i32Idx++] = y; count++;
             },
             close() {
                 if (count === 0) return new BigUint64Array(0);
-
-                // 1. 逆順インプレースWASMエンジンで最速パッキング
                 XYtoL1_wasm(ptr, count);
-
-                // 2. 🌟 修正：次の read(t) によるメモリ上書きからデータを守るため、
-                // この要素（アーク）専用の独立した BigUint64Array としてコピーを切り出して返却する！
                 const u64View = new BigUint64Array(wasmMemoryBuffer.buffer, ptr, count);
                 return u64View.slice();
             }
