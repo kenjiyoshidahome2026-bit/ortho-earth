@@ -111,7 +111,6 @@ export async function geopbf(data, options = {}) { if (isString(options)) option
 const encoder = async (pbf, type, opts = {}) => { //console.log(pbf, type, opts);
     const eventTarget = typeof window !== "undefined" ? window : (typeof self !== "undefined" ? self : null);
     const name = pbf._name, buf = pbf.arrayBuffer, gintbuf = pbf._gintBuffer;
-    console.log(name, buf, gintbuf, type, opts);
     const event = type =="profile"? `profiling` : `conversion from GeoPBF to ${type}`;
     const throwEvent = (type, detail) => eventTarget && !opts.silent && eventTarget.dispatchEvent(new CustomEvent(type, { detail }));
     opts.message == false || throwEvent("ConvertStart", { name, event });
