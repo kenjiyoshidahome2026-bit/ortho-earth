@@ -116,7 +116,8 @@ class GeoPBF {
         if (!this._bodyPos || !this.end) return this;
         const oldBodyPos = this._bodyPos;
         const bodyData = this.pbf.buf.subarray(oldBodyPos, this.end);
-        const buffer = new ArrayBuffer(this.end + 256);
+        const len = new TextEncoder().encode(this._name+this._description+this._license+this._attribution).length;
+        const buffer = new ArrayBuffer(this.end + len);
         this.pbf = new Pbf(buffer);
         this.setHead(this.keys, this.bufs, meta);
         const newBodyPos = this.pbf.pos;

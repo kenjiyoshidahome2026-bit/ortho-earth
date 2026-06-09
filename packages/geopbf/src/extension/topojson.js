@@ -52,47 +52,60 @@ export function topojson(self) {
 }
 ////----------------------------------------------------------------- 指定したインデックスのFeatureと「Arcを共有している」隣接Featureを返す
 export function neighbors(self, id) {
-    const {neighbors} = self.unPackGint;
-    return id == undefined ? neighbors : neighbors[id] || [];
+    const { neighbors } = self.unPackGint;
+    if (!neighbors) return [];
+    return id === undefined ? neighbors : (neighbors[id] || []);
 }
-////----------------------------------------------------------------- 境界線のみを抽出する mesh (条件: filterFunc(a, b) で隣接関係を判定)
+
 export function mesh(self, opts = {}) {
-    const arcs = findArcs(self, opts.filter).filter(([id, t]) => (t.length == 2)).map(t => t[0]);
-    if (!!opts.arc) return { type, arcs };
+    // 2つのポリゴンに挟まれている（＝共有数がちょうど2）のArcだけをフィルタリング
+    const arcs = findArcs(self, opts.filter).filter(([_, t]) => t.length === 2).map(t => t[0]);
+    if (opts.arc) return { type: "Topology", arcs };
     const coordinates = arcs.map(id => self.arcCoords(id));
-    return { type:types[3], coordinates };
+    return { type: types[3], coordinates }; // MultiLineString として返却
 }
-////-----------------------------------------------------------------  複数のポリゴンを単一の外郭に合体させる
+
 export function merge(self, opts = {}) {
-    let arcs = findArcs(self, opts.filter).filter(([id, t]) => (t.length == 1)).map(t => t[0]);
-    arcs = stitchRings(self, arcs);
-    if (!!opts.arc) return { type, arcs };
+    let arcs = findArcs(self, opts.filter).filter(([_, t]) => t.length === 1).map(t => t[0]);
+    arcs = stitchRings(self, arcs); // 一筆書きリングに結合
+    if (opts.arc) return { type: "Topology", arcs };
     const coordinates = [arcs.map(t => ringCoords(self, t))];
-    return { type:types[5], coordinates };
+    return { type: types[5], coordinates }; // MultiPolygon として返却
 }
-////----------------------------------------------------------------- バラバラの外郭Arcを繋いで閉じたリング(一筆書き)を作る
+
 function findArcs(self, filter) {
-    filter = (typeof filter == 'function') ? filter : (t => true);
-    const topo = buildTopology(self.topology);
+    const filterFunc = (typeof filter === 'function') ? filter : () => true;
+    const { polygon, polyline } = self.unPackGint; // 新形式の幾何ポインタ配列を直接デストラクト
     const hash = [];
-    const set = (arc, id) => {
-        arc.flat(Infinity).forEach(n => {
-            const aid = n < 0 ? ~n : n;
-            (hash[aid] = hash[aid] || []).push(n < 0 ? ~id : id);
+    // [id, arcs] のペアを走査し、条件に合うFeatureのArcを反転（~n）も考慮してハッシュに叩き込む
+    const collect = (layer) => {
+        if (!layer) return;
+        layer.forEach(([id, arcGroup]) => {
+            if (!filterFunc(self.getProperties(id))) return;
+            // ネストされたArcの配列を平坦化して、そのArcを使用しているFeature IDを登録
+            arcGroup.flat(Infinity).forEach(n => {
+                const aid = n < 0 ? ~n : n;
+                (hash[aid] = hash[aid] || []).push(n < 0 ? ~id : id);
+            });
         });
     };
-    topo.forEach((t, id) => filter(self.getProperties(id)) && t[2].forEach(q => set(q, id)));
-    return hash.map((t, id) => [id, t]);
+    collect(polygon);
+    collect(polyline);
+    return hash.map((t, id) => [id, t || []]);
 }
-function stitchRings(self, arcs) { if (!arcs || !arcs.length) return [];
-    const { buffer, meta, mlen } = self.unPackGint;
-    const pos = n => [meta[n * mlen], meta[n * mlen + 1]];
+function stitchRings(self, arcs) {
+    if (!arcs || !arcs.length) return [];
+    const { arcBuffer, arcMeta } = self.unPackGint; // 旧buffer/metaから、新形式の明確な名前に同期
+    const mlen = 8;
     const nodes = new Map(), used = new Set(), rings = [];
     arcs.forEach(id => {
-        const [off, len] = pos(id)
-        const p = buffer[off], q = buffer[off + len - 1];
-        nodes.has(p) || nodes.set(p, []); nodes.get(p).push({ id, rev: false });
-        nodes.has(q) || nodes.set(q, []); nodes.get(q).push({ id, rev: true });
+        const off = arcMeta[id * mlen];
+        const len = arcMeta[id * mlen + 1];
+        const p = arcBuffer[off];
+        const q = arcBuffer[off + len - 1];
+        
+        if (!nodes.has(p)) nodes.set(p, []); nodes.get(p).push({ id, rev: false });
+        if (!nodes.has(q)) nodes.set(q, []); nodes.get(q).push({ id, rev: true });
     });
     for (const id of arcs) {
         if (used.has(id)) continue;
@@ -100,29 +113,30 @@ function stitchRings(self, arcs) { if (!arcs || !arcs.length) return [];
         while (curr && !used.has(curr.id)) {
             used.add(curr.id);
             ring.push(curr.rev ? ~curr.id : curr.id);
-            const [off, len] = pos(curr.id)
-            const next = buffer[curr.rev ? off : off + len - 1];
+            const off = arcMeta[curr.id * mlen];
+            const len = arcMeta[curr.id * mlen + 1];
+            const next = arcBuffer[curr.rev ? off : off + len - 1];
             curr = (nodes.get(next) || []).find(n => !used.has(n.id));
         }
         if (ring.length) rings.push(ring);
     }
     return rings;
 }
-////----------------------------------------------------------------- arc => coordinates
+
 function ringCoords(self, ring) {
     let coords = [];
     ring.forEach((aid, n) => {
-        const a = self.arcCoords(aid);
-        coords = coords.concat(n ? a.slice(1) : a)
+        const a = arcCoords(self, aid);
+        coords = coords.concat(n ? a.slice(1) : a);
     });
     return coords;
 }
+
 function arcCoords(self, aid) {
-    const { buffer, meta, mlen } = self.polygon;
-    const id = aid < 0 ? ~aid : aid;
-    const off = meta[id * mlen], len = meta[id * mlen + 1];
+    const { arcBuffer, arcMeta } = self.unPackGint;
+    const id = aid < 0 ? ~aid : aid, mlen = 8;
+    const off = arcMeta[id * mlen], len = arcMeta[id * mlen + 1];
     let pts = new Array(len);
-    for (let i = 0; i < len; i++) pts[i] = gint.unpack(buffer[off + i]);
+    for (let i = 0; i < len; i++) pts[i] = gint.unpack(arcBuffer[off + i]);
     return aid < 0 ? pts.reverse() : pts;
 }
-////===============================================================================================================
