@@ -72,7 +72,6 @@ async function exec(info) {
         if (pbf && pbf.length) { success = true;
             logger.success(`${name} (length: ${comma(pbf.size)})`);
         } else logger.error("Failed to load data.");
-        pbf.name("限定公開レイヤー").license("aaa").description("bbb").attribution("ccc");
         success && logger.log(await pbf.profile({ nohead: true }));
         inExec = false; left.selectAll(".card").attr("disabled", null); cancel.hide();
         p = logger.empty(); p.append("span").text("🔔 [ACTIONs]").classed("big",true);
