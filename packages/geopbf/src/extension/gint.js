@@ -160,7 +160,7 @@ export class gint {
         let ptr = this._ensureBufferSize(bufSize * 4);
         let view = new Int32Array(wasmMemoryBuffer.buffer, ptr, bufSize);
         return {
-            set(x, y) {
+            push(x, y) {
                 if (i32Idx + 2 >= view.length) { bufSize *= 2;
                     ptr = gint._ensureBufferSize(bufSize * 4);
                     view = new Int32Array(wasmMemoryBuffer.buffer, ptr, bufSize);
