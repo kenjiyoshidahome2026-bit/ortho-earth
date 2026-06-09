@@ -32,7 +32,7 @@ export function topology(self) {
 							let dx = pbf.readSVarint(), dy = pbf.readSVarint();
 							if (dx || dy) { x += dx, y += dy;
 								updateBbox(x, y);
-								stream.set(fit(x), fit(y));
+								stream.push(fit(x), fit(y));
 								elemCount[3]++;
 							}
 						};
