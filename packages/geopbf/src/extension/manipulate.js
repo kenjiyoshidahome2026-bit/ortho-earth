@@ -59,8 +59,8 @@ export function lint(self, options = {}) { //console.log(self); debugger
 }
 
 export async function clone(self, options = {}) {
-    let { name, filter, map } = options;
-    name = name || ""; map = map || (t => t); filter = filter || (() => true);
+    let { filter, map } = options;
+    map = map || (t => t); filter = filter || (() => true);
     if (name.startsWith("@")) name = self.name() + name;
     const pbf = new GeoPBF({ name, precision: Math.log10(self.e) });
     const sels = self.each(i => i).filter(i => filter(self.getProperties(i), self.getType(i), self.getBbox(i), i));
@@ -84,13 +84,13 @@ export async function classify(self, key) {
     });
 }
 
-export function header(self, meta = {}) {
-    return self.updateHeader(meta);
-}
+// export function header(self, meta = {}) {
+//     return self.updateHeader(meta);
+// }
 
-export async function update(buffer, meta = {}) {
-    return GeoPBF.update(buffer, meta);
-}
+// export async function update(buffer, meta = {}) {
+//     return GeoPBF.update(buffer, meta);
+// }
 
 export async function concatinate(pbfs, name) {
     pbfs = pbfs.filter(t => t instanceof GeoPBF);

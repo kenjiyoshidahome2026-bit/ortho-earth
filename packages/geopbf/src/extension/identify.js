@@ -1,32 +1,41 @@
 import { GeoPBF } from "../pbf-base.js";
 import { gint } from "./gint.js";
-export function identify(self, mx, my, scale, options = {}) {
-	const pointError = ((options.point || 10) / scale) * 1e7;
-	const polylineError = ((options.polyline || 5) / scale) * 1e7;
-	const arcThreshold = (Radius / scale) * 0.5;
-	const geo = unproject(mx, my); if (!geo) return null;
-	const [mix, miy] = geo;
-	if (self.points) {
-		const owner = findPoint(self.points, mix, miy, pointError);
+
+export function identify(self, mx, my, proj, options = {}) {
+	const geo = proj.invert([mx, my]);
+	if (!geo) return null;
+
+	const [mix, miy] = [Math.round((geo[0] + 180) * gint.SCALE_E), Math.round((geo[1] + 90) * gint.SCALE_E)];
+	const scale = proj.scale();
+	const pointError = ((options.point || 10) / scale) * gint.SCALE_E;
+	const polylineError = ((options.polyline || 5) / scale) * gint.SCALE_E;
+	const arcThreshold = (options.radius || 3) / scale * 0.5;
+
+	if (!self.unPackGint) return null;
+	const { arcBuffer, arcMeta, polygon, polyline, pointBuffer, point } = self.unPackGint;
+
+	if (pointBuffer && point) {
+		const owner = findPoint(pointBuffer, point, mix, miy, pointError);
 		if (owner !== null) return owner;
 	}
-	if (self.polylines) {
-		const owner = findPolyline(self.polylines, mix, miy, polylineError, arcThreshold);
+	if (arcBuffer && arcMeta && polyline) {
+		const owner = findMortonNear(arcBuffer, arcMeta, polyline, mix, miy, polylineError, arcThreshold);
 		if (owner !== null) return owner;
 	}
-	if (self.polygons) {
-		const owner = findPolygon(self.polygons, mix, miy, self.structures[2]);
+	if (arcBuffer && arcMeta && polygon) {
+		const owner = findPolygon(arcBuffer, arcMeta, polygon, mix, miy);
 		if (owner !== null) return owner;
 	}
 	return null;
 }
-function findPoint(layer, mix, miy, error) {
-	const { count, buffer, owners } = layer;
+
+function findPoint(buffer, meta, mix, miy, error) {
+	const count = meta.length;
 	const mMin = gint.packFromInt(mix - error, miy - error);
 	const mMax = gint.packFromInt(mix + error, miy + error);
 	const errSq = error * error;
 	let low = 0, high = count - 1, start = 0;
-	while (low <= high) { // Binary search to find mMin start
+	while (low <= high) {
 		let mid = (low + high) >>> 1;
 		if (buffer[mid] < mMin) { low = mid + 1; start = low; }
 		else high = mid - 1;
@@ -36,42 +45,68 @@ function findPoint(layer, mix, miy, error) {
 		if (m > mMax) break;
 		const [ix, iy] = gint.unpackToInt(m);
 		const dx = ix - mix, dy = iy - miy;
-		if (dx * dx + dy * dy <= errSq) return owners[i];
+		if (dx * dx + dy * dy <= errSq) return meta[i];
 	}
 	return null;
 }
-function findPolyline(layer, mix, miy, error, threshold) {
-	const { count, buffer, meta, owners } = layer;
+
+function findMortonNear(buffer, meta, polylineStructures, mix, miy, error, threshold) {
+	const mMin = gint.packFromInt(Math.max(0, mix - error), Math.max(0, miy - error)) & ~gint.WEIGHT_MASK;
+	const mMax = gint.packFromInt(mix + error, miy + error) | gint.WEIGHT_MASK;
 	const errSq = error * error;
-	for (let i = 0; i < count; i += 8) {
-		if (meta[i + 2] < threshold && meta[i + 2] !== 0) break; // Early Exit
-		if (mix < meta[i + 4] - error || mix > meta[i + 6] + error ||
-			miy < meta[i + 5] - error || miy > meta[i + 7] + error) continue;
-		const offset = meta[i], len = meta[i + 1];
-		for (let j = 0; j < len - 1; j++) {
-			const d2 = distToSegSq(mix, miy, buffer[offset + j], buffer[offset + j + 1]);
-			if (d2 <= errSq) return owners[i >> 3];
+
+	let low = 0, high = buffer.length - 1, startIdx = 0;
+	while (low <= high) {
+		let mid = (low + high) >>> 1;
+		if ((buffer[mid] & ~gint.WEIGHT_MASK) < mMin) { low = mid + 1; startIdx = low; }
+		else high = mid - 1;
+	}
+
+	const hitArcs = new Set();
+	for (let i = startIdx; i < buffer.length; i++) {
+		const m = buffer[i] & ~gint.WEIGHT_MASK;
+		if (m > mMax) break;
+
+		const [ix, iy] = gint.unpackToInt(buffer[i]);
+		const dx = ix - mix, dy = iy - miy;
+		if (dx * dx + dy * dy <= errSq) {
+			let lowA = 0, highA = (meta.length / 8) - 1, aid = 0;
+			while (lowA <= highA) {
+				let midA = (lowA + highA) >>> 1;
+				const off = meta[midA * 8], len = meta[midA * 8 + 1];
+				if (i >= off && i < off + len) { aid = midA; break; }
+				if (off > i) highA = midA - 1;
+				else lowA = midA + 1;
+			}
+			hitArcs.add(aid);
+		}
+	}
+
+	if (hitArcs.size === 0) return null;
+
+	for (let i = 0; i < polylineStructures.length; i++) {
+		const [id, lines] = polylineStructures[i];
+		for (const line of lines) {
+			for (const arcIdx of line) {
+				const aid = arcIdx < 0 ? ~arcIdx : arcIdx;
+				if (hitArcs.has(aid)) return id;
+			}
 		}
 	}
 	return null;
-	function distToSegSq(px, py, p1, p2) {
-		const [x1, y1] = gint.unpackToInt(p1), [x2, y2] = gint.unpackToInt(p2);
-		const l2 = (x2 - x1) ** 2 + (y2 - y1) ** 2;
-		if (l2 === 0) return (px - x1) ** 2 + (py - y1) ** 2;
-		let t = Math.max(0, Math.min(1, ((px - x1) * (x2 - x1) + (py - y1) * (y2 - y1)) / l2));
-		return (px - (x1 + t * (x2 - x1))) ** 2 + (py - (y1 + t * (y2 - y1))) ** 2;
-	}
 }
-function findPolygon(layer, mix, miy, structures) {
-	const { buffer, meta } = layer;
-	for (let i = 0; i < structures.length; i++) {
-		const { id, bbox, coords } = structures[i];
-		if (mix < bbox[0] || mix > bbox[2] || miy < bbox[1] || miy > bbox[3]) continue;
+
+function findPolygon(buffer, meta, polygonStructures, mix, miy) {
+	for (let i = 0; i < polygonStructures.length; i++) {
+		const [id, rings] = polygonStructures[i];
 		let inside = false;
-		for (const ring of coords) {
+		for (const ring of rings) {
 			for (const arcIdx of ring) {
 				const aid = arcIdx < 0 ? ~arcIdx : arcIdx;
-				const off = meta[aid << 3], len = meta[(aid << 3) + 1];
+				const mIdx = aid * 8;
+				if (mix < meta[mIdx + 4] || mix > meta[mIdx + 6] || miy < meta[mIdx + 5] || miy > meta[mIdx + 7]) continue;
+
+				const off = meta[mIdx], len = meta[mIdx + 1];
 				for (let k = 0; k < len - 1; k++) {
 					const [ix1, iy1] = gint.unpackToInt(buffer[off + k]);
 					const [ix2, iy2] = gint.unpackToInt(buffer[off + k + 1]);
@@ -84,31 +119,13 @@ function findPolygon(layer, mix, miy, structures) {
 	}
 	return null;
 }
-function unproject(mx, my) {
-	if (mx == null || my == null) return null;
-	const S = 1e7, x = mx / S, y = my / S;
-	const z = Math.sqrt(x * x + y * y);
-	if (z === 0) return [0, 0];
-	const c = 2 * Math.atan(z) / z;
-	return [x * c, y * c];
-}
-function view(buffer) {
-	if (buffer instanceof DataView) return buffer;
-	if (buffer instanceof ArrayBuffer) return new DataView(buffer);
-	if (buffer instanceof Uint8Array) return new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength);
-	if (buffer instanceof Uint16Array) return new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength);
-	if (buffer instanceof Uint32Array) return new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength);
-	throw new Error("Unsupported buffer type");
-}
-////----------------------------------------------------------------- 指定したインデックスのFeatureを返す
+
 export function feature(self, id) {
 	const idx = self.each(i => i).indexOf(id);
 	if (idx === -1) return null;
-	const type = self.getType(idx), properties = self.getProperties(idx), bbox = self.getBbox(idx);
-	return { type, properties, bbox };
+	return { type: self.getType(idx), properties: self.getProperties(idx), bbox: self.getBbox(idx) };
 }
-////----------------------------------------------------------------- 全てのFeatureを文字列化して返す
-export function info(self, options = {}) {
-	const str = [];
-	str.push(`NAME: ${self.name()}`);
+
+export function info(self) {
+	return `NAME: ${self.name()}`;
 }
