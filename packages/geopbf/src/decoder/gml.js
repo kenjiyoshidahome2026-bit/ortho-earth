@@ -1,4 +1,5 @@
 import { GeoPBF } from "../pbf-base.js";
+import { dissolve } from "../extension/dissolve.js";
 import { decodeZIP } from "native-bucket";
 
 function* getTags(src, tag) {
@@ -81,6 +82,7 @@ onmessage = async (e) => {
     });
 
     pbf.close();
+    await dissolve(pbf);
     const res = pbf.arrayBuffer;
     postMessage({ type: "gmldec", data: res }, [res]);
 };

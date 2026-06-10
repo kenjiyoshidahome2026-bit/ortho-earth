@@ -1,5 +1,6 @@
 import { thenMap } from "common";
 import { GeoPBF } from "../pbf-base.js";
+import { dissolve } from "../extension/dissolve.js";
 import { decodeZIP } from "native-bucket";
 
 const view = a => new DataView(a.buffer, a.byteOffset, a.byteLength);
@@ -127,6 +128,7 @@ onmessage = async (e) => {
 		});
 	});
 	pbf.close();
+	await dissolve(pbf);
 	const res = pbf.arrayBuffer;
 	postMessage({ type: "shpdec", data: res }, [res]);
 };
