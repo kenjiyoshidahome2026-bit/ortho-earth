@@ -1,4 +1,5 @@
 import { GeoPBF } from "../pbf-base.js";
+import { dissolve } from "../extension/dissolve.js";
 import { decodeZIP } from "native-bucket";
 
 const parseCoords = (s) => s.trim().split(/\s+/).map(t => t.split(",").map(Number).slice(0, 2));
@@ -57,6 +58,7 @@ onmessage = async (e) => {
     pbf.setHead(keys, bufs);
     pbf.setBody(() => allFeatures.forEach(f => pbf.setFeature(f)));
     pbf.close();
+    await dissolve(pbf);
     const res = pbf.arrayBuffer;
     postMessage({ type: "kmzdec", data: res }, [res]);
 };
