@@ -42,8 +42,6 @@ export async function geopbf(data, options = {}) { if (isString(options)) option
 ////===========================================================================================
     const pbf = await _geopbf(data);
     await pbf.gint({ nogint: options.nogint});
- //   debugger
-//    pbf.updateHeader({license:"なんちゃって"});////.description("なんちゃって").attribution("なんちゃって");
     pbf && console.log(`[geopbf] 📥 ${pbf.name()} (${pbf.size.toLocaleString()} bytes) ${(performance.now()-dt).toFixed(2)} msec`);
     if (pbf && isURL(data) && !pbf.originalURL) {
         const server = await getServer(); if (!server) return;
@@ -69,7 +67,7 @@ export async function geopbf(data, options = {}) { if (isString(options)) option
             if (name.match(/\.kmz$/i)) return _geopbf(await decoder("kmz", q));
             if (name.match(/\.gpx$/i)) return _geopbf(await decoder("gpx", q));
             if (name.match(/\.(gml|xml)$/i)) return _geopbf(await decoder("gml", q));
-            if (name.match(/\.gz(ip)?$/i)) return _geopbf(await gunzip(q));
+        //    if (name.match(/\.gz(ip)?$/i)) return _geopbf(await gunzip(q));
             console.warn("illegal file:", name);
         }
         if (isObject(q)) {
@@ -81,7 +79,8 @@ export async function geopbf(data, options = {}) { if (isString(options)) option
             if (isURL(q)) {
                 const fetchUrl = isInZip(q) ? q : (q.match(/\.zip$/) && options.target) ? [q, options.target].join("#") : q;
                 const val = options.nocache == true? undefined: await server.cache(fetchUrl, {worker:true}).catch(console.error);
-                if (val && val.PBF) { const pbf = (await new GeoPBF(options).set(val.PBF))
+                if (val && val.PBF) { const pbf = (await new GeoPBF(options).set(val.PBF));
+                //    await pbf.dissolve();
                     val.GINT && pbf.setGintBUF(val.GINT);
                     pbf.originalURL = q;
                     return pbf;

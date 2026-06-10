@@ -1,4 +1,4 @@
-import { GeoPBF } from "../pbf-base.js";
+import { GeoPBF } from "../pbf.js";
 import { geojsonReader, isObject } from "common";
 const threshold = 50 * 1024 * 1024;
 onmessage = async (e) => {
@@ -19,6 +19,7 @@ onmessage = async (e) => {
         pbf.setBody(() => geojsonReader(file, f => pbf.setFeature(f), true));
     }
     pbf.close();
+    await pbf.dissolve();
     const res = pbf.arrayBuffer;
     postMessage({ type: "jsondec", data: res }, [res]);
 };
