@@ -62,7 +62,7 @@ uploads.append("input").attr("type","text").attr("placeholder", `"Enter URL" or 
 async function exec(info) {
     const def = {target:"", name: "", precision:6, license:"", description:"", attribution:"", link:"", nocache:false};
     const { target, name, precision, license, description, attribution, link, nocache } = Object.assign(def, info);
-    try { uploads.hide(); logger.clear();
+    try { uploads.hide(); tables.empty().hide(); logger.clear().show();
         let inExec = true, success = false; left.selectAll(".card").attr("disabled", true);
         let p = logger.title(name, description); p.style("position","sticky").style("top","10px").style("zindex",1)
         link && p.style("cursor", "pointer").on("click", () => open(link, "_link_"));
