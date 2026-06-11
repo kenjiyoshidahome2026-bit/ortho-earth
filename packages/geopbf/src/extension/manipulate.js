@@ -1,5 +1,5 @@
 import { GeoPBF } from "../pbf-base.js";
-import { saveTo, thenMap, sum, comma } from "common";
+import { isNull, isUndefined, isBoolean, isNumber, isString, isFunction, isObject, isArray, isDate, isBlob, isImageData, saveTo, thenMap, sum, comma } from "common";
 
 export function count(self) {
      if (self.counts) return self.counts;
@@ -100,4 +100,47 @@ export async function concatinate(pbfs, name) {
     const props = pbfs.map(pbf => pbf.properties), [keys, bufs] = await GeoPBF.makeKeys(props.flat()), pbf = new GeoPBF({ name }).setHead(keys, bufs);
     pbf.setBody(() => pbfs.forEach((t, n) => { t.each(i => pbf.setMessage(GeoPBF.TAGS.FEATURE, () => { pbf.copyGeometry(t, i); pbf.setProperties(props[n][i]); })); })).close();
     return pbf.getPosition();
+}
+
+export function getPropertyTable(self) {
+    const a = self.propertiesTable; if (!a || a.length < 1) return null;
+    const conv = (v) => { 
+        if (isNull(v)||isUndefined(v)) return "";
+        if (isBoolean(v)||isNumber(v)) return v;
+        if (isDate(v)) return v.toISOString();
+        if (isFunction(v)) return v.toString();
+        if (isBlob(v)) return `[Blob: ${v.name || 'Unnamed'} (${v.type || 'unknown'}, ${v.size}B)]`;
+        if (isImageData(v)) return `[ImageData: ${v.width}x${v.height}]`;
+        if (isObject(v)||isArray(v)) return JSON.stringify(v);
+        return String(v);
+    };
+    const len = a[0].length;
+    const head = ["#","type"].concat(a[0]);
+    const body = a.slice(1).map((t,i)=>{ const q = [];
+        for (let j = 0; j < len; j++) q[j] = conv(t[j]);
+        return [i+1, self.getType(i)].concat(q);
+    });
+    return [head].concat(body)
+}
+export function getCSV(self) {
+    const a = self.propertiesTable; if (!a || a.length < 1) return "";
+	const quot = s => (isString(s) && s.match(/[,"]/))?`"${s.replace(/\"/g, '""')}"`: s;
+	const csv2str = a => (a||[]).map(s => quot(s).join(",")).join("\r\n");
+    const conv = (v) => { 
+        if (isNull(v)||isUndefined(v)) return "";
+        if (isBoolean(v)||isNumber(v)) return flag? String(v): v;
+        if (isDate(v)) return v.toISOString();
+        if (isFunction(v)) return v.toString();
+        if (isBlob(v)) return `[Blob: ${v.name || 'Unnamed'} (${v.type || 'unknown'}, ${v.size}B)]`;
+        if (isImageData(v)) return `[ImageData: ${v.width}x${v.height}]`;
+        if (isObject(v)||isArray(v)) return JSON.stringify(v);
+        return String(v);
+    };
+    const len = a[0].length;
+    const head = ["#","type"].concat(a[0]);
+    const body = a.slice(1).map((t,i)=>{ const q = [];
+        for (let j = 0; j < len; j++) q[j] = conv(t[j]);
+        return [i+1, self.getType(i)].concat(q);
+    });
+	return csv2str([head].concat(body));
 }
