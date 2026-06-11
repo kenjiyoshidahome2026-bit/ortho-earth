@@ -65,7 +65,7 @@ async function exec(info) {
         let inExec = true, success = false; left.selectAll(".card").attr("disabled", true);
         let p = logger.title(name, description);
         link && p.style("cursor", "pointer").on("click", () => open(link, "_link_"));
-        p = logger.log(`Requesting: ${target.name || target} <span class="remark">[cancel]</span>`)
+        p = logger.log(`Requesting: ${target.name || target} <span class="cancel">cancel</span>`)
         const cancel = p.select("span").hide().on("click", () => location.reload());
         setTimeout(() => inExec && cancel.show(),1000);
         const pbf = await geopbf(target, { name, precision, license, description, attribution, nocache });

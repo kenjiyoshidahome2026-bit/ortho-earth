@@ -2,7 +2,7 @@ export function viewTable(self, containerId) {
     const tableData = self.propertiesTable;
     if (!tableData || tableData.length < 1) return "";
 
-    const headers = tableData[0];
+    const headers = tableData[0].map(t => `<th>${t}</th>`);
     const rows = tableData.slice(1);
 
     const stringifyValue = (v) => {
@@ -34,20 +34,17 @@ export function viewTable(self, containerId) {
         document.head.appendChild(sheet);
     }
 
-    let html = `<button class="csv-btn" id="gis-csv-dl">Export CSV</button>`;
-    html += `<div class="gis-table-wrapper"><table class="gis-table"><thead><tr>`;
-    headers.forEach(h => html += `<th>${h}</th>`);
-    html += `</tr></thead><tbody>`;
-    rows.forEach(row => {
-        html += `<tr>`;
-        headers.forEach((_, i) => {
-            const displayStr = stringifyValue(row[i]);
-            html += `<td title="${displayStr.replace(/"/g, '&quot;')}">${displayStr}</td>`;
-        });
-        html += `</tr>`;
-    });
-    html += `</tbody></table></div>`;
+//    let html = `<button class="csv-btn" id="gis-csv-dl">Export CSV</button>`;
+    const head = `<thead><tr>${headers}</tr></thead>`;
+    const body = `<tbody>${ rows.map(row =>
+        `<tr>${
+            row.map(t => { t = stringifyValue(t);
+                return `<td title="${t.replace(/"/g, '&quot;')}">${t}</td>`;
+            })
+        }</tr>`)
+    }</tbody>`;
 
+    const html = `<div class="prop-table"><table>${head}${body}</table></div>`;
     container.innerHTML = html;
 
     container.querySelector("#gis-csv-dl").onclick = () => {
