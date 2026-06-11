@@ -40,6 +40,7 @@ const main = gishub.append("main").attr("class", "main");
 main.append("h1").html(`<img src="favicon.svg" alt="GIS-HUB"/><span>GIS-HUB</span>`).on("click", reset);
 ////------------------------------------------------------
 const logger = new screenLogger(main.append("div"));
+const tables = main.append("div").attr("class","tables").hide();
 ////------------------------------------------------------
 const fname = s => s.split('/').pop().split('?')[0].replace(/\..+$/i, '');
 const uploads = main.append("div").attr("class", "uploads").dropFile(f=>exec({name:fname(f.name), target:f, description:"dropped file"}));
@@ -63,7 +64,7 @@ async function exec(info) {
     const { target, name, precision, license, description, attribution, link, nocache } = Object.assign(def, info);
     try { uploads.hide(); logger.clear();
         let inExec = true, success = false; left.selectAll(".card").attr("disabled", true);
-        let p = logger.title(name, description);
+        let p = logger.title(name, description); p.style("position","sticky").style("top","10px").style("zindex",1)
         link && p.style("cursor", "pointer").on("click", () => open(link, "_link_"));
         p = logger.log(`Requesting: ${target.name || target} <span class="cancel">cancel</span>`)
         const cancel = p.select("span").hide().on("click", () => location.reload());
@@ -76,6 +77,7 @@ async function exec(info) {
         inExec = false; left.selectAll(".card").attr("disabled", null); cancel.hide();
         p = logger.empty(); p.append("span").text("🔔 [ACTIONs]").classed("big",true);
         success && p.append("button").classed("accent", true).text("View in Ortho-Map").on("click", execView);
+        success && p.append("button").text("Show Property Table").on("click", showProp);
         attribution && pbf.originalURL && p.append("button").text("Reload from original url")
         .on("click", async() => { pbf && (pbf.destroy()); exec(Object.assign({}, info, {nocache:true}));});
         p.append("button").text("Done").on("click", async () => { pbf && pbf.destroy(); reset(); });
@@ -90,12 +92,47 @@ async function exec(info) {
             async function Shape() { save(await pbf.shapeFile({encoding: await logger.prompt(`encoding (default: utf8)`, "utf8")}))},
             async function GML() { save(await pbf.gmlFile({ gz: await logger.confirm("GML Gzipped", false)})); },
             async function GPX() { save(await pbf.gpxFile({ gz: await logger.confirm("GPX Gzipped", false)})); },
-      ];
+        ];
         p = logger.empty();
         const active = v => logger.target.selectAll("button").attr("disabled", v ? null : true);
         p.append("span").text("📥 [DOWNLOAD]").classed("big",true);
         funcs.forEach(f => p.append("button").classed("accent", f.name === "GeoPBF").text(f.name)
             .on("click", async () => { active(false); (await openDirectory()) && await f(); active(true); }));
+        function showProp() {
+            function propertyTable(a) {
+                const cut = s => s.length > 16? s.substring(0,15)+" …":s;
+                const head = `<thead><tr>${a[0].map(t => `<th>${t}</th>`).join("")}</tr></thead>`;
+                const body = `<tbody>${ a.slice(1).map(row =>`<tr>${row.map(t =>`<td>${cut(t)}</td>`).join("")}</tr>`).join("")}</tbody>`;
+                return `<h2>${pbf.name()}<span>${pbf.description()}<span>
+                <button name="csv">📥 CSV</button>
+                <button name="excel">📥 Excel</button>
+                <button name="done">Done</button></h2>
+                <div class="prop-table"><table>${head}${body}</table></div>`;
+            }
+            logger.hide();
+            tables.show();
+            tables.html(propertyTable(pbf.getPropertyTable()));
+            tables.select("[name=csv]").on("click", csv)
+            tables.select("[name=excel]").on("click", xls)
+            tables.select("[name=done]").on("click", function done() { logger.show(); tables.empty().hide(); })
+        }
+        async function csv() {
+            const csv = new File([pbf.getCSV()], pbf.name()+".csv", {type:"application/csv"});
+            console.log(csv);
+            save(csv)
+        }
+        async function xls() {
+            const csvString = pbf.getCSV();
+            await import('https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js');
+            const XLSX = window.XLSX;
+            const workbook = XLSX.read(csvString, { type: 'string', raw: true });
+            const worksheet = workbook.Sheets.Sheet1;
+            const newWorkbook = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(newWorkbook, worksheet, "Sheet1");
+            XLSX.writeFile(newWorkbook, pbf.name()+".xlsx"); 
+            console.log(newWorkbook);
+            save(newWorkbook)
+        }
     } catch (err) {
         logger.error(`Failed to load ${target.name || target}: ${err.message}`);
     }

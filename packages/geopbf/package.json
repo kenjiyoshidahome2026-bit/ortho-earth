@@ -11,9 +11,10 @@
 		"summary": "repomix --style markdown --output project_summary.md"
 	},
 	"dependencies": {
+		"gishub-wasm": "*",
 		"native-bucket": "*",
 		"pbf": "^4.0.1",
-		"gishub-wasm":"*"
+		"xlsx": "^0.18.5"
 	},
 	"devDependencies": {
 		"repomix": "^1.14.0"

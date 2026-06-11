@@ -1,8 +1,13 @@
+export const isUndefined = _ => _ === undefined;
+export const isNull = _ => _ === null;
+export const isBoolean = _ => _ === true || _ === false;
 export const isArray = Array.isArray;
 export const isNumber = _ => typeof _ === 'number' && Number.isFinite(_);
 export const isFloat = _ => isNumber(_) && (_ % 1 !== 0);
 export const isString = _ => typeof _ === 'string';
 export const isFunction = _ => typeof _ == 'function';
+export const isImageData = _ => _ instanceof ImageData;
+export const isDate = _ => _ instanceof Date;
 export const isAsync = _ => _[Symbol.toStringTag] === 'AsyncFunction';
 export const isDOM = _ => _ instanceof Element;
 export const isObject = _ => _ !== null && typeof _ === 'object' && !isArray(_);
