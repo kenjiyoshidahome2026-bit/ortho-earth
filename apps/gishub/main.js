@@ -117,21 +117,14 @@ async function exec(info) {
             tables.select("[name=done]").on("click", function done() { logger.show(); tables.empty().hide(); })
         }
         async function csv() {
-            const csv = new File([pbf.getCSV()], pbf.name()+".csv", {type:"application/csv"});
-            console.log(csv);
-            save(csv)
+            save(new File([pbf.getCSV()], pbf.name()+".csv", {type:"application/csv"}));
         }
         async function xls() {
-            const csvString = pbf.getCSV();
             await import('https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js');
             const XLSX = window.XLSX;
-            const workbook = XLSX.read(csvString, { type: 'string', raw: true });
-            const worksheet = workbook.Sheets.Sheet1;
-            const newWorkbook = XLSX.utils.book_new();
-            XLSX.utils.book_append_sheet(newWorkbook, worksheet, "Sheet1");
-            XLSX.writeFile(newWorkbook, pbf.name()+".xlsx"); 
-            console.log(newWorkbook);
-            save(newWorkbook)
+            const workbook = XLSX.read(pbf.getCSV(), { type: 'string', raw: true });
+            const buff = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
+            save(new File([buff], pbf.name()+".xlsx", { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}));
         }
     } catch (err) {
         logger.error(`Failed to load ${target.name || target}: ${err.message}`);
