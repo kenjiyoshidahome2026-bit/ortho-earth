@@ -14,9 +14,9 @@ export class screenLogger {
 		addEventListener("ConvertStart", e => this.event("start", e));
 		addEventListener("ConvertEnd", e => this.event("end", e));
 	} 
-	hide() { this.target.hide(); }
-	show() { this.target.show(); }
-	clear() { this.target.empty(); }
+	hide() { this.target.hide(); return this; }
+	show() { this.target.show(); return this; }
+	clear() { this.target.empty(); return this; }
 	empty() { const div = this.target, p = div.append("p");
 		setTimeout(() => div.node().scrollTop = div.node().scrollHeight, 500);
 		return p;
