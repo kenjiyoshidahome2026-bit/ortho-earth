@@ -1,4 +1,4 @@
-import { geoOrthographic } from "./geoOrthoGraphic.js";
+import { geoOrthographic } from "common";
 import { orthoGL2 } from "./orthoGL2.js"; // 🌟 新しいラッパーをインポート
 
 const counter_clockwise = a => //反時計回りは地球の裏側
@@ -37,9 +37,9 @@ function resize(data) {
 function drawing(data) {
     gl.clearContext();
     proj.rotate(data.rotate).scale(data.scale);
-    zoom = Math.log2(data.scale * Math.PI * 2 / 256); 
+    zoom = Math.log2(data.scale * Math.PI * 2 / 256);
     if (zoom <= minZoom) return;
-    
+
     tub.forEach(([texture, bbox, dx, dy]) => {
         const getcoords = (i, j) => {
             const [x0, y0, x1, y1] = [(i) / dx, (j) / dy, (i + 1) / dx, (j + 1) / dy]
@@ -48,16 +48,16 @@ function drawing(data) {
         const getPosition = (i, j) => {
             const [w, s, e, n] = bbox;
             const [W, S, E, N] = [w + (e - w) * (i) / dx, s + ((n - s) * (dy - (j + 1))) / dy, w + (e - w) * (i + 1) / dx, s + (dy - j) * (n - s) / dy];
-            const p = [[W, N], [E, N], [E, S], [W, S]].map(proj); 
+            const p = [[W, N], [E, N], [E, S], [W, S]].map(proj);
             if (counter_clockwise(p)) return null;
             const q = p.map(t => [(t[0] / width) * 2 - 1, 1 - (t[1] / height) * 2]);
             return new Float32Array([q[0], q[1], q[3], q[2]].flat());
         };
-        
+
         // 🌟 setTexture は不要になったため削除
         for (let i = 0; i < dx; i++) {
             for (let j = 0; j < dy; j++) {
-                const pos = getPosition(i, j); 
+                const pos = getPosition(i, j);
                 if (!pos) continue;
                 const crd = getcoords(i, j);
                 // 🌟 第1引数に texture を渡すように修正
@@ -72,11 +72,11 @@ function drawn() { }
 
 function destroy(data) {
     canvas && (canvas.width = 0, canvas.height = 0); canvas = null;
-    
+
     // 🌟 追加：破棄時にGPUメモリからテクスチャをクリーンアップ
     tub.forEach(([texture]) => gl.deleteTexture(texture));
     tub.clear();
-    
+
     gl = proj = null;
     postMessage({ type: data.type, action: "done" });
 }

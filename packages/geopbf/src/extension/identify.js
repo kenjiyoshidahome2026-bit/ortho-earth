@@ -29,56 +29,108 @@ export function identify(self, mx, my, proj, options = {}) {
 	return null;
 }
 
-function findPoint(buffer, meta, mix, miy, error) {
-	const count = meta.length;
-	const mMin = gint.packFromInt(mix - error, miy - error);
-	const mMax = gint.packFromInt(mix + error, miy + error);
+function findPoint(buffer, pointMeta, count, mix, miy, error) {
 	const errSq = error * error;
-	let low = 0, high = count - 1, start = 0;
-	while (low <= high) {
-		let mid = (low + high) >>> 1;
-		if (buffer[mid] < mMin) { low = mid + 1; start = low; }
-		else high = mid - 1;
-	}
-	for (let i = start; i < count; i++) {
-		const m = buffer[i];
-		if (m > mMax) break;
-		const [ix, iy] = gint.unpackToInt(m);
-		const dx = ix - mix, dy = iy - miy;
-		if (dx * dx + dy * dy <= errSq) return meta[i];
+	const xMin = Math.max(0, mix - error), xMax = mix + error;
+	const yMin = Math.max(0, miy - error), yMax = miy + error;
+
+	const xMid = ((xMin ^ xMax) & (1 << 31)) ? (xMax & ~((1 << (31 - Math.clz32(xMin ^ xMax))) - 1)) : null;
+	const yMid = ((yMin ^ yMax) & (1 << 31)) ? (yMax & ~((1 << (31 - Math.clz32(yMin ^ yMax))) - 1)) : null;
+
+	const subQuads = [
+		[xMin, xMid !== null ? xMid - 1 : xMax, yMin, yMid !== null ? yMid - 1 : yMax],
+		xMid !== null ? [xMid, xMax, yMin, yMid !== null ? yMid - 1 : yMax] : null,
+		yMid !== null ? [xMin, xMid !== null ? xMid - 1 : xMax, yMid, yMax] : null,
+		(xMid !== null && yMid !== null) ? [xMid, xMax, yMid, yMax] : null
+	];
+
+	for (const q of subQuads) {
+		if (!q) continue;
+		const qMin = gint.packFromInt(q[0], q[2]);
+		const qMax = gint.packFromInt(q[1], q[3]);
+
+		let low = 0, high = count - 1, startIdx = -1;
+		while (low <= high) {
+			let mid = (low + high) >>> 1;
+			if (buffer[mid] >= qMin) {
+				startIdx = mid;
+				high = mid - 1;
+			} else {
+				low = mid + 1;
+			}
+		}
+
+		if (startIdx === -1) continue;
+
+		for (let i = startIdx; i < count; i++) {
+			const m = buffer[i];
+			if (m > qMax) break;
+
+			const [ix, iy] = gint.unpackToInt(m);
+			if (ix >= xMin && ix <= xMax && iy >= yMin && iy <= yMax) {
+				const dx = ix - mix, dy = iy - miy;
+				if (dx * dx + dy * dy <= errSq) return pointMeta[i];
+			}
+		}
 	}
 	return null;
 }
 
 function findMortonNear(buffer, meta, polylineStructures, mix, miy, error, threshold) {
-	const mMin = gint.packFromInt(Math.max(0, mix - error), Math.max(0, miy - error)) & ~gint.WEIGHT_MASK;
-	const mMax = gint.packFromInt(mix + error, miy + error) | gint.WEIGHT_MASK;
 	const errSq = error * error;
-
-	let low = 0, high = buffer.length - 1, startIdx = 0;
-	while (low <= high) {
-		let mid = (low + high) >>> 1;
-		if ((buffer[mid] & ~gint.WEIGHT_MASK) < mMin) { low = mid + 1; startIdx = low; }
-		else high = mid - 1;
-	}
-
 	const hitArcs = new Set();
-	for (let i = startIdx; i < buffer.length; i++) {
-		const m = buffer[i] & ~gint.WEIGHT_MASK;
-		if (m > mMax) break;
 
-		const [ix, iy] = gint.unpackToInt(buffer[i]);
-		const dx = ix - mix, dy = iy - miy;
-		if (dx * dx + dy * dy <= errSq) {
-			let lowA = 0, highA = (meta.length / 8) - 1, aid = 0;
-			while (lowA <= highA) {
-				let midA = (lowA + highA) >>> 1;
-				const off = meta[midA * 8], len = meta[midA * 8 + 1];
-				if (i >= off && i < off + len) { aid = midA; break; }
-				if (off > i) highA = midA - 1;
-				else lowA = midA + 1;
+	const xMin = Math.max(0, mix - error), xMax = mix + error;
+	const yMin = Math.max(0, miy - error), yMax = miy + error;
+
+	const ranges = [];
+	const xMid = ((xMin ^ xMax) & (1 << 31)) ? (xMax & ~((1 << (31 - Math.clz32(xMin ^ xMax))) - 1)) : null;
+	const yMid = ((yMin ^ yMax) & (1 << 31)) ? (yMax & ~((1 << (31 - Math.clz32(yMin ^ yMax))) - 1)) : null;
+
+	const subQuads = [
+		[xMin, xMid !== null ? xMid - 1 : xMax, yMin, yMid !== null ? yMid - 1 : yMax],
+		xMid !== null ? [xMid, xMax, yMin, yMid !== null ? yMid - 1 : yMax] : null,
+		yMid !== null ? [xMin, xMid !== null ? xMid - 1 : xMax, yMid, yMax] : null,
+		(xMid !== null && yMid !== null) ? [xMid, xMax, yMid, yMax] : null
+	];
+
+	for (const q of subQuads) {
+		if (!q) continue;
+		const qMin = gint.packFromInt(q[0], q[2]) & ~gint.WEIGHT_MASK;
+		const qMax = gint.packFromInt(q[1], q[3]) | gint.WEIGHT_MASK;
+
+		let low = 0, high = buffer.length - 1, startIdx = -1;
+		while (low <= high) {
+			let mid = (low + high) >>> 1;
+			if ((buffer[mid] & ~gint.WEIGHT_MASK) >= qMin) {
+				startIdx = mid;
+				high = mid - 1;
+			} else {
+				low = mid + 1;
 			}
-			hitArcs.add(aid);
+		}
+
+		if (startIdx === -1) continue;
+
+		for (let i = startIdx; i < buffer.length; i++) {
+			const m = buffer[i] & ~gint.WEIGHT_MASK;
+			if (m > qMax) break;
+
+			const [ix, iy] = gint.unpackToInt(buffer[i]);
+			if (ix >= xMin && ix <= xMax && iy >= yMin && iy <= yMax) {
+				const dx = ix - mix, dy = iy - miy;
+				if (dx * dx + dy * dy <= errSq) {
+					let lowA = 0, highA = (meta.length / 8) - 1, aid = -1;
+					while (lowA <= highA) {
+						let midA = (lowA + highA) >>> 1;
+						const off = meta[midA * 8], len = meta[midA * 8 + 1];
+						if (i >= off && i < off + len) { aid = midA; break; }
+						if (off > i) highA = midA - 1;
+						else lowA = midA + 1;
+					}
+					if (aid !== -1) hitArcs.add(aid);
+				}
+			}
 		}
 	}
 
@@ -118,14 +170,4 @@ function findPolygon(buffer, meta, polygonStructures, mix, miy) {
 		if (inside) return id;
 	}
 	return null;
-}
-
-export function feature(self, id) {
-	const idx = self.each(i => i).indexOf(id);
-	if (idx === -1) return null;
-	return { type: self.getType(idx), properties: self.getProperties(idx), bbox: self.getBbox(idx) };
-}
-
-export function info(self) {
-	return `NAME: ${self.name()}`;
 }

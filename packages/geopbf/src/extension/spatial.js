@@ -1,15 +1,16 @@
-const r2d = Math.PI / 180;
+import { isNumber, isArray, isBbox } from "common";
+const r2d = Math.PI / 180, R = 6378137;
 
 export const centroid = (self, i) => {
     const geom = self.getGeometry(i); let x = 0, y = 0, count = 0;
-    const add = c => { if (typeof c[0] === 'number') { x += c[0]; y += c[1]; count++; } else c.forEach(add); };
+    const add = c => { if (isNumber(c[0])) { x += c[0]; y += c[1]; count++; } else c.forEach(add); };
     if (geom.type === "GeometryCollection") geom.geometries.forEach(g => add(g.coordinates || []));
     else add(geom.coordinates || []);
     return count ? [Math.round((x / count) * self.e) / self.e, Math.round((y / count) * self.e) / self.e] : [0, 0];
 };
 
 export const area = (self, i) => {
-    const geom = self.getGeometry(i), R = 6378137;
+    const geom = self.getGeometry(i);
     const ringArea = coords => {
         let area = 0, n = coords.length;
         if (n > 2) { for (let j = 0; j < n; j++) { let p1 = coords[j === 0 ? n - 1 : j - 1], p2 = coords[j], p3 = coords[j === n - 1 ? 0 : j + 1]; area += (p3[0] - p1[0]) * r2d * Math.sin(p2[1] * r2d); } }
@@ -23,3 +24,37 @@ export const area = (self, i) => {
     };
     calc(geom); return Math.round(total);
 };
+
+export function getBbox(self, i) {
+    if (i !== undefined) {
+        if (self._bboxes && self._bboxes[i]) return self._bboxes[i];
+        let xmin = Infinity, ymin = Infinity, xmax = -Infinity, ymax = -Infinity;
+        const calcBbox = c => {
+            if (!c || !isArray(c)) return;
+            if (isNumber(c[0])) {
+                if (c[0] < xmin) xmin = c[0]; if (c[0] > xmax) xmax = c[0];
+                if (c[1] < ymin) ymin = c[1]; if (c[1] > ymax) ymax = c[1];
+            } else c.forEach(calcBbox);
+        };
+        const geom = self.getGeometry(i);
+        (geom.type == "GeometryCollection") ? geom.geometries.forEach(t => calcBbox(t.coordinates)) : calcBbox(geom.coordinates);
+        const res = [xmin, ymin, xmax, ymax].map(v => Math.round(v * self.e) / self.e);
+        if (self._bboxes) self._bboxes[i] = res;
+        return res;
+    }
+    if (self._bbox) return self._bboxes;
+    let xmin = Infinity, ymin = Infinity, xmax = -Infinity, ymax = -Infinity;
+    self._bboxes = self.each(idx => {
+        const b = self.getBbox(idx);
+        if (isBbox(b)) {
+            if (b[0] < xmin) xmin = b[0]; if (b[1] < ymin) ymin = b[1];
+            if (b[2] > xmax) xmax = b[2]; if (b[3] > ymax) ymax = b[3];
+        }
+        return b;
+    });
+    self._bbox = [xmin, ymin, xmax, ymax];
+    return self._bboxes;
+}
+
+export function bboxes(self) { return self._bboxes || (self.getBbox(), self._bboxes); }
+export function bbox(self) { return self._bbox || (self.getBbox(), self._bbox); }

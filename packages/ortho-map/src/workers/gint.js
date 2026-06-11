@@ -1,4 +1,4 @@
-import { geoOrthographic } from "./geoOrthoGraphic.js";
+import { geoOrthographic } from "common";
 const { PI, log2, max, sin, cos, round } = Math;
 let gl, width, height, zoom;
 let proj = geoOrthographic();

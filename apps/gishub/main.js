@@ -76,10 +76,10 @@ async function exec(info) {
         inExec = false; left.selectAll(".card").attr("disabled", null); cancel.hide();
         p = logger.empty(); p.append("span").text("🔔 [ACTIONs]").classed("big",true);
         success && p.append("button").classed("accent", true).text("View in Ortho-Map").on("click", execView);
-        p.append("button").text("Done").on("click", async () => { pbf && pbf.destroy(); reset(); });
         attribution && pbf.originalURL && p.append("button").text("Reload from original url")
-            .on("click", async() => { pbf && (pbf.destroy()); exec(Object.assign({}, info, {nocache:true}));});
-        if (!success) return;
+        .on("click", async() => { pbf && (pbf.destroy()); exec(Object.assign({}, info, {nocache:true}));});
+        p.append("button").text("Done").on("click", async () => { pbf && pbf.destroy(); reset(); });
+         if (!success) return;
         const save = async s => { if (!s) return; const v = await saveTo(s); if (v) logger.log(`📥 Saved: ${s.name} (${comma(s.size)} bytes)`); }
         const funcs = [
             async function GeoPBF() { save(await pbf.geopbfFile()) },

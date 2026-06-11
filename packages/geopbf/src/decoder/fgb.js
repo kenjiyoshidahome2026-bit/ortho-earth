@@ -1,8 +1,26 @@
-import { GeoPBF } from "../pbf-base.js"; //
+// src/decoder/fgb.js
+
+import { GeoPBF } from "../pbf-base.js";
 import { dissolve } from "../extension/dissolve.js";
 
-// FlatGeobuf 幾何型定義の逆写像
 const GeometryTypes = ["Unknown", "Point", "MultiPoint", "LineString", "MultiLineString", "Polygon", "MultiPolygon"];
+
+// --- 🌲 Packed Hilbert R-Tree インデックスのバイトサイズ計算 ---
+// 公式実装 (src/ts/packedrtree.ts) の calcTreeSize と同一ロジック
+// 1ノード = 4×float64(bbox) + 1×uint64(offset) = 40バイト
+const NODE_ITEM_BYTE_LEN = 40;
+
+function calcTreeSize(numItems, nodeSize) {
+	// nodeSize は uint16 の範囲にクランプ（仕様準拠）
+	nodeSize = Math.min(Math.max(nodeSize, 2), 65535);
+	let n = numItems;
+	let numNodes = n;
+	do {
+		n = Math.ceil(n / nodeSize);
+		numNodes += n;
+	} while (n !== 1);
+	return numNodes * NODE_ITEM_BYTE_LEN;
+}
 
 // --- 🕵️‍♂️ FlatBuffers 読み込みヘルパー ---
 class FlatBufferReader {
@@ -13,24 +31,25 @@ class FlatBufferReader {
 		this.base = baseOffset;
 	}
 
-	// 相対ポインタ（UOffset）の解決
 	_offset(pos, fieldIdx) {
-		// オブジェクトの先頭4バイトが指す位置にある vtable（目次）を特定
 		const vtableOffset = pos + this.view.getInt32(pos, true);
 		const vtableSize = this.view.getUint16(vtableOffset, true);
 		const fieldOffsetInVtable = 4 + fieldIdx * 2;
-
-		if (fieldOffsetInVtable >= vtableSize) return 0; // フィールドが存在しない
+		if (fieldOffsetInVtable >= vtableSize) return 0;
 		const offsetInObject = this.view.getUint16(vtableOffset + fieldOffsetInVtable, true);
 		return offsetInObject ? pos + offsetInObject : 0;
 	}
 
-	// プリミティブ型の読み出し
 	readInt8(pos) { return this.view.getInt8(pos); }
+	readUint16(pos) { return this.view.getUint16(pos, true); }  // ← 追加
 	readInt32(pos) { return this.view.getInt32(pos, true); }
+	readUint32(pos) { return this.view.getUint32(pos, true); }  // ← 追加
 	readFloat64(pos) { return this.view.getFloat64(pos, true); }
-
-	// 文字列のデコード
+	readUint64(pos) {
+		const lo = this.view.getUint32(pos, true);
+		const hi = this.view.getUint32(pos + 4, true);
+		return hi * 0x100000000 + lo;
+	}
 	readString(pos) {
 		if (!pos) return "";
 		const strOffset = pos + this.view.getInt32(pos, true);
@@ -38,7 +57,6 @@ class FlatBufferReader {
 		return new TextDecoder().decode(this.u8.subarray(strOffset + 4, strOffset + 4 + len));
 	}
 
-	// 各種ベクター（配列）の展開ビュー
 	readFloat64Vector(pos) {
 		if (!pos) return null;
 		const vecOffset = pos + this.view.getInt32(pos, true);
@@ -61,15 +79,13 @@ class FlatBufferReader {
 	}
 }
 
-// --- ⚙️ FGB用のカスタムプロパティ・ジオメトリ復元関数 ---
+// --- ⚙️ プロパティ・ジオメトリ復元関数（変更なし）---
 
 function parseFGBProperties(u8, keys) {
 	const props = {};
 	const view = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
 	const decoder = new TextDecoder();
 	let pos = 0;
-
-	// [ushort keyIndex] + [uint length] + [string value] のカスタムKeyValueストリームを解体
 	while (pos < u8.byteLength) {
 		const keyIdx = view.getUint16(pos, true);
 		const len = view.getUint32(pos + 2, true);
@@ -81,14 +97,13 @@ function parseFGBProperties(u8, keys) {
 }
 
 function restoreGeometry(reader, geomPos) {
-	const typeIdx = reader.readInt8(reader._offset(geomPos, 4)); // type
+	const typeIdx = reader.readInt8(reader._offset(geomPos, 4));
 	const geomType = GeometryTypes[typeIdx] || "Unknown";
-	const xy = reader.readFloat64Vector(reader._offset(geomPos, 0)); // xy
-	const ends = reader.readUint32Vector(reader._offset(geomPos, 1)); // ends
+	const xy = reader.readFloat64Vector(reader._offset(geomPos, 0));
+	const ends = reader.readUint32Vector(reader._offset(geomPos, 1));
 
 	if (!xy) return null;
 
-	// フラットな Float64Array [X1, Y1, X2, Y2...] から多次元配列（GeoJSON形式）を再構成
 	if (geomType === "Point") {
 		return { type: "Point", coordinates: [xy[0], xy[1]] };
 	} else if (geomType === "LineString") {
@@ -99,7 +114,6 @@ function restoreGeometry(reader, geomPos) {
 		const coords = [];
 		let ringStart = 0;
 		const endLoop = ends ? ends : [xy.length / 2];
-
 		endLoop.forEach(endIdx => {
 			const ring = [];
 			for (let i = ringStart * 2; i < endIdx * 2; i += 2) {
@@ -111,24 +125,23 @@ function restoreGeometry(reader, geomPos) {
 		return { type: "Polygon", coordinates: coords };
 	}
 
-	// ※ 混合型や複雑な幾何型は、要件に応じて拡張可能
 	return { type: "Unknown", coordinates: [] };
 }
 
 // --- 🌐 Worker メインループ ---
 onmessage = async (e) => {
-	const { file, precision } = e.data; //
+	const { file, precision } = e.data;
 	try {
 		const arrayBuffer = await file.arrayBuffer();
 		const u8 = new Uint8Array(arrayBuffer);
 		const view = new DataView(arrayBuffer);
 
-		// 1. マジックバイトの検証（"fgb\x03fgb\x00"）
+		// 1. マジックバイトの検証
 		if (u8[0] !== 0x66 || u8[1] !== 0x67 || u8[2] !== 0x62 || u8[3] !== 0x03) {
 			throw new Error("Not a valid FlatGeobuf v3 file.");
 		}
 
-		let pos = 8; // マジックバイト(8B)の直後から開始
+		let pos = 8; // マジックバイト(8B)の直後
 
 		// 2. Header のパース
 		const headerSize = view.getUint32(pos, true);
@@ -136,7 +149,7 @@ onmessage = async (e) => {
 		const reader = new FlatBufferReader(arrayBuffer);
 
 		// カラム（属性名）の抽出
-		const columnsPos = reader._offset(headerRoot, 7); // columns
+		const columnsPos = reader._offset(headerRoot, 7);
 		const keys = [];
 		if (columnsPos) {
 			const vecOffset = columnsPos + view.getInt32(columnsPos, true);
@@ -144,48 +157,56 @@ onmessage = async (e) => {
 			let colTablePos = vecOffset + 4;
 			for (let i = 0; i < vecLen; i++) {
 				const colRoot = colTablePos + i * 4;
-				const namePos = reader._offset(colRoot, 0); // name
+				const namePos = reader._offset(colRoot, 0);
 				keys.push(reader.readString(namePos));
 			}
 		}
 
-		// 3. GeoPBF インスタンスの用意とヘッダー定義
-		const pbf = new GeoPBF({ name: file.name.replace(/\.[^\.]+$/, ""), precision: precision || 6 }); //
-		pbf.setHead(keys.sort()); //
+		// Header から featuresCount と indexNodeSize を取得
+		const featuresCountPos = reader._offset(headerRoot, 8); // features_count フィールド
+		const indexNodeSizePos = reader._offset(headerRoot, 9); // index_node_size フィールド
 
-		// 空間インデックス（仮にあれば）のサイズをスキップして Feature セクションの戦闘へ移動
-		pos += 4 + headerSize;
-		const indexNodeSize = reader.view.getUint16(reader._offset(headerRoot, 9), true);
-		if (indexNodeSize > 0) {
-			// インデックス付きファイル（サーバー型用）の場合は、Tree部分のバイトサイズをスキップする計算が入ります
-			// 今回はインデックスなし（純粋なローカルデータ）を想定し、posはそのままFeatureの先頭へ
+		const featuresCount = featuresCountPos ? reader.readUint64(featuresCountPos) : 0;
+		const indexNodeSize = indexNodeSizePos ? reader.readUint16(indexNodeSizePos) : 0;
+
+		// 3. Feature セクション先頭位置の決定
+		pos += 4 + headerSize; // ヘッダー末尾まで進む
+
+		// 🌟 インデックスが存在する場合はバイトサイズ分をスキップ
+		if (indexNodeSize > 0 && featuresCount > 0) {
+			const indexByteSize = calcTreeSize(featuresCount, indexNodeSize);
+			pos += indexByteSize;
 		}
 
-		// 4. Features の連続デコード & GeoPBF への流し込み
-		pbf.setBody(() => { //
+		// 4. GeoPBF インスタンスの用意
+		const pbf = new GeoPBF({ name: file.name.replace(/\.[^\.]+$/, ""), precision: precision || 6 });
+		pbf.setHead(keys.sort());
+
+		// 5. Features の連続デコード
+		pbf.setBody(() => {
 			while (pos < arrayBuffer.byteLength) {
 				const featureSize = view.getUint32(pos, true);
+				if (featureSize === 0) break; // 終端ガード
+
 				const featRoot = pos + 4;
+				const geomPos = reader._offset(featRoot, 0);
+				const propsPos = reader._offset(featRoot, 1);
 
-				const geomPos = reader._offset(featRoot, 0);  // geometry
-				const propsPos = reader._offset(featRoot, 1); // properties
-
-				// ジオメトリとプロパティを復元
 				const geometry = geomPos ? restoreGeometry(reader, geomPos) : null;
 				const propBytes = propsPos ? reader.readByteVector(propsPos) : null;
 				const properties = propBytes ? parseFGBProperties(propBytes, keys) : {};
 
 				if (geometry) {
-					pbf.setFeature({ type: "Feature", geometry, properties }); //
+					pbf.setFeature({ type: "Feature", geometry, properties });
 				}
 
-				pos += 4 + featureSize; // 次の Feature の先頭へジャンプ
+				pos += 4 + featureSize;
 			}
 		});
 
-		pbf.close(); //
+		pbf.close();
 		await dissolve(pbf);
-		const res = pbf.arrayBuffer; //
+		const res = pbf.arrayBuffer;
 		postMessage({ type: "fgbdec", data: res }, [res]);
 	} catch (err) {
 		console.error("FlatGeobuf decode Worker Error:", err);

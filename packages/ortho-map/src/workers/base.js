@@ -1,5 +1,5 @@
 import nativeBucket from "native-bucket";
-import { geoOrthographic } from "./geoOrthoGraphic.js";
+import { geoOrthographic } from "common";
 import { orthoGL2 } from "./orthoGL2.js";
 import { Layers } from "../modules/layers.js";
 
@@ -13,7 +13,7 @@ let baseName = "", baseTexture = null;
 
 const { PI, floor, ceil, max, min, round, hypot, sin, asin, sinh, tanh, atanh, atan, atan2, cos, abs, log2, sqrt } = Math;
 const rad = PI / 180, deg = 180 / PI;
-const noop = ()=>{};
+const noop = () => { };
 const src = async e => {
 	try {
 		const res = await fetch(e.data, { cache: 'force-cache' });
@@ -31,7 +31,7 @@ let minZoom, zoom, currentZoom;
 let MasterTub = [], WorkerTub = [], TileTub = new Map(), urlTub = [], TileServer = null;
 let layerSession = 0;
 
-const funcs = { init, set, drawing, drawn, move:noop, leave:noop, resize, destroy };
+const funcs = { init, set, drawing, drawn, move: noop, leave: noop, resize, destroy };
 onmessage = e => funcs[e.data.type](e.data);
 
 async function init(data) {
@@ -68,13 +68,13 @@ async function set(data) {
 			} else {
 				if (!bm) await cache(bname, bm = await createImageBitmap(await bucket.get(bname)));
 			}
-			console.log(`[orth-earth] 📥 Base Image "${bname}" ${(performance.now()-dt).toFixed(2)} msec`);
+			console.log(`[orth-earth] 📥 Base Image "${bname}" ${(performance.now() - dt).toFixed(2)} msec`);
 			baseTexture && gl.deleteTexture(baseTexture); baseTexture = null;
 			baseTexture = gl.createBaseTexture(bm);
 			bm = null; baseName = bname;
 			drawing();
 		}
-	////--------------------------------------------------
+		////--------------------------------------------------
 		layerSession++;
 		minZoom = data.prop;
 		const count = MasterTub.length;
@@ -183,7 +183,8 @@ function destroy(data) {
 	postMessage(Object.assign(data, { action: "done", type: "destroy" }));
 }
 
-export function createTileServer(urlFunc) { if (!urlFunc) return;
+export function createTileServer(urlFunc) {
+	if (!urlFunc) return;
 	const session = layerSession;
 	const next = w => {
 		const xyz = urlTub.shift();
