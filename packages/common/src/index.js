@@ -7,6 +7,7 @@ export * from "./antimeridianFeature.js";
 export * from "./createPolygon.js";
 export * from "./douglasPeuckerOrtho.js";
 export * from "./geojsonReader.js";
+export * from "./projections.js";
 //export * from "./history.js";
 //export * from "./urlBOX.js";
 //export * from "./laptime.js";

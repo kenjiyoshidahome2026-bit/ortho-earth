@@ -48,7 +48,7 @@ export async function geopbf(data, options = {}) { if (isString(options)) option
         const GINT = new Uint8Array(pbf._gintBuffer).slice().buffer;
         server.cache(data, { PBF: pbf.arrayBuffer, GINT }, { worker: true }).catch(console.error);
     }
-    pbf && (pbf._fileSize = pbf._fileSize || await pbf.fileSize());
+    pbf && (await pbf.fileSize());
     return pbf || new GeoPBF(options);
 ////===========================================================================================
     async function _geopbf(q) {

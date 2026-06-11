@@ -28,7 +28,7 @@ onmessage = async (e) => {
 		self._description && str.push(` DESCRIPTION: ${self._description}`);
 		self._attribution && str.push(` ATTRIBUTION: ${self._attribution}`);
 		self._license && str.push(` LICENSE: ${self._license}`);
-		str.push(` FILE SIZE: ${comma(self._fileSize||await self.fileSize())} [bytes]`);
+		str.push(` FILE SIZE: ${comma(await self.fileSize())} [bytes]`);
 		str.push(` FEATURES: ${comma(ids.length)} ( ${types.join(" , ")} )`);
 		str.push(` PRECISION: ${self._precision} [${1 / self.e}]`);
 		str.push(` BBOX: ${JSON.stringify(bbox)}`);

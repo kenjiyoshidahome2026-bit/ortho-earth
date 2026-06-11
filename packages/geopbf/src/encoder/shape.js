@@ -134,7 +134,7 @@ function writeDbf(pbf, name, farray, encoding, encoder) {
     const fieldCount = fields.length;		
     fields.forEach(field=>{ field.precision = field.precision || 0;
         if (field.type == "N" && field.precision) field.length += (field.precision + 1);
-        if (strlen(field.name) > 11) console.warn("too long field name:", field.name);
+        if (strlen(field.name) > 11) { console.warn("too long field name:", field.name); field.name = field.name.slice(0, 11); }
         if (field.length > 254) { console.warn("too long data in:", field.name); field.length = 254; }
     });
     const [Y,M,D] = (() => { var t = new Date(); return [t.getFullYear(), t.getMonth() + 1, t.getDate()]; })();
