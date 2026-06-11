@@ -46,7 +46,7 @@ button.close {
 			img { width: 28px; vertical-align: middle; }
 			span { display: inline-block; padding-left: 1rem; }
 		}
-		> .log { position: absolute; inset:70px 30px 30px; overflow-y: auto; font-family:$mono;}
+		> .log { position: absolute; inset:70px 30px 30px; overflow-y: auto; font-family:$mono; }
 		> .uploads { position: absolute; inset:70px 30px 30px; border:2px solid transparent; line-height:1.6em;
 			* { max-width: 700px; }
 			h2 { font-size: 1.2rem; text-align: left; color: $highlight;}
@@ -62,7 +62,9 @@ button.close {
 			}
 			&.drag-over { background: $dark; border: 2px dashed $remark; }
 		}
-		.remark{ color: $accent; font-weight: bold; cursor: pointer; &:hover { color: $remark; }}
+		.cancel{ background: $accent; color:$highlight; font-weight: bold; cursor: pointer; padding:2px 0.5em; border-radius:3px;
+			&:hover { background:$highlight; color: $accent; }
+		}
 		.accent { background: $accent; font-weight:bold; }
 	}
 	&.close { 
