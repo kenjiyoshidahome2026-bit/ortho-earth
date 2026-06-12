@@ -69,7 +69,9 @@ async function exec(info) {
         p = logger.log(`Requesting: ${target.name || target} <span class="cancel">cancel</span>`)
         const cancel = p.select("span").hide().on("click", () => location.reload());
         setTimeout(() => inExec && cancel.show(),1000);
-        const pbf = await geopbf(target, { name, precision, license, description, attribution, nocache });
+        let pbf = await geopbf(target, { name, precision, license, description, attribution, nocache });
+        // pbf = await pbf.precision(4);
+        // console.log(pbf);
         if (pbf && pbf.length) { success = true;
             logger.success(`${name} (length: ${comma(pbf.size)})`);
         } else logger.error("Failed to load data.");

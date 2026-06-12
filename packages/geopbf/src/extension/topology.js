@@ -106,7 +106,7 @@ export function topology(self) {
 	point && (view.set(new Uint8Array(point.owner.buffer), ptr), ptr += point.owner.length * 4);
 	view.set(new Uint8Array(new TextEncoder().encode(topology)), ptr), ptr += topology.length;
 	if (totalLength !== ptr) throw new Error(`GintBUF length mismatch: expected ${totalLength}, got ${ptr}`);
-	console.log(unPackGintBuffer(GintBUF));
+//	console.log(unPackGintBuffer(GintBUF));
 	return GintBUF;
 }
 ////===============================================================================================================
@@ -320,19 +320,25 @@ function cutPolyline(topo, n_poly) {
 }
 function metaPolyline(metas, topo) {
 	topo.forEach(calcMeta);
-	topo.sort((p, q) => p.length > q.length ? -1 : 1);
 	metas.sort((p, q) => p.length > q.length ? -1 : 1);
+	const aidToNewId = new Array(metas.length);
+	metas.forEach((meta, newId) => { aidToNewId[meta.aid] = newId; });
+	topo.forEach(t => {
+		t.arcs = t.arcs.map(arcIdx => {
+			const isRev = arcIdx < 0;
+			const aid = isRev ? ~arcIdx : arcIdx;
+			const newId = aidToNewId[aid];
+			return isRev ? ~newId : newId;
+		});
+	});
 	metas.forEach(q => { q.weight = q.length; delete q.length; });
-	var map = new Array(metas.length);
-	for (let i = 0; i < metas.length; i++) map[metas[i].aid] = i;
-	topo.forEach(t => t.arcs = t.arcs.map(t => t < 0 ? ~map[~t] : map[t]));
 	function calcMeta(q) {
 		const { id, arcs } = q;
 		q.length = 0;
-		arcs.forEach(aid => {
-			const p = metas[aid < 0 ? ~aid : aid];
+		arcs.forEach(arcIdx => {
+			const p = metas[arcIdx < 0 ? ~arcIdx : arcIdx];
 			q.length += p.length;
-			(p.owner = p.owner || []).push(aid < 0 ? ~id : id);
+			(p.owner = p.owner || []).push(arcIdx < 0 ? ~id : id);
 		});
 	}
 }
@@ -417,14 +423,21 @@ function cutPolygon(topo) {
 	}
 }
 function metaPolygon(metas, topo) {
-	topo.forEach(calcMeta)
+	topo.forEach(calcMeta);
 	topo.sort((p, q) => p.weight > q.weight ? -1 : 1);
-	const max_weight = topo[0].weight;
+	const max_weight = topo[0] ? topo[0].weight : 0;
 	metas.forEach(p => p.owner.length == 1 && !p.closed && (p.weight = max_weight));
 	metas.sort((p, q) => p.weight > q.weight ? -1 : 1);
-	var map = new Array(metas.length);
-	for (let i = 0; i < metas.length; i++) map[metas[i].aid] = i;
-	topo.forEach(t => t.arcs = t.arcs.map(t => t.map(t => t < 0 ? ~map[~t] : map[t])));
+	const aidToNewId = new Array(metas.length);
+	metas.forEach((meta, newId) => { aidToNewId[meta.aid] = newId; });
+	topo.forEach(t => {
+		t.arcs = t.arcs.map(ring => ring.map(arcIdx => {
+			const isRev = arcIdx < 0;
+			const aid = isRev ? ~arcIdx : arcIdx;
+			const newId = aidToNewId[aid];
+			return isRev ? ~newId : newId;
+		}));
+	});
 	function calcMeta(q) {
 		const { id, arcs } = q;
 		let A = 0, L = 0;
@@ -471,19 +484,20 @@ function metaArc(buffs) {
 		return { aid, length: L * Radius, area: A * Radius * Radius / 2, closed, bbox };
 	}
 }
-function buildArcs(buffs, metas) { // 複数Arcの一括パルス化
+function buildArcs(buffs, metas) {
 	const count = buffs.length, mlen = 8;
 	let total = 0, offset = 0;
 	for (let i = 0; i < count; i++) total += buffs[i].length;
 	const buffer = new BigUint64Array(total);
 	const meta = new Uint32Array(count * mlen);
-	console.time("buildArcs");
+//	console.time("buildArcs");
 	for (let i = 0; i < count; i++) {
-		const q = metas[i], arc = buffs[q.aid];
+		const m = metas[i], arc = buffs[m.aid];
 		gint.L1toL2(arc);
 		buffer.set(arc, offset);
-		meta.set([offset, arc.length, q.weight, 0, ...q.bbox], i * mlen); offset += arc.length;
+		meta.set([offset, arc.length, m.weight, 0, ...m.bbox], i * mlen);
+		offset += arc.length;
 	}
-	console.timeEnd("buildArcs");
+//	console.timeEnd("buildArcs");
 	return { count, buffer, meta, mlen };
 }
