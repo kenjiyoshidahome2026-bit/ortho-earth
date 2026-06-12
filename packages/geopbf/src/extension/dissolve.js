@@ -21,7 +21,6 @@ export async function dissolve(pbfInstance, key = false) {
             multi ? a[fig].push(...coordinates) : a[fig].push(coordinates);
         }
     });
-    pbfInstance.keytub = {}; pbfInstance.keys.forEach((t, i) => { pbfInstance.keytub[t] = i; });
     pbfInstance.pbf.pos = pbfInstance._bodyPos;
     pbfInstance.setBody(() => {
         for (const [id, a] of propTub.values()) {
