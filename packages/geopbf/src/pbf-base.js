@@ -182,7 +182,8 @@ class GeoPBF {
     get geometries() { return this.each(i => this.getGeometry(i)); }
     get properties() { return this.each(i => this.getProperties(i)); }
     get propertiesTable() { return [this.keys].concat(this.props); }
-    get arrayBuffer() { return this.pbf.buf.buffer.slice(0, this.end); }
+    get arrayBuffer() { return this.pbf.buf.buffer.slice(0, this.end); }//渡しているのはコピー
+    get headerBuffer() { return this.pbf.buf.buffer.slice(0, this.pbf.pos = this._bodyPos); }//渡しているのはコピー
     get geojson() { return { type: "FeatureCollection", features: this.features, name: this.name() }; }
 
     async filesize() {

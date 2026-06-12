@@ -57,8 +57,9 @@ export function lint(self, options = {}) { //console.log(self); debugger
     options.nohead || str.push(new Date().toString());
     return str.join("\n") + "\n";
 }
-export async function clone(self) { return new GeoPBF().set(self.pbf.buf.buffer.slice(0)); }
-export async function cloneHead(self) { const pbf = await (new GeoPBF().set(self.pbf.buf.buffer.slice(0, self._bodyPos)));
+export async function clone(self) { return new GeoPBF().set(self.arrayBuffer); }
+export async function cloneHead(self) {
+    const pbf = await (new GeoPBF().set(self.headerBuffer));
     pbf.keytub = {}; pbf.keys.forEach((t, i) => { pbf.keytub[t] = i; });
     return pbf;
 }

@@ -35,8 +35,8 @@ const workerCode = `
             });
 
             // 🌟 結果が ArrayBuffer や Blob などのバイナリの場合、Transferable でゼロコピー高速返却
-            if (result && result.Buff instanceof ArrayBuffer) {
-                postMessage({ id, success: true, result }, [result.Buff]);
+            if (result && result.PBF instanceof ArrayBuffer) {
+                postMessage({ id, success: true, result }, [result.PBF]);
             } else if (result instanceof ArrayBuffer) {
                 postMessage({ id, success: true, result }, [result]);
             } else {
