@@ -1,11 +1,12 @@
 import { GeoPBF } from "./pbf-base.js";
 import { centroid, lineLength, area, getBbox, bboxes, bbox } from "./extension/spatial.js";
-import { concatinate, clone, classify, getPropertyTable, getCSV } from "./extension/manipulate.js";
+import { concatinate, clone, cloneHead, cloneMap, classify, getPropertyTable, getCSV } from "./extension/manipulate.js";
 import { dissolve } from "./extension/dissolve.js";
 import { topojson, neighbors, mesh, merge } from "./extension/topojson.js";
 import { identify } from "./extension/identify.js";
 import { view } from "./extension/view.js";
 import { unPackGintBuffer } from "./extension/topology.js";
+import { precision } from "./extension/precision.js";
 
 const setGetter = (name, func) => { Object.defineProperty(GeoPBF.prototype, name, { get: func, configurable: false, enumerable: false }); };
 const setPrototype = (name, func) => { Object.defineProperty(GeoPBF.prototype, name, { value: func, configurable: false, enumerable: false }); };
@@ -18,11 +19,14 @@ setPrototype("getBbox", function (i) { return getBbox(this, i); });
 setGetter("bbox", function () { return bbox(this); });
 setGetter("bboxes", function () { return bboxes(this); });
 
-setPrototype("clone", function() { return clone(this); });
+setPrototype("clone", function () { return clone(this); });
+setPrototype("cloneHead", function () { return cloneHead(this); });
+setPrototype("cloneMap", function (opts = {}) { return cloneMap(this, opts); });
 setPrototype("filter", function(filter) { return clone(this, { filter }); });
 setPrototype("map", function(map) { return clone(this, { map }); });
 setPrototype("classify", function(k) { return classify(this, k); });
 setPrototype("concat", function(...args) { return concatinate([this, ...args], this.name()); });
+
 setPrototype("getPropertyTable", function() { return getPropertyTable(this); });
 setPrototype("getCSV", function() { return getCSV(this); });
 
@@ -35,6 +39,9 @@ setPrototype("merge", function(f) { return merge(this, f); });
 setPrototype("identify", function (mx, my, proj, options) { return identify(this, mx, my, proj, options); });
 
 setPrototype("view", function (width, height, props) { return view(this, width, height, props); });
+
+setPrototype("precision", async function (s) { return precision(this, s); });
+
 setPrototype("setGintBUF", function(buf) { 
 	if (typeof SharedArrayBuffer === 'undefined') throw new Error("SharedArrayBuffer is not supported in this environment. Please set headers.");
 	const sab = this._gintBuffer = new SharedArrayBuffer(buf.byteLength);

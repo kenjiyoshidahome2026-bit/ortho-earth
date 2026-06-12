@@ -57,16 +57,21 @@ export function lint(self, options = {}) { //console.log(self); debugger
     options.nohead || str.push(new Date().toString());
     return str.join("\n") + "\n";
 }
+export async function clone(self) { return new GeoPBF().set(self.pbf.buf.buffer.slice(0)); }
+export async function cloneHead(self) { const pbf = await (new GeoPBF().set(self.pbf.buf.buffer.slice(0, self._bodyPos)));
+    pbf.keytub = {}; pbf.keys.forEach((t, i) => { pbf.keytub[t] = i; });
+    return pbf;
+}
+export async function cloneMap(self, options) {
+    const pbf = await cloneHead(self);
 
-export async function clone(self, options = {}) {
-    let { filter, map } = options;
-    map = map || (t => t); filter = filter || (() => true);
-    if (name.startsWith("@")) name = self.name() + name;
-    const pbf = new GeoPBF({ name, precision: Math.log10(self.e) });
+    const map = isFunction(options.map) ? options.map : (t => t);
+    const filter = isFunction(options.filter) ?options.filter: (() => true);
     const sels = self.each(i => i).filter(i => filter(self.getProperties(i), self.getType(i), self.getBbox(i), i));
-    const props = sels.map(i => map(self.getProperties(i), self.getType(i), self.getBbox(i)));
-    pbf.setHead(...(await GeoPBF.makeKeys(props)));
-    pbf.setBody(() => sels.forEach((n, i) => pbf.setMessage(GeoPBF.TAGS.FEATURE, () => { pbf.copyGeometry(self, n); pbf.setProperties(props[i]); }))).close();
+    console.log(sels); 
+    const props = sels.map(i => map(self.getProperties(i), self.getType(i), self.getBbox(i), i));
+    console.log(props); 
+    pbf.setBody(() => sels.forEach((n, i) => pbf.setMessage(GeoPBF.TAGS.FEATURE, () => { pbf.copyGeometry(self, n); pbf.setProperties(props[n]); }))).close();
     return pbf.getPosition();
 }
 
@@ -83,14 +88,6 @@ export async function classify(self, key) {
         return pbf.getPosition();
     });
 }
-
-// export function header(self, meta = {}) {
-//     return self.updateHeader(meta);
-// }
-
-// export async function update(buffer, meta = {}) {
-//     return GeoPBF.update(buffer, meta);
-// }
 
 export async function concatinate(pbfs, name) {
     pbfs = pbfs.filter(t => t instanceof GeoPBF);

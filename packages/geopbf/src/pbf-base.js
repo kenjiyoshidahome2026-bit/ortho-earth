@@ -23,7 +23,7 @@ class GeoPBF {
     description(s) { return (s === undefined) ? this._description : this.updateHeader({ description: this._description = s }); }
     license(s) { return (s === undefined) ? this._license : this.updateHeader({ license: this._license = s }); }
     attribution(s) { return (s === undefined) ? this._attribution : this.updateHeader({ attribution: this._attribution = s }); }
-    precision(s) { if (s === undefined) return this._precision; this.e = Math.pow(10, this._precision = s); return this; }
+//    async precision(s) { return precision(this, s); }
     init() { this.keys = [], this.bufs = [], this.fmap = [], this.bin = {}; this.props = []; delete this.end; delete this.ctx; delete this.proj; return this; }
     empty() { this.pbf = new Pbf(); this.init(); this.name(""); return this; }
 
@@ -133,6 +133,10 @@ class GeoPBF {
         }
         return this;
     }
+    copyHead(pbf) {
+        const meta = { name:pbf._name, description:pbf._description, license:pbf._license, attribution:pbf._attribution, precision:pbf._precision};
+        return this.setHead(pbf.keys, pbf.bufs, meta);
+    }
 
     setBody(obj) {
         const func = (obj instanceof Function) ? obj : () => obj.features.forEach(t => this.setFeature(t))
@@ -151,40 +155,6 @@ class GeoPBF {
     getProperties(i) { return readProperties(this, i); }
     getType(i) { return i === undefined ? this.each(i => this.getType(i)) : geometryTypes[this.fmap[i][2]]; }
 
-    getBbox(i) {
-        if (i !== undefined) {
-            if (this._bboxes && this._bboxes[i]) return this._bboxes[i];
-            let xmin = Infinity, ymin = Infinity, xmax = -Infinity, ymax = -Infinity;
-            const calcBbox = c => {
-                if (!c || !Array.isArray(c)) return;
-                if (typeof c[0] === 'number') {
-                    if (c[0] < xmin) xmin = c[0]; if (c[0] > xmax) xmax = c[0];
-                    if (c[1] < ymin) ymin = c[1]; if (c[1] > ymax) ymax = c[1];
-                } else c.forEach(calcBbox);
-            };
-            const geom = this.getGeometry(i);
-            (geom.type == "GeometryCollection") ? geom.geometries.forEach(t => calcBbox(t.coordinates)) : calcBbox(geom.coordinates);
-            const res = [xmin, ymin, xmax, ymax].map(v => Math.round(v * this.e) / this.e);
-            if (this._bboxes) this._bboxes[i] = res;
-            return res;
-        }
-        if (this._bbox) return this._bboxes;
-        let xmin = Infinity, ymin = Infinity, xmax = -Infinity, ymax = -Infinity;
-        this._bboxes = this.each(idx => {
-            const b = this.getBbox(idx);
-            if (isBbox(b)) {
-                if (b[0] < xmin) xmin = b[0]; if (b[1] < ymin) ymin = b[1];
-                if (b[2] > xmax) xmax = b[2]; if (b[3] > ymax) ymax = b[3];
-            }
-            return b;
-        });
-        this._bbox = [xmin, ymin, xmax, ymax];
-        return this._bboxes;
-    }
-
-    get bboxes() { return this._bboxes || (this.getBbox(), this._bboxes); }
-    get bbox() { return this._bbox || (this.getBbox(), this._bbox); }
-
     getGeometryBuffer(i, j) {
         const map = this.fmap[i];
         const pos = this.pbf.pos = (map[2] == 6 && j !== undefined) ? map[3][j] : map[1], len = this.pbf.readVarint();
@@ -194,7 +164,6 @@ class GeoPBF {
     setGeometryBuffer(a) { this.pbf.realloc(a.length); this.pbf.buf.set(a, this.pbf.pos); this.pbf.pos += a.length; return this; }
     copyGeometry(pbf, i) { this.setGeometryBuffer(pbf.getGeometryBuffer(i)) }
     copyProperties(pbf, i) { this.setProperties(pbf.getProperties(i)) }
-    copyHead(pbf) { return this.setHead(pbf.keys, pbf.bufs); }
     get features() { return this.each(i => this.getFeature(i)); }
     get geometries() { return this.each(i => this.getGeometry(i)); }
     get properties() { return this.each(i => this.getProperties(i)); }
