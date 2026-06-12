@@ -18,9 +18,13 @@ onmessage = async (e) => {
         await geojsonReader(file, getPropertyKeys, false);
         pbf.setHead(Array.from(keySet).sort());
         pbf.setBody(() => geojsonReader(file, f => pbf.setFeature(f), true));
+        pbf.close();
+        await pbf.getPosition();
     }
-    pbf.close();
+    console.time("dissolve")
     await dissolve(pbf);
+    console.timeEnd("dissolve");
+    console.log(pbf, pbf.arrayBuffer)
     const res = pbf.arrayBuffer;
     postMessage({ type: "jsondec", data: res }, [res]);
 };
