@@ -1,6 +1,6 @@
 import Pbf from 'pbf';
 import { bufferTub, readBufs } from "./modules/bufferTub.js";
-import { isSimpleObject, isNumber, isFloat, isBbox, cleanCoords, antimeridianFeature, loadPolygonClipping } from "common";
+import { isString, isSimpleObject, isNumber, isFloat, isBbox, cleanCoords, antimeridianFeature, loadPolygonClipping } from "common";
 
 const TAGS = { NAME: 1, KEYS: 2, PRECISION: 3, BUFS: 4, FARRAY: 5, FEATURE: 6, GEOMETRY: 7, GTYPE: 8, LENGTH: 9, COORDS: 10, VALUE: 11, INDEX: 12, GARRAY: 13, DESCRIPTION: 14, LICENSE: 15, ATTRIBUTION: 16 };
 const geometryTypes = ["Point", "MultiPoint", "LineString", "MultiLineString", "Polygon", "MultiPolygon", "GeometryCollection"];
@@ -19,14 +19,29 @@ class GeoPBF {
         this.noprop = !!options.noprop;
         this.keys = [], this.bufs = [], this.fmap = [], this.bin = {}; this.props = [];
     }
+    static setProperty(name, value) {
+        if (isString(name)) {
+            (name in GeoPBF) || Object.defineProperty(GeoPBF, name, { value, configurable: false, enumerable: false });
+        } else Object.entries(name).map(t => GeoPBF.setProperty(...t));
+    }
+    static setGetter(name, func) { Object.defineProperty(GeoPBF.prototype, name, { get: func, configurable: false, enumerable: false }); }
+    static setPrototype(name, func) { Object.defineProperty(GeoPBF.prototype, name, { value: func, configurable: false, enumerable: false }); }
+
     name(s) { return (s === undefined) ? this._name : this.updateHeader({ name: this._name = s }); }
     description(s) { return (s === undefined) ? this._description : this.updateHeader({ description: this._description = s }); }
     license(s) { return (s === undefined) ? this._license : this.updateHeader({ license: this._license = s }); }
     attribution(s) { return (s === undefined) ? this._attribution : this.updateHeader({ attribution: this._attribution = s }); }
-//    async precision(s) { return precision(this, s); }
     init() { this.keys = [], this.bufs = [], this.fmap = [], this.bin = {}; this.props = []; delete this.end; delete this.ctx; delete this.proj; return this; }
     empty() { this.pbf = new Pbf(); this.init(); this.name(""); return this; }
-
+    destroy() {
+        try {
+            if (this.bufs) { this.bufs.length = 0; this.bufs = null; }
+            if (this.props) { this.props.length = 0; this.props = null; }
+            if (this.keys) { this.keys.length = 0; this.keys = null; }
+            this.fmap = this.bin = this.pbf = null;
+            this._name = this._description = this._license = this._attribution = null;
+        } catch (e) { }
+    }
     async set(q) {
         await loadPolygonClipping();
         if (q instanceof ArrayBuffer || ArrayBuffer.isView(q)) this.pbf = new Pbf(q);
@@ -36,7 +51,6 @@ class GeoPBF {
         } else return (console.error("PBF set: setting illegal value", q), this);
         return await this.getPosition();
     }
-
     async getPosition() {
         this.init();
         const pbf = this.pbf, keys = this.keys, fmap = this.fmap, props = this.props;
@@ -171,15 +185,6 @@ class GeoPBF {
     get arrayBuffer() { return this.pbf.buf.buffer.slice(0, this.end); }
     get geojson() { return { type: "FeatureCollection", features: this.features, name: this.name() }; }
 
-    destroy() {
-        try {
-            if (this.bufs) { this.bufs.length = 0; this.bufs = null; }
-            if (this.props) { this.props.length = 0; this.props = null; }
-            if (this.keys) { this.keys.length = 0; this.keys = null; }
-            this.fmap = this.bin = this.pbf = null;
-            this._name = this._description = this._license = this._attribution = null;
-        } catch (e) {}
-    }
     async filesize() {
         const stream = new Response(this.pbf.buf.buffer).body.pipeThrough(new CompressionStream('gzip'));
         const compressed = await new Response(stream).arrayBuffer();
@@ -358,6 +363,5 @@ function readGeometry(self, n, m) {
     }
 }
 
-const setProp = (obj, name, value) => { if (typeof name == "string") { (name in obj) || Object.defineProperty(obj, name, { value, configurable: false, enumerable: false }); } else Object.entries(name).map(t => setProp(obj, ...t)) }
-setProp(GeoPBF, { TAGS, makeKeys, dataType, dataTypeNames, geometryTypes, geometryMap });
+GeoPBF.setProperty({ TAGS, makeKeys, dataType, dataTypeNames, geometryTypes, geometryMap });
 export { GeoPBF };

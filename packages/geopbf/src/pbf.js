@@ -8,48 +8,46 @@ import { view } from "./extension/view.js";
 import { unPackGintBuffer } from "./extension/topology.js";
 import { precision } from "./extension/precision.js";
 
-const setGetter = (name, func) => { Object.defineProperty(GeoPBF.prototype, name, { get: func, configurable: false, enumerable: false }); };
-const setPrototype = (name, func) => { Object.defineProperty(GeoPBF.prototype, name, { value: func, configurable: false, enumerable: false }); };
-Object.defineProperty(GeoPBF, 'concatinate', { value: concatinate, configurable: false, enumerable: false });
+GeoPBF.setProperty('concatinate', { value: concatinate, configurable: false, enumerable: false });
 
-setPrototype("centroid", function(i) { return centroid(this, i); });
-setPrototype("lineLength", function (i) { return lineLength(this, i); });
-setPrototype("area", function (i) { return area(this, i); });
-setPrototype("getBbox", function (i) { return getBbox(this, i); });
-setGetter("bbox", function () { return bbox(this); });
-setGetter("bboxes", function () { return bboxes(this); });
+GeoPBF.setPrototype("centroid", function(i) { return centroid(this, i); });
+GeoPBF.setPrototype("lineLength", function (i) { return lineLength(this, i); });
+GeoPBF.setPrototype("area", function (i) { return area(this, i); });
+GeoPBF.setPrototype("getBbox", function (i) { return getBbox(this, i); });
+GeoPBF.setGetter("bbox", function () { return bbox(this); });
+GeoPBF.setGetter("bboxes", function () { return bboxes(this); });
 
-setPrototype("clone", function () { return clone(this); });
-setPrototype("cloneHead", function () { return cloneHead(this); });
-setPrototype("cloneMap", function (opts = {}) { return cloneMap(this, opts); });
-setPrototype("filter", function(filter) { return clone(this, { filter }); });
-setPrototype("map", function(map) { return clone(this, { map }); });
-setPrototype("classify", function(k) { return classify(this, k); });
-setPrototype("concat", function(...args) { return concatinate([this, ...args], this.name()); });
+GeoPBF.setPrototype("clone", function () { return clone(this); });
+GeoPBF.setPrototype("cloneHead", function () { return cloneHead(this); });
+GeoPBF.setPrototype("cloneMap", function (opts = {}) { return cloneMap(this, opts); });
+GeoPBF.setPrototype("filter", function(filter) { return clone(this, { filter }); });
+GeoPBF.setPrototype("map", function(map) { return clone(this, { map }); });
+GeoPBF.setPrototype("classify", function(k) { return classify(this, k); });
+GeoPBF.setPrototype("concat", function(...args) { return concatinate([this, ...args], this.name()); });
 
-setPrototype("getPropertyTable", function() { return getPropertyTable(this); });
-setPrototype("getCSV", function() { return getCSV(this); });
+GeoPBF.setPrototype("getPropertyTable", function() { return getPropertyTable(this); });
+GeoPBF.setPrototype("getCSV", function() { return getCSV(this); });
 
-setPrototype("dissolve", function(p) { return dissolve(this, p); });
+GeoPBF.setPrototype("dissolve", function(p) { return dissolve(this, p); });
 
-setPrototype("topojson", function() { return topojson(this); });
-setPrototype("neighbors", function(id) { return neighbors(this, id); });
-setPrototype("mesh", function(f) { return mesh(this, f); });
-setPrototype("merge", function(f) { return merge(this, f); });
-setPrototype("identify", function (mx, my, proj, options) { return identify(this, mx, my, proj, options); });
+GeoPBF.setPrototype("topojson", function() { return topojson(this); });
+GeoPBF.setPrototype("neighbors", function(id) { return neighbors(this, id); });
+GeoPBF.setPrototype("mesh", function(f) { return mesh(this, f); });
+GeoPBF.setPrototype("merge", function(f) { return merge(this, f); });
+GeoPBF.setPrototype("identify", function (mx, my, proj, options) { return identify(this, mx, my, proj, options); });
 
-setPrototype("view", function (width, height, props) { return view(this, width, height, props); });
+GeoPBF.setPrototype("view", function (width, height, props) { return view(this, width, height, props); });
 
-setPrototype("precision", async function (s) { return precision(this, s); });
+GeoPBF.setPrototype("precision", async function (s) { return precision(this, s); });
 
-setPrototype("setGintBUF", function(buf) { 
+GeoPBF.setPrototype("setGintBUF", function(buf) { 
 	if (typeof SharedArrayBuffer === 'undefined') throw new Error("SharedArrayBuffer is not supported in this environment. Please set headers.");
 	const sab = this._gintBuffer = new SharedArrayBuffer(buf.byteLength);
     new Uint8Array(sab).set(new Uint8Array(buf));
 	this.unPackGint = unPackGintBuffer(sab); return this;
 });
 
-setPrototype("fileSize", async function () { if (this._fileSize > 0) return this._fileSize;
+GeoPBF.setPrototype("fileSize", async function () { if (this._fileSize > 0) return this._fileSize;
 	const stream = new Blob([this.arrayBuffer]).stream().pipeThrough(new CompressionStream('gzip'));
 	return this._fileSize = (await new Response(stream).arrayBuffer()).byteLength;
 });
