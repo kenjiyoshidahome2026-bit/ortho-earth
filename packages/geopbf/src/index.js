@@ -48,7 +48,7 @@ export async function geopbf(data, options = {}) { if (isString(options)) option
             const server = await getServer();
             if (server) {
                 const GINT = new Uint8Array(pbf._gintBuffer).slice().buffer;
-                server.cache(data, { PBF: pbf.arrayBuffer, GINT }, { worker: true }).catch(console.error);
+                server.cache(data, { PBF: pbf.arrayBuffer, GINT }).catch(console.error);
             }
         }
         await pbf.fileSize();
@@ -81,7 +81,7 @@ export async function geopbf(data, options = {}) { if (isString(options)) option
         if (isString(q) && server) {
             if (isURL(q)) {
                 const fetchUrl = isInZip(q) ? q : (q.match(/\.zip$/) && options.target) ? [q, options.target].join("#") : q;
-                const val = options.nocache == true? undefined: await server.cache(fetchUrl, {worker:true}).catch(console.error);
+                const val = options.nocache == true? undefined: await server.cache(fetchUrl).catch(console.error);
                 if (val && val.PBF) { const pbf = (await new GeoPBF(options).set(val.PBF));
                     val.GINT && pbf.setGintBUF(val.GINT);
                     pbf.originalURL = q;
