@@ -5,7 +5,7 @@ import { isString, isFunction } from "common";
 import { cleanup } from "common/d3/tip-pop.js";
 import { Cache } from "native-bucket";
 import versor from "versor";
-import { createGetHeight } from "altpbf";
+import { createGetHeight, setApiUrl as setAltApiUrl } from "altpbf";
 
 export async function orthographic(map, opts = {}) {
     map.isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
@@ -37,6 +37,7 @@ export async function orthographic(map, opts = {}) {
     ("zoomSensitivity" in opts) && (map.zoomSensitivity = opts.zoomSensitivity);
     ("refreshRate" in opts) && (map.refreshRate = opts.refreshRate);
     ("simultaneousTileLoading" in opts) && (map.simultaneousTileLoading = opts.simultaneousTileLoading);
+    opts.apiUrl && setAltApiUrl(opts.apiUrl);
     ////-------------------------------------------------------------------------------------------
     const tileSize = 256, tau = Math.PI * 2, tileSizeOrtho = tileSize / tau;
     const zval2scale = v => Math.pow(2, v) * tileSizeOrtho;
@@ -151,7 +152,7 @@ export async function orthographic(map, opts = {}) {
         map.on("mouseenter touchstart", async e => trigger("Enter", await getInfo(e)), { passive: true });
         map.on("mouseleave mouseout touchend", e => trigger("Leave", {}));
         map.dropFile(file => trigger("Drop", file));
-        const option = { onstart: name => map.trigger("LoadStart", name), onend: name => map.trigger("LoadEnd", name) };
+        const option = { onstart: name => map.trigger("LoadStart", name), onend: name => map.trigger("LoadEnd", name), apiUrl: opts.apiUrl };
         map.getHeight = opts.altitude === false ? null : await createGetHeight(option);
 
     } {////------------------------------------------------------------------------------------------------	
