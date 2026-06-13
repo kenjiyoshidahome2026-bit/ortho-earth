@@ -4,8 +4,8 @@ use wasm_bindgen::prelude::*;
 const RAD: f64 = std::f64::consts::PI / 180.0;
 const SCALE_E: f64 = 10_000_000.0;
 const INV_SCALE_E: f64 = 1.0 / SCALE_E;
-const TERMINAL_BIT: u64 = 1 << 63;
-const WEIGHT_MASK: u64 = 0x3F;
+pub(crate) const TERMINAL_BIT: u64 = 1 << 63;
+pub(crate) const WEIGHT_MASK: u64 = 0x3F;
 
 // =========================================================================
 // 🌟 記憶領域（WASM内部メモリ）の明示的確保・解放窓口
@@ -33,8 +33,10 @@ pub fn free_wasm_memory(ptr: *mut u8, size: usize) {
 // 🌟 低レイヤ・ビット演算（モートンコード）ユーティリティ
 // =========================================================================
 
+pub(crate) mod identify;
+
 #[inline(always)]
-fn spread16(mut x: u32) -> u64 {
+pub(crate) fn spread16(mut x: u32) -> u64 {
     x = (x | (x << 8)) & 0x00FF00FF;
     x = (x | (x << 4)) & 0x0F0F0F0F;
     x = (x | (x << 2)) & 0x33333333;
@@ -43,7 +45,7 @@ fn spread16(mut x: u32) -> u64 {
 }
 
 #[inline(always)]
-fn compact16(mut m: u32) -> u32 {
+pub(crate) fn compact16(mut m: u32) -> u32 {
     m &= 0x55555555;
     m = (m | (m >> 1)) & 0x33333333;
     m = (m | (m >> 2)) & 0x0F0F0F0F;
@@ -53,7 +55,7 @@ fn compact16(mut m: u32) -> u32 {
 }
 
 #[inline(always)]
-fn pure_morton_from_int(ix: u32, iy: u32) -> u64 {
+pub(crate) fn pure_morton_from_int(ix: u32, iy: u32) -> u64 {
     // 🌟 下位16ビット（low32）のインターリーブ
     let xl = spread16(ix & 0xFFFF);
     let yl = spread16(iy & 0xFFFF);
@@ -69,7 +71,7 @@ fn pure_morton_from_int(ix: u32, iy: u32) -> u64 {
 }
 
 #[inline(always)]
-fn unpack_to_int(m: u64) -> (u32, u32) {
+pub(crate) fn unpack_to_int(m: u64) -> (u32, u32) {
     let is_l1 = (m & TERMINAL_BIT) != 0;
     let morton = if is_l1 { m & !TERMINAL_BIT } else { m & !WEIGHT_MASK };
     

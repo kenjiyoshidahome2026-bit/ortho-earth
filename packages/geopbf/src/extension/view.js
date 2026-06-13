@@ -1,4 +1,4 @@
-import { isObject, geoOrthographic, geoMercator, geoEquirectangular } from "common";
+import { isObject, geoOrthographic, geoMercator, geoEquirectangular} from "common";
 
 export function view(self, width = 512, height, props = {}) {
     if (!self.length) return null;
