@@ -1,4 +1,4 @@
-import { isNumber, isArray, isBbox } from "common";
+import { isNumber, isBbox } from "common";
 const {PI, round, sin, cos, atan2, sqrt, abs} = Math, r2d = PI / 180, R = 6378137;
 
 export const centroid = (self, i) => {
@@ -48,20 +48,51 @@ export const area = (self, i) => {
     calc(self.getGeometry(i)); return round(total);
 };
 
+// pbf バッファから delta-varint を直接読み min/max のみ累積する（座標配列を確保しない高速版）。
+// 返す値は整数（= round(coord * e)）単位。pbf-base の writeGeometry/readGeometry のエンコードに厳密準拠。
+function geomBbox(self, gpos, type, box) {
+    const pbf = self.pbf;
+    pbf.pos = gpos;
+    let lens = [];
+    const acc = (x, y) => {
+        if (x < box[0]) box[0] = x; if (x > box[2]) box[2] = x;
+        if (y < box[1]) box[1] = y; if (y > box[3]) box[3] = y;
+    };
+    pbf.readMessage(tag => {
+        if (tag === 9) pbf.readPackedVarint(lens);                       // TAGS.LENGTH
+        else if (tag === 10) {                                           // TAGS.COORDS
+            const end = pbf.readVarint() + pbf.pos;
+            if (type === 0) {                                            // Point
+                acc(pbf.readSVarint(), pbf.readSVarint());
+            } else if (type <= 2) {                                      // MultiPoint / LineString: 単一チェーン
+                let px = 0, py = 0;
+                while (pbf.pos < end) { px += pbf.readSVarint(); py += pbf.readSVarint(); acc(px, py); }
+            } else if (type <= 4) {                                      // MultiLineString / Polygon: セグメント毎にリセット
+                for (let s = 0; s < lens.length; s++) {
+                    let px = 0, py = 0, n = lens[s];
+                    while (n-- > 0) { px += pbf.readSVarint(); py += pbf.readSVarint(); acc(px, py); }
+                }
+            } else {                                                     // MultiPolygon: 入れ子 lens [npoly, nring, ...ptCounts]
+                let k = 0; const npoly = lens[k++];
+                for (let i = 0; i < npoly; i++) {
+                    const nring = lens[k++];
+                    for (let j = 0; j < nring; j++) {
+                        let px = 0, py = 0, n = lens[k++];
+                        while (n-- > 0) { px += pbf.readSVarint(); py += pbf.readSVarint(); acc(px, py); }
+                    }
+                }
+            }
+        }
+    });
+}
+
 export function getBbox(self, i) {
     if (i !== undefined) {
         if (self._bboxes && self._bboxes[i]) return self._bboxes[i];
-        let xmin = Infinity, ymin = Infinity, xmax = -Infinity, ymax = -Infinity;
-        const calcBbox = c => {
-            if (!c || !isArray(c)) return;
-            if (isNumber(c[0])) {
-                if (c[0] < xmin) xmin = c[0]; if (c[0] > xmax) xmax = c[0];
-                if (c[1] < ymin) ymin = c[1]; if (c[1] > ymax) ymax = c[1];
-            } else c.forEach(calcBbox);
-        };
-        const geom = self.getGeometry(i);
-        (geom.type == "GeometryCollection") ? geom.geometries.forEach(t => calcBbox(t.coordinates)) : calcBbox(geom.coordinates);
-        const res = [xmin, ymin, xmax, ymax].map(v => round(v * self.e) / self.e);
+        const e = self.e, map = self.fmap[i], box = [Infinity, Infinity, -Infinity, -Infinity];
+        if (map[2] === 6) map[3].forEach((pos, k) => geomBbox(self, pos, map[4][k], box));
+        else geomBbox(self, map[1], map[2], box);
+        const res = box.map(v => round(v) / e);
         if (self._bboxes) self._bboxes[i] = res;
         return res;
     }

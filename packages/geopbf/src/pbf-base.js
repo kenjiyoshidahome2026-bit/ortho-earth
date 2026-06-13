@@ -102,7 +102,8 @@ class GeoPBF {
 
     get size() { return this.end; }
     get length() { return (this.fmap || []).length; }
-    each(func) { return (this.fmap || []).map((t, i) => func(i, t, this.getProperties(i))); }
+    each(func) { return (this.fmap || []).map((t, i) => func(i, t)); }
+    forEach(func) { const a = this.fmap || []; for (let i = 0, n = a.length; i < n; i++) func(i, a[i]); return this; }
 
     setMessage(tag, func) { this.pbf.writeMessage(tag, func); return this; }
 

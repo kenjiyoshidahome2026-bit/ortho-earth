@@ -8,7 +8,7 @@ export async function dissolve(pbfInstance, key = false) {
         if (key < 0) key = false;
     }
     const propTub = new Map();
-    pbfInstance.each(i => {
+    pbfInstance.forEach(i => {
         const pkey = typeof key === "number" ? pbfInstance.props[i][key] : key === true ? "" : pbfInstance.props[i].join("|");
         if (!propTub.has(pkey)) propTub.set(pkey, [i, [[], [], []]]);
         const [id, a] = propTub.get(pkey);

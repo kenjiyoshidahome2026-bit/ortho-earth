@@ -10,11 +10,11 @@ export function topology(self) {
 	const scaleFactor = Math.round(gint.SCALE_E / e);
 	const bbox = [Infinity, Infinity, -Infinity, -Infinity];
 	const updateBbox = (x,y) => {
-		if (x < bbox[0]) bbox[0] = x; else if (x > bbox[2]) bbox[2] = x;
-		if (y < bbox[1]) bbox[1] = y; else if (y > bbox[3]) bbox[3] = y;
+		if (x < bbox[0]) bbox[0] = x; if (x > bbox[2]) bbox[2] = x;
+		if (y < bbox[1]) bbox[1] = y; if (y > bbox[3]) bbox[3] = y;
 	};
 	let propTub = new Map();// let propCount = 0;
-	self.each((i, map) => { const key = self.props[i].join("|");
+	self.forEach((i, map) => { const key = self.props[i].join("|");
 		if (!propTub.has(key)) propTub.set(key, i);
 		const id = propTub.get(key);
 		const process = (pos, type) => {
@@ -163,11 +163,12 @@ function purifier(topo) { if (!topo || !topo.length) return 0;
 	const checkedPairs = new Set();
 	const segments = [];
 	const grid = new Map();
-	const segLookup = new Map();
+	const segByLine = []; // segByLine[lineIdx][i] = seg（文字列キー Map の置き換え）
 	const packXY = (x, y) => (BigInt(x) << 32n) | (BigInt(y) & 0xFFFFFFFFn);// 座標パッキング用：(x, y) -> BigInt
 	let globalSegIdx = 0;// セグメント登録
 	topo.forEach((line, lineIdx) => {
 		const coords = line.coords;
+		const lineSegs = segByLine[lineIdx] = [];
 		for (let i = 0; i < coords.length - 1; i++) {
 			if (coords[i] === coords[i + 1]) continue;
 			const p1 = gint.unpackToInt(coords[i]), p2 = gint.unpackToInt(coords[i + 1]);
@@ -179,10 +180,10 @@ function purifier(topo) { if (!topo || !topo.length) return 0;
 				x1: BigInt(p1[0]), y1: BigInt(p1[1]),
 				x2: BigInt(p2[0]), y2: BigInt(p2[1]),
 				origP1: coords[i], origP2: coords[i + 1],
-				intersections: new Map() // Key: PackedBigInt, Value: {x, y, packed}
+				intersections: null // 交差時のみ生成（空 Map の量産を回避）。Key: PackedBigInt, Value: {x, y, packed}
 			};
 			segments.push(seg);
-			segLookup.set(`${lineIdx}-${i}`, seg);
+			lineSegs[i] = seg;
 			for (let gx = seg.bx1 >>> GRID_SHIFT; gx <= seg.bx2 >>> GRID_SHIFT; gx++) {
 				for (let gy = seg.by1 >>> GRID_SHIFT; gy <= seg.by2 >>> GRID_SHIFT; gy++) {
 					const key = (gx << 16) | gy;
@@ -193,6 +194,7 @@ function purifier(topo) { if (!topo || !topo.length) return 0;
 			}
 		}
 	});
+	const segCount = segments.length; // ペアキーの基数（s1.id < s2.id なので一意）
 	for (const segIds of grid.values()) {// 高精度交差エンジン
 		if (segIds.length < 2 || segIds.length > 1500) continue;
 		for (let i = 0; i < segIds.length; i++) {
@@ -200,14 +202,15 @@ function purifier(topo) { if (!topo || !topo.length) return 0;
 			for (let j = i + 1; j < segIds.length; j++) {
 				const s2 = segments[segIds[j]];
 				if (s1.lineIdx === s2.lineIdx && Math.abs(s1.sIdx - s2.sIdx) <= 1) continue;
-				const pairKey = BigInt(s1.id) << 32n | BigInt(s2.id);// ペアリングのハッシュ化
+				const pairKey = s1.id * segCount + s2.id;// ペアリングのハッシュ化（Number, BigInt回避）
 				if (checkedPairs.has(pairKey)) continue;
 				checkedPairs.add(pairKey);
 				if (s1.bx2 < s2.bx1 || s1.bx1 > s2.bx2 || s1.by2 < s2.by1 || s1.by1 > s2.by2) continue;
 				const pts = solver(s1, s2, SNAP_DIST_SQ, GRID_UNIT);
 				if (pts) pts.forEach(pt => {
 					const key = packXY(pt.x, pt.y);
-					s1.intersections.set(key, pt); s2.intersections.set(key, pt);
+					(s1.intersections || (s1.intersections = new Map())).set(key, pt);
+					(s2.intersections || (s2.intersections = new Map())).set(key, pt);
 				});
 			}
 		}
@@ -222,10 +225,11 @@ function purifier(topo) { if (!topo || !topo.length) return 0;
 			if (len > 1 && final[len - 2] === p) { final.pop(); return; }// A-B-A スパイク除去
 			final.push(p);
 		};
+		const lineSegs = segByLine[lineIdx];
 		for (let i = 0; i < original.length - 1; i++) {
 			pushClean(original[i]);
-			const seg = segLookup.get(`${lineIdx}-${i}`);
-			if (seg && seg.intersections.size > 0) {
+			const seg = lineSegs && lineSegs[i];
+			if (seg && seg.intersections && seg.intersections.size > 0) {
 				const x1 = Number(seg.x1), y1 = Number(seg.y1);
 				const pts = Array.from(seg.intersections.values());
 				// 距離二乗: $d^2 = (x - x_1)^2 + (y - y_1)^2$
