@@ -16,7 +16,7 @@ export function count(self) {
             case 5: counts[2] += c.length; counts[3] += sum(c.map(t => sum(t.map(u => u.length)))); break;
         }
     };
-    self.each(i => {
+    self.forEach(i => {
         const g = self.getGeometry(i);
         if (self.getType(i) === "GeometryCollection") g.geometries.forEach(sumup);
         else sumup(g);
@@ -26,7 +26,7 @@ export function count(self) {
 
 export function lint(self, options = {}) { //console.log(self); debugger
     let str = []; const countArr = [0, 0, 0, 0, 0, 0, 0, 0];
-    self.each((i, fmap) => countArr[fmap[2]]++);
+    self.forEach((i, fmap) => countArr[fmap[2]]++);
     const types = countArr.map((n, i) => n ? `#${GeoPBF.geometryTypes[i]}: ${comma(n)}` : ``).filter(t => t);
     options.nohead || str.push(`-------------------------------------------------`,` GEOPBF ${self._name}`);
     str.push(`-------------------------------------------------`)
@@ -69,16 +69,14 @@ export async function cloneMap(self, options) {
     const map = isFunction(options.map) ? options.map : (t => t);
     const filter = isFunction(options.filter) ?options.filter: (() => true);
     const sels = self.each(i => i).filter(i => filter(self.getProperties(i), self.getType(i), self.getBbox(i), i));
-    console.log(sels); 
     const props = sels.map(i => map(self.getProperties(i), self.getType(i), self.getBbox(i), i));
-    console.log(props); 
-    pbf.setBody(() => sels.forEach((n, i) => pbf.setMessage(GeoPBF.TAGS.FEATURE, () => { pbf.copyGeometry(self, n); pbf.setProperties(props[n]); }))).close();
+    pbf.setBody(() => sels.forEach((n, i) => pbf.setMessage(GeoPBF.TAGS.FEATURE, () => { pbf.copyGeometry(self, n); pbf.setProperties(props[i]); }))).close();
     return pbf.getPosition();
 }
 
 export async function classify(self, key) {
     const a = {};
-    self.each(i => {
+    self.forEach(i => {
         const p = self.getProperties(i), s = (typeof key === "function") ? key(p, self.getType(i), self.getBbox(i), i) : p[key];
         if (s !== undefined) { a[s] = a[s] || []; a[s].push(i); }
     });
@@ -96,7 +94,7 @@ export async function concatinate(pbfs, name) {
     if (!pbfs.map(t => t.precision()).slice(1).every((t, i, a) => t == pbfs[0].precision())) { console.error("PBF concatenate: precision is not equal."); return null; }
     name = name || pbfs[0].name();
     const props = pbfs.map(pbf => pbf.properties), [keys, bufs] = await GeoPBF.makeKeys(props.flat()), pbf = new GeoPBF({ name }).setHead(keys, bufs);
-    pbf.setBody(() => pbfs.forEach((t, n) => { t.each(i => pbf.setMessage(GeoPBF.TAGS.FEATURE, () => { pbf.copyGeometry(t, i); pbf.setProperties(props[n][i]); })); })).close();
+    pbf.setBody(() => pbfs.forEach((t, n) => { t.forEach(i => pbf.setMessage(GeoPBF.TAGS.FEATURE, () => { pbf.copyGeometry(t, i); pbf.setProperties(props[n][i]); })); })).close();
     return pbf.getPosition();
 }
 

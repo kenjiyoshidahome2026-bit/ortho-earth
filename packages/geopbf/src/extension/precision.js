@@ -11,7 +11,7 @@ export async function precision(self, precision) {
 		name: self._name, description: self._description, license: self._license, attribution: self._attribution
 	});
 	dst.setHead(keys, bufs);
-	dst.setBody(() => self.each((i) => {
+	dst.setBody(() => self.forEach((i) => {
 		const geometry = self.getGeometry(i), properties = self.getProperties(i);
 		dst.setFeature({ type: "Feature", geometry, properties });
 	}));

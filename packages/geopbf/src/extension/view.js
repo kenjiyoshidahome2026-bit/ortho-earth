@@ -26,7 +26,7 @@ export function view(self, width = 512, height, props = {}) {
 
     const out = b => (bbox[0] > b[2] || bbox[1] > b[3] || bbox[2] < b[0] || bbox[3] < b[1]);
 
-    self.each((n, map) => {
+    self.forEach((n, map) => {
         if (out(self.getBbox(n))) return;
         ctx.beginPath();
 
