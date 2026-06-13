@@ -1,6 +1,10 @@
 import * as d3 from "d3";
 import orthoMap from 'ortho-map';
-import { geopbf } from "geopbf";
+import { geopbf, setApiUrl } from "geopbf";
+
+const API_BASE = "https://api.ortho-earth.com";
+const TILER_BASE = "https://tiler.ortho-earth.com";
+setApiUrl(API_BASE);
 import { screenLogger } from "./screenLogger.js";
 import { comma, download, openDirectory, saveTo, inputFile, isString } from "common";
 import "common/d3/highlight.js";
@@ -8,7 +12,7 @@ import "common/d3/fileio.js";
 import "./main.scss";
 
 const initialZoom = Math.log2(Math.min(window.innerWidth, window.innerHeight)/2*0.5 / 256 * Math.PI * 2);
-const mapInst = (await orthoMap({target:d3.select('body'), center:[0,0], zoom: initialZoom, accessories:{clock:false}})).autoRotate(true);
+const mapInst = (await orthoMap({target:d3.select('body'), center:[0,0], zoom: initialZoom, accessories:{clock:false}, tilerBase: TILER_BASE, apiUrl: API_BASE})).autoRotate(true);
 const exitButton = mapInst.append("button").attr("class", "close").html(`<img src="close.svg"/>`)
     .on("click", exitView).hide();
 const gishub = d3.select("body").append("div").attr("class", "gishub");

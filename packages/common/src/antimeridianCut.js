@@ -47,12 +47,3 @@ export function antimeridianCut(points, isLine = false) {
         splitPloyLine([[s1, lat]].concat(p.slice(i + 1)));
     }
 }
-export function subPolygon(subject, clipper, divideCoords) {
-    const tub = {}, pA = divideCoords(subject, tub), qA = divideCoords(clipper, tub);
-    if (!pA.length || !qA.length) return pA;
-    let res; try { res = polygonClipping.difference(pA, ...qA); } catch (e) { return subject; }
-    return res.map(poly => poly.map(ring => ring.filter(u => {
-        if (!u || !Number.isFinite(u[0])) return false;
-        return !tub[`${u[0].toFixed(10)},${u[1].toFixed(10)}`];
-    })).filter(r => r?.length >= 4)).filter(p => p?.length);
-}

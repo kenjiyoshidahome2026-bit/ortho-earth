@@ -1,12 +1,12 @@
 import { DOMParser } from 'linkedom';
 import { thenMap, slice, isNumber, isArray, xy2yx } from "common";
-import { Fetch, Cache } from "native-bucket";
+import { Cache } from "native-bucket";
 const parser = new DOMParser(), parseHTML = s => parser.parseFromString(s, "text/html");
 const divide_length = 25;
 const wikiDB = {}, wikiExtract = {};
 const wikiAPI = (q, lang = "ja") => `https://${lang}.wikipedia.org/w/api.php?format=json&origin=*&` + Object.entries(q).map(t => t[1] === true ? t[0] : t.join("=")).join("&");
-const fetchJSON = url => Fetch(url, { "type": "json" });
-const fetchHTML = url => Fetch(url, { "type": "html" });
+const fetchJSON = url => fetch(url).then(r => r.json());
+const fetchHTML = url => fetch(url).then(r => r.text()).then(t => parser.parseFromString(t, "text/html"));
 const tohtml = str => new DOMParser().parseFromString(str, 'text/html');
 const logo = 'https://upload.wikimedia.org/wikipedia/commons/8/80/Wikipedia-logo-v2.svg';
 const clean = str => str.replace(/（[^）]*）/g, "").replace(/\s?\([^\)]*\)\s?/g, "").replace(/\[[^\]]*\]/g, "").replace(/\&nbsp\;/g, " ");
