@@ -18,6 +18,11 @@ const kmlToFeatures = (text, nameToRes) => {
             const m = t.match(/<SimpleData name="(.*?)">(.*?)<\/SimpleData>/);
             if (m) props[m[1]] = m[2];
         });
+        const dd = pm.match(/<Data name="(.*?)">[\s\S]*?<value>(.*?)<\/value>[\s\S]*?<\/Data>/g);
+        if (dd) dd.forEach(t => {
+            const m = t.match(/<Data name="(.*?)">[\s\S]*?<value>(.*?)<\/value>/);
+            if (m) props[m[1]] = m[2];
+        });
         const hr = pm.match(/<href>(.*?)<\/href>/);
         if (hr) {
             const path = hr[1].trim();
@@ -31,8 +36,12 @@ const kmlToFeatures = (text, nameToRes) => {
             const c = pm.match(/<coordinates>([\s\S]*?)<\/coordinates>/);
             if (c) geometry = { type: "LineString", coordinates: parseCoords(c[1]) };
         } else if (pm.includes("<Polygon>")) {
-            const c = pm.match(/<coordinates>([\s\S]*?)<\/coordinates>/);
-            if (c) geometry = { type: "Polygon", coordinates: [parseCoords(c[1])] };
+            const outer = pm.match(/<outerBoundaryIs>[\s\S]*?<coordinates>([\s\S]*?)<\/coordinates>[\s\S]*?<\/outerBoundaryIs>/);
+            const inners = [...pm.matchAll(/<innerBoundaryIs>[\s\S]*?<coordinates>([\s\S]*?)<\/coordinates>[\s\S]*?<\/innerBoundaryIs>/g)];
+            if (outer) {
+                const rings = [parseCoords(outer[1]), ...inners.map(m => parseCoords(m[1]))];
+                geometry = { type: "Polygon", coordinates: rings };
+            }
         }
         if (geometry) features.push({ type: "Feature", geometry, properties: props });
     });
