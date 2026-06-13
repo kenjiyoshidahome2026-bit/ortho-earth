@@ -1,6 +1,8 @@
 import Pbf from 'pbf';
 import { bufferTub, readBufs } from "./modules/bufferTub.js";
-import { isString, isSimpleObject, isNumber, isFloat, isBbox, cleanCoords, antimeridianFeature, loadPolygonClipping } from "common";
+import { isString, isSimpleObject, isNumber, isFloat, isBbox, antimeridianFeature, loadPolygonClipping } from "common";
+import { cleanCoords, } from "./modules/cleanCoords.js";
+
 
 const TAGS = { NAME: 1, KEYS: 2, PRECISION: 3, BUFS: 4, FARRAY: 5, FEATURE: 6, GEOMETRY: 7, GTYPE: 8, LENGTH: 9, COORDS: 10, VALUE: 11, INDEX: 12, GARRAY: 13, DESCRIPTION: 14, LICENSE: 15, ATTRIBUTION: 16 };
 const geometryTypes = ["Point", "MultiPoint", "LineString", "MultiLineString", "Polygon", "MultiPolygon", "GeometryCollection"];
