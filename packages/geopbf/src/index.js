@@ -41,15 +41,19 @@ export async function geopbf(data, options = {}) { if (isString(options)) option
     };
 ////===========================================================================================
     const pbf = await _geopbf(data);
-    await pbf.gint({ nogint: options.nogint});
-    pbf && console.log(`[geopbf] 📥 ${pbf.name()} (${pbf.size.toLocaleString()} bytes) ${(performance.now()-dt).toFixed(2)} msec`);
-    if (pbf && isURL(data) && !pbf.originalURL) {
-        const server = await getServer(); if (!server) return;
-        const GINT = new Uint8Array(pbf._gintBuffer).slice().buffer;
-        server.cache(data, { PBF: pbf.arrayBuffer, GINT }, { worker: true }).catch(console.error);
-    }
-    pbf && (await pbf.fileSize());
-    return pbf || new GeoPBF(options);
+    if (pbf) {
+        await pbf.gint({gint: options.gint});
+        console.log(`[geopbf] 📥 ${pbf.name()} (${pbf.size.toLocaleString()} bytes) ${(performance.now()-dt).toFixed(2)} msec`);
+        if (isURL(data) && !pbf.originalURL) {
+            const server = await getServer();
+            if (server) {
+                const GINT = new Uint8Array(pbf._gintBuffer).slice().buffer;
+                server.cache(data, { PBF: pbf.arrayBuffer, GINT }, { worker: true }).catch(console.error);
+            }
+        }
+        await pbf.fileSize();
+        return pbf;
+    } else return new GeoPBF(options);
 ////===========================================================================================
     async function _geopbf(q) {
         if (!q) return null;
@@ -85,7 +89,7 @@ export async function geopbf(data, options = {}) { if (isString(options)) option
                 }
                 return _geopbf(await server.fetch(fetchUrl));
             }
-            return _geopbf(await server.load(q, { nogint: options.nogint }));
+            return _geopbf(await server.load(q, { gint: options.gint }));
         }
         return null;
         async function file2json(file) {
@@ -137,7 +141,7 @@ const methods = {
     async gpxFile(opts = {}) { return encoder(this, "gpx", opts); },
     async gmlFile(opts = {}) { return encoder(this, "gml", opts); },
     async fgbFile(opts = {}) { return encoder(this, "fgb", opts); },
-    async gint(opts = {}) { if (opts.nogint) return this;
+    async gint(opts = {}) { if (opts.gint === false) return this;
         this.unPackGint || this.setGintBUF(await encoder(this, "gint", opts));
         if (!this.unPackGint) throw new Error("Failed to encode Gint buffer.");
         return this;

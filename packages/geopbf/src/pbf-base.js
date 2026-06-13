@@ -111,18 +111,18 @@ class GeoPBF {
         if (meta.description !== undefined) this._description = meta.description;
         if (meta.license !== undefined) this._license = meta.license;
         if (meta.attribution !== undefined) this._attribution = meta.attribution;
-        if (meta.precision !== undefined) this.precision(meta.precision);
+        if (meta.precision !== undefined) this.e = Math.pow(10, this._precision = meta.precision);
 
         this.keys = keys || this.keys;
         this.bufs = bufs || this.bufs || [];
-        this.keytub = {};
-
+        this.keytub = {}; this.keys.forEach((t, i) => this.keytub[t] = i);
+ 
         this._name && this.pbf.writeStringField(TAGS.NAME, this._name);
         this._description && this.pbf.writeStringField(TAGS.DESCRIPTION, this._description);
         this._license && this.pbf.writeStringField(TAGS.LICENSE, this._license);
         this._attribution && this.pbf.writeStringField(TAGS.ATTRIBUTION, this._attribution);
-        this._precision == 6 || this.pbf.writeVarintField(TAGS.PRECISION, this._precision);
-        this.keys.forEach((t, i) => { this.pbf.writeStringField(TAGS.KEYS, t); this.keytub[t] = i; });
+        this.pbf.writeVarintField(TAGS.PRECISION, this._precision);
+        this.keys.forEach((t, i) => { this.pbf.writeStringField(TAGS.KEYS, t); });
         this.bufs.forEach((t, i) => { this.pbf.writeBytesField(TAGS.BUFS, new Uint8Array(t)) });
         return this;
     }

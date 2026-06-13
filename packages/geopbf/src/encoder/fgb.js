@@ -1,205 +1,194 @@
 import { GeoPBF } from "../pbf-base.js"; //
+import { getBbox } from "../extension/spatial.js";
 
 // FlatGeobuf 識別用マジックバイト [V3]
 const MAGIC = new Uint8Array([0x66, 0x67, 0x62, 0x03, 0x66, 0x67, 0x62, 0x00]); //
-const GeometryType = { Unknown: 0, Point: 1, LineString: 2, Polygon: 3, MultiPoint: 4, MultiLineString: 5, MultiPolygon: 6 }; //
+// 公式 FlatGeobuf GeometryType enum 準拠
+const GeometryType = { Unknown: 0, Point: 1, LineString: 2, Polygon: 3, MultiPoint: 4, MultiLineString: 5, MultiPolygon: 6, GeometryCollection: 7 };
 const ColumnType = { Bool: 0, Int: 5, Double: 10, String: 11, Json: 12, DateTime: 14 }; //
 
-// --- 🔥 自前実装版 FlatBuffer ビルダー ---
+// --- 🔥 標準 FlatBuffers ワイヤフォーマット準拠ビルダー（後方ビルド） ---
+// 公式 flatbuffers.Builder のサブセット移植。すべてのオフセットは offset()=末尾からの距離で扱う。
 class FlatBufferBuilder {
 	constructor(initialSize = 1024) {
+		this.bb_capacity = initialSize;
 		this.buf = new ArrayBuffer(initialSize);
 		this.view = new DataView(this.buf);
 		this.u8 = new Uint8Array(this.buf);
-		this.offset = initialSize; // 後ろから詰めるので、初期ポインタは末尾
-		this.vtable = [];
+		this.space = initialSize; // 未使用領域（先頭側）。head = space
+		this.minalign = 1;
+		this.vtable = null;
+		this.vtable_in_use = 0;
+		this.object_start = 0;
 	}
 
-	// 必要に応じてバッファを拡張（左側＝手前方向に拡張）
-	_grow() {
-		const oldSize = this.buf.byteLength;
-		const newSize = oldSize * 2;
-		const newBuf = new ArrayBuffer(newSize);
-		const newU8 = new Uint8Array(newBuf);
-		// 古いデータを新しいバッファの「右側（末尾）」にコピー
-		newU8.set(this.u8, newSize - oldSize);
+	offset() { return this.bb_capacity - this.space; }
 
-		this.offset = newSize - (oldSize - this.offset);
-		this.buf = newBuf;
-		this.view = new DataView(this.buf);
-		this.u8 = newU8;
+	growByteBuffer() {
+		const old = this.bb_capacity;
+		const newCap = old << 1;
+		const nbuf = new ArrayBuffer(newCap);
+		const nu8 = new Uint8Array(nbuf);
+		nu8.set(this.u8, newCap - old); // 既存データは末尾側へ
+		this.bb_capacity = newCap;
+		this.buf = nbuf;
+		this.view = new DataView(nbuf);
+		this.u8 = nu8;
 	}
 
-	// 現在の書き込み位置から指定バイト数分、手前に戻る
-	_prepare(size, align) {
-		if (size > this.offset) this._grow();
-		// アライメントの調整
-		let offset = this.offset - size;
-		const mask = align - 1;
-		offset -= (offset & mask);
-		this.offset = offset;
-		if (this.offset < 0) { this._grow(); return this._prepare(size, align); }
-		return this.offset;
-	}
+	pad(n) { for (let i = 0; i < n; i++) this.u8[--this.space] = 0; }
 
-	// 各種プリミティブデータの書き込み（後ろから前へ）
-	addInt8(val) { this._prepare(1, 1); this.view.setInt8(this.offset, val); }
-	addInt32(val) { this._prepare(4, 4); this.view.setInt32(this.offset, val, true); }
-	addFloat64(val) { this._prepare(8, 8); this.view.setFloat64(this.offset, val, true); }
-
-	// UOffset（相対ポインタ）の書き込み
-	addOffset(offset) {
-		this.addInt32(0); // 領域確保
-		const relOffset = this.offset - offset + 4;
-		this.view.setInt32(this.offset, relOffset, true);
-	}
-
-	// 文字列のエンコード（FlatBuffersのString構造: [長さ4byte] + [文字列データ] + [終端の\0]）
-	createString(str) {
-		if (!str) return 0;
-		const utf8 = new TextEncoder().encode(str);
-		this._prepare(utf8.length + 1, 1); // 終端の \0 分を確保
-		this.u8.set(utf8, this.offset);
-		this.u8[this.offset + utf8.length] = 0;
-		this.addInt32(utf8.length);
-		return this.offset;
-	}
-
-	// ベクター（配列）の生成
-	createVector(offsets, step = 4) {
-		const len = offsets.length;
-		this._prepare(len * step, 4);
-		for (let i = len - 1; i >= 0; i--) {
-			if (step === 4) {
-				const relOffset = this.offset - offsets[i] + 4;
-				this.view.setInt32(this.offset + i * 4, relOffset, true);
-			}
+	// size バイトのデータ + additional バイトを書く前に、アライメントと容量を確保
+	prep(size, additional) {
+		if (size > this.minalign) this.minalign = size;
+		const alignSize = ((~(this.bb_capacity - this.space + additional)) + 1) & (size - 1);
+		while (this.space < alignSize + size + additional) {
+			const oldCap = this.bb_capacity;
+			this.growByteBuffer();
+			this.space += this.bb_capacity - oldCap;
 		}
-		this.addInt32(len);
-		return this.offset;
+		this.pad(alignSize);
 	}
+
+	writeInt8(v) { this.view.setInt8(this.space -= 1, v); }
+	writeInt16(v) { this.view.setInt16(this.space -= 2, v, true); }
+	writeInt32(v) { this.view.setInt32(this.space -= 4, v, true); }
+	writeUint64(v) {
+		this.space -= 8;
+		this.view.setUint32(this.space, v >>> 0, true);
+		this.view.setUint32(this.space + 4, Math.floor(v / 0x100000000) >>> 0, true);
+	}
+	writeFloat64(v) { this.view.setFloat64(this.space -= 8, v, true); }
+
+	addInt8(v) { this.prep(1, 0); this.writeInt8(v); }
+	addInt16(v) { this.prep(2, 0); this.writeInt16(v); }
+	addInt32(v) { this.prep(4, 0); this.writeInt32(v); }
+	addUint64(v) { this.prep(8, 0); this.writeUint64(v); }
+	addFloat64(v) { this.prep(8, 0); this.writeFloat64(v); }
+
+	// 前方参照 uoffset を書く（to は対象の offset()）
+	addOffset(to) { this.prep(4, 0); this.writeInt32(this.offset() - to + 4); }
+
+	// --- ベクター ---
+	startVector(elemSize, numElems, alignment) {
+		this.prep(4, elemSize * numElems);          // length(4byte) 分
+		this.prep(alignment, elemSize * numElems);  // 要素アライメント
+		this._vectorNumElems = numElems;
+	}
+	endVector() { this.writeInt32(this._vectorNumElems); return this.offset(); }
 
 	createDoubleVector(arr) {
-		this._prepare(arr.length * 8, 8);
-		for (let i = arr.length - 1; i >= 0; i--) {
-			this.view.setFloat64(this.offset + i * 8, arr[i], true);
-		}
-		this.addInt32(arr.length);
-		return this.offset;
+		this.startVector(8, arr.length, 8);
+		for (let i = arr.length - 1; i >= 0; i--) this.writeFloat64(arr[i]);
+		return this.endVector();
 	}
-
 	createUIntVector(arr) {
-		this._prepare(arr.length * 4, 4);
-		for (let i = arr.length - 1; i >= 0; i--) {
-			this.view.setUint32(this.offset + i * 4, arr[i], true);
-		}
-		this.addInt32(arr.length);
-		return this.offset;
+		this.startVector(4, arr.length, 4);
+		for (let i = arr.length - 1; i >= 0; i--) { this.space -= 4; this.view.setUint32(this.space, arr[i], true); }
+		return this.endVector();
+	}
+	createByteVector(bytes) {
+		this.startVector(1, bytes.length, 1);
+		this.space -= bytes.length;
+		this.u8.set(bytes, this.space);
+		return this.endVector();
+	}
+	createOffsetVector(offsets) {
+		this.startVector(4, offsets.length, 4);
+		for (let i = offsets.length - 1; i >= 0; i--) this.addOffset(offsets[i]);
+		return this.endVector();
+	}
+	createString(str) {
+		if (str == null) return 0;
+		const utf8 = new TextEncoder().encode(str);
+		this.addInt8(0); // null 終端
+		this.startVector(1, utf8.length, 1);
+		this.space -= utf8.length;
+		this.u8.set(utf8, this.space);
+		return this.endVector();
 	}
 
-	createByteVector(uint8) {
-		this._prepare(uint8.length, 1);
-		this.u8.set(uint8, this.offset);
-		this.addInt32(uint8.length);
-		return this.offset;
-	}
-
-	// オブジェクトの構築開始・フィールド登録
+	// --- テーブル ---
 	startObject(numFields) {
 		this.vtable = new Array(numFields).fill(0);
-		this.objectStart = this.offset;
+		this.vtable_in_use = numFields;
+		this.object_start = this.offset();
 	}
-
-	slot(fieldIdx, offset) {
-		if (offset) this.vtable[fieldIdx] = this.objectStart - offset;
-	}
-
-	slotInt8(fieldIdx, val) { this.addInt8(val); this.vtable[fieldIdx] = this.objectStart - this.offset; }
-	slotInt32(fieldIdx, val) { this.addInt32(val); this.vtable[fieldIdx] = this.objectStart - this.offset; }
+	slot(voffset) { this.vtable[voffset] = this.offset(); }
+	addFieldInt8(voffset, v) { this.addInt8(v); this.slot(voffset); }
+	addFieldInt16(voffset, v) { this.addInt16(v); this.slot(voffset); }
+	addFieldInt32(voffset, v) { this.addInt32(v); this.slot(voffset); }
+	addFieldUint64(voffset, v) { this.addUint64(v); this.slot(voffset); }
+	addFieldOffset(voffset, off) { if (off) { this.addOffset(off); this.slot(voffset); } }
 
 	endObject() {
-		// vtable（バーチャルテーブル）の書き出し
-		// FlatBuffersはオブジェクトの手前に「どのフィールドがどこにあるか」の目次（vtable）を置きます
-		const vtableSize = 4 + this.vtable.length * 2;
-		this._prepare(vtableSize, 2);
-
-		const objectSize = this.objectStart - this.offset + vtableSize;
-		this.view.setUint16(this.offset, vtableSize, true);
-		this.view.setUint16(this.offset + 2, objectSize, true);
-
-		for (let i = 0; i < this.vtable.length; i++) {
-			this.view.setUint16(this.offset + 4 + i * 2, this.vtable[i], true);
-		}
-
-		// オブジェクトの先頭に、この vtable へのマイナスオフセットを書き込む
-		const vtableRelOffset = this.offset - this.objectStart;
-		this.view.setInt32(this.objectStart, vtableRelOffset, true);
-
-		return this.objectStart;
+		this.addInt32(0); // vtable への soffset プレースホルダ
+		const vtableloc = this.offset(); // = テーブル位置
+		let i = this.vtable_in_use - 1;
+		for (; i >= 0 && this.vtable[i] === 0; i--) {} // 末尾の空フィールドを切り詰め
+		const trimmed = i + 1;
+		for (; i >= 0; i--) this.addInt16(this.vtable[i] !== 0 ? vtableloc - this.vtable[i] : 0);
+		this.addInt16(vtableloc - this.object_start); // object size
+		this.addInt16((trimmed + 2) * 2);             // vtable size
+		// soffset を確定（vtable位置 - テーブル位置）
+		this.view.setInt32(this.bb_capacity - vtableloc, this.offset() - vtableloc, true);
+		return vtableloc;
 	}
 
-	finish(rootOffset) {
+	// サイズプレフィックス付きで確定。size(4)+root(4) 分を minalign で整列するため、
+	// 先頭4バイトのサイズを除いた本体は minalign（doublesがあるので8）境界に揃う＝公式リーダ互換。
+	finishSizePrefixed(rootOffset) {
+		this.prep(this.minalign, 8); // size(4) + root offset(4)
 		this.addOffset(rootOffset);
+		this.addInt32(this.offset()); // 先頭サイズ（この int 自身を除く後続バイト数）
 	}
 
-	asUint8Array() {
-		return this.u8.subarray(this.offset);
-	}
-
-	asUint8ArrayWithLengthPrefix() {
-		const size = this.u8.length - this.offset;
-		this._prepare(4, 4);
-		this.view.setUint32(this.offset, size, true);
-		return this.u8.subarray(this.offset);
-	}
+	// [size:uint32][整列済みペイロード] のバイト列。ストリーミング書き出し用。
+	asUint8Array() { return this.u8.slice(this.space); }
 }
 
 // --- 🔥 主要ロジックの肉付け ---
 
+// 公式 FlatGeobuf Header schema: name=0, envelope=1, geometry_type=2, columns=7, features_count=8, index_node_size=9
 function buildFGBHeader(pbf) {
-	const keys = pbf._head; //
-	const bbox = pbf.bbox; //
+	const keys = pbf.keys;
+	getBbox(pbf);            // bbox ゲッターは pbf-base 直 import のワーカーには無いので拡張関数で計算
+	const bbox = pbf._bbox;
 	const builder = new FlatBufferBuilder();
 
-	// 1. Columns（属性の定義）を後ろから順にビルド
+	// 子要素（テーブル参照の対象）はすべて親テーブルの startObject 前に構築する
 	const columnOffsets = [];
-	for (let i = keys.length - 1; i >= 0; i--) {
+	for (let i = 0; i < keys.length; i++) {
 		const nameOff = builder.createString(keys[i]);
-		builder.startObject(3);
-		builder.slot(0, nameOff);                  // name
-		builder.slotInt8(1, ColumnType.String);    // type (一旦すべてString)
-		columnOffsets.unshift(builder.endObject());
+		builder.startObject(2);                    // Column: name=0, type=1
+		builder.addFieldOffset(0, nameOff);        // name
+		builder.addFieldInt8(1, ColumnType.String);// type (一旦すべてString)
+		columnOffsets.push(builder.endObject());
 	}
-	const columnsOff = builder.createVector(columnOffsets);
+	const columnsOff = builder.createOffsetVector(columnOffsets);
 
-	// 2. Header オブジェクトの構築
-	builder.startObject(11);
-
-	// Envelope (BBOX struct: [minX, minY, maxX, maxY])
-	if (bbox) {
-		builder._prepare(32, 8);
-		builder.view.setFloat64(builder.offset, bbox[0], true);
-		builder.view.setFloat64(builder.offset + 8, bbox[1], true);
-		builder.view.setFloat64(builder.offset + 16, bbox[2], true);
-		builder.view.setFloat64(builder.offset + 24, bbox[3], true);
-		builder.slot(2, builder.offset);
+	// Envelope は [double] ベクター（field 1）
+	let envelopeOff = 0;
+	if (bbox && bbox.every(Number.isFinite)) {
+		envelopeOff = builder.createDoubleVector([bbox[0], bbox[1], bbox[2], bbox[3]]);
 	}
 
-	builder.slotInt8(3, GeometryType.Unknown); // geometry_type (混合データ対応)
-	builder.slot(7, columnsOff);               // columns
-	builder.slotInt32(8, pbf.length);          // features_count
-	builder.slotInt16(9, 0);                   // index_node_size (0 = インデックスなし)
-
+	builder.startObject(11);                        // fields 0..10
+	if (envelopeOff) builder.addFieldOffset(1, envelopeOff); // envelope
+	builder.addFieldInt8(2, GeometryType.Unknown);  // geometry_type (混合対応)
+	builder.addFieldOffset(7, columnsOff);          // columns
+	builder.addFieldUint64(8, pbf.length);          // features_count (ulong = 8byte)
+	builder.addFieldInt16(9, 0);                    // index_node_size (0 = インデックスなし)
 	const headerOff = builder.endObject();
-	builder.finish(headerOff);
+	builder.finishSizePrefixed(headerOff);
 
-	return builder.asUint8ArrayWithLengthPrefix(); // 先頭4バイトにサイズプレフィックスを乗せる
+	return builder.asUint8Array();
 }
 
-function encodeFGBFeature(f, keys, precision) {
+function encodeFGBFeature(f, keys) {
 	const builder = new FlatBufferBuilder();
 
-	// 1. properties バイナリの構築（FGB独自のカスタムKeyValueストリーム）
+	// 1. properties バイナリ（FGB独自の KeyValue ストリーム: [u16 colIdx][u32 len][bytes]...）
 	const propBytes = [];
 	const encoder = new TextEncoder();
 	keys.forEach((key, index) => {
@@ -208,49 +197,73 @@ function encodeFGBFeature(f, keys, precision) {
 			const buf = encoder.encode(String(val));
 			const header = new Uint8Array(6);
 			const view = new DataView(header.buffer);
-			view.setUint16(0, index, true);       // カラムのインデックス番号
+			view.setUint16(0, index, true);          // カラムのインデックス番号
 			view.setUint32(2, buf.byteLength, true); // 値のバイト長
 			propBytes.push(header, buf);
 		}
 	});
 	const propsVectorOff = builder.createByteVector(concatUint8(propBytes));
 
-	// 2. Geometry の構築
-	const coords = flattenCoordinates(f.geometry); //
-	const coordsOff = builder.createDoubleVector(coords);
+	// 2. Geometry（子テーブルは feature の startObject 前に確定させる）
+	const geomOff = encodeGeometry(builder, f.geometry);
 
-	// Geometry オブジェクト
-	builder.startObject(5);
-	builder.slot(0, coordsOff); // xy
-	if (f.geometry.type === "Polygon") {
-		const ends = [f.geometry.coordinates[0].length];
-		const endsOff = builder.createUIntVector(ends);
-		builder.slot(1, endsOff); // ends
-	}
-	builder.slotInt8(4, GeometryType[f.geometry.type] || 0); // type
-	const geomOff = builder.endObject();
-
-	// 3. Feature オブジェクトの構築
+	// 3. Feature: geometry=0, properties=1
 	builder.startObject(3);
-	builder.slot(0, geomOff);        // geometry
-	builder.slot(1, propsVectorOff); // properties
-
+	builder.addFieldOffset(0, geomOff);        // geometry
+	builder.addFieldOffset(1, propsVectorOff); // properties
 	const featureOff = builder.endObject();
-	builder.finish(featureOff);
+	builder.finishSizePrefixed(featureOff);
 
-	return builder.asUint8ArrayWithLengthPrefix(); // 各Featureの先頭4バイトにサイズを載せてストリーミング可能に
+	return builder.asUint8Array();
+}
+
+// 公式 FlatGeobuf Geometry schema: ends=0, xy=1, type=6, parts=7
+function encodeGeometry(builder, geom) {
+	const type = GeometryType[geom.type] || 0;
+
+	// 複合ジオメトリは parts（サブ Geometry のベクター）で表現
+	if (geom.type === "MultiPolygon" || geom.type === "GeometryCollection") {
+		const subGeoms = geom.type === "MultiPolygon"
+			? geom.coordinates.map(poly => ({ type: "Polygon", coordinates: poly }))
+			: geom.geometries;
+		const partOffsets = subGeoms.map(g => encodeGeometry(builder, g));
+		const partsOff = builder.createOffsetVector(partOffsets);
+		builder.startObject(8);
+		builder.addFieldOffset(7, partsOff); // parts
+		builder.addFieldInt8(6, type);       // type
+		return builder.endObject();
+	}
+
+	// 単純／フラットなジオメトリ: xy（+ 複数リング/ラインのときは ends）
+	const { xy, ends } = flattenWithEnds(geom);
+	const xyOff = builder.createDoubleVector(xy);
+	const endsOff = (ends.length > 1) ? builder.createUIntVector(ends) : 0;
+
+	builder.startObject(8);
+	if (endsOff) builder.addFieldOffset(0, endsOff); // ends
+	builder.addFieldOffset(1, xyOff);                // xy
+	builder.addFieldInt8(6, type);                   // type
+	return builder.endObject();
 }
 
 // --- ⚙️ ヘルパー関数 ---
 
-function flattenCoordinates(geometry) {
-	const pts = [];
-	const walk = coords => {
-		if (typeof coords[0] === 'number') pts.push(coords[0], coords[1]);
-		else coords.forEach(walk);
-	};
-	walk(geometry.coordinates);
-	return new Float64Array(pts);
+// xy をフラットに展開し、Polygon/MultiLineString は各リング/ラインの累積座標数を ends に格納
+function flattenWithEnds(geom) {
+	const xy = [];
+	const ends = [];
+	const pushPt = p => { xy.push(p[0], p[1]); };
+	const c = geom.coordinates;
+	switch (geom.type) {
+		case "Point": pushPt(c); break;
+		case "MultiPoint":
+		case "LineString": c.forEach(pushPt); break;
+		case "MultiLineString":
+		case "Polygon":
+			c.forEach(ring => { ring.forEach(pushPt); ends.push(xy.length / 2); });
+			break;
+	}
+	return { xy, ends };
 }
 
 const concatUint8 = arrays => {
@@ -281,10 +294,10 @@ onmessage = async (e) => {
 			await writer.write(header);
 
 			// 3. Features の書き出し (ストリーミング)
-			const keys = pbf._head;
+			const keys = pbf.keys;
 			for (let i = 0, len = pbf.length; i < len; i++) { //
 				const f = pbf.getFeature(i); //
-				const featureBin = encodeFGBFeature(f, keys, pbf._precision);
+				const featureBin = encodeFGBFeature(f, keys);
 				await writer.write(featureBin);
 			}
 

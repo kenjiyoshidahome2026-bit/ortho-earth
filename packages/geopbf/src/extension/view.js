@@ -10,7 +10,7 @@ export function view(self, width = 512, height, props = {}) {
     const pbf = self.pbf;
     const radius = props.radius || 3;
 
-    const proj = props.projection.match(/orthographic/i) ? geoOrthographic() : geoMercator();
+    const proj = (props.projection || "").match(/orthographic/i) ? geoOrthographic() : geoMercator();
     const cx = (bbox[0] + bbox[2]) / 2;
     const cy = (bbox[1] + bbox[3]) / 2;
     proj.rotate([-cx, -cy, 0]).fitExtent([[0, 0], [width, height]]);
@@ -26,11 +26,10 @@ export function view(self, width = 512, height, props = {}) {
 
     const out = b => (bbox[0] > b[2] || bbox[1] > b[3] || bbox[2] < b[0] || bbox[3] < b[1]);
 
-    self.each((n, fmap) => {
+    self.each((n, map) => {
         if (out(self.getBbox(n))) return;
         ctx.beginPath();
 
-        const map = fmap[n];
         const drawCoords = (pos, type) => {
             pbf.pos = pos;
             let lens = [];
