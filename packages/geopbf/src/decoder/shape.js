@@ -54,6 +54,11 @@ class DBF {
 	}
 }
 const Point = q => ({ type: "Point", coordinates: [q.getFloat64(4, true), q.getFloat64(12, true)] });
+const MultiPoint = q => {
+	const n = q.getInt32(36, true), pts = [];
+	for (let i = 0, p = 40; i < n; i++, p += 16) pts.push([q.getFloat64(p, true), q.getFloat64(p + 8, true)]);
+	return { type: "MultiPoint", coordinates: pts };
+};
 const PolyLine = q => {
 	let p = 44, n = q.getInt32(36, true), m = q.getInt32(40, true);
 	const parts = [], pts = [];
@@ -89,7 +94,7 @@ class SHP {
 	constructor(s) {
 		const h = view(s.subarray(0, 100));
 		this.type = h.getInt32(32, true); this.source = s.subarray(100);
-		this.parse = { 1: Point, 3: PolyLine, 5: Polygon, 8: Point, 11: Point, 13: PolyLine, 15: Polygon }[this.type];
+		this.parse = { 1: Point, 3: PolyLine, 5: Polygon, 8: MultiPoint, 11: Point, 13: PolyLine, 15: Polygon }[this.type];
 	}
 	read() {
 		if (!this.source.byteLength) return null;
