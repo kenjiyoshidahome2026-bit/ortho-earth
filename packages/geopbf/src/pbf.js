@@ -4,7 +4,6 @@ import { concatinate, clone, cloneHead, cloneMap, classify, getPropertyTable, ge
 import { dissolve } from "./extension/dissolve.js";
 import { topojson, neighbors, mesh, merge } from "./extension/topojson.js";
 import { identify } from "./extension/identify.js";
-import { view } from "./extension/view.js";
 import { unPackGintBuffer } from "./extension/topology.js";
 import { precision } from "./extension/precision.js";
 
@@ -35,8 +34,6 @@ GeoPBF.setPrototype("neighbors", function(id) { return neighbors(this, id); });
 GeoPBF.setPrototype("mesh", function(f) { return mesh(this, f); });
 GeoPBF.setPrototype("merge", function(f) { return merge(this, f); });
 GeoPBF.setPrototype("identify", function (mx, my, proj, options) { return identify(this, mx, my, proj, options); });
-
-GeoPBF.setPrototype("view", function (width, height, props) { return view(this, width, height, props); });
 
 GeoPBF.setPrototype("precision", async function (s) { return precision(this, s); });
 

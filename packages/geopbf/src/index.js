@@ -132,6 +132,18 @@ const encoder = async (pbf, type, opts = {}) => { //console.log(pbf, type, opts)
 };
 const methods = {
     async save() { const s = await getServer(); return (s && await s.save(this)) ? this : null; },
+    async preview(canvas, props = {}) {
+        if (isObject(canvas)) { props = canvas; canvas = null; }
+        const buf = this.arrayBuffer, name = this._name;
+        const url = new URL('./encoder/preview.js', import.meta.url);
+        const w = new Worker(url, { type: 'module' });
+        const transferables = canvas ? [buf, canvas] : [buf];
+        return new Promise(resolve => {
+            w.onmessage = e => { w.terminate(); resolve(e.data); };
+            w.onerror  = () => { w.terminate(); resolve(null); };
+            w.postMessage({ buf, canvas, name, props }, transferables);
+        });
+    },
     async profile(opts = {}) { return encoder(this, "profile", opts); },
     async gintbuf(opts = {}) { return encoder(this, "gint", opts); },
     async geopbfFile(opts = {}) { return encoder(this, "geopbf", opts); },
