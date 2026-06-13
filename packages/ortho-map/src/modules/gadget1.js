@@ -5,7 +5,7 @@ import { cleanup } from "common/d3/tip-pop.js";
 import { gadgetIcons, tooltips } from "../modules/icons.js";
 import { Layers } from "./layers.js";
 
-function createButton(map, name, opts) {
+export function createButton(map, name, opts) {
     const icon = opts.icon || gadgetIcons[name]||"<svg/>";
     const tip = opts.tip || tooltips[map.lang][name]||"";
     const target = map.addFrame(opts.target || "leftTop"); if (!target) return console.error("Frame Error");
