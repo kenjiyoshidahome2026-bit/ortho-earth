@@ -1,10 +1,10 @@
-function douglasPeuckerOrtho(a, err = 1e-6) {
+export function douglasPeuckerOrtho(a, err = 1e-6) {
 	const hybot = (p, q) => p * p + q * q;
 	if (a.type && (a.type == "Feature")) return a.geometry.type.match(/Point/) ? a : { type: a.type, geometry: douglasPeuckerOrtho(a.geometry, err), properties: a.properties };
 	else if (a.type && (a.type == "LineString")) return { type: a.type, coordinates: DP(a.coordinates) };
 	else if (a.type && (a.type == "MultiLineString" || a.type == "Polygon")) return { type: a.type, coordinates: a.coordinates.map(DP) };
 	else if (a.type && (a.type == "MultiPolygon")) return { type: a.type, coordinates: a.coordinates.map(t => t.map(DP)) };
-	else if (a.type && (a.type == "FeatureCollection")) return turf.featureCollection(a.features.map(t => douglasPeuckerOrtho(t, err)));
+	else if (a.type && (a.type == "FeatureCollection")) return { type: "FeatureCollection", features: a.features.map(t => douglasPeuckerOrtho(t, err)) };
 	else if (Array.isArray(a)) return [].concat(a.filter(t => t.type == "Feature").map(t => douglasPeuckerOrtho(t, err)));
 	return null;
 	function filter(a) {

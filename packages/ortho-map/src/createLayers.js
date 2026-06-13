@@ -1,7 +1,7 @@
 import * as d3 from 'd3';
 import "common/d3/selection.js";
 import { drawJSON } from "./modules/drawJSON.js";
-import { Layers } from "./modules/layers.js";
+import { createLayerMap } from "./modules/layers.js";
 import { geopbf } from "geopbf";
 
 import base from './workers/base.js?worker&url';
@@ -27,6 +27,7 @@ async function getBorderRawBuffers() {
 }
 
 export async function createLayers(map, opts) {
+    const Layers = map.Layers = createLayerMap(opts.tilerBase || "");
     const layers = map.layers = {};
     map.createLayer = opts => createLayer.call(map, opts);
     map.createRemoteLayer = opts => createRemoteLayer.call(map, opts);
@@ -35,7 +36,7 @@ export async function createLayers(map, opts) {
     map.listOfLayers = () => Object.values(map.layers).map(layer => (layer.toString())).join("\n");
     map.setBase = name => setBase(map, name);
 ////--------------------------------------------------------------------------
-    const baseLayer = (await createRemoteLayer.call(map, { name: "OrthoMapGL", append: map.mapFrame, type: "base" }));
+    const baseLayer = (await createRemoteLayer.call(map, { name: "OrthoMapGL", append: map.mapFrame, type: "base", apiUrl: opts.apiUrl, tilerBase: opts.tilerBase || "" }));
     await map.setBase(map.baseName);
 ////--------------------------------------------------------------------------
     if (opts.accessories === false) return;
@@ -166,7 +167,7 @@ async function createRemoteLayer(param = {}) {
         ////------------------------------------------------------------------------
         function init() {
             try {
-                worker.postMessage({ type: "init", offscreen, dpr, workers, threshold }, [offscreen]);
+                worker.postMessage({ type: "init", offscreen, dpr, workers, threshold, apiUrl: param.apiUrl, tilerBase: param.tilerBase }, [offscreen]);
             } catch (err) {
                 console.error(`🚨 [${name}] WorkerへのCanvas転送に失敗しました:`, err);
                 reject(err);

@@ -1,6 +1,6 @@
-import { Fetch, Bucket, Cache } from "native-bucket";
+import { Cache } from "native-bucket";
 import { thenEach, comma, L2, L3 } from "common";
-import { encode, decode, encodeName } from "./altpbf.js";
+import { encode, decode, encodeName, getNB } from "./altpbf.js";
 import { fromBlob } from 'geotiff';
 
 ////================================================================================================
@@ -12,7 +12,7 @@ import { fromBlob } from 'geotiff';
 export async function GEBCO(opts = {}) {
 	const year = (opts.year||2026).toString(), Console = opts.log || console;
 	const SIZE = 21600; Console.clear();
-	const bucket = await Bucket("GIS/alt",{silent:true});
+	const bucket = await getNB().Bucket("GIS/alt",{silent:true});
 	const cache = await Cache("GIS/alt");
 	const source = `GEBCO ${year}`, cors = true;
 	Console.title(source);
@@ -20,7 +20,7 @@ export async function GEBCO(opts = {}) {
 		`https://dap.ceda.ac.uk/bodc/gebco/global/gebco_${year}/sub_ice_topography_bathymetry/geotiff/gebco_${year}_sub_ice_topo_geotiff.zip`:
 		`https://dap.ceda.ac.uk/bodc/gebco/global/gebco_${year}/ice_surface_elevation/geotiff/gebco_${year}_geotiff.zip`;
 	Console.log(`[extracting] ${url}`);
-	const list = await Fetch(url, {target:false, cors});
+	const list = await getNB().Fetch(url, {target:false, cors});
 	Console.log(list);
 	const lats = [-90, 0], lngs = [-180, -90, 0, 90];
 	await thenEach(lats, async lat => thenEach(lngs, async lng => {
@@ -29,7 +29,7 @@ export async function GEBCO(opts = {}) {
 		const target = list.filter(t=>t.name.match(area))[0]?.name;
 		Console.log(`[loading] ${target}`);
 		var dt = new Date();
-		let file = await Fetch(url, {target, cors});
+		let file = await getNB().Fetch(url, {target, cors});
 		let raster = await tiff2raster(file); if (!raster||!raster[0]) return console.error("geotiff raster error", raster);
 		const {width, height} = raster, size = file.size;
 		if (width != SIZE || height != SIZE) return Console.error("raster size error", raster);

@@ -1,15 +1,20 @@
 import Pbf from 'pbf';
 import { L2, L3 } from "common";
-import { Fetch, Bucket, deflateRaw, inflateRaw } from "native-bucket";
+import { nativeBucket, deflateRaw, inflateRaw } from "native-bucket";
+
+let _nb = null;
+export function setApiUrl(url) { _nb = nativeBucket(url); }
+export const getNB = () => { if (!_nb) throw new Error("altpbf: call setApiUrl(url) before use"); return _nb; };
 
 const dire = `GIS/alt`;
-const bucket = await Bucket(dire, { silent: true });
+let _bucket = null;
+const getBucket = async () => _bucket || (_bucket = await getNB().Bucket(dire, { silent: true }));
 
 const baseUrl = "https://www.eorc.jaxa.jp/ALOS";
 
 export async function index_alos() {
 	const tub = {};
-	const txt = (await Fetch(`${baseUrl}/jp/dataset/aw3d30/data/List_of_all_tiles_in_AW3D30.txt`, "text")).split("\n");
+	const txt = (await getNB().Fetch(`${baseUrl}/jp/dataset/aw3d30/data/List_of_all_tiles_in_AW3D30.txt`, "text")).split("\n");
 	txt.forEach(t => {
 		const [fname, ver] = t.split(/\s+/);
 		fname.match(/[NS]\d+[WE]\d+/) && (tub[fname] = ver);
@@ -28,13 +33,13 @@ async function load_alos(lng, lat) {
 	const dname = LAT(f3(lat)) + LNG(f3(lng)) + "_" + LAT(f3(lat + 5)) + LNG(f3(lng + 5));
 	const url = `${baseUrl}/aw3d30/data/release_v2404/${dname}.zip`;
 	const target = `${dname}/ALPSMLC30_${fname}_DSM.tif`;
-	const file = await Fetch(url, { target, cors:true });
+	const file = await getNB().Fetch(url, { target, cors:true });
 	const raster = await tiff2data(file); if (!raster) { console.error("geotiff raster error", raster); return null; }
 	const { width, height, data } = raster;
 	return { name, source, lng, lat, range, width, height, data };
 }
 async function load_gepco(name) {
-	return decode(await bucket.get(name));
+	return decode(await (await getBucket()).get(name));
 }
 const TAGS = {
     NAME: 1,    // タイル名

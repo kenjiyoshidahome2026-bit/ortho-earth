@@ -6,7 +6,8 @@ import { gzip, gunzip, isGzip } from "./gzip.js";
 class _Bucket {
     constructor(directory, opts = {}) {
         const globalScope = typeof window !== 'undefined' ? window : (typeof self !== 'undefined' ? self : null);
-        this.baseUrl = opts.baseUrl || `https://api.ortho-earth.com/bucket/`;
+        if (!opts.baseUrl) throw new Error("native-bucket: opts.baseUrl is required");
+        this.baseUrl = opts.baseUrl;
         this.directory = directory.replace(/\/$/, "") + "/";// ディレクトリ名の末尾を必ず / にする
 		this.apiKey = opts.apiKey || ""; // APIキーを保持
         this.url = this.baseUrl + this.directory;

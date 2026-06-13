@@ -1,15 +1,20 @@
 import { GeoPBF } from "./pbf-base.js";
 import { nativeBucket, gzip, gunzip, isGzip } from "native-bucket";
-const { Bucket, Cache, Fetch } = nativeBucket();
+
+let _nb = null;
+export function setApiUrl(url) { _nb = nativeBucket(url); }
+const getNB = () => { if (!_nb) throw new Error("geopbf: call setApiUrl(url) before use"); return _nb; };
 
 class PBFIO {
     constructor(dire) { this.dire = dire || "GIS"; }
     async open() {
+        const { Bucket, Cache } = getNB();
         this.bucket = await Bucket(`${this.dire}/pbf`);
         this.cache = await Cache(`${this.dire}/pbf`);
         return this;
     }
     async fetch(name) {
+        const { Fetch } = getNB();
         const [url, target] = name.split(/\#/);
         return target ? await Fetch(url, { target }) : await Fetch(url);
     }
