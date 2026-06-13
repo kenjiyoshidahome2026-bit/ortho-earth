@@ -20,8 +20,8 @@ GeoPBF.setGetter("bboxes", function () { return bboxes(this); });
 GeoPBF.setPrototype("clone", function () { return clone(this); });
 GeoPBF.setPrototype("cloneHead", function () { return cloneHead(this); });
 GeoPBF.setPrototype("cloneMap", function (opts = {}) { return cloneMap(this, opts); });
-GeoPBF.setPrototype("filter", function(filter) { return clone(this, { filter }); });
-GeoPBF.setPrototype("map", function(map) { return clone(this, { map }); });
+GeoPBF.setPrototype("closeFilter", function(filter) { return cloneMap(this, { filter }); });
+GeoPBF.setPrototype("map", function(map) { return cloneMap(this, { map }); });
 GeoPBF.setPrototype("classify", function(k) { return classify(this, k); });
 GeoPBF.setPrototype("concat", function(...args) { return concatinate([this, ...args], this.name()); });
 
