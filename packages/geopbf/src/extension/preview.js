@@ -1,26 +1,31 @@
 import { isObject, geoOrthographic, geoMercator, geoEquirectangular} from "common";
 
-export function view(self, width = 512, height, props = {}) {
+export function preview(self, canvas, props = {}) {
     if (!self.length) return null;
-    if (height === undefined || isObject(height)) {
-        props = height || {}; height = width;
-    }
+    if (isObject(canvas)) { props = canvas; canvas = null; }
+    const dpr = props.dpr || 1;
+    const ownCanvas = !canvas;
+    const size = props.size || 512;
+    const width  = canvas ? canvas.width  / dpr : size;
+    const height = canvas ? canvas.height / dpr : size;
+
+    const projection = props.projection || "";
+    const proj = projection.match(/orthographic/i) ? geoOrthographic() : projection.match(/mercator/i) ? geoMercator() : geoEquirectangular;
     const bbox = props.bbox || self.bbox;
-    const e = self.e;
-    const pbf = self.pbf;
+    const pbf = self.pbf, e = self.e;
     const radius = props.radius || 3;
 
-    const proj = (props.projection || "").match(/orthographic/i) ? geoOrthographic() : geoMercator();
     const cx = (bbox[0] + bbox[2]) / 2;
     const cy = (bbox[1] + bbox[3]) / 2;
     proj.rotate([-cx, -cy, 0]).fitExtent([[0, 0], [width, height]]);
     if (props.scale) proj.scale(props.scale);
 
-    const offcanvas = new OffscreenCanvas(width, height);
+    const offcanvas = ownCanvas ? new OffscreenCanvas(width * dpr, height * dpr) : canvas;
     const ctx = offcanvas.getContext("2d");
+    if (dpr !== 1) ctx.scale(dpr, dpr);
 
     if (props.background) { ctx.fillStyle = props.background; ctx.fillRect(0, 0, width, height); }
-    ctx.lineWidth = props.width || 1;
+    ctx.lineWidth = props.lineWidth || 1 / dpr;
     ctx.fillStyle = props.fill || "#ccc";
     ctx.strokeStyle = props.stroke || "#000";
 
@@ -90,5 +95,5 @@ export function view(self, width = 512, height, props = {}) {
         ctx.stroke();
     });
 
-    return offcanvas.transferToImageBitmap();
+    return ownCanvas ? offcanvas.transferToImageBitmap() : canvas;
 }
