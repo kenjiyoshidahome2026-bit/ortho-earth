@@ -63,7 +63,7 @@ export function getPropertyTable(self) {
 }
 export function getCSV(self) {
     const a = self.propertiesTable; if (!a || a.length < 1) return "";
-	const quot = s => (isString(s) && s.match(/[,"]/))?`"${s.replace(/\"/g, '""')}"`: s;
+	const quot = s => (isString(s) && s.match(/[,"]|^0\d/))?`"${s.replace(/"/g, '""')}"`: s;
 	const csv2str = a => (a||[]).map(row => row.map(quot).join(",")).join("\r\n");
     const conv = (v) => { 
         if (isNull(v)||isUndefined(v)) return "";

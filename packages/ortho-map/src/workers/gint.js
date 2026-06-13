@@ -236,7 +236,7 @@ function initWebGL(gl, dpr) {
 		}`;
 	// プログラム生成
 	const vs = gl.createShader(gl.VERTEX_SHADER); gl.shaderSource(vs, gintVs); gl.compileShader(vs);
-	const fs = gl.createShader(gl.SHADER); gl.shaderSource(fs, gintFs); gl.compileShader(fs);
+	const fs = gl.createShader(gl.FRAGMENT_SHADER); gl.shaderSource(fs, gintFs); gl.compileShader(fs);
 
 	const program = gl.createProgram();
 	gl.attachShader(program, vs); gl.attachShader(program, fs);

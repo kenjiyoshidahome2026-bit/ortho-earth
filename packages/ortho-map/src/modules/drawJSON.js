@@ -81,7 +81,7 @@ export function drawJSON(features, prop = {}) {
         }
     }
 };
-export function deawText(text, pts, opts = {}, save = true) {
+export function drawText(text, pts, opts = {}, save = true) {
     var layer = this;
     let saved = false;
     if (Object.keys(opts).length) {

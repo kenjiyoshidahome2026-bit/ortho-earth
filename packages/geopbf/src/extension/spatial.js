@@ -96,7 +96,7 @@ export function getBbox(self, i) {
         if (self._bboxes) self._bboxes[i] = res;
         return res;
     }
-    if (self._bbox) return self._bboxes;
+    if (self._bboxes) return self._bboxes;
     let xmin = Infinity, ymin = Infinity, xmax = -Infinity, ymax = -Infinity;
     self._bboxes = self.each(idx => {
         const b = self.getBbox(idx);
