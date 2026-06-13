@@ -3,7 +3,8 @@
 import { GeoPBF } from "../pbf-base.js";
 import { dissolve } from "../extension/dissolve.js";
 
-const GeometryTypes = ["Unknown", "Point", "MultiPoint", "LineString", "MultiLineString", "Polygon", "MultiPolygon"];
+// 公式 FlatGeobuf GeometryType enum 準拠（エンコーダと一致させる）
+const GeometryTypes = ["Unknown", "Point", "LineString", "Polygon", "MultiPoint", "MultiLineString", "MultiPolygon", "GeometryCollection"];
 
 // --- 🌲 Packed Hilbert R-Tree インデックスのバイトサイズ計算 ---
 // 公式実装 (src/ts/packedrtree.ts) の calcTreeSize と同一ロジック
@@ -22,60 +23,72 @@ function calcTreeSize(numItems, nodeSize) {
 	return numNodes * NODE_ITEM_BYTE_LEN;
 }
 
-// --- 🕵️‍♂️ FlatBuffers 読み込みヘルパー ---
+// --- 🕵️‍♂️ FlatBuffers 読み込みヘルパー（標準ワイヤフォーマット準拠・アライメント非依存）---
 class FlatBufferReader {
-	constructor(arrayBuffer, baseOffset = 0) {
-		this.buf = arrayBuffer;
+	constructor(arrayBuffer) {
 		this.view = new DataView(arrayBuffer);
 		this.u8 = new Uint8Array(arrayBuffer);
-		this.base = baseOffset;
+		this.len = arrayBuffer.byteLength;
 	}
 
-	_offset(pos, fieldIdx) {
-		const vtableOffset = pos + this.view.getInt32(pos, true);
-		const vtableSize = this.view.getUint16(vtableOffset, true);
-		const fieldOffsetInVtable = 4 + fieldIdx * 2;
-		if (fieldOffsetInVtable >= vtableSize) return 0;
-		const offsetInObject = this.view.getUint16(vtableOffset + fieldOffsetInVtable, true);
-		return offsetInObject ? pos + offsetInObject : 0;
+	// uoffset を辿りテーブル/ベクター/文字列の実体位置へ
+	indirect(pos) { return pos + this.view.getInt32(pos, true); }
+
+	// テーブル tablePos のフィールド fieldIdx のデータ位置（無ければ 0）
+	_offset(tablePos, fieldIdx) {
+		const vtable = tablePos - this.view.getInt32(tablePos, true); // 標準: soffset を減算
+		const vtableSize = this.view.getUint16(vtable, true);
+		const vo = 4 + fieldIdx * 2;
+		if (vo >= vtableSize) return 0;
+		const off = this.view.getUint16(vtable + vo, true);
+		return off ? tablePos + off : 0;
 	}
 
 	readInt8(pos) { return this.view.getInt8(pos); }
-	readUint16(pos) { return this.view.getUint16(pos, true); }  // ← 追加
-	readInt32(pos) { return this.view.getInt32(pos, true); }
-	readUint32(pos) { return this.view.getUint32(pos, true); }  // ← 追加
-	readFloat64(pos) { return this.view.getFloat64(pos, true); }
+	readUint16(pos) { return this.view.getUint16(pos, true); }
 	readUint64(pos) {
 		const lo = this.view.getUint32(pos, true);
 		const hi = this.view.getUint32(pos + 4, true);
 		return hi * 0x100000000 + lo;
 	}
-	readString(pos) {
-		if (!pos) return "";
-		const strOffset = pos + this.view.getInt32(pos, true);
-		const len = this.view.getInt32(strOffset, true);
-		return new TextDecoder().decode(this.u8.subarray(strOffset + 4, strOffset + 4 + len));
+	readString(fieldPos) {
+		if (!fieldPos) return "";
+		const p = this.indirect(fieldPos);
+		const len = this.view.getInt32(p, true);
+		return new TextDecoder().decode(this.u8.subarray(p + 4, p + 4 + len));
 	}
 
-	readFloat64Vector(pos) {
-		if (!pos) return null;
-		const vecOffset = pos + this.view.getInt32(pos, true);
-		const len = this.view.getInt32(vecOffset, true);
-		return new Float64Array(this.buf, vecOffset + 4, len);
+	// 1要素ずつ DataView で読むためアライメント不問
+	readFloat64Vector(fieldPos) {
+		if (!fieldPos) return null;
+		const p = this.indirect(fieldPos);
+		const len = this.view.getInt32(p, true);
+		const a = new Float64Array(len);
+		for (let i = 0; i < len; i++) a[i] = this.view.getFloat64(p + 4 + i * 8, true);
+		return a;
 	}
-
-	readUint32Vector(pos) {
-		if (!pos) return null;
-		const vecOffset = pos + this.view.getInt32(pos, true);
-		const len = this.view.getInt32(vecOffset, true);
-		return new Uint32Array(this.buf, vecOffset + 4, len);
+	readUint32Vector(fieldPos) {
+		if (!fieldPos) return null;
+		const p = this.indirect(fieldPos);
+		const len = this.view.getInt32(p, true);
+		const a = new Uint32Array(len);
+		for (let i = 0; i < len; i++) a[i] = this.view.getUint32(p + 4 + i * 4, true);
+		return a;
 	}
-
-	readByteVector(pos) {
-		if (!pos) return null;
-		const vecOffset = pos + this.view.getInt32(pos, true);
-		const len = this.view.getInt32(vecOffset, true);
-		return this.u8.subarray(vecOffset + 4, vecOffset + 4 + len);
+	readByteVector(fieldPos) {
+		if (!fieldPos) return null;
+		const p = this.indirect(fieldPos);
+		const len = this.view.getInt32(p, true);
+		return this.u8.subarray(p + 4, p + 4 + len);
+	}
+	// uoffset ベクター: 各要素の実体（テーブル）位置の配列
+	offsetVector(fieldPos) {
+		if (!fieldPos) return [];
+		const p = this.indirect(fieldPos);
+		const len = this.view.getInt32(p, true);
+		const out = [];
+		for (let i = 0; i < len; i++) out.push(this.indirect(p + 4 + i * 4));
+		return out;
 	}
 }
 
@@ -96,35 +109,46 @@ function parseFGBProperties(u8, keys) {
 	return props;
 }
 
+// 公式 FlatGeobuf Geometry schema: ends=0, xy=1, type=6, parts=7
 function restoreGeometry(reader, geomPos) {
-	const typeIdx = reader.readInt8(reader._offset(geomPos, 4));
+	const typePos = reader._offset(geomPos, 6);
+	const typeIdx = typePos ? reader.readInt8(typePos) : 0;
 	const geomType = GeometryTypes[typeIdx] || "Unknown";
-	const xy = reader.readFloat64Vector(reader._offset(geomPos, 0));
-	const ends = reader.readUint32Vector(reader._offset(geomPos, 1));
 
-	if (!xy) return null;
-
-	if (geomType === "Point") {
-		return { type: "Point", coordinates: [xy[0], xy[1]] };
-	} else if (geomType === "LineString") {
-		const coords = [];
-		for (let i = 0; i < xy.length; i += 2) coords.push([xy[i], xy[i + 1]]);
-		return { type: "LineString", coordinates: coords };
-	} else if (geomType === "Polygon") {
-		const coords = [];
-		let ringStart = 0;
-		const endLoop = ends ? ends : [xy.length / 2];
-		endLoop.forEach(endIdx => {
-			const ring = [];
-			for (let i = ringStart * 2; i < endIdx * 2; i += 2) {
-				ring.push([xy[i], xy[i + 1]]);
-			}
-			coords.push(ring);
-			ringStart = endIdx;
-		});
-		return { type: "Polygon", coordinates: coords };
+	// 複合ジオメトリは parts（サブ Geometry のベクター）から復元
+	if (geomType === "MultiPolygon" || geomType === "GeometryCollection") {
+		const parts = reader.offsetVector(reader._offset(geomPos, 7))
+			.map(pos => restoreGeometry(reader, pos)).filter(Boolean);
+		return geomType === "MultiPolygon"
+			? { type: "MultiPolygon", coordinates: parts.map(p => p.coordinates) }
+			: { type: "GeometryCollection", geometries: parts };
 	}
 
+	const xy = reader.readFloat64Vector(reader._offset(geomPos, 1));
+	const ends = reader.readUint32Vector(reader._offset(geomPos, 0));
+	if (!xy) return null;
+
+	const pt = i => [xy[i * 2], xy[i * 2 + 1]];
+	const allPoints = () => { const c = []; for (let i = 0; i < xy.length / 2; i++) c.push(pt(i)); return c; };
+	const splitByEnds = () => {
+		const groups = [];
+		let start = 0;
+		(ends ? ends : [xy.length / 2]).forEach(end => {
+			const g = [];
+			for (let i = start; i < end; i++) g.push(pt(i));
+			groups.push(g);
+			start = end;
+		});
+		return groups;
+	};
+
+	switch (geomType) {
+		case "Point": return { type: "Point", coordinates: pt(0) };
+		case "MultiPoint": return { type: "MultiPoint", coordinates: allPoints() };
+		case "LineString": return { type: "LineString", coordinates: allPoints() };
+		case "MultiLineString": return { type: "MultiLineString", coordinates: splitByEnds() };
+		case "Polygon": return { type: "Polygon", coordinates: splitByEnds() };
+	}
 	return { type: "Unknown", coordinates: [] };
 }
 
@@ -145,27 +169,16 @@ onmessage = async (e) => {
 
 		// 2. Header のパース
 		const headerSize = view.getUint32(pos, true);
-		const headerRoot = pos + 4;
 		const reader = new FlatBufferReader(arrayBuffer);
+		const headerTable = reader.indirect(pos + 4); // ルート uoffset を辿りテーブルへ
 
 		// カラム（属性名）の抽出
-		const columnsPos = reader._offset(headerRoot, 7);
-		const keys = [];
-		if (columnsPos) {
-			const vecOffset = columnsPos + view.getInt32(columnsPos, true);
-			const vecLen = view.getInt32(vecOffset, true);
-			let colTablePos = vecOffset + 4;
-			for (let i = 0; i < vecLen; i++) {
-				const colRoot = colTablePos + i * 4;
-				const namePos = reader._offset(colRoot, 0);
-				keys.push(reader.readString(namePos));
-			}
-		}
+		const keys = reader.offsetVector(reader._offset(headerTable, 7))
+			.map(colTable => reader.readString(reader._offset(colTable, 0)));
 
 		// Header から featuresCount と indexNodeSize を取得
-		const featuresCountPos = reader._offset(headerRoot, 8); // features_count フィールド
-		const indexNodeSizePos = reader._offset(headerRoot, 9); // index_node_size フィールド
-
+		const featuresCountPos = reader._offset(headerTable, 8); // features_count
+		const indexNodeSizePos = reader._offset(headerTable, 9); // index_node_size
 		const featuresCount = featuresCountPos ? reader.readUint64(featuresCountPos) : 0;
 		const indexNodeSize = indexNodeSizePos ? reader.readUint16(indexNodeSizePos) : 0;
 
@@ -178,9 +191,9 @@ onmessage = async (e) => {
 			pos += indexByteSize;
 		}
 
-		// 4. GeoPBF インスタンスの用意
+		// 4. GeoPBF インスタンスの用意（keys は FGB カラム順を保持。setHead にはソート済みコピーを渡す）
 		const pbf = new GeoPBF({ name: file.name.replace(/\.[^\.]+$/, ""), precision: precision || 6 });
-		pbf.setHead(keys.sort());
+		pbf.setHead([...keys].sort());
 
 		// 5. Features の連続デコード
 		pbf.setBody(() => {
@@ -188,12 +201,12 @@ onmessage = async (e) => {
 				const featureSize = view.getUint32(pos, true);
 				if (featureSize === 0) break; // 終端ガード
 
-				const featRoot = pos + 4;
-				const geomPos = reader._offset(featRoot, 0);
-				const propsPos = reader._offset(featRoot, 1);
+				const featTable = reader.indirect(pos + 4); // ルート uoffset → Feature テーブル
+				const geomField = reader._offset(featTable, 0);
+				const propsField = reader._offset(featTable, 1);
 
-				const geometry = geomPos ? restoreGeometry(reader, geomPos) : null;
-				const propBytes = propsPos ? reader.readByteVector(propsPos) : null;
+				const geometry = geomField ? restoreGeometry(reader, reader.indirect(geomField)) : null;
+				const propBytes = propsField ? reader.readByteVector(propsField) : null;
 				const properties = propBytes ? parseFGBProperties(propBytes, keys) : {};
 
 				if (geometry) {

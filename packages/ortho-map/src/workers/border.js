@@ -33,7 +33,7 @@ function init(data) {
 }
 async function set(data) {
 	if (data.data != "options") return postMessage({ type: data.type, action: "failed" });
-	if (data.rawBuffers && !jsons) jsons = await Promise.all(data.rawBuffers.map(async t=>(await geopbf(t,{nogint:true})).geojson));
+	if (data.rawBuffers && !jsons) jsons = await Promise.all(data.rawBuffers.map(async t=>(await geopbf(t,{gint:false})).geojson));
 	const opts = data.prop || {};
 	const lang = opts.lang || "en";
 	for (let i in accessories) {

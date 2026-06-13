@@ -40,7 +40,7 @@ class PBFIO {
             const blob = await gunzip(await res.blob());
             const pbf = await new GeoPBF().set(await blob.arrayBuffer());
             pbf._etag = ETag;
-            await pbf.gint({ nogint: opts.nogint });
+            await pbf.gint({ gint: opts.gint });
             await this.put(pbf);
             return pbf;
         } catch (e) {
