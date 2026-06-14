@@ -1,6 +1,15 @@
 import { GeoPBF } from "../pbf-base.js";
 import { gint } from "./gint.js";
 
+export function contain(self, lng, lat) {
+	if (!self.unPackGint) return null;
+	const { arcBuffer, arcMeta, polygon } = self.unPackGint;
+	if (!arcBuffer || !arcMeta || !polygon) return null;
+	const mix = Math.round((lng + 180) * gint.SCALE_E);
+	const miy = Math.round((lat + 90) * gint.SCALE_E);
+	return findPolygon(arcBuffer, arcMeta, polygon, mix, miy);
+}
+
 export function identify(self, mx, my, proj, options = {}) {
 	const geo = proj.invert([mx, my]);
 	if (!geo) return null;
