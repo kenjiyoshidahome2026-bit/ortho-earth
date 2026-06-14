@@ -45,8 +45,10 @@ class GeoPBF {
         } catch (e) { }
     }
     async set(q) {
-        if (q instanceof ArrayBuffer || ArrayBuffer.isView(q)) this.pbf = new Pbf(q);
-        else if (isSimpleObject(q)) {
+        if (q instanceof ArrayBuffer || ArrayBuffer.isView(q)) {
+            if (GeoPBF._workerUrl) return _setViaWorker(this, q instanceof ArrayBuffer ? q : q.buffer.slice(q.byteOffset, q.byteOffset + q.byteLength));
+            this.pbf = new Pbf(q);
+        } else if (isSimpleObject(q)) {
             await loadPolygonClipping();
             const [keys, buffs] = this.noprop ? [[], []] : await makeKeys(q.features.map(t => t.properties));
             this.setHead(keys, buffs, { name: q.name }).setBody(q).close();
@@ -362,4 +364,30 @@ function readGeometry(self, n, m) {
 }
 
 GeoPBF.setProperty({ TAGS, makeKeys, dataType, dataTypeNames, geometryTypes, geometryMap });
+
+function _setViaWorker(self, buf) {
+    return new Promise((resolve, reject) => {
+        const w = new Worker(GeoPBF._workerUrl, { type: "module" });
+        w.onmessage = ({ data: r }) => {
+            w.terminate();
+            self.init();
+            self.pbf          = new Pbf(r.buf);
+            self.fmap         = r.fmap;
+            self.props        = r.props;
+            self.keys         = r.keys;
+            self.bufs         = r.bufs;
+            self._name        = r._name;
+            self._description = r._description;
+            self._license     = r._license;
+            self._attribution = r._attribution;
+            self.e            = Math.pow(10, self._precision = r._precision);
+            self._bodyPos     = r._bodyPos;
+            self.end          = r.end;
+            resolve(self);
+        };
+        w.onerror = e => { w.terminate(); reject(e); };
+        w.postMessage({ buf }, [buf]);
+    });
+}
+
 export { GeoPBF };
