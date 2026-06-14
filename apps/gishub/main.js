@@ -193,26 +193,27 @@ async function execView(pbf) {
 
     if (_viewLayer) { _viewLayer.destroy(); _viewLayer = null; }
 
-    // bbox ポリゴンで flyToFeature
     const [w, s, e, n] = pbf.bbox;
-    const bboxFeature = { type: "Feature", geometry: {
+    mapInst.flyToFeature({ type: "Feature", geometry: {
         type: "Polygon", coordinates: [[[w,s],[e,s],[e,n],[w,n],[w,s]]]
-    }, properties: {} };
-    mapInst.flyToFeature(bboxFeature);
+    }, properties: {} });
 
-    // ジオメトリタイプ別スタイル
-    const geomType = pbf.fmap[0]?.[2] ?? 4;
-    const style = geomType < 2
-        ? { fill: "#FF6B35", stroke: "#fff", size: 5 }
-        : geomType < 4
-        ? { stroke: "#00B4D8", width: 1.5 }
-        : { fill: "rgba(255,107,53,0.25)", stroke: "#FF6B35", width: 0.8 };
-
-    // GeoJSON 変換してレイヤーセット
-    const features = [];
-    pbf.forEach(n => features.push(pbf.getFeature(n)));
-    _viewLayer = mapInst.createLayer({ name: "GISHUB" });
-    _viewLayer.set("geojson", { type: "FeatureCollection", features }, style);
+    const { arcBuffer, arcMeta, polygon } = pbf.unPackGint || {};
+    if (polygon?.length > 0) {
+        _viewLayer = await mapInst.createRemoteLayer({ name: "GISHUB", type: "gint" });
+        _viewLayer.set("gint", { arcBuffer, arcMeta, polygon });
+    } else {
+        const geomType = pbf.fmap[0]?.[2] ?? 4;
+        const style = geomType < 2
+            ? { fill: "#FF6B35", stroke: "#fff", size: 5 }
+            : geomType < 4
+            ? { stroke: "#00B4D8", width: 1.5 }
+            : { fill: "rgba(255,107,53,0.25)", stroke: "#FF6B35", width: 0.8 };
+        const features = [];
+        pbf.forEach(n => features.push(pbf.getFeature(n)));
+        _viewLayer = mapInst.createLayer({ name: "GISHUB" });
+        _viewLayer.set("geojson", { type: "FeatureCollection", features }, style);
+    }
 }
 
 function exitView() {
