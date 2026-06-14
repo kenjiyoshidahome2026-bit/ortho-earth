@@ -1,295 +1,334 @@
 import { geoOrthographic } from "common";
-const { PI, log2, max, sin, cos, round } = Math;
-let gl, width, height, zoom;
+const { PI, round } = Math;
+let gl, dpr, width, height;
 let proj = geoOrthographic();
+let ringBuckets = [];   // [{ vao, count, maxPV }]
+let mortonPoolTex, stitchedIboTex;
+let program;
+let diagFirstLng = NaN, diagFirstLat = NaN, drawCount = 0;
 
-// WebGLリソース群
-let sharedVAO, maxPolyVertices = 2000, totalPolygons = 0;
+const BUCKET_THRESHOLDS = [16, 64, 256, 1024, 4096, 8192, 16384, 32768]; // arcLen 上限
 
-onmessage = async e => {
-	const data = e.data;
-	if (data.type === 'init') await init(data);
-	if (data.type === 'resize') resize(data);
-	if (data.type === 'drawing') drawing(data);
-};
+const gintVs = `#version 300 es
+precision highp float;
+precision highp int;
 
-async function init(data) {
-	gl = initWebGL(data.offscreen.getContext("webgl2"), data.dpr);
-	await loadGintBuffers();
-	postMessage({ action: 'done', type: 'init' });
+layout(location=0) in uint a_arc_offset;
+layout(location=1) in uint a_arc_len;
+
+uniform highp usampler2D u_ibo;
+uniform highp usampler2D u_morton;
+uniform int  u_tex_width;
+uniform mat2 u_jacobian;
+uniform uvec2 u_center_int;
+uniform vec2 u_center_px;
+uniform vec2 u_viewport;
+uniform float u_globe_radius;
+
+uint compact(uint m) {
+    m &= 0x55555555u;
+    m = (m|(m>>1u))&0x33333333u;
+    m = (m|(m>>2u))&0x0F0F0F0Fu;
+    m = (m|(m>>4u))&0x00FF00FFu;
+    return (m|(m>>8u))&0x0000FFFFu;
 }
 
+void main() {
+    vec2 px;
+    if (uint(gl_VertexID) == 0u) {
+        px = u_center_px;
+    } else {
+        uint safe = min(uint(gl_VertexID) - 1u, a_arc_len - 1u);
+        int iboIdx = int(a_arc_offset + safe);
+        uint ptr = texelFetch(u_ibo,    ivec2(iboIdx % u_tex_width, iboIdx / u_tex_width), 0).r;
+        int  mIdx = int(ptr);
+        uvec2 m64 = texelFetch(u_morton, ivec2(mIdx  % u_tex_width, mIdx  / u_tex_width), 0).rg;
+        uint lo = m64.x, hi = m64.y;
+        if ((hi >> 31u) == 0u) lo &= 0xFFFFFFC0u;
+        uint mhi = hi & 0x7FFFFFFFu;
+        uint ux = (compact(mhi)     << 16u) | compact(lo);
+        uint uy = (compact(mhi>>1u) << 16u) | compact(lo>>1u);
+        // unsigned差分 → 符号付き再解釈（差が±2.147e9未満なら正確）
+        int dix = int(ux - u_center_int.x);
+        int diy = int(uy - u_center_int.y);
+        vec2 dDeg = vec2(float(dix), float(diy)) * 1e-7;
+        px = u_center_px + u_jacobian * dDeg;
 
-// src/workers/gint.js の loadGintBuffers() を完全実装に格上げ
+        // 裏面カリング: 地球半径より遠い頂点はゼロ面積に折り畳む
+        if (length(px - u_center_px) > u_globe_radius) px = u_center_px;
+    }
 
-let mortonPoolTex, stitchedIboTex; // バッファテクスチャの参照保持
+    vec2 ndc = px / u_viewport * 2.0 - 1.0;
+    gl_Position = vec4(ndc.x, -ndc.y, 0., 1.);
+}`;
 
-async function loadGintBuffers(pbfPolygonData) {
-	// メメインスレッドの GeoPBF から引き渡されたトポロジーオブジェクト
-	// pbfPolygonData = { buffer, meta, mlen, count }
-	const { buffer, meta, mlen, count } = pbfPolygonData;
+const gintFs = `#version 300 es
+precision mediump float;
+uniform vec4 u_color;
+out vec4 fragColor;
+void main() { fragColor = u_color; }`;
 
-	sharedVAO = gl.createVertexArray();
-	gl.bindVertexArray(sharedVAO);
+onmessage = e => {
+    const { type, ...data } = e.data;
+    if (type === 'init')    init(data);
+    else if (type === 'set')     set(data);
+    else if (type === 'resize')  resize(data);
+    else if (type === 'drawing') drawing(data);
+};
 
-	// =================================================================
-	// 📊 Buffer 0: インスタンス属性（ポリゴン単位で1回進む / Divisor=1）
-	// =================================================================
-	// 各ポリゴンが「IBO内のどこから」「何頂点分」描画されるかのメタデータ
-	const polyMeta = new Uint32Array(count * 3); // [offset, len, poly_id]
+function init(data) {
+    dpr = data.dpr;
+    const ctx = data.offscreen.getContext("webgl2", { stencil: true });
+    if (ctx) console.log('[gint] stencil:', ctx.getParameter(ctx.STENCIL_BITS),
+                          'maxTex:', ctx.getParameter(ctx.MAX_TEXTURE_SIZE));
+    gl = ctx ? initWebGL(ctx) : null;
+    postMessage({ action: 'done', type: 'init', ctx: gl ? 'WebGL2RenderingContext' : null });
+}
 
-	let currentArcOffset = 0;
-	const indicesStream = [];
-
-	for (let i = 0; i < count; i++) {
-		const off = meta[i * mlen];     // 全体バッファにおけるリングの開始位置
-		const len = meta[i * mlen + 1]; // このリングの持つ頂点数（LOD前の生数）
-
-		if (len < 3) continue;
-
-		// 🌟 ここで「LOD対応の三角形ファン（Fan）ストリーム」を切り出す
-		// 頂点シェーダー側が gl.TRIANGLE_FAN でインスタンス描画するため、
-		// IBOストリームには「元バッファの絶対インデックス」をそのまま順番通りに敷き詰める
-		polyMeta[totalPolygons * 3 + 0] = currentArcOffset; // a_arc_offset
-		polyMeta[totalPolygons * 3 + 1] = len;             // a_arc_len
-		polyMeta[totalPolygons * 3 + 2] = i;               // a_poly_id (属性テーブルの行番号)
-
-		// このポリゴンを構成するインデックス（絶対位置）をストリームにプッシュ
-		for (let k = 0; k < len; k++) {
-			indicesStream.push(off + k);
-		}
-
-		currentArcOffset += len;
-		totalPolygons++;
-	}
-
-	// GPUへインスタンスメタデータを転送
-	const metaBuffer = gl.createBuffer();
-	gl.bindBuffer(gl.ARRAY_BUFFER, metaBuffer);
-	gl.bufferData(gl.ARRAY_BUFFER, polyMeta.subarray(0, totalPolygons * 3), gl.STATIC_DRAW);
-
-	// a_arc_offset (Location 1)
-	gl.enableVertexAttribArray(1);
-	gl.vertexAttribPointer(1, 1, gl.UNSIGNED_INT, false, 12, 0);
-	gl.vertexAttribDivisor(1, 1); // インスタンスごとに1進める
-
-	// a_arc_len (Location 2)
-	gl.enableVertexAttribArray(2);
-	gl.vertexAttribPointer(2, 1, gl.UNSIGNED_INT, false, 12, 4);
-	gl.vertexAttribDivisor(2, 1);
-
-	// a_arc_id (Location 3)
-	gl.enableVertexAttribArray(3);
-	gl.vertexAttribPointer(3, 1, gl.UNSIGNED_INT, false, 12, 8);
-	gl.vertexAttribDivisor(3, 1);
-
-	// =================================================================
-	// 🧵 Texture Buffer 0: 接続済み IBO (SamplerBuffer)
-	// =================================================================
-	const iboBuffer = gl.createBuffer();
-	gl.bindBuffer(gl.TEXTURE_BUFFER, iboBuffer);
-	gl.bufferData(gl.TEXTURE_BUFFER, new Uint32Array(indicesStream), gl.STATIC_DRAW);
-
-	stitchedIboTex = gl.createTexture();
-	gl.bindTexture(gl.TEXTURE_BUFFER, stitchedIboTex);
-	gl.texBuffer(gl.TEXTURE_BUFFER, gl.R32UI, iboBuffer); // 32bit型整数ストリームとして宣言
-
-	// =================================================================
-	// 💎 Texture Buffer 1: Morton Pool (BigUint64Array のダイレクト転送)
-	// =================================================================
-	// GeoPBFから引き抜いた 64bit整数の生配列を、そのままVRAMへ滑り込ませる
-	const mortonBuffer = gl.createBuffer();
-	gl.bindBuffer(gl.TEXTURE_BUFFER, mortonBuffer);
-	gl.bufferData(gl.TEXTURE_BUFFER, buffer, gl.STATIC_DRAW); // CPUでのループ展開は完全ゼロ！
-
-	mortonPoolTex = gl.createTexture();
-	gl.bindTexture(gl.TEXTURE_BUFFER, mortonPoolTex);
-	gl.texBuffer(gl.TEXTURE_BUFFER, gl.RG32UI, mortonBuffer); // 64bitを「32bit×2(RG)」としてシェーダーへマッピング！
-
-	gl.bindVertexArray(null);
+function set(data) {
+    if (data.cmd === 'gint' && data.data?.polygon?.length) {
+        const { arcBuffer, arcMeta, polygon } = data.data;
+        loadGintBuffers(arcBuffer, arcMeta, polygon);
+    }
+    postMessage({ action: 'done', type: 'set', cmd: data.cmd });
 }
 
 function resize(data) {
-	gl.resizeBySize(width = data.width, height = data.height);
-	proj.fitExtent([[1, 1], [width - 1, height - 1]], { type: "Sphere" });
+    if (!gl) return;
+    gl.resizeBySize(width = data.width, height = data.height);
+    proj.fitExtent([[1,1],[width-1,height-1]], {type:"Sphere"});
 }
 
-// src/workers/gint.js の drawing(data) の完全統合版
 function drawing(data) {
-	if (!totalPolygons) return; // データロード前ならスキップ
+    if (!gl || !ringBuckets.length) return;
+    proj.rotate(data.rotate).scale(data.scale);
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.STENCIL_BUFFER_BIT);
 
-	proj.rotate(data.rotate).scale(data.scale);
-	zoom = log2(data.scale * PI * 2 / 256);
+    const jacob = updateJacobian(proj);
+    if (!drawing._logged) { drawing._logged = true;
+        const c = jacob.centerInt;
+        console.log(`[gint] drawing: rotate=${JSON.stringify(data.rotate)} scale=${data.scale.toFixed(1)}`);
+        console.log(`[gint] centerInt=[${c[0]}, ${c[1]}]  → lng=${(c[0]/1e7-180).toFixed(3)}, lat=${(c[1]/1e7-90).toFixed(3)}`);
+        console.log(`[gint] jacobian=[${Array.from(jacob.matrix).map(v=>v.toFixed(3)).join(',')}]`);
+    }
+    gl.useProgram(program);
+    gl.uniformMatrix2fv(gl.jacobian_loc,     false, jacob.matrix);
+    gl.uniform2ui(gl.center_int_loc,         jacob.centerInt[0], jacob.centerInt[1]);
+    gl.uniform1f(gl.globe_radius_loc,        data.scale);
 
-	gl.clear(gl.COLOR_BUFFER_BIT);
-	if (zoom < 5) return; // ズームが引きすぎている時はLOD制御のため非表示
+    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, stitchedIboTex);
+    gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, mortonPoolTex);
 
-	// ヤコビアンマトリクス（歪み・回転・スケールの統合演算）の適用
-	const jacob = updateJacobian(proj, width, height);
-	gl.useProgram(gl.programInstance); // 有効化
+    const draw = () => {
+        for (const b of ringBuckets) {
+            gl.bindVertexArray(b.vao);
+            gl.drawArraysInstanced(gl.TRIANGLE_FAN, 0, b.maxPV, b.count);
+        }
+    };
 
-	gl.uniformMatrix2fv(gl.jacobian_loc, false, jacob.matrix);
-	gl.uniform2iv(gl.center_int_loc, jacob.centerInt);
+    // PASS 1: 偶奇ステンシル
+    gl.enable(gl.STENCIL_TEST);
+    gl.colorMask(false, false, false, false);
+    gl.stencilMask(0xFF);
+    gl.stencilFunc(gl.ALWAYS, 0, 0xFF);
+    gl.stencilOp(gl.KEEP, gl.KEEP, gl.INVERT);
+    draw();
 
-	// 🌟 現在のズーム（0.0 〜 22.0）に応じて、シェーダー内の1px-LOD閾値（0 〜 63）を動的に叩き込む！
-	const SWITCH_ZOOM = 5.0;
-	const lodThresh = max(0, 63 - (zoom - SWITCH_ZOOM) * 8); // ズームインするほど閾値が下がり、細かい頂点が出現
-	gl.uniform1f(gl.lod_thresh_loc, lodThresh);
+    // PASS 2: stencil≠0 を着色してクリア
+    gl.colorMask(true, true, true, true);
+    gl.stencilFunc(gl.NOTEQUAL, 0, 0xFF);
+    gl.stencilOp(gl.ZERO, gl.ZERO, gl.ZERO);
+    draw();
 
-	// 🌟 テクスチャバッファのユニット結合（0番と1番を完全確保）
-	gl.activeTexture(gl.TEXTURE0);
-	gl.bindTexture(gl.TEXTURE_BUFFER, stitchedIboTex); // u_stitched_ibo
-
-	gl.activeTexture(gl.TEXTURE1);
-	gl.bindTexture(gl.TEXTURE_BUFFER, mortonPoolTex);   // u_morton_pool
-
-	// 🚀 一撃インスタンスドロー（Single Dispatch !!）
-	// ループも回さず、数百万の三角形ファンがGPUのコアに直列分散されて一瞬で描画される
-	gl.bindVertexArray(sharedVAO);
-	gl.drawArraysInstanced(gl.TRIANGLE_FAN, 0, maxPolyVertices, totalPolygons);
-	gl.bindVertexArray(null);
-}
-////------------------------------------------------------------------------------------
-function initWebGL(gl, dpr) {
-	export const gintVs = `#version 300 es
-		precision highp float;
-
-		in uvec2 a_gint64; // [low32, high32] - 8byte Morton
-
-		// --- ポリゴン単位のインスタンス属性 (Divisor=1) ---
-		in uint a_arc_offset; // IBO内の参照開始オフセット
-		in uint a_arc_len;    // 頂点数
-		in uint a_poly_id;    // 属性テーブル用ID
-
-		uniform usamplerBuffer u_stitched_ibo; // 接続済みインデックスストリーム
-		uniform usamplerBuffer u_morton_pool;  // 全ARC共有Mortonプール
-
-		uniform mat2 u_jacobian;    // 回転・スケール・歪みを統合した行列
-		uniform ivec2 u_center_int; // 現在の中心点の整数Morton (ix, iy)
-		uniform vec2 u_center_px;   // 画面中心ピクセル (width/2, height/2)
-		uniform vec2 u_viewport;    // (width, height)
-		uniform float u_lod_thresh; // 1px-LOD用の閾値スコア (0-63)
-
-		flat out uint v_id;
-
-		uint compact16(uint m) {
-			m &= 0x55555555u;
-			m = (m | (m >> 1)) & 0x33333333u;
-			m = (m | (m >> 2)) & 0x0F0F0F0Fu;
-			m = (m | (m >> 4)) & 0x00FF00FFu;
-			m = (m | (m >> 8)) & 0x0000FFFFu;
-			return m & 0xFFFFu;
-		}
-
-		void main() {
-			v_id = a_poly_id;
-
-			// 1. 頂点の有効性判定 (ifなし)
-			// 自身のVertexIDがポリゴンの長さを超えている場合は潰す
-			float is_within_arc = step(float(gl_VertexID), float(a_arc_len) - 1.0);
-
-			// 2. IBO経由で実際のMortonポインタを取得
-			uint morton_ptr = texelFetch(u_stitched_ibo, int(a_arc_offset + uint(gl_VertexID))).r;
-
-			// 3. Mortonデータの取得とUnpack
-			uvec2 gint64 = texelFetch(u_morton_pool, int(morton_ptr)).rg;
-			uint low32 = gint64.x;
-			uint high32 = gint64.y;
-
-			// 4. 重み抽出とLOD判定 (ifなし)
-			uint is_l1 = high32 >> 31u;
-			uint weight = (is_l1 * 63u) + ((1u - is_l1) * (low32 & 0x3Fu));
-			float is_visible_lod = step(u_lod_thresh, float(weight));
-
-			// 5. Morton座標の復元
-			uint m_low = low32 & 0xFFFFFFC0u;
-			uint m_high = high32 & 0x7FFFFFFFu;
-			int ix = int((compact16(m_high) << 16) | compact16(m_low));
-			int iy = int((compact16(m_high >> 1) << 16) | compact16(m_low >> 1));
-
-			// 6. 整数空間での差分算出（Jitterの物理的消滅）と度数変換
-			vec2 delta_deg = vec2(ix - u_center_int.x, iy - u_center_int.y) * 1e-7;
-
-			// 7. ヤコビアン適用（歪み・スケール・回転を全適用）
-			vec2 pixel_delta = u_jacobian * delta_deg;
-			vec2 pixel_pos = u_center_px + pixel_delta;
-
-			// 8. NDC変換と最終決定
-			// 無効な頂点はすべて (0,0) に収束させ、面積ゼロの三角形として消去
-			float total_visibility = is_within_arc * is_visible_lod;
-			vec2 ndc = (pixel_pos / u_viewport) * 2.0 - 1.0;
-			
-			gl_Position = vec4(ndc * vec2(1.0, -1.0), 0.0, 1.0) * total_visibility;
-		}`;
-
-	const gintFs = `#version 300 es
-		precision highp float;
-		flat in uint v_id;
-		out vec4 fragColor;
-
-		// 属性テーブル (ID -> Color)
-		uniform sampler2D u_attr_table;
-
-		void main() {
-			// CSV行番号に基づき属性を一発フェッチ
-			fragColor = texelFetch(u_attr_table, ivec2(v_id, 0), 0);
-		}`;
-	// プログラム生成
-	const vs = gl.createShader(gl.VERTEX_SHADER); gl.shaderSource(vs, gintVs); gl.compileShader(vs);
-	const fs = gl.createShader(gl.FRAGMENT_SHADER); gl.shaderSource(fs, gintFs); gl.compileShader(fs);
-
-	const program = gl.createProgram();
-	gl.attachShader(program, vs); gl.attachShader(program, fs);
-	gl.linkProgram(program);
-	gl.useProgram(program);
-
-	// Uniformロケーション取得
-	gl.jacobian_loc = gl.getUniformLocation(program, 'u_jacobian');
-	gl.center_int_loc = gl.getUniformLocation(program, 'u_center_int');
-	gl.center_px_loc = gl.getUniformLocation(program, 'u_center_px');
-	gl.viewport_loc = gl.getUniformLocation(program, 'u_viewport');
-	gl.lod_thresh_loc = gl.getUniformLocation(program, 'u_lod_thresh');
-
-	// テクスチャユニット設定
-	gl.uniform1i(gl.getUniformLocation(program, 'u_stitched_ibo'), 0);
-	gl.uniform1i(gl.getUniformLocation(program, 'u_morton_pool'), 1);
-	gl.uniform1i(gl.getUniformLocation(program, 'u_attr_table'), 2);
-	gl.applyProgram = () => gl.useProgram(program);
-	gl.resizeBySize = (w, h) => {
-		gl.viewport(0, 0, gl.canvas.width = w * dpr, gl.canvas.height = h * dpr);
-		gl.useProgram(program);
-		gl.uniform2f(gl.viewport_loc, gl.canvas.width, gl.canvas.height);
-		gl.uniform2fv(gl.center_px_loc, [width / 2, height / 2]);
-	};
-	return gl;
+    gl.disable(gl.STENCIL_TEST);
+    gl.bindVertexArray(null);
 }
 
-function updateJacobian(width, height) {
-	const rad = PI / 180;
-	const lat = -rotate[1];
-	const gamma = rotate[2];
-	const cosPhi = cos(lat * rad);
-	const cosG = cos(gamma * rad);
-	const sinG = sin(gamma * rad);
-	const s = scale * rad;
+function loadGintBuffers(arcBuffer, arcMeta, polygon) {
+    // リング収集
+    const allRings = [];   // { off, arcLen }
+    const indicesStream = [];
+    let iboOffset = 0;
 
-	// 列優先 (Column-major) の mat2 [j11, j21, j12, j22]
-	// X軸(経度)の寄与: cos(phi)で縮み、gammaで回る
-	const j11 = s * cosPhi * cosG;
-	const j21 = -s * cosPhi * sinG; // Y-downスクリーンを考慮
+    // polygon 構造診断（初回のみ）
+    if (polygon.length) {
+        const p0comp = polygon[0]?.[1];
+        const p0part = p0comp?.[0];
+        const p0ring = p0part?.[0];
+        const p0arc  = p0ring?.[0];  // should be integer arc index
+        console.log(`[gint] polygon[0]: id=${polygon[0][0]}, components.len=${p0comp?.length}, parts[0].len=${p0part?.length}, rings[0].len=${p0ring?.length}, firstArcIdx=${p0arc}`);
+        // arcMeta bbox for first arc
+        if (typeof p0arc === 'number') {
+            const aid = p0arc < 0 ? ~p0arc : p0arc;
+            const off = arcMeta[aid*8], alen = arcMeta[aid*8+1];
+            const xmin = arcMeta[aid*8+4], ymin = arcMeta[aid*8+5];
+            const xmax = arcMeta[aid*8+6], ymax = arcMeta[aid*8+7];
+            console.log(`[gint] firstArc[aid=${aid}]: off=${off}, len=${alen}, bbox lng=[${(xmin/1e7-180).toFixed(2)},${(xmax/1e7-180).toFixed(2)}] lat=[${(ymin/1e7-90).toFixed(2)},${(ymax/1e7-90).toFixed(2)}]`);
+        }
+    }
 
-	// Y軸(緯度)の寄与: gammaで回り、Y軸の向きを反転
-	const j12 = s * sinG;
-	const j22 = s * cosG;
+    for (const [, components] of polygon) {
+        for (const rings of components) {
+            for (const ring of rings) {
+                if (!ring?.length) continue;
+                const start = iboOffset;
+                let len = 0;
+                for (const rawIdx of ring) {
+                    const aid = rawIdx < 0 ? ~rawIdx : rawIdx;
+                    const off  = arcMeta[aid * 8];
+                    const alen = arcMeta[aid * 8 + 1];
+                    if (!alen) continue;
+                    for (let k = 0; k < alen; k++) indicesStream.push(off + k);
+                    len += alen;
+                }
+                if (len < 3) continue;
+                indicesStream.push(indicesStream[start]); // 閉じる
+                const arcLen = len + 1;
+                allRings.push({ off: start, arcLen });
+                iboOffset += arcLen;
+            }
+        }
+    }
 
-	// 現在の画面中心に対応する Morton 整数値も計算
-	const centerLng = -rotate[0];
-	const centerLat = -rotate[1];
-	const centerIntX = round((centerLng + 180) * 1e7);
-	const centerIntY = round((centerLat + 90) * 1e7);
+    if (!allRings.length) { console.warn('[gint] no rings'); return; }
 
-	return {
-		matrix: new Float32Array([j11, j21, j12, j22]),
-		centerInt: [centerIntX, centerIntY],
-	};
+    // CPU側で最初の頂点をデコードして座標確認
+    {
+        const firstPtr = indicesStream[0];
+        const m = arcBuffer[firstPtr];
+        const lo32 = Number(m & 0xFFFFFFFFn);
+        const hi32 = Number(m >> 32n);
+        const mhi = hi32 & 0x7FFFFFFF;
+        const cpt = n => { n&=0x55555555; n=(n|(n>>1))&0x33333333; n=(n|(n>>2))&0x0F0F0F0F; n=(n|(n>>4))&0x00FF00FF; return (n|(n>>8))&0x0000FFFF; };
+        const ux = (((cpt(mhi)<<16)|cpt(lo32))>>>0);
+        const uy = (((cpt(mhi>>1)<<16)|cpt(lo32>>1))>>>0);
+        console.log(`[gint] first vertex: lng=${(ux/1e7-180).toFixed(3)}, lat=${(uy/1e7-90).toFixed(3)}  rings=${allRings.length} maxArcLen=${allRings.reduce((m,r)=>Math.max(m,r.arcLen),0)}`);
+    }
+
+    // サイズバケット分割: 最長リングに全リングを揃えず、グループ内最大に合わせる
+    const bucketGroups = [...BUCKET_THRESHOLDS.map(() => []), []];
+    for (const r of allRings) {
+        let placed = false;
+        for (let b = 0; b < BUCKET_THRESHOLDS.length; b++) {
+            if (r.arcLen <= BUCKET_THRESHOLDS[b]) { bucketGroups[b].push(r); placed = true; break; }
+        }
+        if (!placed) bucketGroups[BUCKET_THRESHOLDS.length].push(r);
+    }
+
+    const maxTex = gl.getParameter(gl.MAX_TEXTURE_SIZE);
+    const TEX_W  = Math.min(4096, maxTex);
+
+    // IBO テクスチャ (R32UI)
+    const iboData = new Uint32Array(indicesStream);
+    const iboH    = Math.ceil(iboData.length / TEX_W);
+    const iboPad  = new Uint32Array(TEX_W * iboH);
+    iboPad.set(iboData);
+    stitchedIboTex = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, stitchedIboTex);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.R32UI, TEX_W, iboH, 0, gl.RED_INTEGER, gl.UNSIGNED_INT, iboPad);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+
+    // Morton テクスチャ (RG32UI)
+    const arcU32 = new Uint32Array(arcBuffer.buffer, arcBuffer.byteOffset, arcBuffer.byteLength / 4);
+    const mortN  = arcBuffer.length;
+    const mortH  = Math.ceil(mortN / TEX_W);
+    const mortPad = new Uint32Array(TEX_W * mortH * 2);
+    mortPad.set(arcU32);
+    mortonPoolTex = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, mortonPoolTex);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RG32UI, TEX_W, mortH, 0, gl.RG_INTEGER, gl.UNSIGNED_INT, mortPad);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+
+    gl.useProgram(program);
+    gl.uniform1i(gl.tex_width_loc, TEX_W);
+
+    // VAO をバケットごとに生成
+    ringBuckets = [];
+    let totalV = 0;
+    for (const group of bucketGroups) {
+        if (!group.length) continue;
+        const maxArcLen = group.reduce((m, r) => Math.max(m, r.arcLen), 0);
+        const maxPV = maxArcLen + 1; // vid=0 が扇の固定原点
+        const meta  = new Uint32Array(group.length * 2);
+        group.forEach(({ off, arcLen }, i) => { meta[i*2] = off; meta[i*2+1] = arcLen; });
+        const vao = gl.createVertexArray();
+        gl.bindVertexArray(vao);
+        const buf = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+        gl.bufferData(gl.ARRAY_BUFFER, meta, gl.STATIC_DRAW);
+        // location 0: a_arc_offset, location 1: a_arc_len (stride=8, 各4byte)
+        gl.enableVertexAttribArray(0); gl.vertexAttribIPointer(0, 1, gl.UNSIGNED_INT, 8, 0); gl.vertexAttribDivisor(0, 1);
+        gl.enableVertexAttribArray(1); gl.vertexAttribIPointer(1, 1, gl.UNSIGNED_INT, 8, 4); gl.vertexAttribDivisor(1, 1);
+        gl.bindVertexArray(null);
+        ringBuckets.push({ vao, count: group.length, maxPV });
+        totalV += maxPV * group.length;
+    }
+
+    const summary = ringBuckets.map(b => `${b.count}×${b.maxPV}`).join(', ');
+    console.log(`[gint] buckets=[${summary}] totalRings=${allRings.length} totalV=${totalV} mortN=${mortN}`);
+}
+
+function initWebGL(ctx) {
+    ctx.clearColor(0, 0, 0, 0);
+    ctx.enable(ctx.BLEND);
+    ctx.blendFunc(ctx.SRC_ALPHA, ctx.ONE_MINUS_SRC_ALPHA);
+
+    const compile = (type, src) => {
+        const s = ctx.createShader(type);
+        ctx.shaderSource(s, src); ctx.compileShader(s);
+        if (!ctx.getShaderParameter(s, ctx.COMPILE_STATUS))
+            console.error('[gint] shader:', ctx.getShaderInfoLog(s));
+        return s;
+    };
+    program = ctx.createProgram();
+    ctx.attachShader(program, compile(ctx.VERTEX_SHADER, gintVs));
+    ctx.attachShader(program, compile(ctx.FRAGMENT_SHADER, gintFs));
+    ctx.linkProgram(program);
+    if (!ctx.getProgramParameter(program, ctx.LINK_STATUS))
+        console.error('[gint] link:', ctx.getProgramInfoLog(program));
+    ctx.useProgram(program);
+
+    ctx.jacobian_loc     = ctx.getUniformLocation(program, 'u_jacobian');
+    ctx.center_int_loc   = ctx.getUniformLocation(program, 'u_center_int');
+    ctx.center_px_loc    = ctx.getUniformLocation(program, 'u_center_px');
+    ctx.viewport_loc     = ctx.getUniformLocation(program, 'u_viewport');
+    ctx.color_loc        = ctx.getUniformLocation(program, 'u_color');
+    ctx.tex_width_loc    = ctx.getUniformLocation(program, 'u_tex_width');
+    ctx.globe_radius_loc = ctx.getUniformLocation(program, 'u_globe_radius');
+    ctx.uniform1i(ctx.getUniformLocation(program, 'u_ibo'),    0);
+    ctx.uniform1i(ctx.getUniformLocation(program, 'u_morton'), 1);
+    ctx.uniform4f(ctx.color_loc, 1.0, 0.42, 0.2, 0.4);
+
+    ctx.resizeBySize = (w, h) => {
+        ctx.viewport(0, 0, ctx.canvas.width = w * dpr, ctx.canvas.height = h * dpr);
+        ctx.useProgram(program);
+        ctx.uniform2f(ctx.viewport_loc,   w, h);
+        ctx.uniform2f(ctx.center_px_loc,  w / 2, h / 2);
+    };
+    return ctx;
+}
+
+function updateJacobian(proj) {
+    const [r0, r1, r2 = 0] = proj.rotate();
+    const s   = proj.scale() * PI / 180;
+    const rad = PI / 180;
+    const cosPhi = Math.cos(-r1 * rad);
+    const cosG = Math.cos(r2 * rad), sinG = Math.sin(r2 * rad);
+    return {
+        // column-major mat2 for uniformMatrix2fv (transpose=false)
+        // col0=[j11,j21], col1=[j12,j22]
+        matrix: new Float32Array([
+            s * cosPhi * cosG,   // j11  dx/dlng
+            s * cosPhi * sinG,   // j21  dy/dlng
+           -s * sinG,            // j12  dx/dlat
+           -s * cosG,            // j22  dy/dlat  (北=y減少)
+        ]),
+        centerInt: [
+            // r0が180°を超えると(-r0+180)が負になるため[0,360)に正規化する
+            (round(((180 - r0) % 360 + 360) % 360 * 1e7)) >>> 0,
+            (round((-r1 +  90) * 1e7)) >>> 0,
+        ],
+    };
 }
