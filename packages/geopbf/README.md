@@ -67,7 +67,7 @@ const pbf = await geopbf(inputData);
 
 To ensure a fluid user experience, all intensive decoding and processing are handled by **Web Workers**. This off-main-thread architecture keeps the browser responsive, even when processing hundreds of megabytes of spatial data.
 
-* **Built with Vite 8**: Utilizes modern code splitting to ensure that only the necessary components are loaded when needed.
+* **Built with Vite 5**: Utilizes modern code splitting to ensure that only the necessary components are loaded when needed.
 * **Native Browser APIs**: Built on standard web technologies like `CompressionStream` for maximum compatibility and performance.
 
 ---

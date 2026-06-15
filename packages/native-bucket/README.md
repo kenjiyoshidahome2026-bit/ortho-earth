@@ -104,11 +104,11 @@ A smart proxy that bypasses CORS and can surgically extract specific files from 
 | `eventTarget` | dom | target of event (default: window or self[webWorker]) |
 
 ```javascript
-// get en entire renote zip file
+// get an entire remote zip file
 const zip = await Fetch("https://server.com/data.zip");
 console.log(`Received: ${zip.name} (${zip.size} bytes)`);
 
-// Extract a file from remote ZIP as JSON widthout pre-flight.
+// Extract a file from remote ZIP as JSON without pre-flight.
 const json = await Fetch("https://server.com/data.zip", { target: "layers/japan.geojson" ,cors:true, type:"json"});
 console.log(`Received: `, json);
 ```
@@ -153,7 +153,7 @@ await storage.puts(fileArray);
 
 ### ⚡ `Cache(dbName/tableName)`
 
-A persistent Key-Value file store powered by IndexedDB. Perfect for instant subsequent loads with **ultra-low latency**. For categorization, several tableNames can be assigned to the one same dbName. This cace, the version of indexedDB will be incremented automatically, and users dont't need take care of "onupgradeneeded".
+A persistent Key-Value file store powered by IndexedDB. Perfect for instant subsequent loads with **ultra-low latency**. For categorization, several tableNames can be assigned to the one same dbName. This case, the version of indexedDB will be incremented automatically, and users don't need to take care of "onupgradeneeded".
 
 ```javascript
 // open the database with "dbName/tableName"

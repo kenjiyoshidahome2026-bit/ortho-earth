@@ -3,25 +3,37 @@ import { dissolve } from "../extension/dissolve.js";
 import { decodeZIP } from "native-bucket";
 
 const parseCoords = (s) => s.trim().split(/\s+/).map(t => t.split(",").map(Number).slice(0, 2));
+const unescXML = s => s.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'");
 
 const kmlToFeatures = (text, nameToRes) => {
     const features = [];
     const placemarks = text.match(/<Placemark[\s\S]*?<\/Placemark>/g) || [];
     placemarks.forEach(pm => {
         const props = {};
+        let id;
         const nm = pm.match(/<name>(.*?)<\/name>/);
-        if (nm) props.name = nm[1].trim();
+        if (nm) id = unescXML(nm[1].trim()); // <name> → feature id（往復対称のためpropsに入れない）
         const ds = pm.match(/<description>(.*?)<\/description>/);
-        if (ds) props.description = ds[1].trim();
+        if (ds) props.description = unescXML(ds[1].trim());
         const sd = pm.match(/<SimpleData name="(.*?)">(.*?)<\/SimpleData>/g);
         if (sd) sd.forEach(t => {
             const m = t.match(/<SimpleData name="(.*?)">(.*?)<\/SimpleData>/);
-            if (m) props[m[1]] = m[2];
+            if (m) props[unescXML(m[1])] = unescXML(m[2]);
+        });
+        const dd = pm.match(/<Data name="(.*?)">[\s\S]*?<value>(.*?)<\/value>[\s\S]*?<\/Data>/g);
+        if (dd) dd.forEach(t => {
+            const m = t.match(/<Data name="(.*?)">[\s\S]*?<value>(.*?)<\/value>/);
+            if (m) props[unescXML(m[1])] = unescXML(m[2]);
         });
         const hr = pm.match(/<href>(.*?)<\/href>/);
         if (hr) {
-            const path = hr[1].trim();
-            if (nameToRes[path]) props.icon = nameToRes[path];
+            const path = unescXML(hr[1].trim());
+            const res = nameToRes[path];
+            if (res) {
+                // encoderが読む iconName + iconData に合わせて復元（往復対称）
+                props.iconName = path.replace(/^files\//, '');
+                props.iconData = res;
+            }
         }
         let geometry = null;
         if (pm.includes("<Point>")) {
@@ -31,10 +43,14 @@ const kmlToFeatures = (text, nameToRes) => {
             const c = pm.match(/<coordinates>([\s\S]*?)<\/coordinates>/);
             if (c) geometry = { type: "LineString", coordinates: parseCoords(c[1]) };
         } else if (pm.includes("<Polygon>")) {
-            const c = pm.match(/<coordinates>([\s\S]*?)<\/coordinates>/);
-            if (c) geometry = { type: "Polygon", coordinates: [parseCoords(c[1])] };
+            const outer = pm.match(/<outerBoundaryIs>[\s\S]*?<coordinates>([\s\S]*?)<\/coordinates>[\s\S]*?<\/outerBoundaryIs>/);
+            const inners = [...pm.matchAll(/<innerBoundaryIs>[\s\S]*?<coordinates>([\s\S]*?)<\/coordinates>[\s\S]*?<\/innerBoundaryIs>/g)];
+            if (outer) {
+                const rings = [parseCoords(outer[1]), ...inners.map(m => parseCoords(m[1]))];
+                geometry = { type: "Polygon", coordinates: rings };
+            }
         }
-        if (geometry) features.push({ type: "Feature", geometry, properties: props });
+        if (geometry) features.push({ type: "Feature", id, geometry, properties: props });
     });
     return features;
 };

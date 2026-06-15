@@ -8,52 +8,37 @@ GeoPBF is an optimized binary format for geospatial data, built upon Google's Pr
 
 A GeoPBF file consists of two primary sections: the **Header Section** and the **Body Section**.
 
-### 1.1 Header Section
+## 2 Header Section
 
 The header contains metadata, global dictionaries for property keys, and binary data pools.
 
-| Tag | Field Name  | Protobuf Type | Description |
+| Tag | Field Name | Protobuf Type | Description |
 | :--- | :--- | :--- | :--- |
 | 1 | `NAME` | String | The name of the dataset. |
+| 2 | `KEYS` | Repeated String | Global dictionary of property names. |
+| 3 | `PRECISION` | Varint | Floating point precision ($10^n$). Default is 6 ($10^{-6}$ deg). |
+| 4 | `BUFS` | Repeated Bytes | A pool for binary data like Blobs or raw pixel data. |
 | 14 | `DESCRIPTION` | String | A brief summary of the data content. |
 | 15 | `LICENSE` | String | Licensing or copyright information. |
-| 3 | `PRECISION` | Varint | Floating point precision ($10^n$). Default is 6 ($10^{-6}$ deg). |
-| 2 | `KEYS` | Repeated String | Global dictionary of property names. |
-| 4 | `BUFS` | Repeated Bytes | A pool for binary data like Blobs or raw pixel data. |
+| 16 | `ATTRIBUTION` | String | Attribution information of the data. |
 
-### 1.2 Body Section (FARRAY)
+## 3 Body Section (FARRAY)
 
 The body is a single container field that holds an array of Features.
 
 | Tag | Field Name | Protobuf Type | Description |
 | :--- | :--- | :--- | :--- |
 | 5 | `FARRAY` | Message | Encapsulates the array of Feature messages. |
-
----
-
-## 2. Feature Structure (Tag 6)
-
-Each Feature contains its geometry and associated properties.
-
-### 2.1 Geometry Message (Tag 7)
-
-Coordinates are stored as integers (after applying the precision multiplier) and are delta-encoded to minimize storage.
-
-| Tag | Field Name | Protobuf Type | Description |
-| :--- | :--- | :--- | :--- |
+| 6 | `FEATURE` | Message | Contains its geometry and associated properties. |
+| 7 | `GEOMETRY` | Message | Coordinates are stored. |
 | 8 | `GTYPE` | Varint | Geometry type: 0:Point, 1:MPoint, 2:Line, 3:MLine, 4:Poly, 5:MPoly, 6:GCollection. |
 | 9 | `LENGTH` | Packed Varint | Vertex counts for rings or multi-part geometries. |
 | 10 | `COORDS` | Packed SVarint | Delta-encoded coordinates ($X_0, Y_0, \Delta X_1, \Delta Y_1, ...$). |
+| 11 | `VALUE` | Repeated Message | The actual data, tagged by its type. |
+| 12 | `INDEX` | Packed Varint | pointing to the indices in the global `KEYS` array. |
 | 13 | `GARRAY` | Repeated Message | Nested Geometry messages for `GeometryCollection`. |
 
-### 2.2 Property Encoding (Tags 11, 12)
-
-Properties are encoded using a separate key-index system to avoid redundant strings.
-
-* **Tag 12 (`INDEX`)**: A `Packed Varint` pointing to the indices in the global `KEYS` array.
-* **Tag 11 (`VALUE`)**: A `Repeated Message` containing the actual data, tagged by its type.
-
-#### Supported Data Types (Internal Tag 11)
+## 4 Supported Data Types (Internal Tag 11)
 
 | Type ID | Name | Format |
 | :--- | :--- | :--- |

@@ -1,11 +1,10 @@
-import nativeBucket from "native-bucket";
+import { nativeBucket } from "native-bucket";
 import { geoOrthographic } from "common";
 import { orthoGL2 } from "./orthoGL2.js";
-import { Layers } from "../modules/layers.js";
-
-const { Bucket, Cache } = nativeBucket();
+import { createLayerMap } from "../modules/layers.js";
 
 const proj = geoOrthographic();
+let Layers = null;
 let bucket, cache, canvas, gl, width, height;
 let isMoving = false;
 
@@ -37,6 +36,8 @@ onmessage = e => funcs[e.data.type](e.data);
 async function init(data) {
 	canvas = data.offscreen;
 	gl = orthoGL2(canvas.getContext("webgl2"), data.dpr);
+	const { Bucket, Cache } = nativeBucket(data.apiUrl);
+	Layers = createLayerMap(data.tilerBase || "");
 	const dire = "GIS/base";
 	bucket = bucket || await Bucket(dire);
 	cache = cache || await Cache(dire);

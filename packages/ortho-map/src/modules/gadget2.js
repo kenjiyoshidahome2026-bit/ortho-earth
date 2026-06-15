@@ -1,6 +1,7 @@
 import * as d3 from 'd3';
 import { max, isString, isFunction } from "common";
-import { gadgetIcons, tooltips } from "../modules/icons.js"
+import { gadgetIcons, tooltips } from "../modules/icons.js";
+import { createButton } from "./gadget1.js";
 let loadings = [];
 export function setProp(div, prop) {
     const { fontSize, fontFamily, background, color, borderWidth, borderColor, radius, hoverColor } = prop;
@@ -126,9 +127,9 @@ export function pop(opts = {}) {
         setProp(div, opts);
         const node = div.node();
         const tip = map.select("[name=tip]");
-        const close = div.append("button").classed("close", true).html(gadgetIcons.close).tip(tooltips.popClose);
+        const close = div.append("button").classed("close", true).html(gadgetIcons.close).tip(tooltips[map.lang].popClose);
         close.on("click", () => { pops = pops.filter(t => t != div); div.remove(); drawing(); });
-        const pin = div.append("button").classed("pin", true).html(gadgetIcons.pin).tip(tooltips.lock);
+        const pin = div.append("button").classed("pin", true).html(gadgetIcons.pin).tip(tooltips[map.lang].lock);
         pin.on("click", () => { close.showIF(!(div.locked = pin.toggleClass("on"))); div.style("cursor", div.locked ? "default" : "grab"); });
         div.on("mouseenter", () => tip.style("display", "none"));
         div.on("mouseleave", () => tip.style("display", "block"));

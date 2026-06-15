@@ -1,62 +1,6 @@
 import { GeoPBF } from "../pbf-base.js";
 import { isNull, isUndefined, isBoolean, isNumber, isString, isFunction, isObject, isArray, isDate, isBlob, isImageData, saveTo, thenMap, sum, comma } from "common";
 
-export function count(self) {
-     if (self.counts) return self.counts;
-    const counts = [0, 0, 0, 0];
-    const sumup = g => {
-        const { type, coordinates: c } = g; if (!c) return;
-        const t = GeoPBF.geometryMap[type];
-        switch (t) {
-            case 0: counts[0] += 1; counts[3] += 1; break;
-            case 1: counts[0] += c.length; counts[3] += c.length; break;
-            case 2: counts[1] += 1; counts[3] += c.length; break;
-            case 3: counts[1] += c.length; counts[3] += sum(c.map(t => t.length)); break;
-            case 4: counts[2] += 1; counts[3] += sum(c.map(t => t.length)); break;
-            case 5: counts[2] += c.length; counts[3] += sum(c.map(t => sum(t.map(u => u.length)))); break;
-        }
-    };
-    self.forEach(i => {
-        const g = self.getGeometry(i);
-        if (self.getType(i) === "GeometryCollection") g.geometries.forEach(sumup);
-        else sumup(g);
-    });
-    return (self.counts = counts);
-}
-
-export function lint(self, options = {}) { //console.log(self); debugger
-    let str = []; const countArr = [0, 0, 0, 0, 0, 0, 0, 0];
-    self.forEach((i, fmap) => countArr[fmap[2]]++);
-    const types = countArr.map((n, i) => n ? `#${GeoPBF.geometryTypes[i]}: ${comma(n)}` : ``).filter(t => t);
-    options.nohead || str.push(`-------------------------------------------------`,` GEOPBF ${self._name}`);
-    str.push(`-------------------------------------------------`)
-    self._description && str.push(` DESCRIPTION: ${self._description}`);
-    str.push(` FEATURES: ${comma(self.length)} ( ${types.join(" , ")} )`);
-    str.push(` SIZE: ${comma(self.size)} [bytes]`);
-    str.push(` PRECISION: ${self._precision} [${1 / self.e}]`);
-    self._attribution && str.push(` ATTRIBUTION: ${self._attribution}`);
-    self._license && str.push(` LICENSE: ${self._license}`);
-    str.push(` BBOX: ${JSON.stringify(self.bbox)}`);
-    str.push(`-------------------------------------------------`, ` GEOMETRY SECTION`, `-------------------------------------------------`)
-    const [point_count, line_count, poly_count, coords_count] = self.count.map(comma);
-    str.push(` # POINT: ${point_count}`, ` # LINE: ${line_count}`, ` # POLYGON: ${poly_count}`, ` # TOTAL COORDINATES: ${coords_count}`);
-
-    str.push(`-------------------------------------------------`, ` PROPERTIES SECTION (${self.keys.length} properties)`, `-------------------------------------------------`);
-    const typesort = a => {
-        const q = {}; a.forEach(t => q[t] = (q[t] || 0) + 1);
-        const c = Object.entries(q).sort((p, q) => q[1] - p[1]);
-        return (c.length == 2 && GeoPBF.dataTypeNames[c[0][0]] == "FLOAT" && GeoPBF.dataTypeNames[c[1][0]] == "INTEGER") ? [[c[0][0], (c[0][1] + c[1][1])]] : c;
-    };
-    var a = Array.from({ length: self.keys.length }, () => []);
-    self.props.forEach((t) => t.forEach((s, j) => { if (s !== undefined) a[j].push(s); }));
-    a.forEach((values, i) => {
-        var typeStr = typesort(values.map(t => GeoPBF.dataType(t))).map(t => `${GeoPBF.dataTypeNames[t[0]]}:${t[1]}`).join("|");
-        str.push(` ${self.keys[i]}: ${typeStr}`);
-    });
-    str.push(`-------------------------------------------------`);
-    options.nohead || str.push(new Date().toString());
-    return str.join("\n") + "\n";
-}
 export async function clone(self) { return new GeoPBF().set(self.arrayBuffer); }
 export async function cloneHead(self) {
     const pbf = await (new GeoPBF().set(self.headerBuffer));
@@ -65,8 +9,7 @@ export async function cloneHead(self) {
 }
 export async function cloneMap(self, options) {
     const pbf = await cloneHead(self);
-
-    const map = isFunction(options.map) ? options.map : (t => t);
+    const map = isFunction(options) ? options: isFunction(options.map) ? options.map : (t => t);
     const filter = isFunction(options.filter) ?options.filter: (() => true);
     const sels = self.each(i => i).filter(i => filter(self.getProperties(i), self.getType(i), self.getBbox(i), i));
     const props = sels.map(i => map(self.getProperties(i), self.getType(i), self.getBbox(i), i));
@@ -91,7 +34,7 @@ export async function classify(self, key) {
 export async function concatinate(pbfs, name) {
     pbfs = pbfs.filter(t => t instanceof GeoPBF);
     if (pbfs.length == 0) return new GeoPBF(); if (pbfs.length == 1) return pbfs[0];
-    if (!pbfs.map(t => t.precision()).slice(1).every((t, i, a) => t == pbfs[0].precision())) { console.error("PBF concatenate: precision is not equal."); return null; }
+    if (!pbfs.slice(1).every(t => t._precision === pbfs[0]._precision)) { console.error("PBF concatenate: precision is not equal."); return null; }
     name = name || pbfs[0].name();
     const props = pbfs.map(pbf => pbf.properties), [keys, bufs] = await GeoPBF.makeKeys(props.flat()), pbf = new GeoPBF({ name }).setHead(keys, bufs);
     pbf.setBody(() => pbfs.forEach((t, n) => { t.forEach(i => pbf.setMessage(GeoPBF.TAGS.FEATURE, () => { pbf.copyGeometry(t, i); pbf.setProperties(props[n][i]); })); })).close();
@@ -120,11 +63,11 @@ export function getPropertyTable(self) {
 }
 export function getCSV(self) {
     const a = self.propertiesTable; if (!a || a.length < 1) return "";
-	const quot = s => (isString(s) && s.match(/[,"]/))?`"${s.replace(/\"/g, '""')}"`: s;
-	const csv2str = a => (a||[]).map(s => quot(s).join(",")).join("\r\n");
+	const quot = s => (isString(s) && s.match(/[,"]|^0\d/))?`"${s.replace(/"/g, '""')}"`: s;
+	const csv2str = a => (a||[]).map(row => row.map(quot).join(",")).join("\r\n");
     const conv = (v) => { 
         if (isNull(v)||isUndefined(v)) return "";
-        if (isBoolean(v)||isNumber(v)) return flag? String(v): v;
+        if (isBoolean(v)||isNumber(v)) return v;
         if (isDate(v)) return v.toISOString();
         if (isFunction(v)) return v.toString();
         if (isBlob(v)) return `[Blob: ${v.name || 'Unnamed'} (${v.type || 'unknown'}, ${v.size}B)]`;

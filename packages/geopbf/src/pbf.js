@@ -3,9 +3,9 @@ import { centroid, lineLength, area, getBbox, bboxes, bbox } from "./extension/s
 import { concatinate, clone, cloneHead, cloneMap, classify, getPropertyTable, getCSV } from "./extension/manipulate.js";
 import { dissolve } from "./extension/dissolve.js";
 import { topojson, neighbors, mesh, merge } from "./extension/topojson.js";
-import { identify } from "./extension/identify.js";
-import { view } from "./extension/view.js";
+import { identify, contain } from "./extension/identify.js";
 import { unPackGintBuffer } from "./extension/topology.js";
+import { cleanTopology } from "./extension/clean.js";
 import { precision } from "./extension/precision.js";
 
 GeoPBF.setProperty('concatinate', { value: concatinate, configurable: false, enumerable: false });
@@ -20,8 +20,8 @@ GeoPBF.setGetter("bboxes", function () { return bboxes(this); });
 GeoPBF.setPrototype("clone", function () { return clone(this); });
 GeoPBF.setPrototype("cloneHead", function () { return cloneHead(this); });
 GeoPBF.setPrototype("cloneMap", function (opts = {}) { return cloneMap(this, opts); });
-GeoPBF.setPrototype("filter", function(filter) { return clone(this, { filter }); });
-GeoPBF.setPrototype("map", function(map) { return clone(this, { map }); });
+GeoPBF.setPrototype("closeFilter", function(filter) { return cloneMap(this, { filter }); });
+GeoPBF.setPrototype("map", function(map) { return cloneMap(this, { map }); });
 GeoPBF.setPrototype("classify", function(k) { return classify(this, k); });
 GeoPBF.setPrototype("concat", function(...args) { return concatinate([this, ...args], this.name()); });
 
@@ -35,9 +35,9 @@ GeoPBF.setPrototype("neighbors", function(id) { return neighbors(this, id); });
 GeoPBF.setPrototype("mesh", function(f) { return mesh(this, f); });
 GeoPBF.setPrototype("merge", function(f) { return merge(this, f); });
 GeoPBF.setPrototype("identify", function (mx, my, proj, options) { return identify(this, mx, my, proj, options); });
+GeoPBF.setPrototype("contain", function ([lng, lat]) { return contain(this, lng, lat); });
 
-GeoPBF.setPrototype("view", function (width, height, props) { return view(this, width, height, props); });
-
+GeoPBF.setPrototype("cleanTopology", function(options) { cleanTopology(this.unPackGint, options); return this; });
 GeoPBF.setPrototype("precision", async function (s) { return precision(this, s); });
 
 GeoPBF.setPrototype("setGintBUF", function(buf) { 

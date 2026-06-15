@@ -18,7 +18,7 @@ const layers = [
 	["cyberjapan.pale", "naturalEarth", "cyberjapan.pale", 19, "Natural Earth / ©︎ 国土地理院",
 		{ en: "GIAJ:pale", ja: "国土地理院:淡色地図", zh: "国土地理院:淡色", ko: "국토지리원: 연한색" }]
 ];
-const tileURL = function (type) {
+const tileURL = function (type, tilerBase = "") {
 	if (!type) return null;
 	let count = 0;
 	const index = ([x, y, z]) => {
@@ -27,7 +27,7 @@ const tileURL = function (type) {
 		return s || "0";
 	};
 	const osm0 = ([x, y, z]) => `https://tile.openstreetmap.jp/${z}/${x}/${y}.png`;
-	const bing = t => `https://tiler.ortho-earth.com/bing/${index(t)}`;
+	const bing = t => `${tilerBase}/bing/${index(t)}`;
 	const osm = type => type == "satellite" ? bing : osm0;
 	const cyberjapan = type => {
 		const { PI, cos, tan, log } = Math;
@@ -49,7 +49,10 @@ const tileURL = function (type) {
 	return ({ cyberjapan, osm, google })[type[0]](type[1]);
 }; 
 	
-export const Layers = {};
-layers.map(([name, base, tile, maxZoom, attr, trans])=> {
-	Layers[name] = { name, base:base+".webp", tile: tileURL(tile), maxZoom,  attr: "orthoEarth / " + attr, trans:lang=>trans[lang]||trans.en };
-});
+export function createLayerMap(tilerBase = "") {
+	const result = {};
+	layers.forEach(([name, base, tile, maxZoom, attr, trans]) => {
+		result[name] = { name, base: base+".webp", tile: tileURL(tile, tilerBase), maxZoom, attr: "orthoEarth / " + attr, trans: lang=>trans[lang]||trans.en };
+	});
+	return result;
+}

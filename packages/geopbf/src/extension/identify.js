@@ -1,6 +1,15 @@
 import { GeoPBF } from "../pbf-base.js";
 import { gint } from "./gint.js";
 
+export function contain(self, lng, lat) {
+	if (!self.unPackGint) return null;
+	const { arcBuffer, arcMeta, polygon } = self.unPackGint;
+	if (!arcBuffer || !arcMeta || !polygon) return null;
+	const mix = Math.round((lng + 180) * gint.SCALE_E);
+	const miy = Math.round((lat + 90) * gint.SCALE_E);
+	return findPolygon(arcBuffer, arcMeta, polygon, mix, miy);
+}
+
 export function identify(self, mx, my, proj, options = {}) {
 	const geo = proj.invert([mx, my]);
 	if (!geo) return null;
@@ -13,7 +22,7 @@ export function identify(self, mx, my, proj, options = {}) {
 	const { arcBuffer, arcMeta, polygon, polyline, pointBuffer, point } = self.unPackGint;
 
 	if (pointBuffer && point) {
-		const owner = findPoint(pointBuffer, point, mix, miy, pointError);
+		const owner = findPoint(pointBuffer, point, pointBuffer.length, mix, miy, pointError);
 		if (owner !== null) return owner;
 	}
 	if (arcBuffer && arcMeta && polyline) {
@@ -93,8 +102,9 @@ function findMortonNear(buffer, meta, polylineStructures, mix, miy, error) {
 
 	for (const q of subQuads) {
 		if (!q) continue;
-		const qMin = gint.packFromInt(q[0], q[2]) & ~gint.WEIGHT_MASK;
-		const qMax = gint.packFromInt(q[1], q[3]) | gint.WEIGHT_MASK;
+		// L2 アークには TERMINAL_BIT がないため pure Morton（TERMINAL_BIT なし）で範囲を作る
+		const qMin = gint._pureMortonFromInt(q[0], q[2]) & ~gint.WEIGHT_MASK;
+		const qMax = gint._pureMortonFromInt(q[1], q[3]) | gint.WEIGHT_MASK;
 
 		let low = 0, high = buffer.length - 1, startIdx = -1;
 		while (low <= high) {

@@ -73,6 +73,7 @@ export async function bucket(request, bucket, ctx) {
             if (action === "mp-upload") { // マルチパートアップロード: パーツ送信
                 const uploadId = request.headers.get("X-Upload-ID");
                 const partNumber = parseInt(request.headers.get("X-Part-Number"));
+                if (!uploadId || isNaN(partNumber)) return new Response(JSON.stringify({ error: "Missing X-Upload-ID or X-Part-Number" }), { status: 400, headers: { "Content-Type": "application/json" } });
                 const upload = bucket.resumeMultipartUpload(path, uploadId);
                 const part = await upload.uploadPart(partNumber, request.body);
                 return new Response(JSON.stringify({ etag: part.etag }));

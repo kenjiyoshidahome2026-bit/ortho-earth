@@ -32,13 +32,13 @@ export async function dissolve(pbfInstance, key = false) {
                 write(active[0]);
             } else if (active.length > 1) {
                 const geometries = active.map(n => geom(n));
-                pbfInstance.setFeature({ geometry: { type: geometryTypes[6], geometries }, properties }, false);
+                pbfInstance.setFeature({ geometry: { type: geometryTypes[6], geometries }, properties });
             }
             function geom(n) { 
                 const isM = a[n].length > 1, type = geometryTypes[n * 2 + (isM ? 1 : 0)], coordinates = isM ? a[n] : a[n][0];
                 return { type, coordinates };
             }   
-            function write(n) { pbfInstance.setFeature({ geometry: geom(n), properties }, false); }
+            function write(n) { pbfInstance.setFeature({ geometry: geom(n), properties }); }
         }
     });
     pbfInstance.close();
