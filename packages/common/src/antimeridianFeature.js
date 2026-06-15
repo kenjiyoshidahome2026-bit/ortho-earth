@@ -9,8 +9,8 @@ export function antimeridianFeature(feature) {
     const p = feature.properties = feature.properties || {}, geom = feature.geometry, type = geom.type;
     if (type === "Point" || type === "MultiPoint") return feature;
     let c = geom.coordinates, xmin = Infinity, xmax = -Infinity;
-    const calc = a => (typeof a[0] !== 'number') ? a.forEach(calc) : (xmin = min(xmin, a[0]), xmax = max(xmax, a[0]));
-    calc(c);
+    const calc = a => (Array.isArray(a) && typeof a[0] !== 'number') ? a.forEach(calc) : (xmin = min(xmin, a[0]), xmax = max(xmax, a[0]));
+    (c === undefined) || calc(c);
     if (xmin >= -180 && xmax <= 180 && xmax - xmin < 180) return toClockwise(feature);
     c = type.startsWith("Multi") ? c : [c];
     if (type.includes("LineString")) {
