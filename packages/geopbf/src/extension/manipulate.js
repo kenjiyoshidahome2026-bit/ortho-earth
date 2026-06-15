@@ -76,7 +76,7 @@ export function getCSV(self) {
         return String(v);
     };
     const len = a[0].length;
-    const head = ["#","type"].concat(a[0]);
+    const head = [].concat(["#", "type"], a[0],["xmin","ymin","xmax","ymax"]);
     const body = a.slice(1).map((t,i)=>{ const q = [];
         for (let j = 0; j < len; j++) q[j] = conv(t[j]);
         return [i+1, self.getType(i)].concat(q);

@@ -4,18 +4,15 @@ onmessage = async (e) => {
     try {
         const { buf, gintbuf } = e.data;
         const self = (await new GeoPBF().set(buf)).setGintBUF(gintbuf);
-
-        // gzip圧縮を先行起動（native処理のため、以降の同期処理と並走する）
         const fileSizePromise = self.fileSize();
-
         let { polygonCount, polylineCount, pointCount, nodeCount, arcCount, bbox, polygon, polyline, point } = self.unPackGint;
         const struct = {};
-        [point, polyline, polygon].forEach((layer, type) => (layer || []).forEach(([id, arcs]) => {
+        [point, polyline, polygon].forEach((layer, type) => (layer || []).forEach(t => {
+            const id = type? t[0]: t, len = type? t[1].length: 1;
             struct[id] = struct[id] || [0, 0, 0];
-            struct[id][type] = arcs.length;
+            struct[id][type] += len;
         }));
         const ids = Object.keys(struct).map(Number);
-
         const countArr = [0, 0, 0, 0, 0, 0, 0, 0];
         for (const t of Object.values(struct)) {
             if      (t[0] && !t[1] && !t[2]) countArr[t[0] > 1 ? 1 : 0]++;
@@ -23,7 +20,6 @@ onmessage = async (e) => {
             else if (!t[0] && !t[1] && t[2]) countArr[t[2] > 1 ? 5 : 4]++;
             else countArr[6]++;
         }
-
         // 中間配列を生成せず型コード出現数を直接集計（O(N×K) 空間 → O(K×types) 空間）
         const K = self.keys.length;
         const typeCounts = Array.from({ length: K }, () => ({}));
@@ -38,7 +34,6 @@ onmessage = async (e) => {
                 tc[dt] = (tc[dt] || 0) + 1;
             }
         }
-
         // FLOAT と INTEGER が共存する場合は FLOAT に統合（整数リテラルがFloat扱いになるケースへの対処）
         const typesort = tc => {
             const c = Object.entries(tc).sort((a, b) => b[1] - a[1]);
@@ -46,7 +41,6 @@ onmessage = async (e) => {
                 ? [[c[0][0], c[0][1] + c[1][1]]]
                 : c;
         };
-
         const br = "-".repeat(50);
         const types = countArr.map((n, i) => n ? `#${GeoPBF.geometryTypes[i]}: ${comma(n)}` : "").filter(Boolean);
         const str = [br];

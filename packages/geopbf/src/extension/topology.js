@@ -41,8 +41,8 @@ export function topology(self) {
 						return stream.close();
 					};
 					const typeGroups = [
-						() => [read(1)], // Point
-						() => [read()],  // MultiPoint
+						() => read(1), // Point
+						() => read(),  // MultiPoint
 						() => [read()],  // LineString
 						() => lens.map(t => read(t)), // MultiLineString
 						() => [lens.map(t => read(t))], // Polygon
@@ -103,10 +103,9 @@ export function topology(self) {
 	point && (view.set(new Uint8Array(point.buffer.buffer), ptr), ptr += point.buffer.length * 8);
 	polygon && (view.set(new Uint8Array(polygon.meta.buffer), ptr), ptr += polygon.meta.length * 4);
 	polyline && (view.set(new Uint8Array(polyline.meta.buffer), ptr), ptr += polyline.meta.length * 4);
-	point && (view.set(new Uint8Array(point.owner.buffer), ptr), ptr += point.owner.length * 4);
+	point && (view.set(new Uint8Array(point.meta.buffer), ptr), ptr += point.meta.length * 4);
 	view.set(new Uint8Array(new TextEncoder().encode(topology)), ptr), ptr += topology.length;
 	if (totalLength !== ptr) throw new Error(`GintBUF length mismatch: expected ${totalLength}, got ${ptr}`);
-//	console.log(unPackGintBuffer(GintBUF));
 	return GintBUF;
 }
 ////===============================================================================================================

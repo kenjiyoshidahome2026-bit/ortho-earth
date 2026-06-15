@@ -13,7 +13,7 @@ export function preview(self, canvas, props = {}) {
     const proj = projection.match(/orthographic/i) ? geoOrthographic() : projection.match(/mercator/i) ? geoMercator() : geoEquirectangular();
     const bbox = props.bbox || self.bbox;
     const pbf = self.pbf, e = self.e;
-    const radius = props.radius || 3;
+    const radius = props.radius || 1.5;
 
     const cx = (bbox[0] + bbox[2]) / 2;
     const cy = (bbox[1] + bbox[3]) / 2;
