@@ -12,7 +12,6 @@ import { Cache } from "native-bucket";
 import "common/d3/highlight.js";
 import "common/d3/fileio.js";
 import "./main.scss";
-
 const initialZoom = Math.log2(Math.min(window.innerWidth, window.innerHeight)/2*0.5 / 256 * Math.PI * 2);
 const mapInst = (await orthoMap({target:d3.select('body'), center:[0,0], zoom: initialZoom, accessories:{clock:false}, tilerBase: TILER_BASE, apiUrl: API_BASE})).autoRotate(true);
 const exitButton = mapInst.append("button").attr("class", "close").html(`<img src="close.svg"/>`)
@@ -48,6 +47,8 @@ main.append("h1").html(`<img src="favicon.svg" alt="GIS-HUB"/><span>GIS-HUB</spa
 const logger = new screenLogger(main.append("div"));
 const tables = main.append("div").attr("class","tables").hide();
 ////------------------------------------------------------
+//console.log(await fetch("https://www.geospatial.jp/ckan/dataset/aigid-moj-04101/resource/e8936e86-0d81-44e0-a51b-4eb04fb511d0/download/04101__10_r_2025.geojson"));
+
 const fname = s => s.split('/').pop().split('?')[0].replace(/\..+$/i, '');
 const uploads = main.append("div").attr("class", "uploads").dropFile(f=>exec({name:fname(f.name), target:f, description:"dropped file"}));
 uploads.append("p").text(`GIS-HUB is a next-generation, high-performance web GIS station powered by an in-memory binary engine (GeoPBF) and WebGL2 rendering (ortho-map).
