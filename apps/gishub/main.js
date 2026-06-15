@@ -139,24 +139,19 @@ async function exec(info) {
                 const cut = s => s.length > 16? s.substring(0,15)+" …":s;
                 const head = `<thead><tr>${a[0].map(t => `<th>${t}</th>`).join("")}</tr></thead>`;
                 const body = `<tbody>${ a.slice(1).map(row =>`<tr>${row.map(t =>`<td>${cut(t)}</td>`).join("")}</tr>`).join("")}</tbody>`;
-                return `<h2>${pbf.name()}<span>${pbf.description()}<span>
-                <button name="csv">📥 CSV</button>
-                <button name="excel">📥 Excel</button>
-                <button name="done">Done</button></h2>
-                <div class="prop-table"><table>${head}${body}</table></div>`;
+                return `<h2>${pbf.name()}<span>${pbf.description()}<span><div class="prop-table"><table>${head}${body}</table></div>`;
             }
-            logger.hide();
-            tables.show();
-            tables.html(propertyTable(pbf.getPropertyTable()));
-            tables.select("[name=csv]").on("click", csv)
-            tables.select("[name=excel]").on("click", xls)
-            tables.select("[name=done]").on("click", function done() { logger.show(); tables.empty().hide(); })
+            logger.hide(); tables.show().html(propertyTable(pbf.getPropertyTable()));
+            const h2 = tables.select("h2");
+            h2.append("button").text("📥 CSV").on("click", csv)
+            h2.append("button").text("📥 Excel").on("click", xls)
+            h2.append("button").text("Done").on("click", function done() { logger.show(); tables.empty().hide(); })
         }
         async function csv() {
             save(new File([pbf.getCSV()], pbf.name()+".csv", {type:"application/csv"}));
         }
         async function xls() {
-            await import('https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js');
+            window.XLSX || await import('https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js');
             const XLSX = window.XLSX;
             const workbook = XLSX.read(pbf.getCSV(), { type: 'string', raw: true });
             const buff = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
