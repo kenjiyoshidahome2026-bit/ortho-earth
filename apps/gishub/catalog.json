@@ -51,9 +51,9 @@
 	"license": "CC_BY_4.0"
 },{
 	"name": "28224__5_r_2025",
-	"description": "28224_南あわじ市_公共座標5系_筆R_2025",
-	"target": "https://www.geospatial.jp/ckan/dataset/resource/download/28224__5_r_2025.geojson",
-	"link": "https://www.geospatial.jp/ckan/dataset/aigid-moj-28224/resource/8d697a88-e3e0-4f78-8d08-264cffc0efd0",
+	"description": "04101_仙台市青葉区_公共座標10系_筆R_2025",
+	"target": "https://www.geospatial.jp/ckan/dataset/3a2ad3da-af5d-4edd-85dc-4cfe29865fbe/resource/e8936e86-0d81-44e0-a51b-4eb04fb511d0/download/04101__10_r_2025.geojson",
+	"link": "https://www.geospatial.jp/ckan/dataset/aigid-moj-04101/resource/e8936e86-0d81-44e0-a51b-4eb04fb511d0",
 	"attribution": "G空間情報センター",
 	"license": "CC_BY_4.0"
 }
