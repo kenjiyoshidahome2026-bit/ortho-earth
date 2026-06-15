@@ -1,5 +1,7 @@
 import { GeoPBF } from "./pbf.js";
-import { pbfio } from "./pbf-io.js";
+import { pbfio, setApiUrl } from "./pbf-io.js";
+GeoPBF._workerUrl = new URL("./decoder/pbf.js", import.meta.url);
+export { setApiUrl };
 import { topology } from "./extension/topology.js";
 import { topo2geo } from "./modules/topo2geo.js";
 import { gunzip, isGzip } from "native-bucket";
@@ -48,7 +50,7 @@ export async function geopbf(data, options = {}) { if (isString(options)) option
             const server = await getServer();
             if (server) {
                 const GINT = new Uint8Array(pbf._gintBuffer).slice().buffer;
-                server.cache(data, { PBF: pbf.arrayBuffer, GINT }, { worker: true }).catch(console.error);
+                server.cache(data, { PBF: pbf.arrayBuffer, GINT }).catch(console.error);
             }
         }
         await pbf.fileSize();
@@ -81,7 +83,7 @@ export async function geopbf(data, options = {}) { if (isString(options)) option
         if (isString(q) && server) {
             if (isURL(q)) {
                 const fetchUrl = isInZip(q) ? q : (q.match(/\.zip$/) && options.target) ? [q, options.target].join("#") : q;
-                const val = options.nocache == true? undefined: await server.cache(fetchUrl, {worker:true}).catch(console.error);
+                const val = options.nocache == true? undefined: await server.cache(fetchUrl).catch(console.error);
                 if (val && val.PBF) { const pbf = (await new GeoPBF(options).set(val.PBF));
                     val.GINT && pbf.setGintBUF(val.GINT);
                     pbf.originalURL = q;
@@ -131,6 +133,30 @@ const encoder = async (pbf, type, opts = {}) => { //console.log(pbf, type, opts)
 };
 const methods = {
     async save() { const s = await getServer(); return (s && await s.save(this)) ? this : null; },
+    async preview(canvas, props = {}) {
+        const htmlCanvas = (typeof HTMLCanvasElement !== "undefined" && canvas instanceof HTMLCanvasElement) ? canvas : null;
+        if (htmlCanvas) canvas = null;
+        else if (isObject(canvas)) { props = canvas; canvas = null; }
+        const offscreen = canvas || null; // OffscreenCanvas ならそのまま渡す
+        const buf = this.arrayBuffer, name = this._name;
+        const url = new URL('./encoder/preview.js', import.meta.url);
+        const w = new Worker(url, { type: 'module' });
+        const transferables = offscreen ? [buf, offscreen] : [buf];
+        const bitmap = await new Promise(resolve => {
+            w.onmessage = e => { w.terminate(); resolve(e.data); };
+            w.onerror  = () => { w.terminate(); resolve(null); };
+            w.postMessage({ buf, canvas: offscreen, name, props }, transferables);
+        });
+        if (htmlCanvas && bitmap instanceof ImageBitmap) {
+            htmlCanvas.width  = bitmap.width;
+            htmlCanvas.height = bitmap.height;
+            const dpr = props.dpr || 1;
+            htmlCanvas.style.width  = (bitmap.width  / dpr) + "px";
+            htmlCanvas.style.height = (bitmap.height / dpr) + "px";
+            htmlCanvas.getContext("2d").drawImage(bitmap, 0, 0);
+        }
+        return bitmap;
+    },
     async profile(opts = {}) { return encoder(this, "profile", opts); },
     async gintbuf(opts = {}) { return encoder(this, "gint", opts); },
     async geopbfFile(opts = {}) { return encoder(this, "geopbf", opts); },

@@ -31,7 +31,7 @@ export async function createGetHeight(opts = {}) {
 		return new Promise(res=>{
 			isLoading = performance.now();
 			opts.onstart && opts.onstart(name);
-			worker.postMessage(name);
+			worker.postMessage({ name, apiUrl: opts.apiUrl });
 			worker.onmessage = async e => { const obj = e.data;
 				if (obj) {
 					obj && await cache(name, obj);

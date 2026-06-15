@@ -1,4 +1,4 @@
-import init, { L1toL2_wasm, XYtoL1_wasm, alloc_wasm_memory, free_wasm_memory, init_panic_hook } from "../../wasm/pkg/gint_wasm.js";
+import init, { L1toL2_wasm, XYtoL1_wasm, alloc_wasm_memory, free_wasm_memory, init_panic_hook, detect_intersections_wasm } from "../../wasm/pkg/gint_wasm.js";
 let wasmReady = false;
 let wasmMemoryBuffer = null; // 🌟 生のメモリ配列への参照をキープする用
 let sharedWasmPtr = 0;
@@ -155,6 +155,37 @@ export class gint {
         };
         for (let i = 1; i < n - 1; i++) L1arc[i] = this.toL2(L1arc[i], getPhysRank(eff[i]));
     }
+    static detectIntersections(arcBuffer, arcMeta, arcCount, snapDistSq, gridUnit) {
+        if (!wasmReady || !arcBuffer || !arcMeta || arcCount === 0) return null;
+        const arcBufBytes  = arcBuffer.byteLength;
+        const arcMetaBytes = arcMeta.byteLength;
+        const outMaxRec    = Math.max(arcCount * 8, 256);
+        const totalBytes   = arcBufBytes + arcMetaBytes + outMaxRec * 16;
+        const ptr = this._ensureBufferSize(totalBytes);
+        const u8  = new Uint8Array(wasmMemoryBuffer.buffer);
+        u8.set(new Uint8Array(arcBuffer.buffer, arcBuffer.byteOffset, arcBufBytes), ptr);
+        u8.set(new Uint8Array(arcMeta.buffer,   arcMeta.byteOffset,   arcMetaBytes), ptr + arcBufBytes);
+        const outPtr = ptr + arcBufBytes + arcMetaBytes;
+        const count = detect_intersections_wasm(
+            ptr, arcBuffer.length,
+            ptr + arcBufBytes, arcCount,
+            snapDistSq, gridUnit,
+            outPtr, outMaxRec
+        );
+        const map = new Map();
+        if (count > 0) {
+            const u8after = new Uint8Array(wasmMemoryBuffer.buffer);
+            const r = new Uint32Array(u8after.buffer, outPtr, count * 4).slice();
+            for (let i = 0; i < count; i++) {
+                const packed = (BigInt(r[i*4+3]) << 32n) | BigInt(r[i*4+2]);
+                const key = `${r[i*4]}-${r[i*4+1]}`;
+                if (!map.has(key)) map.set(key, []);
+                map.get(key).push(packed);
+            }
+        }
+        return map;
+    }
+
     static XY2L1(estimatedPoints = 4096) {
         let count = 0, i32Idx = 0, bufSize = estimatedPoints * 2;
         let ptr = this._ensureBufferSize(bufSize * 4);

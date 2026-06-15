@@ -3,7 +3,8 @@ import { decodeZIP } from "./decodeZIP.js";
 
 export async function Fetch(url, opts = {}) {
     const type = ((typeof opts == "string")? opts: opts.type || "file").toLowerCase();
-    const PROXY_URL = opts.proxy || `https://api.ortho-earth.com/proxy`;
+    const PROXY_URL = opts.proxy;
+    if (!PROXY_URL) throw new Error("native-bucket: opts.proxy is required");
     const proxy = s => `${PROXY_URL}?url=${encodeURIComponent(s)}`;
     const encoding = (opts.encoding||"utf8").toLowerCase().replace(/[\-\_]/g,"").replace(/shiftjis/,"sjis");
     const silent = !!opts.silent || console === undefined;
@@ -13,8 +14,8 @@ export async function Fetch(url, opts = {}) {
     const event = (type, detail) => eventTarget && eventTarget.dispatchEvent(new CustomEvent(type, { detail }));
 
     let name = opts.name || url.split("/").pop().split("?")[0] || "unknown";
-    let surfix = name.split(".").reverse()[0].toLowerCase();
-    const target = (surfix == "zip" && opts.target !== undefined) ? opts.target : null;
+    let suffix = name.split(".").reverse()[0].toLowerCase();
+    const target = (suffix == "zip" && opts.target !== undefined) ? opts.target : null;
     if (target) { name = target }; 
 
     try {

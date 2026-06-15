@@ -1,15 +1,20 @@
 import { GeoPBF } from "./pbf-base.js";
 import { nativeBucket, gzip, gunzip, isGzip } from "native-bucket";
-const { Bucket, Cache, Fetch } = nativeBucket();
+
+let _nb = null;
+export function setApiUrl(url) { _nb = nativeBucket(url); }
+const getNB = () => { if (!_nb) throw new Error("geopbf: call setApiUrl(url) before use"); return _nb; };
 
 class PBFIO {
     constructor(dire) { this.dire = dire || "GIS"; }
     async open() {
+        const { Bucket, Cache } = getNB();
         this.bucket = await Bucket(`${this.dire}/pbf`);
         this.cache = await Cache(`${this.dire}/pbf`);
         return this;
     }
     async fetch(name) {
+        const { Fetch } = getNB();
         const [url, target] = name.split(/\#/);
         return target ? await Fetch(url, { target }) : await Fetch(url);
     }
@@ -31,7 +36,7 @@ class PBFIO {
         console.log(" ✅ Sync complete.");
     }
     async load(name, opts = {}) {
-        const val = await this.cache(name, { worker: true }).catch(console.error);
+        const val = await this.cache(name).catch(console.error);
         try {
             const res = await fetch(`${this.bucket.url}${name}`, { cache: 'default' });
             if (!res.ok) throw new Error(`Failed to fetch: ${name} (HTTP ${res.status})`);
@@ -61,7 +66,7 @@ class PBFIO {
         const val = { PBF: pbf.arrayBuffer };
         pbf._etag && (val.ETag = pbf._etag);
         pbf._gintBuffer && (val.GINT = new Uint8Array(pbf._gintBuffer).slice().buffer);
-        await this.cache(name, val, { worker: true });
+        await this.cache(name, val);
         return name;
     }
     async delete(name) {

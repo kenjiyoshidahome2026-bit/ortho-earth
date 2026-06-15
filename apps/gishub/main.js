@@ -1,14 +1,20 @@
 import * as d3 from "d3";
 import orthoMap from 'ortho-map';
-import { geopbf } from "geopbf";
+import { geopbf, setApiUrl } from "geopbf";
+
+const API_BASE = "https://api.ortho-earth.com";
+const TILER_BASE = "https://tiler.ortho-earth.com";
+setApiUrl(API_BASE);
+const hubCache = await Cache("GISHUB").catch(() => null);
 import { screenLogger } from "./screenLogger.js";
 import { comma, download, openDirectory, saveTo, inputFile, isString } from "common";
+import { Cache } from "native-bucket";
 import "common/d3/highlight.js";
 import "common/d3/fileio.js";
 import "./main.scss";
 
 const initialZoom = Math.log2(Math.min(window.innerWidth, window.innerHeight)/2*0.5 / 256 * Math.PI * 2);
-const mapInst = (await orthoMap({target:d3.select('body'), center:[0,0], zoom: initialZoom, accessories:{clock:false}})).autoRotate(true);
+const mapInst = (await orthoMap({target:d3.select('body'), center:[0,0], zoom: initialZoom, accessories:{clock:false}, tilerBase: TILER_BASE, apiUrl: API_BASE})).autoRotate(true);
 const exitButton = mapInst.append("button").attr("class", "close").html(`<img src="close.svg"/>`)
     .on("click", exitView).hide();
 const gishub = d3.select("body").append("div").attr("class", "gishub");
@@ -74,15 +80,43 @@ async function exec(info) {
         // console.log(pbf);
         if (pbf && pbf.length) { success = true;
             logger.success(`${name} (length: ${comma(pbf.size)})`);
+            p = logger.empty();
+            const cacheKey = typeof target === 'string' ? target : null;
+            const cached = cacheKey && !nocache && hubCache && await hubCache(cacheKey).catch(() => null);
+            if (cached?.PREVIEW && cached?.PROFILE) {
+                const bitmap = await createImageBitmap(cached.PREVIEW);
+                const cv = p.append("canvas");
+                cv.node().width = bitmap.width;
+                cv.node().height = bitmap.height;
+                cv.node().style.width  = (bitmap.width  / 2) + "px";
+                cv.node().style.height = (bitmap.height / 2) + "px";
+                cv.node().getContext("2d").drawImage(bitmap, 0, 0);
+                trimCanvas(cv.node());
+                logger.log(cached.PROFILE);
+            } else {
+                const canvas = p.append("canvas").style("display", "none");
+                const [bitmap, profileHtml] = await Promise.all([
+                    pbf.preview(canvas.node(), {size:256, stroke:"#fff", fill:"#222", minDist:0.5, dpr:2})
+                        .then(bm => { canvas.style("display", null); trimCanvas(canvas.node()); return bm; }),
+                    pbf.profile({ nohead: true }),
+                ]);
+                logger.log(profileHtml);
+                if (cacheKey && hubCache && bitmap instanceof ImageBitmap) {
+                    const oc = new OffscreenCanvas(bitmap.width, bitmap.height);
+                    oc.getContext("2d").drawImage(bitmap, 0, 0);
+                    oc.convertToBlob({ type: 'image/webp', quality: 0.9 }).then(blob =>
+                        hubCache(cacheKey, { PREVIEW: blob, PROFILE: profileHtml }).catch(console.error)
+                    );
+                }
+            }
         } else logger.error("Failed to load data.");
-        success && logger.log(await pbf.profile({ nohead: true }));
         inExec = false; left.selectAll(".card").attr("disabled", null); cancel.hide();
         p = logger.empty(); p.append("span").text("🔔 [ACTIONs]").classed("big",true);
-        success && p.append("button").classed("accent", true).text("View in Ortho-Map").on("click", execView);
+        success && p.append("button").classed("accent", true).text("View in Ortho-Map").on("click", () => execView(pbf));
         success && p.append("button").text("Show Property Table").on("click", showProp);
         attribution && pbf.originalURL && p.append("button").text("Reload from original url")
         .on("click", async() => { pbf && (pbf.destroy()); exec(Object.assign({}, info, {nocache:true}));});
-        p.append("button").text("Done").on("click", async () => { pbf && pbf.destroy(); reset(); });
+        p.append("button").text("Done").on("click", async () => { exitView(); pbf && pbf.destroy(); reset(); });
          if (!success) return;
         const save = async s => { if (!s) return; const v = await saveTo(s); if (v) logger.log(`📥 Saved: ${s.name} (${comma(s.size)} bytes)`); }
         const funcs = [
@@ -132,13 +166,60 @@ async function exec(info) {
         logger.error(`Failed to load ${target.name || target}: ${err.message}`);
     }
 }
-function execView() {
+function trimCanvas(canvas) {
+    const ctx = canvas.getContext("2d");
+    const w = canvas.width, h = canvas.height;
+    const px = ctx.getImageData(0, 0, w, h).data;
+    const row = y => { for (let x = 0; x < w; x++) if (px[(y*w+x)*4+3]) return true; };
+    let t = 0, b = h - 1;
+    while (t < h && !row(t)) t++;
+    if (t >= h) return;
+    while (b > t && !row(b)) b--;
+    if (t === 0 && b === h - 1) return;
+    const dpr = w / parseFloat(canvas.style.width);
+    const trimH = b - t + 1;
+    const img = ctx.getImageData(0, t, w, trimH);
+    canvas.height = trimH;
+    ctx.putImageData(img, 0, 0);
+    canvas.style.height = (trimH / dpr) + "px";
+}
+let _viewLayer = null;
+
+async function execView(pbf) {
     mapInst.autoRotate(false);
     exitButton.show();
     gishub.classed("viewing", true);
+    if (!pbf?.length) return;
+
+    if (_viewLayer) { _viewLayer.destroy(); _viewLayer = null; }
+
+    const [w, s, e, n] = pbf.bbox;
+    mapInst.flyToFeature({ type: "Feature", geometry: {
+        type: "Polygon", coordinates: [[[w,s],[e,s],[e,n],[w,n],[w,s]]]
+    }, properties: {} });
+
+    const { arcBuffer, arcMeta, polygon } = pbf.unPackGint || {};
+    if (polygon?.length > 0) {
+        _viewLayer = await mapInst.createRemoteLayer({ name: "GISHUB", type: "gint" });
+        _viewLayer.set("gint", { arcBuffer, arcMeta, polygon });
+    } else {
+        const geomType = pbf.fmap[0]?.[2] ?? 4;
+        const style = geomType < 2
+            ? { fill: "#FF6B35", stroke: "#fff", size: 5 }
+            : geomType < 4
+            ? { stroke: "#00B4D8", width: 1.5 }
+            : { fill: "rgba(255,107,53,0.25)", stroke: "#FF6B35", width: 0.8 };
+        const features = [];
+        pbf.forEach(n => features.push(pbf.getFeature(n)));
+        _viewLayer = mapInst.createLayer({ name: "GISHUB" });
+        _viewLayer.set("geojson", { type: "FeatureCollection", features }, style);
+    }
 }
+
 function exitView() {
-    mapInst.setView([0,0], initialZoom); setTimeout(()=>mapInst.autoRotate(true), 250);
+    if (_viewLayer) { _viewLayer.destroy(); _viewLayer = null; }
+    mapInst.setView([0,0], initialZoom);
+    setTimeout(() => mapInst.autoRotate(true), 250);
     exitButton.hide();
-    gishub.classed("viewing",false);
+    gishub.classed("viewing", false);
 }

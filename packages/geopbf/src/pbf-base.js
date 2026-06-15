@@ -1,6 +1,8 @@
 import Pbf from 'pbf';
 import { bufferTub, readBufs } from "./modules/bufferTub.js";
-import { isString, isSimpleObject, isNumber, isFloat, isBbox, cleanCoords, antimeridianFeature, loadPolygonClipping } from "common";
+import { isString, isSimpleObject, isNumber, isFloat, isBbox, antimeridianFeature, loadPolygonClipping } from "common";
+import { cleanCoords, } from "./modules/cleanCoords.js";
+
 
 const TAGS = { NAME: 1, KEYS: 2, PRECISION: 3, BUFS: 4, FARRAY: 5, FEATURE: 6, GEOMETRY: 7, GTYPE: 8, LENGTH: 9, COORDS: 10, VALUE: 11, INDEX: 12, GARRAY: 13, DESCRIPTION: 14, LICENSE: 15, ATTRIBUTION: 16 };
 const geometryTypes = ["Point", "MultiPoint", "LineString", "MultiLineString", "Polygon", "MultiPolygon", "GeometryCollection"];
@@ -43,9 +45,11 @@ class GeoPBF {
         } catch (e) { }
     }
     async set(q) {
-        await loadPolygonClipping();
-        if (q instanceof ArrayBuffer || ArrayBuffer.isView(q)) this.pbf = new Pbf(q);
-        else if (isSimpleObject(q)) {
+        if (q instanceof ArrayBuffer || ArrayBuffer.isView(q)) {
+            if (GeoPBF._workerUrl) return _setViaWorker(this, q instanceof ArrayBuffer ? q : q.buffer.slice(q.byteOffset, q.byteOffset + q.byteLength));
+            this.pbf = new Pbf(q);
+        } else if (isSimpleObject(q)) {
+            await loadPolygonClipping();
             const [keys, buffs] = this.noprop ? [[], []] : await makeKeys(q.features.map(t => t.properties));
             this.setHead(keys, buffs, { name: q.name }).setBody(q).close();
         } else return (console.error("PBF set: setting illegal value", q), this);
@@ -186,12 +190,6 @@ class GeoPBF {
     get arrayBuffer() { return this.pbf.buf.buffer.slice(0, this.end); }//渡しているのはコピー
     get headerBuffer() { return this.pbf.buf.buffer.slice(0, this.pbf.pos = this._bodyPos); }//渡しているのはコピー
     get geojson() { return { type: "FeatureCollection", features: this.features, name: this.name() }; }
-
-    async filesize() {
-        const stream = new Response(this.pbf.buf.buffer).body.pipeThrough(new CompressionStream('gzip'));
-        const compressed = await new Response(stream).arrayBuffer();
-        return compressed.byteLength;
-    }
 }
 
 async function makeKeys(q) {
@@ -252,7 +250,7 @@ function writeValue(self, q) {
         r = s.match(/^rgba\((\d+),(\d+),(\d+),([\d\.]+)\)$/); if (r) return [+r[1], +r[2], +r[3], ~~(+r[4] * 255)];
         r = s.match(/^rgb\((\d+),(\d+),(\d+)\)$/); if (r) return [+r[1], +r[2], +r[3], 255];
         r = s.match(/^\#[0-9a-f]{6}$/); if (r) return [parseInt(s.substring(1, 3), 16), parseInt(s.substring(3, 5), 16), parseInt(s.substring(5, 7), 16), 255];
-        r = s.match(/^\#[0-9a-f]{3}$/); if (r) return [parseInt(s.substring(1, 2), 16) * 16, parseInt(s.substring(2, 3), 16) * 16, parseInt(s.substring(3, 4), 16) * 16, 255];
+        r = s.match(/^\#[0-9a-f]{3}$/); if (r) return [parseInt(s.substring(1, 2), 16) * 17, parseInt(s.substring(2, 3), 16) * 17, parseInt(s.substring(3, 4), 16) * 17, 255];
         return [0, 0, 0, 0];
     }
 }
@@ -269,7 +267,7 @@ function readValue(self) {
         case DATATYPE.FUNC: return new Function(`return ${pbf.readString()}`);
         case DATATYPE.IMAGE: return image(pbf.readString());
         case DATATYPE.DATE: return new Date(pbf.readSVarint() * 1000);
-        case DATATYPE.BBOX: return new Float32Array(pbf.readPackedDouble());
+        case DATATYPE.BBOX: return new Float64Array(pbf.readPackedDouble());
         case DATATYPE.COLOR: return color(pbf.readBytes());;
     }
     return null;
@@ -366,4 +364,30 @@ function readGeometry(self, n, m) {
 }
 
 GeoPBF.setProperty({ TAGS, makeKeys, dataType, dataTypeNames, geometryTypes, geometryMap });
+
+function _setViaWorker(self, buf) {
+    return new Promise((resolve, reject) => {
+        const w = new Worker(GeoPBF._workerUrl, { type: "module" });
+        w.onmessage = ({ data: r }) => {
+            w.terminate();
+            self.init();
+            self.pbf          = new Pbf(r.buf);
+            self.fmap         = r.fmap;
+            self.props        = r.props;
+            self.keys         = r.keys;
+            self.bufs         = r.bufs;
+            self._name        = r._name;
+            self._description = r._description;
+            self._license     = r._license;
+            self._attribution = r._attribution;
+            self.e            = Math.pow(10, self._precision = r._precision);
+            self._bodyPos     = r._bodyPos;
+            self.end          = r.end;
+            resolve(self);
+        };
+        w.onerror = e => { w.terminate(); reject(e); };
+        w.postMessage({ buf }, [buf]);
+    });
+}
+
 export { GeoPBF };

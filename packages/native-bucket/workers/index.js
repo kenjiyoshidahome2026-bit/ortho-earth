@@ -6,7 +6,7 @@ function getCorsHeaders(req, env) {
     const allowedDomains = (env.ALLOWED_DOMAINS || "").split(",");
     const headers = { // 許可するメソッドとヘッダーの定義
         "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Action, X-Metadata-Type, X-Upload-ID, X-Part-Number",
+        "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Action, X-Metadata-Type, X-Upload-ID, X-Part-Number, X-API-Key",
         "Access-Control-Max-Age": "86400",
     };
     const isGetOptions = method === "OPTIONS" && req.headers.get("Access-Control-Request-Method") === "GET";

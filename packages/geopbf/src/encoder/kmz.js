@@ -1,6 +1,8 @@
 import { GeoPBF } from "../pbf-base.js";
 import { encodeZIP } from "native-bucket";
 
+const escXML = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
 // Webカラー(#RRGGBB) または [r,g,b,a] を KML形式(aabbggrr)に変換
 const toKMLColor = (c, opacity = 1) => {
     const a = Math.round(opacity * 255).toString(16).padStart(2, '0');
@@ -28,7 +30,7 @@ onmessage = async (e) => {
             const { type, coordinates: c } = f.geometry;
             const { color, fillOpacity, iconData, iconName } = f.properties;
 
-            kml += `  <Placemark>\n    <name>${f.id || i}</name>\n`;
+            kml += `  <Placemark>\n    <name>${escXML(f.id ?? i)}</name>\n`;
 
             // --- カラーハンドリング ---
             if (color) {
@@ -41,7 +43,7 @@ onmessage = async (e) => {
             // --- ファイルの埋め込み (アイコン等) ---
             if (iconData && iconName) {
                 const iconPath = `files/${iconName}`;
-                kml += `    <Style><IconStyle><Icon><href>${iconPath}</href></Icon></IconStyle></Style>\n`;
+                kml += `    <Style><IconStyle><Icon><href>${escXML(iconPath)}</href></Icon></IconStyle></Style>\n`;
                 // iconDataがBlobやArrayBufferなら、後でZIPに詰めるために保持
                 embeddedFiles.push(new File([iconData], iconPath));
             }
@@ -49,7 +51,7 @@ onmessage = async (e) => {
             kml += `    <ExtendedData>\n`;
             for (const [k, v] of Object.entries(f.properties)) {
                 if (v !== null && typeof v !== 'object' && !['iconData', 'iconName'].includes(k)) {
-                    kml += `      <Data name="${k}"><value>${v}</value></Data>\n`;
+                    kml += `      <Data name="${escXML(k)}"><value>${escXML(v)}</value></Data>\n`;
                 }
             }
             kml += `    </ExtendedData>\n`;

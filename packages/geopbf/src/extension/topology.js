@@ -130,6 +130,37 @@ export function unPackGintBuffer(GintBUF) { //const view = new Uint8Array(GintBU
 	} catch (e) { console.error("Failed to unpack Gint buffer:", e); return null; }
 }
 ////===============================================================================================================
+export function repackGintBuffer(d) {
+    const mlen = 8, SCALE = gint.SCALE_E;
+    const arcLength  = d.arcBuffer  ? d.arcBuffer.length  : 0;
+    const arcCount   = d.arcCount;
+    const pointCount = d.pointCount;
+    const topoStr    = JSON.stringify([d.polygon, d.polyline, d.neighbors]);
+    const topoBuf    = new TextEncoder().encode(topoStr);
+    const bboxInt    = [
+        Math.round((d.bbox[0] + 180) * SCALE), Math.round((d.bbox[1] +  90) * SCALE),
+        Math.round((d.bbox[2] + 180) * SCALE), Math.round((d.bbox[3] +  90) * SCALE),
+    ];
+    const header = new Uint32Array([
+        1953392967, 1,
+        d.polygonCount, d.polylineCount, pointCount, d.nodeCount,
+        arcLength, arcCount, ...bboxInt
+    ]);
+    const totalLength = header.length * 4 + arcLength * 8 + pointCount * 8
+        + arcCount * mlen * 4 + pointCount * 4 + topoBuf.length;
+    const buf = new ArrayBuffer(totalLength);
+    const u8  = new Uint8Array(buf);
+    let ptr = 0;
+    const write = ta => { u8.set(new Uint8Array(ta.buffer, ta.byteOffset, ta.byteLength), ptr); ptr += ta.byteLength; };
+    write(header);
+    d.arcBuffer   && write(d.arcBuffer);
+    d.pointBuffer && write(d.pointBuffer);
+    d.arcMeta     && write(d.arcMeta);
+    d.point       && write(d.point);
+    u8.set(topoBuf, ptr);
+    return buf;
+}
+////===============================================================================================================
 export function checkCoherence(fB, vB) { // コヒーレンス判定: 0:Outside, 1:Partial, 2:Full-In
 	if (fB[2] < vB.minX || fB[0] > vB.maxX || fB[3] < vB.minY || fB[1] > vB.maxY) return 0; // 完全に画面外 (Cull)
 	if (fB[0] >= vB.minX && fB[2] <= vB.maxX && fB[1] >= vB.minY && fB[3] <= vB.maxY) return 2; // 完全に画面内 (No Clip)

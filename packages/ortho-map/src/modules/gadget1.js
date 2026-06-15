@@ -3,9 +3,7 @@ import { datimArray, download, createPolygon } from "common";
 import "common/d3/selection.js";
 import { cleanup } from "common/d3/tip-pop.js";
 import { gadgetIcons, tooltips } from "../modules/icons.js";
-import { Layers } from "./layers.js";
-
-function createButton(map, name, opts) {
+export function createButton(map, name, opts) {
     const icon = opts.icon || gadgetIcons[name]||"<svg/>";
     const tip = opts.tip || tooltips[map.lang][name]||"";
     const target = map.addFrame(opts.target || "leftTop"); if (!target) return console.error("Frame Error");
@@ -25,7 +23,7 @@ export async function layers(opts = {}) {
     btn.onClick(() => {
         let flip = btn.classed("flip");
         btn.classed("flip", !flip); if (!btn.classed("flip")) return listArea.shrinkHide(btn);
-        listArea.empty().selectAll("button").data(Object.values(Layers)).enter().append("button").classed("gadget", true)
+        listArea.empty().selectAll("button").data(Object.values(map.Layers)).enter().append("button").classed("gadget", true)
             .text(d => d.trans(map.lang)).classed("flip", d => d.name === map.baseName)
             .on("click", (e, d) => {
                 e.stopPropagation(); if (d.name === map.baseName) return;

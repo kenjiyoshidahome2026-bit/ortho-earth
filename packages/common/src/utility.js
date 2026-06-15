@@ -119,8 +119,7 @@ export const openDirectory = async() => {
         if (status === 'prompt') {
             const newStatus = await saveDire.requestPermission({ mode: 'readwrite' });
             if (newStatus === 'granted') return saveDire;
-            throw new Error('Permission to access the directory was denied.');
-            return (saveDire = null);
+            saveDire = null; throw new Error('Permission to access the directory was denied.');
         }
     } catch (err) { console.error("Failed to open directory:", err); return null;}
 };

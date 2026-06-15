@@ -2,13 +2,15 @@ import { GeoPBF } from "../pbf-base.js";
 import { dissolve } from "../extension/dissolve.js";
 import { decodeZIP } from "native-bucket";
 
+const unescXML = s => s.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'");
+
 function* getTags(src, tag) {
     const regex = new RegExp(`<${tag}[^>]*>([\\s\\S]*?)<\\/${tag}>`, 'gi');
     let match;
     while ((match = regex.exec(src)) !== null) yield match[1];
 }
 
-// 🌟 srsName 属性から軸順を判定する
+// srsName 属性から軸順を判定する
 // CRS84 系 → 経度・緯度順（反転不要）
 // EPSG:4326 系 → 緯度・経度順（反転が必要）
 function needsAxisFlip(srsName) {
@@ -19,7 +21,7 @@ function needsAxisFlip(srsName) {
     return false;// その他（例：投影座標系）は反転しない
 }
 
-// 🌟 gml:posList / gml:pos のテキストを [lng, lat] の座標配列に変換する
+// gml:posList / gml:pos のテキストを [lng, lat] の座標配列に変換する
 function parsePosList(text, flip) {
     const nums = text.trim().split(/[\s\n\r]+/).map(Number);
     const pts = [];
@@ -29,7 +31,7 @@ function parsePosList(text, flip) {
     return pts;
 }
 
-// 🌟 ジオメトリブロック全体から座標を再帰的に収集する
+// ジオメトリブロック全体から座標を再帰的に収集する
 // MultiSurface / MultiCurve の複数パッチにも対応
 function extractAllPosLists(gmlBlock, flip) {
     const results = [];
@@ -40,6 +42,34 @@ function extractAllPosLists(gmlBlock, flip) {
         if (pts.length > 0) results.push(pts);
     }
     return results;
+}
+
+// gml:geometryProperty 内のインラインジオメトリを解析する（エンコーダ出力との往復対称用）
+function parseInlineGeometry(pm, flip) {
+    const geoPropMatch = /<gml:geometryProperty>([\s\S]+?)<\/gml:geometryProperty>/i.exec(pm);
+    if (!geoPropMatch) return null;
+    const block = geoPropMatch[1];
+    // Point
+    const posMatch = /<gml:pos[^>]*>([\s\S]+?)<\/gml:pos>/i.exec(block);
+    if (posMatch) {
+        const nums = posMatch[1].trim().split(/[\s\n\r]+/).map(Number);
+        return { type: "Point", coordinates: flip ? [nums[1], nums[0]] : [nums[0], nums[1]] };
+    }
+    // LineString
+    const lsMatch = /<gml:LineString[^>]*>[\s\S]*?<gml:posList[^>]*>([\s\S]+?)<\/gml:posList>/i.exec(block);
+    if (lsMatch) return { type: "LineString", coordinates: parsePosList(lsMatch[1], flip) };
+    // Polygon（exterior + 任意数の interior）
+    const polyMatch = /<gml:Polygon[^>]*>([\s\S]+?)<\/gml:Polygon>/i.exec(block);
+    if (polyMatch) {
+        const rings = [];
+        const extMatch = /<gml:exterior>[\s\S]*?<gml:posList[^>]*>([\s\S]+?)<\/gml:posList>/i.exec(polyMatch[1]);
+        if (extMatch) rings.push(parsePosList(extMatch[1], flip));
+        const intRegex = /<gml:interior>[\s\S]*?<gml:posList[^>]*>([\s\S]+?)<\/gml:posList>/gi;
+        let im;
+        while ((im = intRegex.exec(polyMatch[1])) !== null) rings.push(parsePosList(im[1], flip));
+        if (rings.length) return { type: "Polygon", coordinates: rings };
+    }
+    return null;
 }
 
 onmessage = async (e) => {
@@ -54,13 +84,12 @@ onmessage = async (e) => {
         gmlStr = await file.text();
     }
 
-    // 🌟 ファイル全体の srsName を取得して軸順を決定する
-    // featureMember やルート要素の srsName を優先して探す
+    // ファイル全体の srsName を取得して軸順を決定する
     const srsMatch = /srsName=["']([^"']+)["']/.exec(gmlStr);
     const flip = needsAxisFlip(srsMatch ? srsMatch[1] : null);
 
     const geometryCache = new Map();
-    const keySet = new Set(); // 🌟 "bbox" の初期混入を削除
+    const keySet = new Set();
 
     const featureTagMatch = /<([^:>\s]+:[^:>\s]+)\s+gml:id="/.exec(gmlStr);
     const featureTag = featureTagMatch ? featureTagMatch[1] : null;
@@ -75,25 +104,21 @@ onmessage = async (e) => {
         const posMatch = /<gml:pos[^>]*>([\s\S]+?)<\/gml:pos>/i.exec(block);
         if (posMatch) {
             const nums = posMatch[1].trim().split(/[\s\n\r]+/).map(Number);
-            // Point は単一座標
             geometryCache.set(id, {
                 type: "Point",
                 coordinates: flip ? [nums[1], nums[0]] : [nums[0], nums[1]]
             });
             continue;
         }
-
         // gml:posList が1つ以上ある場合（LineString / Polygon / Multi系）
         const posLists = extractAllPosLists(block, flip);
         if (posLists.length === 1) {
-            // 単一リング → Polygon か LineString として判定
             const isClosed = gMatch[1].match(/Surface/i);
             geometryCache.set(id, {
                 type: isClosed ? "Polygon" : "LineString",
                 coordinates: isClosed ? [posLists[0]] : posLists[0]
             });
         } else if (posLists.length > 1) {
-            // 複数リング → MultiPolygon か MultiLineString
             const isClosed = gMatch[1].match(/Surface/i);
             geometryCache.set(id, {
                 type: isClosed ? "MultiPolygon" : "MultiLineString",
@@ -101,18 +126,22 @@ onmessage = async (e) => {
             });
         }
     }
+
     // プロパティキーの収集
+    // gml:/xsi:/xlink: 名前空間タグは除外し、名前空間なしタグ（エンコーダ出力）も対象とする
+    const attrRegex = () => /<([a-zA-Z_][a-zA-Z0-9_.]*(?::[a-zA-Z_][a-zA-Z0-9_.]*)?)>([^<]+)<\/\1>/gi;
+    const isPropTag = name => !name.match(/^(?:gml|xsi|xlink):|(?:pos|geometry|location|bound)/i);
+
     if (featureTag) {
         for (const pm of getTags(gmlStr, featureTag)) {
-            const attrRegex = /<([^:>\s]+:[^:>\s]+)>([^<]+)<\/\1>/gi;
             let aMatch;
-            while ((aMatch = attrRegex.exec(pm)) !== null) {
-                if (!aMatch[1].match(/(pos|geometry|location|bound)/i)) {
-                    keySet.add(aMatch[1].replace(/:/g, '_'));
-                }
+            const re = attrRegex();
+            while ((aMatch = re.exec(pm)) !== null) {
+                if (isPropTag(aMatch[1])) keySet.add(aMatch[1].replace(/:/g, '_'));
             }
         }
     }
+
     const pbf = new GeoPBF({
         name: file.name.replace(/\.[^\.]+$/, ""),
         precision: precision || 7
@@ -123,19 +152,21 @@ onmessage = async (e) => {
         if (!featureTag) return;
         for (const pm of getTags(gmlStr, featureTag)) {
             const props = {};
-            const attrRegex = /<([^:>\s]+:[^:>\s]+)>([^<]+)<\/\1>/gi;
             let aMatch;
-            while ((aMatch = attrRegex.exec(pm)) !== null) {
+            const re = attrRegex();
+            while ((aMatch = re.exec(pm)) !== null) {
                 const key = aMatch[1].replace(/:/g, '_');
-                if (keySet.has(key)) props[key] = aMatch[2].trim();
+                if (keySet.has(key)) props[key] = unescXML(aMatch[2].trim());
             }
-            // xlink:href でジオメトリを参照
+            // xlink:href でジオメトリを参照（外部GML形式）
             const ref = /xlink:href=["']#([^"']+)["']/.exec(pm);
             if (ref) {
                 const geom = geometryCache.get(ref[1]);
-                if (geom) {
-                    pbf.setFeature({ type: "Feature", geometry: geom, properties: props });
-                }
+                if (geom) pbf.setFeature({ type: "Feature", geometry: geom, properties: props });
+            } else {
+                // インラインジオメトリを解析（エンコーダ出力形式）
+                const geom = parseInlineGeometry(pm, flip);
+                if (geom) pbf.setFeature({ type: "Feature", geometry: geom, properties: props });
             }
         }
     });
