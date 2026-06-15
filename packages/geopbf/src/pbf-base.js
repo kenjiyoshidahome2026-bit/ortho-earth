@@ -161,7 +161,7 @@ class GeoPBF {
         const func = (obj instanceof Function) ? obj : () => obj.features.forEach(t => this.setFeature(t))
         return this.setMessage(TAGS.FARRAY, func);
     }
-    setFeature(q) {
+    setFeature(q) { if (!q.geometry || !q.geometry.coordinates) return; // <===
         antimeridianFeature(q);
         return this.setMessage(TAGS.FEATURE, () => this.setGeometry(q.geometry).setProperties(q.properties));
     }
