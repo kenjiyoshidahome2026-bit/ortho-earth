@@ -9,8 +9,6 @@ export function identify(self, mx, my, proj, options = {}) {
 	const scale = proj.scale();
 	const pointError = ((options.point || 10) / scale) * gint.SCALE_E;
 	const polylineError = ((options.polyline || 5) / scale) * gint.SCALE_E;
-	const arcThreshold = (options.radius || 3) / scale * 0.5;
-
 	if (!self.unPackGint) return null;
 	const { arcBuffer, arcMeta, polygon, polyline, pointBuffer, point } = self.unPackGint;
 
@@ -19,7 +17,7 @@ export function identify(self, mx, my, proj, options = {}) {
 		if (owner !== null) return owner;
 	}
 	if (arcBuffer && arcMeta && polyline) {
-		const owner = findMortonNear(arcBuffer, arcMeta, polyline, mix, miy, polylineError, arcThreshold);
+		const owner = findMortonNear(arcBuffer, arcMeta, polyline, mix, miy, polylineError);
 		if (owner !== null) return owner;
 	}
 	if (arcBuffer && arcMeta && polygon) {
@@ -29,7 +27,7 @@ export function identify(self, mx, my, proj, options = {}) {
 	return null;
 }
 
-function findPoint(buffer, pointMeta, count, mix, miy, error) {
+function findPoint(buffer, pointMeta, mix, miy, error) {
 	const errSq = error * error;
 	const xMin = Math.max(0, mix - error), xMax = mix + error;
 	const yMin = Math.max(0, miy - error), yMax = miy + error;
@@ -49,7 +47,7 @@ function findPoint(buffer, pointMeta, count, mix, miy, error) {
 		const qMin = gint.packFromInt(q[0], q[2]);
 		const qMax = gint.packFromInt(q[1], q[3]);
 
-		let low = 0, high = count - 1, startIdx = -1;
+		let low = 0, high = buffer.length - 1, startIdx = -1;
 		while (low <= high) {
 			let mid = (low + high) >>> 1;
 			if (buffer[mid] >= qMin) {
@@ -62,7 +60,7 @@ function findPoint(buffer, pointMeta, count, mix, miy, error) {
 
 		if (startIdx === -1) continue;
 
-		for (let i = startIdx; i < count; i++) {
+		for (let i = startIdx; i < buffer.length; i++) {
 			const m = buffer[i];
 			if (m > qMax) break;
 
@@ -76,14 +74,13 @@ function findPoint(buffer, pointMeta, count, mix, miy, error) {
 	return null;
 }
 
-function findMortonNear(buffer, meta, polylineStructures, mix, miy, error, threshold) {
+function findMortonNear(buffer, meta, polylineStructures, mix, miy, error) {
 	const errSq = error * error;
 	const hitArcs = new Set();
 
 	const xMin = Math.max(0, mix - error), xMax = mix + error;
 	const yMin = Math.max(0, miy - error), yMax = miy + error;
 
-	const ranges = [];
 	const xMid = ((xMin ^ xMax) & (1 << 31)) ? (xMax & ~((1 << (31 - Math.clz32(xMin ^ xMax))) - 1)) : null;
 	const yMid = ((yMin ^ yMax) & (1 << 31)) ? (yMax & ~((1 << (31 - Math.clz32(yMin ^ yMax))) - 1)) : null;
 
@@ -150,24 +147,26 @@ function findMortonNear(buffer, meta, polylineStructures, mix, miy, error, thres
 
 function findPolygon(buffer, meta, polygonStructures, mix, miy) {
 	for (let i = 0; i < polygonStructures.length; i++) {
-		const [id, rings] = polygonStructures[i];
-		let inside = false;
-		for (const ring of rings) {
-			for (const arcIdx of ring) {
-				const aid = arcIdx < 0 ? ~arcIdx : arcIdx;
-				const mIdx = aid * 8;
-				if (mix < meta[mIdx + 4] || mix > meta[mIdx + 6] || miy < meta[mIdx + 5] || miy > meta[mIdx + 7]) continue;
+		const [id, polygons] = polygonStructures[i];
+		for (const rings of polygons) {
+			let inside = false;
+			for (const ring of rings) {
+				for (const arcIdx of ring) {
+					const aid = arcIdx < 0 ? ~arcIdx : arcIdx;
+					const mIdx = aid * 8;
+					if (mix > meta[mIdx + 6] || miy < meta[mIdx + 5] || miy > meta[mIdx + 7]) continue;
 
-				const off = meta[mIdx], len = meta[mIdx + 1];
-				for (let k = 0; k < len - 1; k++) {
-					const [ix1, iy1] = gint.unpackToInt(buffer[off + k]);
-					const [ix2, iy2] = gint.unpackToInt(buffer[off + k + 1]);
-					if (((iy1 > miy) !== (iy2 > miy)) &&
-						(mix < (ix2 - ix1) * (miy - iy1) / (iy2 - iy1) + ix1)) inside = !inside;
+					const off = meta[mIdx], len = meta[mIdx + 1];
+					for (let k = 0; k < len - 1; k++) {
+						const [ix1, iy1] = gint.unpackToInt(buffer[off + k]);
+						const [ix2, iy2] = gint.unpackToInt(buffer[off + k + 1]);
+						if (((iy1 > miy) !== (iy2 > miy)) &&
+							(mix < (ix2 - ix1) * (miy - iy1) / (iy2 - iy1) + ix1)) inside = !inside;
+					}
 				}
 			}
+			if (inside) return id;
 		}
-		if (inside) return id;
 	}
 	return null;
 }
