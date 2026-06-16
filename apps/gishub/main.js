@@ -102,8 +102,9 @@ async function exec(info) {
                 ]);
                 logger.log(profileHtml);
                 if (cacheKey && hubCache && bitmap instanceof ImageBitmap) {
-                    const oc = new OffscreenCanvas(bitmap.width, bitmap.height);
-                    oc.getContext("2d").drawImage(bitmap, 0, 0);
+                    const cv = canvas.node();
+                    const oc = new OffscreenCanvas(cv.width, cv.height);
+                    oc.getContext("2d").drawImage(cv, 0, 0);
                     oc.convertToBlob({ type: 'image/png', quality: 0.9 }).then(blob =>
                         hubCache(cacheKey, { PREVIEW: blob, PROFILE: profileHtml }).catch(console.error)
                     );
