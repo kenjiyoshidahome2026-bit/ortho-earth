@@ -3,7 +3,7 @@ import { comma } from "common";
 onmessage = async (e) => {
     try {
         const { buf, gintbuf } = e.data;
-        const self = (await new GeoPBF().set(buf)).setGintBUF(gintbuf);
+        const self = await (await new GeoPBF().set(buf)).setGintBUF(gintbuf);
         const fileSizePromise = self.fileSize();
         let { polygonCount, polylineCount, pointCount, nodeCount, arcCount, bbox, polygon, polyline, point } = self.unPackGint;
         const struct = {};

@@ -77,8 +77,6 @@ async function exec(info) {
         const cancel = p.select("span").hide().on("click", () => location.reload());
         setTimeout(() => inExec && cancel.show(),1000);
         let pbf = await geopbf(target, { name, precision, license, description, attribution, nocache });
-        // pbf = await pbf.precision(4);
-        // console.log(pbf);
         if (pbf && pbf.length) { success = true;
             logger.success(`${name} (length: ${comma(pbf.size)})`);
             p = logger.empty();
