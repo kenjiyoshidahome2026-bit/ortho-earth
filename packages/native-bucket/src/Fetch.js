@@ -19,19 +19,18 @@ export async function Fetch(url, opts = {}) {
     if (target) { name = target }; 
 
     try {
-        let cors = false, range = true, knownSize = 0;
+        let cors = false, range = true, knownSize = 0, targetURL = "";
         const checkRes = await fetch(`${proxy(url)}&mode=check`);
         const info = await checkRes.json();
-        console.log(info);
-        if (!info.exists) { console.warn(`file is not exist: ${url}`); return null; }
-        cors = opts.cors !== undefined ? !!opts.cors : info.mustUseProxy;
-        range = info.supportsRange;
-        knownSize = info.contentLength ? parseInt(info.contentLength, 10) : 0;
-        const targetURL = cors ? proxy(url) : url;
-
-        // 1. 部分取得 (Rangeリクエスト) を利用する場合
+        if (!info.exists && !info.url) {
+             console.warn(`file is not exist: ${url}`); return null; 
+        } else {
+            cors = opts.cors !== undefined ? !!opts.cors : info.mustUseProxy;
+            targetURL = cors ? proxy(url) : url;
+            range = info.supportsRange;
+            knownSize = info.contentLength ? parseInt(info.contentLength, 10) : 0;
+        }
         if (range && target != null) {
-            // 🌟 確定した既知のサイズ（knownSize）を引数として decodeZIP に引き渡す
             const file = await decodeZIP(targetURL, { target, encoding, eventTarget, totalLength: knownSize });
             if (target === false) return file; 
             if (!file) { 

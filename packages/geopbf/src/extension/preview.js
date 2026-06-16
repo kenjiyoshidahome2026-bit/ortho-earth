@@ -28,7 +28,7 @@ export function preview(self, canvas, props = {}) {
     if (dpr !== 1) ctx.scale(dpr, dpr);
 
     if (props.background) { ctx.fillStyle = props.background; ctx.fillRect(0, 0, width, height); }
-    ctx.lineWidth = props.lineWidth || 0.5 / dpr;
+    ctx.lineWidth = props.lineWidth || 1 / dpr;
     ctx.fillStyle = props.fill || "#ccc";
     ctx.strokeStyle = props.stroke || "#000";
 
