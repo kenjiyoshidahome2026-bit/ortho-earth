@@ -16,16 +16,18 @@ class PBFIO {
     async fetch(name) {
         const { Fetch } = getNB();
         const [url, target] = name.split(/\#/);
-        return target ? await Fetch(url, { target }) : await Fetch(url);
-        // const blob = target ? await Fetch(url, { target }) : await Fetch(url);
-        // if (blob) return blob;
-        //  const res = await fetch(url);
-        // if (res && res.ok && res.redirected && res.url) {
-        //     const resx = await fetch(res.url);
-        //     console.log(resx);
-        //     return resx.blob();
-        // }
-        // return null;
+//        return target ? await Fetch(url, { target }) : await Fetch(url);
+        const blob = target ? await Fetch(url, { target }) : await Fetch(url);
+        if (blob) return blob;
+        const res = await fetch(url);
+        if (res && res.ok && res.redirected && res.url) {
+            const resx = await fetch(res.url);
+            const blob = await resx.blob();
+            console.log(blob)
+            blob.name = "aaaa.geojson"
+            return blob;
+        }
+        return null;
     }
     async files() { return await this.bucket.list(); }
     async sync() {
