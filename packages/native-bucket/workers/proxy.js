@@ -34,18 +34,28 @@ export async function proxy(req) {
 	const SAFE_HEADERS = ['accept', 'accept-encoding', 'accept-language', 'content-type',
 		'range', 'cache-control', 'if-modified-since', 'if-none-match'];
 
+	// 一般的なブラウザ（MacのChrome）のUser-Agent
+	const BROWSER_USER_AGENT = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+
 	try {
 		if (mode === 'check') {
-			// mode: check の場合も、リダイレクト先を含めた最終的な状態をチェックする
 			let checkTarget = target;
-			let checkResponse = await fetch(checkTarget, { method: 'HEAD', redirect: 'manual' });
+			// HEAD時もブラウザのUAを付与する
+			let checkResponse = await fetch(checkTarget, {
+				method: 'HEAD',
+				headers: { 'User-Agent': BROWSER_USER_AGENT },
+				redirect: 'manual'
+			});
 
-			// リダイレクト（301/302など）が発生した場合は、リダイレクト先のURLに切り替える
 			if ([301, 302, 303, 307, 308].includes(checkResponse.status)) {
 				const location = checkResponse.headers.get('location');
 				if (location) {
 					checkTarget = new URL(location, checkTarget).href;
-					checkResponse = await fetch(checkTarget, { method: 'HEAD' });
+					// S3へのHEADは403になることがあるので、リダイレクト先はGETでチェック（またはUAのみで綺麗に）
+					checkResponse = await fetch(checkTarget, {
+						method: 'HEAD',
+						headers: { 'User-Agent': BROWSER_USER_AGENT }
+					});
 				}
 			}
 
@@ -63,30 +73,35 @@ export async function proxy(req) {
 		const headers = new Headers(), method = req.method;
 		const body = (method !== 'GET' && method !== 'HEAD') ? req.body : null;
 		for (const [k, v] of req.headers) SAFE_HEADERS.includes(k.toLowerCase()) && headers.set(k, v);
-		headers.set('User-Agent', 'nativeBucket-Proxy/1.1');
 
-		// 1. まずリダイレクトを自動追跡せず（manual）にフェッチを試みる
+		// 初期リクエストもブラウザUAに設定
+		headers.set('User-Agent', BROWSER_USER_AGENT);
+
 		let response = await fetch(target, { method, headers, body, redirect: 'manual' });
 
-		// 2. もしS3などへのリダイレクト（301/302等）が発生した場合、手動で処理する
+		// S3などへのリダイレクトが発生した場合
 		if ([301, 302, 303, 307, 308].includes(response.status)) {
 			const redirectUrl = response.headers.get('location');
 			if (redirectUrl) {
 				const finalTarget = new URL(redirectUrl, target).href;
 
-				// S3にリダイレクトする際、元のリクエストヘッダー（特にRangeや余計なHost）が
-				// 邪魔をして署名エラーや拒否を起こすことがあるため、
-				// 必要最低限（User-AgentやRangeなど）に絞って再リクエストする
+				// 【超重要】S3用のヘッダーを完全にクリーンアップする
 				const s3Headers = new Headers();
-				if (headers.has('Range')) s3Headers.set('Range', headers.get('Range'));
-				s3Headers.set('User-Agent', 'nativeBucket-Proxy/1.1');
 
-				// S3への最終的なフェッチ（ここは通常自動リダイレクトでOK）
+				// 1. User-Agent をブラウザのものに偽装
+				s3Headers.set('User-Agent', BROWSER_USER_AGENT);
+
+				// 2. 動画再生やシークに必要な Range ヘッダー「だけ」を引き継ぐ
+				if (headers.has('Range')) {
+					s3Headers.set('Range', headers.get('Range'));
+				}
+
+				// ⚠️ Origin, Referer, Authorization, Host などは絶対に含めない（S3が403を返す原因）
+
 				response = await fetch(finalTarget, { method: 'GET', headers: s3Headers });
 			}
 		}
 
-		// 3. 元のレスポンス（またはリダイレクト先から得たレスポンス）を返す
 		return response;
 
 	} catch (e) {
