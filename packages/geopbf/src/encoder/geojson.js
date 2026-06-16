@@ -12,10 +12,22 @@ onmessage = async (e) => {
 
         (async () => {
             await writer.write(enc.encode('{"type":"FeatureCollection","features":[\n'));
+            let first = true;
             for (let i = 0, len = pbf.length; i < len; i++) {
-                const f = pbf.getFeature(i);
-                let s = JSON.stringify({ type: "Feature", geometry: f.geometry, properties: f.properties });
-                if (i < len - 1) s += ",\n";
+                let f;
+                try {
+                    f = pbf.getFeature(i);
+                } catch (err) {
+                    console.warn(`GeoPBF: Feature[${i}] could not be converted and was skipped.`, err);
+                    continue;
+                }
+                const g = f.geometry;
+                if (g != null && g.type !== "GeometryCollection" && !Array.isArray(g.coordinates)) {
+                    console.warn(`GeoPBF: Feature[${i}] has invalid geometry (coordinates missing) and was skipped.`);
+                    continue;
+                }
+                const s = (first ? "" : ",\n") + JSON.stringify({ type: "Feature", geometry: g ?? null, properties: f.properties });
+                first = false;
                 await writer.write(enc.encode(s));
             }
             await writer.write(enc.encode('\n]}'));

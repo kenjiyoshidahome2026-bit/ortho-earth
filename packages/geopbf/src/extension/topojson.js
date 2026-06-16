@@ -3,7 +3,7 @@ import { topology, unPackGintBuffer } from "./topology.js";
 ////-----------------------------------------------------------------GeoJSONからtopojsonを作成
 const types = ["Point", "MultiPoint", "LineString", "MultiLineString", "Polygon", "MultiPolygon", "GeometryCollection"];
 export function topojson(self) {
-    const { bbox, pointCount, pointBuffer, point, arcCount, arcBuffer, arcMeta, polygon, polyline } = self.unPackGint;
+    const { bbox, pointCount, pointBuffer, point: pointMeta, arcCount, arcBuffer, arcMeta, polygon, polyline } = self.unPackGint;
     const e = self.e;
     const arcs = [], mlen = 8;
     for (let i = 0; i < arcCount; i++) { let px = 0, py = 0;
@@ -14,8 +14,19 @@ export function topojson(self) {
         }
         arcs.push(arc);
     }
+    // pointMeta[i] = i番目のpointBufferエントリのフィーチャID。[featureId, [indices]] 形式に変換
+    const pointLayer = (() => {
+        if (!pointMeta || !pointCount) return null;
+        const tub = new Map();
+        for (let i = 0; i < pointCount; i++) {
+            const id = pointMeta[i];
+            if (!tub.has(id)) tub.set(id, []);
+            tub.get(id).push(i);
+        }
+        return tub.size > 0 ? [...tub.entries()] : null;
+    })();
 	const topologies = {};
-    [polygon, polyline, point].forEach((layer, type) => (layer||[]).forEach(([id, arcs]) => {
+    [polygon, polyline, pointLayer].forEach((layer, type) => (layer||[]).forEach(([id, arcs]) => {
         topologies[id] = topologies[id] || [[], [], []];
         topologies[id][type] = arcs;
     }));

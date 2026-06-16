@@ -7,7 +7,8 @@ export function topology(self) {
 	const elemCount = [0, 0, 0, 0];
 	const factor = gint.SCALE_E < e? gint.SCALE_E / e: Math.round(gint.SCALE_E / e);
 	const fit = (factor >= 1) ? (val) => val * factor: (val) => Math.round(val * factor);
-	const scaleFactor = Math.round(gint.SCALE_E / e);
+	const OFFSET_X = 180 * gint.SCALE_E; // gint座標系: ix = (lng+180)*SCALE_E
+	const OFFSET_Y =  90 * gint.SCALE_E; // gint座標系: iy = (lat+90)*SCALE_E
 	const bbox = [Infinity, Infinity, -Infinity, -Infinity];
 	const updateBbox = (x,y) => {
 		if (x < bbox[0]) bbox[0] = x; if (x > bbox[2]) bbox[2] = x;
@@ -32,7 +33,7 @@ export function topology(self) {
 							let dx = pbf.readSVarint(), dy = pbf.readSVarint();
 							if (dx || dy) { x += dx, y += dy;
 								updateBbox(x, y);
-								stream.push(fit(x), fit(y));
+								stream.push(fit(x) + OFFSET_X, fit(y) + OFFSET_Y);
 								elemCount[3]++;
 							}
 						};

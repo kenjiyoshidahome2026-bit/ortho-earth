@@ -161,7 +161,8 @@ class GeoPBF {
         const func = (obj instanceof Function) ? obj : () => obj.features.forEach(t => this.setFeature(t))
         return this.setMessage(TAGS.FARRAY, func);
     }
-    setFeature(q) { if (!q.geometry || !q.geometry.coordinates) return; // <===
+    setFeature(q) { //if (!q.geometry || !q.geometry.coordinates) return; // <===
+        q.geometry = q.geometry||{}; q.geometry.coordinates = q.geometry.coordinates ||[];
         antimeridianFeature(q);
         return this.setMessage(TAGS.FEATURE, () => this.setGeometry(q.geometry).setProperties(q.properties));
     }
@@ -186,10 +187,33 @@ class GeoPBF {
     get features() { return this.each(i => this.getFeature(i)); }
     get geometries() { return this.each(i => this.getGeometry(i)); }
     get properties() { return this.each(i => this.getProperties(i)); }
-    get propertiesTable() { return [this.keys].concat(this.props); }
+    get propertiesTable() {
+        if (this.props) for (let i = 0; i < this.fmap.length; i++) {
+            if (this.props[i] === undefined) decodePropsAt(this, i);
+        }
+        return [this.keys].concat(this.props);
+    }
     get arrayBuffer() { return this.pbf.buf.buffer.slice(0, this.end); }//渡しているのはコピー
     get headerBuffer() { return this.pbf.buf.buffer.slice(0, this.pbf.pos = this._bodyPos); }//渡しているのはコピー
-    get geojson() { return { type: "FeatureCollection", features: this.features, name: this.name() }; }
+    get geojson() {
+        const features = [];
+        (this.fmap || []).forEach((_, i) => {
+            let f;
+            try {
+                f = this.getFeature(i);
+            } catch (e) {
+                console.warn(`GeoPBF: Feature[${i}] could not be read and was skipped.`, e);
+                return;
+            }
+            const g = f.geometry;
+            if (g != null && g.type !== "GeometryCollection" && !Array.isArray(g.coordinates)) {
+                console.warn(`GeoPBF: Feature[${i}] has invalid geometry (coordinates missing) and was skipped.`);
+                return;
+            }
+            features.push({ type: "Feature", geometry: g ?? null, properties: f.properties });
+        });
+        return { type: "FeatureCollection", features, name: this.name() };
+    }
 }
 
 async function makeKeys(q) {
@@ -296,9 +320,27 @@ function writeProperties(self, q) {
     pbf.writePackedVarint(TAGS.INDEX, index);
 }
 
+function decodePropsAt(self, n) {
+    const { pbf, keys, fmap } = self;
+    const savedPos = pbf.pos;
+    pbf.pos = fmap[n][0];
+    const q = new Array(keys.length), values = [];
+    pbf.readMessage(ftag => {
+        if (ftag === TAGS.VALUE) { pbf.readVarint(); values.push(readValue(self)); }
+        else if (ftag === TAGS.INDEX) {
+            const end = pbf.readVarint() + pbf.pos; let vpos = 0;
+            while (pbf.pos < end) q[pbf.readVarint()] = values[vpos++];
+        }
+        // 未知フィールド（GEOMETRYなど）は readFields の自動スキップに任せる
+    });
+    pbf.pos = savedPos;
+    return self.props[n] = q;
+}
+
 function readProperties(self, n) {
     const { keys, props } = self, q = {};
-    props[n].forEach((v, i) => {
+    const row = props[n] !== undefined ? props[n] : decodePropsAt(self, n);
+    row.forEach((v, i) => {
         const key = keys[i].split(/\./);
         if (key.length == 1) q[key[0]] = v;
         else { q[key[0]] = q[key[0]] || {}; q[key[0]][key.slice(1).join(".")] = v; }
@@ -373,7 +415,7 @@ function _setViaWorker(self, buf) {
             self.init();
             self.pbf          = new Pbf(r.buf);
             self.fmap         = r.fmap;
-            self.props        = r.props;
+            self.props        = new Array(r.fmap.length); // 遅延デコード用の空配列
             self.keys         = r.keys;
             self.bufs         = r.bufs;
             self._name        = r._name;
