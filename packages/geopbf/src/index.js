@@ -1,6 +1,7 @@
 import { GeoPBF } from "./pbf.js";
 import { pbfio, setApiUrl } from "./pbf-io.js";
 GeoPBF._workerUrl = new URL("./decoder/pbf.js", import.meta.url);
+GeoPBF._gintWorkerUrl = new URL("./decoder/gint.js", import.meta.url);
 export { setApiUrl };
 import { topology } from "./extension/topology.js";
 import { topo2geo } from "./modules/topo2geo.js";
@@ -85,7 +86,7 @@ export async function geopbf(data, options = {}) { if (isString(options)) option
                 const fetchUrl = isInZip(q) ? q : (q.match(/\.zip$/) && options.target) ? [q, options.target].join("#") : q;
                 const val = options.nocache == true? undefined: await server.cache(fetchUrl).catch(console.error);
                 if (val && val.PBF) { const pbf = (await new GeoPBF(options).set(val.PBF));
-                    val.GINT && pbf.setGintBUF(val.GINT);
+                    val.GINT && await pbf.setGintBUF(val.GINT);
                     pbf.originalURL = q;
                     return pbf;
                 }
@@ -168,7 +169,7 @@ const methods = {
     async gmlFile(opts = {}) { return encoder(this, "gml", opts); },
     async fgbFile(opts = {}) { return encoder(this, "fgb", opts); },
     async gint(opts = {}) { if (opts.gint === false) return this;
-        this.unPackGint || this.setGintBUF(await encoder(this, "gint", opts));
+        this.unPackGint || await this.setGintBUF(await encoder(this, "gint", opts));
         if (!this.unPackGint) throw new Error("Failed to encode Gint buffer.");
         return this;
     },

@@ -41,7 +41,7 @@ class PBFIO {
             const res = await fetch(`${this.bucket.url}${name}`, { cache: 'default' });
             if (!res.ok) throw new Error(`Failed to fetch: ${name} (HTTP ${res.status})`);
             const ETag = res.headers.get("etag");
-            if (val && val.ETag === ETag && val.PBF && val.GINT) return (await new GeoPBF().set(val.PBF)).setGintBUF(val.GINT);
+            if (val && val.ETag === ETag && val.PBF && val.GINT) return await (await new GeoPBF().set(val.PBF)).setGintBUF(val.GINT);
             const blob = await gunzip(await res.blob());
             const pbf = await new GeoPBF().set(await blob.arrayBuffer());
             pbf._etag = ETag;
@@ -49,7 +49,7 @@ class PBFIO {
             await this.put(pbf);
             return pbf;
         } catch (e) {
-            if (val && val.PBF && val.GINT) return (await new GeoPBF().set(val.PBF)).setGintBUF(val.GINT);
+            if (val && val.PBF && val.GINT) return await (await new GeoPBF().set(val.PBF)).setGintBUF(val.GINT);
             console.error(`[Fetch Error]`, e);
         }
     }

@@ -40,11 +40,21 @@ GeoPBF.setPrototype("contain", function ([lng, lat]) { return contain(this, lng,
 GeoPBF.setPrototype("cleanTopology", function(options) { cleanTopology(this.unPackGint, options); return this; });
 GeoPBF.setPrototype("precision", async function (s) { return precision(this, s); });
 
-GeoPBF.setPrototype("setGintBUF", function(buf) { 
+GeoPBF.setPrototype("setGintBUF", async function(buf) {
 	if (typeof SharedArrayBuffer === 'undefined') throw new Error("SharedArrayBuffer is not supported in this environment. Please set headers.");
 	const sab = this._gintBuffer = new SharedArrayBuffer(buf.byteLength);
     new Uint8Array(sab).set(new Uint8Array(buf));
-	this.unPackGint = unPackGintBuffer(sab); return this;
+	if (GeoPBF._gintWorkerUrl) {
+		this.unPackGint = await new Promise((resolve, reject) => {
+			const w = new Worker(GeoPBF._gintWorkerUrl, { type: "module" });
+			w.onmessage = e => { w.terminate(); resolve(e.data); };
+			w.onerror  = e => { w.terminate(); reject(e); };
+			w.postMessage({ sab });
+		});
+	} else {
+		this.unPackGint = unPackGintBuffer(sab);
+	}
+	return this;
 });
 
 GeoPBF.setPrototype("fileSize", async function () { if (this._fileSize > 0) return this._fileSize;
