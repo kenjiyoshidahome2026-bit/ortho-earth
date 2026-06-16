@@ -22,6 +22,7 @@ export async function Fetch(url, opts = {}) {
         let cors = false, range = true, knownSize = 0;
         const checkRes = await fetch(`${proxy(url)}&mode=check`);
         const info = await checkRes.json();
+        console.log(info);
         if (!info.exists) { console.warn(`file is not exist: ${url}`); return null; }
         cors = opts.cors !== undefined ? !!opts.cors : info.mustUseProxy;
         range = info.supportsRange;
