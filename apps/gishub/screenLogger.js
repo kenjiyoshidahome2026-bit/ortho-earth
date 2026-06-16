@@ -53,7 +53,7 @@ export class screenLogger {
 			this.bars[name] = [bar, performance.now(), 0];
 		} else if (type === "progress" && this.bars[name]) {
 			const bar = this.bars[name][0], count = this.bars[name][2] = this.bars[name][2]+1;
-			const pct = Math.round((loaded / total) * 100), n = Math.floor(pct / 5);
+			const pct = Math.round((loaded / (total||loaded)) * 100), n = Math.floor(pct / 5);
 			const p = `<span class='done'>${"█".repeat(n)}</span><span class='rest'>${"█".repeat(20 - n)}</span>`;
 			const d = this.dots[~~(count/10) % this.dots.length];
 			bar.html(`⏳ ${name}: ${d}[${p}] ${pct}% (${comma(loaded)}/${comma(total)})`);
@@ -62,7 +62,6 @@ export class screenLogger {
 			const time = ((performance.now() - start)/1000).toFixed(3);
 			const speed = comma(((size||total) / time / 1024 / 1024).toFixed(2));
 			bar.text(`⏳ ${name}: ${comma(size||total)} bytes / ${comma(time)}sec (${speed} Mbytes/sec)`);
-		//	this.bars[name] = null;
 			delete this.bars[name];
 		}
 	}	

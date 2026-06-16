@@ -86,13 +86,12 @@ async function exec(info) {
             const cached = cacheKey && !nocache && hubCache && await hubCache(cacheKey).catch(() => null);
             if (cached?.PREVIEW && cached?.PROFILE) {
                 const bitmap = await createImageBitmap(cached.PREVIEW);
-                const cv = p.append("canvas");
-                cv.node().width = bitmap.width;
-                cv.node().height = bitmap.height;
-                cv.node().style.width  = (bitmap.width  / 2) + "px";
-                cv.node().style.height = (bitmap.height / 2) + "px";
-                cv.node().getContext("2d").drawImage(bitmap, 0, 0);
-                trimCanvas(cv.node());
+                const cv = p.append("canvas").node();
+                cv.width = bitmap.width, cv.height = bitmap.height;
+                cv.style.width  = (bitmap.width  / 2) + "px";
+                cv.style.height = (bitmap.height / 2) + "px";
+                cv.getContext("2d").drawImage(bitmap, 0, 0);
+                trimCanvas(cv);
                 logger.log(cached.PROFILE);
             } else {
                 const canvas = p.append("canvas").style("display", "none");
@@ -105,7 +104,7 @@ async function exec(info) {
                 if (cacheKey && hubCache && bitmap instanceof ImageBitmap) {
                     const oc = new OffscreenCanvas(bitmap.width, bitmap.height);
                     oc.getContext("2d").drawImage(bitmap, 0, 0);
-                    oc.convertToBlob({ type: 'image/webp', quality: 0.9 }).then(blob =>
+                    oc.convertToBlob({ type: 'image/png', quality: 0.9 }).then(blob =>
                         hubCache(cacheKey, { PREVIEW: blob, PROFILE: profileHtml }).catch(console.error)
                     );
                 }
