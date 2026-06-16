@@ -51,7 +51,7 @@ class GeoPBF {
         } else if (isSimpleObject(q)) {
             await loadPolygonClipping();
             const [keys, buffs] = this.noprop ? [[], []] : await makeKeys(q.features.map(t => t.properties));
-            this.setHead(keys, buffs, { name: q.name }).setBody(q).close();
+            this.setHead(keys, buffs).setBody(q).close();
         } else return (console.error("PBF set: setting illegal value", q), this);
         return await this.getPosition();
     }

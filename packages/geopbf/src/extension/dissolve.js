@@ -10,15 +10,22 @@ export async function dissolve(pbfInstance, key = false) {
     const propTub = new Map();
     pbfInstance.forEach(i => {
         const pkey = typeof key === "number" ? pbfInstance.props[i][key] : key === true ? "" : pbfInstance.props[i].join("|");
-        if (!propTub.has(pkey)) propTub.set(pkey, [i, [[], [], []]]);
-        const [id, a] = propTub.get(pkey);
+        if (!propTub.has(pkey)) propTub.set(pkey, [i, [[], [], []], new Set()]);
+        const [id, a, ptSet] = propTub.get(pkey);
         const geom = pbfInstance.getGeometry(i);
         if (!geom) return;
         geom.type === geometryTypes[6] ? geom.geometries.forEach(elem) : elem(geom);
-        function elem(geom) { 
+        function elem(geom) {
             const { type, coordinates } = geom;
             const n = geometryMap[type], multi = (n % 2), fig = n < 2 ? 0 : n < 4 ? 1 : 2;
-            multi ? a[fig].push(...coordinates) : a[fig].push(coordinates);
+            if (fig === 0) {
+                (multi ? coordinates : [coordinates]).forEach(pt => {
+                    const k = pt.join(",");
+                    if (!ptSet.has(k)) { ptSet.add(k); a[0].push(pt); }
+                });
+            } else {
+                multi ? a[fig].push(...coordinates) : a[fig].push(coordinates);
+            }
         }
     });
     pbfInstance.pbf.pos = pbfInstance._bodyPos;
