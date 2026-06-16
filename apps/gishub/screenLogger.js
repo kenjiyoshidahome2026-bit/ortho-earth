@@ -8,17 +8,20 @@ export class screenLogger {
 		this.dots = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 		this.bars = {};
 		this.mess = {};
-		addEventListener("FetchStart", e => this.progress("start", e));
-		addEventListener("FetchProgress", e => this.progress("progress", e));
-		addEventListener("FetchEnd", e => this.progress("end", e));
-		addEventListener("ConvertStart", e => this.event("start", e));
-		addEventListener("ConvertEnd", e => this.event("end", e));
-	} 
+		this._ac = new AbortController();
+		const { signal } = this._ac;
+		addEventListener("FetchStart",    e => this.progress("start", e),    { signal });
+		addEventListener("FetchProgress", e => this.progress("progress", e), { signal });
+		addEventListener("FetchEnd",      e => this.progress("end", e),      { signal });
+		addEventListener("ConvertStart",  e => this.event("start", e),       { signal });
+		addEventListener("ConvertEnd",    e => this.event("end", e),         { signal });
+	}
+	destroy() { this._ac.abort(); this.clear(); }
 	hide() { this.target.hide(); return this; }
 	show() { this.target.show(); return this; }
 	clear() { this.target.empty(); return this; }
 	empty() { const div = this.target, p = div.append("p");
-		setTimeout(() => div.node().scrollTop = div.node().scrollHeight, 500);
+		requestAnimationFrame(() => div.node().scrollTop = div.node().scrollHeight);
 		return p;
 	}
 	log(...a) {
@@ -31,20 +34,28 @@ export class screenLogger {
 		const isImageBlob = _ => isBlob(_) && _.type.match(/^image/);
 		const p = this.empty();
 		if (a.length == 1) { a = a[0];
-			if (isArray(a) && a.length > 1) { 
+			if (isArray(a) && a.length > 1) {
 				if (a.every(isObject)) a = o2a(a);
 				if (a.every(isArray)) { const table = p.append("table");
 					a.forEach(t=>{ const tr = table.append("tr");
 						t.forEach(t=>tr.append("td").text(t).classed("right", isNumber(t)))
 					});
-					return
+					return p;
 				}
 			} else if (isImageBlob(a)) {
 				return p.append("img").attr("src", URL.createObjectURL(a));
+			} else if (isObject(a)) {
+				const dl = p.append("dl");
+				Object.entries(a).forEach(([k, v]) => {
+					dl.append("dt").text(k);
+					dl.append("dd").html(toS(v));
+				});
+				return p;
 			}
 			return p.append("span").html(toS(a));
-		} 
+		}
 		a.forEach(t=>p.append("span").html(toS(t)));
+		return p;
 	}
 	progress(type, e) {
 		const { name, loaded, total, size } = e.detail;
@@ -64,47 +75,56 @@ export class screenLogger {
 			bar.text(`⏳ ${name}: ${comma(size||total)} bytes / ${comma(time)}sec (${speed} Mbytes/sec)`);
 			delete this.bars[name];
 		}
-	}	
-	event(type, e) { let timer = null, count = 0;
-		const { name, event, done, error } = e.detail;
+	}
+	event(type, e) {
+		const { name, event, error } = e.detail;
 		if (type === "start") { if (this.mess[name]) return;
+			let count = 0;
 			const bar = this.empty().classed("event", true).html(`🔄 ${name}: ${event} <span id="spinner"/>`);
-			this.mess[name] = [bar, performance.now()]
 			const spinner = bar.select("#spinner");
 			const updateSpinner = () => spinner.text(this.dots[~~(count++) % this.dots.length]);
-			timer = setInterval(updateSpinner, 250);
+			const timer = setInterval(updateSpinner, 250);
+			this.mess[name] = [bar, performance.now(), timer];
 		} else if (type === "end" && this.mess[name]) {
-			clearInterval(timer)
-			const bar = this.mess[name][0], start = this.mess[name][1];
+			const [bar, start, timer] = this.mess[name];
+			clearInterval(timer);
 			const time = ((performance.now() - start) / 1000).toFixed(3);
-			!error ? bar.text(`🔄 ${name}: ${event} (${comma(time)}sec)`): this.error(error);
+			!error ? bar.text(`🔄 ${name}: ${event} (${comma(time)}sec)`) : this.error(error);
 			delete this.mess[name];
 		}
-	}	
+	}
 	warn(s) { this.empty().classed("warn", true).text(`⚠️ [WARNING] ${s}`); }
 	error(s) { this.empty().classed("error", true).text(`❌ [ERROR] ${s}`); }
-	title(s,sub="") { const p = this.empty().classed("title", true).html(`<span class="title">✨ ${s} ✨</span><span class="subtitle">${sub}</span>`); 
+	title(s,sub="") { const p = this.empty().classed("title", true).html(`<span class="title">✨ ${s} ✨</span><span class="subtitle">${sub}</span>`);
 		this.time = performance.now();
 		return p;
 	}
 	success(s) { const time = ((performance.now() - this.time)/1000).toFixed(3);
-		this.empty().classed("success", true).text(`✅ [SUCCESS] ${s} (${comma(time)}sec)`); 
+		this.empty().classed("success", true).text(`✅ [SUCCESS] ${s} (${comma(time)}sec)`);
 	}
     async prompt(s, def = "") {
         return new Promise(resolve => {
             const p = this.empty().classed("prompt", true);
             p.append("span").text(`> ${s} ? `);
-            const ans = p.append("span").classed("answer", true).attr("contenteditable", true)
+            const ans = p.append("span").classed("answer", true).attr("contenteditable", true);
+            if (def) ans.text(def);
             const btn = p.append("button").text("OK").style("margin-left", "10px");
             const submit = () => {
-                const result = ans.text();
-                ans.attr("contenteditable", false); // 入力不可にする
-                btn.remove(); // ボタンを消す
-                resolve(result||def); // 結果を返す
+                const result = ans.text().trim();
+                ans.attr("contenteditable", false);
+                btn.remove();
+                resolve(result || def);
             };
             btn.on("click", submit);
             ans.on("keydown", e => { if (e.key === "Enter") { e.preventDefault(); submit(); }});
-            ans.node().focus();
+            const node = ans.node();
+            node.focus();
+            if (def) {
+                const range = document.createRange();
+                range.selectNodeContents(node);
+                window.getSelection().removeAllRanges();
+                window.getSelection().addRange(range);
+            }
         });
     }
 	async select(s, sel) { return new Promise(resolve => { let idx = 0;
@@ -115,7 +135,7 @@ export class screenLogger {
 		const btns = p.selectAll("button"), len = sel.length;
 		const flip = n => btns.classed("flip", (d, i) => n === i); flip(idx);
 		const done = (res) => {
-			this.target.on("keydown.select", false); // イベント解除
+			this.target.on("keydown.select", false);
 			p.remove();
 			resolve(res);
 		};
