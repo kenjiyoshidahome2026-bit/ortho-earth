@@ -65,7 +65,7 @@ export function getCSV(self) {
     const a = self.propertiesTable; if (!a || a.length < 1) return "";
 	const quot = s => (isString(s) && s.match(/[,"]|^0\d/))?`"${s.replace(/"/g, '""')}"`: s;
 	const csv2str = a => (a||[]).map(row => row.map(quot).join(",")).join("\r\n");
-    const conv = (v) => { 
+    const conv = (v) => {
         if (isNull(v)||isUndefined(v)) return "";
         if (isBoolean(v)||isNumber(v)) return v;
         if (isDate(v)) return v.toISOString();
@@ -75,11 +75,23 @@ export function getCSV(self) {
         if (isObject(v)||isArray(v)) return JSON.stringify(v);
         return String(v);
     };
+    const typeSet = new Set(self.getType());
+    const isPointOnly = [...typeSet].every(t => t === "Point");
+    const hasLinear = [...typeSet].some(t => t === "LineString" || t === "MultiLineString" || t === "Polygon" || t === "MultiPolygon");
+    const hasPolygon = [...typeSet].some(t => t === "Polygon" || t === "MultiPolygon");
+    const geomHead = isPointOnly ? ["lng", "lat"] : ["xmin", "ymin", "xmax", "ymax"];
+    if (hasLinear) geomHead.push("length");
+    if (hasPolygon) geomHead.push("area");
     const len = a[0].length;
-    const head = [].concat(["#", "type"], a[0],["xmin","ymin","xmax","ymax"]);
+    const head = [].concat(["#", "type"], a[0], geomHead);
     const body = a.slice(1).map((t,i)=>{ const q = [];
         for (let j = 0; j < len; j++) q[j] = conv(t[j]);
-        return [i+1, self.getType(i)].concat(q);
+        const geomVals = isPointOnly
+            ? (c => c ? [c[0], c[1]] : ["", ""])(self.centroid(i))
+            : (b => b ? b : ["", "", "", ""])(self.getBbox(i));
+        if (hasLinear) geomVals.push(self.lineLength(i) ?? "");
+        if (hasPolygon) geomVals.push(self.area(i) ?? "");
+        return [i+1, self.getType(i)].concat(q, geomVals);
     });
 	return csv2str([head].concat(body));
 }

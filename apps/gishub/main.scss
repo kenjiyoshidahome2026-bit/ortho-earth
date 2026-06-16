@@ -66,12 +66,12 @@ button.close {
 		}
 		> .tables { position: absolute; inset: 70px 30px 30px;
 			font-family: 'Courier New', Courier, monospace;
-			h2 { font-size: 1.2rem;text-align:left; span { font-size: 0.8em; margin: 0 0.5rem; }}
+			h2 { font-size: 1.2rem; text-align: left; white-space: nowrap; overflow-x: auto; overflow-y: hidden; span { font-size: 0.7em; margin: 0 0.3rem; } }
 			.prop-table { position: absolute; inset: 60px 0 10px; overflow-y: auto;
 				table { position: absolute; height:100%;
 					border-collapse: separate; border-spacing: 0; text-align: left;
 					font-size: 12px; color:#fff;
-					th { position: sticky; top: 0; background: #222; z-index: 1;
+					th { position: sticky; top: 0; background: #222; z-index: 1; text-align:center;
 						border-top: 1px solid #888;border-bottom: 1px solid #888; padding: 6px 8px; }
 					td { border-bottom: 1px solid #888; padding: 6px 8px; max-width: 200px;
 						overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -79,8 +79,8 @@ button.close {
 					tr:hover { background: #222; }
 				}
 			}
-			button { padding: 0.5em 1em; margin: 0.5em; height: 2.4em;
-				background: #444; color: #fff; border: 1px solid #ccc; border-radius: 5px; min-width: 5em;
+			button { padding: 0.5em 1em; margin: 0.5em; height: 2.4em; vertical-align: middle; line-height:1.4em;
+				background: #444; color: #fff; border: 1px solid #ccc; border-radius: 5px; //min-width: 5em;
 				&:hover { background: #ccc; color: #000; }
 				&:disabled { background: #444; color: #888; }
 			}

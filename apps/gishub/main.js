@@ -40,7 +40,7 @@ section.selectAll(".card").data(d => d.contents).join("button").attr("class", "c
 	.html(d => `<div class="name">${d.name}</div><div class="desc">${d.description}</div><div class="license">${d.license}</div>`)
 	.on("click", (e, d) => exec(d));
 ////------------------------------------------------------
-const reset = () => { logger.clear(); uploads.show(); left.selectAll(".card").attr("disabled", null); };
+const reset = () => { logger.clear(); tables.empty().hide(); uploads.show(); left.selectAll(".card").attr("disabled", null); };
 const main = gishub.append("main").attr("class", "main");
 main.append("h1").html(`<img src="favicon.svg" alt="GIS-HUB"/><span>GIS-HUB</span>`).on("click", reset);
 ////------------------------------------------------------
@@ -136,17 +136,39 @@ async function exec(info) {
         funcs.forEach(f => p.append("button").classed("accent", f.name === "GeoPBF").text(f.name)
             .on("click", async () => { active(false); (await openDirectory()) && await f(); active(true); }));
         function showProp() {
-            function propertyTable(a) {
-                const cut = s => s.length > 16? s.substring(0,15)+" …":s;
-                const head = `<thead><tr>${a[0].map(t => `<th>${t}</th>`).join("")}</tr></thead>`;
-                const body = `<tbody>${ a.slice(1).map(row =>`<tr>${row.map(t =>`<td>${cut(t)}</td>`).join("")}</tr>`).join("")}</tbody>`;
-                return `<h2>${pbf.name()}<span>${pbf.description()}<span><div class="prop-table"><table>${head}${body}</table></div>`;
-            }
-            logger.hide(); tables.show().html(propertyTable(pbf.getPropertyTable()));
+            const PAGE = 100;
+            const data = pbf.getPropertyTable();
+            const headers = data[0];
+            const rows = data.slice(1);
+            const pages = Math.ceil(rows.length / PAGE) || 1;
+            let page = 0;
+            const esc = s => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+            const cut = s => { const t = String(s); return esc(t.length > 16 ? t.substring(0, 15) + " …" : t); };
+
+            logger.hide();
+            tables.show().html(
+                `<h2>${pbf.name()}<span>${pbf.description()}</span></h2>` +
+                `<div class="prop-table"><table><thead><tr>${headers.map(t => `<th>${esc(String(t))}</th>`).join("")}</tr></thead><tbody></tbody></table></div>`
+            );
+
+            const tbody = tables.select("tbody");
             const h2 = tables.select("h2");
-            h2.append("button").text("📥 CSV").on("click", csv)
-            h2.append("button").text("📥 Excel").on("click", xls)
-            h2.append("button").text("Done").on("click", function done() { logger.show(); tables.empty().hide(); })
+
+            function renderPage() {
+                const slice = rows.slice(page * PAGE, (page + 1) * PAGE);
+                tbody.html(slice.map(row => `<tr>${row.map(t => `<td>${cut(t)}</td>`).join("")}</tr>`).join(""));
+                tables.select(".prop-table").node().scrollTop = 0;
+            }
+            renderPage();
+
+            if (pages > 1) {
+                h2.append("button").text("◀").on("click", () => { if (page > 0) { page--; pageInfo.text(`${page + 1} / ${pages}`); renderPage(); } });
+                const pageInfo = h2.append("span").attr("class","page").text(`1 / ${pages}`);
+                h2.append("button").text("▶").on("click", () => { if (page < pages - 1) { page++; pageInfo.text(`${page + 1} / ${pages}`); renderPage(); } });
+            }
+            h2.append("button").text("📥 CSV").on("click", csv);
+            h2.append("button").text("📥 Excel").on("click", xls);
+            h2.append("button").text("Done").on("click", () => { logger.show(); tables.empty().hide(); });
         }
         async function csv() {
             save(new File([pbf.getCSV()], pbf.name()+".csv", {type:"application/csv"}));
