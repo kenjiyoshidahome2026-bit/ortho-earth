@@ -214,10 +214,12 @@ async function execView(pbf) {
         type: "Polygon", coordinates: [[[w,s],[w,n],[e,n],[e,s],[w,s]]]
     }, properties: {} });
 
-    const { arcBuffer, arcMeta, polygon, polyline } = pbf.unPackGint || {};
-    if (arcBuffer && arcMeta && (polygon?.length > 0 || polyline?.length > 0)) {
+    const { arcBuffer, arcMeta, polygon, polyline, pointBuffer } = pbf.unPackGint || {};
+    const hasArcs = !!(arcBuffer && arcMeta && (polygon?.length > 0 || polyline?.length > 0));
+    const hasPoints = !!(pointBuffer?.length > 0);
+    if (hasArcs || hasPoints) {
         _viewLayer = await mapInst.createRemoteLayer({ name: "GISHUB", type: "gint" });
-        _viewLayer.set("gint", { arcBuffer, arcMeta, polygon: polygon ?? [], polyline: polyline ?? [] });
+        _viewLayer.set("gint", { arcBuffer, arcMeta, polygon: polygon ?? [], polyline: polyline ?? [], pointBuffer: pointBuffer ?? null });
     } else {
         const geomType = pbf.fmap[0]?.[2] ?? 4;
         const style = geomType < 2
