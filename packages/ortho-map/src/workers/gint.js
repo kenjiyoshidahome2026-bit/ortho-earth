@@ -24,6 +24,24 @@ let TEX_WIDTH = 4096; // clamped to MAX_TEXTURE_SIZE after GL init
 let arcMeta = null, polygon = null, polyline = null;
 let hasArcData = false, hasPtData = false;
 
+// GL resources — highlight
+let hlVAO, hlVBO, highlightCount = 0;
+
+// Hit testing state (JS-side mirror of GPU data)
+let arcBufJS = null; // BigUint64Array kept for JS hit test
+let ptBufJS  = null; // BigUint64Array kept for JS hit test
+let ptFeatureIds = null; // Uint32Array: point index → featureId
+let arcIdToFeature = null; // Map<arcId, {featureId, geomType}>
+
+// Cached drawing params for move() hit testing
+let lastR = [0, 0, 0], lastS = 1, lastW = 0, lastH = 0;
+
+// Active identify state
+let activeId = null, activeType = null;
+
+// Per-feature bbox (degrees) for polygon PIP pre-cull
+let polyBbox = null; // Map<featureId, {xmin,ymin,xmax,ymax}>
+
 // ── Shared GLSL: Morton decode + orthographic projection ──────────────────────
 // l1Only=true → pointBuffer (all L1); GPU compiler eliminates dead branch.
 
@@ -248,9 +266,87 @@ function buildPointIndices(nPoints) {
     return arr;
 }
 
+// ── JS hit testing helpers (mirror of GLSL compact / fetchProject) ────────────
+
+function jsCompact(m) {
+    m &= 0x55555555;
+    m = (m | (m >>> 1)) & 0x33333333;
+    m = (m | (m >>> 2)) & 0x0F0F0F0F;
+    m = (m | (m >>> 4)) & 0x00FF00FF;
+    m = (m | (m >>> 8)) & 0x0000FFFF;
+    return m >>> 0;
+}
+
+// Decode lng/lat from a BigUint64Array slot.
+// isL1 = true for pointBuffer (all L1 — skip the bit63 check).
+function decodeLL(buf, vi, isL1 = false) {
+    const word = buf[vi];
+    const lo    = Number(word & 0xFFFFFFFFn) >>> 0;
+    const hiRaw = Number(word >> 32n)        >>> 0;
+    const lo_c  = (isL1 || (hiRaw >>> 31) !== 0) ? lo : (lo & 0xFFFFFFC0) >>> 0;
+    const hi_c  = hiRaw & 0x7FFFFFFF;
+    const ux    = ((jsCompact(hi_c)       << 16) | jsCompact(lo_c))       >>> 0;
+    const uy    = ((jsCompact(hi_c >>> 1) << 16) | jsCompact(lo_c >>> 1)) >>> 0;
+    return [ux * 1e-7 - 180, uy * 1e-7 - 90];
+}
+
+// Ray casting PIP — counts edge crossings for ALL rings (outer + holes) combined.
+// Crossing count is odd → inside. Direction of arc traversal is irrelevant for
+// crossing count, so we always walk forward through the arc buffer.
+function pointInPolygon(clng, clat, components) {
+    let crossings = 0;
+    for (const rings of components) {
+        for (const ringArcs of rings) {
+            for (const arcIdx of ringArcs) {
+                const aid = arcIdx < 0 ? ~arcIdx : arcIdx;
+                const off = arcMeta[aid * 8], len = arcMeta[aid * 8 + 1];
+                for (let i = 0; i < len - 1; i++) {
+                    const [alng, alat] = decodeLL(arcBufJS, off + i);
+                    const [blng, blat] = decodeLL(arcBufJS, off + i + 1);
+                    if ((alat <= clat && blat > clat) || (blat <= clat && alat > clat)) {
+                        const xLng = alng + (clat - alat) / (blat - alat) * (blng - alng);
+                        if (xLng > clng) crossings++;
+                    }
+                }
+            }
+        }
+    }
+    return (crossings & 1) === 1;
+}
+
+// Rebuild highlightVBO for the current activeId / activeType.
+function rebuildHighlight() {
+    if (activeId == null || !arcMeta) { highlightCount = 0; return; }
+    const arr = [];
+    const push6 = (aid) => {
+        const off = arcMeta[aid * 8], len = arcMeta[aid * 8 + 1];
+        for (let i = 0; i < len - 1; i++) {
+            const A = off + i, B = off + i + 1;
+            arr.push(A, B, -1,  A, B, 1,  B, A, 1,
+                     A, B, -1,  B, A, 1,  B, A, -1);
+        }
+    };
+    const addIdx = ai => push6(ai < 0 ? ~ai : ai);
+    if (activeType === 'polygon' && polygon) {
+        for (const [fid, comps] of polygon) {
+            if (fid !== activeId) continue;
+            for (const rings of comps) for (const ring of rings) for (const ai of ring) addIdx(ai);
+            break;
+        }
+    } else if (activeType === 'polyline' && polyline) {
+        for (const [fid, sets] of polyline) {
+            if (fid !== activeId) continue;
+            for (const arcs of sets) for (const ai of arcs) addIdx(ai);
+            break;
+        }
+    }
+    highlightCount = arr.length / 3;
+    if (highlightCount > 0) uploadVBO(hlVBO, new Int32Array(arr));
+}
+
 // ── Worker message handlers ───────────────────────────────────────────────────
 
-const funcs = { init, set, resize, drawing, drawn, destroy };
+const funcs = { init, set, resize, drawing, drawn, destroy, move, leave, click };
 onmessage = e => (funcs[e.data.type] ?? (() => {}))(e.data);
 
 function init(data) {
@@ -287,6 +383,7 @@ function init(data) {
     polyVBO = gl.createBuffer(); polyVAO = makeVAO(polyVBO);
     lineVBO = gl.createBuffer(); lineVAO = makeVAO(lineVBO);
     ptVBO   = gl.createBuffer(); ptVAO   = makeVAO(ptVBO);
+    hlVBO   = gl.createBuffer(); hlVAO   = makeVAO(hlVBO);
 
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
@@ -296,13 +393,44 @@ function init(data) {
 
 function set(data) {
     if (data.cmd === "gint" && data.data) {
-        const { arcBuffer, arcMeta: am, polygon: pg, polyline: pl, pointBuffer: ptBuf } = data.data;
+        const { arcBuffer, arcMeta: am, polygon: pg, polyline: pl, pointBuffer: ptBuf, point: ptFids } = data.data;
 
         arcMeta  = am ?? null;
         polygon  = pg?.length  ? pg : null;
         polyline = pl?.length  ? pl : null;
         hasArcData = !!(arcBuffer && arcMeta && (polygon || polyline));
         hasPtData  = !!(ptBuf?.length);
+
+        // Keep JS references for hit testing
+        arcBufJS     = hasArcData ? arcBuffer : null;
+        ptBufJS      = hasPtData  ? ptBuf     : null;
+        ptFeatureIds = ptFids     ?? null;
+
+        // Reverse map: arcId → {featureId, geomType}
+        arcIdToFeature = new Map();
+        if (polygon)  for (const [fid, comps]  of polygon)
+            for (const rings  of comps) for (const ring  of rings) for (const ai of ring)
+                arcIdToFeature.set(ai < 0 ? ~ai : ai, { featureId: fid, geomType: 'polygon' });
+        if (polyline) for (const [fid, sets]   of polyline)
+            for (const arcs   of sets) for (const ai of arcs)
+                arcIdToFeature.set(ai < 0 ? ~ai : ai, { featureId: fid, geomType: 'polyline' });
+
+        // Per-feature bbox for PIP pre-cull
+        polyBbox = new Map();
+        if (polygon) for (const [fid, comps] of polygon) {
+            let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+            for (const rings of comps) for (const ring of rings) for (const ai of ring) {
+                const aid = ai < 0 ? ~ai : ai;
+                const xmn = arcMeta[aid*8+4]*1e-7-180, ymn = arcMeta[aid*8+5]*1e-7-90;
+                const xmx = arcMeta[aid*8+6]*1e-7-180, ymx = arcMeta[aid*8+7]*1e-7-90;
+                if (xmn < x0) x0=xmn; if (ymn < y0) y0=ymn;
+                if (xmx > x1) x1=xmx; if (ymx > y1) y1=ymx;
+            }
+            polyBbox.set(fid, { x0, y0, x1, y1 });
+        }
+
+        // Reset identify state
+        activeId = null; activeType = null; highlightCount = 0;
 
         if (hasArcData) {
             if (arcTex) gl.deleteTexture(arcTex);
@@ -349,6 +477,7 @@ function drawing(data) {
     gl.clear(gl.COLOR_BUFFER_BIT);
 
     const r = data.rotate, s = data.scale;
+    lastR = r; lastS = s; lastW = width; lastH = height;
 
     // ── Arc pass ──
     if (hasArcData) {
@@ -393,10 +522,137 @@ function drawing(data) {
         gl.drawArrays(gl.TRIANGLES, 0, ptCount);
     }
 
+    // ── Highlight pass (yellow, drawn on top) ──
+    if (hasArcData && highlightCount > 0) {
+        gl.useProgram(program);
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, arcTex);
+        gl.uniform1i(uArcBuf,    0);
+        gl.uniform1i(uTexWidth,  TEX_WIDTH);
+        gl.uniform3f(uRotate,    r[0], r[1], r[2] ?? 0);
+        gl.uniform1f(uScale,     s);
+        gl.uniform2f(uTranslate, width / 2, height / 2);
+        gl.uniform2f(uViewport,  width, height);
+        gl.uniform4f(uColor,     1.0, 0.9, 0.0, 1.0); // yellow
+        gl.uniform1f(uLineWidth, 2.5);
+        gl.bindVertexArray(hlVAO);
+        gl.drawArrays(gl.TRIANGLES, 0, highlightCount);
+    }
+
     gl.bindVertexArray(null);
 }
 
 function drawn() {}
+
+function move(data) {
+    if (!lastW || (!hasArcData && !hasPtData)) return;
+
+    const mx = data.x, my = data.y;
+    const RAD = Math.PI / 180;
+    const r0 = lastR[0] || 0, r1 = lastR[1] || 0, r2 = lastR[2] || 0;
+    const cf = Math.cos(r1 * RAD), sf = Math.sin(r1 * RAD);
+    const cg = Math.cos(r2 * RAD), sg = Math.sin(r2 * RAD);
+    const hw = lastW / 2, hh = lastH / 2, S = lastS;
+
+    function proj(lng, lat) {
+        const l = (lng + r0) * RAD, phi = lat * RAD;
+        const cp = Math.cos(phi), sp = Math.sin(phi), cl = Math.cos(l), sl = Math.sin(l);
+        const x = cp * sl, y = sp, z = cp * cl;
+        const yr = y * cf + z * sf, zr = z * cf - y * sf;
+        return [hw + S * (x * cg - yr * sg), hh - S * (x * sg + yr * cg), zr];
+    }
+
+    const THR_SQ = 64; // 8px hit radius
+    let bestId = null, bestType = null, bestDistSq = THR_SQ;
+
+    // Points (prefer over arcs when equidistant)
+    if (hasPtData && ptBufJS) {
+        for (let i = 0; i < ptBufJS.length; i++) {
+            const [lng, lat] = decodeLL(ptBufJS, i, true);
+            const [px, py, pzr] = proj(lng, lat);
+            if (pzr < 0) continue;
+            const d = (px - mx) ** 2 + (py - my) ** 2;
+            if (d < bestDistSq) { bestDistSq = d; bestId = ptFeatureIds ? ptFeatureIds[i] : i; bestType = 'point'; }
+        }
+    }
+
+    // Arcs with bbox pre-cull
+    if (hasArcData && arcBufJS && arcMeta) {
+        const nArcs = arcMeta.length / 8;
+        for (let aid = 0; aid < nArcs; aid++) {
+            const xmin = arcMeta[aid*8+4], ymin = arcMeta[aid*8+5];
+            const xmax = arcMeta[aid*8+6], ymax = arcMeta[aid*8+7];
+            const bcLng = (xmin + xmax) * 0.5e-7 - 180;
+            const bcLat = (ymin + ymax) * 0.5e-7 - 90;
+            const [cx, cy, czr] = proj(bcLng, bcLat);
+            if (czr < 0) continue;
+            const dLat = (ymax - ymin) * 1e-7 * S * RAD;
+            const dLng = (xmax - xmin) * 1e-7 * S * RAD * Math.cos(bcLat * RAD);
+            const screenR = Math.sqrt(dLat * dLat + dLng * dLng) + 8;
+            const dx = cx - mx, dy = cy - my;
+            if (dx * dx + dy * dy > (screenR + 8) * (screenR + 8)) continue;
+
+            const off = arcMeta[aid * 8], len = arcMeta[aid * 8 + 1];
+            const verts = [];
+            for (let i = 0; i < len; i++) verts.push(proj(...decodeLL(arcBufJS, off + i)));
+            for (let i = 0; i < len - 1; i++) {
+                const [ax, ay, azr] = verts[i], [bx, by] = verts[i + 1];
+                if (azr < 0) continue;
+                const ddx = bx - ax, ddy = by - ay;
+                const segSq = ddx * ddx + ddy * ddy;
+                if (segSq < 0.01) continue;
+                const t = Math.max(0, Math.min(1, ((mx - ax) * ddx + (my - ay) * ddy) / segSq));
+                const nx = ax + t * ddx - mx, ny = ay + t * ddy - my;
+                const d = nx * nx + ny * ny;
+                if (d < bestDistSq) {
+                    const info = arcIdToFeature.get(aid);
+                    if (info) { bestDistSq = d; bestId = info.featureId; bestType = info.geomType; }
+                }
+            }
+        }
+    }
+
+    // Polygon containment (PIP) fallback — fires when cursor is inside a polygon
+    // but not within 8px of any arc edge.
+    if (bestId == null && polygon && polyBbox) {
+        // Inverse orthographic: screen (mx,my) → (lng, lat)
+        const U = (mx - hw) / S, V = (hh - my) / S;
+        const xS  =  U * cg + V * sg;
+        const yrS = -U * sg + V * cg;
+        if (xS * xS + yrS * yrS <= 1.0) {
+            const zrS = Math.sqrt(1 - xS * xS - yrS * yrS);
+            const yOrig = yrS * cf - zrS * sf;
+            const zOrig = yrS * sf + zrS * cf;
+            let clng = Math.atan2(xS, zOrig) * (180 / Math.PI) - r0;
+            clng = ((clng + 180) % 360 + 360) % 360 - 180; // normalise to [-180,180]
+            const clat = Math.asin(Math.max(-1, Math.min(1, yOrig))) * (180 / Math.PI);
+            for (const [fid, comps] of polygon) {
+                const bb = polyBbox.get(fid);
+                if (!bb || clng < bb.x0 || clng > bb.x1 || clat < bb.y0 || clat > bb.y1) continue;
+                if (pointInPolygon(clng, clat, comps)) { bestId = fid; bestType = 'polygon'; break; }
+            }
+        }
+    }
+
+    if (bestId !== activeId || bestType !== activeType) {
+        activeId = bestId; activeType = bestType;
+        rebuildHighlight();
+        postMessage({ action: "identify", featureId: bestId, geomType: bestType, x: mx, y: my });
+        postMessage({ action: "redraw" });
+    }
+}
+
+function leave() {
+    if (activeId == null) return;
+    activeId = null; activeType = null; highlightCount = 0;
+    postMessage({ action: "identify", featureId: null });
+    postMessage({ action: "redraw" });
+}
+
+function click() {
+    if (activeId == null) return;
+    postMessage({ action: "click", featureId: activeId, geomType: activeType });
+}
 
 function destroy(data) {
     if (gl) {
@@ -408,10 +664,14 @@ function destroy(data) {
         if (polyVBO)  { gl.deleteBuffer(polyVBO);        polyVBO  = null; }
         if (lineVBO)  { gl.deleteBuffer(lineVBO);        lineVBO  = null; }
         if (ptVBO)    { gl.deleteBuffer(ptVBO);          ptVBO    = null; }
+        if (hlVAO)    { gl.deleteVertexArray(hlVAO);     hlVAO    = null; }
+        if (hlVBO)    { gl.deleteBuffer(hlVBO);          hlVBO    = null; }
         if (program)      { gl.deleteProgram(program);       program      = null; }
         if (pointProgram) { gl.deleteProgram(pointProgram);  pointProgram = null; }
     }
     arcMeta = polygon = polyline = null;
+    arcBufJS = ptBufJS = ptFeatureIds = arcIdToFeature = polyBbox = null;
     hasArcData = hasPtData = false;
+    activeId = null; activeType = null; highlightCount = 0;
     postMessage({ action: "done", type: "destroy" });
 }
