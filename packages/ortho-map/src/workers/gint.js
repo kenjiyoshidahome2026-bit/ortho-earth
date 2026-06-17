@@ -24,8 +24,15 @@ let TEX_WIDTH = 4096; // clamped to MAX_TEXTURE_SIZE after GL init
 let arcMeta = null, polygon = null, polyline = null;
 let hasArcData = false, hasPtData = false;
 
-// GL resources — highlight
+// GL resources — highlight outline
 let hlVAO, hlVBO, highlightCount = 0;
+
+// GL resources — stencil polygon fill
+let stencilProgram;
+let uStArcBuf, uStTexWidth, uStRotate, uStScale, uStTranslate, uStViewport;
+let fillProgram, uFillColor;
+let hlStVBO, hlStVAO, hlStCount = 0;
+let emptyVAO;
 
 // Hit testing state (JS-side mirror of GPU data)
 let arcBufJS = null; // BigUint64Array kept for JS hit test
@@ -159,6 +166,44 @@ void main() {
     if (dot(v_uv, v_uv) > 1.0) discard;
     fragColor = u_color;
 }`;
+
+// ── Stencil fill shaders ──────────────────────────────────────────────────────
+// Fan triangles from NDC origin → each arc edge, using INVERT stencil op.
+// Back-hemisphere vertices are clamped to the origin so triangles degenerate.
+
+const VS_STENCIL = `#version 300 es
+${makeSharedVS()}
+in int a_self;
+in int a_other;
+in int a_side;
+void main() {
+    if (a_self < 0) { gl_Position = vec4(0.0, 0.0, 0.0, 1.0); return; }
+    vec3 ps = fetchProject(a_self);
+    if (ps.z < 0.0)  { gl_Position = vec4(0.0, 0.0, 0.0, 1.0); return; }
+    gl_Position = vec4(2.0*ps.x/u_viewport.x-1.0, 1.0-2.0*ps.y/u_viewport.y, 0.0, 1.0);
+}`;
+
+const FS_STENCIL = `#version 300 es
+precision mediump float;
+out vec4 fragColor;
+void main() { fragColor = vec4(0.0); }`;
+
+// Full-screen quad via gl_VertexID — no VBO needed.
+const VS_FILL = `#version 300 es
+void main() {
+    vec2 p;
+    if      (gl_VertexID == 0) p = vec2(-1.0, -1.0);
+    else if (gl_VertexID == 1) p = vec2( 1.0, -1.0);
+    else if (gl_VertexID == 2) p = vec2(-1.0,  1.0);
+    else                        p = vec2( 1.0,  1.0);
+    gl_Position = vec4(p, 0.0, 1.0);
+}`;
+
+const FS_FILL = `#version 300 es
+precision mediump float;
+uniform vec4 u_color;
+out vec4 fragColor;
+void main() { fragColor = u_color; }`;
 
 // ── GL helpers ────────────────────────────────────────────────────────────────
 
@@ -342,6 +387,38 @@ function rebuildHighlight() {
     }
     highlightCount = arr.length / 3;
     if (highlightCount > 0) uploadVBO(hlVBO, new Int32Array(arr));
+    rebuildStencil();
+}
+
+// Build fan triangles for the stencil fill of the active polygon.
+// Each edge (A, B) → triangle [-1 (origin), A, B].
+// INVERT stencil op implements even-odd fill; holes cancel automatically.
+function rebuildStencil() {
+    if (activeId == null || activeType !== 'polygon' || !polygon || !arcMeta) {
+        hlStCount = 0; return;
+    }
+    const arr = [];
+    for (const [fid, comps] of polygon) {
+        if (fid !== activeId) continue;
+        for (const rings of comps) for (const ringArcs of rings) for (const arcIdx of ringArcs) {
+            const aid = arcIdx < 0 ? ~arcIdx : arcIdx;
+            const off = arcMeta[aid * 8], len = arcMeta[aid * 8 + 1];
+            if (arcIdx >= 0) {
+                for (let i = 0; i < len - 1; i++) {
+                    const A = off + i, B = off + i + 1;
+                    arr.push(-1, 0, 0,  A, 0, 0,  B, 0, 0);
+                }
+            } else {
+                for (let i = len - 1; i > 0; i--) {
+                    const A = off + i, B = off + i - 1;
+                    arr.push(-1, 0, 0,  A, 0, 0,  B, 0, 0);
+                }
+            }
+        }
+        break;
+    }
+    hlStCount = arr.length / 3;
+    if (hlStCount > 0) uploadVBO(hlStVBO, new Int32Array(arr));
 }
 
 // ── Worker message handlers ───────────────────────────────────────────────────
@@ -352,7 +429,7 @@ onmessage = e => (funcs[e.data.type] ?? (() => {}))(e.data);
 function init(data) {
     canvas = data.offscreen;
     dpr    = data.dpr;
-    gl = canvas.getContext("webgl2", { antialias: true, alpha: true, premultipliedAlpha: false });
+    gl = canvas.getContext("webgl2", { antialias: true, alpha: true, premultipliedAlpha: false, stencil: true });
     if (!gl) { postMessage({ action: "done", type: "init", ctx: null }); return; }
 
     TEX_WIDTH = Math.min(TEX_WIDTH, gl.getParameter(gl.MAX_TEXTURE_SIZE));
@@ -384,6 +461,20 @@ function init(data) {
     lineVBO = gl.createBuffer(); lineVAO = makeVAO(lineVBO);
     ptVBO   = gl.createBuffer(); ptVAO   = makeVAO(ptVBO);
     hlVBO   = gl.createBuffer(); hlVAO   = makeVAO(hlVBO);
+    hlStVBO = gl.createBuffer(); hlStVAO = makeVAO(hlStVBO);
+    emptyVAO = gl.createVertexArray();
+
+    // Stencil fill programs
+    stencilProgram = linkProgram(VS_STENCIL, FS_STENCIL);
+    uStArcBuf    = gl.getUniformLocation(stencilProgram, "u_arcBuf");
+    uStTexWidth  = gl.getUniformLocation(stencilProgram, "u_texWidth");
+    uStRotate    = gl.getUniformLocation(stencilProgram, "u_rotate");
+    uStScale     = gl.getUniformLocation(stencilProgram, "u_scale");
+    uStTranslate = gl.getUniformLocation(stencilProgram, "u_translate");
+    uStViewport  = gl.getUniformLocation(stencilProgram, "u_viewport");
+
+    fillProgram = linkProgram(VS_FILL, FS_FILL);
+    uFillColor  = gl.getUniformLocation(fillProgram, "u_color");
 
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
@@ -522,7 +613,47 @@ function drawing(data) {
         gl.drawArrays(gl.TRIANGLES, 0, ptCount);
     }
 
-    // ── Highlight pass (yellow, drawn on top) ──
+    // ── Stencil fill pass (active polygon interior) ──
+    if (hasArcData && hlStCount > 0) {
+        gl.enable(gl.STENCIL_TEST);
+        gl.stencilMask(0xFF);
+        gl.clear(gl.STENCIL_BUFFER_BIT);
+
+        // Pass 1: fan triangles → winding number via INCR_WRAP(front) / DECR_WRAP(back).
+        // Works regardless of origin position; holes cancel automatically.
+        gl.colorMask(false, false, false, false);
+        gl.stencilFunc(gl.ALWAYS, 0, 0xFF);
+        gl.stencilOpSeparate(gl.FRONT, gl.KEEP, gl.KEEP, gl.INCR_WRAP);
+        gl.stencilOpSeparate(gl.BACK,  gl.KEEP, gl.KEEP, gl.DECR_WRAP);
+
+        gl.useProgram(stencilProgram);
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, arcTex);
+        gl.uniform1i(uStArcBuf,    0);
+        gl.uniform1i(uStTexWidth,  TEX_WIDTH);
+        gl.uniform3f(uStRotate,    r[0], r[1], r[2] ?? 0);
+        gl.uniform1f(uStScale,     s);
+        gl.uniform2f(uStTranslate, width / 2, height / 2);
+        gl.uniform2f(uStViewport,  width, height);
+        gl.bindVertexArray(hlStVAO);
+        gl.drawArrays(gl.TRIANGLES, 0, hlStCount);
+
+        // Pass 2: fill where winding number != 0 (= inside polygon)
+        gl.colorMask(true, true, true, true);
+        gl.stencilMask(0x00);
+        gl.stencilFunc(gl.NOTEQUAL, 0, 0xFF);
+        gl.stencilOp(gl.KEEP, gl.KEEP, gl.KEEP);
+
+        gl.useProgram(fillProgram);
+        gl.uniform4f(uFillColor, 1.0, 0.9, 0.0, 0.22); // semi-transparent yellow
+        gl.bindVertexArray(emptyVAO);
+        gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+
+        gl.stencilMask(0xFF);
+        gl.disable(gl.STENCIL_TEST);
+    }
+
+    // ── Highlight pass (yellow outline, drawn on top) ──
     if (hasArcData && highlightCount > 0) {
         gl.useProgram(program);
         gl.activeTexture(gl.TEXTURE0);
@@ -666,12 +797,17 @@ function destroy(data) {
         if (ptVBO)    { gl.deleteBuffer(ptVBO);          ptVBO    = null; }
         if (hlVAO)    { gl.deleteVertexArray(hlVAO);     hlVAO    = null; }
         if (hlVBO)    { gl.deleteBuffer(hlVBO);          hlVBO    = null; }
-        if (program)      { gl.deleteProgram(program);       program      = null; }
-        if (pointProgram) { gl.deleteProgram(pointProgram);  pointProgram = null; }
+        if (hlStVAO)  { gl.deleteVertexArray(hlStVAO);   hlStVAO  = null; }
+        if (hlStVBO)  { gl.deleteBuffer(hlStVBO);        hlStVBO  = null; }
+        if (emptyVAO) { gl.deleteVertexArray(emptyVAO);  emptyVAO = null; }
+        if (program)        { gl.deleteProgram(program);        program        = null; }
+        if (pointProgram)   { gl.deleteProgram(pointProgram);   pointProgram   = null; }
+        if (stencilProgram) { gl.deleteProgram(stencilProgram); stencilProgram = null; }
+        if (fillProgram)    { gl.deleteProgram(fillProgram);    fillProgram    = null; }
     }
     arcMeta = polygon = polyline = null;
     arcBufJS = ptBufJS = ptFeatureIds = arcIdToFeature = polyBbox = null;
     hasArcData = hasPtData = false;
-    activeId = null; activeType = null; highlightCount = 0;
+    activeId = null; activeType = null; highlightCount = 0; hlStCount = 0;
     postMessage({ action: "done", type: "destroy" });
 }
