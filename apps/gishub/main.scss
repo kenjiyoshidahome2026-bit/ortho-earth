@@ -4,6 +4,19 @@ $mono: 'Courier New', Courier, monospace;
 
 body, html { overflow: hidden; width:100%; height:100%; background:$bg; color:$text; }
 * { margin:0; padding:0; box-sizing: border-box; outline:none; }
+.identify-tip {
+    position: absolute; pointer-events: none; z-index: 100;
+    background: rgba(0,0,0,0.75); color: #fff; font-size: 12px;
+    padding: 4px 8px; border-radius: 4px; white-space: nowrap;
+    border: 1px solid rgba(255,255,255,0.2);
+    max-width: 280px; overflow: hidden; text-overflow: ellipsis;
+}
+.identify-table {
+    border-collapse: collapse; font-size: 12px;
+    th { text-align: left; padding: 3px 8px; color: #aaa; font-weight: normal; }
+    td { padding: 3px 8px; color: #fff; }
+    tr:nth-child(even) { background: rgba(255,255,255,0.05); }
+}
 button.close {
 	position: absolute; top: 24px; right: 24px; width:40px; height:40px; border-radius: 20px; border:none;
 	background: none; color: $highlight; cursor: pointer; transition: all 500ms ease-in-out;

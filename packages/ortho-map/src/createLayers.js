@@ -139,6 +139,9 @@ async function createRemoteLayer(param = {}) {
         let ctxType = null;
         worker.onmessage = e => {
             const data = e.data;
+            if (data.action === "identify") { layer.onIdentify?.(data.featureId, data.geomType, data.x, data.y); return; }
+            if (data.action === "redraw")   { drawing(); return; }
+            if (data.action === "click")    { layer.onClick?.(data.featureId, data.geomType); return; }
             if (data.action !== "done") return;
             if (data.type === "init") {
                 ctxType = data.ctx;
@@ -160,6 +163,7 @@ async function createRemoteLayer(param = {}) {
         map.dispatcher.on(`Drawn.${name}`, drawn);
         map.dispatcher.on(`Move.${name}`, move);
         map.dispatcher.on(`Leave.${name}`, leave);
+        map.dispatcher.on(`Click.${name}`, click);
         map.dispatcher.on(`Resize.${name}`, resize);
 
         init();
@@ -194,6 +198,7 @@ async function createRemoteLayer(param = {}) {
         function drawn() { worker.postMessage({ type: "drawn", scale: proj.scale(), rotate: proj.rotate() }); }
         function move(e = {}) { worker.postMessage({ type: "move", ...e }); }
         function leave() { worker.postMessage({ type: "leave" }); }
+        function click(e = {}) { worker.postMessage({ type: "click", ...e }); }
         function resize() {
             const { width, height } = map;
             layer.css({ width: width + "px", height: height + "px" });
