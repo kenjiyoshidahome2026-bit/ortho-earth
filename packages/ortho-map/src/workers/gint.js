@@ -113,7 +113,13 @@ void main() {
     vec3 ps = fetchProject(a_self);
     vec3 po = fetchProject(a_other);
     v_zr = ps.z;
-    vec2 dir = po.xy - ps.xy;
+    // Clamp other endpoint to the horizon when it's on the back hemisphere.
+    // Without this, the fat-line quad extends toward the unprojected back-face
+    // coordinate and streaks outside the globe disc when zoomed out.
+    vec2 oXY = (po.z < 0.0 && ps.z > 0.0)
+        ? ps.xy + (ps.z / (ps.z - po.z)) * (po.xy - ps.xy)
+        : po.xy;
+    vec2 dir = oXY - ps.xy;
     float len = length(dir);
     if (len < 1e-4) { gl_Position = vec4(2.0, 2.0, 0.0, 1.0); return; }
     vec2 perp = vec2(-dir.y, dir.x) / len;
