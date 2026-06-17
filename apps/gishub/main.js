@@ -210,14 +210,14 @@ async function execView(pbf) {
     if (_viewLayer) { _viewLayer.destroy(); _viewLayer = null; }
 
     const [w, s, e, n] = pbf.bbox;
-    mapInst.flyToFeature({ type: "Feature", geometry: {
-        type: "Polygon", coordinates: [[[w,s],[e,s],[e,n],[w,n],[w,s]]]
+    await mapInst.flyToFeature({ type: "Feature", geometry: {
+        type: "Polygon", coordinates: [[[w,s],[w,n],[e,n],[e,s],[w,s]]]
     }, properties: {} });
 
-    const { arcBuffer, arcMeta, polygon } = pbf.unPackGint || {};
-    if (polygon?.length > 0) {
+    const { arcBuffer, arcMeta, polygon, polyline } = pbf.unPackGint || {};
+    if (arcBuffer && arcMeta && (polygon?.length > 0 || polyline?.length > 0)) {
         _viewLayer = await mapInst.createRemoteLayer({ name: "GISHUB", type: "gint" });
-        _viewLayer.set("gint", { arcBuffer, arcMeta, polygon });
+        _viewLayer.set("gint", { arcBuffer, arcMeta, polygon: polygon ?? [], polyline: polyline ?? [] });
     } else {
         const geomType = pbf.fmap[0]?.[2] ?? 4;
         const style = geomType < 2
@@ -230,6 +230,7 @@ async function execView(pbf) {
         _viewLayer = mapInst.createLayer({ name: "GISHUB" });
         _viewLayer.set("geojson", { type: "FeatureCollection", features }, style);
     }
+    mapInst.draw();
 }
 
 function exitView() {

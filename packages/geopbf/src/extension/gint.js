@@ -140,18 +140,15 @@ export class gint {
         const getPhysRank = (area) => {
             if (area <= 0) return 0;
             /* ------------------------------------------------
-            * 論理式の導出:
-            * 1px相当の距離 L = 14,062,500 / 2^z
-            * 面積 A = L^2 = (14,062,500^2) / 4^z
-            * log2(A) = log2(14,062,500^2) - 2z
-            * z = (47.491 - log2(A)) / 2
-            * * Rank = (21 - z) * 3  (ズーム21を0、0を63とする)
-            * Rank = (21 - (47.491 - log2(A)) / 2) * 3
-            * Rank = (21 - 23.745 + 0.5 * log2(A)) * 3
-            * Rank = 1.5 * log2(A) - 8.2365
+            * 論理式の導出 (area は平方度単位):
+            * 1px相当の距離 L = 1.40625 / 2^z  [度単位]
+            * 面積 A_1e7 = (L * 1e7)^2  [(1e-7度)^2単位]
+            * Rank = 1.5 * log2(A_1e7) - 8.2365
+            *       = 1.5 * log2(area * 1e14) - 8.2365
+            *       = 1.5 * log2(area) + 61.51
             * ------------------------------------------------ */
-            const rank = Math.floor(1.5 * Math.log2(area) - 8.2365);
-            return Math.min(63, Math.max(0, rank));// 0-63の範囲にクランプ
+            const rank = Math.floor(1.5 * Math.log2(area) + 61.51);
+            return Math.min(63, Math.max(0, rank));
         };
         for (let i = 1; i < n - 1; i++) L1arc[i] = this.toL2(L1arc[i], getPhysRank(eff[i]));
     }

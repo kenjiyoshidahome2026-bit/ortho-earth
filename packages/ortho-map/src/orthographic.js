@@ -59,7 +59,7 @@ export async function orthographic(map, opts = {}) {
     ///------------------------------------------------------------------------------------------------
     let refreshCounting = 0;
     function tween() { (++refreshCounting % (map.refreshRate || 1)) || draw(); }
-    function draw() { getView(); requestAnimationFrame(() => trigger("Drawing", { proj, zoom: map.zoom })); }
+    function draw() { getView(); trigger("Drawing", { proj, zoom: map.zoom }); }
     function drawn() {
         cursor(); initZoom();
         map.stat("view", getView());
@@ -295,7 +295,7 @@ export async function orthographic(map, opts = {}) {
             .tween("render", () => {
                 return t => {
                     const z = zooming(t);
-                    proj.rotate(interpolateRotation(t)); // 全ての軸を0に向かって補間
+                    proj.rotate(interpolateRotation(t));
                     proj.scale(size / z[2]);
                     tween();
                 };
