@@ -1,12 +1,13 @@
 // WebGL2 arc renderer for gint format.
-// All Morton decode and orthographic projection happen in the vertex shader.
-// Back-hemisphere clipping is done in the fragment shader via v_zr < 0 discard.
+// Morton decode + orthographic projection in vertex shader (GPU).
+// Fat lines via geometry expansion: each segment → 2 triangles (quad).
+// Back-hemisphere clipping via v_zr < 0 discard in fragment shader.
 
 let canvas, gl, dpr, width, height;
 
 // GL resources
 let program;
-let aVi, uArcBuf, uTexWidth, uRotate, uScale, uTranslate, uViewport, uColor;
+let aVself, aVother, aVside, uArcBuf, uTexWidth, uRotate, uScale, uTranslate, uViewport, uColor, uLineWidth;
 let polyVAO, polyVBO, polyCount = 0;
 let lineVAO, lineVBO, lineCount = 0;
 let arcTex = null;
@@ -15,27 +16,30 @@ let TEX_WIDTH = 4096; // clamped to MAX_TEXTURE_SIZE after GL init
 // Data
 let arcMeta = null, polygon = null, polyline = null, hasData = false;
 
-// ── Shaders ──────────────────────────────────────────────────────────────────
+// ── Shaders ───────────────────────────────────────────────────────────────────
 
 const VS = `#version 300 es
 precision highp float;
 precision highp int;
 precision highp usampler2D;
 
-uniform usampler2D u_arcBuf;  // RG32UI: (lo32, hi32) per vertex
+uniform usampler2D u_arcBuf;
 uniform int        u_texWidth;
 uniform vec3       u_rotate;    // [lambda, phi, gamma] degrees
 uniform float      u_scale;     // sphere radius in logical pixels
 uniform vec2       u_translate; // [tx, ty] logical pixels
 uniform vec2       u_viewport;  // [width, height] logical pixels
+uniform float      u_lineWidth; // full line width in logical pixels
 
-in int a_vi;   // absolute vertex index into arcBuffer
+in int a_self;   // this endpoint's arc buffer index
+in int a_other;  // other endpoint's arc buffer index
+in int a_side;   // -1 or +1: which side of the segment normal
+
 out float v_zr;
 
 const float PI  = 3.14159265358979;
 const float RAD = PI / 180.0;
 
-// Extract every other bit (Morton decode helper)
 uint compact(uint m) {
     m &= 0x55555555u;
     m = (m | (m >> 1u)) & 0x33333333u;
@@ -45,41 +49,48 @@ uint compact(uint m) {
     return m;
 }
 
-void main() {
-    // ── Fetch lo32/hi32 from texture ──────────────────────────────────────
-    ivec2 tc = ivec2(a_vi % u_texWidth, a_vi / u_texWidth);
+// Decode arc buffer entry → (screen_x, screen_y, zr) in logical pixels
+vec3 fetchProject(int vi) {
+    ivec2 tc = ivec2(vi % u_texWidth, vi / u_texWidth);
     uvec4 t  = texelFetch(u_arcBuf, tc, 0);
     uint lo = t.r, hi = t.g;
-
-    // L1 vertex: bit63 set → keep lo as-is.
-    // L2 vertex: bit63 clear → clear weight bits (lo[5:0]).
     bool isL1 = (hi >> 31u) != 0u;
     uint lo_c = isL1 ? lo : (lo & 0xFFFFFFC0u);
     uint hi_c = hi & 0x7FFFFFFFu;
-
-    // ── Morton decode → (ux, uy) in 1e-7 degree units ────────────────────
     uint ux = (compact(hi_c)       << 16u) | compact(lo_c);
     uint uy = (compact(hi_c >> 1u) << 16u) | compact(lo_c >> 1u);
     float lng = float(ux) * 1.0e-7 - 180.0;
     float lat = float(uy) * 1.0e-7 -  90.0;
-
-    // ── Orthographic projection ───────────────────────────────────────────
     float r0 = u_rotate.x, r1 = u_rotate.y, r2 = u_rotate.z;
     float l   = (lng + r0) * RAD;
     float phi = lat * RAD;
     float cf = cos(r1 * RAD), sf = sin(r1 * RAD);
     float cg = cos(r2 * RAD), sg = sin(r2 * RAD);
     float cp = cos(phi), sp = sin(phi), cl = cos(l), sl = sin(l);
-    float x  = cp * sl,  y = sp,  z = cp * cl;
+    float x  = cp * sl, y = sp, z = cp * cl;
     float yr = y * cf + z * sf;
-    float zr = z * cf - y * sf;   // >= 0: visible hemisphere
+    float zr = z * cf - y * sf;
     float px = u_translate.x + u_scale * (x * cg - yr * sg);
     float py = u_translate.y - u_scale * (x * sg + yr * cg);
+    return vec3(px, py, zr);
+}
 
-    v_zr = zr;
-    // Logical screen coords → NDC
-    gl_Position = vec4(2.0 * px / u_viewport.x - 1.0,
-                       1.0 - 2.0 * py / u_viewport.y,
+void main() {
+    vec3 ps = fetchProject(a_self);
+    vec3 po = fetchProject(a_other);
+
+    v_zr = ps.z;
+
+    // Screen-space perpendicular (logical pixels)
+    vec2 dir = po.xy - ps.xy;
+    float len = length(dir);
+    if (len < 1e-4) { gl_Position = vec4(2.0, 2.0, 0.0, 1.0); return; }
+    vec2 perp = vec2(-dir.y, dir.x) / len;
+
+    vec2 pos = ps.xy + float(a_side) * (u_lineWidth * 0.5) * perp;
+
+    gl_Position = vec4(2.0 * pos.x / u_viewport.x - 1.0,
+                       1.0 - 2.0 * pos.y / u_viewport.y,
                        0.0, 1.0);
 }`;
 
@@ -89,7 +100,7 @@ uniform vec4 u_color;
 in  float v_zr;
 out vec4  fragColor;
 void main() {
-    if (v_zr < 0.0) discard;   // behind-hemisphere clipping
+    if (v_zr < 0.0) discard;
     fragColor = u_color;
 }`;
 
@@ -114,26 +125,36 @@ function linkProgram(vs, fs) {
     return p;
 }
 
+// Stride-3 Int32 VBO: [self, other, side] per vertex
 function makeVAO(vbo) {
     const vao = gl.createVertexArray();
     gl.bindVertexArray(vao);
     gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
-    gl.enableVertexAttribArray(aVi);
-    gl.vertexAttribIPointer(aVi, 1, gl.INT, 0, 0); // integer attribute
+    const stride = 12; // 3 × 4 bytes
+    gl.enableVertexAttribArray(aVself);
+    gl.vertexAttribIPointer(aVself,  1, gl.INT, stride, 0);
+    gl.enableVertexAttribArray(aVother);
+    gl.vertexAttribIPointer(aVother, 1, gl.INT, stride, 4);
+    gl.enableVertexAttribArray(aVside);
+    gl.vertexAttribIPointer(aVside,  1, gl.INT, stride, 8);
     gl.bindVertexArray(null);
     return vao;
 }
 
-// ── Build vertex index array (gl.LINES pairs) for a set of arcs ──────────────
-// Direction doesn't matter for gl.LINES, so always forward.
-
+// Each segment (A→B) expands to 2 triangles (6 vertices):
+//   tri0: (A,B,-1), (A,B,+1), (B,A,+1)  →  A_bot, A_top, B_bot
+//   tri1: (A,B,-1), (B,A,+1), (B,A,-1)  →  A_bot, B_bot, B_top
 function buildIndices(groups, isPolygon) {
     const arr = [];
     const addArc = (arcIdx) => {
         const aid = arcIdx < 0 ? ~arcIdx : arcIdx;
         const off = arcMeta[aid * 8];
         const len = arcMeta[aid * 8 + 1];
-        for (let i = 0; i < len - 1; i++) arr.push(off + i, off + i + 1);
+        for (let i = 0; i < len - 1; i++) {
+            const A = off + i, B = off + i + 1;
+            arr.push(A, B, -1,  A, B, 1,  B, A, 1,
+                     A, B, -1,  B, A, 1,  B, A, -1);
+        }
     };
     if (isPolygon) {
         for (const [, components] of groups)
@@ -168,7 +189,9 @@ function init(data) {
     program = linkProgram(VS, FS);
     gl.useProgram(program);
 
-    aVi        = gl.getAttribLocation(program,  "a_vi");
+    aVself     = gl.getAttribLocation(program,  "a_self");
+    aVother    = gl.getAttribLocation(program,  "a_other");
+    aVside     = gl.getAttribLocation(program,  "a_side");
     uArcBuf    = gl.getUniformLocation(program, "u_arcBuf");
     uTexWidth  = gl.getUniformLocation(program, "u_texWidth");
     uRotate    = gl.getUniformLocation(program, "u_rotate");
@@ -176,6 +199,7 @@ function init(data) {
     uTranslate = gl.getUniformLocation(program, "u_translate");
     uViewport  = gl.getUniformLocation(program, "u_viewport");
     uColor     = gl.getUniformLocation(program, "u_color");
+    uLineWidth = gl.getUniformLocation(program, "u_lineWidth");
 
     polyVBO = gl.createBuffer();
     lineVBO = gl.createBuffer();
@@ -198,11 +222,11 @@ function set(data) {
         hasData  = !!(arcBuffer && arcMeta && (polygon || polyline));
 
         if (hasData) {
-            // ── Upload arcBuffer as RG32UI texture ────────────────────────
-            const u32     = new Uint32Array(arcBuffer.buffer, arcBuffer.byteOffset, arcBuffer.byteLength / 4);
+            // Upload arcBuffer as RG32UI texture
+            const u32      = new Uint32Array(arcBuffer.buffer, arcBuffer.byteOffset, arcBuffer.byteLength / 4);
             const numVerts = u32.length / 2;
-            const texH    = Math.ceil(numVerts / TEX_WIDTH);
-            const padded  = new Uint32Array(TEX_WIDTH * texH * 2);
+            const texH     = Math.ceil(numVerts / TEX_WIDTH);
+            const padded   = new Uint32Array(TEX_WIDTH * texH * 2);
             padded.set(u32);
 
             if (arcTex) gl.deleteTexture(arcTex);
@@ -216,20 +240,20 @@ function set(data) {
                           TEX_WIDTH, texH, 0,
                           gl.RG_INTEGER, gl.UNSIGNED_INT, padded);
 
-            // ── Build vertex index VBOs ───────────────────────────────────
+            // Build stride-3 VBOs (6 verts per segment → idx.length / 3 draw vertices)
             if (polygon) {
                 const idx = buildIndices(polygon, true);
-                polyCount = idx.length;
+                polyCount = idx.length / 3;
                 uploadVBO(polyVBO, idx);
             } else { polyCount = 0; }
 
             if (polyline) {
                 const idx = buildIndices(polyline, false);
-                lineCount = idx.length;
+                lineCount = idx.length / 3;
                 uploadVBO(lineVBO, idx);
             } else { lineCount = 0; }
 
-            console.log(`[gint] loaded: arcs=${am.length / 8}, polygons=${pg?.length ?? 0}, polylines=${pl?.length ?? 0}, polyVerts=${polyCount}, lineVerts=${lineCount}`);
+            console.log(`[gint] loaded: arcs=${am.length / 8}, polyVerts=${polyCount}, lineVerts=${lineCount}`);
         }
     }
     postMessage({ action: "done", type: "set", cmd: data.cmd });
@@ -246,9 +270,6 @@ function resize(data) {
 function drawing(data) {
     if (!hasData || !arcTex) return;
 
-    const rotate = data.rotate;
-    const scale  = data.scale;
-
     gl.clearColor(0, 0, 0, 0);
     gl.clear(gl.COLOR_BUFFER_BIT);
     gl.useProgram(program);
@@ -257,20 +278,22 @@ function drawing(data) {
     gl.bindTexture(gl.TEXTURE_2D, arcTex);
     gl.uniform1i(uArcBuf,    0);
     gl.uniform1i(uTexWidth,  TEX_WIDTH);
-    gl.uniform3f(uRotate,    rotate[0], rotate[1], rotate[2] ?? 0);
-    gl.uniform1f(uScale,     scale);
+    gl.uniform3f(uRotate,    data.rotate[0], data.rotate[1], data.rotate[2] ?? 0);
+    gl.uniform1f(uScale,     data.scale);
     gl.uniform2f(uTranslate, width / 2, height / 2);
     gl.uniform2f(uViewport,  width, height);
 
     if (polygon && polyCount > 0) {
         gl.uniform4f(uColor, 1.0, 0.420, 0.208, 1.0); // #FF6B35
+        gl.uniform1f(uLineWidth, 1.0);
         gl.bindVertexArray(polyVAO);
-        gl.drawArrays(gl.LINES, 0, polyCount);
+        gl.drawArrays(gl.TRIANGLES, 0, polyCount);
     }
     if (polyline && lineCount > 0) {
         gl.uniform4f(uColor, 0.0, 0.706, 0.847, 1.0); // #00B4D8
+        gl.uniform1f(uLineWidth, 1.5);
         gl.bindVertexArray(lineVAO);
-        gl.drawArrays(gl.LINES, 0, lineCount);
+        gl.drawArrays(gl.TRIANGLES, 0, lineCount);
     }
     gl.bindVertexArray(null);
 }
