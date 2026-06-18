@@ -158,7 +158,7 @@ export async function orthographic(map, opts = {}) {
     } {////------------------------------------------------------------------------------------------------	
         const funcs = {
             draw, trigger, resize, isEditable, isNarrow, cursor, bbox, setRange, setView, setZoom,
-            setFeature, flyToFeature, mag, north, tester, xy2pos, zval2scale, scale2zval, pointer, pointers, autoRotate
+            setFeature, flyToFeature, zoomToFeature, mag, north, tester, xy2pos, zval2scale, scale2zval, pointer, pointers, autoRotate
         };
         Object.entries(funcs).forEach(([name, func]) => map[name] = func);
     } {////------------------------------------------------------------------------------------------------	
@@ -290,7 +290,8 @@ export async function orthographic(map, opts = {}) {
         const s1 = opts.keep ? s0 : opts.zoom ? zval2scale(opts.zoom) : Math.min(p.scale(), zval2scale(maxZoom));
         const dist = d3.geoDistance([-r0[0], -r0[1]], dst);// ズーム補間用のパラメータ
         const zooming = d3.interpolateZoom([0, 0, size / s0], [dist, 0, size / s1]);
-        const interpolateRotation = d3.interpolateArray(r0, r1);// 回転の補間（3軸すべてを考慮）
+        const wrap = (a, ref) => ref + (((a - ref) % 360) + 540) % 360 - 180;
+        const interpolateRotation = d3.interpolateArray(r0, [wrap(r1[0], r0[0]), wrap(r1[1], r0[1]), 0]);
         return d3.transition().duration(zooming.duration).ease(d3.easeLinear)
             .tween("render", () => {
                 return t => {
@@ -301,6 +302,49 @@ export async function orthographic(map, opts = {}) {
                 };
             })
             .end().then(drawn);
+    }
+////-------------------------------------------------------------------------------------------
+    async function zoomToFeature(feature, opts = {}) {
+        const { width, height, maxZoom } = map;
+        const size = Math.min(width, height);
+        const r0 = proj.rotate(), s0 = proj.scale();
+        const dst = d3.geoCentroid(feature);
+        const r1 = [-dst[0], -dst[1], 0];
+        const p = d3.geoOrthographic().rotate(r1)
+            .fitExtent([[width * 0.05, height * 0.05], [width * 0.95, height * 0.95]], feature);
+        const s1 = opts.keep ? s0 : opts.zoom ? zval2scale(opts.zoom) : Math.min(p.scale(), zval2scale(maxZoom));
+
+        // 最短パスで回転
+        const wrap = (a, ref) => ref + (((a - ref) % 360) + 540) % 360 - 180;
+        const interpolateRotation = d3.interpolateArray(r0, [wrap(r1[0], r0[0]), wrap(r1[1], r0[1]), 0]);
+
+        const dist = d3.geoDistance([-r0[0], -r0[1]], dst);
+
+        // travel 中は zoom=5.5 まで（タイル不要域）で回転しながら上げ、到着後に残りを zoom-in
+        const sTrav = Math.min(s1, zval2scale(5.5));
+        const needsZoom = s1 > sTrav * 1.05;
+        const travelMs  = Math.max(1200, dist * 2500);
+        const zoomMs    = needsZoom ? 2000 : 0;
+        const overlapMs = needsZoom ? 600  : 0;
+        const totalMs   = travelMs + zoomMs - overlapMs;
+        const travelEnd = travelMs / totalMs;
+        const zoomStart = (travelMs - overlapMs) / totalMs;
+
+        await d3.transition().duration(totalMs).ease(d3.easeLinear)
+            .tween("render", () => t => {
+                const tRotEased = d3.easeCubicOut(Math.min(1, t / travelEnd));
+                proj.rotate(interpolateRotation(tRotEased));
+                if (needsZoom) {
+                    // travel: s0→sTrav、到着後: sTrav→s1 を1式で合成
+                    const tZoom = Math.max(0, Math.min(1, (t - zoomStart) / (1 - zoomStart)));
+                    proj.scale(s0 + (sTrav - s0) * tRotEased + (s1 - sTrav) * d3.easeCubicInOut(tZoom));
+                } else {
+                    proj.scale(s0 + (s1 - s0) * tRotEased);
+                }
+                tween();
+            }).end();
+
+        return drawn();
     }
 ////-------------------------------------------------------------------------------------------
     function mag(n, duration = 1000) {

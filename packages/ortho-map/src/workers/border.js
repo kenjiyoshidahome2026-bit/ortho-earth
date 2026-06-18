@@ -83,23 +83,18 @@ function resize(data) {
 	postMessage({ type: data.type, action: "done" });
 }
 function drawing(data) {
-	active && requestAnimationFrame(() => {
-	//	if (!layer || !proj) return;
-		layer.clearRect(0, 0, width, height);
-		proj.rotate(data.rotate).scale(data.scale);
-		zoom = log2(data.scale * PI * 2 / 256);
-		attribution = data.attr;
-		draw_border();
-		draw_globe();
-		draw_night();
-		draw_stars();
-		draw_latlng();
-		draw_scale();
-		draw_credit();
-		// if (typeof layer.commit === 'function') {
-		// 	layer.commit();
-		// }
-	});
+	if (!active) return;
+	layer.clearRect(0, 0, width, height);
+	proj.rotate(data.rotate).scale(data.scale);
+	zoom = log2(data.scale * PI * 2 / 256);
+	attribution = data.attr;
+	draw_border();
+	draw_globe();
+	draw_night();
+	draw_stars();
+	draw_latlng();
+	draw_scale();
+	draw_credit();
 }
 function move(data) {
 	if (!active) return;
