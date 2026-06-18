@@ -22,7 +22,7 @@ const proj = geoOrthographic();
 const sphere = { type: "Sphere" };
 const graticule = geoGraticule10();
 
-const funcs = { init, set, drawing, drawn, move, leave, resize, destroy };
+const funcs = { init, set, drawing, drawn, move, leave, resize, destroy, click:(()=>{}) };
 onmessage = e => funcs[e.data.type](e.data);
 
 function init(data) {

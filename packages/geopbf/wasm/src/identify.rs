@@ -1,13 +1,14 @@
 use wasm_bindgen::prelude::*;
 use super::{pure_morton_from_int, unpack_to_int, TERMINAL_BIT, WEIGHT_MASK};
 
-/// JS の unPackGint が返す 6 バッファをそのまま保持する。
+/// JS の unPackGint が返す 7 バッファをそのまま保持する。
 /// coordinate_stream : L2 アークバッファ（Morton 昇順ソート済み、TERMINAL_BIT なし）
 /// arc_meta_stream   : アークメタ [offset, len, _, _, xmin, ymin, xmax, ymax] × arc 数
 /// point_buffer      : L1 ポイントバッファ（Morton 昇順ソート済み、TERMINAL_BIT 付き）
 /// point_meta_stream : point_meta_stream[i] = point_buffer[i] の feature ID
 /// polygon_stream    : [featId, nRings, nArcs, arcIdx, ...] フラット表現
 /// polyline_stream   : [featId, nLines, nArcs, arcIdx, ...] フラット表現
+/// poly_comp_bbox    : polygon_stream のコンポーネントレコードと 1:1 の bbox（xMin,yMin,xMax,yMax）
 #[wasm_bindgen]
 pub struct GintConverter {
     coordinate_stream: Vec<u64>,
@@ -16,6 +17,8 @@ pub struct GintConverter {
     point_meta_stream: Vec<u32>,
     polygon_stream: Vec<i32>,
     polyline_stream: Vec<i32>,
+    poly_comp_bbox: Vec<u32>,
+    view_bbox: [u32; 4],  // ビューポート bbox (xMin,yMin,xMax,yMax)。全域がデフォルト。
 }
 
 #[wasm_bindgen]
@@ -31,6 +34,7 @@ impl GintConverter {
         point_meta_stream: &[u32],
         polygon_stream: &[i32],
         polyline_stream: &[i32],
+        poly_comp_bbox: &[u32],
     ) -> GintConverter {
         let to_u64 = |pairs: &[u32]| -> Vec<u64> {
             pairs.chunks_exact(2)
@@ -44,7 +48,14 @@ impl GintConverter {
             point_meta_stream: point_meta_stream.to_vec(),
             polygon_stream:    polygon_stream.to_vec(),
             polyline_stream:   polyline_stream.to_vec(),
+            poly_comp_bbox:    poly_comp_bbox.to_vec(),
+            view_bbox:         [0, 0, u32::MAX, u32::MAX],
         }
+    }
+
+    /// ビューポート bbox を更新する。drawing() のたびに呼ぶ。
+    pub fn set_view_bbox(&mut self, x_min: u32, y_min: u32, x_max: u32, y_max: u32) {
+        self.view_bbox = [x_min, y_min, x_max, y_max];
     }
 
     /// ポイント地物の近傍探索（JS: findPoint と等価）
@@ -118,10 +129,30 @@ impl GintConverter {
     /// レイキャスティング法（偶奇規則）。error パラメータ不要。
     pub fn identify_polygon(&self, mix: u32, miy: u32) -> i32 {
         let mut pos = 0;
+        let mut comp_idx = 0usize;
         while pos + 1 < self.polygon_stream.len() {
             let feat_id = self.polygon_stream[pos];
             let num_rings = self.polygon_stream[pos + 1] as usize;
             pos += 2;
+
+            // comp レベル bbox カリング
+            // 1. ビューポート交差チェック：画面外の comp を先に弾く
+            // 2. クエリ点チェック：comp bbox に点が含まれなければスキップ
+            if let Some(b) = self.poly_comp_bbox.get(comp_idx * 4..comp_idx * 4 + 4) {
+                let (bx_min, by_min, bx_max, by_max) = (b[0], b[1], b[2], b[3]);
+                let [vx_min, vy_min, vx_max, vy_max] = self.view_bbox;
+                let skip = bx_max < vx_min || bx_min > vx_max || by_max < vy_min || by_min > vy_max
+                        || mix < bx_min || mix > bx_max || miy < by_min || miy > by_max;
+                if skip {
+                    for _ in 0..num_rings {
+                        if pos >= self.polygon_stream.len() { break; }
+                        let num_arcs = self.polygon_stream[pos] as usize;
+                        pos += 1 + num_arcs;
+                    }
+                    comp_idx += 1;
+                    continue;
+                }
+            }
 
             let mut inside = false;
 
@@ -156,7 +187,6 @@ impl GintConverter {
                         let (ix2, iy2) = unpack_to_int(self.coordinate_stream[off + k + 1]);
                         let (ix1, iy1, ix2, iy2) = (ix1 as i64, iy1 as i64, ix2 as i64, iy2 as i64);
                         let (qx, qy) = (mix as i64, miy as i64);
-                        // JS: ((iy1 > miy) !== (iy2 > miy)) && (mix < (ix2-ix1)*(miy-iy1)/(iy2-iy1) + ix1)
                         if ((iy1 > qy) != (iy2 > qy)) &&
                            ((qx as f64) < (ix2 - ix1) as f64 * (qy - iy1) as f64 / (iy2 - iy1) as f64 + ix1 as f64) {
                             inside = !inside;
@@ -165,6 +195,7 @@ impl GintConverter {
                 }
             }
 
+            comp_idx += 1;
             if inside { return feat_id; }
         }
         -1

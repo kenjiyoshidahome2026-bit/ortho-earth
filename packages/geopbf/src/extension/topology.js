@@ -125,8 +125,11 @@ export function unPackGintBuffer(GintBUF) { //const view = new Uint8Array(GintBU
 		const arcMeta = arcCount ? new Uint32Array(buf, ptr, arcCount * mlen) : null; ptr += arcCount * mlen * 4;
 		const point = pointCount ? new Uint32Array(buf, ptr, pointCount) : null; ptr += pointCount * 4;
 		const [polygon, polyline, neighbors] = JSON.parse(new TextDecoder().decode(new Uint8Array(buf, ptr)));
+		const polyBbox     = buildFeatureBboxes(polygon,  arcMeta, false);
+		const lineBbox     = buildFeatureBboxes(polyline, arcMeta, true);
+		const polyCompBbox = buildCompBboxes(polygon, arcMeta);
 		return { polygonCount, polylineCount, pointCount, nodeCount, arcCount, bbox,
-			arcBuffer, arcMeta, polygon, polyline, pointBuffer, point, neighbors }
+			arcBuffer, arcMeta, polygon, polyline, pointBuffer, point, neighbors, polyBbox, lineBbox, polyCompBbox }
 	} catch (e) { console.error("Failed to unpack Gint buffer:", e); return null; }
 }
 ////===============================================================================================================
@@ -519,6 +522,60 @@ function metaArc(buffs) {
 		return { aid, length: L * Radius, area: A * Radius * Radius / 2, closed, bbox };
 	}
 }
+// Feature ごとの bbox を arcMeta から展開する（nFeature × 4 × Uint32: xMin,yMin,xMax,yMax）
+// JS findPolygon / findMortonNear のフィーチャーループ早期終了用。
+// polygon: [fid, [[ring,...], ...], ...] の 3 段ネスト
+// polyline: [fid, [[arcIdx,...], ...]] の 2 段ネスト
+function buildFeatureBboxes(structures, arcMeta, isPolyline = false) {
+    if (!structures || !arcMeta) return null;
+    const n = structures.length;
+    const bboxes = new Uint32Array(n * 4);
+    for (let i = 0; i < n; i++) {
+        bboxes[i*4] = bboxes[i*4+1] = 0xFFFFFFFF;
+        // bboxes[i*4+2] = bboxes[i*4+3] = 0;  // TypedArray は 0 初期化済み
+    }
+    for (let i = 0; i < n; i++) {
+        const comps = structures[i][1];
+        const b = i * 4;
+        const merge = aid => {
+            const m = aid * 8;
+            if (arcMeta[m+4] < bboxes[b])   bboxes[b]   = arcMeta[m+4];
+            if (arcMeta[m+5] < bboxes[b+1]) bboxes[b+1] = arcMeta[m+5];
+            if (arcMeta[m+6] > bboxes[b+2]) bboxes[b+2] = arcMeta[m+6];
+            if (arcMeta[m+7] > bboxes[b+3]) bboxes[b+3] = arcMeta[m+7];
+        };
+        if (isPolyline) {
+            for (const arcs of comps) for (const a of arcs) merge(a < 0 ? ~a : a);
+        } else {
+            for (const rings of comps) for (const ring of rings) for (const a of ring) merge(a < 0 ? ~a : a);
+        }
+    }
+    return bboxes;
+}
+
+// polygon_stream のレコード（comp）と 1:1 対応した bbox。WASM identify_polygon に渡す。
+// マルチポリゴン Feature では comp 数分のエントリが生成される。
+function buildCompBboxes(polygon, arcMeta) {
+    if (!polygon || !arcMeta) return null;
+    const out = [];
+    for (const [, comps] of polygon) {
+        for (const rings of comps) {
+            let xMin = 0xFFFFFFFF, yMin = 0xFFFFFFFF, xMax = 0, yMax = 0;
+            for (const ring of rings) {
+                for (const a of ring) {
+                    const m = (a < 0 ? ~a : a) * 8;
+                    if (arcMeta[m+4] < xMin) xMin = arcMeta[m+4];
+                    if (arcMeta[m+5] < yMin) yMin = arcMeta[m+5];
+                    if (arcMeta[m+6] > xMax) xMax = arcMeta[m+6];
+                    if (arcMeta[m+7] > yMax) yMax = arcMeta[m+7];
+                }
+            }
+            out.push(xMin, yMin, xMax, yMax);
+        }
+    }
+    return new Uint32Array(out);
+}
+
 function buildArcs(buffs, metas) {
 	const count = buffs.length, mlen = 8;
 	let total = 0, offset = 0;
