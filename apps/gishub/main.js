@@ -16,7 +16,8 @@ const initialZoom = Math.log2(Math.min(window.innerWidth, window.innerHeight)/2*
 const mapInst = (await orthoMap({target:d3.select('body'), center:[0,0], zoom: initialZoom, accessories:{clock:false}, tilerBase: TILER_BASE, apiUrl: API_BASE})).autoRotate(true);
 const exitButton = mapInst.append("button").attr("class", "close").html(`<img src="close.svg"/>`)
     .on("click", exitView).hide();
-const identifyTip = mapInst.append("div").attr("class", "identify-tip").hide();
+const gintTip = mapInst.gadget.tip();
+const gintPop = mapInst.gadget.pop();
 const gishub = d3.select("body").append("div").attr("class", "gishub");
 ////------------------------------------------------------
 const left = gishub.append("aside").attr("class", "left");
@@ -201,8 +202,10 @@ function trimCanvas(canvas) {
     canvas.style.height = (trimH / dpr) + "px";
 }
 let _viewLayer = null;
+let _autoRotateTimeout = null;
 
 async function execView(pbf) {
+    if (_autoRotateTimeout !== null) { clearTimeout(_autoRotateTimeout); _autoRotateTimeout = null; }
     mapInst.autoRotate(false);
     exitButton.show();
     gishub.classed("viewing", true);
@@ -220,22 +223,22 @@ async function execView(pbf) {
     const hasPoints = !!(pointBuffer?.length > 0);
     if (hasArcs || hasPoints) {
         _viewLayer = await mapInst.createRemoteLayer({ name: "GISHUB", type: "gint" });
-        _viewLayer.set("gint", { arcBuffer, arcMeta, polygon: polygon ?? [], polyline: polyline ?? [], pointBuffer: pointBuffer ?? null, point: point ?? null });
-        _viewLayer.onIdentify = (featureId, geomType, x, y) => {
-            if (featureId == null) { identifyTip.hide(); return; }
+        const { polyBbox, lineBbox, polyCompBbox } = pbf.unPackGint ?? {};
+        _viewLayer.set("gint", { arcBuffer, arcMeta, polygon: polygon ?? [], polyline: polyline ?? [], pointBuffer: pointBuffer ?? null, point: point ?? null, polyBbox, lineBbox, polyCompBbox });
+        _viewLayer.onIdentify = featureId => {
+            if (featureId == null) { gintTip(null); return; }
             const f = pbf.getFeature(featureId);
             const props = f?.properties ?? {};
             const label = Object.values(props).find(v => typeof v === 'string') ?? `#${featureId}`;
-            identifyTip.style("left", (x + 14) + "px").style("top", (y + 14) + "px")
-                       .text(label).show();
+            gintTip(label);
         };
-        _viewLayer.onClick = (featureId) => {
+        _viewLayer.onClick = (featureId, geomType, x, y, lng, lat) => {
             const f = pbf.getFeature(featureId);
             if (!f) return;
             const entries = Object.entries(f.properties ?? {});
             if (!entries.length) return;
             const rows = entries.map(([k, v]) => `<tr><th>${k}</th><td>${v}</td></tr>`).join("");
-            logger.log(`<table class="identify-table">${rows}</table>`);
+            gintPop(`<table class="identify-table">${rows}</table>`, { x, y, lng, lat });
         };
     } else {
         const geomType = pbf.fmap[0]?.[2] ?? 4;
@@ -253,10 +256,11 @@ async function execView(pbf) {
 }
 
 function exitView() {
-    identifyTip.hide();
+    gintTip(null);
+    gintPop.clear(true);
     if (_viewLayer) { _viewLayer.destroy(); _viewLayer = null; }
     mapInst.setView([0,0], initialZoom);
-    setTimeout(() => mapInst.autoRotate(true), 250);
+    _autoRotateTimeout = setTimeout(() => { _autoRotateTimeout = null; mapInst.autoRotate(true); }, 250);
     exitButton.hide();
     gishub.classed("viewing", false);
 }

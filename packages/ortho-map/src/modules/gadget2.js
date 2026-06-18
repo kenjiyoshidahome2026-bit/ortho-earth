@@ -88,23 +88,26 @@ export function tip(opts = {}) {
     const div = map.overlays.append("div").attr("name", name).hide();
     setProp(div, opts);
     let cachedSize = { w: 0, h: 0 };
-    const hide = () => div.style("display", "none");
-    const show = () => div.style("display", "block");
-    map.onMove(name, move).onLeave(name, hide).onDrawing(name, hide);
+    let lastE = null;  // 直前の Move イベント。コンテンツ設定時に即表示するために保持。
+    const hide = () => div.hide();
+    const show = () => div.show();
+    map.on("mousemove.tip touchmove.tip", e => { const [x, y] = map.pointer(e); lastE = { x, y }; move(lastE); }, { passive: true });
+    map.onLeave(name, () => { lastE = null; hide(); }).onDrawing(name, hide);
     return content => {
         if (!content) { div.html("").call(hide); cachedSize = { w: 0, h: 0 }; return; }
         div.html(toHTML(content));
-        div.style("display", "block").style("visibility", "hidden");
+        div.show().style("visibility", "hidden");
         const r = div.node().getBoundingClientRect();
         cachedSize = { w: r.width, h: r.height };
-        div.style("visibility", "visible").call(hide); // moveが呼ばれるまで隠しておく
+        div.style("visibility", "");
+        lastE ? move(lastE) : hide();  // カーソルが地図上にあれば即表示
     };
     function move(e) {
         if (!e || !cachedSize.w || (map.isEditable && !map.isEditable())) return hide();
-        const { width, height } = map; // mapのサイズ（毎回変わらないなら外に出せるが、リサイズ考慮ならここ）
-        const { x, y } = e, { w, h } = cachedSize; // キャッシュしたサイズを使用（高速化）
-        const osx = map.isTouchDevice ? 40 : 15; // 指で隠れないようタッチは大きめに
-        const osy = -h / 2; // 垂直方向は中央揃え
+        const { width, height } = map;
+        const { x, y } = e, { w, h } = cachedSize;
+        const osx = map.isTouchDevice ? 40 : 15;
+        const osy = -h / 2;
         const left = (x + osx + w > width) ? (x - w - osx) : (x + osx);
         let top = y + osy;
         if (top < 0) top = 0;
