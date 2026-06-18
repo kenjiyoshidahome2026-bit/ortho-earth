@@ -8,7 +8,7 @@ import base from './workers/base.js?worker&url';
 import border from './workers/border.js?worker&url';
 import image from './workers/image.js?worker&url';
 import standard from './workers/standard.js?worker&url';
-import gint from './workers/gint.js?worker&url';
+import gint from './workers/gintNew.js?worker&url';
 const workerURL = s => ({ base, border, image, gint }[s] || standard);
 
 let borderRawBuffers = null;
