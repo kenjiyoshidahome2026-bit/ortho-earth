@@ -20,6 +20,33 @@ pub struct GintConverter {
 
 #[wasm_bindgen]
 impl GintConverter {
+    /// 6 バッファからコンバーターを構築する。
+    /// arc_buffer_u32 / point_buffer_u32 は BigUint64Array を Uint32Array として渡す
+    /// （各 u64 を lo32, hi32 のペアとしてエンコード、リトルエンディアン）。
+    #[wasm_bindgen(constructor)]
+    pub fn new(
+        arc_buffer_u32: &[u32],
+        arc_meta_stream: &[u32],
+        point_buffer_u32: &[u32],
+        point_meta_stream: &[u32],
+        polygon_stream: &[i32],
+        polyline_stream: &[i32],
+    ) -> GintConverter {
+        let to_u64 = |pairs: &[u32]| -> Vec<u64> {
+            pairs.chunks_exact(2)
+                .map(|c| (c[0] as u64) | ((c[1] as u64) << 32))
+                .collect()
+        };
+        GintConverter {
+            coordinate_stream: to_u64(arc_buffer_u32),
+            arc_meta_stream:   arc_meta_stream.to_vec(),
+            point_buffer:      to_u64(point_buffer_u32),
+            point_meta_stream: point_meta_stream.to_vec(),
+            polygon_stream:    polygon_stream.to_vec(),
+            polyline_stream:   polyline_stream.to_vec(),
+        }
+    }
+
     /// ポイント地物の近傍探索（JS: findPoint と等価）
     /// mix/miy/error はモートン整数空間（SCALE_E 適用済み）
     pub fn identify_point(&self, mix: u32, miy: u32, error: u32) -> i32 {
@@ -112,12 +139,13 @@ impl GintConverter {
                     let m = aid * 8;
                     if m + 7 >= self.arc_meta_stream.len() { continue; }
 
-                    // アーク BBOX による早期スキップ（JS: meta[mIdx+4..7]）
-                    let bx_min = self.arc_meta_stream[m + 4];
+                    // アーク BBOX による早期スキップ
+                    // レイは右方向（+x）なので、アークが点の右側にあっても交差しうる。
+                    // mix < bx_min はスキップ不可。mix > bx_max のみスキップ。
                     let by_min = self.arc_meta_stream[m + 5];
                     let bx_max = self.arc_meta_stream[m + 6];
                     let by_max = self.arc_meta_stream[m + 7];
-                    if mix < bx_min || mix > bx_max || miy < by_min || miy > by_max { continue; }
+                    if mix > bx_max || miy < by_min || miy > by_max { continue; }
 
                     let off = self.arc_meta_stream[m] as usize;
                     let len = self.arc_meta_stream[m + 1] as usize;
