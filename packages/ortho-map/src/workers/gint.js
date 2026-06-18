@@ -14,7 +14,7 @@
 // Projection uniforms: u_rotate (degrees), u_scale (px/rad), u_viewport (px).
 
 import { geoOrthographic } from 'common';
-import { identify, buildConverter } from 'geopbf/src/extension/identify.js';
+import { identify, buildConverter, setViewBbox } from 'geopbf/src/extension/identify.js';
 import { createGintPrograms } from './shared/gintPrograms.js';
 import { uploadTex2D, buildEdgeMeta, bindSharedUniforms } from './shared/gintUtility.js';
 
@@ -31,12 +31,17 @@ let activeId = -1;
 let gintData = null;  // { arcBuffer, arcMeta, polygon, polyline, pointBuffer, point }
 let lastR = [0,0,0], lastS = 1, lastW = 0, lastH = 0;
 let lastProj = null;
+let lastMX = NaN, lastMY = NaN;  // 前回 identify を実行したピクセル座標
+let _moveTimer = null;           // スロットリング用タイマー
+let _pendingMove = null;         // スロットル中に届いた最新の move イベント
+const MOVE_THROTTLE_MS = 32;    // ~30fps
 
 // ── Style defaults ────────────────────────────────────────────────────────────
 const DEF_STYLE = new Float32Array(256 * 4);
 DEF_STYLE.set([1.0, 0.420, 0.208, 1.0]);      // style 0: polygon  #FF6B35
 DEF_STYLE.set([0.0, 0.706, 0.847, 1.0],  4);  // style 1: polyline #00B4D8
 const DEF_FILL = new Float32Array([0, 0, 0, 0]);
+const DEF_MASK = new Float32Array([0, 0, 0, 0.4]);
 
 // ── Worker entry point ────────────────────────────────────────────────────────
 const funcs = { init, set, resize, drawing, drawn, move, leave, click, destroy };
@@ -59,14 +64,17 @@ function init(data) {
 
 function set(data) {
     if (data.cmd === "gint" && data.data) {
-        const { arcBuffer, arcMeta, polygon, polyline, pointBuffer, point } = data.data;
+        const { arcBuffer, arcMeta, polygon, polyline, pointBuffer, point, polyBbox, lineBbox, polyCompBbox } = data.data;
         gintData = {
-            arcBuffer:   arcBuffer   ?? null,
-            arcMeta:     arcMeta     ?? null,
-            polygon:     polygon?.length  ? polygon  : null,
-            polyline:    polyline?.length ? polyline : null,
-            pointBuffer: pointBuffer?.length ? pointBuffer : null,
-            point:       point ?? null,
+            arcBuffer:    arcBuffer   ?? null,
+            arcMeta:      arcMeta     ?? null,
+            polygon:      polygon?.length  ? polygon  : null,
+            polyline:     polyline?.length ? polyline : null,
+            pointBuffer:  pointBuffer?.length ? pointBuffer : null,
+            point:        point ?? null,
+            polyBbox:     polyBbox     ?? null,
+            lineBbox:     lineBbox     ?? null,
+            polyCompBbox: polyCompBbox ?? null,
         };
 
         const { arcBuffer: ab, arcMeta: am, polygon: pg, polyline: pl, pointBuffer: pb } = gintData;
@@ -123,9 +131,23 @@ function drawing(data) {
     if (totalEdges === 0 && totalPoints === 0) return;
     lastR = data.rotate; lastS = data.scale; lastW = width; lastH = height;
     lastProj = geoOrthographic().rotate(lastR).scale(lastS).translate([lastW/2, lastH/2]);
+    lastMX = NaN; lastMY = NaN;  // 投影変更 → 位置キャッシュ無効化
 
-    const { renderProgram, stencilProgram, fillProgram, pointProgram,
-            uRender, uStencil, uFill, uPoint, emptyVAO } = programs;
+    // ビューポートの四隅を地理座標 → Morton 整数空間に変換してビュー bbox を更新
+    const SE = 1e7;
+    let vxMin = 0xFFFFFFFF, vyMin = 0xFFFFFFFF, vxMax = 0, vyMax = 0;
+    for (const [cx, cy] of [[0,0],[width,0],[0,height],[width,height],[width*.5,0],[width*.5,height],[0,height*.5],[width,height*.5]]) {
+        const g = lastProj.invert([cx, cy]);
+        if (!g) continue;
+        const vx = Math.round((g[0] + 180) * SE) >>> 0;
+        const vy = Math.round((g[1] +  90) * SE) >>> 0;
+        if (vx < vxMin) vxMin = vx; if (vx > vxMax) vxMax = vx;
+        if (vy < vyMin) vyMin = vy; if (vy > vyMax) vyMax = vy;
+    }
+    setViewBbox(vxMin <= vxMax ? [vxMin, vyMin, vxMax, vyMax] : null);
+
+    const { renderProgram, stencilProgram, fillProgram, maskStencilProgram,
+            pointProgram, uRender, uStencil, uFill, uMaskStencil, uPoint, emptyVAO } = programs;
 
     gl.clearColor(0, 0, 0, 0);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.STENCIL_BUFFER_BIT);
@@ -160,12 +182,50 @@ function drawing(data) {
     }
 
     // ── Render pass: fat-line outlines ──
+    // 2 パスに分けてアクティブ Feature のエッジを最後に描く。
+    // 隣接ポリゴン間で共有されるアークが metaTex に 2 エントリ存在する場合、
+    // 後から描いた方が上書きするため、アクティブ側を 2 パス目に回すことで確実に黄色が勝つ。
     gl.useProgram(renderProgram);
     bindSharedUniforms(gl, uRender, data, arcTex, metaTex, TEX_ARC_W, TEX_META_W, width, height);
     gl.uniform1f(uRender.u_line_width,   data.lineWidth ?? 1.0);
     gl.uniform1i(uRender.u_active_id,    activeId);
     gl.uniform4fv(uRender.u_style_table, data.styleTable ?? DEF_STYLE);
-    if (totalEdges > 0) gl.drawArrays(gl.TRIANGLES, 0, totalEdges * 6);
+    if (totalEdges > 0) {
+        gl.uniform1i(uRender.u_pass, 0);  // パス 0: アクティブ以外
+        gl.drawArrays(gl.TRIANGLES, 0, totalEdges * 6);
+        if (activeId !== -1) {
+            gl.uniform1i(uRender.u_pass, 1);  // パス 1: アクティブのみ（上に重ねる）
+            gl.drawArrays(gl.TRIANGLES, 0, totalEdges * 6);
+        }
+    }
+
+    // ── Mask pass: アクティブ Feature 以外を半透明でディム ──
+    // 全体を塗りつぶしてアクティブ Feature の内側だけを抜く（2D の clearRect 相当）。
+    const mc = data.maskColor ?? DEF_MASK;
+    if (activeId !== -1 && mc[3] > 0 && totalEdges > 0) {
+        gl.enable(gl.STENCIL_TEST);
+        gl.stencilMask(0xFF);
+        gl.clear(gl.STENCIL_BUFFER_BIT);
+        gl.colorMask(false, false, false, false);
+        gl.stencilFunc(gl.ALWAYS, 0, 0xFF);
+        gl.stencilOpSeparate(gl.FRONT, gl.KEEP, gl.KEEP, gl.INCR_WRAP);
+        gl.stencilOpSeparate(gl.BACK,  gl.KEEP, gl.KEEP, gl.DECR_WRAP);
+
+        gl.useProgram(maskStencilProgram);
+        bindSharedUniforms(gl, uMaskStencil, data, arcTex, metaTex, TEX_ARC_W, TEX_META_W, width, height);
+        gl.uniform1i(uMaskStencil.u_active_id, activeId);
+        gl.drawArrays(gl.TRIANGLES, 0, totalEdges * 3);
+
+        gl.colorMask(true, true, true, true);
+        gl.stencilMask(0x00);
+        gl.stencilFunc(gl.EQUAL, 0, 0xFF);
+        gl.stencilOp(gl.KEEP, gl.KEEP, gl.KEEP);
+
+        gl.useProgram(fillProgram);
+        gl.uniform4fv(uFill.u_fill_color, mc);
+        gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+        gl.disable(gl.STENCIL_TEST);
+    }
 
     // ── Point pass: circle quads ──
     if (totalPoints > 0 && ptTex) {
@@ -188,17 +248,32 @@ function drawn() {}
 
 function move(data) {
     if (!lastProj || !gintData) return;
+    if (_moveTimer !== null) {
+        _pendingMove = data;  // スロットル中は最新位置だけ保持
+        return;
+    }
+    _doIdentify(data);
+    _moveTimer = setTimeout(() => {
+        _moveTimer = null;
+        if (_pendingMove) { _doIdentify(_pendingMove); _pendingMove = null; }
+    }, MOVE_THROTTLE_MS);
+}
 
+function _doIdentify(data) {
+    if (data.x === lastMX && data.y === lastMY) return;
+    lastMX = data.x; lastMY = data.y;
     const featureId = identify({ unPackGint: gintData }, data.x, data.y, lastProj);
     const newId = featureId ?? -1;
     if (newId !== activeId) {
         activeId = newId;
-        postMessage({ action: "identify", featureId: featureId ?? null });
+        postMessage({ action: "identify", featureId: featureId ?? null, x: data.x, y: data.y });
         postMessage({ action: "redraw" });
     }
 }
 
 function leave() {
+    if (_moveTimer !== null) { clearTimeout(_moveTimer); _moveTimer = null; }
+    _pendingMove = null;
     if (activeId === -1) return;
     activeId = -1;
     postMessage({ action: "identify", featureId: null });
@@ -207,7 +282,8 @@ function leave() {
 
 function click() {
     if (activeId === -1) return;
-    postMessage({ action: "click", featureId: activeId });
+    const geo = lastProj?.invert([lastMX, lastMY]);
+    postMessage({ action: "click", featureId: activeId, x: lastMX, y: lastMY, lng: geo?.[0] ?? null, lat: geo?.[1] ?? null });
 }
 
 function destroy() {
@@ -216,12 +292,13 @@ function destroy() {
         if (metaTex) gl.deleteTexture(metaTex);
         if (ptTex)   gl.deleteTexture(ptTex);
         if (programs) {
-            const { renderProgram, stencilProgram, fillProgram, pointProgram, emptyVAO } = programs;
-            if (emptyVAO)       gl.deleteVertexArray(emptyVAO);
-            if (renderProgram)  gl.deleteProgram(renderProgram);
-            if (stencilProgram) gl.deleteProgram(stencilProgram);
-            if (fillProgram)    gl.deleteProgram(fillProgram);
-            if (pointProgram)   gl.deleteProgram(pointProgram);
+            const { renderProgram, stencilProgram, fillProgram, maskStencilProgram, pointProgram, emptyVAO } = programs;
+            if (emptyVAO)           gl.deleteVertexArray(emptyVAO);
+            if (renderProgram)      gl.deleteProgram(renderProgram);
+            if (stencilProgram)     gl.deleteProgram(stencilProgram);
+            if (fillProgram)        gl.deleteProgram(fillProgram);
+            if (maskStencilProgram) gl.deleteProgram(maskStencilProgram);
+            if (pointProgram)       gl.deleteProgram(pointProgram);
         }
     }
     arcTex = metaTex = ptTex = null;
