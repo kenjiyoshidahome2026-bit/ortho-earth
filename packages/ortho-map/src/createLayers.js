@@ -141,7 +141,7 @@ async function createRemoteLayer(param = {}) {
             const data = e.data;
             if (data.action === "identify") { layer.onIdentify?.(data.featureId, data.geomType, data.x, data.y); return; }
             if (data.action === "redraw")   { drawing(); return; }
-            if (data.action === "click")    { layer.onClick?.(data.featureId, data.geomType); return; }
+            if (data.action === "click")    { layer.onClick?.(data.featureId, data.geomType, data.x, data.y, data.lng, data.lat); return; }
             if (data.action !== "done") return;
             if (data.type === "init") {
                 ctxType = data.ctx;

@@ -6,6 +6,7 @@ import initWasm, { GintConverter } from '../../wasm/pkg/gint_wasm.js';
 let _wasmOk = null;        // null=未試行, true=OK, false=失敗
 let _converter = null;     // GintConverter instance（null=JSフォールバック）
 let _pendingData = null;   // buildConverter の多重呼び出しを無効化するためのガード
+let _viewBbox = null;      // ビューポート bbox [xMin,yMin,xMax,yMax]（Morton 整数空間）
 
 async function ensureWasm() {
     if (_wasmOk === null) {
@@ -43,6 +44,12 @@ function buildPolylineStream(polyline) {
     return new Int32Array(out);
 }
 
+// drawing() ごとにビューポート bbox を更新する。WASM と JS フォールバック両方で使用。
+export function setViewBbox(bbox) {
+    _viewBbox = bbox;
+    if (_converter && bbox) _converter.set_view_bbox(bbox[0], bbox[1], bbox[2], bbox[3]);
+}
+
 // gintData から GintConverter を非同期で構築してモジュール変数に格納する。
 // gint.js の set() 後に fire-and-forget で呼ぶ。
 export async function buildConverter(gintData) {
@@ -50,7 +57,7 @@ export async function buildConverter(gintData) {
     _pendingData = gintData;
     if (!await ensureWasm()) return;
     if (_pendingData !== gintData) return;  // データが更新済み → キャンセル
-    const { arcBuffer, arcMeta, polygon, polyline, pointBuffer, point } = gintData;
+    const { arcBuffer, arcMeta, polygon, polyline, pointBuffer, point, polyCompBbox } = gintData;
     _converter = new GintConverter(
         u64AsU32(arcBuffer),
         arcMeta     ?? new Uint32Array(0),
@@ -58,6 +65,7 @@ export async function buildConverter(gintData) {
         point       ? new Uint32Array(point) : new Uint32Array(0),
         polygon     ? buildPolygonStream(polygon)  : new Int32Array(0),
         polyline    ? buildPolylineStream(polyline) : new Int32Array(0),
+        polyCompBbox ?? new Uint32Array(0),
     );
 }
 
@@ -65,11 +73,11 @@ export async function buildConverter(gintData) {
 
 export function contain(self, lng, lat) {
 	if (!self.unPackGint) return null;
-	const { arcBuffer, arcMeta, polygon } = self.unPackGint;
+	const { arcBuffer, arcMeta, polygon, polyBbox } = self.unPackGint;
 	if (!arcBuffer || !arcMeta || !polygon) return null;
 	const mix = Math.round((lng + 180) * gint.SCALE_E);
 	const miy = Math.round((lat + 90) * gint.SCALE_E);
-	return findPolygon(arcBuffer, arcMeta, polygon, mix, miy);
+	return findPolygon(arcBuffer, arcMeta, polygon, mix, miy, polyBbox);
 }
 
 export function identify(self, mx, my, proj, options = {}) {
@@ -81,7 +89,7 @@ export function identify(self, mx, my, proj, options = {}) {
 	const pointError = ((options.point || 10) / scale) * gint.SCALE_E;
 	const polylineError = ((options.polyline || 5) / scale) * gint.SCALE_E;
 	if (!self.unPackGint) return null;
-	const { arcBuffer, arcMeta, polygon, polyline, pointBuffer, point } = self.unPackGint;
+	const { arcBuffer, arcMeta, polygon, polyline, pointBuffer, point, polyBbox } = self.unPackGint;
 
 	if (_converter) {
 		let r;
@@ -110,7 +118,7 @@ export function identify(self, mx, my, proj, options = {}) {
 		if (owner !== null) return owner;
 	}
 	if (arcBuffer && arcMeta && polygon) {
-		const owner = findPolygon(arcBuffer, arcMeta, polygon, mix, miy);
+		const owner = findPolygon(arcBuffer, arcMeta, polygon, mix, miy, polyBbox);
 		if (owner !== null) return owner;
 	}
 	return null;
@@ -236,8 +244,17 @@ function findMortonNear(buffer, meta, polylineStructures, mix, miy, error) {
 	return null;
 }
 
-function findPolygon(buffer, meta, polygonStructures, mix, miy) {
+function findPolygon(buffer, meta, polygonStructures, mix, miy, polyBbox) {
+	const vb = _viewBbox;
 	for (let i = 0; i < polygonStructures.length; i++) {
+		if (polyBbox) {
+			const b = i * 4;
+			const bx0 = polyBbox[b], by0 = polyBbox[b+1], bx1 = polyBbox[b+2], by1 = polyBbox[b+3];
+			// ビューポート交差チェック（画面外を先に弾く）
+			if (vb && (bx1 < vb[0] || bx0 > vb[2] || by1 < vb[1] || by0 > vb[3])) continue;
+			// クエリ点チェック
+			if (mix < bx0 || mix > bx1 || miy < by0 || miy > by1) continue;
+		}
 		const [id, polygons] = polygonStructures[i];
 		for (const rings of polygons) {
 			let inside = false;

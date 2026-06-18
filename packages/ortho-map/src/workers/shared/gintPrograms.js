@@ -74,11 +74,38 @@ void main() {
     gl_Position = toNDC(p.xy);
 }`;
 
+// アクティブ Feature のリングのみステンシルを切るマスク用。
+// v_feat_id は flat varying → プロービングバーテックス（sub=2）の値が使われる。
+const VS_STENCIL_MASK = `${GLSL_VS_HEADER}
+flat out int v_feat_id;
+void main() {
+    int edge_id = gl_VertexID / 3;
+    int sub     = gl_VertexID % 3;
+    if (sub == 0) { gl_Position = vec4(0.0, 0.0, 0.0, 1.0); return; }
+    uvec4 meta = fetchEdgeMeta(edge_id);
+    v_feat_id  = int(meta.a);
+    vec3  p    = fetchProject(sub == 1 ? meta.r : meta.g);
+    if (p.z < 0.0) { gl_Position = vec4(0.0, 0.0, 0.0, 1.0); return; }
+    gl_Position = toNDC(p.xy);
+}`;
+
+const FS_STENCIL_MASK = `#version 300 es
+precision mediump float;
+uniform int  u_active_id;
+flat in  int v_feat_id;
+out vec4 fragColor;
+void main() {
+    if (v_feat_id != u_active_id) discard;
+    fragColor = vec4(0.0);
+}`;
+
 // 6 verts per edge: (A-)(A+)(B+)(A-)(B+)(B-)
-// FS discards when v_zr < 0 — no early return here to avoid GPU clip artifacts.
+// u_pass=0: アクティブ以外のエッジ, u_pass=1: アクティブのエッジのみ（重なり問題対策で後から描く）
+// 対象でないエッジはクリップ外へ追い出してラスタライズをスキップさせる。
 const VS_RENDER = `${GLSL_VS_HEADER}
 uniform float u_line_width;
 uniform int   u_active_id;
+uniform int   u_pass;
 uniform vec4  u_style_table[256];
 out vec4  v_color;
 out float v_zr;
@@ -87,6 +114,11 @@ void main() {
     int edge_id = gl_VertexID / 6;
     int sub     = gl_VertexID % 6;
     uvec4 meta  = fetchEdgeMeta(edge_id);
+    int feat_id = int(meta.a);
+
+    // このパスで描かない edge をクリップ外へ（GPU がラスタライズしない）
+    if (u_pass == 0 && feat_id == u_active_id) { gl_Position = vec4(2.0, 0.0, 0.0, 1.0); return; }
+    if (u_pass == 1 && feat_id != u_active_id) { gl_Position = vec4(2.0, 0.0, 0.0, 1.0); return; }
 
     bool  useA = (sub == 0 || sub == 1 || sub == 3);
     float side = (sub == 1 || sub == 2 || sub == 4) ? 1.0 : -1.0;
@@ -107,8 +139,7 @@ void main() {
     vec2 perp = vec2(-dir.y, dir.x) / len;
     gl_Position = toNDC(ps.xy + side * (u_line_width * 0.5) * perp);
 
-    int feat_id = int(meta.a);
-    v_color = (feat_id == u_active_id)
+    v_color = (u_pass == 1)
         ? vec4(1.0, 0.9, 0.0, 1.0)
         : u_style_table[meta.b & 0xFFu];
 }`;
@@ -220,25 +251,27 @@ const SHARED_UNIFORM_NAMES = [
 ];
 
 // Compile all gint programs, collect uniforms, set up blend state.
-// Returns { renderProgram, stencilProgram, fillProgram, pointProgram,
-//           uRender, uStencil, uFill, uPoint, emptyVAO }
+// Returns { renderProgram, stencilProgram, fillProgram, maskStencilProgram,
+//           pointProgram, uRender, uStencil, uFill, uMaskStencil, uPoint, emptyVAO }
 export function createGintPrograms(gl) {
-    const renderProgram  = linkProgram(gl, VS_RENDER,  FS_RENDER);
-    const stencilProgram = linkProgram(gl, VS_STENCIL, FS_STENCIL);
-    const fillProgram    = linkProgram(gl, VS_FILL,    FS_FILL);
-    const pointProgram   = linkProgram(gl, VS_POINT,   FS_POINT);
+    const renderProgram      = linkProgram(gl, VS_RENDER,        FS_RENDER);
+    const stencilProgram     = linkProgram(gl, VS_STENCIL,       FS_STENCIL);
+    const fillProgram        = linkProgram(gl, VS_FILL,          FS_FILL);
+    const maskStencilProgram = linkProgram(gl, VS_STENCIL_MASK,  FS_STENCIL_MASK);
+    const pointProgram       = linkProgram(gl, VS_POINT,         FS_POINT);
 
-    const uRender  = getUniforms(gl, renderProgram,  [...SHARED_UNIFORM_NAMES, 'u_line_width', 'u_active_id', 'u_style_table']);
-    const uStencil = getUniforms(gl, stencilProgram, SHARED_UNIFORM_NAMES);
-    const uFill    = getUniforms(gl, fillProgram,    ['u_fill_color']);
-    const uPoint   = getUniforms(gl, pointProgram,   ['u_pt_tex','u_pt_w','u_rotate','u_scale','u_viewport','u_rsincos','u_pt_radius','u_active_id']);
+    const uRender      = getUniforms(gl, renderProgram,      [...SHARED_UNIFORM_NAMES, 'u_line_width', 'u_active_id', 'u_pass', 'u_style_table']);
+    const uStencil     = getUniforms(gl, stencilProgram,     SHARED_UNIFORM_NAMES);
+    const uFill        = getUniforms(gl, fillProgram,        ['u_fill_color']);
+    const uMaskStencil = getUniforms(gl, maskStencilProgram, [...SHARED_UNIFORM_NAMES, 'u_active_id']);
+    const uPoint       = getUniforms(gl, pointProgram,       ['u_pt_tex','u_pt_w','u_rotate','u_scale','u_viewport','u_rsincos','u_pt_radius','u_active_id']);
 
     const emptyVAO = gl.createVertexArray();
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
 
-    return { renderProgram, stencilProgram, fillProgram, pointProgram,
-             uRender, uStencil, uFill, uPoint, emptyVAO };
+    return { renderProgram, stencilProgram, fillProgram, maskStencilProgram,
+             pointProgram, uRender, uStencil, uFill, uMaskStencil, uPoint, emptyVAO };
 }
 
 function compileShader(gl, type, src) {

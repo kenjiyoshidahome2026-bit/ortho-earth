@@ -30,7 +30,7 @@ let minZoom, zoom, currentZoom;
 let MasterTub = [], WorkerTub = [], TileTub = new Map(), urlTub = [], TileServer = null;
 let layerSession = 0;
 
-const funcs = { init, set, drawing, drawn, move: noop, leave: noop, resize, destroy };
+const funcs = { init, set, drawing, drawn, move: noop, leave: noop, resize, destroy, click:(()=>{}) };
 onmessage = e => funcs[e.data.type](e.data);
 
 async function init(data) {
