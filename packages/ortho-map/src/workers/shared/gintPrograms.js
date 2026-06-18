@@ -1,0 +1,267 @@
+// ── GLSL shared vertex shader header ─────────────────────────────────────────
+// Morton decode + orthographic projection shared by all gint vertex shaders.
+// Returns vec3(screen_x, screen_y, zr); zr < 0 means back hemisphere.
+const GLSL_VS_HEADER = `#version 300 es
+precision highp float;
+precision highp int;
+precision highp usampler2D;
+uniform usampler2D u_arc_tex;
+uniform usampler2D u_meta_tex;
+uniform int        u_arc_w;
+uniform int        u_meta_w;
+uniform vec3       u_rotate;
+uniform float      u_scale;
+uniform vec2       u_viewport;
+uniform vec4       u_rsincos;  // x=cos(r1), y=sin(r1), z=cos(r2), w=sin(r2)
+
+uint compact16(uint m) {
+    m &= 0x55555555u;
+    m = (m | (m >> 1u)) & 0x33333333u;
+    m = (m | (m >> 2u)) & 0x0F0F0F0Fu;
+    m = (m | (m >> 4u)) & 0x00FF00FFu;
+    m = (m | (m >> 8u)) & 0x0000FFFFu;
+    return m;
+}
+
+vec3 fetchProject(uint idx) {
+    ivec2 tc = ivec2(int(idx) % u_arc_w, int(idx) / u_arc_w);
+    uvec4 px = texelFetch(u_arc_tex, tc, 0);
+    uint lo = px.r, hi = px.g;
+    uint lo_c = ((hi >> 31u) != 0u) ? lo : (lo & 0xFFFFFFC0u);
+    uint hi_c = hi & 0x7FFFFFFFu;
+    uint ix = (compact16(hi_c) << 16u) | compact16(lo_c);
+    uint iy = (compact16(hi_c >> 1u) << 16u) | compact16(lo_c >> 1u);
+    float lng = float(ix) * 1e-7 - 180.0;
+    float lat = float(iy) * 1e-7 - 90.0;
+    const float RAD = 0.017453292519943295;
+    float r0 = u_rotate.x;
+    float l  = (lng + r0) * RAD;
+    float phi = lat * RAD;
+    float cf = u_rsincos.x, sf = u_rsincos.y;
+    float cg = u_rsincos.z, sg = u_rsincos.w;
+    float cp = cos(phi), sp = sin(phi), cl = cos(l), sl = sin(l);
+    float x = cp * sl, y = sp, z = cp * cl;
+    float yr = y * cf + z * sf;
+    float zr = z * cf - y * sf;
+    float hw = u_viewport.x * 0.5, hh = u_viewport.y * 0.5;
+    return vec3(hw + u_scale * (x * cg - yr * sg),
+                hh - u_scale * (x * sg + yr * cg),
+                zr);
+}
+
+vec4 toNDC(vec2 p) {
+    return vec4(2.0 * p.x / u_viewport.x - 1.0,
+                1.0 - 2.0 * p.y / u_viewport.y,
+                0.0, 1.0);
+}
+
+uvec4 fetchEdgeMeta(int edge_id) {
+    ivec2 mtc = ivec2(edge_id % u_meta_w, edge_id / u_meta_w);
+    return texelFetch(u_meta_tex, mtc, 0);
+}
+`;
+
+// sub=0 → NDC origin (fan pivot); sub=1 → vertex A; sub=2 → vertex B.
+// Back-hemisphere verts collapse to origin → degenerate triangle.
+const VS_STENCIL = `${GLSL_VS_HEADER}
+void main() {
+    int edge_id = gl_VertexID / 3;
+    int sub     = gl_VertexID % 3;
+    if (sub == 0) { gl_Position = vec4(0.0, 0.0, 0.0, 1.0); return; }
+    uvec4 meta = fetchEdgeMeta(edge_id);
+    vec3  p    = fetchProject(sub == 1 ? meta.r : meta.g);
+    if (p.z < 0.0) { gl_Position = vec4(0.0, 0.0, 0.0, 1.0); return; }
+    gl_Position = toNDC(p.xy);
+}`;
+
+// 6 verts per edge: (A-)(A+)(B+)(A-)(B+)(B-)
+// FS discards when v_zr < 0 — no early return here to avoid GPU clip artifacts.
+const VS_RENDER = `${GLSL_VS_HEADER}
+uniform float u_line_width;
+uniform int   u_active_id;
+uniform vec4  u_style_table[256];
+out vec4  v_color;
+out float v_zr;
+
+void main() {
+    int edge_id = gl_VertexID / 6;
+    int sub     = gl_VertexID % 6;
+    uvec4 meta  = fetchEdgeMeta(edge_id);
+
+    bool  useA = (sub == 0 || sub == 1 || sub == 3);
+    float side = (sub == 1 || sub == 2 || sub == 4) ? 1.0 : -1.0;
+    uint  si   = useA ? meta.r : meta.g;
+    uint  oi   = useA ? meta.g : meta.r;
+
+    vec3 ps = fetchProject(si);
+    v_zr = ps.z;
+
+    vec3  po  = fetchProject(oi);
+    vec2 oXY  = (po.z < 0.0 && ps.z > 0.0)
+        ? ps.xy + (ps.z / (ps.z - po.z)) * (po.xy - ps.xy)
+        : po.xy;
+
+    vec2 dir = oXY - ps.xy;
+    float len = length(dir);
+    if (len < 1e-4) { gl_Position = toNDC(ps.xy); return; }
+    vec2 perp = vec2(-dir.y, dir.x) / len;
+    gl_Position = toNDC(ps.xy + side * (u_line_width * 0.5) * perp);
+
+    int feat_id = int(meta.a);
+    v_color = (feat_id == u_active_id)
+        ? vec4(1.0, 0.9, 0.0, 1.0)
+        : u_style_table[meta.b & 0xFFu];
+}`;
+
+const FS_RENDER = `#version 300 es
+precision mediump float;
+in  vec4  v_color;
+in  float v_zr;
+out vec4  fragColor;
+void main() {
+    if (v_zr < 0.0)       discard;
+    if (v_color.a == 0.0) discard;
+    fragColor = v_color;
+}`;
+
+// 6 verts/point: quad centred on projected point. All vertices are L1 (no masking).
+const VS_POINT = `#version 300 es
+precision highp float;
+precision highp int;
+precision highp usampler2D;
+uniform usampler2D u_pt_tex;
+uniform int        u_pt_w;
+uniform vec3       u_rotate;
+uniform float      u_scale;
+uniform vec2       u_viewport;
+uniform vec4       u_rsincos;
+uniform float      u_pt_radius;
+uniform int        u_active_id;
+out float v_zr;
+out vec2  v_uv;
+out vec4  v_color;
+
+uint compact16(uint m) {
+    m &= 0x55555555u;
+    m = (m | (m >> 1u)) & 0x33333333u;
+    m = (m | (m >> 2u)) & 0x0F0F0F0Fu;
+    m = (m | (m >> 4u)) & 0x00FF00FFu;
+    m = (m | (m >> 8u)) & 0x0000FFFFu;
+    return m;
+}
+
+void main() {
+    int pt_id = gl_VertexID / 6;
+    int sub   = gl_VertexID % 6;
+    float ox = (sub == 2 || sub == 4 || sub == 5) ? 1.0 : -1.0;
+    float oy = (sub == 1 || sub == 2 || sub == 4) ? 1.0 : -1.0;
+
+    ivec2 tc = ivec2(pt_id % u_pt_w, pt_id / u_pt_w);
+    uvec4 px = texelFetch(u_pt_tex, tc, 0);
+    uint hi_c = px.g & 0x7FFFFFFFu;
+    uint ix = (compact16(hi_c)       << 16u) | compact16(px.r);
+    uint iy = (compact16(hi_c >> 1u) << 16u) | compact16(px.r >> 1u);
+    float lng = float(ix) * 1e-7 - 180.0;
+    float lat = float(iy) * 1e-7 - 90.0;
+    const float RAD = 0.017453292519943295;
+    float l = (lng + u_rotate.x) * RAD, phi = lat * RAD;
+    float cf = u_rsincos.x, sf = u_rsincos.y;
+    float cg = u_rsincos.z, sg = u_rsincos.w;
+    float cp = cos(phi), sp = sin(phi), cl = cos(l), sl = sin(l);
+    float x = cp*sl, y = sp, z = cp*cl;
+    float yr = y*cf + z*sf, zr = z*cf - y*sf;
+    float hw = u_viewport.x*0.5, hh = u_viewport.y*0.5;
+    float px_ = hw + u_scale*(x*cg - yr*sg);
+    float py_ = hh - u_scale*(x*sg + yr*cg);
+    v_zr = zr;
+    v_uv = vec2(ox, oy);
+    gl_Position = vec4(2.0*(px_ + ox*u_pt_radius)/u_viewport.x - 1.0,
+                       1.0 - 2.0*(py_ + oy*u_pt_radius)/u_viewport.y,
+                       0.0, 1.0);
+    v_color = (pt_id == u_active_id)
+        ? vec4(1.0, 0.9, 0.0, 1.0)
+        : vec4(1.0, 0.420, 0.208, 1.0);
+}`;
+
+const FS_POINT = `#version 300 es
+precision mediump float;
+in  float v_zr;
+in  vec2  v_uv;
+in  vec4  v_color;
+out vec4  fragColor;
+void main() {
+    if (v_zr < 0.0)            discard;
+    if (dot(v_uv, v_uv) > 1.0) discard;
+    fragColor = v_color;
+}`;
+
+const FS_STENCIL = `#version 300 es
+precision mediump float;
+out vec4 fragColor;
+void main() { fragColor = vec4(0.0); }`;
+
+const VS_FILL = `#version 300 es
+void main() {
+    vec2[4] p = vec2[4](vec2(-1,-1), vec2(1,-1), vec2(-1,1), vec2(1,1));
+    gl_Position = vec4(p[gl_VertexID], 0.0, 1.0);
+}`;
+
+const FS_FILL = `#version 300 es
+precision mediump float;
+uniform vec4 u_fill_color;
+out vec4 fragColor;
+void main() { fragColor = u_fill_color; }`;
+
+// ── Program factory ───────────────────────────────────────────────────────────
+
+const SHARED_UNIFORM_NAMES = [
+    'u_arc_tex','u_meta_tex','u_arc_w','u_meta_w',
+    'u_rotate','u_scale','u_viewport','u_rsincos',
+];
+
+// Compile all gint programs, collect uniforms, set up blend state.
+// Returns { renderProgram, stencilProgram, fillProgram, pointProgram,
+//           uRender, uStencil, uFill, uPoint, emptyVAO }
+export function createGintPrograms(gl) {
+    const renderProgram  = linkProgram(gl, VS_RENDER,  FS_RENDER);
+    const stencilProgram = linkProgram(gl, VS_STENCIL, FS_STENCIL);
+    const fillProgram    = linkProgram(gl, VS_FILL,    FS_FILL);
+    const pointProgram   = linkProgram(gl, VS_POINT,   FS_POINT);
+
+    const uRender  = getUniforms(gl, renderProgram,  [...SHARED_UNIFORM_NAMES, 'u_line_width', 'u_active_id', 'u_style_table']);
+    const uStencil = getUniforms(gl, stencilProgram, SHARED_UNIFORM_NAMES);
+    const uFill    = getUniforms(gl, fillProgram,    ['u_fill_color']);
+    const uPoint   = getUniforms(gl, pointProgram,   ['u_pt_tex','u_pt_w','u_rotate','u_scale','u_viewport','u_rsincos','u_pt_radius','u_active_id']);
+
+    const emptyVAO = gl.createVertexArray();
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+
+    return { renderProgram, stencilProgram, fillProgram, pointProgram,
+             uRender, uStencil, uFill, uPoint, emptyVAO };
+}
+
+function compileShader(gl, type, src) {
+    const s = gl.createShader(type);
+    gl.shaderSource(s, src);
+    gl.compileShader(s);
+    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s));
+    return s;
+}
+
+function linkProgram(gl, vs, fs) {
+    const p = gl.createProgram();
+    gl.attachShader(p, compileShader(gl, gl.VERTEX_SHADER, vs));
+    gl.attachShader(p, compileShader(gl, gl.FRAGMENT_SHADER, fs));
+    gl.linkProgram(p);
+    if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
+    return p;
+}
+
+function getUniforms(gl, prog, names) {
+    const u = {};
+    for (const n of names) u[n] = gl.getUniformLocation(prog, n);
+    return u;
+}
+
+

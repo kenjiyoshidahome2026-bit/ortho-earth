@@ -1,5 +1,67 @@
 import { GeoPBF } from "../pbf-base.js";
 import { gint } from "./gint.js";
+import initWasm, { GintConverter } from '../../wasm/pkg/gint_wasm.js';
+
+// ── WASM state ────────────────────────────────────────────────────────────────
+let _wasmOk = null;        // null=未試行, true=OK, false=失敗
+let _converter = null;     // GintConverter instance（null=JSフォールバック）
+let _pendingData = null;   // buildConverter の多重呼び出しを無効化するためのガード
+
+async function ensureWasm() {
+    if (_wasmOk === null) {
+        try { await initWasm(); _wasmOk = true; }
+        catch { _wasmOk = false; }
+    }
+    return _wasmOk;
+}
+
+// BigUint64Array を Uint32Array として見る（lo32, hi32 ペア、リトルエンディアン）
+function u64AsU32(buf) {
+    return buf?.length
+        ? new Uint32Array(buf.buffer, buf.byteOffset, buf.length * 2)
+        : new Uint32Array(0);
+}
+
+// polygon [[fid, comps], ...] → flat Int32Array [fid, numRings, numArcs, arcIdx, ...]
+function buildPolygonStream(polygon) {
+    const out = [];
+    for (const [fid, comps] of polygon)
+        for (const rings of comps) {
+            out.push(fid, rings.length);
+            for (const ring of rings) { out.push(ring.length); for (const a of ring) out.push(a); }
+        }
+    return new Int32Array(out);
+}
+
+// polyline [[fid, sets], ...] → flat Int32Array [fid, numSets, numArcs, arcIdx, ...]
+function buildPolylineStream(polyline) {
+    const out = [];
+    for (const [fid, sets] of polyline) {
+        out.push(fid, sets.length);
+        for (const arcs of sets) { out.push(arcs.length); for (const a of arcs) out.push(a); }
+    }
+    return new Int32Array(out);
+}
+
+// gintData から GintConverter を非同期で構築してモジュール変数に格納する。
+// gint.js の set() 後に fire-and-forget で呼ぶ。
+export async function buildConverter(gintData) {
+    _converter = null;
+    _pendingData = gintData;
+    if (!await ensureWasm()) return;
+    if (_pendingData !== gintData) return;  // データが更新済み → キャンセル
+    const { arcBuffer, arcMeta, polygon, polyline, pointBuffer, point } = gintData;
+    _converter = new GintConverter(
+        u64AsU32(arcBuffer),
+        arcMeta     ?? new Uint32Array(0),
+        u64AsU32(pointBuffer),
+        point       ? new Uint32Array(point) : new Uint32Array(0),
+        polygon     ? buildPolygonStream(polygon)  : new Int32Array(0),
+        polyline    ? buildPolylineStream(polyline) : new Int32Array(0),
+    );
+}
+
+// ── Public API ────────────────────────────────────────────────────────────────
 
 export function contain(self, lng, lat) {
 	if (!self.unPackGint) return null;
@@ -21,8 +83,26 @@ export function identify(self, mx, my, proj, options = {}) {
 	if (!self.unPackGint) return null;
 	const { arcBuffer, arcMeta, polygon, polyline, pointBuffer, point } = self.unPackGint;
 
+	if (_converter) {
+		let r;
+		if (pointBuffer && point) {
+			r = _converter.identify_point(mix, miy, Math.round(pointError));
+			if (r !== -1) return r;
+		}
+		if (arcBuffer && arcMeta && polyline) {
+			r = _converter.identify_polyline(mix, miy, Math.round(polylineError));
+			if (r !== -1) return r;
+		}
+		if (arcBuffer && arcMeta && polygon) {
+			r = _converter.identify_polygon(mix, miy);
+			if (r !== -1) return r;
+		}
+		return null;
+	}
+
+	// JS フォールバック（WASM 未初期化 or 失敗時）
 	if (pointBuffer && point) {
-		const owner = findPoint(pointBuffer, point, pointBuffer.length, mix, miy, pointError);
+		const owner = findPoint(pointBuffer, point, mix, miy, pointError);
 		if (owner !== null) return owner;
 	}
 	if (arcBuffer && arcMeta && polyline) {
@@ -35,6 +115,8 @@ export function identify(self, mx, my, proj, options = {}) {
 	}
 	return null;
 }
+
+// ── JS 実装（WASM フォールバック用）────────────────────────────────────────────
 
 function findPoint(buffer, pointMeta, mix, miy, error) {
 	const errSq = error * error;
@@ -102,7 +184,6 @@ function findMortonNear(buffer, meta, polylineStructures, mix, miy, error) {
 
 	for (const q of subQuads) {
 		if (!q) continue;
-		// L2 アークには TERMINAL_BIT がないため pure Morton（TERMINAL_BIT なし）で範囲を作る
 		const qMin = gint._pureMortonFromInt(q[0], q[2]) & ~gint.WEIGHT_MASK;
 		const qMax = gint._pureMortonFromInt(q[1], q[3]) | gint.WEIGHT_MASK;
 
