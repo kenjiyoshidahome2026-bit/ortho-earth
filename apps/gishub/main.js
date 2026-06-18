@@ -210,11 +210,7 @@ async function execView(pbf) {
 
     if (_viewLayer) { _viewLayer.destroy(); _viewLayer = null; }
 
-    const [w, s, e, n] = pbf.bbox;
-    await mapInst.flyToFeature({ type: "Feature", geometry: {
-        type: "Polygon", coordinates: [[[w,s],[w,n],[e,n],[e,s],[w,s]]]
-    }, properties: {} });
-
+    // 先にレイヤーを描画してからトラベル開始
     const { arcBuffer, arcMeta, polygon, polyline, pointBuffer, point } = pbf.unPackGint || {};
     const hasArcs = !!(arcBuffer && arcMeta && (polygon?.length > 0 || polyline?.length > 0));
     const hasPoints = !!(pointBuffer?.length > 0);
@@ -250,6 +246,11 @@ async function execView(pbf) {
         _viewLayer.set("geojson", { type: "FeatureCollection", features }, style);
     }
     mapInst.draw();
+
+    const [w, s, e, n] = pbf.bbox;
+    await mapInst.zoomToFeature({ type: "Feature", geometry: {
+        type: "Polygon", coordinates: [[[w,s],[w,n],[e,n],[e,s],[w,s]]]
+    }, properties: {} });
 }
 
 function exitView() {

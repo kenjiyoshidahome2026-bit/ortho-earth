@@ -64,10 +64,18 @@ export class screenLogger {
 			this.bars[name] = [bar, performance.now(), 0];
 		} else if (type === "progress" && this.bars[name]) {
 			const bar = this.bars[name][0], count = this.bars[name][2] = this.bars[name][2]+1;
-			const pct = Math.round((loaded / (total||loaded)) * 100), n = Math.floor(pct / 5);
-			const p = `<span class='done'>${"█".repeat(n)}</span><span class='rest'>${"█".repeat(20 - n)}</span>`;
 			const d = this.dots[~~(count/10) % this.dots.length];
-			bar.html(`⏳ ${name}: ${d}[${p}] ${pct}% (${comma(loaded)}/${comma(total)})`);
+			let p, info;
+			if (total) {
+				const pct = Math.round((loaded / total) * 100), n = Math.floor(pct / 5);
+				p = `<span class='done'>${"█".repeat(n)}</span><span class='rest'>${"█".repeat(20 - n)}</span>`;
+				info = `${pct}% (${comma(loaded)}/${comma(total)})`;
+			} else {
+				const pos = count % 17;
+				p = `<span class='rest'>${"░".repeat(pos)}</span><span class='done'>████</span><span class='rest'>${"░".repeat(16 - pos)}</span>`;
+				info = `${comma(loaded)} bytes`;
+			}
+			bar.html(`⏳ ${name}: ${d}[${p}] ${info}`);
 		} else if (type === "end" && this.bars[name]) {
 			const bar = this.bars[name][0], start = this.bars[name][1];
 			const time = ((performance.now() - start)/1000).toFixed(3);
