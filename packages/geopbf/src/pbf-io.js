@@ -2,7 +2,7 @@ import { GeoPBF } from "./pbf-base.js";
 import { nativeBucket, gzip, gunzip, isGzip } from "native-bucket";
 
 let _nb = null;
-export function setApiUrl(url) { _nb = nativeBucket(url); }
+export function setApiUrl(url, options = {}) { _nb = nativeBucket(url, options); }
 const getNB = () => { if (!_nb) throw new Error("geopbf: call setApiUrl(url) before use"); return _nb; };
 
 class PBFIO {

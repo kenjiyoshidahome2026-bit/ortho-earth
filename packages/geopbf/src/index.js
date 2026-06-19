@@ -107,7 +107,8 @@ export async function geopbf(data, options = {}) { if (isString(options)) option
                 (q.type == "Topology") ? topo2geo(q) :
                 (q.type == "FeatureCollection") ? q :
                 (q.type == "Feature") ? fc([q]) :
-                (q.type == "GeometryCollection") ? fc(q.map(f)) : fc([]);
+                (q.type == "GeometryCollection") ? fc((q.geometries ?? []).map(f)) :
+                q.type ? fc([f(q)]) : fc([]);
         }
     }
 }

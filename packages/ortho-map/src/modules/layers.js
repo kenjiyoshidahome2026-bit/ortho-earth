@@ -56,3 +56,5 @@ export function createLayerMap(tilerBase = "") {
 	});
 	return result;
 }
+
+export const Layers = createLayerMap("");

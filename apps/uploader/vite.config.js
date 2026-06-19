@@ -17,10 +17,22 @@ export default defineConfig({
         }
     },
     optimizeDeps: {
-        exclude: ['ortho-map', 'common', 'geopbf', 'altpbf', 'native-bucket', 'calender']
+        exclude: ['ortho-map', 'common', 'geopbf', 'altpbf', 'native-bucket', 'calender'],
+        include: ['polygon-clipping']
     },
     server: {
-        fs: { allow: ['../..'] }
+        fs: { allow: ['../..'] },
+        headers: {
+            'Cross-Origin-Opener-Policy': 'same-origin',
+            'Cross-Origin-Embedder-Policy': 'require-corp',
+        },
+        proxy: {
+            '/api': {
+                target: 'https://api.ortho-earth.com',
+                changeOrigin: true,
+                rewrite: path => path.replace(/^\/api/, '')
+            }
+        }
     },
     worker: {
         format: 'es'

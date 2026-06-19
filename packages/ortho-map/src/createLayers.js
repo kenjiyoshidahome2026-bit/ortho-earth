@@ -9,23 +9,36 @@ import border from './workers/border.js?worker&url';
 import image from './workers/image.js?worker&url';
 import standard from './workers/standard.js?worker&url';
 import gint from './workers/gint.js?worker&url';
-const workerURL = s => ({ base, border, image, gint }[s] || standard);
+import gintBorder from './workers/gintBorder.js?worker&url';
+const workerURL = s => ({ base, border, image, gint, gintBorder }[s] || standard);
 
 let borderRawBuffers = null;
 
+// geoNames: gintBorder (GL2) 向け、overlayNames: border.js (Canvas2D) 向け
 async function getBorderRawBuffers() {
     if (borderRawBuffers) return borderRawBuffers;
-    const names = [
+    const geoNames = [
+        "ne_110m_graticules_10",
         "ne_50m_admin_0_boundary_lines_land",
         "ne_50m_admin_0_boundary_lines_maritime_indicator",
         "ne_50m_geographic_lines",
-        "ne_110m_land",
-        "stars.6"
     ];
-    const results = await Promise.all(names.map(name => geopbf(name,{gint:false})));
-    borderRawBuffers = results.map(r => r.arrayBuffer || r); // ArrayBuffer確保
+    const overlayNames = ["ne_110m_land", "stars.6"];
+    const [geo, overlay] = await Promise.all([
+        Promise.all(geoNames.map(name => geopbf(name, {gint:false}).then(r => r.arrayBuffer))),
+        Promise.all(overlayNames.map(name => geopbf(name, {gint:false}).then(r => r.arrayBuffer))),
+    ]);
+    borderRawBuffers = { geo, overlay };
     return borderRawBuffers;
 }
+
+// dash values are in geographic degrees (zoom-stable; v_dist = len * 57.3 / u_scale in shader)
+const BORDER_GL_STYLES = [
+    { color: [1.0,  1.0,  1.0,  0.5], lineWidth: 0.5, dash: [0,    0   ] }, // graticule (solid)
+    { color: [1.0,  1.0,  1.0,  0.8], lineWidth: 1.0, dash: [0.2,  0.55] }, // 国境線
+    { color: [0.50, 0.50, 1.0,  0.8], lineWidth: 0.8, dash: [0.15, 0.45] }, // maritime
+    { color: [1.0,  1.0,  1.0,  1.0], lineWidth: 0.5, dash: [0.2,  0.55] }, // geographic lines
+];
 
 export async function createLayers(map, opts) {
     const Layers = map.Layers = createLayerMap(opts.tilerBase || "");
@@ -41,9 +54,13 @@ export async function createLayers(map, opts) {
     await map.setBase(map.baseName);
 ////--------------------------------------------------------------------------
     if (opts.accessories === false) return;
-    const borderLayer = (await createRemoteLayer.call(map, { name: "Accessories", append: map.mapFrame, type: "border" }));
-    const param = opts.accessories ||{}; param.lang = map.lang;
-    await borderLayer.set("set", "options", param);
+    const borderGLLayer = await createRemoteLayer.call(map, { name: "BorderLines", append: map.mapFrame, type: "gintBorder" });
+    const borderLayer   = await createRemoteLayer.call(map, { name: "Accessories", append: map.mapFrame, type: "border" });
+    const param = opts.accessories || {}; param.lang = map.lang;
+    getBorderRawBuffers().then(({ geo, overlay }) => {
+        borderGLLayer.set("gint", { rawBuffers: geo, styles: BORDER_GL_STYLES, minZoom: 2, maxZoom: 7 });
+        borderLayer.set("set", "options", { ...param, rawBuffers: overlay });
+    });
 ////--------------------------------------------------------------------------
     map.createLayer({ name: "GISHub", after: map.layers.Accessories });
     ////--------------------------------------------------------------------------
@@ -182,15 +199,14 @@ async function createRemoteLayer(param = {}) {
                 reject(err);
             }
         }
-        function set(cmd, data, prop) {
-            if (data === "options") {
-                getBorderRawBuffers().then(buffers => {
-                    worker.postMessage({
-                        type: "set", cmd, data, prop, rawBuffers: buffers   // ArrayBuffer配列
-                    }, buffers);              // Transferableでゼロコピー転送
-                });
+        function set(cmd, data, prop, transferables) {
+            if (transferables) {
+                worker.postMessage({ type: "set", cmd, data: cmd, prop: data }, transferables);
+            } else if (prop?.rawBuffers) {
+                const { rawBuffers, ...rest } = prop;
+                worker.postMessage({ type: "set", cmd, data, prop: rest, rawBuffers }, rawBuffers);
             } else {
-               worker.postMessage({ type: "set", cmd, data, prop });
+                worker.postMessage({ type: "set", cmd, data, prop });
                 (cmd === "base") && map.trigger("LoadStart", data);
             }
         }
