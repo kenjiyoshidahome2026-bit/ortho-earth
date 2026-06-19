@@ -79,3 +79,40 @@ export function buildEdgeMeta(arcMeta, polygon, polyline) {
 
     return { metaU32: buf, edgeCount: total, polyEdgeRanges, polyEdgeCount };
 }
+
+// ── Zoom range check ──────────────────────────────────────────────────────────
+// arcMeta の bbox から全体の地理的広がりを算出し、minZoom/maxZoom の妥当性を検査。
+// maxZoom は precision の解像度限界を超えていれば強制クランプ（warning あり）。
+// minZoom は未設定かつ推奨値 > 0 なら suggestion を出すのみ（強制しない）。
+// 戻り値: { minZoom, maxZoom }（minZoom は null のまま返す場合あり）
+export function checkZoomRange({ arcMeta, minZoom, maxZoom, precision = 6 }) {
+    // maxZoom: precision から上限を強制
+    const precisionMax = Math.floor(0.491 + precision * 3.322);
+    const requestedMax = maxZoom ?? precisionMax;
+    if (requestedMax > precisionMax) {
+        console.warn(`[gint] maxZoom(${requestedMax}) exceeds precision(${precision}) limit → clamped to ${precisionMax}`);
+    }
+    const effectiveMax = Math.min(requestedMax, precisionMax);
+
+    // minZoom: bbox から推奨値を算出して suggestion のみ
+    let effectiveMin = minZoom ?? null;
+    if (effectiveMin === null && arcMeta?.length) {
+        let bxMin = 0xFFFFFFFF, byMin = 0xFFFFFFFF, bxMax = 0, byMax = 0;
+        for (let i = 0, n = (arcMeta.length / 8) | 0; i < n; i++) {
+            const b = i * 8;
+            if (arcMeta[b+4] < bxMin) bxMin = arcMeta[b+4];
+            if (arcMeta[b+5] < byMin) byMin = arcMeta[b+5];
+            if (arcMeta[b+6] > bxMax) bxMax = arcMeta[b+6];
+            if (arcMeta[b+7] > byMax) byMax = arcMeta[b+7];
+        }
+        const maxDim = Math.max(bxMax - bxMin, byMax - byMin) * 1e-7;
+        if (maxDim > 0) {
+            const suggested = Math.max(0, Math.floor(Math.log2(360 / maxDim)) - 1);
+            if (suggested > 0) {
+                console.warn(`[gint] minZoom not set. Suggested: ${suggested} (data spans ~${maxDim.toFixed(1)}°)`);
+            }
+        }
+    }
+
+    return { minZoom: effectiveMin, maxZoom: effectiveMax };
+}

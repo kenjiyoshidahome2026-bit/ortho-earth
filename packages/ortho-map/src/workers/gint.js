@@ -18,7 +18,7 @@
 
 import { geoOrthographic } from 'common';
 import { createGintPrograms } from './shared/gintPrograms.js';
-import { uploadTex2D, buildEdgeMeta, bindSharedUniforms } from './shared/gintUtility.js';
+import { uploadTex2D, buildEdgeMeta, bindSharedUniforms, checkZoomRange } from './shared/gintUtility.js';
 import { findPolygon } from 'geopbf/src/extension/identify.js';
 
 // ── GL state ──────────────────────────────────────────────────────────────────
@@ -40,6 +40,9 @@ let lastDrawData = null;  // drawn() で FBO 更新に使う描画パラメー�
 // ── Polygon edge ranges（アクティブ feature のエッジ範囲 O(1) 引き） ──────────
 let polyEdgeRanges = null;  // Int32Array [eStart, eCount, ...] per polygon feature
 let polygonIdToIdx = null;  // Map<featureId, polygonArrayIndex>
+
+// ── Zoom visibility range ─────────────────────────────────────────────────────
+let minZoom = null, maxZoom = null;  // GeoPBF 由来。null = 制限なし
 
 // ── Hit-test / move state ─────────────────────────────────────────────────────
 let gintData = null;
@@ -129,6 +132,13 @@ function set(data) {
             ptPad.set(ptU32);
             ptTex = uploadTex2D(gl, ptPad, TEX_ARC_W, ptH, gl.RG32UI, gl.RG_INTEGER);
         } else { totalPoints = 0; }
+
+        ({ minZoom, maxZoom } = checkZoomRange({
+            arcMeta: am,
+            minZoom: data.data.minZoom ?? null,
+            maxZoom: data.data.maxZoom ?? null,
+            precision: data.data.precision ?? 6,
+        }));
 
         activeId = -1;
         lastDrawData = null;  // baseFBO 無効化
@@ -261,6 +271,8 @@ function _drawOverlay() {
     gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, null);
     gl.blitFramebuffer(0, 0, w, h, 0, 0, w, h, gl.COLOR_BUFFER_BIT, gl.NEAREST);
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.stencilMask(0xFF);
+    gl.clear(gl.STENCIL_BUFFER_BIT);
 
     if (activeId === -1 || !arcTex) return;
 
@@ -338,6 +350,20 @@ function drawing(data) {
         _isDrawing = false;
     }
     lastMX = NaN; lastMY = NaN;
+
+    // ズーム範囲外はキャンバスをクリアして終了（GeoPBF AND map 両方の範囲）
+    const zoom = Math.log2(data.scale / 40.74);
+    const effMin = Math.max(minZoom ?? 0,  data.minZoom ?? 0);
+    const effMax = Math.min(maxZoom ?? 22, data.maxZoom ?? 22);
+    if (zoom < effMin || zoom > effMax) {
+        gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+        gl.clearColor(0, 0, 0, 0);
+        gl.stencilMask(0xFF);
+        gl.clear(gl.COLOR_BUFFER_BIT);
+        lastDrawData = null;
+        return;
+    }
+
     if (totalEdges === 0 && totalPoints === 0) return;
 
     lastR = data.rotate; lastS = data.scale; lastW = width; lastH = height;

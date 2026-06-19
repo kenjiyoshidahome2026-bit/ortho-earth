@@ -195,7 +195,7 @@ async function createRemoteLayer(param = {}) {
         function drawing(panning = false) {
             // 【Safari対策 4】 初期化が成功(ctxType取得)するまでは描画命令を送らない
             if (!ctxType) return;
-            worker.postMessage({ type: "drawing", scale: proj.scale(), rotate: proj.rotate(), attr: map.attribution, panning });
+            worker.postMessage({ type: "drawing", scale: proj.scale(), rotate: proj.rotate(), attr: map.attribution, panning, minZoom: map.minZoom, maxZoom: map.maxZoom });
         }
         function drawn() { worker.postMessage({ type: "drawn", scale: proj.scale(), rotate: proj.rotate() }); }
         function move(e = {}) { worker.postMessage({ type: "move", ...e }); }

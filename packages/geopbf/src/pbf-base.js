@@ -4,7 +4,7 @@ import { isString, isSimpleObject, isNumber, isFloat, isBbox, antimeridianFeatur
 import { cleanCoords, } from "./modules/cleanCoords.js";
 
 
-const TAGS = { NAME: 1, KEYS: 2, PRECISION: 3, BUFS: 4, FARRAY: 5, FEATURE: 6, GEOMETRY: 7, GTYPE: 8, LENGTH: 9, COORDS: 10, VALUE: 11, INDEX: 12, GARRAY: 13, DESCRIPTION: 14, LICENSE: 15, ATTRIBUTION: 16 };
+const TAGS = { NAME: 1, KEYS: 2, PRECISION: 3, BUFS: 4, FARRAY: 5, FEATURE: 6, GEOMETRY: 7, GTYPE: 8, LENGTH: 9, COORDS: 10, VALUE: 11, INDEX: 12, GARRAY: 13, DESCRIPTION: 14, LICENSE: 15, ATTRIBUTION: 16, MIN_ZOOM: 17, MAX_ZOOM: 18 };
 const geometryTypes = ["Point", "MultiPoint", "LineString", "MultiLineString", "Polygon", "MultiPolygon", "GeometryCollection"];
 const geometryMap = {}; geometryTypes.forEach((t, i) => geometryMap[t] = i);
 const dataTypeNames = ["NULL", "BOOL", "INTEGER", "FLOAT", "STRING", "DATE", "COLOR", "FUNC", "JSON", "BBOX", "BLOB", "IMAGE"];
@@ -17,6 +17,8 @@ class GeoPBF {
         this._description = options.description || "";
         this._license = options.license || "";
         this._attribution = options.attribution || "";
+        this._minZoom = options.minZoom ?? null;
+        this._maxZoom = options.maxZoom ?? null;
         this.e = Math.pow(10, this._precision = options.precision || 6);
         this.noprop = !!options.noprop;
         this.keys = [], this.bufs = [], this.fmap = [], this.bin = {}; this.props = [];
@@ -33,6 +35,8 @@ class GeoPBF {
     description(s) { return (s === undefined) ? this._description : this.updateHeader({ description: this._description = s }); }
     license(s) { return (s === undefined) ? this._license : this.updateHeader({ license: this._license = s }); }
     attribution(s) { return (s === undefined) ? this._attribution : this.updateHeader({ attribution: this._attribution = s }); }
+    minZoom(v) { return (v === undefined) ? this._minZoom : this.updateHeader({ minZoom: this._minZoom = v }); }
+    maxZoom(v) { return (v === undefined) ? this._maxZoom : this.updateHeader({ maxZoom: this._maxZoom = v }); }
     init() { this.keys = [], this.bufs = [], this.fmap = [], this.bin = {}; this.props = []; delete this.end; delete this.ctx; delete this.proj; return this; }
     empty() { this.pbf = new Pbf(); this.init(); this.name(""); return this; }
     destroy() {
@@ -42,6 +46,7 @@ class GeoPBF {
             if (this.keys) { this.keys.length = 0; this.keys = null; }
             this.fmap = this.bin = this.pbf = null;
             this._name = this._description = this._license = this._attribution = null;
+            this._minZoom = this._maxZoom = null;
         } catch (e) { }
     }
     async set(q) {
@@ -65,6 +70,8 @@ class GeoPBF {
             else if (tag === TAGS.DESCRIPTION) this.description(pbf.readString()), pos = pbf.pos;
             else if (tag === TAGS.LICENSE) this.license(pbf.readString()), pos = pbf.pos;
             else if (tag === TAGS.ATTRIBUTION) this.attribution(pbf.readString()), pos = pbf.pos;
+            else if (tag === TAGS.MIN_ZOOM) this._minZoom = pbf.readVarint(), pos = pbf.pos;
+            else if (tag === TAGS.MAX_ZOOM) this._maxZoom = pbf.readVarint(), pos = pbf.pos;
             else if (tag === TAGS.KEYS) keys.push(pbf.readString()), pos = pbf.pos;
             else if (tag === TAGS.BUFS) bufsReader.set(pbf.readBytes()), pos = pbf.pos;
             else if (tag === TAGS.PRECISION) this.e = Math.pow(10, this._precision = pbf.readVarint()), pos = pbf.pos;
@@ -117,6 +124,8 @@ class GeoPBF {
         if (meta.license !== undefined) this._license = meta.license;
         if (meta.attribution !== undefined) this._attribution = meta.attribution;
         if (meta.precision !== undefined) this.e = Math.pow(10, this._precision = meta.precision);
+        if (meta.minZoom !== undefined) this._minZoom = meta.minZoom;
+        if (meta.maxZoom !== undefined) this._maxZoom = meta.maxZoom;
 
         this.keys = keys || this.keys;
         this.bufs = bufs || this.bufs || [];
@@ -126,6 +135,8 @@ class GeoPBF {
         this._description && this.pbf.writeStringField(TAGS.DESCRIPTION, this._description);
         this._license && this.pbf.writeStringField(TAGS.LICENSE, this._license);
         this._attribution && this.pbf.writeStringField(TAGS.ATTRIBUTION, this._attribution);
+        this._minZoom != null && this.pbf.writeVarintField(TAGS.MIN_ZOOM, this._minZoom);
+        this._maxZoom != null && this.pbf.writeVarintField(TAGS.MAX_ZOOM, this._maxZoom);
         this.pbf.writeVarintField(TAGS.PRECISION, this._precision);
         this.keys.forEach((t, i) => { this.pbf.writeStringField(TAGS.KEYS, t); });
         this.bufs.forEach((t, i) => { this.pbf.writeBytesField(TAGS.BUFS, new Uint8Array(t)) });
@@ -153,7 +164,7 @@ class GeoPBF {
         return this;
     }
     copyHead(pbf) {
-        const meta = { name:pbf._name, description:pbf._description, license:pbf._license, attribution:pbf._attribution, precision:pbf._precision};
+        const meta = { name:pbf._name, description:pbf._description, license:pbf._license, attribution:pbf._attribution, precision:pbf._precision, minZoom:pbf._minZoom, maxZoom:pbf._maxZoom };
         return this.setHead(pbf.keys, pbf.bufs, meta);
     }
 
@@ -422,6 +433,8 @@ function _setViaWorker(self, buf) {
             self._description = r._description;
             self._license     = r._license;
             self._attribution = r._attribution;
+            self._minZoom     = r._minZoom;
+            self._maxZoom     = r._maxZoom;
             self.e            = Math.pow(10, self._precision = r._precision);
             self._bodyPos     = r._bodyPos;
             self.end          = r.end;
