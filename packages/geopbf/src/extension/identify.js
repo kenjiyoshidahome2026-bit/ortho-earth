@@ -23,27 +23,6 @@ function u64AsU32(buf) {
         : new Uint32Array(0);
 }
 
-// polygon [[fid, comps], ...] → flat Int32Array [fid, numRings, numArcs, arcIdx, ...]
-function buildPolygonStream(polygon) {
-    const out = [];
-    for (const [fid, comps] of polygon)
-        for (const rings of comps) {
-            out.push(fid, rings.length);
-            for (const ring of rings) { out.push(ring.length); for (const a of ring) out.push(a); }
-        }
-    return new Int32Array(out);
-}
-
-// polyline [[fid, sets], ...] → flat Int32Array [fid, numSets, numArcs, arcIdx, ...]
-function buildPolylineStream(polyline) {
-    const out = [];
-    for (const [fid, sets] of polyline) {
-        out.push(fid, sets.length);
-        for (const arcs of sets) { out.push(arcs.length); for (const a of arcs) out.push(a); }
-    }
-    return new Int32Array(out);
-}
-
 // drawing() ごとにビューポート bbox を更新する。WASM と JS フォールバック両方で使用。
 export function setViewBbox(bbox) {
     _viewBbox = bbox;
@@ -51,20 +30,20 @@ export function setViewBbox(bbox) {
 }
 
 // gintData から GintConverter を非同期で構築してモジュール変数に格納する。
-// gint.js の set() 後に fire-and-forget で呼ぶ。
+// polyStream / lineStream は GintBUF v2 から直接転送されるので変換不要。
 export async function buildConverter(gintData) {
     _converter = null;
     _pendingData = gintData;
     if (!await ensureWasm()) return;
-    if (_pendingData !== gintData) return;  // データが更新済み → キャンセル
-    const { arcBuffer, arcMeta, polygon, polyline, pointBuffer, point, polyCompBbox } = gintData;
+    if (_pendingData !== gintData) return;
+    const { arcBuffer, arcMeta, polyStream, lineStream, pointBuffer, point, polyCompBbox } = gintData;
     _converter = new GintConverter(
         u64AsU32(arcBuffer),
-        arcMeta     ?? new Uint32Array(0),
+        arcMeta      ?? new Uint32Array(0),
         u64AsU32(pointBuffer),
-        point       ? new Uint32Array(point) : new Uint32Array(0),
-        polygon     ? buildPolygonStream(polygon)  : new Int32Array(0),
-        polyline    ? buildPolylineStream(polyline) : new Int32Array(0),
+        point        ? new Uint32Array(point) : new Uint32Array(0),
+        polyStream   ?? new Int32Array(0),
+        lineStream   ?? new Int32Array(0),
         polyCompBbox ?? new Uint32Array(0),
     );
 }
@@ -73,11 +52,11 @@ export async function buildConverter(gintData) {
 
 export function contain(self, lng, lat) {
 	if (!self.unPackGint) return null;
-	const { arcBuffer, arcMeta, polygon, polyBbox } = self.unPackGint;
-	if (!arcBuffer || !arcMeta || !polygon) return null;
+	const { arcBuffer, arcMeta, polyStream, polyBboxByFid } = self.unPackGint;
+	if (!arcBuffer || !arcMeta || !polyStream) return null;
 	const mix = Math.round((lng + 180) * gint.SCALE_E);
 	const miy = Math.round((lat + 90) * gint.SCALE_E);
-	return findPolygon(arcBuffer, arcMeta, polygon, mix, miy, polyBbox);
+	return findPolygon(arcBuffer, arcMeta, polyStream, mix, miy, polyBboxByFid);
 }
 
 export function identify(self, mx, my, proj, options = {}) {
@@ -89,7 +68,7 @@ export function identify(self, mx, my, proj, options = {}) {
 	const pointError = ((options.point || 10) / scale) * gint.SCALE_E;
 	const polylineError = ((options.polyline || 5) / scale) * gint.SCALE_E;
 	if (!self.unPackGint) return null;
-	const { arcBuffer, arcMeta, polygon, polyline, pointBuffer, point, polyBbox } = self.unPackGint;
+	const { arcBuffer, arcMeta, polyStream, lineStream, pointBuffer, point, polyBboxByFid } = self.unPackGint;
 
 	if (_converter) {
 		let r;
@@ -97,11 +76,11 @@ export function identify(self, mx, my, proj, options = {}) {
 			r = _converter.identify_point(mix, miy, Math.round(pointError));
 			if (r !== -1) return r;
 		}
-		if (arcBuffer && arcMeta && polyline) {
+		if (arcBuffer && arcMeta && lineStream) {
 			r = _converter.identify_polyline(mix, miy, Math.round(polylineError));
 			if (r !== -1) return r;
 		}
-		if (arcBuffer && arcMeta && polygon) {
+		if (arcBuffer && arcMeta && polyStream) {
 			r = _converter.identify_polygon(mix, miy);
 			if (r !== -1) return r;
 		}
@@ -113,12 +92,12 @@ export function identify(self, mx, my, proj, options = {}) {
 		const owner = findPoint(pointBuffer, point, mix, miy, pointError);
 		if (owner !== null) return owner;
 	}
-	if (arcBuffer && arcMeta && polyline) {
-		const owner = findMortonNear(arcBuffer, arcMeta, polyline, mix, miy, polylineError);
+	if (arcBuffer && arcMeta && lineStream) {
+		const owner = findMortonNear(arcBuffer, arcMeta, lineStream, mix, miy, polylineError);
 		if (owner !== null) return owner;
 	}
-	if (arcBuffer && arcMeta && polygon) {
-		const owner = findPolygon(arcBuffer, arcMeta, polygon, mix, miy, polyBbox);
+	if (arcBuffer && arcMeta && polyStream) {
+		const owner = findPolygon(arcBuffer, arcMeta, polyStream, mix, miy, polyBboxByFid);
 		if (owner !== null) return owner;
 	}
 	return null;
@@ -173,7 +152,7 @@ function findPoint(buffer, pointMeta, mix, miy, error) {
 	return null;
 }
 
-function findMortonNear(buffer, meta, polylineStructures, mix, miy, error) {
+function findMortonNear(buffer, meta, lineStream, mix, miy, error) {
 	const errSq = error * error;
 	const hitArcs = new Set();
 
@@ -232,38 +211,53 @@ function findMortonNear(buffer, meta, polylineStructures, mix, miy, error) {
 
 	if (hitArcs.size === 0) return null;
 
-	for (let i = 0; i < polylineStructures.length; i++) {
-		const [id, lines] = polylineStructures[i];
-		for (const line of lines) {
-			for (const arcIdx of line) {
-				const aid = arcIdx < 0 ? ~arcIdx : arcIdx;
-				if (hitArcs.has(aid)) return id;
+	let p = 0;
+	while (p < lineStream.length) {
+		const fid = lineStream[p++], numSets = lineStream[p++];
+		for (let s = 0; s < numSets; s++) {
+			const arcCount = lineStream[p++];
+			for (let a = 0; a < arcCount; a++) {
+				const arcIdx = lineStream[p++], aid = arcIdx < 0 ? ~arcIdx : arcIdx;
+				if (hitArcs.has(aid)) return fid;
 			}
 		}
 	}
 	return null;
 }
 
-export function findPolygon(buffer, meta, polygonStructures, mix, miy, polyBbox, viewBbox) {
+export function findPolygon(buffer, meta, polyStream, mix, miy, polyBboxByFid, viewBbox) {
 	const vb = viewBbox ?? _viewBbox;
-	for (let i = 0; i < polygonStructures.length; i++) {
-		if (polyBbox) {
-			const b = i * 4;
-			const bx0 = polyBbox[b], by0 = polyBbox[b+1], bx1 = polyBbox[b+2], by1 = polyBbox[b+3];
-			// ビューポート交差チェック（画面外を先に弾く）
-			if (vb && (bx1 < vb[0] || bx0 > vb[2] || by1 < vb[1] || by0 > vb[3])) continue;
-			// クエリ点チェック
-			if (mix < bx0 || mix > bx1 || miy < by0 || miy > by1) continue;
+	let p = 0;
+	while (p < polyStream.length) {
+		const fid = polyStream[p];
+
+		// フィーチャー bbox 早期棄却
+		if (polyBboxByFid) {
+			const bb = polyBboxByFid.get(fid);
+			if (bb) {
+				const skip = (vb && (bb[2] < vb[0] || bb[0] > vb[2] || bb[3] < vb[1] || bb[1] > vb[3]))
+				          || mix < bb[0] || mix > bb[2] || miy < bb[1] || miy > bb[3];
+				if (skip) {
+					while (p < polyStream.length && polyStream[p] === fid) {
+						p++; const nr = polyStream[p++];
+						for (let r = 0; r < nr; r++) { const ac = polyStream[p++]; p += ac; }
+					}
+					continue;
+				}
+			}
 		}
-		const [id, polygons] = polygonStructures[i];
-		for (const rings of polygons) {
-			let inside = false;
-			for (const ring of rings) {
-				for (const arcIdx of ring) {
+
+		let inside = false;
+		while (p < polyStream.length && polyStream[p] === fid) {
+			p++; // fid
+			const numRings = polyStream[p++];
+			for (let ri = 0; ri < numRings; ri++) {
+				const arcCount = polyStream[p++];
+				for (let ai = 0; ai < arcCount; ai++) {
+					const arcIdx = polyStream[p++];
 					const aid = arcIdx < 0 ? ~arcIdx : arcIdx;
 					const mIdx = aid * 8;
 					if (mix > meta[mIdx + 6] || miy < meta[mIdx + 5] || miy > meta[mIdx + 7]) continue;
-
 					const off = meta[mIdx], len = meta[mIdx + 1];
 					for (let k = 0; k < len - 1; k++) {
 						const [ix1, iy1] = gint.unpackToInt(buffer[off + k]);
@@ -273,8 +267,8 @@ export function findPolygon(buffer, meta, polygonStructures, mix, miy, polyBbox,
 					}
 				}
 			}
-			if (inside) return id;
 		}
+		if (inside) return fid;
 	}
 	return null;
 }

@@ -374,8 +374,8 @@ function writeGeometry(self, q) {
         function len3() { const l = [c.length]; c.forEach(t => { l.push(t.length); t.forEach(u => l.push(u.length)); }); return l; }
         function write0() { c = [Math.round(fix(c[0]) * e), Math.round(c[1] * e)]; }
         function write1() { c = diff(c); }
-        function write2() { c = c.map(diff); pbf.writePackedVarint(TAGS.LENGTH, len2()); }
-        function write3() { c = c.map(t => t.map(diff)); pbf.writePackedVarint(TAGS.LENGTH, len3()); }
+        function write2() { c = c.map(diff).filter(r => r.length > 0); pbf.writePackedVarint(TAGS.LENGTH, len2()); }
+        function write3() { c = c.map(t => t.map(diff).filter(r => r.length > 0)).filter(p => p.length > 0); pbf.writePackedVarint(TAGS.LENGTH, len3()); }
         function diff(line) {
             if (!line || !line.length) return [];
             let sum = [0, 0], src = [], p = [];
@@ -408,7 +408,7 @@ function readGeometry(self, n, m) {
         }, q);
         function readCoords(p) { p = p || [0, 0]; p[0] += pbf.readSVarint(); p[1] += pbf.readSVarint(); return p; }
         function magCoords(p) { return [p[0] / e, p[1] / e]; }
-        function read_n(n) { var c = [], p = [0, 0]; while (n-- > 0) c.push(magCoords(p = readCoords(p))); isPoly && c.push(c[0]); return c; }
+        function read_n(n) { var c = [], p = [0, 0]; while (n-- > 0) c.push(magCoords(p = readCoords(p))); isPoly && c.length && c.push(c[0]); return c; }
         function read0() { return magCoords(readCoords()); }
         function read1() { var c = [], p = [0, 0]; while (pbf.pos < end) c.push(magCoords(readCoords(p))); return c; }
         function read2() { return lens.map(t => read_n(t)); }

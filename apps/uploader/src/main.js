@@ -1,14 +1,19 @@
 import * as d3 from 'd3';
 import "./main.scss";
-import { screenLogger } from "./screenLogger.js";
-import "./screenLogger.scss";
+import { screenLogger } from "../../gishub/screenLogger.js";
+import "../../gishub/screenLogger.scss";
 import "common/d3/selection.js";
 import { comma, isArray, isString, isNumber, isObject, isBlob, unique, concat, thenEach } from "common";
 import { Layers } from "ortho-map/modules/Layers.js";
-import { Fetch, Bucket, Cache } from "native-bucket";
+import { nativeBucket } from "native-bucket";
 
 import { tiff2canvas, exr2canvas, tile2canvas } from './file2canvas';
-import { geopbf } from "geopbf";
+import { geopbf, setApiUrl } from "geopbf";
+
+const API_BASE = import.meta.env.DEV ? `${location.origin}/api` : "https://api.ortho-earth.com";
+const API_KEY = "my-lovely-dog-betty-was-born-on-2019-09-01";
+setApiUrl(API_BASE, { apiKey: API_KEY });
+const { Fetch, Bucket, Cache } = nativeBucket(API_BASE, { apiKey: API_KEY });
 import { GEBCO, createGetHeight } from "altpbf";
 
 import { 世界時計 } from 'calender';
@@ -89,6 +94,7 @@ async function borders(q) {
 	const pbfs = {
 		"ne_110m_land": nvkelso("ne_110m_land"),
 		"ne_50m_land": nvkelso("ne_50m_land"),
+		"ne_110m_graticules_10": nvkelso("ne_110m_graticules_10"),
 		"ne_50m_admin_0_boundary_lines_land": nvkelso("ne_50m_admin_0_boundary_lines_land"),
 		"ne_50m_admin_0_boundary_lines_maritime_indicator": nvkelso("ne_50m_admin_0_boundary_lines_maritime_indicator"),
 		"ne_50m_geographic_lines": nvkelso("ne_50m_geographic_lines"),
@@ -97,12 +103,12 @@ async function borders(q) {
 	};
 	q.clear();
 	q.title("borders and stars");
-	await thenEach(Object.entries(pbfs), async ([name, original]) => { 
-		const pbf = await geopbf(original);/*await geopbf(name) || */
+	await thenEach(Object.entries(pbfs), async ([name, original]) => {
+		const pbf = await geopbf(original, { name, noprop:true });
 		console.log(pbf)
-	//	await (pbf).save();
+		await pbf.save();
 		q.success(`${name}: (<= ${original})`)
-		q.log(pbf.lint());
+		q.log(await pbf.profile());
 	})
 }
 

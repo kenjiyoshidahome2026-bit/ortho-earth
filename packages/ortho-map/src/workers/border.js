@@ -33,6 +33,7 @@ function init(data) {
 }
 async function set(data) {
 	if (data.data != "options") return postMessage({ type: data.type, action: "failed" });
+	// rawBuffers[0]=ne_110m_land（globe用）、rawBuffers[1]=stars.6
 	if (data.rawBuffers && !jsons) jsons = await Promise.all(data.rawBuffers.map(async t=>(await geopbf(t,{gint:false})).geojson));
 	const opts = data.prop || {};
 	const lang = opts.lang || "en";
@@ -48,16 +49,11 @@ async function set(data) {
 		{ en: "LNG", ja: "経度", zh: "经度", ko: "경도" }[lang],
 		{ en: "ALT", ja: "標高", zh: "海拔", ko: "고도" }[lang]
 	];
+	// borders は gintBorder (GL2) が担当。sphere のみ Canvas2D で描く。
 	const q = accessories.borders;
-	if (q) {
-		const borders = q.jsons = [[sphere, { stroke: "rgba(200,200,200,0.8)", width: 0.8 }]];
-		q.graticule === false || borders.push([graticule, { stroke: "rgba(255, 255, 255, 0.5)", width: 0.5 }]);
-		q.border === false || borders.push([jsons[0], { stroke: "rgba(255,255,255,0.8)", width: 1, dash: [3, 1] }]);
-		q.maritime === false || borders.push([jsons[1], { stroke: "rgba(128,128,255,0.8)", width: 0.8, dash: [3, 1] }]);
-		q.geolines === false || borders.push([jsons[2], { stroke: "rgba(255,255,255,1)", width: 0.5, dash: [4, 2] }]);
-	}
-	accessories.globe.json = jsons[3];
-	accessories.stars.data = jsons[4].features.map(f => {
+	if (q) q.jsons = [[sphere, { stroke: "rgba(200,200,200,0.8)", width: 0.8 }]];
+	accessories.globe.json = jsons[0];   // ne_110m_land
+	accessories.stars.data = jsons[1].features.map(f => {
 		const c = f.geometry.coordinates, p = f.properties;
 		const bv = (v => v < -0.3 ? "#b2c8ff" : v < 0.0 ? "#d9e2ff" : v < 0.3 ? "#f8faff" : v < 0.6 ? "#fff8f0" :
 			v < 0.8 ? "#fff2c8" : v < 1.1 ? "#ffe0b5" : v < 1.4 ? "#ffcc99" : "#ffab91")(p.bv);

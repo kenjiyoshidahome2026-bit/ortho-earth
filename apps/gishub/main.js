@@ -214,8 +214,8 @@ async function execView(pbf) {
     if (_viewLayer) { _viewLayer.destroy(); _viewLayer = null; }
 
     // 先にレイヤーを描画してからトラベル開始
-    const { arcBuffer, arcMeta, polygon, polyline, pointBuffer, point } = pbf.unPackGint || {};
-    const hasArcs = !!(arcBuffer && arcMeta && (polygon?.length > 0 || polyline?.length > 0));
+    const { arcBuffer, arcMeta, polyStream, lineStream, pointBuffer, point } = pbf.unPackGint || {};
+    const hasArcs = !!(arcBuffer && arcMeta && (polyStream?.length > 0 || lineStream?.length > 0));
     const hasPoints = !!(pointBuffer?.length > 0);
     const propTable = id => {
         const entries = Object.entries(pbf.getProperties(id) ?? {});
@@ -225,8 +225,8 @@ async function execView(pbf) {
     }
     if (hasArcs || hasPoints) {
         _viewLayer = await mapInst.createRemoteLayer({ name: "GISHUB", type: "gint" });
-        const { polyBbox, lineBbox, polyCompBbox } = pbf.unPackGint ?? {};
-        _viewLayer.set("gint", { arcBuffer, arcMeta, polygon: polygon ?? [], polyline: polyline ?? [], pointBuffer: pointBuffer ?? null, point: point ?? null, polyBbox, lineBbox, polyCompBbox });
+        const { polyCompBbox } = pbf.unPackGint ?? {};
+        _viewLayer.set("gint", { arcBuffer, arcMeta, polyStream: polyStream ?? new Int32Array(0), lineStream: lineStream ?? new Int32Array(0), pointBuffer: pointBuffer ?? null, point: point ?? null, polyCompBbox });
         _viewLayer.onIdentify = featureId => {
             gintTip(featureId == null ? null: propTable(featureId));
         };

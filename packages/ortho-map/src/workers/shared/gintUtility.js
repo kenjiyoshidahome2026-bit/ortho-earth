@@ -29,55 +29,76 @@ export function uploadTex2D(gl, u32, w, h, internalFmt, fmt) {
 
 // ── Geometry ──────────────────────────────────────────────────────────────────
 
-// Build flat Uint32Array of edge meta from polygon/polyline gint structures.
+// Build flat Uint32Array of edge meta from polygon/polyline flat streams.
 // One entry per arc edge: [vert_A, vert_B, style_id, feat_id].
 // Reversed arcs (arcIdx < 0) swap A/B to preserve correct stencil winding.
 //
-// Returns polyEdgeRanges: Int32Array[i*2]=edgeStart, [i*2+1]=edgeCount for polygon[i].
-// Returns polyEdgeCount: total polygon edge count (polyline edges start here in meta tex).
-export function buildEdgeMeta(arcMeta, polygon, polyline) {
+// polyStream: Int32Array — per comp: [fid][numRings][arcCount][arcIdx...]
+//   comps with same fid are consecutive (multi-polygon support)
+// lineStream: Int32Array — per feature: [fid][numSets][arcCount][arcIdx...]
+//
+// Returns polyEdgeByFid: Map<fid, [edgeStart, edgeCount]> for O(1) highlight range lookup.
+export function buildEdgeMeta(arcMeta, polyStream, lineStream) {
+    if (!arcMeta) return { metaU32: new Uint32Array(0), edgeCount: 0, polyEdgeByFid: new Map() };
     let total = 0;
-    const countArcs = arcs => {
-        for (const arcIdx of arcs) total += arcMeta[(arcIdx < 0 ? ~arcIdx : arcIdx) * 8 + 1] - 1;
-    };
-    if (polygon)  for (const [, comps] of polygon)
-        for (const rings of comps) for (const ring of rings) countArcs(ring);
-    if (polyline) for (const [, sets]  of polyline)
-        for (const arcs of sets) countArcs(arcs);
-
-    const buf = new Uint32Array(total * 4);
-    let j = 0;
-    const addArcs = (arcs, styleId, featId) => {
-        const fid = featId >>> 0;
-        for (const arcIdx of arcs) {
-            const aid = arcIdx < 0 ? ~arcIdx : arcIdx;
-            const off = arcMeta[aid * 8], len = arcMeta[aid * 8 + 1];
-            for (let i = 0; i < len - 1; i++) {
-                buf[j++] = arcIdx >= 0 ? off + i         : off + len - 1 - i;
-                buf[j++] = arcIdx >= 0 ? off + i + 1     : off + len - 2 - i;
-                buf[j++] = styleId;
-                buf[j++] = fid;
+    const scanStream = s => { if (!s) return; let p = 0;
+        while (p < s.length) { p++; const ng = s[p++];
+            for (let g = 0; g < ng; g++) { const ac = s[p++];
+                for (let a = 0; a < ac; a++) { const ai = s[p++]; total += arcMeta[(ai < 0 ? ~ai : ai) * 8 + 1] - 1; }
             }
         }
     };
+    scanStream(polyStream); scanStream(lineStream);
 
-    let polyEdgeRanges = null;
-    if (polygon) {
-        polyEdgeRanges = new Int32Array(polygon.length * 2);
-        for (let i = 0; i < polygon.length; i++) {
-            const [fid, comps] = polygon[i];
-            const eStart = j >> 2;
-            for (const rings of comps) for (const ring of rings) addArcs(ring, 0, fid);
-            polyEdgeRanges[i * 2]     = eStart;
-            polyEdgeRanges[i * 2 + 1] = (j >> 2) - eStart;
+    const buf = new Uint32Array(total * 4);
+    let j = 0;
+    const addArc = (arcIdx, styleId, featId) => {
+        const aid = arcIdx < 0 ? ~arcIdx : arcIdx;
+        const off = arcMeta[aid * 8], len = arcMeta[aid * 8 + 1], fid = featId >>> 0;
+        for (let i = 0; i < len - 1; i++) {
+            buf[j++] = arcIdx >= 0 ? off + i     : off + len - 1 - i;
+            buf[j++] = arcIdx >= 0 ? off + i + 1 : off + len - 2 - i;
+            buf[j++] = styleId; buf[j++] = fid;
+        }
+    };
+
+    const polyEdgeByFid = new Map();
+    if (polyStream) { let p = 0;
+        while (p < polyStream.length) {
+            const fid = polyStream[p], eStart = j >> 2;
+            while (p < polyStream.length && polyStream[p] === fid) {
+                p++; const numRings = polyStream[p++];
+                for (let r = 0; r < numRings; r++) { const ac = polyStream[p++];
+                    for (let a = 0; a < ac; a++) addArc(polyStream[p++], 0, fid); }
+            }
+            polyEdgeByFid.set(fid, [eStart, (j >> 2) - eStart]);
         }
     }
-    const polyEdgeCount = j >> 2;
+    if (lineStream) { let p = 0;
+        while (p < lineStream.length) { const fid = lineStream[p++], ns = lineStream[p++];
+            for (let s = 0; s < ns; s++) { const ac = lineStream[p++];
+                for (let a = 0; a < ac; a++) addArc(lineStream[p++], 1, fid); }
+        }
+    }
+    return { metaU32: buf, edgeCount: total, polyEdgeByFid };
+}
 
-    if (polyline) for (const [fid, sets] of polyline)
-        for (const arcs of sets) addArcs(arcs, 1, fid);
-
-    return { metaU32: buf, edgeCount: total, polyEdgeRanges, polyEdgeCount };
+// Per-feature bbox Map computed in the worker from polyStream (for JS polygon identify fallback).
+export function buildPolyBboxByFid(polyStream, arcMeta) {
+    if (!polyStream || !arcMeta || !polyStream.length) return null;
+    const byFid = new Map(); let p = 0;
+    while (p < polyStream.length) {
+        const fid = polyStream[p++], numRings = polyStream[p++];
+        let bb = byFid.get(fid); if (!bb) { bb = [0xFFFFFFFF, 0xFFFFFFFF, 0, 0]; byFid.set(fid, bb); }
+        for (let r = 0; r < numRings; r++) { const ac = polyStream[p++];
+            for (let a = 0; a < ac; a++) {
+                const ai = polyStream[p++], aid = ai < 0 ? ~ai : ai, m = aid * 8;
+                if (arcMeta[m+4] < bb[0]) bb[0] = arcMeta[m+4]; if (arcMeta[m+5] < bb[1]) bb[1] = arcMeta[m+5];
+                if (arcMeta[m+6] > bb[2]) bb[2] = arcMeta[m+6]; if (arcMeta[m+7] > bb[3]) bb[3] = arcMeta[m+7];
+            }
+        }
+    }
+    return byFid;
 }
 
 // ── Zoom range check ──────────────────────────────────────────────────────────

@@ -107,8 +107,11 @@ uniform float u_line_width;
 uniform int   u_active_id;
 uniform int   u_pass;
 uniform vec4  u_style_table[256];
+uniform vec2  u_dash_table[256];   // [dash_len, period] in px; period=0 → solid
 out vec4  v_color;
 out float v_zr;
+out float v_dist;   // distance from segment start (px), for dash
+flat out vec2 v_dash;
 
 void main() {
     int edge_id = gl_VertexID / 6;
@@ -139,20 +142,34 @@ void main() {
     vec2 perp = vec2(-dir.y, dir.x) / len;
     gl_Position = toNDC(ps.xy + side * (u_line_width * 0.5) * perp);
 
+    int style_idx = int(meta.b & 0xFFu);
     v_color = (u_pass == 1)
         ? vec4(1.0, 0.9, 0.0, 1.0)
-        : u_style_table[meta.b & 0xFFu];
+        : u_style_table[style_idx];
+    v_dash = u_dash_table[style_idx];
+    // Zoom-stable: convert screen pixels to approximate geographic degrees.
+    // len / u_scale ≈ radians; × 57.296 ≈ degrees. Dash table values are in degrees.
+    v_dist = useA ? 0.0 : len * 57.295779513 / u_scale;
 }`;
 
 const FS_RENDER = `#version 300 es
 precision mediump float;
 in  vec4  v_color;
 in  float v_zr;
+in  float v_dist;
+flat in vec2 v_dash;
 out vec4  fragColor;
 void main() {
     if (v_zr < 0.0)       discard;
     if (v_color.a == 0.0) discard;
-    fragColor = v_color;
+    float alpha = v_color.a;
+    if (v_dash.y > 0.0) {
+        float t  = mod(v_dist, v_dash.y);
+        float aa = max(fwidth(v_dist), 0.001);  // ~1px anti-alias in degree units
+        alpha *= 1.0 - smoothstep(v_dash.x - aa, v_dash.x + aa, t);
+    }
+    if (alpha < 0.01) discard;
+    fragColor = vec4(v_color.rgb, alpha);
 }`;
 
 // ── GPU picking shaders ───────────────────────────────────────────────────────
@@ -384,7 +401,7 @@ export function createGintPrograms(gl) {
     const pickLineProgram    = linkProgram(gl, VS_PICK_LINE,     FS_PICK);
     const pickPointProgram   = linkProgram(gl, VS_PICK_POINT,    FS_PICK_POINT);
 
-    const uRender      = getUniforms(gl, renderProgram,      [...SHARED_UNIFORM_NAMES, 'u_line_width', 'u_active_id', 'u_pass', 'u_style_table']);
+    const uRender      = getUniforms(gl, renderProgram,      [...SHARED_UNIFORM_NAMES, 'u_line_width', 'u_active_id', 'u_pass', 'u_style_table', 'u_dash_table']);
     const uStencil     = getUniforms(gl, stencilProgram,     SHARED_UNIFORM_NAMES);
     const uFill        = getUniforms(gl, fillProgram,        ['u_fill_color']);
     const uMaskStencil = getUniforms(gl, maskStencilProgram, [...SHARED_UNIFORM_NAMES, 'u_active_id']);
