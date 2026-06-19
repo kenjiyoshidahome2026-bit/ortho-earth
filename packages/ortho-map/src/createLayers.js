@@ -44,6 +44,8 @@ export async function createLayers(map, opts) {
     const borderLayer = (await createRemoteLayer.call(map, { name: "Accessories", append: map.mapFrame, type: "border" }));
     const param = opts.accessories ||{}; param.lang = map.lang;
     await borderLayer.set("set", "options", param);
+////--------------------------------------------------------------------------
+    map.createLayer({ name: "GISHub", after: map.layers.Accessories });
     ////--------------------------------------------------------------------------
     async function setBase(map, name) {
         baseLayer.set("base", name, map.threshold);

@@ -24,7 +24,7 @@ import { findPolygon } from 'geopbf/src/extension/identify.js';
 // ── GL state ──────────────────────────────────────────────────────────────────
 let canvas, gl, dpr, width, height;
 let programs = null;
-let arcTex = null, metaTex = null, ptTex = null;
+let arcTex = null, metaTex = null, ptTex = null, ptMetaTex = null;
 let totalEdges = 0, totalPoints = 0;
 let TEX_ARC_W = 4096, TEX_META_W = 4096;
 let activeId = -1;
@@ -124,6 +124,7 @@ function set(data) {
 
         // ptTex: RG32UI — same layout as arcTex, L1 vertices only
         if (ptTex) { gl.deleteTexture(ptTex); ptTex = null; }
+        if (ptMetaTex) { gl.deleteTexture(ptMetaTex); ptMetaTex = null; }
         if (pb?.length) {
             const ptU32 = new Uint32Array(pb.buffer, pb.byteOffset, pb.byteLength / 4);
             totalPoints  = ptU32.length / 2;
@@ -131,6 +132,11 @@ function set(data) {
             const ptPad  = new Uint32Array(TEX_ARC_W * ptH * 2);
             ptPad.set(ptU32);
             ptTex = uploadTex2D(gl, ptPad, TEX_ARC_W, ptH, gl.RG32UI, gl.RG_INTEGER);
+            // ptMetaTex: R32UI — feature ID per point (gintData.point[pt_id])
+            const ptMetaH   = Math.ceil(totalPoints / TEX_ARC_W);
+            const ptMetaPad = new Uint32Array(TEX_ARC_W * ptMetaH);
+            ptMetaPad.set(gintData.point.subarray(0, totalPoints));
+            ptMetaTex = uploadTex2D(gl, ptMetaPad, TEX_ARC_W, ptMetaH, gl.R32UI, gl.RED_INTEGER);
         } else { totalPoints = 0; }
 
         ({ minZoom, maxZoom } = checkZoomRange({
@@ -243,12 +249,14 @@ function _renderCleanScene(data, targetFBO = null) {
     }
 
     // ── Point pass ──
-    if (totalPoints > 0 && ptTex) {
+    if (totalPoints > 0 && ptTex && ptMetaTex) {
         const r1 = data.rotate[1] * Math.PI / 180, r2 = (data.rotate[2] ?? 0) * Math.PI / 180;
         gl.useProgram(pointProgram);
         gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, ptTex);
-        gl.uniform1i(uPoint.u_pt_tex,    0);
-        gl.uniform1i(uPoint.u_pt_w,      TEX_ARC_W);
+        gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, ptMetaTex);
+        gl.uniform1i(uPoint.u_pt_tex,      0);
+        gl.uniform1i(uPoint.u_pt_meta_tex, 1);
+        gl.uniform1i(uPoint.u_pt_w,        TEX_ARC_W);
         gl.uniform3f(uPoint.u_rotate,    data.rotate[0], data.rotate[1], data.rotate[2] ?? 0);
         gl.uniform1f(uPoint.u_scale,     data.scale);
         gl.uniform2f(uPoint.u_viewport,  width, height);
@@ -274,7 +282,8 @@ function _drawOverlay() {
     gl.stencilMask(0xFF);
     gl.clear(gl.STENCIL_BUFFER_BIT);
 
-    if (activeId === -1 || !arcTex) return;
+    if (activeId === -1) return;
+    if (!arcTex && !ptTex) return;
 
     const data = lastDrawData;
     const { renderProgram, stencilProgram, fillProgram,
@@ -290,7 +299,7 @@ function _drawOverlay() {
     // ── ハイライト（アクティブ feature のエッジのみ） ──
     gl.useProgram(renderProgram);
     bindSharedUniforms(gl, uRender, data, arcTex, metaTex, TEX_ARC_W, TEX_META_W, width, height);
-    gl.uniform1f(uRender.u_line_width,   data.lineWidth ?? 1.0);
+    gl.uniform1f(uRender.u_line_width,   (data.lineWidth ?? 1.0) + 2.0);
     gl.uniform1i(uRender.u_active_id,    activeId);
     gl.uniform4fv(uRender.u_style_table, data.styleTable ?? DEF_STYLE);
     gl.uniform1i(uRender.u_pass, 1);
@@ -301,12 +310,14 @@ function _drawOverlay() {
     }
 
     // ── ポイントハイライト ──
-    if (totalPoints > 0 && ptTex) {
+    if (totalPoints > 0 && ptTex && ptMetaTex) {
         const r1 = data.rotate[1] * Math.PI / 180, r2 = (data.rotate[2] ?? 0) * Math.PI / 180;
         gl.useProgram(pointProgram);
         gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, ptTex);
-        gl.uniform1i(uPoint.u_pt_tex,    0);
-        gl.uniform1i(uPoint.u_pt_w,      TEX_ARC_W);
+        gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, ptMetaTex);
+        gl.uniform1i(uPoint.u_pt_tex,      0);
+        gl.uniform1i(uPoint.u_pt_meta_tex, 1);
+        gl.uniform1i(uPoint.u_pt_w,        TEX_ARC_W);
         gl.uniform3f(uPoint.u_rotate,    data.rotate[0], data.rotate[1], data.rotate[2] ?? 0);
         gl.uniform1f(uPoint.u_scale,     data.scale);
         gl.uniform2f(uPoint.u_viewport,  width, height);
@@ -399,7 +410,8 @@ function drawn() {
 }
 
 function _renderPickingBuffer(data) {
-    if (!pickFBO || !arcTex) return;
+    if (!pickFBO) return;
+    if (!arcTex && !ptTex) return;
     const { pickLineProgram, pickPointProgram, uPickLine, uPickPoint } = programs;
     try {
         gl.bindFramebuffer(gl.FRAMEBUFFER, pickFBO);
@@ -415,12 +427,14 @@ function _renderPickingBuffer(data) {
             gl.drawArrays(gl.TRIANGLES, 0, totalEdges * 6);
         }
 
-        if (totalPoints > 0 && ptTex) {
+        if (totalPoints > 0 && ptTex && ptMetaTex) {
             const r1 = data.rotate[1] * Math.PI / 180, r2 = (data.rotate[2] ?? 0) * Math.PI / 180;
             gl.useProgram(pickPointProgram);
             gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, ptTex);
-            gl.uniform1i(uPickPoint.u_pt_tex,    0);
-            gl.uniform1i(uPickPoint.u_pt_w,      TEX_ARC_W);
+            gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, ptMetaTex);
+            gl.uniform1i(uPickPoint.u_pt_tex,      0);
+            gl.uniform1i(uPickPoint.u_pt_meta_tex, 1);
+            gl.uniform1i(uPickPoint.u_pt_w,        TEX_ARC_W);
             gl.uniform3f(uPickPoint.u_rotate,    data.rotate[0], data.rotate[1], data.rotate[2] ?? 0);
             gl.uniform1f(uPickPoint.u_scale,     data.scale);
             gl.uniform2f(uPickPoint.u_viewport,  width, height);
@@ -512,9 +526,10 @@ function click() {
 
 function destroy() {
     if (gl) {
-        if (arcTex)  gl.deleteTexture(arcTex);
-        if (metaTex) gl.deleteTexture(metaTex);
-        if (ptTex)   gl.deleteTexture(ptTex);
+        if (arcTex)     gl.deleteTexture(arcTex);
+        if (metaTex)    gl.deleteTexture(metaTex);
+        if (ptTex)      gl.deleteTexture(ptTex);
+        if (ptMetaTex)  gl.deleteTexture(ptMetaTex);
         if (baseFBO)             gl.deleteFramebuffer(baseFBO);
         if (baseColorTex)        gl.deleteTexture(baseColorTex);
         if (baseDepthStencilRBO) gl.deleteRenderbuffer(baseDepthStencilRBO);
@@ -534,7 +549,7 @@ function destroy() {
             if (pickPointProgram)   gl.deleteProgram(pickPointProgram);
         }
     }
-    arcTex = metaTex = ptTex = null;
+    arcTex = metaTex = ptTex = ptMetaTex = null;
     baseFBO = baseColorTex = baseDepthStencilRBO = null;
     pickFBO = pickColorTex = pickDepthStencilRBO = null;
     programs = null;
