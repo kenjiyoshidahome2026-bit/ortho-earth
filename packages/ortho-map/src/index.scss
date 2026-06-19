@@ -65,10 +65,11 @@ html, body { position:absolute; inset:0; background:#000; margin:0; padding:0; o
 		canvas[name=OrthoTile] { filter:none; }
 		canvas[name=OrthoBorder] { filter: drop-shadow(0 0 5px rgba(0,0,0,1)); }
 		canvas[name=Accessories] { filter: drop-shadow(0 0 5px rgba(0,0,0,1)); }
-		canvas[name=PopLines] { filter: drop-shadow(0 0 5px rgba(255,255,255,1)); }
 	}
 //// ---------------------------------------------------------
-	[name=overlays] { position: absolute; pointer-events: none; inset: 0; }
+	[name=overlays] { position: absolute; pointer-events: none; inset: 0;
+		canvas[name=PopLines] { position: absolute; inset: 0; pointer-events: none; filter: drop-shadow(0 0 5px rgba(255,255,255,1)); }
+	}
 	[name=leftTop] { position: absolute; inset: 5px auto auto 5px; }
 	[name=rightTop] { position: absolute; inset: 5px 5px auto auto; }
 	[name=leftBottom] { position: absolute; inset: auto auto 25px 5px; }
@@ -99,8 +100,8 @@ html, body { position:absolute; inset:0; background:#000; margin:0; padding:0; o
 	[name=loading] { inset: auto 0 0 0; margin: 5px auto; width: 0; white-space: nowrap; }
 	[name=explain] { inset: 0 0 auto 0; margin: 5px auto; max-width: 400px; }
 	[name=legend] { inset: auto auto 0 5px; margin: 5px; max-width: 400px; }
-	[name=tip] { inset: auto; max-width: 400px; min-width: 100px; display: block; max-height: 500px; z-index: 9999; }
-	[name=pop] { inset: auto; max-width: 400px; min-width: 100px; display: block; max-height: 500px; pointer-events: auto; cursor: pointer; }
+	[name=tip] { inset: auto; max-width: 400px; min-width: 100px; display: block; max-height: 400px; overflow:hidden; z-index: 9999; }
+	[name=pop] { inset: auto; max-width: 400px; min-width: 100px; display: block; max-height: 400px; overflow:scroll; pointer-events: auto; cursor: pointer; }
 	[name=contextmenu] {
 		inset: auto; white-space: nowrap; pointer-events: auto; display: block; padding: 3px;
 		> p {

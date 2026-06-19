@@ -70,7 +70,7 @@ export function topology(self) {
 	bbox[2] = Math.round(((bbox[2] / e)+180) * gint.SCALE_E); bbox[3] = Math.round(((bbox[3] / e)+90) * gint.SCALE_E);
 	////-----------------------------------------------------------------------------------------------
 	const polygon = buildPolygons(structures[0]);
-	const polyline = buildPolylines(structures[1], polygon? polygon.count: 0);
+	const polyline = buildPolylines(structures[1], polygon? polygon.count: 0, polygon?.buffer.length ?? 0);
 	const point = buildPoints(structures[2]);
 	const pointCount = point? point.count: 0; if(pointCount) elemCount[2] = pointCount;
 	let polygonTub = {}, polylineTub = {}, neighborTub = {};
@@ -183,12 +183,16 @@ function buildPoints(topo) { if (!topo.length) return null;
 ////===============================================================================================================
 ////	POLYLINE
 ////===============================================================================================================
-function buildPolylines(topo, n_poly = 0) { if (!topo.length) return null;
+function buildPolylines(topo, n_poly = 0, vertexOffset = 0) { if (!topo.length) return null;
 	purifier(topo);
-	const buffs = cutPolyline(topo, n_poly);
+	const buffs = cutPolyline(topo, 0);  // local 0-based indices for metaPolyline
 	const meta = metaArc(buffs);
-	metaPolyline(meta, topo);
-	return buildArcs(buffs, meta);
+	metaPolyline(meta, topo);  // works correctly with local (0-based) indices
+	// shift to global arc indices after remapping
+	if (n_poly > 0) topo.forEach(t => {
+		t.arcs = t.arcs.map(arcIdx => arcIdx < 0 ? ~(~arcIdx + n_poly) : arcIdx + n_poly);
+	});
+	return buildArcs(buffs, meta, vertexOffset);
 }
 function purifier(topo) { if (!topo || !topo.length) return 0;
 	const GRID_SHIFT = 16;
@@ -576,20 +580,18 @@ function buildCompBboxes(polygon, arcMeta) {
     return new Uint32Array(out);
 }
 
-function buildArcs(buffs, metas) {
+function buildArcs(buffs, metas, startOffset = 0) {
 	const count = buffs.length, mlen = 8;
 	let total = 0, offset = 0;
 	for (let i = 0; i < count; i++) total += buffs[i].length;
 	const buffer = new BigUint64Array(total);
 	const meta = new Uint32Array(count * mlen);
-//	console.time("buildArcs");
 	for (let i = 0; i < count; i++) {
 		const m = metas[i], arc = buffs[m.aid];
 		gint.L1toL2(arc);
 		buffer.set(arc, offset);
-		meta.set([offset, arc.length, m.weight, 0, ...m.bbox], i * mlen);
+		meta.set([offset + startOffset, arc.length, m.weight, 0, ...m.bbox], i * mlen);
 		offset += arc.length;
 	}
-//	console.timeEnd("buildArcs");
 	return { count, buffer, meta, mlen };
 }

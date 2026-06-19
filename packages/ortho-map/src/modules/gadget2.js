@@ -121,7 +121,7 @@ export function pop(opts = {}) {
     const toHTML = str => Array.isArray(str) ? str.map(t => `<div>${t}</div>`).join("") :
         isString(str) ? toHTML(str.split(/\n/)) : str;
     let pops = [];
-    const layer = map.createLayer({ name: "PopLines", scale: 1, before: map.layers.Accessories });
+    const layer = map.createLayer({ name: "PopLines", scale: 1, prepend: map.overlays });
     const ctx = layer.node().getContext("2d");
     map.onDrawing(name, drawing);
     const pop = (content, e) => {

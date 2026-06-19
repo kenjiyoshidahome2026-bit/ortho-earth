@@ -207,6 +207,7 @@ precision highp float;
 precision highp int;
 precision highp usampler2D;
 uniform usampler2D u_pt_tex;
+uniform usampler2D u_pt_meta_tex;
 uniform int        u_pt_w;
 uniform vec3       u_rotate;
 uniform float      u_scale;
@@ -255,7 +256,7 @@ void main() {
                        1.0 - 2.0*(py_ + oy*u_pt_radius)/u_viewport.y,
                        0.0, 1.0);
 
-    uint fid1 = uint(pt_id) + 1u;
+    uint fid1 = texelFetch(u_pt_meta_tex, tc, 0).r + 1u;
     v_color = vec4(float(fid1 & 255u)/255.0, float((fid1>>8u)&255u)/255.0, float((fid1>>16u)&255u)/255.0, 1.0);
 }`;
 
@@ -277,6 +278,7 @@ precision highp float;
 precision highp int;
 precision highp usampler2D;
 uniform usampler2D u_pt_tex;
+uniform usampler2D u_pt_meta_tex;
 uniform int        u_pt_w;
 uniform vec3       u_rotate;
 uniform float      u_scale;
@@ -322,10 +324,13 @@ void main() {
     float py_ = hh - u_scale*(x*sg + yr*cg);
     v_zr = zr;
     v_uv = vec2(ox, oy);
-    gl_Position = vec4(2.0*(px_ + ox*u_pt_radius)/u_viewport.x - 1.0,
-                       1.0 - 2.0*(py_ + oy*u_pt_radius)/u_viewport.y,
+    int feat_id = int(texelFetch(u_pt_meta_tex, tc, 0).r);
+    bool isActive = (feat_id == u_active_id);
+    float r = isActive ? u_pt_radius * 1.6 : u_pt_radius;
+    gl_Position = vec4(2.0*(px_ + ox*r)/u_viewport.x - 1.0,
+                       1.0 - 2.0*(py_ + oy*r)/u_viewport.y,
                        0.0, 1.0);
-    v_color = (pt_id == u_active_id)
+    v_color = isActive
         ? vec4(1.0, 0.9, 0.0, 1.0)
         : vec4(1.0, 0.420, 0.208, 1.0);
 }`;
@@ -383,9 +388,9 @@ export function createGintPrograms(gl) {
     const uStencil     = getUniforms(gl, stencilProgram,     SHARED_UNIFORM_NAMES);
     const uFill        = getUniforms(gl, fillProgram,        ['u_fill_color']);
     const uMaskStencil = getUniforms(gl, maskStencilProgram, [...SHARED_UNIFORM_NAMES, 'u_active_id']);
-    const uPoint       = getUniforms(gl, pointProgram,       ['u_pt_tex','u_pt_w','u_rotate','u_scale','u_viewport','u_rsincos','u_pt_radius','u_active_id']);
+    const uPoint       = getUniforms(gl, pointProgram,       ['u_pt_tex','u_pt_meta_tex','u_pt_w','u_rotate','u_scale','u_viewport','u_rsincos','u_pt_radius','u_active_id']);
     const uPickLine    = getUniforms(gl, pickLineProgram,    [...SHARED_UNIFORM_NAMES, 'u_line_width']);
-    const uPickPoint   = getUniforms(gl, pickPointProgram,   ['u_pt_tex','u_pt_w','u_rotate','u_scale','u_viewport','u_rsincos','u_pt_radius']);
+    const uPickPoint   = getUniforms(gl, pickPointProgram,   ['u_pt_tex','u_pt_meta_tex','u_pt_w','u_rotate','u_scale','u_viewport','u_rsincos','u_pt_radius']);
 
     const emptyVAO = gl.createVertexArray();
     gl.enable(gl.BLEND);
