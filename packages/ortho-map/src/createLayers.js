@@ -59,10 +59,12 @@ function initLayer(map, param = {}) {
     param.name = param.name || "Layer";
     let name = param.name, count = 0, _opacity = 1;
     while (name in map.layers) name = `${param.name}(${++count})`;
+    const beforeOverlays = c => map.overlays ? c.insert("canvas", () => map.overlays.node()) : c.append("canvas");
     const layer = param.before ? param.before.parent().insert("canvas", () => param.before.node()) :
         param.after ? param.after.parent().insert("canvas", () => param.after.node().nextSibling) :
         param.prepend ? param.prepend.prepend("canvas") :
-        param.append ? param.append.append("canvas") : map.mapFrame.append("canvas");
+        param.append ? (param.append.node() === map.mapFrame.node() ? beforeOverlays(param.append) : param.append.append("canvas")) :
+        beforeOverlays(map.mapFrame);
     layer.name = name, layer.attr("name", name);
     layer.base = map; layer.context = null;
     layer.dpr = param.scale || window.devicePixelRatio || 1;
@@ -159,7 +161,7 @@ async function createRemoteLayer(param = {}) {
 
         Object.entries({ set, destroy }).forEach(([name, func]) => layer[name] = func);
 
-        map.dispatcher.on(`Drawing.${name}`, drawing);
+        map.dispatcher.on(`Drawing.${name}`, () => drawing(true));
         map.dispatcher.on(`Drawn.${name}`, drawn);
         map.dispatcher.on(`Move.${name}`, move);
         map.dispatcher.on(`Leave.${name}`, leave);
@@ -190,10 +192,10 @@ async function createRemoteLayer(param = {}) {
                 (cmd === "base") && map.trigger("LoadStart", data);
             }
         }
-        function drawing() {
+        function drawing(panning = false) {
             // 【Safari対策 4】 初期化が成功(ctxType取得)するまでは描画命令を送らない
             if (!ctxType) return;
-            worker.postMessage({ type: "drawing", scale: proj.scale(), rotate: proj.rotate(), attr: map.attribution });
+            worker.postMessage({ type: "drawing", scale: proj.scale(), rotate: proj.rotate(), attr: map.attribution, panning });
         }
         function drawn() { worker.postMessage({ type: "drawn", scale: proj.scale(), rotate: proj.rotate() }); }
         function move(e = {}) { worker.postMessage({ type: "move", ...e }); }

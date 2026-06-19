@@ -12,9 +12,9 @@ body, html { overflow: hidden; width:100%; height:100%; background:$bg; color:$t
     max-width: 280px; overflow: hidden; text-overflow: ellipsis;
 }
 .identify-table {
-    border-collapse: collapse; font-size: 12px;
-    th { text-align: left; padding: 3px 8px; color: #aaa; font-weight: normal; }
-    td { padding: 3px 8px; color: #fff; }
+    border-collapse: collapse; font-size: 10px;
+    th { text-align: left; padding: 1px 3px; color: #ccc; font-weight: normal; }
+    td { padding: 1px 3px; color: #fff; }
     tr:nth-child(even) { background: rgba(255,255,255,0.05); }
 }
 button.close {

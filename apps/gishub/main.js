@@ -217,24 +217,21 @@ async function execView(pbf) {
     const { arcBuffer, arcMeta, polygon, polyline, pointBuffer, point } = pbf.unPackGint || {};
     const hasArcs = !!(arcBuffer && arcMeta && (polygon?.length > 0 || polyline?.length > 0));
     const hasPoints = !!(pointBuffer?.length > 0);
+    const propTable = id => {
+        const entries = Object.entries(pbf.getProperties(id) ?? {});
+        if (!entries.length) return;
+        const rows = entries.map(([k, v]) => `<tr><th>${k}</th><td>${v}</td></tr>`).join("");
+        return `<table class="identify-table">${rows}</table>`;
+    }
     if (hasArcs || hasPoints) {
         _viewLayer = await mapInst.createRemoteLayer({ name: "GISHUB", type: "gint" });
         const { polyBbox, lineBbox, polyCompBbox } = pbf.unPackGint ?? {};
         _viewLayer.set("gint", { arcBuffer, arcMeta, polygon: polygon ?? [], polyline: polyline ?? [], pointBuffer: pointBuffer ?? null, point: point ?? null, polyBbox, lineBbox, polyCompBbox });
         _viewLayer.onIdentify = featureId => {
-            if (featureId == null) { gintTip(null); return; }
-            const f = pbf.getFeature(featureId);
-            const props = f?.properties ?? {};
-            const label = Object.values(props).find(v => typeof v === 'string') ?? `#${featureId}`;
-            gintTip(label);
+            gintTip(featureId == null ? null: propTable(featureId));
         };
         _viewLayer.onClick = (featureId, geomType, x, y, lng, lat) => {
-            const f = pbf.getFeature(featureId);
-            if (!f) return;
-            const entries = Object.entries(f.properties ?? {});
-            if (!entries.length) return;
-            const rows = entries.map(([k, v]) => `<tr><th>${k}</th><td>${v}</td></tr>`).join("");
-            gintPop(`<table class="identify-table">${rows}</table>`, { x, y, lng, lat });
+            featureId == null || gintPop(propTable(featureId), { x, y, lng, lat });
         };
     } else {
         const geomType = pbf.fmap[0]?.[2] ?? 4;

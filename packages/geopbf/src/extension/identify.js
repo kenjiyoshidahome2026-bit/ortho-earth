@@ -244,8 +244,8 @@ function findMortonNear(buffer, meta, polylineStructures, mix, miy, error) {
 	return null;
 }
 
-function findPolygon(buffer, meta, polygonStructures, mix, miy, polyBbox) {
-	const vb = _viewBbox;
+export function findPolygon(buffer, meta, polygonStructures, mix, miy, polyBbox, viewBbox) {
+	const vb = viewBbox ?? _viewBbox;
 	for (let i = 0; i < polygonStructures.length; i++) {
 		if (polyBbox) {
 			const b = i * 4;

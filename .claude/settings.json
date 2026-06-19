@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -r '.tool_input.file_path // \"\"' | { read -r f; echo \"$f\" | grep -q 'packages/geopbf/wasm/src/.*\\.rs$' && cd /Users/yoshida/ortho-earth/packages/geopbf/wasm && wasm-pack build --target web --out-dir pkg; } 2>/dev/null || true",
+            "timeout": 120,
+            "statusMessage": "WASM rebuilding..."
+          }
+        ]
+      }
+    ]
+  }
+}
