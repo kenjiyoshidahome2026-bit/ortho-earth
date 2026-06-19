@@ -77,6 +77,22 @@ function init(data) {
     TEX_META_W = Math.min(TEX_META_W, gl.getParameter(gl.MAX_TEXTURE_SIZE));
     programs = createGintPrograms(gl);
 
+    canvas.addEventListener('webglcontextlost', e => {
+        e.preventDefault();
+        arcTex = metaTex = ptTex = ptMetaTex = null;
+        baseFBO = baseColorTex = baseDepthStencilRBO = null;
+        pickFBO = pickColorTex = pickDepthStencilRBO = null;
+        programs = null;
+        lastDrawData = null;
+    }, false);
+
+    canvas.addEventListener('webglcontextrestored', () => {
+        programs = createGintPrograms(gl);
+        _createFBOs();
+        _reuploadTextures();
+        postMessage({ action: "redraw" });
+    }, false);
+
     postMessage({ action: "done", type: "init", ctx: gl.constructor.name });
 }
 
@@ -522,6 +538,42 @@ function click() {
     if (activeId === -1) return;
     const geo = lastProj?.invert([lastMX, lastMY]);
     postMessage({ action: "click", featureId: activeId, x: lastMX, y: lastMY, lng: geo?.[0] ?? null, lat: geo?.[1] ?? null });
+}
+
+function _reuploadTextures() {
+    if (!gintData || !gl) return;
+    const { arcBuffer: ab, arcMeta: am, polygon: pg, polyline: pl, pointBuffer: pb } = gintData;
+
+    arcTex = null;
+    if (ab?.length) {
+        const arcU32 = new Uint32Array(ab.buffer, ab.byteOffset, ab.byteLength / 4);
+        const arcH   = Math.ceil(arcU32.length / 2 / TEX_ARC_W);
+        const arcPad = new Uint32Array(TEX_ARC_W * arcH * 2);
+        arcPad.set(arcU32);
+        arcTex = uploadTex2D(gl, arcPad, TEX_ARC_W, arcH, gl.RG32UI, gl.RG_INTEGER);
+    }
+
+    metaTex = null;
+    if (totalEdges > 0) {
+        const { metaU32 } = buildEdgeMeta(am, pg, pl);
+        const metaH   = Math.ceil(totalEdges / TEX_META_W);
+        const metaPad = new Uint32Array(TEX_META_W * metaH * 4);
+        metaPad.set(metaU32);
+        metaTex = uploadTex2D(gl, metaPad, TEX_META_W, metaH, gl.RGBA32UI, gl.RGBA_INTEGER);
+    }
+
+    ptTex = ptMetaTex = null;
+    if (pb?.length) {
+        const ptU32    = new Uint32Array(pb.buffer, pb.byteOffset, pb.byteLength / 4);
+        const ptH      = Math.ceil(totalPoints / TEX_ARC_W);
+        const ptPad    = new Uint32Array(TEX_ARC_W * ptH * 2);
+        ptPad.set(ptU32);
+        ptTex = uploadTex2D(gl, ptPad, TEX_ARC_W, ptH, gl.RG32UI, gl.RG_INTEGER);
+        const ptMetaH   = Math.ceil(totalPoints / TEX_ARC_W);
+        const ptMetaPad = new Uint32Array(TEX_ARC_W * ptMetaH);
+        ptMetaPad.set(gintData.point.subarray(0, totalPoints));
+        ptMetaTex = uploadTex2D(gl, ptMetaPad, TEX_ARC_W, ptMetaH, gl.R32UI, gl.RED_INTEGER);
+    }
 }
 
 function destroy() {
