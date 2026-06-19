@@ -32,6 +32,9 @@ export function uploadTex2D(gl, u32, w, h, internalFmt, fmt) {
 // Build flat Uint32Array of edge meta from polygon/polyline gint structures.
 // One entry per arc edge: [vert_A, vert_B, style_id, feat_id].
 // Reversed arcs (arcIdx < 0) swap A/B to preserve correct stencil winding.
+//
+// Returns polyEdgeRanges: Int32Array[i*2]=edgeStart, [i*2+1]=edgeCount for polygon[i].
+// Returns polyEdgeCount: total polygon edge count (polyline edges start here in meta tex).
 export function buildEdgeMeta(arcMeta, polygon, polyline) {
     let total = 0;
     const countArcs = arcs => {
@@ -57,10 +60,22 @@ export function buildEdgeMeta(arcMeta, polygon, polyline) {
             }
         }
     };
-    if (polygon)  for (const [fid, comps] of polygon)
-        for (const rings of comps) for (const ring of rings) addArcs(ring, 0, fid);
-    if (polyline) for (const [fid, sets]  of polyline)
+
+    let polyEdgeRanges = null;
+    if (polygon) {
+        polyEdgeRanges = new Int32Array(polygon.length * 2);
+        for (let i = 0; i < polygon.length; i++) {
+            const [fid, comps] = polygon[i];
+            const eStart = j >> 2;
+            for (const rings of comps) for (const ring of rings) addArcs(ring, 0, fid);
+            polyEdgeRanges[i * 2]     = eStart;
+            polyEdgeRanges[i * 2 + 1] = (j >> 2) - eStart;
+        }
+    }
+    const polyEdgeCount = j >> 2;
+
+    if (polyline) for (const [fid, sets] of polyline)
         for (const arcs of sets) addArcs(arcs, 1, fid);
 
-    return { metaU32: buf, edgeCount: total };
+    return { metaU32: buf, edgeCount: total, polyEdgeRanges, polyEdgeCount };
 }

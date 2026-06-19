@@ -155,6 +155,122 @@ void main() {
     fragColor = v_color;
 }`;
 
+// ── GPU picking shaders ───────────────────────────────────────────────────────
+// fid+1 を RGB 24bit にエンコード。0,0,0 = "フィーチャーなし"。
+
+// Polyline picking: fat-line quad で fid 色を出力。stencil は使わない（単一パス）。
+const VS_PICK_LINE = `${GLSL_VS_HEADER}
+uniform float u_line_width;
+out vec4  v_color;
+out float v_zr;
+
+void main() {
+    int edge_id = gl_VertexID / 6;
+    int sub     = gl_VertexID % 6;
+    uvec4 meta  = fetchEdgeMeta(edge_id);
+
+    bool  useA = (sub == 0 || sub == 1 || sub == 3);
+    float side = (sub == 1 || sub == 2 || sub == 4) ? 1.0 : -1.0;
+    uint  si   = useA ? meta.r : meta.g;
+    uint  oi   = useA ? meta.g : meta.r;
+
+    vec3 ps = fetchProject(si);
+    v_zr = ps.z;
+    vec3 po  = fetchProject(oi);
+    vec2 oXY = (po.z < 0.0 && ps.z > 0.0)
+        ? ps.xy + (ps.z / (ps.z - po.z)) * (po.xy - ps.xy)
+        : po.xy;
+
+    vec2 dir = oXY - ps.xy;
+    float len = length(dir);
+    if (len < 1e-4) { gl_Position = toNDC(ps.xy); return; }
+    vec2 perp = vec2(-dir.y, dir.x) / len;
+    gl_Position = toNDC(ps.xy + side * (u_line_width * 0.5) * perp);
+
+    uint fid1 = meta.a + 1u;
+    v_color = vec4(float(fid1 & 255u)/255.0, float((fid1>>8u)&255u)/255.0, float((fid1>>16u)&255u)/255.0, 1.0);
+}`;
+
+const FS_PICK = `#version 300 es
+precision mediump float;
+in  vec4  v_color;
+in  float v_zr;
+out vec4  fragColor;
+void main() {
+    if (v_zr < 0.0) discard;
+    fragColor = v_color;
+}`;
+
+// Point picking: circle quad で fid 色を出力。
+const VS_PICK_POINT = `#version 300 es
+precision highp float;
+precision highp int;
+precision highp usampler2D;
+uniform usampler2D u_pt_tex;
+uniform int        u_pt_w;
+uniform vec3       u_rotate;
+uniform float      u_scale;
+uniform vec2       u_viewport;
+uniform vec4       u_rsincos;
+uniform float      u_pt_radius;
+out float v_zr;
+out vec2  v_uv;
+out vec4  v_color;
+
+uint compact16(uint m) {
+    m &= 0x55555555u;
+    m = (m | (m >> 1u)) & 0x33333333u;
+    m = (m | (m >> 2u)) & 0x0F0F0F0Fu;
+    m = (m | (m >> 4u)) & 0x00FF00FFu;
+    m = (m | (m >> 8u)) & 0x0000FFFFu;
+    return m;
+}
+
+void main() {
+    int pt_id = gl_VertexID / 6;
+    int sub   = gl_VertexID % 6;
+    float ox = (sub == 2 || sub == 4 || sub == 5) ? 1.0 : -1.0;
+    float oy = (sub == 1 || sub == 2 || sub == 4) ? 1.0 : -1.0;
+
+    ivec2 tc = ivec2(pt_id % u_pt_w, pt_id / u_pt_w);
+    uvec4 px = texelFetch(u_pt_tex, tc, 0);
+    uint hi_c = px.g & 0x7FFFFFFFu;
+    uint ix = (compact16(hi_c)       << 16u) | compact16(px.r);
+    uint iy = (compact16(hi_c >> 1u) << 16u) | compact16(px.r >> 1u);
+    float lng = float(ix) * 1e-7 - 180.0;
+    float lat = float(iy) * 1e-7 - 90.0;
+    const float RAD = 0.017453292519943295;
+    float l = (lng + u_rotate.x) * RAD, phi = lat * RAD;
+    float cf = u_rsincos.x, sf = u_rsincos.y;
+    float cg = u_rsincos.z, sg = u_rsincos.w;
+    float cp = cos(phi), sp = sin(phi), cl = cos(l), sl = sin(l);
+    float x = cp*sl, y = sp, z = cp*cl;
+    float yr = y*cf + z*sf, zr = z*cf - y*sf;
+    float hw = u_viewport.x*0.5, hh = u_viewport.y*0.5;
+    float px_ = hw + u_scale*(x*cg - yr*sg);
+    float py_ = hh - u_scale*(x*sg + yr*cg);
+    v_zr = zr;
+    v_uv = vec2(ox, oy);
+    gl_Position = vec4(2.0*(px_ + ox*u_pt_radius)/u_viewport.x - 1.0,
+                       1.0 - 2.0*(py_ + oy*u_pt_radius)/u_viewport.y,
+                       0.0, 1.0);
+
+    uint fid1 = uint(pt_id) + 1u;
+    v_color = vec4(float(fid1 & 255u)/255.0, float((fid1>>8u)&255u)/255.0, float((fid1>>16u)&255u)/255.0, 1.0);
+}`;
+
+const FS_PICK_POINT = `#version 300 es
+precision mediump float;
+in  float v_zr;
+in  vec2  v_uv;
+in  vec4  v_color;
+out vec4  fragColor;
+void main() {
+    if (v_zr < 0.0)            discard;
+    if (dot(v_uv, v_uv) > 1.0) discard;
+    fragColor = v_color;
+}`;
+
 // 6 verts/point: quad centred on projected point. All vertices are L1 (no masking).
 const VS_POINT = `#version 300 es
 precision highp float;
@@ -252,26 +368,32 @@ const SHARED_UNIFORM_NAMES = [
 
 // Compile all gint programs, collect uniforms, set up blend state.
 // Returns { renderProgram, stencilProgram, fillProgram, maskStencilProgram,
-//           pointProgram, uRender, uStencil, uFill, uMaskStencil, uPoint, emptyVAO }
+//           pointProgram, pickLineProgram, pickPointProgram,
+//           uRender, uStencil, uFill, uMaskStencil, uPoint, uPickLine, uPickPoint, emptyVAO }
 export function createGintPrograms(gl) {
     const renderProgram      = linkProgram(gl, VS_RENDER,        FS_RENDER);
     const stencilProgram     = linkProgram(gl, VS_STENCIL,       FS_STENCIL);
     const fillProgram        = linkProgram(gl, VS_FILL,          FS_FILL);
     const maskStencilProgram = linkProgram(gl, VS_STENCIL_MASK,  FS_STENCIL_MASK);
     const pointProgram       = linkProgram(gl, VS_POINT,         FS_POINT);
+    const pickLineProgram    = linkProgram(gl, VS_PICK_LINE,     FS_PICK);
+    const pickPointProgram   = linkProgram(gl, VS_PICK_POINT,    FS_PICK_POINT);
 
     const uRender      = getUniforms(gl, renderProgram,      [...SHARED_UNIFORM_NAMES, 'u_line_width', 'u_active_id', 'u_pass', 'u_style_table']);
     const uStencil     = getUniforms(gl, stencilProgram,     SHARED_UNIFORM_NAMES);
     const uFill        = getUniforms(gl, fillProgram,        ['u_fill_color']);
     const uMaskStencil = getUniforms(gl, maskStencilProgram, [...SHARED_UNIFORM_NAMES, 'u_active_id']);
     const uPoint       = getUniforms(gl, pointProgram,       ['u_pt_tex','u_pt_w','u_rotate','u_scale','u_viewport','u_rsincos','u_pt_radius','u_active_id']);
+    const uPickLine    = getUniforms(gl, pickLineProgram,    [...SHARED_UNIFORM_NAMES, 'u_line_width']);
+    const uPickPoint   = getUniforms(gl, pickPointProgram,   ['u_pt_tex','u_pt_w','u_rotate','u_scale','u_viewport','u_rsincos','u_pt_radius']);
 
     const emptyVAO = gl.createVertexArray();
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
 
     return { renderProgram, stencilProgram, fillProgram, maskStencilProgram,
-             pointProgram, uRender, uStencil, uFill, uMaskStencil, uPoint, emptyVAO };
+             pointProgram, pickLineProgram, pickPointProgram,
+             uRender, uStencil, uFill, uMaskStencil, uPoint, uPickLine, uPickPoint, emptyVAO };
 }
 
 function compileShader(gl, type, src) {
