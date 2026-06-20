@@ -126,9 +126,9 @@ const encoder = async (pbf, type, opts = {}) => { //console.log(pbf, type, opts)
             opts.message == false || throwEvent("ConvertEnd", { name, event });
             w.terminate(); resolve(e.data);
         };
-        w.onerror = () => {
+        w.onerror = (e) => {
             opts.message == false || throwEvent("ConvertEnd", { name, error: `file encode error: [${type}]` });
-            w.terminate(); console.error(`pbf encode error: [${type}]`); resolve(null);
+            w.terminate(); console.error(`pbf encode error: [${type}]`, e?.message, e?.filename, `line:${e?.lineno}`); resolve(null);
         };
         w.postMessage({ buf, gintbuf, name, opts }, [buf]);
     });

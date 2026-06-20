@@ -1,7 +1,6 @@
 // WebGL2 border line renderer — fat lines + dash, no picking, no hover, no FBO.
 // 複数スタイルのレイヤーを arcTex/metaTex ペアごとに保持し、1フレームで順次描画。
 
-import { geopbf } from 'geopbf';
 import { createGintPrograms } from './shared/gintPrograms.js';
 import { buildEdgeMeta, bindSharedUniforms, uploadTex2D } from './shared/gintUtility.js';
 
@@ -25,9 +24,9 @@ function init(data) {
 }
 
 // ── set ───────────────────────────────────────────────────────────────────────
-// data.data.rawBuffers : GeoPBF の ArrayBuffer 配列（各ファイル1エントリ）
-// data.data.styles     : [{ color:[r,g,b,a], lineWidth, dash:[dashLen,period] }, ...]
-async function set(data) {
+// data.data.gintDataList : unPackGint オブジェクト配列（メインスレッドでgint済み）
+// data.data.styles       : [{ color:[r,g,b,a], lineWidth, dash:[dashLen,period] }, ...]
+function set(data) {
     if (data.cmd !== "gint") { postMessage({ action: "done", type: "set" }); return; }
 
     // 既存テクスチャを破棄
@@ -40,14 +39,15 @@ async function set(data) {
     minZoom = payload.minZoom ?? 2;
     maxZoom = payload.maxZoom ?? 7;
 
-    const styles  = payload.styles  ?? [];
-    const buffers = payload.rawBuffers ?? [];
+    const styles       = payload.styles       ?? [];
+    const gintDataList = payload.gintDataList ?? [];
 
-    for (const { source, style } of buffers.map((buf, i) => ({ source: buf, style: styles[i] ?? {} }))) {
+    for (let i = 0; i < gintDataList.length; i++) {
+        const gintData = gintDataList[i];
+        const style    = styles[i] ?? {};
+        if (!gintData) continue;
         try {
-            const pbf = await geopbf(source);
-            if (!pbf?.unPackGint) continue;
-            const { arcBuffer, arcMeta, polyStream, lineStream } = pbf.unPackGint;
+            const { arcBuffer, arcMeta, polyStream, lineStream } = gintData;
             const layer = buildLayer(arcBuffer, arcMeta, polyStream, lineStream, style);
             if (layer.totalEdges > 0) layers.push(layer);
         } catch (e) { console.error("[gintBorder] set error:", e); }

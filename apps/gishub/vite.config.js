@@ -14,7 +14,6 @@ export default defineConfig({
 		}
   	},
    	worker: { format: 'es' },
-    build: { target: 'esnext',
-        sourcemap: true,
-    }
+    build: { target: 'esnext', sourcemap: true, },
+	css: { preprocessorOptions: { scss: { api: 'modern-compiler' } } }
 });

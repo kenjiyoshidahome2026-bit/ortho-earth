@@ -28,14 +28,24 @@ export function topology(self) {
 				else if (tag === GeoPBF.TAGS.COORDS) {
 					const end = pbf.readVarint() + pbf.pos;
 					let x = 0, y = 0;
+					const DENSIFY = gint.SCALE_E; // 1度ごとに中間L1ノードを挿入
 					const read = (n) => { elemCount[3]++;
 						let x = 0, y = 0;
+						let prevGX = null, prevGY = null;
 						const stream = gint.XY2L1(n || 4096);
-						const grab = () => { 
+						const grab = () => {
 							let dx = pbf.readSVarint(), dy = pbf.readSVarint();
 							if (dx || dy) { x += dx, y += dy;
 								updateBbox(x, y);
-								stream.push(fit(x) + OFFSET_X, fit(y) + OFFSET_Y);
+								const gx = fit(x) + OFFSET_X, gy = fit(y) + OFFSET_Y;
+								if (prevGX !== null) {
+									const dgx = gx - prevGX, dgy = gy - prevGY;
+									const steps = Math.ceil(Math.max(Math.abs(dgx), Math.abs(dgy)) / DENSIFY);
+									for (let s = 1; s < steps; s++)
+										stream.push(Math.round(prevGX + dgx * s / steps), Math.round(prevGY + dgy * s / steps));
+								}
+								stream.push(gx, gy);
+								prevGX = gx; prevGY = gy;
 								elemCount[3]++;
 							}
 						};

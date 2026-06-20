@@ -12,8 +12,10 @@ const LARGE = 500 * 1024 * 1024;
 
 onmessage = async (e) => {
     const file = e.data.file;
+    if (!file) { console.error("[json decoder] file is null"); postMessage(null); return; }
     const pbf = new GeoPBF(e.data);
 
+    try {
     if (file.size < SMALL) {
         // 小〜中規模: JSON.parse が最速（V8ネイティブ、単一C++呼び出し）
         await pbf.set(JSON.parse(await file.text()));
@@ -53,4 +55,8 @@ onmessage = async (e) => {
     console.log(pbf, pbf.arrayBuffer);
     const res = pbf.arrayBuffer;
     postMessage({ type: "jsondec", data: res }, [res]);
+    } catch (err) {
+        console.error("[json decoder] failed:", err, "\nfile:", file?.name, file?.size, "\ncontent preview:", await file?.slice(0, 200).text().catch(() => "(unreadable)"));
+        throw err;
+    }
 };
