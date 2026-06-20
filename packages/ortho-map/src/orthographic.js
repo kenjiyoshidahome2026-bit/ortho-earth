@@ -55,7 +55,7 @@ export async function orthographic(map, opts = {}) {
     ///------------------------------------------------------------------------------------------------
     /// PAN & ZOOM (ctrl/metaKeyの場合は回転)
     ///------------------------------------------------------------------------------------------------
-    let rafId = null;
+    let rafId = null, flyTicket = 0;
     function tween() {
         if (rafId) return;
         rafId = requestAnimationFrame(() => { rafId = null; draw(); });
@@ -82,7 +82,7 @@ export async function orthographic(map, opts = {}) {
         const { cartesian, delta, multiply, rotation } = versor;
         ////-------------------------------------------------------------------------------------------
         panZoom(map).on("start.ortho", onstart).on("zoom.ortho", tween).on("end.ortho", drawn);
-        function onstart() { cleanup(); }
+        function onstart() { cleanup(); flyTicket++; }
         ////-------------------------------------------------------------------------------------------
         function panZoom(map) { //const proj = map.proj;
             const { sin, cos, sign, sqrt, atan2, PI } = Math;
@@ -294,16 +294,17 @@ export async function orthographic(map, opts = {}) {
         const zooming = d3.interpolateZoom([0, 0, size / s0], [dist, 0, size / s1]);
         const wrap = (a, ref) => ref + (((a - ref) % 360) + 540) % 360 - 180;
         const interpolateRotation = d3.interpolateArray(r0, [wrap(r1[0], r0[0]), wrap(r1[1], r0[1]), 0]);
-        return d3.transition().duration(zooming.duration).ease(d3.easeLinear)
-            .tween("render", () => {
-                return t => {
-                    const z = zooming(t);
-                    proj.rotate(interpolateRotation(t));
-                    proj.scale(size / z[2]);
-                    tween();
-                };
+        const ticket = ++flyTicket;
+        await d3.transition().duration(zooming.duration).ease(d3.easeLinear)
+            .tween("render", () => t => {
+                if (flyTicket !== ticket) return;
+                const z = zooming(t);
+                proj.rotate(interpolateRotation(t));
+                proj.scale(size / z[2]);
+                tween();
             })
-            .end().then(drawn);
+            .end().catch(() => {});
+        if (flyTicket === ticket) drawn();
     }
 ////-------------------------------------------------------------------------------------------
     async function zoomToFeature(feature, opts = {}) {
@@ -332,8 +333,10 @@ export async function orthographic(map, opts = {}) {
         const travelEnd = travelMs / totalMs;
         const zoomStart = (travelMs - overlapMs) / totalMs;
 
+        const ticket = ++flyTicket;
         await d3.transition().duration(totalMs).ease(d3.easeLinear)
             .tween("render", () => t => {
+                if (flyTicket !== ticket) return;
                 const tRotEased = d3.easeCubicOut(Math.min(1, t / travelEnd));
                 proj.rotate(interpolateRotation(tRotEased));
                 if (needsZoom) {
@@ -344,25 +347,37 @@ export async function orthographic(map, opts = {}) {
                     proj.scale(s0 + (s1 - s0) * tRotEased);
                 }
                 tween();
-            }).end();
+            }).end().catch(() => {});
 
-        return drawn();
+        if (flyTicket === ticket) return drawn();
     }
 ////-------------------------------------------------------------------------------------------
-    function mag(n, duration = 1000) {
+    async function mag(n, duration = 1000) {
         const scale = proj.scale();
         const maxScale = zval2scale(map.maxZoom);
         const minScale = zval2scale(map.minZoom);
-        return d3.transition().ease(d3.easeCubic).duration(duration)
-            .tween("render", () => t => { proj.scale(Math.max(Math.min((1 + (n - 1) * t) * scale, maxScale), minScale)); tween(); })
-            .on("end", drawn).end();
+        const ticket = ++flyTicket;
+        await d3.transition().ease(d3.easeCubic).duration(duration)
+            .tween("render", () => t => {
+                if (flyTicket !== ticket) return;
+                proj.scale(Math.max(Math.min((1 + (n - 1) * t) * scale, maxScale), minScale));
+                tween();
+            })
+            .end().catch(() => {});
+        if (flyTicket === ticket) drawn();
     }
 ////-------------------------------------------------------------------------------------------
-    function north(duration = 1000) {
+    async function north(duration = 1000) {
         const zaxis = proj.rotate()[2];
-        return d3.transition().ease(d3.easeCubic).duration(duration)
-            .tween("render", () => t => { let r = proj.rotate(); r[2] = (1 - t) * zaxis; proj.rotate(r); tween(); })
-            .on("end", drawn).end();
+        const ticket = ++flyTicket;
+        await d3.transition().ease(d3.easeCubic).duration(duration)
+            .tween("render", () => t => {
+                if (flyTicket !== ticket) return;
+                let r = proj.rotate(); r[2] = (1 - t) * zaxis; proj.rotate(r);
+                tween();
+            })
+            .end().catch(() => {});
+        if (flyTicket === ticket) drawn();
     }
 ////-------------------------------------------------------------------------------------------
     function autoRotate(flag) {
