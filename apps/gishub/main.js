@@ -226,7 +226,7 @@ async function execView(pbf) {
     if (hasArcs || hasPoints) {
         _viewLayer = await mapInst.createRemoteLayer({ name: "GISHUB", type: "gint" });
         const { polyCompBbox } = pbf.unPackGint ?? {};
-        _viewLayer.set("gint", { arcBuffer, arcMeta, polyStream: polyStream ?? new Int32Array(0), lineStream: lineStream ?? new Int32Array(0), pointBuffer: pointBuffer ?? null, point: point ?? null, polyCompBbox });
+        _viewLayer.set("gint", { arcBuffer, arcMeta, polyStream: polyStream ?? new Int32Array(0), lineStream: lineStream ?? new Int32Array(0), pointBuffer: pointBuffer ?? null, point: point ?? null, polyCompBbox, minZoom: 2 });
         _viewLayer.onIdentify = featureId => {
             gintTip(featureId == null ? null: propTable(featureId));
         };
