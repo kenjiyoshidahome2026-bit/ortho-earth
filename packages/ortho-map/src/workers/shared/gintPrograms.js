@@ -107,12 +107,12 @@ uniform float u_line_width;
 uniform int   u_active_id;
 uniform int   u_pass;
 uniform vec4  u_style_table[256];
-uniform vec2  u_dash_table[256];   // [dash_len, period] in px; period=0 → solid
+uniform vec2  u_dash_table[256];   // [dash_len, gap_len] in px; gap=0 → solid
 out vec4  v_color;
 out float v_zr;
-out float v_dist;       // distance from A to this vert (degrees), for dash
+out float v_dist;       // screen-pixel distance from edge-A to this vert
 flat out vec2  v_dash;
-flat out float v_dist_base;  // cumulative arc distance to edge-A (vertex index ≈ degrees)
+flat out float v_dist_base;  // cumulative screen-pixel distance to edge-A (px)
 
 void main() {
     int edge_id = gl_VertexID / 6;
@@ -168,9 +168,10 @@ void main() {
     if (v_color.a == 0.0) discard;
     float alpha = v_color.a;
     if (v_dash.y > 0.0) {
-        float d  = v_dist_base + v_dist;  // cumulative arc distance in degrees
-        float t  = mod(d, v_dash.y);
-        float aa = max(fwidth(v_dist), 0.001);  // ~1px anti-alias in degree units
+        float d      = v_dist_base + v_dist;  // cumulative arc distance in screen pixels
+        float period = v_dash.x + v_dash.y;   // total period = dash + gap
+        float t      = mod(d, period);
+        float aa     = max(fwidth(v_dist), 0.001);
         alpha *= 1.0 - smoothstep(v_dash.x - aa, v_dash.x + aa, t);
     }
     if (alpha < 0.01) discard;

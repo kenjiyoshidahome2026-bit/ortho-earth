@@ -34,10 +34,10 @@ async function getBorderRawBuffers() {
 
 // dash values are in screen pixels (constant visual size across zoom levels)
 const BORDER_GL_STYLES = [
-    { color: [1.0,  1.0,  1.0,  0.5], lineWidth: 1.0, dash: [0,  0 ] }, // graticule (solid)
-    { color: [1.0,  1.0,  1.0,  0.8], lineWidth: 1.0, dash: [5, 13 ] }, // 国境線
-    { color: [0.50, 0.50, 1.0,  0.8], lineWidth: 0.8, dash: [3,  9 ] }, // maritime
-    { color: [1.0,  1.0,  1.0,  1.0], lineWidth: 0.5, dash: [5, 13 ] }, // geographic lines
+    { color: [1.0,  1.0,  1.0,  1.0], lineWidth: 0.8, dash: [0, 0 ] }, // graticule (solid)
+    { color: [1.0,  1.0,  1.0,  1.0], lineWidth: 1.0, dash: [4, 2 ] }, // 国境線
+    { color: [0.50, 0.50, 1.0,  0.8], lineWidth: 0.8, dash: [4, 2 ] }, // maritime
+    { color: [1.0,  1.0,  1.0,  1.0], lineWidth: 0.5, dash: [4, 2 ] }, // geographic lines
 ];
 
 export async function createLayers(map, opts) {
@@ -62,8 +62,6 @@ export async function createLayers(map, opts) {
         borderLayer.set("set", "options", { ...param, rawBuffers: overlay });
     });
 ////--------------------------------------------------------------------------
-    map.createLayer({ name: "GISHub", after: map.layers.Accessories });
-    ////--------------------------------------------------------------------------
     async function setBase(map, name) {
         baseLayer.set("base", name, map.threshold);
         const { maxZoom, attr } = Layers[name];
