@@ -10,7 +10,6 @@
 	"dependencies": {
 		"common": "*",
 		"geopbf": "*",
-		"pbf": "^4.0.1",
-		"three": "^0.183.2"
+		"pbf": "^4.0.1"
 	}
 }

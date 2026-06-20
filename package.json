@@ -20,12 +20,11 @@
 		"html2canvas": "^1.4.1",
 		"linkedom": "^0.18.12",
 		"polygon-clipping": "^0.15.7",
-		"rollup-plugin-visualizer": "^7.0.1",
 		"versor": "^0.2.0"
 	},
 	"devDependencies": {
+		"rollup-plugin-visualizer": "^7.0.1",
 		"sass-embedded": "^1.99.0",
-		"top-level-await": "^1.1.0",
 		"vite-plugin-wasm": "^3.6.0"
 	}
 }

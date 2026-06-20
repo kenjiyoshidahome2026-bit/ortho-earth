@@ -1,11 +1,9 @@
 import { defineConfig } from 'vite';
 import wasm from 'vite-plugin-wasm';
-//import topLevelAwait from 'top-level-await';
 
 export default defineConfig({
     plugins: [
-        wasm(),          // 🌟 これが絶対に必要です！
-  //      topLevelAwait() 
+        wasm(),
     ],
   	server: {
 		headers: { // sharedArrayBuffer を Worker で受け取るための CORS 関連ヘッダー

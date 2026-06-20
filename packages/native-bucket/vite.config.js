@@ -3,16 +3,15 @@ import { resolve } from 'path'
 
 export default defineConfig({
   build: {
-    minify: false, // デバッガを効かせるため
+    target: 'esnext',
+    minify: false,
     sourcemap: true,
     outDir: 'dist/client',
     emptyOutDir: true,
-    rollupOptions: { external: ['canvas'], },
     lib: {
       entry: resolve(__dirname, 'src/index.js'),
       name: 'nativeBucket',
-      formats: ['es'] // ESMのみに絞る
+      formats: ['es']
     }
-  },
-  optimizeDeps: { exclude: ['canvas'] }
+  }
 })

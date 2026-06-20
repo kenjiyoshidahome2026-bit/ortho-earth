@@ -13,8 +13,7 @@
 	"dependencies": {
 		"gishub-wasm": "*",
 		"native-bucket": "*",
-		"pbf": "^4.0.1",
-		"xlsx": "^0.18.5"
+		"pbf": "^4.0.1"
 	},
 	"devDependencies": {
 		"repomix": "^1.14.0"
