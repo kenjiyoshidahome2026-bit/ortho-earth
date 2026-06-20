@@ -1,4 +1,4 @@
-// apps/viewer/vite.config.js
+// apps/uploader/vite.config.js
 import { defineConfig } from 'vite';
 import path from 'path';
 import { fileURLToPath } from 'url';
