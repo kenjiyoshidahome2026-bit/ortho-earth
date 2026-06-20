@@ -15,7 +15,6 @@ export async function orthographic(map, opts = {}) {
     map.threshold = 5.5; // baseとtileの切り替えズーム値
     map.maxBorder = 6; // ボーダー・レチクルを表示するズーム値
     map.maxZoom = 22; // 地図の最大ズーム値
-    map.refreshRate = 4; // リフレッシュの間引き
     map.simultaneousTileLoading = 4; // タイルを読み込み・加工させるワーカーの数
     map.zoomSensitivity = 0.5; // ズームの感度(0.5~2.0)
     map.stat = await Cache("GIS/stat").catch(console.error); // 
@@ -35,7 +34,6 @@ export async function orthographic(map, opts = {}) {
     ("maxZoom" in opts) && (map.maxZoom = opts.maxZoom);
     ("maxBorder" in opts) && (map.maxBorder = opts.maxBorder);
     ("zoomSensitivity" in opts) && (map.zoomSensitivity = opts.zoomSensitivity);
-    ("refreshRate" in opts) && (map.refreshRate = opts.refreshRate);
     ("simultaneousTileLoading" in opts) && (map.simultaneousTileLoading = opts.simultaneousTileLoading);
     opts.apiUrl && setAltApiUrl(opts.apiUrl);
     ////-------------------------------------------------------------------------------------------
@@ -57,10 +55,14 @@ export async function orthographic(map, opts = {}) {
     ///------------------------------------------------------------------------------------------------
     /// PAN & ZOOM (ctrl/metaKeyの場合は回転)
     ///------------------------------------------------------------------------------------------------
-    let refreshCounting = 0;
-    function tween() { (++refreshCounting % (map.refreshRate || 1)) || draw(); }
+    let rafId = null;
+    function tween() {
+        if (rafId) return;
+        rafId = requestAnimationFrame(() => { rafId = null; draw(); });
+    }
     function draw() { getView(); trigger("Drawing", { proj, zoom: map.zoom }); }
     function drawn() {
+        cancelAnimationFrame(rafId); rafId = null;
         cursor(); initZoom();
         map.stat("view", getView());
         trigger("Drawn", { proj, zoom: map.zoom });
