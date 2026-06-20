@@ -58,7 +58,7 @@ export function buildEdgeMeta(arcMeta, polyStream, lineStream) {
         for (let i = 0; i < len - 1; i++) {
             buf[j++] = arcIdx >= 0 ? off + i     : off + len - 1 - i;
             buf[j++] = arcIdx >= 0 ? off + i + 1 : off + len - 2 - i;
-            buf[j++] = styleId; buf[j++] = fid;
+            buf[j++] = (styleId & 0xFF) | (i << 8); buf[j++] = fid;
         }
     };
 

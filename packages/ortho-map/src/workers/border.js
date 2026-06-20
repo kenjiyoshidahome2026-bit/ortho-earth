@@ -195,11 +195,18 @@ function draw_globe() {
 	const r = proj.rotate(); project.rotate([r[0], r[1], 0]);
 	const path = geoPath(project, layer);
 
-	// 【修正】四隅が宇宙空間（null）になった場合のクラッシュを回避
-	const bounds = [[0, 0], [width, 0], [width, height], [0, height]]
-		.map(proj.invert)
-		.map(p => p ? project(p) : null)
-		.filter(p => p != null);
+	// viewport各辺をN点サンプリング → 地理座標 → ミニグローブ投影
+	const N = 30;
+	const edge = (x0e, y0e, x1e, y1e) => Array.from({length: N}, (_, i) => {
+		const t = i / N;
+		return proj.invert([x0e + (x1e - x0e) * t, y0e + (y1e - y0e) * t]);
+	});
+	const geoPts = [
+		...edge(0, 0, width, 0),
+		...edge(width, 0, width, height),
+		...edge(width, height, 0, height),
+		...edge(0, height, 0, 0),
+	];
 
 	layer.save();
 	layer.clearRect(x0, y0, x0 + size, y0 + size);
@@ -208,10 +215,16 @@ function draw_globe() {
 	layer.beginPath(); path(graticule); layer.strokeStyle = "rgba(255,255,255,0.5)"; layer.lineWidth = 1; layer.stroke();
 	layer.beginPath(); path(sphere); layer.strokeStyle = "rgba(255,255,255,0.5)"; layer.lineWidth = 2; layer.stroke();
 
-	// 【修正】有効な座標が残っている場合のみ線を描画
-	if (bounds.length > 0) {
+	if (geoPts.some(p => p !== null)) {
 		layer.beginPath();
-		bounds.forEach((t, i) => layer[i === 0 ? "moveTo" : "lineTo"](t[0], t[1]));
+		let penUp = true;
+		for (const geo of geoPts) {
+			if (!geo) { penUp = true; continue; }
+			const p = project(geo);
+			if (!p) { penUp = true; continue; }
+			penUp ? layer.moveTo(p[0], p[1]) : layer.lineTo(p[0], p[1]);
+			penUp = false;
+		}
 		layer.closePath();
 		layer.strokeStyle = q.line; layer.lineWidth = 1.5; layer.stroke();
 	}

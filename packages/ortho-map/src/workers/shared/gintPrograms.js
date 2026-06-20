@@ -110,8 +110,9 @@ uniform vec4  u_style_table[256];
 uniform vec2  u_dash_table[256];   // [dash_len, period] in px; period=0 → solid
 out vec4  v_color;
 out float v_zr;
-out float v_dist;   // distance from segment start (px), for dash
-flat out vec2 v_dash;
+out float v_dist;       // distance from A to this vert (degrees), for dash
+flat out vec2  v_dash;
+flat out float v_dist_base;  // cumulative arc distance to edge-A (vertex index ≈ degrees)
 
 void main() {
     int edge_id = gl_VertexID / 6;
@@ -146,10 +147,12 @@ void main() {
     v_color = (u_pass == 1)
         ? vec4(1.0, 0.9, 0.0, 1.0)
         : u_style_table[style_idx];
-    v_dash = u_dash_table[style_idx];
-    // Zoom-stable: convert screen pixels to approximate geographic degrees.
-    // len / u_scale ≈ radians; × 57.296 ≈ degrees. Dash table values are in degrees.
-    v_dist = useA ? 0.0 : len * 57.295779513 / u_scale;
+    v_dash      = u_dash_table[style_idx];
+    // Dash in screen pixels (constant visual size across zoom levels).
+    // v_dist_base: cumulative pixel distance to edge-A = vertex_index × (u_scale × sin1°).
+    // v_dist: local pixel distance 0→len within this edge.
+    v_dist_base = float(meta.b >> 8u) * u_scale * 0.017453292;
+    v_dist = useA ? 0.0 : len;
 }`;
 
 const FS_RENDER = `#version 300 es
@@ -157,14 +160,16 @@ precision mediump float;
 in  vec4  v_color;
 in  float v_zr;
 in  float v_dist;
-flat in vec2 v_dash;
+flat in vec2  v_dash;
+flat in float v_dist_base;
 out vec4  fragColor;
 void main() {
     if (v_zr < 0.0)       discard;
     if (v_color.a == 0.0) discard;
     float alpha = v_color.a;
     if (v_dash.y > 0.0) {
-        float t  = mod(v_dist, v_dash.y);
+        float d  = v_dist_base + v_dist;  // cumulative arc distance in degrees
+        float t  = mod(d, v_dash.y);
         float aa = max(fwidth(v_dist), 0.001);  // ~1px anti-alias in degree units
         alpha *= 1.0 - smoothstep(v_dash.x - aa, v_dash.x + aa, t);
     }
@@ -411,7 +416,7 @@ export function createGintPrograms(gl) {
 
     const emptyVAO = gl.createVertexArray();
     gl.enable(gl.BLEND);
-    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
 
     return { renderProgram, stencilProgram, fillProgram, maskStencilProgram,
              pointProgram, pickLineProgram, pickPointProgram,

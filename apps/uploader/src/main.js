@@ -104,8 +104,9 @@ async function borders(q) {
 	q.clear();
 	q.title("borders and stars");
 	await thenEach(Object.entries(pbfs), async ([name, original]) => {
-		const pbf = await geopbf(original, { name, noprop:true });
-		console.log(pbf)
+		const pbf = await geopbf(original, { name, nocache: true });
+		if (!pbf.length) throw new Error(`${name}: encoding produced 0 features — check source URL or decoder`);
+		q.log(`${name}: ${pbf.length} features, keys: [${pbf.keys.join(', ')}]`);
 		await pbf.save();
 		q.success(`${name}: (<= ${original})`)
 		q.log(await pbf.profile());

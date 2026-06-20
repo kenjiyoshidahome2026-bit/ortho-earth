@@ -80,36 +80,48 @@ class _Bucket {
         const compressible = !compressed.includes(extension) && !(await isGzip(file));
         if (compressible) file = await gzip(file);
         const targetUrl = this.url + name.replace(/^\//, "");
-        const sizeThreshold = 5 * 1024 * 1024; // 5MB
+        const mpThreshold = 50 * 1024 * 1024; // 50MB 未満は単純 PUT
+        const chunkSize   =  5 * 1024 * 1024; // 5MB チャンク
         this._dispatch("SaveStart", { name });
-        // 1. アップロード開始
+        if (file.size < mpThreshold) {
+            // 単純アップロード
+            const headers = { 'X-Action': 'put', 'X-API-Key': this.apiKey, 'X-Metadata-Type': file.type || 'application/octet-stream' };
+            if (compressible) headers['X-Content-Encoding'] = "gzip";
+            const res = await fetch(targetUrl, { method: 'POST', headers, body: file });
+            if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(`put failed: ${res.status} ${e.error ?? ""}`); }
+            this._dispatch("SaveEnd", { name, total: file.size });
+            return file.size;
+        }
+        // 50MB 以上: マルチパートアップロード
         let headers = { 'X-Action': 'mp-create', 'X-API-Key': this.apiKey, 'X-Metadata-Type': file.type || 'application/octet-stream' };
         if (compressible) headers['X-Content-Encoding'] = "gzip";
         const createRes = await fetch(targetUrl, { method: 'POST', headers });
+        if (!createRes.ok) { const e = await createRes.json().catch(() => ({})); throw new Error(`mp-create failed: ${createRes.status} ${e.error ?? ""}`); }
         const { uploadId } = await createRes.json();
-        const parts = []; // 2. 分割アップロード
-        let partNumber = 1;
-        let totalUploaded = 0;
-        for (let start = 0; start < file.size; start += sizeThreshold) {
-            const chunk = file.slice(start, start + sizeThreshold);
+        const parts = [];
+        let partNumber = 1, totalUploaded = 0;
+        for (let start = 0; start < file.size; start += chunkSize) {
+            const chunk = file.slice(start, start + chunkSize);
             const uploadRes = await fetch(targetUrl, {
                 method: 'POST',
                 headers: { 'X-Action': 'mp-upload', 'X-API-Key': this.apiKey, 'X-Upload-ID': uploadId, 'X-Part-Number': partNumber.toString() },
                 body: chunk
             });
+            if (!uploadRes.ok) { const e = await uploadRes.json().catch(() => ({})); throw new Error(`mp-upload failed: ${uploadRes.status} ${e.error ?? ""}`); }
             const { etag } = await uploadRes.json();
             parts.push({ partNumber, etag });
             totalUploaded += chunk.size;
             this._dispatch("SaveProgress", { name, saved: totalUploaded, total: file.size });
             partNumber++;
         }
-        const completeRes = await fetch(targetUrl, { // 3. アップロード完了
+        const completeRes = await fetch(targetUrl, {
             method: 'POST',
             headers: { 'X-Action': 'mp-complete', 'X-API-Key': this.apiKey, 'Content-Type': 'application/json' },
             body: JSON.stringify({ uploadId, parts })
         });
+        if (!completeRes.ok) { const e = await completeRes.json().catch(() => ({})); throw new Error(`mp-complete failed: ${completeRes.status} ${e.error ?? ""}`); }
         this._dispatch("SaveEnd", { name, total: totalUploaded });
-        return completeRes.ok ? totalUploaded : 0;
+        return totalUploaded;
     }
     async del(name) {
         const url = this.url + name.replace(/^\//, "");

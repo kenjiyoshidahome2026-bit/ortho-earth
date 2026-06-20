@@ -2,9 +2,11 @@
 import { defineConfig } from 'vite';
 import path from 'path';
 import { fileURLToPath } from 'url';
+//import wasm from 'vite-plugin-wasm';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export default defineConfig({
+//    plugins: [wasm()],
     resolve: {
         // オブジェクトの配列にすることで、「単体で呼ばれた時」と「サブファイルが呼ばれた時」を完璧に振り分けます
         alias: {

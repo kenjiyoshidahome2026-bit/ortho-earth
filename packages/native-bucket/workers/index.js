@@ -25,7 +25,7 @@ export default {
 		try {
 			const { pathname } = new URL(req.url);
 			let res;
-			if (pathname.startsWith('/bucket')) res = await bucket(req, env.MY_BUCKET, ctx); else
+			if (pathname.startsWith('/bucket')) res = await bucket(req, env.MY_BUCKET, ctx, env); else
 			if (pathname.startsWith('/proxy')) res = await proxy(req); else
 			return await env.ASSETS.fetch(req);
 			const finalHeaders = new Headers(res.headers);

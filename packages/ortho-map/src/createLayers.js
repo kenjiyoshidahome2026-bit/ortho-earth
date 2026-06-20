@@ -25,19 +25,19 @@ async function getBorderRawBuffers() {
     ];
     const overlayNames = ["ne_110m_land", "stars.6"];
     const [geo, overlay] = await Promise.all([
-        Promise.all(geoNames.map(name => geopbf(name, {gint:false}).then(r => r.arrayBuffer))),
+        Promise.all(geoNames.map(name => geopbf(name).then(r => r.unPackGint))),
         Promise.all(overlayNames.map(name => geopbf(name, {gint:false}).then(r => r.arrayBuffer))),
     ]);
     borderRawBuffers = { geo, overlay };
     return borderRawBuffers;
 }
 
-// dash values are in geographic degrees (zoom-stable; v_dist = len * 57.3 / u_scale in shader)
+// dash values are in screen pixels (constant visual size across zoom levels)
 const BORDER_GL_STYLES = [
-    { color: [1.0,  1.0,  1.0,  0.5], lineWidth: 0.5, dash: [0,    0   ] }, // graticule (solid)
-    { color: [1.0,  1.0,  1.0,  0.8], lineWidth: 1.0, dash: [0.2,  0.55] }, // 国境線
-    { color: [0.50, 0.50, 1.0,  0.8], lineWidth: 0.8, dash: [0.15, 0.45] }, // maritime
-    { color: [1.0,  1.0,  1.0,  1.0], lineWidth: 0.5, dash: [0.2,  0.55] }, // geographic lines
+    { color: [1.0,  1.0,  1.0,  0.5], lineWidth: 1.0, dash: [0,  0 ] }, // graticule (solid)
+    { color: [1.0,  1.0,  1.0,  0.8], lineWidth: 1.0, dash: [5, 13 ] }, // 国境線
+    { color: [0.50, 0.50, 1.0,  0.8], lineWidth: 0.8, dash: [3,  9 ] }, // maritime
+    { color: [1.0,  1.0,  1.0,  1.0], lineWidth: 0.5, dash: [5, 13 ] }, // geographic lines
 ];
 
 export async function createLayers(map, opts) {
@@ -58,7 +58,7 @@ export async function createLayers(map, opts) {
     const borderLayer   = await createRemoteLayer.call(map, { name: "Accessories", append: map.mapFrame, type: "border" });
     const param = opts.accessories || {}; param.lang = map.lang;
     getBorderRawBuffers().then(({ geo, overlay }) => {
-        borderGLLayer.set("gint", { rawBuffers: geo, styles: BORDER_GL_STYLES, minZoom: 2, maxZoom: 7 });
+        borderGLLayer.set("gint", { gintDataList: geo, styles: BORDER_GL_STYLES, minZoom: 2, maxZoom: 7 });
         borderLayer.set("set", "options", { ...param, rawBuffers: overlay });
     });
 ////--------------------------------------------------------------------------

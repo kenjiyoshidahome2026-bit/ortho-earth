@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>Gint: GPU Stencil Tessellation Visualizer</title>
+	<style>
+		body {
+			background-color: #0f172a;
+			color: #f8fafc;
+			font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+			margin: 0;
+			padding: 20px;
+			display: flex;
+			flex-direction: column;
+			align-items: center;
+		}
+
+		h1 {
+			margin-bottom: 5px;
+			color: #38bdf8;
+			font-size: 1.8rem;
+		}
+
+		.subtitle {
+			color: #94a3b8;
+			margin-bottom: 20px;
+			font-size: 0.9rem;
+			text-align: center;
+			font-family: monospace;
+		}
+
+		.tabs {
+			display: flex;
+			gap: 10px;
+			margin-bottom: 20px;
+		}
+
+		.tab-btn {
+			background-color: #334155;
+			color: #94a3b8;
+			border: 1px solid #475569;
+			padding: 8px 16px;
+			border-radius: 20px;
+			cursor: pointer;
+			font-weight: bold;
+			transition: all 0.2s;
+		}
+
+		.tab-btn.active {
+			background-color: #38bdf8;
+			color: #0f172a;
+			border-color: #38bdf8;
+		}
+
+		.container {
+			display: flex;
+			flex-wrap: wrap;
+			gap: 20px;
+			justify-content: center;
+			width: 100%;
+			max-width: 1000px;
+		}
+
+		.canvas-box {
+			background-color: #1e293b;
+			border-radius: 12px;
+			padding: 15px;
+			box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3);
+			text-align: center;
+			flex: 1;
+			min-width: 340px;
+		}
+
+		canvas {
+			background-color: #020617;
+			border-radius: 8px;
+			width: 100%;
+			max-width: 450px;
+			aspect-ratio: 1;
+		}
+
+		.label {
+			font-weight: bold;
+			margin-top: 10px;
+			color: #e2e8f0;
+			font-size: 1.1rem;
+		}
+
+		.desc {
+			font-size: 0.85rem;
+			color: #94a3b8;
+			margin-top: 5px;
+			min-height: 40px;
+		}
+
+		.controls {
+			margin-top: 25px;
+			display: flex;
+			flex-direction: column;
+			gap: 10px;
+			align-items: center;
+		}
+
+		.action-btn {
+			background-color: #0284c7;
+			color: white;
+			border: none;
+			padding: 12px 28px;
+			border-radius: 6px;
+			cursor: pointer;
+			font-weight: bold;
+			font-size: 1rem;
+			transition: background 0.2s;
+		}
+
+		.action-btn:hover {
+			background-color: #0369a1;
+		}
+
+		.status {
+			font-weight: bold;
+			font-size: 1.1rem;
+			color: #38bdf8;
+			font-family: monospace;
+		}
+
+		.legend {
+			display: flex;
+			gap: 20px;
+			margin-top: 10px;
+			justify-content: center;
+			font-size: 0.8rem;
+		}
+
+		.leg-item {
+			display: flex;
+			align-items: center;
+			gap: 5px;
+		}
+
+		.box {
+			width: 12px;
+			height: 12px;
+			border-radius: 3px;
+		}
+
+		.stats {
+			margin-top: 25px;
+			display: flex;
+			gap: 20px;
+			font-size: 0.95rem;
+			border-top: 1px solid #334155;
+			padding-top: 15px;
+			width: 100%;
+			max-width: 800px;
+			justify-content: center;
+			flex-wrap: wrap;
+		}
+
+		.stat-badge {
+			padding: 6px 16px;
+			border-radius: 20px;
+			font-weight: bold;
+			font-family: monospace;
+		}
+
+		.cpu {
+			background-color: #7f1d1d;
+			color: #fecaca;
+		}
+
+		.gpu {
+			background-color: #064e3b;
+			color: #d1fae5;
+		}
+	</style>
+</head>
+
+<body>
+
+	<h1>Gint Tessellation Architecture</h1>
+	<div class="subtitle">Silicon-Level Philosophy: Hardware-Driven Stencil Buffering (Zero CPU Triangulation)</div>
+
+	<div class="tabs">
+		<button class="tab-btn active" onclick="switchTopology('concave')">1. Concave Pentagon (With Hole)</button>
+		<button class="tab-btn" onclick="switchTopology('donut')">2. Standard Donut</button>
+		<button class="tab-btn" onclick="switchTopology('star')">3. Complex Star</button>
+	</div>
+
+	<div class="container">
+		<div class="canvas-box">
+			<div class="label" style="color: #f43f5e;">1. GPU Stencil Pass (Odd-Even State)</div>
+			<div class="desc">Projects fan triangles from NDC Origin. Overlapping segments automatically toggle bitwise
+				rules.</div>
+			<canvas id="canvas-stencil"></canvas>
+			<div class="legend">
+				<div class="leg-item">
+					<div class="box" style="background: rgba(244, 63, 94, 0.7);"></div> Odd Count (Render Boundary)
+				</div>
+				<div class="leg-item">
+					<div class="box" style="background: rgba(30, 41, 59, 0.8); border: 1px dashed #64748b;"></div> Even
+					Count (Inversion / Hole)
+				</div>
+			</div>
+		</div>
+
+		<div class="canvas-box">
+			<div class="label" style="color: #10b981;">2. Final Render Pass (Color Flush)</div>
+			<div class="desc">Executes 1 full-screen bounding quad. Pixels with non-zero stencil indices are instantly
+				rasterized.</div>
+			<canvas id="canvas-color"></canvas>
+		</div>
+	</div>
+
+	<div class="controls">
+		<button class="action-btn" id="btn-play">Execute Hardware Tessellation</button>
+		<div id="status-step" class="status">STATUS: Ready to Stream</div>
+	</div>
+
+	<div class="stats">
+		<div class="stat-badge cpu">CPU Triangulation Cost: O(0) - Completely Bypassed</div>
+		<div class="stat-badge gpu">GPU Processing: Bitwise Inversion Pipeline</div>
+	</div>
+
+	<script>
+		const canvasStencil = document.getElementById('canvas-stencil');
+		const canvasColor = document.getElementById('canvas-color');
+		const ctxS = canvasStencil.getContext('2d');
+		const ctxC = canvasColor.getContext('2d');
+		const btnPlay = document.getElementById('btn-play');
+		const statusStep = document.getElementById('status-step');
+
+		[canvasStencil, canvasColor].forEach(c => {
+			c.width = 400;
+			c.height = 400;
+		});
+
+		const topologies = {
+			concave: {
+				origin: { x: 330, y: 130 },
+				outer: [{ x: 50, y: 50 }, { x: 350, y: 50 }, { x: 350, y: 350 }, { x: 200, y: 220 }, { x: 50, y: 350 }],
+				hole: [{ x: 100, y: 120 }, { x: 100, y: 250 }, { x: 220, y: 280 }]
+			},
+			donut: {
+				origin: { x: 200, y: 200 },
+				outer: [{ x: 50, y: 50 }, { x: 350, y: 50 }, { x: 350, y: 350 }, { x: 50, y: 350 }],
+				hole: [{ x: 130, y: 130 }, { x: 130, y: 270 }, { x: 270, y: 270 }, { x: 270, y: 130 }]
+			},
+			star: {
+				origin: { x: 200, y: 200 },
+				outer: [
+					{ x: 200, y: 30 }, { x: 245, y: 135 }, { x: 360, y: 135 }, { x: 270, y: 210 },
+					{ x: 305, y: 320 }, { x: 200, y: 250 }, { x: 95, y: 320 }, { x: 130, y: 210 },
+					{ x: 40, y: 135 }, { x: 155, y: 135 }
+				],
+				hole: []
+			}
+		};
+
+		let currentType = 'concave';
+		let animationFrame;
+		let currentEdgeIndex = 0;
+		let progress = 0;
+		let isFlushing = false;
+		let edges = [];
+
+		function buildEdgeStreams() {
+			edges = [];
+			const data = topologies[currentType];
+
+			for (let i = 0; i < data.outer.length; i++) {
+				edges.push({ p1: data.outer[i], p2: data.outer[(i + 1) % data.outer.length] });
+			}
+			if (data.hole && data.hole.length > 0) {
+				for (let i = 0; i < data.hole.length; i++) {
+					edges.push({ p1: data.hole[i], p2: data.hole[(i + 1) % data.hole.length] });
+				}
+			}
+		}
+
+		function drawOrigin() {
+			const data = topologies[currentType];
+			ctxS.fillStyle = '#38bdf8';
+			ctxS.beginPath();
+			ctxS.arc(data.origin.x, data.origin.y, 6, 0, Math.PI * 2);
+			ctxS.fill();
+			ctxS.fillStyle = '#94a3b8';
+			ctxS.font = 'bold 11px monospace';
+			ctxS.fillText("Origin (0,0)", data.origin.x - 25, data.origin.y - 12);
+		}
+
+		function drawStencilState(maxEdgeIndex, currentEdgeProgress = null) {
+			const data = topologies[currentType];
+			ctxS.save();
+
+			for (let i = 0; i < maxEdgeIndex; i++) {
+				ctxS.globalCompositeOperation = 'xor';
+				ctxS.fillStyle = 'rgba(244, 63, 94, 0.7)';
+				ctxS.beginPath();
+				ctxS.moveTo(data.origin.x, data.origin.y);
+				ctxS.lineTo(edges[i].p1.x, edges[i].p1.y);
+				ctxS.lineTo(edges[i].p2.x, edges[i].p2.y);
+				ctxS.closePath();
+				ctxS.fill();
+			}
+
+			if (currentEdgeProgress !== null && maxEdgeIndex < edges.length) {
+				const edge = edges[maxEdgeIndex];
+				ctxS.globalCompositeOperation = 'source-over';
+				ctxS.strokeStyle = '#f59e0b';
+				ctxS.lineWidth = 3;
+				ctxS.fillStyle = 'rgba(251, 191, 36, 0.5)';
+
+				ctxS.beginPath();
+				ctxS.moveTo(data.origin.x, data.origin.y);
+				let curX1 = data.origin.x + (edge.p1.x - data.origin.x) * currentEdgeProgress;
+				let curY1 = data.origin.y + (edge.p1.y - data.origin.y) * currentEdgeProgress;
+				ctxS.lineTo(curX1, curY1);
+
+				if (currentEdgeProgress > 0.5) {
+					let p2Prog = (currentEdgeProgress - 0.5) * 2;
+					let curX2 = edge.p1.x + (edge.p2.x - edge.p1.x) * p2Prog;
+					let curY2 = edge.p1.y + (edge.p2.y - edge.p1.y) * p2Prog;
+					ctxS.lineTo(curX2, curY2);
+				}
+				ctxS.closePath();
+				ctxS.fill();
+				ctxS.stroke();
+			}
+			ctxS.restore();
+		}
+
+		function drawGuides() {
+			const data = topologies[currentType];
+			ctxS.lineWidth = 1;
+			ctxS.strokeStyle = 'rgba(255,255,255,0.1)';
+
+			ctxS.beginPath(); ctxS.moveTo(data.outer[0].x, data.outer[0].y);
+			data.outer.forEach(p => ctxS.lineTo(p.x, p.y)); ctxS.closePath(); ctxS.stroke();
+
+			if (data.hole && data.hole.length > 0) {
+				ctxS.beginPath(); ctxS.moveTo(data.hole[0].x, data.hole[0].y);
+				data.hole.forEach(p => ctxS.lineTo(p.x, p.y)); ctxS.closePath(); ctxS.stroke();
+			}
+		}
+
+		function renderLoop() {
+			ctxS.clearRect(0, 0, 400, 400);
+			ctxC.clearRect(0, 0, 400, 400);
+
+			drawGuides();
+
+			if (!isFlushing) {
+				statusStep.textContent = `PIPELINE: Scanning Edge [${currentEdgeIndex + 1}/${edges.length}]`;
+				drawStencilState(currentEdgeIndex, progress);
+				drawOrigin();
+
+				progress += 0.04;
+
+				if (progress >= 1) {
+					progress = 0;
+					currentEdgeIndex++;
+					if (currentEdgeIndex >= edges.length) {
+						isFlushing = true;
+					}
+				}
+			} else {
+				statusStep.textContent = "PIPELINE: Stencil Locked. Full-Screen Quad Flushed Successfully.";
+
+				drawStencilState(edges.length);
+				drawOrigin();
+
+				ctxC.fillStyle = '#0284c7';
+				ctxC.shadowColor = '#38bdf8';
+				ctxC.shadowBlur = 15;
+
+				const data = topologies[currentType];
+				ctxC.beginPath();
+				ctxC.moveTo(data.outer[0].x, data.outer[0].y);
+				for (let i = 1; i < data.outer.length; i++) ctxC.lineTo(data.outer[i].x, data.outer[i].y);
+				ctxC.closePath();
+
+				if (data.hole && data.hole.length > 0) {
+					ctxC.moveTo(data.hole[0].x, data.hole[0].y);
+					for (let i = 1; i < data.hole.length; i++) ctxC.lineTo(data.hole[i].x, data.hole[i].y);
+					ctxC.closePath();
+				}
+
+				// ★ここを 'evenodd' に修正！これで確実に穴が開きます！
+				ctxC.fill('evenodd');
+				ctxC.shadowBlur = 0;
+
+				ctxC.strokeStyle = '#ffffff';
+				ctxC.lineWidth = 1.5;
+				ctxC.stroke();
+
+				cancelAnimationFrame(animationFrame);
+				return;
+			}
+
+			animationFrame = requestAnimationFrame(renderLoop);
+		}
+
+		function initScene() {
+			cancelAnimationFrame(animationFrame);
+			currentEdgeIndex = 0;
+			progress = 0;
+			isFlushing = false;
+			buildEdgeStreams();
+			ctxS.clearRect(0, 0, 400, 400);
+			ctxC.clearRect(0, 0, 400, 400);
+			drawGuides();
+			drawOrigin();
+			statusStep.textContent = "STATUS: Ready to Stream";
+		}
+
+		function switchTopology(type) {
+			currentType = type;
+			document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+			event.target.classList.add('active');
+			initScene();
+		}
+
+		btnPlay.addEventListener('click', () => {
+			initScene();
+			renderLoop();
+		});
+
+		buildEdgeStreams();
+		initScene();
+	</script>
+</body>
+
+</html>

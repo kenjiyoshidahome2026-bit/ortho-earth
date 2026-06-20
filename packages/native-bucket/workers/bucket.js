@@ -1,4 +1,4 @@
-export async function bucket(request, bucket, ctx) {
+export async function bucket(request, bucket, ctx, env = {}) {
     const url = new URL(request.url);
     const path = decodeURIComponent(url.pathname.split('/bucket/').pop());
     const cache = caches.default;
@@ -61,7 +61,8 @@ export async function bucket(request, bucket, ctx) {
             const action = request.headers.get("X-Action");
             if (action === "put") { // 通常のアップロード
                 const contentType = request.headers.get("X-Metadata-Type") || "application/octet-stream";
-                await bucket.put(path, request.body, { httpMetadata: { contentType } });
+                const contentEncoding = request.headers.get("X-Content-Encoding");
+                await bucket.put(path, request.body, { httpMetadata: { contentType, contentEncoding } });
                 return new Response(JSON.stringify({ data: "ok" }));
             }
             if (action === "mp-create") { // マルチパートアップロード: 開始
