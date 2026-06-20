@@ -6,6 +6,7 @@ const accessories = {
 	borders: { minZoom: 2, maxZoom: 7, graticule: true, border: true, maritime: true, geolines: true },
 	globe: { maxZoom: 8, size: 125, bottom: 30, right: 20, land: "rgb(160,200,160)", sea: "rgb(200,240,255)", line: "rgb(150,0,0)" },
 	stars: { maxZoom: 2, maxCount: Infinity },
+	constellations: { maxZoom: 2 },
 	night: { maxZoom: 2 },
 	clock: { maxZoom: 2 },
 	latlng: { minZoom: 2, color: "white" },
@@ -13,7 +14,7 @@ const accessories = {
 	credit: { minZoom: 2, color: "white" },
 };
 const { sin, cos, asin, hypot, atan2, log2, log10, floor, PI } = Math, rad = PI / 180;
-const getSidereal = d => ((18.697374 + 24.0657098 * ((d.getTime() + d.getTimezoneOffset() * 60000) / 864e5 + 2440587.5 - 2451545.0)) * 15) % 360;
+const getSidereal = d => ((18.697374 + 24.0657098 * (d.getTime() / 864e5 + 2440587.5 - 2451545.0)) * 15) % 360;
 
 let canvas, layer, width, height, dpr, path, zoom, attribution;
 let active = false, noCircle = 3, isNarrow = false, timer = null;
@@ -33,8 +34,8 @@ function init(data) {
 }
 async function set(data) {
 	if (data.data != "options") return postMessage({ type: data.type, action: "failed" });
-	// rawBuffers[0]=ne_110m_land（globe用）、rawBuffers[1]=stars.6
-	if (data.rawBuffers && !jsons) jsons = await Promise.all(data.rawBuffers.map(async t=>(await geopbf(t,{gint:false})).geojson));
+	// rawBuffers[0]=ne_110m_land（globe用）、rawBuffers[1]=stars.6、rawBuffers[2]=constellation_lines（任意）
+	if (data.rawBuffers && !jsons) jsons = await Promise.all(data.rawBuffers.map(async t => t?.byteLength ? (await geopbf(t,{gint:false})).geojson : null));
 	const opts = data.prop || {};
 	const lang = opts.lang || "en";
 	for (let i in accessories) {
@@ -59,11 +60,23 @@ async function set(data) {
 			v < 0.8 ? "#fff2c8" : v < 1.1 ? "#ffe0b5" : v < 1.4 ? "#ffcc99" : "#ffab91")(p.bv);
 		return { x: c[0] * rad, y: c[1] * rad, mag: p.mag, bv };
 	}).sort((p, q) => p.mag > q.mag ? 1 : -1).slice(0, accessories.stars.maxCount);
+	if (jsons[2]) {
+		accessories.constellations.data = jsons[2].features.flatMap(f => {
+			const lines = f.geometry.type === "MultiLineString" ? f.geometry.coordinates : [f.geometry.coordinates];
+			return lines.flatMap(seg => {
+				const segs = [];
+				for (let i = 0; i < seg.length - 1; i++)
+					segs.push([seg[i][0] * rad, seg[i][1] * rad, seg[i+1][0] * rad, seg[i+1][1] * rad]);
+				return segs;
+			});
+		});
+	}
 	active = true;
 	if (timer) clearInterval(timer);
 	timer = setInterval(() => {
 		if (!layer) return;
 		draw_night();
+		draw_constellations();
 		draw_stars();
 	}, 1000);
 
@@ -87,6 +100,7 @@ function drawing(data) {
 	draw_border();
 	draw_globe();
 	draw_night();
+	draw_constellations();
 	draw_stars();
 	draw_latlng();
 	draw_scale();
@@ -230,6 +244,34 @@ function draw_globe() {
 	}
 	layer.restore();
 }
+function draw_constellations() {
+	const q = accessories.constellations;
+	if (!q || zoom > q.maxZoom || !q.data?.length) return;
+	const dt = new Date();
+	const cx = width / 2, cy = height / 2;
+	const sr = hypot(width, height) * (0.4 + zoom * 0.3);
+	const r = proj?.rotate() || [0, 0, 0];
+	const skyRot = (getSidereal(dt) - r[0]) * rad;
+	const sφ = sin(r[1] * rad), cφ = cos(r[1] * rad), sγ = sin(r[2] * rad), cγ = cos(r[2] * rad);
+	layer.save();
+	layer.strokeStyle = q.color || "rgba(120,160,255,0.35)";
+	layer.lineWidth = q.lineWidth || 0.8;
+	layer.beginPath();
+	for (const [ra1, dec1, ra2, dec2] of q.data) {
+		let l, cl, sl, cp, sp, z, x, y;
+		l = ra1 - skyRot; cl = cos(l); sl = -sin(l); cp = cos(dec1); sp = sin(dec1);
+		z = sφ * sp + cφ * cp * cl; if (z < 0) continue;
+		x = cp * sl; y = cφ * sp - sφ * cp * cl;
+		const px1 = cx + sr * (x * cγ - y * sγ), py1 = cy - sr * (x * sγ + y * cγ);
+		l = ra2 - skyRot; cl = cos(l); sl = -sin(l); cp = cos(dec2); sp = sin(dec2);
+		z = sφ * sp + cφ * cp * cl; if (z < 0) continue;
+		x = cp * sl; y = cφ * sp - sφ * cp * cl;
+		const px2 = cx + sr * (x * cγ - y * sγ), py2 = cy - sr * (x * sγ + y * cγ);
+		layer.moveTo(px1, py1); layer.lineTo(px2, py2);
+	}
+	layer.stroke();
+	layer.restore();
+}
 function draw_stars() {
 	const q = accessories.stars;
 	if (!q || zoom > q.maxZoom) return;
@@ -255,9 +297,10 @@ function draw_stars() {
 function draw_night() {
 	let q = accessories.night;
 	const dt = new Date();
+	const cx = width / 2, cy = height / 2;
 	if (q && zoom < q.maxZoom) {
 		const json = nightJSON(dt);
-		const cx = width / 2, cy = height / 2, er = proj.scale(), er2 = er * er;
+		const er = proj.scale(), er2 = er * er;
 		const halo = layer.createRadialGradient(cx, cy, er, cx, cy, er + 15);
 		halo.addColorStop(0, "rgba(100, 150, 255, 0.05)"); halo.addColorStop(1, "rgba(100, 150, 255, 0)");
 		const path = geoPath(proj, layer);
