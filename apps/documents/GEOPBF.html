@@ -104,7 +104,7 @@ tr:hover td { background:rgba(255,255,255,0.02); }
     <span class="logo">geopbf</span>
     <span class="sep">/</span>
     <span style="color:var(--dim);font-size:0.82rem">Technical Overview</span>
-    <div class="nav-links">
+    <div class="nav-links"><a href="index.html">← Docs</a>
         <a href="GEOPBF-JP.html">🇯🇵 日本語</a>
         <a href="GINTBUF.html">Gint Pipeline</a>
         <a href="GINT.html">GINT.html</a>
@@ -126,6 +126,7 @@ Lightweight · Universal converter · ArrayBuffer-native — the wire format for
         <li><a href="#format">Binary Format Structure</a></li>
         <li><a href="#delta">Delta Encoding × Varint</a></li>
         <li><a href="#hub">GIS Conversion Hub</a></li>
+        <li><a href="#antimeridian">Antimeridian Handling</a></li>
         <li><a href="#worker">ArrayBuffer &amp; Worker Architecture</a></li>
         <li><a href="#gint">Gint Extension — 64-bit Coordinate Packing</a></li>
         <li><a href="#comparison">Comparison with Other Formats</a></li>
@@ -324,7 +325,61 @@ Placing GeoPBF at the center enables any-to-any format conversion in a single st
 <span class="kw">await</span> pbf.<span class="fn">save</span>(<span class="st">'coastline'</span>);    <span class="cm">// → downloads coastline.geopbf</span></code></pre>
 
 <!-- ──────────────────────────────────────────────────── -->
-<h2 id="worker">5. ArrayBuffer &amp; Worker Architecture</h2>
+<h2 id="antimeridian">5. Antimeridian Handling</h2>
+
+<p>
+The antimeridian (±180° longitude) is a well-known trap in geographic data.
+A polygon that straddles it — for example a geometry spanning the Bering Sea —
+is stored as a single ring in most formats, with coordinates jumping from +179° to −179°.
+Renderers, spatial indexes, and clipping operations all break silently on such data.
+</p>
+
+<p>
+GeoPBF treats antimeridian correctness as a <strong>format invariant</strong>:
+every geometry stored in GeoPBF is guaranteed to be antimeridian-cut.
+No straddling polygon can exist inside the format.
+</p>
+
+<div class="callout callout-key">
+    <div class="callout-head">Automatic at Encode Time — All Import Paths</div>
+    <p>
+        <code>setFeature()</code> calls <code>antimeridianFeature(q)</code> on every feature
+        before writing it to the buffer — regardless of the source format.
+        GeoJSON, Shapefile, KMZ, GML, GPX, FlatGeoBuf, TopoJSON — all go through the same path.
+        The caller never needs to pre-process geometries.
+    </p>
+</div>
+
+<h3>5.1 Spherical Great-Circle Intersection</h3>
+
+<p>
+The cut is not a naive ±180° coordinate clamp.
+<code>antimeridianCut()</code> computes the precise latitude at which each crossing segment
+intersects the antimeridian using the spherical formula —
+essential near the poles where meridian convergence is significant.
+After cutting, each sub-polygon is a valid closed ring with vertices inserted at the exact intersection latitude.
+</p>
+
+<pre><code><span class="cm">// Crossing detection: sign change + span > 180° means antimeridian crossing (not date line jump)</span>
+<span class="cm">// p[i][0] * p[i+1][0] < 0  &&  abs(p[i][0] - p[i+1][0]) > 180</span>
+
+<span class="cm">// Spherical intersection latitude (great-circle formula)</span>
+<span class="cm">// x = sin(Δlat/2)·sin(avgLng)·cos(halfDeltaLng) - sin(avgLat)·cos(avgLng)·sin(halfDeltaLng)</span>
+<span class="cm">// z = cos(lat0)·cos(lat1)·sin(Δlng)</span>
+<span class="cm">// intersectLat = atan2(x, |z|)   ← geometrically exact on the sphere</span></code></pre>
+
+<div class="callout callout-note">
+    <div class="callout-head">Why This Matters for Gint</div>
+    <p>
+        Morton codes require coordinates in a bounded domain.
+        A geometry that straddles ±180° would produce Morton codes that jump across the entire
+        integer space, breaking binary search and spatial proximity guarantees.
+        By cutting at encode time, all Morton codes in a GeoPBF tile are spatially coherent
+        with no special-casing needed downstream.
+    </p>
+</div>
+
+<h2 id="worker">6. ArrayBuffer &amp; Worker Architecture</h2>
 
 <p>
 GeoPBF's internal representation is consistently an <code>ArrayBuffer</code>.
@@ -358,7 +413,7 @@ yielding three important properties.
     </div>
 </div>
 
-<h3>5.1 Transferable — Zero-Copy Transfer</h3>
+<h3>6.1 Transferable — Zero-Copy Transfer</h3>
 
 <pre><code><span class="cm">// ArrayBuffer moves from main thread → Worker with zero copy</span>
 <span class="cm">// (ownership transfer, not a copy — no extra memory consumed)</span>
@@ -371,7 +426,7 @@ onmessage = ({ data: buf }) => {
     postMessage(result, [result]);    <span class="cm">// return zero-copy</span>
 };</code></pre>
 
-<h3>5.2 SharedArrayBuffer — Concurrent Multi-Worker Reads</h3>
+<h3>6.2 SharedArrayBuffer — Concurrent Multi-Worker Reads</h3>
 
 <pre><code><span class="cm">// Expand decoded gint coordinate data into a SharedArrayBuffer</span>
 <span class="cm">// → multiple render Workers can read concurrently with no copies</span>
@@ -381,7 +436,7 @@ onmessage = ({ data: buf }) => {
 <span class="cm">// N tile workers run LOD filter + draw in parallel</span>
 tileWorkers.<span class="fn">forEach</span>(w => w.<span class="fn">postMessage</span>({ sab, zoom, viewport }));</code></pre>
 
-<h3>5.3 CompressionStream — Native gzip</h3>
+<h3>6.3 CompressionStream — Native gzip</h3>
 
 <pre><code><span class="cm">// On save: browser-native gzip (no external library needed)</span>
 <span class="kw">let</span> blob = <span class="kw">new</span> <span class="ty">Blob</span>([buf]);
@@ -403,7 +458,7 @@ postMessage(<span class="kw">new</span> <span class="ty">File</span>([blob], <sp
 </div>
 
 <!-- ──────────────────────────────────────────────────── -->
-<h2 id="gint">6. Gint Extension — 64-bit Coordinate Packing</h2>
+<h2 id="gint">7. Gint Extension — 64-bit Coordinate Packing</h2>
 
 <p>
 Applying gint encoding to GeoPBF packs each vertex's coordinates into
@@ -454,7 +509,7 @@ both spatial queries and LOD filtering reduce to simple integer arithmetic.
 <span class="kw">const</span> visible = isAnchor || vwRank >= minRank;</code></pre>
 
 <!-- ──────────────────────────────────────────────────── -->
-<h2 id="comparison">7. Comparison with Other Formats</h2>
+<h2 id="comparison">8. Comparison with Other Formats</h2>
 
 <table>
     <tr>
@@ -523,7 +578,7 @@ both spatial queries and LOD filtering reduce to simple integer arithmetic.
 </table>
 
 <!-- ──────────────────────────────────────────────────── -->
-<h2 id="api">8. API Reference</h2>
+<h2 id="api">9. API Reference</h2>
 
 <pre><code><span class="cm">// ── Load ───────────────────────────────────────────────</span>
 <span class="kw">const</span> pbf = <span class="kw">await</span> <span class="fn">geopbf</span>(input, options);

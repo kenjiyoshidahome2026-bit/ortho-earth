@@ -1,4 +1,4 @@
-import { ymd2jdn, dayNumber } from "./共通関数.js"
+import { ymd2jdn, dayNumber, yearLength } from "./共通関数.js"
 const 旧暦表 = {
     1999: [[], [], [], [], [], [], [], [], [], [], [342, 11], [372, 12]],
     2000: [[36, 1], [66, 2], [96, 3], [125, 4], [154, 5], [184, 6], [213, 7], [242, 8], [272, 9], [301, 10], [331, 11], [361, 12]],
@@ -39,7 +39,7 @@ export function 旧暦計算(YMD) {
     if (!旧暦表[YMD[0]]) return 旧暦計算0();
 	const last = 年通日 < 旧暦表[YMD[0]][0][0];
 	旧暦.年 = YMD[0] - (last ? 1 : 0);
-	const ym = 年通日 + (last ? YEAR_LENGTH(年) : 0);
+	const ym = 年通日 + (last ? yearLength(旧暦.年) : 0);
 	const tbl = [].concat(旧暦表[旧暦.年]).reverse();
 	let i = 0; for (; tbl[i]; i++) if (tbl[i][0] <= ym) break;
 	旧暦.月 = Math.abs(tbl[i][1]);
