@@ -6,7 +6,8 @@ const accessories = {
 	borders: { minZoom: 2, maxZoom: 7, graticule: true, border: true, maritime: true, geolines: true },
 	globe: { maxZoom: 8, size: 125, bottom: 30, right: 20, land: "rgb(160,200,160)", sea: "rgb(200,240,255)", line: "rgb(150,0,0)" },
 	stars: { maxZoom: 2, maxCount: Infinity },
-	constellations: { maxZoom: 2 },
+	constellations: { maxZoom: 2, visible: false },
+	messier: { maxZoom: 2, visible: false },
 	night: { maxZoom: 2 },
 	clock: { maxZoom: 2 },
 	latlng: { minZoom: 2, color: "white" },
@@ -23,7 +24,7 @@ const proj = geoOrthographic();
 const sphere = { type: "Sphere" };
 const graticule = geoGraticule10();
 
-const funcs = { init, set, drawing, drawn, move, leave, resize, destroy, click:(()=>{}) };
+const funcs = { init, set, drawing, drawn, move, leave, resize, destroy, click };
 onmessage = e => funcs[e.data.type](e.data);
 
 function init(data) {
@@ -33,6 +34,12 @@ function init(data) {
 	postMessage({ type: data.type, action: "done", ctx: layer.constructor.name });
 }
 async function set(data) {
+	if (data.data == "toggle-constellations") {
+		if (accessories.constellations) accessories.constellations.visible = !accessories.constellations.visible;
+		if (accessories.messier) accessories.messier.visible = accessories.constellations?.visible ?? false;
+		draw_night(); draw_constellations(); draw_messier(); draw_stars();
+		return postMessage({ type: data.type, action: "done" });
+	}
 	if (data.data != "options") return postMessage({ type: data.type, action: "failed" });
 	// rawBuffers[0]=ne_110m_land（globe用）、rawBuffers[1]=stars.6、rawBuffers[2]=constellation_lines（任意）
 	if (data.rawBuffers && !jsons) jsons = await Promise.all(data.rawBuffers.map(async t => t?.byteLength ? (await geopbf(t,{gint:false})).geojson : null));
@@ -60,6 +67,12 @@ async function set(data) {
 			v < 0.8 ? "#fff2c8" : v < 1.1 ? "#ffe0b5" : v < 1.4 ? "#ffcc99" : "#ffab91")(p.bv);
 		return { x: c[0] * rad, y: c[1] * rad, mag: p.mag, bv };
 	}).sort((p, q) => p.mag > q.mag ? 1 : -1).slice(0, accessories.stars.maxCount);
+	if (jsons[3]) {
+		accessories.messier.data = jsons[3].features.map(f => {
+			const c = f.geometry.coordinates;
+			return [c[0] * rad, c[1] * rad, f.properties.name || "", f.properties.type || ""];
+		});
+	}
 	if (jsons[2]) {
 		accessories.constellations.data = jsons[2].features.flatMap(f => {
 			const lines = f.geometry.type === "MultiLineString" ? f.geometry.coordinates : [f.geometry.coordinates];
@@ -70,6 +83,13 @@ async function set(data) {
 				return segs;
 			});
 		});
+		accessories.constellations.labels = jsons[2].features.map(f => {
+			const lines = f.geometry.type === "MultiLineString" ? f.geometry.coordinates : [f.geometry.coordinates];
+			const pts = lines.flat();
+			const ra  = pts.reduce((s, p) => s + p[0], 0) / pts.length;
+			const dec = pts.reduce((s, p) => s + p[1], 0) / pts.length;
+			return [ra * rad, dec * rad, f.properties?.name || ""];
+		});
 	}
 	active = true;
 	if (timer) clearInterval(timer);
@@ -77,6 +97,7 @@ async function set(data) {
 		if (!layer) return;
 		draw_night();
 		draw_constellations();
+		draw_messier();
 		draw_stars();
 	}, 1000);
 
@@ -101,6 +122,7 @@ function drawing(data) {
 	draw_globe();
 	draw_night();
 	draw_constellations();
+	draw_messier();
 	draw_stars();
 	draw_latlng();
 	draw_scale();
@@ -118,6 +140,12 @@ function leave() {
 	isNarrow ? layer.clearRect((width - w) / 2, 0, w, h) : layer.clearRect(0, height - h, w, h);
 }
 function drawn() { }
+function click() {
+	if (zoom >= 2 || !accessories.constellations) return;
+	const on = accessories.constellations.visible = !accessories.constellations.visible;
+	if (accessories.messier) accessories.messier.visible = on;
+	draw_night(); draw_constellations(); draw_messier(); draw_stars();
+}
 
 function destroy(data) {
 	if (timer) clearInterval(timer);
@@ -246,14 +274,16 @@ function draw_globe() {
 }
 function draw_constellations() {
 	const q = accessories.constellations;
-	if (!q || zoom > q.maxZoom || !q.data?.length) return;
+	if (!q || !q.visible || zoom > q.maxZoom || !q.data?.length) return;
 	const dt = new Date();
 	const cx = width / 2, cy = height / 2;
 	const sr = hypot(width, height) * (0.4 + zoom * 0.3);
+	const er = proj.scale();
 	const r = proj?.rotate() || [0, 0, 0];
 	const skyRot = (getSidereal(dt) - r[0]) * rad;
 	const sφ = sin(r[1] * rad), cφ = cos(r[1] * rad), sγ = sin(r[2] * rad), cγ = cos(r[2] * rad);
 	layer.save();
+	layer.beginPath(); layer.rect(0, 0, width, height); layer.arc(cx, cy, er + 5, 0, PI * 2); layer.clip("evenodd");
 	layer.strokeStyle = q.color || "rgba(120,160,255,0.35)";
 	layer.lineWidth = q.lineWidth || 0.8;
 	layer.beginPath();
@@ -270,25 +300,82 @@ function draw_constellations() {
 		layer.moveTo(px1, py1); layer.lineTo(px2, py2);
 	}
 	layer.stroke();
+	if (q.labels?.length) {
+		layer.font = "11px Verdana";
+		layer.fillStyle = q.labelColor || "rgba(160,200,255,0.65)";
+		layer.textAlign = "center"; layer.textBaseline = "middle";
+		for (const [ra, dec, name] of q.labels) {
+			let l = ra - skyRot, cl = cos(l), sl = -sin(l), cp = cos(dec), sp = sin(dec);
+			const z = sφ * sp + cφ * cp * cl; if (z < 0) continue;
+			const x = cp * sl, y = cφ * sp - sφ * cp * cl;
+			const px = cx + sr * (x * cγ - y * sγ), py = cy - sr * (x * sγ + y * cγ);
+			if (px < 0 || px > width || py < 0 || py > height) continue;
+			layer.fillText(name, px, py);
+		}
+	}
+	layer.restore();
+}
+function draw_messier() {
+	const q = accessories.messier;
+	if (!q || !q.visible || zoom > q.maxZoom || !q.data?.length) return;
+	const dt = new Date();
+	const cx = width / 2, cy = height / 2;
+	const sr = hypot(width, height) * (0.4 + zoom * 0.3);
+	const er = proj.scale();
+	const r = proj?.rotate() || [0, 0, 0];
+	const skyRot = (getSidereal(dt) - r[0]) * rad;
+	const sφ = sin(r[1] * rad), cφ = cos(r[1] * rad), sγ = sin(r[2] * rad), cγ = cos(r[2] * rad);
+	layer.save();
+	layer.beginPath(); layer.rect(0, 0, width, height); layer.arc(cx, cy, er + 5, 0, PI * 2); layer.clip("evenodd");
+	const sz = 5;
+	const col = "rgba(255,200,100,0.75)";
+	layer.strokeStyle = col; layer.fillStyle = col; layer.lineWidth = 0.8;
+	layer.font = "8px Verdana";
+	layer.textAlign = "center"; layer.textBaseline = "top";
+	for (const [ra, dec, name, type] of q.data) {
+		const l = ra - skyRot, cl = cos(l), sl = -sin(l), cp = cos(dec), sp = sin(dec);
+		const z = sφ * sp + cφ * cp * cl; if (z < 0) continue;
+		const x = cp * sl, y = cφ * sp - sφ * cp * cl;
+		const px = cx + sr * (x * cγ - y * sγ), py = cy - sr * (x * sγ + y * cγ);
+		if (px < 0 || px > width || py < 0 || py > height) continue;
+		layer.beginPath();
+		if (type === "gc") {
+			layer.arc(px, py, sz, 0, PI * 2); layer.stroke();
+			layer.moveTo(px - sz, py); layer.lineTo(px + sz, py);
+			layer.moveTo(px, py - sz); layer.lineTo(px, py + sz);
+			layer.stroke();
+		} else if (type === "gx" || type === "gg") {
+			layer.ellipse(px, py, sz * 1.5, sz * 0.6, 0.4, 0, PI * 2); layer.stroke();
+		} else if (type === "oc") {
+			layer.setLineDash([2, 2]);
+			layer.arc(px, py, sz, 0, PI * 2); layer.stroke();
+			layer.setLineDash([]);
+		} else {
+			layer.rect(px - sz, py - sz, sz * 2, sz * 2); layer.stroke();
+		}
+		layer.fillStyle = "rgba(255,220,150,0.65)";
+		layer.fillText(name, px, py + sz + 2);
+		layer.fillStyle = col;
+	}
 	layer.restore();
 }
 function draw_stars() {
 	const q = accessories.stars;
 	if (!q || zoom > q.maxZoom) return;
 	const dt = new Date();
-	const cx = width / 2, cy = height / 2, er = proj.scale(), er2 = er * er;
+	const cx = width / 2, cy = height / 2, er = proj.scale();
 	const sr = hypot(width, height) * (0.4 + zoom * 0.3);
 	const r = proj?.rotate() || [0, 0, 0];
 	const skyRot = (getSidereal(dt) - r[0]) * rad;
 	const sφ = sin(r[1] * rad), cφ = cos(r[1] * rad), sγ = sin(r[2] * rad), cγ = cos(r[2] * rad);
 	layer.save();
+	layer.beginPath(); layer.rect(0, 0, width, height); layer.arc(cx, cy, er + 5, 0, PI * 2); layer.clip("evenodd");
 	for (let s of q.data) {
 		const l = s.x - skyRot, cl = cos(l), sl = -sin(l);
 		const cp = cos(s.y), sp = sin(s.y);
 		const x = cp * sl, y = cφ * sp - sφ * cp * cl, z = sφ * sp + cφ * cp * cl; if (z < 0) continue;
 		const px = cx + sr * (x * cγ - y * sγ), py = cy - sr * (x * sγ + y * cγ);
-		const dx = px - cx, dy = py - cy;
-		if (dx * dx + dy * dy < er2 || px < 0 || px > width || py < 0 || py > height) continue;
+		if (px < 0 || px > width || py < 0 || py > height) continue;
 		layer.fillStyle = s.bv; layer.globalAlpha = 1 - s.mag / 15;
 		layer.beginPath(); layer.arc(px, py, (9 - s.mag) * 0.20, 0, PI * 2); layer.fill();
 	}

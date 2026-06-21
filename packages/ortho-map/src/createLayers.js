@@ -24,7 +24,7 @@ async function getBorderRawBuffers() {
         "ne_50m_geographic_lines",
     ];
     const overlayNames = ["ne_110m_land", "stars.6"];
-    const optionalOverlayNames = ["constellation_lines"];
+    const optionalOverlayNames = ["constellation_lines", "messier"];
     const [geo, required, optional] = await Promise.all([
         Promise.all(geoNames.map(name => geopbf(name).then(r => r.unPackGint))),
         Promise.all(overlayNames.map(name => geopbf(name, {gint:false}).then(r => r.arrayBuffer))),
