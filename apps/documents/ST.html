@@ -98,12 +98,12 @@ canvas { background: #020617; border-radius: 8px; display: block; width: 100%; }
 <a href="GINTBUF.html" style="display:inline-flex;align-items:center;gap:5px;margin-bottom:10px;padding:4px 10px;border-radius:6px;border:1px solid #334155;background:#0f172a;color:#64748b;font-size:0.75rem;font-family:monospace;text-decoration:none" onmouseover="this.style.color='#38bdf8'" onmouseout="this.style.color='#64748b'">← Gint Pipeline</a>
 
 <h1>Gint Stencil Tessellation</h1>
-<div class="subtitle">Hardware-Driven Fill · Zero CPU Triangulation · Bitwise Even-Odd Pipeline</div>
+<div class="subtitle">Hardware-Driven Fill · Even-Odd Rule · No Pre-processing Required</div>
 
 <div class="tabs" id="tabs">
     <button class="tab-btn active" data-type="concave">1. Concave + Hole</button>
     <button class="tab-btn" data-type="donut">2. Ring (Donut)</button>
-    <button class="tab-btn" data-type="star">3. Complex Star</button>
+    <button class="tab-btn" data-type="star">3. Star (Even-Odd)</button>
 </div>
 
 <div class="main-grid">
@@ -156,8 +156,8 @@ canvas { background: #020617; border-radius: 8px; display: block; width: 100%; }
             </div>
             <div class="adv-item">
                 <div class="adv-icon">✅</div>
-                <div><div class="adv-title">Handles all polygon types</div>
-                Concave, holes, self-intersecting — hardware XOR handles everything.</div>
+                <div><div class="adv-title">Even-odd fill rule is free</div>
+                Concave, holes, self-intersecting — hardware XOR handles everything without pre-processing.</div>
             </div>
             <div class="adv-item">
                 <div class="adv-icon">🎯</div>
@@ -216,13 +216,22 @@ const shapes = {
         ]
     },
     star: {
-        label: "Self-Overlapping Star",
-        cpuTris: null,
-        cpuAlgo: "Earcut FAILS on self-intersection",
-        cpuNote: "Self-intersecting input requires pre-clipping (Sutherland-Hodgman etc.) — Earcut undefined behavior",
+        label: "Concave Star — Even-Odd Fill",
+        cpuTris: 8,
+        cpuAlgo: "Earcut: 8 triangles (fills entirely)",
+        cpuNote: "Earcut correctly triangulates this simple polygon — but fills the center. Even-odd rule gives the natural star appearance without explicit hole definition.",
         outer: [{x:200,y:30},{x:245,y:135},{x:360,y:135},{x:270,y:210},{x:305,y:320},{x:200,y:250},{x:95,y:320},{x:130,y:210},{x:40,y:135},{x:155,y:135}],
         holes: [],
-        earcut: []
+        earcut: [
+            [{x:155,y:135},{x:200,y:30}, {x:245,y:135}],
+            [{x:245,y:135},{x:360,y:135},{x:270,y:210}],
+            [{x:270,y:210},{x:305,y:320},{x:200,y:250}],
+            [{x:200,y:250},{x:95, y:320},{x:130,y:210}],
+            [{x:130,y:210},{x:40, y:135},{x:155,y:135}],
+            [{x:155,y:135},{x:245,y:135},{x:270,y:210}],
+            [{x:155,y:135},{x:270,y:210},{x:200,y:250}],
+            [{x:155,y:135},{x:200,y:250},{x:130,y:210}],
+        ]
     }
 };
 
@@ -422,7 +431,7 @@ function drawCPU(ctx, shape) {
     if (!tris || tris.length === 0) {
         ctx.fillStyle = '#7f1d1d';
         ctx.font = 'bold 14px monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.fillText('Earcut: undefined behavior', 200, 110);
+        ctx.fillText('Earcut: pre-processing required', 200, 110);
         ctx.fillStyle = '#fca5a5'; ctx.font = '11px monospace';
         ctx.fillText('Self-intersection requires pre-processing', 200, 135);
         ctx.restore(); return;

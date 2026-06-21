@@ -30,7 +30,7 @@ function 元号計算(YMD) {
         ymdComp(YMD, [1989, 1, 8]) >= 0 ? ["H", YMD[0] - 1988] :
         ymdComp(YMD, [1926, 12, 25]) >= 0 ? ["S", YMD[0] - 1925] :
         ymdComp(YMD, [1912, 7, 30]) >= 0 ? ["T", YMD[0] - 1911] :
-        ymdComp(YMD, [1968, 9, 8]) >= 0 ? ["M", YMD[0] - 1967] : ["", YMD[0]];
+        ymdComp(YMD, [1868, 9, 8]) >= 0 ? ["M", YMD[0] - 1867] : ["", YMD[0]];
     return [({ R: "令和", H: "平成", S: "昭和", T: "大正", M: "明治" })[v[0]], v[1]] || ["", v[1]];
 }
 function 節気計算(YMD, tdiff = 9) {
@@ -182,7 +182,7 @@ function 日暦情報(YMD) {
     const r = Math.floor(黄経 / 15) * 15;
     let r0 = r2day(YMD[0] + ((r == 270 && YMD[1] == 1) ? -1 : 0), r360(r));
     let r1 = r2day(YMD[0] + ((r == 270 && YMD[1] == 12) ? 1 : 0), r360(r + 15));
-    if (r1 === 年通日) { r0 = r1; r1 = r2day(YMD[0], r360(r + 30)); 候 = "初候"; }
+    if (r1 === 年通日) { r0 = r1; r1 = r2day(YMD[0], r360(r + 30)); }
     const n0 = 年通日 - r0 + (r0 > 年通日 ? yearLength(YMD[0] - 1) : 0) + 1;
     const n1 = r1 - 年通日 + (r1 < 年通日 ? yearLength(YMD[0] - 1) : 0);
     const n72 = 七十二候説明[Math.floor(r360(黄経+45) / 5)];

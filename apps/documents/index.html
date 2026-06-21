@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>gis-hub — Documentation</title>
+<link rel="stylesheet" href="common.css">
+<style>
+.hero { padding: 56px 24px 32px; text-align: center; }
+.hero h1 { font-size: 2.4rem; letter-spacing: -0.03em; }
+.hero .tagline { color: var(--dim); font-family: var(--mono); font-size: 0.9rem; margin-top: 10px; }
+
+.grid { max-width: 900px; margin: 0 auto; padding: 16px 24px 80px; display: flex; flex-direction: column; gap: 12px; }
+
+.section-label { font-family: var(--mono); font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.12em; color: var(--dim); margin: 24px 0 8px 2px; }
+
+.doc-card { background: var(--card); border: 1px solid var(--muted); border-radius: 12px; padding: 22px 26px; transition: border-color 0.15s; }
+.doc-card:hover { border-color: #475569; }
+
+.card-header { display: flex; align-items: baseline; gap: 10px; margin-bottom: 6px; }
+.card-name { font-size: 1.15rem; font-weight: 700; color: var(--text); }
+.card-sub  { font-family: var(--mono); font-size: 0.72rem; color: var(--dim); }
+.card-desc { color: #94a3b8; font-size: 0.88rem; line-height: 1.6; margin-bottom: 16px; }
+
+.links { display: flex; flex-wrap: wrap; gap: 8px; }
+.btn { display: inline-flex; align-items: center; gap: 5px; padding: 5px 13px; border-radius: 6px; font-family: var(--mono); font-size: 0.76rem; font-weight: 600; text-decoration: none !important; transition: background 0.12s; }
+.btn-en   { background: rgba(56,189,248,0.1);  color: var(--accent); border: 1px solid rgba(56,189,248,0.28); }
+.btn-en:hover { background: rgba(56,189,248,0.2); }
+.btn-jp   { background: rgba(192,132,252,0.1); color: var(--purple); border: 1px solid rgba(192,132,252,0.25); }
+.btn-jp:hover { background: rgba(192,132,252,0.2); }
+.btn-demo { background: rgba(52,211,153,0.08); color: var(--green);  border: 1px solid rgba(52,211,153,0.22); }
+.btn-demo:hover { background: rgba(52,211,153,0.18); }
+
+.card-divider { border: none; border-top: 1px solid var(--muted); margin: 14px 0; }
+
+.license-footer { text-align: center; font-family: var(--mono); font-size: 0.72rem; color: var(--dim); padding: 32px 24px 48px; }
+.license-footer a { color: var(--dim); }
+.license-footer a:hover { color: var(--accent); }
+</style>
+</head>
+<body>
+
+<div class="header-bar">
+    <span class="logo">gis-hub</span>
+    <span class="sep">/</span>
+    <span style="font-family:var(--mono);font-size:0.85rem;color:var(--dim)">docs</span>
+    <div class="nav-links">
+        <a href="index-jp.html">日本語</a>
+        <a href="https://github.com/kenjiyoshida" target="_blank">GitHub ↗</a>
+    </div>
+</div>
+
+<div class="hero">
+    <h1>Documentation</h1>
+    <p class="tagline">Open-source geospatial rendering &amp; data format libraries · MIT / GPL-3.0</p>
+</div>
+
+<div class="grid">
+
+    <div class="section-label">Renderer</div>
+
+    <div class="doc-card">
+        <div class="card-header">
+            <span class="card-name">Gint</span>
+            <span class="card-sub">ortho-map · GPL-3.0</span>
+        </div>
+        <p class="card-desc">
+            Geographic Interleaved Binary Format — 64-bit Morton-encoded spatial indexing with
+            Visvalingam–Whyatt LOD weighting. GPU-accelerated WebGL renderer featuring
+            stencil-based polygon fill, dynamic level-of-detail pipeline, and
+            constellation-aware sky rendering.
+        </p>
+        <div class="links">
+            <a href="GINTBUF.html" class="btn btn-en">Technical Overview ↗</a>
+            <a href="GINTBUF-JP.html" class="btn btn-jp">技術概要 ↗</a>
+        </div>
+        <hr class="card-divider">
+        <div style="font-family:var(--mono);font-size:0.7rem;color:var(--dim);margin-bottom:10px">Interactive demos</div>
+        <div class="links">
+            <a href="GINT.html" class="btn btn-demo">What is Gint? ↗</a>
+            <a href="LOD.html"  class="btn btn-demo">Dynamic LOD ↗</a>
+            <a href="ST.html"   class="btn btn-demo">GPU Stencil Tessellation ↗</a>
+        </div>
+    </div>
+
+    <div class="section-label">Data Formats</div>
+
+    <div class="doc-card">
+        <div class="card-header">
+            <span class="card-name">GeoPBF</span>
+            <span class="card-sub">geopbf · MIT</span>
+        </div>
+        <p class="card-desc">
+            Protocol Buffers-based geospatial binary format. Lightweight, universal converter,
+            ArrayBuffer-native — the wire format for browser GIS. Self-contained
+            FlatBuffers implementation with all attributes as string type.
+        </p>
+        <div class="links">
+            <a href="GEOPBF.html"    class="btn btn-en">Technical Overview ↗</a>
+            <a href="GEOPBF-JP.html" class="btn btn-jp">技術概要 ↗</a>
+        </div>
+    </div>
+
+    <div class="doc-card">
+        <div class="card-header">
+            <span class="card-name">AltPBF</span>
+            <span class="card-sub">altpbf · MIT</span>
+        </div>
+        <p class="card-desc">
+            Protocol Buffers-based raster elevation tiles. 3-tier zoom LOD,
+            GEBCO + ALOS dual sources, Int16 delta encoding with deflateRaw compression.
+            Worker zero-copy transfer for high-throughput terrain rendering.
+        </p>
+        <div class="links">
+            <a href="ALTPBF.html"    class="btn btn-en">Technical Overview ↗</a>
+            <a href="ALTPBF-JP.html" class="btn btn-jp">技術概要 ↗</a>
+        </div>
+    </div>
+
+</div>
+
+<div class="license-footer">
+    <a href="GINTBUF.html">Gint</a> / <a href="GEOPBF.html">GeoPBF</a> / <a href="ALTPBF.html">AltPBF</a>
+    &nbsp;·&nbsp; Copyright © 2026 Kenji Yoshida
+    &nbsp;·&nbsp; <a href="https://opensource.org/licenses/MIT" target="_blank">MIT</a> / <a href="https://www.gnu.org/licenses/gpl-3.0.html" target="_blank">GPL-3.0</a>
+</div>
+
+</body>
+</html>

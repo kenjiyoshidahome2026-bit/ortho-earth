@@ -131,7 +131,7 @@ tr:hover td { background:rgba(255,255,255,0.02); }
     <span class="logo">geopbf</span>
     <span class="sep">/</span>
     <span style="color:var(--dim);font-size:0.82rem">Technical Overview</span>
-    <div class="nav-links">
+    <div class="nav-links"><a href="index.html">← Docs</a>
         <a href="GEOPBF.html">EN</a>
         <a href="GINTBUF.html">Gint Pipeline</a>
         <a href="GINT.html">GINT.html</a>
@@ -153,6 +153,7 @@ tr:hover td { background:rgba(255,255,255,0.02); }
         <li><a href="#format">バイナリフォーマット構造</a></li>
         <li><a href="#delta">デルタエンコーディング × Varint</a></li>
         <li><a href="#hub">GIS 変換ハブ</a></li>
+        <li><a href="#antimeridian">アンチメリジアン処理</a></li>
         <li><a href="#worker">ArrayBuffer と Worker アーキテクチャ</a></li>
         <li><a href="#gint">Gint 拡張 — 64bit 座標パッキング</a></li>
         <li><a href="#comparison">他フォーマットとの比較</a></li>
@@ -350,7 +351,61 @@ GeoPBF を中心に置くことで任意フォーマット間の相互変換が 
 <span class="kw">await</span> pbf.<span class="fn">save</span>(<span class="st">'coastline'</span>);    <span class="cm">// → coastline.geopbf をダウンロード</span></code></pre>
 
 <!-- ──────────────────────────────────────────────────── -->
-<h2 id="worker">5. ArrayBuffer と Worker アーキテクチャ</h2>
+<h2 id="antimeridian">5. アンチメリジアン処理</h2>
+
+<p>
+アンチメリジアン（経度 ±180°）は地理データにおける代表的な落とし穴である。
+ベーリング海をまたぐようなポリゴンは、多くのフォーマットで座標が +179° から −179° へジャンプする
+単一リングとして格納される。
+レンダラー・空間インデックス・クリッピング処理のいずれもこのようなデータでは誤動作する。
+</p>
+
+<p>
+GeoPBF はアンチメリジアンの正確さを<strong>フォーマット不変条件</strong>として扱う：
+GeoPBF に格納されたジオメトリはすべてアンチメリジアンで切断されていることが保証される。
+アンチメリジアンをまたぐポリゴンはフォーマット内に存在できない。
+</p>
+
+<div class="callout callout-key">
+    <div class="callout-head">エンコード時に自動適用 — 全インポートパス共通</div>
+    <p>
+        <code>setFeature()</code> はすべてのフィーチャをバッファに書き込む前に
+        <code>antimeridianFeature(q)</code> を呼び出す — ソースフォーマットに関わらず。
+        GeoJSON・Shapefile・KMZ・GML・GPX・FlatGeoBuf・TopoJSON — すべて同じパスを通る。
+        呼び出し側はジオメトリを事前処理する必要がない。
+    </p>
+</div>
+
+<h3>5.1 球面大円交点演算</h3>
+
+<p>
+カットは単純な ±180° 座標クランプではない。
+<code>antimeridianCut()</code> は球面の公式を使って、
+各交差セグメントがアンチメリジアンと交わる正確な緯度を計算する —
+経線収束が顕著な極近傍では特に重要である。
+カット後の各サブポリゴンは、正確な交点緯度に頂点を挿入した有効な閉リングとなる。
+</p>
+
+<pre><code><span class="cm">// 交差検出: 符号反転 + スパン 180° 超 → アンチメリジアン越え（単なる座標ジャンプとの区別）</span>
+<span class="cm">// p[i][0] * p[i+1][0] < 0  &&  abs(p[i][0] - p[i+1][0]) > 180</span>
+
+<span class="cm">// 球面交点緯度（大円の公式）</span>
+<span class="cm">// x = sin(Δlat/2)·sin(avgLng)·cos(halfΔlng) - sin(avgLat)·cos(avgLng)·sin(halfΔlng)</span>
+<span class="cm">// z = cos(lat0)·cos(lat1)·sin(Δlng)</span>
+<span class="cm">// intersectLat = atan2(x, |z|)   ← 球面上で幾何学的に正確</span></code></pre>
+
+<div class="callout callout-note">
+    <div class="callout-head">Gint との関係</div>
+    <p>
+        Morton コードは座標が有界な領域内に収まることを前提とする。
+        ±180° をまたぐジオメトリは整数空間の端から端へジャンプするような Morton コードを生成し、
+        二分探索と空間近接性の保証を破壊する。
+        エンコード時にカットを済ませることで、GeoPBF タイル内のすべての Morton コードが
+        下流で特別扱い不要な空間的一貫性を持つ。
+    </p>
+</div>
+
+<h2 id="worker">6. ArrayBuffer と Worker アーキテクチャ</h2>
 
 <p>
 GeoPBF の内部表現は一貫して <code>ArrayBuffer</code> である。
@@ -384,7 +439,7 @@ GeoPBF の内部表現は一貫して <code>ArrayBuffer</code> である。
     </div>
 </div>
 
-<h3>5.1 Transferable（ゼロコピー転送）</h3>
+<h3>6.1 Transferable（ゼロコピー転送）</h3>
 
 <pre><code><span class="cm">// ArrayBuffer はメインスレッド → Worker へゼロコピーで転送</span>
 <span class="cm">// （コピーではなく所有権の移動 → メモリ消費が増えない）</span>
@@ -397,7 +452,7 @@ onmessage = ({ data: buf }) => {
     postMessage(result, [result]);    <span class="cm">// 処理後もゼロコピーで返却</span>
 };</code></pre>
 
-<h3>5.2 SharedArrayBuffer（複数 Worker 同時参照）</h3>
+<h3>6.2 SharedArrayBuffer（複数 Worker 同時参照）</h3>
 
 <pre><code><span class="cm">// gint デコード後の座標データを SharedArrayBuffer に展開</span>
 <span class="cm">// → 複数の描画 Worker が同時に、コピーなしで参照できる</span>
@@ -407,7 +462,7 @@ onmessage = ({ data: buf }) => {
 <span class="cm">// tile worker × N が並列で LOD フィルタ & 描画</span>
 tileWorkers.<span class="fn">forEach</span>(w => w.<span class="fn">postMessage</span>({ sab, zoom, viewport }));</code></pre>
 
-<h3>5.3 CompressionStream（ネイティブ gzip）</h3>
+<h3>6.3 CompressionStream（ネイティブ gzip）</h3>
 
 <pre><code><span class="cm">// 保存時: ブラウザネイティブの gzip 圧縮（外部ライブラリ不要）</span>
 <span class="kw">let</span> blob = <span class="kw">new</span> <span class="ty">Blob</span>([buf]);
@@ -430,7 +485,7 @@ postMessage(<span class="kw">new</span> <span class="ty">File</span>([blob], <sp
 </div>
 
 <!-- ──────────────────────────────────────────────────── -->
-<h2 id="gint">6. Gint 拡張 — 64bit 座標パッキング</h2>
+<h2 id="gint">7. Gint 拡張 — 64bit 座標パッキング</h2>
 
 <p>
 GeoPBF に gint エンコードを適用すると、各頂点の座標が
@@ -482,7 +537,7 @@ GeoPBF に gint エンコードを適用すると、各頂点の座標が
 <span class="kw">const</span> visible = isAnchor || vwRank >= minRank;</code></pre>
 
 <!-- ──────────────────────────────────────────────────── -->
-<h2 id="comparison">7. 他フォーマットとの比較</h2>
+<h2 id="comparison">8. 他フォーマットとの比較</h2>
 
 <table>
     <tr>
@@ -551,7 +606,7 @@ GeoPBF に gint エンコードを適用すると、各頂点の座標が
 </table>
 
 <!-- ──────────────────────────────────────────────────── -->
-<h2 id="api">8. API リファレンス</h2>
+<h2 id="api">9. API リファレンス</h2>
 
 <pre><code><span class="cm">// ── 読み込み ──────────────────────────────────────────────</span>
 <span class="kw">const</span> pbf = <span class="kw">await</span> <span class="fn">geopbf</span>(input, options);
