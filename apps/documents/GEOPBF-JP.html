@@ -1,0 +1,594 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>GeoPBF Technical Overview</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+    --bg:#0b1220; --surface:#111827; --card:#1e293b; --muted:#334155;
+    --text:#e2e8f0; --dim:#64748b; --accent:#38bdf8; --orange:#fb923c;
+    --green:#34d399; --red:#f87171; --purple:#c084fc; --yellow:#fbbf24;
+    --mono:'JetBrains Mono','Fira Code',monospace; --sans:'Segoe UI',system-ui,sans-serif;
+}
+html { font-size:16px; scroll-behavior:smooth; }
+body { background:var(--bg); color:var(--text); font-family:var(--sans); line-height:1.7; padding:0; }
+.page { max-width:860px; margin:0 auto; padding:48px 24px 80px; }
+
+h1 { font-size:2rem; color:var(--accent); letter-spacing:-0.02em; margin-bottom:4px; }
+h2 { font-size:1.25rem; color:var(--text); margin:48px 0 14px; padding-bottom:8px; border-bottom:1px solid var(--muted); }
+h3 { font-size:1rem; color:var(--accent); margin:28px 0 10px; }
+p  { color:#cbd5e1; margin-bottom:12px; }
+strong { color:var(--text); }
+a  { color:var(--accent); text-decoration:none; }
+a:hover { text-decoration:underline; }
+.lead { font-size:1.05rem; color:var(--dim); font-family:var(--mono); margin-bottom:36px; border-left:3px solid var(--accent); padding-left:14px; }
+
+code { font-family:var(--mono); font-size:0.82em; background:#0f172a; color:var(--yellow); padding:1px 5px; border-radius:4px; border:1px solid var(--muted); }
+pre { background:#070e1c; border:1px solid var(--muted); border-radius:10px; padding:18px 20px; overflow-x:auto; font-family:var(--mono); font-size:0.82rem; line-height:1.6; margin:16px 0; }
+pre code { background:none; border:none; padding:0; color:#e2e8f0; font-size:inherit; }
+.kw{color:#c084fc} .fn{color:#38bdf8} .cm{color:#475569} .st{color:#a3e635} .nm{color:#fb923c} .ty{color:#34d399}
+
+table { width:100%; border-collapse:collapse; font-size:0.82rem; margin:16px 0; font-family:var(--mono); }
+th { background:var(--card); color:var(--dim); padding:8px 12px; text-align:left; font-size:0.7rem; text-transform:uppercase; letter-spacing:0.06em; border-bottom:1px solid var(--muted); }
+td { padding:8px 12px; border-bottom:1px solid #1e293b; vertical-align:top; }
+tr:hover td { background:rgba(255,255,255,0.02); }
+.bad{color:var(--red)} .good{color:var(--green)} .dim{color:var(--dim)} .mid{color:var(--yellow)}
+
+.callout { border-radius:8px; padding:14px 16px; margin:18px 0; border-left:3px solid; }
+.callout-key  { background:#1e3a5f22; border-color:var(--accent); }
+.callout-note { background:#06403222; border-color:var(--green); }
+.callout-warn { background:#71400022; border-color:var(--yellow); }
+.callout-head { font-size:0.72rem; font-family:var(--mono); text-transform:uppercase; letter-spacing:0.08em; margin-bottom:5px; }
+.callout-key  .callout-head { color:var(--accent); }
+.callout-note .callout-head { color:var(--green); }
+.callout-warn .callout-head { color:var(--yellow); }
+.callout p { margin-bottom:0; font-size:0.88rem; }
+
+.toc { background:var(--card); border:1px solid var(--muted); border-radius:10px; padding:18px 20px; margin-bottom:40px; }
+.toc-title { font-size:0.7rem; font-family:var(--mono); color:var(--dim); text-transform:uppercase; letter-spacing:0.08em; margin-bottom:10px; }
+.toc ol { padding-left:20px; }
+.toc li { margin:5px 0; font-size:0.88rem; }
+.toc a { color:#94a3b8; }
+.toc a:hover { color:var(--accent); }
+
+.header-bar { background:var(--surface); border-bottom:1px solid var(--muted); padding:12px 24px; position:sticky; top:0; z-index:10; display:flex; align-items:center; gap:12px; }
+.header-bar .logo { color:var(--accent); font-weight:bold; font-family:var(--mono); font-size:0.95rem; }
+.header-bar .sep  { color:var(--muted); }
+.header-bar .nav-links { display:flex; gap:16px; margin-left:auto; }
+.header-bar a { font-size:0.78rem; font-family:var(--mono); color:var(--dim); }
+.header-bar a:hover { color:var(--accent); }
+
+.rule { border:none; border-top:1px solid var(--muted); margin:40px 0; }
+.tag { display:inline-block; padding:1px 7px; border-radius:10px; font-family:var(--mono); font-size:0.72rem; font-weight:bold; vertical-align:middle; }
+.tag-file { background:#1e293b; color:#94a3b8; border:1px solid #334155; }
+
+/* Hub diagram */
+.hub { position:relative; margin:28px auto; width:520px; height:320px; }
+.hub-center {
+    position:absolute; left:50%; top:50%; transform:translate(-50%,-50%);
+    background:linear-gradient(135deg,#1e3a5f,#1e293b);
+    border:2px solid var(--accent); border-radius:12px;
+    padding:12px 20px; text-align:center; font-family:var(--mono);
+    z-index:2; min-width:120px;
+}
+.hub-center .hc-title { color:var(--accent); font-weight:bold; font-size:0.95rem; }
+.hub-center .hc-sub   { color:var(--dim); font-size:0.68rem; margin-top:2px; }
+.hub-node {
+    position:absolute; background:var(--card); border:1px solid var(--muted);
+    border-radius:8px; padding:5px 10px; font-family:var(--mono); font-size:0.72rem;
+    color:#94a3b8; white-space:nowrap;
+}
+.hub-node.in  { border-color:#38bdf855; color:var(--accent); }
+.hub-node.out { border-color:#34d39955; color:var(--green); }
+.hub-node.io  { border-color:#c084fc55; color:var(--purple); }
+.hub-line { position:absolute; pointer-events:none; }
+
+/* Binary structure */
+.bin-struct { display:flex; flex-direction:column; gap:6px; margin:14px 0; font-family:var(--mono); font-size:0.8rem; }
+.bin-row { display:flex; align-items:stretch; gap:0; border-radius:6px; overflow:hidden; }
+.bin-cell {
+    padding:6px 10px; text-align:center; flex-shrink:0;
+    display:flex; align-items:center; justify-content:center; flex-direction:column;
+}
+.bin-label { font-size:0.62rem; color:var(--dim); margin-top:2px; }
+
+/* Delta encoding */
+.delta-table { background:#070e1c; border:1px solid var(--muted); border-radius:8px; padding:14px 16px; margin:14px 0; font-family:var(--mono); font-size:0.78rem; }
+.dt-row { display:flex; gap:0; margin-bottom:6px; align-items:center; }
+.dt-label { color:var(--dim); width:120px; flex-shrink:0; }
+.dt-cells { display:flex; gap:4px; flex-wrap:wrap; }
+.dc { padding:3px 8px; border-radius:4px; text-align:center; min-width:72px; font-size:0.75rem; }
+.dc-raw  { background:rgba(248,113,113,0.15); color:var(--red); border:1px solid var(--red)44; }
+.dc-del  { background:rgba(251,191,36,0.15);  color:var(--yellow); border:1px solid var(--yellow)44; }
+.dc-int  { background:rgba(56,189,248,0.15);  color:var(--accent); border:1px solid var(--accent)44; }
+.dc-var  { background:rgba(52,211,153,0.15);  color:var(--green);  border:1px solid var(--green)44; }
+.dt-arrow { color:var(--dim); margin:0 8px; }
+
+/* 64-bit diagram */
+.bit64 { background:#070e1c; border:1px solid var(--muted); border-radius:8px; padding:14px 16px; margin:14px 0; font-family:var(--mono); font-size:0.75rem; }
+.b64-row { display:flex; align-items:center; gap:4px; margin-bottom:6px; }
+.b64-label { width:60px; color:var(--dim); flex-shrink:0; }
+.b64-seg { display:flex; align-items:center; justify-content:center; padding:5px 0; border-radius:4px; font-size:0.7rem; font-weight:bold; }
+.b64-term  { background:rgba(248,113,113,0.3);  color:var(--red);    border:1px solid var(--red);    flex:0 0 20px; }
+.b64-mort  { background:rgba(56,189,248,0.2);   color:var(--accent); border:1px solid var(--accent)88; flex:1; }
+.b64-vw    { background:rgba(251,191,36,0.25);  color:var(--yellow); border:1px solid var(--yellow);  flex:0 0 52px; }
+.b64-gap   { flex:0 0 4px; }
+.b64-annot { font-size:0.65rem; color:var(--dim); margin-top:2px; display:flex; align-items:center; }
+
+/* Worker diagram */
+.worker-diagram { display:flex; gap:12px; margin:16px 0; align-items:flex-start; flex-wrap:wrap; }
+.wd-box { background:var(--card); border:1px solid var(--muted); border-radius:8px; padding:12px; flex:1; min-width:160px; }
+.wd-title { font-family:var(--mono); font-size:0.7rem; color:var(--dim); text-transform:uppercase; margin-bottom:8px; }
+.wd-item { font-size:0.78rem; color:#94a3b8; padding:3px 0; border-bottom:1px solid #1e293b; }
+.wd-item:last-child { border-bottom:none; }
+.wd-arrow { display:flex; align-items:center; font-size:1.5rem; color:var(--accent); opacity:0.5; padding-top:40px; }
+</style>
+</head>
+<body>
+
+<div class="header-bar">
+    <span class="logo">geopbf</span>
+    <span class="sep">/</span>
+    <span style="color:var(--dim);font-size:0.82rem">Technical Overview</span>
+    <div class="nav-links">
+        <a href="GEOPBF.html">EN</a>
+        <a href="GINTBUF.html">Gint Pipeline</a>
+        <a href="GINT.html">GINT.html</a>
+        <a href="LOD.html">LOD.html</a>
+        <a href="ST.html">ST.html</a>
+    </div>
+</div>
+
+<div class="page">
+
+<h1>GeoPBF — Lightweight Binary GIS Format</h1>
+<p class="lead">Protocol Buffers ベースの地理空間バイナリフォーマット。<br>
+軽量・変換ハブ・ArrayBuffer ネイティブ — ブラウザ GIS のワイヤフォーマット</p>
+
+<div class="toc">
+    <div class="toc-title">Table of Contents</div>
+    <ol>
+        <li><a href="#why">なぜ GeoPBF か</a></li>
+        <li><a href="#format">バイナリフォーマット構造</a></li>
+        <li><a href="#delta">デルタエンコーディング × Varint</a></li>
+        <li><a href="#hub">GIS 変換ハブ</a></li>
+        <li><a href="#worker">ArrayBuffer と Worker アーキテクチャ</a></li>
+        <li><a href="#gint">Gint 拡張 — 64bit 座標パッキング</a></li>
+        <li><a href="#comparison">他フォーマットとの比較</a></li>
+        <li><a href="#api">API リファレンス</a></li>
+    </ol>
+</div>
+
+<!-- ──────────────────────────────────────────────────── -->
+<h2 id="why">1. なぜ GeoPBF か</h2>
+
+<p>
+GeoJSON は読みやすく扱いやすいが、大規模データでは致命的な問題がある。
+テキスト形式のため転送量が大きく、パースに CPU 時間がかかり、
+ブラウザのメインスレッドをブロックする。
+Shapefile は広く普及しているが複数ファイル構成で Web に向かず、
+タイル MVT は zoom ごとに分割されネットワーク効率が悪い。
+</p>
+
+<p>
+GeoPBF は <strong>ブラウザ GIS の通信レイヤー</strong> として設計されたバイナリフォーマットである。
+Protocol Buffers の圧縮効率、座標のデルタエンコーディング、
+ArrayBuffer ネイティブな設計により、転送・デコード・Worker 間受け渡しのすべてが高速になる。
+</p>
+
+<!-- ──────────────────────────────────────────────────── -->
+<h2 id="format">2. バイナリフォーマット構造</h2>
+
+<p>
+GeoPBF ファイルは <strong>Header Section</strong> と <strong>Body Section（FARRAY）</strong> の 2 部構成である。
+</p>
+
+<div class="bin-struct">
+    <div class="bin-row">
+        <div class="bin-cell" style="background:#1e3a5f;color:var(--accent);flex:0 0 110px;border-radius:6px 0 0 6px">
+            Header
+            <div class="bin-label">固定長メタデータ</div>
+        </div>
+        <div class="bin-cell" style="background:#0f172a;color:var(--dim);flex:1;font-size:0.75rem;text-align:left;padding-left:16px;border-radius:0 6px 6px 0">
+            NAME · KEYS（属性名グローバル辞書）· PRECISION · BUFS（バイナリプール）<br>
+            DESCRIPTION · LICENSE · ATTRIBUTION
+            <div class="bin-label" style="margin-top:4px">メタデータは O(1) でバイナリスライスにより更新可能（再エンコード不要）</div>
+        </div>
+    </div>
+    <div style="text-align:center;color:var(--dim);font-size:1rem;line-height:1">↓</div>
+    <div class="bin-row">
+        <div class="bin-cell" style="background:#064e3b;color:var(--green);flex:0 0 110px;border-radius:6px 0 0 6px">
+            FARRAY
+            <div class="bin-label">フィーチャ配列</div>
+        </div>
+        <div class="bin-cell" style="background:#0f172a;color:var(--dim);flex:1;text-align:left;padding-left:16px;border-radius:0 6px 6px 0;font-size:0.75rem">
+            FEATURE × N<br>
+            &nbsp;&nbsp;└ GEOMETRY: GTYPE · LENGTH · <strong style="color:var(--accent)">COORDS（デルタ圧縮）</strong><br>
+            &nbsp;&nbsp;└ PROPERTIES: INDEX（KEYS参照）· VALUE（型付き）
+        </div>
+    </div>
+</div>
+
+<table>
+    <tr><th>フィールド</th><th>タグ</th><th>型</th><th>説明</th></tr>
+    <tr><td>GTYPE</td><td>8</td><td class="dim">Varint</td><td>0:Point 1:MPoint 2:Line 3:MLine 4:Poly 5:MPoly 6:Collection</td></tr>
+    <tr><td>LENGTH</td><td>9</td><td class="dim">Packed Varint</td><td>リング・マルチパートの頂点数列</td></tr>
+    <tr><td>COORDS</td><td>10</td><td class="dim">Packed SVarint</td><td>デルタ圧縮座標列 X₀,Y₀,ΔX₁,ΔY₁,...（後述）</td></tr>
+    <tr><td>INDEX</td><td>12</td><td class="dim">Packed Varint</td><td>グローバル KEYS 辞書へのインデックス</td></tr>
+    <tr><td>VALUE</td><td>11</td><td class="dim">Repeated Message</td><td>NULL/BOOL/INTEGER/FLOAT/STRING/DATE/COLOR/JSON/BLOB/IMAGE</td></tr>
+</table>
+
+<div class="callout callout-note">
+    <div class="callout-head">O(1) ヘッダー更新</div>
+    <p>
+        NAME・DESCRIPTION・LICENSE などのメタデータはヘッダーに独立して格納されているため、
+        バイナリスライスで直接書き換えが可能。フィーチャ本体を再エンコードする必要がなく、
+        巨大データセットの名称変更やライセンス情報の更新が即座に完了する。
+    </p>
+</div>
+
+<!-- ──────────────────────────────────────────────────── -->
+<h2 id="delta">3. デルタエンコーディング × Varint</h2>
+
+<p>
+座標を GeoJSON のように浮動小数点テキストで記録すると、
+経度 <code>139.7412345</code> だけで 11 バイト消費する。
+GeoPBF は 2 段階の圧縮でこれを劇的に削減する。
+</p>
+
+<div class="delta-table">
+    <div class="dt-row">
+        <span class="dt-label" style="color:var(--red)">① Raw float</span>
+        <div class="dt-cells">
+            <div class="dc dc-raw">139.74000</div>
+            <div class="dc dc-raw">35.68000</div>
+            <div class="dc dc-raw">139.74123</div>
+            <div class="dc dc-raw">35.68123</div>
+            <div class="dc dc-raw">139.74246</div>
+        </div>
+    </div>
+    <div class="dt-row">
+        <span class="dt-label" style="color:var(--yellow)">② Delta</span>
+        <div class="dt-cells">
+            <div class="dc dc-del">139.74000</div>
+            <div class="dc dc-del">35.68000</div>
+            <div class="dc dc-del">+0.00123</div>
+            <div class="dc dc-del">+0.00123</div>
+            <div class="dc dc-del">+0.00123</div>
+        </div>
+    </div>
+    <div class="dt-row">
+        <span class="dt-label" style="color:var(--accent)">③ × 10⁶ (int)</span>
+        <div class="dt-cells">
+            <div class="dc dc-int">139740000</div>
+            <div class="dc dc-int">35680000</div>
+            <div class="dc dc-int">+1234</div>
+            <div class="dc dc-int">+1234</div>
+            <div class="dc dc-int">+1234</div>
+        </div>
+    </div>
+    <div class="dt-row">
+        <span class="dt-label" style="color:var(--green)">④ Varint bytes</span>
+        <div class="dt-cells">
+            <div class="dc dc-var">4 bytes</div>
+            <div class="dc dc-var">4 bytes</div>
+            <div class="dc dc-var" style="background:rgba(52,211,153,0.3)"><strong>2 bytes</strong></div>
+            <div class="dc dc-var" style="background:rgba(52,211,153,0.3)"><strong>2 bytes</strong></div>
+            <div class="dc dc-var" style="background:rgba(52,211,153,0.3)"><strong>2 bytes</strong></div>
+        </div>
+    </div>
+</div>
+
+<p>
+隣接する頂点間の座標差は数百メートル程度（地図スケール次第）であり、
+整数化後の差分は小さな値になる。
+Varint は小さな整数を少ないバイト数で表現するため、
+<strong>密集した頂点ほど圧縮率が高い</strong> という地理データに最適な特性を持つ。
+</p>
+
+<div class="callout callout-key">
+    <div class="callout-head">GeoJSON との比較</div>
+    <p>
+        GeoJSON の <code>"coordinates":[139.741234,35.681234]</code> は約 30 バイト（テキスト）。
+        GeoPBF のデルタ Varint 表現では初回 8 バイト、以降の頂点は <strong>2〜3 バイト</strong>。
+        実際の海岸線データでは <strong>60〜80% のサイズ削減</strong> が典型的。
+        さらに gzip 圧縮（<code>CompressionStream</code>）を組み合わせることで追加 30〜50% 削減。
+    </p>
+</div>
+
+<!-- ──────────────────────────────────────────────────── -->
+<h2 id="hub">4. GIS 変換ハブ</h2>
+
+<p>
+GeoPBF は単なる保存フォーマットではなく、主要 GIS フォーマット間の <strong>変換ハブ</strong> として機能する。
+入力（デコード）と出力（エンコード）の両方に変換パスを持ち、
+GeoPBF を中心に置くことで任意フォーマット間の相互変換が 1 ステップで可能になる。
+</p>
+
+<div style="overflow-x:auto">
+<table>
+    <tr>
+        <th>フォーマット</th><th>読み込み</th><th>書き出し</th><th>特記</th>
+    </tr>
+    <tr><td><strong>GeoJSON</strong></td><td class="good">✓</td><td class="good">✓</td><td class="dim">File/Blob/Object すべて対応</td></tr>
+    <tr><td><strong>Shapefile</strong></td><td class="good">✓ (.zip)</td><td class="good">✓ (.zip)</td><td class="dim">マルチファイルを zip 単体で処理</td></tr>
+    <tr><td><strong>KMZ / KML</strong></td><td class="good">✓</td><td class="good">✓</td><td class="dim">Google Earth 互換</td></tr>
+    <tr><td><strong>GML</strong></td><td class="good">✓</td><td class="good">✓</td><td class="dim">OGC 標準</td></tr>
+    <tr><td><strong>GPX</strong></td><td class="good">✓</td><td class="good">✓</td><td class="dim">GPS トラック・ウェイポイント</td></tr>
+    <tr><td><strong>FlatGeoBuf</strong></td><td class="good">✓</td><td class="good">✓</td><td class="dim">高速ストリーミング対応</td></tr>
+    <tr><td><strong>TopoJSON</strong></td><td class="good">✓</td><td class="good">✓</td><td class="dim">トポロジー保持 入出力</td></tr>
+    <tr><td><strong>GeoPBF</strong></td><td class="good">✓ (native)</td><td class="good">✓ (native)</td><td class="good">ネイティブ高速ロード</td></tr>
+    <tr><td><strong>Gint</strong></td><td class="good">✓ (decode)</td><td class="good">✓ (encode)</td><td class="dim">Morton + VW 拡張（後述）</td></tr>
+</table>
+</div>
+
+<div class="callout callout-note">
+    <div class="callout-head">自動フォーマット判定</div>
+    <p>
+        <code>geopbf(input)</code> に <code>File</code>・<code>Blob</code>・<code>ArrayBuffer</code>・
+        <code>Object</code> のいずれを渡しても、拡張子・MIME タイプ・マジックバイトから
+        フォーマットを自動判定して適切なデコーダを呼び出す。
+        呼び出し側はフォーマットを意識する必要がない。
+    </p>
+</div>
+
+<pre><code><span class="cm">// どんな形式でも同じ API で読み込める</span>
+<span class="kw">const</span> pbf = <span class="kw">await</span> <span class="fn">geopbf</span>(file);          <span class="cm">// File（Shapefile .zip, GeoJSON, KMZ ...）</span>
+<span class="kw">const</span> pbf = <span class="kw">await</span> <span class="fn">geopbf</span>(arrayBuffer);    <span class="cm">// ArrayBuffer（fetch 結果など）</span>
+<span class="kw">const</span> pbf = <span class="kw">await</span> <span class="fn">geopbf</span>(geojsonObject);  <span class="cm">// GeoJSON オブジェクト直接</span>
+
+<span class="cm">// 各フォーマットへのエクスポート</span>
+<span class="kw">const</span> geojson  = pbf.geojson;    <span class="cm">// → GeoJSON オブジェクト</span>
+<span class="kw">const</span> topojson = pbf.topojson;   <span class="cm">// → TopoJSON（トポロジー保持）</span>
+<span class="kw">const</span> shp      = pbf.<span class="fn">shape</span>();    <span class="cm">// → Shapefile (.zip Blob)</span>
+<span class="kw">const</span> kmz      = pbf.<span class="fn">kmz</span>();      <span class="cm">// → KMZ Blob</span>
+<span class="kw">const</span> gml      = pbf.<span class="fn">gml</span>();      <span class="cm">// → GML 文字列</span>
+<span class="kw">const</span> fgb      = <span class="kw">await</span> pbf.<span class="fn">fgb</span>(); <span class="cm">// → FlatGeoBuf ArrayBuffer</span>
+
+<span class="cm">// ネイティブ保存（gzip 済み .geopbf）</span>
+<span class="kw">await</span> pbf.<span class="fn">save</span>(<span class="st">'coastline'</span>);    <span class="cm">// → coastline.geopbf をダウンロード</span></code></pre>
+
+<!-- ──────────────────────────────────────────────────── -->
+<h2 id="worker">5. ArrayBuffer と Worker アーキテクチャ</h2>
+
+<p>
+GeoPBF の内部表現は一貫して <code>ArrayBuffer</code> である。
+これはブラウザの並列処理基盤（Web Workers）と深く統合するための設計上の選択であり、
+3 つの重要な特性をもたらす。
+</p>
+
+<div class="worker-diagram">
+    <div class="wd-box">
+        <div class="wd-title">Main Thread</div>
+        <div class="wd-item" style="color:var(--accent)">geopbf(file)</div>
+        <div class="wd-item">pbf.arrayBuffer</div>
+        <div class="wd-item">worker.postMessage(buf, [buf])</div>
+        <div class="wd-item" style="color:var(--dim)">— 転送後は参照不能 —</div>
+    </div>
+    <div class="wd-arrow">→</div>
+    <div class="wd-box">
+        <div class="wd-title">Encoder Worker</div>
+        <div class="wd-item" style="color:var(--green)">gint encode</div>
+        <div class="wd-item">topology analysis</div>
+        <div class="wd-item">postMessage(result, [result])</div>
+        <div class="wd-item" style="color:var(--dim)">zero-copy 返却</div>
+    </div>
+    <div class="wd-arrow">→</div>
+    <div class="wd-box">
+        <div class="wd-title">Render Worker</div>
+        <div class="wd-item" style="color:var(--purple)">SharedArrayBuffer</div>
+        <div class="wd-item">複数 Worker が同時参照</div>
+        <div class="wd-item">LOD フィルタ処理</div>
+        <div class="wd-item">Canvas / WebGL 描画</div>
+    </div>
+</div>
+
+<h3>5.1 Transferable（ゼロコピー転送）</h3>
+
+<pre><code><span class="cm">// ArrayBuffer はメインスレッド → Worker へゼロコピーで転送</span>
+<span class="cm">// （コピーではなく所有権の移動 → メモリ消費が増えない）</span>
+worker.<span class="fn">postMessage</span>(pbf.arrayBuffer, [pbf.arrayBuffer]);
+<span class="cm">// 転送後 pbf.arrayBuffer は detached（メインスレッドからアクセス不能）</span>
+
+<span class="cm">// Worker 側</span>
+onmessage = ({ data: buf }) => {
+    <span class="kw">const</span> view = <span class="kw">new</span> <span class="ty">DataView</span>(buf);  <span class="cm">// 即座にデコード開始</span>
+    postMessage(result, [result]);    <span class="cm">// 処理後もゼロコピーで返却</span>
+};</code></pre>
+
+<h3>5.2 SharedArrayBuffer（複数 Worker 同時参照）</h3>
+
+<pre><code><span class="cm">// gint デコード後の座標データを SharedArrayBuffer に展開</span>
+<span class="cm">// → 複数の描画 Worker が同時に、コピーなしで参照できる</span>
+<span class="kw">const</span> sab = <span class="kw">new</span> <span class="ty">SharedArrayBuffer</span>(buf.byteLength);
+<span class="kw">new</span> <span class="ty">Uint8Array</span>(sab).<span class="fn">set</span>(<span class="kw">new</span> <span class="ty">Uint8Array</span>(buf));
+
+<span class="cm">// tile worker × N が並列で LOD フィルタ & 描画</span>
+tileWorkers.<span class="fn">forEach</span>(w => w.<span class="fn">postMessage</span>({ sab, zoom, viewport }));</code></pre>
+
+<h3>5.3 CompressionStream（ネイティブ gzip）</h3>
+
+<pre><code><span class="cm">// 保存時: ブラウザネイティブの gzip 圧縮（外部ライブラリ不要）</span>
+<span class="kw">let</span> blob = <span class="kw">new</span> <span class="ty">Blob</span>([buf]);
+blob = <span class="kw">await</span> (<span class="kw">new</span> <span class="ty">Response</span>(
+    blob.<span class="fn">stream</span>().<span class="fn">pipeThrough</span>(<span class="kw">new</span> <span class="ty">CompressionStream</span>(<span class="st">"gzip"</span>))
+)).<span class="fn">blob</span>();
+postMessage(<span class="kw">new</span> <span class="ty">File</span>([blob], <span class="st">`${name}.geopbf`</span>, { type: <span class="st">"application/x-geopbf"</span> }));</code></pre>
+
+<div class="callout callout-key">
+    <div class="callout-head">Worker との相性が良い理由</div>
+    <p>
+        GeoJSON はオブジェクトグラフ（JSON）であり、Worker に渡すには
+        <code>JSON.stringify</code> → 転送 → <code>JSON.parse</code> という
+        シリアライズ/デシリアライズが必要で、大規模データでは数百ミリ秒を消費する。
+        GeoPBF は最初から <code>ArrayBuffer</code> であるため、
+        <strong>ゼロコピー転送</strong> で Worker 間を移動でき、
+        受け取り側はポインタを進めるだけで座標を読める。
+        メインスレッドは一切ブロックされない。
+    </p>
+</div>
+
+<!-- ──────────────────────────────────────────────────── -->
+<h2 id="gint">6. Gint 拡張 — 64bit 座標パッキング</h2>
+
+<p>
+GeoPBF に gint エンコードを適用すると、各頂点の座標が
+<strong>64bit 整数 1 つ</strong> にパックされる。
+この 64bit 整数は Morton コードと VW ウェイトを同時に格納する。
+</p>
+
+<div class="bit64">
+    <div class="b64-row">
+        <span class="b64-label">L1 node<br><span style="font-size:0.65rem;color:var(--dim)">(anchor)</span></span>
+        <div class="b64-seg b64-term" style="flex:0 0 20px" title="Terminal bit">1</div>
+        <div class="b64-gap"></div>
+        <div class="b64-seg b64-mort" title="Morton code (63 bits)">
+            Morton code (63 bits) — 精度 10⁻⁷ deg 固定
+        </div>
+    </div>
+    <div style="margin:4px 0 6px;padding-left:64px;font-size:0.68rem;color:var(--dim)">
+        bit 63 = 1 → L1（アンカー頂点、常に保持）
+    </div>
+    <div class="b64-row">
+        <span class="b64-label">L2 node<br><span style="font-size:0.65rem;color:var(--dim)">(detail)</span></span>
+        <div class="b64-seg b64-term" style="flex:0 0 20px;background:rgba(52,211,153,0.2);color:var(--green);border-color:var(--green)" title="Not terminal">0</div>
+        <div class="b64-gap"></div>
+        <div class="b64-seg b64-mort" title="Morton code">Morton code (58 bits)</div>
+        <div class="b64-gap"></div>
+        <div class="b64-seg b64-vw" title="VW weight rank 0-63">VW rank<br>(6 bits)</div>
+    </div>
+    <div style="margin:4px 0;padding-left:64px;font-size:0.68rem;color:var(--dim)">
+        bit 63 = 0 → L2（詳細頂点、LOD フィルタ対象）&nbsp;·&nbsp; bits 0-5 = VW ウェイトランク（0〜63）
+    </div>
+</div>
+
+<p>
+1 つの 64bit 整数に「<strong>どこ（Morton）</strong>」と「<strong>どの LOD（VW ランク）</strong>」を同時に収めることで、
+空間クエリと LOD フィルタが単純な整数演算だけで完結する。
+</p>
+
+<pre><code><span class="cm">// L1 / L2 判定（最上位ビット）</span>
+<span class="kw">const</span> isAnchor = (code >> <span class="nm">63n</span>) === <span class="nm">1n</span>;
+
+<span class="cm">// Morton コード取り出し（L2 の場合上位 58bit）</span>
+<span class="kw">const</span> mortonCode = code & <span class="nm">0x7FFFFFFFFFFFFFF8n</span>;  <span class="cm">// bits 3-62</span>
+
+<span class="cm">// VW ウェイトランク取り出し（L2 の場合下位 6bit）</span>
+<span class="kw">const</span> vwRank = Number(code & <span class="nm">0x3Fn</span>);  <span class="cm">// bits 0-5 → 0〜63</span>
+
+<span class="cm">// ズームレベル z での LOD フィルタ（1px² に対応するランク閾値）</span>
+<span class="kw">const</span> minRank = <span class="fn">rankFromZoom</span>(z);  <span class="cm">// z が大きいほど低い閾値（より多くの頂点）</span>
+<span class="kw">const</span> visible = isAnchor || vwRank >= minRank;</code></pre>
+
+<!-- ──────────────────────────────────────────────────── -->
+<h2 id="comparison">7. 他フォーマットとの比較</h2>
+
+<table>
+    <tr>
+        <th>指標</th>
+        <th>GeoJSON</th>
+        <th>Shapefile</th>
+        <th>MVT（タイル）</th>
+        <th>GeoPBF</th>
+    </tr>
+    <tr>
+        <td><strong>エンコーディング</strong></td>
+        <td class="dim">テキスト UTF-8</td>
+        <td class="dim">バイナリ（複数ファイル）</td>
+        <td class="dim">PBF バイナリ</td>
+        <td class="good">PBF + デルタ + Varint</td>
+    </tr>
+    <tr>
+        <td><strong>ファイル数</strong></td>
+        <td class="good">1</td>
+        <td class="bad">.shp + .dbf + .shx + ...</td>
+        <td class="bad">zoom × tile 数</td>
+        <td class="good">1</td>
+    </tr>
+    <tr>
+        <td><strong>Web 転送効率</strong></td>
+        <td class="bad">低（テキスト大）</td>
+        <td class="mid">中</td>
+        <td class="mid">中（zoom 分割）</td>
+        <td class="good">高（バイナリ + gzip）</td>
+    </tr>
+    <tr>
+        <td><strong>Worker 転送</strong></td>
+        <td class="bad">JSON シリアライズ必要</td>
+        <td class="bad">変換必要</td>
+        <td class="mid">ArrayBuffer</td>
+        <td class="good">ArrayBuffer ゼロコピー</td>
+    </tr>
+    <tr>
+        <td><strong>LOD サポート</strong></td>
+        <td class="bad">なし</td>
+        <td class="bad">なし</td>
+        <td class="bad">zoom 別ファイル</td>
+        <td class="good">VW ウェイト内包</td>
+    </tr>
+    <tr>
+        <td><strong>空間インデックス</strong></td>
+        <td class="bad">なし</td>
+        <td class="mid">.shx（線形）</td>
+        <td class="mid">タイル座標</td>
+        <td class="good">Morton 64bit</td>
+    </tr>
+    <tr>
+        <td><strong>フォーマット変換</strong></td>
+        <td class="dim">要外部ライブラリ</td>
+        <td class="dim">要外部ライブラリ</td>
+        <td class="bad">限定的</td>
+        <td class="good">9 フォーマット内蔵</td>
+    </tr>
+    <tr>
+        <td><strong>トポロジー</strong></td>
+        <td class="bad">なし</td>
+        <td class="bad">なし</td>
+        <td class="bad">なし</td>
+        <td class="good">アーク共有・境界整合</td>
+    </tr>
+</table>
+
+<!-- ──────────────────────────────────────────────────── -->
+<h2 id="api">8. API リファレンス</h2>
+
+<pre><code><span class="cm">// ── 読み込み ──────────────────────────────────────────────</span>
+<span class="kw">const</span> pbf = <span class="kw">await</span> <span class="fn">geopbf</span>(input, options);
+<span class="cm">// input: File | Blob | ArrayBuffer | GeoJSON object | URL string</span>
+<span class="cm">// options: { name, gint, nocache, clean }</span>
+<span class="cm">//   gint:    false → トポロジーエンコード（gint変換）をスキップ</span>
+<span class="cm">//   nocache: true  → IndexedDB キャッシュを無視して再取得</span>
+<span class="cm">//   clean:   true  → トポロジー整合クリーン処理を実行</span>
+
+<span class="cm">// ── データアクセス ──────────────────────────────────────────</span>
+pbf.length          <span class="cm">// フィーチャ数</span>
+pbf.keys            <span class="cm">// 属性名配列 ['name', 'rank', ...]</span>
+pbf.arrayBuffer     <span class="cm">// 生 ArrayBuffer（Worker 転送用）</span>
+pbf.geojson         <span class="cm">// GeoJSON FeatureCollection に変換</span>
+pbf.topojson        <span class="cm">// TopoJSON に変換（トポロジー保持）</span>
+pbf.<span class="fn">getFeature</span>(i)   <span class="cm">// i 番目のフィーチャだけをデコード</span>
+
+<span class="cm">// ── エクスポート ────────────────────────────────────────────</span>
+<span class="kw">await</span> pbf.<span class="fn">save</span>(<span class="st">'name'</span>)      <span class="cm">// .geopbf（gzip）としてダウンロード</span>
+pbf.<span class="fn">shape</span>()               <span class="cm">// Shapefile .zip</span>
+pbf.<span class="fn">kmz</span>()                 <span class="cm">// KMZ</span>
+pbf.<span class="fn">gml</span>()                 <span class="cm">// GML 文字列</span>
+pbf.<span class="fn">gpx</span>()                 <span class="cm">// GPX 文字列</span>
+<span class="kw">await</span> pbf.<span class="fn">fgb</span>()           <span class="cm">// FlatGeoBuf ArrayBuffer</span>
+
+<span class="cm">// ── メタデータ O(1) 更新 ────────────────────────────────────</span>
+pbf.<span class="fn">header</span>({ name: <span class="st">'New Name'</span>, description: <span class="st">'...'</span>, license: <span class="st">'MIT'</span> });
+
+<span class="cm">// ── 描画 ───────────────────────────────────────────────────</span>
+pbf.<span class="fn">draw</span>(canvasCtx, { fill: <span class="st">'#5a8050'</span>, stroke: <span class="st">'#a8d47e'</span> });</code></pre>
+
+<hr class="rule">
+
+<div style="font-size:0.72rem;color:var(--dim);font-family:var(--mono);text-align:center">
+    geopbf v1.0.0 · Kenji Yoshida · MIT License · 2026
+</div>
+
+</div>
+</body>
+</html>
