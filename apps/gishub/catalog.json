@@ -55,12 +55,14 @@
 	"target": "https://www.geospatial.jp/ckan/dataset/3a2ad3da-af5d-4edd-85dc-4cfe29865fbe/resource/e8936e86-0d81-44e0-a51b-4eb04fb511d0/download/04101__10_r_2025.geojson",
 	"link": "https://www.geospatial.jp/ckan/dataset/aigid-moj-04101",
 	"attribution": "G空間情報センター",
-	"license": "CC_BY_4.0"
+	"license": "CC_BY_4.0",
+	"precision": 7
 },{
 	"name": "07204__9_r_2025",
 	"description": "07204_いわき市_公共座標9系_筆R_2025",
 	"target": "https://www.geospatial.jp/ckan/dataset/3c0b79e3-f903-4eeb-8d55-6bddf9250834/resource/6e557bbd-5f2c-45e2-8ff5-5d23398b04af/download/07204__9_r_2025.geojson",
 	"link": "https://www.geospatial.jp/ckan/dataset/aigid-moj-07204",
 	"attribution": "G空間情報センター",
-	"license": "CC_BY_4.0"
+	"license": "CC_BY_4.0",
+	"precision": 7
 }]

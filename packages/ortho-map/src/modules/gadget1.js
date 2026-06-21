@@ -96,6 +96,15 @@ export async function full(opts = {}) {
         zin.showIF(flag); zout.showIF(!flag);
     });
 }
+////--------------------------------------------------------- 星座線・星座名トグル
+export async function constellation(opts = {}) {
+    const map = this;
+    const btn = createButton(map, "constellation", opts);
+    btn.onClick(() => {
+        btn.classed("flip", !btn.classed("flip"));
+        map.layers["Accessories"]?.set("set", "toggle-constellations");
+    });
+}
 ////--------------------------------------------------------- 地図を北に向ける
 export async function north(opts = {}) {
     const map = this, name = "north";

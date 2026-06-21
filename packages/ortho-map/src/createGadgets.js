@@ -1,6 +1,6 @@
 import * as d3 from 'd3';
 import "common/d3/selection.js";
-import { leftPanel, rightPanel, layers, zoom, north, cpos, full, shot, print, measure } from "./modules/gadget1.js"
+import { leftPanel, rightPanel, layers, zoom, north, cpos, full, shot, print, measure, constellation } from "./modules/gadget1.js"
 import { explain, legend, loading, tip, pop, contextmenu } from "./modules/gadget2.js";
 
 export function createGadgets(map) {
@@ -40,7 +40,7 @@ export function createGadgets(map) {
         map.gadget[name] = function () { return func.apply(map, arguments) }
     };
     const gadgets = {
-        leftPanel, rightPanel, layers, zoom, north, cpos, full, shot, print, measure,// (1)
+        leftPanel, rightPanel, layers, zoom, north, cpos, full, shot, print, measure, constellation,// (1)
         explain, legend, loading, tip, pop, contextmenu
     };
     Object.entries(gadgets).forEach(t => map.gadget(...t));
