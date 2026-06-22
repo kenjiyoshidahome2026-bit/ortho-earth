@@ -10,5 +10,7 @@
     "summary": "repomix --style markdown --output project_summary.md"
   },
   "dependencies": {
+    "adm-zip": "^0.5.17",
+    "xlsx": "^0.18.5"
   }
 }

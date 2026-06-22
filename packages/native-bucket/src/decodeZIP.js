@@ -1,4 +1,4 @@
-import { isBlob, isObject } from "common";
+import { isBlob, isObject } from "../../common/src/utility.js";
 import { fname2mime } from "./fname2mime.js";
 
 export async function decodeZIP(source, target = null, encoding = null) {
@@ -115,7 +115,7 @@ export async function decodeZIP(source, target = null, encoding = null) {
 				entries.push({ name, size: uSiz, cSize: cSiz, lastModified, type });
 				continue;
 			}
-			if (typeof target === 'string' && target !== name) continue;
+			if (typeof target === 'string' && target !== name && !name.endsWith('/' + target)) continue;
 
 			const extract = async () => {
 				event("FetchStart", { name });
