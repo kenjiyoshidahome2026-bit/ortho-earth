@@ -3,53 +3,31 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Catalog - GML Dataset Finder</title>
+  <title>GISカタログ</title>
   <link rel="stylesheet" href="styles.scss">
 </head>
 <body>
-  <div class="container">
-    <header>
-      <h1>📊 GML Dataset Catalog</h1>
-      <p class="subtitle">国土数値情報データセットをワンクリックで検索</p>
-    </header>
+  <div id="app">
 
-    <div class="content">
-      <div class="button-group">
-        <button class="btn-fetch" id="fetchBtn">🔍 カタログを取得</button>
-        <button class="btn-clear" id="clearBtn">🗑️ クリア</button>
-      </div>
-
-      <div class="loading" id="loading">
-        <div class="spinner"></div>
-        <p>データを取得中...</p>
-      </div>
-
-      <div class="stats" id="stats">
-        <strong>検出したデータセット数:</strong> <span id="count">0</span> 件
-      </div>
-
-      <div class="dataset-list" id="datasetList">
-        <div class="empty-state">
-          <div class="empty-state-icon">📁</div>
-          <p>「カタログを取得」ボタンをクリックして、利用可能なデータセットを表示します</p>
+    <aside id="sidebar">
+      <div class="sidebar-head">
+        <select id="source-select" title="データソース"></select>
+        <div class="search-wrap">
+          <input type="text" id="search" placeholder="データセット検索...">
         </div>
+        <div id="list-count" class="list-count"></div>
       </div>
-    </div>
-  </div>
+      <div id="dataset-list"></div>
+    </aside>
 
-  <div class="modal" id="modal">
-    <div class="modal-content">
-      <button class="close-btn" id="closeBtn">&times;</button>
-      <div class="modal-title" id="modalTitle">Loading...</div>
-      <div class="loading" id="modalLoading">
-        <div class="spinner"></div>
-        <p>ダウンロードリンクを検索中...</p>
+    <main id="detail">
+      <div class="placeholder">
+        <div class="placeholder-icon">🗂</div>
+        <p>← データセットを選択してください</p>
       </div>
-      <div class="download-links" id="downloadLinks" style="display: none;">
-      </div>
-    </div>
-  </div>
+    </main>
 
+  </div>
   <script type="module" src="main.js"></script>
 </body>
 </html>
