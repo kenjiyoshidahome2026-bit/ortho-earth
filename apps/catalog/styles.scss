@@ -1,0 +1,262 @@
+$primary: #667eea;
+$secondary: #764ba2;
+$text-dark: #333;
+$text-light: #999;
+$border-light: #e0e0e0;
+$bg-light: #f8f9fa;
+$bg-gray: #f0f0f0;
+
+$border-radius-sm: 6px;
+$border-radius-md: 8px;
+$border-radius-lg: 12px;
+
+$transition: all 0.3s ease;
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  background: linear-gradient(135deg, $primary 0%, $secondary 100%);
+  min-height: 100vh;
+  padding: 20px;
+}
+
+.container {
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+header {
+  text-align: center;
+  color: white;
+  margin-bottom: 40px;
+
+  h1 {
+    font-size: 2.5em;
+    margin-bottom: 10px;
+  }
+}
+
+.subtitle {
+  font-size: 1.1em;
+  opacity: 0.9;
+}
+
+.content {
+  background: white;
+  border-radius: $border-radius-lg;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  padding: 30px;
+}
+
+.button-group {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 30px;
+}
+
+button {
+  flex: 1;
+  padding: 12px 20px;
+  font-size: 1em;
+  border: none;
+  border-radius: $border-radius-sm;
+  cursor: pointer;
+  font-weight: 600;
+  transition: $transition;
+
+  &.btn-fetch {
+    background: linear-gradient(135deg, $primary 0%, $secondary 100%);
+    color: white;
+
+    &:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 10px 20px rgba(102, 126, 234, 0.3);
+    }
+  }
+
+  &.btn-clear {
+    background: $bg-gray;
+    color: $text-dark;
+
+    &:hover {
+      background: $border-light;
+    }
+  }
+}
+
+.loading {
+  display: none;
+  text-align: center;
+  padding: 20px;
+  color: $primary;
+
+  &.active {
+    display: block;
+  }
+}
+
+.spinner {
+  border: 4px solid $bg-gray;
+  border-top: 4px solid $primary;
+  border-radius: 50%;
+  width: 30px;
+  height: 30px;
+  animation: spin 1s linear infinite;
+  margin: 0 auto 10px;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.stats {
+  background: $bg-light;
+  padding: 15px;
+  border-radius: $border-radius-sm;
+  margin-bottom: 20px;
+  display: none;
+
+  &.active {
+    display: block;
+  }
+}
+
+.dataset-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 15px;
+}
+
+.dataset-item {
+  border: 1px solid $border-light;
+  border-radius: $border-radius-md;
+  padding: 15px;
+  cursor: pointer;
+  transition: $transition;
+
+  &:hover {
+    border-color: $primary;
+    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.1);
+    transform: translateY(-2px);
+  }
+}
+
+.dataset-title {
+  font-weight: 600;
+  color: $text-dark;
+  margin-bottom: 8px;
+  font-size: 0.95em;
+}
+
+.dataset-url {
+  color: $primary;
+  font-size: 0.85em;
+  word-break: break-all;
+  opacity: 0.8;
+}
+
+.download-links {
+  margin-top: 20px;
+  border-top: 2px solid $border-light;
+  padding-top: 20px;
+}
+
+.download-item {
+  background: $bg-light;
+  border: 1px solid $border-light;
+  border-radius: $border-radius-sm;
+  padding: 12px;
+  margin-bottom: 10px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+
+  a {
+    color: $primary;
+    text-decoration: none;
+    word-break: break-all;
+    flex: 1;
+    font-size: 0.9em;
+
+    &:hover {
+      text-decoration: underline;
+    }
+  }
+}
+
+.download-icon {
+  flex-shrink: 0;
+}
+
+.modal {
+  display: none;
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 1000;
+  overflow: auto;
+
+  &.active {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+}
+
+.modal-content {
+  background: white;
+  border-radius: $border-radius-lg;
+  max-width: 800px;
+  max-height: 90vh;
+  overflow: auto;
+  padding: 30px;
+  position: relative;
+}
+
+.close-btn {
+  position: absolute;
+  top: 15px;
+  right: 15px;
+  background: $bg-gray;
+  border: none;
+  border-radius: 50%;
+  width: 40px;
+  height: 40px;
+  cursor: pointer;
+  font-size: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  &:hover {
+    background: $border-light;
+  }
+}
+
+.modal-title {
+  font-size: 1.5em;
+  font-weight: 600;
+  margin-bottom: 20px;
+  padding-right: 40px;
+}
+
+.empty-state {
+  text-align: center;
+  padding: 40px 20px;
+  color: $text-light;
+}
+
+.empty-state-icon {
+  font-size: 3em;
+  margin-bottom: 10px;
+}
