@@ -75,6 +75,9 @@ async function exec(info) {
         let inExec = true, success = false; left.selectAll(".card").attr("disabled", true);
         let p = logger.title(name, description); p.style("position","sticky").style("top","10px").style("zindex",1)
         link && p.style("cursor", "pointer").on("click", () => open(link, "_link_"));
+        const cacheKey = typeof target === 'string' ? target
+            : (target instanceof File ? `FILE::${target.name}::${target.size}::${target.lastModified}` : null);
+        const cached = cacheKey && !nocache && hubCache && await hubCache(cacheKey).catch(() => null);
         p = logger.log(`Requesting: ${target.name || target} <span class="cancel">cancel</span>`)
         const cancel = p.select("span").hide().on("click", () => location.reload());
         setTimeout(() => inExec && cancel.show(),1000);
@@ -82,8 +85,6 @@ async function exec(info) {
         if (pbf && pbf.length) { success = true;
             logger.success(`${name} (length: ${comma(pbf.size)})`);
             p = logger.empty();
-            const cacheKey = typeof target === 'string' ? target : null;
-            const cached = cacheKey && !nocache && hubCache && await hubCache(cacheKey).catch(() => null);
             if (cached?.PREVIEW && cached?.PROFILE) {
                 const bitmap = await createImageBitmap(cached.PREVIEW);
                 const cv = p.append("canvas").node();
