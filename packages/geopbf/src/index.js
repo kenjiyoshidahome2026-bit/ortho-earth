@@ -53,6 +53,13 @@ export async function geopbf(data, options = {}) { if (isString(options)) option
                 const GINT = new Uint8Array(pbf._gintBuffer).slice().buffer;
                 server.cache(data, { PBF: pbf.arrayBuffer, GINT }).catch(console.error);
             }
+        } else if (isFile(data) && !pbf._fileKey) {
+            const server = await getServer().catch(() => null);
+            if (server && options.nocache !== true) {
+                const fileKey = `FILE::${data.name}::${data.size}::${data.lastModified}`;
+                const GINT = new Uint8Array(pbf._gintBuffer).slice().buffer;
+                server.cache(fileKey, { PBF: pbf.arrayBuffer, GINT }).catch(console.error);
+            }
         }
         await pbf.fileSize();
         return pbf;
@@ -66,6 +73,19 @@ export async function geopbf(data, options = {}) { if (isString(options)) option
             if (await isGzip(q)) return _geopbf(await gunzip(q));
             const name = q.name;
             options.name = options.name || name.replace(/\.[^\.]+$/, "");
+            const fileKey = `FILE::${q.name}::${q.size}::${q.lastModified}`;
+            if (options.nocache !== true) {
+                const server = await getServer().catch(() => null);
+                if (server) {
+                    const val = await server.cache(fileKey).catch(() => null);
+                    if (val?.PBF) {
+                        const pbf = await new GeoPBF(options).set(val.PBF);
+                        val.GINT && await pbf.setGintBUF(val.GINT);
+                        pbf._fileKey = fileKey;
+                        return pbf;
+                    }
+                }
+            }
             if (name.match(/\.(geo)?pbf$/i)) return _geopbf(await q.arrayBuffer());
             if (name.match(/\.geojson$/i)) return _geopbf(await decoder("json", q));
             if (name.match(/\.(topo)?json$/i)) return _geopbf(await file2json(q));
