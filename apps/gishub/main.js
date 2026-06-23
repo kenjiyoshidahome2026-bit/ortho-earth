@@ -53,15 +53,21 @@ const tables = main.append("div").attr("class","tables").hide();
 
 const fname = s => s.split('/').pop().split('?')[0].replace(/\..+$/i, '');
 const uploads = main.append("div").attr("class", "uploads").dropFile(f=>exec({name:fname(f.name), target:f, description:"dropped file"}));
-uploads.append("p").text(`GIS-HUB is a next-generation, high-performance web GIS station powered by an in-memory binary engine (GeoPBF) and WebGL2 rendering (ortho-map).
- It effortlessly unifies heavy open data into a fluid, zero-latency 3D map inside your browser.`);
-uploads.append("h2").text("🔬 Quick Start Guide");
+uploads.append("p").html(
+    `GIS-HUB is a universal GIS workstation that runs entirely in your browser — no server, no install, no LOD pyramid. ` +
+    `One file at full resolution is all it needs. ` +
+    `The in-memory engine (<b>GeoPBF</b>) builds a spatial index on load; ` +
+    `the WebGL2 renderer (<b>ortho-map</b>) applies dynamic LOD and stencil-tessellation at draw time, ` +
+    `delivering fluid 3D navigation from global to street scale. ` +
+    `Once loaded, data is cached to IndexedDB — every subsequent visit is instant.`
+);
+uploads.append("h2").text("Quick Start");
 uploads.append("ul").html(`
-    <li><b>Explore Catalog: </b>Click sidebar cards to fetch open data on the fly.</li>
-    <li><b>Bring Data: </b>Drag & drop a file, double-click to browse, or enter a URL.</li>
-    <li><b>On-the-fly zip extraction: </b>zip-url#file-name is available.</li>
-    <li><b>Visualize: </b>Click "View in Ortho-Map" for a buttery-smooth WebGL2 experience.</li>
-    <li><b>Convert: </b>Export seamlessly to FlatGeobuf, GeoPBF, or traditional GIS formats.</li>
+    <li><b>Catalog: </b>Click a sidebar card — data is fetched, decoded, and rendered on the fly. Any format, any source.</li>
+    <li><b>Drop a file: </b>SHP (ZIP), GeoJSON, FlatGeobuf, GML, KMZ, GPX, or GeoPBF — drag, drop, done.</li>
+    <li><b>Paste a URL: </b>Direct links and <code>zip-url#inner-file</code> syntax both work.</li>
+    <li><b>View in Ortho-Map: </b>One click for WebGL2 3D — pan, zoom, rotate at 60 fps.</li>
+    <li><b>Export: </b>GeoPBF · FlatGeobuf · GeoJSON · TopoJSON · Shapefile · GML · KMZ · GPX.</li>
 `);
 uploads.append("img").attr("src", "gishub.svg");
 uploads.append("input").attr("type","text").attr("placeholder", `"Enter URL" or "Drag & drop a file" or "Double-click to select file."`)
