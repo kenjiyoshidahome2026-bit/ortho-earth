@@ -68,8 +68,10 @@ export function buildEdgeMeta(arcMeta, polyStream, lineStream) {
             const fid = polyStream[p], eStart = j >> 2;
             while (p < polyStream.length && polyStream[p] === fid) {
                 p++; const numRings = polyStream[p++];
-                for (let r = 0; r < numRings; r++) { const ac = polyStream[p++];
-                    for (let a = 0; a < ac; a++) addArc(polyStream[p++], 0, fid); }
+                for (let r = 0; r < numRings; r++) {
+                    const ac = polyStream[p++];
+                    for (let a = 0; a < ac; a++) addArc(polyStream[p++], 0, fid);
+                }
             }
             polyEdgeByFid.set(fid, [eStart, (j >> 2) - eStart]);
         }

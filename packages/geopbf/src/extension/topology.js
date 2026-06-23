@@ -3,6 +3,25 @@ import { gint } from "./gint.js";
 
 topology.FORMAT_VERSION = 1;
 
+// V8 Map 上限（~16M エントリ）対策：キーを複数バケットに分散する Map ラッパー
+class BigMap {
+    constructor(bucketCount = 64) {
+        this.bucketCount = bucketCount;
+        this.buckets = Array.from({ length: bucketCount }, () => new Map());
+    }
+    _idx(key) {
+        // aKey は (min<<96n)|(max<<32n)|len 形式 → bit32 以上に Morton コードが入る
+        // key & (n-1) だと len の下位ビットに偏るため >> 32n でシフトして均等分散
+        return typeof key === 'bigint'
+            ? Number((key >> 32n) & BigInt(this.bucketCount - 1))
+            : key & (this.bucketCount - 1);
+    }
+    has(key) { return this.buckets[this._idx(key)].has(key); }
+    get(key) { return this.buckets[this._idx(key)].get(key); }
+    set(key, val) { this.buckets[this._idx(key)].set(key, val); return this; }
+    clear() { this.buckets.forEach(b => b.clear()); }
+}
+
 export function topology(self) {
 	const { pbf, e } = self;
 	const structures = [[], [], []];
@@ -379,7 +398,7 @@ function purifier(topo) { if (!topo || !topo.length) return 0;
 }
 function cutPolyline(topo, n_poly) {
 	const buffs = [];
-	let hash = new Map(), aHash = new Map();
+	let hash = new Map(), aHash = new BigMap(64);
 	topo.forEach(setHash);
 	topo.forEach(setEdge);
 	hash.clear(); aHash.clear(); hash = null; aHash = null;
@@ -447,7 +466,7 @@ function buildPolygons(topo) { if (!topo.length) return null;
 }
 function cutPolygon(topo) {
 	const buffs = [];
-	let hash = new Map(), aHash = new Map();
+	let hash = new Map(), aHash = new BigMap(64);
 	let totalVerts = 0;
 	for (const q of topo) for (const ring of q.coords) totalVerts += ring.length;
 	const CHUNK = 4_000_000; // V8 Map 上限(2^24=16.7M)の25%に余裕を持たせた値
