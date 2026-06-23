@@ -208,7 +208,7 @@
   },
   {
     "name": "tl_2024_us_zcta520",
-    "description": "US ZIP Code Tabulation Areas (large dataset)",
+    "description": "US ZIP Code Tabulation Areas (only for high-spec PC)",
     "target": "https://www2.census.gov/geo/tiger/TIGER2024/ZCTA520/tl_2024_us_zcta520.zip",
     "link": "https://www.census.gov/geographies/mapping-files/time-series/geo/tiger-line-file.html",
     "attribution": "US Census Bureau | TIGER 2024",
