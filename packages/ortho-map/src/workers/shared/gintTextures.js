@@ -4,6 +4,7 @@
 import { s } from './gintState.js';
 import { uploadTex2D, buildEdgeMeta, buildPolyBboxByFid } from './gintUtility.js';
 
+
 export function uploadGintTextures() {
     const { gl, gintData } = s;
     if (!gl || !gintData) return;
@@ -26,6 +27,7 @@ export function uploadGintTextures() {
     const { metaU32, edgeCount, polyEdgeByFid } = buildEdgeMeta(am, ps, ls);
     s.totalEdges    = edgeCount;
     s.polyEdgeByFid = polyEdgeByFid;
+    console.debug('[gint] edges=%d', edgeCount);
     s.polyBboxByFid = buildPolyBboxByFid(ps, am);
     if (s.totalEdges > 0) {
         const metaH   = Math.ceil(s.totalEdges / s.TEX_META_W);

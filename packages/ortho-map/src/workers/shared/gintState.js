@@ -29,6 +29,7 @@ export const s = {
     lastViewBbox: null,
     lastProj: null, lastMX: NaN, lastMY: NaN,
     _isDrawing: false, _moveTimer: null, _pendingMove: null,
+
 };
 
 // ── スタイルデフォルト ─────────────────────────────────────────────────────────

@@ -32,7 +32,7 @@ function init(data) {
 
     s.TEX_ARC_W  = Math.min(s.TEX_ARC_W,  s.gl.getParameter(s.gl.MAX_TEXTURE_SIZE));
     s.TEX_META_W = Math.min(s.TEX_META_W, s.gl.getParameter(s.gl.MAX_TEXTURE_SIZE));
-    s.programs = createGintPrograms(s.gl);
+    s.programs   = createGintPrograms(s.gl);
 
     s.canvas.addEventListener('webglcontextlost', e => {
         e.preventDefault();
@@ -44,7 +44,7 @@ function init(data) {
     }, false);
 
     s.canvas.addEventListener('webglcontextrestored', () => {
-        s.programs = createGintPrograms(s.gl);
+        s.programs   = createGintPrograms(s.gl);
         createFBOs();
         uploadGintTextures();
         postMessage({ action: "redraw" });

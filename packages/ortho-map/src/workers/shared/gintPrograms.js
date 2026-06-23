@@ -62,7 +62,8 @@ uvec4 fetchEdgeMeta(int edge_id) {
 `;
 
 // sub=0 → NDC origin (fan pivot); sub=1 → vertex A; sub=2 → vertex B.
-// Back-hemisphere verts collapse to origin → degenerate triangle.
+// Back-hemisphere verts are clipped to the horizon (same as VS_RENDER).
+// Both-back edges collapse to origin → degenerate triangle (zero area, safe).
 const VS_STENCIL = `${GLSL_VS_HEADER}
 void main() {
     int edge_id = gl_VertexID / 3;
@@ -70,7 +71,15 @@ void main() {
     if (sub == 0) { gl_Position = vec4(0.0, 0.0, 0.0, 1.0); return; }
     uvec4 meta = fetchEdgeMeta(edge_id);
     vec3  p    = fetchProject(sub == 1 ? meta.r : meta.g);
-    if (p.z < 0.0) { gl_Position = vec4(0.0, 0.0, 0.0, 1.0); return; }
+    if (p.z < 0.0) {
+        // 裏面頂点 → 自身の方向で地平線円（半径 u_scale）上に押し出す
+        vec2 v = p.xy - u_viewport * 0.5;
+        float d = length(v);
+        gl_Position = d < 1e-4
+            ? vec4(0.0, 0.0, 0.0, 1.0)
+            : toNDC(u_viewport * 0.5 + v * (u_scale / d));
+        return;
+    }
     gl_Position = toNDC(p.xy);
 }`;
 
@@ -85,7 +94,14 @@ void main() {
     uvec4 meta = fetchEdgeMeta(edge_id);
     v_feat_id  = int(meta.a);
     vec3  p    = fetchProject(sub == 1 ? meta.r : meta.g);
-    if (p.z < 0.0) { gl_Position = vec4(0.0, 0.0, 0.0, 1.0); return; }
+    if (p.z < 0.0) {
+        vec2 v = p.xy - u_viewport * 0.5;
+        float d = length(v);
+        gl_Position = d < 1e-4
+            ? vec4(0.0, 0.0, 0.0, 1.0)
+            : toNDC(u_viewport * 0.5 + v * (u_scale / d));
+        return;
+    }
     gl_Position = toNDC(p.xy);
 }`;
 
@@ -423,6 +439,7 @@ export function createGintPrograms(gl) {
              pointProgram, pickLineProgram, pickPointProgram,
              uRender, uStencil, uFill, uMaskStencil, uPoint, uPickLine, uPickPoint, emptyVAO };
 }
+
 
 function compileShader(gl, type, src) {
     const s = gl.createShader(type);
