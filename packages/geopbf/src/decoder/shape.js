@@ -105,35 +105,43 @@ class SHP {
 	}
 }
 onmessage = async (e) => {
-	const { file, encoding, precision } = e.data, name = file.name;
-	const entries = await decodeZIP(file);
-	const keySet = new Set();
-	const shpFiles = entries.filter(t => t.name.match(/\.shp$/i));
-	const dbs = await Promise.all(shpFiles.map(async f => {
-		const base = f.name.replace(/\.shp$/i, "");
-		const dbfFile = entries.find(t => t.name === base + ".dbf");
-		const cpgFile = entries.find(t => t.name === base + ".cpg");
-		if (!dbfFile) return null;
-		const shpBuf = new Uint8Array(await f.arrayBuffer());
-		const dbfBuf = new Uint8Array(await dbfFile.arrayBuffer());
-		const enc = (cpgFile ? await cpgFile.text() : (dbfBuf[29] === 0x13 ? 'sjis' : encoding)).trim();
-		const dbf = new DBF(dbfBuf, enc);
-		dbf.fields.forEach(field => keySet.add(field.name)); // プロパティ名を全収集
-		return [new SHP(shpBuf), dbf];
-	}));
-	const pbf = new GeoPBF({ name, precision });
-	pbf.setHead(Array.from(keySet).sort());
-	pbf.setBody(() => {
-		dbs.filter(t => t).forEach(([shp, dbf]) => {
-			while (1) {
-				const s = shp.read(), d = dbf.read();
-				if (!s || !d) break;
-				pbf.setFeature({ type: "Feature", geometry: s, properties: d });
-			}
+	try {
+		const { file, encoding, precision } = e.data;
+		const name = file.name.replace(/\.[^\.]+$/, "");
+		const entries = await decodeZIP(file);
+		if (!entries) { postMessage(null); return; }
+		const keySet = new Set();
+		const shpFiles = entries.filter(t => t.name.match(/\.shp$/i));
+		const dbs = await Promise.all(shpFiles.map(async f => {
+			const base = f.name.replace(/\.shp$/i, "");
+			const dbfFile = entries.find(t => t.name === base + ".dbf");
+			const cpgFile = entries.find(t => t.name === base + ".cpg");
+			if (!dbfFile) return null;
+			const shpBuf = new Uint8Array(await f.arrayBuffer());
+			const dbfBuf = new Uint8Array(await dbfFile.arrayBuffer());
+			const enc = (cpgFile ? await cpgFile.text() : (dbfBuf[29] === 0x13 ? 'sjis' : encoding)).trim();
+			const dbf = new DBF(dbfBuf, enc);
+			dbf.fields.forEach(field => keySet.add(field.name));
+			return [new SHP(shpBuf), dbf];
+		}));
+		const pbf = new GeoPBF({ name, precision });
+		pbf.setHead(Array.from(keySet).sort());
+		pbf.setBody(() => {
+			dbs.filter(t => t).forEach(([shp, dbf]) => {
+				while (1) {
+					const s = shp.read(), d = dbf.read();
+					if (!s || !d) break;
+					pbf.setFeature({ type: "Feature", geometry: s, properties: d });
+				}
+			});
 		});
-	});
-	pbf.close();
-	await dissolve(pbf);
-	const res = pbf.arrayBuffer;
-	postMessage({ type: "shpdec", data: res }, [res]);
+		pbf.close();
+		await pbf.getPosition();
+		await dissolve(pbf);
+		const res = pbf.arrayBuffer;
+		postMessage({ type: "shpdec", data: res }, [res]);
+	} catch (err) {
+		console.error("[shape decoder]", err);
+		postMessage(null);
+	}
 };

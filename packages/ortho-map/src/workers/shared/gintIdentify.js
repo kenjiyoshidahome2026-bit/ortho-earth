@@ -22,7 +22,10 @@ export function doIdentify(data) {
     let featureId = fid1 === 0 ? null : fid1 - 1;
 
     // GPU ヒットなし → JS ポリゴン内包判定にフォールバック
-    if (fid1 === 0 && s.gintData?.polyStream && s.lastViewBbox) {
+    // viewBbox=null でも findPolygon は動作する（早期棄却がスキップされるだけ）
+    // 小縮尺では globe が小さくすべてのコーナー点が globe 外になり lastViewBbox=null となるが
+    // その状態でも JS フォールバックを実行する必要がある
+    if (fid1 === 0 && s.gintData?.polyStream) {
         const geo = s.lastProj?.invert([data.x, data.y]);
         if (geo) {
             const SE = 1e7;

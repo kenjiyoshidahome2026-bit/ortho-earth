@@ -11,6 +11,11 @@
   },
   "dependencies": {
     "adm-zip": "^0.5.17",
+    "shapefile": "^0.6.6",
     "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "sass": "^1.101.0",
+    "vite": "^8.0.16"
   }
 }

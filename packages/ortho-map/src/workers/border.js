@@ -1,6 +1,5 @@
 import { geoPath, geoOrthographic, geoGraticule10 } from 'd3-geo';
 import { comma, dateArray, timeArray, L2, isObject } from "common";
-import { geopbf } from "geopbf";
 
 const accessories = {
 	borders: { minZoom: 2, maxZoom: 7, graticule: true, border: true, maritime: true, geolines: true },
@@ -41,8 +40,8 @@ async function set(data) {
 		return postMessage({ type: data.type, action: "done" });
 	}
 	if (data.data != "options") return postMessage({ type: data.type, action: "failed" });
-	// rawBuffers[0]=ne_110m_land（globe用）、rawBuffers[1]=stars.6、rawBuffers[2]=constellation_lines（任意）
-	if (data.rawBuffers && !jsons) jsons = await Promise.all(data.rawBuffers.map(async t => t?.byteLength ? (await geopbf(t,{gint:false})).geojson : null));
+	// geojsons[0]=ne_110m_land（globe用）、geojsons[1]=stars.6、geojsons[2]=constellation_lines（任意）
+	if (data.geojsons && !jsons) jsons = data.geojsons;
 	const opts = data.prop || {};
 	const lang = opts.lang || "en";
 	for (let i in accessories) {

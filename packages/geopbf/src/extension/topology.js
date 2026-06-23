@@ -242,6 +242,11 @@ function buildPolylines(topo, n_poly = 0, vertexOffset = 0) { if (!topo.length) 
 	return buildArcs(buffs, meta, vertexOffset);
 }
 function purifier(topo) { if (!topo || !topo.length) return 0;
+	// checkedPairs Set が V8 上限を超えないよう、大規模データはスキップ
+	// Census/OSM 等のソースデータは既にトポロジーが整合しており修正不要
+	let totalSegs = 0;
+	for (const line of topo) totalSegs += line.coords.length - 1;
+	if (totalSegs > 80000) return 0;
 	const GRID_SHIFT = 16;
 	const SNAP_DIST_SQ = 125n; // 11cm
 	const GRID_UNIT = 10n;     // 10cm格子
@@ -443,8 +448,25 @@ function buildPolygons(topo) { if (!topo.length) return null;
 function cutPolygon(topo) {
 	const buffs = [];
 	let hash = new Map(), aHash = new Map();
-	topo.forEach(setHash);
-	topo.forEach(setEdge);
+	let totalVerts = 0;
+	for (const q of topo) for (const ring of q.coords) totalVerts += ring.length;
+	const CHUNK = 4_000_000; // V8 Map 上限(2^24=16.7M)の25%に余裕を持たせた値
+	if (totalVerts <= CHUNK) {
+		topo.forEach(setHash);
+		topo.forEach(setEdge);
+	} else {
+		// Morton コードでソートして空間的に近いポリゴンを同じチャンクに集める
+		// → チャンク内の隣接ポリゴン間の共有辺を検出できる（チャンク境界をまたぐ数%は独立 arc になる）
+		topo.sort((a, b) => { const va = a.coords[0]?.[0] ?? 0n, vb = b.coords[0]?.[0] ?? 0n; return va < vb ? -1 : va > vb ? 1 : 0; });
+		for (let i = 0; i < topo.length;) {
+			let cv = 0, j = i;
+			while (j < topo.length && cv < CHUNK) { for (const ring of topo[j].coords) cv += ring.length; j++; }
+			hash = new Map(); // チャンクごとにリセット（aHash は全チャンク共通で弧の重複登録を防ぐ）
+			topo.slice(i, j).forEach(setHash);
+			topo.slice(i, j).forEach(setEdge);
+			i = j;
+		}
+	}
 	hash.clear(); aHash.clear(); hash = null; aHash = null;
 	return buffs;
 	function setHash(q) { q.coords.forEach(t => t.forEach(t => hash.set(t, (hash.get(t) || 0) + 1))); }

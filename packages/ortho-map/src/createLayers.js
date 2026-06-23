@@ -27,8 +27,8 @@ async function getBorderRawBuffers() {
     const optionalOverlayNames = ["constellation_lines", "messier"];
     const [geo, required, optional] = await Promise.all([
         Promise.all(geoNames.map(name => geopbf(name).then(r => r.unPackGint))),
-        Promise.all(overlayNames.map(name => geopbf(name, {gint:false}).then(r => r.arrayBuffer))),
-        Promise.all(optionalOverlayNames.map(name => geopbf(name, {gint:false}).then(r => r.arrayBuffer).catch(() => new ArrayBuffer(0)))),
+        Promise.all(overlayNames.map(name => geopbf(name, {gint:false}).then(r => r.geojson).catch(() => null))),
+        Promise.all(optionalOverlayNames.map(name => geopbf(name, {gint:false}).then(r => r.geojson).catch(() => null))),
     ]);
     const overlay = [...required, ...optional];
     borderRawBuffers = { geo, overlay };
@@ -62,7 +62,7 @@ export async function createLayers(map, opts) {
     const param = opts.accessories || {}; param.lang = map.lang;
     getBorderRawBuffers().then(({ geo, overlay }) => {
         borderGLLayer.set("gint", { gintDataList: geo, styles: BORDER_GL_STYLES, minZoom: 2, maxZoom: 7 });
-        borderLayer.set("set", "options", { ...param, rawBuffers: overlay });
+        borderLayer.set("set", "options", { ...param, geojsons: overlay });
     });
 ////--------------------------------------------------------------------------
     async function setBase(map, name) {
@@ -206,6 +206,9 @@ async function createRemoteLayer(param = {}) {
             } else if (prop?.rawBuffers) {
                 const { rawBuffers, ...rest } = prop;
                 worker.postMessage({ type: "set", cmd, data, prop: rest, rawBuffers }, rawBuffers);
+            } else if (prop?.geojsons) {
+                const { geojsons, ...rest } = prop;
+                worker.postMessage({ type: "set", cmd, data, prop: rest, geojsons });
             } else {
                 worker.postMessage({ type: "set", cmd, data, prop });
                 (cmd === "base") && map.trigger("LoadStart", data);

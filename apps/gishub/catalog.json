@@ -1,68 +1,218 @@
-[{
-	"name": "N03-20260101",
-	"description": "行政区域データ(市区町村:2026)",
-	"target": "https://nlftp.mlit.go.jp/ksj/gml/data/N03/N03-2026/N03-20260101_GML.zip#N03-20260101.geojson",
-	"link": "https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-N03-2026.html",
-	"attribution": "国土交通省 国土数値情報",
-	"license": "CC_BY_4.0",
-	"precision": 7
-},{
-	"name": "N03-20260101_01",
-	"description": "行政区域データ(北海道:2026)",
-	"target": "https://nlftp.mlit.go.jp/ksj/gml/data/N03/N03-2026/N03-20260101_01_GML.zip#N03-20260101_01.geojson",
-	"link": "https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-N03-2026.html",
-	"attribution": "国土交通省 国土数値情報",
-	"license": "CC_BY_4.0",
-	"precision": 7
-},{
-	"name": "N03-20260101_prefecture",
-	"description": "行政区域データ(都道府県:2026)",
-	"target": "https://nlftp.mlit.go.jp/ksj/gml/data/N03/N03-2026/N03-20260101_GML.zip#N03-20260101_prefecture.geojson",
-	"link": "https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-N03-2026.html",
-	"attribution":"国土交通省 国土数値情報",
-	"license": "CC_BY_4.0"
-},{
-	"name": "N02-25_RailroadSection",
-	"description": "鉄道データ(線路:2025)",
-	"target": "https://nlftp.mlit.go.jp/ksj/gml/data/N02/N02-25/N02-25_GML.zip#N02-25_GML/UTF-8/N02-25_RailroadSection.geojson",
-	"link": "https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-N02-2025.html",
-	"attribution":"国土交通省 国土数値情報",
-	"license": "CC_BY_4.0"
-},{
-	"name": "N02-25_Station",
-	"description": "鉄道データ(駅:2025)",
-	"target": "https://nlftp.mlit.go.jp/ksj/gml/data/N02/N02-25/N02-25_GML.zip#N02-25_GML/UTF-8/N02-25_Station.geojson",
-	"link": "https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-N02-2025.html",
-	"attribution":"国土交通省 国土数値情報",
-	"license": "CC_BY_4.0"
-},{
-	"name": "P28-22",
-	"description": "国・都道府県の機関",
-	"target": "https://nlftp.mlit.go.jp/ksj/gml/data/P28/P28-22/P28-22.zip#P28-22.geojson",
-	"link": "https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-P28-2022.html",
-	"attribution": "国土交通省 国土数値情報",
-	"license": "非商用"
-},{
-	"name": "A45-19_01",
-	"description": "国有林野データ(北海道:2018)",
-	"target": "https://nlftp.mlit.go.jp/ksj/gml/data/A45/A45-19/A45-19_01_GML.zip#A45-19_01.geojson",
-	"link": "https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-A45.html",
-	"attribution":"国土交通省 国土数値情報",
-	"license": "CC_BY_4.0"
-},{
-	"name": "04101__10_r_2025",
-	"description": "04101_仙台市青葉区_公共座標10系_筆R_2025",
-	"target": "https://www.geospatial.jp/ckan/dataset/3a2ad3da-af5d-4edd-85dc-4cfe29865fbe/resource/e8936e86-0d81-44e0-a51b-4eb04fb511d0/download/04101__10_r_2025.geojson",
-	"link": "https://www.geospatial.jp/ckan/dataset/aigid-moj-04101",
-	"attribution": "G空間情報センター",
-	"license": "CC_BY_4.0",
-	"precision": 7
-},{
-	"name": "07204__9_r_2025",
-	"description": "07204_いわき市_公共座標9系_筆R_2025",
-	"target": "https://www.geospatial.jp/ckan/dataset/3c0b79e3-f903-4eeb-8d55-6bddf9250834/resource/6e557bbd-5f2c-45e2-8ff5-5d23398b04af/download/07204__9_r_2025.geojson",
-	"link": "https://www.geospatial.jp/ckan/dataset/aigid-moj-07204",
-	"attribution": "G空間情報センター",
-	"license": "CC_BY_4.0",
-	"precision": 7
-}]
+[
+  {
+    "name": "ne_10m_admin_0_countries",
+    "description": "World Countries (1:10m)",
+    "target": "https://naturalearth.s3.amazonaws.com/10m_cultural/ne_10m_admin_0_countries.zip",
+    "link": "https://www.naturalearthdata.com/downloads/10m-cultural-vectors/10m-admin-0-countries/",
+    "attribution": "Natural Earth | Cultural",
+    "license": "Public Domain",
+    "precision": 5
+  },
+  {
+    "name": "ne_10m_admin_1_states_provinces",
+    "description": "States & Provinces (1:10m)",
+    "target": "https://naturalearth.s3.amazonaws.com/10m_cultural/ne_10m_admin_1_states_provinces.zip",
+    "link": "https://www.naturalearthdata.com/downloads/10m-cultural-vectors/10m-admin-1-states-provinces/",
+    "attribution": "Natural Earth | Cultural",
+    "license": "Public Domain",
+    "precision": 5
+  },
+  {
+    "name": "ne_10m_admin_2_counties_lakes",
+    "description": "US Counties & World Admin-2 (1:10m)",
+    "target": "https://naturalearth.s3.amazonaws.com/10m_cultural/ne_10m_admin_2_counties_lakes.zip",
+    "link": "https://www.naturalearthdata.com/downloads/10m-cultural-vectors/10m-admin-2-counties/",
+    "attribution": "Natural Earth | Cultural",
+    "license": "Public Domain",
+    "precision": 5
+  },
+  {
+    "name": "ne_10m_populated_places",
+    "description": "Populated Places (1:10m)",
+    "target": "https://naturalearth.s3.amazonaws.com/10m_cultural/ne_10m_populated_places.zip",
+    "link": "https://www.naturalearthdata.com/downloads/10m-cultural-vectors/10m-populated-places/",
+    "attribution": "Natural Earth | Cultural",
+    "license": "Public Domain",
+    "precision": 5
+  },
+  {
+    "name": "ne_10m_urban_areas",
+    "description": "Urban Areas (1:10m)",
+    "target": "https://naturalearth.s3.amazonaws.com/10m_cultural/ne_10m_urban_areas.zip",
+    "link": "https://www.naturalearthdata.com/downloads/10m-cultural-vectors/10m-urban-area/",
+    "attribution": "Natural Earth | Cultural",
+    "license": "Public Domain",
+    "precision": 5
+  },
+  {
+    "name": "ne_10m_airports",
+    "description": "Airports (1:10m)",
+    "target": "https://naturalearth.s3.amazonaws.com/10m_cultural/ne_10m_airports.zip",
+    "link": "https://www.naturalearthdata.com/downloads/10m-cultural-vectors/10m-airports/",
+    "attribution": "Natural Earth | Cultural",
+    "license": "Public Domain",
+    "precision": 5
+  },
+  {
+    "name": "ne_10m_ports",
+    "description": "Ports (1:10m)",
+    "target": "https://naturalearth.s3.amazonaws.com/10m_cultural/ne_10m_ports.zip",
+    "link": "https://www.naturalearthdata.com/downloads/10m-cultural-vectors/10m-ports/",
+    "attribution": "Natural Earth | Cultural",
+    "license": "Public Domain",
+    "precision": 5
+  },
+  {
+    "name": "ne_10m_roads",
+    "description": "Roads (1:10m)",
+    "target": "https://naturalearth.s3.amazonaws.com/10m_cultural/ne_10m_roads.zip",
+    "link": "https://www.naturalearthdata.com/downloads/10m-cultural-vectors/10m-roads/",
+    "attribution": "Natural Earth | Cultural",
+    "license": "Public Domain",
+    "precision": 5
+  },
+  {
+    "name": "ne_10m_railroads",
+    "description": "Railroads (1:10m)",
+    "target": "https://naturalearth.s3.amazonaws.com/10m_cultural/ne_10m_railroads.zip",
+    "link": "https://www.naturalearthdata.com/downloads/10m-cultural-vectors/10m-railroads/",
+    "attribution": "Natural Earth | Cultural",
+    "license": "Public Domain",
+    "precision": 5
+  },
+  {
+    "name": "ne_10m_land",
+    "description": "Land Polygons (1:10m)",
+    "target": "https://naturalearth.s3.amazonaws.com/10m_physical/ne_10m_land.zip",
+    "link": "https://www.naturalearthdata.com/downloads/10m-physical-vectors/10m-land/",
+    "attribution": "Natural Earth | Physical",
+    "license": "Public Domain",
+    "precision": 5
+  },
+  {
+    "name": "ne_10m_ocean",
+    "description": "Ocean (1:10m)",
+    "target": "https://naturalearth.s3.amazonaws.com/10m_physical/ne_10m_ocean.zip",
+    "link": "https://www.naturalearthdata.com/downloads/10m-physical-vectors/10m-ocean/",
+    "attribution": "Natural Earth | Physical",
+    "license": "Public Domain",
+    "precision": 5
+  },
+  {
+    "name": "ne_10m_coastline",
+    "description": "Coastline (1:10m)",
+    "target": "https://naturalearth.s3.amazonaws.com/10m_physical/ne_10m_coastline.zip",
+    "link": "https://www.naturalearthdata.com/downloads/10m-physical-vectors/10m-coastline/",
+    "attribution": "Natural Earth | Physical",
+    "license": "Public Domain",
+    "precision": 5
+  },
+  {
+    "name": "ne_10m_rivers_lake_centerlines",
+    "description": "Rivers + Lake Centerlines (1:10m)",
+    "target": "https://naturalearth.s3.amazonaws.com/10m_physical/ne_10m_rivers_lake_centerlines.zip",
+    "link": "https://www.naturalearthdata.com/downloads/10m-physical-vectors/10m-rivers-lake-centerlines/",
+    "attribution": "Natural Earth | Physical",
+    "license": "Public Domain",
+    "precision": 5
+  },
+  {
+    "name": "ne_10m_lakes",
+    "description": "Lakes (1:10m)",
+    "target": "https://naturalearth.s3.amazonaws.com/10m_physical/ne_10m_lakes.zip",
+    "link": "https://www.naturalearthdata.com/downloads/10m-physical-vectors/10m-lakes/",
+    "attribution": "Natural Earth | Physical",
+    "license": "Public Domain",
+    "precision": 5
+  },
+  {
+    "name": "ne_10m_glaciated_areas",
+    "description": "Glaciated Areas (1:10m)",
+    "target": "https://naturalearth.s3.amazonaws.com/10m_physical/ne_10m_glaciated_areas.zip",
+    "link": "https://www.naturalearthdata.com/downloads/10m-physical-vectors/10m-glaciated-areas/",
+    "attribution": "Natural Earth | Physical",
+    "license": "Public Domain",
+    "precision": 5
+  },
+  {
+    "name": "ne_10m_geography_marine_polys",
+    "description": "Marine Areas (1:10m)",
+    "target": "https://naturalearth.s3.amazonaws.com/10m_physical/ne_10m_geography_marine_polys.zip",
+    "link": "https://www.naturalearthdata.com/downloads/10m-physical-vectors/10m-physical-labels/",
+    "attribution": "Natural Earth | Physical",
+    "license": "Public Domain",
+    "precision": 5
+  },
+  {
+    "name": "tl_2024_us_state",
+    "description": "US State Boundaries",
+    "target": "https://www2.census.gov/geo/tiger/TIGER2024/STATE/tl_2024_us_state.zip",
+    "link": "https://www.census.gov/geographies/mapping-files/time-series/geo/tiger-line-file.html",
+    "attribution": "US Census Bureau | TIGER 2024",
+    "license": "Public Domain",
+    "precision": 6
+  },
+  {
+    "name": "tl_2024_us_county",
+    "description": "US County Boundaries",
+    "target": "https://www2.census.gov/geo/tiger/TIGER2024/COUNTY/tl_2024_us_county.zip",
+    "link": "https://www.census.gov/geographies/mapping-files/time-series/geo/tiger-line-file.html",
+    "attribution": "US Census Bureau | TIGER 2024",
+    "license": "Public Domain",
+    "precision": 6
+  },
+  {
+    "name": "tl_2024_us_place",
+    "description": "US Cities & Towns (Incorporated Places)",
+    "target": "https://www2.census.gov/geo/tiger/TIGER2024/PLACE/tl_2024_us_place.zip",
+    "link": "https://www.census.gov/geographies/mapping-files/time-series/geo/tiger-line-file.html",
+    "attribution": "US Census Bureau | TIGER 2024",
+    "license": "Public Domain",
+    "precision": 6
+  },
+  {
+    "name": "tl_2024_06_prisecroads",
+    "description": "California Roads (Primary & Secondary)",
+    "target": "https://www2.census.gov/geo/tiger/TIGER2024/PRISECROADS/tl_2024_06_prisecroads.zip",
+    "link": "https://www.census.gov/geographies/mapping-files/time-series/geo/tiger-line-file.html",
+    "attribution": "US Census Bureau | TIGER 2024",
+    "license": "Public Domain",
+    "precision": 6
+  },
+  {
+    "name": "tl_2024_us_primaryroads",
+    "description": "US Federal Roads (Interstates & US Routes only)",
+    "target": "https://www2.census.gov/geo/tiger/TIGER2024/PRIMARYROADS/tl_2024_us_primaryroads.zip",
+    "link": "https://www.census.gov/geographies/mapping-files/time-series/geo/tiger-line-file.html",
+    "attribution": "US Census Bureau | TIGER 2024",
+    "license": "Public Domain",
+    "precision": 6
+  },
+  {
+    "name": "tl_2024_us_cbsa",
+    "description": "US Metropolitan & Micropolitan Areas (CBSA)",
+    "target": "https://www2.census.gov/geo/tiger/TIGER2024/CBSA/tl_2024_us_cbsa.zip",
+    "link": "https://www.census.gov/geographies/mapping-files/time-series/geo/tiger-line-file.html",
+    "attribution": "US Census Bureau | TIGER 2024",
+    "license": "Public Domain",
+    "precision": 6
+  },
+  {
+    "name": "tl_2024_us_cd119",
+    "description": "US Congressional Districts (119th Congress)",
+    "target": "https://www2.census.gov/geo/tiger/TIGER2024/CD/tl_2024_us_cd119.zip",
+    "link": "https://www.census.gov/geographies/mapping-files/time-series/geo/tiger-line-file.html",
+    "attribution": "US Census Bureau | TIGER 2024",
+    "license": "Public Domain",
+    "precision": 6
+  },
+  {
+    "name": "tl_2024_us_zcta520",
+    "description": "US ZIP Code Tabulation Areas (large dataset)",
+    "target": "https://www2.census.gov/geo/tiger/TIGER2024/ZCTA520/tl_2024_us_zcta520.zip",
+    "link": "https://www.census.gov/geographies/mapping-files/time-series/geo/tiger-line-file.html",
+    "attribution": "US Census Bureau | TIGER 2024",
+    "license": "Public Domain",
+    "precision": 5
+  }
+]
