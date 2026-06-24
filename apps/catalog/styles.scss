@@ -10,7 +10,7 @@ $accent:    #4b90ff;
 $remark:    #c40;
 $font:      'Verdana', 'Hiragino Kaku Gothic ProN', Arial, sans-serif;
 $mono:      'Courier New', Courier, monospace;
-$sidebar-w: 300px;
+$sidebar-w:  300px;
 
 // ============================================================
 // リセット・ベース
@@ -28,7 +28,7 @@ a { color: $accent; text-decoration: none; &:hover { text-decoration: underline;
 button { cursor: pointer; font-family: $font; }
 
 // ============================================================
-// レイアウト
+// レイアウト（2ペイン）
 // ============================================================
 #app {
   display: flex;
@@ -42,7 +42,7 @@ button { cursor: pointer; font-family: $font; }
   width: $sidebar-w;
   flex-shrink: 0;
   border-right: 1px solid $dark;
-  background: $bg;
+  background: #080808;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -54,18 +54,9 @@ button { cursor: pointer; font-family: $font; }
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
 
-  select {
-    width: 100%;
-    padding: 6px 8px;
-    background: $dark;
-    border: 1px solid $mid;
-    border-radius: 5px;
-    color: $text;
-    font-family: $font;
-    font-size: 12px;
-  }
-
+.search-wrap {
   input[type=text] {
     width: 100%;
     padding: 7px 10px;
@@ -174,6 +165,7 @@ button { cursor: pointer; font-family: $font; }
 }
 
 .fmt-geojson { background: rgba(75, 144, 255, 0.2); color: #6aa8ff; }
+.fmt-pbf     { background: rgba(60, 200, 160, 0.2); color: #4dd4a8; }
 .fmt-shp     { background: rgba(180, 100, 255, 0.2); color: #c88aff; }
 .fmt-tif     { background: rgba(80, 200, 120, 0.2);  color: #6ed89a; }
 .fmt-none    { background: rgba(136,136,136,0.15);   color: $mid;    }
@@ -353,16 +345,32 @@ button { cursor: pointer; font-family: $font; }
   &:hover { border-color: $accent; color: $accent; }
 }
 
-.copy-btn {
-  padding: 3px 10px;
-  background: $dark;
-  color: $accent;
-  border: 1px solid #444;
+.file-btns {
+  display: flex;
+  gap: 4px;
+  justify-content: flex-end;
+}
+
+.copy-btn, .dl-btn {
+  padding: 3px 8px;
   border-radius: 4px;
   font-size: 12px;
   font-weight: bold;
   transition: all 0.15s;
+}
+
+.copy-btn {
+  background: $dark;
+  color: $accent;
+  border: 1px solid #444;
   &:hover { background: $accent; color: $hi; border-color: $accent; }
+}
+
+.dl-btn {
+  background: $dark;
+  color: #5a9a6a;
+  border: 1px solid #3a5a3a;
+  &:hover { background: #2a5a2a; color: #7aff7a; border-color: #5a9a5a; }
 }
 
 .dl-note {
@@ -463,6 +471,351 @@ button { cursor: pointer; font-family: $font; }
   tr:hover td { background: #181818; }
 }
 
+
+// ============================================================
+// 法務省市区町村リスト（メインパネル）
+// ============================================================
+.moj-list-wrap {
+  display: flex;
+  flex-direction: column;
+  // #detail が overflow-y: auto なので height/overflow はここでは不要
+}
+
+.moj-list-head {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  padding: 20px 28px 14px;
+  border-bottom: 1px solid $dark;
+  background: #060606;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.moj-head-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+
+  h2 { font-size: 18px; color: $hi; margin: 0; }
+}
+
+
+.moj-subtitle {
+  font-size: 11px;
+  color: $mid;
+  margin-top: 3px;
+
+  .moj-total {
+    display: inline-block;
+    margin-left: 10px;
+    color: $accent;
+    font-weight: bold;
+  }
+  .moj-total-size {
+    display: inline-block;
+    margin-left: 10px;
+    color: #666;
+    font-family: $mono;
+  }
+  .moj-fmt-note {
+    display: inline-block;
+    margin-left: 10px;
+    color: #555;
+    font-family: $mono;
+  }
+}
+
+// 全国一括ダウンロードボタン
+.bulk-dl-btn {
+  flex-shrink: 0;
+  padding: 6px 16px;
+  border-radius: 5px;
+  font-size: 12px;
+  font-weight: bold;
+  font-family: $font;
+  border: 1px solid $accent;
+  background: rgba(75,144,255,0.1);
+  color: $accent;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s;
+  &:hover { background: rgba(75,144,255,0.22); }
+}
+
+.moj-search {
+  width: 100%;
+  padding: 8px 12px;
+  background: $dark;
+  border: 1px solid #3a3a3a;
+  border-radius: 5px;
+  color: $hi;
+  font-family: $font;
+  font-size: 13px;
+  &::placeholder { color: $mid; }
+  &:focus { outline: none; border-color: $accent; }
+}
+
+// セクションリスト（#detail がスクロール担当）
+.grouped-list {
+  padding: 16px 28px 32px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+// 都道府県セクション（.detail-section を流用）
+.pref-group { /* .detail-section の見た目はそちらで定義済み */ }
+
+// 都道府県ヘッダー（.section-title ベース）
+.pref-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  font-size: 12px;
+  font-weight: bold;
+  color: $text;
+  cursor: pointer;
+  user-select: none;
+  background: $dark;
+  border-bottom: 1px solid #333;
+  transition: background 120ms;
+
+  &:hover { background: #2a2a2a; }
+
+  .pref-arrow {
+    font-size: 11px;
+    color: $mid;
+    transition: transform 0.18s;
+    flex-shrink: 0;
+  }
+  .pref-name { font-size: 13px; color: $hi; }
+  .pref-coord-sys { font-size: 10px; color: $mid; font-family: $mono; white-space: nowrap; }
+  .pref-size { font-size: 11px; color: #5a7a5a; font-family: $mono; white-space: nowrap; flex: 1; }
+  .size-note { font-size: 9px; color: #888; font-family: $mono; opacity: 0.7; vertical-align: middle; }
+  .size-est  { font-size: 10px; color: #b07a3a; font-family: $mono; }
+
+  // .cnt は .section-title の .cnt と共有
+  .pref-bulk-btn {
+    padding: 3px 10px;
+    border-radius: 4px;
+    border: 1px solid #555;
+    background: none;
+    color: $mid;
+    font-size: 11px;
+    font-family: $font;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: all 0.15s;
+    &:hover { border-color: $accent; color: $accent; }
+  }
+
+  &.collapsed .pref-arrow { transform: rotate(-90deg); }
+}
+
+.pref-cities {
+  &.hidden { display: none; }
+}
+
+// 市区町村行（クリックでダウンロード）
+.moj-city-item {
+  display: grid;
+  grid-template-columns: 54px 1fr minmax(0, 200px) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 7px 14px;
+  border-top: 1px solid #1c1c1c;
+  cursor: pointer;
+  transition: background 120ms;
+
+  &:hover {
+    background: rgba(75,144,255,0.06);
+    .moj-city-name { color: $hi; }
+  }
+
+  .moj-city-code {
+    font-family: $mono;
+    font-size: 11px;
+    color: $accent;
+  }
+  .moj-city-name {
+    font-size: 13px;
+    color: $text;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    transition: color 120ms;
+  }
+  .moj-city-file {
+    font-family: $mono;
+    font-size: 10px;
+    color: #4a4a4a;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+
+    .file-sz {
+      margin-left: 6px;
+      color: #5a7a5a;
+    }
+  }
+  .extra-cnt {
+    font-size: 10px;
+    color: $mid;
+    margin-left: 3px;
+  }
+
+}
+
+.area-tag {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-size: 10px;
+  background: rgba(255,255,255,0.06);
+  color: $mid;
+  vertical-align: middle;
+}
+
+// 法務省詳細の戻るボタン
+.back-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  background: none;
+  border: 1px solid #444;
+  border-radius: 5px;
+  color: $mid;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s;
+  margin-bottom: 4px;
+
+  &:hover { border-color: $accent; color: $accent; }
+}
+
+// fmt バッジ
+.fmt-moj { background: rgba(255, 180, 30, 0.12); color: #e6b030; }
+
+// ============================================================
+// 一括ダウンロード モーダル
+// ============================================================
+.dl-modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.65);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  animation: dlFadeIn 0.15s ease;
+
+  &.dl-closing { animation: dlFadeOut 0.2s ease forwards; }
+}
+
+.dl-box {
+  background: #111;
+  border: 1px solid #2a2a2a;
+  border-radius: 10px;
+  padding: 24px 28px;
+  width: 460px;
+  max-width: 90vw;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.7);
+}
+
+.dl-header {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.dl-title { font-size: 14px; font-weight: bold; color: $hi; }
+.dl-label { font-size: 11px; color: $mid; }
+
+.dl-bar-wrap {
+  height: 14px;
+  background: #1a1a1a;
+  border-radius: 7px;
+  overflow: hidden;
+  border: 1px solid #2a2a2a;
+
+  .dl-bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #2a6aff, #4b90ff, #70b0ff);
+    background-size: 200% 100%;
+    border-radius: 7px;
+    width: 0%;
+    transition: width 0.3s ease-out;
+    animation: dlShimmer 1.8s linear infinite;
+    box-shadow: 0 0 8px rgba(75, 144, 255, 0.5);
+  }
+}
+
+@keyframes dlShimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+.dl-stat {
+  font-size: 12px;
+  color: $text;
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+
+  .dl-pct   { font-size: 20px; font-weight: bold; color: $accent; font-family: $mono; min-width: 54px; }
+  .dl-total { color: $mid; }
+  .dl-err   { color: $remark; font-size: 11px; margin-left: auto; }
+}
+
+.dl-active {
+  font-family: $mono;
+  font-size: 10px;
+  color: #4a4a4a;
+  min-height: 72px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+
+  .dl-item {
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    color: $text;
+    animation: dlPulse 1.6s ease-in-out infinite;
+    .dl-bytes { color: #5a9a6a; font-family: $mono; font-size: 10px; margin-left: 6px; }
+    &.dl-item-convert { color: #7a9aff; animation-duration: 0.8s; }
+    &.dl-item-done    { color: #5a9a6a; animation: none; opacity: 1; }
+    &.dl-item-error   { color: #9a5a5a; animation: none; opacity: 1; }
+  }
+
+  @keyframes dlPulse {
+    0%, 100% { opacity: 1; }
+    50%       { opacity: 0.4; }
+  }
+}
+
+.dl-cancel-btn {
+  align-self: flex-end;
+  padding: 6px 18px;
+  border: 1px solid #444;
+  border-radius: 5px;
+  background: none;
+  color: $mid;
+  font-size: 12px;
+  font-family: $font;
+  cursor: pointer;
+  transition: all 0.15s;
+  &:hover { border-color: $remark; color: $remark; }
+}
+
+@keyframes dlFadeIn  { from { opacity: 0; } to { opacity: 1; } }
+@keyframes dlFadeOut { from { opacity: 1; } to { opacity: 0; } }
 
 // ============================================================
 // トースト通知
