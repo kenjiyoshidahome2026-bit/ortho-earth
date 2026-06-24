@@ -43,6 +43,8 @@ let source  = SOURCES[0];
 let catalog = [];    // index.json の内容
 let active  = null;  // 選択中 dataset_code
 let currentCodelists = [];  // renderDetail 時にセット: [null | [{code,label}], ...]
+let licFilter = 'all';  // 'all' | 'ok' | 'ng'
+let currentDs = null;   // 詳細表示中の DS (ファイルフィルターで参照)
 
 // ============================================================
 // 初期化
@@ -57,6 +59,14 @@ async function init() {
   });
 
   document.getElementById('search').addEventListener('input', renderList);
+
+  document.getElementById('license-filter').addEventListener('click', e => {
+    const btn = e.target.closest('.chip');
+    if (!btn) return;
+    licFilter = btn.dataset.lic;
+    document.querySelectorAll('#license-filter .chip').forEach(b => b.classList.toggle('active', b === btn));
+    renderList();
+  });
 
   await loadCatalog();
 }
@@ -77,6 +87,15 @@ async function loadCatalog() {
   try {
     catalog = await fetchJson(bucketUrl(source, 'index.json'));
     renderList();
+    // URL ハッシュに一致するデータセットを自動選択
+    const hash = location.hash.slice(1);
+    if (hash && catalog.some(ds => ds.dataset_code === hash)) {
+      selectDataset(hash, true);
+      // リスト内で該当アイテムを表示位置に合わせる
+      setTimeout(() => {
+        document.querySelector(`.ds-item[data-code="${hash}"]`)?.scrollIntoView({ block: 'center' });
+      }, 100);
+    }
   } catch (e) {
     list.innerHTML = `<div class="error-msg">読み込みエラー: ${e.message}</div>`;
   }
@@ -88,9 +107,12 @@ async function loadCatalog() {
 function renderList() {
   const q = document.getElementById('search').value.toLowerCase();
 
-  const items = catalog.filter(ds =>
-    !q || ds.title.toLowerCase().includes(q) || ds.dataset_code.toLowerCase().includes(q)
-  );
+  const items = catalog.filter(ds => {
+    if (q && !ds.title.toLowerCase().includes(q) && !ds.dataset_code.toLowerCase().includes(q)) return false;
+    if (licFilter === 'ok' && licKey(ds.license) !== 'ok') return false;
+    if (licFilter === 'ng' && licKey(ds.license) !== 'ng') return false;
+    return true;
+  });
 
   document.getElementById('list-count').textContent = `${items.length} / ${catalog.length} 件`;
 
@@ -117,15 +139,25 @@ function renderList() {
   }).join('');
 
   list.querySelectorAll('.ds-item').forEach(el => {
-    el.addEventListener('click', () => selectDataset(el.dataset.code));
+    el.addEventListener('click', () => selectDataset(el.dataset.code, true));
   });
 }
 
 // ============================================================
-// データセット選択
+// データセット選択（キー連打時はデバウンス）
 // ============================================================
-async function selectDataset(code) {
+let _selectTimer = null;
+function selectDataset(code, immediate = false) {
+  clearTimeout(_selectTimer);
+  if (immediate) { _selectDatasetNow(code); return; }
+  _selectTimer = setTimeout(() => _selectDatasetNow(code), 150);
+}
+
+async function _selectDatasetNow(code) {
   active = code;
+
+  // URL ハッシュ更新（ブラウザ履歴に残さない）
+  history.replaceState(null, '', `#${code}`);
 
   // サイドバーのアクティブ表示更新
   document.querySelectorAll('.ds-item').forEach(el => {
@@ -148,6 +180,7 @@ async function selectDataset(code) {
 // ============================================================
 function renderDetail(ds) {
   const detail = document.getElementById('detail');
+  currentDs = ds;
 
   // コードリストをモジュール変数にセット（ボタン click で参照）
   currentCodelists = (ds.attributes || []).map(a => Array.isArray(a.codelist) ? a.codelist : null);
@@ -155,7 +188,7 @@ function renderDetail(ds) {
   // 属性テーブル
   const attrHtml = ds.attributes.length ? `
     <section class="detail-section">
-      <h3 class="section-title" onclick="this.parentElement.classList.toggle('collapsed')">
+      <h3 class="section-title">
         属性 <span class="cnt">${ds.attributes.length}</span>
         <span class="toggle-icon">▾</span>
       </h3>
@@ -211,17 +244,37 @@ function renderFiles(ds) {
   const raw   = ds.files.some(f => f.format === 'geojson')
     ? ds.files.filter(f => f.format !== 'shp')
     : ds.files;
-  const files = sortFiles(raw);
-  const shown = files.slice(0, 100);
-  const rest  = files.length - shown.length;
+  const allFiles = sortFiles(raw);
+
+  // フィルター選択肢を収集
+  const years   = [...new Set(allFiles.map(f => f.year).filter(Boolean))].sort().reverse();
+  const formats = [...new Set(allFiles.map(f => f.format))].sort();
+
+  const yearOpts   = ['all', ...years].map(y =>
+    `<option value="${y}">${y === 'all' ? '年度: すべて' : y}</option>`).join('');
+  const fmtOpts    = ['all', ...formats].map(f =>
+    `<option value="${f}">${f === 'all' ? '形式: すべて' : f.toUpperCase()}</option>`).join('');
+
+  // 都道府県フィルター（スコープが「都道府県」のファイルがある場合のみ）
+  const prefCodes = [...new Set(allFiles.filter(f => f.pref_code).map(f => f.pref_code))].sort();
+  const prefOpts  = prefCodes.length ? `
+    <select class="file-filter" id="ff-pref">
+      <option value="all">都道府県: すべて</option>
+      ${prefCodes.map(c => `<option value="${c}">${PREFS[String(c).padStart(2,'0')] || c}</option>`).join('')}
+    </select>` : '';
 
   return `
-    <section class="detail-section">
-      <h3 class="section-title" onclick="this.parentElement.classList.toggle('collapsed')">
-        ファイル <span class="cnt">${files.length}</span>
+    <section class="detail-section" id="files-section">
+      <h3 class="section-title">
+        ファイル <span class="cnt" id="files-cnt">${allFiles.length}</span>
         <span class="toggle-icon">▾</span>
       </h3>
       <div class="section-body">
+        <div class="file-filters">
+          ${years.length > 1 ? `<select class="file-filter" id="ff-year">${yearOpts}</select>` : ''}
+          ${formats.length > 1 ? `<select class="file-filter" id="ff-fmt">${fmtOpts}</select>` : ''}
+          ${prefOpts}
+        </div>
         <table class="file-table">
           <thead><tr>
             <th style="width:50px">年度</th>
@@ -230,15 +283,21 @@ function renderFiles(ds) {
             <th>ZIP</th>
             <th style="width:44px"></th>
           </tr></thead>
-          <tbody>
-            ${shown.map(f => fileRow(f, ds)).join('')}
-            ${rest ? `<tr><td colspan="3" class="more-row" data-code="${ds.dataset_code}">…残り ${rest} 件 <button class="load-more-btn">すべて表示</button></td></tr>` : ''}
+          <tbody id="files-tbody">
+            ${buildFileRows(allFiles, ds)}
           </tbody>
         </table>
         <p class="dl-note">→ ボタンで zip_url#filename をコピー → GIS-HUB にペーストして GeoPBF 変換</p>
       </div>
     </section>
   `;
+}
+
+function buildFileRows(files, ds, limit = 200) {
+  const shown = files.slice(0, limit);
+  const rest  = files.length - shown.length;
+  return shown.map(f => fileRow(f, ds)).join('') +
+    (rest ? `<tr><td colspan="5" class="more-row" data-code="${ds.dataset_code}">…残り ${rest} 件 <button class="load-more-btn">すべて表示</button></td></tr>` : '');
 }
 
 // 都道府県コード → 名称テーブル
@@ -306,6 +365,35 @@ function fileRow(f, ds) {
       <td><button class="copy-btn" data-entry="${escHtml(JSON.stringify(entry))}">→</button></td>
     </tr>
   `;
+}
+
+// ============================================================
+// ファイルフィルター (change イベント)
+// ============================================================
+document.getElementById('detail').addEventListener('change', e => {
+  if (!e.target.classList.contains('file-filter')) return;
+  applyFileFilters();
+});
+
+function applyFileFilters() {
+  if (!currentDs?.files?.length) return;
+  const year  = document.getElementById('ff-year')?.value  || 'all';
+  const fmt   = document.getElementById('ff-fmt')?.value   || 'all';
+  const pref  = document.getElementById('ff-pref')?.value  || 'all';
+
+  const raw = currentDs.files.some(f => f.format === 'geojson')
+    ? currentDs.files.filter(f => f.format !== 'shp')
+    : currentDs.files;
+
+  const filtered = sortFiles(raw.filter(f => {
+    if (year !== 'all' && String(f.year) !== year) return false;
+    if (fmt  !== 'all' && f.format !== fmt)        return false;
+    if (pref !== 'all' && String(f.pref_code) !== pref) return false;
+    return true;
+  }));
+
+  document.getElementById('files-cnt').textContent  = filtered.length;
+  document.getElementById('files-tbody').innerHTML  = buildFileRows(filtered, currentDs);
 }
 
 // ============================================================
@@ -393,15 +481,14 @@ function showToast(url) {
 // ============================================================
 async function handleLoadMore(btn) {
   const row  = btn.closest('tr');
-  const code = row.dataset.code;
   btn.disabled = true;
   btn.textContent = '読み込み中...';
   try {
-    const ds    = await fetchJson(bucketUrl(source, `${code}.json`));
+    const ds    = currentDs;
     const files = ds.files.some(f => f.format === 'geojson')
       ? ds.files.filter(f => f.format !== 'shp')
       : ds.files;
-    const newRows = files.slice(100).map(f => fileRow(f, ds)).join('');
+    const newRows = sortFiles(files).slice(200).map(f => fileRow(f, ds)).join('');
     row.insertAdjacentHTML('beforebegin', newRows);
     row.remove();
   } catch (e) {
@@ -419,6 +506,70 @@ function placeholder() {
 function escHtml(s) {
   return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
+
+// ============================================================
+// キーボードナビゲーション
+// ============================================================
+document.addEventListener('keydown', e => {
+  const tag = document.activeElement?.tagName;
+  const inInput = tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA';
+
+  // '/' でサイドバー検索にフォーカス
+  if (e.key === '/' && !inInput) {
+    e.preventDefault();
+    document.getElementById('search').select();
+    return;
+  }
+
+  // Escape で検索クリア
+  if (e.key === 'Escape' && tag === 'INPUT') {
+    const search = document.getElementById('search');
+    if (search.value) { search.value = ''; renderList(); }
+    search.blur();
+    return;
+  }
+
+  // ArrowUp / ArrowDown / Enter — リスト内ナビゲーション
+  if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown' && e.key !== 'Enter') return;
+  if (inInput) return;
+  e.preventDefault();
+
+  const items = [...document.querySelectorAll('.ds-item')];
+  if (!items.length) return;
+
+  if (e.key === 'Enter') {
+    const cur = document.querySelector('.ds-item.active');
+    if (cur) selectDataset(cur.dataset.code);
+    return;
+  }
+
+  const curIdx = items.findIndex(el => el.dataset.code === active);
+  let nextIdx;
+  if (e.key === 'ArrowDown') nextIdx = curIdx < 0 ? 0 : Math.min(curIdx + 1, items.length - 1);
+  else                        nextIdx = curIdx < 0 ? items.length - 1 : Math.max(curIdx - 1, 0);
+
+  const next = items[nextIdx];
+  // アクティブ切り替えだけ（詳細ロードはしない）
+  items.forEach(el => el.classList.remove('kbd-focus'));
+  next.classList.add('kbd-focus');
+  next.scrollIntoView({ block: 'nearest' });
+
+  // Enter の代わりに短押しで選択
+  selectDataset(next.dataset.code);
+});
+
+// ============================================================
+// ハッシュ変更（ブラウザ前後ボタン / 外部リンク）
+// ============================================================
+window.addEventListener('hashchange', () => {
+  const hash = location.hash.slice(1);
+  if (hash && hash !== active && catalog.some(ds => ds.dataset_code === hash)) {
+    selectDataset(hash, true);
+    setTimeout(() => {
+      document.querySelector(`.ds-item[data-code="${hash}"]`)?.scrollIntoView({ block: 'center' });
+    }, 100);
+  }
+});
 
 // ============================================================
 // 起動
