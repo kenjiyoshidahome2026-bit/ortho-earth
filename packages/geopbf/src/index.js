@@ -33,6 +33,10 @@ export async function geopbf(data, options = {}) { if (isString(options)) option
         const w = new Worker(url, { type: 'module' });
         return new Promise(resolve => {
             w.onmessage = async e => {
+                if (e.data?.type === 'progress') {
+                    throwEvent("ConvertProgress", { name, loaded: e.data.loaded, total: e.data.total });
+                    return;
+                }
                 throwEvent("ConvertEnd", { name, event });
                 w.terminate(); resolve(e.data ? new GeoPBF(options).set(e.data.data) : null); };
             w.onerror = e => {
@@ -90,7 +94,7 @@ export async function geopbf(data, options = {}) { if (isString(options)) option
             if (name.match(/\.geojson$/i)) return _geopbf(await decoder("json", q));
             if (name.match(/\.(topo)?json$/i)) return _geopbf(await file2json(q));
             if (name.match(/\.fgb$/i)) return _geopbf(await decoder("fgb", q));
-            if (name.match(/\.zip$/i)) return _geopbf(await decoder("shape", q));
+            if (name.match(/\.zip$/i)) return _geopbf(await decoder(options.format === "moj" ? "moj" : "shape", q));
             if (name.match(/\.kmz$/i)) return _geopbf(await decoder("kmz", q));
             if (name.match(/\.gpx$/i)) return _geopbf(await decoder("gpx", q));
             if (name.match(/\.(gml|xml)$/i)) return _geopbf(await decoder("gml", q));

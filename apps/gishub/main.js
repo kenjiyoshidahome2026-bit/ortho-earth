@@ -75,8 +75,8 @@ uploads.append("input").attr("type","text").attr("placeholder", `"Enter URL" or 
 .on("dblclick", function () { inputFile().then(f => f && exec({ name: fname(f.name), target: f, description: "selected file" }));});
 ////------------------------------------------------------
 async function exec(info) {
-    const def = {target:"", name: "", precision:6, license:"", description:"", attribution:"", link:"", nocache:false};
-    const { target, name, precision, license, description, attribution, link, nocache } = Object.assign(def, info);
+    const def = {target:"", name: "", precision:6, license:"", description:"", attribution:"", link:"", nocache:false, format:""};
+    const { target, name, precision, license, description, attribution, link, nocache, format } = Object.assign(def, info);
     try { uploads.hide(); tables.empty().hide(); logger.clear().show();
         let inExec = true, success = false; left.selectAll(".card").attr("disabled", true);
         let p = logger.title(name, description); p.style("position","sticky").style("top","10px").style("zindex",1)
@@ -87,7 +87,7 @@ async function exec(info) {
         p = logger.log(`Requesting: ${target.name || target} <span class="cancel">cancel</span>`)
         const cancel = p.select("span").hide().on("click", () => location.reload());
         setTimeout(() => inExec && cancel.show(),1000);
-        let pbf = await geopbf(target, { name, precision, license, description, attribution, nocache });
+        let pbf = await geopbf(target, { name, precision, license, description, attribution, nocache, format });
         if (pbf && pbf.length) { success = true;
             logger.success(`${name} (length: ${comma(pbf.size)})`);
             p = logger.empty();

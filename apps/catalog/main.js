@@ -1,17 +1,32 @@
 // ============================================================
-// データソース設定 — 省庁を追加する場合はここに追記
+// データソース設定
 // ============================================================
 const SOURCES = [
+  {
+    id:          'moj',
+    title:       '法務省 登記所備付地図',
+    attribution: '法務省',
+    // bucket なし → manifest から生成
+  },
   {
     id:          'nlftp',
     title:       '国土交通省 国土数値情報',
     bucket:      'catalog',
     attribution: '国土交通省 国土数値情報',
   },
-  // { id: 'maff',  title: '農林水産省', bucket: 'maff-catalog',  attribution: '農林水産省' },
-  // { id: 'moj',   title: '法務省',     bucket: 'moj-catalog',   attribution: '法務省'     },
-  // { id: 'soumu', title: '総務省',     bucket: 'soumu-catalog', attribution: '総務省'     },
+  // { id: 'maff',  title: '農林水産省 筆ポリゴン',   bucket: 'maff-catalog' },
+  // { id: 'soumu', title: '総務省 e-Stat GIS',       bucket: 'soumu-catalog' },
 ];
+
+// ============================================================
+// マニフェスト（静的インポート）
+// ============================================================
+import MOJ_MANIFEST        from './moj-manifest.json'        with { type: 'json' };
+import MOJ_GEOJSON_MANIFEST from './moj-geojson.json'         with { type: 'json' };
+import MOJ_PBF_MANIFEST    from './moj-pbf-manifest.json'    with { type: 'json' };
+import MAFF_MANIFEST  from './maff-manifest.json'   with { type: 'json' };
+import ESTAT_MANIFEST from './estat-manifest.json'  with { type: 'json' };
+import { geopbf, setApiUrl } from 'geopbf';
 
 // ============================================================
 // API 設定
@@ -19,11 +34,12 @@ const SOURCES = [
 const IS_DEV   = window.location.hostname === 'localhost';
 const API_BASE = IS_DEV ? '/api' : 'https://api.ortho-earth.com';
 
-function bucketUrl(source, path) {
-  return `${API_BASE}/bucket/${source.bucket}/${path}`;
+setApiUrl(API_BASE);
+
+function bucketUrl(src, path) {
+  return `${API_BASE}/bucket/${src.bucket}/${path}`;
 }
 
-// gzip を Content-Encoding なしで返すサーバー向けの fetch+JSON
 async function fetchJson(url) {
   const res = await fetch(url);
   const buf = await res.arrayBuffer();
@@ -39,27 +55,26 @@ async function fetchJson(url) {
 // ============================================================
 // State
 // ============================================================
-let source  = SOURCES[0];
-let catalog = [];    // index.json の内容
-let active  = null;  // 選択中 dataset_code
-let currentCodelists = [];  // renderDetail 時にセット: [null | [{code,label}], ...]
-let licFilter = 'all';  // 'all' | 'ok' | 'ng'
-let currentDs = null;   // 詳細表示中の DS (ファイルフィルターで参照)
+const SOURCES_MAP = Object.fromEntries(SOURCES.map(s => [s.id, s]));
+
+let catalog  = [];   // サイドバー表示用フラットリスト
+let active   = null; // 選択中の dataset_code
+let licFilter = 'all';
+let currentCodelists = [];
+let currentDs = null;
+
+// 省庁データ（事前生成）
+const MOJ_CITIES      = buildMojCities();
+const MOJ_GEOJSON_MAP = buildMojGeojsonMap();
+const MOJ_PBF_MAP     = new Map(MOJ_PBF_MANIFEST.map(e => [e.cityCode, e]));
+const MAFF_BY_PREF = buildMaffByPref();
+const ESTAT_BY_PREF = buildEstatByPref();
 
 // ============================================================
 // 初期化
 // ============================================================
 async function init() {
-  buildSourceSelect();
-  document.getElementById('source-select').addEventListener('change', async e => {
-    source = SOURCES.find(s => s.id === e.target.value) || SOURCES[0];
-    active = null;
-    document.getElementById('detail').innerHTML = placeholder();
-    await loadCatalog();
-  });
-
   document.getElementById('search').addEventListener('input', renderList);
-
   document.getElementById('license-filter').addEventListener('click', e => {
     const btn = e.target.closest('.chip');
     if (!btn) return;
@@ -71,11 +86,250 @@ async function init() {
   await loadCatalog();
 }
 
-function buildSourceSelect() {
-  const sel = document.getElementById('source-select');
-  sel.innerHTML = SOURCES.map(s =>
-    `<option value="${s.id}">${s.title}</option>`
-  ).join('');
+// ============================================================
+// 法務省データ構築（manifest → 市区町村マップ + サイドバー1エントリ）
+// ============================================================
+function buildMojCities() {
+  const byCity = new Map();
+  for (const entry of MOJ_MANIFEST) {
+    if (!byCity.has(entry.cityCode)) byCity.set(entry.cityCode, []);
+    byCity.get(entry.cityCode).push(entry);
+  }
+  return byCity; // Map<cityCode, entry[]>
+}
+
+// cityCode（5桁）→ GeoJSON エントリ
+function buildMojGeojsonMap() {
+  const map = new Map();
+  for (const entry of MOJ_GEOJSON_MANIFEST) {
+    map.set(entry.name.slice(0, 5), entry);
+  }
+  return map;
+}
+
+function mojSidebarEntry() {
+  return { dataset_code:'moj',  title:'登記所備付地図（14条地図）', file_count:MOJ_CITIES.size, license:'CC BY 4.0', _sourceId:'moj' };
+}
+
+// ============================================================
+// 農林水産省 筆ポリゴン
+// ============================================================
+function buildMaffByPref() {
+  const map = new Map();
+  for (const e of MAFF_MANIFEST) {
+    if (!map.has(e.prefCd)) map.set(e.prefCd, []);
+    map.get(e.prefCd).push(e);
+  }
+  return map;
+}
+
+function maffSidebarEntry() {
+  return { dataset_code:'maff', title:'農地（筆ポリゴン）', file_count:MAFF_MANIFEST.length, license:'CC BY 4.0', _sourceId:'maff' };
+}
+
+function buildMaffCityList() {
+  return MAFF_MANIFEST.map(e => ({
+    code: e.prefCityCd,
+    name: e.cityName,
+    pref: e.prefCd,
+    year: e.year,
+    _raw: e,
+  }));
+}
+
+function maffCityItemHtml(city) {
+  return `
+    <div class="moj-city-item" data-code="${city.code}" title="クリックでコピー">
+      <span class="moj-city-code">${city.code}</span>
+      <span class="moj-city-name">${city.name}</span>
+      <span class="moj-city-file">${city.year}年度</span>
+      <span class="badge fmt-geojson">GeoJSON</span>
+    </div>
+  `;
+}
+
+function maffToEntry(e) {
+  return {
+    name:        `${e.prefCityCd}_${e.year}`,
+    description: `${e.prefName} ${e.cityName} 筆ポリゴン ${e.year}年度`,
+    attribution: '農林水産省',
+    license:     'CC BY 4.0',
+    format:      'maff',
+    _maff:       { prefCd:e.prefCd, prefName:e.prefName, cityCd:e.cityCd, cityName:e.cityName, year:e.year, prefCityCd:e.prefCityCd },
+  };
+}
+
+let maffListSearch = '', maffExpandedPrefs = new Set();
+
+function renderMaffList() {
+  const detail = document.getElementById('detail');
+  const cities = buildMaffCityList();
+  renderMinistryList(detail, {
+    id:          'maff',
+    title:       '農林水産省 農地ポリゴン',
+    subtitle:    '筆ポリゴンオープンデータ（農林水産省）<span class="moj-fmt-note">GeoJSON = API→zip→json</span>',
+    cities,
+    expanded:    maffExpandedPrefs,
+    getSearch:   () => maffListSearch,
+    setSearch:   v  => { maffListSearch = v; },
+    itemHtml:    maffCityItemHtml,
+    groupFn:     c  => ({ key: c.pref, name: PREFS[c.pref] || c.pref }),
+    toEntry:     c  => maffToEntry(c._raw),
+    bulkByGroup: pref => (MAFF_BY_PREF.get(pref) || []).map(maffToEntry),
+    allEntries:  () => MAFF_MANIFEST.map(maffToEntry),
+    downloadFn:  maffGeopbf,
+  });
+}
+
+// ============================================================
+// 総務省 e-Stat 統計GIS（小地域）
+// ============================================================
+const ESTAT_DL_BASE  = 'https://www.e-stat.go.jp/gis/statmap-search/data';
+const ESTAT_SURVEY   = 'A002005212020';
+function estatDlUrl(code) {
+  return `${ESTAT_DL_BASE}?dlserveyId=${ESTAT_SURVEY}&code=${code}&coordSys=1&format=shape&downloadType=5&datum=2011`;
+}
+
+function buildEstatByPref() {
+  const map = new Map();
+  for (const e of ESTAT_MANIFEST) {
+    if (!map.has(e.prefCode)) map.set(e.prefCode, []);
+    map.get(e.prefCode).push(e);
+  }
+  return map;
+}
+
+function estatSidebarEntry() {
+  return { dataset_code:'estat', title:'統計GIS 小地域境界', file_count:ESTAT_MANIFEST.length, license:'CC BY', _sourceId:'estat' };
+}
+
+function buildEstatCityList() {
+  return ESTAT_MANIFEST.map(e => ({
+    code: e.code,
+    name: e.name,
+    pref: e.prefCode,
+    _raw: e,
+  }));
+}
+
+function estatCityItemHtml(city) {
+  return `
+    <div class="moj-city-item" data-code="${city.code}" title="クリックでコピー">
+      <span class="moj-city-code">${city.code}</span>
+      <span class="moj-city-name">${city.name}</span>
+      <span class="moj-city-file">A002005212020_${city.code}.zip</span>
+      <span class="badge fmt-shp">SHP</span>
+    </div>
+  `;
+}
+
+function estatToEntry(e) {
+  return {
+    name:        `${e.code}_${ESTAT_SURVEY}`,
+    description: `${PREFS[e.prefCode] || e.prefCode} ${e.name} 小地域（国勢調査2020）`,
+    target:      estatDlUrl(e.code),
+    attribution: '総務省統計局',
+    license:     'CC BY',
+  };
+}
+
+let estatListSearch = '', estatExpandedPrefs = new Set();
+
+function renderEstatList() {
+  const detail = document.getElementById('detail');
+  const cities = buildEstatCityList();
+  renderMinistryList(detail, {
+    id:          'estat',
+    title:       '総務省 統計GIS 小地域',
+    subtitle:    '国勢調査2020 小地域（町丁・字等）境界データ<span class="moj-fmt-note">SHP = zip/shp</span>',
+    cities,
+    expanded:    estatExpandedPrefs,
+    getSearch:   () => estatListSearch,
+    setSearch:   v  => { estatListSearch = v; },
+    itemHtml:    estatCityItemHtml,
+    groupFn:     c  => ({ key: c.pref, name: PREFS[c.pref] || c.pref }),
+    toEntry:     c  => estatToEntry(c._raw),
+    bulkByGroup: pref => (ESTAT_BY_PREF.get(pref) || []).map(e => estatToEntry(e)),
+    allEntries:  () => ESTAT_MANIFEST.map(estatToEntry),
+    downloadFn:  estatGeopbf,
+  });
+}
+
+// ============================================================
+// 省庁リスト共通レンダラー
+// ============================================================
+function renderMinistryList(detail, {
+  id, title, subtitle, cities, expanded,
+  getSearch, setSearch, itemHtml, groupFn,
+  toEntry, bulkByGroup, allEntries, downloadFn = null,
+}) {
+  detail.innerHTML = `
+    <div class="moj-list-wrap">
+      <div class="moj-list-head">
+        <div class="moj-head-row">
+          <div>
+            <h2>${title}</h2>
+            <p class="moj-subtitle">${subtitle}<span class="moj-total">${cities.length.toLocaleString()}市区町村</span></p>
+          </div>
+          <button class="bulk-dl-btn" id="${id}-bulk-all">全国一括ダウンロード</button>
+        </div>
+        <input type="text" id="${id}-search" class="moj-search" placeholder="市区町村・都道府県を検索...">
+      </div>
+      <div class="grouped-list" id="${id}-cities"></div>
+    </div>
+  `;
+
+  document.getElementById(`${id}-bulk-all`).addEventListener('click', function() {
+    if (downloadFn) bulkDownload(allEntries(), title, downloadFn);
+    else copyEntries(allEntries(), this);
+  });
+
+  const render = () => renderGroupedCities(cities, `${id}-cities`, expanded, itemHtml, {
+    query:       getSearch(),
+    groupFn,
+    onBulkClick: (group, btn) => {
+      if (downloadFn) bulkDownload(bulkByGroup(group), `${title} ${PREFS[group] || group}`, downloadFn);
+      else copyEntries(bulkByGroup(group), btn);
+    },
+    onItemClick:  e => {
+      const row = e.target.closest('.moj-city-item');
+      if (!row) return;
+      const city = cities.find(c => c.code === row.dataset.code);
+      if (city) copyEntries([toEntry(city)], null);
+    },
+  });
+
+  document.getElementById(`${id}-search`).addEventListener('input', function() {
+    setSearch(this.value); render();
+  });
+
+  render();
+}
+
+function buildMojDetail(cityCode) {
+  const entries = MOJ_CITIES.get(cityCode);
+  if (!entries?.length) return null;
+  const e0 = entries[0];
+  const cityName = e0.title
+    .replace(/（[^）]*）.*$/, '')
+    .replace(/\s*登記所備付地図.*$/, '')
+    .trim();
+  const year = parseInt((e0.filename?.match(/(\d{4})\.zip$/i) || [])[1] || 0) || null;
+  return {
+    dataset_code: cityCode,
+    title:        `${cityName} 登記所備付地図`,
+    license:      'CC BY 4.0',
+    page_url:     `https://www.geospatial.jp/ckan/dataset/${e0.packageName}`,
+    _source:      SOURCES_MAP['moj'],
+    attributes:   [],
+    files: entries.map(entry => ({
+      format:    'moj',
+      target:    entry.url,
+      scope:     '市区町村',
+      pref_code: cityCode.slice(0, 2),
+      year,
+    })),
+  };
 }
 
 // ============================================================
@@ -85,16 +339,38 @@ async function loadCatalog() {
   const list = document.getElementById('dataset-list');
   list.innerHTML = '<div class="loading-msg">読み込み中...</div>';
   try {
-    catalog = await fetchJson(bucketUrl(source, 'index.json'));
+    // 省庁データは manifest から直接1エントリ
+    const staticEntries = [
+      mojSidebarEntry(),
+      maffSidebarEntry(),
+      estatSidebarEntry(),
+    ];
+
+    // 国交省 nlftp はバケットからフェッチ
+    const others = await Promise.allSettled(
+      SOURCES.filter(s => s.bucket).map(async src => {
+        const datasets = await fetchJson(bucketUrl(src, 'index.json'));
+        return datasets.map(ds => ({ ...ds, _sourceId: src.id }));
+      })
+    );
+
+    catalog = [
+      ...staticEntries,
+      ...others.flatMap(r => r.status === 'fulfilled' ? r.value : []),
+    ];
+
     renderList();
-    // URL ハッシュに一致するデータセットを自動選択
+
+    // URL ハッシュ復元
     const hash = location.hash.slice(1);
-    if (hash && catalog.some(ds => ds.dataset_code === hash)) {
-      selectDataset(hash, true);
-      // リスト内で該当アイテムを表示位置に合わせる
-      setTimeout(() => {
-        document.querySelector(`.ds-item[data-code="${hash}"]`)?.scrollIntoView({ block: 'center' });
-      }, 100);
+    if (hash) {
+      if (hash === 'moj')  { selectDataset('moj',  true); }
+      else if (hash === 'maff')  { selectDataset('maff',  true); }
+      else if (hash === 'estat') { selectDataset('estat', true); }
+      else if (catalog.some(ds => ds.dataset_code === hash)) {
+        selectDataset(hash, true);
+        setTimeout(() => document.querySelector(`.ds-item[data-code="${hash}"]`)?.scrollIntoView({ block: 'center' }), 100);
+      }
     }
   } catch (e) {
     list.innerHTML = `<div class="error-msg">読み込みエラー: ${e.message}</div>`;
@@ -102,7 +378,7 @@ async function loadCatalog() {
 }
 
 // ============================================================
-// リスト描画
+// サイドバーリスト描画
 // ============================================================
 function renderList() {
   const q = document.getElementById('search').value.toLowerCase();
@@ -122,21 +398,19 @@ function renderList() {
     return;
   }
 
-  list.innerHTML = items.map(ds => {
-      return `
-      <div class="ds-item${ds.dataset_code === active ? ' active' : ''}"
-           data-code="${ds.dataset_code}">
-        <div class="ds-line1">
-          <span class="ds-code">${ds.dataset_code}</span>
-          <span class="ds-line1-right">
-            <span class="meta-num">${ds.file_count}件</span>
-            <span class="meta-lic">${ds.license}</span>
-          </span>
-        </div>
-        <div class="ds-title">${ds.title}</div>
+  list.innerHTML = items.map(ds => `
+    <div class="ds-item${ds.dataset_code === active ? ' active' : ''}"
+         data-code="${ds.dataset_code}">
+      <div class="ds-line1">
+        <span class="ds-code">${ds.dataset_code}</span>
+        <span class="ds-line1-right">
+          <span class="meta-num">${ds.file_count.toLocaleString()}件</span>
+          <span class="meta-lic">${ds.license}</span>
+        </span>
       </div>
-    `;
-  }).join('');
+      <div class="ds-title">${ds.title}</div>
+    </div>
+  `).join('');
 
   list.querySelectorAll('.ds-item').forEach(el => {
     el.addEventListener('click', () => selectDataset(el.dataset.code, true));
@@ -144,7 +418,7 @@ function renderList() {
 }
 
 // ============================================================
-// データセット選択（キー連打時はデバウンス）
+// データセット選択
 // ============================================================
 let _selectTimer = null;
 function selectDataset(code, immediate = false) {
@@ -156,37 +430,496 @@ function selectDataset(code, immediate = false) {
 async function _selectDatasetNow(code) {
   active = code;
 
-  // URL ハッシュ更新（ブラウザ履歴に残さない）
-  history.replaceState(null, '', `#${code}`);
-
-  // サイドバーのアクティブ表示更新
   document.querySelectorAll('.ds-item').forEach(el => {
     el.classList.toggle('active', el.dataset.code === code);
   });
+
+  if (code === 'moj')  { history.replaceState(null, '', '#moj');  renderMojList();  return; }
+  if (code === 'maff') { history.replaceState(null, '', '#maff'); renderMaffList(); return; }
+  if (code === 'estat'){ history.replaceState(null, '', '#estat');renderEstatList(); return; }
+
+  // 通常ソース（国交省等バケットベース）
+  const ds = catalog.find(d => d.dataset_code === code);
+  const src = SOURCES_MAP[ds?._sourceId];
+  if (!src) return;
+
+  history.replaceState(null, '', `#${code}`);
 
   const detail = document.getElementById('detail');
   detail.innerHTML = '<div class="loading-msg" style="padding:40px">読み込み中...</div>';
 
   try {
-    const ds = await fetchJson(bucketUrl(source, `${code}.json`));
-    renderDetail(ds);
+    const data = await fetchJson(bucketUrl(src, `${code}.json`));
+    data._source = src;
+    renderDetail(data);
   } catch (e) {
     detail.innerHTML = `<div class="error-msg">エラー: ${e.message}</div>`;
   }
 }
 
 // ============================================================
-// 詳細表示
+// 法務省: gishub エントリJSON生成ヘルパー
 // ============================================================
-function renderDetail(ds) {
+function mojCityEntries(cityCode) {
+  const geojson = MOJ_GEOJSON_MAP.get(cityCode);
+  if (geojson) return [{ ...geojson }]; // GeoJSON fast path
+  const pbf = MOJ_PBF_MAP.get(cityCode);
+  if (pbf) return [{ ...pbf }]; // server-hosted GeoPBF
+  return (MOJ_CITIES.get(cityCode) || []).map(e => ({
+    name:        e.filename.replace(/\.zip$/i, ''),
+    description: e.title.replace(/\s*登記所備付地図.*$/, '').trim(),
+    target:      e.url,
+    link:        `https://www.geospatial.jp/ckan/dataset/${e.packageName}`,
+    attribution: '法務省',
+    license:     'CC BY 4.0',
+    format:      'moj',
+    size:        e.size || null,
+  }));
+}
+
+function mojPrefEntries(prefCode) {
+  const result = [];
+  for (const code of MOJ_CITIES.keys()) {
+    if (code.slice(0, 2) === prefCode) result.push(...mojCityEntries(code));
+  }
+  return result;
+}
+
+function mojAllEntries() {
+  const result = [];
+  for (const code of MOJ_CITIES.keys()) result.push(...mojCityEntries(code));
+  return result;
+}
+
+// ============================================================
+// 一括ダウンロード → IDB（並列 Worker）
+// ============================================================
+let _dlActive = false;
+let _dlCancel = false;
+
+async function bulkDownload(entries, label, fetchFn = null, parallel = null) {
+  if (_dlActive || !entries.length) return;
+
+  const isMoj = entries.some(e => e.format === 'moj');
+  if (isMoj && entries.length > 1) {
+    const totalZip = entries.reduce((s, e) => s + (e.size || 0), 0);
+    // GML/XML は ZIP 比 10〜30 倍に展開されメモリを圧迫するため常に確認
+    const ok = window.confirm(
+      `${label}\n\n` +
+      (totalZip ? `ZIP合計: ${fmtBytes(totalZip)}\n推定メモリ使用: ${fmtBytes(totalZip * 20)} 程度\n\n` : '') +
+      `MOJ（14条地図）は GML/XML 形式のため、ZIP サイズの\n` +
+      `10〜30 倍のメモリを消費します。\n` +
+      `${entries.length} 件を最大5件並列で処理します。\n\n続行しますか？`
+    );
+    if (!ok) return;
+  }
+
+  _dlActive = true;
+  _dlCancel = false;
+
+  const fn       = fetchFn ?? (e => e.format === 'moj' ? geopbf(e.target, { format: 'moj' }) : geopbf(e.target));
+  const PARALLEL = parallel ?? 5;
+  const total    = entries.length;
+  let done = 0, errors = 0;
+  // name → { loaded, total, phase: 'fetch'|'convert' }
+  const active = new Map();
+
+  const modal = openDlModal(label, total);
+  modal.querySelector('.dl-cancel-btn').onclick = () => {
+    _dlCancel = true;
+    _dlActive = false;
+    closeDlModal(modal);
+  };
+
+  const refresh = () => refreshDlModal(modal, done, total, errors, active);
+
+  // geopbf が window に投げるイベントでバイト進捗・変換フェーズを受け取る
+  const onFetchProgress = ({ detail }) => {
+    const name = (detail.name || '').replace(/\.[^.]+$/, '');
+    if (!active.has(name)) return;
+    const s = active.get(name);
+    s.phase = 'fetch'; s.loaded = detail.loaded; s.total = detail.total;
+    refresh();
+  };
+  const onConvertStart = ({ detail }) => {
+    if (!active.has(detail.name)) return;
+    active.get(detail.name).phase = 'convert';
+    refresh();
+  };
+  const onConvertProgress = ({ detail }) => {
+    if (!active.has(detail.name)) return;
+    const s = active.get(detail.name);
+    s.phase = 'convert';
+    s.loaded = detail.loaded;
+    s.total  = detail.total;
+    refresh();
+  };
+  window.addEventListener('FetchProgress',    onFetchProgress);
+  window.addEventListener('ConvertStart',     onConvertStart);
+  window.addEventListener('ConvertProgress',  onConvertProgress);
+
+  const queue = [...entries];
+
+  const runWorker = async () => {
+    while (queue.length && !_dlCancel) {
+      const entry = queue.shift();
+      active.set(entry.name, { loaded: 0, total: 0, phase: 'fetch' });
+      refresh();
+      try {
+        const pbf = await fn(entry);
+        done++;
+        const s = active.get(entry.name);
+        if (s) {
+          s.phase = 'done';
+          const sz = pbf?.size || entry.size || s.total || s.loaded;
+          s.loaded = sz;
+          s.total  = sz;
+          if (pbf?.size && entry.format === 'moj') mojSavePbfSize(entry.name, pbf.size);
+        }
+      } catch (err) {
+        if (!_dlCancel) errors++;
+        const s = active.get(entry.name);
+        if (s) s.phase = 'error';
+      }
+      refresh();
+      await new Promise(r => setTimeout(r, 200));
+      active.delete(entry.name);
+      refresh();
+    }
+  };
+
+  try {
+    await Promise.all(Array.from({ length: PARALLEL }, runWorker));
+  } finally {
+    window.removeEventListener('FetchProgress',   onFetchProgress);
+    window.removeEventListener('ConvertStart',    onConvertStart);
+    window.removeEventListener('ConvertProgress', onConvertProgress);
+    _dlActive = false;
+  }
+
+  if (!_dlCancel) {
+    closeDlModal(modal);
+    showToast(`${done.toLocaleString()}件をIDBに保存${errors ? ` (${errors}件エラー)` : ''}`);
+  }
+}
+
+function openDlModal(label, total) {
+  const el = document.createElement('div');
+  el.className = 'dl-modal';
+  el.innerHTML = `
+    <div class="dl-box">
+      <div class="dl-header">
+        <span class="dl-title">一括ダウンロード → IDB</span>
+        <span class="dl-label">${escHtml(label)}</span>
+      </div>
+      <div class="dl-bar-wrap"><div class="dl-bar-fill" id="dl-fill"></div></div>
+      <div class="dl-stat">
+        <span id="dl-pct" class="dl-pct">0%</span>
+        <span id="dl-done">0</span> / <span class="dl-total">${total.toLocaleString()}</span>
+        <span id="dl-err" class="dl-err"></span>
+      </div>
+      <div class="dl-active" id="dl-active-list"></div>
+      <button class="dl-cancel-btn">キャンセル</button>
+    </div>
+  `;
+  document.body.appendChild(el);
+  return el;
+}
+
+function refreshDlModal(modal, done, total, errors, active) {
+  if (!modal.isConnected) return;
+  const pct = (done / total * 100).toFixed(1);
+  const fill = modal.querySelector('#dl-fill'); if (fill) fill.style.width = `${pct}%`;
+  const pctEl = modal.querySelector('#dl-pct'); if (pctEl) pctEl.textContent = `${pct}%`;
+  const doneEl = modal.querySelector('#dl-done'); if (doneEl) doneEl.textContent = done.toLocaleString();
+  const errEl = modal.querySelector('#dl-err'); if (errEl) errEl.textContent = errors ? `${errors}件エラー` : '';
+  const list = modal.querySelector('#dl-active-list');
+  if (!list) return;
+  list.innerHTML = [...active.entries()].map(([n, s]) => {
+    const mark = s.phase === 'done' ? '✓' : s.phase === 'error' ? '✗' : s.phase === 'convert' ? '⚙' : '↓';
+    const info = s.phase === 'convert' && s.total
+      ? ` <span class="dl-bytes">${s.loaded} / ${s.total}</span>`
+      : s.total  ? ` <span class="dl-bytes">${fmtBytes(s.loaded)} / ${fmtBytes(s.total)}</span>`
+      : s.loaded ? ` <span class="dl-bytes">${fmtBytes(s.loaded)}</span>`
+      : '';
+    const bytes = info;
+    const cls = `dl-item dl-item-${s.phase}`;
+    return `<div class="${cls}">${mark} ${escHtml(n)}${bytes}</div>`;
+  }).join('');
+}
+
+function closeDlModal(modal) {
+  modal.classList.add('dl-closing');
+  setTimeout(() => modal.remove(), 200);
+}
+
+// ============================================================
+// 農水省 FUDE API → geopbf
+// ============================================================
+async function maffGeopbf(entry) {
+  // サーバー側で変換済みの GeoPBF をバケットから取得（IDB キャッシュ付き）
+  const code = entry._maff.prefCityCd;
+  return geopbf(`maff_${code}.geopbf`, { name: entry.name });
+}
+
+// ============================================================
+// 総務省 e-Stat ZIP/SHP → geopbf
+// ============================================================
+async function estatGeopbf(entry) {
+  // e-Stat URL に拡張子なし → proxy 経由でフェッチし .zip として渡す
+  const proxyBase = `${API_BASE}/proxy/`;
+  const proxyUrl  = `${proxyBase}?url=${encodeURIComponent(entry.target)}`;
+  const resp = await fetch(proxyUrl);
+  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+  const blob = await resp.blob();
+  const file = new File([blob], `${entry.name}.zip`);
+  return geopbf(file, { name: entry.name });
+}
+
+async function copyEntries(entries, feedbackEl) {
+  const text = entries.length === 1
+    ? JSON.stringify(entries[0], null, 2)
+    : JSON.stringify(entries, null, 2);
+  try { await navigator.clipboard.writeText(text); } catch {}
+  const label = entries.length === 1
+    ? entries[0].name
+    : `${entries.length}件をクリップボードにコピーしました`;
+  showToast(label);
+  if (!feedbackEl) return;
+  const orig = feedbackEl.textContent;
+  feedbackEl.textContent = '✓ コピー済み';
+  setTimeout(() => { feedbackEl.textContent = orig; }, 1800);
+}
+
+// ============================================================
+// 法務省: メインパネルに市区町村リスト（都道府県別折りたたみ）
+// ============================================================
+let mojListSearch = '';
+let mojExpandedPrefs = new Set();
+
+function fmtBytes(b) {
+  if (!b) return '';
+  if (b >= 1024 * 1024) return `${(b / 1024 / 1024).toFixed(1)} MB`;
+  return `${Math.round(b / 1024)} KB`;
+}
+
+// ダウンロード済み PBF サイズを localStorage に保存・参照
+const MOJ_SIZE_KEY = 'moj-pbf-sizes';
+function mojSavedSizes() {
+  try { return JSON.parse(localStorage.getItem(MOJ_SIZE_KEY) || '{}'); } catch { return {}; }
+}
+function mojSavePbfSize(name, bytes) {
+  try {
+    const saved = mojSavedSizes();
+    saved[name] = bytes;
+    localStorage.setItem(MOJ_SIZE_KEY, JSON.stringify(saved));
+  } catch {}
+}
+
+function buildMojCityList() {
+  const saved = mojSavedSizes();
+  return [...MOJ_CITIES.entries()].map(([code, entries]) => {
+    const e = entries[0];
+    const name = e.title.replace(/（[^）]*）.*$/, '').replace(/\s*登記所備付地図.*$/, '').trim();
+    const pref = code.slice(0, 2);
+    // 919B は Range GET が失敗した無効値なので除外（1000B 以下を無効とみなす）
+    const validSize = entries.reduce((s, x) => s + (x.size > 1000 ? x.size : 0), 0);
+    const geojson = MOJ_GEOJSON_MAP.get(code);
+    const pbf     = MOJ_PBF_MAP.get(code);
+    const fastEntry = geojson || pbf;
+    const savedPbf = fastEntry
+      ? (saved[fastEntry.name] || 0)
+      : entries.map(x => saved[x.filename.replace(/\.zip$/i, '')] || 0).reduce((s, v) => s + v, 0);
+    return {
+      code, name, pref, prefName: PREFS[pref] || pref, area: cityArea(code),
+      filename: e.filename, extra: entries.length - 1,
+      size:       validSize || null,
+      pbfSize:    savedPbf  || null,
+      hasGeojson: !!geojson,
+      hasPbf:     !geojson && !!pbf,
+    };
+  });
+}
+
+function mojCityItemHtml(city) {
+  const extra = !city.hasGeojson && city.extra > 0 ? `<span class="extra-cnt">+${city.extra}</span>` : '';
+  const badge = city.hasGeojson
+    ? `<span class="badge fmt-geojson">GeoJSON</span>`
+    : city.hasPbf
+    ? `<span class="badge fmt-pbf">PBF</span>`
+    : `<span class="badge fmt-moj">MOJ</span>`;
+  const fname = city.hasGeojson
+    ? escHtml(MOJ_GEOJSON_MAP.get(city.code)?.name || city.filename)
+    : city.hasPbf
+    ? escHtml(MOJ_PBF_MAP.get(city.code)?.name || city.filename)
+    : escHtml(city.filename);
+  const sizeBadge = city.pbfSize
+    ? `<span class="file-sz">${fmtBytes(city.pbfSize)} <span class="size-note">PBF</span></span>`
+    : city.size && !city.hasGeojson
+    ? `<span class="file-sz">${fmtBytes(city.size)} <span class="size-note">ZIP</span></span>`
+    : '';
+  return `
+    <div class="moj-city-item" data-code="${city.code}" title="クリックで IDB 保存">
+      <span class="moj-city-code">${city.code}</span>
+      <span class="moj-city-name">${escHtml(city.name)}<span class="area-tag">平面直角座標系:${city.area}</span></span>
+      <span class="moj-city-file">${fname}${extra}${sizeBadge}</span>
+      ${badge}
+    </div>
+  `;
+}
+
+function renderMojList() {
+  const detail = document.getElementById('detail');
+  const cities = buildMojCityList();
+  const totalPbfBytes = cities.reduce((s, c) => s + (c.pbfSize || 0), 0);
+  const totalZipBytes = cities.reduce((s, c) => s + (c.size   || 0), 0);
+  const totalSizeLabel = totalPbfBytes
+    ? `<span class="moj-total-size">${fmtBytes(totalPbfBytes)} <span class="size-note">PBF</span></span>`
+    : totalZipBytes
+    ? `<span class="moj-total-size">${fmtBytes(totalZipBytes)} <span class="size-note">ZIP</span></span>`
+    : '';
+
+  detail.innerHTML = `
+    <div class="moj-list-wrap">
+      <div class="moj-list-head">
+        <div class="moj-head-row">
+          <div>
+            <h2>法務省 登記所備付地図</h2>
+            <p class="moj-subtitle">登記所備付地図データ（14条地図）<span class="moj-total">${cities.length.toLocaleString()}市区町村</span>${totalSizeLabel}<span class="moj-fmt-note"><span class="badge fmt-geojson">GeoJSON</span>${MOJ_GEOJSON_MAP.size.toLocaleString()}市区町村 / <span class="badge fmt-moj">MOJ</span>残り</span></p>
+          </div>
+          <button class="bulk-dl-btn" id="moj-bulk-all">全国一括ダウンロード</button>
+        </div>
+        <input type="text" id="moj-search" class="moj-search" placeholder="市区町村・都道府県を検索..." value="${escHtml(mojListSearch)}">
+      </div>
+      <div class="grouped-list" id="moj-cities"></div>
+    </div>
+  `;
+
+  const mojRender = () => renderGroupedCities(cities, 'moj-cities', mojExpandedPrefs, mojCityItemHtml, {
+    query:       mojListSearch,
+    groupFn:     c => ({ key: c.pref, name: PREFS[c.pref] || c.pref }),
+    onBulkClick: (pref, _btn) => bulkDownload(mojPrefEntries(pref), `法務省 ${PREFS[pref] || pref}`),
+    onItemClick: e => {
+      const item = e.target.closest('.moj-city-item');
+      if (!item) return;
+      const entries = mojCityEntries(item.dataset.code);
+      const city = cities.find(c => c.code === item.dataset.code);
+      bulkDownload(entries, city?.name || item.dataset.code);
+    },
+    groupHeaderHtml: (_key, _name, items) => {
+      const areas = [...new Set(items.map(c => c.area))].sort((a, b) => a - b);
+      const totalPbf = items.reduce((s, c) => s + (c.pbfSize || 0), 0);
+      const totalZip = items.reduce((s, c) => s + (c.size   || 0), 0);
+      const sizeHtml = totalPbf
+        ? `<span class="pref-size">${fmtBytes(totalPbf)} <span class="size-note">PBF</span></span>`
+        : totalZip
+        ? `<span class="pref-size">${fmtBytes(totalZip)} <span class="size-note">ZIP</span></span>`
+        : '';
+      return `<span class="pref-coord-sys">直角座標系:${areas.join(',')}</span>` + sizeHtml;
+    },
+  });
+
+  document.getElementById('moj-bulk-all').addEventListener('click', () => {
+    bulkDownload(mojAllEntries(), '法務省 登記所備付地図 全国');
+  });
+
+  document.getElementById('moj-search').addEventListener('input', function() {
+    mojListSearch = this.value;
+    mojRender();
+  });
+
+  mojRender();
+}
+
+// 都道府県グループ折りたたみリスト（法務省・農水省・総務省 共通）
+function renderGroupedCities(cities, containerId, expandedSet, itemHtml, {
+  query           = '',
+  groupFn         = c => ({ key: c.pref, name: PREFS[c.pref] || c.pref }),
+  onBulkClick     = null,
+  onItemClick     = null,
+  groupHeaderHtml = null,
+} = {}) {
+  const q = query.toLowerCase();
+  const container = document.getElementById(containerId);
+  if (!container) return;
+
+  const groups = new Map();
+  for (const c of cities) {
+    const { key, name } = groupFn(c);
+    if (!groups.has(key)) groups.set(key, { name, items: [] });
+    groups.get(key).items.push(c);
+  }
+
+  const isSearching = q.length > 0;
+  const html = [];
+
+  for (const [key, { name: groupName, items: members }] of groups) {
+    const groupMatch = isSearching && groupName.toLowerCase().includes(q);
+    const matched = isSearching
+      ? members.filter(c => groupMatch || c.name?.toLowerCase().includes(q) || c.code?.includes(q) || c.prefName?.toLowerCase().includes(q))
+      : members;
+
+    if (isSearching && matched.length === 0) continue;
+
+    const isExpanded = isSearching || expandedSet.has(key);
+
+    const extraHtml = groupHeaderHtml ? groupHeaderHtml(key, groupName, matched) : '';
+    html.push(`
+      <div class="detail-section pref-group" data-group="${escHtml(key)}">
+        <div class="pref-header${isExpanded ? '' : ' collapsed'}" data-group="${escHtml(key)}">
+          <span class="pref-arrow">▾</span>
+          <span class="pref-name">${escHtml(groupName)}</span>
+          ${extraHtml}
+          <span class="cnt">${matched.length}</span>
+          <button class="pref-bulk-btn" data-group="${escHtml(key)}">一括ダウンロード</button>
+        </div>
+        <div class="pref-cities${isExpanded ? '' : ' hidden'}">
+          ${matched.map(c => itemHtml(c)).join('')}
+        </div>
+      </div>
+    `);
+  }
+
+  if (!html.length) {
+    container.innerHTML = '<div class="empty-msg" style="padding:24px">該当なし</div>';
+    return;
+  }
+
+  container.innerHTML = html.join('');
+
+  container.onclick = e => {
+    const bulkBtn = e.target.closest('.pref-bulk-btn');
+    if (bulkBtn) {
+      onBulkClick?.(bulkBtn.dataset.group, bulkBtn);
+      return;
+    }
+    const header = e.target.closest('.pref-header');
+    if (header) {
+      const key = header.dataset.group;
+      const citiesDiv = header.nextElementSibling;
+      const expanding = header.classList.contains('collapsed');
+      header.classList.toggle('collapsed', !expanding);
+      citiesDiv.classList.toggle('hidden', !expanding);
+      expanding ? expandedSet.add(key) : expandedSet.delete(key);
+      return;
+    }
+    onItemClick?.(e);
+  };
+}
+
+// ============================================================
+// 詳細表示（showBack: 法務省市区町村詳細からの戻りボタン）
+// ============================================================
+function renderDetail(ds, showBack = false) {
   const detail = document.getElementById('detail');
   currentDs = ds;
-
-  // コードリストをモジュール変数にセット（ボタン click で参照）
   currentCodelists = (ds.attributes || []).map(a => Array.isArray(a.codelist) ? a.codelist : null);
 
-  // 属性テーブル
-  const attrHtml = ds.attributes.length ? `
+  const backHtml = showBack ? `
+    <button class="back-btn" id="back-to-moj">← 一覧に戻る</button>
+  ` : '';
+
+  const attrHtml = ds.attributes?.length ? `
     <section class="detail-section">
       <h3 class="section-title">
         属性 <span class="cnt">${ds.attributes.length}</span>
@@ -211,53 +944,56 @@ function renderDetail(ds) {
     </section>
   ` : '';
 
-  // ファイル一覧
   const fileHtml = renderFiles(ds);
 
   detail.innerHTML = `
     <div class="detail-inner">
+      ${backHtml}
       <header class="detail-header">
         <h2>${ds.title}</h2>
         <div class="detail-meta">
           <span class="badge lic-${licKey(ds.license)}">${ds.license}</span>
           <span class="mono" style="color:#888">${ds.dataset_code}</span>
-          <a href="${ds.page_url}" target="_blank" rel="noopener" class="ext-link">NLFTPページ →</a>
+          <a href="${ds.page_url}" target="_blank" rel="noopener" class="ext-link">データページ →</a>
         </div>
       </header>
       ${attrHtml}
       ${fileHtml}
     </div>
   `;
+
+  document.getElementById('back-to-moj')?.addEventListener('click', () => {
+    history.replaceState(null, '', '#moj');
+    renderMojList();
+  });
 }
 
 function licKey(lic) {
-  return lic?.includes('商用可') ? 'ok' : 'ng';
+  if (!lic) return 'ng';
+  if (lic.includes('商用可') || lic.includes('CC BY') || lic.includes('CC_BY')) return 'ok';
+  return 'ng';
 }
 
 // ============================================================
 // ファイル一覧描画
 // ============================================================
 function renderFiles(ds) {
-  if (!ds.files.length) return '<p class="no-files">GISファイルなし</p>';
+  if (!ds.files?.length) return '<p class="no-files">GISファイルなし</p>';
 
-  // GeoJSON があれば SHP は除外、その後ソート
-  const raw   = ds.files.some(f => f.format === 'geojson')
+  const raw      = ds.files.some(f => f.format === 'geojson')
     ? ds.files.filter(f => f.format !== 'shp')
     : ds.files;
   const allFiles = sortFiles(raw);
 
-  // フィルター選択肢を収集
-  const years   = [...new Set(allFiles.map(f => f.year).filter(Boolean))].sort().reverse();
-  const formats = [...new Set(allFiles.map(f => f.format))].sort();
-
-  const yearOpts   = ['all', ...years].map(y =>
-    `<option value="${y}">${y === 'all' ? '年度: すべて' : y}</option>`).join('');
-  const fmtOpts    = ['all', ...formats].map(f =>
-    `<option value="${f}">${f === 'all' ? '形式: すべて' : f.toUpperCase()}</option>`).join('');
-
-  // 都道府県フィルター（スコープが「都道府県」のファイルがある場合のみ）
+  const years    = [...new Set(allFiles.map(f => f.year).filter(Boolean))].sort().reverse();
+  const formats  = [...new Set(allFiles.map(f => f.format))].sort();
   const prefCodes = [...new Set(allFiles.filter(f => f.pref_code).map(f => f.pref_code))].sort();
-  const prefOpts  = prefCodes.length ? `
+
+  const yearOpts = ['all', ...years].map(y =>
+    `<option value="${y}">${y === 'all' ? '年度: すべて' : y}</option>`).join('');
+  const fmtOpts  = ['all', ...formats].map(f =>
+    `<option value="${f}">${f === 'all' ? '形式: すべて' : f.toUpperCase()}</option>`).join('');
+  const prefOpts = prefCodes.length ? `
     <select class="file-filter" id="ff-pref">
       <option value="all">都道府県: すべて</option>
       ${prefCodes.map(c => `<option value="${c}">${PREFS[String(c).padStart(2,'0')] || c}</option>`).join('')}
@@ -271,9 +1007,10 @@ function renderFiles(ds) {
       </h3>
       <div class="section-body">
         <div class="file-filters">
-          ${years.length > 1 ? `<select class="file-filter" id="ff-year">${yearOpts}</select>` : ''}
-          ${formats.length > 1 ? `<select class="file-filter" id="ff-fmt">${fmtOpts}</select>` : ''}
+          ${years.length > 1   ? `<select class="file-filter" id="ff-year">${yearOpts}</select>` : ''}
+          ${formats.length > 1 ? `<select class="file-filter" id="ff-fmt">${fmtOpts}</select>`  : ''}
           ${prefOpts}
+          <button class="bulk-dl-btn" id="files-dl-all">一括↓IDB</button>
         </div>
         <table class="file-table">
           <thead><tr>
@@ -281,13 +1018,13 @@ function renderFiles(ds) {
             <th style="width:80px">エリア</th>
             <th style="width:62px">形式</th>
             <th>ZIP</th>
-            <th style="width:44px"></th>
+            <th style="width:66px"></th>
           </tr></thead>
           <tbody id="files-tbody">
             ${buildFileRows(allFiles, ds)}
           </tbody>
         </table>
-        <p class="dl-note">→ ボタンで zip_url#filename をコピー → GIS-HUB にペーストして GeoPBF 変換</p>
+        <p class="dl-note">→ コピー（GIS-HUBにペースト）&nbsp;&nbsp;↓ IDB保存</p>
       </div>
     </section>
   `;
@@ -297,10 +1034,9 @@ function buildFileRows(files, ds, limit = 200) {
   const shown = files.slice(0, limit);
   const rest  = files.length - shown.length;
   return shown.map(f => fileRow(f, ds)).join('') +
-    (rest ? `<tr><td colspan="5" class="more-row" data-code="${ds.dataset_code}">…残り ${rest} 件 <button class="load-more-btn">すべて表示</button></td></tr>` : '');
+    (rest ? `<tr><td colspan="6" class="more-row"><span>…残り ${rest} 件</span> <button class="load-more-btn">すべて表示</button></td></tr>` : '');
 }
 
-// 都道府県コード → 名称テーブル
 const PREFS = {
   '01':'北海道','02':'青森','03':'岩手','04':'宮城','05':'秋田',
   '06':'山形','07':'福島','08':'茨城','09':'栃木','10':'群馬',
@@ -314,7 +1050,60 @@ const PREFS = {
   '46':'鹿児島','47':'沖縄',
 };
 
-// scope フィールドを正として表示ラベルを決定
+// ============================================================
+// 19地域区分（getArea 関数準拠）
+// ============================================================
+const AREA_NAMES = {
+  1:'長崎・奄美', 2:'九州', 3:'中国西部', 4:'四国', 5:'近畿南部・中国東部',
+  6:'近畿', 7:'北陸・東海', 8:'甲信越・静岡', 9:'関東', 10:'東北',
+  11:'道南', 12:'北海道', 13:'道東', 14:'小笠原',
+  15:'沖縄', 16:'沖縄・先島', 17:'沖縄・大東', 18:'伊豆諸島', 19:'東京・遠隔離島',
+};
+
+// 都道府県コード(整数) → 地域番号 ※pref 9(栃木)は原典コードで欠落→ 9 を補完
+const PREF_TO_AREA = {
+  1:12,2:10,3:10,4:10,5:10,6:10,7:9,8:9,9:9,10:9,11:9,12:9,13:9,14:9,
+  15:8,16:7,17:7,18:6,19:8,20:8,21:7,22:8,23:7,
+  24:6,25:6,26:6,27:6,28:6,29:6,30:5,
+  31:5,32:3,33:5,34:3,35:3,
+  36:4,37:4,38:4,39:4,
+  40:2,41:2,42:1,43:2,44:2,45:2,46:2,47:15,
+};
+
+// 北海道 道南(11) ・ 道東(13) の市区町村コード（整数）
+const HOKKAIDO_AREA11 = new Set([
+  1202,1203,1233,1236,1331,1332,1333,1334,1337,1343,1345,1346,1347,
+  1361,1362,1363,1364,1367,1370,1371,
+  1391,1392,1393,1394,1395,1396,1397,1398,1399,
+  1400,1401,1402,1403,1404,1405,1406,1407,1408,1409,1571,1575,1584,
+]);
+const HOKKAIDO_AREA13 = new Set([
+  1206,1207,1208,1211,1223,
+  1543,1544,1545,1546,1547,1549,1550,1552,1564,
+  1631,1632,1633,1634,1635,1636,1637,1638,1639,
+  1641,1642,1643,1644,1645,1646,1647,1648,1649,
+  1661,1662,1663,1664,1665,1667,1668,1691,1692,1693,1694,
+]);
+
+// 奄美地方 (鹿児島 area 1)
+const AMAMI_CODES = new Set([46207,46222,46523,46524,46525,46527,46529,46530,46531,46532,46533,46534,46535]);
+// 沖縄・先島諸島 (area 16)
+const SAKISHIMA_CODES = new Set([47207,47214,47381,47382]);
+
+function cityArea(code5) {
+  const num = parseInt(code5, 10);
+  const pref = Math.floor(num / 1000);
+  if (pref === 1)  { return HOKKAIDO_AREA11.has(num) ? 11 : HOKKAIDO_AREA13.has(num) ? 13 : 12; }
+  if (pref === 46) { return AMAMI_CODES.has(num) ? 1 : 2; }
+  if (pref === 47) {
+    if (num === 47303 || num === 47304) return 17; // 大東諸島
+    if (SAKISHIMA_CODES.has(num)) return 16;
+    return 15;
+  }
+  if (pref === 13 && num === 13421) return 14; // 小笠原
+  return PREF_TO_AREA[pref] ?? 9;
+}
+
 function scopeLabel(f) {
   const scope = f.scope || '全国';
   if (scope === '全国') return '全国';
@@ -323,11 +1112,9 @@ function scopeLabel(f) {
     return PREFS[code] || f.pref_code || '都道府県';
   }
   if (scope.includes('メッシュ')) return f.location_code || scope;
-  // 市区町村・地方区分
   return f.location_code || f.pref_code || scope;
 }
 
-// ソートキー: 全国を先頭、次に pref_code / location_code 昇順
 function sortFiles(files) {
   return [...files].sort((a, b) => {
     const scopeOrder = s => s === '全国' ? 0 : s === '都道府県' ? 1 : s.includes('メッシュ') ? 2 : 3;
@@ -339,22 +1126,30 @@ function sortFiles(files) {
   });
 }
 
-function fileRow(f, ds) {
+function fileEntry(f, ds) {
   const zipUrl   = f.target.split('#')[0];
   const zipName  = zipUrl.split('/').pop();
   const fileName = f.target.split('#')[1] || '';
-  const name     = fileName.replace(/\.[^.]+$/, '');
+  const name     = fileName.replace(/\.[^.]+$/, '') || zipName.replace(/\.[^.]+$/, '');
   const area     = scopeLabel(f);
   const desc     = `${ds.title}${area !== '全国' ? ' (' + area + ')' : ''}${f.year ? ':' + f.year : ''}`;
-
-  const entry = {
+  return {
     name,
     description: desc,
     target:      f.target,
     link:        ds.page_url,
-    attribution: source.attribution || '',
+    attribution: (ds._source || {}).attribution || '',
     license:     ds.license,
+    ...(f.format === 'moj' ? { format: 'moj' } : {}),
   };
+}
+
+function fileRow(f, ds) {
+  const entry  = fileEntry(f, ds);
+  const zipUrl = f.target.split('#')[0];
+  const zipName = zipUrl.split('/').pop();
+  const fileName = f.target.split('#')[1] || '';
+  const area = scopeLabel(f);
 
   return `
     <tr>
@@ -362,24 +1157,29 @@ function fileRow(f, ds) {
       <td class="mono">${area}</td>
       <td><span class="badge fmt-${f.format}">${f.format.toUpperCase()}</span></td>
       <td class="mono">${zipName}${fileName ? `<br><span class="file-sub">${fileName}</span>` : ''}</td>
-      <td><button class="copy-btn" data-entry="${escHtml(JSON.stringify(entry))}">→</button></td>
+      <td class="file-btns">
+        <button class="copy-btn" data-entry="${escHtml(JSON.stringify(entry))}">→</button>
+        <button class="dl-btn" data-entry="${escHtml(JSON.stringify(entry))}">↓</button>
+      </td>
     </tr>
   `;
 }
 
 // ============================================================
-// ファイルフィルター (change イベント)
+// ファイルフィルター
 // ============================================================
 document.getElementById('detail').addEventListener('change', e => {
   if (!e.target.classList.contains('file-filter')) return;
   applyFileFilters();
 });
 
+let _currentFilteredFiles = [];
+
 function applyFileFilters() {
   if (!currentDs?.files?.length) return;
-  const year  = document.getElementById('ff-year')?.value  || 'all';
-  const fmt   = document.getElementById('ff-fmt')?.value   || 'all';
-  const pref  = document.getElementById('ff-pref')?.value  || 'all';
+  const year = document.getElementById('ff-year')?.value || 'all';
+  const fmt  = document.getElementById('ff-fmt')?.value  || 'all';
+  const pref = document.getElementById('ff-pref')?.value || 'all';
 
   const raw = currentDs.files.some(f => f.format === 'geojson')
     ? currentDs.files.filter(f => f.format !== 'shp')
@@ -392,74 +1192,72 @@ function applyFileFilters() {
     return true;
   }));
 
+  _currentFilteredFiles = filtered;
   document.getElementById('files-cnt').textContent  = filtered.length;
   document.getElementById('files-tbody').innerHTML  = buildFileRows(filtered, currentDs);
 }
 
 // ============================================================
-// クリックイベント
+// クリックイベント（詳細パネル）
 // ============================================================
 document.getElementById('detail').addEventListener('click', async e => {
-  // 「すべて表示」ボタン
   if (e.target.classList.contains('load-more-btn')) { handleLoadMore(e.target); return; }
 
-  // セクション折りたたみ
   const title = e.target.closest('.section-title');
   if (title) { title.parentElement.classList.toggle('collapsed'); return; }
 
-  // コードリストボタン
   if (e.target.classList.contains('codelist-btn')) {
-    const idx = parseInt(e.target.dataset.clIdx);
-    const entries = currentCodelists[idx] || [];
-    showCodelistPopup(entries, e.target);
+    showCodelistPopup(currentCodelists[parseInt(e.target.dataset.clIdx)] || [], e.target);
     return;
   }
 
-  // → ボタン: gishub catalog エントリをクリップボードへ
+  if (e.target.id === 'files-dl-all') {
+    const files = _currentFilteredFiles.length ? _currentFilteredFiles : (currentDs?.files || []);
+    const entries = files.map(f => fileEntry(f, currentDs));
+    bulkDownload(entries, currentDs?.title || '国土数値情報');
+    return;
+  }
+
+  if (e.target.classList.contains('dl-btn')) {
+    const entry = JSON.parse(e.target.dataset.entry);
+    bulkDownload([entry], entry.name);
+    return;
+  }
+
   if (!e.target.classList.contains('copy-btn')) return;
   const btn   = e.target;
   const entry = JSON.parse(btn.dataset.entry);
-  const text  = JSON.stringify(entry, null, 2);
-  try { await navigator.clipboard.writeText(text); } catch {}
+  try { await navigator.clipboard.writeText(JSON.stringify(entry, null, 2)); } catch {}
   btn.textContent = '✓';
   showToast(entry.target);
   setTimeout(() => { btn.textContent = '→'; }, 1500);
 });
 
 // ============================================================
-// コードリスト表示（pre-parsed 配列をそのまま表示）
+// コードリストポップアップ
 // ============================================================
 function showCodelistPopup(entries, btn) {
   document.querySelectorAll('.codelist-popup').forEach(el => el.remove());
-
   const popup = document.createElement('div');
   popup.className = 'codelist-popup';
 
-  if (!entries.length) {
-    popup.innerHTML = '<div class="cl-loading">データなし</div>';
-  } else {
-    popup.innerHTML = `
-      <div class="cl-header">
-        <span>${entries.length}件</span>
-        <button class="cl-close" onclick="this.closest('.codelist-popup').remove()">✕</button>
-      </div>
-      <div class="cl-body">
-        <table>
-          <thead><tr><th>コード</th><th>名称</th></tr></thead>
-          <tbody>${entries.map(r => `<tr><td class="mono">${escHtml(r.code)}</td><td>${escHtml(r.label)}</td></tr>`).join('')}</tbody>
-        </table>
-      </div>`;
-  }
+  popup.innerHTML = entries.length ? `
+    <div class="cl-header">
+      <span>${entries.length}件</span>
+      <button class="cl-close" onclick="this.closest('.codelist-popup').remove()">✕</button>
+    </div>
+    <div class="cl-body">
+      <table>
+        <thead><tr><th>コード</th><th>名称</th></tr></thead>
+        <tbody>${entries.map(r => `<tr><td class="mono">${escHtml(r.code)}</td><td>${escHtml(r.label)}</td></tr>`).join('')}</tbody>
+      </table>
+    </div>` : '<div class="cl-loading">データなし</div>';
 
   document.body.appendChild(popup);
-
-  // ボタン位置に合わせて fixed 配置
   const rect = btn.getBoundingClientRect();
   const pw = 320;
-  let left = rect.right - pw;
-  if (left < 4) left = 4;
-  let top = rect.bottom + 4;
-  if (top + 340 > window.innerHeight) top = rect.top - 340;
+  let left = rect.right - pw; if (left < 4) left = 4;
+  let top  = rect.bottom + 4; if (top + 340 > window.innerHeight) top = rect.top - 340;
   popup.style.left = `${left}px`;
   popup.style.top  = `${top}px`;
 
@@ -469,31 +1267,22 @@ function showCodelistPopup(entries, btn) {
 
 function showToast(url) {
   const t = document.createElement('div');
-  t.className = 'toast';
-  t.textContent = url;
+  t.className = 'toast'; t.textContent = url;
   document.body.appendChild(t);
   requestAnimationFrame(() => t.classList.add('show'));
   setTimeout(() => { t.classList.remove('show'); setTimeout(() => t.remove(), 300); }, 2500);
 }
 
-// ============================================================
-// 「すべて表示」— DS を再取得して tbody に追記
-// ============================================================
 async function handleLoadMore(btn) {
-  const row  = btn.closest('tr');
-  btn.disabled = true;
-  btn.textContent = '読み込み中...';
+  const row = btn.closest('tr');
+  btn.disabled = true; btn.textContent = '読み込み中...';
   try {
-    const ds    = currentDs;
-    const files = ds.files.some(f => f.format === 'geojson')
-      ? ds.files.filter(f => f.format !== 'shp')
-      : ds.files;
-    const newRows = sortFiles(files).slice(200).map(f => fileRow(f, ds)).join('');
-    row.insertAdjacentHTML('beforebegin', newRows);
+    const files = currentDs.files.some(f => f.format === 'geojson')
+      ? currentDs.files.filter(f => f.format !== 'shp')
+      : currentDs.files;
+    row.insertAdjacentHTML('beforebegin', sortFiles(files).slice(200).map(f => fileRow(f, currentDs)).join(''));
     row.remove();
-  } catch (e) {
-    btn.textContent = 'エラー';
-  }
+  } catch { btn.textContent = 'エラー'; }
 }
 
 // ============================================================
@@ -514,24 +1303,15 @@ document.addEventListener('keydown', e => {
   const tag = document.activeElement?.tagName;
   const inInput = tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA';
 
-  // '/' でサイドバー検索にフォーカス
   if (e.key === '/' && !inInput) {
-    e.preventDefault();
-    document.getElementById('search').select();
-    return;
+    e.preventDefault(); document.getElementById('search').select(); return;
   }
-
-  // Escape で検索クリア
   if (e.key === 'Escape' && tag === 'INPUT') {
-    const search = document.getElementById('search');
-    if (search.value) { search.value = ''; renderList(); }
-    search.blur();
-    return;
+    const s = document.getElementById('search');
+    if (s.value) { s.value = ''; renderList(); }
+    s.blur(); return;
   }
-
-  // ArrowUp / ArrowDown / Enter — リスト内ナビゲーション
-  if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown' && e.key !== 'Enter') return;
-  if (inInput) return;
+  if (!['ArrowUp','ArrowDown','Enter'].includes(e.key) || inInput) return;
   e.preventDefault();
 
   const items = [...document.querySelectorAll('.ds-item')];
@@ -539,35 +1319,32 @@ document.addEventListener('keydown', e => {
 
   if (e.key === 'Enter') {
     const cur = document.querySelector('.ds-item.active');
-    if (cur) selectDataset(cur.dataset.code);
-    return;
+    if (cur) selectDataset(cur.dataset.code); return;
   }
 
   const curIdx = items.findIndex(el => el.dataset.code === active);
-  let nextIdx;
-  if (e.key === 'ArrowDown') nextIdx = curIdx < 0 ? 0 : Math.min(curIdx + 1, items.length - 1);
-  else                        nextIdx = curIdx < 0 ? items.length - 1 : Math.max(curIdx - 1, 0);
+  const nextIdx = e.key === 'ArrowDown'
+    ? (curIdx < 0 ? 0 : Math.min(curIdx + 1, items.length - 1))
+    : (curIdx < 0 ? items.length - 1 : Math.max(curIdx - 1, 0));
 
   const next = items[nextIdx];
-  // アクティブ切り替えだけ（詳細ロードはしない）
   items.forEach(el => el.classList.remove('kbd-focus'));
   next.classList.add('kbd-focus');
   next.scrollIntoView({ block: 'nearest' });
-
-  // Enter の代わりに短押しで選択
   selectDataset(next.dataset.code);
 });
 
 // ============================================================
-// ハッシュ変更（ブラウザ前後ボタン / 外部リンク）
+// ハッシュ変更
 // ============================================================
 window.addEventListener('hashchange', () => {
   const hash = location.hash.slice(1);
-  if (hash && hash !== active && catalog.some(ds => ds.dataset_code === hash)) {
+  if (!hash) return;
+  if (hash === 'moj') { if (active !== 'moj') selectDataset('moj', true); return; }
+  if (hash.startsWith('moj:')) { selectMojCity(hash.slice(4)); return; }
+  if (hash !== active && catalog.some(ds => ds.dataset_code === hash)) {
     selectDataset(hash, true);
-    setTimeout(() => {
-      document.querySelector(`.ds-item[data-code="${hash}"]`)?.scrollIntoView({ block: 'center' });
-    }, 100);
+    setTimeout(() => document.querySelector(`.ds-item[data-code="${hash}"]`)?.scrollIntoView({ block: 'center' }), 100);
   }
 });
 
