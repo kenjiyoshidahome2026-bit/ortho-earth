@@ -311,7 +311,7 @@ export async function orthographic(map, opts = {}) {
         const { width, height, maxZoom } = map;
         const size = Math.min(width, height);
         const r0 = proj.rotate(), s0 = proj.scale();
-        const dst = d3.geoCentroid(feature);
+        const dst = opts.center ?? d3.geoCentroid(feature);
         const r1 = [-dst[0], -dst[1], 0];
         const p = d3.geoOrthographic().rotate(r1)
             .fitExtent([[width * 0.05, height * 0.05], [width * 0.95, height * 0.95]], feature);

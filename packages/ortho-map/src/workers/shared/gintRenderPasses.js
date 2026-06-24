@@ -169,10 +169,12 @@ export function renderPickingBuffer(data) {
         gl.clear(gl.COLOR_BUFFER_BIT | gl.STENCIL_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
         gl.disable(gl.BLEND);
 
+        // pick FBO は視覚幅より太く描いてヒット感度を上げる（DPR 込みで ~6 CSS px マージン）
+        const pickMargin = 12 * (s.dpr ?? 1);
         if (totalEdges > 0 && metaTex) {
             gl.useProgram(pickLineProgram);
             bindSharedUniforms(gl, uPickLine, data, arcTex, metaTex, TEX_ARC_W, TEX_META_W, width, height);
-            gl.uniform1f(uPickLine.u_line_width, data.lineWidth ?? 1.0);
+            gl.uniform1f(uPickLine.u_line_width, (data.lineWidth ?? 1.0) + pickMargin);
             gl.drawArrays(gl.TRIANGLES, 0, totalEdges * 6);
         }
 
@@ -180,6 +182,7 @@ export function renderPickingBuffer(data) {
             const r1 = data.rotate[1] * Math.PI / 180, r2 = (data.rotate[2] ?? 0) * Math.PI / 180;
             gl.useProgram(pickPointProgram);
             bindPointUniforms(uPickPoint, data, r1, r2);
+            gl.uniform1f(uPickPoint.u_pt_radius, Math.max(data.ptRadius ?? 1.5, pickMargin * 0.5));
             gl.drawArrays(gl.TRIANGLES, 0, totalPoints * 6);
         }
 
