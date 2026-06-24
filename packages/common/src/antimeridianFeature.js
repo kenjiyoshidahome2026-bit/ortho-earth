@@ -11,7 +11,8 @@ export function antimeridianFeature(feature) {
     let c = geom.coordinates, xmin = Infinity, xmax = -Infinity;
     const calc = a => a == null ? void 0 : (Array.isArray(a) && typeof a[0] !== 'number') ? a.forEach(calc) : (xmin = min(xmin, a[0]), xmax = max(xmax, a[0]));
     (c === undefined) || calc(c);
-    if (xmin >= -180 && xmax <= 180 && xmax - xmin < 180) return toClockwise(feature);
+    if (xmin >= -180 && xmax <= 180) return toClockwise(feature);
+//    console.warn("antimeridianFeature", xmin, xmax);
     c = type.startsWith("Multi") ? c : [c];
     if (type.includes("LineString")) {
         c = c.flatMap(t => antimeridianCut(t, true));
@@ -19,7 +20,7 @@ export function antimeridianFeature(feature) {
     } else if (type.includes("Polygon")) {
         c = c.flatMap(poly => {
             const ext = antimeridianCut(poly[0]), holes = poly.slice(1).flatMap(h => antimeridianCut(h));
-            return !holes.length ? ext.map(r => [r]) : ext.flatMap(r => subPolygon([[r]], [holes]));
+            return !holes.length ? ext.map(r => [r]) : ext.flatMap(r => subPolygon([[r]], holes.map(h => [h])));
         }).filter(p => p && p.length > 0 && p[0].length >= 4);
         if (!c.length) return (feature.geometry = { type: "Polygon", coordinates: [] }, feature);
         feature.geometry = { type: c.length > 1 ? "MultiPolygon" : "Polygon", coordinates: c.length > 1 ? c : c[0] };
