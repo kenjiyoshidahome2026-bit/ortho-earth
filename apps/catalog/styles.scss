@@ -87,6 +87,39 @@ button { cursor: pointer; font-family: $font; }
 }
 
 // ============================================================
+// ライセンスフィルターチップ
+// ============================================================
+.filter-chips {
+  display: flex;
+  gap: 4px;
+
+  .chip {
+    flex: 1;
+    padding: 4px 0;
+    background: $dark;
+    border: 1px solid #444;
+    border-radius: 4px;
+    color: $mid;
+    font-size: 11px;
+    font-family: $font;
+    cursor: pointer;
+    transition: all 0.15s;
+    white-space: nowrap;
+
+    &:hover  { border-color: $accent; color: $accent; }
+    &.active { background: rgba(75,144,255,0.15); border-color: $accent; color: $accent; font-weight: bold; }
+  }
+}
+
+.kbd-hint {
+  padding: 5px 12px;
+  font-size: 10px;
+  color: #444;
+  border-top: 1px solid $dark;
+  letter-spacing: 0.03em;
+}
+
+// ============================================================
 // データセットリスト
 // ============================================================
 #dataset-list {
@@ -104,7 +137,8 @@ button { cursor: pointer; font-family: $font; }
   cursor: pointer;
   transition: background 150ms;
 
-  &:hover  { background: $dark; }
+  &:hover    { background: $dark; }
+  &.kbd-focus { background: #1a2a3a; }
   &.active {
     background: $accent;
     border-left: 3px solid $hi;
@@ -335,6 +369,30 @@ button { cursor: pointer; font-family: $font; }
   font-size: 11px;
   color: $mid;
   padding: 2px 0;
+}
+
+// ============================================================
+// ファイルフィルター行
+// ============================================================
+.file-filters {
+  display: flex;
+  gap: 6px;
+  padding: 8px 10px;
+  border-bottom: 1px solid $dark;
+  flex-wrap: wrap;
+
+  .file-filter {
+    padding: 4px 8px;
+    background: $dark;
+    border: 1px solid #444;
+    border-radius: 4px;
+    color: $text;
+    font-family: $font;
+    font-size: 11px;
+    cursor: pointer;
+    &:hover  { border-color: $accent; }
+    &:focus  { outline: 1px solid $accent; }
+  }
 }
 
 .target-cell {

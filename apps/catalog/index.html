@@ -15,9 +15,15 @@
         <div class="search-wrap">
           <input type="text" id="search" placeholder="データセット検索...">
         </div>
+        <div class="filter-chips" id="license-filter">
+          <button class="chip active" data-lic="all">すべて</button>
+          <button class="chip" data-lic="ok">商用可</button>
+          <button class="chip" data-lic="ng">非商用</button>
+        </div>
         <div id="list-count" class="list-count"></div>
       </div>
       <div id="dataset-list"></div>
+      <div class="kbd-hint">↑↓ 移動 &nbsp;/ 検索 &nbsp;Esc クリア</div>
     </aside>
 
     <main id="detail">
