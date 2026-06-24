@@ -214,5 +214,23 @@
     "attribution": "US Census Bureau | TIGER 2024",
     "license": "Public Domain",
     "precision": 5
-  }
+  },
+  {
+    "name": "N03-20260101",
+    "description": "2026 Japan Administrative Area Data",
+    "target": "https://nlftp.mlit.go.jp/ksj/gml/data/N03/N03-2026/N03-20260101_GML.zip#N03-20260101.geojson",
+    "link": "https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-N03-2026.html",
+    "attribution": "JAPAN MLIT",
+    "license": "CC_BY_4.0",
+    "precision": 7
+  },
+  {
+  "name": "04101__10_r_2025",
+  "description": "2025 Sendai-city Aoba-word land division",
+  "target": "https://www.geospatial.jp/ckan/dataset/3a2ad3da-af5d-4edd-85dc-4cfe29865fbe/resource/e8936e86-0d81-44e0-a51b-4eb04fb511d0/download/04101__10_r_2025.geojson",
+  "link": "https://www.geospatial.jp/ckan/dataset/aigid-moj-04101",
+  "attribution": "JAPAN MOJ",
+  "license": "CC_BY_4.0",
+  "precision": 7
+}
 ]
