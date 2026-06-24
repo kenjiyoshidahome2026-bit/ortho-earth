@@ -65,8 +65,8 @@ export function identify(self, mx, my, proj, options = {}) {
 
 	const [mix, miy] = [Math.round((geo[0] + 180) * gint.SCALE_E), Math.round((geo[1] + 90) * gint.SCALE_E)];
 	const scale = proj.scale();
-	const pointError = ((options.point || 10) / scale) * gint.SCALE_E;
-	const polylineError = ((options.polyline || 5) / scale) * gint.SCALE_E;
+	const pointError = ((options.point || 16) / scale) * gint.SCALE_E;
+	const polylineError = ((options.polyline || 10) / scale) * gint.SCALE_E;
 	if (!self.unPackGint) return null;
 	const { arcBuffer, arcMeta, polyStream, lineStream, pointBuffer, point, polyBboxByFid } = self.unPackGint;
 

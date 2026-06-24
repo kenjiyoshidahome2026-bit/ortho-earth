@@ -255,9 +255,34 @@ async function execView(pbf) {
     mapInst.draw();
 
     const [w, s, e, n] = pbf.bbox;
-    await mapInst.zoomToFeature({ type: "Feature", geometry: {
-        type: "Polygon", coordinates: [[[w,s],[w,n],[e,n],[e,s],[w,s]]]
-    }, properties: {} });
+    let zoomFeature, zoomOpts = {};
+    if (e - w > 300) {
+        // bbox がほぼ全球 (±180 付近) → bbox 中心は 0° 付近になる誤り。
+        // 各 feature bbox の中心を 3D 平均して真の重心を計算する。
+        const d2r = Math.PI / 180, r2d = 180 / Math.PI;
+        let sx = 0, sy = 0, sz = 0;
+        const pts = [];
+        pbf.forEach(i => {
+            const b = pbf.getBbox(i);
+            if (!b || !isFinite(b[0])) return;
+            const lng = (b[0] + b[2]) / 2, lat = (b[1] + b[3]) / 2;
+            pts.push([lng, lat]);
+            sx += Math.cos(lat * d2r) * Math.cos(lng * d2r);
+            sy += Math.cos(lat * d2r) * Math.sin(lng * d2r);
+            sz += Math.sin(lat * d2r);
+        });
+        const norm = Math.sqrt(sx * sx + sy * sy + sz * sz);
+        if (norm > 0) {
+            zoomOpts = { center: [Math.atan2(sy, sx) * r2d, Math.asin(sz / norm) * r2d] };
+            zoomFeature = { type: "Feature", geometry: { type: "MultiPoint", coordinates: pts }, properties: {} };
+        }
+    }
+    if (!zoomFeature) {
+        zoomFeature = { type: "Feature", geometry: {
+            type: "Polygon", coordinates: [[[w,s],[w,n],[e,n],[e,s],[w,s]]]
+        }, properties: {} };
+    }
+    await mapInst.zoomToFeature(zoomFeature, zoomOpts);
 }
 
 function exitView() {
