@@ -61,12 +61,12 @@ tr:hover td { background: rgba(255,255,255,0.02); }
 .toc a:hover { color: var(--doc-accent); }
 
 .header-bar { background: var(--surface); border-bottom: 1px solid var(--muted); padding: 12px 24px; position: sticky; top: 0; z-index: 10; display: flex; align-items: center; gap: 12px; }
-.header-bar .logo { color: var(--doc-accent); font-weight: bold; font-family: var(--mono); font-size: 0.95rem; }
+.header-bar .logo { color: var(--doc-accent); font-weight: bold; font-family: var(--mono); font-size: 1.05rem; }
 .header-bar .sep  { color: var(--muted); }
 .header-bar .nav-links { display: flex; gap: 16px; margin-left: auto; }
-.header-bar a { font-size: 0.78rem; font-family: var(--mono); color: var(--dim); text-decoration: none; }
+.header-bar a { font-size: 0.92rem; font-family: var(--mono); color: var(--dim); text-decoration: none; }
 .header-bar a:hover { color: var(--doc-accent); }
-.nav-cur { font-family: var(--mono); font-size: 0.78rem; color: var(--text); font-weight: 600; }
+.nav-cur { font-family: var(--mono); font-size: 0.92rem; color: var(--text); font-weight: 600; }
 .nav-sep { color: var(--muted); padding: 0 2px; }
 
 .rule { border: none; border-top: 1px solid var(--muted); margin: 40px 0; }
