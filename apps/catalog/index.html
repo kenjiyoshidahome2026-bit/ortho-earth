@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GIS-HUB-jp</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="styles.scss">
+</head>
+<body>
+  <div id="globe-bg"></div>
+  <div id="app">
+
+    <aside id="sidebar">
+      <div class="sidebar-head">
+        <div class="sidebar-top-row">
+          <div class="search-wrap">
+            <input type="text" id="search" placeholder="データセット検索...">
+          </div>
+          <button id="sidebar-toggle" aria-label="サイドバーを折りたたむ">◀</button>
+        </div>
+        <div class="filter-chips" id="license-filter">
+          <button class="chip active" data-lic="all">すべて</button>
+          <button class="chip" data-lic="ok">商用可</button>
+          <button class="chip" data-lic="ng">非商用</button>
+        </div>
+        <div id="list-count" class="list-count"></div>
+      </div>
+      <div id="dataset-list"></div>
+      <div class="kbd-hint">↑↓ 移動 &nbsp;/ 検索 &nbsp;Esc クリア</div>
+    </aside>
+    <button id="sidebar-open-btn" aria-label="メニューを開く">☰</button>
+    <div id="sidebar-backdrop"></div>
+
+    <main id="detail">
+      <div id="detail-header">
+        <button id="sidebar-brand" aria-label="トップへ戻る">
+          <img src="/favicon.svg" alt="" width="16" height="16">
+          <span>GIS-HUB-jp</span>
+        </button>
+      </div>
+      <div id="geo-preview"></div>
+      <div id="detail-body"></div>
+    </main>
+
+  </div>
+  <script type="module" src="main.js"></script>
+</body>
+</html>

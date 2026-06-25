@@ -1,0 +1,25 @@
+{
+  "name": "catalog",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "summary": "repomix --style markdown --output project_summary.md"
+  },
+  "dependencies": {
+    "adm-zip": "^0.5.17",
+    "d3": "^7.9.0",
+    "ortho-map": "*",
+    "shapefile": "^0.6.6",
+    "sharp": "^0.35.2",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "sass": "^1.101.0",
+    "vite": "^8.0.16",
+    "vite-plugin-wasm": "^3.4.1"
+  }
+}

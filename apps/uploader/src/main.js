@@ -1,7 +1,6 @@
 import * as d3 from 'd3';
 import "./main.scss";
-import { screenLogger } from "../../gishub/screenLogger.js";
-import "../../gishub/screenLogger.scss";
+import { screenLogger } from "common/screenLogger";
 import "common/d3/selection.js";
 import { comma, isArray, isString, isNumber, isObject, isBlob, unique, concat, thenEach } from "common";
 import { Layers } from "ortho-map/modules/Layers.js";
