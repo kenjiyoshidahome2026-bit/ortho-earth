@@ -55,13 +55,13 @@ input[type=range] { flex: 1; accent-color: #38bdf8; cursor: pointer; }
 <a href="gintbuf.html" style="display:inline-flex;align-items:center;gap:5px;margin-bottom:10px;padding:4px 10px;border-radius:6px;border:1px solid #334155;background:#0f172a;color:#64748b;font-size:0.75rem;font-family:monospace;text-decoration:none" onmouseover="this.style.color='#38bdf8'" onmouseout="this.style.color='#64748b'">← Gint Pipeline</a>
 
 <h1>Gint Dynamic LOD Pipeline</h1>
-<div class="subtitle">64-bit Morton Code Bit-Shift · Zero Network Overhead · Instant LOD Switch</div>
+<div class="subtitle">GPU Vertex Shader LOD · 64-bit Morton Bit-Mask · Zero Network Overhead · Zero CPU on LOD Change</div>
 
 <div class="layout">
   <div class="left">
     <canvas id="c" width="636" height="410"></canvas>
     <div class="controls">
-      <div class="ctrl-label">Drag to zoom — all LOD levels already decoded from one file</div>
+      <div class="ctrl-label">Drag to zoom — vertex shader discards higher-LOD vertices on GPU, zero CPU work</div>
       <div class="srow">
         <span>z=2</span>
         <input type="range" id="sl" min="2" max="10" step="2" value="10">
@@ -80,9 +80,10 @@ input[type=range] { flex: 1; accent-color: #38bdf8; cursor: pointer; }
       <div style="text-align:center;margin-top:4px" id="lt"></div>
     </div>
     <div class="sb">
-      <h3>Active Vertices</h3>
-      <div class="vc"><div class="vn" id="va">—</div><div class="vt">/ <span id="vt">—</span></div></div>
+      <h3>GPU-Rendered Vertices</h3>
+      <div class="vc"><div class="vn" id="va">—</div><div class="vt">/ <span id="vt">—</span> on GPU</div></div>
       <div class="vbw"><div class="vb" id="vb" style="width:0%"></div></div>
+      <div style="font-size:0.68rem;color:#475569;margin-top:5px;font-family:monospace">vertex shader: discard if lod_bits &gt; zoom</div>
     </div>
     <div class="sb">
       <h3>LOD Breakdown</h3>
