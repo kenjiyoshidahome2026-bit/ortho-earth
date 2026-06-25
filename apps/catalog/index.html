@@ -3,10 +3,12 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>GISカタログ</title>
+  <title>GIS-HUB-jp</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="styles.scss">
 </head>
 <body>
+  <div id="globe-bg"></div>
   <div id="app">
 
     <aside id="sidebar">
@@ -31,13 +33,14 @@
     <div id="sidebar-backdrop"></div>
 
     <main id="detail">
-      <div id="geo-preview"></div>
-      <div id="detail-body">
-        <div class="placeholder">
-          <div class="placeholder-icon">🗂</div>
-          <p>← データセットを選択してください</p>
-        </div>
+      <div id="detail-header">
+        <button id="sidebar-brand" aria-label="トップへ戻る">
+          <img src="/favicon.svg" alt="" width="16" height="16">
+          <span>GIS-HUB-jp</span>
+        </button>
       </div>
+      <div id="geo-preview"></div>
+      <div id="detail-body"></div>
     </main>
 
   </div>

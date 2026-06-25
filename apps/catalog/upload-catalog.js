@@ -122,18 +122,45 @@ function parseCodelistXlsx(buf) {
     let codeCol = row.findIndex(h => /コード$/.test(h) && !/改定/.test(h));
     if (codeCol < 0) codeCol = row.findIndex(h => /^code$/i.test(h));
     if (codeCol < 0) continue;
-    let labelCol = -1;
-    for (let j = codeCol + 1; j < row.length; j++) { if (row[j]) { labelCol = j; break; } }
-    if (labelCol < 0) labelCol = codeCol + 1;
     const result = [];
     for (let k = i + 1; k < data.length; k++) {
       const cells = data[k].map(c => String(c).trim());
-      const code = cells[codeCol] || '', label = cells[labelCol] || '';
+      const code = cells[codeCol] || '';
+      // 最後の非空セルを採用（市区町村名など最も詳細なラベル列を得る）
+      const label = cells.slice(codeCol + 1).filter(c => c).pop() || '';
       if (code && label) result.push({ code, label });
     }
     if (result.length) return result;
   }
   return [];
+}
+
+// ---------------------------------------------------------------------------
+// コードリストキャッシュ: CSV文字列形式（TSV: "code\tlabel\n..."）で保存
+// ---------------------------------------------------------------------------
+function entriesToCsv(entries) {
+  return entries.map(e => `${e.code}\t${e.label}`).join('\n');
+}
+
+function csvToEntries(csv) {
+  return csv.split('\n').filter(Boolean).map(line => {
+    const idx = line.indexOf('\t');
+    if (idx < 0) return null;
+    return { code: line.slice(0, idx), label: line.slice(idx + 1) };
+  }).filter(Boolean);
+}
+
+function loadDiskCache() {
+  if (!existsSync(CODELIST_CACHE_FILE)) return {};
+  const raw = JSON.parse(readFileSync(CODELIST_CACHE_FILE, 'utf8'));
+  // 旧フォーマット（配列）→ CSV文字列に正規化
+  const out = {};
+  for (const [url, val] of Object.entries(raw)) {
+    if (val === null)                { out[url] = null; }
+    else if (typeof val === 'string') { out[url] = val; }
+    else if (Array.isArray(val))      { out[url] = entriesToCsv(val); }
+  }
+  return out;
 }
 
 // コードリストURLを一括取得（ローカルキャッシュ付き、レート制限対策）
@@ -143,10 +170,8 @@ async function fetchAllCodelists(catalog) {
     for (const a of ds.attributes || [])
       if (a.codelist) urls.add(a.codelist);
 
-  // ローカルキャッシュ読み込み
-  const diskCache = existsSync(CODELIST_CACHE_FILE)
-    ? JSON.parse(readFileSync(CODELIST_CACHE_FILE, 'utf8'))
-    : {};
+  // ローカルキャッシュ読み込み（TSV文字列形式）
+  const diskCache = loadDiskCache();
 
   const urlList = [...urls];
   const missing = urlList.filter(u => !(u in diskCache));
@@ -164,11 +189,15 @@ async function fetchAllCodelists(catalog) {
         entries = parseCodelistXlsx(buf);
       } else {
         const buf = Buffer.from(await res.arrayBuffer());
-        // HTMLメタタグを優先（サーバーがContent-Type: utf-8を返しても実体はSJISなケースがある）
-        const head = buf.slice(0, 1024).toString('latin1');
-        const metaMatch = head.match(/charset=[\"']?([^\"';\s>]+)/i);
-        const charset = metaMatch ? metaMatch[1] : (res.headers.get('content-type') || '');
-        const encoding = /shift.?jis/i.test(charset) ? 'shift-jis' : 'utf-8';
+        // UTF-8 BOM (EF BB BF) が付いているファイルは Shift_JIS メタタグを無視して UTF-8 として読む
+        const hasBom = buf[0] === 0xEF && buf[1] === 0xBB && buf[2] === 0xBF;
+        let encoding = 'utf-8';
+        if (!hasBom) {
+          const head = buf.slice(0, 1024).toString('latin1');
+          const metaMatch = head.match(/charset=[\"']?([^\"';\s>]+)/i);
+          const charset = metaMatch ? metaMatch[1] : (res.headers.get('content-type') || '');
+          if (/shift.?jis/i.test(charset)) encoding = 'shift-jis';
+        }
         const text = new TextDecoder(encoding).decode(buf);
         entries = parseCodelistHtml(text);
         // CAPTCHAページ検出（テーブルが返らなかった場合は再試行なし・null保存しない）
@@ -179,7 +208,7 @@ async function fetchAllCodelists(catalog) {
           continue;
         }
       }
-      diskCache[url] = entries.length ? entries : null;
+      diskCache[url] = entries.length ? entriesToCsv(entries) : null;
     } catch (e) {
       diskCache[url] = null;
     }
@@ -192,7 +221,11 @@ async function fetchAllCodelists(catalog) {
     console.log(`\n  キャッシュ保存: ${CODELIST_CACHE_FILE}`);
   }
 
-  const cache = new Map(Object.entries(diskCache));
+  // TSV文字列 → {code, label}[] に変換してMapで返す
+  const cache = new Map();
+  for (const [url, val] of Object.entries(diskCache)) {
+    cache.set(url, typeof val === 'string' ? csvToEntries(val) : val);
+  }
   const found = [...cache.values()].filter(Boolean).length;
   console.log(`  パース成功: ${found}/${urlList.length}`);
   return cache;
@@ -215,9 +248,30 @@ async function main() {
   const catalog = JSON.parse(readFileSync('catalog.json', 'utf8'));
   const csvRows = parseCSV(readFileSync('catalog-geojson.csv', 'utf8'));
 
+  // L03-b_r（ラスタ版）: 変換済みWebPカタログがあれば CSV の TIF エントリを上書き
+  const L03BR_CATALOG_FILE = 'l03b-r-catalog.json';
+  const l03brByCode = {};
+  if (existsSync(L03BR_CATALOG_FILE)) {
+    const l03brCatalog = JSON.parse(readFileSync(L03BR_CATALOG_FILE, 'utf8'));
+    l03brByCode['L03-b_r'] = Object.entries(l03brCatalog).map(([meshCode, meta]) => ({
+      scope:         '1次メッシュ',
+      location_code: meshCode,
+      format:        'webp',
+      target:        `${API_BASE}/bucket/l03b-r/${meta.file}`,
+      bbox:          meta.bbox,
+      width:         meta.width,
+      height:        meta.height,
+    }));
+    console.log(`L03-b_r WebP: ${l03brByCode['L03-b_r'].length} 件`);
+  }
+
   // CSV を dataset_code でグループ化
-  const filesByCode = {};
+  const filesByCode = { ...l03brByCode };
   for (const row of csvRows) {
+    // 旧日本測地系（TKY）ファイルは除外
+    if (row.coord_sys?.toUpperCase() === 'TKY') continue;
+    // L03-b_r は上記 WebP カタログで置換済み
+    if (l03brByCode['L03-b_r'] && row.dataset_code === 'L03-b_r') continue;
     const code = row.dataset_code;
     if (!filesByCode[code]) filesByCode[code] = [];
     // target を url#filename 形式に正規化（ZIP内フルパスを basename に短縮）

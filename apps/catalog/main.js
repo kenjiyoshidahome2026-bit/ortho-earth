@@ -33,6 +33,8 @@ import CENSUS_2015_STATS from './census-2015-stats.json' with { type: 'json' };
 import { buildCensusChartSVG } from './census-charts.mjs';
 import { geopbf, setApiUrl } from 'geopbf';
 import { geoExec } from 'common/geoExec';
+import orthoMap from 'ortho-map';
+import { select as d3select } from 'd3';
 
 // ============================================================
 // API 設定
@@ -41,6 +43,80 @@ const IS_DEV   = window.location.hostname === 'localhost';
 const API_BASE = IS_DEV ? '/api' : 'https://api.ortho-earth.com';
 
 setApiUrl(API_BASE);
+const TILER_BASE = 'https://tiler.ortho-earth.com';
+
+// ============================================================
+// Globe (ortho-map) 初期化
+// ============================================================
+const _initialZoom = Math.log2(Math.min(window.innerWidth, window.innerHeight) / 2 * 0.5 / 256 * Math.PI * 2);
+const _mapInst = await orthoMap({
+  target:    d3select('#globe-bg'),
+  center:    [135, 35],
+  zoom:      _initialZoom,
+  tilerBase: TILER_BASE,
+  apiUrl:    API_BASE,
+}).then(m => m.autoRotate(true));
+
+let _globeLayer = null;
+let _currentPbf = null;
+
+async function execGlobeView(pbf) {
+  if (!pbf?.length) return;
+  _currentPbf = pbf;
+  _mapInst.autoRotate(false);
+
+  if (_globeLayer) { _globeLayer.destroy(); _globeLayer = null; }
+
+  const { arcBuffer, arcMeta, polyStream, lineStream, pointBuffer, point } = pbf.unPackGint || {};
+  const hasArcs   = !!(arcBuffer && arcMeta && (polyStream?.length > 0 || lineStream?.length > 0));
+  const hasPoints = !!(pointBuffer?.length > 0);
+
+  if (hasArcs || hasPoints) {
+    const { polyCompBbox } = pbf.unPackGint ?? {};
+    _globeLayer = await _mapInst.createRemoteLayer({ name: 'CATALOG', type: 'gint' });
+    _globeLayer.set('gint', {
+      arcBuffer, arcMeta,
+      polyStream:   polyStream   ?? new Int32Array(0),
+      lineStream:   lineStream   ?? new Int32Array(0),
+      pointBuffer:  pointBuffer  ?? null,
+      point:        point        ?? null,
+      polyCompBbox, minZoom: 2,
+    });
+  } else {
+    const geomType = pbf.fmap[0]?.[2] ?? 4;
+    const style = geomType < 2
+      ? { fill: '#FF6B35', stroke: '#fff', size: 5 }
+      : geomType < 4
+      ? { stroke: '#00B4D8', width: 1.5 }
+      : { fill: 'rgba(255,107,53,0.25)', stroke: '#FF6B35', width: 0.8 };
+    const features = [];
+    pbf.forEach(n => features.push(pbf.getFeature(n)));
+    _globeLayer = _mapInst.createLayer({ name: 'CATALOG' });
+    _globeLayer.set('geojson', { type: 'FeatureCollection', features }, style);
+  }
+  _mapInst.draw();
+
+  const [w, s, e, n] = pbf.bbox;
+  const zoomFeature = (e - w > 300)
+    ? (() => {
+        const d2r = Math.PI / 180, r2d = 180 / Math.PI;
+        let sx = 0, sy = 0, sz = 0; const pts = [];
+        pbf.forEach(i => {
+          const b = pbf.getBbox(i); if (!b || !isFinite(b[0])) return;
+          const lng = (b[0]+b[2])/2, lat = (b[1]+b[3])/2; pts.push([lng,lat]);
+          sx += Math.cos(lat*d2r)*Math.cos(lng*d2r);
+          sy += Math.cos(lat*d2r)*Math.sin(lng*d2r);
+          sz += Math.sin(lat*d2r);
+        });
+        const norm = Math.sqrt(sx*sx+sy*sy+sz*sz);
+        return { type:'Feature', geometry:{ type:'MultiPoint', coordinates:pts }, properties:{},
+                 _center: norm > 0 ? [Math.atan2(sy,sx)*r2d, Math.asin(sz/norm)*r2d] : null };
+      })()
+    : { type:'Feature', geometry:{ type:'Polygon', coordinates:[[[w,s],[w,n],[e,n],[e,s],[w,s]]] }, properties:{} };
+
+  const zoomOpts = zoomFeature._center ? { center: zoomFeature._center } : {};
+  await _mapInst.zoomToFeature(zoomFeature, zoomOpts);
+}
 
 function bucketUrl(src, path) {
   return `${API_BASE}/bucket/${src.bucket}/${path}`;
@@ -601,6 +677,7 @@ async function loadCatalog() {
     ];
 
     renderList();
+    setDetailHtml(placeholder());
 
     // URL ハッシュ復元
     const hash = location.hash.slice(1);
@@ -694,6 +771,8 @@ function renderList() {
 // ============================================================
 function setDetailHtml(html) {
   document.getElementById('detail-body').innerHTML = html;
+  const isTop = html.includes('class="placeholder"');
+  document.getElementById('detail-header').style.display = isTop ? 'none' : '';
 }
 
 let _selectTimer = null;
@@ -1288,19 +1367,14 @@ function renderFiles(ds) {
           ${prefOpts}
           <button class="bulk-dl-btn" id="files-dl-all">一括↓IDB</button>
         </div>
-        <table class="file-table">
-          <thead><tr>
-            <th style="width:50px">年度</th>
-            <th style="width:80px">エリア</th>
-            <th style="width:62px">形式</th>
-            <th>ZIP</th>
-            <th style="width:90px"></th>
-          </tr></thead>
-          <tbody id="files-tbody">
+        <div class="file-list">
+          <div class="file-list-header">
+            <span>年度</span><span>エリア</span><span>ファイル</span><span>形式</span>
+          </div>
+          <div id="files-list">
             ${buildFileRows(allFiles, ds)}
-          </tbody>
-        </table>
-        <p class="dl-note">→ コピー（GIS-HUBにペースト）&nbsp;&nbsp;↓ IDB保存&nbsp;&nbsp;👁 プレビュー</p>
+          </div>
+        </div>
       </div>
     </section>
   `;
@@ -1310,7 +1384,7 @@ function buildFileRows(files, ds, limit = 200) {
   const shown = files.slice(0, limit);
   const rest  = files.length - shown.length;
   return shown.map(f => fileRow(f, ds)).join('') +
-    (rest ? `<tr><td colspan="6" class="more-row"><span>…残り ${rest} 件</span> <button class="load-more-btn">すべて表示</button></td></tr>` : '');
+    (rest ? `<div class="more-row"><span>…残り ${rest} 件</span> <button class="load-more-btn">すべて表示</button></div>` : '');
 }
 
 const PREFS = {
@@ -1382,7 +1456,7 @@ function cityArea(code5) {
 
 function scopeLabel(f) {
   const scope = f.scope || '全国';
-  if (scope === '全国') return '全国';
+  if (scope === '全国') return f.location_code || '全国';
   if (scope === '都道府県') {
     const code = String(f.pref_code || '').padStart(2, '0');
     return PREFS[code] || f.pref_code || '都道府県';
@@ -1421,24 +1495,19 @@ function fileEntry(f, ds) {
 }
 
 function fileRow(f, ds) {
-  const entry  = fileEntry(f, ds);
-  const zipUrl = f.target.split('#')[0];
-  const zipName = zipUrl.split('/').pop();
+  const entry    = fileEntry(f, ds);
+  const zipUrl   = f.target.split('#')[0];
+  const zipName  = zipUrl.split('/').pop();
   const fileName = f.target.split('#')[1] || '';
-  const area = scopeLabel(f);
+  const area     = scopeLabel(f);
 
   return `
-    <tr>
-      <td>${f.year || '—'}</td>
-      <td class="mono">${area}</td>
-      <td><span class="badge fmt-${f.format}">${f.format.toUpperCase()}</span></td>
-      <td class="mono">${zipName}${fileName ? `<br><span class="file-sub">${fileName}</span>` : ''}</td>
-      <td class="file-btns">
-        <button class="copy-btn" data-entry="${escHtml(JSON.stringify(entry))}">→</button>
-        <button class="dl-btn" data-entry="${escHtml(JSON.stringify(entry))}">↓</button>
-        <button class="preview-btn" data-entry="${escHtml(JSON.stringify(entry))}">👁</button>
-      </td>
-    </tr>
+    <div class="file-row" data-entry="${escHtml(JSON.stringify(entry))}">
+      <span class="file-year">${f.year || '—'}</span>
+      <span class="file-area">${area}</span>
+      <span class="file-name">${zipName}${fileName ? `<br><span class="file-sub">${fileName}</span>` : ''}</span>
+      <span class="file-fmt"><span class="badge fmt-${f.format}">${f.format.toUpperCase()}</span></span>
+    </div>
   `;
 }
 
@@ -1471,7 +1540,7 @@ function applyFileFilters() {
 
   _currentFilteredFiles = filtered;
   document.getElementById('files-cnt').textContent  = filtered.length;
-  document.getElementById('files-tbody').innerHTML  = buildFileRows(filtered, currentDs);
+  document.getElementById('files-list').innerHTML   = buildFileRows(filtered, currentDs);
 }
 
 // ============================================================
@@ -1495,25 +1564,30 @@ document.getElementById('detail').addEventListener('click', async e => {
     return;
   }
 
-  if (e.target.classList.contains('dl-btn')) {
+  // ファイル行クリック → プレビューパネル
+  const row = e.target.closest('.file-row');
+  if (row?.dataset.entry) {
+    const entry = JSON.parse(row.dataset.entry);
+    showGeoPreview(entry);
+    return;
+  }
+
+  // プレビューパネル内のアクションボタン
+  if (e.target.classList.contains('preview-copy-btn')) {
+    const entry = JSON.parse(e.target.dataset.entry);
+    try { await navigator.clipboard.writeText(JSON.stringify(entry, null, 2)); } catch {}
+    showToast(entry.name || entry.target);
+    return;
+  }
+  if (e.target.classList.contains('preview-dl-btn')) {
     const entry = JSON.parse(e.target.dataset.entry);
     bulkDownload([entry], entry.name);
     return;
   }
-
-  if (e.target.classList.contains('preview-btn')) {
-    const entry = JSON.parse(e.target.dataset.entry);
-    showGeoPreview(entry, e.target);
+  if (e.target.classList.contains('preview-render-btn')) {
+    if (_currentPbf) execGlobeView(_currentPbf);
     return;
   }
-
-  if (!e.target.classList.contains('copy-btn')) return;
-  const btn   = e.target;
-  const entry = JSON.parse(btn.dataset.entry);
-  try { await navigator.clipboard.writeText(JSON.stringify(entry, null, 2)); } catch {}
-  btn.textContent = '✓';
-  showToast(entry.target);
-  setTimeout(() => { btn.textContent = '→'; }, 1500);
 });
 
 // ============================================================
@@ -1557,7 +1631,7 @@ function showToast(url) {
 }
 
 async function handleLoadMore(btn) {
-  const row = btn.closest('tr');
+  const row = btn.closest('.more-row');
   btn.disabled = true; btn.textContent = '読み込み中...';
   try {
     const files = currentDs.files.some(f => f.format === 'geojson')
@@ -1572,7 +1646,127 @@ async function handleLoadMore(btn) {
 // ユーティリティ
 // ============================================================
 function placeholder() {
-  return `<div class="placeholder"><div class="placeholder-icon">🗂</div><p>← データセットを選択してください</p></div>`;
+  const nlftpDs    = catalog.filter(d => d._sourceId === 'nlftp');
+  const nlftpFiles = nlftpDs.reduce((s, d) => s + (d.file_count || 0), 0);
+  const fmt = n => typeof n === 'number' ? n.toLocaleString() : n;
+
+  const cards = [
+    {
+      icon:  '🗾',
+      min:   '国土交通省',
+      label: '国土数値情報',
+      cnt:   nlftpFiles || '…',
+      unit:  `ファイル / ${fmt(nlftpDs.length || '…')} データセット`,
+      desc:  '道路・河川・土地利用・行政区域・ハザード・地価など国土に関する各種情報',
+    },
+    {
+      icon:  '🏠',
+      min:   '法務省',
+      label: '登記所備付地図',
+      cnt:   MOJ_CITIES.size,
+      unit:  '市区町村',
+      desc:  '不動産登記の基礎となる 14 条地図（GeoJSON / GeoPBF）',
+    },
+    {
+      icon:  '🌾',
+      min:   '農林水産省',
+      label: '農地（筆ポリゴン）',
+      cnt:   MAFF_MANIFEST.length,
+      unit:  '市区町村',
+      desc:  '全国の農地区画。作付・耕地種別などの属性付き（GeoJSON）',
+    },
+    {
+      icon:  '📊',
+      min:   '総務省',
+      label: '統計 GIS・国勢調査',
+      cnt:   ESTAT_MANIFEST.length + CENSUS_MANIFEST.length,
+      unit:  `市区町村（小地域境界 + 国勢調査 3 年分）`,
+      desc:  '小地域境界 Shapefile（e-Stat）と 2015/2020/2025 年 国勢調査の人口・世帯・産業別集計',
+    },
+  ].map(c => `
+    <div class="ph-card">
+      <div class="ph-card-min">${c.min}</div>
+      <div class="ph-card-cnt">${fmt(c.cnt)}</div>
+      <div class="ph-card-head">
+        <span class="ph-card-icon">${c.icon}</span>
+        <span class="ph-card-label">${c.label}</span>
+      </div>
+      <div class="ph-card-unit">${c.unit}</div>
+      <div class="ph-card-desc">${c.desc}</div>
+    </div>
+  `).join('');
+
+  return `
+    <div class="placeholder">
+
+      <div class="ph-hero">
+        <div class="ph-hero-title">
+          <img class="ph-logo" src="/favicon.svg" alt="">
+          <div class="ph-title">GIS-HUB-jp</div>
+        </div>
+        <div class="ph-sub">GeoPBF を使用して、国が公開するデータを地図に描画します。</div>
+        <div class="ph-hero-link">
+          <a href="https://gishub.ortho-earth.com" target="_blank" rel="noopener">→ GIS-HUB（グローバル版）</a>
+          <a href="https://github.com/kenjiyoshidahome2026-bit/ortho-earth" target="_blank" rel="noopener" class="ph-github-link">
+            <svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+            GitHub（オープンソース）
+          </a>
+        </div>
+      </div>
+
+      <section class="ph-section">
+        <h3 class="ph-section-title">収録データ</h3>
+        <div class="ph-cards">${cards}</div>
+      </section>
+
+      <section class="ph-section">
+        <h3 class="ph-section-title">GeoPBF とは</h3>
+        <div class="ph-geopbf">
+          <div class="ph-geopbf-text">
+            <p>
+              <strong>GeoPBF</strong> は Web ブラウザ向けに設計された地理データフォーマットです。
+              政府が配布する ZIP 内の Shapefile・GeoJSON を変換して生成します。
+            </p>
+            <p>
+              従来の GeoJSON や Shapefile はファイルサイズが大きく、ブラウザでの読み込みと描画に時間がかかります。
+              GeoPBF はトポロジーを保持したまま頂点列を圧縮し、
+              WebGL2 シェーダーへ直接送信できるバイナリ構造を持ちます。
+              全国規模の数百万フィーチャーも、ズームに連動した動的 LOD でスムーズに描画します。
+            </p>
+            <p>
+              「↓ IDB 保存」でブラウザの IndexedDB に保存したデータは、
+              ortho-earth 上でオフラインでも利用できます。
+            </p>
+          </div>
+          <ul class="ph-feat-list">
+            <li><span class="ph-feat-ic">▸</span><span><strong>高圧縮</strong> — GeoJSON 比で 1/10〜1/50 のサイズ。国勢調査の全市区町村境界もブラウザで即時ロード</span></li>
+            <li><span class="ph-feat-ic">▸</span><span><strong>直接描画</strong> — CPU 変換なし。WebGL2 の頂点バッファへそのまま転送して GPU がレンダリング</span></li>
+            <li><span class="ph-feat-ic">▸</span><span><strong>位相保持</strong> — 隣接ポリゴンの共有境界を重複なく格納。面積誤差・すき間が生じない</span></li>
+            <li><span class="ph-feat-ic">▸</span><span><strong>動的 LOD</strong> — ズームレベルに応じて頂点を間引き。広域〜詳細まで同一データで対応</span></li>
+            <li><span class="ph-feat-ic">▸</span><span><strong>属性アクセス</strong> — フィーチャー ID から属性を O(1) で取得。クリック identify が高速</span></li>
+          </ul>
+        </div>
+        <div class="ph-doc-links">
+          <span class="ph-doc-label">技術ドキュメント</span>
+          <a href="https://ortho-earth.com/docs/GEOPBF-JP.html" target="_blank" rel="noopener">GeoPBF 仕様</a>
+          <a href="https://ortho-earth.com/docs/GINT.html"      target="_blank" rel="noopener">GINT レンダラー</a>
+          <a href="https://ortho-earth.com/docs/GINTBUF-JP.html" target="_blank" rel="noopener">GINT バッファ構造</a>
+          <a href="https://ortho-earth.com/docs/LOD.html"       target="_blank" rel="noopener">LOD アルゴリズム</a>
+        </div>
+      </section>
+
+      <section class="ph-section">
+        <h3 class="ph-section-title">使い方</h3>
+        <p class="ph-howto">左のデータセットを選択して、ファイルを選んでください。プレビューや属性が表示され、多種の GIS ファイルへの変換・地図への描画が可能です。</p>
+      </section>
+
+      <div class="ph-closing">
+        GeoPBF は生まれたてのテクノロジーです。バグや改善点があればぜひ教えてください。多くの方の参加と協力をお待ちしています。
+        <div class="ph-author">Kenji Yoshida @ Yokohama &nbsp;·&nbsp; <a href="https://github.com/kenjiyoshidahome2026-bit/ortho-earth/issues" target="_blank" rel="noopener">GitHub Issues</a></div>
+      </div>
+
+    </div>
+  `;
 }
 
 function escHtml(s) {
@@ -1635,7 +1829,18 @@ window.addEventListener('hashchange', () => {
 // ============================================================
 let _previewLoading = false;
 
-async function showGeoPreview(entry, btn) {
+function _previewActions(entry) {
+  const entryJson = escHtml(JSON.stringify(entry));
+  return `
+    <div class="preview-actions">
+      <button class="preview-copy-btn"   data-entry="${entryJson}">→ コピー</button>
+      <button class="preview-dl-btn"     data-entry="${entryJson}">↓ IDB保存</button>
+      <button class="preview-render-btn" data-entry="${entryJson}">🌍 描画</button>
+    </div>
+  `;
+}
+
+async function showGeoPreview(entry) {
   if (_previewLoading) return;
 
   const panel = document.getElementById('geo-preview');
@@ -1649,12 +1854,12 @@ async function showGeoPreview(entry, btn) {
   panel.querySelector('.geo-preview-close').addEventListener('click', closeGeoPreview);
 
   _previewLoading = true;
-  if (btn) { btn.disabled = true; btn.textContent = '⏳'; }
 
   try {
     await geoExec(entry, {
       geopbf,
       onSuccess(pbf, { previewCanvas, profileHtml }) {
+        _currentPbf = pbf;
         panel.innerHTML = `
           <div class="geo-preview-header">
             <span class="geo-preview-label">${escHtml(entry.name)}</span>
@@ -1664,10 +1869,12 @@ async function showGeoPreview(entry, btn) {
             <div class="geo-preview-canvas"></div>
             <div class="geo-preview-profile">${profileHtml}</div>
           </div>
+          ${_previewActions(entry)}
         `;
         panel.querySelector('.geo-preview-canvas').appendChild(previewCanvas);
         panel.querySelector('.geo-preview-close').addEventListener('click', closeGeoPreview);
         panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        execGlobeView(pbf);
       },
       onError(err) {
         panel.innerHTML = `
@@ -1675,13 +1882,13 @@ async function showGeoPreview(entry, btn) {
             <span class="geo-preview-label" style="color:#f08040">❌ ${escHtml(err?.message || 'ロードエラー')}</span>
             <button class="geo-preview-close">✕</button>
           </div>
+          ${_previewActions(entry)}
         `;
         panel.querySelector('.geo-preview-close').addEventListener('click', closeGeoPreview);
       },
     });
   } finally {
     _previewLoading = false;
-    if (btn) { btn.disabled = false; btn.textContent = '👁'; }
   }
 }
 
@@ -1721,7 +1928,7 @@ function initSidebarToggle() {
     }
   }
 
-  toggle.addEventListener('click', () => setSidebarCollapsed(true));
+  toggle.addEventListener('click', () => setSidebarCollapsed(!app.classList.contains('sidebar-collapsed')));
   openBtn?.addEventListener('click', () => setSidebarCollapsed(false));
   backdrop?.addEventListener('click', () => setSidebarCollapsed(true));
 
@@ -1752,3 +1959,10 @@ function initSidebarToggle() {
 // ============================================================
 init();
 initSidebarToggle();
+
+document.getElementById('sidebar-brand').addEventListener('click', () => {
+  currentDs = null;
+  history.replaceState(null, '', '#');
+  setDetailHtml(placeholder());
+  closeGeoPreview();
+});

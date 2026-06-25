@@ -78,7 +78,7 @@ function parseAttributes(html, pageUrl) {
   while ((m = trRe.exec(html)) !== null) {
     const inner = m[1];
     // <br>（CODE_NNN）パターンを持つ行のみ対象
-    const codeM = inner.match(/<br[^>]*>\s*[（(]([A-Z]\d{2}[a-z]?_\d{3})[)）]/i);
+    const codeM = inner.match(/<br[^>]*>\s*[（(]([A-Z]\d{2}[a-z*]?_\d{3})[)）]/i);
     if (!codeM) continue;
 
     const code = codeM[1];
