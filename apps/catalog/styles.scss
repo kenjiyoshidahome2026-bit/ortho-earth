@@ -28,11 +28,28 @@ a { color: $accent; text-decoration: none; &:hover { text-decoration: underline;
 button { cursor: pointer; font-family: $font; }
 
 // ============================================================
+// Globe (ortho-map) — 背景に固定
+// ============================================================
+#globe-bg {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+
+  // ortho-map が内部で生成する mapFrame div
+  > div { width: 100% !important; height: 100% !important; }
+}
+
+// ============================================================
 // レイアウト（2ペイン）
 // ============================================================
 #app {
   display: flex;
   height: 100vh;
+  position: relative;
+  z-index: 1;
+  background: $bg;
+  opacity: 0.8;
+  pointer-events: auto;
 }
 
 // ============================================================
@@ -70,13 +87,47 @@ button { cursor: pointer; font-family: $font; }
 #app.sidebar-collapsed .kbd-hint {
   display: none;
 }
-
 .sidebar-head {
   padding: 10px;
   border-bottom: 1px solid $dark;
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+// ============================================================
+// Detail ヘッダーバー（ブランド固定）
+// ============================================================
+#detail-header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 0 14px;
+  height: 36px;
+  background: $bg;
+  border-bottom: 1px solid $dark;
+  flex-shrink: 0;
+}
+
+#sidebar-brand {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  background: none;
+  border: none;
+  padding: 0;
+  color: $mid;
+  font-family: $mono;
+  font-size: 15px;
+  font-weight: bold;
+  letter-spacing: 0.03em;
+  cursor: pointer;
+  transition: color 150ms;
+  img { opacity: 0.55; transition: opacity 150ms; flex-shrink: 0; }
+  &:hover { color: $hi; img { opacity: 1; } }
 }
 
 .sidebar-top-row {
@@ -438,18 +489,216 @@ button { cursor: pointer; font-family: $font; }
       tr:hover td { background: #0f0f0f; }
     }
   }
+
+  .preview-actions {
+    display: flex;
+    gap: 8px;
+    padding: 8px 14px;
+    border-top: 1px solid $dark;
+    background: rgba(0,0,0,0.3);
+
+    button {
+      padding: 5px 12px;
+      border-radius: 4px;
+      font-size: 12px;
+      border: 1px solid #444;
+      background: $dark;
+      color: $text;
+      transition: all 0.15s;
+      &:hover { border-color: $accent; color: $accent; }
+    }
+    .preview-render-btn {
+      border-color: #3a5a3a;
+      color: #5a9a6a;
+      &:hover { background: #1a3a1a; border-color: #5a9a5a; color: #7aff7a; }
+    }
+  }
 }
 
 .placeholder {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  height: 100%;
-  color: $mid;
-  gap: 12px;
-  .placeholder-icon { font-size: 3em; }
-  p { font-size: 15px; }
+  max-width: 780px;
+  margin: 0 auto;
+  padding: 40px 28px 64px;
+
+  // ヒーロー
+  .ph-hero {
+    text-align: center;
+    padding-bottom: 32px;
+    margin-bottom: 36px;
+    border-bottom: 1px solid $dark;
+  }
+  .ph-hero-title {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    margin-bottom: 12px;
+  }
+  .ph-logo {
+    width: 36px; height: 36px;
+    opacity: 0.8;
+    flex-shrink: 0;
+  }
+  .ph-title {
+    font-size: 26px;
+    font-weight: bold;
+    color: $hi;
+    font-family: $mono;
+    letter-spacing: 0.02em;
+  }
+  .ph-hero-link {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 20px;
+    margin-top: 12px;
+    font-size: 12px;
+    a { color: $mid; text-decoration: none; &:hover { color: $accent; } }
+    .ph-github-link {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      color: $text;
+      border: 1px solid #333;
+      padding: 4px 10px;
+      border-radius: 4px;
+      transition: border-color 150ms, color 150ms;
+      &:hover { color: $hi; border-color: #666; }
+    }
+  }
+  .ph-sub {
+    font-size: 13px;
+    color: $mid;
+    line-height: 1.8;
+  }
+
+  // セクション共通
+  .ph-section { margin-bottom: 40px; }
+  .ph-section-title {
+    font-size: 11px;
+    font-weight: bold;
+    color: $mid;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    margin-bottom: 14px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid #1e1e1e;
+  }
+
+  // データカード
+  .ph-cards {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 10px;
+  }
+  .ph-card {
+    padding: 14px 16px;
+    border: 1px solid #2a2a2a;
+    border-radius: 6px;
+    background: #0e0e0e;
+    font-size: 12px;
+    color: $text;
+    line-height: 1.5;
+    transition: border-color 150ms;
+    &:hover { border-color: #444; }
+
+    .ph-card-min  { font-size: 10px; color: $mid; margin-bottom: 2px; }
+    .ph-card-cnt  { font-size: 22px; font-weight: bold; color: $accent; line-height: 1.2; margin-bottom: 4px; }
+    .ph-card-head {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .ph-card-icon  { font-size: 14px; flex-shrink: 0; }
+    .ph-card-label { font-size: 12px; color: $hi; font-weight: bold; }
+    .ph-card-unit  { font-size: 10px; color: $mid; margin-top: 2px; }
+    .ph-card-desc  { font-size: 10px; color: #555; margin-top: 6px; line-height: 1.5; border-top: 1px solid #1a1a1a; padding-top: 6px; }
+  }
+
+  // GeoPBF セクション
+  .ph-geopbf {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+    align-items: start;
+
+    p {
+      font-size: 12px;
+      color: $text;
+      line-height: 1.8;
+      margin-bottom: 10px;
+      &:last-child { margin-bottom: 0; }
+    }
+    strong { color: $hi; }
+  }
+  .ph-feat-list {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+
+    li {
+      display: flex;
+      gap: 8px;
+      font-size: 12px;
+      color: $text;
+      line-height: 1.6;
+    }
+    .ph-feat-ic { color: $accent; flex-shrink: 0; font-size: 10px; margin-top: 3px; }
+    strong { color: $hi; }
+  }
+
+  .ph-doc-links {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-top: 16px;
+    padding-top: 12px;
+    border-top: 1px solid #1e1e1e;
+    flex-wrap: wrap;
+
+    .ph-doc-label {
+      font-size: 10px;
+      color: $mid;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      flex-shrink: 0;
+    }
+    a {
+      font-size: 11px;
+      color: $mid;
+      text-decoration: none;
+      padding: 3px 8px;
+      border: 1px solid #2a2a2a;
+      border-radius: 3px;
+      font-family: $mono;
+      transition: color 150ms, border-color 150ms;
+      &:hover { color: $accent; border-color: $accent; }
+    }
+  }
+
+  .ph-howto {
+    font-size: 13px;
+    color: $text;
+    line-height: 1.8;
+  }
+
+  .ph-closing {
+    margin-top: 48px;
+    padding-top: 20px;
+    border-top: 1px solid #1a1a1a;
+    font-size: 12px;
+    color: #444;
+    text-align: center;
+    line-height: 1.8;
+    .ph-author {
+      margin-top: 10px;
+      font-family: $mono;
+      font-size: 11px;
+      color: #333;
+      a { color: #444; text-decoration: none; &:hover { color: #888; } }
+    }
+  }
 }
 
 .detail-inner {
@@ -549,30 +798,57 @@ button { cursor: pointer; font-family: $font; }
   gap: 12px;
 }
 
-.file-table {
+.file-list {
   width: 100%;
-  border-collapse: collapse;
-  font-size: 12px;
+}
 
-  th {
-    padding: 6px 10px;
-    background: #111;
-    text-align: left;
-    font-weight: bold;
+.file-list-header {
+  display: grid;
+  grid-template-columns: 50px 80px 1fr auto;
+  gap: 12px;
+  padding: 6px 14px;
+  background: #111;
+  border-bottom: 1px solid $dark;
+  font-size: 11px;
+  font-weight: bold;
+  color: $mid;
+  white-space: nowrap;
+}
+
+.file-row {
+  display: grid;
+  grid-template-columns: 50px 80px 1fr auto;
+  align-items: center;
+  gap: 12px;
+  padding: 7px 14px;
+  border-top: 1px solid #1c1c1c;
+  cursor: pointer;
+  transition: background 120ms;
+
+  &:hover { background: rgba(75,144,255,0.06); }
+
+  .file-year {
     font-size: 11px;
     color: $mid;
-    border-bottom: 1px solid $dark;
+  }
+  .file-area {
+    font-family: $mono;
+    font-size: 11px;
+    color: $accent;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .file-name {
+    font-family: $mono;
+    font-size: 11px;
+    color: $text;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
     white-space: nowrap;
   }
-
-  td {
-    padding: 5px 10px;
-    border-bottom: 1px solid #191919;
-    color: $text;
-  }
-
-  tr:last-child td { border-bottom: none; }
-  tr:hover td { background: #111; }
+  .file-fmt { white-space: nowrap; }
 }
 
 .file-sub {
@@ -581,11 +857,12 @@ button { cursor: pointer; font-family: $font; }
 }
 
 .more-row {
-  color: $mid !important;
   font-size: 12px;
   text-align: center;
-  padding: 8px !important;
-  background: #0a0a0a !important;
+  padding: 8px;
+  color: $mid;
+  background: #0a0a0a;
+  border-top: 1px solid #1c1c1c;
 }
 
 .load-more-btn {

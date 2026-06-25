@@ -3,7 +3,7 @@ import { geoOrthographic } from "common";
 import { orthoGL2 } from "./orthoGL2.js";
 import { createLayerMap } from "../modules/layers.js";
 
-const proj = geoOrthographic();
+let proj = geoOrthographic();
 let Layers = null;
 let bucket, cache, canvas, gl, width, height;
 let isMoving = false;

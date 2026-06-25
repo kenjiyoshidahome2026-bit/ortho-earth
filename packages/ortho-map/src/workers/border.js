@@ -19,7 +19,7 @@ const getSidereal = d => ((18.697374 + 24.0657098 * (d.getTime() / 864e5 + 24405
 let canvas, layer, width, height, dpr, path, zoom, attribution;
 let active = false, noCircle = 3, isNarrow = false, timer = null;
 let jsons = null;
-const proj = geoOrthographic();
+let proj = geoOrthographic();
 const sphere = { type: "Sphere" };
 const graticule = geoGraticule10();
 
