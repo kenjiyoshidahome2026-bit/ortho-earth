@@ -127,6 +127,7 @@ uniform vec2  u_dash_table[256];   // [dash_len, gap_len] in px; gap=0 → solid
 out vec4  v_color;
 out float v_zr;
 out float v_dist;       // screen-pixel distance from edge-A to this vert
+out float v_perp;       // perpendicular offset: -1.0 (left) to +1.0 (right)
 flat out vec2  v_dash;
 flat out float v_dist_base;  // cumulative screen-pixel distance to edge-A (px)
 
@@ -169,6 +170,7 @@ void main() {
     // v_dist: local pixel distance 0→len within this edge.
     v_dist_base = float(meta.b >> 8u) * u_scale * 0.017453292;
     v_dist = useA ? 0.0 : len;
+    v_perp = side;
 }`;
 
 const FS_RENDER = `#version 300 es
@@ -176,21 +178,31 @@ precision mediump float;
 in  vec4  v_color;
 in  float v_zr;
 in  float v_dist;
+in  float v_perp;
 flat in vec2  v_dash;
 flat in float v_dist_base;
 out vec4  fragColor;
 void main() {
-    if (v_zr < 0.0)       discard;
+    if (v_zr < -0.05)     discard;
     if (v_color.a == 0.0) discard;
-    float alpha = v_color.a;
+
+    // horizon soft fade
+    float alpha = v_color.a * smoothstep(-0.01, 0.02, v_zr);
+
+    // dash pattern
     if (v_dash.y > 0.0) {
-        float d      = v_dist_base + v_dist;  // cumulative arc distance in screen pixels
-        float period = v_dash.x + v_dash.y;   // total period = dash + gap
+        float d      = v_dist_base + v_dist;
+        float period = v_dash.x + v_dash.y;
         float t      = mod(d, period);
         float aa     = max(fwidth(v_dist), 0.001);
         alpha *= 1.0 - smoothstep(v_dash.x - aa, v_dash.x + aa, t);
     }
-    if (alpha < 0.01) discard;
+
+    // edge antialiasing
+    float edgeAA = max(fwidth(v_perp), 0.001);
+    alpha *= 1.0 - smoothstep(1.0 - edgeAA, 1.0 + edgeAA, abs(v_perp));
+
+    if (alpha < 0.004) discard;
     fragColor = vec4(v_color.rgb, alpha);
 }`;
 

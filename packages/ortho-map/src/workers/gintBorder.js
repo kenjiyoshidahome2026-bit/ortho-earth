@@ -20,6 +20,8 @@ function init(data) {
     gl = canvas.getContext("webgl2", { antialias: false, alpha: true, premultipliedAlpha: false });
     if (!gl) { postMessage({ action: "done", type: "init", ctx: null }); return; }
     programs = createGintPrograms(gl);
+    gl.enable(gl.BLEND);
+    gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
     postMessage({ action: "done", type: "init", ctx: gl.constructor.name });
 }
 

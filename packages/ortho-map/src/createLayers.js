@@ -37,10 +37,10 @@ async function getBorderRawBuffers() {
 
 // dash values are in screen pixels (constant visual size across zoom levels)
 const BORDER_GL_STYLES = [
-    { color: [1.0,  1.0,  1.0,  1.0], lineWidth: 0.8, dash: [0, 0 ] }, // graticule (solid)
+    { color: [1.0,  1.0,  1.0,  0.6], lineWidth: 1.0, dash: [0, 0 ] }, // graticule (solid)
     { color: [1.0,  1.0,  1.0,  1.0], lineWidth: 1.0, dash: [4, 2 ] }, // 国境線
     { color: [0.50, 0.50, 1.0,  0.8], lineWidth: 0.8, dash: [4, 2 ] }, // maritime
-    { color: [1.0,  1.0,  1.0,  1.0], lineWidth: 0.5, dash: [4, 2 ] }, // geographic lines
+    { color: [1.0,  1.0,  1.0,  0.6], lineWidth: 0.8, dash: [4, 2 ] }, // geographic lines
 ];
 
 export async function createLayers(map, opts) {
