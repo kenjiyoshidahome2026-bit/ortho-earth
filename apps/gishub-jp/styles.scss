@@ -1,0 +1,1433 @@
+// ============================================================
+// 変数 — gishub 共通パレット
+// ============================================================
+$bg:        #000;
+$dark:      #222;
+$mid:       #888;
+$text:      #ccc;
+$hi:        #fff;
+$accent:    #4b90ff;
+$remark:    #c40;
+$font:      'Verdana', 'Inter', 'Hiragino Kaku Gothic ProN', Arial, sans-serif;
+$mono:      'Courier New', Courier, monospace;
+$sidebar-w:  300px;
+$deep:    #111;
+$border:  #444;
+$divider: #1c1c1c;
+
+// ============================================================
+// ミックスイン
+// ============================================================
+@mixin scrollbar-thin {
+    &::-webkit-scrollbar { width: 4px; }
+    &::-webkit-scrollbar-track { background: $bg; }
+    &::-webkit-scrollbar-thumb { background: $dark; border-radius: 2px; }
+}
+
+@mixin btn-ghost($color: $mid, $hover: $accent, $bg: none, $border-clr: $border) {
+    background: $bg;
+    border: 1px solid $border-clr;
+    color: $color;
+    cursor: pointer;
+    transition: all 0.15s;
+    &:hover { border-color: $hover; color: $hover; }
+}
+
+%accordion-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 14px;
+    font-size: 12px;
+    font-weight: bold;
+    color: $text;
+    cursor: pointer;
+    user-select: none;
+    background: $dark;
+    border-bottom: 1px solid #333;
+    transition: background 120ms;
+    &:hover { background: #2a2a2a; }
+}
+
+// ============================================================
+// リセット・ベース
+// ============================================================
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; outline: none; }
+
+html, body {
+    width: 100%; height: 100%;
+    background: $bg; color: $text;
+    font-family: $font; font-size: 13px;
+    overflow: hidden;
+}
+
+a { color: $accent; text-decoration: none; &:hover { text-decoration: underline; } }
+button { cursor: pointer; font-family: $font; }
+
+// ============================================================
+// Globe (ortho-map) — 背景に固定
+// ============================================================
+#globe-bg {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+
+    // ortho-map が内部で生成する mapFrame div
+    > div { width: 100% !important; height: 100% !important; }
+}
+
+// ============================================================
+// レイアウト（2ペイン）
+// ============================================================
+#app {
+    display: flex;
+    height: 100vh;
+    position: relative;
+    z-index: 1;
+    background: $bg;
+    opacity: 0.8;
+    pointer-events: auto;
+}
+
+// ============================================================
+// サイドバー
+// ============================================================
+#sidebar {
+    width: $sidebar-w;
+    flex-shrink: 0;
+    border-right: 1px solid $dark;
+    background: #080808;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    transition: width 250ms ease-in-out;
+}
+
+// ============================================================
+// Desktop 折りたたみ状態
+// ============================================================
+#app.sidebar-collapsed #sidebar {
+    width: 44px;
+}
+#app.sidebar-collapsed .sidebar-head {
+    padding: 8px 0;
+    border-bottom: none;
+    align-items: center;
+}
+#app.sidebar-collapsed .sidebar-top-row {
+    justify-content: center;
+}
+#app.sidebar-collapsed .search-wrap,
+#app.sidebar-collapsed .filter-chips,
+#app.sidebar-collapsed .list-count,
+#app.sidebar-collapsed #dataset-list,
+#app.sidebar-collapsed .kbd-hint {
+    display: none;
+}
+.sidebar-head {
+    padding: 10px;
+    border-bottom: 1px solid $dark;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+// ============================================================
+// Detail ヘッダーバー（ブランド固定）
+// ============================================================
+#detail-header {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    padding: 0 14px;
+    height: 36px;
+    background: $bg;
+    border-bottom: 1px solid $dark;
+    flex-shrink: 0;
+}
+
+#sidebar-brand {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    background: none;
+    border: none;
+    padding: 0;
+    color: $mid;
+    font-family: $mono;
+    font-size: 15px;
+    font-weight: bold;
+    letter-spacing: 0.03em;
+    cursor: pointer;
+    transition: color 150ms;
+    img { opacity: 0.55; transition: opacity 150ms; flex-shrink: 0; }
+    &:hover { color: $hi; img { opacity: 1; } }
+}
+
+.sidebar-top-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.search-wrap {
+    flex: 1;
+    min-width: 0;
+    input[type=text] {
+        width: 100%;
+        padding: 7px 10px;
+        background: $dark;
+        border: none;
+        border-radius: 5px;
+        color: $hi;
+        font-family: $font;
+        font-size: 13px;
+        &::placeholder { color: $mid; }
+        &:focus { outline: 1px solid $accent; }
+    }
+}
+
+// 折りたたみトグルボタン（サイドバー内）
+#sidebar-toggle {
+    flex-shrink: 0;
+    width: 28px;
+    height: 28px;
+    border-radius: 5px;
+    background: none;
+    border: 1px solid #333;
+    color: $mid;
+    font-size: 11px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: color 150ms, background 150ms, border-color 150ms;
+    line-height: 1;
+    &:hover { color: $hi; background: $dark; border-color: #555; }
+}
+
+// モバイル専用の外部ハンバーガーボタン（デスクトップでは非表示）
+#sidebar-open-btn {
+    display: none;
+}
+
+// バックドロップ（モバイルのみ）
+#sidebar-backdrop {
+    display: none;
+}
+
+// ============================================================
+// モバイル（≤640px）— サイドバーはオーバーレイ
+// ============================================================
+@media (max-width: 640px) {
+    #app { position: relative; }
+
+    // サイドバーはfixed overlay（leftアニメーション）
+    #sidebar {
+        position: fixed;
+        top: 0;
+        left: 0;
+        height: 100%;
+        width: $sidebar-w !important; // collapsed時もwidthは保持
+        z-index: 200;
+        box-shadow: 4px 0 24px rgba(0,0,0,0.6);
+        transition: left 250ms ease-in-out;
+    }
+
+    // モバイル collapsed: leftでスライドアウト
+    #app.sidebar-collapsed #sidebar {
+        left: -#{$sidebar-w};
+    }
+
+    // モバイルでは collapsed状態のデスクトップ上書きをリセット
+    #app.sidebar-collapsed .search-wrap    { display: block; }
+    #app.sidebar-collapsed .filter-chips   { display: flex;  }
+    #app.sidebar-collapsed .list-count     { display: block; }
+    #app.sidebar-collapsed #dataset-list   { display: block; }
+    #app.sidebar-collapsed .kbd-hint       { display: block; }
+    #app.sidebar-collapsed .sidebar-head {
+        padding: 10px;
+        border-bottom: 1px solid $dark;
+        align-items: stretch;
+    }
+    #app.sidebar-collapsed .sidebar-top-row {
+        justify-content: flex-start;
+    }
+
+    // 開いているとき → バックドロップ
+    #app:not(.sidebar-collapsed) #sidebar-backdrop {
+        display: block;
+        position: fixed;
+        inset: 0;
+        z-index: 199;
+        background: rgba(0,0,0,0.5);
+    }
+
+    // #detail は常に全幅
+    #detail { flex: 1; width: 100%; }
+
+    // 閉じているときのハンバーガーボタン
+    #app.sidebar-collapsed #sidebar-open-btn {
+        display: flex;
+        position: fixed;
+        top: 10px;
+        left: 10px;
+        z-index: 300;
+        width: 36px;
+        height: 36px;
+        border-radius: 6px;
+        background: #111;
+        border: 1px solid #444;
+        color: $mid;
+        font-size: 15px;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        transition: color 150ms, border-color 150ms;
+        &:hover { color: $hi; border-color: $accent; }
+    }
+}
+
+.list-count {
+    font-size: 11px;
+    color: $mid;
+    text-align: right;
+}
+
+// ============================================================
+// ライセンスフィルターチップ
+// ============================================================
+.filter-chips {
+    display: flex;
+    gap: 4px;
+
+    .chip {
+        flex: 1;
+        padding: 4px 0;
+        background: $dark;
+        border: 1px solid #444;
+        border-radius: 4px;
+        color: $mid;
+        font-size: 11px;
+        font-family: $font;
+        cursor: pointer;
+        transition: all 0.15s;
+        white-space: nowrap;
+
+        &:hover  { border-color: $accent; color: $accent; }
+        &.active { background: rgba(75,144,255,0.15); border-color: $accent; color: $accent; font-weight: bold; }
+    }
+}
+
+.kbd-hint {
+    padding: 5px 12px;
+    font-size: 10px;
+    color: #444;
+    border-top: 1px solid $dark;
+    letter-spacing: 0.03em;
+}
+
+// ============================================================
+// データセットリスト
+// ============================================================
+#dataset-list {
+    flex: 1;
+    overflow-y: auto;
+    @include scrollbar-thin;
+}
+
+// gishub .group 相当
+.sidebar-group {
+    padding: 0.5em 0 0.25em;
+
+    .sidebar-group-title {
+        font-size: 0.75rem;
+        color: $mid;
+        margin-bottom: 5px;
+        padding: 0 10px;
+        text-align: left;
+        font-weight: normal;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+    }
+}
+
+.ds-item {
+    display: block;
+    margin: 4px 8px;
+    padding: 8px 10px;
+    border: 1px solid $mid;
+    border-radius: 8px;
+    background: $bg;
+    cursor: pointer;
+    transition: background 200ms, border-color 200ms;
+    position: relative;
+
+    &:hover {
+        background: $accent;
+        border-color: $hi;
+        .ds-code, .meta-num, .meta-lic { color: rgba(255,255,255,0.75); }
+        .ds-title { color: $hi; }
+    }
+    &.kbd-focus { background: #1a2a3a; border-color: #2a4a8a; }
+    &.active {
+        background: $accent;
+        border-color: $hi;
+        .ds-code, .meta-num, .meta-lic { color: rgba(255,255,255,0.75); }
+        .ds-title { color: $hi; }
+    }
+
+    .ds-line1 {
+        display: flex;
+        align-items: baseline;
+        gap: 6px;
+        margin-bottom: 4px;
+    }
+    .ds-code  { font-family: $mono; font-size: 11px; color: $accent; white-space: nowrap; flex-shrink: 0; }
+    .ds-line1-right { margin-left: auto; display: flex; gap: 6px; align-items: baseline; }
+    .meta-num { font-size: 10px; color: $mid; }
+    .meta-lic { font-size: 10px; color: $mid; }
+    .ds-title { font-size: 12px; font-weight: bold; color: $hi;
+                             white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+}
+
+// ============================================================
+// バッジ
+// ============================================================
+.badge {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: 10px;
+    font-weight: bold;
+    white-space: nowrap;
+}
+
+.fmt-geojson { background: rgba(75, 144, 255, 0.2); color: #6aa8ff; }
+.fmt-pbf     { background: rgba(60, 200, 160, 0.2); color: #4dd4a8; }
+.fmt-shp     { background: rgba(180, 100, 255, 0.2); color: #c88aff; }
+.fmt-tif     { background: rgba(80, 200, 120, 0.2);  color: #6ed89a; }
+.fmt-none    { background: rgba(136,136,136,0.15);   color: $mid;    }
+
+.lic-ok  { background: rgba(80, 200, 120, 0.2); color: #6ed89a; }
+.lic-ng  { background: rgba(204, 68, 0, 0.2);   color: #f08040; }
+
+// ============================================================
+// メインエリア
+// ============================================================
+#detail {
+    flex: 1;
+    overflow-y: auto;
+    background: $bg;
+    display: flex;
+    flex-direction: column;
+    @include scrollbar-thin;
+}
+
+#detail-body {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+}
+
+// ============================================================
+// GEO プレビューパネル
+// ============================================================
+#geo-preview {
+    display: none;
+    flex-shrink: 0;
+    border-bottom: 1px solid $dark;
+    background: #060608;
+    position: relative;
+
+    &.visible { display: block; }
+
+    .geo-preview-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 10px 14px 10px 18px;
+        border-bottom: 1px solid $dark;
+        background: #0a0a0c;
+        gap: 12px;
+    }
+
+    .geo-preview-label {
+        font-size: 12px;
+        color: $text;
+        font-family: $mono;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        flex: 1;
+    }
+
+    .geo-preview-close {
+        @include btn-ghost($hover: $hi);
+        flex-shrink: 0;
+        width: 22px;
+        height: 22px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 4px;
+        font-size: 11px;
+        line-height: 1;
+        padding: 0;
+    }
+
+    .geo-preview-body {
+        display: flex;
+        gap: 20px;
+        padding: 12px 18px 16px;
+        align-items: flex-start;
+        overflow-x: auto;
+    }
+
+    .geo-preview-canvas {
+        flex-shrink: 0;
+        canvas {
+            border: 1px solid $dark;
+            border-radius: 4px;
+            display: block;
+        }
+    }
+
+    .geo-preview-profile {
+        flex: 1;
+        font-size: 11px;
+        color: $text;
+        overflow-x: auto;
+        min-width: 200px;
+
+        table {
+            border-collapse: collapse;
+            width: 100%;
+            td, th {
+                padding: 3px 8px;
+                border: 1px solid $dark;
+                text-align: left;
+                white-space: nowrap;
+            }
+            th { background: #111; color: $mid; font-weight: normal; }
+            tr:hover td { background: #0f0f0f; }
+        }
+    }
+
+    .preview-actions {
+        display: flex;
+        gap: 8px;
+        padding: 8px 14px;
+        border-top: 1px solid $dark;
+        background: rgba(0,0,0,0.3);
+
+        button {
+            padding: 5px 12px;
+            border-radius: 4px;
+            font-size: 12px;
+            border: 1px solid #444;
+            background: $dark;
+            color: $text;
+            transition: all 0.15s;
+            &:hover { border-color: $accent; color: $accent; }
+        }
+        .preview-render-btn {
+            border-color: #3a5a3a;
+            color: #5a9a6a;
+            &:hover { background: #1a3a1a; border-color: #5a9a5a; color: #7aff7a; }
+        }
+    }
+}
+
+.placeholder {
+    max-width: 780px;
+    margin: 0 auto;
+    padding: 40px 28px 64px;
+
+    // ヒーロー
+    .ph-hero {
+        text-align: center;
+        padding-bottom: 32px;
+        margin-bottom: 36px;
+        border-bottom: 1px solid $dark;
+    }
+    .ph-hero-title {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 14px;
+        margin-bottom: 12px;
+    }
+    .ph-logo {
+        width: 36px; height: 36px;
+        opacity: 0.8;
+        flex-shrink: 0;
+    }
+    .ph-title {
+        font-size: 26px;
+        font-weight: bold;
+        color: $hi;
+        font-family: $mono;
+        letter-spacing: 0.02em;
+    }
+    .ph-hero-link {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 20px;
+        margin-top: 12px;
+        font-size: 12px;
+        a { color: $mid; text-decoration: none; &:hover { color: $accent; } }
+        .ph-github-link {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            color: $text;
+            border: 1px solid #333;
+            padding: 4px 10px;
+            border-radius: 4px;
+            transition: border-color 150ms, color 150ms;
+            &:hover { color: $hi; border-color: #666; }
+        }
+    }
+    .ph-sub {
+        font-size: 13px;
+        color: $mid;
+        line-height: 1.8;
+    }
+
+    // セクション共通
+    .ph-section { margin-bottom: 40px; }
+    .ph-section-title {
+        font-size: 11px;
+        font-weight: bold;
+        color: $mid;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        margin-bottom: 14px;
+        padding-bottom: 6px;
+        border-bottom: 1px solid #1e1e1e;
+    }
+
+    // データカード
+    .ph-cards {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 10px;
+    }
+    .ph-card {
+        padding: 14px 16px;
+        border: 1px solid #2a2a2a;
+        border-radius: 6px;
+        background: #0e0e0e;
+        font-size: 12px;
+        color: $text;
+        line-height: 1.5;
+        transition: border-color 150ms;
+        &:hover { border-color: #444; }
+
+        .ph-card-min  { font-size: 10px; color: $mid; margin-bottom: 2px; }
+        .ph-card-cnt  { font-size: 22px; font-weight: bold; color: $accent; line-height: 1.2; margin-bottom: 4px; }
+        .ph-card-head {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .ph-card-icon  { font-size: 14px; flex-shrink: 0; }
+        .ph-card-label { font-size: 12px; color: $hi; font-weight: bold; }
+        .ph-card-unit  { font-size: 10px; color: $mid; margin-top: 2px; }
+        .ph-card-desc  { font-size: 10px; color: #555; margin-top: 6px; line-height: 1.5; border-top: 1px solid #1a1a1a; padding-top: 6px; }
+    }
+
+    // GeoPBF セクション
+    .ph-geopbf {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 24px;
+        align-items: start;
+
+        p {
+            font-size: 12px;
+            color: $text;
+            line-height: 1.8;
+            margin-bottom: 10px;
+            &:last-child { margin-bottom: 0; }
+        }
+        strong { color: $hi; }
+    }
+    .ph-feat-list {
+        list-style: none;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+
+        li {
+            display: flex;
+            gap: 8px;
+            font-size: 12px;
+            color: $text;
+            line-height: 1.6;
+        }
+        .ph-feat-ic { color: $accent; flex-shrink: 0; font-size: 10px; margin-top: 3px; }
+        strong { color: $hi; }
+    }
+
+    .ph-doc-links {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        margin-top: 16px;
+        padding-top: 12px;
+        border-top: 1px solid #1e1e1e;
+        flex-wrap: wrap;
+
+        .ph-doc-label {
+            font-size: 10px;
+            color: $mid;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            flex-shrink: 0;
+        }
+        a {
+            font-size: 11px;
+            color: $mid;
+            text-decoration: none;
+            padding: 3px 8px;
+            border: 1px solid #2a2a2a;
+            border-radius: 3px;
+            font-family: $mono;
+            transition: color 150ms, border-color 150ms;
+            &:hover { color: $accent; border-color: $accent; }
+        }
+    }
+
+    .ph-howto {
+        font-size: 13px;
+        color: $text;
+        line-height: 1.8;
+    }
+
+    .ph-closing {
+        margin-top: 48px;
+        padding-top: 20px;
+        border-top: 1px solid #1a1a1a;
+        font-size: 12px;
+        color: #444;
+        text-align: center;
+        line-height: 1.8;
+        .ph-author {
+            margin-top: 10px;
+            font-family: $mono;
+            font-size: 11px;
+            color: #333;
+            a { color: #444; text-decoration: none; &:hover { color: #888; } }
+        }
+    }
+}
+
+.detail-inner {
+    max-width: 860px;
+    margin: 0 auto;
+    padding: 24px 28px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.detail-header {
+    h2 { font-size: 20px; color: $hi; margin-bottom: 8px; }
+}
+
+.detail-meta {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    .ext-link { font-size: 12px; color: $accent; }
+    .mono { font-family: $mono; font-size: 11px; color: $mid; }
+}
+
+// ============================================================
+// セクション（属性・ファイル）
+// ============================================================
+.detail-section {
+    border: 1px solid $dark;
+    border-radius: 8px;
+    overflow: hidden;
+
+    &.collapsed .section-body  { display: none; }
+    &.collapsed .toggle-icon   { transform: rotate(-90deg); }
+}
+
+.section-title {
+    @extend %accordion-header;
+
+    .cnt {
+        color: $accent;
+        font-size: 11px;
+        background: rgba(75,144,255,0.15);
+        padding: 1px 7px;
+        border-radius: 20px;
+    }
+    .toggle-icon { margin-left: auto; font-size: 11px; color: $mid; transition: transform 0.2s; }
+}
+
+// ============================================================
+// 属性テーブル
+// ============================================================
+.attr-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+
+    th {
+        padding: 7px 12px;
+        background: $deep;
+        text-align: left;
+        font-weight: bold;
+        font-size: 11px;
+        color: $mid;
+        border-bottom: 1px solid $dark;
+    }
+
+    td {
+        padding: 6px 12px;
+        border-bottom: 1px solid #191919;
+        color: $text;
+    }
+
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: #111; }
+}
+
+// ============================================================
+// ファイルテーブル
+// ============================================================
+.files-section > .section-body {
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.file-list {
+    width: 100%;
+}
+
+.file-list-header {
+    display: grid;
+    grid-template-columns: 50px 80px 1fr auto;
+    gap: 12px;
+    padding: 6px 14px;
+    background: $deep;
+    border-bottom: 1px solid $dark;
+    font-size: 11px;
+    font-weight: bold;
+    color: $mid;
+    white-space: nowrap;
+}
+
+.file-row {
+    display: grid;
+    grid-template-columns: 50px 80px 1fr auto;
+    align-items: center;
+    gap: 12px;
+    padding: 7px 14px;
+    border-top: 1px solid $divider;
+    cursor: pointer;
+    transition: background 120ms;
+
+    &:hover { background: rgba(75,144,255,0.06); }
+
+    .file-year {
+        font-size: 11px;
+        color: $mid;
+    }
+    .file-area {
+        font-family: $mono;
+        font-size: 11px;
+        color: $accent;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    .file-name {
+        font-family: $mono;
+        font-size: 11px;
+        color: $text;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    .file-fmt { white-space: nowrap; }
+}
+
+.file-sub {
+    font-size: 10px;
+    color: $mid;
+}
+
+.more-row {
+    font-size: 12px;
+    text-align: center;
+    padding: 8px;
+    color: $mid;
+    background: #0a0a0a;
+    border-top: 1px solid #1c1c1c;
+}
+
+.load-more-btn {
+    @include btn-ghost($color: $text, $bg: $bg, $border-clr: $mid);
+    margin-left: 8px;
+    padding: 3px 10px;
+    border-radius: 4px;
+    font-size: 11px;
+}
+
+.file-btns {
+    display: flex;
+    gap: 4px;
+    justify-content: flex-end;
+}
+
+.copy-btn, .dl-btn {
+    padding: 3px 8px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: bold;
+    transition: all 0.15s;
+}
+
+.copy-btn {
+    background: $dark;
+    color: $accent;
+    border: 1px solid #444;
+    &:hover { background: $accent; color: $hi; border-color: $accent; }
+}
+
+.dl-btn {
+    background: $dark;
+    color: #5a9a6a;
+    border: 1px solid #3a5a3a;
+    &:hover { background: #2a5a2a; color: #7aff7a; border-color: #5a9a5a; }
+}
+
+.preview-btn {
+    @include btn-ghost($bg: $dark);
+    padding: 3px 7px;
+    border-radius: 4px;
+    font-size: 12px;
+    &:disabled { opacity: 0.45; cursor: not-allowed; }
+}
+
+.dl-note {
+    font-size: 11px;
+    color: $mid;
+    padding: 2px 0;
+}
+
+// ============================================================
+// ファイルフィルター行
+// ============================================================
+.file-filters {
+    display: flex;
+    gap: 6px;
+    padding: 8px 10px;
+    border-bottom: 1px solid $dark;
+    flex-wrap: wrap;
+
+    .file-filter {
+        padding: 4px 8px;
+        background: $dark;
+        border: 1px solid #444;
+        border-radius: 4px;
+        color: $text;
+        font-family: $font;
+        font-size: 11px;
+        cursor: pointer;
+        &:hover  { border-color: $accent; }
+        &:focus  { outline: 1px solid $accent; }
+    }
+}
+
+.target-cell {
+    color: #666;
+    font-size: 11px;
+    max-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+// ============================================================
+// コードリストボタン
+// ============================================================
+.codelist-btn {
+    @include btn-ghost($color: $text, $bg: $dark);
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+}
+
+// コードリストポップアップ
+.codelist-popup {
+    position: fixed;
+    z-index: 9000;
+    width: 320px;
+    background: $deep;
+    border: 1px solid $mid;
+    border-radius: 6px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.6);
+    font-size: 12px;
+    overflow: hidden;
+
+    .cl-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 6px 10px;
+        background: $dark;
+        border-bottom: 1px solid #333;
+        color: $mid;
+        font-size: 11px;
+    }
+    .cl-close {
+        background: none;
+        border: none;
+        color: $mid;
+        font-size: 13px;
+        line-height: 1;
+        padding: 0 2px;
+        &:hover { color: $hi; }
+    }
+    .cl-body {
+        max-height: 320px;
+        overflow-y: auto;
+        &::-webkit-scrollbar { width: 4px; }
+        &::-webkit-scrollbar-thumb { background: #444; }
+    }
+    .cl-loading { padding: 12px; color: $mid; text-align: center; }
+
+    table { width: 100%; border-collapse: collapse; }
+    th { padding: 5px 10px; background: #0d0d0d; color: $mid; font-size: 11px; text-align: left; position: sticky; top: 0; }
+    td { padding: 4px 10px; border-bottom: 1px solid #1a1a1a; color: $text; }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: #181818; }
+}
+
+
+// ============================================================
+// 法務省市区町村リスト（メインパネル）
+// ============================================================
+.moj-list-wrap {
+    display: flex;
+    flex-direction: column;
+    // #detail が overflow-y: auto なので height/overflow はここでは不要
+}
+
+.moj-list-head {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    padding: 20px 28px 14px;
+    border-bottom: 1px solid $dark;
+    background: #060606;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.moj-head-row {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+
+    h2 { font-size: 18px; color: $hi; margin: 0; }
+}
+
+
+.moj-subtitle {
+    font-size: 11px;
+    color: $mid;
+    margin-top: 3px;
+
+    .moj-total {
+        display: inline-block;
+        margin-left: 10px;
+        color: $accent;
+        font-weight: bold;
+    }
+    .moj-total-size {
+        display: inline-block;
+        margin-left: 10px;
+        color: #666;
+        font-family: $mono;
+    }
+    .moj-fmt-note {
+        display: inline-block;
+        margin-left: 10px;
+        color: #555;
+        font-family: $mono;
+    }
+}
+
+// 全国一括ダウンロードボタン
+.bulk-dl-btn {
+    flex-shrink: 0;
+    padding: 6px 16px;
+    border-radius: 5px;
+    font-size: 12px;
+    font-weight: bold;
+    font-family: $font;
+    border: 1px solid $accent;
+    background: rgba(75,144,255,0.1);
+    color: $accent;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: all 0.15s;
+    &:hover { background: rgba(75,144,255,0.22); }
+}
+
+.moj-search {
+    width: 100%;
+    padding: 8px 12px;
+    background: $dark;
+    border: 1px solid #3a3a3a;
+    border-radius: 5px;
+    color: $hi;
+    font-family: $font;
+    font-size: 13px;
+    &::placeholder { color: $mid; }
+    &:focus { outline: none; border-color: $accent; }
+}
+
+// セクションリスト（#detail がスクロール担当）
+.grouped-list {
+    padding: 16px 28px 32px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+// 都道府県ヘッダー（.section-title ベース）
+.pref-header {
+    @extend %accordion-header;
+
+    .pref-arrow {
+        font-size: 11px;
+        color: $mid;
+        transition: transform 0.18s;
+        flex-shrink: 0;
+    }
+    .pref-name { font-size: 13px; color: $hi; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .pref-coord-sys { font-size: 10px; color: $mid; font-family: $mono; white-space: nowrap; }
+    .pref-size { font-size: 11px; color: #5a7a5a; font-family: $mono; white-space: nowrap; }
+    .size-note { font-size: 9px; color: #888; font-family: $mono; opacity: 0.7; vertical-align: middle; }
+    .size-est  { font-size: 10px; color: #b07a3a; font-family: $mono; }
+
+    // .cnt は .section-title の .cnt と共有
+    .pref-bulk-btn {
+        @include btn-ghost($border-clr: #555);
+        padding: 3px 10px;
+        border-radius: 4px;
+        font-size: 11px;
+        font-family: $font;
+        white-space: nowrap;
+    }
+
+    &.collapsed .pref-arrow { transform: rotate(-90deg); }
+}
+
+.pref-cities {
+    &.hidden { display: none; }
+}
+
+// 市区町村行（クリックでダウンロード）
+.moj-city-item {
+    display: grid;
+    grid-template-columns: 54px 1fr minmax(0, 200px) auto;
+    align-items: center;
+    gap: 12px;
+    padding: 7px 14px;
+    border-top: 1px solid $divider;
+    cursor: pointer;
+    transition: background 120ms;
+
+    &:hover {
+        background: rgba(75,144,255,0.06);
+        .moj-city-name { color: $hi; }
+    }
+
+    .moj-city-code {
+        font-family: $mono;
+        font-size: 11px;
+        color: $accent;
+    }
+    .moj-city-name {
+        font-size: 13px;
+        color: $text;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        transition: color 120ms;
+    }
+    .moj-city-file {
+        font-family: $mono;
+        font-size: 10px;
+        color: #4a4a4a;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+
+        .file-sz {
+            margin-left: 6px;
+            color: #5a7a5a;
+        }
+    }
+    .extra-cnt {
+        font-size: 10px;
+        color: $mid;
+        margin-left: 3px;
+    }
+
+}
+
+.area-tag {
+    display: inline-block;
+    margin-left: 6px;
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-size: 10px;
+    background: rgba(255,255,255,0.06);
+    color: $mid;
+    vertical-align: middle;
+}
+
+// 法務省詳細の戻るボタン
+.back-btn {
+    @include btn-ghost;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 12px;
+    border-radius: 5px;
+    font-size: 12px;
+    margin-bottom: 4px;
+}
+
+// fmt バッジ
+.fmt-moj { background: rgba(255, 180, 30, 0.12); color: #e6b030; }
+
+// ============================================================
+// 一括ダウンロード モーダル
+// ============================================================
+.dl-modal {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.65);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+    animation: dlFadeIn 0.15s ease;
+
+    &.dl-closing { animation: dlFadeOut 0.2s ease forwards; }
+}
+
+.dl-box {
+    background: $deep;
+    border: 1px solid #2a2a2a;
+    border-radius: 10px;
+    padding: 24px 28px;
+    width: 460px;
+    max-width: 90vw;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.7);
+}
+
+.dl-header {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.dl-title { font-size: 14px; font-weight: bold; color: $hi; }
+.dl-label { font-size: 11px; color: $mid; }
+
+.dl-bar-wrap {
+    height: 14px;
+    background: #1a1a1a;
+    border-radius: 7px;
+    overflow: hidden;
+    border: 1px solid #2a2a2a;
+
+    .dl-bar-fill {
+        height: 100%;
+        background: linear-gradient(90deg, #2a6aff, #4b90ff, #70b0ff);
+        background-size: 200% 100%;
+        border-radius: 7px;
+        width: 0%;
+        transition: width 0.3s ease-out;
+        animation: dlShimmer 1.8s linear infinite;
+        box-shadow: 0 0 8px rgba(75, 144, 255, 0.5);
+    }
+}
+
+@keyframes dlShimmer {
+    0%   { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+}
+
+.dl-stat {
+    font-size: 12px;
+    color: $text;
+    display: flex;
+    gap: 10px;
+    align-items: baseline;
+
+    .dl-pct   { font-size: 20px; font-weight: bold; color: $accent; font-family: $mono; min-width: 54px; }
+    .dl-total { color: $mid; }
+    .dl-err   { color: $remark; font-size: 11px; margin-left: auto; }
+}
+
+.dl-active {
+    font-family: $mono;
+    font-size: 10px;
+    color: #4a4a4a;
+    min-height: 72px;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+
+    .dl-item {
+        overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+        color: $text;
+        animation: dlPulse 1.6s ease-in-out infinite;
+        .dl-bytes { color: #5a9a6a; font-family: $mono; font-size: 10px; margin-left: 6px; }
+        &.dl-item-convert { color: #7a9aff; animation-duration: 0.8s; }
+        &.dl-item-done    { color: #5a9a6a; animation: none; opacity: 1; }
+        &.dl-item-error   { color: #9a5a5a; animation: none; opacity: 1; }
+    }
+
+    @keyframes dlPulse {
+        0%, 100% { opacity: 1; }
+        50%       { opacity: 0.4; }
+    }
+}
+
+.dl-cancel-btn {
+    @include btn-ghost($hover: $remark);
+    align-self: flex-end;
+    padding: 6px 18px;
+    border-radius: 5px;
+    font-size: 12px;
+    font-family: $font;
+}
+
+@keyframes dlFadeIn  { from { opacity: 0; } to { opacity: 1; } }
+@keyframes dlFadeOut { from { opacity: 1; } to { opacity: 0; } }
+
+// ============================================================
+// トースト通知
+// ============================================================
+.toast {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%) translateY(12px);
+    background: #1a1a1a;
+    border: 1px solid $accent;
+    color: $accent;
+    font-family: $mono;
+    font-size: 11px;
+    padding: 8px 16px;
+    border-radius: 6px;
+    max-width: 80vw;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    opacity: 0;
+    transition: opacity 0.2s, transform 0.2s;
+    z-index: 9999;
+    pointer-events: none;
+
+    &.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+
+// ============================================================
+// ユーティリティ
+// ============================================================
+.mono { font-family: $mono; font-size: 11px; color: $mid; }
+
+.loading-msg { padding: 16px; text-align: center; color: $mid; }
+.error-msg   { padding: 16px; text-align: center; color: $remark; }
+.empty-msg   { padding: 16px; text-align: center; color: $mid; }
+.no-files    { padding: 16px; color: $mid; }
+
+// ============================================================
+// 国勢調査 サイドバー & 詳細パネル
+// ============================================================
+.census-city-item {
+    .pop-val { margin-left: auto; font-family: $mono; font-size: 11px; color: $text; }
+    .pop-chg { margin-left: 6px; font-family: $mono; font-size: 11px; font-weight: 600;
+        &.pos { color: #4c8; }
+        &.neg { color: #f64; }
+    }
+}
+
+.census-detail {
+    padding: 8px 12px 24px;
+    overflow-y: auto;
+
+    .cs-svg-wrap {
+        svg { width: 100%; height: auto; display: block; border-radius: 4px; }
+    }
+
+    .cs-section {
+        margin-bottom: 20px;
+        h3 {
+            font-size: 13px;
+            color: $accent;
+            border-bottom: 1px solid rgba(255,255,255,.12);
+            padding-bottom: 4px;
+            margin-bottom: 8px;
+            .cs-year { font-size: 11px; color: $mid; font-weight: 400; margin-left: 6px; }
+        }
+    }
+
+    .cs-kv-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 4px 12px;
+    }
+    .cs-kv {
+        display: flex;
+        justify-content: space-between;
+        font-size: 12px;
+        padding: 2px 0;
+        border-bottom: 1px solid rgba(255,255,255,.04);
+        .cs-k { color: $mid; }
+        .cs-v { color: $text; font-family: $mono; }
+    }
+
+    .cs-bar-chart { margin-top: 4px; }
+    .cs-bar-row {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin-bottom: 3px;
+        font-size: 11px;
+        .cs-bar-label { width: 120px; flex-shrink: 0; color: $mid; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .cs-bar-wrap  { flex: 1; background: rgba(255,255,255,.06); border-radius: 2px; height: 10px; overflow: hidden; }
+        .cs-bar       { height: 100%; border-radius: 2px; min-width: 2px; }
+        .cs-bar-val   { width: 60px; text-align: right; color: $text; font-family: $mono; }
+        .cs-bar-pct   { width: 40px; text-align: right; color: $mid; }
+    }
+    .cs-note { font-size: 11px; color: $mid; margin-top: 4px; }
+}

@@ -1,9 +1,12 @@
 import { GeoPBF } from "./pbf.js";
 import { pbfio, setApiUrl } from "./pbf-io.js";
-GeoPBF._workerUrl = new URL("./decoder/pbf.js", import.meta.url);
-GeoPBF._gintWorkerUrl = new URL("./decoder/gint.js", import.meta.url);
+// decoder/pbf.js (669B) と decoder/gint.js (2行) はViteがdata:URLにインライン化するため
+// 相対importが解決できずWorkerエラーになる。両方とも同期フォールバックを使う。
+// GeoPBF._workerUrl = new URL("./decoder/pbf.js", import.meta.url);
+// GeoPBF._gintWorkerUrl = new URL("./decoder/gint.js", import.meta.url);
 export { setApiUrl };
 import { topology } from "./extension/topology.js";
+import { gint } from "./extension/gint.js";
 import { topo2geo } from "./modules/topo2geo.js";
 import { gunzip, isGzip } from "native-bucket";
 import { isString, isURL, isFile, isObject, isBuffer } from "common"
@@ -142,8 +145,9 @@ const encoder = async (pbf, type, opts = {}) => { //console.log(pbf, type, opts)
     const name = pbf._name, buf = pbf.arrayBuffer, gintbuf = pbf._gintBuffer;
     const event = type =="profile"? `profiling` : `conversion from GeoPBF to ${type}`;
     const throwEvent = (type, detail) => eventTarget && !opts.silent && eventTarget.dispatchEvent(new CustomEvent(type, { detail }));
-    opts.message == false || throwEvent("ConvertStart", { name, event });
     const url = new URL(`./encoder/${type}.js`, import.meta.url)
+    if (url.href.startsWith('data:')) return null; // Viteがdata:URLにインライン化 → Worker生成スキップ
+    opts.message == false || throwEvent("ConvertStart", { name, event });
     const w = new Worker(url, { type: 'module' });
     return new Promise(resolve => {
         w.onmessage = e => {
@@ -194,7 +198,11 @@ const methods = {
     async gmlFile(opts = {}) { return encoder(this, "gml", opts); },
     async fgbFile(opts = {}) { return encoder(this, "fgb", opts); },
     async gint(opts = {}) { if (opts.gint === false) return this;
-        this.unPackGint || await this.setGintBUF(await encoder(this, "gint", opts));
+        if (!this.unPackGint) {
+            let buf = await encoder(this, "gint", opts);
+            if (!buf) { await gint.initialize(); buf = topology(this); }
+            await this.setGintBUF(buf);
+        }
         if (!this.unPackGint) throw new Error("Failed to encode Gint buffer.");
         return this;
     },

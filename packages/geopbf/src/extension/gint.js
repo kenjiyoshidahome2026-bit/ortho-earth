@@ -184,6 +184,13 @@ export class gint {
     }
 
     static XY2L1(estimatedPoints = 4096) {
+        if (!wasmReady) {
+            const coords = [];
+            return {
+                push(x, y) { coords.push(gint.packFromInt(x, y)); },
+                close() { return new BigUint64Array(coords); }
+            };
+        }
         let count = 0, i32Idx = 0, bufSize = estimatedPoints * 2;
         let ptr = this._ensureBufferSize(bufSize * 4);
         let view = new Int32Array(wasmMemoryBuffer.buffer, ptr, bufSize);

@@ -7,7 +7,7 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 
 const __dir = dirname(fileURLToPath(import.meta.url));
-const MANIFEST_PATH = join(__dir, 'moj-manifest.json');
+const MANIFEST_PATH = join(__dir, 'manifest.json');
 const PARALLEL = 12;
 const CKAN_API = 'https://www.geospatial.jp/ckan/api/3/action/resource_show?id=';
 
@@ -20,23 +20,23 @@ const total = queue.length;
 console.log(`${total}件の CKAN API リクエスト開始 (${PARALLEL}並列)`);
 
 const worker = async () => {
-  while (queue.length) {
-    const entry = queue.shift();
-    try {
-      const res = await fetch(CKAN_API + entry.resourceId, {
-        signal: AbortSignal.timeout(15000),
-      });
-      const data = await res.json();
-      const size = data?.result?.size;
-      manifest[entry._idx].size = (size && size > 1000) ? size : null;
-      done++;
-      if (done % 100 === 0) console.log(`  ${done} / ${total}...`);
-    } catch (e) {
-      manifest[entry._idx].size = null;
-      errors++;
-      process.stderr.write(`ERR ${entry.filename}: ${e.message}\n`);
+    while (queue.length) {
+        const entry = queue.shift();
+        try {
+            const res = await fetch(CKAN_API + entry.resourceId, {
+                signal: AbortSignal.timeout(15000),
+            });
+            const data = await res.json();
+            const size = data?.result?.size;
+            manifest[entry._idx].size = (size && size > 1000) ? size : null;
+            done++;
+            if (done % 100 === 0) console.log(`  ${done} / ${total}...`);
+        } catch (e) {
+            manifest[entry._idx].size = null;
+            errors++;
+            process.stderr.write(`ERR ${entry.filename}: ${e.message}\n`);
+        }
     }
-  }
 };
 
 await Promise.all(Array.from({ length: PARALLEL }, worker));
