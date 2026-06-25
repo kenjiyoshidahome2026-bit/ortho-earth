@@ -11,8 +11,11 @@
 
     <aside id="sidebar">
       <div class="sidebar-head">
-        <div class="search-wrap">
-          <input type="text" id="search" placeholder="データセット検索...">
+        <div class="sidebar-top-row">
+          <div class="search-wrap">
+            <input type="text" id="search" placeholder="データセット検索...">
+          </div>
+          <button id="sidebar-toggle" aria-label="サイドバーを折りたたむ">◀</button>
         </div>
         <div class="filter-chips" id="license-filter">
           <button class="chip active" data-lic="all">すべて</button>
@@ -24,11 +27,16 @@
       <div id="dataset-list"></div>
       <div class="kbd-hint">↑↓ 移動 &nbsp;/ 検索 &nbsp;Esc クリア</div>
     </aside>
+    <button id="sidebar-open-btn" aria-label="メニューを開く">☰</button>
+    <div id="sidebar-backdrop"></div>
 
     <main id="detail">
-      <div class="placeholder">
-        <div class="placeholder-icon">🗂</div>
-        <p>← データセットを選択してください</p>
+      <div id="geo-preview"></div>
+      <div id="detail-body">
+        <div class="placeholder">
+          <div class="placeholder-icon">🗂</div>
+          <p>← データセットを選択してください</p>
+        </div>
       </div>
     </main>
 

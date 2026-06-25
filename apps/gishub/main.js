@@ -1,17 +1,18 @@
 import * as d3 from "d3";
 import orthoMap from 'ortho-map';
 import { geopbf, setApiUrl } from "geopbf";
-
-const API_BASE = "https://api.ortho-earth.com";
-const TILER_BASE = "https://tiler.ortho-earth.com";
-setApiUrl(API_BASE);
-const hubCache = await Cache("GISHUB").catch(() => null);
-import { screenLogger } from "./screenLogger.js";
+import { screenLogger } from "common/screenLogger";
+import { geoExec } from "common/geoExec";
 import { comma, download, openDirectory, saveTo, inputFile, isString } from "common";
 import { Cache } from "native-bucket";
 import "common/d3/highlight.js";
 import "common/d3/fileio.js";
 import "./main.scss";
+
+const API_BASE = "https://api.ortho-earth.com";
+const TILER_BASE = "https://tiler.ortho-earth.com";
+setApiUrl(API_BASE);
+const hubCache = await Cache("GISHUB").catch(() => null);
 const initialZoom = Math.log2(Math.min(window.innerWidth, window.innerHeight)/2*0.5 / 256 * Math.PI * 2);
 const mapInst = (await orthoMap({target:d3.select('body'), center:[0,0], zoom: initialZoom, tilerBase: TILER_BASE, apiUrl: API_BASE})).autoRotate(true);
 const exitButton = mapInst.append("button").attr("class", "close").html(`<img src="close.svg"/>`)
@@ -75,138 +76,95 @@ uploads.append("input").attr("type","text").attr("placeholder", `"Enter URL" or 
 .on("dblclick", function () { inputFile().then(f => f && exec({ name: fname(f.name), target: f, description: "selected file" }));});
 ////------------------------------------------------------
 async function exec(info) {
-    const def = {target:"", name: "", precision:6, license:"", description:"", attribution:"", link:"", nocache:false, format:""};
-    const { target, name, precision, license, description, attribution, link, nocache, format } = Object.assign(def, info);
-    try { uploads.hide(); tables.empty().hide(); logger.clear().show();
-        let inExec = true, success = false; left.selectAll(".card").attr("disabled", true);
-        let p = logger.title(name, description); p.style("position","sticky").style("top","10px").style("zindex",1)
-        link && p.style("cursor", "pointer").on("click", () => open(link, "_link_"));
-        const cacheKey = typeof target === 'string' ? target
-            : (target instanceof File ? `FILE::${target.name}::${target.size}::${target.lastModified}` : null);
-        const cached = cacheKey && !nocache && hubCache && await hubCache(cacheKey).catch(() => null);
-        p = logger.log(`Requesting: ${target.name || target} <span class="cancel">cancel</span>`)
-        const cancel = p.select("span").hide().on("click", () => location.reload());
-        setTimeout(() => inExec && cancel.show(),1000);
-        let pbf = await geopbf(target, { name, precision, license, description, attribution, nocache, format });
-        if (pbf && pbf.length) { success = true;
-            logger.success(`${name} (length: ${comma(pbf.size)})`);
-            p = logger.empty();
-            if (cached?.PREVIEW && cached?.PROFILE) {
-                const bitmap = await createImageBitmap(cached.PREVIEW);
-                const cv = p.append("canvas").node();
-                cv.width = bitmap.width, cv.height = bitmap.height;
-                cv.style.width  = (bitmap.width  / 2) + "px";
-                cv.style.height = (bitmap.height / 2) + "px";
-                cv.getContext("2d").drawImage(bitmap, 0, 0);
-                trimCanvas(cv);
-                logger.log(cached.PROFILE);
-            } else {
-                const canvas = p.append("canvas").style("display", "none");
-                const [bitmap, profileHtml] = await Promise.all([
-                    pbf.preview(canvas.node(), {size:256, stroke:"#fff", fill:"#222", minDist:0.5, dpr:2})
-                        .then(bm => { canvas.style("display", null); trimCanvas(canvas.node()); return bm; }),
-                    pbf.profile({ nohead: true }),
-                ]);
-                logger.log(profileHtml);
-                if (cacheKey && hubCache && bitmap instanceof ImageBitmap) {
-                    const cv = canvas.node();
-                    const oc = new OffscreenCanvas(cv.width, cv.height);
-                    oc.getContext("2d").drawImage(cv, 0, 0);
-                    oc.convertToBlob({ type: 'image/png', quality: 0.9 }).then(blob =>
-                        hubCache(cacheKey, { PREVIEW: blob, PROFILE: profileHtml }).catch(console.error)
-                    );
-                }
-            }
-        } else logger.error("Failed to load data.");
-        inExec = false; left.selectAll(".card").attr("disabled", null); cancel.hide();
-        p = logger.empty(); p.append("span").text("🔔 [ACTIONs]").classed("big",true);
-        success && p.append("button").classed("accent", true).text("View in Ortho-Map").on("click", () => execView(pbf));
-        success && p.append("button").text("Show Property Table").on("click", showProp);
-        attribution && pbf.originalURL && p.append("button").text("Reload from original url")
-        .on("click", async() => { pbf && (pbf.destroy()); exec(Object.assign({}, info, {nocache:true}));});
-        p.append("button").text("Done").on("click", async () => { exitView(); pbf && pbf.destroy(); reset(); });
-         if (!success) return;
-        const save = async s => { if (!s) return; const v = await saveTo(s); if (v) logger.log(`📥 Saved: ${s.name} (${comma(s.size)} bytes)`); }
-        const funcs = [
-            async function GeoPBF() { save(await pbf.geopbfFile()) },
-            async function GeoJSON() { save(await pbf.geojsonFile({gz: await logger.confirm("GeoJSON Gzipped", false)})); },
-            async function TopoJSON() { save(await pbf.topojsonFile({gz: await logger.confirm("TopoJSON Gzipped", false)})); },
-            async function FGB() { save(await pbf.fgbFile({ gz: await logger.confirm("FGB Gzipped", false)})) },
-            async function KMZ() { save(await pbf.kmzFile({ kmz: await logger.select("KMZ or KML", { KMZ: true, KML: false })})); },
-            async function Shape() { save(await pbf.shapeFile({encoding: await logger.prompt(`encoding (default: utf8)`, "utf8")}))},
-            async function GML() { save(await pbf.gmlFile({ gz: await logger.confirm("GML Gzipped", false)})); },
-            async function GPX() { save(await pbf.gpxFile({ gz: await logger.confirm("GPX Gzipped", false)})); },
-        ];
-        p = logger.empty();
-        const active = v => logger.target.selectAll("button").attr("disabled", v ? null : true);
-        p.append("span").text("📥 [DOWNLOAD]").classed("big",true);
-        funcs.forEach(f => p.append("button").classed("accent", f.name === "GeoPBF").text(f.name)
-            .on("click", async () => { active(false); (await openDirectory()) && await f(); active(true); }));
-        function showProp() {
-            const PAGE = 100;
-            const data = pbf.getPropertyTable();
-            const headers = data[0];
-            const rows = data.slice(1);
-            const pages = Math.ceil(rows.length / PAGE) || 1;
-            let page = 0;
-            const esc = s => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-            const cut = s => { const t = String(s); return esc(t.length > 16 ? t.substring(0, 15) + " …" : t); };
+    uploads.hide(); tables.empty().hide();
+    left.selectAll(".card").attr("disabled", true);
 
-            logger.hide();
-            tables.show().html(
-                `<h2>${pbf.name()}<span>${pbf.description()}</span></h2>` +
-                `<div class="prop-table"><table><thead><tr>${headers.map(t => `<th>${esc(String(t))}</th>`).join("")}</tr></thead><tbody></tbody></table></div>`
-            );
+    // sticky title は geoExec の logger.title() が生成するが、gishub では sticky にしたい
+    await geoExec(info, {
+        geopbf,
+        logger,
+        cache: hubCache,
+        async onSuccess(pbf) {
+            left.selectAll(".card").attr("disabled", null);
+            if (!pbf?.length) return;
 
-            const tbody = tables.select("tbody");
-            const h2 = tables.select("h2");
+            const save = async s => {
+                if (!s) return;
+                const v = await saveTo(s);
+                if (v) logger.log(`📥 Saved: ${s.name} (${comma(s.size)} bytes)`);
+            };
 
-            function renderPage() {
-                const slice = rows.slice(page * PAGE, (page + 1) * PAGE);
-                tbody.html(slice.map(row => `<tr>${row.map(t => `<td>${cut(t)}</td>`).join("")}</tr>`).join(""));
-                tables.select(".prop-table").node().scrollTop = 0;
-            }
-            renderPage();
+            const p = logger.empty();
+            p.append("span").text("🔔 [ACTIONs]").classed("big", true);
+            p.append("button").classed("accent", true).text("View in Ortho-Map").on("click", () => execView(pbf));
+            p.append("button").text("Show Property Table").on("click", () => showProp(pbf));
+            info.attribution && pbf.originalURL &&
+                p.append("button").text("Reload from original url")
+                    .on("click", () => { pbf.destroy(); exec(Object.assign({}, info, { nocache:true })); });
+            p.append("button").text("Done").on("click", () => { exitView(); pbf.destroy(); reset(); });
 
-            if (pages > 1) {
-                h2.append("button").text("◀").on("click", () => { if (page > 0) { page--; pageInfo.text(`${page + 1} / ${pages}`); renderPage(); } });
-                const pageInfo = h2.append("span").attr("class","page").text(`1 / ${pages}`);
-                h2.append("button").text("▶").on("click", () => { if (page < pages - 1) { page++; pageInfo.text(`${page + 1} / ${pages}`); renderPage(); } });
-            }
-            h2.append("button").text("📥 CSV").on("click", csv);
-            h2.append("button").text("📥 Excel").on("click", xls);
-            h2.append("button").text("Done").on("click", () => { logger.show(); tables.empty().hide(); });
-        }
-        async function csv() {
-            save(new File([pbf.getCSV()], pbf.name()+".csv", {type:"application/csv"}));
-        }
-        async function xls() {
-            window.XLSX || await import('https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js');
-            const XLSX = window.XLSX;
-            const workbook = XLSX.read(pbf.getCSV(), { type: 'string', raw: true });
-            const buff = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
-            save(new File([buff], pbf.name()+".xlsx", { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}));
-        }
-    } catch (err) {
-        logger.error(`Failed to load ${target.name || target}: ${err.message}`);
-    }
+            const funcs = [
+                async function GeoPBF()  { save(await pbf.geopbfFile()); },
+                async function GeoJSON() { save(await pbf.geojsonFile({ gz: await logger.confirm("GeoJSON Gzipped", false) })); },
+                async function TopoJSON(){ save(await pbf.topojsonFile({ gz: await logger.confirm("TopoJSON Gzipped", false) })); },
+                async function FGB()     { save(await pbf.fgbFile({ gz: await logger.confirm("FGB Gzipped", false) })); },
+                async function KMZ()     { save(await pbf.kmzFile({ kmz: await logger.select("KMZ or KML", { KMZ: true, KML: false }) })); },
+                async function Shape()   { save(await pbf.shapeFile({ encoding: await logger.prompt("encoding (default: utf8)", "utf8") })); },
+                async function GML()     { save(await pbf.gmlFile({ gz: await logger.confirm("GML Gzipped", false) })); },
+                async function GPX()     { save(await pbf.gpxFile({ gz: await logger.confirm("GPX Gzipped", false) })); },
+            ];
+            const q = logger.empty();
+            const active = v => logger.target.selectAll("button").attr("disabled", v ? null : true);
+            q.append("span").text("📥 [DOWNLOAD]").classed("big", true);
+            funcs.forEach(f => q.append("button").classed("accent", f.name === "GeoPBF").text(f.name)
+                .on("click", async () => { active(false); (await openDirectory()) && await f(); active(true); }));
+        },
+        onError() {
+            left.selectAll(".card").attr("disabled", null);
+        },
+    });
 }
-function trimCanvas(canvas) {
-    const ctx = canvas.getContext("2d");
-    const w = canvas.width, h = canvas.height;
-    const px = ctx.getImageData(0, 0, w, h).data;
-    const row = y => { for (let x = 0; x < w; x++) if (px[(y*w+x)*4+3]) return true; };
-    let t = 0, b = h - 1;
-    while (t < h && !row(t)) t++;
-    if (t >= h) return;
-    while (b > t && !row(b)) b--;
-    if (t === 0 && b === h - 1) return;
-    const dpr = w / parseFloat(canvas.style.width);
-    const trimH = b - t + 1;
-    const img = ctx.getImageData(0, t, w, trimH);
-    canvas.height = trimH;
-    ctx.putImageData(img, 0, 0);
-    canvas.style.height = (trimH / dpr) + "px";
+
+function showProp(pbf) {
+    const PAGE = 100;
+    const data = pbf.getPropertyTable();
+    const headers = data[0];
+    const rows = data.slice(1);
+    const pages = Math.ceil(rows.length / PAGE) || 1;
+    let page = 0;
+    const esc = s => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    const cut = s => { const t = String(s); return esc(t.length > 16 ? t.substring(0, 15) + " …" : t); };
+
+    logger.hide();
+    tables.show().html(
+        `<h2>${pbf.name()}<span>${pbf.description()}</span></h2>` +
+        `<div class="prop-table"><table><thead><tr>${headers.map(t => `<th>${esc(String(t))}</th>`).join("")}</tr></thead><tbody></tbody></table></div>`
+    );
+    const tbody = tables.select("tbody");
+    const h2 = tables.select("h2");
+
+    const renderPage = () => {
+        const slice = rows.slice(page * PAGE, (page + 1) * PAGE);
+        tbody.html(slice.map(row => `<tr>${row.map(t => `<td>${cut(t)}</td>`).join("")}</tr>`).join(""));
+        tables.select(".prop-table").node().scrollTop = 0;
+    };
+    renderPage();
+
+    if (pages > 1) {
+        h2.append("button").text("◀").on("click", () => { if (page > 0) { page--; pageInfo.text(`${page+1} / ${pages}`); renderPage(); } });
+        const pageInfo = h2.append("span").attr("class","page").text(`1 / ${pages}`);
+        h2.append("button").text("▶").on("click", () => { if (page < pages-1) { page++; pageInfo.text(`${page+1} / ${pages}`); renderPage(); } });
+    }
+    const save = async s => { if (!s) return; const v = await saveTo(s); if (v) logger.log(`📥 Saved: ${s.name} (${comma(s.size)} bytes)`); };
+    h2.append("button").text("📥 CSV").on("click", () => save(new File([pbf.getCSV()], pbf.name()+".csv", {type:"application/csv"})));
+    h2.append("button").text("📥 Excel").on("click", async () => {
+        window.XLSX || await import('https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js');
+        const XLSX = window.XLSX;
+        const workbook = XLSX.read(pbf.getCSV(), { type:'string', raw:true });
+        const buff = XLSX.write(workbook, { bookType:'xlsx', type:'array' });
+        save(new File([buff], pbf.name()+".xlsx", { type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }));
+    });
+    h2.append("button").text("Done").on("click", () => { logger.show(); tables.empty().hide(); });
 }
 let _viewLayer = null;
 let _autoRotateTimeout = null;
