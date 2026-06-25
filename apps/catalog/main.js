@@ -24,9 +24,15 @@ const SOURCES = [
 import MOJ_MANIFEST        from './moj-manifest.json'        with { type: 'json' };
 import MOJ_GEOJSON_MANIFEST from './moj-geojson.json'         with { type: 'json' };
 import MOJ_PBF_MANIFEST    from './moj-pbf-manifest.json'    with { type: 'json' };
-import MAFF_MANIFEST  from './maff-manifest.json'   with { type: 'json' };
-import ESTAT_MANIFEST from './estat-manifest.json'  with { type: 'json' };
+import MAFF_MANIFEST     from './maff-manifest.json'     with { type: 'json' };
+import ESTAT_MANIFEST    from './estat-manifest.json'    with { type: 'json' };
+import CENSUS_MANIFEST   from './census-manifest.json'   with { type: 'json' };
+import CENSUS_2025_POP   from './census-2025-pop.json'   with { type: 'json' };
+import CENSUS_2020_STATS from './census-2020-stats.json' with { type: 'json' };
+import CENSUS_2015_STATS from './census-2015-stats.json' with { type: 'json' };
+import { buildCensusChartSVG } from './census-charts.mjs';
 import { geopbf, setApiUrl } from 'geopbf';
+import { geoExec } from 'common/geoExec';
 
 // ============================================================
 // API 設定
@@ -133,16 +139,20 @@ function buildMaffCityList() {
     name: e.cityName,
     pref: e.prefCd,
     year: e.year,
+    size: e.size || null,
     _raw: e,
   }));
 }
 
 function maffCityItemHtml(city) {
+  const sizeBadge = city.size
+    ? `<span class="file-sz">${fmtBytes(city.size)} <span class="size-note">PBF</span></span>`
+    : '';
   return `
     <div class="moj-city-item" data-code="${city.code}" title="クリックでコピー">
       <span class="moj-city-code">${city.code}</span>
       <span class="moj-city-name">${city.name}</span>
-      <span class="moj-city-file">${city.year}年度</span>
+      <span class="moj-city-file">${city.year}年度${sizeBadge}</span>
       <span class="badge fmt-geojson">GeoJSON</span>
     </div>
   `;
@@ -162,11 +172,10 @@ function maffToEntry(e) {
 let maffListSearch = '', maffExpandedPrefs = new Set();
 
 function renderMaffList() {
-  const detail = document.getElementById('detail');
   const cities = buildMaffCityList();
-  renderMinistryList(detail, {
+  renderMinistryList({
     id:          'maff',
-    title:       '農林水産省 農地ポリゴン',
+    title:       '農林水産省 筆ポリゴン',
     subtitle:    '筆ポリゴンオープンデータ（農林水産省）<span class="moj-fmt-note">GeoJSON = API→zip→json</span>',
     cities,
     expanded:    maffExpandedPrefs,
@@ -178,6 +187,10 @@ function renderMaffList() {
     bulkByGroup: pref => (MAFF_BY_PREF.get(pref) || []).map(maffToEntry),
     allEntries:  () => MAFF_MANIFEST.map(maffToEntry),
     downloadFn:  maffGeopbf,
+    groupHeaderHtml: (_key, _name, items) => {
+      const total = items.reduce((s, c) => s + (c.size || 0), 0);
+      return total ? `<span class="pref-size">${fmtBytes(total)} <span class="size-note">PBF</span></span>` : '';
+    },
   });
 }
 
@@ -208,16 +221,20 @@ function buildEstatCityList() {
     code: e.code,
     name: e.name,
     pref: e.prefCode,
+    size: e.size || null,
     _raw: e,
   }));
 }
 
 function estatCityItemHtml(city) {
+  const sizeBadge = city.size
+    ? `<span class="file-sz">${fmtBytes(city.size)} <span class="size-note">ZIP</span></span>`
+    : '';
   return `
     <div class="moj-city-item" data-code="${city.code}" title="クリックでコピー">
       <span class="moj-city-code">${city.code}</span>
       <span class="moj-city-name">${city.name}</span>
-      <span class="moj-city-file">A002005212020_${city.code}.zip</span>
+      <span class="moj-city-file">A002005212020_${city.code}.zip${sizeBadge}</span>
       <span class="badge fmt-shp">SHP</span>
     </div>
   `;
@@ -236,9 +253,8 @@ function estatToEntry(e) {
 let estatListSearch = '', estatExpandedPrefs = new Set();
 
 function renderEstatList() {
-  const detail = document.getElementById('detail');
   const cities = buildEstatCityList();
-  renderMinistryList(detail, {
+  renderMinistryList({
     id:          'estat',
     title:       '総務省 統計GIS 小地域',
     subtitle:    '国勢調査2020 小地域（町丁・字等）境界データ<span class="moj-fmt-note">SHP = zip/shp</span>',
@@ -252,18 +268,134 @@ function renderEstatList() {
     bulkByGroup: pref => (ESTAT_BY_PREF.get(pref) || []).map(e => estatToEntry(e)),
     allEntries:  () => ESTAT_MANIFEST.map(estatToEntry),
     downloadFn:  estatGeopbf,
+    groupHeaderHtml: (_key, _name, items) => {
+      const total = items.reduce((s, c) => s + (c.size || 0), 0);
+      return total ? `<span class="pref-size">${fmtBytes(total)} <span class="size-note">ZIP</span></span>` : '';
+    },
   });
 }
 
 // ============================================================
-// 省庁リスト共通レンダラー
+// 総務省統計局 国勢調査 2025 速報集計
 // ============================================================
-function renderMinistryList(detail, {
-  id, title, subtitle, cities, expanded,
-  getSearch, setSearch, itemHtml, groupFn,
-  toEntry, bulkByGroup, allEntries, downloadFn = null,
-}) {
-  detail.innerHTML = `
+const CENSUS_BY_PREF = (() => {
+  const m = new Map();
+  for (const e of CENSUS_MANIFEST) {
+    if (!e.code.endsWith('000') && e.code !== '00000') {
+      if (!m.has(e.pref)) m.set(e.pref, []);
+      m.get(e.pref).push(e);
+    }
+  }
+  return m;
+})();
+
+function census2025SidebarEntry() {
+  const cities = CENSUS_MANIFEST.filter(e => !e.code.endsWith('000') && e.code !== '00000');
+  return { dataset_code:'census2025', title:'国勢調査 2025 速報集計', file_count:cities.length, license:'CC BY', _sourceId:'estat', attribution:'総務省統計局' };
+}
+function census2020SidebarEntry() {
+  const cities = CENSUS_MANIFEST.filter(e => !e.code.endsWith('000') && e.code !== '00000');
+  return { dataset_code:'census2020', title:'国勢調査 2020 基本集計', file_count:cities.length, license:'CC BY', _sourceId:'estat', attribution:'総務省統計局' };
+}
+function census2015SidebarEntry() {
+  const cities = Object.keys(CENSUS_2015_STATS);
+  return { dataset_code:'census2015', title:'国勢調査 2015 基本集計', file_count:cities.length, license:'CC BY', _sourceId:'estat', attribution:'総務省統計局' };
+}
+
+function censusSign(v) { return v > 0 ? `+${v.toFixed(1)}` : v.toFixed(1); }
+
+function census2025CityItemHtml(city) {
+  const p   = CENSUS_2025_POP[city.code];
+  const chg = p ? `<span class="pop-chg ${p.popChange >= 0 ? 'pos' : 'neg'}">${censusSign(p.popChange)}%</span>` : '';
+  const pop = p ? `<span class="pop-val">${p.pop[0].toLocaleString()}人</span>` : '';
+  return `
+    <div class="census-city-item moj-city-item" data-code="${city.code}">
+      <span class="moj-city-code">${city.code}</span>
+      <span class="moj-city-name">${city.name}</span>
+      ${pop}${chg}
+    </div>
+  `;
+}
+function census2020CityItemHtml(city) {
+  const s   = CENSUS_2020_STATS[city.code];
+  const ind = s?.ind?.[0];
+  const emp = ind ? `<span class="pop-val">${ind.toLocaleString()}人就業</span>` : '';
+  return `
+    <div class="census-city-item moj-city-item" data-code="${city.code}">
+      <span class="moj-city-code">${city.code}</span>
+      <span class="moj-city-name">${city.name}</span>
+      ${emp}
+    </div>
+  `;
+}
+function census2015CityItemHtml(city) {
+  const s   = CENSUS_2015_STATS[city.code];
+  const pop = s?.pop?.[0];
+  const val = pop ? `<span class="pop-val">${pop.toLocaleString()}人</span>` : '';
+  return `
+    <div class="census-city-item moj-city-item" data-code="${city.code}">
+      <span class="moj-city-code">${city.code}</span>
+      <span class="moj-city-name">${city.name}</span>
+      ${val}
+    </div>
+  `;
+}
+
+function buildCensusCityList() {
+  return CENSUS_MANIFEST.filter(e => !e.code.endsWith('000') && e.code !== '00000');
+}
+
+let census2025Search = '', census2025Expanded = new Set();
+let census2020Search = '', census2020Expanded = new Set();
+let census2015Search = '', census2015Expanded = new Set();
+
+function renderCensus2025List() {
+  const cities = buildCensusCityList();
+  renderCensusMinistryList({
+    id:       'census2025',
+    title:    '国勢調査 2025 速報集計',
+    subtitle: '令和7年国勢調査 人口速報集計（2025年10月1日現在）<span class="moj-fmt-note">男女別人口・世帯数</span>',
+    cities,
+    expanded:    census2025Expanded,
+    getSearch:   () => census2025Search,
+    setSearch:   v  => { census2025Search = v; },
+    itemHtml:    census2025CityItemHtml,
+    onItemClick: code => showCensusDetail(code, '2025'),
+  });
+}
+function renderCensus2020List() {
+  const cities = buildCensusCityList();
+  renderCensusMinistryList({
+    id:       'census2020',
+    title:    '国勢調査 2020 基本集計',
+    subtitle: '令和2年国勢調査 産業別・職業別就業者、世帯経済構成<span class="moj-fmt-note">2020年10月1日現在</span>',
+    cities,
+    expanded:    census2020Expanded,
+    getSearch:   () => census2020Search,
+    setSearch:   v  => { census2020Search = v; },
+    itemHtml:    census2020CityItemHtml,
+    onItemClick: code => showCensusDetail(code, '2020'),
+  });
+}
+function renderCensus2015List() {
+  const codes  = new Set(Object.keys(CENSUS_2015_STATS));
+  const cities = CENSUS_MANIFEST.filter(e => !e.code.endsWith('000') && e.code !== '00000' && codes.has(e.code));
+  renderCensusMinistryList({
+    id:       'census2015',
+    title:    '国勢調査 2015 基本集計',
+    subtitle: '平成27年国勢調査 産業別・職業別就業者、世帯経済構成<span class="moj-fmt-note">2015年10月1日現在</span>',
+    cities,
+    expanded:    census2015Expanded,
+    getSearch:   () => census2015Search,
+    setSearch:   v  => { census2015Search = v; },
+    itemHtml:    census2015CityItemHtml,
+    onItemClick: code => showCensusDetail(code, '2015'),
+  });
+}
+
+// 国勢調査専用: ダウンロードなし、クリックで詳細表示
+function renderCensusMinistryList({ id, title, subtitle, cities, expanded, getSearch, setSearch, itemHtml, onItemClick }) {
+  setDetailHtml(`
     <div class="moj-list-wrap">
       <div class="moj-list-head">
         <div class="moj-head-row">
@@ -271,13 +403,118 @@ function renderMinistryList(detail, {
             <h2>${title}</h2>
             <p class="moj-subtitle">${subtitle}<span class="moj-total">${cities.length.toLocaleString()}市区町村</span></p>
           </div>
+        </div>
+        <input type="text" id="${id}-search" class="moj-search" placeholder="市区町村・都道府県を検索...">
+      </div>
+      <div class="grouped-list" id="${id}-cities"></div>
+    </div>
+  `);
+  const render = () => renderGroupedCities(cities, `${id}-cities`, expanded, itemHtml, {
+    query:       getSearch(),
+    groupFn:     c => ({ key: c.pref, name: PREFS[c.pref] || c.pref }),
+    onBulkClick: () => {},
+    onItemClick: e => {
+      const row = e.target.closest('.moj-city-item');
+      if (row) onItemClick(row.dataset.code);
+    },
+  });
+  document.getElementById(`${id}-search`).addEventListener('input', function() {
+    setSearch(this.value); render();
+  });
+  render();
+}
+
+// 国勢調査詳細パネル
+function showCensusDetail(code, year) {
+  const entry = CENSUS_MANIFEST.find(e => e.code === code);
+  if (!entry) return;
+  const pop  = year === '2025' || year === '2020' ? CENSUS_2025_POP[code] : null;
+  const stat = year === '2020' ? CENSUS_2020_STATS[code]
+             : year === '2015' ? CENSUS_2015_STATS[code]
+             : null;
+  const name = entry.name;
+
+  let popHtml = '';
+
+  if (pop) {
+    const total = pop.pop[0], male = pop.pop[1], female = pop.pop[2];
+    const chgSign = pop.popChange >= 0 ? `+${pop.popChange.toFixed(1)}` : pop.popChange.toFixed(1);
+    const chgCl   = pop.popChange >= 0 ? '#0a0' : '#c00';
+    popHtml = `
+      <div class="cs-section">
+        <h3>人口・世帯 <span class="cs-year">2025年</span></h3>
+        <div class="cs-kv-grid">
+          <div class="cs-kv"><span class="cs-k">総人口</span><span class="cs-v">${total.toLocaleString()} 人</span></div>
+          <div class="cs-kv"><span class="cs-k">男性</span><span class="cs-v">${male.toLocaleString()} 人</span></div>
+          <div class="cs-kv"><span class="cs-k">女性</span><span class="cs-v">${female.toLocaleString()} 人</span></div>
+          <div class="cs-kv"><span class="cs-k">世帯数</span><span class="cs-v">${pop.hh.toLocaleString()} 世帯</span></div>
+          <div class="cs-kv"><span class="cs-k">5年間増減率</span><span class="cs-v" style="color:${chgCl};font-weight:600">${chgSign}%</span></div>
+          <div class="cs-kv"><span class="cs-k">2020年人口(組替)</span><span class="cs-v">${pop.pop2020.toLocaleString()} 人</span></div>
+          ${entry.area ? `<div class="cs-kv"><span class="cs-k">面積</span><span class="cs-v">${entry.area.toLocaleString()} km²</span></div>` : ''}
+          ${entry.density ? `<div class="cs-kv"><span class="cs-k">人口密度</span><span class="cs-v">${entry.density.toLocaleString()} 人/km²</span></div>` : ''}
+        </div>
+      </div>`;
+  } else if (year === '2015' && stat?.pop) {
+    const [total, male, female] = stat.pop;
+    popHtml = `
+      <div class="cs-section">
+        <h3>人口・世帯 <span class="cs-year">2015年</span></h3>
+        <div class="cs-kv-grid">
+          <div class="cs-kv"><span class="cs-k">総人口</span><span class="cs-v">${total.toLocaleString()} 人</span></div>
+          <div class="cs-kv"><span class="cs-k">男性</span><span class="cs-v">${male.toLocaleString()} 人</span></div>
+          <div class="cs-kv"><span class="cs-k">女性</span><span class="cs-v">${female.toLocaleString()} 人</span></div>
+          <div class="cs-kv"><span class="cs-k">世帯数</span><span class="cs-v">${stat.hh.toLocaleString()} 世帯</span></div>
+        </div>
+      </div>`;
+  }
+
+  const chartSvg = stat ? buildCensusChartSVG(stat, year) : null;
+
+  const panel = document.getElementById('geo-preview') || document.createElement('div');
+  panel.classList.add('visible');
+  panel.innerHTML = `
+    <div class="geo-preview-header">
+      <span class="geo-preview-label">${escHtml(name)} — 国勢調査統計</span>
+      <button class="geo-preview-close">✕</button>
+    </div>
+    <div class="geo-preview-body census-detail">
+      ${popHtml}
+      ${chartSvg ? `<div class="cs-section cs-svg-wrap">${chartSvg}</div>` : ''}
+      ${!pop && !stat ? '<p style="padding:16px;color:#aaa">統計データなし</p>' : ''}
+    </div>
+  `;
+  panel.querySelector('.geo-preview-close').addEventListener('click', closeGeoPreview);
+  panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+// ============================================================
+// 省庁リスト共通レンダラー
+// ============================================================
+function renderMinistryList({
+  id, title, subtitle, cities, expanded,
+  getSearch, setSearch, itemHtml, groupFn,
+  toEntry, bulkByGroup, allEntries, downloadFn = null,
+  groupHeaderHtml = null,
+}) {
+  const totalSize = cities.reduce((s, c) => s + (c.size || 0), 0);
+  const totalSizeLabel = totalSize
+    ? `<span class="moj-total-size">${fmtBytes(totalSize)}</span>`
+    : '';
+  setDetailHtml(`
+    <div class="moj-list-wrap">
+      <div class="moj-list-head">
+        <div class="moj-head-row">
+          <div>
+            <h2>${title}</h2>
+            <p class="moj-subtitle">${subtitle}<span class="moj-total">${cities.length.toLocaleString()}市区町村</span>${totalSizeLabel}</p>
+          </div>
           <button class="bulk-dl-btn" id="${id}-bulk-all">全国一括ダウンロード</button>
         </div>
         <input type="text" id="${id}-search" class="moj-search" placeholder="市区町村・都道府県を検索...">
       </div>
       <div class="grouped-list" id="${id}-cities"></div>
     </div>
-  `;
+  `);
 
   document.getElementById(`${id}-bulk-all`).addEventListener('click', function() {
     if (downloadFn) bulkDownload(allEntries(), title, downloadFn);
@@ -287,6 +524,7 @@ function renderMinistryList(detail, {
   const render = () => renderGroupedCities(cities, `${id}-cities`, expanded, itemHtml, {
     query:       getSearch(),
     groupFn,
+    groupHeaderHtml,
     onBulkClick: (group, btn) => {
       if (downloadFn) bulkDownload(bulkByGroup(group), `${title} ${PREFS[group] || group}`, downloadFn);
       else copyEntries(bulkByGroup(group), btn);
@@ -344,6 +582,9 @@ async function loadCatalog() {
       mojSidebarEntry(),
       maffSidebarEntry(),
       estatSidebarEntry(),
+      census2025SidebarEntry(),
+      census2020SidebarEntry(),
+      census2015SidebarEntry(),
     ];
 
     // 国交省 nlftp はバケットからフェッチ
@@ -365,8 +606,11 @@ async function loadCatalog() {
     const hash = location.hash.slice(1);
     if (hash) {
       if (hash === 'moj')  { selectDataset('moj',  true); }
-      else if (hash === 'maff')  { selectDataset('maff',  true); }
-      else if (hash === 'estat') { selectDataset('estat', true); }
+      else if (hash === 'maff')       { selectDataset('maff',       true); }
+      else if (hash === 'estat')      { selectDataset('estat',      true); }
+      else if (hash === 'census2025') { selectDataset('census2025', true); }
+      else if (hash === 'census2020') { selectDataset('census2020', true); }
+      else if (hash === 'census2015') { selectDataset('census2015', true); }
       else if (catalog.some(ds => ds.dataset_code === hash)) {
         selectDataset(hash, true);
         setTimeout(() => document.querySelector(`.ds-item[data-code="${hash}"]`)?.scrollIntoView({ block: 'center' }), 100);
@@ -380,6 +624,29 @@ async function loadCatalog() {
 // ============================================================
 // サイドバーリスト描画
 // ============================================================
+const SOURCE_GROUP_LABELS = {
+  moj:   '法務省',
+  maff:  '農林水産省',
+  estat: '総務省 e-Stat',
+  nlftp: '国土交通省',
+};
+
+function dsItemHtml(ds) {
+  return `
+    <div class="ds-item${ds.dataset_code === active ? ' active' : ''}"
+         data-code="${ds.dataset_code}">
+      <div class="ds-line1">
+        <span class="ds-code">${ds.dataset_code}</span>
+        <span class="ds-line1-right">
+          <span class="meta-num">${ds.file_count.toLocaleString()}件</span>
+          <span class="meta-lic">${ds.license}</span>
+        </span>
+      </div>
+      <div class="ds-title">${ds.title}</div>
+    </div>
+  `;
+}
+
 function renderList() {
   const q = document.getElementById('search').value.toLowerCase();
 
@@ -398,19 +665,24 @@ function renderList() {
     return;
   }
 
-  list.innerHTML = items.map(ds => `
-    <div class="ds-item${ds.dataset_code === active ? ' active' : ''}"
-         data-code="${ds.dataset_code}">
-      <div class="ds-line1">
-        <span class="ds-code">${ds.dataset_code}</span>
-        <span class="ds-line1-right">
-          <span class="meta-num">${ds.file_count.toLocaleString()}件</span>
-          <span class="meta-lic">${ds.license}</span>
-        </span>
-      </div>
-      <div class="ds-title">${ds.title}</div>
-    </div>
-  `).join('');
+  // gishub 同様にソース別グループ化
+  const groups = new Map();
+  for (const ds of items) {
+    const sid = ds._sourceId || 'other';
+    if (!groups.has(sid)) groups.set(sid, []);
+    groups.get(sid).push(ds);
+  }
+
+  const html = [];
+  for (const [sid, dsItems] of groups) {
+    const label = SOURCE_GROUP_LABELS[sid] || sid;
+    html.push(`<div class="sidebar-group">`);
+    html.push(`<h2 class="sidebar-group-title">${label}</h2>`);
+    html.push(dsItems.map(dsItemHtml).join(''));
+    html.push(`</div>`);
+  }
+
+  list.innerHTML = html.join('');
 
   list.querySelectorAll('.ds-item').forEach(el => {
     el.addEventListener('click', () => selectDataset(el.dataset.code, true));
@@ -420,6 +692,10 @@ function renderList() {
 // ============================================================
 // データセット選択
 // ============================================================
+function setDetailHtml(html) {
+  document.getElementById('detail-body').innerHTML = html;
+}
+
 let _selectTimer = null;
 function selectDataset(code, immediate = false) {
   clearTimeout(_selectTimer);
@@ -434,9 +710,12 @@ async function _selectDatasetNow(code) {
     el.classList.toggle('active', el.dataset.code === code);
   });
 
-  if (code === 'moj')  { history.replaceState(null, '', '#moj');  renderMojList();  return; }
-  if (code === 'maff') { history.replaceState(null, '', '#maff'); renderMaffList(); return; }
-  if (code === 'estat'){ history.replaceState(null, '', '#estat');renderEstatList(); return; }
+  if (code === 'moj')        { history.replaceState(null, '', '#moj');        renderMojList();        return; }
+  if (code === 'maff')       { history.replaceState(null, '', '#maff');       renderMaffList();       return; }
+  if (code === 'estat')      { history.replaceState(null, '', '#estat');      renderEstatList();      return; }
+  if (code === 'census2025') { history.replaceState(null, '', '#census2025'); renderCensus2025List(); return; }
+  if (code === 'census2020') { history.replaceState(null, '', '#census2020'); renderCensus2020List(); return; }
+  if (code === 'census2015') { history.replaceState(null, '', '#census2015'); renderCensus2015List(); return; }
 
   // 通常ソース（国交省等バケットベース）
   const ds = catalog.find(d => d.dataset_code === code);
@@ -445,15 +724,14 @@ async function _selectDatasetNow(code) {
 
   history.replaceState(null, '', `#${code}`);
 
-  const detail = document.getElementById('detail');
-  detail.innerHTML = '<div class="loading-msg" style="padding:40px">読み込み中...</div>';
+  setDetailHtml('<div class="loading-msg" style="padding:40px">読み込み中...</div>');
 
   try {
     const data = await fetchJson(bucketUrl(src, `${code}.json`));
     data._source = src;
     renderDetail(data);
   } catch (e) {
-    detail.innerHTML = `<div class="error-msg">エラー: ${e.message}</div>`;
+    setDetailHtml(`<div class="error-msg">エラー: ${e.message}</div>`);
   }
 }
 
@@ -769,7 +1047,6 @@ function mojCityItemHtml(city) {
 }
 
 function renderMojList() {
-  const detail = document.getElementById('detail');
   const cities = buildMojCityList();
   const totalPbfBytes = cities.reduce((s, c) => s + (c.pbfSize || 0), 0);
   const totalZipBytes = cities.reduce((s, c) => s + (c.size   || 0), 0);
@@ -779,7 +1056,7 @@ function renderMojList() {
     ? `<span class="moj-total-size">${fmtBytes(totalZipBytes)} <span class="size-note">ZIP</span></span>`
     : '';
 
-  detail.innerHTML = `
+  setDetailHtml(`
     <div class="moj-list-wrap">
       <div class="moj-list-head">
         <div class="moj-head-row">
@@ -793,7 +1070,7 @@ function renderMojList() {
       </div>
       <div class="grouped-list" id="moj-cities"></div>
     </div>
-  `;
+  `);
 
   const mojRender = () => renderGroupedCities(cities, 'moj-cities', mojExpandedPrefs, mojCityItemHtml, {
     query:       mojListSearch,
@@ -911,7 +1188,6 @@ function renderGroupedCities(cities, containerId, expandedSet, itemHtml, {
 // 詳細表示（showBack: 法務省市区町村詳細からの戻りボタン）
 // ============================================================
 function renderDetail(ds, showBack = false) {
-  const detail = document.getElementById('detail');
   currentDs = ds;
   currentCodelists = (ds.attributes || []).map(a => Array.isArray(a.codelist) ? a.codelist : null);
 
@@ -946,7 +1222,7 @@ function renderDetail(ds, showBack = false) {
 
   const fileHtml = renderFiles(ds);
 
-  detail.innerHTML = `
+  setDetailHtml(`
     <div class="detail-inner">
       ${backHtml}
       <header class="detail-header">
@@ -960,7 +1236,7 @@ function renderDetail(ds, showBack = false) {
       ${attrHtml}
       ${fileHtml}
     </div>
-  `;
+  `);
 
   document.getElementById('back-to-moj')?.addEventListener('click', () => {
     history.replaceState(null, '', '#moj');
@@ -1018,13 +1294,13 @@ function renderFiles(ds) {
             <th style="width:80px">エリア</th>
             <th style="width:62px">形式</th>
             <th>ZIP</th>
-            <th style="width:66px"></th>
+            <th style="width:90px"></th>
           </tr></thead>
           <tbody id="files-tbody">
             ${buildFileRows(allFiles, ds)}
           </tbody>
         </table>
-        <p class="dl-note">→ コピー（GIS-HUBにペースト）&nbsp;&nbsp;↓ IDB保存</p>
+        <p class="dl-note">→ コピー（GIS-HUBにペースト）&nbsp;&nbsp;↓ IDB保存&nbsp;&nbsp;👁 プレビュー</p>
       </div>
     </section>
   `;
@@ -1160,6 +1436,7 @@ function fileRow(f, ds) {
       <td class="file-btns">
         <button class="copy-btn" data-entry="${escHtml(JSON.stringify(entry))}">→</button>
         <button class="dl-btn" data-entry="${escHtml(JSON.stringify(entry))}">↓</button>
+        <button class="preview-btn" data-entry="${escHtml(JSON.stringify(entry))}">👁</button>
       </td>
     </tr>
   `;
@@ -1221,6 +1498,12 @@ document.getElementById('detail').addEventListener('click', async e => {
   if (e.target.classList.contains('dl-btn')) {
     const entry = JSON.parse(e.target.dataset.entry);
     bulkDownload([entry], entry.name);
+    return;
+  }
+
+  if (e.target.classList.contains('preview-btn')) {
+    const entry = JSON.parse(e.target.dataset.entry);
+    showGeoPreview(entry, e.target);
     return;
   }
 
@@ -1341,7 +1624,6 @@ window.addEventListener('hashchange', () => {
   const hash = location.hash.slice(1);
   if (!hash) return;
   if (hash === 'moj') { if (active !== 'moj') selectDataset('moj', true); return; }
-  if (hash.startsWith('moj:')) { selectMojCity(hash.slice(4)); return; }
   if (hash !== active && catalog.some(ds => ds.dataset_code === hash)) {
     selectDataset(hash, true);
     setTimeout(() => document.querySelector(`.ds-item[data-code="${hash}"]`)?.scrollIntoView({ block: 'center' }), 100);
@@ -1349,6 +1631,124 @@ window.addEventListener('hashchange', () => {
 });
 
 // ============================================================
+// GEO プレビューパネル
+// ============================================================
+let _previewLoading = false;
+
+async function showGeoPreview(entry, btn) {
+  if (_previewLoading) return;
+
+  const panel = document.getElementById('geo-preview');
+  panel.classList.add('visible');
+  panel.innerHTML = `
+    <div class="geo-preview-header">
+      <span class="geo-preview-label">⏳ ${escHtml(entry.name)} を読み込み中...</span>
+      <button class="geo-preview-close">✕</button>
+    </div>
+  `;
+  panel.querySelector('.geo-preview-close').addEventListener('click', closeGeoPreview);
+
+  _previewLoading = true;
+  if (btn) { btn.disabled = true; btn.textContent = '⏳'; }
+
+  try {
+    await geoExec(entry, {
+      geopbf,
+      onSuccess(pbf, { previewCanvas, profileHtml }) {
+        panel.innerHTML = `
+          <div class="geo-preview-header">
+            <span class="geo-preview-label">${escHtml(entry.name)}</span>
+            <button class="geo-preview-close">✕</button>
+          </div>
+          <div class="geo-preview-body">
+            <div class="geo-preview-canvas"></div>
+            <div class="geo-preview-profile">${profileHtml}</div>
+          </div>
+        `;
+        panel.querySelector('.geo-preview-canvas').appendChild(previewCanvas);
+        panel.querySelector('.geo-preview-close').addEventListener('click', closeGeoPreview);
+        panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      },
+      onError(err) {
+        panel.innerHTML = `
+          <div class="geo-preview-header">
+            <span class="geo-preview-label" style="color:#f08040">❌ ${escHtml(err?.message || 'ロードエラー')}</span>
+            <button class="geo-preview-close">✕</button>
+          </div>
+        `;
+        panel.querySelector('.geo-preview-close').addEventListener('click', closeGeoPreview);
+      },
+    });
+  } finally {
+    _previewLoading = false;
+    if (btn) { btn.disabled = false; btn.textContent = '👁'; }
+  }
+}
+
+function closeGeoPreview() {
+  const panel = document.getElementById('geo-preview');
+  panel.classList.remove('visible');
+  panel.innerHTML = '';
+}
+
+// ============================================================
+// サイドバー折りたたみ
+// ============================================================
+function initSidebarToggle() {
+  const app     = document.getElementById('app');
+  const toggle  = document.getElementById('sidebar-toggle');
+  const openBtn = document.getElementById('sidebar-open-btn');
+  const backdrop = document.getElementById('sidebar-backdrop');
+
+  const isMobile = () => window.innerWidth <= 640;
+
+  // デスクトップ: localStorage で状態復元
+  if (!isMobile() && localStorage.getItem('sidebar-collapsed') === '1') {
+    app.classList.add('sidebar-collapsed');
+    toggle.textContent = '▶';
+  }
+
+  // モバイル: デフォルト collapsed
+  if (isMobile()) {
+    app.classList.add('sidebar-collapsed');
+  }
+
+  function setSidebarCollapsed(collapsed) {
+    app.classList.toggle('sidebar-collapsed', collapsed);
+    if (!isMobile()) {
+      toggle.textContent = collapsed ? '▶' : '◀';
+      localStorage.setItem('sidebar-collapsed', collapsed ? '1' : '0');
+    }
+  }
+
+  toggle.addEventListener('click', () => setSidebarCollapsed(true));
+  openBtn?.addEventListener('click', () => setSidebarCollapsed(false));
+  backdrop?.addEventListener('click', () => setSidebarCollapsed(true));
+
+  // モバイルでデータセット選択時にサイドバーを自動的に閉じる
+  document.getElementById('dataset-list').addEventListener('click', e => {
+    if (isMobile() && e.target.closest('.ds-item')) {
+      setSidebarCollapsed(true);
+    }
+  });
+
+  // ウィンドウリサイズでモバイル↔デスクトップ切り替え
+  window.addEventListener('resize', () => {
+    if (!isMobile()) {
+      // デスクトップに切り替わったとき: localStorage の状態を復元
+      const saved = localStorage.getItem('sidebar-collapsed') === '1';
+      setSidebarCollapsed(saved);
+      toggle.textContent = saved ? '▶' : '◀';
+    } else {
+      // モバイルに切り替わったとき: 閉じる
+      app.classList.add('sidebar-collapsed');
+      toggle.textContent = '◀';
+    }
+  });
+}
+
+// ============================================================
 // 起動
 // ============================================================
 init();
+initSidebarToggle();

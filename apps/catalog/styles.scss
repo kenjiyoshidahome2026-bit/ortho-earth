@@ -8,7 +8,7 @@ $text:      #ccc;
 $hi:        #fff;
 $accent:    #4b90ff;
 $remark:    #c40;
-$font:      'Verdana', 'Hiragino Kaku Gothic ProN', Arial, sans-serif;
+$font:      'Verdana', 'Inter', 'Hiragino Kaku Gothic ProN', Arial, sans-serif;
 $mono:      'Courier New', Courier, monospace;
 $sidebar-w:  300px;
 
@@ -46,6 +46,29 @@ button { cursor: pointer; font-family: $font; }
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  transition: width 250ms ease-in-out;
+}
+
+// ============================================================
+// Desktop 折りたたみ状態
+// ============================================================
+#app.sidebar-collapsed #sidebar {
+  width: 44px;
+}
+#app.sidebar-collapsed .sidebar-head {
+  padding: 8px 0;
+  border-bottom: none;
+  align-items: center;
+}
+#app.sidebar-collapsed .sidebar-top-row {
+  justify-content: center;
+}
+#app.sidebar-collapsed .search-wrap,
+#app.sidebar-collapsed .filter-chips,
+#app.sidebar-collapsed .list-count,
+#app.sidebar-collapsed #dataset-list,
+#app.sidebar-collapsed .kbd-hint {
+  display: none;
 }
 
 .sidebar-head {
@@ -56,7 +79,15 @@ button { cursor: pointer; font-family: $font; }
   gap: 8px;
 }
 
+.sidebar-top-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .search-wrap {
+  flex: 1;
+  min-width: 0;
   input[type=text] {
     width: 100%;
     padding: 7px 10px;
@@ -68,6 +99,107 @@ button { cursor: pointer; font-family: $font; }
     font-size: 13px;
     &::placeholder { color: $mid; }
     &:focus { outline: 1px solid $accent; }
+  }
+}
+
+// 折りたたみトグルボタン（サイドバー内）
+#sidebar-toggle {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  border-radius: 5px;
+  background: none;
+  border: 1px solid #333;
+  color: $mid;
+  font-size: 11px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: color 150ms, background 150ms, border-color 150ms;
+  line-height: 1;
+  &:hover { color: $hi; background: $dark; border-color: #555; }
+}
+
+// モバイル専用の外部ハンバーガーボタン（デスクトップでは非表示）
+#sidebar-open-btn {
+  display: none;
+}
+
+// バックドロップ（モバイルのみ）
+#sidebar-backdrop {
+  display: none;
+}
+
+// ============================================================
+// モバイル（≤640px）— サイドバーはオーバーレイ
+// ============================================================
+@media (max-width: 640px) {
+  #app { position: relative; }
+
+  // サイドバーはfixed overlay（leftアニメーション）
+  #sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    height: 100%;
+    width: $sidebar-w !important; // collapsed時もwidthは保持
+    z-index: 200;
+    box-shadow: 4px 0 24px rgba(0,0,0,0.6);
+    transition: left 250ms ease-in-out;
+  }
+
+  // モバイル collapsed: leftでスライドアウト
+  #app.sidebar-collapsed #sidebar {
+    left: -#{$sidebar-w};
+  }
+
+  // モバイルでは collapsed状態のデスクトップ上書きをリセット
+  #app.sidebar-collapsed .search-wrap    { display: block; }
+  #app.sidebar-collapsed .filter-chips   { display: flex;  }
+  #app.sidebar-collapsed .list-count     { display: block; }
+  #app.sidebar-collapsed #dataset-list   { display: block; }
+  #app.sidebar-collapsed .kbd-hint       { display: block; }
+  #app.sidebar-collapsed .sidebar-head {
+    padding: 10px;
+    border-bottom: 1px solid $dark;
+    align-items: stretch;
+  }
+  #app.sidebar-collapsed .sidebar-top-row {
+    justify-content: flex-start;
+  }
+
+  // 開いているとき → バックドロップ
+  #app:not(.sidebar-collapsed) #sidebar-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 199;
+    background: rgba(0,0,0,0.5);
+  }
+
+  // #detail は常に全幅
+  #detail { flex: 1; width: 100%; }
+
+  // 閉じているときのハンバーガーボタン
+  #app.sidebar-collapsed #sidebar-open-btn {
+    display: flex;
+    position: fixed;
+    top: 10px;
+    left: 10px;
+    z-index: 300;
+    width: 36px;
+    height: 36px;
+    border-radius: 6px;
+    background: #111;
+    border: 1px solid #444;
+    color: $mid;
+    font-size: 15px;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: color 150ms, border-color 150ms;
+    &:hover { color: $hi; border-color: $accent; }
   }
 }
 
@@ -122,19 +254,44 @@ button { cursor: pointer; font-family: $font; }
   &::-webkit-scrollbar-thumb { background: $dark; border-radius: 2px; }
 }
 
-.ds-item {
-  padding: 7px 12px;
-  border-bottom: 1px solid $dark;
-  cursor: pointer;
-  transition: background 150ms;
+// gishub .group 相当
+.sidebar-group {
+  padding: 0.5em 0 0.25em;
 
-  &:hover    { background: $dark; }
-  &.kbd-focus { background: #1a2a3a; }
+  .sidebar-group-title {
+    font-size: 0.75rem;
+    color: $mid;
+    margin-bottom: 5px;
+    padding: 0 10px;
+    text-align: left;
+    font-weight: normal;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+}
+
+.ds-item {
+  display: block;
+  margin: 4px 8px;
+  padding: 8px 10px;
+  border: 1px solid $mid;
+  border-radius: 8px;
+  background: $bg;
+  cursor: pointer;
+  transition: background 200ms, border-color 200ms;
+  position: relative;
+
+  &:hover {
+    background: $accent;
+    border-color: $hi;
+    .ds-code, .meta-num, .meta-lic { color: rgba(255,255,255,0.75); }
+    .ds-title { color: $hi; }
+  }
+  &.kbd-focus { background: #1a2a3a; border-color: #2a4a8a; }
   &.active {
     background: $accent;
-    border-left: 3px solid $hi;
-    padding-left: 9px;
-    .ds-code, .meta-num, .meta-lic { color: rgba(255,255,255,0.7); }
+    border-color: $hi;
+    .ds-code, .meta-num, .meta-lic { color: rgba(255,255,255,0.75); }
     .ds-title { color: $hi; }
   }
 
@@ -142,7 +299,7 @@ button { cursor: pointer; font-family: $font; }
     display: flex;
     align-items: baseline;
     gap: 6px;
-    margin-bottom: 3px;
+    margin-bottom: 4px;
   }
   .ds-code  { font-family: $mono; font-size: 11px; color: $accent; white-space: nowrap; flex-shrink: 0; }
   .ds-line1-right { margin-left: auto; display: flex; gap: 6px; align-items: baseline; }
@@ -180,10 +337,107 @@ button { cursor: pointer; font-family: $font; }
   flex: 1;
   overflow-y: auto;
   background: $bg;
+  display: flex;
+  flex-direction: column;
 
   &::-webkit-scrollbar { width: 4px; }
   &::-webkit-scrollbar-track { background: $bg; }
   &::-webkit-scrollbar-thumb { background: $dark; border-radius: 2px; }
+}
+
+#detail-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+// ============================================================
+// GEO プレビューパネル
+// ============================================================
+#geo-preview {
+  display: none;
+  flex-shrink: 0;
+  border-bottom: 1px solid $dark;
+  background: #060608;
+  position: relative;
+
+  &.visible { display: block; }
+
+  .geo-preview-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 14px 10px 18px;
+    border-bottom: 1px solid $dark;
+    background: #0a0a0c;
+    gap: 12px;
+  }
+
+  .geo-preview-label {
+    font-size: 12px;
+    color: $text;
+    font-family: $mono;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+  }
+
+  .geo-preview-close {
+    flex-shrink: 0;
+    width: 22px;
+    height: 22px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: none;
+    border: 1px solid #444;
+    border-radius: 4px;
+    color: $mid;
+    font-size: 11px;
+    cursor: pointer;
+    line-height: 1;
+    padding: 0;
+    &:hover { border-color: $hi; color: $hi; }
+  }
+
+  .geo-preview-body {
+    display: flex;
+    gap: 20px;
+    padding: 12px 18px 16px;
+    align-items: flex-start;
+    overflow-x: auto;
+  }
+
+  .geo-preview-canvas {
+    flex-shrink: 0;
+    canvas {
+      border: 1px solid $dark;
+      border-radius: 4px;
+      display: block;
+    }
+  }
+
+  .geo-preview-profile {
+    flex: 1;
+    font-size: 11px;
+    color: $text;
+    overflow-x: auto;
+    min-width: 200px;
+
+    table {
+      border-collapse: collapse;
+      width: 100%;
+      td, th {
+        padding: 3px 8px;
+        border: 1px solid $dark;
+        text-align: left;
+        white-space: nowrap;
+      }
+      th { background: #111; color: $mid; font-weight: normal; }
+      tr:hover td { background: #0f0f0f; }
+    }
+  }
 }
 
 .placeholder {
@@ -371,6 +625,18 @@ button { cursor: pointer; font-family: $font; }
   color: #5a9a6a;
   border: 1px solid #3a5a3a;
   &:hover { background: #2a5a2a; color: #7aff7a; border-color: #5a9a5a; }
+}
+
+.preview-btn {
+  padding: 3px 7px;
+  border-radius: 4px;
+  font-size: 12px;
+  background: $dark;
+  border: 1px solid #444;
+  color: $mid;
+  transition: all 0.15s;
+  &:hover    { border-color: $accent; color: $accent; }
+  &:disabled { opacity: 0.45; cursor: not-allowed; }
 }
 
 .dl-note {
@@ -592,9 +858,9 @@ button { cursor: pointer; font-family: $font; }
     transition: transform 0.18s;
     flex-shrink: 0;
   }
-  .pref-name { font-size: 13px; color: $hi; }
+  .pref-name { font-size: 13px; color: $hi; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .pref-coord-sys { font-size: 10px; color: $mid; font-family: $mono; white-space: nowrap; }
-  .pref-size { font-size: 11px; color: #5a7a5a; font-family: $mono; white-space: nowrap; flex: 1; }
+  .pref-size { font-size: 11px; color: #5a7a5a; font-family: $mono; white-space: nowrap; }
   .size-note { font-size: 9px; color: #888; font-family: $mono; opacity: 0.7; vertical-align: middle; }
   .size-est  { font-size: 10px; color: #b07a3a; font-family: $mono; }
 
@@ -853,3 +1119,65 @@ button { cursor: pointer; font-family: $font; }
 .error-msg   { padding: 16px; text-align: center; color: $remark; }
 .empty-msg   { padding: 16px; text-align: center; color: $mid; }
 .no-files    { padding: 16px; color: $mid; }
+
+// ============================================================
+// 国勢調査 サイドバー & 詳細パネル
+// ============================================================
+.census-city-item {
+  .pop-val { margin-left: auto; font-family: $mono; font-size: 11px; color: $text; }
+  .pop-chg { margin-left: 6px; font-family: $mono; font-size: 11px; font-weight: 600;
+    &.pos { color: #4c8; }
+    &.neg { color: #f64; }
+  }
+}
+
+.census-detail {
+  padding: 8px 12px 24px;
+  overflow-y: auto;
+
+  .cs-svg-wrap {
+    svg { width: 100%; height: auto; display: block; border-radius: 4px; }
+  }
+
+  .cs-section {
+    margin-bottom: 20px;
+    h3 {
+      font-size: 13px;
+      color: $accent;
+      border-bottom: 1px solid rgba(255,255,255,.12);
+      padding-bottom: 4px;
+      margin-bottom: 8px;
+      .cs-year { font-size: 11px; color: $mid; font-weight: 400; margin-left: 6px; }
+    }
+  }
+
+  .cs-kv-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 4px 12px;
+  }
+  .cs-kv {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+    padding: 2px 0;
+    border-bottom: 1px solid rgba(255,255,255,.04);
+    .cs-k { color: $mid; }
+    .cs-v { color: $text; font-family: $mono; }
+  }
+
+  .cs-bar-chart { margin-top: 4px; }
+  .cs-bar-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 3px;
+    font-size: 11px;
+    .cs-bar-label { width: 120px; flex-shrink: 0; color: $mid; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .cs-bar-wrap  { flex: 1; background: rgba(255,255,255,.06); border-radius: 2px; height: 10px; overflow: hidden; }
+    .cs-bar       { height: 100%; border-radius: 2px; min-width: 2px; }
+    .cs-bar-val   { width: 60px; text-align: right; color: $text; font-family: $mono; }
+    .cs-bar-pct   { width: 40px; text-align: right; color: $mid; }
+  }
+  .cs-note { font-size: 11px; color: $mid; margin-top: 4px; }
+}
