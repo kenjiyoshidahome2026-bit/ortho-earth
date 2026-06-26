@@ -16,7 +16,7 @@ High-performance orthographic map engine and GIS workstation, running entirely i
 This project is fully engineered and conceptualized by Kenji Yoshida.
 I also acknowledge the invaluable support of my AI collaborators:
 
-- **Gemini** (Google) & **Claude** (Anthropic) - AI Collaborators for architectural ideation, coding, and technical writing.
+- **Claude** (Anthropic) & **Gemini** (Google) - AI Collaborators for architectural ideation, coding, and technical writing.
 
 ## License
 
