@@ -69,7 +69,7 @@ Spatial indexing × LOD encoding × GPU rendering — unified in a single pipeli
         <li><a href="#problem">Problems with the Traditional Approach</a></li>
         <li><a href="#overview">Pipeline Overview</a></li>
         <li><a href="#encoding">Stage 1 — Encoding: Morton Order × VW Weight</a></li>
-        <li><a href="#lod">Stage 2 — Dynamic LOD Streaming</a></li>
+        <li><a href="#lod">Stage 2 — GPU VB Write (one-time)</a></li>
         <li><a href="#gpu">Stage 3 — GPU Stencil Tessellation</a></li>
         <li><a href="#comparison">Performance Comparison</a></li>
         <li><a href="#philosophy">Design Philosophy</a></li>
@@ -136,15 +136,14 @@ Gint solves all four problems with <strong>one file, zero additional network, no
         <div class="pipe-head">
             <span class="pipe-num n-lod">2</span>
             <div>
-                <div class="pipe-title">Dynamic LOD Streaming (client-side, converted once from GeoPBF)</div>
-                <div class="pipe-sub">GeoPBF → gint (in-memory) → viewport-filtered vertex stream</div>
+                <div class="pipe-title">GPU VB Write (client-side, one-time)</div>
+                <div class="pipe-sub">GeoPBF decode → VW bit unpack → one-shot GPU vertex buffer upload</div>
             </div>
-            <span class="pipe-demo tag-lod tag">LOD.html</span>
         </div>
         <div class="pipe-items">
-            <div class="pi"><b>Morton bit-shift</b> — identify features in the viewport in O(log n) via 64-bit prefix match</div>
-            <div class="pi"><b>VW threshold(z)</b> — filter vertices by zoom-level threshold (no additional network)</div>
-            <div class="pi"><b>instant LOD switch</b> — zooming never triggers a new network request</div>
+            <div class="pi"><b>GeoPBF decode</b> — unpack vertex coordinates and VW bits from binary (Morton order preserved)</div>
+            <div class="pi"><b>VW bits unpack</b> — expand each vertex's VW weight into the GPU VB format</div>
+            <div class="pi"><b>GPU VB upload</b> — transfer all vertices to the GPU vertex buffer once (zero CPU conversion after this)</div>
         </div>
     </div>
     <div class="pipe-arrow">↓</div>
@@ -152,12 +151,13 @@ Gint solves all four problems with <strong>one file, zero additional network, no
         <div class="pipe-head">
             <span class="pipe-num n-gpu">3</span>
             <div>
-                <div class="pipe-title">GPU Stencil Tessellation (every frame, zero CPU triangulation)</div>
-                <div class="pipe-sub">vertex stream → WebGL stencil → fill</div>
+                <div class="pipe-title">GPU LOD + Stencil Tessellation (every frame, zero CPU work)</div>
+                <div class="pipe-sub">vertex shader LOD → WebGL stencil → fill</div>
             </div>
-            <span class="pipe-demo tag-gpu tag">ST.html</span>
+            <div style="display:flex;gap:4px;margin-left:auto;flex-shrink:0"><span class="pipe-demo tag-lod tag">LOD.html</span><span class="pipe-demo tag-gpu tag">ST.html</span></div>
         </div>
         <div class="pipe-items">
+            <div class="pi"><b>VW threshold(z)</b> — vertex shader: discard vertices where vw_bits &gt; zoom (LOD, zero extra bytes)</div>
             <div class="pi"><b>fan triangles</b> — generate fan triangles from NDC origin to all polygon vertices</div>
             <div class="pi"><b>stencil XOR</b> — even-odd counting automatically handles concavities and holes</div>
             <div class="pi"><b>color pass</b> — fill only where stencil value is odd</div>
@@ -340,13 +340,12 @@ High-weight vertices are always included; low-weight vertices appear only at hig
 </div>
 
 <!-- ──────────────────────────────────────────────────── -->
-<h2 id="lod">4. Stage 2 — Dynamic LOD Streaming</h2>
+<h2 id="lod">4. Stage 2 — GPU VB Write (one-time)</h2>
 
 <p>
-The client receives a <code>GeoPBF</code> from the server and converts it <strong>exactly once</strong>
-into the gint in-memory structure (Morton-sorted, VW-weighted).
-All subsequent zoom interactions are handled entirely by in-memory bit operations —
-no additional network requests are ever issued.
+The client receives a <code>GeoPBF</code> from the server and decodes it <strong>exactly once</strong>
+into the gint structure (Morton-sorted, VW bits unpacked), uploading all vertices to the GPU vertex buffer in a single call.
+No additional network requests are ever issued. LOD (vertex culling by VW threshold) is handled by the vertex shader every frame in Stage 3.
 </p>
 
 <h3>4.1 Viewport Query via Morton Bit-Shift</h3>
@@ -407,8 +406,9 @@ no additional network requests are ever issued.
     <p>
         In a tile-based system, every zoom level change triggers new tile requests.
         With gint, all LOD levels are embedded in a single file loaded at startup.
-        Changing zoom only updates the <code>threshold</code> value and re-filters the
-        in-memory vertex array. After the initial load: <strong>+0 bytes transferred on zoom</strong>.
+        Changing zoom only updates the GPU uniform <code>zoom</code> value; the vertex shader
+        discards vertices where <code>vw_bits &gt; zoom</code> every frame (zero CPU work).
+        After the initial load: <strong>+0 bytes transferred on zoom</strong>.
     </p>
 </div>
 
@@ -593,8 +593,8 @@ meaningful at finer observation scales.
     </tr>
     <tr>
         <td><a href="lod.html"><span class="tag tag-file">LOD.html</span></a></td>
-        <td>Dynamic LOD: zoom-level vertex filtering from a single file</td>
-        <td><span style="color:var(--green)">Stage 2 — LOD Streaming</span></td>
+        <td>Dynamic LOD: vertex shader discards vertices by VW threshold every frame</td>
+        <td><span style="color:var(--purple)">Stage 3 — GPU Rendering</span></td>
     </tr>
     <tr>
         <td><a href="st.html"><span class="tag tag-file">ST.html</span></a></td>

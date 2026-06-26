@@ -69,7 +69,7 @@ svg.sd{width:100%;height:100%}
         <li><a href="#problem">従来手法の問題点</a></li>
         <li><a href="#overview">パイプライン概観</a></li>
         <li><a href="#encoding">Stage 1 — エンコーディング：Mortonオーダー × VWウェイト</a></li>
-        <li><a href="#lod">Stage 2 — 動的LODストリーミング</a></li>
+        <li><a href="#lod">Stage 2 — GPU VB 書き込み（一度だけ）</a></li>
         <li><a href="#gpu">Stage 3 — GPUステンシルテッセレーション</a></li>
         <li><a href="#comparison">性能比較</a></li>
         <li><a href="#philosophy">設計思想</a></li>
@@ -136,15 +136,14 @@ Gint はこれら 4 つの問題を「1ファイル × ゼロ追加ネットワ�
         <div class="pipe-head">
             <span class="pipe-num n-lod">2</span>
             <div>
-                <div class="pipe-title">動的 LOD ストリーミング（クライアント側・GeoPBF から一度だけ変換）</div>
-                <div class="pipe-sub">GeoPBF → gint（メモリ内） → viewport-filtered vertex stream</div>
+                <div class="pipe-title">GPU VB 書き込み（クライアント側・一度だけ）</div>
+                <div class="pipe-sub">GeoPBF decode → VWビット展開 → GPU 頂点バッファへ一括転送</div>
             </div>
-            <span class="pipe-demo tag-lod tag">LOD.html</span>
         </div>
         <div class="pipe-items">
-            <div class="pi"><b>Morton bit-shift</b> — 64bit コードのビットマスクでビューポート内フィーチャを O(log n) で特定</div>
-            <div class="pi"><b>VW threshold(z)</b> — ズームレベルに応じた閾値で頂点をフィルタ（追加ネットワークなし）</div>
-            <div class="pi"><b>instant LOD switch</b> — ズームしても追加バイト転送ゼロ</div>
+            <div class="pi"><b>GeoPBF decode</b> — バイナリから頂点座標・VWビットを展開（Morton 順保持）</div>
+            <div class="pi"><b>VW bits unpack</b> — 各頂点の VW ウェイトを GPU VB フォーマットへ展開</div>
+            <div class="pi"><b>GPU VB upload</b> — 全頂点を一括で GPU 頂点バッファへ転送（以降 CPU 変換ゼロ）</div>
         </div>
     </div>
     <div class="pipe-arrow">↓</div>
@@ -152,12 +151,13 @@ Gint はこれら 4 つの問題を「1ファイル × ゼロ追加ネットワ�
         <div class="pipe-head">
             <span class="pipe-num n-gpu">3</span>
             <div>
-                <div class="pipe-title">GPU ステンシルテッセレーション（毎フレーム・CPU三角分割なし）</div>
-                <div class="pipe-sub">vertex stream → WebGL stencil → fill</div>
+                <div class="pipe-title">GPU LOD + ステンシルテッセレーション（毎フレーム・CPU処理ゼロ）</div>
+                <div class="pipe-sub">vertex shader LOD → WebGL stencil → fill</div>
             </div>
-            <span class="pipe-demo tag-gpu tag">ST.html</span>
+            <div style="display:flex;gap:4px;margin-left:auto;flex-shrink:0"><span class="pipe-demo tag-lod tag">LOD.html</span><span class="pipe-demo tag-gpu tag">ST.html</span></div>
         </div>
         <div class="pipe-items">
+            <div class="pi"><b>VW threshold(z)</b> — vertex shader: zoom に応じた VW 閾値で頂点を破棄（LOD・追加バイト転送ゼロ）</div>
             <div class="pi"><b>fan triangles</b> — NDC 原点から全頂点へファントライアングルを生成</div>
             <div class="pi"><b>stencil XOR</b> — 偶奇カウントで凹部・穴を自動判定</div>
             <div class="pi"><b>color pass</b> — ステンシル奇数部分のみ塗りつぶし</div>
@@ -335,11 +335,11 @@ X のビットと Y のビットを <strong>インターリーブ（交互配置
 </div>
 
 <!-- ──────────────────────────────────────────────────── -->
-<h2 id="lod">4. Stage 2 — 動的 LOD ストリーミング</h2>
+<h2 id="lod">4. Stage 2 — GPU VB 書き込み（一度だけ）</h2>
 
 <p>
-クライアントはサーバから <code>GeoPBF</code> を受け取り、<strong>一度だけ</strong> gint 形式（Morton順ソート済み・VWウェイト付き）に変換してメモリに保持する。
-その後のズーム操作はすべてメモリ内のビット演算のみで完結し、追加ネットワークリクエストは発生しない。
+クライアントはサーバから <code>GeoPBF</code> を受け取り、<strong>一度だけ</strong> gint 形式（Morton順ソート済み・VWビット付き）にデコードして GPU 頂点バッファへ転送する。
+以降のズーム・パン操作では追加ネットワークリクエストは発生しない。LOD（頂点の間引き）は Stage 3 の vertex shader が毎フレーム VW 閾値で処理する。
 </p>
 
 <h3>4.1 Morton ビットシフトによるビューポートクエリ</h3>
@@ -400,8 +400,8 @@ X のビットと Y のビットを <strong>インターリーブ（交互配置
     <p>
         ズームレベルが変わるたびにタイル方式では追加のネットワークリクエストが発生するが、
         gint はすべての LOD を単一ファイルに内包している。
-        ズーム操作は <code>threshold</code> 値の変更のみで、
-        メモリ上の頂点配列を再フィルタするだけで完結する。
+        ズーム操作は GPU uniform の <code>zoom</code> 値を更新するだけで、
+        vertex shader が <code>vw_bits &gt; zoom</code> の頂点を毎フレーム破棄する（CPU 処理ゼロ）。
         初回ロード後は追加バイト転送 <strong>+0 bytes</strong>。
     </p>
 </div>
@@ -590,8 +590,8 @@ VW ウェイトは「ある頂点を削除したとき形状が失う情報量�
     </tr>
     <tr>
         <td><a href="lod.html"><span class="tag tag-file">LOD.html</span></a></td>
-        <td>動的 LOD：1 ファイルからズームに応じた頂点フィルタリング</td>
-        <td><span style="color:var(--green)">Stage 2 LOD ストリーミング</span></td>
+        <td>動的 LOD：vertex shader が毎フレーム VW 閾値で頂点を破棄</td>
+        <td><span style="color:var(--purple)">Stage 3 GPU 描画</span></td>
     </tr>
     <tr>
         <td><a href="st.html"><span class="tag tag-file">ST.html</span></a></td>
