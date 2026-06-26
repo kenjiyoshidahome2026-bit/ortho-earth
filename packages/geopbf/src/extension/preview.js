@@ -11,7 +11,19 @@ export function preview(self, canvas, props = {}) {
 
 	const projection = props.projection || "";
 	const proj = projection.match(/orthographic/i) ? geoOrthographic() : projection.match(/mercator/i) ? geoMercator() : geoEquirectangular();
-	const bbox = props.bbox || self.bbox;
+	let bbox = props.bbox || self.bbox;
+	// antimeridian-split features (e.g. Aleutian Islands) can inflate the dataset bbox to ~360° –
+	// recompute center from features whose per-feature lonSpan ≤ 180° to get a sane projection.
+	if (!props.bbox && bbox[2] - bbox[0] > 180) {
+		let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+		self.forEach(n => {
+			const b = self.getBbox(n);
+			if (b[2] - b[0] > 180) return;
+			if (b[0] < x0) x0 = b[0]; if (b[1] < y0) y0 = b[1];
+			if (b[2] > x1) x1 = b[2]; if (b[3] > y1) y1 = b[3];
+		});
+		if (x0 < Infinity) bbox = [x0, y0, x1, y1];
+	}
 	const pbf = self.pbf, e = self.e;
 	const radius = props.radius || 1.5;
 
