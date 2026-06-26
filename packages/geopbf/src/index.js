@@ -1,9 +1,32 @@
 import { GeoPBF } from "./pbf.js";
 import { pbfio, setApiUrl } from "./pbf-io.js";
-// decoder/pbf.js (669B) と decoder/gint.js (2行) はViteがdata:URLにインライン化するため
-// 相対importが解決できずWorkerエラーになる。両方とも同期フォールバックを使う。
-// GeoPBF._workerUrl = new URL("./decoder/pbf.js", import.meta.url);
-// GeoPBF._gintWorkerUrl = new URL("./decoder/gint.js", import.meta.url);
+// 動的テンプレートリテラル new URL(`./decoder/${type}.js`, ...) はViteが静的解析できず
+// ソースをコピーするだけでバンドルしない → 相対importが本番環境で解決不可になる。
+// 各decoderを静的に列挙することでViteが正しくバンドルする。
+const decoderWorkers = {
+    fgb:   () => new Worker(new URL('./decoder/fgb.js',   import.meta.url), { type: 'module' }),
+    gint:  () => new Worker(new URL('./decoder/gint.js',  import.meta.url), { type: 'module' }),
+    gml:   () => new Worker(new URL('./decoder/gml.js',   import.meta.url), { type: 'module' }),
+    gpx:   () => new Worker(new URL('./decoder/gpx.js',   import.meta.url), { type: 'module' }),
+    json:  () => new Worker(new URL('./decoder/json.js',  import.meta.url), { type: 'module' }),
+    kmz:   () => new Worker(new URL('./decoder/kmz.js',   import.meta.url), { type: 'module' }),
+    moj:   () => new Worker(new URL('./decoder/moj.js',   import.meta.url), { type: 'module' }),
+    pbf:   () => new Worker(new URL('./decoder/pbf.js',   import.meta.url), { type: 'module' }),
+    shape: () => new Worker(new URL('./decoder/shape.js', import.meta.url), { type: 'module' }),
+};
+const encoderWorkers = {
+    fgb:      () => new Worker(new URL('./encoder/fgb.js',      import.meta.url), { type: 'module' }),
+    geojson:  () => new Worker(new URL('./encoder/geojson.js',  import.meta.url), { type: 'module' }),
+    geopbf:   () => new Worker(new URL('./encoder/geopbf.js',   import.meta.url), { type: 'module' }),
+    gint:     () => new Worker(new URL('./encoder/gint.js',     import.meta.url), { type: 'module' }),
+    gml:      () => new Worker(new URL('./encoder/gml.js',      import.meta.url), { type: 'module' }),
+    gpx:      () => new Worker(new URL('./encoder/gpx.js',      import.meta.url), { type: 'module' }),
+    kmz:      () => new Worker(new URL('./encoder/kmz.js',      import.meta.url), { type: 'module' }),
+    preview:  () => new Worker(new URL('./encoder/preview.js',  import.meta.url), { type: 'module' }),
+    profile:  () => new Worker(new URL('./encoder/profile.js',  import.meta.url), { type: 'module' }),
+    shape:    () => new Worker(new URL('./encoder/shape.js',    import.meta.url), { type: 'module' }),
+    topojson: () => new Worker(new URL('./encoder/topojson.js', import.meta.url), { type: 'module' }),
+};
 export { setApiUrl };
 import { topology } from "./extension/topology.js";
 import { gint } from "./extension/gint.js";
@@ -32,8 +55,8 @@ export async function geopbf(data, options = {}) { if (isString(options)) option
 		const params = { file, name, precision, encoding, description, license, attribution };
 		const event = `convrsion from ${type} to GeoPBF`;
 		throwEvent("ConvertStart",{name, event});
-		const url = new URL(`./decoder/${type}.js`, import.meta.url);
-		const w = new Worker(url, { type: 'module' });
+		const w = decoderWorkers[type]?.();
+		if (!w) { resolve(null); return; }
 		return new Promise(resolve => {
 			w.onmessage = async e => {
 				if (e.data?.type === 'progress') {
@@ -145,10 +168,9 @@ const encoder = async (pbf, type, opts = {}) => { //console.log(pbf, type, opts)
 	const name = pbf._name, buf = pbf.arrayBuffer, gintbuf = pbf._gintBuffer;
 	const event = type =="profile"? `profiling` : `conversion from GeoPBF to ${type}`;
 	const throwEvent = (type, detail) => eventTarget && !opts.silent && eventTarget.dispatchEvent(new CustomEvent(type, { detail }));
-	const url = new URL(`./encoder/${type}.js`, import.meta.url)
-	if (url.href.startsWith('data:')) return null; // Viteがdata:URLにインライン化 → Worker生成スキップ
 	opts.message == false || throwEvent("ConvertStart", { name, event });
-	const w = new Worker(url, { type: 'module' });
+	const w = encoderWorkers[type]?.();
+	if (!w) return null;
 	return new Promise(resolve => {
 		w.onmessage = e => {
 			opts.message == false || throwEvent("ConvertEnd", { name, event });
@@ -169,8 +191,7 @@ const methods = {
 		else if (isObject(canvas)) { props = canvas; canvas = null; }
 		const offscreen = canvas || null; // OffscreenCanvas ならそのまま渡す
 		const buf = this.arrayBuffer, name = this._name;
-		const url = new URL('./encoder/preview.js', import.meta.url);
-		const w = new Worker(url, { type: 'module' });
+		const w = encoderWorkers.preview();
 		const transferables = offscreen ? [buf, offscreen] : [buf];
 		const bitmap = await new Promise(resolve => {
 			w.onmessage = e => { w.terminate(); resolve(e.data); };
