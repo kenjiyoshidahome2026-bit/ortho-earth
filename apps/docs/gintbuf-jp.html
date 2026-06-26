@@ -29,6 +29,7 @@ svg.sd{width:100%;height:100%}
 .vw-box svg{display:block;margin:0 auto}
 .vw-box .caption{font-family:var(--mono);font-size:0.68rem;color:var(--dim);margin-top:6px}
 .vw-box .weight{font-family:var(--mono);font-size:0.8rem;margin-top:2px}
+h4{color:var(--dim);font-size:0.9rem;margin:16px 0 6px;font-weight:600}
 </style>
 </head>
 <body>
@@ -510,6 +511,98 @@ gl.<span class="fn">colorMask</span>(<span class="kw">true</span>, <span class="
 		ファントライアングルが重なる回数は、その点がポリゴン輪郭をどちら向きに何回横切るかに対応する。
 		凹部分（ポリゴンが自分自身と「重なる」部分）では 2 回カウントされ偶数 → 穴として処理される。
 		これは ray casting アルゴリズムと同じ even-odd ルールを GPU のハードウェアステンシルで実現したものである。
+	</p>
+</div>
+
+<h3 id="sphere-culling">5.4 球体カリング — 地平線またぎポリゴン</h3>
+
+<p>
+ファンステンシルは 2D 平面レンダリングでは正しく機能する。しかし正射影（orthographic）の地球儀では、
+ポリゴンが<strong>地平線</strong>（球面の前後境界）をまたぐ場合がある。背面半球の頂点はアイスペースで
+<code>p.z &lt; 0</code> となり画面に表示されないが、それでもファントライアングルに参加するため問題が生じる。
+</p>
+
+<h4>単純な対処：裏面頂点を NDC 原点に潰す</h4>
+
+<pre><code><span class="cm">// ❌ 地平線付近に縮退トライアングルが発生する</span>
+<span class="kw">if</span> (p.z < <span class="nm">0.0</span>) { gl_Position = vec4(<span class="nm">0.0</span>, <span class="nm">0.0</span>, <span class="nm">0.0</span>, <span class="nm">1.0</span>); <span class="kw">return</span>; }</code></pre>
+
+<p>ファンの軸点（NDC 原点）に重ねると、地平線をまたぐエッジで<strong>面積ゼロの縮退トライアングル</strong>が生じる：</p>
+<ul>
+	<li><b>EXIT</b>（可視 → 裏面）：裏面頂点がファン軸と同点になる → 面積ゼロ。</li>
+	<li><b>BACK-BACK</b>（両方裏面）：両端が同点に潰れる → 2 点間の地平線円弧が塗られない。</li>
+	<li><b>ENTRY</b>（裏面 → 可視）：EXIT と対称。</li>
+</ul>
+
+<h4>解決策：裏面頂点を地平線円上に押し出す</h4>
+
+<p>
+潰すのではなく、各裏面頂点を<strong>地平線円</strong>（球面の投影外縁、半径 <code>u_scale</code> px）上へ、
+球中心からの画面方向を保ったまま押し出す：
+</p>
+
+<pre><code><span class="cm">// ✅ 地平線円上に押し出し — 縮退トライアングルを排除</span>
+<span class="kw">if</span> (p.z < <span class="nm">0.0</span>) {
+	vec2 v = p.xy - u_viewport * <span class="nm">0.5</span>;     <span class="cm">// 球中心からの方向ベクトル</span>
+	<span class="kw">float</span> d = <span class="fn">length</span>(v);
+	gl_Position = d < <span class="nm">1e-4</span>                 <span class="cm">// ガード：頂点が完全に中心と一致</span>
+		? vec4(<span class="nm">0.0</span>, <span class="nm">0.0</span>, <span class="nm">0.0</span>, <span class="nm">1.0</span>)
+		: <span class="fn">toNDC</span>(u_viewport * <span class="nm">0.5</span> + v * (u_scale / d));
+	<span class="kw">return</span>;
+}</code></pre>
+
+<div class="stencil-diagram">
+	<div class="sd-panel">
+		<div class="sd-title">❌ 原点に潰す — 縮退トライアングル</div>
+		<svg class="sd" viewBox="0 0 160 152">
+			<circle cx="80" cy="72" r="50" fill="rgba(56,189,248,0.04)" stroke="var(--accent)" stroke-width="1" stroke-dasharray="4,3"/>
+			<path d="M118,48 Q80,134 42,48 Z" fill="rgba(244,63,94,0.1)" stroke="var(--red)" stroke-width="0.8" stroke-dasharray="3,2"/>
+			<polygon points="80,72 42,48 118,48" fill="rgba(52,211,153,0.15)" stroke="var(--green)" stroke-width="1" stroke-dasharray="3,2"/>
+			<line x1="118" y1="48" x2="80" y2="72" stroke="var(--red)" stroke-width="1.5" stroke-dasharray="3,2"/>
+			<line x1="80" y1="72" x2="42" y2="48" stroke="var(--red)" stroke-width="1.5" stroke-dasharray="3,2"/>
+			<circle cx="80" cy="72" r="3" fill="var(--accent)" opacity="0.9"/>
+			<text x="86" y="71" font-family="monospace" font-size="8" fill="var(--accent)">O</text>
+			<circle cx="42" cy="48" r="4" fill="var(--green)"/>
+			<text x="28" y="45" font-family="monospace" font-size="8" fill="var(--green)">V1</text>
+			<circle cx="118" cy="48" r="4" fill="var(--green)"/>
+			<text x="122" y="45" font-family="monospace" font-size="8" fill="var(--green)">V2</text>
+			<circle cx="80" cy="100" r="3" fill="none" stroke="var(--red)" stroke-width="1" stroke-dasharray="2,2" opacity="0.5"/>
+			<text x="84" y="104" font-family="monospace" font-size="7" fill="var(--red)" opacity="0.6">V3（裏面）</text>
+			<text x="80" y="148" text-anchor="middle" font-family="monospace" font-size="8" fill="var(--red)">地平線付近に穴</text>
+		</svg>
+	</div>
+	<div class="sd-panel">
+		<div class="sd-title">✅ 地平線円へ押し出し — 正常塗り</div>
+		<svg class="sd" viewBox="0 0 160 152">
+			<circle cx="80" cy="72" r="50" fill="rgba(56,189,248,0.04)" stroke="var(--accent)" stroke-width="1" stroke-dasharray="4,3"/>
+			<polygon points="80,72 118,48 80,122" fill="rgba(251,191,36,0.2)" stroke="var(--yellow)" stroke-width="1" stroke-dasharray="3,2"/>
+			<polygon points="80,72 80,122 42,48" fill="rgba(192,132,252,0.2)" stroke="var(--purple)" stroke-width="1" stroke-dasharray="3,2"/>
+			<polygon points="80,72 42,48 118,48" fill="rgba(52,211,153,0.25)" stroke="var(--green)" stroke-width="1" stroke-dasharray="3,2"/>
+			<circle cx="80" cy="72" r="3" fill="var(--accent)" opacity="0.9"/>
+			<text x="86" y="71" font-family="monospace" font-size="8" fill="var(--accent)">O</text>
+			<circle cx="42" cy="48" r="4" fill="var(--green)"/>
+			<text x="28" y="45" font-family="monospace" font-size="8" fill="var(--green)">V1</text>
+			<circle cx="118" cy="48" r="4" fill="var(--green)"/>
+			<text x="122" y="45" font-family="monospace" font-size="8" fill="var(--green)">V2</text>
+			<circle cx="80" cy="100" r="3" fill="none" stroke="var(--red)" stroke-width="1" stroke-dasharray="2,2" opacity="0.4"/>
+			<line x1="80" y1="103" x2="80" y2="118" stroke="var(--yellow)" stroke-width="1" stroke-dasharray="2,2"/>
+			<circle cx="80" cy="122" r="4" fill="var(--yellow)"/>
+			<text x="84" y="140" font-family="monospace" font-size="8" fill="var(--yellow)">H3</text>
+			<text x="80" y="150" text-anchor="middle" font-family="monospace" font-size="8" fill="var(--green)">完全塗り</text>
+		</svg>
+	</div>
+</div>
+
+<div class="callout callout-key">
+	<div class="callout-head">なぜこれが正しいか</div>
+	<p>
+		各エッジ種別で有効な（面積のある）トライアングルが生成される。
+		<b>EXIT</b>（<em>O, V<sub>可視</sub>, H<sub>裏面</sub></em>）：可視弧から地平線までの扇形を埋める。
+		<b>BACK-BACK</b>（<em>O, H<sub>i</sub>, H<sub>i+1</sub></em>）：連続する裏面頂点間の地平線円弧を埋める
+		— CPU 側の closing-arc triangle の GPU 版に相当。
+		<b>ENTRY</b>：EXIT と対称。
+		可視弧と押し出された地平線円弧が合わさって閉じた単純ポリゴンを形成し、
+		ステンシル XOR が正しい巻き数をカウントする — CPU によるアーク位相計算は不要。
 	</p>
 </div>
 

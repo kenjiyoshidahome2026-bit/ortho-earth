@@ -29,6 +29,7 @@ svg.sd{width:100%;height:100%}
 .vw-box .caption{font-family:var(--mono);font-size:0.68rem;color:var(--dim);margin-top:6px}
 .vw-box .weight{font-family:var(--mono);font-size:0.8rem;margin-top:2px}
 .lang-switch{font-family:var(--mono);font-size:0.72rem}
+h4{color:var(--dim);font-size:0.9rem;margin:16px 0 6px;font-weight:600}
 </style>
 </head>
 <body>
@@ -511,6 +512,99 @@ gl.<span class="fn">colorMask</span>(<span class="kw">true</span>, <span class="
 		the ray-casting even-odd rule. In concave regions where the polygon "doubles back", the
 		overlap count reaches 2 (even), marking those pixels as holes.
 		This is the ray-casting algorithm, implemented in GPU stencil hardware at no CPU cost.
+	</p>
+</div>
+
+<h3 id="sphere-culling">5.4 Sphere Culling — Horizon-Straddling Polygons</h3>
+
+<p>
+The fan stencil works correctly for 2D flat rendering. On an orthographic globe, a polygon can
+span the <strong>horizon</strong> — the visible boundary of the sphere where the surface transitions
+from front to back. Back-hemisphere vertices have <code>p.z &lt; 0</code> in eye space:
+they are invisible but still participate in fan triangles.
+</p>
+
+<h4>The Naive Approach: Collapse Backface Vertices to NDC Origin</h4>
+
+<pre><code><span class="cm">// ❌ Creates degenerate triangles at the horizon</span>
+<span class="kw">if</span> (p.z < <span class="nm">0.0</span>) { gl_Position = vec4(<span class="nm">0.0</span>, <span class="nm">0.0</span>, <span class="nm">0.0</span>, <span class="nm">1.0</span>); <span class="kw">return</span>; }</code></pre>
+
+<p>Collapsing to the fan pivot creates <strong>zero-area (degenerate) triangles</strong> for every edge that crosses the horizon:</p>
+<ul>
+	<li><b>EXIT</b> (visible → back): backface endpoint lands on the fan pivot — zero-area triangle.</li>
+	<li><b>BACK-BACK</b> (both back): both endpoints collapse — the horizon arc between them is never filled.</li>
+	<li><b>ENTRY</b> (back → visible): symmetric to EXIT.</li>
+</ul>
+
+<h4>The Fix: Push Backface Vertices to the Horizon Circle</h4>
+
+<p>
+Instead, push each backface vertex outward to the <strong>horizon circle</strong> (the sphere's projected
+limb, radius <code>u_scale</code> px), preserving its screen-space direction from the globe center:
+</p>
+
+<pre><code><span class="cm">// ✅ Push to horizon circle — eliminates degenerate triangles</span>
+<span class="kw">if</span> (p.z < <span class="nm">0.0</span>) {
+	vec2 v = p.xy - u_viewport * <span class="nm">0.5</span>;     <span class="cm">// direction from globe center</span>
+	<span class="kw">float</span> d = <span class="fn">length</span>(v);
+	gl_Position = d < <span class="nm">1e-4</span>                 <span class="cm">// guard: vertex exactly at center</span>
+		? vec4(<span class="nm">0.0</span>, <span class="nm">0.0</span>, <span class="nm">0.0</span>, <span class="nm">1.0</span>)
+		: <span class="fn">toNDC</span>(u_viewport * <span class="nm">0.5</span> + v * (u_scale / d));
+	<span class="kw">return</span>;
+}</code></pre>
+
+<div class="stencil-diagram">
+	<div class="sd-panel">
+		<div class="sd-title">❌ Collapsed — degenerate triangles</div>
+		<svg class="sd" viewBox="0 0 160 152">
+			<circle cx="80" cy="72" r="50" fill="rgba(56,189,248,0.04)" stroke="var(--accent)" stroke-width="1" stroke-dasharray="4,3"/>
+			<path d="M118,48 Q80,134 42,48 Z" fill="rgba(244,63,94,0.1)" stroke="var(--red)" stroke-width="0.8" stroke-dasharray="3,2"/>
+			<polygon points="80,72 42,48 118,48" fill="rgba(52,211,153,0.15)" stroke="var(--green)" stroke-width="1" stroke-dasharray="3,2"/>
+			<line x1="118" y1="48" x2="80" y2="72" stroke="var(--red)" stroke-width="1.5" stroke-dasharray="3,2"/>
+			<line x1="80" y1="72" x2="42" y2="48" stroke="var(--red)" stroke-width="1.5" stroke-dasharray="3,2"/>
+			<circle cx="80" cy="72" r="3" fill="var(--accent)" opacity="0.9"/>
+			<text x="86" y="71" font-family="monospace" font-size="8" fill="var(--accent)">O</text>
+			<circle cx="42" cy="48" r="4" fill="var(--green)"/>
+			<text x="28" y="45" font-family="monospace" font-size="8" fill="var(--green)">V1</text>
+			<circle cx="118" cy="48" r="4" fill="var(--green)"/>
+			<text x="122" y="45" font-family="monospace" font-size="8" fill="var(--green)">V2</text>
+			<circle cx="80" cy="100" r="3" fill="none" stroke="var(--red)" stroke-width="1" stroke-dasharray="2,2" opacity="0.5"/>
+			<text x="84" y="104" font-family="monospace" font-size="7" fill="var(--red)" opacity="0.6">V3 (back)</text>
+			<text x="80" y="148" text-anchor="middle" font-family="monospace" font-size="8" fill="var(--red)">holes at horizon</text>
+		</svg>
+	</div>
+	<div class="sd-panel">
+		<div class="sd-title">✅ Pushed to horizon — correct fill</div>
+		<svg class="sd" viewBox="0 0 160 152">
+			<circle cx="80" cy="72" r="50" fill="rgba(56,189,248,0.04)" stroke="var(--accent)" stroke-width="1" stroke-dasharray="4,3"/>
+			<polygon points="80,72 118,48 80,122" fill="rgba(251,191,36,0.2)" stroke="var(--yellow)" stroke-width="1" stroke-dasharray="3,2"/>
+			<polygon points="80,72 80,122 42,48" fill="rgba(192,132,252,0.2)" stroke="var(--purple)" stroke-width="1" stroke-dasharray="3,2"/>
+			<polygon points="80,72 42,48 118,48" fill="rgba(52,211,153,0.25)" stroke="var(--green)" stroke-width="1" stroke-dasharray="3,2"/>
+			<circle cx="80" cy="72" r="3" fill="var(--accent)" opacity="0.9"/>
+			<text x="86" y="71" font-family="monospace" font-size="8" fill="var(--accent)">O</text>
+			<circle cx="42" cy="48" r="4" fill="var(--green)"/>
+			<text x="28" y="45" font-family="monospace" font-size="8" fill="var(--green)">V1</text>
+			<circle cx="118" cy="48" r="4" fill="var(--green)"/>
+			<text x="122" y="45" font-family="monospace" font-size="8" fill="var(--green)">V2</text>
+			<circle cx="80" cy="100" r="3" fill="none" stroke="var(--red)" stroke-width="1" stroke-dasharray="2,2" opacity="0.4"/>
+			<line x1="80" y1="103" x2="80" y2="118" stroke="var(--yellow)" stroke-width="1" stroke-dasharray="2,2"/>
+			<circle cx="80" cy="122" r="4" fill="var(--yellow)"/>
+			<text x="84" y="140" font-family="monospace" font-size="8" fill="var(--yellow)">H3</text>
+			<text x="80" y="150" text-anchor="middle" font-family="monospace" font-size="8" fill="var(--green)">complete fill</text>
+		</svg>
+	</div>
+</div>
+
+<div class="callout callout-key">
+	<div class="callout-head">Why This Works</div>
+	<p>
+		Each edge type now forms a valid non-degenerate triangle.
+		<b>EXIT</b> (<em>O, V<sub>vis</sub>, H<sub>back</sub></em>): fills the wedge from the visible arc to the horizon.
+		<b>BACK-BACK</b> (<em>O, H<sub>i</sub>, H<sub>i+1</sub></em>): covers the horizon-circle arc sector between
+		consecutive backface vertices — GPU equivalent of a CPU closing-arc triangle.
+		<b>ENTRY</b>: symmetric to EXIT.
+		The visible arc and the pushed horizon arc together form a closed simple polygon whose winding
+		is counted correctly by stencil XOR — no CPU arc-topology computation required.
 	</p>
 </div>
 
