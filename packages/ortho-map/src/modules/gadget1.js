@@ -225,3 +225,16 @@ export function measure(opts = {}) {
 		}
 	});
 }
+////--------------------------------------------------------- 閉じるボタン + ESC
+export function close() {
+	const map = this;
+	const btn = map.append("button").attr("class", "close")
+		.html(`<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg"><path d="M25 25L75 75M25 75L75 25" stroke-width="12" stroke-linecap="round"/></svg>`)
+		.hide();
+	const dispatch = () => map.trigger("ortho:close");
+	btn.on("click", dispatch);
+	d3.select(window).on("keydown.orthoClose", e => {
+		if (e.key === "Escape" && btn.isVisible()) dispatch();
+	});
+	return btn;
+}

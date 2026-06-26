@@ -65,6 +65,13 @@ html, body { position:absolute; inset:0; background:#000; margin:0; padding:0; o
 		canvas[name=OrthoTile] { filter:none; }
 		canvas[name=OrthoBorder] { filter: drop-shadow(0 0 5px rgba(0,0,0,1)); }
 		canvas[name=Accessories] { filter: drop-shadow(0 0 5px rgba(0,0,0,1)); }
+		> button.close {
+			position: absolute; top: 24px; right: 24px; width: 40px; height: 40px;
+			border-radius: 20px; background: none; padding: 0; border: none; cursor: pointer;
+			transition: background 300ms ease;
+			svg { width: 100%; height: 100%; fill: none; stroke: var(--fg-color); }
+			&:hover { background: rgba(196,64,0,0.8); }
+		}
 	}
 //// ---------------------------------------------------------
 	[name=overlays] { position: absolute; pointer-events: none; inset: 0;

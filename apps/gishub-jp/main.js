@@ -56,6 +56,8 @@ const _mapInst = await orthoMap({
 	tilerBase: TILER_BASE,
 	apiUrl:    API_BASE,
 }).then(m => m.autoRotate(true));
+const _closeBtn = _mapInst.gadget.close();
+_mapInst.on("ortho:close", exitGlobeView);
 
 let _globeLayer = null;
 let _currentPbf = null;
@@ -116,6 +118,14 @@ async function execGlobeView(pbf) {
 
 	const zoomOpts = zoomFeature._center ? { center: zoomFeature._center } : {};
 	await _mapInst.zoomToFeature(zoomFeature, zoomOpts);
+	_closeBtn.show();
+}
+function exitGlobeView() {
+	if (_globeLayer) { _globeLayer.destroy(); _globeLayer = null; }
+	_currentPbf = null;
+	_mapInst.setView([135, 35], _initialZoom);
+	_mapInst.autoRotate(true);
+	_closeBtn.hide();
 }
 
 function bucketUrl(src, path) {

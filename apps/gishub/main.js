@@ -15,8 +15,8 @@ setApiUrl(API_BASE);
 const hubCache = await Cache("GISHUB").catch(() => null);
 const initialZoom = Math.log2(Math.min(window.innerWidth, window.innerHeight)/2*0.5 / 256 * Math.PI * 2);
 const mapInst = (await orthoMap({target:d3.select('body'), center:[0,0], zoom: initialZoom, tilerBase: TILER_BASE, apiUrl: API_BASE})).autoRotate(true);
-const exitButton = mapInst.append("button").attr("class", "close").html(`<img src="close.svg"/>`)
-	.on("click", exitView).hide();
+const closeBtn = mapInst.gadget.close();
+mapInst.on("ortho:close", exitView);
 const gintTip = mapInst.gadget.tip();
 const gintPop = mapInst.gadget.pop();
 const gishub = d3.select("body").append("div").attr("class", "gishub");
@@ -172,7 +172,7 @@ let _autoRotateTimeout = null;
 async function execView(pbf) {
 	if (_autoRotateTimeout !== null) { clearTimeout(_autoRotateTimeout); _autoRotateTimeout = null; }
 	mapInst.autoRotate(false);
-	exitButton.show();
+	closeBtn.show();
 	gishub.classed("viewing", true);
 	if (!pbf?.length) return;
 
@@ -249,6 +249,6 @@ function exitView() {
 	if (_viewLayer) { _viewLayer.destroy(); _viewLayer = null; }
 	mapInst.setView([0,0], initialZoom);
 	_autoRotateTimeout = setTimeout(() => { _autoRotateTimeout = null; mapInst.autoRotate(true); }, 250);
-	exitButton.hide();
+	closeBtn.hide();
 	gishub.classed("viewing", false);
 }
