@@ -12,17 +12,44 @@ export function preview(self, canvas, props = {}) {
 	const projection = props.projection || "";
 	const proj = projection.match(/orthographic/i) ? geoOrthographic() : projection.match(/mercator/i) ? geoMercator() : geoEquirectangular();
 	let bbox = props.bbox || self.bbox;
-	// antimeridian-split features (e.g. Aleutian Islands) can inflate the dataset bbox to ~360° –
-	// recompute center from features whose per-feature lonSpan ≤ 180° to get a sane projection.
+	// antimeridian-split datasets can have bbox spanning ~360° even when features don't individually
+	// cross the antimeridian (e.g. western Alaska polygons at -180° + Near Islands at +173°E).
+	// Fix: 3D-vector centroid of small-span features → re-wrap all bbox coords relative to that
+	// centroid longitude so the tight geographic extent is computed in a consistent frame.
 	if (!props.bbox && bbox[2] - bbox[0] > 180) {
-		let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+		const d2r = Math.PI / 180;
+		let sx = 0, sy = 0, sz = 0, nc = 0;
 		self.forEach(n => {
 			const b = self.getBbox(n);
 			if (b[2] - b[0] > 180) return;
-			if (b[0] < x0) x0 = b[0]; if (b[1] < y0) y0 = b[1];
-			if (b[2] > x1) x1 = b[2]; if (b[3] > y1) y1 = b[3];
+			const lng = (b[0] + b[2]) / 2, lat = (b[1] + b[3]) / 2;
+			sx += Math.cos(lat * d2r) * Math.cos(lng * d2r);
+			sy += Math.cos(lat * d2r) * Math.sin(lng * d2r);
+			sz += Math.sin(lat * d2r);
+			nc++;
 		});
-		if (x0 < Infinity) bbox = [x0, y0, x1, y1];
+		if (nc > 0) {
+			const norm = Math.sqrt(sx * sx + sy * sy + sz * sz);
+			const cLng = norm > 0.01 ? Math.atan2(sy, sx) / d2r : 0;
+			let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+			self.forEach(n => {
+				const b = self.getBbox(n);
+				if (b[2] - b[0] > 180) return;
+				let bx0 = b[0], bx1 = b[2];
+				const bc = (bx0 + bx1) / 2;
+				if (bc - cLng > 180) { bx0 -= 360; bx1 -= 360; }
+				else if (cLng - bc > 180) { bx0 += 360; bx1 += 360; }
+				if (bx0 < x0) x0 = bx0;
+				if (b[1] < y0) y0 = b[1];
+				if (bx1 > x1) x1 = bx1;
+				if (b[3] > y1) y1 = b[3];
+			});
+			if (x0 < Infinity) {
+				// lonSpan はそのまま維持しつつ、中心を 3D 重心 cLng に合わせてシフト
+				const shift = cLng - (x0 + x1) / 2;
+				bbox = [x0 + shift, y0, x1 + shift, y1];
+			}
+		}
 	}
 	const pbf = self.pbf, e = self.e;
 	const radius = props.radius || 1.5;

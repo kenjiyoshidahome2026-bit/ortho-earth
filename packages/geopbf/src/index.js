@@ -63,6 +63,7 @@ export async function geopbf(data, options = {}) { if (isString(options)) option
 					throwEvent("ConvertProgress", { name, loaded: e.data.loaded, total: e.data.total });
 					return;
 				}
+				if (e.data?.warning) throwEvent("ConvertWarning", { name, warning: e.data.warning });
 				throwEvent("ConvertEnd", { name, event });
 				w.terminate(); resolve(e.data ? new GeoPBF(options).set(e.data.data) : null); };
 			w.onerror = e => {

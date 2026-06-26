@@ -13,8 +13,9 @@ export class screenLogger {
 		addEventListener("FetchStart",    e => this.progress("start", e),    { signal });
 		addEventListener("FetchProgress", e => this.progress("progress", e), { signal });
 		addEventListener("FetchEnd",      e => this.progress("end", e),      { signal });
-		addEventListener("ConvertStart",  e => this.event("start", e),       { signal });
-		addEventListener("ConvertEnd",    e => this.event("end", e),         { signal });
+		addEventListener("ConvertStart",   e => this.event("start", e),              { signal });
+		addEventListener("ConvertEnd",     e => this.event("end", e),                { signal });
+		addEventListener("ConvertWarning", e => this.warn(e.detail.warning),         { signal });
 	}
 	destroy() { this._ac.abort(); this.clear(); }
 	hide() { this.target.hide(); return this; }
