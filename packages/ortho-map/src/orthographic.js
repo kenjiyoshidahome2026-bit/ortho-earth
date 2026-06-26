@@ -201,7 +201,7 @@ export async function orthographic(map, opts = {}) {
 		map.angle = map.view[0][2];
 		return map.view;
 	}
-	functionresize() {
+	function resize() {
 		const [width, height] = [map.width, map.height] = map.getSize();
 		const rotate = proj.rotate(), scale = proj.scale();
 		proj.fitExtent([[1, 1], [width - 1, height - 1]], { type: "Sphere" });
@@ -211,12 +211,12 @@ export async function orthographic(map, opts = {}) {
 		getView();
 		draw();
 	}
-	functiontester(q) {
+	function tester(q) {
 		if (d3.geoDistance(map.center, q) > Math.PI / 2) return null;
 		const [x, y] = proj(q);
 		return (x < 0 || x > map.width || y < 0 || y > map.height) ? null : [x, y];
 	}
-	functionbbox(q, maxZoom = map.maxZoom) {
+	function bbox(q, maxZoom = map.maxZoom) {
 		return q ? setBBOX(q) : getBBOX();
 		function getBBOX() {
 			const [w, h] = [map.width, map.height];
@@ -240,7 +240,7 @@ export async function orthographic(map, opts = {}) {
 			setFeature(feature, maxZoom);
 		}
 	};
-	functionsetZoom(zoom) {
+	function setZoom(zoom) {
 		proj.scale(zval2scale(zoom));
 		map.stat("view", getView());
 		initZoom();
@@ -253,7 +253,7 @@ export async function orthographic(map, opts = {}) {
 	function setRange(min, max) {
 		map.scaleExtent([zval2scale(min), zval2scale(max)]);
 	}
-	functionsetFeature(feature, maxZoom = map.maxZoom) {
+	function setFeature(feature, maxZoom = map.maxZoom) {
 		const { width, height } = map;
 		const c = d3.geoCentroid(feature);
 		const p = d3.geoOrthographic().rotate([-c[0], -c[1], 0])
@@ -261,7 +261,7 @@ export async function orthographic(map, opts = {}) {
 		const zval = Math.min(scale2zval(p.scale()), maxZoom)
 		setView([c[0], c[1]], zval);
 	}
-	async functionflyToFeature(feature, opts = {}) {
+	async function flyToFeature(feature, opts = {}) {
 		const { width, height, maxZoom } = map;
 		const size = Math.min(width, height);
 		const r0 = proj.rotate(), s0 = proj.scale();
@@ -286,7 +286,7 @@ export async function orthographic(map, opts = {}) {
 			.end().catch(() => {});
 		if (flyTicket === ticket) drawn();
 	}
-	async functionzoomToFeature(feature, opts = {}) {
+	async function zoomToFeature(feature, opts = {}) {
 		const { width, height, maxZoom } = map;
 		const size = Math.min(width, height);
 		const r0 = proj.rotate(), s0 = proj.scale();
@@ -330,7 +330,7 @@ export async function orthographic(map, opts = {}) {
 
 		if (flyTicket === ticket) return drawn();
 	}
-	async functionmag(n, duration = 1000) {
+	async function mag(n, duration = 1000) {
 		const scale = proj.scale();
 		const maxScale = zval2scale(map.maxZoom);
 		const minScale = zval2scale(map.minZoom);
@@ -344,7 +344,7 @@ export async function orthographic(map, opts = {}) {
 			.end().catch(() => {});
 		if (flyTicket === ticket) drawn();
 	}
-	async functionnorth(duration = 1000) {
+	async function north(duration = 1000) {
 		const zaxis = proj.rotate()[2];
 		const ticket = ++flyTicket;
 		await d3.transition().ease(d3.easeCubic).duration(duration)
@@ -356,7 +356,7 @@ export async function orthographic(map, opts = {}) {
 			.end().catch(() => {});
 		if (flyTicket === ticket) drawn();
 	}
-	functionautoRotate(flag) {
+	function autoRotate(flag) {
 		const velocity = 0.01;
 		if (flag) {
 			map.overlays && map.overlays.style("opacity", 0);
