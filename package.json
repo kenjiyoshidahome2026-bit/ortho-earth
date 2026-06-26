@@ -11,7 +11,7 @@
 		"dev:www": "npm run dev -w www",
 		"dev:viewer": "npm run dev -w viewer",
 		"dev:uploader": "npm run dev -w uploader",
-		"build:all": "npm run build -w www && rm -rf apps/www/dist/documents && cp -r apps/documents apps/www/dist/documents",
+		"build:all": "npm run build -w www && rm -rf apps/www/dist/docs && cp -r apps/docs apps/www/dist/docs",
 		"preview:all": "npm run preview -w www",
 		"summary": "repomix --style markdown --output project_summary.md"
 	},
