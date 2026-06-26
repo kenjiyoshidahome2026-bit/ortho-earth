@@ -1,5 +1,3 @@
-# GIS-HUB — Frequently Asked Questions
-
 ## General
 
 **Q: What is GIS-HUB?**
