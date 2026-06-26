@@ -12,7 +12,7 @@ const kmlToFeatures = (text, nameToRes) => {
 		const props = {};
 		let id;
 		const nm = pm.match(/<name>(.*?)<\/name>/);
-		if (nm) id = unescXML(nm[1].trim()); // <name> → feature id（往復対称のためpropsに入れない）
+		if (nm) id = unescXML(nm[1].trim()); // <name> becomes the feature id — not stored in props (round-trip symmetric)
 		const ds = pm.match(/<description>(.*?)<\/description>/);
 		if (ds) props.description = unescXML(ds[1].trim());
 		const sd = pm.match(/<SimpleData name="(.*?)">(.*?)<\/SimpleData>/g);
@@ -30,7 +30,7 @@ const kmlToFeatures = (text, nameToRes) => {
 			const path = unescXML(hr[1].trim());
 			const res = nameToRes[path];
 			if (res) {
-				// encoderが読む iconName + iconData に合わせて復元（往復対称）
+				// Restore iconName + iconData as the encoder expects (round-trip symmetric).
 				props.iconName = path.replace(/^files\//, '');
 				props.iconData = res;
 			}

@@ -1,6 +1,6 @@
 import init, { L1toL2_wasm, XYtoL1_wasm, alloc_wasm_memory, free_wasm_memory, init_panic_hook, detect_intersections_wasm } from "../../wasm/pkg/gint_wasm.js";
 let wasmReady = false;
-let wasmMemoryBuffer = null; // 🌟 生のメモリ配列への参照をキープする用
+let wasmMemoryBuffer = null;
 let sharedWasmPtr = 0;
 let sharedWasmSize = 0;
 export class gint {
@@ -140,9 +140,9 @@ export class gint {
 		const getPhysRank = (area) => {
 			if (area <= 0) return 0;
 			/* ------------------------------------------------
-			* 論理式の導出 (area は平方度単位):
-			* 1px相当の距離 L = 1.40625 / 2^z  [度単位]
-			* 面積 A_1e7 = (L * 1e7)^2  [(1e-7度)^2単位]
+			* Derivation (area in square-degree units):
+			* 1-pixel distance L = 1.40625 / 2^z  [degrees]
+			* area A_1e7 = (L * 1e7)^2  [(1e-7 deg)^2 units]
 			* Rank = 1.5 * log2(A_1e7) - 8.2365
 			*       = 1.5 * log2(area * 1e14) - 8.2365
 			*       = 1.5 * log2(area) + 61.51

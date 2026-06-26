@@ -3,7 +3,7 @@ import { gint } from "./gint.js";
 export function cleanTopology(gintData, options = {}) {
 	if (!gintData || !gintData.arcBuffer) return;
 	const snapDistSq = options.snapDistSq || 125;
-	const gridUnit   = options.gridUnit   || 8; // L2格子(8単位)に合わせる
+	const gridUnit   = options.gridUnit   || 8; // align to the L2 grid (8 units)
 	const maxPasses  = options.maxPasses  || 4;
 
 	for (let pass = 0; pass < maxPasses; pass++) {
@@ -17,7 +17,7 @@ export function cleanTopology(gintData, options = {}) {
 	}
 }
 
-// --- JS フォールバック（WASM 未初期化時）---
+// JS fallback (used when WASM is not yet initialized).
 function _detectJS(arcBuffer, arcMeta, arcCount, snapDistSq, gridUnit) {
 	const SNAP_DIST_SQ = BigInt(snapDistSq);
 	const GRID_UNIT    = BigInt(gridUnit);
@@ -113,7 +113,7 @@ function _detectJS(arcBuffer, arcMeta, arcCount, snapDistSq, gridUnit) {
 	return intersections;
 }
 
-// --- アーク分割・再構成 ---
+// Arc split and reconstruction.
 function _apply(gintData, arcBuffer, arcMeta, polygon, polyline, intersections, gridUnit) {
 	const mlen = 8;
 	const nextMeta = [], nextBuffer = [];
@@ -129,7 +129,7 @@ function _apply(gintData, arcBuffer, arcMeta, polygon, polyline, intersections, 
 			const key = `${i}-${j}`;
 			if (intersections.has(key)) {
 				const pts = intersections.get(key);
-				// セグメント方向に沿ってt値でソート (複数交差点の順序を保証)
+				// Sort by t-value along the segment direction (guarantees order for multiple intersections).
 				const [ax, ay] = gint.unpackToInt(arcBuffer[offset + j]);
 				const [bx, by] = gint.unpackToInt(arcBuffer[offset + j + 1]);
 				const ddx = bx - ax, ddy = by - ay;
@@ -141,7 +141,7 @@ function _apply(gintData, arcBuffer, arcMeta, polygon, polyline, intersections, 
 						return { p, t };
 					})
 					.sort((a, b) => a.t - b.t);
-				// 重複除去 (同一BigUint64が複数記録された場合)
+				// Deduplicate (same BigUint64 recorded more than once).
 				const seenPts = new Set();
 				for (const { p: crossPt } of sorted) {
 					if (seenPts.has(crossPt)) continue;
@@ -152,7 +152,7 @@ function _apply(gintData, arcBuffer, arcMeta, polygon, polyline, intersections, 
 					if (currentArcPoints.length >= 2) splittedArcs.push(currentArcPoints);
 					currentArcPoints = [crossPt];
 				}
-				// t=1 の場合 crossPt === nextPt なので二重追加を防ぐ
+				// When t=1, crossPt === nextPt, so avoid double-appending.
 				const nextPt = arcBuffer[offset + j + 1];
 				if (currentArcPoints[currentArcPoints.length - 1] !== nextPt) {
 					currentArcPoints.push(nextPt);
@@ -191,8 +191,8 @@ function _apply(gintData, arcBuffer, arcMeta, polygon, polyline, intersections, 
 		const mapped = arcRemap.get(aid) || [];
 		return arcIdx < 0 ? [...mapped].reverse().map(t => ~t) : mapped;
 	};
-	// polygon: [id, [geoms]]  geom=[rings]  ring=[arcIdx,...]  ← 3階層
-	// polyline:[id, [lines]]  line=[arcIdx,...]                ← 2階層
+	// polygon: [id, [geoms]]  geom=[rings]  ring=[arcIdx,...]  (3 levels)
+	// polyline:[id, [lines]]  line=[arcIdx,...]                (2 levels)
 	gintData.polygon = polygon
 		.map(([id, geoms]) => [
 			id,

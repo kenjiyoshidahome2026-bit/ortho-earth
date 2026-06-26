@@ -9,7 +9,6 @@ export async function createGetHeight(opts = {}) {
 	cache(indexName, index);
 	const exist = (lng,lat) => index[encodeName(lng, lat)];
 	let isLoading = null;
-////---------------------------------------------------------------------------------------
 	const level1 = opts.level1||7, level2 = opts.level2||12;
 	const {max, min, floor} = Math;
 	let cname = null, current = null;

@@ -1,16 +1,16 @@
 // WebGL2 gint renderer — fully gl_VertexID driven, no vertex buffers.
 //
-// アーキテクチャ概要:
-//   gintState.js        — 共有 GL 状態オブジェクト (s)
-//   gintTextures.js     — テクスチャ生成/削除
-//   gintFBO.js          — FBO 生成/削除
+// Architecture:
+//   gintState.js        — shared GL state object (s)
+//   gintTextures.js     — texture create/delete
+//   gintFBO.js          — FBO create/delete
 //   gintRenderPasses.js — renderCleanScene / drawOverlay / renderPickingBuffer
 //   gintIdentify.js     — GPU picking, JS polygon fallback, hover/leave
 //
 // Hover identify flow:
 //   drawn() → renderCleanScene(baseFBO) + renderPickingBuffer
-//           → doIdentify: readPixels → activeId 変化なら drawOverlay 直接描画
-//   postMessage("redraw") は不使用。主スレッド往復ゼロ。
+//           → doIdentify: readPixels → if activeId changed, drawOverlay immediately
+//   postMessage("redraw") is not used — no main-thread round-trip.
 
 import { geoOrthographic } from 'common';
 import { createGintPrograms } from './shared/gintPrograms.js';
@@ -101,7 +101,6 @@ function drawing(data) {
 	}
 	s.lastMX = NaN; s.lastMY = NaN;
 
-	// ズーム範囲外 → クリアして終了
 	const zoom = Math.log2(data.scale / 40.74);
 	const effMin = Math.max(s.minZoom ?? 0,  data.minZoom ?? 0);
 	const effMax = Math.min(s.maxZoom ?? 22, data.maxZoom ?? 22);
@@ -119,7 +118,7 @@ function drawing(data) {
 	s.lastProj = geoOrthographic()
 		.rotate(data.rotate).scale(data.scale).translate([s.width / 2, s.height / 2]);
 
-	// ビューポート → Morton 整数空間 bbox（polygon JS フォールバック用）
+	// Map viewport corners to Morton integer-space bbox (used by the JS polygon fallback).
 	const SE = 1e7;
 	let vxMin = 0xFFFFFFFF, vyMin = 0xFFFFFFFF, vxMax = 0, vyMax = 0;
 	for (const [cx, cy] of [

@@ -1,5 +1,4 @@
 export const history = async (opts = {}) => {
-	// デフォルト値の結合をモダンな分割代入でスッキリと
 	const {
 		db = "s3_history.system",
 		key = "undo",
@@ -16,14 +15,13 @@ export const history = async (opts = {}) => {
 	let undo = (await cache(key)) || initial;
 
 	const history = async (value) => {
-		// 改良3: 参照を切る（完全なコピーを作る）ことで過去の履歴が書き換わるのを防ぐ
+		// Deep-clone the value so that mutations to the caller's array cannot corrupt the stored history.
 		const snapshot = structuredClone(Array.isArray(value) ? value : [value]);
 
 		if (JSON.stringify(undo[0]) !== JSON.stringify(snapshot)) {
 			undo.unshift(snapshot);
-			// 改良2: メモリ上の配列も確実に max で切り詰める（メモリリーク防止）
 			undo = undo.slice(0, max);
-			// 改良1: 新しいアクションが起きたら「Redoの未来」は破棄する
+			// Discard redo history on any new action (new branch invalidates the redo stack).
 			redo = [];
 
 			await cache(key, undo);
@@ -33,7 +31,7 @@ export const history = async (opts = {}) => {
 	history.val = history.value = () => undo[0];
 
 	history.exec = async () => {
-		// 実行時も参照を切って渡すことで、外部でいじられても履歴が壊れない
+		// Clone before passing to exec so external mutations cannot corrupt the stored state.
 		if (exec) await exec(...structuredClone(undo[0]));
 	};
 
@@ -56,9 +54,9 @@ export const history = async (opts = {}) => {
 	history.get = () => undo;
 
 	if (bindKey && exec) {
-		// 改良4: 他のkeydownイベントを上書きしないよう名前空間（.history）をつける
+		// Namespace (.history) prevents clobbering other keydown listeners.
 		d3.select(window).on("keydown.history", async e => {
-			// e.whichは非推奨のため、環境依存しない e.key を使用
+			// e.which is deprecated; use e.key for reliable cross-platform detection.
 			if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "z") {
 				e.preventDefault();
 				e.shiftKey ? await history.forward() : await history.backward();

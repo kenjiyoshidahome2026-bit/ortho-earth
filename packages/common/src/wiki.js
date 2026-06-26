@@ -10,7 +10,6 @@ const tohtml = str => new DOMParser().parseFromString(str, 'text/html');
 const logo = 'https://upload.wikimedia.org/wikipedia/commons/8/80/Wikipedia-logo-v2.svg';
 const clean = str => str.replace(/（[^）]*）/g, "").replace(/\s?\([^\)]*\)\s?/g, "").replace(/\[[^\]]*\]/g, "").replace(/\&nbsp\;/g, " ");
 const wiki = { title2id, id2title, id2langlink, langLinksById, langLinksByTitle, getContent, id2qid, title2qid, title2coords, openWikipediaByQID, qid2titles, id2coords, extract, logo, clean };
-////------------------------------------------------------------------------------------------------------------------------
 async function title2id(title, lang = "ja") {
 	return isArray(title) ?
 		(await thenMap(slice(title, divide_length), t => conv(t))).flat() :
@@ -47,7 +46,6 @@ async function id2langlink(id, tolang, fromlang = "ja") {
 		return id.map(id => v.query.pages[id].langlinks ? v.query.pages[id].langlinks[0]["*"] : "");
 	}
 }
-////------------------------------------------------------------------------------------------------------------------------
 async function langLinksById(id, tolangs, fromLang = "ja") {
 	tolangs = isArray(tolangs) ? tolangs : [tolangs];
 	const func = async lang => title2id(await id2langlink(id, lang, fromLang), lang);
@@ -62,7 +60,6 @@ async function langLinksByTitle(titles, tolangs, fromLang = "ja") {
 	const a = xy2yx([titles].concat(await thenMap(tolangs, func)));
 	return a.map(t => { const q = {}; langs.forEach((lang, i) => q[lang] = t[i]); return q; })
 }
-////------------------------------------------------------------------------------------------------------------------------
 async function extract(id, lang = "ja") {
 	var idb = wikiExtract[lang] = wikiExtract[lang] || (await Cache(["wikiExtract", lang].join("/")));
 	var v = await idb(id); if (v) return v;
@@ -74,7 +71,6 @@ async function extract(id, lang = "ja") {
 	v = clean([...v.querySelectorAll("body >p")].map(t => t.innerText).join(""));
 	await idb(id, v); return v;
 }
-////------------------------------------------------------------------------------------------------------------------------
 async function get(title, lang = "ja") {
 	const func = isNumber(title) ? { action: "parse", prop: "text", pageid: title } :
 		{ action: "parse", prop: "text", page: encodeURIComponent(title), redirects: true };
@@ -88,7 +84,6 @@ async function getContent(id, lang = "ja") {
 	await idb(id, v);
 	return getContent(id, lang);
 }
-////------------------------------------------------------------------------------------------------------------------------
 async function id2qid(id, lang = "ja") {
 	return isArray(id) ?
 		(await thenMap(slice(id, divide_length), t => conv(t))).flat() :
@@ -126,7 +121,6 @@ async function qid2titles(qid, flag = false) {
 	console.log(qid, "=>", Object.keys(q).length, q);
 	return q;
 }
-////------------------------------------------------------------------------------------------------------------------------
 async function openWikipediaByQID(qid, lang) {
 	const v = await fetchHTML(`https://www.wikidata.org/wiki/${qid}`);
 	const a = [...v.querySelectorAll("a:not(.external)")];
@@ -135,7 +129,6 @@ async function openWikipediaByQID(qid, lang) {
 		|| a.filter(t => t.href.match(wiki("en"))).map(t => t.href)[0];
 	url && open(url, "_wiki_");
 }
-////------------------------------------------------------------------------------------------------------------------------
 async function title2coords(title, lang = "ja") {
 	if (!(lang == "ja" || lang == "en")) return console.error(`This function accepts only 'ja' or 'en'.`);
 	return isArray(title) ?

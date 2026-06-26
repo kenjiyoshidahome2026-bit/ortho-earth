@@ -11,7 +11,6 @@ export function setProp(div, prop) {
 	hoverColor && div.on("mouseover", () => div.style("border-color", hoverColor)).on("mouseout", () => div.style("border-color", null));
 	radius && div.style("border-radius", radius);
 }
-////--------------------------------------------------------- ファイルの読み込み状態
 export function loading(opts = {}) {
 	const map = this, name = "loading";
 	const div = map.overlays.append("div").attr("name", "loading").hide();
@@ -31,7 +30,6 @@ export function loading(opts = {}) {
 	function LoadEnd(name) { loadings = loadings.filter(t => t != name); loadings.length ? set() : reset(); }
 	function resize() { div.style("bottom", (map.isNarrow() ? 50 : 30) + "px"); }
 }
-////--------------------------------------------------------- 左上に説明を追加する
 export function explain(opts = {}) {
 	const map = this, name = "explain";
 	const div = map.overlays.append("div").attr("name", name).hide();
@@ -52,7 +50,6 @@ export function explain(opts = {}) {
 	};
 	function resize() { div.style("top", (map.isNarrow() ? 25 : 5) + "px"); }
 };
-////--------------------------------------------------------- 右下に凡例を表示する
 export function legend(opts = {}) {
 	const map = this, name = "legend"; opts.target = opts.target || "leftBottom";
 	const div = map.overlays.append("div").attr("name", name).hide();
@@ -77,7 +74,6 @@ export function legend(opts = {}) {
 	};
 	function resize() { div.style("bottom", (map.isNarrow() ? 50 : 30) + "px"); }
 }
-//---------------------------------------------------------------------------------------
 export function tip(opts = {}) {
 	const map = this, name = "tip";
 	const toHTML = str => {
@@ -88,7 +84,7 @@ export function tip(opts = {}) {
 	const div = map.overlays.append("div").attr("name", name).hide();
 	setProp(div, opts);
 	let cachedSize = { w: 0, h: 0 };
-	let lastE = null;  // 直前の Move イベント。コンテンツ設定時に即表示するために保持。
+	let lastE = null;  // last Move event — retained so content updates show immediately at the cursor
 	const hide = () => div.hide();
 	const show = () => div.show();
 	map.on("mousemove.tip touchmove.tip", e => { const [x, y] = map.pointer(e); lastE = { x, y }; move(lastE); }, { passive: true });
@@ -100,7 +96,7 @@ export function tip(opts = {}) {
 		const r = div.node().getBoundingClientRect();
 		cachedSize = { w: r.width, h: r.height };
 		div.style("visibility", "");
-		lastE ? move(lastE) : hide();  // カーソルが地図上にあれば即表示
+		lastE ? move(lastE) : hide();
 	};
 	function move(e) {
 		if (!e || !cachedSize.w || (map.isEditable && !map.isEditable())) return hide();
@@ -115,7 +111,6 @@ export function tip(opts = {}) {
 		div.style("top", top + "px").style("left", left + "px").call(show);
 	}
 }
-//------------------------------------------------------tip---------------------------------
 export function pop(opts = {}) {
 	const map = this, name = "pop";
 	const toHTML = str => Array.isArray(str) ? str.map(t => `<div>${t}</div>`).join("") :
@@ -136,7 +131,7 @@ export function pop(opts = {}) {
 		pin.on("click", () => { close.showIF(!(div.locked = pin.toggleClass("on"))); div.style("cursor", div.locked ? "default" : "grab"); });
 		div.on("mouseenter", () => tip.style("display", "none"));
 		div.on("mouseleave", () => tip.style("display", "block"));
-		div.on("click", e => e.stopPropagation());//<===重要
+		div.on("click", e => e.stopPropagation()); // prevent map click from firing
 		div.on("mousedown touchstart", e => {
 			e.preventDefault(); e.stopPropagation();
 			if (div.locked) return;
@@ -193,7 +188,6 @@ export function pop(opts = {}) {
 		});
 	}
 }
-//---------------------------------------------------------------------------------------
 export function contextmenu(opts = {}) {
 	const map = this, name = "contextmenu";
 	const div = map.overlays.append("div").attr("name", name).hide();
@@ -201,7 +195,6 @@ export function contextmenu(opts = {}) {
 	div.on("mousemove touchmove", e => e.stopPropagation(), { passive: true });
 	div.on("mouseleave", () => div.hide());
 	let content = null;
-	//	map.on('contextmenu', func, {passive:true});
 	map.onContextMenu(name, func);
 	return a => content = a;
 	function func(e) {

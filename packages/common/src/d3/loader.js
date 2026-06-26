@@ -9,11 +9,10 @@ d3.selection.prototype.loader = function(opts = {}) { const size = opts.size||10
 	const worker = new Worker(url);
 	worker.postMessage({canvas: offscreen, size}, [offscreen]);
 	this.removeLoader = () => { worker.terminate(); URL.revokeObjectURL(url)
-		this.select("canvas.loader").remove(); 
+		this.select("canvas.loader").remove();
 		this.remove();
 	};
 	return this;
-////-----------------------------------------------------------------------	
 	function drawloader(e) {
 		const canvas = e.data.canvas;
 		const ctx = canvas.getContext('2d', { willReadFrequently: true });
@@ -38,7 +37,7 @@ d3.selection.prototype.loader = function(opts = {}) { const size = opts.size||10
 		function spin(timestamp) {
 			if (!startTime) startTime = timestamp;
 			const elapsed = timestamp - startTime;
-			const rotation = (elapsed / 1500) * tau; // 1500msで1回転
+			const rotation = (elapsed / 1500) * tau; // 1500ms per full rotation
 			ctx.clearRect(0, 0, size, size);
 			drawBackground();
 			ctx.save();

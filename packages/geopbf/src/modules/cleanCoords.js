@@ -22,8 +22,8 @@ export function cleanCoords(pts) {
 		}
 	}
 
-	// 修正箇所: q が空の場合は安全に終了
-	if (q.length === 0) return []; 
+	// Guard: return early if all points were removed.
+	if (q.length === 0) return [];
 
 	const [f, l] = [q[0], q[q.length-1]]; 
 	if (f[0] === l[0] && f[1] === l[1]) q.pop(); 
@@ -34,7 +34,7 @@ export function cleanCoords(pts) {
 		if (Math.abs(v1[0]*v2[1] - v1[1]*v2[0]) < eps && v1[0]*v2[0] + v1[1]*v2[1] <= 0) q.shift();
 	}
 	
-	// 修正箇所: 要素が残っている場合のみ閉じる
-	if (q.length > 0) q.push([...q[0]]); 
+	// Close the ring only if there are remaining points.
+	if (q.length > 0) q.push([...q[0]]);
 	return q;
 }

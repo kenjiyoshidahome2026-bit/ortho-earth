@@ -13,7 +13,6 @@ export function createButton(map, name, opts) {
 	btn.onClick = func => btn.on("click", e => (e.stopPropagation(), func(e)));
 	return btn;
 }
-////--------------------------------------------------------- 背景地図の変更
 export async function layers(opts = {}) {
 	const map = this, name = "layers";
 	const btn = createButton(map, "layer", opts);
@@ -33,7 +32,7 @@ export async function layers(opts = {}) {
 		listArea.resumeShow(btn)
 	});
 }
-/////--------------------------------------------------------- パネル開閉関数の生成(flag:true => 右, flag:false => 左)
+// flag=true: right panel; flag=false: left panel
 const createPanel = flag => function (opts = {}) {
 	const map = this, width = Math.min(opts.width || 300, map.width) + 30;
 	const C = map.mapFrame;
@@ -72,19 +71,16 @@ const createPanel = flag => function (opts = {}) {
 	}
 };
 
-////--------------------------------------------------------- 左右パネル開閉
 export const leftPanel = createPanel(false);
 export const rightPanel = createPanel(true);
-////--------------------------------------------------------- 地図のズームイン・ズームアウト
 export async function zoom(opts = {}) {
 	const map = this, name = "zoom";
 	const duration = opts.duration || 1000;
-	const zoomin = () => map.mag(map.zval2scale(Math.floor(map.zoom + 1)) / map.zval2scale(map.zoom), duration*(Math.floor(map.zoom + 1)-map.zoom)); 
-	const zoomout = () => map.mag(map.zval2scale(Math.ceil(map.zoom - 1)) / map.zval2scale(map.zoom), duration*(map.zoom-Math.ceil(map.zoom - 1))); 
+	const zoomin = () => map.mag(map.zval2scale(Math.floor(map.zoom + 1)) / map.zval2scale(map.zoom), duration*(Math.floor(map.zoom + 1)-map.zoom));
+	const zoomout = () => map.mag(map.zval2scale(Math.ceil(map.zoom - 1)) / map.zval2scale(map.zoom), duration*(map.zoom-Math.ceil(map.zoom - 1)));
 	createButton(map, "plus", opts).classed("upper", true).onClick(zoomin);
 	createButton(map, "minus", opts).classed("lower", true).onClick(zoomout);
 }
-////--------------------------------------------------------- 地図の全画面表示
 export async function full(opts = {}) {
 	const map = this, name = "full";
 	const fullScreen = () => document.body.requestFullscreen && document.body.requestFullscreen();
@@ -96,7 +92,6 @@ export async function full(opts = {}) {
 		zin.showIF(flag); zout.showIF(!flag);
 	});
 }
-////--------------------------------------------------------- 星座線・星座名トグル
 export async function constellation(opts = {}) {
 	const map = this;
 	const btn = createButton(map, "constellation", opts);
@@ -105,7 +100,6 @@ export async function constellation(opts = {}) {
 		map.layers["Accessories"]?.set("set", "toggle-constellations");
 	});
 }
-////--------------------------------------------------------- 地図を北に向ける
 export async function north(opts = {}) {
 	const map = this, name = "north";
 	const duration = opts.duration || 1000;
@@ -113,7 +107,6 @@ export async function north(opts = {}) {
 	const svg = btn.select("svg");
 	map.onDrawing(name, () => svg.style("transform", "rotate(" + (-map.proj.rotate()[2]) + "deg)"));
 }
-////--------------------------------------------------------- 現在地表示
 export async function cpos(opts = {}) {
 	const map = this, name = "cpos";
 	const blink = `
@@ -152,7 +145,6 @@ export async function cpos(opts = {}) {
 		const [left, top] = p; target.show().css({ left, top });
 	}
 }
-////--------------------------------------------------------- スクリーンショット
 async function map2canvas(map, dpr) {
 	const html2canvas = await import('html2canvas');
 	dpr = dpr || window.devicePixelRatio || 1;
@@ -168,7 +160,6 @@ async function map2canvas(map, dpr) {
 	ctx.drawImage(v, 0, 0, v.width, v.height, 0, 0, width, height);
 	return canvas;
 }
-////--------------------------------------------------------- スクリーンショットのダウンロード
 export function shot(opts = {}) {
 	const map = this, name = "shot";
 	createButton(map, name, opts).onClick(() => map2canvas(map).then(downloadCanvas));
@@ -177,7 +168,6 @@ export function shot(opts = {}) {
 		download(new File([await canvas.convertToBlob({ type: "image/webp" })], name, { type: "image/webp" }));
 	}
 }
-////--------------------------------------------------------- 印刷 (パネルが閉じた時のみ表示)
 export function print(opts = {}) {
 	const map = this, name = "print";
 	createButton(map, name, opts).onClick(() => map2canvas(map, 3).then(printCanvas));
@@ -208,7 +198,6 @@ export function print(opts = {}) {
 		setTimeout(() => URL.revokeObjectURL(url), 1000);
 	}
 }
-////--------------------------------------------------------- 距離・面積を測定
 export function measure(opts = {}) {
 	const map = this;
 	const btn = createButton(map, "measure", opts).onClick(() => {
@@ -225,7 +214,6 @@ export function measure(opts = {}) {
 		}
 	});
 }
-////--------------------------------------------------------- 閉じるボタン + ESC
 export function close() {
 	const map = this;
 	const btn = map.append("button").attr("class", "close")

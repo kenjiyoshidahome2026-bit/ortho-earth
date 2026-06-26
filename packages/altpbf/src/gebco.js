@@ -3,12 +3,9 @@ import { thenEach, comma, L2, L3 } from "common";
 import { encode, decode, encodeName, getNB } from "./altpbf.js";
 import { fromBlob } from 'geotiff';
 
-////================================================================================================
-////	GEBCO
-////	See => https://www.gebco.net/data-products/gridded-bathymetry-data
-////	10 degree => 2400 size tile : HGT10
-////	90 degree => 2400 size tile : HGT90
-////================================================================================================
+// GEBCO — https://www.gebco.net/data-products/gridded-bathymetry-data
+// 10-degree tiles → 2400-px tiles (HGT10)
+// 90-degree tiles → 2400-px tiles (HGT90)
 export async function GEBCO(opts = {}) {
 	const year = (opts.year||2026).toString(), Console = opts.log || console;
 	const SIZE = 21600; Console.clear();

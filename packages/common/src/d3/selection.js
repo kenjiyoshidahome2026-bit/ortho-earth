@@ -27,9 +27,6 @@ d3.selection.prototype.editable = function(def, exec) {
 	.on("keydown",e=>emode = (e.which==13))
 	.on("keyup", e=>emode && (e.which==13) && exec(this.text()));
 }
-////====================================================
-//// jQuery: css
-////====================================================
 const unCamel = str => str.replace(/[A-Z]/g, t => "-" + t.toLowerCase());
 const pxProps = new Set([
 	"top", "bottom", "left", "right",
@@ -48,25 +45,16 @@ d3.selection.prototype.css = function (q) {
 	});
 	return this;
 };
-////====================================================
-//// 横方向にスライドするdiv
-////====================================================
 d3.selection.prototype.slideX = function(flag) { const node = this.node();
 	this.on("wheel",e=>{ node.scrollBy(e.deltaX+e.deltaY, 0); e.preventDefault(); e.stopPropagation(); });
 	flag || this.on("mouseleave",e=>node.scrollLeft = 0);
 	return this;
 };
-////====================================================
-//// インベントのトリガー
-////====================================================
 d3.selection.prototype.trigger = function(event, props = {}) {
 	const evt = isString(event)? new CustomEvent(event, {detail:props}): event;
 	this.node() && this.node().dispatchEvent(evt);
 	return this;
 };
-////====================================================
-//// 直下にcanvasを作ってcontextを返す。resize対応
-////====================================================
 d3.selection.prototype.context2D = function(opts = {}) { const target = opts.target = this;
 	const mag = opts.mag || 1;
 	const [w,h] = target.getSize();//.map(t=>t*mag);
@@ -83,13 +71,12 @@ const context2D = (w = 300, h = 150, opts = {}) => {
 	const ctx = canvas.getContext("2d");
 	canvas.width = w;
 	canvas.height = h;
-	// DOMプロパティへの直接代入（setAttributeより高速で安全）
+	// Direct DOM property assignment is faster and safer than setAttribute.
 	if (opts.id) canvas.id = opts.id;
 	if (opts.name) canvas.setAttribute("name", opts.name);
 	if (opts.class) canvas.className = opts.class;
-	// 改良1: style文字列の安全な適用
 	if (opts.style) canvas.style.cssText = opts.style;
-	// 改良4: targetに文字列(セレクタ)、D3選択、DOMノードをすべて許容
+	// Accept a CSS selector string, a D3 selection, or a raw DOM node as target.
 	if (opts.target) {
 		const parent = typeof opts.target === "string" ? document.querySelector(opts.target) :
 			opts.target.node ? opts.target.node() : opts.target;
@@ -99,10 +86,8 @@ const context2D = (w = 300, h = 150, opts = {}) => {
 		ctx.fillStyle = opts.fill;
 		ctx.fillRect(0, 0, w, h);
 	}
-	// 改良2: toBlob で WebP や JPEG などの形式・画質を指定可能に
 	ctx.toBlob = (type = "image/png", quality = 1.0) =>
 		new Promise(resolve => canvas.toBlob(resolve, type, quality));
-	// 改良3: set時に ctx を返すことでメソッドチェーンを可能に
 	ctx.size = v => {
 		if (v) { canvas.width = v[0]; canvas.height = v[1]; return ctx; }
 		return [canvas.width, canvas.height];

@@ -22,7 +22,7 @@ export function createGadgets(map) {
 		modalFrame: () => appendFrame("modalFrame", "overlays")
 	}[name](v));
 	map.removeFrame = name => map[name] && (map[name].remove(), map[name] = null);
-	////-----------------------------------------------------------------------------------		
+
 	map.setProperties = q => {
 		const props = [
 			"--space-color", "--earth-filter", "--bg-color", "--fg-color",
@@ -34,7 +34,7 @@ export function createGadgets(map) {
 			props.includes(name) && document.documentElement.style.setProperty(name, prop);
 		});
 	};
-	////-----------------------------------------------------------------------------------		
+
 	map.gadget = function (name, func) {
 		typeof name == 'function' && name.name && (func = name, name = func.name);
 		map.gadget[name] = function () { return func.apply(map, arguments) }
@@ -44,7 +44,7 @@ export function createGadgets(map) {
 		explain, legend, loading, tip, pop, contextmenu
 	};
 	Object.entries(gadgets).forEach(t => map.gadget(...t));
-	////-----------------------------------------------------------------------------------		
+
 	map.onDrawing("overlays", () => map.overlays.showIF(map.isEditable()));
 	map.overlays.showIF(map.isEditable());
 	map.onResize("overlays", resize); resize();

@@ -1,18 +1,16 @@
-// src/decoder/fgb.js
-
 import { GeoPBF } from "../pbf-base.js";
 import { dissolve } from "../extension/dissolve.js";
 
-// 公式 FlatGeobuf GeometryType enum 準拠（エンコーダと一致させる）
+// Conforms to the official FlatGeobuf GeometryType enum (must match encoder).
 const GeometryTypes = ["Unknown", "Point", "LineString", "Polygon", "MultiPoint", "MultiLineString", "MultiPolygon", "GeometryCollection"];
 
-// --- 🌲 Packed Hilbert R-Tree インデックスのバイトサイズ計算 ---
-// 公式実装 (src/ts/packedrtree.ts) の calcTreeSize と同一ロジック
-// 1ノード = 4×float64(bbox) + 1×uint64(offset) = 40バイト
+// Packed Hilbert R-Tree index byte-size calculation.
+// Same logic as calcTreeSize in the official implementation (src/ts/packedrtree.ts).
+// 1 node = 4×float64 (bbox) + 1×uint64 (offset) = 40 bytes.
 const NODE_ITEM_BYTE_LEN = 40;
 
 function calcTreeSize(numItems, nodeSize) {
-	// nodeSize は uint16 の範囲にクランプ（仕様準拠）
+	// nodeSize is clamped to uint16 range per spec.
 	nodeSize = Math.min(Math.max(nodeSize, 2), 65535);
 	let n = numItems;
 	let numNodes = n;
@@ -23,7 +21,7 @@ function calcTreeSize(numItems, nodeSize) {
 	return numNodes * NODE_ITEM_BYTE_LEN;
 }
 
-// --- 🕵️‍♂️ FlatBuffers 読み込みヘルパー（標準ワイヤフォーマット準拠・アライメント非依存）---
+// FlatBuffers reader helpers (standard wire format, alignment-independent).
 class FlatBufferReader {
 	constructor(arrayBuffer) {
 		this.view = new DataView(arrayBuffer);
@@ -31,12 +29,12 @@ class FlatBufferReader {
 		this.len = arrayBuffer.byteLength;
 	}
 
-	// uoffset を辿りテーブル/ベクター/文字列の実体位置へ
+	// Follow a uoffset to reach the actual table/vector/string position.
 	indirect(pos) { return pos + this.view.getInt32(pos, true); }
 
-	// テーブル tablePos のフィールド fieldIdx のデータ位置（無ければ 0）
+	// Return the data position of field fieldIdx in table at tablePos (0 if absent).
 	_offset(tablePos, fieldIdx) {
-		const vtable = tablePos - this.view.getInt32(tablePos, true); // 標準: soffset を減算
+		const vtable = tablePos - this.view.getInt32(tablePos, true); // standard: subtract soffset
 		const vtableSize = this.view.getUint16(vtable, true);
 		const vo = 4 + fieldIdx * 2;
 		if (vo >= vtableSize) return 0;
@@ -58,7 +56,7 @@ class FlatBufferReader {
 		return new TextDecoder().decode(this.u8.subarray(p + 4, p + 4 + len));
 	}
 
-	// 1要素ずつ DataView で読むためアライメント不問
+	// Read element-by-element via DataView so alignment is irrelevant.
 	readFloat64Vector(fieldPos) {
 		if (!fieldPos) return null;
 		const p = this.indirect(fieldPos);
@@ -81,7 +79,7 @@ class FlatBufferReader {
 		const len = this.view.getInt32(p, true);
 		return this.u8.subarray(p + 4, p + 4 + len);
 	}
-	// uoffset ベクター: 各要素の実体（テーブル）位置の配列
+	// uoffset vector: returns the actual (table) positions of each element.
 	offsetVector(fieldPos) {
 		if (!fieldPos) return [];
 		const p = this.indirect(fieldPos);
@@ -91,8 +89,6 @@ class FlatBufferReader {
 		return out;
 	}
 }
-
-// --- ⚙️ プロパティ・ジオメトリ復元関数（変更なし）---
 
 function parseFGBProperties(u8, keys) {
 	const props = {};
@@ -109,13 +105,13 @@ function parseFGBProperties(u8, keys) {
 	return props;
 }
 
-// 公式 FlatGeobuf Geometry schema: ends=0, xy=1, type=6, parts=7
+// Official FlatGeobuf Geometry schema: ends=0, xy=1, type=6, parts=7.
 function restoreGeometry(reader, geomPos) {
 	const typePos = reader._offset(geomPos, 6);
 	const typeIdx = typePos ? reader.readInt8(typePos) : 0;
 	const geomType = GeometryTypes[typeIdx] || "Unknown";
 
-	// 複合ジオメトリは parts（サブ Geometry のベクター）から復元
+	// Composite geometries are reconstructed from parts (a vector of sub-Geometry tables).
 	if (geomType === "MultiPolygon" || geomType === "GeometryCollection") {
 		const parts = reader.offsetVector(reader._offset(geomPos, 7))
 			.map(pos => restoreGeometry(reader, pos)).filter(Boolean);
@@ -152,7 +148,6 @@ function restoreGeometry(reader, geomPos) {
 	return { type: "Unknown", coordinates: [] };
 }
 
-// --- 🌐 Worker メインループ ---
 onmessage = async (e) => {
 	const { file, precision } = e.data;
 	try {
@@ -160,48 +155,41 @@ onmessage = async (e) => {
 		const u8 = new Uint8Array(arrayBuffer);
 		const view = new DataView(arrayBuffer);
 
-		// 1. マジックバイトの検証
 		if (u8[0] !== 0x66 || u8[1] !== 0x67 || u8[2] !== 0x62 || u8[3] !== 0x03) {
 			throw new Error("Not a valid FlatGeobuf v3 file.");
 		}
 
-		let pos = 8; // マジックバイト(8B)の直後
+		let pos = 8; // immediately after the 8-byte magic
 
-		// 2. Header のパース
 		const headerSize = view.getUint32(pos, true);
 		const reader = new FlatBufferReader(arrayBuffer);
-		const headerTable = reader.indirect(pos + 4); // ルート uoffset を辿りテーブルへ
+		const headerTable = reader.indirect(pos + 4); // follow root uoffset to table
 
-		// カラム（属性名）の抽出
 		const keys = reader.offsetVector(reader._offset(headerTable, 7))
 			.map(colTable => reader.readString(reader._offset(colTable, 0)));
 
-		// Header から featuresCount と indexNodeSize を取得
 		const featuresCountPos = reader._offset(headerTable, 8); // features_count
 		const indexNodeSizePos = reader._offset(headerTable, 9); // index_node_size
 		const featuresCount = featuresCountPos ? reader.readUint64(featuresCountPos) : 0;
 		const indexNodeSize = indexNodeSizePos ? reader.readUint16(indexNodeSizePos) : 0;
 
-		// 3. Feature セクション先頭位置の決定
-		pos += 4 + headerSize; // ヘッダー末尾まで進む
+		pos += 4 + headerSize;
 
-		// 🌟 インデックスが存在する場合はバイトサイズ分をスキップ
 		if (indexNodeSize > 0 && featuresCount > 0) {
 			const indexByteSize = calcTreeSize(featuresCount, indexNodeSize);
 			pos += indexByteSize;
 		}
 
-		// 4. GeoPBF インスタンスの用意（keys は FGB カラム順を保持。setHead にはソート済みコピーを渡す）
+		// keys preserves FGB column order; setHead receives a sorted copy.
 		const pbf = new GeoPBF({ name: file.name.replace(/\.[^\.]+$/, ""), precision: precision || 6 });
 		pbf.setHead([...keys].sort());
 
-		// 5. Features の連続デコード
 		pbf.setBody(() => {
 			while (pos < arrayBuffer.byteLength) {
 				const featureSize = view.getUint32(pos, true);
-				if (featureSize === 0) break; // 終端ガード
+				if (featureSize === 0) break;
 
-				const featTable = reader.indirect(pos + 4); // ルート uoffset → Feature テーブル
+				const featTable = reader.indirect(pos + 4); // root uoffset → Feature table
 				const geomField = reader._offset(featTable, 0);
 				const propsField = reader._offset(featTable, 1);
 

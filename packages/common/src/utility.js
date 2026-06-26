@@ -19,7 +19,6 @@ export const isURL = _ => (isString(_) && (_.match(/^https?\:\/\//)));
 export const isBbox = _ => _ && _.length == 4 && _.every(isNumber)
 	&& (-180 <= _[0] && _[0] <= _[2] && _[2] <= 180) && (-90 <= _[1] && _[1] <= _[3] && _[3] <= 90);
 export const toArray = _ => (_ != null ? isArray(_) ? _ : [_] : []);
-////-----------------------------------------------------------------------------------------------
 export const trim = _ => ("" + _).replace(/\s+/g, " ").replace(/(^\s+|\s+$)/g, "");
 export const strfix = _ => trim(_).normalize('NFKC');
 export const tostr = async _ => _ ? isDOM(_) ? _.outerHTML : isFunction(_) ? isAsync(_)? await _(): _() :
@@ -31,7 +30,6 @@ export const comma = _ => { if (typeof _ === 'number') return _.toLocaleString()
 };
 export const jsonSize = f => (new Blob([JSON.stringify(f)],{type: "text/plain"}).size/1024/1024).toFixed(3)+" MB";
 export const clearObject = q => { for (const _ of Object.getOwnPropertyNames(q)) delete q[_]; };
-////-----------------------------------------------------------------------------------------------
 const pad = (n, len) => String(n).padStart(len, '0');
 export const L2 = n => pad(n, 2);
 export const L3 = n => pad(n, 3);
@@ -40,7 +38,6 @@ export const L5 = n => pad(n, 5);
 export const dateArray = _ => { const d = _ == null ? new Date() : new Date(_); return [d.getFullYear()].concat([d.getMonth() + 1, d.getDate()].map(L2)); };
 export const timeArray = _ => { const d = _ == null ? new Date() : new Date(_); return [d.getHours(), d.getMinutes(), d.getSeconds()].map(L2); };
 export const datimArray = _ => [dateArray(_), timeArray(_)].flat();
-////-----------------------------------------------------------------------------------------------
 export const thenEach = async(a, func) => { const n = a.length;
 	for (let i = 0; i < n; i++) await func(a[i], i).catch(console.error);
 };
@@ -88,7 +85,6 @@ export const escape = func => { if (typeof document === 'undefined') return;
    document.addEventListener("keyup", handler);
 	_prevEscapeHandler = handler;
 };
-////-----------------------------------------------------------------------------------------------
 let saveDire = null;
 
 export async function inputFile(accept = "") {

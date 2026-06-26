@@ -33,7 +33,6 @@ class WBUF {
 		return this;
 	}
 }
-////=======================================================================================================================
 function writeShp(pbf, name, farray, type) {
 	var bbox = pbf.bbox;
 	var shxBytes = 100 + farray.length * 8;
@@ -91,7 +90,6 @@ function writeShp(pbf, name, farray, type) {
 			return bin;
 	}
 }
-////--------------------------------------------------------------------------------------------------------------------------	
 function writeDbf(pbf, name, farray, encoding, encoder) {
 	const parray = farray.map(t=>Array.isArray(t)?t[0]:t), recordSize = farray.length;
 	const props = parray.map(i=>pbf.getProperties(i));
@@ -142,7 +140,7 @@ function writeDbf(pbf, name, farray, encoding, encoder) {
 	const recordBytes = sum(fields.map(t=>t.length))+1;
 	const fileBytes = headerBytes + recordSize * recordBytes + 1;
  //   const LDID = encoding == "sjis"? 0x13:0;
-	const LDID = encoding == "sjis" ? 0x13 : 0x4B; // UTF-8なら0x4Bが一般的
+	const LDID = encoding == "sjis" ? 0x13 : 0x4B; // 0x4B is the conventional code for UTF-8
 	const yyyymmdd = d => { const L2 = d=>(d > 9? "":"0")+d;
 		return d.getFullYear() + L2(d.getMonth()) + L2(d.getDate());
 	};
@@ -156,7 +154,7 @@ function writeDbf(pbf, name, farray, encoding, encoder) {
 		DBF.writeBuffer(encoder(name), 11).writeUint8(type.charCodeAt(0)).writeUint32(dataOffset, true)
 		   .writeUint8(length).writeUint8(precision).skip(14);
 		return dataOffset + length;
-	}, 1); // 削除フラグ分の 1 バイトから開始
+	}, 1); // offset starts at 1 to account for the deletion-flag byte
 	DBF.writeUint8(0x0d);
 	const badname = {};
 	props.forEach(rec => { DBF.writeUint8(0x20);
@@ -182,7 +180,6 @@ function writeDbf(pbf, name, farray, encoding, encoder) {
 	DBF.writeUint8(0x1a);
 	return new File([DBF.buffer()], name + '.dbf', {type:"application/octet-stream"});
 }
-////=======================================================================================================================
 onmessage = async (e) => {
 	const {buf, name, opts} = e.data, encoding = opts && opts.encoding || "utf8";
 	const encoder = await getEncoder(encoding);

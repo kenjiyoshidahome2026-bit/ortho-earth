@@ -1,6 +1,5 @@
-// ── FBO 管理 ──────────────────────────────────────────────────────────────────
-// baseFBO : クリーンシーンキャッシュ（hover blit 用）
-// pickFBO : GPU picking ID バッファ
+// baseFBO: clean-scene cache (blitted on hover to erase overlay)
+// pickFBO: GPU picking ID buffer
 
 import { s } from './gintState.js';
 

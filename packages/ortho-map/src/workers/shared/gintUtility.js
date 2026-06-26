@@ -1,5 +1,3 @@
-// ── GL utility ────────────────────────────────────────────────────────────────
-
 export function bindSharedUniforms(gl, u, data, arcTex, metaTex, arcW, metaW, width, height) {
 	gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, arcTex);
 	gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, metaTex);
@@ -27,8 +25,6 @@ export function uploadTex2D(gl, u32, w, h, internalFmt, fmt) {
 	return tex;
 }
 
-// ── Geometry ──────────────────────────────────────────────────────────────────
-
 // Build flat Uint32Array of edge meta from polygon/polyline flat streams.
 // One entry per arc edge: [vert_A, vert_B, style_id, feat_id].
 // Reversed arcs (arcIdx < 0) swap A/B to preserve correct stencil winding.
@@ -38,15 +34,15 @@ export function uploadTex2D(gl, u32, w, h, internalFmt, fmt) {
 // lineStream: Int32Array — per feature: [fid][numSets][arcCount][arcIdx...]
 //
 // Returns polyEdgeByFid: Map<fid, [edgeStart, edgeCount]> for O(1) highlight range lookup.
-// arcBuffer が提供され minWeight > 0 のとき、Visvalingam-Whyatt 重みが minWeight 未満の
-// L2 頂点を飛ばした「Long-jump エッジ」を生成する。
-// これにより totalEdges（＝ drawArrays の呼び出しサイズ）自体を削減できる。
-// minWeight = 0 のとき（デフォルト）は元の全密度モード。
+// When arcBuffer is provided and minWeight > 0, L2 vertices below minWeight are skipped,
+// producing "long-jump edges" that directly connect kept vertices.
+// This reduces totalEdges (i.e. the drawArrays count) itself.
+// minWeight = 0 (default) keeps all vertices at full density.
 export function buildEdgeMeta(arcMeta, polyStream, lineStream, arcBuffer = null, minWeight = 0) {
 	if (!arcMeta) return { metaU32: new Uint32Array(0), edgeCount: 0, polyEdgeByFid: new Map() };
 
-	// arcBuffer が提供されているとき Uint32Array ビューで重みを読む（BigInt を避ける）。
-	// L1 頂点（TERMINAL_BIT = bit63）は常に重み63、L2 は lo word の下位6bit。
+	// Read weights via Uint32Array view to avoid BigInt.
+	// L1 vertices (TERMINAL_BIT = bit63) always have weight 63; L2 weight is the low 6 bits of lo-word.
 	const arcU32 = (arcBuffer?.length && minWeight > 0)
 		? new Uint32Array(arcBuffer.buffer, arcBuffer.byteOffset, arcBuffer.byteLength / 4)
 		: null;
@@ -54,7 +50,7 @@ export function buildEdgeMeta(arcMeta, polyStream, lineStream, arcBuffer = null,
 		? (idx) => (arcU32[idx * 2 + 1] & 0x80000000) ? 63 : (arcU32[idx * 2] & 0x3F)
 		: null;
 
-	// arc usage ひとつあたりの有効エッジ数（simplified or dense）
+	// Effective edge count per arc usage (simplified or full density).
 	const arcEdges = (aid) => {
 		const len = arcMeta[aid * 8 + 1];
 		if (!getW) return len - 1;
@@ -81,14 +77,14 @@ export function buildEdgeMeta(arcMeta, polyStream, lineStream, arcBuffer = null,
 		const aid = arcIdx < 0 ? ~arcIdx : arcIdx;
 		const off = arcMeta[aid * 8], len = arcMeta[aid * 8 + 1], fid = featId >>> 0;
 		if (!getW) {
-			// 全密度モード（元の動作）
+			// Full density mode.
 			for (let i = 0; i < len - 1; i++) {
 				buf[j++] = arcIdx >= 0 ? off + i     : off + len - 1 - i;
 				buf[j++] = arcIdx >= 0 ? off + i + 1 : off + len - 2 - i;
 				buf[j++] = (styleId & 0xFF) | (i << 8); buf[j++] = fid;
 			}
 		} else {
-			// Long-jump モード：kept 頂点同士を直接エッジで結ぶ
+			// Long-jump mode: connect kept vertices directly, skipping low-weight ones.
 			let prev = -1, ei = 0;
 			const step = arcIdx >= 0 ? 1 : -1;
 			const iStart = arcIdx >= 0 ? 0 : len - 1;
@@ -144,13 +140,11 @@ export function buildPolyBboxByFid(polyStream, arcMeta) {
 	return byFid;
 }
 
-// ── Zoom range check ──────────────────────────────────────────────────────────
-// arcMeta の bbox から全体の地理的広がりを算出し、minZoom/maxZoom の妥当性を検査。
-// maxZoom は precision の解像度限界を超えていれば強制クランプ（warning あり）。
-// minZoom は未設定かつ推奨値 > 0 なら suggestion を出すのみ（強制しない）。
-// 戻り値: { minZoom, maxZoom }（minZoom は null のまま返す場合あり）
+// Derive minZoom/maxZoom from arcMeta bbox and validate them.
+// maxZoom is hard-clamped if it exceeds the resolution limit for the given precision.
+// minZoom is only suggested (not enforced) when unset and the suggested value > 0.
+// Returns { minZoom, maxZoom } — minZoom may remain null.
 export function checkZoomRange({ arcMeta, minZoom, maxZoom, precision = 6 }) {
-	// maxZoom: precision から上限を強制
 	const precisionMax = Math.floor(0.491 + precision * 3.322);
 	const requestedMax = maxZoom ?? precisionMax;
 	if (requestedMax > precisionMax) {
@@ -158,7 +152,6 @@ export function checkZoomRange({ arcMeta, minZoom, maxZoom, precision = 6 }) {
 	}
 	const effectiveMax = Math.min(requestedMax, precisionMax);
 
-	// minZoom: bbox から推奨値を算出して suggestion のみ
 	let effectiveMin = minZoom ?? null;
 	if (effectiveMin === null && arcMeta?.length) {
 		let bxMin = 0xFFFFFFFF, byMin = 0xFFFFFFFF, bxMax = 0, byMax = 0;

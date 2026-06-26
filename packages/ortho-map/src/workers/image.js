@@ -1,7 +1,8 @@
 import { geoOrthographic } from "common";
-import { orthoGL2 } from "./orthoGL2.js"; // 🌟 新しいラッパーをインポート
+import { orthoGL2 } from "./orthoGL2.js";
 
-const counter_clockwise = a => //反時計回りは地球の裏側
+// A counter-clockwise winding order means the tile is on the back face of the globe.
+const counter_clockwise = a =>
 	(a[1][0] - a[0][0]) * (a[1][1] + a[0][1]) + (a[2][0] - a[1][0]) * (a[2][1] + a[1][1]) +
 	(a[3][0] - a[2][0]) * (a[3][1] + a[2][1]) + (a[0][0] - a[3][0]) * (a[0][1] + a[3][1]) > 0;
 
@@ -13,14 +14,13 @@ onmessage = e => funcs[e.data.type](e.data);
 
 function init(data) {
 	canvas = data.offscreen;
-	gl = orthoGL2(canvas.getContext("webgl2"), data.dpr); // 🌟 orthoGL2 に変更
+	gl = orthoGL2(canvas.getContext("webgl2"), data.dpr);
 	postMessage({ type: data.type, action: "done", ctx: gl.constructor.name });
 }
 
 async function set(data) {
 	if (data.cmd != "overlay") return;
 	const bbox = data.prop.bbox, dx = data.prop.dx || 1, dy = data.prop.dy || 1;
-	// 🌟 修正: orthoGL2 のメソッドに合わせて createTileTexture を使用
 	const texture = gl.createTileTexture(data.data);
 	const [w, s] = [Math.min(bbox[0], bbox[2]), Math.min(bbox[1], bbox[3])];
 	const [e, n] = [Math.max(bbox[0], bbox[2]), Math.max(bbox[1], bbox[3])];
@@ -54,13 +54,11 @@ function drawing(data) {
 			return new Float32Array([q[0], q[1], q[3], q[2]].flat());
 		};
 
-		// 🌟 setTexture は不要になったため削除
 		for (let i = 0; i < dx; i++) {
 			for (let j = 0; j < dy; j++) {
 				const pos = getPosition(i, j);
 				if (!pos) continue;
 				const crd = getcoords(i, j);
-				// 🌟 第1引数に texture を渡すように修正
 				gl.drawTile(texture, crd, pos);
 			}
 		}
@@ -73,7 +71,6 @@ function drawn() { }
 function destroy(data) {
 	canvas && (canvas.width = 0, canvas.height = 0); canvas = null;
 
-	// 🌟 追加：破棄時にGPUメモリからテクスチャをクリーンアップ
 	tub.forEach(([texture]) => gl.deleteTexture(texture));
 	tub.clear();
 

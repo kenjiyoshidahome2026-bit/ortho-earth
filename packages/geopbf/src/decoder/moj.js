@@ -1,7 +1,7 @@
 import { GeoPBF } from "../pbf-base.js";
 import { inflateRaw } from 'pako';
 
-// JGD2011 平面直角座標系 → WGS84（モジュール定数）
+// JGD2011 Japan plane rectangular coordinate system → WGS84 (module-level constants)
 const DEG = Math.PI / 180;
 const a   = 6378137.0, f = 1 / 298.257222101;
 const e2  = 2 * f - f * f, m0 = 0.9999;
@@ -33,7 +33,7 @@ const PREF_SYS = {
 	'43': 2,'44': 2,'45': 2,'46': 2,'47':15,
 };
 
-// sysNum ごとの M0/lam0 キャッシュ
+// Per-sysNum M0/lam0 cache.
 const _gkConst = new Map();
 function getGKConst(sysNum) {
 	if (_gkConst.has(sysNum)) return _gkConst.get(sysNum);
@@ -67,11 +67,11 @@ function planeToLatLon(x, y, sysNum) {
 	return [Math.round(lam / DEG * 1e8) / 1e8, Math.round(phi / DEG * 1e8) / 1e8];
 }
 
-// ---- 手動トークナイザー用ヘルパー（正規表現なし） ----
+// ---- Manual tokenizer helpers (no regex) ----
 
 const _td = new TextDecoder();
 
-// str 内の open～close 間テキストを返す（from から検索）
+// Return the text between open and close in str, searching from position from.
 function strBetween(str, open, close, from = 0) {
 	const s = str.indexOf(open, from);
 	if (s === -1) return '';
@@ -79,7 +79,7 @@ function strBetween(str, open, close, from = 0) {
 	return e === -1 ? '' : str.substring(s + open.length, e);
 }
 
-// seg 内の attr="..." の値を返す
+// Return the value of attr="..." within seg, searching from position from.
 function attrVal(seg, attr, from = 0) {
 	const needle = attr + '="';
 	const s = seg.indexOf(needle, from);
@@ -89,7 +89,7 @@ function attrVal(seg, attr, from = 0) {
 	return ve === -1 ? null : seg.substring(vs, ve);
 }
 
-// seg[pos] から数値を読む、[値, 終端pos] を返す
+// Read a number from seg[pos]; return [value, endPos].
 function readNum(seg, pos) {
 	let neg = seg.charCodeAt(pos) === 45; // '-'
 	if (neg) pos++;
@@ -105,7 +105,7 @@ function readNum(seg, pos) {
 	return [neg ? -val : val, pos];
 }
 
-// seg[from, end) 内の idref="C..." を全部収集
+// Collect all idref="C..." values in seg[from, end).
 function getCIds(seg, from, end) {
 	const ids = [], needle = 'idref="C';
 	let p = from;
@@ -121,7 +121,7 @@ function getCIds(seg, from, end) {
 	return ids;
 }
 
-// sysTag から座標系番号を取得（"N系" の N を返す）
+// Extract the coordinate system number N from a "N系" tag value.
 function parseSysNum(txt) {
 	if (!txt) return 0;
 	const si = txt.indexOf('系');
@@ -135,14 +135,14 @@ function parseSysNum(txt) {
 	return n;
 }
 
-// ---- ZIP 同期パーサー ----
+// ---- Synchronous ZIP parser ----
 
-// Uint8Array からセントラルディレクトリを読んでエントリ一覧を返す
+// Read the central directory from a Uint8Array and return the entry list.
 function zipCD(bytes) {
 	const dv  = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
 	const len = bytes.byteLength;
 
-	// EOCD を末尾から探す
+	// Locate EOCD signature from the end.
 	let eocd = -1;
 	for (let i = len - 22; i >= Math.max(0, len - 65558); i--) {
 	if (bytes[i] === 0x50 && bytes[i+1] === 0x4b && bytes[i+2] === 0x05 && bytes[i+3] === 0x06) {
@@ -173,24 +173,23 @@ function zipCD(bytes) {
 	return entries;
 }
 
-// ローカルヘッダを読んで圧縮データの subarray を返す（コピーなし）
+// Read the local header and return the compressed data subarray (zero-copy).
 function zipData(bytes, { lhOff, cSiz }) {
 	const dv     = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
 	const dataOff = lhOff + 30 + dv.getUint16(lhOff + 26, true) + dv.getUint16(lhOff + 28, true);
 	return bytes.subarray(dataOff, dataOff + cSiz);
 }
 
-// method=0 なら無展開、method=8 なら inflateRaw（pako・同期）
+// method=0: stored (no decompression); method=8: deflate (pako sync).
 function unzip(bytes, method) {
 	return method === 0 ? bytes : inflateRaw(bytes);
 }
 
-// ---- GML 手動パーサー（正規表現なし、[lon,lat] をその場で座標変換） ----
+// ---- Manual GML parser (no regex; converts coordinates to [lon,lat] in-place) ----
 
 function* parseXml(text, defaultSysNum) {
 	const len = text.length;
 
-	// ヘッダー（各1回だけ検索）
 	const sysTag  = strBetween(text, '<座標系>', '</座標系>');
 	const sysNum  = sysTag.includes('任意') ? defaultSysNum : (parseSysNum(sysTag) || defaultSysNum);
 	const cityCode = strBetween(text, '<市区町村コード>', '</市区町村コード>');
@@ -201,7 +200,7 @@ function* parseXml(text, defaultSysNum) {
 	const surfaceMap = new Map();
 	let seenSurface  = false, seenFeature = false;
 
-	// カーブの各点は [lon,lat] に変換済みで格納、buildRing では変換不要
+	// Curve points are already converted to [lon,lat]; buildRing uses them directly.
 	const buildRing = (cids) => {
 	const pts = [];
 	for (const cid of cids) {
@@ -227,7 +226,7 @@ function* parseXml(text, defaultSysNum) {
 	let cursor = 0;
 
 	while (cursor < len) {
-	// 4種タグの中で最も早い位置を選択
+	// Pick the earliest-occurring tag among the four types.
 	let pos = len, tag = null, close = null, p;
 
 	p = text.indexOf(T_PT, cursor);
@@ -248,7 +247,7 @@ function* parseXml(text, defaultSysNum) {
 	cursor = end;
 
 	if (tag === T_PT) {
-	  // <zmn:GM_Point id="Pxxx"> の X/Y を即座に [lon,lat] 変換
+	  // <zmn:GM_Point id="Pxxx">: convert X/Y immediately to [lon,lat].
 	  const id = attrVal(seg, 'id');
 	  if (!id) continue;
 	  const xp = seg.indexOf(XOP);
@@ -260,13 +259,13 @@ function* parseXml(text, defaultSysNum) {
 	  pointMap.set(id, planeToLatLon(x, y, sysNum));
 
 	} else if (tag === T_CV) {
-	  // <zmn:GM_Curve id="Cxxx"> のインライン XY または点参照
+	  // <zmn:GM_Curve id="Cxxx">: inline XY pairs or point references.
 	  const id = attrVal(seg, 'id');
 	  if (!id) continue;
 	  const ori = seg.includes('>-<') ? '-' : '+';
 	  const pts = [];
 
-	  // インライン XY ペアを走査
+	  // Scan inline XY pairs.
 	  let sp = 0;
 	  while (true) {
 		const xp = seg.indexOf(XOP, sp);
@@ -279,7 +278,7 @@ function* parseXml(text, defaultSysNum) {
 		sp = yEnd;
 	  }
 
-	  // インライン点がなければ点参照 idref="Pxxx"
+	  // Fall back to point references (idref="Pxxx") if no inline XY.
 	  if (!pts.length) {
 		const pneedle = 'idref="P';
 		let pp2 = 0;
@@ -298,7 +297,7 @@ function* parseXml(text, defaultSysNum) {
 	  curveMap.set(id, { pts, ori });
 
 	} else if (tag === T_SF) {
-	  // <zmn:GM_Surface id="Fxxx"> の外周・内周カーブ ID 一覧
+	  // <zmn:GM_Surface id="Fxxx">: exterior and interior curve ID lists.
 	  if (!seenSurface) { seenSurface = true; pointMap.clear(); }
 	  const id = attrVal(seg, 'id');
 	  if (!id) continue;
@@ -325,7 +324,7 @@ function* parseXml(text, defaultSysNum) {
 	  surfaceMap.set(id, { ext, ints });
 
 	} else {
-	  // <筆 ...> フィーチャー
+	  // <筆 ...> feature element.
 	  if (!seenFeature) { seenFeature = true; curveMap.clear(); }
 	  const fid = attrVal(seg, 'idref');
 	  if (!fid) continue;
@@ -361,7 +360,7 @@ onmessage = async (e) => {
 	try {
 	const { file, name, precision, description, license, attribution } = e.data;
 
-	// 外側 ZIP を一度だけ ArrayBuffer に読む（以降は全て同期・コピーなし）
+	// Read the outer ZIP into ArrayBuffer once; everything from here is synchronous and zero-copy.
 	const fileBytes = new Uint8Array(await file.arrayBuffer());
 
 	const outerEntries = zipCD(fileBytes);
@@ -377,15 +376,14 @@ onmessage = async (e) => {
 	const pbf = new GeoPBF({ name, precision, description, license, attribution });
 	pbf.setHead(KEYS);
 
-	// setBody の callback は同期実行される（writeMessage 内）。
-	// Worker は独立した OS スレッドなので、postMessage はメインスレッドにリアルタイム配信される。
-	// → features[] 配列不要・pako 同期 inflate でコンテキストスイッチなし
+	// setBody callback executes synchronously inside writeMessage.
+	// The Worker runs in a separate OS thread, so postMessage delivers progress to the main thread in real time.
+	// This means no features[] array is needed, and pako's sync inflate avoids context switches.
 	let hasFeature = false;
 	pbf.setBody(() => {
 	  for (let i = 0; i < total; i++) {
 		const entry = innerZipEntries[i];
 		try {
-		  // 内側 ZIP を同期展開
 		  const izBytes   = unzip(zipData(fileBytes, entry), entry.method);
 		  const izEntries = zipCD(izBytes);
 		  if (!izEntries) { postMessage({ type: 'progress', loaded: i + 1, total, name }); continue; }
@@ -396,7 +394,6 @@ onmessage = async (e) => {
 		  });
 		  if (!xmlEntry) { postMessage({ type: 'progress', loaded: i + 1, total, name }); continue; }
 
-		  // XML を同期展開してデコード・パース
 		  const xmlBytes = unzip(zipData(izBytes, xmlEntry), xmlEntry.method);
 		  const xmlText  = _td.decode(xmlBytes);
 

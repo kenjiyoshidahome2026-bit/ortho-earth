@@ -1,13 +1,10 @@
 import { thenMap } from "common";
-////---------------------------------------------------------------------------------------------------------
-//// ArrayBufferの圧縮・伸長
-////---------------------------------------------------------------------------------------------------------
+
 const pipe = async(q, filter) => new Response(new Blob([q]).stream().pipeThrough(filter)).arrayBuffer();
 const enc = q => pipe(q, new CompressionStream("deflate-raw"));
 const dec = q => pipe(q, new DecompressionStream("deflate-raw"));
-////---------------------------------------------------------------------------------------------------------
-//// bufferTub (ArrayBufferを効率的に、アレイ化)
-////---------------------------------------------------------------------------------------------------------
+
+// bufferTub: collect and compress ArrayBuffers, deduplicated and indexed.
 export class bufferTub {
 	constructor() { this.tub = []; }
 	set(q) { if (q instanceof ArrayBuffer) return abset(this.tub, q); }
@@ -15,7 +12,7 @@ export class bufferTub {
 		return thenMap(a, enc);
 	}
 }
-export class readBufs { 
+export class readBufs {
 	constructor() { this.tub = []; }
 	set(q) { this.tub.push(q); }
 	async close() { const tobuf = v => v.buffer ? v.buffer.slice(v.byteOffset, v.byteOffset + v.byteLength) : v;

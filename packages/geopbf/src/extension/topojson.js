@@ -1,6 +1,6 @@
 import { gint } from "./gint.js";
 import { topology, unPackGintBuffer } from "./topology.js";
-////-----------------------------------------------------------------GeoJSONからtopojsonを作成
+
 const types = ["Point", "MultiPoint", "LineString", "MultiLineString", "Polygon", "MultiPolygon", "GeometryCollection"];
 export function topojson(self) {
 	const { bbox, pointCount, pointBuffer, point: pointMeta, arcCount, arcBuffer, arcMeta, polygon, polyline } = self.unPackGint;
@@ -14,7 +14,7 @@ export function topojson(self) {
 		}
 		arcs.push(arc);
 	}
-	// pointMeta[i] = i番目のpointBufferエントリのフィーチャID。[featureId, [indices]] 形式に変換
+	// pointMeta[i] is the feature ID for the i-th pointBuffer entry; convert to [featureId, [indices]] format.
 	const pointLayer = (() => {
 		if (!pointMeta || !pointCount) return null;
 		const tub = new Map();
@@ -31,7 +31,7 @@ export function topojson(self) {
 		topologies[id][type] = arcs;
 	}));
 	const elem = ([id, a]) => { id = Number(id);
-		const properties = self.getProperties(id);//下位クラスからpropertiesを取得
+		const properties = self.getProperties(id);
 		const len = a.map(t => t.length);
 		if (len[0] && !len[1] && !len[2]) return _polygon(a[0]);
 		if (!len[0] && len[1] && !len[2]) return _polyline(a[1]);
@@ -61,7 +61,7 @@ export function topojson(self) {
 	const transform = { scale: [1 / e, 1 / e], translate: [0, 0] };
 	return { type, bbox, arcs, transform, objects: { collection } };
 }
-////----------------------------------------------------------------- 指定したインデックスのFeatureと「Arcを共有している」隣接Featureを返す
+
 export function neighbors(self, id) {
 	const { neighbors } = self.unPackGint;
 	if (!neighbors) return [];
@@ -69,31 +69,29 @@ export function neighbors(self, id) {
 }
 
 export function mesh(self, opts = {}) {
-	// 2つのポリゴンに挟まれている（＝共有数がちょうど2）のArcだけをフィルタリング
+	// Keep only arcs shared by exactly two polygons.
 	const arcs = findArcs(self, opts.filter).filter(([_, t]) => t.length === 2).map(t => t[0]);
 	if (opts.arc) return { type: "Topology", arcs };
 	const coordinates = arcs.map(id => self.arcCoords(id));
-	return { type: types[3], coordinates }; // MultiLineString として返却
+	return { type: types[3], coordinates };
 }
 
 export function merge(self, opts = {}) {
 	let arcs = findArcs(self, opts.filter).filter(([_, t]) => t.length === 1).map(t => t[0]);
-	arcs = stitchRings(self, arcs); // 一筆書きリングに結合
+	arcs = stitchRings(self, arcs);
 	if (opts.arc) return { type: "Topology", arcs };
 	const coordinates = [arcs.map(t => ringCoords(self, t))];
-	return { type: types[5], coordinates }; // MultiPolygon として返却
+	return { type: types[5], coordinates };
 }
 
 function findArcs(self, filter) {
 	const filterFunc = (typeof filter === 'function') ? filter : () => true;
-	const { polygon, polyline } = self.unPackGint; // 新形式の幾何ポインタ配列を直接デストラクト
+	const { polygon, polyline } = self.unPackGint;
 	const hash = [];
-	// [id, arcs] のペアを走査し、条件に合うFeatureのArcを反転（~n）も考慮してハッシュに叩き込む
 	const collect = (layer) => {
 		if (!layer) return;
 		layer.forEach(([id, arcGroup]) => {
 			if (!filterFunc(self.getProperties(id))) return;
-			// ネストされたArcの配列を平坦化して、そのArcを使用しているFeature IDを登録
 			arcGroup.flat(Infinity).forEach(n => {
 				const aid = n < 0 ? ~n : n;
 				(hash[aid] = hash[aid] || []).push(n < 0 ? ~id : id);
@@ -106,7 +104,7 @@ function findArcs(self, filter) {
 }
 function stitchRings(self, arcs) {
 	if (!arcs || !arcs.length) return [];
-	const { arcBuffer, arcMeta } = self.unPackGint; // 旧buffer/metaから、新形式の明確な名前に同期
+	const { arcBuffer, arcMeta } = self.unPackGint;
 	const mlen = 8;
 	const nodes = new Map(), used = new Set(), rings = [];
 	arcs.forEach(id => {
@@ -114,7 +112,7 @@ function stitchRings(self, arcs) {
 		const len = arcMeta[id * mlen + 1];
 		const p = arcBuffer[off];
 		const q = arcBuffer[off + len - 1];
-		
+
 		if (!nodes.has(p)) nodes.set(p, []); nodes.get(p).push({ id, rev: false });
 		if (!nodes.has(q)) nodes.set(q, []); nodes.get(q).push({ id, rev: true });
 	});

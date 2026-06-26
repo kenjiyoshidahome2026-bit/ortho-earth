@@ -1,5 +1,5 @@
 // WebGL2 border line renderer — fat lines + dash, no picking, no hover, no FBO.
-// 複数スタイルのレイヤーを arcTex/metaTex ペアごとに保持し、1フレームで順次描画。
+// Each style layer holds an arcTex/metaTex pair and is drawn in sequence per frame.
 
 import { createGintPrograms } from './shared/gintPrograms.js';
 import { buildEdgeMeta, bindSharedUniforms, uploadTex2D } from './shared/gintUtility.js';
@@ -14,7 +14,6 @@ let minZoom = null, maxZoom = null;
 const funcs = { init, set, resize, drawing, drawn: () => {}, destroy };
 onmessage = e => (funcs[e.data.type] ?? (() => {}))(e.data);
 
-// ── init ─────────────────────────────────────────────────────────────────────
 function init(data) {
 	canvas = data.offscreen; dpr = data.dpr;
 	gl = canvas.getContext("webgl2", { antialias: false, alpha: true, premultipliedAlpha: false });
@@ -25,13 +24,11 @@ function init(data) {
 	postMessage({ action: "done", type: "init", ctx: gl.constructor.name });
 }
 
-// ── set ───────────────────────────────────────────────────────────────────────
-// data.data.gintDataList : unPackGint オブジェクト配列（メインスレッドでgint済み）
-// data.data.styles       : [{ color:[r,g,b,a], lineWidth, dash:[dashLen,period] }, ...]
+// data.data.gintDataList: array of unPackGint objects (already packed on the main thread)
+// data.data.styles: [{ color:[r,g,b,a], lineWidth, dash:[dashLen,period] }, ...]
 function set(data) {
 	if (data.cmd !== "gint") { postMessage({ action: "done", type: "set" }); return; }
 
-	// 既存テクスチャを破棄
 	layers.forEach(({ arcTex, metaTex }) => {
 		arcTex  && gl.deleteTexture(arcTex);
 		metaTex && gl.deleteTexture(metaTex);
@@ -75,7 +72,7 @@ function buildLayer(arcBuffer, arcMeta, polyStream, lineStream, style) {
 		metaTex = uploadTex2D(gl, metaPad, TEX_W, metaH, gl.RGBA32UI, gl.RGBA_INTEGER);
 	}
 
-	// style index 0 と 1（polyline）を同じ色にする（256エントリ全部同じでも可だが最小限で）
+	// Style indices 0 and 1 (polyline) share the same color; fill 256-entry table minimally.
 	const c = style.color ?? [1, 1, 1, 1];
 	const styleTable = new Float32Array(256 * 4);
 	styleTable.set(c, 0); styleTable.set(c, 4);  // style 0 & 1
@@ -87,7 +84,6 @@ function buildLayer(arcBuffer, arcMeta, polyStream, lineStream, style) {
 	return { arcTex, metaTex, totalEdges, styleTable, dashTable, lineWidth: style.lineWidth ?? 1.0 };
 }
 
-// ── resize ───────────────────────────────────────────────────────────────────
 function resize(data) {
 	width = data.width; height = data.height;
 	canvas.width  = width  * dpr;
@@ -96,7 +92,6 @@ function resize(data) {
 	postMessage({ action: "done", type: "resize" });
 }
 
-// ── drawing ──────────────────────────────────────────────────────────────────
 function drawing(data) {
 	if (!gl || !programs || layers.length === 0) return;
 
@@ -125,7 +120,6 @@ function drawing(data) {
 	}
 }
 
-// ── destroy ──────────────────────────────────────────────────────────────────
 function destroy() {
 	layers.forEach(({ arcTex, metaTex }) => {
 		arcTex  && gl.deleteTexture(arcTex);
