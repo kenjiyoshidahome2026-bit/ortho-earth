@@ -22,9 +22,42 @@ export function uploadGintTextures() {
 	}
 
 	// metaTex: RGBA32UI — エッジメタ（vert_A, vert_B, style_id, feat_id）
+	// エッジ数が多すぎる場合は Visvalingam-Whyatt ランクで自動 LOD 簡略化する。
+	// MAX_SAFE_EDGES を超えたとき、minWeight を 2 分探索して簡略版 metaTex を作成する。
 	if (s.metaTex) gl.deleteTexture(s.metaTex);
 	s.metaTex = null;
-	const { metaU32, edgeCount, polyEdgeByFid } = buildEdgeMeta(am, ps, ls);
+	const MAX_SAFE_EDGES = 2_000_000;
+	let metaResult = buildEdgeMeta(am, ps, ls);
+	if (metaResult.edgeCount > MAX_SAFE_EDGES && ab?.length) {
+		const arcU32 = new Uint32Array(ab.buffer, ab.byteOffset, ab.byteLength / 4);
+		const getW = (idx) => (arcU32[idx * 2 + 1] & 0x80000000) ? 63 : (arcU32[idx * 2] & 0x3F);
+		// 全重みレベルで kept 頂点数の累積ヒストグラムを 1 パスで構築
+		const hist = new Float64Array(64);
+		let nUsages = 0;
+		const countStream = (str) => {
+			if (!str) return; let p = 0;
+			while (p < str.length) { p++; const ng = str[p++];
+				for (let g = 0; g < ng; g++) { const ac = str[p++];
+					for (let a = 0; a < ac; a++) {
+						const aid = (str[p] < 0 ? ~str[p] : str[p]); p++; nUsages++;
+						const off = am[aid * 8], len = am[aid * 8 + 1];
+						for (let i = 0; i < len; i++) hist[getW(off + i)]++;
+					}
+				}
+			}
+		};
+		countStream(ps); countStream(ls);
+		// 右から累積 → hist[w] = 重みが w 以上の頂点数の合計
+		for (let w = 62; w >= 0; w--) hist[w] += hist[w + 1];
+		// totalEdges(w) = hist[w] - nUsages（各 arc usage が (kept-1) エッジを提供）
+		let minW = 63;
+		for (let w = 0; w < 64; w++) {
+			if (hist[w] - nUsages <= MAX_SAFE_EDGES) { minW = w; break; }
+		}
+		metaResult = buildEdgeMeta(am, ps, ls, ab, minW);
+		console.info('[gint] LOD simplified: %d→%d edges (minWeight=%d)', metaResult.edgeCount + (hist[0] - nUsages | 0), metaResult.edgeCount, minW);
+	}
+	const { metaU32, edgeCount, polyEdgeByFid } = metaResult;
 	s.totalEdges    = edgeCount;
 	s.polyEdgeByFid = polyEdgeByFid;
 	console.debug('[gint] edges=%d', edgeCount);

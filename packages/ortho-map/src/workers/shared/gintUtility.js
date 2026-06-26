@@ -38,13 +38,37 @@ export function uploadTex2D(gl, u32, w, h, internalFmt, fmt) {
 // lineStream: Int32Array — per feature: [fid][numSets][arcCount][arcIdx...]
 //
 // Returns polyEdgeByFid: Map<fid, [edgeStart, edgeCount]> for O(1) highlight range lookup.
-export function buildEdgeMeta(arcMeta, polyStream, lineStream) {
+// arcBuffer が提供され minWeight > 0 のとき、Visvalingam-Whyatt 重みが minWeight 未満の
+// L2 頂点を飛ばした「Long-jump エッジ」を生成する。
+// これにより totalEdges（＝ drawArrays の呼び出しサイズ）自体を削減できる。
+// minWeight = 0 のとき（デフォルト）は元の全密度モード。
+export function buildEdgeMeta(arcMeta, polyStream, lineStream, arcBuffer = null, minWeight = 0) {
 	if (!arcMeta) return { metaU32: new Uint32Array(0), edgeCount: 0, polyEdgeByFid: new Map() };
+
+	// arcBuffer が提供されているとき Uint32Array ビューで重みを読む（BigInt を避ける）。
+	// L1 頂点（TERMINAL_BIT = bit63）は常に重み63、L2 は lo word の下位6bit。
+	const arcU32 = (arcBuffer?.length && minWeight > 0)
+		? new Uint32Array(arcBuffer.buffer, arcBuffer.byteOffset, arcBuffer.byteLength / 4)
+		: null;
+	const getW = arcU32
+		? (idx) => (arcU32[idx * 2 + 1] & 0x80000000) ? 63 : (arcU32[idx * 2] & 0x3F)
+		: null;
+
+	// arc usage ひとつあたりの有効エッジ数（simplified or dense）
+	const arcEdges = (aid) => {
+		const len = arcMeta[aid * 8 + 1];
+		if (!getW) return len - 1;
+		const off = arcMeta[aid * 8];
+		let kept = 0;
+		for (let i = 0; i < len; i++) if (getW(off + i) >= minWeight) kept++;
+		return Math.max(0, kept - 1);
+	};
+
 	let total = 0;
 	const scanStream = s => { if (!s) return; let p = 0;
 		while (p < s.length) { p++; const ng = s[p++];
 			for (let g = 0; g < ng; g++) { const ac = s[p++];
-				for (let a = 0; a < ac; a++) { const ai = s[p++]; total += arcMeta[(ai < 0 ? ~ai : ai) * 8 + 1] - 1; }
+				for (let a = 0; a < ac; a++) { const ai = s[p++]; total += arcEdges(ai < 0 ? ~ai : ai); }
 			}
 		}
 	};
@@ -52,13 +76,30 @@ export function buildEdgeMeta(arcMeta, polyStream, lineStream) {
 
 	const buf = new Uint32Array(total * 4);
 	let j = 0;
+
 	const addArc = (arcIdx, styleId, featId) => {
 		const aid = arcIdx < 0 ? ~arcIdx : arcIdx;
 		const off = arcMeta[aid * 8], len = arcMeta[aid * 8 + 1], fid = featId >>> 0;
-		for (let i = 0; i < len - 1; i++) {
-			buf[j++] = arcIdx >= 0 ? off + i     : off + len - 1 - i;
-			buf[j++] = arcIdx >= 0 ? off + i + 1 : off + len - 2 - i;
-			buf[j++] = (styleId & 0xFF) | (i << 8); buf[j++] = fid;
+		if (!getW) {
+			// 全密度モード（元の動作）
+			for (let i = 0; i < len - 1; i++) {
+				buf[j++] = arcIdx >= 0 ? off + i     : off + len - 1 - i;
+				buf[j++] = arcIdx >= 0 ? off + i + 1 : off + len - 2 - i;
+				buf[j++] = (styleId & 0xFF) | (i << 8); buf[j++] = fid;
+			}
+		} else {
+			// Long-jump モード：kept 頂点同士を直接エッジで結ぶ
+			let prev = -1, ei = 0;
+			const step = arcIdx >= 0 ? 1 : -1;
+			const iStart = arcIdx >= 0 ? 0 : len - 1;
+			const iEnd   = arcIdx >= 0 ? len : -1;
+			for (let i = iStart; i !== iEnd; i += step) {
+				const idx = off + i;
+				if (getW(idx) >= minWeight) {
+					if (prev !== -1) { buf[j++] = prev; buf[j++] = idx; buf[j++] = (styleId & 0xFF) | (ei++ << 8); buf[j++] = fid; }
+					prev = idx;
+				}
+			}
 		}
 	};
 
