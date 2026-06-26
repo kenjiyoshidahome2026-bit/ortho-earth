@@ -17,7 +17,6 @@
 	},
 	"dependencies": {
 		"html2canvas": "^1.4.1",
-		"linkedom": "^0.18.12",
 		"polygon-clipping": "^0.15.7",
 		"versor": "^0.2.0"
 	},

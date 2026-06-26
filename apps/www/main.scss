@@ -33,7 +33,10 @@ body { font-family: 'Helvetica Neue', Arial, 'Hiragino Kaku Gothic ProN', sans-s
 			a { color:var(--text-secondary); text-decoration: none; }
 		}
 	}
-	#exitDemo { position: absolute; bottom: 4rem; right: 2rem;}
+	button.close { position: absolute; top: 24px; right: 24px; width: 40px; height: 40px; border-radius: 20px;
+		background: none; padding: 0; box-shadow: none;
+		&:hover { background: rgba(196,64,0,0.8); transform: none; box-shadow: none; }
+	}
 	button { padding: 0.8rem 2rem; font-size: 1rem; font-weight: 600; border-radius: 50px;
 		background-color: var(--accent-color); color: #000;
 		cursor: pointer; transition: all 0.5s ease; border: none;

@@ -85,7 +85,6 @@ export async function Fetch(url, opts = {}) {
         if (type === "blob") return new Blob([file], { type: file.type });
         if (type === "arraybuffer") return await file.arrayBuffer();
         if (["text","json","xml","html","csv"].includes(type)) {
-            const { DOMParser } = await import('linkedom');
             const text = new TextDecoder(encoding).decode(await file.arrayBuffer());
             return (type === "json") ? JSON.parse(text) :
                    (type === "xml") ? new DOMParser().parseFromString(text, 'text/xml') :

@@ -191,6 +191,12 @@ export function createTileServer(urlFunc) {
 		const xyz = urlTub.shift();
 		if (!xyz) return WorkerTub.push(w);
 		const key = xyz.join("_");
+		const url = urlFunc(xyz);
+		if (url === null) {
+			TileTub.set(key, false);
+			isMoving ? drawing() : finalize();
+			return next(w);
+		}
 		w.onmessage = e => {
 			if (session !== layerSession) {
 				if (e.data?.bitmap) e.data.bitmap.close();
@@ -207,7 +213,7 @@ export function createTileServer(urlFunc) {
 			isMoving ? drawing() : finalize();
 			next(w);
 		};
-		w.postMessage(urlFunc(xyz));
+		w.postMessage(url);
 	};
 	return v => {
 		if (!urlTub.some(t => t.join() === v.join())) urlTub.push(v);

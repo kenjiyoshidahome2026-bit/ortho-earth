@@ -1,5 +1,4 @@
 import { isArray, isFile } from "common";
-import { DOMParser } from 'linkedom';
 import { Bucket, Cache } from "native-bucket";
 
 const dire = "GIS/data", bucket = await Bucket(dire), cache = await Cache(dire);

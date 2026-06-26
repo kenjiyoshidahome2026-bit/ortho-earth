@@ -1,5 +1,5 @@
 import Pbf from 'pbf';
-import { L2, L3 } from "common";
+import { L2, L3 } from "../../common/src/utility.js";
 import { nativeBucket, deflateRaw, inflateRaw } from "native-bucket";
 
 let _nb = null;
