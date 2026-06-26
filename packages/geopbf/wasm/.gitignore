@@ -1,9 +1,5 @@
 # Rustの一時ビルド成果物を除外
 /target/
 
-# wasm-packが自動生成するJS/WASM成果物を除外
-# (他のコンピュータではクローン後に npm run build:wasm 等で都度生成させるのがモノレポの王道です)
-/pkg/
-
 # その他OS固有の一時ファイル
 .DS_Store
