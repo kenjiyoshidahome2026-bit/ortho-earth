@@ -46,6 +46,7 @@ section.selectAll(".card").data(d => d.contents).join("button").attr("class", "c
 const reset = () => { logger.clear(); tables.empty().hide(); uploads.show(); left.selectAll(".card").attr("disabled", null); };
 const main = gishub.append("main").attr("class", "main");
 main.append("h1").html(`<img src="favicon.svg" alt="GIS-HUB"/><span>GIS-HUB</span>`).on("click", reset);
+main.append("a").attr("href", "/").attr("class", "home-link").text("← ortho-earth");
 ////------------------------------------------------------
 const logger = new screenLogger(main.append("div"));
 const tables = main.append("div").attr("class","tables").hide();
