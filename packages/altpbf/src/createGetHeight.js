@@ -13,8 +13,8 @@ export async function createGetHeight(opts = {}) {
 	const level1 = opts.level1||7, level2 = opts.level2||12;
 	const {max, min, floor} = Math;
 	let cname = null, current = null;
-    const worker = new Worker(new URL('./worker.js', import.meta.url), { type: 'module' });
-    worker.onerror = e => console.error("Worker Exception:", e);
+	const worker = new Worker(new URL('./worker.js', import.meta.url), { type: 'module' });
+	worker.onerror = e => console.error("Worker Exception:", e);
 ////---------------------------------------------------------------------------------------
 	return (lng, lat, zoom = Infinity) => {
 		const n = (zoom < level1)? 0: (zoom < level2)? 1: 2;
@@ -35,7 +35,7 @@ export async function createGetHeight(opts = {}) {
 			worker.onmessage = async e => { const obj = e.data;
 				if (obj) {
 					obj && await cache(name, obj);
-    				obj && console.log(`[altpbf]  📥 ${name} (${obj.width} x ${obj.height}) ${(performance.now() - isLoading).toFixed(2) } msec`);
+					obj && console.log(`[altpbf]  📥 ${name} (${obj.width} x ${obj.height}) ${(performance.now() - isLoading).toFixed(2) } msec`);
 					cname = name; current = obj;
 				}
 				opts.onend && opts.onend(name);

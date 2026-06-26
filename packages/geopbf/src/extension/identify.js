@@ -9,43 +9,43 @@ let _pendingData = null;   // buildConverter の多重呼び出しを無効化�
 let _viewBbox = null;      // ビューポート bbox [xMin,yMin,xMax,yMax]（Morton 整数空間）
 
 async function ensureWasm() {
-    if (_wasmOk === null) {
-        try { await initWasm(); _wasmOk = true; }
-        catch { _wasmOk = false; }
-    }
-    return _wasmOk;
+	if (_wasmOk === null) {
+		try { await initWasm(); _wasmOk = true; }
+		catch { _wasmOk = false; }
+	}
+	return _wasmOk;
 }
 
 // BigUint64Array を Uint32Array として見る（lo32, hi32 ペア、リトルエンディアン）
 function u64AsU32(buf) {
-    return buf?.length
-        ? new Uint32Array(buf.buffer, buf.byteOffset, buf.length * 2)
-        : new Uint32Array(0);
+	return buf?.length
+		? new Uint32Array(buf.buffer, buf.byteOffset, buf.length * 2)
+		: new Uint32Array(0);
 }
 
 // drawing() ごとにビューポート bbox を更新する。WASM と JS フォールバック両方で使用。
 export function setViewBbox(bbox) {
-    _viewBbox = bbox;
-    if (_converter && bbox) _converter.set_view_bbox(bbox[0], bbox[1], bbox[2], bbox[3]);
+	_viewBbox = bbox;
+	if (_converter && bbox) _converter.set_view_bbox(bbox[0], bbox[1], bbox[2], bbox[3]);
 }
 
 // gintData から GintConverter を非同期で構築してモジュール変数に格納する。
 // polyStream / lineStream は GintBUF v2 から直接転送されるので変換不要。
 export async function buildConverter(gintData) {
-    _converter = null;
-    _pendingData = gintData;
-    if (!await ensureWasm()) return;
-    if (_pendingData !== gintData) return;
-    const { arcBuffer, arcMeta, polyStream, lineStream, pointBuffer, point, polyCompBbox } = gintData;
-    _converter = new GintConverter(
-        u64AsU32(arcBuffer),
-        arcMeta      ?? new Uint32Array(0),
-        u64AsU32(pointBuffer),
-        point        ? new Uint32Array(point) : new Uint32Array(0),
-        polyStream   ?? new Int32Array(0),
-        lineStream   ?? new Int32Array(0),
-        polyCompBbox ?? new Uint32Array(0),
-    );
+	_converter = null;
+	_pendingData = gintData;
+	if (!await ensureWasm()) return;
+	if (_pendingData !== gintData) return;
+	const { arcBuffer, arcMeta, polyStream, lineStream, pointBuffer, point, polyCompBbox } = gintData;
+	_converter = new GintConverter(
+		u64AsU32(arcBuffer),
+		arcMeta      ?? new Uint32Array(0),
+		u64AsU32(pointBuffer),
+		point        ? new Uint32Array(point) : new Uint32Array(0),
+		polyStream   ?? new Int32Array(0),
+		lineStream   ?? new Int32Array(0),
+		polyCompBbox ?? new Uint32Array(0),
+	);
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────

@@ -25,18 +25,18 @@
 <body>
 
 <div class="header-bar">
-    <img src="favicon.svg" width="24" height="24" style="flex-shrink:0">
-    <span class="logo">geopbf</span>
-    <span class="sep">/</span>
-    <span style="color:var(--dim);font-size:0.82rem">Technical Overview</span>
-    <div class="nav-links">
-        <a href="index.html">← Docs</a>
-        <a href="geopbf-jp.html">日本語</a>
-        <a href="ortho-map.html">OrthoMap</a>
-        <a href="gintbuf.html">Gint</a>
-        <span class="nav-cur">GeoPBF</span>
-        <a href="altpbf.html">AltPBF</a>
-    </div>
+	<img src="favicon.svg" width="24" height="24" style="flex-shrink:0">
+	<span class="logo">geopbf</span>
+	<span class="sep">/</span>
+	<span style="color:var(--dim);font-size:0.82rem">Technical Overview</span>
+	<div class="nav-links">
+		<a href="index.html">← Docs</a>
+		<a href="geopbf-jp.html">日本語</a>
+		<a href="ortho-map.html">OrthoMap</a>
+		<a href="gintbuf.html">Gint</a>
+		<span class="nav-cur">GeoPBF</span>
+		<a href="altpbf.html">AltPBF</a>
+	</div>
 </div>
 
 <div class="page">
@@ -46,18 +46,18 @@
 Lightweight · Universal converter · ArrayBuffer-native — the wire format for browser GIS</p>
 
 <div class="toc">
-    <div class="toc-title">Table of Contents</div>
-    <ol>
-        <li><a href="#why">Why GeoPBF?</a></li>
-        <li><a href="#format">Binary Format Structure</a></li>
-        <li><a href="#delta">Delta Encoding × Varint</a></li>
-        <li><a href="#hub">GIS Conversion Hub</a></li>
-        <li><a href="#antimeridian">Antimeridian Handling</a></li>
-        <li><a href="#worker">ArrayBuffer &amp; Worker Architecture</a></li>
-        <li><a href="#gint">Gint Extension — 64-bit Coordinate Packing</a></li>
-        <li><a href="#comparison">Comparison with Other Formats</a></li>
-        <li><a href="#api">API Reference</a></li>
-    </ol>
+	<div class="toc-title">Table of Contents</div>
+	<ol>
+		<li><a href="#why">Why GeoPBF?</a></li>
+		<li><a href="#format">Binary Format Structure</a></li>
+		<li><a href="#delta">Delta Encoding × Varint</a></li>
+		<li><a href="#hub">GIS Conversion Hub</a></li>
+		<li><a href="#antimeridian">Antimeridian Handling</a></li>
+		<li><a href="#worker">ArrayBuffer &amp; Worker Architecture</a></li>
+		<li><a href="#gint">Gint Extension — 64-bit Coordinate Packing</a></li>
+		<li><a href="#comparison">Comparison with Other Formats</a></li>
+		<li><a href="#api">API Reference</a></li>
+	</ol>
 </div>
 
 <!-- ──────────────────────────────────────────────────── -->
@@ -84,48 +84,48 @@ A GeoPBF file consists of two parts: a <strong>Header Section</strong> and a <st
 </p>
 
 <div class="bin-struct">
-    <div class="bin-row">
-        <div class="bin-cell" style="background:#1e3a5f;color:var(--accent);flex:0 0 110px;border-radius:6px 0 0 6px">
-            Header
-            <div class="bin-label">fixed-length metadata</div>
-        </div>
-        <div class="bin-cell" style="background:#0f172a;color:var(--dim);flex:1;font-size:0.75rem;text-align:left;padding-left:16px;border-radius:0 6px 6px 0">
-            NAME · KEYS (global attribute dictionary) · PRECISION · BUFS (binary pool)<br>
-            DESCRIPTION · LICENSE · ATTRIBUTION
-            <div class="bin-label" style="margin-top:4px">Metadata can be updated O(1) via binary slice — no re-encoding required</div>
-        </div>
-    </div>
-    <div style="text-align:center;color:var(--dim);font-size:1rem;line-height:1">↓</div>
-    <div class="bin-row">
-        <div class="bin-cell" style="background:#064e3b;color:var(--green);flex:0 0 110px;border-radius:6px 0 0 6px">
-            FARRAY
-            <div class="bin-label">feature array</div>
-        </div>
-        <div class="bin-cell" style="background:#0f172a;color:var(--dim);flex:1;text-align:left;padding-left:16px;border-radius:0 6px 6px 0;font-size:0.75rem">
-            FEATURE × N<br>
-            &nbsp;&nbsp;└ GEOMETRY: GTYPE · LENGTH · <strong style="color:var(--accent)">COORDS (delta-compressed)</strong><br>
-            &nbsp;&nbsp;└ PROPERTIES: INDEX (KEYS ref) · VALUE (typed)
-        </div>
-    </div>
+	<div class="bin-row">
+		<div class="bin-cell" style="background:#1e3a5f;color:var(--accent);flex:0 0 110px;border-radius:6px 0 0 6px">
+			Header
+			<div class="bin-label">fixed-length metadata</div>
+		</div>
+		<div class="bin-cell" style="background:#0f172a;color:var(--dim);flex:1;font-size:0.75rem;text-align:left;padding-left:16px;border-radius:0 6px 6px 0">
+			NAME · KEYS (global attribute dictionary) · PRECISION · BUFS (binary pool)<br>
+			DESCRIPTION · LICENSE · ATTRIBUTION
+			<div class="bin-label" style="margin-top:4px">Metadata can be updated O(1) via binary slice — no re-encoding required</div>
+		</div>
+	</div>
+	<div style="text-align:center;color:var(--dim);font-size:1rem;line-height:1">↓</div>
+	<div class="bin-row">
+		<div class="bin-cell" style="background:#064e3b;color:var(--green);flex:0 0 110px;border-radius:6px 0 0 6px">
+			FARRAY
+			<div class="bin-label">feature array</div>
+		</div>
+		<div class="bin-cell" style="background:#0f172a;color:var(--dim);flex:1;text-align:left;padding-left:16px;border-radius:0 6px 6px 0;font-size:0.75rem">
+			FEATURE × N<br>
+			&nbsp;&nbsp;└ GEOMETRY: GTYPE · LENGTH · <strong style="color:var(--accent)">COORDS (delta-compressed)</strong><br>
+			&nbsp;&nbsp;└ PROPERTIES: INDEX (KEYS ref) · VALUE (typed)
+		</div>
+	</div>
 </div>
 
 <table>
-    <tr><th>Field</th><th>Tag</th><th>Type</th><th>Description</th></tr>
-    <tr><td>GTYPE</td><td>8</td><td class="dim">Varint</td><td>0:Point 1:MPoint 2:Line 3:MLine 4:Poly 5:MPoly 6:Collection</td></tr>
-    <tr><td>LENGTH</td><td>9</td><td class="dim">Packed Varint</td><td>Vertex counts for rings and multi-part geometries</td></tr>
-    <tr><td>COORDS</td><td>10</td><td class="dim">Packed SVarint</td><td>Delta-compressed coordinate stream X₀,Y₀,ΔX₁,ΔY₁,... (see below)</td></tr>
-    <tr><td>INDEX</td><td>12</td><td class="dim">Packed Varint</td><td>Indices into the global KEYS dictionary</td></tr>
-    <tr><td>VALUE</td><td>11</td><td class="dim">Repeated Message</td><td>NULL/BOOL/INTEGER/FLOAT/STRING/DATE/COLOR/JSON/BLOB/IMAGE</td></tr>
+	<tr><th>Field</th><th>Tag</th><th>Type</th><th>Description</th></tr>
+	<tr><td>GTYPE</td><td>8</td><td class="dim">Varint</td><td>0:Point 1:MPoint 2:Line 3:MLine 4:Poly 5:MPoly 6:Collection</td></tr>
+	<tr><td>LENGTH</td><td>9</td><td class="dim">Packed Varint</td><td>Vertex counts for rings and multi-part geometries</td></tr>
+	<tr><td>COORDS</td><td>10</td><td class="dim">Packed SVarint</td><td>Delta-compressed coordinate stream X₀,Y₀,ΔX₁,ΔY₁,... (see below)</td></tr>
+	<tr><td>INDEX</td><td>12</td><td class="dim">Packed Varint</td><td>Indices into the global KEYS dictionary</td></tr>
+	<tr><td>VALUE</td><td>11</td><td class="dim">Repeated Message</td><td>NULL/BOOL/INTEGER/FLOAT/STRING/DATE/COLOR/JSON/BLOB/IMAGE</td></tr>
 </table>
 
 <div class="callout callout-note">
-    <div class="callout-head">O(1) Header Updates</div>
-    <p>
-        Metadata such as NAME, DESCRIPTION, and LICENSE is stored independently in the header,
-        allowing direct binary-slice writes without touching the feature body.
-        Renaming a dataset or updating license information on a multi-gigabyte file completes instantly,
-        with no re-encoding required.
-    </p>
+	<div class="callout-head">O(1) Header Updates</div>
+	<p>
+		Metadata such as NAME, DESCRIPTION, and LICENSE is stored independently in the header,
+		allowing direct binary-slice writes without touching the feature body.
+		Renaming a dataset or updating license information on a multi-gigabyte file completes instantly,
+		with no re-encoding required.
+	</p>
 </div>
 
 <!-- ──────────────────────────────────────────────────── -->
@@ -138,46 +138,46 @@ GeoPBF reduces this dramatically with two stages of compression.
 </p>
 
 <div class="delta-table">
-    <div class="dt-row">
-        <span class="dt-label" style="color:var(--red)">① Raw float</span>
-        <div class="dt-cells">
-            <div class="dc dc-raw">139.74000</div>
-            <div class="dc dc-raw">35.68000</div>
-            <div class="dc dc-raw">139.74123</div>
-            <div class="dc dc-raw">35.68123</div>
-            <div class="dc dc-raw">139.74246</div>
-        </div>
-    </div>
-    <div class="dt-row">
-        <span class="dt-label" style="color:var(--yellow)">② Delta</span>
-        <div class="dt-cells">
-            <div class="dc dc-del">139.74000</div>
-            <div class="dc dc-del">35.68000</div>
-            <div class="dc dc-del">+0.00123</div>
-            <div class="dc dc-del">+0.00123</div>
-            <div class="dc dc-del">+0.00123</div>
-        </div>
-    </div>
-    <div class="dt-row">
-        <span class="dt-label" style="color:var(--accent)">③ × 10⁶ (int)</span>
-        <div class="dt-cells">
-            <div class="dc dc-int">139740000</div>
-            <div class="dc dc-int">35680000</div>
-            <div class="dc dc-int">+1234</div>
-            <div class="dc dc-int">+1234</div>
-            <div class="dc dc-int">+1234</div>
-        </div>
-    </div>
-    <div class="dt-row">
-        <span class="dt-label" style="color:var(--green)">④ Varint bytes</span>
-        <div class="dt-cells">
-            <div class="dc dc-var">4 bytes</div>
-            <div class="dc dc-var">4 bytes</div>
-            <div class="dc dc-var" style="background:rgba(52,211,153,0.3)"><strong>2 bytes</strong></div>
-            <div class="dc dc-var" style="background:rgba(52,211,153,0.3)"><strong>2 bytes</strong></div>
-            <div class="dc dc-var" style="background:rgba(52,211,153,0.3)"><strong>2 bytes</strong></div>
-        </div>
-    </div>
+	<div class="dt-row">
+		<span class="dt-label" style="color:var(--red)">① Raw float</span>
+		<div class="dt-cells">
+			<div class="dc dc-raw">139.74000</div>
+			<div class="dc dc-raw">35.68000</div>
+			<div class="dc dc-raw">139.74123</div>
+			<div class="dc dc-raw">35.68123</div>
+			<div class="dc dc-raw">139.74246</div>
+		</div>
+	</div>
+	<div class="dt-row">
+		<span class="dt-label" style="color:var(--yellow)">② Delta</span>
+		<div class="dt-cells">
+			<div class="dc dc-del">139.74000</div>
+			<div class="dc dc-del">35.68000</div>
+			<div class="dc dc-del">+0.00123</div>
+			<div class="dc dc-del">+0.00123</div>
+			<div class="dc dc-del">+0.00123</div>
+		</div>
+	</div>
+	<div class="dt-row">
+		<span class="dt-label" style="color:var(--accent)">③ × 10⁶ (int)</span>
+		<div class="dt-cells">
+			<div class="dc dc-int">139740000</div>
+			<div class="dc dc-int">35680000</div>
+			<div class="dc dc-int">+1234</div>
+			<div class="dc dc-int">+1234</div>
+			<div class="dc dc-int">+1234</div>
+		</div>
+	</div>
+	<div class="dt-row">
+		<span class="dt-label" style="color:var(--green)">④ Varint bytes</span>
+		<div class="dt-cells">
+			<div class="dc dc-var">4 bytes</div>
+			<div class="dc dc-var">4 bytes</div>
+			<div class="dc dc-var" style="background:rgba(52,211,153,0.3)"><strong>2 bytes</strong></div>
+			<div class="dc dc-var" style="background:rgba(52,211,153,0.3)"><strong>2 bytes</strong></div>
+			<div class="dc dc-var" style="background:rgba(52,211,153,0.3)"><strong>2 bytes</strong></div>
+		</div>
+	</div>
 </div>
 
 <p>
@@ -188,14 +188,14 @@ Varint encodes small integers in fewer bytes, giving GeoPBF a property that is i
 </p>
 
 <div class="callout callout-key">
-    <div class="callout-head">Comparison with GeoJSON</div>
-    <p>
-        A GeoJSON <code>"coordinates":[139.741234,35.681234]</code> pair is roughly 30 bytes (text).
-        GeoPBF's delta-Varint representation costs 8 bytes for the first vertex and
-        <strong>2–3 bytes</strong> for every subsequent one.
-        Real-world coastline data typically sees a <strong>60–80% size reduction</strong>.
-        Layering gzip via <code>CompressionStream</code> adds another 30–50%.
-    </p>
+	<div class="callout-head">Comparison with GeoJSON</div>
+	<p>
+		A GeoJSON <code>"coordinates":[139.741234,35.681234]</code> pair is roughly 30 bytes (text).
+		GeoPBF's delta-Varint representation costs 8 bytes for the first vertex and
+		<strong>2–3 bytes</strong> for every subsequent one.
+		Real-world coastline data typically sees a <strong>60–80% size reduction</strong>.
+		Layering gzip via <code>CompressionStream</code> adds another 30–50%.
+	</p>
 </div>
 
 <!-- ──────────────────────────────────────────────────── -->
@@ -209,29 +209,29 @@ Placing GeoPBF at the center enables any-to-any format conversion in a single st
 
 <div style="overflow-x:auto">
 <table>
-    <tr>
-        <th>Format</th><th>Read</th><th>Write</th><th>Notes</th>
-    </tr>
-    <tr><td><strong>GeoJSON</strong></td><td class="good">✓</td><td class="good">✓</td><td class="dim">File / Blob / Object all accepted</td></tr>
-    <tr><td><strong>Shapefile</strong></td><td class="good">✓ (.zip)</td><td class="good">✓ (.zip)</td><td class="dim">Multi-file bundle handled as a single .zip</td></tr>
-    <tr><td><strong>KMZ / KML</strong></td><td class="good">✓</td><td class="good">✓</td><td class="dim">Google Earth compatible</td></tr>
-    <tr><td><strong>GML</strong></td><td class="good">✓</td><td class="good">✓</td><td class="dim">OGC standard</td></tr>
-    <tr><td><strong>GPX</strong></td><td class="good">✓</td><td class="good">✓</td><td class="dim">GPS tracks &amp; waypoints</td></tr>
-    <tr><td><strong>FlatGeoBuf</strong></td><td class="good">✓</td><td class="good">✓</td><td class="dim">Streaming-friendly binary</td></tr>
-    <tr><td><strong>TopoJSON</strong></td><td class="good">✓</td><td class="good">✓</td><td class="dim">Topology-preserving I/O</td></tr>
-    <tr><td><strong>GeoPBF</strong></td><td class="good">✓ (native)</td><td class="good">✓ (native)</td><td class="good">Native fast-load</td></tr>
-    <tr><td><strong>Gint</strong></td><td class="good">✓ (decode)</td><td class="good">✓ (encode)</td><td class="dim">Morton + VW extension (see §6)</td></tr>
+	<tr>
+		<th>Format</th><th>Read</th><th>Write</th><th>Notes</th>
+	</tr>
+	<tr><td><strong>GeoJSON</strong></td><td class="good">✓</td><td class="good">✓</td><td class="dim">File / Blob / Object all accepted</td></tr>
+	<tr><td><strong>Shapefile</strong></td><td class="good">✓ (.zip)</td><td class="good">✓ (.zip)</td><td class="dim">Multi-file bundle handled as a single .zip</td></tr>
+	<tr><td><strong>KMZ / KML</strong></td><td class="good">✓</td><td class="good">✓</td><td class="dim">Google Earth compatible</td></tr>
+	<tr><td><strong>GML</strong></td><td class="good">✓</td><td class="good">✓</td><td class="dim">OGC standard</td></tr>
+	<tr><td><strong>GPX</strong></td><td class="good">✓</td><td class="good">✓</td><td class="dim">GPS tracks &amp; waypoints</td></tr>
+	<tr><td><strong>FlatGeoBuf</strong></td><td class="good">✓</td><td class="good">✓</td><td class="dim">Streaming-friendly binary</td></tr>
+	<tr><td><strong>TopoJSON</strong></td><td class="good">✓</td><td class="good">✓</td><td class="dim">Topology-preserving I/O</td></tr>
+	<tr><td><strong>GeoPBF</strong></td><td class="good">✓ (native)</td><td class="good">✓ (native)</td><td class="good">Native fast-load</td></tr>
+	<tr><td><strong>Gint</strong></td><td class="good">✓ (decode)</td><td class="good">✓ (encode)</td><td class="dim">Morton + VW extension (see §6)</td></tr>
 </table>
 </div>
 
 <div class="callout callout-note">
-    <div class="callout-head">Automatic Format Detection</div>
-    <p>
-        Whatever you pass to <code>geopbf(input)</code> — a <code>File</code>, <code>Blob</code>,
-        <code>ArrayBuffer</code>, or plain <code>Object</code> — the library auto-detects the format
-        from the file extension, MIME type, or magic bytes and routes to the correct decoder.
-        The caller never has to think about format.
-    </p>
+	<div class="callout-head">Automatic Format Detection</div>
+	<p>
+		Whatever you pass to <code>geopbf(input)</code> — a <code>File</code>, <code>Blob</code>,
+		<code>ArrayBuffer</code>, or plain <code>Object</code> — the library auto-detects the format
+		from the file extension, MIME type, or magic bytes and routes to the correct decoder.
+		The caller never has to think about format.
+	</p>
 </div>
 
 <pre><code><span class="cm">// Any format, the same API</span>
@@ -267,13 +267,13 @@ No straddling polygon can exist inside the format.
 </p>
 
 <div class="callout callout-key">
-    <div class="callout-head">Automatic at Encode Time — All Import Paths</div>
-    <p>
-        <code>setFeature()</code> calls <code>antimeridianFeature(q)</code> on every feature
-        before writing it to the buffer — regardless of the source format.
-        GeoJSON, Shapefile, KMZ, GML, GPX, FlatGeoBuf, TopoJSON — all go through the same path.
-        The caller never needs to pre-process geometries.
-    </p>
+	<div class="callout-head">Automatic at Encode Time — All Import Paths</div>
+	<p>
+		<code>setFeature()</code> calls <code>antimeridianFeature(q)</code> on every feature
+		before writing it to the buffer — regardless of the source format.
+		GeoJSON, Shapefile, KMZ, GML, GPX, FlatGeoBuf, TopoJSON — all go through the same path.
+		The caller never needs to pre-process geometries.
+	</p>
 </div>
 
 <h3>5.1 Spherical Great-Circle Intersection</h3>
@@ -295,14 +295,14 @@ After cutting, each sub-polygon is a valid closed ring with vertices inserted at
 <span class="cm">// intersectLat = atan2(x, |z|)   ← geometrically exact on the sphere</span></code></pre>
 
 <div class="callout callout-note">
-    <div class="callout-head">Why This Matters for Gint</div>
-    <p>
-        Morton codes require coordinates in a bounded domain.
-        A geometry that straddles ±180° would produce Morton codes that jump across the entire
-        integer space, breaking binary search and spatial proximity guarantees.
-        By cutting at encode time, all Morton codes in a GeoPBF tile are spatially coherent
-        with no special-casing needed downstream.
-    </p>
+	<div class="callout-head">Why This Matters for Gint</div>
+	<p>
+		Morton codes require coordinates in a bounded domain.
+		A geometry that straddles ±180° would produce Morton codes that jump across the entire
+		integer space, breaking binary search and spatial proximity guarantees.
+		By cutting at encode time, all Morton codes in a GeoPBF tile are spatially coherent
+		with no special-casing needed downstream.
+	</p>
 </div>
 
 <h2 id="worker">6. ArrayBuffer &amp; Worker Architecture</h2>
@@ -314,29 +314,29 @@ yielding three important properties.
 </p>
 
 <div class="worker-diagram">
-    <div class="wd-box">
-        <div class="wd-title">Main Thread</div>
-        <div class="wd-item" style="color:var(--accent)">geopbf(file)</div>
-        <div class="wd-item">pbf.arrayBuffer</div>
-        <div class="wd-item">worker.postMessage(buf, [buf])</div>
-        <div class="wd-item" style="color:var(--dim)">— buffer detached after transfer —</div>
-    </div>
-    <div class="wd-arrow">→</div>
-    <div class="wd-box">
-        <div class="wd-title">Encoder Worker</div>
-        <div class="wd-item" style="color:var(--green)">gint encode</div>
-        <div class="wd-item">topology analysis</div>
-        <div class="wd-item">postMessage(result, [result])</div>
-        <div class="wd-item" style="color:var(--dim)">zero-copy return</div>
-    </div>
-    <div class="wd-arrow">→</div>
-    <div class="wd-box">
-        <div class="wd-title">Render Worker</div>
-        <div class="wd-item" style="color:var(--purple)">SharedArrayBuffer</div>
-        <div class="wd-item">concurrent multi-worker reads</div>
-        <div class="wd-item">LOD filter</div>
-        <div class="wd-item">Canvas / WebGL draw</div>
-    </div>
+	<div class="wd-box">
+		<div class="wd-title">Main Thread</div>
+		<div class="wd-item" style="color:var(--accent)">geopbf(file)</div>
+		<div class="wd-item">pbf.arrayBuffer</div>
+		<div class="wd-item">worker.postMessage(buf, [buf])</div>
+		<div class="wd-item" style="color:var(--dim)">— buffer detached after transfer —</div>
+	</div>
+	<div class="wd-arrow">→</div>
+	<div class="wd-box">
+		<div class="wd-title">Encoder Worker</div>
+		<div class="wd-item" style="color:var(--green)">gint encode</div>
+		<div class="wd-item">topology analysis</div>
+		<div class="wd-item">postMessage(result, [result])</div>
+		<div class="wd-item" style="color:var(--dim)">zero-copy return</div>
+	</div>
+	<div class="wd-arrow">→</div>
+	<div class="wd-box">
+		<div class="wd-title">Render Worker</div>
+		<div class="wd-item" style="color:var(--purple)">SharedArrayBuffer</div>
+		<div class="wd-item">concurrent multi-worker reads</div>
+		<div class="wd-item">LOD filter</div>
+		<div class="wd-item">Canvas / WebGL draw</div>
+	</div>
 </div>
 
 <h3>6.1 Transferable — Zero-Copy Transfer</h3>
@@ -348,8 +348,8 @@ worker.<span class="fn">postMessage</span>(pbf.arrayBuffer, [pbf.arrayBuffer]);
 
 <span class="cm">// Worker side</span>
 onmessage = ({ data: buf }) => {
-    <span class="kw">const</span> view = <span class="kw">new</span> <span class="ty">DataView</span>(buf);  <span class="cm">// begin decoding immediately</span>
-    postMessage(result, [result]);    <span class="cm">// return zero-copy</span>
+	<span class="kw">const</span> view = <span class="kw">new</span> <span class="ty">DataView</span>(buf);  <span class="cm">// begin decoding immediately</span>
+	postMessage(result, [result]);    <span class="cm">// return zero-copy</span>
 };</code></pre>
 
 <h3>6.2 SharedArrayBuffer — Concurrent Multi-Worker Reads</h3>
@@ -367,20 +367,20 @@ tileWorkers.<span class="fn">forEach</span>(w => w.<span class="fn">postMessage<
 <pre><code><span class="cm">// On save: browser-native gzip (no external library needed)</span>
 <span class="kw">let</span> blob = <span class="kw">new</span> <span class="ty">Blob</span>([buf]);
 blob = <span class="kw">await</span> (<span class="kw">new</span> <span class="ty">Response</span>(
-    blob.<span class="fn">stream</span>().<span class="fn">pipeThrough</span>(<span class="kw">new</span> <span class="ty">CompressionStream</span>(<span class="st">"gzip"</span>))
+	blob.<span class="fn">stream</span>().<span class="fn">pipeThrough</span>(<span class="kw">new</span> <span class="ty">CompressionStream</span>(<span class="st">"gzip"</span>))
 )).<span class="fn">blob</span>();
 postMessage(<span class="kw">new</span> <span class="ty">File</span>([blob], <span class="st">`${name}.geopbf`</span>, { type: <span class="st">"application/x-geopbf"</span> }));</code></pre>
 
 <div class="callout callout-key">
-    <div class="callout-head">Why Workers Fit So Well</div>
-    <p>
-        GeoJSON is an object graph (JSON). Before a Worker can touch it you need
-        <code>JSON.stringify</code> → transfer → <code>JSON.parse</code> —
-        a full serialize/deserialize cycle that costs hundreds of milliseconds on large datasets.
-        GeoPBF is an <code>ArrayBuffer</code> from the very start, so it moves between Workers
-        via <strong>zero-copy transfer</strong>, and the receiver decodes by advancing a pointer.
-        The main thread is never blocked.
-    </p>
+	<div class="callout-head">Why Workers Fit So Well</div>
+	<p>
+		GeoJSON is an object graph (JSON). Before a Worker can touch it you need
+		<code>JSON.stringify</code> → transfer → <code>JSON.parse</code> —
+		a full serialize/deserialize cycle that costs hundreds of milliseconds on large datasets.
+		GeoPBF is an <code>ArrayBuffer</code> from the very start, so it moves between Workers
+		via <strong>zero-copy transfer</strong>, and the receiver decodes by advancing a pointer.
+		The main thread is never blocked.
+	</p>
 </div>
 
 <!-- ──────────────────────────────────────────────────── -->
@@ -392,28 +392,28 @@ a <strong>single 64-bit integer</strong> that simultaneously stores both the Mor
 </p>
 
 <div class="bit64">
-    <div class="b64-row">
-        <span class="b64-label">L1 node<br><span style="font-size:0.65rem;color:var(--dim)">(anchor)</span></span>
-        <div class="b64-seg b64-term" style="flex:0 0 20px" title="Terminal bit">1</div>
-        <div class="b64-gap"></div>
-        <div class="b64-seg b64-mort" title="Morton code (63 bits)">
-            Morton code (63 bits) — fixed precision 10⁻⁷ deg
-        </div>
-    </div>
-    <div style="margin:4px 0 6px;padding-left:64px;font-size:0.68rem;color:var(--dim)">
-        bit 63 = 1 → L1 (anchor vertex, always retained)
-    </div>
-    <div class="b64-row">
-        <span class="b64-label">L2 node<br><span style="font-size:0.65rem;color:var(--dim)">(detail)</span></span>
-        <div class="b64-seg b64-term" style="flex:0 0 20px;background:rgba(52,211,153,0.2);color:var(--green);border-color:var(--green)" title="Not terminal">0</div>
-        <div class="b64-gap"></div>
-        <div class="b64-seg b64-mort" title="Morton code">Morton code (58 bits)</div>
-        <div class="b64-gap"></div>
-        <div class="b64-seg b64-vw" title="VW weight rank 0-63">VW rank<br>(6 bits)</div>
-    </div>
-    <div style="margin:4px 0;padding-left:64px;font-size:0.68rem;color:var(--dim)">
-        bit 63 = 0 → L2 (detail vertex, LOD-filtered) &nbsp;·&nbsp; bits 0-5 = VW weight rank (0–63)
-    </div>
+	<div class="b64-row">
+		<span class="b64-label">L1 node<br><span style="font-size:0.65rem;color:var(--dim)">(anchor)</span></span>
+		<div class="b64-seg b64-term" style="flex:0 0 20px" title="Terminal bit">1</div>
+		<div class="b64-gap"></div>
+		<div class="b64-seg b64-mort" title="Morton code (63 bits)">
+			Morton code (63 bits) — fixed precision 10⁻⁷ deg
+		</div>
+	</div>
+	<div style="margin:4px 0 6px;padding-left:64px;font-size:0.68rem;color:var(--dim)">
+		bit 63 = 1 → L1 (anchor vertex, always retained)
+	</div>
+	<div class="b64-row">
+		<span class="b64-label">L2 node<br><span style="font-size:0.65rem;color:var(--dim)">(detail)</span></span>
+		<div class="b64-seg b64-term" style="flex:0 0 20px;background:rgba(52,211,153,0.2);color:var(--green);border-color:var(--green)" title="Not terminal">0</div>
+		<div class="b64-gap"></div>
+		<div class="b64-seg b64-mort" title="Morton code">Morton code (58 bits)</div>
+		<div class="b64-gap"></div>
+		<div class="b64-seg b64-vw" title="VW weight rank 0-63">VW rank<br>(6 bits)</div>
+	</div>
+	<div style="margin:4px 0;padding-left:64px;font-size:0.68rem;color:var(--dim)">
+		bit 63 = 0 → L2 (detail vertex, LOD-filtered) &nbsp;·&nbsp; bits 0-5 = VW weight rank (0–63)
+	</div>
 </div>
 
 <p>
@@ -438,69 +438,69 @@ both spatial queries and LOD filtering reduce to simple integer arithmetic.
 <h2 id="comparison">8. Comparison with Other Formats</h2>
 
 <table>
-    <tr>
-        <th>Metric</th>
-        <th>GeoJSON</th>
-        <th>Shapefile</th>
-        <th>MVT (tiles)</th>
-        <th>GeoPBF</th>
-    </tr>
-    <tr>
-        <td><strong>Encoding</strong></td>
-        <td class="dim">Text UTF-8</td>
-        <td class="dim">Binary (multi-file)</td>
-        <td class="dim">PBF binary</td>
-        <td class="good">PBF + delta + Varint</td>
-    </tr>
-    <tr>
-        <td><strong>File count</strong></td>
-        <td class="good">1</td>
-        <td class="bad">.shp + .dbf + .shx + …</td>
-        <td class="bad">zoom × tile count</td>
-        <td class="good">1</td>
-    </tr>
-    <tr>
-        <td><strong>Transfer efficiency</strong></td>
-        <td class="bad">Low (large text)</td>
-        <td class="mid">Medium</td>
-        <td class="mid">Medium (zoom-split)</td>
-        <td class="good">High (binary + gzip)</td>
-    </tr>
-    <tr>
-        <td><strong>Worker transfer</strong></td>
-        <td class="bad">JSON serialize required</td>
-        <td class="bad">Conversion required</td>
-        <td class="mid">ArrayBuffer</td>
-        <td class="good">ArrayBuffer zero-copy</td>
-    </tr>
-    <tr>
-        <td><strong>LOD support</strong></td>
-        <td class="bad">None</td>
-        <td class="bad">None</td>
-        <td class="bad">Per-zoom files</td>
-        <td class="good">VW weight built-in</td>
-    </tr>
-    <tr>
-        <td><strong>Spatial index</strong></td>
-        <td class="bad">None</td>
-        <td class="mid">.shx (linear)</td>
-        <td class="mid">Tile coords</td>
-        <td class="good">Morton 64-bit</td>
-    </tr>
-    <tr>
-        <td><strong>Format conversion</strong></td>
-        <td class="dim">External library needed</td>
-        <td class="dim">External library needed</td>
-        <td class="bad">Limited</td>
-        <td class="good">9 formats built-in</td>
-    </tr>
-    <tr>
-        <td><strong>Topology</strong></td>
-        <td class="bad">None</td>
-        <td class="bad">None</td>
-        <td class="bad">None</td>
-        <td class="good">Arc sharing · boundary integrity</td>
-    </tr>
+	<tr>
+		<th>Metric</th>
+		<th>GeoJSON</th>
+		<th>Shapefile</th>
+		<th>MVT (tiles)</th>
+		<th>GeoPBF</th>
+	</tr>
+	<tr>
+		<td><strong>Encoding</strong></td>
+		<td class="dim">Text UTF-8</td>
+		<td class="dim">Binary (multi-file)</td>
+		<td class="dim">PBF binary</td>
+		<td class="good">PBF + delta + Varint</td>
+	</tr>
+	<tr>
+		<td><strong>File count</strong></td>
+		<td class="good">1</td>
+		<td class="bad">.shp + .dbf + .shx + …</td>
+		<td class="bad">zoom × tile count</td>
+		<td class="good">1</td>
+	</tr>
+	<tr>
+		<td><strong>Transfer efficiency</strong></td>
+		<td class="bad">Low (large text)</td>
+		<td class="mid">Medium</td>
+		<td class="mid">Medium (zoom-split)</td>
+		<td class="good">High (binary + gzip)</td>
+	</tr>
+	<tr>
+		<td><strong>Worker transfer</strong></td>
+		<td class="bad">JSON serialize required</td>
+		<td class="bad">Conversion required</td>
+		<td class="mid">ArrayBuffer</td>
+		<td class="good">ArrayBuffer zero-copy</td>
+	</tr>
+	<tr>
+		<td><strong>LOD support</strong></td>
+		<td class="bad">None</td>
+		<td class="bad">None</td>
+		<td class="bad">Per-zoom files</td>
+		<td class="good">VW weight built-in</td>
+	</tr>
+	<tr>
+		<td><strong>Spatial index</strong></td>
+		<td class="bad">None</td>
+		<td class="mid">.shx (linear)</td>
+		<td class="mid">Tile coords</td>
+		<td class="good">Morton 64-bit</td>
+	</tr>
+	<tr>
+		<td><strong>Format conversion</strong></td>
+		<td class="dim">External library needed</td>
+		<td class="dim">External library needed</td>
+		<td class="bad">Limited</td>
+		<td class="good">9 formats built-in</td>
+	</tr>
+	<tr>
+		<td><strong>Topology</strong></td>
+		<td class="bad">None</td>
+		<td class="bad">None</td>
+		<td class="bad">None</td>
+		<td class="good">Arc sharing · boundary integrity</td>
+	</tr>
 </table>
 
 <!-- ──────────────────────────────────────────────────── -->
@@ -539,7 +539,7 @@ pbf.<span class="fn">draw</span>(canvasCtx, { fill: <span class="st">'#5a8050'</
 <hr class="rule">
 
 <div style="font-size:0.72rem;color:var(--dim);font-family:var(--mono);text-align:center">
-    geopbf v1.0.0 · Kenji Yoshida · MIT License · 2026
+	geopbf v1.0.0 · Kenji Yoshida · MIT License · 2026
 </div>
 
 </div>

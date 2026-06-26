@@ -3,13 +3,13 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 :root {
-    --bg: #0b1220; --surface: #111827; --card: #1e293b; --muted: #334155;
-    --text: #e2e8f0; --dim: #64748b; --accent: #38bdf8; --orange: #fb923c;
-    --green: #34d399; --red: #f87171; --purple: #c084fc; --yellow: #fbbf24;
-    --teal: #2dd4bf; --sky: #7dd3fc;
-    --mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
-    --sans: 'Segoe UI', system-ui, sans-serif;
-    --doc-accent: var(--accent);
+	--bg: #0b1220; --surface: #111827; --card: #1e293b; --muted: #334155;
+	--text: #e2e8f0; --dim: #64748b; --accent: #38bdf8; --orange: #fb923c;
+	--green: #34d399; --red: #f87171; --purple: #c084fc; --yellow: #fbbf24;
+	--teal: #2dd4bf; --sky: #7dd3fc;
+	--mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+	--sans: 'Segoe UI', system-ui, sans-serif;
+	--doc-accent: var(--accent);
 }
 
 html { font-size: 16px; scroll-behavior: smooth; }

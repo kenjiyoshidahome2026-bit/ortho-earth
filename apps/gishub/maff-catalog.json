@@ -1,2570 +1,2570 @@
 [
-  {
-    "name": "maff_011011",
-    "description": "筆ポリゴン 北海道 札幌市中央区 2026年度",
-    "target": "maff_011011.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_011029",
-    "description": "筆ポリゴン 北海道 札幌市北区 2026年度",
-    "target": "maff_011029.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_011037",
-    "description": "筆ポリゴン 北海道 札幌市東区 2026年度",
-    "target": "maff_011037.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_011045",
-    "description": "筆ポリゴン 北海道 札幌市白石区 2026年度",
-    "target": "maff_011045.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_011053",
-    "description": "筆ポリゴン 北海道 札幌市豊平区 2026年度",
-    "target": "maff_011053.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_011061",
-    "description": "筆ポリゴン 北海道 札幌市南区 2026年度",
-    "target": "maff_011061.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_011070",
-    "description": "筆ポリゴン 北海道 札幌市西区 2026年度",
-    "target": "maff_011070.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_011088",
-    "description": "筆ポリゴン 北海道 札幌市厚別区 2026年度",
-    "target": "maff_011088.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_011096",
-    "description": "筆ポリゴン 北海道 札幌市手稲区 2026年度",
-    "target": "maff_011096.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_011100",
-    "description": "筆ポリゴン 北海道 札幌市清田区 2026年度",
-    "target": "maff_011100.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_012025",
-    "description": "筆ポリゴン 北海道 函館市 2026年度",
-    "target": "maff_012025.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_012033",
-    "description": "筆ポリゴン 北海道 小樽市 2026年度",
-    "target": "maff_012033.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_012041",
-    "description": "筆ポリゴン 北海道 旭川市 2026年度",
-    "target": "maff_012041.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_012050",
-    "description": "筆ポリゴン 北海道 室蘭市 2026年度",
-    "target": "maff_012050.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_012068",
-    "description": "筆ポリゴン 北海道 釧路市 2026年度",
-    "target": "maff_012068.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_012076",
-    "description": "筆ポリゴン 北海道 帯広市 2026年度",
-    "target": "maff_012076.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_012084",
-    "description": "筆ポリゴン 北海道 北見市 2026年度",
-    "target": "maff_012084.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_012092",
-    "description": "筆ポリゴン 北海道 夕張市 2026年度",
-    "target": "maff_012092.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_012106",
-    "description": "筆ポリゴン 北海道 岩見沢市 2026年度",
-    "target": "maff_012106.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_012114",
-    "description": "筆ポリゴン 北海道 網走市 2026年度",
-    "target": "maff_012114.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_012122",
-    "description": "筆ポリゴン 北海道 留萌市 2026年度",
-    "target": "maff_012122.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_012131",
-    "description": "筆ポリゴン 北海道 苫小牧市 2026年度",
-    "target": "maff_012131.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_012149",
-    "description": "筆ポリゴン 北海道 稚内市 2026年度",
-    "target": "maff_012149.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_012157",
-    "description": "筆ポリゴン 北海道 美唄市 2026年度",
-    "target": "maff_012157.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_012165",
-    "description": "筆ポリゴン 北海道 芦別市 2026年度",
-    "target": "maff_012165.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_012173",
-    "description": "筆ポリゴン 北海道 江別市 2026年度",
-    "target": "maff_012173.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_012181",
-    "description": "筆ポリゴン 北海道 赤平市 2026年度",
-    "target": "maff_012181.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_012190",
-    "description": "筆ポリゴン 北海道 紋別市 2026年度",
-    "target": "maff_012190.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_012203",
-    "description": "筆ポリゴン 北海道 士別市 2026年度",
-    "target": "maff_012203.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_012211",
-    "description": "筆ポリゴン 北海道 名寄市 2026年度",
-    "target": "maff_012211.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_012220",
-    "description": "筆ポリゴン 北海道 三笠市 2026年度",
-    "target": "maff_012220.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_012238",
-    "description": "筆ポリゴン 北海道 根室市 2026年度",
-    "target": "maff_012238.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_012246",
-    "description": "筆ポリゴン 北海道 千歳市 2026年度",
-    "target": "maff_012246.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_012254",
-    "description": "筆ポリゴン 北海道 滝川市 2026年度",
-    "target": "maff_012254.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_012262",
-    "description": "筆ポリゴン 北海道 砂川市 2026年度",
-    "target": "maff_012262.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_012271",
-    "description": "筆ポリゴン 北海道 歌志内市 2026年度",
-    "target": "maff_012271.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_012289",
-    "description": "筆ポリゴン 北海道 深川市 2026年度",
-    "target": "maff_012289.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_012297",
-    "description": "筆ポリゴン 北海道 富良野市 2026年度",
-    "target": "maff_012297.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_012301",
-    "description": "筆ポリゴン 北海道 登別市 2026年度",
-    "target": "maff_012301.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_012319",
-    "description": "筆ポリゴン 北海道 恵庭市 2026年度",
-    "target": "maff_012319.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_012335",
-    "description": "筆ポリゴン 北海道 伊達市 2026年度",
-    "target": "maff_012335.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_012343",
-    "description": "筆ポリゴン 北海道 北広島市 2026年度",
-    "target": "maff_012343.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_012351",
-    "description": "筆ポリゴン 北海道 石狩市 2026年度",
-    "target": "maff_012351.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_012360",
-    "description": "筆ポリゴン 北海道 北斗市 2026年度",
-    "target": "maff_012360.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_013030",
-    "description": "筆ポリゴン 北海道 当別町 2026年度",
-    "target": "maff_013030.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_013048",
-    "description": "筆ポリゴン 北海道 新篠津村 2026年度",
-    "target": "maff_013048.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_013315",
-    "description": "筆ポリゴン 北海道 松前町 2026年度",
-    "target": "maff_013315.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_013323",
-    "description": "筆ポリゴン 北海道 福島町 2026年度",
-    "target": "maff_013323.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_013331",
-    "description": "筆ポリゴン 北海道 知内町 2026年度",
-    "target": "maff_013331.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_013340",
-    "description": "筆ポリゴン 北海道 木古内町 2026年度",
-    "target": "maff_013340.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_013374",
-    "description": "筆ポリゴン 北海道 七飯町 2026年度",
-    "target": "maff_013374.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_013439",
-    "description": "筆ポリゴン 北海道 鹿部町 2026年度",
-    "target": "maff_013439.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_013455",
-    "description": "筆ポリゴン 北海道 森町 2026年度",
-    "target": "maff_013455.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_013463",
-    "description": "筆ポリゴン 北海道 八雲町 2026年度",
-    "target": "maff_013463.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_013471",
-    "description": "筆ポリゴン 北海道 長万部町 2026年度",
-    "target": "maff_013471.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_013617",
-    "description": "筆ポリゴン 北海道 江差町 2026年度",
-    "target": "maff_013617.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_013625",
-    "description": "筆ポリゴン 北海道 上ノ国町 2026年度",
-    "target": "maff_013625.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_013633",
-    "description": "筆ポリゴン 北海道 厚沢部町 2026年度",
-    "target": "maff_013633.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_013641",
-    "description": "筆ポリゴン 北海道 乙部町 2026年度",
-    "target": "maff_013641.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_013676",
-    "description": "筆ポリゴン 北海道 奥尻町 2026年度",
-    "target": "maff_013676.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_013706",
-    "description": "筆ポリゴン 北海道 今金町 2026年度",
-    "target": "maff_013706.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_013714",
-    "description": "筆ポリゴン 北海道 せたな町 2026年度",
-    "target": "maff_013714.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_013919",
-    "description": "筆ポリゴン 北海道 島牧村 2026年度",
-    "target": "maff_013919.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_013927",
-    "description": "筆ポリゴン 北海道 寿都町 2026年度",
-    "target": "maff_013927.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_013935",
-    "description": "筆ポリゴン 北海道 黒松内町 2026年度",
-    "target": "maff_013935.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_013943",
-    "description": "筆ポリゴン 北海道 蘭越町 2026年度",
-    "target": "maff_013943.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_013951",
-    "description": "筆ポリゴン 北海道 ニセコ町 2026年度",
-    "target": "maff_013951.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_013960",
-    "description": "筆ポリゴン 北海道 真狩村 2026年度",
-    "target": "maff_013960.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_013978",
-    "description": "筆ポリゴン 北海道 留寿都村 2026年度",
-    "target": "maff_013978.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_013986",
-    "description": "筆ポリゴン 北海道 喜茂別町 2026年度",
-    "target": "maff_013986.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_013994",
-    "description": "筆ポリゴン 北海道 京極町 2026年度",
-    "target": "maff_013994.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_014001",
-    "description": "筆ポリゴン 北海道 倶知安町 2026年度",
-    "target": "maff_014001.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_014010",
-    "description": "筆ポリゴン 北海道 共和町 2026年度",
-    "target": "maff_014010.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_014028",
-    "description": "筆ポリゴン 北海道 岩内町 2026年度",
-    "target": "maff_014028.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_014036",
-    "description": "筆ポリゴン 北海道 泊村 2026年度",
-    "target": "maff_014036.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_014044",
-    "description": "筆ポリゴン 北海道 神恵内村 2026年度",
-    "target": "maff_014044.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_014052",
-    "description": "筆ポリゴン 北海道 積丹町 2026年度",
-    "target": "maff_014052.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_014061",
-    "description": "筆ポリゴン 北海道 古平町 2026年度",
-    "target": "maff_014061.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_014079",
-    "description": "筆ポリゴン 北海道 仁木町 2026年度",
-    "target": "maff_014079.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_014087",
-    "description": "筆ポリゴン 北海道 余市町 2026年度",
-    "target": "maff_014087.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_014095",
-    "description": "筆ポリゴン 北海道 赤井川村 2026年度",
-    "target": "maff_014095.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_014231",
-    "description": "筆ポリゴン 北海道 南幌町 2026年度",
-    "target": "maff_014231.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_014249",
-    "description": "筆ポリゴン 北海道 奈井江町 2026年度",
-    "target": "maff_014249.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_014257",
-    "description": "筆ポリゴン 北海道 上砂川町 2026年度",
-    "target": "maff_014257.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_014273",
-    "description": "筆ポリゴン 北海道 由仁町 2026年度",
-    "target": "maff_014273.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_014281",
-    "description": "筆ポリゴン 北海道 長沼町 2026年度",
-    "target": "maff_014281.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_014290",
-    "description": "筆ポリゴン 北海道 栗山町 2026年度",
-    "target": "maff_014290.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_014303",
-    "description": "筆ポリゴン 北海道 月形町 2026年度",
-    "target": "maff_014303.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_014311",
-    "description": "筆ポリゴン 北海道 浦臼町 2026年度",
-    "target": "maff_014311.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_014320",
-    "description": "筆ポリゴン 北海道 新十津川町 2026年度",
-    "target": "maff_014320.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_014338",
-    "description": "筆ポリゴン 北海道 妹背牛町 2026年度",
-    "target": "maff_014338.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_014346",
-    "description": "筆ポリゴン 北海道 秩父別町 2026年度",
-    "target": "maff_014346.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_014362",
-    "description": "筆ポリゴン 北海道 雨竜町 2026年度",
-    "target": "maff_014362.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_014371",
-    "description": "筆ポリゴン 北海道 北竜町 2026年度",
-    "target": "maff_014371.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_014389",
-    "description": "筆ポリゴン 北海道 沼田町 2026年度",
-    "target": "maff_014389.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_014524",
-    "description": "筆ポリゴン 北海道 鷹栖町 2026年度",
-    "target": "maff_014524.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_014532",
-    "description": "筆ポリゴン 北海道 東神楽町 2026年度",
-    "target": "maff_014532.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_014541",
-    "description": "筆ポリゴン 北海道 当麻町 2026年度",
-    "target": "maff_014541.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_014559",
-    "description": "筆ポリゴン 北海道 比布町 2026年度",
-    "target": "maff_014559.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_014567",
-    "description": "筆ポリゴン 北海道 愛別町 2026年度",
-    "target": "maff_014567.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_014575",
-    "description": "筆ポリゴン 北海道 上川町 2026年度",
-    "target": "maff_014575.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_014583",
-    "description": "筆ポリゴン 北海道 東川町 2026年度",
-    "target": "maff_014583.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_014591",
-    "description": "筆ポリゴン 北海道 美瑛町 2026年度",
-    "target": "maff_014591.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_014605",
-    "description": "筆ポリゴン 北海道 上富良野町 2026年度",
-    "target": "maff_014605.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_014613",
-    "description": "筆ポリゴン 北海道 中富良野町 2026年度",
-    "target": "maff_014613.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_014621",
-    "description": "筆ポリゴン 北海道 南富良野町 2026年度",
-    "target": "maff_014621.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_014630",
-    "description": "筆ポリゴン 北海道 占冠村 2026年度",
-    "target": "maff_014630.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_014648",
-    "description": "筆ポリゴン 北海道 和寒町 2026年度",
-    "target": "maff_014648.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_014656",
-    "description": "筆ポリゴン 北海道 剣淵町 2026年度",
-    "target": "maff_014656.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_014681",
-    "description": "筆ポリゴン 北海道 下川町 2026年度",
-    "target": "maff_014681.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_014699",
-    "description": "筆ポリゴン 北海道 美深町 2026年度",
-    "target": "maff_014699.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_014702",
-    "description": "筆ポリゴン 北海道 音威子府村 2026年度",
-    "target": "maff_014702.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_014711",
-    "description": "筆ポリゴン 北海道 中川町 2026年度",
-    "target": "maff_014711.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_014729",
-    "description": "筆ポリゴン 北海道 幌加内町 2026年度",
-    "target": "maff_014729.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_014818",
-    "description": "筆ポリゴン 北海道 増毛町 2026年度",
-    "target": "maff_014818.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_014826",
-    "description": "筆ポリゴン 北海道 小平町 2026年度",
-    "target": "maff_014826.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_014834",
-    "description": "筆ポリゴン 北海道 苫前町 2026年度",
-    "target": "maff_014834.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_014842",
-    "description": "筆ポリゴン 北海道 羽幌町 2026年度",
-    "target": "maff_014842.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_014851",
-    "description": "筆ポリゴン 北海道 初山別村 2026年度",
-    "target": "maff_014851.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_014869",
-    "description": "筆ポリゴン 北海道 遠別町 2026年度",
-    "target": "maff_014869.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_014877",
-    "description": "筆ポリゴン 北海道 天塩町 2026年度",
-    "target": "maff_014877.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_015113",
-    "description": "筆ポリゴン 北海道 猿払村 2026年度",
-    "target": "maff_015113.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_015121",
-    "description": "筆ポリゴン 北海道 浜頓別町 2026年度",
-    "target": "maff_015121.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_015130",
-    "description": "筆ポリゴン 北海道 中頓別町 2026年度",
-    "target": "maff_015130.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_015148",
-    "description": "筆ポリゴン 北海道 枝幸町 2026年度",
-    "target": "maff_015148.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_015164",
-    "description": "筆ポリゴン 北海道 豊富町 2026年度",
-    "target": "maff_015164.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_015172",
-    "description": "筆ポリゴン 北海道 礼文町 2026年度",
-    "target": "maff_015172.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_015181",
-    "description": "筆ポリゴン 北海道 利尻町 2026年度",
-    "target": "maff_015181.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_015199",
-    "description": "筆ポリゴン 北海道 利尻富士町 2026年度",
-    "target": "maff_015199.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_015202",
-    "description": "筆ポリゴン 北海道 幌延町 2026年度",
-    "target": "maff_015202.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_015431",
-    "description": "筆ポリゴン 北海道 美幌町 2026年度",
-    "target": "maff_015431.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_015440",
-    "description": "筆ポリゴン 北海道 津別町 2026年度",
-    "target": "maff_015440.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_015458",
-    "description": "筆ポリゴン 北海道 斜里町 2026年度",
-    "target": "maff_015458.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_015466",
-    "description": "筆ポリゴン 北海道 清里町 2026年度",
-    "target": "maff_015466.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_015474",
-    "description": "筆ポリゴン 北海道 小清水町 2026年度",
-    "target": "maff_015474.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_015491",
-    "description": "筆ポリゴン 北海道 訓子府町 2026年度",
-    "target": "maff_015491.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_015504",
-    "description": "筆ポリゴン 北海道 置戸町 2026年度",
-    "target": "maff_015504.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_015521",
-    "description": "筆ポリゴン 北海道 佐呂間町 2026年度",
-    "target": "maff_015521.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_015555",
-    "description": "筆ポリゴン 北海道 遠軽町 2026年度",
-    "target": "maff_015555.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_015598",
-    "description": "筆ポリゴン 北海道 湧別町 2026年度",
-    "target": "maff_015598.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_015601",
-    "description": "筆ポリゴン 北海道 滝上町 2026年度",
-    "target": "maff_015601.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_015610",
-    "description": "筆ポリゴン 北海道 興部町 2026年度",
-    "target": "maff_015610.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_015628",
-    "description": "筆ポリゴン 北海道 西興部村 2026年度",
-    "target": "maff_015628.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_015636",
-    "description": "筆ポリゴン 北海道 雄武町 2026年度",
-    "target": "maff_015636.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_015644",
-    "description": "筆ポリゴン 北海道 大空町 2026年度",
-    "target": "maff_015644.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_015717",
-    "description": "筆ポリゴン 北海道 豊浦町 2026年度",
-    "target": "maff_015717.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_015750",
-    "description": "筆ポリゴン 北海道 壮瞥町 2026年度",
-    "target": "maff_015750.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_015784",
-    "description": "筆ポリゴン 北海道 白老町 2026年度",
-    "target": "maff_015784.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_015814",
-    "description": "筆ポリゴン 北海道 厚真町 2026年度",
-    "target": "maff_015814.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_015849",
-    "description": "筆ポリゴン 北海道 洞爺湖町 2026年度",
-    "target": "maff_015849.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_015857",
-    "description": "筆ポリゴン 北海道 安平町 2026年度",
-    "target": "maff_015857.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_015865",
-    "description": "筆ポリゴン 北海道 むかわ町 2026年度",
-    "target": "maff_015865.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_016012",
-    "description": "筆ポリゴン 北海道 日高町 2026年度",
-    "target": "maff_016012.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_016021",
-    "description": "筆ポリゴン 北海道 平取町 2026年度",
-    "target": "maff_016021.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_016047",
-    "description": "筆ポリゴン 北海道 新冠町 2026年度",
-    "target": "maff_016047.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_016071",
-    "description": "筆ポリゴン 北海道 浦河町 2026年度",
-    "target": "maff_016071.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_016080",
-    "description": "筆ポリゴン 北海道 様似町 2026年度",
-    "target": "maff_016080.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_016098",
-    "description": "筆ポリゴン 北海道 えりも町 2026年度",
-    "target": "maff_016098.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_016101",
-    "description": "筆ポリゴン 北海道 新ひだか町 2026年度",
-    "target": "maff_016101.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_016314",
-    "description": "筆ポリゴン 北海道 音更町 2026年度",
-    "target": "maff_016314.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_016322",
-    "description": "筆ポリゴン 北海道 士幌町 2026年度",
-    "target": "maff_016322.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_016331",
-    "description": "筆ポリゴン 北海道 上士幌町 2026年度",
-    "target": "maff_016331.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_016349",
-    "description": "筆ポリゴン 北海道 鹿追町 2026年度",
-    "target": "maff_016349.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_016357",
-    "description": "筆ポリゴン 北海道 新得町 2026年度",
-    "target": "maff_016357.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_016365",
-    "description": "筆ポリゴン 北海道 清水町 2026年度",
-    "target": "maff_016365.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_016373",
-    "description": "筆ポリゴン 北海道 芽室町 2026年度",
-    "target": "maff_016373.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_016381",
-    "description": "筆ポリゴン 北海道 中札内村 2026年度",
-    "target": "maff_016381.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_016390",
-    "description": "筆ポリゴン 北海道 更別村 2026年度",
-    "target": "maff_016390.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_016411",
-    "description": "筆ポリゴン 北海道 大樹町 2026年度",
-    "target": "maff_016411.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_016420",
-    "description": "筆ポリゴン 北海道 広尾町 2026年度",
-    "target": "maff_016420.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_016438",
-    "description": "筆ポリゴン 北海道 幕別町 2026年度",
-    "target": "maff_016438.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_016446",
-    "description": "筆ポリゴン 北海道 池田町 2026年度",
-    "target": "maff_016446.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_016454",
-    "description": "筆ポリゴン 北海道 豊頃町 2026年度",
-    "target": "maff_016454.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_016462",
-    "description": "筆ポリゴン 北海道 本別町 2026年度",
-    "target": "maff_016462.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_016471",
-    "description": "筆ポリゴン 北海道 足寄町 2026年度",
-    "target": "maff_016471.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_016489",
-    "description": "筆ポリゴン 北海道 陸別町 2026年度",
-    "target": "maff_016489.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_016497",
-    "description": "筆ポリゴン 北海道 浦幌町 2026年度",
-    "target": "maff_016497.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_016616",
-    "description": "筆ポリゴン 北海道 釧路町 2026年度",
-    "target": "maff_016616.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_016624",
-    "description": "筆ポリゴン 北海道 厚岸町 2026年度",
-    "target": "maff_016624.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_016632",
-    "description": "筆ポリゴン 北海道 浜中町 2026年度",
-    "target": "maff_016632.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_016641",
-    "description": "筆ポリゴン 北海道 標茶町 2026年度",
-    "target": "maff_016641.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_016659",
-    "description": "筆ポリゴン 北海道 弟子屈町 2026年度",
-    "target": "maff_016659.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_016675",
-    "description": "筆ポリゴン 北海道 鶴居村 2026年度",
-    "target": "maff_016675.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_016683",
-    "description": "筆ポリゴン 北海道 白糠町 2026年度",
-    "target": "maff_016683.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_016918",
-    "description": "筆ポリゴン 北海道 別海町 2026年度",
-    "target": "maff_016918.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_016926",
-    "description": "筆ポリゴン 北海道 中標津町 2026年度",
-    "target": "maff_016926.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_016934",
-    "description": "筆ポリゴン 北海道 標津町 2026年度",
-    "target": "maff_016934.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_016942",
-    "description": "筆ポリゴン 北海道 羅臼町 2026年度",
-    "target": "maff_016942.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 北海道",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_022012",
-    "description": "筆ポリゴン 青森県 青森市 2026年度",
-    "target": "maff_022012.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 青森県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_022021",
-    "description": "筆ポリゴン 青森県 弘前市 2026年度",
-    "target": "maff_022021.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 青森県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_022039",
-    "description": "筆ポリゴン 青森県 八戸市 2026年度",
-    "target": "maff_022039.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 青森県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_022047",
-    "description": "筆ポリゴン 青森県 黒石市 2026年度",
-    "target": "maff_022047.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 青森県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_022055",
-    "description": "筆ポリゴン 青森県 五所川原市 2026年度",
-    "target": "maff_022055.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 青森県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_022063",
-    "description": "筆ポリゴン 青森県 十和田市 2026年度",
-    "target": "maff_022063.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 青森県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_022071",
-    "description": "筆ポリゴン 青森県 三沢市 2026年度",
-    "target": "maff_022071.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 青森県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_022080",
-    "description": "筆ポリゴン 青森県 むつ市 2026年度",
-    "target": "maff_022080.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 青森県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_022098",
-    "description": "筆ポリゴン 青森県 つがる市 2026年度",
-    "target": "maff_022098.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 青森県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_022101",
-    "description": "筆ポリゴン 青森県 平川市 2026年度",
-    "target": "maff_022101.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 青森県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_023019",
-    "description": "筆ポリゴン 青森県 平内町 2026年度",
-    "target": "maff_023019.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 青森県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_023035",
-    "description": "筆ポリゴン 青森県 今別町 2026年度",
-    "target": "maff_023035.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 青森県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_023043",
-    "description": "筆ポリゴン 青森県 蓬田村 2026年度",
-    "target": "maff_023043.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 青森県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_023078",
-    "description": "筆ポリゴン 青森県 外ヶ浜町 2026年度",
-    "target": "maff_023078.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 青森県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_023213",
-    "description": "筆ポリゴン 青森県 鰺ヶ沢町 2026年度",
-    "target": "maff_023213.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 青森県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_023230",
-    "description": "筆ポリゴン 青森県 深浦町 2026年度",
-    "target": "maff_023230.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 青森県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_023434",
-    "description": "筆ポリゴン 青森県 西目屋村 2026年度",
-    "target": "maff_023434.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 青森県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_023612",
-    "description": "筆ポリゴン 青森県 藤崎町 2026年度",
-    "target": "maff_023612.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 青森県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_023621",
-    "description": "筆ポリゴン 青森県 大鰐町 2026年度",
-    "target": "maff_023621.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 青森県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_023671",
-    "description": "筆ポリゴン 青森県 田舎館村 2026年度",
-    "target": "maff_023671.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 青森県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_023817",
-    "description": "筆ポリゴン 青森県 板柳町 2026年度",
-    "target": "maff_023817.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 青森県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_023841",
-    "description": "筆ポリゴン 青森県 鶴田町 2026年度",
-    "target": "maff_023841.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 青森県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_023876",
-    "description": "筆ポリゴン 青森県 中泊町 2026年度",
-    "target": "maff_023876.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 青森県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_024015",
-    "description": "筆ポリゴン 青森県 野辺地町 2026年度",
-    "target": "maff_024015.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 青森県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_024023",
-    "description": "筆ポリゴン 青森県 七戸町 2026年度",
-    "target": "maff_024023.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 青森県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_024058",
-    "description": "筆ポリゴン 青森県 六戸町 2026年度",
-    "target": "maff_024058.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 青森県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_024066",
-    "description": "筆ポリゴン 青森県 横浜町 2026年度",
-    "target": "maff_024066.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 青森県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_024082",
-    "description": "筆ポリゴン 青森県 東北町 2026年度",
-    "target": "maff_024082.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 青森県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_024112",
-    "description": "筆ポリゴン 青森県 六ヶ所村 2026年度",
-    "target": "maff_024112.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 青森県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_024121",
-    "description": "筆ポリゴン 青森県 おいらせ町 2026年度",
-    "target": "maff_024121.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 青森県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_024236",
-    "description": "筆ポリゴン 青森県 大間町 2026年度",
-    "target": "maff_024236.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 青森県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_024244",
-    "description": "筆ポリゴン 青森県 東通村 2026年度",
-    "target": "maff_024244.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 青森県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_024252",
-    "description": "筆ポリゴン 青森県 風間浦村 2026年度",
-    "target": "maff_024252.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 青森県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_024261",
-    "description": "筆ポリゴン 青森県 佐井村 2026年度",
-    "target": "maff_024261.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 青森県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_024414",
-    "description": "筆ポリゴン 青森県 三戸町 2026年度",
-    "target": "maff_024414.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 青森県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_024422",
-    "description": "筆ポリゴン 青森県 五戸町 2026年度",
-    "target": "maff_024422.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 青森県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_024431",
-    "description": "筆ポリゴン 青森県 田子町 2026年度",
-    "target": "maff_024431.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 青森県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_024457",
-    "description": "筆ポリゴン 青森県 南部町 2026年度",
-    "target": "maff_024457.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 青森県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_024465",
-    "description": "筆ポリゴン 青森県 階上町 2026年度",
-    "target": "maff_024465.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 青森県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_024503",
-    "description": "筆ポリゴン 青森県 新郷村 2026年度",
-    "target": "maff_024503.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 青森県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_032018",
-    "description": "筆ポリゴン 岩手県 盛岡市 2026年度",
-    "target": "maff_032018.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 岩手県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_032026",
-    "description": "筆ポリゴン 岩手県 宮古市 2026年度",
-    "target": "maff_032026.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 岩手県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_032034",
-    "description": "筆ポリゴン 岩手県 大船渡市 2026年度",
-    "target": "maff_032034.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 岩手県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_032051",
-    "description": "筆ポリゴン 岩手県 花巻市 2026年度",
-    "target": "maff_032051.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 岩手県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_032069",
-    "description": "筆ポリゴン 岩手県 北上市 2026年度",
-    "target": "maff_032069.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 岩手県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_032077",
-    "description": "筆ポリゴン 岩手県 久慈市 2026年度",
-    "target": "maff_032077.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 岩手県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_032085",
-    "description": "筆ポリゴン 岩手県 遠野市 2026年度",
-    "target": "maff_032085.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 岩手県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_032093",
-    "description": "筆ポリゴン 岩手県 一関市 2026年度",
-    "target": "maff_032093.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 岩手県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_032107",
-    "description": "筆ポリゴン 岩手県 陸前高田市 2026年度",
-    "target": "maff_032107.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 岩手県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_032115",
-    "description": "筆ポリゴン 岩手県 釜石市 2026年度",
-    "target": "maff_032115.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 岩手県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_032131",
-    "description": "筆ポリゴン 岩手県 二戸市 2026年度",
-    "target": "maff_032131.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 岩手県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_032140",
-    "description": "筆ポリゴン 岩手県 八幡平市 2026年度",
-    "target": "maff_032140.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 岩手県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_032158",
-    "description": "筆ポリゴン 岩手県 奥州市 2026年度",
-    "target": "maff_032158.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 岩手県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_032166",
-    "description": "筆ポリゴン 岩手県 滝沢市 2026年度",
-    "target": "maff_032166.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 岩手県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_033014",
-    "description": "筆ポリゴン 岩手県 雫石町 2026年度",
-    "target": "maff_033014.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 岩手県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_033022",
-    "description": "筆ポリゴン 岩手県 葛巻町 2026年度",
-    "target": "maff_033022.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 岩手県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_033031",
-    "description": "筆ポリゴン 岩手県 岩手町 2026年度",
-    "target": "maff_033031.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 岩手県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_033219",
-    "description": "筆ポリゴン 岩手県 紫波町 2026年度",
-    "target": "maff_033219.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 岩手県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_033227",
-    "description": "筆ポリゴン 岩手県 矢巾町 2026年度",
-    "target": "maff_033227.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 岩手県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_033669",
-    "description": "筆ポリゴン 岩手県 西和賀町 2026年度",
-    "target": "maff_033669.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 岩手県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_033812",
-    "description": "筆ポリゴン 岩手県 金ケ崎町 2026年度",
-    "target": "maff_033812.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 岩手県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_034029",
-    "description": "筆ポリゴン 岩手県 平泉町 2026年度",
-    "target": "maff_034029.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 岩手県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_034410",
-    "description": "筆ポリゴン 岩手県 住田町 2026年度",
-    "target": "maff_034410.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 岩手県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_034614",
-    "description": "筆ポリゴン 岩手県 大槌町 2026年度",
-    "target": "maff_034614.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 岩手県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_034827",
-    "description": "筆ポリゴン 岩手県 山田町 2026年度",
-    "target": "maff_034827.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 岩手県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_034835",
-    "description": "筆ポリゴン 岩手県 岩泉町 2026年度",
-    "target": "maff_034835.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 岩手県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_034843",
-    "description": "筆ポリゴン 岩手県 田野畑村 2026年度",
-    "target": "maff_034843.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 岩手県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_034851",
-    "description": "筆ポリゴン 岩手県 普代村 2026年度",
-    "target": "maff_034851.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 岩手県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_035017",
-    "description": "筆ポリゴン 岩手県 軽米町 2026年度",
-    "target": "maff_035017.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 岩手県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_035033",
-    "description": "筆ポリゴン 岩手県 野田村 2026年度",
-    "target": "maff_035033.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 岩手県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_035068",
-    "description": "筆ポリゴン 岩手県 九戸村 2026年度",
-    "target": "maff_035068.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 岩手県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_035076",
-    "description": "筆ポリゴン 岩手県 洋野町 2026年度",
-    "target": "maff_035076.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 岩手県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_035246",
-    "description": "筆ポリゴン 岩手県 一戸町 2026年度",
-    "target": "maff_035246.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 岩手県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_041017",
-    "description": "筆ポリゴン 宮城県 仙台市青葉区 2026年度",
-    "target": "maff_041017.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 宮城県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_041025",
-    "description": "筆ポリゴン 宮城県 仙台市宮城野区 2026年度",
-    "target": "maff_041025.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 宮城県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_041033",
-    "description": "筆ポリゴン 宮城県 仙台市若林区 2026年度",
-    "target": "maff_041033.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 宮城県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_041041",
-    "description": "筆ポリゴン 宮城県 仙台市太白区 2026年度",
-    "target": "maff_041041.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 宮城県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_041050",
-    "description": "筆ポリゴン 宮城県 仙台市泉区 2026年度",
-    "target": "maff_041050.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 宮城県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_042021",
-    "description": "筆ポリゴン 宮城県 石巻市 2026年度",
-    "target": "maff_042021.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 宮城県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_042030",
-    "description": "筆ポリゴン 宮城県 塩竈市 2026年度",
-    "target": "maff_042030.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 宮城県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_042056",
-    "description": "筆ポリゴン 宮城県 気仙沼市 2026年度",
-    "target": "maff_042056.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 宮城県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_042064",
-    "description": "筆ポリゴン 宮城県 白石市 2026年度",
-    "target": "maff_042064.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 宮城県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_042072",
-    "description": "筆ポリゴン 宮城県 名取市 2026年度",
-    "target": "maff_042072.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 宮城県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_042081",
-    "description": "筆ポリゴン 宮城県 角田市 2026年度",
-    "target": "maff_042081.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 宮城県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_042099",
-    "description": "筆ポリゴン 宮城県 多賀城市 2026年度",
-    "target": "maff_042099.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 宮城県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_042111",
-    "description": "筆ポリゴン 宮城県 岩沼市 2026年度",
-    "target": "maff_042111.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 宮城県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_042129",
-    "description": "筆ポリゴン 宮城県 登米市 2026年度",
-    "target": "maff_042129.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 宮城県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_042137",
-    "description": "筆ポリゴン 宮城県 栗原市 2026年度",
-    "target": "maff_042137.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 宮城県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_042145",
-    "description": "筆ポリゴン 宮城県 東松島市 2026年度",
-    "target": "maff_042145.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 宮城県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_042153",
-    "description": "筆ポリゴン 宮城県 大崎市 2026年度",
-    "target": "maff_042153.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 宮城県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_042161",
-    "description": "筆ポリゴン 宮城県 富谷市 2026年度",
-    "target": "maff_042161.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 宮城県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_043010",
-    "description": "筆ポリゴン 宮城県 蔵王町 2026年度",
-    "target": "maff_043010.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 宮城県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_043028",
-    "description": "筆ポリゴン 宮城県 七ヶ宿町 2026年度",
-    "target": "maff_043028.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 宮城県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_043214",
-    "description": "筆ポリゴン 宮城県 大河原町 2026年度",
-    "target": "maff_043214.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 宮城県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_043222",
-    "description": "筆ポリゴン 宮城県 村田町 2026年度",
-    "target": "maff_043222.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 宮城県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_043231",
-    "description": "筆ポリゴン 宮城県 柴田町 2026年度",
-    "target": "maff_043231.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 宮城県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_043249",
-    "description": "筆ポリゴン 宮城県 川崎町 2026年度",
-    "target": "maff_043249.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 宮城県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_043419",
-    "description": "筆ポリゴン 宮城県 丸森町 2026年度",
-    "target": "maff_043419.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 宮城県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_043613",
-    "description": "筆ポリゴン 宮城県 亘理町 2026年度",
-    "target": "maff_043613.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 宮城県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_043621",
-    "description": "筆ポリゴン 宮城県 山元町 2026年度",
-    "target": "maff_043621.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 宮城県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_044016",
-    "description": "筆ポリゴン 宮城県 松島町 2026年度",
-    "target": "maff_044016.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 宮城県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_044041",
-    "description": "筆ポリゴン 宮城県 七ヶ浜町 2026年度",
-    "target": "maff_044041.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 宮城県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_044067",
-    "description": "筆ポリゴン 宮城県 利府町 2026年度",
-    "target": "maff_044067.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 宮城県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_044211",
-    "description": "筆ポリゴン 宮城県 大和町 2026年度",
-    "target": "maff_044211.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 宮城県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_044229",
-    "description": "筆ポリゴン 宮城県 大郷町 2026年度",
-    "target": "maff_044229.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 宮城県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_044245",
-    "description": "筆ポリゴン 宮城県 大衡村 2026年度",
-    "target": "maff_044245.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 宮城県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_044440",
-    "description": "筆ポリゴン 宮城県 色麻町 2026年度",
-    "target": "maff_044440.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 宮城県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_044458",
-    "description": "筆ポリゴン 宮城県 加美町 2026年度",
-    "target": "maff_044458.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 宮城県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_045012",
-    "description": "筆ポリゴン 宮城県 涌谷町 2026年度",
-    "target": "maff_045012.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 宮城県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_045055",
-    "description": "筆ポリゴン 宮城県 美里町 2026年度",
-    "target": "maff_045055.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 宮城県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_045811",
-    "description": "筆ポリゴン 宮城県 女川町 2026年度",
-    "target": "maff_045811.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 宮城県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_046060",
-    "description": "筆ポリゴン 宮城県 南三陸町 2026年度",
-    "target": "maff_046060.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 宮城県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_052019",
-    "description": "筆ポリゴン 秋田県 秋田市 2026年度",
-    "target": "maff_052019.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 秋田県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_052027",
-    "description": "筆ポリゴン 秋田県 能代市 2026年度",
-    "target": "maff_052027.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 秋田県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_052035",
-    "description": "筆ポリゴン 秋田県 横手市 2026年度",
-    "target": "maff_052035.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 秋田県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_052043",
-    "description": "筆ポリゴン 秋田県 大館市 2026年度",
-    "target": "maff_052043.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 秋田県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_052060",
-    "description": "筆ポリゴン 秋田県 男鹿市 2026年度",
-    "target": "maff_052060.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 秋田県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_052078",
-    "description": "筆ポリゴン 秋田県 湯沢市 2026年度",
-    "target": "maff_052078.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 秋田県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_052094",
-    "description": "筆ポリゴン 秋田県 鹿角市 2026年度",
-    "target": "maff_052094.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 秋田県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_052108",
-    "description": "筆ポリゴン 秋田県 由利本荘市 2026年度",
-    "target": "maff_052108.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 秋田県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_052116",
-    "description": "筆ポリゴン 秋田県 潟上市 2026年度",
-    "target": "maff_052116.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 秋田県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_052124",
-    "description": "筆ポリゴン 秋田県 大仙市 2026年度",
-    "target": "maff_052124.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 秋田県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_052132",
-    "description": "筆ポリゴン 秋田県 北秋田市 2026年度",
-    "target": "maff_052132.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 秋田県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_052141",
-    "description": "筆ポリゴン 秋田県 にかほ市 2026年度",
-    "target": "maff_052141.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 秋田県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_052159",
-    "description": "筆ポリゴン 秋田県 仙北市 2026年度",
-    "target": "maff_052159.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 秋田県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_053031",
-    "description": "筆ポリゴン 秋田県 小坂町 2026年度",
-    "target": "maff_053031.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 秋田県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_053279",
-    "description": "筆ポリゴン 秋田県 上小阿仁村 2026年度",
-    "target": "maff_053279.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 秋田県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_053465",
-    "description": "筆ポリゴン 秋田県 藤里町 2026年度",
-    "target": "maff_053465.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 秋田県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_053481",
-    "description": "筆ポリゴン 秋田県 三種町 2026年度",
-    "target": "maff_053481.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 秋田県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_053490",
-    "description": "筆ポリゴン 秋田県 八峰町 2026年度",
-    "target": "maff_053490.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 秋田県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_053619",
-    "description": "筆ポリゴン 秋田県 五城目町 2026年度",
-    "target": "maff_053619.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 秋田県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_053635",
-    "description": "筆ポリゴン 秋田県 八郎潟町 2026年度",
-    "target": "maff_053635.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 秋田県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  },
-  {
-    "name": "maff_053660",
-    "description": "筆ポリゴン 秋田県 井川町 2026年度",
-    "target": "maff_053660.geopbf",
-    "attribution": "農林水産省 筆ポリゴン > 秋田県",
-    "license": "CC BY 4.0",
-    "precision": 7
-  }
+	{
+	"name": "maff_011011",
+	"description": "筆ポリゴン 北海道 札幌市中央区 2026年度",
+	"target": "maff_011011.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_011029",
+	"description": "筆ポリゴン 北海道 札幌市北区 2026年度",
+	"target": "maff_011029.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_011037",
+	"description": "筆ポリゴン 北海道 札幌市東区 2026年度",
+	"target": "maff_011037.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_011045",
+	"description": "筆ポリゴン 北海道 札幌市白石区 2026年度",
+	"target": "maff_011045.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_011053",
+	"description": "筆ポリゴン 北海道 札幌市豊平区 2026年度",
+	"target": "maff_011053.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_011061",
+	"description": "筆ポリゴン 北海道 札幌市南区 2026年度",
+	"target": "maff_011061.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_011070",
+	"description": "筆ポリゴン 北海道 札幌市西区 2026年度",
+	"target": "maff_011070.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_011088",
+	"description": "筆ポリゴン 北海道 札幌市厚別区 2026年度",
+	"target": "maff_011088.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_011096",
+	"description": "筆ポリゴン 北海道 札幌市手稲区 2026年度",
+	"target": "maff_011096.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_011100",
+	"description": "筆ポリゴン 北海道 札幌市清田区 2026年度",
+	"target": "maff_011100.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_012025",
+	"description": "筆ポリゴン 北海道 函館市 2026年度",
+	"target": "maff_012025.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_012033",
+	"description": "筆ポリゴン 北海道 小樽市 2026年度",
+	"target": "maff_012033.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_012041",
+	"description": "筆ポリゴン 北海道 旭川市 2026年度",
+	"target": "maff_012041.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_012050",
+	"description": "筆ポリゴン 北海道 室蘭市 2026年度",
+	"target": "maff_012050.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_012068",
+	"description": "筆ポリゴン 北海道 釧路市 2026年度",
+	"target": "maff_012068.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_012076",
+	"description": "筆ポリゴン 北海道 帯広市 2026年度",
+	"target": "maff_012076.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_012084",
+	"description": "筆ポリゴン 北海道 北見市 2026年度",
+	"target": "maff_012084.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_012092",
+	"description": "筆ポリゴン 北海道 夕張市 2026年度",
+	"target": "maff_012092.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_012106",
+	"description": "筆ポリゴン 北海道 岩見沢市 2026年度",
+	"target": "maff_012106.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_012114",
+	"description": "筆ポリゴン 北海道 網走市 2026年度",
+	"target": "maff_012114.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_012122",
+	"description": "筆ポリゴン 北海道 留萌市 2026年度",
+	"target": "maff_012122.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_012131",
+	"description": "筆ポリゴン 北海道 苫小牧市 2026年度",
+	"target": "maff_012131.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_012149",
+	"description": "筆ポリゴン 北海道 稚内市 2026年度",
+	"target": "maff_012149.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_012157",
+	"description": "筆ポリゴン 北海道 美唄市 2026年度",
+	"target": "maff_012157.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_012165",
+	"description": "筆ポリゴン 北海道 芦別市 2026年度",
+	"target": "maff_012165.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_012173",
+	"description": "筆ポリゴン 北海道 江別市 2026年度",
+	"target": "maff_012173.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_012181",
+	"description": "筆ポリゴン 北海道 赤平市 2026年度",
+	"target": "maff_012181.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_012190",
+	"description": "筆ポリゴン 北海道 紋別市 2026年度",
+	"target": "maff_012190.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_012203",
+	"description": "筆ポリゴン 北海道 士別市 2026年度",
+	"target": "maff_012203.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_012211",
+	"description": "筆ポリゴン 北海道 名寄市 2026年度",
+	"target": "maff_012211.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_012220",
+	"description": "筆ポリゴン 北海道 三笠市 2026年度",
+	"target": "maff_012220.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_012238",
+	"description": "筆ポリゴン 北海道 根室市 2026年度",
+	"target": "maff_012238.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_012246",
+	"description": "筆ポリゴン 北海道 千歳市 2026年度",
+	"target": "maff_012246.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_012254",
+	"description": "筆ポリゴン 北海道 滝川市 2026年度",
+	"target": "maff_012254.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_012262",
+	"description": "筆ポリゴン 北海道 砂川市 2026年度",
+	"target": "maff_012262.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_012271",
+	"description": "筆ポリゴン 北海道 歌志内市 2026年度",
+	"target": "maff_012271.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_012289",
+	"description": "筆ポリゴン 北海道 深川市 2026年度",
+	"target": "maff_012289.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_012297",
+	"description": "筆ポリゴン 北海道 富良野市 2026年度",
+	"target": "maff_012297.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_012301",
+	"description": "筆ポリゴン 北海道 登別市 2026年度",
+	"target": "maff_012301.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_012319",
+	"description": "筆ポリゴン 北海道 恵庭市 2026年度",
+	"target": "maff_012319.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_012335",
+	"description": "筆ポリゴン 北海道 伊達市 2026年度",
+	"target": "maff_012335.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_012343",
+	"description": "筆ポリゴン 北海道 北広島市 2026年度",
+	"target": "maff_012343.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_012351",
+	"description": "筆ポリゴン 北海道 石狩市 2026年度",
+	"target": "maff_012351.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_012360",
+	"description": "筆ポリゴン 北海道 北斗市 2026年度",
+	"target": "maff_012360.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_013030",
+	"description": "筆ポリゴン 北海道 当別町 2026年度",
+	"target": "maff_013030.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_013048",
+	"description": "筆ポリゴン 北海道 新篠津村 2026年度",
+	"target": "maff_013048.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_013315",
+	"description": "筆ポリゴン 北海道 松前町 2026年度",
+	"target": "maff_013315.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_013323",
+	"description": "筆ポリゴン 北海道 福島町 2026年度",
+	"target": "maff_013323.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_013331",
+	"description": "筆ポリゴン 北海道 知内町 2026年度",
+	"target": "maff_013331.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_013340",
+	"description": "筆ポリゴン 北海道 木古内町 2026年度",
+	"target": "maff_013340.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_013374",
+	"description": "筆ポリゴン 北海道 七飯町 2026年度",
+	"target": "maff_013374.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_013439",
+	"description": "筆ポリゴン 北海道 鹿部町 2026年度",
+	"target": "maff_013439.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_013455",
+	"description": "筆ポリゴン 北海道 森町 2026年度",
+	"target": "maff_013455.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_013463",
+	"description": "筆ポリゴン 北海道 八雲町 2026年度",
+	"target": "maff_013463.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_013471",
+	"description": "筆ポリゴン 北海道 長万部町 2026年度",
+	"target": "maff_013471.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_013617",
+	"description": "筆ポリゴン 北海道 江差町 2026年度",
+	"target": "maff_013617.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_013625",
+	"description": "筆ポリゴン 北海道 上ノ国町 2026年度",
+	"target": "maff_013625.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_013633",
+	"description": "筆ポリゴン 北海道 厚沢部町 2026年度",
+	"target": "maff_013633.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_013641",
+	"description": "筆ポリゴン 北海道 乙部町 2026年度",
+	"target": "maff_013641.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_013676",
+	"description": "筆ポリゴン 北海道 奥尻町 2026年度",
+	"target": "maff_013676.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_013706",
+	"description": "筆ポリゴン 北海道 今金町 2026年度",
+	"target": "maff_013706.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_013714",
+	"description": "筆ポリゴン 北海道 せたな町 2026年度",
+	"target": "maff_013714.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_013919",
+	"description": "筆ポリゴン 北海道 島牧村 2026年度",
+	"target": "maff_013919.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_013927",
+	"description": "筆ポリゴン 北海道 寿都町 2026年度",
+	"target": "maff_013927.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_013935",
+	"description": "筆ポリゴン 北海道 黒松内町 2026年度",
+	"target": "maff_013935.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_013943",
+	"description": "筆ポリゴン 北海道 蘭越町 2026年度",
+	"target": "maff_013943.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_013951",
+	"description": "筆ポリゴン 北海道 ニセコ町 2026年度",
+	"target": "maff_013951.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_013960",
+	"description": "筆ポリゴン 北海道 真狩村 2026年度",
+	"target": "maff_013960.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_013978",
+	"description": "筆ポリゴン 北海道 留寿都村 2026年度",
+	"target": "maff_013978.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_013986",
+	"description": "筆ポリゴン 北海道 喜茂別町 2026年度",
+	"target": "maff_013986.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_013994",
+	"description": "筆ポリゴン 北海道 京極町 2026年度",
+	"target": "maff_013994.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_014001",
+	"description": "筆ポリゴン 北海道 倶知安町 2026年度",
+	"target": "maff_014001.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_014010",
+	"description": "筆ポリゴン 北海道 共和町 2026年度",
+	"target": "maff_014010.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_014028",
+	"description": "筆ポリゴン 北海道 岩内町 2026年度",
+	"target": "maff_014028.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_014036",
+	"description": "筆ポリゴン 北海道 泊村 2026年度",
+	"target": "maff_014036.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_014044",
+	"description": "筆ポリゴン 北海道 神恵内村 2026年度",
+	"target": "maff_014044.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_014052",
+	"description": "筆ポリゴン 北海道 積丹町 2026年度",
+	"target": "maff_014052.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_014061",
+	"description": "筆ポリゴン 北海道 古平町 2026年度",
+	"target": "maff_014061.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_014079",
+	"description": "筆ポリゴン 北海道 仁木町 2026年度",
+	"target": "maff_014079.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_014087",
+	"description": "筆ポリゴン 北海道 余市町 2026年度",
+	"target": "maff_014087.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_014095",
+	"description": "筆ポリゴン 北海道 赤井川村 2026年度",
+	"target": "maff_014095.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_014231",
+	"description": "筆ポリゴン 北海道 南幌町 2026年度",
+	"target": "maff_014231.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_014249",
+	"description": "筆ポリゴン 北海道 奈井江町 2026年度",
+	"target": "maff_014249.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_014257",
+	"description": "筆ポリゴン 北海道 上砂川町 2026年度",
+	"target": "maff_014257.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_014273",
+	"description": "筆ポリゴン 北海道 由仁町 2026年度",
+	"target": "maff_014273.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_014281",
+	"description": "筆ポリゴン 北海道 長沼町 2026年度",
+	"target": "maff_014281.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_014290",
+	"description": "筆ポリゴン 北海道 栗山町 2026年度",
+	"target": "maff_014290.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_014303",
+	"description": "筆ポリゴン 北海道 月形町 2026年度",
+	"target": "maff_014303.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_014311",
+	"description": "筆ポリゴン 北海道 浦臼町 2026年度",
+	"target": "maff_014311.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_014320",
+	"description": "筆ポリゴン 北海道 新十津川町 2026年度",
+	"target": "maff_014320.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_014338",
+	"description": "筆ポリゴン 北海道 妹背牛町 2026年度",
+	"target": "maff_014338.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_014346",
+	"description": "筆ポリゴン 北海道 秩父別町 2026年度",
+	"target": "maff_014346.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_014362",
+	"description": "筆ポリゴン 北海道 雨竜町 2026年度",
+	"target": "maff_014362.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_014371",
+	"description": "筆ポリゴン 北海道 北竜町 2026年度",
+	"target": "maff_014371.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_014389",
+	"description": "筆ポリゴン 北海道 沼田町 2026年度",
+	"target": "maff_014389.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_014524",
+	"description": "筆ポリゴン 北海道 鷹栖町 2026年度",
+	"target": "maff_014524.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_014532",
+	"description": "筆ポリゴン 北海道 東神楽町 2026年度",
+	"target": "maff_014532.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_014541",
+	"description": "筆ポリゴン 北海道 当麻町 2026年度",
+	"target": "maff_014541.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_014559",
+	"description": "筆ポリゴン 北海道 比布町 2026年度",
+	"target": "maff_014559.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_014567",
+	"description": "筆ポリゴン 北海道 愛別町 2026年度",
+	"target": "maff_014567.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_014575",
+	"description": "筆ポリゴン 北海道 上川町 2026年度",
+	"target": "maff_014575.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_014583",
+	"description": "筆ポリゴン 北海道 東川町 2026年度",
+	"target": "maff_014583.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_014591",
+	"description": "筆ポリゴン 北海道 美瑛町 2026年度",
+	"target": "maff_014591.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_014605",
+	"description": "筆ポリゴン 北海道 上富良野町 2026年度",
+	"target": "maff_014605.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_014613",
+	"description": "筆ポリゴン 北海道 中富良野町 2026年度",
+	"target": "maff_014613.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_014621",
+	"description": "筆ポリゴン 北海道 南富良野町 2026年度",
+	"target": "maff_014621.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_014630",
+	"description": "筆ポリゴン 北海道 占冠村 2026年度",
+	"target": "maff_014630.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_014648",
+	"description": "筆ポリゴン 北海道 和寒町 2026年度",
+	"target": "maff_014648.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_014656",
+	"description": "筆ポリゴン 北海道 剣淵町 2026年度",
+	"target": "maff_014656.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_014681",
+	"description": "筆ポリゴン 北海道 下川町 2026年度",
+	"target": "maff_014681.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_014699",
+	"description": "筆ポリゴン 北海道 美深町 2026年度",
+	"target": "maff_014699.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_014702",
+	"description": "筆ポリゴン 北海道 音威子府村 2026年度",
+	"target": "maff_014702.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_014711",
+	"description": "筆ポリゴン 北海道 中川町 2026年度",
+	"target": "maff_014711.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_014729",
+	"description": "筆ポリゴン 北海道 幌加内町 2026年度",
+	"target": "maff_014729.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_014818",
+	"description": "筆ポリゴン 北海道 増毛町 2026年度",
+	"target": "maff_014818.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_014826",
+	"description": "筆ポリゴン 北海道 小平町 2026年度",
+	"target": "maff_014826.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_014834",
+	"description": "筆ポリゴン 北海道 苫前町 2026年度",
+	"target": "maff_014834.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_014842",
+	"description": "筆ポリゴン 北海道 羽幌町 2026年度",
+	"target": "maff_014842.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_014851",
+	"description": "筆ポリゴン 北海道 初山別村 2026年度",
+	"target": "maff_014851.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_014869",
+	"description": "筆ポリゴン 北海道 遠別町 2026年度",
+	"target": "maff_014869.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_014877",
+	"description": "筆ポリゴン 北海道 天塩町 2026年度",
+	"target": "maff_014877.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_015113",
+	"description": "筆ポリゴン 北海道 猿払村 2026年度",
+	"target": "maff_015113.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_015121",
+	"description": "筆ポリゴン 北海道 浜頓別町 2026年度",
+	"target": "maff_015121.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_015130",
+	"description": "筆ポリゴン 北海道 中頓別町 2026年度",
+	"target": "maff_015130.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_015148",
+	"description": "筆ポリゴン 北海道 枝幸町 2026年度",
+	"target": "maff_015148.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_015164",
+	"description": "筆ポリゴン 北海道 豊富町 2026年度",
+	"target": "maff_015164.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_015172",
+	"description": "筆ポリゴン 北海道 礼文町 2026年度",
+	"target": "maff_015172.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_015181",
+	"description": "筆ポリゴン 北海道 利尻町 2026年度",
+	"target": "maff_015181.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_015199",
+	"description": "筆ポリゴン 北海道 利尻富士町 2026年度",
+	"target": "maff_015199.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_015202",
+	"description": "筆ポリゴン 北海道 幌延町 2026年度",
+	"target": "maff_015202.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_015431",
+	"description": "筆ポリゴン 北海道 美幌町 2026年度",
+	"target": "maff_015431.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_015440",
+	"description": "筆ポリゴン 北海道 津別町 2026年度",
+	"target": "maff_015440.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_015458",
+	"description": "筆ポリゴン 北海道 斜里町 2026年度",
+	"target": "maff_015458.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_015466",
+	"description": "筆ポリゴン 北海道 清里町 2026年度",
+	"target": "maff_015466.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_015474",
+	"description": "筆ポリゴン 北海道 小清水町 2026年度",
+	"target": "maff_015474.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_015491",
+	"description": "筆ポリゴン 北海道 訓子府町 2026年度",
+	"target": "maff_015491.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_015504",
+	"description": "筆ポリゴン 北海道 置戸町 2026年度",
+	"target": "maff_015504.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_015521",
+	"description": "筆ポリゴン 北海道 佐呂間町 2026年度",
+	"target": "maff_015521.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_015555",
+	"description": "筆ポリゴン 北海道 遠軽町 2026年度",
+	"target": "maff_015555.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_015598",
+	"description": "筆ポリゴン 北海道 湧別町 2026年度",
+	"target": "maff_015598.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_015601",
+	"description": "筆ポリゴン 北海道 滝上町 2026年度",
+	"target": "maff_015601.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_015610",
+	"description": "筆ポリゴン 北海道 興部町 2026年度",
+	"target": "maff_015610.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_015628",
+	"description": "筆ポリゴン 北海道 西興部村 2026年度",
+	"target": "maff_015628.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_015636",
+	"description": "筆ポリゴン 北海道 雄武町 2026年度",
+	"target": "maff_015636.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_015644",
+	"description": "筆ポリゴン 北海道 大空町 2026年度",
+	"target": "maff_015644.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_015717",
+	"description": "筆ポリゴン 北海道 豊浦町 2026年度",
+	"target": "maff_015717.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_015750",
+	"description": "筆ポリゴン 北海道 壮瞥町 2026年度",
+	"target": "maff_015750.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_015784",
+	"description": "筆ポリゴン 北海道 白老町 2026年度",
+	"target": "maff_015784.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_015814",
+	"description": "筆ポリゴン 北海道 厚真町 2026年度",
+	"target": "maff_015814.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_015849",
+	"description": "筆ポリゴン 北海道 洞爺湖町 2026年度",
+	"target": "maff_015849.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_015857",
+	"description": "筆ポリゴン 北海道 安平町 2026年度",
+	"target": "maff_015857.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_015865",
+	"description": "筆ポリゴン 北海道 むかわ町 2026年度",
+	"target": "maff_015865.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_016012",
+	"description": "筆ポリゴン 北海道 日高町 2026年度",
+	"target": "maff_016012.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_016021",
+	"description": "筆ポリゴン 北海道 平取町 2026年度",
+	"target": "maff_016021.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_016047",
+	"description": "筆ポリゴン 北海道 新冠町 2026年度",
+	"target": "maff_016047.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_016071",
+	"description": "筆ポリゴン 北海道 浦河町 2026年度",
+	"target": "maff_016071.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_016080",
+	"description": "筆ポリゴン 北海道 様似町 2026年度",
+	"target": "maff_016080.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_016098",
+	"description": "筆ポリゴン 北海道 えりも町 2026年度",
+	"target": "maff_016098.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_016101",
+	"description": "筆ポリゴン 北海道 新ひだか町 2026年度",
+	"target": "maff_016101.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_016314",
+	"description": "筆ポリゴン 北海道 音更町 2026年度",
+	"target": "maff_016314.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_016322",
+	"description": "筆ポリゴン 北海道 士幌町 2026年度",
+	"target": "maff_016322.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_016331",
+	"description": "筆ポリゴン 北海道 上士幌町 2026年度",
+	"target": "maff_016331.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_016349",
+	"description": "筆ポリゴン 北海道 鹿追町 2026年度",
+	"target": "maff_016349.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_016357",
+	"description": "筆ポリゴン 北海道 新得町 2026年度",
+	"target": "maff_016357.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_016365",
+	"description": "筆ポリゴン 北海道 清水町 2026年度",
+	"target": "maff_016365.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_016373",
+	"description": "筆ポリゴン 北海道 芽室町 2026年度",
+	"target": "maff_016373.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_016381",
+	"description": "筆ポリゴン 北海道 中札内村 2026年度",
+	"target": "maff_016381.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_016390",
+	"description": "筆ポリゴン 北海道 更別村 2026年度",
+	"target": "maff_016390.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_016411",
+	"description": "筆ポリゴン 北海道 大樹町 2026年度",
+	"target": "maff_016411.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_016420",
+	"description": "筆ポリゴン 北海道 広尾町 2026年度",
+	"target": "maff_016420.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_016438",
+	"description": "筆ポリゴン 北海道 幕別町 2026年度",
+	"target": "maff_016438.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_016446",
+	"description": "筆ポリゴン 北海道 池田町 2026年度",
+	"target": "maff_016446.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_016454",
+	"description": "筆ポリゴン 北海道 豊頃町 2026年度",
+	"target": "maff_016454.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_016462",
+	"description": "筆ポリゴン 北海道 本別町 2026年度",
+	"target": "maff_016462.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_016471",
+	"description": "筆ポリゴン 北海道 足寄町 2026年度",
+	"target": "maff_016471.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_016489",
+	"description": "筆ポリゴン 北海道 陸別町 2026年度",
+	"target": "maff_016489.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_016497",
+	"description": "筆ポリゴン 北海道 浦幌町 2026年度",
+	"target": "maff_016497.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_016616",
+	"description": "筆ポリゴン 北海道 釧路町 2026年度",
+	"target": "maff_016616.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_016624",
+	"description": "筆ポリゴン 北海道 厚岸町 2026年度",
+	"target": "maff_016624.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_016632",
+	"description": "筆ポリゴン 北海道 浜中町 2026年度",
+	"target": "maff_016632.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_016641",
+	"description": "筆ポリゴン 北海道 標茶町 2026年度",
+	"target": "maff_016641.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_016659",
+	"description": "筆ポリゴン 北海道 弟子屈町 2026年度",
+	"target": "maff_016659.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_016675",
+	"description": "筆ポリゴン 北海道 鶴居村 2026年度",
+	"target": "maff_016675.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_016683",
+	"description": "筆ポリゴン 北海道 白糠町 2026年度",
+	"target": "maff_016683.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_016918",
+	"description": "筆ポリゴン 北海道 別海町 2026年度",
+	"target": "maff_016918.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_016926",
+	"description": "筆ポリゴン 北海道 中標津町 2026年度",
+	"target": "maff_016926.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_016934",
+	"description": "筆ポリゴン 北海道 標津町 2026年度",
+	"target": "maff_016934.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_016942",
+	"description": "筆ポリゴン 北海道 羅臼町 2026年度",
+	"target": "maff_016942.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 北海道",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_022012",
+	"description": "筆ポリゴン 青森県 青森市 2026年度",
+	"target": "maff_022012.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 青森県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_022021",
+	"description": "筆ポリゴン 青森県 弘前市 2026年度",
+	"target": "maff_022021.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 青森県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_022039",
+	"description": "筆ポリゴン 青森県 八戸市 2026年度",
+	"target": "maff_022039.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 青森県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_022047",
+	"description": "筆ポリゴン 青森県 黒石市 2026年度",
+	"target": "maff_022047.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 青森県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_022055",
+	"description": "筆ポリゴン 青森県 五所川原市 2026年度",
+	"target": "maff_022055.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 青森県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_022063",
+	"description": "筆ポリゴン 青森県 十和田市 2026年度",
+	"target": "maff_022063.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 青森県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_022071",
+	"description": "筆ポリゴン 青森県 三沢市 2026年度",
+	"target": "maff_022071.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 青森県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_022080",
+	"description": "筆ポリゴン 青森県 むつ市 2026年度",
+	"target": "maff_022080.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 青森県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_022098",
+	"description": "筆ポリゴン 青森県 つがる市 2026年度",
+	"target": "maff_022098.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 青森県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_022101",
+	"description": "筆ポリゴン 青森県 平川市 2026年度",
+	"target": "maff_022101.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 青森県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_023019",
+	"description": "筆ポリゴン 青森県 平内町 2026年度",
+	"target": "maff_023019.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 青森県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_023035",
+	"description": "筆ポリゴン 青森県 今別町 2026年度",
+	"target": "maff_023035.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 青森県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_023043",
+	"description": "筆ポリゴン 青森県 蓬田村 2026年度",
+	"target": "maff_023043.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 青森県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_023078",
+	"description": "筆ポリゴン 青森県 外ヶ浜町 2026年度",
+	"target": "maff_023078.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 青森県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_023213",
+	"description": "筆ポリゴン 青森県 鰺ヶ沢町 2026年度",
+	"target": "maff_023213.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 青森県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_023230",
+	"description": "筆ポリゴン 青森県 深浦町 2026年度",
+	"target": "maff_023230.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 青森県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_023434",
+	"description": "筆ポリゴン 青森県 西目屋村 2026年度",
+	"target": "maff_023434.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 青森県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_023612",
+	"description": "筆ポリゴン 青森県 藤崎町 2026年度",
+	"target": "maff_023612.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 青森県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_023621",
+	"description": "筆ポリゴン 青森県 大鰐町 2026年度",
+	"target": "maff_023621.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 青森県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_023671",
+	"description": "筆ポリゴン 青森県 田舎館村 2026年度",
+	"target": "maff_023671.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 青森県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_023817",
+	"description": "筆ポリゴン 青森県 板柳町 2026年度",
+	"target": "maff_023817.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 青森県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_023841",
+	"description": "筆ポリゴン 青森県 鶴田町 2026年度",
+	"target": "maff_023841.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 青森県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_023876",
+	"description": "筆ポリゴン 青森県 中泊町 2026年度",
+	"target": "maff_023876.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 青森県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_024015",
+	"description": "筆ポリゴン 青森県 野辺地町 2026年度",
+	"target": "maff_024015.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 青森県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_024023",
+	"description": "筆ポリゴン 青森県 七戸町 2026年度",
+	"target": "maff_024023.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 青森県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_024058",
+	"description": "筆ポリゴン 青森県 六戸町 2026年度",
+	"target": "maff_024058.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 青森県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_024066",
+	"description": "筆ポリゴン 青森県 横浜町 2026年度",
+	"target": "maff_024066.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 青森県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_024082",
+	"description": "筆ポリゴン 青森県 東北町 2026年度",
+	"target": "maff_024082.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 青森県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_024112",
+	"description": "筆ポリゴン 青森県 六ヶ所村 2026年度",
+	"target": "maff_024112.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 青森県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_024121",
+	"description": "筆ポリゴン 青森県 おいらせ町 2026年度",
+	"target": "maff_024121.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 青森県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_024236",
+	"description": "筆ポリゴン 青森県 大間町 2026年度",
+	"target": "maff_024236.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 青森県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_024244",
+	"description": "筆ポリゴン 青森県 東通村 2026年度",
+	"target": "maff_024244.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 青森県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_024252",
+	"description": "筆ポリゴン 青森県 風間浦村 2026年度",
+	"target": "maff_024252.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 青森県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_024261",
+	"description": "筆ポリゴン 青森県 佐井村 2026年度",
+	"target": "maff_024261.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 青森県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_024414",
+	"description": "筆ポリゴン 青森県 三戸町 2026年度",
+	"target": "maff_024414.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 青森県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_024422",
+	"description": "筆ポリゴン 青森県 五戸町 2026年度",
+	"target": "maff_024422.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 青森県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_024431",
+	"description": "筆ポリゴン 青森県 田子町 2026年度",
+	"target": "maff_024431.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 青森県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_024457",
+	"description": "筆ポリゴン 青森県 南部町 2026年度",
+	"target": "maff_024457.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 青森県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_024465",
+	"description": "筆ポリゴン 青森県 階上町 2026年度",
+	"target": "maff_024465.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 青森県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_024503",
+	"description": "筆ポリゴン 青森県 新郷村 2026年度",
+	"target": "maff_024503.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 青森県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_032018",
+	"description": "筆ポリゴン 岩手県 盛岡市 2026年度",
+	"target": "maff_032018.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 岩手県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_032026",
+	"description": "筆ポリゴン 岩手県 宮古市 2026年度",
+	"target": "maff_032026.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 岩手県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_032034",
+	"description": "筆ポリゴン 岩手県 大船渡市 2026年度",
+	"target": "maff_032034.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 岩手県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_032051",
+	"description": "筆ポリゴン 岩手県 花巻市 2026年度",
+	"target": "maff_032051.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 岩手県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_032069",
+	"description": "筆ポリゴン 岩手県 北上市 2026年度",
+	"target": "maff_032069.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 岩手県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_032077",
+	"description": "筆ポリゴン 岩手県 久慈市 2026年度",
+	"target": "maff_032077.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 岩手県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_032085",
+	"description": "筆ポリゴン 岩手県 遠野市 2026年度",
+	"target": "maff_032085.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 岩手県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_032093",
+	"description": "筆ポリゴン 岩手県 一関市 2026年度",
+	"target": "maff_032093.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 岩手県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_032107",
+	"description": "筆ポリゴン 岩手県 陸前高田市 2026年度",
+	"target": "maff_032107.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 岩手県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_032115",
+	"description": "筆ポリゴン 岩手県 釜石市 2026年度",
+	"target": "maff_032115.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 岩手県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_032131",
+	"description": "筆ポリゴン 岩手県 二戸市 2026年度",
+	"target": "maff_032131.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 岩手県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_032140",
+	"description": "筆ポリゴン 岩手県 八幡平市 2026年度",
+	"target": "maff_032140.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 岩手県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_032158",
+	"description": "筆ポリゴン 岩手県 奥州市 2026年度",
+	"target": "maff_032158.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 岩手県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_032166",
+	"description": "筆ポリゴン 岩手県 滝沢市 2026年度",
+	"target": "maff_032166.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 岩手県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_033014",
+	"description": "筆ポリゴン 岩手県 雫石町 2026年度",
+	"target": "maff_033014.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 岩手県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_033022",
+	"description": "筆ポリゴン 岩手県 葛巻町 2026年度",
+	"target": "maff_033022.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 岩手県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_033031",
+	"description": "筆ポリゴン 岩手県 岩手町 2026年度",
+	"target": "maff_033031.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 岩手県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_033219",
+	"description": "筆ポリゴン 岩手県 紫波町 2026年度",
+	"target": "maff_033219.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 岩手県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_033227",
+	"description": "筆ポリゴン 岩手県 矢巾町 2026年度",
+	"target": "maff_033227.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 岩手県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_033669",
+	"description": "筆ポリゴン 岩手県 西和賀町 2026年度",
+	"target": "maff_033669.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 岩手県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_033812",
+	"description": "筆ポリゴン 岩手県 金ケ崎町 2026年度",
+	"target": "maff_033812.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 岩手県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_034029",
+	"description": "筆ポリゴン 岩手県 平泉町 2026年度",
+	"target": "maff_034029.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 岩手県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_034410",
+	"description": "筆ポリゴン 岩手県 住田町 2026年度",
+	"target": "maff_034410.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 岩手県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_034614",
+	"description": "筆ポリゴン 岩手県 大槌町 2026年度",
+	"target": "maff_034614.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 岩手県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_034827",
+	"description": "筆ポリゴン 岩手県 山田町 2026年度",
+	"target": "maff_034827.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 岩手県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_034835",
+	"description": "筆ポリゴン 岩手県 岩泉町 2026年度",
+	"target": "maff_034835.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 岩手県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_034843",
+	"description": "筆ポリゴン 岩手県 田野畑村 2026年度",
+	"target": "maff_034843.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 岩手県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_034851",
+	"description": "筆ポリゴン 岩手県 普代村 2026年度",
+	"target": "maff_034851.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 岩手県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_035017",
+	"description": "筆ポリゴン 岩手県 軽米町 2026年度",
+	"target": "maff_035017.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 岩手県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_035033",
+	"description": "筆ポリゴン 岩手県 野田村 2026年度",
+	"target": "maff_035033.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 岩手県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_035068",
+	"description": "筆ポリゴン 岩手県 九戸村 2026年度",
+	"target": "maff_035068.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 岩手県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_035076",
+	"description": "筆ポリゴン 岩手県 洋野町 2026年度",
+	"target": "maff_035076.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 岩手県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_035246",
+	"description": "筆ポリゴン 岩手県 一戸町 2026年度",
+	"target": "maff_035246.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 岩手県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_041017",
+	"description": "筆ポリゴン 宮城県 仙台市青葉区 2026年度",
+	"target": "maff_041017.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 宮城県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_041025",
+	"description": "筆ポリゴン 宮城県 仙台市宮城野区 2026年度",
+	"target": "maff_041025.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 宮城県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_041033",
+	"description": "筆ポリゴン 宮城県 仙台市若林区 2026年度",
+	"target": "maff_041033.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 宮城県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_041041",
+	"description": "筆ポリゴン 宮城県 仙台市太白区 2026年度",
+	"target": "maff_041041.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 宮城県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_041050",
+	"description": "筆ポリゴン 宮城県 仙台市泉区 2026年度",
+	"target": "maff_041050.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 宮城県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_042021",
+	"description": "筆ポリゴン 宮城県 石巻市 2026年度",
+	"target": "maff_042021.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 宮城県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_042030",
+	"description": "筆ポリゴン 宮城県 塩竈市 2026年度",
+	"target": "maff_042030.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 宮城県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_042056",
+	"description": "筆ポリゴン 宮城県 気仙沼市 2026年度",
+	"target": "maff_042056.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 宮城県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_042064",
+	"description": "筆ポリゴン 宮城県 白石市 2026年度",
+	"target": "maff_042064.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 宮城県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_042072",
+	"description": "筆ポリゴン 宮城県 名取市 2026年度",
+	"target": "maff_042072.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 宮城県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_042081",
+	"description": "筆ポリゴン 宮城県 角田市 2026年度",
+	"target": "maff_042081.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 宮城県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_042099",
+	"description": "筆ポリゴン 宮城県 多賀城市 2026年度",
+	"target": "maff_042099.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 宮城県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_042111",
+	"description": "筆ポリゴン 宮城県 岩沼市 2026年度",
+	"target": "maff_042111.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 宮城県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_042129",
+	"description": "筆ポリゴン 宮城県 登米市 2026年度",
+	"target": "maff_042129.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 宮城県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_042137",
+	"description": "筆ポリゴン 宮城県 栗原市 2026年度",
+	"target": "maff_042137.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 宮城県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_042145",
+	"description": "筆ポリゴン 宮城県 東松島市 2026年度",
+	"target": "maff_042145.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 宮城県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_042153",
+	"description": "筆ポリゴン 宮城県 大崎市 2026年度",
+	"target": "maff_042153.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 宮城県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_042161",
+	"description": "筆ポリゴン 宮城県 富谷市 2026年度",
+	"target": "maff_042161.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 宮城県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_043010",
+	"description": "筆ポリゴン 宮城県 蔵王町 2026年度",
+	"target": "maff_043010.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 宮城県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_043028",
+	"description": "筆ポリゴン 宮城県 七ヶ宿町 2026年度",
+	"target": "maff_043028.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 宮城県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_043214",
+	"description": "筆ポリゴン 宮城県 大河原町 2026年度",
+	"target": "maff_043214.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 宮城県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_043222",
+	"description": "筆ポリゴン 宮城県 村田町 2026年度",
+	"target": "maff_043222.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 宮城県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_043231",
+	"description": "筆ポリゴン 宮城県 柴田町 2026年度",
+	"target": "maff_043231.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 宮城県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_043249",
+	"description": "筆ポリゴン 宮城県 川崎町 2026年度",
+	"target": "maff_043249.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 宮城県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_043419",
+	"description": "筆ポリゴン 宮城県 丸森町 2026年度",
+	"target": "maff_043419.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 宮城県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_043613",
+	"description": "筆ポリゴン 宮城県 亘理町 2026年度",
+	"target": "maff_043613.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 宮城県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_043621",
+	"description": "筆ポリゴン 宮城県 山元町 2026年度",
+	"target": "maff_043621.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 宮城県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_044016",
+	"description": "筆ポリゴン 宮城県 松島町 2026年度",
+	"target": "maff_044016.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 宮城県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_044041",
+	"description": "筆ポリゴン 宮城県 七ヶ浜町 2026年度",
+	"target": "maff_044041.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 宮城県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_044067",
+	"description": "筆ポリゴン 宮城県 利府町 2026年度",
+	"target": "maff_044067.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 宮城県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_044211",
+	"description": "筆ポリゴン 宮城県 大和町 2026年度",
+	"target": "maff_044211.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 宮城県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_044229",
+	"description": "筆ポリゴン 宮城県 大郷町 2026年度",
+	"target": "maff_044229.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 宮城県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_044245",
+	"description": "筆ポリゴン 宮城県 大衡村 2026年度",
+	"target": "maff_044245.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 宮城県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_044440",
+	"description": "筆ポリゴン 宮城県 色麻町 2026年度",
+	"target": "maff_044440.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 宮城県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_044458",
+	"description": "筆ポリゴン 宮城県 加美町 2026年度",
+	"target": "maff_044458.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 宮城県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_045012",
+	"description": "筆ポリゴン 宮城県 涌谷町 2026年度",
+	"target": "maff_045012.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 宮城県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_045055",
+	"description": "筆ポリゴン 宮城県 美里町 2026年度",
+	"target": "maff_045055.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 宮城県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_045811",
+	"description": "筆ポリゴン 宮城県 女川町 2026年度",
+	"target": "maff_045811.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 宮城県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_046060",
+	"description": "筆ポリゴン 宮城県 南三陸町 2026年度",
+	"target": "maff_046060.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 宮城県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_052019",
+	"description": "筆ポリゴン 秋田県 秋田市 2026年度",
+	"target": "maff_052019.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 秋田県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_052027",
+	"description": "筆ポリゴン 秋田県 能代市 2026年度",
+	"target": "maff_052027.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 秋田県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_052035",
+	"description": "筆ポリゴン 秋田県 横手市 2026年度",
+	"target": "maff_052035.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 秋田県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_052043",
+	"description": "筆ポリゴン 秋田県 大館市 2026年度",
+	"target": "maff_052043.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 秋田県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_052060",
+	"description": "筆ポリゴン 秋田県 男鹿市 2026年度",
+	"target": "maff_052060.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 秋田県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_052078",
+	"description": "筆ポリゴン 秋田県 湯沢市 2026年度",
+	"target": "maff_052078.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 秋田県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_052094",
+	"description": "筆ポリゴン 秋田県 鹿角市 2026年度",
+	"target": "maff_052094.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 秋田県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_052108",
+	"description": "筆ポリゴン 秋田県 由利本荘市 2026年度",
+	"target": "maff_052108.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 秋田県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_052116",
+	"description": "筆ポリゴン 秋田県 潟上市 2026年度",
+	"target": "maff_052116.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 秋田県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_052124",
+	"description": "筆ポリゴン 秋田県 大仙市 2026年度",
+	"target": "maff_052124.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 秋田県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_052132",
+	"description": "筆ポリゴン 秋田県 北秋田市 2026年度",
+	"target": "maff_052132.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 秋田県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_052141",
+	"description": "筆ポリゴン 秋田県 にかほ市 2026年度",
+	"target": "maff_052141.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 秋田県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_052159",
+	"description": "筆ポリゴン 秋田県 仙北市 2026年度",
+	"target": "maff_052159.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 秋田県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_053031",
+	"description": "筆ポリゴン 秋田県 小坂町 2026年度",
+	"target": "maff_053031.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 秋田県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_053279",
+	"description": "筆ポリゴン 秋田県 上小阿仁村 2026年度",
+	"target": "maff_053279.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 秋田県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_053465",
+	"description": "筆ポリゴン 秋田県 藤里町 2026年度",
+	"target": "maff_053465.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 秋田県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_053481",
+	"description": "筆ポリゴン 秋田県 三種町 2026年度",
+	"target": "maff_053481.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 秋田県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_053490",
+	"description": "筆ポリゴン 秋田県 八峰町 2026年度",
+	"target": "maff_053490.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 秋田県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_053619",
+	"description": "筆ポリゴン 秋田県 五城目町 2026年度",
+	"target": "maff_053619.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 秋田県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_053635",
+	"description": "筆ポリゴン 秋田県 八郎潟町 2026年度",
+	"target": "maff_053635.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 秋田県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	},
+	{
+	"name": "maff_053660",
+	"description": "筆ポリゴン 秋田県 井川町 2026年度",
+	"target": "maff_053660.geopbf",
+	"attribution": "農林水産省 筆ポリゴン > 秋田県",
+	"license": "CC BY 4.0",
+	"precision": 7
+	}
 ]

@@ -25,17 +25,17 @@
 
 .links { display: flex; flex-wrap: wrap; gap: 8px; }
 .btn {
-    display: inline-flex; align-items: center; gap: 0;
-    padding: 5px 14px; border-radius: 6px;
-    font-family: var(--mono); font-size: 0.76rem; font-weight: 600;
-    text-decoration: none !important;
-    transition: background 0.15s, gap 0.15s;
+	display: inline-flex; align-items: center; gap: 0;
+	padding: 5px 14px; border-radius: 6px;
+	font-family: var(--mono); font-size: 0.76rem; font-weight: 600;
+	text-decoration: none !important;
+	transition: background 0.15s, gap 0.15s;
 }
 .btn::after {
-    content: '→'; font-size: 0.88em; opacity: 0;
-    transform: translateX(-6px);
-    transition: opacity 0.15s, transform 0.15s;
-    display: inline-block;
+	content: '→'; font-size: 0.88em; opacity: 0;
+	transform: translateX(-6px);
+	transition: opacity 0.15s, transform 0.15s;
+	display: inline-block;
 }
 .btn:hover { gap: 6px; }
 .btn:hover::after { opacity: 0.8; transform: translateX(0); }
@@ -56,105 +56,105 @@
 <body>
 
 <div class="header-bar">
-    <img src="favicon.svg" width="24" height="24" style="flex-shrink:0">
-    <span class="logo">ortho-earth</span>
-    <span class="sep">/</span>
-    <span style="font-family:var(--mono);font-size:0.85rem;color:var(--dim)">docs</span>
-    <div class="nav-links">
-        <a href="index-jp.html">日本語</a>
-        <a href="https://github.com/kenjiyoshida" target="_blank" aria-label="GitHub" style="display:inline-flex;align-items:center;gap:5px"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" style="flex-shrink:0"><path d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"/></svg>GitHub</a>
-    </div>
+	<img src="favicon.svg" width="24" height="24" style="flex-shrink:0">
+	<span class="logo">ortho-earth</span>
+	<span class="sep">/</span>
+	<span style="font-family:var(--mono);font-size:0.85rem;color:var(--dim)">docs</span>
+	<div class="nav-links">
+		<a href="index-jp.html">日本語</a>
+		<a href="https://github.com/kenjiyoshida" target="_blank" aria-label="GitHub" style="display:inline-flex;align-items:center;gap:5px"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" style="flex-shrink:0"><path d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"/></svg>GitHub</a>
+	</div>
 </div>
 
 <div class="hero">
-    <h1>Documentation</h1>
-    <p class="tagline">Open-source geospatial rendering &amp; data format libraries · MIT / GPL-3.0</p>
+	<h1>Documentation</h1>
+	<p class="tagline">Open-source geospatial rendering &amp; data format libraries · MIT / GPL-3.0</p>
 </div>
 
 <div class="grid">
 
-    <div class="section-label">Data Formats</div>
+	<div class="section-label">Data Formats</div>
 
-    <div class="doc-card">
-        <div class="card-header">
-            <span class="card-name">GeoPBF</span>
-            <span class="card-sub">geopbf · MIT</span>
-        </div>
-        <p class="card-desc">
-            A Protocol Buffers-based geospatial binary format extending the GeoJSON structure.
-            Lightweight (~1/10 the size of GeoJSON) for fast transfer. Supports bidirectional
-            converters to common GIS formats. Can also store image files such as icons.
-        </p>
-        <div class="links">
-            <a href="geopbf.html"    class="btn btn-en">Technical Overview</a>
-            <a href="geopbf-jp.html" class="btn btn-jp">技術概要</a>
-        </div>
-    </div>
+	<div class="doc-card">
+		<div class="card-header">
+			<span class="card-name">GeoPBF</span>
+			<span class="card-sub">geopbf · MIT</span>
+		</div>
+		<p class="card-desc">
+			A Protocol Buffers-based geospatial binary format extending the GeoJSON structure.
+			Lightweight (~1/10 the size of GeoJSON) for fast transfer. Supports bidirectional
+			converters to common GIS formats. Can also store image files such as icons.
+		</p>
+		<div class="links">
+			<a href="geopbf.html"    class="btn btn-en">Technical Overview</a>
+			<a href="geopbf-jp.html" class="btn btn-jp">技術概要</a>
+		</div>
+	</div>
 
-    <div class="doc-card">
-        <div class="card-header">
-            <span class="card-name">AltPBF</span>
-            <span class="card-sub">altpbf · MIT</span>
-        </div>
-        <p class="card-desc">
-            Protocol Buffers-based raster elevation tiles. 3-tier zoom LOD,
-            GEBCO + ALOS dual sources, Int16 delta encoding with deflateRaw compression.
-            Worker zero-copy transfer for high-throughput terrain rendering.
-        </p>
-        <div class="links">
-            <a href="altpbf.html"    class="btn btn-en">Technical Overview</a>
-            <a href="altpbf-jp.html" class="btn btn-jp">技術概要</a>
-        </div>
-    </div>
+	<div class="doc-card">
+		<div class="card-header">
+			<span class="card-name">AltPBF</span>
+			<span class="card-sub">altpbf · MIT</span>
+		</div>
+		<p class="card-desc">
+			Protocol Buffers-based raster elevation tiles. 3-tier zoom LOD,
+			GEBCO + ALOS dual sources, Int16 delta encoding with deflateRaw compression.
+			Worker zero-copy transfer for high-throughput terrain rendering.
+		</p>
+		<div class="links">
+			<a href="altpbf.html"    class="btn btn-en">Technical Overview</a>
+			<a href="altpbf-jp.html" class="btn btn-jp">技術概要</a>
+		</div>
+	</div>
 
-    <div class="section-label">Renderer</div>
+	<div class="section-label">Renderer</div>
 
-    <div class="doc-card">
-        <div class="card-header">
-            <span class="card-name">Gint</span>
-            <span class="card-sub">ortho-map · GPL-3.0</span>
-        </div>
-        <p class="card-desc">
-            Geographic Interleaved Binary Format — a 64-bit binary format combining
-            Morton-coded spatial indexing with Visvalingam–Whyatt LOD weighting.
-            Realizes a dynamic LOD and stencil-based polygon fill pipeline in WebGL.
-        </p>
-        <div class="links">
-            <a href="gintbuf.html" class="btn btn-en">Technical Overview</a>
-            <a href="gintbuf-jp.html" class="btn btn-jp">技術概要</a>
-        </div>
-        <hr class="card-divider">
-        <div style="font-family:var(--mono);font-size:0.7rem;color:var(--dim);margin-bottom:10px">Interactive demos</div>
-        <div class="links">
-            <a href="gint.html" class="btn btn-demo">What is Gint?</a>
-            <a href="lod.html"  class="btn btn-demo">Dynamic LOD</a>
-            <a href="st.html"   class="btn btn-demo">GPU Stencil Tessellation</a>
-        </div>
-    </div>
+	<div class="doc-card">
+		<div class="card-header">
+			<span class="card-name">Gint</span>
+			<span class="card-sub">ortho-map · GPL-3.0</span>
+		</div>
+		<p class="card-desc">
+			Geographic Interleaved Binary Format — a 64-bit binary format combining
+			Morton-coded spatial indexing with Visvalingam–Whyatt LOD weighting.
+			Realizes a dynamic LOD and stencil-based polygon fill pipeline in WebGL.
+		</p>
+		<div class="links">
+			<a href="gintbuf.html" class="btn btn-en">Technical Overview</a>
+			<a href="gintbuf-jp.html" class="btn btn-jp">技術概要</a>
+		</div>
+		<hr class="card-divider">
+		<div style="font-family:var(--mono);font-size:0.7rem;color:var(--dim);margin-bottom:10px">Interactive demos</div>
+		<div class="links">
+			<a href="gint.html" class="btn btn-demo">What is Gint?</a>
+			<a href="lod.html"  class="btn btn-demo">Dynamic LOD</a>
+			<a href="st.html"   class="btn btn-demo">GPU Stencil Tessellation</a>
+		</div>
+	</div>
 
-    <div class="doc-card">
-        <div class="card-header">
-            <span class="card-name">OrthoMap</span>
-            <span class="card-sub">ortho-map · GPL-3.0</span>
-        </div>
-        <p class="card-desc">
-            A WebGL map rendering framework for orthographic (globe view) projection.
-            Composites WebGL base map rendering, WebGL vector rendering (Gint), and more
-            via a Worker-based parallel pipeline.
-            Natively integrates GeoPBF / AltPBF data formats.
-        </p>
-        <div class="links">
-            <a href="ortho-map.html"    class="btn btn-en">Technical Overview</a>
-            <a href="ortho-map-jp.html" class="btn btn-jp">技術概要</a>
-        </div>
-    </div>
+	<div class="doc-card">
+		<div class="card-header">
+			<span class="card-name">OrthoMap</span>
+			<span class="card-sub">ortho-map · GPL-3.0</span>
+		</div>
+		<p class="card-desc">
+			A WebGL map rendering framework for orthographic (globe view) projection.
+			Composites WebGL base map rendering, WebGL vector rendering (Gint), and more
+			via a Worker-based parallel pipeline.
+			Natively integrates GeoPBF / AltPBF data formats.
+		</p>
+		<div class="links">
+			<a href="ortho-map.html"    class="btn btn-en">Technical Overview</a>
+			<a href="ortho-map-jp.html" class="btn btn-jp">技術概要</a>
+		</div>
+	</div>
 
 </div>
 
 <div class="license-footer">
-    <a href="ortho-map.html">OrthoMap</a> / <a href="gintbuf.html">Gint</a> / <a href="geopbf.html">GeoPBF</a> / <a href="altpbf.html">AltPBF</a>
-    &nbsp;·&nbsp; Copyright © 2026 Kenji Yoshida
-    &nbsp;·&nbsp; <a href="https://opensource.org/licenses/MIT" target="_blank">MIT</a> / <a href="https://www.gnu.org/licenses/gpl-3.0.html" target="_blank">GPL-3.0</a>
+	<a href="ortho-map.html">OrthoMap</a> / <a href="gintbuf.html">Gint</a> / <a href="geopbf.html">GeoPBF</a> / <a href="altpbf.html">AltPBF</a>
+	&nbsp;·&nbsp; Copyright © 2026 Kenji Yoshida
+	&nbsp;·&nbsp; <a href="https://opensource.org/licenses/MIT" target="_blank">MIT</a> / <a href="https://www.gnu.org/licenses/gpl-3.0.html" target="_blank">GPL-3.0</a>
 </div>
 
 </body>

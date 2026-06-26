@@ -36,18 +36,18 @@
 <body>
 
 <div class="header-bar">
-    <img src="favicon.svg" width="24" height="24" style="flex-shrink:0">
-    <span class="logo">altpbf</span>
-    <span class="sep">/</span>
-    <span style="color:var(--dim);font-size:0.82rem">Technical Overview</span>
-    <div class="nav-links">
-        <a href="index.html">← Docs</a>
-        <a href="altpbf-jp.html">日本語</a>
-        <a href="ortho-map.html">OrthoMap</a>
-        <a href="gintbuf.html">Gint</a>
-        <a href="geopbf.html">GeoPBF</a>
-        <span class="nav-cur">AltPBF</span>
-    </div>
+	<img src="favicon.svg" width="24" height="24" style="flex-shrink:0">
+	<span class="logo">altpbf</span>
+	<span class="sep">/</span>
+	<span style="color:var(--dim);font-size:0.82rem">Technical Overview</span>
+	<div class="nav-links">
+		<a href="index.html">← Docs</a>
+		<a href="altpbf-jp.html">日本語</a>
+		<a href="ortho-map.html">OrthoMap</a>
+		<a href="gintbuf.html">Gint</a>
+		<a href="geopbf.html">GeoPBF</a>
+		<span class="nav-cur">AltPBF</span>
+	</div>
 </div>
 
 <div class="page">
@@ -57,17 +57,17 @@
 3-tier zoom LOD · GEBCO + ALOS dual sources · Int16 delta + deflateRaw · Worker zero-copy</p>
 
 <div class="toc">
-    <div class="toc-title">Table of Contents</div>
-    <ol>
-        <li><a href="#what">What is altpbf?</a></li>
-        <li><a href="#sources">Data Sources</a></li>
-        <li><a href="#tiers">3-Tier Tile Hierarchy</a></li>
-        <li><a href="#format">Binary Format</a></li>
-        <li><a href="#naming">Tile Naming</a></li>
-        <li><a href="#worker">Worker &amp; Cache Architecture</a></li>
-        <li><a href="#gebco">GEBCO Processing Pipeline</a></li>
-        <li><a href="#api">API Reference</a></li>
-    </ol>
+	<div class="toc-title">Table of Contents</div>
+	<ol>
+		<li><a href="#what">What is altpbf?</a></li>
+		<li><a href="#sources">Data Sources</a></li>
+		<li><a href="#tiers">3-Tier Tile Hierarchy</a></li>
+		<li><a href="#format">Binary Format</a></li>
+		<li><a href="#naming">Tile Naming</a></li>
+		<li><a href="#worker">Worker &amp; Cache Architecture</a></li>
+		<li><a href="#gebco">GEBCO Processing Pipeline</a></li>
+		<li><a href="#api">API Reference</a></li>
+	</ol>
 </div>
 
 <!-- ──────────────────────────────────────────────────── -->
@@ -89,31 +89,31 @@ and the appropriate tier is selected automatically based on zoom level.
 </p>
 
 <div class="callout callout-key">
-    <div class="callout-head">Why Int16?</div>
-    <p>
-        Earth's elevation range is roughly −11,000 m (Mariana Trench) to +8,849 m (Everest).
-        A signed 16-bit integer covers −32,768 to +32,767 m — exactly enough, with no wasted bits.
-        Compared to Float32, Int16 halves the data size before any compression is applied.
-    </p>
+	<div class="callout-head">Why Int16?</div>
+	<p>
+		Earth's elevation range is roughly −11,000 m (Mariana Trench) to +8,849 m (Everest).
+		A signed 16-bit integer covers −32,768 to +32,767 m — exactly enough, with no wasted bits.
+		Compared to Float32, Int16 halves the data size before any compression is applied.
+	</p>
 </div>
 
 <!-- ──────────────────────────────────────────────────── -->
 <h2 id="sources">2. Data Sources</h2>
 
 <table>
-    <tr><th>Source</th><th>Coverage</th><th>Resolution</th><th>Used for</th></tr>
-    <tr>
-        <td><strong>GEBCO</strong><br><span class="dim" style="font-size:0.72rem">General Bathymetric Chart of the Oceans</span></td>
-        <td class="good">Global (land + sea)</td>
-        <td class="dim">~450 m (15 arc-sec)</td>
-        <td>HGT90 · HGT10</td>
-    </tr>
-    <tr>
-        <td><strong>ALOS AW3D30</strong><br><span class="dim" style="font-size:0.72rem">JAXA ALOS World 3D</span></td>
-        <td class="mid">Land only</td>
-        <td class="good">~30 m (1 arc-sec)</td>
-        <td>HGT01</td>
-    </tr>
+	<tr><th>Source</th><th>Coverage</th><th>Resolution</th><th>Used for</th></tr>
+	<tr>
+		<td><strong>GEBCO</strong><br><span class="dim" style="font-size:0.72rem">General Bathymetric Chart of the Oceans</span></td>
+		<td class="good">Global (land + sea)</td>
+		<td class="dim">~450 m (15 arc-sec)</td>
+		<td>HGT90 · HGT10</td>
+	</tr>
+	<tr>
+		<td><strong>ALOS AW3D30</strong><br><span class="dim" style="font-size:0.72rem">JAXA ALOS World 3D</span></td>
+		<td class="mid">Land only</td>
+		<td class="good">~30 m (1 arc-sec)</td>
+		<td>HGT01</td>
+	</tr>
 </table>
 
 <p>
@@ -134,30 +134,30 @@ defaulting to <code>level1 = 7</code> and <code>level2 = 12</code>.
 </p>
 
 <div class="tier-stack">
-    <div class="tier hgt90">
-        <div class="tier-badge t-hgt90">HGT90<div style="font-size:0.65rem;font-weight:normal;margin-top:2px">90° tile</div></div>
-        <div class="tier-body">
-            <div class="t-title" style="color:var(--sky)">Global overview — GEBCO</div>
-            <div class="t-detail">Only 8 tiles cover the globe. Downsampled 8× from the 21600-px source (average pooling). Fastest to load.</div>
-        </div>
-        <div class="tier-zoom">zoom &lt; 7</div>
-    </div>
-    <div class="tier hgt10">
-        <div class="tier-badge t-hgt10">HGT10<div style="font-size:0.65rem;font-weight:normal;margin-top:2px">10° tile</div></div>
-        <div class="tier-body">
-            <div class="t-title" style="color:#6ee7b7">Regional — GEBCO</div>
-            <div class="t-detail">324 tiles cover the globe. Latitude-adjusted width (polar shrink). Sub-100 km features become visible.</div>
-        </div>
-        <div class="tier-zoom">7 ≤ zoom &lt; 12</div>
-    </div>
-    <div class="tier hgt01">
-        <div class="tier-badge t-hgt01">HGT01<div style="font-size:0.65rem;font-weight:normal;margin-top:2px">1° tile</div></div>
-        <div class="tier-body">
-            <div class="t-title" style="color:#f9a8d4">Local detail — ALOS AW3D30</div>
-            <div class="t-detail">~64,800 land tiles, 30 m resolution. Only exists for land areas; falls back to HGT10 otherwise.</div>
-        </div>
-        <div class="tier-zoom">zoom ≥ 12</div>
-    </div>
+	<div class="tier hgt90">
+		<div class="tier-badge t-hgt90">HGT90<div style="font-size:0.65rem;font-weight:normal;margin-top:2px">90° tile</div></div>
+		<div class="tier-body">
+			<div class="t-title" style="color:var(--sky)">Global overview — GEBCO</div>
+			<div class="t-detail">Only 8 tiles cover the globe. Downsampled 8× from the 21600-px source (average pooling). Fastest to load.</div>
+		</div>
+		<div class="tier-zoom">zoom &lt; 7</div>
+	</div>
+	<div class="tier hgt10">
+		<div class="tier-badge t-hgt10">HGT10<div style="font-size:0.65rem;font-weight:normal;margin-top:2px">10° tile</div></div>
+		<div class="tier-body">
+			<div class="t-title" style="color:#6ee7b7">Regional — GEBCO</div>
+			<div class="t-detail">324 tiles cover the globe. Latitude-adjusted width (polar shrink). Sub-100 km features become visible.</div>
+		</div>
+		<div class="tier-zoom">7 ≤ zoom &lt; 12</div>
+	</div>
+	<div class="tier hgt01">
+		<div class="tier-badge t-hgt01">HGT01<div style="font-size:0.65rem;font-weight:normal;margin-top:2px">1° tile</div></div>
+		<div class="tier-body">
+			<div class="t-title" style="color:#f9a8d4">Local detail — ALOS AW3D30</div>
+			<div class="t-detail">~64,800 land tiles, 30 m resolution. Only exists for land areas; falls back to HGT10 otherwise.</div>
+		</div>
+		<div class="tier-zoom">zoom ≥ 12</div>
+	</div>
 </div>
 
 <p>
@@ -168,13 +168,13 @@ The caller always receives a valid elevation value.
 </p>
 
 <div class="callout callout-note">
-    <div class="callout-head">Bilinear Interpolation</div>
-    <p>
-        Within each tile, <code>calcHeight(x, y, v)</code> performs bilinear interpolation
-        across the four nearest grid cells — no staircase artifacts.
-        Normalized coordinates (0–1) within the tile are computed from the raw lat/lng
-        and passed directly to the interpolation function.
-    </p>
+	<div class="callout-head">Bilinear Interpolation</div>
+	<p>
+		Within each tile, <code>calcHeight(x, y, v)</code> performs bilinear interpolation
+		across the four nearest grid cells — no staircase artifacts.
+		Normalized coordinates (0–1) within the tile are computed from the raw lat/lng
+		and passed directly to the interpolation function.
+	</p>
 </div>
 
 <!-- ──────────────────────────────────────────────────── -->
@@ -185,39 +185,39 @@ Each .altpbf tile is a <strong>deflateRaw-compressed Protocol Buffers message</s
 </p>
 
 <div class="bin-struct">
-    <div class="bin-row">
-        <div class="bin-cell" style="background:#0d343f;color:var(--teal);flex:0 0 110px;border-radius:6px 0 0 6px">
-            Header
-            <div class="bin-label">tile metadata</div>
-        </div>
-        <div class="bin-cell" style="background:#0f172a;color:var(--dim);flex:1;font-size:0.75rem;text-align:left;padding-left:16px;border-radius:0 6px 6px 0">
-            NAME (1) · SOURCE (2) · WIDTH (3) · HEIGHT (4)<br>
-            LNG (5) · LAT (6) · RANGE (7)
-            <div class="bin-label" style="margin-top:4px">All coordinate fields use signed Varint (SVarint)</div>
-        </div>
-    </div>
-    <div style="text-align:center;color:var(--dim);font-size:1rem;line-height:1;margin:4px 0">↓</div>
-    <div class="bin-row">
-        <div class="bin-cell" style="background:#1a3a2a;color:var(--green);flex:0 0 110px;border-radius:6px 0 0 6px">
-            DATA (10)
-            <div class="bin-label">elevation grid</div>
-        </div>
-        <div class="bin-cell" style="background:#0f172a;color:var(--dim);flex:1;text-align:left;padding-left:16px;border-radius:0 6px 6px 0;font-size:0.75rem">
-            Packed SVarint — delta-encoded Int16 elevation values<br>
-            <strong style="color:var(--teal)">Row-major order, top-to-bottom</strong> · width × height values total
-        </div>
-    </div>
-    <div style="text-align:center;color:var(--dim);font-size:1rem;line-height:1;margin:4px 0">↓</div>
-    <div class="bin-row">
-        <div class="bin-cell" style="background:#2a1a0a;color:var(--orange);flex:0 0 110px;border-radius:6px 0 0 6px">
-            deflateRaw
-            <div class="bin-label">whole message</div>
-        </div>
-        <div class="bin-cell" style="background:#0f172a;color:var(--dim);flex:1;text-align:left;padding-left:16px;border-radius:0 6px 6px 0;font-size:0.75rem">
-            Raw DEFLATE (no gzip header) via <code>deflateRaw</code> / <code>inflateRaw</code><br>
-            Decompressed in-place before PBF parsing
-        </div>
-    </div>
+	<div class="bin-row">
+		<div class="bin-cell" style="background:#0d343f;color:var(--teal);flex:0 0 110px;border-radius:6px 0 0 6px">
+			Header
+			<div class="bin-label">tile metadata</div>
+		</div>
+		<div class="bin-cell" style="background:#0f172a;color:var(--dim);flex:1;font-size:0.75rem;text-align:left;padding-left:16px;border-radius:0 6px 6px 0">
+			NAME (1) · SOURCE (2) · WIDTH (3) · HEIGHT (4)<br>
+			LNG (5) · LAT (6) · RANGE (7)
+			<div class="bin-label" style="margin-top:4px">All coordinate fields use signed Varint (SVarint)</div>
+		</div>
+	</div>
+	<div style="text-align:center;color:var(--dim);font-size:1rem;line-height:1;margin:4px 0">↓</div>
+	<div class="bin-row">
+		<div class="bin-cell" style="background:#1a3a2a;color:var(--green);flex:0 0 110px;border-radius:6px 0 0 6px">
+			DATA (10)
+			<div class="bin-label">elevation grid</div>
+		</div>
+		<div class="bin-cell" style="background:#0f172a;color:var(--dim);flex:1;text-align:left;padding-left:16px;border-radius:0 6px 6px 0;font-size:0.75rem">
+			Packed SVarint — delta-encoded Int16 elevation values<br>
+			<strong style="color:var(--teal)">Row-major order, top-to-bottom</strong> · width × height values total
+		</div>
+	</div>
+	<div style="text-align:center;color:var(--dim);font-size:1rem;line-height:1;margin:4px 0">↓</div>
+	<div class="bin-row">
+		<div class="bin-cell" style="background:#2a1a0a;color:var(--orange);flex:0 0 110px;border-radius:6px 0 0 6px">
+			deflateRaw
+			<div class="bin-label">whole message</div>
+		</div>
+		<div class="bin-cell" style="background:#0f172a;color:var(--dim);flex:1;text-align:left;padding-left:16px;border-radius:0 6px 6px 0;font-size:0.75rem">
+			Raw DEFLATE (no gzip header) via <code>deflateRaw</code> / <code>inflateRaw</code><br>
+			Decompressed in-place before PBF parsing
+		</div>
+	</div>
 </div>
 
 <h3>4.1 Delta Encoding for Elevation</h3>
@@ -229,36 +229,36 @@ absolute values keeps numbers small, and small numbers encode to fewer Varint by
 </p>
 
 <div class="delta-table">
-    <div class="dt-row">
-        <span class="dt-label" style="color:var(--red)">Raw Int16 (m)</span>
-        <div class="dt-cells">
-            <div class="dc dc-raw">1240</div>
-            <div class="dc dc-raw">1255</div>
-            <div class="dc dc-raw">1268</div>
-            <div class="dc dc-raw">1241</div>
-            <div class="dc dc-raw">1195</div>
-        </div>
-    </div>
-    <div class="dt-row">
-        <span class="dt-label" style="color:var(--yellow)">Delta</span>
-        <div class="dt-cells">
-            <div class="dc dc-del">1240</div>
-            <div class="dc dc-del">+15</div>
-            <div class="dc dc-del">+13</div>
-            <div class="dc dc-del">−27</div>
-            <div class="dc dc-del">−46</div>
-        </div>
-    </div>
-    <div class="dt-row">
-        <span class="dt-label" style="color:var(--green)">SVarint bytes</span>
-        <div class="dt-cells">
-            <div class="dc dc-var">2 bytes</div>
-            <div class="dc dc-var" style="background:rgba(52,211,153,0.3)"><strong>1 byte</strong></div>
-            <div class="dc dc-var" style="background:rgba(52,211,153,0.3)"><strong>1 byte</strong></div>
-            <div class="dc dc-var" style="background:rgba(52,211,153,0.3)"><strong>1 byte</strong></div>
-            <div class="dc dc-var" style="background:rgba(52,211,153,0.3)"><strong>1 byte</strong></div>
-        </div>
-    </div>
+	<div class="dt-row">
+		<span class="dt-label" style="color:var(--red)">Raw Int16 (m)</span>
+		<div class="dt-cells">
+			<div class="dc dc-raw">1240</div>
+			<div class="dc dc-raw">1255</div>
+			<div class="dc dc-raw">1268</div>
+			<div class="dc dc-raw">1241</div>
+			<div class="dc dc-raw">1195</div>
+		</div>
+	</div>
+	<div class="dt-row">
+		<span class="dt-label" style="color:var(--yellow)">Delta</span>
+		<div class="dt-cells">
+			<div class="dc dc-del">1240</div>
+			<div class="dc dc-del">+15</div>
+			<div class="dc dc-del">+13</div>
+			<div class="dc dc-del">−27</div>
+			<div class="dc dc-del">−46</div>
+		</div>
+	</div>
+	<div class="dt-row">
+		<span class="dt-label" style="color:var(--green)">SVarint bytes</span>
+		<div class="dt-cells">
+			<div class="dc dc-var">2 bytes</div>
+			<div class="dc dc-var" style="background:rgba(52,211,153,0.3)"><strong>1 byte</strong></div>
+			<div class="dc dc-var" style="background:rgba(52,211,153,0.3)"><strong>1 byte</strong></div>
+			<div class="dc dc-var" style="background:rgba(52,211,153,0.3)"><strong>1 byte</strong></div>
+			<div class="dc dc-var" style="background:rgba(52,211,153,0.3)"><strong>1 byte</strong></div>
+		</div>
+	</div>
 </div>
 
 <p>
@@ -272,38 +272,38 @@ than an equivalent raw Int16 array.
 <p><code>altpbf2png</code> renders a tile as a PNG image using altitude/depth step colors:</p>
 
 <div class="cmap">
-    <div class="cm-col" style="background:rgba(20,50,100,0.6);border:1px solid #20509044">
-        <div class="cm-ht" style="color:#5ba3c9">Deep</div>
-        <div class="cm-rng" style="color:var(--dim)">&lt; −2000 m</div>
-    </div>
-    <div class="cm-col" style="background:rgba(40,100,150,0.6);border:1px solid #286496">
-        <div class="cm-ht" style="color:#7dc4e4">Ocean</div>
-        <div class="cm-rng" style="color:var(--dim)">&lt; −200 m</div>
-    </div>
-    <div class="cm-col" style="background:rgba(120,200,220,0.6);border:1px solid #78c8dc">
-        <div class="cm-ht" style="color:#aadcec">Shelf</div>
-        <div class="cm-rng" style="color:var(--dim)">0– (sea)</div>
-    </div>
-    <div class="cm-col" style="background:rgba(85,107,47,0.6);border:1px solid #556b2f">
-        <div class="cm-ht" style="color:#8fa860">Lowland</div>
-        <div class="cm-rng" style="color:var(--dim)">0–200 m</div>
-    </div>
-    <div class="cm-col" style="background:rgba(124,150,90,0.6);border:1px solid #7c965a">
-        <div class="cm-ht" style="color:#a8bf78">Hill</div>
-        <div class="cm-rng" style="color:var(--dim)">200–500 m</div>
-    </div>
-    <div class="cm-col" style="background:rgba(180,130,70,0.6);border:1px solid #b48246">
-        <div class="cm-ht" style="color:#c8a068">Highland</div>
-        <div class="cm-rng" style="color:var(--dim)">1000–2000 m</div>
-    </div>
-    <div class="cm-col" style="background:rgba(130,80,60,0.6);border:1px solid #82503c">
-        <div class="cm-ht" style="color:#b07060">Alpine</div>
-        <div class="cm-rng" style="color:var(--dim)">2000–4000 m</div>
-    </div>
-    <div class="cm-col" style="background:rgba(200,200,200,0.6);border:1px solid #c8c8c8">
-        <div class="cm-ht" style="color:#e0e0e0">Snow</div>
-        <div class="cm-rng" style="color:var(--dim)">&gt; 6000 m</div>
-    </div>
+	<div class="cm-col" style="background:rgba(20,50,100,0.6);border:1px solid #20509044">
+		<div class="cm-ht" style="color:#5ba3c9">Deep</div>
+		<div class="cm-rng" style="color:var(--dim)">&lt; −2000 m</div>
+	</div>
+	<div class="cm-col" style="background:rgba(40,100,150,0.6);border:1px solid #286496">
+		<div class="cm-ht" style="color:#7dc4e4">Ocean</div>
+		<div class="cm-rng" style="color:var(--dim)">&lt; −200 m</div>
+	</div>
+	<div class="cm-col" style="background:rgba(120,200,220,0.6);border:1px solid #78c8dc">
+		<div class="cm-ht" style="color:#aadcec">Shelf</div>
+		<div class="cm-rng" style="color:var(--dim)">0– (sea)</div>
+	</div>
+	<div class="cm-col" style="background:rgba(85,107,47,0.6);border:1px solid #556b2f">
+		<div class="cm-ht" style="color:#8fa860">Lowland</div>
+		<div class="cm-rng" style="color:var(--dim)">0–200 m</div>
+	</div>
+	<div class="cm-col" style="background:rgba(124,150,90,0.6);border:1px solid #7c965a">
+		<div class="cm-ht" style="color:#a8bf78">Hill</div>
+		<div class="cm-rng" style="color:var(--dim)">200–500 m</div>
+	</div>
+	<div class="cm-col" style="background:rgba(180,130,70,0.6);border:1px solid #b48246">
+		<div class="cm-ht" style="color:#c8a068">Highland</div>
+		<div class="cm-rng" style="color:var(--dim)">1000–2000 m</div>
+	</div>
+	<div class="cm-col" style="background:rgba(130,80,60,0.6);border:1px solid #82503c">
+		<div class="cm-ht" style="color:#b07060">Alpine</div>
+		<div class="cm-rng" style="color:var(--dim)">2000–4000 m</div>
+	</div>
+	<div class="cm-col" style="background:rgba(200,200,200,0.6);border:1px solid #c8c8c8">
+		<div class="cm-ht" style="color:#e0e0e0">Snow</div>
+		<div class="cm-rng" style="color:var(--dim)">&gt; 6000 m</div>
+	</div>
 </div>
 
 <!-- ──────────────────────────────────────────────────── -->
@@ -323,52 +323,52 @@ Each tile is uniquely identified by a compact name string encoding its range, la
 <span class="fn">encodeName</span>(<span class="nm">135</span>, <span class="nm">35</span>, <span class="nm">0</span>)   <span class="cm">// →    "N035E135"  (HGT01 ALOS, Kinki region)</span></code></pre>
 
 <div class="callout callout-note">
-    <div class="callout-head">ALOS Tile Existence Check</div>
-    <p>
-        ALOS AW3D30 tiles exist only over land. Before requesting an HGT01 tile,
-        altpbf checks an in-memory index loaded from the JAXA tile list
-        (<code>index_alos()</code>). Ocean queries immediately fall back to HGT10
-        without a network round-trip.
-    </p>
+	<div class="callout-head">ALOS Tile Existence Check</div>
+	<p>
+		ALOS AW3D30 tiles exist only over land. Before requesting an HGT01 tile,
+		altpbf checks an in-memory index loaded from the JAXA tile list
+		(<code>index_alos()</code>). Ocean queries immediately fall back to HGT10
+		without a network round-trip.
+	</p>
 </div>
 
 <!-- ──────────────────────────────────────────────────── -->
 <h2 id="worker">6. Worker &amp; Cache Architecture</h2>
 
 <div class="cache-flow">
-    <div class="cf-box">
-        <div class="cf-title">Request</div>
-        <div class="cf-name">getHeight(lng, lat, zoom)</div>
-        <div class="cf-desc">select tier by zoom</div>
-    </div>
-    <div class="cf-arrow">→</div>
-    <div class="cf-box">
-        <div class="cf-title">L1 Cache</div>
-        <div class="cf-name">IndexedDB</div>
-        <div class="cf-desc">"GIS/alt" namespace<br>decoded objects</div>
-    </div>
-    <div class="cf-arrow">→ miss →</div>
-    <div class="cf-box">
-        <div class="cf-title">Worker</div>
-        <div class="cf-name">worker.js</div>
-        <div class="cf-desc">load + decode<br>Int16Array transfer</div>
-    </div>
-    <div class="cf-arrow">→</div>
-    <div class="cf-box">
-        <div class="cf-title">L2 Storage</div>
-        <div class="cf-name">nativeBucket</div>
-        <div class="cf-desc">server-side bucket<br>"GIS/alt"</div>
-    </div>
+	<div class="cf-box">
+		<div class="cf-title">Request</div>
+		<div class="cf-name">getHeight(lng, lat, zoom)</div>
+		<div class="cf-desc">select tier by zoom</div>
+	</div>
+	<div class="cf-arrow">→</div>
+	<div class="cf-box">
+		<div class="cf-title">L1 Cache</div>
+		<div class="cf-name">IndexedDB</div>
+		<div class="cf-desc">"GIS/alt" namespace<br>decoded objects</div>
+	</div>
+	<div class="cf-arrow">→ miss →</div>
+	<div class="cf-box">
+		<div class="cf-title">Worker</div>
+		<div class="cf-name">worker.js</div>
+		<div class="cf-desc">load + decode<br>Int16Array transfer</div>
+	</div>
+	<div class="cf-arrow">→</div>
+	<div class="cf-box">
+		<div class="cf-title">L2 Storage</div>
+		<div class="cf-name">nativeBucket</div>
+		<div class="cf-desc">server-side bucket<br>"GIS/alt"</div>
+	</div>
 </div>
 
 <pre><code><span class="cm">// worker.js — zero-copy Int16Array transfer to main thread</span>
 <span class="kw">import</span> { load } <span class="kw">from</span> <span class="st">"./altpbf.js"</span>;
 onmessage = <span class="kw">async</span> e => {
-    <span class="kw">const</span> { name, apiUrl } = e.data;
-    <span class="kw">if</span> (apiUrl) <span class="fn">setApiUrl</span>(apiUrl);
-    <span class="kw">const</span> obj = <span class="kw">await</span> <span class="fn">load</span>(name);
-    obj ? <span class="fn">postMessage</span>(obj, [obj.data.buffer])  <span class="cm">// ← Transferable: zero-copy</span>
-        : <span class="fn">postMessage</span>(<span class="kw">null</span>);
+	<span class="kw">const</span> { name, apiUrl } = e.data;
+	<span class="kw">if</span> (apiUrl) <span class="fn">setApiUrl</span>(apiUrl);
+	<span class="kw">const</span> obj = <span class="kw">await</span> <span class="fn">load</span>(name);
+	obj ? <span class="fn">postMessage</span>(obj, [obj.data.buffer])  <span class="cm">// ← Transferable: zero-copy</span>
+		: <span class="fn">postMessage</span>(<span class="kw">null</span>);
 };</code></pre>
 
 <p>
@@ -407,12 +407,12 @@ GEBCO HGT10 tile generation compensates by reducing the pixel width of polar til
 </p>
 
 <div class="shrink-diagram">
-    <div class="shrink-col"><div class="shrink-bar" style="height:17%"></div><div class="shrink-lat">±80°</div><div class="shrink-pct">17%</div></div>
-    <div class="shrink-col"><div class="shrink-bar" style="height:33%"></div><div class="shrink-lat">±70°</div><div class="shrink-pct">33%</div></div>
-    <div class="shrink-col"><div class="shrink-bar" style="height:50%"></div><div class="shrink-lat">±60°</div><div class="shrink-pct">50%</div></div>
-    <div class="shrink-col"><div class="shrink-bar" style="height:67%"></div><div class="shrink-lat">±50°</div><div class="shrink-pct">67%</div></div>
-    <div class="shrink-col"><div class="shrink-bar" style="height:100%"></div><div class="shrink-lat">±40°</div><div class="shrink-pct">100%</div></div>
-    <div class="shrink-col"><div class="shrink-bar" style="height:100%"></div><div class="shrink-lat">equator</div><div class="shrink-pct">100%</div></div>
+	<div class="shrink-col"><div class="shrink-bar" style="height:17%"></div><div class="shrink-lat">±80°</div><div class="shrink-pct">17%</div></div>
+	<div class="shrink-col"><div class="shrink-bar" style="height:33%"></div><div class="shrink-lat">±70°</div><div class="shrink-pct">33%</div></div>
+	<div class="shrink-col"><div class="shrink-bar" style="height:50%"></div><div class="shrink-lat">±60°</div><div class="shrink-pct">50%</div></div>
+	<div class="shrink-col"><div class="shrink-bar" style="height:67%"></div><div class="shrink-lat">±50°</div><div class="shrink-pct">67%</div></div>
+	<div class="shrink-col"><div class="shrink-bar" style="height:100%"></div><div class="shrink-lat">±40°</div><div class="shrink-pct">100%</div></div>
+	<div class="shrink-col"><div class="shrink-bar" style="height:100%"></div><div class="shrink-lat">equator</div><div class="shrink-pct">100%</div></div>
 </div>
 
 <p style="font-size:0.85rem;color:var(--dim)">
@@ -425,11 +425,11 @@ matching the reduced real-world extent per degree of longitude.
 
 <pre><code><span class="cm">// ── createGetHeight — main entry point ─────────────────</span>
 <span class="kw">const</span> getHeight = <span class="kw">await</span> <span class="fn">createGetHeight</span>({
-    apiUrl:  <span class="st">'https://your-api.example.com'</span>,  <span class="cm">// nativeBucket base URL</span>
-    level1:  <span class="nm">7</span>,    <span class="cm">// zoom threshold HGT90 → HGT10</span>
-    level2:  <span class="nm">12</span>,   <span class="cm">// zoom threshold HGT10 → HGT01</span>
-    onstart: name => console.log(<span class="st">`loading ${name}...`</span>),
-    onend:   name => console.log(<span class="st">`done ${name}`</span>),
+	apiUrl:  <span class="st">'https://your-api.example.com'</span>,  <span class="cm">// nativeBucket base URL</span>
+	level1:  <span class="nm">7</span>,    <span class="cm">// zoom threshold HGT90 → HGT10</span>
+	level2:  <span class="nm">12</span>,   <span class="cm">// zoom threshold HGT10 → HGT01</span>
+	onstart: name => console.log(<span class="st">`loading ${name}...`</span>),
+	onend:   name => console.log(<span class="st">`done ${name}`</span>),
 });
 
 <span class="cm">// Query elevation at any (lng, lat, zoom)</span>
@@ -440,8 +440,8 @@ matching the reduced real-world extent per degree of longitude.
 
 <span class="cm">// ── altpbf2png — render tile as PNG ────────────────────</span>
 <span class="kw">const</span> blob = <span class="kw">await</span> <span class="fn">altpbf2png</span>(pbfBlob, {
-    size:     <span class="nm">256</span>,         <span class="cm">// output PNG size (square)</span>
-    colorMap: h => [r, g, b] <span class="cm">// custom color function (optional)</span>
+	size:     <span class="nm">256</span>,         <span class="cm">// output PNG size (square)</span>
+	colorMap: h => [r, g, b] <span class="cm">// custom color function (optional)</span>
 });
 
 <span class="cm">// ── Low-level encode / decode ───────────────────────────</span>
@@ -459,7 +459,7 @@ matching the reduced real-world extent per degree of longitude.
 <hr class="rule">
 
 <div style="font-size:0.72rem;color:var(--dim);font-family:var(--mono);text-align:center">
-    altpbf v1.0.0 · Kenji Yoshida · MIT License · 2026
+	altpbf v1.0.0 · Kenji Yoshida · MIT License · 2026
 </div>
 
 </div>

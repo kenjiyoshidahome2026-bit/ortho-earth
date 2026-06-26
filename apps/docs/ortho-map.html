@@ -32,18 +32,18 @@
 <body>
 
 <div class="header-bar">
-    <img src="favicon.svg" width="24" height="24" style="flex-shrink:0">
-    <span class="logo">ortho-map</span>
-    <span class="sep">/</span>
-    <span style="color:var(--dim);font-size:0.82rem">Technical Architecture Overview</span>
-    <div class="nav-links">
-        <a href="index.html">← Docs</a>
-        <a href="ortho-map-jp.html">日本語</a>
-        <span class="nav-cur">OrthoMap</span>
-        <a href="gintbuf.html">Gint</a>
-        <a href="geopbf.html">GeoPBF</a>
-        <a href="altpbf.html">AltPBF</a>
-    </div>
+	<img src="favicon.svg" width="24" height="24" style="flex-shrink:0">
+	<span class="logo">ortho-map</span>
+	<span class="sep">/</span>
+	<span style="color:var(--dim);font-size:0.82rem">Technical Architecture Overview</span>
+	<div class="nav-links">
+		<a href="index.html">← Docs</a>
+		<a href="ortho-map-jp.html">日本語</a>
+		<span class="nav-cur">OrthoMap</span>
+		<a href="gintbuf.html">Gint</a>
+		<a href="geopbf.html">GeoPBF</a>
+		<a href="altpbf.html">AltPBF</a>
+	</div>
 </div>
 
 <div class="page">
@@ -55,17 +55,17 @@ Worker-based parallel pipeline &middot; OffscreenCanvas &middot; Gint / GeoPBF /
 </span></p>
 
 <div class="toc">
-    <div class="toc-title">Table of Contents</div>
-    <ol>
-        <li><a href="#overview">Architecture Overview</a></li>
-        <li><a href="#projection">Orthographic Projection &amp; Interaction</a></li>
-        <li><a href="#worker">Worker Communication Protocol</a></li>
-        <li><a href="#base">Base Layer — WebGL2 Globe Rendering + Tiles</a></li>
-        <li><a href="#border">BorderLines Layer — Lightweight Gint Line Rendering</a></li>
-        <li><a href="#accessories">Accessories Layer — Canvas2D Overlay</a></li>
-        <li><a href="#gint">Gint Layer — Full WebGL2 Vector Rendering</a></li>
-        <li><a href="#state">State Management &amp; Gadgets</a></li>
-    </ol>
+	<div class="toc-title">Table of Contents</div>
+	<ol>
+		<li><a href="#overview">Architecture Overview</a></li>
+		<li><a href="#projection">Orthographic Projection &amp; Interaction</a></li>
+		<li><a href="#worker">Worker Communication Protocol</a></li>
+		<li><a href="#base">Base Layer — WebGL2 Globe Rendering + Tiles</a></li>
+		<li><a href="#border">BorderLines Layer — Lightweight Gint Line Rendering</a></li>
+		<li><a href="#accessories">Accessories Layer — Canvas2D Overlay</a></li>
+		<li><a href="#gint">Gint Layer — Full WebGL2 Vector Rendering</a></li>
+		<li><a href="#state">State Management &amp; Gadgets</a></li>
+	</ol>
 </div>
 
 <!-- ──────────────────────────────────────────────────── -->
@@ -78,29 +78,29 @@ Each layer runs on its own independent Worker, achieving zero rendering blockage
 </p>
 
 <div class="layer-stack">
-    <div class="layer-row">
-        <span class="layer-badge badge-2d">Canvas2D</span>
-        <span class="layer-name">Accessories</span>
-        <span class="layer-desc">stars · constellations · night · globe minimap · scale · clock (border.js Worker)</span>
-    </div>
-    <div class="layer-arrow">↑ overlay (topmost)</div>
-    <div class="layer-row">
-        <span class="layer-badge badge-gl2">WebGL2</span>
-        <span class="layer-name">BorderLines</span>
-        <span class="layer-desc">graticule · country borders · maritime boundaries · geographic lines (gintBorder.js Worker)</span>
-    </div>
-    <div class="layer-arrow">↑ vector overlay</div>
-    <div class="layer-row">
-        <span class="layer-badge badge-gl2">WebGL2</span>
-        <span class="layer-name">OrthoMapGL</span>
-        <span class="layer-desc">base globe texture + slippy tiles (base.js Worker)</span>
-    </div>
-    <div class="layer-arrow" style="margin-top:16px;color:var(--yellow)">↕ user-added layers (createLayer / createRemoteLayer)</div>
-    <div class="layer-row" style="background:#1a1f2e">
-        <span class="layer-badge badge-worker">Worker</span>
-        <span class="layer-name">Gint Layer</span>
-        <span class="layer-desc">arbitrary GeoPBF → WebGL2 rendering · hover picking · polygon fill (gint.js Worker)</span>
-    </div>
+	<div class="layer-row">
+		<span class="layer-badge badge-2d">Canvas2D</span>
+		<span class="layer-name">Accessories</span>
+		<span class="layer-desc">stars · constellations · night · globe minimap · scale · clock (border.js Worker)</span>
+	</div>
+	<div class="layer-arrow">↑ overlay (topmost)</div>
+	<div class="layer-row">
+		<span class="layer-badge badge-gl2">WebGL2</span>
+		<span class="layer-name">BorderLines</span>
+		<span class="layer-desc">graticule · country borders · maritime boundaries · geographic lines (gintBorder.js Worker)</span>
+	</div>
+	<div class="layer-arrow">↑ vector overlay</div>
+	<div class="layer-row">
+		<span class="layer-badge badge-gl2">WebGL2</span>
+		<span class="layer-name">OrthoMapGL</span>
+		<span class="layer-desc">base globe texture + slippy tiles (base.js Worker)</span>
+	</div>
+	<div class="layer-arrow" style="margin-top:16px;color:var(--yellow)">↕ user-added layers (createLayer / createRemoteLayer)</div>
+	<div class="layer-row" style="background:#1a1f2e">
+		<span class="layer-badge badge-worker">Worker</span>
+		<span class="layer-name">Gint Layer</span>
+		<span class="layer-desc">arbitrary GeoPBF → WebGL2 rendering · hover picking · polygon fill (gint.js Worker)</span>
+	</div>
 </div>
 
 <p>
@@ -109,12 +109,12 @@ Initialization completes in three sequential steps.
 
 <pre><code><span class="cm">// index.js — entry point</span>
 <span class="kw">const</span> map = <span class="kw">await</span> <span class="fn">orthoMap</span>({
-    target: d3.<span class="fn">select</span>(<span class="st">"#container"</span>),  <span class="cm">// defaults to body</span>
-    baseName: <span class="st">"osm.street"</span>,
-    center: [<span class="nm">139.7</span>, <span class="nm">35.7</span>],
-    zoom: <span class="nm">4</span>,
-    accessories: { stars: { maxCount: <span class="nm">500</span> } },
-    gadgets: <span class="kw">false</span>,
+	target: d3.<span class="fn">select</span>(<span class="st">"#container"</span>),  <span class="cm">// defaults to body</span>
+	baseName: <span class="st">"osm.street"</span>,
+	center: [<span class="nm">139.7</span>, <span class="nm">35.7</span>],
+	zoom: <span class="nm">4</span>,
+	accessories: { stars: { maxCount: <span class="nm">500</span> } },
+	gadgets: <span class="kw">false</span>,
 });
 
 <span class="cm">// Internal sequence:</span>
@@ -133,15 +133,15 @@ OrthoMap converts this to the standard web map zoom level.
 </p>
 
 <div class="formula">
-    <span class="fvar">scale</span>
-    <span class="fop"> = </span>
-    <span>2<sup>zoom</sup> × (256 / 2π)</span>
-    <br>
-    <span class="fvar">zoom</span>
-    <span class="fop"> = </span>
-    <span>log<sub>2</sub>(scale / (256 / 2π))</span>
-    <br>
-    <span style="font-size:0.75rem;color:var(--dim)">256 / 2π ≈ 40.74 (based on 256 px tile size)</span>
+	<span class="fvar">scale</span>
+	<span class="fop"> = </span>
+	<span>2<sup>zoom</sup> × (256 / 2π)</span>
+	<br>
+	<span class="fvar">zoom</span>
+	<span class="fop"> = </span>
+	<span>log<sub>2</sub>(scale / (256 / 2π))</span>
+	<br>
+	<span style="font-size:0.75rem;color:var(--dim)">256 / 2π ≈ 40.74 (based on 256 px tile size)</span>
 </div>
 
 <p>
@@ -170,13 +170,13 @@ enabling simultaneous <strong>Z-axis rotation (map tilt)</strong>.
 </p>
 
 <div class="callout callout-note">
-    <div class="callout-head">Ctrl + Wheel: Cursor-Centered Z-Rotation</div>
-    <p>
-        Holding Ctrl or Meta while scrolling <em>rotates the globe around the point under the cursor</em>.
-        The 3D sphere vector <code>[x,y,z]</code> at the cursor position is computed and used as the rotation axis,
-        producing a quaternion that is composed with the current rotation.
-        This is a physically grounded rotation about an actual point on the sphere, not a simple camera spin.
-    </p>
+	<div class="callout-head">Ctrl + Wheel: Cursor-Centered Z-Rotation</div>
+	<p>
+		Holding Ctrl or Meta while scrolling <em>rotates the globe around the point under the cursor</em>.
+		The 3D sphere vector <code>[x,y,z]</code> at the cursor position is computed and used as the rotation axis,
+		producing a quaternion that is composed with the current rotation.
+		This is a physically grounded rotation about an actual point on the sphere, not a simple camera spin.
+	</p>
 </div>
 
 <h3>2.3 flyToFeature / zoomToFeature</h3>
@@ -187,17 +187,17 @@ immediately cancels an in-progress animation.
 </p>
 
 <table>
-    <tr><th>Function</th><th>Algorithm</th><th>Characteristic</th></tr>
-    <tr>
-        <td><code>flyToFeature</code></td>
-        <td>d3.interpolateZoom (zoom out → travel → zoom in) + linear easing</td>
-        <td>Draws a smooth arc through the air for long-distance navigation</td>
-    </tr>
-    <tr>
-        <td><code>zoomToFeature</code></td>
-        <td>2-phase: ① rotate to destination at threshold zoom, ② zoom in on arrival</td>
-        <td>Travels at tile-free zoom level, then zooms in — minimizes tile requests</td>
-    </tr>
+	<tr><th>Function</th><th>Algorithm</th><th>Characteristic</th></tr>
+	<tr>
+		<td><code>flyToFeature</code></td>
+		<td>d3.interpolateZoom (zoom out → travel → zoom in) + linear easing</td>
+		<td>Draws a smooth arc through the air for long-distance navigation</td>
+	</tr>
+	<tr>
+		<td><code>zoomToFeature</code></td>
+		<td>2-phase: ① rotate to destination at threshold zoom, ② zoom in on arrival</td>
+		<td>Travels at tile-free zoom level, then zooms in — minimizes tile requests</td>
+	</tr>
 </table>
 
 <pre><code><span class="cm">// zoomToFeature — 2-phase composition</span>
@@ -205,7 +205,7 @@ immediately cancels an in-progress animation.
 <span class="kw">const</span> sTrav = <span class="fn">min</span>(s1, <span class="fn">zval2scale</span>(<span class="nm">5.5</span>));
 <span class="cm">// Phase 2: zoom in over 2000 ms after arrival (600 ms overlap)</span>
 proj.<span class="fn">scale</span>(s0 + (sTrav - s0) * tRotEased          <span class="cm">// travel phase</span>
-           + (s1  - sTrav) * <span class="fn">easeCubicInOut</span>(tZoom)); <span class="cm">// zoom phase</span></code></pre>
+			 + (s1  - sTrav) * <span class="fn">easeCubicInOut</span>(tZoom)); <span class="cm">// zoom phase</span></code></pre>
 
 <h3>2.4 Event System</h3>
 
@@ -234,36 +234,36 @@ The entire render loop runs inside the Worker.
 </p>
 
 <div class="msg-flow">
-    <div class="msg-box">
-        <div class="msg-title">Main Thread → Worker</div>
-        <div class="msg-item"><code>init</code> — offscreen / dpr / workers</div>
-        <div class="msg-item"><code>set</code> — data upload (per cmd)</div>
-        <div class="msg-item"><code>drawing</code> — scale / rotate / panning</div>
-        <div class="msg-item"><code>drawn</code> — commit render after pan ends</div>
-        <div class="msg-item"><code>move</code> — cursor coordinates</div>
-        <div class="msg-item"><code>resize</code> — width / height</div>
-        <div class="msg-item"><code>destroy</code> — terminate Worker</div>
-    </div>
-    <div class="msg-arrow">⇄</div>
-    <div class="msg-box">
-        <div class="msg-title">Worker → Main Thread</div>
-        <div class="msg-item"><code>{action:"done", type:"init"}</code></div>
-        <div class="msg-item"><code>{action:"done", type:"set"}</code></div>
-        <div class="msg-item"><code>{action:"done", type:"resize"}</code></div>
-        <div class="msg-item"><code>{action:"identify", featureId}</code></div>
-        <div class="msg-item"><code>{action:"click", featureId, lng, lat}</code></div>
-        <div class="msg-item"><code>{action:"redraw"}</code> — after context restored</div>
-    </div>
+	<div class="msg-box">
+		<div class="msg-title">Main Thread → Worker</div>
+		<div class="msg-item"><code>init</code> — offscreen / dpr / workers</div>
+		<div class="msg-item"><code>set</code> — data upload (per cmd)</div>
+		<div class="msg-item"><code>drawing</code> — scale / rotate / panning</div>
+		<div class="msg-item"><code>drawn</code> — commit render after pan ends</div>
+		<div class="msg-item"><code>move</code> — cursor coordinates</div>
+		<div class="msg-item"><code>resize</code> — width / height</div>
+		<div class="msg-item"><code>destroy</code> — terminate Worker</div>
+	</div>
+	<div class="msg-arrow">⇄</div>
+	<div class="msg-box">
+		<div class="msg-title">Worker → Main Thread</div>
+		<div class="msg-item"><code>{action:"done", type:"init"}</code></div>
+		<div class="msg-item"><code>{action:"done", type:"set"}</code></div>
+		<div class="msg-item"><code>{action:"done", type:"resize"}</code></div>
+		<div class="msg-item"><code>{action:"identify", featureId}</code></div>
+		<div class="msg-item"><code>{action:"click", featureId, lng, lat}</code></div>
+		<div class="msg-item"><code>{action:"redraw"}</code> — after context restored</div>
+	</div>
 </div>
 
 <div class="callout callout-key">
-    <div class="callout-head">Separation of Drawing and Drawn</div>
-    <p>
-        <code>drawing</code> is a per-frame "immediate render" command fired continuously during pan and zoom —
-        aimed at fast, lower-quality output (no new tile fetches).
-        <code>drawn</code> is a "commit render" command sent once when the pointer stops,
-        triggering expensive work such as high-quality FBO rendering and picking buffer updates.
-    </p>
+	<div class="callout-head">Separation of Drawing and Drawn</div>
+	<p>
+		<code>drawing</code> is a per-frame "immediate render" command fired continuously during pan and zoom —
+		aimed at fast, lower-quality output (no new tile fetches).
+		<code>drawn</code> is a "commit render" command sent once when the pointer stops,
+		triggering expensive work such as high-quality FBO rendering and picking buffer updates.
+	</p>
 </div>
 
 <p>
@@ -272,8 +272,8 @@ When a <code>set</code> message contains binary render data, it is sent as a Tra
 
 <pre><code><span class="cm">// Transferable transfer only when rawBuffers is present</span>
 <span class="kw">if</span> (prop?.rawBuffers) {
-    <span class="kw">const</span> { rawBuffers, ...rest } = prop;
-    worker.<span class="fn">postMessage</span>({ type: <span class="st">"set"</span>, cmd, data, prop: rest, rawBuffers }, rawBuffers);
+	<span class="kw">const</span> { rawBuffers, ...rest } = prop;
+	worker.<span class="fn">postMessage</span>({ type: <span class="st">"set"</span>, cmd, data, prop: rest, rawBuffers }, rawBuffers);
 }</code></pre>
 
 <!-- ──────────────────────────────────────────────────── -->
@@ -296,21 +296,21 @@ equirectangular texture directly, eliminating any CPU-side projection or vertex 
 <span class="kw">float</span> y = (translate.y  - gl_FragCoord.y) / scale;
 <span class="kw">float</span> rho = <span class="fn">sqrt</span>(x*x + y*y);
 <span class="kw">if</span> (rho <= <span class="nm">1.0</span>) {                          <span class="cm">// inside globe circle only</span>
-    <span class="kw">float</span> c = <span class="fn">asin</span>(rho);
-    <span class="kw">float</span> lng = <span class="fn">atan</span>(x * <span class="fn">sin</span>(c), rho * <span class="fn">cos</span>(c));
-    <span class="kw">float</span> lat = <span class="fn">asin</span>(y * <span class="fn">sin</span>(c) / rho);
-    <span class="fn">applyRotation</span>(rx, ry, rz, lng, lat);   <span class="cm">// apply user rotation</span>
-    vec2 uv = vec2((lng + pi) / (2.0*pi), (lat + pi/2.0) / pi);
-    outColor = <span class="fn">texture</span>(u_image, uv);
+	<span class="kw">float</span> c = <span class="fn">asin</span>(rho);
+	<span class="kw">float</span> lng = <span class="fn">atan</span>(x * <span class="fn">sin</span>(c), rho * <span class="fn">cos</span>(c));
+	<span class="kw">float</span> lat = <span class="fn">asin</span>(y * <span class="fn">sin</span>(c) / rho);
+	<span class="fn">applyRotation</span>(rx, ry, rz, lng, lat);   <span class="cm">// apply user rotation</span>
+	vec2 uv = vec2((lng + pi) / (2.0*pi), (lat + pi/2.0) / pi);
+	outColor = <span class="fn">texture</span>(u_image, uv);
 } <span class="kw">else</span> { <span class="fn">discard</span>; }                       <span class="cm">// discard fragments outside globe</span></code></pre>
 
 <div class="callout callout-note">
-    <div class="callout-head">Texture Wrap Modes</div>
-    <p>
-        The base texture uses <code>REPEAT</code> on the S axis (longitude) and <code>CLAMP_TO_EDGE</code> on T (latitude),
-        preventing seams when rendering across the ±180° antimeridian.
-        Tile textures use <code>CLAMP_TO_EDGE</code> on both axes to avoid bleeding between adjacent tiles.
-    </p>
+	<div class="callout-head">Texture Wrap Modes</div>
+	<p>
+		The base texture uses <code>REPEAT</code> on the S axis (longitude) and <code>CLAMP_TO_EDGE</code> on T (latitude),
+		preventing seams when rendering across the ±180° antimeridian.
+		Tile textures use <code>CLAMP_TO_EDGE</code> on both axes to avoid bleeding between adjacent tiles.
+	</p>
 </div>
 
 <h3>4.2 Tile Loading Pipeline</h3>
@@ -322,15 +322,15 @@ and uploads them as GL textures via <code>createTileTexture</code>.
 
 <pre><code><span class="cm">// Tile priority: load tiles closest to screen center first</span>
 ents.<span class="fn">sort</span>((a, b) => a[<span class="nm">4</span>] - b[<span class="nm">4</span>])  <span class="cm">// [4] = distance from center</span>
-    .<span class="fn">forEach</span>(([x, y, zo, pos, dist]) => {
-        <span class="cm">// zo = polar LOD offset (from Y2T/Y4T tables)</span>
-        <span class="cm">// fall back to cached z-1, z-2, z-3 if preferred zoom not available</span>
-        <span class="kw">for</span> (<span class="kw">let</span> dz <span class="kw">of</span> [<span class="nm">0</span>, <span class="nm">1</span>, <span class="nm">2</span>, <span class="nm">3</span>]) {
-            <span class="kw">const</span> z = Z0 - (zo + dz); <span class="kw">if</span> (z < <span class="nm">0</span>) <span class="kw">continue</span>;
-            <span class="kw">const</span> img = TileTub.<span class="fn">get</span>(name);
-            <span class="kw">if</span> (img) { <span class="cm">/* remap UV to parent tile region and draw */</span> <span class="kw">return</span>; }
-        }
-    });</code></pre>
+	.<span class="fn">forEach</span>(([x, y, zo, pos, dist]) => {
+		<span class="cm">// zo = polar LOD offset (from Y2T/Y4T tables)</span>
+		<span class="cm">// fall back to cached z-1, z-2, z-3 if preferred zoom not available</span>
+		<span class="kw">for</span> (<span class="kw">let</span> dz <span class="kw">of</span> [<span class="nm">0</span>, <span class="nm">1</span>, <span class="nm">2</span>, <span class="nm">3</span>]) {
+			<span class="kw">const</span> z = Z0 - (zo + dz); <span class="kw">if</span> (z < <span class="nm">0</span>) <span class="kw">continue</span>;
+			<span class="kw">const</span> img = TileTub.<span class="fn">get</span>(name);
+			<span class="kw">if</span> (img) { <span class="cm">/* remap UV to parent tile region and draw */</span> <span class="kw">return</span>; }
+		}
+	});</code></pre>
 
 <p>
 <strong>Y2T / Y4T tables</strong>: High-latitude tiles appear very small on screen due to Mercator distortion.
@@ -341,22 +341,22 @@ at 1–2 zoom levels lower, avoiding unnecessary high-resolution fetches.
 <h3>4.3 Available Base Maps</h3>
 
 <table>
-    <tr><th>Name</th><th>Base Globe Image</th><th>Tile Source</th><th>MaxZoom</th></tr>
-    <tr><td><code>whiteEarth</code></td><td class="dim">whiteEarth.webp</td><td class="dim">none</td><td class="dim">7</td></tr>
-    <tr><td><code>google.street</code></td><td class="dim">naturalEarth.webp</td><td class="dim">Google Maps (lyrs=m)</td><td class="dim">22</td></tr>
-    <tr><td><code>google.satellite</code></td><td class="dim">google.satellite.webp</td><td class="dim">Google Maps (lyrs=s)</td><td class="dim">22</td></tr>
-    <tr><td><code>osm.street</code></td><td class="dim">naturalEarth.webp</td><td class="dim">OpenStreetMap JP</td><td class="dim">19</td></tr>
-    <tr><td><code>osm.satellite</code></td><td class="dim">osm.satellite.webp</td><td class="dim">Bing Maps (quadkey index)</td><td class="dim">19</td></tr>
-    <tr><td><code>cyberjapan.std</code></td><td class="dim">naturalEarth.webp</td><td class="dim">GSI Japan (Japan extent) + OSM (outside)</td><td class="dim">19</td></tr>
+	<tr><th>Name</th><th>Base Globe Image</th><th>Tile Source</th><th>MaxZoom</th></tr>
+	<tr><td><code>whiteEarth</code></td><td class="dim">whiteEarth.webp</td><td class="dim">none</td><td class="dim">7</td></tr>
+	<tr><td><code>google.street</code></td><td class="dim">naturalEarth.webp</td><td class="dim">Google Maps (lyrs=m)</td><td class="dim">22</td></tr>
+	<tr><td><code>google.satellite</code></td><td class="dim">google.satellite.webp</td><td class="dim">Google Maps (lyrs=s)</td><td class="dim">22</td></tr>
+	<tr><td><code>osm.street</code></td><td class="dim">naturalEarth.webp</td><td class="dim">OpenStreetMap JP</td><td class="dim">19</td></tr>
+	<tr><td><code>osm.satellite</code></td><td class="dim">osm.satellite.webp</td><td class="dim">Bing Maps (quadkey index)</td><td class="dim">19</td></tr>
+	<tr><td><code>cyberjapan.std</code></td><td class="dim">naturalEarth.webp</td><td class="dim">GSI Japan (Japan extent) + OSM (outside)</td><td class="dim">19</td></tr>
 </table>
 
 <div class="callout callout-warn">
-    <div class="callout-head">Firefox Workaround</div>
-    <p>
-        Firefox cannot reliably use <code>createImageBitmap(blob)</code> results as WebGL textures.
-        A UA-detected workaround renders through an intermediate OffscreenCanvas and re-converts
-        with <code>transferToImageBitmap()</code>.
-    </p>
+	<div class="callout-head">Firefox Workaround</div>
+	<p>
+		Firefox cannot reliably use <code>createImageBitmap(blob)</code> results as WebGL textures.
+		A UA-detected workaround renders through an intermediate OffscreenCanvas and re-converts
+		with <code>transferToImageBitmap()</code>.
+	</p>
 </div>
 
 <!-- ──────────────────────────────────────────────────── -->
@@ -372,18 +372,18 @@ and draws multiple fixed-style datasets in a single pass.
 
 <pre><code><span class="cm">// 4 Gint datasets (loaded via GeoPBF)</span>
 <span class="kw">const</span> geoNames = [
-    <span class="st">"ne_110m_graticules_10"</span>,               <span class="cm">// 10° graticule grid</span>
-    <span class="st">"ne_50m_admin_0_boundary_lines_land"</span>,   <span class="cm">// country borders</span>
-    <span class="st">"ne_50m_admin_0_boundary_lines_maritime_indicator"</span>, <span class="cm">// maritime boundaries</span>
-    <span class="st">"ne_50m_geographic_lines"</span>,              <span class="cm">// equator, tropics, etc.</span>
+	<span class="st">"ne_110m_graticules_10"</span>,               <span class="cm">// 10° graticule grid</span>
+	<span class="st">"ne_50m_admin_0_boundary_lines_land"</span>,   <span class="cm">// country borders</span>
+	<span class="st">"ne_50m_admin_0_boundary_lines_maritime_indicator"</span>, <span class="cm">// maritime boundaries</span>
+	<span class="st">"ne_50m_geographic_lines"</span>,              <span class="cm">// equator, tropics, etc.</span>
 ];
 
 <span class="cm">// Per-dataset draw styles (dash values in screen pixels)</span>
 <span class="kw">const</span> BORDER_GL_STYLES = [
-    { color: [<span class="nm">1.0</span>, <span class="nm">1.0</span>, <span class="nm">1.0</span>, <span class="nm">0.6</span>], lineWidth: <span class="nm">1.0</span>, dash: [<span class="nm">0</span>, <span class="nm">0</span>] }, <span class="cm">// graticule (solid)</span>
-    { color: [<span class="nm">1.0</span>, <span class="nm">1.0</span>, <span class="nm">1.0</span>, <span class="nm">1.0</span>], lineWidth: <span class="nm">1.0</span>, dash: [<span class="nm">4</span>, <span class="nm">2</span>] }, <span class="cm">// country borders</span>
-    { color: [<span class="nm">0.5</span>, <span class="nm">0.5</span>, <span class="nm">1.0</span>, <span class="nm">0.8</span>], lineWidth: <span class="nm">0.8</span>, dash: [<span class="nm">4</span>, <span class="nm">2</span>] }, <span class="cm">// maritime</span>
-    { color: [<span class="nm">1.0</span>, <span class="nm">1.0</span>, <span class="nm">1.0</span>, <span class="nm">0.6</span>], lineWidth: <span class="nm">0.8</span>, dash: [<span class="nm">4</span>, <span class="nm">2</span>] }, <span class="cm">// geographic lines</span>
+	{ color: [<span class="nm">1.0</span>, <span class="nm">1.0</span>, <span class="nm">1.0</span>, <span class="nm">0.6</span>], lineWidth: <span class="nm">1.0</span>, dash: [<span class="nm">0</span>, <span class="nm">0</span>] }, <span class="cm">// graticule (solid)</span>
+	{ color: [<span class="nm">1.0</span>, <span class="nm">1.0</span>, <span class="nm">1.0</span>, <span class="nm">1.0</span>], lineWidth: <span class="nm">1.0</span>, dash: [<span class="nm">4</span>, <span class="nm">2</span>] }, <span class="cm">// country borders</span>
+	{ color: [<span class="nm">0.5</span>, <span class="nm">0.5</span>, <span class="nm">1.0</span>, <span class="nm">0.8</span>], lineWidth: <span class="nm">0.8</span>, dash: [<span class="nm">4</span>, <span class="nm">2</span>] }, <span class="cm">// maritime</span>
+	{ color: [<span class="nm">1.0</span>, <span class="nm">1.0</span>, <span class="nm">1.0</span>, <span class="nm">0.6</span>], lineWidth: <span class="nm">0.8</span>, dash: [<span class="nm">4</span>, <span class="nm">2</span>] }, <span class="cm">// geographic lines</span>
 ];</code></pre>
 
 <h3>5.2 Screen-Pixel-Constant Dash Pattern</h3>
@@ -403,8 +403,8 @@ the color and alpha channels are blended separately.
 </p>
 
 <pre><code>gl.<span class="fn">blendFuncSeparate</span>(
-    gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA,  <span class="cm">// RGB: standard alpha blend</span>
-    gl.ONE,       gl.ONE_MINUS_SRC_ALPHA   <span class="cm">// A: preserve source alpha</span>
+	gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA,  <span class="cm">// RGB: standard alpha blend</span>
+	gl.ONE,       gl.ONE_MINUS_SRC_ALPHA   <span class="cm">// A: preserve source alpha</span>
 );</code></pre>
 
 <h3>5.4 Horizon-Crossing Polygon Handling (VS_STENCIL)</h3>
@@ -418,12 +418,12 @@ preventing fill artifacts for horizon-crossing features.
 
 <pre><code><span class="cm">// GLSL VS_STENCIL — push back-hemisphere vertices to the horizon</span>
 <span class="kw">if</span> (p.z < <span class="nm">0.0</span>) {
-    vec2 v = p.xy - u_viewport * <span class="nm">0.5</span>;
-    <span class="kw">float</span> d = <span class="fn">length</span>(v);
-    gl_Position = d < <span class="nm">1e-4</span>
-        ? vec4(<span class="nm">0.0</span>, <span class="nm">0.0</span>, <span class="nm">0.0</span>, <span class="nm">1.0</span>)            <span class="cm">// directly behind center → origin</span>
-        : <span class="fn">toNDC</span>(u_viewport * <span class="nm">0.5</span> + v * (u_scale / d));  <span class="cm">// project to horizon circle</span>
-    <span class="kw">return</span>;
+	vec2 v = p.xy - u_viewport * <span class="nm">0.5</span>;
+	<span class="kw">float</span> d = <span class="fn">length</span>(v);
+	gl_Position = d < <span class="nm">1e-4</span>
+		? vec4(<span class="nm">0.0</span>, <span class="nm">0.0</span>, <span class="nm">0.0</span>, <span class="nm">1.0</span>)            <span class="cm">// directly behind center → origin</span>
+		: <span class="fn">toNDC</span>(u_viewport * <span class="nm">0.5</span> + v * (u_scale / d));  <span class="cm">// project to horizon circle</span>
+	<span class="kw">return</span>;
 }</code></pre>
 
 <!-- ──────────────────────────────────────────────────── -->
@@ -442,13 +442,13 @@ GST is computed from the current wall-clock time.
 </p>
 
 <div class="formula">
-    <span class="fvar">GST</span>
-    <span class="fop"> = </span>
-    <span>(18.697374 + 24.0657098 × T) × 15</span>
-    <span class="fop"> mod </span>
-    <span>360</span>
-    <br>
-    <span style="font-size:0.75rem;color:var(--dim)">T = Julian days from J2000.0 = (UNIX_ms / 86400000) + 2440587.5 − 2451545.0</span>
+	<span class="fvar">GST</span>
+	<span class="fop"> = </span>
+	<span>(18.697374 + 24.0657098 × T) × 15</span>
+	<span class="fop"> mod </span>
+	<span>360</span>
+	<br>
+	<span style="font-size:0.75rem;color:var(--dim)">T = Julian days from J2000.0 = (UNIX_ms / 86400000) + 2440587.5 − 2451545.0</span>
 </div>
 
 <p>
@@ -465,13 +465,13 @@ Its color is derived from the <strong>B-V color index</strong>, and radius/opaci
 
 <pre><code><span class="cm">// B-V color index → star color (temperature spectrum)</span>
 <span class="kw">const</span> bvColor = bv =>
-    bv < -<span class="nm">0.3</span> ? <span class="st">"#b2c8ff"</span> :  <span class="cm">// O-type — blue-white</span>
-    bv <  <span class="nm">0.0</span> ? <span class="st">"#d9e2ff"</span> :  <span class="cm">// B-type — blue-white</span>
-    bv <  <span class="nm">0.3</span> ? <span class="st">"#f8faff"</span> :  <span class="cm">// A-type — white</span>
-    bv <  <span class="nm">0.6</span> ? <span class="st">"#fff8f0"</span> :  <span class="cm">// F-type — yellow-white</span>
-    bv <  <span class="nm">0.8</span> ? <span class="st">"#fff2c8"</span> :  <span class="cm">// G-type — yellow (Sun)</span>
-    bv <  <span class="nm">1.1</span> ? <span class="st">"#ffe0b5"</span> :  <span class="cm">// K-type — orange</span>
-               <span class="st">"#ffab91"</span>;   <span class="cm">// M-type — red</span>
+	bv < -<span class="nm">0.3</span> ? <span class="st">"#b2c8ff"</span> :  <span class="cm">// O-type — blue-white</span>
+	bv <  <span class="nm">0.0</span> ? <span class="st">"#d9e2ff"</span> :  <span class="cm">// B-type — blue-white</span>
+	bv <  <span class="nm">0.3</span> ? <span class="st">"#f8faff"</span> :  <span class="cm">// A-type — white</span>
+	bv <  <span class="nm">0.6</span> ? <span class="st">"#fff8f0"</span> :  <span class="cm">// F-type — yellow-white</span>
+	bv <  <span class="nm">0.8</span> ? <span class="st">"#fff2c8"</span> :  <span class="cm">// G-type — yellow (Sun)</span>
+	bv <  <span class="nm">1.1</span> ? <span class="st">"#ffe0b5"</span> :  <span class="cm">// K-type — orange</span>
+				 <span class="st">"#ffab91"</span>;   <span class="cm">// M-type — red</span>
 
 <span class="cm">// Apparent magnitude → radius and opacity</span>
 radius = (<span class="nm">9</span> - mag) * <span class="nm">0.20</span>;   <span class="cm">// brighter → larger</span>
@@ -499,11 +499,11 @@ Objects are drawn with type-specific symbols based on the <code>type</code> prop
 </p>
 
 <table>
-    <tr><th>type</th><th>Object type</th><th>Symbol</th></tr>
-    <tr><td><code>gc</code></td><td>Globular cluster</td><td>Circle + crosshair</td></tr>
-    <tr><td><code>gx</code> / <code>gg</code></td><td>Galaxy</td><td>Ellipse</td></tr>
-    <tr><td><code>oc</code></td><td>Open cluster</td><td>Dashed circle</td></tr>
-    <tr><td>other</td><td>Nebula, etc.</td><td>Rectangle</td></tr>
+	<tr><th>type</th><th>Object type</th><th>Symbol</th></tr>
+	<tr><td><code>gc</code></td><td>Globular cluster</td><td>Circle + crosshair</td></tr>
+	<tr><td><code>gx</code> / <code>gg</code></td><td>Galaxy</td><td>Ellipse</td></tr>
+	<tr><td><code>oc</code></td><td>Open cluster</td><td>Dashed circle</td></tr>
+	<tr><td>other</td><td>Nebula, etc.</td><td>Rectangle</td></tr>
 </table>
 
 <h3>6.5 Globe Minimap (draw_globe)</h3>
@@ -517,21 +517,21 @@ to draw a viewport reticle polygon.
 <pre><code><span class="cm">// Sample geographic coordinates along each viewport edge</span>
 <span class="kw">const</span> N = <span class="nm">30</span>;
 <span class="kw">const</span> edge = (x0, y0, x1, y1) =>
-    Array.<span class="fn">from</span>({ length: N }, (_, i) => {
-        <span class="kw">const</span> t = i / N;
-        <span class="kw">return</span> proj.<span class="fn">invert</span>([x0 + (x1-x0)*t, y0 + (y1-y0)*t]);
-    });
+	Array.<span class="fn">from</span>({ length: N }, (_, i) => {
+		<span class="kw">const</span> t = i / N;
+		<span class="kw">return</span> proj.<span class="fn">invert</span>([x0 + (x1-x0)*t, y0 + (y1-y0)*t]);
+	});
 <span class="kw">const</span> geoPts = [...<span class="fn">edge</span>(<span class="nm">0</span>,<span class="nm">0</span>,w,<span class="nm">0</span>), ...<span class="fn">edge</span>(w,<span class="nm">0</span>,w,h), ...<span class="fn">edge</span>(w,h,<span class="nm">0</span>,h), ...<span class="fn">edge</span>(<span class="nm">0</span>,h,<span class="nm">0</span>,<span class="nm">0</span>)];</code></pre>
 
 <h3>6.6 Other Overlays</h3>
 
 <table>
-    <tr><th>Feature</th><th>Description</th></tr>
-    <tr><td>Night side (night)</td><td>Computes the terminator as a 31-point polygon from solar declination and longitude; fills with a semi-transparent dark overlay</td></tr>
-    <tr><td>Clock (clock)</td><td>Displays UTC in a large font; visible only when zoomed out (zoom &lt; 2)</td></tr>
-    <tr><td>Coordinates (latlng)</td><td>Shows latitude, longitude, and elevation in real time as the cursor moves</td></tr>
-    <tr><td>Scale bar (scale)</td><td>log10-rounded values with automatic unit selection (m/km; metric/imperial)</td></tr>
-    <tr><td>Attribution (credit)</td><td>License text for each base map, drawn from the <code>attribution</code> property</td></tr>
+	<tr><th>Feature</th><th>Description</th></tr>
+	<tr><td>Night side (night)</td><td>Computes the terminator as a 31-point polygon from solar declination and longitude; fills with a semi-transparent dark overlay</td></tr>
+	<tr><td>Clock (clock)</td><td>Displays UTC in a large font; visible only when zoomed out (zoom &lt; 2)</td></tr>
+	<tr><td>Coordinates (latlng)</td><td>Shows latitude, longitude, and elevation in real time as the cursor moves</td></tr>
+	<tr><td>Scale bar (scale)</td><td>log10-rounded values with automatic unit selection (m/km; metric/imperial)</td></tr>
+	<tr><td>Attribution (credit)</td><td>License text for each base map, drawn from the <code>attribution</code> property</td></tr>
 </table>
 
 <!-- ──────────────────────────────────────────────────── -->
@@ -547,47 +547,47 @@ hover picking, click events, feature highlighting, and polygon fill.
 <h3>7.1 Module Structure</h3>
 
 <table>
-    <tr><th>File</th><th>Role</th></tr>
-    <tr><td><code>gintState.js</code></td><td>Shared GL state object (<code>s</code>)</td></tr>
-    <tr><td><code>gintPrograms.js</code></td><td>GLSL shader compilation, linking, and uniform lookup</td></tr>
-    <tr><td><code>gintTextures.js</code></td><td>arcTex / metaTex / ptTex texture creation and deletion</td></tr>
-    <tr><td><code>gintFBO.js</code></td><td>baseFBO (clean scene) and pickFBO (picking) creation and deletion</td></tr>
-    <tr><td><code>gintRenderPasses.js</code></td><td>renderCleanScene / drawOverlay / renderPickingBuffer — 3 render passes</td></tr>
-    <tr><td><code>gintIdentify.js</code></td><td>GPU picking + JS polygon hit-test fallback, hover / leave handlers</td></tr>
+	<tr><th>File</th><th>Role</th></tr>
+	<tr><td><code>gintState.js</code></td><td>Shared GL state object (<code>s</code>)</td></tr>
+	<tr><td><code>gintPrograms.js</code></td><td>GLSL shader compilation, linking, and uniform lookup</td></tr>
+	<tr><td><code>gintTextures.js</code></td><td>arcTex / metaTex / ptTex texture creation and deletion</td></tr>
+	<tr><td><code>gintFBO.js</code></td><td>baseFBO (clean scene) and pickFBO (picking) creation and deletion</td></tr>
+	<tr><td><code>gintRenderPasses.js</code></td><td>renderCleanScene / drawOverlay / renderPickingBuffer — 3 render passes</td></tr>
+	<tr><td><code>gintIdentify.js</code></td><td>GPU picking + JS polygon hit-test fallback, hover / leave handlers</td></tr>
 </table>
 
 <h3>7.2 Three-Framebuffer Design</h3>
 
 <div class="pipeline">
-    <div class="pipe-stage stage-base">
-        <div class="pipe-head">
-            <span class="pipe-num n-base">1</span>
-            <div>
-                <div class="pipe-title">canvas (default FBO) — real-time rendering during pan</div>
-                <div class="pipe-sub">Drawn directly on every drawing() event. Lightweight and immediate.</div>
-            </div>
-        </div>
-    </div>
-    <div class="pipe-arrow">↓ committed on drawn()</div>
-    <div class="pipe-stage stage-bdr">
-        <div class="pipe-head">
-            <span class="pipe-num n-bdr">2</span>
-            <div>
-                <div class="pipe-title">baseFBO — clean scene snapshot</div>
-                <div class="pipe-sub">Blitted back to canvas when hover highlight is cleared, restoring the previous frame with zero flicker.</div>
-            </div>
-        </div>
-    </div>
-    <div class="pipe-arrow">↓ simultaneously</div>
-    <div class="pipe-stage stage-acc">
-        <div class="pipe-head">
-            <span class="pipe-num n-acc">3</span>
-            <div>
-                <div class="pipe-title">pickFBO — feature ID encoded as RGB24</div>
-                <div class="pipe-sub">Lines drawn wider than visual width to expand hit sensitivity to ~6 CSS px (pickMargin = 12 × dpr).</div>
-            </div>
-        </div>
-    </div>
+	<div class="pipe-stage stage-base">
+		<div class="pipe-head">
+			<span class="pipe-num n-base">1</span>
+			<div>
+				<div class="pipe-title">canvas (default FBO) — real-time rendering during pan</div>
+				<div class="pipe-sub">Drawn directly on every drawing() event. Lightweight and immediate.</div>
+			</div>
+		</div>
+	</div>
+	<div class="pipe-arrow">↓ committed on drawn()</div>
+	<div class="pipe-stage stage-bdr">
+		<div class="pipe-head">
+			<span class="pipe-num n-bdr">2</span>
+			<div>
+				<div class="pipe-title">baseFBO — clean scene snapshot</div>
+				<div class="pipe-sub">Blitted back to canvas when hover highlight is cleared, restoring the previous frame with zero flicker.</div>
+			</div>
+		</div>
+	</div>
+	<div class="pipe-arrow">↓ simultaneously</div>
+	<div class="pipe-stage stage-acc">
+		<div class="pipe-head">
+			<span class="pipe-num n-acc">3</span>
+			<div>
+				<div class="pipe-title">pickFBO — feature ID encoded as RGB24</div>
+				<div class="pipe-sub">Lines drawn wider than visual width to expand hit sensitivity to ~6 CSS px (pickMargin = 12 × dpr).</div>
+			</div>
+		</div>
+	</div>
 </div>
 
 <h3>7.3 GPU Picking — RGB24 Feature ID</h3>
@@ -595,10 +595,10 @@ hover picking, click events, feature highlighting, and polygon fill.
 <pre><code><span class="cm">// Encode feature ID into RGB 24-bit in the picking FBO</span>
 uint fid1 = meta.a + <span class="nm">1u</span>;  <span class="cm">// shift by 1 so 0 means "no hit"</span>
 v_color = vec4(
-    <span class="kw">float</span>(fid1 &amp; <span class="nm">255u</span>) / <span class="nm">255.0</span>,
-    <span class="kw">float</span>((fid1 >> <span class="nm">8u</span>) &amp; <span class="nm">255u</span>) / <span class="nm">255.0</span>,
-    <span class="kw">float</span>((fid1 >> <span class="nm">16u</span>) &amp; <span class="nm">255u</span>) / <span class="nm">255.0</span>,
-    <span class="nm">1.0</span>
+	<span class="kw">float</span>(fid1 &amp; <span class="nm">255u</span>) / <span class="nm">255.0</span>,
+	<span class="kw">float</span>((fid1 >> <span class="nm">8u</span>) &amp; <span class="nm">255u</span>) / <span class="nm">255.0</span>,
+	<span class="kw">float</span>((fid1 >> <span class="nm">16u</span>) &amp; <span class="nm">255u</span>) / <span class="nm">255.0</span>,
+	<span class="nm">1.0</span>
 );
 
 <span class="cm">// Read 1 px at cursor position</span>
@@ -629,26 +629,26 @@ gl.<span class="fn">uniform1i</span>(uRender.u_active_id,  activeId);
 <span class="cm">// (only when maskColor.alpha > 0 and polyEdgeByFid has a range)</span></code></pre>
 
 <div class="callout callout-key">
-    <div class="callout-head">Zero Main-Thread Round Trips</div>
-    <p>
-        The entire hover detect → drawOverlay pipeline completes inside the Worker.
-        There is no <code>postMessage("redraw")</code>; <code>readPixels</code> and <code>drawOverlay</code>
-        run sequentially in the same Worker, eliminating main-thread round-trip latency.
-    </p>
+	<div class="callout-head">Zero Main-Thread Round Trips</div>
+	<p>
+		The entire hover detect → drawOverlay pipeline completes inside the Worker.
+		There is no <code>postMessage("redraw")</code>; <code>readPixels</code> and <code>drawOverlay</code>
+		run sequentially in the same Worker, eliminating main-thread round-trip latency.
+	</p>
 </div>
 
 <h3>7.6 WebGL Context Loss Recovery</h3>
 
 <pre><code>canvas.<span class="fn">addEventListener</span>(<span class="st">"webglcontextlost"</span>, e => {
-    e.<span class="fn">preventDefault</span>();
-    <span class="cm">// Clear all texture, FBO, and program references</span>
-    s.arcTex = s.metaTex = s.ptTex = s.ptMetaTex = <span class="kw">null</span>;
-    s.baseFBO = s.pickFBO = s.programs = <span class="kw">null</span>;
+	e.<span class="fn">preventDefault</span>();
+	<span class="cm">// Clear all texture, FBO, and program references</span>
+	s.arcTex = s.metaTex = s.ptTex = s.ptMetaTex = <span class="kw">null</span>;
+	s.baseFBO = s.pickFBO = s.programs = <span class="kw">null</span>;
 });
 canvas.<span class="fn">addEventListener</span>(<span class="st">"webglcontextrestored"</span>, () => {
-    s.programs = <span class="fn">createGintPrograms</span>(s.gl);
-    <span class="fn">createFBOs</span>(); <span class="fn">uploadGintTextures</span>();
-    <span class="fn">postMessage</span>({ action: <span class="st">"redraw"</span> });  <span class="cm">// request redraw from main thread</span>
+	s.programs = <span class="fn">createGintPrograms</span>(s.gl);
+	<span class="fn">createFBOs</span>(); <span class="fn">uploadGintTextures</span>();
+	<span class="fn">postMessage</span>({ action: <span class="st">"redraw"</span> });  <span class="cm">// request redraw from main thread</span>
 });</code></pre>
 
 <!-- ──────────────────────────────────────────────────── -->
@@ -693,160 +693,160 @@ setTip(<span class="st">"Click for details"</span>);       <span class="cm">// s
 
 <span class="cm">// Registering and invoking a custom gadget</span>
 map.<span class="fn">gadget</span>(<span class="st">"myTool"</span>, <span class="kw">function</span> () {
-    map.<span class="fn">addFrame</span>(<span class="st">"rightTop"</span>);
-    map.rightTop.<span class="fn">append</span>(<span class="st">"div"</span>).<span class="fn">text</span>(<span class="st">"Hello"</span>);
+	map.<span class="fn">addFrame</span>(<span class="st">"rightTop"</span>);
+	map.rightTop.<span class="fn">append</span>(<span class="st">"div"</span>).<span class="fn">text</span>(<span class="st">"Hello"</span>);
 });
 map.gadget.<span class="fn">myTool</span>();</code></pre>
 
 <h4>Frame Positions</h4>
 <table>
-    <tr><th>Frame name</th><th>Position</th><th>Typical use</th></tr>
-    <tr><td><code>leftTop</code></td><td>Top-left</td><td>Zoom, north, layer switcher, and other action buttons</td></tr>
-    <tr><td><code>rightTop</code></td><td>Top-right</td><td>Auxiliary buttons and user UI</td></tr>
-    <tr><td><code>leftBottom</code></td><td>Bottom-left</td><td>Legend</td></tr>
-    <tr><td><code>rightBottom</code></td><td>Bottom-right</td><td>Supplementary info</td></tr>
-    <tr><td><code>leftFrame</code></td><td>Fixed panel left of map</td><td>Side menu (pushes map, resize-aware)</td></tr>
-    <tr><td><code>rightFrame</code></td><td>Fixed panel right of map</td><td>Attribute panel (pushes map, resize-aware)</td></tr>
-    <tr><td><code>overlays</code></td><td>Full-map overlay</td><td>tip / pop / explain / loading, etc.</td></tr>
+	<tr><th>Frame name</th><th>Position</th><th>Typical use</th></tr>
+	<tr><td><code>leftTop</code></td><td>Top-left</td><td>Zoom, north, layer switcher, and other action buttons</td></tr>
+	<tr><td><code>rightTop</code></td><td>Top-right</td><td>Auxiliary buttons and user UI</td></tr>
+	<tr><td><code>leftBottom</code></td><td>Bottom-left</td><td>Legend</td></tr>
+	<tr><td><code>rightBottom</code></td><td>Bottom-right</td><td>Supplementary info</td></tr>
+	<tr><td><code>leftFrame</code></td><td>Fixed panel left of map</td><td>Side menu (pushes map, resize-aware)</td></tr>
+	<tr><td><code>rightFrame</code></td><td>Fixed panel right of map</td><td>Attribute panel (pushes map, resize-aware)</td></tr>
+	<tr><td><code>overlays</code></td><td>Full-map overlay</td><td>tip / pop / explain / loading, etc.</td></tr>
 </table>
 
 <h4>Built-in Gadgets — Interaction (gadget1.js)</h4>
 <table>
-    <tr><th>Gadget</th><th>Description</th></tr>
-    <tr>
-        <td><code>zoom()</code></td>
-        <td>Zoom-in (+) and zoom-out (−) buttons. Each click snaps to the nearest integer zoom level and animates via <code>map.mag()</code></td>
-    </tr>
-    <tr>
-        <td><code>north()</code></td>
-        <td>Displays the current Z-axis rotation (map tilt) live inside the button's SVG icon, and calls <code>map.north()</code> on click to animate back to north-up</td>
-    </tr>
-    <tr>
-        <td><code>layers()</code></td>
-        <td>Base map switcher dropdown. Renders layer names in the current locale from <code>map.Layers</code> and calls <code>map.setBase()</code> on selection</td>
-    </tr>
-    <tr>
-        <td><code>leftPanel(opts)</code><br><code>rightPanel(opts)</code></td>
-        <td>
-            Manages side panel open/close. With <code>opts.active = true</code> the panel physically pushes the map area (resize mode);
-            otherwise it overlaps the map as a modal. Opening animation is interpolated with <code>d3.easeCubic</code> (configurable).
-            Returns a D3 Selection for the panel content area.
-        </td>
-    </tr>
-    <tr>
-        <td><code>full()</code></td>
-        <td>Toggles fullscreen via the Fullscreen API, automatically swapping the button icon to match state</td>
-    </tr>
-    <tr>
-        <td><code>constellation()</code></td>
-        <td>Toggles constellation lines and labels. Sends <code>toggle-constellations</code> to the Accessories Worker, which also toggles Messier object display in sync</td>
-    </tr>
-    <tr>
-        <td><code>cpos()</code></td>
-        <td>
-            Obtains the current position via the Geolocation API and navigates there with <code>flyToFeature</code>.
-            The location is shown as an animated SVG marker (pulsing circle) on the overlay,
-            automatically shown/hidden based on <code>map.tester()</code> as the map moves
-        </td>
-    </tr>
-    <tr>
-        <td><code>shot()</code></td>
-        <td>
-            Downloads a screenshot. All Canvas layers are composited onto an OffscreenCanvas,
-            then <code>html2canvas</code> renders the overlay (excluding buttons and <code>noprint</code> elements) on top.
-            Saved as WebP.
-        </td>
-    </tr>
-    <tr>
-        <td><code>print()</code></td>
-        <td>
-            Renders at 3× resolution and opens a new window that calls <code>window.print()</code>.
-            Automatically detects portrait vs. landscape and applies appropriate CSS layout.
-        </td>
-    </tr>
-    <tr>
-        <td><code>measure()</code></td>
-        <td>
-            Toggle button that enters distance/area measurement mode.
-            When active, cancels Click events and launches the <code>createPolygon</code> tool,
-            displaying distance and area in real time as vertices are added
-        </td>
-    </tr>
+	<tr><th>Gadget</th><th>Description</th></tr>
+	<tr>
+		<td><code>zoom()</code></td>
+		<td>Zoom-in (+) and zoom-out (−) buttons. Each click snaps to the nearest integer zoom level and animates via <code>map.mag()</code></td>
+	</tr>
+	<tr>
+		<td><code>north()</code></td>
+		<td>Displays the current Z-axis rotation (map tilt) live inside the button's SVG icon, and calls <code>map.north()</code> on click to animate back to north-up</td>
+	</tr>
+	<tr>
+		<td><code>layers()</code></td>
+		<td>Base map switcher dropdown. Renders layer names in the current locale from <code>map.Layers</code> and calls <code>map.setBase()</code> on selection</td>
+	</tr>
+	<tr>
+		<td><code>leftPanel(opts)</code><br><code>rightPanel(opts)</code></td>
+		<td>
+			Manages side panel open/close. With <code>opts.active = true</code> the panel physically pushes the map area (resize mode);
+			otherwise it overlaps the map as a modal. Opening animation is interpolated with <code>d3.easeCubic</code> (configurable).
+			Returns a D3 Selection for the panel content area.
+		</td>
+	</tr>
+	<tr>
+		<td><code>full()</code></td>
+		<td>Toggles fullscreen via the Fullscreen API, automatically swapping the button icon to match state</td>
+	</tr>
+	<tr>
+		<td><code>constellation()</code></td>
+		<td>Toggles constellation lines and labels. Sends <code>toggle-constellations</code> to the Accessories Worker, which also toggles Messier object display in sync</td>
+	</tr>
+	<tr>
+		<td><code>cpos()</code></td>
+		<td>
+			Obtains the current position via the Geolocation API and navigates there with <code>flyToFeature</code>.
+			The location is shown as an animated SVG marker (pulsing circle) on the overlay,
+			automatically shown/hidden based on <code>map.tester()</code> as the map moves
+		</td>
+	</tr>
+	<tr>
+		<td><code>shot()</code></td>
+		<td>
+			Downloads a screenshot. All Canvas layers are composited onto an OffscreenCanvas,
+			then <code>html2canvas</code> renders the overlay (excluding buttons and <code>noprint</code> elements) on top.
+			Saved as WebP.
+		</td>
+	</tr>
+	<tr>
+		<td><code>print()</code></td>
+		<td>
+			Renders at 3× resolution and opens a new window that calls <code>window.print()</code>.
+			Automatically detects portrait vs. landscape and applies appropriate CSS layout.
+		</td>
+	</tr>
+	<tr>
+		<td><code>measure()</code></td>
+		<td>
+			Toggle button that enters distance/area measurement mode.
+			When active, cancels Click events and launches the <code>createPolygon</code> tool,
+			displaying distance and area in real time as vertices are added
+		</td>
+	</tr>
 </table>
 
 <h4>Built-in Gadgets — Information Display (gadget2.js)</h4>
 <table>
-    <tr><th>Gadget</th><th>Description</th></tr>
-    <tr>
-        <td><code>loading()</code></td>
-        <td>
-            Displays a tile loading indicator tied to <code>LoadStart</code> / <code>LoadEnd</code> events.
-            When multiple tiles are loading simultaneously, all names are listed;
-            the indicator disappears automatically once everything completes
-        </td>
-    </tr>
-    <tr>
-        <td><code>explain()</code></td>
-        <td>
-            A panel in the upper-left area for explanatory text or HTML.
-            The returned function accepts a string or a function receiving a D3 Selection.
-            Pass <code>opts.permanent = true</code> to hide the close button.
-        </td>
-    </tr>
-    <tr>
-        <td><code>legend()</code></td>
-        <td>
-            A collapsible legend panel in the lower-left. Clicking collapses it;
-            a re-open button restores it. Content is set the same way as <code>explain</code>.
-        </td>
-    </tr>
-    <tr>
-        <td><code>tip()</code></td>
-        <td>
-            A tooltip that follows the cursor. Pass text to the returned function to show it;
-            pass <code>null</code> to hide. Automatically flips to the opposite side near screen edges.
-            Uses a wider offset on touch devices.
-        </td>
-    </tr>
-    <tr>
-        <td><code>pop()</code></td>
-        <td>
-            Creates popups pinned to specific map locations.
-            Each call to the returned <code>pop(content, event)</code> spawns a new popup.
-            A Canvas2D leader line is drawn automatically from the popup to its coordinate.
-            Popups can be dragged and pin-locked. <code>pop.clear()</code> removes all.
-        </td>
-    </tr>
-    <tr>
-        <td><code>contextmenu()</code></td>
-        <td>
-            A context menu shown on right-click or long-press.
-            Pass an array of <code>[{ icon, name, func }]</code> to the returned function to define menu items.
-        </td>
-    </tr>
+	<tr><th>Gadget</th><th>Description</th></tr>
+	<tr>
+		<td><code>loading()</code></td>
+		<td>
+			Displays a tile loading indicator tied to <code>LoadStart</code> / <code>LoadEnd</code> events.
+			When multiple tiles are loading simultaneously, all names are listed;
+			the indicator disappears automatically once everything completes
+		</td>
+	</tr>
+	<tr>
+		<td><code>explain()</code></td>
+		<td>
+			A panel in the upper-left area for explanatory text or HTML.
+			The returned function accepts a string or a function receiving a D3 Selection.
+			Pass <code>opts.permanent = true</code> to hide the close button.
+		</td>
+	</tr>
+	<tr>
+		<td><code>legend()</code></td>
+		<td>
+			A collapsible legend panel in the lower-left. Clicking collapses it;
+			a re-open button restores it. Content is set the same way as <code>explain</code>.
+		</td>
+	</tr>
+	<tr>
+		<td><code>tip()</code></td>
+		<td>
+			A tooltip that follows the cursor. Pass text to the returned function to show it;
+			pass <code>null</code> to hide. Automatically flips to the opposite side near screen edges.
+			Uses a wider offset on touch devices.
+		</td>
+	</tr>
+	<tr>
+		<td><code>pop()</code></td>
+		<td>
+			Creates popups pinned to specific map locations.
+			Each call to the returned <code>pop(content, event)</code> spawns a new popup.
+			A Canvas2D leader line is drawn automatically from the popup to its coordinate.
+			Popups can be dragged and pin-locked. <code>pop.clear()</code> removes all.
+		</td>
+	</tr>
+	<tr>
+		<td><code>contextmenu()</code></td>
+		<td>
+			A context menu shown on right-click or long-press.
+			Pass an array of <code>[{ icon, name, func }]</code> to the returned function to define menu items.
+		</td>
+	</tr>
 </table>
 
 <pre><code><span class="cm">// pop example</span>
 <span class="kw">const</span> pop = map.gadget.<span class="fn">pop</span>();
 map.<span class="fn">onClick</span>(e => {
-    <span class="kw">if</span> (!e) <span class="kw">return</span>;
-    pop(<span class="st">`Lat: ${e.lat.toFixed(4)}&lt;br&gt;Lng: ${e.lng.toFixed(4)}`</span>, e);
+	<span class="kw">if</span> (!e) <span class="kw">return</span>;
+	pop(<span class="st">`Lat: ${e.lat.toFixed(4)}&lt;br&gt;Lng: ${e.lng.toFixed(4)}`</span>, e);
 });
 
 <span class="cm">// contextmenu example</span>
 <span class="kw">const</span> setMenu = map.gadget.<span class="fn">contextmenu</span>();
 setMenu([
-    { name: <span class="st">"Center here"</span>, func: map => map.<span class="fn">flyToFeature</span>({ type: <span class="st">"Point"</span>, coordinates: [map.center[<span class="nm">0</span>], map.center[<span class="nm">1</span>]] }) },
-    { name: <span class="st">"Face north"</span>,  func: map => map.<span class="fn">north</span>() },
+	{ name: <span class="st">"Center here"</span>, func: map => map.<span class="fn">flyToFeature</span>({ type: <span class="st">"Point"</span>, coordinates: [map.center[<span class="nm">0</span>], map.center[<span class="nm">1</span>]] }) },
+	{ name: <span class="st">"Face north"</span>,  func: map => map.<span class="fn">north</span>() },
 ]);</code></pre>
 
 <div class="callout callout-note">
-    <div class="callout-head">CSS Theme Customization</div>
-    <p>
-        <code>map.setProperties()</code> writes CSS custom properties to the document root.
-        Key properties: <code>spaceColor</code> (space background), <code>earthFilter</code> (globe CSS filter),
-        <code>borderColor</code> (button border), <code>buttonSize</code>, <code>fontSize</code>, <code>fontFamily</code>, and more.
-    </p>
+	<div class="callout-head">CSS Theme Customization</div>
+	<p>
+		<code>map.setProperties()</code> writes CSS custom properties to the document root.
+		Key properties: <code>spaceColor</code> (space background), <code>earthFilter</code> (globe CSS filter),
+		<code>borderColor</code> (button border), <code>buttonSize</code>, <code>fontSize</code>, <code>fontFamily</code>, and more.
+	</p>
 </div>
 
 <hr class="rule">
@@ -854,22 +854,22 @@ setMenu([
 <h3>API Summary</h3>
 
 <table>
-    <tr><th>Method</th><th>Description</th></tr>
-    <tr><td><code>map.setBase(name)</code></td><td>Switch base map (includes tile cache reset)</td></tr>
-    <tr><td><code>map.setView(center, zoom, angle)</code></td><td>Instantly change view position</td></tr>
-    <tr><td><code>map.flyToFeature(feature, opts)</code></td><td>Navigate with d3.interpolateZoom animation</td></tr>
-    <tr><td><code>map.zoomToFeature(feature, opts)</code></td><td>Navigate with two-phase animation</td></tr>
-    <tr><td><code>map.bbox([x0,y0,x1,y1])</code></td><td>Zoom to bounding box / get current bbox</td></tr>
-    <tr><td><code>map.mag(n, duration)</code></td><td>Animate scale to n× the current value</td></tr>
-    <tr><td><code>map.north(duration)</code></td><td>Animate Z-rotation (tilt) back to 0</td></tr>
-    <tr><td><code>map.autoRotate(true/false)</code></td><td>Auto-rotate at 0.01°/ms via d3.timer</td></tr>
-    <tr><td><code>map.tester([lng,lat])</code></td><td>Check whether a point is visible in the current viewport</td></tr>
-    <tr><td><code>map.createLayer(opts)</code></td><td>Add a Canvas2D layer (for GeoJSON rendering)</td></tr>
-    <tr><td><code>map.createRemoteLayer(opts)</code></td><td>Add a Worker + OffscreenCanvas layer</td></tr>
+	<tr><th>Method</th><th>Description</th></tr>
+	<tr><td><code>map.setBase(name)</code></td><td>Switch base map (includes tile cache reset)</td></tr>
+	<tr><td><code>map.setView(center, zoom, angle)</code></td><td>Instantly change view position</td></tr>
+	<tr><td><code>map.flyToFeature(feature, opts)</code></td><td>Navigate with d3.interpolateZoom animation</td></tr>
+	<tr><td><code>map.zoomToFeature(feature, opts)</code></td><td>Navigate with two-phase animation</td></tr>
+	<tr><td><code>map.bbox([x0,y0,x1,y1])</code></td><td>Zoom to bounding box / get current bbox</td></tr>
+	<tr><td><code>map.mag(n, duration)</code></td><td>Animate scale to n× the current value</td></tr>
+	<tr><td><code>map.north(duration)</code></td><td>Animate Z-rotation (tilt) back to 0</td></tr>
+	<tr><td><code>map.autoRotate(true/false)</code></td><td>Auto-rotate at 0.01°/ms via d3.timer</td></tr>
+	<tr><td><code>map.tester([lng,lat])</code></td><td>Check whether a point is visible in the current viewport</td></tr>
+	<tr><td><code>map.createLayer(opts)</code></td><td>Add a Canvas2D layer (for GeoJSON rendering)</td></tr>
+	<tr><td><code>map.createRemoteLayer(opts)</code></td><td>Add a Worker + OffscreenCanvas layer</td></tr>
 </table>
 
 <div style="margin-top:48px;font-size:0.72rem;color:var(--dim);font-family:var(--mono);text-align:center">
-    ortho-map · GPL-3.0 · Kenji Yoshida · 2026
+	ortho-map · GPL-3.0 · Kenji Yoshida · 2026
 </div>
 
 </div><!-- .page -->

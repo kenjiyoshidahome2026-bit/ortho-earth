@@ -33,18 +33,18 @@
 <body>
 
 <div class="header-bar">
-    <img src="favicon.svg" width="24" height="24" style="flex-shrink:0">
-    <span class="logo">ortho-map</span>
-    <span class="sep">/</span>
-    <span style="color:var(--dim);font-size:0.82rem">Technical Architecture Overview</span>
-    <div class="nav-links">
-        <a href="index-jp.html">← ドキュメント</a>
-        <a href="ortho-map.html">EN</a>
-        <span class="nav-cur">OrthoMap</span>
-        <a href="gintbuf-jp.html">Gint</a>
-        <a href="geopbf-jp.html">GeoPBF</a>
-        <a href="altpbf-jp.html">AltPBF</a>
-    </div>
+	<img src="favicon.svg" width="24" height="24" style="flex-shrink:0">
+	<span class="logo">ortho-map</span>
+	<span class="sep">/</span>
+	<span style="color:var(--dim);font-size:0.82rem">Technical Architecture Overview</span>
+	<div class="nav-links">
+		<a href="index-jp.html">← ドキュメント</a>
+		<a href="ortho-map.html">EN</a>
+		<span class="nav-cur">OrthoMap</span>
+		<a href="gintbuf-jp.html">Gint</a>
+		<a href="geopbf-jp.html">GeoPBF</a>
+		<a href="altpbf-jp.html">AltPBF</a>
+	</div>
 </div>
 
 <div class="page">
@@ -56,17 +56,17 @@ Worker ベース並列パイプライン &middot; OffscreenCanvas &middot; Gint 
 </span></p>
 
 <div class="toc">
-    <div class="toc-title">Table of Contents</div>
-    <ol>
-        <li><a href="#overview">アーキテクチャ概観</a></li>
-        <li><a href="#projection">正射影と操作系</a></li>
-        <li><a href="#worker">Worker 通信プロトコル</a></li>
-        <li><a href="#base">Base レイヤー — WebGL2 球体描画 + タイル</a></li>
-        <li><a href="#border">BorderLines レイヤー — Gint 軽量ライン描画</a></li>
-        <li><a href="#accessories">Accessories レイヤー — Canvas2D オーバーレイ</a></li>
-        <li><a href="#gint">Gint レイヤー — フル WebGL2 ベクター描画</a></li>
-        <li><a href="#state">状態管理・ガジェット</a></li>
-    </ol>
+	<div class="toc-title">Table of Contents</div>
+	<ol>
+		<li><a href="#overview">アーキテクチャ概観</a></li>
+		<li><a href="#projection">正射影と操作系</a></li>
+		<li><a href="#worker">Worker 通信プロトコル</a></li>
+		<li><a href="#base">Base レイヤー — WebGL2 球体描画 + タイル</a></li>
+		<li><a href="#border">BorderLines レイヤー — Gint 軽量ライン描画</a></li>
+		<li><a href="#accessories">Accessories レイヤー — Canvas2D オーバーレイ</a></li>
+		<li><a href="#gint">Gint レイヤー — フル WebGL2 ベクター描画</a></li>
+		<li><a href="#state">状態管理・ガジェット</a></li>
+	</ol>
 </div>
 
 <!-- ──────────────────────────────────────────────────── -->
@@ -79,29 +79,29 @@ OrthoMap はメインスレッドに投影演算・イベント処理・レイ�
 </p>
 
 <div class="layer-stack">
-    <div class="layer-row">
-        <span class="layer-badge badge-2d">Canvas2D</span>
-        <span class="layer-name">Accessories</span>
-        <span class="layer-desc">stars · constellations · night · globe minimap · scale · clock（border.js Worker）</span>
-    </div>
-    <div class="layer-arrow">↑ オーバーレイ（最前面）</div>
-    <div class="layer-row">
-        <span class="layer-badge badge-gl2">WebGL2</span>
-        <span class="layer-name">BorderLines</span>
-        <span class="layer-desc">graticule · 国境線 · 海上境界 · 地理線（gintBorder.js Worker）</span>
-    </div>
-    <div class="layer-arrow">↑ ベクターオーバーレイ</div>
-    <div class="layer-row">
-        <span class="layer-badge badge-gl2">WebGL2</span>
-        <span class="layer-name">OrthoMapGL</span>
-        <span class="layer-desc">ベース球体テクスチャ + スライプルタイル（base.js Worker）</span>
-    </div>
-    <div class="layer-arrow" style="margin-top:16px;color:var(--yellow)">↕ ユーザー追加レイヤー（createLayer / createRemoteLayer）</div>
-    <div class="layer-row" style="background:#1a1f2e">
-        <span class="layer-badge badge-worker">Worker</span>
-        <span class="layer-name">Gint レイヤー</span>
-        <span class="layer-desc">任意 GeoPBF → WebGL2 描画・hover picking・ポリゴン塗り（gint.js Worker）</span>
-    </div>
+	<div class="layer-row">
+		<span class="layer-badge badge-2d">Canvas2D</span>
+		<span class="layer-name">Accessories</span>
+		<span class="layer-desc">stars · constellations · night · globe minimap · scale · clock（border.js Worker）</span>
+	</div>
+	<div class="layer-arrow">↑ オーバーレイ（最前面）</div>
+	<div class="layer-row">
+		<span class="layer-badge badge-gl2">WebGL2</span>
+		<span class="layer-name">BorderLines</span>
+		<span class="layer-desc">graticule · 国境線 · 海上境界 · 地理線（gintBorder.js Worker）</span>
+	</div>
+	<div class="layer-arrow">↑ ベクターオーバーレイ</div>
+	<div class="layer-row">
+		<span class="layer-badge badge-gl2">WebGL2</span>
+		<span class="layer-name">OrthoMapGL</span>
+		<span class="layer-desc">ベース球体テクスチャ + スライプルタイル（base.js Worker）</span>
+	</div>
+	<div class="layer-arrow" style="margin-top:16px;color:var(--yellow)">↕ ユーザー追加レイヤー（createLayer / createRemoteLayer）</div>
+	<div class="layer-row" style="background:#1a1f2e">
+		<span class="layer-badge badge-worker">Worker</span>
+		<span class="layer-name">Gint レイヤー</span>
+		<span class="layer-desc">任意 GeoPBF → WebGL2 描画・hover picking・ポリゴン塗り（gint.js Worker）</span>
+	</div>
 </div>
 
 <p>
@@ -110,12 +110,12 @@ OrthoMap はメインスレッドに投影演算・イベント処理・レイ�
 
 <pre><code><span class="cm">// index.js — エントリーポイント</span>
 <span class="kw">const</span> map = <span class="kw">await</span> <span class="fn">orthoMap</span>({
-    target: d3.<span class="fn">select</span>(<span class="st">"#container"</span>),  <span class="cm">// 省略時は body</span>
-    baseName: <span class="st">"osm.street"</span>,
-    center: [<span class="nm">139.7</span>, <span class="nm">35.7</span>],
-    zoom: <span class="nm">4</span>,
-    accessories: { stars: { maxCount: <span class="nm">500</span> } },
-    gadgets: <span class="kw">false</span>,
+	target: d3.<span class="fn">select</span>(<span class="st">"#container"</span>),  <span class="cm">// 省略時は body</span>
+	baseName: <span class="st">"osm.street"</span>,
+	center: [<span class="nm">139.7</span>, <span class="nm">35.7</span>],
+	zoom: <span class="nm">4</span>,
+	accessories: { stars: { maxCount: <span class="nm">500</span> } },
+	gadgets: <span class="kw">false</span>,
 });
 
 <span class="cm">// 内部シーケンス:</span>
@@ -134,15 +134,15 @@ OrthoMap はこれをウェブ地図標準のズームレベルに変換する�
 </p>
 
 <div class="formula">
-    <span class="fvar">scale</span>
-    <span class="fop"> = </span>
-    <span>2<sup>zoom</sup> × (256 / 2π)</span>
-    <br>
-    <span class="fvar">zoom</span>
-    <span class="fop"> = </span>
-    <span>log<sub>2</sub>(scale / (256 / 2π))</span>
-    <br>
-    <span style="font-size:0.75rem;color:var(--dim)">256 / 2π ≈ 40.74（タイルサイズ256px基準）</span>
+	<span class="fvar">scale</span>
+	<span class="fop"> = </span>
+	<span>2<sup>zoom</sup> × (256 / 2π)</span>
+	<br>
+	<span class="fvar">zoom</span>
+	<span class="fop"> = </span>
+	<span>log<sub>2</sub>(scale / (256 / 2π))</span>
+	<br>
+	<span style="font-size:0.75rem;color:var(--dim)">256 / 2π ≈ 40.74（タイルサイズ256px基準）</span>
 </div>
 
 <p>
@@ -170,13 +170,13 @@ proj.<span class="fn">rotate</span>(<span class="fn">rotation</span>(q1));</code
 </p>
 
 <div class="callout callout-note">
-    <div class="callout-head">Ctrl + ホイール：カーソル中心 Z 回転</div>
-    <p>
-        Ctrl または Meta キー押下時のホイールは <em>カーソル位置を中心に球を Z 軸回転させる</em>。
-        カーソルの画面座標からカーソルまでの球面ベクトル <code>[x,y,z]</code> を求め、
-        これを回転軸とする四元数を現在の回転に合成する。
-        単純な camera rotate ではなく球体上の実点を軸とした物理的な回転である。
-    </p>
+	<div class="callout-head">Ctrl + ホイール：カーソル中心 Z 回転</div>
+	<p>
+		Ctrl または Meta キー押下時のホイールは <em>カーソル位置を中心に球を Z 軸回転させる</em>。
+		カーソルの画面座標からカーソルまでの球面ベクトル <code>[x,y,z]</code> を求め、
+		これを回転軸とする四元数を現在の回転に合成する。
+		単純な camera rotate ではなく球体上の実点を軸とした物理的な回転である。
+	</p>
 </div>
 
 <h3>2.3 flyToFeature / zoomToFeature</h3>
@@ -187,17 +187,17 @@ proj.<span class="fn">rotate</span>(<span class="fn">rotation</span>(q1));</code
 </p>
 
 <table>
-    <tr><th>関数</th><th>アルゴリズム</th><th>特徴</th></tr>
-    <tr>
-        <td><code>flyToFeature</code></td>
-        <td>d3.interpolateZoom（ズームアウト→移動→ズームイン）+ 線形イージング</td>
-        <td>長距離移動時に「空を飛ぶ」ような弧を描く</td>
-    </tr>
-    <tr>
-        <td><code>zoomToFeature</code></td>
-        <td>2 フェーズ：① threshold zoom まで回転移動、② 目的地でズームイン</td>
-        <td>タイル不要領域での移動 → 到着後のズームインでタイル読み込みを最小化</td>
-    </tr>
+	<tr><th>関数</th><th>アルゴリズム</th><th>特徴</th></tr>
+	<tr>
+		<td><code>flyToFeature</code></td>
+		<td>d3.interpolateZoom（ズームアウト→移動→ズームイン）+ 線形イージング</td>
+		<td>長距離移動時に「空を飛ぶ」ような弧を描く</td>
+	</tr>
+	<tr>
+		<td><code>zoomToFeature</code></td>
+		<td>2 フェーズ：① threshold zoom まで回転移動、② 目的地でズームイン</td>
+		<td>タイル不要領域での移動 → 到着後のズームインでタイル読み込みを最小化</td>
+	</tr>
 </table>
 
 <pre><code><span class="cm">// zoomToFeature — 2フェーズ構成</span>
@@ -205,7 +205,7 @@ proj.<span class="fn">rotate</span>(<span class="fn">rotation</span>(q1));</code
 <span class="kw">const</span> sTrav = <span class="fn">min</span>(s1, <span class="fn">zval2scale</span>(<span class="nm">5.5</span>));
 <span class="cm">// Phase2: 到着後 2000ms でズームイン（600ms オーバーラップ）</span>
 proj.<span class="fn">scale</span>(s0 + (sTrav - s0) * tRotEased   <span class="cm">// 移動フェーズ</span>
-           + (s1  - sTrav) * <span class="fn">easeCubicInOut</span>(tZoom)); <span class="cm">// ズームフェーズ</span></code></pre>
+			 + (s1  - sTrav) * <span class="fn">easeCubicInOut</span>(tZoom)); <span class="cm">// ズームフェーズ</span></code></pre>
 
 <h3>2.4 イベントシステム</h3>
 
@@ -233,36 +233,36 @@ handler.<span class="fn">destroy</span>(); <span class="cm">// 登録解除</spa
 </p>
 
 <div class="msg-flow">
-    <div class="msg-box">
-        <div class="msg-title">Main Thread → Worker</div>
-        <div class="msg-item"><code>init</code> — offscreen / dpr / workers</div>
-        <div class="msg-item"><code>set</code> — データ投入（cmd 別）</div>
-        <div class="msg-item"><code>drawing</code> — scale / rotate / panning</div>
-        <div class="msg-item"><code>drawn</code> — パン終了後の確定描画</div>
-        <div class="msg-item"><code>move</code> — カーソル座標</div>
-        <div class="msg-item"><code>resize</code> — width / height</div>
-        <div class="msg-item"><code>destroy</code> — Worker 終了</div>
-    </div>
-    <div class="msg-arrow">⇄</div>
-    <div class="msg-box">
-        <div class="msg-title">Worker → Main Thread</div>
-        <div class="msg-item"><code>{action:"done", type:"init"}</code></div>
-        <div class="msg-item"><code>{action:"done", type:"set"}</code></div>
-        <div class="msg-item"><code>{action:"done", type:"resize"}</code></div>
-        <div class="msg-item"><code>{action:"identify", featureId}</code></div>
-        <div class="msg-item"><code>{action:"click", featureId, lng, lat}</code></div>
-        <div class="msg-item"><code>{action:"redraw"}</code> — context restored 後</div>
-    </div>
+	<div class="msg-box">
+		<div class="msg-title">Main Thread → Worker</div>
+		<div class="msg-item"><code>init</code> — offscreen / dpr / workers</div>
+		<div class="msg-item"><code>set</code> — データ投入（cmd 別）</div>
+		<div class="msg-item"><code>drawing</code> — scale / rotate / panning</div>
+		<div class="msg-item"><code>drawn</code> — パン終了後の確定描画</div>
+		<div class="msg-item"><code>move</code> — カーソル座標</div>
+		<div class="msg-item"><code>resize</code> — width / height</div>
+		<div class="msg-item"><code>destroy</code> — Worker 終了</div>
+	</div>
+	<div class="msg-arrow">⇄</div>
+	<div class="msg-box">
+		<div class="msg-title">Worker → Main Thread</div>
+		<div class="msg-item"><code>{action:"done", type:"init"}</code></div>
+		<div class="msg-item"><code>{action:"done", type:"set"}</code></div>
+		<div class="msg-item"><code>{action:"done", type:"resize"}</code></div>
+		<div class="msg-item"><code>{action:"identify", featureId}</code></div>
+		<div class="msg-item"><code>{action:"click", featureId, lng, lat}</code></div>
+		<div class="msg-item"><code>{action:"redraw"}</code> — context restored 後</div>
+	</div>
 </div>
 
 <div class="callout callout-key">
-    <div class="callout-head">Drawing / Drawn の分離</div>
-    <p>
-        <code>drawing</code> はパン・ズーム中にフレームごとに飛ぶ「即時描画」命令であり、
-        簡易品質での高速描画を目的とする（タイルの新規読み込みはしない）。
-        <code>drawn</code> はポインタが止まったときに一度だけ送られる「確定描画」命令で、
-        FBO への高品質レンダリング・picking バッファ更新など重い処理はここで行う。
-    </p>
+	<div class="callout-head">Drawing / Drawn の分離</div>
+	<p>
+		<code>drawing</code> はパン・ズーム中にフレームごとに飛ぶ「即時描画」命令であり、
+		簡易品質での高速描画を目的とする（タイルの新規読み込みはしない）。
+		<code>drawn</code> はポインタが止まったときに一度だけ送られる「確定描画」命令で、
+		FBO への高品質レンダリング・picking バッファ更新など重い処理はここで行う。
+	</p>
 </div>
 
 <p>
@@ -271,8 +271,8 @@ handler.<span class="fn">destroy</span>(); <span class="cm">// 登録解除</spa
 
 <pre><code><span class="cm">// rawBuffers が含まれる場合のみ Transferable 転送</span>
 <span class="kw">if</span> (prop?.rawBuffers) {
-    <span class="kw">const</span> { rawBuffers, ...rest } = prop;
-    worker.<span class="fn">postMessage</span>({ type: <span class="st">"set"</span>, cmd, data, prop: rest, rawBuffers }, rawBuffers);
+	<span class="kw">const</span> { rawBuffers, ...rest } = prop;
+	worker.<span class="fn">postMessage</span>({ type: <span class="st">"set"</span>, cmd, data, prop: rest, rawBuffers }, rawBuffers);
 }</code></pre>
 
 <!-- ──────────────────────────────────────────────────── -->
@@ -295,21 +295,21 @@ CPU 側での投影変換やバーテックスバッファは不要になる。
 <span class="kw">float</span> y = (translate.y  - gl_FragCoord.y) / scale;
 <span class="kw">float</span> rho = <span class="fn">sqrt</span>(x*x + y*y);
 <span class="kw">if</span> (rho <= <span class="nm">1.0</span>) {                          <span class="cm">// 球体円内のみ</span>
-    <span class="kw">float</span> c = <span class="fn">asin</span>(rho);
-    <span class="kw">float</span> lng = <span class="fn">atan</span>(x * <span class="fn">sin</span>(c), rho * <span class="fn">cos</span>(c));
-    <span class="kw">float</span> lat = <span class="fn">asin</span>(y * <span class="fn">sin</span>(c) / rho);
-    <span class="fn">applyRotation</span>(rx, ry, rz, lng, lat);   <span class="cm">// ユーザー回転を適用</span>
-    vec2 uv = vec2((lng + pi) / (2.0*pi), (lat + pi/2.0) / pi);
-    outColor = <span class="fn">texture</span>(u_image, uv);
+	<span class="kw">float</span> c = <span class="fn">asin</span>(rho);
+	<span class="kw">float</span> lng = <span class="fn">atan</span>(x * <span class="fn">sin</span>(c), rho * <span class="fn">cos</span>(c));
+	<span class="kw">float</span> lat = <span class="fn">asin</span>(y * <span class="fn">sin</span>(c) / rho);
+	<span class="fn">applyRotation</span>(rx, ry, rz, lng, lat);   <span class="cm">// ユーザー回転を適用</span>
+	vec2 uv = vec2((lng + pi) / (2.0*pi), (lat + pi/2.0) / pi);
+	outColor = <span class="fn">texture</span>(u_image, uv);
 } <span class="kw">else</span> { <span class="fn">discard</span>; }                       <span class="cm">// 球体外はフラグメント破棄</span></code></pre>
 
 <div class="callout callout-note">
-    <div class="callout-head">テクスチャラップモード</div>
-    <p>
-        ベーステクスチャは経度方向（S 軸）を <code>REPEAT</code>、緯度方向（T 軸）を <code>CLAMP_TO_EDGE</code> に設定する。
-        これにより経度 ±180° の日付変更線を跨ぐ描画でシームが発生しない。
-        タイルテクスチャは隣タイルとの滲みを防ぐため両軸 <code>CLAMP_TO_EDGE</code>。
-    </p>
+	<div class="callout-head">テクスチャラップモード</div>
+	<p>
+		ベーステクスチャは経度方向（S 軸）を <code>REPEAT</code>、緯度方向（T 軸）を <code>CLAMP_TO_EDGE</code> に設定する。
+		これにより経度 ±180° の日付変更線を跨ぐ描画でシームが発生しない。
+		タイルテクスチャは隣タイルとの滲みを防ぐため両軸 <code>CLAMP_TO_EDGE</code>。
+	</p>
 </div>
 
 <h3>4.2 タイル読み込みパイプライン</h3>
@@ -321,15 +321,15 @@ CPU 側での投影変換やバーテックスバッファは不要になる。
 
 <pre><code><span class="cm">// タイル優先度: 画面中央に近いタイルを先にロード</span>
 ents.<span class="fn">sort</span>((a, b) => a[<span class="nm">4</span>] - b[<span class="nm">4</span>])  <span class="cm">// [4] = 中心距離</span>
-    .<span class="fn">forEach</span>(([x, y, zo, pos, dist]) => {
-        <span class="cm">// zo = 極方向オフセット（Y2T/Y4T テーブルで決定）</span>
-        <span class="cm">// 希望ズームになければ z-1, z-2, z-3 のキャッシュを代用</span>
-        <span class="kw">for</span> (<span class="kw">let</span> dz <span class="kw">of</span> [<span class="nm">0</span>, <span class="nm">1</span>, <span class="nm">2</span>, <span class="nm">3</span>]) {
-            <span class="kw">const</span> z = Z0 - (zo + dz); <span class="kw">if</span> (z < <span class="nm">0</span>) <span class="kw">continue</span>;
-            <span class="kw">const</span> img = TileTub.<span class="fn">get</span>(name);
-            <span class="kw">if</span> (img) { <span class="cm">/* UV を親タイル領域に変換して描画 */</span> <span class="kw">return</span>; }
-        }
-    });</code></pre>
+	.<span class="fn">forEach</span>(([x, y, zo, pos, dist]) => {
+		<span class="cm">// zo = 極方向オフセット（Y2T/Y4T テーブルで決定）</span>
+		<span class="cm">// 希望ズームになければ z-1, z-2, z-3 のキャッシュを代用</span>
+		<span class="kw">for</span> (<span class="kw">let</span> dz <span class="kw">of</span> [<span class="nm">0</span>, <span class="nm">1</span>, <span class="nm">2</span>, <span class="nm">3</span>]) {
+			<span class="kw">const</span> z = Z0 - (zo + dz); <span class="kw">if</span> (z < <span class="nm">0</span>) <span class="kw">continue</span>;
+			<span class="kw">const</span> img = TileTub.<span class="fn">get</span>(name);
+			<span class="kw">if</span> (img) { <span class="cm">/* UV を親タイル領域に変換して描画 */</span> <span class="kw">return</span>; }
+		}
+	});</code></pre>
 
 <p>
 <strong>Y2T / Y4T テーブル</strong>: 高緯度タイルは Mercator 投影の歪みにより表示面積が極端に小さくなる。
@@ -340,22 +340,22 @@ ents.<span class="fn">sort</span>((a, b) => a[<span class="nm">4</span>] - b[<sp
 <h3>4.3 ベースマップ一覧</h3>
 
 <table>
-    <tr><th>Name</th><th>ベース球体画像</th><th>タイルソース</th><th>MaxZoom</th></tr>
-    <tr><td><code>whiteEarth</code></td><td class="dim">whiteEarth.webp</td><td class="dim">なし</td><td class="dim">7</td></tr>
-    <tr><td><code>google.street</code></td><td class="dim">naturalEarth.webp</td><td class="dim">Google Maps（lyrs=m）</td><td class="dim">22</td></tr>
-    <tr><td><code>google.satellite</code></td><td class="dim">google.satellite.webp</td><td class="dim">Google Maps（lyrs=s）</td><td class="dim">22</td></tr>
-    <tr><td><code>osm.street</code></td><td class="dim">naturalEarth.webp</td><td class="dim">OpenStreetMap JP</td><td class="dim">19</td></tr>
-    <tr><td><code>osm.satellite</code></td><td class="dim">osm.satellite.webp</td><td class="dim">Bing Maps（四分木インデックス）</td><td class="dim">19</td></tr>
-    <tr><td><code>cyberjapan.std</code></td><td class="dim">naturalEarth.webp</td><td class="dim">国土地理院（日本域）+ OSM（域外）</td><td class="dim">19</td></tr>
+	<tr><th>Name</th><th>ベース球体画像</th><th>タイルソース</th><th>MaxZoom</th></tr>
+	<tr><td><code>whiteEarth</code></td><td class="dim">whiteEarth.webp</td><td class="dim">なし</td><td class="dim">7</td></tr>
+	<tr><td><code>google.street</code></td><td class="dim">naturalEarth.webp</td><td class="dim">Google Maps（lyrs=m）</td><td class="dim">22</td></tr>
+	<tr><td><code>google.satellite</code></td><td class="dim">google.satellite.webp</td><td class="dim">Google Maps（lyrs=s）</td><td class="dim">22</td></tr>
+	<tr><td><code>osm.street</code></td><td class="dim">naturalEarth.webp</td><td class="dim">OpenStreetMap JP</td><td class="dim">19</td></tr>
+	<tr><td><code>osm.satellite</code></td><td class="dim">osm.satellite.webp</td><td class="dim">Bing Maps（四分木インデックス）</td><td class="dim">19</td></tr>
+	<tr><td><code>cyberjapan.std</code></td><td class="dim">naturalEarth.webp</td><td class="dim">国土地理院（日本域）+ OSM（域外）</td><td class="dim">19</td></tr>
 </table>
 
 <div class="callout callout-warn">
-    <div class="callout-head">Firefox 対応</div>
-    <p>
-        Firefox では <code>createImageBitmap(blob)</code> の結果が WebGL テクスチャとして正常に扱えない問題がある。
-        UA 判定により OffscreenCanvas を中間バッファとして描画し、
-        <code>transferToImageBitmap()</code> で再変換する workaround が入っている。
-    </p>
+	<div class="callout-head">Firefox 対応</div>
+	<p>
+		Firefox では <code>createImageBitmap(blob)</code> の結果が WebGL テクスチャとして正常に扱えない問題がある。
+		UA 判定により OffscreenCanvas を中間バッファとして描画し、
+		<code>transferToImageBitmap()</code> で再変換する workaround が入っている。
+	</p>
 </div>
 
 <!-- ──────────────────────────────────────────────────── -->
@@ -370,18 +370,18 @@ hover picking・ポリゴン塗り・FBO は持たず、固定スタイルの複
 
 <pre><code><span class="cm">// 4 レイヤーの Gint データ（GeoPBF 経由でロード）</span>
 <span class="kw">const</span> geoNames = [
-    <span class="st">"ne_110m_graticules_10"</span>,               <span class="cm">// 経緯線 10°グリッド</span>
-    <span class="st">"ne_50m_admin_0_boundary_lines_land"</span>,   <span class="cm">// 国境線</span>
-    <span class="st">"ne_50m_admin_0_boundary_lines_maritime_indicator"</span>, <span class="cm">// 海上境界</span>
-    <span class="st">"ne_50m_geographic_lines"</span>,              <span class="cm">// 赤道・回帰線 等</span>
+	<span class="st">"ne_110m_graticules_10"</span>,               <span class="cm">// 経緯線 10°グリッド</span>
+	<span class="st">"ne_50m_admin_0_boundary_lines_land"</span>,   <span class="cm">// 国境線</span>
+	<span class="st">"ne_50m_admin_0_boundary_lines_maritime_indicator"</span>, <span class="cm">// 海上境界</span>
+	<span class="st">"ne_50m_geographic_lines"</span>,              <span class="cm">// 赤道・回帰線 等</span>
 ];
 
 <span class="cm">// 各データセットの描画スタイル（ダッシュはスクリーンピクセル固定）</span>
 <span class="kw">const</span> BORDER_GL_STYLES = [
-    { color: [<span class="nm">1.0</span>, <span class="nm">1.0</span>, <span class="nm">1.0</span>, <span class="nm">0.6</span>], lineWidth: <span class="nm">1.0</span>, dash: [<span class="nm">0</span>, <span class="nm">0</span>] }, <span class="cm">// graticule (solid)</span>
-    { color: [<span class="nm">1.0</span>, <span class="nm">1.0</span>, <span class="nm">1.0</span>, <span class="nm">1.0</span>], lineWidth: <span class="nm">1.0</span>, dash: [<span class="nm">4</span>, <span class="nm">2</span>] }, <span class="cm">// 国境線</span>
-    { color: [<span class="nm">0.5</span>, <span class="nm">0.5</span>, <span class="nm">1.0</span>, <span class="nm">0.8</span>], lineWidth: <span class="nm">0.8</span>, dash: [<span class="nm">4</span>, <span class="nm">2</span>] }, <span class="cm">// maritime</span>
-    { color: [<span class="nm">1.0</span>, <span class="nm">1.0</span>, <span class="nm">1.0</span>, <span class="nm">0.6</span>], lineWidth: <span class="nm">0.8</span>, dash: [<span class="nm">4</span>, <span class="nm">2</span>] }, <span class="cm">// geographic</span>
+	{ color: [<span class="nm">1.0</span>, <span class="nm">1.0</span>, <span class="nm">1.0</span>, <span class="nm">0.6</span>], lineWidth: <span class="nm">1.0</span>, dash: [<span class="nm">0</span>, <span class="nm">0</span>] }, <span class="cm">// graticule (solid)</span>
+	{ color: [<span class="nm">1.0</span>, <span class="nm">1.0</span>, <span class="nm">1.0</span>, <span class="nm">1.0</span>], lineWidth: <span class="nm">1.0</span>, dash: [<span class="nm">4</span>, <span class="nm">2</span>] }, <span class="cm">// 国境線</span>
+	{ color: [<span class="nm">0.5</span>, <span class="nm">0.5</span>, <span class="nm">1.0</span>, <span class="nm">0.8</span>], lineWidth: <span class="nm">0.8</span>, dash: [<span class="nm">4</span>, <span class="nm">2</span>] }, <span class="cm">// maritime</span>
+	{ color: [<span class="nm">1.0</span>, <span class="nm">1.0</span>, <span class="nm">1.0</span>, <span class="nm">0.6</span>], lineWidth: <span class="nm">0.8</span>, dash: [<span class="nm">4</span>, <span class="nm">2</span>] }, <span class="cm">// geographic</span>
 ];</code></pre>
 
 <h3>5.2 ダッシュのスクリーンピクセル固定</h3>
@@ -400,8 +400,8 @@ hover picking・ポリゴン塗り・FBO は持たず、固定スタイルの複
 </p>
 
 <pre><code>gl.<span class="fn">blendFuncSeparate</span>(
-    gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA,  <span class="cm">// RGB: 通常アルファブレンド</span>
-    gl.ONE,       gl.ONE_MINUS_SRC_ALPHA   <span class="cm">// A: 元 alpha を保持</span>
+	gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA,  <span class="cm">// RGB: 通常アルファブレンド</span>
+	gl.ONE,       gl.ONE_MINUS_SRC_ALPHA   <span class="cm">// A: 元 alpha を保持</span>
 );</code></pre>
 
 <h3>5.4 地平線またぎポリゴンの処理（VS_STENCIL）</h3>
@@ -415,12 +415,12 @@ NDC 原点 (0,0) に潰さず、<strong>地平線円（半径 = u_scale）の上
 
 <pre><code><span class="cm">// GLSL VS_STENCIL — 裏面頂点の地平線押し出し</span>
 <span class="kw">if</span> (p.z < <span class="nm">0.0</span>) {
-    vec2 v = p.xy - u_viewport * <span class="nm">0.5</span>;
-    <span class="kw">float</span> d = <span class="fn">length</span>(v);
-    gl_Position = d < <span class="nm">1e-4</span>
-        ? vec4(<span class="nm">0.0</span>, <span class="nm">0.0</span>, <span class="nm">0.0</span>, <span class="nm">1.0</span>)  <span class="cm">// 原点直上は原点へ</span>
-        : <span class="fn">toNDC</span>(u_viewport * <span class="nm">0.5</span> + v * (u_scale / d));  <span class="cm">// 地平線円上へ</span>
-    <span class="kw">return</span>;
+	vec2 v = p.xy - u_viewport * <span class="nm">0.5</span>;
+	<span class="kw">float</span> d = <span class="fn">length</span>(v);
+	gl_Position = d < <span class="nm">1e-4</span>
+		? vec4(<span class="nm">0.0</span>, <span class="nm">0.0</span>, <span class="nm">0.0</span>, <span class="nm">1.0</span>)  <span class="cm">// 原点直上は原点へ</span>
+		: <span class="fn">toNDC</span>(u_viewport * <span class="nm">0.5</span> + v * (u_scale / d));  <span class="cm">// 地平線円上へ</span>
+	<span class="kw">return</span>;
 }</code></pre>
 
 <!-- ──────────────────────────────────────────────────── -->
@@ -438,13 +438,13 @@ NDC 原点 (0,0) に潰さず、<strong>地平線円（半径 = u_scale）の上
 </p>
 
 <div class="formula">
-    <span class="fvar">GST</span>
-    <span class="fop"> = </span>
-    <span>(18.697374 + 24.0657098 × T) × 15</span>
-    <span class="fop"> mod </span>
-    <span>360</span>
-    <br>
-    <span style="font-size:0.75rem;color:var(--dim)">T = J2000.0 からのユリウス日（= (UNIX_ms / 86400000) + 2440587.5 − 2451545.0）</span>
+	<span class="fvar">GST</span>
+	<span class="fop"> = </span>
+	<span>(18.697374 + 24.0657098 × T) × 15</span>
+	<span class="fop"> mod </span>
+	<span>360</span>
+	<br>
+	<span style="font-size:0.75rem;color:var(--dim)">T = J2000.0 からのユリウス日（= (UNIX_ms / 86400000) + 2440587.5 − 2451545.0）</span>
 </div>
 
 <p>
@@ -461,13 +461,13 @@ NDC 原点 (0,0) に潰さず、<strong>地平線円（半径 = u_scale）の上
 
 <pre><code><span class="cm">// B-V → 星の色（温度スペクトル）</span>
 <span class="kw">const</span> bvColor = bv =>
-    bv < -<span class="nm">0.3</span> ? <span class="st">"#b2c8ff"</span> :  <span class="cm">// O 型 — 青白</span>
-    bv <  <span class="nm">0.0</span> ? <span class="st">"#d9e2ff"</span> :  <span class="cm">// B 型 — 青白</span>
-    bv <  <span class="nm">0.3</span> ? <span class="st">"#f8faff"</span> :  <span class="cm">// A 型 — 白</span>
-    bv <  <span class="nm">0.6</span> ? <span class="st">"#fff8f0"</span> :  <span class="cm">// F 型 — 黄白</span>
-    bv <  <span class="nm">0.8</span> ? <span class="st">"#fff2c8"</span> :  <span class="cm">// G 型 — 黄（太陽）</span>
-    bv <  <span class="nm">1.1</span> ? <span class="st">"#ffe0b5"</span> :  <span class="cm">// K 型 — 橙</span>
-               <span class="st">"#ffab91"</span>;   <span class="cm">// M 型 — 赤</span>
+	bv < -<span class="nm">0.3</span> ? <span class="st">"#b2c8ff"</span> :  <span class="cm">// O 型 — 青白</span>
+	bv <  <span class="nm">0.0</span> ? <span class="st">"#d9e2ff"</span> :  <span class="cm">// B 型 — 青白</span>
+	bv <  <span class="nm">0.3</span> ? <span class="st">"#f8faff"</span> :  <span class="cm">// A 型 — 白</span>
+	bv <  <span class="nm">0.6</span> ? <span class="st">"#fff8f0"</span> :  <span class="cm">// F 型 — 黄白</span>
+	bv <  <span class="nm">0.8</span> ? <span class="st">"#fff2c8"</span> :  <span class="cm">// G 型 — 黄（太陽）</span>
+	bv <  <span class="nm">1.1</span> ? <span class="st">"#ffe0b5"</span> :  <span class="cm">// K 型 — 橙</span>
+				 <span class="st">"#ffab91"</span>;   <span class="cm">// M 型 — 赤</span>
 
 <span class="cm">// 等級 → 半径・透明度</span>
 radius = (<span class="nm">9</span> - mag) * <span class="nm">0.20</span>;   <span class="cm">// 明るい星ほど大きい</span>
@@ -495,11 +495,11 @@ py = cy - sr * (x*sinγ + y*cosγ);</code></pre>
 </p>
 
 <table>
-    <tr><th>type</th><th>名称</th><th>シンボル</th></tr>
-    <tr><td><code>gc</code></td><td>球状星団</td><td>円 + 十字</td></tr>
-    <tr><td><code>gx</code> / <code>gg</code></td><td>銀河</td><td>楕円</td></tr>
-    <tr><td><code>oc</code></td><td>散開星団</td><td>破線円</td></tr>
-    <tr><td>その他</td><td>星雲 等</td><td>矩形</td></tr>
+	<tr><th>type</th><th>名称</th><th>シンボル</th></tr>
+	<tr><td><code>gc</code></td><td>球状星団</td><td>円 + 十字</td></tr>
+	<tr><td><code>gx</code> / <code>gg</code></td><td>銀河</td><td>楕円</td></tr>
+	<tr><td><code>oc</code></td><td>散開星団</td><td>破線円</td></tr>
+	<tr><td>その他</td><td>星雲 等</td><td>矩形</td></tr>
 </table>
 
 <h3>6.5 ミニマップグローブ（draw_globe）</h3>
@@ -512,21 +512,21 @@ py = cy - sr * (x*sinγ + y*cosγ);</code></pre>
 <pre><code><span class="cm">// viewport 四辺の地理座標サンプリング</span>
 <span class="kw">const</span> N = <span class="nm">30</span>;
 <span class="kw">const</span> edge = (x0, y0, x1, y1) =>
-    Array.<span class="fn">from</span>({ length: N }, (_, i) => {
-        <span class="kw">const</span> t = i / N;
-        <span class="kw">return</span> proj.<span class="fn">invert</span>([x0 + (x1-x0)*t, y0 + (y1-y0)*t]);
-    });
+	Array.<span class="fn">from</span>({ length: N }, (_, i) => {
+		<span class="kw">const</span> t = i / N;
+		<span class="kw">return</span> proj.<span class="fn">invert</span>([x0 + (x1-x0)*t, y0 + (y1-y0)*t]);
+	});
 <span class="kw">const</span> geoPts = [...<span class="fn">edge</span>(<span class="nm">0</span>,<span class="nm">0</span>,w,<span class="nm">0</span>), ...<span class="fn">edge</span>(w,<span class="nm">0</span>,w,h), ...<span class="fn">edge</span>(w,h,<span class="nm">0</span>,h), ...<span class="fn">edge</span>(<span class="nm">0</span>,h,<span class="nm">0</span>,<span class="nm">0</span>)];</code></pre>
 
 <h3>6.6 その他のオーバーレイ</h3>
 
 <table>
-    <tr><th>機能</th><th>内容</th></tr>
-    <tr><td>夜側（night）</td><td>太陽赤緯・経度から終端線を 31 点のポリゴンで計算、半透明の暗色で塗りつぶす</td></tr>
-    <tr><td>時計（clock）</td><td>UTC を大きなフォントで表示。ズームアウト時（zoom &lt; 2）のみ</td></tr>
-    <tr><td>座標表示（latlng）</td><td>カーソル移動で緯度・経度・標高をリアルタイム更新</td></tr>
-    <tr><td>スケールバー（scale）</td><td>log10 丸め + 単位自動選択（m/km 切り替え、metric/imperial 対応）</td></tr>
-    <tr><td>帰属表示（credit）</td><td>各ベースマップのライセンス表記（<code>attribution</code> プロパティから）</td></tr>
+	<tr><th>機能</th><th>内容</th></tr>
+	<tr><td>夜側（night）</td><td>太陽赤緯・経度から終端線を 31 点のポリゴンで計算、半透明の暗色で塗りつぶす</td></tr>
+	<tr><td>時計（clock）</td><td>UTC を大きなフォントで表示。ズームアウト時（zoom &lt; 2）のみ</td></tr>
+	<tr><td>座標表示（latlng）</td><td>カーソル移動で緯度・経度・標高をリアルタイム更新</td></tr>
+	<tr><td>スケールバー（scale）</td><td>log10 丸め + 単位自動選択（m/km 切り替え、metric/imperial 対応）</td></tr>
+	<tr><td>帰属表示（credit）</td><td>各ベースマップのライセンス表記（<code>attribution</code> プロパティから）</td></tr>
 </table>
 
 <!-- ──────────────────────────────────────────────────── -->
@@ -541,47 +541,47 @@ hover picking・クリック・ハイライト・ポリゴン塗りつぶしを�
 <h3>7.1 モジュール分割</h3>
 
 <table>
-    <tr><th>ファイル</th><th>役割</th></tr>
-    <tr><td><code>gintState.js</code></td><td>共有 GL 状態オブジェクト (<code>s</code>) の定義</td></tr>
-    <tr><td><code>gintPrograms.js</code></td><td>GLSL シェーダーのコンパイル・リンク・ユニフォーム取得</td></tr>
-    <tr><td><code>gintTextures.js</code></td><td>arcTex / metaTex / ptTex テクスチャ生成・削除</td></tr>
-    <tr><td><code>gintFBO.js</code></td><td>baseFBO（クリーンシーン用）・pickFBO（ピッキング用）の生成・削除</td></tr>
-    <tr><td><code>gintRenderPasses.js</code></td><td>renderCleanScene / drawOverlay / renderPickingBuffer の 3 パス</td></tr>
-    <tr><td><code>gintIdentify.js</code></td><td>GPU picking + JS ポリゴン内包判定、hover / leave ハンドラ</td></tr>
+	<tr><th>ファイル</th><th>役割</th></tr>
+	<tr><td><code>gintState.js</code></td><td>共有 GL 状態オブジェクト (<code>s</code>) の定義</td></tr>
+	<tr><td><code>gintPrograms.js</code></td><td>GLSL シェーダーのコンパイル・リンク・ユニフォーム取得</td></tr>
+	<tr><td><code>gintTextures.js</code></td><td>arcTex / metaTex / ptTex テクスチャ生成・削除</td></tr>
+	<tr><td><code>gintFBO.js</code></td><td>baseFBO（クリーンシーン用）・pickFBO（ピッキング用）の生成・削除</td></tr>
+	<tr><td><code>gintRenderPasses.js</code></td><td>renderCleanScene / drawOverlay / renderPickingBuffer の 3 パス</td></tr>
+	<tr><td><code>gintIdentify.js</code></td><td>GPU picking + JS ポリゴン内包判定、hover / leave ハンドラ</td></tr>
 </table>
 
 <h3>7.2 3 フレームバッファ構成</h3>
 
 <div class="pipeline">
-    <div class="pipe-stage stage-base">
-        <div class="pipe-head">
-            <span class="pipe-num n-base">1</span>
-            <div>
-                <div class="pipe-title">canvas（デフォルト FBO）— パン中のリアルタイム描画</div>
-                <div class="pipe-sub">drawing() イベントごとに直接描画。軽量・即時</div>
-            </div>
-        </div>
-    </div>
-    <div class="pipe-arrow">↓ drawn() で確定</div>
-    <div class="pipe-stage stage-bdr">
-        <div class="pipe-head">
-            <span class="pipe-num n-bdr">2</span>
-            <div>
-                <div class="pipe-title">baseFBO — クリーンシーンのスナップショット</div>
-                <div class="pipe-sub">hover ハイライト解除時に blit して前フレームを復元。ハイライト往来のちらつきゼロ</div>
-            </div>
-        </div>
-    </div>
-    <div class="pipe-arrow">↓ 同時に</div>
-    <div class="pipe-stage stage-acc">
-        <div class="pipe-head">
-            <span class="pipe-num n-acc">3</span>
-            <div>
-                <div class="pipe-title">pickFBO — Feature ID を RGB24 エンコード</div>
-                <div class="pipe-sub">視覚幅より太く描いてヒット感度を ~6 CSS px に拡大（pickMargin = 12 × dpr）</div>
-            </div>
-        </div>
-    </div>
+	<div class="pipe-stage stage-base">
+		<div class="pipe-head">
+			<span class="pipe-num n-base">1</span>
+			<div>
+				<div class="pipe-title">canvas（デフォルト FBO）— パン中のリアルタイム描画</div>
+				<div class="pipe-sub">drawing() イベントごとに直接描画。軽量・即時</div>
+			</div>
+		</div>
+	</div>
+	<div class="pipe-arrow">↓ drawn() で確定</div>
+	<div class="pipe-stage stage-bdr">
+		<div class="pipe-head">
+			<span class="pipe-num n-bdr">2</span>
+			<div>
+				<div class="pipe-title">baseFBO — クリーンシーンのスナップショット</div>
+				<div class="pipe-sub">hover ハイライト解除時に blit して前フレームを復元。ハイライト往来のちらつきゼロ</div>
+			</div>
+		</div>
+	</div>
+	<div class="pipe-arrow">↓ 同時に</div>
+	<div class="pipe-stage stage-acc">
+		<div class="pipe-head">
+			<span class="pipe-num n-acc">3</span>
+			<div>
+				<div class="pipe-title">pickFBO — Feature ID を RGB24 エンコード</div>
+				<div class="pipe-sub">視覚幅より太く描いてヒット感度を ~6 CSS px に拡大（pickMargin = 12 × dpr）</div>
+			</div>
+		</div>
+	</div>
 </div>
 
 <h3>7.3 GPU Picking — RGB24 Feature ID</h3>
@@ -589,10 +589,10 @@ hover picking・クリック・ハイライト・ポリゴン塗りつぶしを�
 <pre><code><span class="cm">// ピッキング FBO にフィーチャー ID を RGB 24bit でエンコード</span>
 uint fid1 = meta.a + <span class="nm">1u</span>;  <span class="cm">// 0 = "ヒットなし" → +1 してずらす</span>
 v_color = vec4(
-    <span class="kw">float</span>(fid1 &amp; <span class="nm">255u</span>) / <span class="nm">255.0</span>,
-    <span class="kw">float</span>((fid1 >> <span class="nm">8u</span>) &amp; <span class="nm">255u</span>) / <span class="nm">255.0</span>,
-    <span class="kw">float</span>((fid1 >> <span class="nm">16u</span>) &amp; <span class="nm">255u</span>) / <span class="nm">255.0</span>,
-    <span class="nm">1.0</span>
+	<span class="kw">float</span>(fid1 &amp; <span class="nm">255u</span>) / <span class="nm">255.0</span>,
+	<span class="kw">float</span>((fid1 >> <span class="nm">8u</span>) &amp; <span class="nm">255u</span>) / <span class="nm">255.0</span>,
+	<span class="kw">float</span>((fid1 >> <span class="nm">16u</span>) &amp; <span class="nm">255u</span>) / <span class="nm">255.0</span>,
+	<span class="nm">1.0</span>
 );
 
 <span class="cm">// readPixels でカーソル 1px を読み取り</span>
@@ -622,26 +622,26 @@ gl.<span class="fn">uniform1i</span>(uRender.u_active_id,  activeId);
 <span class="cm">// （maskColor の alpha > 0 かつ polyEdgeByFid に範囲がある場合のみ）</span></code></pre>
 
 <div class="callout callout-key">
-    <div class="callout-head">主スレッド往復ゼロ</div>
-    <p>
-        hover 検出 → drawOverlay の全フローが Worker 内で完結する。
-        <code>postMessage("redraw")</code> は使わず、<code>readPixels</code> → <code>drawOverlay</code> を
-        同一 Worker 内で連続実行するため、主スレッドのラウンドトリップレイテンシが発生しない。
-    </p>
+	<div class="callout-head">主スレッド往復ゼロ</div>
+	<p>
+		hover 検出 → drawOverlay の全フローが Worker 内で完結する。
+		<code>postMessage("redraw")</code> は使わず、<code>readPixels</code> → <code>drawOverlay</code> を
+		同一 Worker 内で連続実行するため、主スレッドのラウンドトリップレイテンシが発生しない。
+	</p>
 </div>
 
 <h3>7.6 WebGL コンテキスト消失への対応</h3>
 
 <pre><code>canvas.<span class="fn">addEventListener</span>(<span class="st">"webglcontextlost"</span>, e => {
-    e.<span class="fn">preventDefault</span>();
-    <span class="cm">// テクスチャ・FBO・プログラムの参照をすべてクリア</span>
-    s.arcTex = s.metaTex = s.ptTex = s.ptMetaTex = <span class="kw">null</span>;
-    s.baseFBO = s.pickFBO = s.programs = <span class="kw">null</span>;
+	e.<span class="fn">preventDefault</span>();
+	<span class="cm">// テクスチャ・FBO・プログラムの参照をすべてクリア</span>
+	s.arcTex = s.metaTex = s.ptTex = s.ptMetaTex = <span class="kw">null</span>;
+	s.baseFBO = s.pickFBO = s.programs = <span class="kw">null</span>;
 });
 canvas.<span class="fn">addEventListener</span>(<span class="st">"webglcontextrestored"</span>, () => {
-    s.programs = <span class="fn">createGintPrograms</span>(s.gl);
-    <span class="fn">createFBOs</span>(); <span class="fn">uploadGintTextures</span>();
-    <span class="fn">postMessage</span>({ action: <span class="st">"redraw"</span> });  <span class="cm">// 主スレッドに再描画要求</span>
+	s.programs = <span class="fn">createGintPrograms</span>(s.gl);
+	<span class="fn">createFBOs</span>(); <span class="fn">uploadGintTextures</span>();
+	<span class="fn">postMessage</span>({ action: <span class="st">"redraw"</span> });  <span class="cm">// 主スレッドに再描画要求</span>
 });</code></pre>
 
 <!-- ──────────────────────────────────────────────────── -->
@@ -686,164 +686,164 @@ setTip(<span class="st">"クリックで詳細表示"</span>);     <span class="
 
 <span class="cm">// ユーザー定義ガジェットの登録と呼び出し</span>
 map.<span class="fn">gadget</span>(<span class="st">"myTool"</span>, <span class="kw">function</span> () {
-    map.<span class="fn">addFrame</span>(<span class="st">"rightTop"</span>);
-    map.rightTop.<span class="fn">append</span>(<span class="st">"div"</span>).<span class="fn">text</span>(<span class="st">"Hello"</span>);
+	map.<span class="fn">addFrame</span>(<span class="st">"rightTop"</span>);
+	map.rightTop.<span class="fn">append</span>(<span class="st">"div"</span>).<span class="fn">text</span>(<span class="st">"Hello"</span>);
 });
 map.gadget.<span class="fn">myTool</span>();</code></pre>
 
 <h4>フレーム配置位置</h4>
 <table>
-    <tr><th>フレーム名</th><th>位置</th><th>主な用途</th></tr>
-    <tr><td><code>leftTop</code></td><td>左上</td><td>ズーム・方位・レイヤー切り替え等の操作ボタン</td></tr>
-    <tr><td><code>rightTop</code></td><td>右上</td><td>補助ボタン・ユーザー UI</td></tr>
-    <tr><td><code>leftBottom</code></td><td>左下</td><td>凡例</td></tr>
-    <tr><td><code>rightBottom</code></td><td>右下</td><td>補助情報</td></tr>
-    <tr><td><code>leftFrame</code></td><td>地図左に固定パネル</td><td>サイドメニュー（リサイズ対応）</td></tr>
-    <tr><td><code>rightFrame</code></td><td>地図右に固定パネル</td><td>属性パネル（リサイズ対応）</td></tr>
-    <tr><td><code>overlays</code></td><td>地図上全面</td><td>tip / pop / explain / loading など</td></tr>
+	<tr><th>フレーム名</th><th>位置</th><th>主な用途</th></tr>
+	<tr><td><code>leftTop</code></td><td>左上</td><td>ズーム・方位・レイヤー切り替え等の操作ボタン</td></tr>
+	<tr><td><code>rightTop</code></td><td>右上</td><td>補助ボタン・ユーザー UI</td></tr>
+	<tr><td><code>leftBottom</code></td><td>左下</td><td>凡例</td></tr>
+	<tr><td><code>rightBottom</code></td><td>右下</td><td>補助情報</td></tr>
+	<tr><td><code>leftFrame</code></td><td>地図左に固定パネル</td><td>サイドメニュー（リサイズ対応）</td></tr>
+	<tr><td><code>rightFrame</code></td><td>地図右に固定パネル</td><td>属性パネル（リサイズ対応）</td></tr>
+	<tr><td><code>overlays</code></td><td>地図上全面</td><td>tip / pop / explain / loading など</td></tr>
 </table>
 
 <h4>内蔵ガジェット一覧 — 操作系（gadget1.js）</h4>
 <table>
-    <tr><th>ガジェット</th><th>説明</th></tr>
-    <tr>
-        <td><code>zoom()</code></td>
-        <td>ズームイン（+）・アウト（−）ボタン。クリックごとに整数ズームレベルへスナップしながら <code>map.mag()</code> をアニメーション実行する</td>
-    </tr>
-    <tr>
-        <td><code>north()</code></td>
-        <td>現在の Z 軸回転角（地図の傾き）をボタンのアイコン内 SVG でリアルタイム表示し、クリックすると <code>map.north()</code> で北向きに戻す</td>
-    </tr>
-    <tr>
-        <td><code>layers()</code></td>
-        <td>ベースマップ切り替えドロップダウン。<code>map.Layers</code> に登録されているレイヤー名を現在ロケールで表示し、選択すると <code>map.setBase()</code> を呼ぶ</td>
-    </tr>
-    <tr>
-        <td><code>leftPanel(opts)</code><br><code>rightPanel(opts)</code></td>
-        <td>
-            サイドパネルの開閉を管理する。<code>opts.active = true</code> にすると地図エリアを実際に押し出すリサイズモード、
-            省略時は地図上に重なるモーダルモードで動作する。
-            開閉アニメーションは <code>d3.easeCubic</code>（変更可）で補間する。
-            戻り値はパネル内コンテンツエリアの D3 Selection
-        </td>
-    </tr>
-    <tr>
-        <td><code>full()</code></td>
-        <td>Fullscreen API を使ってフルスクリーン切り替え。フルスクリーン状態に応じてアイコンを自動切替する</td>
-    </tr>
-    <tr>
-        <td><code>constellation()</code></td>
-        <td>星座線・星座名の表示トグル。クリックすると Accessories Worker に <code>toggle-constellations</code> を送りメシエ天体表示も連動して切り替える</td>
-    </tr>
-    <tr>
-        <td><code>cpos()</code></td>
-        <td>
-            Geolocation API で現在地を取得し <code>flyToFeature</code> で移動する。
-            現在地はアニメーション SVG マーカー（パルス円）でオーバーレイ表示され、
-            地図を動かすと <code>map.tester()</code> で可視判定して自動的に表示/非表示を切り替える
-        </td>
-    </tr>
-    <tr>
-        <td><code>shot()</code></td>
-        <td>
-            スクリーンショットをダウンロードする。
-            全 Canvas レイヤーを OffscreenCanvas に合成した後、
-            <code>html2canvas</code> でオーバーレイ（ボタン・<code>noprint</code> 要素を除く）を重ね、
-            WebP 形式でダウンロードする
-        </td>
-    </tr>
-    <tr>
-        <td><code>print()</code></td>
-        <td>
-            印刷用に 3 倍解像度でレンダリングし、新規ウィンドウで <code>window.print()</code> を実行する。
-            縦長・横長を自動判定して CSS で適切に配置する
-        </td>
-    </tr>
-    <tr>
-        <td><code>measure()</code></td>
-        <td>
-            距離・面積の計測モードに切り替えるトグルボタン。
-            有効時は Click イベントをキャンセルして <code>createPolygon</code> ツールを起動し、
-            クリックで頂点を追加しながらリアルタイムで距離・面積を表示する
-        </td>
-    </tr>
+	<tr><th>ガジェット</th><th>説明</th></tr>
+	<tr>
+		<td><code>zoom()</code></td>
+		<td>ズームイン（+）・アウト（−）ボタン。クリックごとに整数ズームレベルへスナップしながら <code>map.mag()</code> をアニメーション実行する</td>
+	</tr>
+	<tr>
+		<td><code>north()</code></td>
+		<td>現在の Z 軸回転角（地図の傾き）をボタンのアイコン内 SVG でリアルタイム表示し、クリックすると <code>map.north()</code> で北向きに戻す</td>
+	</tr>
+	<tr>
+		<td><code>layers()</code></td>
+		<td>ベースマップ切り替えドロップダウン。<code>map.Layers</code> に登録されているレイヤー名を現在ロケールで表示し、選択すると <code>map.setBase()</code> を呼ぶ</td>
+	</tr>
+	<tr>
+		<td><code>leftPanel(opts)</code><br><code>rightPanel(opts)</code></td>
+		<td>
+			サイドパネルの開閉を管理する。<code>opts.active = true</code> にすると地図エリアを実際に押し出すリサイズモード、
+			省略時は地図上に重なるモーダルモードで動作する。
+			開閉アニメーションは <code>d3.easeCubic</code>（変更可）で補間する。
+			戻り値はパネル内コンテンツエリアの D3 Selection
+		</td>
+	</tr>
+	<tr>
+		<td><code>full()</code></td>
+		<td>Fullscreen API を使ってフルスクリーン切り替え。フルスクリーン状態に応じてアイコンを自動切替する</td>
+	</tr>
+	<tr>
+		<td><code>constellation()</code></td>
+		<td>星座線・星座名の表示トグル。クリックすると Accessories Worker に <code>toggle-constellations</code> を送りメシエ天体表示も連動して切り替える</td>
+	</tr>
+	<tr>
+		<td><code>cpos()</code></td>
+		<td>
+			Geolocation API で現在地を取得し <code>flyToFeature</code> で移動する。
+			現在地はアニメーション SVG マーカー（パルス円）でオーバーレイ表示され、
+			地図を動かすと <code>map.tester()</code> で可視判定して自動的に表示/非表示を切り替える
+		</td>
+	</tr>
+	<tr>
+		<td><code>shot()</code></td>
+		<td>
+			スクリーンショットをダウンロードする。
+			全 Canvas レイヤーを OffscreenCanvas に合成した後、
+			<code>html2canvas</code> でオーバーレイ（ボタン・<code>noprint</code> 要素を除く）を重ね、
+			WebP 形式でダウンロードする
+		</td>
+	</tr>
+	<tr>
+		<td><code>print()</code></td>
+		<td>
+			印刷用に 3 倍解像度でレンダリングし、新規ウィンドウで <code>window.print()</code> を実行する。
+			縦長・横長を自動判定して CSS で適切に配置する
+		</td>
+	</tr>
+	<tr>
+		<td><code>measure()</code></td>
+		<td>
+			距離・面積の計測モードに切り替えるトグルボタン。
+			有効時は Click イベントをキャンセルして <code>createPolygon</code> ツールを起動し、
+			クリックで頂点を追加しながらリアルタイムで距離・面積を表示する
+		</td>
+	</tr>
 </table>
 
 <h4>内蔵ガジェット一覧 — 情報表示系（gadget2.js）</h4>
 <table>
-    <tr><th>ガジェット</th><th>説明</th></tr>
-    <tr>
-        <td><code>loading()</code></td>
-        <td>
-            <code>LoadStart</code> / <code>LoadEnd</code> イベントに連動してタイル読み込み中のインジケーターを表示する。
-            複数のタイルが同時に読み込まれる場合はすべての名前をリスト表示し、
-            すべて完了したら自動的に非表示になる
-        </td>
-    </tr>
-    <tr>
-        <td><code>explain()</code></td>
-        <td>
-            地図左上に説明テキストや HTML を表示するパネル。
-            返り値は <code>setContent(html)</code> 関数で、文字列・関数（D3 Selection を受け取る）のどちらも受け付ける。
-            <code>opts.permanent = true</code> にすると閉じるボタンを表示しない
-        </td>
-    </tr>
-    <tr>
-        <td><code>legend()</code></td>
-        <td>
-            地図左下に凡例を表示するパネル。クリックで折りたたみ、再展開ボタンで復元できる。
-            <code>explain</code> と同様に HTML または D3 関数でコンテンツを設定する
-        </td>
-    </tr>
-    <tr>
-        <td><code>tip()</code></td>
-        <td>
-            カーソル位置に追従するツールチップ。
-            返り値の関数にテキストを渡すと表示、<code>null</code> を渡すと非表示になる。
-            画面端に近い場合は自動的に反対側に回り込む。
-            タッチデバイスではオフセットを広めにとる
-        </td>
-    </tr>
-    <tr>
-        <td><code>pop()</code></td>
-        <td>
-            地図上の特定地点に固定されたポップアップを作成する。
-            返り値の関数 <code>pop(content, event)</code> を呼ぶたびに新しいポップアップが生成される。
-            ポップアップから地点へ引き出し線（Canvas2D）を自動描画し、
-            ドラッグ移動・ピン固定（位置固定）が可能。<code>pop.clear()</code> で全消去
-        </td>
-    </tr>
-    <tr>
-        <td><code>contextmenu()</code></td>
-        <td>
-            右クリック（または長押し）で表示するコンテキストメニュー。
-            返り値の関数に <code>[{ icon, name, func }]</code> の配列を渡してメニュー項目を設定する
-        </td>
-    </tr>
+	<tr><th>ガジェット</th><th>説明</th></tr>
+	<tr>
+		<td><code>loading()</code></td>
+		<td>
+			<code>LoadStart</code> / <code>LoadEnd</code> イベントに連動してタイル読み込み中のインジケーターを表示する。
+			複数のタイルが同時に読み込まれる場合はすべての名前をリスト表示し、
+			すべて完了したら自動的に非表示になる
+		</td>
+	</tr>
+	<tr>
+		<td><code>explain()</code></td>
+		<td>
+			地図左上に説明テキストや HTML を表示するパネル。
+			返り値は <code>setContent(html)</code> 関数で、文字列・関数（D3 Selection を受け取る）のどちらも受け付ける。
+			<code>opts.permanent = true</code> にすると閉じるボタンを表示しない
+		</td>
+	</tr>
+	<tr>
+		<td><code>legend()</code></td>
+		<td>
+			地図左下に凡例を表示するパネル。クリックで折りたたみ、再展開ボタンで復元できる。
+			<code>explain</code> と同様に HTML または D3 関数でコンテンツを設定する
+		</td>
+	</tr>
+	<tr>
+		<td><code>tip()</code></td>
+		<td>
+			カーソル位置に追従するツールチップ。
+			返り値の関数にテキストを渡すと表示、<code>null</code> を渡すと非表示になる。
+			画面端に近い場合は自動的に反対側に回り込む。
+			タッチデバイスではオフセットを広めにとる
+		</td>
+	</tr>
+	<tr>
+		<td><code>pop()</code></td>
+		<td>
+			地図上の特定地点に固定されたポップアップを作成する。
+			返り値の関数 <code>pop(content, event)</code> を呼ぶたびに新しいポップアップが生成される。
+			ポップアップから地点へ引き出し線（Canvas2D）を自動描画し、
+			ドラッグ移動・ピン固定（位置固定）が可能。<code>pop.clear()</code> で全消去
+		</td>
+	</tr>
+	<tr>
+		<td><code>contextmenu()</code></td>
+		<td>
+			右クリック（または長押し）で表示するコンテキストメニュー。
+			返り値の関数に <code>[{ icon, name, func }]</code> の配列を渡してメニュー項目を設定する
+		</td>
+	</tr>
 </table>
 
 <pre><code><span class="cm">// pop の使用例</span>
 <span class="kw">const</span> pop = map.gadget.<span class="fn">pop</span>();
 map.<span class="fn">onClick</span>(e => {
-    <span class="kw">if</span> (!e) <span class="kw">return</span>;
-    pop(<span class="st">`緯度: ${e.lat.toFixed(4)}&lt;br&gt;経度: ${e.lng.toFixed(4)}`</span>, e);
+	<span class="kw">if</span> (!e) <span class="kw">return</span>;
+	pop(<span class="st">`緯度: ${e.lat.toFixed(4)}&lt;br&gt;経度: ${e.lng.toFixed(4)}`</span>, e);
 });
 
 <span class="cm">// contextmenu の使用例</span>
 <span class="kw">const</span> setMenu = map.gadget.<span class="fn">contextmenu</span>();
 setMenu([
-    { name: <span class="st">"この地点を中心に"</span>, func: map => map.<span class="fn">flyToFeature</span>({ type: <span class="st">"Point"</span>, coordinates: [map.center[<span class="nm">0</span>], map.center[<span class="nm">1</span>]] }) },
-    { name: <span class="st">"北に向ける"</span>,    func: map => map.<span class="fn">north</span>() },
+	{ name: <span class="st">"この地点を中心に"</span>, func: map => map.<span class="fn">flyToFeature</span>({ type: <span class="st">"Point"</span>, coordinates: [map.center[<span class="nm">0</span>], map.center[<span class="nm">1</span>]] }) },
+	{ name: <span class="st">"北に向ける"</span>,    func: map => map.<span class="fn">north</span>() },
 ]);</code></pre>
 
 <div class="callout callout-note">
-    <div class="callout-head">CSS テーマのカスタマイズ</div>
-    <p>
-        <code>map.setProperties()</code> は CSS カスタムプロパティをドキュメントルートに書き込む。
-        設定できる主なプロパティ：
-        <code>spaceColor</code>（宇宙背景色）、<code>earthFilter</code>（球体フィルター）、
-        <code>borderColor</code>（ボタン枠）、<code>buttonSize</code>、<code>fontSize</code>、<code>fontFamily</code> 等。
-    </p>
+	<div class="callout-head">CSS テーマのカスタマイズ</div>
+	<p>
+		<code>map.setProperties()</code> は CSS カスタムプロパティをドキュメントルートに書き込む。
+		設定できる主なプロパティ：
+		<code>spaceColor</code>（宇宙背景色）、<code>earthFilter</code>（球体フィルター）、
+		<code>borderColor</code>（ボタン枠）、<code>buttonSize</code>、<code>fontSize</code>、<code>fontFamily</code> 等。
+	</p>
 </div>
 
 <hr class="rule">
@@ -851,22 +851,22 @@ setMenu([
 <h3>API サマリ</h3>
 
 <table>
-    <tr><th>メソッド</th><th>説明</th></tr>
-    <tr><td><code>map.setBase(name)</code></td><td>ベースマップを切り替える（タイルキャッシュリセット含む）</td></tr>
-    <tr><td><code>map.setView(center, zoom, angle)</code></td><td>即座にビュー変更</td></tr>
-    <tr><td><code>map.flyToFeature(feature, opts)</code></td><td>d3.interpolateZoom アニメーションで移動</td></tr>
-    <tr><td><code>map.zoomToFeature(feature, opts)</code></td><td>2 フェーズアニメーションで移動</td></tr>
-    <tr><td><code>map.bbox([x0,y0,x1,y1])</code></td><td>バウンディングボックスへズーム / 現在の bbox 取得</td></tr>
-    <tr><td><code>map.mag(n, duration)</code></td><td>現在スケールを n 倍にアニメーション</td></tr>
-    <tr><td><code>map.north(duration)</code></td><td>Z 回転（傾き）をアニメーションで 0 に戻す</td></tr>
-    <tr><td><code>map.autoRotate(true/false)</code></td><td>自動回転（d3.timer で 0.01°/ms）</td></tr>
-    <tr><td><code>map.tester([lng,lat])</code></td><td>点が現在ビューポートに表示されているか確認</td></tr>
-    <tr><td><code>map.createLayer(opts)</code></td><td>Canvas2D レイヤーを追加（GeoJSON 描画用）</td></tr>
-    <tr><td><code>map.createRemoteLayer(opts)</code></td><td>Worker + OffscreenCanvas レイヤーを追加</td></tr>
+	<tr><th>メソッド</th><th>説明</th></tr>
+	<tr><td><code>map.setBase(name)</code></td><td>ベースマップを切り替える（タイルキャッシュリセット含む）</td></tr>
+	<tr><td><code>map.setView(center, zoom, angle)</code></td><td>即座にビュー変更</td></tr>
+	<tr><td><code>map.flyToFeature(feature, opts)</code></td><td>d3.interpolateZoom アニメーションで移動</td></tr>
+	<tr><td><code>map.zoomToFeature(feature, opts)</code></td><td>2 フェーズアニメーションで移動</td></tr>
+	<tr><td><code>map.bbox([x0,y0,x1,y1])</code></td><td>バウンディングボックスへズーム / 現在の bbox 取得</td></tr>
+	<tr><td><code>map.mag(n, duration)</code></td><td>現在スケールを n 倍にアニメーション</td></tr>
+	<tr><td><code>map.north(duration)</code></td><td>Z 回転（傾き）をアニメーションで 0 に戻す</td></tr>
+	<tr><td><code>map.autoRotate(true/false)</code></td><td>自動回転（d3.timer で 0.01°/ms）</td></tr>
+	<tr><td><code>map.tester([lng,lat])</code></td><td>点が現在ビューポートに表示されているか確認</td></tr>
+	<tr><td><code>map.createLayer(opts)</code></td><td>Canvas2D レイヤーを追加（GeoJSON 描画用）</td></tr>
+	<tr><td><code>map.createRemoteLayer(opts)</code></td><td>Worker + OffscreenCanvas レイヤーを追加</td></tr>
 </table>
 
 <div style="margin-top:48px;font-size:0.72rem;color:var(--dim);font-family:var(--mono);text-align:center">
-    ortho-map · GPL-3.0 · Kenji Yoshida · 2026
+	ortho-map · GPL-3.0 · Kenji Yoshida · 2026
 </div>
 
 </div><!-- .page -->

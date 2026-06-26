@@ -2,33 +2,33 @@
 // Worker はシングルトンなので、全モジュールがこの同一オブジェクトを参照・変更する。
 
 export const s = {
-    // GL コア
-    canvas: null, gl: null, dpr: 1, width: 0, height: 0,
-    programs: null,
-    TEX_ARC_W: 4096, TEX_META_W: 4096,
+	// GL コア
+	canvas: null, gl: null, dpr: 1, width: 0, height: 0,
+	programs: null,
+	TEX_ARC_W: 4096, TEX_META_W: 4096,
 
-    // テクスチャ
-    arcTex: null, metaTex: null, ptTex: null, ptMetaTex: null,
-    totalEdges: 0, totalPoints: 0,
+	// テクスチャ
+	arcTex: null, metaTex: null, ptTex: null, ptMetaTex: null,
+	totalEdges: 0, totalPoints: 0,
 
-    // FBO
-    baseFBO: null, baseColorTex: null, baseDepthStencilRBO: null,
-    pickFBO: null, pickColorTex: null, pickDepthStencilRBO: null,
-    lastDrawData: null,
+	// FBO
+	baseFBO: null, baseColorTex: null, baseDepthStencilRBO: null,
+	pickFBO: null, pickColorTex: null, pickDepthStencilRBO: null,
+	lastDrawData: null,
 
-    // ポリゴン エッジ範囲（O(1) アクティブ feature 引き）
-    polyEdgeByFid: null,    // Map<featureId, [edgeStart, edgeCount]>
-    polyBboxByFid: null,    // Map<featureId, [xMin,yMin,xMax,yMax]>（JS fallback 用）
+	// ポリゴン エッジ範囲（O(1) アクティブ feature 引き）
+	polyEdgeByFid: null,    // Map<featureId, [edgeStart, edgeCount]>
+	polyBboxByFid: null,    // Map<featureId, [xMin,yMin,xMax,yMax]>（JS fallback 用）
 
-    // ズーム範囲
-    minZoom: null, maxZoom: null,
+	// ズーム範囲
+	minZoom: null, maxZoom: null,
 
-    // identify / hover
-    activeId: -1,
-    gintData: null,
-    lastViewBbox: null,
-    lastProj: null, lastMX: NaN, lastMY: NaN,
-    _isDrawing: false, _moveTimer: null, _pendingMove: null,
+	// identify / hover
+	activeId: -1,
+	gintData: null,
+	lastViewBbox: null,
+	lastProj: null, lastMX: NaN, lastMY: NaN,
+	_isDrawing: false, _moveTimer: null, _pendingMove: null,
 
 };
 

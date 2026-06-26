@@ -34,22 +34,22 @@ svg.sd{width:100%;height:100%}
 <body>
 
 <div class="header-bar">
-    <img src="favicon.svg" width="24" height="24" style="flex-shrink:0">
-    <span class="logo">gint</span>
-    <span class="sep">/</span>
-    <span style="color:var(--dim);font-size:0.82rem">Technical Architecture Overview</span>
-    <div class="nav-links">
-        <a href="index.html">← Docs</a>
-        <a href="gintbuf-jp.html">日本語</a>
-        <a href="ortho-map.html">OrthoMap</a>
-        <span class="nav-cur">Gint</span>
-        <a href="geopbf.html">GeoPBF</a>
-        <a href="altpbf.html">AltPBF</a>
-        <span class="nav-sep">·</span>
-        <a href="gint.html">GINT</a>
-        <a href="lod.html">LOD</a>
-        <a href="st.html">Stencil</a>
-    </div>
+	<img src="favicon.svg" width="24" height="24" style="flex-shrink:0">
+	<span class="logo">gint</span>
+	<span class="sep">/</span>
+	<span style="color:var(--dim);font-size:0.82rem">Technical Architecture Overview</span>
+	<div class="nav-links">
+		<a href="index.html">← Docs</a>
+		<a href="gintbuf-jp.html">日本語</a>
+		<a href="ortho-map.html">OrthoMap</a>
+		<span class="nav-cur">Gint</span>
+		<a href="geopbf.html">GeoPBF</a>
+		<a href="altpbf.html">AltPBF</a>
+		<span class="nav-sep">·</span>
+		<a href="gint.html">GINT</a>
+		<a href="lod.html">LOD</a>
+		<a href="st.html">Stencil</a>
+	</div>
 </div>
 
 <div class="page">
@@ -64,16 +64,16 @@ svg.sd{width:100%;height:100%}
 Spatial indexing × LOD encoding × GPU rendering — unified in a single pipeline</p>
 
 <div class="toc">
-    <div class="toc-title">Table of Contents</div>
-    <ol>
-        <li><a href="#problem">Problems with the Traditional Approach</a></li>
-        <li><a href="#overview">Pipeline Overview</a></li>
-        <li><a href="#encoding">Stage 1 — Encoding: Morton Order × VW Weight</a></li>
-        <li><a href="#lod">Stage 2 — GPU VB Write (one-time)</a></li>
-        <li><a href="#gpu">Stage 3 — GPU Stencil Tessellation</a></li>
-        <li><a href="#comparison">Performance Comparison</a></li>
-        <li><a href="#philosophy">Design Philosophy</a></li>
-    </ol>
+	<div class="toc-title">Table of Contents</div>
+	<ol>
+		<li><a href="#problem">Problems with the Traditional Approach</a></li>
+		<li><a href="#overview">Pipeline Overview</a></li>
+		<li><a href="#encoding">Stage 1 — Encoding: Morton Order × VW Weight</a></li>
+		<li><a href="#lod">Stage 2 — GPU VB Write (one-time)</a></li>
+		<li><a href="#gpu">Stage 3 — GPU Stencil Tessellation</a></li>
+		<li><a href="#comparison">Performance Comparison</a></li>
+		<li><a href="#philosophy">Design Philosophy</a></li>
+	</ol>
 </div>
 
 <!-- ──────────────────────────────────────────────────── -->
@@ -85,27 +85,27 @@ separate file sets for each zoom level and serve them on demand.
 </p>
 
 <table>
-    <tr><th>Problem</th><th>Root Cause</th><th>Cost</th></tr>
-    <tr>
-        <td><strong>Tile count explosion</strong></td>
-        <td>Total tiles at zoom z = 4<sup>z</sup></td>
-        <td class="bad">268 M tiles at z=14</td>
-    </tr>
-    <tr>
-        <td><strong>Network on every zoom</strong></td>
-        <td>Each zoom level requires different tiles</td>
-        <td class="bad">Multiple requests per zoom interaction</td>
-    </tr>
-    <tr>
-        <td><strong>CPU triangulation</strong></td>
-        <td>Concave/holed polygons can't be sent directly to the GPU</td>
-        <td class="bad">earcut O(n²) per frame</td>
-    </tr>
-    <tr>
-        <td><strong>Static LOD management</strong></td>
-        <td>Multiple resolutions pre-generated as separate files</td>
-        <td class="bad">Storage multiplied by number of LOD levels</td>
-    </tr>
+	<tr><th>Problem</th><th>Root Cause</th><th>Cost</th></tr>
+	<tr>
+		<td><strong>Tile count explosion</strong></td>
+		<td>Total tiles at zoom z = 4<sup>z</sup></td>
+		<td class="bad">268 M tiles at z=14</td>
+	</tr>
+	<tr>
+		<td><strong>Network on every zoom</strong></td>
+		<td>Each zoom level requires different tiles</td>
+		<td class="bad">Multiple requests per zoom interaction</td>
+	</tr>
+	<tr>
+		<td><strong>CPU triangulation</strong></td>
+		<td>Concave/holed polygons can't be sent directly to the GPU</td>
+		<td class="bad">earcut O(n²) per frame</td>
+	</tr>
+	<tr>
+		<td><strong>Static LOD management</strong></td>
+		<td>Multiple resolutions pre-generated as separate files</td>
+		<td class="bad">Storage multiplied by number of LOD levels</td>
+	</tr>
 </table>
 
 <p>
@@ -116,53 +116,53 @@ Gint solves all four problems with <strong>one file, zero additional network, no
 <h2 id="overview">2. Pipeline Overview</h2>
 
 <div class="pipeline">
-    <div class="pipe-stage stage-enc">
-        <div class="pipe-head">
-            <span class="pipe-num n-enc">1</span>
-            <div>
-                <div class="pipe-title">Encoding (one-time preprocessing, runs in browser)</div>
-                <div class="pipe-sub">GeoJSON → .gint binary</div>
-            </div>
-            <span class="pipe-demo tag-enc tag">GINT.html</span>
-        </div>
-        <div class="pipe-items">
-            <div class="pi"><b>Morton order</b> — sort features along the Z-curve for spatial clustering</div>
-            <div class="pi"><b>VW weight</b> — tag each vertex with its triangle area (importance score)</div>
-            <div class="pi"><b>binary pack</b> — pack coordinates + weights into fixed-width binary records</div>
-        </div>
-    </div>
-    <div class="pipe-arrow">↓</div>
-    <div class="pipe-stage stage-lod">
-        <div class="pipe-head">
-            <span class="pipe-num n-lod">2</span>
-            <div>
-                <div class="pipe-title">GPU VB Write (client-side, one-time)</div>
-                <div class="pipe-sub">GeoPBF decode → VW bit unpack → one-shot GPU vertex buffer upload</div>
-            </div>
-        </div>
-        <div class="pipe-items">
-            <div class="pi"><b>GeoPBF decode</b> — unpack vertex coordinates and VW bits from binary (Morton order preserved)</div>
-            <div class="pi"><b>VW bits unpack</b> — expand each vertex's VW weight into the GPU VB format</div>
-            <div class="pi"><b>GPU VB upload</b> — transfer all vertices to the GPU vertex buffer once (zero CPU conversion after this)</div>
-        </div>
-    </div>
-    <div class="pipe-arrow">↓</div>
-    <div class="pipe-stage stage-gpu">
-        <div class="pipe-head">
-            <span class="pipe-num n-gpu">3</span>
-            <div>
-                <div class="pipe-title">GPU LOD + Stencil Tessellation (every frame, zero CPU work)</div>
-                <div class="pipe-sub">vertex shader LOD → WebGL stencil → fill</div>
-            </div>
-            <div style="display:flex;gap:4px;margin-left:auto;flex-shrink:0"><span class="pipe-demo tag-lod tag">LOD.html</span><span class="pipe-demo tag-gpu tag">ST.html</span></div>
-        </div>
-        <div class="pipe-items">
-            <div class="pi"><b>VW threshold(z)</b> — vertex shader: discard vertices where vw_bits &gt; zoom (LOD, zero extra bytes)</div>
-            <div class="pi"><b>fan triangles</b> — generate fan triangles from NDC origin to all polygon vertices</div>
-            <div class="pi"><b>stencil XOR</b> — even-odd counting automatically handles concavities and holes</div>
-            <div class="pi"><b>color pass</b> — fill only where stencil value is odd</div>
-        </div>
-    </div>
+	<div class="pipe-stage stage-enc">
+		<div class="pipe-head">
+			<span class="pipe-num n-enc">1</span>
+			<div>
+				<div class="pipe-title">Encoding (one-time preprocessing, runs in browser)</div>
+				<div class="pipe-sub">GeoJSON → .gint binary</div>
+			</div>
+			<span class="pipe-demo tag-enc tag">GINT.html</span>
+		</div>
+		<div class="pipe-items">
+			<div class="pi"><b>Morton order</b> — sort features along the Z-curve for spatial clustering</div>
+			<div class="pi"><b>VW weight</b> — tag each vertex with its triangle area (importance score)</div>
+			<div class="pi"><b>binary pack</b> — pack coordinates + weights into fixed-width binary records</div>
+		</div>
+	</div>
+	<div class="pipe-arrow">↓</div>
+	<div class="pipe-stage stage-lod">
+		<div class="pipe-head">
+			<span class="pipe-num n-lod">2</span>
+			<div>
+				<div class="pipe-title">GPU VB Write (client-side, one-time)</div>
+				<div class="pipe-sub">GeoPBF decode → VW bit unpack → one-shot GPU vertex buffer upload</div>
+			</div>
+		</div>
+		<div class="pipe-items">
+			<div class="pi"><b>GeoPBF decode</b> — unpack vertex coordinates and VW bits from binary (Morton order preserved)</div>
+			<div class="pi"><b>VW bits unpack</b> — expand each vertex's VW weight into the GPU VB format</div>
+			<div class="pi"><b>GPU VB upload</b> — transfer all vertices to the GPU vertex buffer once (zero CPU conversion after this)</div>
+		</div>
+	</div>
+	<div class="pipe-arrow">↓</div>
+	<div class="pipe-stage stage-gpu">
+		<div class="pipe-head">
+			<span class="pipe-num n-gpu">3</span>
+			<div>
+				<div class="pipe-title">GPU LOD + Stencil Tessellation (every frame, zero CPU work)</div>
+				<div class="pipe-sub">vertex shader LOD → WebGL stencil → fill</div>
+			</div>
+			<div style="display:flex;gap:4px;margin-left:auto;flex-shrink:0"><span class="pipe-demo tag-lod tag">LOD.html</span><span class="pipe-demo tag-gpu tag">ST.html</span></div>
+		</div>
+		<div class="pipe-items">
+			<div class="pi"><b>VW threshold(z)</b> — vertex shader: discard vertices where vw_bits &gt; zoom (LOD, zero extra bytes)</div>
+			<div class="pi"><b>fan triangles</b> — generate fan triangles from NDC origin to all polygon vertices</div>
+			<div class="pi"><b>stencil XOR</b> — even-odd counting automatically handles concavities and holes</div>
+			<div class="pi"><b>color pass</b> — fill only where stencil value is odd</div>
+		</div>
+	</div>
 </div>
 
 <!-- ──────────────────────────────────────────────────── -->
@@ -176,49 +176,49 @@ of x and y, alternating one bit from each dimension.
 </p>
 
 <div class="bit-diagram">
-    <div class="bd-row">
-        <span class="bd-label" style="color:var(--orange)">X = col 3</span>
-        <div class="bd-bits">
-            <div class="bit bx">0</div>
-            <div class="bit bx">1</div>
-            <div class="bit bx">1</div>
-        </div>
-        <span class="bit-eq">← 3 bits (for an 8×8 grid)</span>
-    </div>
-    <div class="bd-row">
-        <span class="bd-label" style="color:var(--accent)">Y = row 5</span>
-        <div class="bd-bits">
-            <div class="bit by">1</div>
-            <div class="bit by">0</div>
-            <div class="bit by">1</div>
-        </div>
-    </div>
-    <div style="border-top:1px solid var(--muted);margin:8px 0"></div>
-    <div class="bd-row">
-        <span class="bd-label" style="color:var(--dim)">Morton</span>
-        <div class="bd-bits">
-            <div class="bit bmy">1</div>
-            <div class="bit bmx">0</div>
-            <div class="bit bmy">0</div>
-            <div class="bit bmx">1</div>
-            <div class="bit bmy">1</div>
-            <div class="bit bmx">1</div>
-        </div>
-        <span class="bit-eq">= 0b100111 = <strong style="color:var(--green)">39</strong></span>
-    </div>
-    <div style="font-size:0.7rem;color:var(--dim);margin-top:6px;padding-left:70px">
-        Y₂ X₂ Y₁ X₁ Y₀ X₀ (interleaved from MSB)
-    </div>
+	<div class="bd-row">
+		<span class="bd-label" style="color:var(--orange)">X = col 3</span>
+		<div class="bd-bits">
+			<div class="bit bx">0</div>
+			<div class="bit bx">1</div>
+			<div class="bit bx">1</div>
+		</div>
+		<span class="bit-eq">← 3 bits (for an 8×8 grid)</span>
+	</div>
+	<div class="bd-row">
+		<span class="bd-label" style="color:var(--accent)">Y = row 5</span>
+		<div class="bd-bits">
+			<div class="bit by">1</div>
+			<div class="bit by">0</div>
+			<div class="bit by">1</div>
+		</div>
+	</div>
+	<div style="border-top:1px solid var(--muted);margin:8px 0"></div>
+	<div class="bd-row">
+		<span class="bd-label" style="color:var(--dim)">Morton</span>
+		<div class="bd-bits">
+			<div class="bit bmy">1</div>
+			<div class="bit bmx">0</div>
+			<div class="bit bmy">0</div>
+			<div class="bit bmx">1</div>
+			<div class="bit bmy">1</div>
+			<div class="bit bmx">1</div>
+		</div>
+		<span class="bit-eq">= 0b100111 = <strong style="color:var(--green)">39</strong></span>
+	</div>
+	<div style="font-size:0.7rem;color:var(--dim);margin-top:6px;padding-left:70px">
+		Y₂ X₂ Y₁ X₁ Y₀ X₀ (interleaved from MSB)
+	</div>
 </div>
 
 <pre><code><span class="cm">// 2D → Morton code (supports 32-bit coordinates)</span>
 <span class="kw">function</span> <span class="fn">morton2D</span>(x, y) {
-    <span class="kw">let</span> r = <span class="nm">0</span>;
-    <span class="kw">for</span> (<span class="kw">let</span> i = <span class="nm">0</span>; i < <span class="nm">32</span>; i++) {
-        r |= ((x >> i) & <span class="nm">1</span>) << (<span class="nm">2</span>*i);      <span class="cm">// X bit at even positions</span>
-        r |= ((y >> i) & <span class="nm">1</span>) << (<span class="nm">2</span>*i + <span class="nm">1</span>);  <span class="cm">// Y bit at odd positions</span>
-    }
-    <span class="kw">return</span> r;
+	<span class="kw">let</span> r = <span class="nm">0</span>;
+	<span class="kw">for</span> (<span class="kw">let</span> i = <span class="nm">0</span>; i < <span class="nm">32</span>; i++) {
+		r |= ((x >> i) & <span class="nm">1</span>) << (<span class="nm">2</span>*i);      <span class="cm">// X bit at even positions</span>
+		r |= ((y >> i) & <span class="nm">1</span>) << (<span class="nm">2</span>*i + <span class="nm">1</span>);  <span class="cm">// Y bit at odd positions</span>
+	}
+	<span class="kw">return</span> r;
 }
 
 <span class="cm">// Viewport feature extraction via bit-mask (zoom level z)</span>
@@ -227,13 +227,13 @@ of x and y, alternating one bit from each dimension.
 <span class="kw">const</span> tileKey = mortonCode & mask;  <span class="cm">// features in same tile share the same prefix</span></code></pre>
 
 <div class="callout callout-key">
-    <div class="callout-head">Key Property</div>
-    <p>
-        Spatially close points have similar Morton codes (not necessarily adjacent, but sharing a
-        common prefix). This means all features inside a viewport can be found with an O(log n)
-        binary search over the sorted Morton array. Tiles that straddle the Z-curve boundary require
-        at most 4 range queries, thanks to the curve's recursive self-similarity.
-    </p>
+	<div class="callout-head">Key Property</div>
+	<p>
+		Spatially close points have similar Morton codes (not necessarily adjacent, but sharing a
+		common prefix). This means all features inside a viewport can be found with an O(log n)
+		binary search over the sorted Morton array. Tiles that straddle the Z-curve boundary require
+		at most 4 range queries, thanks to the curve's recursive self-similarity.
+	</p>
 </div>
 
 <h3>3.2 Visvalingam-Whyatt Weight (LOD Tag)</h3>
@@ -245,60 +245,60 @@ High-weight vertices are always included; low-weight vertices appear only at hig
 </p>
 
 <div class="vw-visual">
-    <div class="vw-box">
-        <svg width="120" height="90" viewBox="0 0 120 90">
-            <polygon points="10,80 60,10 110,80" fill="rgba(251,191,36,0.1)" stroke="rgba(251,191,36,0.6)" stroke-width="1.5" stroke-dasharray="4 3"/>
-            <line x1="10" y1="80" x2="110" y2="80" stroke="#334155" stroke-width="1.5"/>
-            <circle cx="10"  cy="80" r="4" fill="#38bdf8"/>
-            <circle cx="60"  cy="10" r="5" fill="#f87171"/>
-            <circle cx="110" cy="80" r="4" fill="#38bdf8"/>
-            <text x="60" y="52" text-anchor="middle" font-family="monospace" font-size="10" fill="#fbbf24">Area = large</text>
-        </svg>
-        <div class="caption">Cape / bay entrance (sharp turn)</div>
-        <div class="weight" style="color:var(--red)">High weight → always kept</div>
-    </div>
-    <div class="vw-box">
-        <svg width="120" height="90" viewBox="0 0 120 90">
-            <polygon points="10,60 60,40 110,60" fill="rgba(251,191,36,0.08)" stroke="rgba(251,191,36,0.4)" stroke-width="1.5" stroke-dasharray="4 3"/>
-            <line x1="10" y1="60" x2="110" y2="60" stroke="#334155" stroke-width="1.5"/>
-            <circle cx="10"  cy="60" r="4" fill="#38bdf8"/>
-            <circle cx="60"  cy="40" r="4" fill="#fbbf24"/>
-            <circle cx="110" cy="60" r="4" fill="#38bdf8"/>
-            <text x="60" y="58" text-anchor="middle" font-family="monospace" font-size="10" fill="#fbbf24">Area = med</text>
-        </svg>
-        <div class="caption">Small cove / inlet</div>
-        <div class="weight" style="color:var(--yellow)">Medium weight</div>
-    </div>
-    <div class="vw-box">
-        <svg width="120" height="90" viewBox="0 0 120 90">
-            <polygon points="10,55 60,50 110,55" fill="rgba(251,191,36,0.04)" stroke="rgba(251,191,36,0.25)" stroke-width="1.5" stroke-dasharray="4 3"/>
-            <line x1="10" y1="55" x2="110" y2="55" stroke="#334155" stroke-width="1.5"/>
-            <circle cx="10"  cy="55" r="4" fill="#38bdf8"/>
-            <circle cx="60"  cy="50" r="3" fill="#60a5fa"/>
-            <circle cx="110" cy="55" r="4" fill="#38bdf8"/>
-            <text x="60" y="70" text-anchor="middle" font-family="monospace" font-size="10" fill="#60a5fa">Area ≈ 0</text>
-        </svg>
-        <div class="caption">Nearly collinear detail</div>
-        <div class="weight" style="color:var(--accent)">Low weight → LOD max only</div>
-    </div>
+	<div class="vw-box">
+		<svg width="120" height="90" viewBox="0 0 120 90">
+			<polygon points="10,80 60,10 110,80" fill="rgba(251,191,36,0.1)" stroke="rgba(251,191,36,0.6)" stroke-width="1.5" stroke-dasharray="4 3"/>
+			<line x1="10" y1="80" x2="110" y2="80" stroke="#334155" stroke-width="1.5"/>
+			<circle cx="10"  cy="80" r="4" fill="#38bdf8"/>
+			<circle cx="60"  cy="10" r="5" fill="#f87171"/>
+			<circle cx="110" cy="80" r="4" fill="#38bdf8"/>
+			<text x="60" y="52" text-anchor="middle" font-family="monospace" font-size="10" fill="#fbbf24">Area = large</text>
+		</svg>
+		<div class="caption">Cape / bay entrance (sharp turn)</div>
+		<div class="weight" style="color:var(--red)">High weight → always kept</div>
+	</div>
+	<div class="vw-box">
+		<svg width="120" height="90" viewBox="0 0 120 90">
+			<polygon points="10,60 60,40 110,60" fill="rgba(251,191,36,0.08)" stroke="rgba(251,191,36,0.4)" stroke-width="1.5" stroke-dasharray="4 3"/>
+			<line x1="10" y1="60" x2="110" y2="60" stroke="#334155" stroke-width="1.5"/>
+			<circle cx="10"  cy="60" r="4" fill="#38bdf8"/>
+			<circle cx="60"  cy="40" r="4" fill="#fbbf24"/>
+			<circle cx="110" cy="60" r="4" fill="#38bdf8"/>
+			<text x="60" y="58" text-anchor="middle" font-family="monospace" font-size="10" fill="#fbbf24">Area = med</text>
+		</svg>
+		<div class="caption">Small cove / inlet</div>
+		<div class="weight" style="color:var(--yellow)">Medium weight</div>
+	</div>
+	<div class="vw-box">
+		<svg width="120" height="90" viewBox="0 0 120 90">
+			<polygon points="10,55 60,50 110,55" fill="rgba(251,191,36,0.04)" stroke="rgba(251,191,36,0.25)" stroke-width="1.5" stroke-dasharray="4 3"/>
+			<line x1="10" y1="55" x2="110" y2="55" stroke="#334155" stroke-width="1.5"/>
+			<circle cx="10"  cy="55" r="4" fill="#38bdf8"/>
+			<circle cx="60"  cy="50" r="3" fill="#60a5fa"/>
+			<circle cx="110" cy="55" r="4" fill="#38bdf8"/>
+			<text x="60" y="70" text-anchor="middle" font-family="monospace" font-size="10" fill="#60a5fa">Area ≈ 0</text>
+		</svg>
+		<div class="caption">Nearly collinear detail</div>
+		<div class="weight" style="color:var(--accent)">Low weight → LOD max only</div>
+	</div>
 </div>
 
 <div class="formula">
-    <span class="fvar">weight(v<sub>i</sub>)</span>
-    <span class="fop"> = </span>
-    <span>| (x<sub>i-1</sub>(y<sub>i</sub>−y<sub>i+1</sub>) + x<sub>i</sub>(y<sub>i+1</sub>−y<sub>i-1</sub>) + x<sub>i+1</sub>(y<sub>i-1</sub>−y<sub>i</sub>)) / 2 |</span>
-    <br>
-    <span style="font-size:0.75rem;color:var(--dim)">← area of the triangle formed with the two neighboring vertices (px²)</span>
+	<span class="fvar">weight(v<sub>i</sub>)</span>
+	<span class="fop"> = </span>
+	<span>| (x<sub>i-1</sub>(y<sub>i</sub>−y<sub>i+1</sub>) + x<sub>i</sub>(y<sub>i+1</sub>−y<sub>i-1</sub>) + x<sub>i+1</sub>(y<sub>i-1</sub>−y<sub>i</sub>)) / 2 |</span>
+	<br>
+	<span style="font-size:0.75rem;color:var(--dim)">← area of the triangle formed with the two neighboring vertices (px²)</span>
 </div>
 
 <pre><code><span class="cm">// Compute VW weights for all vertices at encode time</span>
 <span class="kw">function</span> <span class="fn">computeVWWeights</span>(polygon) {
-    <span class="kw">const</span> n = polygon.length;
-    <span class="kw">return</span> polygon.<span class="fn">map</span>((_, i) => <span class="fn">triangleArea</span>(
-        polygon[(i - <span class="nm">1</span> + n) % n],
-        polygon[i],
-        polygon[(i + <span class="nm">1</span>) % n]
-    ));
+	<span class="kw">const</span> n = polygon.length;
+	<span class="kw">return</span> polygon.<span class="fn">map</span>((_, i) => <span class="fn">triangleArea</span>(
+		polygon[(i - <span class="nm">1</span> + n) % n],
+		polygon[i],
+		polygon[(i + <span class="nm">1</span>) % n]
+	));
 }
 
 <span class="cm">// Vertex filter at decode time (per zoom level)</span>
@@ -309,34 +309,34 @@ High-weight vertices are always included; low-weight vertices appear only at hig
 <span class="kw">const</span> activeVerts  = vertices.<span class="fn">filter</span>(v => v.weight >= threshold);</code></pre>
 
 <div class="callout callout-key">
-    <div class="callout-head">LOD Threshold Is Driven by the Physical Pixel Size</div>
-    <p>
-        VW weight has units of <strong>screen area (px²)</strong>. At zoom level z, any vertex
-        whose triangle area is smaller than 1px² is <strong>sub-pixel</strong> — removing it
-        causes zero visible difference in the rendered image. The LOD threshold at each zoom level
-        is therefore <em>physically derived</em> from "how many map units correspond to 1 pixel at
-        the current scale." No manual per-zoom tuning is required: as the user zooms in, the
-        pixel footprint shrinks, the threshold drops, and exactly the right number of vertices
-        becomes visible — automatically.
-    </p>
+	<div class="callout-head">LOD Threshold Is Driven by the Physical Pixel Size</div>
+	<p>
+		VW weight has units of <strong>screen area (px²)</strong>. At zoom level z, any vertex
+		whose triangle area is smaller than 1px² is <strong>sub-pixel</strong> — removing it
+		causes zero visible difference in the rendered image. The LOD threshold at each zoom level
+		is therefore <em>physically derived</em> from "how many map units correspond to 1 pixel at
+		the current scale." No manual per-zoom tuning is required: as the user zooms in, the
+		pixel footprint shrinks, the threshold drops, and exactly the right number of vertices
+		becomes visible — automatically.
+	</p>
 </div>
 
 <div class="callout callout-note">
-    <div class="callout-head">Relationship Between LOD 0 (Anchors) and Higher LOD Levels</div>
-    <p>
-        LOD 0 anchor vertices define the <strong>structural skeleton</strong> of the shape — capes,
-        bay entrances, major direction changes — and are <em>always</em> retained.
-        LOD 1 and above vertices are <strong>inserted into the edges between existing vertices</strong>;
-        they never replace anchors. This means each LOD level is a <strong>strict superset</strong>
-        of the previous one: filtering at any threshold always produces a geometrically valid polygon
-        because the anchor skeleton is never broken.
-    </p>
-    <p style="margin-top:8px">
-        VW weights computed on midpoint-subdivided vertices naturally agree with subdivision depth:
-        anchors receive the highest weights, fine-detail vertices the lowest.
-        Both algorithms share the same priority — "preserve sharp bends first" —
-        which is the theoretical basis for gint's LOD encoding scheme.
-    </p>
+	<div class="callout-head">Relationship Between LOD 0 (Anchors) and Higher LOD Levels</div>
+	<p>
+		LOD 0 anchor vertices define the <strong>structural skeleton</strong> of the shape — capes,
+		bay entrances, major direction changes — and are <em>always</em> retained.
+		LOD 1 and above vertices are <strong>inserted into the edges between existing vertices</strong>;
+		they never replace anchors. This means each LOD level is a <strong>strict superset</strong>
+		of the previous one: filtering at any threshold always produces a geometrically valid polygon
+		because the anchor skeleton is never broken.
+	</p>
+	<p style="margin-top:8px">
+		VW weights computed on midpoint-subdivided vertices naturally agree with subdivision depth:
+		anchors receive the highest weights, fine-detail vertices the lowest.
+		Both algorithms share the same priority — "preserve sharp bends first" —
+		which is the theoretical basis for gint's LOD encoding scheme.
+	</p>
 </div>
 
 <!-- ──────────────────────────────────────────────────── -->
@@ -365,51 +365,51 @@ No additional network requests are ever issued. LOD (vertex culling by VW thresh
 <h3>4.2 Zoom Level to LOD Mapping</h3>
 
 <table>
-    <tr>
-        <th>Zoom</th><th>LOD</th><th>VW Threshold (example)</th>
-        <th>Active Vertices</th><th>Tile-based equivalent</th>
-    </tr>
-    <tr>
-        <td class="dim">z = 2</td><td><span style="color:var(--accent)">LOD 0</span></td>
-        <td class="dim">maxW × 0.50</td>
-        <td class="good">22 vertices</td>
-        <td class="bad">1 tile fetch</td>
-    </tr>
-    <tr>
-        <td class="dim">z = 4</td><td><span style="color:var(--green)">LOD 1</span></td>
-        <td class="dim">maxW × 0.20</td>
-        <td class="good">44 vertices</td>
-        <td class="bad">4 tile fetches</td>
-    </tr>
-    <tr>
-        <td class="dim">z = 6</td><td><span style="color:var(--yellow)">LOD 2</span></td>
-        <td class="dim">maxW × 0.07</td>
-        <td class="good">88 vertices</td>
-        <td class="bad">16 tile fetches</td>
-    </tr>
-    <tr>
-        <td class="dim">z = 8</td><td><span style="color:var(--red)">LOD 3</span></td>
-        <td class="dim">maxW × 0.018</td>
-        <td class="good">176 vertices</td>
-        <td class="bad">64 tile fetches</td>
-    </tr>
-    <tr>
-        <td class="dim">z = 10</td><td><span style="color:var(--purple)">LOD 4</span></td>
-        <td class="dim">0 (all vertices)</td>
-        <td class="good">352 vertices</td>
-        <td class="bad">256 tile fetches</td>
-    </tr>
+	<tr>
+		<th>Zoom</th><th>LOD</th><th>VW Threshold (example)</th>
+		<th>Active Vertices</th><th>Tile-based equivalent</th>
+	</tr>
+	<tr>
+		<td class="dim">z = 2</td><td><span style="color:var(--accent)">LOD 0</span></td>
+		<td class="dim">maxW × 0.50</td>
+		<td class="good">22 vertices</td>
+		<td class="bad">1 tile fetch</td>
+	</tr>
+	<tr>
+		<td class="dim">z = 4</td><td><span style="color:var(--green)">LOD 1</span></td>
+		<td class="dim">maxW × 0.20</td>
+		<td class="good">44 vertices</td>
+		<td class="bad">4 tile fetches</td>
+	</tr>
+	<tr>
+		<td class="dim">z = 6</td><td><span style="color:var(--yellow)">LOD 2</span></td>
+		<td class="dim">maxW × 0.07</td>
+		<td class="good">88 vertices</td>
+		<td class="bad">16 tile fetches</td>
+	</tr>
+	<tr>
+		<td class="dim">z = 8</td><td><span style="color:var(--red)">LOD 3</span></td>
+		<td class="dim">maxW × 0.018</td>
+		<td class="good">176 vertices</td>
+		<td class="bad">64 tile fetches</td>
+	</tr>
+	<tr>
+		<td class="dim">z = 10</td><td><span style="color:var(--purple)">LOD 4</span></td>
+		<td class="dim">0 (all vertices)</td>
+		<td class="good">352 vertices</td>
+		<td class="bad">256 tile fetches</td>
+	</tr>
 </table>
 
 <div class="callout callout-key">
-    <div class="callout-head">Zero Network Overhead</div>
-    <p>
-        In a tile-based system, every zoom level change triggers new tile requests.
-        With gint, all LOD levels are embedded in a single file loaded at startup.
-        Changing zoom only updates the GPU uniform <code>zoom</code> value; the vertex shader
-        discards vertices where <code>vw_bits &gt; zoom</code> every frame (zero CPU work).
-        After the initial load: <strong>+0 bytes transferred on zoom</strong>.
-    </p>
+	<div class="callout-head">Zero Network Overhead</div>
+	<p>
+		In a tile-based system, every zoom level change triggers new tile requests.
+		With gint, all LOD levels are embedded in a single file loaded at startup.
+		Changing zoom only updates the GPU uniform <code>zoom</code> value; the vertex shader
+		discards vertices where <code>vw_bits &gt; zoom</code> every frame (zero CPU work).
+		After the initial load: <strong>+0 bytes transferred on zoom</strong>.
+	</p>
 </div>
 
 <!-- ──────────────────────────────────────────────────── -->
@@ -432,11 +432,11 @@ sequence directly to the GPU and rendering in exactly two passes.
 <span class="cm">// An N-vertex polygon produces exactly N triangles — no CPU logic required</span>
 
 <span class="kw">for</span> (<span class="kw">let</span> i = <span class="nm">0</span>; i < N; i++) {
-    <span class="fn">drawTriangle</span>(
-        [<span class="nm">0</span>, <span class="nm">0</span>],          <span class="cm">// NDC origin (constant)</span>
-        vertices[i],       <span class="cm">// current vertex</span>
-        vertices[i+<span class="nm">1</span>]    <span class="cm">// next vertex</span>
-    );
+	<span class="fn">drawTriangle</span>(
+		[<span class="nm">0</span>, <span class="nm">0</span>],          <span class="cm">// NDC origin (constant)</span>
+		vertices[i],       <span class="cm">// current vertex</span>
+		vertices[i+<span class="nm">1</span>]    <span class="cm">// next vertex</span>
+	);
 }
 
 <span class="cm">// WebGL stencil configuration</span>
@@ -460,108 +460,108 @@ gl.<span class="fn">colorMask</span>(<span class="kw">true</span>, <span class="
 <h3>5.3 Concave Polygons and Holes — Automatic</h3>
 
 <div class="stencil-diagram">
-    <div class="sd-panel">
-        <div class="sd-title">Traditional (CPU Earcut)</div>
-        <svg class="sd" viewBox="0 0 160 140">
-            <polygon points="20,120 80,20 140,120 100,80 60,80" fill="rgba(244,63,94,0.1)" stroke="#f43f5e" stroke-width="1.5"/>
-            <line x1="20" y1="120" x2="80" y2="20" stroke="#f59e0b" stroke-width="1" stroke-dasharray="3,3"/>
-            <line x1="20" y1="120" x2="100" y2="80" stroke="#f59e0b" stroke-width="1" stroke-dasharray="3,3"/>
-            <line x1="20" y1="120" x2="60" y2="80" stroke="#f59e0b" stroke-width="1" stroke-dasharray="3,3"/>
-            <line x1="80" y1="20" x2="100" y2="80" stroke="#f59e0b" stroke-width="1" stroke-dasharray="3,3"/>
-            <line x1="80" y1="20" x2="60" y2="80" stroke="#f59e0b" stroke-width="1" stroke-dasharray="3,3"/>
-            <text x="80" y="135" text-anchor="middle" font-family="monospace" font-size="9" fill="#f59e0b">earcut: 3 triangles</text>
-            <text x="80" y="148" text-anchor="middle" font-family="monospace" font-size="8" fill="#475569">CPU O(n) before upload</text>
-        </svg>
-    </div>
-    <div class="sd-panel">
-        <div class="sd-title">GPU Stencil Fan</div>
-        <svg class="sd" viewBox="0 0 160 140">
-            <circle cx="80" cy="70" r="4" fill="var(--accent)" opacity="0.8"/>
-            <text x="80" y="82" text-anchor="middle" font-family="monospace" font-size="8" fill="var(--accent)">NDC(0,0)</text>
-            <polygon points="80,70 20,120 80,20" fill="rgba(244,63,94,0.25)" stroke="#f43f5e" stroke-width="1" opacity="0.7"/>
-            <polygon points="80,70 80,20 140,120" fill="rgba(56,189,248,0.25)" stroke="#38bdf8" stroke-width="1" opacity="0.7"/>
-            <polygon points="80,70 140,120 100,80" fill="rgba(163,230,53,0.25)" stroke="#a3e635" stroke-width="1" opacity="0.7"/>
-            <polygon points="80,70 100,80 60,80" fill="rgba(244,63,94,0.4)" stroke="#f43f5e" stroke-width="1" opacity="0.7"/>
-            <polygon points="80,70 60,80 20,120" fill="rgba(192,132,252,0.25)" stroke="#c084fc" stroke-width="1" opacity="0.7"/>
-            <text x="80" y="135" text-anchor="middle" font-family="monospace" font-size="9" fill="var(--green)">5 fan triangles</text>
-            <text x="80" y="148" text-anchor="middle" font-family="monospace" font-size="8" fill="#475569">GPU only, zero CPU</text>
-        </svg>
-    </div>
-    <div class="sd-panel">
-        <div class="sd-title">Stencil Count Result</div>
-        <svg class="sd" viewBox="0 0 160 140">
-            <rect x="0" y="0" width="160" height="140" fill="#0a1628"/>
-            <polygon points="20,120 80,20 140,120 100,80 60,80" fill="rgba(92,128,74,0.85)" stroke="none"/>
-            <polygon points="100,80 60,80 80,70" fill="#0a1628" stroke="none"/>
-            <text x="55" y="75" font-family="monospace" font-size="7" fill="var(--dim)">count=2</text>
-            <text x="55" y="55" font-family="monospace" font-size="7" fill="var(--green)">count=1</text>
-            <text x="105" y="110" font-family="monospace" font-size="7" fill="var(--green)">count=1</text>
-            <text x="80" y="135" text-anchor="middle" font-family="monospace" font-size="9" fill="var(--green)">odd=fill, even=hole</text>
-            <text x="80" y="148" text-anchor="middle" font-family="monospace" font-size="8" fill="#475569">any topology handled</text>
-        </svg>
-    </div>
+	<div class="sd-panel">
+		<div class="sd-title">Traditional (CPU Earcut)</div>
+		<svg class="sd" viewBox="0 0 160 140">
+			<polygon points="20,120 80,20 140,120 100,80 60,80" fill="rgba(244,63,94,0.1)" stroke="#f43f5e" stroke-width="1.5"/>
+			<line x1="20" y1="120" x2="80" y2="20" stroke="#f59e0b" stroke-width="1" stroke-dasharray="3,3"/>
+			<line x1="20" y1="120" x2="100" y2="80" stroke="#f59e0b" stroke-width="1" stroke-dasharray="3,3"/>
+			<line x1="20" y1="120" x2="60" y2="80" stroke="#f59e0b" stroke-width="1" stroke-dasharray="3,3"/>
+			<line x1="80" y1="20" x2="100" y2="80" stroke="#f59e0b" stroke-width="1" stroke-dasharray="3,3"/>
+			<line x1="80" y1="20" x2="60" y2="80" stroke="#f59e0b" stroke-width="1" stroke-dasharray="3,3"/>
+			<text x="80" y="135" text-anchor="middle" font-family="monospace" font-size="9" fill="#f59e0b">earcut: 3 triangles</text>
+			<text x="80" y="148" text-anchor="middle" font-family="monospace" font-size="8" fill="#475569">CPU O(n) before upload</text>
+		</svg>
+	</div>
+	<div class="sd-panel">
+		<div class="sd-title">GPU Stencil Fan</div>
+		<svg class="sd" viewBox="0 0 160 140">
+			<circle cx="80" cy="70" r="4" fill="var(--accent)" opacity="0.8"/>
+			<text x="80" y="82" text-anchor="middle" font-family="monospace" font-size="8" fill="var(--accent)">NDC(0,0)</text>
+			<polygon points="80,70 20,120 80,20" fill="rgba(244,63,94,0.25)" stroke="#f43f5e" stroke-width="1" opacity="0.7"/>
+			<polygon points="80,70 80,20 140,120" fill="rgba(56,189,248,0.25)" stroke="#38bdf8" stroke-width="1" opacity="0.7"/>
+			<polygon points="80,70 140,120 100,80" fill="rgba(163,230,53,0.25)" stroke="#a3e635" stroke-width="1" opacity="0.7"/>
+			<polygon points="80,70 100,80 60,80" fill="rgba(244,63,94,0.4)" stroke="#f43f5e" stroke-width="1" opacity="0.7"/>
+			<polygon points="80,70 60,80 20,120" fill="rgba(192,132,252,0.25)" stroke="#c084fc" stroke-width="1" opacity="0.7"/>
+			<text x="80" y="135" text-anchor="middle" font-family="monospace" font-size="9" fill="var(--green)">5 fan triangles</text>
+			<text x="80" y="148" text-anchor="middle" font-family="monospace" font-size="8" fill="#475569">GPU only, zero CPU</text>
+		</svg>
+	</div>
+	<div class="sd-panel">
+		<div class="sd-title">Stencil Count Result</div>
+		<svg class="sd" viewBox="0 0 160 140">
+			<rect x="0" y="0" width="160" height="140" fill="#0a1628"/>
+			<polygon points="20,120 80,20 140,120 100,80 60,80" fill="rgba(92,128,74,0.85)" stroke="none"/>
+			<polygon points="100,80 60,80 80,70" fill="#0a1628" stroke="none"/>
+			<text x="55" y="75" font-family="monospace" font-size="7" fill="var(--dim)">count=2</text>
+			<text x="55" y="55" font-family="monospace" font-size="7" fill="var(--green)">count=1</text>
+			<text x="105" y="110" font-family="monospace" font-size="7" fill="var(--green)">count=1</text>
+			<text x="80" y="135" text-anchor="middle" font-family="monospace" font-size="9" fill="var(--green)">odd=fill, even=hole</text>
+			<text x="80" y="148" text-anchor="middle" font-family="monospace" font-size="8" fill="#475569">any topology handled</text>
+		</svg>
+	</div>
 </div>
 
 <div class="callout callout-key">
-    <div class="callout-head">Why Concavities and Holes Resolve Automatically</div>
-    <p>
-        The number of times fan triangles overlap a given pixel corresponds to how many times
-        the polygon boundary crosses a ray from that pixel to infinity — exactly the definition of
-        the ray-casting even-odd rule. In concave regions where the polygon "doubles back", the
-        overlap count reaches 2 (even), marking those pixels as holes.
-        This is the ray-casting algorithm, implemented in GPU stencil hardware at no CPU cost.
-    </p>
+	<div class="callout-head">Why Concavities and Holes Resolve Automatically</div>
+	<p>
+		The number of times fan triangles overlap a given pixel corresponds to how many times
+		the polygon boundary crosses a ray from that pixel to infinity — exactly the definition of
+		the ray-casting even-odd rule. In concave regions where the polygon "doubles back", the
+		overlap count reaches 2 (even), marking those pixels as holes.
+		This is the ray-casting algorithm, implemented in GPU stencil hardware at no CPU cost.
+	</p>
 </div>
 
 <!-- ──────────────────────────────────────────────────── -->
 <h2 id="comparison">6. Performance Comparison</h2>
 
 <table>
-    <tr>
-        <th>Metric</th>
-        <th>Traditional Tile Approach</th>
-        <th>Gint</th>
-    </tr>
-    <tr>
-        <td><strong>File count</strong></td>
-        <td class="bad">O(4<sup>z</sup>) tiles</td>
-        <td class="good">1 file</td>
-    </tr>
-    <tr>
-        <td><strong>Initial load</strong></td>
-        <td class="dim">Only tiles needed for current z</td>
-        <td class="dim">Single file containing all LOD levels</td>
-    </tr>
-    <tr>
-        <td><strong>Bytes on zoom</strong></td>
-        <td class="bad">Multiple new tile fetches per zoom</td>
-        <td class="good">+0 bytes</td>
-    </tr>
-    <tr>
-        <td><strong>Viewport query</strong></td>
-        <td class="dim">Server request with tile x/y/z</td>
-        <td class="good">Morton bit-shift O(log n) — local</td>
-    </tr>
-    <tr>
-        <td><strong>LOD switching</strong></td>
-        <td class="bad">Re-fetch different tile set</td>
-        <td class="good">In-memory filter only — instant</td>
-    </tr>
-    <tr>
-        <td><strong>CPU triangulation</strong></td>
-        <td class="bad">earcut O(n²) every frame</td>
-        <td class="good">Not required — GPU stencil</td>
-    </tr>
-    <tr>
-        <td><strong>Holed / concave polygons</strong></td>
-        <td class="bad">Special-cased in earcut</td>
-        <td class="good">Even-odd rule — automatic</td>
-    </tr>
-    <tr>
-        <td><strong>Pre-generation cost</strong></td>
-        <td class="bad">All zoom levels × all tiles</td>
-        <td class="good">One-time encode: Morton sort + VW</td>
-    </tr>
+	<tr>
+		<th>Metric</th>
+		<th>Traditional Tile Approach</th>
+		<th>Gint</th>
+	</tr>
+	<tr>
+		<td><strong>File count</strong></td>
+		<td class="bad">O(4<sup>z</sup>) tiles</td>
+		<td class="good">1 file</td>
+	</tr>
+	<tr>
+		<td><strong>Initial load</strong></td>
+		<td class="dim">Only tiles needed for current z</td>
+		<td class="dim">Single file containing all LOD levels</td>
+	</tr>
+	<tr>
+		<td><strong>Bytes on zoom</strong></td>
+		<td class="bad">Multiple new tile fetches per zoom</td>
+		<td class="good">+0 bytes</td>
+	</tr>
+	<tr>
+		<td><strong>Viewport query</strong></td>
+		<td class="dim">Server request with tile x/y/z</td>
+		<td class="good">Morton bit-shift O(log n) — local</td>
+	</tr>
+	<tr>
+		<td><strong>LOD switching</strong></td>
+		<td class="bad">Re-fetch different tile set</td>
+		<td class="good">In-memory filter only — instant</td>
+	</tr>
+	<tr>
+		<td><strong>CPU triangulation</strong></td>
+		<td class="bad">earcut O(n²) every frame</td>
+		<td class="good">Not required — GPU stencil</td>
+	</tr>
+	<tr>
+		<td><strong>Holed / concave polygons</strong></td>
+		<td class="bad">Special-cased in earcut</td>
+		<td class="good">Even-odd rule — automatic</td>
+	</tr>
+	<tr>
+		<td><strong>Pre-generation cost</strong></td>
+		<td class="bad">All zoom levels × all tiles</td>
+		<td class="good">One-time encode: Morton sort + VW</td>
+	</tr>
 </table>
 
 <!-- ──────────────────────────────────────────────────── -->
@@ -585,26 +585,26 @@ meaningful at finer observation scales.
 
 <h3>Demo Files</h3>
 <table>
-    <tr><th>File</th><th>Content</th><th>Pipeline Stage</th></tr>
-    <tr>
-        <td><a href="gint.html"><span class="tag tag-file">GINT.html</span></a></td>
-        <td>Morton order animation, interactive VW weight visualization</td>
-        <td><span style="color:var(--accent)">Stage 1 — Encoding</span></td>
-    </tr>
-    <tr>
-        <td><a href="lod.html"><span class="tag tag-file">LOD.html</span></a></td>
-        <td>Dynamic LOD: vertex shader discards vertices by VW threshold every frame</td>
-        <td><span style="color:var(--purple)">Stage 3 — GPU Rendering</span></td>
-    </tr>
-    <tr>
-        <td><a href="st.html"><span class="tag tag-file">ST.html</span></a></td>
-        <td>GPU stencil tessellation vs. CPU earcut comparison</td>
-        <td><span style="color:var(--purple)">Stage 3 — GPU Rendering</span></td>
-    </tr>
+	<tr><th>File</th><th>Content</th><th>Pipeline Stage</th></tr>
+	<tr>
+		<td><a href="gint.html"><span class="tag tag-file">GINT.html</span></a></td>
+		<td>Morton order animation, interactive VW weight visualization</td>
+		<td><span style="color:var(--accent)">Stage 1 — Encoding</span></td>
+	</tr>
+	<tr>
+		<td><a href="lod.html"><span class="tag tag-file">LOD.html</span></a></td>
+		<td>Dynamic LOD: vertex shader discards vertices by VW threshold every frame</td>
+		<td><span style="color:var(--purple)">Stage 3 — GPU Rendering</span></td>
+	</tr>
+	<tr>
+		<td><a href="st.html"><span class="tag tag-file">ST.html</span></a></td>
+		<td>GPU stencil tessellation vs. CPU earcut comparison</td>
+		<td><span style="color:var(--purple)">Stage 3 — GPU Rendering</span></td>
+	</tr>
 </table>
 
 <div style="margin-top:48px;font-size:0.72rem;color:var(--dim);font-family:var(--mono);text-align:center">
-    gint / ortho-map · Kenji Yoshida · 2026
+	gint / ortho-map · Kenji Yoshida · 2026
 </div>
 
 </div><!-- .page -->

@@ -7,10 +7,10 @@
 <style>
 * { box-sizing: border-box; }
 body {
-    background: #0f172a; color: #f8fafc;
-    font-family: 'Segoe UI', sans-serif;
-    margin: 0; padding: 14px;
-    display: flex; flex-direction: column; align-items: center;
+	background: #0f172a; color: #f8fafc;
+	font-family: 'Segoe UI', sans-serif;
+	margin: 0; padding: 14px;
+	display: flex; flex-direction: column; align-items: center;
 }
 h1 { color: #38bdf8; font-size: 1.5rem; margin: 0 0 3px; }
 .subtitle { color: #64748b; font-size: 0.78rem; font-family: monospace; margin-bottom: 12px; text-align: center; }
@@ -58,118 +58,118 @@ input[type=range] { flex: 1; accent-color: #38bdf8; cursor: pointer; }
 <div class="subtitle">GPU Vertex Shader LOD · 64-bit Morton Bit-Mask · Zero Network Overhead · Zero CPU on LOD Change</div>
 
 <div class="layout">
-  <div class="left">
-    <canvas id="c" width="636" height="410"></canvas>
-    <div class="controls">
-      <div class="ctrl-label">Drag to zoom — vertex shader discards higher-LOD vertices on GPU, zero CPU work</div>
-      <div class="srow">
-        <span>z=2</span>
-        <input type="range" id="sl" min="2" max="10" step="2" value="10">
-        <span>z=10</span>
-      </div>
-      <div class="zlabels">
-        <span>🌍 World</span><span>🌏 Continent</span><span>🗾 Country</span><span>🏔 Region</span><span>🔬 Street</span>
-      </div>
-    </div>
-  </div>
+	<div class="left">
+	<canvas id="c" width="636" height="410"></canvas>
+	<div class="controls">
+		<div class="ctrl-label">Drag to zoom — vertex shader discards higher-LOD vertices on GPU, zero CPU work</div>
+		<div class="srow">
+		<span>z=2</span>
+		<input type="range" id="sl" min="2" max="10" step="2" value="10">
+		<span>z=10</span>
+		</div>
+		<div class="zlabels">
+		<span>🌍 World</span><span>🌏 Continent</span><span>🗾 Country</span><span>🏔 Region</span><span>🔬 Street</span>
+		</div>
+	</div>
+	</div>
 
-  <div class="right">
-    <div class="sb">
-      <h3>Current Zoom</h3>
-      <div class="zbig" id="zd">z = 10</div>
-      <div style="text-align:center;margin-top:4px" id="lt"></div>
-    </div>
-    <div class="sb">
-      <h3>GPU-Rendered Vertices</h3>
-      <div class="vc"><div class="vn" id="va">—</div><div class="vt">/ <span id="vt">—</span> on GPU</div></div>
-      <div class="vbw"><div class="vb" id="vb" style="width:0%"></div></div>
-      <div style="font-size:0.68rem;color:#475569;margin-top:5px;font-family:monospace">vertex shader: discard if lod_bits &gt; zoom</div>
-    </div>
-    <div class="sb">
-      <h3>LOD Breakdown</h3>
-      <div class="lrows">
-        <div class="lr"><div><span class="ld" style="background:#38bdf8"></span><span class="ln">LOD 0 — Anchor</span></div><span class="ltag t0" id="c0">—</span></div>
-        <div class="lr"><div><span class="ld" style="background:#34d399"></span><span class="ln">LOD 1 — Major</span></div><span class="ltag t1" id="c1">—</span></div>
-        <div class="lr"><div><span class="ld" style="background:#f59e0b"></span><span class="ln">LOD 2 — Medium</span></div><span class="ltag t2" id="c2">—</span></div>
-        <div class="lr"><div><span class="ld" style="background:#f87171"></span><span class="ln">LOD 3 — Fine</span></div><span class="ltag t3" id="c3">—</span></div>
-        <div class="lr"><div><span class="ld" style="background:#c084fc"></span><span class="ln">LOD 4 — Detail</span></div><span class="ltag t4" id="c4">—</span></div>
-      </div>
-    </div>
-    <div class="sb">
-      <h3>Morton Bit Mask (64-bit)</h3>
-      <div class="mc" id="mc"></div>
-    </div>
-    <div class="sb">
-      <h3>Network — Tile vs Gint</h3>
-      <div class="nrows">
-        <div class="nr"><span class="nk">Tile requests</span><span class="bad" id="tc">—</span></div>
-        <div class="nr"><span class="nk">Gint requests</span><span class="good">1 (initial only)</span></div>
-        <div class="nr"><span class="nk">Δ bytes on zoom</span><span class="good">+0 bytes</span></div>
-      </div>
-      <div class="bdgs">
-        <span class="bdg bdg-b" id="tb">tiles: —</span>
-        <span class="bdg bdg-g">Gint: 1 file</span>
-      </div>
-    </div>
-  </div>
+	<div class="right">
+	<div class="sb">
+		<h3>Current Zoom</h3>
+		<div class="zbig" id="zd">z = 10</div>
+		<div style="text-align:center;margin-top:4px" id="lt"></div>
+	</div>
+	<div class="sb">
+		<h3>GPU-Rendered Vertices</h3>
+		<div class="vc"><div class="vn" id="va">—</div><div class="vt">/ <span id="vt">—</span> on GPU</div></div>
+		<div class="vbw"><div class="vb" id="vb" style="width:0%"></div></div>
+		<div style="font-size:0.68rem;color:#475569;margin-top:5px;font-family:monospace">vertex shader: discard if lod_bits &gt; zoom</div>
+	</div>
+	<div class="sb">
+		<h3>LOD Breakdown</h3>
+		<div class="lrows">
+		<div class="lr"><div><span class="ld" style="background:#38bdf8"></span><span class="ln">LOD 0 — Anchor</span></div><span class="ltag t0" id="c0">—</span></div>
+		<div class="lr"><div><span class="ld" style="background:#34d399"></span><span class="ln">LOD 1 — Major</span></div><span class="ltag t1" id="c1">—</span></div>
+		<div class="lr"><div><span class="ld" style="background:#f59e0b"></span><span class="ln">LOD 2 — Medium</span></div><span class="ltag t2" id="c2">—</span></div>
+		<div class="lr"><div><span class="ld" style="background:#f87171"></span><span class="ln">LOD 3 — Fine</span></div><span class="ltag t3" id="c3">—</span></div>
+		<div class="lr"><div><span class="ld" style="background:#c084fc"></span><span class="ln">LOD 4 — Detail</span></div><span class="ltag t4" id="c4">—</span></div>
+		</div>
+	</div>
+	<div class="sb">
+		<h3>Morton Bit Mask (64-bit)</h3>
+		<div class="mc" id="mc"></div>
+	</div>
+	<div class="sb">
+		<h3>Network — Tile vs Gint</h3>
+		<div class="nrows">
+		<div class="nr"><span class="nk">Tile requests</span><span class="bad" id="tc">—</span></div>
+		<div class="nr"><span class="nk">Gint requests</span><span class="good">1 (initial only)</span></div>
+		<div class="nr"><span class="nk">Δ bytes on zoom</span><span class="good">+0 bytes</span></div>
+		</div>
+		<div class="bdgs">
+		<span class="bdg bdg-b" id="tb">tiles: —</span>
+		<span class="bdg bdg-g">Gint: 1 file</span>
+		</div>
+	</div>
+	</div>
 </div>
 
 <script>
 // Xorshift32 seeded random
 function mkRng(s) {
-    s = s >>> 0;
-    return () => { s ^= s<<13; s ^= s>>17; s ^= s<<5; return (s>>>0)/0x100000000; };
+	s = s >>> 0;
+	return () => { s ^= s<<13; s ^= s>>17; s ^= s<<5; return (s>>>0)/0x100000000; };
 }
 
 // Recursive midpoint-displacement: generates polygon vertices between a and b in order
 function sub(a, b, depth, max, rng) {
-    if (depth > max) return [];
-    const mx=(a.x+b.x)/2, my=(a.y+b.y)/2;
-    const dx=b.x-a.x, dy=b.y-a.y, len=Math.hypot(dx,dy);
-    const amp = len * 0.2 * (rng()-0.5) * Math.pow(0.58, depth-1);
-    const mid = { x: mx+(-dy/len)*amp, y: my+(dx/len)*amp, lod: depth };
-    return [...sub(a,mid,depth+1,max,rng), mid, ...sub(mid,b,depth+1,max,rng)];
+	if (depth > max) return [];
+	const mx=(a.x+b.x)/2, my=(a.y+b.y)/2;
+	const dx=b.x-a.x, dy=b.y-a.y, len=Math.hypot(dx,dy);
+	const amp = len * 0.2 * (rng()-0.5) * Math.pow(0.58, depth-1);
+	const mid = { x: mx+(-dy/len)*amp, y: my+(dx/len)*amp, lod: depth };
+	return [...sub(a,mid,depth+1,max,rng), mid, ...sub(mid,b,depth+1,max,rng)];
 }
 function build(anchors, maxD, seed) {
-    const rng=mkRng(seed), v=[];
-    for (let i=0; i<anchors.length; i++) {
-        const a=anchors[i], b=anchors[(i+1)%anchors.length];
-        v.push({x:a.x,y:a.y,lod:0});
-        v.push(...sub(a,b,1,maxD,rng));
-    }
-    return v;
+	const rng=mkRng(seed), v=[];
+	for (let i=0; i<anchors.length; i++) {
+		const a=anchors[i], b=anchors[(i+1)%anchors.length];
+		v.push({x:a.x,y:a.y,lod:0});
+		v.push(...sub(a,b,1,maxD,rng));
+	}
+	return v;
 }
 
 // ── Anchor definitions ───────────────────────────────────────────────────────
 
 // Main peninsula (22 anchors): irregular top coast + right bay (concave) + south peninsula
 const MAIN = [
-    {x:55, y:52}, {x:148,y:26}, {x:255,y:16}, {x:358,y:23}, {x:462,y:40}, {x:545,y:70},
-    {x:594,y:155},
-    // Right-side bay — polygon indents creating a concave bay
-    {x:576,y:212}, {x:506,y:242}, {x:456,y:232}, {x:428,y:255}, {x:486,y:286}, {x:570,y:302},
-    // Lower right coast
-    {x:550,y:352},
-    // Bottom peninsula jutting south
-    {x:442,y:375}, {x:358,y:396}, {x:312,y:410}, {x:265,y:394}, {x:182,y:368},
-    // Left coast going north
-    {x:85, y:340}, {x:40, y:256}, {x:44, y:155},
+	{x:55, y:52}, {x:148,y:26}, {x:255,y:16}, {x:358,y:23}, {x:462,y:40}, {x:545,y:70},
+	{x:594,y:155},
+	// Right-side bay — polygon indents creating a concave bay
+	{x:576,y:212}, {x:506,y:242}, {x:456,y:232}, {x:428,y:255}, {x:486,y:286}, {x:570,y:302},
+	// Lower right coast
+	{x:550,y:352},
+	// Bottom peninsula jutting south
+	{x:442,y:375}, {x:358,y:396}, {x:312,y:410}, {x:265,y:394}, {x:182,y:368},
+	// Left coast going north
+	{x:85, y:340}, {x:40, y:256}, {x:44, y:155},
 ];
 
 // Small island — upper right (in open sea, east of main coast)
 const ISL1 = [
-    {x:580,y:82}, {x:602,y:68}, {x:624,y:86}, {x:620,y:110}, {x:598,y:120}, {x:574,y:106},
+	{x:580,y:82}, {x:602,y:68}, {x:624,y:86}, {x:620,y:110}, {x:598,y:120}, {x:574,y:106},
 ];
 
 // Small island — lower left
 const ISL2 = [
-    {x:38,y:378}, {x:60,y:364}, {x:76,y:376}, {x:72,y:398}, {x:46,y:406},
+	{x:38,y:378}, {x:60,y:364}, {x:76,y:376}, {x:72,y:398}, {x:46,y:406},
 ];
 
 const DEFS = [
-    {anchors:MAIN, maxD:4, seed:9973},
-    {anchors:ISL1, maxD:3, seed:1234},
-    {anchors:ISL2, maxD:2, seed:5678},
+	{anchors:MAIN, maxD:4, seed:9973},
+	{anchors:ISL1, maxD:3, seed:1234},
+	{anchors:ISL2, maxD:2, seed:5678},
 ];
 
 const POLYS = DEFS.map(d=>build(d.anchors,d.maxD,d.seed));
@@ -183,11 +183,11 @@ const LOD_NAME=['LOD 0','LOD 1','LOD 2','LOD 3','LOD 4'];
 const LOD_CLS =['t0','t1','t2','t3','t4'];
 const TILE_N  ={2:1,4:4,6:16,8:64,10:256};
 const MORTON  ={
-    2: ['FF','000000','000000  ','00000000'],
-    4: ['FFFF','0000','000000  ','00000000'],
-    6: ['FFFFFF','00','000000  ','00000000'],
-    8: ['FFFFFFFF','','000000  ','00000000'],
-    10:['FFFFFFFF','','FFFFFF  ','00000000'],
+	2: ['FF','000000','000000  ','00000000'],
+	4: ['FFFF','0000','000000  ','00000000'],
+	6: ['FFFFFF','00','000000  ','00000000'],
+	8: ['FFFFFFFF','','000000  ','00000000'],
+	10:['FFFFFFFF','','FFFFFF  ','00000000'],
 };
 
 const canvas=document.getElementById('c');
@@ -195,104 +195,104 @@ const ctx=canvas.getContext('2d');
 const W=canvas.width, H=canvas.height;
 
 function draw(zoom) {
-    const lod=ZOOM_LOD[zoom];
-    ctx.clearRect(0,0,W,H);
+	const lod=ZOOM_LOD[zoom];
+	ctx.clearRect(0,0,W,H);
 
-    // Sea background
-    const sg=ctx.createRadialGradient(W/2,H/2,40,W/2,H/2,Math.hypot(W,H)/2);
-    sg.addColorStop(0,'#0d2040'); sg.addColorStop(1,'#060e1a');
-    ctx.fillStyle=sg; ctx.fillRect(0,0,W,H);
+	// Sea background
+	const sg=ctx.createRadialGradient(W/2,H/2,40,W/2,H/2,Math.hypot(W,H)/2);
+	sg.addColorStop(0,'#0d2040'); sg.addColorStop(1,'#060e1a');
+	ctx.fillStyle=sg; ctx.fillRect(0,0,W,H);
 
-    // Lat/lon grid
-    ctx.strokeStyle='rgba(56,189,248,0.04)'; ctx.lineWidth=1;
-    for(let x=0;x<=W;x+=40){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,H);ctx.stroke();}
-    for(let y=0;y<=H;y+=40){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(W,y);ctx.stroke();}
+	// Lat/lon grid
+	ctx.strokeStyle='rgba(56,189,248,0.04)'; ctx.lineWidth=1;
+	for(let x=0;x<=W;x+=40){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,H);ctx.stroke();}
+	for(let y=0;y<=H;y+=40){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(W,y);ctx.stroke();}
 
-    // Ghost: true max-LOD coastline (dashed, shows what detail exists in memory)
-    if (lod<4) {
-        ctx.save();
-        POLYS.forEach(poly=>{
-            ctx.beginPath();
-            poly.forEach((p,i)=>i===0?ctx.moveTo(p.x,p.y):ctx.lineTo(p.x,p.y));
-            ctx.closePath();
-        });
-        ctx.strokeStyle='rgba(255,255,255,0.07)'; ctx.lineWidth=1; ctx.setLineDash([3,4]);
-        ctx.stroke(); ctx.setLineDash([]);
-        ctx.restore();
-    }
+	// Ghost: true max-LOD coastline (dashed, shows what detail exists in memory)
+	if (lod<4) {
+		ctx.save();
+		POLYS.forEach(poly=>{
+			ctx.beginPath();
+			poly.forEach((p,i)=>i===0?ctx.moveTo(p.x,p.y):ctx.lineTo(p.x,p.y));
+			ctx.closePath();
+		});
+		ctx.strokeStyle='rgba(255,255,255,0.07)'; ctx.lineWidth=1; ctx.setLineDash([3,4]);
+		ctx.stroke(); ctx.setLineDash([]);
+		ctx.restore();
+	}
 
-    // Land fill + coastline for each polygon filtered to current LOD
-    const landGrad=ctx.createLinearGradient(180,40,480,380);
-    landGrad.addColorStop(0,'rgba(92,128,74,0.93)');
-    landGrad.addColorStop(1,'rgba(65,95,50,0.93)');
+	// Land fill + coastline for each polygon filtered to current LOD
+	const landGrad=ctx.createLinearGradient(180,40,480,380);
+	landGrad.addColorStop(0,'rgba(92,128,74,0.93)');
+	landGrad.addColorStop(1,'rgba(65,95,50,0.93)');
 
-    POLYS.forEach(poly=>{
-        const act=poly.filter(v=>v.lod<=lod);
-        if (act.length<3) return;
-        ctx.save();
-        ctx.beginPath();
-        act.forEach((p,i)=>i===0?ctx.moveTo(p.x,p.y):ctx.lineTo(p.x,p.y));
-        ctx.closePath();
-        ctx.fillStyle=landGrad; ctx.fill();
-        ctx.strokeStyle='#a8d47e'; ctx.lineWidth=1.5;
-        ctx.shadowColor='#a8d47e'; ctx.shadowBlur=5;
-        ctx.stroke(); ctx.shadowBlur=0;
-        ctx.restore();
-    });
+	POLYS.forEach(poly=>{
+		const act=poly.filter(v=>v.lod<=lod);
+		if (act.length<3) return;
+		ctx.save();
+		ctx.beginPath();
+		act.forEach((p,i)=>i===0?ctx.moveTo(p.x,p.y):ctx.lineTo(p.x,p.y));
+		ctx.closePath();
+		ctx.fillStyle=landGrad; ctx.fill();
+		ctx.strokeStyle='#a8d47e'; ctx.lineWidth=1.5;
+		ctx.shadowColor='#a8d47e'; ctx.shadowBlur=5;
+		ctx.stroke(); ctx.shadowBlur=0;
+		ctx.restore();
+	});
 
-    // Ghost vertices: data in memory, not rendered at this LOD
-    ALL.filter(v=>v.lod>lod).forEach(p=>{
-        ctx.fillStyle='rgba(255,255,255,0.055)';
-        ctx.beginPath(); ctx.arc(p.x,p.y,1.2,0,Math.PI*2); ctx.fill();
-    });
+	// Ghost vertices: data in memory, not rendered at this LOD
+	ALL.filter(v=>v.lod>lod).forEach(p=>{
+		ctx.fillStyle='rgba(255,255,255,0.055)';
+		ctx.beginPath(); ctx.arc(p.x,p.y,1.2,0,Math.PI*2); ctx.fill();
+	});
 
-    // Active vertices, colored by LOD level
-    ALL.filter(v=>v.lod<=lod).forEach(p=>{
-        const col=LOD_COL[p.lod], sz=LOD_SZ[p.lod];
-        ctx.fillStyle=col; ctx.shadowColor=col; ctx.shadowBlur=sz*2;
-        ctx.beginPath(); ctx.arc(p.x,p.y,sz/2,0,Math.PI*2); ctx.fill();
-        ctx.shadowBlur=0;
-    });
+	// Active vertices, colored by LOD level
+	ALL.filter(v=>v.lod<=lod).forEach(p=>{
+		const col=LOD_COL[p.lod], sz=LOD_SZ[p.lod];
+		ctx.fillStyle=col; ctx.shadowColor=col; ctx.shadowBlur=sz*2;
+		ctx.beginPath(); ctx.arc(p.x,p.y,sz/2,0,Math.PI*2); ctx.fill();
+		ctx.shadowBlur=0;
+	});
 
-    // Viewport indicator
-    if (lod>0) {
-        const m=Math.max(8,110-lod*24);
-        ctx.strokeStyle='rgba(56,189,248,0.25)'; ctx.lineWidth=1.5;
-        ctx.setLineDash([5,4]); ctx.strokeRect(m,m,W-m*2,H-m*2);
-        ctx.setLineDash([]);
-        ctx.fillStyle='rgba(56,189,248,0.04)'; ctx.fillRect(m,m,W-m*2,H-m*2);
-    }
+	// Viewport indicator
+	if (lod>0) {
+		const m=Math.max(8,110-lod*24);
+		ctx.strokeStyle='rgba(56,189,248,0.25)'; ctx.lineWidth=1.5;
+		ctx.setLineDash([5,4]); ctx.strokeRect(m,m,W-m*2,H-m*2);
+		ctx.setLineDash([]);
+		ctx.fillStyle='rgba(56,189,248,0.04)'; ctx.fillRect(m,m,W-m*2,H-m*2);
+	}
 
-    // Corner labels
-    ctx.font='bold 12px monospace'; ctx.fillStyle='rgba(56,189,248,0.72)';
-    ctx.textAlign='left'; ctx.textBaseline='top';
-    ctx.fillText(`z = ${zoom}`,8,8);
+	// Corner labels
+	ctx.font='bold 12px monospace'; ctx.fillStyle='rgba(56,189,248,0.72)';
+	ctx.textAlign='left'; ctx.textBaseline='top';
+	ctx.fillText(`z = ${zoom}`,8,8);
 
-    const inact=ALL.filter(v=>v.lod>lod).length;
-    ctx.font='10px monospace'; ctx.fillStyle='rgba(255,255,255,0.18)';
-    ctx.textAlign='right'; ctx.textBaseline='bottom';
-    ctx.fillText(`${inact} vertices in memory — not rendered at z=${zoom}`,W-6,H-5);
+	const inact=ALL.filter(v=>v.lod>lod).length;
+	ctx.font='10px monospace'; ctx.fillStyle='rgba(255,255,255,0.18)';
+	ctx.textAlign='right'; ctx.textBaseline='bottom';
+	ctx.fillText(`${inact} vertices in memory — not rendered at z=${zoom}`,W-6,H-5);
 
-    // ── Update stats panel ──
-    const active=ALL.filter(v=>v.lod<=lod);
-    const cnt=[0,0,0,0,0];
-    active.forEach(v=>cnt[v.lod]++);
+	// ── Update stats panel ──
+	const active=ALL.filter(v=>v.lod<=lod);
+	const cnt=[0,0,0,0,0];
+	active.forEach(v=>cnt[v.lod]++);
 
-    document.getElementById('zd').textContent=`z = ${zoom}`;
-    document.getElementById('lt').innerHTML=`<span class="ltag ${LOD_CLS[lod]}">${LOD_NAME[lod]}</span>`;
-    document.getElementById('va').textContent=active.length;
-    document.getElementById('vt').textContent=TOTAL;
-    document.getElementById('vb').style.width=`${(active.length/TOTAL*100).toFixed(1)}%`;
-    ['c0','c1','c2','c3','c4'].forEach((id,i)=>document.getElementById(id).textContent=cnt[i]||'—');
+	document.getElementById('zd').textContent=`z = ${zoom}`;
+	document.getElementById('lt').innerHTML=`<span class="ltag ${LOD_CLS[lod]}">${LOD_NAME[lod]}</span>`;
+	document.getElementById('va').textContent=active.length;
+	document.getElementById('vt').textContent=TOTAL;
+	document.getElementById('vb').style.width=`${(active.length/TOTAL*100).toFixed(1)}%`;
+	['c0','c1','c2','c3','c4'].forEach((id,i)=>document.getElementById(id).textContent=cnt[i]||'—');
 
-    const [hA,hB,lA,lB]=MORTON[zoom];
-    document.getElementById('mc').innerHTML=
-        `0x<span class="mhi">${hA}</span><span class="mlo">${hB}</span>&nbsp;`+
-        `<span class="mhi">${lA}</span><span class="mlo">${lB}</span>`;
+	const [hA,hB,lA,lB]=MORTON[zoom];
+	document.getElementById('mc').innerHTML=
+		`0x<span class="mhi">${hA}</span><span class="mlo">${hB}</span>&nbsp;`+
+		`<span class="mhi">${lA}</span><span class="mlo">${lB}</span>`;
 
-    const tn=TILE_N[zoom];
-    document.getElementById('tc').textContent=`${tn} tile${tn>1?'s':''}`;
-    document.getElementById('tb').textContent=`tiles: ${tn}`;
+	const tn=TILE_N[zoom];
+	document.getElementById('tc').textContent=`${tn} tile${tn>1?'s':''}`;
+	document.getElementById('tb').textContent=`tiles: ${tn}`;
 }
 
 document.getElementById('sl').addEventListener('input',e=>draw(+e.target.value));

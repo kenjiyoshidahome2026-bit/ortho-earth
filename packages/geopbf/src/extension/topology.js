@@ -5,21 +5,21 @@ topology.FORMAT_VERSION = 1;
 
 // V8 Map 上限（~16M エントリ）対策：キーを複数バケットに分散する Map ラッパー
 class BigMap {
-    constructor(bucketCount = 64) {
-        this.bucketCount = bucketCount;
-        this.buckets = Array.from({ length: bucketCount }, () => new Map());
-    }
-    _idx(key) {
-        // aKey は (min<<96n)|(max<<32n)|len 形式 → bit32 以上に Morton コードが入る
-        // key & (n-1) だと len の下位ビットに偏るため >> 32n でシフトして均等分散
-        return typeof key === 'bigint'
-            ? Number((key >> 32n) & BigInt(this.bucketCount - 1))
-            : key & (this.bucketCount - 1);
-    }
-    has(key) { return this.buckets[this._idx(key)].has(key); }
-    get(key) { return this.buckets[this._idx(key)].get(key); }
-    set(key, val) { this.buckets[this._idx(key)].set(key, val); return this; }
-    clear() { this.buckets.forEach(b => b.clear()); }
+	constructor(bucketCount = 64) {
+		this.bucketCount = bucketCount;
+		this.buckets = Array.from({ length: bucketCount }, () => new Map());
+	}
+	_idx(key) {
+		// aKey は (min<<96n)|(max<<32n)|len 形式 → bit32 以上に Morton コードが入る
+		// key & (n-1) だと len の下位ビットに偏るため >> 32n でシフトして均等分散
+		return typeof key === 'bigint'
+			? Number((key >> 32n) & BigInt(this.bucketCount - 1))
+			: key & (this.bucketCount - 1);
+	}
+	has(key) { return this.buckets[this._idx(key)].has(key); }
+	get(key) { return this.buckets[this._idx(key)].get(key); }
+	set(key, val) { this.buckets[this._idx(key)].set(key, val); return this; }
+	clear() { this.buckets.forEach(b => b.clear()); }
 }
 
 export function topology(self) {
@@ -196,38 +196,38 @@ export function unPackGintBuffer(GintBUF) {
 }
 ////===============================================================================================================
 export function repackGintBuffer(d) {
-    const mlen = 8, SCALE = gint.SCALE_E;
-    const arcLength  = d.arcBuffer ? d.arcBuffer.length : 0;
-    const arcCount   = d.arcCount, pointCount = d.pointCount;
-    const polyStream     = d.polyStream     ?? new Int32Array(0);
-    const lineStream     = d.lineStream     ?? new Int32Array(0);
-    const neighborStream = d.neighborStream ?? new Int32Array(0);
-    const bboxInt = [
-        Math.round((d.bbox[0] + 180) * SCALE), Math.round((d.bbox[1] +  90) * SCALE),
-        Math.round((d.bbox[2] + 180) * SCALE), Math.round((d.bbox[3] +  90) * SCALE),
-    ];
-    const header = new Uint32Array([
-        1953392967, topology.FORMAT_VERSION,
-        d.polygonCount, d.polylineCount, pointCount, d.nodeCount,
-        arcLength, arcCount, ...bboxInt,
-        polyStream.length, lineStream.length, neighborStream.length, 0
-    ]);
-    const totalLength = header.length * 4 + arcLength * 8 + pointCount * 8
-        + arcCount * mlen * 4 + pointCount * 4
-        + polyStream.byteLength + lineStream.byteLength + neighborStream.byteLength;
-    const buf = new ArrayBuffer(totalLength);
-    const u8  = new Uint8Array(buf);
-    let ptr = 0;
-    const write = ta => { u8.set(new Uint8Array(ta.buffer, ta.byteOffset, ta.byteLength), ptr); ptr += ta.byteLength; };
-    write(header);
-    d.arcBuffer   && write(d.arcBuffer);
-    d.pointBuffer && write(d.pointBuffer);
-    d.arcMeta     && write(d.arcMeta);
-    d.point       && write(d.point);
-    polyStream.length     && write(polyStream);
-    lineStream.length     && write(lineStream);
-    neighborStream.length && write(neighborStream);
-    return buf;
+	const mlen = 8, SCALE = gint.SCALE_E;
+	const arcLength  = d.arcBuffer ? d.arcBuffer.length : 0;
+	const arcCount   = d.arcCount, pointCount = d.pointCount;
+	const polyStream     = d.polyStream     ?? new Int32Array(0);
+	const lineStream     = d.lineStream     ?? new Int32Array(0);
+	const neighborStream = d.neighborStream ?? new Int32Array(0);
+	const bboxInt = [
+		Math.round((d.bbox[0] + 180) * SCALE), Math.round((d.bbox[1] +  90) * SCALE),
+		Math.round((d.bbox[2] + 180) * SCALE), Math.round((d.bbox[3] +  90) * SCALE),
+	];
+	const header = new Uint32Array([
+		1953392967, topology.FORMAT_VERSION,
+		d.polygonCount, d.polylineCount, pointCount, d.nodeCount,
+		arcLength, arcCount, ...bboxInt,
+		polyStream.length, lineStream.length, neighborStream.length, 0
+	]);
+	const totalLength = header.length * 4 + arcLength * 8 + pointCount * 8
+		+ arcCount * mlen * 4 + pointCount * 4
+		+ polyStream.byteLength + lineStream.byteLength + neighborStream.byteLength;
+	const buf = new ArrayBuffer(totalLength);
+	const u8  = new Uint8Array(buf);
+	let ptr = 0;
+	const write = ta => { u8.set(new Uint8Array(ta.buffer, ta.byteOffset, ta.byteLength), ptr); ptr += ta.byteLength; };
+	write(header);
+	d.arcBuffer   && write(d.arcBuffer);
+	d.pointBuffer && write(d.pointBuffer);
+	d.arcMeta     && write(d.arcMeta);
+	d.point       && write(d.point);
+	polyStream.length     && write(polyStream);
+	lineStream.length     && write(lineStream);
+	neighborStream.length && write(neighborStream);
+	return buf;
 }
 ////===============================================================================================================
 export function checkCoherence(fB, vB) { // コヒーレンス判定: 0:Outside, 1:Partial, 2:Full-In
@@ -617,86 +617,86 @@ function metaArc(buffs) {
 // Stream → Map<fid, [xMin,yMin,xMax,yMax]>。JS identify フォールバックのフィーチャー早期棄却用。
 // polygon stream / polyline stream の両方に同じ 3 段構造 [fid][numGroups][arcCount][arcIdx...] が使える。
 function buildFeatureBboxes(stream, arcMeta) {
-    if (!stream || !arcMeta || !stream.length) return null;
-    const byFid = new Map();
-    let p = 0;
-    while (p < stream.length) {
-        const fid = stream[p++], numGroups = stream[p++];
-        let bb = byFid.get(fid);
-        if (!bb) { bb = [0xFFFFFFFF, 0xFFFFFFFF, 0, 0]; byFid.set(fid, bb); }
-        for (let g = 0; g < numGroups; g++) {
-            const arcCount = stream[p++];
-            for (let a = 0; a < arcCount; a++) {
-                const arcIdx = stream[p++], aid = arcIdx < 0 ? ~arcIdx : arcIdx, m = aid * 8;
-                if (arcMeta[m+4] < bb[0]) bb[0] = arcMeta[m+4]; if (arcMeta[m+5] < bb[1]) bb[1] = arcMeta[m+5];
-                if (arcMeta[m+6] > bb[2]) bb[2] = arcMeta[m+6]; if (arcMeta[m+7] > bb[3]) bb[3] = arcMeta[m+7];
-            }
-        }
-    }
-    return byFid;
+	if (!stream || !arcMeta || !stream.length) return null;
+	const byFid = new Map();
+	let p = 0;
+	while (p < stream.length) {
+		const fid = stream[p++], numGroups = stream[p++];
+		let bb = byFid.get(fid);
+		if (!bb) { bb = [0xFFFFFFFF, 0xFFFFFFFF, 0, 0]; byFid.set(fid, bb); }
+		for (let g = 0; g < numGroups; g++) {
+			const arcCount = stream[p++];
+			for (let a = 0; a < arcCount; a++) {
+				const arcIdx = stream[p++], aid = arcIdx < 0 ? ~arcIdx : arcIdx, m = aid * 8;
+				if (arcMeta[m+4] < bb[0]) bb[0] = arcMeta[m+4]; if (arcMeta[m+5] < bb[1]) bb[1] = arcMeta[m+5];
+				if (arcMeta[m+6] > bb[2]) bb[2] = arcMeta[m+6]; if (arcMeta[m+7] > bb[3]) bb[3] = arcMeta[m+7];
+			}
+		}
+	}
+	return byFid;
 }
 
 // polygon_stream のコンポーネント（マルチポリゴン 1 島）と 1:1 の bbox。WASM identify_polygon に渡す。
 function buildCompBboxes(polyStream, arcMeta) {
-    if (!polyStream || !arcMeta || !polyStream.length) return null;
-    const out = [];
-    let p = 0;
-    while (p < polyStream.length) {
-        p++; // fid
-        const numRings = polyStream[p++];
-        let xMin = 0xFFFFFFFF, yMin = 0xFFFFFFFF, xMax = 0, yMax = 0;
-        for (let r = 0; r < numRings; r++) {
-            const arcCount = polyStream[p++];
-            for (let a = 0; a < arcCount; a++) {
-                const arcIdx = polyStream[p++], aid = arcIdx < 0 ? ~arcIdx : arcIdx, m = aid * 8;
-                if (arcMeta[m+4] < xMin) xMin = arcMeta[m+4]; if (arcMeta[m+5] < yMin) yMin = arcMeta[m+5];
-                if (arcMeta[m+6] > xMax) xMax = arcMeta[m+6]; if (arcMeta[m+7] > yMax) yMax = arcMeta[m+7];
-            }
-        }
-        out.push(xMin, yMin, xMax, yMax);
-    }
-    return new Uint32Array(out);
+	if (!polyStream || !arcMeta || !polyStream.length) return null;
+	const out = [];
+	let p = 0;
+	while (p < polyStream.length) {
+		p++; // fid
+		const numRings = polyStream[p++];
+		let xMin = 0xFFFFFFFF, yMin = 0xFFFFFFFF, xMax = 0, yMax = 0;
+		for (let r = 0; r < numRings; r++) {
+			const arcCount = polyStream[p++];
+			for (let a = 0; a < arcCount; a++) {
+				const arcIdx = polyStream[p++], aid = arcIdx < 0 ? ~arcIdx : arcIdx, m = aid * 8;
+				if (arcMeta[m+4] < xMin) xMin = arcMeta[m+4]; if (arcMeta[m+5] < yMin) yMin = arcMeta[m+5];
+				if (arcMeta[m+6] > xMax) xMax = arcMeta[m+6]; if (arcMeta[m+7] > yMax) yMax = arcMeta[m+7];
+			}
+		}
+		out.push(xMin, yMin, xMax, yMax);
+	}
+	return new Uint32Array(out);
 }
 
 // ── Stream ↔ JS array 変換（topojson.js / clean.js 向け後方互換） ──────────────────────────
 function streamToPolygon(polyStream) {
-    if (!polyStream || !polyStream.length) return null;
-    const byFid = new Map(); let p = 0;
-    while (p < polyStream.length) {
-        const fid = polyStream[p++], numRings = polyStream[p++], rings = [];
-        for (let r = 0; r < numRings; r++) {
-            const arcCount = polyStream[p++], ring = [];
-            for (let a = 0; a < arcCount; a++) ring.push(polyStream[p++]);
-            rings.push(ring);
-        }
-        let comps = byFid.get(fid); if (!comps) { comps = []; byFid.set(fid, comps); }
-        comps.push(rings);
-    }
-    return byFid.size ? [...byFid.entries()].map(([fid, comps]) => [fid, comps]) : null;
+	if (!polyStream || !polyStream.length) return null;
+	const byFid = new Map(); let p = 0;
+	while (p < polyStream.length) {
+		const fid = polyStream[p++], numRings = polyStream[p++], rings = [];
+		for (let r = 0; r < numRings; r++) {
+			const arcCount = polyStream[p++], ring = [];
+			for (let a = 0; a < arcCount; a++) ring.push(polyStream[p++]);
+			rings.push(ring);
+		}
+		let comps = byFid.get(fid); if (!comps) { comps = []; byFid.set(fid, comps); }
+		comps.push(rings);
+	}
+	return byFid.size ? [...byFid.entries()].map(([fid, comps]) => [fid, comps]) : null;
 }
 function streamToPolyline(lineStream) {
-    if (!lineStream || !lineStream.length) return null;
-    const out = []; let p = 0;
-    while (p < lineStream.length) {
-        const fid = lineStream[p++], numSets = lineStream[p++], sets = [];
-        for (let s = 0; s < numSets; s++) {
-            const arcCount = lineStream[p++], arcs = [];
-            for (let a = 0; a < arcCount; a++) arcs.push(lineStream[p++]);
-            sets.push(arcs);
-        }
-        out.push([fid, sets]);
-    }
-    return out.length ? out : null;
+	if (!lineStream || !lineStream.length) return null;
+	const out = []; let p = 0;
+	while (p < lineStream.length) {
+		const fid = lineStream[p++], numSets = lineStream[p++], sets = [];
+		for (let s = 0; s < numSets; s++) {
+			const arcCount = lineStream[p++], arcs = [];
+			for (let a = 0; a < arcCount; a++) arcs.push(lineStream[p++]);
+			sets.push(arcs);
+		}
+		out.push([fid, sets]);
+	}
+	return out.length ? out : null;
 }
 function streamToNeighbors(neighborStream) {
-    if (!neighborStream || !neighborStream.length) return null;
-    const out = []; let p = 0, hasAny = false;
-    while (p < neighborStream.length) {
-        const fid = neighborStream[p++], count = neighborStream[p++], nb = [];
-        for (let i = 0; i < count; i++) nb.push(neighborStream[p++]);
-        out[fid] = nb; hasAny = true;
-    }
-    return hasAny ? out : null;
+	if (!neighborStream || !neighborStream.length) return null;
+	const out = []; let p = 0, hasAny = false;
+	while (p < neighborStream.length) {
+		const fid = neighborStream[p++], count = neighborStream[p++], nb = [];
+		for (let i = 0; i < count; i++) nb.push(neighborStream[p++]);
+		out[fid] = nb; hasAny = true;
+	}
+	return hasAny ? out : null;
 }
 
 function buildArcs(buffs, metas, startOffset = 0) {

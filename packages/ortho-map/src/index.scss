@@ -21,7 +21,7 @@
 }
 //// =================================================================================================
 html, body { position:absolute; inset:0; background:#000; margin:0; padding:0; overscroll-behavior: none;
-       touch-action: none; -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+	   touch-action: none; -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
 //// =================================================================================================
 .overlap-tooltip { font-size: var(--font-size);
 	background: var(--bg-color); color: var(--fg-color);
