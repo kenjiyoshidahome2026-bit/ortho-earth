@@ -149,16 +149,6 @@ button { cursor: pointer; font-family: $font; }
 	flex-shrink: 0;
 }
 
-a.home-link {
-	font-size: 0.72rem;
-	font-family: $mono;
-	color: $mid;
-	text-decoration: none;
-	opacity: 0.7;
-	margin-right: auto;
-	&:hover { color: $hi; opacity: 1; }
-}
-
 #sidebar-brand {
 	display: flex;
 	align-items: center;
