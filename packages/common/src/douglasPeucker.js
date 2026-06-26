@@ -1,11 +1,11 @@
-export function douglasPeuckerOrtho(a, err = 1e-6) {
+export function douglasPeucker(a, err = 1e-6) {
 	const hybot = (p, q) => p * p + q * q;
-	if (a.type && (a.type == "Feature")) return a.geometry.type.match(/Point/) ? a : { type: a.type, geometry: douglasPeuckerOrtho(a.geometry, err), properties: a.properties };
+	if (a.type && (a.type == "Feature")) return a.geometry.type.match(/Point/) ? a : { type: a.type, geometry: douglasPeucker(a.geometry, err), properties: a.properties };
 	else if (a.type && (a.type == "LineString")) return { type: a.type, coordinates: DP(a.coordinates) };
 	else if (a.type && (a.type == "MultiLineString" || a.type == "Polygon")) return { type: a.type, coordinates: a.coordinates.map(DP) };
 	else if (a.type && (a.type == "MultiPolygon")) return { type: a.type, coordinates: a.coordinates.map(t => t.map(DP)) };
-	else if (a.type && (a.type == "FeatureCollection")) return { type: "FeatureCollection", features: a.features.map(t => douglasPeuckerOrtho(t, err)) };
-	else if (Array.isArray(a)) return [].concat(a.filter(t => t.type == "Feature").map(t => douglasPeuckerOrtho(t, err)));
+	else if (a.type && (a.type == "FeatureCollection")) return { type: "FeatureCollection", features: a.features.map(t => douglasPeucker(t, err)) };
+	else if (Array.isArray(a)) return [].concat(a.filter(t => t.type == "Feature").map(t => douglasPeucker(t, err)));
 	return null;
 	function filter(a) {
 		let pp = a[0], len = a.length, b = [pp], p;
@@ -40,7 +40,7 @@ export function douglasPeuckerOrtho(a, err = 1e-6) {
 				(index - first > 1) && loop(first, index);
 				b.push(a[index]);
 				(last - index > 1) && loop(index, last);
-			} else if (Math.abs(a[first][0] - a[last][0]) > 1) {//経度が離れている場合は、分割(アメリカーカナダ国境)
+			} else if (Math.abs(a[first][0] - a[last][0]) > 1) {
 				index = ~~((first + last) / 2);
 				(index - first > 1) && loop(first, index);
 				b.push(a[index]);

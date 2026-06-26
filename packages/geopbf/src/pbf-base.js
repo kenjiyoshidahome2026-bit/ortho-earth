@@ -1,6 +1,7 @@
 import Pbf from 'pbf';
 import { bufferTub, readBufs } from "./modules/bufferTub.js";
-import { isString, isSimpleObject, isNumber, isFloat, isBbox, antimeridianFeature, loadPolygonClipping } from "common";
+import { isString, isSimpleObject, isNumber, isFloat, isBbox } from "common";
+import { antimeridianFeature, loadPolygonClipping } from "./modules/antimeridianFeature.js";
 import { cleanCoords, } from "./modules/cleanCoords.js";
 
 
