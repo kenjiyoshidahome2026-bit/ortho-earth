@@ -104,20 +104,20 @@ async function exec(info) {
 			p.append("button").text("Done").on("click", () => { exitView(); pbf.destroy(); reset(); });
 
 			const funcs = [
-				async function GeoPBF()  { save(await pbf.geopbfFile()); },
-				async function GeoJSON() { save(await pbf.geojsonFile({ gz: await logger.confirm("GeoJSON Gzipped", false) })); },
-				async function TopoJSON(){ save(await pbf.topojsonFile({ gz: await logger.confirm("TopoJSON Gzipped", false) })); },
-				async function FGB()     { save(await pbf.fgbFile({ gz: await logger.confirm("FGB Gzipped", false) })); },
-				async function KMZ()     { save(await pbf.kmzFile({ kmz: await logger.select("KMZ or KML", { KMZ: true, KML: false }) })); },
-				async function Shape()   { save(await pbf.shapeFile({ encoding: await logger.prompt("encoding (default: utf8)", "utf8") })); },
-				async function GML()     { save(await pbf.gmlFile({ gz: await logger.confirm("GML Gzipped", false) })); },
-				async function GPX()     { save(await pbf.gpxFile({ gz: await logger.confirm("GPX Gzipped", false) })); },
+				{ name: "GeoPBF",  fn: async () => { save(await pbf.geopbfFile()); } },
+				{ name: "GeoJSON", fn: async () => { save(await pbf.geojsonFile({ gz: await logger.confirm("GeoJSON Gzipped", false) })); } },
+				{ name: "TopoJSON",fn: async () => { save(await pbf.topojsonFile({ gz: await logger.confirm("TopoJSON Gzipped", false) })); } },
+				{ name: "FGB",     fn: async () => { save(await pbf.fgbFile({ gz: await logger.confirm("FGB Gzipped", false) })); } },
+				{ name: "KMZ",     fn: async () => { save(await pbf.kmzFile({ kmz: await logger.select("KMZ or KML", { KMZ: true, KML: false }) })); } },
+				{ name: "Shape",   fn: async () => { save(await pbf.shapeFile({ encoding: await logger.prompt("encoding (default: utf8)", "utf8") })); } },
+				{ name: "GML",     fn: async () => { save(await pbf.gmlFile({ gz: await logger.confirm("GML Gzipped", false) })); } },
+				{ name: "GPX",     fn: async () => { save(await pbf.gpxFile({ gz: await logger.confirm("GPX Gzipped", false) })); } },
 			];
 			const q = logger.empty();
 			const active = v => logger.target.selectAll("button").attr("disabled", v ? null : true);
 			q.append("span").text("📥 [DOWNLOAD]").classed("big", true);
 			funcs.forEach(f => q.append("button").classed("accent", f.name === "GeoPBF").text(f.name)
-				.on("click", async () => { active(false); (await openDirectory()) && await f(); active(true); }));
+				.on("click", async () => { active(false); (await openDirectory()) && await f.fn(); active(true); }));
 		},
 		onError() {
 			left.selectAll(".card").attr("disabled", null);
