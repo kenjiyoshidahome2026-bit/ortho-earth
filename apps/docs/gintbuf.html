@@ -676,6 +676,13 @@ distinguish the essential structure of a coastline or boundary from detail that 
 meaningful at finer observation scales.
 </p>
 
+<p style="font-size:0.82rem;color:var(--dim);margin-top:24px">
+One other quirk specific to orthographic globe rendering: polygons that cross the antimeridian
+(±180° longitude) must be split at that boundary before rendering, or they wrap the wrong way
+around the sphere. Together with sphere culling, these two edge cases are the quietly non-obvious
+surprises that separate a flat map renderer from a true globe renderer.
+</p>
+
 <hr class="rule">
 
 <h3>Demo Files</h3>
