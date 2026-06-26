@@ -12,8 +12,8 @@ const mapInst = await orthoMap({target:d3.select('#mapContainer'), center:[0,0],
 const closeBtn = mapInst.gadget.close();
 mapInst.on("ortho:close", exitDemo);
 await initDemo(mapInst);
-d3.select('#execDemo').on('click', execDemo);
-d3.select('#showDocs').on('click', showDocs);
+d3.select('#execDemo').on('click', orthomap);
+d3.select('#gishub').on('click', gishub);
 //------------------------------------------------------
 async function initDemo(map) {
 	map.explain = map.gadget.explain({ width: 300 });
@@ -31,7 +31,7 @@ async function initDemo(map) {
 	map.explain(`<h3 translate="no">Ortho Earth Demo</h3><p>${mess}</p>`);
 	exitDemo();
 }
-function execDemo() {
+function orthomap() {
 	mapInst.autoRotate(false);
 	closeBtn.show();
 	d3.select('#demoOverlay').style("opacity",0).style("pointer-events",'none');
@@ -43,3 +43,4 @@ function exitDemo() {
 	d3.select('#demoOverlay').style("opacity",1).style("pointer-events",'auto');
 }
 function showDocs() { open('/docs/', '_blank'); }
+function gishub() { open('/gishub/', '_blank'); }

@@ -4,12 +4,9 @@ High-performance orthographic map engine and GIS workstation, running entirely i
 
 **top page:** [www.ortho-earth.com](https://www.ortho-earth.com)
 
-
 **technical documents:**  [www.ortho-earth.com/docs](https://www.ortho-earth.com/docs/)
 
 **GIS-HUB(apps):**  [www.ortho-earth.com/gishub](https://www.ortho-earth.com/gishub/)
-
-
 
 ## Contributors & Acknowledgments
 
