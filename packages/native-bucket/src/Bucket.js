@@ -8,8 +8,8 @@ class _Bucket {
 		const globalScope = typeof window !== 'undefined' ? window : (typeof self !== 'undefined' ? self : null);
 		if (!opts.baseUrl) throw new Error("native-bucket: opts.baseUrl is required");
 		this.baseUrl = opts.baseUrl;
-		this.directory = directory.replace(/\/$/, "") + "/";// ディレクトリ名の末尾を必ず / にする
-		this.apiKey = opts.apiKey || ""; // APIキーを保持
+		this.directory = directory.replace(/\/$/, "") + "/"; // enforce trailing slash on directory name
+		this.apiKey = opts.apiKey || "";
 		this.url = this.baseUrl + this.directory;
 		this.log = !opts.silent;
 		this.event = (typeof CustomEvent === 'undefined') ? null : opts.eventTarget || globalScope;
@@ -17,7 +17,6 @@ class _Bucket {
 	offline() { return typeof navigator !== 'undefined' && navigator.onLine === false; }
 	_dispatch(type, detail) { this.event && this.event.dispatchEvent(new CustomEvent(type, { detail })); }
 	_log(s) { this.log && console.log(s); }
-	// R2のデータ構造を使いやすい形に変換
 	_conv(v) {
 		if (!v) return null;
 		let { Key, Size, LastModified, ETag } = v;
@@ -42,7 +41,7 @@ class _Bucket {
 	}
 	async list() {
 		if (this.offline()) return [];
-		try { // ディレクトリURLに対して GET を行う
+		try {
 			const res = await fetch(this.url);
 			if (!res.ok) return [];
 			const result = await res.json();
@@ -80,11 +79,10 @@ class _Bucket {
 		const compressible = !compressed.includes(extension) && !(await isGzip(file));
 		if (compressible) file = await gzip(file);
 		const targetUrl = this.url + name.replace(/^\//, "");
-		const mpThreshold = 50 * 1024 * 1024; // 50MB 未満は単純 PUT
-		const chunkSize   =  5 * 1024 * 1024; // 5MB チャンク
+		const mpThreshold = 50 * 1024 * 1024; // files below 50 MB use simple PUT
+		const chunkSize   =  5 * 1024 * 1024; // 5 MB chunks for multipart
 		this._dispatch("SaveStart", { name });
 		if (file.size < mpThreshold) {
-			// 単純アップロード
 			const headers = { 'X-Action': 'put', 'X-API-Key': this.apiKey, 'X-Metadata-Type': file.type || 'application/octet-stream' };
 			if (compressible) headers['X-Content-Encoding'] = "gzip";
 			const res = await fetch(targetUrl, { method: 'POST', headers, body: file });
@@ -92,7 +90,7 @@ class _Bucket {
 			this._dispatch("SaveEnd", { name, total: file.size });
 			return file.size;
 		}
-		// 50MB 以上: マルチパートアップロード
+		// Files >= 50 MB use multipart upload.
 		let headers = { 'X-Action': 'mp-create', 'X-API-Key': this.apiKey, 'X-Metadata-Type': file.type || 'application/octet-stream' };
 		if (compressible) headers['X-Content-Encoding'] = "gzip";
 		const createRes = await fetch(targetUrl, { method: 'POST', headers });
@@ -141,7 +139,7 @@ class _Bucket {
 
 export async function Bucket(dir, opts) {
 	const instance = new _Bucket(dir, opts);
-	if (instance.offline()) return instance; // 接続テストとして1件だけリストを試みる
+	if (instance.offline()) return instance;
 	try { await instance.list(); return instance;
 	} catch (e) { return null;  }
 }

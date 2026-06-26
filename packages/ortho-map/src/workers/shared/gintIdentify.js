@@ -1,6 +1,5 @@
-// ── identify / hover / click ──────────────────────────────────────────────────
-// GPU picking バッファを読み取り、activeId を更新して drawOverlay を呼ぶ。
-// ポリゴンは JS フォールバック（findPolygon）も持つ。
+// Read the GPU picking buffer, update activeId, and call drawOverlay.
+// Polygons also have a JS fallback (findPolygon) for when no GPU hit is found.
 
 import { s, MOVE_THROTTLE_MS } from './gintState.js';
 import { findPolygon } from 'geopbf/src/extension/identify.js';
@@ -21,10 +20,10 @@ export function doIdentify(data) {
 	const fid1 = px[0] | (px[1] << 8) | (px[2] << 16);
 	let featureId = fid1 === 0 ? null : fid1 - 1;
 
-	// GPU ヒットなし → JS ポリゴン内包判定にフォールバック
-	// viewBbox=null でも findPolygon は動作する（早期棄却がスキップされるだけ）
-	// 小縮尺では globe が小さくすべてのコーナー点が globe 外になり lastViewBbox=null となるが
-	// その状態でも JS フォールバックを実行する必要がある
+	// No GPU hit — fall back to JS polygon containment test.
+	// findPolygon still works when viewBbox=null (early rejection is simply skipped).
+	// At small scales the globe can be smaller than the viewport, making all corner
+	// projections null (lastViewBbox=null); the JS fallback must still run.
 	if (fid1 === 0 && s.gintData?.polyStream) {
 		const geo = s.lastProj?.invert([data.x, data.y]);
 		if (geo) {

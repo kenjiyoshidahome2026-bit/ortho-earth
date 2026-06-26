@@ -17,7 +17,7 @@ export function nativeBucket(apiUrl, options = {}) {
 	};
 }
 
-export default nativeBucket; // 👈 コメントアウトを解除
+export default nativeBucket;
 
 export * from "./Fetch.js"
 export * from "./Cache.js"

@@ -10,18 +10,18 @@ function* getTags(src, tag) {
 	while ((match = regex.exec(src)) !== null) yield match[1];
 }
 
-// srsName 属性から軸順を判定する
-// CRS84 系 → 経度・緯度順（反転不要）
-// EPSG:4326 系 → 緯度・経度順（反転が必要）
+// Determine axis order from the srsName attribute.
+// CRS84 family → longitude-first (no flip needed).
+// EPSG:4326 family → latitude-first (flip required).
 function needsAxisFlip(srsName) {
-	if (!srsName) return true; // 未指定はEPSG:4326慣例として反転
+	if (!srsName) return true; // unspecified: assume EPSG:4326 convention (flip)
 	const s = srsName.trim();
-	if (s.match(/CRS:?84/i) || s.match(/OGC.*CRS84/i)) return false;// CRS84 / OGC84 系は lng,lat 順なので反転不要
-	if (s.match(/EPSG/i) && s.match(/4326/)) return true;// EPSG:4326 および URN形式の 4326 は lat,lng 順なので反転が必要
-	return false;// その他（例：投影座標系）は反転しない
+	if (s.match(/CRS:?84/i) || s.match(/OGC.*CRS84/i)) return false; // CRS84/OGC84 is lng,lat — no flip
+	if (s.match(/EPSG/i) && s.match(/4326/)) return true; // EPSG:4326 and URN-form 4326 are lat,lng — flip
+	return false; // other CRS (e.g. projected) — no flip
 }
 
-// gml:posList / gml:pos のテキストを [lng, lat] の座標配列に変換する
+// Convert a gml:posList / gml:pos text to an array of [lng, lat] coordinates.
 function parsePosList(text, flip) {
 	const nums = text.trim().split(/[\s\n\r]+/).map(Number);
 	const pts = [];
@@ -31,8 +31,7 @@ function parsePosList(text, flip) {
 	return pts;
 }
 
-// ジオメトリブロック全体から座標を再帰的に収集する
-// MultiSurface / MultiCurve の複数パッチにも対応
+// Collect all coordinate rings from a geometry block (handles MultiSurface / MultiCurve patches).
 function extractAllPosLists(gmlBlock, flip) {
 	const results = [];
 	const posListRegex = /<gml:posList[^>]*>([\s\S]+?)<\/gml:posList>/gi;
@@ -44,7 +43,7 @@ function extractAllPosLists(gmlBlock, flip) {
 	return results;
 }
 
-// gml:geometryProperty 内のインラインジオメトリを解析する（エンコーダ出力との往復対称用）
+// Parse inline geometry inside gml:geometryProperty (round-trip symmetric with the encoder output).
 function parseInlineGeometry(pm, flip) {
 	const geoPropMatch = /<gml:geometryProperty>([\s\S]+?)<\/gml:geometryProperty>/i.exec(pm);
 	if (!geoPropMatch) return null;
@@ -58,7 +57,7 @@ function parseInlineGeometry(pm, flip) {
 	// LineString
 	const lsMatch = /<gml:LineString[^>]*>[\s\S]*?<gml:posList[^>]*>([\s\S]+?)<\/gml:posList>/i.exec(block);
 	if (lsMatch) return { type: "LineString", coordinates: parsePosList(lsMatch[1], flip) };
-	// Polygon（exterior + 任意数の interior）
+	// Polygon (exterior + zero or more interiors)
 	const polyMatch = /<gml:Polygon[^>]*>([\s\S]+?)<\/gml:Polygon>/i.exec(block);
 	if (polyMatch) {
 		const rings = [];
@@ -84,7 +83,6 @@ onmessage = async (e) => {
 		gmlStr = await file.text();
 	}
 
-	// ファイル全体の srsName を取得して軸順を決定する
 	const srsMatch = /srsName=["']([^"']+)["']/.exec(gmlStr);
 	const flip = needsAxisFlip(srsMatch ? srsMatch[1] : null);
 
@@ -94,13 +92,11 @@ onmessage = async (e) => {
 	const featureTagMatch = /<([^:>\s]+:[^:>\s]+)\s+gml:id="/.exec(gmlStr);
 	const featureTag = featureTagMatch ? featureTagMatch[1] : null;
 
-	// ジオメトリの事前キャッシュ（参照IDで引けるように）
 	const geoRegex = /<(gml:(?:Surface|Curve|Point|MultiCurve|MultiSurface))\s+gml:id="([^"]+)"([\s\S]+?)<\/\1>/gi;
 	let gMatch;
 	while ((gMatch = geoRegex.exec(gmlStr)) !== null) {
 		const id = gMatch[2];
 		const block = gMatch[3];
-		// gml:pos（Point）
 		const posMatch = /<gml:pos[^>]*>([\s\S]+?)<\/gml:pos>/i.exec(block);
 		if (posMatch) {
 			const nums = posMatch[1].trim().split(/[\s\n\r]+/).map(Number);
@@ -110,7 +106,6 @@ onmessage = async (e) => {
 			});
 			continue;
 		}
-		// gml:posList が1つ以上ある場合（LineString / Polygon / Multi系）
 		const posLists = extractAllPosLists(block, flip);
 		if (posLists.length === 1) {
 			const isClosed = gMatch[1].match(/Surface/i);
@@ -127,8 +122,7 @@ onmessage = async (e) => {
 		}
 	}
 
-	// プロパティキーの収集
-	// gml:/xsi:/xlink: 名前空間タグは除外し、名前空間なしタグ（エンコーダ出力）も対象とする
+	// Exclude gml:/xsi:/xlink: namespace tags; also match unnamespaced tags (encoder output).
 	const attrRegex = () => /<([a-zA-Z_][a-zA-Z0-9_.]*(?::[a-zA-Z_][a-zA-Z0-9_.]*)?)>([^<]+)<\/\1>/gi;
 	const isPropTag = name => !name.match(/^(?:gml|xsi|xlink):|(?:pos|geometry|location|bound)/i);
 
@@ -158,13 +152,11 @@ onmessage = async (e) => {
 				const key = aMatch[1].replace(/:/g, '_');
 				if (keySet.has(key)) props[key] = unescXML(aMatch[2].trim());
 			}
-			// xlink:href でジオメトリを参照（外部GML形式）
 			const ref = /xlink:href=["']#([^"']+)["']/.exec(pm);
 			if (ref) {
 				const geom = geometryCache.get(ref[1]);
 				if (geom) pbf.setFeature({ type: "Feature", geometry: geom, properties: props });
 			} else {
-				// インラインジオメトリを解析（エンコーダ出力形式）
 				const geom = parseInlineGeometry(pm, flip);
 				if (geom) pbf.setFeature({ type: "Feature", geometry: geom, properties: props });
 			}

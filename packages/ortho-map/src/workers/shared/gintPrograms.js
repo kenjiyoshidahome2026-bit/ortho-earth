@@ -72,7 +72,7 @@ void main() {
 	uvec4 meta = fetchEdgeMeta(edge_id);
 	vec3  p    = fetchProject(sub == 1 ? meta.r : meta.g);
 	if (p.z < 0.0) {
-		// 裏面頂点 → 自身の方向で地平線円（半径 u_scale）上に押し出す
+		// Back-facing vertex: push outward along its own direction onto the horizon circle (radius u_scale).
 		vec2 v = p.xy - u_viewport * 0.5;
 		float d = length(v);
 		gl_Position = d < 1e-4
@@ -83,8 +83,8 @@ void main() {
 	gl_Position = toNDC(p.xy);
 }`;
 
-// アクティブ Feature のリングのみステンシルを切るマスク用。
-// v_feat_id は flat varying → プロービングバーテックス（sub=2）の値が使われる。
+// Mask stencil: cuts stencil only for the active feature's rings.
+// v_feat_id is a flat varying — the probing vertex (sub=2) value is used.
 const VS_STENCIL_MASK = `${GLSL_VS_HEADER}
 flat out int v_feat_id;
 void main() {
@@ -116,8 +116,8 @@ void main() {
 }`;
 
 // 6 verts per edge: (A-)(A+)(B+)(A-)(B+)(B-)
-// u_pass=0: アクティブ以外のエッジ, u_pass=1: アクティブのエッジのみ（重なり問題対策で後から描く）
-// 対象でないエッジはクリップ外へ追い出してラスタライズをスキップさせる。
+// u_pass=0: all non-active edges; u_pass=1: active edges only (drawn last to resolve z-fighting).
+// Excluded edges are pushed outside the clip volume so the GPU skips rasterization.
 const VS_RENDER = `${GLSL_VS_HEADER}
 uniform float u_line_width;
 uniform int   u_active_id;
@@ -137,7 +137,6 @@ void main() {
 	uvec4 meta  = fetchEdgeMeta(edge_id);
 	int feat_id = int(meta.a);
 
-	// このパスで描かない edge をクリップ外へ（GPU がラスタライズしない）
 	if (u_pass == 0 && feat_id == u_active_id) { gl_Position = vec4(2.0, 0.0, 0.0, 1.0); return; }
 	if (u_pass == 1 && feat_id != u_active_id) { gl_Position = vec4(2.0, 0.0, 0.0, 1.0); return; }
 
@@ -206,10 +205,9 @@ void main() {
 	fragColor = vec4(v_color.rgb, alpha);
 }`;
 
-// ── GPU picking shaders ───────────────────────────────────────────────────────
-// fid+1 を RGB 24bit にエンコード。0,0,0 = "フィーチャーなし"。
+// GPU picking shaders: encode fid+1 as RGB 24-bit. (0,0,0) means "no feature".
 
-// Polyline picking: fat-line quad で fid 色を出力。stencil は使わない（単一パス）。
+// Polyline picking: outputs fid color as a fat-line quad. Single pass, no stencil.
 const VS_PICK_LINE = `${GLSL_VS_HEADER}
 uniform float u_line_width;
 out vec4  v_color;
@@ -252,7 +250,7 @@ void main() {
 	fragColor = v_color;
 }`;
 
-// Point picking: circle quad で fid 色を出力。
+// Point picking: outputs fid color as a circle quad.
 const VS_PICK_POINT = `#version 300 es
 precision highp float;
 precision highp int;
@@ -414,8 +412,6 @@ precision mediump float;
 uniform vec4 u_fill_color;
 out vec4 fragColor;
 void main() { fragColor = u_fill_color; }`;
-
-// ── Program factory ───────────────────────────────────────────────────────────
 
 const SHARED_UNIFORM_NAMES = [
 	'u_arc_tex','u_meta_tex','u_arc_w','u_meta_w',

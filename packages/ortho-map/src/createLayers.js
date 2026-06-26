@@ -14,7 +14,7 @@ const workerURL = s => ({ base, border, image, gint, gintBorder }[s] || standard
 
 let borderRawBuffers = null;
 
-// geoNames: gintBorder (GL2) 向け、overlayNames: border.js (Canvas2D) 向け
+// geoNames: for gintBorder (GL2); overlayNames: for border.js (Canvas2D)
 async function getBorderRawBuffers() {
 	if (borderRawBuffers) return borderRawBuffers;
 	const geoNames = [
@@ -38,7 +38,7 @@ async function getBorderRawBuffers() {
 // dash values are in screen pixels (constant visual size across zoom levels)
 const BORDER_GL_STYLES = [
 	{ color: [1.0,  1.0,  1.0,  0.6], lineWidth: 1.0, dash: [0, 0 ] }, // graticule (solid)
-	{ color: [1.0,  1.0,  1.0,  1.0], lineWidth: 1.0, dash: [4, 2 ] }, // 国境線
+	{ color: [1.0,  1.0,  1.0,  1.0], lineWidth: 1.0, dash: [4, 2 ] }, // country borders
 	{ color: [0.50, 0.50, 1.0,  0.8], lineWidth: 0.8, dash: [4, 2 ] }, // maritime
 	{ color: [1.0,  1.0,  1.0,  0.6], lineWidth: 0.8, dash: [4, 2 ] }, // geographic lines
 ];
@@ -52,10 +52,8 @@ export async function createLayers(map, opts) {
 	map.removeLayer = name => (layers[name] && layers[name].destroy(), map);
 	map.listOfLayers = () => Object.values(map.layers).map(layer => (layer.toString())).join("\n");
 	map.setBase = name => setBase(map, name);
-////--------------------------------------------------------------------------
 	const baseLayer = (await createRemoteLayer.call(map, { name: "OrthoMapGL", append: map.mapFrame, type: "base", apiUrl: opts.apiUrl, tilerBase: opts.tilerBase || "" }));
 	await map.setBase(map.baseName);
-////--------------------------------------------------------------------------
 	if (opts.accessories === false) return;
 	const borderGLLayer = await createRemoteLayer.call(map, { name: "BorderLines", append: map.mapFrame, type: "gintBorder" });
 	const borderLayer   = await createRemoteLayer.call(map, { name: "Accessories", append: map.mapFrame, type: "border" });
@@ -64,7 +62,6 @@ export async function createLayers(map, opts) {
 		borderGLLayer.set("gint", { gintDataList: geo, styles: BORDER_GL_STYLES, minZoom: 2, maxZoom: 7 });
 		borderLayer.set("set", "options", { ...param, geojsons: overlay });
 	});
-////--------------------------------------------------------------------------
 	async function setBase(map, name) {
 		baseLayer.set("base", name, map.threshold);
 		const { maxZoom, attr } = Layers[name];
@@ -74,7 +71,7 @@ export async function createLayers(map, opts) {
 		map.stat("base", map.baseName = name);
 	};
 }
-////=====================================================================================
+
 function initLayer(map, param = {}) {
 	param.name = param.name || "Layer";
 	let name = param.name, count = 0, _opacity = 1;
@@ -95,7 +92,7 @@ function initLayer(map, param = {}) {
 	layer.opacity = v => v == null ? _opacity : layer.style("opacity", (_opacity = v));
 	return map.layers[name] = layer;
 }
-////=====================================================================================
+
 export function createLayer(param = {}) {
 	const map = this;
 	const layer = initLayer(map, param), { canvas, name, proj, dpr } = layer;
@@ -113,7 +110,6 @@ export function createLayer(param = {}) {
 	}
 	console.log(`[ortho-earth] 🗺️ Layer ("${layer.name}": ${ctx.constructor.name} [ ${map.width} x ${map.height} ] x ${dpr}) is append to "${layer.parent().attr("name")}".`);
 	return layer;
-	////------------------------------------------------------------------------
 	function set(cmd, data, prop) {
 		const toFeatures = json => (json ? json.features ? json.features : Array.isArray(json) ? json : [json] : []);
 		cmd == "geojson" && jsons.push([toFeatures(data), prop]);
@@ -139,7 +135,7 @@ export function createLayer(param = {}) {
 		layer.remove(); delete map.layers[name];
 	}
  }
-////=====================================================================================
+
 async function createRemoteLayer(param = {}) {
 	const map = this;
 	const layer = initLayer(map, param).hide(), { canvas, name, proj, dpr } = layer;
@@ -148,7 +144,7 @@ async function createRemoteLayer(param = {}) {
 		offscreen = canvas.transferControlToOffscreen();
 	} catch (e) {
 		console.error(`🚨 [${name}] CanvasのOffscreen化に失敗しました。すでに転送済みの可能性があります:`, e);
-		return Promise.reject(e); // 失敗したらここで安全に処理を止める
+		return Promise.reject(e);
 	}
 
 	const worker = new Worker(workerURL(param.type), { type: 'module' });
@@ -191,7 +187,6 @@ async function createRemoteLayer(param = {}) {
 		init();
 		resize();
 
-		////------------------------------------------------------------------------
 		function init() {
 			try {
 				worker.postMessage({ type: "init", offscreen, dpr, workers, threshold, apiUrl: param.apiUrl, tilerBase: param.tilerBase }, [offscreen]);
@@ -215,7 +210,8 @@ async function createRemoteLayer(param = {}) {
 			}
 		}
 		function drawing(panning = false) {
-			// 【Safari対策 4】 初期化が成功(ctxType取得)するまでは描画命令を送らない
+			// Do not send drawing commands until initialization completes (ctxType is set).
+			// Safari requires the offscreen canvas to be fully initialized before receiving draw calls.
 			if (!ctxType) return;
 			worker.postMessage({ type: "drawing", scale: proj.scale(), rotate: proj.rotate(), attr: map.attribution, panning, minZoom: map.minZoom, maxZoom: map.maxZoom });
 		}

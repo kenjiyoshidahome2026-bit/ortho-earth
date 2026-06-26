@@ -205,8 +205,8 @@ class GeoPBF {
 		}
 		return [this.keys].concat(this.props);
 	}
-	get arrayBuffer() { return this.pbf.buf.buffer.slice(0, this.end); }//渡しているのはコピー
-	get headerBuffer() { return this.pbf.buf.buffer.slice(0, this.pbf.pos = this._bodyPos); }//渡しているのはコピー
+	get arrayBuffer() { return this.pbf.buf.buffer.slice(0, this.end); }
+	get headerBuffer() { return this.pbf.buf.buffer.slice(0, this.pbf.pos = this._bodyPos); }
 	get geojson() {
 		const features = [];
 		(this.fmap || []).forEach((_, i) => {
@@ -343,7 +343,7 @@ function decodePropsAt(self, n) {
 			const end = pbf.readVarint() + pbf.pos; let vpos = 0;
 			while (pbf.pos < end) q[pbf.readVarint()] = values[vpos++];
 		}
-		// 未知フィールド（GEOMETRYなど）は readFields の自動スキップに任せる
+		// Unknown fields (e.g. GEOMETRY) are left to readFields' automatic skip logic.
 	});
 	pbf.pos = savedPos;
 	return self.props[n] = q;
@@ -427,7 +427,7 @@ function _setViaWorker(self, buf) {
 			self.init();
 			self.pbf          = new Pbf(r.buf);
 			self.fmap         = r.fmap;
-			self.props        = new Array(r.fmap.length); // 遅延デコード用の空配列
+			self.props        = new Array(r.fmap.length); // pre-allocated empty array for lazy property decoding
 			self.keys         = r.keys;
 			self.bufs         = r.bufs;
 			self._name        = r._name;

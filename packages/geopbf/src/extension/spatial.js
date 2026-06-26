@@ -48,8 +48,8 @@ export const area = (self, i) => {
 	calc(self.getGeometry(i)); return round(total);
 };
 
-// pbf バッファから delta-varint を直接読み min/max のみ累積する（座標配列を確保しない高速版）。
-// 返す値は整数（= round(coord * e)）単位。pbf-base の writeGeometry/readGeometry のエンコードに厳密準拠。
+// Read delta-varints directly from the pbf buffer and accumulate min/max only (no coordinate array allocation).
+// Returns integer units (= round(coord * e)); strictly follows the writeGeometry/readGeometry encoding in pbf-base.
 function geomBbox(self, gpos, type, box) {
 	const pbf = self.pbf;
 	pbf.pos = gpos;
@@ -64,15 +64,15 @@ function geomBbox(self, gpos, type, box) {
 			const end = pbf.readVarint() + pbf.pos;
 			if (type === 0) {                                            // Point
 				acc(pbf.readSVarint(), pbf.readSVarint());
-			} else if (type <= 2) {                                      // MultiPoint / LineString: 単一チェーン
+			} else if (type <= 2) {                                      // MultiPoint / LineString: single chain
 				let px = 0, py = 0;
 				while (pbf.pos < end) { px += pbf.readSVarint(); py += pbf.readSVarint(); acc(px, py); }
-			} else if (type <= 4) {                                      // MultiLineString / Polygon: セグメント毎にリセット
+			} else if (type <= 4) {                                      // MultiLineString / Polygon: reset per segment
 				for (let s = 0; s < lens.length; s++) {
 					let px = 0, py = 0, n = lens[s];
 					while (n-- > 0) { px += pbf.readSVarint(); py += pbf.readSVarint(); acc(px, py); }
 				}
-			} else {                                                     // MultiPolygon: 入れ子 lens [npoly, nring, ...ptCounts]
+			} else {                                                     // MultiPolygon: nested lens [npoly, nring, ...ptCounts]
 				let k = 0; const npoly = lens[k++];
 				for (let i = 0; i < npoly; i++) {
 					const nring = lens[k++];

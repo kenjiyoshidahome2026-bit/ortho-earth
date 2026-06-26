@@ -1,8 +1,8 @@
 import { GeoPBF } from "./pbf.js";
 import { pbfio, setApiUrl } from "./pbf-io.js";
-// 動的テンプレートリテラル new URL(`./decoder/${type}.js`, ...) はViteが静的解析できず
-// ソースをコピーするだけでバンドルしない → 相対importが本番環境で解決不可になる。
-// 各decoderを静的に列挙することでViteが正しくバンドルする。
+// Dynamic template literals new URL(`./decoder/${type}.js`, ...) cannot be statically analyzed by Vite
+// and are copied as-is without bundling, making relative imports unresolvable in production.
+// Listing each decoder/encoder statically allows Vite to bundle them correctly.
 const decoderWorkers = {
     fgb:   () => new Worker(new URL('./decoder/fgb.js',   import.meta.url), { type: 'module' }),
     gint:  () => new Worker(new URL('./decoder/gint.js',  import.meta.url), { type: 'module' }),
@@ -38,7 +38,6 @@ const getServer = async () => {
 	server = server || pbfio("GIS").catch(e => { console.warn("PBFIO initialization failed.", e); return null; });
 	return server;
 }
-//  ----------------------------------------------------------------------------------------
 export async function geopbf(data, options = {}) { if (isString(options)) options = { name: options };
 	const dt = performance.now();
 	const isInZip = _ => (isString(_) && _.match(/.+\.zip#.+/i));
@@ -46,7 +45,6 @@ export async function geopbf(data, options = {}) { if (isString(options)) option
 	let eventTarget = options.eventTarget || (typeof window !== 'undefined' ? window : (typeof self !== 'undefined' ? self : null));
 	if (typeof CustomEvent === 'undefined' || !eventTarget.dispatchEvent) eventTarget = null;
 	const throwEvent = (type, detail) => eventTarget && eventTarget.dispatchEvent(new CustomEvent(type, { detail }));
-////===========================================================================================
 	const decoder = async (type, file) => {
 		const name = options.name || file.name.replace(/\.[^\.]+$/, "");
 		const precision = options.precision || 6;
@@ -73,7 +71,6 @@ export async function geopbf(data, options = {}) { if (isString(options)) option
 			w.postMessage(params);
 		});
 	};
-////===========================================================================================
 	const pbf = await _geopbf(data);
 	if (pbf) {
 		await pbf.gint({gint: options.gint});
@@ -95,7 +92,6 @@ export async function geopbf(data, options = {}) { if (isString(options)) option
 		await pbf.fileSize();
 		return pbf;
 	} else return new GeoPBF(options);
-////===========================================================================================
 	async function _geopbf(q) {
 		if (!q) return null;
 		if (isPBF(q)) return q;
@@ -163,7 +159,7 @@ export async function geopbf(data, options = {}) { if (isString(options)) option
 		}
 	}
 }
-//  ----------------------------------------------------------------------------------------
+
 const encoder = async (pbf, type, opts = {}) => { //console.log(pbf, type, opts);
 	const eventTarget = typeof window !== "undefined" ? window : (typeof self !== "undefined" ? self : null);
 	const name = pbf._name, buf = pbf.arrayBuffer, gintbuf = pbf._gintBuffer;
@@ -190,7 +186,7 @@ const methods = {
 		const htmlCanvas = (typeof HTMLCanvasElement !== "undefined" && canvas instanceof HTMLCanvasElement) ? canvas : null;
 		if (htmlCanvas) canvas = null;
 		else if (isObject(canvas)) { props = canvas; canvas = null; }
-		const offscreen = canvas || null; // OffscreenCanvas ならそのまま渡す
+		const offscreen = canvas || null;
 		const buf = this.arrayBuffer, name = this._name;
 		const w = encoderWorkers.preview();
 		const transferables = offscreen ? [buf, offscreen] : [buf];

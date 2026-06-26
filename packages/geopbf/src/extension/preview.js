@@ -45,7 +45,7 @@ export function preview(self, canvas, props = {}) {
 				if (b[3] > y1) y1 = b[3];
 			});
 			if (x0 < Infinity) {
-				// lonSpan はそのまま維持しつつ、中心を 3D 重心 cLng に合わせてシフト
+				// Preserve lonSpan but shift the center to the 3D centroid cLng.
 				const shift = cLng - (x0 + x1) / 2;
 				bbox = [x0 + shift, y0, x1 + shift, y1];
 			}

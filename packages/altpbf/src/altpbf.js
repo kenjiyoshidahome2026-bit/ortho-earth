@@ -42,14 +42,14 @@ async function load_gepco(name) {
 	return decode(await (await getBucket()).get(name));
 }
 const TAGS = {
-	NAME: 1,    // タイル名
-	SOURCE: 2,  // データソース名 (GEBCO, ALOS等)
-	WIDTH: 3,   // グリッド幅
-	HEIGHT: 4,  // グリッド高
-	LNG: 5,     // タイルの基準経度(左下)
-	LAT: 6,     // タイルの基準緯度(左下)
-	RANGE:7,    // タイルの経度緯度範囲
-	DATA: 10    // 標高データ本体 (Packed SVarint)
+	NAME: 1,    // tile name
+	SOURCE: 2,  // data source name (GEBCO, ALOS, etc.)
+	WIDTH: 3,   // grid width
+	HEIGHT: 4,  // grid height
+	LNG: 5,     // tile origin longitude (bottom-left)
+	LAT: 6,     // tile origin latitude (bottom-left)
+	RANGE:7,    // tile lng/lat span
+	DATA: 10    // elevation data body (packed SVarint delta-coded)
 };
 
 export async function encode(obj) {

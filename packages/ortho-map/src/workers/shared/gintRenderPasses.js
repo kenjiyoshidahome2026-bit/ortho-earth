@@ -1,12 +1,10 @@
-// ── レンダリングパス ───────────────────────────────────────────────────────────
-// renderCleanScene : ハイライトなしの完全シーン（canvas or baseFBO）
-// drawOverlay      : baseFBO blit → アクティブ feature ハイライト + マスク
-// renderPickingBuffer : pickFBO に feature ID を RGB24 エンコード
+// renderCleanScene:    full scene without highlights (canvas or baseFBO)
+// drawOverlay:         blit baseFBO → apply active-feature highlight + mask
+// renderPickingBuffer: encode feature IDs as RGB24 into the pick FBO
 
 import { s, DEF_STYLE, DEF_DASH, DEF_FILL, DEF_MASK } from './gintState.js';
 import { bindSharedUniforms } from './gintUtility.js';
 
-// ポイントシェーダー共通ユニフォーム（uPoint / uPickPoint 両対応）
 function bindPointUniforms(u, data, r1, r2) {
 	const { gl, ptTex, ptMetaTex, TEX_ARC_W, width, height } = s;
 	gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, ptTex);
@@ -86,7 +84,7 @@ export function drawOverlay() {
 			baseFBO, lastDrawData, activeId, polyEdgeByFid } = s;
 	if (!baseFBO || !lastDrawData) return;
 
-	// baseFBO → canvas blit（前回オーバーレイ消去）
+	// Blit baseFBO → canvas to erase the previous overlay.
 	const w = width * dpr, h = height * dpr;
 	gl.bindFramebuffer(gl.READ_FRAMEBUFFER, baseFBO);
 	gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, null);
@@ -108,7 +106,7 @@ export function drawOverlay() {
 	const eCount   = range?.[1] ?? null;
 	const hasRange = eStart != null && eCount > 0;
 
-	// ── エッジ ハイライト（太め＋黄色） ──
+	// Edge highlight: wider + yellow.
 	gl.useProgram(renderProgram);
 	bindSharedUniforms(gl, uRender, data, arcTex, metaTex, TEX_ARC_W, TEX_META_W, width, height);
 	gl.uniform1f(uRender.u_line_width,   (data.lineWidth ?? 1.0) + 2.0);
@@ -122,7 +120,7 @@ export function drawOverlay() {
 		gl.drawArrays(gl.TRIANGLES, 0, totalEdges * 6);
 	}
 
-	// ── ポイント ハイライト（大きめ＋黄色） ──
+	// Point highlight: larger + yellow.
 	if (totalPoints > 0 && ptTex && ptMetaTex) {
 		const r1 = data.rotate[1] * Math.PI / 180, r2 = (data.rotate[2] ?? 0) * Math.PI / 180;
 		gl.useProgram(pointProgram);
@@ -131,7 +129,7 @@ export function drawOverlay() {
 		gl.drawArrays(gl.TRIANGLES, 0, totalPoints * 6);
 	}
 
-	// ── ポリゴン マスク（アクティブ外を dim） ──
+	// Polygon mask: dim everything outside the active feature.
 	const mc = data.maskColor ?? DEF_MASK;
 	if (mc[3] > 0 && hasRange) {
 		gl.enable(gl.STENCIL_TEST);
@@ -169,7 +167,7 @@ export function renderPickingBuffer(data) {
 		gl.clear(gl.COLOR_BUFFER_BIT | gl.STENCIL_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 		gl.disable(gl.BLEND);
 
-		// pick FBO は視覚幅より太く描いてヒット感度を上げる（DPR 込みで ~6 CSS px マージン）
+		// Draw wider than the visual line to increase pick sensitivity (~6 CSS px margin including DPR).
 		const pickMargin = 12 * (s.dpr ?? 1);
 		if (totalEdges > 0 && metaTex) {
 			gl.useProgram(pickLineProgram);

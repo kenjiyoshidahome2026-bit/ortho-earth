@@ -40,7 +40,7 @@ export async function Fetch(url, opts = {}) {
 			return await convert(file, type, encoding);
 		}
 
-		// 2. 全体取得
+		// 2. Fetch the full resource.
 		const finalURL = `${targetURL}${targetURL.includes('?') ? '&' : '?'}_t=${Date.now()}`;
 		const res = await fetch(finalURL, { cache: 'no-store' }); 
 		

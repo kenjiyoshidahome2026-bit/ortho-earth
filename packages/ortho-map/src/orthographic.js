@@ -9,21 +9,18 @@ import { createGetHeight, setApiUrl as setAltApiUrl } from "altpbf";
 
 export async function orthographic(map, opts = {}) {
 	map.isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
-	map.projectionName = "orthographic"; // プロジェクション名
-	map.minZoom = 1; // 地図の最小ズーム値
-	map.minEdit = 2; // 地図の編集が可能なズーム値
-	map.threshold = 5.5; // baseとtileの切り替えズーム値
-	map.maxBorder = 6; // ボーダー・レチクルを表示するズーム値
-	map.maxZoom = 22; // 地図の最大ズーム値
-	map.simultaneousTileLoading = 4; // タイルを読み込み・加工させるワーカーの数
-	map.zoomSensitivity = 0.5; // ズームの感度(0.5~2.0)
-	map.stat = await Cache("GIS/stat").catch(console.error); // 
-	map.baseName = await map.stat("base") || "osm.street";// ベースの地図
-	map.view = await map.stat("view") || [[135, 35, 0], 2]; // [[経度,緯度,回転],ズーム値]
+	map.projectionName = "orthographic";
+	map.minZoom = 1;
+	map.minEdit = 2;
+	map.threshold = 5.5; // zoom level at which base switches to tiled rendering
+	map.maxBorder = 6;
+	map.maxZoom = 22;
+	map.simultaneousTileLoading = 4;
+	map.zoomSensitivity = 0.5; // range: 0.5–2.0
+	map.stat = await Cache("GIS/stat").catch(console.error);
+	map.baseName = await map.stat("base") || "osm.street";
+	map.view = await map.stat("view") || [[135, 35, 0], 2]; // [[lng, lat, rotation], zoom]
 	isNaN(map.view[1]) && (map.view[1] = 2);
-	////-------------------------------------------------------------------------------------------
-	//// オプションによる初期値の変更
-	////-------------------------------------------------------------------------------------------
 	("baseName" in opts) && (map.baseName = opts.baseName);
 	("center" in opts) && Array.isArray(opts.center) && (map.view[0][0] = -opts.center[0], map.view[0][1] = -opts.center[1]);
 	("zoom" in opts) && (map.view[1] = opts.zoom);
@@ -36,11 +33,9 @@ export async function orthographic(map, opts = {}) {
 	("zoomSensitivity" in opts) && (map.zoomSensitivity = opts.zoomSensitivity);
 	("simultaneousTileLoading" in opts) && (map.simultaneousTileLoading = opts.simultaneousTileLoading);
 	opts.apiUrl && setAltApiUrl(opts.apiUrl);
-	////-------------------------------------------------------------------------------------------
 	const tileSize = 256, tau = Math.PI * 2, tileSizeOrtho = tileSize / tau;
 	const zval2scale = v => Math.pow(2, v) * tileSizeOrtho;
 	const scale2zval = v => Math.log2(v / tileSizeOrtho);
-	////------------------------------------------------------------------------------------------------
 	const proj = map.proj = d3.geoOrthographic().rotate(map.view[0]).scale(zval2scale(map.view[1]));
 	const Events = ["Enter", "Move", "Leave", "Drop", "Click", "Drawing", "Drawn", "ContextMenu", "Resize", "Change", "LoadStart", "LoadEnd"];
 	const dispatcher = map.dispatcher = d3.dispatch(...Events);
@@ -52,9 +47,7 @@ export async function orthographic(map, opts = {}) {
 	const isNarrow = () => map.width < 1000;
 	const isEditable = () => map.zoom >= map.minEdit;
 	const xy2pos = ([x, y]) => (Math.hypot(x - map.width / 2, y - map.height / 2) < proj.scale()) ? proj.invert([x, y]) : null;
-	///------------------------------------------------------------------------------------------------
-	/// PAN & ZOOM (ctrl/metaKeyの場合は回転)
-	///------------------------------------------------------------------------------------------------
+	// PAN & ZOOM (Ctrl/Meta held: rotate instead of pan)
 	let rafId = null, flyTicket = 0;
 	function tween() {
 		if (rafId) return;
@@ -67,7 +60,6 @@ export async function orthographic(map, opts = {}) {
 		map.stat("view", getView());
 		trigger("Drawn", { proj, zoom: map.zoom });
 	}
-	////-------------------------------------------------------------------------------------------
 	{
 		const isCtrl = e => e.metaKey || e.ctrlKey, isShift = e => e.shiftKey;
 		const getInfo = async e => {
@@ -78,13 +70,10 @@ export async function orthographic(map, opts = {}) {
 			const [lng, lat] = pos, alt = map.getHeight ? await map.getHeight(lng,lat, zoom): 0;
 			return { lng, lat, alt, x, y, shiftKey, metaKey };
 		};
-	//    const versor = await Resources.versor();
 		const { cartesian, delta, multiply, rotation } = versor;
-		////-------------------------------------------------------------------------------------------
 		panZoom(map).on("start.ortho", onstart).on("zoom.ortho", tween).on("end.ortho", drawn);
 		function onstart() { cleanup(); flyTicket++; }
-		////-------------------------------------------------------------------------------------------
-		function panZoom(map) { //const proj = map.proj;
+		function panZoom(map) {
 			const { sin, cos, sign, sqrt, atan2, PI } = Math;
 			const angle = t => atan2(t[1][1] - t[0][1], t[1][0] - t[0][0]);
 			let v0, q0, r0, a0, tl = 0, pt0;
@@ -94,7 +83,7 @@ export async function orthographic(map, opts = {}) {
 			map.scaleExtent = range => zoom.scaleExtent(range);
 			initZoom();
 			return map.call(zoom), { on(type, ...options) { zoom.on(type, ...options); return this; } };
-			function point(e) { // returns [x, y, 角度(atan2)]
+			function point(e) { // returns [x, y, angle (atan2)]
 				const t = pointers(e);
 				if (t.length !== tl) { tl = t.length; started(e); }
 				return tl == 1 ? t[0] : [d3.mean(t, p => p[0]), d3.mean(t, p => p[1]), angle(t)];
@@ -120,10 +109,10 @@ export async function orthographic(map, opts = {}) {
 				proj.rotate(rotation(q1));
 			}
 		}
-		////-------------------------------------------------------------------------------------------
 		{
 			let timer = null;
-			map.on("wheel", rotate, { passive: true }); // カーソルを中心に回転
+			// Ctrl+wheel rotates the globe around the cursor position.
+			map.on("wheel", rotate, { passive: true });
 			function rotate(e) {
 				if (!isCtrl(e)) return false;
 				cursor("crosshair");
@@ -135,7 +124,7 @@ export async function orthographic(map, opts = {}) {
 				const sumSq = x * x + y * y; if (sumSq > r * r) return;
 				const z = sqrt(r * r - sumSq);
 				const angle = e.deltaY * 0.002 * map.zoomSensitivity;
-				const k = sin(angle / 2) / r; // 係数
+				const k = sin(angle / 2) / r; // quaternion scale factor
 				const rot = [cos(angle / 2), -y * k, -x * k, z * k];
 				const cur = versor(proj.rotate());
 				const v = versor.multiply(rot, cur);
@@ -145,10 +134,8 @@ export async function orthographic(map, opts = {}) {
 				clearTimeout(timer); timer = setTimeout(drawn, 250);
 			}
 		}
-		////-------------------------------------------------------------------------------------------
 		map.on("contextmenu", e => trigger("ContextMenu", e));
-		map.on("dblclick.zoom", null);//ダブルクリックで拡大しない!!!
-		////------------------------------------------------------------------------------------------------	
+		map.on("dblclick.zoom", null); // disable dblclick-to-zoom
 		map.on("click", async e => trigger("Click", await getInfo(e)), { passive: true });
 		map.on("mousemove touchmove", async e => trigger("Move", await getInfo(e)), { passive: true });
 		map.on("mouseenter touchstart", async e => trigger("Enter", await getInfo(e)), { passive: true });
@@ -157,13 +144,13 @@ export async function orthographic(map, opts = {}) {
 		const option = { onstart: name => map.trigger("LoadStart", name), onend: name => map.trigger("LoadEnd", name), apiUrl: opts.apiUrl };
 		map.getHeight = opts.altitude === false ? null : await createGetHeight(option);
 
-	} {////------------------------------------------------------------------------------------------------	
+	} {
 		const funcs = {
 			draw, trigger, resize, isEditable, isNarrow, cursor, bbox, setRange, setView, setZoom,
 			setFeature, flyToFeature, zoomToFeature, mag, north, tester, xy2pos, zval2scale, scale2zval, pointer, pointers, autoRotate
 		};
 		Object.entries(funcs).forEach(([name, func]) => map[name] = func);
-	} {////------------------------------------------------------------------------------------------------	
+	} {
 		const eventNumber = {}, eventTub = {};
 		function makeEvent(event) {
 			const D4 = n => ("0000" + n).slice(-4);
@@ -202,21 +189,19 @@ export async function orthographic(map, opts = {}) {
 		map.eventList = () => {
 			Object.entries(eventTub).forEach(([name, events]) => console.log(`Event ${name}: ${Object.keys(events).join(" ")}`))
 		};
-	} {////------------------------------------------------------------------------------------------------	
+	} {
 		let timer = null;
 		window.addEventListener("orientationchange", resize);
 		window.addEventListener("resize", () => { clearTimeout(timer); timer = setTimeout(resize, 50); });
 		resize();
 	}
-////===================================================================================================================
 	function getView() {
 		map.view = [proj.rotate(), map.zoom = scale2zval(proj.scale())];
 		map.center = [-map.view[0][0], -map.view[0][1]];
 		map.angle = map.view[0][2];
 		return map.view;
 	}
-////-------------------------------------------------------------------------------------------
-	function resize() {
+	functionresize() {
 		const [width, height] = [map.width, map.height] = map.getSize();
 		const rotate = proj.rotate(), scale = proj.scale();
 		proj.fitExtent([[1, 1], [width - 1, height - 1]], { type: "Sphere" });
@@ -226,14 +211,12 @@ export async function orthographic(map, opts = {}) {
 		getView();
 		draw();
 	}
-////-------------------------------------------------------------------------------------------
-	function tester(q) {
+	functiontester(q) {
 		if (d3.geoDistance(map.center, q) > Math.PI / 2) return null;
 		const [x, y] = proj(q);
 		return (x < 0 || x > map.width || y < 0 || y > map.height) ? null : [x, y];
 	}
-////-------------------------------------------------------------------------------------------
-	function bbox(q, maxZoom = map.maxZoom) {
+	functionbbox(q, maxZoom = map.maxZoom) {
 		return q ? setBBOX(q) : getBBOX();
 		function getBBOX() {
 			const [w, h] = [map.width, map.height];
@@ -257,8 +240,7 @@ export async function orthographic(map, opts = {}) {
 			setFeature(feature, maxZoom);
 		}
 	};
-////-------------------------------------------------------------------------------------------
-	function setZoom(zoom) {
+	functionsetZoom(zoom) {
 		proj.scale(zval2scale(zoom));
 		map.stat("view", getView());
 		initZoom();
@@ -271,8 +253,7 @@ export async function orthographic(map, opts = {}) {
 	function setRange(min, max) {
 		map.scaleExtent([zval2scale(min), zval2scale(max)]);
 	}
-////-------------------------------------------------------------------------------------------
-	function setFeature(feature, maxZoom = map.maxZoom) {
+	functionsetFeature(feature, maxZoom = map.maxZoom) {
 		const { width, height } = map;
 		const c = d3.geoCentroid(feature);
 		const p = d3.geoOrthographic().rotate([-c[0], -c[1], 0])
@@ -280,17 +261,16 @@ export async function orthographic(map, opts = {}) {
 		const zval = Math.min(scale2zval(p.scale()), maxZoom)
 		setView([c[0], c[1]], zval);
 	}
-////-------------------------------------------------------------------------------------------
-	async function flyToFeature(feature, opts = {}) {
+	async functionflyToFeature(feature, opts = {}) {
 		const { width, height, maxZoom } = map;
 		const size = Math.min(width, height);
 		const r0 = proj.rotate(), s0 = proj.scale();
-		const dst = d3.geoCentroid(feature);// 目的地
-		const r1 = [-dst[0], -dst[1], 0]; // 最終的な回転 [λ, φ, 0] ←ここを0に固定
-		const p = d3.geoOrthographic().rotate(r1)　// 目的地でのスケール計算
+		const dst = d3.geoCentroid(feature);
+		const r1 = [-dst[0], -dst[1], 0]; // final rotation [λ, φ, 0] — roll fixed to 0
+		const p = d3.geoOrthographic().rotate(r1)
 			.fitExtent([[width * 0.05, height * 0.05], [width * 0.95, height * 0.95]], feature);
 		const s1 = opts.keep ? s0 : opts.zoom ? zval2scale(opts.zoom) : Math.min(p.scale(), zval2scale(maxZoom));
-		const dist = d3.geoDistance([-r0[0], -r0[1]], dst);// ズーム補間用のパラメータ
+		const dist = d3.geoDistance([-r0[0], -r0[1]], dst);
 		const zooming = d3.interpolateZoom([0, 0, size / s0], [dist, 0, size / s1]);
 		const wrap = (a, ref) => ref + (((a - ref) % 360) + 540) % 360 - 180;
 		const interpolateRotation = d3.interpolateArray(r0, [wrap(r1[0], r0[0]), wrap(r1[1], r0[1]), 0]);
@@ -306,8 +286,7 @@ export async function orthographic(map, opts = {}) {
 			.end().catch(() => {});
 		if (flyTicket === ticket) drawn();
 	}
-////-------------------------------------------------------------------------------------------
-	async function zoomToFeature(feature, opts = {}) {
+	async functionzoomToFeature(feature, opts = {}) {
 		const { width, height, maxZoom } = map;
 		const size = Math.min(width, height);
 		const r0 = proj.rotate(), s0 = proj.scale();
@@ -317,13 +296,13 @@ export async function orthographic(map, opts = {}) {
 			.fitExtent([[width * 0.05, height * 0.05], [width * 0.95, height * 0.95]], feature);
 		const s1 = opts.keep ? s0 : opts.zoom ? zval2scale(opts.zoom) : Math.min(p.scale(), zval2scale(maxZoom));
 
-		// 最短パスで回転
+		// Wrap rotation to take the shortest angular path.
 		const wrap = (a, ref) => ref + (((a - ref) % 360) + 540) % 360 - 180;
 		const interpolateRotation = d3.interpolateArray(r0, [wrap(r1[0], r0[0]), wrap(r1[1], r0[1]), 0]);
 
 		const dist = d3.geoDistance([-r0[0], -r0[1]], dst);
 
-		// travel 中は zoom=5.5 まで（タイル不要域）で回転しながら上げ、到着後に残りを zoom-in
+		// During travel, zoom only up to the tile threshold (5.5); zoom in further after arrival.
 		const sTrav = Math.min(s1, zval2scale(5.5));
 		const needsZoom = s1 > sTrav * 1.05;
 		const travelMs  = Math.max(1200, dist * 2500);
@@ -340,7 +319,7 @@ export async function orthographic(map, opts = {}) {
 				const tRotEased = d3.easeCubicOut(Math.min(1, t / travelEnd));
 				proj.rotate(interpolateRotation(tRotEased));
 				if (needsZoom) {
-					// travel: s0→sTrav、到着後: sTrav→s1 を1式で合成
+					// Compose travel (s0→sTrav) and post-arrival zoom (sTrav→s1) in a single expression.
 					const tZoom = Math.max(0, Math.min(1, (t - zoomStart) / (1 - zoomStart)));
 					proj.scale(s0 + (sTrav - s0) * tRotEased + (s1 - sTrav) * d3.easeCubicInOut(tZoom));
 				} else {
@@ -351,8 +330,7 @@ export async function orthographic(map, opts = {}) {
 
 		if (flyTicket === ticket) return drawn();
 	}
-////-------------------------------------------------------------------------------------------
-	async function mag(n, duration = 1000) {
+	async functionmag(n, duration = 1000) {
 		const scale = proj.scale();
 		const maxScale = zval2scale(map.maxZoom);
 		const minScale = zval2scale(map.minZoom);
@@ -366,8 +344,7 @@ export async function orthographic(map, opts = {}) {
 			.end().catch(() => {});
 		if (flyTicket === ticket) drawn();
 	}
-////-------------------------------------------------------------------------------------------
-	async function north(duration = 1000) {
+	async functionnorth(duration = 1000) {
 		const zaxis = proj.rotate()[2];
 		const ticket = ++flyTicket;
 		await d3.transition().ease(d3.easeCubic).duration(duration)
@@ -379,8 +356,7 @@ export async function orthographic(map, opts = {}) {
 			.end().catch(() => {});
 		if (flyTicket === ticket) drawn();
 	}
-////-------------------------------------------------------------------------------------------
-	function autoRotate(flag) {
+	functionautoRotate(flag) {
 		const velocity = 0.01;
 		if (flag) {
 			map.overlays && map.overlays.style("opacity", 0);

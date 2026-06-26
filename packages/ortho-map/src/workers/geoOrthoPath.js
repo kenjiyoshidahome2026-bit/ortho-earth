@@ -3,12 +3,11 @@ export function createFastOrtho(radius, center, rotate) {
 	const [λ, φ, γ] = rotate.map(v => v * rad);
 	const [cx, cy] = center;
 
-	// 3軸回転行列の合成係数を事前計算 (3x3行列の要素)
+	// Precompute the composite 3-axis rotation matrix (3×3 elements).
+	// λ = y-axis, φ = x-axis, γ = z-axis.
 	const sλ = Math.sin(λ), cλ = Math.cos(λ);
 	const sφ = Math.sin(φ), cφ = Math.cos(φ);
 	const sγ = Math.sin(γ), cγ = Math.cos(γ);
-
-	// λ(y軸), φ(x軸), γ(z軸) の回転を合成
 	const m0 = cλ * cγ - sλ * sφ * sγ;
 	const m1 = -cφ * sγ;
 	const m2 = sλ * cγ + cλ * sφ * sγ;
@@ -34,10 +33,9 @@ export function createFastOrtho(radius, center, rotate) {
 			const y = Math.sin(lat);
 			const z = cp * Math.cos(lon);
 
-			// 行列演算 (回転後の座標)
-			const zr = x * m6 + y * m7 + z * m8;
+			const zr = x * m6 + y * m7 + z * m8; // z-component after rotation
 
-			if (zr > 0) { // 可視判定
+			if (zr > 0) { // visible (front hemisphere)
 				const xr = x * m0 + y * m1 + z * m2;
 				const yr = x * m3 + y * m4 + z * m5;
 
@@ -51,7 +49,7 @@ export function createFastOrtho(radius, center, rotate) {
 					ctx.lineTo(px, py);
 				}
 			} else {
-				first = true; // 裏側に回ったらパスを切断
+				first = true; // point moved behind the globe — break the path
 			}
 		}
 	};
@@ -63,27 +61,25 @@ class geoOrthoPath {
 		this.cx = center[0];
 		this.cy = center[1];
 	}
-	// 地形データを前処理して、ただの [lon, lat, lon, lat...] という Float32Array に変換しておくとさらに速い
+	// Pre-converting terrain data to a flat Float32Array of [lon, lat, lon, lat...] would be faster.
 	render(geojson, lambda, phi, gamma) {
 		const { ctx, r, cx, cy } = this;
 		const toRad = Math.PI / 180;
-		// 回転角の事前計算
 		const l0 = lambda * toRad, p0 = phi * toRad, g0 = gamma * toRad;
 		const sl0 = Math.sin(l0), cl0 = Math.cos(l0);
 		const sp0 = Math.sin(p0), cp0 = Math.cos(p0);
 		const sg0 = Math.sin(g0), cg0 = Math.cos(g0);
 		ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
-		// クリップ処理
 		ctx.save();
 		ctx.beginPath();
-		ctx.arc(cx, cy, r, 0, 7); // 7 ≒ 2*PI (少し多めに回す)
+		ctx.arc(cx, cy, r, 0, 7); // 7 ≈ 2π — slightly more than a full circle
 		ctx.clip();
 
 		ctx.beginPath();
 		const features = geojson.features;
 		for (let i = 0; i < features.length; i++) {
 			const coords = features[i].geometry.coordinates;
-			// Polygon想定の2重ループ（MultiPolygonならもう1段必要）
+			// Assumes Polygon (MultiPolygon would need one more loop level).
 			for (let j = 0; j < coords.length; j++) {
 				const ring = coords[j];
 				let first = true;
@@ -97,15 +93,14 @@ class geoOrthoPath {
 					const sLam = Math.sin(lam), cLam = Math.cos(lam);
 					const sPhi = Math.sin(phiVal), cPhi = Math.cos(phiVal);
 
-					// 正射投影 + 可視判定の統合計算
+					// Orthographic visibility test: dot product of view direction and surface normal.
 					const dot = sp0 * sPhi + cp0 * cPhi * cLam;
 
 					if (dot >= 0) {
 						const x = r * cPhi * sLam;
 						const y = r * (cp0 * sPhi - sp0 * cPhi * cLam);
 
-						// Z軸回転の適用
-						const rx = cx + (x * cg0 - y * sg0);
+						const rx = cx + (x * cg0 - y * sg0); // apply z-axis rotation
 						const ry = cy - (x * sg0 + y * cg0);
 
 						if (first || !lastVisible) ctx.moveTo(rx, ry);
@@ -139,12 +134,10 @@ class geoOrthoPath {
 			const start = offsets[i] * 2;
 			const end = offsets[i + 1] * 2;
 
-			// --- 簡易カリング (ポリゴンの最初の1点で裏表判定) ---
+			// Quick cull: test the first vertex of the polygon — skip if clearly back-facing.
 			const testLon = vertices[start] * toRad - l0;
 			const testLat = vertices[start + 1] * toRad;
-			if (sp0 * Math.sin(testLat) + cp0 * Math.cos(testLat) * Math.cos(testLon) < -0.2) {
-				continue; // 完全に裏側ならスキップ
-			}
+			if (sp0 * Math.sin(testLat) + cp0 * Math.cos(testLat) * Math.cos(testLon) < -0.2) continue;
 
 			let first = true;
 			for (let j = start; j < end; j += 2) {

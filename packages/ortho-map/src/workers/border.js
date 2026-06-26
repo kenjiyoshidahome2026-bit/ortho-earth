@@ -28,7 +28,7 @@ onmessage = e => funcs[e.data.type](e.data);
 
 function init(data) {
 	canvas = data.offscreen, dpr = data.dpr;
-	layer =  canvas.getContext("2d"); if (!layer) console.error('Context取得失敗 - Safariのバージョン確認');
+	layer =  canvas.getContext("2d"); if (!layer) console.error('Failed to get context — check Safari version');
 	path = geoPath(proj, layer);
 	postMessage({ type: data.type, action: "done", ctx: layer.constructor.name });
 }
@@ -40,7 +40,7 @@ async function set(data) {
 		return postMessage({ type: data.type, action: "done" });
 	}
 	if (data.data != "options") return postMessage({ type: data.type, action: "failed" });
-	// geojsons[0]=ne_110m_land（globe用）、geojsons[1]=stars.6、geojsons[2]=constellation_lines（任意）
+	// geojsons[0]=ne_110m_land (globe minimap), [1]=stars.6, [2]=constellation_lines (optional), [3]=messier (optional)
 	if (data.geojsons && !jsons) jsons = data.geojsons;
 	const opts = data.prop || {};
 	const lang = opts.lang || "en";
@@ -56,7 +56,7 @@ async function set(data) {
 		{ en: "LNG", ja: "経度", zh: "经度", ko: "경도" }[lang],
 		{ en: "ALT", ja: "標高", zh: "海拔", ko: "고도" }[lang]
 	];
-	// borders は gintBorder (GL2) が担当。sphere のみ Canvas2D で描く。
+	// Actual border lines are handled by gintBorder (GL2). Only the sphere outline is drawn here (Canvas2D).
 	const q = accessories.borders;
 	if (q) q.jsons = [[sphere, { stroke: "rgba(200,200,200,0.8)", width: 0.8 }]];
 	accessories.globe.json = jsons[0];   // ne_110m_land
@@ -153,13 +153,11 @@ function destroy(data) {
 	layer = path = proj = null;
 	postMessage({ type: data.type, action: "done" });
 }
-////--------------------------------------------------------------
 function draw_border() {
 	const q = accessories.borders;
 	if (!q || zoom < q.minZoom || q.maxZoom < zoom) return;
 	q.jsons.forEach(([json, prop]) => {
-		// 【修正】ETag/キャッシュ不整合等でjsonが空の場合はスキップ
-		if (!json) return;
+		if (!json) return; // skip if null (e.g. cache/ETag mismatch)
 		layer.save();
 		layer.beginPath(); path(json);
 		layer.strokeStyle = prop.stroke;
@@ -184,7 +182,7 @@ function draw_scale() {
 	const R = 6372000 * 2, M = width / 2, H = height - 30 - (isNarrow ? 20 : 0);
 	const useImperial = q.unit === "imperial";
 	const [n, v, unit] = (function () {
-		const d256m = (R * PI) / 2 ** zoom; // 256pxあたりのメートル
+		const d256m = (R * PI) / 2 ** zoom; // meters per 256 px
 		if (useImperial) {
 			const d256mi = d256m / 1609.344;
 			const r = 10 ** floor(log10(d256mi));
@@ -236,7 +234,7 @@ function draw_globe() {
 	const r = proj.rotate(); project.rotate([r[0], r[1], 0]);
 	const path = geoPath(project, layer);
 
-	// viewport各辺をN点サンプリング → 地理座標 → ミニグローブ投影
+	// Sample N points along each viewport edge, project to geographic coords, then to the mini-globe.
 	const N = 30;
 	const edge = (x0e, y0e, x1e, y1e) => Array.from({length: N}, (_, i) => {
 		const t = i / N;

@@ -6,7 +6,7 @@ const CHAR_LBRACKET = 91;    // [
 
 const FEAT_BYTES = [34, 102, 101, 97, 116, 117, 114, 101, 115, 34]; // "features"
 
-// 注目バイトのルックアップテーブル。大半のバイトは 0（無視）で1比較で即抜けられる
+// Lookup table for bytes of interest. Most bytes map to 0 (ignore), allowing a single comparison to skip them.
 const SCAN_TABLE = new Uint8Array(256);
 SCAN_TABLE[CHAR_QUOTE] = 1;
 SCAN_TABLE[CHAR_BACKSLASH] = 2;
@@ -26,7 +26,7 @@ export const geojson = (file, callback, syncFlag = false) => {
 	let inString = false;
 	let isEscaped = false;
 
-	// scanPos: 残存チャンク群の先頭を 0 とするグローバル位置（prune のたびに再調整される）
+	// scanPos: global position treating the head of the retained chunk list as 0; adjusted after each prune.
 	let scanPos = 0;
 	let featureStartPos = -1;
 
@@ -40,12 +40,11 @@ export const geojson = (file, callback, syncFlag = false) => {
 		}
 	};
 
-	// featureStartPos〜end の範囲を文字列化する
 	const extractJsonString = (start, end) => {
 		const c0 = chunks[0];
-		// 高速パス: prune 後は最頻ケースとして chunks[0] 内に完全に収まる
+		// Fast path: after pruning, the most common case is that the feature fits entirely in chunks[0].
 		if (end <= c0.length) return decoder.decode(c0.subarray(start, end));
-		// 複数チャンクをまたぐ場合: バッファを結合してデコード
+		// Multi-chunk span: concatenate and decode.
 		const res = new Uint8Array(end - start);
 		let cBase = 0, resOff = 0;
 		for (let i = 0; i < chunks.length; i++) {
@@ -61,7 +60,6 @@ export const geojson = (file, callback, syncFlag = false) => {
 		return decoder.decode(res);
 	};
 
-	// scanPos を含むチャンクを特定する
 	const findChunk = () => {
 		let ci = 0, cBase = 0;
 		while (ci < chunks.length && cBase + chunks[ci].length <= scanPos) {
@@ -73,7 +71,7 @@ export const geojson = (file, callback, syncFlag = false) => {
 	const processBinary = () => {
 		let [ci, cBase] = findChunk();
 
-		// Phase 1: "features" 直後の '[' を探す（1ファイル1回のみ）
+		// Phase 1: locate the '[' immediately after "features" (once per file).
 		if (!inFeatures) {
 			outer1: while (ci < chunks.length) {
 				const chunk = chunks[ci];
@@ -85,7 +83,7 @@ export const geojson = (file, callback, syncFlag = false) => {
 						else { featMatchIdx = (b === FEAT_BYTES[0]) ? 1 : 0; }
 					} else if (b === CHAR_LBRACKET) {
 						inFeatures = true;
-						pruneChunks(scanPos); // ヘッダー部分をメモリから解放
+						pruneChunks(scanPos); // free the header from memory
 						[ci, cBase] = findChunk();
 						break outer1;
 					}
@@ -95,8 +93,8 @@ export const geojson = (file, callback, syncFlag = false) => {
 			if (!inFeatures) return;
 		}
 
-		// Phase 2: 波括弧の深さで Feature オブジェクトを切り出す
-		// getByteAt 関数を介さずチャンクを直接参照することで呼び出しオーバーヘッドを排除
+		// Phase 2: extract Feature objects by tracking brace depth.
+		// Reference chunks directly (no getByteAt wrapper) to eliminate call overhead.
 		while (ci < chunks.length) {
 			const chunk = chunks[ci];
 			let lp = scanPos - cBase;
@@ -108,7 +106,7 @@ export const geojson = (file, callback, syncFlag = false) => {
 				if (isEscaped) { isEscaped = false; continue; }
 
 				const code = SCAN_TABLE[b];
-				if (code === 0) continue;                        // 大半のバイト: 1比較で即抜ける
+				if (code === 0) continue;                        // most bytes: skip with one comparison
 				if (code === 2) { isEscaped = true; continue; } // backslash
 				if (code === 1) { inString = !inString; continue; } // quote
 				if (inString) continue;
@@ -119,16 +117,16 @@ export const geojson = (file, callback, syncFlag = false) => {
 					if (--braceCount === 0 && featureStartPos !== -1) {
 						try { callback(JSON.parse(extractJsonString(featureStartPos, scanPos))); }
 						catch (ex) { console.warn("Parse Error:", ex); }
-						pruneChunks(scanPos); // 抽出済み部分を即座に GC へ
+						pruneChunks(scanPos); // release extracted range to GC immediately
 						featureStartPos = -1;
-						[ci, cBase] = findChunk(); // prune 後のチャンク位置を再確定
+						[ci, cBase] = findChunk(); // re-anchor after prune
 						doRestart = true;
 						break;
 					}
 				}
 			}
 
-			// doRestart のときはチャンクを advance せず、更新済みの ci/cBase で再開
+			// On restart, do not advance ci/cBase — they were already updated by findChunk().
 			if (!doRestart) { cBase += chunk.length; ci++; }
 		}
 	};

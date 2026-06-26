@@ -20,7 +20,7 @@ onmessage = async (e) => {
 			else if (!t[0] && !t[1] && t[2]) countArr[t[2] > 1 ? 5 : 4]++;
 			else countArr[6]++;
 		}
-		// 中間配列を生成せず型コード出現数を直接集計（O(N×K) 空間 → O(K×types) 空間）
+		// Count type-code occurrences directly without an intermediate array (O(N×K) space → O(K×types) space).
 		const K = self.keys.length;
 		const typeCounts = Array.from({ length: K }, () => ({}));
 		const props = self.props;
@@ -34,7 +34,7 @@ onmessage = async (e) => {
 				tc[dt] = (tc[dt] || 0) + 1;
 			}
 		}
-		// FLOAT と INTEGER が共存する場合は FLOAT に統合（整数リテラルがFloat扱いになるケースへの対処）
+		// Merge FLOAT and INTEGER when both appear — guards against integer literals being typed as FLOAT.
 		const typesort = tc => {
 			const c = Object.entries(tc).sort((a, b) => b[1] - a[1]);
 			return (c.length === 2 && GeoPBF.dataTypeNames[c[0][0]] === "FLOAT" && GeoPBF.dataTypeNames[c[1][0]] === "INTEGER")
@@ -48,7 +48,7 @@ onmessage = async (e) => {
 		self._description && str.push(` DESCRIPTION: ${self._description}`);
 		self._attribution && str.push(` ATTRIBUTION: ${self._attribution}`);
 		self._license     && str.push(` LICENSE: ${self._license}`);
-		// この時点で gzip は大抵完了しているため await のコストはほぼゼロ
+		// gzip is typically already done by this point, so the await adds negligible cost.
 		str.push(` FILE SIZE: ${comma(await fileSizePromise)} [bytes]`);
 		str.push(` FEATURES: ${comma(ids.length)} ( ${types.join(" , ")} )`);
 		str.push(` PRECISION: ${self._precision} [${1 / self.e}]`);

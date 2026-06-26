@@ -10,7 +10,7 @@ onmessage = async (e) => {
 		const pos = c => `${c[1]} ${c[0]}`;
 		const posList = r => r.map(pos).join(" ");
 
-		// srsName を明示してデコーダの軸順判定を確定させる
+		// Explicit srsName fixes axis-order detection in the decoder.
 		let xml = `<?xml version="1.0" encoding="UTF-8"?>\n<gml:FeatureCollection xmlns:gml="http://www.opengis.net/gml/3.2" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" srsName="urn:ogc:def:crs:EPSG::4326">\n`;
 
 		for (let i = 0, len = pbf.length; i < len; i++) {
@@ -45,7 +45,6 @@ onmessage = async (e) => {
 
 		const gmlFile = new File([xml], `${name}.gml`, { type: "application/gml+xml" });
 
-		// gzフラグが立っていればZIP圧縮、そうでなければ生のGML
 		if (gz) {
 			const zip = await encodeZIP([gmlFile], `${name}_gml.zip`);
 			postMessage(zip);

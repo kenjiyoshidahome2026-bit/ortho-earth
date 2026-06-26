@@ -25,7 +25,6 @@ export function createPolygon(layer, opts = {}) {
 		return points;
 	};
 	return layer;
-	////------------------------------------------------------------------------------------------------
 	function generate(e) {
 		if (!e) return;
 		const xy = map.pointer(e), pt = proj.invert(xy), near = nearDef(xy, 4);
@@ -104,13 +103,13 @@ export function createPolygon(layer, opts = {}) {
 			if (p.length > 3 && p[0] == p[p.length - 1]) {
 				const coords = antimeridianCut(p);
 
-				// 🚨 修正点1: 穴あきポリゴンではなく、必ず「独立した複数のリング（MultiPolygon）」として構造化する
+				// Always structure as independent rings (MultiPolygon), never as a polygon-with-holes.
 				const isFlat = typeof coords[0][0] === 'number';
 				let multiCoords = isFlat ? [[coords]] : coords.map(ring => [ring]);
 
 				const f = { type: "Feature", geometry: { type: "MultiPolygon", coordinates: multiCoords } };
 
-				// 🚨 修正点2: D3が「地球全体」を塗ってしまうのを防ぐため、面積が半球以上なら点を逆回りにして反転させる
+				// Prevent D3 from filling the entire globe: if area >= hemisphere, reverse winding to flip inside/outside.
 				if (d3.geoArea(f) > 2 * Math.PI) {
 					multiCoords = multiCoords.map(poly => poly.map(ring => [...ring].reverse()));
 					f.geometry.coordinates = multiCoords;
@@ -123,7 +122,7 @@ export function createPolygon(layer, opts = {}) {
 			return null;
 		}
 		function distance() {
-			const radius = 6371; // 地球の半径 km
+			const radius = 6371;
 			let sum = 0;
 			const fix = (m, n = 0) => comma(m.toFixed(n));
 			const FIX = d => d < 0.1 ? fix(d * 1000, 1) + " m" : d < 1 ? fix(d * 1000, 0) + " m" : d < 10 ? fix(d, 2) + " km" : d < 100 ? fix(d, 1) + " km" : fix(d, 0) + " km";
@@ -139,9 +138,9 @@ export function createPolygon(layer, opts = {}) {
 			}
 
 			if (p.length > 3) {
-				// Featureは常に反転修正されているため、面積は純粋に計算してOK
+				// The feature is always winding-corrected above, so area can be computed directly.
 				const areaRad = d3.geoArea(f);
-				const areaSqMeters = areaRad * 6371000 * 6371000; // 半径(m)の2乗
+				const areaSqMeters = areaRad * 6371000 * 6371000;
 
 				let center = d3.geoCentroid(f);
 				let projected = proj(center);

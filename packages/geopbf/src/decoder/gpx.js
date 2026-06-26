@@ -1,7 +1,6 @@
 import { GeoPBF } from "../pbf-base.js";
 import { dissolve } from "../extension/dissolve.js";
 
-// GPXから特定のタグのテキスト中身を引っこ抜くミニマムなヘルパー
 const tagContent = (src, tag) => {
 	const m = new RegExp(`<${tag}>([\\s\\S]*?)<\\/${tag}>`, 'i').exec(src);
 	return m ? m[1].trim() : null;
@@ -13,13 +12,10 @@ onmessage = async (e) => {
 		const text = await file.text();
 		const pbf = new GeoPBF({ name: file.name.replace(/\.[^\.]+$/, ""), precision: precision || 6 });
 
-		// 🌟 1. スキーマ（プロパティ名）の事前定義
-		// GPX特有の有益な属性（標高、時間、名称、ポイント種別）をあらかじめ定義してソート
 		const keys = ["name", "desc", "ele", "time", "type"].sort();
 		pbf.setHead(keys);
 
 		pbf.setBody(() => {
-			// 🌟 2. <wpt> (ウェイポイント: Point) の抽出
 			const wptRegex = /<wpt\s+lat="([^"]+)"\s+lon="([^"]+)">([\s\S]*?)<\/wpt>/gi;
 			let match;
 			while ((match = wptRegex.exec(text)) !== null) {
@@ -37,8 +33,6 @@ onmessage = async (e) => {
 				});
 			}
 
-			// 🌟 3. <trk> (トラック: LineString / MultiLineString) の抽出
-			// トラックの中に複数の <trkseg> がある場合を考慮した美しいパース
 			const trkRegex = /<trk>([\s\S]*?)<\/trk>/gi;
 			while ((match = trkRegex.exec(text)) !== null) {
 				const trkInner = match[1];
@@ -60,7 +54,7 @@ onmessage = async (e) => {
 					if (coords.length > 0) segs.push(coords);
 				}
 
-				// 1つのセグメントなら LineString、複数に泣き別れていたら MultiLineString として登録
+				// A single segment becomes LineString; multiple discontiguous segments become MultiLineString.
 				if (segs.length === 1) {
 					pbf.setFeature({
 						type: "Feature",

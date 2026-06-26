@@ -1,11 +1,11 @@
 /**
- * geoExec — GIS データロード + プレビュー生成の共通パイプライン
+ * geoExec — Common pipeline for GIS data loading and preview generation.
  *
  * @param {object} info  - { target, name, precision, license, description, attribution, link, nocache, format }
  * @param {object} opts
- * @param {Function}      opts.geopbf     - geopbf() 関数（DI で渡す）
- * @param {screenLogger}  [opts.logger]   - screenLogger インスタンス（省略可）
- * @param {Function}      [opts.cache]    - IDB キャッシュ関数 (key, value?) → value（省略可）
+ * @param {Function}      opts.geopbf     - geopbf() function (dependency-injected)
+ * @param {screenLogger}  [opts.logger]   - screenLogger instance (optional)
+ * @param {Function}      [opts.cache]    - IDB cache function (key, value?) → value (optional)
  * @param {Function}      [opts.onSuccess]- callback(pbf, { previewCanvas, profileHtml, logger })
  * @param {Function}      [opts.onError]  - callback(err, { logger, info })
  */
@@ -47,7 +47,6 @@ export async function geoExec(info, { geopbf, logger, cache = null, onSuccess, o
 		let previewCanvas = null, profileHtml = null;
 
 		if (cached?.PREVIEW && cached?.PROFILE) {
-			// キャッシュヒット
 			profileHtml = cached.PROFILE;
 			const bitmap = await createImageBitmap(cached.PREVIEW);
 			previewCanvas = document.createElement("canvas");
@@ -58,7 +57,6 @@ export async function geoExec(info, { geopbf, logger, cache = null, onSuccess, o
 			previewCanvas.getContext("2d").drawImage(bitmap, 0, 0);
 			trimCanvas(previewCanvas);
 		} else {
-			// プレビュー + プロファイル生成
 			previewCanvas = document.createElement("canvas");
 			const [bitmap, html] = await Promise.all([
 				pbf.preview(previewCanvas, { size:256, stroke:"#fff", fill:"#222", minDist:0.5, dpr:2 }),
@@ -66,7 +64,6 @@ export async function geoExec(info, { geopbf, logger, cache = null, onSuccess, o
 			]);
 			profileHtml = html;
 
-			// キャッシュ保存（非同期、エラーは無視）
 			if (cacheKey && cache && bitmap instanceof ImageBitmap) {
 				const oc = new OffscreenCanvas(previewCanvas.width, previewCanvas.height);
 				oc.getContext("2d").drawImage(previewCanvas, 0, 0);
@@ -77,7 +74,6 @@ export async function geoExec(info, { geopbf, logger, cache = null, onSuccess, o
 			trimCanvas(previewCanvas);
 		}
 
-		// logger があれば canvas + profile を表示
 		if (logger) {
 			const p = logger.empty();
 			p.node().appendChild(previewCanvas);
