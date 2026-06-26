@@ -178,13 +178,14 @@ button { cursor: pointer; font-family: $font; }
 	min-width: 0;
 	input[type=text] {
 		width: 100%;
-		padding: 7px 10px;
+		height: 30px;
+		padding: 0 10px 0 1rem;
 		background: $dark;
 		border: none;
 		border-radius: 5px;
 		color: $hi;
 		font-family: $font;
-		font-size: 13px;
+		font-size: 1rem;
 		&::placeholder { color: $mid; }
 		&:focus { outline: 1px solid $accent; }
 	}
@@ -193,20 +194,19 @@ button { cursor: pointer; font-family: $font; }
 // 折りたたみトグルボタン（サイドバー内）
 #sidebar-toggle {
 	flex-shrink: 0;
-	width: 28px;
-	height: 28px;
+	width: 30px;
+	height: 30px;
 	border-radius: 5px;
 	background: none;
-	border: 1px solid #333;
-	color: $mid;
-	font-size: 11px;
+	border: none;
 	display: flex;
 	align-items: center;
 	justify-content: center;
 	cursor: pointer;
-	transition: color 150ms, background 150ms, border-color 150ms;
-	line-height: 1;
-	&:hover { color: $hi; background: $dark; border-color: #555; }
+	transition: border 150ms;
+	padding: 0;
+	img { display: block; }
+	&:hover { border: 1px solid $hi; }
 }
 
 // モバイル専用の外部ハンバーガーボタン（デスクトップでは非表示）

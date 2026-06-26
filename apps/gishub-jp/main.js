@@ -1933,7 +1933,6 @@ function initSidebarToggle() {
 	function setSidebarCollapsed(collapsed) {
 		app.classList.toggle('sidebar-collapsed', collapsed);
 		if (!isMobile()) {
-			toggle.textContent = collapsed ? '▶' : '◀';
 			localStorage.setItem('sidebar-collapsed', collapsed ? '1' : '0');
 		}
 	}

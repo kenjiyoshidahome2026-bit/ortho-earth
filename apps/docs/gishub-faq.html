@@ -15,7 +15,7 @@
 #md-body a  { color: var(--accent); }
 
 /* Q: bold line styling */
-#md-body p:has(> strong:first-child) {
+#md-body p:has(> strong:only-child) {
     display: flex; gap: 10px; align-items: baseline;
     color: var(--text); font-size: 0.95rem; font-weight: 700;
     margin-top: 20px; margin-bottom: 4px;
@@ -29,7 +29,7 @@
     border-radius: 4px; padding: 1px 6px; flex-shrink: 0;
 }
 /* A: answer line (paragraph after a Q paragraph) */
-#md-body p:has(> strong:first-child) + p {
+#md-body p:has(> strong:only-child) + p {
     color: #94a3b8; font-size: 0.88rem; padding-left: 28px;
     font-weight: normal; display: block; margin-bottom: 0;
 }

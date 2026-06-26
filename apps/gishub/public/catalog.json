@@ -162,10 +162,10 @@
 	"precision": 6
 	},
 	{
-	"name": "tl_2024_us_place",
+	"name": "cb_2024_us_place_500k",
 	"description": "US Cities & Towns (Incorporated Places)",
-	"target": "https://www2.census.gov/geo/tiger/TIGER2024/PLACE/tl_2024_us_place.zip",
-	"link": "https://www.census.gov/geographies/mapping-files/time-series/geo/tiger-line-file.html",
+	"target": "https://www2.census.gov/geo/tiger/GENZ2024/shp/cb_2024_us_place_500k.zip",
+	"link": "https://www.census.gov/geographies/mapping-files/time-series/geo/cartographic-boundary.html",
 	"attribution": "US Census Bureau | TIGER 2024",
 	"license": "Public Domain",
 	"precision": 6
@@ -198,10 +198,10 @@
 	"precision": 6
 	},
 	{
-	"name": "tl_2024_us_cd119",
+	"name": "cb_2024_us_cd119_500k",
 	"description": "US Congressional Districts (119th Congress)",
-	"target": "https://www2.census.gov/geo/tiger/TIGER2024/CD/tl_2024_us_cd119.zip",
-	"link": "https://www.census.gov/geographies/mapping-files/time-series/geo/tiger-line-file.html",
+	"target": "https://www2.census.gov/geo/tiger/GENZ2024/shp/cb_2024_us_cd119_500k.zip",
+	"link": "https://www.census.gov/geographies/mapping-files/time-series/geo/cartographic-boundary.html",
 	"attribution": "US Census Bureau | TIGER 2024",
 	"license": "Public Domain",
 	"precision": 6
