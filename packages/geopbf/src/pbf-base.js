@@ -1,7 +1,7 @@
 import Pbf from 'pbf';
 import { bufferTub, readBufs } from "./modules/bufferTub.js";
 import { isString, isSimpleObject, isNumber, isFloat, isBbox } from "common";
-import { antimeridianFeature, loadPolygonClipping } from "./modules/antimeridianFeature.js";
+import { antimeridianFeature } from "./modules/antimeridianFeature.js";
 import { cleanCoords, } from "./modules/cleanCoords.js";
 
 
@@ -55,7 +55,6 @@ class GeoPBF {
 			if (GeoPBF._workerUrl) return _setViaWorker(this, q instanceof ArrayBuffer ? q : q.buffer.slice(q.byteOffset, q.byteOffset + q.byteLength));
 			this.pbf = new Pbf(q);
 		} else if (isSimpleObject(q)) {
-			await loadPolygonClipping();
 			const [keys, buffs] = this.noprop ? [[], []] : await makeKeys(q.features.map(t => t.properties));
 			this.setHead(keys, buffs).setBody(q).close();
 		} else return (console.error("PBF set: setting illegal value", q), this);

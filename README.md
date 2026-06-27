@@ -15,6 +15,8 @@ I also acknowledge the invaluable support of my AI collaborators:
 
 - **Claude** (Anthropic) & **Gemini** (Google) - AI Collaborators for architectural ideation, coding, and technical writing.
 
+## Related / [gdal-geopbf](https://github.com/kenjiyoshidahome2026-bit/gdal-geopbf) — GDAL/OGR driver
+
 ## License
 
 MIT / GPL-3.0-or-later

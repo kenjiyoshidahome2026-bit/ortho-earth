@@ -1670,6 +1670,14 @@ function placeholder() {
 			desc:  '道路・河川・土地利用・行政区域・ハザード・地価など国土に関する各種情報',
 		},
 		{
+			icon:  '📊',
+			min:   '総務省',
+			label: '統計 GIS・国勢調査',
+			cnt:   ESTAT_MANIFEST.length + CENSUS_MANIFEST.length,
+			unit:  `市区町村（小地域境界 + 国勢調査 3 年分）`,
+			desc:  '小地域境界 Shapefile（e-Stat）と 2015/2020/2025 年 国勢調査の人口・世帯・産業別集計',
+		},
+		{
 			icon:  '🏠',
 			min:   '法務省',
 			label: '登記所備付地図',
@@ -1684,14 +1692,6 @@ function placeholder() {
 			cnt:   MAFF_MANIFEST.length,
 			unit:  '市区町村',
 			desc:  '全国の農地区画。作付・耕地種別などの属性付き（GeoJSON）',
-		},
-		{
-			icon:  '📊',
-			min:   '総務省',
-			label: '統計 GIS・国勢調査',
-			cnt:   ESTAT_MANIFEST.length + CENSUS_MANIFEST.length,
-			unit:  `市区町村（小地域境界 + 国勢調査 3 年分）`,
-			desc:  '小地域境界 Shapefile（e-Stat）と 2015/2020/2025 年 国勢調査の人口・世帯・産業別集計',
 		},
 	].map(c => `
 		<div class="ph-card">
@@ -1712,9 +1712,9 @@ function placeholder() {
 			<div class="ph-hero">
 				<div class="ph-hero-title">
 					<img class="ph-logo" src="favicon.svg" alt="">
-					<div class="ph-title">GIS-HUB-jp</div>
+					<div class="ph-title">GIS-HUB-jp 🇯🇵</div>
 				</div>
-				<div class="ph-sub">GeoPBF を使用して、国が公開するデータを地図に描画します。</div>
+				<div class="ph-sub">GeoPBF を使用して、国が公開するGISデータを地図に描画します。</div>
 				<div class="ph-hero-link">
 					<a href="/gishub" target="_blank" rel="noopener">→ GIS-HUB（グローバル版）</a>
 					<a href="https://github.com/kenjiyoshidahome2026-bit/ortho-earth" target="_blank" rel="noopener" class="ph-github-link">
@@ -1735,21 +1735,18 @@ function placeholder() {
 					<div class="ph-geopbf-text">
 						<p>
 							<strong>GeoPBF</strong> は Web ブラウザ向けに設計された地理データフォーマットです。
-							政府が配布する ZIP 内の Shapefile・GeoJSON を変換して生成します。
+							国が配布する ZIP 内の Shapefile・GeoJSON 等を変換して<strong>GeoPBF</strong>を生成しています。
 						</p>
 						<p>
 							従来の GeoJSON や Shapefile はファイルサイズが大きく、ブラウザでの読み込みと描画に時間がかかります。
-							GeoPBF はトポロジーを保持したまま頂点列を圧縮し、
+							<strong>GeoPBF</strong> はトポロジーを保持したまま頂点列を圧縮し、
 							WebGL2 シェーダーへ直接送信できるバイナリ構造を持ちます。
-							全国規模の数百万フィーチャーも、ズームに連動した動的 LOD でスムーズに描画します。
-						</p>
-						<p>
-							「↓ IDB 保存」でブラウザの IndexedDB に保存したデータは、
-							ortho-earth 上でオフラインでも利用できます。
+							全国規模の数百万フィーチャーも、GPUのパワーでで、ズームに連動した動的LODとリアルタイムの描画三角形の生成で、スムーズに1/60秒で描画します。
+							また、<strong>GeoPBF</strong>は従来のGISフォーマットにも即時変換可能です。
 						</p>
 					</div>
 					<ul class="ph-feat-list">
-						<li><span class="ph-feat-ic">▸</span><span><strong>高圧縮</strong> — GeoJSON 比で 1/10〜1/50 のサイズ。国勢調査の全市区町村境界もブラウザで即時ロード</span></li>
+						<li><span class="ph-feat-ic">▸</span><span><strong>高圧縮</strong> — GeoJSON 比で 約1/10 のファイルサイズ。国勢調査の全市区町村境界もブラウザで即時ロード</span></li>
 						<li><span class="ph-feat-ic">▸</span><span><strong>直接描画</strong> — CPU 変換なし。WebGL2 の頂点バッファへそのまま転送して GPU がレンダリング</span></li>
 						<li><span class="ph-feat-ic">▸</span><span><strong>位相保持</strong> — 隣接ポリゴンの共有境界を重複なく格納。面積誤差・すき間が生じない</span></li>
 						<li><span class="ph-feat-ic">▸</span><span><strong>動的 LOD</strong> — ズームレベルに応じて頂点を間引き。広域〜詳細まで同一データで対応</span></li>
