@@ -2,7 +2,7 @@
 
 High-performance orthographic map engine and GIS workstation, running entirely in the browser.
 
-![Ortho Earth hero](assets/hero.png)
+<img src="assets/hero.png" width="600" alt="Ortho Earth hero">
 
 **top page:** [www.ortho-earth.com](https://www.ortho-earth.com)
 
