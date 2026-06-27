@@ -87,6 +87,11 @@ button { cursor: pointer; font-family: $font; }
 	background: $bg;
 	opacity: 0.8;
 	pointer-events: auto;
+	transition: opacity 250ms ease-out;
+}
+#app.viewing {
+	opacity: 0;
+	pointer-events: none;
 }
 
 // ============================================================
@@ -351,7 +356,7 @@ button { cursor: pointer; font-family: $font; }
 		text-align: left;
 		font-weight: normal;
 		letter-spacing: 0.04em;
-		text-transform: uppercase;
+		text-transform: none;
 	}
 }
 
@@ -715,15 +720,15 @@ button { cursor: pointer; font-family: $font; }
 		padding-top: 20px;
 		border-top: 1px solid #1a1a1a;
 		font-size: 12px;
-		color: #444;
+		color: #aaa;
 		text-align: center;
 		line-height: 1.8;
 		.ph-author {
 			margin-top: 10px;
 			font-family: $mono;
 			font-size: 11px;
-			color: #333;
-			a { color: #444; text-decoration: none; &:hover { color: #888; } }
+			color: #888;
+			a { color: #888; text-decoration: none; &:hover { color: #ccc; } }
 		}
 	}
 }
@@ -1076,7 +1081,7 @@ button { cursor: pointer; font-family: $font; }
 	}
 }
 
-// 全国一括ダウンロードボタン
+// 全国一括読込ボタン
 .bulk-dl-btn {
 	flex-shrink: 0;
 	padding: 6px 16px;
@@ -1220,11 +1225,120 @@ button { cursor: pointer; font-family: $font; }
 	margin-bottom: 4px;
 }
 
+// exec 属性テーブル（gishub showProp 相当）
+#exec-tables {
+    font-family: 'Courier New', Courier, monospace;
+    display: flex;
+    flex-direction: column;
+    height: 60vh;
+
+    .exec-prop-header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+        padding: 6px 0 8px;
+        border-bottom: 1px solid rgba(255,255,255,0.1);
+
+        h2 {
+            font-size: 14px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            span { font-size: 0.75em; margin-left: 0.4em; color: $mid; }
+        }
+    }
+
+    .exec-prop-btns {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+
+        button {
+            padding: 0.35em 0.8em;
+            background: #444;
+            color: #fff;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            font-size: 12px;
+            font-family: $font;
+            cursor: pointer;
+            &:hover { background: #ccc; color: #000; }
+        }
+
+        .exec-page-info {
+            padding: 0.35em 0.5em;
+            font-size: 12px;
+            font-family: $font;
+            color: $mid;
+        }
+    }
+
+    .exec-prop-table {
+        flex: 1;
+        overflow-y: auto;
+        margin-top: 4px;
+
+        table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+            font-size: 12px;
+
+            th {
+                position: sticky;
+                top: 0;
+                background: #222;
+                z-index: 1;
+                text-align: center;
+                border-top: 1px solid #888;
+                border-bottom: 1px solid #888;
+                padding: 6px 8px;
+                color: $mid;
+            }
+
+            td {
+                border-bottom: 1px solid #333;
+                padding: 5px 8px;
+                max-width: 200px;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+
+            tr:hover td { background: #1a1a1a; }
+        }
+    }
+}
+
+// exec アクションボタン行
+.exec-action-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 10px 0 10px;
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+    margin-bottom: 4px;
+
+    button {
+        padding: 0.45em 1em;
+        background: #444;
+        color: #fff;
+        border: 1px solid #ccc;
+        border-radius: 5px;
+        font-family: $font;
+        font-size: 13px;
+        cursor: pointer;
+        &:hover { background: #ccc; color: #000; }
+        &.accent { background: $accent; border-color: $accent; color: #000; &:hover { background: lighten($accent, 10%); } }
+    }
+}
+
 // fmt バッジ
 .fmt-moj { background: rgba(255, 180, 30, 0.12); color: #e6b030; }
 
 // ============================================================
-// 一括ダウンロード モーダル
+// 一括読込 モーダル
 // ============================================================
 .dl-modal {
 	position: fixed;
@@ -1430,4 +1544,109 @@ button { cursor: pointer; font-family: $font; }
 		.cs-bar-pct   { width: 40px; text-align: right; color: $mid; }
 	}
 	.cs-note { font-size: 11px; color: $mid; margin-top: 4px; }
+
+	.cs-sa-section {
+		.cs-sa-load {
+			background: #2a2a2a;
+			border: 1px solid rgba(255,255,255,.2);
+			color: $text;
+			padding: 5px 12px;
+			border-radius: 4px;
+			cursor: pointer;
+			font-size: 12px;
+			&:hover { background: #3a3a3a; }
+		}
+		.cs-sa-loading { font-size: 12px; color: $mid; }
+		.cs-sa-toolbar {
+			display: flex;
+			align-items: center;
+			gap: 10px;
+			margin-bottom: 6px;
+			.cs-sa-count { font-size: 12px; color: $mid; }
+			.cs-sa-csv {
+				background: #2a2a2a;
+				border: 1px solid rgba(255,255,255,.2);
+				color: $text;
+				padding: 2px 8px;
+				border-radius: 3px;
+				cursor: pointer;
+				font-size: 11px;
+				&:hover { background: #3a3a3a; }
+			}
+		}
+		.cs-sa-scroll {
+			max-height: 280px;
+			overflow-y: auto;
+			border: 1px solid rgba(255,255,255,.08);
+			border-radius: 4px;
+		}
+		.cs-sa-legend {
+			font-size: 10px;
+			color: $mid;
+			display: flex;
+			align-items: center;
+			gap: 4px;
+			flex: 1;
+			.cs-sa-l {
+				display: inline-block;
+				width: 10px;
+				height: 8px;
+				border-radius: 1px;
+				&.y { background: #5a9; }
+				&.w { background: #579; }
+				&.o { background: #a65; }
+			}
+		}
+		.cs-sa-table {
+			width: 100%;
+			border-collapse: collapse;
+			font-size: 11px;
+			thead tr th {
+				position: sticky;
+				top: 0;
+				background: #222;
+				color: $mid;
+				padding: 4px 6px;
+				text-align: left;
+				border-bottom: 1px solid rgba(255,255,255,.12);
+				font-weight: 500;
+			}
+			tbody tr {
+				cursor: default;
+				&.has-pyr { cursor: pointer; }
+				&.active { background: rgba(100,140,200,.12); }
+				&:hover { background: rgba(255,255,255,.04); }
+				&.has-pyr:hover { background: rgba(100,140,200,.1); }
+				td {
+					padding: 3px 6px;
+					border-bottom: 1px solid rgba(255,255,255,.04);
+					color: $text;
+					&:first-child { color: $mid; width: 28px; text-align: right; }
+					&:nth-child(2) { font-family: $mono; color: #adf; white-space: nowrap; }
+				}
+				.cs-sa-pop { font-family: $mono; text-align: right; }
+				.cs-sa-bar { white-space: nowrap; }
+			}
+		}
+		.cs-sa-pyramid-wrap {
+			margin-top: 10px;
+			padding: 10px 12px;
+			background: rgba(255,255,255,.04);
+			border-radius: 6px;
+			border: 1px solid rgba(255,255,255,.08);
+			.cs-sa-py-name {
+				font-size: 12px;
+				color: $text;
+				margin-bottom: 6px;
+				font-weight: 500;
+				.cs-sa-py-pop {
+					display: block;
+					font-size: 11px;
+					color: $mid;
+					font-weight: 400;
+					font-family: $mono;
+				}
+			}
+		}
+	}
 }

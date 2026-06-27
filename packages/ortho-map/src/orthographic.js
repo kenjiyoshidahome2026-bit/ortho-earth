@@ -296,13 +296,11 @@ export async function orthographic(map, opts = {}) {
 			.fitExtent([[width * 0.05, height * 0.05], [width * 0.95, height * 0.95]], feature);
 		const s1 = opts.keep ? s0 : opts.zoom ? zval2scale(opts.zoom) : Math.min(p.scale(), zval2scale(maxZoom));
 
-		// Wrap rotation to take the shortest angular path.
 		const wrap = (a, ref) => ref + (((a - ref) % 360) + 540) % 360 - 180;
 		const interpolateRotation = d3.interpolateArray(r0, [wrap(r1[0], r0[0]), wrap(r1[1], r0[1]), 0]);
 
 		const dist = d3.geoDistance([-r0[0], -r0[1]], dst);
 
-		// During travel, zoom only up to the tile threshold (5.5); zoom in further after arrival.
 		const sTrav = Math.min(s1, zval2scale(5.5));
 		const needsZoom = s1 > sTrav * 1.05;
 		const travelMs  = Math.max(1200, dist * 2500);
@@ -319,7 +317,6 @@ export async function orthographic(map, opts = {}) {
 				const tRotEased = d3.easeCubicOut(Math.min(1, t / travelEnd));
 				proj.rotate(interpolateRotation(tRotEased));
 				if (needsZoom) {
-					// Compose travel (s0→sTrav) and post-arrival zoom (sTrav→s1) in a single expression.
 					const tZoom = Math.max(0, Math.min(1, (t - zoomStart) / (1 - zoomStart)));
 					proj.scale(s0 + (sTrav - s0) * tRotEased + (s1 - sTrav) * d3.easeCubicInOut(tZoom));
 				} else {

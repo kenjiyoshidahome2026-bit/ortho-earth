@@ -89,7 +89,7 @@ export async function geoExec(info, { geopbf, logger, cache = null, onSuccess, o
 }
 
 export function trimCanvas(canvas) {
-	const ctx = canvas.getContext("2d");
+	const ctx = canvas.getContext("2d", { willReadFrequently: true });
 	const w = canvas.width, h = canvas.height;
 	const px = ctx.getImageData(0, 0, w, h).data;
 	const row = y => { for (let x = 0; x < w; x++) if (px[(y*w+x)*4+3]) return true; };

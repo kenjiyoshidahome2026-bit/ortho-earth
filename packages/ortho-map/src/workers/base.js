@@ -191,7 +191,6 @@ export function createTileServer(urlFunc) {
 		const url = urlFunc(xyz);
 		if (url === null) {
 			TileTub.set(key, false);
-			isMoving ? drawing() : finalize();
 			return next(w);
 		}
 		w.onmessage = e => {
@@ -231,7 +230,7 @@ export function getTileArray() {
 	currentZoom = Z0;
 
 	const lps = [0, 0.5, 1].flatMap(y => [0, 0.5, 1].map(x => proj.invert([x * width, y * height]))).filter(p => p);
-	if (!lps.length) return {};
+	if (!lps.length) return [];
 	const b = [min(...lps.map(p => p[0])), min(...lps.map(p => p[1])), max(...lps.map(p => p[0])), max(...lps.map(p => p[1]))],
 		cS = (v) => max(-0.9999, min(0.9999, sin(v * rad))),
 		xmin = floor((0.5 + b[0] / 360) * n) - pad, xmax = ceil((0.5 + b[2] / 360) * n) + pad,

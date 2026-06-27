@@ -33,6 +33,8 @@ import CENSUS_2015_STATS    from './census/2015-stats.json'   with { type: 'json
 import { buildCensusChartSVG } from './census/charts.mjs';
 import { geopbf, setApiUrl } from 'geopbf';
 import { geoExec } from 'common/geoExec';
+import { screenLogger } from 'common/screenLogger';
+import { saveTo, openDirectory, comma } from 'common';
 import orthoMap from 'ortho-map';
 import { select as d3select } from 'd3';
 
@@ -97,6 +99,8 @@ async function execGlobeView(pbf) {
 		_globeLayer.set('geojson', { type: 'FeatureCollection', features }, style);
 	}
 	_mapInst.draw();
+	// レイヤーを描画してからパネルを隠す（データなし素グローブの一瞬を防ぐ）
+	document.getElementById('app').classList.add('viewing');
 
 	const [w, s, e, n] = pbf.bbox;
 	const zoomFeature = (e - w > 300)
@@ -118,6 +122,7 @@ async function execGlobeView(pbf) {
 
 	const zoomOpts = zoomFeature._center ? { center: zoomFeature._center } : {};
 	await _mapInst.zoomToFeature(zoomFeature, zoomOpts);
+	_mapInst.draw();
 	_closeBtn.show();
 }
 function exitGlobeView() {
@@ -126,6 +131,7 @@ function exitGlobeView() {
 	_mapInst.setView([135, 35], _initialZoom);
 	_mapInst.autoRotate(true);
 	_closeBtn.hide();
+	document.getElementById('app').classList.remove('viewing');
 }
 
 function bucketUrl(src, path) {
@@ -248,6 +254,7 @@ function maffToEntry(e) {
 	return {
 		name:        `${e.prefCityCd}_${e.year}`,
 		description: `${e.prefName} ${e.cityName} 筆ポリゴン ${e.year}年度`,
+		target:      `maff_${e.prefCityCd}.geopbf`,
 		attribution: '農林水産省',
 		license:     'CC BY 4.0',
 		format:      'maff',
@@ -272,10 +279,13 @@ function renderMaffList() {
 		toEntry:     c  => maffToEntry(c._raw),
 		bulkByGroup: pref => (MAFF_BY_PREF.get(pref) || []).map(maffToEntry),
 		allEntries:  () => MAFF_MANIFEST.map(maffToEntry),
-		downloadFn:  maffGeopbf,
 		groupHeaderHtml: (_key, _name, items) => {
 			const total = items.reduce((s, c) => s + (c.size || 0), 0);
 			return total ? `<span class="pref-size">${fmtBytes(total)} <span class="size-note">PBF</span></span>` : '';
+		},
+		onItemClick: city => {
+			const entry = maffToEntry(city._raw);
+			renderExecView(entry, () => { history.replaceState(null, '', '#maff'); renderMaffList(); });
 		},
 	});
 }
@@ -357,6 +367,17 @@ function renderEstatList() {
 		groupHeaderHtml: (_key, _name, items) => {
 			const total = items.reduce((s, c) => s + (c.size || 0), 0);
 			return total ? `<span class="pref-size">${fmtBytes(total)} <span class="size-note">ZIP</span></span>` : '';
+		},
+		onItemClick: city => {
+			const entry = estatToEntry(city._raw);
+			const estatFetch = async (target, _opts) => {
+				const proxyUrl = `${API_BASE}/proxy/?url=${encodeURIComponent(target)}`;
+				const resp = await fetch(proxyUrl);
+				if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+				const blob = await resp.blob();
+				return geopbf(new File([blob], `${entry.name}.zip`), { name: entry.name });
+			};
+			renderExecView(entry, () => { history.replaceState(null, '', '#estat'); renderEstatList(); }, estatFetch);
 		},
 	});
 }
@@ -510,6 +531,235 @@ function renderCensusMinistryList({ id, title, subtitle, cities, expanded, getSe
 	render();
 }
 
+// 国勢調査 小地域一覧ロード
+const ESTAT_CODE_SET = new Set(ESTAT_MANIFEST.map(e => e.code));
+const GIS_DL_BASE = 'https://www.e-stat.go.jp/gis/statmap-search/data';
+
+async function unzipFirstEntry(blob) {
+	const buf = await blob.arrayBuffer();
+	const u8  = new Uint8Array(buf);
+	const v   = new DataView(buf);
+	if (v.getUint32(0, true) !== 0x04034b50) throw new Error('Not a ZIP');
+	const method = v.getUint16(8, true);
+	const fnLen  = v.getUint16(26, true);
+	const exLen  = v.getUint16(28, true);
+	const start  = 30 + fnLen + exLen;
+	let comp = v.getUint32(18, true);
+	if (comp === 0) {
+		for (let i = start + 4; i < u8.length - 4; i++) {
+			const sig = v.getUint32(i, true);
+			if (sig === 0x02014b50 || sig === 0x04034b50 || sig === 0x08074b50) { comp = i - start; break; }
+		}
+	}
+	const slice = u8.subarray(start, start + comp);
+	if (method === 0) return slice;
+	if (method === 8) return new Uint8Array(
+		await new Response(new Blob([slice]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).arrayBuffer()
+	);
+	throw new Error(`ZIP method ${method}`);
+}
+
+async function fetchGisStatsCsv(cityCode, statsId) {
+	const url = `${GIS_DL_BASE}?statsId=${statsId}&downloadType=2&code=${cityCode}`;
+	const resp = await fetch(`${API_BASE}/proxy/?url=${encodeURIComponent(url)}`);
+	if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+	const bytes = await unzipFirstEntry(await resp.blob());
+	let text;
+	try { text = new TextDecoder('utf-8', { fatal: true }).decode(bytes); }
+	catch { text = new TextDecoder('shift-jis').decode(bytes); }
+	return text.split(/\r?\n/).map(l => l.split(',').map(s => s.replace(/^"|"$/g, '')));
+}
+
+// T001081: 人口総数・男女別（col 7=総人口, 8=男, 9=女）
+// prefCode = cityCode の先頭2桁（e-Stat は都道府県単位でしか受け付けない）
+async function fetchSmallAreaPop(cityCode) {
+	const rows = await fetchGisStatsCsv(cityCode.substring(0, 2), 'T001081');
+	const map = new Map();
+	for (const t of rows) {
+		const code = String(t[0] || '');
+		if (code.length <= 5 || !code.startsWith(cityCode)) continue;
+		map.set(code, { total: +t[7] || 0, m: +t[8] || 0, f: +t[9] || 0 });
+	}
+	return map;
+}
+
+// T001082: 年齢別人口（男: col 28-42 + 46 = 16グループ, 女: col 48-62 + 66）
+async function fetchSmallAreaPyramid(cityCode) {
+	const rows = await fetchGisStatsCsv(cityCode.substring(0, 2), 'T001082');
+	const map = new Map();
+	for (const t of rows) {
+		const code = String(t[0] || '');
+		if (code.length <= 5 || !code.startsWith(cityCode)) continue;
+		const clean = (a) => a.map(v => +v || 0);
+		const mAges = clean([...t.slice(28, 43), t[46]]);
+		const fAges = clean([...t.slice(48, 63), t[66]]);
+		map.set(code, { mAges, fAges });
+	}
+	return map;
+}
+
+// SVG 人口ピラミッド（小地域用・コンパクト）
+function smallAreaPyramidSvg(mAges, fAges) {
+	const labels = ['0','5','10','15','20','25','30','35','40','45','50','55','60','65','70','75+'];
+	const total  = [...mAges, ...fAges].reduce((s, v) => s + v, 0);
+	if (!total) return '<span style="color:#666;font-size:11px">データなし</span>';
+	const max  = Math.max(...mAges, ...fAges);
+	const bW   = 52; // half-width for each side
+	const bH   = 8;
+	const gap  = 1;
+	const lblW = 22;
+	const W    = bW * 2 + lblW;
+	const H    = (bH + gap) * 16 + 14;
+	const bars = [...mAges].reverse().map((m, i) => {
+		const fi = 15 - i;
+		const f  = fAges[fi];
+		const mw = max ? (m / max * bW).toFixed(1) : 0;
+		const fw = max ? (f / max * bW).toFixed(1) : 0;
+		const y  = i * (bH + gap);
+		const lbl = i % 2 === 0 ? `<text x="${bW + lblW / 2}" y="${y + bH - 1}" text-anchor="middle" font-size="5.5" fill="#888">${labels[fi]}</text>` : '';
+		return `<rect x="${bW - mw}" y="${y}" width="${mw}" height="${bH}" fill="#68b" opacity=".85"/>` +
+		       `<rect x="${bW + lblW}" y="${y}" width="${fw}" height="${bH}" fill="#c6a" opacity=".85"/>` +
+		       lbl;
+	}).join('');
+	return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" style="display:block">` +
+		`<text x="${bW/2}" y="${H-2}" text-anchor="middle" font-size="6.5" fill="#68b">男</text>` +
+		`<text x="${bW+lblW+bW/2}" y="${H-2}" text-anchor="middle" font-size="6.5" fill="#c6a">女</text>` +
+		bars + '</svg>';
+}
+
+// 年齢3区分のミニバー（0-14 / 15-64 / 65+）
+function miniAgeBar(mAges, fAges) {
+	if (!mAges?.length) return '';
+	const all   = mAges.map((m, i) => m + fAges[i]);
+	const total = all.reduce((s, v) => s + v, 0);
+	if (!total) return '';
+	const young = all.slice(0, 3).reduce((s, v) => s + v, 0);
+	const work  = all.slice(3, 13).reduce((s, v) => s + v, 0);
+	const old   = all.slice(13).reduce((s, v) => s + v, 0);
+	const W = 60;
+	const yw = (young / total * W).toFixed(1);
+	const ww = (work  / total * W).toFixed(1);
+	const ow = (old   / total * W).toFixed(1);
+	return `<svg width="${W}" height="8" style="vertical-align:middle;border-radius:2px;overflow:hidden">` +
+		`<rect x="0" y="0" width="${yw}" height="8" fill="#5a9"/>` +
+		`<rect x="${yw}" y="0" width="${ww}" height="8" fill="#579"/>` +
+		`<rect x="${+yw + +ww}" y="0" width="${ow}" height="8" fill="#a65"/>` +
+		'</svg>';
+}
+
+async function loadSmallAreas(code, bodyEl) {
+	bodyEl.innerHTML = '<span class="cs-sa-loading">読み込み中…</span>';
+	try {
+		const [pbfResult, popResult, pyrResult] = await Promise.allSettled([
+			estatGeopbf({ name: `${code}_${ESTAT_SURVEY}`, target: estatDlUrl(code) }),
+			fetchSmallAreaPop(code),
+			fetchSmallAreaPyramid(code),
+		]);
+
+		if (pbfResult.status === 'rejected') throw pbfResult.reason;
+		const pbf    = pbfResult.value;
+		const popMap = popResult.status === 'fulfilled' ? popResult.value : new Map();
+		const pyrMap = pyrResult.status === 'fulfilled' ? pyrResult.value : new Map();
+
+		const data = pbf.getPropertyTable();
+		if (!data?.length) { bodyEl.textContent = 'データなし'; return; }
+		const headers = data[0];
+		const rows    = data.slice(1);
+		const ki = headers.findIndex(h => /KEY_CODE/i.test(String(h)));
+		const ni = headers.findIndex(h => /S_NAME/i.test(String(h)));
+		if (ki < 0 || ni < 0) { bodyEl.textContent = 'カラム不明'; return; }
+
+		const seen = new Set();
+		const items = rows
+			.map(r => [String(r[ki]), String(r[ni])])
+			.filter(t => { if (seen.has(t[0])) return false; seen.add(t[0]); return true; })
+			.sort((a, b) => a[0] > b[0] ? 1 : -1);
+
+		const hasPop = popMap.size > 0;
+		const hasPyr = pyrMap.size > 0;
+		const esc    = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+		const csvHead = hasPop
+			? 'コード,名称,総人口,男,女'
+			: 'コード,名称';
+		const csvRows = items.map(([kc, nm]) => {
+			const p = popMap.get(kc);
+			return hasPop
+				? `${kc},"${nm.replace(/"/g, '""')}",${p?.total ?? ''},${p?.m ?? ''},${p?.f ?? ''}`
+				: `${kc},"${nm.replace(/"/g, '""')}"`;
+		});
+		const csvContent = '﻿' + csvHead + '\n' + csvRows.join('\n');
+
+		const thPop = hasPop ? '<th>人口</th>' : '';
+		const thPyr = hasPyr ? '<th>年齢構成</th>' : '';
+		const bodyHtml = items.map(([kc, nm], i) => {
+			const p   = popMap.get(kc);
+			const pyr = pyrMap.get(kc);
+			const tdPop = hasPop
+				? `<td class="cs-sa-pop">${p?.total ? p.total.toLocaleString() : '—'}</td>`
+				: '';
+			const tdPyr = hasPyr
+				? `<td class="cs-sa-bar">${pyr ? miniAgeBar(pyr.mAges, pyr.fAges) : ''}</td>`
+				: '';
+			return `<tr data-code="${esc(kc)}"${pyr ? ' class="has-pyr"' : ''}>` +
+				`<td>${i + 1}</td><td>${esc(kc)}</td><td>${esc(nm)}</td>${tdPop}${tdPyr}</tr>`;
+		}).join('');
+
+		bodyEl.innerHTML = `
+			<div class="cs-sa-toolbar">
+				<span class="cs-sa-count">${items.length}件</span>
+				${hasPyr ? '<span class="cs-sa-legend"><span class="cs-sa-l y"></span>年少 <span class="cs-sa-l w"></span>生産 <span class="cs-sa-l o"></span>老年</span>' : ''}
+				<button class="cs-sa-csv">CSV ↓</button>
+			</div>
+			<div class="cs-sa-scroll">
+				<table class="cs-sa-table">
+					<thead><tr><th>#</th><th>コード</th><th>名称</th>${thPop}${thPyr}</tr></thead>
+					<tbody>${bodyHtml}</tbody>
+				</table>
+			</div>
+			<div class="cs-sa-pyramid-wrap" id="cs-sa-pyramid" style="display:none"></div>`;
+
+		bodyEl.querySelector('.cs-sa-csv').addEventListener('click', () => {
+			const a = document.createElement('a');
+			a.href = URL.createObjectURL(new Blob([csvContent], { type: 'text/csv' }));
+			a.download = `${code}_小地域.csv`;
+			a.click();
+			setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+		});
+
+		if (hasPyr) {
+			const pyrWrap = bodyEl.querySelector('#cs-sa-pyramid');
+			let activeRow = null;
+			bodyEl.querySelector('tbody').addEventListener('click', e => {
+				const tr = e.target.closest('tr.has-pyr');
+				if (!tr) return;
+				if (tr === activeRow) {
+					tr.classList.remove('active');
+					pyrWrap.style.display = 'none';
+					activeRow = null;
+					return;
+				}
+				activeRow?.classList.remove('active');
+				tr.classList.add('active');
+				activeRow = tr;
+				const kc  = tr.dataset.code;
+				const nm  = items.find(([c]) => c === kc)?.[1] ?? kc;
+				const pyr = pyrMap.get(kc);
+				const p   = popMap.get(kc);
+				const popLine = p?.total
+					? `<span class="cs-sa-py-pop">人口 ${p.total.toLocaleString()}人（男 ${p.m.toLocaleString()} / 女 ${p.f.toLocaleString()}）</span>`
+					: '';
+				pyrWrap.style.display = '';
+				pyrWrap.innerHTML =
+					`<div class="cs-sa-py-name">${esc(nm)}${popLine}</div>` +
+					smallAreaPyramidSvg(pyr.mAges, pyr.fAges);
+			});
+		}
+	} catch (e) {
+		bodyEl.textContent = `エラー: ${e.message}`;
+	}
+}
+
 // 国勢調査詳細パネル
 function showCensusDetail(code, year) {
 	const entry = CENSUS_MANIFEST.find(e => e.code === code);
@@ -556,6 +806,8 @@ function showCensusDetail(code, year) {
 
 	const chartSvg = stat ? buildCensusChartSVG(stat, year) : null;
 
+	const hasSmallArea = ESTAT_CODE_SET.has(code);
+
 	const panel = document.getElementById('geo-preview') || document.createElement('div');
 	panel.classList.add('visible');
 	panel.innerHTML = `
@@ -567,9 +819,20 @@ function showCensusDetail(code, year) {
 			${popHtml}
 			${chartSvg ? `<div class="cs-section cs-svg-wrap">${chartSvg}</div>` : ''}
 			${!pop && !stat ? '<p style="padding:16px;color:#aaa">統計データなし</p>' : ''}
+			${hasSmallArea ? `
+			<div class="cs-section cs-sa-section">
+				<h3>小地域（町丁・字等） <span class="cs-year">2020年</span></h3>
+				<div class="cs-sa-body" id="cs-sa-body">
+					<button class="cs-sa-load">📋 一覧を読み込む</button>
+				</div>
+			</div>` : ''}
 		</div>
 	`;
 	panel.querySelector('.geo-preview-close').addEventListener('click', closeGeoPreview);
+	if (hasSmallArea) {
+		const bodyEl = panel.querySelector('#cs-sa-body');
+		panel.querySelector('.cs-sa-load').addEventListener('click', () => loadSmallAreas(code, bodyEl));
+	}
 	panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 
@@ -580,7 +843,7 @@ function renderMinistryList({
 	id, title, subtitle, cities, expanded,
 	getSearch, setSearch, itemHtml, groupFn,
 	toEntry, bulkByGroup, allEntries, downloadFn = null,
-	groupHeaderHtml = null,
+	groupHeaderHtml = null, onItemClick = null,
 }) {
 	const totalSize = cities.reduce((s, c) => s + (c.size || 0), 0);
 	const totalSizeLabel = totalSize
@@ -594,7 +857,7 @@ function renderMinistryList({
 						<h2>${title}</h2>
 						<p class="moj-subtitle">${subtitle}<span class="moj-total">${cities.length.toLocaleString()}市区町村</span>${totalSizeLabel}</p>
 					</div>
-					<button class="bulk-dl-btn" id="${id}-bulk-all">全国一括ダウンロード</button>
+					<button class="bulk-dl-btn" id="${id}-bulk-all">全国一括読込(→IDB)</button>
 				</div>
 				<input type="text" id="${id}-search" class="moj-search" placeholder="市区町村・都道府県を検索...">
 			</div>
@@ -615,11 +878,13 @@ function renderMinistryList({
 			if (downloadFn) bulkDownload(bulkByGroup(group), `${title} ${PREFS[group] || group}`, downloadFn);
 			else copyEntries(bulkByGroup(group), btn);
 		},
-		onItemClick:  e => {
+		onItemClick: e => {
 			const row = e.target.closest('.moj-city-item');
 			if (!row) return;
 			const city = cities.find(c => c.code === row.dataset.code);
-			if (city) copyEntries([toEntry(city)], null);
+			if (!city) return;
+			if (onItemClick) onItemClick(city);
+			else copyEntries([toEntry(city)], null);
 		},
 	});
 
@@ -628,32 +893,6 @@ function renderMinistryList({
 	});
 
 	render();
-}
-
-function buildMojDetail(cityCode) {
-	const entries = MOJ_CITIES.get(cityCode);
-	if (!entries?.length) return null;
-	const e0 = entries[0];
-	const cityName = e0.title
-		.replace(/（[^）]*）.*$/, '')
-		.replace(/\s*登記所備付地図.*$/, '')
-		.trim();
-	const year = parseInt((e0.filename?.match(/(\d{4})\.zip$/i) || [])[1] || 0) || null;
-	return {
-		dataset_code: cityCode,
-		title:        `${cityName} 登記所備付地図`,
-		license:      'CC BY 4.0',
-		page_url:     `https://www.geospatial.jp/ckan/dataset/${e0.packageName}`,
-		_source:      SOURCES_MAP['moj'],
-		attributes:   [],
-		files: entries.map(entry => ({
-			format:    'moj',
-			target:    entry.url,
-			scope:     '市区町村',
-			pref_code: cityCode.slice(0, 2),
-			year,
-		})),
-	};
 }
 
 // ============================================================
@@ -712,10 +951,10 @@ async function loadCatalog() {
 // サイドバーリスト描画
 // ============================================================
 const SOURCE_GROUP_LABELS = {
-	moj:   '法務省',
+	moj:   '法務省 G空間情報センター',
 	maff:  '農林水産省',
 	estat: '総務省 e-Stat',
-	nlftp: '国土交通省',
+	nlftp: '国土交通省 国土数値情報',
 };
 
 function dsItemHtml(ds) {
@@ -859,7 +1098,7 @@ function mojAllEntries() {
 }
 
 // ============================================================
-// 一括ダウンロード → IDB（並列 Worker）
+// 一括読込 → IDB（並列 Worker）
 // ============================================================
 let _dlActive = false;
 let _dlCancel = false;
@@ -976,7 +1215,7 @@ function openDlModal(label, total) {
 	el.innerHTML = `
 		<div class="dl-box">
 			<div class="dl-header">
-				<span class="dl-title">一括ダウンロード → IDB</span>
+				<span class="dl-title">一括読込 → IDB</span>
 				<span class="dl-label">${escHtml(label)}</span>
 			</div>
 			<div class="dl-bar-wrap"><div class="dl-bar-fill" id="dl-fill"></div></div>
@@ -1126,7 +1365,7 @@ function mojCityItemHtml(city) {
 		? `<span class="file-sz">${fmtBytes(city.size)} <span class="size-note">ZIP</span></span>`
 		: '';
 	return `
-		<div class="moj-city-item" data-code="${city.code}" title="クリックで IDB 保存">
+		<div class="moj-city-item" data-code="${city.code}" title="クリックで読込・描画">
 			<span class="moj-city-code">${city.code}</span>
 			<span class="moj-city-name">${escHtml(city.name)}<span class="area-tag">平面直角座標系:${city.area}</span></span>
 			<span class="moj-city-file">${fname}${extra}${sizeBadge}</span>
@@ -1153,7 +1392,7 @@ function renderMojList() {
 						<h2>法務省 登記所備付地図</h2>
 						<p class="moj-subtitle">登記所備付地図データ（14条地図）<span class="moj-total">${cities.length.toLocaleString()}市区町村</span>${totalSizeLabel}<span class="moj-fmt-note"><span class="badge fmt-geojson">GeoJSON</span>${MOJ_GEOJSON_MAP.size.toLocaleString()}市区町村 / <span class="badge fmt-moj">MOJ</span>残り</span></p>
 					</div>
-					<button class="bulk-dl-btn" id="moj-bulk-all">全国一括ダウンロード</button>
+					<button class="bulk-dl-btn" id="moj-bulk-all">全国一括読込(→IDB)</button>
 				</div>
 				<input type="text" id="moj-search" class="moj-search" placeholder="市区町村・都道府県を検索..." value="${escHtml(mojListSearch)}">
 			</div>
@@ -1169,8 +1408,8 @@ function renderMojList() {
 			const item = e.target.closest('.moj-city-item');
 			if (!item) return;
 			const entries = mojCityEntries(item.dataset.code);
-			const city = cities.find(c => c.code === item.dataset.code);
-			bulkDownload(entries, city?.name || item.dataset.code);
+			if (!entries.length) return;
+			renderExecView(entries[0], () => { history.replaceState(null, '', '#moj'); renderMojList(); });
 		},
 		groupHeaderHtml: (_key, _name, items) => {
 			const areas = [...new Set(items.map(c => c.area))].sort((a, b) => a - b);
@@ -1237,7 +1476,7 @@ function renderGroupedCities(cities, containerId, expandedSet, itemHtml, {
 					<span class="pref-name">${escHtml(groupName)}</span>
 					${extraHtml}
 					<span class="cnt">${matched.length}</span>
-					<button class="pref-bulk-btn" data-group="${escHtml(key)}">一括ダウンロード</button>
+					<button class="pref-bulk-btn" data-group="${escHtml(key)}">一括読込(→IDB)</button>
 				</div>
 				<div class="pref-cities${isExpanded ? '' : ' hidden'}">
 					${matched.map(c => itemHtml(c)).join('')}
@@ -1574,28 +1813,11 @@ document.getElementById('detail').addEventListener('click', async e => {
 		return;
 	}
 
-	// ファイル行クリック → プレビューパネル
+	// ファイル行クリック → Exec ビュー
 	const row = e.target.closest('.file-row');
 	if (row?.dataset.entry) {
 		const entry = JSON.parse(row.dataset.entry);
-		showGeoPreview(entry);
-		return;
-	}
-
-	// プレビューパネル内のアクションボタン
-	if (e.target.classList.contains('preview-copy-btn')) {
-		const entry = JSON.parse(e.target.dataset.entry);
-		try { await navigator.clipboard.writeText(JSON.stringify(entry, null, 2)); } catch {}
-		showToast(entry.name || entry.target);
-		return;
-	}
-	if (e.target.classList.contains('preview-dl-btn')) {
-		const entry = JSON.parse(e.target.dataset.entry);
-		bulkDownload([entry], entry.name);
-		return;
-	}
-	if (e.target.classList.contains('preview-render-btn')) {
-		if (_currentPbf) execGlobeView(_currentPbf);
+		renderExecView(entry, () => renderDetail(currentDs));
 		return;
 	}
 });
@@ -1674,7 +1896,7 @@ function placeholder() {
 			min:   '総務省',
 			label: '統計 GIS・国勢調査',
 			cnt:   ESTAT_MANIFEST.length + CENSUS_MANIFEST.length,
-			unit:  `市区町村（小地域境界 + 国勢調査 3 年分）`,
+			unit:  `市区町村（小地域境界 + 国勢調査 3施行分）`,
 			desc:  '小地域境界 Shapefile（e-Stat）と 2015/2020/2025 年 国勢調査の人口・世帯・産業別集計',
 		},
 		{
@@ -1714,7 +1936,7 @@ function placeholder() {
 					<img class="ph-logo" src="favicon.svg" alt="">
 					<div class="ph-title">GIS-HUB-jp 🇯🇵</div>
 				</div>
-				<div class="ph-sub">GeoPBF を使用して、国が公開するGISデータを地図に描画します。</div>
+				<div class="ph-sub">GeoPBF を使用して、国が公開するGISデータを直接地図に描画します。</div>
 				<div class="ph-hero-link">
 					<a href="/gishub" target="_blank" rel="noopener">→ GIS-HUB（グローバル版）</a>
 					<a href="https://github.com/kenjiyoshidahome2026-bit/ortho-earth" target="_blank" rel="noopener" class="ph-github-link">
@@ -1832,71 +2054,108 @@ window.addEventListener('hashchange', () => {
 });
 
 // ============================================================
-// GEO プレビューパネル
-// ============================================================
-let _previewLoading = false;
+function showPropTable(pbf, logEl, tablesEl, actionEl) {
+    const PAGE = 100;
+    const data = pbf.getPropertyTable();
+    if (!data?.length) { return; }
+    const headers = data[0];
+    const rows = data.slice(1);
+    const pages = Math.ceil(rows.length / PAGE) || 1;
+    let page = 0;
+    const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const cut = s => { const t = String(s); return esc(t.length > 20 ? t.slice(0, 19) + ' …' : t); };
 
-function _previewActions(entry) {
-	const entryJson = escHtml(JSON.stringify(entry));
-	return `
-		<div class="preview-actions">
-			<button class="preview-copy-btn"   data-entry="${entryJson}">→ コピー</button>
-			<button class="preview-dl-btn"     data-entry="${entryJson}">↓ IDB保存</button>
-			<button class="preview-render-btn" data-entry="${entryJson}">🌍 描画</button>
-		</div>
-	`;
+    logEl.hide();
+    actionEl.hide();
+    tablesEl.show().html(
+        `<div class="exec-prop-header"><h2>${esc(pbf._name || '')}<span>${esc(pbf._description || '')}</span></h2><div class="exec-prop-btns"></div></div>` +
+        `<div class="exec-prop-table"><table><thead><tr>${headers.map(h => `<th>${esc(String(h))}</th>`).join('')}</tr></thead><tbody></tbody></table></div>`
+    );
+    const tbody = tablesEl.select('tbody');
+    const btnRow = tablesEl.select('.exec-prop-btns');
+
+    const renderPage = () => {
+        tbody.html(rows.slice(page * PAGE, (page + 1) * PAGE)
+            .map(row => `<tr>${row.map(c => `<td>${cut(c)}</td>`).join('')}</tr>`).join(''));
+        tablesEl.select('.exec-prop-table').node().scrollTop = 0;
+    };
+    renderPage();
+
+    if (pages > 1) {
+        btnRow.append('button').text('◀').on('click', () => { if (page > 0) { page--; pageInfo.text(`${page+1} / ${pages}`); renderPage(); } });
+        const pageInfo = btnRow.append('span').classed('exec-page-info', true).text(`1 / ${pages}`);
+        btnRow.append('button').text('▶').on('click', () => { if (page < pages-1) { page++; pageInfo.text(`${page+1} / ${pages}`); renderPage(); } });
+    }
+    const saveProp = async s => { if (!s) return; const v = await saveTo(s); if (v) {} };
+    btnRow.append('button').text('📥 CSV').on('click', () =>
+        saveProp(new File([pbf.getCSV()], (pbf._name || 'data') + '.csv', { type: 'text/csv' })));
+    btnRow.append('button').text('📥 Excel').on('click', async () => {
+        window.XLSX || await import('https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js');
+        const wb = window.XLSX.read(pbf.getCSV(), { type: 'string', raw: true });
+        const buf = window.XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+        saveProp(new File([buf], (pbf._name || 'data') + '.xlsx', { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+    });
+    btnRow.append('button').text('✕ 閉じる').on('click', () => { tablesEl.hide().html(''); logEl.show(); actionEl.show(); });
 }
 
-async function showGeoPreview(entry) {
-	if (_previewLoading) return;
-
-	const panel = document.getElementById('geo-preview');
-	panel.classList.add('visible');
-	panel.innerHTML = `
-		<div class="geo-preview-header">
-			<span class="geo-preview-label">⏳ ${escHtml(entry.name)} を読み込み中...</span>
-			<button class="geo-preview-close">✕</button>
+// ============================================================
+// Exec ビュー（全省庁共通）― gishub と同じ画面
+// ============================================================
+function renderExecView(entry, onBack = null, geopbfFn = null) {
+	closeGeoPreview();
+	setDetailHtml(`
+		<div class="detail-inner">
+			<div id="exec-action"></div>
+			<div id="exec-log"></div>
+			<div id="exec-tables"></div>
 		</div>
-	`;
-	panel.querySelector('.geo-preview-close').addEventListener('click', closeGeoPreview);
+	`);
 
-	_previewLoading = true;
+	const actionEl  = d3select('#exec-action');
+	const logEl     = d3select('#exec-log');
+	const tablesEl  = d3select('#exec-tables').hide();
+	const logger    = new screenLogger(logEl);
 
-	try {
-		await geoExec(entry, {
-			geopbf,
-			onSuccess(pbf, { previewCanvas, profileHtml }) {
-				_currentPbf = pbf;
-				panel.innerHTML = `
-					<div class="geo-preview-header">
-						<span class="geo-preview-label">${escHtml(entry.name)}</span>
-						<button class="geo-preview-close">✕</button>
-					</div>
-					<div class="geo-preview-body">
-						<div class="geo-preview-canvas"></div>
-						<div class="geo-preview-profile">${profileHtml}</div>
-					</div>
-					${_previewActions(entry)}
-				`;
-				panel.querySelector('.geo-preview-canvas').appendChild(previewCanvas);
-				panel.querySelector('.geo-preview-close').addEventListener('click', closeGeoPreview);
-				panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-				execGlobeView(pbf);
-			},
-			onError(err) {
-				panel.innerHTML = `
-					<div class="geo-preview-header">
-						<span class="geo-preview-label" style="color:#f08040">❌ ${escHtml(err?.message || 'ロードエラー')}</span>
-						<button class="geo-preview-close">✕</button>
-					</div>
-					${_previewActions(entry)}
-				`;
-				panel.querySelector('.geo-preview-close').addEventListener('click', closeGeoPreview);
-			},
-		});
-	} finally {
-		_previewLoading = false;
-	}
+	geoExec(entry, {
+		geopbf: geopbfFn || geopbf,
+		logger,
+		async onSuccess(pbf) {
+			_currentPbf = pbf;
+
+			actionEl.html('');
+			const p = actionEl.append('div').classed('exec-action-row', true);
+			p.append('button').classed('accent', true).text('🌍 地図に描画').on('click', () => execGlobeView(pbf));
+			p.append('button').text('🏷️ 属性の一覧').on('click', () => showPropTable(pbf, logEl, tablesEl, actionEl));
+			p.append('button').text('🔄 再読み込み').on('click', () => renderExecView({ ...entry, nocache: true }, onBack));
+			p.append('button').text('← 一覧に戻る').on('click', () => { _currentPbf = null; onBack?.(); });
+
+			const q = logger.empty();
+			q.append('span').text('📥 [DOWNLOAD]').classed('big', true);
+			const save = async s => {
+				if (!s) return;
+				if (await saveTo(s)) logger.log(`📥 Saved: ${s.name} (${comma(s.size)} bytes)`);
+			};
+			const active = v => logEl.selectAll('button').attr('disabled', v ? null : true);
+			const fmts = [
+				{ name: 'GeoPBF',  fn: () => pbf.geopbfFile() },
+				{ name: 'GeoJSON', fn: async () => pbf.geojsonFile({ gz: await logger.confirm('GeoJSON Gzipped', false) }) },
+				{ name: 'FGB',     fn: async () => pbf.fgbFile({ gz: await logger.confirm('FGB Gzipped', false) }) },
+				{ name: 'Shape',   fn: async () => pbf.shapeFile({ encoding: await logger.prompt('encoding (default: utf8)', 'utf8') }) },
+				{ name: 'KMZ',     fn: async () => pbf.kmzFile({ kmz: await logger.select('KMZ or KML', { KMZ: true, KML: false }) }) },
+				{ name: 'GML',     fn: async () => pbf.gmlFile({ gz: await logger.confirm('GML Gzipped', false) }) },
+				{ name: 'GPX',     fn: async () => pbf.gpxFile({ gz: await logger.confirm('GPX Gzipped', false) }) },
+			];
+			fmts.forEach(f => q.append('button')
+				.classed('accent', f.name === 'GeoPBF')
+				.text(f.name)
+				.on('click', async () => {
+					active(false);
+					if (await openDirectory()) await save(await f.fn());
+					active(true);
+				}));
+		},
+		onError() {},
+	});
 }
 
 function closeGeoPreview() {

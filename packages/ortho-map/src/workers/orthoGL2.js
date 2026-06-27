@@ -8,7 +8,7 @@ export function orthoGL2(gl, dpr) {
 		in vec2 position;
 		void main() { gl_Position = vec4(position, 0.0, 1.0); }`;
 	const baseFs = `#version 300 es
-		precision mediump float;
+		precision highp float;
 		uniform sampler2D u_image;
 		uniform vec2 translate;
 		uniform float scale;

@@ -1,12 +1,14 @@
-# Ortho Earth
+<h1><img src="apps/www/public/favicon.svg" width="28" height="28" alt="Ortho Earth logo"> Ortho Earth</h1>
 
 High-performance orthographic map engine and GIS workstation, running entirely in the browser.
 
+![Ortho Earth hero](assets/hero.png)
+
 **top page:** [www.ortho-earth.com](https://www.ortho-earth.com)
 
-**technical documents:**  [www.ortho-earth.com/docs](https://www.ortho-earth.com/docs/)
-
 **GIS-HUB(apps):**  [www.ortho-earth.com/gishub](https://www.ortho-earth.com/gishub/)
+
+**technical documents:**  [www.ortho-earth.com/docs](https://www.ortho-earth.com/docs/)
 
 ## Contributors & Acknowledgments
 
