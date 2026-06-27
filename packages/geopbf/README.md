@@ -72,6 +72,12 @@ To ensure a fluid user experience, all intensive decoding and processing are han
 
 ---
 
+## Related
+
+[gdal-geopbf](https://github.com/kenjiyoshidahome2026-bit/gdal-geopbf) — GDAL/OGR driver
+
+---
+
 ## 📄 License
 
 ```text
