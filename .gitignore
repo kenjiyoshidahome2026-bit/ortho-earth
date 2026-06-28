@@ -22,3 +22,4 @@ project_summary.md
 dust-box/
 .claude/worktrees/
 
+packages/gdal-geopbf/
