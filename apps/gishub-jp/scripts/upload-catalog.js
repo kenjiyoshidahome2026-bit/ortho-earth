@@ -16,7 +16,7 @@
 import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
-import { Bucket } from '../../packages/native-bucket/src/Bucket.js';
+import { Bucket } from '../../../packages/native-bucket/src/Bucket.js';
 import xlsx from 'xlsx';
 import { pool } from './pool.js';
 const __dir = dirname(fileURLToPath(import.meta.url));
@@ -301,9 +301,9 @@ async function main() {
 				dataset_code: ds.dataset_code,
 				title:        ds.title,
 				license:      ds.license,
-				license_raw:  ds.license_raw,
 				page_url:     ds.page_url,
 				attributes:   ds.attributes,
+				codelist:     ds.codelist,
 				files,
 			},
 			index: {
@@ -312,29 +312,13 @@ async function main() {
 				license:      ds.license,
 				formats,
 				file_count:   files.length,
-				attr_count:   ds.attributes.length,
+				attr_count:   Object.keys(ds.attributes || {}).length,
 			},
 		};
 	});
 
 	// index.json
 	const indexData = datasets.map(d => d.index);
-
-	// --- コードリスト一括取得 ---
-	const clCache = DRY_RUN ? new Map() : await fetchAllCodelists(catalog);
-
-	// 属性の codelist を URL → パース済み配列 に置換
-	// AdminiBoundary_CD は5桁コードをそのまま使用するため配列展開しない
-	const ADMIN_BOUNDARY_URL = 'https://nlftp.mlit.go.jp/ksj/gml/codelist/AdminiBoundary_CD.xlsx';
-	for (const { detail } of datasets) {
-		for (const a of detail.attributes || []) {
-			if (!a.codelist) continue;
-			if (a.codelist === ADMIN_BOUNDARY_URL) { a.codelist = 'admin-boundary'; continue; }
-			const parsed = clCache.get(a.codelist);
-			a.codelist = parsed || undefined; // nullの場合は削除
-			if (a.codelist === undefined) delete a.codelist;
-		}
-	}
 
 	console.log(`データセット数: ${datasets.length}`);
 	console.log(`GISファイル数: ${csvRows.length}`);
@@ -347,7 +331,8 @@ async function main() {
 		console.log('index.json サンプル:', JSON.stringify(indexData.slice(0, 2), null, 2));
 		const sample = datasets[0].detail;
 		console.log(`\n${sample.dataset_code}.json サンプル (files先頭3件):`, JSON.stringify({
-			...sample, files: sample.files.slice(0, 3), attributes: sample.attributes.slice(0, 2)
+			...sample, files: sample.files.slice(0, 3),
+			attributes: Object.fromEntries(Object.entries(sample.attributes || {}).slice(0, 3)),
 		}, null, 2));
 		return;
 	}
