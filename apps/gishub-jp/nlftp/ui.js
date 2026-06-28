@@ -314,7 +314,15 @@ async function _showAdminBoundaryPopup(btn) {
         try {
             const res = await fetch(`${API_BASE}/bucket/${NLFTP_SOURCE.bucket}/admin-boundary.csv`);
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
-            const text = await res.text();
+            const buf  = await res.arrayBuffer();
+            const head = new Uint8Array(buf, 0, 2);
+            let text;
+            if (head[0] === 0x1f && head[1] === 0x8b) {
+                const stream = new DecompressionStream('gzip');
+                text = await new Response(new Blob([buf]).stream().pipeThrough(stream)).text();
+            } else {
+                text = new TextDecoder().decode(buf);
+            }
             const lines = text.trim().split(/\r?\n/).slice(1); // skip header
             _adminBoundaryRows = lines.map(line => {
                 const cols = line.split(',');
