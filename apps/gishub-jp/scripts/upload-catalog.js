@@ -170,14 +170,32 @@ async function fetchAllCodelists(catalog) {
 				entries = parseCodelistXlsx(buf);
 			} else {
 				const buf = Buffer.from(await res.arrayBuffer());
-				// UTF-8 BOM (EF BB BF) が付いているファイルは Shift_JIS メタタグを無視して UTF-8 として読む
+				// 文字コード判定: BOM → UTF-8確定、なければmeta/Content-Type → 最終手段はバイト列判定
 				const hasBom = buf[0] === 0xEF && buf[1] === 0xBB && buf[2] === 0xBF;
 				let encoding = 'utf-8';
 				if (!hasBom) {
-					const head = buf.slice(0, 1024).toString('latin1');
-					const metaMatch = head.match(/charset=[\"']?([^\"';\s>]+)/i);
-					const charset = metaMatch ? metaMatch[1] : (res.headers.get('content-type') || '');
-					if (/shift.?jis/i.test(charset)) encoding = 'shift-jis';
+					// 優先順位: HTTPヘッダー > meta charset > バイト列判定
+					const ctCharset = (res.headers.get('content-type') || '').match(/charset=([^\s;]+)/i)?.[1] || '';
+					if (/shift.?jis/i.test(ctCharset)) {
+						encoding = 'shift-jis';
+					} else if (/utf-?8/i.test(ctCharset)) {
+						encoding = 'utf-8'; // HTTPヘッダーでUTF-8確定 → meta charsetは無視
+					} else {
+						// HTTPヘッダーにcharset宣言なし → meta charsetを参照
+						const head = buf.slice(0, 2048).toString('latin1');
+						const metaCharset = head.match(/charset=[\"']?([^\"';\s>]+)/i)?.[1] || '';
+						if (/shift.?jis/i.test(metaCharset)) {
+							encoding = 'shift-jis';
+						} else if (!/utf-?8/i.test(metaCharset)) {
+							// 宣言なし: Shift-JIS 特有バイト(0x81-0x9F, 0xE0-0xFC)の出現率で判定
+							let sjisScore = 0;
+							for (let i = 0; i < Math.min(buf.length - 1, 4096); i++) {
+								const b = buf[i];
+								if ((b >= 0x81 && b <= 0x9F) || (b >= 0xE0 && b <= 0xFC)) sjisScore++;
+							}
+							if (sjisScore > 10) encoding = 'shift-jis';
+						}
+					}
 				}
 				const text = new TextDecoder(encoding).decode(buf);
 				entries = parseCodelistHtml(text);
@@ -306,9 +324,12 @@ async function main() {
 	const clCache = DRY_RUN ? new Map() : await fetchAllCodelists(catalog);
 
 	// 属性の codelist を URL → パース済み配列 に置換
+	// AdminiBoundary_CD は5桁コードをそのまま使用するため配列展開しない
+	const ADMIN_BOUNDARY_URL = 'https://nlftp.mlit.go.jp/ksj/gml/codelist/AdminiBoundary_CD.xlsx';
 	for (const { detail } of datasets) {
 		for (const a of detail.attributes || []) {
 			if (!a.codelist) continue;
+			if (a.codelist === ADMIN_BOUNDARY_URL) { a.codelist = 'admin-boundary'; continue; }
 			const parsed = clCache.get(a.codelist);
 			a.codelist = parsed || undefined; // nullの場合は削除
 			if (a.codelist === undefined) delete a.codelist;

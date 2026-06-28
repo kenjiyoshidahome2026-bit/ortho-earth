@@ -32,6 +32,8 @@ export function renderDetail(ds, showBack = false) {
                                 <td>${a.label}</td>
                                 <td>${Array.isArray(a.codelist)
                                     ? `<button class="codelist-btn" data-cl-idx="${i}">参照</button>`
+                                    : a.codelist === 'admin-boundary'
+                                    ? `<span class="admin-boundary-badge">行政区域コード</span>`
                                     : '—'}</td>
                             </tr>
                         `).join('')}
