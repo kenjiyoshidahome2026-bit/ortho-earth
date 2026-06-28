@@ -198,7 +198,7 @@ function _renderFiles(ds) {
                     ${years.length > 1   ? `<select class="file-filter" id="ff-year">${yearOpts}</select>` : ''}
                     ${formats.length > 1 ? `<select class="file-filter" id="ff-fmt">${fmtOpts}</select>`  : ''}
                     ${prefOpts}
-                    <button class="bulk-dl-btn" id="files-dl-all">一括↓IDB</button>
+                    ${allFiles.length > 1 ? `<button class="bulk-dl-btn" id="files-dl-all">一括↓IDB</button>` : ''}
                 </div>
                 <div class="file-list">
                     <div class="file-list-header">
