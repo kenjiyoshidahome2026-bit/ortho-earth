@@ -1025,6 +1025,55 @@ button { cursor: pointer; font-family: $font; }
 }
 
 
+// 行政区域コードポップアップ（拡張）
+.ab-popup {
+    width: 420px;
+
+    .ab-title { color: $hi; font-weight: 600; }
+
+    .ab-filters {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 10px;
+        background: #0d0d0d;
+        border-bottom: 1px solid #2a2a2a;
+        flex-wrap: wrap;
+    }
+    .ab-pref-sel {
+        flex: 1;
+        min-width: 120px;
+        background: $deep;
+        color: $text;
+        border: 1px solid #333;
+        border-radius: 3px;
+        padding: 3px 6px;
+        font-size: 11px;
+    }
+    .ab-obsolete-label {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        font-size: 11px;
+        color: $mid;
+        white-space: nowrap;
+        cursor: pointer;
+    }
+    .ab-search {
+        flex: 1;
+        min-width: 100px;
+        background: $deep;
+        color: $text;
+        border: 1px solid #333;
+        border-radius: 3px;
+        padding: 3px 6px;
+        font-size: 11px;
+        &::placeholder { color: #555; }
+    }
+    .cl-body { max-height: 420px; }
+    .ab-obsolete td { color: #555; text-decoration: line-through; }
+}
+
 // ============================================================
 // 法務省市区町村リスト（メインパネル）
 // ============================================================

@@ -36,7 +36,7 @@ export function renderDetail(ds, showBack = false) {
                         ${attrEntries.map(([code, label], i) => {
                             const cl = getCodelist(code, i);
                             const clCell = cl === 'admin-boundary'
-                                ? `<span class="admin-boundary-badge">行政区域コード</span>`
+                                ? `<button class="codelist-btn admin-boundary-btn">行政区域コード</button>`
                                 : cl && typeof cl === 'object'
                                 ? `<button class="codelist-btn" data-cl-code="${escHtml(code)}" data-cl-idx="${i}">参照</button>`
                                 : '—';
@@ -115,6 +115,10 @@ export function initDetailEventListeners() {
         if (title) { title.parentElement.classList.toggle('collapsed'); return; }
 
         if (e.target.classList.contains('codelist-btn')) {
+            if (e.target.classList.contains('admin-boundary-btn')) {
+                _showAdminBoundaryPopup(e.target);
+                return;
+            }
             const attrs = _currentDs.attributes || {};
             let cl;
             if (Array.isArray(attrs)) {
@@ -292,6 +296,100 @@ function _showCodelistPopup(entries, btn) {
     let top  = rect.bottom + 4; if (top + 340 > window.innerHeight) top = rect.top - 340;
     popup.style.left = `${left}px`;
     popup.style.top  = `${top}px`;
+
+    const close = e => { if (!popup.contains(e.target) && e.target !== btn) { popup.remove(); document.removeEventListener('click', close, true); } };
+    setTimeout(() => document.addEventListener('click', close, true), 0);
+}
+
+// --- 行政区域コードポップアップ ---
+let _adminBoundaryRows = null; // キャッシュ
+
+async function _showAdminBoundaryPopup(btn) {
+    document.querySelectorAll('.codelist-popup').forEach(el => el.remove());
+
+    if (!_adminBoundaryRows) {
+        btn.disabled = true;
+        btn.textContent = '読み込み中...';
+        try {
+            const res = await fetch('/catalog/admin-boundary.csv');
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const text = await res.text();
+            const lines = text.trim().split('\n').slice(1); // skip header
+            _adminBoundaryRows = lines.map(line => {
+                const cols = line.split(',');
+                return { code: cols[0], pref: cols[1], city: cols[2], status: cols[5] };
+            });
+        } catch (e) {
+            btn.disabled = false;
+            btn.textContent = '行政区域コード';
+            alert('読み込みエラー: ' + e.message);
+            return;
+        }
+        btn.disabled = false;
+        btn.textContent = '行政区域コード';
+    }
+
+    const prefs = [...new Set(_adminBoundaryRows.map(r => r.pref).filter(Boolean))];
+
+    const popup = document.createElement('div');
+    popup.className = 'codelist-popup ab-popup';
+    popup.innerHTML = `
+        <div class="cl-header">
+            <span class="ab-title">行政区域コード</span>
+            <button class="cl-close" onclick="this.closest('.codelist-popup').remove()">✕</button>
+        </div>
+        <div class="ab-filters">
+            <select class="ab-pref-sel">
+                <option value="">都道府県: すべて</option>
+                ${prefs.map(p => `<option value="${escHtml(p)}">${escHtml(p)}</option>`).join('')}
+            </select>
+            <label class="ab-obsolete-label">
+                <input type="checkbox" class="ab-obsolete-chk"> 欠番含む
+            </label>
+            <input type="text" class="ab-search" placeholder="コード・名称で検索">
+        </div>
+        <div class="cl-body">
+            <table>
+                <thead><tr><th>コード</th><th>都道府県</th><th>市区町村</th></tr></thead>
+                <tbody class="ab-tbody"></tbody>
+            </table>
+        </div>`;
+
+    document.body.appendChild(popup);
+
+    // 位置
+    const rect = btn.getBoundingClientRect();
+    const pw = 420;
+    let left = rect.right - pw; if (left < 4) left = 4;
+    let top  = rect.bottom + 4; if (top + 480 > window.innerHeight) top = rect.top - 480;
+    popup.style.left = `${left}px`;
+    popup.style.top  = `${top}px`;
+
+    const tbody = popup.querySelector('.ab-tbody');
+    const prefSel = popup.querySelector('.ab-pref-sel');
+    const obsoleteChk = popup.querySelector('.ab-obsolete-chk');
+    const searchInput = popup.querySelector('.ab-search');
+
+    function render() {
+        const pref    = prefSel.value;
+        const showObs = obsoleteChk.checked;
+        const q       = searchInput.value.trim().toLowerCase();
+        const rows    = _adminBoundaryRows.filter(r => {
+            if (!showObs && r.status === '欠番') return false;
+            if (pref && r.pref !== pref) return false;
+            if (q && !r.code.includes(q) && !r.pref.toLowerCase().includes(q) && !r.city.toLowerCase().includes(q)) return false;
+            return true;
+        });
+        tbody.innerHTML = rows.map(r => {
+            const cls = r.status === '欠番' ? ' class="ab-obsolete"' : '';
+            return `<tr${cls}><td class="mono">${r.code}</td><td>${escHtml(r.pref)}</td><td>${escHtml(r.city)}</td></tr>`;
+        }).join('');
+    }
+
+    prefSel.addEventListener('change', render);
+    obsoleteChk.addEventListener('change', render);
+    searchInput.addEventListener('input', render);
+    render();
 
     const close = e => { if (!popup.contains(e.target) && e.target !== btn) { popup.remove(); document.removeEventListener('click', close, true); } };
     setTimeout(() => document.addEventListener('click', close, true), 0);

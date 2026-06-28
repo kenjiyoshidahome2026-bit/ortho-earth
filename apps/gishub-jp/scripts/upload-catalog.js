@@ -348,6 +348,15 @@ async function main() {
 	await bucket.put('index.json', await jsonBlob(indexData));
 	console.log('✓');
 
+	// --- admin-boundary.csv アップロード ---
+	const abCsvPath = join(__dir, 'admin-boundary.csv');
+	if (existsSync(abCsvPath)) {
+		process.stdout.write('admin-boundary.csv をアップロード中... ');
+		const csvData = readFileSync(abCsvPath);
+		await bucket.put('admin-boundary.csv', new Blob([csvData], { type: 'text/csv;charset=utf-8' }));
+		console.log('✓');
+	}
+
 	// --- per-dataset JSON アップロード（並列） ---
 	let done = 0;
 	const total = datasets.length;
