@@ -14,7 +14,15 @@ export function renderDetail(ds, showBack = false) {
 
     const backHtml = showBack ? `<button class="back-btn" id="back-to-moj">← 一覧に戻る</button>` : '';
 
-    const attrEntries = Object.entries(ds.attributes || {});
+    // 旧形式(array)と新形式(object)の両方に対応
+    const attrs = ds.attributes || {};
+    const attrEntries = Array.isArray(attrs)
+        ? attrs.map(a => [a.code, a.label])
+        : Object.entries(attrs);
+    const getCodelist = Array.isArray(attrs)
+        ? (code, i) => { const a = attrs[i]; return Array.isArray(a?.codelist) ? a.codelist : null; }
+        : (code) => ds.codelist?.[code] ?? null;
+
     const attrHtml = attrEntries.length ? `
         <section class="detail-section">
             <h3 class="section-title">
@@ -25,12 +33,12 @@ export function renderDetail(ds, showBack = false) {
                 <table class="attr-table">
                     <thead><tr><th>コード</th><th>ラベル</th><th>コードリスト</th></tr></thead>
                     <tbody>
-                        ${attrEntries.map(([code, label]) => {
-                            const cl = ds.codelist?.[code];
+                        ${attrEntries.map(([code, label], i) => {
+                            const cl = getCodelist(code, i);
                             const clCell = cl === 'admin-boundary'
                                 ? `<span class="admin-boundary-badge">行政区域コード</span>`
                                 : cl && typeof cl === 'object'
-                                ? `<button class="codelist-btn" data-cl-code="${escHtml(code)}">参照</button>`
+                                ? `<button class="codelist-btn" data-cl-code="${escHtml(code)}" data-cl-idx="${i}">参照</button>`
                                 : '—';
                             return `<tr><td class="mono">${code}</td><td>${label}</td><td>${clCell}</td></tr>`;
                         }).join('')}
@@ -107,9 +115,16 @@ export function initDetailEventListeners() {
         if (title) { title.parentElement.classList.toggle('collapsed'); return; }
 
         if (e.target.classList.contains('codelist-btn')) {
-            const cl = _currentDs.codelist?.[e.target.dataset.clCode] || {};
-            const entries = Object.entries(cl).map(([c, l]) => ({ code: c, label: l }));
-            _showCodelistPopup(entries, e.target);
+            const attrs = _currentDs.attributes || {};
+            let cl;
+            if (Array.isArray(attrs)) {
+                cl = attrs[parseInt(e.target.dataset.clIdx)]?.codelist || [];
+                const entries = Array.isArray(cl) ? cl : Object.entries(cl).map(([c,l])=>({code:c,label:l}));
+                _showCodelistPopup(entries, e.target);
+            } else {
+                cl = _currentDs.codelist?.[e.target.dataset.clCode] || {};
+                _showCodelistPopup(Object.entries(cl).map(([c,l])=>({code:c,label:l})), e.target);
+            }
             return;
         }
 
