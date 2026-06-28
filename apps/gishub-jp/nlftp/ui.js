@@ -148,7 +148,7 @@ export function initDetailEventListeners() {
         const row = e.target.closest('.file-row');
         if (row?.dataset.entry) {
             const entry = JSON.parse(row.dataset.entry);
-            ctx.renderExecView(entry, () => renderDetail(_currentDs));
+            ctx.renderExecView(entry, () => renderDetail(_currentDs), null, _currentDs);
             return;
         }
     });

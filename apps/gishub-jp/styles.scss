@@ -1023,6 +1023,39 @@ button { cursor: pointer; font-family: $font; }
 }
 
 
+// 地図 tip/pop（カタログ属性表示）
+.cat-tip-label { color: #888; font-size: 10px; }
+.cat-tip-code  { color: #666; font-size: 10px; }
+
+.cat-pop-title {
+    font-size: 11px;
+    font-weight: 600;
+    color: $accent;
+    padding: 4px 8px 6px;
+    border-bottom: 1px solid #2a2a2a;
+    margin-bottom: 2px;
+}
+.cat-pop-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 11px;
+    .cat-pop-key {
+        color: #888;
+        padding: 3px 10px 3px 8px;
+        vertical-align: top;
+        white-space: nowrap;
+        max-width: 120px;
+    }
+    .cat-pop-val {
+        color: $text;
+        padding: 3px 8px 3px 0;
+        word-break: break-all;
+    }
+    .cat-pop-code { color: #666; font-size: 10px; }
+    .cat-pop-note { color: #555; font-size: 10px; }
+    tr:not(:last-child) td { border-bottom: 1px solid #1a1a1a; }
+}
+
 // 行政区域コードポップアップ（拡張）
 .ab-popup {
     width: 420px;

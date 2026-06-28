@@ -12,7 +12,7 @@ export function closeGeoPreview() {
     panel.innerHTML = '';
 }
 
-export function renderExecView(entry, onBack = null, geopbfFn = null) {
+export function renderExecView(entry, onBack = null, geopbfFn = null, ds = null) {
     closeGeoPreview();
     ctx.setDetailHtml(`
         <div class="detail-inner">
@@ -33,7 +33,7 @@ export function renderExecView(entry, onBack = null, geopbfFn = null) {
         async onSuccess(pbf) {
             actionEl.html('');
             const p = actionEl.append('div').classed('exec-action-row', true);
-            p.append('button').classed('accent', true).text('🌍 地図に描画').on('click', () => execGlobeView(pbf));
+            p.append('button').classed('accent', true).text('🌍 地図に描画').on('click', () => execGlobeView(pbf, ds));
             p.append('button').text('🏷️ 属性の一覧').on('click', () => showPropTable(pbf, logEl, tablesEl, actionEl));
             p.append('button').text('🔄 再読み込み').on('click', () => renderExecView({ ...entry, nocache: true }, onBack));
             p.append('button').text('← 一覧に戻る').on('click', () => { onBack?.(); });
