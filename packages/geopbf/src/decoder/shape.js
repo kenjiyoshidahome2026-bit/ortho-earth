@@ -137,12 +137,14 @@ class SHP {
 }
 onmessage = async (e) => {
 	try {
-		const { file, encoding, precision } = e.data;
+		const { file, encoding, precision, shpTarget } = e.data;
 		const name = file.name.replace(/\.[^\.]+$/, "");
 		const entries = await decodeZIP(file);
 		if (!entries) { postMessage(null); return; }
 		const keySet = new Set();
-		const shpFiles = entries.filter(t => t.name.match(/\.shp$/i));
+		const shpFiles = shpTarget
+			? entries.filter(t => t.name.endsWith(shpTarget))
+			: entries.filter(t => t.name.match(/\.shp$/i));
 		let warning = null;
 		const dbs = await Promise.all(shpFiles.map(async f => {
 			const base = f.name.replace(/\.shp$/i, "");

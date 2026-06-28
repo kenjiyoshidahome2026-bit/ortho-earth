@@ -1,0 +1,87 @@
+import MAFF_MANIFEST from './manifest.json' with { type: 'json' };
+import { PREFS, fmtBytes } from '../ui/shared.js';
+import { ctx } from '../ui/ctx.js';
+import { renderMinistryList } from '../ui/ministry-list.js';
+
+// ---- data -------------------------------------------------------
+
+const MAFF_BY_PREF = (() => {
+    const m = new Map();
+    for (const e of MAFF_MANIFEST) {
+        if (!m.has(e.prefCd)) m.set(e.prefCd, []);
+        m.get(e.prefCd).push(e);
+    }
+    return m;
+})();
+
+export function maffSidebarEntry() {
+    return { dataset_code:'maff', title:'農地（筆ポリゴン）', file_count:MAFF_MANIFEST.length, license:'CC BY 4.0', _sourceId:'maff' };
+}
+
+// ---- list -------------------------------------------------------
+
+function buildMaffCityList() {
+    return MAFF_MANIFEST.map(e => ({
+        code: e.prefCityCd,
+        name: e.cityName,
+        pref: e.prefCd,
+        year: e.year,
+        size: e.size || null,
+        _raw: e,
+    }));
+}
+
+function maffCityItemHtml(city) {
+    const sizeBadge = city.size
+        ? `<span class="file-sz">${fmtBytes(city.size)} <span class="size-note">PBF</span></span>`
+        : '';
+    return `
+        <div class="moj-city-item" data-code="${city.code}" title="クリックでコピー">
+            <span class="moj-city-code">${city.code}</span>
+            <span class="moj-city-name">${city.name}</span>
+            <span class="moj-city-file">${city.year}年度${sizeBadge}</span>
+            <span class="badge fmt-geojson">GeoJSON</span>
+        </div>
+    `;
+}
+
+function maffToEntry(e) {
+    return {
+        name:        `${e.prefCityCd}_${e.year}`,
+        description: `${e.prefName} ${e.cityName} 筆ポリゴン ${e.year}年度`,
+        target:      `maff_${e.prefCityCd}.geopbf`,
+        attribution: '農林水産省',
+        license:     'CC BY 4.0',
+        format:      'maff',
+        _maff:       { prefCd:e.prefCd, prefName:e.prefName, cityCd:e.cityCd, cityName:e.cityName, year:e.year, prefCityCd:e.prefCityCd },
+    };
+}
+
+let maffListSearch = '', maffExpandedPrefs = new Set();
+
+export function renderMaffList() {
+    const cities = buildMaffCityList();
+    renderMinistryList({
+        id:          'maff',
+        title:       '農林水産省 筆ポリゴン',
+        subtitle:    '筆ポリゴンオープンデータ（農林水産省）<span class="moj-fmt-note">GeoJSON = API→zip→json</span>',
+        cities,
+        expanded:    maffExpandedPrefs,
+        getSearch:   () => maffListSearch,
+        setSearch:   v  => { maffListSearch = v; },
+        itemHtml:    maffCityItemHtml,
+        groupFn:     c  => ({ key: c.pref, name: PREFS[c.pref] || c.pref }),
+        toEntry:     c  => maffToEntry(c._raw),
+        bulkByGroup: pref => (MAFF_BY_PREF.get(pref) || []).map(maffToEntry),
+        allEntries:  () => MAFF_MANIFEST.map(maffToEntry),
+        groupHeaderHtml: (_key, _name, items) => {
+            const total = items.reduce((s, c) => s + (c.size || 0), 0);
+            return total ? `<span class="pref-size">${fmtBytes(total)} <span class="size-note">PBF</span></span>` : '';
+        },
+        onItemClick: city => {
+            const entry = maffToEntry(city._raw);
+            ctx.renderExecView(entry, () => { history.replaceState(null, '', '#maff'); renderMaffList(); });
+        },
+    });
+}
+
