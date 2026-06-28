@@ -44,7 +44,7 @@ GeoPBF.setPrototype("setGintBUF", async function(buf) {
 	if (!buf) throw new Error("setGintBUF: buf is null — gint encoding failed");
 	if (typeof SharedArrayBuffer === 'undefined') throw new Error("SharedArrayBuffer is not supported in this environment. Please set headers.");
 	const sab = this._gintBuffer = new SharedArrayBuffer(buf.byteLength);
-    new Uint8Array(sab).set(new Uint8Array(buf));
+	new Uint8Array(sab).set(new Uint8Array(buf));
 	if (GeoPBF._gintWorkerUrl) {
 		this.unPackGint = await new Promise((resolve, reject) => {
 			const w = new Worker(GeoPBF._gintWorkerUrl, { type: "module" });

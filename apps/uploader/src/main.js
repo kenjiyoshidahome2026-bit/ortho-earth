@@ -1,18 +1,17 @@
 import * as d3 from 'd3';
 import "./main.scss";
-import { screenLogger } from "../../gishub/screenLogger.js";
-import "../../gishub/screenLogger.scss";
+import { screenLogger } from "common/screenLogger";
 import "common/d3/selection.js";
 import { comma, isArray, isString, isNumber, isObject, isBlob, unique, concat, thenEach } from "common";
 import { Layers } from "ortho-map/modules/Layers.js";
 import { nativeBucket } from "native-bucket";
 
 import { tiff2canvas, exr2canvas, tile2canvas } from './file2canvas';
-import { geopbf, setApiUrl } from "geopbf";
+import { geopbf, createGeopbf } from "geopbf";
 
 const API_BASE = import.meta.env.DEV ? `${location.origin}/api` : "https://api.ortho-earth.com";
-const API_KEY = "my-lovely-dog-betty-was-born-on-2019-09-01";
-setApiUrl(API_BASE, { apiKey: API_KEY });
+const API_KEY = "***REMOVED***";
+createGeopbf(API_BASE, { apiKey: API_KEY });
 const { Fetch, Bucket, Cache } = nativeBucket(API_BASE, { apiKey: API_KEY });
 import { GEBCO, createGetHeight } from "altpbf";
 

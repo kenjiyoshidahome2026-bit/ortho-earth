@@ -13,19 +13,19 @@ export const yearDay = (Y, n) => dayAfter([Y, 1, 1], n);
 export const ymd2day = YMD => (ymd2jdn(YMD) + 3) % 7;
 
 export function ymd2jdn(YMD, flag=false) {
-    const y = YMD[0] + div((YMD[1] - 3), 12);
-    const m = mod(YMD[1] - 3, 12), d = YMD[2] - 1;
-    return d + div((153 * m + 2), 5) + 365 * y + div(y, 4) - div(y, 100) + div(y, 400) - 678881 + (flag ? 2400001 : 0);
+	const y = YMD[0] + div((YMD[1] - 3), 12);
+	const m = mod(YMD[1] - 3, 12), d = YMD[2] - 1;
+	return d + div((153 * m + 2), 5) + 365 * y + div(y, 4) - div(y, 100) + div(y, 400) - 678881 + (flag ? 2400001 : 0);
 }
 
 export function jdn2ymd(n, flag=false) {
-    n = n + (flag ? 0 : 2400001);
-    const a = 4 * (n + 1401 - 38 + div(div(4 * n + 274277, 146097) * 3, 4)) + 3;
-    const b = 5 * div(mod(a, 1461), 4) + 2;
-    const d = div(mod(b, 153), 5) + 1;
-    const m = mod((div(b, 153) + 2), 12) + 1;
-    const y = div(a, 1461) - 4716 + div(12 + 2 - m, 12);
-    return [y, m, d];
+	n = n + (flag ? 0 : 2400001);
+	const a = 4 * (n + 1401 - 38 + div(div(4 * n + 274277, 146097) * 3, 4)) + 3;
+	const b = 5 * div(mod(a, 1461), 4) + 2;
+	const d = div(mod(b, 153), 5) + 1;
+	const m = mod((div(b, 153) + 2), 12) + 1;
+	const y = div(a, 1461) - 4716 + div(12 + 2 - m, 12);
+	return [y, m, d];
 }
 
 export function initAngle(Y, tdiff = 9) { return (58 + 0.44 * (Y - 1990)) / 86400 - (tdiff / 24); }

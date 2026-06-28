@@ -3,49 +3,47 @@ export function orthoGL2(gl, dpr) {
 	gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
 	gl.clearColor(0, 0, 0, 0);
 
-	// ==========================================
-	// 1. ベース（ER画像）用のプログラム
-	// ==========================================
+	// Program 1: base equirectangular image
 	const baseVs = `#version 300 es
-        in vec2 position;
-        void main() { gl_Position = vec4(position, 0.0, 1.0); }`;
+		in vec2 position;
+		void main() { gl_Position = vec4(position, 0.0, 1.0); }`;
 	const baseFs = `#version 300 es
-        precision mediump float;
-        uniform sampler2D u_image;
-        uniform vec2 translate;
-        uniform float scale;
-        uniform vec3 rotate;
-        out vec4 outColor;
-        const float pi = 3.14159265358979323846264;
-        const float rad = pi / 180.0;
-        void applyRotation(in float rx, in float ry, in float rz, inout float lng, inout float lat) {
-            float x, y, coslat, z, dx, dy, dz, cosdy, sindy, cosdz, sindz, k;
-            z = sin(lat); coslat = cos(lat);
-            x = cos(lng) * coslat; y = sin(lng) * coslat;
-            dx = rx * rad; dy = -ry * rad; dz = -rz * rad;
-            cosdy = cos(dy); sindy = sin(dy);
-            cosdz = cos(dz); sindz = sin(dz);
-            k = z * cosdz - y * sindz;
-            lng = atan(y * cosdz + z * sindz, x * cosdy + k * sindy) - dx;
-            k = k * cosdy - x * sindy;
-            k = clamp(k, -0.99999, 0.99999);
-            lat = asin(k);
-        }
-        void main() {
-            float x = (gl_FragCoord.x - translate.x) / scale;
-            float y = (translate.y - gl_FragCoord.y) / scale;
-            float rho = sqrt(x * x + y * y);
-            if (rho <= 1.0) {
-                float c = asin(rho);
-                float sinc = sin(c);
-                float cosc = cos(c);
-                float lng = atan(x * sinc, rho * cosc);
-                float lat = asin(y * sinc / rho);
-                applyRotation(rotate.x, rotate.y, rotate.z, lng, lat);
-                vec2 uv = vec2((lng + pi) / (2.0 * pi), (lat + pi / 2.0) / pi);
-                outColor = texture(u_image, uv);
-            } else { discard; }
-        }`;
+		precision highp float;
+		uniform sampler2D u_image;
+		uniform vec2 translate;
+		uniform float scale;
+		uniform vec3 rotate;
+		out vec4 outColor;
+		const float pi = 3.14159265358979323846264;
+		const float rad = pi / 180.0;
+		void applyRotation(in float rx, in float ry, in float rz, inout float lng, inout float lat) {
+			float x, y, coslat, z, dx, dy, dz, cosdy, sindy, cosdz, sindz, k;
+			z = sin(lat); coslat = cos(lat);
+			x = cos(lng) * coslat; y = sin(lng) * coslat;
+			dx = rx * rad; dy = -ry * rad; dz = -rz * rad;
+			cosdy = cos(dy); sindy = sin(dy);
+			cosdz = cos(dz); sindz = sin(dz);
+			k = z * cosdz - y * sindz;
+			lng = atan(y * cosdz + z * sindz, x * cosdy + k * sindy) - dx;
+			k = k * cosdy - x * sindy;
+			k = clamp(k, -0.99999, 0.99999);
+			lat = asin(k);
+		}
+		void main() {
+			float x = (gl_FragCoord.x - translate.x) / scale;
+			float y = (translate.y - gl_FragCoord.y) / scale;
+			float rho = sqrt(x * x + y * y);
+			if (rho <= 1.0) {
+				float c = asin(rho);
+				float sinc = sin(c);
+				float cosc = cos(c);
+				float lng = atan(x * sinc, rho * cosc);
+				float lat = asin(y * sinc / rho);
+				applyRotation(rotate.x, rotate.y, rotate.z, lng, lat);
+				vec2 uv = vec2((lng + pi) / (2.0 * pi), (lat + pi / 2.0) / pi);
+				outColor = texture(u_image, uv);
+			} else { discard; }
+		}`;
 	const baseProgram = createProgram(gl, baseVs, baseFs);
 	const baseLocs = {
 		position: gl.getAttribLocation(baseProgram, "position"),
@@ -62,23 +60,21 @@ export function orthoGL2(gl, dpr) {
 	gl.vertexAttribPointer(baseLocs.position, 2, gl.FLOAT, false, 0, 0);
 	gl.bindVertexArray(null);
 
-	// ==========================================
-	// 2. タイル用のプログラム
-	// ==========================================
+	// Program 2: tile overlay
 	const tileVs = `#version 300 es
-        layout(location = 0) in vec2 a_position;
-        layout(location = 1) in vec2 a_coords;
-        out vec2 v_textCoords;
-        void main(void) { 
-            v_textCoords = a_coords; 
-            gl_Position = vec4(a_position, 0.0, 1.0); 
-        }`;
+		layout(location = 0) in vec2 a_position;
+		layout(location = 1) in vec2 a_coords;
+		out vec2 v_textCoords;
+		void main(void) { 
+			v_textCoords = a_coords; 
+			gl_Position = vec4(a_position, 0.0, 1.0); 
+		}`;
 	const tileFs = `#version 300 es
-        precision mediump float;
-        uniform sampler2D u_texture;
-        in vec2 v_textCoords;
-        out vec4 outColor;
-        void main(void) { outColor = texture(u_texture, v_textCoords); }`;
+		precision mediump float;
+		uniform sampler2D u_texture;
+		in vec2 v_textCoords;
+		out vec4 outColor;
+		void main(void) { outColor = texture(u_texture, v_textCoords); }`;
 	const tileProgram = createProgram(gl, tileVs, tileFs);
 	const tileVao = gl.createVertexArray();
 	const tileCoordsBuf = gl.createBuffer();
@@ -92,11 +88,7 @@ export function orthoGL2(gl, dpr) {
 	gl.vertexAttribPointer(1, 2, gl.FLOAT, false, 0, 0);
 	gl.bindVertexArray(null);
 
-	// ==========================================
-	// 3. テクスチャ生成（ベース用とタイル用）
-	// ==========================================
-
-	// ✅ ベースは地球の裏側で繋がるように REPEAT を指定する
+	// Base texture: REPEAT on longitude so the seam wraps correctly on the back of the globe.
 	gl.createBaseTexture = img => {
 		const texture = gl.createTexture();
 		gl.bindTexture(gl.TEXTURE_2D, texture);
@@ -104,12 +96,12 @@ export function orthoGL2(gl, dpr) {
 		gl.generateMipmap(gl.TEXTURE_2D);
 		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
 		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT); // 経度はリピート
-		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE); // 緯度はリピートしない
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);       // longitude wraps
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE); // latitude clamps
 		return texture;
 	};
 
-	// ✅ タイルは隣り合う画像が滲まないように CLAMP_TO_EDGE を指定する
+	// Tile texture: CLAMP_TO_EDGE on both axes to prevent bleeding from adjacent tiles.
 	gl.createTileTexture = img => {
 		const texture = gl.createTexture();
 		gl.bindTexture(gl.TEXTURE_2D, texture);
@@ -135,9 +127,6 @@ export function orthoGL2(gl, dpr) {
 		return gl;
 	};
 
-	// ==========================================
-	// 4. 描画メソッド
-	// ==========================================
 	gl.drawBase = (texture, proj) => {
 		if (!texture || !proj) return gl;
 		gl.useProgram(baseProgram);

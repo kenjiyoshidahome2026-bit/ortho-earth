@@ -1,5 +1,5 @@
 import Pbf from 'pbf';
-import { L2, L3 } from "common";
+import { L2, L3 } from "../../common/src/utility.js";
 import { nativeBucket, deflateRaw, inflateRaw } from "native-bucket";
 
 let _nb = null;
@@ -42,14 +42,14 @@ async function load_gepco(name) {
 	return decode(await (await getBucket()).get(name));
 }
 const TAGS = {
-    NAME: 1,    // タイル名
-    SOURCE: 2,  // データソース名 (GEBCO, ALOS等)
-    WIDTH: 3,   // グリッド幅
-    HEIGHT: 4,  // グリッド高
-    LNG: 5,     // タイルの基準経度(左下)
-    LAT: 6,     // タイルの基準緯度(左下)
-    RANGE:7,    // タイルの経度緯度範囲
-    DATA: 10    // 標高データ本体 (Packed SVarint)
+	NAME: 1,    // tile name
+	SOURCE: 2,  // data source name (GEBCO, ALOS, etc.)
+	WIDTH: 3,   // grid width
+	HEIGHT: 4,  // grid height
+	LNG: 5,     // tile origin longitude (bottom-left)
+	LAT: 6,     // tile origin latitude (bottom-left)
+	RANGE:7,    // tile lng/lat span
+	DATA: 10    // elevation data body (packed SVarint delta-coded)
 };
 
 export async function encode(obj) {
@@ -127,29 +127,29 @@ async function tiff2data(file) {
 }
 export async function altpbf2png(pbf, opts = {}) {
 	const { size, colorMap } = Object.assign({size:256, colorMap}, opts);
-    const { width, height, data } = await decode(pbf);
-    const canvas = new OffscreenCanvas(size, size);
-    const ctx = canvas.getContext('2d');
-    const imageData = ctx.createImageData(size, size);
-    const pixels = imageData.data;
-    const xRatio = width / size, yRatio = height / size;
-    for (let y = 0; y < size; y++) {
-        const srcY = Math.floor(y * yRatio);
-        const rowOffset = srcY * width;
-        const targetRowOffset = y * size;
-        for (let x = 0; x < size; x++) {
-            const srcX = Math.floor(x * xRatio);
-            const h = data[rowOffset + srcX];
-            const [r, g, b] = colorMap(h);
-            const i = (targetRowOffset + x) * 4;
-            pixels[i]     = r;
-            pixels[i + 1] = g;
-            pixels[i + 2] = b;
-            pixels[i + 3] = 255;
-        }
-    }
-    ctx.putImageData(imageData, 0, 0);
-    return canvas.convertToBlob({ type: 'image/png' });
+	const { width, height, data } = await decode(pbf);
+	const canvas = new OffscreenCanvas(size, size);
+	const ctx = canvas.getContext('2d');
+	const imageData = ctx.createImageData(size, size);
+	const pixels = imageData.data;
+	const xRatio = width / size, yRatio = height / size;
+	for (let y = 0; y < size; y++) {
+		const srcY = Math.floor(y * yRatio);
+		const rowOffset = srcY * width;
+		const targetRowOffset = y * size;
+		for (let x = 0; x < size; x++) {
+			const srcX = Math.floor(x * xRatio);
+			const h = data[rowOffset + srcX];
+			const [r, g, b] = colorMap(h);
+			const i = (targetRowOffset + x) * 4;
+			pixels[i]     = r;
+			pixels[i + 1] = g;
+			pixels[i + 2] = b;
+			pixels[i + 3] = 255;
+		}
+	}
+	ctx.putImageData(imageData, 0, 0);
+	return canvas.convertToBlob({ type: 'image/png' });
 }
 function colorMap(n, flag = false) {
 	const Altitude = n =>

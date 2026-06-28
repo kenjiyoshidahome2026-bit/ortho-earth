@@ -4,53 +4,52 @@ import { encodeZIP } from "native-bucket";
 const escXML = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
 onmessage = async (e) => {
-    const { buf, name, opts } = e.data, gz = opts && opts.gz;
-    try {
-        const pbf = await new GeoPBF().name(name).set(buf);
-        const pos = c => `${c[1]} ${c[0]}`;
-        const posList = r => r.map(pos).join(" ");
+	const { buf, name, opts } = e.data, gz = opts && opts.gz;
+	try {
+		const pbf = await new GeoPBF().name(name).set(buf);
+		const pos = c => `${c[1]} ${c[0]}`;
+		const posList = r => r.map(pos).join(" ");
 
-        // srsName を明示してデコーダの軸順判定を確定させる
-        let xml = `<?xml version="1.0" encoding="UTF-8"?>\n<gml:FeatureCollection xmlns:gml="http://www.opengis.net/gml/3.2" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" srsName="urn:ogc:def:crs:EPSG::4326">\n`;
+		// Explicit srsName fixes axis-order detection in the decoder.
+		let xml = `<?xml version="1.0" encoding="UTF-8"?>\n<gml:FeatureCollection xmlns:gml="http://www.opengis.net/gml/3.2" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" srsName="urn:ogc:def:crs:EPSG::4326">\n`;
 
-        for (let i = 0, len = pbf.length; i < len; i++) {
-            const f = pbf.getFeature(i);
-            const { type, coordinates: c } = f.geometry;
-            const fid = f.id ?? `f${i}`;
+		for (let i = 0, len = pbf.length; i < len; i++) {
+			const f = pbf.getFeature(i);
+			const { type, coordinates: c } = f.geometry;
+			const fid = f.id ?? `f${i}`;
 
-            xml += `  <gml:featureMember>\n    <gml:GenericFeature gml:id="${escXML(fid)}">\n      <gml:geometryProperty>\n`;
-            if (type === "Point") {
-                xml += `        <gml:Point gml:id="p${i}"><gml:pos>${pos(c)}</gml:pos></gml:Point>\n`;
-            } else if (type === "LineString") {
-                xml += `        <gml:LineString gml:id="l${i}"><gml:posList>${posList(c)}</gml:posList></gml:LineString>\n`;
-            } else if (type === "Polygon") {
-                xml += `        <gml:Polygon gml:id="s${i}">\n`;
-                c.forEach((ring, j) => {
-                    const tag = j === 0 ? "exterior" : "interior";
-                    xml += `          <gml:${tag}><gml:LinearRing><gml:posList>${posList(ring)}</gml:posList></gml:LinearRing></gml:${tag}>\n`;
-                });
-                xml += `        </gml:Polygon>\n`;
-            }
-            xml += `      </gml:geometryProperty>\n`;
+			xml += `  <gml:featureMember>\n    <gml:GenericFeature gml:id="${escXML(fid)}">\n      <gml:geometryProperty>\n`;
+			if (type === "Point") {
+				xml += `        <gml:Point gml:id="p${i}"><gml:pos>${pos(c)}</gml:pos></gml:Point>\n`;
+			} else if (type === "LineString") {
+				xml += `        <gml:LineString gml:id="l${i}"><gml:posList>${posList(c)}</gml:posList></gml:LineString>\n`;
+			} else if (type === "Polygon") {
+				xml += `        <gml:Polygon gml:id="s${i}">\n`;
+				c.forEach((ring, j) => {
+					const tag = j === 0 ? "exterior" : "interior";
+					xml += `          <gml:${tag}><gml:LinearRing><gml:posList>${posList(ring)}</gml:posList></gml:LinearRing></gml:${tag}>\n`;
+				});
+				xml += `        </gml:Polygon>\n`;
+			}
+			xml += `      </gml:geometryProperty>\n`;
 
-            for (const [k, v] of Object.entries(f.properties)) {
-                if (v !== null && typeof v !== 'object' && k !== "id") {
-                    const sk = k.replace(/[^a-zA-Z0-9_]/g, '_');
-                    xml += `      <${sk}>${escXML(v)}</${sk}>\n`;
-                }
-            }
-            xml += `    </gml:GenericFeature>\n  </gml:featureMember>\n`;
-        }
-        xml += `</gml:FeatureCollection>`;
+			for (const [k, v] of Object.entries(f.properties)) {
+				if (v !== null && typeof v !== 'object' && k !== "id") {
+					const sk = k.replace(/[^a-zA-Z0-9_]/g, '_');
+					xml += `      <${sk}>${escXML(v)}</${sk}>\n`;
+				}
+			}
+			xml += `    </gml:GenericFeature>\n  </gml:featureMember>\n`;
+		}
+		xml += `</gml:FeatureCollection>`;
 
-        const gmlFile = new File([xml], `${name}.gml`, { type: "application/gml+xml" });
+		const gmlFile = new File([xml], `${name}.gml`, { type: "application/gml+xml" });
 
-        // gzフラグが立っていればZIP圧縮、そうでなければ生のGML
-        if (gz) {
-            const zip = await encodeZIP([gmlFile], `${name}_gml.zip`);
-            postMessage(zip);
-        } else {
-            postMessage(gmlFile);
-        }
-    } catch (err) { postMessage(null); }
+		if (gz) {
+			const zip = await encodeZIP([gmlFile], `${name}_gml.zip`);
+			postMessage(zip);
+		} else {
+			postMessage(gmlFile);
+		}
+	} catch (err) { postMessage(null); }
 };

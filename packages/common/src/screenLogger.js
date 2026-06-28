@@ -13,8 +13,9 @@ export class screenLogger {
 		addEventListener("FetchStart",    e => this.progress("start", e),    { signal });
 		addEventListener("FetchProgress", e => this.progress("progress", e), { signal });
 		addEventListener("FetchEnd",      e => this.progress("end", e),      { signal });
-		addEventListener("ConvertStart",  e => this.event("start", e),       { signal });
-		addEventListener("ConvertEnd",    e => this.event("end", e),         { signal });
+		addEventListener("ConvertStart",   e => this.event("start", e),              { signal });
+		addEventListener("ConvertEnd",     e => this.event("end", e),                { signal });
+		addEventListener("ConvertWarning", e => this.warn(e.detail.warning),         { signal });
 	}
 	destroy() { this._ac.abort(); this.clear(); }
 	hide() { this.target.hide(); return this; }
@@ -110,31 +111,31 @@ export class screenLogger {
 	success(s) { const time = ((performance.now() - this.time)/1000).toFixed(3);
 		this.empty().classed("success", true).text(`✅ [SUCCESS] ${s} (${comma(time)}sec)`);
 	}
-    async prompt(s, def = "") {
-        return new Promise(resolve => {
-            const p = this.empty().classed("prompt", true);
-            p.append("span").text(`> ${s} ? `);
-            const ans = p.append("span").classed("answer", true).attr("contenteditable", true);
-            if (def) ans.text(def);
-            const btn = p.append("button").text("OK").style("margin-left", "10px");
-            const submit = () => {
-                const result = ans.text().trim();
-                ans.attr("contenteditable", false);
-                btn.remove();
-                resolve(result || def);
-            };
-            btn.on("click", submit);
-            ans.on("keydown", e => { if (e.key === "Enter") { e.preventDefault(); submit(); }});
-            const node = ans.node();
-            node.focus();
-            if (def) {
-                const range = document.createRange();
-                range.selectNodeContents(node);
-                window.getSelection().removeAllRanges();
-                window.getSelection().addRange(range);
-            }
-        });
-    }
+	async prompt(s, def = "") {
+		return new Promise(resolve => {
+			const p = this.empty().classed("prompt", true);
+			p.append("span").text(`> ${s} ? `);
+			const ans = p.append("span").classed("answer", true).attr("contenteditable", true);
+			if (def) ans.text(def);
+			const btn = p.append("button").text("OK").style("margin-left", "10px");
+			const submit = () => {
+				const result = ans.text().trim();
+				ans.attr("contenteditable", false);
+				btn.remove();
+				resolve(result || def);
+			};
+			btn.on("click", submit);
+			ans.on("keydown", e => { if (e.key === "Enter") { e.preventDefault(); submit(); }});
+			const node = ans.node();
+			node.focus();
+			if (def) {
+				const range = document.createRange();
+				range.selectNodeContents(node);
+				window.getSelection().removeAllRanges();
+				window.getSelection().addRange(range);
+			}
+		});
+	}
 	async select(s, sel) { return new Promise(resolve => { let idx = 0;
 		sel = isArray(sel) ? sel.map(t=>isArray(t)?t:[t,t]) : Object.entries(sel);
 		const p = this.empty().classed("select", true).append("span").text(`> ${s} ? `);

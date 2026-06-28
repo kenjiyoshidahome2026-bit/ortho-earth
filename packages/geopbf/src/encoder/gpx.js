@@ -20,7 +20,6 @@ onmessage = async (e) => {
 				const p = f.properties;
 
 				if (type === "Point") {
-					// ウェイポイントとしてエクスポート
 					let wpt = `<wpt lat="${c[1]}" lon="${c[0]}">\n`;
 					if (p.name != null) wpt += `  <name>${escXML(p.name)}</name>\n`;
 					if (p.desc != null) wpt += `  <desc>${escXML(p.desc)}</desc>\n`;
@@ -30,7 +29,7 @@ onmessage = async (e) => {
 					wpt += `</wpt>\n`;
 					await writer.write(enc.encode(wpt));
 				} else if (type === "LineString" || type === "MultiLineString") {
-					// トラックとしてエクスポート。MultiLineString の各座標列を個別の trkseg に対応させる
+					// Each coordinate array of a MultiLineString maps to a separate trkseg.
 					const segs = type === "MultiLineString" ? c : [c];
 					let trk = `<trk>\n`;
 					if (p.name != null) trk += `  <name>${escXML(p.name)}</name>\n`;

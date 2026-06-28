@@ -43,7 +43,7 @@ const tileURL = function (type, tilerBase = "") {
 	};
 	const google = type => {
 		const s = ({ streets: "m", satellite: "s", hybrid: "s,h", terrain: "p" })[type];
-		return ([x, y, z]) => `https://mt${(count++) % 4}.google.com/vt/lyrs=${s}&x=${x}&y=${y}&z=${z}`;
+		return ([x, y, z]) => z < 7 ? null : `https://mt${(count++) % 4}.google.com/vt/lyrs=${s}&x=${x}&y=${y}&z=${z}`;
 	};
 	type = type.split(".");
 	return ({ cyberjapan, osm, google })[type[0]](type[1]);

@@ -1,0 +1,581 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Gint: GPU Stencil Tessellation</title>
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<style>
+* { box-sizing: border-box; }
+body {
+	background: #0f172a; color: #f8fafc;
+	font-family: 'Segoe UI', sans-serif;
+	margin: 0; padding: 20px;
+	display: flex; flex-direction: column; align-items: center;
+}
+h1 { color: #38bdf8; font-size: 1.8rem; margin-bottom: 4px; }
+.subtitle { color: #64748b; font-size: 0.85rem; font-family: monospace; margin-bottom: 18px; text-align: center; }
+
+.tabs { display: flex; gap: 8px; margin-bottom: 18px; flex-wrap: wrap; justify-content: center; }
+.tab-btn {
+	background: #1e293b; color: #94a3b8; border: 1px solid #334155;
+	padding: 7px 16px; border-radius: 20px; cursor: pointer; font-size: 0.85rem;
+	transition: all 0.15s;
+}
+.tab-btn.active { background: #38bdf8; color: #0f172a; border-color: #38bdf8; font-weight: bold; }
+
+.main-grid {
+	display: flex; gap: 16px; flex-wrap: wrap; justify-content: center;
+	width: 100%; max-width: 880px;
+}
+.panel {
+	background: #1e293b; border-radius: 12px; padding: 14px;
+	flex: 1; min-width: 320px; max-width: 420px;
+}
+.panel-title {
+	font-weight: bold; font-size: 0.95rem; margin-bottom: 10px; text-align: center;
+}
+.t-stencil { color: #f43f5e; }
+.t-color   { color: #10b981; }
+.t-cpu     { color: #f59e0b; }
+
+.canvas-wrap { position: relative; }
+canvas { background: #020617; border-radius: 8px; display: block; width: 100%; }
+
+.panel-desc { color: #64748b; font-size: 0.78rem; margin-top: 8px; font-family: monospace; text-align: center; }
+
+.legend { display: flex; gap: 14px; margin-top: 8px; justify-content: center; font-size: 0.78rem; }
+.leg { display: flex; align-items: center; gap: 5px; }
+.leg-box { width: 12px; height: 12px; border-radius: 2px; }
+.leg-odd  { background: rgba(244,63,94,0.7); }
+.leg-even { background: rgba(30,41,59,0.9); border: 1px dashed #475569; }
+
+.controls {
+	display: flex; align-items: center; gap: 10px; margin: 18px 0;
+	flex-wrap: wrap; justify-content: center;
+}
+.btn {
+	padding: 9px 20px; border: none; border-radius: 8px;
+	cursor: pointer; font-weight: bold; font-size: 0.9rem; transition: opacity 0.15s;
+}
+.btn:hover { opacity: 0.85; }
+.btn-reset  { background: #334155; color: #94a3b8; }
+.btn-step   { background: #7c3aed; color: white; }
+.btn-play   { background: #0284c7; color: white; }
+.btn-pause  { background: #c2410c; color: white; }
+.edge-info  { font-family: monospace; color: #38bdf8; font-size: 1rem; min-width: 130px; text-align: center; }
+
+.compare-grid {
+	display: flex; gap: 16px; flex-wrap: wrap; justify-content: center;
+	width: 100%; max-width: 880px; margin-top: 16px;
+}
+.compare-box {
+	background: #1e293b; border-radius: 12px; padding: 14px;
+	flex: 1; min-width: 280px;
+}
+
+.stat-row { display: flex; gap: 10px; margin-top: 12px; flex-wrap: wrap; }
+.badge {
+	padding: 5px 12px; border-radius: 20px; font-family: monospace;
+	font-size: 0.8rem; font-weight: bold;
+}
+.badge-cpu { background: #7f1d1d; color: #fca5a5; }
+.badge-gpu { background: #064e3b; color: #6ee7b7; }
+.badge-warn { background: #713f12; color: #fde68a; }
+
+.cpu-note { color: #f59e0b; font-size: 0.8rem; font-family: monospace; margin-top: 8px; }
+.gpu-advantages {
+	display: flex; flex-direction: column; gap: 8px; margin-top: 10px;
+}
+.adv-item {
+	display: flex; align-items: flex-start; gap: 8px;
+	font-size: 0.82rem; color: #94a3b8;
+}
+.adv-icon { font-size: 1rem; flex-shrink: 0; }
+.adv-title { color: #e2e8f0; font-weight: bold; font-size: 0.82rem; }
+</style>
+</head>
+<body>
+
+<a href="/" style="display:inline-flex;align-items:center;justify-content:center;gap:5px;margin-bottom:10px;margin-right:8px;padding:4px 10px;border-radius:6px;border:1px solid #334155;background:#0f172a;color:#64748b;font-size:0.75rem;font-family:monospace;text-decoration:none;min-width:10em" onmouseover="this.style.color='#38bdf8'" onmouseout="this.style.color='#64748b'">← ortho-earth</a><a href="gintbuf.html" style="display:inline-flex;align-items:center;justify-content:center;gap:5px;margin-bottom:10px;padding:4px 10px;border-radius:6px;border:1px solid #334155;background:#0f172a;color:#64748b;font-size:0.75rem;font-family:monospace;text-decoration:none;min-width:10em" onmouseover="this.style.color='#38bdf8'" onmouseout="this.style.color='#64748b'">← Gint Pipeline</a>
+
+<h1>Gint Stencil Tessellation</h1>
+<div class="subtitle">Hardware-Driven Fill · Even-Odd Rule · No Pre-processing Required</div>
+
+<div class="tabs" id="tabs">
+	<button class="tab-btn active" data-type="concave">1. Concave + Hole</button>
+	<button class="tab-btn" data-type="donut">2. Ring (Donut)</button>
+	<button class="tab-btn" data-type="star">3. Star (Even-Odd)</button>
+</div>
+
+<div class="main-grid">
+	<div class="panel">
+		<div class="panel-title t-stencil">Phase 1 — Stencil Buffer Build</div>
+		<div class="canvas-wrap">
+			<canvas id="c-stencil" width="400" height="400"></canvas>
+		</div>
+		<div class="panel-desc">Fan triangles streamed from NDC(0,0). Each cell shows XOR count.</div>
+		<div class="legend">
+			<div class="leg"><div class="leg-box leg-odd"></div> Odd count → FILL</div>
+			<div class="leg"><div class="leg-box leg-even"></div> Even count → HOLE</div>
+		</div>
+	</div>
+
+	<div class="panel">
+		<div class="panel-title t-color">Phase 2 — Full-Screen Quad Flush</div>
+		<div class="canvas-wrap">
+			<canvas id="c-color" width="400" height="400"></canvas>
+		</div>
+		<div class="panel-desc">1 bounding rectangle rasterized. Non-zero stencil pixels → color written.</div>
+	</div>
+</div>
+
+<div class="controls">
+	<button class="btn btn-reset" id="btn-reset">↺ Reset</button>
+	<button class="btn btn-step"  id="btn-step">Step +1 Edge</button>
+	<button class="btn btn-play"  id="btn-play">▶ Play</button>
+	<div class="edge-info" id="edge-info">Edge: 0 / 0</div>
+</div>
+
+<div class="compare-grid">
+	<div class="compare-box">
+		<div class="panel-title t-cpu">CPU Method — Earcut Triangulation</div>
+		<canvas id="c-cpu" width="380" height="220" style="width:100%;"></canvas>
+		<div id="cpu-note" class="cpu-note"></div>
+		<div class="stat-row">
+			<div class="badge badge-cpu" id="cpu-tris">CPU Triangles: —</div>
+			<div class="badge badge-warn" id="cpu-algo">Algorithm: —</div>
+		</div>
+	</div>
+
+	<div class="compare-box">
+		<div class="panel-title t-color">GPU Stencil — Zero Triangulation</div>
+		<div class="gpu-advantages">
+			<div class="adv-item">
+				<div class="adv-icon">⚡</div>
+				<div><div class="adv-title">O(n) — Just stream edges</div>
+				No triangle decomposition. No winding correction. No bridge cuts.</div>
+			</div>
+			<div class="adv-item">
+				<div class="adv-icon">✅</div>
+				<div><div class="adv-title">Even-odd fill rule is free</div>
+				Concave, holes, self-intersecting — hardware XOR handles everything without pre-processing.</div>
+			</div>
+			<div class="adv-item">
+				<div class="adv-icon">🎯</div>
+				<div><div class="adv-title">Single GPU call per polygon</div>
+				Stencil pass + 1 bounding quad. No per-vertex CPU computation.</div>
+			</div>
+		</div>
+		<div class="stat-row" style="margin-top:14px;">
+			<div class="badge badge-gpu" id="gpu-edges">Edges sent: —</div>
+			<div class="badge badge-gpu">CPU ops: 0</div>
+		</div>
+	</div>
+</div>
+
+<script>
+const ORIGIN = {x: 200, y: 200};
+const GRID = 20, CELL = 400 / GRID;
+
+const shapes = {
+	concave: {
+		label: "Concave Polygon with Internal Hole",
+		cpuTris: 8,
+		cpuAlgo: "Earcut + hole bridge + O(n log n)",
+		cpuNote: "Hole requires bridge insertion → splits polygon before triangulation",
+		outer: [{x:60,y:55},{x:340,y:55},{x:340,y:195},{x:240,y:195},{x:240,y:125},{x:160,y:125},{x:160,y:195},{x:60,y:195},{x:60,y:345},{x:340,y:345},{x:340,y:275},{x:60,y:275}],
+		holes: [[[{x:95,y:230},{x:175,y:230},{x:175,y:325},{x:95,y:325}]]],
+		earcut: [
+			[{x:60,y:55},{x:340,y:55},{x:240,y:125}],
+			[{x:60,y:55},{x:240,y:125},{x:160,y:125}],
+			[{x:60,y:55},{x:160,y:125},{x:160,y:195}],
+			[{x:60,y:55},{x:160,y:195},{x:60,y:195}],
+			[{x:340,y:55},{x:340,y:195},{x:240,y:195}],
+			[{x:340,y:55},{x:240,y:195},{x:240,y:125}],
+			[{x:60,y:275},{x:340,y:275},{x:340,y:345}],
+			[{x:60,y:275},{x:340,y:345},{x:60,y:345}],
+			[{x:95,y:230},{x:175,y:230},{x:175,y:325}],
+			[{x:95,y:230},{x:175,y:325},{x:95,y:325}],
+		]
+	},
+	donut: {
+		label: "Square Ring with Square Hole",
+		cpuTris: 8,
+		cpuAlgo: "Earcut: bridge cut required",
+		cpuNote: "Outer square + inner hole → bridge edge inserted, then 8 triangles",
+		outer: [{x:40,y:40},{x:360,y:40},{x:360,y:360},{x:40,y:360}],
+		holes: [[[{x:120,y:120},{x:280,y:120},{x:280,y:280},{x:120,y:280}]]],
+		earcut: [
+			[{x:40,y:40},{x:360,y:40},{x:280,y:120}],
+			[{x:40,y:40},{x:280,y:120},{x:120,y:120}],
+			[{x:360,y:40},{x:360,y:360},{x:280,y:280}],
+			[{x:360,y:40},{x:280,y:280},{x:280,y:120}],
+			[{x:360,y:360},{x:40,y:360},{x:120,y:280}],
+			[{x:360,y:360},{x:120,y:280},{x:280,y:280}],
+			[{x:40,y:360},{x:40,y:40},{x:120,y:120}],
+			[{x:40,y:360},{x:120,y:120},{x:120,y:280}],
+		]
+	},
+	star: {
+		label: "Concave Star — Even-Odd Fill",
+		cpuTris: 8,
+		cpuAlgo: "Earcut: 8 triangles (fills entirely)",
+		cpuNote: "Earcut correctly triangulates this simple polygon — but fills the center. Even-odd rule gives the natural star appearance without explicit hole definition.",
+		outer: [{x:200,y:30},{x:245,y:135},{x:360,y:135},{x:270,y:210},{x:305,y:320},{x:200,y:250},{x:95,y:320},{x:130,y:210},{x:40,y:135},{x:155,y:135}],
+		holes: [],
+		earcut: [
+			[{x:155,y:135},{x:200,y:30}, {x:245,y:135}],
+			[{x:245,y:135},{x:360,y:135},{x:270,y:210}],
+			[{x:270,y:210},{x:305,y:320},{x:200,y:250}],
+			[{x:200,y:250},{x:95, y:320},{x:130,y:210}],
+			[{x:130,y:210},{x:40, y:135},{x:155,y:135}],
+			[{x:155,y:135},{x:245,y:135},{x:270,y:210}],
+			[{x:155,y:135},{x:270,y:210},{x:200,y:250}],
+			[{x:155,y:135},{x:200,y:250},{x:130,y:210}],
+		]
+	}
+};
+
+// Build edge list from shape
+function buildEdges(shape) {
+	const edges = [];
+	const pts = shape.outer;
+	for (let i = 0; i < pts.length; i++)
+		edges.push({p1: pts[i], p2: pts[(i+1) % pts.length]});
+	for (const holeGroup of (shape.holes || [])) {
+		for (const hole of holeGroup) {
+			for (let i = 0; i < hole.length; i++)
+				edges.push({p1: hole[i], p2: hole[(i+1) % hole.length]});
+		}
+	}
+	return edges;
+}
+
+// Stencil grid: count how many completed triangles cover each cell
+let stencilCounts = new Int32Array(GRID * GRID);
+
+function pointInTriangle(px, py, ax, ay, bx, by, cx, cy) {
+	const s = (p1x,p1y,p2x,p2y,p3x,p3y) => (p1x-p3x)*(p2y-p3y)-(p2x-p3x)*(p1y-p3y);
+	const d1 = s(px,py,ax,ay,bx,by), d2 = s(px,py,bx,by,cx,cy), d3 = s(px,py,cx,cy,ax,ay);
+	return !((d1<0||d2<0||d3<0) && (d1>0||d2>0||d3>0));
+}
+
+function addEdgeToGrid(edge) {
+	const {x:ox, y:oy} = ORIGIN;
+	for (let r = 0; r < GRID; r++) {
+		for (let c = 0; c < GRID; c++) {
+			const px = c * CELL + CELL / 2, py = r * CELL + CELL / 2;
+			if (pointInTriangle(px, py, ox, oy, edge.p1.x, edge.p1.y, edge.p2.x, edge.p2.y))
+				stencilCounts[r * GRID + c]++;
+		}
+	}
+}
+
+// Draw stencil grid overlay
+function drawGrid(ctx) {
+	ctx.save();
+	for (let r = 0; r < GRID; r++) {
+		for (let c = 0; c < GRID; c++) {
+			const n = stencilCounts[r * GRID + c];
+			if (n === 0) continue;
+			const x = c * CELL, y = r * CELL;
+			const odd = n % 2 === 1;
+			ctx.fillStyle = odd ? 'rgba(244,63,94,0.22)' : 'rgba(15,23,42,0.5)';
+			ctx.fillRect(x + 1, y + 1, CELL - 2, CELL - 2);
+			ctx.fillStyle = odd ? '#fda4af' : '#475569';
+			ctx.font = `${Math.round(CELL * 0.38)}px monospace`;
+			ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+			ctx.fillText(String(n), x + CELL / 2, y + CELL / 2);
+		}
+	}
+	ctx.restore();
+}
+
+// Draw stencil canvas (triangles + grid)
+function drawStencil(ctx, edges, maxIdx, animEdge = null, animProg = 0) {
+	ctx.clearRect(0, 0, 400, 400);
+
+	// Guide outlines
+	const shape = shapes[currentType];
+	ctx.save();
+	ctx.strokeStyle = 'rgba(255,255,255,0.12)'; ctx.lineWidth = 1;
+	ctx.setLineDash([4, 3]);
+	ctx.beginPath();
+	shape.outer.forEach((p, i) => i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y));
+	ctx.closePath(); ctx.stroke();
+	for (const hg of (shape.holes || [])) {
+		for (const hole of hg) {
+			ctx.beginPath();
+			hole.forEach((p, i) => i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y));
+			ctx.closePath(); ctx.stroke();
+		}
+	}
+	ctx.setLineDash([]);
+	ctx.restore();
+
+	// Completed triangles (XOR)
+	for (let i = 0; i < maxIdx; i++) {
+		ctx.save();
+		ctx.globalCompositeOperation = 'xor';
+		ctx.fillStyle = 'rgba(244,63,94,0.65)';
+		ctx.beginPath();
+		ctx.moveTo(ORIGIN.x, ORIGIN.y);
+		ctx.lineTo(edges[i].p1.x, edges[i].p1.y);
+		ctx.lineTo(edges[i].p2.x, edges[i].p2.y);
+		ctx.closePath(); ctx.fill();
+		ctx.restore();
+	}
+
+	// Grid overlay
+	drawGrid(ctx);
+
+	// Animating edge (in-progress)
+	if (animEdge) {
+		ctx.save();
+		ctx.globalCompositeOperation = 'source-over';
+		ctx.strokeStyle = '#f59e0b'; ctx.lineWidth = 2;
+		ctx.fillStyle = 'rgba(251,191,36,0.35)';
+		const p1p = animProg < 0.5 ? animProg * 2 : 1;
+		const p2p = animProg > 0.5 ? (animProg - 0.5) * 2 : 0;
+		const ix1 = ORIGIN.x + (animEdge.p1.x - ORIGIN.x) * p1p;
+		const iy1 = ORIGIN.y + (animEdge.p1.y - ORIGIN.y) * p1p;
+		ctx.beginPath();
+		ctx.moveTo(ORIGIN.x, ORIGIN.y); ctx.lineTo(ix1, iy1);
+		if (p2p > 0) {
+			const ix2 = animEdge.p1.x + (animEdge.p2.x - animEdge.p1.x) * p2p;
+			const iy2 = animEdge.p1.y + (animEdge.p2.y - animEdge.p1.y) * p2p;
+			ctx.lineTo(ix2, iy2);
+		}
+		ctx.closePath(); ctx.fill(); ctx.stroke();
+		ctx.restore();
+	}
+
+	// Edge index labels
+	ctx.save();
+	for (let i = 0; i < maxIdx; i++) {
+		const e = edges[i];
+		const mx = (ORIGIN.x + e.p1.x + e.p2.x) / 3;
+		const my = (ORIGIN.y + e.p1.y + e.p2.y) / 3;
+		ctx.fillStyle = 'rgba(251,191,36,0.7)';
+		ctx.font = 'bold 9px monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+		ctx.fillText(`T${i+1}`, mx, my);
+	}
+	ctx.restore();
+
+	// Origin point
+	ctx.save();
+	ctx.fillStyle = '#38bdf8';
+	ctx.beginPath(); ctx.arc(ORIGIN.x, ORIGIN.y, 5, 0, Math.PI * 2); ctx.fill();
+	ctx.fillStyle = '#94a3b8'; ctx.font = 'bold 10px monospace';
+	ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
+	ctx.fillText('NDC(0,0)', ORIGIN.x + 8, ORIGIN.y - 2);
+	ctx.restore();
+}
+
+// Draw color pass with scanline
+function drawColor(ctx, shape, flushProg) {
+	ctx.clearRect(0, 0, 400, 400);
+
+	if (flushProg <= 0) {
+		ctx.fillStyle = '#1e293b';
+		ctx.font = '13px monospace'; ctx.fillStyle = '#334155';
+		ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+		ctx.fillText('Stencil locked → Quad flush pending', 200, 200);
+		return;
+	}
+
+	const clipY = Math.min(flushProg * 400, 400);
+
+	ctx.save();
+	ctx.beginPath(); ctx.rect(0, 0, 400, clipY); ctx.clip();
+	ctx.fillStyle = '#0284c7'; ctx.shadowColor = '#38bdf8'; ctx.shadowBlur = 12;
+	ctx.beginPath();
+	shape.outer.forEach((p, i) => i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y));
+	ctx.closePath();
+	for (const hg of (shape.holes || [])) {
+		for (const hole of hg) {
+			ctx.moveTo(hole[0].x, hole[0].y);
+			hole.forEach((p, i) => { if (i > 0) ctx.lineTo(p.x, p.y); });
+			ctx.closePath();
+		}
+	}
+	ctx.fill('evenodd'); ctx.shadowBlur = 0;
+	ctx.restore();
+
+	// Scanline indicator
+	if (flushProg < 1) {
+		ctx.save();
+		ctx.strokeStyle = '#f59e0b'; ctx.lineWidth = 2;
+		ctx.beginPath(); ctx.moveTo(0, clipY); ctx.lineTo(400, clipY); ctx.stroke();
+		ctx.fillStyle = '#f59e0b'; ctx.font = '10px monospace';
+		ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
+		ctx.fillText('► GPU Quad Rasterization', 6, clipY - 3);
+		ctx.restore();
+	}
+
+	// Outline
+	ctx.save();
+	ctx.strokeStyle = 'rgba(255,255,255,0.25)'; ctx.lineWidth = 1;
+	ctx.beginPath();
+	shape.outer.forEach((p, i) => i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y));
+	ctx.closePath(); ctx.stroke();
+	ctx.restore();
+}
+
+// Draw CPU earcut comparison
+function drawCPU(ctx, shape) {
+	ctx.clearRect(0, 0, 380, 220);
+	const sx = 380 / 400, sy = 220 / 400;
+	ctx.save(); ctx.scale(sx, sy);
+
+	const tris = shape.earcut;
+	if (!tris || tris.length === 0) {
+		ctx.fillStyle = '#7f1d1d';
+		ctx.font = 'bold 14px monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+		ctx.fillText('Earcut: pre-processing required', 200, 110);
+		ctx.fillStyle = '#fca5a5'; ctx.font = '11px monospace';
+		ctx.fillText('Self-intersection requires pre-processing', 200, 135);
+		ctx.restore(); return;
+	}
+
+	const colors = ['#dc2626','#d97706','#65a30d','#0891b2','#7c3aed','#db2777','#ea580c','#16a34a','#0284c7','#9333ea'];
+	tris.forEach((tri, i) => {
+		ctx.save();
+		ctx.fillStyle = colors[i % colors.length].replace(')', ',0.35)').replace('rgb','rgba').replace('#', 'rgba(').replace(/rgba\((..)(..)(..),/, (_,r,g,b) => `rgba(${parseInt(r,16)},${parseInt(g,16)},${parseInt(b,16)},`) ;
+		// simpler approach:
+		ctx.globalAlpha = 0.45;
+		ctx.fillStyle = colors[i % colors.length];
+		ctx.beginPath();
+		tri.forEach((p, j) => j === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y));
+		ctx.closePath(); ctx.fill();
+		ctx.globalAlpha = 1;
+		ctx.strokeStyle = 'rgba(255,255,255,0.5)'; ctx.lineWidth = 1;
+		ctx.stroke();
+
+		const cx2 = (tri[0].x + tri[1].x + tri[2].x) / 3;
+		const cy2 = (tri[0].y + tri[1].y + tri[2].y) / 3;
+		ctx.fillStyle = '#fff'; ctx.font = 'bold 9px monospace';
+		ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+		ctx.fillText(`T${i+1}`, cx2, cy2);
+		ctx.restore();
+	});
+
+	// Outline
+	ctx.strokeStyle = 'rgba(255,255,255,0.15)'; ctx.lineWidth = 1; ctx.setLineDash([3,3]);
+	ctx.beginPath();
+	shape.outer.forEach((p, i) => i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y));
+	ctx.closePath(); ctx.stroke();
+	ctx.setLineDash([]);
+	ctx.restore();
+}
+
+// ---- State Machine ----
+let currentType = 'concave';
+let edges = [], edgeIdx = 0, animProg = 0;
+let phase = 'stencil'; // 'stencil' | 'flush'
+let flushProg = 0;
+let playing = false, raf = null;
+const SPEED = 0.025, FLUSH_SPEED = 0.012;
+
+const csStencil = document.getElementById('c-stencil');
+const csColor   = document.getElementById('c-color');
+const csCPU     = document.getElementById('c-cpu');
+const ctxS = csStencil.getContext('2d');
+const ctxC = csColor.getContext('2d');
+const ctxP = csCPU.getContext('2d');
+const edgeInfo = document.getElementById('edge-info');
+const btnPlay  = document.getElementById('btn-play');
+const btnStep  = document.getElementById('btn-step');
+const btnReset = document.getElementById('btn-reset');
+
+function updateInfo() {
+	edgeInfo.textContent = `Edge: ${edgeIdx} / ${edges.length}`;
+	document.getElementById('gpu-edges').textContent = `Edges sent: ${edges.length}`;
+	const s = shapes[currentType];
+	document.getElementById('cpu-tris').textContent = s.cpuTris ? `CPU Triangles: ${s.cpuTris}` : 'CPU Triangles: N/A';
+	document.getElementById('cpu-algo').textContent = `Algorithm: ${s.cpuAlgo}`;
+	document.getElementById('cpu-note').textContent = s.cpuNote;
+}
+
+function resetScene() {
+	cancelAnimationFrame(raf); raf = null;
+	playing = false; edgeIdx = 0; animProg = 0; phase = 'stencil'; flushProg = 0;
+	stencilCounts.fill(0);
+	edges = buildEdges(shapes[currentType]);
+	btnPlay.textContent = '▶ Play';
+	drawStencil(ctxS, edges, 0);
+	drawColor(ctxC, shapes[currentType], 0);
+	drawCPU(ctxP, shapes[currentType]);
+	updateInfo();
+}
+
+function stepEdge() {
+	if (phase === 'stencil' && edgeIdx < edges.length) {
+		addEdgeToGrid(edges[edgeIdx]);
+		edgeIdx++;
+		drawStencil(ctxS, edges, edgeIdx);
+		edgeInfo.textContent = `Edge: ${edgeIdx} / ${edges.length}`;
+		if (edgeIdx >= edges.length) {
+			phase = 'flush';
+		}
+	} else if (phase === 'flush') {
+		flushProg = 1;
+		drawColor(ctxC, shapes[currentType], 1);
+	}
+}
+
+function animLoop() {
+	if (!playing) return;
+
+	if (phase === 'stencil') {
+		edgeInfo.textContent = `Edge: ${edgeIdx + 1} / ${edges.length}`;
+		animProg += SPEED;
+		if (animProg >= 1) {
+			animProg = 0;
+			addEdgeToGrid(edges[edgeIdx]);
+			edgeIdx++;
+			drawStencil(ctxS, edges, edgeIdx);
+			edgeInfo.textContent = `Edge: ${edgeIdx} / ${edges.length}`;
+			if (edgeIdx >= edges.length) { phase = 'flush'; raf = requestAnimationFrame(animLoop); return; }
+		} else {
+			drawStencil(ctxS, edges, edgeIdx, edges[edgeIdx], animProg);
+		}
+	} else if (phase === 'flush') {
+		flushProg += FLUSH_SPEED;
+		if (flushProg >= 1) { flushProg = 1; drawColor(ctxC, shapes[currentType], 1); playing = false; btnPlay.textContent = '▶ Play'; return; }
+		drawColor(ctxC, shapes[currentType], flushProg);
+	}
+
+	raf = requestAnimationFrame(animLoop);
+}
+
+btnPlay.addEventListener('click', () => {
+	if (playing) {
+		playing = false; cancelAnimationFrame(raf); btnPlay.textContent = '▶ Play';
+	} else {
+		if (edgeIdx >= edges.length && phase === 'flush' && flushProg >= 1) resetScene();
+		playing = true; btnPlay.textContent = '⏸ Pause';
+		raf = requestAnimationFrame(animLoop);
+	}
+});
+
+btnStep.addEventListener('click', () => {
+	if (playing) { playing = false; cancelAnimationFrame(raf); btnPlay.textContent = '▶ Play'; }
+	stepEdge();
+});
+
+btnReset.addEventListener('click', resetScene);
+
+document.getElementById('tabs').querySelectorAll('.tab-btn').forEach(btn => {
+	btn.addEventListener('click', () => {
+		document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+		btn.classList.add('active');
+		currentType = btn.dataset.type;
+		resetScene();
+	});
+});
+
+resetScene();
+</script>
+</body>
+</html>

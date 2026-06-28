@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GIS-HUB — FAQ</title>
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="doc.css">
+<style>
+#md-body h2 { font-size: 1.25rem; color: var(--text); margin: 48px 0 14px; padding-bottom: 8px; border-bottom: 1px solid var(--muted); }
+#md-body p  { color: #94a3b8; font-size: 0.9rem; line-height: 1.8; margin-bottom: 0; }
+#md-body p + p { margin-top: 4px; }
+#md-body hr { border: none; border-top: 1px solid #1e293b; margin: 28px 0; }
+#md-body strong { color: var(--text); }
+#md-body a  { color: var(--accent); }
+
+/* Q: bold line styling */
+#md-body p:has(> strong:only-child) {
+    display: flex; gap: 10px; align-items: baseline;
+    color: var(--text); font-size: 0.95rem; font-weight: 700;
+    margin-top: 20px; margin-bottom: 4px;
+}
+#md-body p:has(> strong:first-child)::before {
+    content: 'Q';
+    font-family: var(--mono); font-size: 0.72rem; font-weight: 700;
+    color: var(--doc-accent);
+    background: rgba(56,189,248,0.1);
+    border: 1px solid rgba(56,189,248,0.25);
+    border-radius: 4px; padding: 1px 6px; flex-shrink: 0;
+}
+/* A: answer line (paragraph after a Q paragraph) */
+#md-body p:has(> strong:only-child) + p {
+    color: #94a3b8; font-size: 0.88rem; padding-left: 28px;
+    font-weight: normal; display: block; margin-bottom: 0;
+}
+#md-body p:has(> strong:first-child) + p::before { display: none; }
+</style>
+</head>
+<body>
+
+<div class="header-bar">
+    <img src="favicon.svg" width="24" height="24" style="flex-shrink:0">
+    <span class="logo">gis-hub</span>
+    <span class="sep">/</span>
+    <span style="color:var(--dim);font-size:0.82rem">FAQ</span>
+    <div class="nav-links">
+        <a href="/">← ortho-earth</a>
+        <a href="index.html">← Docs</a>
+    </div>
+</div>
+
+<div class="page">
+    <h1>GIS-HUB — Frequently Asked Questions</h1>
+    <p class="lead">Universal Web GIS Workstation · no install, no server, no account</p>
+    <div id="md-body"></div>
+</div>
+
+<div class="license-footer" style="text-align:center;font-family:var(--mono);font-size:0.72rem;color:var(--dim);padding:32px 24px 48px">
+    GIS-HUB &nbsp;·&nbsp; Copyright © 2026 Kenji Yoshida
+    &nbsp;·&nbsp; <a href="https://opensource.org/licenses/MIT" target="_blank" style="color:var(--dim)">MIT</a>
+    &nbsp;·&nbsp; <a href="index.html" style="color:var(--dim)">← Docs</a>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script>
+fetch("gishub-faq.md")
+    .then(r => r.text())
+    .then(md => { document.getElementById("md-body").innerHTML = marked.parse(md); });
+</script>
+</body>
+</html>

@@ -1,0 +1,710 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>Gint Technical Overview</title>
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="doc.css">
+<style>
+.stage-enc{border-color:#38bdf855} .stage-lod{border-color:#34d39955} .stage-gpu{border-color:#c084fc55}
+.n-enc{background:var(--accent);color:#0b1220} .n-lod{background:var(--green);color:#0b1220} .n-gpu{background:var(--purple);color:#0b1220}
+.tag-enc{background:#1e3a5f;color:var(--accent)} .tag-lod{background:#064e3b;color:var(--green)} .tag-gpu{background:#4a1d96;color:var(--purple)}
+.bit-diagram{background:#070e1c;border:1px solid var(--muted);border-radius:8px;padding:16px 18px;margin:14px 0;font-family:var(--mono);font-size:0.8rem}
+.bd-row{display:flex;align-items:center;gap:6px;margin-bottom:6px}
+.bd-label{width:64px;color:var(--dim);flex-shrink:0}
+.bd-bits{display:flex;gap:2px}
+.bit{width:24px;height:24px;border-radius:4px;display:flex;align-items:center;justify-content:center;font-weight:bold;font-size:0.8rem}
+.bx{background:rgba(251,146,60,0.25);color:var(--orange);border:1px solid var(--orange)}
+.by{background:rgba(56,189,248,0.25);color:var(--accent);border:1px solid var(--accent)}
+.bmx{background:rgba(251,146,60,0.45);color:var(--orange);border:1px solid var(--orange)}
+.bmy{background:rgba(56,189,248,0.45);color:var(--accent);border:1px solid var(--accent)}
+.bit-eq{color:var(--green);margin:0 6px}
+.stencil-diagram{display:flex;gap:12px;margin:16px 0;flex-wrap:wrap}
+.sd-panel{background:#070e1c;border:1px solid var(--muted);border-radius:8px;padding:12px;flex:1;min-width:200px}
+.sd-title{font-family:var(--mono);font-size:0.7rem;color:var(--dim);text-transform:uppercase;margin-bottom:10px}
+.sd-canvas{width:100%;aspect-ratio:1;position:relative}
+svg.sd{width:100%;height:100%}
+.vw-visual{display:flex;gap:16px;flex-wrap:wrap;margin:14px 0}
+.vw-box{background:#070e1c;border:1px solid var(--muted);border-radius:8px;padding:12px;flex:1;min-width:160px;text-align:center}
+.vw-box svg{display:block;margin:0 auto}
+.vw-box .caption{font-family:var(--mono);font-size:0.68rem;color:var(--dim);margin-top:6px}
+.vw-box .weight{font-family:var(--mono);font-size:0.8rem;margin-top:2px}
+h4{color:var(--dim);font-size:0.9rem;margin:16px 0 6px;font-weight:600}
+</style>
+</head>
+<body>
+
+<div class="header-bar">
+	<img src="favicon.svg" width="24" height="24" style="flex-shrink:0">
+	<span class="logo">gint</span>
+	<span class="sep">/</span>
+	<span style="color:var(--dim);font-size:0.82rem">Technical Architecture Overview</span>
+	<div class="nav-links">
+		<a href="/">← ortho-earth</a>
+		<a href="index-jp.html">← ドキュメント</a>
+		<a href="gintbuf.html">EN</a>
+		<a href="ortho-map-jp.html">OrthoMap</a>
+		<span class="nav-cur">Gint</span>
+		<a href="geopbf-jp.html">GeoPBF</a>
+		<a href="altpbf-jp.html">AltPBF</a>
+		<span class="nav-sep">·</span>
+		<a href="gint.html">GINT</a>
+		<a href="lod.html">LOD</a>
+		<a href="st.html">Stencil</a>
+	</div>
+</div>
+
+<div class="page">
+
+<h1>Gint — Technical Architecture</h1>
+<p class="lead">Geographic <strong>Int</strong>erleaved Binary Format<br>
+<span style="font-size:0.85em">
+<strong style="color:var(--accent)">int</strong> = <strong>int</strong>erleave（Mortonビットインターリーブ）·
+<strong style="color:var(--accent)">int</strong>eger（64bit整数コード）·
+<strong style="color:var(--accent)">int</strong>ended（設計意図を持ったLOD）
+</span><br>
+空間インデックス × LODエンコーディング × GPU描画の統合パイプライン</p>
+
+<div class="toc">
+	<div class="toc-title">Table of Contents</div>
+	<ol>
+		<li><a href="#problem">従来手法の問題点</a></li>
+		<li><a href="#overview">パイプライン概観</a></li>
+		<li><a href="#encoding">Stage 1 — エンコーディング：Mortonオーダー × VWウェイト</a></li>
+		<li><a href="#lod">Stage 2 — GPU VB 書き込み（一度だけ）</a></li>
+		<li><a href="#gpu">Stage 3 — GPUステンシルテッセレーション</a></li>
+		<li><a href="#comparison">性能比較</a></li>
+		<li><a href="#philosophy">設計思想</a></li>
+	</ol>
+</div>
+
+<!-- ──────────────────────────────────────────────────── -->
+<h2 id="problem">1. 従来手法の問題点</h2>
+
+<p>
+ウェブGISの一般的な実装では、地図タイル（スライプトタイル / MVT）を使い、
+ズームレベルごとに独立したファイル群をサーバに事前生成して配信する。
+</p>
+
+<table>
+	<tr><th>問題</th><th>原因</th><th>コスト</th></tr>
+	<tr>
+		<td><strong>タイル数の爆発</strong></td>
+		<td>zoom z での総タイル数は 4<sup>z</sup></td>
+		<td class="bad">z=14 で 268 M tiles</td>
+	</tr>
+	<tr>
+		<td><strong>ズームごとのネットワーク</strong></td>
+		<td>各ズームで別タイルを取得</td>
+		<td class="bad">ズームのたびに複数リクエスト</td>
+	</tr>
+	<tr>
+		<td><strong>CPU三角形分割</strong></td>
+		<td>ポリゴンは GPU に直接送れない（凹形・穴）</td>
+		<td class="bad">フレームごとに earcut O(n²) 実行</td>
+	</tr>
+	<tr>
+		<td><strong>LODの静的管理</strong></td>
+		<td>複数解像度を別ファイルで事前生成</td>
+		<td class="bad">ストレージ × LOD数だけ増加</td>
+	</tr>
+</table>
+
+<p>
+Gint はこれら 4 つの問題を「1ファイル × ゼロ追加ネットワーク × CPU三角分割なし」で解決する。
+</p>
+
+<!-- ──────────────────────────────────────────────────── -->
+<h2 id="overview">2. パイプライン概観</h2>
+
+<div class="pipeline">
+	<div class="pipe-stage stage-enc">
+		<div class="pipe-head">
+			<span class="pipe-num n-enc">1</span>
+			<div>
+				<div class="pipe-title">エンコーディング（前処理・一度だけ）</div>
+				<div class="pipe-sub">GeoJSON → .gint binary（ブラウザ上で実行）</div>
+			</div>
+			<span class="pipe-demo tag-enc tag">GINT.html</span>
+		</div>
+		<div class="pipe-items">
+			<div class="pi"><b>Morton order</b> — フィーチャをZ曲線でソート（空間クラスタリング）</div>
+			<div class="pi"><b>VW weight</b> — 各頂点に三角形面積（重要度）をタグ付け</div>
+			<div class="pi"><b>binary pack</b> — 座標 + ウェイトを固定長バイナリに詰め込む</div>
+		</div>
+	</div>
+	<div class="pipe-arrow">↓</div>
+	<div class="pipe-stage stage-lod">
+		<div class="pipe-head">
+			<span class="pipe-num n-lod">2</span>
+			<div>
+				<div class="pipe-title">GPU VB 書き込み（クライアント側・一度だけ）</div>
+				<div class="pipe-sub">GeoPBF decode → VWビット展開 → GPU 頂点バッファへ一括転送</div>
+			</div>
+		</div>
+		<div class="pipe-items">
+			<div class="pi"><b>GeoPBF decode</b> — バイナリから頂点座標・VWビットを展開（Morton 順保持）</div>
+			<div class="pi"><b>VW bits unpack</b> — 各頂点の VW ウェイトを GPU VB フォーマットへ展開</div>
+			<div class="pi"><b>GPU VB upload</b> — 全頂点を一括で GPU 頂点バッファへ転送（以降 CPU 変換ゼロ）</div>
+		</div>
+	</div>
+	<div class="pipe-arrow">↓</div>
+	<div class="pipe-stage stage-gpu">
+		<div class="pipe-head">
+			<span class="pipe-num n-gpu">3</span>
+			<div>
+				<div class="pipe-title">GPU LOD + ステンシルテッセレーション（毎フレーム・CPU処理ゼロ）</div>
+				<div class="pipe-sub">vertex shader LOD → WebGL stencil → fill</div>
+			</div>
+			<div style="display:flex;gap:4px;margin-left:auto;flex-shrink:0"><span class="pipe-demo tag-lod tag">LOD.html</span><span class="pipe-demo tag-gpu tag">ST.html</span></div>
+		</div>
+		<div class="pipe-items">
+			<div class="pi"><b>VW threshold(z)</b> — vertex shader: zoom に応じた VW 閾値で頂点を破棄（LOD・追加バイト転送ゼロ）</div>
+			<div class="pi"><b>fan triangles</b> — NDC 原点から全頂点へファントライアングルを生成</div>
+			<div class="pi"><b>stencil XOR</b> — 偶奇カウントで凹部・穴を自動判定</div>
+			<div class="pi"><b>color pass</b> — ステンシル奇数部分のみ塗りつぶし</div>
+		</div>
+	</div>
+</div>
+
+<!-- ──────────────────────────────────────────────────── -->
+<h2 id="encoding">3. Stage 1 — エンコーディング</h2>
+
+<h3>3.1 Morton Order（Z順序曲線）</h3>
+
+<p>
+Mortonコードは 2 次元座標 (x, y) を 1 次元の整数に変換する手法で、
+X のビットと Y のビットを <strong>インターリーブ（交互配置）</strong> することで生成される。
+</p>
+
+<div class="bit-diagram">
+	<div class="bd-row">
+		<span class="bd-label" style="color:var(--orange)">X = col 3</span>
+		<div class="bd-bits">
+			<div class="bit bx">0</div>
+			<div class="bit bx">1</div>
+			<div class="bit bx">1</div>
+		</div>
+		<span class="bit-eq">← 3ビット（8×8グリッドの場合）</span>
+	</div>
+	<div class="bd-row">
+		<span class="bd-label" style="color:var(--accent)">Y = row 5</span>
+		<div class="bd-bits">
+			<div class="bit by">1</div>
+			<div class="bit by">0</div>
+			<div class="bit by">1</div>
+		</div>
+	</div>
+	<div style="border-top:1px solid var(--muted);margin:8px 0"></div>
+	<div class="bd-row">
+		<span class="bd-label" style="color:var(--dim)">Morton</span>
+		<div class="bd-bits">
+			<div class="bit bmy">1</div>
+			<div class="bit bmx">0</div>
+			<div class="bit bmy">0</div>
+			<div class="bit bmx">1</div>
+			<div class="bit bmy">1</div>
+			<div class="bit bmx">1</div>
+		</div>
+		<span class="bit-eq">= 0b100111 = <strong style="color:var(--green)">39</strong></span>
+	</div>
+	<div style="font-size:0.7rem;color:var(--dim);margin-top:6px;padding-left:70px">
+		Y₂ X₂ Y₁ X₁ Y₀ X₀ （MSBから交互配置）
+	</div>
+</div>
+
+<pre><code><span class="cm">// 2D → Morton コード（32bit座標対応）</span>
+<span class="kw">function</span> <span class="fn">morton2D</span>(x, y) {
+	<span class="kw">let</span> r = <span class="nm">0</span>;
+	<span class="kw">for</span> (<span class="kw">let</span> i = <span class="nm">0</span>; i < <span class="nm">32</span>; i++) {
+		r |= ((x >> i) & <span class="nm">1</span>) << (<span class="nm">2</span>*i);      <span class="cm">// X bit at even positions</span>
+		r |= ((y >> i) & <span class="nm">1</span>) << (<span class="nm">2</span>*i + <span class="nm">1</span>);  <span class="cm">// Y bit at odd positions</span>
+	}
+	<span class="kw">return</span> r;
+}
+
+<span class="cm">// ビューポート内フィーチャの抽出（ズームレベル z のビットマスク）</span>
+<span class="cm">// z=6 なら上位12ビット（2×6）がタイルアドレス</span>
+<span class="kw">const</span> mask = ~(<span class="nm">0xFFFFFFFFFFFFFFFFn</span> >> BigInt(<span class="nm">2</span>*z));
+<span class="kw">const</span> tileKey = mortonCode & mask;  <span class="cm">// → タイル内の全フィーチャが同じ prefix を共有</span></code></pre>
+
+<div class="callout callout-key">
+	<div class="callout-head">Key Property</div>
+	<p>
+		空間的に近い 2 点は Morton コードが近くなる（必ずしも連続ではないが同一プレフィックスを共有）。
+		これにより「ビューポート内のフィーチャ」は Morton コード範囲の二分探索で O(log n) で特定できる。
+		タイル境界を跨ぐ場合も最大 4 回の範囲クエリで対応可能（Z曲線の再帰的分割構造）。
+	</p>
+</div>
+
+<h3>3.2 Visvalingam-Whyatt Weight（LODウェイト）</h3>
+
+<p>
+各頂点に「削除されたとき形状が失う面積」をウェイトとして事前計算し、バイナリに埋め込む。
+低ズーム時は高ウェイト頂点のみ使用し、ズームインにつれて閾値を下げ、より細かい頂点を加える。
+</p>
+
+<div class="vw-visual">
+	<div class="vw-box">
+		<svg width="120" height="90" viewBox="0 0 120 90">
+			<polygon points="10,80 60,10 110,80" fill="rgba(251,191,36,0.1)" stroke="rgba(251,191,36,0.6)" stroke-width="1.5" stroke-dasharray="4 3"/>
+			<line x1="10" y1="80" x2="110" y2="80" stroke="#334155" stroke-width="1.5"/>
+			<circle cx="10"  cy="80" r="4" fill="#38bdf8"/>
+			<circle cx="60"  cy="10" r="5" fill="#f87171"/>
+			<circle cx="110" cy="80" r="4" fill="#38bdf8"/>
+			<text x="60" y="52" text-anchor="middle" font-family="monospace" font-size="10" fill="#fbbf24">Area = 大</text>
+		</svg>
+		<div class="caption">岬・湾入口（急な方向変化）</div>
+		<div class="weight" style="color:var(--red)">High weight → always kept</div>
+	</div>
+	<div class="vw-box">
+		<svg width="120" height="90" viewBox="0 0 120 90">
+			<polygon points="10,60 60,40 110,60" fill="rgba(251,191,36,0.08)" stroke="rgba(251,191,36,0.4)" stroke-width="1.5" stroke-dasharray="4 3"/>
+			<line x1="10" y1="60" x2="110" y2="60" stroke="#334155" stroke-width="1.5"/>
+			<circle cx="10"  cy="60" r="4" fill="#38bdf8"/>
+			<circle cx="60"  cy="40" r="4" fill="#fbbf24"/>
+			<circle cx="110" cy="60" r="4" fill="#38bdf8"/>
+			<text x="60" y="58" text-anchor="middle" font-family="monospace" font-size="10" fill="#fbbf24">Area = 中</text>
+		</svg>
+		<div class="caption">小湾・入り江</div>
+		<div class="weight" style="color:var(--yellow)">Medium weight</div>
+	</div>
+	<div class="vw-box">
+		<svg width="120" height="90" viewBox="0 0 120 90">
+			<polygon points="10,55 60,50 110,55" fill="rgba(251,191,36,0.04)" stroke="rgba(251,191,36,0.25)" stroke-width="1.5" stroke-dasharray="4 3"/>
+			<line x1="10" y1="55" x2="110" y2="55" stroke="#334155" stroke-width="1.5"/>
+			<circle cx="10"  cy="55" r="4" fill="#38bdf8"/>
+			<circle cx="60"  cy="50" r="3" fill="#60a5fa"/>
+			<circle cx="110" cy="55" r="4" fill="#38bdf8"/>
+			<text x="60" y="70" text-anchor="middle" font-family="monospace" font-size="10" fill="#60a5fa">Area ≈ 0</text>
+		</svg>
+		<div class="caption">ほぼ直線上の細部</div>
+		<div class="weight" style="color:var(--accent)">Low weight → LOD max only</div>
+	</div>
+</div>
+
+<div class="formula">
+	<span class="fvar">weight(v<sub>i</sub>)</span>
+	<span class="fop"> = </span>
+	<span>| (x<sub>i-1</sub>(y<sub>i</sub>−y<sub>i+1</sub>) + x<sub>i</sub>(y<sub>i+1</sub>−y<sub>i-1</sub>) + x<sub>i+1</sub>(y<sub>i-1</sub>−y<sub>i</sub>)) / 2 |</span>
+	<br>
+	<span style="font-size:0.75rem;color:var(--dim)">← 前後の頂点と作る三角形の面積（px²）</span>
+</div>
+
+<pre><code><span class="cm">// エンコード時に全頂点のウェイトを計算して保存</span>
+<span class="kw">function</span> <span class="fn">computeVWWeights</span>(polygon) {
+	<span class="kw">const</span> n = polygon.length;
+	<span class="kw">return</span> polygon.<span class="fn">map</span>((_, i) => <span class="fn">triangleArea</span>(
+		polygon[(i - <span class="nm">1</span> + n) % n],
+		polygon[i],
+		polygon[(i + <span class="nm">1</span>) % n]
+	));
+}
+
+<span class="cm">// ズームレベルに対応する頂点フィルタ（デコード時）</span>
+<span class="cm">// ズームレベル z における 1px の地図単位換算</span>
+<span class="cm">// （例: メルカトル投影、タイルサイズ 256px の場合）</span>
+<span class="kw">const</span> metersPerPx = (<span class="nm">40075016</span> / (<span class="nm">256</span> * Math.<span class="fn">pow</span>(<span class="nm">2</span>, z)));
+<span class="kw">const</span> threshold   = metersPerPx * metersPerPx;  <span class="cm">// 1px² → これ未満の頂点はサブピクセル</span>
+<span class="kw">const</span> activeVerts  = vertices.<span class="fn">filter</span>(v => v.weight >= threshold);</code></pre>
+
+<div class="callout callout-key">
+	<div class="callout-head">LOD 閾値は「1px」が自動的に決める</div>
+	<p>
+		VW ウェイトの単位は <strong>スクリーンピクセルの面積（px²）</strong> に対応する。
+		ズームレベル z において、三角形面積が 1px² 未満の頂点は視覚的に <strong>サブピクセル</strong>
+		——つまり削除しても描画上の差がゼロ——であり、含める必要がない。
+		したがってズームごとの LOD 閾値は
+		「1px が地図座標系で何単位に相当するか」から <em>物理的に自動導出</em> される。
+		設計者がズームレベルごとに手動でしきい値を調整する必要はなく、
+		スケールが変わるたびに必要十分な頂点数が自然に決まる。
+	</p>
+</div>
+
+<div class="callout callout-note">
+	<div class="callout-head">LOD 0（アンカー）と上位 LOD の関係</div>
+	<p>
+		LOD 0 のアンカー頂点は岬・湾口など<strong>形状の骨格</strong>を定義し、常に保持される。
+		LOD 1 以降の頂点は、既存の辺の途中に<strong>挿入</strong>されるものであり、アンカーを置き換えるわけではない。
+		そのため各 LOD レベルは前の LOD の<strong>厳密な上位集合</strong>になっており、
+		どの閾値でフィルタしても「アンカーが作る骨格」を崩さない有効なポリゴンが得られる。
+	</p>
+	<p style="margin-top:8px">
+		また VW ウェイトを計算すると、ミッドポイント分割の深さ（LOD 0=アンカー, LOD 4=細部）と
+		自然に一致する。VW アルゴリズムが「重要な折れ点から順に保持する」設計であるため、
+		アンカーが最高ウェイトを持ち、細部ほどウェイトが小さくなる。
+	</p>
+</div>
+
+<!-- ──────────────────────────────────────────────────── -->
+<h2 id="lod">4. Stage 2 — GPU VB 書き込み（一度だけ）</h2>
+
+<p>
+クライアントはサーバから <code>GeoPBF</code> を受け取り、<strong>一度だけ</strong> gint 形式（Morton順ソート済み・VWビット付き）にデコードして GPU 頂点バッファへ転送する。
+以降のズーム・パン操作では追加ネットワークリクエストは発生しない。LOD（頂点の間引き）は Stage 3 の vertex shader が毎フレーム VW 閾値で処理する。
+</p>
+
+<h3>4.1 Morton ビットシフトによるビューポートクエリ</h3>
+
+<pre><code><span class="cm">// ズームレベル z でのビューポート内フィーチャ検索</span>
+<span class="cm">// 64bit Morton コードの上位 2z ビットがタイルアドレスを示す</span>
+
+<span class="kw">const</span> tileAddr  = <span class="fn">morton2D</span>(tileX, tileY);     <span class="cm">// ビューポート左上のタイル</span>
+<span class="kw">const</span> shiftBits = <span class="nm">64</span> - <span class="nm">2</span> * z;                    <span class="cm">// 右シフト量</span>
+<span class="kw">const</span> prefix    = tileAddr >> BigInt(shiftBits);  <span class="cm">// 上位 2z ビット</span>
+
+<span class="cm">// ソート済み配列に対して二分探索</span>
+<span class="kw">const</span> lo = <span class="fn">lowerBound</span>(features, prefix << BigInt(shiftBits));
+<span class="kw">const</span> hi = <span class="fn">upperBound</span>(features, ((prefix + <span class="nm">1n</span>) << BigInt(shiftBits)) - <span class="nm">1n</span>);
+<span class="kw">const</span> viewport = features.<span class="fn">slice</span>(lo, hi);  <span class="cm">// O(log n) で絞り込み完了</span></code></pre>
+
+<h3>4.2 ズームレベルと LOD の対応</h3>
+
+<table>
+	<tr>
+		<th>Zoom</th><th>LOD</th><th>VW Threshold（例）</th>
+		<th>有効頂点数（例）</th><th>タイル方式ならば</th>
+	</tr>
+	<tr>
+		<td class="dim">z = 2</td><td><span style="color:var(--accent)">LOD 0</span></td>
+		<td class="dim">maxW × 0.50</td>
+		<td class="good">22 vertices</td>
+		<td class="bad">1 tile fetch</td>
+	</tr>
+	<tr>
+		<td class="dim">z = 4</td><td><span style="color:var(--green)">LOD 1</span></td>
+		<td class="dim">maxW × 0.20</td>
+		<td class="good">44 vertices</td>
+		<td class="bad">4 tile fetches</td>
+	</tr>
+	<tr>
+		<td class="dim">z = 6</td><td><span style="color:var(--yellow)">LOD 2</span></td>
+		<td class="dim">maxW × 0.07</td>
+		<td class="good">88 vertices</td>
+		<td class="bad">16 tile fetches</td>
+	</tr>
+	<tr>
+		<td class="dim">z = 8</td><td><span style="color:var(--red)">LOD 3</span></td>
+		<td class="dim">maxW × 0.018</td>
+		<td class="good">176 vertices</td>
+		<td class="bad">64 tile fetches</td>
+	</tr>
+	<tr>
+		<td class="dim">z = 10</td><td><span style="color:var(--purple)">LOD 4</span></td>
+		<td class="dim">0（全頂点）</td>
+		<td class="good">352 vertices</td>
+		<td class="bad">256 tile fetches</td>
+	</tr>
+</table>
+
+<div class="callout callout-key">
+	<div class="callout-head">Zero Network Overhead</div>
+	<p>
+		ズームレベルが変わるたびにタイル方式では追加のネットワークリクエストが発生するが、
+		gint はすべての LOD を単一ファイルに内包している。
+		ズーム操作は GPU uniform の <code>zoom</code> 値を更新するだけで、
+		vertex shader が <code>vw_bits &gt; zoom</code> の頂点を毎フレーム破棄する（CPU 処理ゼロ）。
+		初回ロード後は追加バイト転送 <strong>+0 bytes</strong>。
+	</p>
+</div>
+
+<!-- ──────────────────────────────────────────────────── -->
+<h2 id="gpu">5. Stage 3 — GPU ステンシルテッセレーション</h2>
+
+<p>
+WebGL でポリゴンを描画するには、通常 CPU で三角形分割（Earcut 等）を行ってから GPU に送る必要がある。
+凹ポリゴン・穴あきポリゴンは特に複雑で、高フレームレートを維持することが難しい。
+</p>
+
+<p>
+ステンシルテッセレーションは、<strong>CPU による三角形分割を完全に排除</strong>し、
+頂点列をそのまま GPU に渡して 2 パスで描画する手法である。
+</p>
+
+<h3>5.1 Pass 1: ステンシルパス（偶奇カウント）</h3>
+
+<pre><code><span class="cm">// 頂点列から NDC 原点(0,0) をファン中心としたトライアングルを生成</span>
+<span class="cm">// 頂点数 N のポリゴン → N 個のトライアングル（CPU 処理不要）</span>
+
+<span class="kw">for</span> (<span class="kw">let</span> i = <span class="nm">0</span>; i < N; i++) {
+	<span class="fn">drawTriangle</span>(
+		[<span class="nm">0</span>, <span class="nm">0</span>],          <span class="cm">// NDC 原点（固定）</span>
+		vertices[i],       <span class="cm">// 現在の頂点</span>
+		vertices[i+<span class="nm">1</span>]    <span class="cm">// 次の頂点</span>
+	);
+}
+
+<span class="cm">// WebGL ステンシル設定</span>
+gl.<span class="fn">stencilOp</span>(gl.KEEP, gl.KEEP, gl.INVERT);  <span class="cm">// 重なるたびに XOR（0→1→0→1...）</span>
+gl.<span class="fn">stencilFunc</span>(gl.ALWAYS, <span class="nm">0</span>, <span class="nm">0xFF</span>);
+gl.<span class="fn">colorMask</span>(<span class="kw">false</span>, <span class="kw">false</span>, <span class="kw">false</span>, <span class="kw">false</span>); <span class="cm">// カラーバッファは書かない</span></code></pre>
+
+<p>
+各ファントライアングルが重なった回数が <strong>奇数</strong> のピクセル = ポリゴン内部、
+<strong>偶数</strong> = ポリゴン外部（穴・背景）という even-odd ルールが自然に成立する。
+</p>
+
+<h3>5.2 Pass 2: カラーパス</h3>
+
+<pre><code><span class="cm">// ステンシルが奇数（内部）のピクセルのみ描画</span>
+gl.<span class="fn">stencilFunc</span>(gl.EQUAL, <span class="nm">1</span>, <span class="nm">0x01</span>);  <span class="cm">// ビット0 = 1 のピクセルのみ通過</span>
+gl.<span class="fn">colorMask</span>(<span class="kw">true</span>, <span class="kw">true</span>, <span class="kw">true</span>, <span class="kw">true</span>);
+<span class="fn">drawFullscreenQuad</span>(fillColor);     <span class="cm">// 全画面クワッドを塗るだけ（GPU 爆速）</span></code></pre>
+
+<h3>5.3 凹ポリゴン・穴の自動処理</h3>
+
+<div class="stencil-diagram">
+	<div class="sd-panel">
+		<div class="sd-title">従来手法（CPU Earcut）</div>
+		<svg class="sd" viewBox="0 0 160 140">
+			<!-- Concave polygon outline -->
+			<polygon points="20,120 80,20 140,120 100,80 60,80" fill="rgba(244,63,94,0.1)" stroke="#f43f5e" stroke-width="1.5"/>
+			<!-- Triangulation lines -->
+			<line x1="20" y1="120" x2="80" y2="20" stroke="#f59e0b" stroke-width="1" stroke-dasharray="3,3"/>
+			<line x1="20" y1="120" x2="100" y2="80" stroke="#f59e0b" stroke-width="1" stroke-dasharray="3,3"/>
+			<line x1="20" y1="120" x2="60" y2="80" stroke="#f59e0b" stroke-width="1" stroke-dasharray="3,3"/>
+			<line x1="80" y1="20" x2="100" y2="80" stroke="#f59e0b" stroke-width="1" stroke-dasharray="3,3"/>
+			<line x1="80" y1="20" x2="60" y2="80" stroke="#f59e0b" stroke-width="1" stroke-dasharray="3,3"/>
+			<text x="80" y="135" text-anchor="middle" font-family="monospace" font-size="9" fill="#f59e0b">earcut: 3 triangles</text>
+			<text x="80" y="148" text-anchor="middle" font-family="monospace" font-size="8" fill="#475569">CPU O(n) before upload</text>
+		</svg>
+	</div>
+	<div class="sd-panel">
+		<div class="sd-title">GPU ステンシル法（Stencil Fan）</div>
+		<svg class="sd" viewBox="0 0 160 140">
+			<!-- Fan center (NDC origin) -->
+			<circle cx="80" cy="70" r="4" fill="var(--accent)" opacity="0.8"/>
+			<text x="80" y="82" text-anchor="middle" font-family="monospace" font-size="8" fill="var(--accent)">NDC(0,0)</text>
+			<!-- Fan triangles -->
+			<polygon points="80,70 20,120 80,20" fill="rgba(244,63,94,0.25)" stroke="#f43f5e" stroke-width="1" opacity="0.7"/>
+			<polygon points="80,70 80,20 140,120" fill="rgba(56,189,248,0.25)" stroke="#38bdf8" stroke-width="1" opacity="0.7"/>
+			<polygon points="80,70 140,120 100,80" fill="rgba(163,230,53,0.25)" stroke="#a3e635" stroke-width="1" opacity="0.7"/>
+			<polygon points="80,70 100,80 60,80" fill="rgba(244,63,94,0.4)" stroke="#f43f5e" stroke-width="1" opacity="0.7"/>
+			<polygon points="80,70 60,80 20,120" fill="rgba(192,132,252,0.25)" stroke="#c084fc" stroke-width="1" opacity="0.7"/>
+			<text x="80" y="135" text-anchor="middle" font-family="monospace" font-size="9" fill="var(--green)">5 fan triangles</text>
+			<text x="80" y="148" text-anchor="middle" font-family="monospace" font-size="8" fill="#475569">GPU only, zero CPU</text>
+		</svg>
+	</div>
+	<div class="sd-panel">
+		<div class="sd-title">ステンシルカウント（偶奇）</div>
+		<svg class="sd" viewBox="0 0 160 140">
+			<!-- Polygon fill based on stencil -->
+			<!-- Even = dark (exterior/holes), Odd = filled -->
+			<!-- Rough approximation -->
+			<rect x="0" y="0" width="160" height="140" fill="#0a1628"/>
+			<!-- Filled region (stencil=1) -->
+			<polygon points="20,120 80,20 140,120 100,80 60,80" fill="rgba(92,128,74,0.85)" stroke="none"/>
+			<!-- Hole region (stencil=2 → even → no fill) -->
+			<polygon points="100,80 60,80 80,70" fill="#0a1628" stroke="none"/>
+			<text x="55" y="75" font-family="monospace" font-size="7" fill="var(--dim)">count=2</text>
+			<text x="55" y="55" font-family="monospace" font-size="7" fill="var(--green)">count=1</text>
+			<text x="105" y="110" font-family="monospace" font-size="7" fill="var(--green)">count=1</text>
+			<text x="80" y="135" text-anchor="middle" font-family="monospace" font-size="9" fill="var(--green)">odd=fill, even=hole</text>
+			<text x="80" y="148" text-anchor="middle" font-family="monospace" font-size="8" fill="#475569">任意トポロジ自動解決</text>
+		</svg>
+	</div>
+</div>
+
+<div class="callout callout-key">
+	<div class="callout-head">なぜ凹形・穴が自動で解決するか</div>
+	<p>
+		ファントライアングルが重なる回数は、その点がポリゴン輪郭をどちら向きに何回横切るかに対応する。
+		凹部分（ポリゴンが自分自身と「重なる」部分）では 2 回カウントされ偶数 → 穴として処理される。
+		これは ray casting アルゴリズムと同じ even-odd ルールを GPU のハードウェアステンシルで実現したものである。
+	</p>
+</div>
+
+<h3 id="sphere-culling">5.4 球体カリング — 地平線またぎポリゴン</h3>
+
+<p>
+ファンステンシルは 2D 平面レンダリングでは正しく機能する。しかし正射影（orthographic）の地球儀では、
+ポリゴンが<strong>地平線</strong>（球面の前後境界）をまたぐ場合がある。背面半球の頂点はアイスペースで
+<code>p.z &lt; 0</code> となり画面に表示されないが、それでもファントライアングルに参加するため問題が生じる。
+</p>
+
+<h4>単純な対処：裏面頂点を NDC 原点に潰す</h4>
+
+<pre><code><span class="cm">// ❌ 地平線付近に縮退トライアングルが発生する</span>
+<span class="kw">if</span> (p.z < <span class="nm">0.0</span>) { gl_Position = vec4(<span class="nm">0.0</span>, <span class="nm">0.0</span>, <span class="nm">0.0</span>, <span class="nm">1.0</span>); <span class="kw">return</span>; }</code></pre>
+
+<p>ファンの軸点（NDC 原点）に重ねると、地平線をまたぐエッジで<strong>面積ゼロの縮退トライアングル</strong>が生じる：</p>
+<ul>
+	<li><b>EXIT</b>（可視 → 裏面）：裏面頂点がファン軸と同点になる → 面積ゼロ。</li>
+	<li><b>BACK-BACK</b>（両方裏面）：両端が同点に潰れる → 2 点間の地平線円弧が塗られない。</li>
+	<li><b>ENTRY</b>（裏面 → 可視）：EXIT と対称。</li>
+</ul>
+
+<h4>解決策：裏面頂点を地平線円上に押し出す</h4>
+
+<p>
+潰すのではなく、各裏面頂点を<strong>地平線円</strong>（球面の投影外縁、半径 <code>u_scale</code> px）上へ、
+球中心からの画面方向を保ったまま押し出す：
+</p>
+
+<pre><code><span class="cm">// ✅ 地平線円上に押し出し — 縮退トライアングルを排除</span>
+<span class="kw">if</span> (p.z < <span class="nm">0.0</span>) {
+	vec2 v = p.xy - u_viewport * <span class="nm">0.5</span>;     <span class="cm">// 球中心からの方向ベクトル</span>
+	<span class="kw">float</span> d = <span class="fn">length</span>(v);
+	gl_Position = d < <span class="nm">1e-4</span>                 <span class="cm">// ガード：頂点が完全に中心と一致</span>
+		? vec4(<span class="nm">0.0</span>, <span class="nm">0.0</span>, <span class="nm">0.0</span>, <span class="nm">1.0</span>)
+		: <span class="fn">toNDC</span>(u_viewport * <span class="nm">0.5</span> + v * (u_scale / d));
+	<span class="kw">return</span>;
+}</code></pre>
+
+<div class="stencil-diagram">
+	<div class="sd-panel">
+		<div class="sd-title">❌ 原点に潰す — 縮退トライアングル</div>
+		<svg class="sd" viewBox="0 0 160 152">
+			<circle cx="80" cy="72" r="50" fill="rgba(56,189,248,0.04)" stroke="var(--accent)" stroke-width="1" stroke-dasharray="4,3"/>
+			<path d="M118,48 Q80,134 42,48 Z" fill="rgba(244,63,94,0.1)" stroke="var(--red)" stroke-width="0.8" stroke-dasharray="3,2"/>
+			<polygon points="80,72 42,48 118,48" fill="rgba(52,211,153,0.15)" stroke="var(--green)" stroke-width="1" stroke-dasharray="3,2"/>
+			<line x1="118" y1="48" x2="80" y2="72" stroke="var(--red)" stroke-width="1.5" stroke-dasharray="3,2"/>
+			<line x1="80" y1="72" x2="42" y2="48" stroke="var(--red)" stroke-width="1.5" stroke-dasharray="3,2"/>
+			<circle cx="80" cy="72" r="3" fill="var(--accent)" opacity="0.9"/>
+			<text x="86" y="71" font-family="monospace" font-size="8" fill="var(--accent)">O</text>
+			<circle cx="42" cy="48" r="4" fill="var(--green)"/>
+			<text x="28" y="45" font-family="monospace" font-size="8" fill="var(--green)">V1</text>
+			<circle cx="118" cy="48" r="4" fill="var(--green)"/>
+			<text x="122" y="45" font-family="monospace" font-size="8" fill="var(--green)">V2</text>
+			<circle cx="80" cy="100" r="3" fill="none" stroke="var(--red)" stroke-width="1" stroke-dasharray="2,2" opacity="0.5"/>
+			<text x="84" y="104" font-family="monospace" font-size="7" fill="var(--red)" opacity="0.6">V3（裏面）</text>
+			<text x="80" y="148" text-anchor="middle" font-family="monospace" font-size="8" fill="var(--red)">地平線付近に穴</text>
+		</svg>
+	</div>
+	<div class="sd-panel">
+		<div class="sd-title">✅ 地平線円へ押し出し — 正常塗り</div>
+		<svg class="sd" viewBox="0 0 160 152">
+			<circle cx="80" cy="72" r="50" fill="rgba(56,189,248,0.04)" stroke="var(--accent)" stroke-width="1" stroke-dasharray="4,3"/>
+			<polygon points="80,72 118,48 80,122" fill="rgba(251,191,36,0.2)" stroke="var(--yellow)" stroke-width="1" stroke-dasharray="3,2"/>
+			<polygon points="80,72 80,122 42,48" fill="rgba(192,132,252,0.2)" stroke="var(--purple)" stroke-width="1" stroke-dasharray="3,2"/>
+			<polygon points="80,72 42,48 118,48" fill="rgba(52,211,153,0.25)" stroke="var(--green)" stroke-width="1" stroke-dasharray="3,2"/>
+			<circle cx="80" cy="72" r="3" fill="var(--accent)" opacity="0.9"/>
+			<text x="86" y="71" font-family="monospace" font-size="8" fill="var(--accent)">O</text>
+			<circle cx="42" cy="48" r="4" fill="var(--green)"/>
+			<text x="28" y="45" font-family="monospace" font-size="8" fill="var(--green)">V1</text>
+			<circle cx="118" cy="48" r="4" fill="var(--green)"/>
+			<text x="122" y="45" font-family="monospace" font-size="8" fill="var(--green)">V2</text>
+			<circle cx="80" cy="100" r="3" fill="none" stroke="var(--red)" stroke-width="1" stroke-dasharray="2,2" opacity="0.4"/>
+			<line x1="80" y1="103" x2="80" y2="118" stroke="var(--yellow)" stroke-width="1" stroke-dasharray="2,2"/>
+			<circle cx="80" cy="122" r="4" fill="var(--yellow)"/>
+			<text x="84" y="140" font-family="monospace" font-size="8" fill="var(--yellow)">H3</text>
+			<text x="80" y="150" text-anchor="middle" font-family="monospace" font-size="8" fill="var(--green)">完全塗り</text>
+		</svg>
+	</div>
+</div>
+
+<div class="callout callout-key">
+	<div class="callout-head">なぜこれが正しいか</div>
+	<p>
+		各エッジ種別で有効な（面積のある）トライアングルが生成される。
+		<b>EXIT</b>（<em>O, V<sub>可視</sub>, H<sub>裏面</sub></em>）：可視弧から地平線までの扇形を埋める。
+		<b>BACK-BACK</b>（<em>O, H<sub>i</sub>, H<sub>i+1</sub></em>）：連続する裏面頂点間の地平線円弧を埋める
+		— CPU 側の closing-arc triangle の GPU 版に相当。
+		<b>ENTRY</b>：EXIT と対称。
+		可視弧と押し出された地平線円弧が合わさって閉じた単純ポリゴンを形成し、
+		ステンシル XOR が正しい巻き数をカウントする — CPU によるアーク位相計算は不要。
+	</p>
+</div>
+
+<!-- ──────────────────────────────────────────────────── -->
+<h2 id="comparison">6. 性能比較</h2>
+
+<table>
+	<tr>
+		<th>指標</th>
+		<th>従来タイル方式</th>
+		<th>Gint</th>
+	</tr>
+	<tr>
+		<td><strong>ファイル数</strong></td>
+		<td class="bad">O(4<sup>z</sup>) タイル</td>
+		<td class="good">1 ファイル</td>
+	</tr>
+	<tr>
+		<td><strong>初回ロード</strong></td>
+		<td class="dim">現在の z に必要なタイルのみ</td>
+		<td class="dim">全 LOD を含む 1 ファイル</td>
+	</tr>
+	<tr>
+		<td><strong>ズームイン時の追加転送</strong></td>
+		<td class="bad">ズームごとに複数タイル</td>
+		<td class="good">+0 bytes</td>
+	</tr>
+	<tr>
+		<td><strong>ビューポートクエリ</strong></td>
+		<td class="dim">tile x/y/z でサーバ問い合わせ</td>
+		<td class="good">Morton bit-shift O(log n)（ローカル）</td>
+	</tr>
+	<tr>
+		<td><strong>LOD 切り替え</strong></td>
+		<td class="bad">別タイルを再取得</td>
+		<td class="good">メモリ内フィルタのみ（即座）</td>
+	</tr>
+	<tr>
+		<td><strong>CPU 三角分割</strong></td>
+		<td class="bad">フレームごとに earcut O(n²)</td>
+		<td class="good">不要（GPU ステンシル）</td>
+	</tr>
+	<tr>
+		<td><strong>穴・凹形ポリゴン</strong></td>
+		<td class="bad">earcut で特別処理が必要</td>
+		<td class="good">even-odd ルールで自動解決</td>
+	</tr>
+	<tr>
+		<td><strong>事前生成コスト</strong></td>
+		<td class="bad">全ズームレベル × 全タイルを生成</td>
+		<td class="good">1 回のエンコード（Morton sort + VW）</td>
+	</tr>
+</table>
+
+<!-- ──────────────────────────────────────────────────── -->
+<h2 id="philosophy">7. 設計思想</h2>
+
+<p>
+地理空間データの表現方法は、どの「詳細さ」を現実として採用するかという選択でもある。
+NaturalEarth の physical/cultural という分類が地球上の現象を人間の視点から整理したものであるように、
+gint の LOD 設計はスケールによって「見えるもの」を動的に変化させるという概念を実装している。
+</p>
+
+<p>
+VW ウェイトは「ある頂点を削除したとき形状が失う情報量」を定量化する。
+これは情報理論的には「重要度」の測定であり、
+地形や境界線において何が「本質的な構造」で何が「観測スケール依存の詳細」かを数値化したものとも言える。
+</p>
+
+<p style="font-size:0.82rem;color:var(--dim);margin-top:24px">
+もうひとつ、正射影地球儀に特有の問題として：日付変更線（経度 ±180°）をまたぐポリゴンは、
+描画前にその境界で分割しなければ球の逆側をぐるっと回って描かれてしまう。
+球体カリングとこの反子午線（アンチメリジアン）処理、この 2 つが、
+平面地図レンダラーと球体レンダラーを分ける、静かに非自明な関門である。
+</p>
+
+<hr class="rule">
+
+<h3>デモファイル</h3>
+<table>
+	<tr><th>ファイル</th><th>内容</th><th>対応 Stage</th></tr>
+	<tr>
+		<td><a href="gint.html"><span class="tag tag-file">GINT.html</span></a></td>
+		<td>Morton オーダーのアニメーション、VW ウェイトの対話的可視化</td>
+		<td><span style="color:var(--accent)">Stage 1 エンコーディング</span></td>
+	</tr>
+	<tr>
+		<td><a href="lod.html"><span class="tag tag-file">LOD.html</span></a></td>
+		<td>動的 LOD：vertex shader が毎フレーム VW 閾値で頂点を破棄</td>
+		<td><span style="color:var(--purple)">Stage 3 GPU 描画</span></td>
+	</tr>
+	<tr>
+		<td><a href="st.html"><span class="tag tag-file">ST.html</span></a></td>
+		<td>GPU ステンシルテッセレーション：CPU 三角分割との比較</td>
+		<td><span style="color:var(--purple)">Stage 3 GPU 描画</span></td>
+	</tr>
+</table>
+
+<div style="margin-top:48px;font-size:0.72rem;color:var(--dim);font-family:var(--mono);text-align:center">
+	gint / ortho-map · Kenji Yoshida · 2026
+</div>
+
+</div><!-- .page -->
+</body>
+</html>

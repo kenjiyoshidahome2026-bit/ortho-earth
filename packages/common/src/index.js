@@ -3,12 +3,11 @@ export * from "./logger.js";
 //export * from "./wiki.js";
 //export * from "./cleanCoords.js";
 export * from "./antimeridianCut.js";
-export * from "./antimeridianFeature.js";
 export * from "./createPolygon.js";
-export * from "./douglasPeuckerOrtho.js";
+export * from "./douglasPeucker.js";
 export * from "./projections.js";
 //export * from "./history.js";
 //export * from "./urlBOX.js";
 //export * from "./laptime.js";
-// D3拡張は副作用を伴うので、ここからさらに export はせず
-// 使う側で import "common/d3/selection.js" と書く運用にします
+// D3 extensions have side effects, so they are not re-exported here.
+// Consumers should import them directly: import "common/d3/selection.js"

@@ -6,75 +6,75 @@ const parseCoords = (s) => s.trim().split(/\s+/).map(t => t.split(",").map(Numbe
 const unescXML = s => s.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'");
 
 const kmlToFeatures = (text, nameToRes) => {
-    const features = [];
-    const placemarks = text.match(/<Placemark[\s\S]*?<\/Placemark>/g) || [];
-    placemarks.forEach(pm => {
-        const props = {};
-        let id;
-        const nm = pm.match(/<name>(.*?)<\/name>/);
-        if (nm) id = unescXML(nm[1].trim()); // <name> → feature id（往復対称のためpropsに入れない）
-        const ds = pm.match(/<description>(.*?)<\/description>/);
-        if (ds) props.description = unescXML(ds[1].trim());
-        const sd = pm.match(/<SimpleData name="(.*?)">(.*?)<\/SimpleData>/g);
-        if (sd) sd.forEach(t => {
-            const m = t.match(/<SimpleData name="(.*?)">(.*?)<\/SimpleData>/);
-            if (m) props[unescXML(m[1])] = unescXML(m[2]);
-        });
-        const dd = pm.match(/<Data name="(.*?)">[\s\S]*?<value>(.*?)<\/value>[\s\S]*?<\/Data>/g);
-        if (dd) dd.forEach(t => {
-            const m = t.match(/<Data name="(.*?)">[\s\S]*?<value>(.*?)<\/value>/);
-            if (m) props[unescXML(m[1])] = unescXML(m[2]);
-        });
-        const hr = pm.match(/<href>(.*?)<\/href>/);
-        if (hr) {
-            const path = unescXML(hr[1].trim());
-            const res = nameToRes[path];
-            if (res) {
-                // encoderが読む iconName + iconData に合わせて復元（往復対称）
-                props.iconName = path.replace(/^files\//, '');
-                props.iconData = res;
-            }
-        }
-        let geometry = null;
-        if (pm.includes("<Point>")) {
-            const c = pm.match(/<coordinates>(.*?)<\/coordinates>/);
-            if (c) geometry = { type: "Point", coordinates: parseCoords(c[1])[0] };
-        } else if (pm.includes("<LineString>")) {
-            const c = pm.match(/<coordinates>([\s\S]*?)<\/coordinates>/);
-            if (c) geometry = { type: "LineString", coordinates: parseCoords(c[1]) };
-        } else if (pm.includes("<Polygon>")) {
-            const outer = pm.match(/<outerBoundaryIs>[\s\S]*?<coordinates>([\s\S]*?)<\/coordinates>[\s\S]*?<\/outerBoundaryIs>/);
-            const inners = [...pm.matchAll(/<innerBoundaryIs>[\s\S]*?<coordinates>([\s\S]*?)<\/coordinates>[\s\S]*?<\/innerBoundaryIs>/g)];
-            if (outer) {
-                const rings = [parseCoords(outer[1]), ...inners.map(m => parseCoords(m[1]))];
-                geometry = { type: "Polygon", coordinates: rings };
-            }
-        }
-        if (geometry) features.push({ type: "Feature", id, geometry, properties: props });
-    });
-    return features;
+	const features = [];
+	const placemarks = text.match(/<Placemark[\s\S]*?<\/Placemark>/g) || [];
+	placemarks.forEach(pm => {
+		const props = {};
+		let id;
+		const nm = pm.match(/<name>(.*?)<\/name>/);
+		if (nm) id = unescXML(nm[1].trim()); // <name> becomes the feature id — not stored in props (round-trip symmetric)
+		const ds = pm.match(/<description>(.*?)<\/description>/);
+		if (ds) props.description = unescXML(ds[1].trim());
+		const sd = pm.match(/<SimpleData name="(.*?)">(.*?)<\/SimpleData>/g);
+		if (sd) sd.forEach(t => {
+			const m = t.match(/<SimpleData name="(.*?)">(.*?)<\/SimpleData>/);
+			if (m) props[unescXML(m[1])] = unescXML(m[2]);
+		});
+		const dd = pm.match(/<Data name="(.*?)">[\s\S]*?<value>(.*?)<\/value>[\s\S]*?<\/Data>/g);
+		if (dd) dd.forEach(t => {
+			const m = t.match(/<Data name="(.*?)">[\s\S]*?<value>(.*?)<\/value>/);
+			if (m) props[unescXML(m[1])] = unescXML(m[2]);
+		});
+		const hr = pm.match(/<href>(.*?)<\/href>/);
+		if (hr) {
+			const path = unescXML(hr[1].trim());
+			const res = nameToRes[path];
+			if (res) {
+				// Restore iconName + iconData as the encoder expects (round-trip symmetric).
+				props.iconName = path.replace(/^files\//, '');
+				props.iconData = res;
+			}
+		}
+		let geometry = null;
+		if (pm.includes("<Point>")) {
+			const c = pm.match(/<coordinates>(.*?)<\/coordinates>/);
+			if (c) geometry = { type: "Point", coordinates: parseCoords(c[1])[0] };
+		} else if (pm.includes("<LineString>")) {
+			const c = pm.match(/<coordinates>([\s\S]*?)<\/coordinates>/);
+			if (c) geometry = { type: "LineString", coordinates: parseCoords(c[1]) };
+		} else if (pm.includes("<Polygon>")) {
+			const outer = pm.match(/<outerBoundaryIs>[\s\S]*?<coordinates>([\s\S]*?)<\/coordinates>[\s\S]*?<\/outerBoundaryIs>/);
+			const inners = [...pm.matchAll(/<innerBoundaryIs>[\s\S]*?<coordinates>([\s\S]*?)<\/coordinates>[\s\S]*?<\/innerBoundaryIs>/g)];
+			if (outer) {
+				const rings = [parseCoords(outer[1]), ...inners.map(m => parseCoords(m[1]))];
+				geometry = { type: "Polygon", coordinates: rings };
+			}
+		}
+		if (geometry) features.push({ type: "Feature", id, geometry, properties: props });
+	});
+	return features;
 };
 
 onmessage = async (e) => {
-    const { file, name, precision } = e.data;
-    const entries = await decodeZIP(file);
-    if (!entries) return;
-    const nameToRes = {};
-    entries.forEach(f => {
-        if (!f.name.endsWith(".kml")) nameToRes[f.name] = f;
-    });
-    const kmlEntries = entries.filter(t => t.name.endsWith(".kml"));
-    const allFeatures = [];
-    for (const entry of kmlEntries) {
-        const text = await entry.text();
-        allFeatures.push(...kmlToFeatures(text, nameToRes));
-    }
-    const [keys, bufs] = await GeoPBF.makeKeys(allFeatures.map(f => f.properties));
-    const pbf = new GeoPBF({ name: name || file.name.replace(/\.kmz$/, ""), precision });
-    pbf.setHead(keys, bufs);
-    pbf.setBody(() => allFeatures.forEach(f => pbf.setFeature(f)));
-    pbf.close();
-    await dissolve(pbf);
-    const res = pbf.arrayBuffer;
-    postMessage({ type: "kmzdec", data: res }, [res]);
+	const { file, name, precision } = e.data;
+	const entries = await decodeZIP(file);
+	if (!entries) return;
+	const nameToRes = {};
+	entries.forEach(f => {
+		if (!f.name.endsWith(".kml")) nameToRes[f.name] = f;
+	});
+	const kmlEntries = entries.filter(t => t.name.endsWith(".kml"));
+	const allFeatures = [];
+	for (const entry of kmlEntries) {
+		const text = await entry.text();
+		allFeatures.push(...kmlToFeatures(text, nameToRes));
+	}
+	const [keys, bufs] = await GeoPBF.makeKeys(allFeatures.map(f => f.properties));
+	const pbf = new GeoPBF({ name: name || file.name.replace(/\.kmz$/, ""), precision });
+	pbf.setHead(keys, bufs);
+	pbf.setBody(() => allFeatures.forEach(f => pbf.setFeature(f)));
+	pbf.close();
+	await dissolve(pbf);
+	const res = pbf.arrayBuffer;
+	postMessage({ type: "kmzdec", data: res }, [res]);
 };

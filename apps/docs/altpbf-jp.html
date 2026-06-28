@@ -1,0 +1,461 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>altpbf Technical Overview</title>
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="doc.css">
+<style>
+:root { --doc-accent: var(--teal); }
+.tier-stack { display:flex; flex-direction:column; gap:8px; margin:18px 0; }
+.tier { display:flex; align-items:center; gap:0; border-radius:8px; overflow:hidden; font-family:var(--mono); }
+.tier-badge { padding:10px 14px; font-size:0.8rem; font-weight:bold; display:flex; align-items:center; justify-content:center; flex-direction:column; min-width:100px; text-align:center; flex-shrink:0; }
+.tier-body { padding:10px 16px; flex:1; font-size:0.78rem; }
+.tier-body .t-title { font-weight:bold; margin-bottom:3px; }
+.tier-body .t-detail { color:var(--dim); font-size:0.72rem; }
+.tier-zoom { padding:10px 14px; font-size:0.72rem; color:var(--dim); text-align:right; flex-shrink:0; align-self:center; }
+.t-hgt90 { background:#1e3a5f; color:var(--sky); } .t-hgt10 { background:#1a3a2a; color:#6ee7b7; } .t-hgt01 { background:#3a1e2a; color:#f9a8d4; }
+.tier.hgt90 { border:1px solid #38bdf844; } .tier.hgt10 { border:1px solid #34d39944; } .tier.hgt01 { border:1px solid #c084fc44; }
+.cmap { display:flex; gap:3px; margin:14px 0; font-family:var(--mono); font-size:0.72rem; }
+.cm-col { flex:1; border-radius:6px; padding:8px 6px; text-align:center; display:flex; flex-direction:column; gap:3px; }
+.cm-ht { font-weight:bold; font-size:0.78rem; } .cm-rng { font-size:0.65rem; }
+.cache-flow { display:flex; gap:10px; margin:16px 0; align-items:center; flex-wrap:wrap; }
+.cf-box { background:var(--card); border:1px solid var(--muted); border-radius:8px; padding:10px 14px; font-family:var(--mono); font-size:0.75rem; }
+.cf-box .cf-title { color:var(--dim); font-size:0.65rem; text-transform:uppercase; letter-spacing:0.06em; margin-bottom:4px; }
+.cf-box .cf-name { color:var(--teal); font-weight:bold; } .cf-box .cf-desc { color:#94a3b8; font-size:0.7rem; margin-top:2px; }
+.cf-arrow { color:var(--dim); font-size:1.2rem; flex-shrink:0; }
+.shrink-diagram { background:#070e1c; border:1px solid var(--muted); border-radius:8px; padding:14px 16px; margin:14px 0; display:flex; gap:0; align-items:flex-end; height:120px; font-family:var(--mono); font-size:0.68rem; overflow:hidden; }
+.shrink-col { display:flex; flex-direction:column; align-items:center; justify-content:flex-end; gap:3px; flex:1; }
+.shrink-bar { background:rgba(45,212,191,0.25); border:1px solid rgba(45,212,191,0.5); border-radius:3px 3px 0 0; width:80%; min-height:4px; }
+.shrink-lat { color:var(--dim); } .shrink-pct { color:var(--teal); font-size:0.65rem; }
+</style>
+</head>
+<body>
+
+<div class="header-bar">
+	<img src="favicon.svg" width="24" height="24" style="flex-shrink:0">
+	<span class="logo">altpbf</span>
+	<span class="sep">/</span>
+	<span style="color:var(--dim);font-size:0.82rem">Technical Overview</span>
+	<div class="nav-links">
+		<a href="/">← ortho-earth</a>
+		<a href="index-jp.html">← ドキュメント</a>
+		<a href="altpbf.html">EN</a>
+		<a href="ortho-map-jp.html">OrthoMap</a>
+		<a href="gintbuf-jp.html">Gint</a>
+		<a href="geopbf-jp.html">GeoPBF</a>
+		<span class="nav-cur">AltPBF</span>
+	</div>
+</div>
+
+<div class="page">
+
+<h1>altpbf — 標高タイルフォーマット</h1>
+<p class="lead">Protocol Buffers ベースのラスター標高タイル。<br>
+3段階ズーム LOD · GEBCO + ALOS 2ソース · Int16 デルタ + deflateRaw · Worker ゼロコピー</p>
+
+<div class="toc">
+	<div class="toc-title">Table of Contents</div>
+	<ol>
+		<li><a href="#what">altpbf とは</a></li>
+		<li><a href="#sources">データソース</a></li>
+		<li><a href="#tiers">3段階タイル階層</a></li>
+		<li><a href="#format">バイナリフォーマット</a></li>
+		<li><a href="#naming">タイル名エンコーディング</a></li>
+		<li><a href="#worker">Worker と Cache アーキテクチャ</a></li>
+		<li><a href="#gebco">GEBCO 処理パイプライン</a></li>
+		<li><a href="#api">API リファレンス</a></li>
+	</ol>
+</div>
+
+<!-- ──────────────────────────────────────────────────── -->
+<h2 id="what">1. altpbf とは</h2>
+
+<p>
+altpbf は Protocol Buffers ベースのバイナリ標高タイルフォーマットである。
+GeoPBF が<em>ベクター</em>ジオメトリ（海岸線・道路・ポリゴン）を扱うのに対し、
+altpbf は<em>ラスター</em>標高グリッド、すなわち
+地形レンダリング・影計算・3D 可視化に必要な数値標高モデル（DEM）と
+海底地形データを扱う。
+</p>
+
+<p>
+各タイルは <code>Int16</code> 標高値（メートル）の矩形グリッドを
+デルタエンコードし deflateRaw で圧縮したものである。
+3 種類のタイルサイズが異なる解像度で地球全体をカバーし、
+ズームレベルに応じて適切なティアが自動選択される。
+</p>
+
+<div class="callout callout-key">
+	<div class="callout-head">なぜ Int16 か</div>
+	<p>
+		地球の標高範囲はおよそ −11,000 m（マリアナ海溝）から +8,849 m（エベレスト）。
+		符号付き 16 bit 整数は −32,768 〜 +32,767 m をカバーできる — 必要十分でビット無駄なし。
+		Float32 と比較してデータサイズが圧縮前から半分になる。
+	</p>
+</div>
+
+<!-- ──────────────────────────────────────────────────── -->
+<h2 id="sources">2. データソース</h2>
+
+<table>
+	<tr><th>ソース</th><th>カバレッジ</th><th>解像度</th><th>用途</th></tr>
+	<tr>
+		<td><strong>GEBCO</strong><br><span class="dim" style="font-size:0.72rem">General Bathymetric Chart of the Oceans</span></td>
+		<td class="good">全球（陸・海底）</td>
+		<td class="dim">約 450 m (15 arc-sec)</td>
+		<td>HGT90 · HGT10</td>
+	</tr>
+	<tr>
+		<td><strong>ALOS AW3D30</strong><br><span class="dim" style="font-size:0.72rem">JAXA ALOS 全球 3D 地図</span></td>
+		<td class="mid">陸地のみ</td>
+		<td class="good">約 30 m (1 arc-sec)</td>
+		<td>HGT01</td>
+	</tr>
+</table>
+
+<p>
+GEBCO は海底地形を含む全球データであり、すべてのズームレベルのベースラインとして機能する。
+ALOS AW3D30 は JAXA が公開する高精度陸地 DEM であり、
+30 m 解像度により近距離の地形レンダリングで視覚的に意味のある詳細を提供する。
+ALOS タイルは陸地のみに存在するため、altpbf は利用可能タイルのインデックスを保持し、
+海洋クエリに対しては GEBCO HGT10 へシームレスにフォールバックする。
+</p>
+
+<!-- ──────────────────────────────────────────────────── -->
+<h2 id="tiers">3. 3段階タイル階層</h2>
+
+<p>
+altpbf は 3 種類のタイルサイズを定義し、それぞれが異なる角度範囲の地球をカバーする。
+<code>createGetHeight</code> は現在のズームレベルに基づいてティアを切り替え、
+デフォルトは <code>level1 = 7</code>、<code>level2 = 12</code> である。
+</p>
+
+<div class="tier-stack">
+	<div class="tier hgt90">
+		<div class="tier-badge t-hgt90">HGT90<div style="font-size:0.65rem;font-weight:normal;margin-top:2px">90° タイル</div></div>
+		<div class="tier-body">
+			<div class="t-title" style="color:var(--sky)">全球概観 — GEBCO</div>
+			<div class="t-detail">8 タイルで全球をカバー。21600 px ソースを 8× 平均プーリングでダウンサンプル。最速ロード。</div>
+		</div>
+		<div class="tier-zoom">zoom &lt; 7</div>
+	</div>
+	<div class="tier hgt10">
+		<div class="tier-badge t-hgt10">HGT10<div style="font-size:0.65rem;font-weight:normal;margin-top:2px">10° タイル</div></div>
+		<div class="tier-body">
+			<div class="t-title" style="color:#6ee7b7">広域 — GEBCO</div>
+			<div class="t-detail">324 タイルで全球。緯度調整幅（極収縮）適用。100 km スケールの地形が可視化できる。</div>
+		</div>
+		<div class="tier-zoom">7 ≤ zoom &lt; 12</div>
+	</div>
+	<div class="tier hgt01">
+		<div class="tier-badge t-hgt01">HGT01<div style="font-size:0.65rem;font-weight:normal;margin-top:2px">1° タイル</div></div>
+		<div class="tier-body">
+			<div class="t-title" style="color:#f9a8d4">局所詳細 — ALOS AW3D30</div>
+			<div class="t-detail">約 64,800 陸地タイル、30 m 解像度。陸地のみ存在。それ以外は HGT10 へフォールバック。</div>
+		</div>
+		<div class="tier-zoom">zoom ≥ 12</div>
+	</div>
+</div>
+
+<p>
+各ティアは厳格なフォールバックチェーンを形成する：<strong>HGT01 → HGT10 → HGT90</strong>。
+高解像度タイルが存在しない（海洋、ALOS データなし）か標高値が得られない場合、
+次のより粗いティアが透過的にクエリに答える。
+呼び出し側は常に有効な標高値を受け取る。
+</p>
+
+<div class="callout callout-note">
+	<div class="callout-head">バイリニア補間</div>
+	<p>
+		タイル内では <code>calcHeight(x, y, v)</code> が最近傍 4 グリッドセルにわたる
+		バイリニア補間を実行するため、階段状のアーティファクトが生じない。
+		タイル内の正規化座標（0〜1）は生の lat/lng から計算され、
+		そのまま補間関数に渡される。
+	</p>
+</div>
+
+<!-- ──────────────────────────────────────────────────── -->
+<h2 id="format">4. バイナリフォーマット</h2>
+
+<p>
+各 .altpbf タイルは <strong>deflateRaw 圧縮された Protocol Buffers メッセージ</strong>である。
+</p>
+
+<div class="bin-struct">
+	<div class="bin-row">
+		<div class="bin-cell" style="background:#0d343f;color:var(--teal);flex:0 0 110px;border-radius:6px 0 0 6px">
+			Header
+			<div class="bin-label">タイルメタデータ</div>
+		</div>
+		<div class="bin-cell" style="background:#0f172a;color:var(--dim);flex:1;font-size:0.75rem;text-align:left;padding-left:16px;border-radius:0 6px 6px 0">
+			NAME (1) · SOURCE (2) · WIDTH (3) · HEIGHT (4)<br>
+			LNG (5) · LAT (6) · RANGE (7)
+			<div class="bin-label" style="margin-top:4px">座標フィールドはすべて符号付き Varint（SVarint）</div>
+		</div>
+	</div>
+	<div style="text-align:center;color:var(--dim);font-size:1rem;line-height:1;margin:4px 0">↓</div>
+	<div class="bin-row">
+		<div class="bin-cell" style="background:#1a3a2a;color:var(--green);flex:0 0 110px;border-radius:6px 0 0 6px">
+			DATA (10)
+			<div class="bin-label">標高グリッド</div>
+		</div>
+		<div class="bin-cell" style="background:#0f172a;color:var(--dim);flex:1;text-align:left;padding-left:16px;border-radius:0 6px 6px 0;font-size:0.75rem">
+			Packed SVarint — デルタエンコードされた Int16 標高値列<br>
+			<strong style="color:var(--teal)">行優先順、上から下</strong> · width × height 個
+		</div>
+	</div>
+	<div style="text-align:center;color:var(--dim);font-size:1rem;line-height:1;margin:4px 0">↓</div>
+	<div class="bin-row">
+		<div class="bin-cell" style="background:#2a1a0a;color:var(--orange);flex:0 0 110px;border-radius:6px 0 0 6px">
+			deflateRaw
+			<div class="bin-label">メッセージ全体</div>
+		</div>
+		<div class="bin-cell" style="background:#0f172a;color:var(--dim);flex:1;text-align:left;padding-left:16px;border-radius:0 6px 6px 0;font-size:0.75rem">
+			Raw DEFLATE（gzip ヘッダなし）：<code>deflateRaw</code> / <code>inflateRaw</code><br>
+			PBF パース前にその場で伸張
+		</div>
+	</div>
+</div>
+
+<h3>4.1 標高のデルタエンコーディング</h3>
+
+<p>
+地形の標高はなだらかに変化する — DEM の隣接セルが数十メートル以上異なることはまれである。
+デルタエンコーディングはこの局所性を利用し、絶対値ではなく差分を格納することで
+値を小さく保ち、Varint バイト数を削減する。
+</p>
+
+<div class="delta-table">
+	<div class="dt-row">
+		<span class="dt-label" style="color:var(--red)">生 Int16 (m)</span>
+		<div class="dt-cells">
+			<div class="dc dc-raw">1240</div>
+			<div class="dc dc-raw">1255</div>
+			<div class="dc dc-raw">1268</div>
+			<div class="dc dc-raw">1241</div>
+			<div class="dc dc-raw">1195</div>
+		</div>
+	</div>
+	<div class="dt-row">
+		<span class="dt-label" style="color:var(--yellow)">デルタ</span>
+		<div class="dt-cells">
+			<div class="dc dc-del">1240</div>
+			<div class="dc dc-del">+15</div>
+			<div class="dc dc-del">+13</div>
+			<div class="dc dc-del">−27</div>
+			<div class="dc dc-del">−46</div>
+		</div>
+	</div>
+	<div class="dt-row">
+		<span class="dt-label" style="color:var(--green)">SVarint バイト数</span>
+		<div class="dt-cells">
+			<div class="dc dc-var">2 bytes</div>
+			<div class="dc dc-var" style="background:rgba(52,211,153,0.3)"><strong>1 byte</strong></div>
+			<div class="dc dc-var" style="background:rgba(52,211,153,0.3)"><strong>1 byte</strong></div>
+			<div class="dc dc-var" style="background:rgba(52,211,153,0.3)"><strong>1 byte</strong></div>
+			<div class="dc dc-var" style="background:rgba(52,211,153,0.3)"><strong>1 byte</strong></div>
+		</div>
+	</div>
+</div>
+
+<p>
+なだらかな地形タイルでは、デルタエンコード後のほとんどの値が 1 Varint バイトに収まる。
+その上に deflateRaw を重ねることで、altpbf タイルは生 Int16 配列と比べて
+典型的に <strong>5〜15 倍</strong> 小さくなる。
+</p>
+
+<h3>4.2 標高カラーマップ</h3>
+
+<p><code>altpbf2png</code> は標高・水深ステップに応じたカラーで PNG としてタイルをレンダリングする：</p>
+
+<div class="cmap">
+	<div class="cm-col" style="background:rgba(20,50,100,0.6);border:1px solid #20509044">
+		<div class="cm-ht" style="color:#5ba3c9">深海</div>
+		<div class="cm-rng" style="color:var(--dim)">&lt; −2000 m</div>
+	</div>
+	<div class="cm-col" style="background:rgba(40,100,150,0.6);border:1px solid #286496">
+		<div class="cm-ht" style="color:#7dc4e4">海洋</div>
+		<div class="cm-rng" style="color:var(--dim)">&lt; −200 m</div>
+	</div>
+	<div class="cm-col" style="background:rgba(120,200,220,0.6);border:1px solid #78c8dc">
+		<div class="cm-ht" style="color:#aadcec">大陸棚</div>
+		<div class="cm-rng" style="color:var(--dim)">0 以下（海）</div>
+	</div>
+	<div class="cm-col" style="background:rgba(85,107,47,0.6);border:1px solid #556b2f">
+		<div class="cm-ht" style="color:#8fa860">低地</div>
+		<div class="cm-rng" style="color:var(--dim)">0–200 m</div>
+	</div>
+	<div class="cm-col" style="background:rgba(124,150,90,0.6);border:1px solid #7c965a">
+		<div class="cm-ht" style="color:#a8bf78">丘陵</div>
+		<div class="cm-rng" style="color:var(--dim)">200–500 m</div>
+	</div>
+	<div class="cm-col" style="background:rgba(180,130,70,0.6);border:1px solid #b48246">
+		<div class="cm-ht" style="color:#c8a068">高地</div>
+		<div class="cm-rng" style="color:var(--dim)">1000–2000 m</div>
+	</div>
+	<div class="cm-col" style="background:rgba(130,80,60,0.6);border:1px solid #82503c">
+		<div class="cm-ht" style="color:#b07060">高山</div>
+		<div class="cm-rng" style="color:var(--dim)">2000–4000 m</div>
+	</div>
+	<div class="cm-col" style="background:rgba(200,200,200,0.6);border:1px solid #c8c8c8">
+		<div class="cm-ht" style="color:#e0e0e0">雪線</div>
+		<div class="cm-rng" style="color:var(--dim)">&gt; 6000 m</div>
+	</div>
+</div>
+
+<!-- ──────────────────────────────────────────────────── -->
+<h2 id="naming">5. タイル名エンコーディング</h2>
+
+<p>
+各タイルは範囲・緯度・経度をコンパクトにエンコードした名前文字列で一意に識別される：
+</p>
+
+<pre><code><span class="fn">encodeName</span>(lng, lat, range)
+<span class="cm">// range > 0  →  "R{02d(range)}{緯度符号}{03d(|lat|)}{経度符号}{03d(|lng|)}"</span>
+<span class="cm">// range = 0  →  "{緯度符号}{03d(|lat|)}{経度符号}{03d(|lng|)}"  (ALOS 1° タイル)</span>
+
+<span class="cm">// 例：</span>
+<span class="fn">encodeName</span>(<span class="nm">0</span>, <span class="nm">-90</span>, <span class="nm">90</span>)  <span class="cm">// → "R90S090E000"  (HGT90 南西象限)</span>
+<span class="fn">encodeName</span>(<span class="nm">130</span>, <span class="nm">30</span>, <span class="nm">10</span>)  <span class="cm">// → "R10N030E130"  (HGT10 日本周辺)</span>
+<span class="fn">encodeName</span>(<span class="nm">135</span>, <span class="nm">35</span>, <span class="nm">0</span>)   <span class="cm">// →    "N035E135"  (HGT01 ALOS、近畿地方)</span></code></pre>
+
+<div class="callout callout-note">
+	<div class="callout-head">ALOS タイル存在確認</div>
+	<p>
+		ALOS AW3D30 タイルは陸地にしか存在しない。
+		HGT01 タイルをリクエストする前に、altpbf は JAXA タイルリストから
+		読み込んだインメモリインデックス（<code>index_alos()</code>）を確認する。
+		海洋クエリはネットワークラウンドトリップなしで即座に HGT10 へフォールバックする。
+	</p>
+</div>
+
+<!-- ──────────────────────────────────────────────────── -->
+<h2 id="worker">6. Worker と Cache アーキテクチャ</h2>
+
+<div class="cache-flow">
+	<div class="cf-box">
+		<div class="cf-title">リクエスト</div>
+		<div class="cf-name">getHeight(lng, lat, zoom)</div>
+		<div class="cf-desc">ズームでティア選択</div>
+	</div>
+	<div class="cf-arrow">→</div>
+	<div class="cf-box">
+		<div class="cf-title">L1 キャッシュ</div>
+		<div class="cf-name">IndexedDB</div>
+		<div class="cf-desc">"GIS/alt" 名前空間<br>デコード済みオブジェクト</div>
+	</div>
+	<div class="cf-arrow">→ ミス →</div>
+	<div class="cf-box">
+		<div class="cf-title">Worker</div>
+		<div class="cf-name">worker.js</div>
+		<div class="cf-desc">ロード + デコード<br>Int16Array 転送</div>
+	</div>
+	<div class="cf-arrow">→</div>
+	<div class="cf-box">
+		<div class="cf-title">L2 ストレージ</div>
+		<div class="cf-name">nativeBucket</div>
+		<div class="cf-desc">サーバーバケット<br>"GIS/alt"</div>
+	</div>
+</div>
+
+<pre><code><span class="cm">// worker.js — Int16Array をゼロコピーでメインスレッドへ転送</span>
+<span class="kw">import</span> { load } <span class="kw">from</span> <span class="st">"./altpbf.js"</span>;
+onmessage = <span class="kw">async</span> e => {
+	<span class="kw">const</span> { name, apiUrl } = e.data;
+	<span class="kw">if</span> (apiUrl) <span class="fn">setApiUrl</span>(apiUrl);
+	<span class="kw">const</span> obj = <span class="kw">await</span> <span class="fn">load</span>(name);
+	obj ? <span class="fn">postMessage</span>(obj, [obj.data.buffer])  <span class="cm">// ← Transferable: ゼロコピー</span>
+		: <span class="fn">postMessage</span>(<span class="kw">null</span>);
+};</code></pre>
+
+<p>
+Worker はタイルの伸張・デコードをメインスレッド外で行い、
+<code>Int16Array</code> バッファを Transferable インターフェースでゼロコピー返却する。
+1 つの Worker がリクエストを直列処理するため、ロード中に来た追加クエリは同じ Promise を待つ。
+デコード後はセッションをまたいで即時再利用できるよう IndexedDB に永続化される。
+</p>
+
+<!-- ──────────────────────────────────────────────────── -->
+<h2 id="gebco">7. GEBCO 処理パイプライン</h2>
+
+<p>
+GEBCO の生ソースは 90° 象限ごとに 21,600 × 21,600 ピクセルのグローバル GeoTIFF
+（全球で 43,200 × 21,600）。
+<code>GEBCO()</code> 関数がこれをダウンロードして altpbf 形式にタイル化する：
+</p>
+
+<pre><code><span class="cm">// Step 1 — HGT90: 8× 平均プーリングダウンサンプル</span>
+<span class="cm">// 21600 × 21600 → 2700 × 2700  (象限ごとに 1 つの 90° タイル)</span>
+<span class="cm">// 出力 1 ピクセル = 8×8 ソースピクセルの平均</span>
+
+<span class="cm">// Step 2 — HGT10: 象限ごとに 9×9 = 81 サブタイルを切り出し</span>
+<span class="cm">// 極収縮（polar shrink）を適用してタイルが画面上で正方形に見えるよう調整</span>
+</code></pre>
+
+<h3>7.1 極収縮補正（Polar Width Correction）</h3>
+
+<p>
+経線は極に向かうにつれ収束するため、高緯度では 10° の経度幅が表す実距離が赤道より大幅に短い。
+GEBCO HGT10 タイル生成では、極域のタイルのピクセル幅を縮小することでこれを補正する：
+</p>
+
+<div class="shrink-diagram">
+	<div class="shrink-col"><div class="shrink-bar" style="height:17%"></div><div class="shrink-lat">±80°</div><div class="shrink-pct">17%</div></div>
+	<div class="shrink-col"><div class="shrink-bar" style="height:33%"></div><div class="shrink-lat">±70°</div><div class="shrink-pct">33%</div></div>
+	<div class="shrink-col"><div class="shrink-bar" style="height:50%"></div><div class="shrink-lat">±60°</div><div class="shrink-pct">50%</div></div>
+	<div class="shrink-col"><div class="shrink-bar" style="height:67%"></div><div class="shrink-lat">±50°</div><div class="shrink-pct">67%</div></div>
+	<div class="shrink-col"><div class="shrink-bar" style="height:100%"></div><div class="shrink-lat">±40°</div><div class="shrink-pct">100%</div></div>
+	<div class="shrink-col"><div class="shrink-bar" style="height:100%"></div><div class="shrink-lat">赤道</div><div class="shrink-pct">100%</div></div>
+</div>
+
+<p style="font-size:0.85rem;color:var(--dim)">
+赤道基準に対するタイルピクセル幅の比。極域タイルは細く、
+1 経度あたりの実距離縮小と対応している。
+</p>
+
+<!-- ──────────────────────────────────────────────────── -->
+<h2 id="api">8. API リファレンス</h2>
+
+<pre><code><span class="cm">// ── createGetHeight — メインエントリーポイント ─────────</span>
+<span class="kw">const</span> getHeight = <span class="kw">await</span> <span class="fn">createGetHeight</span>({
+	apiUrl:  <span class="st">'https://your-api.example.com'</span>,  <span class="cm">// nativeBucket ベース URL</span>
+	level1:  <span class="nm">7</span>,    <span class="cm">// HGT90 → HGT10 切替ズーム閾値</span>
+	level2:  <span class="nm">12</span>,   <span class="cm">// HGT10 → HGT01 切替ズーム閾値</span>
+	onstart: name => console.log(<span class="st">`loading ${name}...`</span>),
+	onend:   name => console.log(<span class="st">`done ${name}`</span>),
+});
+
+<span class="cm">// 任意の (lng, lat, zoom) で標高クエリ</span>
+<span class="kw">const</span> h = <span class="kw">await</span> <span class="fn">getHeight</span>(<span class="nm">139.77</span>, <span class="nm">35.68</span>, <span class="nm">14</span>);  <span class="cm">// → 標高（メートル）</span>
+
+<span class="cm">// zoom 省略 → 常に最高解像度（HGT01）を使用</span>
+<span class="kw">const</span> h = <span class="kw">await</span> <span class="fn">getHeight</span>(<span class="nm">139.77</span>, <span class="nm">35.68</span>);
+
+<span class="cm">// ── altpbf2png — タイルを PNG としてレンダリング ────────</span>
+<span class="kw">const</span> blob = <span class="kw">await</span> <span class="fn">altpbf2png</span>(pbfBlob, {
+	size:     <span class="nm">256</span>,          <span class="cm">// 出力 PNG サイズ（正方形）</span>
+	colorMap: h => [r, g, b]  <span class="cm">// カスタムカラー関数（省略可）</span>
+});
+
+<span class="cm">// ── 低レベル encode / decode ─────────────────────────────</span>
+<span class="kw">const</span> buf = <span class="kw">await</span> <span class="fn">encode</span>({ name, source, lng, lat, range, width, height, data });
+<span class="kw">const</span> obj = <span class="kw">await</span> <span class="fn">decode</span>(blob);  <span class="cm">// → { name, source, lng, lat, range, width, height, data: Int16Array }</span>
+
+<span class="cm">// ── GEBCO 一括タイル生成 ─────────────────────────────────</span>
+<span class="kw">await</span> <span class="fn">GEBCO</span>({ year: <span class="nm">2026</span>, noIce: <span class="kw">false</span>, log: console });
+<span class="cm">// 約 12 GB ソースをダウンロード、HGT90 + HGT10 altpbf タイルを生成してバケットへアップロード</span>
+
+<span class="cm">// ── ALOS タイルインデックス ───────────────────────────────</span>
+<span class="kw">const</span> index = <span class="kw">await</span> <span class="fn">index_alos</span>();
+<span class="cm">// → { "N035E135": "v2404", "N036E135": "v2404", ... }</span></code></pre>
+
+<hr class="rule">
+
+<div style="font-size:0.72rem;color:var(--dim);font-family:var(--mono);text-align:center">
+	altpbf v1.0.0 · Kenji Yoshida · MIT License · 2026
+</div>
+
+</div>
+</body>
+</html>

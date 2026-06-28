@@ -1,20 +1,16 @@
 import { GeoPBF } from "./pbf-base.js";
 import { nativeBucket, gzip, gunzip, isGzip } from "native-bucket";
 
-let _nb = null;
-export function setApiUrl(url, options = {}) { _nb = nativeBucket(url, options); }
-const getNB = () => { if (!_nb) throw new Error("geopbf: call setApiUrl(url) before use"); return _nb; };
-
 class PBFIO {
-    constructor(dire) { this.dire = dire || "GIS"; }
+    constructor(nb, dire) { this.nb = nb; this.dire = dire || "GIS"; }
     async open() {
-        const { Bucket, Cache } = getNB();
+        const { Bucket, Cache } = this.nb;
         this.bucket = await Bucket(`${this.dire}/pbf`);
         this.cache = await Cache(`${this.dire}/pbf`);
         return this;
     }
     async fetch(name) {
-        const { Fetch } = getNB();
+        const { Fetch } = this.nb;
         const [url, target] = name.split(/\#/);
         return target ? await Fetch(url, { target }) : await Fetch(url);
     }
@@ -23,7 +19,7 @@ class PBFIO {
         const localKeys = (await this.cache()) || []; if (localKeys.length === 0) return;
         await Promise.all(localKeys.map(async (name) => {
             try {
-                const val = await this.cache(name); if (!val.etag) return; 
+                const val = await this.cache(name); if (!val.etag) return;
                 console.log(` 🔄 Syncing ${name} ...`);
                 const res = await fetch(`${this.bucket.url}${name}`, { cache: 'default' });
                 if (res.ok) {
@@ -61,7 +57,7 @@ class PBFIO {
         await this.put(pbf);
         return name;
     }
-    async put(pbf) { //console.log("put", pbf); debugger
+    async put(pbf) {
         const name = pbf.name(); if (!name) return null;
         const val = { PBF: pbf.arrayBuffer };
         pbf._etag && (val.ETag = pbf._etag);
@@ -79,4 +75,8 @@ class PBFIO {
         return name;
     }
 }
-export async function pbfio(dire) { return new PBFIO(dire).open(); }
+
+export function createPbfio(apiBase, options = {}) {
+    const nb = nativeBucket(apiBase, options);
+    return (dire) => new PBFIO(nb, dire).open();
+}

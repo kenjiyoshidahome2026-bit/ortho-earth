@@ -3,49 +3,49 @@ import { gint } from "./gint.js";
 import initWasm, { GintConverter } from '../../wasm/pkg/gint_wasm.js';
 
 // ── WASM state ────────────────────────────────────────────────────────────────
-let _wasmOk = null;        // null=未試行, true=OK, false=失敗
-let _converter = null;     // GintConverter instance（null=JSフォールバック）
-let _pendingData = null;   // buildConverter の多重呼び出しを無効化するためのガード
-let _viewBbox = null;      // ビューポート bbox [xMin,yMin,xMax,yMax]（Morton 整数空間）
+let _wasmOk = null;        // null=not attempted, true=OK, false=failed
+let _converter = null;     // GintConverter instance (null = JS fallback)
+let _pendingData = null;   // guard against concurrent buildConverter calls
+let _viewBbox = null;      // viewport bbox [xMin,yMin,xMax,yMax] in Morton integer space
 
 async function ensureWasm() {
-    if (_wasmOk === null) {
-        try { await initWasm(); _wasmOk = true; }
-        catch { _wasmOk = false; }
-    }
-    return _wasmOk;
+	if (_wasmOk === null) {
+		try { await initWasm(); _wasmOk = true; }
+		catch { _wasmOk = false; }
+	}
+	return _wasmOk;
 }
 
-// BigUint64Array を Uint32Array として見る（lo32, hi32 ペア、リトルエンディアン）
+// Reinterpret a BigUint64Array as Uint32Array of (lo32, hi32) pairs (little-endian).
 function u64AsU32(buf) {
-    return buf?.length
-        ? new Uint32Array(buf.buffer, buf.byteOffset, buf.length * 2)
-        : new Uint32Array(0);
+	return buf?.length
+		? new Uint32Array(buf.buffer, buf.byteOffset, buf.length * 2)
+		: new Uint32Array(0);
 }
 
-// drawing() ごとにビューポート bbox を更新する。WASM と JS フォールバック両方で使用。
+// Update the viewport bbox on each drawing() call; used by both WASM and JS fallback.
 export function setViewBbox(bbox) {
-    _viewBbox = bbox;
-    if (_converter && bbox) _converter.set_view_bbox(bbox[0], bbox[1], bbox[2], bbox[3]);
+	_viewBbox = bbox;
+	if (_converter && bbox) _converter.set_view_bbox(bbox[0], bbox[1], bbox[2], bbox[3]);
 }
 
-// gintData から GintConverter を非同期で構築してモジュール変数に格納する。
-// polyStream / lineStream は GintBUF v2 から直接転送されるので変換不要。
+// Build a GintConverter from gintData and store it in the module variable.
+// polyStream / lineStream are transferred directly from GintBUF v2 — no conversion needed.
 export async function buildConverter(gintData) {
-    _converter = null;
-    _pendingData = gintData;
-    if (!await ensureWasm()) return;
-    if (_pendingData !== gintData) return;
-    const { arcBuffer, arcMeta, polyStream, lineStream, pointBuffer, point, polyCompBbox } = gintData;
-    _converter = new GintConverter(
-        u64AsU32(arcBuffer),
-        arcMeta      ?? new Uint32Array(0),
-        u64AsU32(pointBuffer),
-        point        ? new Uint32Array(point) : new Uint32Array(0),
-        polyStream   ?? new Int32Array(0),
-        lineStream   ?? new Int32Array(0),
-        polyCompBbox ?? new Uint32Array(0),
-    );
+	_converter = null;
+	_pendingData = gintData;
+	if (!await ensureWasm()) return;
+	if (_pendingData !== gintData) return;
+	const { arcBuffer, arcMeta, polyStream, lineStream, pointBuffer, point, polyCompBbox } = gintData;
+	_converter = new GintConverter(
+		u64AsU32(arcBuffer),
+		arcMeta      ?? new Uint32Array(0),
+		u64AsU32(pointBuffer),
+		point        ? new Uint32Array(point) : new Uint32Array(0),
+		polyStream   ?? new Int32Array(0),
+		lineStream   ?? new Int32Array(0),
+		polyCompBbox ?? new Uint32Array(0),
+	);
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
@@ -87,7 +87,7 @@ export function identify(self, mx, my, proj, options = {}) {
 		return null;
 	}
 
-	// JS フォールバック（WASM 未初期化 or 失敗時）
+	// JS fallback (WASM not initialized or failed).
 	if (pointBuffer && point) {
 		const owner = findPoint(pointBuffer, point, mix, miy, pointError);
 		if (owner !== null) return owner;
@@ -103,7 +103,7 @@ export function identify(self, mx, my, proj, options = {}) {
 	return null;
 }
 
-// ── JS 実装（WASM フォールバック用）────────────────────────────────────────────
+// ── JS implementations (WASM fallback) ────────────────────────────────────────
 
 function findPoint(buffer, pointMeta, mix, miy, error) {
 	const errSq = error * error;
@@ -231,7 +231,7 @@ export function findPolygon(buffer, meta, polyStream, mix, miy, polyBboxByFid, v
 	while (p < polyStream.length) {
 		const fid = polyStream[p];
 
-		// フィーチャー bbox 早期棄却
+		// Early rejection using per-feature bbox.
 		if (polyBboxByFid) {
 			const bb = polyBboxByFid.get(fid);
 			if (bb) {

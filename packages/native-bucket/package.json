@@ -1,24 +1,24 @@
 {
-  "name": "native-bucket",
-  "version": "1.0.0",
-  "license": "MIT",
-  "type": "module",
-  "main": "src/index.js",
-  "exports": {
-    ".": "./src/index.js",
-    "./*": "./*"
-  },
-  "dependencies": {
-    "common": "*"
-  },
-  "devDependencies": {
-    "wrangler": "^4.84.1"
-  },
+	"name": "native-bucket",
+	"version": "1.0.0",
+	"license": "MIT",
+	"type": "module",
+	"main": "src/index.js",
+	"exports": {
+	".": "./src/index.js",
+	"./*": "./*"
+	},
+	"dependencies": {
+	"common": "*"
+	},
+	"devDependencies": {
+	"wrangler": "^4.84.1"
+	},
  "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "preview": "vite preview",
-    "deploy": "npm run build && npx wrangler deploy",
-    "summary": "repomix --style markdown --output project_summary.md"
+	"dev": "vite",
+	"build": "vite build",
+	"preview": "vite preview",
+	"deploy": "npm run build && npx wrangler deploy",
+	"summary": "repomix --style markdown --output project_summary.md"
 }
 }

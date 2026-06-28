@@ -61,9 +61,9 @@ async function set(data) {
 				if (!bm) await cache(bname, bm = await bucket.get(bname));
 				const canvas = new OffscreenCanvas(8192, 4096);
 				const ctx = canvas.getContext('2d');
-				const tempBm = await createImageBitmap(bm); // まず生のビットマップを作る
+				const tempBm = await createImageBitmap(bm); // create raw bitmap first
 				ctx.drawImage(tempBm, 0, 0, 8192, 4096);
-				tempBm.close(); // 使い終わった生データは即メモリ解放
+				tempBm.close(); // release raw bitmap immediately
 				bm = canvas.transferToImageBitmap();
 				bm = await createImageBitmap(bm, { resizeWidth: 8192, resizeHeight: 4096, resizeQuality: "high" });
 			} else {
@@ -75,7 +75,6 @@ async function set(data) {
 			bm = null; baseName = bname;
 			drawing();
 		}
-		////--------------------------------------------------
 		layerSession++;
 		minZoom = data.prop;
 		const count = MasterTub.length;
@@ -114,7 +113,6 @@ function drawing(data) {
 	if (TileServer && zoom > minZoom) {
 		getTileArray().forEach(([key, [img, locs]]) => {
 			if (img) {
-				// ✅ ここでタイル専用の関数を使う
 				img._glTexture = img._glTexture || gl.createTileTexture(img);
 				for (let l of locs) gl.drawTile(img._glTexture, l[0], l[1]);
 			}
@@ -137,7 +135,6 @@ function finalize() {
 	getTileArray().forEach(([key, [img, locs]]) => {
 		if (!img) return;
 		keep.add(key);
-		// ✅ ここでタイル専用の関数を使う
 		img._glTexture = img._glTexture || gl.createTileTexture(img);
 		for (let l of locs) gl.drawTile(img._glTexture, l[0], l[1]);
 	});
@@ -191,6 +188,11 @@ export function createTileServer(urlFunc) {
 		const xyz = urlTub.shift();
 		if (!xyz) return WorkerTub.push(w);
 		const key = xyz.join("_");
+		const url = urlFunc(xyz);
+		if (url === null) {
+			TileTub.set(key, false);
+			return next(w);
+		}
 		w.onmessage = e => {
 			if (session !== layerSession) {
 				if (e.data?.bitmap) e.data.bitmap.close();
@@ -198,8 +200,7 @@ export function createTileServer(urlFunc) {
 			}
 			if (e.data?.bitmap) {
 				const img = e.data.bitmap;
-				// ✅ ここでタイル専用の関数を使う
-				img._glTexture = gl.createTileTexture(img);
+					img._glTexture = gl.createTileTexture(img);
 				TileTub.set(key, img);
 			} else {
 				TileTub.set(key, false);
@@ -207,7 +208,7 @@ export function createTileServer(urlFunc) {
 			isMoving ? drawing() : finalize();
 			next(w);
 		};
-		w.postMessage(urlFunc(xyz));
+		w.postMessage(url);
 	};
 	return v => {
 		if (!urlTub.some(t => t.join() === v.join())) urlTub.push(v);
@@ -229,7 +230,7 @@ export function getTileArray() {
 	currentZoom = Z0;
 
 	const lps = [0, 0.5, 1].flatMap(y => [0, 0.5, 1].map(x => proj.invert([x * width, y * height]))).filter(p => p);
-	if (!lps.length) return {};
+	if (!lps.length) return [];
 	const b = [min(...lps.map(p => p[0])), min(...lps.map(p => p[1])), max(...lps.map(p => p[0])), max(...lps.map(p => p[1]))],
 		cS = (v) => max(-0.9999, min(0.9999, sin(v * rad))),
 		xmin = floor((0.5 + b[0] / 360) * n) - pad, xmax = ceil((0.5 + b[2] / 360) * n) + pad,

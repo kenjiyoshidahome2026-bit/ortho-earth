@@ -15,9 +15,12 @@ body { font-family: 'Helvetica Neue', Arial, 'Hiragino Kaku Gothic ProN', sans-s
 			.logo { font-size: 1.5em; font-weight: 800;
 				svg { vertical-align: top; display: inline-block; height: 1.2em; padding-right: 0.2em; stroke:var(--text-secondary); fill:none; stroke-width:6px;}
 			}
-			.links a { color: var(--text-secondary); text-decoration: none;
+			.links a { color: var(--text-secondary); text-decoration: none; display: inline-flex; align-items: center;
 				margin-left: 1rem; font-size: 1.2rem; font-weight: 500; transition: color 0.2s;
 				&:hover { color: var(--accent-color); }
+				svg { display: block; flex-shrink: 0; fill: currentColor; stroke: none; width: 22px; height: 22px; margin-top: 2px;
+					path, ellipse { fill: currentColor; stroke: none; stroke-width: 0; }
+				}
 			}
 		}
 		main { flex: 1; display: flex; flex-direction: column;
@@ -33,7 +36,6 @@ body { font-family: 'Helvetica Neue', Arial, 'Hiragino Kaku Gothic ProN', sans-s
 			a { color:var(--text-secondary); text-decoration: none; }
 		}
 	}
-	#exitDemo { position: absolute; bottom: 4rem; right: 2rem;}
 	button { padding: 0.8rem 2rem; font-size: 1rem; font-weight: 600; border-radius: 50px;
 		background-color: var(--accent-color); color: #000;
 		cursor: pointer; transition: all 0.5s ease; border: none;

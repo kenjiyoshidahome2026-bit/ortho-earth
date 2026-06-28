@@ -4,29 +4,26 @@ import {createAutocomplete} from './autocomplete';
 const emoji = _ => `<span class="emoji">&#x${_};</span>`;
 
 export default function overlay() {
-    // 共通のベース生成処理
     const createBase = (className, html) => {
         const plane = d3.select("body").append("div").classed("overlay-fullbody", true);
         const div = plane.append("div")
             .classed("overlay-contents", true)
             .classed(className, true)
             .html(html);
-        
-        // サイズの固定（リフロー防止）
+
+        // Fix dimensions to prevent reflow during animation.
         const rect = div.node().getBoundingClientRect();
         div.style("width", `${rect.width}px`).style("height", `${rect.height}px`);
         div.classed("centered", true);
-        
+
         return { plane, div };
     };
 
     const overlay = (html, className, target) => {
         const { plane, div } = createBase(className, html);
-        
-        // ターゲットがあればアニメーション開始
+
         if (target) div.resumeShow(target);
 
-        // 拡張メソッドの定義
         div.parent = plane;
         div.fit = () => {
             div.classed("centered", false).style("width", "auto").style("height", "auto");
@@ -43,14 +40,11 @@ export default function overlay() {
         return div;
     };
 
-    // --- 各種プリセットメソッド ---
-
     overlay.notice = (mess, time = 1000, target) => {
         const div = overlay(mess, "notice", target);
         setTimeout(() => div.clear(), time);
     };
 
-    // Alert / Warn の統合
     const dialog = (mess, type) => new Promise(resolve => {
         const icon = type === "warn" ? emoji("26A0") : "";
         const div = overlay(`${icon}${mess}`, type);
@@ -61,11 +55,10 @@ export default function overlay() {
     overlay.warn  = mess => dialog(mess, "warn");
     overlay.wait  = (mess = "Wait a moment!") => overlay(`${emoji("23F3")}${mess}`, "wait");
 
-    // ボタン選択系の統合 (Confirm / Execute)
     overlay.execute = (mess, obj, target, fallback = null) => new Promise(resolve => {
         const buttons = Object.keys(obj).map(k => `<button class="btn-${k}">${k}</button>`).join("");
         const div = overlay(`${mess}<hr/>${buttons}`, "execute", target);
-        
+
         if (fallback) fallback(div);
 
         Object.entries(obj).forEach(([key, func]) => {
