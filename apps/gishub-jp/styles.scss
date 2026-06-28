@@ -957,14 +957,6 @@ button { cursor: pointer; font-family: $font; }
 	}
 }
 
-.target-cell {
-	color: #666;
-	font-size: 11px;
-	max-width: 0;
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
-}
 
 // ============================================================
 // コードリストボタン
@@ -1028,81 +1020,81 @@ button { cursor: pointer; font-family: $font; }
 .cat-tip-code  { color: #666; font-size: 10px; }
 
 .cat-pop-title {
-    font-size: 11px;
-    font-weight: 600;
-    color: $accent;
-    padding: 4px 8px 6px;
-    border-bottom: 1px solid #2a2a2a;
-    margin-bottom: 2px;
+	font-size: 11px;
+	font-weight: 600;
+	color: $accent;
+	padding: 4px 8px 6px;
+	border-bottom: 1px solid #2a2a2a;
+	margin-bottom: 2px;
 }
 .cat-pop-table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 11px;
-    .cat-pop-key {
-        color: #888;
-        padding: 3px 10px 3px 8px;
-        vertical-align: top;
-        white-space: nowrap;
-        max-width: 120px;
-    }
-    .cat-pop-val {
-        color: $text;
-        padding: 3px 8px 3px 0;
-        word-break: break-all;
-    }
-    .cat-pop-code { color: #666; font-size: 10px; }
-    .cat-pop-note { color: #555; font-size: 10px; }
-    tr:not(:last-child) td { border-bottom: 1px solid #1a1a1a; }
+	width: 100%;
+	border-collapse: collapse;
+	font-size: 11px;
+	.cat-pop-key {
+		color: #888;
+		padding: 3px 10px 3px 8px;
+		vertical-align: top;
+		white-space: nowrap;
+		max-width: 120px;
+	}
+	.cat-pop-val {
+		color: $text;
+		padding: 3px 8px 3px 0;
+		word-break: break-all;
+	}
+	.cat-pop-code { color: #666; font-size: 10px; }
+	.cat-pop-note { color: #555; font-size: 10px; }
+	tr:not(:last-child) td { border-bottom: 1px solid #1a1a1a; }
 }
 
 // 行政区域コードポップアップ（拡張）
 .ab-popup {
-    width: 420px;
+	width: 420px;
 
-    .ab-title { color: $hi; font-weight: 600; }
+	.ab-title { color: $hi; font-weight: 600; }
 
-    .ab-filters {
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        padding: 6px 10px;
-        background: #0d0d0d;
-        border-bottom: 1px solid #2a2a2a;
-        flex-wrap: wrap;
-    }
-    .ab-pref-sel {
-        flex: 1;
-        min-width: 120px;
-        background: $deep;
-        color: $text;
-        border: 1px solid #333;
-        border-radius: 3px;
-        padding: 3px 6px;
-        font-size: 11px;
-    }
-    .ab-obsolete-label {
-        display: flex;
-        align-items: center;
-        gap: 4px;
-        font-size: 11px;
-        color: $mid;
-        white-space: nowrap;
-        cursor: pointer;
-    }
-    .ab-search {
-        flex: 1;
-        min-width: 100px;
-        background: $deep;
-        color: $text;
-        border: 1px solid #333;
-        border-radius: 3px;
-        padding: 3px 6px;
-        font-size: 11px;
-        &::placeholder { color: #555; }
-    }
-    .cl-body { max-height: 420px; }
-    .ab-obsolete td { color: #555; text-decoration: line-through; }
+	.ab-filters {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		padding: 6px 10px;
+		background: #0d0d0d;
+		border-bottom: 1px solid #2a2a2a;
+		flex-wrap: wrap;
+	}
+	.ab-pref-sel {
+		flex: 1;
+		min-width: 120px;
+		background: $deep;
+		color: $text;
+		border: 1px solid #333;
+		border-radius: 3px;
+		padding: 3px 6px;
+		font-size: 11px;
+	}
+	.ab-obsolete-label {
+		display: flex;
+		align-items: center;
+		gap: 4px;
+		font-size: 11px;
+		color: $mid;
+		white-space: nowrap;
+		cursor: pointer;
+	}
+	.ab-search {
+		flex: 1;
+		min-width: 100px;
+		background: $deep;
+		color: $text;
+		border: 1px solid #333;
+		border-radius: 3px;
+		padding: 3px 6px;
+		font-size: 11px;
+		&::placeholder { color: #555; }
+	}
+	.cl-body { max-height: 420px; }
+	.ab-obsolete td { color: #555; text-decoration: line-through; }
 }
 
 // ============================================================
@@ -1307,111 +1299,111 @@ button { cursor: pointer; font-family: $font; }
 
 // exec 属性テーブル（gishub showProp 相当）
 #exec-tables {
-    font-family: 'Courier New', Courier, monospace;
-    display: flex;
-    flex-direction: column;
-    height: 60vh;
+	font-family: 'Courier New', Courier, monospace;
+	display: flex;
+	flex-direction: column;
+	height: 60vh;
 
-    .exec-prop-header {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        flex-wrap: wrap;
-        padding: 6px 0 8px;
-        border-bottom: 1px solid rgba(255,255,255,0.1);
+	.exec-prop-header {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		flex-wrap: wrap;
+		padding: 6px 0 8px;
+		border-bottom: 1px solid rgba(255,255,255,0.1);
 
-        h2 {
-            font-size: 14px;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            span { font-size: 0.75em; margin-left: 0.4em; color: $mid; }
-        }
-    }
+		h2 {
+			font-size: 14px;
+			white-space: nowrap;
+			overflow: hidden;
+			text-overflow: ellipsis;
+			span { font-size: 0.75em; margin-left: 0.4em; color: $mid; }
+		}
+	}
 
-    .exec-prop-btns {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 4px;
+	.exec-prop-btns {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 4px;
 
-        button {
-            padding: 0.35em 0.8em;
-            background: #444;
-            color: #fff;
-            border: 1px solid #ccc;
-            border-radius: 5px;
-            font-size: 12px;
-            font-family: $font;
-            cursor: pointer;
-            &:hover { background: #ccc; color: #000; }
-        }
+		button {
+			padding: 0.35em 0.8em;
+			background: #444;
+			color: #fff;
+			border: 1px solid #ccc;
+			border-radius: 5px;
+			font-size: 12px;
+			font-family: $font;
+			cursor: pointer;
+			&:hover { background: #ccc; color: #000; }
+		}
 
-        .exec-page-info {
-            padding: 0.35em 0.5em;
-            font-size: 12px;
-            font-family: $font;
-            color: $mid;
-        }
-    }
+		.exec-page-info {
+			padding: 0.35em 0.5em;
+			font-size: 12px;
+			font-family: $font;
+			color: $mid;
+		}
+	}
 
-    .exec-prop-table {
-        flex: 1;
-        overflow-y: auto;
-        margin-top: 4px;
+	.exec-prop-table {
+		flex: 1;
+		overflow-y: auto;
+		margin-top: 4px;
 
-        table {
-            width: 100%;
-            border-collapse: separate;
-            border-spacing: 0;
-            font-size: 12px;
+		table {
+			width: 100%;
+			border-collapse: separate;
+			border-spacing: 0;
+			font-size: 12px;
 
-            th {
-                position: sticky;
-                top: 0;
-                background: #222;
-                z-index: 1;
-                text-align: center;
-                border-top: 1px solid #888;
-                border-bottom: 1px solid #888;
-                padding: 6px 8px;
-                color: $mid;
-            }
+			th {
+				position: sticky;
+				top: 0;
+				background: #222;
+				z-index: 1;
+				text-align: center;
+				border-top: 1px solid #888;
+				border-bottom: 1px solid #888;
+				padding: 6px 8px;
+				color: $mid;
+			}
 
-            td {
-                border-bottom: 1px solid #333;
-                padding: 5px 8px;
-                max-width: 200px;
-                overflow: hidden;
-                text-overflow: ellipsis;
-                white-space: nowrap;
-            }
+			td {
+				border-bottom: 1px solid #333;
+				padding: 5px 8px;
+				max-width: 200px;
+				overflow: hidden;
+				text-overflow: ellipsis;
+				white-space: nowrap;
+			}
 
-            tr:hover td { background: #1a1a1a; }
-        }
-    }
+			tr:hover td { background: #1a1a1a; }
+		}
+	}
 }
 
 // exec アクションボタン行
 .exec-action-row {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    padding: 10px 0 10px;
-    border-bottom: 1px solid rgba(255,255,255,0.08);
-    margin-bottom: 4px;
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	padding: 10px 0 10px;
+	border-bottom: 1px solid rgba(255,255,255,0.08);
+	margin-bottom: 4px;
 
-    button {
-        padding: 0.45em 1em;
-        background: #444;
-        color: #fff;
-        border: 1px solid #ccc;
-        border-radius: 5px;
-        font-family: $font;
-        font-size: 13px;
-        cursor: pointer;
-        &:hover { background: #ccc; color: #000; }
-        &.accent { background: $accent; border-color: $accent; color: #000; &:hover { background: lighten($accent, 10%); } }
-    }
+	button {
+		padding: 0.45em 1em;
+		background: #444;
+		color: #fff;
+		border: 1px solid #ccc;
+		border-radius: 5px;
+		font-family: $font;
+		font-size: 13px;
+		cursor: pointer;
+		&:hover { background: #ccc; color: #000; }
+		&.accent { background: $accent; border-color: $accent; color: #000; &:hover { background: lighten($accent, 10%); } }
+	}
 }
 
 // fmt バッジ
