@@ -154,7 +154,18 @@ onmessage = async (e) => {
 			if (!dbfFile) return null;
 			const shpBuf = new Uint8Array(await f.arrayBuffer());
 			const dbfBuf = new Uint8Array(await dbfFile.arrayBuffer());
-			const enc = (cpgFile ? await cpgFile.text() : (dbfBuf[29] === 0x13 ? 'sjis' : encoding)).trim();
+			let enc;
+			if (cpgFile) {
+				enc = (await cpgFile.text()).trim();
+			} else if (dbfBuf[29] === 0x13) {
+				enc = 'sjis';
+			} else if (encoding !== 'utf8') {
+				enc = encoding;
+			} else {
+				// .cpgなし・言語ドライババイト不明 → UTF-8で読めなければSJIS
+				try { new TextDecoder('utf-8', { fatal: true }).decode(dbfBuf); enc = 'utf-8'; }
+				catch { enc = 'sjis'; }
+			}
 			const dbf = new DBF(dbfBuf, enc);
 			dbf.fields.forEach(field => keySet.add(field.name));
 			const crs = prjFile ? detectCRS(await prjFile.text()) : null;

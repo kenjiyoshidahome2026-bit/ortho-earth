@@ -39,11 +39,14 @@ function _buildTip(props, ds) {
         .filter(([, v]) => v !== null && v !== undefined && v !== '')
         .slice(0, 4)
         .map(([k, v]) => {
-            const { label, display, decoded } = _resolveValue(k, v, ds);
-            const val = decoded ? `${_esc(decoded)} <span class="cat-tip-code">(${_esc(display)})</span>` : _esc(display);
-            return `<span class="cat-tip-label">${_esc(label)}</span>: ${val}`;
+            const label = ds?.attributes?.[k] || k;
+            const cl = ds?.codelist?.[k];
+            const display = (cl && typeof cl === 'object' && cl[String(v)])
+                ? `${cl[String(v)]} (${v})`
+                : String(v);
+            return `${label}: ${display}`;
         });
-    return rows.length ? rows.join('<br>') : null;
+    return rows.length ? rows : null;
 }
 
 function _buildPop(props, ds) {
