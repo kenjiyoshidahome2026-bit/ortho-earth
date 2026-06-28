@@ -7,11 +7,11 @@ import { Layers } from "ortho-map/modules/Layers.js";
 import { nativeBucket } from "native-bucket";
 
 import { tiff2canvas, exr2canvas, tile2canvas } from './file2canvas';
-import { geopbf, setApiUrl } from "geopbf";
+import { geopbf, createGeopbf } from "geopbf";
 
 const API_BASE = import.meta.env.DEV ? `${location.origin}/api` : "https://api.ortho-earth.com";
 const API_KEY = "***REMOVED***";
-setApiUrl(API_BASE, { apiKey: API_KEY });
+createGeopbf(API_BASE, { apiKey: API_KEY });
 const { Fetch, Bucket, Cache } = nativeBucket(API_BASE, { apiKey: API_KEY });
 import { GEBCO, createGetHeight } from "altpbf";
 

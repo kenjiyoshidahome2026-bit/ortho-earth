@@ -1,11 +1,11 @@
 import * as d3 from "d3";
 import './main.scss';
 import orthoMap from 'ortho-map';
-import { setApiUrl } from "geopbf";
+import { createGeopbf } from "geopbf";
 //------------------------------------------------------
 const API_BASE = "https://api.ortho-earth.com";
 const TILER_BASE = "https://tiler.ortho-earth.com";
-setApiUrl(API_BASE);
+createGeopbf(API_BASE);
 d3.select(".logo").html(`${await (await fetch("/favicon.svg")).text() }Ortho Earth`);
 const zoom = Math.log2(Math.min(window.innerWidth, window.innerHeight)/2*0.8 / 256 * Math.PI * 2);
 const mapInst = await orthoMap({target:d3.select('#mapContainer'), center:[0,0], zoom, apiUrl: API_BASE, tilerBase: TILER_BASE});

@@ -1,6 +1,6 @@
 import * as d3 from "d3";
 import orthoMap from 'ortho-map';
-import { geopbf, setApiUrl } from "geopbf";
+import { geopbf, createGeopbf } from "geopbf";
 import { screenLogger } from "common/screenLogger";
 import { geoExec } from "common/geoExec";
 import { comma, download, openDirectory, saveTo, inputFile, isString } from "common";
@@ -11,7 +11,7 @@ import "./main.scss";
 
 const API_BASE = "https://api.ortho-earth.com";
 const TILER_BASE = "https://tiler.ortho-earth.com";
-setApiUrl(API_BASE);
+createGeopbf(API_BASE);
 const hubCache = await Cache("GISHUB").catch(() => null);
 const initialZoom = Math.log2(Math.min(window.innerWidth, window.innerHeight)/2*0.5 / 256 * Math.PI * 2);
 const mapInst = (await orthoMap({target:d3.select('body'), center:[0,0], zoom: initialZoom, tilerBase: TILER_BASE, apiUrl: API_BASE})).autoRotate(true);
