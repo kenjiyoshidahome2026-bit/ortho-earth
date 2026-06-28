@@ -1,7 +1,8 @@
 import { PREFS, escHtml } from '../ui/shared.js';
 import { ctx } from '../ui/ctx.js';
-import { fetchDataset } from './catalog.js';
+import { fetchDataset, NLFTP_SOURCE } from './catalog.js';
 import { meshBulkDownload } from './mesh.js';
+import { API_BASE } from '../ui/config.js';
 
 // ---- 内部状態（このモジュールが所有） -------------------------------------------------------
 let _currentDs = null;
@@ -311,14 +312,14 @@ async function _showAdminBoundaryPopup(btn) {
         btn.disabled = true;
         btn.textContent = '読み込み中...';
         try {
-            const res = await fetch('/catalog/admin-boundary.csv');
+            const res = await fetch(`${API_BASE}/bucket/${NLFTP_SOURCE.bucket}/admin-boundary.csv`);
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
             const text = await res.text();
-            const lines = text.trim().split('\n').slice(1); // skip header
+            const lines = text.trim().split(/\r?\n/).slice(1); // skip header
             _adminBoundaryRows = lines.map(line => {
                 const cols = line.split(',');
                 return { code: cols[0], pref: cols[1], city: cols[2], status: cols[5] };
-            });
+            }).filter(r => r.code);
         } catch (e) {
             btn.disabled = false;
             btn.textContent = '行政区域コード';
