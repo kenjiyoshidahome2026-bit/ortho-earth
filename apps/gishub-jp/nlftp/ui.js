@@ -5,38 +5,35 @@ import { meshBulkDownload } from './mesh.js';
 
 // ---- 内部状態（このモジュールが所有） -------------------------------------------------------
 let _currentDs = null;
-let _currentCodelists = [];
 let _currentFilteredFiles = [];
 
 // ---- 公開 API -------------------------------------------------------
 
 export function renderDetail(ds, showBack = false) {
     _currentDs = ds;
-    _currentCodelists = (ds.attributes || []).map(a => Array.isArray(a.codelist) ? a.codelist : null);
 
     const backHtml = showBack ? `<button class="back-btn" id="back-to-moj">← 一覧に戻る</button>` : '';
 
-    const attrHtml = ds.attributes?.length ? `
+    const attrEntries = Object.entries(ds.attributes || {});
+    const attrHtml = attrEntries.length ? `
         <section class="detail-section">
             <h3 class="section-title">
-                属性 <span class="cnt">${ds.attributes.length}</span>
+                属性 <span class="cnt">${attrEntries.length}</span>
                 <span class="toggle-icon">▾</span>
             </h3>
             <div class="section-body">
                 <table class="attr-table">
                     <thead><tr><th>コード</th><th>ラベル</th><th>コードリスト</th></tr></thead>
                     <tbody>
-                        ${ds.attributes.map((a, i) => `
-                            <tr>
-                                <td class="mono">${a.code}</td>
-                                <td>${a.label}</td>
-                                <td>${Array.isArray(a.codelist)
-                                    ? `<button class="codelist-btn" data-cl-idx="${i}">参照</button>`
-                                    : a.codelist === 'admin-boundary'
-                                    ? `<span class="admin-boundary-badge">行政区域コード</span>`
-                                    : '—'}</td>
-                            </tr>
-                        `).join('')}
+                        ${attrEntries.map(([code, label]) => {
+                            const cl = ds.codelist?.[code];
+                            const clCell = cl === 'admin-boundary'
+                                ? `<span class="admin-boundary-badge">行政区域コード</span>`
+                                : cl && typeof cl === 'object'
+                                ? `<button class="codelist-btn" data-cl-code="${escHtml(code)}">参照</button>`
+                                : '—';
+                            return `<tr><td class="mono">${code}</td><td>${label}</td><td>${clCell}</td></tr>`;
+                        }).join('')}
                     </tbody>
                 </table>
             </div>
@@ -110,7 +107,9 @@ export function initDetailEventListeners() {
         if (title) { title.parentElement.classList.toggle('collapsed'); return; }
 
         if (e.target.classList.contains('codelist-btn')) {
-            _showCodelistPopup(_currentCodelists[parseInt(e.target.dataset.clIdx)] || [], e.target);
+            const cl = _currentDs.codelist?.[e.target.dataset.clCode] || {};
+            const entries = Object.entries(cl).map(([c, l]) => ({ code: c, label: l }));
+            _showCodelistPopup(entries, e.target);
             return;
         }
 
