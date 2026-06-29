@@ -18,7 +18,7 @@ import { checkZoomRange } from './shared/gintUtility.js';
 import { s } from './shared/gintState.js';
 import { uploadGintTextures, deleteTextures } from './shared/gintTextures.js';
 import { createFBOs, deleteFBOs } from './shared/gintFBO.js';
-import { renderCleanScene, renderPickingBuffer } from './shared/gintRenderPasses.js';
+import { renderCleanScene, drawOverlay, renderPickingBuffer } from './shared/gintRenderPasses.js';
 import { doIdentify, handleMove, handleLeave } from './shared/gintIdentify.js';
 
 const funcs = { init, set, resize, drawing, drawn, move, leave, click, destroy };
@@ -105,11 +105,16 @@ function drawing(data) {
 	const effMin = Math.max(s.minZoom ?? 0,  data.minZoom ?? 0);
 	const effMax = Math.min(s.maxZoom ?? 22, data.maxZoom ?? 22);
 	if (zoom < effMin || zoom > effMax) {
-		s.gl.bindFramebuffer(s.gl.FRAMEBUFFER, null);
-		s.gl.clearColor(0, 0, 0, 0);
-		s.gl.stencilMask(0xFF);
-		s.gl.clear(s.gl.COLOR_BUFFER_BIT);
-		s.lastDrawData = null;
+		// During animation (panning=true), keep the previous frame so features
+		// don't vanish mid-flight when zoomToFeature temporarily passes through
+		// a zoom level outside the data range.
+		if (!data.panning) {
+			s.gl.bindFramebuffer(s.gl.FRAMEBUFFER, null);
+			s.gl.clearColor(0, 0, 0, 0);
+			s.gl.stencilMask(0xFF);
+			s.gl.clear(s.gl.COLOR_BUFFER_BIT);
+			s.lastDrawData = null;
+		}
 		return;
 	}
 
@@ -144,6 +149,7 @@ function drawn() {
 	if (!s.lastDrawData) return;
 	renderCleanScene(s.lastDrawData, s.baseFBO);
 	renderPickingBuffer(s.lastDrawData);
+	drawOverlay();
 	if (s._pendingMove) {
 		const m = s._pendingMove; s._pendingMove = null;
 		doIdentify(m);

@@ -13,6 +13,9 @@ uniform vec3       u_rotate;
 uniform float      u_scale;
 uniform vec2       u_viewport;
 uniform vec4       u_rsincos;  // x=cos(r1), y=sin(r1), z=cos(r2), w=sin(r2)
+uniform uint       u_ix_center;
+uniform uint       u_iy_center;
+uniform vec4       u_jac;  // Jacobian [J00,J10,J01,J11] col-major; all-zero → full trig
 
 uint compact16(uint m) {
 	m &= 0x55555555u;
@@ -31,19 +34,35 @@ vec3 fetchProject(uint idx) {
 	uint hi_c = hi & 0x7FFFFFFFu;
 	uint ix = (compact16(hi_c) << 16u) | compact16(lo_c);
 	uint iy = (compact16(hi_c >> 1u) << 16u) | compact16(lo_c >> 1u);
-	float lng = float(ix) * 1e-7 - 180.0;
-	float lat = float(iy) * 1e-7 - 90.0;
-	const float RAD = 0.017453292519943295;
-	float r0 = u_rotate.x;
-	float l  = (lng + r0) * RAD;
-	float phi = lat * RAD;
+	int dx = int(ix - u_ix_center);
+	int dy = int(iy - u_iy_center);
+	float hw = u_viewport.x * 0.5, hh = u_viewport.y * 0.5;
+	if (dot(u_jac, u_jac) > 0.0) {
+		// Jacobian (linear) path — active at high zoom (z≳13) where curvature
+		// is negligible.  The 2×2 Jacobian is pre-computed in JS at float64;
+		// per-vertex work is two MADs — no trig, no catastrophic cancellation.
+		float sx = u_jac.x * float(dx) + u_jac.z * float(dy);
+		float sy = u_jac.y * float(dx) + u_jac.w * float(dy);
+		float d2 = (sx * sx + sy * sy) / (u_scale * u_scale);
+		float zr = d2 < 1.0 ? sqrt(1.0 - d2) : -1.0;
+		return vec3(hw + sx, hh + sy, zr);
+	}
+	// Full trig path — accurate at all zoom levels; used at low zoom.
+	const float DEG2RAD_E7 = 1.7453292519943295e-9;
+	float dl   = float(dx) * DEG2RAD_E7;
+	float dphi = float(dy) * DEG2RAD_E7;
 	float cf = u_rsincos.x, sf = u_rsincos.y;
 	float cg = u_rsincos.z, sg = u_rsincos.w;
-	float cp = cos(phi), sp = sin(phi), cl = cos(l), sl = sin(l);
-	float x = cp * sl, y = sp, z = cp * cl;
-	float yr = y * cf + z * sf;
-	float zr = z * cf - y * sf;
-	float hw = u_viewport.x * 0.5, hh = u_viewport.y * 0.5;
+	float sdphi = sin(dphi), cdphi = cos(dphi);
+	float sdl   = sin(dl);
+	float cp = cf * cdphi + sf * sdphi;
+	float sp = cf * sdphi - sf * cdphi;
+	float x  = cp * sdl;
+	float shalf = sin(dl * 0.5);
+	float one_minus_cdl = 2.0 * shalf * shalf;
+	float cdl = 1.0 - one_minus_cdl;
+	float yr = sdphi - cp * one_minus_cdl * sf;
+	float zr = cp * cdl * cf - sp * sf;
 	return vec3(hw + u_scale * (x * cg - yr * sg),
 				hh - u_scale * (x * sg + yr * cg),
 				zr);
@@ -156,8 +175,15 @@ void main() {
 	vec2 dir = oXY - ps.xy;
 	float len = length(dir);
 	if (len < 1e-4) { gl_Position = toNDC(ps.xy); return; }
-	vec2 perp = vec2(-dir.y, dir.x) / len;
-	gl_Position = toNDC(ps.xy + side * (u_line_width * 0.5) * perp);
+	vec2 tang = dir / len;
+	vec2 perp = vec2(-tang.y, tang.x);
+	// Square cap: each endpoint extends away from the other vertex by half
+	// line-width.  dir always points from ps toward the other vertex, so
+	// -tang is the "away" direction for both the A-end and B-end vertices.
+	// This makes adjacent quads overlap at junctions and closes the angle
+	// gap that caused pikapika during zoom/pan.
+	gl_Position = toNDC(ps.xy + side * (u_line_width * 0.5) * perp
+	                          - tang * (u_line_width * 0.5));
 
 	int style_idx = int(meta.b & 0xFFu);
 	v_color = (u_pass == 1)
@@ -233,8 +259,10 @@ void main() {
 	vec2 dir = oXY - ps.xy;
 	float len = length(dir);
 	if (len < 1e-4) { gl_Position = toNDC(ps.xy); return; }
-	vec2 perp = vec2(-dir.y, dir.x) / len;
-	gl_Position = toNDC(ps.xy + side * (u_line_width * 0.5) * perp);
+	vec2 tang = dir / len;
+	vec2 perp = vec2(-tang.y, tang.x);
+	gl_Position = toNDC(ps.xy + side * (u_line_width * 0.5) * perp
+	                          - tang * (u_line_width * 0.5));
 
 	uint fid1 = meta.a + 1u;
 	v_color = vec4(float(fid1 & 255u)/255.0, float((fid1>>8u)&255u)/255.0, float((fid1>>16u)&255u)/255.0, 1.0);
@@ -263,6 +291,9 @@ uniform float      u_scale;
 uniform vec2       u_viewport;
 uniform vec4       u_rsincos;
 uniform float      u_pt_radius;
+uniform uint       u_ix_center;
+uniform uint       u_iy_center;
+uniform vec4       u_jac;
 out float v_zr;
 out vec2  v_uv;
 out vec4  v_color;
@@ -287,18 +318,27 @@ void main() {
 	uint hi_c = px.g & 0x7FFFFFFFu;
 	uint ix = (compact16(hi_c)       << 16u) | compact16(px.r);
 	uint iy = (compact16(hi_c >> 1u) << 16u) | compact16(px.r >> 1u);
-	float lng = float(ix) * 1e-7 - 180.0;
-	float lat = float(iy) * 1e-7 - 90.0;
-	const float RAD = 0.017453292519943295;
-	float l = (lng + u_rotate.x) * RAD, phi = lat * RAD;
-	float cf = u_rsincos.x, sf = u_rsincos.y;
-	float cg = u_rsincos.z, sg = u_rsincos.w;
-	float cp = cos(phi), sp = sin(phi), cl = cos(l), sl = sin(l);
-	float x = cp*sl, y = sp, z = cp*cl;
-	float yr = y*cf + z*sf, zr = z*cf - y*sf;
-	float hw = u_viewport.x*0.5, hh = u_viewport.y*0.5;
-	float px_ = hw + u_scale*(x*cg - yr*sg);
-	float py_ = hh - u_scale*(x*sg + yr*cg);
+	int dx = int(ix - u_ix_center);
+	int dy = int(iy - u_iy_center);
+	float hw = u_viewport.x * 0.5, hh = u_viewport.y * 0.5;
+	float px_, py_, zr;
+	if (dot(u_jac, u_jac) > 0.0) {
+		float sx = u_jac.x * float(dx) + u_jac.z * float(dy);
+		float sy = u_jac.y * float(dx) + u_jac.w * float(dy);
+		float d2 = (sx*sx + sy*sy) / (u_scale * u_scale);
+		zr = d2 < 1.0 ? sqrt(1.0 - d2) : -1.0;
+		px_ = hw + sx; py_ = hh + sy;
+	} else {
+		const float DEG2RAD_E7 = 1.7453292519943295e-9;
+		float dl = float(dx) * DEG2RAD_E7, dphi = float(dy) * DEG2RAD_E7;
+		float cf = u_rsincos.x, sf = u_rsincos.y, cg = u_rsincos.z, sg = u_rsincos.w;
+		float sdphi = sin(dphi), cdphi = cos(dphi), sdl = sin(dl);
+		float cp = cf*cdphi + sf*sdphi, sp = cf*sdphi - sf*cdphi;
+		float shalf = sin(dl*0.5), omc = 2.0*shalf*shalf;
+		float x = cp*sdl, yr = sdphi - cp*omc*sf;
+		zr = cp*(1.0-omc)*cf - sp*sf;
+		px_ = hw + u_scale*(x*cg - yr*sg); py_ = hh - u_scale*(x*sg + yr*cg);
+	}
 	v_zr = zr;
 	v_uv = vec2(ox, oy);
 	gl_Position = vec4(2.0*(px_ + ox*u_pt_radius)/u_viewport.x - 1.0,
@@ -335,6 +375,9 @@ uniform vec2       u_viewport;
 uniform vec4       u_rsincos;
 uniform float      u_pt_radius;
 uniform int        u_active_id;
+uniform uint       u_ix_center;
+uniform uint       u_iy_center;
+uniform vec4       u_jac;
 out float v_zr;
 out vec2  v_uv;
 out vec4  v_color;
@@ -359,18 +402,27 @@ void main() {
 	uint hi_c = px.g & 0x7FFFFFFFu;
 	uint ix = (compact16(hi_c)       << 16u) | compact16(px.r);
 	uint iy = (compact16(hi_c >> 1u) << 16u) | compact16(px.r >> 1u);
-	float lng = float(ix) * 1e-7 - 180.0;
-	float lat = float(iy) * 1e-7 - 90.0;
-	const float RAD = 0.017453292519943295;
-	float l = (lng + u_rotate.x) * RAD, phi = lat * RAD;
-	float cf = u_rsincos.x, sf = u_rsincos.y;
-	float cg = u_rsincos.z, sg = u_rsincos.w;
-	float cp = cos(phi), sp = sin(phi), cl = cos(l), sl = sin(l);
-	float x = cp*sl, y = sp, z = cp*cl;
-	float yr = y*cf + z*sf, zr = z*cf - y*sf;
-	float hw = u_viewport.x*0.5, hh = u_viewport.y*0.5;
-	float px_ = hw + u_scale*(x*cg - yr*sg);
-	float py_ = hh - u_scale*(x*sg + yr*cg);
+	int dx = int(ix - u_ix_center);
+	int dy = int(iy - u_iy_center);
+	float hw = u_viewport.x * 0.5, hh = u_viewport.y * 0.5;
+	float px_, py_, zr;
+	if (dot(u_jac, u_jac) > 0.0) {
+		float sx = u_jac.x * float(dx) + u_jac.z * float(dy);
+		float sy = u_jac.y * float(dx) + u_jac.w * float(dy);
+		float d2 = (sx*sx + sy*sy) / (u_scale * u_scale);
+		zr = d2 < 1.0 ? sqrt(1.0 - d2) : -1.0;
+		px_ = hw + sx; py_ = hh + sy;
+	} else {
+		const float DEG2RAD_E7 = 1.7453292519943295e-9;
+		float dl = float(dx) * DEG2RAD_E7, dphi = float(dy) * DEG2RAD_E7;
+		float cf = u_rsincos.x, sf = u_rsincos.y, cg = u_rsincos.z, sg = u_rsincos.w;
+		float sdphi = sin(dphi), cdphi = cos(dphi), sdl = sin(dl);
+		float cp = cf*cdphi + sf*sdphi, sp = cf*sdphi - sf*cdphi;
+		float shalf = sin(dl*0.5), omc = 2.0*shalf*shalf;
+		float x = cp*sdl, yr = sdphi - cp*omc*sf;
+		zr = cp*(1.0-omc)*cf - sp*sf;
+		px_ = hw + u_scale*(x*cg - yr*sg); py_ = hh - u_scale*(x*sg + yr*cg);
+	}
 	v_zr = zr;
 	v_uv = vec2(ox, oy);
 	int feat_id = int(texelFetch(u_pt_meta_tex, tc, 0).r);
@@ -416,6 +468,7 @@ void main() { fragColor = u_fill_color; }`;
 const SHARED_UNIFORM_NAMES = [
 	'u_arc_tex','u_meta_tex','u_arc_w','u_meta_w',
 	'u_rotate','u_scale','u_viewport','u_rsincos',
+	'u_ix_center','u_iy_center','u_jac',
 ];
 
 // Compile all gint programs, collect uniforms, set up blend state.
@@ -435,9 +488,9 @@ export function createGintPrograms(gl) {
 	const uStencil     = getUniforms(gl, stencilProgram,     SHARED_UNIFORM_NAMES);
 	const uFill        = getUniforms(gl, fillProgram,        ['u_fill_color']);
 	const uMaskStencil = getUniforms(gl, maskStencilProgram, [...SHARED_UNIFORM_NAMES, 'u_active_id']);
-	const uPoint       = getUniforms(gl, pointProgram,       ['u_pt_tex','u_pt_meta_tex','u_pt_w','u_rotate','u_scale','u_viewport','u_rsincos','u_pt_radius','u_active_id']);
+	const uPoint       = getUniforms(gl, pointProgram,       ['u_pt_tex','u_pt_meta_tex','u_pt_w','u_rotate','u_scale','u_viewport','u_rsincos','u_pt_radius','u_active_id','u_ix_center','u_iy_center','u_jac']);
 	const uPickLine    = getUniforms(gl, pickLineProgram,    [...SHARED_UNIFORM_NAMES, 'u_line_width']);
-	const uPickPoint   = getUniforms(gl, pickPointProgram,   ['u_pt_tex','u_pt_meta_tex','u_pt_w','u_rotate','u_scale','u_viewport','u_rsincos','u_pt_radius']);
+	const uPickPoint   = getUniforms(gl, pickPointProgram,   ['u_pt_tex','u_pt_meta_tex','u_pt_w','u_rotate','u_scale','u_viewport','u_rsincos','u_pt_radius','u_ix_center','u_iy_center','u_jac']);
 
 	const emptyVAO = gl.createVertexArray();
 	gl.enable(gl.BLEND);

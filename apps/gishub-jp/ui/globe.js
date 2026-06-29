@@ -165,6 +165,7 @@ export async function execGlobeView(pbf, ds = null) {
     const zoomOpts = zoomFeature._center ? { center: zoomFeature._center } : {};
     await _mapInst.zoomToFeature(zoomFeature, zoomOpts);
     _mapInst.draw();
+    _mapInst.trigger("Drawn");
     _closeBtn.show();
 }
 

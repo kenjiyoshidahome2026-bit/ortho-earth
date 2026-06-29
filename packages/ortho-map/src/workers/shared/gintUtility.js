@@ -9,7 +9,20 @@ export function bindSharedUniforms(gl, u, data, arcTex, metaTex, arcW, metaW, wi
 	gl.uniform1f(u.u_scale,    data.scale);
 	gl.uniform2f(u.u_viewport, width, height);
 	const r1 = data.rotate[1] * Math.PI / 180, r2 = (data.rotate[2] ?? 0) * Math.PI / 180;
-	gl.uniform4f(u.u_rsincos,  Math.cos(r1), Math.sin(r1), Math.cos(r2), Math.sin(r2));
+	const cf = Math.cos(r1), sf = Math.sin(r1), cg = Math.cos(r2), sg = Math.sin(r2);
+	gl.uniform4f(u.u_rsincos,  cf, sf, cg, sg);
+	gl.uniform1ui(u.u_ix_center, (Math.round((-data.rotate[0] + 180) * 1e7)) >>> 0);
+	gl.uniform1ui(u.u_iy_center, (Math.round((-data.rotate[1] +  90) * 1e7)) >>> 0);
+	// Jacobian: maps integer (dx,dy) RTC coords → screen pixel offsets.
+	// Active at high zoom (scale > 2e5 ≈ z13+) where the sphere is locally flat.
+	// Computed at float64 in JS; the shader does two MADs per vertex — no trig,
+	// no catastrophic cancellation → zero jitter.
+	if (data.scale > 2e5) {
+		const k = data.scale * (Math.PI / 180) * 1e-7;
+		gl.uniform4f(u.u_jac, cf*cg*k, -cf*sg*k, -sg*k, -cg*k);
+	} else {
+		gl.uniform4f(u.u_jac, 0, 0, 0, 0);
+	}
 }
 
 

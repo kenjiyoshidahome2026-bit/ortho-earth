@@ -164,7 +164,7 @@ export function renderMojList() {
 
 export function mojCityEntries(cityCode) {
     const geojson = MOJ_GEOJSON_MAP.get(cityCode);
-    if (geojson) return [{ ...geojson }];
+    if (geojson) return [{ ...geojson, precision: 7 }];
     const pbf = MOJ_PBF_MAP.get(cityCode);
     if (pbf) return [{ ...pbf }];
     return (MOJ_CITIES.get(cityCode) || []).map(e => ({

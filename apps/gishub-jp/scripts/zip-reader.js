@@ -61,6 +61,9 @@ export async function listGeoFilesInZip(url) {
 		} else if (/\.shp$/i.test(name)) {
 			paths.push(name);
 			if (format !== 'geojson') format = 'shp';
+		} else if (/\.(gml|xml)$/i.test(name)) {
+			paths.push(name);
+			if (!format) format = 'gml';
 		} else if (/\.tiff?$/i.test(name)) {
 			paths.push(name);
 			if (!format) format = 'tif';

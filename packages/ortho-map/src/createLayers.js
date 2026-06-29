@@ -138,7 +138,12 @@ export function createLayer(param = {}) {
 
 async function createRemoteLayer(param = {}) {
 	const map = this;
-	const layer = initLayer(map, param).hide(), { canvas, name, proj, dpr } = layer;
+	// Base layer starts hidden (avoid flash of blank globe).
+	// All other OffscreenCanvas layers start visible: hiding them with display:none
+	// then calling show() causes a browser compositing gap where renders made while
+	// the canvas was hidden do not appear even after the class is removed.
+	const layer = param.type === 'base' ? initLayer(map, param).hide() : initLayer(map, param);
+	const { canvas, name, proj, dpr } = layer;
 	let offscreen;
 	try {
 		offscreen = canvas.transferControlToOffscreen();
@@ -169,9 +174,8 @@ async function createRemoteLayer(param = {}) {
 			if (data.type === "destroy") terminate();
 			if (data.type === "resize") drawing();
 			if (data.type === "set") {
-				layer.show();
+				if (data.cmd === "base") { layer.show(); map.trigger("LoadEnd", data.data); }
 				drawing();
-				if (data.cmd === "base") map.trigger("LoadEnd", data.data);
 			}
 		};
 
@@ -227,8 +231,15 @@ async function createRemoteLayer(param = {}) {
 		function destroy() { worker.postMessage({ type: "destroy" }); }
 		function terminate() {
 			worker.terminate();
-			map.dispatcher.on(`.${name}`, null);
-			layer.remove(); delete map.layers[name];
+			// Guard: a new layer with the same name may have been created before
+			// the old worker's destroy response arrived.  Removing the dispatcher
+			// handlers in that case would silently disconnect the new layer from
+			// all Drawing/Drawn/Move events — causing a blank canvas.
+			if (map.layers[name] === layer) {
+				map.dispatcher.on(`.${name}`, null);
+				delete map.layers[name];
+			}
+			layer.remove();
 		}
 	});
 }

@@ -15,8 +15,17 @@ function bindPointUniforms(u, data, r1, r2) {
 	gl.uniform3f(u.u_rotate,    data.rotate[0], data.rotate[1], data.rotate[2] ?? 0);
 	gl.uniform1f(u.u_scale,     data.scale);
 	gl.uniform2f(u.u_viewport,  width, height);
-	gl.uniform4f(u.u_rsincos,   Math.cos(r1), Math.sin(r1), Math.cos(r2), Math.sin(r2));
+	const cf = Math.cos(r1), sf = Math.sin(r1), cg = Math.cos(r2), sg = Math.sin(r2);
+	gl.uniform4f(u.u_rsincos,   cf, sf, cg, sg);
 	gl.uniform1f(u.u_pt_radius, data.ptRadius ?? 1.5);
+	gl.uniform1ui(u.u_ix_center, (Math.round((-data.rotate[0] + 180) * 1e7)) >>> 0);
+	gl.uniform1ui(u.u_iy_center, (Math.round((-data.rotate[1] +  90) * 1e7)) >>> 0);
+	if (data.scale > 2e5) {
+		const k = data.scale * (Math.PI / 180) * 1e-7;
+		gl.uniform4f(u.u_jac, cf*cg*k, -cf*sg*k, -sg*k, -cg*k);
+	} else {
+		gl.uniform4f(u.u_jac, 0, 0, 0, 0);
+	}
 }
 
 export function renderCleanScene(data, targetFBO = null) {

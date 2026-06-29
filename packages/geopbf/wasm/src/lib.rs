@@ -432,7 +432,7 @@ fn l2_to_l2(arc: &mut [u64]) {
         // area is in sq-degrees; formula expects (1e-7 deg)^2 units.
         // Correction: +1.5*log2(1e14) = +69.761, net constant = 69.761 - 8.2365 = 61.524
         let rank = (1.5 * area.log2() + 61.524).floor() as i32;
-        rank.clamp(0, 62) as u32
+        rank.clamp(0, 63) as u32
     };
 
     // 🌟 余計なハック・プロテクションは全廃！
