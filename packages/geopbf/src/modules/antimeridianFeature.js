@@ -4,6 +4,12 @@ export function antimeridianFeature(feature) {
     const { min, max } = Math;
     const p = feature.properties = feature.properties || {}, geom = feature.geometry, type = geom.type;
     if (type === "Point" || type === "MultiPoint") return feature;
+    const cleanRing = r => Array.isArray(r) ? r.filter(pt => pt != null && typeof pt[0] === 'number') : [];
+    const cleanCoords = a => {
+        if (!Array.isArray(a) || !a.length) return a;
+        return typeof a[0]?.[0] === 'number' ? cleanRing(a) : a.map(cleanCoords).filter(x => x && x.length);
+    };
+    if (geom.coordinates) geom.coordinates = cleanCoords(geom.coordinates);
     let c = geom.coordinates, xmin = Infinity, xmax = -Infinity;
     const calc = a => a == null ? void 0 : (Array.isArray(a) && typeof a[0] !== 'number') ? a.forEach(calc) : (xmin = min(xmin, a[0]), xmax = max(xmax, a[0]));
     (c === undefined) || calc(c);
@@ -41,8 +47,16 @@ export function antimeridianFeature(feature) {
         return inside;
     }
     function toClockwise(f) {
-        const fix = r => { let s = 0; for (let j = 0; j < r.length - 1; j++) s += (r[j + 1][0] - r[j][0]) * (r[j + 1][1] + r[j][1]); return s; };
-        const rw = t => (t.type === "Polygon" ? [t.coordinates] : t.coordinates || []).forEach(p => p.forEach((r, i) => {
+        const fix = r => {
+            let s = 0;
+            for (let j = 0; j < r.length - 1; j++) {
+                if (!r[j] || !r[j + 1]) { console.warn("toClockwise: undefined point at", j, r); continue; }
+                s += (r[j + 1][0] - r[j][0]) * (r[j + 1][1] + r[j][1]);
+            }
+            return s;
+        };
+        const rw = t => (t.type === "Polygon" ? [t.coordinates] : t.coordinates || []).forEach(p => (p || []).forEach((r, i) => {
+            if (!r || !r.length) { console.warn("toClockwise: undefined/empty ring at", i, p); return; }
             const s = fix(r); if ((!i && s < 0) || (i && s > 0)) r.reverse();
         }));
         rw(f.geometry || f); return f;

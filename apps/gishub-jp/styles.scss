@@ -717,8 +717,9 @@ button { cursor: pointer; font-family: $font; }
 
 	.file-year { font-size: 11px; color: $mid; }
 	.file-area { font-family: $mono; font-size: 11px; color: $accent; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-	.file-name { font-family: $mono; font-size: 11px; color: $text; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+	.file-name { font-family: $mono; font-size: 11px; color: $text; min-width: 0; overflow: hidden; white-space: nowrap; }
 	.file-fmt  { white-space: nowrap; }
+	.file-sz   { font-size: 10px; color: #5a8a6a; font-family: $mono; opacity: 0.85; }
 }
 
 .file-sub  { font-size: 10px; color: $mid; }

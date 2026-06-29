@@ -244,6 +244,10 @@ void main() {
 	int sub     = gl_VertexID % 6;
 	uvec4 meta  = fetchEdgeMeta(edge_id);
 
+	// style 0 = polygon edge, 1 = polyline. Polygon edges are identified
+	// by JS ray-casting (findPolygon), so discard them here.
+	if ((meta.b & 255u) == 0u) { gl_Position = vec4(2.0, 0.0, 0.0, 1.0); return; }
+
 	bool  useA = (sub == 0 || sub == 1 || sub == 3);
 	float side = (sub == 1 || sub == 2 || sub == 4) ? 1.0 : -1.0;
 	uint  si   = useA ? meta.r : meta.g;

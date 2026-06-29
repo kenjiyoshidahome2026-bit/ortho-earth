@@ -22,6 +22,7 @@ import { pool } from './pool.js';
 const __dir = dirname(fileURLToPath(import.meta.url));
 
 const CODELIST_CACHE_FILE = join(__dir, 'codelist-cache.json');
+const SIZE_CACHE_FILE     = join(__dir, 'size-cache.json');
 
 const API_BASE = 'https://api.ortho-earth.com';
 const API_KEY = process.env.API_KEY;
@@ -231,6 +232,42 @@ async function fetchAllCodelists(catalog) {
 }
 
 // ---------------------------------------------------------------------------
+// ZIP ファイルサイズ取得（HEAD リクエスト + キャッシュ）
+// ---------------------------------------------------------------------------
+async function fetchAllSizes(filesByCode) {
+    const urls = new Set();
+    for (const files of Object.values(filesByCode))
+        for (const f of files)
+            if (f.target) urls.add(f.target.split('#')[0]);
+
+    const diskCache = existsSync(SIZE_CACHE_FILE)
+        ? JSON.parse(readFileSync(SIZE_CACHE_FILE, 'utf8'))
+        : {};
+
+    const missing = [...urls].filter(u => !(u in diskCache));
+    console.log(`\nファイルサイズ: ${urls.size} URL (キャッシュ済み: ${urls.size - missing.length}, 取得対象: ${missing.length})`);
+
+    let done = 0;
+    for (const url of missing) {
+        try {
+            const res = await fetch(url, { method: 'HEAD' });
+            const cl = res.headers.get('content-length');
+            diskCache[url] = cl ? parseInt(cl) : null;
+        } catch {
+            diskCache[url] = null;
+        }
+        done++;
+        process.stdout.write(`\r  [${String(done).padStart(4)}/${missing.length}] ${url.split('/').pop().slice(0, 50).padEnd(52)}`);
+        await new Promise(r => setTimeout(r, 300));
+    }
+    if (missing.length) {
+        writeFileSync(SIZE_CACHE_FILE, JSON.stringify(diskCache, null, 2));
+        console.log(`\n  キャッシュ保存: ${SIZE_CACHE_FILE}`);
+    }
+    return diskCache;
+}
+
+// ---------------------------------------------------------------------------
 // JSON → gzip Blob（native-bucket の put() に渡す用）
 // ---------------------------------------------------------------------------
 async function jsonBlob(obj) {
@@ -291,6 +328,14 @@ async function main() {
 		const last = filesByCode[code].at(-1);
 		for (const k of Object.keys(last)) if (last[k] === undefined || last[k] === '') delete last[k];
 	}
+
+	// --- ファイルサイズ取得 ---
+	const sizeCache = await fetchAllSizes(filesByCode);
+	for (const files of Object.values(filesByCode))
+		for (const f of files) {
+			const size = sizeCache[f.target.split('#')[0]];
+			if (size) f.size = size;
+		}
 
 	// --- per-dataset オブジェクト構築 ---
 	const datasets = catalog.map(ds => {

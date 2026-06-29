@@ -1,4 +1,4 @@
-import { PREFS, escHtml } from '../ui/shared.js';
+import { PREFS, escHtml, fmtBytes } from '../ui/shared.js';
 import { ctx } from '../ui/ctx.js';
 import { fetchDataset, NLFTP_SOURCE } from './catalog.js';
 import { meshBulkDownload } from './mesh.js';
@@ -102,6 +102,12 @@ export function applyFileFilters() {
     _currentFilteredFiles = filtered;
     document.getElementById('files-cnt').textContent = filtered.length;
     document.getElementById('files-list').innerHTML  = _buildFileRows(filtered, _currentDs);
+    const bulkBtn = document.getElementById('files-dl-all');
+    if (bulkBtn) {
+        const totalBytes = filtered.reduce((s, f) => s + (f.size || 0), 0);
+        const sizeLabel  = totalBytes ? ` (${fmtBytes(totalBytes)})` : '';
+        bulkBtn.textContent = `一括↓IDB${sizeLabel}`;
+    }
 }
 
 export function initDetailEventListeners() {
@@ -198,7 +204,11 @@ function _renderFiles(ds) {
                     ${years.length > 1   ? `<select class="file-filter" id="ff-year">${yearOpts}</select>` : ''}
                     ${formats.length > 1 ? `<select class="file-filter" id="ff-fmt">${fmtOpts}</select>`  : ''}
                     ${prefOpts}
-                    ${allFiles.length > 1 ? `<button class="bulk-dl-btn" id="files-dl-all">一括↓IDB</button>` : ''}
+                    ${allFiles.length > 1 ? (() => {
+                        const totalBytes = allFiles.reduce((s, f) => s + (f.size || 0), 0);
+                        const sizeLabel  = totalBytes ? ` (${fmtBytes(totalBytes)})` : '';
+                        return `<button class="bulk-dl-btn" id="files-dl-all">一括↓IDB${sizeLabel}</button>`;
+                    })() : ''}
                 </div>
                 <div class="file-list">
                     <div class="file-list-header">
@@ -264,11 +274,14 @@ function _fileRow(f, ds) {
     const zipName  = zipUrl.split('/').pop();
     const fileName = f.target.split('#')[1] || '';
     const area     = _scopeLabel(f);
+    const sizeBadge = f.size ? `<span class="file-sz">${fmtBytes(f.size)}</span>` : '';
+    const nameExtra = fileName ? `<br><span class="file-sub">${fileName}</span>` : '';
+    const sizeExtra = sizeBadge ? `<br>${sizeBadge}` : '';
     return `
         <div class="file-row" data-entry="${escHtml(JSON.stringify(entry))}">
             <span class="file-year">${f.year || '—'}</span>
             <span class="file-area">${area}</span>
-            <span class="file-name">${zipName}${fileName ? `<br><span class="file-sub">${fileName}</span>` : ''}</span>
+            <span class="file-name">${zipName}${nameExtra}${sizeExtra}</span>
             <span class="file-fmt"><span class="badge fmt-${f.format}">${f.format.toUpperCase()}</span></span>
         </div>
     `;
