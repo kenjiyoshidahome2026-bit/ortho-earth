@@ -11,10 +11,7 @@ export function bindSharedUniforms(gl, u, data, arcTex, metaTex, arcW, metaW, wi
 	const r1 = data.rotate[1] * Math.PI / 180, r2 = (data.rotate[2] ?? 0) * Math.PI / 180;
 	const cf = Math.cos(r1), sf = Math.sin(r1), cg = Math.cos(r2), sg = Math.sin(r2);
 	gl.uniform4f(u.u_rsincos,  cf, sf, cg, sg);
-	// Normalize lambda to [-180, 180] before computing the integer center.
-	// autoRotate accumulates rotate[0] as n*velocity (unbounded), and zoomToFeature's
-	// wrap() can leave it at e.g. 225 (≡ -135). Without normalization,
-	// (-225 + 180)*1e7 = -45e7 wraps to a wrong Uint32, making dx huge → all features off-screen.
+	// Normalize: autoRotate accumulates rotate[0] unbounded; wrap() may leave it outside [-180,180].
 	const lambda = ((data.rotate[0] % 360) + 540) % 360 - 180;
 	gl.uniform1ui(u.u_ix_center, (Math.round((-lambda + 180) * 1e7)) >>> 0);
 	gl.uniform1ui(u.u_iy_center, (Math.round((-data.rotate[1] +  90) * 1e7)) >>> 0);

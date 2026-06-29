@@ -138,10 +138,7 @@ export function createLayer(param = {}) {
 
 async function createRemoteLayer(param = {}) {
 	const map = this;
-	// Base layer starts hidden (avoid flash of blank globe).
-	// All other OffscreenCanvas layers start visible: hiding them with display:none
-	// then calling show() causes a browser compositing gap where renders made while
-	// the canvas was hidden do not appear even after the class is removed.
+	// Non-base layers start visible: display:none during render causes a persistent compositing gap.
 	const layer = param.type === 'base' ? initLayer(map, param).hide() : initLayer(map, param);
 	const { canvas, name, proj, dpr } = layer;
 	let offscreen;
@@ -214,8 +211,6 @@ async function createRemoteLayer(param = {}) {
 			}
 		}
 		function drawing(panning = false) {
-			// Do not send drawing commands until initialization completes (ctxType is set).
-			// Safari requires the offscreen canvas to be fully initialized before receiving draw calls.
 			if (!ctxType) return;
 			worker.postMessage({ type: "drawing", scale: proj.scale(), rotate: proj.rotate(), attr: map.attribution, panning, minZoom: map.minZoom, maxZoom: map.maxZoom });
 		}
@@ -231,10 +226,7 @@ async function createRemoteLayer(param = {}) {
 		function destroy() { worker.postMessage({ type: "destroy" }); }
 		function terminate() {
 			worker.terminate();
-			// Guard: a new layer with the same name may have been created before
-			// the old worker's destroy response arrived.  Removing the dispatcher
-			// handlers in that case would silently disconnect the new layer from
-			// all Drawing/Drawn/Move events — causing a blank canvas.
+			// Guard: same-name replacement may be registered before old destroy fires.
 			if (map.layers[name] === layer) {
 				map.dispatcher.on(`.${name}`, null);
 				delete map.layers[name];
