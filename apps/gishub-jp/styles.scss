@@ -692,7 +692,7 @@ button { cursor: pointer; font-family: $font; }
 
 .file-list-header {
 	display: grid;
-	grid-template-columns: 50px 80px 1fr auto;
+	grid-template-columns: 50px 80px 1fr 70px auto;
 	gap: 12px;
 	padding: 6px 14px;
 	background: $deep;
@@ -701,11 +701,13 @@ button { cursor: pointer; font-family: $font; }
 	font-weight: bold;
 	color: $mid;
 	white-space: nowrap;
+
+	.file-sz-col { text-align: right; }
 }
 
 .file-row {
 	display: grid;
-	grid-template-columns: 50px 80px 1fr auto;
+	grid-template-columns: 50px 80px 1fr 70px auto;
 	align-items: center;
 	gap: 12px;
 	padding: 7px 14px;
@@ -715,11 +717,11 @@ button { cursor: pointer; font-family: $font; }
 
 	&:hover { background: rgba(75,144,255,0.06); }
 
-	.file-year { font-size: 11px; color: $mid; }
-	.file-area { font-family: $mono; font-size: 11px; color: $accent; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-	.file-name { font-family: $mono; font-size: 11px; color: $text; min-width: 0; overflow: hidden; white-space: nowrap; }
-	.file-fmt  { white-space: nowrap; }
-	.file-sz   { font-size: 10px; color: #5a8a6a; font-family: $mono; opacity: 0.85; }
+	.file-year   { font-size: 11px; color: $mid; }
+	.file-area   { font-family: $mono; font-size: 11px; color: $accent; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+	.file-name   { font-family: $mono; font-size: 11px; color: $text; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+	.file-sz-col { font-family: $mono; font-size: 10px; color: #5a8a6a; text-align: right; white-space: nowrap; }
+	.file-fmt    { white-space: nowrap; }
 }
 
 .file-sub  { font-size: 10px; color: $mid; }

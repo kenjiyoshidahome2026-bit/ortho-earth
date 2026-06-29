@@ -212,7 +212,7 @@ function _renderFiles(ds) {
                 </div>
                 <div class="file-list">
                     <div class="file-list-header">
-                        <span>年度</span><span>エリア</span><span>ファイル</span><span>形式</span>
+                        <span>年度</span><span>エリア</span><span>ファイル</span><span class="file-sz-col">サイズ</span><span>形式</span>
                     </div>
                     <div id="files-list">${_buildFileRows(allFiles, ds)}</div>
                 </div>
@@ -274,14 +274,12 @@ function _fileRow(f, ds) {
     const zipName  = zipUrl.split('/').pop();
     const fileName = f.target.split('#')[1] || '';
     const area     = _scopeLabel(f);
-    const sizeBadge = f.size ? `<span class="file-sz">${fmtBytes(f.size)}</span>` : '';
-    const nameExtra = fileName ? `<br><span class="file-sub">${fileName}</span>` : '';
-    const sizeExtra = sizeBadge ? `<br>${sizeBadge}` : '';
     return `
         <div class="file-row" data-entry="${escHtml(JSON.stringify(entry))}">
             <span class="file-year">${f.year || '—'}</span>
             <span class="file-area">${area}</span>
-            <span class="file-name">${zipName}${nameExtra}${sizeExtra}</span>
+            <span class="file-name">${zipName}${fileName ? `<br><span class="file-sub">${fileName}</span>` : ''}</span>
+            <span class="file-sz-col">${f.size ? fmtBytes(f.size) : ''}</span>
             <span class="file-fmt"><span class="badge fmt-${f.format}">${f.format.toUpperCase()}</span></span>
         </div>
     `;
