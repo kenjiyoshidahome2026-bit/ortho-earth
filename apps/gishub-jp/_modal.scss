@@ -1,0 +1,111 @@
+@use 'vars' as *;
+
+// ============================================================
+// 一括読込 モーダル
+// ============================================================
+.dl-modal {
+	position: fixed;
+	inset: 0;
+	background: rgba(0, 0, 0, 0.65);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	z-index: 9999;
+	animation: dlFadeIn 0.15s ease;
+
+	&.dl-closing { animation: dlFadeOut 0.2s ease forwards; }
+}
+
+.dl-box {
+	background: $deep;
+	border: 1px solid #2a2a2a;
+	border-radius: 10px;
+	padding: 24px 28px;
+	width: 460px;
+	max-width: 90vw;
+	display: flex;
+	flex-direction: column;
+	gap: 14px;
+	box-shadow: 0 20px 60px rgba(0,0,0,0.7);
+}
+
+.dl-header {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+}
+.dl-title { font-size: 14px; font-weight: bold; color: $hi; }
+.dl-label { font-size: 11px; color: $mid; }
+
+.dl-bar-wrap {
+	height: 14px;
+	background: #1a1a1a;
+	border-radius: 7px;
+	overflow: hidden;
+	border: 1px solid #2a2a2a;
+
+	.dl-bar-fill {
+		height: 100%;
+		background: linear-gradient(90deg, #2a6aff, #4b90ff, #70b0ff);
+		background-size: 200% 100%;
+		border-radius: 7px;
+		width: 0%;
+		transition: width 0.3s ease-out;
+		animation: dlShimmer 1.8s linear infinite;
+		box-shadow: 0 0 8px rgba(75, 144, 255, 0.5);
+	}
+}
+
+@keyframes dlShimmer {
+	0%   { background-position: 200% 0; }
+	100% { background-position: -200% 0; }
+}
+
+.dl-stat {
+	font-size: 12px;
+	color: $text;
+	display: flex;
+	gap: 10px;
+	align-items: baseline;
+
+	.dl-pct   { font-size: 20px; font-weight: bold; color: $accent; font-family: $mono; min-width: 54px; }
+	.dl-total { color: $mid; }
+	.dl-err   { color: $remark; font-size: 11px; margin-left: auto; }
+}
+
+.dl-active {
+	font-family: $mono;
+	font-size: 10px;
+	color: #4a4a4a;
+	min-height: 72px;
+	display: flex;
+	flex-direction: column;
+	gap: 3px;
+
+	.dl-item {
+		overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+		color: $text;
+		animation: dlPulse 1.6s ease-in-out infinite;
+		.dl-bytes { color: #5a9a6a; font-family: $mono; font-size: 10px; margin-left: 6px; }
+		&.dl-item-convert { color: #7a9aff; animation-duration: 0.8s; }
+		&.dl-item-done    { color: #5a9a6a; animation: none; opacity: 1; }
+		&.dl-item-error   { color: #9a5a5a; animation: none; opacity: 1; }
+	}
+
+	@keyframes dlPulse {
+		0%, 100% { opacity: 1; }
+		50%       { opacity: 0.4; }
+	}
+}
+
+.dl-cancel-btn {
+	@include btn-ghost($hover: $remark);
+	align-self: flex-end;
+	padding: 6px 18px;
+	border-radius: 5px;
+	font-size: 12px;
+	font-family: $font;
+}
+
+@keyframes dlFadeIn  { from { opacity: 0; } to { opacity: 1; } }
+@keyframes dlFadeOut { from { opacity: 1; } to { opacity: 0; } }

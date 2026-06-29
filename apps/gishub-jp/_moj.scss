@@ -1,0 +1,200 @@
+@use 'vars' as *;
+
+// ============================================================
+// 法務省市区町村リスト（メインパネル）
+// ============================================================
+.moj-list-wrap {
+	display: flex;
+	flex-direction: column;
+}
+
+.moj-list-head {
+	position: sticky;
+	top: 0;
+	z-index: 10;
+	padding: 20px 28px 14px;
+	border-bottom: 1px solid $dark;
+	background: #060606;
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+}
+
+.moj-head-row {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 12px;
+
+	h2 { font-size: 18px; color: $hi; margin: 0; }
+}
+
+.moj-subtitle {
+	font-size: 11px;
+	color: $mid;
+	margin-top: 3px;
+
+	.moj-total {
+		display: inline-block;
+		margin-left: 10px;
+		color: $accent;
+		font-weight: bold;
+	}
+	.moj-total-size {
+		display: inline-block;
+		margin-left: 10px;
+		color: #666;
+		font-family: $mono;
+	}
+	.moj-fmt-note {
+		display: inline-block;
+		margin-left: 10px;
+		color: #555;
+		font-family: $mono;
+	}
+}
+
+// 全国一括読込ボタン
+.bulk-dl-btn {
+	flex-shrink: 0;
+	padding: 6px 16px;
+	border-radius: 5px;
+	font-size: 12px;
+	font-weight: bold;
+	font-family: $font;
+	border: 1px solid $accent;
+	background: rgba(75,144,255,0.1);
+	color: $accent;
+	cursor: pointer;
+	white-space: nowrap;
+	transition: all 0.15s;
+	&:hover { background: rgba(75,144,255,0.22); }
+}
+
+.moj-search {
+	width: 100%;
+	padding: 8px 12px;
+	background: $dark;
+	border: 1px solid #3a3a3a;
+	border-radius: 5px;
+	color: $hi;
+	font-family: $font;
+	font-size: 13px;
+	&::placeholder { color: $mid; }
+	&:focus { outline: none; border-color: $accent; }
+}
+
+// セクションリスト（#detail がスクロール担当）
+.grouped-list {
+	padding: 16px 28px 32px;
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+}
+
+// 都道府県ヘッダー
+.pref-header {
+	@include accordion-header-styles;
+
+	.pref-arrow {
+		font-size: 11px;
+		color: $mid;
+		transition: transform 0.18s;
+		flex-shrink: 0;
+	}
+	.pref-name { font-size: 13px; color: $hi; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+	.pref-coord-sys { font-size: 10px; color: $mid; font-family: $mono; white-space: nowrap; }
+	.pref-size { font-size: 11px; color: #5a7a5a; font-family: $mono; white-space: nowrap; }
+	.size-note { font-size: 9px; color: #888; font-family: $mono; opacity: 0.7; vertical-align: middle; }
+	.size-est  { font-size: 10px; color: #b07a3a; font-family: $mono; }
+
+	.pref-bulk-btn {
+		@include btn-ghost($border-clr: #555);
+		padding: 3px 10px;
+		border-radius: 4px;
+		font-size: 11px;
+		font-family: $font;
+		white-space: nowrap;
+	}
+
+	&.collapsed .pref-arrow { transform: rotate(-90deg); }
+}
+
+.pref-cities {
+	&.hidden { display: none; }
+}
+
+// 市区町村行（クリックでダウンロード）
+.moj-city-item {
+	display: grid;
+	grid-template-columns: 54px 1fr minmax(0, 200px) auto;
+	align-items: center;
+	gap: 12px;
+	padding: 7px 14px;
+	border-top: 1px solid $divider;
+	cursor: pointer;
+	transition: background 120ms;
+
+	&:hover {
+		background: rgba(75,144,255,0.06);
+		.moj-city-name { color: $hi; }
+	}
+
+	.moj-city-code {
+		font-family: $mono;
+		font-size: 11px;
+		color: $accent;
+	}
+	.moj-city-name {
+		font-size: 13px;
+		color: $text;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		transition: color 120ms;
+	}
+	.moj-city-file {
+		font-family: $mono;
+		font-size: 10px;
+		color: #4a4a4a;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+
+		.file-sz {
+			margin-left: 6px;
+			color: #5a7a5a;
+		}
+	}
+	.extra-cnt {
+		font-size: 10px;
+		color: $mid;
+		margin-left: 3px;
+	}
+}
+
+.area-tag {
+	display: inline-block;
+	margin-left: 6px;
+	padding: 1px 5px;
+	border-radius: 3px;
+	font-size: 10px;
+	background: rgba(255,255,255,0.06);
+	color: $mid;
+	vertical-align: middle;
+}
+
+// 法務省詳細の戻るボタン
+.back-btn {
+	@include btn-ghost;
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	padding: 5px 12px;
+	border-radius: 5px;
+	font-size: 12px;
+	margin-bottom: 4px;
+}
+
+// fmt バッジ
+.fmt-moj { background: rgba(255, 180, 30, 0.12); color: #e6b030; }

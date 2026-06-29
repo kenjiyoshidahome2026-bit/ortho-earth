@@ -1,0 +1,143 @@
+@use 'vars' as *;
+
+// ============================================================
+// コードリストボタン
+// ============================================================
+.codelist-btn {
+	@include btn-ghost($color: $text, $bg: $dark);
+	padding: 2px 8px;
+	border-radius: 4px;
+	font-size: 11px;
+}
+
+// コードリストポップアップ
+.codelist-popup {
+	position: fixed;
+	z-index: 9000;
+	width: 320px;
+	background: $deep;
+	border: 1px solid $mid;
+	border-radius: 6px;
+	box-shadow: 0 8px 24px rgba(0,0,0,0.6);
+	font-size: 12px;
+	overflow: hidden;
+
+	.cl-header {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		padding: 6px 10px;
+		background: $dark;
+		border-bottom: 1px solid #333;
+		color: $mid;
+		font-size: 11px;
+	}
+	.cl-close {
+		background: none;
+		border: none;
+		color: $mid;
+		font-size: 13px;
+		line-height: 1;
+		padding: 0 2px;
+		&:hover { color: $hi; }
+	}
+	.cl-body {
+		max-height: 320px;
+		overflow-y: auto;
+		&::-webkit-scrollbar { width: 4px; }
+		&::-webkit-scrollbar-thumb { background: #444; }
+	}
+	.cl-loading { padding: 12px; color: $mid; text-align: center; }
+
+	table { width: 100%; border-collapse: collapse; }
+	th { padding: 5px 10px; background: #0d0d0d; color: $mid; font-size: 11px; text-align: left; position: sticky; top: 0; }
+	td { padding: 4px 10px; border-bottom: 1px solid #1a1a1a; color: $text; }
+	tr:last-child td { border-bottom: none; }
+	tr:hover td { background: #181818; }
+}
+
+// ============================================================
+// 地図 tip/pop（カタログ属性表示）
+// ============================================================
+.cat-tip-label { color: #888; font-size: 10px; }
+.cat-tip-code  { color: #666; font-size: 10px; }
+
+.cat-pop-title {
+	font-size: 11px;
+	font-weight: 600;
+	color: $accent;
+	padding: 4px 8px 6px;
+	border-bottom: 1px solid #2a2a2a;
+	margin-bottom: 2px;
+}
+.cat-pop-table {
+	width: 100%;
+	border-collapse: collapse;
+	font-size: 11px;
+	.cat-pop-key {
+		color: #888;
+		padding: 3px 10px 3px 8px;
+		vertical-align: top;
+		white-space: nowrap;
+		max-width: 120px;
+	}
+	.cat-pop-val {
+		color: $text;
+		padding: 3px 8px 3px 0;
+		word-break: break-all;
+	}
+	.cat-pop-code { color: #666; font-size: 10px; }
+	.cat-pop-note { color: #555; font-size: 10px; }
+	tr:not(:last-child) td { border-bottom: 1px solid #1a1a1a; }
+}
+
+// ============================================================
+// 行政区域コードポップアップ（拡張）
+// ============================================================
+.ab-popup {
+	width: 420px;
+
+	.ab-title { color: $hi; font-weight: 600; }
+
+	.ab-filters {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		padding: 6px 10px;
+		background: #0d0d0d;
+		border-bottom: 1px solid #2a2a2a;
+		flex-wrap: wrap;
+	}
+	.ab-pref-sel {
+		flex: 1;
+		min-width: 120px;
+		background: $deep;
+		color: $text;
+		border: 1px solid #333;
+		border-radius: 3px;
+		padding: 3px 6px;
+		font-size: 11px;
+	}
+	.ab-obsolete-label {
+		display: flex;
+		align-items: center;
+		gap: 4px;
+		font-size: 11px;
+		color: $mid;
+		white-space: nowrap;
+		cursor: pointer;
+	}
+	.ab-search {
+		flex: 1;
+		min-width: 100px;
+		background: $deep;
+		color: $text;
+		border: 1px solid #333;
+		border-radius: 3px;
+		padding: 3px 6px;
+		font-size: 11px;
+		&::placeholder { color: #555; }
+	}
+	.cl-body { max-height: 420px; }
+	.ab-obsolete td { color: #555; text-decoration: line-through; }
+}

@@ -1,0 +1,168 @@
+@use 'vars' as *;
+
+// ============================================================
+// 国勢調査 サイドバー & 詳細パネル
+// ============================================================
+.census-city-item {
+	.pop-val { margin-left: auto; font-family: $mono; font-size: 11px; color: $text; }
+	.pop-chg { margin-left: 6px; font-family: $mono; font-size: 11px; font-weight: 600;
+		&.pos { color: #4c8; }
+		&.neg { color: #f64; }
+	}
+}
+
+.census-detail {
+	padding: 8px 12px 24px;
+	overflow-y: auto;
+
+	.cs-svg-wrap {
+		svg { width: 100%; height: auto; display: block; border-radius: 4px; }
+	}
+
+	.cs-section {
+		margin-bottom: 20px;
+		h3 {
+			font-size: 13px;
+			color: $accent;
+			border-bottom: 1px solid rgba(255,255,255,.12);
+			padding-bottom: 4px;
+			margin-bottom: 8px;
+			.cs-year { font-size: 11px; color: $mid; font-weight: 400; margin-left: 6px; }
+		}
+	}
+
+	.cs-kv-grid {
+		display: grid;
+		grid-template-columns: 1fr 1fr;
+		gap: 4px 12px;
+	}
+	.cs-kv {
+		display: flex;
+		justify-content: space-between;
+		font-size: 12px;
+		padding: 2px 0;
+		border-bottom: 1px solid rgba(255,255,255,.04);
+		.cs-k { color: $mid; }
+		.cs-v { color: $text; font-family: $mono; }
+	}
+
+	.cs-bar-chart { margin-top: 4px; }
+	.cs-bar-row {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		margin-bottom: 3px;
+		font-size: 11px;
+		.cs-bar-label { width: 120px; flex-shrink: 0; color: $mid; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+		.cs-bar-wrap  { flex: 1; background: rgba(255,255,255,.06); border-radius: 2px; height: 10px; overflow: hidden; }
+		.cs-bar       { height: 100%; border-radius: 2px; min-width: 2px; }
+		.cs-bar-val   { width: 60px; text-align: right; color: $text; font-family: $mono; }
+		.cs-bar-pct   { width: 40px; text-align: right; color: $mid; }
+	}
+	.cs-note { font-size: 11px; color: $mid; margin-top: 4px; }
+
+	.cs-sa-section {
+		.cs-sa-load {
+			background: #2a2a2a;
+			border: 1px solid rgba(255,255,255,.2);
+			color: $text;
+			padding: 5px 12px;
+			border-radius: 4px;
+			cursor: pointer;
+			font-size: 12px;
+			&:hover { background: #3a3a3a; }
+		}
+		.cs-sa-loading { font-size: 12px; color: $mid; }
+		.cs-sa-toolbar {
+			display: flex;
+			align-items: center;
+			gap: 10px;
+			margin-bottom: 6px;
+			.cs-sa-count { font-size: 12px; color: $mid; }
+			.cs-sa-csv {
+				background: #2a2a2a;
+				border: 1px solid rgba(255,255,255,.2);
+				color: $text;
+				padding: 2px 8px;
+				border-radius: 3px;
+				cursor: pointer;
+				font-size: 11px;
+				&:hover { background: #3a3a3a; }
+			}
+		}
+		.cs-sa-scroll {
+			max-height: 280px;
+			overflow-y: auto;
+			border: 1px solid rgba(255,255,255,.08);
+			border-radius: 4px;
+		}
+		.cs-sa-legend {
+			font-size: 10px;
+			color: $mid;
+			display: flex;
+			align-items: center;
+			gap: 4px;
+			flex: 1;
+			.cs-sa-l {
+				display: inline-block;
+				width: 10px;
+				height: 8px;
+				border-radius: 1px;
+				&.y { background: #5a9; }
+				&.w { background: #579; }
+				&.o { background: #a65; }
+			}
+		}
+		.cs-sa-table {
+			width: 100%;
+			border-collapse: collapse;
+			font-size: 11px;
+			thead tr th {
+				position: sticky;
+				top: 0;
+				background: #222;
+				color: $mid;
+				padding: 4px 6px;
+				text-align: left;
+				border-bottom: 1px solid rgba(255,255,255,.12);
+				font-weight: 500;
+			}
+			tbody tr {
+				cursor: default;
+				&.has-pyr { cursor: pointer; }
+				&.active { background: rgba(100,140,200,.12); }
+				&:hover { background: rgba(255,255,255,.04); }
+				&.has-pyr:hover { background: rgba(100,140,200,.1); }
+				td {
+					padding: 3px 6px;
+					border-bottom: 1px solid rgba(255,255,255,.04);
+					color: $text;
+					&:first-child { color: $mid; width: 28px; text-align: right; }
+					&:nth-child(2) { font-family: $mono; color: #adf; white-space: nowrap; }
+				}
+				.cs-sa-pop { font-family: $mono; text-align: right; }
+				.cs-sa-bar { white-space: nowrap; }
+			}
+		}
+		.cs-sa-pyramid-wrap {
+			margin-top: 10px;
+			padding: 10px 12px;
+			background: rgba(255,255,255,.04);
+			border-radius: 6px;
+			border: 1px solid rgba(255,255,255,.08);
+			.cs-sa-py-name {
+				font-size: 12px;
+				color: $text;
+				margin-bottom: 6px;
+				font-weight: 500;
+				.cs-sa-py-pop {
+					display: block;
+					font-size: 11px;
+					color: $mid;
+					font-weight: 400;
+					font-family: $mono;
+				}
+			}
+		}
+	}
+}
