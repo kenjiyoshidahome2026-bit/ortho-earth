@@ -137,7 +137,8 @@ function detectScope(name, citycode) {
 	const base  = name.replace(/_(GEOJSON|GML|SHP)\.zip$/i, '').replace(/\.zip$/i, '');
 	// CODE-YEAR プレフィックス除去 (例: A45-24, N03-20240101, A31b-25, L03-b-14)
 	const after = base.replace(/^[A-Za-z0-9]+-[a-z]?-?\d{2,8}/, '');
-	const nums  = after.split('_').filter(t => /^\d+$/.test(t));
+	// 各トークンの先頭数字列を抽出（"3036-jgd" → "3036" など座標系サフィックスを無視）
+	const nums  = after.split('_').map(t => t.match(/^(\d+)/)?.[1] || '').filter(Boolean);
 
 	if (!nums.length) return { scope: '全国', pref_code: '', location_code: '' };
 

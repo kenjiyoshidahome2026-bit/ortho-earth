@@ -87,6 +87,7 @@ export function applyFileFilters() {
     const year = document.getElementById('ff-year')?.value || 'all';
     const fmt  = document.getElementById('ff-fmt')?.value  || 'all';
     const pref = document.getElementById('ff-pref')?.value || 'all';
+    const mesh = document.getElementById('ff-mesh')?.value || 'all';
 
     const raw = _currentDs.files.some(f => f.format === 'geojson')
         ? _currentDs.files.filter(f => f.format !== 'shp')
@@ -96,6 +97,7 @@ export function applyFileFilters() {
         if (year !== 'all' && String(f.year) !== year) return false;
         if (fmt  !== 'all' && f.format !== fmt)        return false;
         if (pref !== 'all' && String(f.pref_code) !== pref) return false;
+        if (mesh !== 'all' && f.location_code !== mesh) return false;
         return true;
     }));
 
@@ -182,6 +184,7 @@ function _renderFiles(ds) {
     const years     = [...new Set(allFiles.map(f => f.year).filter(Boolean))].sort().reverse();
     const formats   = [...new Set(allFiles.map(f => f.format))].sort();
     const prefCodes = [...new Set(allFiles.filter(f => f.pref_code).map(f => f.pref_code))].sort();
+    const meshCodes = [...new Set(allFiles.filter(f => f.location_code && f.scope?.includes('メッシュ')).map(f => f.location_code))].sort();
 
     const yearOpts = ['all', ...years].map(y =>
         `<option value="${y}">${y === 'all' ? '年度: すべて' : y}</option>`).join('');
@@ -191,6 +194,11 @@ function _renderFiles(ds) {
         <select class="file-filter" id="ff-pref">
             <option value="all">都道府県: すべて</option>
             ${prefCodes.map(c => `<option value="${c}">${PREFS[String(c).padStart(2,'0')] || c}</option>`).join('')}
+        </select>` : '';
+    const meshOpts = meshCodes.length ? `
+        <select class="file-filter" id="ff-mesh">
+            <option value="all">メッシュ: すべて</option>
+            ${meshCodes.map(c => `<option value="${escHtml(c)}">${c}</option>`).join('')}
         </select>` : '';
 
     return `
@@ -204,6 +212,7 @@ function _renderFiles(ds) {
                     ${years.length > 1   ? `<select class="file-filter" id="ff-year">${yearOpts}</select>` : ''}
                     ${formats.length > 1 ? `<select class="file-filter" id="ff-fmt">${fmtOpts}</select>`  : ''}
                     ${prefOpts}
+                    ${meshOpts}
                     ${allFiles.length > 1 ? (() => {
                         const totalBytes = allFiles.reduce((s, f) => s + (f.size || 0), 0);
                         const sizeLabel  = totalBytes ? ` (${fmtBytes(totalBytes)})` : '';
