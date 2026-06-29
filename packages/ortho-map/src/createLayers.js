@@ -172,10 +172,10 @@ async function createRemoteLayer(param = {}) {
 				resolve(layer);
 			}
 			if (data.type === "destroy") terminate();
-			if (data.type === "resize") drawing();
+			if (data.type === "resize") { drawing(true); drawn(); }
 			if (data.type === "set") {
 				if (data.cmd === "base") { layer.show(); map.trigger("LoadEnd", data.data); }
-				drawing();
+				drawing(true); drawn();
 			}
 		};
 

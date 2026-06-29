@@ -1,3 +1,4 @@
+@use 'sass:color';
 @use 'vars' as *;
 
 // ============================================================
@@ -109,6 +110,6 @@
 		font-size: 13px;
 		cursor: pointer;
 		&:hover { background: #ccc; color: #000; }
-		&.accent { background: $accent; border-color: $accent; color: #000; &:hover { background: lighten($accent, 10%); } }
+		&.accent { background: $accent; border-color: $accent; color: #000; &:hover { background: color.adjust($accent, $lightness: 10%); } }
 	}
 }
