@@ -239,7 +239,13 @@ function _buildFileRows(files, ds, limit = 200) {
 
 function _scopeLabel(f) {
     const scope = f.scope || '全国';
-    if (scope === '全国') return f.location_code || '全国';
+    if (scope === '全国') {
+        if (f.location_code) return f.location_code;
+        // URLに埋まっているメッシュコード(4桁)を抽出（旧サーバーデータ対応）
+        const m = (f.target || '').match(/_(\d{4})-jgd/i);
+        if (m) { const n = parseInt(m[1]); if (n >= 3036 && n <= 6954) return m[1]; }
+        return '全国';
+    }
     if (scope === '都道府県') {
         const code = String(f.pref_code || '').padStart(2, '0');
         return PREFS[code] || f.pref_code || '都道府県';
