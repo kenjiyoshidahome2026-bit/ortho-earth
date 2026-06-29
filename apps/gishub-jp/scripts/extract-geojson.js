@@ -37,19 +37,29 @@ async function fetchText(url) {
 // NLFTP カタログページのパース
 // ---------------------------------------------------------------------------
 
-/** DownLd() パターンから全フォーマットのダウンロードリンクを取得 */
+/** DownLd() / DownLd_new() パターンから全フォーマットのダウンロードリンクを取得 */
 function findDownloadLinks(html, baseUrl) {
 	const seen  = new Set();
 	const links = [];
-	const re    = /DownLd\([^,]+,\s*'([^']+)',\s*'([^']+)'/g;
 	let m;
+
+	// 通常パターン: DownLd(any, 'filename', 'url')
+	const re = /DownLd\([^,]+,\s*'([^']+)',\s*'([^']+)'/g;
 	while ((m = re.exec(html)) !== null) {
 		const name = m[1].trim();
 		const url  = new URL(m[2].trim(), baseUrl).href;
 		if (!seen.has(url)) { seen.add(url); links.push({ name, url }); }
 	}
 
-	// DownLd() がない場合は HTML 内の直接 ZIP パスを探す（例: L02-2025）
+	// 新パターン: DownLd_new('size', 'filename', 'url') — L02等で使用
+	const reNew = /DownLd_new\('[^']*',\s*'([^']+)',\s*'([^']+)'/g;
+	while ((m = reNew.exec(html)) !== null) {
+		const name = m[1].trim();
+		const url  = new URL(m[2].trim(), baseUrl).href;
+		if (!seen.has(url)) { seen.add(url); links.push({ name, url }); }
+	}
+
+	// 上記どちらもない場合は HTML 内の直接 ZIP パスを探す
 	if (links.length === 0) {
 		const directRe = /(?:href|src|['"])(\/(ksj\/gml\/data|data)\/[^'"<\s]+\.zip)/gi;
 		while ((m = directRe.exec(html)) !== null) {
