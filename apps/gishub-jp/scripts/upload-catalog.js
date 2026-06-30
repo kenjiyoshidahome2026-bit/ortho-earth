@@ -340,7 +340,10 @@ async function main() {
 	// --- per-dataset オブジェクト構築 ---
 	const datasets = catalog.map(ds => {
 		const files = filesByCode[ds.dataset_code] || [];
-		const formats = [...new Set(files.map(f => f.format))].sort();
+		// L03-b_r（ラスタ版）: ファイルなし時はラスタ専用ビューワー向けのプレースホルダーを使用
+		const isL03bR  = ds.dataset_code === 'L03-b_r' && files.length === 0;
+		const formats  = isL03bR ? ['webp'] : [...new Set(files.map(f => f.format))].sort();
+		const fileCount = isL03bR ? 175 : files.length;
 		return {
 			detail: {
 				dataset_code: ds.dataset_code,
@@ -356,7 +359,7 @@ async function main() {
 				title:        ds.title,
 				license:      ds.license,
 				formats,
-				file_count:   files.length,
+				file_count:   fileCount,
 				attr_count:   Object.keys(ds.attributes || {}).length,
 			},
 		};

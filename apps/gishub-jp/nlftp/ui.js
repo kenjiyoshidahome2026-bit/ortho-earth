@@ -3,6 +3,7 @@ import { ctx } from '../ui/ctx.js';
 import { fetchDataset, NLFTP_SOURCE } from './catalog.js';
 import { meshBulkDownload } from './mesh.js';
 import { API_BASE } from '../ui/config.js';
+import { openL03bRViewer } from './l03b-r-viewer.js';
 
 // ---- 内部状態（このモジュールが所有） -------------------------------------------------------
 let _currentDs = null;
@@ -141,6 +142,11 @@ export function initDetailEventListeners() {
             return;
         }
 
+        if (e.target.id === 'files-dl-raster') {
+            openL03bRViewer();
+            return;
+        }
+
         if (e.target.id === 'files-dl-all') {
             const files   = _currentFilteredFiles.length ? _currentFilteredFiles : (_currentDs?.files || []);
             const entries = files.map(f => _fileEntry(f, _currentDs));
@@ -175,6 +181,25 @@ function _licKey(lic) {
 }
 
 function _renderFiles(ds) {
+    if (ds.dataset_code === 'L03-b_r') {
+        return `
+            <section class="detail-section" id="files-section">
+                <h3 class="section-title">
+                    ダウンロード <span class="toggle-icon">▾</span>
+                </h3>
+                <div class="section-body">
+                    <div class="l03br-desc">
+                        <p>1次メッシュ単位のラスタTIFファイル（約175件）を<br>
+                           WebPに変換しながら日本列島を描画し、WebP ZIPとしてダウンロードします。</p>
+                        <p class="l03br-note">変換はブラウザ内で行われます（4ワーカー並列）。</p>
+                    </div>
+                    <button class="bulk-dl-btn l03br-start-btn" id="files-dl-raster">
+                        一括 WebP ZIP ダウンロード
+                    </button>
+                </div>
+            </section>
+        `;
+    }
     if (!ds.files?.length) return '<p class="no-files">GISファイルなし</p>';
 
     const raw      = ds.files.some(f => f.format === 'geojson')

@@ -72,10 +72,12 @@ export function orthoGL2(gl, dpr) {
 	const tileFs = `#version 300 es
 		precision mediump float;
 		uniform sampler2D u_texture;
+		uniform float u_alpha;
 		in vec2 v_textCoords;
 		out vec4 outColor;
-		void main(void) { outColor = texture(u_texture, v_textCoords); }`;
+		void main(void) { outColor = texture(u_texture, v_textCoords) * vec4(1.0, 1.0, 1.0, u_alpha); }`;
 	const tileProgram = createProgram(gl, tileVs, tileFs);
+	const tileAlphaLoc = gl.getUniformLocation(tileProgram, "u_alpha");
 	const tileVao = gl.createVertexArray();
 	const tileCoordsBuf = gl.createBuffer();
 	const tilePosBuf = gl.createBuffer();
@@ -141,11 +143,12 @@ export function orthoGL2(gl, dpr) {
 		return gl;
 	};
 
-	gl.drawTile = (texture, uvs, positions) => {
+	gl.drawTile = (texture, uvs, positions, alpha = 1) => {
 		if (!texture || !uvs || !positions) return gl;
 		gl.useProgram(tileProgram);
 		gl.bindVertexArray(tileVao);
 
+		gl.uniform1f(tileAlphaLoc, alpha);
 		gl.bindBuffer(gl.ARRAY_BUFFER, tileCoordsBuf);
 		gl.bufferData(gl.ARRAY_BUFFER, uvs, gl.STREAM_DRAW);
 		gl.bindBuffer(gl.ARRAY_BUFFER, tilePosBuf);

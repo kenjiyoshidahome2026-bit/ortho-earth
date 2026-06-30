@@ -70,6 +70,8 @@ function _buildPop(props, ds) {
     return `${title}<table class="cat-pop-table">${rows}</table>`;
 }
 
+export function getMapInst() { return _mapInst; }
+
 export async function execGlobeView(pbf, ds = null) {
     if (!pbf?.length) return;
     _initGadgets();

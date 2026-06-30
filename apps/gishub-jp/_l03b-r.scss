@@ -1,0 +1,118 @@
+@use 'vars' as *;
+
+// ============================================================
+// L03-b_r ビューワー オーバーレイ
+// ============================================================
+
+.l03br-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.75);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+    animation: dlFadeIn 0.15s ease;
+}
+
+.l03br-panel {
+    background: $deep;
+    border: 1px solid $border;
+    border-radius: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    max-width: 960px;
+    width: 95vw;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.8);
+    overflow: hidden;
+}
+
+.l03br-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    border-bottom: 1px solid $divider;
+    background: $dark;
+}
+
+.l03br-title {
+    font-size: 12px;
+    font-weight: bold;
+    color: $hi;
+}
+
+.l03br-close-btn {
+    background: none;
+    border: none;
+    color: $mid;
+    cursor: pointer;
+    font-size: 14px;
+    line-height: 1;
+    padding: 2px 6px;
+    border-radius: 4px;
+    transition: color 0.15s;
+    &:hover { color: $remark; }
+}
+
+.l03br-status {
+    font-size: 11px;
+    color: $mid;
+    padding: 6px 16px;
+    min-height: 24px;
+    background: $bg;
+    border-bottom: 1px solid $divider;
+}
+
+.l03br-canvas {
+    display: block;
+    width: 100%;
+    height: auto;
+    background: #0d1117;
+}
+
+.l03br-footer {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 16px;
+    border-top: 1px solid $divider;
+    background: $dark;
+}
+
+.l03br-prog {
+    font-size: 11px;
+    font-family: $mono;
+    color: $mid;
+    flex: 1;
+}
+
+.l03br-dl-btn {
+    @include btn-ghost($color: $accent, $hover: $hi, $border-clr: $accent);
+    padding: 7px 20px;
+    border-radius: 5px;
+    font-size: 12px;
+    font-family: $font;
+    &:disabled { opacity: 0.35; cursor: default; pointer-events: none; }
+}
+
+// ---- L03-b_r 詳細パネル内のUI -----------------------------------------------
+
+.l03br-desc {
+    font-size: 12px;
+    color: $text;
+    line-height: 1.7;
+    margin-bottom: 14px;
+
+    p { margin-bottom: 4px; }
+}
+
+.l03br-note {
+    font-size: 11px;
+    color: $mid !important;
+}
+
+.l03br-start-btn {
+    margin-top: 4px;
+}

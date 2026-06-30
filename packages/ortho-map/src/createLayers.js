@@ -197,8 +197,8 @@ async function createRemoteLayer(param = {}) {
 			}
 		}
 		function set(cmd, data, prop, transferables) {
-			if (transferables) {
-				worker.postMessage({ type: "set", cmd, data: cmd, prop: data }, transferables);
+			if (transferables?.length) {
+				worker.postMessage({ type: "set", cmd, data, prop }, transferables);
 			} else if (prop?.rawBuffers) {
 				const { rawBuffers, ...rest } = prop;
 				worker.postMessage({ type: "set", cmd, data, prop: rest, rawBuffers }, rawBuffers);
