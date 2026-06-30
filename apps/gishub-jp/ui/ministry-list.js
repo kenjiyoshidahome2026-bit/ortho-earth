@@ -20,7 +20,7 @@ export function renderMinistryList({
                         <h2>${title}</h2>
                         <p class="moj-subtitle">${subtitle}<span class="moj-total">${cities.length.toLocaleString()}市区町村</span>${totalSizeLabel}</p>
                     </div>
-                    <button class="bulk-dl-btn" id="${id}-bulk-all">全国一括読込(→IDB)</button>
+                    <button class="bulk-dl-btn" id="${id}-bulk-all">一括↓IDB</button>
                 </div>
                 <input type="text" id="${id}-search" class="moj-search" placeholder="市区町村・都道府県を検索...">
             </div>

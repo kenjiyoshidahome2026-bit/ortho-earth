@@ -5,7 +5,7 @@
 // exec 属性テーブル
 // ============================================================
 #exec-tables {
-	font-family: 'Courier New', Courier, monospace;
+	font-family: $mono;
 	display: flex;
 	flex-direction: column;
 	height: 60vh;
@@ -34,14 +34,15 @@
 
 		button {
 			padding: 0.35em 0.8em;
-			background: #444;
-			color: #fff;
-			border: 1px solid #ccc;
+			background: $dark;
+			color: $text;
+			border: 1px solid $border;
 			border-radius: 5px;
 			font-size: 12px;
 			font-family: $font;
 			cursor: pointer;
-			&:hover { background: #ccc; color: #000; }
+			transition: all 0.15s;
+			&:hover { border-color: $accent; color: $accent; }
 		}
 
 		.exec-page-info {
@@ -66,17 +67,17 @@
 			th {
 				position: sticky;
 				top: 0;
-				background: #222;
+				background: $dark;
 				z-index: 1;
 				text-align: center;
-				border-top: 1px solid #888;
-				border-bottom: 1px solid #888;
+				border-top: 1px solid $mid;
+				border-bottom: 1px solid $mid;
 				padding: 6px 8px;
 				color: $mid;
 			}
 
 			td {
-				border-bottom: 1px solid #333;
+				border-bottom: 1px solid $divider;
 				padding: 5px 8px;
 				max-width: 200px;
 				overflow: hidden;
@@ -84,7 +85,7 @@
 				white-space: nowrap;
 			}
 
-			tr:hover td { background: #1a1a1a; }
+			tr:hover td { background: $deep; }
 		}
 	}
 }
@@ -102,14 +103,15 @@
 
 	button {
 		padding: 0.45em 1em;
-		background: #444;
-		color: #fff;
-		border: 1px solid #ccc;
+		background: $dark;
+		color: $text;
+		border: 1px solid $border;
 		border-radius: 5px;
 		font-family: $font;
 		font-size: 13px;
 		cursor: pointer;
-		&:hover { background: #ccc; color: #000; }
-		&.accent { background: $accent; border-color: $accent; color: #000; &:hover { background: color.adjust($accent, $lightness: 10%); } }
+		transition: all 0.15s;
+		&:hover { border-color: $accent; color: $accent; }
+		&.accent { background: $accent; border-color: $accent; color: $hi; &:hover { background: color.adjust($accent, $lightness: 10%); } }
 	}
 }
