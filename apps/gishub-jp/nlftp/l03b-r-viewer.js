@@ -341,7 +341,6 @@ export async function openL03bRViewer(format = 'webp') {
 
         const mapInst = getMapInst();
         mapInst.autoRotate(false);
-        mapInst.setView([137, 36], 4);
         mapInst.removeLayer?.('L03bR-Raster');
 
         let globeLayer = null;
@@ -357,6 +356,15 @@ export async function openL03bRViewer(format = 'webp') {
         enterGlobeView(() => {
             if (globeLayer) { globeLayer.destroy(); globeLayer = null; }
         });
+
+        // 日本全体にズーム（他のカタログと同じ zoomToFeature を使用）
+        const japanBbox = { type: 'Feature', geometry: {
+            type: 'Polygon',
+            coordinates: [[[122,20],[122,47],[154,47],[154,20],[122,20]]],
+        }, properties: {} };
+        await mapInst.zoomToFeature(japanBbox);
+        mapInst.draw();
+        mapInst.trigger('Drawn');
 
         for (const [meshCode, { webpData, bbox }] of webpMap) {
             const buf = webpData.buffer.slice(
