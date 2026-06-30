@@ -10,7 +10,7 @@ export const NLFTP_SOURCE = {
 const BUCKET_BASE = `${API_BASE}/bucket/${NLFTP_SOURCE.bucket}`;
 
 async function fetchJson(url) {
-    const res  = await fetch(url);
+    const res  = await fetch(url, { cache: 'no-store' });
     const buf  = await res.arrayBuffer();
     const head = new Uint8Array(buf, 0, 2);
     if (head[0] === 0x1f && head[1] === 0x8b) {
