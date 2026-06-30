@@ -88,13 +88,42 @@
     flex: 1;
 }
 
-.l03br-dl-btn {
-    @include btn-ghost($color: $accent, $hover: $hi, $border-clr: $accent);
-    padding: 7px 20px;
+.l03br-btns {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.l03br-globe-btn {
+    @include btn-ghost($color: $hi, $hover: $hi, $border-clr: $mid);
+    padding: 7px 18px;
     border-radius: 5px;
     font-size: 12px;
     font-family: $font;
     &:disabled { opacity: 0.35; cursor: default; pointer-events: none; }
+    &:not(:disabled) { border-color: $hi; }
+}
+
+.l03br-dl-btn {
+    @include btn-ghost($color: $accent, $hover: $hi, $border-clr: $accent);
+    padding: 7px 18px;
+    border-radius: 5px;
+    font-size: 12px;
+    font-family: $font;
+    &:disabled { opacity: 0.35; cursor: default; pointer-events: none; }
+}
+
+.l03br-redo-btn {
+    background: none;
+    border: none;
+    color: $mid;
+    font-size: 11px;
+    font-family: $font;
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: 4px;
+    text-decoration: underline;
+    &:hover { color: $remark; }
 }
 
 // ---- L03-b_r 詳細パネル内のUI -----------------------------------------------

@@ -1,7 +1,10 @@
 /**
  * L03-b_r（土地利用細分メッシュ ラスタ版）ビューワー
- * NLFTPからTIF ZIPを4ワーカー並列でダウンロード → WebPに変換 →
- * 日本地図キャンバスにリアルタイム描画 + 地球儀に貼り付け → WebP ZIPとしてダウンロード
+ *
+ * フロー:
+ *   1. IDB キャッシュがあれば即座に2Dキャンバスに描画 → 「地球に描画」ボタン有効化
+ *   2. キャッシュがなければ NLFTP から4ワーカー並列で TIF→WebP 変換 → IDB に保存
+ *   3. 全件完了後「地球に描画」ボタンを押すと ortho-map レイヤーに転送
  */
 import { API_BASE } from '../ui/config.js';
 import { getMapInst } from '../ui/globe.js';
@@ -9,15 +12,55 @@ import { getMapInst } from '../ui/globe.js';
 const NLFTP_BASE  = 'https://nlftp.mlit.go.jp';
 const PAGE_PATH   = '/ksj/gml/datalist/KsjTmplt-L03-b_r.html';
 const CONCURRENCY = 4;
+const DB_NAME     = 'gishub-jp';
+const DB_VERSION  = 1;
+const STORE_NAME  = 'L03bR-raster';
 
-// 日本地図の表示範囲 (equirectangular)
 const MAP = { west: 122, east: 154, south: 20, north: 47 };
 
-function nlftp2proxy(nlftpUrl) {
-    return `${API_BASE}/proxy/?url=${encodeURIComponent(nlftpUrl)}`;
+function nlftp2proxy(url) {
+    return `${API_BASE}/proxy/?url=${encodeURIComponent(url)}`;
 }
 
-// ---- ZIP builder (STORE method: WebP は既に圧縮済み) ---------------------------
+// ---- IDB ---------------------------------------------------------------
+
+function openDB() {
+    return new Promise((resolve, reject) => {
+        const req = indexedDB.open(DB_NAME, DB_VERSION);
+        req.onupgradeneeded = e => {
+            const db = e.target.result;
+            if (!db.objectStoreNames.contains(STORE_NAME))
+                db.createObjectStore(STORE_NAME, { keyPath: 'meshCode' });
+        };
+        req.onsuccess = e => resolve(e.target.result);
+        req.onerror   = e => reject(e.target.error);
+    });
+}
+function idbGetAll(db) {
+    return new Promise((resolve, reject) => {
+        const req = db.transaction(STORE_NAME, 'readonly').objectStore(STORE_NAME).getAll();
+        req.onsuccess = () => resolve(req.result);
+        req.onerror   = e => reject(e.target.error);
+    });
+}
+function idbPut(db, record) {
+    return new Promise((resolve, reject) => {
+        const tx = db.transaction(STORE_NAME, 'readwrite');
+        tx.objectStore(STORE_NAME).put(record);
+        tx.oncomplete = resolve;
+        tx.onerror    = e => reject(e.target.error);
+    });
+}
+function idbClear(db) {
+    return new Promise((resolve, reject) => {
+        const tx = db.transaction(STORE_NAME, 'readwrite');
+        tx.objectStore(STORE_NAME).clear();
+        tx.oncomplete = resolve;
+        tx.onerror    = e => reject(e.target.error);
+    });
+}
+
+// ---- ZIP builder (STORE method: WebP は既に圧縮済み) -------------------
 
 function buildCrcTable() {
     const t = new Uint32Array(256);
@@ -39,7 +82,7 @@ function crc32(data) {
 function buildZip(entries) {
     const enc   = new TextEncoder();
     const names = entries.map(e => enc.encode(e.name));
-    const crcs  = entries.map((e, i) => crc32(e.data));
+    const crcs  = entries.map(e => crc32(e.data));
 
     let totalSize = 0;
     for (let i = 0; i < entries.length; i++) totalSize += 30 + names[i].length + entries[i].data.length;
@@ -82,54 +125,52 @@ function buildZip(entries) {
     return out;
 }
 
-// ---- メイン -------------------------------------------------------------------
+// ---- メイン ------------------------------------------------------------
 
-export function openL03bRViewer() {
-    // ---- 地球儀レイヤーセットアップ ----------------------------------------
-    const mapInst  = getMapInst();
-    let globeLayer = null;
+export async function openL03bRViewer() {
+    // IDB を開く（失敗しても続行）
+    let db = null;
+    try { db = await openDB(); } catch (e) { console.warn('[L03-b_r] IDB 利用不可:', e); }
 
-    if (mapInst) {
-        // 既存の CATALOG レイヤーを保存して後で復元する必要はない（L03-b_r 専用ビューワー）
-        mapInst.removeLayer?.('L03bR-Raster'); // 二重起動ガード
-        mapInst.createRemoteLayer({ name: 'L03bR-Raster', type: 'image' }).then(layer => {
-            globeLayer = layer;
-            layer.opacity(0.85);
-            // 日本中心にズーム
-            mapInst.autoRotate(false);
-            mapInst.setView([137, 36], 4);
-            mapInst.draw();
-            document.getElementById('app')?.classList.add('viewing');
-        }).catch(() => { globeLayer = null; });
-    }
-
-    // ---- 2D ビューワー UI --------------------------------------------------
+    // ---- UI ----------------------------------------------------------------
     const overlay = document.createElement('div');
     overlay.className = 'l03br-overlay';
     overlay.innerHTML = `
         <div class="l03br-panel">
             <div class="l03br-header">
-                <span class="l03br-title">土地利用細分メッシュ（ラスタ版）— WebP ZIP 変換・ダウンロード</span>
+                <span class="l03br-title">土地利用細分メッシュ（ラスタ版）— WebP 変換・地球表示</span>
                 <button class="l03br-close-btn" id="l03br-close">✕</button>
             </div>
-            <div class="l03br-status" id="l03br-status">NLFTPからファイルリストを取得中...</div>
+            <div class="l03br-status" id="l03br-status">初期化中...</div>
             <canvas class="l03br-canvas" id="l03br-canvas" width="880" height="528"></canvas>
             <div class="l03br-footer">
                 <span class="l03br-prog" id="l03br-prog"></span>
-                <button class="l03br-dl-btn" id="l03br-dl-btn" disabled>WebP ZIP をダウンロード</button>
+                <div class="l03br-btns">
+                    <button class="l03br-globe-btn" id="l03br-globe-btn" disabled>地球に描画</button>
+                    <button class="l03br-dl-btn"    id="l03br-dl-btn"   disabled>ZIP ダウンロード</button>
+                    <button class="l03br-redo-btn"  id="l03br-redo-btn" style="display:none">再変換</button>
+                </div>
             </div>
         </div>
     `;
     document.body.appendChild(overlay);
 
-    const canvas  = document.getElementById('l03br-canvas');
-    const mapCtx  = canvas.getContext('2d');
-    const statusEl = document.getElementById('l03br-status');
-    const progEl   = document.getElementById('l03br-prog');
-    const dlBtn    = document.getElementById('l03br-dl-btn');
-    let   alive    = true;
-    const workers  = new Set();
+    const canvas    = document.getElementById('l03br-canvas');
+    const mapCtx    = canvas.getContext('2d');
+    const statusEl  = document.getElementById('l03br-status');
+    const progEl    = document.getElementById('l03br-prog');
+    const globeBtn  = document.getElementById('l03br-globe-btn');
+    const dlBtn     = document.getElementById('l03br-dl-btn');
+    const redoBtn   = document.getElementById('l03br-redo-btn');
 
+    let alive = true;
+    const workers = new Set();
+
+    // meshCode → { webpData: Uint8Array, bbox: [w,s,e,n] }
+    const webpMap = new Map();
+    let total = 0, done = 0, errors = 0;
+
+    // ---- キャンバス描画ヘルパー -------------------------------------------
     function geo2px(lon, lat) {
         return [
             (lon - MAP.west)  / (MAP.east  - MAP.west)  * canvas.width,
@@ -137,137 +178,218 @@ export function openL03bRViewer() {
         ];
     }
 
-    // 暗い背景 + グリッド
-    mapCtx.fillStyle = '#0d1117';
-    mapCtx.fillRect(0, 0, canvas.width, canvas.height);
-    mapCtx.strokeStyle = 'rgba(255,255,255,0.06)';
-    mapCtx.lineWidth   = 0.5;
-    for (let lon = 125; lon <= 150; lon += 5) {
-        const [x] = geo2px(lon, MAP.north);
-        mapCtx.beginPath(); mapCtx.moveTo(x, 0); mapCtx.lineTo(x, canvas.height); mapCtx.stroke();
-    }
-    for (let lat = 25; lat <= 45; lat += 5) {
-        const [, y] = geo2px(MAP.west, lat);
-        mapCtx.beginPath(); mapCtx.moveTo(0, y); mapCtx.lineTo(canvas.width, y); mapCtx.stroke();
+    function drawBackground() {
+        mapCtx.fillStyle = '#0d1117';
+        mapCtx.fillRect(0, 0, canvas.width, canvas.height);
+        mapCtx.strokeStyle = 'rgba(255,255,255,0.06)';
+        mapCtx.lineWidth   = 0.5;
+        for (let lon = 125; lon <= 150; lon += 5) {
+            const [x] = geo2px(lon, MAP.north);
+            mapCtx.beginPath(); mapCtx.moveTo(x, 0); mapCtx.lineTo(x, canvas.height); mapCtx.stroke();
+        }
+        for (let lat = 25; lat <= 45; lat += 5) {
+            const [, y] = geo2px(MAP.west, lat);
+            mapCtx.beginPath(); mapCtx.moveTo(0, y); mapCtx.lineTo(canvas.width, y); mapCtx.stroke();
+        }
     }
 
-    document.getElementById('l03br-close').addEventListener('click', () => {
-        alive = false;
-        for (const w of workers) w.terminate();
-        overlay.remove();
-        // 地球儀のラスターレイヤーをクリア
-        if (globeLayer) { globeLayer.destroy(); globeLayer = null; }
-        mapInst?.draw();
+    function drawTileOnCanvas(webpData, bbox) {
+        const blobUrl = URL.createObjectURL(new Blob([webpData], { type: 'image/webp' }));
+        const img = new Image();
+        img.onload = () => {
+            const [x0, y0] = geo2px(bbox[0], bbox[3]);
+            const [x1, y1] = geo2px(bbox[2], bbox[1]);
+            mapCtx.drawImage(img, x0, y0, x1 - x0, y1 - y0);
+            URL.revokeObjectURL(blobUrl);
+        };
+        img.src = blobUrl;
+    }
+
+    function updateProgress() {
+        const finished = done + errors;
+        progEl.textContent = total > 0
+            ? `${finished} / ${total}  ✓${done}${errors ? `  ✗${errors}` : ''}`
+            : '';
+        if (total > 0 && finished >= total) {
+            statusEl.textContent = `完了: ${done}件変換済み${errors ? ` (${errors}件エラー)` : ''}`;
+            globeBtn.disabled = false;
+            dlBtn.disabled    = false;
+            dlBtn.textContent = `ZIP ダウンロード (${done}件)`;
+        }
+    }
+
+    drawBackground();
+
+    // ---- IDB キャッシュ確認 -----------------------------------------------
+    let cachedRecords = [];
+    if (db) {
+        try { cachedRecords = await idbGetAll(db); } catch (e) {}
+    }
+
+    if (cachedRecords.length > 0) {
+        // キャッシュから復元
+        total = cachedRecords.length;
+        statusEl.textContent = `IDBキャッシュから ${total} 件を読み込み中...`;
+        for (const rec of cachedRecords) {
+            if (!alive) break;
+            webpMap.set(rec.meshCode, { webpData: rec.webpData, bbox: rec.bbox });
+            drawTileOnCanvas(rec.webpData, rec.bbox);
+            done++;
+        }
+        statusEl.textContent = `IDBキャッシュ: ${done} 件 — 「地球に描画」で ortho-map に表示できます`;
+        progEl.textContent   = `${done} / ${total} 件`;
+        globeBtn.disabled    = false;
+        dlBtn.disabled       = false;
+        dlBtn.textContent    = `ZIP ダウンロード (${done}件)`;
+        redoBtn.style.display = '';
+    } else {
+        startConversion();
+    }
+
+    // ---- 変換処理 ----------------------------------------------------------
+    function startConversion() {
+        done = 0; errors = 0; total = 0;
+        webpMap.clear();
+        drawBackground();
+        globeBtn.disabled = true;
+        dlBtn.disabled    = true;
+        dlBtn.textContent = 'ZIP ダウンロード';
+        redoBtn.style.display = 'none';
+        statusEl.textContent  = 'NLFTPからファイルリストを取得中...';
+        progEl.textContent    = '';
+
+        const workerUrl = new URL('./l03b-r-worker.js', import.meta.url);
+
+        function onTileDone(data) {
+            if (!alive) return;
+            if (data.error) {
+                errors++;
+                console.warn(`[L03-b_r] ${data.meshCode}: ${data.error}`);
+            } else {
+                done++;
+                const { meshCode, webpData, bbox } = data;
+                webpMap.set(meshCode, { webpData, bbox });
+                drawTileOnCanvas(webpData, bbox);
+                if (db) idbPut(db, { meshCode, webpData, bbox }).catch(() => {});
+            }
+            updateProgress();
+        }
+
+        function startWorker(item, queue) {
+            if (!alive || !item) return;
+            const { meshCode, url } = item;
+            const w = new Worker(workerUrl, { type: 'module' });
+            workers.add(w);
+            w.postMessage({ meshCode, proxyUrl: nlftp2proxy(url) });
+            w.onmessage = ({ data }) => {
+                workers.delete(w); w.terminate();
+                onTileDone(data);
+                startWorker(queue.shift(), queue);
+            };
+            w.onerror = e => {
+                workers.delete(w); w.terminate();
+                onTileDone({ meshCode, error: e.message || 'worker error' });
+                startWorker(queue.shift(), queue);
+            };
+        }
+
+        (async () => {
+            try {
+                const res = await fetch(nlftp2proxy(NLFTP_BASE + PAGE_PATH));
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                const html = await res.text();
+
+                const zipRe = /L03-b_r\/[^\s"'<>]+\.zip/g;
+                const paths = [...new Set([...html.matchAll(zipRe)].map(m => m[0]))];
+                if (!paths.length) throw new Error('ZIPファイルが見つかりませんでした');
+
+                const items = paths.map(path => {
+                    const m = path.match(/_(\d{4}(?:_\d+)?)\.zip$/i);
+                    return {
+                        meshCode: m ? m[1] : path.split('/').pop().replace('.zip', ''),
+                        url:      `${NLFTP_BASE}/ksj/gml/data/${path}`,
+                    };
+                });
+
+                total = items.length;
+                statusEl.textContent = `${total} 件のTIFをWebPに変換中（${CONCURRENCY}ワーカー並列）...`;
+                progEl.textContent   = `0 / ${total}`;
+
+                const queue = [...items];
+                for (let i = 0; i < CONCURRENCY && queue.length; i++) startWorker(queue.shift(), queue);
+            } catch (e) {
+                statusEl.textContent = `エラー: ${e.message}`;
+            }
+        })();
+    }
+
+    // ---- ボタン類 ----------------------------------------------------------
+
+    // 地球に描画
+    globeBtn.addEventListener('click', async () => {
+        const mapInst = getMapInst();
+        if (!mapInst || webpMap.size === 0) return;
+
+        globeBtn.disabled    = true;
+        globeBtn.textContent = '描画中...';
+        try {
+            mapInst.removeLayer?.('L03bR-Raster');
+            const layer = await mapInst.createRemoteLayer({ name: 'L03bR-Raster', type: 'image' });
+            layer.opacity(0.85);
+            mapInst.autoRotate(false);
+            mapInst.setView([137, 36], 4);
+            document.getElementById('app')?.classList.add('viewing');
+
+            for (const [meshCode, { webpData, bbox }] of webpMap) {
+                const buf = webpData.buffer.slice(
+                    webpData.byteOffset,
+                    webpData.byteOffset + webpData.byteLength
+                );
+                layer.set('overlay', buf, { bbox, id: meshCode }, [buf]);
+            }
+            mapInst.draw();
+        } catch (e) {
+            console.error('[L03-b_r] 地球描画エラー:', e);
+        }
+        globeBtn.disabled    = false;
+        globeBtn.textContent = '地球に描画';
     });
 
-    const webpStore = {}; // meshCode → Uint8Array
-    let   total = 0, done = 0, errors = 0;
-
-    const workerUrl = new URL('./l03b-r-worker.js', import.meta.url);
-
-    function onTileDone(data) {
-        if (!alive) return;
-        if (data.error) {
-            errors++;
-            console.warn(`[L03-b_r] ${data.meshCode}: ${data.error}`);
-        } else {
-            done++;
-            const { meshCode, webpData, bbox } = data;
-            webpStore[meshCode] = webpData;
-
-            if (bbox) {
-                // 2D キャンバスに描画
-                const blobUrl = URL.createObjectURL(new Blob([webpData], { type: 'image/webp' }));
-                const img     = new Image();
-                img.onload = () => {
-                    const [x0, y0] = geo2px(bbox[0], bbox[3]);
-                    const [x1, y1] = geo2px(bbox[2], bbox[1]);
-                    mapCtx.drawImage(img, x0, y0, x1 - x0, y1 - y0);
-                    URL.revokeObjectURL(blobUrl);
-                };
-                img.src = blobUrl;
-
-                // 地球儀に貼り付け（ArrayBuffer をゼロコピー転送）
-                if (globeLayer) {
-                    const buf = webpData.buffer.slice(webpData.byteOffset, webpData.byteOffset + webpData.byteLength);
-                    globeLayer.set('overlay', buf, { bbox, id: meshCode }, [buf]);
-                    mapInst.draw();
-                }
-            }
-        }
-        progEl.textContent = `${done + errors} / ${total}  ✓${done}  ✗${errors}`;
-        if (done + errors >= total) {
-            statusEl.textContent = `完了: ${done}件変換  ${errors ? '/ ' + errors + '件エラー' : ''}`;
-            dlBtn.disabled = false;
-            dlBtn.textContent = `WebP ZIP をダウンロード (${done}件)`;
-        }
-    }
-
-    function startWorker(item, queue) {
-        if (!alive || !item) return;
-        const { meshCode, url } = item;
-        const w = new Worker(workerUrl, { type: 'module' });
-        workers.add(w);
-        w.postMessage({ meshCode, proxyUrl: nlftp2proxy(url) });
-        w.onmessage = ({ data }) => {
-            workers.delete(w); w.terminate();
-            onTileDone(data);
-            startWorker(queue.shift(), queue);
-        };
-        w.onerror = e => {
-            workers.delete(w); w.terminate();
-            onTileDone({ meshCode, error: e.message || 'worker error' });
-            startWorker(queue.shift(), queue);
-        };
-    }
-
-    (async () => {
-        try {
-            const pageRes = await fetch(nlftp2proxy(NLFTP_BASE + PAGE_PATH));
-            if (!pageRes.ok) throw new Error(`HTTP ${pageRes.status}`);
-            const html = await pageRes.text();
-
-            const zipRe = /L03-b_r\/[^\s"'<>]+\.zip/g;
-            const paths = [...new Set([...html.matchAll(zipRe)].map(m => m[0]))];
-            if (!paths.length) throw new Error('ZIPファイルが見つかりませんでした');
-
-            const items = paths.map(path => {
-                const m = path.match(/_(\d{4}(?:_\d+)?)\.zip$/i);
-                return {
-                    meshCode: m ? m[1] : path.split('/').pop().replace('.zip', ''),
-                    url:      `${NLFTP_BASE}/ksj/gml/data/${path}`,
-                };
-            });
-
-            total = items.length;
-            statusEl.textContent = `${total}件のTIFをWebPに変換中（${CONCURRENCY}ワーカー並列）...`;
-            progEl.textContent   = `0 / ${total}`;
-
-            const queue = [...items];
-            for (let i = 0; i < CONCURRENCY && queue.length; i++) startWorker(queue.shift(), queue);
-        } catch (e) {
-            statusEl.textContent = `エラー: ${e.message}`;
-        }
-    })();
-
+    // ZIP ダウンロード
     dlBtn.addEventListener('click', async () => {
-        dlBtn.disabled  = true;
-        dlBtn.textContent = 'ZIP作成中...';
+        if (webpMap.size === 0) return;
+        dlBtn.disabled    = true;
+        dlBtn.textContent = 'ZIP 作成中...';
         try {
-            const entries = Object.entries(webpStore)
+            const entries = [...webpMap.entries()]
                 .sort(([a], [b]) => (a < b ? -1 : 1))
-                .map(([name, data]) => ({ name: `${name}.webp`, data }));
+                .map(([name, { webpData }]) => ({ name: `${name}.webp`, data: webpData }));
             const zipData = buildZip(entries);
-            const a       = document.createElement('a');
-            a.href        = URL.createObjectURL(new Blob([zipData], { type: 'application/zip' }));
-            a.download    = 'L03-b_r-webp.zip';
+            const a = document.createElement('a');
+            a.href     = URL.createObjectURL(new Blob([zipData], { type: 'application/zip' }));
+            a.download = 'L03-b_r-webp.zip';
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);
             setTimeout(() => URL.revokeObjectURL(a.href), 30000);
         } finally {
             dlBtn.disabled    = false;
-            dlBtn.textContent = `WebP ZIP をダウンロード (${done}件)`;
+            dlBtn.textContent = `ZIP ダウンロード (${done}件)`;
         }
+    });
+
+    // 再変換（IDB をクリアして再取得）
+    redoBtn.addEventListener('click', async () => {
+        for (const w of workers) w.terminate();
+        workers.clear();
+        if (db) await idbClear(db).catch(() => {});
+        startConversion();
+    });
+
+    // 閉じる
+    document.getElementById('l03br-close').addEventListener('click', () => {
+        alive = false;
+        for (const w of workers) w.terminate();
+        overlay.remove();
     });
 }
