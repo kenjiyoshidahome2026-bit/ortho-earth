@@ -72,8 +72,19 @@ function _buildPop(props, ds) {
 
 export function getMapInst() { return _mapInst; }
 
+// L03-b_r などのカスタムビューが登録するクリーンアップ関数
+let _onExitExtra = null;
+
+// 地球ビューに入る（X ボタン表示 + .viewing 追加 + クリーンアップ登録）
+export function enterGlobeView(cleanup) {
+    _onExitExtra = cleanup ?? null;
+    document.getElementById('app').classList.add('viewing');
+    _closeBtn.show();
+}
+
 export async function execGlobeView(pbf, ds = null) {
     if (!pbf?.length) return;
+    _onExitExtra = null; // L03-b_r などのカスタムクリーンアップをリセット
     _initGadgets();
     _mapInst.autoRotate(false);
     _mapInst.on('Click.catalog', null); // 前回の geojson リスナー解除
@@ -172,6 +183,8 @@ export async function execGlobeView(pbf, ds = null) {
 }
 
 export function exitGlobeView() {
+    _onExitExtra?.();
+    _onExitExtra = null;
     _mapInst.on('Click.catalog', null);
     _tipFn?.(null);
     _popFn?.clear(true);

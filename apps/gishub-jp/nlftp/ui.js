@@ -185,16 +185,16 @@ function _renderFiles(ds) {
         return `
             <section class="detail-section" id="files-section">
                 <h3 class="section-title">
-                    ダウンロード <span class="toggle-icon">▾</span>
+                    地球表示 <span class="toggle-icon">▾</span>
                 </h3>
                 <div class="section-body">
                     <div class="l03br-desc">
-                        <p>1次メッシュ単位のラスタTIFファイル（約175件）を<br>
-                           WebPに変換しながら日本列島を描画し、WebP ZIPとしてダウンロードします。</p>
-                        <p class="l03br-note">変換はブラウザ内で行われます（4ワーカー並列）。</p>
+                        <p>1次メッシュ単位のラスタTIF（約175件）を WebP に変換して<br>
+                           地球儀にリアルタイム描画します。</p>
+                        <p class="l03br-note">変換済みはブラウザに保存されます（4ワーカー並列）。X で復帰。</p>
                     </div>
                     <button class="bulk-dl-btn l03br-start-btn" id="files-dl-raster">
-                        一括 WebP ZIP ダウンロード
+                        地球に描画
                     </button>
                 </div>
             </section>

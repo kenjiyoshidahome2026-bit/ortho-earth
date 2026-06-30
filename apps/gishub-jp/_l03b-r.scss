@@ -1,139 +1,69 @@
 @use 'vars' as *;
 
 // ============================================================
-// L03-b_r ビューワー オーバーレイ
+// L03-b_r — 画面下部 HUD（地球ビュー中に表示）
 // ============================================================
 
-.l03br-overlay {
+.l03br-hud {
     position: fixed;
-    inset: 0;
-    background: rgba(0, 0, 0, 0.75);
+    bottom: 28px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 10;
     display: flex;
     align-items: center;
-    justify-content: center;
-    z-index: 9999;
-    animation: dlFadeIn 0.15s ease;
-}
-
-.l03br-panel {
-    background: $deep;
+    gap: 14px;
+    padding: 10px 20px;
+    background: rgba(8, 8, 8, 0.88);
+    backdrop-filter: blur(10px);
     border: 1px solid $border;
-    border-radius: 10px;
-    display: flex;
-    flex-direction: column;
-    gap: 0;
-    max-width: 960px;
-    width: 95vw;
-    box-shadow: 0 20px 60px rgba(0,0,0,0.8);
-    overflow: hidden;
+    border-radius: 32px;
+    box-shadow: 0 4px 28px rgba(0, 0, 0, 0.55);
+    white-space: nowrap;
+    animation: dlFadeIn 0.2s ease;
 }
 
-.l03br-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 12px 16px;
-    border-bottom: 1px solid $divider;
-    background: $dark;
-}
-
-.l03br-title {
+.l03br-hud-status {
     font-size: 12px;
-    font-weight: bold;
-    color: $hi;
+    color: $text;
 }
 
-.l03br-close-btn {
-    background: none;
-    border: none;
-    color: $mid;
-    cursor: pointer;
-    font-size: 14px;
-    line-height: 1;
-    padding: 2px 6px;
-    border-radius: 4px;
-    transition: color 0.15s;
-    &:hover { color: $remark; }
-}
-
-.l03br-status {
-    font-size: 11px;
-    color: $mid;
-    padding: 6px 16px;
-    min-height: 24px;
-    background: $bg;
-    border-bottom: 1px solid $divider;
-}
-
-.l03br-canvas {
-    display: block;
-    width: 100%;
-    height: auto;
-    background: #0d1117;
-}
-
-.l03br-footer {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 10px 16px;
-    border-top: 1px solid $divider;
-    background: $dark;
-}
-
-.l03br-prog {
+.l03br-hud-prog {
     font-size: 11px;
     font-family: $mono;
     color: $mid;
-    flex: 1;
 }
 
-.l03br-btns {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-}
-
-.l03br-globe-btn {
-    @include btn-ghost($color: $hi, $hover: $hi, $border-clr: $mid);
-    padding: 7px 18px;
-    border-radius: 5px;
-    font-size: 12px;
-    font-family: $font;
-    &:disabled { opacity: 0.35; cursor: default; pointer-events: none; }
-    &:not(:disabled) { border-color: $hi; }
-}
-
-.l03br-dl-btn {
+.l03br-hud-dl {
     @include btn-ghost($color: $accent, $hover: $hi, $border-clr: $accent);
-    padding: 7px 18px;
-    border-radius: 5px;
-    font-size: 12px;
+    padding: 5px 16px;
+    border-radius: 16px;
+    font-size: 11px;
     font-family: $font;
     &:disabled { opacity: 0.35; cursor: default; pointer-events: none; }
 }
 
-.l03br-redo-btn {
+.l03br-hud-redo {
     background: none;
     border: none;
     color: $mid;
     font-size: 11px;
     font-family: $font;
     cursor: pointer;
-    padding: 4px 8px;
-    border-radius: 4px;
     text-decoration: underline;
+    padding: 0;
     &:hover { color: $remark; }
 }
 
-// ---- L03-b_r 詳細パネル内のUI -----------------------------------------------
+// ============================================================
+// サイドバー詳細パネル内の説明 UI
+// ============================================================
 
 .l03br-desc {
     font-size: 12px;
     color: $text;
     line-height: 1.7;
     margin-bottom: 14px;
-
     p { margin-bottom: 4px; }
 }
 

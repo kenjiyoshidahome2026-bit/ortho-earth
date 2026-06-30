@@ -1,13 +1,11 @@
 /**
  * L03-b_r（土地利用細分メッシュ ラスタ版）ビューワー
  *
- * フロー:
- *   1. IDB キャッシュがあれば即座に2Dキャンバスに描画 → 「地球に描画」ボタン有効化
- *   2. キャッシュがなければ NLFTP から4ワーカー並列で TIF→WebP 変換 → IDB に保存
- *   3. 全件完了後「地球に描画」ボタンを押すと ortho-map レイヤーに転送
+ * モーダルなし。背面の地球に直接描画し、X ボタン（または Escape）で復帰。
+ * 変換進捗は画面下部の HUD に表示。IDB にキャッシュして再訪時は即表示。
  */
 import { API_BASE } from '../ui/config.js';
-import { getMapInst } from '../ui/globe.js';
+import { getMapInst, enterGlobeView } from '../ui/globe.js';
 
 const NLFTP_BASE  = 'https://nlftp.mlit.go.jp';
 const PAGE_PATH   = '/ksj/gml/datalist/KsjTmplt-L03-b_r.html';
@@ -15,8 +13,6 @@ const CONCURRENCY = 4;
 const DB_NAME     = 'gishub-jp';
 const DB_VERSION  = 1;
 const STORE_NAME  = 'L03bR-raster';
-
-const MAP = { west: 122, east: 154, south: 20, north: 47 };
 
 function nlftp2proxy(url) {
     return `${API_BASE}/proxy/?url=${encodeURIComponent(url)}`;
@@ -128,132 +124,112 @@ function buildZip(entries) {
 // ---- メイン ------------------------------------------------------------
 
 export async function openL03bRViewer() {
-    // IDB を開く（失敗しても続行）
+    // 二重起動防止
+    if (document.getElementById('l03br-hud')) return;
+
+    // IDB（失敗しても続行）
     let db = null;
     try { db = await openDB(); } catch (e) { console.warn('[L03-b_r] IDB 利用不可:', e); }
 
-    // ---- UI ----------------------------------------------------------------
-    const overlay = document.createElement('div');
-    overlay.className = 'l03br-overlay';
-    overlay.innerHTML = `
-        <div class="l03br-panel">
-            <div class="l03br-header">
-                <span class="l03br-title">土地利用細分メッシュ（ラスタ版）— WebP 変換・地球表示</span>
-                <button class="l03br-close-btn" id="l03br-close">✕</button>
-            </div>
-            <div class="l03br-status" id="l03br-status">初期化中...</div>
-            <canvas class="l03br-canvas" id="l03br-canvas" width="880" height="528"></canvas>
-            <div class="l03br-footer">
-                <span class="l03br-prog" id="l03br-prog"></span>
-                <div class="l03br-btns">
-                    <button class="l03br-globe-btn" id="l03br-globe-btn" disabled>地球に描画</button>
-                    <button class="l03br-dl-btn"    id="l03br-dl-btn"   disabled>ZIP ダウンロード</button>
-                    <button class="l03br-redo-btn"  id="l03br-redo-btn" style="display:none">再変換</button>
-                </div>
-            </div>
-        </div>
+    // ---- HUD（画面下部の常時表示バー）----------------------------------
+    const hud = document.createElement('div');
+    hud.className = 'l03br-hud';
+    hud.id        = 'l03br-hud';
+    hud.innerHTML = `
+        <span class="l03br-hud-status" id="l03br-hud-status">初期化中...</span>
+        <span class="l03br-hud-prog"   id="l03br-hud-prog"></span>
+        <button class="l03br-hud-dl"   id="l03br-hud-dl"   disabled>ZIP DL</button>
+        <button class="l03br-hud-redo" id="l03br-hud-redo" style="display:none">再変換</button>
     `;
-    document.body.appendChild(overlay);
+    document.body.appendChild(hud);
 
-    const canvas    = document.getElementById('l03br-canvas');
-    const mapCtx    = canvas.getContext('2d');
-    const statusEl  = document.getElementById('l03br-status');
-    const progEl    = document.getElementById('l03br-prog');
-    const globeBtn  = document.getElementById('l03br-globe-btn');
-    const dlBtn     = document.getElementById('l03br-dl-btn');
-    const redoBtn   = document.getElementById('l03br-redo-btn');
+    const statusEl = document.getElementById('l03br-hud-status');
+    const progEl   = document.getElementById('l03br-hud-prog');
+    const dlBtn    = document.getElementById('l03br-hud-dl');
+    const redoBtn  = document.getElementById('l03br-hud-redo');
 
+    // ---- 地球レイヤー --------------------------------------------------
+    const mapInst = getMapInst();
+    mapInst.autoRotate(false);
+    mapInst.setView([137, 36], 4);
+    mapInst.removeLayer?.('L03bR-Raster');
+
+    let globeLayer = null;
+    try {
+        globeLayer = await mapInst.createRemoteLayer({ name: 'L03bR-Raster', type: 'image' });
+        globeLayer.opacity(0.85);
+    } catch (e) {
+        console.error('[L03-b_r] レイヤー作成失敗:', e);
+        hud.remove();
+        return;
+    }
+
+    // ---- 状態管理 ------------------------------------------------------
     let alive = true;
     const workers = new Set();
-
-    // meshCode → { webpData: Uint8Array, bbox: [w,s,e,n] }
-    const webpMap = new Map();
+    const webpMap = new Map(); // meshCode → { webpData: Uint8Array, bbox: [w,s,e,n] }
     let total = 0, done = 0, errors = 0;
 
-    // ---- キャンバス描画ヘルパー -------------------------------------------
-    function geo2px(lon, lat) {
-        return [
-            (lon - MAP.west)  / (MAP.east  - MAP.west)  * canvas.width,
-            (MAP.north - lat) / (MAP.north - MAP.south) * canvas.height,
-        ];
+    // X ボタン・Escape で exitGlobeView() → このクリーンアップが呼ばれる
+    enterGlobeView(() => {
+        alive = false;
+        for (const w of workers) w.terminate();
+        if (globeLayer) { globeLayer.destroy(); globeLayer = null; }
+        hud.remove();
+    });
+
+    // ---- 地球にタイル転送 ----------------------------------------------
+    function sendToGlobe(meshCode, webpData, bbox) {
+        if (!globeLayer) return;
+        const buf = webpData.buffer.slice(
+            webpData.byteOffset,
+            webpData.byteOffset + webpData.byteLength
+        );
+        globeLayer.set('overlay', buf, { bbox, id: meshCode }, [buf]);
     }
 
-    function drawBackground() {
-        mapCtx.fillStyle = '#0d1117';
-        mapCtx.fillRect(0, 0, canvas.width, canvas.height);
-        mapCtx.strokeStyle = 'rgba(255,255,255,0.06)';
-        mapCtx.lineWidth   = 0.5;
-        for (let lon = 125; lon <= 150; lon += 5) {
-            const [x] = geo2px(lon, MAP.north);
-            mapCtx.beginPath(); mapCtx.moveTo(x, 0); mapCtx.lineTo(x, canvas.height); mapCtx.stroke();
-        }
-        for (let lat = 25; lat <= 45; lat += 5) {
-            const [, y] = geo2px(MAP.west, lat);
-            mapCtx.beginPath(); mapCtx.moveTo(0, y); mapCtx.lineTo(canvas.width, y); mapCtx.stroke();
-        }
-    }
-
-    function drawTileOnCanvas(webpData, bbox) {
-        const blobUrl = URL.createObjectURL(new Blob([webpData], { type: 'image/webp' }));
-        const img = new Image();
-        img.onload = () => {
-            const [x0, y0] = geo2px(bbox[0], bbox[3]);
-            const [x1, y1] = geo2px(bbox[2], bbox[1]);
-            mapCtx.drawImage(img, x0, y0, x1 - x0, y1 - y0);
-            URL.revokeObjectURL(blobUrl);
-        };
-        img.src = blobUrl;
-    }
-
+    // ---- 進捗更新 ------------------------------------------------------
     function updateProgress() {
-        const finished = done + errors;
+        const fin = done + errors;
         progEl.textContent = total > 0
-            ? `${finished} / ${total}  ✓${done}${errors ? `  ✗${errors}` : ''}`
+            ? `${fin} / ${total}  ✓${done}${errors ? `  ✗${errors}` : ''}`
             : '';
-        if (total > 0 && finished >= total) {
-            statusEl.textContent = `完了: ${done}件変換済み${errors ? ` (${errors}件エラー)` : ''}`;
-            globeBtn.disabled = false;
+        if (total > 0 && fin >= total) {
+            statusEl.textContent = `完了: ${done} 件${errors ? ` (${errors} 件エラー)` : ''}`;
             dlBtn.disabled    = false;
-            dlBtn.textContent = `ZIP ダウンロード (${done}件)`;
+            dlBtn.textContent = `ZIP DL (${done}件)`;
         }
     }
 
-    drawBackground();
-
-    // ---- IDB キャッシュ確認 -----------------------------------------------
+    // ---- IDB キャッシュ確認 -------------------------------------------
     let cachedRecords = [];
     if (db) {
         try { cachedRecords = await idbGetAll(db); } catch (e) {}
     }
 
     if (cachedRecords.length > 0) {
-        // キャッシュから復元
         total = cachedRecords.length;
-        statusEl.textContent = `IDBキャッシュから ${total} 件を読み込み中...`;
+        statusEl.textContent = `IDBキャッシュ: ${total} 件を地球に表示中...`;
         for (const rec of cachedRecords) {
-            if (!alive) break;
             webpMap.set(rec.meshCode, { webpData: rec.webpData, bbox: rec.bbox });
-            drawTileOnCanvas(rec.webpData, rec.bbox);
+            sendToGlobe(rec.meshCode, rec.webpData, rec.bbox);
             done++;
         }
-        statusEl.textContent = `IDBキャッシュ: ${done} 件 — 「地球に描画」で ortho-map に表示できます`;
-        progEl.textContent   = `${done} / ${total} 件`;
-        globeBtn.disabled    = false;
+        statusEl.textContent = `IDBキャッシュ: ${done} 件`;
+        progEl.textContent   = `${done} / ${total}`;
         dlBtn.disabled       = false;
-        dlBtn.textContent    = `ZIP ダウンロード (${done}件)`;
+        dlBtn.textContent    = `ZIP DL (${done}件)`;
         redoBtn.style.display = '';
     } else {
         startConversion();
     }
 
-    // ---- 変換処理 ----------------------------------------------------------
+    // ---- 変換処理 ------------------------------------------------------
     function startConversion() {
         done = 0; errors = 0; total = 0;
         webpMap.clear();
-        drawBackground();
-        globeBtn.disabled = true;
         dlBtn.disabled    = true;
-        dlBtn.textContent = 'ZIP ダウンロード';
+        dlBtn.textContent = 'ZIP DL';
         redoBtn.style.display = 'none';
         statusEl.textContent  = 'NLFTPからファイルリストを取得中...';
         progEl.textContent    = '';
@@ -269,7 +245,7 @@ export async function openL03bRViewer() {
                 done++;
                 const { meshCode, webpData, bbox } = data;
                 webpMap.set(meshCode, { webpData, bbox });
-                drawTileOnCanvas(webpData, bbox);
+                sendToGlobe(meshCode, webpData, bbox);
                 if (db) idbPut(db, { meshCode, webpData, bbox }).catch(() => {});
             }
             updateProgress();
@@ -312,7 +288,7 @@ export async function openL03bRViewer() {
                 });
 
                 total = items.length;
-                statusEl.textContent = `${total} 件のTIFをWebPに変換中（${CONCURRENCY}ワーカー並列）...`;
+                statusEl.textContent = `${total} 件を変換中（${CONCURRENCY} ワーカー並列）...`;
                 progEl.textContent   = `0 / ${total}`;
 
                 const queue = [...items];
@@ -323,39 +299,7 @@ export async function openL03bRViewer() {
         })();
     }
 
-    // ---- ボタン類 ----------------------------------------------------------
-
-    // 地球に描画
-    globeBtn.addEventListener('click', async () => {
-        const mapInst = getMapInst();
-        if (!mapInst || webpMap.size === 0) return;
-
-        globeBtn.disabled    = true;
-        globeBtn.textContent = '描画中...';
-        try {
-            mapInst.removeLayer?.('L03bR-Raster');
-            const layer = await mapInst.createRemoteLayer({ name: 'L03bR-Raster', type: 'image' });
-            layer.opacity(0.85);
-            mapInst.autoRotate(false);
-            mapInst.setView([137, 36], 4);
-            document.getElementById('app')?.classList.add('viewing');
-
-            for (const [meshCode, { webpData, bbox }] of webpMap) {
-                const buf = webpData.buffer.slice(
-                    webpData.byteOffset,
-                    webpData.byteOffset + webpData.byteLength
-                );
-                layer.set('overlay', buf, { bbox, id: meshCode }, [buf]);
-            }
-            mapInst.draw();
-        } catch (e) {
-            console.error('[L03-b_r] 地球描画エラー:', e);
-        }
-        globeBtn.disabled    = false;
-        globeBtn.textContent = '地球に描画';
-    });
-
-    // ZIP ダウンロード
+    // ---- ZIP DL --------------------------------------------------------
     dlBtn.addEventListener('click', async () => {
         if (webpMap.size === 0) return;
         dlBtn.disabled    = true;
@@ -374,22 +318,16 @@ export async function openL03bRViewer() {
             setTimeout(() => URL.revokeObjectURL(a.href), 30000);
         } finally {
             dlBtn.disabled    = false;
-            dlBtn.textContent = `ZIP ダウンロード (${done}件)`;
+            dlBtn.textContent = `ZIP DL (${done}件)`;
         }
     });
 
-    // 再変換（IDB をクリアして再取得）
+    // ---- 再変換 --------------------------------------------------------
     redoBtn.addEventListener('click', async () => {
         for (const w of workers) w.terminate();
         workers.clear();
         if (db) await idbClear(db).catch(() => {});
+        if (globeLayer) globeLayer.set('clear');
         startConversion();
-    });
-
-    // 閉じる
-    document.getElementById('l03br-close').addEventListener('click', () => {
-        alive = false;
-        for (const w of workers) w.terminate();
-        overlay.remove();
     });
 }
