@@ -56,9 +56,15 @@ async function set(data) {
 		{ en: "LNG", ja: "経度", zh: "经度", ko: "경도" }[lang],
 		{ en: "ALT", ja: "標高", zh: "海拔", ko: "고도" }[lang]
 	];
-	// Actual border lines are handled by gintBorder (GL2). Only the sphere outline is drawn here (Canvas2D).
+	// Country/maritime/geographic border lines are handled by gintBorder (GL2).
+	// The graticule (reticle) and sphere outline are drawn here in Canvas2D: geoPath
+	// gives smooth, analytically-antialiased curves that the GL fat-line renderer
+	// (faceted segment quads) could not match.
 	const q = accessories.borders;
-	if (q) q.jsons = [[sphere, { stroke: "rgba(200,200,200,0.8)", width: 0.8 }]];
+	if (q) q.jsons = [
+		[graticule, { stroke: "rgba(255,255,255,1)", width: 0.5 }],
+		[sphere,    { stroke: "rgba(200,200,200,0.8)", width: 0.8 }],
+	];
 	accessories.globe.json = jsons[0];   // ne_110m_land
 	accessories.stars.data = jsons[1].features.map(f => {
 		const c = f.geometry.coordinates, p = f.properties;

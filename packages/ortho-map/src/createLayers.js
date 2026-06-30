@@ -17,8 +17,9 @@ let borderRawBuffers = null;
 // geoNames: for gintBorder (GL2); overlayNames: for border.js (Canvas2D)
 async function getBorderRawBuffers() {
 	if (borderRawBuffers) return borderRawBuffers;
+	// Graticule is NOT here — it is drawn in Canvas2D (border.js) via geoGraticule10()
+	// for smooth analytic-AA curves; the GL fat-line renderer left it faceted/jagged.
 	const geoNames = [
-		"ne_110m_graticules_10",
 		"ne_50m_admin_0_boundary_lines_land",
 		"ne_50m_admin_0_boundary_lines_maritime_indicator",
 		"ne_50m_geographic_lines",
@@ -36,11 +37,16 @@ async function getBorderRawBuffers() {
 }
 
 // dash values are in screen pixels (constant visual size across zoom levels)
+// Strokes are kept fully opaque (alpha = 1): the GL fat-line renderer overlaps
+// quads at every joint/crossing, so a translucent stroke double-blends into
+// visible "beads". With opaque cores the overlap is a no-op; "lightness" is
+// expressed through a lighter color + thinner width instead of alpha, and the
+// edge-AA naturally makes sub-pixel widths read as fainter lines.
+// NOTE: order must stay aligned with geoNames above (graticule excluded — Canvas2D).
 const BORDER_GL_STYLES = [
-	{ color: [1.0,  1.0,  1.0,  0.6], lineWidth: 1.0, dash: [0, 0 ] }, // graticule (solid)
 	{ color: [1.0,  1.0,  1.0,  1.0], lineWidth: 1.0, dash: [4, 2 ] }, // country borders
-	{ color: [0.50, 0.50, 1.0,  0.8], lineWidth: 0.8, dash: [4, 2 ] }, // maritime
-	{ color: [1.0,  1.0,  1.0,  0.6], lineWidth: 0.8, dash: [4, 2 ] }, // geographic lines
+	{ color: [0.62, 0.62, 1.0,  1.0], lineWidth: 0.7, dash: [4, 2 ] }, // maritime
+	{ color: [0.78, 0.78, 0.78, 1.0], lineWidth: 0.6, dash: [4, 2 ] }, // geographic lines
 ];
 
 export async function createLayers(map, opts) {

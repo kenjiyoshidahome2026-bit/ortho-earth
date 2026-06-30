@@ -16,7 +16,7 @@ onmessage = e => (funcs[e.data.type] ?? (() => {}))(e.data);
 
 function init(data) {
 	canvas = data.offscreen; dpr = data.dpr;
-	gl = canvas.getContext("webgl2", { antialias: false, alpha: true, premultipliedAlpha: false });
+	gl = canvas.getContext("webgl2", { antialias: true, alpha: true, premultipliedAlpha: false });
 	if (!gl) { postMessage({ action: "done", type: "init", ctx: null }); return; }
 	programs = createGintPrograms(gl);
 	gl.enable(gl.BLEND);
@@ -109,6 +109,7 @@ function drawing(data) {
 	gl.useProgram(renderProgram);
 	gl.uniform1i(uRender.u_active_id, -1);
 	gl.uniform1i(uRender.u_pass, 0);
+	gl.uniform1f(uRender.u_dpr, dpr);
 
 	for (const layer of layers) {
 		if (!layer.arcTex || layer.totalEdges === 0) continue;

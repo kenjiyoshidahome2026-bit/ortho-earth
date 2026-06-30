@@ -26,6 +26,19 @@ uint compact16(uint m) {
 	return m;
 }
 
+// Signed shortest Δlongitude in 1e-7° units (float). Longitude is periodic with
+// period 360e7; a plain int(a - b) folds at 2^32 (≠ 360e7) and mis-wraps points
+// across the ±180° antimeridian by (2^32 − 360e7) ≈ 69.5° when the view is centred
+// near ±180°. max/min keeps the raw |Δ| exact (both operands ∈ [0, 360e7] < 2^32),
+// then we fold with the correct 360e7 period.
+float dlonE7(uint a, uint b) {
+	uint d = max(a, b) - min(a, b);   // |Δ| ∈ [0, 360e7], exact
+	float f = float(d);
+	float s = (a >= b) ? 1.0 : -1.0;
+	if (d > 1800000000u) { f = 3.6e9 - f; s = -s; }  // take the short way around
+	return f * s;
+}
+
 vec3 fetchProject(uint idx) {
 	ivec2 tc = ivec2(int(idx) % u_arc_w, int(idx) / u_arc_w);
 	uvec4 px = texelFetch(u_arc_tex, tc, 0);
@@ -34,23 +47,23 @@ vec3 fetchProject(uint idx) {
 	uint hi_c = hi & 0x7FFFFFFFu;
 	uint ix = (compact16(hi_c) << 16u) | compact16(lo_c);
 	uint iy = (compact16(hi_c >> 1u) << 16u) | compact16(lo_c >> 1u);
-	int dx = int(ix - u_ix_center);
-	int dy = int(iy - u_iy_center);
+	float dx = dlonE7(ix, u_ix_center);   // antimeridian-correct (360e7 period)
+	float dy = float(int(iy - u_iy_center));  // latitude: no wrap, fits int32
 	float hw = u_viewport.x * 0.5, hh = u_viewport.y * 0.5;
 	if (dot(u_jac, u_jac) > 0.0) {
 		// Jacobian (linear) path — active at high zoom (z≳13) where curvature
 		// is negligible.  The 2×2 Jacobian is pre-computed in JS at float64;
 		// per-vertex work is two MADs — no trig, no catastrophic cancellation.
-		float sx = u_jac.x * float(dx) + u_jac.z * float(dy);
-		float sy = u_jac.y * float(dx) + u_jac.w * float(dy);
+		float sx = u_jac.x * dx + u_jac.z * dy;
+		float sy = u_jac.y * dx + u_jac.w * dy;
 		float d2 = (sx * sx + sy * sy) / (u_scale * u_scale);
 		float zr = d2 < 1.0 ? sqrt(1.0 - d2) : -1.0;
 		return vec3(hw + sx, hh + sy, zr);
 	}
 	// Full trig path — accurate at all zoom levels; used at low zoom.
 	const float DEG2RAD_E7 = 1.7453292519943295e-9;
-	float dl   = float(dx) * DEG2RAD_E7;
-	float dphi = float(dy) * DEG2RAD_E7;
+	float dl   = dx * DEG2RAD_E7;
+	float dphi = dy * DEG2RAD_E7;
 	float cf = u_rsincos.x, sf = u_rsincos.y;
 	float cg = u_rsincos.z, sg = u_rsincos.w;
 	float sdphi = sin(dphi), cdphi = cos(dphi);
@@ -139,6 +152,7 @@ void main() {
 // Excluded edges are pushed outside the clip volume so the GPU skips rasterization.
 const VS_RENDER = `${GLSL_VS_HEADER}
 uniform float u_line_width;
+uniform float u_dpr;
 uniform int   u_active_id;
 uniform int   u_pass;
 uniform vec4  u_style_table[256];
@@ -146,7 +160,8 @@ uniform vec2  u_dash_table[256];   // [dash_len, gap_len] in px; gap=0 → solid
 out vec4  v_color;
 out float v_zr;
 out float v_dist;       // screen-pixel distance from edge-A to this vert
-out float v_perp;       // perpendicular offset: -1.0 (left) to +1.0 (right)
+out float v_perp;       // perpendicular offset from centerline, in DEVICE px
+flat out float v_halfw; // half line-width in DEVICE px (solid-core radius)
 flat out vec2  v_dash;
 flat out float v_dist_base;  // cumulative screen-pixel distance to edge-A (px)
 
@@ -177,12 +192,16 @@ void main() {
 	if (len < 1e-4) { gl_Position = toNDC(ps.xy); return; }
 	vec2 tang = dir / len;
 	vec2 perp = vec2(-tang.y, tang.x);
+	// Perpendicular half-extent in CSS px = nominal half-width + 1 device-px of
+	// AA feather (1/u_dpr CSS px), so the alpha ramp has room OUTSIDE the nominal
+	// edge instead of being clipped by the quad boundary.
+	float halfCss = u_line_width * 0.5 + 1.0 / u_dpr;
 	// Square cap: each endpoint extends away from the other vertex by half
 	// line-width.  dir always points from ps toward the other vertex, so
 	// -tang is the "away" direction for both the A-end and B-end vertices.
 	// This makes adjacent quads overlap at junctions and closes the angle
 	// gap that caused pikapika during zoom/pan.
-	gl_Position = toNDC(ps.xy + side * (u_line_width * 0.5) * perp
+	gl_Position = toNDC(ps.xy + side * halfCss * perp
 	                          - tang * (u_line_width * 0.5));
 
 	int style_idx = int(meta.b & 0xFFu);
@@ -195,7 +214,9 @@ void main() {
 	// v_dist: local pixel distance 0→len within this edge.
 	v_dist_base = float(meta.b >> 8u) * u_scale * 0.017453292;
 	v_dist = useA ? 0.0 : len;
-	v_perp = side;
+	// Signed perpendicular distance from centerline in DEVICE px (= CSS px × dpr).
+	v_perp  = side * halfCss * u_dpr;
+	v_halfw = u_line_width * 0.5 * u_dpr;
 }`;
 
 const FS_RENDER = `#version 300 es
@@ -204,6 +225,7 @@ in  vec4  v_color;
 in  float v_zr;
 in  float v_dist;
 in  float v_perp;
+flat in float v_halfw;
 flat in vec2  v_dash;
 flat in float v_dist_base;
 out vec4  fragColor;
@@ -223,9 +245,12 @@ void main() {
 		alpha *= 1.0 - smoothstep(v_dash.x - aa, v_dash.x + aa, t);
 	}
 
-	// edge antialiasing
-	float edgeAA = max(fwidth(v_perp), 0.001);
-	alpha *= 1.0 - smoothstep(1.0 - edgeAA, 1.0 + edgeAA, abs(v_perp));
+	// edge antialiasing — v_perp is signed device-px distance from the centerline,
+	// so fwidth(v_perp) ≈ 1 device px regardless of line width. Coverage is full
+	// (1.0) within the solid core (|v_perp| ≤ v_halfw) and ramps over ~1px at the
+	// edge, giving a crisp solid line even at sub-pixel widths.
+	float aaW = max(fwidth(v_perp), 1e-3);
+	alpha *= clamp((v_halfw - abs(v_perp)) / aaW + 0.5, 0.0, 1.0);
 
 	if (alpha < 0.004) discard;
 	fragColor = vec4(v_color.rgb, alpha);
@@ -311,6 +336,16 @@ uint compact16(uint m) {
 	return m;
 }
 
+// Signed shortest Δlongitude in 1e-7° units; folds with the correct 360e7 period
+// so points across the ±180° antimeridian are not mis-wrapped (see VS_RENDER header).
+float dlonE7(uint a, uint b) {
+	uint d = max(a, b) - min(a, b);
+	float f = float(d);
+	float s = (a >= b) ? 1.0 : -1.0;
+	if (d > 1800000000u) { f = 3.6e9 - f; s = -s; }
+	return f * s;
+}
+
 void main() {
 	int pt_id = gl_VertexID / 6;
 	int sub   = gl_VertexID % 6;
@@ -322,19 +357,19 @@ void main() {
 	uint hi_c = px.g & 0x7FFFFFFFu;
 	uint ix = (compact16(hi_c)       << 16u) | compact16(px.r);
 	uint iy = (compact16(hi_c >> 1u) << 16u) | compact16(px.r >> 1u);
-	int dx = int(ix - u_ix_center);
-	int dy = int(iy - u_iy_center);
+	float dx = dlonE7(ix, u_ix_center);   // antimeridian-correct (360e7 period)
+	float dy = float(int(iy - u_iy_center));
 	float hw = u_viewport.x * 0.5, hh = u_viewport.y * 0.5;
 	float px_, py_, zr;
 	if (dot(u_jac, u_jac) > 0.0) {
-		float sx = u_jac.x * float(dx) + u_jac.z * float(dy);
-		float sy = u_jac.y * float(dx) + u_jac.w * float(dy);
+		float sx = u_jac.x * dx + u_jac.z * dy;
+		float sy = u_jac.y * dx + u_jac.w * dy;
 		float d2 = (sx*sx + sy*sy) / (u_scale * u_scale);
 		zr = d2 < 1.0 ? sqrt(1.0 - d2) : -1.0;
 		px_ = hw + sx; py_ = hh + sy;
 	} else {
 		const float DEG2RAD_E7 = 1.7453292519943295e-9;
-		float dl = float(dx) * DEG2RAD_E7, dphi = float(dy) * DEG2RAD_E7;
+		float dl = dx * DEG2RAD_E7, dphi = dy * DEG2RAD_E7;
 		float cf = u_rsincos.x, sf = u_rsincos.y, cg = u_rsincos.z, sg = u_rsincos.w;
 		float sdphi = sin(dphi), cdphi = cos(dphi), sdl = sin(dl);
 		float cp = cf*cdphi + sf*sdphi, sp = cf*sdphi - sf*cdphi;
@@ -395,6 +430,16 @@ uint compact16(uint m) {
 	return m;
 }
 
+// Signed shortest Δlongitude in 1e-7° units; folds with the correct 360e7 period
+// so points across the ±180° antimeridian are not mis-wrapped (see VS_RENDER header).
+float dlonE7(uint a, uint b) {
+	uint d = max(a, b) - min(a, b);
+	float f = float(d);
+	float s = (a >= b) ? 1.0 : -1.0;
+	if (d > 1800000000u) { f = 3.6e9 - f; s = -s; }
+	return f * s;
+}
+
 void main() {
 	int pt_id = gl_VertexID / 6;
 	int sub   = gl_VertexID % 6;
@@ -406,19 +451,19 @@ void main() {
 	uint hi_c = px.g & 0x7FFFFFFFu;
 	uint ix = (compact16(hi_c)       << 16u) | compact16(px.r);
 	uint iy = (compact16(hi_c >> 1u) << 16u) | compact16(px.r >> 1u);
-	int dx = int(ix - u_ix_center);
-	int dy = int(iy - u_iy_center);
+	float dx = dlonE7(ix, u_ix_center);   // antimeridian-correct (360e7 period)
+	float dy = float(int(iy - u_iy_center));
 	float hw = u_viewport.x * 0.5, hh = u_viewport.y * 0.5;
 	float px_, py_, zr;
 	if (dot(u_jac, u_jac) > 0.0) {
-		float sx = u_jac.x * float(dx) + u_jac.z * float(dy);
-		float sy = u_jac.y * float(dx) + u_jac.w * float(dy);
+		float sx = u_jac.x * dx + u_jac.z * dy;
+		float sy = u_jac.y * dx + u_jac.w * dy;
 		float d2 = (sx*sx + sy*sy) / (u_scale * u_scale);
 		zr = d2 < 1.0 ? sqrt(1.0 - d2) : -1.0;
 		px_ = hw + sx; py_ = hh + sy;
 	} else {
 		const float DEG2RAD_E7 = 1.7453292519943295e-9;
-		float dl = float(dx) * DEG2RAD_E7, dphi = float(dy) * DEG2RAD_E7;
+		float dl = dx * DEG2RAD_E7, dphi = dy * DEG2RAD_E7;
 		float cf = u_rsincos.x, sf = u_rsincos.y, cg = u_rsincos.z, sg = u_rsincos.w;
 		float sdphi = sin(dphi), cdphi = cos(dphi), sdl = sin(dl);
 		float cp = cf*cdphi + sf*sdphi, sp = cf*sdphi - sf*cdphi;
@@ -488,7 +533,7 @@ export function createGintPrograms(gl) {
 	const pickLineProgram    = linkProgram(gl, VS_PICK_LINE,     FS_PICK);
 	const pickPointProgram   = linkProgram(gl, VS_PICK_POINT,    FS_PICK_POINT);
 
-	const uRender      = getUniforms(gl, renderProgram,      [...SHARED_UNIFORM_NAMES, 'u_line_width', 'u_active_id', 'u_pass', 'u_style_table', 'u_dash_table']);
+	const uRender      = getUniforms(gl, renderProgram,      [...SHARED_UNIFORM_NAMES, 'u_line_width', 'u_dpr', 'u_active_id', 'u_pass', 'u_style_table', 'u_dash_table']);
 	const uStencil     = getUniforms(gl, stencilProgram,     SHARED_UNIFORM_NAMES);
 	const uFill        = getUniforms(gl, fillProgram,        ['u_fill_color']);
 	const uMaskStencil = getUniforms(gl, maskStencilProgram, [...SHARED_UNIFORM_NAMES, 'u_active_id']);

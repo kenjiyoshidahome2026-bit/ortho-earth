@@ -68,6 +68,7 @@ export function renderCleanScene(data, targetFBO = null) {
 		gl.useProgram(renderProgram);
 		bindSharedUniforms(gl, uRender, data, arcTex, metaTex, TEX_ARC_W, TEX_META_W, width, height);
 		gl.uniform1f(uRender.u_line_width,   data.lineWidth ?? 1.0);
+		gl.uniform1f(uRender.u_dpr,          s.dpr);
 		gl.uniform1i(uRender.u_active_id,    -1);
 		gl.uniform4fv(uRender.u_style_table, data.styleTable ?? DEF_STYLE);
 		gl.uniform2fv(uRender.u_dash_table,  data.dashTable  ?? DEF_DASH);
@@ -119,6 +120,7 @@ export function drawOverlay() {
 	gl.useProgram(renderProgram);
 	bindSharedUniforms(gl, uRender, data, arcTex, metaTex, TEX_ARC_W, TEX_META_W, width, height);
 	gl.uniform1f(uRender.u_line_width,   (data.lineWidth ?? 1.0) + 2.0);
+	gl.uniform1f(uRender.u_dpr,          dpr);
 	gl.uniform1i(uRender.u_active_id,    activeId);
 	gl.uniform4fv(uRender.u_style_table, data.styleTable ?? DEF_STYLE);
 	gl.uniform2fv(uRender.u_dash_table,  data.dashTable  ?? DEF_DASH);
