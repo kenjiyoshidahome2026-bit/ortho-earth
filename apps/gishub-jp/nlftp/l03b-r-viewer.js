@@ -126,7 +126,11 @@ function buildZip(entries) {
 
 // ---- メイン ------------------------------------------------------------
 
-export async function openL03bRViewer() {
+const FMT_LABEL = { webp: 'WebP', jpeg: 'JPEG', png: 'PNG' };
+const FMT_EXT   = { webp: '.webp', jpeg: '.jpg', png: '.png' };
+const FMT_MIME  = { webp: 'image/webp', jpeg: 'image/jpeg', png: 'image/png' };
+
+export async function openL03bRViewer(format = 'webp') {
     // 二重起動防止
     if (document.querySelector('.l03br-overlay')) return;
 
@@ -237,9 +241,10 @@ export async function openL03bRViewer() {
         try { cachedRecords = await idbGetAll(db); } catch (e) {}
     }
 
-    if (cachedRecords.length > 0) {
+    const formatMatch = cachedRecords.length > 0 && cachedRecords[0].format === format;
+    if (formatMatch) {
         total = cachedRecords.length;
-        statusEl.textContent = `IDBキャッシュ: ${total} 件`;
+        statusEl.textContent = `IDBキャッシュ: ${total} 件 (${FMT_LABEL[format]})`;
         for (const rec of cachedRecords) {
             webpMap.set(rec.meshCode, { webpData: rec.webpData, bbox: rec.bbox });
             drawTileOnCanvas(rec.webpData, rec.bbox);
@@ -274,7 +279,7 @@ export async function openL03bRViewer() {
                 const { meshCode, webpData, bbox } = data;
                 webpMap.set(meshCode, { webpData, bbox });
                 drawTileOnCanvas(webpData, bbox);
-                if (db) idbPut(db, { meshCode, webpData, bbox }).catch(() => {});
+                if (db) idbPut(db, { meshCode, webpData, bbox, format }).catch(() => {});
             }
             updateProgress();
         }
@@ -284,7 +289,7 @@ export async function openL03bRViewer() {
             const { meshCode, url } = item;
             const w = new Worker(workerUrl, { type: 'module' });
             workers.add(w);
-            w.postMessage({ meshCode, proxyUrl: nlftp2proxy(url) });
+            w.postMessage({ meshCode, proxyUrl: nlftp2proxy(url), format });
             w.onmessage = ({ data }) => {
                 workers.delete(w); w.terminate();
                 onTileDone(data);
@@ -316,7 +321,7 @@ export async function openL03bRViewer() {
                 });
 
                 total = items.length;
-                statusEl.textContent = `${total} 件を変換中（${CONCURRENCY} ワーカー並列）...`;
+                statusEl.textContent = `${total} 件を ${FMT_LABEL[format]} に変換中（${CONCURRENCY} ワーカー並列）...`;
                 progEl.textContent   = `0 / ${total}`;
 
                 const queue = [...items];
@@ -369,13 +374,14 @@ export async function openL03bRViewer() {
         dlBtn.disabled    = true;
         dlBtn.textContent = 'ZIP 作成中...';
         try {
+            const ext = FMT_EXT[format];
             const entries = [...webpMap.entries()]
                 .sort(([a], [b]) => (a < b ? -1 : 1))
-                .map(([name, { webpData }]) => ({ name: `${name}.webp`, data: webpData }));
+                .map(([name, { webpData }]) => ({ name: `${name}${ext}`, data: webpData }));
             const zipData = buildZip(entries);
             const a = document.createElement('a');
             a.href     = URL.createObjectURL(new Blob([zipData], { type: 'application/zip' }));
-            a.download = 'L03-b_r-webp.zip';
+            a.download = `L03-b_r-${format}.zip`;
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);

@@ -116,6 +116,11 @@ export function applyFileFilters() {
 export function initDetailEventListeners() {
     document.getElementById('detail').addEventListener('change', e => {
         if (e.target.classList.contains('file-filter')) applyFileFilters();
+        if (e.target.name === 'l03br-format') {
+            const sizes = { webp: '～5MB', jpeg: '～8MB', png: '～30MB' };
+            const btn = document.getElementById('files-dl-raster');
+            if (btn) btn.textContent = `一括↓IDB (${sizes[e.target.value]})`;
+        }
     });
 
     document.getElementById('detail').addEventListener('click', async e => {
@@ -143,7 +148,8 @@ export function initDetailEventListeners() {
         }
 
         if (e.target.id === 'files-dl-raster') {
-            openL03bRViewer();
+            const fmt = document.querySelector('#detail input[name="l03br-format"]:checked')?.value || 'webp';
+            openL03bRViewer(fmt);
             return;
         }
 
@@ -185,16 +191,16 @@ function _renderFiles(ds) {
         return `
             <section class="detail-section" id="files-section">
                 <h3 class="section-title">
-                    地球表示 <span class="toggle-icon">▾</span>
+                    ダウンロード <span class="toggle-icon">▾</span>
                 </h3>
                 <div class="section-body">
-                    <div class="l03br-desc">
-                        <p>1次メッシュ単位のラスタTIF（約175件）を WebP に変換して<br>
-                           地球儀にリアルタイム描画します。</p>
-                        <p class="l03br-note">変換済みはブラウザに保存されます（4ワーカー並列）。X で復帰。</p>
+                    <div class="l03br-fmt">
+                        <label><input type="radio" name="l03br-format" value="webp" checked> WebP</label>
+                        <label><input type="radio" name="l03br-format" value="jpeg"> JPEG</label>
+                        <label><input type="radio" name="l03br-format" value="png"> PNG</label>
                     </div>
                     <button class="bulk-dl-btn l03br-start-btn" id="files-dl-raster">
-                        地球に描画
+                        一括↓IDB (～5MB)
                     </button>
                 </div>
             </section>

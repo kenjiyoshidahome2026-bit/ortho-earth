@@ -112,7 +112,7 @@ async function extractTifFromZip(u8) {
     throw new Error('TIF not found in ZIP');
 }
 
-self.onmessage = async ({ data: { meshCode, proxyUrl } }) => {
+self.onmessage = async ({ data: { meshCode, proxyUrl, format = 'webp' } }) => {
     try {
         const res = await fetch(proxyUrl);
         if (!res.ok) throw new Error(`HTTP ${res.status} (${proxyUrl})`);
@@ -123,10 +123,11 @@ self.onmessage = async ({ data: { meshCode, proxyUrl } }) => {
 
         const canvas = new OffscreenCanvas(width, height);
         canvas.getContext('2d').putImageData(new ImageData(rgba, width, height), 0, 0);
-        const blob    = await canvas.convertToBlob({ type: 'image/webp', quality: 0.85 });
+        const quality = format === 'jpeg' ? 0.8 : format === 'webp' ? 0.85 : undefined;
+        const blob    = await canvas.convertToBlob({ type: `image/${format}`, quality });
         const webpData = new Uint8Array(await blob.arrayBuffer());
 
-        self.postMessage({ meshCode, webpData, bbox }, [webpData.buffer]);
+        self.postMessage({ meshCode, webpData, bbox, format }, [webpData.buffer]);
     } catch (e) {
         self.postMessage({ meshCode, error: e.message });
     }

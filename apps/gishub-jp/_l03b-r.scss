@@ -122,22 +122,29 @@
 }
 
 // ============================================================
-// サイドバー詳細パネル内の説明 UI
+// サイドバー詳細パネル内
 // ============================================================
 
-.l03br-desc {
-    font-size: 12px;
-    color: $text;
-    line-height: 1.7;
-    margin-bottom: 14px;
-    p { margin-bottom: 4px; }
-}
+.l03br-fmt {
+    display: flex;
+    gap: 14px;
+    margin-bottom: 10px;
 
-.l03br-note {
-    font-size: 11px;
-    color: $mid !important;
+    label {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        font-size: 12px;
+        color: $text;
+        cursor: pointer;
+    }
+
+    input[type="radio"] {
+        accent-color: $accent;
+        cursor: pointer;
+    }
 }
 
 .l03br-start-btn {
-    margin-top: 4px;
+    margin-top: 0;
 }
