@@ -90,6 +90,67 @@ export function orthoGL2(gl, dpr) {
 	gl.vertexAttribPointer(1, 2, gl.FLOAT, false, 0, 0);
 	gl.bindVertexArray(null);
 
+	// Program 3: circular overlay (azimuthal equidistant UV, fragment-shader clipping)
+	// Reuses tileVao / tilePosBuf (same attribute layout: location 0 = position).
+	const circleFs = `#version 300 es
+		precision highp float;
+		uniform sampler2D u_texture;
+		uniform float u_alpha;
+		uniform vec2  u_center;    // (lng, lat) in radians
+		uniform float u_radius;    // great-circle radius in radians
+		uniform float u_rotation;  // image rotation in radians (clockwise)
+		uniform vec2  u_translate; // screen center in physical pixels
+		uniform float u_scale;     // proj.scale * dpr
+		uniform vec3  u_rotate;    // globe rotation (rx, ry, rz) degrees
+		out vec4 outColor;
+		const float pi  = 3.14159265358979323846;
+		const float rad = pi / 180.0;
+		void applyRotation(in float rx, in float ry, in float rz, inout float lng, inout float lat) {
+			float z = sin(lat), coslat = cos(lat);
+			float x = cos(lng) * coslat, y = sin(lng) * coslat;
+			float dx = rx * rad, dy = -ry * rad, dz = -rz * rad;
+			float cosdy = cos(dy), sindy = sin(dy), cosdz = cos(dz), sindz = sin(dz);
+			float k = z * cosdz - y * sindz;
+			lng = atan(y * cosdz + z * sindz, x * cosdy + k * sindy) - dx;
+			k = k * cosdy - x * sindy;
+			lat = asin(clamp(k, -0.99999, 0.99999));
+		}
+		void main() {
+			float x = (gl_FragCoord.x - u_translate.x) / u_scale;
+			float y = (u_translate.y - gl_FragCoord.y) / u_scale;
+			float rho = sqrt(x * x + y * y);
+			if (rho >= 1.0) discard;
+			float c = asin(rho);
+			float sc = sin(c);
+			float lng = (rho < 1.0e-6) ? 0.0 : atan(x * sc, rho * cos(c));
+			float lat = (rho < 1.0e-6) ? 0.0 : asin(clamp(y * sc / rho, -1.0, 1.0));
+			applyRotation(u_rotate.x, u_rotate.y, u_rotate.z, lng, lat);
+			float sinLat0 = sin(u_center.y), cosLat0 = cos(u_center.y);
+			float sinLat  = sin(lat),        cosLat  = cos(lat);
+			float dlng = lng - u_center.x;
+			float cosDist = clamp(sinLat0*sinLat + cosLat0*cosLat*cos(dlng), -1.0, 1.0);
+			float dist = acos(cosDist);
+			if (dist > u_radius) discard;
+			float bearing = atan(sin(dlng)*cosLat, cosLat0*sinLat - sinLat0*cosLat*cos(dlng));
+			bearing -= u_rotation;
+			float r = dist / u_radius;
+			float u = 0.5 + 0.5 * r * sin(bearing);
+			float v = 0.5 - 0.5 * r * cos(bearing);
+			float edge = smoothstep(u_radius * 0.97, u_radius, dist);
+			outColor = texture(u_texture, vec2(u, v)) * vec4(1.0, 1.0, 1.0, (1.0 - edge) * u_alpha);
+		}`;
+	// Reuse tile vertex shader (same layout; a_coords is unused for circles)
+	const circleProgram = createProgram(gl, tileVs, circleFs);
+	const circleLocs = {
+		alpha:     gl.getUniformLocation(circleProgram, "u_alpha"),
+		center:    gl.getUniformLocation(circleProgram, "u_center"),
+		radius:    gl.getUniformLocation(circleProgram, "u_radius"),
+		rotation:  gl.getUniformLocation(circleProgram, "u_rotation"),
+		translate: gl.getUniformLocation(circleProgram, "u_translate"),
+		scale:     gl.getUniformLocation(circleProgram, "u_scale"),
+		rotate:    gl.getUniformLocation(circleProgram, "u_rotate"),
+	};
+
 	// Base texture: REPEAT on longitude so the seam wraps correctly on the back of the globe.
 	gl.createBaseTexture = img => {
 		const texture = gl.createTexture();
@@ -151,6 +212,31 @@ export function orthoGL2(gl, dpr) {
 		gl.uniform1f(tileAlphaLoc, alpha);
 		gl.bindBuffer(gl.ARRAY_BUFFER, tileCoordsBuf);
 		gl.bufferData(gl.ARRAY_BUFFER, uvs, gl.STREAM_DRAW);
+		gl.bindBuffer(gl.ARRAY_BUFFER, tilePosBuf);
+		gl.bufferData(gl.ARRAY_BUFFER, positions, gl.STREAM_DRAW);
+
+		gl.bindTexture(gl.TEXTURE_2D, texture);
+		gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+
+		gl.bindVertexArray(null);
+		return gl;
+	};
+
+	// center: Float32Array|[lng_rad, lat_rad], radius: radians, rotation: radians
+	// translate: [cx_px, cy_px], scale: proj.scale*dpr, rotate: [rx,ry,rz] degrees
+	gl.drawCircle = (texture, positions, center, radius, rotation, alpha, translate, scale, rotate) => {
+		if (!texture || !positions) return gl;
+		gl.useProgram(circleProgram);
+		gl.bindVertexArray(tileVao);
+
+		gl.uniform2fv(circleLocs.center,    center);
+		gl.uniform1f(circleLocs.radius,     radius);
+		gl.uniform1f(circleLocs.rotation,   rotation);
+		gl.uniform1f(circleLocs.alpha,      alpha);
+		gl.uniform2fv(circleLocs.translate, translate);
+		gl.uniform1f(circleLocs.scale,      scale);
+		gl.uniform3fv(circleLocs.rotate,    rotate);
+
 		gl.bindBuffer(gl.ARRAY_BUFFER, tilePosBuf);
 		gl.bufferData(gl.ARRAY_BUFFER, positions, gl.STREAM_DRAW);
 
