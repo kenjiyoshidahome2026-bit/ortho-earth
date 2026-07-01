@@ -6,6 +6,7 @@ import CENSUS_2015_STATS  from './2015-stats.json'  with { type: 'json' };
 import CENSUS_2020_AGES   from './2020-ages.json'   with { type: 'json' };
 import CENSUS_KANA        from './kana.json'        with { type: 'json' };
 import CENSUS_SHICHO      from './shicho.json'      with { type: 'json' };
+import CENSUS_GUN         from './gun.json'         with { type: 'json' };
 import ESTAT_MANIFEST     from '../estat/manifest.json' with { type: 'json' };
 import { buildCensusChartSections } from './charts.mjs';
 import { fetchSmallAreaData, fetchSmallAreaPyramid, miniAgeBar,
@@ -222,6 +223,11 @@ function _rubyHtml(name, kana) {
 function _shichoSuffix(code) {
     const s = CENSUS_SHICHO[code];
     return s ? ` <span class="cs-shicho">（${escHtml(s)}）</span>` : '';
+}
+// 町村は郡名を前置（住所順）
+function _gunPrefix(code) {
+    const g = CENSUS_GUN[code];
+    return g ? `<span class="cs-gun">${escHtml(g)}</span>` : '';
 }
 
 const _crumbNat   = () => ({ label: '全国', go: _csDrillNational });
@@ -546,7 +552,7 @@ async function _csDrillCity(cityCode, prefCode, parentCode = null) {
             <div class="cs-drill-head">
                 ${_crumbBarHtml(crumbs)}
                 <div class="cs-drill-title-row">
-                    <h2>${_rubyHtml(cityName, CENSUS_KANA[cityCode])}${_shichoSuffix(cityCode)}</h2>
+                    <h2>${_gunPrefix(cityCode)}${_rubyHtml(cityName, CENSUS_KANA[cityCode])}${_shichoSuffix(cityCode)}</h2>
                 </div>
             </div>
             <div class="cs-drill-list">
