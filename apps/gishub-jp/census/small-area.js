@@ -30,8 +30,15 @@ function openDb() {
             if (!db.objectStoreNames.contains(STAT_STORE))
                 db.createObjectStore(STAT_STORE);
         };
-        req.onsuccess = ({ target: { result: db } }) => { _db = db; res(db); };
+        // 他タブが後で新バージョンへ上げても本タブが握り続けて blocked にならないよう、
+        // versionchange で接続を閉じてキャッシュを破棄（次回 openDb で最新バージョンを開き直す）
+        req.onsuccess = ({ target: { result: db } }) => {
+            db.onversionchange = () => { db.close(); if (_db === db) _db = null; };
+            _db = db;
+            res(db);
+        };
         req.onerror   = ({ target: { error } }) => rej(error);
+        req.onblocked = () => console.warn('[small-area] IDB upgrade blocked — 別タブを閉じて再読み込みしてください');
     });
 }
 
