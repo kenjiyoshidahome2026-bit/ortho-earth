@@ -272,82 +272,78 @@ function appendAgePyramid(parent, x0, y0, ages, refAges) {
 
 // ── 人口推移（3〜9時点対応） ─────────────────────────────────────────────────
 // points: [{ year, male, female }, ...] (古い順)
+// 人口推移: 年次ごとに男(左)・女(右)を年齢3区分（年少/生産/老年）で積み上げ表示。
+// points: [{ year, m:[年少,生産,老年], f:[年少,生産,老年] }, ...]（1980〜2020の国勢調査）
+//   後方互換: 旧 {year,male,female} は生産バンドのみの単色バーに正規化
+const TREND_MC = ['#c3ccff', '#6f8fd0', '#39508f'];  // 男 年少→生産→老年（淡→濃）
+const TREND_FC = ['#ffd2da', '#ec9cae', '#bd6379'];  // 女 年少→生産→老年（淡→濃）
 function appendPopTrend(parent, x0, y0, points) {
     if (!points || !points.length) return 0;
+    points = points.map(p => p.m ? p : { year: p.year, m: [0, p.male, 0], f: [0, p.female, 0] });
 
+    const mt = p => p.m[0] + p.m[1] + p.m[2];
+    const ft = p => p.f[0] + p.f[1] + p.f[2];
     const n    = points.length;
-    const maxP = Math.max(...points.map(p => p.male + p.female));
+    const maxP = Math.max(...points.map(p => Math.max(mt(p), ft(p))));
     if (!maxP) return 0;
 
-    const TW  = W - x0 - 8;   // total usable width
-    const bsp = TW / n;       // bar group spacing（等分。丸めず右余りを出さない）
-    const bw  = Math.max(3, Math.floor(bsp * 0.38));
-    const BH  = 60;            // chart height
-    const H   = BH / (maxP * 1.1);  // scale factor
-
-    // grid
-    const ln   = Math.log10(maxP * 1.1);
-    let grid   = Math.pow(10, Math.floor(ln));
-    if ((maxP * 1.1) / grid < 2) grid /= 2;
+    const TW  = W - x0 - 8;
+    const bsp = TW / n;
+    const bw  = Math.max(2.5, Math.min(9, bsp * 0.32));
+    const BH  = 62;
+    const H   = BH / (maxP * 1.1);
 
     const g = parent.elem('g', { transform: `translate(${x0},${y0})` });
 
-    // Y軸ラベルは「万」単位に短縮（フル桁だと幅広く左端で見切れる）
+    // grid + Y軸（万単位）
+    const ln = Math.log10(maxP * 1.1);
+    let grid = Math.pow(10, Math.floor(ln));
+    if ((maxP * 1.1) / grid < 2) grid /= 2;
     const ylabel = v => v >= 1e4 ? `${+(v / 1e4).toFixed(v % 1e4 ? 1 : 0)}万` : d3.comma(v);
     const grs = [];
     for (let gr = grid; gr < maxP * 1.1; gr += grid) {
         const gy = (BH - gr * H).toFixed(1);
         grs.push(`M0,${gy}h${TW}`);
-        g.elem('text', {
-            x: -2, y: gy, 'font-size': 4.5, 'font-family': 'Verdana',
-            fill: FG, 'text-anchor': 'end', 'dominant-baseline': 'middle',
-        }, ylabel(gr));
+        g.elem('text', { x: -2, y: gy, 'font-size': 4.5, 'font-family': 'Verdana', fill: FG, 'text-anchor': 'end', 'dominant-baseline': 'middle' }, ylabel(gr));
     }
     if (grs.length) g.elem('path', { d: grs.join(''), stroke: FG, 'stroke-width': 0.4 });
 
-    // bars（男女ペアをスロット中心に対称配置: 男 = 中心-bw/2, 女 = 中心+bw/2 で隣接）
-    const dm = points.map((p, i) =>
-        `M${i * bsp + bsp / 2 - bw / 2},${BH}v-${(p.male   * H).toFixed(1)}`);
-    const df = points.map((p, i) =>
-        `M${i * bsp + bsp / 2 + bw / 2},${BH}v-${(p.female * H).toFixed(1)}`);
-
-    g.elem('path', { d: dm.join(''), stroke: '#88f', 'stroke-width': bw });
-    g.elem('path', { d: df.join(''), stroke: '#fcc', 'stroke-width': bw });
-
-    // border
-    g.elem('rect', { x: 0, y: 0, width: TW, height: BH,
-        fill: 'none', stroke: FG, 'stroke-width': 0.8 });
-
-    // year labels
-    const gt = g.elem('g', {
-        'text-anchor': 'middle', 'dominant-baseline': 'middle',
-        'font-size': 5.5, 'font-family': 'Verdana', fill: FG,
-    });
+    // 積み上げバー（男=中心左, 女=中心右。年少を下に→老年を上に積む）
     points.forEach((p, i) => {
-        const cx = i * bsp + bsp / 2;   // スロット中心＝バーペア中心＝ラベル位置
-        gt.elem('text', { x: cx, y: BH + 8 }, String(p.year));
-        const chg = i > 0
-            ? ((p.male + p.female - points[i-1].male - points[i-1].female) /
-               (points[i-1].male + points[i-1].female) * 100).toFixed(1)
-            : null;
-        if (chg !== null) {
-            const cl = Number(chg) >= 0 ? '#8f0' : '#f88';
-            gt.elem('text', { x: cx, y: BH + 16, fill: cl, 'font-size': 4.5 },
-                (Number(chg) >= 0 ? '+' : '') + chg + '%');
-        }
+        const cx = i * bsp + bsp / 2;
+        let by = BH;
+        p.m.forEach((v, b) => { const h = v * H; if (h > 0) g.elem('rect', { x: (cx - bw).toFixed(1), y: (by - h).toFixed(1), width: (bw - 0.3).toFixed(1), height: h.toFixed(1), fill: TREND_MC[b] }); by -= h; });
+        by = BH;
+        p.f.forEach((v, b) => { const h = v * H; if (h > 0) g.elem('rect', { x: (cx + 0.3).toFixed(1), y: (by - h).toFixed(1), width: (bw - 0.3).toFixed(1), height: h.toFixed(1), fill: TREND_FC[b] }); by -= h; });
     });
 
-    // legend
-    const lg = g.elem('g', {
-        'font-size': 5.5, 'font-family': 'Verdana', fill: FG,
-        'dominant-baseline': 'middle',
-    });
-    lg.elem('rect', { x: TW - 50, y: 2, width: 7, height: 7, fill: '#88f' });
-    lg.elem('text', { x: TW - 41, y: 6 }, '男性');
-    lg.elem('rect', { x: TW - 25, y: 2, width: 7, height: 7, fill: '#fcc' });
-    lg.elem('text', { x: TW - 16, y: 6 }, '女性');
+    g.elem('rect', { x: 0, y: 0, width: TW, height: BH, fill: 'none', stroke: FG, 'stroke-width': 0.8 });
 
-    return BH + 22; // height used
+    // 年ラベル（縦回転で省スペース）
+    const gt = g.elem('g', { 'font-size': 5, 'font-family': 'Verdana', fill: FG, 'text-anchor': 'end', 'dominant-baseline': 'middle' });
+    points.forEach((p, i) => {
+        const cx = i * bsp + bsp / 2;
+        gt.elem('text', { x: cx, y: BH + 3, transform: `rotate(-90 ${cx} ${BH + 3})` }, String(p.year));
+    });
+
+    // 凡例はSVG外（HTML）に出す（棒と重ならないように）
+    return BH + 26;
+}
+
+// 人口推移の凡例HTML（男女＋年齢3区分の濃淡）
+export function popTrendLegendHtml() {
+    const sw = c => `<span class="cs-pl-sw" style="background:${c}"></span>`;
+    return `<div class="cs-pyramid-legend cs-trend-legend">
+        <span class="cs-pl-item">${sw(TREND_MC[1])}男性</span>
+        <span class="cs-pl-item">${sw(TREND_FC[1])}女性</span>
+        <span class="cs-pl-item" style="gap:4px">濃淡＝年齢
+            ${sw(TREND_MC[0])}年少 ${sw(TREND_MC[1])}生産年齢 ${sw(TREND_MC[2])}老年</span>
+    </div>`;
+}
+
+// 人口推移SVG単体（ドリルダウン各レベルで pop-history から非同期描画）
+export function buildPopTrendSVG(points) {
+    return makeSvg((s, x0, y) => appendPopTrend(s, x0 + 16, y, points));
 }
 
 // ── メイン：統計オブジェクト → SVG 文字列 ────────────────────────────────────

@@ -8,7 +8,7 @@ import CENSUS_KANA        from './kana.json'        with { type: 'json' };
 import CENSUS_SHICHO      from './shicho.json'      with { type: 'json' };
 import CENSUS_GUN         from './gun.json'         with { type: 'json' };
 import ESTAT_MANIFEST     from '../estat/manifest.json' with { type: 'json' };
-import { buildCensusChartSections } from './charts.mjs';
+import { buildCensusChartSections, buildPopTrendSVG, popTrendLegendHtml } from './charts.mjs';
 import { fetchSmallAreaData, fetchSmallAreaPyramid, fetchSmallAreaStats, miniAgeBar,
          prefetchSmallAreaIdb, isSmallAreaReady } from './small-area.js';
 import { PREFS, escHtml } from '../ui/shared.js';
@@ -171,6 +171,7 @@ export function censusSmall2020SidebarEntry() {
 }
 
 export async function renderCensusSmall2020() {
+    loadPopHistory();   // 人口推移データを先読み（初回の全国トレンドを速く）
     const ready = await isSmallAreaReady();
     if (!ready) { _csDrillFetch(); return; }
     _csDrillNational();
@@ -332,30 +333,69 @@ function _fullChartHtml(opts) {
     const refAges = opts.refAges === undefined ? CENSUS_2020_AGES['_national'] : opts.refAges;
     return _chartSections({ ...opts, refAges }).map(s => _sectionHtml(s, !!refAges)).join('');
 }
+// ── 人口推移（長期時系列 1980-2020）: pop-history.json を非同期ロード ──────────
+// 1MBのためバンドルせず静的配信をランタイムfetch。code→{year:[男少,男生,男老,女少,女生,女老]}
+let _popHist = null, _popHistP = null;
+export function loadPopHistory() {
+    if (_popHist) return Promise.resolve(_popHist);
+    if (!_popHistP) _popHistP = fetch(`${import.meta.env.BASE_URL}census/pop-history.json`)
+        .then(r => r.ok ? r.json() : null)
+        .then(j => { _popHist = j; return j; })
+        .catch(e => { console.warn('[pop-history] load failed:', e); _popHistP = null; return null; });
+    return _popHistP;
+}
+const _HYEARS = [1980, 1985, 1990, 1995, 2000, 2005, 2010, 2015, 2020];
+// trendCode: 'national'（全47県000行を合算）| 'XX000'(都道府県) | 政令市/市区町村/区コード
+function _trendSeries(tc) {
+    if (!_popHist || !tc) return null;
+    const pts = [];
+    for (const y of _HYEARS) {
+        const ys = String(y);
+        let m = [0, 0, 0], f = [0, 0, 0], has = false;
+        if (tc === 'national') {
+            for (let p = 1; p <= 47; p++) {
+                const v = _popHist[String(p).padStart(2, '0') + '000']?.[ys];
+                if (v) { m[0] += v[0]; m[1] += v[1]; m[2] += v[2]; f[0] += v[3]; f[1] += v[4]; f[2] += v[5]; has = true; }
+            }
+        } else {
+            const v = _popHist[tc]?.[ys];
+            if (v) { m = [v[0], v[1], v[2]]; f = [v[3], v[4], v[5]]; has = true; }
+        }
+        if (has) pts.push({ year: y, m, f });
+    }
+    return pts.length ? pts : null;
+}
+// 表示中パネルの .cs-trend-slot を pop-history から描画（ロード完了後に後追い）
+function _fillTrends() {
+    const slots = [...document.querySelectorAll('.cs-trend-slot[data-tc]')];
+    if (!slots.length) return;
+    loadPopHistory().then(() => {
+        for (const slot of slots) {
+            const body = slot.querySelector('.cs-trend-body');
+            if (!body?.isConnected) continue;
+            const pts = _trendSeries(slot.dataset.tc);
+            body.innerHTML = pts ? buildPopTrendSVG(pts) + popTrendLegendHtml()
+                : '<span style="color:#666;font-size:12px">この地域の人口推移データはありません</span>';
+        }
+    });
+}
+
 // 集計/市区町村の表示: 統計テーブル（2列）→ 改行 → SVG群（左寄せで縦に）
 function _levelDisplayHtml(statsHtml, opts) {
     const refAges = opts.refAges === undefined ? CENSUS_2020_AGES['_national'] : opts.refAges;
     const byId = {};
-    for (const s of _chartSections({ ...opts, refAges })) byId[s.id] = _sectionHtml(s, !!refAges);
-    return statsHtml + (byId.pyramid || '') + (byId.trend || '') + (byId.stats || '');
+    for (const s of _chartSections({ ...opts, popTrend: null, refAges })) byId[s.id] = _sectionHtml(s, !!refAges);
+    const trendSlot = opts.trendCode
+        ? `<div class="cs-section cs-svg-wrap cs-trend-slot" data-tc="${opts.trendCode}">
+             <h3 class="cs-drill-sec-h3">人口推移 <span class="cs-year">1980 – 2020</span></h3>
+             <div class="cs-trend-body"><span class="cs-sa-loading">読み込み中…</span></div>
+           </div>`
+        : '';
+    return statsHtml + (byId.pyramid || '') + trendSlot + (byId.stats || '');
 }
 
-// 葉コード集合の人口推移（2015/2020/2025 を年ごとに男女合算）
-function _sumTrend(leaf) {
-    let m15 = 0, f15 = 0, s15 = false, m20 = 0, f20 = 0, s20 = false, m25 = 0, f25 = 0, s25 = false;
-    for (const c of leaf) {
-        const a = CENSUS_2015_STATS[c]; if (a?.pop) { m15 += a.pop[1]; f15 += a.pop[2]; s15 = true; }
-        const v = CENSUS_2020_POP[c];   if (v)      { m20 += v[1];     f20 += v[2];     s20 = true; }
-        const w = CENSUS_2025_POP[c];   if (w?.pop) { m25 += w.pop[1]; f25 += w.pop[2]; s25 = true; }
-    }
-    const t = [];
-    if (s15) t.push({ year: 2015, male: m15, female: f15 });
-    if (s20) t.push({ year: 2020, male: m20, female: f20 });
-    if (s25) t.push({ year: 2025, male: m25, female: f25 });
-    return t.length >= 2 ? t : null;
-}
-
-// pred(code) を満たす市区町村を積み上げ（人口・世帯・面積・年齢・就業/世帯経済・推移）
+// pred(code) を満たす市区町村を積み上げ（人口・世帯・面積・年齢・就業/世帯経済）
+// 人口推移は pop-history.json（長期時系列）から trendCode で別途描画
 // 葉ノードは CENSUS_2020_POP のキー集合（集計コードを含まない）を正準とする
 function _aggForLevel(pred) {
     const leaf = Object.keys(CENSUS_2020_POP).filter(pred);
@@ -376,7 +416,7 @@ function _aggForLevel(pred) {
     }
     return {
         pop2020: p20, pop2025: has25 ? p25 : null, hh: hasHh ? hh : 0, area: hasArea ? area : 0, count: leaf.length,
-        ages: hasAges ? ages : null, stat: Object.keys(stat).length ? stat : null, trend: _sumTrend(leaf),
+        ages: hasAges ? ages : null, stat: Object.keys(stat).length ? stat : null,
     };
 }
 
@@ -400,14 +440,15 @@ function _aggKvHtml(agg) {
 }
 
 // 集計レベル（全国/都道府県/政令市）共通ビュー: 積み上げ統計＋全チャート＋子チップ
-function _renderAggView({ crumbs = null, title, pred, ages = null, refAges = CENSUS_2020_AGES['_national'], listHtml, onChip }) {
+function _renderAggView({ crumbs = null, title, pred, trendCode = null, ages = null, refAges = CENSUS_2020_AGES['_national'], listHtml, onChip }) {
     const agg = _aggForLevel(pred);
     ctx.setDetailHtml(_drillWrap({
         crumbs, title, statsHtml: '',
-        chartHtml: _levelDisplayHtml(_aggKvHtml(agg), { ages: ages || agg.ages, refAges, popTrend: agg.trend, stat: agg.stat }),
+        chartHtml: _levelDisplayHtml(_aggKvHtml(agg), { ages: ages || agg.ages, refAges, trendCode, stat: agg.stat }),
         listHtml,
     }));
     if (crumbs) _wireCrumbs(crumbs);
+    _fillTrends();
     document.querySelectorAll('.cs-drill-chip[data-key]').forEach(el =>
         el.addEventListener('click', () => onChip(el.dataset.key)));
 }
@@ -435,7 +476,7 @@ function _csDrillNational() {
         ).join('')}</div>`;
     // 全国のピラミッドは precomputed _national（参考線なし）
     _renderAggView({
-        title: _rubyHtml('全国', 'ぜんこく'), pred: () => true,
+        title: _rubyHtml('全国', 'ぜんこく'), pred: () => true, trendCode: 'national',
         ages: CENSUS_2020_AGES['_national'], refAges: null,
         listHtml, onChip: _csDrillPref,
     });
@@ -493,7 +534,7 @@ function _csDrillPref(prefCode) {
     _renderAggView({
         crumbs: [_crumbNat(), _crumbPref(prefCode)],
         title: _rubyHtml(_prefFull(prefCode), CENSUS_KANA[prefCode]),
-        pred: c => c.slice(0, 2) === prefCode,
+        pred: c => c.slice(0, 2) === prefCode, trendCode: prefCode + '000',
         listHtml: _cityChipsHtml('市区町村', `${topCities.length}件`, topCities),
         onChip: code => DESIGNATED_CITIES.has(code) ? _csDrillDesignated(code, prefCode) : _csDrillCity(code, prefCode, null),
     });
@@ -521,7 +562,7 @@ function _csDrillDesignated(cityCode, prefCode) {
     _renderAggView({
         crumbs: [_crumbNat(), _crumbPref(prefCode), _crumbDesig(cityCode, prefCode)],
         title: _rubyHtml(MANIFEST_BY_CODE.get(cityCode)?.name || cityCode, CENSUS_KANA[cityCode]) + _shichoSuffix(cityCode),
-        pred: c => wardSet.has(c),
+        pred: c => wardSet.has(c), trendCode: cityCode,
         listHtml: _cityChipsHtml('行政区', `${wards.length}区`, wards),
         onChip: code => _csDrillCity(code, prefCode, cityCode),
     });
@@ -535,16 +576,11 @@ async function _csDrillCity(cityCode, prefCode, parentCode = null) {
     const ages     = CENSUS_2020_AGES[cityCode];
     const natAges  = CENSUS_2020_AGES['_national'];
 
-    const popTrend = [];
-    const s15  = CENSUS_2015_STATS[cityCode];
-    if (s15?.pop) popTrend.push({ year: 2015, male: s15.pop[1], female: s15.pop[2] });
     const pop20 = CENSUS_2020_POP[cityCode];
-    if (pop20) popTrend.push({ year: 2020, male: pop20[1], female: pop20[2] });
-    const p25 = CENSUS_2025_POP[cityCode];
-    if (p25?.pop) popTrend.push({ year: 2025, male: p25.pop[1], female: p25.pop[2] });
+    const p25   = CENSUS_2025_POP[cityCode];
 
     const statsHtml = `<div class="cs-kv-grid">${_cityStatsRows(pop20, p25, entry)}</div>`;
-    const display = _levelDisplayHtml(statsHtml, { ages, refAges: natAges, popTrend, stat });
+    const display = _levelDisplayHtml(statsHtml, { ages, refAges: natAges, trendCode: cityCode, stat });
 
     const hasSmallArea = ESTAT_CODE_SET.has(cityCode);
     const saHtml = hasSmallArea
@@ -569,6 +605,7 @@ async function _csDrillCity(cityCode, prefCode, parentCode = null) {
         </div>
     `);
     _wireCrumbs(crumbs);
+    _fillTrends();
 
     if (hasSmallArea) {
         const saEl = document.getElementById('cs-drill-sa');
