@@ -5,6 +5,7 @@ import CENSUS_2020_STATS  from './2020-stats.json'  with { type: 'json' };
 import CENSUS_2015_STATS  from './2015-stats.json'  with { type: 'json' };
 import CENSUS_2020_AGES   from './2020-ages.json'   with { type: 'json' };
 import CENSUS_2020_HOUSEHOLD from './2020-household.json' with { type: 'json' };
+import { CITY_HISTORY } from './city-history.js';
 import CENSUS_KANA        from './kana.json'        with { type: 'json' };
 import CENSUS_SHICHO      from './shicho.json'      with { type: 'json' };
 import CENSUS_GUN         from './gun.json'         with { type: 'json' };
@@ -284,9 +285,9 @@ function _drillWrap({ crumbs, title, statsHtml = '', chartHtml = '', listHtml = 
 // 年齢ピラミッドの凡例（年少/生産/老年、任意で全国平均線）
 function _pyramidLegend(hasRef) {
     return `<div class="cs-pyramid-legend">
-        <span class="cs-pl-item"><span class="cs-pl-sw" style="background:#80f"></span><span class="cs-pl-sw" style="background:#804"></span>年少 0-14</span>
+        <span class="cs-pl-item"><span class="cs-pl-sw" style="background:#8f0"></span><span class="cs-pl-sw" style="background:#f80"></span>年少 0-14</span>
         <span class="cs-pl-item"><span class="cs-pl-sw" style="background:#88f"></span><span class="cs-pl-sw" style="background:#fcc"></span>生産 15-64</span>
-        <span class="cs-pl-item"><span class="cs-pl-sw" style="background:#8f0"></span><span class="cs-pl-sw" style="background:#f80"></span>老年 65+</span>
+        <span class="cs-pl-item"><span class="cs-pl-sw" style="background:#80f"></span><span class="cs-pl-sw" style="background:#804"></span>老年 65+</span>
         ${hasRef ? '<span class="cs-pl-item cs-pl-ref"><span class="cs-pl-line"></span>全国平均</span>' : ''}
     </div>`;
 }
@@ -375,6 +376,25 @@ function _fillTrends() {
     });
 }
 
+// ── 市区町村の沿革（合併・市制施行・政令市/中核市移行・区新設） ──────────────
+// コードは整数表記なので5桁化してMap化。過去は不変・append-only。
+const _cityHist = new Map();
+for (const [date, code, desc] of CITY_HISTORY) {
+    const c = String(code).padStart(5, '0');
+    if (!_cityHist.has(c)) _cityHist.set(c, []);
+    _cityHist.get(c).push({ date, desc });
+}
+function _cityHistoryHtml(code) {
+    const h = code && _cityHist.get(code);
+    if (!h?.length) return '';
+    const fmt = d => { const s = String(d); return `${s.slice(0, 4)}.${s.slice(4, 6)}.${s.slice(6, 8)}`; };
+    const items = [...h].sort((a, b) => b.date - a.date).map(e =>
+        `<li><span class="cs-hist-date">${fmt(e.date)}</span> ${escHtml(e.desc).replace(/\r\+?/g, '<br>')}</li>`).join('');
+    return `<div class="cs-section cs-hist">
+        <h3 class="cs-drill-sec-h3">沿革（市区町村の変遷）</h3>
+        <ul class="cs-hist-list">${items}</ul></div>`;
+}
+
 // 集計/市区町村の表示: 統計テーブル（2列）→ 改行 → SVG群（左寄せで縦に）
 function _levelDisplayHtml(statsHtml, opts) {
     const refAges = opts.refAges === undefined ? CENSUS_2020_AGES['_national'] : opts.refAges;
@@ -386,7 +406,8 @@ function _levelDisplayHtml(statsHtml, opts) {
              <div class="cs-trend-body"><span class="cs-sa-loading">読み込み中…</span></div>
            </div>`
         : '';
-    return statsHtml + (byId.pyramid || '') + trendSlot + (byId.stats || '') + (byId.household || '');
+    const histHtml = opts.histCode ? _cityHistoryHtml(opts.histCode) : '';
+    return statsHtml + (byId.pyramid || '') + trendSlot + histHtml + (byId.stats || '') + (byId.household || '');
 }
 
 // pred(code) を満たす市区町村を積み上げ（人口・世帯・面積・年齢・就業/世帯経済）
@@ -433,11 +454,11 @@ function _aggKvHtml(agg) {
 }
 
 // 集計レベル（全国/都道府県/政令市）共通ビュー: 積み上げ統計＋全チャート＋子チップ
-function _renderAggView({ crumbs = null, title, pred, trendCode = null, ages = null, refAges = CENSUS_2020_AGES['_national'], listHtml, onChip }) {
+function _renderAggView({ crumbs = null, title, pred, trendCode = null, histCode = null, ages = null, refAges = CENSUS_2020_AGES['_national'], listHtml, onChip }) {
     const agg = _aggForLevel(pred);
     ctx.setDetailHtml(_drillWrap({
         crumbs, title, statsHtml: '',
-        chartHtml: _levelDisplayHtml(_aggKvHtml(agg), { ages: ages || agg.ages, refAges, trendCode, stat: agg.stat }),
+        chartHtml: _levelDisplayHtml(_aggKvHtml(agg), { ages: ages || agg.ages, refAges, trendCode, histCode, stat: agg.stat }),
         listHtml,
     }));
     if (crumbs) _wireCrumbs(crumbs);
@@ -555,7 +576,7 @@ function _csDrillDesignated(cityCode, prefCode) {
     _renderAggView({
         crumbs: [_crumbNat(), _crumbPref(prefCode), _crumbDesig(cityCode, prefCode)],
         title: _rubyHtml(MANIFEST_BY_CODE.get(cityCode)?.name || cityCode, CENSUS_KANA[cityCode]) + _shichoSuffix(cityCode),
-        pred: c => wardSet.has(c), trendCode: cityCode,
+        pred: c => wardSet.has(c), trendCode: cityCode, histCode: cityCode,
         listHtml: _cityChipsHtml('行政区', `${wards.length}区`, wards),
         onChip: code => _csDrillCity(code, prefCode, cityCode),
     });
@@ -573,7 +594,7 @@ async function _csDrillCity(cityCode, prefCode, parentCode = null) {
     const p25   = CENSUS_2025_POP[cityCode];
 
     const statsHtml = `<div class="cs-kv-grid">${_cityStatsRows(pop20, p25, entry)}</div>`;
-    const display = _levelDisplayHtml(statsHtml, { ages, refAges: natAges, trendCode: cityCode, stat });
+    const display = _levelDisplayHtml(statsHtml, { ages, refAges: natAges, trendCode: cityCode, histCode: cityCode, stat });
 
     const hasSmallArea = ESTAT_CODE_SET.has(cityCode);
     const saHtml = hasSmallArea

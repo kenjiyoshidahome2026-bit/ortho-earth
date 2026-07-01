@@ -89,6 +89,17 @@
 	}
 	.cs-note { font-size: 11px; color: $mid; margin-top: 4px; }
 
+	// 沿革（市区町村の変遷）
+	.cs-hist .cs-hist-list {
+		list-style: none;
+		font-size: 12px;
+		line-height: 1.65;
+		color: #bcd;
+		max-width: 520px;
+		li { padding: 5px 0; border-bottom: 1px solid rgba(255,255,255,.05); }
+		.cs-hist-date { font-family: $mono; font-size: 11px; color: $accent; margin-right: 6px; }
+	}
+
 	// ---- ドリルダウンブラウザ ----
 	// census-detail と同一要素になる場合（&.cs-drill-wrap）と子要素の場合（.cs-drill-wrap）両方に適用
 	&.cs-drill-wrap, .cs-drill-wrap {

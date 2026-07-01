@@ -230,7 +230,8 @@ function appendHousing(parent, x0, y0, dwell, own) {
 // ages: [m0,m1,...,m15, f0,...,f15] (0-4, 5-9, ..., 70-74, 75+) × male+female
 // refAges: same format for national reference (optional)
 // 年齢区分の共通色定義（人口構成＝ピラミッド・人口推移で統一）
-// [男年少, 女年少, 男生産, 女生産, 男老年, 女老年]
+// ピラミッド描画順に対応: [老年男,老年女, 生産男,生産女, 年少男,年少女]
+//   ＝ 老年=紫/赤紫, 生産=淡青/桃, 年少=緑/橙
 const AGE_CL = ['#80f', '#804', '#88f', '#fcc', '#8f0', '#f80'];
 
 function appendAgePyramid(parent, x0, y0, ages, refAges) {
@@ -291,12 +292,13 @@ function appendAgePyramid(parent, x0, y0, ages, refAges) {
 
     // bars (layered by age group category for color coding)
     const gb = g.elem('g', { 'stroke-width': 8 });
-    gb.elem('path', { d: d0.slice(0,  3).join(''), stroke: CL[0] }); // male   0-14  (youth)
-    gb.elem('path', { d: d1.slice(0,  3).join(''), stroke: CL[1] }); // female 0-14
-    gb.elem('path', { d: d0.slice(3, 13).join(''), stroke: CL[2] }); // male   15-64 (adult)
+    // d0/d1 は reverse 済み（index0=75+が上）。slice(0,3)=老年, slice(13)=年少
+    gb.elem('path', { d: d0.slice(0,  3).join(''), stroke: CL[0] }); // male   65+   (老年)
+    gb.elem('path', { d: d1.slice(0,  3).join(''), stroke: CL[1] }); // female 65+
+    gb.elem('path', { d: d0.slice(3, 13).join(''), stroke: CL[2] }); // male   15-64 (生産)
     gb.elem('path', { d: d1.slice(3, 13).join(''), stroke: CL[3] }); // female 15-64
-    gb.elem('path', { d: d0.slice(13).join(''),    stroke: CL[4] }); // male   65+   (elderly)
-    gb.elem('path', { d: d1.slice(13).join(''),    stroke: CL[5] }); // female 65+
+    gb.elem('path', { d: d0.slice(13).join(''),    stroke: CL[4] }); // male   0-14  (年少)
+    gb.elem('path', { d: d1.slice(13).join(''),    stroke: CL[5] }); // female 0-14
 
     // national reference polyline
     if (refAges) {
@@ -325,9 +327,10 @@ function appendAgePyramid(parent, x0, y0, ages, refAges) {
 // 人口推移: 年次ごとに男(左)・女(右)を年齢3区分（年少/生産/老年）で積み上げ表示。
 // points: [{ year, m:[年少,生産,老年], f:[年少,生産,老年] }, ...]（1980〜2020の国勢調査）
 //   後方互換: 旧 {year,male,female} は生産バンドのみの単色バーに正規化
-// 人口構成（ピラミッド）と同一色: 男[年少,生産,老年]=AGE_CL[0,2,4], 女=AGE_CL[1,3,5]
-const TREND_MC = [AGE_CL[0], AGE_CL[2], AGE_CL[4]];
-const TREND_FC = [AGE_CL[1], AGE_CL[3], AGE_CL[5]];
+// 人口構成（ピラミッド）のバーと同一色: 年少=緑/橙, 生産=淡青/桃, 老年=紫/赤紫
+// m/f=[年少,生産,老年] → 男[AGE_CL4,2,0], 女[AGE_CL5,3,1]
+const TREND_MC = [AGE_CL[4], AGE_CL[2], AGE_CL[0]];
+const TREND_FC = [AGE_CL[5], AGE_CL[3], AGE_CL[1]];
 function appendPopTrend(parent, x0, y0, points) {
     if (!points || !points.length) return 0;
     points = points.map(p => p.m ? p : { year: p.year, m: [0, p.male, 0], f: [0, p.female, 0] });
@@ -385,9 +388,9 @@ function appendPopTrend(parent, x0, y0, points) {
 export function popTrendLegendHtml() {
     const sw = c => `<span class="cs-pl-sw" style="background:${c}"></span>`;
     return `<div class="cs-pyramid-legend cs-trend-legend">
-        <span class="cs-pl-item">${sw(AGE_CL[0])}${sw(AGE_CL[1])}年少 0-14</span>
+        <span class="cs-pl-item">${sw(AGE_CL[4])}${sw(AGE_CL[5])}年少 0-14</span>
         <span class="cs-pl-item">${sw(AGE_CL[2])}${sw(AGE_CL[3])}生産 15-64</span>
-        <span class="cs-pl-item">${sw(AGE_CL[4])}${sw(AGE_CL[5])}老年 65+</span>
+        <span class="cs-pl-item">${sw(AGE_CL[0])}${sw(AGE_CL[1])}老年 65+</span>
         <span class="cs-pl-item" style="color:#999">左=男 右=女</span>
     </div>`;
 }
