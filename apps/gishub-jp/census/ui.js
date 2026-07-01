@@ -712,13 +712,14 @@ async function _populateSmallAreaBody(bodyEl, code, { withPyramid = true, preIte
         const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
         // 年齢構成列は withPyramid 時に枠だけ用意（中身は後追いで流し込む）
-        const bodyHtml = items.map(([kc, nm], i) => {
+        const bodyHtml = items.map(([kc, nm]) => {
             const p = popMap.get(kc);
             const sub = hasChild?.(kc);   // 11桁の子（丁目/基本単位区）を持つ行はドリル可
             const tdPop = `<td class="cs-sa-pop">${p?.total ? p.total.toLocaleString() : '—'}</td>`;
             const tdPyr = withPyramid ? '<td class="cs-sa-bar"></td>' : '';
             const nmCell = sub ? `${esc(nm)} <span class="cs-sa-chev">▸</span>` : esc(nm);
-            return `<tr data-code="${esc(kc)}"${sub ? ' class="has-sub"' : ''}><td>${i + 1}</td><td>${esc(kc)}</td><td>${nmCell}</td>${tdPop}${tdPyr}</tr>`;
+            return `<tr data-code="${esc(kc)}"${sub ? ' class="has-sub"' : ''}>` +
+                `<td class="cs-sa-name">${nmCell}</td><td class="cs-sa-codecol">${esc(kc)}</td>${tdPop}${tdPyr}</tr>`;
         }).join('');
 
         bodyEl.innerHTML = `
@@ -728,7 +729,7 @@ async function _populateSmallAreaBody(bodyEl, code, { withPyramid = true, preIte
             </div>
             <div class="cs-sa-scroll">
                 <table class="cs-sa-table">
-                    <thead><tr><th>#</th><th>コード</th><th>名称</th><th>人口</th>${withPyramid ? '<th>年齢構成</th>' : ''}</tr></thead>
+                    <thead><tr><th class="cs-sa-name">名称</th><th>コード</th><th class="cs-sa-pop">人口</th>${withPyramid ? '<th>年齢構成</th>' : ''}</tr></thead>
                     <tbody>${bodyHtml}</tbody>
                 </table>
             </div>

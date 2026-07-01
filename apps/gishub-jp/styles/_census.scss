@@ -274,16 +274,18 @@
 		.cs-sa-table {
 			width: 100%;
 			border-collapse: collapse;
-			font-size: 11px;
+			font-size: 12px;
 			thead tr th {
 				position: sticky;
 				top: 0;
 				background: #222;
 				color: $mid;
-				padding: 4px 6px;
+				padding: 5px 10px;
 				text-align: left;
 				border-bottom: 1px solid rgba(255,255,255,.12);
 				font-weight: 500;
+				white-space: nowrap;
+				&.cs-sa-pop { text-align: right; }
 			}
 			tbody tr {
 				cursor: default;
@@ -292,15 +294,17 @@
 				&:hover { background: rgba(255,255,255,.04); }
 				&.has-pyr:hover { background: rgba(100,140,200,.1); }
 				td {
-					padding: 3px 6px;
+					padding: 4px 10px;
 					border-bottom: 1px solid rgba(255,255,255,.04);
 					color: $text;
-					&:first-child { color: $mid; width: 28px; text-align: right; }
-					&:nth-child(2) { font-family: $mono; color: #adf; white-space: nowrap; }
+					vertical-align: middle;
 				}
-				.cs-sa-pop { font-family: $mono; text-align: right; }
-				.cs-sa-bar { white-space: nowrap; }
 			}
+			// 名称: 残り幅を取り主役。コード: 等幅で控えめ。人口: 右揃え。年齢構成: 固定
+			.cs-sa-name    { width: 100%; }
+			.cs-sa-codecol { font-family: $mono; color: #7f9bc0; font-size: 10px; white-space: nowrap; }
+			.cs-sa-pop     { font-family: $mono; text-align: right; white-space: nowrap; }
+			.cs-sa-bar     { white-space: nowrap; width: 68px; }
 		}
 		.cs-sa-pyramid-wrap {
 			margin-top: 10px;
