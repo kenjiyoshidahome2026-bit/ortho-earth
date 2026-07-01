@@ -119,12 +119,16 @@
 		margin-bottom: 8px;
 		h2 { margin: 0; }
 	}
-	// 最下位小地域: コード表示・秘匿説明
+	// 最下位小地域: コード表示・秘匿説明・主役ピラミッド
 	.cs-sa-code {
 		font-family: $mono;
 		font-size: 12px;
 		color: $mid;
 		margin-bottom: 8px;
+	}
+	.cs-sa-leaf {
+		.cs-svg-wrap { max-width: 360px; margin: 0 auto; }
+		svg { max-width: 360px; }
 	}
 	.cs-sa-suppressed {
 		font-size: 13px;

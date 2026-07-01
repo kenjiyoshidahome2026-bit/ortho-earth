@@ -258,11 +258,25 @@ function _chartHtml(sections, meta = {}) {
     }).join('');
 }
 
-// 全レベル共通の年齢ピラミッド HTML（ages=32要素[m0..m15,f0..f15]、上位と同じ描画）
+// 年齢ピラミッドの凡例（年少/生産/老年、任意で全国平均線）
+function _pyramidLegend(hasRef) {
+    return `<div class="cs-pyramid-legend">
+        <span class="cs-pl-item"><span class="cs-pl-sw" style="background:#80f"></span><span class="cs-pl-sw" style="background:#804"></span>年少 0-14</span>
+        <span class="cs-pl-item"><span class="cs-pl-sw" style="background:#88f"></span><span class="cs-pl-sw" style="background:#fcc"></span>生産 15-64</span>
+        <span class="cs-pl-item"><span class="cs-pl-sw" style="background:#8f0"></span><span class="cs-pl-sw" style="background:#f80"></span>老年 65+</span>
+        ${hasRef ? '<span class="cs-pl-item cs-pl-ref"><span class="cs-pl-line"></span>全国平均</span>' : ''}
+    </div>`;
+}
+
+// 全レベル共通の年齢ピラミッド HTML（ages=32要素[m0..m15,f0..f15]、凡例付き）
 function _pyramidHtml(ages, refAges = CENSUS_2020_AGES['_national']) {
     if (!ages?.some(v => v > 0)) return '<span style="color:#666;font-size:11px">年齢データなし</span>';
     const secs = buildCensusChartSections(null, '2020', { ages, refAges });
-    return _chartHtml(secs, { pyramid: { title: '年齢別人口構成', year: refAges ? '2020年（参考：全国平均）' : '2020年' } });
+    if (!secs.length) return '<span style="color:#666;font-size:11px">年齢データなし</span>';
+    const year = refAges ? '2020年（参考：全国平均）' : '2020年';
+    return `<div class="cs-section cs-svg-wrap">` +
+        `<h3 class="cs-drill-sec-h3">年齢別人口構成 <span class="cs-year">${year}</span></h3>` +
+        `${secs[0].svg}${_pyramidLegend(!!refAges)}</div>`;
 }
 
 // 複数コードの年齢（CENSUS_2020_AGES 32要素）を積み上げ。無ければ null
@@ -595,12 +609,13 @@ function _csDrillSmallAreaTable(cityCode, groupName, groupItems, popMap, prefCod
 }
 
 // Level 4: 小地域（最下位）→ 名称・コード・人口ピラミッドのみ。秘匿なら理由説明のみ
+// ピラミッドは本文で主役として大きく表示（フロートしない）
 function _csDrillSmallAreaPyramid(areaName, areaCode, pyr, crumbs) {
     const ages = pyr ? [...pyr.mAges, ...pyr.fAges] : null;
     const body = !ages?.some(v => v > 0)
         ? `<p class="cs-sa-suppressed">この地域は統計上の<b>秘匿</b>対象です。<br>
              対象となる人口が少なく個人が特定されるおそれがあるため、年齢別人口は公表されていません。</p>`
-        : `<div class="cs-sa-code">${escHtml(areaCode)}</div>${_pyramidHtml(ages)}`;
+        : _pyramidHtml(ages);
     ctx.setDetailHtml(`
         <div class="cs-drill-wrap census-detail">
             <div class="cs-drill-head">
@@ -608,9 +623,9 @@ function _csDrillSmallAreaPyramid(areaName, areaCode, pyr, crumbs) {
                 <div class="cs-drill-title-row">
                     <h2>${escHtml(areaName)}</h2>
                 </div>
-                ${body}
+                <div class="cs-sa-code">${escHtml(areaCode)}</div>
             </div>
-            <div class="cs-drill-list"></div>
+            <div class="cs-drill-list cs-sa-leaf">${body}</div>
         </div>
     `);
     _wireCrumbs(crumbs);
@@ -807,18 +822,10 @@ function showCensusDetail(code, year) {
         pyramid: { title: '年齢別人口構成', year: '2020年（参考：全国平均）' },
         stats:   { title: '就業・世帯経済', year: year + '年' },
     };
-    const PYRAMID_LEGEND = `
-        <div class="cs-pyramid-legend">
-            <span class="cs-pl-item"><span class="cs-pl-sw" style="background:#80f"></span><span class="cs-pl-sw" style="background:#804"></span>年少 0-14</span>
-            <span class="cs-pl-item"><span class="cs-pl-sw" style="background:#88f"></span><span class="cs-pl-sw" style="background:#fcc"></span>生産 15-64</span>
-            <span class="cs-pl-item"><span class="cs-pl-sw" style="background:#8f0"></span><span class="cs-pl-sw" style="background:#f80"></span>老年 65+</span>
-            <span class="cs-pl-item cs-pl-ref"><span class="cs-pl-line"></span>全国平均</span>
-        </div>`;
-
     const chartHtml = chartSections.map(sec => {
         const m = SECTION_META[sec.id] || {};
         const title = m.title ? `<h3>${m.title}${m.year ? ` <span class="cs-year">${m.year}</span>` : ''}</h3>` : '';
-        const extra = sec.id === 'pyramid' ? PYRAMID_LEGEND : '';
+        const extra = sec.id === 'pyramid' ? _pyramidLegend(true) : '';
         return `<div class="cs-section cs-svg-wrap">${title}${sec.svg}${extra}</div>`;
     }).join('');
 
