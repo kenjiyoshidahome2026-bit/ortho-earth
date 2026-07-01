@@ -4,6 +4,7 @@ import CENSUS_2020_POP    from './2020-pop.json'    with { type: 'json' };
 import CENSUS_2020_STATS  from './2020-stats.json'  with { type: 'json' };
 import CENSUS_2015_STATS  from './2015-stats.json'  with { type: 'json' };
 import CENSUS_2020_AGES   from './2020-ages.json'   with { type: 'json' };
+import CENSUS_2020_HOUSEHOLD from './2020-household.json' with { type: 'json' };
 import CENSUS_KANA        from './kana.json'        with { type: 'json' };
 import CENSUS_SHICHO      from './shicho.json'      with { type: 'json' };
 import CENSUS_GUN         from './gun.json'         with { type: 'json' };
@@ -309,8 +310,8 @@ function _cityStatsRows(pop20, p25, entry) {
 
 // チャート1セクションの HTML（見出し＋SVG＋ピラミッド凡例）
 function _sectionHtml(sec, hasRef) {
-    const TITLE = { pyramid: '年齢別人口構成', trend: '人口推移', stats: '就業・世帯経済' };
-    const YEAR  = { pyramid: hasRef ? '2020年（参考：全国平均）' : '2020年', trend: '2015 – 2025', stats: '2020年' };
+    const TITLE = { pyramid: '年齢別人口構成', trend: '人口推移', stats: '就業・世帯経済', household: '世帯・住宅' };
+    const YEAR  = { pyramid: hasRef ? '2020年（参考：全国平均）' : '2020年', trend: '2015 – 2025', stats: '2020年', household: '2020年' };
     const hd = TITLE[sec.id] ? `<h3 class="cs-drill-sec-h3">${TITLE[sec.id]} <span class="cs-year">${YEAR[sec.id]}</span></h3>` : '';
     const lg = sec.id === 'pyramid' ? _pyramidLegend(hasRef) : '';
     return `<div class="cs-section cs-svg-wrap">${hd}${sec.svg}${lg}</div>`;
@@ -385,7 +386,7 @@ function _levelDisplayHtml(statsHtml, opts) {
              <div class="cs-trend-body"><span class="cs-sa-loading">読み込み中…</span></div>
            </div>`
         : '';
-    return statsHtml + (byId.pyramid || '') + trendSlot + (byId.stats || '');
+    return statsHtml + (byId.pyramid || '') + trendSlot + (byId.stats || '') + (byId.household || '');
 }
 
 // pred(code) を満たす市区町村を積み上げ（人口・世帯・面積・年齢・就業/世帯経済）
@@ -406,6 +407,11 @@ function _aggForLevel(pred) {
         if (s) for (const k of ['ind', 'occ', 'eco']) if (s[k]) {
             if (!stat[k]) stat[k] = new Array(s[k].length).fill(0);
             s[k].forEach((x, i) => { stat[k][i] += x; });
+        }
+        const hhd = CENSUS_2020_HOUSEHOLD[c];
+        if (hhd) for (const k of ['fam', 'dwell', 'own']) if (hhd[k]) {
+            if (!stat[k]) stat[k] = new Array(hhd[k].length).fill(0);
+            hhd[k].forEach((x, i) => { stat[k][i] += x; });
         }
     }
     return {

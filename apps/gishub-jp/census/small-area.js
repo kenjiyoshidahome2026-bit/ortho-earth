@@ -255,7 +255,7 @@ function statIdbGet(cityCode) {
 
 function statIdbHasPref(prefCode) {
     return openDb().then(db => new Promise((res, rej) => {
-        const req = db.transaction(STAT_STORE, 'readonly').objectStore(STAT_STORE).get(`__pref_${prefCode}`);
+        const req = db.transaction(STAT_STORE, 'readonly').objectStore(STAT_STORE).get(`__pref6_${prefCode}`);
         req.onsuccess = e => res(!!e.target.result);
         req.onerror   = e => rej(e.target.error);
     })).catch(() => false);
@@ -266,13 +266,13 @@ function statIdbPutPref(prefCode, byCity) {
         const tx    = db.transaction(STAT_STORE, 'readwrite');
         const store = tx.objectStore(STAT_STORE);
         for (const [city, map] of byCity) store.put(map, city);
-        store.put(1, `__pref_${prefCode}`);
+        store.put(1, `__pref6_${prefCode}`);   // 6表版マーカー（旧__pref_は再取得させる）
         tx.oncomplete = res;
         tx.onerror    = e => rej(e.target.error);
     }));
 }
 
-// ---- T001103/104/106 フェッチ（都道府県ZIP → 市区町村単位で IDB 永続化） ----
+// ---- T001103/104/106（就業）+ T001084/085/086（世帯住宅）フェッチ（都道府県ZIP → 市区町村単位で IDB 永続化） ----
 // ind=産業別就業者＋就業地位, occ=職業別就業者, eco=世帯経済構成。各行 slice(7)。
 const _statLoading = new Map();
 
@@ -280,12 +280,16 @@ async function ensurePrefStats(prefCode, apiBase) {
     if (await statIdbHasPref(prefCode)) return;
     if (_statLoading.has(prefCode)) return _statLoading.get(prefCode);
     const p = (async () => {
-        const [tInd, tOcc, tEco] = await Promise.all([
+        // 就業(ind/occ/eco) + 世帯住宅(fam/dwell/own) を並列取得
+        const [tInd, tOcc, tEco, tFam, tOwn, tDwell] = await Promise.all([
             fetchStatRows('T001103', prefCode, apiBase),
             fetchStatRows('T001104', prefCode, apiBase),
             fetchStatRows('T001106', prefCode, apiBase),
+            fetchStatRows('T001084', prefCode, apiBase),
+            fetchStatRows('T001085', prefCode, apiBase),
+            fetchStatRows('T001086', prefCode, apiBase),
         ]);
-        const byCity = new Map();   // 市区町村5桁 → Map<areaCode,{ind,occ,eco}>
+        const byCity = new Map();   // 市区町村5桁 → Map<areaCode,{ind,occ,eco,fam,dwell,own}>
         const clean  = a => a.map(v => +v || 0);
         const merge  = (rows, key) => {
             for (const t of rows) {
@@ -300,6 +304,7 @@ async function ensurePrefStats(prefCode, apiBase) {
             }
         };
         merge(tInd, 'ind'); merge(tOcc, 'occ'); merge(tEco, 'eco');
+        merge(tFam, 'fam'); merge(tOwn, 'own'); merge(tDwell, 'dwell');
         await statIdbPutPref(prefCode, byCity);
     })().finally(() => _statLoading.delete(prefCode));
     _statLoading.set(prefCode, p);

@@ -63,7 +63,7 @@ function appendLegend(parent, items, x0, y0) {
 }
 
 // ── ドーナツ円グラフ ──────────────────────────────────────────────────────────
-function appendDonut(parent, cx, cy, items, label, total) {
+function appendDonut(parent, cx, cy, items, label, total, unit = '人') {
     const R    = 29.9;
     const PERI = R * 2 * Math.PI;
     const a    = [...items].sort((a, b) => b[0] - a[0]);
@@ -90,7 +90,7 @@ function appendDonut(parent, cx, cy, items, label, total) {
     });
     gt.elem('text', { x: 0, y: -7, 'font-size': 5 }, label);
     gt.elem('text', { x: 0, y:  0, 'font-size': 6, 'font-weight': 700 }, d3.comma(total));
-    gt.elem('text', { x: 0, y:  7, 'font-size': 5 }, '[人]');
+    gt.elem('text', { x: 0, y:  7, 'font-size': 5 }, `[${unit}]`);
 }
 
 // ── 水平バー ─────────────────────────────────────────────────────────────────
@@ -178,6 +178,52 @@ function appendHousehold(parent, x0, y0, v) {
     parent.elem('text', { x: x0, y: y0 - 2, 'font-size': 8, 'font-family': 'Verdana', fill: '#aaa' }, '世帯経済構成');
     appendHBar(parent, x0, y0 + 5, segs, v[0], labels);
     return 40;
+}
+
+// ── 世帯の家族類型（T001084: [総数,親族のみ,核家族,夫婦のみ,夫婦と子,核家族以外,...]） ──
+const FAM_DEF = [
+    ['単独',       '#c0c'], ['夫婦のみ',   '#08f'], ['夫婦と子',   '#0c8'],
+    ['ひとり親等', '#fa0'], ['その他親族', '#888'],
+];
+function appendFamilyType(parent, x0, y0, v) {
+    if (!v || !v[0]) return 0;
+    const vals = [
+        Math.max(0, v[0] - v[1]),         // 単独＋非親族 ≈ 一般世帯総数 − 親族のみ世帯
+        v[3],                             // 夫婦のみ
+        v[4],                             // 夫婦と子供
+        Math.max(0, v[2] - v[3] - v[4]),  // ひとり親等（核家族 − 夫婦のみ − 夫婦と子）
+        v[5],                             // 核家族以外（その他親族）
+    ];
+    const items = vals.map((val, i) => [val, FAM_DEF[i][1], FAM_DEF[i][0]]);
+    parent.elem('text', { x: x0, y: y0 - 2, 'font-size': 8, 'font-family': 'Verdana', fill: '#aaa' }, '世帯の家族類型');
+    appendDonut(parent, x0 + 40, y0 + 40, items, '世帯', v[0], '世帯');
+    appendLegend(parent, items, x0 + 88, y0 + 2);
+    return 90;
+}
+
+// ── 住宅の建て方(T001086) ＋ 所有(T001085) ──
+function appendHousing(parent, x0, y0, dwell, own) {
+    if (!dwell || !dwell[0]) return 0;
+    const segs = [
+        [dwell[1], '#0a6'],  // 一戸建
+        [dwell[2], '#8c0'],  // 長屋建
+        [dwell[3], '#08c'],  // 共同住宅
+        [Math.max(0, dwell[0] - dwell[1] - dwell[2] - dwell[3]), '#888'],
+    ];
+    const labels = [[12, '一戸建', dwell[1]], [42, '長屋', dwell[2]], [72, '共同住宅', dwell[3]]];
+    parent.elem('text', { x: x0, y: y0 - 2, 'font-size': 8, 'font-family': 'Verdana', fill: '#aaa' }, '住宅の建て方');
+    appendHBar(parent, x0, y0 + 5, segs, dwell[0], labels);
+    let h = 48;   // バー(14)+ラベル2行(21,28)＋次見出しのクリアランス
+    if (own && own[0]) {
+        const oy   = y0 + h;
+        const rent = own[2] || 0;
+        const oseg = [[own[1], '#c60'], [rent, '#68c'], [Math.max(0, own[0] - own[1] - rent), '#888']];
+        const olab = [[12, '持ち家', own[1]], [60, '民営借家', rent]];
+        parent.elem('text', { x: x0, y: oy - 2, 'font-size': 8, 'font-family': 'Verdana', fill: '#aaa' }, '住宅の所有');
+        appendHBar(parent, x0, oy + 5, oseg, own[0], olab);
+        h += 40;
+    }
+    return h;
 }
 
 // ── 人口ピラミッド ────────────────────────────────────────────────────────────
@@ -400,6 +446,18 @@ export function buildCensusChartSections(stat, year = '2020', opts = {}) {
             return used ? cur - y : 0;
         });
         if (statSvg) out.push({ id: 'stats', svg: statSvg });
+    }
+
+    if (stat && (stat.fam || stat.dwell)) {
+        const hhSvg = makeSvg((s, x0, y) => {
+            const PAD = 12;
+            let cur = y, used = 0;
+            const run = fn => { const h = fn(s, x0, cur); if (h) { cur += h + PAD; used += h + PAD; } };
+            if (stat.fam)   run((s,x,y) => appendFamilyType(s, x, y, stat.fam));
+            if (stat.dwell) run((s,x,y) => appendHousing(s, x, y, stat.dwell, stat.own));
+            return used ? cur - y : 0;
+        });
+        if (hhSvg) out.push({ id: 'household', svg: hhSvg });
     }
 
     return out;
