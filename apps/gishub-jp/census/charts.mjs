@@ -378,7 +378,7 @@ export function buildCensusChartSections(stat, year = '2020', opts = {}) {
     }
 
     if (popTrend && popTrend.length) {
-        const svg = makeSvg((s, x0, y) => appendPopTrend(s, x0 + 12, y, popTrend));
+        const svg = makeSvg((s, x0, y) => appendPopTrend(s, x0 + 16, y, popTrend));
         if (svg) out.push({ id: 'trend', svg });
     }
 

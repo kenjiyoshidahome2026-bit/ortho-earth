@@ -219,7 +219,8 @@
 		color: $mid;
 		font-family: $mono;
 	}
-	.cs-sa-section {
+	// geo-preview 詳細パネル(.cs-sa-section) とドリルダウン(.cs-drill-list) の両方に適用
+	.cs-sa-section, .cs-drill-list {
 		.cs-sa-load {
 			background: #2a2a2a;
 			border: 1px solid rgba(255,255,255,.2);
