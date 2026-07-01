@@ -6,10 +6,13 @@
 
 const GIS_STATS_BASE = 'https://www.e-stat.go.jp/gis/statmap-search/data';
 const DB_NAME   = 'gishub-census';
-const DB_VER    = 3;
+const DB_VER    = 4;
 const SA_STORE  = 'small2020';   // 人口 T001081: key=市区町村5桁 → [[code,name,total,m,f], ...]
 const PYR_STORE = 'pyr2020';     // 年齢 T001082: key=市区町村5桁 → Map<areaCode,{mAges,fAges}>
                                  //   `__pref_NN` マーカーで都道府県取得済みを判定
+const STAT_STORE = 'stats2020';  // 就業・世帯経済: key=市区町村5桁 → Map<areaCode,{ind,occ,eco}>
+                                 //   ind=T001103 産業別就業者＋就業地位, occ=T001104 職業別, eco=T001106 世帯経済構成
+                                 //   いずれも各行 slice(7)。`__pref_NN` マーカーで都道府県取得済みを判定
 
 // ---- IDB helpers -----------------------------------------------------------
 
@@ -24,6 +27,8 @@ function openDb() {
                 db.createObjectStore(SA_STORE);
             if (!db.objectStoreNames.contains(PYR_STORE))
                 db.createObjectStore(PYR_STORE);
+            if (!db.objectStoreNames.contains(STAT_STORE))
+                db.createObjectStore(STAT_STORE);
         };
         req.onsuccess = ({ target: { result: db } }) => { _db = db; res(db); };
         req.onerror   = ({ target: { error } }) => rej(error);
@@ -170,8 +175,8 @@ function pyrIdbPutPref(prefCode, byCity) {
 
 // ---- T001082 フェッチ（都道府県ZIP → 市区町村単位で IDB 永続化） -----------
 
-async function fetchT082Rows(prefCode, apiBase) {
-    const url  = `${GIS_STATS_BASE}?statsId=T001082&downloadType=2&code=${prefCode}`;
+async function fetchStatRows(statsId, prefCode, apiBase) {
+    const url  = `${GIS_STATS_BASE}?statsId=${statsId}&downloadType=2&code=${prefCode}`;
     const resp = await fetch(`${apiBase}/proxy/?url=${encodeURIComponent(url)}`);
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     const bytes = await unzipFirstEntry(await resp.blob());
@@ -188,7 +193,7 @@ async function ensurePrefPyramid(prefCode, apiBase) {
     if (await pyrIdbHasPref(prefCode)) return;
     if (_prefLoading.has(prefCode)) return _prefLoading.get(prefCode);
     const p = (async () => {
-        const rows   = await fetchT082Rows(prefCode, apiBase);
+        const rows   = await fetchStatRows('T001082', prefCode, apiBase);
         const byCity = new Map();   // 市区町村5桁 → Map<areaCode,{mAges,fAges}>
         // T001082: 男 col 28-42 + 46 = 16グループ、女 col 48-62 + 66
         for (const t of rows) {
@@ -214,6 +219,75 @@ async function ensurePrefPyramid(prefCode, apiBase) {
 export async function fetchSmallAreaPyramid(cityCode, apiBase) {
     await ensurePrefPyramid(cityCode.slice(0, 2), apiBase);
     return (await pyrIdbGet(cityCode)) || new Map();
+}
+
+// ---- 就業・世帯経済 IDB ヘルパー（STAT_STORE、pyr と同構造） ----------------
+
+function statIdbGet(cityCode) {
+    return openDb().then(db => new Promise((res, rej) => {
+        const req = db.transaction(STAT_STORE, 'readonly').objectStore(STAT_STORE).get(cityCode);
+        req.onsuccess = e => res(e.target.result || null);
+        req.onerror   = e => rej(e.target.error);
+    }));
+}
+
+function statIdbHasPref(prefCode) {
+    return openDb().then(db => new Promise((res, rej) => {
+        const req = db.transaction(STAT_STORE, 'readonly').objectStore(STAT_STORE).get(`__pref_${prefCode}`);
+        req.onsuccess = e => res(!!e.target.result);
+        req.onerror   = e => rej(e.target.error);
+    })).catch(() => false);
+}
+
+function statIdbPutPref(prefCode, byCity) {
+    return openDb().then(db => new Promise((res, rej) => {
+        const tx    = db.transaction(STAT_STORE, 'readwrite');
+        const store = tx.objectStore(STAT_STORE);
+        for (const [city, map] of byCity) store.put(map, city);
+        store.put(1, `__pref_${prefCode}`);
+        tx.oncomplete = res;
+        tx.onerror    = e => rej(e.target.error);
+    }));
+}
+
+// ---- T001103/104/106 フェッチ（都道府県ZIP → 市区町村単位で IDB 永続化） ----
+// ind=産業別就業者＋就業地位, occ=職業別就業者, eco=世帯経済構成。各行 slice(7)。
+const _statLoading = new Map();
+
+async function ensurePrefStats(prefCode, apiBase) {
+    if (await statIdbHasPref(prefCode)) return;
+    if (_statLoading.has(prefCode)) return _statLoading.get(prefCode);
+    const p = (async () => {
+        const [tInd, tOcc, tEco] = await Promise.all([
+            fetchStatRows('T001103', prefCode, apiBase),
+            fetchStatRows('T001104', prefCode, apiBase),
+            fetchStatRows('T001106', prefCode, apiBase),
+        ]);
+        const byCity = new Map();   // 市区町村5桁 → Map<areaCode,{ind,occ,eco}>
+        const clean  = a => a.map(v => +v || 0);
+        const merge  = (rows, key) => {
+            for (const t of rows) {
+                const code = String(t[0] || '');
+                if (code.length <= 5) continue;     // 市区町村集計行は除外
+                const city = code.slice(0, 5);
+                let m = byCity.get(city);
+                if (!m) { m = new Map(); byCity.set(city, m); }
+                let o = m.get(code);
+                if (!o) { o = {}; m.set(code, o); }
+                o[key] = clean(t.slice(7));
+            }
+        };
+        merge(tInd, 'ind'); merge(tOcc, 'occ'); merge(tEco, 'eco');
+        await statIdbPutPref(prefCode, byCity);
+    })().finally(() => _statLoading.delete(prefCode));
+    _statLoading.set(prefCode, p);
+    return p;
+}
+
+// 市区町村の小地域就業・世帯経済 Map<areaCode,{ind,occ,eco}>
+export async function fetchSmallAreaStats(cityCode, apiBase) {
+    await ensurePrefStats(cityCode.slice(0, 2), apiBase);
+    return (await statIdbGet(cityCode)) || new Map();
 }
 
 // ---- SVG 描画 ---------------------------------------------------------------

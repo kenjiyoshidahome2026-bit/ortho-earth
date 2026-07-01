@@ -9,7 +9,7 @@ import CENSUS_SHICHO      from './shicho.json'      with { type: 'json' };
 import CENSUS_GUN         from './gun.json'         with { type: 'json' };
 import ESTAT_MANIFEST     from '../estat/manifest.json' with { type: 'json' };
 import { buildCensusChartSections } from './charts.mjs';
-import { fetchSmallAreaData, fetchSmallAreaPyramid, miniAgeBar,
+import { fetchSmallAreaData, fetchSmallAreaPyramid, fetchSmallAreaStats, miniAgeBar,
          prefetchSmallAreaIdb, isSmallAreaReady } from './small-area.js';
 import { PREFS, escHtml } from '../ui/shared.js';
 import { ctx } from '../ui/ctx.js';
@@ -665,15 +665,22 @@ function _csDrillSmallAreaTable(cityCode, title, items, popMap, subMap, crumbs, 
             </div>
             <div class="cs-drill-list" id="cs-sa-table-body"></div>
             <div class="cs-drill-display" id="cs-node-pyr"></div>
+            <div class="cs-drill-display" id="cs-node-stats"></div>
         </div>
     `);
     _wireCrumbs(crumbs);
-    // ノード自身の集計ピラミッドを後追いで表示セクションに描画
+    // ノード自身の集計ピラミッド・就業世帯経済を後追いで表示セクションに描画
     if (nodeCode) {
         fetchSmallAreaPyramid(cityCode, API_BASE).then(pm => {
             const el  = document.getElementById('cs-node-pyr');
             const pyr = pm?.get(nodeCode);
             if (el?.isConnected && pyr) el.innerHTML = _fullChartHtml({ ages: [...pyr.mAges, ...pyr.fAges] });
+        }).catch(() => {});
+        fetchSmallAreaStats(cityCode, API_BASE).then(sm => {
+            const el   = document.getElementById('cs-node-stats');
+            const stat = sm?.get(nodeCode);
+            if (el?.isConnected && stat) el.innerHTML = _chartSections({ stat })
+                .filter(s => s.id === 'stats').map(s => _sectionHtml(s, false)).join('');
         }).catch(() => {});
     }
     _populateSmallAreaBody(document.getElementById('cs-sa-table-body'), cityCode, {
@@ -701,10 +708,19 @@ function _csDrillSmallAreaPyramid(areaName, areaCode, pyr, crumbs) {
                 </div>
                 <div class="cs-sa-code">${escHtml(areaCode)}</div>
             </div>
-            <div class="cs-drill-display cs-sa-leaf">${body}</div>
+            <div class="cs-drill-display cs-sa-leaf">${body}<div id="cs-sa-statslot"></div></div>
         </div>
     `);
     _wireCrumbs(crumbs);
+    // 就業・世帯経済（T001103/104/106）は都道府県ZIP取得後に後追い描画
+    fetchSmallAreaStats(areaCode.slice(0, 5), API_BASE).then(sm => {
+        const stat = sm.get(areaCode);
+        const slot = document.getElementById('cs-sa-statslot');
+        if (!slot?.isConnected || !stat) return;
+        slot.innerHTML = _chartSections({ stat })
+            .filter(s => s.id === 'stats')
+            .map(s => _sectionHtml(s, false)).join('');
+    }).catch(() => {});
 }
 
 // ---- small area table renderer (shared) ------------------------------------
