@@ -288,7 +288,7 @@ function _csDrillNational() {
 
     const listHtml = `<h3 class="cs-drill-sec-h3">都道府県 <span class="cs-year">47都道府県</span></h3>
         <div class="cs-drill-chips">${
-        [...byPref.entries()].map(([pref, d]) =>
+        [...byPref.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([pref, d]) =>
             `<span class="cs-drill-chip" data-key="${pref}">${PREFS[pref] || pref}<span class="cs-chip-sub">${(d.pop / 1e4).toFixed(0)}万</span></span>`
         ).join('')
     }</div>`;
