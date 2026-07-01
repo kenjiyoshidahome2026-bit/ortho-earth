@@ -109,17 +109,40 @@
 		margin-bottom: 8px;
 		h2 { margin: 0; }
 	}
-	.cs-drill-back {
-		flex-shrink: 0;
-		background: none;
-		border: 1px solid rgba(255,255,255,.2);
-		color: #ccc;
-		padding: 3px 10px;
-		border-radius: 3px;
-		cursor: pointer;
+	// ---- パンくずリスト ----
+	.cs-crumbs {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 1px;
+		margin-bottom: 6px;
 		font-size: 11px;
+		line-height: 1.5;
+	}
+	.cs-crumb {
+		background: none;
+		border: none;
+		padding: 1px 5px;
+		border-radius: 3px;
+		font-size: 11px;
+		font-family: inherit;
+		color: $mid;
+		cursor: pointer;
 		white-space: nowrap;
-		&:hover { background: rgba(255,255,255,.06); }
+		max-width: 12em;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		&:hover { color: $text; background: rgba(255,255,255,.08); }
+	}
+	.cs-crumb-cur {
+		color: $text;
+		font-weight: 600;
+		cursor: default;
+		&:hover { background: none; }
+	}
+	.cs-crumb-sep {
+		color: #555;
+		user-select: none;
 	}
 	.cs-drill-list {
 		padding: 8px 14px 24px;

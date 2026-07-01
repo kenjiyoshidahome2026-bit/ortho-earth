@@ -196,16 +196,46 @@ function _csDrillFetch() {
     });
 }
 
+// ---- パンくずナビゲーション -------------------------------------------------
+// 各クラム = { label, go }。配列末尾が現在地（非リンク）、それ以外はクリックで遷移。
+const _crumbNat   = () => ({ label: '全国', go: _csDrillNational });
+const _crumbPref  = prefCode => ({ label: PREFS[prefCode] || prefCode, go: () => _csDrillPref(prefCode) });
+const _crumbDesig = (code, prefCode) => ({ label: CENSUS_MANIFEST.find(e => e.code === code)?.name || code, go: () => _csDrillDesignated(code, prefCode) });
+const _crumbCity  = (code, prefCode, parentCode) => ({ label: CENSUS_MANIFEST.find(e => e.code === code)?.name || code, go: () => _csDrillCity(code, prefCode, parentCode) });
+const _crumbGroup = (cityCode, groupName, groupItems, popMap, prefCode, parentCode) =>
+    ({ label: groupName, go: () => _csDrillSmallAreaTable(cityCode, groupName, groupItems, popMap, prefCode, parentCode) });
+
+// 全国 → 都道府県 → (政令市) → 市区町村 までのクラム列
+function _cityCrumbs(cityCode, prefCode, parentCode) {
+    const arr = [_crumbNat(), _crumbPref(prefCode)];
+    if (parentCode) arr.push(_crumbDesig(parentCode, prefCode));
+    arr.push(_crumbCity(cityCode, prefCode, parentCode));
+    return arr;
+}
+
+function _crumbBarHtml(crumbs) {
+    if (!crumbs?.length) return '';
+    return `<nav class="cs-crumbs">` + crumbs.map((c, i) => {
+        const sep = i > 0 ? '<span class="cs-crumb-sep">›</span>' : '';
+        return sep + (i === crumbs.length - 1
+            ? `<span class="cs-crumb cs-crumb-cur">${escHtml(c.label)}</span>`
+            : `<button class="cs-crumb" data-idx="${i}">${escHtml(c.label)}</button>`);
+    }).join('') + `</nav>`;
+}
+
+function _wireCrumbs(crumbs) {
+    document.querySelectorAll('.cs-crumbs .cs-crumb[data-idx]').forEach(el =>
+        el.addEventListener('click', () => crumbs[+el.dataset.idx]?.go?.())
+    );
+}
+
 // ヘルパー: ドリルダウン共通ラッパー HTML
-function _drillWrap({ back, title, statsHtml, chartHtml, listHtml }) {
-    const backBtn = back
-        ? `<button class="cs-drill-back">${escHtml(back.label)}</button>`
-        : '';
+function _drillWrap({ crumbs, title, statsHtml = '', chartHtml = '', listHtml = '' }) {
     return `
         <div class="cs-drill-wrap census-detail">
             <div class="cs-drill-head">
+                ${_crumbBarHtml(crumbs)}
                 <div class="cs-drill-title-row">
-                    ${backBtn}
                     <h2>${escHtml(title)}</h2>
                 </div>
                 ${statsHtml}
@@ -230,28 +260,23 @@ function _chartHtml(sections, meta = {}) {
 
 // Level 0: 全国データ + 都道府県一覧
 function _csDrillNational() {
-    const cities = CENSUS_MANIFEST.filter(e => !e.code.endsWith('000') && e.code !== '00000');
-
-    // 都道府県ごとに集計
+    // 2020人口を都道府県ごとに集計（CENSUS_2020_POP は葉ノードのみ＝合算で全国と完全一致）
     const byPref = new Map();
-    for (const c of cities) {
-        const pref = c.pref;
-        if (!byPref.has(pref)) byPref.set(pref, { pop: 0, male: 0, female: 0, n: 0 });
-        const p = byPref.get(pref);
-        p.pop += c.pop || 0; p.male += c.male || 0; p.female += c.female || 0; p.n++;
+    let totPop = 0, totMale = 0, totFem = 0;
+    for (const [code, v] of Object.entries(CENSUS_2020_POP)) {
+        const pref = code.slice(0, 2);
+        if (!byPref.has(pref)) byPref.set(pref, { pop: 0 });
+        byPref.get(pref).pop += v[0];
+        totPop += v[0]; totMale += v[1]; totFem += v[2];
     }
-
-    const totPop  = [...byPref.values()].reduce((s, p) => s + p.pop, 0);
-    const totMale = [...byPref.values()].reduce((s, p) => s + p.male, 0);
-    const totFem  = [...byPref.values()].reduce((s, p) => s + p.female, 0);
+    const cityCount = Object.keys(CENSUS_2020_POP).length;
 
     const statsHtml = `
         <div class="cs-kv-grid">
-            <div class="cs-kv"><span class="cs-k">総人口 <span class="cs-year">2025年</span></span><span class="cs-v">${totPop.toLocaleString()} 人</span></div>
+            <div class="cs-kv"><span class="cs-k">総人口 <span class="cs-year">2020年</span></span><span class="cs-v">${totPop.toLocaleString()} 人</span></div>
             <div class="cs-kv"><span class="cs-k">男性</span><span class="cs-v">${totMale.toLocaleString()} 人</span></div>
             <div class="cs-kv"><span class="cs-k">女性</span><span class="cs-v">${totFem.toLocaleString()} 人</span></div>
-            <div class="cs-kv"><span class="cs-k">市区町村</span><span class="cs-v">${cities.length.toLocaleString()} 件</span></div>
-            <div class="cs-kv"><span class="cs-k">小地域 <span class="cs-year">2020年</span></span><span class="cs-v">251,142 件</span></div>
+            <div class="cs-kv"><span class="cs-k">市区町村</span><span class="cs-v">${cityCount.toLocaleString()} 件</span></div>
         </div>`;
 
     // 全国年齢ピラミッド
@@ -301,13 +326,13 @@ function _wardParent(code) {
 // Level 1: 都道府県データ + 市区町村一覧
 function _csDrillPref(prefCode) {
     const prefName = PREFS[prefCode] || prefCode;
-    const prefEntry = CENSUS_MANIFEST.find(e => e.pref === prefCode && e.code === `${prefCode}000`);
     const cities    = CENSUS_MANIFEST.filter(e => e.pref === prefCode && !e.code.endsWith('000'));
 
-    const pop    = prefEntry?.pop    || cities.reduce((s, c) => s + (c.pop    || 0), 0);
-    const male   = prefEntry?.male   || cities.reduce((s, c) => s + (c.male   || 0), 0);
-    const female = prefEntry?.female || cities.reduce((s, c) => s + (c.female || 0), 0);
-    const hh     = prefEntry?.hh;
+    // 2020人口（CENSUS_2020_POP を都道府県内で合算＝二重計上なし）
+    let pop = 0, male = 0, female = 0;
+    for (const [code, v] of Object.entries(CENSUS_2020_POP)) {
+        if (code.slice(0, 2) === prefCode) { pop += v[0]; male += v[1]; female += v[2]; }
+    }
 
     // 都道府県年齢ピラミッド（市区町村合計）
     const prefAges = new Array(32).fill(0);
@@ -324,10 +349,9 @@ function _csDrillPref(prefCode) {
 
     const statsHtml = `
         <div class="cs-kv-grid">
-            <div class="cs-kv"><span class="cs-k">人口 <span class="cs-year">2025年</span></span><span class="cs-v">${pop.toLocaleString()} 人</span></div>
+            <div class="cs-kv"><span class="cs-k">人口 <span class="cs-year">2020年</span></span><span class="cs-v">${pop.toLocaleString()} 人</span></div>
             <div class="cs-kv"><span class="cs-k">男性</span><span class="cs-v">${male.toLocaleString()} 人</span></div>
             <div class="cs-kv"><span class="cs-k">女性</span><span class="cs-v">${female.toLocaleString()} 人</span></div>
-            ${hh ? `<div class="cs-kv"><span class="cs-k">世帯数</span><span class="cs-v">${hh.toLocaleString()} 世帯</span></div>` : ''}
             <div class="cs-kv"><span class="cs-k">市区町村</span><span class="cs-v">${cities.length} 件</span></div>
         </div>`;
 
@@ -338,11 +362,11 @@ function _csDrillPref(prefCode) {
             `<span class="cs-drill-chip" data-key="${c.code}">${escHtml(c.name)}</span>`
         ).join('')}</div>`;
 
+    const crumbs = [_crumbNat(), _crumbPref(prefCode)];
     ctx.setDetailHtml(_drillWrap({
-        back: { label: '← 全国', fn: _csDrillNational },
-        title: prefName, statsHtml, chartHtml: chart, listHtml,
+        crumbs, title: prefName, statsHtml, chartHtml: chart, listHtml,
     }));
-    document.querySelector('.cs-drill-back').addEventListener('click', _csDrillNational);
+    _wireCrumbs(crumbs);
     document.querySelectorAll('.cs-drill-chip[data-key]').forEach(el =>
         el.addEventListener('click', () => {
             const code = el.dataset.key;
@@ -372,9 +396,21 @@ function _areaGroup(name) {
 function _csDrillDesignated(cityCode, prefCode) {
     const entry    = CENSUS_MANIFEST.find(e => e.code === cityCode);
     const cityName = entry?.name || cityCode;
-    const prefName = PREFS[prefCode] || prefCode;
 
     const wards = CENSUS_MANIFEST.filter(e => _wardParent(e.code) === cityCode);
+
+    // 区を積み上げた年齢ピラミッド（都道府県レベルと同じ手法）
+    const desigAges = new Array(32).fill(0);
+    let hasAges = false;
+    for (const w of wards) {
+        const a = CENSUS_2020_AGES[w.code];
+        if (a?.length === 32) { a.forEach((v, i) => { desigAges[i] += v; }); hasAges = true; }
+    }
+    const natAges   = CENSUS_2020_AGES['_national'];
+    const chartSecs = hasAges
+        ? buildCensusChartSections(null, '2020', { ages: desigAges, refAges: natAges })
+        : [];
+    const chart = _chartHtml(chartSecs, { pyramid: { title: '年齢別人口構成', year: '2020年（参考：全国平均）' } });
 
     const pop20 = CENSUS_2020_POP[cityCode];
     const p25   = CENSUS_2025_POP[cityCode];
@@ -402,10 +438,11 @@ function _csDrillDesignated(cityCode, prefCode) {
             `<span class="cs-drill-chip" data-key="${w.code}">${escHtml(w.name)}</span>`
         ).join('')}</div>`;
 
+    const crumbs = [_crumbNat(), _crumbPref(prefCode), _crumbDesig(cityCode, prefCode)];
     ctx.setDetailHtml(_drillWrap({
-        back: { label: `← ${prefName}` }, title: cityName, statsHtml, chartHtml: '', listHtml,
+        crumbs, title: cityName, statsHtml, chartHtml: chart, listHtml,
     }));
-    document.querySelector('.cs-drill-back').addEventListener('click', () => _csDrillPref(prefCode));
+    _wireCrumbs(crumbs);
     document.querySelectorAll('.cs-drill-chip[data-key]').forEach(el =>
         el.addEventListener('click', () => _csDrillCity(el.dataset.key, prefCode, cityCode))
     );
@@ -415,7 +452,6 @@ function _csDrillDesignated(cityCode, prefCode) {
 async function _csDrillCity(cityCode, prefCode, parentCode = null) {
     const entry    = CENSUS_MANIFEST.find(e => e.code === cityCode);
     const cityName = entry?.name || cityCode;
-    const prefName = PREFS[prefCode] || prefCode;
     const stat     = CENSUS_2020_STATS[cityCode];
     const ages     = CENSUS_2020_AGES[cityCode];
     const natAges  = CENSUS_2020_AGES['_national'];
@@ -465,15 +501,13 @@ async function _csDrillCity(cityCode, prefCode, parentCode = null) {
         ? '<div id="cs-drill-sa"><span class="cs-sa-loading">小地域データ読み込み中…</span></div>'
         : '<div style="color:#666;font-size:12px;padding:4px 0">小地域データなし</div>';
 
-    const parentName = parentCode
-        ? (CENSUS_MANIFEST.find(e => e.code === parentCode)?.name || parentCode)
-        : prefName;
+    const crumbs = _cityCrumbs(cityCode, prefCode, parentCode);
 
     ctx.setDetailHtml(`
         <div class="cs-drill-wrap census-detail">
             <div class="cs-drill-head">
+                ${_crumbBarHtml(crumbs)}
                 <div class="cs-drill-title-row">
-                    <button class="cs-drill-back">← ${escHtml(parentName)}</button>
                     <h2>${escHtml(cityName)}</h2>
                 </div>
                 ${statsHtml}
@@ -485,14 +519,15 @@ async function _csDrillCity(cityCode, prefCode, parentCode = null) {
             </div>
         </div>
     `);
-    document.querySelector('.cs-drill-back').addEventListener('click', () =>
-        parentCode ? _csDrillDesignated(parentCode, prefCode) : _csDrillPref(prefCode)
-    );
+    _wireCrumbs(crumbs);
 
     if (hasSmallArea) {
         const saEl = document.getElementById('cs-drill-sa');
         try {
-            const { items, popMap } = await fetchSmallAreaData(cityCode);
+            const { items: allItems, popMap } = await fetchSmallAreaData(cityCode);
+            // 9桁＝町丁・字等（正準層。合算が市区町村人口と一致）。11桁＝基本単位区は下位のため除外
+            const nine  = allItems.filter(([c]) => c.length === 9);
+            const items = nine.length ? nine : allItems;
             if (!items.length) { saEl.textContent = 'データなし'; return; }
             const groups = new Map();
             for (const [code, name] of items) {
@@ -531,13 +566,13 @@ async function _csDrillCity(cityCode, prefCode, parentCode = null) {
 
 // Level 3: 大字/町名グループ → 小地域テーブル
 function _csDrillSmallAreaTable(cityCode, groupName, groupItems, popMap, prefCode, parentCode) {
-    const cityEntry = CENSUS_MANIFEST.find(e => e.code === cityCode);
-    const cityName  = cityEntry?.name || cityCode;
+    const crumbs = [..._cityCrumbs(cityCode, prefCode, parentCode),
+                    _crumbGroup(cityCode, groupName, groupItems, popMap, prefCode, parentCode)];
     ctx.setDetailHtml(`
         <div class="cs-drill-wrap census-detail">
             <div class="cs-drill-head">
+                ${_crumbBarHtml(crumbs)}
                 <div class="cs-drill-title-row">
-                    <button class="cs-drill-back">← ${escHtml(cityName)}</button>
                     <h2>${escHtml(groupName)}</h2>
                 </div>
                 <div style="font-size:11px;color:#888;padding:2px 0">${groupItems.length}件</div>
@@ -545,22 +580,18 @@ function _csDrillSmallAreaTable(cityCode, groupName, groupItems, popMap, prefCod
             <div class="cs-drill-list" id="cs-sa-table-body"></div>
         </div>
     `);
-    document.querySelector('.cs-drill-back').addEventListener('click', () =>
-        _csDrillCity(cityCode, prefCode, parentCode)
-    );
+    _wireCrumbs(crumbs);
     _populateSmallAreaBody(document.getElementById('cs-sa-table-body'), cityCode, {
         downloadName: `${cityCode}_${groupName}_小地域.csv`,
         preItems: groupItems,
         prePopMap: popMap,
-        onRowClick: (areaCode, areaName, pyr, pop) => {
-            const backToTable = () => _csDrillSmallAreaTable(cityCode, groupName, groupItems, popMap, prefCode, parentCode);
-            _csDrillSmallAreaPyramid(areaName, groupName, pyr, pop, backToTable);
-        },
+        onRowClick: (areaCode, areaName, pyr, pop) =>
+            _csDrillSmallAreaPyramid(areaName, pyr, pop, [...crumbs, { label: areaName }]),
     });
 }
 
 // Level 4: 小地域 → 人口ピラミッド（最終系）
-function _csDrillSmallAreaPyramid(areaName, backLabel, pyr, pop, backFn) {
+function _csDrillSmallAreaPyramid(areaName, pyr, pop, crumbs) {
     const popHtml = pop?.total ? `
         <div class="cs-kv-grid">
             <div class="cs-kv"><span class="cs-k">総人口</span><span class="cs-v">${pop.total.toLocaleString()} 人</span></div>
@@ -572,8 +603,8 @@ function _csDrillSmallAreaPyramid(areaName, backLabel, pyr, pop, backFn) {
     ctx.setDetailHtml(`
         <div class="cs-drill-wrap census-detail">
             <div class="cs-drill-head">
+                ${_crumbBarHtml(crumbs)}
                 <div class="cs-drill-title-row">
-                    <button class="cs-drill-back">← ${escHtml(backLabel)}</button>
                     <h2>${escHtml(areaName)}</h2>
                 </div>
                 ${popHtml}
@@ -583,7 +614,7 @@ function _csDrillSmallAreaPyramid(areaName, backLabel, pyr, pop, backFn) {
             </div>
         </div>
     `);
-    document.querySelector('.cs-drill-back').addEventListener('click', backFn);
+    _wireCrumbs(crumbs);
 }
 
 // ---- small area table renderer (shared) ------------------------------------
@@ -591,28 +622,22 @@ function _csDrillSmallAreaPyramid(areaName, backLabel, pyr, pop, backFn) {
 async function _populateSmallAreaBody(bodyEl, code, { downloadName, withPyramid = true, preItems = null, prePopMap = null, onRowClick = null } = {}) {
     bodyEl.innerHTML = '<span class="cs-sa-loading">読み込み中…</span>';
     try {
-        let items, popMap, pyrMap = new Map();
+        // 人口（IDB）は即時。年齢ピラミッド（T082）は待たずに後追い描画する。
+        let items, popMap;
         if (preItems && prePopMap) {
-            items = preItems;
-            popMap = prePopMap;
-            if (withPyramid) {
-                pyrMap = await fetchSmallAreaPyramid(code, API_BASE).catch(() => new Map());
-            }
+            items = preItems; popMap = prePopMap;
         } else {
-            const [dataResult, pyrResult] = withPyramid
-                ? await Promise.allSettled([fetchSmallAreaData(code), fetchSmallAreaPyramid(code, API_BASE)])
-                : [{ status: 'fulfilled', value: await fetchSmallAreaData(code) }, { status: 'rejected' }];
-            if (dataResult.status === 'rejected') throw dataResult.reason;
-            ({ items, popMap } = dataResult.value);
-            if (pyrResult.status === 'fulfilled') pyrMap = pyrResult.value;
+            const r = await fetchSmallAreaData(code);
+            popMap = r.popMap;
+            // 9桁＝町丁・字等（正準層）。11桁＝基本単位区は下位のため除外
+            const nine = r.items.filter(([c]) => c.length === 9);
+            items = nine.length ? nine : r.items;
         }
 
         if (!items.length) { bodyEl.textContent = 'データなし'; return; }
 
-        const hasPop = true;
-        const hasPyr = pyrMap.size > 0;
-        const esc    = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-        const fname  = downloadName ?? `${code}_小地域.csv`;
+        const esc   = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        const fname = downloadName ?? `${code}_小地域.csv`;
 
         const csvRows = items.map(([kc, nm]) => {
             const p = popMap.get(kc);
@@ -620,25 +645,23 @@ async function _populateSmallAreaBody(bodyEl, code, { downloadName, withPyramid 
         });
         const csvContent = '﻿コード,名称,総人口,男,女\n' + csvRows.join('\n');
 
-        const thPyr    = hasPyr ? '<th>年齢構成</th>' : '';
+        // 年齢構成列は withPyramid 時に枠だけ用意（中身は後追いで流し込む）
         const bodyHtml = items.map(([kc, nm], i) => {
-            const p   = popMap.get(kc);
-            const pyr = pyrMap.get(kc);
+            const p = popMap.get(kc);
             const tdPop = `<td class="cs-sa-pop">${p?.total ? p.total.toLocaleString() : '—'}</td>`;
-            const tdPyr = hasPyr ? `<td class="cs-sa-bar">${pyr ? miniAgeBar(pyr.mAges, pyr.fAges) : ''}</td>` : '';
-            return `<tr data-code="${esc(kc)}"${pyr ? ' class="has-pyr"' : ''}>` +
-                `<td>${i + 1}</td><td>${esc(kc)}</td><td>${esc(nm)}</td>${tdPop}${tdPyr}</tr>`;
+            const tdPyr = withPyramid ? '<td class="cs-sa-bar"></td>' : '';
+            return `<tr data-code="${esc(kc)}"><td>${i + 1}</td><td>${esc(kc)}</td><td>${esc(nm)}</td>${tdPop}${tdPyr}</tr>`;
         }).join('');
 
         bodyEl.innerHTML = `
             <div class="cs-sa-toolbar">
                 <span class="cs-sa-count">${items.length}件</span>
-                ${hasPyr ? '<span class="cs-sa-legend"><span class="cs-sa-l y"></span>年少 <span class="cs-sa-l w"></span>生産 <span class="cs-sa-l o"></span>老年</span>' : ''}
+                ${withPyramid ? '<span class="cs-sa-legend" style="display:none"><span class="cs-sa-l y"></span>年少 <span class="cs-sa-l w"></span>生産 <span class="cs-sa-l o"></span>老年</span>' : ''}
                 <button class="cs-sa-csv">CSV ↓</button>
             </div>
             <div class="cs-sa-scroll">
                 <table class="cs-sa-table">
-                    <thead><tr><th>#</th><th>コード</th><th>名称</th><th>人口</th>${thPyr}</tr></thead>
+                    <thead><tr><th>#</th><th>コード</th><th>名称</th><th>人口</th>${withPyramid ? '<th>年齢構成</th>' : ''}</tr></thead>
                     <tbody>${bodyHtml}</tbody>
                 </table>
             </div>
@@ -652,35 +675,55 @@ async function _populateSmallAreaBody(bodyEl, code, { downloadName, withPyramid 
             setTimeout(() => URL.revokeObjectURL(a.href), 5000);
         });
 
-        if (hasPyr) {
-            bodyEl.querySelector('tbody').addEventListener('click', e => {
-                const tr = e.target.closest('tr.has-pyr');
-                if (!tr) return;
-                const kc  = tr.dataset.code;
-                const nm  = items.find(([c]) => c === kc)?.[1] ?? kc;
-                const pyr = pyrMap.get(kc);
-                const p   = popMap.get(kc);
-                if (onRowClick) {
-                    // ドリルダウンモード: 専用パネルへ遷移
-                    onRowClick(kc, nm, pyr, p);
-                } else {
-                    // 通常モード: インライン表示（従来の動作）
-                    const pyrWrap = bodyEl.querySelector('#cs-sa-pyramid');
-                    if (tr.classList.contains('active')) {
-                        tr.classList.remove('active');
-                        pyrWrap.style.display = 'none';
-                        return;
-                    }
-                    bodyEl.querySelectorAll('tr.active').forEach(r => r.classList.remove('active'));
-                    tr.classList.add('active');
-                    const popLine = p?.total
-                        ? `<span class="cs-sa-py-pop">人口 ${p.total.toLocaleString()}人（男 ${p.m.toLocaleString()} / 女 ${p.f.toLocaleString()}）</span>`
-                        : '';
-                    pyrWrap.style.display = '';
-                    pyrWrap.innerHTML = `<div class="cs-sa-py-name">${esc(nm)}${popLine}</div>` +
-                        smallAreaPyramidSvg(pyr.mAges, pyr.fAges);
+        // 行クリック（年齢データ到着後に has-pyr が付いた行だけ反応）
+        let pyrMap = new Map();
+        bodyEl.querySelector('tbody').addEventListener('click', e => {
+            const tr = e.target.closest('tr.has-pyr');
+            if (!tr) return;
+            const kc  = tr.dataset.code;
+            const nm  = items.find(([c]) => c === kc)?.[1] ?? kc;
+            const pyr = pyrMap.get(kc);
+            const p   = popMap.get(kc);
+            if (onRowClick) {
+                // ドリルダウンモード: 専用パネルへ遷移
+                onRowClick(kc, nm, pyr, p);
+            } else {
+                // 通常モード: インライン表示（従来の動作）
+                const pyrWrap = bodyEl.querySelector('#cs-sa-pyramid');
+                if (tr.classList.contains('active')) {
+                    tr.classList.remove('active');
+                    pyrWrap.style.display = 'none';
+                    return;
                 }
-            });
+                bodyEl.querySelectorAll('tr.active').forEach(r => r.classList.remove('active'));
+                tr.classList.add('active');
+                const popLine = p?.total
+                    ? `<span class="cs-sa-py-pop">人口 ${p.total.toLocaleString()}人（男 ${p.m.toLocaleString()} / 女 ${p.f.toLocaleString()}）</span>`
+                    : '';
+                pyrWrap.style.display = '';
+                pyrWrap.innerHTML = `<div class="cs-sa-py-name">${esc(nm)}${popLine}</div>` +
+                    smallAreaPyramidSvg(pyr.mAges, pyr.fAges);
+            }
+        });
+
+        // 年齢構成（T082）を後追いで取得 → 該当セルに流し込み
+        if (withPyramid) {
+            fetchSmallAreaPyramid(code, API_BASE).then(pm => {
+                if (!pm?.size || !bodyEl.isConnected) return;   // 画面遷移後は無視
+                pyrMap = pm;
+                const tbody = bodyEl.querySelector('tbody');
+                if (!tbody) return;
+                let any = false;
+                for (const tr of tbody.querySelectorAll('tr')) {
+                    const pyr = pyrMap.get(tr.dataset.code);
+                    if (!pyr) continue;
+                    const cell = tr.querySelector('.cs-sa-bar');
+                    if (cell) cell.innerHTML = miniAgeBar(pyr.mAges, pyr.fAges);
+                    tr.classList.add('has-pyr');
+                    any = true;
+                }
+                if (any) { const lg = bodyEl.querySelector('.cs-sa-legend'); if (lg) lg.style.display = ''; }
+            }).catch(() => {});
         }
     } catch (e) {
         bodyEl.textContent = `エラー: ${e.message}`;
