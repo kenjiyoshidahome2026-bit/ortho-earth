@@ -198,10 +198,28 @@ function _csDrillFetch() {
 
 // ---- パンくずナビゲーション -------------------------------------------------
 // 各クラム = { label, go }。配列末尾が現在地（非リンク）、それ以外はクリックで遷移。
+// 都道府県の正式名（都/道/府/県）
+function _prefFull(prefCode) {
+    const n = PREFS[prefCode] || prefCode;
+    if (n === '北海道') return n;
+    if (n === '東京') return n + '都';
+    if (n === '大阪' || n === '京都') return n + '府';
+    return n + '県';
+}
+// 親名を接頭辞として除き住所風の増分表示に（横浜市都筑区→都筑区, 茅ケ崎南一丁目→一丁目）
+function _addrShort(name, parentLabel) {
+    return parentLabel && name.startsWith(parentLabel) && name !== parentLabel
+        ? name.slice(parentLabel.length) : name;
+}
+
 const _crumbNat   = () => ({ label: '全国', go: _csDrillNational });
-const _crumbPref  = prefCode => ({ label: PREFS[prefCode] || prefCode, go: () => _csDrillPref(prefCode) });
+const _crumbPref  = prefCode => ({ label: _prefFull(prefCode), go: () => _csDrillPref(prefCode) });
 const _crumbDesig = (code, prefCode) => ({ label: CENSUS_MANIFEST.find(e => e.code === code)?.name || code, go: () => _csDrillDesignated(code, prefCode) });
-const _crumbCity  = (code, prefCode, parentCode) => ({ label: CENSUS_MANIFEST.find(e => e.code === code)?.name || code, go: () => _csDrillCity(code, prefCode, parentCode) });
+const _crumbCity  = (code, prefCode, parentCode) => {
+    const name   = CENSUS_MANIFEST.find(e => e.code === code)?.name || code;
+    const parent = parentCode ? (CENSUS_MANIFEST.find(e => e.code === parentCode)?.name || '') : '';
+    return { label: _addrShort(name, parent), go: () => _csDrillCity(code, prefCode, parentCode) };
+};
 
 // 全国 → 都道府県 → (政令市) → 市区町村 までのクラム列
 function _cityCrumbs(cityCode, prefCode, parentCode) {
@@ -586,6 +604,13 @@ async function _csDrillCity(cityCode, prefCode, parentCode = null) {
                     const g = el.dataset.group;
                     const d = groups.get(g);
                     const gc = _cityCrumbs(cityCode, prefCode, parentCode);
+                    // 単一町丁字＋子（丁目）あり → 中間の1行テーブルを挟まず丁目＋集計ピラミッドへ直行
+                    if (d.items.length === 1 && subMap.has(d.items[0][0])) {
+                        const [code, name] = d.items[0];
+                        gc.push({ label: name, go: () => _csDrillSmallAreaTable(cityCode, name, subMap.get(code), popMap, subMap, gc, code) });
+                        _csDrillSmallAreaTable(cityCode, name, subMap.get(code), popMap, subMap, gc, code);
+                        return;
+                    }
                     gc.push({ label: g, go: () => _csDrillSmallAreaTable(cityCode, g, d.items, popMap, subMap, gc) });
                     _csDrillSmallAreaTable(cityCode, g, d.items, popMap, subMap, gc);
                 })
@@ -602,16 +627,18 @@ function _saRowClick(cityCode, popMap, subMap, crumbs) {
             // グループ名＝町丁字名なら重複クラムを避けて置き換え
             const base = crumbs[crumbs.length - 1]?.label === areaName ? crumbs.slice(0, -1) : crumbs;
             const cc = [...base, { label: areaName }];
-            cc[cc.length - 1].go = () => _csDrillSmallAreaTable(cityCode, areaName, kids, popMap, subMap, cc);
-            _csDrillSmallAreaTable(cityCode, areaName, kids, popMap, subMap, cc);
+            cc[cc.length - 1].go = () => _csDrillSmallAreaTable(cityCode, areaName, kids, popMap, subMap, cc, areaCode);
+            _csDrillSmallAreaTable(cityCode, areaName, kids, popMap, subMap, cc, areaCode);
         } else {
-            _csDrillSmallAreaPyramid(areaName, areaCode, pyr, [...crumbs, { label: areaName }]);
+            const short = _addrShort(areaName, crumbs[crumbs.length - 1]?.label);
+            _csDrillSmallAreaPyramid(areaName, areaCode, pyr, [...crumbs, { label: short }]);
         }
     };
 }
 
 // Level 3: 小地域テーブル（町丁字グループ or その下の丁目/基本単位区）
-function _csDrillSmallAreaTable(cityCode, title, items, popMap, subMap, crumbs) {
+// nodeCode を渡すと、そのノード自身（例: 茅ケ崎南 9桁集計）のピラミッドを頭に表示
+function _csDrillSmallAreaTable(cityCode, title, items, popMap, subMap, crumbs, nodeCode = null) {
     ctx.setDetailHtml(`
         <div class="cs-drill-wrap census-detail">
             <div class="cs-drill-head">
@@ -619,12 +646,22 @@ function _csDrillSmallAreaTable(cityCode, title, items, popMap, subMap, crumbs) 
                 <div class="cs-drill-title-row">
                     <h2>${escHtml(title)}</h2>
                 </div>
+                ${nodeCode ? `<div class="cs-sa-code">${escHtml(nodeCode)}</div>` : ''}
+                <div id="cs-node-pyr"></div>
                 <div style="font-size:11px;color:#888;padding:2px 0">${items.length}件</div>
             </div>
             <div class="cs-drill-list" id="cs-sa-table-body"></div>
         </div>
     `);
     _wireCrumbs(crumbs);
+    // ノード自身の集計ピラミッドを後追いで頭に描画
+    if (nodeCode) {
+        fetchSmallAreaPyramid(cityCode, API_BASE).then(pm => {
+            const el  = document.getElementById('cs-node-pyr');
+            const pyr = pm?.get(nodeCode);
+            if (el?.isConnected && pyr) el.innerHTML = _pyramidHtml([...pyr.mAges, ...pyr.fAges]);
+        }).catch(() => {});
+    }
     _populateSmallAreaBody(document.getElementById('cs-sa-table-body'), cityCode, {
         preItems: items,
         prePopMap: popMap,
