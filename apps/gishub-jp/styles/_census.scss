@@ -109,6 +109,12 @@
 		.cs-svg-wrap { max-width: 360px; margin: 10px auto 0; }
 		.cs-svg-wrap svg { max-width: 360px; }
 		.cs-kv-grid { max-width: 420px; }
+		.cs-disp-top {
+			&::after { content: ""; display: block; clear: both; }
+			.cs-svg-wrap { float: right; width: 300px; max-width: 52%; margin: 0 0 8px 16px; }
+			.cs-svg-wrap svg { max-width: 300px; }
+			.cs-kv-grid { grid-template-columns: 1fr; max-width: none; overflow: hidden; margin-top: 2px; }
+		}
 	}
 	.cs-drill-title-row {
 		display: flex;

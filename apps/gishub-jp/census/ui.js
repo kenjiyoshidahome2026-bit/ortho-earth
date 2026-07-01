@@ -312,24 +312,33 @@ function _cityStatsRows(pop20, p25, entry) {
     return rows.join('');
 }
 
-// 市区町村以上の全チャート（年齢ピラミッド → 人口推移 → 就業・世帯経済）を凡例付きで
-function _fullChartHtml({ ages = null, refAges = CENSUS_2020_AGES['_national'], popTrend = null, stat = null }) {
-    const secs = buildCensusChartSections(stat, '2020', {
+// チャート1セクションの HTML（見出し＋SVG＋ピラミッド凡例）
+function _sectionHtml(sec, hasRef) {
+    const TITLE = { pyramid: '年齢別人口構成', trend: '人口推移', stats: '就業・世帯経済' };
+    const YEAR  = { pyramid: hasRef ? '2020年（参考：全国平均）' : '2020年', trend: '2015 – 2025', stats: '2020年' };
+    const hd = TITLE[sec.id] ? `<h3 class="cs-drill-sec-h3">${TITLE[sec.id]} <span class="cs-year">${YEAR[sec.id]}</span></h3>` : '';
+    const lg = sec.id === 'pyramid' ? _pyramidLegend(hasRef) : '';
+    return `<div class="cs-section cs-svg-wrap">${hd}${sec.svg}${lg}</div>`;
+}
+function _chartSections({ ages = null, refAges, popTrend = null, stat = null }) {
+    return buildCensusChartSections(stat, '2020', {
         ages:     ages?.length === 32 ? ages : null,
         refAges:  refAges?.length === 32 ? refAges : null,
         popTrend: popTrend?.length >= 2 ? popTrend : null,
     });
-    const META = {
-        pyramid: { title: '年齢別人口構成', year: refAges ? '2020年（参考：全国平均）' : '2020年' },
-        trend:   { title: '人口推移',       year: '2015 – 2025' },
-        stats:   { title: '就業・世帯経済',  year: '2020年' },
-    };
-    return secs.map(sec => {
-        const m  = META[sec.id] || {};
-        const hd = m.title ? `<h3 class="cs-drill-sec-h3">${m.title}${m.year ? ` <span class="cs-year">${m.year}</span>` : ''}</h3>` : '';
-        const lg = sec.id === 'pyramid' ? _pyramidLegend(!!refAges) : '';
-        return `<div class="cs-section cs-svg-wrap">${hd}${sec.svg}${lg}</div>`;
-    }).join('');
+}
+// 単体ピラミッド（最下位・集計ノード用）
+function _fullChartHtml(opts) {
+    const refAges = opts.refAges === undefined ? CENSUS_2020_AGES['_national'] : opts.refAges;
+    return _chartSections({ ...opts, refAges }).map(s => _sectionHtml(s, !!refAges)).join('');
+}
+// 集計/市区町村の表示: ピラミッドを右フロート＋統計KVを左、下に人口推移・就業
+function _levelDisplayHtml(statsHtml, opts) {
+    const refAges = opts.refAges === undefined ? CENSUS_2020_AGES['_national'] : opts.refAges;
+    const byId = {};
+    for (const s of _chartSections({ ...opts, refAges })) byId[s.id] = _sectionHtml(s, !!refAges);
+    return `<div class="cs-disp-top">${byId.pyramid || ''}${statsHtml}</div>` +
+        (byId.trend || '') + (byId.stats || '');
 }
 
 // 葉コード集合の人口推移（2015/2020/2025 を年ごとに男女合算）
@@ -395,9 +404,8 @@ function _aggKvHtml(agg) {
 function _renderAggView({ crumbs = null, title, pred, ages = null, refAges = CENSUS_2020_AGES['_national'], listHtml, onChip }) {
     const agg = _aggForLevel(pred);
     ctx.setDetailHtml(_drillWrap({
-        crumbs, title,
-        statsHtml: _aggKvHtml(agg),
-        chartHtml: _fullChartHtml({ ages: ages || agg.ages, refAges, popTrend: agg.trend, stat: agg.stat }),
+        crumbs, title, statsHtml: '',
+        chartHtml: _levelDisplayHtml(_aggKvHtml(agg), { ages: ages || agg.ages, refAges, popTrend: agg.trend, stat: agg.stat }),
         listHtml,
     }));
     if (crumbs) _wireCrumbs(crumbs);
@@ -536,9 +544,8 @@ async function _csDrillCity(cityCode, prefCode, parentCode = null) {
     const p25 = CENSUS_2025_POP[cityCode];
     if (p25?.pop) popTrend.push({ year: 2025, male: p25.pop[1], female: p25.pop[2] });
 
-    const chart = _fullChartHtml({ ages, refAges: natAges, popTrend, stat });
-
     const statsHtml = `<div class="cs-kv-grid">${_cityStatsRows(pop20, p25, entry)}</div>`;
+    const display = _levelDisplayHtml(statsHtml, { ages, refAges: natAges, popTrend, stat });
 
     const hasSmallArea = ESTAT_CODE_SET.has(cityCode);
     const saHtml = hasSmallArea
@@ -559,7 +566,7 @@ async function _csDrillCity(cityCode, prefCode, parentCode = null) {
                 <h3 class="cs-drill-sec-h3">小地域（町丁・字等） <span class="cs-year">2020年</span></h3>
                 ${saHtml}
             </div>
-            <div class="cs-drill-display">${statsHtml}${chart}</div>
+            <div class="cs-drill-display">${display}</div>
         </div>
     `);
     _wireCrumbs(crumbs);
