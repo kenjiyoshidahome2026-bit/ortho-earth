@@ -246,6 +246,7 @@ function _wireCrumbs(crumbs) {
 }
 
 // ヘルパー: ドリルダウン共通ラッパー HTML
+// 並び順: パンくず → セレクタ（子リスト）→ 表示（統計・ピラミッド）
 function _drillWrap({ crumbs, title, statsHtml = '', chartHtml = '', listHtml = '' }) {
     return `
         <div class="cs-drill-wrap census-detail">
@@ -254,12 +255,9 @@ function _drillWrap({ crumbs, title, statsHtml = '', chartHtml = '', listHtml = 
                 <div class="cs-drill-title-row">
                     <h2>${escHtml(title)}</h2>
                 </div>
-                ${chartHtml}
-                ${statsHtml}
             </div>
-            <div class="cs-drill-list">
-                ${listHtml}
-            </div>
+            ${listHtml ? `<div class="cs-drill-list">${listHtml}</div>` : ''}
+            <div class="cs-drill-display">${statsHtml}${chartHtml}</div>
         </div>`;
 }
 
@@ -545,13 +543,12 @@ async function _csDrillCity(cityCode, prefCode, parentCode = null) {
                 <div class="cs-drill-title-row">
                     <h2>${escHtml(cityName)}</h2>
                 </div>
-                ${chart}
-                ${statsHtml}
             </div>
             <div class="cs-drill-list">
                 <h3 class="cs-drill-sec-h3">小地域（町丁・字等） <span class="cs-year">2020年</span></h3>
                 ${saHtml}
             </div>
+            <div class="cs-drill-display">${statsHtml}${chart}</div>
         </div>
     `);
     _wireCrumbs(crumbs);
@@ -647,14 +644,14 @@ function _csDrillSmallAreaTable(cityCode, title, items, popMap, subMap, crumbs, 
                     <h2>${escHtml(title)}</h2>
                 </div>
                 ${nodeCode ? `<div class="cs-sa-code">${escHtml(nodeCode)}</div>` : ''}
-                <div id="cs-node-pyr"></div>
                 <div style="font-size:11px;color:#888;padding:2px 0">${items.length}件</div>
             </div>
             <div class="cs-drill-list" id="cs-sa-table-body"></div>
+            <div class="cs-drill-display" id="cs-node-pyr"></div>
         </div>
     `);
     _wireCrumbs(crumbs);
-    // ノード自身の集計ピラミッドを後追いで頭に描画
+    // ノード自身の集計ピラミッドを後追いで表示セクションに描画
     if (nodeCode) {
         fetchSmallAreaPyramid(cityCode, API_BASE).then(pm => {
             const el  = document.getElementById('cs-node-pyr');
@@ -687,7 +684,7 @@ function _csDrillSmallAreaPyramid(areaName, areaCode, pyr, crumbs) {
                 </div>
                 <div class="cs-sa-code">${escHtml(areaCode)}</div>
             </div>
-            <div class="cs-drill-list cs-sa-leaf">${body}</div>
+            <div class="cs-drill-display cs-sa-leaf">${body}</div>
         </div>
     `);
     _wireCrumbs(crumbs);
