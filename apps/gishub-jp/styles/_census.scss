@@ -106,14 +106,18 @@
 	// 表示セクション（統計・ピラミッド）: セレクタの下に主役として大きく中央表示
 	.cs-drill-display {
 		padding: 12px 14px 24px;
-		.cs-svg-wrap { max-width: 360px; margin: 10px auto 0; }
+		.cs-svg-wrap { max-width: 360px; margin: 10px 0 0; }
 		.cs-svg-wrap svg { max-width: 360px; }
 		.cs-kv-grid { max-width: 420px; }
 		.cs-disp-top {
-			&::after { content: ""; display: block; clear: both; }
-			.cs-svg-wrap { float: right; width: 300px; max-width: 52%; margin: 0 0 8px 16px; }
+			display: flex;
+			flex-wrap: wrap;
+			align-items: flex-start;
+			gap: 6px 24px;
+			margin-bottom: 6px;
+			.cs-kv-grid { flex: 0 1 230px; max-width: 230px; grid-template-columns: 1fr; margin: 0; }
+			.cs-svg-wrap { flex: 0 1 300px; max-width: 300px; margin: 0; }
 			.cs-svg-wrap svg { max-width: 300px; }
-			.cs-kv-grid { grid-template-columns: 1fr; max-width: none; overflow: hidden; margin-top: 2px; }
 		}
 	}
 	.cs-drill-title-row {

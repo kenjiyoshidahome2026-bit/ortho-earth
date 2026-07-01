@@ -337,7 +337,7 @@ function _levelDisplayHtml(statsHtml, opts) {
     const refAges = opts.refAges === undefined ? CENSUS_2020_AGES['_national'] : opts.refAges;
     const byId = {};
     for (const s of _chartSections({ ...opts, refAges })) byId[s.id] = _sectionHtml(s, !!refAges);
-    return `<div class="cs-disp-top">${byId.pyramid || ''}${statsHtml}</div>` +
+    return `<div class="cs-disp-top">${statsHtml}${byId.pyramid || ''}</div>` +
         (byId.trend || '') + (byId.stats || '');
 }
 

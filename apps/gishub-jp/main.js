@@ -39,8 +39,8 @@ async function loadCatalog() {
 			maffSidebarEntry(),
 			estatSidebarEntry(),
 			census2025SidebarEntry(),
-			census2015SidebarEntry(),
 			censusSmall2020SidebarEntry(),   // 「国勢調査 2020 基本集計」= 全国→小地域の総合ドリルダウン（旧フラット2020を統合）
+			census2015SidebarEntry(),
 		];
 
 		const nlftpEntries = await loadCatalogEntries().catch(e => { console.error('[nlftp] catalog load failed:', e); return []; });
