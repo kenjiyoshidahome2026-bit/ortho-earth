@@ -238,8 +238,8 @@ function _drillWrap({ crumbs, title, statsHtml = '', chartHtml = '', listHtml = 
                 <div class="cs-drill-title-row">
                     <h2>${escHtml(title)}</h2>
                 </div>
-                ${statsHtml}
                 ${chartHtml}
+                ${statsHtml}
             </div>
             <div class="cs-drill-list">
                 ${listHtml}
@@ -289,7 +289,7 @@ function _csDrillNational() {
     const listHtml = `<h3 class="cs-drill-sec-h3">都道府県 <span class="cs-year">47都道府県</span></h3>
         <div class="cs-drill-chips">${
         [...byPref.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([pref, d]) =>
-            `<span class="cs-drill-chip" data-key="${pref}">${PREFS[pref] || pref}<span class="cs-chip-sub">${(d.pop / 1e4).toFixed(0)}万</span></span>`
+            `<span class="cs-drill-chip" data-key="${pref}">${PREFS[pref] || pref}<span class="cs-chip-sub">${_popLabel(d.pop)}</span></span>`
         ).join('')
     }</div>`;
 
@@ -321,6 +321,27 @@ function _wardParent(code) {
         if (diff > 0 && diff < bestDiff) { best = dc; bestDiff = diff; }
     }
     return best;
+}
+
+// チップ用の人口ラベル（2020）
+function _popLabel(pop) {
+    if (!pop) return '';
+    if (pop >= 1e5) return `${Math.round(pop / 1e4)}万`;
+    if (pop >= 1e4) return `${(pop / 1e4).toFixed(1)}万`;
+    return pop.toLocaleString();
+}
+
+// 市区町村コードの2020人口 [総数, 男, 女]（無ければ null）
+// 政令市集計コードは区の合算（CENSUS_2020_POP は葉ノードのみ＝集計コードを持たない）
+function _cityPop2020(code) {
+    if (CENSUS_2020_POP[code]) return CENSUS_2020_POP[code];
+    if (DESIGNATED_CITIES.has(code)) {
+        const s = [0, 0, 0];
+        for (const [k, v] of Object.entries(CENSUS_2020_POP))
+            if (_wardParent(k) === code) { s[0] += v[0]; s[1] += v[1]; s[2] += v[2]; }
+        return s[0] ? s : null;
+    }
+    return null;
 }
 
 // Level 1: 都道府県データ + 市区町村一覧
@@ -358,9 +379,10 @@ function _csDrillPref(prefCode) {
     // 政令指定都市の区は除外（政令指定都市自体は残す）
     const topCities = cities.filter(c => !_wardParent(c.code));
     const listHtml = `<h3 class="cs-drill-sec-h3">市区町村 <span class="cs-year">${topCities.length}件</span></h3>
-        <div class="cs-drill-chips">${topCities.map(c =>
-            `<span class="cs-drill-chip" data-key="${c.code}">${escHtml(c.name)}</span>`
-        ).join('')}</div>`;
+        <div class="cs-drill-chips">${topCities.map(c => {
+            const sub = _popLabel(_cityPop2020(c.code)?.[0]);
+            return `<span class="cs-drill-chip" data-key="${c.code}">${escHtml(c.name)}${sub ? `<span class="cs-chip-sub">${sub}</span>` : ''}</span>`;
+        }).join('')}</div>`;
 
     const crumbs = [_crumbNat(), _crumbPref(prefCode)];
     ctx.setDetailHtml(_drillWrap({
@@ -412,7 +434,7 @@ function _csDrillDesignated(cityCode, prefCode) {
         : [];
     const chart = _chartHtml(chartSecs, { pyramid: { title: '年齢別人口構成', year: '2020年（参考：全国平均）' } });
 
-    const pop20 = CENSUS_2020_POP[cityCode];
+    const pop20 = _cityPop2020(cityCode);   // 政令市集計コードは区の合算
     const p25   = CENSUS_2025_POP[cityCode];
 
     const statsHtml = (() => {
@@ -434,9 +456,10 @@ function _csDrillDesignated(cityCode, prefCode) {
     })();
 
     const listHtml = `<h3 class="cs-drill-sec-h3">行政区 <span class="cs-year">${wards.length}区</span></h3>
-        <div class="cs-drill-chips">${wards.map(w =>
-            `<span class="cs-drill-chip" data-key="${w.code}">${escHtml(w.name)}</span>`
-        ).join('')}</div>`;
+        <div class="cs-drill-chips">${wards.map(w => {
+            const sub = _popLabel(_cityPop2020(w.code)?.[0]);
+            return `<span class="cs-drill-chip" data-key="${w.code}">${escHtml(w.name)}${sub ? `<span class="cs-chip-sub">${sub}</span>` : ''}</span>`;
+        }).join('')}</div>`;
 
     const crumbs = [_crumbNat(), _crumbPref(prefCode), _crumbDesig(cityCode, prefCode)];
     ctx.setDetailHtml(_drillWrap({
@@ -510,8 +533,8 @@ async function _csDrillCity(cityCode, prefCode, parentCode = null) {
                 <div class="cs-drill-title-row">
                     <h2>${escHtml(cityName)}</h2>
                 </div>
-                ${statsHtml}
                 ${chart}
+                ${statsHtml}
             </div>
             <div class="cs-drill-list">
                 <h3 class="cs-drill-sec-h3">小地域（町丁・字等） <span class="cs-year">2020年</span></h3>
@@ -548,10 +571,11 @@ async function _csDrillCity(cityCode, prefCode, parentCode = null) {
             }
 
             saEl.innerHTML = `<div class="cs-drill-chips">${
-                [...groups.entries()].map(([g, d]) =>
-                    `<span class="cs-drill-chip cs-sa-group" data-group="${escHtml(g)}">` +
-                    `${escHtml(g)}${d.items.length > 1 ? `<span class="cs-chip-sub">${d.items.length}件</span>` : ''}</span>`
-                ).join('')
+                [...groups.entries()].map(([g, d]) => {
+                    const sub = _popLabel(d.pop) + (d.items.length > 1 ? ` ${d.items.length}件` : '');
+                    return `<span class="cs-drill-chip cs-sa-group" data-group="${escHtml(g)}">` +
+                    `${escHtml(g)}${sub ? `<span class="cs-chip-sub">${sub}</span>` : ''}</span>`;
+                }).join('')
             }</div>`;
             saEl.querySelectorAll('.cs-sa-group').forEach(el =>
                 el.addEventListener('click', () => {
