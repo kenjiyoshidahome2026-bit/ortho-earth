@@ -292,6 +292,8 @@ function appendPopTrend(parent, x0, y0, points) {
 
     const g = parent.elem('g', { transform: `translate(${x0},${y0})` });
 
+    // Y軸ラベルは「万」単位に短縮（フル桁だと幅広く左端で見切れる）
+    const ylabel = v => v >= 1e4 ? `${+(v / 1e4).toFixed(v % 1e4 ? 1 : 0)}万` : d3.comma(v);
     const grs = [];
     for (let gr = grid; gr < maxP * 1.1; gr += grid) {
         const gy = (BH - gr * H).toFixed(1);
@@ -299,7 +301,7 @@ function appendPopTrend(parent, x0, y0, points) {
         g.elem('text', {
             x: -2, y: gy, 'font-size': 4.5, 'font-family': 'Verdana',
             fill: FG, 'text-anchor': 'end', 'dominant-baseline': 'middle',
-        }, d3.comma(gr));
+        }, ylabel(gr));
     }
     if (grs.length) g.elem('path', { d: grs.join(''), stroke: FG, 'stroke-width': 0.4 });
 
