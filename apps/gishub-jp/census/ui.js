@@ -5,7 +5,7 @@ import CENSUS_2020_STATS  from './2020-stats.json'  with { type: 'json' };
 import CENSUS_2015_STATS  from './2015-stats.json'  with { type: 'json' };
 import CENSUS_2020_AGES   from './2020-ages.json'   with { type: 'json' };
 import CENSUS_2020_HOUSEHOLD from './2020-household.json' with { type: 'json' };
-import { CITY_HISTORY } from './city-history.js';
+import CITY_HISTORY from '../history.json' with { type: 'json' };   // [YYYYMMDD, "5桁コード", 説明] × 963件（2024-1980）
 import CENSUS_KANA        from './kana.json'        with { type: 'json' };
 import CENSUS_SHICHO      from './shicho.json'      with { type: 'json' };
 import CENSUS_GUN         from './gun.json'         with { type: 'json' };
@@ -377,7 +377,7 @@ function _fillTrends() {
 }
 
 // ── 市区町村の沿革（合併・市制施行・政令市/中核市移行・区新設） ──────────────
-// コードは整数表記なので5桁化してMap化。過去は不変・append-only。
+// コードは5桁文字列（旧整数でも padStart で吸収）。過去は不変・append-only。
 const _cityHist = new Map();
 for (const [date, code, desc] of CITY_HISTORY) {
     const c = String(code).padStart(5, '0');
