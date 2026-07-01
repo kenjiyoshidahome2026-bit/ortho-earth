@@ -332,13 +332,12 @@ function _fullChartHtml(opts) {
     const refAges = opts.refAges === undefined ? CENSUS_2020_AGES['_national'] : opts.refAges;
     return _chartSections({ ...opts, refAges }).map(s => _sectionHtml(s, !!refAges)).join('');
 }
-// 集計/市区町村の表示: ピラミッドを右フロート＋統計KVを左、下に人口推移・就業
+// 集計/市区町村の表示: 統計テーブル（2列）→ 改行 → SVG群（左寄せで縦に）
 function _levelDisplayHtml(statsHtml, opts) {
     const refAges = opts.refAges === undefined ? CENSUS_2020_AGES['_national'] : opts.refAges;
     const byId = {};
     for (const s of _chartSections({ ...opts, refAges })) byId[s.id] = _sectionHtml(s, !!refAges);
-    return `<div class="cs-disp-top">${statsHtml}${byId.pyramid || ''}</div>` +
-        (byId.trend || '') + (byId.stats || '');
+    return statsHtml + (byId.pyramid || '') + (byId.trend || '') + (byId.stats || '');
 }
 
 // 葉コード集合の人口推移（2015/2020/2025 を年ごとに男女合算）

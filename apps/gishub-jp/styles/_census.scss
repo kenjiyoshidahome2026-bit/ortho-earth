@@ -108,16 +108,13 @@
 		padding: 12px 14px 24px;
 		.cs-svg-wrap { max-width: 360px; margin: 10px 0 0; }
 		.cs-svg-wrap svg { max-width: 360px; }
-		.cs-kv-grid { max-width: 420px; }
-		.cs-disp-top {
-			display: flex;
-			flex-wrap: wrap;
-			align-items: flex-start;
-			gap: 6px 24px;
-			margin-bottom: 6px;
-			.cs-kv-grid { flex: 0 1 230px; max-width: 230px; grid-template-columns: 1fr; margin: 0; }
-			.cs-svg-wrap { flex: 0 1 300px; max-width: 300px; margin: 0; }
-			.cs-svg-wrap svg { max-width: 300px; }
+		// 統計テーブル: 2列×4行（後半4項目を右カラムへ）→ 下に改行
+		.cs-kv-grid {
+			grid-auto-flow: column;
+			grid-template-rows: repeat(4, auto);
+			column-gap: 28px;
+			max-width: 500px;
+			margin-bottom: 16px;
 		}
 	}
 	.cs-drill-title-row {
