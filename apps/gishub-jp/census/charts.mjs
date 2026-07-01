@@ -372,14 +372,14 @@ export function buildCensusChartSections(stat, year = '2020', opts = {}) {
     const { ages, refAges, popTrend } = opts;
     const out = [];
 
-    if (popTrend && popTrend.length) {
-        const svg = makeSvg((s, x0, y) => appendPopTrend(s, x0 + 12, y, popTrend));
-        if (svg) out.push({ id: 'trend', svg });
-    }
-
     if (ages && ages.length === 32) {
         const svg = makeSvg((s, x0, y) => appendAgePyramid(s, x0, y, ages, refAges || null));
         if (svg) out.push({ id: 'pyramid', svg });
+    }
+
+    if (popTrend && popTrend.length) {
+        const svg = makeSvg((s, x0, y) => appendPopTrend(s, x0 + 12, y, popTrend));
+        if (svg) out.push({ id: 'trend', svg });
     }
 
     if (stat) {

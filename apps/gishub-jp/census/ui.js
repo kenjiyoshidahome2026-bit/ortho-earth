@@ -16,6 +16,7 @@ import { API_BASE } from '../ui/config.js';
 // ---- constants -------------------------------------------------------
 
 const ESTAT_CODE_SET = new Set(ESTAT_MANIFEST.map(e => e.code));
+const MANIFEST_BY_CODE = new Map(CENSUS_MANIFEST.map(e => [e.code, e]));
 
 // ---- sidebar entries -------------------------------------------------------
 
@@ -261,17 +262,6 @@ function _drillWrap({ crumbs, title, statsHtml = '', chartHtml = '', listHtml = 
         </div>`;
 }
 
-// チャートセクションを最小構成で HTML 化
-function _chartHtml(sections, meta = {}) {
-    return sections.map(sec => {
-        const m = meta[sec.id] || {};
-        const hd = m.title
-            ? `<h3 class="cs-drill-sec-h3">${m.title}${m.year ? ` <span class="cs-year">${m.year}</span>` : ''}</h3>`
-            : '';
-        return `<div class="cs-section cs-svg-wrap">${hd}${sec.svg}</div>`;
-    }).join('');
-}
-
 // 年齢ピラミッドの凡例（年少/生産/老年、任意で全国平均線）
 function _pyramidLegend(hasRef) {
     return `<div class="cs-pyramid-legend">
@@ -291,17 +281,6 @@ function _pyramidHtml(ages, refAges = CENSUS_2020_AGES['_national']) {
     return `<div class="cs-section cs-svg-wrap">` +
         `<h3 class="cs-drill-sec-h3">年齢別人口構成 <span class="cs-year">${year}</span></h3>` +
         `${secs[0].svg}${_pyramidLegend(!!refAges)}</div>`;
-}
-
-// 複数コードの年齢（CENSUS_2020_AGES 32要素）を積み上げ。無ければ null
-function _sumAges(codes) {
-    const ages = new Array(32).fill(0);
-    let has = false;
-    for (const c of codes) {
-        const a = CENSUS_2020_AGES[c];
-        if (a?.length === 32) { a.forEach((v, i) => { ages[i] += v; }); has = true; }
-    }
-    return has ? ages : null;
 }
 
 // 人口の KV 行（総数・男・女）
@@ -327,32 +306,104 @@ function _cityStatsRows(pop20, p25, entry) {
     return rows.join('');
 }
 
+// 市区町村以上の全チャート（年齢ピラミッド → 人口推移 → 就業・世帯経済）を凡例付きで
+function _fullChartHtml({ ages = null, refAges = CENSUS_2020_AGES['_national'], popTrend = null, stat = null }) {
+    const secs = buildCensusChartSections(stat, '2020', {
+        ages:     ages?.length === 32 ? ages : null,
+        refAges:  refAges?.length === 32 ? refAges : null,
+        popTrend: popTrend?.length >= 2 ? popTrend : null,
+    });
+    const META = {
+        pyramid: { title: '年齢別人口構成', year: refAges ? '2020年（参考：全国平均）' : '2020年' },
+        trend:   { title: '人口推移',       year: '2015 – 2025' },
+        stats:   { title: '就業・世帯経済',  year: '2020年' },
+    };
+    return secs.map(sec => {
+        const m  = META[sec.id] || {};
+        const hd = m.title ? `<h3 class="cs-drill-sec-h3">${m.title}${m.year ? ` <span class="cs-year">${m.year}</span>` : ''}</h3>` : '';
+        const lg = sec.id === 'pyramid' ? _pyramidLegend(!!refAges) : '';
+        return `<div class="cs-section cs-svg-wrap">${hd}${sec.svg}${lg}</div>`;
+    }).join('');
+}
+
+// 葉コード集合の人口推移（2015/2020/2025 を年ごとに男女合算）
+function _sumTrend(leaf) {
+    let m15 = 0, f15 = 0, s15 = false, m20 = 0, f20 = 0, s20 = false, m25 = 0, f25 = 0, s25 = false;
+    for (const c of leaf) {
+        const a = CENSUS_2015_STATS[c]; if (a?.pop) { m15 += a.pop[1]; f15 += a.pop[2]; s15 = true; }
+        const v = CENSUS_2020_POP[c];   if (v)      { m20 += v[1];     f20 += v[2];     s20 = true; }
+        const w = CENSUS_2025_POP[c];   if (w?.pop) { m25 += w.pop[1]; f25 += w.pop[2]; s25 = true; }
+    }
+    const t = [];
+    if (s15) t.push({ year: 2015, male: m15, female: f15 });
+    if (s20) t.push({ year: 2020, male: m20, female: f20 });
+    if (s25) t.push({ year: 2025, male: m25, female: f25 });
+    return t.length >= 2 ? t : null;
+}
+
+// pred(code) を満たす市区町村を積み上げ（人口・世帯・面積・年齢・就業/世帯経済・推移）
+// 葉ノードは CENSUS_2020_POP のキー集合（集計コードを含まない）を正準とする
+function _aggForLevel(pred) {
+    const leaf = Object.keys(CENSUS_2020_POP).filter(pred);
+    const p20 = [0, 0, 0], p25 = [0, 0, 0], ages = new Array(32).fill(0);
+    let hh = 0, area = 0, has25 = false, hasHh = false, hasArea = false, hasAges = false;
+    const stat = {};
+    for (const c of leaf) {
+        const v20 = CENSUS_2020_POP[c]; p20[0] += v20[0]; p20[1] += v20[1]; p20[2] += v20[2];
+        const m = MANIFEST_BY_CODE.get(c); if (m?.area) { area += m.area; hasArea = true; }
+        const v25 = CENSUS_2025_POP[c];
+        if (v25?.pop) { p25[0] += v25.pop[0]; p25[1] += v25.pop[1]; p25[2] += v25.pop[2]; has25 = true; if (v25.hh2020) { hh += v25.hh2020; hasHh = true; } }
+        const a = CENSUS_2020_AGES[c]; if (a?.length === 32) { a.forEach((x, i) => { ages[i] += x; }); hasAges = true; }
+        const s = CENSUS_2020_STATS[c];
+        if (s) for (const k of ['ind', 'occ', 'eco']) if (s[k]) {
+            if (!stat[k]) stat[k] = new Array(s[k].length).fill(0);
+            s[k].forEach((x, i) => { stat[k][i] += x; });
+        }
+    }
+    return {
+        pop2020: p20, pop2025: has25 ? p25 : null, hh: hasHh ? hh : 0, area: hasArea ? area : 0, count: leaf.length,
+        ages: hasAges ? ages : null, stat: Object.keys(stat).length ? stat : null, trend: _sumTrend(leaf),
+    };
+}
+
+// 集計 KV（市区町村と同じ項目: 2020人口・2025人口＆増減率・世帯・面積・密度）
+// 件数はセレクタ見出しに出るので KV には含めない
+function _aggKvHtml(agg) {
+    const rows = [_popKvRows('総人口', '2020年', agg.pop2020)];
+    if (agg.pop2025) {
+        const chg  = agg.pop2020[0] ? (agg.pop2025[0] - agg.pop2020[0]) / agg.pop2020[0] * 100 : 0;
+        const sign = chg >= 0 ? `+${chg.toFixed(1)}` : chg.toFixed(1);
+        const cl   = chg >= 0 ? '#4c8' : '#f64';
+        rows.push(`<div class="cs-kv"><span class="cs-k">人口 <span class="cs-year">2025年</span></span><span class="cs-v">${agg.pop2025[0].toLocaleString()} 人</span></div>`);
+        rows.push(`<div class="cs-kv"><span class="cs-k">増減率</span><span class="cs-v" style="color:${cl}">${sign}%</span></div>`);
+    }
+    if (agg.hh)   rows.push(`<div class="cs-kv"><span class="cs-k">世帯数 <span class="cs-year">2020年</span></span><span class="cs-v">${agg.hh.toLocaleString()} 世帯</span></div>`);
+    if (agg.area) {
+        rows.push(`<div class="cs-kv"><span class="cs-k">面積</span><span class="cs-v">${Math.round(agg.area).toLocaleString()} km²</span></div>`);
+        rows.push(`<div class="cs-kv"><span class="cs-k">人口密度</span><span class="cs-v">${Math.round(agg.pop2020[0] / agg.area).toLocaleString()} 人/km²</span></div>`);
+    }
+    return `<div class="cs-kv-grid">${rows.join('')}</div>`;
+}
+
 // Level 0: 全国データ + 都道府県一覧
 function _csDrillNational() {
-    // 2020人口を都道府県ごとに集計（CENSUS_2020_POP は葉ノードのみ＝合算で全国と完全一致）
+    // 都道府県ごとの2020人口（チップ用）
     const byPref = new Map();
-    let totPop = 0, totMale = 0, totFem = 0;
     for (const [code, v] of Object.entries(CENSUS_2020_POP)) {
         const pref = code.slice(0, 2);
-        if (!byPref.has(pref)) byPref.set(pref, { pop: 0 });
-        byPref.get(pref).pop += v[0];
-        totPop += v[0]; totMale += v[1]; totFem += v[2];
+        byPref.set(pref, (byPref.get(pref) || 0) + v[0]);
     }
-    const cityCount = Object.keys(CENSUS_2020_POP).length;
 
-    const statsHtml = `
-        <div class="cs-kv-grid">
-            ${_popKvRows('総人口', '2020年', [totPop, totMale, totFem])}
-            <div class="cs-kv"><span class="cs-k">市区町村</span><span class="cs-v">${cityCount.toLocaleString()} 件</span></div>
-        </div>`;
-
-    // 全国年齢ピラミッド（自身が基準なので参考線なし）
-    const chart = _pyramidHtml(CENSUS_2020_AGES['_national'], null);
+    // 全国を積み上げ（市区町村と同じ全データ）。ピラミッドは precomputed _national を使用
+    const agg = _aggForLevel(() => true);
+    agg.ages = CENSUS_2020_AGES['_national'];
+    const statsHtml = _aggKvHtml(agg);
+    const chart = _fullChartHtml({ ages: agg.ages, refAges: null, popTrend: agg.trend, stat: agg.stat });
 
     const listHtml = `<h3 class="cs-drill-sec-h3">都道府県 <span class="cs-year">47都道府県</span></h3>
         <div class="cs-drill-chips">${
-        [...byPref.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([pref, d]) =>
-            `<span class="cs-drill-chip" data-key="${pref}">${PREFS[pref] || pref}<span class="cs-chip-sub">${_popLabel(d.pop)}</span></span>`
+        [...byPref.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([pref, pop]) =>
+            `<span class="cs-drill-chip" data-key="${pref}">${PREFS[pref] || pref}<span class="cs-chip-sub">${_popLabel(pop)}</span></span>`
         ).join('')
     }</div>`;
 
@@ -413,22 +464,12 @@ function _cityPop2020(code) {
 // Level 1: 都道府県データ + 市区町村一覧
 function _csDrillPref(prefCode) {
     const prefName = PREFS[prefCode] || prefCode;
-    const cities    = CENSUS_MANIFEST.filter(e => e.pref === prefCode && !e.code.endsWith('000'));
+    const cities   = CENSUS_MANIFEST.filter(e => e.pref === prefCode && !e.code.endsWith('000'));
 
-    // 2020人口（CENSUS_2020_POP を都道府県内で合算＝二重計上なし）
-    let pop = 0, male = 0, female = 0;
-    for (const [code, v] of Object.entries(CENSUS_2020_POP)) {
-        if (code.slice(0, 2) === prefCode) { pop += v[0]; male += v[1]; female += v[2]; }
-    }
-
-    // 都道府県年齢ピラミッド（市区町村合計）
-    const chart = _pyramidHtml(_sumAges(cities.map(c => c.code)));
-
-    const statsHtml = `
-        <div class="cs-kv-grid">
-            ${_popKvRows('人口', '2020年', [pop, male, female])}
-            <div class="cs-kv"><span class="cs-k">市区町村</span><span class="cs-v">${cities.length} 件</span></div>
-        </div>`;
+    // 都道府県を積み上げ（市区町村と同じ全データ）
+    const agg = _aggForLevel(c => c.slice(0, 2) === prefCode);
+    const statsHtml = _aggKvHtml(agg);
+    const chart = _fullChartHtml({ ages: agg.ages, popTrend: agg.trend, stat: agg.stat });
 
     // 政令指定都市の区は除外（政令指定都市自体は残す）
     const topCities = cities.filter(c => !_wardParent(c.code));
@@ -473,15 +514,13 @@ function _csDrillDesignated(cityCode, prefCode) {
     const entry    = CENSUS_MANIFEST.find(e => e.code === cityCode);
     const cityName = entry?.name || cityCode;
 
-    const wards = CENSUS_MANIFEST.filter(e => _wardParent(e.code) === cityCode);
+    const wards   = CENSUS_MANIFEST.filter(e => _wardParent(e.code) === cityCode);
+    const wardSet = new Set(wards.map(w => w.code));
 
-    // 区を積み上げた年齢ピラミッド
-    const chart = _pyramidHtml(_sumAges(wards.map(w => w.code)));
-
-    const pop20 = _cityPop2020(cityCode);   // 政令市集計コードは区の合算
-    const p25   = CENSUS_2025_POP[cityCode];
-
-    const statsHtml = `<div class="cs-kv-grid">${_cityStatsRows(pop20, p25, entry)}</div>`;
+    // 区を積み上げ（市区町村と同じ全データ）
+    const agg = _aggForLevel(c => wardSet.has(c));
+    const statsHtml = _aggKvHtml(agg);
+    const chart = _fullChartHtml({ ages: agg.ages, popTrend: agg.trend, stat: agg.stat });
 
     const listHtml = `<h3 class="cs-drill-sec-h3">行政区 <span class="cs-year">${wards.length}区</span></h3>
         <div class="cs-drill-chips">${wards.map(w => {
@@ -515,17 +554,7 @@ async function _csDrillCity(cityCode, prefCode, parentCode = null) {
     const p25 = CENSUS_2025_POP[cityCode];
     if (p25?.pop) popTrend.push({ year: 2025, male: p25.pop[1], female: p25.pop[2] });
 
-    const chartSecs = buildCensusChartSections(stat, '2020', {
-        ages:     ages?.length === 32 ? ages : null,
-        refAges:  natAges?.length === 32 ? natAges : null,
-        popTrend: popTrend.length >= 2 ? popTrend : null,
-    });
-    const CHART_META = {
-        trend:   { title: '人口推移', year: '2015 – 2025' },
-        pyramid: { title: '年齢別人口構成', year: '2020年' },
-        stats:   { title: '就業・世帯経済', year: '2020年' },
-    };
-    const chart = _chartHtml(chartSecs, CHART_META);
+    const chart = _fullChartHtml({ ages, refAges: natAges, popTrend, stat });
 
     const statsHtml = `<div class="cs-kv-grid">${_cityStatsRows(pop20, p25, entry)}</div>`;
 
