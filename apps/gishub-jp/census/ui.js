@@ -347,7 +347,10 @@ const DESIGNATED_CITIES = new Set([
 ]);
 
 // code が政令指定都市の区なら親市コードを返す（違えば null）
+// 政令市が複数ある県（神奈川=横浜/川崎/相模原、福岡=北九州/福岡 等）では、
+// 政令市自身が近い方の政令市の区に誤判定されるためガードする
 function _wardParent(code) {
+    if (DESIGNATED_CITIES.has(code)) return null;   // 政令市自体は区ではない
     const cNum = parseInt(code, 10);
     let best = null, bestDiff = 40;
     for (const dc of DESIGNATED_CITIES) {
