@@ -411,7 +411,7 @@ function _csDrillNational() {
         ).join('')}</div>`;
     // 全国のピラミッドは precomputed _national（参考線なし）
     _renderAggView({
-        title: '全国小地域 2020', pred: () => true,
+        title: '全国', pred: () => true,
         ages: CENSUS_2020_AGES['_national'], refAges: null,
         listHtml, onChip: _csDrillPref,
     });
@@ -468,7 +468,7 @@ function _csDrillPref(prefCode) {
     const topCities = CENSUS_MANIFEST.filter(e => e.pref === prefCode && !e.code.endsWith('000') && !_wardParent(e.code));
     _renderAggView({
         crumbs: [_crumbNat(), _crumbPref(prefCode)],
-        title: PREFS[prefCode] || prefCode,
+        title: _prefFull(prefCode),
         pred: c => c.slice(0, 2) === prefCode,
         listHtml: _cityChipsHtml('市区町村', `${topCities.length}件`, topCities),
         onChip: code => DESIGNATED_CITIES.has(code) ? _csDrillDesignated(code, prefCode) : _csDrillCity(code, prefCode, null),
