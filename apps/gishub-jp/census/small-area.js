@@ -14,6 +14,9 @@ const STAT_STORE = 'stats2020';  // 就業・世帯経済: key=市区町村5桁 
                                  //   いずれも各行 slice(7)。`__pref_NN` マーカーで都道府県取得済みを判定
 const STORES = [SA_STORE, PYR_STORE, STAT_STORE];
 
+// 読み込み確認用マーカー（このログが出れば stats2020 対応の最新版が実行されている）
+console.info('[small-area] loaded — stats2020対応版（就業・世帯経済）');
+
 // ---- IDB helpers -----------------------------------------------------------
 
 let _db = null;
@@ -45,8 +48,10 @@ async function openDb() {
     let db = await _rawOpen();                 // 現行バージョンで開く
     if (!_hasAllStores(db)) {                  // ストアが欠けていれば強制昇格
         const next = db.version + 1;
+        console.info(`[small-area] IDB自己修復: v${db.version} にストア欠落 → v${next} へ昇格`);
         db.close();
         db = await _rawOpen(next);
+        console.info(`[small-area] 修復完了: v${db.version}`, [...db.objectStoreNames]);
     }
     _db = db;
     return db;
