@@ -218,33 +218,6 @@ export async function fetchSmallAreaPyramid(cityCode, apiBase) {
 
 // ---- SVG 描画 ---------------------------------------------------------------
 
-export function smallAreaPyramidSvg(mAges, fAges) {
-    const labels = ['0','5','10','15','20','25','30','35','40','45','50','55','60','65','70','75+'];
-    const total  = [...mAges, ...fAges].reduce((s, v) => s + v, 0);
-    if (!total) return '<span style="color:#666;font-size:11px">データなし</span>';
-    const max  = Math.max(...mAges, ...fAges);
-    const bW = 52, bH = 8, gap = 1, lblW = 22;
-    const W  = bW * 2 + lblW;
-    const H  = (bH + gap) * 16 + 14;
-    const bars = [...mAges].reverse().map((m, i) => {
-        const fi = 15 - i;
-        const f  = fAges[fi];
-        const mw = max ? (m / max * bW).toFixed(1) : 0;
-        const fw = max ? (f / max * bW).toFixed(1) : 0;
-        const y  = i * (bH + gap);
-        const lbl = i % 2 === 0
-            ? `<text x="${bW + lblW / 2}" y="${y + bH - 1}" text-anchor="middle" font-size="5.5" fill="#888">${labels[fi]}</text>`
-            : '';
-        return `<rect x="${bW - mw}" y="${y}" width="${mw}" height="${bH}" fill="#68b" opacity=".85"/>` +
-               `<rect x="${bW + lblW}" y="${y}" width="${fw}" height="${bH}" fill="#c6a" opacity=".85"/>` +
-               lbl;
-    }).join('');
-    return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" style="display:block">` +
-        `<text x="${bW / 2}" y="${H - 2}" text-anchor="middle" font-size="6.5" fill="#68b">男</text>` +
-        `<text x="${bW + lblW + bW / 2}" y="${H - 2}" text-anchor="middle" font-size="6.5" fill="#c6a">女</text>` +
-        bars + '</svg>';
-}
-
 export function miniAgeBar(mAges, fAges) {
     if (!mAges?.length) return '';
     const all   = mAges.map((m, i) => m + fAges[i]);

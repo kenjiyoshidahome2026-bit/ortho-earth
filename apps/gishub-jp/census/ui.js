@@ -6,7 +6,7 @@ import CENSUS_2015_STATS  from './2015-stats.json'  with { type: 'json' };
 import CENSUS_2020_AGES   from './2020-ages.json'   with { type: 'json' };
 import ESTAT_MANIFEST     from '../estat/manifest.json' with { type: 'json' };
 import { buildCensusChartSections } from './charts.mjs';
-import { fetchSmallAreaData, fetchSmallAreaPyramid, smallAreaPyramidSvg, miniAgeBar,
+import { fetchSmallAreaData, fetchSmallAreaPyramid, miniAgeBar,
          prefetchSmallAreaIdb, isSmallAreaReady } from './small-area.js';
 import { PREFS, escHtml } from '../ui/shared.js';
 import { ctx } from '../ui/ctx.js';
@@ -256,6 +256,15 @@ function _chartHtml(sections, meta = {}) {
             : '';
         return `<div class="cs-section cs-svg-wrap">${hd}${sec.svg}</div>`;
     }).join('');
+}
+
+// 全レベル共通の年齢ピラミッド HTML（mAges[16]+fAges[16] → 32要素で上位と同じ描画）
+function _pyramidHtml(mAges, fAges) {
+    if (!mAges?.length) return '<span style="color:#666;font-size:11px">年齢データなし</span>';
+    const ages = [...mAges, ...fAges];
+    if (!ages.reduce((s, v) => s + v, 0)) return '<span style="color:#666;font-size:11px">年齢データなし</span>';
+    const secs = buildCensusChartSections(null, '2020', { ages, refAges: CENSUS_2020_AGES['_national'] });
+    return _chartHtml(secs, { pyramid: { title: '年齢別人口構成', year: '2020年（参考：全国平均）' } });
 }
 
 // Level 0: 全国データ + 都道府県一覧
@@ -622,8 +631,7 @@ function _csDrillSmallAreaPyramid(areaName, pyr, pop, crumbs) {
             <div class="cs-kv"><span class="cs-k">男性</span><span class="cs-v">${pop.m.toLocaleString()} 人</span></div>
             <div class="cs-kv"><span class="cs-k">女性</span><span class="cs-v">${pop.f.toLocaleString()} 人</span></div>
         </div>` : '';
-    const pyrSvg = pyr ? smallAreaPyramidSvg(pyr.mAges, pyr.fAges)
-                       : '<span style="color:#666;font-size:11px">年齢データなし</span>';
+    const chart = _pyramidHtml(pyr?.mAges, pyr?.fAges);
     ctx.setDetailHtml(`
         <div class="cs-drill-wrap census-detail">
             <div class="cs-drill-head">
@@ -631,11 +639,10 @@ function _csDrillSmallAreaPyramid(areaName, pyr, pop, crumbs) {
                 <div class="cs-drill-title-row">
                     <h2>${escHtml(areaName)}</h2>
                 </div>
+                ${chart}
                 ${popHtml}
             </div>
-            <div class="cs-drill-list">
-                <div class="cs-svg-wrap" style="padding:8px 0">${pyrSvg}</div>
-            </div>
+            <div class="cs-drill-list"></div>
         </div>
     `);
     _wireCrumbs(crumbs);
@@ -726,7 +733,7 @@ async function _populateSmallAreaBody(bodyEl, code, { downloadName, withPyramid 
                     : '';
                 pyrWrap.style.display = '';
                 pyrWrap.innerHTML = `<div class="cs-sa-py-name">${esc(nm)}${popLine}</div>` +
-                    smallAreaPyramidSvg(pyr.mAges, pyr.fAges);
+                    _pyramidHtml(pyr.mAges, pyr.fAges);
             }
         });
 
