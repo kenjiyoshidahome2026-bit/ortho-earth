@@ -301,12 +301,6 @@ function _popKvRows(label, year, [t, m, f]) {
 function _cityStatsRows(pop20, p25, entry) {
     const rows = [];
     if (pop20) rows.push(_popKvRows('人口', '2020年', pop20));
-    if (p25?.pop) {
-        const sign = p25.popChange >= 0 ? `+${p25.popChange.toFixed(1)}` : p25.popChange.toFixed(1);
-        const cl   = p25.popChange >= 0 ? '#4c8' : '#f64';
-        rows.push(`<div class="cs-kv"><span class="cs-k">人口 <span class="cs-year">2025年</span></span><span class="cs-v">${p25.pop[0].toLocaleString()} 人</span></div>`);
-        rows.push(`<div class="cs-kv"><span class="cs-k">増減率</span><span class="cs-v" style="color:${cl}">${sign}%</span></div>`);
-    }
     if (p25?.hh2020) rows.push(`<div class="cs-kv"><span class="cs-k">世帯数 <span class="cs-year">2020年</span></span><span class="cs-v">${p25.hh2020.toLocaleString()} 世帯</span></div>`);
     if (entry?.area) rows.push(`<div class="cs-kv"><span class="cs-k">面積</span><span class="cs-v">${entry.area.toLocaleString()} km²</span></div>`);
     if (entry?.density) rows.push(`<div class="cs-kv"><span class="cs-k">人口密度</span><span class="cs-v">${entry.density.toLocaleString()} 人/km²</span></div>`);
@@ -424,13 +418,6 @@ function _aggForLevel(pred) {
 // 件数はセレクタ見出しに出るので KV には含めない
 function _aggKvHtml(agg) {
     const rows = [_popKvRows('総人口', '2020年', agg.pop2020)];
-    if (agg.pop2025) {
-        const chg  = agg.pop2020[0] ? (agg.pop2025[0] - agg.pop2020[0]) / agg.pop2020[0] * 100 : 0;
-        const sign = chg >= 0 ? `+${chg.toFixed(1)}` : chg.toFixed(1);
-        const cl   = chg >= 0 ? '#4c8' : '#f64';
-        rows.push(`<div class="cs-kv"><span class="cs-k">人口 <span class="cs-year">2025年</span></span><span class="cs-v">${agg.pop2025[0].toLocaleString()} 人</span></div>`);
-        rows.push(`<div class="cs-kv"><span class="cs-k">増減率</span><span class="cs-v" style="color:${cl}">${sign}%</span></div>`);
-    }
     if (agg.hh)   rows.push(`<div class="cs-kv"><span class="cs-k">世帯数 <span class="cs-year">2020年</span></span><span class="cs-v">${agg.hh.toLocaleString()} 世帯</span></div>`);
     if (agg.area) {
         rows.push(`<div class="cs-kv"><span class="cs-k">面積</span><span class="cs-v">${Math.round(agg.area).toLocaleString()} km²</span></div>`);

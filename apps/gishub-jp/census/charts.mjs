@@ -183,6 +183,10 @@ function appendHousehold(parent, x0, y0, v) {
 // ── 人口ピラミッド ────────────────────────────────────────────────────────────
 // ages: [m0,m1,...,m15, f0,...,f15] (0-4, 5-9, ..., 70-74, 75+) × male+female
 // refAges: same format for national reference (optional)
+// 年齢区分の共通色定義（人口構成＝ピラミッド・人口推移で統一）
+// [男年少, 女年少, 男生産, 女生産, 男老年, 女老年]
+const AGE_CL = ['#80f', '#804', '#88f', '#fcc', '#8f0', '#f80'];
+
 function appendAgePyramid(parent, x0, y0, ages, refAges) {
     const mAges = ages.slice(0, 16);
     const fAges = ages.slice(16);
@@ -191,7 +195,7 @@ function appendAgePyramid(parent, x0, y0, ages, refAges) {
     const total = mSum + fSum;
     if (!total) return 0;
 
-    const CL = ['#80f', '#804', '#88f', '#fcc', '#8f0', '#f80'];
+    const CL = AGE_CL;
     const os = 10;      // center gap half-width
     const cx = x0 + 125; // pyramid center x in parent coords
 
@@ -275,8 +279,9 @@ function appendAgePyramid(parent, x0, y0, ages, refAges) {
 // 人口推移: 年次ごとに男(左)・女(右)を年齢3区分（年少/生産/老年）で積み上げ表示。
 // points: [{ year, m:[年少,生産,老年], f:[年少,生産,老年] }, ...]（1980〜2020の国勢調査）
 //   後方互換: 旧 {year,male,female} は生産バンドのみの単色バーに正規化
-const TREND_MC = ['#c3ccff', '#6f8fd0', '#39508f'];  // 男 年少→生産→老年（淡→濃）
-const TREND_FC = ['#ffd2da', '#ec9cae', '#bd6379'];  // 女 年少→生産→老年（淡→濃）
+// 人口構成（ピラミッド）と同一色: 男[年少,生産,老年]=AGE_CL[0,2,4], 女=AGE_CL[1,3,5]
+const TREND_MC = [AGE_CL[0], AGE_CL[2], AGE_CL[4]];
+const TREND_FC = [AGE_CL[1], AGE_CL[3], AGE_CL[5]];
 function appendPopTrend(parent, x0, y0, points) {
     if (!points || !points.length) return 0;
     points = points.map(p => p.m ? p : { year: p.year, m: [0, p.male, 0], f: [0, p.female, 0] });
@@ -290,7 +295,7 @@ function appendPopTrend(parent, x0, y0, points) {
     const TW  = W - x0 - 8;
     const bsp = TW / n;
     const bw  = Math.max(2.5, Math.min(9, bsp * 0.32));
-    const BH  = 62;
+    const BH  = 88;   // 縦を伸ばして推移を見やすく
     const H   = BH / (maxP * 1.1);
 
     const g = parent.elem('g', { transform: `translate(${x0},${y0})` });
@@ -330,14 +335,14 @@ function appendPopTrend(parent, x0, y0, points) {
     return BH + 26;
 }
 
-// 人口推移の凡例HTML（男女＋年齢3区分の濃淡）
+// 人口推移の凡例HTML（年齢別人口構成の凡例と同一定義: 男(左)/女(右)の2色×3区分）
 export function popTrendLegendHtml() {
     const sw = c => `<span class="cs-pl-sw" style="background:${c}"></span>`;
     return `<div class="cs-pyramid-legend cs-trend-legend">
-        <span class="cs-pl-item">${sw(TREND_MC[1])}男性</span>
-        <span class="cs-pl-item">${sw(TREND_FC[1])}女性</span>
-        <span class="cs-pl-item" style="gap:4px">濃淡＝年齢
-            ${sw(TREND_MC[0])}年少 ${sw(TREND_MC[1])}生産年齢 ${sw(TREND_MC[2])}老年</span>
+        <span class="cs-pl-item">${sw(AGE_CL[0])}${sw(AGE_CL[1])}年少 0-14</span>
+        <span class="cs-pl-item">${sw(AGE_CL[2])}${sw(AGE_CL[3])}生産 15-64</span>
+        <span class="cs-pl-item">${sw(AGE_CL[4])}${sw(AGE_CL[5])}老年 65+</span>
+        <span class="cs-pl-item" style="color:#999">左=男 右=女</span>
     </div>`;
 }
 
