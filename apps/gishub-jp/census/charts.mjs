@@ -280,7 +280,7 @@ function appendPopTrend(parent, x0, y0, points) {
     if (!maxP) return 0;
 
     const TW  = W - x0 - 8;   // total usable width
-    const bsp = Math.floor(TW / n);  // bar group spacing
+    const bsp = TW / n;       // bar group spacing（等分。丸めず右余りを出さない）
     const bw  = Math.max(3, Math.floor(bsp * 0.38));
     const BH  = 60;            // chart height
     const H   = BH / (maxP * 1.1);  // scale factor
@@ -305,11 +305,11 @@ function appendPopTrend(parent, x0, y0, points) {
     }
     if (grs.length) g.elem('path', { d: grs.join(''), stroke: FG, 'stroke-width': 0.4 });
 
-    // bars
+    // bars（男女ペアをスロット中心に対称配置: 男 = 中心-bw/2, 女 = 中心+bw/2 で隣接）
     const dm = points.map((p, i) =>
-        `M${i * bsp + bsp / 2 - bw},${BH}v-${(p.male   * H).toFixed(1)}`);
+        `M${i * bsp + bsp / 2 - bw / 2},${BH}v-${(p.male   * H).toFixed(1)}`);
     const df = points.map((p, i) =>
-        `M${i * bsp + bsp / 2},${BH}v-${(p.female * H).toFixed(1)}`);
+        `M${i * bsp + bsp / 2 + bw / 2},${BH}v-${(p.female * H).toFixed(1)}`);
 
     g.elem('path', { d: dm.join(''), stroke: '#88f', 'stroke-width': bw });
     g.elem('path', { d: df.join(''), stroke: '#fcc', 'stroke-width': bw });
@@ -324,7 +324,7 @@ function appendPopTrend(parent, x0, y0, points) {
         'font-size': 5.5, 'font-family': 'Verdana', fill: FG,
     });
     points.forEach((p, i) => {
-        const cx = i * bsp + bsp / 2 - bw / 2;
+        const cx = i * bsp + bsp / 2;   // スロット中心＝バーペア中心＝ラベル位置
         gt.elem('text', { x: cx, y: BH + 8 }, String(p.year));
         const chg = i > 0
             ? ((p.male + p.female - points[i-1].male - points[i-1].female) /
