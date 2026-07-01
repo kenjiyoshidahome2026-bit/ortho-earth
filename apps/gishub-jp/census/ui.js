@@ -258,13 +258,45 @@ function _chartHtml(sections, meta = {}) {
     }).join('');
 }
 
-// 全レベル共通の年齢ピラミッド HTML（mAges[16]+fAges[16] → 32要素で上位と同じ描画）
-function _pyramidHtml(mAges, fAges) {
-    if (!mAges?.length) return '<span style="color:#666;font-size:11px">年齢データなし</span>';
-    const ages = [...mAges, ...fAges];
-    if (!ages.reduce((s, v) => s + v, 0)) return '<span style="color:#666;font-size:11px">年齢データなし</span>';
-    const secs = buildCensusChartSections(null, '2020', { ages, refAges: CENSUS_2020_AGES['_national'] });
-    return _chartHtml(secs, { pyramid: { title: '年齢別人口構成', year: '2020年（参考：全国平均）' } });
+// 全レベル共通の年齢ピラミッド HTML（ages=32要素[m0..m15,f0..f15]、上位と同じ描画）
+function _pyramidHtml(ages, refAges = CENSUS_2020_AGES['_national']) {
+    if (!ages?.some(v => v > 0)) return '<span style="color:#666;font-size:11px">年齢データなし</span>';
+    const secs = buildCensusChartSections(null, '2020', { ages, refAges });
+    return _chartHtml(secs, { pyramid: { title: '年齢別人口構成', year: refAges ? '2020年（参考：全国平均）' : '2020年' } });
+}
+
+// 複数コードの年齢（CENSUS_2020_AGES 32要素）を積み上げ。無ければ null
+function _sumAges(codes) {
+    const ages = new Array(32).fill(0);
+    let has = false;
+    for (const c of codes) {
+        const a = CENSUS_2020_AGES[c];
+        if (a?.length === 32) { a.forEach((v, i) => { ages[i] += v; }); has = true; }
+    }
+    return has ? ages : null;
+}
+
+// 人口の KV 行（総数・男・女）
+function _popKvRows(label, year, [t, m, f]) {
+    return `<div class="cs-kv"><span class="cs-k">${label} <span class="cs-year">${year}</span></span><span class="cs-v">${t.toLocaleString()} 人</span></div>` +
+           `<div class="cs-kv"><span class="cs-k">男性</span><span class="cs-v">${m.toLocaleString()} 人</span></div>` +
+           `<div class="cs-kv"><span class="cs-k">女性</span><span class="cs-v">${f.toLocaleString()} 人</span></div>`;
+}
+
+// 市区町村/政令市パネルの統計行（2020人口・2025人口＆増減率・世帯・面積・密度）
+function _cityStatsRows(pop20, p25, entry) {
+    const rows = [];
+    if (pop20) rows.push(_popKvRows('人口', '2020年', pop20));
+    if (p25?.pop) {
+        const sign = p25.popChange >= 0 ? `+${p25.popChange.toFixed(1)}` : p25.popChange.toFixed(1);
+        const cl   = p25.popChange >= 0 ? '#4c8' : '#f64';
+        rows.push(`<div class="cs-kv"><span class="cs-k">人口 <span class="cs-year">2025年</span></span><span class="cs-v">${p25.pop[0].toLocaleString()} 人</span></div>`);
+        rows.push(`<div class="cs-kv"><span class="cs-k">増減率</span><span class="cs-v" style="color:${cl}">${sign}%</span></div>`);
+    }
+    if (p25?.hh2020) rows.push(`<div class="cs-kv"><span class="cs-k">世帯数 <span class="cs-year">2020年</span></span><span class="cs-v">${p25.hh2020.toLocaleString()} 世帯</span></div>`);
+    if (entry?.area) rows.push(`<div class="cs-kv"><span class="cs-k">面積</span><span class="cs-v">${entry.area.toLocaleString()} km²</span></div>`);
+    if (entry?.density) rows.push(`<div class="cs-kv"><span class="cs-k">人口密度</span><span class="cs-v">${entry.density.toLocaleString()} 人/km²</span></div>`);
+    return rows.join('');
 }
 
 // Level 0: 全国データ + 都道府県一覧
@@ -282,18 +314,12 @@ function _csDrillNational() {
 
     const statsHtml = `
         <div class="cs-kv-grid">
-            <div class="cs-kv"><span class="cs-k">総人口 <span class="cs-year">2020年</span></span><span class="cs-v">${totPop.toLocaleString()} 人</span></div>
-            <div class="cs-kv"><span class="cs-k">男性</span><span class="cs-v">${totMale.toLocaleString()} 人</span></div>
-            <div class="cs-kv"><span class="cs-k">女性</span><span class="cs-v">${totFem.toLocaleString()} 人</span></div>
+            ${_popKvRows('総人口', '2020年', [totPop, totMale, totFem])}
             <div class="cs-kv"><span class="cs-k">市区町村</span><span class="cs-v">${cityCount.toLocaleString()} 件</span></div>
         </div>`;
 
-    // 全国年齢ピラミッド
-    const natAges = CENSUS_2020_AGES['_national'];
-    const chartSecs = natAges
-        ? buildCensusChartSections(null, '2020', { ages: natAges })
-        : [];
-    const chart = _chartHtml(chartSecs, { pyramid: { title: '年齢別人口構成', year: '2020年' } });
+    // 全国年齢ピラミッド（自身が基準なので参考線なし）
+    const chart = _pyramidHtml(CENSUS_2020_AGES['_national'], null);
 
     const listHtml = `<h3 class="cs-drill-sec-h3">都道府県 <span class="cs-year">47都道府県</span></h3>
         <div class="cs-drill-chips">${
@@ -365,23 +391,11 @@ function _csDrillPref(prefCode) {
     }
 
     // 都道府県年齢ピラミッド（市区町村合計）
-    const prefAges = new Array(32).fill(0);
-    let hasAges = false;
-    for (const c of cities) {
-        const a = CENSUS_2020_AGES[c.code];
-        if (a) { a.forEach((v, i) => { prefAges[i] += v; }); hasAges = true; }
-    }
-    const natAges = CENSUS_2020_AGES['_national'];
-    const chartSecs = hasAges
-        ? buildCensusChartSections(null, '2020', { ages: prefAges, refAges: natAges })
-        : [];
-    const chart = _chartHtml(chartSecs, { pyramid: { title: '年齢別人口構成', year: '2020年（参考：全国平均）' } });
+    const chart = _pyramidHtml(_sumAges(cities.map(c => c.code)));
 
     const statsHtml = `
         <div class="cs-kv-grid">
-            <div class="cs-kv"><span class="cs-k">人口 <span class="cs-year">2020年</span></span><span class="cs-v">${pop.toLocaleString()} 人</span></div>
-            <div class="cs-kv"><span class="cs-k">男性</span><span class="cs-v">${male.toLocaleString()} 人</span></div>
-            <div class="cs-kv"><span class="cs-k">女性</span><span class="cs-v">${female.toLocaleString()} 人</span></div>
+            ${_popKvRows('人口', '2020年', [pop, male, female])}
             <div class="cs-kv"><span class="cs-k">市区町村</span><span class="cs-v">${cities.length} 件</span></div>
         </div>`;
 
@@ -430,39 +444,13 @@ function _csDrillDesignated(cityCode, prefCode) {
 
     const wards = CENSUS_MANIFEST.filter(e => _wardParent(e.code) === cityCode);
 
-    // 区を積み上げた年齢ピラミッド（都道府県レベルと同じ手法）
-    const desigAges = new Array(32).fill(0);
-    let hasAges = false;
-    for (const w of wards) {
-        const a = CENSUS_2020_AGES[w.code];
-        if (a?.length === 32) { a.forEach((v, i) => { desigAges[i] += v; }); hasAges = true; }
-    }
-    const natAges   = CENSUS_2020_AGES['_national'];
-    const chartSecs = hasAges
-        ? buildCensusChartSections(null, '2020', { ages: desigAges, refAges: natAges })
-        : [];
-    const chart = _chartHtml(chartSecs, { pyramid: { title: '年齢別人口構成', year: '2020年（参考：全国平均）' } });
+    // 区を積み上げた年齢ピラミッド
+    const chart = _pyramidHtml(_sumAges(wards.map(w => w.code)));
 
     const pop20 = _cityPop2020(cityCode);   // 政令市集計コードは区の合算
     const p25   = CENSUS_2025_POP[cityCode];
 
-    const statsHtml = (() => {
-        const rows = [];
-        if (pop20) {
-            rows.push(`<div class="cs-kv"><span class="cs-k">人口 <span class="cs-year">2020年</span></span><span class="cs-v">${pop20[0].toLocaleString()} 人</span></div>`);
-            rows.push(`<div class="cs-kv"><span class="cs-k">男性</span><span class="cs-v">${pop20[1].toLocaleString()} 人</span></div>`);
-            rows.push(`<div class="cs-kv"><span class="cs-k">女性</span><span class="cs-v">${pop20[2].toLocaleString()} 人</span></div>`);
-        }
-        if (p25?.pop) {
-            const chgSign = p25.popChange >= 0 ? `+${p25.popChange.toFixed(1)}` : p25.popChange.toFixed(1);
-            const chgCl   = p25.popChange >= 0 ? '#4c8' : '#f64';
-            rows.push(`<div class="cs-kv"><span class="cs-k">人口 <span class="cs-year">2025年</span></span><span class="cs-v">${p25.pop[0].toLocaleString()} 人</span></div>`);
-            rows.push(`<div class="cs-kv"><span class="cs-k">増減率</span><span class="cs-v" style="color:${chgCl}">${chgSign}%</span></div>`);
-        }
-        if (entry?.area) rows.push(`<div class="cs-kv"><span class="cs-k">面積</span><span class="cs-v">${entry.area.toLocaleString()} km²</span></div>`);
-        if (entry?.density) rows.push(`<div class="cs-kv"><span class="cs-k">人口密度</span><span class="cs-v">${entry.density.toLocaleString()} 人/km²</span></div>`);
-        return rows.length ? `<div class="cs-kv-grid">${rows.join('')}</div>` : '';
-    })();
+    const statsHtml = `<div class="cs-kv-grid">${_cityStatsRows(pop20, p25, entry)}</div>`;
 
     const listHtml = `<h3 class="cs-drill-sec-h3">行政区 <span class="cs-year">${wards.length}区</span></h3>
         <div class="cs-drill-chips">${wards.map(w => {
@@ -508,25 +496,7 @@ async function _csDrillCity(cityCode, prefCode, parentCode = null) {
     };
     const chart = _chartHtml(chartSecs, CHART_META);
 
-    const statsHtml = (() => {
-        const rows = [];
-        if (pop20) {
-            rows.push(`<div class="cs-kv"><span class="cs-k">人口 <span class="cs-year">2020年</span></span><span class="cs-v">${pop20[0].toLocaleString()} 人</span></div>`);
-            rows.push(`<div class="cs-kv"><span class="cs-k">男性</span><span class="cs-v">${pop20[1].toLocaleString()} 人</span></div>`);
-            rows.push(`<div class="cs-kv"><span class="cs-k">女性</span><span class="cs-v">${pop20[2].toLocaleString()} 人</span></div>`);
-        }
-        if (p25?.pop) {
-            const chgSign = p25.popChange >= 0 ? `+${p25.popChange.toFixed(1)}` : p25.popChange.toFixed(1);
-            const chgCl   = p25.popChange >= 0 ? '#4c8' : '#f64';
-            rows.push(`<div class="cs-kv"><span class="cs-k">人口 <span class="cs-year">2025年</span></span><span class="cs-v">${p25.pop[0].toLocaleString()} 人</span></div>`);
-            rows.push(`<div class="cs-kv"><span class="cs-k">増減率</span><span class="cs-v" style="color:${chgCl}">${chgSign}%</span></div>`);
-        }
-        const hh20 = p25?.hh2020;
-        if (hh20)           rows.push(`<div class="cs-kv"><span class="cs-k">世帯数 <span class="cs-year">2020年</span></span><span class="cs-v">${hh20.toLocaleString()} 世帯</span></div>`);
-        if (entry?.area)    rows.push(`<div class="cs-kv"><span class="cs-k">面積</span><span class="cs-v">${entry.area.toLocaleString()} km²</span></div>`);
-        if (entry?.density) rows.push(`<div class="cs-kv"><span class="cs-k">人口密度</span><span class="cs-v">${entry.density.toLocaleString()} 人/km²</span></div>`);
-        return rows.length ? `<div class="cs-kv-grid">${rows.join('')}</div>` : '';
-    })();
+    const statsHtml = `<div class="cs-kv-grid">${_cityStatsRows(pop20, p25, entry)}</div>`;
 
     const hasSmallArea = ESTAT_CODE_SET.has(cityCode);
     const saHtml = hasSmallArea
@@ -573,7 +543,6 @@ async function _csDrillCity(cityCode, prefCode, parentCode = null) {
             if (groups.size === 1) {
                 const [g, d] = [...groups.entries()][0];
                 await _populateSmallAreaBody(saEl, cityCode, {
-                    downloadName: `${cityCode}_小地域.csv`,
                     preItems: d.items, prePopMap: popMap,
                 });
                 return;
@@ -615,23 +584,20 @@ function _csDrillSmallAreaTable(cityCode, groupName, groupItems, popMap, prefCod
     `);
     _wireCrumbs(crumbs);
     _populateSmallAreaBody(document.getElementById('cs-sa-table-body'), cityCode, {
-        downloadName: `${cityCode}_${groupName}_小地域.csv`,
         preItems: groupItems,
         prePopMap: popMap,
-        onRowClick: (areaCode, areaName, pyr, pop) =>
-            _csDrillSmallAreaPyramid(areaName, pyr, pop, [...crumbs, { label: areaName }]),
+        onRowClick: (areaCode, areaName, pyr) =>
+            _csDrillSmallAreaPyramid(areaName, areaCode, pyr, [...crumbs, { label: areaName }]),
     });
 }
 
-// Level 4: 小地域 → 人口ピラミッド（最終系）
-function _csDrillSmallAreaPyramid(areaName, pyr, pop, crumbs) {
-    const popHtml = pop?.total ? `
-        <div class="cs-kv-grid">
-            <div class="cs-kv"><span class="cs-k">総人口</span><span class="cs-v">${pop.total.toLocaleString()} 人</span></div>
-            <div class="cs-kv"><span class="cs-k">男性</span><span class="cs-v">${pop.m.toLocaleString()} 人</span></div>
-            <div class="cs-kv"><span class="cs-k">女性</span><span class="cs-v">${pop.f.toLocaleString()} 人</span></div>
-        </div>` : '';
-    const chart = _pyramidHtml(pyr?.mAges, pyr?.fAges);
+// Level 4: 小地域（最下位）→ 名称・コード・人口ピラミッドのみ。秘匿なら理由説明のみ
+function _csDrillSmallAreaPyramid(areaName, areaCode, pyr, crumbs) {
+    const ages = pyr ? [...pyr.mAges, ...pyr.fAges] : null;
+    const body = !ages?.some(v => v > 0)
+        ? `<p class="cs-sa-suppressed">この地域は統計上の<b>秘匿</b>対象です。<br>
+             対象となる人口が少なく個人が特定されるおそれがあるため、年齢別人口は公表されていません。</p>`
+        : `<div class="cs-sa-code">${escHtml(areaCode)}</div>${_pyramidHtml(ages)}`;
     ctx.setDetailHtml(`
         <div class="cs-drill-wrap census-detail">
             <div class="cs-drill-head">
@@ -639,8 +605,7 @@ function _csDrillSmallAreaPyramid(areaName, pyr, pop, crumbs) {
                 <div class="cs-drill-title-row">
                     <h2>${escHtml(areaName)}</h2>
                 </div>
-                ${chart}
-                ${popHtml}
+                ${body}
             </div>
             <div class="cs-drill-list"></div>
         </div>
@@ -650,7 +615,7 @@ function _csDrillSmallAreaPyramid(areaName, pyr, pop, crumbs) {
 
 // ---- small area table renderer (shared) ------------------------------------
 
-async function _populateSmallAreaBody(bodyEl, code, { downloadName, withPyramid = true, preItems = null, prePopMap = null, onRowClick = null } = {}) {
+async function _populateSmallAreaBody(bodyEl, code, { withPyramid = true, preItems = null, prePopMap = null, onRowClick = null } = {}) {
     bodyEl.innerHTML = '<span class="cs-sa-loading">読み込み中…</span>';
     try {
         // 人口（IDB）は即時。年齢ピラミッド（T082）は待たずに後追い描画する。
@@ -667,14 +632,7 @@ async function _populateSmallAreaBody(bodyEl, code, { downloadName, withPyramid 
 
         if (!items.length) { bodyEl.textContent = 'データなし'; return; }
 
-        const esc   = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-        const fname = downloadName ?? `${code}_小地域.csv`;
-
-        const csvRows = items.map(([kc, nm]) => {
-            const p = popMap.get(kc);
-            return `${kc},"${nm.replace(/"/g, '""')}",${p?.total ?? ''},${p?.m ?? ''},${p?.f ?? ''}`;
-        });
-        const csvContent = '﻿コード,名称,総人口,男,女\n' + csvRows.join('\n');
+        const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
         // 年齢構成列は withPyramid 時に枠だけ用意（中身は後追いで流し込む）
         const bodyHtml = items.map(([kc, nm], i) => {
@@ -688,7 +646,6 @@ async function _populateSmallAreaBody(bodyEl, code, { downloadName, withPyramid 
             <div class="cs-sa-toolbar">
                 <span class="cs-sa-count">${items.length}件</span>
                 ${withPyramid ? '<span class="cs-sa-legend" style="display:none"><span class="cs-sa-l y"></span>年少 <span class="cs-sa-l w"></span>生産 <span class="cs-sa-l o"></span>老年</span>' : ''}
-                <button class="cs-sa-csv">CSV ↓</button>
             </div>
             <div class="cs-sa-scroll">
                 <table class="cs-sa-table">
@@ -697,14 +654,6 @@ async function _populateSmallAreaBody(bodyEl, code, { downloadName, withPyramid 
                 </table>
             </div>
             <div class="cs-sa-pyramid-wrap" id="cs-sa-pyramid" style="display:none"></div>`;
-
-        bodyEl.querySelector('.cs-sa-csv').addEventListener('click', () => {
-            const a = document.createElement('a');
-            a.href = URL.createObjectURL(new Blob([csvContent], { type: 'text/csv' }));
-            a.download = fname;
-            a.click();
-            setTimeout(() => URL.revokeObjectURL(a.href), 5000);
-        });
 
         // 行クリック（年齢データ到着後に has-pyr が付いた行だけ反応）
         let pyrMap = new Map();
@@ -733,7 +682,7 @@ async function _populateSmallAreaBody(bodyEl, code, { downloadName, withPyramid 
                     : '';
                 pyrWrap.style.display = '';
                 pyrWrap.innerHTML = `<div class="cs-sa-py-name">${esc(nm)}${popLine}</div>` +
-                    _pyramidHtml(pyr.mAges, pyr.fAges);
+                    _pyramidHtml([...pyr.mAges, ...pyr.fAges]);
             }
         });
 
