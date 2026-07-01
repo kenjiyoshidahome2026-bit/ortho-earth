@@ -5,6 +5,7 @@ import CENSUS_2020_STATS  from './2020-stats.json'  with { type: 'json' };
 import CENSUS_2015_STATS  from './2015-stats.json'  with { type: 'json' };
 import CENSUS_2020_AGES   from './2020-ages.json'   with { type: 'json' };
 import CENSUS_KANA        from './kana.json'        with { type: 'json' };
+import CENSUS_SHICHO      from './shicho.json'      with { type: 'json' };
 import ESTAT_MANIFEST     from '../estat/manifest.json' with { type: 'json' };
 import { buildCensusChartSections } from './charts.mjs';
 import { fetchSmallAreaData, fetchSmallAreaPyramid, miniAgeBar,
@@ -216,6 +217,11 @@ function _addrShort(name, parentLabel) {
 // 漢字名＋ふりがなルビ（かなが無ければ漢字のみ）。多言語化の土台にもなる
 function _rubyHtml(name, kana) {
     return kana ? `<ruby>${escHtml(name)}<rt>${escHtml(kana)}</rt></ruby>` : escHtml(name);
+}
+// 北海道の市区町村は支庁（振興局）名を後置
+function _shichoSuffix(code) {
+    const s = CENSUS_SHICHO[code];
+    return s ? ` <span class="cs-shicho">（${escHtml(s)}）</span>` : '';
 }
 
 const _crumbNat   = () => ({ label: '全国', go: _csDrillNational });
@@ -501,7 +507,7 @@ function _csDrillDesignated(cityCode, prefCode) {
     const wardSet = new Set(wards.map(w => w.code));
     _renderAggView({
         crumbs: [_crumbNat(), _crumbPref(prefCode), _crumbDesig(cityCode, prefCode)],
-        title: _rubyHtml(MANIFEST_BY_CODE.get(cityCode)?.name || cityCode, CENSUS_KANA[cityCode]),
+        title: _rubyHtml(MANIFEST_BY_CODE.get(cityCode)?.name || cityCode, CENSUS_KANA[cityCode]) + _shichoSuffix(cityCode),
         pred: c => wardSet.has(c),
         listHtml: _cityChipsHtml('行政区', `${wards.length}区`, wards),
         onChip: code => _csDrillCity(code, prefCode, cityCode),
@@ -540,7 +546,7 @@ async function _csDrillCity(cityCode, prefCode, parentCode = null) {
             <div class="cs-drill-head">
                 ${_crumbBarHtml(crumbs)}
                 <div class="cs-drill-title-row">
-                    <h2>${_rubyHtml(cityName, CENSUS_KANA[cityCode])}</h2>
+                    <h2>${_rubyHtml(cityName, CENSUS_KANA[cityCode])}${_shichoSuffix(cityCode)}</h2>
                 </div>
             </div>
             <div class="cs-drill-list">
