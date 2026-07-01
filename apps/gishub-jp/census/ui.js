@@ -4,6 +4,7 @@ import CENSUS_2020_POP    from './2020-pop.json'    with { type: 'json' };
 import CENSUS_2020_STATS  from './2020-stats.json'  with { type: 'json' };
 import CENSUS_2015_STATS  from './2015-stats.json'  with { type: 'json' };
 import CENSUS_2020_AGES   from './2020-ages.json'   with { type: 'json' };
+import CENSUS_KANA        from './kana.json'        with { type: 'json' };
 import ESTAT_MANIFEST     from '../estat/manifest.json' with { type: 'json' };
 import { buildCensusChartSections } from './charts.mjs';
 import { fetchSmallAreaData, fetchSmallAreaPyramid, miniAgeBar,
@@ -212,6 +213,10 @@ function _addrShort(name, parentLabel) {
     return parentLabel && name.startsWith(parentLabel) && name !== parentLabel
         ? name.slice(parentLabel.length) : name;
 }
+// 漢字名＋ふりがなルビ（かなが無ければ漢字のみ）。多言語化の土台にもなる
+function _rubyHtml(name, kana) {
+    return kana ? `<ruby>${escHtml(name)}<rt>${escHtml(kana)}</rt></ruby>` : escHtml(name);
+}
 
 const _crumbNat   = () => ({ label: '全国', go: _csDrillNational });
 const _crumbPref  = prefCode => ({ label: _prefFull(prefCode), go: () => _csDrillPref(prefCode) });
@@ -254,7 +259,7 @@ function _drillWrap({ crumbs, title, statsHtml = '', chartHtml = '', listHtml = 
             <div class="cs-drill-head">
                 ${_crumbBarHtml(crumbs)}
                 <div class="cs-drill-title-row">
-                    <h2>${escHtml(title)}</h2>
+                    <h2>${title}</h2>
                 </div>
             </div>
             ${listHtml ? `<div class="cs-drill-list">${listHtml}</div>` : ''}
@@ -411,7 +416,7 @@ function _csDrillNational() {
         ).join('')}</div>`;
     // 全国のピラミッドは precomputed _national（参考線なし）
     _renderAggView({
-        title: '全国', pred: () => true,
+        title: _rubyHtml('全国', 'ぜんこく'), pred: () => true,
         ages: CENSUS_2020_AGES['_national'], refAges: null,
         listHtml, onChip: _csDrillPref,
     });
@@ -468,7 +473,7 @@ function _csDrillPref(prefCode) {
     const topCities = CENSUS_MANIFEST.filter(e => e.pref === prefCode && !e.code.endsWith('000') && !_wardParent(e.code));
     _renderAggView({
         crumbs: [_crumbNat(), _crumbPref(prefCode)],
-        title: _prefFull(prefCode),
+        title: _rubyHtml(_prefFull(prefCode), CENSUS_KANA[prefCode]),
         pred: c => c.slice(0, 2) === prefCode,
         listHtml: _cityChipsHtml('市区町村', `${topCities.length}件`, topCities),
         onChip: code => DESIGNATED_CITIES.has(code) ? _csDrillDesignated(code, prefCode) : _csDrillCity(code, prefCode, null),
@@ -496,7 +501,7 @@ function _csDrillDesignated(cityCode, prefCode) {
     const wardSet = new Set(wards.map(w => w.code));
     _renderAggView({
         crumbs: [_crumbNat(), _crumbPref(prefCode), _crumbDesig(cityCode, prefCode)],
-        title: MANIFEST_BY_CODE.get(cityCode)?.name || cityCode,
+        title: _rubyHtml(MANIFEST_BY_CODE.get(cityCode)?.name || cityCode, CENSUS_KANA[cityCode]),
         pred: c => wardSet.has(c),
         listHtml: _cityChipsHtml('行政区', `${wards.length}区`, wards),
         onChip: code => _csDrillCity(code, prefCode, cityCode),
@@ -535,7 +540,7 @@ async function _csDrillCity(cityCode, prefCode, parentCode = null) {
             <div class="cs-drill-head">
                 ${_crumbBarHtml(crumbs)}
                 <div class="cs-drill-title-row">
-                    <h2>${escHtml(cityName)}</h2>
+                    <h2>${_rubyHtml(cityName, CENSUS_KANA[cityCode])}</h2>
                 </div>
             </div>
             <div class="cs-drill-list">

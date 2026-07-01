@@ -115,7 +115,10 @@
 		align-items: center;
 		gap: 8px;
 		margin-bottom: 8px;
-		h2 { margin: 0; }
+		h2 {
+			margin: 0;
+			rt { font-size: .42em; color: $mid; font-weight: 400; letter-spacing: .02em; }
+		}
 	}
 	// 最下位小地域: コード表示・秘匿説明・主役ピラミッド
 	.cs-sa-code {
