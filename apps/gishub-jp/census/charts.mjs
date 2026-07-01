@@ -41,7 +41,7 @@ const d3 = {
 // ── 数値ヘルパー ─────────────────────────────────────────────────────────────
 const BG = '#111';
 const FG = '#ccc';
-const W  = 230;
+const W  = 250;
 
 function pct(n)   { return (n * 100).toFixed(1) + '%'; }
 function ratio(a) { const s = d3.sum(a); return s ? a.map(t => t / s) : a.map(() => 0); }
@@ -180,38 +180,253 @@ function appendHousehold(parent, x0, y0, v) {
     return 40;
 }
 
+// ── 人口ピラミッド ────────────────────────────────────────────────────────────
+// ages: [m0,m1,...,m15, f0,...,f15] (0-4, 5-9, ..., 70-74, 75+) × male+female
+// refAges: same format for national reference (optional)
+function appendAgePyramid(parent, x0, y0, ages, refAges) {
+    const mAges = ages.slice(0, 16);
+    const fAges = ages.slice(16);
+    const mSum  = d3.sum(mAges);
+    const fSum  = d3.sum(fAges);
+    const total = mSum + fSum;
+    if (!total) return 0;
+
+    const CL = ['#80f', '#804', '#88f', '#fcc', '#8f0', '#f80'];
+    const os = 10;      // center gap half-width
+    const cx = x0 + 125; // pyramid center x in parent coords
+
+    const pAll = v => total ? v * 100 / total : 0;
+
+    // bars drawn reversed (75+ at top row i=0, 0-4 at bottom row i=15)
+    const d0 = [...mAges].reverse().map((v, i) =>
+        `M-${os},${(i + 1) * 10}h-${(pAll(v) * 5).toFixed(2)}`);
+    const d1 = [...fAges].reverse().map((v, i) =>
+        `M${os},${(i + 1) * 10}h${(pAll(v) * 5).toFixed(2)}`);
+
+    const g = parent.elem('g', { transform: `translate(${cx},${y0})` });
+
+    // border & center lines
+    g.elem('rect', { x: -110, y: 0, width: 220, height: 170,
+        fill: 'none', stroke: FG, 'stroke-width': 1.5 });
+    g.elem('path', { d: `M-${os},0v170M${os},0v170`,
+        fill: 'none', stroke: FG, 'stroke-width': 0.7 });
+    // grid lines at 1%,2%,3%,4% (=25 units each)
+    g.elem('path', {
+        d: 'M-85,0v170 M-60,0v170 M-35,0v170 M35,0v170 M60,0v170 M85,0v170',
+        fill: 'none', stroke: FG, 'stroke-width': 0.4, 'stroke-dasharray': '4 1',
+    });
+
+    // age group labels
+    const gt = g.elem('g', {
+        'text-anchor': 'middle', 'dominant-baseline': 'middle',
+        'font-size': 7, 'font-family': 'Verdana', fill: FG,
+    });
+    for (let i = 0; i < 5; i++) {
+        const x = os + i * 25;
+        gt.elem('text', { x: -x, y: 178 }, `${i}%`);
+        gt.elem('text', { x:  x, y: 178 }, `${i}%`);
+    }
+    for (let i = 0; i < 16; i++) {
+        gt.elem('text', { x: 0, y: (i + 1) * 10 }, `${(15 - i) * 5}~`);
+    }
+
+    // male/female totals
+    const gl = g.elem('g', {
+        'font-size': 9, 'font-family': 'Verdana', 'dominant-baseline': 'middle',
+    });
+    gl.elem('text', { x: -100, y: 145, fill: CL[2], 'text-anchor': 'start', 'font-weight': 700 }, '男性');
+    gl.elem('text', { x: -100, y: 157, fill: FG,    'text-anchor': 'start' }, d3.comma(mSum));
+    gl.elem('text', { x:  100, y: 145, fill: CL[3], 'text-anchor': 'end',   'font-weight': 700 }, '女性');
+    gl.elem('text', { x:  100, y: 157, fill: FG,    'text-anchor': 'end'   }, d3.comma(fSum));
+
+    // bars (layered by age group category for color coding)
+    const gb = g.elem('g', { 'stroke-width': 8 });
+    gb.elem('path', { d: d0.slice(0,  3).join(''), stroke: CL[0] }); // male   0-14  (youth)
+    gb.elem('path', { d: d1.slice(0,  3).join(''), stroke: CL[1] }); // female 0-14
+    gb.elem('path', { d: d0.slice(3, 13).join(''), stroke: CL[2] }); // male   15-64 (adult)
+    gb.elem('path', { d: d1.slice(3, 13).join(''), stroke: CL[3] }); // female 15-64
+    gb.elem('path', { d: d0.slice(13).join(''),    stroke: CL[4] }); // male   65+   (elderly)
+    gb.elem('path', { d: d1.slice(13).join(''),    stroke: CL[5] }); // female 65+
+
+    // national reference polyline
+    if (refAges) {
+        const rm   = refAges.slice(0, 16);
+        const rf   = refAges.slice(16);
+        const rTot = d3.sum(rm) + d3.sum(rf);
+        if (rTot) {
+            const pR = v => v * 100 / rTot;
+            const t0 = [...rm].reverse().map((v, i) =>
+                (i ? 'L' : 'M') + `${-(pR(v) * 5 + os).toFixed(2)},${(i + 1) * 10}`);
+            const t1 = [...rf].reverse().map((v, i) =>
+                (i ? 'L' : 'M') + `${(pR(v) * 5 + os).toFixed(2)},${(i + 1) * 10}`);
+            const gr = g.elem('g', { stroke: '#8f0', 'stroke-width': 1, fill: 'none' });
+            gr.elem('text', { x: 80, y: 120, 'font-size': 8, 'font-family': 'Verdana',
+                fill: '#8f0', 'dominant-baseline': 'middle', 'text-anchor': 'start' }, '全国平均');
+            gr.elem('path', { d: 'M68,114h10' });
+            gr.elem('path', { d: t0.join('') + t1.join('') });
+        }
+    }
+
+    return 195; // height used (170 bars + 25 label area)
+}
+
+// ── 人口推移（3〜9時点対応） ─────────────────────────────────────────────────
+// points: [{ year, male, female }, ...] (古い順)
+function appendPopTrend(parent, x0, y0, points) {
+    if (!points || !points.length) return 0;
+
+    const n    = points.length;
+    const maxP = Math.max(...points.map(p => p.male + p.female));
+    if (!maxP) return 0;
+
+    const TW  = W - x0 - 8;   // total usable width
+    const bsp = Math.floor(TW / n);  // bar group spacing
+    const bw  = Math.max(3, Math.floor(bsp * 0.38));
+    const BH  = 60;            // chart height
+    const H   = BH / (maxP * 1.1);  // scale factor
+
+    // grid
+    const ln   = Math.log10(maxP * 1.1);
+    let grid   = Math.pow(10, Math.floor(ln));
+    if ((maxP * 1.1) / grid < 2) grid /= 2;
+
+    const g = parent.elem('g', { transform: `translate(${x0},${y0})` });
+
+    const grs = [];
+    for (let gr = grid; gr < maxP * 1.1; gr += grid) {
+        const gy = (BH - gr * H).toFixed(1);
+        grs.push(`M0,${gy}h${TW}`);
+        g.elem('text', {
+            x: -2, y: gy, 'font-size': 4.5, 'font-family': 'Verdana',
+            fill: FG, 'text-anchor': 'end', 'dominant-baseline': 'middle',
+        }, d3.comma(gr));
+    }
+    if (grs.length) g.elem('path', { d: grs.join(''), stroke: FG, 'stroke-width': 0.4 });
+
+    // bars
+    const dm = points.map((p, i) =>
+        `M${i * bsp + bsp / 2 - bw},${BH}v-${(p.male   * H).toFixed(1)}`);
+    const df = points.map((p, i) =>
+        `M${i * bsp + bsp / 2},${BH}v-${(p.female * H).toFixed(1)}`);
+
+    g.elem('path', { d: dm.join(''), stroke: '#88f', 'stroke-width': bw });
+    g.elem('path', { d: df.join(''), stroke: '#fcc', 'stroke-width': bw });
+
+    // border
+    g.elem('rect', { x: 0, y: 0, width: TW, height: BH,
+        fill: 'none', stroke: FG, 'stroke-width': 0.8 });
+
+    // year labels
+    const gt = g.elem('g', {
+        'text-anchor': 'middle', 'dominant-baseline': 'middle',
+        'font-size': 5.5, 'font-family': 'Verdana', fill: FG,
+    });
+    points.forEach((p, i) => {
+        const cx = i * bsp + bsp / 2 - bw / 2;
+        gt.elem('text', { x: cx, y: BH + 8 }, String(p.year));
+        const chg = i > 0
+            ? ((p.male + p.female - points[i-1].male - points[i-1].female) /
+               (points[i-1].male + points[i-1].female) * 100).toFixed(1)
+            : null;
+        if (chg !== null) {
+            const cl = Number(chg) >= 0 ? '#8f0' : '#f88';
+            gt.elem('text', { x: cx, y: BH + 16, fill: cl, 'font-size': 4.5 },
+                (Number(chg) >= 0 ? '+' : '') + chg + '%');
+        }
+    });
+
+    // legend
+    const lg = g.elem('g', {
+        'font-size': 5.5, 'font-family': 'Verdana', fill: FG,
+        'dominant-baseline': 'middle',
+    });
+    lg.elem('rect', { x: TW - 50, y: 2, width: 7, height: 7, fill: '#88f' });
+    lg.elem('text', { x: TW - 41, y: 6 }, '男性');
+    lg.elem('rect', { x: TW - 25, y: 2, width: 7, height: 7, fill: '#fcc' });
+    lg.elem('text', { x: TW - 16, y: 6 }, '女性');
+
+    return BH + 22; // height used
+}
+
 // ── メイン：統計オブジェクト → SVG 文字列 ────────────────────────────────────
-export function buildCensusChartSVG(stat, year = '2020') {
-    const svg  = d3.SVG([0, 0, W, 10]);
+// opts.ages     : 32-element array [m0..m15, f0..f15] from 2020-ages.json
+// opts.refAges  : national reference (same format)
+// opts.popTrend : [{ year, male, female }, ...] for population trend bars
+// ── 個別SVG ──────────────────────────────────────────────────────────────────
+function makeSvg(drawFn) {
+    const svg = d3.SVG([0, 0, W, 10]);
     svg.elem('rect', { x: 0, y: 0, width: W, height: 9999, fill: BG });
-
-    const x0  = 8;
-    const PAD = 12;
-    let y = 10;
-
-    const sections = [];
-
-    if (stat.ind) {
-        const h = appendIndustry(svg, x0, y, stat.ind);
-        if (h) { y += h + PAD; sections.push('ind'); }
-    }
-    if (stat.occ) {
-        const h = appendOccupation(svg, x0, y, stat.occ);
-        if (h) { y += h + PAD; sections.push('occ'); }
-    }
-    if (stat.ind) {
-        const h = appendStatus(svg, x0, y, stat.ind, year);
-        if (h) { y += h + PAD; sections.push('sta'); }
-    }
-    if (stat.eco) {
-        const h = appendHousehold(svg, x0, y, stat.eco);
-        if (h) { y += h + PAD; sections.push('eco'); }
-    }
-
-    if (!sections.length) return null;
-
-    svg.a.viewBox       = `0 0 ${W} ${y}`;
+    const x0 = 8;
+    let y = 8;
+    const h = drawFn(svg, x0, y);
+    if (!h) return null;
+    y += h;
+    svg.a.viewBox            = `0 0 ${W} ${y}`;
     svg.children[0].a.height = y;
+    return svg.outerHTML;
+}
 
+// ── セクション配列で返す（タイトルはHTML側で付ける） ─────────────────────────
+// returns [{ id, svg }, ...]
+export function buildCensusChartSections(stat, year = '2020', opts = {}) {
+    const { ages, refAges, popTrend } = opts;
+    const out = [];
+
+    if (popTrend && popTrend.length) {
+        const svg = makeSvg((s, x0, y) => appendPopTrend(s, x0 + 12, y, popTrend));
+        if (svg) out.push({ id: 'trend', svg });
+    }
+
+    if (ages && ages.length === 32) {
+        const svg = makeSvg((s, x0, y) => appendAgePyramid(s, x0, y, ages, refAges || null));
+        if (svg) out.push({ id: 'pyramid', svg });
+    }
+
+    if (stat) {
+        const statSvg = makeSvg((s, x0, y) => {
+            const PAD = 12;
+            let cur = y, used = 0;
+            const run = fn => {
+                const h = fn(s, x0, cur);
+                if (h) { cur += h + PAD; used += h + PAD; }
+            };
+            if (stat.ind) run((s,x,y) => appendIndustry(s, x, y, stat.ind));
+            if (stat.occ) run((s,x,y) => appendOccupation(s, x, y, stat.occ));
+            if (stat.ind) run((s,x,y) => appendStatus(s, x, y, stat.ind, year));
+            if (stat.eco) run((s,x,y) => appendHousehold(s, x, y, stat.eco));
+            return used ? cur - y : 0;
+        });
+        if (statSvg) out.push({ id: 'stats', svg: statSvg });
+    }
+
+    return out;
+}
+
+// backward compat
+export function buildCensusChartSVG(stat, year = '2020', opts = {}) {
+    const { ages, refAges, popTrend } = opts;
+    const svg = d3.SVG([0, 0, W, 10]);
+    svg.elem('rect', { x: 0, y: 0, width: W, height: 9999, fill: BG });
+    const x0 = 8, PAD = 12;
+    let y = 10;
+    const used = [];
+
+    if (popTrend?.length) {
+        const h = appendPopTrend(svg, x0 + 12, y, popTrend);
+        if (h) { y += h + PAD; used.push('trend'); }
+    }
+    if (ages?.length === 32) {
+        const h = appendAgePyramid(svg, x0, y, ages, refAges || null);
+        if (h) { y += h + PAD; used.push('pyramid'); }
+    }
+    if (stat) {
+        if (stat.ind) { const h = appendIndustry(svg, x0, y, stat.ind);    if (h) { y += h + PAD; used.push('ind'); } }
+        if (stat.occ) { const h = appendOccupation(svg, x0, y, stat.occ);  if (h) { y += h + PAD; used.push('occ'); } }
+        if (stat.ind) { const h = appendStatus(svg, x0, y, stat.ind, year);if (h) { y += h + PAD; used.push('sta'); } }
+        if (stat.eco) { const h = appendHousehold(svg, x0, y, stat.eco);   if (h) { y += h + PAD; used.push('eco'); } }
+    }
+    if (!used.length) return null;
+    svg.a.viewBox = `0 0 ${W} ${y}`;
+    svg.children[0].a.height = y;
     return svg.outerHTML;
 }

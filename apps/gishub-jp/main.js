@@ -17,6 +17,7 @@ import { estatSidebarEntry, renderEstatList } from './estat/ui.js';
 import {
     census2025SidebarEntry, census2020SidebarEntry, census2015SidebarEntry,
     renderCensus2025List, renderCensus2020List, renderCensus2015List,
+    censusSmall2020SidebarEntry, renderCensusSmall2020,
 } from './census/ui.js';
 
 // ============================================================
@@ -40,6 +41,7 @@ async function loadCatalog() {
 			census2025SidebarEntry(),
 			census2020SidebarEntry(),
 			census2015SidebarEntry(),
+			censusSmall2020SidebarEntry(),
 		];
 
 		const nlftpEntries = await loadCatalogEntries().catch(e => { console.error('[nlftp] catalog load failed:', e); return []; });
@@ -60,6 +62,7 @@ async function loadCatalog() {
 			else if (hash === 'census2025') { selectDataset('census2025', true); }
 			else if (hash === 'census2020') { selectDataset('census2020', true); }
 			else if (hash === 'census2015') { selectDataset('census2015', true); }
+			else if (hash === 'census-small-2020') { selectDataset('census-small-2020', true); }
 			else if (catalog.some(ds => ds.dataset_code === hash)) {
 				selectDataset(hash, true);
 				setTimeout(() => document.querySelector(`.ds-item[data-code="${hash}"]`)?.scrollIntoView({ block: 'center' }), 100);
@@ -78,6 +81,13 @@ const SOURCE_GROUP_LABELS = {
 	maff:  '農林水産省',
 	estat: '総務省 e-Stat',
 	nlftp: '国土交通省 国土数値情報',
+};
+
+const SOURCE_GROUP_URLS = {
+	moj:   'https://www.geospatial.jp/ckan/organization/moj',
+	maff:  'https://open.fude.maff.go.jp/',
+	estat: 'https://www.e-stat.go.jp/gis',
+	nlftp: 'https://nlftp.mlit.go.jp/ksj/',
 };
 
 function dsItemHtml(ds) {
@@ -119,7 +129,11 @@ function renderList() {
 	const html = [];
 	for (const [sid, dsItems] of groups) {
 		const label = SOURCE_GROUP_LABELS[sid] || sid;
-		html.push(`<div class="sidebar-group"><h2 class="sidebar-group-title">${label}</h2>`);
+		const url   = SOURCE_GROUP_URLS[sid];
+		const titleHtml = url
+			? `<a class="sidebar-group-link" href="${url}" target="_blank">${label}</a>`
+			: label;
+		html.push(`<div class="sidebar-group"><h2 class="sidebar-group-title">${titleHtml}</h2>`);
 		html.push(dsItems.map(dsItemHtml).join(''));
 		html.push(`</div>`);
 	}
@@ -153,6 +167,7 @@ function selectDataset(code, immediate = false) {
 
 async function _selectDatasetNow(code) {
 	active = code;
+	closeGeoPreview();
 	document.querySelectorAll('.ds-item').forEach(el => el.classList.toggle('active', el.dataset.code === code));
 
 	if (code === 'moj')        { history.replaceState(null,'','#moj');        renderMojList();        return; }
@@ -160,7 +175,8 @@ async function _selectDatasetNow(code) {
 	if (code === 'estat')      { history.replaceState(null,'','#estat');      renderEstatList();      return; }
 	if (code === 'census2025') { history.replaceState(null,'','#census2025'); renderCensus2025List(); return; }
 	if (code === 'census2020') { history.replaceState(null,'','#census2020'); renderCensus2020List(); return; }
-	if (code === 'census2015') { history.replaceState(null,'','#census2015'); renderCensus2015List(); return; }
+	if (code === 'census2015')       { history.replaceState(null,'','#census2015');       renderCensus2015List(); return; }
+	if (code === 'census-small-2020') { history.replaceState(null,'','#census-small-2020'); renderCensusSmall2020(); return; }
 
 	nlftpSelectDataset(code);
 }
@@ -241,6 +257,7 @@ async function init() {
 	});
 	await loadCatalog();
 }
+
 
 init();
 initSidebarToggle();

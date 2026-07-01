@@ -47,8 +47,9 @@ export function renderExecView(entry, onBack = null, geopbfFn = null, ds = null)
             const active = v => logEl.selectAll('button').attr('disabled', v ? null : true);
             const fmts = [
                 { name: 'GeoPBF',  fn: () => pbf.geopbfFile() },
-                { name: 'GeoJSON', fn: async () => pbf.geojsonFile({ gz: await logger.confirm('GeoJSON Gzipped', false) }) },
-                { name: 'FGB',     fn: async () => pbf.fgbFile({ gz: await logger.confirm('FGB Gzipped', false) }) },
+                { name: 'GeoJSON',  fn: async () => pbf.geojsonFile({ gz: await logger.confirm('GeoJSON Gzipped', false) }) },
+                { name: 'TopoJSON', fn: async () => pbf.topojsonFile({ gz: await logger.confirm('TopoJSON Gzipped', false) }) },
+                { name: 'FGB',      fn: async () => pbf.fgbFile({ gz: await logger.confirm('FGB Gzipped', false) }) },
                 { name: 'Shape',   fn: async () => pbf.shapeFile({ encoding: await logger.prompt('encoding (default: utf8)', 'utf8') }) },
                 { name: 'KMZ',     fn: async () => pbf.kmzFile({ kmz: await logger.select('KMZ or KML', { KMZ: true, KML: false }) }) },
                 { name: 'GML',     fn: async () => pbf.gmlFile({ gz: await logger.confirm('GML Gzipped', false) }) },

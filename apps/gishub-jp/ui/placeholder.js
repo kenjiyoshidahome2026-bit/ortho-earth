@@ -12,6 +12,7 @@ export function placeholder(catalog) {
         {
             icon:  '🗾',
             min:   '国土交通省',
+            url:   'https://nlftp.mlit.go.jp/ksj/',
             label: '国土数値情報',
             cnt:   nlftpFiles || '…',
             unit:  `ファイル / ${fmt(nlftpDs.length || '…')} データセット`,
@@ -20,6 +21,7 @@ export function placeholder(catalog) {
         {
             icon:  '📊',
             min:   '総務省',
+            url:   'https://www.e-stat.go.jp/gis',
             label: '統計 GIS・国勢調査',
             cnt:   ESTAT_MANIFEST.length + CENSUS_MANIFEST.length,
             unit:  `市区町村（小地域境界 + 国勢調査 3施行分）`,
@@ -28,6 +30,7 @@ export function placeholder(catalog) {
         {
             icon:  '🏠',
             min:   '法務省',
+            url:   'https://www.geospatial.jp/ckan/organization/moj',
             label: '登記所備付地図',
             cnt:   MOJ_CITIES.size,
             unit:  '市区町村',
@@ -36,13 +39,14 @@ export function placeholder(catalog) {
         {
             icon:  '🌾',
             min:   '農林水産省',
+            url:   'https://open.fude.maff.go.jp/',
             label: '農地（筆ポリゴン）',
             cnt:   MAFF_MANIFEST.length,
             unit:  '市区町村',
             desc:  '全国の農地区画。作付・耕地種別などの属性付き（GeoJSON）',
         },
     ].map(c => `
-        <div class="ph-card">
+        <a class="ph-card" href="${c.url}" target="_blank">
             <div class="ph-card-min">${c.min}</div>
             <div class="ph-card-cnt">${fmt(c.cnt)}</div>
             <div class="ph-card-head">
@@ -51,7 +55,7 @@ export function placeholder(catalog) {
             </div>
             <div class="ph-card-unit">${c.unit}</div>
             <div class="ph-card-desc">${c.desc}</div>
-        </div>
+        </a>
     `).join('');
 
     return `
@@ -82,23 +86,24 @@ export function placeholder(catalog) {
                 <div class="ph-geopbf">
                     <div class="ph-geopbf-text">
                         <p>
-                            <strong>GeoPBF</strong> は Web ブラウザ向けに設計された地理データフォーマットです。
-                            国が配布する ZIP 内の Shapefile・GeoJSON 等を変換して<strong>GeoPBF</strong>を生成しています。
+                            <strong>GeoPBF</strong> は Webブラウザ向けGISフォーマットです。
+                            国が配布する Shapefile・GeoJSON 等を変換し<strong>GeoPBF</strong>を生成しています。
                         </p>
                         <p>
-                            従来の GeoJSON や Shapefile はファイルサイズが大きく、ブラウザでの読み込みと描画に時間がかかります。
-                            <strong>GeoPBF</strong> はトポロジーを保持したまま頂点列を圧縮し、
-                            WebGL2 シェーダーへ直接送信できるバイナリ構造を持ちます。
-                            全国規模の数百万フィーチャーも、GPUのパワーでで、ズームに連動した動的LODとリアルタイムの描画三角形の生成で、スムーズに1/60秒で描画します。
-                            また、<strong>GeoPBF</strong>は従来のGISフォーマットにも即時変換可能です。
+                            座標は<strong>デルタ符号化</strong>（差分の Varint 圧縮）により、GeoJSON 比で約 1/10 のバイナリサイズを実現します。
+                            各頂点には <strong>gint</strong>（Morton 曲線ベースの 64bit 整数）で
+                            Visvalingam–Whyatt の重要度ランクを埋め込んでおり、ズームに連動した動的 LOD を単一ファイルで実現しています。
+                            隣接ポリゴンの共有境界は <strong>Arc 構造</strong>で重複なく格納するため、面積誤差やすき間が生じません。
+                            GINT レンダラーがこのデータを WebGL2 で高速描画します。また既存の GISフォーマットへの即時変換も可能です。
                         </p>
                     </div>
                     <ul class="ph-feat-list">
-                        <li><span class="ph-feat-ic">▸</span><span><strong>高圧縮</strong> — GeoJSON 比で 約1/10 のファイルサイズ。国勢調査の全市区町村境界もブラウザで即時ロード</span></li>
-                        <li><span class="ph-feat-ic">▸</span><span><strong>直接描画</strong> — CPU 変換なし。WebGL2 の頂点バッファへそのまま転送して GPU がレンダリング</span></li>
-                        <li><span class="ph-feat-ic">▸</span><span><strong>位相保持</strong> — 隣接ポリゴンの共有境界を重複なく格納。面積誤差・すき間が生じない</span></li>
-                        <li><span class="ph-feat-ic">▸</span><span><strong>動的 LOD</strong> — ズームレベルに応じて頂点を間引き。広域〜詳細まで同一データで対応</span></li>
-                        <li><span class="ph-feat-ic">▸</span><span><strong>属性アクセス</strong> — フィーチャー ID から属性を O(1) で取得。クリック identify が高速</span></li>
+                        <li><span class="ph-feat-ic">▸</span><span><strong>高圧縮</strong> — デルタ符号化 + Varint で GeoJSON 比 約1/10 のサイズ。14条地図や筆ポリゴンもブラウザで即時表示</span></li>
+                        <li><span class="ph-feat-ic">▸</span><span><strong>動的 LOD</strong> — gint の VW ランクビットにより、ズームに応じた頂点間引きを単一データで実現</span></li>
+                        <li><span class="ph-feat-ic">▸</span><span><strong>位相保持</strong> — Arc 構造で隣接ポリゴンの共有境界を重複なく格納。面積誤差・すき間が生じない</span></li>
+                        <li><span class="ph-feat-ic">▸</span><span><strong>GPU 描画</strong> — GINT レンダラーが WebGL2 頂点バッファへ転送し、リアルタイムで三角形を生成して描画</span></li>
+                        <li><span class="ph-feat-ic">▸</span><span><strong>属性アクセス</strong> — グローバル KEYS 辞書とインデックスで属性を高速取得。クリック identify が即応</span></li>
+                        <li><span> 詳しい技術内容は、技術ドキュメントを参考にしてください。</span></li>
                     </ul>
                 </div>
                 <div class="ph-doc-links">

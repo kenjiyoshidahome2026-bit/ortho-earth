@@ -1,12 +1,115 @@
-// e-Stat GIS downloadType=2 で取得した小地域統計データの解析とピラミッド描画
-// T001081: 人口総数・男女別
-// T001082: 年齢5歳階級別人口（男女各16グループ）
+// 小地域統計データ
+// ・T001081 (人口) → 初回のみ全国CSV download → IndexedDB に市区町村単位で格納
+// ・以降は idbGet(cityCode5) で瞬時参照
+// ・T001082 (年齢別) は都道府県単位で都度フェッチ（prefキャッシュ付き）
 
 const GIS_STATS_BASE = 'https://www.e-stat.go.jp/gis/statmap-search/data';
+const DB_NAME  = 'gishub-census';
+const DB_VER   = 1;
+const SA_STORE = 'small2020';
 
-// ---- ZIP 解凍 ---------------------------------------------------------------
+// ---- IDB helpers -----------------------------------------------------------
 
-export async function unzipFirstEntry(blob) {
+let _db = null;
+
+function openDb() {
+    if (_db) return Promise.resolve(_db);
+    return new Promise((res, rej) => {
+        const req = indexedDB.open(DB_NAME, DB_VER);
+        req.onupgradeneeded = ({ target: { result: db } }) => {
+            if (!db.objectStoreNames.contains(SA_STORE))
+                db.createObjectStore(SA_STORE);
+        };
+        req.onsuccess = ({ target: { result: db } }) => { _db = db; res(db); };
+        req.onerror   = ({ target: { error } }) => rej(error);
+    });
+}
+
+function idbCount() {
+    return openDb().then(db => new Promise((res, rej) => {
+        const req = db.transaction(SA_STORE, 'readonly').objectStore(SA_STORE).count();
+        req.onsuccess = e => res(e.target.result);
+        req.onerror   = e => rej(e.target.error);
+    }));
+}
+
+function idbGet(key) {
+    return openDb().then(db => new Promise((res, rej) => {
+        const req = db.transaction(SA_STORE, 'readonly').objectStore(SA_STORE).get(key);
+        req.onsuccess = e => res(e.target.result ?? []);
+        req.onerror   = e => rej(e.target.error);
+    }));
+}
+
+function idbPutAll(map) {
+    return openDb().then(db => new Promise((res, rej) => {
+        const tx    = db.transaction(SA_STORE, 'readwrite');
+        const store = tx.objectStore(SA_STORE);
+        for (const [key, val] of map) store.put(val, key);
+        tx.oncomplete = res;
+        tx.onerror    = e => rej(e.target.error);
+    }));
+}
+
+// ---- CSV → IDB 一括ロード --------------------------------------------------
+
+let _populatePromise = null;
+
+async function _populate() {
+    if (await idbCount() > 0) return;           // already stored
+
+    const url  = `${import.meta.env.BASE_URL}census/2020-small.csv`;
+    const text = await (await fetch(url)).text();
+    const map  = new Map();
+    for (const line of text.split('\n')) {
+        if (!line) continue;
+        const ci   = line.indexOf(',');
+        const code = line.slice(0, ci);
+        const rest = line.slice(ci + 1);
+        let name, tail;
+        if (rest.charCodeAt(0) === 34) {        // quoted name
+            const end = rest.indexOf('"', 1);
+            name = rest.slice(1, end);
+            tail = rest.slice(end + 2).split(',');
+        } else {
+            const p = rest.indexOf(',');
+            name    = rest.slice(0, p);
+            tail    = rest.slice(p + 1).split(',');
+        }
+        const total = +tail[0] || 0, male = +tail[1] || 0, fem = +tail[2] || 0;
+        const city  = code.slice(0, 5);
+        if (!map.has(city)) map.set(city, []);
+        map.get(city).push([code, name, total, male, fem]);
+    }
+    await idbPutAll(map);
+}
+
+export async function isSmallAreaReady() {
+    try { return await idbCount() > 0; } catch { return false; }
+}
+
+// バックグラウンドで IDB に書き込み開始（二重実行しない）
+export function prefetchSmallAreaIdb() {
+    if (!_populatePromise)
+        _populatePromise = _populate().catch(e => { console.warn('[small-area] IDB populate failed:', e); });
+    return _populatePromise;
+}
+
+// ---- 小地域データ取得（IDB から） ------------------------------------------
+
+// Returns { items: [[code, name], ...], popMap: Map<code, {total,m,f}> }
+export async function fetchSmallAreaData(cityCode) {
+    await prefetchSmallAreaIdb();
+    const entries = await idbGet(cityCode);
+    const items   = entries.map(([code, name]) => [code, name]);
+    const popMap  = new Map(entries.map(([code, , total, male, fem]) =>
+        [code, { total, m: male, f: fem }]));
+    return { items, popMap };
+}
+
+// ---- T001082 フェッチ（都道府県キャッシュ付き） ----------------------------
+
+async function unzipFirstEntry(blob) {
     const buf = await blob.arrayBuffer();
     const u8  = new Uint8Array(buf);
     const v   = new DataView(buf);
@@ -30,37 +133,32 @@ export async function unzipFirstEntry(blob) {
     throw new Error(`ZIP method ${method}`);
 }
 
-// ---- CSV フェッチ ------------------------------------------------------------
+const _t082Cache   = new Map();
+const _t082Loading = new Map();
 
-// e-Stat は都道府県単位でしか受け付けないので prefCode = cityCode.substring(0, 2)
-export async function fetchGisStatsCsv(prefCode, statsId, apiBase) {
-    const url  = `${GIS_STATS_BASE}?statsId=${statsId}&downloadType=2&code=${prefCode}`;
-    const resp = await fetch(`${apiBase}/proxy/?url=${encodeURIComponent(url)}`);
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-    const bytes = await unzipFirstEntry(await resp.blob());
-    let text;
-    try { text = new TextDecoder('utf-8', { fatal: true }).decode(bytes); }
-    catch { text = new TextDecoder('shift-jis').decode(bytes); }
-    return text.split(/\r?\n/).map(l => l.split(',').map(s => s.replace(/^"|"$/g, '')));
-}
-
-// ---- 統計データ取得 ----------------------------------------------------------
-
-// T001081: col 7=総人口, 8=男, 9=女
-export async function fetchSmallAreaPop(cityCode, apiBase) {
-    const rows = await fetchGisStatsCsv(cityCode.substring(0, 2), 'T001081', apiBase);
-    const map  = new Map();
-    for (const t of rows) {
-        const code = String(t[0] || '');
-        if (code.length <= 5 || !code.startsWith(cityCode)) continue;
-        map.set(code, { total: +t[7] || 0, m: +t[8] || 0, f: +t[9] || 0 });
-    }
-    return map;
+async function fetchT082Rows(prefCode, apiBase) {
+    if (_t082Cache.has(prefCode))   return _t082Cache.get(prefCode);
+    if (_t082Loading.has(prefCode)) return _t082Loading.get(prefCode);
+    const p = (async () => {
+        const url  = `${GIS_STATS_BASE}?statsId=T001082&downloadType=2&code=${prefCode}`;
+        const resp = await fetch(`${apiBase}/proxy/?url=${encodeURIComponent(url)}`);
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const bytes = await unzipFirstEntry(await resp.blob());
+        let text;
+        try { text = new TextDecoder('utf-8', { fatal: true }).decode(bytes); }
+        catch { text = new TextDecoder('shift-jis').decode(bytes); }
+        const rows = text.split(/\r?\n/).map(l => l.split(',').map(s => s.replace(/^"|"$/g, '')));
+        _t082Cache.set(prefCode, rows);
+        _t082Loading.delete(prefCode);
+        return rows;
+    })();
+    _t082Loading.set(prefCode, p);
+    return p;
 }
 
 // T001082: 男 col 28-42 + 46 = 16グループ、女 col 48-62 + 66
 export async function fetchSmallAreaPyramid(cityCode, apiBase) {
-    const rows = await fetchGisStatsCsv(cityCode.substring(0, 2), 'T001082', apiBase);
+    const rows = await fetchT082Rows(cityCode.slice(0, 2), apiBase);
     const map  = new Map();
     for (const t of rows) {
         const code = String(t[0] || '');
@@ -76,7 +174,6 @@ export async function fetchSmallAreaPyramid(cityCode, apiBase) {
 
 // ---- SVG 描画 ---------------------------------------------------------------
 
-// 横並び人口ピラミッド（最大 16バー × 2）
 export function smallAreaPyramidSvg(mAges, fAges) {
     const labels = ['0','5','10','15','20','25','30','35','40','45','50','55','60','65','70','75+'];
     const total  = [...mAges, ...fAges].reduce((s, v) => s + v, 0);
@@ -104,7 +201,6 @@ export function smallAreaPyramidSvg(mAges, fAges) {
         bars + '</svg>';
 }
 
-// 年齢3区分ミニバー（0-14:緑 / 15-64:青 / 65+:橙）
 export function miniAgeBar(mAges, fAges) {
     if (!mAges?.length) return '';
     const all   = mAges.map((m, i) => m + fAges[i]);

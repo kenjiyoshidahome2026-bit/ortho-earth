@@ -1,10 +1,10 @@
-@use 'vars' as *;
-@use 'codelist';
-@use 'moj';
-@use 'exec';
-@use 'modal';
-@use 'census';
-@use 'l03b-r';
+@use 'styles/vars' as *;
+@use 'styles/codelist';
+@use 'styles/moj';
+@use 'styles/exec';
+@use 'styles/modal';
+@use 'styles/census';
+@use 'styles/l03b-r';
 
 // ============================================================
 // リセット・ベース
@@ -58,7 +58,7 @@ button { cursor: pointer; font-family: $font; }
 	width: $sidebar-w;
 	flex-shrink: 0;
 	border-right: 1px solid $dark;
-	background: #080808;
+	background: $bg;
 	display: flex;
 	flex-direction: column;
 	overflow: hidden;
@@ -160,15 +160,15 @@ button { cursor: pointer; font-family: $font; }
 	height: 30px;
 	border-radius: 5px;
 	background: none;
-	border: none;
+	border: 1px solid #2a2a2a;
 	display: flex;
 	align-items: center;
 	justify-content: center;
 	cursor: pointer;
-	transition: border 150ms;
+	transition: border-color 150ms;
 	padding: 0;
 	img { display: block; }
-	&:hover { border: 1px solid $hi; }
+	&:hover { border-color: #444; }
 }
 
 #sidebar-open-btn { display: none; }
@@ -289,15 +289,17 @@ button { cursor: pointer; font-family: $font; }
 		font-weight: normal;
 		letter-spacing: 0.04em;
 	}
+
+	.sidebar-group-link { @extend .source-link; }
 }
 
 .ds-item {
 	display: block;
 	margin: 4px 8px;
 	padding: 8px 10px;
-	border: 1px solid $mid;
-	border-radius: 8px;
-	background: $bg;
+	border: 1px solid #2a2a2a;
+	border-radius: 6px;
+	background: #0e0e0e;
 	cursor: pointer;
 	transition: background 200ms, border-color 200ms;
 	position: relative;
@@ -527,6 +529,7 @@ button { cursor: pointer; font-family: $font; }
 		gap: 10px;
 	}
 	.ph-card {
+		display: block;
 		padding: 14px 16px;
 		border: 1px solid #2a2a2a;
 		border-radius: 6px;
@@ -534,6 +537,8 @@ button { cursor: pointer; font-family: $font; }
 		font-size: 12px;
 		color: $text;
 		line-height: 1.5;
+		text-decoration: none;
+		cursor: pointer;
 		transition: border-color 150ms;
 		&:hover { border-color: #444; }
 
@@ -814,6 +819,8 @@ button { cursor: pointer; font-family: $font; }
 // ユーティリティ
 // ============================================================
 .mono { font-family: $mono; font-size: 11px; color: $mid; }
+
+.source-link { color: $mid; text-decoration: none; &:hover { color: $accent; text-decoration: underline; } }
 
 .loading-msg { padding: 16px; text-align: center; color: $mid; }
 .error-msg   { padding: 16px; text-align: center; color: $remark; }
