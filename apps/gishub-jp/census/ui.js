@@ -751,14 +751,13 @@ async function _populateSmallAreaBody(bodyEl, code, { withPyramid = true, preIte
                 `<td class="cs-sa-name">${nmCell}</td><td class="cs-sa-codecol">${esc(kc)}</td>${tdPop}${tdPyr}</tr>`;
         }).join('');
 
+        const thPyr = withPyramid
+            ? '<th class="cs-sa-bar">年齢構成 <span class="cs-sa-hdleg">（<span class="y">年少</span>|<span class="w">生産</span>|<span class="o">老年</span>）</span></th>'
+            : '';
         bodyEl.innerHTML = `
-            <div class="cs-sa-toolbar">
-                <span class="cs-sa-count">${items.length}件</span>
-                ${withPyramid ? '<span class="cs-sa-legend" style="display:none"><span class="cs-sa-l y"></span>年少 <span class="cs-sa-l w"></span>生産 <span class="cs-sa-l o"></span>老年</span>' : ''}
-            </div>
             <div class="cs-sa-scroll">
                 <table class="cs-sa-table">
-                    <thead><tr><th class="cs-sa-name">名称</th><th>コード</th><th class="cs-sa-pop">人口</th>${withPyramid ? '<th>年齢構成</th>' : ''}</tr></thead>
+                    <thead><tr><th class="cs-sa-name">名称</th><th>コード</th><th class="cs-sa-pop">人口</th>${thPyr}</tr></thead>
                     <tbody>${bodyHtml}</tbody>
                 </table>
             </div>
@@ -802,16 +801,13 @@ async function _populateSmallAreaBody(bodyEl, code, { withPyramid = true, preIte
                 pyrMap = pm;
                 const tbody = bodyEl.querySelector('tbody');
                 if (!tbody) return;
-                let any = false;
                 for (const tr of tbody.querySelectorAll('tr')) {
                     const pyr = pyrMap.get(tr.dataset.code);
                     if (!pyr) continue;
                     const cell = tr.querySelector('.cs-sa-bar');
                     if (cell) cell.innerHTML = miniAgeBar(pyr.mAges, pyr.fAges);
                     tr.classList.add('has-pyr');
-                    any = true;
                 }
-                if (any) { const lg = bodyEl.querySelector('.cs-sa-legend'); if (lg) lg.style.display = ''; }
             }).catch(() => {});
         }
     } catch (e) {

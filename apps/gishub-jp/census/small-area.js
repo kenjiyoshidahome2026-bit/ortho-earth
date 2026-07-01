@@ -226,13 +226,13 @@ export function miniAgeBar(mAges, fAges) {
     const young = all.slice(0, 3).reduce((s, v) => s + v, 0);
     const work  = all.slice(3, 13).reduce((s, v) => s + v, 0);
     const old   = all.slice(13).reduce((s, v) => s + v, 0);
-    const W  = 60;
+    const W  = 140, H = 11;
     const yw = (young / total * W).toFixed(1);
     const ww = (work  / total * W).toFixed(1);
     const ow = (old   / total * W).toFixed(1);
-    return `<svg width="${W}" height="8" style="vertical-align:middle;border-radius:2px;overflow:hidden">` +
-        `<rect x="0" y="0" width="${yw}" height="8" fill="#5a9"/>` +
-        `<rect x="${yw}" y="0" width="${ww}" height="8" fill="#579"/>` +
-        `<rect x="${+yw + +ww}" y="0" width="${ow}" height="8" fill="#a65"/>` +
+    return `<svg width="${W}" height="${H}" style="vertical-align:middle;border-radius:2px;overflow:hidden">` +
+        `<rect x="0" y="0" width="${yw}" height="${H}" fill="#5a9"/>` +
+        `<rect x="${yw}" y="0" width="${ww}" height="${H}" fill="#579"/>` +
+        `<rect x="${+yw + +ww}" y="0" width="${ow}" height="${H}" fill="#a65"/>` +
         '</svg>';
 }
