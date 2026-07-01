@@ -130,6 +130,12 @@
 		.cs-svg-wrap { max-width: 360px; margin: 0 auto; }
 		svg { max-width: 360px; }
 	}
+	// 子（丁目/基本単位区）へドリル可能な行
+	.cs-sa-table tr.has-sub {
+		cursor: pointer;
+		.cs-sa-chev { color: $accent; font-size: 10px; margin-left: 2px; }
+		&:hover { background: rgba(100,140,200,.12); }
+	}
 	.cs-sa-suppressed {
 		font-size: 13px;
 		line-height: 1.7;

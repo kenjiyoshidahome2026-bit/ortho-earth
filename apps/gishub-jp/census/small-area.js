@@ -6,7 +6,7 @@
 
 const GIS_STATS_BASE = 'https://www.e-stat.go.jp/gis/statmap-search/data';
 const DB_NAME   = 'gishub-census';
-const DB_VER    = 2;
+const DB_VER    = 3;
 const SA_STORE  = 'small2020';   // 人口 T001081: key=市区町村5桁 → [[code,name,total,m,f], ...]
 const PYR_STORE = 'pyr2020';     // 年齢 T001082: key=市区町村5桁 → Map<areaCode,{mAges,fAges}>
                                  //   `__pref_NN` マーカーで都道府県取得済みを判定

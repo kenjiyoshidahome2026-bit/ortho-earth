@@ -202,8 +202,6 @@ const _crumbNat   = () => ({ label: '全国', go: _csDrillNational });
 const _crumbPref  = prefCode => ({ label: PREFS[prefCode] || prefCode, go: () => _csDrillPref(prefCode) });
 const _crumbDesig = (code, prefCode) => ({ label: CENSUS_MANIFEST.find(e => e.code === code)?.name || code, go: () => _csDrillDesignated(code, prefCode) });
 const _crumbCity  = (code, prefCode, parentCode) => ({ label: CENSUS_MANIFEST.find(e => e.code === code)?.name || code, go: () => _csDrillCity(code, prefCode, parentCode) });
-const _crumbGroup = (cityCode, groupName, groupItems, popMap, prefCode, parentCode) =>
-    ({ label: groupName, go: () => _csDrillSmallAreaTable(cityCode, groupName, groupItems, popMap, prefCode, parentCode) });
 
 // 全国 → 都道府県 → (政令市) → 市区町村 までのクラム列
 function _cityCrumbs(cityCode, prefCode, parentCode) {
@@ -544,7 +542,16 @@ async function _csDrillCity(cityCode, prefCode, parentCode = null) {
         const saEl = document.getElementById('cs-drill-sa');
         try {
             const { items: allItems, popMap } = await fetchSmallAreaData(cityCode);
-            // 9桁＝町丁・字等（正準層。合算が市区町村人口と一致）。11桁＝基本単位区は下位のため除外
+            // 9桁＝町丁・字等（正準層。合算が市区町村人口と一致）。
+            // 11桁＝基本単位区/丁目は各9桁の子として subMap に退避し、行クリックでドリルできるようにする
+            const subMap = new Map();   // 9桁 → [[11桁, name], ...]
+            for (const [c, n] of allItems) {
+                if (c.length === 11) {
+                    const parent = c.slice(0, 9);
+                    if (!subMap.has(parent)) subMap.set(parent, []);
+                    subMap.get(parent).push([c, n]);
+                }
+            }
             const nine  = allItems.filter(([c]) => c.length === 9);
             const items = nine.length ? nine : allItems;
             if (!items.length) { saEl.textContent = 'データなし'; return; }
@@ -558,9 +565,11 @@ async function _csDrillCity(cityCode, prefCode, parentCode = null) {
             }
             // グループが1種類だけ（全部同じ親名）→ チップ段階をスキップしてテーブル直行
             if (groups.size === 1) {
-                const [g, d] = [...groups.entries()][0];
+                const [, d] = [...groups.entries()][0];
                 await _populateSmallAreaBody(saEl, cityCode, {
                     preItems: d.items, prePopMap: popMap,
+                    onRowClick: _saRowClick(cityCode, popMap, subMap, crumbs),
+                    hasChild: c => subMap.has(c),
                 });
                 return;
             }
@@ -576,35 +585,51 @@ async function _csDrillCity(cityCode, prefCode, parentCode = null) {
                 el.addEventListener('click', () => {
                     const g = el.dataset.group;
                     const d = groups.get(g);
-                    _csDrillSmallAreaTable(cityCode, g, d.items, popMap, prefCode, parentCode);
+                    const gc = _cityCrumbs(cityCode, prefCode, parentCode);
+                    gc.push({ label: g, go: () => _csDrillSmallAreaTable(cityCode, g, d.items, popMap, subMap, gc) });
+                    _csDrillSmallAreaTable(cityCode, g, d.items, popMap, subMap, gc);
                 })
             );
         } catch (e) { saEl.textContent = `エラー: ${e.message}`; }
     }
 }
 
-// Level 3: 大字/町名グループ → 小地域テーブル
-function _csDrillSmallAreaTable(cityCode, groupName, groupItems, popMap, prefCode, parentCode) {
-    const crumbs = [..._cityCrumbs(cityCode, prefCode, parentCode),
-                    _crumbGroup(cityCode, groupName, groupItems, popMap, prefCode, parentCode)];
+// 小地域テーブルの行クリック: 11桁の子（丁目/基本単位区）があればドリル、なければピラミッド
+function _saRowClick(cityCode, popMap, subMap, crumbs) {
+    return (areaCode, areaName, pyr) => {
+        const kids = subMap.get(areaCode);
+        if (kids?.length) {
+            // グループ名＝町丁字名なら重複クラムを避けて置き換え
+            const base = crumbs[crumbs.length - 1]?.label === areaName ? crumbs.slice(0, -1) : crumbs;
+            const cc = [...base, { label: areaName }];
+            cc[cc.length - 1].go = () => _csDrillSmallAreaTable(cityCode, areaName, kids, popMap, subMap, cc);
+            _csDrillSmallAreaTable(cityCode, areaName, kids, popMap, subMap, cc);
+        } else {
+            _csDrillSmallAreaPyramid(areaName, areaCode, pyr, [...crumbs, { label: areaName }]);
+        }
+    };
+}
+
+// Level 3: 小地域テーブル（町丁字グループ or その下の丁目/基本単位区）
+function _csDrillSmallAreaTable(cityCode, title, items, popMap, subMap, crumbs) {
     ctx.setDetailHtml(`
         <div class="cs-drill-wrap census-detail">
             <div class="cs-drill-head">
                 ${_crumbBarHtml(crumbs)}
                 <div class="cs-drill-title-row">
-                    <h2>${escHtml(groupName)}</h2>
+                    <h2>${escHtml(title)}</h2>
                 </div>
-                <div style="font-size:11px;color:#888;padding:2px 0">${groupItems.length}件</div>
+                <div style="font-size:11px;color:#888;padding:2px 0">${items.length}件</div>
             </div>
             <div class="cs-drill-list" id="cs-sa-table-body"></div>
         </div>
     `);
     _wireCrumbs(crumbs);
     _populateSmallAreaBody(document.getElementById('cs-sa-table-body'), cityCode, {
-        preItems: groupItems,
+        preItems: items,
         prePopMap: popMap,
-        onRowClick: (areaCode, areaName, pyr) =>
-            _csDrillSmallAreaPyramid(areaName, areaCode, pyr, [...crumbs, { label: areaName }]),
+        onRowClick: _saRowClick(cityCode, popMap, subMap, crumbs),
+        hasChild: c => subMap.has(c),
     });
 }
 
@@ -633,7 +658,7 @@ function _csDrillSmallAreaPyramid(areaName, areaCode, pyr, crumbs) {
 
 // ---- small area table renderer (shared) ------------------------------------
 
-async function _populateSmallAreaBody(bodyEl, code, { withPyramid = true, preItems = null, prePopMap = null, onRowClick = null } = {}) {
+async function _populateSmallAreaBody(bodyEl, code, { withPyramid = true, preItems = null, prePopMap = null, onRowClick = null, hasChild = null } = {}) {
     bodyEl.innerHTML = '<span class="cs-sa-loading">読み込み中…</span>';
     try {
         // 人口（IDB）は即時。年齢ピラミッド（T082）は待たずに後追い描画する。
@@ -655,9 +680,11 @@ async function _populateSmallAreaBody(bodyEl, code, { withPyramid = true, preIte
         // 年齢構成列は withPyramid 時に枠だけ用意（中身は後追いで流し込む）
         const bodyHtml = items.map(([kc, nm], i) => {
             const p = popMap.get(kc);
+            const sub = hasChild?.(kc);   // 11桁の子（丁目/基本単位区）を持つ行はドリル可
             const tdPop = `<td class="cs-sa-pop">${p?.total ? p.total.toLocaleString() : '—'}</td>`;
             const tdPyr = withPyramid ? '<td class="cs-sa-bar"></td>' : '';
-            return `<tr data-code="${esc(kc)}"><td>${i + 1}</td><td>${esc(kc)}</td><td>${esc(nm)}</td>${tdPop}${tdPyr}</tr>`;
+            const nmCell = sub ? `${esc(nm)} <span class="cs-sa-chev">▸</span>` : esc(nm);
+            return `<tr data-code="${esc(kc)}"${sub ? ' class="has-sub"' : ''}><td>${i + 1}</td><td>${esc(kc)}</td><td>${nmCell}</td>${tdPop}${tdPyr}</tr>`;
         }).join('');
 
         bodyEl.innerHTML = `
@@ -673,10 +700,10 @@ async function _populateSmallAreaBody(bodyEl, code, { withPyramid = true, preIte
             </div>
             <div class="cs-sa-pyramid-wrap" id="cs-sa-pyramid" style="display:none"></div>`;
 
-        // 行クリック（年齢データ到着後に has-pyr が付いた行だけ反応）
+        // 行クリック（子ドリル可 has-sub、または年齢到着後の has-pyr の行に反応）
         let pyrMap = new Map();
         bodyEl.querySelector('tbody').addEventListener('click', e => {
-            const tr = e.target.closest('tr.has-pyr');
+            const tr = e.target.closest('tr.has-pyr, tr.has-sub');
             if (!tr) return;
             const kc  = tr.dataset.code;
             const nm  = items.find(([c]) => c === kc)?.[1] ?? kc;
