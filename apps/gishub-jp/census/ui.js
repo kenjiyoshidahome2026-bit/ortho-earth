@@ -272,17 +272,6 @@ function _pyramidLegend(hasRef) {
     </div>`;
 }
 
-// 全レベル共通の年齢ピラミッド HTML（ages=32要素[m0..m15,f0..f15]、凡例付き）
-function _pyramidHtml(ages, refAges = CENSUS_2020_AGES['_national']) {
-    if (!ages?.some(v => v > 0)) return '<span style="color:#666;font-size:11px">年齢データなし</span>';
-    const secs = buildCensusChartSections(null, '2020', { ages, refAges });
-    if (!secs.length) return '<span style="color:#666;font-size:11px">年齢データなし</span>';
-    const year = refAges ? '2020年（参考：全国平均）' : '2020年';
-    return `<div class="cs-section cs-svg-wrap">` +
-        `<h3 class="cs-drill-sec-h3">年齢別人口構成 <span class="cs-year">${year}</span></h3>` +
-        `${secs[0].svg}${_pyramidLegend(!!refAges)}</div>`;
-}
-
 // 人口の KV 行（総数・男・女）
 function _popKvRows(label, year, [t, m, f]) {
     return `<div class="cs-kv"><span class="cs-k">${label} <span class="cs-year">${year}</span></span><span class="cs-v">${t.toLocaleString()} 人</span></div>` +
@@ -385,35 +374,47 @@ function _aggKvHtml(agg) {
     return `<div class="cs-kv-grid">${rows.join('')}</div>`;
 }
 
+// 集計レベル（全国/都道府県/政令市）共通ビュー: 積み上げ統計＋全チャート＋子チップ
+function _renderAggView({ crumbs = null, title, pred, ages = null, refAges = CENSUS_2020_AGES['_national'], listHtml, onChip }) {
+    const agg = _aggForLevel(pred);
+    ctx.setDetailHtml(_drillWrap({
+        crumbs, title,
+        statsHtml: _aggKvHtml(agg),
+        chartHtml: _fullChartHtml({ ages: ages || agg.ages, refAges, popTrend: agg.trend, stat: agg.stat }),
+        listHtml,
+    }));
+    if (crumbs) _wireCrumbs(crumbs);
+    document.querySelectorAll('.cs-drill-chip[data-key]').forEach(el =>
+        el.addEventListener('click', () => onChip(el.dataset.key)));
+}
+
+// 市区町村/区チップのリスト HTML（人口ラベル付き）
+function _cityChipsHtml(headTitle, headCount, items) {
+    return `<h3 class="cs-drill-sec-h3">${headTitle} <span class="cs-year">${headCount}</span></h3>
+        <div class="cs-drill-chips">${items.map(c => {
+            const sub = _popLabel(_cityPop2020(c.code)?.[0]);
+            return `<span class="cs-drill-chip" data-key="${c.code}">${escHtml(c.name)}${sub ? `<span class="cs-chip-sub">${sub}</span>` : ''}</span>`;
+        }).join('')}</div>`;
+}
+
 // Level 0: 全国データ + 都道府県一覧
 function _csDrillNational() {
-    // 都道府県ごとの2020人口（チップ用）
     const byPref = new Map();
     for (const [code, v] of Object.entries(CENSUS_2020_POP)) {
         const pref = code.slice(0, 2);
         byPref.set(pref, (byPref.get(pref) || 0) + v[0]);
     }
-
-    // 全国を積み上げ（市区町村と同じ全データ）。ピラミッドは precomputed _national を使用
-    const agg = _aggForLevel(() => true);
-    agg.ages = CENSUS_2020_AGES['_national'];
-    const statsHtml = _aggKvHtml(agg);
-    const chart = _fullChartHtml({ ages: agg.ages, refAges: null, popTrend: agg.trend, stat: agg.stat });
-
     const listHtml = `<h3 class="cs-drill-sec-h3">都道府県 <span class="cs-year">47都道府県</span></h3>
         <div class="cs-drill-chips">${
         [...byPref.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([pref, pop]) =>
             `<span class="cs-drill-chip" data-key="${pref}">${PREFS[pref] || pref}<span class="cs-chip-sub">${_popLabel(pop)}</span></span>`
-        ).join('')
-    }</div>`;
-
-    ctx.setDetailHtml(_drillWrap({
-        title: '全国小地域 2020',
-        statsHtml, chartHtml: chart, listHtml,
-    }));
-    document.querySelectorAll('.cs-drill-chip[data-key]').forEach(el =>
-        el.addEventListener('click', () => _csDrillPref(el.dataset.key))
-    );
+        ).join('')}</div>`;
+    // 全国のピラミッドは precomputed _national（参考線なし）
+    _renderAggView({
+        title: '全国小地域 2020', pred: () => true,
+        ages: CENSUS_2020_AGES['_national'], refAges: null,
+        listHtml, onChip: _csDrillPref,
+    });
 }
 
 // 政令指定都市コード（20市）
@@ -463,34 +464,15 @@ function _cityPop2020(code) {
 
 // Level 1: 都道府県データ + 市区町村一覧
 function _csDrillPref(prefCode) {
-    const prefName = PREFS[prefCode] || prefCode;
-    const cities   = CENSUS_MANIFEST.filter(e => e.pref === prefCode && !e.code.endsWith('000'));
-
-    // 都道府県を積み上げ（市区町村と同じ全データ）
-    const agg = _aggForLevel(c => c.slice(0, 2) === prefCode);
-    const statsHtml = _aggKvHtml(agg);
-    const chart = _fullChartHtml({ ages: agg.ages, popTrend: agg.trend, stat: agg.stat });
-
     // 政令指定都市の区は除外（政令指定都市自体は残す）
-    const topCities = cities.filter(c => !_wardParent(c.code));
-    const listHtml = `<h3 class="cs-drill-sec-h3">市区町村 <span class="cs-year">${topCities.length}件</span></h3>
-        <div class="cs-drill-chips">${topCities.map(c => {
-            const sub = _popLabel(_cityPop2020(c.code)?.[0]);
-            return `<span class="cs-drill-chip" data-key="${c.code}">${escHtml(c.name)}${sub ? `<span class="cs-chip-sub">${sub}</span>` : ''}</span>`;
-        }).join('')}</div>`;
-
-    const crumbs = [_crumbNat(), _crumbPref(prefCode)];
-    ctx.setDetailHtml(_drillWrap({
-        crumbs, title: prefName, statsHtml, chartHtml: chart, listHtml,
-    }));
-    _wireCrumbs(crumbs);
-    document.querySelectorAll('.cs-drill-chip[data-key]').forEach(el =>
-        el.addEventListener('click', () => {
-            const code = el.dataset.key;
-            if (DESIGNATED_CITIES.has(code)) _csDrillDesignated(code, prefCode);
-            else _csDrillCity(code, prefCode, null);
-        })
-    );
+    const topCities = CENSUS_MANIFEST.filter(e => e.pref === prefCode && !e.code.endsWith('000') && !_wardParent(e.code));
+    _renderAggView({
+        crumbs: [_crumbNat(), _crumbPref(prefCode)],
+        title: PREFS[prefCode] || prefCode,
+        pred: c => c.slice(0, 2) === prefCode,
+        listHtml: _cityChipsHtml('市区町村', `${topCities.length}件`, topCities),
+        onChip: code => DESIGNATED_CITIES.has(code) ? _csDrillDesignated(code, prefCode) : _csDrillCity(code, prefCode, null),
+    });
 }
 
 // 小地域名 → 大字/町名グループ（丁目・小字を除いた親名）
@@ -508,34 +490,17 @@ function _areaGroup(name) {
     return name;
 }
 
-// Level 1.5: 政令指定都市 → 区一覧
-// 区の人口は CENSUS_2020_POP の各区の合計（IDB pre-load があれば小地域合計と一致）
+// Level 1.5: 政令指定都市 → 区一覧（区を積み上げ）
 function _csDrillDesignated(cityCode, prefCode) {
-    const entry    = CENSUS_MANIFEST.find(e => e.code === cityCode);
-    const cityName = entry?.name || cityCode;
-
     const wards   = CENSUS_MANIFEST.filter(e => _wardParent(e.code) === cityCode);
     const wardSet = new Set(wards.map(w => w.code));
-
-    // 区を積み上げ（市区町村と同じ全データ）
-    const agg = _aggForLevel(c => wardSet.has(c));
-    const statsHtml = _aggKvHtml(agg);
-    const chart = _fullChartHtml({ ages: agg.ages, popTrend: agg.trend, stat: agg.stat });
-
-    const listHtml = `<h3 class="cs-drill-sec-h3">行政区 <span class="cs-year">${wards.length}区</span></h3>
-        <div class="cs-drill-chips">${wards.map(w => {
-            const sub = _popLabel(_cityPop2020(w.code)?.[0]);
-            return `<span class="cs-drill-chip" data-key="${w.code}">${escHtml(w.name)}${sub ? `<span class="cs-chip-sub">${sub}</span>` : ''}</span>`;
-        }).join('')}</div>`;
-
-    const crumbs = [_crumbNat(), _crumbPref(prefCode), _crumbDesig(cityCode, prefCode)];
-    ctx.setDetailHtml(_drillWrap({
-        crumbs, title: cityName, statsHtml, chartHtml: chart, listHtml,
-    }));
-    _wireCrumbs(crumbs);
-    document.querySelectorAll('.cs-drill-chip[data-key]').forEach(el =>
-        el.addEventListener('click', () => _csDrillCity(el.dataset.key, prefCode, cityCode))
-    );
+    _renderAggView({
+        crumbs: [_crumbNat(), _crumbPref(prefCode), _crumbDesig(cityCode, prefCode)],
+        title: MANIFEST_BY_CODE.get(cityCode)?.name || cityCode,
+        pred: c => wardSet.has(c),
+        listHtml: _cityChipsHtml('行政区', `${wards.length}区`, wards),
+        onChip: code => _csDrillCity(code, prefCode, cityCode),
+    });
 }
 
 // Level 2: 市区町村データ + 小地域一覧（IDB から自動ロード）
@@ -685,7 +650,7 @@ function _csDrillSmallAreaTable(cityCode, title, items, popMap, subMap, crumbs, 
         fetchSmallAreaPyramid(cityCode, API_BASE).then(pm => {
             const el  = document.getElementById('cs-node-pyr');
             const pyr = pm?.get(nodeCode);
-            if (el?.isConnected && pyr) el.innerHTML = _pyramidHtml([...pyr.mAges, ...pyr.fAges]);
+            if (el?.isConnected && pyr) el.innerHTML = _fullChartHtml({ ages: [...pyr.mAges, ...pyr.fAges] });
         }).catch(() => {});
     }
     _populateSmallAreaBody(document.getElementById('cs-sa-table-body'), cityCode, {
@@ -703,7 +668,7 @@ function _csDrillSmallAreaPyramid(areaName, areaCode, pyr, crumbs) {
     const body = !ages?.some(v => v > 0)
         ? `<p class="cs-sa-suppressed">この地域は統計上の<b>秘匿</b>対象です。<br>
              対象となる人口が少なく個人が特定されるおそれがあるため、年齢別人口は公表されていません。</p>`
-        : _pyramidHtml(ages);
+        : _fullChartHtml({ ages });
     ctx.setDetailHtml(`
         <div class="cs-drill-wrap census-detail">
             <div class="cs-drill-head">
@@ -790,7 +755,7 @@ async function _populateSmallAreaBody(bodyEl, code, { withPyramid = true, preIte
                     : '';
                 pyrWrap.style.display = '';
                 pyrWrap.innerHTML = `<div class="cs-sa-py-name">${esc(nm)}${popLine}</div>` +
-                    _pyramidHtml([...pyr.mAges, ...pyr.fAges]);
+                    _fullChartHtml({ ages: [...pyr.mAges, ...pyr.fAges] });
             }
         });
 
