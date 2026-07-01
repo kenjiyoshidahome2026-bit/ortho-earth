@@ -6,46 +6,50 @@
 
 const GIS_STATS_BASE = 'https://www.e-stat.go.jp/gis/statmap-search/data';
 const DB_NAME   = 'gishub-census';
-const DB_VER    = 4;
 const SA_STORE  = 'small2020';   // 人口 T001081: key=市区町村5桁 → [[code,name,total,m,f], ...]
 const PYR_STORE = 'pyr2020';     // 年齢 T001082: key=市区町村5桁 → Map<areaCode,{mAges,fAges}>
                                  //   `__pref_NN` マーカーで都道府県取得済みを判定
 const STAT_STORE = 'stats2020';  // 就業・世帯経済: key=市区町村5桁 → Map<areaCode,{ind,occ,eco}>
                                  //   ind=T001103 産業別就業者＋就業地位, occ=T001104 職業別, eco=T001106 世帯経済構成
                                  //   いずれも各行 slice(7)。`__pref_NN` マーカーで都道府県取得済みを判定
+const STORES = [SA_STORE, PYR_STORE, STAT_STORE];
 
 // ---- IDB helpers -----------------------------------------------------------
 
 let _db = null;
 
-function openDb() {
-    // キャッシュ接続が古いバージョン（新ストア未作成）なら破棄して開き直す＝
-    // フルリロード無しでも v4 へ昇格し stats2020 が作られ、就業・世帯経済が描画される
-    if (_db && !_db.objectStoreNames.contains(STAT_STORE)) {
-        try { _db.close(); } catch {}
-        _db = null;
-    }
-    if (_db) return Promise.resolve(_db);
+const _hasAllStores = db => STORES.every(s => db.objectStoreNames.contains(s));
+
+// version 指定あり: 昇格して欠けているストアを作成。指定なし: 現行バージョンで開くだけ
+function _rawOpen(version) {
     return new Promise((res, rej) => {
-        const req = indexedDB.open(DB_NAME, DB_VER);
+        const req = version ? indexedDB.open(DB_NAME, version) : indexedDB.open(DB_NAME);
         req.onupgradeneeded = ({ target: { result: db } }) => {
-            if (!db.objectStoreNames.contains(SA_STORE))
-                db.createObjectStore(SA_STORE);
-            if (!db.objectStoreNames.contains(PYR_STORE))
-                db.createObjectStore(PYR_STORE);
-            if (!db.objectStoreNames.contains(STAT_STORE))
-                db.createObjectStore(STAT_STORE);
+            for (const s of STORES) if (!db.objectStoreNames.contains(s)) db.createObjectStore(s);
         };
-        // 他タブが後で新バージョンへ上げても本タブが握り続けて blocked にならないよう、
-        // versionchange で接続を閉じてキャッシュを破棄（次回 openDb で最新バージョンを開き直す）
         req.onsuccess = ({ target: { result: db } }) => {
             db.onversionchange = () => { db.close(); if (_db === db) _db = null; };
-            _db = db;
             res(db);
         };
         req.onerror   = ({ target: { error } }) => rej(error);
         req.onblocked = () => console.warn('[small-area] IDB upgrade blocked — 別タブを閉じて再読み込みしてください');
     });
+}
+
+// バージョン番号に依存せず、必要ストアが揃うことを保証して開く。
+// 既にオンディスクが最新バージョンでもストアが欠けていれば version+1 で強制アップグレードする
+// （＝以前 v4 だが stats2020 未作成、のような状態からも自己修復する）
+async function openDb() {
+    if (_db && _hasAllStores(_db)) return _db;
+    if (_db) { try { _db.close(); } catch {} _db = null; }
+    let db = await _rawOpen();                 // 現行バージョンで開く
+    if (!_hasAllStores(db)) {                  // ストアが欠けていれば強制昇格
+        const next = db.version + 1;
+        db.close();
+        db = await _rawOpen(next);
+    }
+    _db = db;
+    return db;
 }
 
 function idbCount() {
