@@ -19,6 +19,12 @@ const STAT_STORE = 'stats2020';  // 就業・世帯経済: key=市区町村5桁 
 let _db = null;
 
 function openDb() {
+    // キャッシュ接続が古いバージョン（新ストア未作成）なら破棄して開き直す＝
+    // フルリロード無しでも v4 へ昇格し stats2020 が作られ、就業・世帯経済が描画される
+    if (_db && !_db.objectStoreNames.contains(STAT_STORE)) {
+        try { _db.close(); } catch {}
+        _db = null;
+    }
     if (_db) return Promise.resolve(_db);
     return new Promise((res, rej) => {
         const req = indexedDB.open(DB_NAME, DB_VER);
