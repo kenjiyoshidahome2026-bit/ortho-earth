@@ -166,7 +166,7 @@ function renderCensusMinistryList({ id, title, subtitle, cities, expanded, getSe
 // 各レベル: そのレベルのデータ（人口・チャート）+ 子リスト
 
 export function censusSmall2020SidebarEntry() {
-    return { dataset_code:'census-small-2020', title:'小地域 2020（町丁・字等）',
+    return { dataset_code:'census-small-2020', title:'国勢調査 2020 基本集計',
              file_count:251142, license:'CC BY', _sourceId:'estat', attribution:'総務省統計局' };
 }
 
