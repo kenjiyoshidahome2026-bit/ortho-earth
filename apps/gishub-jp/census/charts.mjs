@@ -64,7 +64,7 @@ function appendLegend(parent, items, x0, y0) {
 
 // ── ドーナツ円グラフ ──────────────────────────────────────────────────────────
 function appendDonut(parent, cx, cy, items, label, total, unit = '人') {
-    const R    = 29.9;
+    const R    = 32;
     const PERI = R * 2 * Math.PI;
     const a    = [...items].sort((a, b) => b[0] - a[0]);
     const p    = ratio(a.map(([v]) => v));
@@ -129,8 +129,8 @@ function appendIndustry(parent, x0, y0, v) {
     const vals  = [v[2], v[1] - v[2], ...v.slice(3, 22)];
     const items = vals.map((val, i) => [val, IND_DEF[i][1], IND_DEF[i][0]]);
     parent.elem('text', { x: x0, y: y0 - 2, 'font-size': 8, 'font-family': 'Verdana', fill: '#aaa' }, '産業別就業者');
-    appendDonut(parent, x0 + 40, y0 + 40, items, '就業者', v[0]);
-    appendLegend(parent, items, x0 + 88, y0 + 2);
+    appendDonut(parent, x0 + 40, y0 + 45, items, '就業者', v[0]);
+    appendLegend(parent, items, x0 + 100, y0 + 2);
     return 90;
 }
 
@@ -145,8 +145,8 @@ function appendOccupation(parent, x0, y0, v) {
     if (!v || !d3.sum(v.slice(1, 13))) return 0;
     const items = v.slice(1, 13).map((val, i) => [val, OCC_DEF[i][1], OCC_DEF[i][0]]);
     parent.elem('text', { x: x0, y: y0 - 2, 'font-size': 8, 'font-family': 'Verdana', fill: '#aaa' }, '職業別就業者');
-    appendDonut(parent, x0 + 40, y0 + 40, items, '就業者', v[0]);
-    appendLegend(parent, items, x0 + 88, y0 + 2);
+    appendDonut(parent, x0 + 40, y0 + 45, items, '就業者', v[0]);
+    appendLegend(parent, items, x0 + 100, y0 + 2);
     return 90;
 }
 
@@ -197,8 +197,8 @@ function appendFamilyType(parent, x0, y0, v) {
     ];
     const items = vals.map((val, i) => [val, FAM_DEF[i][1], FAM_DEF[i][0]]);
     parent.elem('text', { x: x0, y: y0 - 2, 'font-size': 8, 'font-family': 'Verdana', fill: '#aaa' }, '世帯の家族類型');
-    appendDonut(parent, x0 + 40, y0 + 40, items, '世帯', v[0], '世帯');
-    appendLegend(parent, items, x0 + 88, y0 + 2);
+    appendDonut(parent, x0 + 40, y0 + 45, items, '世帯', v[0], '世帯');
+    appendLegend(parent, items, x0 + 100, y0 + 2);
     return 90;
 }
 
