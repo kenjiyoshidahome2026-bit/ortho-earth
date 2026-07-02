@@ -147,6 +147,28 @@
 		color: $mid;
 		margin-bottom: 8px;
 	}
+	// 郵便番号バッジ（小地域）
+	.cs-zip {
+		font-family: $mono;
+		color: #e0b050;
+		white-space: nowrap;
+		.cs-zip-note {
+			margin-left: 4px;
+			padding: 0 4px;
+			border-radius: 6px;
+			background: rgba(255,255,255,.08);
+			color: $mid;
+			font-size: .82em;
+		}
+		&.cs-zip-approx { color: #b79a5a; }
+	}
+	// テーブル行内の〒（名称の下に小さく）
+	.cs-sa-ziprow {
+		display: block;
+		margin-top: 1px;
+		font-size: 10px;
+		.cs-zip { font-size: 10px; }
+	}
 	// 子（丁目/基本単位区）へドリル可能な行
 	.cs-sa-table tr.has-sub {
 		cursor: pointer;
