@@ -16,6 +16,7 @@ import ESTAT_MANIFEST     from '../estat/manifest.json' with { type: 'json' };
 import { buildCensusChartSections, buildPopTrendSVG, popTrendLegendHtml } from './charts.mjs';
 import { fetchSmallAreaData, fetchSmallAreaPyramid, fetchSmallAreaStats, miniAgeBar,
          prefetchSmallAreaIdb, isSmallAreaReady } from './small-area.js';
+import { prefetchZip, fillZips } from '../zipcode/lookup.js';   // 上位で小地域↔郵便番号を突合
 import { PREFS, escHtml } from '../ui/shared.js';
 import { ctx } from '../ui/ctx.js';
 import { renderGroupedCities } from '../ui/grouped-list.js';
@@ -339,37 +340,6 @@ export function loadPopHistory() {
         .then(j => { _popHist = j; return j; })
         .catch(e => { console.warn('[pop-history] load failed:', e); _popHistP = null; return null; });
     return _popHistP;
-}
-
-// ── 郵便番号（小地域×郵便番号, zip2020.json を非同期ロード）─────────────────
-// 2.19MBのためバンドルせずランタイムfetch。code9→"1000005" | "1000005,1000006"（丁目で複数）
-//   | "~0600000"（町別番号を引けず市代表番号を近似で当てた印）
-let _zipMap = null, _zipMapP = null;
-function loadZipMap() {
-    if (_zipMap) return Promise.resolve(_zipMap);
-    if (!_zipMapP) _zipMapP = fetch(`${import.meta.env.BASE_URL}census/zip2020.json`)
-        .then(r => r.ok ? r.json() : null)
-        .then(j => { _zipMap = j || {}; return _zipMap; })
-        .catch(e => { console.warn('[zip2020] load failed:', e); _zipMapP = null; return {}; });
-    return _zipMapP;
-}
-const _fmtZip = z => z.length === 7 ? `${z.slice(0, 3)}-${z.slice(3)}` : z;
-// 小地域コード(9桁/11桁)→ 〒表示HTML。11桁は9桁親の番号を継承。~接頭は市代表番号（近似）
-function _zipHtml(code) {
-    const raw = _zipMap?.[code] || _zipMap?.[code?.slice(0, 9)];
-    if (!raw) return '';
-    const approx = raw[0] === '~';
-    const zips = (approx ? raw.slice(1) : raw).split(',').map(_fmtZip);
-    return `<span class="cs-zip${approx ? ' cs-zip-approx' : ''}">〒${zips.join(' / ')}` +
-        `${approx ? '<span class="cs-zip-note">市代表</span>' : ''}</span>`;
-}
-// [data-zip-code] スロットを zip ロード後に埋める（_fillTrends と同型・非ブロッキング）
-function _fillZips(root = document) {
-    const slots = [...root.querySelectorAll('[data-zip-code]')];
-    if (!slots.length) return;
-    loadZipMap().then(() => {
-        for (const el of slots) if (el.isConnected) el.innerHTML = _zipHtml(el.dataset.zipCode);
-    });
 }
 const _HYEARS = [1980, 1985, 1990, 1995, 2000, 2005, 2010, 2015, 2020];
 // trendCode: 'national'（全47県000行を合算）| 'XX000'(都道府県) | 政令市/市区町村/区コード
@@ -695,7 +665,7 @@ function _smallAreaDiffNoteHtml(cityCode) {
 // crumbs = 市区町村レベルのパンくず。クリックで町丁字グループ → テーブル → ピラミッドへドリルする。
 async function _attachSmallAreaList(saEl, cityCode, crumbs, year = '2020') {
     if (!saEl) return;
-    loadZipMap();   // 小地域に潜る前に郵便番号を先読み（非ブロッキング）
+    prefetchZip();   // 小地域に潜る前に郵便番号を先読み（非ブロッキング）
     try {
         const { items: allItems, popMap } = await fetchSmallAreaData(cityCode, year);
         // 9桁＝町丁・字等（正準層。合算が市区町村人口と一致）。
@@ -793,7 +763,7 @@ function _csDrillSmallAreaTable(cityCode, title, items, popMap, subMap, crumbs, 
         </div>
     `);
     _wireCrumbs(crumbs);
-    _fillZips();
+    fillZips();
     // ノード自身の集計ピラミッド・就業世帯経済を後追いで表示セクションに描画
     if (nodeCode) {
         fetchSmallAreaPyramid(cityCode, API_BASE, year).then(pm => {
@@ -838,7 +808,7 @@ function _csDrillSmallAreaPyramid(areaName, areaCode, pyr, crumbs, year = '2020'
         </div>
     `);
     _wireCrumbs(crumbs);
-    _fillZips();
+    fillZips();
     // 就業・世帯経済は都道府県ZIP取得後に後追い描画
     fetchSmallAreaStats(areaCode.slice(0, 5), API_BASE, year).then(sm => {
         const stat = sm.get(areaCode);
@@ -894,7 +864,7 @@ async function _populateSmallAreaBody(bodyEl, code, { withPyramid = true, preIte
                 </table>
             </div>
             <div class="cs-sa-pyramid-wrap" id="cs-sa-pyramid" style="display:none"></div>`;
-        _fillZips(bodyEl);
+        fillZips(bodyEl);
 
         // 行クリック（子ドリル可 has-sub、または年齢到着後の has-pyr の行に反応）
         let pyrMap = new Map();

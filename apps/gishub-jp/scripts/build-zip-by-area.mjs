@@ -1,5 +1,5 @@
 /**
- * 郵便番号 × 国勢調査2020 小地域（町丁・字等）突合 → public/census/zip2020.json
+ * 郵便番号 × 国勢調査2020 小地域（町丁・字等）突合 → public/zipcode/area-zip.json
  *
  * 「各小地域に郵便番号を付ける」。日本郵便の新形式 utf_ken_all.csv（2023年6月〜,
  * 1レコード1行・UTF-8・全角カナ＝継続行地獄なし）を、9桁小地域コードの町域名と
@@ -12,13 +12,14 @@
  *
  * node scripts/build-zip-by-area.mjs
  */
-import { writeFileSync, readFileSync, existsSync } from 'fs';
+import { writeFileSync, readFileSync, existsSync, mkdirSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import AdmZip from 'adm-zip';
 
 const __dir = dirname(fileURLToPath(import.meta.url));
-const OUT   = join(__dir, '../public/census/zip2020.json');
+const OUT   = join(__dir, '../public/zipcode/area-zip.json');
+mkdirSync(dirname(OUT), { recursive: true });
 const SMALL = join(__dir, '../public/census/2020-small.csv');
 const ZIPURL = 'https://www.post.japanpost.jp/service/search/zipcode/download/utf/zip/utf_ken_all.zip';
 const REFERER = 'https://www.post.japanpost.jp/service/search/zipcode/download/utf-zip.html';
@@ -159,7 +160,7 @@ async function main() {
     console.log(`  単一番号の市区町村  : ${stat.single}`);
     console.log(`  市代表番号(近似, ~) : ${stat.city}`);
     console.log(`  未一致(省略)        : ${stat.miss}`);
-    console.log(`✅ → public/census/zip2020.json (${size} MB)`);
+    console.log(`✅ → public/zipcode/area-zip.json (${size} MB)`);
     if (missSamples.length) console.log('未一致サンプル:\n  ' + missSamples.join('\n  '));
 }
 
