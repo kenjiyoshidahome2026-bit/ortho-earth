@@ -26,6 +26,13 @@ import { API_BASE } from '../ui/config.js';
 const ESTAT_CODE_SET = new Set(ESTAT_MANIFEST.map(e => e.code));
 const MANIFEST_BY_CODE = new Map(CENSUS_MANIFEST.map(e => [e.code, e]));
 
+// 区名解決用: 現行 manifest に estat manifest（旧区名を含む）を補完してマージ。
+// 政令市の区割り再編で manifest から消えた旧区コード（例: 浜松市 旧7区 22131-137）も名称解決できる。
+const WARD_NAME = new Map();
+for (const e of ESTAT_MANIFEST) WARD_NAME.set(e.code, e.name);
+for (const e of CENSUS_MANIFEST) WARD_NAME.set(e.code, e.name);   // 現行 manifest を優先
+const _wardName = code => WARD_NAME.get(code) || code;
+
 // ---- sidebar entries -------------------------------------------------------
 
 export function census2025SidebarEntry() {
@@ -214,10 +221,10 @@ function _gunPrefix(code) {
 
 const _crumbNat   = () => ({ label: '全国', go: _csDrillNational });
 const _crumbPref  = prefCode => ({ label: _prefFull(prefCode), go: () => _csDrillPref(prefCode) });
-const _crumbDesig = (code, prefCode) => ({ label: CENSUS_MANIFEST.find(e => e.code === code)?.name || code, go: () => _csDrillDesignated(code, prefCode) });
+const _crumbDesig = (code, prefCode) => ({ label: _wardName(code), go: () => _csDrillDesignated(code, prefCode) });
 const _crumbCity  = (code, prefCode, parentCode) => {
-    const name   = CENSUS_MANIFEST.find(e => e.code === code)?.name || code;
-    const parent = parentCode ? (CENSUS_MANIFEST.find(e => e.code === parentCode)?.name || '') : '';
+    const name   = _wardName(code);
+    const parent = parentCode ? _wardName(parentCode) : '';
     return { label: _addrShort(name, parent), go: () => _csDrillCity(code, prefCode, parentCode) };
 };
 
@@ -515,6 +522,19 @@ function _wardParent(code) {
     return best;
 }
 
+// 指定年の実データに存在する cityCode 配下の区一覧 [{code, name}]。
+// manifest（現行境界）ではなく各年データのキーから作るので、政令市の区割り再編
+// （例: 浜松市 2024年 7区→3区）があっても年ごとに正しい区が並ぶ。
+function _wardsForYear(cityCode, year) {
+    const data = year === '2025' ? CENSUS_2025_POP
+               : year === '2015' ? CENSUS_2015_STATS
+               : CENSUS_2020_POP;
+    return Object.keys(data)
+        .filter(k => _wardParent(k) === cityCode)
+        .sort()
+        .map(code => ({ code, name: _wardName(code) }));
+}
+
 // チップ用の人口ラベル（2020）
 function _popLabel(pop) {
     if (!pop) return '';
@@ -566,7 +586,7 @@ function _areaGroup(name) {
 
 // Level 1.5: 政令指定都市 → 区一覧（区を積み上げ）
 function _csDrillDesignated(cityCode, prefCode) {
-    const wards   = CENSUS_MANIFEST.filter(e => _wardParent(e.code) === cityCode);
+    const wards   = _wardsForYear(cityCode, '2020');
     const wardSet = new Set(wards.map(w => w.code));
     _renderAggView({
         crumbs: [_crumbNat(), _crumbPref(prefCode), _crumbDesig(cityCode, prefCode)],
@@ -580,7 +600,7 @@ function _csDrillDesignated(cityCode, prefCode) {
 // Level 2: 市区町村データ + 小地域一覧（IDB から自動ロード）
 async function _csDrillCity(cityCode, prefCode, parentCode = null) {
     const entry    = CENSUS_MANIFEST.find(e => e.code === cityCode);
-    const cityName = entry?.name || cityCode;
+    const cityName = entry?.name || _wardName(cityCode);
     const stat     = CENSUS_2020_STATS[cityCode];
     const ages     = CENSUS_2020_AGES[cityCode];
     const natAges  = CENSUS_2020_AGES['_national'];
@@ -1012,7 +1032,7 @@ function _csDrill15Pref(prefCode) {
 
 // Level 1.5: 政令指定都市
 function _csDrill15Designated(cityCode, prefCode) {
-    const wards = CENSUS_MANIFEST.filter(e => _wardParent(e.code) === cityCode && CENSUS_2015_STATS[e.code]);
+    const wards = _wardsForYear(cityCode, '2015');
     _render15AggView({
         crumbs: [
             { label: '全国', go: _csDrill15National },
@@ -1029,7 +1049,7 @@ function _csDrill15Designated(cityCode, prefCode) {
 // Level 2: 市区町村（終端）
 function _csDrill15City(cityCode, prefCode, parentCode = null) {
     const entry    = MANIFEST_BY_CODE.get(cityCode);
-    const cityName = entry?.name || cityCode;
+    const cityName = entry?.name || _wardName(cityCode);
     const stat     = CENSUS_2015_STATS[cityCode];
     const crumbs   = [
         { label: '全国', go: _csDrill15National },
@@ -1239,7 +1259,7 @@ function _csDrill25Pref(prefCode) {
 
 // Level 1.5: 政令指定都市
 function _csDrill25Designated(cityCode, prefCode) {
-    const wards = CENSUS_MANIFEST.filter(e => _wardParent(e.code) === cityCode && CENSUS_2025_POP[e.code]);
+    const wards = _wardsForYear(cityCode, '2025');
     _render25AggView({
         crumbs: [
             { label: '全国', go: _csDrill25National },
@@ -1256,7 +1276,7 @@ function _csDrill25Designated(cityCode, prefCode) {
 // Level 2: 市区町村（終端）
 function _csDrill25City(cityCode, prefCode, parentCode = null) {
     const entry    = MANIFEST_BY_CODE.get(cityCode);
-    const cityName = entry?.name || cityCode;
+    const cityName = entry?.name || _wardName(cityCode);
     const p25      = CENSUS_2025_POP[cityCode];
     const crumbs   = [
         { label: '全国', go: _csDrill25National },
