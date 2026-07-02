@@ -119,10 +119,10 @@
 		padding: 12px 14px 24px;
 		.cs-svg-wrap { max-width: 360px; margin: 10px 0 0; }
 		.cs-svg-wrap svg { max-width: 360px; }
-		// 統計テーブル: 2列×4行（後半4項目を右カラムへ）→ 下に改行
+		// 統計テーブル: 左列(人口/男性/女性) 右列(世帯数/面積/密度) の 2×3
 		.cs-kv-grid {
 			grid-auto-flow: column;
-			grid-template-rows: repeat(4, auto);
+			grid-template-rows: repeat(3, auto);
 			column-gap: 28px;
 			max-width: 500px;
 			margin-bottom: 16px;
@@ -202,6 +202,15 @@
 	}
 	.cs-drill-list {
 		padding: 8px 14px 24px;
+	}
+	.cs-notice {
+		font-size: 11px;
+		color: $mid;
+		background: rgba(255,200,0,.06);
+		border: 1px solid rgba(255,200,0,.25);
+		border-radius: 4px;
+		padding: 6px 10px;
+		margin-bottom: 10px;
 	}
 	.cs-drill-sec-h3 {
 		font-size: 13px;

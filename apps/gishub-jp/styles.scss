@@ -325,6 +325,7 @@ button { cursor: pointer; font-family: $font; }
 	.meta-lic { font-size: 10px; color: $mid; }
 	.ds-title { font-size: 12px; font-weight: bold; color: $hi;
 							white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+	.ds-note  { font-size: 10px; color: $mid; margin-top: 3px; }
 }
 
 // ============================================================

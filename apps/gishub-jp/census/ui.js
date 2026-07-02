@@ -5,6 +5,8 @@ import CENSUS_2020_STATS  from './2020-stats.json'  with { type: 'json' };
 import CENSUS_2015_STATS  from './2015-stats.json'  with { type: 'json' };
 import CENSUS_2020_AGES   from './2020-ages.json'   with { type: 'json' };
 import CENSUS_2020_HOUSEHOLD from './2020-household.json' with { type: 'json' };
+import CENSUS_2015_AGES      from './2015-ages.json'      with { type: 'json' };
+import CENSUS_2015_HOUSEHOLD from './2015-household.json' with { type: 'json' };
 import CITY_HISTORY from '../history.json' with { type: 'json' };   // [YYYYMMDD, "5桁コード", 説明] × 963件（2024-1980）
 import CENSUS_KANA        from './kana.json'        with { type: 'json' };
 import CENSUS_SHICHO      from './shicho.json'      with { type: 'json' };
@@ -26,16 +28,13 @@ const MANIFEST_BY_CODE = new Map(CENSUS_MANIFEST.map(e => [e.code, e]));
 // ---- sidebar entries -------------------------------------------------------
 
 export function census2025SidebarEntry() {
-    const cities = CENSUS_MANIFEST.filter(e => !e.code.endsWith('000') && e.code !== '00000');
-    return { dataset_code:'census2025', title:'国勢調査 2025 速報集計', file_count:cities.length, license:'CC BY', _sourceId:'estat', attribution:'総務省統計局' };
+    return { dataset_code:'census2025', title:'国勢調査 2025 速報集計', file_count:1, license:'CC BY', _sourceId:'estat', attribution:'総務省統計局' };
 }
 export function census2020SidebarEntry() {
-    const cities = CENSUS_MANIFEST.filter(e => !e.code.endsWith('000') && e.code !== '00000');
-    return { dataset_code:'census2020', title:'国勢調査 2020 基本集計', file_count:cities.length, license:'CC BY', _sourceId:'estat', attribution:'総務省統計局' };
+    return { dataset_code:'census2020', title:'国勢調査 2020 基本集計', file_count:1, license:'CC BY', _sourceId:'estat', attribution:'総務省統計局' };
 }
 export function census2015SidebarEntry() {
-    const cities = Object.keys(CENSUS_2015_STATS);
-    return { dataset_code:'census2015', title:'国勢調査 2015 基本集計', file_count:cities.length, license:'CC BY', _sourceId:'estat', attribution:'総務省統計局' };
+    return { dataset_code:'census2015', title:'国勢調査 2015 基本集計', file_count:1, license:'CC BY', _sourceId:'estat', attribution:'総務省統計局' };
 }
 
 // ---- city item HTML -------------------------------------------------------
@@ -90,18 +89,8 @@ let census2020Search = '', census2020Expanded = new Set();
 let census2015Search = '', census2015Expanded = new Set();
 
 export function renderCensus2025List() {
-    const cities = buildCensusCityList();
-    renderCensusMinistryList({
-        id:       'census2025',
-        title:    '国勢調査 2025 速報集計',
-        subtitle: '令和7年国勢調査 人口速報集計（2025年10月1日現在）<span class="moj-fmt-note">男女別人口・世帯数</span>',
-        cities,
-        expanded:    census2025Expanded,
-        getSearch:   () => census2025Search,
-        setSearch:   v  => { census2025Search = v; },
-        itemHtml:    census2025CityItemHtml,
-        onItemClick: code => showCensusDetail(code, '2025'),
-    });
+    loadPopHistory();
+    _csDrill25National();
 }
 export function renderCensus2020List() {
     const cities = buildCensusCityList();
@@ -118,19 +107,8 @@ export function renderCensus2020List() {
     });
 }
 export function renderCensus2015List() {
-    const codes  = new Set(Object.keys(CENSUS_2015_STATS));
-    const cities = CENSUS_MANIFEST.filter(e => !e.code.endsWith('000') && e.code !== '00000' && codes.has(e.code));
-    renderCensusMinistryList({
-        id:       'census2015',
-        title:    '国勢調査 2015 基本集計',
-        subtitle: '平成27年国勢調査 産業別・職業別就業者、世帯経済構成<span class="moj-fmt-note">2015年10月1日現在</span>',
-        cities,
-        expanded:    census2015Expanded,
-        getSearch:   () => census2015Search,
-        setSearch:   v  => { census2015Search = v; },
-        itemHtml:    census2015CityItemHtml,
-        onItemClick: code => showCensusDetail(code, '2015'),
-    });
+    loadPopHistory();
+    _csDrill15National();
 }
 
 function renderCensusMinistryList({ id, title, subtitle, cities, expanded, getSearch, setSearch, itemHtml, onItemClick }) {
@@ -169,7 +147,7 @@ function renderCensusMinistryList({ id, title, subtitle, cities, expanded, getSe
 
 export function censusSmall2020SidebarEntry() {
     return { dataset_code:'census-small-2020', title:'国勢調査 2020 基本集計',
-             file_count:251142, license:'CC BY', _sourceId:'estat', attribution:'総務省統計局' };
+             file_count:1, license:'CC BY', _sourceId:'estat', attribution:'総務省統計局' };
 }
 
 export async function renderCensusSmall2020() {
@@ -299,14 +277,21 @@ function _popKvRows(label, year, [t, m, f]) {
            `<div class="cs-kv"><span class="cs-k">女性</span><span class="cs-v">${f.toLocaleString()} 人</span></div>`;
 }
 
-// 市区町村/政令市パネルの統計行（2020人口・2025人口＆増減率・世帯・面積・密度）
+// 市区町村/政令市パネルの統計行（column-flow 2×3）
+// 左列: 人口/男性/女性  右列: 世帯数/面積/密度
 function _cityStatsRows(pop20, p25, entry) {
-    const rows = [];
-    if (pop20) rows.push(_popKvRows('人口', '2020年', pop20));
-    if (p25?.hh2020) rows.push(`<div class="cs-kv"><span class="cs-k">世帯数 <span class="cs-year">2020年</span></span><span class="cs-v">${p25.hh2020.toLocaleString()} 世帯</span></div>`);
-    if (entry?.area) rows.push(`<div class="cs-kv"><span class="cs-k">面積</span><span class="cs-v">${entry.area.toLocaleString()} km²</span></div>`);
-    if (entry?.density) rows.push(`<div class="cs-kv"><span class="cs-k">人口密度</span><span class="cs-v">${entry.density.toLocaleString()} 人/km²</span></div>`);
-    return rows.join('');
+    const kv = (k, v) => `<div class="cs-kv"><span class="cs-k">${k}</span><span class="cs-v">${v}</span></div>`;
+    const yr = y => `<span class="cs-year">${y}</span>`;
+    const left = [], right = [];
+    if (pop20) {
+        left.push(kv(`人口 ${yr('2020年')}`, `${pop20[0].toLocaleString()} 人`));
+        left.push(kv('男性', `${pop20[1].toLocaleString()} 人`));
+        left.push(kv('女性', `${pop20[2].toLocaleString()} 人`));
+    }
+    if (p25?.hh2020) right.push(kv(`世帯数 ${yr('2020年')}`, `${p25.hh2020.toLocaleString()} 世帯`));
+    if (entry?.area)    right.push(kv('面積',     `${entry.area.toLocaleString()} km²`));
+    if (entry?.density) right.push(kv('人口密度', `${entry.density.toLocaleString()} 人/km²`));
+    return [...left, ...right].join('');
 }
 
 // チャート1セクションの HTML（見出し＋SVG＋ピラミッド凡例）
@@ -369,8 +354,10 @@ function _fillTrends() {
         for (const slot of slots) {
             const body = slot.querySelector('.cs-trend-body');
             if (!body?.isConnected) continue;
-            const pts = _trendSeries(slot.dataset.tc);
-            body.innerHTML = pts ? buildPopTrendSVG(pts) + popTrendLegendHtml()
+            let pts = _trendSeries(slot.dataset.tc);
+            const maxYear = slot.dataset.maxYear ? +slot.dataset.maxYear : null;
+            if (pts && maxYear) pts = pts.filter(p => p.year <= maxYear);
+            body.innerHTML = pts?.length ? buildPopTrendSVG(pts) + popTrendLegendHtml()
                 : '<span style="color:#666;font-size:12px">この地域の人口推移データはありません</span>';
         }
     });
@@ -868,6 +855,452 @@ async function _populateSmallAreaBody(bodyEl, code, { withPyramid = true, preIte
     } catch (e) {
         bodyEl.textContent = `エラー: ${e.message}`;
     }
+}
+
+// ---- 国勢調査 2015 ドリルダウン -------------------------------------------
+// 全国 → 都道府県 → 市区町村（小地域なし）
+// データ: CENSUS_2015_STATS[code] = { pop:[t,m,f], hh, ind:[], occ:[], eco:[] }
+
+function _agg15ForLevel(pred) {
+    const pop = [0, 0, 0];
+    const ages = new Array(32).fill(0);
+    let hh = 0, area = 0, hasHh = false, hasArea = false, hasAges = false;
+    const stat = {};
+    for (const [code, s] of Object.entries(CENSUS_2015_STATS)) {
+        if (!pred(code)) continue;
+        pop[0] += s.pop[0]; pop[1] += s.pop[1]; pop[2] += s.pop[2];
+        if (s.hh) { hh += s.hh; hasHh = true; }
+        const m = MANIFEST_BY_CODE.get(code);
+        if (m?.area) { area += m.area; hasArea = true; }
+        for (const k of ['ind', 'occ', 'eco']) if (s[k]) {
+            if (!stat[k]) stat[k] = new Array(s[k].length).fill(0);
+            s[k].forEach((x, i) => { stat[k][i] += x; });
+        }
+        const a = CENSUS_2015_AGES[code];
+        if (a?.length === 32) { a.forEach((x, i) => { ages[i] += x; }); hasAges = true; }
+        const hhd = CENSUS_2015_HOUSEHOLD[code];
+        if (hhd) for (const k of ['fam', 'dwell', 'own']) if (hhd[k]) {
+            if (!stat[k]) stat[k] = new Array(hhd[k].length).fill(0);
+            hhd[k].forEach((x, i) => { stat[k][i] += x; });
+        }
+    }
+    return {
+        pop, hh: hasHh ? hh : 0, area: hasArea ? area : 0,
+        ages: hasAges ? ages : null, stat: Object.keys(stat).length ? stat : null,
+    };
+}
+
+function _agg15KvHtml(agg) {
+    const kv = (k, v) => `<div class="cs-kv"><span class="cs-k">${k}</span><span class="cs-v">${v}</span></div>`;
+    const yr = y => `<span class="cs-year">${y}</span>`;
+    const left = [
+        kv(`総人口 ${yr('2015年')}`, `${agg.pop[0].toLocaleString()} 人`),
+        kv('男性', `${agg.pop[1].toLocaleString()} 人`),
+        kv('女性', `${agg.pop[2].toLocaleString()} 人`),
+    ];
+    const right = [];
+    if (agg.hh)   right.push(kv(`世帯数 ${yr('2015年')}`, `${agg.hh.toLocaleString()} 世帯`));
+    if (agg.area) {
+        right.push(kv('面積', `${Math.round(agg.area).toLocaleString()} km²`));
+        right.push(kv('人口密度', `${Math.round(agg.pop[0] / agg.area).toLocaleString()} 人/km²`));
+    }
+    return `<div class="cs-kv-grid">${[...left, ...right].join('')}</div>`;
+}
+
+function _city15StatsRows(stat, entry) {
+    const kv = (k, v) => `<div class="cs-kv"><span class="cs-k">${k}</span><span class="cs-v">${v}</span></div>`;
+    const yr = y => `<span class="cs-year">${y}</span>`;
+    const left = [], right = [];
+    if (stat?.pop) {
+        left.push(kv(`人口 ${yr('2015年')}`, `${stat.pop[0].toLocaleString()} 人`));
+        left.push(kv('男性', `${stat.pop[1].toLocaleString()} 人`));
+        left.push(kv('女性', `${stat.pop[2].toLocaleString()} 人`));
+    }
+    if (stat?.hh)       right.push(kv(`世帯数 ${yr('2015年')}`, `${stat.hh.toLocaleString()} 世帯`));
+    if (entry?.area)    right.push(kv('面積',     `${entry.area.toLocaleString()} km²`));
+    if (entry?.density) right.push(kv('人口密度', `${entry.density.toLocaleString()} 人/km²`));
+    return [...left, ...right].join('');
+}
+
+// 統計KV + 年齢ピラミッド + 人口推移（1980–2020）+ 沿革 + 就業・世帯グラフ
+function _level15DisplayHtml(statsHtml, { trendCode = null, histCode = null, stat = null, ages = null }) {
+    const refAges = CENSUS_2015_AGES['_national'];
+    const hasRef  = refAges?.length === 32;
+    const sections = buildCensusChartSections(stat, '2015', {
+        ages:    ages?.length === 32 ? ages : null,
+        refAges: hasRef ? refAges : null,
+    });
+    const byId = {};
+    for (const s of sections) byId[s.id] = s.svg;
+
+    const trendSlot = trendCode
+        ? `<div class="cs-section cs-svg-wrap cs-trend-slot" data-tc="${trendCode}" data-max-year="2015">
+             <h3 class="cs-drill-sec-h3">人口推移 <span class="cs-year">1980 – 2015</span></h3>
+             <div class="cs-trend-body"><span class="cs-sa-loading">読み込み中…</span></div>
+           </div>`
+        : '';
+    const histHtml  = histCode ? _cityHistoryHtml(histCode) : '';
+    const pyrHtml   = byId.pyramid
+        ? `<div class="cs-section cs-svg-wrap"><h3 class="cs-drill-sec-h3">年齢別人口構成 <span class="cs-year">${hasRef ? '2015年（参考：全国平均）' : '2015年'}</span></h3>${byId.pyramid}${_pyramidLegend(hasRef)}</div>`
+        : '';
+    const statsChart = byId.stats
+        ? `<div class="cs-section cs-svg-wrap"><h3 class="cs-drill-sec-h3">就業・世帯経済 <span class="cs-year">2015年</span></h3>${byId.stats}</div>`
+        : '';
+    const hhChart   = byId.household
+        ? `<div class="cs-section cs-svg-wrap"><h3 class="cs-drill-sec-h3">世帯・住宅 <span class="cs-year">2015年</span></h3>${byId.household}</div>`
+        : '';
+
+    return statsHtml + pyrHtml + trendSlot + histHtml + statsChart + hhChart;
+}
+
+function _render15AggView({ crumbs = null, title, pred, trendCode = null, histCode = null, listHtml, onChip }) {
+    const agg = _agg15ForLevel(pred);
+    ctx.setDetailHtml(_drillWrap({
+        crumbs, title,
+        chartHtml: _level15DisplayHtml(_agg15KvHtml(agg), { trendCode, histCode, stat: agg.stat, ages: agg.ages }),
+        listHtml,
+    }));
+    if (crumbs) _wireCrumbs(crumbs);
+    _fillTrends();
+    document.querySelectorAll('.cs-drill-chip[data-key]').forEach(el =>
+        el.addEventListener('click', () => onChip(el.dataset.key)));
+}
+
+function _city15ChipsHtml(headTitle, headCount, items) {
+    return `<h3 class="cs-drill-sec-h3">${headTitle} <span class="cs-year">${headCount}</span></h3>
+        <div class="cs-drill-chips">${items.map(c => {
+            let pop = CENSUS_2015_STATS[c.code]?.pop?.[0];
+            // 政令市は区コードを合算
+            if (!pop && DESIGNATED_CITIES.has(c.code)) {
+                for (const [k, s] of Object.entries(CENSUS_2015_STATS))
+                    if (_wardParent(k) === c.code) pop = (pop || 0) + s.pop[0];
+            }
+            const sub = pop ? _popLabel(pop) : '';
+            return `<span class="cs-drill-chip" data-key="${c.code}">${escHtml(c.name)}${sub ? `<span class="cs-chip-sub">${sub}</span>` : ''}</span>`;
+        }).join('')}</div>`;
+}
+
+// Level 0: 全国
+function _csDrill15National() {
+    const byPref = new Map();
+    for (const [code, s] of Object.entries(CENSUS_2015_STATS)) {
+        const pref = code.slice(0, 2);
+        byPref.set(pref, (byPref.get(pref) || 0) + s.pop[0]);
+    }
+    const listHtml = `<h3 class="cs-drill-sec-h3">都道府県 <span class="cs-year">47都道府県</span></h3>
+        <div class="cs-drill-chips">${
+        [...byPref.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([pref, pop]) =>
+            `<span class="cs-drill-chip" data-key="${pref}">${PREFS[pref] || pref}<span class="cs-chip-sub">${_popLabel(pop)}</span></span>`
+        ).join('')}</div>`;
+    _render15AggView({
+        title: _rubyHtml('全国', 'ぜんこく'), pred: () => true, trendCode: 'national',
+        listHtml, onChip: _csDrill15Pref,
+    });
+}
+
+// Level 1: 都道府県
+function _csDrill15Pref(prefCode) {
+    const topCities = CENSUS_MANIFEST.filter(e =>
+        e.pref === prefCode && !e.code.endsWith('000') && !_wardParent(e.code) &&
+        (CENSUS_2015_STATS[e.code] || DESIGNATED_CITIES.has(e.code)));
+    _render15AggView({
+        crumbs: [{ label: '全国', go: _csDrill15National }, { label: _prefFull(prefCode), go: () => _csDrill15Pref(prefCode) }],
+        title: _rubyHtml(_prefFull(prefCode), CENSUS_KANA[prefCode]),
+        pred: c => c.slice(0, 2) === prefCode, trendCode: prefCode + '000',
+        listHtml: _city15ChipsHtml('市区町村', `${topCities.length}件`, topCities),
+        onChip: code => DESIGNATED_CITIES.has(code) ? _csDrill15Designated(code, prefCode) : _csDrill15City(code, prefCode, null),
+    });
+}
+
+// Level 1.5: 政令指定都市
+function _csDrill15Designated(cityCode, prefCode) {
+    const wards = CENSUS_MANIFEST.filter(e => _wardParent(e.code) === cityCode && CENSUS_2015_STATS[e.code]);
+    _render15AggView({
+        crumbs: [
+            { label: '全国', go: _csDrill15National },
+            { label: _prefFull(prefCode), go: () => _csDrill15Pref(prefCode) },
+            { label: MANIFEST_BY_CODE.get(cityCode)?.name || cityCode, go: () => _csDrill15Designated(cityCode, prefCode) },
+        ],
+        title: _rubyHtml(MANIFEST_BY_CODE.get(cityCode)?.name || cityCode, CENSUS_KANA[cityCode]) + _shichoSuffix(cityCode),
+        pred: c => _wardParent(c) === cityCode, trendCode: cityCode, histCode: cityCode,
+        listHtml: _city15ChipsHtml('行政区', `${wards.length}区`, wards),
+        onChip: code => _csDrill15City(code, prefCode, cityCode),
+    });
+}
+
+// Level 2: 市区町村（終端）
+function _csDrill15City(cityCode, prefCode, parentCode = null) {
+    const entry    = MANIFEST_BY_CODE.get(cityCode);
+    const cityName = entry?.name || cityCode;
+    const stat     = CENSUS_2015_STATS[cityCode];
+    const crumbs   = [
+        { label: '全国', go: _csDrill15National },
+        { label: _prefFull(prefCode), go: () => _csDrill15Pref(prefCode) },
+    ];
+    if (parentCode) crumbs.push({ label: MANIFEST_BY_CODE.get(parentCode)?.name || parentCode, go: () => _csDrill15Designated(parentCode, prefCode) });
+    const parent = parentCode ? (MANIFEST_BY_CODE.get(parentCode)?.name || '') : '';
+    crumbs.push({ label: _addrShort(cityName, parent), go: () => _csDrill15City(cityCode, prefCode, parentCode) });
+
+    const ages15 = CENSUS_2015_AGES[cityCode];
+    const hhd15  = CENSUS_2015_HOUSEHOLD[cityCode];
+    const chartStat = stat ? { ...stat } : null;
+    if (chartStat && hhd15) for (const k of ['fam', 'dwell', 'own']) if (hhd15[k]) chartStat[k] = hhd15[k];
+    const statsHtml = `<div class="cs-kv-grid">${_city15StatsRows(stat, entry)}</div>`;
+    const display   = _level15DisplayHtml(statsHtml, { trendCode: cityCode, histCode: cityCode, stat: chartStat, ages: ages15 });
+
+    ctx.setDetailHtml(`
+        <div class="cs-drill-wrap census-detail">
+            <div class="cs-drill-head">
+                ${_crumbBarHtml(crumbs)}
+                <div class="cs-drill-title-row">
+                    <h2>${_gunPrefix(cityCode)}${_rubyHtml(cityName, CENSUS_KANA[cityCode])}${_shichoSuffix(cityCode)}</h2>
+                </div>
+            </div>
+            <div class="cs-drill-display">${display}</div>
+        </div>
+    `);
+    _wireCrumbs(crumbs);
+    _fillTrends();
+}
+
+// ---- 国勢調査 2025 ドリルダウン -------------------------------------------
+// 全国 → 都道府県 → 市区町村（速報集計: 人口・世帯のみ。年齢・就業・住宅データは未公表）
+// データ: CENSUS_2025_POP[code] = { pop:[t,m,f], pop2020, popChange, hh, hh2020 }
+
+function _agg25ForLevel(pred) {
+    const pop = [0, 0, 0];
+    let hh = 0, hh20 = 0, pop20 = 0, area = 0;
+    let hasHh = false, hasArea = false, hasPop20 = false;
+    for (const [code, p] of Object.entries(CENSUS_2025_POP)) {
+        if (code.endsWith('000')) continue;
+        if (!pred(code)) continue;
+        pop[0] += p.pop[0]; pop[1] += p.pop[1]; pop[2] += p.pop[2];
+        if (p.hh)     { hh += p.hh; hh20 += (p.hh2020 || 0); hasHh = true; }
+        if (p.pop2020){ pop20 += p.pop2020; hasPop20 = true; }
+        const m = MANIFEST_BY_CODE.get(code);
+        if (m?.area) { area += m.area; hasArea = true; }
+    }
+    return { pop, hh: hasHh ? hh : 0, hh20: hasHh ? hh20 : 0,
+             pop20: hasPop20 ? pop20 : 0, area: hasArea ? area : 0 };
+}
+
+function _agg25KvHtml(agg) {
+    const kv  = (k, v) => `<div class="cs-kv"><span class="cs-k">${k}</span><span class="cs-v">${v}</span></div>`;
+    const yr  = y => `<span class="cs-year">${y}</span>`;
+    const chgHtml = (val, ref) => {
+        const r = ((val - ref) / ref * 100);
+        const s = r >= 0 ? `+${r.toFixed(1)}` : r.toFixed(1);
+        return ` <span class="pop-chg ${r >= 0 ? 'pos' : 'neg'}">${s}%</span>`;
+    };
+    const left = [
+        kv(`総人口 ${yr('2025年')}`, `${agg.pop[0].toLocaleString()} 人`),
+        kv('男性', `${agg.pop[1].toLocaleString()} 人`),
+        kv('女性', `${agg.pop[2].toLocaleString()} 人`),
+    ];
+    if (agg.pop20 > 0)
+        left.push(kv(`人口 ${yr('2020年')}`, `${agg.pop20.toLocaleString()} 人${chgHtml(agg.pop[0], agg.pop20)}`));
+    const right = [];
+    if (agg.hh) {
+        right.push(kv(`世帯数 ${yr('2025年')}`, `${agg.hh.toLocaleString()} 世帯`));
+        if (agg.hh20 > 0)
+            right.push(kv(`世帯数 ${yr('2020年')}`, `${agg.hh20.toLocaleString()} 世帯${chgHtml(agg.hh, agg.hh20)}`));
+    }
+    if (agg.area) {
+        right.push(kv('面積', `${Math.round(agg.area).toLocaleString()} km²`));
+        right.push(kv('人口密度', `${Math.round(agg.pop[0] / agg.area).toLocaleString()} 人/km²`));
+    }
+    return `<div class="cs-kv-grid">${[...left, ...right].join('')}</div>`;
+}
+
+function _city25StatsRows(p25, entry) {
+    const kv = (k, v) => `<div class="cs-kv"><span class="cs-k">${k}</span><span class="cs-v">${v}</span></div>`;
+    const yr = y => `<span class="cs-year">${y}</span>`;
+    const left = [], right = [];
+    if (p25?.pop) {
+        const chgSign = p25.popChange >= 0 ? `+${p25.popChange.toFixed(1)}` : p25.popChange.toFixed(1);
+        const chgCl   = p25.popChange >= 0 ? 'pos' : 'neg';
+        left.push(kv(`人口 ${yr('2025年')}`, `${p25.pop[0].toLocaleString()} 人 <span class="pop-chg ${chgCl}">${chgSign}%</span>`));
+        left.push(kv('男性', `${p25.pop[1].toLocaleString()} 人`));
+        left.push(kv('女性', `${p25.pop[2].toLocaleString()} 人`));
+    }
+    if (p25?.hh) {
+        let hhStr = `${p25.hh.toLocaleString()} 世帯`;
+        if (p25.hh2020) {
+            const r = (p25.hh - p25.hh2020) / p25.hh2020 * 100;
+            const s = r >= 0 ? `+${r.toFixed(1)}` : r.toFixed(1);
+            hhStr += ` <span class="pop-chg ${r >= 0 ? 'pos' : 'neg'}">${s}%</span>`;
+        }
+        right.push(kv(`世帯数 ${yr('2025年')}`, hhStr));
+        if (p25.hh2020) right.push(kv(`世帯数 ${yr('2020年')}`, `${p25.hh2020.toLocaleString()} 世帯`));
+    }
+    if (entry?.area)    right.push(kv('面積',     `${entry.area.toLocaleString()} km²`));
+    if (entry?.density) right.push(kv('人口密度', `${entry.density.toLocaleString()} 人/km²`));
+    return [...left, ...right].join('');
+}
+
+function _level25DisplayHtml(statsHtml, { trendCode = null, histCode = null, popTrend = null, ref2020 = null }) {
+    let trendHtml = '';
+    if (popTrend?.length >= 2) {
+        // 市区町村: 2015→2020→2025 の3点グラフ（inline, pop-history不要）
+        const secs = buildCensusChartSections(null, '2025', { popTrend });
+        const sec  = secs.find(s => s.id === 'trend');
+        if (sec?.svg) {
+            trendHtml = `<div class="cs-section cs-svg-wrap">
+                <h3 class="cs-drill-sec-h3">人口推移 <span class="cs-year">2015 – 2025</span></h3>
+                ${sec.svg}${popTrendLegendHtml()}
+            </div>`;
+        }
+    } else if (trendCode) {
+        // 集計レベル: pop-history から非同期描画（1980–2020）
+        trendHtml = `<div class="cs-section cs-svg-wrap cs-trend-slot" data-tc="${trendCode}">
+             <h3 class="cs-drill-sec-h3">人口推移 <span class="cs-year">1980 – 2020</span></h3>
+             <div class="cs-trend-body"><span class="cs-sa-loading">読み込み中…</span></div>
+           </div>`;
+    }
+    const histHtml = histCode ? _cityHistoryHtml(histCode) : '';
+
+    // 2020年参考データ（年齢ピラミッド・就業・世帯）
+    let ref2020Html = '';
+    if (ref2020) {
+        const refSecs = buildCensusChartSections(ref2020.stat, '2020', {
+            ages: ref2020.ages?.length === 32 ? ref2020.ages : null,
+            refAges: ref2020.natAges?.length === 32 ? ref2020.natAges : null,
+        });
+        const refById = {};
+        for (const s of refSecs) refById[s.id] = s.svg;
+        const hasRef = !!ref2020.natAges?.length;
+        const pyrLabel = hasRef ? '2020年（全国平均付）' : '2020年';
+        if (refById.pyramid)
+            ref2020Html += `<div class="cs-section cs-svg-wrap"><h3 class="cs-drill-sec-h3">年齢別人口構成 <span class="cs-year">${pyrLabel}</span></h3>${refById.pyramid}${_pyramidLegend(hasRef)}</div>`;
+        if (refById.stats)
+            ref2020Html += `<div class="cs-section cs-svg-wrap"><h3 class="cs-drill-sec-h3">就業・世帯経済 <span class="cs-year">2020年</span></h3>${refById.stats}</div>`;
+        if (refById.household)
+            ref2020Html += `<div class="cs-section cs-svg-wrap"><h3 class="cs-drill-sec-h3">世帯・住宅 <span class="cs-year">2020年</span></h3>${refById.household}</div>`;
+    }
+
+    return statsHtml + trendHtml + histHtml + ref2020Html;
+}
+
+function _render25AggView({ crumbs = null, title, pred, trendCode = null, listHtml, onChip }) {
+    const agg = _agg25ForLevel(pred);
+    ctx.setDetailHtml(_drillWrap({
+        crumbs, title,
+        chartHtml: _level25DisplayHtml(_agg25KvHtml(agg), { trendCode }),
+        listHtml,
+    }));
+    if (crumbs) _wireCrumbs(crumbs);
+    _fillTrends();
+    document.querySelectorAll('.cs-drill-chip[data-key]').forEach(el =>
+        el.addEventListener('click', () => onChip(el.dataset.key)));
+}
+
+function _city25ChipsHtml(headTitle, headCount, items) {
+    return `<h3 class="cs-drill-sec-h3">${headTitle} <span class="cs-year">${headCount}</span></h3>
+        <div class="cs-drill-chips">${items.map(c => {
+            const p = CENSUS_2025_POP[c.code];
+            const sub = p ? _popLabel(p.pop[0]) : '';
+            const chg = p ? `<span class="pop-chg ${p.popChange >= 0 ? 'pos' : 'neg'} cs-chip-sub">${p.popChange >= 0 ? '+' : ''}${p.popChange.toFixed(1)}%</span>` : '';
+            return `<span class="cs-drill-chip" data-key="${c.code}">${escHtml(c.name)}${sub ? `<span class="cs-chip-sub">${sub}</span>` : ''}${chg}</span>`;
+        }).join('')}</div>`;
+}
+
+// Level 0: 全国
+function _csDrill25National() {
+    const byPref = new Map();
+    for (const [code, p] of Object.entries(CENSUS_2025_POP)) {
+        if (code.endsWith('000')) continue;
+        const pref = code.slice(0, 2);
+        byPref.set(pref, (byPref.get(pref) || 0) + p.pop[0]);
+    }
+    const notice = `<p class="cs-notice">速報集計（人口・世帯）のみ公開中。基本集計（年齢・就業・住宅）は 2026年秋頃公開予定。</p>`;
+    const listHtml = notice + `<h3 class="cs-drill-sec-h3">都道府県 <span class="cs-year">47都道府県</span></h3>
+        <div class="cs-drill-chips">${
+        [...byPref.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([pref, pop]) =>
+            `<span class="cs-drill-chip" data-key="${pref}">${PREFS[pref] || pref}<span class="cs-chip-sub">${_popLabel(pop)}</span></span>`
+        ).join('')}</div>`;
+    _render25AggView({
+        title: _rubyHtml('全国', 'ぜんこく'), pred: () => true, trendCode: 'national',
+        listHtml, onChip: _csDrill25Pref,
+    });
+}
+
+// Level 1: 都道府県
+function _csDrill25Pref(prefCode) {
+    const topCities = CENSUS_MANIFEST.filter(e =>
+        e.pref === prefCode && !e.code.endsWith('000') && !_wardParent(e.code) && CENSUS_2025_POP[e.code]);
+    _render25AggView({
+        crumbs: [{ label: '全国', go: _csDrill25National }, { label: _prefFull(prefCode), go: () => _csDrill25Pref(prefCode) }],
+        title: _rubyHtml(_prefFull(prefCode), CENSUS_KANA[prefCode]),
+        pred: c => c.slice(0, 2) === prefCode, trendCode: prefCode + '000',
+        listHtml: _city25ChipsHtml('市区町村', `${topCities.length}件`, topCities),
+        onChip: code => DESIGNATED_CITIES.has(code) ? _csDrill25Designated(code, prefCode) : _csDrill25City(code, prefCode, null),
+    });
+}
+
+// Level 1.5: 政令指定都市
+function _csDrill25Designated(cityCode, prefCode) {
+    const wards = CENSUS_MANIFEST.filter(e => _wardParent(e.code) === cityCode && CENSUS_2025_POP[e.code]);
+    _render25AggView({
+        crumbs: [
+            { label: '全国', go: _csDrill25National },
+            { label: _prefFull(prefCode), go: () => _csDrill25Pref(prefCode) },
+            { label: MANIFEST_BY_CODE.get(cityCode)?.name || cityCode, go: () => _csDrill25Designated(cityCode, prefCode) },
+        ],
+        title: _rubyHtml(MANIFEST_BY_CODE.get(cityCode)?.name || cityCode, CENSUS_KANA[cityCode]) + _shichoSuffix(cityCode),
+        pred: c => _wardParent(c) === cityCode, trendCode: cityCode, histCode: cityCode,
+        listHtml: _city25ChipsHtml('行政区', `${wards.length}区`, wards),
+        onChip: code => _csDrill25City(code, prefCode, cityCode),
+    });
+}
+
+// Level 2: 市区町村（終端）
+function _csDrill25City(cityCode, prefCode, parentCode = null) {
+    const entry    = MANIFEST_BY_CODE.get(cityCode);
+    const cityName = entry?.name || cityCode;
+    const p25      = CENSUS_2025_POP[cityCode];
+    const crumbs   = [
+        { label: '全国', go: _csDrill25National },
+        { label: _prefFull(prefCode), go: () => _csDrill25Pref(prefCode) },
+    ];
+    if (parentCode) crumbs.push({ label: MANIFEST_BY_CODE.get(parentCode)?.name || parentCode, go: () => _csDrill25Designated(parentCode, prefCode) });
+    const parent = parentCode ? (MANIFEST_BY_CODE.get(parentCode)?.name || '') : '';
+    crumbs.push({ label: _addrShort(cityName, parent), go: () => _csDrill25City(cityCode, prefCode, parentCode) });
+
+    const pop2015 = CENSUS_2015_STATS[cityCode];
+    const pop2020 = CENSUS_2020_POP[cityCode];
+    const popTrend = [];
+    if (pop2015?.pop) popTrend.push({ year: 2015, male: pop2015.pop[1], female: pop2015.pop[2] });
+    if (pop2020)      popTrend.push({ year: 2020, male: pop2020[1], female: pop2020[2] });
+    if (p25?.pop)     popTrend.push({ year: 2025, male: p25.pop[1], female: p25.pop[2] });
+
+    const ages2020 = CENSUS_2020_AGES[cityCode];
+    const stat2020 = {
+        ...(CENSUS_2020_STATS[cityCode] || {}),
+        ...(CENSUS_2020_HOUSEHOLD[cityCode] || {}),
+    };
+    const has2020 = ages2020?.length === 32 || Object.keys(stat2020).length > 0;
+
+    const statsHtml = `<div class="cs-kv-grid">${_city25StatsRows(p25, entry)}</div>`;
+    const display   = _level25DisplayHtml(statsHtml, {
+        trendCode: cityCode,
+        histCode: cityCode,
+        popTrend: popTrend.length >= 2 ? popTrend : null,
+        ref2020: has2020 ? { stat: stat2020, ages: ages2020, natAges: CENSUS_2020_AGES['_national'] } : null,
+    });
+
+    ctx.setDetailHtml(`
+        <div class="cs-drill-wrap census-detail">
+            <div class="cs-drill-head">
+                ${_crumbBarHtml(crumbs)}
+                <div class="cs-drill-title-row">
+                    <h2>${_gunPrefix(cityCode)}${_rubyHtml(cityName, CENSUS_KANA[cityCode])}${_shichoSuffix(cityCode)}</h2>
+                </div>
+            </div>
+            <div class="cs-drill-display">${display}</div>
+        </div>
+    `);
+    _wireCrumbs(crumbs);
+    _fillTrends();
 }
 
 // ---- small area list (used by city detail panel) ---------------------------

@@ -23,8 +23,8 @@ export function placeholder(catalog) {
             min:   '総務省',
             url:   'https://www.e-stat.go.jp/gis',
             label: '統計 GIS・国勢調査',
-            cnt:   ESTAT_MANIFEST.length + CENSUS_MANIFEST.length,
-            unit:  `市区町村（小地域境界 + 国勢調査 3施行分）`,
+            cnt:   ESTAT_MANIFEST.length,
+            unit:  `市区町村（小地域境界）+ 国勢調査 3セット`,
             desc:  '小地域境界 Shapefile（e-Stat）と 2015/2020/2025 年 国勢調査の人口・世帯・産業別集計',
         },
         {

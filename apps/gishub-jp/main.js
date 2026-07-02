@@ -100,6 +100,7 @@ function dsItemHtml(ds) {
 				</span>
 			</div>
 			<div class="ds-title">${ds.title}</div>
+			${ds.note ? `<div class="ds-note">${ds.note}</div>` : ''}
 		</div>
 	`;
 }

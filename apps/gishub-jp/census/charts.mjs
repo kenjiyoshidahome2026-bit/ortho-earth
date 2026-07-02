@@ -94,22 +94,23 @@ function appendDonut(parent, cx, cy, items, label, total, unit = '人') {
 }
 
 // ── 水平バー ─────────────────────────────────────────────────────────────────
-function appendHBar(parent, x, y, segments, total, labels) {
+function appendHBar(parent, x, y, segments, total, labels, bw = 110) {
     const g = parent.elem('g', { transform: `translate(${x},${y})` });
-    g.elem('rect', { x: 0, y: 0, width: 110, height: 14, fill: '#888' });
+    g.elem('rect', { x: 0, y: 0, width: bw, height: 14, fill: '#888' });
     let acc = 0;
     segments.forEach(([val, fill]) => {
-        const w = total ? val * 110 / total : 0;
+        const w = total ? val * bw / total : 0;
         g.elem('rect', { x: acc.toFixed(1), y: 0, width: w.toFixed(1), height: 14, fill });
         acc += w;
     });
-    g.elem('rect', { x: 0, y: 0, width: 110, height: 14,
-                                     fill: 'none', stroke: FG, 'stroke-width': 0.8 });
+    g.elem('rect', { x: 0, y: 0, width: bw, height: 14,
+                     fill: 'none', stroke: FG, 'stroke-width': 0.8 });
+    const scale = bw / 110;
     const gt = g.elem('g', { 'text-anchor': 'middle', 'dominant-baseline': 'middle',
-                                                        'font-size': 4.5, 'font-family': 'Verdana', fill: FG });
+                               'font-size': 4.5, 'font-family': 'Verdana', fill: FG });
     labels.forEach(([lx, name, val]) => {
-        gt.elem('text', { x: lx, y: 21 }, name);
-        gt.elem('text', { x: lx, y: 28 }, total ? pct(val / total) : '-');
+        gt.elem('text', { x: (lx * scale).toFixed(1), y: 21 }, name);
+        gt.elem('text', { x: (lx * scale).toFixed(1), y: 28 }, total ? pct(val / total) : '-');
     });
 }
 
@@ -150,7 +151,7 @@ function appendOccupation(parent, x0, y0, v) {
 }
 
 // ── 就業地位 ─────────────────────────────────────────────────────────────────
-function appendStatus(parent, x0, y0, v, year) {
+function appendStatus(parent, x0, y0, v, year, bw = 110) {
     if (!v || !v[0]) return 0;
     // 2015: ind[22]=雇用者, [23]=自営業主, [24]=家族従業者
     // 2020: ind[23]=雇用者, [24]=自営業主, [25]=家族従業者
@@ -163,12 +164,12 @@ function appendStatus(parent, x0, y0, v, year) {
     ];
     const labels = [[12, '自営業主', v[si]], [50, '雇用者', v[ei]], [87, '家族従業', v[fi]]];
     parent.elem('text', { x: x0, y: y0 - 2, 'font-size': 8, 'font-family': 'Verdana', fill: '#aaa' }, '就業地位');
-    appendHBar(parent, x0, y0 + 5, segs, v[0], labels);
+    appendHBar(parent, x0, y0 + 5, segs, v[0], labels, bw);
     return 40;
 }
 
 // ── 世帯経済構成 ─────────────────────────────────────────────────────────────
-function appendHousehold(parent, x0, y0, v) {
+function appendHousehold(parent, x0, y0, v, bw = 110) {
     if (!v || !v[0]) return 0;
     const segs = [
         [v[1], '#800'], [v[2], '#080'], [v[3], '#008'], [v[4], '#808'],
@@ -176,7 +177,7 @@ function appendHousehold(parent, x0, y0, v) {
     ];
     const labels = [[12, '農林漁業', v[1]], [37, '混合', v[2]], [62, '非農林漁', v[3]], [87, '非就業', v[4]]];
     parent.elem('text', { x: x0, y: y0 - 2, 'font-size': 8, 'font-family': 'Verdana', fill: '#aaa' }, '世帯経済構成');
-    appendHBar(parent, x0, y0 + 5, segs, v[0], labels);
+    appendHBar(parent, x0, y0 + 5, segs, v[0], labels, bw);
     return 40;
 }
 
@@ -202,7 +203,7 @@ function appendFamilyType(parent, x0, y0, v) {
 }
 
 // ── 住宅の建て方(T001086) ＋ 所有(T001085) ──
-function appendHousing(parent, x0, y0, dwell, own) {
+function appendHousing(parent, x0, y0, dwell, own, bw = 110) {
     if (!dwell || !dwell[0]) return 0;
     const segs = [
         [dwell[1], '#0a6'],  // 一戸建
@@ -212,7 +213,7 @@ function appendHousing(parent, x0, y0, dwell, own) {
     ];
     const labels = [[12, '一戸建', dwell[1]], [42, '長屋', dwell[2]], [72, '共同住宅', dwell[3]]];
     parent.elem('text', { x: x0, y: y0 - 2, 'font-size': 8, 'font-family': 'Verdana', fill: '#aaa' }, '住宅の建て方');
-    appendHBar(parent, x0, y0 + 5, segs, dwell[0], labels);
+    appendHBar(parent, x0, y0 + 5, segs, dwell[0], labels, bw);
     let h = 48;   // バー(14)+ラベル2行(21,28)＋次見出しのクリアランス
     if (own && own[0]) {
         const oy   = y0 + h;
@@ -220,7 +221,7 @@ function appendHousing(parent, x0, y0, dwell, own) {
         const oseg = [[own[1], '#c60'], [rent, '#68c'], [Math.max(0, own[0] - own[1] - rent), '#888']];
         const olab = [[12, '持ち家', own[1]], [60, '民営借家', rent]];
         parent.elem('text', { x: x0, y: oy - 2, 'font-size': 8, 'font-family': 'Verdana', fill: '#aaa' }, '住宅の所有');
-        appendHBar(parent, x0, oy + 5, oseg, own[0], olab);
+        appendHBar(parent, x0, oy + 5, oseg, own[0], olab, bw);
         h += 40;
     }
     return h;
@@ -407,14 +408,12 @@ export function buildPopTrendSVG(points) {
 // ── 個別SVG ──────────────────────────────────────────────────────────────────
 function makeSvg(drawFn) {
     const svg = d3.SVG([0, 0, W, 10]);
-    svg.elem('rect', { x: 0, y: 0, width: W, height: 9999, fill: BG });
     const x0 = 8;
-    let y = 8;
+    let y = 16;  // title text at y0-2=14 → ascent to y≈7, clear of viewBox top
     const h = drawFn(svg, x0, y);
     if (!h) return null;
     y += h;
-    svg.a.viewBox            = `0 0 ${W} ${y}`;
-    svg.children[0].a.height = y;
+    svg.a.viewBox = `0 0 ${W} ${y}`;
     return svg.outerHTML;
 }
 
@@ -436,16 +435,19 @@ export function buildCensusChartSections(stat, year = '2020', opts = {}) {
 
     if (stat) {
         const statSvg = makeSvg((s, x0, y) => {
+            // donutX0=38: centers donut(~80px)+legend in W=250
+            // barX0=38: same start as donut; BAR_W fills same total width (W - 2*38 = 174)
+            const X0 = 38, BAR_W = W - 2 * 38;
             const PAD = 12;
             let cur = y, used = 0;
             const run = fn => {
                 const h = fn(s, x0, cur);
                 if (h) { cur += h + PAD; used += h + PAD; }
             };
-            if (stat.ind) run((s,x,y) => appendIndustry(s, x, y, stat.ind));
-            if (stat.occ) run((s,x,y) => appendOccupation(s, x, y, stat.occ));
-            if (stat.ind) run((s,x,y) => appendStatus(s, x, y, stat.ind, year));
-            if (stat.eco) run((s,x,y) => appendHousehold(s, x, y, stat.eco));
+            if (stat.ind) run((s,x,y) => appendIndustry(s, X0, y, stat.ind));
+            if (stat.occ) run((s,x,y) => appendOccupation(s, X0, y, stat.occ));
+            if (stat.ind) run((s,x,y) => appendStatus(s, X0, y, stat.ind, year, BAR_W));
+            if (stat.eco) run((s,x,y) => appendHousehold(s, X0, y, stat.eco, BAR_W));
             return used ? cur - y : 0;
         });
         if (statSvg) out.push({ id: 'stats', svg: statSvg });
@@ -453,11 +455,12 @@ export function buildCensusChartSections(stat, year = '2020', opts = {}) {
 
     if (stat && (stat.fam || stat.dwell)) {
         const hhSvg = makeSvg((s, x0, y) => {
+            const X0 = 38, BAR_W = W - 2 * 38;
             const PAD = 12;
             let cur = y, used = 0;
             const run = fn => { const h = fn(s, x0, cur); if (h) { cur += h + PAD; used += h + PAD; } };
-            if (stat.fam)   run((s,x,y) => appendFamilyType(s, x, y, stat.fam));
-            if (stat.dwell) run((s,x,y) => appendHousing(s, x, y, stat.dwell, stat.own));
+            if (stat.fam)   run((s,x,y) => appendFamilyType(s, X0, y, stat.fam));
+            if (stat.dwell) run((s,x,y) => appendHousing(s, X0, y, stat.dwell, stat.own, BAR_W));
             return used ? cur - y : 0;
         });
         if (hhSvg) out.push({ id: 'household', svg: hhSvg });
