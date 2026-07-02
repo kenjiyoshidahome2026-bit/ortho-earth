@@ -90,7 +90,7 @@ function initLayer(map, param = {}) {
 		beforeOverlays(map.mapFrame);
 	layer.name = name, layer.attr("name", name);
 	layer.base = map; layer.context = null;
-	layer.dpr = param.scale || window.devicePixelRatio || 1;
+	layer.dpr = param.scale || Math.min(window.devicePixelRatio || 1, 2);
 	layer.width = window.innerWidth * layer.dpr;
 	layer.height = window.innerHeight * layer.dpr;
 	layer.proj = map.proj;

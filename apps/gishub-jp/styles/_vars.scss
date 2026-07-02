@@ -19,6 +19,7 @@ $divider: #1c1c1c;
 // ミックスイン
 // ============================================================
 @mixin scrollbar-thin {
+	scrollbar-width: thin; scrollbar-color: $dark $bg; // Firefox / Chrome Android
 	&::-webkit-scrollbar { width: 4px; }
 	&::-webkit-scrollbar-track { background: $bg; }
 	&::-webkit-scrollbar-thumb { background: $dark; border-radius: 2px; }
@@ -29,6 +30,7 @@ $divider: #1c1c1c;
 	border: 1px solid $border-clr;
 	color: $color;
 	cursor: pointer;
+	touch-action: manipulation; // Safari 300ms タップ遅延を除去
 	transition: all 0.15s;
 	&:hover { border-color: $hover; color: $hover; }
 }

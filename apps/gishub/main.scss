@@ -4,6 +4,7 @@ $mono: 'Courier New', Courier, monospace;
 
 body, html { overflow: hidden; width:100%; height:100%; background:$bg; color:$text; }
 * { margin:0; padding:0; box-sizing: border-box; outline:none; }
+button, a { touch-action: manipulation; } // Safari 300ms タップ遅延除去
 .identify-tip {
 	position: absolute; pointer-events: none; z-index: 100;
 	background: rgba(0,0,0,0.75); color: #fff; font-size: 12px;
@@ -19,12 +20,12 @@ body, html { overflow: hidden; width:100%; height:100%; background:$bg; color:$t
 }
 .gishub { position: absolute; inset: 0px; background: $bg; color: $text; opacity:0.8; pointer-events: auto;
 	transition: all 500ms ease-in-out; font-family: $font;
-	.left { position: absolute; inset: 0px; width:300px; transition: all 250ms ease-in-out;
+	.left { position: absolute; inset: 0px; width: min(300px, 100vw); transition: all 250ms ease-in-out;
 		border-right: 1px solid $dark; padding: 0;
 		> img { display: inline-block; width:30px; vertical-align: middle; margin:10px;  border-radius:5px; 
 			&:hover {border: 1px solid $text; }
 		}
-		> input { display:inline-block; height:30px; width:240px; margin:10px 0; border-radius:5px;
+		> input { display:inline-block; height:30px; width:240px; max-width: calc(100% - 60px); margin:10px 0; border-radius:5px;
 			background:$dark; border:none; color:$text; padding-left:1rem; font-size:1rem;
 		}
 		nav { position:absolute; inset:0; top:50px; overflow-y: auto;
@@ -36,20 +37,22 @@ body, html { overflow: hidden; width:100%; height:100%; background:$bg; color:$t
 					.name { font-weight: bold; font-size: 0.9rem; }
 					.desc { font-size: 0.7rem; color: $mid; margin-top: 4px; }
 					.license { position:absolute; font-size: 0.5rem; color: $mid; top:1em; right:1em; }
-					&:hover { background: $accent; color:$highlight; border-color: $highlight; 
-						.license, .desc { color: $highlight; }
-					}
-					&[disabled] { opacity:0.5; cursor: not-allowed;
-						&:hover { background: $bg; color:$text; border-color: $mid; 
+					@media (hover: hover) {
+						&:hover { background: $accent; color:$highlight; border-color: $highlight;
+							.license, .desc { color: $highlight; }
+						}
+						&[disabled]:hover { background: $bg; color:$text; border-color: $mid;
 							.license, .desc { color: $mid; }
 						}
 					}
+					&:active:not([disabled]) { background: $accent; color:$highlight; border-color: $highlight; }
+					&[disabled] { opacity:0.5; cursor: not-allowed; }
 				}
 			}
 			.highlight { background: $remark; color:$highlight; }
 		}
 	}
-	.main { position: absolute; inset: 0px; left:300px;transition: all 250ms ease-in-out;
+	.main { position: absolute; inset: 0px; left: min(300px, 100vw); transition: all 250ms ease-in-out;
 		h1 { font-size: 1.4rem; color: $accent; vertical-align: middle; margin: 20px 30px; text-align:left; white-space: nowrap;
 			img { width: 28px; vertical-align: middle; }
 			span { display: inline-block; padding-left: 1rem; }

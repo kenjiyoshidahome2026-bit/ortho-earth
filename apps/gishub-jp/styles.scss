@@ -19,7 +19,7 @@ html, body {
 }
 
 a { color: $accent; text-decoration: none; &:hover { text-decoration: underline; } }
-button { cursor: pointer; font-family: $font; }
+button { cursor: pointer; font-family: $font; touch-action: manipulation; } // 300ms タップ遅延除去
 
 // ============================================================
 // Globe (ortho-map) — 背景に固定
@@ -39,6 +39,7 @@ button { cursor: pointer; font-family: $font; }
 #app {
 	display: flex;
 	height: 100vh;
+	height: 100dvh; // アドレスバー考慮（iOS Safari / Chrome Android）
 	position: relative;
 	z-index: 1;
 	background: $bg;
@@ -188,6 +189,8 @@ button { cursor: pointer; font-family: $font; }
 		z-index: 200;
 		box-shadow: 4px 0 24px rgba(0,0,0,0.6);
 		transition: left 250ms ease-in-out;
+		touch-action: pan-y;       // サイドバー内の縦スクロールを許可
+		overscroll-behavior: contain; // バウンス・背面スクロール抜けを防止
 	}
 
 	#app.sidebar-collapsed #sidebar { left: -#{$sidebar-w}; }
@@ -210,6 +213,7 @@ button { cursor: pointer; font-family: $font; }
 		inset: 0;
 		z-index: 199;
 		background: rgba(0,0,0,0.5);
+		touch-action: none; // バックドロップ越しのスクロールを完全ブロック
 	}
 
 	#detail { flex: 1; width: 100%; }

@@ -9,6 +9,7 @@
 	display: flex;
 	flex-direction: column;
 	height: 60vh;
+	height: 60dvh; // アドレスバー考慮
 
 	.exec-prop-header {
 		display: flex;
@@ -56,6 +57,7 @@
 	.exec-prop-table {
 		flex: 1;
 		overflow-y: auto;
+		-webkit-overflow-scrolling: touch; // iOS 慣性スクロール（古いデバイス向け）
 		margin-top: 4px;
 
 		table {

@@ -12,6 +12,8 @@
 	justify-content: center;
 	z-index: 9999;
 	animation: dlFadeIn 0.15s ease;
+	overscroll-behavior: contain; // iOS でモーダル背面へのスクロール抜けを防止
+	touch-action: none;
 
 	&.dl-closing { animation: dlFadeOut 0.2s ease forwards; }
 }

@@ -57,6 +57,7 @@ export async function orthographic(map, opts = {}) {
 	function draw() { getView(); trigger("Drawing", { proj, zoom: map.zoom }); }
 	function drawn() {
 		cancelAnimationFrame(rafId); rafId = null;
+		map.isPanning = false;
 		cursor(); initZoom();
 		map.stat("view", getView());
 		trigger("Drawn", { proj, zoom: map.zoom });
@@ -68,12 +69,12 @@ export async function orthographic(map, opts = {}) {
 			const zoom = map.zoom, metaKey = isCtrl(e), shiftKey = isShift(e);
 			const [x, y] = pointer(e);
 			const pos = xy2pos([x, y]); if (!pos) return null;
-			const [lng, lat] = pos, alt = map.getHeight ? await map.getHeight(lng,lat, zoom): 0;
+			const [lng, lat] = pos, alt = (!map.isPanning && map.getHeight) ? await map.getHeight(lng,lat, zoom): 0;
 			return { lng, lat, alt, x, y, shiftKey, metaKey };
 		};
 		const { cartesian, delta, multiply, rotation } = versor;
 		panZoom(map).on("start.ortho", onstart).on("zoom.ortho", tween).on("end.ortho", drawn);
-		function onstart() { cleanup(); flyTicket++; }
+		function onstart() { cleanup(); flyTicket++; map.isPanning = true; }
 		function panZoom(map) {
 			const { sin, cos, sign, sqrt, atan2, PI } = Math;
 			const angle = t => atan2(t[1][1] - t[0][1], t[1][0] - t[0][0]);
