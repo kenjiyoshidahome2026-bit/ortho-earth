@@ -27,6 +27,22 @@ const YEARS = {
         ind: 'T000865', occ: 'T000866', eco: 'T000875',
         fam: 'T000851', own: 'T000852', dwell: 'T000853',
     },
+    // ★2025基本集計（年齢・就業・住宅、2026年秋公開予定）が出たら下記を有効化するだけで
+    //   2020/2015 と同じ小地域ドリルが 2025 でも動く。手順:
+    //   1. e-Stat GIS で 2025 の各 statsId を確定（scripts の probe パターンで T-code 探索）。
+    //      年齢表の列位置は 2015/2020 とも slice(28,43)+[46] / slice(48,63)+[66] で共通だったので
+    //      2025 も同一と想定（要検証。違えば ensurePrefPyramid を年別に分岐）。
+    //   2. scripts/build-2020-small.mjs を複製し statsId を 2025 人口表に変えて 2025-small.csv 生成。
+    //   3. ui.js: CENSUS_2025_AGES/STATS/HOUSEHOLD を import、_NAT_AGES に '2025' 追加、
+    //      _csDrill25City を _levelDisplayHtml(..., '2025') + _attachSmallAreaList(...,'2025') に切替、
+    //      charts.mjs appendStatus に 2025 の就業地位カラム位置を追加（既定は2020と同じ）。
+    // '2025': {
+    //     csv: '2025-small.csv',
+    //     sa: 'small2025', pyr: 'pyr2025', stat: 'stats2025',
+    //     pyrT: 'T00XXXXX',
+    //     ind: 'T00XXXXX', occ: 'T00XXXXX', eco: 'T00XXXXX',
+    //     fam: 'T00XXXXX', own: 'T00XXXXX', dwell: 'T00XXXXX',
+    // },
 };
 const _cfg = year => YEARS[year] || YEARS['2020'];
 

@@ -33,6 +33,12 @@ for (const e of ESTAT_MANIFEST) WARD_NAME.set(e.code, e.name);
 for (const e of CENSUS_MANIFEST) WARD_NAME.set(e.code, e.name);   // 現行 manifest を優先
 const _wardName = code => WARD_NAME.get(code) || code;
 
+// 参考「全国平均」の年齢構成（32要素）を年別に返す。
+// ★2025基本集計が出たら: 2025-ages.json を import し、この _NAT_AGES に '2025' を1行足すだけで
+//   _fullChartHtml / _levelDisplayHtml のピラミッド参考線が 2025 に自動対応する。
+const _NAT_AGES = { '2015': CENSUS_2015_AGES, '2020': CENSUS_2020_AGES };
+const _natAges = year => (_NAT_AGES[year] || CENSUS_2020_AGES)['_national'];
+
 // ---- sidebar entries -------------------------------------------------------
 
 export function census2025SidebarEntry() {
@@ -319,7 +325,7 @@ function _chartSections({ ages = null, refAges, popTrend = null, stat = null, ye
 }
 // 単体ピラミッド（最下位・集計ノード用）
 function _fullChartHtml(opts, year = '2020') {
-    const natAges = (year === '2015' ? CENSUS_2015_AGES : CENSUS_2020_AGES)['_national'];
+    const natAges = _natAges(year);
     const refAges = opts.refAges === undefined ? natAges : opts.refAges;
     return _chartSections({ ...opts, refAges, year }).map(s => _sectionHtml(s, !!refAges, year)).join('');
 }
@@ -396,7 +402,7 @@ function _cityHistoryHtml(code) {
 // SVG は _chartSections→buildCensusChartSections、セクション枠は _sectionHtml を全年共有。
 // year は参考全国値・推移の上限年次・各見出しの年ラベルだけを切り替える。
 function _levelDisplayHtml(statsHtml, opts, year = '2020') {
-    const natAges = (year === '2015' ? CENSUS_2015_AGES : CENSUS_2020_AGES)['_national'];
+    const natAges = _natAges(year);
     const refAges = opts.refAges === undefined ? natAges : opts.refAges;
     const byId = {};
     for (const s of _chartSections({ ...opts, popTrend: null, refAges, year })) byId[s.id] = _sectionHtml(s, !!refAges, year);
@@ -1086,6 +1092,12 @@ function _csDrill15City(cityCode, prefCode, parentCode = null) {
 // ---- 国勢調査 2025 ドリルダウン -------------------------------------------
 // 全国 → 都道府県 → 市区町村（速報集計: 人口・世帯のみ。年齢・就業・住宅データは未公表）
 // データ: CENSUS_2025_POP[code] = { pop:[t,m,f], pop2020, popChange, hh, hh2020 }
+//
+// ★2025基本集計（年齢・就業・住宅）公開後は 2020/2015 と同じ共通機構に載せられる:
+//   ・_level25DisplayHtml → _levelDisplayHtml(statsHtml, {...}, '2025') に置換（全チャート共通化）
+//   ・_csDrill25City に _attachSmallAreaList(saEl, cityCode, crumbs, '2025') を追加（小地域ドリル）
+//   ・詳細な差し込み手順は census/small-area.js の YEARS 内 2025 テンプレコメント参照
+// 政令市の区割り（浜松市 新3区）は _wardsForYear が 2025 データから自動生成済みで対応不要。
 
 function _agg25ForLevel(pred) {
     const pop = [0, 0, 0];
