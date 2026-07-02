@@ -176,4 +176,16 @@ html, body { position:absolute; inset:0; background:#000; margin:0; padding:0; o
 			}
 		}
 	}
+	&.is-touch {
+		--button-size: 44px;
+		[name=explain], [name=legend], [name=pop] {
+			> button { display: block; }
+		}
+		[name=leftFrame], [name=rightFrame] {
+			> div.content {
+				&::-webkit-scrollbar { width: 4px; }
+				&::-webkit-scrollbar-thumb { border-radius: 2px; border: none; }
+			}
+		}
+	}
 }

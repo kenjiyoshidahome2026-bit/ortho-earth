@@ -9,13 +9,14 @@ import { createGetHeight, setApiUrl as setAltApiUrl } from "altpbf";
 
 export async function orthographic(map, opts = {}) {
 	map.isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+	map.isTouchDevice && map.base && map.base.classed("is-touch", true);
 	map.projectionName = "orthographic";
 	map.minZoom = 1;
 	map.minEdit = 2;
 	map.threshold = 5.5; // zoom level at which base switches to tiled rendering
 	map.maxBorder = 6;
 	map.maxZoom = 22;
-	map.simultaneousTileLoading = 4;
+	map.simultaneousTileLoading = map.isTouchDevice ? 2 : 4;
 	map.zoomSensitivity = 0.5; // range: 0.5–2.0
 	map.stat = await Cache("GIS/stat").catch(console.error);
 	map.baseName = await map.stat("base") || "osm.street";
@@ -191,7 +192,11 @@ export async function orthographic(map, opts = {}) {
 		};
 	} {
 		let timer = null;
-		window.addEventListener("orientationchange", resize);
+		if (screen.orientation?.addEventListener) {
+			screen.orientation.addEventListener("change", resize); // modern (Chrome/Firefox/Android)
+		} else {
+			window.addEventListener("orientationchange", resize); // legacy (iOS Safari 等)
+		}
 		window.addEventListener("resize", () => { clearTimeout(timer); timer = setTimeout(resize, 50); });
 		resize();
 	}
@@ -358,6 +363,7 @@ export async function orthographic(map, opts = {}) {
 		if (flag) {
 			map.overlays && map.overlays.style("opacity", 0);
 			map.rotateTimer = d3.timer(n => {
+				if (document.hidden) return; // バックグラウンド時は描画スキップ
 				const r = map.proj.rotate();
 				map.proj.rotate([n * velocity, r[1], r[2]]);
 				map.draw();

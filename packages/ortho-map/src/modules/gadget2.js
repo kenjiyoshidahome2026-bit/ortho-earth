@@ -103,7 +103,7 @@ export function tip(opts = {}) {
 		const { width, height } = map;
 		const { x, y } = e, { w, h } = cachedSize;
 		const osx = map.isTouchDevice ? 40 : 15;
-		const osy = -h / 2;
+		const osy = map.isTouchDevice ? -(h + 30) : -h / 2; // タッチ時は指の上に出す
 		const left = (x + osx + w > width) ? (x - w - osx) : (x + osx);
 		let top = y + osy;
 		if (top < 0) top = 0;
@@ -196,10 +196,12 @@ export function contextmenu(opts = {}) {
 	div.on("mouseleave", () => div.hide());
 	let content = null;
 	map.onContextMenu(name, func);
+	map.onClick(name, () => div.hide());
 	return a => content = a;
 	function func(e) {
 		if (!Array.isArray(content)) return div.hide();
-		div.css({ top: (e.offsetY - 5) + "px", left: (e.offsetX - 5) + "px" }).empty().show();
+		const [cx, cy] = map.pointer(e);
+		div.css({ top: (cy - 5) + "px", left: (cx - 5) + "px" }).empty().show();
 		content.forEach(t => {
 			div.append("p").html((t.icon || "") + `<span>${t.name}</span>`)
 				.on("click", e => { e.stopPropagation(); t.func && t.func(map); div.hide(); }, { passive: true });

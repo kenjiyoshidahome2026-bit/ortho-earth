@@ -83,8 +83,11 @@ export async function zoom(opts = {}) {
 }
 export async function full(opts = {}) {
 	const map = this, name = "full";
-	const fullScreen = () => document.body.requestFullscreen && document.body.requestFullscreen();
-	const resumeScreen = () => document.exitFullscreen && document.exitFullscreen();
+	const fsEnter = document.body.requestFullscreen || document.body.webkitRequestFullscreen?.bind(document.body);
+	const fsExit  = document.exitFullscreen?.bind(document) || document.webkitExitFullscreen?.bind(document);
+	if (!fsEnter) return; // fullscreen 非対応 (iOS Safari 等) はボタン自体を出さない
+	const fullScreen   = () => fsEnter().catch?.(() => {});
+	const resumeScreen = () => fsExit?.();
 	const zout = createButton(map, "zout", opts).onClick(fullScreen);
 	const zin = createButton(map, "zin", opts).onClick(resumeScreen).hide();
 	map.onResize(name, () => {
@@ -164,8 +167,16 @@ export function shot(opts = {}) {
 	const map = this, name = "shot";
 	createButton(map, name, opts).onClick(() => map2canvas(map).then(downloadCanvas));
 	async function downloadCanvas(canvas) {
-		const name = `screen-shot-${datimArray().join("-")}-${canvas.width}x${canvas.height}.webp`;
-		download(new File([await canvas.convertToBlob({ type: "image/webp" })], name, { type: "image/webp" }));
+		const blob = await canvas.convertToBlob({ type: "image/webp" });
+		if (map.isTouchDevice) {
+			// iOS/Android: <a download> が効かないためブラウザで開く (長押し → 保存)
+			const url = URL.createObjectURL(blob);
+			window.open(url, '_blank');
+			setTimeout(() => URL.revokeObjectURL(url), 10000);
+		} else {
+			const name = `screen-shot-${datimArray().join("-")}-${canvas.width}x${canvas.height}.webp`;
+			download(new File([blob], name, { type: "image/webp" }));
+		}
 	}
 }
 export function print(opts = {}) {
@@ -176,7 +187,13 @@ export function print(opts = {}) {
 			canvas.toBlob ? await new Promise(r => canvas.toBlob(r)) : await (await fetch(canvas.toDataURL("image/png"))).blob();
 		const url = URL.createObjectURL(blob);
 		const win = window.open('', '_blank', 'width=1000,height=800');
-		if (!win) { alert("ポップアップがブロックされました。"); return; }
+		if (!win) {
+			// popup blocked (mobile): open image URL in new tab as fallback
+			const a = Object.assign(document.createElement('a'), { href: url, target: '_blank' });
+			document.body.appendChild(a); a.click(); document.body.removeChild(a);
+			setTimeout(() => URL.revokeObjectURL(url), 3000);
+			return;
+		}
 		const htmlContent = `
 		<head>
 			<title>OrthoEarthPrint</title>

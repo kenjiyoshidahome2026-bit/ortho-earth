@@ -7,7 +7,8 @@
 
 body { font-family: 'Helvetica Neue', Arial, 'Hiragino Kaku Gothic ProN', sans-serif;
 	background-color: var(--bg-color); color: var(--text-primary); overflow: hidden;
-	#demoOverlay { position: absolute; width: 100vw; height: 100vh;
+	#mapContainer { position: fixed; inset: 0; }
+	#demoOverlay { position: fixed; inset: 0;
 		transition: all 1s ease; display: flex; flex-direction: column;
 		nav, footer { background: var(--glass-bg); color: var(--text-secondary); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
 		nav { display: flex; justify-content: space-between; align-items: center; padding: 1.5rem 2rem;

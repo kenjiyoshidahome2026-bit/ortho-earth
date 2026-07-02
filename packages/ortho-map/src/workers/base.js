@@ -35,7 +35,9 @@ onmessage = e => funcs[e.data.type](e.data);
 
 async function init(data) {
 	canvas = data.offscreen;
-	gl = orthoGL2(canvas.getContext("webgl2"), data.dpr);
+	const glCtx = canvas.getContext("webgl2");
+	if (!glCtx) { console.error("🚨 WebGL2 is not supported on this device/browser."); return; }
+	gl = orthoGL2(glCtx, data.dpr);
 	const { Bucket, Cache } = nativeBucket(data.apiUrl);
 	Layers = createLayerMap(data.tilerBase || "");
 	const dire = "GIS/base";
