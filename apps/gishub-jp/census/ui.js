@@ -7,6 +7,7 @@ import CENSUS_2020_AGES   from './2020-ages.json'   with { type: 'json' };
 import CENSUS_2020_HOUSEHOLD from './2020-household.json' with { type: 'json' };
 import CENSUS_2015_AGES      from './2015-ages.json'      with { type: 'json' };
 import CENSUS_2015_HOUSEHOLD from './2015-household.json' with { type: 'json' };
+import SMALL_AREA_DIFF        from './small-area-diff.json' with { type: 'json' };   // 2015↔2020 小地域区分が変わった市区町村: code → [n2015, n2020]
 import CITY_HISTORY from '../history.json' with { type: 'json' };   // [YYYYMMDD, "5桁コード", 説明] × 963件（2024-1980）
 import CENSUS_KANA        from './kana.json'        with { type: 'json' };
 import CENSUS_SHICHO      from './shicho.json'      with { type: 'json' };
@@ -601,7 +602,7 @@ async function _csDrillCity(cityCode, prefCode, parentCode = null) {
                     <h2>${_gunPrefix(cityCode)}${_rubyHtml(cityName, CENSUS_KANA[cityCode])}${_shichoSuffix(cityCode)}</h2>
                 </div>
             </div>
-            ${_smallAreaListSectionHtml('2020', hasSmallArea)}
+            ${_smallAreaListSectionHtml('2020', hasSmallArea, _smallAreaDiffNoteHtml(cityCode))}
             <div class="cs-drill-display">${display}</div>
         </div>
     `);
@@ -614,14 +615,23 @@ async function _csDrillCity(cityCode, prefCode, parentCode = null) {
 
 // 市区町村詳細に差し込む小地域セクションの枠（2020/2015 共通）。
 // available=false（2020で境界データが無いコード）は静的に「データなし」を表示。
-function _smallAreaListSectionHtml(year, available = true) {
+// diffNote: 2015からの小地域区分変更の注記HTML（該当市区町村のみ・任意）。
+function _smallAreaListSectionHtml(year, available = true, diffNote = '') {
     const inner = available
         ? '<div id="cs-drill-sa"><span class="cs-sa-loading">小地域データ読み込み中…</span></div>'
         : '<div style="color:#666;font-size:12px;padding:4px 0">小地域データなし</div>';
     return `<div class="cs-drill-list">
                 <h3 class="cs-drill-sec-h3">小地域（町丁・字等） <span class="cs-year">${year}年</span></h3>
+                ${diffNote}
                 ${inner}
             </div>`;
+}
+
+// 2015→2020 で小地域区分が変わった市区町村の中立注記（区域数のみ）。該当なしは空文字。
+function _smallAreaDiffNoteHtml(cityCode) {
+    const d = SMALL_AREA_DIFF[cityCode];
+    if (!d) return '';
+    return `<div style="color:#d9a441;font-size:11px;padding:2px 0 6px">⚠ 2015年から小地域区分が変更されています（区域数 ${d[0]} → ${d[1]}）</div>`;
 }
 
 // 市区町村の小地域一覧を saEl に流し込む（2020/2015 共通）。
