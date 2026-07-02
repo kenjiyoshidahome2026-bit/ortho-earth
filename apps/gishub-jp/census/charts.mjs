@@ -315,7 +315,7 @@ function appendAgePyramid(parent, x0, y0, ages, refAges) {
             const gr = g.elem('g', { stroke: '#8f0', 'stroke-width': 1, fill: 'none' });
             gr.elem('text', { x: 80, y: 120, 'font-size': 8, 'font-family': 'Verdana',
                 fill: '#8f0', 'dominant-baseline': 'middle', 'text-anchor': 'start' }, '全国平均');
-            gr.elem('path', { d: 'M68,114h10' });
+            gr.elem('path', { d: 'M68,120h10' });
             gr.elem('path', { d: t0.join('') + t1.join('') });
         }
     }
