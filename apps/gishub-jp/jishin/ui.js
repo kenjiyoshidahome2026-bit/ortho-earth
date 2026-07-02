@@ -8,8 +8,8 @@ import { execGlobeView } from '../ui/globe.js';
 const SEISMIC_DS = {
     title: '地震観測施設',
     attributes: {
-        net: '観測網', name: '観測点名', code: 'コード', org: '保守管理機関',
-        alt: '標高 (m)', depth: '観測の深さ', equip: '観測機種', start: '観測開始年',
+        uid: '突合ID', net: '観測網', name: '観測点名', romaji: 'ローマ字', code: 'コード',
+        org: '保守管理機関', alt: '標高 (m)', depth: '観測の深さ', equip: '観測機種', start: '観測開始年',
     },
     codelist: {},
 };

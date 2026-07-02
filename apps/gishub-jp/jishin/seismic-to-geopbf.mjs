@@ -19,10 +19,10 @@ import { encodeGeoPBF } from '../scripts/geopbf-encode.mjs';
 const __dir = dirname(fileURLToPath(import.meta.url));
 const BASE = 'https://www.jishin.go.jp/main/kansoku/kansoku25/csv';
 const NETS = [
-    { file: 'high_sens', net: '高感度' },
-    { file: 'broad',     net: '広帯域' },
-    { file: 'strong_og', net: '強震(地上)' },
-    { file: 'strong_ug', net: '強震(地下)' },
+    { file: 'high_sens', net: '高感度',     tag: 'HS' },
+    { file: 'broad',     net: '広帯域',     tag: 'BB' },
+    { file: 'strong_og', net: '強震(地上)', tag: 'SG' },
+    { file: 'strong_ug', net: '強震(地下)', tag: 'SU' },
 ];
 
 function parseLine(l) {
@@ -44,7 +44,8 @@ async function fetchCsv(file) {
 async function main() {
     const features = [];
     const perNet = {};
-    for (const { file, net } of NETS) {
+    const uidSeen = new Map();   // 突合キーの行一意化（衝突時に #2, #3 …）
+    for (const { file, net, tag } of NETS) {
         console.log(`fetching ${file}_2025.csv …`);
         const rows = (await fetchCsv(file)).split(/\r?\n/).map(parseLine);
         let n = 0;
@@ -53,13 +54,20 @@ async function main() {
             if (!isFinite(lat) || !isFinite(lon) || lon < 122 || lon > 154 || lat < 20 || lat > 46) continue;
             const alt = parseInt(c[6], 10);
             const start = parseInt(c[10], 10);
+            const code   = (c[3] || '').trim();
+            const romaji = (c[2] || '').trim();
+            // 突合キー: 公式コード優先、無ければローマ字。網タグで前置し行一意に（#nで衝突回避）
+            const base = `${tag}:${code || romaji || 'NA'}`;
+            const seq = (uidSeen.get(base) || 0) + 1; uidSeen.set(base, seq);
+            const uid = seq === 1 ? base : `${base}#${seq}`;
             features.push({
                 type: 'Feature',
                 geometry: { type: 'Point', coordinates: [+lon.toFixed(7), +lat.toFixed(7)] },
                 properties: {
-                    net,
+                    uid, net,
                     name:  (c[1] || '').trim(),
-                    code:  (c[3] || '').trim(),
+                    romaji: romaji || null,
+                    code:  code || null,
                     org:   (c[8] || '').trim(),
                     alt:   Number.isFinite(alt) ? alt : null,
                     depth: (c[7] || '').trim() || null,
@@ -71,7 +79,7 @@ async function main() {
         }
         perNet[net] = n;
     }
-    features.sort((a, b) => (a.properties.net + a.properties.code).localeCompare(b.properties.net + b.properties.code));
+    features.sort((a, b) => a.properties.uid.localeCompare(b.properties.uid));
 
     const geojson = { type: 'FeatureCollection', features };
     writeFileSync(join(__dir, 'seismic.geojson'), JSON.stringify(geojson));
