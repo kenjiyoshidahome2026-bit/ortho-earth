@@ -14,8 +14,8 @@ import { initSidebarToggle }  from './ui/sidebar.js';
 import { mojSidebarEntry, renderMojList } from './moj/ui.js';
 import { maffSidebarEntry, renderMaffList } from './maff/ui.js';
 import { estatSidebarEntry, renderEstatList } from './estat/ui.js';
-import { jmaAmedasSidebarEntry, showAmedas } from './jma/ui.js';
-import { jishinSeismicSidebarEntry, showSeismic } from './jishin/ui.js';
+import { showAmedas } from './jma/ui.js';        // 別枠（カタログ外）: #amedas で描画
+import { showSeismic } from './jishin/ui.js';    // 別枠（カタログ外）: #seismic で描画
 import {
     census2025SidebarEntry, census2020SidebarEntry, census2015SidebarEntry,
     renderCensus2025List, renderCensus2020List, renderCensus2015List,
@@ -40,8 +40,6 @@ async function loadCatalog() {
 			mojSidebarEntry(),
 			maffSidebarEntry(),
 			estatSidebarEntry(),
-			jmaAmedasSidebarEntry(),
-			jishinSeismicSidebarEntry(),
 			census2025SidebarEntry(),
 			censusSmall2020SidebarEntry(),   // 「国勢調査 2020 基本集計」= 全国→小地域の総合ドリルダウン（旧フラット2020を統合）
 			census2015SidebarEntry(),
@@ -83,8 +81,6 @@ const SOURCE_GROUP_LABELS = {
 	moj:   '法務省 G空間情報センター',
 	maff:  '農林水産省',
 	estat: '総務省 e-Stat',
-	jma:   '気象庁',
-	jishin: '地震調査研究推進本部',
 	nlftp: '国土交通省 国土数値情報',
 };
 
@@ -92,8 +88,6 @@ const SOURCE_GROUP_URLS = {
 	moj:   'https://www.geospatial.jp/ckan/organization/moj',
 	maff:  'https://open.fude.maff.go.jp/',
 	estat: 'https://www.e-stat.go.jp/gis',
-	jma:   'https://www.jma.go.jp/bosai/amedas/',
-	jishin: 'https://www.jishin.go.jp/database/observation_station/',
 	nlftp: 'https://nlftp.mlit.go.jp/ksj/',
 };
 
@@ -247,6 +241,7 @@ window.addEventListener('hashchange', () => {
 	const hash = location.hash.slice(1);
 	if (!hash) return;
 	if (hash === 'moj') { if (active !== 'moj') selectDataset('moj', true); return; }
+	if (hash === 'amedas' || hash === 'seismic') { selectDataset(hash, true); return; }   // 別枠（カタログ外）
 	if (hash !== active && catalog.some(ds => ds.dataset_code === hash)) {
 		selectDataset(hash, true);
 		setTimeout(() => document.querySelector(`.ds-item[data-code="${hash}"]`)?.scrollIntoView({ block: 'center' }), 100);
