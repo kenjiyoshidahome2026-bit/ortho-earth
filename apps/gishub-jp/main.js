@@ -14,6 +14,8 @@ import { initSidebarToggle }  from './ui/sidebar.js';
 import { mojSidebarEntry, renderMojList } from './moj/ui.js';
 import { maffSidebarEntry, renderMaffList } from './maff/ui.js';
 import { estatSidebarEntry, renderEstatList } from './estat/ui.js';
+import { jmaAmedasSidebarEntry, showAmedas } from './jma/ui.js';
+import { jishinSeismicSidebarEntry, showSeismic } from './jishin/ui.js';
 import {
     census2025SidebarEntry, census2020SidebarEntry, census2015SidebarEntry,
     renderCensus2025List, renderCensus2020List, renderCensus2015List,
@@ -38,6 +40,8 @@ async function loadCatalog() {
 			mojSidebarEntry(),
 			maffSidebarEntry(),
 			estatSidebarEntry(),
+			jmaAmedasSidebarEntry(),
+			jishinSeismicSidebarEntry(),
 			census2025SidebarEntry(),
 			censusSmall2020SidebarEntry(),   // 「国勢調査 2020 基本集計」= 全国→小地域の総合ドリルダウン（旧フラット2020を統合）
 			census2015SidebarEntry(),
@@ -79,6 +83,8 @@ const SOURCE_GROUP_LABELS = {
 	moj:   '法務省 G空間情報センター',
 	maff:  '農林水産省',
 	estat: '総務省 e-Stat',
+	jma:   '気象庁',
+	jishin: '地震調査研究推進本部',
 	nlftp: '国土交通省 国土数値情報',
 };
 
@@ -86,6 +92,8 @@ const SOURCE_GROUP_URLS = {
 	moj:   'https://www.geospatial.jp/ckan/organization/moj',
 	maff:  'https://open.fude.maff.go.jp/',
 	estat: 'https://www.e-stat.go.jp/gis',
+	jma:   'https://www.jma.go.jp/bosai/amedas/',
+	jishin: 'https://www.jishin.go.jp/database/observation_station/',
 	nlftp: 'https://nlftp.mlit.go.jp/ksj/',
 };
 
@@ -173,6 +181,8 @@ async function _selectDatasetNow(code) {
 	if (code === 'moj')        { history.replaceState(null,'','#moj');        renderMojList();        return; }
 	if (code === 'maff')       { history.replaceState(null,'','#maff');       renderMaffList();       return; }
 	if (code === 'estat')      { history.replaceState(null,'','#estat');      renderEstatList();      return; }
+	if (code === 'amedas')     { history.replaceState(null,'','#amedas');     showAmedas();           return; }
+	if (code === 'seismic')    { history.replaceState(null,'','#seismic');    showSeismic();          return; }
 	if (code === 'census2025') { history.replaceState(null,'','#census2025'); renderCensus2025List(); return; }
 	if (code === 'census2020') { history.replaceState(null,'','#census2020'); renderCensus2020List(); return; }
 	if (code === 'census2015')       { history.replaceState(null,'','#census2015');       renderCensus2015List(); return; }
