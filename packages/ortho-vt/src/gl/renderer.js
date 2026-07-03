@@ -70,10 +70,11 @@ export function createRenderer(canvas) {
 		gl.disable(gl.DEPTH_TEST);
 
 		// 球体本体：land基色を縁(リム)まで一様に敷く。宇宙(clear色)を背に丸い地球が見える。
-		const land = cam.land || [0.96, 0.96, 0.95, 1];
+		const land = cam.land || [0.96, 0.96, 0.95, 1], atmo = cam.atmo || [0.45, 0.62, 0.95, 0.6];
 		gl.useProgram(globeProg);
 		gl.uniformMatrix4fv(loc(gl, globeProg, "u_invMvp"), false, Float32Array.from(st.invMvp));
 		gl.uniform4f(loc(gl, globeProg, "u_land"), land[0], land[1], land[2], land[3]);
+		gl.uniform4f(loc(gl, globeProg, "u_atmo"), atmo[0], atmo[1], atmo[2], atmo[3]);
 		gl.bindVertexArray(emptyVAO);
 		gl.drawArrays(gl.TRIANGLES, 0, 3);
 

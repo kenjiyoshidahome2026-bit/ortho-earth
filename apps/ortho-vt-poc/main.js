@@ -37,7 +37,8 @@ const tiles = createTileManager({
 
 // 透視カメラ：center(注視点lon/lat), zoom(web-mercator float), pitch/bearing(rad)
 const MAXPITCH = 68 * D2R;
-const cam = { center: [139.767, 35.681], zoom: 16, pitch: 0, bearing: 0, dpr, clear, land };
+const atmo = [0.45, 0.62, 0.95, 0.6];   // 大気色 rgb + 強さ
+const cam = { center: [139.767, 35.681], zoom: 16, pitch: 0, bearing: 0, dpr, clear, land, atmo };
 
 function resize() {
 	const w = window.innerWidth, h = window.innerHeight;

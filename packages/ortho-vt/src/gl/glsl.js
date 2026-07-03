@@ -33,6 +33,7 @@ export const GLOBE_FS = `#version 300 es
 precision highp float;
 uniform mat4 u_invMvp;
 uniform vec4 u_land;
+uniform vec4 u_atmo;   // 大気色 rgb + 強さ(a)
 in vec2 v_ndc;
 out vec4 fragColor;
 void main() {
@@ -41,10 +42,24 @@ void main() {
 	vec3 A = np.xyz / np.w, B = fp.xyz / fp.w, d = B - A;
 	float aa = dot(d, d), bb = 2.0 * dot(A, d), cc = dot(A, A) - 1.0;
 	float disc = bb * bb - 4.0 * aa * cc;
-	if (disc < 0.0) discard;                       // 宇宙
+	float aDotd = bb * 0.5, tstar = -aDotd / aa;
+	if (disc < 0.0) {                              // 球ミス：大気ハロー（縁の外へフェード）
+		if (tstar <= 0.0) discard;
+		float m = sqrt(max((cc + 1.0) - aDotd * aDotd / aa, 0.0));   // 光線の球中心最接近距離
+		float glow = smoothstep(1.09, 1.0, m);
+		if (glow <= 0.0) discard;
+		float a = glow * glow * u_atmo.a;
+		fragColor = vec4(u_atmo.rgb * a, a);       // premultiplied
+		return;
+	}
 	float t = (-bb - sqrt(disc)) / (2.0 * aa);
 	if (t < 0.0) discard;
-	fragColor = vec4(u_land.rgb * u_land.a, u_land.a);
+	vec3 P = A + t * d;                            // 面上の点（単位球＝法線）
+	vec3 viewDir = normalize(A - P);              // 面→カメラ
+	float ndv = clamp(dot(P, viewDir), 0.0, 1.0);
+	float haze = pow(1.0 - ndv, 3.0);             // 縁ほど強い内側リムの霞
+	vec3 col = mix(u_land.rgb, u_atmo.rgb, haze * u_atmo.a * 0.9);
+	fragColor = vec4(col, 1.0);
 }`;
 
 export const FILL_VS = `#version 300 es
