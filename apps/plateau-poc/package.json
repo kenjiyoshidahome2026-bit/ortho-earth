@@ -1,0 +1,16 @@
+{
+	"name": "plateau-poc",
+	"version": "1.0.0",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"dev": "vite",
+		"build": "vite build"
+	},
+	"dependencies": {
+		"@loaders.gl/3d-tiles": "^4.3.0",
+		"@loaders.gl/core": "^4.3.0",
+		"@loaders.gl/draco": "^4.3.0",
+		"d3": "^7.9.0"
+	}
+}
