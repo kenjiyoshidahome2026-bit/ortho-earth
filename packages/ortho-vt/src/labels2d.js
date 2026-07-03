@@ -1,6 +1,6 @@
 // ラベルを Canvas2D オーバーレイで描く（GL幾何の上に重ねる最前面レイヤ）。
 // ネイティブのCJKテキスト描画で高品質。投影・球体カリング・衝突は JS（GL幾何と同一の projectDelta）。
-import { projectDelta } from "./project.js";
+import { cameraState, project } from "./camera.js";
 
 const FONT_STACK = `"Noto Sans JP","Hiragino Sans","Yu Gothic UI","Yu Gothic",sans-serif`;
 const css = (c, op = 1) => `rgba(${Math.round(c[0] * 255)},${Math.round(c[1] * 255)},${Math.round(c[2] * 255)},${c[3] * op})`;
@@ -30,13 +30,13 @@ export function createLabelLayer(canvas, { pad = 5, fade = 0.3 } = {}) {
 		ctx.clearRect(0, 0, W, H);
 		ctx.scale(dpr, dpr);
 		ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.lineJoin = "round"; ctx.miterLimit = 2;
-		const lcam = { origin: [0, 0], center: cam.center, scale: cam.scale, translate: cam.translate };
+		const st = cameraState(cam, W, H);
 
 		// 衝突で勝者を決める（画面内・前面のみ）。位置も保持。
 		const placed = [], shown = new Map();
 		let font = "";
 		for (const L of labels) {
-			const [dx, dy, front] = projectDelta(lcam, L.anchor[0], L.anchor[1]);
+			const [dx, dy, front] = project(st, L.anchor[0], L.anchor[1]);
 			if (front < 0) continue;
 			const sx = Math.round(dx / dpr), sy = Math.round(dy / dpr);
 			const f = `${L.size}px ${FONT_STACK}`;
@@ -61,7 +61,7 @@ export function createLabelLayer(canvas, { pad = 5, fade = 0.3 } = {}) {
 			if (op < 0.03) { fades.delete(k); continue; }
 			fades.set(k, op); animating = true;
 			const L = labels.find(x => keyOf(x) === k); if (!L) { fades.delete(k); continue; }
-			const [dx, dy, front] = projectDelta(lcam, L.anchor[0], L.anchor[1]);
+			const [dx, dy, front] = project(st, L.anchor[0], L.anchor[1]);
 			if (front >= 0) drawLabel(L, Math.round(dx / dpr), Math.round(dy / dpr), op);
 		}
 		return animating;

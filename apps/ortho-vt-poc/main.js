@@ -1,7 +1,7 @@
 // ortho-vt PoC — 地理院 optimal_bvmap を球面に直描き（M2: タイルストリーミング＋LOD＋ラベル）。
 import {
 	createRenderer, createLabelLayer, createTileManager,
-	evalExpr, parseRGBA,
+	evalExpr, parseRGBA, cameraState, unproject,
 } from "ortho-vt";
 import style from "./style-mono.js";
 
@@ -15,7 +15,8 @@ const renderer = createRenderer(canvas);
 const labelLayer = createLabelLayer(labelCanvas);
 
 const bg = style.layers.find(L => L.type === "background");
-const clear = bg ? parseRGBA(evalExpr(bg.paint?.["background-color"] ?? "#fff", { zoom: 10, props: {}, geom: null, vars: {} })) : [0.93, 0.93, 0.9, 1];
+const land = bg ? parseRGBA(evalExpr(bg.paint?.["background-color"] ?? "#fff", { zoom: 10, props: {}, geom: null, vars: {} })) : [0.96, 0.96, 0.95, 1];
+const clear = [0.03, 0.04, 0.07, 1];   // 宇宙（球の外側）
 
 let dpr = Math.min(2, window.devicePixelRatio || 1);
 let needsDraw = true, readySig = "", lastLabels = [];
@@ -34,9 +35,9 @@ const tiles = createTileManager({
 	onChange: () => { needsDraw = true; },
 });
 
-// カメラ：球半径 scale(device px) を web-mercator ズームに対応させる
-const cam = { center: [139.767, 35.681], scale: 1, translate: [0, 0], dpr, clear };
-function scaleForZoom(z, lat) { return Math.pow(2, z) * TILE / (2 * Math.PI) * Math.max(0.05, Math.cos(lat * D2R)) * dpr; }
+// 透視カメラ：center(注視点lon/lat), zoom(web-mercator float), pitch/bearing(rad)
+const MAXPITCH = 68 * D2R;
+const cam = { center: [139.767, 35.681], zoom: 16, pitch: 0, bearing: 0, dpr, clear, land };
 
 function resize() {
 	const w = window.innerWidth, h = window.innerHeight;
@@ -44,30 +45,41 @@ function resize() {
 		cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
 		cv.style.width = w + "px"; cv.style.height = h + "px";
 	}
-	cam.translate = [canvas.width / 2, canvas.height / 2];
 	needsDraw = true;
 }
 window.addEventListener("resize", resize);
 
-function setView(lon, lat, z) {
-	cam.center = [lon, lat]; cam.scale = scaleForZoom(z, lat); needsDraw = true;
-}
-setView(139.767, 35.681, 16);
+function setView(lon, lat, z) { cam.center = [lon, lat]; cam.zoom = z; needsDraw = true; }
 resize();
 
-// --- 操作 ---
+// --- 操作：左ドラッグ=パン / 右(or Shift/Ctrl)ドラッグ=チルト+方位 / ホイール=ズーム ---
 let drag = null;
-canvas.addEventListener("pointerdown", e => { drag = { x: e.clientX, y: e.clientY }; canvas.setPointerCapture(e.pointerId); });
+canvas.addEventListener("contextmenu", e => e.preventDefault());
+canvas.addEventListener("pointerdown", e => {
+	drag = { x: e.clientX, y: e.clientY, tilt: e.button === 2 || e.shiftKey || e.ctrlKey };
+	canvas.setPointerCapture(e.pointerId);
+});
 canvas.addEventListener("pointerup", () => drag = null);
 canvas.addEventListener("pointermove", e => {
 	if (!drag) return;
-	const dx = e.clientX - drag.x, dy = e.clientY - drag.y; drag = { x: e.clientX, y: e.clientY };
-	const k = cam.scale / dpr;
-	cam.center[0] -= dx / k * R2D / Math.max(0.2, Math.cos(cam.center[1] * D2R));
-	cam.center[1] = Math.max(-85, Math.min(85, cam.center[1] + dy / k * R2D));
+	const dxp = e.clientX - drag.x, dyp = e.clientY - drag.y;
+	if (drag.tilt) {
+		cam.bearing += dxp * 0.006;
+		cam.pitch = Math.max(0, Math.min(MAXPITCH, cam.pitch + dyp * 0.005));
+	} else {
+		// unproject でつかんだ地点をカーソル下に保つパン
+		const st = cameraState(cam, canvas.width, canvas.height);
+		const a = unproject(st, drag.x * dpr, drag.y * dpr), b = unproject(st, e.clientX * dpr, e.clientY * dpr);
+		if (a && b) { cam.center[0] -= (b[0] - a[0]); cam.center[1] = Math.max(-85, Math.min(85, cam.center[1] - (b[1] - a[1]))); }
+	}
+	drag.x = e.clientX; drag.y = e.clientY;
 	onMove();
 });
-canvas.addEventListener("wheel", e => { e.preventDefault(); cam.scale *= Math.exp(-e.deltaY * 0.001); onMove(); }, { passive: false });
+canvas.addEventListener("wheel", e => {
+	e.preventDefault();
+	cam.zoom = Math.max(4, Math.min(16, cam.zoom - e.deltaY * 0.002));
+	onMove();
+}, { passive: false });
 
 document.getElementById("go").addEventListener("click", () => {
 	setView(+document.getElementById("lon").value, +document.getElementById("lat").value, +document.getElementById("zoom").value);

@@ -41,12 +41,19 @@ export default {
 		// 注記：濃いグレー＋地色ハロー。読めるが主張しない。
 		{
 			id: "label", type: "symbol", "source-layer": "Anno",
-			filter: ["has", "vt_text"],
+			// 測量系・道路番号の数字クラッタを除外（標高点/三角点/水準点/水深/国道・高速番号）
+			filter: ["all", ["has", "vt_text"],
+				["!", ["in", ["get", "vt_code"], ["literal", [7101, 7102, 7103, 7201, 7711, 2901, 2902, 2903, 2904]]]]],
 			layout: {
 				"symbol-placement": "point",
 				"text-field": ["get", "vt_text"],
-				"text-size": ["interpolate", ["linear"], ["zoom"], 10, 11, 14, 12.5, 16, 13.5],
-				"symbol-sort-key": ["coalesce", ["get", "vt_arrng"], 0],
+				// カテゴリで大小：主要都市>市>駅・施設>丁目・路線
+				"text-size": ["interpolate", ["linear"], ["zoom"],
+					10, ["match", ["get", "vt_code"], [1301, 1302, 1303, 1401], 13, 110, 12, 11],
+					16, ["match", ["get", "vt_code"], [1301, 1302, 1303, 1401], 16, 110, 14.5, [210, 411, 421], 12, 13.5]],
+				// 衝突優先度（小さいほど優先）：主要都市→市→駅→施設→丁目・路線
+				"symbol-sort-key": ["match", ["get", "vt_code"],
+					[1301, 1302, 1303, 1401], 0, 110, 1, 422, 2, [621, 631, 632, 673, 531, 532], 3, [210, 411, 421], 5, 4],
 			},
 			paint: { "text-color": "#86867f", "text-halo-color": "#f6f6f4", "text-halo-width": 1.1 },
 		},

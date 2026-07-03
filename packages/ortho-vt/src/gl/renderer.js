@@ -1,7 +1,8 @@
 // WebGL2 レンダラ：可視タイルを跨いで同一 style層を1バッファに結合した「シーン」を描く。
 // draw call は「タイル数×層数」から「層数」へ激減し、uniform も1フレーム1回。共通のシーン原点で投影。
 // fill = earcut三角形、line = capsule(SDF)。scene.layers は style層順（painter's algorithm）。
-import { FILL_VS, FILL_FS, LINE_VS, LINE_FS } from "./glsl.js";
+import { FILL_VS, FILL_FS, LINE_VS, LINE_FS, GLOBE_VS, GLOBE_FS } from "./glsl.js";
+import { cameraState } from "../camera.js";
 
 const CORNERS = new Float32Array([0, -1, 0, 1, 1, -1, 1, -1, 0, 1, 1, 1]); // 6頂点×(end,side)
 
@@ -11,7 +12,9 @@ export function createRenderer(canvas) {
 
 	const fillProg = program(gl, FILL_VS, FILL_FS);
 	const lineProg = program(gl, LINE_VS, LINE_FS);
+	const globeProg = program(gl, GLOBE_VS, GLOBE_FS);
 	const cornerBuf = buffer(gl, CORNERS);
+	const emptyVAO = gl.createVertexArray();
 	// base=粗い下書き（underlay）、main=現ズーム。draw で base→main の順に描く。
 	const scenes = { base: { origin: [0, 0], draws: [] }, main: { origin: [0, 0], draws: [] } };
 
@@ -47,30 +50,40 @@ export function createRenderer(canvas) {
 		scenes[slot] = { origin: s.origin, draws };
 	}
 
-	function setCommonUniforms(prog, cam, origin) {
+	function setCommonUniforms(prog, st, origin) {
 		gl.useProgram(prog);
+		gl.uniformMatrix4fv(loc(gl, prog, "u_mvp"), false, st.mvp32);
+		gl.uniform3f(loc(gl, prog, "u_eye"), st.eye[0], st.eye[1], st.eye[2]);
 		gl.uniform2f(loc(gl, prog, "u_origin"), origin[0], origin[1]);
-		gl.uniform2f(loc(gl, prog, "u_center"), cam.center[0], cam.center[1]);
-		gl.uniform1f(loc(gl, prog, "u_scale"), cam.scale);
-		gl.uniform2f(loc(gl, prog, "u_translate"), cam.translate[0], cam.translate[1]);
 		gl.uniform2f(loc(gl, prog, "u_viewport"), canvas.width, canvas.height);
 	}
 
 	function draw(cam) {
 		gl.viewport(0, 0, canvas.width, canvas.height);
+		const st = cameraState(cam, canvas.width, canvas.height);
+		st.mvp32 = Float32Array.from(st.mvp);
 		const c = cam.clear || [1, 1, 1, 1];
 		gl.clearColor(c[0] * c[3], c[1] * c[3], c[2] * c[3], c[3]);
 		gl.clear(gl.COLOR_BUFFER_BIT);
 		gl.enable(gl.BLEND);
 		gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
 		gl.disable(gl.DEPTH_TEST);
-		gl.uniform1f(loc(gl, lineProg, "u_dpr"), cam.dpr || 1);
+
+		// 球体本体：land基色を縁(リム)まで一様に敷く。宇宙(clear色)を背に丸い地球が見える。
+		const land = cam.land || [0.96, 0.96, 0.95, 1];
+		gl.useProgram(globeProg);
+		gl.uniformMatrix4fv(loc(gl, globeProg, "u_invMvp"), false, Float32Array.from(st.invMvp));
+		gl.uniform4f(loc(gl, globeProg, "u_land"), land[0], land[1], land[2], land[3]);
+		gl.bindVertexArray(emptyVAO);
+		gl.drawArrays(gl.TRIANGLES, 0, 3);
+
+		gl.useProgram(lineProg); gl.uniform1f(loc(gl, lineProg, "u_dpr"), cam.dpr || 1);
 
 		for (const slot of ["base", "main"]) {   // 粗い下書き→現ズームの順
 			const scene = scenes[slot];
 			if (!scene.draws.length) continue;
-			setCommonUniforms(fillProg, cam, scene.origin);
-			setCommonUniforms(lineProg, cam, scene.origin);
+			setCommonUniforms(fillProg, st, scene.origin);
+			setCommonUniforms(lineProg, st, scene.origin);
 			let curProg = null;
 			for (const d of scene.draws) {
 				if (d.kind === "fill") {

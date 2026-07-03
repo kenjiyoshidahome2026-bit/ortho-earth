@@ -11,6 +11,6 @@ export { GlyphAtlas, decodeGlyphPBF } from "./glyphs.js";
 export { buildLabels, layoutText } from "./labels.js";
 export { createTextRenderer } from "./gl/text.js";
 export { createLabelLayer } from "./labels2d.js";
-export { projectDelta } from "./project.js";
-export { pickZoom, visibleTiles, invert } from "./tilecover.js";
+export { cameraState, project, unproject, lonlatTo3D } from "./camera.js";
+export { pickZoom, visibleTiles } from "./tilecover.js";
 export { createTileManager } from "./tilemanager.js";

@@ -51,11 +51,11 @@ export function createTileManager({ style, tileUrl, onChange, cap = 220 }) {
 				keep.add(`${z + 1}/${x}/${y}`); ensure({ z: z + 1, x, y });
 			}
 		}
-		// 粗い下書き（underlay）：現ズームの4段下。少数タイルで、白い空白を常に埋める下地。
-		const coarseZ = Math.max(4, z - 4);
+		// 粗い下書き（underlay）：主の下に、より粗く・広く敷く。傾けた遠方の海/陸を縁近くまで一様に埋める。
+		const coarseZ = Math.max(4, z - 5);
 		let coarseTiles = [];
 		if (coarseZ < z) {
-			coarseTiles = visibleTiles(cam, W, H, coarseZ, { pad: 0 });
+			coarseTiles = visibleTiles(cam, W, H, coarseZ, { pad: 2 });
 			for (const t of coarseTiles) { keep.add(keyOf(t)); ensure(t); }
 		}
 		if (cache.size > cap) {
