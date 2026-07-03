@@ -1,5 +1,6 @@
-// WebGL2 レンダラ：build の op列（style層順）をそのままの順序で描く＝厳密な painter's algorithm。
-// fill = earcut三角形、line = capsule(SDF)。層順を守るのでビル塗り/道路/外周線の前後関係が正しくなる。
+// WebGL2 レンダラ：可視タイルを跨いで同一 style層を1バッファに結合した「シーン」を描く。
+// draw call は「タイル数×層数」から「層数」へ激減し、uniform も1フレーム1回。共通のシーン原点で投影。
+// fill = earcut三角形、line = capsule(SDF)。scene.layers は style層順（painter's algorithm）。
 import { FILL_VS, FILL_FS, LINE_VS, LINE_FS } from "./glsl.js";
 
 const CORNERS = new Float32Array([0, -1, 0, 1, 1, -1, 1, -1, 0, 1, 1, 1]); // 6頂点×(end,side)
@@ -11,24 +12,28 @@ export function createRenderer(canvas) {
 	const fillProg = program(gl, FILL_VS, FILL_FS);
 	const lineProg = program(gl, LINE_VS, LINE_FS);
 	const cornerBuf = buffer(gl, CORNERS);
+	// base=粗い下書き（underlay）、main=現ズーム。draw で base→main の順に描く。
+	const scenes = { base: { origin: [0, 0], draws: [] }, main: { origin: [0, 0], draws: [] } };
 
-	const tiles = new Map();   // key → draws[]（タイル毎の GL リソース）
-
-	function uploadTile(key, { ops }) {
-		if (tiles.has(key)) removeTile(key);
+	// s: { origin:[lon,lat], layers:[{kind:'fill'|'line', ...typed arrays}] }（style層順）。slot: 'base'|'main'
+	function setScene(s, slot = "main") {
+		disposeSlot(slot);
 		const draws = [];
-		for (const op of ops) {
-			if (op.kind === "fill") {
+		for (const L of s.layers) {
+			if (!L) continue;
+			if (L.kind === "fill") {
+				if (!L.pos.length) continue;
 				const vao = gl.createVertexArray();
-				const bPos = buffer(gl, op.pos), bCol = buffer(gl, op.col);
+				const bPos = buffer(gl, L.pos), bCol = buffer(gl, L.col);
 				gl.bindVertexArray(vao);
 				attrib(gl, fillProg, "a_delta", bPos, 2);
 				attrib(gl, fillProg, "a_color", bCol, 4);
 				gl.bindVertexArray(null);
-				draws.push({ kind: "fill", vao, count: op.pos.length / 2, bufs: [bPos, bCol] });
+				draws.push({ kind: "fill", vao, count: L.pos.length / 2, bufs: [bPos, bCol] });
 			} else {
+				if (!L.half.length) continue;
 				const vao = gl.createVertexArray();
-				const bP1 = buffer(gl, op.P1), bP2 = buffer(gl, op.P2), bCol = buffer(gl, op.col), bHalf = buffer(gl, op.half);
+				const bP1 = buffer(gl, L.P1), bP2 = buffer(gl, L.P2), bCol = buffer(gl, L.col), bHalf = buffer(gl, L.half);
 				gl.bindVertexArray(vao);
 				attrib(gl, lineProg, "a_corner", cornerBuf, 2, 0);
 				attrib(gl, lineProg, "a_p1", bP1, 2, 1);
@@ -36,18 +41,11 @@ export function createRenderer(canvas) {
 				attrib(gl, lineProg, "a_color", bCol, 4, 1);
 				attrib(gl, lineProg, "a_half", bHalf, 1, 1);
 				gl.bindVertexArray(null);
-				draws.push({ kind: "line", vao, count: op.half.length, bufs: [bP1, bP2, bCol, bHalf] });
+				draws.push({ kind: "line", vao, count: L.half.length, bufs: [bP1, bP2, bCol, bHalf] });
 			}
 		}
-		tiles.set(key, draws);
+		scenes[slot] = { origin: s.origin, draws };
 	}
-
-	function removeTile(key) {
-		const draws = tiles.get(key); if (!draws) return;
-		for (const d of draws) { for (const b of d.bufs) gl.deleteBuffer(b); gl.deleteVertexArray(d.vao); }
-		tiles.delete(key);
-	}
-	function hasTile(key) { return tiles.has(key); }
 
 	function setCommonUniforms(prog, cam, origin) {
 		gl.useProgram(prog);
@@ -58,8 +56,7 @@ export function createRenderer(canvas) {
 		gl.uniform2f(loc(gl, prog, "u_viewport"), canvas.width, canvas.height);
 	}
 
-	// order: [{ key, origin:[lon,lat] }] 描画するタイル（各自の原点で投影）。
-	function draw(cam, order) {
+	function draw(cam) {
 		gl.viewport(0, 0, canvas.width, canvas.height);
 		const c = cam.clear || [1, 1, 1, 1];
 		gl.clearColor(c[0] * c[3], c[1] * c[3], c[2] * c[3], c[3]);
@@ -67,14 +64,15 @@ export function createRenderer(canvas) {
 		gl.enable(gl.BLEND);
 		gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
 		gl.disable(gl.DEPTH_TEST);
+		gl.uniform1f(loc(gl, lineProg, "u_dpr"), cam.dpr || 1);
 
-		for (const { key, origin } of order) {
-			const draws = tiles.get(key); if (!draws) continue;
-			setCommonUniforms(fillProg, cam, origin);
-			setCommonUniforms(lineProg, cam, origin);
-			gl.uniform1f(loc(gl, lineProg, "u_dpr"), cam.dpr || 1);
+		for (const slot of ["base", "main"]) {   // 粗い下書き→現ズームの順
+			const scene = scenes[slot];
+			if (!scene.draws.length) continue;
+			setCommonUniforms(fillProg, cam, scene.origin);
+			setCommonUniforms(lineProg, cam, scene.origin);
 			let curProg = null;
-			for (const d of draws) {
+			for (const d of scene.draws) {
 				if (d.kind === "fill") {
 					if (curProg !== fillProg) { gl.useProgram(fillProg); curProg = fillProg; }
 					gl.bindVertexArray(d.vao);
@@ -89,9 +87,13 @@ export function createRenderer(canvas) {
 		gl.bindVertexArray(null);
 	}
 
-	function dispose() { for (const key of [...tiles.keys()]) removeTile(key); }
+	function disposeSlot(slot) {
+		for (const d of scenes[slot].draws) { for (const b of d.bufs) gl.deleteBuffer(b); gl.deleteVertexArray(d.vao); }
+		scenes[slot] = { origin: scenes[slot].origin, draws: [] };
+	}
+	function dispose() { disposeSlot("base"); disposeSlot("main"); }
 
-	return { gl, uploadTile, removeTile, hasTile, draw, dispose };
+	return { gl, setScene, draw, dispose };
 }
 
 // --- GL ヘルパ ---

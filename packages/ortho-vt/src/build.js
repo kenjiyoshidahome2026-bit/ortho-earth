@@ -11,10 +11,11 @@ import { tileLocalToLonLat } from "./tile.js";
 // pale: 色文字列→色文字列 の変換（無ければ恒等）
 export function buildTileDrawList({ layers, z, x, y }, style, origin, pale = c => c) {
 	const [ox, oy] = origin;
-	const ops = [];   // { kind:'fill'|'line', ... } を style層順に
+	const ops = [];   // { kind:'fill'|'line', li, ... } を style層順に（li=style層index、跨ぎバッチ結合用）
 	const toLL = (px, py, extent) => tileLocalToLonLat(x, y, z, px, py, extent);
 
-	for (const L of style.layers) {
+	for (let li = 0; li < style.layers.length; li++) {
+		const L = style.layers[li];
 		if (L.type !== "fill" && L.type !== "line") continue;
 		if (L.layout && L.layout.visibility === "none") continue;
 		if (L.minzoom != null && z < L.minzoom) continue;
@@ -39,7 +40,7 @@ export function buildTileDrawList({ layers, z, x, y }, style, origin, pale = c =
 					}
 				}
 			}
-			if (pos.length) ops.push({ kind: "fill", id: L.id, pos: new Float32Array(pos), col: new Float32Array(col) });
+			if (pos.length) ops.push({ kind: "fill", li, id: L.id, pos: new Float32Array(pos), col: new Float32Array(col) });
 		} else { // line
 			const P1 = [], P2 = [], col = [], half = [];
 			for (const f of feats) {
@@ -59,7 +60,7 @@ export function buildTileDrawList({ layers, z, x, y }, style, origin, pale = c =
 					}
 				}
 			}
-			if (half.length) ops.push({ kind: "line", id: L.id, P1: new Float32Array(P1), P2: new Float32Array(P2), col: new Float32Array(col), half: new Float32Array(half) });
+			if (half.length) ops.push({ kind: "line", li, id: L.id, P1: new Float32Array(P1), P2: new Float32Array(P2), col: new Float32Array(col), half: new Float32Array(half) });
 		}
 	}
 	return { ops };
