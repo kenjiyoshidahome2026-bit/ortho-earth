@@ -75,10 +75,22 @@ canvas.addEventListener("pointermove", e => {
 	drag.x = e.clientX; drag.y = e.clientY;
 	onMove();
 });
+// カーソル下の地点を固定したままカメラ変更を適用（ズーム/軸回転の中心＝マウス）。チルト時も unproject で正確。
+function anchoredAt(clientX, clientY, mutate) {
+	const st0 = cameraState(cam, canvas.width, canvas.height);
+	const a = unproject(st0, clientX * dpr, clientY * dpr);
+	mutate();
+	if (a) {
+		const st1 = cameraState(cam, canvas.width, canvas.height);
+		const b = unproject(st1, clientX * dpr, clientY * dpr);
+		if (b) { cam.center[0] += a[0] - b[0]; cam.center[1] = Math.max(-85, Math.min(85, cam.center[1] + a[1] - b[1])); }
+	}
+	onMove();
+}
 canvas.addEventListener("wheel", e => {
 	e.preventDefault();
-	cam.zoom = Math.max(4, Math.min(16, cam.zoom - e.deltaY * 0.002));
-	onMove();
+	if (e.ctrlKey || e.metaKey) anchoredAt(e.clientX, e.clientY, () => { cam.bearing += e.deltaY * 0.01; });   // 軸回転
+	else anchoredAt(e.clientX, e.clientY, () => { cam.zoom = Math.max(4, Math.min(16, cam.zoom - e.deltaY * 0.002)); });  // ズーム
 }, { passive: false });
 
 document.getElementById("go").addEventListener("click", () => {
