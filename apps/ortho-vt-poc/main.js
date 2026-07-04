@@ -12,7 +12,55 @@ const canvas = document.getElementById("c");
 const labelCanvas = document.getElementById("labels");
 const logEl = document.getElementById("log");
 const renderer = createRenderer(canvas);
-const labelLayer = createLabelLayer(labelCanvas);
+
+// 国道おにぎり標識：番号(2901)は素の数字でなく本物の標識で描く。番号ごとにキャッシュ。
+const SHIELD_H = 24, SHIELD_VW = 455, SHIELD_VH = 435, SHIELD_W = Math.round(SHIELD_H * SHIELD_VW / SHIELD_VH);
+const SHIELD_PATH = new Path2D("m227 425c25 0 48-10 66-26 69-69 120-155 146-249 3-8 5-19 5-30 0-45-31-83-74-94-46-11-92-17-143-17s-97 6-143 17c-43 11-74 49-74 94 0 11 2 21 5 30 26 94 77 180 146 249 18 16 41 26 66 26z");
+const shieldCache = new Map();
+function kokudoShield(num) {
+	let s = shieldCache.get(num);
+	if (s) return s;
+	const S = 3, cv = document.createElement("canvas");
+	cv.width = SHIELD_W * S; cv.height = SHIELD_H * S;
+	const g = cv.getContext("2d");
+	g.scale(cv.width / SHIELD_VW, cv.height / SHIELD_VH);   // viewBox→canvas
+	g.fillStyle = "#0140ff"; g.fill(SHIELD_PATH);
+	g.lineJoin = "round"; g.strokeStyle = "#fff"; g.lineWidth = 16; g.stroke(SHIELD_PATH);
+	// 小さい字（国道/ROUTE）は30pxで潰れるので省き、番号だけを中央に大きく。
+	g.fillStyle = "#fff"; g.textAlign = "center"; g.textBaseline = "middle";
+	g.font = `bold ${num.length >= 3 ? 135 : 170}px sans-serif`;   // 桁数で自動調整（余白を残す）
+	g.fillText(num, 238, 200);
+	s = { img: cv, w: SHIELD_W, h: SHIELD_H };
+	shieldCache.set(num, s);
+	return s;
+}
+// 高速道路ナンバリング（E1・E20・C1・C2…）：盾形の青シールド。markers.jsに高速用が無いので新規。
+const EXP_H = 23, EXP_VW = 400, EXP_VH = 440, EXP_W = Math.round(EXP_H * EXP_VW / EXP_VH);
+const EXP_PATH = new Path2D("M60 40 H340 Q380 40 380 80 V200 Q380 330 200 410 Q20 330 20 200 V80 Q20 40 60 40 Z");
+const expCache = new Map();
+function expresswayShield(text) {
+	let s = expCache.get(text);
+	if (s) return s;
+	const S = 3, cv = document.createElement("canvas");
+	cv.width = EXP_W * S; cv.height = EXP_H * S;
+	const g = cv.getContext("2d");
+	g.scale(cv.width / EXP_VW, cv.height / EXP_VH);
+	g.fillStyle = "#0d3b8c"; g.fill(EXP_PATH);
+	g.lineJoin = "round"; g.strokeStyle = "#fff"; g.lineWidth = 18; g.stroke(EXP_PATH);
+	g.fillStyle = "#fff"; g.textAlign = "center"; g.textBaseline = "middle";
+	g.font = `bold ${text.length >= 3 ? 135 : 175}px sans-serif`;
+	g.fillText(text, 200, 205);
+	s = { img: cv, w: EXP_W, h: EXP_H };
+	expCache.set(text, s);
+	return s;
+}
+function shieldFor(L) {   // 道路ON時のみ抽出済み。2901=国道おにぎり／2903・2904=高速ナンバリング盾
+	if (L.code === 2901) return kokudoShield(L.text);
+	if (L.code === 2903 || L.code === 2904) return expresswayShield(L.text);
+	return null;
+}
+
+const labelLayer = createLabelLayer(labelCanvas, { shieldFor });
 
 const bg = style.layers.find(L => L.type === "background");
 const land = bg ? parseRGBA(evalExpr(bg.paint?.["background-color"] ?? "#fff", { zoom: 10, props: {}, geom: null, vars: {} })) : [0.96, 0.96, 0.95, 1];

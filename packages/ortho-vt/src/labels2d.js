@@ -8,7 +8,9 @@ const css = (c, op = 1) => `rgba(${Math.round(c[0] * 255)},${Math.round(c[1] * 2
 const keyOf = L => L.text + "@" + L.anchor[0].toFixed(5) + "," + L.anchor[1].toFixed(5);
 const nowMs = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
 
-export function createLabelLayer(canvas, { pad = 5, fade = 0.3, recollideMs = 150 } = {}) {
+// shieldFor(L) → { img:CanvasImageSource, w, h }（CSS px）を返すとテキストの代わりにその絵を描く。
+// 国道おにぎり等の標識をアプリ側で供給する差し込み口（エンジンは汎用のまま）。
+export function createLabelLayer(canvas, { pad = 5, fade = 0.3, recollideMs = 150, shieldFor = null } = {}) {
 	const ctx = canvas.getContext("2d");
 	let labels = [];
 	const fades = new Map();        // key → 不透明度（フェード）
@@ -29,8 +31,10 @@ export function createLabelLayer(canvas, { pad = 5, fade = 0.3, recollideMs = 15
 			const [dx, dy, front] = project(st, L.anchor[0], L.anchor[1]);
 			if (front < 0) continue;
 			const sx = dx / dpr, sy = dy / dpr;
-			const f = `${L.size}px ${FONT_STACK}`; if (f !== font) { ctx.font = font = f; }
-			const tw = ctx.measureText(L.text).width, h = L.size;
+			const shield = shieldFor && shieldFor(L);
+			let tw, h;
+			if (shield) { tw = shield.w; h = shield.h; }
+			else { const f = `${L.size}px ${FONT_STACK}`; if (f !== font) { ctx.font = font = f; } tw = ctx.measureText(L.text).width; h = L.size; }
 			if (sx + tw / 2 < 0 || sx - tw / 2 > Wc || sy + h / 2 < 0 || sy - h / 2 > Hc) continue;
 			const box = [sx - tw / 2 - pad, sy - h / 2 - pad, sx + tw / 2 + pad, sy + h / 2 + pad];
 			if (placed.some(b => !(box[2] < b[0] || box[0] > b[2] || box[3] < b[1] || box[1] > b[3]))) continue;
@@ -66,6 +70,13 @@ export function createLabelLayer(canvas, { pad = 5, fade = 0.3, recollideMs = 15
 			const o = op * distOp(L.anchor[0], L.anchor[1]);
 			if (o <= 0.01) continue;
 			const sx = Math.round(dx / dpr), sy = Math.round(dy / dpr);
+			const shield = shieldFor && shieldFor(L);
+			if (shield) {
+				ctx.globalAlpha = o;
+				ctx.drawImage(shield.img, sx - shield.w / 2, sy - shield.h / 2, shield.w, shield.h);
+				ctx.globalAlpha = 1;
+				continue;
+			}
 			const f = `${L.size}px ${FONT_STACK}`; if (f !== font) { ctx.font = font = f; }
 			if (L.haloW > 0) { ctx.strokeStyle = css(L.halo, o); ctx.lineWidth = L.haloW * 2; ctx.strokeText(L.text, sx, sy); }
 			ctx.fillStyle = css(L.color, o); ctx.fillText(L.text, sx, sy);
