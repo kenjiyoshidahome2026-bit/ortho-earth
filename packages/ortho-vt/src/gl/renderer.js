@@ -118,7 +118,7 @@ export function createRenderer(canvas) {
 		gl.uniform1f(loc(gl, prog, "u_hasElev"), elev.has);
 	}
 
-	function draw(cam) {
+	function draw(cam, opts) {
 		gl.viewport(0, 0, canvas.width, canvas.height);
 		const st = cameraState(cam, canvas.width, canvas.height);
 		st.mvp32 = Float32Array.from(st.mvp);
@@ -126,7 +126,11 @@ export function createRenderer(canvas) {
 		const pt = Math.max(0, Math.min(1, ((cam.pitch || 0) - 0.06) / 0.14));
 		const pf = pt * pt * (3 - 2 * pt);
 		elevScaleEff = elev.scale * pf;
-		const c = cam.clear || [1, 1, 1, 1];
+		// 真俯瞰(pitch≈0)＋十分な寄り＝画面全面が陸。地球の縁/大気のレイキャストは映らず無駄なので、
+		// 陸色で塗りつぶす clear だけの2D高速パスへ（フルスクリーンの球シェーダを丸ごと省略）。
+		const land = cam.land || [0.96, 0.96, 0.95, 1], atmo = cam.atmo || [0.45, 0.62, 0.95, 0.6];
+		const flat2d = (cam.pitch || 0) < 0.02 && cam.zoom >= 8;
+		const c = flat2d ? [land[0], land[1], land[2], 1] : (cam.clear || [1, 1, 1, 1]);
 		gl.clearColor(c[0] * c[3], c[1] * c[3], c[2] * c[3], c[3]);
 		gl.clear(gl.COLOR_BUFFER_BIT);
 		gl.enable(gl.BLEND);
@@ -134,14 +138,15 @@ export function createRenderer(canvas) {
 		gl.disable(gl.DEPTH_TEST);
 		gl.clear(gl.DEPTH_BUFFER_BIT);
 
-		// 球体本体：land基色を縁(リム)まで一様に敷く。宇宙(clear色)を背に丸い地球が見える。
-		const land = cam.land || [0.96, 0.96, 0.95, 1], atmo = cam.atmo || [0.45, 0.62, 0.95, 0.6];
-		gl.useProgram(globeProg);
-		gl.uniformMatrix4fv(loc(gl, globeProg, "u_invMvp"), false, Float32Array.from(st.invMvp));
-		gl.uniform4f(loc(gl, globeProg, "u_land"), land[0], land[1], land[2], land[3]);
-		gl.uniform4f(loc(gl, globeProg, "u_atmo"), atmo[0], atmo[1], atmo[2], atmo[3]);
-		gl.bindVertexArray(emptyVAO);
-		gl.drawArrays(gl.TRIANGLES, 0, 3);
+		// 球体本体：land基色を縁(リム)まで敷く（宇宙を背に丸い地球）。2D高速パス時は clear で代替＝省略。
+		if (!flat2d) {
+			gl.useProgram(globeProg);
+			gl.uniformMatrix4fv(loc(gl, globeProg, "u_invMvp"), false, Float32Array.from(st.invMvp));
+			gl.uniform4f(loc(gl, globeProg, "u_land"), land[0], land[1], land[2], land[3]);
+			gl.uniform4f(loc(gl, globeProg, "u_atmo"), atmo[0], atmo[1], atmo[2], atmo[3]);
+			gl.bindVertexArray(emptyVAO);
+			gl.drawArrays(gl.TRIANGLES, 0, 3);
+		}
 
 		// 標高テクスチャをユニット1へ（全プログラムが elev() で参照）
 		if (elev.has && elevTex) { gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, elevTex); gl.activeTexture(gl.TEXTURE0); }
@@ -155,13 +160,13 @@ export function createRenderer(canvas) {
 			gl.bindVertexArray(terrain.vao);
 			gl.drawElements(gl.TRIANGLES, terrain.count, gl.UNSIGNED_INT, 0);
 		}
-		// ベクタ：地形有効時のみ深度＋定数オフセットで地形に貼りつく。平面はペインタ順のみ
-		// （深度もオフセットも切る）＝球冠のスロープ由来 z-fight（高速道路ラインのちらつき）を根絶。
-		if (terrainActive) { gl.enable(gl.POLYGON_OFFSET_FILL); gl.polygonOffset(0.0, -8.0); }
-		else { gl.disable(gl.DEPTH_TEST); }
+		// ベクタ(塗り/線)は常にペインタ順で地形の上に描く＝深度で地形と争わせない。傾き時も平面時も、
+		// 陸・海・道路が地形サーフェスと z-fight して揺れる/寸断するのを根絶（地形の起伏は先に深度で解決済）。
+		gl.disable(gl.DEPTH_TEST);
 		gl.useProgram(lineProg); gl.uniform1f(loc(gl, lineProg, "u_dpr"), cam.dpr || 1);
 
-		for (const slot of ["base", "main"]) {   // 粗い下書き→現ズームの順
+		const slots = (opts && opts.skipBase) ? ["main"] : ["base", "main"];   // 静止時は下地を隠しLOD痕(二重線)を消す
+		for (const slot of slots) {   // 粗い下書き→現ズームの順
 			const scene = scenes[slot];
 			if (!scene.draws.length) continue;
 			setCommonUniforms(fillProg, st, scene.origin, land);
@@ -179,8 +184,7 @@ export function createRenderer(canvas) {
 				}
 			}
 		}
-		if (terrainActive) gl.disable(gl.POLYGON_OFFSET_FILL);
-		else gl.enable(gl.DEPTH_TEST);   // 建物は常に深度で前後関係を解決
+		gl.enable(gl.DEPTH_TEST);   // 建物は常に深度で前後関係を解決（地形・尾根に遮蔽される）
 
 		// 建物（3D押し出し）：深度で前後関係を解決（地形・尾根にも遮蔽される）。
 		const bld = scenes.main.bld;

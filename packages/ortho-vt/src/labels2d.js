@@ -10,7 +10,12 @@ const nowMs = () => (typeof performance !== "undefined" ? performance.now() : Da
 
 // shieldFor(L) → { img:CanvasImageSource, w, h }（CSS px）を返すとテキストの代わりにその絵を描く。
 // 国道おにぎり等の標識をアプリ側で供給する差し込み口（エンジンは汎用のまま）。
-export function createLabelLayer(canvas, { pad = 5, fade = 0.3, recollideMs = 150, shieldFor = null } = {}) {
+// elevBase = 誇張/地球半径m（地物の u_elevScale の pitch非依存部分）。各ラベルを L.elev(m) 分だけ
+// 地形に乗せて投影＝傾き時に地物とラベルの位置が一致する（標高視差のズレを解消）。
+export function createLabelLayer(canvas, { pad = 5, fade = 0.3, recollideMs = 150, shieldFor = null, elevBase = 0 } = {}) {
+	// pitch ゲート（renderer と同式）。真俯瞰0→11.5°で全開。
+	const pitchScale = pitch => { const t = Math.max(0, Math.min(1, ((pitch || 0) - 0.06) / 0.14)); return elevBase * t * t * (3 - 2 * t); };
+	const radiusOf = (L, eScale) => 1 + (L.elev || 0) * eScale;
 	const ctx = canvas.getContext("2d");
 	let labels = [];
 	const fades = new Map();        // key → 不透明度（フェード）
@@ -24,11 +29,11 @@ export function createLabelLayer(canvas, { pad = 5, fade = 0.3, recollideMs = 15
 	}
 
 	// 衝突判定（優先度順の貪欲）。当選集合 winners を更新。
-	function collide(st, dpr, Wc, Hc) {
+	function collide(st, dpr, Wc, Hc, eScale) {
 		const placed = [], w = new Map();
 		let font = "";
 		for (const L of labels) {
-			const [dx, dy, front] = project(st, L.anchor[0], L.anchor[1]);
+			const [dx, dy, front] = project(st, L.anchor[0], L.anchor[1], radiusOf(L, eScale));
 			if (front < 0) continue;
 			const sx = dx / dpr, sy = dy / dpr;
 			const shield = shieldFor && shieldFor(L);
@@ -47,8 +52,9 @@ export function createLabelLayer(canvas, { pad = 5, fade = 0.3, recollideMs = 15
 	function draw(cam) {
 		const dpr = cam.dpr || 1, W = canvas.width, H = canvas.height, Wc = W / dpr, Hc = H / dpr;
 		const st = cameraState(cam, W, H);
+		const eScale = pitchScale(cam.pitch);          // 標高→単位球（pitch連動、地物と同式）
 		const now = nowMs();
-		if (dirty || now - lastCollide > recollideMs) { collide(st, dpr, Wc, Hc); lastCollide = now; dirty = false; }
+		if (dirty || now - lastCollide > recollideMs) { collide(st, dpr, Wc, Hc, eScale); lastCollide = now; dirty = false; }
 
 		ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, W, H); ctx.scale(dpr, dpr);
 		ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.lineJoin = "round"; ctx.miterLimit = 2;
@@ -65,7 +71,7 @@ export function createLabelLayer(canvas, { pad = 5, fade = 0.3, recollideMs = 15
 			let op = fades.get(k) ?? 0; op += (target - op) * fade;
 			if (target ? op > 0.99 : op < 0.02) { op = target; if (!op) { fades.delete(k); continue; } } else animating = true;
 			fades.set(k, op);
-			const [dx, dy, front] = project(st, L.anchor[0], L.anchor[1]);   // ライブ投影
+			const [dx, dy, front] = project(st, L.anchor[0], L.anchor[1], radiusOf(L, eScale));   // ライブ投影（標高込み）
 			if (front < 0) continue;
 			const o = op * distOp(L.anchor[0], L.anchor[1]);
 			if (o <= 0.01) continue;
@@ -73,7 +79,7 @@ export function createLabelLayer(canvas, { pad = 5, fade = 0.3, recollideMs = 15
 			const shield = shieldFor && shieldFor(L);
 			if (shield) {
 				ctx.globalAlpha = o;
-				ctx.drawImage(shield.img, sx - shield.w / 2, sy - shield.h / 2, shield.w, shield.h);
+				shield.draw(ctx, sx, sy);   // ベクター直描き（DPRスケール済みctx上＝常にシャープ）
 				ctx.globalAlpha = 1;
 				continue;
 			}

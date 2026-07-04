@@ -35,7 +35,10 @@ export function createTileManager({ style, tileUrl, onChange, cap = 256 }) {
 	// 距離LODで可視タイルを選定→ロード。ready なタイル列 { key, origin, z } を返す。
 	function update(cam, W, H) {
 		const selected = selectLOD(cam, W, H);
-		const keep = new Set(selected.map(keyOf));
+		// 粗い下地：3段低いズームで広く覆う。移動中の先端の空白を常に埋める underlay。
+		const coarse = selectLOD(cam, W, H, { maxZ: Math.max(4, Math.round(cam.zoom) - 3) });
+		const keep = new Set([...selected, ...coarse].map(keyOf));
+		for (const t of coarse) ensure(t);
 		for (const t of selected) ensure(t);
 		if (cache.size > cap) {
 			for (const k of [...cache.keys()]) {
@@ -43,12 +46,8 @@ export function createTileManager({ style, tileUrl, onChange, cap = 256 }) {
 				if (!keep.has(k)) cache.delete(k);
 			}
 		}
-		const order = [];
-		for (const t of selected) {
-			const c = cache.get(keyOf(t));
-			if (c && c.status === "ready") order.push({ key: keyOf(t), origin: c.origin, z: t.z });
-		}
-		return { order, total: selected.length };
+		const ready = arr => { const o = []; for (const t of arr) { const c = cache.get(keyOf(t)); if (c && c.status === "ready") o.push({ key: keyOf(t), origin: c.origin, z: t.z }); } return o; };
+		return { order: ready(selected), coarseOrder: ready(coarse), total: selected.length };
 	}
 
 	// order の全タイルの op を style層(li)ごとに結合。origin(=cam.center)へ再ベースして精度確保。

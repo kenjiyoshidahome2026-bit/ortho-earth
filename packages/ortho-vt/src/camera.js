@@ -41,10 +41,11 @@ export function cameraState(cam, W, H) {
 }
 
 // 経緯度 → [screenX, screenY(devicePx), front]。front>0 で手前半球かつカメラ前方。
-export function project(state, lon, lat) {
-	const w = lonlatTo3D(lon, lat);
+export function project(state, lon, lat, radius = 1) {
+	const u = lonlatTo3D(lon, lat);
+	const w = radius === 1 ? u : [u[0] * radius, u[1] * radius, u[2] * radius];   // 標高変位（ラベルを地形に乗せる）
 	const c = mat.transform(state.mvp, [w[0], w[1], w[2], 1]);
-	const frontHemi = mat.dot(w, state.eye) - 1;                     // >0 手前半球
+	const frontHemi = mat.dot(u, state.eye) - 1;                     // >0 手前半球（基準球方向で判定）
 	if (c[3] <= 1e-6 || frontHemi < 0) return [0, 0, -1];
 	const sx = (c[0] / c[3] * 0.5 + 0.5) * state.W;
 	const sy = (1 - (c[1] / c[3] * 0.5 + 0.5)) * state.H;

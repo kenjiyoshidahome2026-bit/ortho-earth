@@ -48,11 +48,12 @@ export default {
 			layout: { "line-cap": "round" },
 			paint: { "line-color": "#4b9e6a", "line-width": ["interpolate", ["linear"], ["zoom"], 11, 0.6, 16, 1.9] },
 		},
-		// 駅の軌道（RailTrCL＝構内・側線含む全線路）。寄った時だけ細い緑で。駅の扇形が浮かぶ。
+		// 駅の軌道（RailTrCL＝構内・側線含む全線路。z16タイルのみに存在）。鉄道ON＋寄った時に緑で。
+		// 駅構内の扇形が浮かぶ。z16固定データなので幅はしっかりめに。
 		{
 			id: "railtr-hi", type: "line", "source-layer": "RailTrCL",
 			layout: { "line-cap": "round" },
-			paint: { "line-color": "#6bb389", "line-width": ["interpolate", ["linear"], ["zoom"], 14, 0.3, 17, 1.1] },
+			paint: { "line-color": "#4b9e6a", "line-width": ["interpolate", ["linear"], ["zoom"], 16, 1.5, 19, 3.0] },
 		},
 		// 道路 点火：高速＝明快な青、国道＝淡い青（幹線だけ着色。都道府県道以下は土台グレーのまま）
 		{
