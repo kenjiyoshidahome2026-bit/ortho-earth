@@ -42,37 +42,43 @@ export default {
 		// 土台は常に白黒で全部見えている。各テーマは同じ形状に色を重ねるだけ＝普段は非表示、
 		// チップONで buildScene に含める。再取得・再デコード不要で一瞬。色は後から自由に差し替え可。
 
-		// 鉄道 点火：静かな寒色
+		// 鉄道 点火：静かな緑（路線中心線）
 		{
 			id: "rail-hi", type: "line", "source-layer": "RailCL",
 			layout: { "line-cap": "round" },
-			paint: { "line-color": "#5f7d9e", "line-width": ["interpolate", ["linear"], ["zoom"], 11, 0.6, 16, 1.9] },
+			paint: { "line-color": "#4b9e6a", "line-width": ["interpolate", ["linear"], ["zoom"], 11, 0.6, 16, 1.9] },
 		},
-		// 道路 点火：高速＝橙、国道＝赤茶（幹線だけ着色。都道府県道以下は土台グレーのまま）
+		// 駅の軌道（RailTrCL＝構内・側線含む全線路）。寄った時だけ細い緑で。駅の扇形が浮かぶ。
+		{
+			id: "railtr-hi", type: "line", "source-layer": "RailTrCL",
+			layout: { "line-cap": "round" },
+			paint: { "line-color": "#6bb389", "line-width": ["interpolate", ["linear"], ["zoom"], 14, 0.3, 17, 1.1] },
+		},
+		// 道路 点火：高速＝明快な青、国道＝淡い青（幹線だけ着色。都道府県道以下は土台グレーのまま）
 		{
 			id: "road-hi", type: "line", "source-layer": "RdCL",
 			filter: ["in", ["get", "vt_rdctg"], ["literal", ["高速自動車国道等", "国道"]]],
 			layout: { "line-cap": "round", "line-join": "round", "line-sort-key": ["coalesce", ["get", "vt_drworder"], 0] },
 			paint: {
-				"line-color": ["match", ["get", "vt_rdctg"], "高速自動車国道等", "#e0662f", "#c8553d"],
+				"line-color": ["match", ["get", "vt_rdctg"], "高速自動車国道等", "#2f6cad", "#8fb2d6"],
 				"line-width": ["interpolate", ["linear"], ["zoom"],
 					11, ["match", ["get", "vt_rdctg"], "高速自動車国道等", 1.8, 1.4],
 					14, ["match", ["get", "vt_rdctg"], "高速自動車国道等", 4.0, 2.8],
 					16, ["match", ["get", "vt_rdctg"], "高速自動車国道等", 8.0, 5.5]],
 			},
 		},
-		// 行政区域 点火：淡い藤色
+		// 行政区域 点火：暖かいオレンジ
 		{
 			id: "admin-hi", type: "line", "source-layer": "AdmBdry",
-			paint: { "line-color": "#a8759c", "line-width": 1.1, "line-opacity": 0.95 },
+			paint: { "line-color": "#e2892f", "line-width": 1.1, "line-opacity": 0.95 },
 		},
 
 		// 注記：濃いグレー＋地色ハロー。読めるが主張しない。
 		{
 			id: "label", type: "symbol", "source-layer": "Anno",
-			// 測量系・道路番号の数字クラッタを除外（標高点/三角点/水準点/水深/国道・高速番号）
+			// 抽出は広めに（表示ON/OFFは main.js の allowlist が制御）。測量系の数値だけ抽出時に除外。
 			filter: ["all", ["has", "vt_text"],
-				["!", ["in", ["get", "vt_code"], ["literal", [7101, 7102, 7103, 7201, 7711, 2901, 2902, 2903, 2904]]]]],
+				["!", ["in", ["get", "vt_code"], ["literal", [7101, 7102, 7103, 7201, 7711]]]]],
 			layout: {
 				"symbol-placement": "point",
 				"text-field": ["get", "vt_text"],

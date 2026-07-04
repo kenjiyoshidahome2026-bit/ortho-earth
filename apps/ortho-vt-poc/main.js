@@ -101,29 +101,47 @@ document.getElementById("go").addEventListener("click", () => {
 // または「色の点火」を切り替えるだけ。すべて既取得データの再スタイル＝再取得・再デコードなし。
 //   chimei/chikei … 文字（注記カテゴリ）の表示ON/OFF
 //   rail/road/admin … 色の点火ON/OFF（OFFでも土台グレーは出ている）
-const layerState = { chimei: true, chikei: false, rail: false, road: false, admin: false };
+const layerState = { chimei: true, chikei: false, rail: false, road: false, admin: false, shisetsu: false };
 let styleSig = JSON.stringify(layerState);
 const liOf = id => style.layers.findIndex(L => L.id === id);
-const LI_RAILHI = liOf("rail-hi"), LI_ROADHI = liOf("road-hi"), LI_ADMINHI = liOf("admin-hi");
-// 注記カテゴリ（実データ実測）。allowlist＝ONのカテゴリのみ描く（紙地図の全部盛りをやめる）。
-const CHIMEI_CODES = new Set([140, 1401, 1402, 1403, 110, 210, 220]);   // 都道府県・都市・区・町名・地区
-const CHIKEI_CODES = new Set([316, 322, 345]);                          // 山・河川・海/湾
+const LI_RAILHI = liOf("rail-hi"), LI_RAILTR = liOf("railtr-hi"), LI_ROADHI = liOf("road-hi"), LI_ADMINHI = liOf("admin-hi");
+const RAILTR_MINZOOM = 13.5;   // 駅の軌道は寄った時だけ（構内detail）
+// 注記カテゴリ（実データ実測）。allowlist＝ONのテーマのカテゴリだけ描く（紙地図の全部盛りをやめる）。
+// 各テーマチップは「色」と「その名前」を一緒に点火する：道路→IC/JCT、鉄道→駅、行政区域→行政単位名。
+const CHIMEI_CODES = new Set([1401, 1402, 1403, 220]);        // 地名(常時)：主要都市・市・町村・地区
+const CHOME_CODES = new Set([210]);                           // 丁目：粒度が一段細かい→寄った時(z14.5〜)だけ自動表示
+const CHOME_MINZOOM = 14.5;
+const CHIKEI_CODES = new Set([312, 316, 322, 345]);           // 地形：山(312/316)・河川・海/湾
+const ROAD_CODES = new Set([2941, 2942, 412, 411, 2901, 2902, 2903, 2904]); // 道路ON：高速IC/JCT・都市高速JCT/路線名(首都高)・国道/高速番号
+const RAIL_CODES = new Set([422, 421, 431]);                  // 鉄道ON：駅名・鉄道路線名・港
+const GYOSEI_CODES = new Set([140, 110]);                     // 行政区域ON：都道府県・区（正式行政単位名）
+const SURVEY_NOISE = new Set([7101, 7102, 7103, 7201, 7711]); // 標高点・水準点・水深（常に非表示）
+// 施設＝他テーマに属さない残り全部（省庁・大学・神社・寺・大使館・郵便局…）。個別列挙の取りこぼしを防ぐ。
+const CLAIMED = new Set([...CHIMEI_CODES, ...CHOME_CODES, ...CHIKEI_CODES, ...ROAD_CODES, ...RAIL_CODES, ...GYOSEI_CODES]);
 function hiddenLi() {
 	const h = new Set();   // "点火"層は既定で隠す（土台グレーが見えている）。ONで色が乗る。
 	if (!layerState.rail) h.add(LI_RAILHI);
+	if (!layerState.rail || cam.zoom < RAILTR_MINZOOM) h.add(LI_RAILTR);   // 駅の軌道は鉄道ON＋寄った時だけ
 	if (!layerState.road) h.add(LI_ROADHI);
 	if (!layerState.admin) h.add(LI_ADMINHI);
 	return h;
 }
 function filterLabels(all) {
-	return all.filter(L =>
-		(layerState.chimei && CHIMEI_CODES.has(L.code)) ||
-		(layerState.chikei && CHIKEI_CODES.has(L.code)));
+	return all.filter(L => {
+		const c = L.code;
+		return (layerState.chimei && CHIMEI_CODES.has(c))
+			|| (layerState.chimei && cam.zoom >= CHOME_MINZOOM && CHOME_CODES.has(c))   // 丁目は寄った時だけ
+			|| (layerState.chikei && CHIKEI_CODES.has(c))
+			|| (layerState.road && ROAD_CODES.has(c))     // 道路ON＝IC/JCT/路線番号も点火
+			|| (layerState.rail && RAIL_CODES.has(c))     // 鉄道ON＝駅名/路線名も点火
+			|| (layerState.admin && GYOSEI_CODES.has(c))  // 行政区域ON＝行政単位名も点火
+			|| (layerState.shisetsu && !CLAIMED.has(c) && !SURVEY_NOISE.has(c)); // 施設＝残り全部
+	});
 }
 
 // LOD選択 or テーマ状態(styleSig)が変わった時だけシーンを再結合。原点は安定化（プルプル防止）。
 function swapScene(order) {
-	const sig = order.map(o => o.key).join("|") + "#" + styleSig;
+	const sig = order.map(o => o.key).join("|") + "#" + styleSig + "#z" + (cam.zoom >= CHOME_MINZOOM ? 1 : 0) + (cam.zoom >= RAILTR_MINZOOM ? 1 : 0);
 	if (sig === readySig || !order.length) return;
 	if (!sceneOrigin || Math.abs(sceneOrigin[0] - cam.center[0]) > 0.4 || Math.abs(sceneOrigin[1] - cam.center[1]) > 0.4)
 		sceneOrigin = [cam.center[0], cam.center[1]];
