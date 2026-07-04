@@ -29,7 +29,9 @@ export function cameraState(cam, W, H) {
 	const eye = mat.add(T, mat.scale(back, camDist));
 	const view = mat.lookAt(eye, T, upCam);
 	const aspect = W / H;
-	const near = Math.max(camDist * 0.02, 1e-4), far = camDist + 3;   // 単位球(半径1)を包含
+	// near/far を可視範囲（最近点camDist〜地平線limb）にタイトに。極端なオーバーズームでの精度崩壊を防ぐ。
+	const limb = Math.sqrt(Math.max((1 + camDist) * (1 + camDist) - 1, 1e-12));
+	const near = Math.max(camDist * 0.3, 1e-7), far = limb * 1.15 + camDist;
 	const proj = mat.perspective(fovy, aspect, near, far);
 	const mvp = mat.multiply(proj, view);
 	// 上空から見ると座標系が鏡像になるため clip.x を反転（東=画面右）。行0を符号反転。

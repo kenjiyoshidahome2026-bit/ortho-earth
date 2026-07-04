@@ -1,7 +1,7 @@
 // ortho-vt PoC — 地理院 optimal_bvmap を球面に直描き（M2: タイルストリーミング＋LOD＋ラベル）。
 import {
 	createRenderer, createLabelLayer, createTileManager,
-	evalExpr, parseRGBA, cameraState, unproject,
+	evalExpr, parseRGBA, cameraState, unproject, fetchR10, toFloat32,
 } from "ortho-vt";
 import style from "./style-mono.js";
 
@@ -108,7 +108,20 @@ function swapScene(order) {
 	readySig = sig;
 }
 
+// 標高（GEBCO R10, 10度タイル）をカメラ中心に応じて読み込み → renderer へ。
+const EARTH_M = 6371000, TERR_EXAG = 1.7;
+let elevKey = "", elevLoading = false;
+async function ensureElevation() {
+	const lng0 = Math.floor(cam.center[0] / 10) * 10, lat0 = Math.floor(cam.center[1] / 10) * 10, key = lng0 + "," + lat0;
+	if (key === elevKey || elevLoading) return;
+	elevKey = key; elevLoading = true;
+	const tile = await fetchR10(lng0, lat0);
+	if (tile) { tile.data = toFloat32(tile); renderer.setElevation(tile, TERR_EXAG / EARTH_M); needsDraw = true; }
+	elevLoading = false;
+}
+
 function render() {
+	ensureElevation();
 	const { order, total } = tiles.update(cam, canvas.width, canvas.height);
 	if (!moving) swapScene(order);                 // 停止時のみ再結合（移動中のタイルポップ＝チラチラ防止）
 	renderer.draw(cam);                            // 毎フレーム投影更新＝ズームはカーソル中心に追従

@@ -16,6 +16,17 @@ vec3 lonlatTo3D(vec2 ll) {
 	float a = ll.x * D2R, b = ll.y * D2R, cb = cos(b);
 	return vec3(cb * cos(a), sin(b), cb * sin(a));
 }
+// 標高テクスチャ（GEBCO/ALOS, R32F meters）。範囲内なら高さ(m)、外は0。
+uniform sampler2D u_elevTex;
+uniform vec4 u_elevBounds;   // lng0, lat0, range, _
+uniform float u_elevScale;   // (誇張 / 地球半径m) : m → 単位球
+uniform float u_hasElev;     // 0/1
+float elev(vec2 ll) {
+	if (u_hasElev < 0.5) return 0.0;
+	vec2 uv = (ll - u_elevBounds.xy) / u_elevBounds.z;
+	if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) return 0.0;
+	return texture(u_elevTex, vec2(uv.x, 1.0 - uv.y)).r;   // 格納は北が上→v反転
+}
 // clip.xy/clip.w → device px（左上原点, y下向き）
 vec2 toScreen(vec4 c) {
 	vec2 ndc = c.xy / c.w;
@@ -33,8 +44,9 @@ out float v_shade;
 out float v_front;
 out float v_fog;
 void main() {
-	vec3 dir = lonlatTo3D(u_origin + a_pos.xy);
-	vec3 w = dir * (1.0 + a_pos.z);          // 面法線方向へ高さぶん持ち上げ
+	vec2 ll = u_origin + a_pos.xy;
+	vec3 dir = lonlatTo3D(ll);
+	vec3 w = dir * (1.0 + elev(ll) * u_elevScale + a_pos.z);   // 地形の上に建物高さを積む
 	v_shade = a_shade;
 	v_front = dot(dir, u_eye) - 1.0;
 	v_fog = fogOf(w);
@@ -53,6 +65,41 @@ void main() {
 	if (v_front < 0.0) discard;
 	vec3 c = mix(u_bldColor * v_shade, u_fogColor, v_fog);
 	fragColor = vec4(c, 1.0);
+}`;
+
+// 地形サーフェス：標高で変位した格子メッシュ。近傍勾配から hillshade で立体感。
+export const TERRAIN_VS = `#version 300 es
+precision highp float;
+in vec2 a_ll;      // 絶対 lon/lat
+${PROJECT}
+uniform vec3 u_land;
+out vec3 v_col;
+out float v_front;
+out float v_fog;
+void main() {
+	vec3 dir = lonlatTo3D(a_ll);
+	float h = elev(a_ll);
+	vec3 w = dir * (1.0 + h * u_elevScale);
+	float d = u_elevBounds.z / 1200.0;                       // 勾配サンプル歩幅(度)
+	float hx = elev(a_ll + vec2(d, 0.0)) - elev(a_ll - vec2(d, 0.0));
+	float hy = elev(a_ll + vec2(0.0, d)) - elev(a_ll - vec2(0.0, d));
+	float shade = clamp(0.82 + (-hx + hy) * 0.00035, 0.45, 1.15);   // 北西光の hillshade
+	v_col = u_land * shade;
+	v_front = dot(dir, u_eye) - 1.0;
+	v_fog = fogOf(w);
+	gl_Position = u_mvp * vec4(w, 1.0);
+}`;
+
+export const TERRAIN_FS = `#version 300 es
+precision highp float;
+uniform vec3 u_fogColor;
+in vec3 v_col;
+in float v_front;
+in float v_fog;
+out vec4 fragColor;
+void main() {
+	if (v_front < 0.0) discard;
+	fragColor = vec4(mix(v_col, u_fogColor, v_fog), 1.0);
 }`;
 
 // 球体本体：フルスクリーン三角形の各画素でカメラ光線×単位球。当たれば land色、外れれば宇宙(discard)。
@@ -107,9 +154,11 @@ out vec4 v_color;
 out float v_front;
 out float v_fog;
 void main() {
-	vec3 w = lonlatTo3D(u_origin + a_delta);
+	vec2 ll = u_origin + a_delta;
+	vec3 dir = lonlatTo3D(ll);
+	vec3 w = dir * (1.0 + elev(ll) * u_elevScale);   // 標高変位（地形に貼りつく）
 	v_color = a_color;
-	v_front = dot(w, u_eye) - 1.0;          // >0 で手前半球
+	v_front = dot(dir, u_eye) - 1.0;          // >0 で手前半球
 	v_fog = fogOf(w);
 	gl_Position = u_mvp * vec4(w, 1.0);
 }`;
@@ -145,9 +194,11 @@ out vec4 v_color;
 out float v_front;
 out float v_fog;
 void main() {
-	vec3 wa = lonlatTo3D(u_origin + a_p1), wb = lonlatTo3D(u_origin + a_p2);
+	vec2 la1 = u_origin + a_p1, la2 = u_origin + a_p2;
+	vec3 da = lonlatTo3D(la1), db = lonlatTo3D(la2);
+	vec3 wa = da * (1.0 + elev(la1) * u_elevScale), wb = db * (1.0 + elev(la2) * u_elevScale);
 	vec4 ca = u_mvp * vec4(wa, 1.0), cb = u_mvp * vec4(wb, 1.0);
-	float fa = dot(wa, u_eye) - 1.0, fb = dot(wb, u_eye) - 1.0;
+	float fa = dot(da, u_eye) - 1.0, fb = dot(db, u_eye) - 1.0;
 	if (ca.w <= 0.0 || cb.w <= 0.0) { v_front = -1.0; gl_Position = vec4(2.0, 2.0, 2.0, 1.0); return; }  // カメラ背後
 	vec2 sa = toScreen(ca), sb = toScreen(cb);
 	vec2 d = sb - sa; float len = length(d);
@@ -160,8 +211,9 @@ void main() {
 	v_a = sa; v_b = sb; v_half = a_half * u_dpr; v_pos = pos;
 	v_color = a_color; v_front = min(fa, fb);
 	v_fog = fogOf((wa + wb) * 0.5);
+	float zc = (a_corner.x < 0.5) ? ca.z / ca.w : cb.z / cb.w;   // 端点の実深度（地形で遮蔽させる）
 	vec2 ndc = vec2(pos.x / u_viewport.x * 2.0 - 1.0, 1.0 - pos.y / u_viewport.y * 2.0);
-	gl_Position = vec4(ndc, 0.0, 1.0);
+	gl_Position = vec4(ndc, zc, 1.0);
 }`;
 
 export const LINE_FS = `#version 300 es

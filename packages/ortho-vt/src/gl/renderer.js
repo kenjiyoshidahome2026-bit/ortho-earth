@@ -1,7 +1,7 @@
 // WebGL2 レンダラ：可視タイルを跨いで同一 style層を1バッファに結合した「シーン」を描く。
 // draw call は「タイル数×層数」から「層数」へ激減し、uniform も1フレーム1回。共通のシーン原点で投影。
 // fill = earcut三角形、line = capsule(SDF)。scene.layers は style層順（painter's algorithm）。
-import { FILL_VS, FILL_FS, LINE_VS, LINE_FS, GLOBE_VS, GLOBE_FS, BUILDING_VS, BUILDING_FS } from "./glsl.js";
+import { FILL_VS, FILL_FS, LINE_VS, LINE_FS, GLOBE_VS, GLOBE_FS, BUILDING_VS, BUILDING_FS, TERRAIN_VS, TERRAIN_FS } from "./glsl.js";
 import { cameraState } from "../camera.js";
 
 const CORNERS = new Float32Array([0, -1, 0, 1, 1, -1, 1, -1, 0, 1, 1, 1]); // 6頂点×(end,side)
@@ -14,8 +14,12 @@ export function createRenderer(canvas) {
 	const lineProg = program(gl, LINE_VS, LINE_FS);
 	const globeProg = program(gl, GLOBE_VS, GLOBE_FS);
 	const bldProg = program(gl, BUILDING_VS, BUILDING_FS);
+	const terrainProg = program(gl, TERRAIN_VS, TERRAIN_FS);
 	const cornerBuf = buffer(gl, CORNERS);
 	const emptyVAO = gl.createVertexArray();
+	gl.getExtension("OES_texture_float_linear");   // R32F の線形補間
+	// 標高（GEBCO/ALOS）：テクスチャ＋地形格子メッシュ
+	let elevTex = null, elev = { bounds: [0, 0, 1, 0], scale: 0, has: 0 }, terrain = null;
 	// base=粗い下書き（underlay）、main=現ズーム。draw で base→main の順に描く。
 	const scenes = { base: { origin: [0, 0], draws: [], bld: null }, main: { origin: [0, 0], draws: [], bld: null } };
 
@@ -61,6 +65,36 @@ export function createRenderer(canvas) {
 		scenes[slot] = { origin: s.origin, draws, bld };
 	}
 
+	// tile: { data:Float32Array(m), width, height, lng, lat, range }。scale: 誇張/地球半径m。
+	function setElevation(tile, scale) {
+		if (!tile) { elev.has = 0; return; }
+		if (!elevTex) elevTex = gl.createTexture();
+		gl.bindTexture(gl.TEXTURE_2D, elevTex);
+		gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+		gl.texImage2D(gl.TEXTURE_2D, 0, gl.R32F, tile.width, tile.height, 0, gl.RED, gl.FLOAT, tile.data);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+		elev = { bounds: [tile.lng, tile.lat, tile.range, 0], scale, has: 1 };
+		buildTerrainMesh(tile.lng, tile.lat, tile.range);
+	}
+	function buildTerrainMesh(lng0, lat0, range) {
+		const G = 384;
+		const ll = new Float32Array(G * G * 2);
+		for (let j = 0; j < G; j++) for (let i = 0; i < G; i++) { const k = (j * G + i) * 2; ll[k] = lng0 + range * i / (G - 1); ll[k + 1] = lat0 + range * j / (G - 1); }
+		const idx = new Uint32Array((G - 1) * (G - 1) * 6);
+		let p = 0; for (let j = 0; j < G - 1; j++) for (let i = 0; i < G - 1; i++) { const a = j * G + i, b = a + 1, c = a + G, d = c + 1; idx[p++] = a; idx[p++] = c; idx[p++] = b; idx[p++] = b; idx[p++] = c; idx[p++] = d; }
+		if (terrain) { gl.deleteVertexArray(terrain.vao); gl.deleteBuffer(terrain.vbo); gl.deleteBuffer(terrain.ibo); }
+		const vao = gl.createVertexArray(), vbo = buffer(gl, ll), ibo = gl.createBuffer();
+		gl.bindVertexArray(vao);
+		attrib(gl, terrainProg, "a_ll", vbo, 2);
+		gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ibo);
+		gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, idx, gl.STATIC_DRAW);
+		gl.bindVertexArray(null);
+		terrain = { vao, vbo, ibo, count: idx.length };
+	}
+
 	function setCommonUniforms(prog, st, origin, fog) {
 		gl.useProgram(prog);
 		gl.uniformMatrix4fv(loc(gl, prog, "u_mvp"), false, st.mvp32);
@@ -70,6 +104,10 @@ export function createRenderer(canvas) {
 		gl.uniform1f(loc(gl, prog, "u_fogNear"), st.camDist * 2.5);
 		gl.uniform1f(loc(gl, prog, "u_fogFar"), st.camDist * 14.0);
 		gl.uniform3f(loc(gl, prog, "u_fogColor"), fog[0], fog[1], fog[2]);
+		gl.uniform1i(loc(gl, prog, "u_elevTex"), 1);
+		gl.uniform4f(loc(gl, prog, "u_elevBounds"), elev.bounds[0], elev.bounds[1], elev.bounds[2], 0);
+		gl.uniform1f(loc(gl, prog, "u_elevScale"), elev.scale);
+		gl.uniform1f(loc(gl, prog, "u_hasElev"), elev.has);
 	}
 
 	function draw(cam) {
@@ -93,6 +131,19 @@ export function createRenderer(canvas) {
 		gl.bindVertexArray(emptyVAO);
 		gl.drawArrays(gl.TRIANGLES, 0, 3);
 
+		// 標高テクスチャをユニット1へ（全プログラムが elev() で参照）
+		if (elev.has && elevTex) { gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, elevTex); gl.activeTexture(gl.TEXTURE0); }
+		// ここから深度あり（地形→ベクタ→建物が前後関係を共有）
+		gl.enable(gl.DEPTH_TEST); gl.depthFunc(gl.LEQUAL);
+		// 地形サーフェス（標高変位＋hillshade）
+		if (terrain && elev.has) {
+			setCommonUniforms(terrainProg, st, [0, 0], land);
+			gl.uniform3f(loc(gl, terrainProg, "u_land"), land[0], land[1], land[2]);
+			gl.bindVertexArray(terrain.vao);
+			gl.drawElements(gl.TRIANGLES, terrain.count, gl.UNSIGNED_INT, 0);
+		}
+		// ベクタ：地形の直上に。ポリゴンオフセットで z-fight を避けつつ尾根で遮蔽される。
+		gl.enable(gl.POLYGON_OFFSET_FILL); gl.polygonOffset(-1.5, -1.5);
 		gl.useProgram(lineProg); gl.uniform1f(loc(gl, lineProg, "u_dpr"), cam.dpr || 1);
 
 		for (const slot of ["base", "main"]) {   // 粗い下書き→現ズームの順
@@ -113,18 +164,18 @@ export function createRenderer(canvas) {
 				}
 			}
 		}
+		gl.disable(gl.POLYGON_OFFSET_FILL);
 
-		// 建物（3D押し出し）：平面地図の上に、深度テストで前後関係を解決して描く。
+		// 建物（3D押し出し）：深度で前後関係を解決（地形・尾根にも遮蔽される）。
 		const bld = scenes.main.bld;
 		if (bld) {
-			gl.enable(gl.DEPTH_TEST); gl.depthFunc(gl.LESS);
 			const c = cam.bldColor || [0.86, 0.86, 0.85];
 			setCommonUniforms(bldProg, st, scenes.main.origin, land);
 			gl.uniform3f(loc(gl, bldProg, "u_bldColor"), c[0], c[1], c[2]);
 			gl.bindVertexArray(bld.vao);
 			gl.drawArrays(gl.TRIANGLES, 0, bld.count);
-			gl.disable(gl.DEPTH_TEST);
 		}
+		gl.disable(gl.DEPTH_TEST);
 		gl.bindVertexArray(null);
 	}
 
@@ -135,7 +186,7 @@ export function createRenderer(canvas) {
 	}
 	function dispose() { disposeSlot("base"); disposeSlot("main"); }
 
-	return { gl, setScene, draw, dispose };
+	return { gl, setScene, setElevation, draw, dispose };
 }
 
 // --- GL ヘルパ ---
