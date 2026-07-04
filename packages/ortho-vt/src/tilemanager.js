@@ -9,6 +9,7 @@ import { buildBuildings } from "./buildings.js";
 import { selectLOD } from "./tilecover.js";
 
 const keyOf = t => `${t.z}/${t.x}/${t.y}`;
+const EMPTY = new Set();
 
 export function createTileManager({ style, tileUrl, onChange, cap = 256 }) {
 	const cache = new Map();   // key → { status, origin, dl, labels, z }
@@ -54,12 +55,14 @@ export function createTileManager({ style, tileUrl, onChange, cap = 256 }) {
 	function buildScene(order, opts = {}) {
 		if (!order.length) return { origin: [0, 0], layers: [] };
 		const origin = opts.origin || order[0].origin;
+		const hidden = opts.hidden || EMPTY;   // 非表示スタイル層(li)の集合。既存タイルから当該opを描画時に除くだけ
 		const tileOps = [];
 		const size = new Map();
 		for (const { key, origin: to } of order) {
 			const c = cache.get(key); if (!c || !c.dl) continue;
 			tileOps.push({ ox: to[0] - origin[0], oy: to[1] - origin[1], ops: c.dl.ops });
 			for (const op of c.dl.ops) {
+				if (hidden.has(op.li)) continue;
 				let e = size.get(op.li); if (!e) { e = { kind: op.kind, fillN: 0, lineN: 0 }; size.set(op.li, e); }
 				if (op.kind === "fill") e.fillN += op.pos.length / 2; else e.lineN += op.half.length;
 			}
@@ -72,6 +75,7 @@ export function createTileManager({ style, tileUrl, onChange, cap = 256 }) {
 		}
 		for (const { ox, oy, ops } of tileOps) {
 			for (const op of ops) {
+				if (hidden.has(op.li)) continue;
 				const m = buf.get(op.li);
 				if (op.kind === "fill") {
 					const p = op.pos; let pi = m.pi; for (let i = 0; i < p.length; i += 2) { m.pos[pi++] = p[i] + ox; m.pos[pi++] = p[i + 1] + oy; } m.pi = pi;

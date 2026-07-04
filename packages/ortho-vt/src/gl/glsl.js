@@ -204,7 +204,10 @@ out float v_fog;
 void main() {
 	vec2 la1 = u_origin + a_p1, la2 = u_origin + a_p2;
 	vec3 da = lonlatTo3D(la1), db = lonlatTo3D(la2);
-	vec3 wa = da * (1.0 + elev(la1) * u_elevScale), wb = db * (1.0 + elev(la2) * u_elevScale);
+	// 道路は地形サーフェスの僅か上に乗せる。細分化(~700m)と地形格子(~2km)のサンプル差で
+	// 地形へ潜って破線化するのを防ぐ。lift は elevScale 比例＝平面時0・視距離に依らず一定。
+	float lift = u_elevScale * 15.0;
+	vec3 wa = da * (1.0 + elev(la1) * u_elevScale + lift), wb = db * (1.0 + elev(la2) * u_elevScale + lift);
 	vec4 ca = u_mvp * vec4(wa, 1.0), cb = u_mvp * vec4(wb, 1.0);
 	float fa = dot(da, u_eye) - 1.0, fb = dot(db, u_eye) - 1.0;
 	if (ca.w <= 0.0 || cb.w <= 0.0) { v_front = -1.0; gl_Position = vec4(2.0, 2.0, 2.0, 1.0); return; }  // カメラ背後

@@ -40,7 +40,7 @@ export function buildLabels({ layers, z, x, y }, style) {
 			const haloW = num(evalExpr(L.paint?.["text-halo-width"] ?? 0, ctx), 0);
 			const sort = num(evalExpr(lo["symbol-sort-key"] ?? 0, ctx), 0);
 			for (const ch of text) codepoints.add(ch.codePointAt(0));
-			out.push({ anchor: [lon, lat], text, size, font: M1_FONT, color, halo, haloW, sort });
+			out.push({ anchor: [lon, lat], text, size, font: M1_FONT, color, halo, haloW, sort, code: num(f.props.vt_code, 0) });
 		}
 	}
 	return { labels: out, codepoints, font: M1_FONT };

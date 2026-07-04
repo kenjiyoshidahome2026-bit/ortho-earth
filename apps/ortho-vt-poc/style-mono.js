@@ -38,6 +38,35 @@ export default {
 		// 行政界：淡いグレーの細線（破線は capsule 未対応のため実線）
 		{ id: "admin", type: "line", "source-layer": "AdmBdry", paint: { "line-color": "#cececb", "line-width": 0.8, "line-opacity": 0.9 } },
 
+		// --- "点火"レイヤー群 ---
+		// 土台は常に白黒で全部見えている。各テーマは同じ形状に色を重ねるだけ＝普段は非表示、
+		// チップONで buildScene に含める。再取得・再デコード不要で一瞬。色は後から自由に差し替え可。
+
+		// 鉄道 点火：静かな寒色
+		{
+			id: "rail-hi", type: "line", "source-layer": "RailCL",
+			layout: { "line-cap": "round" },
+			paint: { "line-color": "#5f7d9e", "line-width": ["interpolate", ["linear"], ["zoom"], 11, 0.6, 16, 1.9] },
+		},
+		// 道路 点火：高速＝橙、国道＝赤茶（幹線だけ着色。都道府県道以下は土台グレーのまま）
+		{
+			id: "road-hi", type: "line", "source-layer": "RdCL",
+			filter: ["in", ["get", "vt_rdctg"], ["literal", ["高速自動車国道等", "国道"]]],
+			layout: { "line-cap": "round", "line-join": "round", "line-sort-key": ["coalesce", ["get", "vt_drworder"], 0] },
+			paint: {
+				"line-color": ["match", ["get", "vt_rdctg"], "高速自動車国道等", "#e0662f", "#c8553d"],
+				"line-width": ["interpolate", ["linear"], ["zoom"],
+					11, ["match", ["get", "vt_rdctg"], "高速自動車国道等", 1.8, 1.4],
+					14, ["match", ["get", "vt_rdctg"], "高速自動車国道等", 4.0, 2.8],
+					16, ["match", ["get", "vt_rdctg"], "高速自動車国道等", 8.0, 5.5]],
+			},
+		},
+		// 行政区域 点火：淡い藤色
+		{
+			id: "admin-hi", type: "line", "source-layer": "AdmBdry",
+			paint: { "line-color": "#a8759c", "line-width": 1.1, "line-opacity": 0.95 },
+		},
+
 		// 注記：濃いグレー＋地色ハロー。読めるが主張しない。
 		{
 			id: "label", type: "symbol", "source-layer": "Anno",

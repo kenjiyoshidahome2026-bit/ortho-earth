@@ -97,16 +97,47 @@ document.getElementById("go").addEventListener("click", () => {
 	setView(+document.getElementById("lon").value, +document.getElementById("lat").value, +document.getElementById("zoom").value);
 });
 
-// LOD選択(sig)が変わった時だけシーンを再結合。原点は安定化（頻繁な再ベースによるプルプルを防ぐ）。
+// テーマ・チップ状態：静かな白黒の土台は常に全部見えている。チップは主題の「文字の表示」
+// または「色の点火」を切り替えるだけ。すべて既取得データの再スタイル＝再取得・再デコードなし。
+//   chimei/chikei … 文字（注記カテゴリ）の表示ON/OFF
+//   rail/road/admin … 色の点火ON/OFF（OFFでも土台グレーは出ている）
+const layerState = { chimei: true, chikei: false, rail: false, road: false, admin: false };
+let styleSig = JSON.stringify(layerState);
+const liOf = id => style.layers.findIndex(L => L.id === id);
+const LI_RAILHI = liOf("rail-hi"), LI_ROADHI = liOf("road-hi"), LI_ADMINHI = liOf("admin-hi");
+// 注記カテゴリ（実データ実測）。allowlist＝ONのカテゴリのみ描く（紙地図の全部盛りをやめる）。
+const CHIMEI_CODES = new Set([140, 1401, 1402, 1403, 110, 210, 220]);   // 都道府県・都市・区・町名・地区
+const CHIKEI_CODES = new Set([316, 322, 345]);                          // 山・河川・海/湾
+function hiddenLi() {
+	const h = new Set();   // "点火"層は既定で隠す（土台グレーが見えている）。ONで色が乗る。
+	if (!layerState.rail) h.add(LI_RAILHI);
+	if (!layerState.road) h.add(LI_ROADHI);
+	if (!layerState.admin) h.add(LI_ADMINHI);
+	return h;
+}
+function filterLabels(all) {
+	return all.filter(L =>
+		(layerState.chimei && CHIMEI_CODES.has(L.code)) ||
+		(layerState.chikei && CHIKEI_CODES.has(L.code)));
+}
+
+// LOD選択 or テーマ状態(styleSig)が変わった時だけシーンを再結合。原点は安定化（プルプル防止）。
 function swapScene(order) {
-	const sig = order.map(o => o.key).join("|");
+	const sig = order.map(o => o.key).join("|") + "#" + styleSig;
 	if (sig === readySig || !order.length) return;
 	if (!sceneOrigin || Math.abs(sceneOrigin[0] - cam.center[0]) > 0.4 || Math.abs(sceneOrigin[1] - cam.center[1]) > 0.4)
 		sceneOrigin = [cam.center[0], cam.center[1]];
-	renderer.setScene(tiles.buildScene(order, { origin: sceneOrigin }));
-	lastLabels = tiles.labels(order); labelLayer.setLabels(lastLabels);
+	renderer.setScene(tiles.buildScene(order, { origin: sceneOrigin, hidden: hiddenLi() }));
+	lastLabels = filterLabels(tiles.labels(order)); labelLayer.setLabels(lastLabels);
 	readySig = sig;
 }
+
+// チップ操作：状態を反転し、styleSig を更新して即再結合（再取得なし・一瞬）。
+document.querySelectorAll(".chip").forEach(b => b.addEventListener("click", () => {
+	const k = b.dataset.k; layerState[k] = !layerState[k];
+	b.classList.toggle("on", layerState[k]);
+	styleSig = JSON.stringify(layerState); readySig = ""; needsDraw = true;
+}));
 
 // 標高アトラス（GEBCO R10）：視野を覆う R10 セル群を1枚のアトラスへ。寄ると高精細1枚、引くと複数枚を粗く。
 const EARTH_M = 6371000, TERR_EXAG = 1.7;
