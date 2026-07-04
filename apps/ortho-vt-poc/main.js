@@ -36,7 +36,8 @@ const tiles = createTileManager({
 // 透視カメラ：center(注視点lon/lat), zoom(web-mercator float), pitch/bearing(rad)
 const MAXPITCH = 68 * D2R;
 const atmo = [0.5, 0.66, 0.96, 0.3];   // 大気色 rgb + 強さ（さりげなく）
-const cam = { center: [139.767, 35.681], zoom: 16, pitch: 0, bearing: 0, dpr, clear, land, atmo };
+const bldColor = [0.83, 0.83, 0.82];    // 建物色（静かなグレー）
+const cam = { center: [139.767, 35.681], zoom: 16, pitch: 0, bearing: 0, dpr, clear, land, atmo, bldColor };
 
 function resize() {
 	const w = window.innerWidth, h = window.innerHeight;
@@ -89,7 +90,7 @@ function anchoredAt(clientX, clientY, mutate) {
 canvas.addEventListener("wheel", e => {
 	e.preventDefault();
 	if (e.metaKey) anchoredAt(e.clientX, e.clientY, () => { cam.bearing += e.deltaY * 0.01; });   // 軸回転(Cmd)。ctrl+wheelはトラックパッドのピンチ＝ズームに回す
-	else anchoredAt(e.clientX, e.clientY, () => { cam.zoom = Math.max(2, Math.min(16, cam.zoom - e.deltaY * 0.002)); });  // ズーム（カーソル中心。z2まで引くと地球全体）
+	else anchoredAt(e.clientX, e.clientY, () => { cam.zoom = Math.max(2, Math.min(19, cam.zoom - e.deltaY * 0.002)); });  // ズーム（z2=地球全体〜z19。16超はベクタのオーバーズーム＝潰れず街路へ）
 }, { passive: false });
 
 document.getElementById("go").addEventListener("click", () => {

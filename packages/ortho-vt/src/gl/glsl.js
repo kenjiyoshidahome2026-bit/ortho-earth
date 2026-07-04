@@ -23,6 +23,38 @@ vec2 toScreen(vec4 c) {
 }
 `;
 
+// 建物：フットプリントを高さ方向に押し出した3Dメッシュ。深度テストで前後関係を解決。
+export const BUILDING_VS = `#version 300 es
+precision highp float;
+in vec3 a_pos;      // dlon, dlat, hWorld（原点からの経緯度差分＋高さ・単位球スケール）
+in float a_shade;   // 陰影（屋根1/壁0.76）
+${PROJECT}
+out float v_shade;
+out float v_front;
+out float v_fog;
+void main() {
+	vec3 dir = lonlatTo3D(u_origin + a_pos.xy);
+	vec3 w = dir * (1.0 + a_pos.z);          // 面法線方向へ高さぶん持ち上げ
+	v_shade = a_shade;
+	v_front = dot(dir, u_eye) - 1.0;
+	v_fog = fogOf(w);
+	gl_Position = u_mvp * vec4(w, 1.0);
+}`;
+
+export const BUILDING_FS = `#version 300 es
+precision highp float;
+uniform vec3 u_bldColor;
+uniform vec3 u_fogColor;
+in float v_shade;
+in float v_front;
+in float v_fog;
+out vec4 fragColor;
+void main() {
+	if (v_front < 0.0) discard;
+	vec3 c = mix(u_bldColor * v_shade, u_fogColor, v_fog);
+	fragColor = vec4(c, 1.0);
+}`;
+
 // 球体本体：フルスクリーン三角形の各画素でカメラ光線×単位球。当たれば land色、外れれば宇宙(discard)。
 export const GLOBE_VS = `#version 300 es
 precision highp float;

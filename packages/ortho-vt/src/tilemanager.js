@@ -5,6 +5,7 @@ import { fetchMVT } from "./decode.js";
 import { tileBounds } from "./tile.js";
 import { buildTileDrawList } from "./build.js";
 import { buildLabels } from "./labels.js";
+import { buildBuildings } from "./buildings.js";
 import { selectLOD } from "./tilecover.js";
 
 const keyOf = t => `${t.z}/${t.x}/${t.y}`;
@@ -22,7 +23,8 @@ export function createTileManager({ style, tileUrl, onChange, cap = 256 }) {
 			const origin = [w, n];
 			const dl = buildTileDrawList({ layers, z: t.z, x: t.x, y: t.y }, style, origin);
 			const { labels } = buildLabels({ layers, z: t.z, x: t.x, y: t.y }, style);
-			cache.set(k, { status: "ready", origin, dl, labels, z: t.z });
+			const buildings = buildBuildings({ layers, z: t.z, x: t.x, y: t.y }, origin);
+			cache.set(k, { status: "ready", origin, dl, labels, buildings, z: t.z });
 			onChange && onChange();
 		} catch (e) {
 			cache.set(k, { status: "error", origin: null, dl: null, labels: [], z: t.z });
@@ -85,7 +87,23 @@ export function createTileManager({ style, tileUrl, onChange, cap = 256 }) {
 		const layers = [...buf.values()].sort((a, b) => a.li - b.li).map(m => m.kind === "fill"
 			? { kind: "fill", pos: m.pos, col: m.col }
 			: { kind: "line", P1: m.P1, P2: m.P2, col: m.col, half: m.half });
-		return { origin, layers };
+
+		// 建物（3D押し出し）を全タイルから結合。pos は xy を原点へ再ベース、z(高さ)はそのまま。
+		let bN = 0;
+		for (const { key } of order) { const c = cache.get(key); if (c && c.buildings) bN += c.buildings.pos.length; }
+		let buildings = null;
+		if (bN) {
+			const pos = new Float32Array(bN), shade = new Float32Array(bN / 3);
+			let pi = 0, si = 0;
+			for (const { key, origin: to } of order) {
+				const c = cache.get(key); if (!c || !c.buildings) continue;
+				const ox = to[0] - origin[0], oy = to[1] - origin[1], bp = c.buildings.pos;
+				for (let i = 0; i < bp.length; i += 3) { pos[pi++] = bp[i] + ox; pos[pi++] = bp[i + 1] + oy; pos[pi++] = bp[i + 2]; }
+				shade.set(c.buildings.shade, si); si += c.buildings.shade.length;
+			}
+			buildings = { pos, shade };
+		}
+		return { origin, layers, buildings };
 	}
 
 	// 近景（高z）タイルのラベルだけ結合＆重複排除。遠方（粗タイル）はテキスト無し。

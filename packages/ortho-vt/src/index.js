@@ -9,6 +9,7 @@ export { buildTileDrawList } from "./build.js";
 export { createRenderer } from "./gl/renderer.js";
 export { GlyphAtlas, decodeGlyphPBF } from "./glyphs.js";
 export { buildLabels, layoutText } from "./labels.js";
+export { buildBuildings } from "./buildings.js";
 export { createTextRenderer } from "./gl/text.js";
 export { createLabelLayer } from "./labels2d.js";
 export { cameraState, project, unproject, lonlatTo3D } from "./camera.js";

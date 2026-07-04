@@ -1,7 +1,7 @@
 // WebGL2 レンダラ：可視タイルを跨いで同一 style層を1バッファに結合した「シーン」を描く。
 // draw call は「タイル数×層数」から「層数」へ激減し、uniform も1フレーム1回。共通のシーン原点で投影。
 // fill = earcut三角形、line = capsule(SDF)。scene.layers は style層順（painter's algorithm）。
-import { FILL_VS, FILL_FS, LINE_VS, LINE_FS, GLOBE_VS, GLOBE_FS } from "./glsl.js";
+import { FILL_VS, FILL_FS, LINE_VS, LINE_FS, GLOBE_VS, GLOBE_FS, BUILDING_VS, BUILDING_FS } from "./glsl.js";
 import { cameraState } from "../camera.js";
 
 const CORNERS = new Float32Array([0, -1, 0, 1, 1, -1, 1, -1, 0, 1, 1, 1]); // 6頂点×(end,side)
@@ -13,10 +13,11 @@ export function createRenderer(canvas) {
 	const fillProg = program(gl, FILL_VS, FILL_FS);
 	const lineProg = program(gl, LINE_VS, LINE_FS);
 	const globeProg = program(gl, GLOBE_VS, GLOBE_FS);
+	const bldProg = program(gl, BUILDING_VS, BUILDING_FS);
 	const cornerBuf = buffer(gl, CORNERS);
 	const emptyVAO = gl.createVertexArray();
 	// base=粗い下書き（underlay）、main=現ズーム。draw で base→main の順に描く。
-	const scenes = { base: { origin: [0, 0], draws: [] }, main: { origin: [0, 0], draws: [] } };
+	const scenes = { base: { origin: [0, 0], draws: [], bld: null }, main: { origin: [0, 0], draws: [], bld: null } };
 
 	// s: { origin:[lon,lat], layers:[{kind:'fill'|'line', ...typed arrays}] }（style層順）。slot: 'base'|'main'
 	function setScene(s, slot = "main") {
@@ -47,7 +48,17 @@ export function createRenderer(canvas) {
 				draws.push({ kind: "line", vao, count: L.half.length, bufs: [bP1, bP2, bCol, bHalf] });
 			}
 		}
-		scenes[slot] = { origin: s.origin, draws };
+		let bld = null;
+		if (s.buildings && s.buildings.pos.length) {
+			const vao = gl.createVertexArray();
+			const bPos = buffer(gl, s.buildings.pos), bSh = buffer(gl, s.buildings.shade);
+			gl.bindVertexArray(vao);
+			attrib(gl, bldProg, "a_pos", bPos, 3);
+			attrib(gl, bldProg, "a_shade", bSh, 1);
+			gl.bindVertexArray(null);
+			bld = { vao, count: s.buildings.pos.length / 3, bufs: [bPos, bSh] };
+		}
+		scenes[slot] = { origin: s.origin, draws, bld };
 	}
 
 	function setCommonUniforms(prog, st, origin, fog) {
@@ -71,6 +82,7 @@ export function createRenderer(canvas) {
 		gl.enable(gl.BLEND);
 		gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
 		gl.disable(gl.DEPTH_TEST);
+		gl.clear(gl.DEPTH_BUFFER_BIT);
 
 		// 球体本体：land基色を縁(リム)まで一様に敷く。宇宙(clear色)を背に丸い地球が見える。
 		const land = cam.land || [0.96, 0.96, 0.95, 1], atmo = cam.atmo || [0.45, 0.62, 0.95, 0.6];
@@ -101,12 +113,25 @@ export function createRenderer(canvas) {
 				}
 			}
 		}
+
+		// 建物（3D押し出し）：平面地図の上に、深度テストで前後関係を解決して描く。
+		const bld = scenes.main.bld;
+		if (bld) {
+			gl.enable(gl.DEPTH_TEST); gl.depthFunc(gl.LESS);
+			const c = cam.bldColor || [0.86, 0.86, 0.85];
+			setCommonUniforms(bldProg, st, scenes.main.origin, land);
+			gl.uniform3f(loc(gl, bldProg, "u_bldColor"), c[0], c[1], c[2]);
+			gl.bindVertexArray(bld.vao);
+			gl.drawArrays(gl.TRIANGLES, 0, bld.count);
+			gl.disable(gl.DEPTH_TEST);
+		}
 		gl.bindVertexArray(null);
 	}
 
 	function disposeSlot(slot) {
 		for (const d of scenes[slot].draws) { for (const b of d.bufs) gl.deleteBuffer(b); gl.deleteVertexArray(d.vao); }
-		scenes[slot] = { origin: scenes[slot].origin, draws: [] };
+		if (scenes[slot].bld) { for (const b of scenes[slot].bld.bufs) gl.deleteBuffer(b); gl.deleteVertexArray(scenes[slot].bld.vao); }
+		scenes[slot] = { origin: scenes[slot].origin, draws: [], bld: null };
 	}
 	function dispose() { disposeSlot("base"); disposeSlot("main"); }
 
