@@ -50,6 +50,23 @@ export function toFloat32(tile, { clampSea = true } = {}) {
 	return out;
 }
 
+// タイルを N×N の Float32 にダウンサンプル。行は南→北（row0=南）で格納＝アトラス配置用。海は0クランプ。
+export function downsampleFlipped(tile, N) {
+	const { data, width: w, height: h } = tile;
+	const out = new Float32Array(N * N);
+	const H = (x, y) => data[(h - 1 - y) * w + x];   // y: 0=南 の地理座標 → データ行(北上げ)へ
+	for (let j = 0; j < N; j++) {
+		const gy = j / (N - 1) * (h - 1), y0 = Math.min(gy | 0, h - 2), fy = gy - y0;
+		for (let i = 0; i < N; i++) {
+			const gx = i / (N - 1) * (w - 1), x0 = Math.min(gx | 0, w - 2), fx = gx - x0;
+			const a = H(x0, y0), b = H(x0 + 1, y0), c = H(x0, y0 + 1), d = H(x0 + 1, y0 + 1);
+			const v = (a + (b - a) * fx) + ((c + (d - c) * fx) - (a + (b - a) * fx)) * fy;
+			out[j * N + i] = v < 0 ? 0 : v;              // row0=南
+		}
+	}
+	return out;
+}
+
 // 双線形サンプル（y は上下反転格納）。CPU側の高さ問い合わせ用（建物の足元など）。
 export function sampleHeight(tile, lng, lat) {
 	if (!tile) return 0;

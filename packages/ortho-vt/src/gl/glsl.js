@@ -18,14 +18,14 @@ vec3 lonlatTo3D(vec2 ll) {
 }
 // 標高テクスチャ（GEBCO/ALOS, R32F meters）。範囲内なら高さ(m)、外は0。
 uniform sampler2D u_elevTex;
-uniform vec4 u_elevBounds;   // lng0, lat0, range, _
+uniform vec4 u_elevBounds;   // originLng, originLat, spanLng, spanLat（アトラス被覆）
 uniform float u_elevScale;   // (誇張 / 地球半径m) : m → 単位球
 uniform float u_hasElev;     // 0/1
 float elev(vec2 ll) {
 	if (u_hasElev < 0.5) return 0.0;
-	vec2 uv = (ll - u_elevBounds.xy) / u_elevBounds.z;
+	vec2 uv = (ll - u_elevBounds.xy) / u_elevBounds.zw;
 	if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) return 0.0;
-	return texture(u_elevTex, vec2(uv.x, 1.0 - uv.y)).r;   // 格納は北が上→v反転
+	return texture(u_elevTex, uv).r;   // アトラスは南上げ格納＝v直接
 }
 // clip.xy/clip.w → device px（左上原点, y下向き）
 vec2 toScreen(vec4 c) {
@@ -76,11 +76,13 @@ uniform vec3 u_land;
 out vec3 v_col;
 out float v_front;
 out float v_fog;
+out float v_h;
 void main() {
 	vec3 dir = lonlatTo3D(a_ll);
 	float h = elev(a_ll);
+	v_h = h;
 	vec3 w = dir * (1.0 + h * u_elevScale);
-	float d = u_elevBounds.z / 1200.0;                       // 勾配サンプル歩幅(度)
+	float d = 0.004;                                         // 勾配サンプル歩幅(度, ~450m固定)
 	float hx = elev(a_ll + vec2(d, 0.0)) - elev(a_ll - vec2(d, 0.0));
 	float hy = elev(a_ll + vec2(0.0, d)) - elev(a_ll - vec2(0.0, d));
 	float shade = clamp(0.82 + (-hx + hy) * 0.00035, 0.45, 1.15);   // 北西光の hillshade
@@ -96,9 +98,11 @@ uniform vec3 u_fogColor;
 in vec3 v_col;
 in float v_front;
 in float v_fog;
+in float v_h;
 out vec4 fragColor;
 void main() {
 	if (v_front < 0.0) discard;
+	if (v_h < 0.5) discard;                 // 海/浅海は地形を描かない（水域fillに任せ z-fight回避）
 	fragColor = vec4(mix(v_col, u_fogColor, v_fog), 1.0);
 }`;
 

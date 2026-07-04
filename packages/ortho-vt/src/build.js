@@ -13,6 +13,10 @@ export function buildTileDrawList({ layers, z, x, y }, style, origin, pale = c =
 	const [ox, oy] = origin;
 	const ops = [];   // { kind:'fill'|'line', li, ... } を style層順に（li=style層index、跨ぎバッチ結合用）
 	const toLL = (px, py, extent) => tileLocalToLonLat(x, y, z, px, py, extent);
+	// 線分細分の閾値（タイル単位）：地形にドレープする際、長い直線が尾根で折れないよう ~700m 毎に分割。
+	const [, cLat] = tileLocalToLonLat(x, y, z, 2048, 2048, 4096);
+	const mPerUnit = 40075016.686 * Math.cos(cLat * Math.PI / 180) / (Math.pow(2, z) * 4096);
+	const subLen = Math.max(1, 700 / mPerUnit);   // 700m 相当のタイル単位
 
 	for (let li = 0; li < style.layers.length; li++) {
 		const L = style.layers[li];
@@ -53,10 +57,16 @@ export function buildTileDrawList({ layers, z, x, y }, style, origin, pale = c =
 				const hw = w * 0.5;
 				for (const linePts of f.geom) {
 					for (let i = 0; i + 1 < linePts.length; i++) {
-						const [alon, alat] = toLL(linePts[i].x, linePts[i].y, extent);
-						const [blon, blat] = toLL(linePts[i + 1].x, linePts[i + 1].y, extent);
-						P1.push(alon - ox, alat - oy); P2.push(blon - ox, blat - oy);
-						col.push(c[0], c[1], c[2], a); half.push(hw);
+						const A = linePts[i], B = linePts[i + 1];
+						const dx = B.x - A.x, dy = B.y - A.y;
+						const steps = Math.min(24, Math.max(1, Math.ceil(Math.hypot(dx, dy) / subLen)));  // 地形ドレープ用に細分
+						for (let s = 0; s < steps; s++) {
+							const t0 = s / steps, t1 = (s + 1) / steps;
+							const [alon, alat] = toLL(A.x + dx * t0, A.y + dy * t0, extent);
+							const [blon, blat] = toLL(A.x + dx * t1, A.y + dy * t1, extent);
+							P1.push(alon - ox, alat - oy); P2.push(blon - ox, blat - oy);
+							col.push(c[0], c[1], c[2], a); half.push(hw);
+						}
 					}
 				}
 			}

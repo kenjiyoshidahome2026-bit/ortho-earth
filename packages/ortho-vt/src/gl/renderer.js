@@ -20,6 +20,7 @@ export function createRenderer(canvas) {
 	gl.getExtension("OES_texture_float_linear");   // R32F の線形補間
 	// 標高（GEBCO/ALOS）：テクスチャ＋地形格子メッシュ
 	let elevTex = null, elev = { bounds: [0, 0, 1, 0], scale: 0, has: 0 }, terrain = null;
+	let elevScaleEff = 0;   // pitchで変調した実効スケール（真俯瞰では0＝平面）
 	// base=粗い下書き（underlay）、main=現ズーム。draw で base→main の順に描く。
 	const scenes = { base: { origin: [0, 0], draws: [], bld: null }, main: { origin: [0, 0], draws: [], bld: null } };
 
@@ -65,24 +66,31 @@ export function createRenderer(canvas) {
 		scenes[slot] = { origin: s.origin, draws, bld };
 	}
 
-	// tile: { data:Float32Array(m), width, height, lng, lat, range }。scale: 誇張/地球半径m。
-	function setElevation(tile, scale) {
-		if (!tile) { elev.has = 0; return; }
+	// 標高アトラス：R10セルを1枚のテクスチャに敷く。a:{originLng,originLat,cellsX,cellsY,cellRes}
+	function setElevationAtlas(a, scale) {
+		const W = a.cellsX * a.cellRes, H = a.cellsY * a.cellRes;
 		if (!elevTex) elevTex = gl.createTexture();
 		gl.bindTexture(gl.TEXTURE_2D, elevTex);
 		gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
-		gl.texImage2D(gl.TEXTURE_2D, 0, gl.R32F, tile.width, tile.height, 0, gl.RED, gl.FLOAT, tile.data);
+		gl.texImage2D(gl.TEXTURE_2D, 0, gl.R32F, W, H, 0, gl.RED, gl.FLOAT, new Float32Array(W * H));  // 0(海)で初期化
 		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
 		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
 		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
 		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-		elev = { bounds: [tile.lng, tile.lat, tile.range, 0], scale, has: 1 };
-		buildTerrainMesh(tile.lng, tile.lat, tile.range);
+		elev = { bounds: [a.originLng, a.originLat, a.cellsX * 10, a.cellsY * 10], scale, has: 1 };
+		const G = Math.min(1536, Math.max(768, 768 * Math.max(a.cellsX, a.cellsY)));
+		buildTerrainMesh(a.originLng, a.originLat, a.cellsX * 10, a.cellsY * 10, G);
 	}
-	function buildTerrainMesh(lng0, lat0, range) {
-		const G = 384;
+	// セル(cx,cy)の N×N Float32(南上げ)をアトラスへ。
+	function setElevationCell(cx, cy, data, cellRes) {
+		if (!elevTex) return;
+		gl.bindTexture(gl.TEXTURE_2D, elevTex);
+		gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+		gl.texSubImage2D(gl.TEXTURE_2D, 0, cx * cellRes, cy * cellRes, cellRes, cellRes, gl.RED, gl.FLOAT, data);
+	}
+	function buildTerrainMesh(oLng, oLat, spanLng, spanLat, G) {
 		const ll = new Float32Array(G * G * 2);
-		for (let j = 0; j < G; j++) for (let i = 0; i < G; i++) { const k = (j * G + i) * 2; ll[k] = lng0 + range * i / (G - 1); ll[k + 1] = lat0 + range * j / (G - 1); }
+		for (let j = 0; j < G; j++) for (let i = 0; i < G; i++) { const k = (j * G + i) * 2; ll[k] = oLng + spanLng * i / (G - 1); ll[k + 1] = oLat + spanLat * j / (G - 1); }
 		const idx = new Uint32Array((G - 1) * (G - 1) * 6);
 		let p = 0; for (let j = 0; j < G - 1; j++) for (let i = 0; i < G - 1; i++) { const a = j * G + i, b = a + 1, c = a + G, d = c + 1; idx[p++] = a; idx[p++] = c; idx[p++] = b; idx[p++] = b; idx[p++] = c; idx[p++] = d; }
 		if (terrain) { gl.deleteVertexArray(terrain.vao); gl.deleteBuffer(terrain.vbo); gl.deleteBuffer(terrain.ibo); }
@@ -105,8 +113,8 @@ export function createRenderer(canvas) {
 		gl.uniform1f(loc(gl, prog, "u_fogFar"), st.camDist * 14.0);
 		gl.uniform3f(loc(gl, prog, "u_fogColor"), fog[0], fog[1], fog[2]);
 		gl.uniform1i(loc(gl, prog, "u_elevTex"), 1);
-		gl.uniform4f(loc(gl, prog, "u_elevBounds"), elev.bounds[0], elev.bounds[1], elev.bounds[2], 0);
-		gl.uniform1f(loc(gl, prog, "u_elevScale"), elev.scale);
+		gl.uniform4f(loc(gl, prog, "u_elevBounds"), elev.bounds[0], elev.bounds[1], elev.bounds[2], elev.bounds[3]);
+		gl.uniform1f(loc(gl, prog, "u_elevScale"), elevScaleEff);
 		gl.uniform1f(loc(gl, prog, "u_hasElev"), elev.has);
 	}
 
@@ -114,6 +122,10 @@ export function createRenderer(canvas) {
 		gl.viewport(0, 0, canvas.width, canvas.height);
 		const st = cameraState(cam, canvas.width, canvas.height);
 		st.mvp32 = Float32Array.from(st.mvp);
+		// 真俯瞰では標高オフ、傾けるほどフェードイン（3.4°→11.5°）
+		const pt = Math.max(0, Math.min(1, ((cam.pitch || 0) - 0.06) / 0.14));
+		const pf = pt * pt * (3 - 2 * pt);
+		elevScaleEff = elev.scale * pf;
 		const c = cam.clear || [1, 1, 1, 1];
 		gl.clearColor(c[0] * c[3], c[1] * c[3], c[2] * c[3], c[3]);
 		gl.clear(gl.COLOR_BUFFER_BIT);
@@ -133,17 +145,20 @@ export function createRenderer(canvas) {
 
 		// 標高テクスチャをユニット1へ（全プログラムが elev() で参照）
 		if (elev.has && elevTex) { gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, elevTex); gl.activeTexture(gl.TEXTURE0); }
+		const terrainActive = !!(terrain && elev.has && elevScaleEff > 1e-9);   // 傾き時のみ地形あり
 		// ここから深度あり（地形→ベクタ→建物が前後関係を共有）
 		gl.enable(gl.DEPTH_TEST); gl.depthFunc(gl.LEQUAL);
-		// 地形サーフェス（標高変位＋hillshade）
-		if (terrain && elev.has) {
+		// 地形サーフェス（標高変位＋hillshade）。真俯瞰(pf≈0)では描かない＝平面地図。
+		if (terrainActive) {
 			setCommonUniforms(terrainProg, st, [0, 0], land);
 			gl.uniform3f(loc(gl, terrainProg, "u_land"), land[0], land[1], land[2]);
 			gl.bindVertexArray(terrain.vao);
 			gl.drawElements(gl.TRIANGLES, terrain.count, gl.UNSIGNED_INT, 0);
 		}
-		// ベクタ：地形の直上に。ポリゴンオフセットで z-fight を避けつつ尾根で遮蔽される。
-		gl.enable(gl.POLYGON_OFFSET_FILL); gl.polygonOffset(-1.5, -1.5);
+		// ベクタ：地形有効時のみ深度＋定数オフセットで地形に貼りつく。平面はペインタ順のみ
+		// （深度もオフセットも切る）＝球冠のスロープ由来 z-fight（高速道路ラインのちらつき）を根絶。
+		if (terrainActive) { gl.enable(gl.POLYGON_OFFSET_FILL); gl.polygonOffset(0.0, -8.0); }
+		else { gl.disable(gl.DEPTH_TEST); }
 		gl.useProgram(lineProg); gl.uniform1f(loc(gl, lineProg, "u_dpr"), cam.dpr || 1);
 
 		for (const slot of ["base", "main"]) {   // 粗い下書き→現ズームの順
@@ -164,7 +179,8 @@ export function createRenderer(canvas) {
 				}
 			}
 		}
-		gl.disable(gl.POLYGON_OFFSET_FILL);
+		if (terrainActive) gl.disable(gl.POLYGON_OFFSET_FILL);
+		else gl.enable(gl.DEPTH_TEST);   // 建物は常に深度で前後関係を解決
 
 		// 建物（3D押し出し）：深度で前後関係を解決（地形・尾根にも遮蔽される）。
 		const bld = scenes.main.bld;
@@ -186,7 +202,7 @@ export function createRenderer(canvas) {
 	}
 	function dispose() { disposeSlot("base"); disposeSlot("main"); }
 
-	return { gl, setScene, setElevation, draw, dispose };
+	return { gl, setScene, setElevationAtlas, setElevationCell, draw, dispose };
 }
 
 // --- GL ヘルパ ---
