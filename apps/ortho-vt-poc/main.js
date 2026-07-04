@@ -221,6 +221,26 @@ document.querySelectorAll(".chip").forEach(b => b.addEventListener("click", () =
 	styleSig = JSON.stringify(layerState); readySig = ""; needsDraw = true;
 }));
 
+// コンパス兼リセット：3D（傾き or 回転）の時だけ表示。針は方位を指し、押すと水平・北向きへスッと戻る。
+const resetBtn = document.getElementById("reset");
+const resetSvg = resetBtn.querySelector("svg");
+const shortBearing = () => ((cam.bearing + Math.PI) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI) - Math.PI;   // 最短回転へ正規化
+function updateCompass() {
+	const is3D = cam.pitch > 0.005 || Math.abs(shortBearing()) > 0.005;
+	resetBtn.style.display = is3D ? "flex" : "none";
+	if (is3D) resetSvg.style.transform = `rotate(${-cam.bearing * 180 / Math.PI}deg)`;
+}
+resetBtn.addEventListener("click", () => {
+	const p0 = cam.pitch, b0 = shortBearing(), t0 = performance.now(), dur = 350;
+	const step = () => {
+		const k = Math.min(1, (performance.now() - t0) / dur), e = k * k * (3 - 2 * k);   // smoothstep
+		cam.pitch = p0 * (1 - e); cam.bearing = b0 * (1 - e); onMove();
+		if (k < 1) requestAnimationFrame(step);
+		else { cam.pitch = 0; cam.bearing = 0; onMove(); }
+	};
+	requestAnimationFrame(step);
+});
+
 // 標高アトラス（GEBCO R10）：視野を覆う R10 セル群を1枚のアトラスへ。寄ると高精細1枚、引くと複数枚を粗く。
 let atlasKey = "", loadedCells = new Set();
 const r10Cache = new Map();   // "cx,cy"(セル) → fetchR10 の promise。再取得を防ぐ
@@ -293,6 +313,7 @@ function render() {
 	const zoomStable = Math.abs(cam.zoom - zoomAtBuild) < 0.12;
 	if (!moving || zoomStable) swapScene(order);
 	renderer.draw(cam, { skipBase: !moving });     // 静止時は粗い下地を隠す（LOD痕/二重線を消す）。移動中だけ空白埋め
+	updateCompass();                               // 3D時のみコンパス表示・針を方位に追従
 	if (labelLayer.draw(cam)) needsDraw = true;    // ラベルはライブ（位置は毎フレーム、集合は間引き）
 	logEl.textContent = `tiles=${order.length}/${total}  labels=${lastLabels.length}  zoom=${cam.zoom.toFixed(1)} pitch=${(cam.pitch * 180 / Math.PI).toFixed(0)}°`;
 }

@@ -28,6 +28,12 @@
 		.chip[data-k="rail"].on { background: #4b9e6a; border-color: #4b9e6a; }
 		.chip[data-k="road"].on { background: #2f6cad; border-color: #2f6cad; }
 		.chip[data-k="admin"].on { background: #e2892f; border-color: #e2892f; }
+		/* コンパス兼リセット：針が方位を示し、押すと水平・北向きに戻る */
+		#reset { position: fixed; top: 10px; right: 10px; width: 40px; height: 40px; border-radius: 50%; z-index: 5;
+			border: 1px solid rgba(120,130,150,.4); background: rgba(255,255,255,.85); cursor: pointer; padding: 0;
+			display: flex; align-items: center; justify-content: center; -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
+		#reset:hover { border-color: rgba(90,100,120,.7); }
+		#reset svg { display: block; }
 	</style>
 </head>
 <body>
@@ -40,6 +46,12 @@
 		<button id="go">読込</button>
 		<span style="opacity:.7">左ドラッグ=パン / 右(orShift)ドラッグ=チルト・方位 / ホイール=ズーム</span>
 	</div>
+	<button id="reset" title="北向き・水平に戻す">
+		<svg viewBox="0 0 40 40" width="26" height="26">
+			<polygon points="20,4 26,20 20,16.5 14,20" fill="#d0453d"/>
+			<polygon points="20,36 26,20 20,23.5 14,20" fill="#9a9a97"/>
+		</svg>
+	</button>
 	<div id="chips">
 		<button class="chip on" data-k="chimei">地名</button>
 		<button class="chip" data-k="chikei">地形</button>
