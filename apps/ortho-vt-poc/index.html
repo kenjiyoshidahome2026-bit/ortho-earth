@@ -14,6 +14,9 @@
 		#ui label { margin-right: 10px; }
 		#ui input { width: 78px; }
 		#log { position: fixed; bottom: 10px; left: 10px; font-family: ui-monospace, monospace; font-size: 12px; color: #9ab; background: rgba(10,16,33,.7); padding: 6px 8px; border-radius: 6px; }
+		#attr { position: fixed; bottom: 6px; right: 8px; font-size: 11px; color: #7a8; background: rgba(255,255,255,.55); padding: 3px 7px; border-radius: 5px; }
+		#attr a { color: #567; text-decoration: none; }
+		#attr a:hover { text-decoration: underline; }
 	</style>
 </head>
 <body>
@@ -27,6 +30,7 @@
 		<span style="opacity:.7">左ドラッグ=パン / 右(orShift)ドラッグ=チルト・方位 / ホイール=ズーム</span>
 	</div>
 	<div id="log">起動中…</div>
+	<div id="attr">出典：<a href="https://maps.gsi.go.jp/development/ichiran.html#optbv" target="_blank" rel="noopener">国土地理院最適化ベクトルタイル（提供実験）</a>（同データを加工して作成）</div>
 	<script type="module" src="./main.js"></script>
 </body>
 </html>

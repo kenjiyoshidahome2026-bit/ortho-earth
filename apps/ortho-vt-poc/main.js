@@ -89,7 +89,7 @@ function anchoredAt(clientX, clientY, mutate) {
 canvas.addEventListener("wheel", e => {
 	e.preventDefault();
 	if (e.metaKey) anchoredAt(e.clientX, e.clientY, () => { cam.bearing += e.deltaY * 0.01; });   // 軸回転(Cmd)。ctrl+wheelはトラックパッドのピンチ＝ズームに回す
-	else anchoredAt(e.clientX, e.clientY, () => { cam.zoom = Math.max(4, Math.min(16, cam.zoom - e.deltaY * 0.002)); });  // ズーム（カーソル中心）
+	else anchoredAt(e.clientX, e.clientY, () => { cam.zoom = Math.max(2, Math.min(16, cam.zoom - e.deltaY * 0.002)); });  // ズーム（カーソル中心。z2まで引くと地球全体）
 }, { passive: false });
 
 document.getElementById("go").addEventListener("click", () => {
