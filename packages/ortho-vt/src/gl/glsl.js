@@ -6,7 +6,11 @@ uniform mat4  u_mvp;
 uniform vec3  u_eye;        // カメラ位置（単位球ワールド）
 uniform vec2  u_origin;     // シーン原点 lon/lat (deg)
 uniform vec2  u_viewport;   // canvas 幅高 (device px)
+uniform float u_fogNear;    // フォグ開始距離（カメラからの距離）
+uniform float u_fogFar;     // フォグ全開距離
+uniform vec3  u_fogColor;   // 霞む先の色（=land基色）
 const float D2R = 0.017453292519943295;
+float fogOf(vec3 w) { return clamp((distance(u_eye, w) - u_fogNear) / max(u_fogFar - u_fogNear, 1e-6), 0.0, 1.0); }
 
 vec3 lonlatTo3D(vec2 ll) {
 	float a = ll.x * D2R, b = ll.y * D2R, cb = cos(b);
@@ -69,21 +73,26 @@ in vec4 a_color;
 ${PROJECT}
 out vec4 v_color;
 out float v_front;
+out float v_fog;
 void main() {
 	vec3 w = lonlatTo3D(u_origin + a_delta);
 	v_color = a_color;
 	v_front = dot(w, u_eye) - 1.0;          // >0 で手前半球
+	v_fog = fogOf(w);
 	gl_Position = u_mvp * vec4(w, 1.0);
 }`;
 
 export const FILL_FS = `#version 300 es
 precision highp float;
+uniform vec3 u_fogColor;
 in vec4 v_color;
 in float v_front;
+in float v_fog;
 out vec4 fragColor;
 void main() {
 	if (v_front < 0.0) discard;             // 裏半球は描かない
-	fragColor = vec4(v_color.rgb * v_color.a, v_color.a);  // premultiplied
+	vec3 rgb = mix(v_color.rgb, u_fogColor, v_fog);
+	fragColor = vec4(rgb * v_color.a, v_color.a);  // premultiplied
 }`;
 
 // capsule 方式：両端をスクリーン空間へ投影して定px幅・丸端で描く。透視でも幅が一定。
@@ -102,6 +111,7 @@ flat out float v_half;
 out vec2 v_pos;
 out vec4 v_color;
 out float v_front;
+out float v_fog;
 void main() {
 	vec3 wa = lonlatTo3D(u_origin + a_p1), wb = lonlatTo3D(u_origin + a_p2);
 	vec4 ca = u_mvp * vec4(wa, 1.0), cb = u_mvp * vec4(wb, 1.0);
@@ -117,18 +127,21 @@ void main() {
 	vec2 pos = base + perp * (hw * a_corner.y) + dir * (capSign * hw);
 	v_a = sa; v_b = sb; v_half = a_half * u_dpr; v_pos = pos;
 	v_color = a_color; v_front = min(fa, fb);
+	v_fog = fogOf((wa + wb) * 0.5);
 	vec2 ndc = vec2(pos.x / u_viewport.x * 2.0 - 1.0, 1.0 - pos.y / u_viewport.y * 2.0);
 	gl_Position = vec4(ndc, 0.0, 1.0);
 }`;
 
 export const LINE_FS = `#version 300 es
 precision highp float;
+uniform vec3 u_fogColor;
 flat in vec2 v_a;
 flat in vec2 v_b;
 flat in float v_half;
 in vec2 v_pos;
 in vec4 v_color;
 in float v_front;
+in float v_fog;
 out vec4 fragColor;
 void main() {
 	if (v_front < 0.0) discard;
@@ -138,5 +151,6 @@ void main() {
 	float alpha = clamp(v_half - dist + 0.5, 0.0, 1.0);
 	if (alpha <= 0.0) discard;
 	float a = v_color.a * alpha;
-	fragColor = vec4(v_color.rgb * a, a);
+	vec3 rgb = mix(v_color.rgb, u_fogColor, v_fog);
+	fragColor = vec4(rgb * a, a);
 }`;

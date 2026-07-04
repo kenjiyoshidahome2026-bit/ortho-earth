@@ -50,12 +50,15 @@ export function createRenderer(canvas) {
 		scenes[slot] = { origin: s.origin, draws };
 	}
 
-	function setCommonUniforms(prog, st, origin) {
+	function setCommonUniforms(prog, st, origin, fog) {
 		gl.useProgram(prog);
 		gl.uniformMatrix4fv(loc(gl, prog, "u_mvp"), false, st.mvp32);
 		gl.uniform3f(loc(gl, prog, "u_eye"), st.eye[0], st.eye[1], st.eye[2]);
 		gl.uniform2f(loc(gl, prog, "u_origin"), origin[0], origin[1]);
 		gl.uniform2f(loc(gl, prog, "u_viewport"), canvas.width, canvas.height);
+		gl.uniform1f(loc(gl, prog, "u_fogNear"), st.camDist * 2.5);
+		gl.uniform1f(loc(gl, prog, "u_fogFar"), st.camDist * 14.0);
+		gl.uniform3f(loc(gl, prog, "u_fogColor"), fog[0], fog[1], fog[2]);
 	}
 
 	function draw(cam) {
@@ -83,8 +86,8 @@ export function createRenderer(canvas) {
 		for (const slot of ["base", "main"]) {   // 粗い下書き→現ズームの順
 			const scene = scenes[slot];
 			if (!scene.draws.length) continue;
-			setCommonUniforms(fillProg, st, scene.origin);
-			setCommonUniforms(lineProg, st, scene.origin);
+			setCommonUniforms(fillProg, st, scene.origin, land);
+			setCommonUniforms(lineProg, st, scene.origin, land);
 			let curProg = null;
 			for (const d of scene.draws) {
 				if (d.kind === "fill") {

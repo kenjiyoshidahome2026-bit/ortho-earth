@@ -19,15 +19,13 @@ const land = bg ? parseRGBA(evalExpr(bg.paint?.["background-color"] ?? "#fff", {
 const clear = [0.03, 0.04, 0.07, 1];   // 宇宙（球の外側）
 
 let dpr = Math.min(2, window.devicePixelRatio || 1);
-let needsDraw = true, readySig = "", lastLabels = [];
-let moving = false, moveTimer = null, baseSig = "";
-const SETTLE_MS = 120;   // 移動停止とみなすまでの時間
-
-// 移動イベント：ラベルは描かず幾何のみ。停止後に確定描画（ラベル描画）。
+let needsDraw = true, readySig = "", lastLabels = [], sceneOrigin = null;
+let moving = false, settleT = null;
+// 移動中は幾何を再結合しない（タイルのポップ＝チラチラ防止）。停止後に再結合。
 function onMove() {
 	moving = true; needsDraw = true;
-	clearTimeout(moveTimer);
-	moveTimer = setTimeout(() => { moving = false; needsDraw = true; }, SETTLE_MS);
+	clearTimeout(settleT);
+	settleT = setTimeout(() => { moving = false; needsDraw = true; }, 150);
 }
 
 const tiles = createTileManager({
@@ -37,7 +35,7 @@ const tiles = createTileManager({
 
 // 透視カメラ：center(注視点lon/lat), zoom(web-mercator float), pitch/bearing(rad)
 const MAXPITCH = 68 * D2R;
-const atmo = [0.45, 0.62, 0.95, 0.6];   // 大気色 rgb + 強さ
+const atmo = [0.5, 0.66, 0.96, 0.3];   // 大気色 rgb + 強さ（さりげなく）
 const cam = { center: [139.767, 35.681], zoom: 16, pitch: 0, bearing: 0, dpr, clear, land, atmo };
 
 function resize() {
@@ -90,38 +88,31 @@ function anchoredAt(clientX, clientY, mutate) {
 }
 canvas.addEventListener("wheel", e => {
 	e.preventDefault();
-	if (e.ctrlKey || e.metaKey) anchoredAt(e.clientX, e.clientY, () => { cam.bearing += e.deltaY * 0.01; });   // 軸回転
-	else anchoredAt(e.clientX, e.clientY, () => { cam.zoom = Math.max(4, Math.min(16, cam.zoom - e.deltaY * 0.002)); });  // ズーム
+	if (e.metaKey) anchoredAt(e.clientX, e.clientY, () => { cam.bearing += e.deltaY * 0.01; });   // 軸回転(Cmd)。ctrl+wheelはトラックパッドのピンチ＝ズームに回す
+	else anchoredAt(e.clientX, e.clientY, () => { cam.zoom = Math.max(4, Math.min(16, cam.zoom - e.deltaY * 0.002)); });  // ズーム（カーソル中心）
 }, { passive: false });
 
 document.getElementById("go").addEventListener("click", () => {
 	setView(+document.getElementById("lon").value, +document.getElementById("lat").value, +document.getElementById("zoom").value);
 });
 
-// 結合シーンを一括スワップ（前の完成シーンを置き換える）。ラベルも同時に更新。
+// LOD選択(sig)が変わった時だけシーンを再結合。原点は安定化（頻繁な再ベースによるプルプルを防ぐ）。
 function swapScene(order) {
 	const sig = order.map(o => o.key).join("|");
-	if (sig === readySig || !order.length) return false;
-	renderer.setScene(tiles.buildScene(order));
+	if (sig === readySig || !order.length) return;
+	if (!sceneOrigin || Math.abs(sceneOrigin[0] - cam.center[0]) > 0.4 || Math.abs(sceneOrigin[1] - cam.center[1]) > 0.4)
+		sceneOrigin = [cam.center[0], cam.center[1]];
+	renderer.setScene(tiles.buildScene(order, { origin: sceneOrigin }));
 	lastLabels = tiles.labels(order); labelLayer.setLabels(lastLabels);
 	readySig = sig;
-	return true;
 }
 
 function render() {
-	const { z, order, total, coarseOrder } = tiles.update(cam, canvas.width, canvas.height);
-	// 粗い下書き（underlay）：粗タイル集合が変わった時のみ差し替え
-	const bsig = coarseOrder.map(o => o.key).join("|");
-	if (bsig !== baseSig && coarseOrder.length) { renderer.setScene(tiles.buildScene(coarseOrder), "base"); baseSig = bsig; }
-	const fullyReady = total > 0 && order.length === total;
-	if (fullyReady || !moving) swapScene(order);   // 全揃い、または停止時は部分でも確定
-	renderer.draw(cam);
-	if (moving) {
-		labelLayer.clear();                          // 移動中はラベル非表示（カクつき回避）
-	} else {
-		if (labelLayer.draw(cam)) needsDraw = true;  // 停止時に描画（フェード継続中は続行）
-	}
-	logEl.textContent = `z=${z}  tiles=${order.length}/${total}  labels=${lastLabels.length}`;
+	const { order, total } = tiles.update(cam, canvas.width, canvas.height);
+	if (!moving) swapScene(order);                 // 停止時のみ再結合（移動中のタイルポップ＝チラチラ防止）
+	renderer.draw(cam);                            // 毎フレーム投影更新＝ズームはカーソル中心に追従
+	if (labelLayer.draw(cam)) needsDraw = true;    // ラベルはライブ（位置は毎フレーム、集合は間引き）
+	logEl.textContent = `tiles=${order.length}/${total}  labels=${lastLabels.length}  zoom=${cam.zoom.toFixed(1)} pitch=${(cam.pitch * 180 / Math.PI).toFixed(0)}°`;
 }
 
 function frame() {

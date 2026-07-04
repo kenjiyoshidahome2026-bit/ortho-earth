@@ -1,30 +1,84 @@
 // LOD選択と可視タイル算出（透視カメラ）。画面をサンプリングし各点をカメラ光線でunproject→タイルへ。
-import { lonLatToTile } from "./tile.js";
-import { cameraState, unproject } from "./camera.js";
+import { lonLatToTile, tileBounds } from "./tile.js";
+import { cameraState, unproject, project, lonlatTo3D } from "./camera.js";
+
+// 距離別LOD（quadtree）：画面サンプルを含む root から、画面上のタイルサイズが閾値超なら4分割。
+// 近景=高z・遠景=低z を重なりなく敷く。可視判定はサンプル包含で（大タイルの4隅誤カリングを回避）。
+export function selectLOD(cam, W, H, { minZ = 4, maxZ = 16, tilePx = 560, grid = 10 } = {}) {
+	const st = cameraState(cam, W, H);
+	const samples = [];
+	for (let iy = 0; iy <= grid; iy++) for (let ix = 0; ix <= grid; ix++) {
+		const ll = unproject(st, ix / grid * W, iy / grid * H); if (ll) samples.push(ll);
+	}
+	if (!samples.length) return [];
+	const rootMap = new Map();
+	for (const [lo, la] of samples) { const [x, y] = lonLatToTile(lo, la, minZ); rootMap.set(minZ + "/" + x + "/" + y, { z: minZ, x, y }); }
+	const out = [], stack = [...rootMap.values()];
+	let guard = 0;
+	while (stack.length && guard++ < 30000) {
+		const t = stack.pop();
+		const m = tileMetrics(st, t, cam.center, W, H, samples);
+		if (!m.visible) continue;                   // 画面外＆中心外＆サンプル無し → cull
+		if (t.z < maxZ && m.size > tilePx) {
+			const z = t.z + 1, x = t.x * 2, y = t.y * 2;
+			stack.push({ z, x, y }, { z, x: x + 1, y }, { z, x, y: y + 1 }, { z, x: x + 1, y: y + 1 });
+		} else out.push(t);
+	}
+	return out;
+}
+
+// 可視判定＆画面サイズ。可視＝(前面4隅bbox交差) or (中心を含む) or (サンプル包含)。
+// サイズはタイル中心の局所解像度から測る（巨大タイルで4隅が裏でも安定。中心が裏なら遠方=粗のまま）。
+function tileMetrics(st, t, center, W, H, samples) {
+	const [w, s, e, n] = tileBounds(t.x, t.y, t.z);
+	const corners = [[w, n], [e, n], [e, s], [w, s]];
+	let nf = 0, minx = 1e9, miny = 1e9, maxx = -1e9, maxy = -1e9;
+	for (const [lo, la] of corners) {
+		const [sx, sy, f] = project(st, lo, la);
+		if (f >= 0) { nf++; minx = Math.min(minx, sx); miny = Math.min(miny, sy); maxx = Math.max(maxx, sx); maxy = Math.max(maxy, sy); }
+	}
+	let visible = nf > 0 && !(maxx < 0 || minx > W || maxy < 0 || miny > H);
+	if (!visible) {
+		if (center[0] >= w && center[0] <= e && center[1] >= s && center[1] <= n) visible = true;
+		else for (const [lo, la] of samples) if (lo >= w && lo <= e && la >= s && la <= n) { visible = true; break; }
+	}
+	if (!visible) return { visible: false };
+	// サイズ：距離ベースのスクリーン誤差。タイル内で視点直下に最も近い点までの距離で、
+	// (タイル角度サイズ / 距離) × focal ≈ 画面上のタイルpx。近いほど大きい＝分割。
+	const refLon = Math.min(e, Math.max(w, center[0])), refLat = Math.min(n, Math.max(s, center[1]));
+	const p = lonlatTo3D(refLon, refLat);
+	const dist = Math.hypot(p[0] - st.eye[0], p[1] - st.eye[1], p[2] - st.eye[2]);
+	const worldSize = 2 * Math.PI / (1 << t.z);
+	const size = worldSize / Math.max(dist, 1e-9) * st.focal;
+	return { visible, size };
+}
 
 // cam.zoom を web-mercator ズームに丸める。
 export function pickZoom(cam, minZoom = 4, maxZoom = 16) {
 	return Math.max(minZoom, Math.min(maxZoom, Math.round(cam.zoom)));
 }
 
-// 可視タイル一覧 {z,x,y}。画面 grid×grid をサンプルして unproject→タイルへ。pad で外周を広げる。
-export function visibleTiles(cam, W, H, z, { grid = 6, pad = 1 } = {}) {
+// 可視タイル一覧 {z,x,y}。画面 grid×grid をサンプルして unproject→タイルへ。
+// 中心タイルから maxRadius 以内にクランプ：高z+チルトで地平線側が爆発するのを防ぐ（遠方は粗下敷きが担当）。
+export function visibleTiles(cam, W, H, z, { grid = 6, pad = 1, maxRadius = 8 } = {}) {
 	const st = cameraState(cam, W, H);
 	const n = 1 << z;
+	const [ccx, ccy] = lonLatToTile(cam.center[0], cam.center[1], z);
 	let xmin = Infinity, xmax = -Infinity, ymin = Infinity, ymax = -Infinity, hit = false;
 	for (let iy = 0; iy <= grid; iy++) {
 		for (let ix = 0; ix <= grid; ix++) {
 			const ll = unproject(st, ix / grid * W, iy / grid * H);
 			if (!ll) continue;                         // 球に当たらない（地平線より上/空）
-			hit = true;
 			const [tx, ty] = lonLatToTile(ll[0], ll[1], z);
+			if (!isFinite(tx) || !isFinite(ty)) continue;
+			hit = true;
 			xmin = Math.min(xmin, tx); xmax = Math.max(xmax, tx);
 			ymin = Math.min(ymin, ty); ymax = Math.max(ymax, ty);
 		}
 	}
 	if (!hit) return [];
-	xmin -= pad; xmax += pad; ymin = Math.max(0, ymin - pad); ymax = Math.min(n - 1, ymax + pad);
-	if (xmax - xmin > n) { xmin = 0; xmax = n - 1; }   // 広く回り込む時は打ち切り
+	xmin = Math.max(xmin - pad, ccx - maxRadius); xmax = Math.min(xmax + pad, ccx + maxRadius);
+	ymin = Math.max(ymin - pad, ccy - maxRadius, 0); ymax = Math.min(ymax + pad, ccy + maxRadius, n - 1);
 	const tiles = [];
 	for (let ty = ymin; ty <= ymax; ty++) {
 		for (let x = xmin; x <= xmax; x++) {

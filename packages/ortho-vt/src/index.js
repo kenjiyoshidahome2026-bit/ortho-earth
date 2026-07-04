@@ -12,5 +12,5 @@ export { buildLabels, layoutText } from "./labels.js";
 export { createTextRenderer } from "./gl/text.js";
 export { createLabelLayer } from "./labels2d.js";
 export { cameraState, project, unproject, lonlatTo3D } from "./camera.js";
-export { pickZoom, visibleTiles } from "./tilecover.js";
+export { pickZoom, visibleTiles, selectLOD } from "./tilecover.js";
 export { createTileManager } from "./tilemanager.js";

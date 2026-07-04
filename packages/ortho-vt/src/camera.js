@@ -34,7 +34,8 @@ export function cameraState(cam, W, H) {
 	const mvp = mat.multiply(proj, view);
 	// 上空から見ると座標系が鏡像になるため clip.x を反転（東=画面右）。行0を符号反転。
 	mvp[0] = -mvp[0]; mvp[4] = -mvp[4]; mvp[8] = -mvp[8]; mvp[12] = -mvp[12];
-	return { mvp, invMvp: mat.invert(mvp), eye, W, H, dpr, camDist };
+	const focal = (H / 2) / Math.tan(fovy / 2);   // 距離ベースLOD用の焦点距離(device px)
+	return { mvp, invMvp: mat.invert(mvp), eye, W, H, dpr, camDist, focal };
 }
 
 // 経緯度 → [screenX, screenY(devicePx), front]。front>0 で手前半球かつカメラ前方。
