@@ -102,8 +102,12 @@ in float v_h;
 out vec4 fragColor;
 void main() {
 	if (v_front < 0.0) discard;
-	if (v_h < 0.5) discard;                 // 海/浅海は地形を描かない（水域fillに任せ z-fight回避）
-	fragColor = vec4(mix(v_col, u_fogColor, v_fog), 1.0);
+	// 海〜低地は地形を透明化し、海岸線は精細なベクタに委ねる。低地から滑らかに陰影を立ち上げ、
+	// 粗い標高メッシュが海岸で作る「崖」のガタつき・平野のノイズを消す。
+	float t = smoothstep(1.0, 100.0, v_h);
+	if (t <= 0.0) discard;
+	vec3 col = mix(v_col, u_fogColor, v_fog);
+	fragColor = vec4(col * t, t);           // premultiplied（globe基色→地形へ滑らかに）
 }`;
 
 // 球体本体：フルスクリーン三角形の各画素でカメラ光線×単位球。当たれば land色、外れれば宇宙(discard)。
