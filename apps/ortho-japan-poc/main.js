@@ -16,7 +16,7 @@ const canvas = document.getElementById("c");
 const labelCanvas = document.getElementById("labels");
 const logEl = document.getElementById("log");
 const renderer = createRenderer(canvas);
-const EARTH_M = 6371000, TERR_EXAG = 1.7;   // 標高スケール（ラベル・地形・建物で共有）
+const EARTH_M = 6371000, TERR_EXAG = 1.0;   // 標高は実スケール（誇張しない＝地形を歪めない）。ラベル・地形・建物で共有
 
 // 国道おにぎり標識：番号(2901)は素の数字でなく本物の標識で描く。番号ごとにキャッシュ。
 const SHIELD_H = 24, SHIELD_VW = 455, SHIELD_VH = 435, SHIELD_W = Math.round(SHIELD_H * SHIELD_VW / SHIELD_VH);
@@ -130,7 +130,7 @@ const tiles = createTileManager({
 });
 
 // 透視カメラ：center(注視点lon/lat), zoom(web-mercator float), pitch/bearing(rad)
-const MAXPITCH = 55 * D2R;   // 裏抜けが出る過度なチルトを踏ませない（3Dの見応えは十分・安全域で頭打ち）
+const MAXPITCH = 65 * D2R;   // 半透明の山と割り切り、独立峰をドラマチックに立てる。隠れ線は「透けている」で説明可
 const atmo = [0.5, 0.66, 0.96, 0.3];   // 大気色 rgb + 強さ（さりげなく）
 const bldColor = [0.83, 0.83, 0.82];    // 建物色（静かなグレー）
 const cam = { center: [139.767, 35.681], zoom: 16, pitch: 0, bearing: 0, dpr, clear, land, atmo, bldColor };
@@ -361,7 +361,7 @@ async function ensureElevation() {
 	const key = [range, r.originCX, r.originCY, r.cellsX, r.cellsY, r.cellRes].join(",");
 	if (key !== atlasKey) {
 		atlasKey = key; loadedCells = new Set();
-		renderer.setElevationAtlas({ originLng: r.originCX * range, originLat: r.originCY * range, cellsX: r.cellsX, cellsY: r.cellsY, cellRes: r.cellRes, cellSpan: range }, TERR_EXAG / EARTH_M);
+		renderer.setElevationAtlas({ originLng: r.originCX * range, originLat: r.originCY * range, cellsX: r.cellsX, cellsY: r.cellsY, cellRes: r.cellRes, cellSpan: range, exag: TERR_EXAG }, TERR_EXAG / EARTH_M);
 		needsDraw = true;
 	}
 	for (let cy = 0; cy < r.cellsY; cy++) for (let cx = 0; cx < r.cellsX; cx++) {

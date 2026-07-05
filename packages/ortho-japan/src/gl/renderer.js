@@ -85,7 +85,7 @@ export function createRenderer(canvas) {
 		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
 		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
 		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-		elev = { bounds: [a.originLng, a.originLat, a.cellsX * span, a.cellsY * span], scale, has: 1 };
+		elev = { bounds: [a.originLng, a.originLat, a.cellsX * span, a.cellsY * span], scale, exag: a.exag || 1, has: 1 };
 		const G = Math.min(1536, Math.max(768, 768 * Math.max(a.cellsX, a.cellsY)));
 		buildTerrainMesh(a.originLng, a.originLat, a.cellsX * span, a.cellsY * span, G);
 	}
@@ -185,7 +185,11 @@ export function createRenderer(canvas) {
 		// 真俯瞰では標高オフ、傾けるほどフェードイン（3.4°→11.5°）
 		const pt = Math.max(0, Math.min(1, ((cam.pitch || 0) - 0.06) / 0.14));
 		const pf = pt * pt * (3 - 2 * pt);
-		elevScaleEff = elev.scale * pf;
+		// ズーム taper：都市ズームでは地形を平らにする。ALOS AW3D30 は DSM(地表面)でビル/樹木を含むため、
+		// 都市の"起伏"は実はビル天端＝ベクタ建物と二重になる。都市では地形を平らにし、3Dはベクタ建物に任せる。
+		// 山(中ズーム)は誇張フルのまま。地形・建物・塗りは同じu_elevScaleを共有＝平らにすれば足並みも揃う。
+		const cityFlat = Math.max(0, Math.min(1, (cam.zoom - 13.5) / 2.5));   // z13.5:誇張フル → z16:平ら
+		elevScaleEff = elev.scale * pf * (1 - cityFlat);
 		// 真俯瞰(pitch≈0)＋十分な寄り＝画面全面が陸。地球の縁/大気のレイキャストは映らず無駄なので、
 		// 陸色で塗りつぶす clear だけの2D高速パスへ（フルスクリーンの球シェーダを丸ごと省略）。
 		const land = cam.land || [0.96, 0.96, 0.95, 1], atmo = cam.atmo || [0.45, 0.62, 0.95, 0.6];
