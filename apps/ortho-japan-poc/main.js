@@ -79,9 +79,26 @@ function onMove() {
 	settleT = setTimeout(() => { moving = false; needsDraw = true; }, 150);
 }
 
+// タイル worker プール：fetch→decode→tessellation をメインから退避。メイン=GL＋カメラだけに。
+const NW = Math.min(4, (navigator.hardwareConcurrency || 4) - 1) || 2;
+const tileWorkers = [], pending = new Map();
+let wIdx = 0, reqId = 0;
+for (let i = 0; i < NW; i++) {
+	const w = new Worker(new URL("./tileworker.js", import.meta.url), { type: "module" });
+	w.onmessage = e => { const p = pending.get(e.data.id); if (!p) return; pending.delete(e.data.id); e.data.ok ? p.resolve(e.data) : p.reject(new Error(e.data.error)); };
+	w.postMessage({ type: "init", style });
+	tileWorkers.push(w);
+}
+function workerBuildTile(t) {
+	const id = ++reqId, w = tileWorkers[wIdx = (wIdx + 1) % NW];
+	w.postMessage({ id, url: TILE_URL(t.z, t.x, t.y), z: t.z, x: t.x, y: t.y });
+	return new Promise((resolve, reject) => pending.set(id, { resolve, reject }));
+}
+
 const tiles = createTileManager({
 	style, tileUrl: TILE_URL,
 	onChange: () => { needsDraw = true; },
+	buildTile: workerBuildTile,
 });
 
 // 透視カメラ：center(注視点lon/lat), zoom(web-mercator float), pitch/bearing(rad)

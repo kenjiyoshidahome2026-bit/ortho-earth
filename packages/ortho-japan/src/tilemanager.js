@@ -11,21 +11,28 @@ import { selectLOD } from "./tilecover.js";
 const keyOf = t => `${t.z}/${t.x}/${t.y}`;
 const EMPTY = new Set();
 
-export function createTileManager({ style, tileUrl, onChange, cap = 256 }) {
+export function createTileManager({ style, tileUrl, onChange, cap = 256, buildTile }) {
 	const cache = new Map();   // key → { status, origin, dl, labels, z }
+
+	// 既定：メインスレッドで fetch→decode→tessellation（重い）。buildTile 注入で worker へ退避できる。
+	async function defaultBuildTile(t) {
+		const layers = await fetchMVT(tileUrl(t.z, t.x, t.y));
+		const [w, s, e, n] = tileBounds(t.x, t.y, t.z);
+		const origin = [w, n];
+		const dl = buildTileDrawList({ layers, z: t.z, x: t.x, y: t.y }, style, origin);
+		const { labels } = buildLabels({ layers, z: t.z, x: t.x, y: t.y }, style);
+		const buildings = buildBuildings({ layers, z: t.z, x: t.x, y: t.y }, origin);
+		return { origin, dl, labels, buildings, z: t.z };
+	}
+	const build = buildTile || defaultBuildTile;
 
 	async function ensure(t) {
 		const k = keyOf(t);
 		if (cache.has(k)) return;
 		cache.set(k, { status: "loading" });
 		try {
-			const layers = await fetchMVT(tileUrl(t.z, t.x, t.y));
-			const [w, s, e, n] = tileBounds(t.x, t.y, t.z);
-			const origin = [w, n];
-			const dl = buildTileDrawList({ layers, z: t.z, x: t.x, y: t.y }, style, origin);
-			const { labels } = buildLabels({ layers, z: t.z, x: t.x, y: t.y }, style);
-			const buildings = buildBuildings({ layers, z: t.z, x: t.x, y: t.y }, origin);
-			cache.set(k, { status: "ready", origin, dl, labels, buildings, z: t.z });
+			const r = await build(t);   // worker or main
+			cache.set(k, { status: "ready", ...r });
 			onChange && onChange();
 		} catch (e) {
 			cache.set(k, { status: "error", origin: null, dl: null, labels: [], z: t.z });
