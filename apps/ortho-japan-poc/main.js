@@ -151,7 +151,7 @@ const LI_RAILHI = liOf("rail-hi"), LI_RAILTR = liOf("railtr-hi"), LI_ROADHI = li
 const RAILTR_MINZOOM = 13.5;   // 駅の軌道は寄った時だけ（構内detail）
 // 注記カテゴリ（実データ実測）。allowlist＝ONのテーマのカテゴリだけ描く（紙地図の全部盛りをやめる）。
 // 各テーマチップは「色」と「その名前」を一緒に点火する：道路→IC/JCT、鉄道→駅、行政区域→行政単位名。
-const CHIMEI_CODES = new Set([1401, 1402, 1403, 220]);        // 地名(常時)：主要都市・市・町村・地区
+const CHIMEI_CODES = new Set([140, 1401, 1402, 1403, 220, 110]);   // 地名(常時)：都道府県・主要都市・市・町村・地区・区
 const CHOME_CODES = new Set([210]);                           // 丁目：粒度が一段細かい→寄った時(z14.5〜)だけ自動表示
 const CHOME_MINZOOM = 14.5;
 // 地形は 3xx 帯が丸ごと自然地形（実測：山311/312/316・湖沼321・河川322・沢323・高原331・
@@ -160,7 +160,7 @@ const CHOME_MINZOOM = 14.5;
 const isChikei = c => c >= 300 && c <= 399;
 const ROAD_CODES = new Set([2941, 2942, 2943, 2944, 2945, 412, 411, 2901, 2902, 2903, 2904]); // 道路ON：高速IC/JCT・SA/PA/SIC・都市高速JCT/路線名・国道/高速番号
 const RAIL_CODES = new Set([422, 421, 431]);                  // 鉄道ON：駅名・鉄道路線名・港
-const GYOSEI_CODES = new Set([140, 130, 110]);                // 行政区域ON：都道府県・郡・区（正式行政単位名）
+const GYOSEI_CODES = new Set([130]);                          // 行政区域ON：郡（都道府県・区は地名側へ）
 const SURVEY_NOISE = new Set([7101, 7102, 7103, 7201, 7711]); // 標高点・水準点・水深（常に非表示）
 const isNum = t => /^\d+(\.\d+)?$/.test(t);                    // 純粋な数値（標高・水深等の計測値）は施設に出さない
 // 施設＝他テーマに属さない残り全部（省庁・大学・神社・寺・大使館・郵便局・橋・トンネル…）。取りこぼし防止。
@@ -194,8 +194,12 @@ function swapScene(order) {
 	if (!sceneOrigin || Math.abs(sceneOrigin[0] - cam.center[0]) > 0.4 || Math.abs(sceneOrigin[1] - cam.center[1]) > 0.4)
 		sceneOrigin = [cam.center[0], cam.center[1]];
 	renderer.setScene(tiles.buildScene(order, { origin: sceneOrigin, hidden: hiddenLi() }));
-	lastLabels = filterLabels(tiles.labels(order));
-	for (const L of lastLabels) L.elev = sampleLabelElev(L.anchor[0], L.anchor[1]);   // 標高付与（傾き時に地物と一致）
+	lastLabels = filterLabels(tiles.labels(order)).map(L => {
+		// 都道府県は大きく薄い背景ラベルに（コピーしてキャッシュ側を壊さない）。他はそのまま。
+		const o = L.code === 140 ? { ...L, size: L.size * 1.25, color: [L.color[0], L.color[1], L.color[2], L.color[3] * 0.5] } : L;
+		o.elev = sampleLabelElev(L.anchor[0], L.anchor[1]);   // 標高付与（傾き時に地物と一致）
+		return o;
+	});
 	labelLayer.setLabels(lastLabels);
 	readySig = sig; zoomAtBuild = cam.zoom;
 }

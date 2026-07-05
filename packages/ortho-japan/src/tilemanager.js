@@ -96,15 +96,16 @@ export function createTileManager({ style, tileUrl, onChange, cap = 256 }) {
 		for (const { key } of order) { const c = cache.get(key); if (c && c.buildings) bN += c.buildings.pos.length; }
 		let buildings = null;
 		if (bN) {
-			const pos = new Float32Array(bN), shade = new Float32Array(bN / 3);
-			let pi = 0, si = 0;
+			const pos = new Float32Array(bN), shade = new Float32Array(bN / 3), anchor = new Float32Array(bN / 3 * 2);
+			let pi = 0, si = 0, ai = 0;
 			for (const { key, origin: to } of order) {
 				const c = cache.get(key); if (!c || !c.buildings) continue;
-				const ox = to[0] - origin[0], oy = to[1] - origin[1], bp = c.buildings.pos;
+				const ox = to[0] - origin[0], oy = to[1] - origin[1], bp = c.buildings.pos, ba = c.buildings.anchor;
 				for (let i = 0; i < bp.length; i += 3) { pos[pi++] = bp[i] + ox; pos[pi++] = bp[i + 1] + oy; pos[pi++] = bp[i + 2]; }
+				for (let i = 0; i < ba.length; i += 2) { anchor[ai++] = ba[i] + ox; anchor[ai++] = ba[i + 1] + oy; }
 				shade.set(c.buildings.shade, si); si += c.buildings.shade.length;
 			}
-			buildings = { pos, shade };
+			buildings = { pos, shade, anchor };
 		}
 		return { origin, layers, buildings };
 	}

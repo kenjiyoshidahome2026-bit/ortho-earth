@@ -39,6 +39,7 @@ export const BUILDING_VS = `#version 300 es
 precision highp float;
 in vec3 a_pos;      // dlon, dlat, hWorld（原点からの経緯度差分＋高さ・単位球スケール）
 in float a_shade;   // 陰影（屋根1/壁0.76）
+in vec2 a_anchor;   // 建物の基準点（原点からの経緯度差分）。一棟の全頂点で単一標高＝垂直プリズム
 ${PROJECT}
 out float v_shade;
 out float v_front;
@@ -46,7 +47,8 @@ out float v_fog;
 void main() {
 	vec2 ll = u_origin + a_pos.xy;
 	vec3 dir = lonlatTo3D(ll);
-	vec3 w = dir * (1.0 + elev(ll) * u_elevScale + a_pos.z);   // 地形の上に建物高さを積む
+	float base = elev(u_origin + a_anchor) * u_elevScale;     // 基準点の標高で足元を揃える（屋根水平・壁垂直）
+	vec3 w = dir * (1.0 + base + a_pos.z);                     // 地形の上に建物高さを積む
 	v_shade = a_shade;
 	v_front = dot(dir, u_eye) - 1.0;
 	v_fog = fogOf(w);

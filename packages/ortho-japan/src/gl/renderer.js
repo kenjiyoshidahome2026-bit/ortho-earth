@@ -56,12 +56,13 @@ export function createRenderer(canvas) {
 		let bld = null;
 		if (s.buildings && s.buildings.pos.length) {
 			const vao = gl.createVertexArray();
-			const bPos = buffer(gl, s.buildings.pos), bSh = buffer(gl, s.buildings.shade);
+			const bPos = buffer(gl, s.buildings.pos), bSh = buffer(gl, s.buildings.shade), bAnc = buffer(gl, s.buildings.anchor);
 			gl.bindVertexArray(vao);
 			attrib(gl, bldProg, "a_pos", bPos, 3);
 			attrib(gl, bldProg, "a_shade", bSh, 1);
+			attrib(gl, bldProg, "a_anchor", bAnc, 2);
 			gl.bindVertexArray(null);
-			bld = { vao, count: s.buildings.pos.length / 3, bufs: [bPos, bSh] };
+			bld = { vao, count: s.buildings.pos.length / 3, bufs: [bPos, bSh, bAnc] };
 		}
 		scenes[slot] = { origin: s.origin, draws, bld };
 	}
