@@ -377,11 +377,13 @@ async function ensureElevation() {
 }
 
 function render() {
-	ensureElevation();
-	const { order, coarseOrder, total } = tiles.update(cam, canvas.width, canvas.height);
-	swapBase(coarseOrder);                          // 粗い下地は常に敷く（移動中も）＝先端の空白を無くす
 	// パン/チルト中（ズーム不変）は詳細も再結合。ズーム中はLODポップ回避で停止まで待つ。
 	const zoomStable = Math.abs(cam.zoom - zoomAtBuild) < 0.12;
+	// 地形アトラスもズーム中は再構築しない：cellRes/セル数が連続変化して全再ロード＆勾配密度の跳びで
+	// 陰影がチラつくため。ズーム中は現アトラスを再投影（球面メッシュなので拡縮は追従）、停止後に再構築。
+	if (!moving || zoomStable) ensureElevation();
+	const { order, coarseOrder, total } = tiles.update(cam, canvas.width, canvas.height);
+	swapBase(coarseOrder);                          // 粗い下地は常に敷く（移動中も）＝先端の空白を無くす
 	if (!moving || zoomStable) swapScene(order);
 	renderer.draw(cam, { skipBase: !moving });     // 静止時は粗い下地を隠す（LOD痕/二重線を消す）。移動中だけ空白埋め
 	updateCompass();                               // 3D時のみコンパス表示・針を方位に追従
