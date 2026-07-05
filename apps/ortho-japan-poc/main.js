@@ -1,10 +1,11 @@
 // ortho-japan PoC — 地理院 optimal_bvmap を球面に直描き（M2: タイルストリーミング＋LOD＋ラベル）。
 import {
 	createRenderer, createLabelLayer, createTileManager,
-	evalExpr, parseRGBA, cameraState, unproject, fetchR10, downsampleFlipped,
+	evalExpr, parseRGBA, cameraState, unproject, downsampleFlipped,
 	buildGeoJSONOverlay, pointInFeature,
 } from "ortho-japan";
 import { geopbf, createGeopbf } from "geopbf";
+import { createTileLoader } from "altpbf";
 createGeopbf("https://api.ortho-earth.com");   // bucket 基盤（標高と同じ）。読み出しはキー不要
 import style from "./style-mono.js";
 
@@ -290,25 +291,31 @@ resetBtn.addEventListener("click", () => {
 	requestAnimationFrame(step);
 });
 
-// 標高アトラス（GEBCO R10）：視野を覆う R10 セル群を1枚のアトラスへ。寄ると高精細1枚、引くと複数枚を粗く。
+// 標高アトラス（altpbf 多解像度）：ズームで R90/R10/R01 を選び、視野を覆うセル群を1枚のアトラスへ。
+// R01(1°・秒単位)まで寄れるので城下の地形が正確＝建物が実地形に接地する。
 let atlasKey = "", loadedCells = new Set();
-const r10Cache = new Map();   // "cx,cy"(セル) → fetchR10 の promise。再取得を防ぐ
-const r10Tiles = new Map();   // 解決した生タイル（ラベル標高のCPUサンプル用）
-async function getRawCell(cellLng, cellLat) {
-	const k = cellLng + "," + cellLat;
-	if (r10Cache.has(k)) return r10Cache.get(k);
-	const p = fetchR10(cellLng, cellLat); r10Cache.set(k, p);
-	p.then(t => { if (t) r10Tiles.set(k, t); });
-	return p;
+const r10Tiles = new Map();   // "range,cx,cy" → 解決した生タイル（ラベル標高のCPUサンプル用）
+let loadTile = null;          // altpbf createTileLoader（非同期セットアップ）
+createTileLoader({ apiUrl: "https://api.ortho-earth.com" })
+	.then(fn => { loadTile = fn; needsDraw = true; })
+	.catch(e => console.error("[tileLoader] setup failed", e));
+function selectRange() { const z = cam.zoom; return z < 7 ? 90 : z < 12 ? 10 : 1; }   // altpbf と同じ閾値
+async function getCell(cellLng, cellLat, range) {
+	if (!loadTile) return null;
+	const k = range + "," + cellLng + "," + cellLat;
+	if (r10Tiles.has(k)) return r10Tiles.get(k);
+	const tile = await loadTile(cellLng, cellLat, range);
+	if (tile) r10Tiles.set(k, tile);
+	return tile;
 }
-// ラベル位置の標高(m)。セル原点(10の倍数)基準で downsampleFlipped と同じ南上げ規約でバイリニア。
+// ラベル位置の標高(m)。現在の range のセルから downsampleFlipped と同じ南上げ規約でバイリニア。
 function sampleLabelElev(lon, lat) {
-	const cx = Math.floor(lon / 10) * 10, cy = Math.floor(lat / 10) * 10;
-	const tile = r10Tiles.get(cx + "," + cy);
+	const range = selectRange(), cx = Math.floor(lon / range) * range, cy = Math.floor(lat / range) * range;
+	const tile = r10Tiles.get(range + "," + cx + "," + cy);
 	if (!tile) return 0;
 	const { data, width: w, height: h } = tile;
-	const gx = Math.min(w - 1, Math.max(0, (lon - cx) / 10 * (w - 1)));
-	const gy = Math.min(h - 1, Math.max(0, (lat - cy) / 10 * (h - 1)));
+	const gx = Math.min(w - 1, Math.max(0, (lon - cx) / range * (w - 1)));
+	const gy = Math.min(h - 1, Math.max(0, (lat - cy) / range * (h - 1)));
 	const x0 = Math.min(w - 2, gx | 0), y0 = Math.min(h - 2, gy | 0), tx = gx - x0, ty = gy - y0;
 	const H = (x, y) => data[(h - 1 - y) * w + x];   // y:0=南（downsampleFlippedと同規約）
 	const top = H(x0, y0) + (H(x0 + 1, y0) - H(x0, y0)) * tx;
@@ -316,7 +323,7 @@ function sampleLabelElev(lon, lat) {
 	const v = top + (bot - top) * ty;
 	return v < 0 ? 0 : v;
 }
-function viewCellRange() {
+function viewCellRange(range) {
 	const st = cameraState(cam, canvas.width, canvas.height);
 	// 画面を密にサンプル（傾き時、地平線直下の"遠い地面"まで拾う）。宇宙に外れた点はnull→無視。
 	let lo0 = cam.center[0], la0 = cam.center[1], lo1 = lo0, la1 = la0;
@@ -327,28 +334,30 @@ function viewCellRange() {
 		lo0 = Math.min(lo0, p[0]); lo1 = Math.max(lo1, p[0]);
 		la0 = Math.min(la0, p[1]); la1 = Math.max(la1, p[1]);
 	}
-	const cx0 = Math.floor(lo0 / 10), cx1 = Math.floor(lo1 / 10), cy0 = Math.floor(la0 / 10), cy1 = Math.floor(la1 / 10);
-	// 最大4×4。注視点(cam.center)のセルを中心に窓を置き、可視範囲[cx0..cx1]内へクランプ＝日本(3セル)は不動で点滅しない。
+	const cx0 = Math.floor(lo0 / range), cx1 = Math.floor(lo1 / range), cy0 = Math.floor(la0 / range), cy1 = Math.floor(la1 / range);
+	// 最大4×4。注視点(cam.center)のセルを中心に窓を置き、可視範囲[cx0..cx1]内へクランプ。
 	const cellsX = Math.min(4, cx1 - cx0 + 1), cellsY = Math.min(4, cy1 - cy0 + 1);
-	const ccx = Math.floor(cam.center[0] / 10), ccy = Math.floor(cam.center[1] / 10);
+	const ccx = Math.floor(cam.center[0] / range), ccy = Math.floor(cam.center[1] / range);
 	const originCX = Math.max(cx0, Math.min(cx1 - cellsX + 1, ccx - (cellsX - 1 >> 1)));
 	const originCY = Math.max(cy0, Math.min(cy1 - cellsY + 1, ccy - (cellsY - 1 >> 1)));
 	const cellRes = Math.max(400, Math.floor(2048 / Math.max(cellsX, cellsY)));
-	return { originCX, originCY, cellsX, cellsY, cellRes };
+	return { range, originCX, originCY, cellsX, cellsY, cellRes };
 }
 async function ensureElevation() {
-	const r = viewCellRange();
-	const key = [r.originCX, r.originCY, r.cellsX, r.cellsY, r.cellRes].join(",");
+	if (!loadTile) return;
+	const range = selectRange();
+	const r = viewCellRange(range);
+	const key = [range, r.originCX, r.originCY, r.cellsX, r.cellsY, r.cellRes].join(",");
 	if (key !== atlasKey) {
 		atlasKey = key; loadedCells = new Set();
-		renderer.setElevationAtlas({ originLng: r.originCX * 10, originLat: r.originCY * 10, cellsX: r.cellsX, cellsY: r.cellsY, cellRes: r.cellRes }, TERR_EXAG / EARTH_M);
+		renderer.setElevationAtlas({ originLng: r.originCX * range, originLat: r.originCY * range, cellsX: r.cellsX, cellsY: r.cellsY, cellRes: r.cellRes, cellSpan: range }, TERR_EXAG / EARTH_M);
 		needsDraw = true;
 	}
 	for (let cy = 0; cy < r.cellsY; cy++) for (let cx = 0; cx < r.cellsX; cx++) {
 		const ck = cx + "," + cy;
 		if (loadedCells.has(ck)) continue;
 		loadedCells.add(ck);
-		getRawCell((r.originCX + cx) * 10, (r.originCY + cy) * 10).then(tile => {
+		getCell((r.originCX + cx) * range, (r.originCY + cy) * range, range).then(tile => {
 			if (tile && atlasKey === key) { renderer.setElevationCell(cx, cy, downsampleFlipped(tile, r.cellRes), r.cellRes); needsDraw = true; }
 		});
 	}

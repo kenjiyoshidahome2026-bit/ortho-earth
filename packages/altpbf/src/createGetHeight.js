@@ -1,28 +1,40 @@
-import { index_alos, encodeName } from "./altpbf.js";
+import { index_alos, encodeName, setApiUrl } from "./altpbf.js";
 import { Cache } from "native-bucket";
 
 // ラスタタイルを返すローダー（点サンプラでなく生タイル）。ortho-japan の GPU アトラス用。
 // R90/R10=bucket・R01=JAXA（ALOS）を worker で読み、IDB キャッシュ。R01 は ALOS 未整備域では null。
 export async function createTileLoader(opts = {}) {
+	if (opts.apiUrl) setApiUrl(opts.apiUrl);   // メイン側の bucket/JAXA fetch（index_alos 等）に必要
 	const cache = await Cache("GIS/alt");
 	let index = await cache("index_alos");
 	if (!index) { index = await index_alos(); cache("index_alos", index); }
 	const existAlos = (lng, lat) => index[encodeName(lng, lat)];
 	const worker = new Worker(new URL('./worker.js', import.meta.url), { type: 'module' });
-	worker.onerror = e => console.error("[altpbf tileLoader]", e);
+	worker.onerror = e => console.error("[tileLoader] worker error", e);
 	const inflight = new Map();
-	const loadName = name => new Promise(res => {
-		const onmsg = e => { const obj = e.data; if (!obj || obj.name !== name) return; worker.removeEventListener("message", onmsg); cache(name, obj); inflight.delete(name); res(obj); };
+	// worker は1件ずつ直列に処理（応答はFIFO）。次の要求は前の応答後に送る＝null応答でも取りこぼさない。
+	const queue = []; let busy = false;
+	function pump() {
+		if (busy || !queue.length) return;
+		busy = true;
+		const { name, res } = queue.shift();
+		const onmsg = e => {
+			worker.removeEventListener("message", onmsg);
+			const obj = e.data; if (obj) cache(name, obj);
+			busy = false; res(obj); pump();
+		};
 		worker.addEventListener("message", onmsg);
 		worker.postMessage({ name, apiUrl: opts.apiUrl });
-	});
+	}
+	const loadName = name => new Promise(res => { queue.push({ name, res }); pump(); });
 	// (lng0, lat0, range) 原点は range 刻み。tile obj | null（R01 は ALOS 無い海等で null）。
 	return async function loadTile(lng0, lat0, range) {
-		if (range === 1 && !existAlos(lng0, lat0)) return null;
+		if (range === 1 && !existAlos(lng0, lat0)) return null;   // R01 は ALOS 未整備（海等）
 		const name = encodeName(lng0, lat0, range);
 		const cached = await cache(name); if (cached) return cached;
 		if (inflight.has(name)) return inflight.get(name);
-		const p = loadName(name); inflight.set(name, p); return p;
+		const p = loadName(name).then(t => { inflight.delete(name); return t; });
+		inflight.set(name, p); return p;
 	};
 }
 

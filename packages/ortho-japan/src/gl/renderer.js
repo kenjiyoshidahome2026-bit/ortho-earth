@@ -73,9 +73,10 @@ export function createRenderer(canvas) {
 		scenes[slot] = { origin: s.origin, draws, bld };
 	}
 
-	// 標高アトラス：R10セルを1枚のテクスチャに敷く。a:{originLng,originLat,cellsX,cellsY,cellRes}
+	// 標高アトラス：セル群を1枚のテクスチャに敷く。a:{originLng,originLat,cellsX,cellsY,cellRes,cellSpan}
+	// cellSpan=1セルの度数（R90=90/R10=10/R01=1）。
 	function setElevationAtlas(a, scale) {
-		const W = a.cellsX * a.cellRes, H = a.cellsY * a.cellRes;
+		const W = a.cellsX * a.cellRes, H = a.cellsY * a.cellRes, span = a.cellSpan || 10;
 		if (!elevTex) elevTex = gl.createTexture();
 		gl.bindTexture(gl.TEXTURE_2D, elevTex);
 		gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
@@ -84,9 +85,9 @@ export function createRenderer(canvas) {
 		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
 		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
 		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-		elev = { bounds: [a.originLng, a.originLat, a.cellsX * 10, a.cellsY * 10], scale, has: 1 };
+		elev = { bounds: [a.originLng, a.originLat, a.cellsX * span, a.cellsY * span], scale, has: 1 };
 		const G = Math.min(1536, Math.max(768, 768 * Math.max(a.cellsX, a.cellsY)));
-		buildTerrainMesh(a.originLng, a.originLat, a.cellsX * 10, a.cellsY * 10, G);
+		buildTerrainMesh(a.originLng, a.originLat, a.cellsX * span, a.cellsY * span, G);
 	}
 	// セル(cx,cy)の N×N Float32(南上げ)をアトラスへ。
 	function setElevationCell(cx, cy, data, cellRes) {
@@ -184,11 +185,7 @@ export function createRenderer(canvas) {
 		// 真俯瞰では標高オフ、傾けるほどフェードイン（3.4°→11.5°）
 		const pt = Math.max(0, Math.min(1, ((cam.pitch || 0) - 0.06) / 0.14));
 		const pf = pt * pt * (3 - 2 * pt);
-		// 都市ズーム(z15.5→17.5)では地形を平ら化＝建物が粗い地形メッシュの上に浮くのを防ぐ。
-		// 地形3Dの主役は山（中〜広ズーム）、都市は元々平坦で3Dは建物側。
-		const zt = Math.max(0, Math.min(1, ((cam.zoom || 0) - 15.5) / 2));
-		const zf = 1 - zt * zt * (3 - 2 * zt);
-		elevScaleEff = elev.scale * pf * zf;
+		elevScaleEff = elev.scale * pf;
 		// 真俯瞰(pitch≈0)＋十分な寄り＝画面全面が陸。地球の縁/大気のレイキャストは映らず無駄なので、
 		// 陸色で塗りつぶす clear だけの2D高速パスへ（フルスクリーンの球シェーダを丸ごと省略）。
 		const land = cam.land || [0.96, 0.96, 0.95, 1], atmo = cam.atmo || [0.45, 0.62, 0.95, 0.6];

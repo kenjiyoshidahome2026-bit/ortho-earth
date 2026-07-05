@@ -27,16 +27,17 @@ export async function load(name) {
 }
 
 async function load_alos(lng, lat) {
-	const source = "ALOS AW3D30";
+	const source = "ALOS AW3D30", range = 1;
 	const f3 = n => (n < 0 ? Math.ceil : Math.floor)(Math.abs(n) / 5) * 5 * (n < 0 ? -1 : 1);
 	const LNG = n => (n < 0 ? "W" : "E") + L3(Math.abs(n)), LAT = n => (n < 0 ? "S" : "N") + L3(Math.abs(n));
 	const dname = LAT(f3(lat)) + LNG(f3(lng)) + "_" + LAT(f3(lat + 5)) + LNG(f3(lng + 5));
+	const fname = LAT(Math.floor(lat)) + LNG(Math.floor(lng));   // 5°zip 内の 1°DSMタイル名（例 N035E139）
 	const url = `${baseUrl}/aw3d30/data/release_v2404/${dname}.zip`;
 	const target = `${dname}/ALPSMLC30_${fname}_DSM.tif`;
-	const file = await getNB().Fetch(url, { target, cors:true });
+	const file = await getNB().Fetch(url, { target, cors: true });
 	const raster = await tiff2data(file); if (!raster) { console.error("geotiff raster error", raster); return null; }
 	const { width, height, data } = raster;
-	return { name, source, lng, lat, range, width, height, data };
+	return { name: encodeName(lng, lat, range), source, lng, lat, range, width, height, data };
 }
 async function load_gepco(name) {
 	return decode(await (await getBucket()).get(name));

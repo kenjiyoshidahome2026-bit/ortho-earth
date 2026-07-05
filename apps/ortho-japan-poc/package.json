@@ -9,7 +9,8 @@
 	},
 	"dependencies": {
 		"ortho-japan": "*",
-		"geopbf": "*"
+		"geopbf": "*",
+		"altpbf": "*"
 	},
 	"devDependencies": {
 		"vite": "^5.0.0"
