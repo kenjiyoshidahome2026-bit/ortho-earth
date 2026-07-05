@@ -1,13 +1,13 @@
 // WebGL2 レンダラ：可視タイルを跨いで同一 style層を1バッファに結合した「シーン」を描く。
 // draw call は「タイル数×層数」から「層数」へ激減し、uniform も1フレーム1回。共通のシーン原点で投影。
 // fill = earcut三角形、line = capsule(SDF)。scene.layers は style層順（painter's algorithm）。
-import { FILL_VS, FILL_FS, LINE_VS, LINE_FS, GLOBE_VS, GLOBE_FS, BUILDING_VS, BUILDING_FS, TERRAIN_VS, TERRAIN_FS } from "./glsl.js";
+import { FILL_VS, FILL_FS, LINE_VS, LINE_FS, GLOBE_VS, GLOBE_FS, BUILDING_VS, BUILDING_FS, TERRAIN_VS, TERRAIN_FS, STENCIL_VS, STENCIL_FS, COVER_FS } from "./glsl.js";
 import { cameraState } from "../camera.js";
 
 const CORNERS = new Float32Array([0, -1, 0, 1, 1, -1, 1, -1, 0, 1, 1, 1]); // 6頂点×(end,side)
 
 export function createRenderer(canvas) {
-	const gl = canvas.getContext("webgl2", { antialias: true, premultipliedAlpha: true });
+	const gl = canvas.getContext("webgl2", { antialias: true, premultipliedAlpha: true, stencil: true });
 	if (!gl) throw new Error("WebGL2 unavailable");
 
 	const fillProg = program(gl, FILL_VS, FILL_FS);
@@ -15,6 +15,8 @@ export function createRenderer(canvas) {
 	const globeProg = program(gl, GLOBE_VS, GLOBE_FS);
 	const bldProg = program(gl, BUILDING_VS, BUILDING_FS);
 	const terrainProg = program(gl, TERRAIN_VS, TERRAIN_FS);
+	const stencilProg = program(gl, STENCIL_VS, STENCIL_FS);   // 塗りの stencil パス（fan→巻き数）
+	const coverProg = program(gl, GLOBE_VS, COVER_FS);          // 塗りの cover パス（stencil≠0 を塗る）
 	const cornerBuf = buffer(gl, CORNERS);
 	const emptyVAO = gl.createVertexArray();
 	gl.getExtension("OES_texture_float_linear");   // R32F の線形補間
@@ -108,6 +110,58 @@ export function createRenderer(canvas) {
 		terrain = { vao, vbo, ibo, count: idx.length };
 	}
 
+	// --- overlay（外部ベクタ=geopbf/e-Stat）：stencil-then-cover 塗り＋境界線 ---
+	let overlay = null, overlayHi = null;
+	function buildOverlaySlot(s, fillColor) {
+		if (!s || !s.fanPos.length) return null;
+		const fanVao = gl.createVertexArray(), bFan = buffer(gl, s.fanPos);
+		gl.bindVertexArray(fanVao); attrib(gl, stencilProg, "a_delta", bFan, 2); gl.bindVertexArray(null);
+		const bufs = [bFan];
+		let lineVao = null, lineCount = 0;
+		if (s.lineHalf && s.lineHalf.length) {
+			lineVao = gl.createVertexArray();
+			const bP1 = buffer(gl, s.P1), bP2 = buffer(gl, s.P2), bCol = buffer(gl, s.lineCol), bHalf = buffer(gl, s.lineHalf);
+			gl.bindVertexArray(lineVao);
+			attrib(gl, lineProg, "a_corner", cornerBuf, 2, 0);
+			attrib(gl, lineProg, "a_p1", bP1, 2, 1);
+			attrib(gl, lineProg, "a_p2", bP2, 2, 1);
+			attrib(gl, lineProg, "a_color", bCol, 4, 1);
+			attrib(gl, lineProg, "a_half", bHalf, 1, 1);
+			gl.bindVertexArray(null);
+			lineCount = s.lineHalf.length; bufs.push(bP1, bP2, bCol, bHalf);
+		}
+		return { fanVao, fanCount: s.fanPos.length / 2, lineVao, lineCount, origin: s.origin, fillColor, bufs };
+	}
+	function disposeOverlay(o) { if (o) { for (const b of o.bufs) gl.deleteBuffer(b); gl.deleteVertexArray(o.fanVao); if (o.lineVao) gl.deleteVertexArray(o.lineVao); } }
+	function setOverlay(s, fillColor) { disposeOverlay(overlay); overlay = s ? buildOverlaySlot(s, fillColor || [0.20, 0.45, 0.85, 0.32]) : null; }
+	function setOverlayHi(s, fillColor) { disposeOverlay(overlayHi); overlayHi = s ? buildOverlaySlot(s, fillColor || [0.95, 0.55, 0.15, 0.6]) : null; }
+	function drawOne(o, st, dpr, land) {
+		if (!o || !o.fanCount) return;
+		// stencil パス：fan を巻き数へ（色は書かない・FRONT+1/BACK-1、球の前後半球も相殺）
+		gl.enable(gl.STENCIL_TEST);
+		gl.clearStencil(0); gl.clear(gl.STENCIL_BUFFER_BIT);
+		gl.colorMask(false, false, false, false);
+		gl.stencilMask(0xFF); gl.stencilFunc(gl.ALWAYS, 0, 0xFF);
+		gl.stencilOpSeparate(gl.FRONT, gl.KEEP, gl.KEEP, gl.INCR_WRAP);
+		gl.stencilOpSeparate(gl.BACK, gl.KEEP, gl.KEEP, gl.DECR_WRAP);
+		setCommonUniforms(stencilProg, st, o.origin, land);
+		gl.bindVertexArray(o.fanVao); gl.drawArrays(gl.TRIANGLES, 0, o.fanCount);
+		// cover パス：stencil≠0 の画素だけ塗り、通過画素は0へ戻して次に備える
+		gl.colorMask(true, true, true, true);
+		gl.stencilFunc(gl.NOTEQUAL, 0, 0xFF); gl.stencilOp(gl.KEEP, gl.KEEP, gl.ZERO);
+		gl.useProgram(coverProg);
+		gl.uniform4f(loc(gl, coverProg, "u_fill"), o.fillColor[0], o.fillColor[1], o.fillColor[2], o.fillColor[3]);
+		gl.bindVertexArray(emptyVAO); gl.drawArrays(gl.TRIANGLES, 0, 3);
+		gl.disable(gl.STENCIL_TEST);
+		// 境界線
+		if (o.lineVao) {
+			setCommonUniforms(lineProg, st, o.origin, land);
+			gl.uniform1f(loc(gl, lineProg, "u_dpr"), dpr);
+			gl.bindVertexArray(o.lineVao); gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, o.lineCount);
+		}
+	}
+	function drawOverlay(st, dpr, land) { drawOne(overlay, st, dpr, land); drawOne(overlayHi, st, dpr, land); }
+
 	function setCommonUniforms(prog, st, origin, fog) {
 		gl.useProgram(prog);
 		gl.uniformMatrix4fv(loc(gl, prog, "u_mvp"), false, st.mvp32);
@@ -170,7 +224,7 @@ export function createRenderer(canvas) {
 		gl.disable(gl.DEPTH_TEST);
 		gl.useProgram(lineProg); gl.uniform1f(loc(gl, lineProg, "u_dpr"), cam.dpr || 1);
 
-		const slots = (opts && opts.skipBase) ? ["main", "overlay"] : ["base", "main", "overlay"];   // 静止時は下地を隠しLOD痕を消す。overlay(geopbf)は常に最前面
+		const slots = (opts && opts.skipBase) ? ["main"] : ["base", "main"];   // 静止時は下地を隠しLOD痕を消す
 		for (const slot of slots) {   // 粗い下書き→現ズームの順
 			const scene = scenes[slot];
 			if (!scene.draws.length) continue;
@@ -189,6 +243,8 @@ export function createRenderer(canvas) {
 				}
 			}
 		}
+		// overlay（外部ベクタ=geopbf/e-Stat）：stencil-then-cover で塗り（earcut不要・扇なし）＋境界線。深度off・最前面。
+		drawOverlay(st, cam.dpr || 1, land);
 		gl.enable(gl.DEPTH_TEST);   // 建物は常に深度で前後関係を解決（地形・尾根に遮蔽される）
 
 		// 建物（3D押し出し）：深度で前後関係を解決（地形・尾根にも遮蔽される）。
@@ -209,9 +265,9 @@ export function createRenderer(canvas) {
 		if (scenes[slot].bld) { for (const b of scenes[slot].bld.bufs) gl.deleteBuffer(b); gl.deleteVertexArray(scenes[slot].bld.vao); }
 		scenes[slot] = { origin: scenes[slot].origin, draws: [], bld: null };
 	}
-	function dispose() { disposeSlot("base"); disposeSlot("main"); }
+	function dispose() { disposeSlot("base"); disposeSlot("main"); disposeOverlay(overlay); disposeOverlay(overlayHi); }
 
-	return { gl, setScene, setElevationAtlas, setElevationCell, draw, dispose };
+	return { gl, setScene, setElevationAtlas, setElevationCell, setOverlay, setOverlayHi, draw, dispose };
 }
 
 // --- GL ヘルパ ---

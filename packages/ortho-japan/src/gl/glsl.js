@@ -112,6 +112,28 @@ void main() {
 	fragColor = vec4(col * t, t);           // premultiplied（globe基色→地形へ滑らかに）
 }`;
 
+// stencil-then-cover の塗り（earcut不要でロバスト）。ortho-map の 2-sided winding を透視mat4へ移植。
+// stencilパス：ポリゴンの fan 三角形を色を書かず stencil へ（FRONT +1 / BACK -1）。球の前後半球も相殺。
+// カリングなし＝巻き数を壊さず内側を正しく塗る（裏抜けは残るが LOD で本質的に消える）。
+export const STENCIL_VS = `#version 300 es
+precision highp float;
+in vec2 a_delta;
+${PROJECT}
+void main() {
+	vec2 ll = u_origin + a_delta;
+	gl_Position = u_mvp * vec4(lonlatTo3D(ll), 1.0);   // 球面(半径1)へ。塗りは巻き数で決まるので fan の形は問わない
+}`;
+export const STENCIL_FS = `#version 300 es
+precision highp float;
+out vec4 o;
+void main() { o = vec4(0.0); }`;   // colorMask off で無視される
+// coverパス：フルスクリーンを描き、stencil≠0 の画素だけ塗る（GLOBE_VS を流用）。
+export const COVER_FS = `#version 300 es
+precision highp float;
+uniform vec4 u_fill;
+out vec4 o;
+void main() { o = vec4(u_fill.rgb * u_fill.a, u_fill.a); }`;   // premultiplied
+
 // 球体本体：フルスクリーン三角形の各画素でカメラ光線×単位球。当たれば land色、外れれば宇宙(discard)。
 export const GLOBE_VS = `#version 300 es
 precision highp float;

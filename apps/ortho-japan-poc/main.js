@@ -2,7 +2,7 @@
 import {
 	createRenderer, createLabelLayer, createTileManager,
 	evalExpr, parseRGBA, cameraState, unproject, fetchR10, downsampleFlipped,
-	buildGeoJSONScene, pointInFeature,
+	buildGeoJSONOverlay, pointInFeature,
 } from "ortho-japan";
 import { geopbf, createGeopbf } from "geopbf";
 createGeopbf("https://api.ortho-earth.com");   // bucket 基盤（標高と同じ）。読み出しはキー不要
@@ -341,7 +341,8 @@ async function loadOverlay(name) {
 	let lo0 = 180, la0 = 90, lo1 = -180, la1 = -90;
 	for (const f of overlayFeatures) eachCoord(f.geometry, (x, y) => { if (x < lo0) lo0 = x; if (x > lo1) lo1 = x; if (y < la0) la0 = y; if (y > la1) la1 = y; });
 	overlayOrigin = [(lo0 + lo1) / 2, (la0 + la1) / 2];
-	renderer.setScene(buildGeoJSONScene(overlayFeatures, overlayOrigin), "overlay");
+	renderer.setOverlay(buildGeoJSONOverlay(overlayFeatures, overlayOrigin));
+	renderer.setOverlayHi(null);
 	identEl.textContent = `geopbf: ${name}\n${overlayFeatures.length} features — クリックで identify`;
 	needsDraw = true;
 }
@@ -351,7 +352,7 @@ function identifyAt(clientX, clientY) {
 	const ll = unproject(st, clientX * dpr, clientY * dpr);
 	if (!ll) return;
 	const hit = overlayFeatures.findIndex(f => pointInFeature(ll[0], ll[1], f.geometry));
-	renderer.setScene(buildGeoJSONScene(overlayFeatures, overlayOrigin, { highlight: hit >= 0 ? new Set([hit]) : null }), "overlay");
+	renderer.setOverlayHi(hit >= 0 ? buildGeoJSONOverlay([overlayFeatures[hit]], overlayOrigin) : null);   // ヒット地物だけ別 stencil で強調
 	if (hit >= 0) {
 		const p = overlayFeatures[hit].properties || {};
 		const kv = Object.entries(p).slice(0, 6).map(([k, v]) => `${k}: ${v}`).join("\n");
@@ -382,12 +383,14 @@ async function loadEstat(codes) {
 	let lo0 = 180, la0 = 90, lo1 = -180, la1 = -90;
 	for (const f of feats) eachCoord(f.geometry, (x, y) => { if (x < lo0) lo0 = x; if (x > lo1) lo1 = x; if (y < la0) la0 = y; if (y > la1) la1 = y; });
 	overlayOrigin = [(lo0 + lo1) / 2, (la0 + la1) / 2];
-	renderer.setScene(buildGeoJSONScene(feats, overlayOrigin), "overlay");
+	renderer.setOverlay(buildGeoJSONOverlay(feats, overlayOrigin));
+	renderer.setOverlayHi(null);
 	cam.center = [(lo0 + lo1) / 2, (la0 + la1) / 2]; cam.zoom = 11; cam.pitch = 0; needsDraw = true;
 	identEl.textContent = `e-Stat 小地域: ${feats.length} 地物 — クリックで identify（小地域コード＝突合の種）`;
 }
 window.__loadEstat = loadEstat;
-loadEstat(Array.from({ length: 23 }, (_, i) => 13101 + i));   // 東京23区の小地域を描く
+window.__tokyo = () => loadEstat(Array.from({ length: 23 }, (_, i) => 13101 + i));   // 東京23区の小地域
+loadOverlay("ne_110m_land");   // まず stencil で全球陸を塗る＝扇が消えたかの検証（東京は __tokyo()）
 
 function frame() {
 	if (needsDraw) { needsDraw = false; render(); }

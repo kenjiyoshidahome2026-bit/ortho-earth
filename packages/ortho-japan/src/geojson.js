@@ -62,6 +62,37 @@ function unwrapRing(ring) {
 	return out;
 }
 
+// stencil-then-cover 用：ポリゴンを fan 三角形(anchor, v_i, v_{i+1})に。earcut不要（凹/穴は巻き数が処理）。
+// 塗りの被覆は境界の巻き数で決まるので fan の形は問わない＝球面で扇にならない。境界線も併せて出す。
+export function buildGeoJSONOverlay(features, origin, opts = {}) {
+	const [ox, oy] = origin;
+	const lc = opts.lineColor || [0.16, 0.40, 0.70, 0.95];
+	const half = opts.lineWidth != null ? opts.lineWidth : 1.2;
+	const fan = [], P1 = [], P2 = [], lcol = [], lhalf = [];
+	const pushRingLines = ring => {
+		for (let i = 0; i + 1 < ring.length; i++) {
+			P1.push(ring[i][0] - ox, ring[i][1] - oy); P2.push(ring[i + 1][0] - ox, ring[i + 1][1] - oy);
+			lcol.push(lc[0], lc[1], lc[2], lc[3]); lhalf.push(half);
+		}
+	};
+	const fanPolygon = rings => {
+		const uw = rings.map(unwrapRing);
+		const ax = uw[0][0][0] - ox, ay = uw[0][0][1] - oy;   // ポリゴンの anchor（外周先頭）。全リング共通で穴を巻き数減算
+		for (const ring of uw) {
+			for (let i = 0; i + 1 < ring.length; i++) fan.push(ax, ay, ring[i][0] - ox, ring[i][1] - oy, ring[i + 1][0] - ox, ring[i + 1][1] - oy);
+		}
+		uw.forEach(pushRingLines);
+	};
+	features.forEach(f => {
+		const g = f && f.geometry; if (!g) return;
+		if (g.type === "Polygon") fanPolygon(g.coordinates);
+		else if (g.type === "MultiPolygon") g.coordinates.forEach(fanPolygon);
+		else if (g.type === "LineString") pushRingLines(unwrapRing(g.coordinates));
+		else if (g.type === "MultiLineString") g.coordinates.forEach(r => pushRingLines(unwrapRing(r)));
+	});
+	return { origin: [ox, oy], fanPos: new Float32Array(fan), P1: new Float32Array(P1), P2: new Float32Array(P2), lineCol: new Float32Array(lcol), lineHalf: new Float32Array(lhalf) };
+}
+
 // 点-in-ポリゴン（GeoJSON Polygon/MultiPolygon, 経緯度）。identify の JS 経路。穴も考慮。
 export function pointInFeature(lon, lat, geom) {
 	if (!geom) return false;
