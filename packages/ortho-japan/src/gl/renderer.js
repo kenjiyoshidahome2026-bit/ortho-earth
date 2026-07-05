@@ -184,7 +184,11 @@ export function createRenderer(canvas) {
 		// 真俯瞰では標高オフ、傾けるほどフェードイン（3.4°→11.5°）
 		const pt = Math.max(0, Math.min(1, ((cam.pitch || 0) - 0.06) / 0.14));
 		const pf = pt * pt * (3 - 2 * pt);
-		elevScaleEff = elev.scale * pf;
+		// 都市ズーム(z15.5→17.5)では地形を平ら化＝建物が粗い地形メッシュの上に浮くのを防ぐ。
+		// 地形3Dの主役は山（中〜広ズーム）、都市は元々平坦で3Dは建物側。
+		const zt = Math.max(0, Math.min(1, ((cam.zoom || 0) - 15.5) / 2));
+		const zf = 1 - zt * zt * (3 - 2 * zt);
+		elevScaleEff = elev.scale * pf * zf;
 		// 真俯瞰(pitch≈0)＋十分な寄り＝画面全面が陸。地球の縁/大気のレイキャストは映らず無駄なので、
 		// 陸色で塗りつぶす clear だけの2D高速パスへ（フルスクリーンの球シェーダを丸ごと省略）。
 		const land = cam.land || [0.96, 0.96, 0.95, 1], atmo = cam.atmo || [0.45, 0.62, 0.95, 0.6];

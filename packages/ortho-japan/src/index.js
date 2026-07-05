@@ -14,3 +14,4 @@ export { createLabelLayer } from "./labels2d.js";
 export { cameraState, project, unproject, lonlatTo3D } from "./camera.js";
 export { pickZoom, visibleTiles, selectLOD } from "./tilecover.js";
 export { createTileManager } from "./tilemanager.js";
+export { mergeTiles } from "./scene.js";

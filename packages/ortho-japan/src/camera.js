@@ -31,7 +31,9 @@ export function cameraState(cam, W, H) {
 	const aspect = W / H;
 	// near/far を可視範囲（最近点camDist〜地平線limb）にタイトに。極端なオーバーズームでの精度崩壊を防ぐ。
 	const limb = Math.sqrt(Math.max((1 + camDist) * (1 + camDist) - 1, 1e-12));
-	const near = Math.max(camDist * 0.3, 1e-7), far = limb * 1.15 + camDist;
+	// 傾けるほど近景の足元がカメラに寄るので、near を浅くして下が抜けるのを防ぐ（真俯瞰0.3→急チルト0.03）。
+	const pf = Math.min(1, pitch / (60 * D2R));
+	const near = Math.max(camDist * (0.3 - 0.27 * pf), 1e-7), far = limb * 1.15 + camDist;
 	const proj = mat.perspective(fovy, aspect, near, far);
 	const mvp = mat.multiply(proj, view);
 	// 上空から見ると座標系が鏡像になるため clip.x を反転（東=画面右）。行0を符号反転。

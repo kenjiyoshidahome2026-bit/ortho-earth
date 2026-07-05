@@ -79,20 +79,47 @@ function onMove() {
 	settleT = setTimeout(() => { moving = false; needsDraw = true; }, 150);
 }
 
-// タイル worker プール：fetch→decode→tessellation をメインから退避。メイン=GL＋カメラだけに。
+// scene worker：タイル geometry を保持し、結合(merge)も担う。メインは geometry を一切持たず、
+// 結合済みバッファを GL に上げるだけ。
+const sceneWorker = new Worker(new URL("./sceneworker.js", import.meta.url), { type: "module" });
+const latestMerge = { base: 0, main: 0 };
+let mergeId = 0;
+sceneWorker.onmessage = e => {
+	if (e.data.type !== "scene" || e.data.id !== latestMerge[e.data.slot]) return;   // 古い merge 結果は捨てる
+	renderer.setScene(e.data.scene, e.data.slot);
+	needsDraw = true;
+};
+function requestMerge(slot, order, origin, hidden) {
+	const id = ++mergeId; latestMerge[slot] = id;
+	sceneWorker.postMessage({ type: "merge", id, slot, order: order.map(o => ({ key: o.key, origin: o.origin, z: o.z })), origin, hidden: hidden && hidden.size ? [...hidden] : null });
+}
+function collectTileBuffers(dl, buildings) {
+	const bufs = [];
+	for (const op of dl.ops) { if (op.kind === "fill") bufs.push(op.pos.buffer, op.col.buffer); else bufs.push(op.P1.buffer, op.P2.buffer, op.col.buffer, op.half.buffer); }
+	if (buildings) bufs.push(buildings.pos.buffer, buildings.shade.buffer, buildings.anchor.buffer);
+	return bufs;
+}
+
+// タイル worker プール：fetch→decode→tessellation。geometry は scene worker へ転送し、
+// メインにはメタ＋ラベルだけ返す（重い処理も geometry もメインに残さない）。
 const NW = Math.min(4, (navigator.hardwareConcurrency || 4) - 1) || 2;
 const tileWorkers = [], pending = new Map();
 let wIdx = 0, reqId = 0;
 for (let i = 0; i < NW; i++) {
 	const w = new Worker(new URL("./tileworker.js", import.meta.url), { type: "module" });
-	w.onmessage = e => { const p = pending.get(e.data.id); if (!p) return; pending.delete(e.data.id); e.data.ok ? p.resolve(e.data) : p.reject(new Error(e.data.error)); };
+	w.onmessage = e => {
+		const p = pending.get(e.data.id); if (!p) return; pending.delete(e.data.id);
+		if (!e.data.ok) { p.reject(new Error(e.data.error)); return; }
+		sceneWorker.postMessage({ type: "tile", key: p.key, ops: e.data.dl.ops, buildings: e.data.buildings }, collectTileBuffers(e.data.dl, e.data.buildings));
+		p.resolve({ origin: e.data.origin, labels: e.data.labels, z: e.data.z });   // メタ＋ラベルのみ
+	};
 	w.postMessage({ type: "init", style });
 	tileWorkers.push(w);
 }
 function workerBuildTile(t) {
-	const id = ++reqId, w = tileWorkers[wIdx = (wIdx + 1) % NW];
+	const id = ++reqId, key = `${t.z}/${t.x}/${t.y}`, w = tileWorkers[wIdx = (wIdx + 1) % NW];
 	w.postMessage({ id, url: TILE_URL(t.z, t.x, t.y), z: t.z, x: t.x, y: t.y });
-	return new Promise((resolve, reject) => pending.set(id, { resolve, reject }));
+	return new Promise((resolve, reject) => pending.set(id, { resolve, reject, key }));
 }
 
 const tiles = createTileManager({
@@ -102,7 +129,7 @@ const tiles = createTileManager({
 });
 
 // 透視カメラ：center(注視点lon/lat), zoom(web-mercator float), pitch/bearing(rad)
-const MAXPITCH = 68 * D2R;
+const MAXPITCH = 55 * D2R;   // 裏抜けが出る過度なチルトを踏ませない（3Dの見応えは十分・安全域で頭打ち）
 const atmo = [0.5, 0.66, 0.96, 0.3];   // 大気色 rgb + 強さ（さりげなく）
 const bldColor = [0.83, 0.83, 0.82];    // 建物色（静かなグレー）
 const cam = { center: [139.767, 35.681], zoom: 16, pitch: 0, bearing: 0, dpr, clear, land, atmo, bldColor };
@@ -216,7 +243,7 @@ function swapScene(order) {
 	if (sig === readySig || !order.length) return;
 	if (!sceneOrigin || Math.abs(sceneOrigin[0] - cam.center[0]) > 0.4 || Math.abs(sceneOrigin[1] - cam.center[1]) > 0.4)
 		sceneOrigin = [cam.center[0], cam.center[1]];
-	renderer.setScene(tiles.buildScene(order, { origin: sceneOrigin, hidden: hiddenLi() }));
+	requestMerge("main", order, sceneOrigin, hiddenLi());   // 結合は scene worker（非同期）→ 応答で setScene
 	lastLabels = filterLabels(tiles.labels(order)).map(L => {
 		// 都道府県は大きく薄い背景ラベルに（コピーしてキャッシュ側を壊さない）。他はそのまま。
 		const o = L.code === 140 ? { ...L, size: L.size * 1.25, color: [L.color[0], L.color[1], L.color[2], L.color[3] * 0.5] } : L;
@@ -232,7 +259,7 @@ let baseSig = "";
 function swapBase(coarseOrder) {
 	const sig = coarseOrder.map(o => o.key).join("|") + "#" + styleSig;
 	if (sig === baseSig || !coarseOrder.length) return;
-	renderer.setScene(tiles.buildScene(coarseOrder, { origin: [cam.center[0], cam.center[1]], hidden: hiddenLi() }), "base");
+	requestMerge("base", coarseOrder, [cam.center[0], cam.center[1]], hiddenLi());   // 下地も scene worker で結合
 	baseSig = sig;
 }
 
@@ -407,7 +434,7 @@ async function loadEstat(codes) {
 }
 window.__loadEstat = loadEstat;
 window.__tokyo = () => loadEstat(Array.from({ length: 23 }, (_, i) => 13101 + i));   // 東京23区の小地域
-loadOverlay("ne_110m_land");   // まず stencil で全球陸を塗る＝扇が消えたかの検証（東京は __tokyo()）
+// 初期 overlay なし（全球 land は検証用。__tokyo() や __loadOverlay(name) で任意に）
 
 function frame() {
 	if (needsDraw) { needsDraw = false; render(); }
