@@ -21,8 +21,12 @@ export function createRenderer(canvas) {
 	// 標高（GEBCO/ALOS）：テクスチャ＋地形格子メッシュ
 	let elevTex = null, elev = { bounds: [0, 0, 1, 0], scale: 0, has: 0 }, terrain = null;
 	let elevScaleEff = 0;   // pitchで変調した実効スケール（真俯瞰では0＝平面）
-	// base=粗い下書き（underlay）、main=現ズーム。draw で base→main の順に描く。
-	const scenes = { base: { origin: [0, 0], draws: [], bld: null }, main: { origin: [0, 0], draws: [], bld: null } };
+	// base=粗い下書き（underlay）、main=現ズーム、overlay=外部ベクタ(geopbf等)を最前面に。
+	const scenes = {
+		base: { origin: [0, 0], draws: [], bld: null },
+		main: { origin: [0, 0], draws: [], bld: null },
+		overlay: { origin: [0, 0], draws: [], bld: null },
+	};
 
 	// s: { origin:[lon,lat], layers:[{kind:'fill'|'line', ...typed arrays}] }（style層順）。slot: 'base'|'main'
 	function setScene(s, slot = "main") {
@@ -166,7 +170,7 @@ export function createRenderer(canvas) {
 		gl.disable(gl.DEPTH_TEST);
 		gl.useProgram(lineProg); gl.uniform1f(loc(gl, lineProg, "u_dpr"), cam.dpr || 1);
 
-		const slots = (opts && opts.skipBase) ? ["main"] : ["base", "main"];   // 静止時は下地を隠しLOD痕(二重線)を消す
+		const slots = (opts && opts.skipBase) ? ["main", "overlay"] : ["base", "main", "overlay"];   // 静止時は下地を隠しLOD痕を消す。overlay(geopbf)は常に最前面
 		for (const slot of slots) {   // 粗い下書き→現ズームの順
 			const scene = scenes[slot];
 			if (!scene.draws.length) continue;

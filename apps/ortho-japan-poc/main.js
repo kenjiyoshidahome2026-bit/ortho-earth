@@ -2,7 +2,10 @@
 import {
 	createRenderer, createLabelLayer, createTileManager,
 	evalExpr, parseRGBA, cameraState, unproject, fetchR10, downsampleFlipped,
+	buildGeoJSONScene, pointInFeature,
 } from "ortho-japan";
+import { geopbf, createGeopbf } from "geopbf";
+createGeopbf("https://api.ortho-earth.com");   // bucket 基盤（標高と同じ）。読み出しはキー不要
 import style from "./style-mono.js";
 
 const TILE_URL = (z, x, y) => `https://cyberjapandata.gsi.go.jp/xyz/optimal_bvmap-v1/${z}/${x}/${y}.pbf`;
@@ -103,10 +106,13 @@ resize();
 let drag = null;
 canvas.addEventListener("contextmenu", e => e.preventDefault());
 canvas.addEventListener("pointerdown", e => {
-	drag = { x: e.clientX, y: e.clientY, tilt: e.button === 2 || e.shiftKey || e.ctrlKey };
+	drag = { x: e.clientX, y: e.clientY, x0: e.clientX, y0: e.clientY, tilt: e.button === 2 || e.shiftKey || e.ctrlKey };
 	canvas.setPointerCapture(e.pointerId);
 });
-canvas.addEventListener("pointerup", () => drag = null);
+canvas.addEventListener("pointerup", e => {
+	if (drag && !drag.tilt && Math.hypot(e.clientX - drag.x0, e.clientY - drag.y0) < 4) identifyAt(e.clientX, e.clientY);   // 動いていない＝クリック→identify
+	drag = null;
+});
 canvas.addEventListener("pointermove", e => {
 	if (!drag) return;
 	const dxp = e.clientX - drag.x, dyp = e.clientY - drag.y;
@@ -316,6 +322,72 @@ function render() {
 	if (labelLayer.draw(cam)) needsDraw = true;    // ラベルはライブ（位置は毎フレーム、集合は間引き）
 	logEl.textContent = `tiles=${order.length}/${total}  labels=${lastLabels.length}  zoom=${cam.zoom.toFixed(1)} pitch=${(cam.pitch * 180 / Math.PI).toFixed(0)}°`;
 }
+
+// --- 統合スパイク：geopbf を overlay に描き、クリックで identify（mat4 が geopbf を識別込みで吸収）---
+const identEl = document.createElement("div");
+identEl.style.cssText = "position:fixed;top:44px;left:10px;max-width:340px;font-size:12px;color:#334;background:rgba(255,255,255,.82);padding:6px 10px;border-radius:6px;-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);white-space:pre-wrap;z-index:6;";
+document.body.appendChild(identEl);
+let overlayFeatures = null, overlayOrigin = [138, 37];
+function eachCoord(g, cb) {
+	if (!g || !g.coordinates) return;
+	const walk = c => { if (typeof c[0] === "number") cb(c[0], c[1]); else c.forEach(walk); };
+	walk(g.coordinates);
+}
+async function loadOverlay(name) {
+	identEl.textContent = `geopbf 読込中: ${name} …`;
+	const pbf = await geopbf(name, { gint: false }).catch(err => { console.warn("geopbf", err); return null; });
+	if (!pbf || !pbf.features || !pbf.features.length) { identEl.textContent = `geopbf 読込失敗: ${name}`; return; }
+	overlayFeatures = pbf.features;
+	let lo0 = 180, la0 = 90, lo1 = -180, la1 = -90;
+	for (const f of overlayFeatures) eachCoord(f.geometry, (x, y) => { if (x < lo0) lo0 = x; if (x > lo1) lo1 = x; if (y < la0) la0 = y; if (y > la1) la1 = y; });
+	overlayOrigin = [(lo0 + lo1) / 2, (la0 + la1) / 2];
+	renderer.setScene(buildGeoJSONScene(overlayFeatures, overlayOrigin), "overlay");
+	identEl.textContent = `geopbf: ${name}\n${overlayFeatures.length} features — クリックで identify`;
+	needsDraw = true;
+}
+function identifyAt(clientX, clientY) {
+	if (!overlayFeatures) return;
+	const st = cameraState(cam, canvas.width, canvas.height);
+	const ll = unproject(st, clientX * dpr, clientY * dpr);
+	if (!ll) return;
+	const hit = overlayFeatures.findIndex(f => pointInFeature(ll[0], ll[1], f.geometry));
+	renderer.setScene(buildGeoJSONScene(overlayFeatures, overlayOrigin, { highlight: hit >= 0 ? new Set([hit]) : null }), "overlay");
+	if (hit >= 0) {
+		const p = overlayFeatures[hit].properties || {};
+		const kv = Object.entries(p).slice(0, 6).map(([k, v]) => `${k}: ${v}`).join("\n");
+		identEl.textContent = `identify ✔ #${hit}\n${kv || "(no props)"}`;
+	} else identEl.textContent = "identify: ヒットなし";
+	needsDraw = true;
+}
+window.__loadOverlay = loadOverlay;        // geopbf 名から（全球等）
+// e-Stat 小地域（市区町村単位の {code}.geojsonl・gzip）を直接 fetch→gunzip→parse→アダプタ。
+// 小ポリゴンなので earcut でも扇なし。identify で小地域コード＝突合の種。
+async function gunzipText(bytes) {
+	if (bytes[0] === 0x1f && bytes[1] === 0x8b) return await new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream("gzip"))).text();
+	return new TextDecoder().decode(bytes);
+}
+async function loadEstat(codes) {
+	identEl.textContent = `e-Stat 小地域 読込中 (${codes.length}市区町村)…`;
+	const feats = [];
+	await Promise.all(codes.map(async code => {
+		try {
+			const r = await fetch(`https://api.ortho-earth.com/bucket/estat/${code}.geojsonl`);
+			if (!r.ok) return;
+			const text = await gunzipText(new Uint8Array(await r.arrayBuffer()));
+			for (const line of text.split("\n")) { const s = line.trim(); if (s) { try { feats.push(JSON.parse(s)); } catch { /* skip */ } } }
+		} catch (e) { console.warn("estat", code, e); }
+	}));
+	if (!feats.length) { identEl.textContent = "e-Stat 読込失敗"; return; }
+	overlayFeatures = feats;
+	let lo0 = 180, la0 = 90, lo1 = -180, la1 = -90;
+	for (const f of feats) eachCoord(f.geometry, (x, y) => { if (x < lo0) lo0 = x; if (x > lo1) lo1 = x; if (y < la0) la0 = y; if (y > la1) la1 = y; });
+	overlayOrigin = [(lo0 + lo1) / 2, (la0 + la1) / 2];
+	renderer.setScene(buildGeoJSONScene(feats, overlayOrigin), "overlay");
+	cam.center = [(lo0 + lo1) / 2, (la0 + la1) / 2]; cam.zoom = 11; cam.pitch = 0; needsDraw = true;
+	identEl.textContent = `e-Stat 小地域: ${feats.length} 地物 — クリックで identify（小地域コード＝突合の種）`;
+}
+window.__loadEstat = loadEstat;
+loadEstat(Array.from({ length: 23 }, (_, i) => 13101 + i));   // 東京23区の小地域を描く
 
 function frame() {
 	if (needsDraw) { needsDraw = false; render(); }

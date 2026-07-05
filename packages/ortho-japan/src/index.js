@@ -7,6 +7,7 @@ export { lonLatToTile, tileLocalToLonLat, tileBounds } from "./tile.js";
 export { buildTileDrawList } from "./build.js";
 export { createRenderer } from "./gl/renderer.js";
 export { buildLabels } from "./labels.js";
+export { buildGeoJSONScene, pointInFeature } from "./geojson.js";
 export { buildBuildings } from "./buildings.js";
 export { fetchR10, toFloat32, sampleHeight, downsampleFlipped } from "./elevation.js";
 export { createLabelLayer } from "./labels2d.js";
