@@ -1,4 +1,4 @@
-// ortho-vt: 球面ベクタタイル描画エンジン（MLIT/地理院 optimal_bvmap 等のMVTを ortho 球面に直描き）。
+// ortho-japan: 球面ベクタタイル描画エンジン（MLIT/地理院 optimal_bvmap 等のMVTを ortho 球面に直描き）。
 // 本番 ortho-map からは独立。現行アプリのimportグラフには含めない。
 export { evalExpr, truthy } from "./expr.js";
 export { makePale } from "./pale.js";

@@ -1,8 +1,8 @@
-// ortho-vt PoC — 地理院 optimal_bvmap を球面に直描き（M2: タイルストリーミング＋LOD＋ラベル）。
+// ortho-japan PoC — 地理院 optimal_bvmap を球面に直描き（M2: タイルストリーミング＋LOD＋ラベル）。
 import {
 	createRenderer, createLabelLayer, createTileManager,
 	evalExpr, parseRGBA, cameraState, unproject, fetchR10, downsampleFlipped,
-} from "ortho-vt";
+} from "ortho-japan";
 import style from "./style-mono.js";
 
 const TILE_URL = (z, x, y) => `https://cyberjapandata.gsi.go.jp/xyz/optimal_bvmap-v1/${z}/${x}/${y}.pbf`;

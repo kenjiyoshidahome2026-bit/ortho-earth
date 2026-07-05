@@ -1,6 +1,6 @@
 // 自作スタイル「Quiet Mono」── 地理院MVT(optimal_bvmap)を、紙地図の踏襲をやめた
 // 静かなモノクロームのデータ土台に再解釈する。主題オーバーレイが主役として映えるよう基図は控えめに引く。
-// std.json と同じ式言語/vt_code フィルタを使うので ortho-vt の評価器でそのまま描ける。
+// std.json と同じ式言語/vt_code フィルタを使うので ortho-japan の評価器でそのまま描ける。
 export default {
 	version: 8,
 	name: "Quiet Mono",
