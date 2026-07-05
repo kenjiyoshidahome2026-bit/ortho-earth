@@ -299,7 +299,16 @@ let loadTile = null;          // altpbf createTileLoader（非同期セットア
 createTileLoader({ apiUrl: "https://api.ortho-earth.com" })
 	.then(fn => { loadTile = fn; needsDraw = true; })
 	.catch(e => console.error("[tileLoader] setup failed", e));
-function selectRange() { const z = cam.zoom; return z < 7 ? 90 : z < 12 ? 10 : 1; }   // altpbf と同じ閾値
+// 地形読込インジケータ：R01 初回は JAXA から数秒かかるので「何が起きているか」を明示。
+let pendingElev = 0;
+const elevEl = document.createElement("div");
+elevEl.style.cssText = "position:fixed;bottom:44px;left:10px;font-size:12px;color:#4a5568;background:rgba(255,255,255,.85);padding:5px 11px;border-radius:6px;-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);display:none;z-index:6;";
+document.body.appendChild(elevEl);
+function updateElevIndicator(range) {
+	if (pendingElev > 0) { elevEl.style.display = "block"; elevEl.textContent = `⛰ 地形読込中 ${range === 1 ? "R01（秒単位・JAXA）" : range === 10 ? "R10" : "R90"} … ×${pendingElev}`; }
+	else elevEl.style.display = "none";
+}
+function selectRange() { const z = cam.zoom; return z < 4.5 ? 90 : z < 12 ? 10 : 1; }   // R90=超広域(8×8で覆いきる手前) / R10=中 / R01=城下
 async function getCell(cellLng, cellLat, range) {
 	if (!loadTile) return null;
 	const k = range + "," + cellLng + "," + cellLat;
@@ -335,8 +344,10 @@ function viewCellRange(range) {
 		la0 = Math.min(la0, p[1]); la1 = Math.max(la1, p[1]);
 	}
 	const cx0 = Math.floor(lo0 / range), cx1 = Math.floor(lo1 / range), cy0 = Math.floor(la0 / range), cy1 = Math.floor(la1 / range);
-	// 最大4×4。注視点(cam.center)のセルを中心に窓を置き、可視範囲[cx0..cx1]内へクランプ。
-	const cellsX = Math.min(4, cx1 - cx0 + 1), cellsY = Math.min(4, cy1 - cy0 + 1);
+	// セル上限：R01 は近景特化で小さく高精細に（遠景まで広げると grazing で粗いメッシュの壁が出る）。
+	// R10/R90 は広域カバー優先で 8。cellRes=2048/セル数で解像度は自動配分。
+	const cap = range === 1 ? 4 : 8;
+	const cellsX = Math.min(cap, cx1 - cx0 + 1), cellsY = Math.min(cap, cy1 - cy0 + 1);
 	const ccx = Math.floor(cam.center[0] / range), ccy = Math.floor(cam.center[1] / range);
 	const originCX = Math.max(cx0, Math.min(cx1 - cellsX + 1, ccx - (cellsX - 1 >> 1)));
 	const originCY = Math.max(cy0, Math.min(cy1 - cellsY + 1, ccy - (cellsY - 1 >> 1)));
@@ -357,7 +368,9 @@ async function ensureElevation() {
 		const ck = cx + "," + cy;
 		if (loadedCells.has(ck)) continue;
 		loadedCells.add(ck);
+		pendingElev++; updateElevIndicator(range);
 		getCell((r.originCX + cx) * range, (r.originCY + cy) * range, range).then(tile => {
+			pendingElev--; updateElevIndicator(range);
 			if (tile && atlasKey === key) { renderer.setElevationCell(cx, cy, downsampleFlipped(tile, r.cellRes), r.cellRes); needsDraw = true; }
 		});
 	}

@@ -54,11 +54,15 @@ export function toFloat32(tile, { clampSea = true } = {}) {
 export function downsampleFlipped(tile, N) {
 	const { data, width: w, height: h } = tile;
 	const out = new Float32Array(N * N);
-	const H = (x, y) => data[(h - 1 - y) * w + x];   // y: 0=南 の地理座標 → データ行(北上げ)へ
+	// y: 0=南 の地理座標 → データ行(北上げ)へ。異常値(int16巨大値/-9999)は0に。
+	const H = (x, y) => { const v = data[(h - 1 - y) * w + x]; return (v < -420 || v > 9000) ? 0 : v; };
+	// ALOSタイルの最外周画素は縁の fill/no-data(値は中途半端で絶対値クランプをすり抜ける)。
+	// これを読むとセル境界(整数緯度)に非実在のタワーが全経度に並ぶ。最外周 M 画素を捨てて内側だけサンプル。
+	const M = 2;
 	for (let j = 0; j < N; j++) {
-		const gy = j / (N - 1) * (h - 1), y0 = Math.min(gy | 0, h - 2), fy = gy - y0;
+		const gy = M + j / (N - 1) * (h - 1 - 2 * M), y0 = Math.min(gy | 0, h - 2), fy = gy - y0;
 		for (let i = 0; i < N; i++) {
-			const gx = i / (N - 1) * (w - 1), x0 = Math.min(gx | 0, w - 2), fx = gx - x0;
+			const gx = M + i / (N - 1) * (w - 1 - 2 * M), x0 = Math.min(gx | 0, w - 2), fx = gx - x0;
 			const a = H(x0, y0), b = H(x0 + 1, y0), c = H(x0, y0 + 1), d = H(x0 + 1, y0 + 1);
 			const v = (a + (b - a) * fx) + ((c + (d - c) * fx) - (a + (b - a) * fx)) * fy;
 			out[j * N + i] = v < 0 ? 0 : v;              // row0=南

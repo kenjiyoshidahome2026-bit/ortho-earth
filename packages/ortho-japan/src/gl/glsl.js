@@ -81,7 +81,10 @@ out float v_fog;
 out float v_h;
 void main() {
 	vec3 dir = lonlatTo3D(a_ll);
-	float h = elev(a_ll);
+	// 遠景は変位を距離フェードで平ら化＝grazing(すれすれ角)で粗いメッシュ格子が縦壁に見えるのを消す。
+	// 近景は relief フル、遠景は平らに沈めて霧へ。
+	float df = 1.0 - smoothstep(u_fogNear, u_fogNear * 2.5, distance(u_eye, dir));
+	float h = elev(a_ll) * df;
 	v_h = h;
 	vec3 w = dir * (1.0 + h * u_elevScale);
 	float d = 0.004;                                         // 勾配サンプル歩幅(度, ~450m固定)
