@@ -1,12 +1,9 @@
-// ラベル抽出とテキストレイアウト（投影非依存）。
-// M1.2 スコープ: 点(point)配置・横書きのみ。size/color/halo は std の式を評価。
-// フォントは NotoSansJP-Regular 固定（Serif/縦書き/線ラベル/アイコン/vt_dsppos詳細アンカーは M2）。
+// ラベル抽出（投影非依存）。style の symbol層から点・横書きラベルを取り出す。
+// 描画は labels2d（Canvas2Dオーバーレイ）が担う。size/color/halo は式を評価。
 import { evalExpr, truthy } from "./expr.js";
 import { parseRGBA } from "./color.js";
 import { tileLocalToLonLat } from "./tile.js";
-import { SDF_BUFFER } from "./glyphs.js";
 
-const GLYPH_EM = 24;                       // グリフの基準em（advance等の単位）
 const M1_FONT = "NotoSansJP-Regular";
 
 const num = (v, d) => (typeof v === "number" && !isNaN(v)) ? v : d;
@@ -44,32 +41,4 @@ export function buildLabels({ layers, z, x, y }, style) {
 		}
 	}
 	return { labels: out, codepoints, font: M1_FONT };
-}
-
-// テキストをグリフ矩形列にレイアウト（スクリーンpxのアンカー相対、中央アンカー）。
-// atlas に該当グリフが梱包済みであること。戻り値: { quads:[{x0,y0,x1,y1,u0,v0,u1,v1}], w, h }
-export function layoutText(atlas, font, text, size) {
-	const scale = size / GLYPH_EM;
-	const em = [];   // em空間の矩形
-	let penX = 0;
-	for (const ch of text) {
-		const cp = ch.codePointAt(0);
-		const g = atlas.get(font, cp);
-		if (!g) { penX += GLYPH_EM; continue; }
-		if (g.w > 0) {
-			const ex0 = penX + g.left - SDF_BUFFER;
-			const ey0 = -g.top - SDF_BUFFER;      // baseline基準・y下向き
-			em.push({ ex0, ey0, ex1: ex0 + g.w, ey1: ey0 + g.h, u0: g.u0, v0: g.v0, u1: g.u1, v1: g.v1 });
-		}
-		penX += g.advance;
-	}
-	const width = penX;
-	const dx = -width / 2;             // 水平中央
-	const dy = GLYPH_EM * 0.38;        // 垂直中央のためのbaselineシフト（em, 目視で微調整）
-	const quads = em.map(q => ({
-		x0: (q.ex0 + dx) * scale, y0: (q.ey0 + dy) * scale,
-		x1: (q.ex1 + dx) * scale, y1: (q.ey1 + dy) * scale,
-		u0: q.u0, v0: q.v0, u1: q.u1, v1: q.v1,
-	}));
-	return { quads, w: width * scale, h: GLYPH_EM * scale };
 }
