@@ -22,6 +22,10 @@ export function createRenderer(canvas) {
 	gl.getExtension("OES_texture_float_linear");   // R32F の線形補間
 	// 標高（GEBCO/ALOS）：テクスチャ＋地形格子メッシュ
 	let elevTex = null, elev = { bounds: [0, 0, 1, 0], scale: 0, has: 0 }, terrain = null;
+	// 静的 view（色・見た目）：初期化時に一度 setView でアップロード。draw は毎フレーム幾何(cam)だけ受け、
+	// 色は view から読む＝描画パラメータを「幾何(動的)」と「見た目(静的)」に分離。将来の worker payload 境界。
+	let view = { clear: null, land: null, atmo: null, bldColor: null };
+	function setView(v) { view = { ...view, ...v }; }
 	let elevScaleEff = 0;   // pitchで変調した実効スケール（真俯瞰では0＝平面）
 	// base=粗い下書き（underlay）、main=現ズーム、overlay=外部ベクタ(geopbf等)を最前面に。
 	const scenes = {
@@ -192,9 +196,9 @@ export function createRenderer(canvas) {
 		elevScaleEff = elev.scale * pf * (1 - cityFlat);
 		// 真俯瞰(pitch≈0)＋十分な寄り＝画面全面が陸。地球の縁/大気のレイキャストは映らず無駄なので、
 		// 陸色で塗りつぶす clear だけの2D高速パスへ（フルスクリーンの球シェーダを丸ごと省略）。
-		const land = cam.land || [0.96, 0.96, 0.95, 1], atmo = cam.atmo || [0.45, 0.62, 0.95, 0.6];
+		const land = view.land || [0.96, 0.96, 0.95, 1], atmo = view.atmo || [0.45, 0.62, 0.95, 0.6];
 		const flat2d = (cam.pitch || 0) < 0.02 && cam.zoom >= 8;
-		const c = flat2d ? [land[0], land[1], land[2], 1] : (cam.clear || [1, 1, 1, 1]);
+		const c = flat2d ? [land[0], land[1], land[2], 1] : (view.clear || [1, 1, 1, 1]);
 		gl.clearColor(c[0] * c[3], c[1] * c[3], c[2] * c[3], c[3]);
 		gl.clear(gl.COLOR_BUFFER_BIT);
 		gl.enable(gl.BLEND);
@@ -255,7 +259,7 @@ export function createRenderer(canvas) {
 		// 建物（3D押し出し）：深度で前後関係を解決（地形・尾根にも遮蔽される）。
 		const bld = scenes.main.bld;
 		if (bld) {
-			const c = cam.bldColor || [0.86, 0.86, 0.85];
+			const c = view.bldColor || [0.86, 0.86, 0.85];
 			setCommonUniforms(bldProg, st, scenes.main.origin, land);
 			gl.uniform3f(loc(gl, bldProg, "u_bldColor"), c[0], c[1], c[2]);
 			gl.bindVertexArray(bld.vao);
@@ -272,7 +276,7 @@ export function createRenderer(canvas) {
 	}
 	function dispose() { disposeSlot("base"); disposeSlot("main"); disposeOverlay(overlay); disposeOverlay(overlayHi); }
 
-	return { gl, setScene, setElevationAtlas, setElevationCell, setOverlay, setOverlayHi, draw, dispose };
+	return { gl, setScene, setView, setElevationAtlas, setElevationCell, setOverlay, setOverlayHi, draw, dispose };
 }
 
 // --- GL ヘルパ ---
