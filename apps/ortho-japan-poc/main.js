@@ -48,6 +48,7 @@ let moving = false, settleT = null;
 // 移動中は幾何を再結合しない（タイルのポップ＝チラチラ防止）。停止後に再結合。
 function onMove() {
 	moving = true; needsDraw = true;
+	renderer.draw(cam, { skipBase: false });   // 入力の瞬間に最新camをworkerへ（main rAFを待たない＝約1フレーム短縮）
 	clearTimeout(settleT);
 	settleT = setTimeout(() => { moving = false; needsDraw = true; }, 150);
 }
@@ -194,11 +195,11 @@ function render() {
 	const zoomStable = Math.abs(cam.zoom - zoomAtBuild) < 0.12;
 	// 地形アトラスもズーム中は再構築しない：cellRes/セル数が連続変化して全再ロード＆勾配密度の跳びで
 	// 陰影がチラつくため。ズーム中は現アトラスを再投影（球面メッシュなので拡縮は追従）、停止後に再構築。
+	renderer.draw(cam, { skipBase: !moving });     // 先に最新camをworkerへ（data処理の前＝cam→描画パスを最短に）
 	if (!moving || zoomStable) terrain.ensure();
 	const { order, coarseOrder, total } = tiles.update(cam, size.w, size.h);
 	swapBase(coarseOrder);                          // 粗い下地は常に敷く（移動中も）＝先端の空白を無くす
 	if (!moving || zoomStable) swapScene(order);
-	renderer.draw(cam, { skipBase: !moving });     // worker が地図→ラベルを同じ cam で描く（同期）。フェード継続は redraw で返る
 	updateCompass();                               // 3D時のみコンパス表示・針を方位に追従
 	logEl.textContent = `tiles=${order.length}/${total}  labels=${lastLabels.length}  zoom=${cam.zoom.toFixed(1)} pitch=${(cam.pitch * 180 / Math.PI).toFixed(0)}°`;
 }
