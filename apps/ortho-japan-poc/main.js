@@ -1,12 +1,10 @@
 // ortho-japan PoC — 地理院 optimal_bvmap を球面に直描き（M2: タイルストリーミング＋LOD＋ラベル）。
 import {
-	createLabelLayer,
 	evalExpr, parseRGBA, cameraState, unproject,
 } from "ortho-japan";
 import { createGeopbf } from "geopbf";
 createGeopbf("https://api.ortho-earth.com");   // bucket 基盤（標高と同じ）。読み出しはキー不要
 import style from "./style-mono.js";
-import { shieldFor } from "./shields.js";
 import { createThemes, defaultLayerState, CHOME_MINZOOM, RAILTR_MINZOOM } from "./themes.js";
 import { createOverlay } from "./overlay.js";
 import { createTerrain } from "./terrain.js";
@@ -21,8 +19,6 @@ const labelCanvas = document.getElementById("labels");
 const logEl = document.getElementById("log");
 const EARTH_M = 6371000, TERR_EXAG = 1.0;   // 標高は実スケール（誇張しない＝地形を歪めない）。ラベル・地形・建物で共有
 
-const labelLayer = createLabelLayer(labelCanvas, { shieldFor, elevBase: TERR_EXAG / EARTH_M });
-
 const bg = style.layers.find(L => L.type === "background");
 const land = bg ? parseRGBA(evalExpr(bg.paint?.["background-color"] ?? "#fff", { zoom: 10, props: {}, geom: null, vars: {} })) : [0.96, 0.96, 0.95, 1];
 const clear = [0.03, 0.04, 0.07, 1];   // 宇宙（球の外側）
@@ -32,13 +28,16 @@ let dpr = Math.min(2, window.devicePixelRatio || 1);
 // --- render worker：GL を OffscreenCanvas で worker に置く。main は set/draw を postMessage する薄いプロキシ ---
 // transfer 後は main から canvas.width を触れないので、論理サイズ(size)を main が自前で持つ。
 const size = { w: Math.round(window.innerWidth * dpr), h: Math.round(window.innerHeight * dpr) };
-canvas.width = size.w; canvas.height = size.h;   // transfer 前に初期サイズ（offscreen が正しいサイズで始まる）
+canvas.width = size.w; canvas.height = size.h;             // transfer 前に初期サイズ
+labelCanvas.width = size.w; labelCanvas.height = size.h;
 const offscreen = canvas.transferControlToOffscreen();
+const labelOffscreen = labelCanvas.transferControlToOffscreen();
 const renderWorker = new Worker(new URL("./renderworker.js", import.meta.url), { type: "module" });
 // scene worker → render worker の直結パイプ（main を経由しない geometry）。両端を各 worker へ渡す。
 const sceneChan = new MessageChannel();
-renderWorker.postMessage({ type: "init", canvas: offscreen, scenePort: sceneChan.port2 }, [offscreen, sceneChan.port2]);
+renderWorker.postMessage({ type: "init", canvas: offscreen, labelCanvas: labelOffscreen, elevBase: TERR_EXAG / EARTH_M, scenePort: sceneChan.port2 }, [offscreen, labelOffscreen, sceneChan.port2]);
 // 薄いプロキシ：有線(関数呼び)を無線(postMessage)に載せ替え。set/draw 統一済なので pipeline/terrain/overlay は無改造。
+// draw は worker 側で「cam を記録するだけ」に受け、実描画は worker 自前 rAF が最新 cam で回す（worker-driven）。
 const renderer = {
 	set: (cmd, data, prop) => renderWorker.postMessage({ type: "set", cmd, data, prop }),
 	draw: (cam, opts) => renderWorker.postMessage({ type: "draw", cam, opts }),
@@ -72,8 +71,7 @@ function resize() {
 	// GL canvas：バッファサイズは worker が持つ（transfer 済）。main は CSS と論理サイズ(size)だけ。
 	canvas.style.width = w + "px"; canvas.style.height = h + "px";
 	renderWorker.postMessage({ type: "resize", width: size.w, height: size.h });
-	// label canvas：main が持つ 2D オーバーレイ（transfer しない）。
-	labelCanvas.width = size.w; labelCanvas.height = size.h;
+	// label canvas：worker が持つ（transfer 済）＝main は CSS だけ。バッファは resize メッセージで worker が更新。
 	labelCanvas.style.width = w + "px"; labelCanvas.style.height = h + "px";
 	needsDraw = true;
 }
@@ -147,7 +145,7 @@ function swapScene(order) {
 		o.elev = terrain.sampleElev(L.anchor[0], L.anchor[1]);   // 標高付与（傾き時に地物と一致）
 		return o;
 	});
-	labelLayer.setLabels(lastLabels);
+	renderer.set("labels", lastLabels);   // ラベル集合を render worker へ（worker が地図と同じ draw で描画＝同期）
 	readySig = sig; zoomAtBuild = cam.zoom;
 }
 
@@ -200,9 +198,8 @@ function render() {
 	const { order, coarseOrder, total } = tiles.update(cam, size.w, size.h);
 	swapBase(coarseOrder);                          // 粗い下地は常に敷く（移動中も）＝先端の空白を無くす
 	if (!moving || zoomStable) swapScene(order);
-	renderer.draw(cam, { skipBase: !moving });     // 静止時は粗い下地を隠す（LOD痕/二重線を消す）。移動中だけ空白埋め
+	renderer.draw(cam, { skipBase: !moving });     // worker が地図→ラベルを同じ cam で描く（同期）。フェード継続は redraw で返る
 	updateCompass();                               // 3D時のみコンパス表示・針を方位に追従
-	if (labelLayer.draw(cam)) needsDraw = true;    // ラベルはライブ（位置は毎フレーム、集合は間引き）
 	logEl.textContent = `tiles=${order.length}/${total}  labels=${lastLabels.length}  zoom=${cam.zoom.toFixed(1)} pitch=${(cam.pitch * 180 / Math.PI).toFixed(0)}°`;
 }
 
