@@ -6,10 +6,10 @@
 	<title>ortho-japan PoC — 球面ベクタ (地理院 optimal_bvmap)</title>
 	<style>
 		html, body { margin: 0; height: 100%; background: #0b1021; color: #cdd; font: 13px/1.5 system-ui, sans-serif; overflow: hidden; }
-		#c, #labels { position: absolute; inset: 0; width: 100vw; height: 100vh; }
+		#c, #gint, #labels { position: absolute; inset: 0; width: 100vw; height: 100vh; }
 		#c { cursor: grab; }
 		#c:active { cursor: grabbing; }
-		#labels { pointer-events: none; }
+		#gint, #labels { pointer-events: none; }   /* 知性/ラベルの層は透過＝pointer は基図(#c)が受ける */
 		#hint { position: fixed; top: 10px; left: 10px; font-size: 12px; color: #6a6f78; background: rgba(255,255,255,.7);
 			padding: 6px 10px; border-radius: 6px; -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
 		#log { position: fixed; bottom: 10px; left: 10px; font-family: ui-monospace, monospace; font-size: 12px; color: #9ab; background: rgba(10,16,33,.7); padding: 6px 8px; border-radius: 6px; }
@@ -37,6 +37,7 @@
 </head>
 <body>
 	<canvas id="c"></canvas>
+	<canvas id="gint"></canvas>
 	<canvas id="labels"></canvas>
 	<div id="hint">ドラッグ=移動 ／ 右ドラッグ=傾け・回転 ／ ホイール=ズーム</div>
 	<button id="reset" title="北向き・水平に戻す">

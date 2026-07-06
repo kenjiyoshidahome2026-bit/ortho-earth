@@ -2,7 +2,7 @@
 import {
 	evalExpr, parseRGBA, cameraState, unproject,
 } from "ortho-japan";
-import { createGeopbf } from "geopbf";
+import { createGeopbf, geopbf } from "geopbf";
 createGeopbf("https://api.ortho-earth.com");   // bucket 基盤（標高と同じ）。読み出しはキー不要
 import style from "./style-mono.js";
 import { createThemes, defaultLayerState, CHOME_MINZOOM, RAILTR_MINZOOM } from "./themes.js";
@@ -49,8 +49,9 @@ let moving = false, settleT = null;
 function onMove() {
 	moving = true; needsDraw = true;
 	renderer.draw(cam, { skipBase: false });   // 入力の瞬間に最新camをworkerへ（main rAFを待たない＝約1フレーム短縮）
+	gintDraw(true);                            // 知性の層も同じ cam で（panning中）
 	clearTimeout(settleT);
-	settleT = setTimeout(() => { moving = false; needsDraw = true; }, 150);
+	settleT = setTimeout(() => { moving = false; needsDraw = true; gintDraw(false); gintWorker.postMessage({ type: "drawn" }); }, 150);
 }
 
 // データパイプライン（tile/scene worker）。実装は pipeline.js。
@@ -68,6 +69,36 @@ renderer.set("view", { clear, land, atmo, bldColor });
 // 海：水レイヤ(WA)をビュー一律にゲート＝cam.zoom<13 では描かない（＝紙の海・まだら無し）、z13+で一律点火。
 renderer.set("sea", { li: style.layers.findIndex(L => L.id === "water"), minzoom: 12 });
 
+// --- gint worker（知性の層）：14条など突合可能なエンティティを OffscreenCanvas で別workerに描く。
+// MVT=描画(render worker)／Gint=知性(この worker)＝層分担。基図の上に重ね、pointer は透過して #c が受ける。
+const gintCanvas = document.getElementById("gint");
+gintCanvas.width = size.w; gintCanvas.height = size.h;
+const gintOffscreen = gintCanvas.transferControlToOffscreen();
+const gintWorker = new Worker(new URL("./gintworker.js", import.meta.url), { type: "module" });
+gintWorker.postMessage({ type: "init", offscreen: gintOffscreen, dpr }, [gintOffscreen]);
+const gintDraw = (panning) => gintWorker.postMessage({ type: "drawing", cam, panning });
+gintWorker.onmessage = e => {
+	const d = e.data;
+	if (d.action === "click")       console.log("[14条] 筆 fid=%s  lng=%s lat=%s", d.featureId, d.lng?.toFixed?.(6), d.lat?.toFixed?.(6));
+	else if (d.action === "redraw") { gintDraw(false); gintWorker.postMessage({ type: "drawn" }); }
+};
+canvas.addEventListener("pointerleave", () => gintWorker.postMessage({ type: "leave" }));
+// 14条地図（法務省 登記所備付地図）を球へ。moj は geopbf の name 慣習(bucket/GIS/pbf/…)でなく
+// bucket/moj/{code}.pbf に置かれた別棚なので、URL を直叩きして buffer を geopbf に食わせる（gint:true で unPackGint 生成）。
+window.__moj = async (code = "13118") => {
+	const url = `https://api.ortho-earth.com/bucket/moj/${code}.pbf`;
+	const res = await fetch(url);
+	if (!res.ok) { console.error("[14条] fetch 失敗 %s → HTTP %s", url, res.status); return; }
+	let buf = await res.arrayBuffer();
+	const head = new Uint8Array(buf, 0, 2);   // bucket は gzip 圧縮で置かれる。name 慣習の load は自動 gunzip するが直叩きは生バイト＝手動で解凍。
+	if (head[0] === 0x1f && head[1] === 0x8b) buf = await new Response(new Blob([buf]).stream().pipeThrough(new DecompressionStream("gzip"))).arrayBuffer();
+	const pbf = await geopbf(buf, { gint: true, name: `moj/${code}` });
+	if (!pbf?.unPackGint) { console.error("[14条] gint デコード失敗", pbf); return; }
+	gintWorker.postMessage({ type: "set", cmd: "gint", data: pbf.unPackGint });
+	gintDraw(false); gintWorker.postMessage({ type: "drawn" });
+	console.log("[14条] %s ロード完了 → 球へ。マウスで筆をホバー/クリック", code);
+};
+
 function resize() {
 	const w = window.innerWidth, h = window.innerHeight;
 	size.w = Math.round(w * dpr); size.h = Math.round(h * dpr);
@@ -76,6 +107,8 @@ function resize() {
 	renderWorker.postMessage({ type: "resize", width: size.w, height: size.h });
 	// label canvas：worker が持つ（transfer 済）＝main は CSS だけ。バッファは resize メッセージで worker が更新。
 	labelCanvas.style.width = w + "px"; labelCanvas.style.height = h + "px";
+	gintCanvas.style.width = w + "px"; gintCanvas.style.height = h + "px";
+	gintWorker.postMessage({ type: "resize", width: size.w, height: size.h });
 	needsDraw = true;
 }
 window.addEventListener("resize", resize);
@@ -90,11 +123,11 @@ canvas.addEventListener("pointerdown", e => {
 	canvas.setPointerCapture(e.pointerId);
 });
 canvas.addEventListener("pointerup", e => {
-	if (drag && !drag.tilt && Math.hypot(e.clientX - drag.x0, e.clientY - drag.y0) < 4) overlay.identifyAt(e.clientX, e.clientY);   // 動いていない＝クリック→identify
+	if (drag && !drag.tilt && Math.hypot(e.clientX - drag.x0, e.clientY - drag.y0) < 4) { overlay.identifyAt(e.clientX, e.clientY); gintWorker.postMessage({ type: "click", x: e.clientX, y: e.clientY }); }   // 動いていない＝クリック→identify（基図overlay＋知性gint）
 	drag = null;
 });
 canvas.addEventListener("pointermove", e => {
-	if (!drag) return;
+	if (!drag) { gintWorker.postMessage({ type: "move", x: e.clientX, y: e.clientY }); return; }   // ホバー→知性の層で筆を識別
 	const dxp = e.clientX - drag.x, dyp = e.clientY - drag.y;
 	if (drag.tilt) {
 		cam.bearing += dxp * 0.006;

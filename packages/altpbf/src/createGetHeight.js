@@ -10,7 +10,7 @@ export async function createTileLoader(opts = {}) {
 	if (!index) { index = await index_alos(); cache("index_alos", index); }
 	const existAlos = (lng, lat) => index[encodeName(lng, lat)];
 	const worker = new Worker(new URL('./worker.js', import.meta.url), { type: 'module' });
-	worker.onerror = e => console.error("[tileLoader] worker error", e);
+	worker.onerror = e => console.error("[tileLoader] worker error:", e.message || "(opaque)", "@", e.filename || "?", "L" + (e.lineno ?? "?"), e.error || "");
 	const inflight = new Map();
 	// worker は1件ずつ直列に処理（応答はFIFO）。次の要求は前の応答後に送る＝null応答でも取りこぼさない。
 	const queue = []; let busy = false;
