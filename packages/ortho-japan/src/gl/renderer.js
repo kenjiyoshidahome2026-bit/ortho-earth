@@ -26,6 +26,9 @@ export function createRenderer(canvas) {
 	// 色は view から読む＝描画パラメータを「幾何(動的)」と「見た目(静的)」に分離。将来の worker payload 境界。
 	let view = { clear: null, land: null, atmo: null, bldColor: null };
 	function setView(v) { view = { ...view, ...v }; }
+	// 海：水レイヤ(li)を cam.zoom で一律にゲート＝ビュー単位で描く/描かない（タイル毎の presence まだらを排す）。
+	// cam.zoom < minzoom では水を描かない＝海は球の基色(紙)のまま。以上で一律の色を点火。
+	let sea = { li: -1, minzoom: Infinity };
 	let elevScaleEff = 0;   // pitchで変調した実効スケール（真俯瞰では0＝平面）
 	// base=粗い下書き（underlay）、main=現ズーム、overlay=外部ベクタ(geopbf等)を最前面に。
 	const scenes = {
@@ -48,7 +51,7 @@ export function createRenderer(canvas) {
 				attrib(gl, fillProg, "a_delta", bPos, 2);
 				attrib(gl, fillProg, "a_color", bCol, 4);
 				gl.bindVertexArray(null);
-				draws.push({ kind: "fill", vao, count: L.pos.length / 2, bufs: [bPos, bCol] });
+				draws.push({ kind: "fill", li: L.li, vao, count: L.pos.length / 2, bufs: [bPos, bCol] });
 			} else {
 				if (!L.half.length) continue;
 				const vao = gl.createVertexArray();
@@ -242,6 +245,7 @@ export function createRenderer(canvas) {
 			let curProg = null;
 			for (const d of scene.draws) {
 				if (d.kind === "fill") {
+					if (d.li === sea.li && cam.zoom < sea.minzoom) continue;   // 海：ビュー一律ゲート（詳細以外は描かない＝紙の海）
 					if (curProg !== fillProg) { gl.useProgram(fillProg); curProg = fillProg; }
 					gl.bindVertexArray(d.vao);
 					gl.drawArrays(gl.TRIANGLES, 0, d.count);
@@ -281,6 +285,7 @@ export function createRenderer(canvas) {
 	function set(cmd, data, prop) {
 		switch (cmd) {
 			case "view":      setView(data); break;                                            // data={clear,land,atmo,bldColor}
+			case "sea":       sea = { ...sea, ...data }; break;                                  // data={li, minzoom} 海の点火ゲート
 			case "scene":     setScene(data, prop); break;                                      // prop=slot("base"|"main")
 			case "overlay":   setOverlay(data, prop); break;                                    // prop=fillColor(任意)
 			case "overlayHi": setOverlayHi(data, prop); break;

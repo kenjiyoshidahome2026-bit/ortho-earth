@@ -65,6 +65,8 @@ const bldColor = [0.83, 0.83, 0.82];    // 建物色（静かなグレー）
 // 色（clear/land/atmo/bldColor）は静的なので setView で一度きりアップロード＝hot path から追い出す。
 const cam = { center: [139.767, 35.681], zoom: 16, pitch: 0, bearing: 0, dpr };
 renderer.set("view", { clear, land, atmo, bldColor });
+// 海：水レイヤ(WA)をビュー一律にゲート＝cam.zoom<13 では描かない（＝紙の海・まだら無し）、z13+で一律点火。
+renderer.set("sea", { li: style.layers.findIndex(L => L.id === "water"), minzoom: 12 });
 
 function resize() {
 	const w = window.innerWidth, h = window.innerHeight;

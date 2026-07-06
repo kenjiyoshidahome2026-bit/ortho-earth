@@ -38,8 +38,8 @@ export function mergeTiles(order, geomOf, opts = {}) {
 		}
 	}
 	const layers = [...buf.values()].sort((a, b) => a.li - b.li).map(m => m.kind === "fill"
-		? { kind: "fill", pos: m.pos, col: m.col }
-		: { kind: "line", P1: m.P1, P2: m.P2, col: m.col, half: m.half });
+		? { kind: "fill", li: m.li, pos: m.pos, col: m.col }
+		: { kind: "line", li: m.li, P1: m.P1, P2: m.P2, col: m.col, half: m.half });
 
 	// 建物：全タイルから結合。xy を原点へ再ベース、z(高さ)はそのまま。
 	let bN = 0;
