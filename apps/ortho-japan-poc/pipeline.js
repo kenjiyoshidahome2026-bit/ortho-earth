@@ -10,7 +10,7 @@ export function createPipeline({ renderer, style, tileUrl, requestDraw }) {
 	let mergeId = 0;
 	sceneWorker.onmessage = e => {
 		if (e.data.type !== "scene" || e.data.id !== latestMerge[e.data.slot]) return;   // 古い merge 結果は捨てる
-		renderer.setScene(e.data.scene, e.data.slot);
+		renderer.set("scene", e.data.scene, e.data.slot);
 		requestDraw();
 	};
 	function requestMerge(slot, order, origin, hidden) {

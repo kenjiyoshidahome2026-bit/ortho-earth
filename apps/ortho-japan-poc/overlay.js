@@ -26,8 +26,8 @@ export function createOverlay({ renderer, cam, canvas, dpr, requestDraw }) {
 		if (!pbf || !pbf.features || !pbf.features.length) { identEl.textContent = `geopbf 読込失敗: ${name}`; return; }
 		overlayFeatures = pbf.features;
 		overlayOrigin = bboxCenter(overlayFeatures).center;
-		renderer.setOverlay(buildGeoJSONOverlay(overlayFeatures, overlayOrigin));
-		renderer.setOverlayHi(null);
+		renderer.set("overlay",buildGeoJSONOverlay(overlayFeatures, overlayOrigin));
+		renderer.set("overlayHi",null);
 		identEl.textContent = `geopbf: ${name}\n${overlayFeatures.length} features — クリックで identify`;
 		requestDraw();
 	}
@@ -37,7 +37,7 @@ export function createOverlay({ renderer, cam, canvas, dpr, requestDraw }) {
 		const ll = unproject(st, clientX * dpr, clientY * dpr);
 		if (!ll) return;
 		const hit = overlayFeatures.findIndex(f => pointInFeature(ll[0], ll[1], f.geometry));
-		renderer.setOverlayHi(hit >= 0 ? buildGeoJSONOverlay([overlayFeatures[hit]], overlayOrigin) : null);   // ヒット地物だけ別 stencil で強調
+		renderer.set("overlayHi",hit >= 0 ? buildGeoJSONOverlay([overlayFeatures[hit]], overlayOrigin) : null);   // ヒット地物だけ別 stencil で強調
 		if (hit >= 0) {
 			const p = overlayFeatures[hit].properties || {};
 			const kv = Object.entries(p).slice(0, 6).map(([k, v]) => `${k}: ${v}`).join("\n");
@@ -66,8 +66,8 @@ export function createOverlay({ renderer, cam, canvas, dpr, requestDraw }) {
 		overlayFeatures = feats;
 		const b = bboxCenter(feats);
 		overlayOrigin = b.center;
-		renderer.setOverlay(buildGeoJSONOverlay(feats, overlayOrigin));
-		renderer.setOverlayHi(null);
+		renderer.set("overlay",buildGeoJSONOverlay(feats, overlayOrigin));
+		renderer.set("overlayHi",null);
 		cam.center = [b.center[0], b.center[1]]; cam.zoom = 11; cam.pitch = 0; requestDraw();
 		identEl.textContent = `e-Stat 小地域: ${feats.length} 地物 — クリックで identify（小地域コード＝突合の種）`;
 	}

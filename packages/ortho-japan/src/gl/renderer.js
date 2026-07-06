@@ -276,7 +276,20 @@ export function createRenderer(canvas) {
 	}
 	function dispose() { disposeSlot("base"); disposeSlot("main"); disposeOverlay(overlay); disposeOverlay(overlayHi); }
 
-	return { gl, setScene, setView, setElevationAtlas, setElevationCell, setOverlay, setOverlayHi, draw, dispose };
+	// 汎用 set(cmd, data, prop)：ortho-map createLayers の set プロトコルに整合。将来 worker では
+	// postMessage({ type:"set", cmd, data, prop }, transferables) にそのまま載る。prop は cmd ごとに融通。
+	function set(cmd, data, prop) {
+		switch (cmd) {
+			case "view":      setView(data); break;                                            // data={clear,land,atmo,bldColor}
+			case "scene":     setScene(data, prop); break;                                      // prop=slot("base"|"main")
+			case "overlay":   setOverlay(data, prop); break;                                    // prop=fillColor(任意)
+			case "overlayHi": setOverlayHi(data, prop); break;
+			case "elevAtlas": setElevationAtlas(data, prop); break;                             // prop=scale
+			case "elevCell":  setElevationCell(prop.cx, prop.cy, data, prop.cellRes); break;    // data=セルFloat32
+			default: console.warn("renderer.set: unknown cmd", cmd);
+		}
+	}
+	return { gl, set, draw, dispose };
 }
 
 // --- GL ヘルパ ---

@@ -48,7 +48,7 @@ const bldColor = [0.83, 0.83, 0.82];    // 建物色（静かなグレー）
 // cam＝幾何のみ（center/zoom/pitch/bearing/dpr）＝毎フレームの draw payload（将来の worker 境界）。
 // 色（clear/land/atmo/bldColor）は静的なので setView で一度きりアップロード＝hot path から追い出す。
 const cam = { center: [139.767, 35.681], zoom: 16, pitch: 0, bearing: 0, dpr };
-renderer.setView({ clear, land, atmo, bldColor });
+renderer.set("view", { clear, land, atmo, bldColor });
 
 function resize() {
 	const w = window.innerWidth, h = window.innerHeight;

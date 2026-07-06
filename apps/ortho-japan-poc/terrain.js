@@ -74,7 +74,7 @@ export function createTerrain({ renderer, cam, canvas, requestDraw, exag, earthM
 		const key = [range, r.originCX, r.originCY, r.cellsX, r.cellsY, r.cellRes].join(",");
 		if (key !== atlasKey) {
 			atlasKey = key; loadedCells = new Set();
-			renderer.setElevationAtlas({ originLng: r.originCX * range, originLat: r.originCY * range, cellsX: r.cellsX, cellsY: r.cellsY, cellRes: r.cellRes, cellSpan: range, exag }, exag / earthM);
+			renderer.set("elevAtlas", { originLng: r.originCX * range, originLat: r.originCY * range, cellsX: r.cellsX, cellsY: r.cellsY, cellRes: r.cellRes, cellSpan: range, exag }, exag / earthM);
 			requestDraw();
 		}
 		for (let cy = 0; cy < r.cellsY; cy++) for (let cx = 0; cx < r.cellsX; cx++) {
@@ -84,7 +84,7 @@ export function createTerrain({ renderer, cam, canvas, requestDraw, exag, earthM
 			pendingElev++; updateElevIndicator(range);
 			getCell((r.originCX + cx) * range, (r.originCY + cy) * range, range).then(tile => {
 				pendingElev--; updateElevIndicator(range);
-				if (tile && atlasKey === key) { renderer.setElevationCell(cx, cy, downsampleFlipped(tile, r.cellRes), r.cellRes); requestDraw(); }
+				if (tile && atlasKey === key) { renderer.set("elevCell", downsampleFlipped(tile, r.cellRes), { cx, cy, cellRes: r.cellRes }); requestDraw(); }
 			});
 		}
 	}
