@@ -34,7 +34,9 @@ const size = { w: Math.round(window.innerWidth * dpr), h: Math.round(window.inne
 canvas.width = size.w; canvas.height = size.h;   // transfer 前に初期サイズ（offscreen が正しいサイズで始まる）
 const offscreen = canvas.transferControlToOffscreen();
 const renderWorker = new Worker(new URL("./renderworker.js", import.meta.url), { type: "module" });
-renderWorker.postMessage({ type: "init", canvas: offscreen }, [offscreen]);
+// scene worker → render worker の直結パイプ（main を経由しない geometry）。両端を各 worker へ渡す。
+const sceneChan = new MessageChannel();
+renderWorker.postMessage({ type: "init", canvas: offscreen, scenePort: sceneChan.port2 }, [offscreen, sceneChan.port2]);
 // 薄いプロキシ：有線(関数呼び)を無線(postMessage)に載せ替え。set/draw 統一済なので pipeline/terrain/overlay は無改造。
 const renderer = {
 	set: (cmd, data, prop) => renderWorker.postMessage({ type: "set", cmd, data, prop }),
@@ -51,8 +53,8 @@ function onMove() {
 }
 
 // データパイプライン（tile/scene worker）。実装は pipeline.js。
-// tiles＝LOD管理（update/labels）、requestMerge＝結合要求（scene worker が非同期で結合→setScene）。
-const { tiles, requestMerge } = createPipeline({ renderer, style, tileUrl: TILE_URL, requestDraw: () => { needsDraw = true; } });
+// tiles＝LOD管理（update/labels）、requestMerge＝結合要求（scene worker が結合→render worker へ直行）。
+const { tiles, requestMerge } = createPipeline({ style, tileUrl: TILE_URL, requestDraw: () => { needsDraw = true; }, scenePort: sceneChan.port1 });
 
 // 透視カメラ：center(注視点lon/lat), zoom(web-mercator float), pitch/bearing(rad)
 const MAXPITCH = 65 * D2R;   // 半透明の山と割り切り、独立峰をドラマチックに立てる。隠れ線は「透けている」で説明可
@@ -137,7 +139,7 @@ function swapScene(order) {
 	if (sig === readySig || !order.length) return;
 	if (!sceneOrigin || Math.abs(sceneOrigin[0] - cam.center[0]) > 0.4 || Math.abs(sceneOrigin[1] - cam.center[1]) > 0.4)
 		sceneOrigin = [cam.center[0], cam.center[1]];
-	requestMerge("main", order, sceneOrigin, themes.hiddenLi(layerState, cam.zoom));   // 結合は scene worker（非同期）→ 応答で setScene
+	requestMerge("main", order, sceneOrigin, themes.hiddenLi(layerState, cam.zoom));   // 結合は scene worker（非同期）→ render worker へ直行
 	lastLabels = themes.filterLabels(tiles.labels(order), layerState, cam.zoom).map(L => {
 		// 都道府県は大きく薄い背景ラベルに（コピーしてキャッシュ側を壊さない）。他はそのまま。
 		const o = L.code === 140 ? { ...L, size: L.size * 1.25, color: [L.color[0], L.color[1], L.color[2], L.color[3] * 0.5] } : L;

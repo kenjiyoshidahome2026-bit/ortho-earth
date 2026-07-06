@@ -1,21 +1,17 @@
 // データパイプライン境界：tile worker プール（fetch→decode→tessellation）＋ scene worker（geometry 保持＋merge）。
 // main は geometry を一切持たず、結合済みバッファを GL に上げるだけ。重い処理も geometry も worker の向こう側。
-// 入口＝renderer(setScene) / style / tileUrl / requestDraw。出口＝tiles(LOD管理) と requestMerge。
+// 入口＝style / tileUrl / requestDraw / scenePort(render worker直結)。出口＝tiles(LOD管理) と requestMerge。
+// geometry は main を通らず scene worker → render worker へ直行（main は geometry を知らない）。
 import { createTileManager } from "ortho-japan";
 
-export function createPipeline({ renderer, style, tileUrl, requestDraw }) {
-	// scene worker：タイル geometry を保持し結合(merge)も担う。
+export function createPipeline({ style, tileUrl, requestDraw, scenePort }) {
+	// scene worker：タイル geometry を保持し結合(merge)も担う。結合結果は main を経由せず
+	// render worker へ直結ポートで送る（下の connect）＝main は geometry を一切知らない。
 	const sceneWorker = new Worker(new URL("./sceneworker.js", import.meta.url), { type: "module" });
-	const latestMerge = { base: 0, main: 0 };
-	let mergeId = 0;
-	sceneWorker.onmessage = e => {
-		if (e.data.type !== "scene" || e.data.id !== latestMerge[e.data.slot]) return;   // 古い merge 結果は捨てる
-		renderer.set("scene", e.data.scene, e.data.slot);
-		requestDraw();
-	};
+	sceneWorker.postMessage({ type: "connect", port: scenePort }, [scenePort]);   // scene→render 直結
 	function requestMerge(slot, order, origin, hidden) {
-		const id = ++mergeId; latestMerge[slot] = id;
-		sceneWorker.postMessage({ type: "merge", id, slot, order: order.map(o => ({ key: o.key, origin: o.origin, z: o.z })), origin, hidden: hidden && hidden.size ? [...hidden] : null });
+		// 要求だけ main が出す（何を結合するか）。結果は render worker へ直行（merge同期＝要求順＝最後が最新）。
+		sceneWorker.postMessage({ type: "merge", slot, order: order.map(o => ({ key: o.key, origin: o.origin, z: o.z })), origin, hidden: hidden && hidden.size ? [...hidden] : null });
 	}
 	function collectTileBuffers(dl, buildings) {
 		const bufs = [];
