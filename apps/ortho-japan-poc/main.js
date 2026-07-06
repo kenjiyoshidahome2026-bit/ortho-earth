@@ -11,6 +11,7 @@ import { createThemes, defaultLayerState, CHOME_MINZOOM, RAILTR_MINZOOM } from "
 import { createOverlay } from "./overlay.js";
 import { createTerrain } from "./terrain.js";
 import { createPipeline } from "./pipeline.js";
+import { d3diff } from "./d3diff.js";
 
 const TILE_URL = (z, x, y) => `https://cyberjapandata.gsi.go.jp/xyz/optimal_bvmap-v1/${z}/${x}/${y}.pbf`;
 const TILE = 512, D2R = Math.PI / 180, R2D = 180 / Math.PI;
@@ -210,6 +211,7 @@ const overlay = createOverlay({ renderer, cam, size, dpr, requestDraw: () => { n
 window.__loadOverlay = overlay.loadOverlay;   // geopbf 名から（全球等）
 window.__loadEstat = overlay.loadEstat;
 window.__tokyo = () => overlay.loadEstat(Array.from({ length: 23 }, (_, i) => 13101 + i));   // 東京23区の小地域
+window.__d3diff = () => d3diff(cam, size);   // d3 突合：japan(mat4) vs d3.geoOrthographic の逆/順/往復 残差を zoom 掃引で
 // 初期 overlay なし（全球 land は検証用。__tokyo() や __loadOverlay(name) で任意に）
 
 function frame() {
