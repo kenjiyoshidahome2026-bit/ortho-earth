@@ -94,9 +94,13 @@ window.__moj = async (code = "13118") => {
 	if (head[0] === 0x1f && head[1] === 0x8b) buf = await new Response(new Blob([buf]).stream().pipeThrough(new DecompressionStream("gzip"))).arrayBuffer();
 	const pbf = await geopbf(buf, { gint: true, name: `moj/${code}` });
 	if (!pbf?.unPackGint) { console.error("[14条] gint デコード失敗", pbf); return; }
-	gintWorker.postMessage({ type: "set", cmd: "gint", data: pbf.unPackGint });
-	gintDraw(false); gintWorker.postMessage({ type: "drawn" });
-	console.log("[14条] %s ロード完了 → 球へ。マウスで筆をホバー/クリック", code);
+	const g = pbf.unPackGint;
+	console.log("[14条] unPackGint keys:", Object.keys(g), "| bbox:", g.bbox, "| polyStream:", g.polyStream?.length, "arcMeta:", g.arcMeta?.length);
+	gintWorker.postMessage({ type: "set", cmd: "gint", data: g });
+	// 視野をデータへ寄せる＝筆を確実に画面へ（初期は東京駅、moj のデータは離れた区にある）。onMove で基図＋gint 両方が追従。
+	if (g.bbox && g.bbox.length === 4) cam.center = [(g.bbox[0] + g.bbox[2]) / 2, (g.bbox[1] + g.bbox[3]) / 2];
+	onMove();
+	console.log("[14条] %s ロード完了 → 中心 %o へ移動。筆をホバー/クリック", code, cam.center);
 };
 
 function resize() {
