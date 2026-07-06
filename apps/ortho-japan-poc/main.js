@@ -1,6 +1,6 @@
 // ortho-japan PoC — 地理院 optimal_bvmap を球面に直描き（M2: タイルストリーミング＋LOD＋ラベル）。
 import {
-	createRenderer, createLabelLayer,
+	createLabelLayer,
 	evalExpr, parseRGBA, cameraState, unproject,
 } from "ortho-japan";
 import { createGeopbf } from "geopbf";
@@ -18,7 +18,6 @@ const TILE = 512, D2R = Math.PI / 180, R2D = 180 / Math.PI;
 const canvas = document.getElementById("c");
 const labelCanvas = document.getElementById("labels");
 const logEl = document.getElementById("log");
-const renderer = createRenderer(canvas);
 const EARTH_M = 6371000, TERR_EXAG = 1.0;   // 標高は実スケール（誇張しない＝地形を歪めない）。ラベル・地形・建物で共有
 
 const labelLayer = createLabelLayer(labelCanvas, { shieldFor, elevBase: TERR_EXAG / EARTH_M });
@@ -28,6 +27,20 @@ const land = bg ? parseRGBA(evalExpr(bg.paint?.["background-color"] ?? "#fff", {
 const clear = [0.03, 0.04, 0.07, 1];   // 宇宙（球の外側）
 
 let dpr = Math.min(2, window.devicePixelRatio || 1);
+
+// --- render worker：GL を OffscreenCanvas で worker に置く。main は set/draw を postMessage する薄いプロキシ ---
+// transfer 後は main から canvas.width を触れないので、論理サイズ(size)を main が自前で持つ。
+const size = { w: Math.round(window.innerWidth * dpr), h: Math.round(window.innerHeight * dpr) };
+canvas.width = size.w; canvas.height = size.h;   // transfer 前に初期サイズ（offscreen が正しいサイズで始まる）
+const offscreen = canvas.transferControlToOffscreen();
+const renderWorker = new Worker(new URL("./renderworker.js", import.meta.url), { type: "module" });
+renderWorker.postMessage({ type: "init", canvas: offscreen }, [offscreen]);
+// 薄いプロキシ：有線(関数呼び)を無線(postMessage)に載せ替え。set/draw 統一済なので pipeline/terrain/overlay は無改造。
+const renderer = {
+	set: (cmd, data, prop) => renderWorker.postMessage({ type: "set", cmd, data, prop }),
+	draw: (cam, opts) => renderWorker.postMessage({ type: "draw", cam, opts }),
+};
+
 let needsDraw = true, readySig = "", lastLabels = [], sceneOrigin = null;
 let moving = false, settleT = null;
 // 移動中は幾何を再結合しない（タイルのポップ＝チラチラ防止）。停止後に再結合。
@@ -52,10 +65,13 @@ renderer.set("view", { clear, land, atmo, bldColor });
 
 function resize() {
 	const w = window.innerWidth, h = window.innerHeight;
-	for (const cv of [canvas, labelCanvas]) {
-		cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
-		cv.style.width = w + "px"; cv.style.height = h + "px";
-	}
+	size.w = Math.round(w * dpr); size.h = Math.round(h * dpr);
+	// GL canvas：バッファサイズは worker が持つ（transfer 済）。main は CSS と論理サイズ(size)だけ。
+	canvas.style.width = w + "px"; canvas.style.height = h + "px";
+	renderWorker.postMessage({ type: "resize", width: size.w, height: size.h });
+	// label canvas：main が持つ 2D オーバーレイ（transfer しない）。
+	labelCanvas.width = size.w; labelCanvas.height = size.h;
+	labelCanvas.style.width = w + "px"; labelCanvas.style.height = h + "px";
 	needsDraw = true;
 }
 window.addEventListener("resize", resize);
@@ -81,7 +97,7 @@ canvas.addEventListener("pointermove", e => {
 		cam.pitch = Math.max(0, Math.min(MAXPITCH, cam.pitch + dyp * 0.005));
 	} else {
 		// unproject でつかんだ地点をカーソル下に保つパン
-		const st = cameraState(cam, canvas.width, canvas.height);
+		const st = cameraState(cam, size.w, size.h);
 		const a = unproject(st, drag.x * dpr, drag.y * dpr), b = unproject(st, e.clientX * dpr, e.clientY * dpr);
 		if (a && b) { cam.center[0] -= (b[0] - a[0]); cam.center[1] = Math.max(-85, Math.min(85, cam.center[1] - (b[1] - a[1]))); }
 	}
@@ -90,11 +106,11 @@ canvas.addEventListener("pointermove", e => {
 });
 // カーソル下の地点を固定したままカメラ変更を適用（ズーム/軸回転の中心＝マウス）。チルト時も unproject で正確。
 function anchoredAt(clientX, clientY, mutate) {
-	const st0 = cameraState(cam, canvas.width, canvas.height);
+	const st0 = cameraState(cam, size.w, size.h);
 	const a = unproject(st0, clientX * dpr, clientY * dpr);
 	mutate();
 	if (a) {
-		const st1 = cameraState(cam, canvas.width, canvas.height);
+		const st1 = cameraState(cam, size.w, size.h);
 		const b = unproject(st1, clientX * dpr, clientY * dpr);
 		if (b) { cam.center[0] += a[0] - b[0]; cam.center[1] = Math.max(-85, Math.min(85, cam.center[1] + a[1] - b[1])); }
 	}
@@ -170,7 +186,7 @@ resetBtn.addEventListener("click", () => {
 
 // 標高アトラス（altpbf 多解像度・R90/R10/R01）。実装は terrain.js。
 // ensure() を毎フレーム呼び、sampleElev() でラベル標高を得る（傾き時に地物と一致）。
-const terrain = createTerrain({ renderer, cam, canvas, requestDraw: () => { needsDraw = true; }, exag: TERR_EXAG, earthM: EARTH_M, apiUrl: "https://api.ortho-earth.com" });
+const terrain = createTerrain({ renderer, cam, size, requestDraw: () => { needsDraw = true; }, exag: TERR_EXAG, earthM: EARTH_M, apiUrl: "https://api.ortho-earth.com" });
 
 function render() {
 	// パン/チルト中（ズーム不変）は詳細も再結合。ズーム中はLODポップ回避で停止まで待つ。
@@ -178,7 +194,7 @@ function render() {
 	// 地形アトラスもズーム中は再構築しない：cellRes/セル数が連続変化して全再ロード＆勾配密度の跳びで
 	// 陰影がチラつくため。ズーム中は現アトラスを再投影（球面メッシュなので拡縮は追従）、停止後に再構築。
 	if (!moving || zoomStable) terrain.ensure();
-	const { order, coarseOrder, total } = tiles.update(cam, canvas.width, canvas.height);
+	const { order, coarseOrder, total } = tiles.update(cam, size.w, size.h);
 	swapBase(coarseOrder);                          // 粗い下地は常に敷く（移動中も）＝先端の空白を無くす
 	if (!moving || zoomStable) swapScene(order);
 	renderer.draw(cam, { skipBase: !moving });     // 静止時は粗い下地を隠す（LOD痕/二重線を消す）。移動中だけ空白埋め
@@ -188,7 +204,7 @@ function render() {
 }
 
 // --- 統合スパイク：geopbf/e-Stat を overlay に描き、クリックで identify（実装は overlay.js）---
-const overlay = createOverlay({ renderer, cam, canvas, dpr, requestDraw: () => { needsDraw = true; } });
+const overlay = createOverlay({ renderer, cam, size, dpr, requestDraw: () => { needsDraw = true; } });
 window.__loadOverlay = overlay.loadOverlay;   // geopbf 名から（全球等）
 window.__loadEstat = overlay.loadEstat;
 window.__tokyo = () => overlay.loadEstat(Array.from({ length: 23 }, (_, i) => 13101 + i));   // 東京23区の小地域

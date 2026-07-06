@@ -1,10 +1,10 @@
 // 標高アトラス（altpbf 多解像度）：ズームで R90/R10/R01 を選び、視野を覆うセル群を1枚のアトラスへ。
 // R01(1°・秒単位)まで寄れるので城下の地形が正確＝建物が実地形に接地する。自前の読込インジケータを持つ。
-// 必要な物は入口で受ける：renderer(アトラス書込) / cam(視野) / canvas(寸法) / requestDraw / exag,earthM(標高スケール)。
+// 必要な物は入口で受ける：renderer(アトラス書込) / cam(視野) / size(画面寸法) / requestDraw / exag,earthM(標高スケール)。
 import { unproject, cameraState, downsampleFlipped } from "ortho-japan";
 import { createTileLoader } from "altpbf";
 
-export function createTerrain({ renderer, cam, canvas, requestDraw, exag, earthM, apiUrl }) {
+export function createTerrain({ renderer, cam, size, requestDraw, exag, earthM, apiUrl }) {
 	let atlasKey = "", loadedCells = new Set();
 	const r10Tiles = new Map();   // "range,cx,cy" → 解決した生タイル（ラベル標高のCPUサンプル用）
 	let loadTile = null;          // altpbf createTileLoader（非同期セットアップ）
@@ -46,12 +46,12 @@ export function createTerrain({ renderer, cam, canvas, requestDraw, exag, earthM
 		return v < 0 ? 0 : v;
 	}
 	function viewCellRange(range) {
-		const st = cameraState(cam, canvas.width, canvas.height);
+		const st = cameraState(cam, size.w, size.h);
 		// 画面を密にサンプル（傾き時、地平線直下の"遠い地面"まで拾う）。宇宙に外れた点はnull→無視。
 		let lo0 = cam.center[0], la0 = cam.center[1], lo1 = lo0, la1 = la0;
 		const NX = 9, NY = 12;
 		for (let jy = 0; jy < NY; jy++) for (let ix = 0; ix < NX; ix++) {
-			const p = unproject(st, canvas.width * ix / (NX - 1), canvas.height * jy / (NY - 1));
+			const p = unproject(st, size.w * ix / (NX - 1), size.h * jy / (NY - 1));
 			if (!p) continue;
 			lo0 = Math.min(lo0, p[0]); lo1 = Math.max(lo1, p[0]);
 			la0 = Math.min(la0, p[1]); la1 = Math.max(la1, p[1]);

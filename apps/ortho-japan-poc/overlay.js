@@ -4,7 +4,7 @@
 import { unproject, cameraState, buildGeoJSONOverlay, pointInFeature } from "ortho-japan";
 import { geopbf } from "geopbf";
 
-export function createOverlay({ renderer, cam, canvas, dpr, requestDraw }) {
+export function createOverlay({ renderer, cam, size, dpr, requestDraw }) {
 	const identEl = document.createElement("div");
 	identEl.style.cssText = "position:fixed;top:44px;left:10px;max-width:340px;font-size:12px;color:#334;background:rgba(255,255,255,.82);padding:6px 10px;border-radius:6px;-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);white-space:pre-wrap;z-index:6;";
 	document.body.appendChild(identEl);
@@ -33,7 +33,7 @@ export function createOverlay({ renderer, cam, canvas, dpr, requestDraw }) {
 	}
 	function identifyAt(clientX, clientY) {
 		if (!overlayFeatures) return;
-		const st = cameraState(cam, canvas.width, canvas.height);
+		const st = cameraState(cam, size.w, size.h);
 		const ll = unproject(st, clientX * dpr, clientY * dpr);
 		if (!ll) return;
 		const hit = overlayFeatures.findIndex(f => pointInFeature(ll[0], ll[1], f.geometry));
