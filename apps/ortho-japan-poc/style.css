@@ -1,0 +1,28 @@
+html, body { margin: 0; height: 100%; background: #0b1021; color: #cdd; font: 13px/1.5 system-ui, sans-serif; overflow: hidden; }
+#c, #gint, #labels { position: absolute; inset: 0; width: 100vw; height: 100vh; }
+#c { cursor: grab; }
+#c:active { cursor: grabbing; }
+#gint, #labels { pointer-events: none; }   /* 知性/ラベルの層は透過＝pointer は基図(#c)が受ける */
+#hint { position: fixed; top: 10px; left: 10px; font-size: 12px; color: #6a6f78; background: rgba(255,255,255,.7);
+	padding: 6px 10px; border-radius: 6px; -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
+#log { position: fixed; bottom: 10px; left: 10px; font-family: ui-monospace, monospace; font-size: 12px; color: #9ab; background: rgba(10,16,33,.7); padding: 6px 8px; border-radius: 6px; }
+#attr { position: fixed; bottom: 6px; right: 8px; font-size: 11px; color: #7a8; background: rgba(255,255,255,.55); padding: 3px 7px; border-radius: 5px; }
+#attr a { color: #567; text-decoration: none; }
+#attr a:hover { text-decoration: underline; }
+/* テーマ・チップ：静かな土台に必要な主題だけ"点火"する最小トグル */
+#chips { position: fixed; bottom: 40px; left: 50%; transform: translateX(-50%); display: flex; gap: 8px; z-index: 5; }
+.chip { font: 13px/1 system-ui, sans-serif; padding: 9px 16px; border-radius: 999px; border: 1px solid rgba(120,130,150,.45);
+	background: rgba(255,255,255,.82); color: #5a5f6a; cursor: pointer; -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+	transition: background .12s, color .12s, border-color .12s; user-select: none; }
+.chip:hover { border-color: rgba(90,100,120,.7); }
+.chip.on { background: #2b3b57; color: #fff; border-color: #2b3b57; }
+/* 点火チップはテーマ色で光る（チップ色＝地図上の色） */
+.chip[data-k="rail"].on { background: #4b9e6a; border-color: #4b9e6a; }
+.chip[data-k="road"].on { background: #2f6cad; border-color: #2f6cad; }
+.chip[data-k="admin"].on { background: #e2892f; border-color: #e2892f; }
+/* コンパス兼リセット：針が方位を示し、押すと水平・北向きに戻る */
+#reset { position: fixed; top: 10px; right: 10px; width: 40px; height: 40px; border-radius: 50%; z-index: 5;
+	border: 1px solid rgba(120,130,150,.4); background: rgba(255,255,255,.85); cursor: pointer; padding: 0;
+	display: flex; align-items: center; justify-content: center; -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
+#reset:hover { border-color: rgba(90,100,120,.7); }
+#reset svg { display: block; }

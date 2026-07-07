@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="ja">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+	<link rel="stylesheet" href="./edit.css">
+	<title>moj 筆グループ位置合わせ（プロトタイプ）</title>
+</head>
+<body>
+	<canvas id="c"></canvas>
+	<div id="hint">ドラッグ=パン ／ グループをドラッグ=そのグループだけ移動 ／ ホイール=ズーム</div>
+	<div id="hover"></div>
+	<div id="toolbar">
+		<span id="progress">0 / 0 グループ調整済み</span>
+		<button id="reset-all">全リセット</button>
+		<button id="export">JSON書き出し</button>
+		<label class="load-btn">読み込み<input type="file" id="load" accept="application/json" hidden></label>
+	</div>
+	<div id="disclaimer">⚠ これは表示用の近似位置合わせであり、法的な筆界確定ではありません。</div>
+	<script type="module" src="./edit.js"></script>
+</body>
+</html>

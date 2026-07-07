@@ -12,7 +12,7 @@
 import { readFileSync, existsSync, writeFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
-import { Bucket } from '../../packages/native-bucket/src/Bucket.js';
+import { Bucket } from '../../../packages/native-bucket/src/Bucket.js';
 import Pbf from 'pbf';
 import AdmZip from 'adm-zip';
 const __dir = dirname(fileURLToPath(import.meta.url));
@@ -361,4 +361,6 @@ function genManifest(manifest, uploadedCodes) {
 	console.log(`→ moj-pbf-manifest.json  ${entries.length} 件`);
 }
 
-main().catch(console.error);
+if (process.argv[1] === fileURLToPath(import.meta.url)) main().catch(console.error);
+
+export { processCity, encodeToPbf };

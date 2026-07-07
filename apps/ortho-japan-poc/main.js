@@ -83,8 +83,23 @@ gintWorker.onmessage = e => {
 	else if (d.action === "redraw") { gintDraw(false); gintWorker.postMessage({ type: "drawn" }); }
 };
 canvas.addEventListener("pointerleave", () => gintWorker.postMessage({ type: "leave" }));
-// 14条地図（法務省 登記所備付地図）を球へ。moj は geopbf の name 慣習(bucket/GIS/pbf/…)でなく
-// bucket/moj/{code}.pbf に置かれた別棚なので、URL を直叩きして buffer を geopbf に食わせる（gint:true で unPackGint 生成）。
+// 14条地図（法務省 登記所備付地図）を球へ。デコード済み pbf を受けて球へ配線する共通処理。
+// 「座標値種別=図上測量」は測量手法のタグに過ぎず絶対位置の信頼性とは無相関と判明済み（系変換さえ合っていれば図上測量でも正確）
+// →現状はバッジ判定に使わない。任意座標系の混入検知は変換パイプライン側（外れ値bbox比較）でやるべき課題として残す。
+function applyGintData(pbf, label) {
+	if (!pbf?.unPackGint) { console.error("[14条] gint デコード失敗 (%s)", label, pbf); return null; }
+	const g = pbf.unPackGint;
+	console.log("[14条] %s unPackGint keys:", label, Object.keys(g), "| bbox:", g.bbox, "| polyStream:", g.polyStream?.length, "arcMeta:", g.arcMeta?.length);
+	gintWorker.postMessage({ type: "set", cmd: "gint", data: g });
+	// 視野をデータへ寄せる＝筆を確実に画面へ（初期は東京駅、moj のデータは離れた区にある）。onMove で基図＋gint 両方が追従。
+	if (g.bbox && g.bbox.length === 4) cam.center = [(g.bbox[0] + g.bbox[2]) / 2, (g.bbox[1] + g.bbox[3]) / 2];
+	onMove();
+	console.log("[14条] %s ロード完了 → 中心 %o へ移動。筆をホバー/クリック", label, cam.center);
+	return pbf;
+}
+
+// moj は geopbf の name 慣習(bucket/GIS/pbf/…)でなく bucket/moj/{code}.pbf に置かれた別棚なので、
+// URL を直叩きして buffer を geopbf に食わせる（gint:true で unPackGint 生成）。
 window.__moj = async (code = "13118") => {
 	const url = `https://api.ortho-earth.com/bucket/moj/${code}.pbf`;
 	const res = await fetch(url);
@@ -93,14 +108,26 @@ window.__moj = async (code = "13118") => {
 	const head = new Uint8Array(buf, 0, 2);   // bucket は gzip 圧縮で置かれる。name 慣習の load は自動 gunzip するが直叩きは生バイト＝手動で解凍。
 	if (head[0] === 0x1f && head[1] === 0x8b) buf = await new Response(new Blob([buf]).stream().pipeThrough(new DecompressionStream("gzip"))).arrayBuffer();
 	const pbf = await geopbf(buf, { gint: true, name: `moj/${code}` });
-	if (!pbf?.unPackGint) { console.error("[14条] gint デコード失敗", pbf); return; }
-	const g = pbf.unPackGint;
-	console.log("[14条] unPackGint keys:", Object.keys(g), "| bbox:", g.bbox, "| polyStream:", g.polyStream?.length, "arcMeta:", g.arcMeta?.length);
-	gintWorker.postMessage({ type: "set", cmd: "gint", data: g });
-	// 視野をデータへ寄せる＝筆を確実に画面へ（初期は東京駅、moj のデータは離れた区にある）。onMove で基図＋gint 両方が追従。
-	if (g.bbox && g.bbox.length === 4) cam.center = [(g.bbox[0] + g.bbox[2]) / 2, (g.bbox[1] + g.bbox[3]) / 2];
-	onMove();
-	console.log("[14条] %s ロード完了 → 中心 %o へ移動。筆をホバー/クリック", code, cam.center);
+	applyGintData(pbf, code);
+};
+// 任意の File/URL（例: aigidなど第三者が公共座標系→WGS84まで変換済みのGeoJSON）を直接デコードして球へ。
+// bucket 変換パイプラインを経由せず動作検証したい時用。
+window.__mojFile = async (fileOrUrl, name = "moj/local") => {
+	const pbf = await geopbf(fileOrUrl, { gint: true, name });
+	return applyGintData(pbf, name);
+};
+// 動作確認用ショートカット：public/moj-local/ に置いた aigid変換済みGeoJSONをワンコマンドでロード。
+window.__sapporo = async () => {
+	const res = await fetch("/moj-local/01101-aigid.geojson");
+	const file = new File([await res.blob()], "01101_aigid.geojson");
+	return window.__mojFile(file, "moj/01101_aigid");
+};
+// 荒川区（任意座標系のみ）を、大字/丁目名でe-Stat小地域に位置合わせしたラバーシート結果でロード。
+// 回転はシェイプ推定せず地名の対応だけで平行移動+等方スケール（現地調査の代替ではなく表示用近似）。
+window.__arakawaFit = async () => {
+	const res = await fetch("/moj-local/13118-rubbersheet.geojson");
+	const file = new File([await res.blob()], "13118_rubbersheet.geojson");
+	return window.__mojFile(file, "moj/13118_rubbersheet");
 };
 
 function resize() {
