@@ -15,8 +15,13 @@ import { renderCleanScene, drawOverlay, renderPickingBuffer } from './passes.js'
 import { doIdentify, handleMove, handleLeave } from './identify.js';
 import { cameraState, unproject } from '../../camera.js';
 
-const funcs = { init, set, resize, drawing, drawn, move, leave, click, destroy };
+const funcs = { init, set, resize, drawing, drawn, move, leave, click, destroy, style };
 onmessage = e => (funcs[e.data.type] ?? (() => {}))(e.data);
+
+// main が持つ描画スタイル(styleTable/lineWidth 等=gintDrawOpts)を保持。従属描画(onSync)で使う。
+function style(data) { s.drawStyle = data.data ?? null; }
+// render worker から「この cam で描け」の合図＝地図フレームに従属（地図と同じ cam を同じフレームで出す＝スライド消滅）。
+function onSync(d) { if (d && d.cam) drawNow({ cam: d.cam, panning: true, ...(s.drawStyle || {}) }); }
 
 function init(data) {
 	s.canvas = data.offscreen;
@@ -41,6 +46,8 @@ function init(data) {
 		postMessage({ action: "redraw" });
 	}, false);
 
+	if (data.syncPort) { s.syncPort = data.syncPort; s.syncPort.onmessage = ev => onSync(ev.data); }   // 地図フレーム従属の入口
+	requestAnimationFrame(gintFrame);   // （従属時は idle。set/redraw 時の保険として残置）
 	postMessage({ action: "done", type: "init", ctx: s.gl.constructor.name });
 }
 
@@ -83,7 +90,16 @@ const SE = 1e7;
 function toMortonX(lon) { return (Math.round((lon + 180) * SE)) >>> 0; }
 function toMortonY(lat) { return (Math.round((lat +  90) * SE)) >>> 0; }
 
-function drawing(data) {
+// worker-driven：drawing メッセージは「最新の描画要求を記録するだけ」。実描画は自前 rAF(gintFrame)が
+// 次の vsync で最新 cam を描く（renderworker.js と同モデル）。地図(renderWorker)と同じクロックに乗り、
+// 「海岸線が即描画で先行→地図が rAF で遅れて追う」位相ズレを解消。溜まった要求は最新一枚に畳む。
+function drawing(data) { s._pendingDrawMsg = data; s._drawDirty = true; }
+function gintFrame() {
+	if (s._drawDirty && s._pendingDrawMsg) { s._drawDirty = false; drawNow(s._pendingDrawMsg); }
+	requestAnimationFrame(gintFrame);
+}
+
+function drawNow(data) {
 	// data: { cam, panning, lineWidth?, fillColor?, styleTable?, dashTable?, maskColor?, ptRadius? }
 	if (data.panning) {
 		s._isDrawing = true;
@@ -97,14 +113,14 @@ function drawing(data) {
 	const effMin = Math.max(s.minZoom ?? 0,  data.minZoom ?? 0);
 	const effMax = Math.min(s.maxZoom ?? 22, data.maxZoom ?? 22);
 	if (zoom < effMin || zoom > effMax) {
-		// アニメ中(panning)は前フレーム保持（zoomToFeature が範囲外を一瞬通っても消えないように）。
-		if (!data.panning) {
-			s.gl.bindFramebuffer(s.gl.FRAMEBUFFER, null);
-			s.gl.clearColor(0, 0, 0, 0);
-			s.gl.stencilMask(0xFF);
-			s.gl.clear(s.gl.COLOR_BUFFER_BIT);
-			s.lastDrawData = null;
-		}
+		// 範囲外は常にクリア（panning中も）。ズームインで z>maxZoom を跨いだ瞬間に消す＝「消し忘れ」防止。
+		// ※v1 は zoomToFeature が範囲外を一瞬通る対策で panning中は前フレーム保持していたが、
+		//   ortho-japan には zoomToFeature が無いので保持不要。将来 fly-to を足すなら要再考。
+		s.gl.bindFramebuffer(s.gl.FRAMEBUFFER, null);
+		s.gl.clearColor(0, 0, 0, 0);
+		s.gl.stencilMask(0xFF);
+		s.gl.clear(s.gl.COLOR_BUFFER_BIT);
+		s.lastDrawData = null;
 		return;
 	}
 	if (s.totalEdges === 0 && s.totalPoints === 0) return;
@@ -125,6 +141,27 @@ function drawing(data) {
 		ptRadius:   (data.ptRadius ?? 1.5) * s.dpr,
 	};
 
+	// ── GPU Dynamic LOD 閾値：現ビューの 1px が覆う地表面積(sq-deg, cos-lat 補正) を rust get_phys_rank と
+	// 同式で rank 化。この rank 未満の頂点(辺)は VS で discard＝毎フレームの描画頂点を桁で削減。
+	// gap は「discard される辺=サブピクセル」なので原理的に不可視（VW eff-area の単調性＝strict superset）。
+	{
+		const c  = unproject(st, s.width * 0.5,       s.height * 0.5);
+		const ex = unproject(st, s.width * 0.5 + 1.0, s.height * 0.5);
+		const ey = unproject(st, s.width * 0.5,       s.height * 0.5 + 1.0);
+		let rank = 0;
+		if (c && ex && ey) {
+			const cl = Math.cos(c[1] * Math.PI / 180);
+			const ax = (ex[0] - c[0]) * cl, ay = ex[1] - c[1];
+			const bx = (ey[0] - c[0]) * cl, by = ey[1] - c[1];
+			const pxArea = Math.abs(ax * by - ay * bx);   // 1px が覆う地表面積 (sq-deg)
+			// LOD_BIAS：閾値を下げるほど頂点を多く残す。0=物理px基準（1px未満を捨てる＝厳密で LOD が最も効く）。
+			// イガイガ対策は丸キャップ(capsule SDF)で幾何的に解決済なので、bias は 0 でよい（正なら滑らか寄り・LODは弱まる）。
+			const LOD_BIAS = 0;
+			if (pxArea > 0) rank = Math.max(0, Math.min(63, Math.floor(1.5 * Math.log2(pxArea) + 61.524) - LOD_BIAS));
+		}
+		drawData.lodRank = rank;
+	}
+
 	// 視野コーナー → Morton 整数 bbox（JS polygon fallback の絞り込み。unproject＝site 4）。
 	let vxMin = 0xFFFFFFFF, vyMin = 0xFFFFFFFF, vxMax = 0, vyMax = 0;
 	for (const [cx, cy] of [
@@ -144,8 +181,13 @@ function drawing(data) {
 }
 
 function drawn() {
+	// settle 時：保留中の最新描画を先に流し込んでから picking/overlay（drawing→drawn の順序を保つ）。
+	if (s._drawDirty && s._pendingDrawMsg) { s._drawDirty = false; drawNow(s._pendingDrawMsg); }
 	s._isDrawing = false;
 	if (!s.lastDrawData) return;
+	// 非interactive（識別ジオメトリ無し＝海岸線 lineStream のみ）は baseFBO 再描画/picking/overlay を丸ごと省略。
+	// drawNow が既に canvas へ最終フレームを描いている＝ハイライト機構は不要＝settle 毎の全ジオメトリ2パスを節約。
+	if (!s.polyBboxByFid && s.totalPoints === 0) return;
 	renderCleanScene(s.lastDrawData, s.baseFBO);
 	renderPickingBuffer(s.lastDrawData);
 	drawOverlay();

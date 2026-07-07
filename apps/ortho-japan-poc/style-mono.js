@@ -12,9 +12,9 @@ export default {
 		// （set("sea",{li,minzoom:13})）＝タイル毎の presence まだらが構造的に消える。z<13=紙の海／z13+=一律の青。
 		{ id: "water", type: "fill", "source-layer": "WA", paint: { "fill-color": "#e2e6ea" } },
 
-		// 海岸線（水涯線 WL＝陸海の境の"線"）：海の塗りが紙になる低ズームでも境を保つ。
-		// 全ズーム一定の濃さ＝z≤7 も z≥7 と揃う（塗りゲートに依存しない独立の線）。
-		{ id: "coast", type: "line", "source-layer": "WL", paint: { "line-color": "#6e747b", "line-width": 0.8 } },
+		// 海岸線（水涯線 WL）は撤去：水域は sea 塗り(z8+)のコントラスト（淡グレー水／白い陸）で境が見える／
+		// z<8 は gint 世界海岸線が担当。WL の線は冗長で「水域の暗いボーダー」になるだけ＝描かない。
+		// 復活するなら： { id:"coast", type:"line", "source-layer":"WL", paint:{ "line-color":"#6e747b", "line-width":0.8 } }
 
 		// 建築物：ほぼ気配だけ
 		{ id: "building", type: "fill", "source-layer": "BldA", paint: { "fill-color": "#ececea" } },

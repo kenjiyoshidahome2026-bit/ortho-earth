@@ -1,5 +1,9 @@
 import { antimeridianCut } from "common/antimeridianCut.js";
 
+// toClockwise 警告のスパム抑制：空リング多発データ（NE海岸線等）で数十万件出て console を潰すのを数件に絞る。
+let _tcWarnCount = 0;
+const _tcWarn = (...a) => { if (_tcWarnCount++ < 3) console.warn(...a); else if (_tcWarnCount === 4) console.warn("toClockwise: 以降の同種警告は抑制（データに空リング多数）"); };
+
 export function antimeridianFeature(feature) {
     const { min, max } = Math;
     const p = feature.properties = feature.properties || {}, geom = feature.geometry, type = geom.type;
@@ -50,13 +54,13 @@ export function antimeridianFeature(feature) {
         const fix = r => {
             let s = 0;
             for (let j = 0; j < r.length - 1; j++) {
-                if (!r[j] || !r[j + 1]) { console.warn("toClockwise: undefined point at", j, r); continue; }
+                if (!r[j] || !r[j + 1]) { _tcWarn("toClockwise: undefined point at", j, r); continue; }
                 s += (r[j + 1][0] - r[j][0]) * (r[j + 1][1] + r[j][1]);
             }
             return s;
         };
         const rw = t => (t.type === "Polygon" ? [t.coordinates] : t.coordinates || []).forEach(p => (p || []).forEach((r, i) => {
-            if (!r || !r.length) { console.warn("toClockwise: undefined/empty ring at", i, p); return; }
+            if (!r || !r.length) { _tcWarn("toClockwise: undefined/empty ring at", i, p); return; }
             const s = fix(r); if ((!i && s < 0) || (i && s > 0)) r.reverse();
         }));
         rw(f.geometry || f); return f;

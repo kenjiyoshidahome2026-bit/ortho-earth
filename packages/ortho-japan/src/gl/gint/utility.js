@@ -19,6 +19,7 @@ export function bindSharedUniforms(gl, u, data, arcTex, metaTex, arcW, metaW, wi
 	gl.uniform2f(u.u_viewport, width, height);
 	gl.uniform1ui(u.u_ix_center, (Math.round((lon             + 180) * 1e7)) >>> 0);
 	gl.uniform1ui(u.u_iy_center, (Math.round((data.origin[1] +  90) * 1e7)) >>> 0);
+	gl.uniform1f(u.u_lod_rank, data.lodRank ?? 0.0);   // GPU Dynamic LOD 閾値（未設定=0=全描画）
 }
 
 // ── 以下 node-independent（投影に触れない純データ構造）＝v1 から逐語で携行 ──

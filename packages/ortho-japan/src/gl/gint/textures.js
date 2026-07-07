@@ -22,8 +22,8 @@ export function uploadGintTextures() {
 	}
 
 	// metaTex: RGBA32UI — edge metadata (vert_A, vert_B, style_id, feat_id)
-	// edge 数が MAX_SAFE_EDGES を超えたら Visvalingam-Whyatt rank で自動 LOD 簡約。
-	// 制限内に収まる最小 minWeight を二分探索で求める。
+	// edge 数が MAX_SAFE_EDGES を超えたら Visvalingam-Whyatt rank で自動 LOD 簡約（安全上限のキャップ）。
+	// per-zoom の Dynamic LOD は GPU 側（VS の rank discard）で行う＝ここは全密度アップロードのみ。
 	if (s.metaTex) gl.deleteTexture(s.metaTex);
 	s.metaTex = null;
 	const MAX_SAFE_EDGES = 2_000_000;
@@ -52,7 +52,7 @@ export function uploadGintTextures() {
 			if (hist[w] - nUsages <= MAX_SAFE_EDGES) { minW = w; break; }
 		}
 		metaResult = buildEdgeMeta(am, ps, ls, ab, minW);
-		console.info('[gint] LOD simplified: %d→%d edges (minWeight=%d)', metaResult.edgeCount + (hist[0] - nUsages | 0), metaResult.edgeCount, minW);
+		console.info('[gint] LOD cap: %d→%d edges (minWeight=%d)', metaResult.edgeCount + (hist[0] - nUsages | 0), metaResult.edgeCount, minW);
 	}
 	const { metaU32, edgeCount, polyEdgeByFid } = metaResult;
 	s.totalEdges    = edgeCount;

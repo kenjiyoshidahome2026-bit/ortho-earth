@@ -24,6 +24,7 @@ uniform vec2       u_origin;     // シーン原点 lon/lat (deg)＝Morton 中�
 uniform vec2       u_viewport;   // canvas 幅高 (device px)
 uniform uint       u_ix_center;  // u_origin の Morton 整数（経度）
 uniform uint       u_iy_center;  // u_origin の Morton 整数（緯度）
+uniform float      u_lod_rank;   // GPU Dynamic LOD 閾値（VW rank 0-63）。辺の max(rankA,rankB) 未満は VS で discard
 const float D2R = 0.017453292519943295;
 
 vec3 lonlatTo3D(vec2 ll) {
@@ -82,6 +83,11 @@ uvec4 fetchEdgeMeta(int edge_id) {
 	ivec2 mtc = ivec2(edge_id % u_meta_w, edge_id / u_meta_w);
 	return texelFetch(u_meta_tex, mtc, 0);
 }
+// 頂点の VW rank（LOD 重要度 0-63）。terminal(L1 anchor)=63 常時保持、L2=低6bit（rust WEIGHT_MASK=0x3F）。
+uint fetchRank(uint idx) {
+	uvec4 px = texelFetch(u_arc_tex, ivec2(int(idx) % u_arc_w, int(idx) / u_arc_w), 0);
+	return ((px.g >> 31u) != 0u) ? 63u : (px.r & 0x3Fu);
+}
 `;
 
 // 点用の投影ヘッダ（u_pt_tex から decode。fetchProject と同じ mat4 swap）。
@@ -138,9 +144,13 @@ const VS_STENCIL = `${GLSL_VS_HEADER}
 void main() {
 	int edge_id = gl_VertexID / 3;
 	int sub     = gl_VertexID % 3;
-	if (sub == 0) { gl_Position = vec4(0.0, 0.0, 0.0, 1.0); return; }
 	uvec4 meta = fetchEdgeMeta(edge_id);
-	vec3  p    = fetchProject(sub == 1 ? meta.r : meta.g);
+	// GPU Dynamic LOD（gap無し・線と同骨格）：始点が閾値未満なら捨て、終点は次の kept へ前方スナップ。
+	uint lodA = meta.r, lodB = meta.g;
+	if (float(fetchRank(lodA)) < u_lod_rank) { gl_Position = vec4(2.0, 0.0, 0.0, 1.0); return; }
+	for (int k = 0; k < 4096; k++) { if (float(fetchRank(lodB)) >= u_lod_rank) break; lodB += 1u; }
+	if (sub == 0) { gl_Position = vec4(0.0, 0.0, 0.0, 1.0); return; }
+	vec3  p    = fetchProject(sub == 1 ? lodA : lodB);
 	gl_Position = toNDC(p.xy);
 }`;
 
@@ -182,6 +192,9 @@ out float v_perp;
 flat out float v_halfw;
 flat out vec2  v_dash;
 flat out float v_dist_base;
+out vec2       v_frag;   // 頂点の実スクリーン位置（device px）＝カプセルSDF用
+flat out vec2  v_ea;     // 線分端A（device px）
+flat out vec2  v_eb;     // 線分端B（clip済, device px）
 
 void main() {
 	int edge_id = gl_VertexID / 6;
@@ -189,13 +202,20 @@ void main() {
 	uvec4 meta  = fetchEdgeMeta(edge_id);
 	int feat_id = int(meta.a);
 
+	// GPU Dynamic LOD（gap無し）：始点A(meta.r)が閾値未満の辺は捨てる（直前の辺が跨いで描く）。
+	// 終点は「次に閾値を満たす頂点」まで前方スナップ＝間引き頂点を飛ばして kept 同士を直結。
+	// arc 末尾は anchor(rank63) なので走査は必ず arc 内で停止（隣の arc へ漏れない）。
+	uint lodA = meta.r, lodB = meta.g;
+	if (float(fetchRank(lodA)) < u_lod_rank) { gl_Position = vec4(2.0, 0.0, 0.0, 1.0); return; }
+	for (int k = 0; k < 4096; k++) { if (float(fetchRank(lodB)) >= u_lod_rank) break; lodB += 1u; }
+
 	if (u_pass == 0 && feat_id == u_active_id) { gl_Position = vec4(2.0, 0.0, 0.0, 1.0); return; }
 	if (u_pass == 1 && feat_id != u_active_id) { gl_Position = vec4(2.0, 0.0, 0.0, 1.0); return; }
 
 	bool  useA = (sub == 0 || sub == 1 || sub == 3);
 	float side = (sub == 1 || sub == 2 || sub == 4) ? 1.0 : -1.0;
-	uint  si   = useA ? meta.r : meta.g;
-	uint  oi   = useA ? meta.g : meta.r;
+	uint  si   = useA ? lodA : lodB;
+	uint  oi   = useA ? lodB : lodA;
 
 	vec3 ps = fetchProject(si);
 	v_zr = ps.z;
@@ -211,8 +231,9 @@ void main() {
 	vec2 tang = dir / len;
 	vec2 perp = vec2(-tang.y, tang.x);
 	float halfCss = u_line_width * 0.5 + 1.0 / u_dpr;
-	gl_Position = toNDC(ps.xy + side * halfCss * perp
-	                          - tang * (u_line_width * 0.5));
+	vec2 qpos = ps.xy + side * halfCss * perp - tang * halfCss;   // AA余白込みのクアッド（端は FS のカプセルSDFで丸める）
+	gl_Position = toNDC(qpos);
+	v_frag = qpos; v_ea = ps.xy; v_eb = oXY;
 
 	int style_idx = int(meta.b & 0xFFu);
 	v_color = (u_pass == 1)
@@ -234,6 +255,9 @@ in  float v_perp;
 flat in float v_halfw;
 flat in vec2  v_dash;
 flat in float v_dist_base;
+in  vec2  v_frag;
+flat in vec2  v_ea;
+flat in vec2  v_eb;
 out vec4  fragColor;
 void main() {
 	if (v_zr < -0.05)     discard;
@@ -246,8 +270,13 @@ void main() {
 		float aa     = max(fwidth(v_dist), 0.001);
 		alpha *= 1.0 - smoothstep(v_dash.x - aa, v_dash.x + aa, t);
 	}
-	float aaW = max(fwidth(v_perp), 1e-3);
-	alpha *= clamp((v_halfw - abs(v_perp)) / aaW + 0.5, 0.0, 1.0);
+	// カプセルSDF：線分[v_ea,v_eb]への距離で塗る＝両端が半円(丸キャップ)。
+	// 鋭角の繋ぎ目でも隣接線分の丸端が重なり、四角キャップのトゲ(イガイガ)が出ない。
+	vec2 pa = v_frag - v_ea, ba = v_eb - v_ea;
+	float t2 = clamp(dot(pa, ba) / max(dot(ba, ba), 1e-6), 0.0, 1.0);
+	float dcap = length(pa - ba * t2);
+	float aaW = max(fwidth(dcap), 1e-3);
+	alpha *= clamp((v_halfw - dcap) / aaW + 0.5, 0.0, 1.0);
 	if (alpha < 0.004) discard;
 	fragColor = vec4(v_color.rgb, alpha);
 }`;
@@ -388,7 +417,7 @@ void main() { fragColor = u_fill_color; }`;
 const SHARED_UNIFORM_NAMES = [
 	'u_arc_tex','u_meta_tex','u_arc_w','u_meta_w',
 	'u_mvp','u_eye','u_origin','u_viewport',
-	'u_ix_center','u_iy_center',
+	'u_ix_center','u_iy_center','u_lod_rank',
 ];
 const PT_UNIFORM_NAMES = [
 	'u_pt_tex','u_pt_meta_tex','u_pt_w',

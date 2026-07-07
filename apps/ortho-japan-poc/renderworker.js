@@ -7,6 +7,7 @@ import { shieldFor } from "./shields.js";
 
 let renderer = null, labelLayer = null, canvas = null, labelCanvas = null;
 let cam = null, opts = null, dirty = false;   // 最新の描画状態。dirty の時だけ rAF で描く。
+let gintSyncPort = null;   // gint worker への直結：1枚描く度に「この cam で描け」＝海岸線を地図フレームに従属させる。
 
 onmessage = e => {
 	const m = e.data;
@@ -20,6 +21,7 @@ onmessage = e => {
 				renderer.set("scene", ev.data.scene, ev.data.slot);
 				dirty = true;                                    // 内容更新→次の rAF で最新camで描き直す
 			};
+			if (m.gintSyncPort) gintSyncPort = m.gintSyncPort;   // 海岸線(gint)従属の出口
 			requestAnimationFrame(frame);                        // worker 自前の描画ループ開始
 			break;
 		case "resize":                                           // 両キャンバスを同じ寸法に（main は transfer 後触れない）
@@ -47,6 +49,7 @@ function frame() {
 	if (dirty && renderer && cam) {
 		dirty = false;
 		renderer.draw(cam, opts);                                // cameraState=mvp生成 + GL描画（軽い）
+		if (gintSyncPort) gintSyncPort.postMessage({ cam });     // 描いた cam を海岸線(gint)へ即転送＝従属（スライド消滅）
 		const animating = labelLayer && labelLayer.draw(cam);    // ラベルも同じ cam で（＝完全同期）
 		if (animating) dirty = true;                             // フェード継続は自前で次フレーム（main関与なし）
 	}

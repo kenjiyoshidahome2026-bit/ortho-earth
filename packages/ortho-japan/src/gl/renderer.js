@@ -1,7 +1,7 @@
 // WebGL2 レンダラ：可視タイルを跨いで同一 style層を1バッファに結合した「シーン」を描く。
 // draw call は「タイル数×層数」から「層数」へ激減し、uniform も1フレーム1回。共通のシーン原点で投影。
 // fill = earcut三角形、line = capsule(SDF)。scene.layers は style層順（painter's algorithm）。
-import { FILL_VS, FILL_FS, LINE_VS, LINE_FS, GLOBE_VS, GLOBE_FS, BUILDING_VS, BUILDING_FS, TERRAIN_VS, TERRAIN_FS, STENCIL_VS, STENCIL_FS, COVER_FS } from "./glsl.js";
+import { FILL_VS, FILL_FS, LINE_VS, LINE_FS, GLOBE_VS, GLOBE_FS, BUILDING_VS, BUILDING_FS, TERRAIN_VS, TERRAIN_FS, STENCIL_VS, STENCIL_FS, COVER_FS, PLATEAU_VS, PLATEAU_FS } from "./glsl.js";
 import { cameraState } from "../camera.js";
 
 const CORNERS = new Float32Array([0, -1, 0, 1, 1, -1, 1, -1, 0, 1, 1, 1]); // 6頂点×(end,side)
@@ -15,6 +15,7 @@ export function createRenderer(canvas) {
 	const globeProg = program(gl, GLOBE_VS, GLOBE_FS);
 	const bldProg = program(gl, BUILDING_VS, BUILDING_FS);
 	const terrainProg = program(gl, TERRAIN_VS, TERRAIN_FS);
+	const plateauProg = program(gl, PLATEAU_VS, PLATEAU_FS);   // PLATEAU LOD2 建物メッシュ
 	const stencilProg = program(gl, STENCIL_VS, STENCIL_FS);   // 塗りの stencil パス（fan→巻き数）
 	const coverProg = program(gl, GLOBE_VS, COVER_FS);          // 塗りの cover パス（stencil≠0 を塗る）
 	const cornerBuf = buffer(gl, CORNERS);
@@ -22,6 +23,8 @@ export function createRenderer(canvas) {
 	gl.getExtension("OES_texture_float_linear");   // R32F の線形補間
 	// 標高（GEBCO/ALOS）：テクスチャ＋地形格子メッシュ
 	let elevTex = null, elev = { bounds: [0, 0, 1, 0], scale: 0, has: 0 }, terrain = null;
+	let plateau = null;   // PLATEAU LOD2 建物メッシュ { vao, bufs, count, origin, bbox }（頂点は重心相対 delta）
+	let plateauMaskTex = null;   // PLATEAU 被覆マスク（TEXTURE2）：基図建物をこのセルだけ伏せる
 	// 静的 view（色・見た目）：初期化時に一度 setView でアップロード。draw は毎フレーム幾何(cam)だけ受け、
 	// 色は view から読む＝描画パラメータを「幾何(動的)」と「見た目(静的)」に分離。将来の worker payload 境界。
 	let view = { clear: null, land: null, atmo: null, bldColor: null };
@@ -118,6 +121,32 @@ export function createRenderer(canvas) {
 		terrain = { vao, vbo, ibo, count: idx.length };
 	}
 
+	// PLATEAU LOD2 建物メッシュを受ける。data={ pos:Float32Array(xyz…), idx:Uint32Array }（頂点は ortho 単位球座標へ変換済み）。
+	function setPlateauMesh(data) {
+		if (plateau) { gl.deleteVertexArray(plateau.vao); for (const b of plateau.bufs) gl.deleteBuffer(b); plateau = null; }
+		if (!data || !data.pos?.length || !data.idx?.length) return;
+		const vao = gl.createVertexArray(), vbo = buffer(gl, data.pos), nbo = buffer(gl, data.nrm), ibo = gl.createBuffer();
+		gl.bindVertexArray(vao);
+		attrib(gl, plateauProg, "a_pos", vbo, 3);
+		attrib(gl, plateauProg, "a_normal", nbo, 3);
+		gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ibo);
+		gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, data.idx, gl.STATIC_DRAW);
+		gl.bindVertexArray(null);
+		const o = data.origin || [0, 0, 0];
+		plateau = { vao, bufs: [vbo, nbo, ibo], count: data.idx.length, origin: o, bbox: data.bbox || [1e9, 1e9, -1e9, -1e9] };
+		// 被覆マスクを TEXTURE2 用に（NEAREST・CLAMP）。基図建物 FS が uv=bbox正規化で参照。
+		if (!plateauMaskTex) plateauMaskTex = gl.createTexture();
+		gl.bindTexture(gl.TEXTURE_2D, plateauMaskTex);
+		gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+		const mn = data.maskN | 0;
+		if (data.mask && mn > 0) gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, mn, mn, 0, gl.RED, gl.UNSIGNED_BYTE, data.mask);
+		else gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, 1, 1, 0, gl.RED, gl.UNSIGNED_BYTE, new Uint8Array([0]));
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+	}
+
 	// --- overlay（外部ベクタ=geopbf/e-Stat）：stencil-then-cover 塗り＋境界線 ---
 	let overlay = null, overlayHi = null;
 	function buildOverlaySlot(s, fillColor) {
@@ -179,6 +208,9 @@ export function createRenderer(canvas) {
 		gl.uniform1f(loc(gl, prog, "u_fogNear"), st.camDist * 2.5);
 		gl.uniform1f(loc(gl, prog, "u_fogFar"), st.camDist * 14.0);
 		gl.uniform3f(loc(gl, prog, "u_fogColor"), fog[0], fog[1], fog[2]);
+		// 対数深度係数（cameraState と同じ far＝地平線 limb×1.15+camDist）。球+局所(建物)の z-fight 対策。
+		const _limb = Math.sqrt(Math.max((1 + st.camDist) * (1 + st.camDist) - 1, 1e-12));
+		gl.uniform1f(loc(gl, prog, "u_logCoef"), 2.0 / Math.log2(_limb * 1.15 + st.camDist + 1.0));
 		gl.uniform1i(loc(gl, prog, "u_elevTex"), 1);
 		gl.uniform4f(loc(gl, prog, "u_elevBounds"), elev.bounds[0], elev.bounds[1], elev.bounds[2], elev.bounds[3]);
 		gl.uniform1f(loc(gl, prog, "u_elevScale"), elevScaleEff);
@@ -221,7 +253,7 @@ export function createRenderer(canvas) {
 
 		// 標高テクスチャをユニット1へ（全プログラムが elev() で参照）
 		if (elev.has && elevTex) { gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, elevTex); gl.activeTexture(gl.TEXTURE0); }
-		const terrainActive = !!(terrain && elev.has && elevScaleEff > 1e-9);   // 傾き時のみ地形あり
+		const terrainActive = !!(terrain && elev.has && elevScaleEff > 1e-9) && !(opts && opts.noTerrain);   // 傾き時のみ地形あり。noTerrain=全球ビューでは矩形アトラスを描かない
 		// ここから深度あり（地形→ベクタ→建物が前後関係を共有）
 		gl.enable(gl.DEPTH_TEST); gl.depthFunc(gl.LEQUAL);
 		// 地形サーフェス（標高変位＋hillshade）。真俯瞰(pf≈0)では描かない＝平面地図。
@@ -261,13 +293,29 @@ export function createRenderer(canvas) {
 		gl.enable(gl.DEPTH_TEST);   // 建物は常に深度で前後関係を解決（地形・尾根に遮蔽される）
 
 		// 建物（3D押し出し）：深度で前後関係を解決（地形・尾根にも遮蔽される）。
+		// PLATEAU の bbox 内だけ基図建物を伏せる（u_plateauBbox）＝同一体積の全面 z-fight を断ちつつ、範囲外の建物は残す。
 		const bld = scenes.main.bld;
 		if (bld) {
 			const c = view.bldColor || [0.86, 0.86, 0.85];
 			setCommonUniforms(bldProg, st, scenes.main.origin, land);
 			gl.uniform3f(loc(gl, bldProg, "u_bldColor"), c[0], c[1], c[2]);
+			const pb = plateau ? plateau.bbox : [1e9, 1e9, -1e9, -1e9];   // PLATEAU 被覆セルの基図建物を伏せる（範囲外はそのまま）
+			gl.uniform4f(loc(gl, bldProg, "u_plateauBbox"), pb[0], pb[1], pb[2], pb[3]);
+			if (plateauMaskTex) { gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, plateauMaskTex); gl.activeTexture(gl.TEXTURE0); }
+			gl.uniform1i(loc(gl, bldProg, "u_plateauMask"), 2);
 			gl.bindVertexArray(bld.vao);
 			gl.drawArrays(gl.TRIANGLES, 0, bld.count);
+		}
+		// PLATEAU LOD2 建物メッシュ（任意三角形・面法線陰影）。深度で地形・自身の前後を解決。
+		// ※巻き順が不揃いなデータなので back-face カリングは使わない（屋根を誤って捨てる）＝両面描画。
+		//   z-fight の元＝重複面は main 側の頂点3つ組 dedup で断つ。
+		if (plateau) {
+			setCommonUniforms(plateauProg, st, [0, 0], land);
+			const c = view.bldColor || [0.86, 0.86, 0.85];   // 基図の押し出し建物と同色＝周辺と地続きに見せる
+			gl.uniform3f(loc(gl, plateauProg, "u_bldColor"), c[0], c[1], c[2]);
+			gl.uniform3f(loc(gl, plateauProg, "u_meshOrigin"), plateau.origin[0], plateau.origin[1], plateau.origin[2]);  // RTE 錨（頂点は重心相対 delta）
+			gl.bindVertexArray(plateau.vao);
+			gl.drawElements(gl.TRIANGLES, plateau.count, gl.UNSIGNED_INT, 0);
 		}
 		gl.disable(gl.DEPTH_TEST);
 		gl.bindVertexArray(null);
@@ -291,6 +339,7 @@ export function createRenderer(canvas) {
 			case "overlayHi": setOverlayHi(data, prop); break;
 			case "elevAtlas": setElevationAtlas(data, prop); break;                             // prop=scale
 			case "elevCell":  setElevationCell(prop.cx, prop.cy, data, prop.cellRes); break;    // data=セルFloat32
+			case "plateauMesh": setPlateauMesh(data); break;                                   // data={pos,idx} PLATEAU LOD2 建物
 			default: console.warn("renderer.set: unknown cmd", cmd);
 		}
 	}
