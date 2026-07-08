@@ -61,7 +61,10 @@ let moving = false, settleT = null;
 // PLATEAU LOD2 データ登録簿：寄ると自動で出す。bbox は自動トリガ用の緩い矩形（実描画は被覆マスクが実フットプリントに沿わせる）。
 // 全国 300 市区町村分は scripts/plateau-catalog-build.mjs で datacatalog API から生成＝public/plateau-sets.json を起動時に fetch。
 let PLATEAU_SETS = [];
-fetch("/plateau-sets.json").then(r => r.json()).then(sets => { PLATEAU_SETS = sets; console.log(`[plateau] カタログ読込 → ${sets.length} 市区町村`); }).catch(e => console.warn("[plateau] カタログ取得失敗", e));
+fetch("/plateau-sets.json").then(r => r.json()).then(sets => {
+	PLATEAU_SETS = sets; console.log(`[plateau] カタログ読込 → ${sets.length} 市区町村`);
+	autoPlateau();   // 復元ビューが z14+ の街なら起動直後に自動ロード（IDBキャッシュ命中なら即座に街が立つ）
+}).catch(e => console.warn("[plateau] カタログ取得失敗", e));
 const PLATEAU_AUTO_Z = 14;                 // これ以上寄ると自動ロード（遠景は対象外＝ズームアウトで全解放）
 // 同時アクティブ地区数の上限。区境をまたいだ隣接分だけを想定＝GPUメモリを有界にする（密集地区(都心部)1件あたりGPUバッファ~100-140MB）。
 const PLATEAU_MAX_ACTIVE = 2;
@@ -148,7 +151,7 @@ function onMove() {
 	renderer.draw(cam, { skipBase: false, noTerrain: cam.zoom < BASEMAP_MINZOOM });   // 入力の瞬間に最新camをworkerへ（全球=z<4は地形オフ＝白い地球＋海岸線のみ）
 	// 海岸線(gint)は render worker が draw 後に従属で駆動＝ここから直接送らない（地図と同cam/同フレーム＝スライド消滅）。
 	clearTimeout(settleT);
-	settleT = setTimeout(() => { moving = false; needsDraw = true; gintWorker.postMessage({ type: "drawn" }); }, 150);   // 停止後に identify(picking)
+	settleT = setTimeout(() => { moving = false; needsDraw = true; gintWorker.postMessage({ type: "drawn" }); saveCam(); }, 150);   // 停止後に identify(picking)＋ビュー保存
 }
 
 // データパイプライン（tile/scene worker）。実装は pipeline.js。
@@ -161,7 +164,20 @@ const atmo = [0.5, 0.66, 0.96, 0.3];   // 大気色 rgb + 強さ（さりげな�
 const bldColor = [0.83, 0.83, 0.82];    // 建物色（静かなグレー）
 // cam＝幾何のみ（center/zoom/pitch/bearing/dpr）＝毎フレームの draw payload（将来の worker 境界）。
 // 色（clear/land/atmo/bldColor）は静的なので setView で一度きりアップロード＝hot path から追い出す。
-const cam = { center: [139.767, 35.681], zoom: 3, pitch: 0, bearing: 0, dpr };   // 起動＝世界ビュー（海岸線を最初から描画）。街区は zoom:16 に戻せば従来通り
+const cam = { center: [139.767, 35.681], zoom: 3, pitch: 0, bearing: 0, dpr };   // 既定＝世界ビュー（初訪問時のみ。前回ビューがあれば下で復元）
+// 前回ビューの復元（ortho-earth 本体と同じ流儀）：settle 毎に localStorage へ保存し、起動時にそこから立ち上がる。
+// IDBのPLATEAUキャッシュと合わさると「開いた瞬間に前回の街が数秒で立ち上がる」起動になる。
+const CAM_KEY = "ortho-japan-poc.cam";
+try {
+	const saved = JSON.parse(localStorage.getItem(CAM_KEY) || "null");
+	if (saved && Array.isArray(saved.center) && saved.center.every(Number.isFinite) && Number.isFinite(saved.zoom)) {
+		cam.center = [saved.center[0], saved.center[1]];
+		cam.zoom = Math.max(2, Math.min(19, saved.zoom));
+		cam.pitch = Math.max(0, Math.min(MAXPITCH, saved.pitch || 0));
+		cam.bearing = Number.isFinite(saved.bearing) ? saved.bearing : 0;
+	}
+} catch { /* 壊れた保存値は無視して既定の世界ビュー */ }
+const saveCam = () => { try { localStorage.setItem(CAM_KEY, JSON.stringify({ center: cam.center, zoom: cam.zoom, pitch: cam.pitch, bearing: cam.bearing })); } catch { /* private mode 等 */ } };
 renderer.set("view", { clear, land, atmo, bldColor });
 // 海：水レイヤ(WA)をビュー一律にゲート＝cam.zoom<13 では描かない（＝紙の海・まだら無し）、z13+で一律点火。
 renderer.set("sea", { li: style.layers.findIndex(L => L.id === "water"), minzoom: 8 });
