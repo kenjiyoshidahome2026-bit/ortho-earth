@@ -71,7 +71,11 @@ function triKey(k0, k1, k2) {
 // dedup（重複面は同一タイル内が支配的＝バッチ内で完結）・接地グリッド（バッチbbox基準＝むしろ細かく効く）・RTE origin。
 // wardMask には三角形が触れた区単位セルを累積（wardBbox 座標系）。
 async function decodeBatch(base, leaves, wardMask, wardBbox) {
-	const geo = [], outNrm = [], outIdx = []; let vbase = 0, minH = Infinity;
+	// 中間データは plain JS Array に push しない：バッチで1700万push級になり要素タグ+GCで数秒を失う。
+	// プリミティブごとに頂点数が既知なので typed セグメントを作り、バッチ末尾で一括結合（memcpy）する。
+	// geo(lon/lat rad)は float64 必須：float32 の相対精度~1e-7 は rad で~0.6m＝dedup の丸め(1e-8rad≈6cm)を壊す。
+	const segs = [];   // { geo:Float64Array, nrm:Float32Array, idx:Uint32Array }（idx はバッチ通し番号で焼き込み済み）
+	let totalV = 0, totalI = 0, minH = Infinity;
 	function mergeTile(tile) {
 		const tileRtc = tile.rtcCenter || tile.gltf?.extensions?.CESIUM_RTC?.center;
 		// 新しめの地区(2025年生成・nusamai-gltf製)はCESIUM_RTC拡張を使わず、mesh参照ノードの translation/matrix に
@@ -92,19 +96,23 @@ async function decodeBatch(base, leaves, wardMask, wardBbox) {
 			for (const pr of (m.primitives || [])) {
 				const P = pr.attributes?.POSITION?.value; if (!P) continue;
 				const NRM = pr.attributes?.NORMAL?.value;
-				const I = pr.indices?.value, n = P.length / 3, off = vbase;
+				const I = pr.indices?.value, n = P.length / 3;
+				const geoSeg = new Float64Array(n * 3), nrmSeg = new Float32Array(n * 3);
 				for (let i = 0; i < n; i++) {
 					// local(Y-up)→ECEF：Yup→Zup(x,-z,y)＋RTC → geodetic(lon,lat,h) を一旦保持
 					const ex = P[i*3] + rtc[0], ey = -P[i*3+2] + rtc[1], ez = P[i*3+1] + rtc[2];
 					const g = ecef2geo(ex, ey, ez);
 					if (g[2] < minH) minH = g[2];
-					geo.push(g[0], g[1], g[2]);
+					geoSeg[i*3] = g[0]; geoSeg[i*3+1] = g[1]; geoSeg[i*3+2] = g[2];
 					// 法線：glTF(Y-up local)→ortho は方向を (nx, ny, -nz)（Yup→Zup＋ECEF→ortho軸swap の合成）。符号は FS で視線側へ。
-					if (NRM) outNrm.push(NRM[i*3], NRM[i*3+1], -NRM[i*3+2]); else outNrm.push(0, 1, 0);
+					if (NRM) { nrmSeg[i*3] = NRM[i*3]; nrmSeg[i*3+1] = NRM[i*3+1]; nrmSeg[i*3+2] = -NRM[i*3+2]; }
+					else { nrmSeg[i*3+1] = 1; }
 				}
-				if (I) for (let k = 0; k < I.length; k++) outIdx.push(I[k] + off);
-				else for (let k = 0; k < n; k++) outIdx.push(off + k);
-				vbase += n;
+				const idxSeg = new Uint32Array(I ? I.length : n);
+				if (I) for (let k = 0; k < I.length; k++) idxSeg[k] = I[k] + totalV;
+				else for (let k = 0; k < n; k++) idxSeg[k] = totalV + k;
+				segs.push({ geo: geoSeg, nrm: nrmSeg, idx: idxSeg });
+				totalV += n; totalI += idxSeg.length;
 			}
 		}
 	}
@@ -123,17 +131,26 @@ async function decodeBatch(base, leaves, wardMask, wardBbox) {
 		}
 	}
 	await Promise.all(Array.from({ length: Math.min(TILE_CONCURRENCY, leaves.length) }, tileWorker));
-	if (!outIdx.length) return null;
+	if (!totalI) return null;
+	// セグメントを一括結合（memcpy）。idx はセグメント生成時にバッチ通し番号で焼き込み済み＝コピーだけで整合。
+	const geo = new Float64Array(totalV * 3), outNrm = new Float32Array(totalV * 3), rawIdx = new Uint32Array(totalI);
+	{
+		let vo = 0, io = 0;
+		for (const s of segs) { geo.set(s.geo, vo); outNrm.set(s.nrm, vo); rawIdx.set(s.idx, io); vo += s.geo.length; io += s.idx.length; }
+		segs.length = 0;
+	}
 	// 重複三角形（double-sided/coincident 面）除去＝マダラ(z-fight)の元を断つ。頂点位置(丸め)の3つ組で判定＝巻き順・頂点共有に非依存。
 	// 重複は同一タイル内（nusamai両面出力等）が支配的＝バッチ内 dedup で実質すべて捕まる。
-	const seen = new Set(), dedupIdx = [];
-	for (let k = 0; k < outIdx.length; k += 3) {
-		const a = outIdx[k], b = outIdx[k+1], c = outIdx[k+2];
+	const seen = new Set(), dedup = new Uint32Array(totalI);
+	let di = 0;
+	for (let k = 0; k < rawIdx.length; k += 3) {
+		const a = rawIdx[k], b = rawIdx[k+1], c = rawIdx[k+2];
 		const key = triKey(vkeyBig(geo, a), vkeyBig(geo, b), vkeyBig(geo, c));
 		if (seen.has(key)) continue;
-		seen.add(key); dedupIdx.push(a, b, c);
+		dedup[di++] = a; dedup[di++] = b; dedup[di++] = c;
+		seen.add(key);
 	}
-	outIdx.length = 0; for (const v of dedupIdx) outIdx.push(v);
+	const outIdx = dedup.slice(0, di);   // 実サイズへトリム（cacheに満杯バッファを残さない）
 	// bbox(deg)：接地グリッドの範囲＋renderer側フラスタムカリングに使う。geo は rad なので deg へ。
 	const M = geo.length / 3;
 	let minLon = Infinity, minLat = Infinity, maxLon = -Infinity, maxLat = -Infinity;
@@ -220,7 +237,7 @@ async function decodeBatch(base, leaves, wardMask, wardBbox) {
 			for (let y = cy0; y <= cy1; y++) { const row = y*MASK_N; for (let x = cx0; x <= cx1; x++) wardMask[row+x] = 255; }
 		}
 	}
-	return { pos: outPos, nrm: new Float32Array(outNrm), idx: new Uint32Array(outIdx), origin, bbox };
+	return { pos: outPos, nrm: outNrm, idx: outIdx, origin, bbox };
 }
 
 // メッシュの出口＝render worker への直結ポート（main.js が MessageChannel で配線）。
@@ -239,11 +256,13 @@ function sendBatch(ward, bi, mesh, wardMask, wardBbox) {
 }
 
 const cache = new Map();   // base URL → { batches, mask, wardBbox }（このworker内のみ有効。再訪はfetch/Draco解凍を丸ごと省略）
+const CACHE_MAX = 3;       // 1区あたり~100-160MB（typed array一式）＝無上限だと多区巡回でメモリが積み上がる。LRUで直近3区に制限
 
 // ロード本体：葉タイル収集→カメラ近傍順ソート→バッチごとにデコード→完成次第 render worker へ直送（逐次表示）。
 async function loadPlateau(base, tiles, ward, wardBbox, camCenter) {
 	if (cache.has(base)) {
 		const c = cache.get(base);
+		cache.delete(base); cache.set(base, c);   // LRU touch（最近使用へ）
 		console.log("[plateau] キャッシュ命中（fetch/解凍スキップ）", base);
 		c.batches.forEach((mesh, bi) => sendBatch(ward, bi, mesh, c.mask, c.wardBbox));
 		return true;
@@ -273,6 +292,7 @@ async function loadPlateau(base, tiles, ward, wardBbox, camCenter) {
 	}
 	if (!batches.length) { console.error("[plateau] メッシュ0＝デコード/変換失敗"); return false; }
 	cache.set(base, { batches, mask: wardMask, wardBbox });   // デコード結果をこのworker内に保持＝再訪でfetch/Draco解凍を丸ごと省略
+	if (cache.size > CACHE_MAX) cache.delete(cache.keys().next().value);   // LRU: 最古を退避
 	console.log("[plateau] 完了", base, `(${batches.length} batches)`);
 	return true;
 }

@@ -9,24 +9,30 @@ export async function createTileLoader(opts = {}) {
 	let index = await cache("index_alos");
 	if (!index) { index = await index_alos(); cache("index_alos", index); }
 	const existAlos = (lng, lat) => index[encodeName(lng, lat)];
-	const worker = new Worker(new URL('./worker.js', import.meta.url), { type: 'module' });
-	worker.onerror = e => console.error("[tileLoader] worker error:", e.message || "(opaque)", "@", e.filename || "?", "L" + (e.lineno ?? "?"), e.error || "");
+	// worker プール：1本直列だと初訪問時に視野分のセル（R10で最大64枚）が1枚ずつ順番待ちになり
+	// 地形の立ち上がりが数倍遅い。各workerは従来通り1件ずつ直列（応答FIFO＝取りこぼさない）で、
+	// プール間はラウンドロビン＝並列。IDBキャッシュ後は経路無関係に即答。
+	const NW = 3;
+	const pool = Array.from({ length: NW }, () => {
+		const w = new Worker(new URL('./worker.js', import.meta.url), { type: 'module' });
+		w.onerror = e => console.error("[tileLoader] worker error:", e.message || "(opaque)", "@", e.filename || "?", "L" + (e.lineno ?? "?"), e.error || "");
+		return { w, queue: [], busy: false };
+	});
 	const inflight = new Map();
-	// worker は1件ずつ直列に処理（応答はFIFO）。次の要求は前の応答後に送る＝null応答でも取りこぼさない。
-	const queue = []; let busy = false;
-	function pump() {
-		if (busy || !queue.length) return;
-		busy = true;
-		const { name, res } = queue.shift();
+	function pump(s) {
+		if (s.busy || !s.queue.length) return;
+		s.busy = true;
+		const { name, res } = s.queue.shift();
 		const onmsg = e => {
-			worker.removeEventListener("message", onmsg);
+			s.w.removeEventListener("message", onmsg);
 			const obj = e.data; if (obj) cache(name, obj);
-			busy = false; res(obj); pump();
+			s.busy = false; res(obj); pump(s);
 		};
-		worker.addEventListener("message", onmsg);
-		worker.postMessage({ name, apiUrl: opts.apiUrl });
+		s.w.addEventListener("message", onmsg);
+		s.w.postMessage({ name, apiUrl: opts.apiUrl });
 	}
-	const loadName = name => new Promise(res => { queue.push({ name, res }); pump(); });
+	let rr = 0;
+	const loadName = name => new Promise(res => { const s = pool[rr++ % NW]; s.queue.push({ name, res }); pump(s); });
 	// (lng0, lat0, range) 原点は range 刻み。tile obj | null（R01 は ALOS 無い海等で null）。
 	return async function loadTile(lng0, lat0, range) {
 		if (range === 1 && !existAlos(lng0, lat0)) return null;   // R01 は ALOS 未整備（海等）

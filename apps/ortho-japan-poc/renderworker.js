@@ -68,13 +68,27 @@ function applyLabels() {
 	labelLayer.setLabels(list);
 }
 
+// terrain.ensure は視野→セル範囲計算（cameraState＋108回unproject）を伴う＝毎フレームは無駄。
+// アトラス構成が変わり得るだけのカメラ移動（視野幅の~10%・ズーム0.05・チルト/方位~1°）があった時だけ呼ぶ。
+let lastEnsure = null;
+function ensureIfMoved() {
+	const tol = 36 / Math.pow(2, cam.zoom);   // 視野スパンの~10%相当(deg)
+	if (lastEnsure &&
+		Math.abs(cam.center[0] - lastEnsure.lon) < tol && Math.abs(cam.center[1] - lastEnsure.lat) < tol &&
+		Math.abs(cam.zoom - lastEnsure.zoom) < 0.05 &&
+		Math.abs((cam.pitch || 0) - lastEnsure.pitch) < 0.02 && Math.abs((cam.bearing || 0) - lastEnsure.bearing) < 0.02 &&
+		canvas.width === lastEnsure.w && canvas.height === lastEnsure.h) return;
+	lastEnsure = { lon: cam.center[0], lat: cam.center[1], zoom: cam.zoom, pitch: cam.pitch || 0, bearing: cam.bearing || 0, w: canvas.width, h: canvas.height };
+	terrain.ensure(cam, { w: canvas.width, h: canvas.height });
+}
+
 // worker 自前の rAF ループ。dirty かつ cam があれば、最新 cam で mvp 生成→地図→ラベルを同フレームで描く。
 function frame() {
 	if (dirty && renderer && cam) {
 		dirty = false;
 		// ズーム中(zoom非stable)は標高アトラスを再構築しない＝cellRes連続変化による陰影チラつきを防ぐ（main が opts.terrainGate で通知）。
 		// noTerrain＝全球ビュー(z<4)では地形そのものが不要。
-		if (terrain && !opts?.noTerrain && opts?.terrainGate !== false) terrain.ensure(cam, { w: canvas.width, h: canvas.height });
+		if (terrain && !opts?.noTerrain && opts?.terrainGate !== false) ensureIfMoved();
 		renderer.draw(cam, opts);                                // cameraState=mvp生成 + GL描画（軽い）
 		if (gintSyncPort) gintSyncPort.postMessage({ cam });     // 描いた cam を海岸線(gint)へ即転送＝従属（スライド消滅）
 		const animating = labelLayer && labelLayer.draw(cam);    // ラベルも同じ cam で（＝完全同期）
