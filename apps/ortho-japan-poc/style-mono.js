@@ -83,8 +83,7 @@ export default {
 		{
 			id: "label", type: "symbol", "source-layer": "Anno",
 			// 抽出は広めに（表示ON/OFFは main.js の allowlist が制御）。測量系の数値だけ抽出時に除外。
-			filter: ["all", ["has", "vt_text"],
-				["!", ["in", ["get", "vt_code"], ["literal", [7101, 7102, 7103, 7201, 7711]]]]],
+			filter: ["has", "vt_text"],   // 【切り分け中：崩れ容疑】測量数値も抽出（元は 7101等を除外してた）
 			layout: {
 				"symbol-placement": "point",
 				"text-field": ["get", "vt_text"],

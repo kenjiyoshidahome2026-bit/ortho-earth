@@ -20,7 +20,7 @@ export function createLabelLayer(canvas, { pad = 5, fade = 0.3, recollideMs = 15
 	let labels = [];
 	const fades = new Map();        // key → 不透明度（フェード）
 	let winners = new Map();         // key → L（現在の当選集合。間引きで更新）
-	let lastCollide = -1e9, dirty = true;
+	let lastCollide = -1e9, dirty = true, lastShowFlat = true;   // showFlat=傾き閾値下（真俯瞰）だけ測量点等の flat ラベルを出す
 	const widthCache = new Map();   // "size|text" → measureText 幅。measureText は高コスト＝再衝突判定(150ms毎)の度に全ラベル分呼ばない
 	let labelByKey = new Map();     // key → L（フェードアウト中ラベルの逆引き。draw 毎の線形探索を排除）
 
@@ -35,10 +35,11 @@ export function createLabelLayer(canvas, { pad = 5, fade = 0.3, recollideMs = 15
 	}
 
 	// 衝突判定（優先度順の貪欲）。当選集合 winners を更新。
-	function collide(st, dpr, Wc, Hc, eScale) {
+	function collide(st, dpr, Wc, Hc, eScale, showFlat) {
 		const placed = [], w = new Map();
 		let font = "";
 		for (const L of labels) {
+			if (L.flat && !showFlat) continue;   // 傾けたら測量点(真俯瞰の作法)は当選集合から外す＝以降フェードアウト（等高線と対称）
 			const [dx, dy, front] = project(st, L.anchor[0], L.anchor[1], radiusOf(L, eScale));
 			if (front < 0) continue;
 			const sx = dx / dpr, sy = dy / dpr;
@@ -69,8 +70,10 @@ export function createLabelLayer(canvas, { pad = 5, fade = 0.3, recollideMs = 15
 		const dpr = cam.dpr || 1, W = canvas.width, H = canvas.height, Wc = W / dpr, Hc = H / dpr;
 		const st = cameraState(cam, W, H);
 		const eScale = pitchScale(cam.pitch);          // 標高→単位球（pitch連動、地物と同式）
+		const showFlat = (cam.pitch || 0) < 0.06;      // 等高線と同じゲート（pitch 0.06rad で 3D と入れ替わり消える）
 		const now = nowMs();
-		if (dirty || now - lastCollide > recollideMs) { collide(st, dpr, Wc, Hc, eScale); lastCollide = now; dirty = false; }
+		if (showFlat !== lastShowFlat) { dirty = true; lastShowFlat = showFlat; }   // 閾値跨ぎで即再衝突判定→flat を外す/戻す
+		if (dirty || now - lastCollide > recollideMs) { collide(st, dpr, Wc, Hc, eScale, showFlat); lastCollide = now; dirty = false; }
 
 		ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, W, H); ctx.scale(dpr, dpr);
 		ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.lineJoin = "round"; ctx.miterLimit = 2;

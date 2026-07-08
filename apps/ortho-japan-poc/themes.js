@@ -14,9 +14,13 @@ const CHOME_CODES = new Set([210]);                           // 丁目：粒度
 // （施設の大使館/郵便局等は 32xx＝番号帯が別なので誤爆しない）
 const isChikei = c => c >= 300 && c <= 399;
 const ROAD_CODES = new Set([2941, 2942, 2943, 2944, 2945, 412, 411, 2901, 2902, 2903, 2904]); // 道路ON：高速IC/JCT・SA/PA/SIC・都市高速JCT/路線名・国道/高速番号
-const RAIL_CODES = new Set([422, 421, 431]);                  // 鉄道ON：駅名・鉄道路線名・港
+const RAIL_CODES = new Set([422, 421, 431, 441]);             // 鉄道ON：駅名・鉄道路線名・港・空港/飛行場名（交通ハブを鉄道に集約）
 const GYOSEI_CODES = new Set([130]);                          // 行政区域ON：郡（都道府県・区は地名側へ）
-const SURVEY_NOISE = new Set([7101, 7102, 7103, 7201, 7711]); // 標高点・水準点・水深（常に非表示）
+const SURVEY_NOISE = new Set([7101, 7102, 7103, 7201, 7711]); // 標高点・水準点・水深（施設には出さない）
+// 陸の測量点（公式コード表 optbv_featurecodes）：7102三角点・7201標高点(測点)・7221標高(火山)だけ出す。
+// 等高線ON時だけ、地物別の記号(shields.js)＋標高値で。水準点(7103)/電子基準点(7101)は低ランクまで膨大でクラッタ＝除外。
+// 水系(7701水面標高/7711水深)も陸の等高線文脈外なので除外。地形図の"顔"になる三角点・標高点に絞る。
+const SURVEY_LAND = new Set([7102, 7201, 7221]);
 const isNum = t => /^\d+(\.\d+)?$/.test(t);                    // 純粋な数値（標高・水深等の計測値）は施設に出さない
 // 施設＝他テーマに属さない残り全部（省庁・大学・神社・寺・大使館・郵便局・橋・トンネル…）。取りこぼし防止。
 const CLAIMED = new Set([...CHIMEI_CODES, ...CHOME_CODES, ...ROAD_CODES, ...RAIL_CODES, ...GYOSEI_CODES]);
@@ -24,7 +28,7 @@ const CLAIMED = new Set([...CHIMEI_CODES, ...CHOME_CODES, ...ROAD_CODES, ...RAIL
 // style に依存するのは "点火"層のインデックスだけ。style を受けて分類関数を返す。
 export function createThemes(style) {
 	const liOf = id => style.layers.findIndex(L => L.id === id);
-	const LI_RAILHI = liOf("rail-hi"), LI_RAILTR = liOf("railtr-hi"), LI_ROADHI = liOf("road-hi"), LI_ADMINHI = liOf("admin-hi");
+	const LI_RAILHI = liOf("rail-hi"), LI_RAILTR = liOf("railtr-hi"), LI_ROADHI = liOf("road-hi"), LI_ADMINHI = liOf("admin-hi"), LI_KOURO = liOf("kouro");
 
 	// "点火"層は既定で隠す（土台グレーが見えている）。ONで色が乗る。
 	function hiddenLi(layerState, zoom) {
@@ -32,13 +36,15 @@ export function createThemes(style) {
 		if (!layerState.rail) h.add(LI_RAILHI);
 		if (!layerState.rail || zoom < RAILTR_MINZOOM) h.add(LI_RAILTR);   // 駅の軌道は鉄道ON＋寄った時だけ
 		if (!layerState.road) h.add(LI_ROADHI);
+		if (!layerState.road) h.add(LI_KOURO);   // 航路は道路チップに相乗り
 		if (!layerState.admin) h.add(LI_ADMINHI);
 		return h;
 	}
 	// ラベル集合を allowlist で間引く。ONのテーマのカテゴリだけ通す。
-	function filterLabels(all, layerState, zoom) {
+	function filterLabels(all, layerState, zoom, showNumbers) {
 		return all.filter(L => {
 			const c = L.code;
+			if (showNumbers && SURVEY_LAND.has(c)) return true;   // 等高線ON＝陸の測量点(三角点/標高点/水準点/電子基準点/火山標高)だけ通す。記号はコード別(shields.js)
 			return (layerState.chimei && CHIMEI_CODES.has(c))
 				|| (layerState.chimei && zoom >= CHOME_MINZOOM && CHOME_CODES.has(c))   // 丁目は寄った時だけ
 				|| (layerState.chikei && isChikei(c))         // 地形＝3xx帯（山/湖/川/岬/海/島…）

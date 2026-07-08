@@ -1,6 +1,6 @@
 // ortho-japan PoC — 地理院 optimal_bvmap を球面に直描き（M2: タイルストリーミング＋LOD＋ラベル）。
 import {
-	evalExpr, parseRGBA, cameraState, unproject,
+	evalExpr, parseRGBA, cameraState, unproject, buildGeoJSONOverlay,
 } from "ortho-japan";
 import { createGeopbf, geopbf } from "geopbf";
 createGeopbf("https://api.ortho-earth.com");   // bucket 基盤（標高と同じ）。読み出しはキー不要
@@ -46,10 +46,12 @@ const renderer = {
 const elevEl = document.createElement("div");
 elevEl.style.cssText = "position:fixed;bottom:44px;left:10px;font-size:12px;color:#4a5568;background:rgba(255,255,255,.85);padding:5px 11px;border-radius:6px;-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);display:none;z-index:6;";
 document.body.appendChild(elevEl);
+let contourOn = false;   // 「等高線」ボタン＝等高線(真俯瞰)＋数字(zoom/tileログ・地形読込)の統合トグル。既定 OFF＝真っさらな地図
+logEl.style.display = "none";
 renderWorker.onmessage = e => {
 	if (e.data.type !== "elevPending") return;
 	const { count, range } = e.data;
-	if (count > 0) { elevEl.style.display = "block"; elevEl.textContent = `⛰ 地形読込中 ${range === 1 ? "R01（秒単位・JAXA）" : range === 10 ? "R10" : "R90"} … ×${count}`; }
+	if (count > 0 && contourOn) { elevEl.style.display = "block"; elevEl.textContent = `⛰ 地形読込中 ${range === 1 ? "R01（秒単位・JAXA）" : range === 10 ? "R10" : "R90"} … ×${count}`; }
 	else elevEl.style.display = "none";
 };
 
@@ -70,6 +72,7 @@ const PLATEAU_AUTO_Z = 14;                 // これ以上寄ると自動ロー�
 const PLATEAU_MAX_ACTIVE = 2;
 const plateauActive = new Map();           // 現在レンダラーに乗っている地区：name → set({name,base,bbox})
 const plateauLoading = new Set();          // fetch/デコード中の地区名（二重発火防止）
+const plateauFailed = new Set();           // 葉0枚/デコード失敗の地区名＝廃止区(浜松西区22133等)の残骸。二度と掴まない（毎onMoveの再挑戦スパムを断つ）
 
 // PLATEAU worker プール：tileset fetch・Draco解凍・ECEF変換・重複面dedup・RTE・被覆マスク、全部ここでやる（メインスレッドはブロックしない）。
 // 密集地区(都心部)1件のデコードは実測40〜50秒かかる重い処理＝worker化しないとその間UIが完全に固まる。
@@ -122,7 +125,7 @@ function autoPlateau() {
 		return;
 	}
 	const view = approxViewBbox(cam);
-	let hits = PLATEAU_SETS.filter(s => bboxIntersects(s.bbox, view));
+	let hits = PLATEAU_SETS.filter(s => bboxIntersects(s.bbox, view) && !plateauFailed.has(s.name));   // 死んだ地区は候補から除外＝再挑戦しない
 	if (hits.length > PLATEAU_MAX_ACTIVE) {
 		const [lon, lat] = cam.center;
 		const d2 = s => { const cx = (s.bbox[0] + s.bbox[2]) / 2, cy = (s.bbox[1] + s.bbox[3]) / 2; return (cx - lon) ** 2 + (cy - lat) ** 2; };
@@ -139,8 +142,16 @@ function autoPlateau() {
 		plateauLoading.add(h.name);
 		console.log("[plateau] 自動ロード →", h.name);
 		loadPlateau(h.base, undefined, h.name, h.bbox)
-			.then(ok => { if (ok) plateauActive.set(h.name, h); })
-			.catch(e => console.warn("[plateau] 自動ロード失敗", h.name, e))
+			.then(ok => {
+				if (!ok) { plateauFailed.add(h.name); console.warn("[plateau] 読み込めないためスキップ（廃止区/空データ？）:", h.name); return; }   // 一回だけ警告→以後は候補から除外
+				plateauActive.set(h.name, h);
+				// ★完了時に既に低ズーム/視野外なら stale＝即解放（ロード中にズームアウトすると3Dが居残る件を断つ）。
+				if (cam.zoom < PLATEAU_AUTO_Z || !bboxIntersects(h.bbox, approxViewBbox(cam))) {
+					plateauActive.delete(h.name); renderer.set("plateauMesh", null, h.name); needsDraw = true;
+					console.log("[plateau] ロード完了時に視野外→即解放", h.name);
+				}
+			})
+			.catch(e => { plateauFailed.add(h.name); console.warn("[plateau] 読み込み失敗のためスキップ:", h.name, e.message || e); })   // 一回だけ
 			.finally(() => plateauLoading.delete(h.name));
 	}
 }
@@ -178,7 +189,7 @@ try {
 	}
 } catch { /* 壊れた保存値は無視して既定の世界ビュー */ }
 const saveCam = () => { try { localStorage.setItem(CAM_KEY, JSON.stringify({ center: cam.center, zoom: cam.zoom, pitch: cam.pitch, bearing: cam.bearing })); } catch { /* private mode 等 */ } };
-renderer.set("view", { clear, land, atmo, bldColor });
+renderer.set("view", { clear, land, atmo, bldColor, showN02: false });   // showN02＝N02交通(新幹線等)の表示。鉄道チップで切替
 // 海：水レイヤ(WA)をビュー一律にゲート＝cam.zoom<13 では描かない（＝紙の海・まだら無し）、z13+で一律点火。
 renderer.set("sea", { li: style.layers.findIndex(L => L.id === "water"), minzoom: 8 });
 
@@ -279,6 +290,29 @@ async function loadWorldCoast() {
 	console.log("[coast] ロード完了。z≤7 で自動描画");
 }
 window.__coast = loadWorldCoast;   // 手動リロード用（通常は起動時に自動実行）
+
+// N02（国土数値情報 鉄道）から新幹線だけ抽出して常駐オーバーレイに（gishub-jp と同じ geopbf 経路）。
+// 新幹線＝N02_002(事業者種別)=1「JRの新幹線」。全国一括・疎＝軽い。鉄道チップONで表示、初回だけ fetch。※駅/空港/道の駅は次段。
+const N02_ZIP = "https://nlftp.mlit.go.jp/ksj/gml/data/N02/N02-25/N02-25_GML.zip";
+const N02_ORIGIN = [138, 37];   // 全国オーバーレイの原点（delta符号化用・度スケール＝精度問題なし）
+let n02Loaded = false;
+async function loadN02() {
+	if (n02Loaded) return;
+	n02Loaded = true;
+	console.log("[N02] 鉄道 geojson 読込中（新幹線抽出）…");
+	const rail = await geopbf(`${N02_ZIP}#N02-25_RailroadSection.geojson`).catch(e => { console.warn("[N02] rail 失敗", e); return null; });
+	console.log("[N02] geopbf 返り:", rail && (rail.constructor?.name), "| keys:", rail && Object.keys(rail).slice(0, 12));
+	const fc = rail?.geojson;   // GeoPBF の境界は FeatureCollection。.geojson getter＝{type:"FeatureCollection",features,name}
+	const feats = fc?.features;
+	if (!feats?.length) { console.warn("[N02] 鉄道読込失敗", rail && Object.keys(rail)); n02Loaded = false; return; }
+	const sn = feats.filter(f => { const v = f.properties?.N02_002; return v == 1 || /新幹線/.test(String(v)); });   // JRの新幹線
+	console.log("[N02] 鉄道", feats.length, "→ 新幹線", sn.length, "| sample props:", JSON.stringify(feats[0]?.properties));
+	const scenes = sn.length ? [buildGeoJSONOverlay(sn, N02_ORIGIN, { lineColor: [0.18, 0.40, 0.78, 0.95], lineWidth: 1.8 })] : [];   // 新幹線＝青の太線
+	renderer.set("n02", scenes);
+	needsDraw = true;
+	console.log("[N02] 新幹線 描画完了");
+}
+window.__n02 = loadN02;   // 手動用
 // デバッグ用カメラジャンプ：__cam(lon, lat, zoom, pitchDeg, bearingDeg)。検証スクリプトやコンソールから任意視点へ。
 window.__cam = (lon, lat, zoom = cam.zoom, pitchDeg = cam.pitch * R2D, bearingDeg = cam.bearing * R2D) => {
 	cam.center = [lon, lat]; cam.zoom = zoom; cam.pitch = pitchDeg * D2R; cam.bearing = bearingDeg * D2R;
@@ -351,10 +385,21 @@ canvas.addEventListener("pointermove", e => {
 		cam.bearing += dxp * 0.006;
 		cam.pitch = Math.max(0, Math.min(MAXPITCH, cam.pitch + dyp * 0.005));
 	} else {
-		// unproject でつかんだ地点をカーソル下に保つパン
+		// パン＝「つかんだ地点をカーソル下に保つ」(grab-point)。ただし球の縁では幾何が縮退する（光線が
+		// 球を外す＝unproject null で凍る／縁際でヤコビアン爆発＝すっぽ抜け）。レート方式(ピクセル差∝回転)を
+		// 併走させ、①球外れ時のフォールバック ②縁の爆発の頭打ち に使う＝低ズーム/縁でも張り付かない。
 		const st = cameraState(cam, size.w, size.h);
 		const a = unproject(st, drag.x * dpr, drag.y * dpr), b = unproject(st, e.clientX * dpr, e.clientY * dpr);
-		if (a && b) { cam.center[0] -= (b[0] - a[0]); cam.center[1] = Math.max(-85, Math.min(85, cam.center[1] - (b[1] - a[1]))); }
+		const degPerPx = 360 / (Math.pow(2, cam.zoom) * 512);                        // ズームでの1CSSpx当たり経度（概算）
+		const rLon = -dxp * degPerPx / Math.max(0.2, Math.cos(cam.center[1] * D2R)); // レート方式（高緯度ほど経度を伸ばす）
+		const rLat = dyp * degPerPx;
+		let dLon = rLon, dLat = rLat;                                                // 既定＝レート（球外れ時のフォールバック）
+		if (a && b) {
+			const gLon = -(b[0] - a[0]), gLat = -(b[1] - a[1]);                      // grab-point（正確）
+			if (Math.hypot(gLon, gLat) <= Math.hypot(rLon, rLat) * 6) { dLon = gLon; dLat = gLat; }  // 暴れてなければ採用、縁の爆発はレートへ退避
+		}
+		cam.center[0] += dLon;
+		cam.center[1] = Math.max(-85, Math.min(85, cam.center[1] + dLat));
 	}
 	drag.x = e.clientX; drag.y = e.clientY;
 	onMove();
@@ -393,9 +438,12 @@ function swapScene(order) {
 	if (!sceneOrigin || Math.abs(sceneOrigin[0] - cam.center[0]) > 0.4 || Math.abs(sceneOrigin[1] - cam.center[1]) > 0.4)
 		sceneOrigin = [cam.center[0], cam.center[1]];
 	requestMerge("main", order, sceneOrigin, themes.hiddenLi(layerState, cam.zoom));   // 結合は scene worker（非同期）→ render worker へ直行
-	lastLabels = themes.filterLabels(tiles.labels(order), layerState, cam.zoom).map(L => {
+	lastLabels = themes.filterLabels(tiles.labels(order), layerState, cam.zoom, contourOn).map(L => {   // contourON＝標高数値も通す
 		// 都道府県は大きく薄い背景ラベルに（コピーしてキャッシュ側を壊さない）。他はそのまま。
-		return L.code === 140 ? { ...L, size: L.size * 1.25, color: [L.color[0], L.color[1], L.color[2], L.color[3] * 0.5] } : L;
+		if (L.code === 140) return { ...L, size: L.size * 1.25, color: [L.color[0], L.color[1], L.color[2], L.color[3] * 0.5] };
+		// 測量点(7102三角点/7201・7221標高点)は shieldFor が記号＋標高値を描く。flat=真俯瞰の作法＝傾けたら等高線と一緒に消す。
+		if (L.code === 7102 || L.code === 7201 || L.code === 7221) return { ...L, flat: true };
+		return L;
 	});
 	renderer.set("labels", lastLabels);   // ラベル集合を render worker へ。標高付与(sampleElev)も terrain と一緒に worker 側で行う（同期して描く）
 	readySig = sig; zoomAtBuild = cam.zoom;
@@ -412,10 +460,25 @@ function swapBase(coarseOrder) {
 
 // チップ操作：状態を反転し、styleSig を更新して即再結合（再取得なし・一瞬）。
 document.querySelectorAll(".chip").forEach(b => b.addEventListener("click", () => {
-	const k = b.dataset.k; layerState[k] = !layerState[k];
+	const k = b.dataset.k; if (!k) return;   // data-k 無し＝UIトグル（数字など）は別ハンドラ
+	layerState[k] = !layerState[k];
 	b.classList.toggle("on", layerState[k]);
 	styleSig = JSON.stringify(layerState); readySig = ""; needsDraw = true;
+	if (k === "rail") { renderer.set("view", { showN02: layerState.rail }); if (layerState.rail) loadN02(); }   // 鉄道ON＝N02新幹線も表示＋初回fetch
 }));
+
+// 「等高線」トグル：等高線(真俯瞰の茶線)＋数字(zoom/tileログ・地形読込)をまとめて ON/OFF。既定 OFF＝真っさらな地図、押すと解析情報が出る。
+const btnContour = document.getElementById("btn-contour");
+btnContour.addEventListener("click", () => {
+	contourOn = !contourOn;
+	btnContour.classList.toggle("on", contourOn);
+	renderer.set("view", { showContour: contourOn });     // 等高線（GL の茶線）
+	logEl.style.display = contourOn ? "" : "none";         // 左下ログ（zoom/tile/pitch）
+	if (!contourOn) elevEl.style.display = "none";         // 地形読込インジケータ
+	readySig = "";                                         // ラベル集合を再結合＝標高数値の表示/非表示を即反映（filterLabels に contourOn を渡す）
+	renderer.draw(cam, { skipBase: false, noTerrain: cam.zoom < BASEMAP_MINZOOM, terrainGate: true });   // 即1枚描き直す（動かさなくても反映）
+	needsDraw = true;
+});
 
 // コンパス兼リセット：3D（傾き or 回転）の時だけ表示。針は方位を指し、押すと水平・北向きへスッと戻る。
 const resetBtn = document.getElementById("reset");

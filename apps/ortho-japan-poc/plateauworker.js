@@ -351,7 +351,7 @@ async function loadPlateau(base, tiles, ward, wardBbox, camCenter) {
 		batches.push(mesh);
 		console.log(`[plateau] batch ${batches.length} (${Math.min((bi + 1) * BATCH_TILES, leaves.length)}/${leaves.length} tiles) tris=${mesh.idx.length / 3}`);
 	}
-	if (!batches.length) { console.error("[plateau] メッシュ0＝デコード/変換失敗"); return false; }
+	if (!batches.length) return false;   // 葉0枚/全バッチ失敗＝空データ。警告は main 側で一回だけ（廃止区の残骸等）
 	cache.set(base, { batches, mask: wardMask, wardBbox });   // デコード結果をこのworker内に保持＝再訪でfetch/Draco解凍を丸ごと省略
 	if (cache.size > CACHE_MAX) cache.delete(cache.keys().next().value);   // LRU: 最古を退避
 	console.log("[plateau] 完了", base, `(${batches.length} batches)`);

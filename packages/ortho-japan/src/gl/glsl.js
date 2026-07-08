@@ -275,6 +275,53 @@ void main() {
 	fragColor = vec4(col, 1.0);
 }`;
 
+// 等高線：真俯瞰(チルト≈0)でだけ、標高テクスチャから茶(セピア)の等高線を敷く。3Dの誇張は出さず、平面で標高を語る
+// ＝紙の地形図の等高線。フルスクリーン各画素でカメラ光線×単位球→lon/lat→elev→iso線を fwidth でAA。GLOBE_VS を流用。
+// 寂しい地域(山/田舎)に土地の表情を与える＝どの場所も等しく描かれる（公平感）。ベクタの下に敷き、道路/区界は上に乗る。
+export const CONTOUR_FS = `#version 300 es
+precision highp float;
+uniform mat4 u_invMvp;
+uniform sampler2D u_elevTex;
+uniform vec4 u_elevBounds;   // originLng, originLat, spanLng, spanLat（deg）
+uniform float u_hasElev;     // 0/1
+uniform float u_interval;    // 主曲線間隔(m)
+uniform float u_major;       // 計曲線間隔(m)
+uniform float u_alpha;       // 全体の濃さ（pitch で 0 へフェード）
+uniform vec3 u_cColor;       // 茶(セピア)
+in vec2 v_ndc;
+out vec4 fragColor;
+const float R2D = 57.29577951308232;
+float elevAt(vec2 ll) {
+	vec2 uv = (ll - u_elevBounds.xy) / u_elevBounds.zw;
+	if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) return 0.0;
+	return texture(u_elevTex, uv).r;
+}
+float band(float g) {                                   // iso線：整数の g で 1、離れると 0（fwidth で画面一定幅・AA）
+	float dd = abs(fract(g + 0.5) - 0.5);
+	float w = fwidth(g) * 0.5 + 1e-5;                   // 係数＝線の細さ（細すぎるとサブピクセルで破線化＝汚い）
+	return 1.0 - smoothstep(0.0, w, dd);
+}
+void main() {
+	if (u_alpha <= 0.002 || u_hasElev < 0.5) discard;
+	vec4 np = u_invMvp * vec4(v_ndc, -1.0, 1.0);
+	vec4 fp = u_invMvp * vec4(v_ndc, 1.0, 1.0);
+	vec3 A = np.xyz / np.w, B = fp.xyz / fp.w, d = B - A;
+	float aa = dot(d, d), bb = 2.0 * dot(A, d), cc = dot(A, A) - 1.0;
+	float disc = bb * bb - 4.0 * aa * cc;
+	if (disc < 0.0) discard;                            // 球ミス
+	float t = (-bb - sqrt(disc)) / (2.0 * aa);
+	if (t < 0.0) discard;
+	vec3 P = A + t * d;                                 // 単位球上の点
+	vec2 ll = vec2(atan(P.z, P.x) * R2D, asin(clamp(P.y, -1.0, 1.0)) * R2D);   // lon,lat(deg)
+	float e = elevAt(ll);
+	float landMask = smoothstep(0.5, 4.0, e);           // 海/データ無し(≈0)は等高線を出さない
+	if (landMask <= 0.0) discard;
+	float line = max(band(e / u_interval) * 0.2, band(e / u_major) * 0.4);   // さらに淡く（主曲線ごく薄・計曲線も薄め）
+	float a = line * landMask * u_alpha;
+	if (a <= 0.003) discard;
+	fragColor = vec4(u_cColor * a, a);                  // premultiplied
+}`;
+
 export const FILL_VS = `#version 300 es
 precision highp float;
 in vec2 a_delta;

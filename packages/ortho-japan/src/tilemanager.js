@@ -28,16 +28,22 @@ export function createTileManager({ style, tileUrl, onChange, cap = 256, buildTi
 
 	async function ensure(t) {
 		const k = keyOf(t);
-		if (cache.has(k)) return;
-		cache.set(k, { status: "loading" });
+		const ex = cache.get(k);
+		if (ex && ex.status !== "error") return;   // loading/ready はそのまま
+		const tries = ex ? (ex.tries || 0) : 0;
+		if (tries >= 3) return;                     // 3回失敗＝諦める（本当に無いタイル等での永久リトライ回避）
+		cache.set(k, { status: "loading", tries });
 		try {
 			const r = await build(t);   // worker or main
 			cache.set(k, { status: "ready", ...r });
 			onChange && onChange();
 		} catch (e) {
-			// abort（視野から外れて中断）はエントリごと消す＝再訪時に再取得できる。error として残すと永久欠けになる。
+			// abort（視野から外れて中断）はエントリごと消す＝再訪時に再取得できる。
 			if (String(e && e.message) === "aborted") { cache.delete(k); return; }
-			cache.set(k, { status: "error", origin: null, dl: null, labels: [], z: t.z });
+			// その他のエラー（ネット瞬断/デコード失敗）は "error" のまま残すと永久欠け＝そこだけ粗いタイルが透けて
+			// 静止中もズーム混在になる。tries を数えてバックオフ再取得を促す（onChange→再update→ensure がリトライ）。
+			cache.set(k, { status: "error", origin: null, dl: null, labels: [], z: t.z, tries: tries + 1 });
+			setTimeout(() => onChange && onChange(), 300 * (tries + 1));
 		}
 	}
 

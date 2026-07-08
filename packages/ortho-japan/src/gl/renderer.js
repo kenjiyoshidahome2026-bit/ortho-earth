@@ -1,7 +1,7 @@
 // WebGL2 レンダラ：可視タイルを跨いで同一 style層を1バッファに結合した「シーン」を描く。
 // draw call は「タイル数×層数」から「層数」へ激減し、uniform も1フレーム1回。共通のシーン原点で投影。
 // fill = earcut三角形、line = capsule(SDF)。scene.layers は style層順（painter's algorithm）。
-import { FILL_VS, FILL_FS, LINE_VS, LINE_FS, GLOBE_VS, GLOBE_FS, BUILDING_VS, BUILDING_FS, TERRAIN_VS, TERRAIN_FS, STENCIL_VS, STENCIL_FS, COVER_FS, PLATEAU_VS, PLATEAU_FS } from "./glsl.js";
+import { FILL_VS, FILL_FS, LINE_VS, LINE_FS, GLOBE_VS, GLOBE_FS, BUILDING_VS, BUILDING_FS, TERRAIN_VS, TERRAIN_FS, STENCIL_VS, STENCIL_FS, COVER_FS, PLATEAU_VS, PLATEAU_FS, CONTOUR_FS } from "./glsl.js";
 import { cameraState, project } from "../camera.js";
 
 const CORNERS = new Float32Array([0, -1, 0, 1, 1, -1, 1, -1, 0, 1, 1, 1]); // 6頂点×(end,side)
@@ -18,6 +18,7 @@ export function createRenderer(canvas) {
 	const plateauProg = program(gl, PLATEAU_VS, PLATEAU_FS);   // PLATEAU LOD2 建物メッシュ
 	const stencilProg = program(gl, STENCIL_VS, STENCIL_FS);   // 塗りの stencil パス（fan→巻き数）
 	const coverProg = program(gl, GLOBE_VS, COVER_FS);          // 塗りの cover パス（stencil≠0 を塗る）
+	const contourProg = program(gl, GLOBE_VS, CONTOUR_FS);     // 等高線（真俯瞰でだけ茶の等高線を敷く）
 	const cornerBuf = buffer(gl, CORNERS);
 	const emptyVAO = gl.createVertexArray();
 	gl.getExtension("OES_texture_float_linear");   // R32F の線形補間
@@ -184,7 +185,7 @@ export function createRenderer(canvas) {
 	}
 
 	// --- overlay（外部ベクタ=geopbf/e-Stat）：stencil-then-cover 塗り＋境界線 ---
-	let overlay = null, overlayHi = null;
+	let overlay = null, overlayHi = null, n02 = [];   // n02＝交通の常駐オーバーレイ群（新幹線/駅…各色）。showN02 で表示切替
 	function buildOverlaySlot(s, fillColor) {
 		if (!s || !s.fanPos.length) return null;
 		const fanVao = gl.createVertexArray(), bFan = buffer(gl, s.fanPos);
@@ -207,33 +208,40 @@ export function createRenderer(canvas) {
 	}
 	function disposeOverlay(o) { if (o) { for (const b of o.bufs) gl.deleteBuffer(b); gl.deleteVertexArray(o.fanVao); if (o.lineVao) gl.deleteVertexArray(o.lineVao); } }
 	function setOverlay(s, fillColor) { disposeOverlay(overlay); overlay = s ? buildOverlaySlot(s, fillColor || [0.20, 0.45, 0.85, 0.32]) : null; }
+	// N02 交通の常駐オーバーレイ群を丸ごと差し替え。各要素は buildGeoJSONOverlay のシーン（線色は焼込済）。
+	function setN02(scenes) { for (const o of n02) disposeOverlay(o); n02 = (scenes || []).map(s => buildOverlaySlot(s, [0, 0, 0, 0])); }
 	function setOverlayHi(s, fillColor) { disposeOverlay(overlayHi); overlayHi = s ? buildOverlaySlot(s, fillColor || [0.95, 0.55, 0.15, 0.6]) : null; }
 	function drawOne(o, st, dpr, land) {
-		if (!o || !o.fanCount) return;
-		// stencil パス：fan を巻き数へ（色は書かない・FRONT+1/BACK-1、球の前後半球も相殺）
-		gl.enable(gl.STENCIL_TEST);
-		gl.clearStencil(0); gl.clear(gl.STENCIL_BUFFER_BIT);
-		gl.colorMask(false, false, false, false);
-		gl.stencilMask(0xFF); gl.stencilFunc(gl.ALWAYS, 0, 0xFF);
-		gl.stencilOpSeparate(gl.FRONT, gl.KEEP, gl.KEEP, gl.INCR_WRAP);
-		gl.stencilOpSeparate(gl.BACK, gl.KEEP, gl.KEEP, gl.DECR_WRAP);
-		setCommonUniforms(stencilProg, st, o.origin, land);
-		gl.bindVertexArray(o.fanVao); gl.drawArrays(gl.TRIANGLES, 0, o.fanCount);
-		// cover パス：stencil≠0 の画素だけ塗り、通過画素は0へ戻して次に備える
-		gl.colorMask(true, true, true, true);
-		gl.stencilFunc(gl.NOTEQUAL, 0, 0xFF); gl.stencilOp(gl.KEEP, gl.KEEP, gl.ZERO);
-		gl.useProgram(coverProg);
-		gl.uniform4f(loc(gl, coverProg, "u_fill"), o.fillColor[0], o.fillColor[1], o.fillColor[2], o.fillColor[3]);
-		gl.bindVertexArray(emptyVAO); gl.drawArrays(gl.TRIANGLES, 0, 3);
-		gl.disable(gl.STENCIL_TEST);
-		// 境界線
+		if (!o) return;
+		if (o.fanCount) {   // 面がある時だけ stencil 塗り（純線オーバーレイ＝N02 は面ゼロでも線を描く）
+			// stencil パス：fan を巻き数へ（色は書かない・FRONT+1/BACK-1、球の前後半球も相殺）
+			gl.enable(gl.STENCIL_TEST);
+			gl.clearStencil(0); gl.clear(gl.STENCIL_BUFFER_BIT);
+			gl.colorMask(false, false, false, false);
+			gl.stencilMask(0xFF); gl.stencilFunc(gl.ALWAYS, 0, 0xFF);
+			gl.stencilOpSeparate(gl.FRONT, gl.KEEP, gl.KEEP, gl.INCR_WRAP);
+			gl.stencilOpSeparate(gl.BACK, gl.KEEP, gl.KEEP, gl.DECR_WRAP);
+			setCommonUniforms(stencilProg, st, o.origin, land);
+			gl.bindVertexArray(o.fanVao); gl.drawArrays(gl.TRIANGLES, 0, o.fanCount);
+			// cover パス：stencil≠0 の画素だけ塗り、通過画素は0へ戻して次に備える
+			gl.colorMask(true, true, true, true);
+			gl.stencilFunc(gl.NOTEQUAL, 0, 0xFF); gl.stencilOp(gl.KEEP, gl.KEEP, gl.ZERO);
+			gl.useProgram(coverProg);
+			gl.uniform4f(loc(gl, coverProg, "u_fill"), o.fillColor[0], o.fillColor[1], o.fillColor[2], o.fillColor[3]);
+			gl.bindVertexArray(emptyVAO); gl.drawArrays(gl.TRIANGLES, 0, 3);
+			gl.disable(gl.STENCIL_TEST);
+		}
+		// 線（境界線 or N02 の鉄道線）
 		if (o.lineVao) {
 			setCommonUniforms(lineProg, st, o.origin, land);
 			gl.uniform1f(loc(gl, lineProg, "u_dpr"), dpr);
 			gl.bindVertexArray(o.lineVao); gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, o.lineCount);
 		}
 	}
-	function drawOverlay(st, dpr, land) { drawOne(overlay, st, dpr, land); drawOne(overlayHi, st, dpr, land); }
+	function drawOverlay(st, dpr, land) {
+		if (view.showN02 !== false) for (const o of n02) drawOne(o, st, dpr, land);   // N02 交通（新幹線/駅）＝基図の上・identify overlay の下
+		drawOne(overlay, st, dpr, land); drawOne(overlayHi, st, dpr, land);
+	}
 
 	function setCommonUniforms(prog, st, origin, fog) {
 		gl.useProgram(prog);
@@ -308,6 +316,27 @@ export function createRenderer(canvas) {
 		// ベクタ(塗り/線)は常にペインタ順で地形の上に描く＝深度で地形と争わせない。傾き時も平面時も、
 		// 陸・海・道路が地形サーフェスと z-fight して揺れる/寸断するのを根絶（地形の起伏は先に深度で解決済）。
 		gl.disable(gl.DEPTH_TEST);
+		// 等高線：真俯瞰(チルト≈0)でだけ茶の等高線を敷く（3Dが立ち上がる前＝ちょうど入れ替わりでフェード）。ベクタの下＝道路/区界は上に乗る。
+		{
+			const ps = Math.max(0, Math.min(1, ((cam.pitch || 0) - 0.01) / 0.05));   // pitch 0.01→0.06rad で 3D と入れ替わり
+			const zf = 1 - Math.max(0, Math.min(1, (cam.zoom - 16.5) / 1.5));        // z16.5→18 でフェードアウト（DEM過拡大＝ボケ/汚れを出さない）
+			const cAlpha = (elev.has && !(opts && opts.noTerrain) && view.showContour === true) ? (1 - ps * ps * (3 - 2 * ps)) * zf : 0;
+			if (cAlpha > 0.003 && cam.zoom >= 8) {
+				gl.useProgram(contourProg);
+				gl.uniformMatrix4fv(loc(gl, contourProg, "u_invMvp"), false, Float32Array.from(st.invMvp));
+				gl.uniform1i(loc(gl, contourProg, "u_elevTex"), 1);
+				gl.uniform4f(loc(gl, contourProg, "u_elevBounds"), elev.bounds[0], elev.bounds[1], elev.bounds[2], elev.bounds[3]);
+				gl.uniform1f(loc(gl, contourProg, "u_hasElev"), elev.has);
+				const iv = cam.zoom >= 14 ? 15 : cam.zoom >= 11 ? 30 : 60;   // 寄るほど細かい間隔(m)
+				gl.uniform1f(loc(gl, contourProg, "u_interval"), iv);
+				gl.uniform1f(loc(gl, contourProg, "u_major"), iv * 5.0);
+				gl.uniform1f(loc(gl, contourProg, "u_alpha"), cAlpha * (view.contourAlpha || 1));
+				const cc = view.contourColor || [0.42, 0.30, 0.18];   // 茶(セピア)
+				gl.uniform3f(loc(gl, contourProg, "u_cColor"), cc[0], cc[1], cc[2]);
+				gl.bindVertexArray(emptyVAO);
+				gl.drawArrays(gl.TRIANGLES, 0, 3);
+			}
+		}
 		gl.useProgram(lineProg); gl.uniform1f(loc(gl, lineProg, "u_dpr"), cam.dpr || 1);
 
 		const slots = (opts && opts.skipBase) ? ["main"] : ["base", "main"];   // 静止時は下地を隠しLOD痕を消す
@@ -381,7 +410,7 @@ export function createRenderer(canvas) {
 		if (scenes[slot].bld) { for (const b of scenes[slot].bld.bufs) gl.deleteBuffer(b); gl.deleteVertexArray(scenes[slot].bld.vao); }
 		scenes[slot] = { origin: scenes[slot].origin, draws: [], bld: null };
 	}
-	function dispose() { disposeSlot("base"); disposeSlot("main"); disposeOverlay(overlay); disposeOverlay(overlayHi); }
+	function dispose() { disposeSlot("base"); disposeSlot("main"); disposeOverlay(overlay); disposeOverlay(overlayHi); for (const o of n02) disposeOverlay(o); }
 
 	// 汎用 set(cmd, data, prop)：ortho-map createLayers の set プロトコルに整合。将来 worker では
 	// postMessage({ type:"set", cmd, data, prop }, transferables) にそのまま載る。prop は cmd ごとに融通。
@@ -392,6 +421,7 @@ export function createRenderer(canvas) {
 			case "scene":     setScene(data, prop); break;                                      // prop=slot("base"|"main")
 			case "overlay":   setOverlay(data, prop); break;                                    // prop=fillColor(任意)
 			case "overlayHi": setOverlayHi(data, prop); break;
+			case "n02":       setN02(data); break;                                               // data=[シーン…] 交通の常駐オーバーレイ群
 			case "elevAtlas": setElevationAtlas(data, prop); break;                             // prop=scale
 			case "elevCell":  setElevationCell(prop.cx, prop.cy, data, prop.cellRes); break;    // data=セルFloat32
 			case "plateauMesh": setPlateauMesh(prop, data); break;                             // prop=地区名(key)、data={pos,idx} PLATEAU LOD2 建物（null=解放）
