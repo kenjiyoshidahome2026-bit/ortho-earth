@@ -83,16 +83,22 @@ function ensureIfMoved() {
 }
 
 // worker 自前の rAF ループ。dirty かつ cam があれば、最新 cam で mvp 生成→地図→ラベルを同フレームで描く。
+// try/catch：draw中の例外が末尾の requestAnimationFrame に到達しないとループが永久死＝最後のフレームで凍結する。
+// 失敗フレームは落として次フレームへ（エラーはconsoleに出す＝原因調査可能なまま画は生き続ける）。
 function frame() {
-	if (dirty && renderer && cam) {
-		dirty = false;
-		// ズーム中(zoom非stable)は標高アトラスを再構築しない＝cellRes連続変化による陰影チラつきを防ぐ（main が opts.terrainGate で通知）。
-		// noTerrain＝全球ビュー(z<4)では地形そのものが不要。
-		if (terrain && !opts?.noTerrain && opts?.terrainGate !== false) ensureIfMoved();
-		renderer.draw(cam, opts);                                // cameraState=mvp生成 + GL描画（軽い）
-		if (gintSyncPort) gintSyncPort.postMessage({ cam });     // 描いた cam を海岸線(gint)へ即転送＝従属（スライド消滅）
-		const animating = labelLayer && labelLayer.draw(cam);    // ラベルも同じ cam で（＝完全同期）
-		if (animating) dirty = true;                             // フェード継続は自前で次フレーム（main関与なし）
+	try {
+		if (dirty && renderer && cam) {
+			dirty = false;
+			// ズーム中(zoom非stable)は標高アトラスを再構築しない＝cellRes連続変化による陰影チラつきを防ぐ（main が opts.terrainGate で通知）。
+			// noTerrain＝全球ビュー(z<4)では地形そのものが不要。
+			if (terrain && !opts?.noTerrain && opts?.terrainGate !== false) ensureIfMoved();
+			renderer.draw(cam, opts);                                // cameraState=mvp生成 + GL描画（軽い）
+			if (gintSyncPort) gintSyncPort.postMessage({ cam });     // 描いた cam を海岸線(gint)へ即転送＝従属（スライド消滅）
+			const animating = labelLayer && labelLayer.draw(cam);    // ラベルも同じ cam で（＝完全同期）
+			if (animating) dirty = true;                             // フェード継続は自前で次フレーム（main関与なし）
+		}
+	} catch (e) {
+		console.error("[render] frame例外（このフレームは破棄して継続）", e?.message, e?.stack);
 	}
 	requestAnimationFrame(frame);
 }

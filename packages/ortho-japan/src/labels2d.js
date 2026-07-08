@@ -21,8 +21,14 @@ export function createLabelLayer(canvas, { pad = 5, fade = 0.3, recollideMs = 15
 	const fades = new Map();        // key → 不透明度（フェード）
 	let winners = new Map();         // key → L（現在の当選集合。間引きで更新）
 	let lastCollide = -1e9, dirty = true;
+	const widthCache = new Map();   // "size|text" → measureText 幅。measureText は高コスト＝再衝突判定(150ms毎)の度に全ラベル分呼ばない
+	let labelByKey = new Map();     // key → L（フェードアウト中ラベルの逆引き。draw 毎の線形探索を排除）
 
-	function setLabels(list) { labels = list.slice().sort((a, b) => a.sort - b.sort); dirty = true; }
+	function setLabels(list) {
+		labels = list.slice().sort((a, b) => a.sort - b.sort);
+		labelByKey = new Map(labels.map(L => [keyOf(L), L]));
+		dirty = true;
+	}
 	function clear() {
 		ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, canvas.width, canvas.height);
 		fades.clear(); winners.clear();
@@ -39,7 +45,17 @@ export function createLabelLayer(canvas, { pad = 5, fade = 0.3, recollideMs = 15
 			const shield = shieldFor && shieldFor(L);
 			let tw, h;
 			if (shield) { tw = shield.w; h = shield.h; }
-			else { const f = `${L.size}px ${FONT_STACK}`; if (f !== font) { ctx.font = font = f; } tw = ctx.measureText(L.text).width; h = L.size; }
+			else {
+				const wk = L.size + "|" + L.text;
+				tw = widthCache.get(wk);
+				if (tw === undefined) {
+					const f = `${L.size}px ${FONT_STACK}`; if (f !== font) { ctx.font = font = f; }
+					tw = ctx.measureText(L.text).width;
+					widthCache.set(wk, tw);
+					if (widthCache.size > 4096) widthCache.clear();   // 念のための上限（テキスト種は高々数千）
+				}
+				h = L.size;
+			}
 			if (sx + tw / 2 < 0 || sx - tw / 2 > Wc || sy + h / 2 < 0 || sy - h / 2 > Hc) continue;
 			const box = [sx - tw / 2 - pad, sy - h / 2 - pad, sx + tw / 2 + pad, sy + h / 2 + pad];
 			if (placed.some(b => !(box[2] < b[0] || box[0] > b[2] || box[3] < b[1] || box[1] > b[3]))) continue;
@@ -65,7 +81,7 @@ export function createLabelLayer(canvas, { pad = 5, fade = 0.3, recollideMs = 15
 		let animating = false, font = "";
 		const keys = new Set([...winners.keys(), ...fades.keys()]);
 		for (const k of keys) {
-			const L = winners.get(k) || labels.find(x => keyOf(x) === k);
+			const L = winners.get(k) || labelByKey.get(k);
 			if (!L) { fades.delete(k); continue; }
 			const target = winners.has(k) ? 1 : 0;
 			let op = fades.get(k) ?? 0; op += (target - op) * fade;

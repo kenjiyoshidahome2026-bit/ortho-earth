@@ -1,6 +1,8 @@
 // 統合スパイク：geopbf / e-Stat 小地域を overlay に描き、クリックで identify（mat4 が geopbf を
 // 識別込みで吸収）。自前の結果パネル(identEl)を持つ自己完結の機能。必要な物は入口で受け、
-// グローバルに手を伸ばさない。identify は findPolygon 相当（pointInFeature）＝JSレイキャスト。
+// グローバルに手を伸ばさない。
+// e-Stat 経路は estatworker.js で全処理（fetch/gunzip/行parse/ジオメトリ生成/identify）＝mainをブロックしない。
+// geopbf 経路（loadOverlay）は従来通り main＝identify は findPolygon 相当（pointInFeature）のJSレイキャスト。
 import { unproject, cameraState, buildGeoJSONOverlay, pointInFeature } from "ortho-japan";
 import { geopbf } from "geopbf";
 
@@ -8,7 +10,28 @@ export function createOverlay({ renderer, cam, size, dpr, requestDraw }) {
 	const identEl = document.createElement("div");
 	identEl.style.cssText = "position:fixed;top:44px;left:10px;max-width:340px;font-size:12px;color:#334;background:rgba(255,255,255,.82);padding:6px 10px;border-radius:6px;-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);white-space:pre-wrap;z-index:6;";
 	document.body.appendChild(identEl);
-	let overlayFeatures = null, overlayOrigin = [138, 37];
+	let overlayFeatures = null, overlayOrigin = [138, 37];   // geopbf 経路（main側identify）用
+	let estatActive = false;                                  // e-Stat 経路がアクティブ＝identify は worker へ
+
+	const estatWorker = new Worker(new URL("./estatworker.js", import.meta.url), { type: "module" });
+	estatWorker.onmessage = e => {
+		const m = e.data;
+		if (m.type === "loaded") {
+			if (!m.ok) { identEl.textContent = "e-Stat 読込失敗"; return; }
+			estatActive = true; overlayFeatures = null;   // 単一スロット＝geopbf 経路の識別対象は置き換え
+			renderer.set("overlay", m.overlay);
+			renderer.set("overlayHi", null);
+			cam.center = [m.center[0], m.center[1]]; cam.zoom = 11; cam.pitch = 0; requestDraw();
+			identEl.textContent = `e-Stat 小地域: ${m.count} 地物 — クリックで identify（小地域コード＝突合の種）`;
+		} else if (m.type === "identify") {
+			renderer.set("overlayHi", m.overlay || null);
+			if (m.hit >= 0) {
+				const kv = Object.entries(m.props).slice(0, 6).map(([k, v]) => `${k}: ${v}`).join("\n");
+				identEl.textContent = `identify ✔ #${m.hit}\n${kv || "(no props)"}`;
+			} else identEl.textContent = "identify: ヒットなし";
+			requestDraw();
+		}
+	};
 
 	function eachCoord(g, cb) {
 		if (!g || !g.coordinates) return;
@@ -24,20 +47,22 @@ export function createOverlay({ renderer, cam, size, dpr, requestDraw }) {
 		identEl.textContent = `geopbf 読込中: ${name} …`;
 		const pbf = await geopbf(name, { gint: false }).catch(err => { console.warn("geopbf", err); return null; });
 		if (!pbf || !pbf.features || !pbf.features.length) { identEl.textContent = `geopbf 読込失敗: ${name}`; return; }
+		estatActive = false;   // 識別対象を geopbf 経路（main側）へ切り替え
 		overlayFeatures = pbf.features;
 		overlayOrigin = bboxCenter(overlayFeatures).center;
-		renderer.set("overlay",buildGeoJSONOverlay(overlayFeatures, overlayOrigin));
-		renderer.set("overlayHi",null);
+		renderer.set("overlay", buildGeoJSONOverlay(overlayFeatures, overlayOrigin));
+		renderer.set("overlayHi", null);
 		identEl.textContent = `geopbf: ${name}\n${overlayFeatures.length} features — クリックで identify`;
 		requestDraw();
 	}
 	function identifyAt(clientX, clientY) {
-		if (!overlayFeatures) return;
+		if (!estatActive && !overlayFeatures) return;
 		const st = cameraState(cam, size.w, size.h);
 		const ll = unproject(st, clientX * dpr, clientY * dpr);
 		if (!ll) return;
+		if (estatActive) { estatWorker.postMessage({ type: "identify", lon: ll[0], lat: ll[1] }); return; }   // 結果は onmessage が描く
 		const hit = overlayFeatures.findIndex(f => pointInFeature(ll[0], ll[1], f.geometry));
-		renderer.set("overlayHi",hit >= 0 ? buildGeoJSONOverlay([overlayFeatures[hit]], overlayOrigin) : null);   // ヒット地物だけ別 stencil で強調
+		renderer.set("overlayHi", hit >= 0 ? buildGeoJSONOverlay([overlayFeatures[hit]], overlayOrigin) : null);   // ヒット地物だけ別 stencil で強調
 		if (hit >= 0) {
 			const p = overlayFeatures[hit].properties || {};
 			const kv = Object.entries(p).slice(0, 6).map(([k, v]) => `${k}: ${v}`).join("\n");
@@ -45,31 +70,10 @@ export function createOverlay({ renderer, cam, size, dpr, requestDraw }) {
 		} else identEl.textContent = "identify: ヒットなし";
 		requestDraw();
 	}
-	// e-Stat 小地域（市区町村単位の {code}.geojsonl・gzip）を直接 fetch→gunzip→parse→アダプタ。
-	// 小ポリゴンなので earcut でも扇なし。identify で小地域コード＝突合の種。
-	async function gunzipText(bytes) {
-		if (bytes[0] === 0x1f && bytes[1] === 0x8b) return await new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream("gzip"))).text();
-		return new TextDecoder().decode(bytes);
-	}
+	// e-Stat 小地域（市区町村単位の {code}.geojsonl・gzip）：worker が fetch→gunzip→parse→ジオメトリ生成→transfer。
 	async function loadEstat(codes) {
 		identEl.textContent = `e-Stat 小地域 読込中 (${codes.length}市区町村)…`;
-		const feats = [];
-		await Promise.all(codes.map(async code => {
-			try {
-				const r = await fetch(`https://api.ortho-earth.com/bucket/estat/${code}.geojsonl`);
-				if (!r.ok) return;
-				const text = await gunzipText(new Uint8Array(await r.arrayBuffer()));
-				for (const line of text.split("\n")) { const s = line.trim(); if (s) { try { feats.push(JSON.parse(s)); } catch { /* skip */ } } }
-			} catch (e) { console.warn("estat", code, e); }
-		}));
-		if (!feats.length) { identEl.textContent = "e-Stat 読込失敗"; return; }
-		overlayFeatures = feats;
-		const b = bboxCenter(feats);
-		overlayOrigin = b.center;
-		renderer.set("overlay",buildGeoJSONOverlay(feats, overlayOrigin));
-		renderer.set("overlayHi",null);
-		cam.center = [b.center[0], b.center[1]]; cam.zoom = 11; cam.pitch = 0; requestDraw();
-		identEl.textContent = `e-Stat 小地域: ${feats.length} 地物 — クリックで identify（小地域コード＝突合の種）`;
+		estatWorker.postMessage({ type: "load", codes });
 	}
 	return { identifyAt, loadOverlay, loadEstat };
 }
