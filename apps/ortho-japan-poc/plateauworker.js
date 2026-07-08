@@ -6,16 +6,21 @@ import { parse as loadParse } from "@loaders.gl/core";
 import { Tiles3DLoader } from "@loaders.gl/3d-tiles";
 
 const EARTH_M = 6371000;   // main.js の EARTH_M と同値（建物の接地計算に使う単位球換算）
+const TILE_CONCURRENCY = 8;   // 1地区あたりのタイル並行fetch/デコード数。直列だと500枚超で往復レイテンシが積み上がり支配的になる。
 
 // content.uri は絶対URL（別ホストへの委譲）と相対（同ディレクトリ）の両方があり得る。
 const resolveUrl = (base, uri) => /^https?:\/\//.test(uri) ? uri : base + uri;
 
-// ECEF(WGS84)→geodetic(lon,lat[rad],h)
+// ECEF(WGS84)→geodetic(lon,lat[rad],h[m])。
+// 球面近似(geocentric lat=atan2(z,p))も試したが、緯度が最大0.2°程度ズレて建物群が基図から丸ごと外れる
+// （実測で本来位置より南へ約20km）ため不採用＝地表座標そのものは楕円体で正確に解かないといけない。
+// 反復はNewton法。地表近傍(h<数km)では2回で高さ誤差0.2mm未満に収束する（1回だと0.1m級誤差が残りdedupの
+// 丸め精度(0.1m)と衝突しうるため2回が下限）。5回反復していた旧実装は収束後も回し続けていた分を削っただけ。
 function ecef2geo(x, y, z) {
 	const a = 6378137, e2 = 0.00669437999014;
 	const p = Math.hypot(x, y), lon = Math.atan2(y, x);
 	let lat = Math.atan2(z, p * (1 - e2)), h = 0;
-	for (let i = 0; i < 5; i++) { const s = Math.sin(lat), N = a / Math.sqrt(1 - e2 * s * s); h = p / Math.cos(lat) - N; lat = Math.atan2(z, p * (1 - e2 * N / (N + h))); }
+	for (let i = 0; i < 2; i++) { const s = Math.sin(lat), N = a / Math.sqrt(1 - e2 * s * s); h = p / Math.cos(lat) - N; lat = Math.atan2(z, p * (1 - e2 * N / (N + h))); }
 	return [lon, lat, h];
 }
 
@@ -41,6 +46,21 @@ async function collectLeafTiles(tilesetUrl, depth = 0) {
 
 const cache = new Map();   // base URL → デコード済みメッシュ（このworker内のみ有効。再訪はfetch/Draco解凍を丸ごと省略）
 
+// 三角形の頂点3つ組キー：文字列連結+配列sort+joinは1.5M三角形規模だとGC負荷が支配的になるため、
+// 丸めた座標をBigIntへビット結合（各成分32bit範囲に収まる＝衝突なし）。巻き順に依存しないよう3値を数値比較でソート。
+function vkeyBig(geo, i) {
+	const rx = BigInt(Math.round(geo[i*3] * 1e8) >>> 0);
+	const ry = BigInt(Math.round(geo[i*3+1] * 1e8) >>> 0);
+	const rz = BigInt(Math.round(geo[i*3+2] * 10) >>> 0);
+	return (rx << 64n) | (ry << 32n) | rz;
+}
+function triKey(k0, k1, k2) {
+	if (k0 > k1) { const t = k0; k0 = k1; k1 = t; }
+	if (k1 > k2) { const t = k1; k1 = k2; k2 = t; }
+	if (k0 > k1) { const t = k0; k0 = k1; k1 = t; }
+	return (k0 << 192n) | (k1 << 96n) | k2;
+}
+
 // ロード本体：tileset → 葉タイル → デコード → RTE delta + 被覆マスク。renderer には触らない（呼び出し側=mainがpostMessageで受ける）。
 async function loadPlateau(base, tiles) {
 	if (cache.has(base)) { console.log("[plateau] キャッシュ命中（fetch/解凍スキップ）", base); return cache.get(base); }
@@ -52,38 +72,48 @@ async function loadPlateau(base, tiles) {
 	}
 	console.log("[plateau] 読込", tiles.length, "tiles ←", base);
 	const geo = [], outNrm = [], outIdx = []; let vbase = 0, minH = Infinity;
-	for (const t of tiles) {
-		try {
-			const ab = await (await fetch(resolveUrl(base, t))).arrayBuffer();
-			const tile = await loadParse(ab, Tiles3DLoader, { "3d-tiles": { loadGLTF: true } });
-			const rtc = tile.rtcCenter || tile.gltf?.extensions?.CESIUM_RTC?.center || [0, 0, 0];
-			for (const m of (tile.gltf?.meshes || [])) for (const pr of (m.primitives || [])) {
-				const P = pr.attributes?.POSITION?.value; if (!P) continue;
-				const NRM = pr.attributes?.NORMAL?.value;
-				const I = pr.indices?.value, n = P.length / 3, off = vbase;
-				for (let i = 0; i < n; i++) {
-					// local(Y-up)→ECEF：Yup→Zup(x,-z,y)＋RTC → geodetic(lon,lat,h) を一旦保持
-					const ex = P[i*3] + rtc[0], ey = -P[i*3+2] + rtc[1], ez = P[i*3+1] + rtc[2];
-					const g = ecef2geo(ex, ey, ez);
-					if (g[2] < minH) minH = g[2];
-					geo.push(g[0], g[1], g[2]);
-					// 法線：glTF(Y-up local)→ortho は方向を (nx, ny, -nz)（Yup→Zup＋ECEF→ortho軸swap の合成）。符号は FS で視線側へ。
-					if (NRM) outNrm.push(NRM[i*3], NRM[i*3+1], -NRM[i*3+2]); else outNrm.push(0, 1, 0);
-				}
-				if (I) for (let k = 0; k < I.length; k++) outIdx.push(I[k] + off);
-				else for (let k = 0; k < n; k++) outIdx.push(off + k);
-				vbase += n;
+	function mergeTile(tile) {
+		const rtc = tile.rtcCenter || tile.gltf?.extensions?.CESIUM_RTC?.center || [0, 0, 0];
+		for (const m of (tile.gltf?.meshes || [])) for (const pr of (m.primitives || [])) {
+			const P = pr.attributes?.POSITION?.value; if (!P) continue;
+			const NRM = pr.attributes?.NORMAL?.value;
+			const I = pr.indices?.value, n = P.length / 3, off = vbase;
+			for (let i = 0; i < n; i++) {
+				// local(Y-up)→ECEF：Yup→Zup(x,-z,y)＋RTC → geodetic(lon,lat,h) を一旦保持
+				const ex = P[i*3] + rtc[0], ey = -P[i*3+2] + rtc[1], ez = P[i*3+1] + rtc[2];
+				const g = ecef2geo(ex, ey, ez);
+				if (g[2] < minH) minH = g[2];
+				geo.push(g[0], g[1], g[2]);
+				// 法線：glTF(Y-up local)→ortho は方向を (nx, ny, -nz)（Yup→Zup＋ECEF→ortho軸swap の合成）。符号は FS で視線側へ。
+				if (NRM) outNrm.push(NRM[i*3], NRM[i*3+1], -NRM[i*3+2]); else outNrm.push(0, 1, 0);
 			}
-		} catch (e) { console.warn("[plateau] tile 失敗", t, e.message); }
+			if (I) for (let k = 0; k < I.length; k++) outIdx.push(I[k] + off);
+			else for (let k = 0; k < n; k++) outIdx.push(off + k);
+			vbase += n;
+		}
 	}
+	// タイル取得+デコードを並行プールで回す（直列fetchは1枚ごとの往復レイテンシが数百枚積み上がり支配的になる）。
+	// mergeTile 自体は同期処理＝JSはシングルスレッドなので複数タイルが並行fetch中でも競合しない。
+	let ti = 0;
+	async function tileWorker() {
+		while (ti < tiles.length) {
+			const t = tiles[ti++];
+			try {
+				const ab = await (await fetch(resolveUrl(base, t))).arrayBuffer();
+				const tile = await loadParse(ab, Tiles3DLoader, { "3d-tiles": { loadGLTF: true } });
+				mergeTile(tile);
+			} catch (e) { console.warn("[plateau] tile 失敗", t, e.message); }
+		}
+	}
+	await Promise.all(Array.from({ length: Math.min(TILE_CONCURRENCY, tiles.length) }, tileWorker));
 	if (!outIdx.length) { console.error("[plateau] メッシュ0＝デコード/変換失敗"); return null; }
 	// 重複三角形（double-sided/coincident 面）除去＝マダラ(z-fight)の元を断つ。頂点位置(丸め)の3つ組で判定＝巻き順・頂点共有に非依存。
-	const vkey = i => Math.round(geo[i*3] * 1e8) + "_" + Math.round(geo[i*3+1] * 1e8) + "_" + Math.round(geo[i*3+2] * 10);
 	const seen = new Set(), dedupIdx = [];
 	for (let k = 0; k < outIdx.length; k += 3) {
-		const key = [vkey(outIdx[k]), vkey(outIdx[k+1]), vkey(outIdx[k+2])].sort().join("|");
+		const a = outIdx[k], b = outIdx[k+1], c = outIdx[k+2];
+		const key = triKey(vkeyBig(geo, a), vkeyBig(geo, b), vkeyBig(geo, c));
 		if (seen.has(key)) continue;
-		seen.add(key); dedupIdx.push(outIdx[k], outIdx[k+1], outIdx[k+2]);
+		seen.add(key); dedupIdx.push(a, b, c);
 	}
 	console.log("[plateau] dedup 面: %d → %d", outIdx.length/3, dedupIdx.length/3);
 	outIdx.length = 0; for (const v of dedupIdx) outIdx.push(v);
