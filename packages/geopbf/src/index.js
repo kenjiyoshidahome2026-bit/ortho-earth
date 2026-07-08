@@ -45,6 +45,13 @@ export async function geopbf(data, opts) {
 }
 
 export function createGeopbf(apiBase, options = {}) {
+    // set()/setGintBUF() の生バッファ解析（フィーチャインデックス走査・gintバッファunpack）はメインスレッド同期実行が既定だが、
+    // その worker 版（decoder/pbf.js・decoder/gint.js）は元々用意されているのに配線されていなかった。
+    // decoderWorkers 同様 import.meta.url 起点で束ねる＝呼び出し側のバンドラに依存しない。options.worker===false で明示的にオフ可。
+    if (options.worker !== false) {
+        GeoPBF._workerUrl     ??= new URL('./decoder/pbf.js',  import.meta.url);
+        GeoPBF._gintWorkerUrl ??= new URL('./decoder/gint.js', import.meta.url);
+    }
     const pbfio = createPbfio(apiBase, options);
     let _server = null;
     const getServer = async () => {

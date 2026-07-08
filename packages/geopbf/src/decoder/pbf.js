@@ -10,6 +10,7 @@ onmessage = async ({ data: { buf } }) => {
 	postMessage(
 		{ buf, fmap: g.fmap, keys: g.keys, bufs: g.bufs,
 		  _name: g._name, _description: g._description, _license: g._license, _attribution: g._attribution,
+		  _minZoom: g._minZoom, _maxZoom: g._maxZoom,
 		  _precision: g._precision, _bodyPos: g._bodyPos, end: g.end },
 		[buf, ...g.bufs]
 	);
