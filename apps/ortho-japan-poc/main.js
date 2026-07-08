@@ -90,6 +90,8 @@ for (let i = 0; i < PLATEAU_NW; i++) {
 }
 // base URL のハッシュで固定の worker へルーティング＝同じ地区は毎回同じ worker が受ける→worker内蔵cacheが再訪で効く。
 function hashStr(s) { let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0; return h >>> 0; }
+// デバッグ用：PLATEAUのメモリ/IDBキャッシュ全消去（デコード形式が壊れた疑いがある時に）。通常はFMT_VERが自動無効化する。
+window.__plateauPurge = () => plateauWorkers.forEach(w => w.postMessage({ type: "purge" }));
 function workerLoadPlateau(base, tiles, name, wardBbox) {
 	const id = ++plateauReqId, w = plateauWorkers[hashStr(base) % PLATEAU_NW];
 	// wardBbox＝区単位の被覆マスク座標系。camCenter＝バッチのカメラ近傍優先ソート（目の前から立ち始める）。

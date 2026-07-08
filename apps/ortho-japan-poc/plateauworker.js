@@ -5,6 +5,7 @@
 // main.js 側は複数のこの worker をプールし、base URL のハッシュで固定ルーティング（同じ地区は常に同じ worker＝内部cacheが効く）。
 import { parse as loadParse } from "@loaders.gl/core";
 import { Tiles3DLoader } from "@loaders.gl/3d-tiles";
+import { Cache } from "native-bucket";
 
 const EARTH_M = 6371000;   // main.js の EARTH_M と同値（建物の接地計算に使う単位球換算）
 const TILE_CONCURRENCY = 8;   // バッチ内のタイル並行fetch/デコード数。直列だと往復レイテンシが積み上がり支配的になる。
@@ -258,13 +259,73 @@ function sendBatch(ward, bi, mesh, wardMask, wardBbox) {
 const cache = new Map();   // base URL → { batches, mask, wardBbox }（このworker内のみ有効。再訪はfetch/Draco解凍を丸ごと省略）
 const CACHE_MAX = 3;       // 1区あたり~100-160MB（typed array一式）＝無上限だと多区巡回でメモリが積み上がる。LRUで直近3区に制限
 
+// IDB 永続キャッシュ：GPU直行形式（pos/nrm/idx＋マスク）を区単位で保存＝ページ再読込・再起動後も
+// fetch/Draco解凍/座標変換を丸ごと飛ばして数秒で復元（geopbf の PBF+GINT キャッシュと同じ発想）。
+// レコードはバッチ単位（`${base}#${i}` 各10〜20MB）＋メタ（`${base}#meta`）。メタが揃って初めて有効＝書き途中の中断は無視される。
+// FMT_VER: デコードパイプライン（接地・dedup・軸変換等）を変えたら上げる＝古い形式のキャッシュを自然無効化。
+const IDB_FMT_VER = 1;
+const IDB_MAX_WARDS = 8;   // 1区~150MB → 上限~1.2GB。超過時は lastUsed 最古の区を丸ごと退避
+const idbReady = Cache("GIS/plateau").catch(e => { console.warn("[plateau] IDB無効（メモリキャッシュのみで続行）", e); return null; });
+
+async function idbLoad(base) {
+	const idb = await idbReady; if (!idb) return null;
+	const meta = await idb(base + "#meta").catch(() => null);
+	if (!meta || meta.ver !== IDB_FMT_VER) return null;
+	const batches = [];
+	for (let i = 0; i < meta.count; i++) {
+		const b = await idb(`${base}#${i}`).catch(() => null);
+		if (!b) return null;   // 欠けあり＝無効（次回フルデコードで上書き）
+		batches.push(b);
+	}
+	idb(base + "#meta", { ...meta, ts: Date.now() });   // LRU touch（待たない）
+	return { batches, mask: meta.mask ?? null, wardBbox: meta.wardBbox ?? null };
+}
+async function idbStore(base, batches, mask, wardBbox) {
+	const idb = await idbReady; if (!idb) return;
+	try {
+		for (let i = 0; i < batches.length; i++) await idb(`${base}#${i}`, batches[i]);
+		await idb(base + "#meta", { ver: IDB_FMT_VER, count: batches.length, mask, wardBbox, ts: Date.now() });
+		// 区数上限：メタ一覧から lastUsed 最古を退避（バッチレコードも道連れ）
+		const keys = (await idb()) || [];
+		const metas = [];
+		for (const k of keys) if (typeof k === "string" && k.endsWith("#meta")) metas.push(k);
+		if (metas.length > IDB_MAX_WARDS) {
+			const entries = [];
+			for (const mk of metas) { const m = await idb(mk).catch(() => null); if (m) entries.push({ mk, ts: m.ts || 0, count: m.count || 0 }); }
+			entries.sort((a, b) => a.ts - b.ts);
+			for (const old of entries.slice(0, entries.length - IDB_MAX_WARDS)) {
+				const oldBase = old.mk.slice(0, -"#meta".length);
+				await idb(old.mk, null);
+				for (let i = 0; i < old.count; i++) await idb(`${oldBase}#${i}`, null);
+				console.log("[plateau] IDB退避（LRU）", oldBase);
+			}
+		}
+		console.log("[plateau] IDB保存", base, `(${batches.length} batches)`);
+	} catch (e) { console.warn("[plateau] IDB保存失敗（表示には影響なし）", e); }
+}
+async function idbPurge() {
+	const idb = await idbReady; if (!idb) return 0;
+	const keys = (await idb()) || [];
+	for (const k of keys) await idb(k, null);
+	return keys.length;
+}
+
 // ロード本体：葉タイル収集→カメラ近傍順ソート→バッチごとにデコード→完成次第 render worker へ直送（逐次表示）。
+// メモリ→IDB→ネットワークの3段。IDBヒット時もバッチ逐次送信＝プログレッシブ表示のまま。
 async function loadPlateau(base, tiles, ward, wardBbox, camCenter) {
 	if (cache.has(base)) {
 		const c = cache.get(base);
 		cache.delete(base); cache.set(base, c);   // LRU touch（最近使用へ）
 		console.log("[plateau] キャッシュ命中（fetch/解凍スキップ）", base);
 		c.batches.forEach((mesh, bi) => sendBatch(ward, bi, mesh, c.mask, c.wardBbox));
+		return true;
+	}
+	const stored = await idbLoad(base);
+	if (stored) {
+		console.log("[plateau] IDB命中（fetch/解凍/変換スキップ）", base, `(${stored.batches.length} batches)`);
+		stored.batches.forEach((mesh, bi) => sendBatch(ward, bi, mesh, stored.mask, stored.wardBbox));
+		cache.set(base, stored);
+		if (cache.size > CACHE_MAX) cache.delete(cache.keys().next().value);
 		return true;
 	}
 	let leaves;
@@ -294,6 +355,7 @@ async function loadPlateau(base, tiles, ward, wardBbox, camCenter) {
 	cache.set(base, { batches, mask: wardMask, wardBbox });   // デコード結果をこのworker内に保持＝再訪でfetch/Draco解凍を丸ごと省略
 	if (cache.size > CACHE_MAX) cache.delete(cache.keys().next().value);   // LRU: 最古を退避
 	console.log("[plateau] 完了", base, `(${batches.length} batches)`);
+	idbStore(base, batches, wardMask, wardBbox);   // 永続化はバックグラウンドで（表示を待たせない）
 	return true;
 }
 
@@ -303,6 +365,7 @@ const inflight = new Map();
 
 self.onmessage = async (e) => {
 	if (e.data.type === "init") { meshPort = e.data.meshPort; return; }
+	if (e.data.type === "purge") { cache.clear(); const n = await idbPurge(); console.log("[plateau] キャッシュ全消去", n, "records"); return; }
 	const { id, base, tiles, name, wardBbox, camCenter } = e.data;
 	try {
 		let p = inflight.get(base);
