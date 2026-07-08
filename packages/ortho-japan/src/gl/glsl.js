@@ -12,7 +12,13 @@ uniform vec3  u_fogColor;   // 霞む先の色（=land基色）
 const float D2R = 0.017453292519943295;
 float fogOf(vec3 w) { return clamp((distance(u_eye, w) - u_fogNear) / max(u_fogFar - u_fogNear, 1e-6), 0.0, 1.0); }
 uniform float u_logCoef;   // 対数深度係数 = 2/log2(far+1)。球(半径1)+局所(建物)の深度精度枯れ(z-fight/マダラ)対策
-out float v_flogz;          // 1.0 + gl_Position.w。FS で gl_FragDepth に per-pixel log 深度を書く（Outerra法）
+// 対数深度を頂点側で焼く（Outerra法のVS版）。FSで gl_FragDepth を書くと GPU の early-Z/階層Z棄却が無効になり
+// 隠面フラグメントまで全額シェーディングされるため、クリップ座標 z に log2(1+w) を書き込み FS は深度に触れない。
+// 三角形内は線形補間＝厳密な対数曲線と微差が出るが、terrain/建物/PLATEAU とも三角形が小さく実害なし。
+// window深度は 0.5*(z/w+1) = log2(1+w)*u_logCoef*0.5 ＝旧FS版と同一式（全パスで一貫＝深度の互換維持）。
+void applyLogDepth() {
+	gl_Position.z = (log2(max(1.0 + gl_Position.w, 1e-6)) * u_logCoef - 1.0) * gl_Position.w;
+}
 
 vec3 lonlatTo3D(vec2 ll) {
 	float a = ll.x * D2R, b = ll.y * D2R, cb = cos(b);
@@ -57,7 +63,7 @@ void main() {
 	v_front = dot(dir, u_eye) - 1.0;
 	v_fog = fogOf(w);
 	gl_Position = u_mvp * vec4(w, 1.0);
-	v_flogz = 1.0 + gl_Position.w;
+	applyLogDepth();
 }`;
 
 // 隣接区境をまたぐと PLATEAU 地区が同時に複数(最大4)アクティブになるため、bbox/mask をスロット化。
@@ -66,7 +72,6 @@ export const BUILDING_FS = `#version 300 es
 precision highp float;
 uniform vec3 u_bldColor;
 uniform vec3 u_fogColor;
-uniform float u_logCoef;
 uniform int u_plateauCount;         // 0..4：アクティブな PLATEAU 地区数
 uniform vec4 u_plateauBbox0;        // [minLon,minLat,maxLon,maxLat] deg。マスクの UV 正規化に使う
 uniform vec4 u_plateauBbox1;
@@ -79,7 +84,6 @@ uniform sampler2D u_plateauMask3;
 in float v_shade;
 in float v_front;
 in float v_fog;
-in float v_flogz;
 in vec2  v_ll;
 out vec4 fragColor;
 bool maskedBy(vec4 bbox, sampler2D mask, vec2 ll) {
@@ -93,7 +97,7 @@ void main() {
 	    (u_plateauCount > 1 && maskedBy(u_plateauBbox1, u_plateauMask1, v_ll)) ||
 	    (u_plateauCount > 2 && maskedBy(u_plateauBbox2, u_plateauMask2, v_ll)) ||
 	    (u_plateauCount > 3 && maskedBy(u_plateauBbox3, u_plateauMask3, v_ll))) discard;
-	gl_FragDepth = log2(v_flogz) * u_logCoef * 0.5;   // per-pixel 対数深度（terrain/plateau と一貫）
+	// 深度は VS の applyLogDepth() が焼き済み（gl_FragDepth を書くと early-Z が無効になるためFSでは触れない）
 	vec3 c = mix(u_bldColor * v_shade, u_fogColor, v_fog);
 	fragColor = vec4(c, 1.0);
 }`;
@@ -118,23 +122,20 @@ void main() {
 	v_fog = fogOf(wp);
 	// RTE：原点と delta を別々に射影して加算。原点=画面上の錨(粗)、delta=小さく float32 精度フル → z-fight/淵マダラ/座標ちらつきを断つ
 	gl_Position = u_mvp * vec4(u_meshOrigin, 1.0) + u_mvp * vec4(a_pos, 0.0);
-	v_flogz = 1.0 + gl_Position.w;
+	applyLogDepth();
 }`;
 
 export const PLATEAU_FS = `#version 300 es
 precision highp float;
 uniform vec3 u_bldColor;
 uniform vec3 u_fogColor;
-uniform float u_logCoef;
 in vec3  v_n;
 in vec3  v_toEye;
 in float v_front;
 in float v_fog;
-in float v_flogz;
 out vec4 fragColor;
 void main() {
 	if (v_front < 0.0) discard;                                   // 裏半球
-	gl_FragDepth = log2(v_flogz) * u_logCoef * 0.5;               // per-pixel 対数深度
 	vec3 n = normalize(v_n);                                      // glTF 実法線
 	if (dot(n, normalize(v_toEye)) < 0.0) discard;               // 裏面カリング（実法線で判定＝巻き順非依存）＝淵の front/back z-fight とトグル反転を断つ
 	vec3 L = normalize(vec3(-0.35, 0.85, 0.30));                  // 斜め上の光＝屋根が立つ
@@ -169,18 +170,16 @@ void main() {
 	v_front = dot(dir, u_eye) - 1.0;
 	v_fog = fogOf(w);
 	gl_Position = u_mvp * vec4(w, 1.0);
-	v_flogz = 1.0 + gl_Position.w;
+	applyLogDepth();
 }`;
 
 export const TERRAIN_FS = `#version 300 es
 precision highp float;
 uniform vec3 u_fogColor;
-uniform float u_logCoef;
 in vec3 v_col;
 in float v_front;
 in float v_fog;
 in float v_h;
-in float v_flogz;
 out vec4 fragColor;
 void main() {
 	if (v_front < 0.0) discard;
@@ -188,7 +187,7 @@ void main() {
 	// 粗い標高メッシュが海岸で作る「崖」のガタつき・平野のノイズを消す。
 	float t = smoothstep(1.0, 100.0, v_h);
 	if (t <= 0.0) discard;
-	gl_FragDepth = log2(v_flogz) * u_logCoef * 0.5;   // per-pixel 対数深度（plateau/building と一貫）
+	// 深度は VS の applyLogDepth() が焼き済み（plateau/building と一貫。FSで書くと early-Z が死ぬ）
 	vec3 col = mix(v_col, u_fogColor, v_fog);
 	fragColor = vec4(col * t, t);           // premultiplied（globe基色→地形へ滑らかに）
 }`;
@@ -273,8 +272,7 @@ void main() {
 	v_color = a_color;
 	v_front = dot(dir, u_eye) - 1.0;          // >0 で手前半球
 	v_fog = fogOf(w);
-	gl_Position = u_mvp * vec4(w, 1.0);
-	v_flogz = 1.0 + gl_Position.w;
+	gl_Position = u_mvp * vec4(w, 1.0);       // 塗りは深度テストOFF（ペインタ順）＝対数深度の焼き込み不要
 }`;
 
 export const FILL_FS = `#version 300 es
