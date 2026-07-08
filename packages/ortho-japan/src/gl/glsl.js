@@ -149,13 +149,14 @@ void main() {
 	fragColor = vec4(c, 1.0);
 }`;
 
-// 地形サーフェス：標高で変位した格子メッシュ。近傍勾配から hillshade で立体感。
+// 地形サーフェス：標高で変位した格子メッシュ。hillshade は FS で per-pixel に計算＝
+// VS の標高フェッチを5回/頂点（変位1+中央差分勾配4）→1回に削減（格子236万頂点＝毎フレーム~950万フェッチの削減）。
+// FS側は可視フラグメント数ぶんの3フェッチ＝総量でも減る上、頂点補間よりシャープな陰影になる。
 export const TERRAIN_VS = `#version 300 es
 precision highp float;
 in vec2 a_ll;      // 絶対 lon/lat
 ${PROJECT}
-uniform vec3 u_land;
-out vec3 v_col;
+out vec2 v_ll;
 out float v_front;
 out float v_fog;
 out float v_h;
@@ -166,12 +167,8 @@ void main() {
 	float df = 1.0 - smoothstep(u_fogNear, u_fogNear * 2.5, distance(u_eye, dir));
 	float h = elev(a_ll) * df;
 	v_h = h;
+	v_ll = a_ll;
 	vec3 w = dir * (1.0 + h * u_elevScale);
-	float d = 0.004;                                         // 勾配サンプル歩幅(度, ~450m固定)
-	float hx = elev(a_ll + vec2(d, 0.0)) - elev(a_ll - vec2(d, 0.0));
-	float hy = elev(a_ll + vec2(0.0, d)) - elev(a_ll - vec2(0.0, d));
-	float shade = clamp(0.82 + (-hx + hy) * 0.00035, 0.45, 1.15);   // 北西光の hillshade
-	v_col = u_land * shade;
 	v_front = dot(dir, u_eye) - 1.0;
 	v_fog = fogOf(w);
 	gl_Position = u_mvp * vec4(w, 1.0);
@@ -181,19 +178,35 @@ void main() {
 export const TERRAIN_FS = `#version 300 es
 precision highp float;
 uniform vec3 u_fogColor;
-in vec3 v_col;
+uniform vec3 u_land;
+uniform sampler2D u_elevTex;
+uniform vec4 u_elevBounds;
+uniform float u_hasElev;
+in vec2 v_ll;
 in float v_front;
 in float v_fog;
 in float v_h;
 out vec4 fragColor;
+float elevF(vec2 ll) {
+	if (u_hasElev < 0.5) return 0.0;
+	vec2 uv = (ll - u_elevBounds.xy) / u_elevBounds.zw;
+	if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) return 0.0;
+	return texture(u_elevTex, uv).r;
+}
 void main() {
 	if (v_front < 0.0) discard;
 	// 海〜低地は地形を透明化し、海岸線は精細なベクタに委ねる。低地から滑らかに陰影を立ち上げ、
 	// 粗い標高メッシュが海岸で作る「崖」のガタつき・平野のノイズを消す。
 	float t = smoothstep(1.0, 100.0, v_h);
 	if (t <= 0.0) discard;
+	// 北西光の hillshade（前方差分＝中央差分の半分のフェッチ。歩幅~450m、係数は2倍で従来と同ゲイン）
+	float d = 0.004;
+	float h0 = elevF(v_ll);
+	float hx = elevF(v_ll + vec2(d, 0.0)) - h0;
+	float hy = elevF(v_ll + vec2(0.0, d)) - h0;
+	float shade = clamp(0.82 + (-hx + hy) * 0.0007, 0.45, 1.15);
 	// 深度は VS の applyLogDepth() が焼き済み（plateau/building と一貫。FSで書くと early-Z が死ぬ）
-	vec3 col = mix(v_col, u_fogColor, v_fog);
+	vec3 col = mix(u_land * shade, u_fogColor, v_fog);
 	fragColor = vec4(col * t, t);           // premultiplied（globe基色→地形へ滑らかに）
 }`;
 

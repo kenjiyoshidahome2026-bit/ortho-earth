@@ -35,6 +35,8 @@ export function createTileManager({ style, tileUrl, onChange, cap = 256, buildTi
 			cache.set(k, { status: "ready", ...r });
 			onChange && onChange();
 		} catch (e) {
+			// abort（視野から外れて中断）はエントリごと消す＝再訪時に再取得できる。error として残すと永久欠けになる。
+			if (String(e && e.message) === "aborted") { cache.delete(k); return; }
 			cache.set(k, { status: "error", origin: null, dl: null, labels: [], z: t.z });
 		}
 	}
@@ -47,6 +49,11 @@ export function createTileManager({ style, tileUrl, onChange, cap = 256, buildTi
 		const keep = new Set([...selected, ...coarse].map(keyOf));
 		for (const t of coarse) ensure(t);
 		for (const t of selected) ensure(t);
+		// 視野から外れた読込中タイルは fetch ごと中断（高速パンで帯域とworker CPUを空ける）。
+		// エントリは ensure の catch("aborted") が消す＝パンで戻ってきたら普通に再取得される。
+		if (build.abort) {
+			for (const [k, c] of cache) if (c.status === "loading" && !keep.has(k)) build.abort(k);
+		}
 		if (cache.size > cap) {
 			for (const k of [...cache.keys()]) {
 				if (cache.size <= cap) break;
