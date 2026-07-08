@@ -121,13 +121,12 @@ void main() {
 	v_toEye = u_eye - wp;
 	v_front = dot(dir, u_eye) - 1.0;
 	v_fog = fogOf(wp);
-	// 地形に乗せる：メッシュは単位球(r=1)接地で焼かれているが、地形サーフェスは elev()*u_elevScale 分持ち上がる
-	// ＝そのままだと建物が地表標高分だけ地形に埋まり深度テストで消える（新宿≈40mで超高層の頭しか出ない）。
-	// terrain/基図建物と同じ標高テクスチャ・同じ u_elevScale で持ち上げ＝面が完全に一致して足元も揃う。
-	vec2 ll = vec2(atan(dir.z, dir.x), asin(clamp(dir.y, -1.0, 1.0))) / D2R;
-	vec3 lift = dir * (elev(ll) * u_elevScale);
+	// 標高リフトはしない：ALOS DSM はビル天端を含み建物の縁で数十〜100m級の不連続があるため、頂点ごとに
+	// elev() で持ち上げると同一建物内の頂点が異なる量だけ動き屋根が引き裂かれる（実機で形状崩壊を確認済み）。
+	// 地形サーフェスとの深度衝突は「地形は深度を書かない背景」(renderer側depthMask(false))で解いており、
+	// メッシュは焼き込み済みの単位球接地(r=1)のまま描く（基図と同じ街の相対配置は保たれる）。
 	// RTE：原点と delta を別々に射影して加算。原点=画面上の錨(粗)、delta=小さく float32 精度フル → z-fight/淵マダラ/座標ちらつきを断つ
-	gl_Position = u_mvp * vec4(u_meshOrigin, 1.0) + u_mvp * vec4(a_pos + lift, 0.0);
+	gl_Position = u_mvp * vec4(u_meshOrigin, 1.0) + u_mvp * vec4(a_pos, 0.0);
 	applyLogDepth();
 }`;
 
