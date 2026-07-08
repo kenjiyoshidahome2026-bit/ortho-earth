@@ -34,7 +34,7 @@ onmessage = e => {
 			requestAnimationFrame(frame);                        // worker 自前の描画ループ開始
 			break;
 		case "plateauPort":                                      // plateau worker → ここ のメッシュ直結パイプ（workerプール1本につき1ポート）
-			m.port.onmessage = ev => {                           // ~160MB の typed array を main を経由させず transfer で受ける
+			m.port.onmessage = ev => {                           // バッチ単位の typed array を main を経由させず transfer で受ける（逐次表示）
 				if (renderer) renderer.set("plateauMesh", ev.data.meshData, ev.data.name);
 				dirty = true;
 			};

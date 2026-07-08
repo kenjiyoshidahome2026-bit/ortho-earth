@@ -116,12 +116,18 @@ out float v_front;  // >0 で手前半球
 out float v_fog;
 void main() {
 	vec3 wp = u_meshOrigin + a_pos;                              // 絶対位置（陰影・フォグ・半球判定用＝粗くて可）
+	vec3 dir = normalize(wp);
 	v_n = a_normal;
 	v_toEye = u_eye - wp;
-	v_front = dot(normalize(wp), u_eye) - 1.0;
+	v_front = dot(dir, u_eye) - 1.0;
 	v_fog = fogOf(wp);
+	// 地形に乗せる：メッシュは単位球(r=1)接地で焼かれているが、地形サーフェスは elev()*u_elevScale 分持ち上がる
+	// ＝そのままだと建物が地表標高分だけ地形に埋まり深度テストで消える（新宿≈40mで超高層の頭しか出ない）。
+	// terrain/基図建物と同じ標高テクスチャ・同じ u_elevScale で持ち上げ＝面が完全に一致して足元も揃う。
+	vec2 ll = vec2(atan(dir.z, dir.x), asin(clamp(dir.y, -1.0, 1.0))) / D2R;
+	vec3 lift = dir * (elev(ll) * u_elevScale);
 	// RTE：原点と delta を別々に射影して加算。原点=画面上の錨(粗)、delta=小さく float32 精度フル → z-fight/淵マダラ/座標ちらつきを断つ
-	gl_Position = u_mvp * vec4(u_meshOrigin, 1.0) + u_mvp * vec4(a_pos, 0.0);
+	gl_Position = u_mvp * vec4(u_meshOrigin, 1.0) + u_mvp * vec4(a_pos + lift, 0.0);
 	applyLogDepth();
 }`;
 

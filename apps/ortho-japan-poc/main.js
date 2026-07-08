@@ -90,9 +90,10 @@ for (let i = 0; i < PLATEAU_NW; i++) {
 }
 // base URL のハッシュで固定の worker へルーティング＝同じ地区は毎回同じ worker が受ける→worker内蔵cacheが再訪で効く。
 function hashStr(s) { let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0; return h >>> 0; }
-function workerLoadPlateau(base, tiles, name) {
+function workerLoadPlateau(base, tiles, name, wardBbox) {
 	const id = ++plateauReqId, w = plateauWorkers[hashStr(base) % PLATEAU_NW];
-	w.postMessage({ id, base, tiles, name });
+	// wardBbox＝区単位の被覆マスク座標系。camCenter＝バッチのカメラ近傍優先ソート（目の前から立ち始める）。
+	w.postMessage({ id, base, tiles, name, wardBbox, camCenter: [cam.center[0], cam.center[1]] });
 	return new Promise((resolve, reject) => plateauPending.set(id, { resolve, reject }));
 }
 
@@ -132,7 +133,7 @@ function autoPlateau() {
 		if (plateauActive.has(h.name) || plateauLoading.has(h.name)) continue;
 		plateauLoading.add(h.name);
 		console.log("[plateau] 自動ロード →", h.name);
-		loadPlateau(h.base, undefined, h.name)
+		loadPlateau(h.base, undefined, h.name, h.bbox)
 			.then(ok => { if (ok) plateauActive.set(h.name, h); })
 			.catch(e => console.warn("[plateau] 自動ロード失敗", h.name, e))
 			.finally(() => plateauLoading.delete(h.name));
@@ -277,7 +278,7 @@ window.__plateau = async (nameOrBase, tiles) => {
 	if (!plateauActive.has(set.name) && !plateauLoading.has(set.name)) {
 		plateauLoading.add(set.name);
 		try {
-			const ok = await loadPlateau(set.base, tiles, set.name);
+			const ok = await loadPlateau(set.base, tiles, set.name, set.bbox);
 			if (ok) plateauActive.set(set.name, set);
 		} finally { plateauLoading.delete(set.name); }
 	}
@@ -287,10 +288,11 @@ window.__plateau = async (nameOrBase, tiles) => {
 	console.log(`[plateau] 完了 → ${set.name} z15 tilt45°。右ドラッグで傾け調整`);
 };
 
-// ロード本体（カメラは動かさない）：重い処理は plateauworker.js に丸投げ。メッシュ本体は worker→render worker 直結ポートで
-// 渡り main を通らない（ここに返るのは ok/失敗の ack だけ）。成功可否 bool＝呼び出し側が plateauActive に加えるかの判断に使う。
-async function loadPlateau(base, tiles, name) {
-	const ok = await workerLoadPlateau(base, tiles, name);
+// ロード本体（カメラは動かさない）：重い処理は plateauworker.js に丸投げ。メッシュはバッチ単位で worker→render worker
+// 直結ポートを流れ逐次表示される（main を通らない。ここに返るのは全バッチ完了の ack だけ）。
+// 成功可否 bool＝呼び出し側が plateauActive に加えるかの判断に使う。
+async function loadPlateau(base, tiles, name, wardBbox) {
+	const ok = await workerLoadPlateau(base, tiles, name, wardBbox);
 	if (!ok) return false;
 	needsDraw = true;
 	console.log("[plateau] 完了", base);
