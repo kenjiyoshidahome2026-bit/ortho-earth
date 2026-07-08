@@ -337,7 +337,9 @@ export function createRenderer(canvas) {
 		// 建物（3D押し出し）：深度で前後関係を解決（地形・尾根にも遮蔽される）。
 		// PLATEAU の区bbox 内だけ基図建物を伏せる（u_plateauBboxN）＝同一体積の全面 z-fight を断ちつつ、範囲外の建物は残す。
 		// マスクは区単位（plateauMasks）＝最大 MAX_PLATEAU_MASKS 区まで（シェーダのスロット数固定）。
-		const bld = scenes.main.bld;
+		// 真俯瞰（チルト≈0）では基図/PLATEAU とも建物3Dを描かない＝平面地図（閾値は flat2d と同じ 0.02rad≈1.1°）。
+		const show3d = (cam.pitch || 0) >= 0.02;
+		const bld = show3d ? scenes.main.bld : null;
 		if (bld) {
 			const c = view.bldColor || [0.86, 0.86, 0.85];
 			setCommonUniforms(bldProg, st, scenes.main.origin, land);
@@ -357,7 +359,7 @@ export function createRenderer(canvas) {
 		// ※巻き順が不揃いなデータなので back-face カリングは使わない（屋根を誤って捨てる）＝両面描画。
 		//   z-fight の元＝重複面は worker 側の頂点3つ組 dedup で断つ。
 		// バッチ単位でフラスタムカリング＝区全体(数百万tris)のうち画面に掛かるバッチだけ頂点処理へ流す。
-		if (plateaux.size) {
+		if (plateaux.size && show3d) {
 			gl.useProgram(plateauProg);
 			const c = view.bldColor || [0.86, 0.86, 0.85];   // 基図の押し出し建物と同色＝周辺と地続きに見せる
 			const pad = 0.5 * Math.max(st.W, st.H);          // 高層ビルの頭のはみ出し余白（半画面）

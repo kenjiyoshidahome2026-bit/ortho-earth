@@ -139,17 +139,65 @@ async function decodeBatch(base, leaves, wardMask, wardBbox) {
 	let minLon = Infinity, minLat = Infinity, maxLon = -Infinity, maxLat = -Infinity;
 	for (let i = 0; i < M; i++) { const lo = geo[i*3], la = geo[i*3+1]; if (lo<minLon) minLon=lo; if (lo>maxLon) maxLon=lo; if (la<minLat) minLat=la; if (la>maxLat) maxLat=la; }
 	const bbox = [minLon*R2D, minLat*R2D, maxLon*R2D, maxLat*R2D];
-	// 足元の浮き対策：局所地面グリッド（セル毎の最低標高）を足元にして各頂点を置く＝建物ごとに接地。
-	// バッチbbox基準＝区全体基準よりセルが細かい＝起伏への追従はむしろ良くなる。
-	const GN = 256, ground = new Float32Array(GN*GN).fill(Infinity);
-	const gLo = (maxLon-minLon)||1e-12, gLa = (maxLat-minLat)||1e-12;
-	const cellOf = i => { let gx=(geo[i*3]-minLon)/gLo*GN|0, gy=(geo[i*3+1]-minLat)/gLa*GN|0; if(gx<0)gx=0;else if(gx>GN-1)gx=GN-1; if(gy<0)gy=0;else if(gy>GN-1)gy=GN-1; return gy*GN+gx; };
-	for (let i = 0; i < M; i++) { const c = cellOf(i), h = geo[i*3+2]; if (h < ground[c]) ground[c] = h; }
+	// 足元の浮き対策v2：セル毎最低標高グリッド→空セル充填→3x3平滑→バイリニア補間の「連続な地面」から相対高さを取る。
+	// セルは約32m固定（バッチbboxを等分すると~5-8mまで細かくなり、地下・基礎の窪みを鋭く拾って隣接セル間の最低値が
+	// 数十m跳ぶ→セル境界を跨ぐ屋根/壁が別々の量だけ沈み細長い破片状に裂ける＝西新宿の超高層で顕在化した崩れの原因）。
+	// 最近傍参照（区分一定）でなくバイリニア＝地面が連続関数になり、セル境界の段差シアーが原理的に消える。
+	const midLat = (minLat + maxLat) / 2;
+	const spanLonM = Math.max(1, (maxLon - minLon) * EARTH_M * Math.cos(midLat)), spanLatM = Math.max(1, (maxLat - minLat) * EARTH_M);
+	const GX = Math.max(1, Math.min(256, Math.ceil(spanLonM / 32))), GY = Math.max(1, Math.min(256, Math.ceil(spanLatM / 32)));
+	const ground = new Float32Array(GX * GY).fill(Infinity);
+	const gLo = (maxLon - minLon) || 1e-12, gLa = (maxLat - minLat) || 1e-12;
+	for (let i = 0; i < M; i++) {
+		let gx = (geo[i*3] - minLon) / gLo * GX | 0, gy = (geo[i*3+1] - minLat) / gLa * GY | 0;
+		if (gx < 0) gx = 0; else if (gx > GX - 1) gx = GX - 1;
+		if (gy < 0) gy = 0; else if (gy > GY - 1) gy = GY - 1;
+		const c = gy * GX + gx, h = geo[i*3+2];
+		if (h < ground[c]) ground[c] = h;
+	}
+	// 空セル（頂点が1つも落ちないセル）を近傍最小で充填＝バイリニアが Infinity を拾わないように。
+	for (let pass = 0; pass < GX + GY; pass++) {
+		let changed = false;
+		for (let y = 0; y < GY; y++) for (let x = 0; x < GX; x++) {
+			const c = y * GX + x;
+			if (ground[c] !== Infinity) continue;
+			let m = Infinity;
+			if (x > 0 && ground[c-1] < m) m = ground[c-1];
+			if (x < GX-1 && ground[c+1] < m) m = ground[c+1];
+			if (y > 0 && ground[c-GX] < m) m = ground[c-GX];
+			if (y < GY-1 && ground[c+GX] < m) m = ground[c+GX];
+			if (m !== Infinity) { ground[c] = m; changed = true; }
+		}
+		if (!changed) break;
+	}
+	// 3x3 平滑（1パス）＝残る細かな段差もならす。
+	const sm = new Float32Array(GX * GY);
+	for (let y = 0; y < GY; y++) for (let x = 0; x < GX; x++) {
+		let s = 0, n = 0;
+		for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+			const xx = x + dx, yy = y + dy;
+			if (xx < 0 || xx >= GX || yy < 0 || yy >= GY) continue;
+			s += ground[yy * GX + xx]; n++;
+		}
+		sm[y * GX + x] = s / n;
+	}
+	// バイリニア地面サンプラ（セル中心基準・端はクランプ）。
+	const groundAt = (lon, lat) => {
+		let fx = (lon - minLon) / gLo * GX - 0.5, fy = (lat - minLat) / gLa * GY - 0.5;
+		if (fx < 0) fx = 0; else if (fx > GX - 1) fx = GX - 1;
+		if (fy < 0) fy = 0; else if (fy > GY - 1) fy = GY - 1;
+		const x0 = fx | 0, y0 = fy | 0, x1 = Math.min(x0 + 1, GX - 1), y1 = Math.min(y0 + 1, GY - 1);
+		const tx = fx - x0, ty = fy - y0;
+		const a = sm[y0 * GX + x0] + (sm[y0 * GX + x1] - sm[y0 * GX + x0]) * tx;
+		const b = sm[y1 * GX + x0] + (sm[y1 * GX + x1] - sm[y1 * GX + x0]) * tx;
+		return a + (b - a) * ty;
+	};
 	// RTE-lite：単位球の絶対座標は float32 だと建物1棟が~60段階に量子化される→重心(origin)相対の delta で精度を桁で戻す。
 	const wpos = new Float64Array(geo.length);
 	let ox = 0, oy = 0, oz = 0;
 	for (let i = 0; i < M; i++) {
-		const lon = geo[i*3], lat = geo[i*3+1], cb = Math.cos(lat), r = 1 + (geo[i*3+2] - ground[cellOf(i)]) / EARTH_M;   // 局所足元からの高さ＝接地
+		const lon = geo[i*3], lat = geo[i*3+1], cb = Math.cos(lat);
+		const r = 1 + Math.max(geo[i*3+2] - groundAt(lon, lat), 0) / EARTH_M;   // 連続地面からの相対高さ＝接地（地下はr=1に畳む＝従来通り地表より下へ出さない）
 		const x = cb*Math.cos(lon)*r, y = Math.sin(lat)*r, z = cb*Math.sin(lon)*r;
 		wpos[i*3] = x; wpos[i*3+1] = y; wpos[i*3+2] = z; ox += x; oy += y; oz += z;
 	}
