@@ -71,24 +71,28 @@ const plateauLoading = new Set();          // fetch/デコード中の地区名�
 // PLATEAU worker プール：tileset fetch・Draco解凍・ECEF変換・重複面dedup・RTE・被覆マスク、全部ここでやる（メインスレッドはブロックしない）。
 // 密集地区(都心部)1件のデコードは実測40〜50秒かかる重い処理＝worker化しないとその間UIが完全に固まる。
 // PLATEAU_MAX_ACTIVE と同数だけ用意＝同時アクティブな2地区が別コアで並行デコードできる。
+// メッシュ本体（密集区で~160MB の typed array）は sceneChan と同じく worker→render worker の直結ポートで渡す。
+// main 経由で postMessage すると transfer 無しの構造化クローン＝メインスレッドが数百msブロックされるため、main には ok/失敗の ack しか流さない。
 const PLATEAU_NW = Math.min(PLATEAU_MAX_ACTIVE, (navigator.hardwareConcurrency || 4) - 1) || 1;
 const plateauWorkers = [], plateauPending = new Map();
 let plateauReqId = 0;
 for (let i = 0; i < PLATEAU_NW; i++) {
 	const w = new Worker(new URL("./plateauworker.js", import.meta.url), { type: "module" });
+	const meshChan = new MessageChannel();   // この worker → render worker のメッシュ直結パイプ
+	w.postMessage({ type: "init", meshPort: meshChan.port1 }, [meshChan.port1]);
+	renderWorker.postMessage({ type: "plateauPort", port: meshChan.port2 }, [meshChan.port2]);
 	w.onmessage = e => {
 		const p = plateauPending.get(e.data.id); if (!p) return; plateauPending.delete(e.data.id);
-		if (e.data.ok) p.resolve(e.data.meshData);
-		else if (e.data.error) p.reject(new Error(e.data.error));
-		else p.resolve(null);   // 0三角形など soft failure（worker側でconsole.error済み）
+		if (e.data.error) p.reject(new Error(e.data.error));
+		else p.resolve(e.data.ok);   // ok=false は0三角形など soft failure（worker側でconsole.error済み）。メッシュ本体は直結ポートで render worker へ送付済み
 	};
 	plateauWorkers.push(w);
 }
 // base URL のハッシュで固定の worker へルーティング＝同じ地区は毎回同じ worker が受ける→worker内蔵cacheが再訪で効く。
 function hashStr(s) { let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0; return h >>> 0; }
-function workerLoadPlateau(base, tiles) {
+function workerLoadPlateau(base, tiles, name) {
 	const id = ++plateauReqId, w = plateauWorkers[hashStr(base) % PLATEAU_NW];
-	w.postMessage({ id, base, tiles });
+	w.postMessage({ id, base, tiles, name });
 	return new Promise((resolve, reject) => plateauPending.set(id, { resolve, reject }));
 }
 
@@ -264,20 +268,25 @@ window.__plateau = async (nameOrBase, tiles) => {
 	const set = !nameOrBase ? PLATEAU_SETS[0]
 		: PLATEAU_SETS.find(s => s.base === nameOrBase || s.name === nameOrBase || s.name.includes(nameOrBase));
 	if (!set) { console.error("[plateau] 地区が見つかりません:", nameOrBase, `（登録簿 ${PLATEAU_SETS.length} 件）`); return; }
-	const ok = await loadPlateau(set.base, tiles, set.name);
-	if (ok) plateauActive.set(set.name, set);
+	// カメラ移動→onMove→autoPlateau が同じ地区を並行ロードしないよう、手動ロードも plateauLoading に登録して同一ガードを通す。
+	if (!plateauActive.has(set.name) && !plateauLoading.has(set.name)) {
+		plateauLoading.add(set.name);
+		try {
+			const ok = await loadPlateau(set.base, tiles, set.name);
+			if (ok) plateauActive.set(set.name, set);
+		} finally { plateauLoading.delete(set.name); }
+	}
 	const [w, s, e, n] = set.bbox;
 	cam.center = [(w + e) / 2, (s + n) / 2]; cam.zoom = 15; cam.pitch = 45 * D2R; cam.bearing = 0;   // 地区中心・傾けて建物を見る
 	onMove();
 	console.log(`[plateau] 完了 → ${set.name} z15 tilt45°。右ドラッグで傾け調整`);
 };
 
-// ロード本体（カメラは動かさない）：重い処理は plateauworker.js に丸投げし、戻ってきたメッシュを renderer へ渡すだけ。
-// name=renderer側の登録キー（地区名）。成功可否を bool で返す＝呼び出し側が plateauActive に加えるかの判断に使う。
+// ロード本体（カメラは動かさない）：重い処理は plateauworker.js に丸投げ。メッシュ本体は worker→render worker 直結ポートで
+// 渡り main を通らない（ここに返るのは ok/失敗の ack だけ）。成功可否 bool＝呼び出し側が plateauActive に加えるかの判断に使う。
 async function loadPlateau(base, tiles, name) {
-	const meshData = await workerLoadPlateau(base, tiles);
-	if (!meshData) return false;
-	renderer.set("plateauMesh", meshData, name);
+	const ok = await workerLoadPlateau(base, tiles, name);
+	if (!ok) return false;
 	needsDraw = true;
 	console.log("[plateau] 完了", base);
 	return true;

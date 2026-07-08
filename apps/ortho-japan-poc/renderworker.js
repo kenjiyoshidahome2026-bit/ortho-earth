@@ -33,6 +33,12 @@ onmessage = e => {
 			if (m.gintSyncPort) gintSyncPort = m.gintSyncPort;   // 海岸線(gint)従属の出口
 			requestAnimationFrame(frame);                        // worker 自前の描画ループ開始
 			break;
+		case "plateauPort":                                      // plateau worker → ここ のメッシュ直結パイプ（workerプール1本につき1ポート）
+			m.port.onmessage = ev => {                           // ~160MB の typed array を main を経由させず transfer で受ける
+				if (renderer) renderer.set("plateauMesh", ev.data.meshData, ev.data.name);
+				dirty = true;
+			};
+			break;
 		case "resize":                                           // 両キャンバスを同じ寸法に（main は transfer 後触れない）
 			if (canvas) { canvas.width = m.width; canvas.height = m.height; }
 			if (labelCanvas) { labelCanvas.width = m.width; labelCanvas.height = m.height; }

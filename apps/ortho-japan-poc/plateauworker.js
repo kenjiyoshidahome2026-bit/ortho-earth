@@ -185,17 +185,32 @@ async function loadPlateau(base, tiles) {
 	return meshData;
 }
 
+// メッシュの出口＝render worker への直結ポート（main.js が MessageChannel で配線）。
+// main へ返すのは ok/失敗の ack だけ＝~160MB の typed array がメインスレッドで構造化クローンされるのを断つ。
+let meshPort = null;
+// 同一 base の並行要求（手動__plateau と autoPlateau の競合等）を1つのデコードに合流させる。
+// onmessage は async＝先行デコードの await 中に後続メッセージが走り出し cache 未登録のまま二重デコードになるのを防ぐ。
+const inflight = new Map();
+
 self.onmessage = async (e) => {
-	const { id, base, tiles } = e.data;
+	if (e.data.type === "init") { meshPort = e.data.meshPort; return; }
+	const { id, base, tiles, name } = e.data;
 	try {
-		const cached = await loadPlateau(base, tiles);
+		let p = inflight.get(base);
+		if (!p) {
+			p = loadPlateau(base, tiles);
+			inflight.set(base, p);
+			p.finally(() => inflight.delete(base)).catch(() => {});   // 掃除専用の枝＝拒否はここで握り潰す（本流の reject は下の await が受ける）
+		}
+		const cached = await p;
 		if (!cached) { self.postMessage({ id, ok: false }); return; }   // 0三角形など soft failure（loadPlateau内でconsole.error済み）
 		// cache に残す実体は守りたいので、transferする分だけコピー（cacheの原本は無傷のまま次回再利用できる）。
 		const pos = cached.pos.slice(), nrm = cached.nrm.slice(), idx = cached.idx.slice(), mask = cached.mask.slice();
-		self.postMessage(
-			{ id, ok: true, meshData: { pos, nrm, idx, origin: cached.origin, bbox: cached.bbox, maskN: cached.maskN, mask } },
+		meshPort.postMessage(
+			{ name, meshData: { pos, nrm, idx, origin: cached.origin, bbox: cached.bbox, maskN: cached.maskN, mask } },
 			[pos.buffer, nrm.buffer, idx.buffer, mask.buffer]
 		);
+		self.postMessage({ id, ok: true });
 	} catch (err) {
 		self.postMessage({ id, ok: false, error: err.message });
 	}
