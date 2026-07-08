@@ -68,9 +68,31 @@ function surveySymbol(code, num) {
 	} };
 	surveyCache.set(key, s); return s;
 }
+// 空港（441・鉄道チップに相乗り＝交通ハブ）：飛行機シルエット＋名称。記号は落ち着いた青、名称は通常ラベルと同トーン。
+// Material Icons "flight" のパス（viewBox 24）＝上向きの飛行機。
+const PLANE_PATH = new Path2D("M21.5 15.5v-2l-8-5v-5.5c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v5.5l-8 5v2l8-2.5v5.5l-2 1.5v1.5l3.5-1 3.5 1v-1.5l-2-1.5v-5.5l8 2.5z");
+const PLANE_S = 13;                             // 記号サイズ(px)
+const airportCache = new Map();
+function airportSymbol(text) {
+	let s = airportCache.get(text); if (s) return s;
+	const tw = text.length * 10;                 // 名称の概算幅（10px 和文）
+	s = { w: PLANE_S + 3 + tw, h: PLANE_S, draw(g, cx, cy) {
+		const x0 = cx - s.w / 2;                 // 記号+名称ブロック全体をアンカー中心に
+		g.save();
+		g.translate(x0, cy - PLANE_S / 2); g.scale(PLANE_S / 24, PLANE_S / 24);
+		g.lineJoin = "round"; g.strokeStyle = "#f6f6f4"; g.lineWidth = 3.5; g.stroke(PLANE_PATH);   // 地色ハロー
+		g.fillStyle = "#3f6d9e"; g.fill(PLANE_PATH);
+		g.restore();
+		g.font = "10px sans-serif"; g.textAlign = "left"; g.textBaseline = "middle";
+		g.strokeStyle = "#f6f6f4"; g.lineWidth = 2.2; g.lineJoin = "round"; g.strokeText(text, x0 + PLANE_S + 3, cy);
+		g.fillStyle = "#6b6c66"; g.fillText(text, x0 + PLANE_S + 3, cy);
+	} };
+	airportCache.set(text, s); return s;
+}
 export function shieldFor(L) {   // 道路ON時のみ抽出済み。2901=国道おにぎり／2903・2904=高速ナンバリング盾
 	if (L.code === 2901) return kokudoShield(L.text);
 	if (L.code === 2903 || L.code === 2904) return expresswayShield(L.text);
 	if (L.code === 7102 || L.code === 7201 || L.code === 7221) return surveySymbol(L.code, L.text);   // 測量点（三角点△/標高点・/火山標高）。水準点7103・電子基準点7101は膨大でクラッタ＝出さない
+	if (L.code === 441 && /(空港|飛行場)$/.test(L.text || "")) return airportSymbol(L.text);   // 空港＝✈＋名称（ターミナル名等は通常テキストのまま）
 	return null;
 }
