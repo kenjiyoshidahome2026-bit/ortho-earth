@@ -60,24 +60,39 @@ void main() {
 	v_flogz = 1.0 + gl_Position.w;
 }`;
 
+// 隣接区境をまたぐと PLATEAU 地区が同時に複数(最大4)アクティブになるため、bbox/mask をスロット化。
+// GLSL ES 3.00 は sampler 配列の動的添字を許さないので4本を個別 uniform にしアンロールで判定。
 export const BUILDING_FS = `#version 300 es
 precision highp float;
 uniform vec3 u_bldColor;
 uniform vec3 u_fogColor;
 uniform float u_logCoef;
-uniform vec4 u_plateauBbox;       // [minLon,minLat,maxLon,maxLat] deg。マスクの UV 正規化に使う
-uniform sampler2D u_plateauMask;  // PLATEAU 実フットプリントの被覆マスク（立ってるセル＝LOD2 が担う）
+uniform int u_plateauCount;         // 0..4：アクティブな PLATEAU 地区数
+uniform vec4 u_plateauBbox0;        // [minLon,minLat,maxLon,maxLat] deg。マスクの UV 正規化に使う
+uniform vec4 u_plateauBbox1;
+uniform vec4 u_plateauBbox2;
+uniform vec4 u_plateauBbox3;
+uniform sampler2D u_plateauMask0;   // PLATEAU 実フットプリントの被覆マスク（立ってるセル＝LOD2 が担う）
+uniform sampler2D u_plateauMask1;
+uniform sampler2D u_plateauMask2;
+uniform sampler2D u_plateauMask3;
 in float v_shade;
 in float v_front;
 in float v_fog;
 in float v_flogz;
 in vec2  v_ll;
 out vec4 fragColor;
+bool maskedBy(vec4 bbox, sampler2D mask, vec2 ll) {
+	vec2 uv = (ll - bbox.xy) / (bbox.zw - bbox.xy);   // bbox 内 0..1
+	return uv.x >= 0.0 && uv.x <= 1.0 && uv.y >= 0.0 && uv.y <= 1.0 && texture(mask, uv).r > 0.5;
+}
 void main() {
 	if (v_front < 0.0) discard;
-	vec2 uv = (v_ll - u_plateauBbox.xy) / (u_plateauBbox.zw - u_plateauBbox.xy);   // bbox 内 0..1
-	if (uv.x >= 0.0 && uv.x <= 1.0 && uv.y >= 0.0 && uv.y <= 1.0 &&
-	    texture(u_plateauMask, uv).r > 0.5) discard;   // 実フットプリントが立つセルだけ基図建物を伏せる（矩形でなく被覆マスク＝空白地帯なし）
+	// 実フットプリントが立つセルだけ基図建物を伏せる（矩形でなく被覆マスク＝空白地帯なし）
+	if ((u_plateauCount > 0 && maskedBy(u_plateauBbox0, u_plateauMask0, v_ll)) ||
+	    (u_plateauCount > 1 && maskedBy(u_plateauBbox1, u_plateauMask1, v_ll)) ||
+	    (u_plateauCount > 2 && maskedBy(u_plateauBbox2, u_plateauMask2, v_ll)) ||
+	    (u_plateauCount > 3 && maskedBy(u_plateauBbox3, u_plateauMask3, v_ll))) discard;
 	gl_FragDepth = log2(v_flogz) * u_logCoef * 0.5;   // per-pixel 対数深度（terrain/plateau と一貫）
 	vec3 c = mix(u_bldColor * v_shade, u_fogColor, v_fog);
 	fragColor = vec4(c, 1.0);

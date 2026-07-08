@@ -23,8 +23,10 @@ export function createRenderer(canvas) {
 	gl.getExtension("OES_texture_float_linear");   // R32F の線形補間
 	// 標高（GEBCO/ALOS）：テクスチャ＋地形格子メッシュ
 	let elevTex = null, elev = { bounds: [0, 0, 1, 0], scale: 0, has: 0 }, terrain = null;
-	let plateau = null;   // PLATEAU LOD2 建物メッシュ { vao, bufs, count, origin, bbox }（頂点は重心相対 delta）
-	let plateauMaskTex = null;   // PLATEAU 被覆マスク（TEXTURE2）：基図建物をこのセルだけ伏せる
+	// PLATEAU LOD2 建物メッシュ：地区名(key)→{ vao, bufs, count, origin, bbox, maskTex }（頂点は重心相対 delta）。
+	// 区境をまたぐと隣接地区が同時にアクティブになるため単一値でなく Map。基図建物マスクは先頭 MAX_PLATEAU_MASKS 件のみ（シェーダ側の固定スロット数）。
+	const plateaux = new Map();
+	const MAX_PLATEAU_MASKS = 4;
 	// 静的 view（色・見た目）：初期化時に一度 setView でアップロード。draw は毎フレーム幾何(cam)だけ受け、
 	// 色は view から読む＝描画パラメータを「幾何(動的)」と「見た目(静的)」に分離。将来の worker payload 境界。
 	let view = { clear: null, land: null, atmo: null, bldColor: null };
@@ -121,9 +123,11 @@ export function createRenderer(canvas) {
 		terrain = { vao, vbo, ibo, count: idx.length };
 	}
 
-	// PLATEAU LOD2 建物メッシュを受ける。data={ pos:Float32Array(xyz…), idx:Uint32Array }（頂点は ortho 単位球座標へ変換済み）。
-	function setPlateauMesh(data) {
-		if (plateau) { gl.deleteVertexArray(plateau.vao); for (const b of plateau.bufs) gl.deleteBuffer(b); plateau = null; }
+	// PLATEAU LOD2 建物メッシュを受ける。key=地区名（登録簿と1:1）。data=null で解放。
+	// data={ pos:Float32Array(xyz…), idx:Uint32Array }（頂点は ortho 単位球座標へ変換済み）。
+	function setPlateauMesh(key, data) {
+		const old = plateaux.get(key);
+		if (old) { gl.deleteVertexArray(old.vao); for (const b of old.bufs) gl.deleteBuffer(b); gl.deleteTexture(old.maskTex); plateaux.delete(key); }
 		if (!data || !data.pos?.length || !data.idx?.length) return;
 		const vao = gl.createVertexArray(), vbo = buffer(gl, data.pos), nbo = buffer(gl, data.nrm), ibo = gl.createBuffer();
 		gl.bindVertexArray(vao);
@@ -133,10 +137,9 @@ export function createRenderer(canvas) {
 		gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, data.idx, gl.STATIC_DRAW);
 		gl.bindVertexArray(null);
 		const o = data.origin || [0, 0, 0];
-		plateau = { vao, bufs: [vbo, nbo, ibo], count: data.idx.length, origin: o, bbox: data.bbox || [1e9, 1e9, -1e9, -1e9] };
-		// 被覆マスクを TEXTURE2 用に（NEAREST・CLAMP）。基図建物 FS が uv=bbox正規化で参照。
-		if (!plateauMaskTex) plateauMaskTex = gl.createTexture();
-		gl.bindTexture(gl.TEXTURE_2D, plateauMaskTex);
+		// 被覆マスク（NEAREST・CLAMP）。基図建物 FS が uv=bbox正規化で参照。地区ごとに個別テクスチャ。
+		const maskTex = gl.createTexture();
+		gl.bindTexture(gl.TEXTURE_2D, maskTex);
 		gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
 		const mn = data.maskN | 0;
 		if (data.mask && mn > 0) gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, mn, mn, 0, gl.RED, gl.UNSIGNED_BYTE, data.mask);
@@ -145,6 +148,7 @@ export function createRenderer(canvas) {
 		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
 		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
 		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+		plateaux.set(key, { vao, bufs: [vbo, nbo, ibo], count: data.idx.length, origin: o, bbox: data.bbox || [1e9, 1e9, -1e9, -1e9], maskTex });
 	}
 
 	// --- overlay（外部ベクタ=geopbf/e-Stat）：stencil-then-cover 塗り＋境界線 ---
@@ -293,29 +297,37 @@ export function createRenderer(canvas) {
 		gl.enable(gl.DEPTH_TEST);   // 建物は常に深度で前後関係を解決（地形・尾根に遮蔽される）
 
 		// 建物（3D押し出し）：深度で前後関係を解決（地形・尾根にも遮蔽される）。
-		// PLATEAU の bbox 内だけ基図建物を伏せる（u_plateauBbox）＝同一体積の全面 z-fight を断ちつつ、範囲外の建物は残す。
+		// PLATEAU の bbox 内だけ基図建物を伏せる（u_plateauBboxN）＝同一体積の全面 z-fight を断ちつつ、範囲外の建物は残す。
+		// アクティブな PLATEAU 地区は最大 MAX_PLATEAU_MASKS 件までマスクに反映（シェーダのスロット数固定＝それ以上は基図と二重描画のまま）。
 		const bld = scenes.main.bld;
 		if (bld) {
 			const c = view.bldColor || [0.86, 0.86, 0.85];
 			setCommonUniforms(bldProg, st, scenes.main.origin, land);
 			gl.uniform3f(loc(gl, bldProg, "u_bldColor"), c[0], c[1], c[2]);
-			const pb = plateau ? plateau.bbox : [1e9, 1e9, -1e9, -1e9];   // PLATEAU 被覆セルの基図建物を伏せる（範囲外はそのまま）
-			gl.uniform4f(loc(gl, bldProg, "u_plateauBbox"), pb[0], pb[1], pb[2], pb[3]);
-			if (plateauMaskTex) { gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, plateauMaskTex); gl.activeTexture(gl.TEXTURE0); }
-			gl.uniform1i(loc(gl, bldProg, "u_plateauMask"), 2);
+			const active = [...plateaux.values()].slice(0, MAX_PLATEAU_MASKS);
+			gl.uniform1i(loc(gl, bldProg, "u_plateauCount"), active.length);
+			for (let i = 0; i < MAX_PLATEAU_MASKS; i++) {
+				const p = active[i], pb = p ? p.bbox : [1e9, 1e9, -1e9, -1e9];
+				gl.uniform4f(loc(gl, bldProg, `u_plateauBbox${i}`), pb[0], pb[1], pb[2], pb[3]);
+				if (p) { gl.activeTexture(gl.TEXTURE2 + i); gl.bindTexture(gl.TEXTURE_2D, p.maskTex); gl.activeTexture(gl.TEXTURE0); }
+				gl.uniform1i(loc(gl, bldProg, `u_plateauMask${i}`), 2 + i);
+			}
 			gl.bindVertexArray(bld.vao);
 			gl.drawArrays(gl.TRIANGLES, 0, bld.count);
 		}
 		// PLATEAU LOD2 建物メッシュ（任意三角形・面法線陰影）。深度で地形・自身の前後を解決。
 		// ※巻き順が不揃いなデータなので back-face カリングは使わない（屋根を誤って捨てる）＝両面描画。
 		//   z-fight の元＝重複面は main 側の頂点3つ組 dedup で断つ。
-		if (plateau) {
-			setCommonUniforms(plateauProg, st, [0, 0], land);
+		if (plateaux.size) {
+			gl.useProgram(plateauProg);
 			const c = view.bldColor || [0.86, 0.86, 0.85];   // 基図の押し出し建物と同色＝周辺と地続きに見せる
-			gl.uniform3f(loc(gl, plateauProg, "u_bldColor"), c[0], c[1], c[2]);
-			gl.uniform3f(loc(gl, plateauProg, "u_meshOrigin"), plateau.origin[0], plateau.origin[1], plateau.origin[2]);  // RTE 錨（頂点は重心相対 delta）
-			gl.bindVertexArray(plateau.vao);
-			gl.drawElements(gl.TRIANGLES, plateau.count, gl.UNSIGNED_INT, 0);
+			for (const p of plateaux.values()) {
+				setCommonUniforms(plateauProg, st, [0, 0], land);
+				gl.uniform3f(loc(gl, plateauProg, "u_bldColor"), c[0], c[1], c[2]);
+				gl.uniform3f(loc(gl, plateauProg, "u_meshOrigin"), p.origin[0], p.origin[1], p.origin[2]);  // RTE 錨（頂点は重心相対 delta）
+				gl.bindVertexArray(p.vao);
+				gl.drawElements(gl.TRIANGLES, p.count, gl.UNSIGNED_INT, 0);
+			}
 		}
 		gl.disable(gl.DEPTH_TEST);
 		gl.bindVertexArray(null);
@@ -339,7 +351,7 @@ export function createRenderer(canvas) {
 			case "overlayHi": setOverlayHi(data, prop); break;
 			case "elevAtlas": setElevationAtlas(data, prop); break;                             // prop=scale
 			case "elevCell":  setElevationCell(prop.cx, prop.cy, data, prop.cellRes); break;    // data=セルFloat32
-			case "plateauMesh": setPlateauMesh(data); break;                                   // data={pos,idx} PLATEAU LOD2 建物
+			case "plateauMesh": setPlateauMesh(prop, data); break;                             // prop=地区名(key)、data={pos,idx} PLATEAU LOD2 建物（null=解放）
 			default: console.warn("renderer.set: unknown cmd", cmd);
 		}
 	}

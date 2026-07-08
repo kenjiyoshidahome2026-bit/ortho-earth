@@ -3,8 +3,6 @@ import {
 	evalExpr, parseRGBA, cameraState, unproject,
 } from "ortho-japan";
 import { createGeopbf, geopbf } from "geopbf";
-import { parse as loadParse } from "@loaders.gl/core";          // PLATEAU 3D Tiles スパイク（A）
-import { Tiles3DLoader } from "@loaders.gl/3d-tiles";           // b3dm/Draco/RTC を一括デコード
 createGeopbf("https://api.ortho-earth.com");   // bucket 基盤（標高と同じ）。読み出しはキー不要
 import style from "./style-mono.js";
 import { createThemes, defaultLayerState, CHOME_MINZOOM, RAILTR_MINZOOM } from "./themes.js";
@@ -52,24 +50,79 @@ const BASEMAP_MINZOOM = 4;                 // これ未満は基図の詳細を�
 let moving = false, settleT = null;
 // 移動中は幾何を再結合しない（タイルのポップ＝チラチラ防止）。停止後に再結合。
 // PLATEAU LOD2 データ登録簿：寄ると自動で出す。bbox は自動トリガ用の緩い矩形（実描画は被覆マスクが実フットプリントに沿わせる）。
-const PLATEAU_SETS = [
-	{ name: "札幌中央区", base: "https://assets.cms.plateau.reearth.io/assets/16/06e56d-a2d4-4fe4-ac91-b2762b96e033/01100_sapporo-shi_city_2020_citygml_7_op_bldg_3dtiles_01101_chuo-ku_lod2/", bbox: [141.28, 43.01, 141.40, 43.10] },
-];
-const PLATEAU_AUTO_Z = 14;                 // これ以上寄ると自動ロード
-let plateauLoaded = null, plateauBusy = false;
-const plateauCache = new Map();            // base URL → デコード済みメッシュ（fetch/Draco解凍/RTE/マスクの結果）。再訪は即描画
+// 全国 300 市区町村分は scripts/plateau-catalog-build.mjs で datacatalog API から生成＝public/plateau-sets.json を起動時に fetch。
+let PLATEAU_SETS = [];
+fetch("/plateau-sets.json").then(r => r.json()).then(sets => { PLATEAU_SETS = sets; console.log(`[plateau] カタログ読込 → ${sets.length} 市区町村`); }).catch(e => console.warn("[plateau] カタログ取得失敗", e));
+const PLATEAU_AUTO_Z = 14;                 // これ以上寄ると自動ロード（遠景は対象外＝ズームアウトで全解放）
+// 同時アクティブ地区数の上限。区境をまたいだ隣接分だけを想定＝GPUメモリを有界にする（密集地区(都心部)1件あたりGPUバッファ~100-140MB）。
+const PLATEAU_MAX_ACTIVE = 2;
+const plateauActive = new Map();           // 現在レンダラーに乗っている地区：name → set({name,base,bbox})
+const plateauLoading = new Set();          // fetch/デコード中の地区名（二重発火防止）
 
-// 現在地＋ズームで登録簿を引き、範囲に入れば自動ロード／離れれば解放。onMove から毎回呼ぶがガードで実質タダ。
+// PLATEAU worker プール：tileset fetch・Draco解凍・ECEF変換・重複面dedup・RTE・被覆マスク、全部ここでやる（メインスレッドはブロックしない）。
+// 密集地区(都心部)1件のデコードは実測40〜50秒かかる重い処理＝worker化しないとその間UIが完全に固まる。
+// PLATEAU_MAX_ACTIVE と同数だけ用意＝同時アクティブな2地区が別コアで並行デコードできる。
+const PLATEAU_NW = Math.min(PLATEAU_MAX_ACTIVE, (navigator.hardwareConcurrency || 4) - 1) || 1;
+const plateauWorkers = [], plateauPending = new Map();
+let plateauReqId = 0;
+for (let i = 0; i < PLATEAU_NW; i++) {
+	const w = new Worker(new URL("./plateauworker.js", import.meta.url), { type: "module" });
+	w.onmessage = e => {
+		const p = plateauPending.get(e.data.id); if (!p) return; plateauPending.delete(e.data.id);
+		if (e.data.ok) p.resolve(e.data.meshData);
+		else if (e.data.error) p.reject(new Error(e.data.error));
+		else p.resolve(null);   // 0三角形など soft failure（worker側でconsole.error済み）
+	};
+	plateauWorkers.push(w);
+}
+// base URL のハッシュで固定の worker へルーティング＝同じ地区は毎回同じ worker が受ける→worker内蔵cacheが再訪で効く。
+function hashStr(s) { let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0; return h >>> 0; }
+function workerLoadPlateau(base, tiles) {
+	const id = ++plateauReqId, w = plateauWorkers[hashStr(base) % PLATEAU_NW];
+	w.postMessage({ id, base, tiles });
+	return new Promise((resolve, reject) => plateauPending.set(id, { resolve, reject }));
+}
+
+// 現在の画面に映る範囲をラフに見積もる（フラスタム厳密解ではなく自動ロードのゲート用）。z14+の寄った状態でしか呼ばれない＝視野は元々狭く、この近似で十分。
+function approxViewBbox(cam) {
+	const metersPerPx = 156543.03392 * Math.cos(cam.center[1] * D2R) / Math.pow(2, cam.zoom);
+	const halfM = Math.max(window.innerWidth, window.innerHeight) * 0.75 * metersPerPx;   // 対角余裕込みの半幅
+	const dLat = halfM / 111320, dLon = dLat / Math.max(0.15, Math.cos(cam.center[1] * D2R));
+	const [lon, lat] = cam.center;
+	return [lon - dLon, lat - dLat, lon + dLon, lat + dLat];
+}
+const bboxIntersects = (a, b) => a[0] <= b[2] && a[2] >= b[0] && a[1] <= b[3] && a[3] >= b[1];
+
+// 現在地＋ズームで登録簿を引き、視野に重なる地区を全部ロード／外れた地区は解放。区境をまたぐと複数地区が同時アクティブになる（上限 PLATEAU_MAX_ACTIVE）。
+// onMove から毎回呼ぶがガードで実質タダ。
 function autoPlateau() {
-	const lon = cam.center[0], lat = cam.center[1];
-	const hit = cam.zoom >= PLATEAU_AUTO_Z ? PLATEAU_SETS.find(s => lon >= s.bbox[0] && lon <= s.bbox[2] && lat >= s.bbox[1] && lat <= s.bbox[3]) : null;
-	if (hit && plateauLoaded !== hit.name && !plateauBusy) {
-		plateauBusy = true; plateauLoaded = hit.name;
-		console.log("[plateau] 自動ロード →", hit.name);
-		loadPlateau(hit.base).catch(e => { console.warn("[plateau] 自動ロード失敗", e); plateauLoaded = null; }).finally(() => { plateauBusy = false; });
-	} else if (!hit && plateauLoaded && !plateauBusy) {
-		console.log("[plateau] 範囲外→解放", plateauLoaded);
-		plateauLoaded = null; renderer.set("plateauMesh", null); needsDraw = true;
+	if (cam.zoom < PLATEAU_AUTO_Z) {
+		for (const name of plateauActive.keys()) { renderer.set("plateauMesh", null, name); console.log("[plateau] 範囲外→解放", name); }
+		if (plateauActive.size) needsDraw = true;
+		plateauActive.clear();
+		return;
+	}
+	const view = approxViewBbox(cam);
+	let hits = PLATEAU_SETS.filter(s => bboxIntersects(s.bbox, view));
+	if (hits.length > PLATEAU_MAX_ACTIVE) {
+		const [lon, lat] = cam.center;
+		const d2 = s => { const cx = (s.bbox[0] + s.bbox[2]) / 2, cy = (s.bbox[1] + s.bbox[3]) / 2; return (cx - lon) ** 2 + (cy - lat) ** 2; };
+		hits = hits.sort((a, b) => d2(a) - d2(b)).slice(0, PLATEAU_MAX_ACTIVE);   // 近い順に上限件数だけ採用
+	}
+	const hitNames = new Set(hits.map(h => h.name));
+	for (const name of [...plateauActive.keys()]) {
+		if (hitNames.has(name)) continue;
+		plateauActive.delete(name); renderer.set("plateauMesh", null, name); needsDraw = true;
+		console.log("[plateau] 範囲外→解放", name);
+	}
+	for (const h of hits) {
+		if (plateauActive.has(h.name) || plateauLoading.has(h.name)) continue;
+		plateauLoading.add(h.name);
+		console.log("[plateau] 自動ロード →", h.name);
+		loadPlateau(h.base, undefined, h.name)
+			.then(ok => { if (ok) plateauActive.set(h.name, h); })
+			.catch(e => console.warn("[plateau] 自動ロード失敗", h.name, e))
+			.finally(() => plateauLoading.delete(h.name));
 	}
 }
 
@@ -196,117 +249,29 @@ async function loadWorldCoast() {
 window.__coast = loadWorldCoast;   // 手動リロード用（通常は起動時に自動実行）
 
 // --- PLATEAU LOD2 建物スパイク（A＝loaders.gl）：b3dm を Draco 解凍→ECEF→単位球へ変換→mesh pass で球に立てる ---
-// ECEF(WGS84)→geodetic(lon,lat[rad],h)
-function ecef2geo(x, y, z) {
-	const a = 6378137, e2 = 0.00669437999014;
-	const p = Math.hypot(x, y), lon = Math.atan2(y, x);
-	let lat = Math.atan2(z, p * (1 - e2)), h = 0;
-	for (let i = 0; i < 5; i++) { const s = Math.sin(lat), N = a / Math.sqrt(1 - e2 * s * s); h = p / Math.cos(lat) - N; lat = Math.atan2(z, p * (1 - e2 * N / (N + h))); }
-	return [lon, lat, h];
-}
-// 手打ちデモ：読み込んで札幌中央区へカメラも寄せる（自動と違いカメラを動かす）。
-window.__plateau = async (base, tiles) => {
-	base = base || PLATEAU_SETS[0].base;
-	await loadPlateau(base, tiles);
-	cam.center = [141.354, 43.061]; cam.zoom = 15; cam.pitch = 45 * D2R; cam.bearing = 0;   // 札幌中央区・傾けて建物を見る
-	plateauLoaded = PLATEAU_SETS[0].name;
+// 実体（fetch/デコード/ECEF/RTE/被覆マスク）は全て plateauworker.js（メインスレッドをブロックしないためworker化）。
+// 手打ちデモ：地区名(部分一致)かbase URLを指定して読み込み、カメラもそこへ寄せる（自動と違いカメラを動かす）。省略時は登録簿の先頭。
+window.__plateau = async (nameOrBase, tiles) => {
+	const set = !nameOrBase ? PLATEAU_SETS[0]
+		: PLATEAU_SETS.find(s => s.base === nameOrBase || s.name === nameOrBase || s.name.includes(nameOrBase));
+	if (!set) { console.error("[plateau] 地区が見つかりません:", nameOrBase, `（登録簿 ${PLATEAU_SETS.length} 件）`); return; }
+	const ok = await loadPlateau(set.base, tiles, set.name);
+	if (ok) plateauActive.set(set.name, set);
+	const [w, s, e, n] = set.bbox;
+	cam.center = [(w + e) / 2, (s + n) / 2]; cam.zoom = 15; cam.pitch = 45 * D2R; cam.bearing = 0;   // 地区中心・傾けて建物を見る
 	onMove();
-	console.log("[plateau] 完了 → 札幌中央区 z15 tilt45°。右ドラッグで傾け調整");
+	console.log(`[plateau] 完了 → ${set.name} z15 tilt45°。右ドラッグで傾け調整`);
 };
 
-// ロード本体（カメラは動かさない）：tileset → 葉タイル → デコード → RTE delta + 被覆マスク → renderer へ。
-async function loadPlateau(base, tiles) {
-	if (plateauCache.has(base)) { renderer.set("plateauMesh", plateauCache.get(base)); needsDraw = true; console.log("[plateau] キャッシュ命中（fetch/解凍スキップ）", base); return; }
-	if (!tiles) {
-		// REPLACE refine：親(粗)と子(詳細)が同じ場所を覆う→両方読むと重なって z-fight(マダラ)。
-		// 子を持たない「葉」タイルだけ読む＝最詳細 LOD2 が重なりなしで並ぶ。
-		const ts = await (await fetch(base + "tileset.json")).json();
-		const leaves = [];
-		(function walk(t) { if (!t) return; const ch = t.children || []; if (!ch.length) { if (t.content?.uri) leaves.push(t.content.uri); } else ch.forEach(walk); })(ts.root);
-		tiles = leaves;
-		console.log("[plateau] 葉タイル:", tiles.length, "枚");
-	}
-	console.log("[plateau] 読込", tiles.length, "tiles ←", base);
-	const geo = [], outNrm = [], outIdx = []; let vbase = 0, minH = Infinity;
-	for (const t of tiles) {
-		try {
-			const ab = await (await fetch(base + t)).arrayBuffer();
-			const tile = await loadParse(ab, Tiles3DLoader, { "3d-tiles": { loadGLTF: true } });
-			const rtc = tile.rtcCenter || tile.gltf?.extensions?.CESIUM_RTC?.center || [0, 0, 0];
-			for (const m of (tile.gltf?.meshes || [])) for (const pr of (m.primitives || [])) {
-				const P = pr.attributes?.POSITION?.value; if (!P) continue;
-				const NRM = pr.attributes?.NORMAL?.value;
-				const I = pr.indices?.value, n = P.length / 3, off = vbase;
-				for (let i = 0; i < n; i++) {
-					// local(Y-up)→ECEF：Yup→Zup(x,-z,y)＋RTC → geodetic(lon,lat,h) を一旦保持
-					const ex = P[i*3] + rtc[0], ey = -P[i*3+2] + rtc[1], ez = P[i*3+1] + rtc[2];
-					const g = ecef2geo(ex, ey, ez);
-					if (g[2] < minH) minH = g[2];
-					geo.push(g[0], g[1], g[2]);
-					// 法線：glTF(Y-up local)→ortho は方向を (nx, ny, -nz)（Yup→Zup＋ECEF→ortho軸swap の合成）。符号は FS で視線側へ。
-					if (NRM) outNrm.push(NRM[i*3], NRM[i*3+1], -NRM[i*3+2]); else outNrm.push(0, 1, 0);
-				}
-				if (I) for (let k = 0; k < I.length; k++) outIdx.push(I[k] + off);
-				else for (let k = 0; k < n; k++) outIdx.push(off + k);
-				vbase += n;
-			}
-		} catch (e) { console.warn("[plateau] tile 失敗", t, e.message); }
-	}
-	if (!outIdx.length) { console.error("[plateau] メッシュ0＝デコード/変換失敗"); return; }
-	// 重複三角形（double-sided/coincident 面）除去＝マダラ(z-fight)の元を断つ。頂点位置(丸め)の3つ組で判定＝巻き順・頂点共有に非依存。
-	const vkey = i => Math.round(geo[i*3] * 1e8) + "_" + Math.round(geo[i*3+1] * 1e8) + "_" + Math.round(geo[i*3+2] * 10);
-	const seen = new Set(), dedupIdx = [];
-	for (let k = 0; k < outIdx.length; k += 3) {
-		const key = [vkey(outIdx[k]), vkey(outIdx[k+1]), vkey(outIdx[k+2])].sort().join("|");
-		if (seen.has(key)) continue;
-		seen.add(key); dedupIdx.push(outIdx[k], outIdx[k+1], outIdx[k+2]);
-	}
-	console.log("[plateau] dedup 面: %d → %d", outIdx.length/3, dedupIdx.length/3);
-	outIdx.length = 0; for (const v of dedupIdx) outIdx.push(v);
-	// bbox(deg)：基図建物マスクの範囲＋足元グリッドの範囲に使う。geo は rad なので deg へ。
-	const M = geo.length / 3;
-	let minLon = Infinity, minLat = Infinity, maxLon = -Infinity, maxLat = -Infinity;
-	for (let i = 0; i < M; i++) { const lo = geo[i*3], la = geo[i*3+1]; if (lo<minLon) minLon=lo; if (lo>maxLon) maxLon=lo; if (la<minLat) minLat=la; if (la>maxLat) maxLat=la; }
-	const R2D = 180 / Math.PI, bbox = [minLon*R2D, minLat*R2D, maxLon*R2D, maxLat*R2D];
-	// 足元の浮き対策：global minH で一律に持ち上げると ward の起伏で高地の建物が浮く／低い外れ頂点1つで全体が浮く。
-	// 局所地面グリッド（セル毎の最低標高）を足元にして各頂点を置く＝建物ごとに接地。ground[cell]≤h なので radius≥1、基礎頂点は radius1。
-	const GN = 256, ground = new Float32Array(GN*GN).fill(Infinity);
-	const gLo = (maxLon-minLon)||1e-12, gLa = (maxLat-minLat)||1e-12;
-	const cellOf = i => { let gx=(geo[i*3]-minLon)/gLo*GN|0, gy=(geo[i*3+1]-minLat)/gLa*GN|0; if(gx<0)gx=0;else if(gx>GN-1)gx=GN-1; if(gy<0)gy=0;else if(gy>GN-1)gy=GN-1; return gy*GN+gx; };
-	for (let i = 0; i < M; i++) { const c = cellOf(i), h = geo[i*3+2]; if (h < ground[c]) ground[c] = h; }
-	// RTE-lite：単位球の絶対座標は float32 だと建物1棟が~60段階に量子化される（半径6.37e6 vs 建物50m=8e-6、刻み~1.2e-7）
-	// → 面が重なり z-fight＝淵マダラ／カメラで丸めが動き座標ちらつき。重心(origin)相対の delta を渡し精度を桁で戻す（本家Cesium と同じRTE）。
-	const wpos = new Float64Array(geo.length);            // 単位球 絶対座標（float64 で正確に保持）
-	let ox = 0, oy = 0, oz = 0;
-	for (let i = 0; i < M; i++) {
-		const lon = geo[i*3], lat = geo[i*3+1], cb = Math.cos(lat), r = 1 + (geo[i*3+2] - ground[cellOf(i)]) / EARTH_M;   // 局所足元からの高さ＝接地
-		const x = cb*Math.cos(lon)*r, y = Math.sin(lat)*r, z = cb*Math.sin(lon)*r;
-		wpos[i*3] = x; wpos[i*3+1] = y; wpos[i*3+2] = z; ox += x; oy += y; oz += z;
-	}
-	const origin = [ox / M, oy / M, oz / M];              // メッシュ重心＝画面上の錨（粗くて可、細部は delta が担う）
-	const outPos = new Float32Array(geo.length);          // 重心相対 delta（float32 でフル精度）
-	for (let i = 0; i < M; i++) {
-		outPos[i*3] = wpos[i*3] - origin[0]; outPos[i*3+1] = wpos[i*3+1] - origin[1]; outPos[i*3+2] = wpos[i*3+2] - origin[2];
-	}
-	// 被覆マスク：bbox を N×N セルに割り、三角形が触れたセルを立てる。基図建物はこのマスクが立つ所（＝実フットプリント）
-	// だけ伏せる＝矩形一枚(bbox)だと区の非矩形部や街区・公園まで伏せて空白地帯が出る問題を、セル単位で解消。
-	const MASK_N = 256, mask = new Uint8Array(MASK_N * MASK_N);
-	const spanLo = (maxLon - minLon) || 1e-12, spanLa = (maxLat - minLat) || 1e-12;
-	for (let t = 0; t < outIdx.length; t += 3) {
-		const a = outIdx[t], b = outIdx[t+1], c = outIdx[t+2];
-		const lo0 = geo[a*3], lo1 = geo[b*3], lo2 = geo[c*3], la0 = geo[a*3+1], la1 = geo[b*3+1], la2 = geo[c*3+1];
-		let cx0 = (Math.min(lo0,lo1,lo2) - minLon) / spanLo * MASK_N | 0, cx1 = (Math.max(lo0,lo1,lo2) - minLon) / spanLo * MASK_N | 0;
-		let cy0 = (Math.min(la0,la1,la2) - minLat) / spanLa * MASK_N | 0, cy1 = (Math.max(la0,la1,la2) - minLat) / spanLa * MASK_N | 0;
-		if (cx0 < 0) cx0 = 0; if (cy0 < 0) cy0 = 0; if (cx1 > MASK_N-1) cx1 = MASK_N-1; if (cy1 > MASK_N-1) cy1 = MASK_N-1;
-		for (let y = cy0; y <= cy1; y++) { const row = y*MASK_N; for (let x = cx0; x <= cx1; x++) mask[row+x] = 255; }
-	}
-	let cov = 0; for (let i = 0; i < mask.length; i++) if (mask[i]) cov++;
-	console.log("[plateau] verts=%d tris=%d minH=%sm origin=[%s] bbox=[%s] mask=%d/%d", M, outIdx.length/3, minH.toFixed(1), origin.map(v=>v.toFixed(4)).join(","), bbox.map(v=>v.toFixed(4)).join(","), cov, MASK_N*MASK_N);
-	const meshData = { pos: outPos, nrm: new Float32Array(outNrm), idx: new Uint32Array(outIdx), origin, bbox, mask, maskN: MASK_N };
-	plateauCache.set(base, meshData);                 // デコード結果をメモリ保持＝再訪でfetch/Draco解凍を丸ごと省略
-	renderer.set("plateauMesh", meshData);
+// ロード本体（カメラは動かさない）：重い処理は plateauworker.js に丸投げし、戻ってきたメッシュを renderer へ渡すだけ。
+// name=renderer側の登録キー（地区名）。成功可否を bool で返す＝呼び出し側が plateauActive に加えるかの判断に使う。
+async function loadPlateau(base, tiles, name) {
+	const meshData = await workerLoadPlateau(base, tiles);
+	if (!meshData) return false;
+	renderer.set("plateauMesh", meshData, name);
 	needsDraw = true;
 	console.log("[plateau] 完了", base);
+	return true;
 }
 
 function resize() {
