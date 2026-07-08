@@ -7,7 +7,6 @@ createGeopbf("https://api.ortho-earth.com");   // bucket 基盤（標高と同�
 import style from "./style-mono.js";
 import { createThemes, defaultLayerState, CHOME_MINZOOM, RAILTR_MINZOOM } from "./themes.js";
 import { createOverlay } from "./overlay.js";
-import { createTerrain } from "./terrain.js";
 import { createPipeline } from "./pipeline.js";
 import { d3diff } from "./d3diff.js";
 
@@ -36,12 +35,22 @@ const renderWorker = new Worker(new URL("./renderworker.js", import.meta.url), {
 // scene worker → render worker の直結パイプ（main を経由しない geometry）。両端を各 worker へ渡す。
 const sceneChan = new MessageChannel();
 const gintSyncChan = new MessageChannel();   // render worker → gint worker：海岸線を地図フレームに従属（スライド消滅）
-renderWorker.postMessage({ type: "init", canvas: offscreen, labelCanvas: labelOffscreen, elevBase: TERR_EXAG / EARTH_M, scenePort: sceneChan.port2, gintSyncPort: gintSyncChan.port1 }, [offscreen, labelOffscreen, sceneChan.port2, gintSyncChan.port1]);
-// 薄いプロキシ：有線(関数呼び)を無線(postMessage)に載せ替え。set/draw 統一済なので pipeline/terrain/overlay は無改造。
+renderWorker.postMessage({ type: "init", canvas: offscreen, labelCanvas: labelOffscreen, elevBase: TERR_EXAG / EARTH_M, terrainExag: TERR_EXAG, earthM: EARTH_M, apiUrl: "https://api.ortho-earth.com", scenePort: sceneChan.port2, gintSyncPort: gintSyncChan.port1 }, [offscreen, labelOffscreen, sceneChan.port2, gintSyncChan.port1]);
+// 薄いプロキシ：有線(関数呼び)を無線(postMessage)に載せ替え。set/draw 統一済なので pipeline/overlay は無改造。
 // draw は worker 側で「cam を記録するだけ」に受け、実描画は worker 自前 rAF が最新 cam で回す（worker-driven）。
+// 標高アトラス(terrain)も worker 側に住む＝main はもう視野→セル計算・ダウンサンプルを一切やらない。読込インジケータだけ elevPending で受ける。
 const renderer = {
 	set: (cmd, data, prop) => renderWorker.postMessage({ type: "set", cmd, data, prop }),
 	draw: (cam, opts) => renderWorker.postMessage({ type: "draw", cam, opts }),
+};
+const elevEl = document.createElement("div");
+elevEl.style.cssText = "position:fixed;bottom:44px;left:10px;font-size:12px;color:#4a5568;background:rgba(255,255,255,.85);padding:5px 11px;border-radius:6px;-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);display:none;z-index:6;";
+document.body.appendChild(elevEl);
+renderWorker.onmessage = e => {
+	if (e.data.type !== "elevPending") return;
+	const { count, range } = e.data;
+	if (count > 0) { elevEl.style.display = "block"; elevEl.textContent = `⛰ 地形読込中 ${range === 1 ? "R01（秒単位・JAXA）" : range === 10 ? "R10" : "R90"} … ×${count}`; }
+	else elevEl.style.display = "none";
 };
 
 let needsDraw = true, readySig = "", lastLabels = [], sceneOrigin = null;
@@ -352,11 +361,9 @@ function swapScene(order) {
 	requestMerge("main", order, sceneOrigin, themes.hiddenLi(layerState, cam.zoom));   // 結合は scene worker（非同期）→ render worker へ直行
 	lastLabels = themes.filterLabels(tiles.labels(order), layerState, cam.zoom).map(L => {
 		// 都道府県は大きく薄い背景ラベルに（コピーしてキャッシュ側を壊さない）。他はそのまま。
-		const o = L.code === 140 ? { ...L, size: L.size * 1.25, color: [L.color[0], L.color[1], L.color[2], L.color[3] * 0.5] } : L;
-		o.elev = terrain.sampleElev(L.anchor[0], L.anchor[1]);   // 標高付与（傾き時に地物と一致）
-		return o;
+		return L.code === 140 ? { ...L, size: L.size * 1.25, color: [L.color[0], L.color[1], L.color[2], L.color[3] * 0.5] } : L;
 	});
-	renderer.set("labels", lastLabels);   // ラベル集合を render worker へ（worker が地図と同じ draw で描画＝同期）
+	renderer.set("labels", lastLabels);   // ラベル集合を render worker へ。標高付与(sampleElev)も terrain と一緒に worker 側で行う（同期して描く）
 	readySig = sig; zoomAtBuild = cam.zoom;
 }
 
@@ -396,16 +403,13 @@ resetBtn.addEventListener("click", () => {
 	requestAnimationFrame(step);
 });
 
-// 標高アトラス（altpbf 多解像度・R90/R10/R01）。実装は terrain.js。
-// ensure() を毎フレーム呼び、sampleElev() でラベル標高を得る（傾き時に地物と一致）。
-const terrain = createTerrain({ renderer, cam, size, requestDraw: () => { needsDraw = true; }, exag: TERR_EXAG, earthM: EARTH_M, apiUrl: "https://api.ortho-earth.com" });
-
 function render() {
 	// パン/チルト中（ズーム不変）は詳細も再結合。ズーム中はLODポップ回避で停止まで待つ。
 	const zoomStable = Math.abs(cam.zoom - zoomAtBuild) < 0.12;
 	// 地形アトラスもズーム中は再構築しない：cellRes/セル数が連続変化して全再ロード＆勾配密度の跳びで
-	// 陰影がチラつくため。ズーム中は現アトラスを再投影（球面メッシュなので拡縮は追従）、停止後に再構築。
-	renderer.draw(cam, { skipBase: !moving, noTerrain: cam.zoom < BASEMAP_MINZOOM });     // 先に最新camをworkerへ（全球=z<4は地形オフ）。海岸線は render worker が従属で追随
+	// 陰影がチラつくため（terrainGate＝render worker 側の terrain.ensure() 呼び出しを止める合図）。
+	// ズーム中は現アトラスを再投影（球面メッシュなので拡縮は追従）、停止後に再構築。
+	renderer.draw(cam, { skipBase: !moving, noTerrain: cam.zoom < BASEMAP_MINZOOM, terrainGate: !moving || zoomStable });     // 先に最新camをworkerへ（全球=z<4は地形オフ）。海岸線は render worker が従属で追随
 	// 全球ビュー（z<4）：基図(GSI)の詳細は不要＝タイル/結合/地形を止め、基図シーンを空に＝海岸線(gint)だけの軽い地球。
 	// これで pan 中も main の毎フレーム負荷（tiles.update/merge/terrain）が消える。
 	if (cam.zoom < BASEMAP_MINZOOM) {
@@ -421,7 +425,6 @@ function render() {
 		return;
 	}
 	basemapHidden = false;
-	if (!moving || zoomStable) terrain.ensure();
 	const { order, coarseOrder, total } = tiles.update(cam, size.w, size.h);
 	swapBase(coarseOrder);                          // 粗い下地は常に敷く（移動中も）＝先端の空白を無くす
 	if (!moving || zoomStable) swapScene(order);
