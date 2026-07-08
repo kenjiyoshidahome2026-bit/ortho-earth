@@ -73,6 +73,14 @@ export default {
 					16, ["match", ["get", "vt_rdctg"], "高速自動車国道等", 8.0, 5.5]],
 			},
 		},
+		// 航路 点火：海の淡青（フェリー等の航路＝WRltLine vt_code 5902。z13以下のタイルにのみ存在＝俯瞰で見える線）。
+		// themes.js が道路チップに相乗りさせる（hiddenLi）＝道路ONで一緒に点く。破線は capsule 未対応のため実線・細め。
+		{
+			id: "kouro", type: "line", "source-layer": "WRltLine",
+			filter: ["==", ["get", "vt_code"], 5902],
+			layout: { "line-cap": "round" },
+			paint: { "line-color": "#7aa8cf", "line-width": ["interpolate", ["linear"], ["zoom"], 8, 0.8, 13, 1.6], "line-opacity": 0.85 },
+		},
 		// 行政区域 点火：暖かいオレンジ
 		{
 			id: "admin-hi", type: "line", "source-layer": "AdmBdry",
