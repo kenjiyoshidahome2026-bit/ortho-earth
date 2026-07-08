@@ -73,23 +73,43 @@ async function loadPlateau(base, tiles) {
 	console.log("[plateau] 読込", tiles.length, "tiles ←", base);
 	const geo = [], outNrm = [], outIdx = []; let vbase = 0, minH = Infinity;
 	function mergeTile(tile) {
-		const rtc = tile.rtcCenter || tile.gltf?.extensions?.CESIUM_RTC?.center || [0, 0, 0];
-		for (const m of (tile.gltf?.meshes || [])) for (const pr of (m.primitives || [])) {
-			const P = pr.attributes?.POSITION?.value; if (!P) continue;
-			const NRM = pr.attributes?.NORMAL?.value;
-			const I = pr.indices?.value, n = P.length / 3, off = vbase;
-			for (let i = 0; i < n; i++) {
-				// local(Y-up)→ECEF：Yup→Zup(x,-z,y)＋RTC → geodetic(lon,lat,h) を一旦保持
-				const ex = P[i*3] + rtc[0], ey = -P[i*3+2] + rtc[1], ez = P[i*3+1] + rtc[2];
-				const g = ecef2geo(ex, ey, ez);
-				if (g[2] < minH) minH = g[2];
-				geo.push(g[0], g[1], g[2]);
-				// 法線：glTF(Y-up local)→ortho は方向を (nx, ny, -nz)（Yup→Zup＋ECEF→ortho軸swap の合成）。符号は FS で視線側へ。
-				if (NRM) outNrm.push(NRM[i*3], NRM[i*3+1], -NRM[i*3+2]); else outNrm.push(0, 1, 0);
+		const tileRtc = tile.rtcCenter || tile.gltf?.extensions?.CESIUM_RTC?.center;
+		// 新しめの地区(2025年生成・nusamai-gltf製)はCESIUM_RTC拡張を使わず、mesh参照ノードの translation/matrix に
+		// ECEF平行移動を持たせる（生glTFの標準的な位置付け方）。それを見落とすとローカル座標(建物規模=数十m)を
+		// そのままECEF絶対座標として扱ってしまい、地球中心近くに縮退する（bbox破壊＝画面外に消える）。
+		// mesh(オブジェクト参照)→そのnodeのtranslation のマップを1回だけ作る。
+		// node.translation は（頂点POSITIONと同じく）glTFのY-upローカル座標系＝CESIUM_RTC.centerとは異なりECEF化されて
+		// いない。頂点と同じYup→Zup軸入替(x,-z,y)を適用してから使う（生のまま使うと磁北ではなく南半球の別地点へ飛ぶ）。
+		const nodeTranslationByMesh = new Map();
+		for (const nd of (tile.gltf?.nodes || [])) {
+			if (!nd.mesh) continue;
+			const t = nd.translation || (nd.matrix ? [nd.matrix[12], nd.matrix[13], nd.matrix[14]] : null);
+			if (t) nodeTranslationByMesh.set(nd.mesh, [t[0], -t[2], t[1]]);
+		}
+		for (const m of (tile.gltf?.meshes || [])) {
+			const rtc = tileRtc || nodeTranslationByMesh.get(m) || [0, 0, 0];
+			// 保険：rtcが地表から明らかに外れていたら(=CESIUM_RTCもnode.translationも見つからなかった/壊れていた)
+			// そのmeshは丸ごと捨てる。ローカル座標をECEF原点近くに置いたまま混ぜるとbboxが全球に壊れ、
+			// カメラ位置・被覆マスク・基図建物の伏せ判定まで巻き込んで壊すため、ここで弾くのが最も安全。
+			const rtcR = Math.hypot(rtc[0], rtc[1], rtc[2]);
+			if (rtcR < 6200000 || rtcR > 6500000) { console.warn("[plateau] mesh 破棄（rtc異常）", rtc); continue; }
+			for (const pr of (m.primitives || [])) {
+				const P = pr.attributes?.POSITION?.value; if (!P) continue;
+				const NRM = pr.attributes?.NORMAL?.value;
+				const I = pr.indices?.value, n = P.length / 3, off = vbase;
+				for (let i = 0; i < n; i++) {
+					// local(Y-up)→ECEF：Yup→Zup(x,-z,y)＋RTC → geodetic(lon,lat,h) を一旦保持
+					const ex = P[i*3] + rtc[0], ey = -P[i*3+2] + rtc[1], ez = P[i*3+1] + rtc[2];
+					const g = ecef2geo(ex, ey, ez);
+					if (g[2] < minH) minH = g[2];
+					geo.push(g[0], g[1], g[2]);
+					// 法線：glTF(Y-up local)→ortho は方向を (nx, ny, -nz)（Yup→Zup＋ECEF→ortho軸swap の合成）。符号は FS で視線側へ。
+					if (NRM) outNrm.push(NRM[i*3], NRM[i*3+1], -NRM[i*3+2]); else outNrm.push(0, 1, 0);
+				}
+				if (I) for (let k = 0; k < I.length; k++) outIdx.push(I[k] + off);
+				else for (let k = 0; k < n; k++) outIdx.push(off + k);
+				vbase += n;
 			}
-			if (I) for (let k = 0; k < I.length; k++) outIdx.push(I[k] + off);
-			else for (let k = 0; k < n; k++) outIdx.push(off + k);
-			vbase += n;
 		}
 	}
 	// タイル取得+デコードを並行プールで回す（直列fetchは1枚ごとの往復レイテンシが数百枚積み上がり支配的になる）。
@@ -100,7 +120,10 @@ async function loadPlateau(base, tiles) {
 			const t = tiles[ti++];
 			try {
 				const ab = await (await fetch(resolveUrl(base, t))).arrayBuffer();
-				const tile = await loadParse(ab, Tiles3DLoader, { "3d-tiles": { loadGLTF: true } });
+				// 一部地区(2025年生成・nusamai-gltf製)の葉は生glTF(.glb)でEXT_mesh_features/EXT_structural_metadataを使う。
+				// 属性メタデータ用の拡張＝POSITION/NORMAL/indicesしか使わない我々には不要な上、このloaders.glバージョンの
+				// デコーダが特定の構成で assert failed: gltf を投げるため丸ごと除外する。
+				const tile = await loadParse(ab, Tiles3DLoader, { "3d-tiles": { loadGLTF: true }, gltf: { excludeExtensions: { EXT_mesh_features: false, EXT_structural_metadata: false } } });
 				mergeTile(tile);
 			} catch (e) { console.warn("[plateau] tile 失敗", t, e.message); }
 		}
