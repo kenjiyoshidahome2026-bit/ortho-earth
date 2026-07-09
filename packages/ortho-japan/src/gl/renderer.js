@@ -313,6 +313,13 @@ export function createRenderer(canvas) {
 			gl.depthMask(terrainDepth);
 			if (terrainDepth) { gl.enable(gl.POLYGON_OFFSET_FILL); gl.polygonOffset(1.0, 4.0); }
 			setCommonUniforms(terrainProg, st, [0, 0], land);
+			// 地形だけフォグを「遠山ブルー」に：空気遠近法＝遠くの山は青く霞む。地平線の山並みが
+			// 説明不要で"山"として読める（基図の線/塗りは従来どおり紙色へフェードアウト＝浮かない）。
+			// 距離も地形だけ半分に詰める＝中景の山並み（80-150km）にしっかり青が乗る。
+			const dc = view.distColor || [0.63, 0.72, 0.83];
+			gl.uniform3f(loc(gl, terrainProg, "u_fogColor"), dc[0], dc[1], dc[2]);
+			gl.uniform1f(loc(gl, terrainProg, "u_fogNear"), st.camDist * 1.2);
+			gl.uniform1f(loc(gl, terrainProg, "u_fogFar"), st.camDist * 5.0);
 			gl.uniform3f(loc(gl, terrainProg, "u_land"), land[0], land[1], land[2]);
 			gl.bindVertexArray(terrain.vao);
 			gl.drawElements(gl.TRIANGLES, terrain.count, gl.UNSIGNED_INT, 0);
