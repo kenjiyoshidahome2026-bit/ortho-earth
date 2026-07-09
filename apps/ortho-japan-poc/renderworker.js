@@ -96,9 +96,9 @@ function frame() {
 			// noTerrain＝全球ビュー(z<4)では地形そのものが不要。
 			if (terrain && !opts?.noTerrain && opts?.terrainGate !== false) ensureIfMoved();
 			if (gintSyncPort) gintSyncPort.postMessage({ cam });     // 海岸線(gint)へ先に転送＝GL描画と並走して同じvsyncに乗せる（描画後に送ると常に1フレーム遅れる）
-			renderer.draw(cam, opts);                                // cameraState=mvp生成 + GL描画（軽い）
+			const fogAnim = renderer.draw(cam, opts);                // cameraState=mvp生成 + GL描画（軽い）。true=フォグ追従が収束中
 			const animating = labelLayer && labelLayer.draw(cam);    // ラベルも同じ cam で（＝完全同期）
-			if (animating) dirty = true;                             // フェード継続は自前で次フレーム（main関与なし）
+			if (animating || fogAnim) dirty = true;                  // フェード/フォグ追従の継続は自前で次フレーム（main関与なし）
 		}
 	} catch (e) {
 		console.error("[render] frame例外（このフレームは破棄して継続）", e?.message, e?.stack);

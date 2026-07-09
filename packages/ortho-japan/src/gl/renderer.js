@@ -298,11 +298,16 @@ export function createRenderer(canvas) {
 		gl.viewport(0, 0, canvas.width, canvas.height);
 		const st = cameraState(cam, canvas.width, canvas.height);
 		st.mvp32 = Float32Array.from(st.mvp);
-		// フォグ距離（遠山ブルーの帯・遠景平坦化dfの境界）はズーム中凍結：camDist比例のため、ズーム中に
-		// 霞と平坦化境界が画面を掃いてチラチラする。ジェスチャー開始時の値で固定し、静止後に追随
-		// （terrainGate=false は main からの「ズーム進行中」通知。アトラス再構築の凍結と同じ方針）。
-		if (!(opts && opts.terrainGate === false) || !fogDist) fogDist = st.camDist;
+		// フォグ距離（遠山ブルーの帯・遠景平坦化dfの境界）は camDist へ滑らかに追従（臨界減衰）：
+		// 直結だとホイール1ノッチ毎に霞の帯が跳んでチラチラし、凍結だとズームアウトで旧距離の霞が
+		// 画面を覆ってから静止時にパッと晴れる（不自然）。ローパスなら両方向とも霞が滑らかに動く。
+		if (!fogDist) fogDist = st.camDist;
+		else fogDist += (st.camDist - fogDist) * 0.18;
+		if (Math.abs(st.camDist - fogDist) < st.camDist * 0.002) fogDist = st.camDist;
 		st.fogDist = fogDist;
+		const fogAnimating = fogDist !== st.camDist;   // 収束まで追加フレームを要求（呼び出し側が dirty 継続）
+		// 視程下限のチルト係数（20°→46°）：真俯瞰0＝平面地図の縁を青く染めない／傾けるほど実距離の視程が効く
+		const pfFog = Math.max(0, Math.min(1, ((cam.pitch || 0) - 0.35) / 0.45));
 		// 真俯瞰では標高オフ、傾けるほどフェードイン（3.4°→11.5°）
 		const pt = Math.max(0, Math.min(1, ((cam.pitch || 0) - 0.06) / 0.14));
 		const pf = pt * pt * (3 - 2 * pt);
@@ -358,8 +363,10 @@ export function createRenderer(canvas) {
 			// 165km（快晴の山岳視程）までは霞み切らない＝八ヶ岳から中央・北アルプスが青い山並みとして残る。
 			const dc = view.distColor || [0.63, 0.72, 0.83];
 			gl.uniform3f(loc(gl, terrainProg, "u_fogColor"), dc[0], dc[1], dc[2]);
-			gl.uniform1f(loc(gl, terrainProg, "u_fogNear"), Math.max(st.fogDist * 1.2, 0.008));
-			gl.uniform1f(loc(gl, terrainProg, "u_fogFar"), Math.max(st.fogDist * 5.0, 0.026));
+			// 視程の下限（50km/165km）はチルト連動：真俯瞰では0＝純camDist比例（見下ろす平面地図の縁が
+			// 青く染まるのを防ぐ）。傾けるほど（20°→46°）横に大気を見通す＝実距離の視程が効く。
+			gl.uniform1f(loc(gl, terrainProg, "u_fogNear"), Math.max(st.fogDist * 1.2, 0.008 * pfFog));
+			gl.uniform1f(loc(gl, terrainProg, "u_fogFar"), Math.max(st.fogDist * 5.0, 0.026 * pfFog));
 			gl.uniform3f(loc(gl, terrainProg, "u_land"), land[0], land[1], land[2]);
 			gl.bindVertexArray(terrain.vao);
 			gl.drawElements(gl.TRIANGLES, terrain.count, gl.UNSIGNED_INT, 0);
@@ -398,7 +405,7 @@ export function createRenderer(canvas) {
 		const slots = (opts && opts.skipBase) ? ["main"] : ["base", "main"];   // 静止時は下地を隠しLOD痕を消す
 		// 線・塗りのフォグ終端は地形と同一式＝地形が完全に霞んだ先に線だけ生き残って「空に浮く白線」に
 		// なるのを構造的に防ぐ。シェーダの遠景平ら化(df)も u_fogFar 基準なので、同値なら線は地形に厳密追随する。
-		const fogFarCap = Math.max(st.fogDist * 5.0, 0.026);
+		const fogFarCap = Math.max(st.fogDist * 5.0, 0.026 * pfFog);
 		for (const slot of slots) {   // 粗い下書き→現ズームの順
 			const scene = scenes[slot];
 			if (!scene.draws.length) continue;
@@ -465,6 +472,7 @@ export function createRenderer(canvas) {
 		}
 		gl.disable(gl.DEPTH_TEST);
 		gl.bindVertexArray(null);
+		return fogAnimating;   // true＝フォグ距離が収束中（呼び出し側は次フレームも描く）
 	}
 
 	function disposeSlot(slot) {
