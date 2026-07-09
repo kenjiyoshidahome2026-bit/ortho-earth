@@ -13,9 +13,22 @@ const nowMs = () => (typeof performance !== "undefined" ? performance.now() : Da
 // elevBase = 誇張/地球半径m（地物の u_elevScale の pitch非依存部分）。各ラベルを L.elev(m) 分だけ
 // 地形に乗せて投影＝傾き時に地物とラベルの位置が一致する（標高視差のズレを解消）。
 export function createLabelLayer(canvas, { pad = 5, fade = 0.3, recollideMs = 150, shieldFor = null, elevBase = 0 } = {}) {
-	// pitch ゲート（renderer と同式）。真俯瞰0→11.5°で全開。
-	const pitchScale = pitch => { const t = Math.max(0, Math.min(1, ((pitch || 0) - 0.06) / 0.14)); return elevBase * t * t * (3 - 2 * t); };
-	const radiusOf = (L, eScale) => 1 + (L.elev || 0) * eScale;
+	// pitch ゲート（renderer と同式）。真俯瞰0→11.5°で全開。cityFlat（z13.5→16で地形が平らになる）も
+	// 同式で畳む＝地形が沈むのにラベルだけ持ち上がったまま「浮く」のを防ぐ。
+	const pitchScale = (pitch, zoom) => {
+		const t = Math.max(0, Math.min(1, ((pitch || 0) - 0.06) / 0.14));
+		const cf = 1 - Math.max(0, Math.min(1, ((zoom || 0) - 13.5) / 2.5));
+		return elevBase * t * t * (3 - 2 * t) * cf;
+	};
+	// 標高の持ち上げは地形の遠景平坦化(df・TERRAIN_VSと同式)にも追随＝平坦化された遠くの山の上で
+	// ラベルだけがフル標高で浮かない。fogF=フォグ終端（renderer の fogFarCap と同式・camDist近似）。
+	const radiusOf = (L, eScale, st, fogF) => {
+		if (!L.elev || !eScale) return 1;
+		const v = lonlatTo3D(L.anchor[0], L.anchor[1]);
+		const d = Math.hypot(v[0] - st.eye[0], v[1] - st.eye[1], v[2] - st.eye[2]);
+		const t = Math.max(0, Math.min(1, (d - fogF * 0.8) / (fogF * 1.2)));
+		return 1 + L.elev * eScale * (1 - t * t * (3 - 2 * t));
+	};
 	const ctx = canvas.getContext("2d");
 	let labels = [];
 	const fades = new Map();        // key → 不透明度（フェード）
@@ -35,12 +48,12 @@ export function createLabelLayer(canvas, { pad = 5, fade = 0.3, recollideMs = 15
 	}
 
 	// 衝突判定（優先度順の貪欲）。当選集合 winners を更新。
-	function collide(st, dpr, Wc, Hc, eScale, showFlat) {
+	function collide(st, dpr, Wc, Hc, eScale, showFlat, fogF) {
 		const placed = [], w = new Map();
 		let font = "";
 		for (const L of labels) {
 			if (L.flat && !showFlat) continue;   // 傾けたら測量点(真俯瞰の作法)は当選集合から外す＝以降フェードアウト（等高線と対称）
-			const [dx, dy, front] = project(st, L.anchor[0], L.anchor[1], radiusOf(L, eScale));
+			const [dx, dy, front] = project(st, L.anchor[0], L.anchor[1], radiusOf(L, eScale, st, fogF));
 			if (front < 0) continue;
 			const sx = dx / dpr, sy = dy / dpr;
 			const shield = shieldFor && shieldFor(L);
@@ -69,11 +82,14 @@ export function createLabelLayer(canvas, { pad = 5, fade = 0.3, recollideMs = 15
 	function draw(cam) {
 		const dpr = cam.dpr || 1, W = canvas.width, H = canvas.height, Wc = W / dpr, Hc = H / dpr;
 		const st = cameraState(cam, W, H);
-		const eScale = pitchScale(cam.pitch);          // 標高→単位球（pitch連動、地物と同式）
+		const eScale = pitchScale(cam.pitch, cam.zoom);   // 標高→単位球（pitch・cityFlat連動、地物と同式）
+		// フォグ終端（renderer の fogFarCap と同式・camDist近似）＝遠景平坦化 df の基準
+		const pfFog = Math.max(0, Math.min(1, ((cam.pitch || 0) - 0.35) / 0.45));
 		const showFlat = (cam.pitch || 0) < 0.06;      // 等高線と同じゲート（pitch 0.06rad で 3D と入れ替わり消える）
 		const now = nowMs();
 		if (showFlat !== lastShowFlat) { dirty = true; lastShowFlat = showFlat; }   // 閾値跨ぎで即再衝突判定→flat を外す/戻す
-		if (dirty || now - lastCollide > recollideMs) { collide(st, dpr, Wc, Hc, eScale, showFlat); lastCollide = now; dirty = false; }
+		const fogF = Math.max(st.camDist * 5.0, 0.026 * pfFog);
+		if (dirty || now - lastCollide > recollideMs) { collide(st, dpr, Wc, Hc, eScale, showFlat, fogF); lastCollide = now; dirty = false; }
 
 		ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, W, H); ctx.scale(dpr, dpr);
 		ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.lineJoin = "round"; ctx.miterLimit = 2;
@@ -90,7 +106,7 @@ export function createLabelLayer(canvas, { pad = 5, fade = 0.3, recollideMs = 15
 			let op = fades.get(k) ?? 0; op += (target - op) * fade;
 			if (target ? op > 0.99 : op < 0.02) { op = target; if (!op) { fades.delete(k); continue; } } else animating = true;
 			fades.set(k, op);
-			const [dx, dy, front] = project(st, L.anchor[0], L.anchor[1], radiusOf(L, eScale));   // ライブ投影（標高込み）
+			const [dx, dy, front] = project(st, L.anchor[0], L.anchor[1], radiusOf(L, eScale, st, fogF));   // ライブ投影（標高込み）
 			if (front < 0) continue;
 			const o = op * distOp(L.anchor[0], L.anchor[1]);
 			if (o <= 0.01) continue;

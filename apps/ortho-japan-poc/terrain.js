@@ -35,11 +35,18 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 		if (tile) r10Tiles.set(k, tile);
 		return tile;
 	}
-	// ラベル位置の標高(m)。現在の range のセルから downsampleFlipped と同じ南上げ規約でバイリニア。
-	function sampleElev(lon, lat, cam) {
-		const range = selectRange(cam), cx = Math.floor(lon / range) * range, cy = Math.floor(lat / range) * range;
-		const tile = r10Tiles.get(range + "," + cx + "," + cy);
+	// ラベル位置の標高(m)。キャッシュ済みの最も細かいセルから（R01→R10→R90 フォールバック）
+	// downsampleFlipped と同じ南上げ規約でバイリニア。R10(約900m格子)だけだと谷の街に隣の山の標高が
+	// 滲み、チルト時にラベルが浮く。
+	function sampleElev(lon, lat) {
+		let tile = null;
+		for (const range of [1, 10, 90]) {
+			const cx0 = Math.floor(lon / range) * range, cy0 = Math.floor(lat / range) * range;
+			tile = r10Tiles.get(range + "," + cx0 + "," + cy0);
+			if (tile) break;
+		}
 		if (!tile) return 0;
+		const cx = tile.lng, cy = tile.lat, range = tile.range;
 		const { data, width: w, height: h } = tile;
 		const gx = Math.min(w - 1, Math.max(0, (lon - cx) / range * (w - 1)));
 		const gy = Math.min(h - 1, Math.max(0, (lat - cy) / range * (h - 1)));
