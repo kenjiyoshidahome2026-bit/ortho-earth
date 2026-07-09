@@ -91,10 +91,29 @@ function airportSymbol(text, markOnly) {
 	} };
 	airportCache.set(key, s); return s;
 }
+// 道の駅（412・テキストは常に固有名なしの「道の駅」）：実物の案内標識そのまま＝青の角丸矩形に白文字。
+// IC/SA/PA も同じ 412 だがテキストが違うので通常テキストのまま。
+const ME_W = 34, ME_H = 14;
+let michiCache = null;
+function michiNoEkiSign() {
+	if (michiCache) return michiCache;
+	michiCache = { w: ME_W, h: ME_H, draw(g, cx, cy) {
+		g.save();
+		g.beginPath(); g.roundRect(cx - ME_W / 2, cy - ME_H / 2, ME_W, ME_H, 3);
+		g.strokeStyle = "#f6f6f4"; g.lineWidth = 3; g.lineJoin = "round"; g.stroke();   // 地色ハロー
+		g.fillStyle = "#2f6cad"; g.fill();                                              // 道路点火の高速と同じ青＝道路ファミリー
+		g.fillStyle = "#fff"; g.textAlign = "center"; g.textBaseline = "middle";
+		g.font = "bold 9px sans-serif";
+		g.fillText("道の駅", cx, cy + 0.5);
+		g.restore();
+	} };
+	return michiCache;
+}
 export function shieldFor(L) {   // 道路ON時のみ抽出済み。2901=国道おにぎり／2903・2904=高速ナンバリング盾
 	if (L.code === 2901) return kokudoShield(L.text);
 	if (L.code === 2903 || L.code === 2904) return expresswayShield(L.text);
 	if (L.code === 7102 || L.code === 7201 || L.code === 7221) return surveySymbol(L.code, L.text);   // 測量点（三角点△/標高点・/火山標高）。水準点7103・電子基準点7101は膨大でクラッタ＝出さない
 	if (L.code === 441 && /(空港|飛行場)$/.test(L.text || "")) return airportSymbol(L.text, !!L.markOnly);   // 空港＝✈＋名称（ターミナル名等は通常テキストのまま）
+	if (L.code === 412 && L.text === "道の駅") return michiNoEkiSign();   // 道の駅＝青看板（IC/SA/PA は通常テキストのまま）
 	return null;
 }
