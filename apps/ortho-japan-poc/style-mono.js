@@ -14,7 +14,7 @@ export default {
 
 		// 水系 点火（面）：WA を水色に染める。水系ONで川面・湖・海が河川中心線（river）と地続きの色になる
 		// （面なしだと線だけ浮いて分断された感じになる）。海の z8 ビュー一律ゲート（sea機構 li2）にも相乗り。
-		{ id: "water-hi", type: "fill", "source-layer": "WA", paint: { "fill-color": "#d8e5f0" } },
+		{ id: "water-hi", type: "fill", "source-layer": "WA", paint: { "fill-color": "#aecbe6" } },
 
 		// 海岸線（水涯線 WL）は撤去：水域は sea 塗り(z8+)のコントラスト（淡グレー水／白い陸）で境が見える／
 		// z<8 は gint 世界海岸線が担当。WL の線は冗長で「水域の暗いボーダー」になるだけ＝描かない。
@@ -25,7 +25,7 @@ export default {
 		{
 			id: "river", type: "line", "source-layer": "RvrCL",
 			layout: { "line-cap": "round" },
-			paint: { "line-color": "#d8e5f0", "line-width": ["interpolate", ["linear"], ["zoom"], 10, 0.5, 14, 1.1, 16, 1.8], "line-opacity": 0.9 },   // 色は water-hi と統一
+			paint: { "line-color": "#aecbe6", "line-width": ["interpolate", ["linear"], ["zoom"], 10, 0.5, 14, 1.1, 16, 1.8], "line-opacity": 0.9 },   // 色は water-hi と統一
 		},
 
 		// 建築物：ほぼ気配だけ
