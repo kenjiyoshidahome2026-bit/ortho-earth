@@ -37,6 +37,7 @@ export function createRenderer(canvas) {
 	// 海：水レイヤ(li)を cam.zoom で一律にゲート＝ビュー単位で描く/描かない（タイル毎の presence まだらを排す）。
 	// cam.zoom < minzoom では水を描かない＝海は球の基色(紙)のまま。以上で一律の色を点火。
 	let sea = { li: -1, minzoom: Infinity };
+	let fogDist = 0;   // フォグ距離の基準 camDist。ズーム中は凍結（チラチラ防止）、静止で追随
 	let elevScaleEff = 0;   // pitchで変調した実効スケール（真俯瞰では0＝平面）
 	// base=粗い下書き（underlay）、main=現ズーム、overlay=外部ベクタ(geopbf等)を最前面に。
 	const scenes = {
@@ -110,6 +111,38 @@ export function createRenderer(canvas) {
 		gl.bindTexture(gl.TEXTURE_2D, elevTex);
 		gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
 		gl.texSubImage2D(gl.TEXTURE_2D, 0, cx * cellRes, cy * cellRes, cellRes, cellRes, gl.RED, gl.FLOAT, data);
+	}
+	// 標高アトラスのダブルバッファ：2枚目以降の再構築は舞台裏（stage）で行い、セルが揃ったら一括スワップ。
+	// 直接 elevAtlas を張り替えるとゼロ初期化の瞬間に山影が全画面でパッと消える（ズーム静止のたびに発症）。
+	let elevStage = null;   // { tex, a, scale }
+	function setElevationAtlasStage(a, scale) {
+		if (elevStage) gl.deleteTexture(elevStage.tex);
+		const W = a.cellsX * a.cellRes, H = a.cellsY * a.cellRes;
+		const tex = gl.createTexture();
+		gl.bindTexture(gl.TEXTURE_2D, tex);
+		gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+		gl.texImage2D(gl.TEXTURE_2D, 0, gl.R32F, W, H, 0, gl.RED, gl.FLOAT, new Float32Array(W * H));
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+		elevStage = { tex, a, scale };
+	}
+	function setElevationCellStage(cx, cy, data, cellRes) {
+		if (!elevStage) return;
+		gl.bindTexture(gl.TEXTURE_2D, elevStage.tex);
+		gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+		gl.texSubImage2D(gl.TEXTURE_2D, 0, cx * cellRes, cy * cellRes, cellRes, cellRes, gl.RED, gl.FLOAT, data);
+	}
+	function commitElevationStage() {
+		if (!elevStage) return;
+		if (elevTex) gl.deleteTexture(elevTex);
+		elevTex = elevStage.tex;
+		const a = elevStage.a, span = a.cellSpan || 10;
+		elev = { bounds: [a.originLng, a.originLat, a.cellsX * span, a.cellsY * span], scale: elevStage.scale, exag: a.exag || 1, has: 1 };
+		const G = Math.min(1536, Math.max(768, 768 * Math.max(a.cellsX, a.cellsY)));
+		buildTerrainMesh(a.originLng, a.originLat, a.cellsX * span, a.cellsY * span, G);
+		elevStage = null;
 	}
 	function buildTerrainMesh(oLng, oLat, spanLng, spanLat, G) {
 		const ll = new Float32Array(G * G * 2);
@@ -249,8 +282,8 @@ export function createRenderer(canvas) {
 		gl.uniform3f(loc(gl, prog, "u_eye"), st.eye[0], st.eye[1], st.eye[2]);
 		gl.uniform2f(loc(gl, prog, "u_origin"), origin[0], origin[1]);
 		gl.uniform2f(loc(gl, prog, "u_viewport"), canvas.width, canvas.height);
-		gl.uniform1f(loc(gl, prog, "u_fogNear"), st.camDist * 2.5);
-		gl.uniform1f(loc(gl, prog, "u_fogFar"), st.camDist * 14.0);
+		gl.uniform1f(loc(gl, prog, "u_fogNear"), (st.fogDist || st.camDist) * 2.5);
+		gl.uniform1f(loc(gl, prog, "u_fogFar"), (st.fogDist || st.camDist) * 14.0);
 		gl.uniform3f(loc(gl, prog, "u_fogColor"), fog[0], fog[1], fog[2]);
 		// 対数深度係数（cameraState と同じ far＝地平線 limb×1.15+camDist）。球+局所(建物)の z-fight 対策。
 		const _limb = Math.sqrt(Math.max((1 + st.camDist) * (1 + st.camDist) - 1, 1e-12));
@@ -265,6 +298,11 @@ export function createRenderer(canvas) {
 		gl.viewport(0, 0, canvas.width, canvas.height);
 		const st = cameraState(cam, canvas.width, canvas.height);
 		st.mvp32 = Float32Array.from(st.mvp);
+		// フォグ距離（遠山ブルーの帯・遠景平坦化dfの境界）はズーム中凍結：camDist比例のため、ズーム中に
+		// 霞と平坦化境界が画面を掃いてチラチラする。ジェスチャー開始時の値で固定し、静止後に追随
+		// （terrainGate=false は main からの「ズーム進行中」通知。アトラス再構築の凍結と同じ方針）。
+		if (!(opts && opts.terrainGate === false) || !fogDist) fogDist = st.camDist;
+		st.fogDist = fogDist;
 		// 真俯瞰では標高オフ、傾けるほどフェードイン（3.4°→11.5°）
 		const pt = Math.max(0, Math.min(1, ((cam.pitch || 0) - 0.06) / 0.14));
 		const pf = pt * pt * (3 - 2 * pt);
@@ -320,8 +358,8 @@ export function createRenderer(canvas) {
 			// 165km（快晴の山岳視程）までは霞み切らない＝八ヶ岳から中央・北アルプスが青い山並みとして残る。
 			const dc = view.distColor || [0.63, 0.72, 0.83];
 			gl.uniform3f(loc(gl, terrainProg, "u_fogColor"), dc[0], dc[1], dc[2]);
-			gl.uniform1f(loc(gl, terrainProg, "u_fogNear"), Math.max(st.camDist * 1.2, 0.008));
-			gl.uniform1f(loc(gl, terrainProg, "u_fogFar"), Math.max(st.camDist * 5.0, 0.026));
+			gl.uniform1f(loc(gl, terrainProg, "u_fogNear"), Math.max(st.fogDist * 1.2, 0.008));
+			gl.uniform1f(loc(gl, terrainProg, "u_fogFar"), Math.max(st.fogDist * 5.0, 0.026));
 			gl.uniform3f(loc(gl, terrainProg, "u_land"), land[0], land[1], land[2]);
 			gl.bindVertexArray(terrain.vao);
 			gl.drawElements(gl.TRIANGLES, terrain.count, gl.UNSIGNED_INT, 0);
@@ -360,7 +398,7 @@ export function createRenderer(canvas) {
 		const slots = (opts && opts.skipBase) ? ["main"] : ["base", "main"];   // 静止時は下地を隠しLOD痕を消す
 		// 線・塗りのフォグ終端は地形と同一式＝地形が完全に霞んだ先に線だけ生き残って「空に浮く白線」に
 		// なるのを構造的に防ぐ。シェーダの遠景平ら化(df)も u_fogFar 基準なので、同値なら線は地形に厳密追随する。
-		const fogFarCap = Math.max(st.camDist * 5.0, 0.026);
+		const fogFarCap = Math.max(st.fogDist * 5.0, 0.026);
 		for (const slot of slots) {   // 粗い下書き→現ズームの順
 			const scene = scenes[slot];
 			if (!scene.draws.length) continue;
@@ -448,6 +486,9 @@ export function createRenderer(canvas) {
 			case "n02":       setN02(data); break;                                               // data=[シーン…] 交通の常駐オーバーレイ群
 			case "elevAtlas": setElevationAtlas(data, prop); break;                             // prop=scale
 			case "elevCell":  setElevationCell(prop.cx, prop.cy, data, prop.cellRes); break;    // data=セルFloat32
+			case "elevAtlasStage": setElevationAtlasStage(data, prop); break;                   // 舞台裏アトラス（ダブルバッファ）
+			case "elevCellStage": setElevationCellStage(prop.cx, prop.cy, data, prop.cellRes); break;
+			case "elevAtlasCommit": commitElevationStage(); break;                              // 揃ったら一括スワップ＝山影が消えない
 			case "plateauMesh": setPlateauMesh(prop, data); break;                             // prop=地区名(key)、data={pos,idx} PLATEAU LOD2 建物（null=解放）
 			default: console.warn("renderer.set: unknown cmd", cmd);
 		}

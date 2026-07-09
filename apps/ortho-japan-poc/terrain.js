@@ -7,6 +7,7 @@ import { createTileLoader } from "altpbf";
 
 export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onPending }) {
 	let atlasKey = "", loadedCells = new Set();
+	let hasAtlas = false, staging = false, stagePending = new Set();   // ダブルバッファ状態（山影がパッと消えるのを防ぐ）
 	const r10Tiles = new Map();   // "range,cx,cy" → 解決した生タイル（ラベル標高のCPUサンプル用）
 	let loadTile = null;          // altpbf createTileLoader（非同期セットアップ）
 	createTileLoader({ apiUrl })
@@ -109,14 +110,31 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 		const key = [mixed ? "M" : range, r.originCX, r.originCY, r.cellsX, r.cellsY, r.cellRes].join(",");
 		if (key !== atlasKey) {
 			atlasKey = key; loadedCells = new Set();
-			renderer.set("elevAtlas", { originLng: r.originCX * range, originLat: r.originCY * range, cellsX: r.cellsX, cellsY: r.cellsY, cellRes: r.cellRes, cellSpan: range, exag }, exag / earthM);
+			// 2枚目以降はダブルバッファ：舞台裏(stage)で構築し、初回分のセルが揃ったら一括スワップ。
+			// 直接張り替えるとゼロ初期化の瞬間に山影が全画面で消える（ズーム静止・R01/R10切替のたびに発症していた）。
+			staging = hasAtlas; stagePending = new Set();
+			renderer.set(staging ? "elevAtlasStage" : "elevAtlas",
+				{ originLng: r.originCX * range, originLat: r.originCY * range, cellsX: r.cellsX, cellsY: r.cellsY, cellRes: r.cellRes, cellSpan: range, exag }, exag / earthM);
+			hasAtlas = true;
+			if (staging) {   // 保険：セルの一部が失敗しても4秒で必ずスワップ（古いアトラスが永久に残らない）
+				const k0 = key;
+				setTimeout(() => { if (staging && atlasKey === k0) { staging = false; renderer.set("elevAtlasCommit"); requestDraw(); } }, 4000);
+			}
 			requestDraw();
 		}
+		// セル書き込み先：staging 中は舞台裏へ。全セル解決で commit（スワップ）し、以降は表アトラスへ直書き。
+		const cellSlot = () => staging ? "elevCellStage" : "elevCell";
+		const doneOne = ck2 => {
+			if (!staging) return;
+			stagePending.delete(ck2);
+			if (!stagePending.size) { staging = false; renderer.set("elevAtlasCommit"); }
+		};
 		const camCX = Math.floor(cam.center[0] / range), camCY = Math.floor(cam.center[1] / range);
 		for (let cy = 0; cy < r.cellsY; cy++) for (let cx = 0; cx < r.cellsX; cx++) {
 			const ck = cx + "," + cy;
 			if (loadedCells.has(ck)) continue;
 			loadedCells.add(ck);
+			if (staging) stagePending.add(ck);
 			const cellLng = (r.originCX + cx) * range, cellLat = (r.originCY + cy) * range;
 			const nearCam = Math.abs(r.originCX + cx - camCX) <= 1 && Math.abs(r.originCY + cy - camCY) <= 1;
 			pendingElev++; notifyPending(range);
@@ -125,23 +143,27 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 				getCell(Math.floor(cellLng / 10) * 10, Math.floor(cellLat / 10) * 10, 10).then(parent => {
 					pendingElev--; notifyPending(range);
 					if (parent && atlasKey === key && !(loadedCells.has(ck + "hi"))) {
-						renderer.set("elevCell", cropResample(parent, cellLng, cellLat, range, r.cellRes), { cx, cy, cellRes: r.cellRes }); requestDraw();
+						renderer.set(cellSlot(), cropResample(parent, cellLng, cellLat, range, r.cellRes), { cx, cy, cellRes: r.cellRes });
 					}
+					if (atlasKey === key) doneOne(ck);
+					requestDraw();
 				});
-				if (nearCam) {   // 近傍3×3は R01 が届き次第上書き（富士の近景ディテール）
+				if (nearCam) {   // 近傍3×3は R01 が届き次第上書き（富士の近景ディテール）。commit は待たせない
 					pendingElev++; notifyPending(range);
 					getCell(cellLng, cellLat, 1).then(tile => {
 						pendingElev--; notifyPending(range);
 						if (tile && atlasKey === key) {
 							loadedCells.add(ck + "hi");   // 以降 R10 切り出しで上書きさせない
-							renderer.set("elevCell", downsampleFlipped(tile, r.cellRes), { cx, cy, cellRes: r.cellRes }); requestDraw();
+							renderer.set(cellSlot(), downsampleFlipped(tile, r.cellRes), { cx, cy, cellRes: r.cellRes }); requestDraw();
 						}
 					});
 				}
 			} else {
 				getCell(cellLng, cellLat, range).then(tile => {
 					pendingElev--; notifyPending(range);
-					if (tile && atlasKey === key) { renderer.set("elevCell", downsampleFlipped(tile, r.cellRes), { cx, cy, cellRes: r.cellRes }); requestDraw(); }
+					if (tile && atlasKey === key) renderer.set(cellSlot(), downsampleFlipped(tile, r.cellRes), { cx, cy, cellRes: r.cellRes });
+					if (atlasKey === key) doneOne(ck);
+					requestDraw();
 				});
 			}
 		}
