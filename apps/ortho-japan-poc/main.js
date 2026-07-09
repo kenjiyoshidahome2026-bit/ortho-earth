@@ -67,6 +67,15 @@ fetch("/plateau-sets.json").then(r => r.json()).then(sets => {
 	PLATEAU_SETS = sets; console.log(`[plateau] カタログ読込 → ${sets.length} 市区町村`);
 	autoPlateau();   // 復元ビューが z14+ の街なら起動直後に自動ロード（IDBキャッシュ命中なら即座に街が立つ）
 }).catch(e => console.warn("[plateau] カタログ取得失敗", e));
+// 空港マーク台帳：optbv の空港名注記(441)は z11 以上のタイルにしか無い＝低ズームでは
+// scripts/airports-build.mjs で全国収穫した静的リスト(86空港)から「マークだけ」を注入する（本家地理院地図Vectorの見え方に合わせる）。
+// z11+ はタイル注記が✈＋名称を描くので、静的分は同名をスキップ＝二重表示なし。鉄道チップのON/OFFは filterLabels(441) がそのまま効く。
+const AIRPORT_MARK_MAXZ = 12;              // これ未満のズームで静的マークを注入
+let airportMarks = [];
+fetch("/airports.json").then(r => r.json()).then(list => {
+	airportMarks = list.map(a => ({ text: a.name, code: 441, anchor: [a.lon, a.lat], size: 10, sort: 2, color: [0.53, 0.53, 0.5, 1], halo: [0.965, 0.965, 0.957, 1], haloW: 1.1, markOnly: true }));
+	readySig = "";                         // 読み込めた時点でラベル再結合
+}).catch(() => {});
 const PLATEAU_AUTO_Z = 14;                 // これ以上寄ると自動ロード（遠景は対象外＝ズームアウトで全解放）
 // 同時アクティブ地区数の上限。区境をまたいだ隣接分だけを想定＝GPUメモリを有界にする（密集地区(都心部)1件あたりGPUバッファ~100-140MB）。
 const PLATEAU_MAX_ACTIVE = 2;
@@ -433,12 +442,17 @@ const themes = createThemes(style);            // 分類（allowlist）は theme
 // LOD選択 or テーマ状態(styleSig)が変わった時だけシーンを再結合。原点は安定化（プルプル防止）。
 let zoomAtBuild = -1;
 function swapScene(order) {
-	const sig = order.map(o => o.key).join("|") + "#" + styleSig + "#z" + (cam.zoom >= CHOME_MINZOOM ? 1 : 0) + (cam.zoom >= RAILTR_MINZOOM ? 1 : 0);
+	const sig = order.map(o => o.key).join("|") + "#" + styleSig + "#z" + (cam.zoom >= CHOME_MINZOOM ? 1 : 0) + (cam.zoom >= RAILTR_MINZOOM ? 1 : 0) + (cam.zoom < AIRPORT_MARK_MAXZ && airportMarks.length ? "A" : "");
 	if (sig === readySig || !order.length) return;
 	if (!sceneOrigin || Math.abs(sceneOrigin[0] - cam.center[0]) > 0.4 || Math.abs(sceneOrigin[1] - cam.center[1]) > 0.4)
 		sceneOrigin = [cam.center[0], cam.center[1]];
 	requestMerge("main", order, sceneOrigin, themes.hiddenLi(layerState, cam.zoom));   // 結合は scene worker（非同期）→ render worker へ直行
-	lastLabels = themes.filterLabels(tiles.labels(order), layerState, cam.zoom, contourOn).map(L => {   // contourON＝標高数値も通す
+	const allLabels = tiles.labels(order);
+	if (airportMarks.length && cam.zoom < AIRPORT_MARK_MAXZ) {   // 低ズーム＝静的台帳から空港マークのみ注入（タイル注記441と同名は二重にしない）
+		const have = new Set(allLabels.filter(L => L.code === 441).map(L => L.text));
+		for (const a of airportMarks) if (!have.has(a.text)) allLabels.push(a);
+	}
+	lastLabels = themes.filterLabels(allLabels, layerState, cam.zoom, contourOn).map(L => {   // contourON＝標高数値も通す
 		// 都道府県は大きく薄い背景ラベルに（コピーしてキャッシュ側を壊さない）。他はそのまま。
 		if (L.code === 140) return { ...L, size: L.size * 1.25, color: [L.color[0], L.color[1], L.color[2], L.color[3] * 0.5] };
 		// 測量点(7102三角点/7201・7221標高点)は shieldFor が記号＋標高値を描く。flat=真俯瞰の作法＝傾けたら等高線と一緒に消す。
