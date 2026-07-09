@@ -3,8 +3,19 @@ html, body { margin: 0; height: 100%; background: #0b1021; color: #cdd; font: 13
 #c { cursor: grab; }
 #c:active { cursor: grabbing; }
 #gint, #labels { pointer-events: none; }   /* 知性/ラベルの層は透過＝pointer は基図(#c)が受ける */
-#hint { position: fixed; top: 10px; left: 10px; font-size: 12px; color: #6a6f78; background: rgba(255,255,255,.7);
+#hint { position: fixed; top: 54px; left: 10px; font-size: 12px; color: #6a6f78; background: rgba(255,255,255,.7);
 	padding: 6px 10px; border-radius: 6px; -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
+/* 地名検索：静かな白の箱。候補は下にリスト、クリック/Enterで球面フライト */
+#search { position: fixed; top: 10px; left: 10px; z-index: 7; width: 236px; }
+#search-in { width: 100%; box-sizing: border-box; font: 13px system-ui, sans-serif; color: #333;
+	padding: 8px 12px; border: 1px solid rgba(120,130,150,.45); border-radius: 8px; outline: none;
+	background: rgba(255,255,255,.85); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
+#search-in:focus { border-color: #2b3b57; background: #fff; }
+#search-list { display: none; margin-top: 4px; background: rgba(255,255,255,.96); border: 1px solid rgba(120,130,150,.35);
+	border-radius: 8px; overflow: hidden; box-shadow: 0 4px 14px rgba(20,30,50,.12); }
+.search-item { padding: 8px 12px; font-size: 13px; color: #444; cursor: pointer; }
+.search-item:hover, .search-item.sel { background: #eef2f7; }
+.search-empty { padding: 8px 12px; font-size: 12px; color: #999; }
 #log { position: fixed; bottom: 10px; left: 10px; z-index: 6; font-family: ui-monospace, monospace; font-size: 12px; color: #9ab; background: rgba(10,16,33,.7); padding: 6px 8px; border-radius: 6px; }
 #attr { position: fixed; bottom: 6px; right: 8px; font-size: 11px; color: #7a8; background: rgba(255,255,255,.55); padding: 3px 7px; border-radius: 5px; }
 #attr a { color: #567; text-decoration: none; }

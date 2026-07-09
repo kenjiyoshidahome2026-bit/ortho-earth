@@ -5,12 +5,27 @@
 	<meta name="viewport" content="width=device-width, initial-scale=1">
 	<link rel="icon" href="/favicon.svg" type="image/svg+xml">
 	<link rel="stylesheet" href="./style.css">
-	<title>ortho-japan PoC — 球面ベクタ (地理院 optimal_bvmap)</title>
+	<title>ortho-japan — 球面に直描きする日本地図</title>
+	<meta name="description" content="国土地理院のベクトルタイルを球のまま直描きする日本地図。実スケールの地形、寄ると立ち上がるPLATEAU都市モデル。サーバーレス・依存ゼロの自作WebGLエンジン。">
+	<!-- OGP：SNS共有カード。og:url / og:image は絶対URL必須＝デプロイ先確定時にこの2行を実URLへ。画像は public/ogp.png（1200×630） -->
+	<meta property="og:type" content="website">
+	<meta property="og:site_name" content="ortho-earth">
+	<meta property="og:title" content="ortho-japan — 球面に直描きする日本地図">
+	<meta property="og:description" content="国土地理院のベクトルタイルを球のまま直描き。実スケール地形・PLATEAU都市モデル・紙地図の作法。サーバーレス・依存ゼロの自作WebGLエンジン。">
+	<meta property="og:url" content="https://www.ortho-earth.com/ortho-japan/">
+	<meta property="og:image" content="https://www.ortho-earth.com/ortho-japan/ogp.png">
+	<meta property="og:image:width" content="1200">
+	<meta property="og:image:height" content="630">
+	<meta name="twitter:card" content="summary_large_image">
 </head>
 <body>
 	<canvas id="c"></canvas>
 	<canvas id="gint"></canvas>
 	<canvas id="labels"></canvas>
+	<div id="search">
+		<input id="search-in" type="search" placeholder="地名・住所を検索" autocomplete="off" spellcheck="false">
+		<div id="search-list"></div>
+	</div>
 	<div id="hint">ドラッグ=移動 ／ 右ドラッグ=傾け・回転 ／ ホイール=ズーム</div>
 	<button id="reset" title="北向き・水平に戻す">
 		<svg viewBox="0 0 40 40" width="26" height="26">
@@ -29,7 +44,7 @@
 		<button class="chip" data-k="shisetsu">施設</button>
 	</div>
 	<div id="log">起動中…</div>
-	<div id="attr">出典：<a href="https://maps.gsi.go.jp/development/ichiran.html#optbv" target="_blank" rel="noopener">国土地理院最適化ベクトルタイル（提供実験）</a>（同データを加工して作成）</div>
+	<div id="attr">出典：<a href="https://maps.gsi.go.jp/development/ichiran.html#optbv" target="_blank" rel="noopener">国土地理院最適化ベクトルタイル（提供実験）</a>・<a href="https://www.mlit.go.jp/plateau/" target="_blank" rel="noopener">国土交通省 PLATEAU</a>・<a href="https://www.eorc.jaxa.jp/ALOS/jp/dataset/aw3d30/aw3d30_j.htm" target="_blank" rel="noopener">JAXA AW3D30</a>（各データを加工して作成）</div>
 	<script type="module" src="./main.js"></script>
 </body>
 </html>

@@ -4,7 +4,7 @@
 // geometry は main を通らず scene worker → render worker へ直行（main は geometry を知らない）。
 import { createTileManager } from "ortho-japan";
 
-export function createPipeline({ style, tileUrl, requestDraw, scenePort, onMerged }) {
+export function createPipeline({ style, tileUrl, requestDraw, scenePort, onMerged, onTile }) {
 	// scene worker：タイル geometry を保持し結合(merge)も担う。結合結果は main を経由せず
 	// render worker へ直結ポートで送る（下の connect）＝main は geometry を一切知らない。
 	const sceneWorker = new Worker(new URL("./sceneworker.js", import.meta.url), { type: "module" });
@@ -33,6 +33,8 @@ export function createPipeline({ style, tileUrl, requestDraw, scenePort, onMerge
 		w.onmessage = e => {
 			const p = pending.get(e.data.id); if (!p) return; pending.delete(e.data.id);
 			if (keyToId.get(p.key) === e.data.id) keyToId.delete(p.key);
+			// 成否を外へ通知（abort=視野外中断は失敗に数えない）＝main が「通信断トースト」の判断材料にする
+			if (onTile && (e.data.ok || !/abort/i.test(String(e.data.error)))) onTile(!!e.data.ok);
 			if (!e.data.ok) { p.reject(new Error(e.data.error)); return; }
 			sceneWorker.postMessage({ type: "tile", key: p.key, ops: e.data.dl.ops, buildings: e.data.buildings }, collectTileBuffers(e.data.dl, e.data.buildings));
 			p.resolve({ origin: e.data.origin, labels: e.data.labels, z: e.data.z });   // メタ＋ラベルのみ

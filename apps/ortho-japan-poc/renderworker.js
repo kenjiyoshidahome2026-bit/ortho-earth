@@ -8,6 +8,7 @@ import { createTerrain } from "./terrain.js";
 
 let renderer = null, labelLayer = null, canvas = null, labelCanvas = null;
 let cam = null, opts = null, dirty = false;   // 最新の描画状態。dirty の時だけ rAF で描く。
+let glRef = null, sentFrame1 = false, sentCtxLost = false;   // 起動ウォッチドッグ(frame1)とコンテキストロスト監視（main へ各1回だけ通知）
 let gintSyncPort = null;   // gint worker への直結：1枚描く度に「この cam で描け」＝海岸線を地図フレームに従属させる。
 let terrain = null, pendingLabels = null;   // pendingLabels: cam 未着で標高付与を保留した最新ラベル集合
 
@@ -16,7 +17,10 @@ onmessage = e => {
 	switch (m.type) {
 		case "init":
 			canvas = m.canvas;                                   // GL 用 OffscreenCanvas
-			renderer = createRenderer(canvas);
+			// GL 初期化失敗（WebGL2不可・GPUブロックリスト等）は黙って死なず main へ通知＝案内を出させる。
+			try { renderer = createRenderer(canvas); }
+			catch (err) { postMessage({ type: "glfail", error: String(err && err.message || err) }); return; }
+			glRef = canvas.getContext("webgl2");                 // 同一コンテキストが返る＝isContextLost() の監視用
 			labelCanvas = m.labelCanvas;                         // ラベル用 OffscreenCanvas（2D）
 			labelLayer = createLabelLayer(labelCanvas, { shieldFor, elevBase: m.elevBase });
 			// 標高アトラス：fetch(altpbf自前worker)・視野→セル範囲計算・ダウンサンプルまで全部ここで完結させ、
@@ -99,7 +103,9 @@ function frame() {
 			const fogAnim = renderer.draw(cam, opts);                // cameraState=mvp生成 + GL描画（軽い）。true=フォグ追従が収束中
 			const animating = labelLayer && labelLayer.draw(cam);    // ラベルも同じ cam で（＝完全同期）
 			if (animating || fogAnim) dirty = true;                  // フェード/フォグ追従の継続は自前で次フレーム（main関与なし）
+			if (!sentFrame1) { sentFrame1 = true; postMessage({ type: "frame1" }); }   // 初描画成功＝main の起動ウォッチドッグを解除
 		}
+		if (glRef && !sentCtxLost && glRef.isContextLost()) { sentCtxLost = true; postMessage({ type: "contextlost" }); }   // GPU喪失＝mainが立て直す
 	} catch (e) {
 		console.error("[render] frame例外（このフレームは破棄して継続）", e?.message, e?.stack);
 	}

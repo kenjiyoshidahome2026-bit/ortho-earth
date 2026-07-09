@@ -8,6 +8,7 @@ import style from "./style-mono.js";
 import { createThemes, defaultLayerState, CHOME_MINZOOM, RAILTR_MINZOOM } from "./themes.js";
 import { createOverlay } from "./overlay.js";
 import { createPipeline } from "./pipeline.js";
+import { createSearch } from "./search.js";
 import { d3diff } from "./d3diff.js";
 
 const TILE_URL = (z, x, y) => `https://cyberjapandata.gsi.go.jp/xyz/optimal_bvmap-v1/${z}/${x}/${y}.pbf`;
@@ -17,6 +18,41 @@ const canvas = document.getElementById("c");
 const labelCanvas = document.getElementById("labels");
 const logEl = document.getElementById("log");
 const EARTH_M = 6371000, TERR_EXAG = 1.0;   // 標高は実スケール（誇張しない＝地形を歪めない）。ラベル・地形・建物で共有
+
+// --- 初見が死なない：起動できない環境・壊れた環境を白画面でなく言葉で受け止める ---
+// reload=true で「再読み込み」ボタン付き。fatal は紙色の全面＝地図の世界観のまま静かに伝える。
+function fatalOverlay(title, detail, reload) {
+	const d = document.createElement("div");
+	d.style.cssText = "position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:#f6f6f4;z-index:99;padding:24px;";
+	d.innerHTML = `<div style="max-width:540px;font-family:system-ui,sans-serif;color:#333;line-height:1.9">
+		<div style="font-size:18px;font-weight:600;margin-bottom:10px">${title}</div>
+		<div style="font-size:14px;color:#555">${detail}</div>
+		${reload ? '<button style="margin-top:18px;padding:9px 22px;font-size:14px;border:1px solid #bbb;border-radius:8px;background:#fff;cursor:pointer" onclick="location.reload()">再読み込み</button>' : ""}</div>`;
+	document.body.appendChild(d);
+	return d;
+}
+// 対応判定：このアプリの土台は WebGL2 ＋ OffscreenCanvas（GL を worker に置く設計）。無い環境では静かに案内して止まる。
+{
+	const probe = document.createElement("canvas").getContext("webgl2");
+	if (!probe || !HTMLCanvasElement.prototype.transferControlToOffscreen) {
+		fatalOverlay("この地図はお使いのブラウザでは表示できません",
+			"3Dの地球儀を WebGL2 と OffscreenCanvas で描いています。最新の Chrome / Edge / Firefox、または Safari 17 以降でお試しください。");
+		throw new Error("unsupported: webgl2 / offscreencanvas");
+	}
+	probe.getExtension("WEBGL_lose_context")?.loseContext();   // 判定用コンテキストは即返却（スロットを食い潰さない）
+}
+// 通信断トースト：offline イベント＋タイル連続失敗で表示、回復（online/タイル成功）で消える。地図は粗い下地で生き続ける。
+const netEl = document.createElement("div");
+netEl.style.cssText = "position:fixed;top:12px;left:50%;transform:translateX(-50%);font-size:13px;color:#7a3b2e;background:rgba(255,250,246,.95);border:1px solid #d9b8a8;padding:7px 16px;border-radius:8px;display:none;z-index:9;font-family:system-ui,sans-serif;";
+netEl.textContent = "地図データの取得に失敗しています（通信状態をご確認ください）";
+document.body.appendChild(netEl);
+let tileFails = 0;
+const onTile = ok => {
+	if (ok) { tileFails = 0; if (navigator.onLine !== false) netEl.style.display = "none"; }
+	else if (++tileFails >= 3) netEl.style.display = "block";   // 3連続失敗＝ネット全滅の疑い（単発404では出さない）
+};
+window.addEventListener("offline", () => { netEl.style.display = "block"; });
+window.addEventListener("online", () => { netEl.style.display = "none"; needsDraw = true; });
 
 const bg = style.layers.find(L => L.type === "background");
 const land = bg ? parseRGBA(evalExpr(bg.paint?.["background-color"] ?? "#fff", { zoom: 10, props: {}, geom: null, vars: {} })) : [0.96, 0.96, 0.95, 1];
@@ -48,9 +84,27 @@ elevEl.style.cssText = "position:fixed;bottom:44px;left:10px;font-size:12px;colo
 document.body.appendChild(elevEl);
 let contourOn = false;   // 「等高線」ボタン＝等高線(真俯瞰)＋数字(zoom/tileログ・地形読込)の統合トグル。既定 OFF＝真っさらな地図
 logEl.style.display = "none";
+// 起動ウォッチドッグ：最初のフレーム(frame1)が10秒来なければ原因不明でも案内を出す（健全なら1秒未満で来る）。
+// glfail=worker内のWebGL2初期化失敗、contextlost=GPUコンテキスト喪失（1回だけ自動リロード→再発なら案内）。
+let bootT = setTimeout(() => {
+	fatalOverlay("起動に時間がかかっています", "描画が始まりません。再読み込みで直ることがあります。改善しない場合は、ブラウザの設定で「ハードウェアアクセラレーション」が有効かご確認ください。", true);
+}, 10000);
 renderWorker.onmessage = e => {
-	if (e.data.type !== "elevPending") return;
-	const { count, range } = e.data;
+	const d = e.data;
+	if (d.type === "frame1") { clearTimeout(bootT); bootT = null; sessionStorage.removeItem("oj.ctxlost"); return; }   // 初描画成功＝自動リロード回数もリセット
+	if (d.type === "glfail") {
+		clearTimeout(bootT);
+		fatalOverlay("3D描画を開始できませんでした", `WebGL2 の初期化に失敗しました（${d.error}）。ブラウザの「ハードウェアアクセラレーション」が無効になっている可能性があります。`, true);
+		return;
+	}
+	if (d.type === "contextlost") {
+		const n = +(sessionStorage.getItem("oj.ctxlost") || 0);
+		if (n < 1) { sessionStorage.setItem("oj.ctxlost", String(n + 1)); location.reload(); }   // まず黙って1回だけ立て直す
+		else fatalOverlay("GPU の描画が中断されました", "描画コンテキストが失われました（GPUメモリ不足などで起こります）。他のタブやアプリを閉じてから再読み込みしてください。", true);
+		return;
+	}
+	if (d.type !== "elevPending") return;
+	const { count, range } = d;
 	if (count > 0 && contourOn) { elevEl.style.display = "block"; elevEl.textContent = `⛰ 地形読込中 ${range === 1 ? "R01（秒単位・JAXA）" : range === 10 ? "R10" : "R90"} … ×${count}`; }
 	else elevEl.style.display = "none";
 };
@@ -171,13 +225,13 @@ function onMove() {
 	renderer.draw(cam, { skipBase: false, noTerrain: cam.zoom < BASEMAP_MINZOOM });   // 入力の瞬間に最新camをworkerへ（全球=z<4は地形オフ＝白い地球＋海岸線のみ）
 	// 海岸線(gint)は render worker が draw 後に従属で駆動＝ここから直接送らない（地図と同cam/同フレーム＝スライド消滅）。
 	clearTimeout(settleT);
-	settleT = setTimeout(() => { moving = false; needsDraw = true; gintWorker.postMessage({ type: "drawn" }); saveCam(); }, 150);   // 停止後に identify(picking)＋ビュー保存
+	settleT = setTimeout(() => { moving = false; needsDraw = true; gintWorker.postMessage({ type: "drawn" }); saveView(); }, 150);   // 停止後に identify(picking)＋ビュー保存（localStorage＋共有URL）
 }
 
 // データパイプライン（tile/scene worker）。実装は pipeline.js。
 // tiles＝LOD管理（update/labels）、requestMerge＝結合要求（scene worker が結合→render worker へ直行）。
 const { tiles, requestMerge } = createPipeline({
-	style, tileUrl: TILE_URL, requestDraw: () => { needsDraw = true; }, scenePort: sceneChan.port1,
+	style, tileUrl: TILE_URL, requestDraw: () => { needsDraw = true; }, scenePort: sceneChan.port1, onTile,
 	// merge の ack：sig はここで初めて確定する（要求時の楽観確定をやめた＝失敗が永続穴にならない）
 	onMerged: (slot, sig) => { if (slot === "main") readySig = sig; else if (slot === "base") baseSig = sig; needsDraw = true; },
 });
@@ -189,20 +243,54 @@ const atmo = [0.5, 0.66, 0.96, 0.3];   // 大気色 rgb + 強さ（さりげな�
 const bldColor = [0.83, 0.83, 0.82];    // 建物色（静かなグレー）
 // cam＝幾何のみ（center/zoom/pitch/bearing/dpr）＝毎フレームの draw payload（将来の worker 境界）。
 // 色（clear/land/atmo/bldColor）は静的なので setView で一度きりアップロード＝hot path から追い出す。
-const cam = { center: [139.767, 35.681], zoom: 3, pitch: 0, bearing: 0, dpr };   // 既定＝世界ビュー（初訪問時のみ。前回ビューがあれば下で復元）
+const cam = { center: [139.767, 35.681], zoom: 3, pitch: 0, bearing: 0, dpr };   // 既定＝世界ビュー（初訪問時のみ。共有URL→前回ビューの順で下で復元）
+// --- 共有URL（パーマリンク）：#zoom/lat/lon[/45t][/-30r][/l=rail.river][/c] ---
+// 語順は地理院地図・OSMと同じ zoom/lat/lon。後置トークン＝ t:チルト(度) / r:方位(度) / l=点火チップのON集合 / c:等高線。
+// 起動の優先度：URLハッシュ > localStorage(前回ビュー) > 既定の世界ビュー。settle 毎に replaceState で
+// 書き戻す＝アドレスバーが常に「今この視点の共有URL」（コピーするだけで人に渡る＝発表・拡散の生命線）。
+function parseViewHash(h) {
+	const p = (h || "").replace(/^#/, "").split("/").filter(Boolean);
+	if (p.length < 3) return null;
+	const zoom = +p[0], lat = +p[1], lon = +p[2];
+	if (!Number.isFinite(zoom) || !Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+	const v = { zoom, lat, lon, pitch: 0, bearing: 0, layers: null, contour: false };
+	for (const t of p.slice(3)) {
+		let m;
+		if ((m = /^(-?[\d.]+)t$/.exec(t))) v.pitch = +m[1] * D2R;
+		else if ((m = /^(-?[\d.]+)r$/.exec(t))) v.bearing = +m[1] * D2R;
+		else if ((m = /^l=(.*)$/.exec(t))) v.layers = m[1] ? m[1].split(".") : [];   // l=（空）＝全チップOFF も区別する
+		else if (t === "c") v.contour = true;
+	}
+	return v;
+}
+function applyCamView(v) {
+	cam.center = [v.lon, Math.max(-85, Math.min(85, v.lat))];
+	cam.zoom = Math.max(2, Math.min(19, v.zoom));
+	cam.pitch = Math.max(0, Math.min(MAXPITCH, v.pitch || 0));
+	cam.bearing = Number.isFinite(v.bearing) ? v.bearing : 0;
+}
+const bootView = parseViewHash(location.hash);
 // 前回ビューの復元（ortho-earth 本体と同じ流儀）：settle 毎に localStorage へ保存し、起動時にそこから立ち上がる。
 // IDBのPLATEAUキャッシュと合わさると「開いた瞬間に前回の街が数秒で立ち上がる」起動になる。
 const CAM_KEY = "ortho-japan-poc.cam";
-try {
+if (bootView) applyCamView(bootView);
+else try {
 	const saved = JSON.parse(localStorage.getItem(CAM_KEY) || "null");
-	if (saved && Array.isArray(saved.center) && saved.center.every(Number.isFinite) && Number.isFinite(saved.zoom)) {
-		cam.center = [saved.center[0], saved.center[1]];
-		cam.zoom = Math.max(2, Math.min(19, saved.zoom));
-		cam.pitch = Math.max(0, Math.min(MAXPITCH, saved.pitch || 0));
-		cam.bearing = Number.isFinite(saved.bearing) ? saved.bearing : 0;
-	}
+	if (saved && Array.isArray(saved.center) && saved.center.every(Number.isFinite) && Number.isFinite(saved.zoom))
+		applyCamView({ lon: saved.center[0], lat: saved.center[1], zoom: saved.zoom, pitch: saved.pitch, bearing: saved.bearing });
 } catch { /* 壊れた保存値は無視して既定の世界ビュー */ }
 const saveCam = () => { try { localStorage.setItem(CAM_KEY, JSON.stringify({ center: cam.center, zoom: cam.zoom, pitch: cam.pitch, bearing: cam.bearing })); } catch { /* private mode 等 */ } };
+// 現在ビュー→ハッシュ。桁は lat/lon 5桁(≈1m)・zoom 2桁＝短く安定。既定と同じ項は省く＝素の視点はURLも素。
+function viewHash() {
+	const parts = [cam.zoom.toFixed(2), cam.center[1].toFixed(5), cam.center[0].toFixed(5)];
+	if (cam.pitch > 0.001) parts.push(Math.round(cam.pitch * R2D) + "t");
+	if (Math.abs(cam.bearing) > 0.001) parts.push(Math.round(cam.bearing * R2D) + "r");
+	if (JSON.stringify(layerState) !== JSON.stringify(defaultLayerState))
+		parts.push("l=" + Object.keys(layerState).filter(k => layerState[k]).join("."));
+	if (contourOn) parts.push("c");
+	return "#" + parts.join("/");
+}
+const saveView = () => { saveCam(); try { history.replaceState(null, "", viewHash()); } catch { /* file:// 等 */ } };
 renderer.set("view", { clear, land, atmo, bldColor, showN02: false });   // showN02＝N02交通(新幹線等)の表示。鉄道チップで切替
 // 海：水レイヤ(WA)をビュー一律にゲート＝cam.zoom<13 では描かない（＝紙の海・まだら無し）、z13+で一律点火。
 renderer.set("sea", { li: style.layers.findIndex(L => L.id === "water"), li2: style.layers.findIndex(L => L.id === "water-hi"), minzoom: 8 });   // li2＝水系点火面も同じ海ゲート
@@ -438,6 +526,7 @@ resize();
 let drag = null;
 canvas.addEventListener("contextmenu", e => e.preventDefault());
 canvas.addEventListener("pointerdown", e => {
+	if (flight) flight.cancel();   // 掴んだ瞬間フライト中断＝主導権は人
 	drag = { x: e.clientX, y: e.clientY, x0: e.clientX, y0: e.clientY, tilt: e.button === 2 || e.shiftKey || e.ctrlKey };
 	canvas.setPointerCapture(e.pointerId);
 });
@@ -485,15 +574,53 @@ function anchoredAt(clientX, clientY, mutate) {
 }
 canvas.addEventListener("wheel", e => {
 	e.preventDefault();
+	if (flight) flight.cancel();   // ホイールでもフライト中断
 	if (e.metaKey) anchoredAt(e.clientX, e.clientY, () => { cam.bearing += e.deltaY * 0.01; });   // 軸回転(Cmd)。ctrl+wheelはトラックパッドのピンチ＝ズームに回す
 	else anchoredAt(e.clientX, e.clientY, () => { cam.zoom = Math.max(2, Math.min(19, cam.zoom - e.deltaY * 0.002)); });  // ズーム（z2=地球全体〜z19。16超はベクタのオーバーズーム＝潰れず街路へ）
 }, { passive: false });
+
+// --- 球面フライト：検索ヒットへ「上昇→巡航→降下」で飛ぶ（球の見せ場＝地球が回って目的地が寄ってくる）。
+// ズームは放物線バンプ（van Wijk 風の近似）＝行程が視野に収まる高度まで上がる。近距離なら上がらない。
+// 着地が z14+ でほぼ真俯瞰なら降下の最終40%でチルト45°を入れる＝着いた瞬間に地形と PLATEAU が立って見える。
+// ユーザーのドラッグ/ホイールで即中断＝主導権は常に人（自動演出が操作と喧嘩しない）。
+let flight = null;
+function flyTo(lon, lat, zoom, tiltDeg) {
+	if (flight) flight.cancel();
+	const z0 = cam.zoom, z1 = zoom, lon0 = cam.center[0], lat0 = cam.center[1];
+	let dLon = lon - lon0; dLon -= Math.round(dLon / 360) * 360;   // 最短経路（antimeridian 安全側）
+	const dLat = lat - lat0, dist = Math.hypot(dLon, dLat);
+	const zFit = Math.log2(360 / Math.max(0.01, dist * 2.2));              // 行程全体が視野に入るズーム（概算）
+	const bump = Math.min(z0, z1) - Math.max(2, Math.min(Math.min(z0, z1), zFit));   // 巡航高度までの上昇量（≥0。z2=全球が床）
+	// 着地チルト：呼び出し側の指定（自然地名=55°等）＞ z14+着地の既定45°。既に深く傾けているなら維持。
+	const p0 = cam.pitch;
+	const p1 = tiltDeg != null ? Math.max(p0, Math.min(MAXPITCH, tiltDeg * D2R))
+		: (z1 >= 14 && p0 < 30 * D2R) ? 45 * D2R : p0;
+	const dur = Math.min(4000, 900 + dist * 90 + bump * 220);              // 距離と上昇量で 0.9〜4 秒
+	const t0 = performance.now();
+	let cancelled = false;
+	flight = { cancel: () => { cancelled = true; flight = null; } };
+	const step = () => {
+		if (cancelled) return;
+		const k = Math.min(1, (performance.now() - t0) / dur);
+		const e = k * k * (3 - 2 * k);                                     // smoothstep＝入りも抜きも柔らかい
+		cam.center = [lon0 + dLon * e, lat0 + dLat * e];
+		cam.zoom = z0 + (z1 - z0) * e - bump * Math.sin(Math.PI * e);
+		cam.pitch = p0 + (p1 - p0) * Math.max(0, (e - 0.6) / 0.4);
+		onMove();
+		if (k < 1) requestAnimationFrame(step);
+		else { flight = null; onMove(); }                                  // 着地＝settle で saveView（共有URL確定）
+	};
+	requestAnimationFrame(step);
+}
+createSearch({ onGo: flyTo });
+window.__fly = flyTo;   // デバッグ/検証用（__cam の飛行版）
 
 // テーマ・チップ状態：静かな白黒の土台は常に全部見えている。チップは主題の「文字の表示」
 // または「色の点火」を切り替えるだけ。すべて既取得データの再スタイル＝再取得・再デコードなし。
 //   chimei/chikei … 文字（注記カテゴリ）の表示ON/OFF
 //   rail/road/admin … 色の点火ON/OFF（OFFでも土台グレーは出ている）
 const layerState = { ...defaultLayerState };   // UIトグル状態は main が保持・変更（チップで反転）
+if (bootView?.layers) for (const k of Object.keys(layerState)) layerState[k] = bootView.layers.includes(k);   // 共有URLのレイヤ集合が既定を上書き（チップDOMは下の初期同期で追随）
 let styleSig = JSON.stringify(layerState);
 const themes = createThemes(style);            // 分類（allowlist）は themes.js の純関数（layerState と zoom を引数で受ける）
 
@@ -553,7 +680,11 @@ document.querySelectorAll(".chip").forEach(b => b.addEventListener("click", () =
 	b.classList.toggle("on", layerState[k]);
 	styleSig = JSON.stringify(layerState); readySig = ""; needsDraw = true;
 	if (k === "rail") { renderer.set("view", { showN02: layerState.rail }); if (layerState.rail) loadN02(); }   // 鉄道ON＝N02新幹線も表示＋初回fetch
+	saveView();   // レイヤ状態も共有URLの一部＝即書き戻す
 }));
+// 共有URL復元の初期同期：チップの見た目と rail 副作用を layerState に合わせる（既定どおりなら実質 no-op）
+document.querySelectorAll(".chip[data-k]").forEach(b => b.classList.toggle("on", !!layerState[b.dataset.k]));
+if (layerState.rail) { renderer.set("view", { showN02: true }); loadN02(); }
 
 // 「等高線」トグル：等高線(真俯瞰の茶線)＋数字(zoom/tileログ・地形読込)をまとめて ON/OFF。既定 OFF＝真っさらな地図、押すと解析情報が出る。
 const btnContour = document.getElementById("btn-contour");
@@ -566,6 +697,23 @@ btnContour.addEventListener("click", () => {
 	readySig = ""; mergeReq.main.sig = "";                 // ラベル集合を再結合＝標高数値の表示/非表示を即反映（filterLabels に contourOn を渡す）
 	renderer.draw(cam, { skipBase: false, noTerrain: cam.zoom < BASEMAP_MINZOOM, terrainGate: true });   // 即1枚描き直す（動かさなくても反映）
 	needsDraw = true;
+	saveView();   // 等高線状態も共有URLの一部
+});
+if (bootView?.contour) btnContour.click();   // 共有URL復元：等高線ONを副作用ごとボタン経由で再現
+
+// ハッシュの手編集・ペーストで視点ジャンプ（replaceState は hashchange を発火しない＝自分の書き戻しとは無干渉）
+window.addEventListener("hashchange", () => {
+	const v = parseViewHash(location.hash);
+	if (!v) return;
+	applyCamView(v);
+	if (v.layers) {
+		for (const k of Object.keys(layerState)) layerState[k] = v.layers.includes(k);
+		document.querySelectorAll(".chip[data-k]").forEach(b => b.classList.toggle("on", !!layerState[b.dataset.k]));
+		styleSig = JSON.stringify(layerState); readySig = "";
+		renderer.set("view", { showN02: layerState.rail }); if (layerState.rail) loadN02();
+	}
+	if (v.contour !== contourOn) btnContour.click();
+	onMove();
 });
 
 // コンパス兼リセット：3D（傾き or 回転）の時だけ表示。針は方位を指し、押すと水平・北向きへスッと戻る。
@@ -578,6 +726,7 @@ function updateCompass() {
 	if (is3D) resetSvg.style.transform = `rotate(${-cam.bearing * 180 / Math.PI}deg)`;
 }
 resetBtn.addEventListener("click", () => {
+	if (flight) flight.cancel();   // リセットアニメと喧嘩しない
 	const p0 = cam.pitch, b0 = shortBearing(), t0 = performance.now(), dur = 350;
 	const step = () => {
 		const k = Math.min(1, (performance.now() - t0) / dur), e = k * k * (3 - 2 * k);   // smoothstep
