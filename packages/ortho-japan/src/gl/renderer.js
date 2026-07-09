@@ -187,7 +187,7 @@ export function createRenderer(canvas) {
 	// --- overlay（外部ベクタ=geopbf/e-Stat）：stencil-then-cover 塗り＋境界線 ---
 	let overlay = null, overlayHi = null, n02 = [];   // n02＝交通の常駐オーバーレイ群（新幹線/駅…各色）。showN02 で表示切替
 	function buildOverlaySlot(s, fillColor) {
-		if (!s || !s.fanPos.length) return null;
+		if (!s || (!s.fanPos.length && !(s.lineHalf && s.lineHalf.length))) return null;   // 面も線も無い時だけ捨てる（純線＝N02新幹線は面ゼロで通す）
 		const fanVao = gl.createVertexArray(), bFan = buffer(gl, s.fanPos);
 		gl.bindVertexArray(fanVao); attrib(gl, stencilProg, "a_delta", bFan, 2); gl.bindVertexArray(null);
 		const bufs = [bFan];
