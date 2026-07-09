@@ -49,7 +49,34 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 		const v = top + (bot - top) * ty;
 		return v < 0 ? 0 : v;
 	}
-	function viewCellRange(cam, size, range) {
+	// R10 親タイルから 1°セルを切り出して cellRes² に再標本化（downsampleFlipped と同じ南上げ規約）。
+	// 混成アトラスの遠方セル用＝R01 の大量フェッチ（1セル数秒×数十）を避けつつ遠景の起伏を出す。
+	function cropResample(tile, lng0, lat0, span, N) {
+		const { data, width: w, height: h, lng: lo, lat: la, range: r } = tile;
+		const out = new Float32Array(N * N);
+		const H = (x, y) => { const v = data[(h - 1 - y) * w + x]; return (v < -420 || v > 9000) ? 0 : v; };   // y:0=南
+		for (let j = 0; j < N; j++) {
+			const gy = ((lat0 - la) + span * j / (N - 1)) / r * (h - 1);
+			const y0 = Math.max(0, Math.min(h - 2, gy | 0)), fy = Math.min(1, Math.max(0, gy - y0));
+			for (let i = 0; i < N; i++) {
+				const gx = ((lng0 - lo) + span * i / (N - 1)) / r * (w - 1);
+				const x0 = Math.max(0, Math.min(w - 2, gx | 0)), fx = Math.min(1, Math.max(0, gx - x0));
+				const a = H(x0, y0), b = H(x0 + 1, y0), c = H(x0, y0 + 1), d = H(x0 + 1, y0 + 1);
+				const v = (a + (b - a) * fx) + ((c + (d - c) * fx) - (a + (b - a) * fx)) * fy;
+				out[j * N + i] = v < 0 ? 0 : v;   // row0=南
+			}
+		}
+		return out;
+	}
+	function viewCellRange(cam, size, range, mixed) {
+		if (mixed) {
+			// 混成窓は決定的に：カメラセル基準＋方位ベクトルで前方（視線方向）へ2セル寄せる。
+			// unproject スパンの中点は高チルトの grazing 標本に引きずられて窓が海へ飛ぶ（実測: 富士で lat19 に飛んだ）。
+			const camCX = Math.floor(cam.center[0]), camCY = Math.floor(cam.center[1]);
+			const fx = Math.sin(cam.bearing || 0), fy = Math.cos(cam.bearing || 0);
+			const cells = 8, half = cells - 1 >> 1;
+			return { range: 1, originCX: camCX - half + Math.round(fx * 2), originCY: camCY - half + Math.round(fy * 2), cellsX: cells, cellsY: cells, cellRes: 400 };
+		}
 		const st = cameraState(cam, size.w, size.h);
 		// 画面を密にサンプル（傾き時、地平線直下の"遠い地面"まで拾う）。宇宙に外れた点はnull→無視。
 		let lo0 = cam.center[0], la0 = cam.center[1], lo1 = lo0, la1 = la0;
@@ -62,10 +89,11 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 		}
 		const cx0 = Math.floor(lo0 / range), cx1 = Math.floor(lo1 / range), cy0 = Math.floor(la0 / range), cy1 = Math.floor(la1 / range);
 		// セル上限：R01 は近景特化で小さく高精細に（遠景まで広げると grazing で粗いメッシュの壁が出る）。
-		// R10/R90 は広域カバー優先で 8。cellRes=2048/セル数で解像度は自動配分。
-		const cap = range === 1 ? 4 : 8;
+		// R10/R90 は広域カバー優先で 8。混成（高チルト）は 1°×8 を視線方向へ寄せて地平線まで届かせる。
+		const cap = mixed ? 8 : range === 1 ? 4 : 8;
 		const cellsX = Math.min(cap, cx1 - cx0 + 1), cellsY = Math.min(cap, cy1 - cy0 + 1);
-		const ccx = Math.floor(cam.center[0] / range), ccy = Math.floor(cam.center[1] / range);
+		// センタリング：通常はカメラ中心／混成は視野スパンの中点＝見ている方向へ窓を寄せる
+		const ccx = Math.floor((mixed ? (lo0 + lo1) / 2 : cam.center[0]) / range), ccy = Math.floor((mixed ? (la0 + la1) / 2 : cam.center[1]) / range);
 		const originCX = Math.max(cx0, Math.min(cx1 - cellsX + 1, ccx - (cellsX - 1 >> 1)));
 		const originCY = Math.max(cy0, Math.min(cy1 - cellsY + 1, ccy - (cellsY - 1 >> 1)));
 		const cellRes = Math.max(400, Math.floor(2048 / Math.max(cellsX, cellsY)));
@@ -73,23 +101,49 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 	}
 	async function ensure(cam, size) {
 		if (!loadTile) return;
-		const range = selectRange(cam);
-		const r = viewCellRange(cam, size, range);
-		const key = [range, r.originCX, r.originCY, r.cellsX, r.cellsY, r.cellRes].join(",");
+		// 混成モード（高チルト×中ズーム）：1°グリッドで近傍3×3=R01（富士の近景ディテール）、
+		// 遠方セル=R10切り出し（地平線までのカバー）。単一アトラス＝レンダラ側は無変更。
+		const mixed = (cam.pitch || 0) > 0.9 && cam.zoom >= 10.5 && cam.zoom < 13;
+		const range = mixed ? 1 : selectRange(cam);
+		const r = viewCellRange(cam, size, range, mixed);
+		const key = [mixed ? "M" : range, r.originCX, r.originCY, r.cellsX, r.cellsY, r.cellRes].join(",");
 		if (key !== atlasKey) {
 			atlasKey = key; loadedCells = new Set();
 			renderer.set("elevAtlas", { originLng: r.originCX * range, originLat: r.originCY * range, cellsX: r.cellsX, cellsY: r.cellsY, cellRes: r.cellRes, cellSpan: range, exag }, exag / earthM);
 			requestDraw();
 		}
+		const camCX = Math.floor(cam.center[0] / range), camCY = Math.floor(cam.center[1] / range);
 		for (let cy = 0; cy < r.cellsY; cy++) for (let cx = 0; cx < r.cellsX; cx++) {
 			const ck = cx + "," + cy;
 			if (loadedCells.has(ck)) continue;
 			loadedCells.add(ck);
+			const cellLng = (r.originCX + cx) * range, cellLat = (r.originCY + cy) * range;
+			const nearCam = Math.abs(r.originCX + cx - camCX) <= 1 && Math.abs(r.originCY + cy - camCY) <= 1;
 			pendingElev++; notifyPending(range);
-			getCell((r.originCX + cx) * range, (r.originCY + cy) * range, range).then(tile => {
-				pendingElev--; notifyPending(range);
-				if (tile && atlasKey === key) { renderer.set("elevCell", downsampleFlipped(tile, r.cellRes), { cx, cy, cellRes: r.cellRes }); requestDraw(); }
-			});
+			if (mixed) {
+				// 全セルまず R10 切り出しで即座に埋める（近傍も）＝R01 初回フェッチ(数秒×9)の間の平坦を防ぐ。
+				getCell(Math.floor(cellLng / 10) * 10, Math.floor(cellLat / 10) * 10, 10).then(parent => {
+					pendingElev--; notifyPending(range);
+					if (parent && atlasKey === key && !(loadedCells.has(ck + "hi"))) {
+						renderer.set("elevCell", cropResample(parent, cellLng, cellLat, range, r.cellRes), { cx, cy, cellRes: r.cellRes }); requestDraw();
+					}
+				});
+				if (nearCam) {   // 近傍3×3は R01 が届き次第上書き（富士の近景ディテール）
+					pendingElev++; notifyPending(range);
+					getCell(cellLng, cellLat, 1).then(tile => {
+						pendingElev--; notifyPending(range);
+						if (tile && atlasKey === key) {
+							loadedCells.add(ck + "hi");   // 以降 R10 切り出しで上書きさせない
+							renderer.set("elevCell", downsampleFlipped(tile, r.cellRes), { cx, cy, cellRes: r.cellRes }); requestDraw();
+						}
+					});
+				}
+			} else {
+				getCell(cellLng, cellLat, range).then(tile => {
+					pendingElev--; notifyPending(range);
+					if (tile && atlasKey === key) { renderer.set("elevCell", downsampleFlipped(tile, r.cellRes), { cx, cy, cellRes: r.cellRes }); requestDraw(); }
+				});
+			}
 		}
 	}
 	return { ensure, sampleElev };

@@ -350,8 +350,10 @@ in float v_fog;
 out vec4 fragColor;
 void main() {
 	if (v_front < 0.0) discard;             // 裏半球は描かない
-	vec3 rgb = mix(v_color.rgb, u_fogColor, v_fog);
-	fragColor = vec4(rgb * v_color.a, v_color.a);  // premultiplied
+	// 霧はフェードアウト（透明化）：紙色で塗り潰すと、地平線の先＝球に隠れるべき塗りが空に不透明で浮く
+	float af = v_color.a * (1.0 - v_fog);
+	if (af <= 0.003) discard;
+	fragColor = vec4(mix(v_color.rgb, u_fogColor, v_fog) * af, af);  // premultiplied
 }`;
 
 // capsule 方式：両端をスクリーン空間へ投影して定px幅・丸端で描く。透視でも幅が一定。
@@ -416,7 +418,9 @@ void main() {
 	float dist = length(pa - ba * t);
 	float alpha = clamp(v_half - dist + 0.5, 0.0, 1.0);
 	if (alpha <= 0.0) discard;
-	float a = v_color.a * alpha;
+	// 霧はフェードアウト（透明化）：塗り潰し式だと地平線の先の線が「空に浮く白線」になる（球の自遮蔽の代役）
+	float a = v_color.a * alpha * (1.0 - v_fog);
+	if (a <= 0.003) discard;
 	vec3 rgb = mix(v_color.rgb, u_fogColor, v_fog);
 	fragColor = vec4(rgb * a, a);
 }`;
