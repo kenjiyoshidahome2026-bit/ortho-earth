@@ -71,7 +71,24 @@ export function createTileManager({ style, tileUrl, onChange, cap = 256, buildTi
 			if (evicted.length && onEvict) onEvict(evicted);
 		}
 		const ready = arr => { const o = []; for (const t of arr) { const c = cache.get(keyOf(t)); if (c && c.status === "ready") o.push({ key: keyOf(t), origin: c.origin, z: t.z }); } return o; };
-		return { order: ready(selected), coarseOrder: ready(coarse), total: selected.length };
+		// 下地は祖先フォールバック付き：ズームで下地の段(round(zoom)-3)が切り替わる度に新段が未着で
+		// 紙色の空白がチラつくのを、キャッシュ済みの粗い親で埋めて防ぐ。粗い順＝下に描かれる。
+		const readyWithFallback = arr => {
+			const o = [], seen = new Set();
+			for (const t of arr) {
+				let z = t.z, x = t.x, y = t.y;
+				while (z >= 4) {
+					const k = `${z}/${x}/${y}`, c = cache.get(k);
+					if (c && c.status === "ready") {
+						if (!seen.has(k)) { seen.add(k); o.push({ key: k, origin: c.origin, z }); }
+						break;
+					}
+					z--; x >>= 1; y >>= 1;
+				}
+			}
+			return o.sort((a, b) => a.z - b.z);
+		};
+		return { order: ready(selected), coarseOrder: readyWithFallback(coarse), total: selected.length };
 	}
 
 	// order の全タイルの op を style層(li)ごとに結合。origin(=cam.center)へ再ベースして精度確保。
