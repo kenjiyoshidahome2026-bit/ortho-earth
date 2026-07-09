@@ -348,7 +348,7 @@ export function createRenderer(canvas) {
 			let curProg = null;
 			for (const d of scene.draws) {
 				if (d.kind === "fill") {
-					if (d.li === sea.li && cam.zoom < sea.minzoom) continue;   // 海：ビュー一律ゲート（詳細以外は描かない＝紙の海）
+					if ((d.li === sea.li || d.li === sea.li2) && cam.zoom < sea.minzoom) continue;   // 海：ビュー一律ゲート（詳細以外は描かない＝紙の海）。li2=水系点火面
 					if (curProg !== fillProg) { gl.useProgram(fillProg); curProg = fillProg; }
 					gl.bindVertexArray(d.vao);
 					gl.drawArrays(gl.TRIANGLES, 0, d.count);

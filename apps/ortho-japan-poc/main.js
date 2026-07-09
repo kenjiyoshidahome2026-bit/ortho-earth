@@ -205,7 +205,7 @@ try {
 const saveCam = () => { try { localStorage.setItem(CAM_KEY, JSON.stringify({ center: cam.center, zoom: cam.zoom, pitch: cam.pitch, bearing: cam.bearing })); } catch { /* private mode 等 */ } };
 renderer.set("view", { clear, land, atmo, bldColor, showN02: false });   // showN02＝N02交通(新幹線等)の表示。鉄道チップで切替
 // 海：水レイヤ(WA)をビュー一律にゲート＝cam.zoom<13 では描かない（＝紙の海・まだら無し）、z13+で一律点火。
-renderer.set("sea", { li: style.layers.findIndex(L => L.id === "water"), minzoom: 8 });
+renderer.set("sea", { li: style.layers.findIndex(L => L.id === "water"), li2: style.layers.findIndex(L => L.id === "water-hi"), minzoom: 8 });   // li2＝水系点火面も同じ海ゲート
 
 // --- gint worker（知性の層）：14条など突合可能なエンティティを OffscreenCanvas で別workerに描く。
 // MVT=描画(render worker)／Gint=知性(この worker)＝層分担。基図の上に重ね、pointer は透過して #c が受ける。

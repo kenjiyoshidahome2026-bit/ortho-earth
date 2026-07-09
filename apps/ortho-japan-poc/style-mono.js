@@ -12,6 +12,10 @@ export default {
 		// （set("sea",{li,minzoom:13})）＝タイル毎の presence まだらが構造的に消える。z<13=紙の海／z13+=一律の青。
 		{ id: "water", type: "fill", "source-layer": "WA", paint: { "fill-color": "#e2e6ea" } },
 
+		// 水系 点火（面）：WA を水色に染める。水系ONで川面・湖・海が河川中心線（river）と地続きの色になる
+		// （面なしだと線だけ浮いて分断された感じになる）。海の z8 ビュー一律ゲート（sea機構 li2）にも相乗り。
+		{ id: "water-hi", type: "fill", "source-layer": "WA", paint: { "fill-color": "#d8e5f0" } },
+
 		// 海岸線（水涯線 WL）は撤去：水域は sea 塗り(z8+)のコントラスト（淡グレー水／白い陸）で境が見える／
 		// z<8 は gint 世界海岸線が担当。WL の線は冗長で「水域の暗いボーダー」になるだけ＝描かない。
 		// 復活するなら： { id:"coast", type:"line", "source-layer":"WL", paint:{ "line-color":"#6e747b", "line-width":0.8 } }
@@ -21,7 +25,7 @@ export default {
 		{
 			id: "river", type: "line", "source-layer": "RvrCL",
 			layout: { "line-cap": "round" },
-			paint: { "line-color": "#85aecf", "line-width": ["interpolate", ["linear"], ["zoom"], 10, 0.5, 14, 1.1, 16, 1.8], "line-opacity": 0.9 },
+			paint: { "line-color": "#9fbfd9", "line-width": ["interpolate", ["linear"], ["zoom"], 10, 0.5, 14, 1.1, 16, 1.8], "line-opacity": 0.9 },
 		},
 
 		// 建築物：ほぼ気配だけ
@@ -41,8 +45,10 @@ export default {
 		},
 
 		// 道路：階層的なグレー。太さ・濃さで格を出すが全体は淡く。casing なし＝静か。トンネル(vt_code 2704)は破線＝別レイヤ。
+		// maxzoom 16＝z16タイルでは中心線を作らない：道路縁(RdEdg)が面として道路を描くので、中心線は重ねない方が綺麗。
+		// （トンネル破線 road-tn と点火 road-hi は情報なので z16 でも残す）
 		{
-			id: "road", type: "line", "source-layer": "RdCL",
+			id: "road", type: "line", "source-layer": "RdCL", maxzoom: 16,
 			filter: ["!=", ["get", "vt_code"], 2704],
 			layout: { "line-cap": "round", "line-join": "round", "line-sort-key": ["coalesce", ["get", "vt_drworder"], 0] },
 			paint: {

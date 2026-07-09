@@ -30,7 +30,7 @@ export function createThemes(style) {
 	const liOf = id => style.layers.findIndex(L => L.id === id);
 	const LI_RAILHI = liOf("rail-hi"), LI_RAILHITN = liOf("rail-hi-tn"), LI_RAILTR = liOf("railtr-hi"),
 		LI_ROADHI = liOf("road-hi"), LI_ROADHITN = liOf("road-hi-tn"), LI_ADMINHI = liOf("admin-hi"),
-		LI_KOURO = liOf("kouro"), LI_RIVER = liOf("river");
+		LI_KOURO = liOf("kouro"), LI_RIVER = liOf("river"), LI_WATERHI = liOf("water-hi");
 
 	// "点火"層は既定で隠す（土台グレーが見えている）。ONで色が乗る。
 	function hiddenLi(layerState, zoom) {
@@ -40,7 +40,7 @@ export function createThemes(style) {
 		if (!layerState.road) { h.add(LI_ROADHI); h.add(LI_ROADHITN); }
 		if (!layerState.road) h.add(LI_KOURO);   // 航路は道路チップに相乗り
 		if (!layerState.admin) h.add(LI_ADMINHI);
-		if (!layerState.river) h.add(LI_RIVER);  // 水系＝河川中心線
+		if (!layerState.river) { h.add(LI_RIVER); h.add(LI_WATERHI); }  // 水系＝河川中心線＋WA面の着色
 		return h;
 	}
 	// ラベル集合を allowlist で間引く。ONのテーマのカテゴリだけ通す。
