@@ -2,8 +2,10 @@
 // 結合結果は render worker へ直結ポートで送る（main を経由しない＝main は geometry を知らない）。
 import { mergeTiles } from "ortho-japan";
 
+// geometry は main のタイルキャッシュ(cap=256)の鏡：追加＝tile メッセージ／削除＝evict メッセージ（tilemanager の
+// onEvict と同期）。独自の上限退避は持たない——mainが ready と思っているタイルをこちらだけ捨てると、
+// merge が黙って穴になる（CAP=512 の insertion-order 退避で実際に起きた：「描き残しタイル」の根因）。
 const geom = new Map();   // key → { ops, buildings }
-const CAP = 512;
 const geomOf = k => geom.get(k) || null;
 let renderPort = null;    // render worker への直結ポート（MessageChannel の片端）
 
@@ -11,8 +13,7 @@ self.onmessage = (e) => {
 	const m = e.data;
 	if (m.type === "connect") { renderPort = m.port; return; }   // main が繋ぐ render worker への直結
 	if (m.type === "tile") {
-		geom.set(m.key, { ops: m.ops, buildings: m.buildings });
-		if (geom.size > CAP) { const it = geom.keys().next(); if (!it.done) geom.delete(it.value); }   // 古い順に退避
+		geom.set(m.key, { ops: m.ops, buildings: m.buildings });   // 削除は main からの evict のみ（上のコメント参照）
 		return;
 	}
 	if (m.type === "evict") { for (const k of m.keys) geom.delete(k); return; }
@@ -22,9 +23,7 @@ self.onmessage = (e) => {
 		// 投げっぱなし＋楽観 sig 確定だと、一度の失敗（結合バッファ確保失敗等）が「静止中は永遠に欠けたタイル」になる。
 		try {
 			if (failNext) { failNext = false; throw new Error("debug-fail"); }
-			// LRU touch：この merge で使うタイルを最近使用へ移す（古い順退避で現用タイルの geometry が消えるのを防ぐ）
-			for (const o of m.order) { const g = geom.get(o.key); if (g) { geom.delete(o.key); geom.set(o.key, g); } }
-			// 診断：main が ready と言うタイルの geometry が無い＝そのタイルは黙って穴になる（原因調査の手掛かり）
+			// 診断：main が ready と言うタイルの geometry が無い＝そのタイルは黙って穴になる（evict同期後は出ないはず）
 			const missing = m.order.filter(o => !geom.has(o.key));
 			if (missing.length) console.warn(`[scene] merge ${m.slot}: geometry欠落 ${missing.length}/${m.order.length} 例:`, missing.slice(0, 6).map(o => o.key).join(" "), `(保持${geom.size})`);
 			const scene = mergeTiles(m.order, geomOf, { origin: m.origin, hidden: m.hidden ? new Set(m.hidden) : null });

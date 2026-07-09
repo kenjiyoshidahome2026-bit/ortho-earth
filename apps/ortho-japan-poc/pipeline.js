@@ -58,6 +58,11 @@ export function createPipeline({ style, tileUrl, requestDraw, scenePort, onMerge
 		p.reject(new Error("aborted"));
 	};
 
-	const tiles = createTileManager({ style, tileUrl, onChange: requestDraw, buildTile: workerBuildTile });
+	// onEvict：main のタイルキャッシュから消えたら scene worker の geometry も同時に消す＝両者は常に鏡。
+	// scene worker 側に独自の上限退避を持たせない（mainがreadyのタイルを勝手に捨てると merge で黙って穴になる）。
+	const tiles = createTileManager({
+		style, tileUrl, onChange: requestDraw, buildTile: workerBuildTile,
+		onEvict: keys => sceneWorker.postMessage({ type: "evict", keys }),
+	});
 	return { tiles, requestMerge };
 }

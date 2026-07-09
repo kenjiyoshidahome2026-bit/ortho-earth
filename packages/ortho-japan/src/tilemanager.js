@@ -11,7 +11,7 @@ import { selectLOD } from "./tilecover.js";
 const keyOf = t => `${t.z}/${t.x}/${t.y}`;
 const EMPTY = new Set();
 
-export function createTileManager({ style, tileUrl, onChange, cap = 256, buildTile }) {
+export function createTileManager({ style, tileUrl, onChange, cap = 256, buildTile, onEvict }) {
 	const cache = new Map();   // key → { status, origin, dl, labels, z }
 
 	// 既定：メインスレッドで fetch→decode→tessellation（重い）。buildTile 注入で worker へ退避できる。
@@ -61,10 +61,14 @@ export function createTileManager({ style, tileUrl, onChange, cap = 256, buildTi
 			for (const [k, c] of cache) if (c.status === "loading" && !keep.has(k)) build.abort(k);
 		}
 		if (cache.size > cap) {
+			const evicted = [];
 			for (const k of [...cache.keys()]) {
 				if (cache.size <= cap) break;
-				if (!keep.has(k)) cache.delete(k);
+				if (!keep.has(k)) { cache.delete(k); evicted.push(k); }
 			}
+			// geometry 保持側（scene worker）へ同期通知：ここで知らせないと「main は ready・worker は破棄」の
+			// 食い違いが生まれ、merge で黙って穴になる（scene worker 側の独自CAP退避で実際に起きた）。
+			if (evicted.length && onEvict) onEvict(evicted);
 		}
 		const ready = arr => { const o = []; for (const t of arr) { const c = cache.get(keyOf(t)); if (c && c.status === "ready") o.push({ key: keyOf(t), origin: c.origin, z: t.z }); } return o; };
 		return { order: ready(selected), coarseOrder: ready(coarse), total: selected.length };
