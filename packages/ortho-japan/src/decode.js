@@ -23,6 +23,9 @@ export function decodeMVT(buf) {
 
 export async function fetchMVT(url, signal) {
 	const r = await fetch(url, { signal });
+	// 404/204＝「そこにタイルが無い」という正当なデータ（optimal_bvmap は日本域のみ＝広域ビューでは
+	// 国外・外洋のタイルが常に404）。エラーでなく空タイルとして ready 扱い＝リトライも失敗計上もしない。
+	if (r.status === 404 || r.status === 204) return {};
 	if (!r.ok) throw new Error(`MVT HTTP ${r.status} ${url}`);
 	return decodeMVT(new Uint8Array(await r.arrayBuffer()));
 }
