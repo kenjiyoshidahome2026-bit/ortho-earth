@@ -163,8 +163,9 @@ out float v_h;
 void main() {
 	vec3 dir = lonlatTo3D(a_ll);
 	// 遠景は変位を距離フェードで平ら化＝grazing(すれすれ角)で粗いメッシュ格子が縦壁に見えるのを消す。
-	// 近景は relief フル、遠景は平らに沈めて霧へ。
-	float df = 1.0 - smoothstep(u_fogNear, u_fogNear * 2.5, distance(u_eye, dir));
+	// 開始はフォグがほぼ霞み切る距離から＝可視域の山（中央・北アルプス等）は立体のまま、
+	// シルエットが霞に溶けた先だけ平ら化（fogNear基準だと100km先の山脈が丸ごと潰れて見えなくなる）。
+	float df = 1.0 - smoothstep(u_fogFar * 0.8, u_fogFar * 2.0, distance(u_eye, dir));
 	float h = elev(a_ll) * df;
 	v_h = h;
 	v_ll = a_ll;
@@ -333,7 +334,10 @@ out float v_fog;
 void main() {
 	vec2 ll = u_origin + a_delta;
 	vec3 dir = lonlatTo3D(ll);
-	vec3 w = dir * (1.0 + elev(ll) * u_elevScale);   // 標高変位（地形に貼りつく）
+	// 標高変位は地形と同じ距離フェード（TERRAIN_VS の df と同式）＝遠景で地形が平ら化された時に
+	// 塗りだけ山の高さに浮くのを防ぐ（浮くと地平線の上に塗りの切れ端が漂う）
+	float df = 1.0 - smoothstep(u_fogFar * 0.8, u_fogFar * 2.0, distance(u_eye, dir));
+	vec3 w = dir * (1.0 + elev(ll) * u_elevScale * df);   // 標高変位（地形に貼りつく）
 	v_color = a_color;
 	v_front = dot(dir, u_eye) - 1.0;          // >0 で手前半球
 	v_fog = fogOf(w);
@@ -379,7 +383,11 @@ void main() {
 	vec3 da = lonlatTo3D(la1), db = lonlatTo3D(la2);
 	// 線は傾き時に深度テストを切って地形の上に描く（renderer側）ので、持ち上げ不要＝浮きゼロ。
 	float lift = 0.0;
-	vec3 wa = da * (1.0 + elev(la1) * u_elevScale + lift), wb = db * (1.0 + elev(la2) * u_elevScale + lift);
+	// 標高変位は地形と同じ距離フェード（TERRAIN_VS の df と同式）＝遠景の平ら化に追随。
+	// これが無いと平ら化された山脈の上に線だけがフル標高で浮き、「地平線に漂う点線の鎖」になる
+	float dfa = 1.0 - smoothstep(u_fogFar * 0.8, u_fogFar * 2.0, distance(u_eye, da));
+	float dfb = 1.0 - smoothstep(u_fogFar * 0.8, u_fogFar * 2.0, distance(u_eye, db));
+	vec3 wa = da * (1.0 + elev(la1) * u_elevScale * dfa + lift), wb = db * (1.0 + elev(la2) * u_elevScale * dfb + lift);
 	vec4 ca = u_mvp * vec4(wa, 1.0), cb = u_mvp * vec4(wb, 1.0);
 	float fa = dot(da, u_eye) - 1.0, fb = dot(db, u_eye) - 1.0;
 	if (ca.w <= 0.0 || cb.w <= 0.0) { v_front = -1.0; gl_Position = vec4(2.0, 2.0, 2.0, 1.0); return; }  // カメラ背後

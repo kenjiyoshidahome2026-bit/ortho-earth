@@ -316,10 +316,12 @@ export function createRenderer(canvas) {
 			// 地形だけフォグを「遠山ブルー」に：空気遠近法＝遠くの山は青く霞む。地平線の山並みが
 			// 説明不要で"山"として読める（基図の線/塗りは従来どおり紙色へフェードアウト＝浮かない）。
 			// 距離も地形だけ半分に詰める＝中景の山並み（80-150km）にしっかり青が乗る。
+			// 距離は camDist 比例に「実距離の下限＝視程」を併用：ズームを寄せても 50km 手前から
+			// 165km（快晴の山岳視程）までは霞み切らない＝八ヶ岳から中央・北アルプスが青い山並みとして残る。
 			const dc = view.distColor || [0.63, 0.72, 0.83];
 			gl.uniform3f(loc(gl, terrainProg, "u_fogColor"), dc[0], dc[1], dc[2]);
-			gl.uniform1f(loc(gl, terrainProg, "u_fogNear"), st.camDist * 1.2);
-			gl.uniform1f(loc(gl, terrainProg, "u_fogFar"), st.camDist * 5.0);
+			gl.uniform1f(loc(gl, terrainProg, "u_fogNear"), Math.max(st.camDist * 1.2, 0.008));
+			gl.uniform1f(loc(gl, terrainProg, "u_fogFar"), Math.max(st.camDist * 5.0, 0.026));
 			gl.uniform3f(loc(gl, terrainProg, "u_land"), land[0], land[1], land[2]);
 			gl.bindVertexArray(terrain.vao);
 			gl.drawElements(gl.TRIANGLES, terrain.count, gl.UNSIGNED_INT, 0);
@@ -356,11 +358,16 @@ export function createRenderer(canvas) {
 		// fill/line の VS は applyLogDepth と同式の対数深度を焼いており地形と直接比較できる。
 		if (terrainDepth) { gl.enable(gl.DEPTH_TEST); gl.depthMask(false); }
 		const slots = (opts && opts.skipBase) ? ["main"] : ["base", "main"];   // 静止時は下地を隠しLOD痕を消す
+		// 線・塗りのフォグ終端は地形と同一式＝地形が完全に霞んだ先に線だけ生き残って「空に浮く白線」に
+		// なるのを構造的に防ぐ。シェーダの遠景平ら化(df)も u_fogFar 基準なので、同値なら線は地形に厳密追随する。
+		const fogFarCap = Math.max(st.camDist * 5.0, 0.026);
 		for (const slot of slots) {   // 粗い下書き→現ズームの順
 			const scene = scenes[slot];
 			if (!scene.draws.length) continue;
 			setCommonUniforms(fillProg, st, scene.origin, land);
 			setCommonUniforms(lineProg, st, scene.origin, land);
+			gl.useProgram(fillProg); gl.uniform1f(loc(gl, fillProg, "u_fogFar"), fogFarCap);
+			gl.useProgram(lineProg); gl.uniform1f(loc(gl, lineProg, "u_fogFar"), fogFarCap);
 			let curProg = null;
 			for (const d of scene.draws) {
 				if (d.kind === "fill") {
