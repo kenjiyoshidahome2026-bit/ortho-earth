@@ -413,14 +413,19 @@ export function createRenderer(canvas) {
 			setCommonUniforms(lineProg, st, scene.origin, land);
 			gl.useProgram(fillProg); gl.uniform1f(loc(gl, fillProg, "u_fogFar"), fogFarCap);
 			gl.useProgram(lineProg); gl.uniform1f(loc(gl, lineProg, "u_fogFar"), fogFarCap);
-			let curProg = null;
+			let curProg = null, depthOn = terrainDepth;
 			for (const d of scene.draws) {
 				if (d.kind === "fill") {
 					if ((d.li === sea.li || d.li === sea.li2) && cam.zoom < sea.minzoom) continue;   // 海：ビュー一律ゲート（詳細以外は描かない＝紙の海）。li2=水系点火面
+					// 水面は山岳レジームでも深度テスト免除：湖・海の大三角形（頂点は岸のみ）は平面補間のため、
+					// DSMの水面ノイズ瘤が突き抜けて「湖に偽の島」が浮く（琵琶湖で顕在化）。水は常に地形の上に塗る
+					const wantDepth = terrainDepth && !(d.li === sea.li || d.li === sea.li2);
+					if (wantDepth !== depthOn) { (wantDepth ? gl.enable : gl.disable).call(gl, gl.DEPTH_TEST); depthOn = wantDepth; }
 					if (curProg !== fillProg) { gl.useProgram(fillProg); curProg = fillProg; }
 					gl.bindVertexArray(d.vao);
 					gl.drawArrays(gl.TRIANGLES, 0, d.count);
 				} else {
+					if (terrainDepth && !depthOn) { gl.enable(gl.DEPTH_TEST); depthOn = true; }   // 線は地形遮蔽を維持
 					if (curProg !== lineProg) { gl.useProgram(lineProg); curProg = lineProg; }
 					gl.bindVertexArray(d.vao);
 					gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, d.count);
