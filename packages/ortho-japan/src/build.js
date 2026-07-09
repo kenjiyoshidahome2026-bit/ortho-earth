@@ -47,6 +47,10 @@ export function buildTileDrawList({ layers, z, x, y }, style, origin, pale = c =
 			if (pos.length) ops.push({ kind: "fill", li, id: L.id, pos: new Float32Array(pos), col: new Float32Array(col) });
 		} else { // line
 			const P1 = [], P2 = [], col = [], half = [];
+			// line-dasharray [線, 間隔]（px・タイル基準ズームでの見かけ）：走行距離の位相を保って線分を刻む。
+			// renderer の capsule は丸端なので、刻んだ破片がそのままピル状のダッシュになる（トンネル破線等）。
+			const dashArr = L.paint?.["line-dasharray"];
+			const du = dashArr ? dashArr[0] * extent / 256 : 0, gu = dashArr ? dashArr[1] * extent / 256 : 0, period = du + gu;
 			for (const f of feats) {
 				const ctx = { zoom: z, props: f.props, geom: f.type, vars: {} };
 				if (L.filter && !truthy(evalExpr(L.filter, ctx))) continue;
@@ -55,17 +59,35 @@ export function buildTileDrawList({ layers, z, x, y }, style, origin, pale = c =
 				let w = evalExpr(L.paint?.["line-width"] ?? 1, ctx);
 				if (typeof w !== "number" || isNaN(w) || w <= 0) w = 1;
 				const hw = w * 0.5;
+				const emit = (ax, ay, bx, by) => {
+					const [alon, alat] = toLL(ax, ay, extent), [blon, blat] = toLL(bx, by, extent);
+					P1.push(alon - ox, alat - oy); P2.push(blon - ox, blat - oy);
+					col.push(c[0], c[1], c[2], a); half.push(hw);
+				};
 				for (const linePts of f.geom) {
+					if (dashArr) {
+						let phase = 0;   // 頂点をまたいで位相を継続＝角でダッシュが割れない
+						for (let i = 0; i + 1 < linePts.length; i++) {
+							const A = linePts[i], B = linePts[i + 1];
+							const dx = B.x - A.x, dy = B.y - A.y, len = Math.hypot(dx, dy);
+							if (!len) continue;
+							let pos = 0;
+							while (pos < len - 1e-9) {
+								const inDash = phase < du;
+								const take = Math.min(inDash ? du - phase : period - phase, len - pos);
+								if (inDash) emit(A.x + dx * (pos / len), A.y + dy * (pos / len), A.x + dx * ((pos + take) / len), A.y + dy * ((pos + take) / len));
+								pos += take; phase += take; if (phase >= period - 1e-9) phase = 0;
+							}
+						}
+						continue;
+					}
 					for (let i = 0; i + 1 < linePts.length; i++) {
 						const A = linePts[i], B = linePts[i + 1];
 						const dx = B.x - A.x, dy = B.y - A.y;
 						const steps = Math.min(24, Math.max(1, Math.ceil(Math.hypot(dx, dy) / subLen)));  // 地形ドレープ用に細分
 						for (let s = 0; s < steps; s++) {
 							const t0 = s / steps, t1 = (s + 1) / steps;
-							const [alon, alat] = toLL(A.x + dx * t0, A.y + dy * t0, extent);
-							const [blon, blat] = toLL(A.x + dx * t1, A.y + dy * t1, extent);
-							P1.push(alon - ox, alat - oy); P2.push(blon - ox, blat - oy);
-							col.push(c[0], c[1], c[2], a); half.push(hw);
+							emit(A.x + dx * t0, A.y + dy * t0, A.x + dx * t1, A.y + dy * t1);
 						}
 					}
 				}

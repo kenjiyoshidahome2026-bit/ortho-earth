@@ -16,19 +16,34 @@ export default {
 		// z<8 は gint 世界海岸線が担当。WL の線は冗長で「水域の暗いボーダー」になるだけ＝描かない。
 		// 復活するなら： { id:"coast", type:"line", "source-layer":"WL", paint:{ "line-color":"#6e747b", "line-width":0.8 } }
 
+		// 水系 点火：河川中心線（RvrCL）。WA面は太い川だけ＝細流・上流はこれで初めて地図に現れる。
+		// 水系チップでON/OFF（themes.js が hiddenLi で制御）。道路・鉄道より下＝橋の下を流れる。
+		{
+			id: "river", type: "line", "source-layer": "RvrCL",
+			layout: { "line-cap": "round" },
+			paint: { "line-color": "#85aecf", "line-width": ["interpolate", ["linear"], ["zoom"], 10, 0.5, 14, 1.1, 16, 1.8], "line-opacity": 0.9 },
+		},
+
 		// 建築物：ほぼ気配だけ
 		{ id: "building", type: "fill", "source-layer": "BldA", paint: { "fill-color": "#ececea" } },
 
-		// 鉄道：細い中間グレー
+		// 鉄道：細い中間グレー。トンネル・地下（vt_railstate）は地形図の作法どおり破線＝別レイヤ。
 		{
 			id: "rail", type: "line", "source-layer": "RailCL",
+			filter: ["match", ["get", "vt_railstate"], ["トンネル", "地下"], false, true],
 			layout: { "line-cap": "round" },
 			paint: { "line-color": "#c9c9c7", "line-width": ["interpolate", ["linear"], ["zoom"], 11, 0.4, 16, 1.4] },
 		},
+		{
+			id: "rail-tn", type: "line", "source-layer": "RailCL",
+			filter: ["match", ["get", "vt_railstate"], ["トンネル", "地下"], true, false],
+			paint: { "line-color": "#c9c9c7", "line-width": ["interpolate", ["linear"], ["zoom"], 11, 0.4, 16, 1.4], "line-dasharray": [5, 4] },
+		},
 
-		// 道路：階層的なグレー。太さ・濃さで格を出すが全体は淡く。casing なし＝静か。
+		// 道路：階層的なグレー。太さ・濃さで格を出すが全体は淡く。casing なし＝静か。トンネル(vt_code 2704)は破線＝別レイヤ。
 		{
 			id: "road", type: "line", "source-layer": "RdCL",
+			filter: ["!=", ["get", "vt_code"], 2704],
 			layout: { "line-cap": "round", "line-join": "round", "line-sort-key": ["coalesce", ["get", "vt_drworder"], 0] },
 			paint: {
 				"line-color": ["match", ["get", "vt_rdctg"],
@@ -39,6 +54,22 @@ export default {
 					16, ["match", ["get", "vt_rdctg"], "高速自動車国道等", 7, "国道", 5.5, "都道府県道", 3.2, 1.6]],
 			},
 		},
+		{
+			id: "road-tn", type: "line", "source-layer": "RdCL",
+			filter: ["==", ["get", "vt_code"], 2704],
+			layout: { "line-sort-key": ["coalesce", ["get", "vt_drworder"], 0] },
+			paint: {
+				"line-color": ["match", ["get", "vt_rdctg"],
+					"高速自動車国道等", "#bdbdba", "国道", "#c6c6c3", "都道府県道", "#d2d2cf", "市区町村道等", "#e0e0dd", "#dcdcda"],
+				"line-width": ["interpolate", ["linear"], ["zoom"],
+					11, ["match", ["get", "vt_rdctg"], "高速自動車国道等", 1.4, "国道", 1.1, "都道府県道", 0.7, 0.35],
+					14, ["match", ["get", "vt_rdctg"], "高速自動車国道等", 3.4, "国道", 2.6, "都道府県道", 1.6, 0.9],
+					16, ["match", ["get", "vt_rdctg"], "高速自動車国道等", 7, "国道", 5.5, "都道府県道", 3.2, 1.6]],
+				"line-dasharray": [5, 4],
+			},
+		},
+		// 道路縁（RdEdg・z16タイルのみに存在）：高ズームで道路が線から「面」になる＝街の見栄え。常時表示。
+		{ id: "rdedg", type: "line", "source-layer": "RdEdg", paint: { "line-color": "#c6c6c3", "line-width": 0.7 } },
 
 		// 行政界：淡いグレーの細線（破線は capsule 未対応のため実線）
 		{ id: "admin", type: "line", "source-layer": "AdmBdry", paint: { "line-color": "#cececb", "line-width": 0.8, "line-opacity": 0.9 } },
@@ -47,11 +78,25 @@ export default {
 		// 土台は常に白黒で全部見えている。各テーマは同じ形状に色を重ねるだけ＝普段は非表示、
 		// チップONで buildScene に含める。再取得・再デコード不要で一瞬。色は後から自由に差し替え可。
 
-		// 鉄道 点火：静かな緑（路線中心線）
+		// 鉄道 点火：JR＝静かな緑／JR以外（私鉄・地下鉄・三セク等）＝黄緑で描き分け（vt_rtcode）。
+		// トンネル・地下は破線＝別レイヤ（同色）。
 		{
 			id: "rail-hi", type: "line", "source-layer": "RailCL",
+			filter: ["match", ["get", "vt_railstate"], ["トンネル", "地下"], false, true],
 			layout: { "line-cap": "round" },
-			paint: { "line-color": "#4b9e6a", "line-width": ["interpolate", ["linear"], ["zoom"], 11, 0.6, 16, 1.9] },
+			paint: {
+				"line-color": ["match", ["get", "vt_rtcode"], "JR", "#4b9e6a", "#8eb43e"],
+				"line-width": ["interpolate", ["linear"], ["zoom"], 11, 0.6, 16, 1.9],
+			},
+		},
+		{
+			id: "rail-hi-tn", type: "line", "source-layer": "RailCL",
+			filter: ["match", ["get", "vt_railstate"], ["トンネル", "地下"], true, false],
+			paint: {
+				"line-color": ["match", ["get", "vt_rtcode"], "JR", "#4b9e6a", "#8eb43e"],
+				"line-width": ["interpolate", ["linear"], ["zoom"], 11, 0.6, 16, 1.9],
+				"line-dasharray": [5, 4],
+			},
 		},
 		// 駅の軌道（RailTrCL＝構内・側線含む全線路。z16タイルのみに存在）。鉄道ON＋寄った時に緑で。
 		// 駅構内の扇形が浮かぶ。z16固定データなので幅はしっかりめに。
@@ -60,10 +105,10 @@ export default {
 			layout: { "line-cap": "round" },
 			paint: { "line-color": "#4b9e6a", "line-width": ["interpolate", ["linear"], ["zoom"], 16, 1.5, 19, 3.0] },
 		},
-		// 道路 点火：高速＝明快な青、国道＝淡い青（幹線だけ着色。都道府県道以下は土台グレーのまま）
+		// 道路 点火：高速＝明快な青、国道＝淡い青（幹線だけ着色。都道府県道以下は土台グレーのまま）。トンネルは破線＝別レイヤ。
 		{
 			id: "road-hi", type: "line", "source-layer": "RdCL",
-			filter: ["in", ["get", "vt_rdctg"], ["literal", ["高速自動車国道等", "国道"]]],
+			filter: ["all", ["in", ["get", "vt_rdctg"], ["literal", ["高速自動車国道等", "国道"]]], ["!=", ["get", "vt_code"], 2704]],
 			layout: { "line-cap": "round", "line-join": "round", "line-sort-key": ["coalesce", ["get", "vt_drworder"], 0] },
 			paint: {
 				"line-color": ["match", ["get", "vt_rdctg"], "高速自動車国道等", "#2f6cad", "#8fb2d6"],
@@ -71,6 +116,19 @@ export default {
 					11, ["match", ["get", "vt_rdctg"], "高速自動車国道等", 1.8, 1.4],
 					14, ["match", ["get", "vt_rdctg"], "高速自動車国道等", 4.0, 2.8],
 					16, ["match", ["get", "vt_rdctg"], "高速自動車国道等", 8.0, 5.5]],
+			},
+		},
+		{
+			id: "road-hi-tn", type: "line", "source-layer": "RdCL",
+			filter: ["all", ["in", ["get", "vt_rdctg"], ["literal", ["高速自動車国道等", "国道"]]], ["==", ["get", "vt_code"], 2704]],
+			layout: { "line-sort-key": ["coalesce", ["get", "vt_drworder"], 0] },
+			paint: {
+				"line-color": ["match", ["get", "vt_rdctg"], "高速自動車国道等", "#2f6cad", "#8fb2d6"],
+				"line-width": ["interpolate", ["linear"], ["zoom"],
+					11, ["match", ["get", "vt_rdctg"], "高速自動車国道等", 1.8, 1.4],
+					14, ["match", ["get", "vt_rdctg"], "高速自動車国道等", 4.0, 2.8],
+					16, ["match", ["get", "vt_rdctg"], "高速自動車国道等", 8.0, 5.5]],
+				"line-dasharray": [5, 4],
 			},
 		},
 		// 航路 点火：海の淡青（フェリー等の航路＝WRltLine vt_code 5902。z13以下のタイルにのみ存在＝俯瞰で見える線）。

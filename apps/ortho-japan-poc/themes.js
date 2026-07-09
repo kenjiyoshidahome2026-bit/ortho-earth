@@ -4,7 +4,7 @@
 
 export const CHOME_MINZOOM = 14.5;   // 丁目は寄った時だけ
 export const RAILTR_MINZOOM = 13.5;  // 駅の軌道は寄った時だけ（構内detail）
-export const defaultLayerState = { chimei: true, chikei: false, rail: false, road: false, admin: false, shisetsu: false };
+export const defaultLayerState = { chimei: true, chikei: false, river: false, rail: false, road: false, admin: false, shisetsu: false };
 
 // 各テーマチップは「色」と「その名前」を一緒に点火する：道路→IC/JCT、鉄道→駅、行政区域→行政単位名。
 const CHIMEI_CODES = new Set([140, 1401, 1402, 1403, 220, 110]);   // 地名(常時)：都道府県・主要都市・市・町村・地区・区
@@ -28,16 +28,19 @@ const CLAIMED = new Set([...CHIMEI_CODES, ...CHOME_CODES, ...ROAD_CODES, ...RAIL
 // style に依存するのは "点火"層のインデックスだけ。style を受けて分類関数を返す。
 export function createThemes(style) {
 	const liOf = id => style.layers.findIndex(L => L.id === id);
-	const LI_RAILHI = liOf("rail-hi"), LI_RAILTR = liOf("railtr-hi"), LI_ROADHI = liOf("road-hi"), LI_ADMINHI = liOf("admin-hi"), LI_KOURO = liOf("kouro");
+	const LI_RAILHI = liOf("rail-hi"), LI_RAILHITN = liOf("rail-hi-tn"), LI_RAILTR = liOf("railtr-hi"),
+		LI_ROADHI = liOf("road-hi"), LI_ROADHITN = liOf("road-hi-tn"), LI_ADMINHI = liOf("admin-hi"),
+		LI_KOURO = liOf("kouro"), LI_RIVER = liOf("river");
 
 	// "点火"層は既定で隠す（土台グレーが見えている）。ONで色が乗る。
 	function hiddenLi(layerState, zoom) {
 		const h = new Set();
-		if (!layerState.rail) h.add(LI_RAILHI);
+		if (!layerState.rail) { h.add(LI_RAILHI); h.add(LI_RAILHITN); }
 		if (!layerState.rail || zoom < RAILTR_MINZOOM) h.add(LI_RAILTR);   // 駅の軌道は鉄道ON＋寄った時だけ
-		if (!layerState.road) h.add(LI_ROADHI);
+		if (!layerState.road) { h.add(LI_ROADHI); h.add(LI_ROADHITN); }
 		if (!layerState.road) h.add(LI_KOURO);   // 航路は道路チップに相乗り
 		if (!layerState.admin) h.add(LI_ADMINHI);
+		if (!layerState.river) h.add(LI_RIVER);  // 水系＝河川中心線
 		return h;
 	}
 	// ラベル集合を allowlist で間引く。ONのテーマのカテゴリだけ通す。
