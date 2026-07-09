@@ -305,13 +305,19 @@ export function createRenderer(canvas) {
 		// 「屋根の高さのテント」になり、深度を書くとその下の建物(基図/PLATEAU)を z14〜16帯で丸ごと飲み込む
 		// （z16+は cityFlat が平らにするので露見しない）。塗り・線が既にペインタ順で地形の上な設計（半透明の山）
 		// に建物も合わせ、地形深度との衝突を根絶する。地形自身は凸地形の重なりが稀に透けるが設計内の割り切り。
+		// 山岳ビュー(z<13)だけ地形が深度を書く＝凸地形の自遮蔽（富士の"頂上抜け"対策）＋基図・建物も尾根の向こうは隠れる。
+		// 都市帯(z>=13)は従来通り深度を書かない：ALOS DSM はビル天端を含み、深度を書くと建物を飲む（既知のテント問題）。
+		// polygonOffset で地形をわずかに奥へ＝ドレープした基図(同じ対数深度)が z-fight せず表に出る。
+		const terrainDepth = terrainActive && cam.zoom < 13;
 		if (terrainActive) {
-			gl.depthMask(false);
+			gl.depthMask(terrainDepth);
+			if (terrainDepth) { gl.enable(gl.POLYGON_OFFSET_FILL); gl.polygonOffset(1.0, 4.0); }
 			setCommonUniforms(terrainProg, st, [0, 0], land);
 			gl.uniform3f(loc(gl, terrainProg, "u_land"), land[0], land[1], land[2]);
 			gl.bindVertexArray(terrain.vao);
 			gl.drawElements(gl.TRIANGLES, terrain.count, gl.UNSIGNED_INT, 0);
 			gl.depthMask(true);
+			if (terrainDepth) gl.disable(gl.POLYGON_OFFSET_FILL);
 		}
 		// ベクタ(塗り/線)は常にペインタ順で地形の上に描く＝深度で地形と争わせない。傾き時も平面時も、
 		// 陸・海・道路が地形サーフェスと z-fight して揺れる/寸断するのを根絶（地形の起伏は先に深度で解決済）。
@@ -339,6 +345,9 @@ export function createRenderer(canvas) {
 		}
 		gl.useProgram(lineProg); gl.uniform1f(loc(gl, lineProg, "u_dpr"), cam.dpr || 1);
 
+		// 山岳ビュー＝基図(塗り/線)は地形深度でテストだけする（書かない）：尾根の向こうの道路・塗りが透けない。
+		// fill/line の VS は applyLogDepth と同式の対数深度を焼いており地形と直接比較できる。
+		if (terrainDepth) { gl.enable(gl.DEPTH_TEST); gl.depthMask(false); }
 		const slots = (opts && opts.skipBase) ? ["main"] : ["base", "main"];   // 静止時は下地を隠しLOD痕を消す
 		for (const slot of slots) {   // 粗い下書き→現ズームの順
 			const scene = scenes[slot];
@@ -359,6 +368,7 @@ export function createRenderer(canvas) {
 				}
 			}
 		}
+		if (terrainDepth) { gl.disable(gl.DEPTH_TEST); gl.depthMask(true); }   // 基図の深度テストを解除（overlayは従来通り最前面）
 		// overlay（外部ベクタ=geopbf/e-Stat）：stencil-then-cover で塗り（earcut不要・扇なし）＋境界線。深度off・最前面。
 		drawOverlay(st, cam.dpr || 1, land, cam.zoom || 0);
 		gl.enable(gl.DEPTH_TEST);   // 建物は常に深度で前後関係を解決（地形・尾根に遮蔽される）

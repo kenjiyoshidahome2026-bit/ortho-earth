@@ -337,7 +337,8 @@ void main() {
 	v_color = a_color;
 	v_front = dot(dir, u_eye) - 1.0;          // >0 で手前半球
 	v_fog = fogOf(w);
-	gl_Position = u_mvp * vec4(w, 1.0);       // 塗りは深度テストOFF（ペインタ順）＝対数深度の焼き込み不要
+	gl_Position = u_mvp * vec4(w, 1.0);
+	applyLogDepth();   // 山岳ビュー(z<13)は深度テストON＝地形(対数深度)が尾根の向こうを遮蔽。テストOFF時は無害
 }`;
 
 export const FILL_FS = `#version 300 es
@@ -390,7 +391,9 @@ void main() {
 	v_a = sa; v_b = sb; v_half = a_half * u_dpr; v_pos = pos;
 	v_color = a_color; v_front = min(fa, fb);
 	v_fog = fogOf((wa + wb) * 0.5);
-	float zc = (a_corner.x < 0.5) ? ca.z / ca.w : cb.z / cb.w;   // 端点の実深度（地形で遮蔽させる）
+	// 端点の深度は対数系（applyLogDepth と同式）＝地形・建物と同じ深度空間（山岳ビューで尾根の向こうを遮蔽）
+	float wz = (a_corner.x < 0.5) ? ca.w : cb.w;
+	float zc = log2(max(1.0 + wz, 1e-6)) * u_logCoef - 1.0;
 	vec2 ndc = vec2(pos.x / u_viewport.x * 2.0 - 1.0, 1.0 - pos.y / u_viewport.y * 2.0);
 	gl_Position = vec4(ndc, zc, 1.0);
 }`;

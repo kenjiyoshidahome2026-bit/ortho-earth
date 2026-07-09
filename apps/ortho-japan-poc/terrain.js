@@ -17,7 +17,15 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 	let pendingElev = 0;
 	function notifyPending(range) { onPending && onPending(pendingElev, range); }
 
-	function selectRange(cam) { const z = cam.zoom; return z < 4.5 ? 90 : z < 12 ? 10 : 1; }   // R90=超広域(8×8で覆いきる手前) / R10=中 / R01=城下
+	// R90=超広域(8×8で覆いきる手前) / R10=中 / R01=城下。
+	// 高チルト(>0.9rad)の山岳帯は R10 へ落とす：R01 は cap4=4° で地平線(z12で~4°先)まで届かず、
+	// 覆いの切れ目が「遠方の青い帯」になる（R10 なら広域を一括カバー＝地平線までフォグ内で連続）。
+	function selectRange(cam) {
+		const z = cam.zoom;
+		if (z < 4.5) return 90;
+		if (z < 12 || ((cam.pitch || 0) > 0.9 && z < 13)) return 10;
+		return 1;
+	}
 	async function getCell(cellLng, cellLat, range) {
 		if (!loadTile) return null;
 		const k = range + "," + cellLng + "," + cellLat;
