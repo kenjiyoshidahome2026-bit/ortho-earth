@@ -611,6 +611,7 @@ function render() {
 	}
 	basemapHidden = false;
 	const { order, coarseOrder, total } = tiles.update(cam, size.w, size.h);
+	window.__lastOrder = order;   // デバッグ：現在の選択タイル（コンソール/検証スクリプトから確認）
 	swapBase(coarseOrder);                          // 粗い下地は常に敷く（移動中も）＝先端の空白を無くす
 	if (!moving || zoomStable) swapScene(order);
 	updateCompass();                               // 3D時のみコンパス表示・針を方位に追従
