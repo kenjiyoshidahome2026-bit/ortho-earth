@@ -91,20 +91,27 @@ function airportSymbol(text, markOnly) {
 	} };
 	airportCache.set(key, s); return s;
 }
-// 道の駅（412・テキストは常に固有名なしの「道の駅」）：実物の案内標識そのまま＝青の角丸矩形に白文字。
-// IC/SA/PA も同じ 412 だがテキストが違うので通常テキストのまま。
-const ME_W = 34, ME_H = 14;
+// 道の駅（412・テキストは常に固有名なしの「道の駅」）：地理院地図の記号に倣った紺の角丸正方形＋
+// 白のピクトグラム（ポプラ並木・家の輪郭・中に人・地面の帯）。IC/SA/PA も同じ 412 だがテキストが違うので通常テキストのまま。
+const ME_S = 16, ME_BLUE = "#2e4d82";
 let michiCache = null;
 function michiNoEkiSign() {
 	if (michiCache) return michiCache;
-	michiCache = { w: ME_W, h: ME_H, draw(g, cx, cy) {
+	michiCache = { w: ME_S, h: ME_S, draw(g, cx, cy) {
 		g.save();
-		g.beginPath(); g.roundRect(cx - ME_W / 2, cy - ME_H / 2, ME_W, ME_H, 3);
+		g.beginPath(); g.roundRect(cx - ME_S / 2, cy - ME_S / 2, ME_S, ME_S, 3);
 		g.strokeStyle = "#f6f6f4"; g.lineWidth = 3; g.lineJoin = "round"; g.stroke();   // 地色ハロー
-		g.fillStyle = "#2f6cad"; g.fill();                                              // 道路点火の高速と同じ青＝道路ファミリー
-		g.fillStyle = "#fff"; g.textAlign = "center"; g.textBaseline = "middle";
-		g.font = "bold 9px sans-serif";
-		g.fillText("道の駅", cx, cy + 0.5);
+		g.fillStyle = ME_BLUE; g.fill();
+		g.translate(cx - ME_S / 2, cy - ME_S / 2); g.scale(ME_S / 24, ME_S / 24);       // 以降 24 単位系
+		g.fillStyle = "#fff"; g.strokeStyle = "#fff";
+		g.beginPath(); g.roundRect(2.5, 19.2, 19, 2.2, 1.1); g.fill();                  // 地面の帯
+		g.beginPath(); g.ellipse(6, 10.5, 2.4, 6.8, 0, 0, 6.2832); g.fill();            // ポプラ（大）
+		g.beginPath(); g.ellipse(9.8, 13, 1.7, 4.6, 0, 0, 6.2832); g.fill();            // ポプラ（小）
+		g.fillRect(5.5, 16.5, 1.0, 3.2); g.fillRect(9.4, 17.0, 0.9, 2.6);               // 幹
+		g.lineWidth = 1.7; g.lineJoin = "round";
+		g.beginPath(); g.moveTo(13, 19.2); g.lineTo(13, 12.2); g.lineTo(17.4, 8.2); g.lineTo(21.8, 12.2); g.lineTo(21.8, 19.2); g.stroke();   // 家の輪郭（下辺は地面が受ける）
+		g.beginPath(); g.arc(17.4, 13.6, 1.3, 0, 6.2832); g.fill();                     // 人（頭）
+		g.beginPath(); g.roundRect(15.9, 15.4, 3.0, 3.8, 1.2); g.fill();                // 人（胴）
 		g.restore();
 	} };
 	return michiCache;
