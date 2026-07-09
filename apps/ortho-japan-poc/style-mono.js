@@ -25,11 +25,24 @@ export default {
 		{
 			id: "river", type: "line", "source-layer": "RvrCL",
 			layout: { "line-cap": "round" },
-			paint: { "line-color": "#9fbfd9", "line-width": ["interpolate", ["linear"], ["zoom"], 10, 0.5, 14, 1.1, 16, 1.8], "line-opacity": 0.9 },
+			paint: { "line-color": "#d8e5f0", "line-width": ["interpolate", ["linear"], ["zoom"], 10, 0.5, 14, 1.1, 16, 1.8], "line-opacity": 0.9 },   // 色は water-hi と統一
 		},
 
 		// 建築物：ほぼ気配だけ
 		{ id: "building", type: "fill", "source-layer": "BldA", paint: { "fill-color": "#ececea" } },
+
+		// 道路 面（z16タイルのみ）：中心線の代わりに紙色の帯を敷き、道路縁(RdEdg)がそれを縁取る＝道路が「白い面」になる。
+		// 水面より上に描く＝橋・埋立の道路が水を白く抜く（地形図の作法）。幅は実幅 vt_width(cm)→px（z16≈1.94m/px）、無い道は格で近似。
+		{
+			id: "road-face", type: "line", "source-layer": "RdCL", minzoom: 16,
+			filter: ["!=", ["get", "vt_code"], 2704],
+			layout: { "line-cap": "round", "line-join": "round", "line-sort-key": ["coalesce", ["get", "vt_drworder"], 0] },
+			paint: {
+				"line-color": "#f6f6f4",
+				"line-width": ["case", ["has", "vt_width"], ["/", ["to-number", ["get", "vt_width"]], 194],
+					["match", ["get", "vt_rdctg"], "高速自動車国道等", 9, "国道", 7, "都道府県道", 5, 3]],
+			},
+		},
 
 		// 鉄道：細い中間グレー。トンネル・地下（vt_railstate）は地形図の作法どおり破線＝別レイヤ。
 		{
