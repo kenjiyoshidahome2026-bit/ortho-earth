@@ -8,8 +8,10 @@ import { geopbf } from "geopbf";
 
 export function createOverlay({ renderer, cam, size, dpr, requestDraw }) {
 	const identEl = document.createElement("div");
-	identEl.style.cssText = "position:fixed;top:44px;left:10px;max-width:340px;font-size:12px;color:#334;background:rgba(255,255,255,.82);padding:6px 10px;border-radius:6px;-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);white-space:pre-wrap;z-index:6;";
+	identEl.style.cssText = "position:fixed;top:44px;left:10px;max-width:340px;font-size:12px;color:#334;background:rgba(255,255,255,.82);padding:6px 10px;border-radius:6px;-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);white-space:pre-wrap;z-index:6;display:none;";
 	document.body.appendChild(identEl);
+	// 空のままだと padding+背景が「小さな空箱」として常時見えてしまう＝中身がある時だけ表示
+	const say = t => { identEl.textContent = t; identEl.style.display = t ? "block" : "none"; };
 	let overlayFeatures = null, overlayOrigin = [138, 37];   // geopbf 経路（main側identify）用
 	let estatActive = false;                                  // e-Stat 経路がアクティブ＝identify は worker へ
 
@@ -17,18 +19,18 @@ export function createOverlay({ renderer, cam, size, dpr, requestDraw }) {
 	estatWorker.onmessage = e => {
 		const m = e.data;
 		if (m.type === "loaded") {
-			if (!m.ok) { identEl.textContent = "e-Stat 読込失敗"; return; }
+			if (!m.ok) { say("e-Stat 読込失敗"); return; }
 			estatActive = true; overlayFeatures = null;   // 単一スロット＝geopbf 経路の識別対象は置き換え
 			renderer.set("overlay", m.overlay);
 			renderer.set("overlayHi", null);
 			cam.center = [m.center[0], m.center[1]]; cam.zoom = 11; cam.pitch = 0; requestDraw();
-			identEl.textContent = `e-Stat 小地域: ${m.count} 地物 — クリックで identify（小地域コード＝突合の種）`;
+			say(`e-Stat 小地域: ${m.count} 地物 — クリックで identify（小地域コード＝突合の種）`);
 		} else if (m.type === "identify") {
 			renderer.set("overlayHi", m.overlay || null);
 			if (m.hit >= 0) {
 				const kv = Object.entries(m.props).slice(0, 6).map(([k, v]) => `${k}: ${v}`).join("\n");
-				identEl.textContent = `identify ✔ #${m.hit}\n${kv || "(no props)"}`;
-			} else identEl.textContent = "identify: ヒットなし";
+				say(`identify ✔ #${m.hit}\n${kv || "(no props)"}`);
+			} else say("identify: ヒットなし");
 			requestDraw();
 		}
 	};
@@ -44,15 +46,15 @@ export function createOverlay({ renderer, cam, size, dpr, requestDraw }) {
 		return { lo0, la0, lo1, la1, center: [(lo0 + lo1) / 2, (la0 + la1) / 2] };
 	}
 	async function loadOverlay(name) {
-		identEl.textContent = `geopbf 読込中: ${name} …`;
+		say(`geopbf 読込中: ${name} …`);
 		const pbf = await geopbf(name, { gint: false }).catch(err => { console.warn("geopbf", err); return null; });
-		if (!pbf || !pbf.features || !pbf.features.length) { identEl.textContent = `geopbf 読込失敗: ${name}`; return; }
+		if (!pbf || !pbf.features || !pbf.features.length) { say(`geopbf 読込失敗: ${name}`); return; }
 		estatActive = false;   // 識別対象を geopbf 経路（main側）へ切り替え
 		overlayFeatures = pbf.features;
 		overlayOrigin = bboxCenter(overlayFeatures).center;
 		renderer.set("overlay", buildGeoJSONOverlay(overlayFeatures, overlayOrigin));
 		renderer.set("overlayHi", null);
-		identEl.textContent = `geopbf: ${name}\n${overlayFeatures.length} features — クリックで identify`;
+		say(`geopbf: ${name}\n${overlayFeatures.length} features — クリックで identify`);
 		requestDraw();
 	}
 	function identifyAt(clientX, clientY) {
@@ -66,13 +68,13 @@ export function createOverlay({ renderer, cam, size, dpr, requestDraw }) {
 		if (hit >= 0) {
 			const p = overlayFeatures[hit].properties || {};
 			const kv = Object.entries(p).slice(0, 6).map(([k, v]) => `${k}: ${v}`).join("\n");
-			identEl.textContent = `identify ✔ #${hit}\n${kv || "(no props)"}`;
-		} else identEl.textContent = "identify: ヒットなし";
+			say(`identify ✔ #${hit}\n${kv || "(no props)"}`);
+		} else say("identify: ヒットなし");
 		requestDraw();
 	}
 	// e-Stat 小地域（市区町村単位の {code}.geojsonl・gzip）：worker が fetch→gunzip→parse→ジオメトリ生成→transfer。
 	async function loadEstat(codes) {
-		identEl.textContent = `e-Stat 小地域 読込中 (${codes.length}市区町村)…`;
+		say(`e-Stat 小地域 読込中 (${codes.length}市区町村)…`);
 		estatWorker.postMessage({ type: "load", codes });
 	}
 	return { identifyAt, loadOverlay, loadEstat };
