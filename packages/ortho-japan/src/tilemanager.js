@@ -52,7 +52,11 @@ export function createTileManager({ style, tileUrl, onChange, cap = 256, buildTi
 		const selected = selectLOD(cam, W, H);
 		// 粗い下地：3段低いズームで広く覆う。移動中の先端の空白を常に埋める underlay。
 		const coarse = selectLOD(cam, W, H, { maxZ: Math.max(4, Math.round(cam.zoom) - 3) });
-		const keep = new Set([...selected, ...coarse].map(keyOf));
+		// 毛布：さらに3段低い超粗タイル（視野あたり1〜4枚）を常時確保＝祖先フォールバックの終点保証。
+		// これが無いと初見のズーム帯で祖先が無く、海域では「青の中の白穴」として目立つ（陸は紙色で無害）。
+		const blanket = selectLOD(cam, W, H, { maxZ: Math.max(4, Math.round(cam.zoom) - 6) });
+		const keep = new Set([...selected, ...coarse, ...blanket].map(keyOf));
+		for (const t of blanket) ensure(t);
 		for (const t of coarse) ensure(t);
 		for (const t of selected) ensure(t);
 		// 視野から外れた読込中タイルは fetch ごと中断（高速パンで帯域とworker CPUを空ける）。
