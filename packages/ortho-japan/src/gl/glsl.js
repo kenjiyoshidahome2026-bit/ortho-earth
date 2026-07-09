@@ -257,17 +257,25 @@ void main() {
 	float aa = dot(d, d), bb = 2.0 * dot(A, d), cc = dot(A, A) - 1.0;
 	float disc = bb * bb - 4.0 * aa * cc;
 	float aDotd = bb * 0.5, tstar = -aDotd / aa;
-	if (disc < 0.0) {                              // 球ミス：大気ハロー（縁の外へフェード）
-		if (tstar <= 0.0) discard;
-		float m = sqrt(max((cc + 1.0) - aDotd * aDotd / aa, 0.0));   // 光線の球中心最接近距離
-		float glow = smoothstep(1.09, 1.0, m);
-		if (glow <= 0.0) discard;
-		float a = glow * glow * u_atmo.a;
-		fragColor = vec4(u_atmo.rgb * a, a);       // premultiplied
+	float t = disc >= 0.0 ? (-bb - sqrt(disc)) / (2.0 * aa) : -1.0;
+	if (t < 0.0) {                                 // 前方に球ヒット無し＝空：地平の霞から宇宙へ連続に減衰
+		// ここには2種の光線が来る：(a)球ミス(disc<0)、(b)延長線は背後の地球に当たるが前方は素通り(t<0)。
+		// 旧実装は両方 discard 系＝高チルト・低高度で「見上げ境界」「背後ヒット円錐」が画面を横切り、
+		// ハロー帯が横一線でスパッと黒に切れて空が2段になった（ズームを上げるほど(b)の黒が下りてくる）。
+		// 前方光線の球中心最接近距離：tstar<=0（水平より上向き＝(b)は必ずこちら）は視点自身が最接近＝length(A)。
+		float lenA = length(A);
+		float m = tstar > 0.0 ? sqrt(max((cc + 1.0) - aDotd * aDotd / aa, 0.0)) : lenA;
+		float g = smoothstep(1.09, 1.0, m);
+		// 高度角フェード：見上げるほど大気は薄く＝天頂へ滑らかに宇宙色。低高度では m≈lenA が一様なので、
+		// これが無いと今度は空全体が一枚の紺に塗り潰される。
+		g *= 1.0 - smoothstep(0.0, 0.55, dot(normalize(d), A / lenA));
+		if (g <= 0.0) discard;
+		// 縁(g=1)は球面リム内側の霞と同色・不透明＝地平線で色が連続。外側へ大気色→透明へフェード。
+		vec3 limbCol = mix(u_land.rgb, u_atmo.rgb, u_atmo.a * 0.9);
+		float a = g * g * mix(u_atmo.a, 1.0, g);
+		fragColor = vec4(mix(u_atmo.rgb, limbCol, g) * a, a);   // premultiplied
 		return;
 	}
-	float t = (-bb - sqrt(disc)) / (2.0 * aa);
-	if (t < 0.0) discard;
 	vec3 P = A + t * d;                            // 面上の点（単位球＝法線）
 	vec3 viewDir = normalize(A - P);              // 面→カメラ
 	float ndv = clamp(dot(P, viewDir), 0.0, 1.0);
