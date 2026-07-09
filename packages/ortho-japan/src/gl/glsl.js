@@ -194,7 +194,7 @@ float elevF(vec2 ll) {
 	return texture(u_elevTex, uv).r;
 }
 void main() {
-	if (v_front < 0.0) discard;
+	if (v_front < -0.0015) discard;   // 海抜0の接線より少し先まで許容＝地平線の先に頭を出す高山（〜9km球換算）を描く。遮蔽は深度とフォグが担う
 	// 海〜低地は地形を透明化し、海岸線は精細なベクタに委ねる。低地から滑らかに陰影を立ち上げ、
 	// 粗い標高メッシュが海岸で作る「崖」のガタつき・平野のノイズを消す。
 	float t = smoothstep(1.0, 100.0, v_h);
@@ -349,9 +349,10 @@ in float v_front;
 in float v_fog;
 out vec4 fragColor;
 void main() {
-	if (v_front < 0.0) discard;             // 裏半球は描かない
-	// 霧はフェードアウト（透明化）：紙色で塗り潰すと、地平線の先＝球に隠れるべき塗りが空に不透明で浮く
-	float af = v_color.a * (1.0 - v_fog);
+	if (v_front < -0.0015) discard;         // 裏半球は描かない（接線に標高許容＝地平線に頭を出す山上の塗りも描く）
+	// 霧はフェードアウト（透明化）：紙色で塗り潰すと、地平線の先＝球に隠れるべき塗りが空に不透明で浮く。
+	// 1.2倍＝霧83%で完全消滅：地形の霞（fog=1で紙色の帯）より一歩先に消え、暗い空に尻尾が残らない
+	float af = v_color.a * clamp(1.0 - 1.2 * v_fog, 0.0, 1.0);
 	if (af <= 0.003) discard;
 	fragColor = vec4(mix(v_color.rgb, u_fogColor, v_fog) * af, af);  // premultiplied
 }`;
@@ -412,14 +413,15 @@ in float v_front;
 in float v_fog;
 out vec4 fragColor;
 void main() {
-	if (v_front < 0.0) discard;
+	if (v_front < -0.0015) discard;   // 接線に標高許容（地平線に頭を出す山上の線も描く。遮蔽は深度とフォグ）
 	vec2 pa = v_pos - v_a, ba = v_b - v_a;
 	float t = clamp(dot(pa, ba) / max(dot(ba, ba), 1e-6), 0.0, 1.0);
 	float dist = length(pa - ba * t);
 	float alpha = clamp(v_half - dist + 0.5, 0.0, 1.0);
 	if (alpha <= 0.0) discard;
-	// 霧はフェードアウト（透明化）：塗り潰し式だと地平線の先の線が「空に浮く白線」になる（球の自遮蔽の代役）
-	float a = v_color.a * alpha * (1.0 - v_fog);
+	// 霧はフェードアウト（透明化）：塗り潰し式だと地平線の先の線が「空に浮く白線」になる（球の自遮蔽の代役）。
+	// 1.2倍＝霧83%で完全消滅：地形の霞の帯より先に消え、暗い空に線の尻尾（残影）が残らない
+	float a = v_color.a * alpha * clamp(1.0 - 1.2 * v_fog, 0.0, 1.0);
 	if (a <= 0.003) discard;
 	vec3 rgb = mix(v_color.rgb, u_fogColor, v_fog);
 	fragColor = vec4(rgb * a, a);
