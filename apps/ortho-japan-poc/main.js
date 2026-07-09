@@ -343,7 +343,24 @@ async function loadN02() {
 	}
 	console.log("[N02] 鉄道", feats.length, "→ 新幹線", sn.length, `(ミニ${miniN})`, "| 路線:", [...new Set(sn.map(f => f.properties?.N02_003 || "(ミニ区間)"))].join("、"));
 	// 濃緑の実線（鉄道点火#4b9e6aより暗く、高速の青#2f6cadと衝突しない）。半幅0.9＝計1.8px＝高速(低ズーム)と同太
-	const scenes = sn.length ? [buildGeoJSONOverlay(sn, N02_ORIGIN, { lineColor: [0.04, 0.42, 0.25, 0.95], lineWidth: 0.9 })] : [];
+	const SN_GREEN = [0.04, 0.42, 0.25, 0.95];
+	const scenes = sn.length ? [buildGeoJSONOverlay(sn, N02_ORIGIN, { lineColor: SN_GREEN, lineWidth: 0.9 })] : [];
+	// 駅（Station.geojson＝線路沿いの短いポリライン）：新幹線駅だけをビーズ○で。濃緑の玉に紙色の芯を重ねる＝
+	// 線シェーダは capsule（丸端）なので、極小セグメント×太い半幅がそのまま駅の玉になる。ミニ新幹線の停車駅は
+	// 在来線駅として収録＝路線×駅名の許可リストで拾う（フル新幹線駅は N02_002=1 で正確に取れる）。
+	const stn = await geopbf(`${N02_ZIP}#N02-25_Station.geojson`).catch(e => { console.warn("[N02] station 失敗", e); return null; });
+	const stFeats = stn?.geojson?.features || [];
+	const MINI_STOPS = new Set(["米沢", "高畠", "赤湯", "かみのやま温泉", "山形", "天童", "さくらんぼ東根", "村山", "大石田", "新庄",   // 山形新幹線
+		"雫石", "田沢湖", "角館", "大曲", "秋田"]);                                                                                  // 秋田新幹線
+	const stSn = stFeats.filter(f => {
+		const p = f.properties || {};
+		return p.N02_002 == 1 || (/^(田沢湖線|奥羽(本)?線)$/.test(String(p.N02_003)) && MINI_STOPS.has(String(p.N02_005)));
+	});
+	console.log("[N02] 駅", stFeats.length, "→ 新幹線駅", stSn.length);
+	if (stSn.length) {
+		scenes.push(buildGeoJSONOverlay(stSn, N02_ORIGIN, { lineColor: SN_GREEN, lineWidth: 2.4 }));                        // 玉（外径）
+		scenes.push(buildGeoJSONOverlay(stSn, N02_ORIGIN, { lineColor: [0.965, 0.965, 0.957, 1], lineWidth: 1.2 }));        // 芯（紙色）＝○に見える
+	}
 	renderer.set("n02", scenes);
 	needsDraw = true;
 	console.log("[N02] 新幹線 描画完了");
