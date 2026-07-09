@@ -27,7 +27,8 @@ onmessage = e => {
 				onPending: (count, range) => postMessage({ type: "elevPending", count, range }),
 			});
 			if (m.scenePort) m.scenePort.onmessage = ev => {     // scene worker から直結：main を経由しない geometry
-				renderer.set("scene", ev.data.scene, ev.data.slot);
+				try { renderer.set("scene", ev.data.scene, ev.data.slot); }
+				catch (err) { console.error("[render] scene適用失敗:", err && (err.message || err)); }   // 適用失敗も黙らせない（次の merge で回復）
 				dirty = true;                                    // 内容更新→次の rAF で最新camで描き直す
 			};
 			if (m.gintSyncPort) gintSyncPort = m.gintSyncPort;   // 海岸線(gint)従属の出口

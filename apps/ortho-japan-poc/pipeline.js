@@ -4,15 +4,19 @@
 // geometry は main を通らず scene worker → render worker へ直行（main は geometry を知らない）。
 import { createTileManager } from "ortho-japan";
 
-export function createPipeline({ style, tileUrl, requestDraw, scenePort }) {
+export function createPipeline({ style, tileUrl, requestDraw, scenePort, onMerged }) {
 	// scene worker：タイル geometry を保持し結合(merge)も担う。結合結果は main を経由せず
 	// render worker へ直結ポートで送る（下の connect）＝main は geometry を一切知らない。
 	const sceneWorker = new Worker(new URL("./sceneworker.js", import.meta.url), { type: "module" });
 	sceneWorker.postMessage({ type: "connect", port: scenePort }, [scenePort]);   // scene→render 直結
-	function requestMerge(slot, order, origin, hidden) {
+	// ack：merge 成功時に sig が返る＝main はこれを見て readySig を確定（投げっぱなし＋楽観確定だと
+	// 一度の失敗が「静止中は永遠に欠けたタイル」になる）。失敗時は ack が来ない→main がタイムアウト再要求。
+	sceneWorker.onmessage = e => { if (e.data.type === "merged" && onMerged) onMerged(e.data.slot, e.data.sig); };
+	function requestMerge(slot, order, origin, hidden, sig) {
 		// 要求だけ main が出す（何を結合するか）。結果は render worker へ直行（merge同期＝要求順＝最後が最新）。
-		sceneWorker.postMessage({ type: "merge", slot, order: order.map(o => ({ key: o.key, origin: o.origin, z: o.z })), origin, hidden: hidden && hidden.size ? [...hidden] : null });
+		sceneWorker.postMessage({ type: "merge", slot, sig, order: order.map(o => ({ key: o.key, origin: o.origin, z: o.z })), origin, hidden: hidden && hidden.size ? [...hidden] : null });
 	}
+	requestMerge.debugFail = () => sceneWorker.postMessage({ type: "debugFailNext" });   // テスト用：次の merge を故意に失敗させる
 	function collectTileBuffers(dl, buildings) {
 		const bufs = [];
 		for (const op of dl.ops) { if (op.kind === "fill") bufs.push(op.pos.buffer, op.col.buffer); else bufs.push(op.P1.buffer, op.P2.buffer, op.col.buffer, op.half.buffer); }

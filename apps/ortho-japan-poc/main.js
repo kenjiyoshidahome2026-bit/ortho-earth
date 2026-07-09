@@ -74,7 +74,7 @@ const AIRPORT_MARK_MAXZ = 12;              // これ未満のズームで静的�
 let airportMarks = [];
 fetch("/airports.json").then(r => r.json()).then(list => {
 	airportMarks = list.map(a => ({ text: a.name, code: 441, anchor: [a.lon, a.lat], size: 10, sort: 2, color: [0.53, 0.53, 0.5, 1], halo: [0.965, 0.965, 0.957, 1], haloW: 1.1, markOnly: true }));
-	readySig = "";                         // 読み込めた時点でラベル再結合
+	readySig = ""; mergeReq.main.sig = "";   // 読み込めた時点でラベル再結合（要求記憶も消す＝即出し直し）
 }).catch(() => {});
 const PLATEAU_AUTO_Z = 14;                 // これ以上寄ると自動ロード（遠景は対象外＝ズームアウトで全解放）
 // 同時アクティブ地区数の上限。区境をまたいだ隣接分だけを想定＝GPUメモリを有界にする（密集地区(都心部)1件あたりGPUバッファ~100-140MB）。
@@ -176,7 +176,12 @@ function onMove() {
 
 // データパイプライン（tile/scene worker）。実装は pipeline.js。
 // tiles＝LOD管理（update/labels）、requestMerge＝結合要求（scene worker が結合→render worker へ直行）。
-const { tiles, requestMerge } = createPipeline({ style, tileUrl: TILE_URL, requestDraw: () => { needsDraw = true; }, scenePort: sceneChan.port1 });
+const { tiles, requestMerge } = createPipeline({
+	style, tileUrl: TILE_URL, requestDraw: () => { needsDraw = true; }, scenePort: sceneChan.port1,
+	// merge の ack：sig はここで初めて確定する（要求時の楽観確定をやめた＝失敗が永続穴にならない）
+	onMerged: (slot, sig) => { if (slot === "main") readySig = sig; else if (slot === "base") baseSig = sig; needsDraw = true; },
+});
+window.__mergeFail = () => requestMerge.debugFail();   // テスト用：次の merge を故意に失敗させ自己修復を確認
 
 // 透視カメラ：center(注視点lon/lat), zoom(web-mercator float), pitch/bearing(rad)
 const MAXPITCH = 65 * D2R;   // 半透明の山と割り切り、独立峰をドラマチックに立てる。隠れ線は「透けている」で説明可
@@ -493,13 +498,29 @@ let styleSig = JSON.stringify(layerState);
 const themes = createThemes(style);            // 分類（allowlist）は themes.js の純関数（layerState と zoom を引数で受ける）
 
 // LOD選択 or テーマ状態(styleSig)が変わった時だけシーンを再結合。原点は安定化（プルプル防止）。
+// readySig/baseSig は merge の ack（onMerged）で確定。要求中の sig は mergeReq が持ち、
+// MERGE_ACK_MS 以内は同一要求を重ねない。ack が来なければ出し直す＝merge の一過性失敗が自己修復する。
+const MERGE_ACK_MS = 1500;
+const mergeReq = { main: { sig: "", at: 0 }, base: { sig: "", at: 0 } };
+function requestWithAck(slot, sig, doRequest) {
+	const rq = mergeReq[slot];
+	if (sig === rq.sig && performance.now() - rq.at < MERGE_ACK_MS) return false;   // 同一要求の ack 待ち
+	doRequest();
+	rq.sig = sig; rq.at = performance.now();
+	setTimeout(() => {   // ack 喪失→要求記憶を消して次フレームで出し直させる（静止中でも needsDraw で起こす）
+		const confirmed = slot === "main" ? readySig : baseSig;
+		if (rq.sig === sig && confirmed !== sig) { rq.sig = ""; needsDraw = true; }
+	}, MERGE_ACK_MS + 100);
+	return true;
+}
 let zoomAtBuild = -1;
 function swapScene(order) {
 	const sig = order.map(o => o.key).join("|") + "#" + styleSig + "#z" + (cam.zoom >= CHOME_MINZOOM ? 1 : 0) + (cam.zoom >= RAILTR_MINZOOM ? 1 : 0) + (cam.zoom < AIRPORT_MARK_MAXZ && airportMarks.length ? "A" : "");
 	if (sig === readySig || !order.length) return;
 	if (!sceneOrigin || Math.abs(sceneOrigin[0] - cam.center[0]) > 0.4 || Math.abs(sceneOrigin[1] - cam.center[1]) > 0.4)
 		sceneOrigin = [cam.center[0], cam.center[1]];
-	requestMerge("main", order, sceneOrigin, themes.hiddenLi(layerState, cam.zoom));   // 結合は scene worker（非同期）→ render worker へ直行
+	if (!requestWithAck("main", sig, () =>
+		requestMerge("main", order, sceneOrigin, themes.hiddenLi(layerState, cam.zoom), sig))) return;   // 結合は scene worker（非同期）→ render worker へ直行
 	const allLabels = tiles.labels(order);
 	if (airportMarks.length && cam.zoom < AIRPORT_MARK_MAXZ) {   // 低ズーム＝静的台帳から空港マークのみ注入（タイル注記441と同名は二重にしない）
 		const have = new Set(allLabels.filter(L => L.code === 441).map(L => L.text));
@@ -513,7 +534,7 @@ function swapScene(order) {
 		return L;
 	});
 	renderer.set("labels", lastLabels);   // ラベル集合を render worker へ。標高付与(sampleElev)も terrain と一緒に worker 側で行う（同期して描く）
-	readySig = sig; zoomAtBuild = cam.zoom;
+	zoomAtBuild = cam.zoom;   // readySig は ack（onMerged）で確定
 }
 
 // 粗い下地（base スロット）：移動中も常に敷き直して先端の空白・ちらつきを消す。低zで少数＝安く広い。
@@ -521,8 +542,8 @@ let baseSig = "";
 function swapBase(coarseOrder) {
 	const sig = coarseOrder.map(o => o.key).join("|") + "#" + styleSig;
 	if (sig === baseSig || !coarseOrder.length) return;
-	requestMerge("base", coarseOrder, [cam.center[0], cam.center[1]], themes.hiddenLi(layerState, cam.zoom));   // 下地も scene worker で結合
-	baseSig = sig;
+	requestWithAck("base", sig, () =>
+		requestMerge("base", coarseOrder, [cam.center[0], cam.center[1]], themes.hiddenLi(layerState, cam.zoom), sig));   // 下地も scene worker で結合。baseSig は ack で確定
 }
 
 // チップ操作：状態を反転し、styleSig を更新して即再結合（再取得なし・一瞬）。
@@ -542,7 +563,7 @@ btnContour.addEventListener("click", () => {
 	renderer.set("view", { showContour: contourOn });     // 等高線（GL の茶線）
 	logEl.style.display = contourOn ? "" : "none";         // 左下ログ（zoom/tile/pitch）
 	if (!contourOn) elevEl.style.display = "none";         // 地形読込インジケータ
-	readySig = "";                                         // ラベル集合を再結合＝標高数値の表示/非表示を即反映（filterLabels に contourOn を渡す）
+	readySig = ""; mergeReq.main.sig = "";                 // ラベル集合を再結合＝標高数値の表示/非表示を即反映（filterLabels に contourOn を渡す）
 	renderer.draw(cam, { skipBase: false, noTerrain: cam.zoom < BASEMAP_MINZOOM, terrainGate: true });   // 即1枚描き直す（動かさなくても反映）
 	needsDraw = true;
 });
@@ -582,7 +603,7 @@ function render() {
 			renderer.set("scene", { origin: o, layers: [] }, "main");
 			renderer.set("scene", { origin: o, layers: [] }, "base");
 			renderer.set("labels", []);
-			readySig = ""; baseSig = ""; lastLabels = []; basemapHidden = true;   // 復帰時に再結合させる
+			readySig = ""; baseSig = ""; mergeReq.main.sig = ""; mergeReq.base.sig = ""; lastLabels = []; basemapHidden = true;   // 復帰時に再結合させる
 		}
 		updateCompass();
 		logEl.textContent = `world  zoom=${cam.zoom.toFixed(1)}  基図・地形オフ・海岸線のみ`;
