@@ -204,7 +204,7 @@ export function createRenderer(canvas) {
 			gl.bindVertexArray(null);
 			lineCount = s.lineHalf.length; bufs.push(bP1, bP2, bCol, bHalf);
 		}
-		return { fanVao, fanCount: s.fanPos.length / 2, lineVao, lineCount, origin: s.origin, fillColor, bufs };
+		return { fanVao, fanCount: s.fanPos.length / 2, lineVao, lineCount, origin: s.origin, fillColor, bufs, minZoom: s.minZoom || 0 };   // minZoom＝シーン単位のズームゲート（N02通常駅は駅名の出るズームから）
 	}
 	function disposeOverlay(o) { if (o) { for (const b of o.bufs) gl.deleteBuffer(b); gl.deleteVertexArray(o.fanVao); if (o.lineVao) gl.deleteVertexArray(o.lineVao); } }
 	function setOverlay(s, fillColor) { disposeOverlay(overlay); overlay = s ? buildOverlaySlot(s, fillColor || [0.20, 0.45, 0.85, 0.32]) : null; }
@@ -238,8 +238,8 @@ export function createRenderer(canvas) {
 			gl.bindVertexArray(o.lineVao); gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, o.lineCount);
 		}
 	}
-	function drawOverlay(st, dpr, land) {
-		if (view.showN02 !== false) for (const o of n02) drawOne(o, st, dpr, land);   // N02 交通（新幹線/駅）＝基図の上・identify overlay の下
+	function drawOverlay(st, dpr, land, zoom) {
+		if (view.showN02 !== false) for (const o of n02) { if (zoom >= o.minZoom) drawOne(o, st, dpr, land); }   // N02 交通（新幹線/駅）＝基図の上・identify overlay の下
 		drawOne(overlay, st, dpr, land); drawOne(overlayHi, st, dpr, land);
 	}
 
@@ -360,7 +360,7 @@ export function createRenderer(canvas) {
 			}
 		}
 		// overlay（外部ベクタ=geopbf/e-Stat）：stencil-then-cover で塗り（earcut不要・扇なし）＋境界線。深度off・最前面。
-		drawOverlay(st, cam.dpr || 1, land);
+		drawOverlay(st, cam.dpr || 1, land, cam.zoom || 0);
 		gl.enable(gl.DEPTH_TEST);   // 建物は常に深度で前後関係を解決（地形・尾根に遮蔽される）
 
 		// 建物（3D押し出し）：深度で前後関係を解決（地形・尾根にも遮蔽される）。

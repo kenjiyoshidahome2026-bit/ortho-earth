@@ -356,8 +356,17 @@ async function loadN02() {
 		const p = f.properties || {};
 		return p.N02_002 == 1 || (/^(田沢湖線|奥羽(本)?線)$/.test(String(p.N02_003)) && MINI_STOPS.has(String(p.N02_005)));
 	});
-	console.log("[N02] 駅", stFeats.length, "→ 新幹線駅", stSn.length);
-	if (stSn.length) {
+	console.log("[N02] 駅", stFeats.length, "→ 新幹線駅", stSn.length, "／通常駅", stFeats.length - stSn.length);
+	// 通常駅（新幹線駅以外の全駅）：駅名注記(422)が出るズームから点灯（minZoom）。鉄道点火と同じ緑の小ぶりビーズ。
+	const snStnSet = new Set(stSn);
+	const stReg = stFeats.filter(f => !snStnSet.has(f));
+	if (stReg.length) {
+		const rOuter = buildGeoJSONOverlay(stReg, N02_ORIGIN, { lineColor: [0.294, 0.62, 0.416, 1], lineWidth: 1.8 });      // 玉＝鉄道点火#4b9e6a
+		const rCore = buildGeoJSONOverlay(stReg, N02_ORIGIN, { lineColor: [0.965, 0.965, 0.957, 1], lineWidth: 0.9 });      // 芯（紙色）
+		rOuter.minZoom = rCore.minZoom = 10.5;   // 駅名の出るタイル(z11)が選ばれ始める頃から
+		scenes.push(rOuter, rCore);
+	}
+	if (stSn.length) {   // 新幹線駅は通常駅の後＝重なったら新幹線ビーズが勝つ
 		scenes.push(buildGeoJSONOverlay(stSn, N02_ORIGIN, { lineColor: SN_GREEN, lineWidth: 2.4 }));                        // 玉（外径）
 		scenes.push(buildGeoJSONOverlay(stSn, N02_ORIGIN, { lineColor: [0.965, 0.965, 0.957, 1], lineWidth: 1.2 }));        // 芯（紙色）＝○に見える
 	}
