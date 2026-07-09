@@ -184,7 +184,7 @@ const { tiles, requestMerge } = createPipeline({
 window.__mergeFail = () => requestMerge.debugFail();   // テスト用：次の merge を故意に失敗させ自己修復を確認
 
 // 透視カメラ：center(注視点lon/lat), zoom(web-mercator float), pitch/bearing(rad)
-const MAXPITCH = 65 * D2R;   // 半透明の山と割り切り、独立峰をドラマチックに立てる。隠れ線は「透けている」で説明可
+const MAXPITCH = 75 * D2R;   // 山岳ビュー(z<13)は地形が深度で自遮蔽・混成アトラスが地平線までカバー＝高チルトの根拠が揃ったので75°まで開放
 const atmo = [0.5, 0.66, 0.96, 0.3];   // 大気色 rgb + 強さ（さりげなく）
 const bldColor = [0.83, 0.83, 0.82];    // 建物色（静かなグレー）
 // cam＝幾何のみ（center/zoom/pitch/bearing/dpr）＝毎フレームの draw payload（将来の worker 境界）。
@@ -615,6 +615,9 @@ function render() {
 	swapBase(coarseOrder);                          // 粗い下地は常に敷く（移動中も）＝先端の空白を無くす
 	if (!moving || zoomStable) swapScene(order);
 	updateCompass();                               // 3D時のみコンパス表示・針を方位に追従
+	// 世界海岸線(gint)は z8+ では非表示：海岸は WA 塗りが担う上、gint の2D線は球の自遮蔽を持たず
+	// 地平線の先の海岸線（富山湾等）がリムに白線の残影として浮く。14条（interactive）時は表示のまま。
+	gintCanvas.style.display = (!gintInteractive && cam.zoom >= 8) ? "none" : "";
 	logEl.textContent = `tiles=${order.length}/${total}  labels=${lastLabels.length}  zoom=${cam.zoom.toFixed(1)} pitch=${(cam.pitch * 180 / Math.PI).toFixed(0)}°`;
 }
 
