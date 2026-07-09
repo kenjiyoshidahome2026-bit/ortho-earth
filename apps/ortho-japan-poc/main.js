@@ -314,9 +314,36 @@ async function loadN02() {
 	const fc = rail?.geojson;   // GeoPBF の境界は FeatureCollection。.geojson getter＝{type:"FeatureCollection",features,name}
 	const feats = fc?.features;
 	if (!feats?.length) { console.warn("[N02] 鉄道読込失敗", rail && Object.keys(rail)); n02Loaded = false; return; }
-	const sn = feats.filter(f => { const v = f.properties?.N02_002; return v == 1 || /新幹線/.test(String(v)); });   // JRの新幹線
-	console.log("[N02] 鉄道", feats.length, "→ 新幹線", sn.length, "| sample props:", JSON.stringify(feats[0]?.properties));
-	const scenes = sn.length ? [buildGeoJSONOverlay(sn, N02_ORIGIN, { lineColor: [0.18, 0.40, 0.78, 0.95], lineWidth: 1.8 })] : [];   // 新幹線＝青の太線
+	// フル新幹線＝N02_002(事業者種別)=1。ミニ新幹線（秋田・山形）は法規上在来線＝N02には田沢湖線・奥羽線として
+	// 収録されているので、該当区間を緯度帯クリップで切り出して仲間に入れる（奥羽線は福島→青森へ緯度ほぼ単調）。
+	const sn = feats.filter(f => { const p = f.properties || {}; return p.N02_002 == 1 || /新幹線/.test(String(p.N02_003)); });
+	const latClip = (f, lo, hi) => {   // 緯度帯 [lo,hi] に入る線分だけ残す（区間抽出）
+		const g = f.geometry; if (!g) return null;
+		const lines = g.type === "LineString" ? [g.coordinates] : g.type === "MultiLineString" ? g.coordinates : [];
+		const out = [];
+		for (const line of lines) {
+			let cur = [];
+			for (const pt of line) {
+				if (pt[1] >= lo && pt[1] <= hi) cur.push(pt);
+				else { if (cur.length > 1) out.push(cur); cur = []; }
+			}
+			if (cur.length > 1) out.push(cur);
+		}
+		return out.length ? { geometry: { type: "MultiLineString", coordinates: out } } : null;
+	};
+	let miniN = 0;
+	for (const f of feats) {
+		const n = String(f.properties?.N02_003 || "");
+		if (/^田沢湖線$/.test(n)) { sn.push(f); miniN++; }                       // 秋田新幹線 盛岡—大曲（全線が共用）
+		else if (/^奥羽(本)?線$/.test(n)) {
+			const ya = latClip(f, 37.74, 38.77), ak = latClip(f, 39.44, 39.73);   // 山形新幹線 福島—新庄／秋田新幹線 大曲—秋田
+			if (ya) { sn.push(ya); miniN++; }
+			if (ak) { sn.push(ak); miniN++; }
+		}
+	}
+	console.log("[N02] 鉄道", feats.length, "→ 新幹線", sn.length, `(ミニ${miniN})`, "| 路線:", [...new Set(sn.map(f => f.properties?.N02_003 || "(ミニ区間)"))].join("、"));
+	// 濃緑の実線（鉄道点火#4b9e6aより暗く、高速の青#2f6cadと衝突しない）。半幅0.9＝計1.8px＝高速(低ズーム)と同太
+	const scenes = sn.length ? [buildGeoJSONOverlay(sn, N02_ORIGIN, { lineColor: [0.04, 0.42, 0.25, 0.95], lineWidth: 0.9 })] : [];
 	renderer.set("n02", scenes);
 	needsDraw = true;
 	console.log("[N02] 新幹線 描画完了");
