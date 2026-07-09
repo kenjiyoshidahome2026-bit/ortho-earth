@@ -80,7 +80,9 @@ function ensureIfMoved() {
 		Math.abs((cam.pitch || 0) - lastEnsure.pitch) < 0.02 && Math.abs((cam.bearing || 0) - lastEnsure.bearing) < 0.02 &&
 		canvas.width === lastEnsure.w && canvas.height === lastEnsure.h) return;
 	lastEnsure = { lon: cam.center[0], lat: cam.center[1], zoom: cam.zoom, pitch: cam.pitch || 0, bearing: cam.bearing || 0, w: canvas.width, h: canvas.height };
-	terrain.ensure(cam, { w: canvas.width, h: canvas.height });
+	// false＝標高ローダ未準備（起動直後）。記憶を消して次フレームで再試行——ここで記憶したままだと
+	// 「リロード直後にカメラを動かすまで地形が平ら」になる（チルト復元起動で顕在化した）。
+	if (terrain.ensure(cam, { w: canvas.width, h: canvas.height }) === false) lastEnsure = null;
 }
 
 // worker 自前の rAF ループ。dirty かつ cam があれば、最新 cam で mvp 生成→地図→ラベルを同フレームで描く。

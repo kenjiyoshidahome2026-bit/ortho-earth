@@ -99,8 +99,8 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 		const cellRes = Math.max(400, Math.floor(2048 / Math.max(cellsX, cellsY)));
 		return { range, originCX, originCY, cellsX, cellsY, cellRes };
 	}
-	async function ensure(cam, size) {
-		if (!loadTile) return;
+	function ensure(cam, size) {   // 戻り値 false＝ローダ未準備で何もしていない（呼び出し側はスロットル記憶を消して再試行すること）
+		if (!loadTile) return false;
 		// 混成モード（高チルト×中ズーム）：1°グリッドで近傍3×3=R01（富士の近景ディテール）、
 		// 遠方セル=R10切り出し（地平線までのカバー）。単一アトラス＝レンダラ側は無変更。
 		const mixed = (cam.pitch || 0) > 0.9 && cam.zoom >= 10.5 && cam.zoom < 13;
@@ -145,6 +145,7 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 				});
 			}
 		}
+		return true;
 	}
 	return { ensure, sampleElev };
 }
