@@ -5,7 +5,9 @@
 	"type": "module",
 	"scripts": {
 		"dev": "vite",
-		"build": "vite build"
+		"build": "vite build",
+		"deploy": "vite build && rm -rf dist/site/ortho-japan/moj-local && wrangler deploy",
+		"preview:prod": "vite build && rm -rf dist/site/ortho-japan/moj-local && wrangler dev"
 	},
 	"dependencies": {
 		"ortho-japan": "*",

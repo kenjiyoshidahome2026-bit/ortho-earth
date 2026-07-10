@@ -1,0 +1,15 @@
+# ortho-japan 本番配信：Cloudflare Workers + 静的アセット（www.ortho-earth.com/ortho-japan/）。
+# デプロイ手順は package.json の "deploy"（vite build → moj-local除外 → wrangler deploy）。
+name = "ortho-japan"
+main = "deploy-worker.js"
+compatibility_date = "2025-06-01"
+workers_dev = true   # *.workers.dev の予備URL（検証用）。本番は下の route
+
+routes = [
+	{ pattern = "www.ortho-earth.com/ortho-japan*", zone_name = "ortho-earth.com" }
+]
+
+[assets]
+directory = "dist/site"
+binding = "ASSETS"
+run_worker_first = true   # アセット直返しより先に必ず deploy-worker を通す＝COOP/COEP を全レスポンスに刻む

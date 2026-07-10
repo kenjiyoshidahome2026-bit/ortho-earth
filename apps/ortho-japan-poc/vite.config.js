@@ -7,19 +7,27 @@ import { defineConfig } from "vite";
 // server.headers だと worker のサブ import 転送レスポンスに届かず worker 全滅→黒画面。
 // middleware で「全リクエスト」に刻めば worker の import graph 隅々まで COEP が乗る＝標準解。
 // COEP=credentialless：SAB を有効化しつつ cross-origin(GSI/bucket)は CORS で通す（require-corp のように CORP 必須にしない）。
+// 本番（Cloudflare Workers assets）では deploy-worker.js が同じ2ヘッダを全レスポンスに刻む＝dev/prod で同一条件。
+const coiHeaders = (server) => {
+	server.middlewares.use((_req, res, next) => {
+		res.setHeader("Cross-Origin-Opener-Policy", "same-origin");
+		res.setHeader("Cross-Origin-Embedder-Policy", "credentialless");
+		next();
+	});
+};
 const crossOriginIsolation = {
 	name: "cross-origin-isolation",
-	configureServer(server) {
-		server.middlewares.use((_req, res, next) => {
-			res.setHeader("Cross-Origin-Opener-Policy", "same-origin");
-			res.setHeader("Cross-Origin-Embedder-Policy", "credentialless");
-			next();
-		});
-	},
+	configureServer: coiHeaders,
+	configurePreviewServer: coiHeaders,   // vite preview（ビルド後のローカル確認）にも同条件を刻む
 };
 
 export default defineConfig({
+	// 配信先＝ www.ortho-earth.com/ortho-japan/ （サブパス）。ルート相対の import/asset は base が面倒を見る。
+	// 実行時 fetch は main.js 側で import.meta.env.BASE_URL を前置（vite は文字列リテラルの fetch を書き換えない）。
+	base: "/ortho-japan/",
+	// Workers assets は「リクエストのパス名＝assets ディレクトリ内の相対パス」で引くため、
+	// dist/site/ をルートに ortho-japan/ サブフォルダへ出力（wrangler.toml の directory = dist/site）。
+	build: { outDir: "dist/site/ortho-japan", emptyOutDir: true },
 	worker: { format: "es" },
 	plugins: [crossOriginIsolation],
 });
-

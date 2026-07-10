@@ -127,7 +127,7 @@ let moving = false, settleT = null;
 // PLATEAU LOD2 データ登録簿：寄ると自動で出す。bbox は自動トリガ用の緩い矩形（実描画は被覆マスクが実フットプリントに沿わせる）。
 // 全国 300 市区町村分は scripts/plateau-catalog-build.mjs で datacatalog API から生成＝public/plateau-sets.json を起動時に fetch。
 let PLATEAU_SETS = [];
-fetch("/plateau-sets.json").then(r => r.json()).then(sets => {
+fetch(import.meta.env.BASE_URL + "plateau-sets.json").then(r => r.json()).then(sets => {   // BASE_URL＝サブパス配信(/ortho-japan/)対応
 	PLATEAU_SETS = sets; console.log(`[plateau] カタログ読込 → ${sets.length} 市区町村`);
 	autoPlateau();   // 復元ビューが z14+ の街なら起動直後に自動ロード（IDBキャッシュ命中なら即座に街が立つ）
 }).catch(e => console.warn("[plateau] カタログ取得失敗", e));
@@ -136,7 +136,7 @@ fetch("/plateau-sets.json").then(r => r.json()).then(sets => {
 // z11+ はタイル注記が✈＋名称を描くので、静的分は同名をスキップ＝二重表示なし。鉄道チップのON/OFFは filterLabels(441) がそのまま効く。
 const AIRPORT_MARK_MAXZ = 12;              // これ未満のズームで静的マークを注入
 let airportMarks = [];
-fetch("/airports.json").then(r => r.json()).then(list => {
+fetch(import.meta.env.BASE_URL + "airports.json").then(r => r.json()).then(list => {
 	airportMarks = list.map(a => ({ text: a.name, code: 441, anchor: [a.lon, a.lat], size: 10, sort: 2, color: [0.53, 0.53, 0.5, 1], halo: [0.965, 0.965, 0.957, 1], haloW: 1.1, markOnly: true }));
 	readySig = ""; mergeReq.main.sig = "";   // 読み込めた時点でラベル再結合（要求記憶も消す＝即出し直し）
 }).catch(() => {});
@@ -413,14 +413,14 @@ window.__mojFile = async (fileOrUrl, name = "moj/local") => {
 };
 // 動作確認用ショートカット：public/moj-local/ に置いた aigid変換済みGeoJSONをワンコマンドでロード。
 window.__sapporo = async () => {
-	const res = await fetch("/moj-local/01101-aigid.geojson");
+	const res = await fetch(import.meta.env.BASE_URL + "moj-local/01101-aigid.geojson");   // moj-localはデプロイ除外＝開発専用
 	const file = new File([await res.blob()], "01101_aigid.geojson");
 	return window.__mojFile(file, "moj/01101_aigid");
 };
 // 荒川区（任意座標系のみ）を、大字/丁目名でe-Stat小地域に位置合わせしたラバーシート結果でロード。
 // 回転はシェイプ推定せず地名の対応だけで平行移動+等方スケール（現地調査の代替ではなく表示用近似）。
 window.__arakawaFit = async () => {
-	const res = await fetch("/moj-local/13118-rubbersheet.geojson");
+	const res = await fetch(import.meta.env.BASE_URL + "moj-local/13118-rubbersheet.geojson");
 	const file = new File([await res.blob()], "13118_rubbersheet.geojson");
 	return window.__mojFile(file, "moj/13118_rubbersheet");
 };
