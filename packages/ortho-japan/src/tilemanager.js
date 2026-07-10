@@ -52,9 +52,10 @@ export function createTileManager({ style, tileUrl, onChange, cap = 256, buildTi
 		const selected = selectLOD(cam, W, H);
 		// 粗い下地：3段低いズームで広く覆う。移動中の先端の空白を常に埋める underlay。
 		const coarse = selectLOD(cam, W, H, { maxZ: Math.max(4, Math.round(cam.zoom) - 3) });
-		// 毛布：さらに3段低い超粗タイル（視野あたり1〜4枚）を常時確保＝祖先フォールバックの終点保証。
-		// これが無いと初見のズーム帯で祖先が無く、海域では「青の中の白穴」として目立つ（陸は紙色で無害）。
-		const blanket = selectLOD(cam, W, H, { maxZ: Math.max(4, Math.round(cam.zoom) - 6) });
+		// 毛布：固定 z4 の床タイル＝フォールバックの終点保証。「zoom-6」の動く目標だと高速ズームアウト中に
+		// 毎段コールドフェッチで間に合わず白が出る。z4 固定なら1枚で22.5°＝数枚で日本全体、初回以降キャッシュ常駐
+		// ＝どんな引き方をしても床が必ず先に居る。W/H×3＝視野の3倍を先回り（外周の白露出も防ぐ）。
+		const blanket = selectLOD(cam, W * 3, H * 3, { maxZ: 4 });
 		const keep = new Set([...selected, ...coarse, ...blanket].map(keyOf));
 		for (const t of blanket) ensure(t);
 		for (const t of coarse) ensure(t);
@@ -92,7 +93,9 @@ export function createTileManager({ style, tileUrl, onChange, cap = 256, buildTi
 			}
 			return o.sort((a, b) => a.z - b.z);
 		};
-		return { order: ready(selected), coarseOrder: readyWithFallback(coarse), total: selected.length };
+		// 毛布は祖先フォールバックの「保険」でなく下地mergeに直接混ぜる（z昇順ソートで一番下に敷かれる）
+		// ＝ズームを引いた瞬間も画面全域に必ず一番粗い絵がある。真っ白は出ない。
+		return { order: ready(selected), coarseOrder: readyWithFallback([...blanket, ...coarse]), total: selected.length };
 	}
 
 	// order の全タイルの op を style層(li)ごとに結合。origin(=cam.center)へ再ベースして精度確保。

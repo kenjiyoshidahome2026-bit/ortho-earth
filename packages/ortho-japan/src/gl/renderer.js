@@ -409,6 +409,10 @@ export function createRenderer(canvas) {
 		// 線・塗りのフォグ終端は地形と同一式＝地形が完全に霞んだ先に線だけ生き残って「空に浮く白線」に
 		// なるのを構造的に防ぐ。シェーダの遠景平ら化(df)も u_fogFar 基準なので、同値なら線は地形に厳密追随する。
 		const fogFarCap = Math.max(st.fogDist * 5.0, 0.026 * pfFog);
+		// 下地の線は「本命(main)の線と同時に出る時だけ」伏せる＝ズーム中に太さ・形状のズレた「LODの荒い線」が
+		// 透けるのを防ぐ（従来はmerge時に間引いていたがdraw時判断へ移設）。下地が主役の間（skipMain=ズームアウト
+		// 退場中や本命未着）は線も描く＝低ズームは線が絵の本体なので、これが無いと引いた瞬間に真っ白になる。
+		const mainLinesOn = slots.indexOf("main") >= 0 && scenes.main.draws.length > 0;
 		for (const slot of slots) {   // 粗い下書き→現ズームの順
 			const scene = scenes[slot];
 			if (!scene.draws.length) continue;
@@ -428,6 +432,7 @@ export function createRenderer(canvas) {
 					gl.bindVertexArray(d.vao);
 					gl.drawArrays(gl.TRIANGLES, 0, d.count);
 				} else {
+					if (slot === "base" && mainLinesOn) continue;   // 本命の線が出ている間は下地の線を伏せる
 					if (terrainDepth && !depthOn) { gl.enable(gl.DEPTH_TEST); depthOn = true; }   // 線は地形遮蔽を維持
 					if (curProg !== lineProg) { gl.useProgram(lineProg); curProg = lineProg; }
 					gl.bindVertexArray(d.vao);
