@@ -137,7 +137,9 @@ function frame() {
 			const s = RES_STEPS[resIdx];
 			const glCam = s === 1 ? cam : { ...cam, dpr: (cam.dpr || 1) * s };
 			const fogAnim = renderer.draw(glCam, opts);              // cameraState=mvp生成 + GL描画（軽い）。true=フォグ追従が収束中
-			const animating = labelLayer && labelLayer.draw(cam);    // ラベルも同じ cam で（＝完全同期）
+			// skipMain（ズームアウトで古い詳細シーンを退場）中は文字も一緒に退場＝clear()でフェード状態ごと流す。
+			// 新しい段の merge で戻る時はフェードインから始まる＝可逆な退場。
+			const animating = labelLayer && (opts?.skipMain ? (labelLayer.clear(), false) : labelLayer.draw(cam));    // ラベルも同じ cam で（＝完全同期）
 			if (animating || fogAnim) dirty = true;                  // フェード/フォグ追従の継続は自前で次フレーム（main関与なし）
 			if (!sentFrame1) { sentFrame1 = true; postMessage({ type: "frame1" }); }   // 初描画成功＝main の起動ウォッチドッグを解除
 		}

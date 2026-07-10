@@ -402,7 +402,10 @@ export function createRenderer(canvas) {
 		// 山岳ビュー＝基図(塗り/線)は地形深度でテストだけする（書かない）：尾根の向こうの道路・塗りが透けない。
 		// fill/line の VS は applyLogDepth と同式の対数深度を焼いており地形と直接比較できる。
 		if (terrainDepth) { gl.enable(gl.DEPTH_TEST); gl.depthMask(false); }
-		const slots = (opts && opts.skipBase) ? ["main"] : ["base", "main"];   // 静止時は下地を隠しLOD痕を消す
+		// skipMain＝ズームアウト中の「古い詳細シーン」を隠し、常設の粗い下地に揃える（縮んだ細密パッチが
+		// 周囲と質感違いで浮くのを防ぐ）。下地は代役なので skipBase より優先＝空白フレームを作らない。
+		const slots = (opts && opts.skipMain) ? ["base"]
+			: (opts && opts.skipBase) ? ["main"] : ["base", "main"];   // 静止時は下地を隠しLOD痕を消す
 		// 線・塗りのフォグ終端は地形と同一式＝地形が完全に霞んだ先に線だけ生き残って「空に浮く白線」に
 		// なるのを構造的に防ぐ。シェーダの遠景平ら化(df)も u_fogFar 基準なので、同値なら線は地形に厳密追随する。
 		const fogFarCap = Math.max(st.fogDist * 5.0, 0.026 * pfFog);
@@ -442,7 +445,7 @@ export function createRenderer(canvas) {
 		// マスクは区単位（plateauMasks）＝最大 MAX_PLATEAU_MASKS 区まで（シェーダのスロット数固定）。
 		// 真俯瞰（チルト≈0）では基図/PLATEAU とも建物3Dを描かない＝平面地図（閾値は flat2d と同じ 0.02rad≈1.1°）。
 		const show3d = (cam.pitch || 0) >= 0.02;
-		const bld = show3d ? scenes.main.bld : null;
+		const bld = show3d && !(opts && opts.skipMain) ? scenes.main.bld : null;   // 建物はmainシーンの一部＝一緒に退場
 		if (bld) {
 			const c = view.bldColor || [0.86, 0.86, 0.85];
 			setCommonUniforms(bldProg, st, scenes.main.origin, land);

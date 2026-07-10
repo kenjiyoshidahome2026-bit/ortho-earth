@@ -113,6 +113,13 @@ renderWorker.onmessage = e => {
 };
 
 let needsDraw = true, readySig = "", lastLabels = [], sceneOrigin = null;
+// ズームアウト時は「古い詳細シーンを縮めて見せ続ける」をしない＝写真タイルなら拡縮で誤魔化せるが、
+// ベクタはズーム専用の線幅・密度を焼いているので縮めると質感が浮く。下地(base)に揃えて退場させる。
+// mainSceneZoom＝render workerに現在乗っているmainシーンのzoom（mergeのackで確定）。
+let mainSceneZoom = -1;
+const mergePendingZoom = new Map();   // merge要求sig → 要求時のzoom
+const STALE_ZOOMOUT = 0.5;            // これ以上ズームアウトしたら古い詳細を隠す（微小ズームでは点滅させない）
+const mainStale = () => mainSceneZoom > cam.zoom + STALE_ZOOMOUT;
 let basemapHidden = false;                 // z<BASEMAP_MINZOOM で基図(GSI)を止めてるか（全球ビュー＝海岸線のみ）
 const BASEMAP_MINZOOM = 4;                 // これ未満は基図の詳細を描かない（海岸線 gint で十分／main負荷を断つ）
 let moving = false, settleT = null;
@@ -269,7 +276,7 @@ function autoPlateau() {
 function onMove() {
 	moving = true; needsDraw = true;
 	autoPlateau();                                                                    // 寄る/離れるで PLATEAU を自動ロード/解放（ガードで実質タダ）
-	renderer.draw(cam, { skipBase: false, noTerrain: cam.zoom < BASEMAP_MINZOOM });   // 入力の瞬間に最新camをworkerへ（全球=z<4は地形オフ＝白い地球＋海岸線のみ）
+	renderer.draw(cam, { skipBase: false, skipMain: mainStale(), noTerrain: cam.zoom < BASEMAP_MINZOOM });   // 入力の瞬間に最新camをworkerへ（全球=z<4は地形オフ＝白い地球＋海岸線のみ）
 	// 海岸線(gint)は render worker が draw 後に従属で駆動＝ここから直接送らない（地図と同cam/同フレーム＝スライド消滅）。
 	clearTimeout(settleT);
 	settleT = setTimeout(() => { moving = false; needsDraw = true; gintWorker.postMessage({ type: "drawn" }); saveView(); }, 150);   // 停止後に identify(picking)＋ビュー保存（localStorage＋共有URL）
@@ -281,7 +288,14 @@ function onMove() {
 const { tiles, requestMerge } = createPipeline({
 	style, tileUrl: TILE_URL, requestDraw: () => { needsDraw = true; }, scenePort: sceneChan.port1, onTile,
 	// merge の ack：sig はここで初めて確定する（要求時の楽観確定をやめた＝失敗が永続穴にならない）
-	onMerged: (slot, sig) => { if (slot === "main") readySig = sig; else if (slot === "base") baseSig = sig; needsDraw = true; },
+	onMerged: (slot, sig) => {
+		if (slot === "main") {
+			readySig = sig;
+			const z = mergePendingZoom.get(sig);
+			if (z != null) { mainSceneZoom = z; mergePendingZoom.delete(sig); }
+		} else if (slot === "base") baseSig = sig;
+		needsDraw = true;
+	},
 });
 window.__mergeFail = () => requestMerge.debugFail();   // テスト用：次の merge を故意に失敗させ自己修復を確認
 
@@ -755,8 +769,11 @@ function swapScene(order) {
 	if (sig === readySig || !order.length) return;
 	if (!sceneOrigin || Math.abs(sceneOrigin[0] - cam.center[0]) > 0.4 || Math.abs(sceneOrigin[1] - cam.center[1]) > 0.4)
 		sceneOrigin = [cam.center[0], cam.center[1]];
-	if (!requestWithAck("main", sig, () =>
-		requestMerge("main", order, sceneOrigin, themes.hiddenLi(layerState, cam.zoom), sig))) return;   // 結合は scene worker（非同期）→ render worker へ直行
+	if (!requestWithAck("main", sig, () => {
+		mergePendingZoom.set(sig, cam.zoom);   // ackが来たらこのzoomのシーンが乗る（ズームアウト退場判定の基準）
+		if (mergePendingZoom.size > 32) mergePendingZoom.clear();   // ack喪失の残骸が溜まらないよう頭打ち
+		requestMerge("main", order, sceneOrigin, themes.hiddenLi(layerState, cam.zoom), sig);
+	})) return;   // 結合は scene worker（非同期）→ render worker へ直行
 	const allLabels = tiles.labels(order);
 	if (airportMarks.length && cam.zoom < AIRPORT_MARK_MAXZ) {   // 低ズーム＝静的台帳から空港マークのみ注入（タイル注記441と同名は二重にしない）
 		const have = new Set(allLabels.filter(L => L.code === 441).map(L => L.text));
@@ -869,7 +886,7 @@ function render() {
 	// 地形アトラスもズーム中は再構築しない：cellRes/セル数が連続変化して全再ロード＆勾配密度の跳びで
 	// 陰影がチラつくため（terrainGate＝render worker 側の terrain.ensure() 呼び出しを止める合図）。
 	// ズーム中は現アトラスを再投影（球面メッシュなので拡縮は追従）、停止後に再構築。
-	renderer.draw(cam, { skipBase: !moving, noTerrain: cam.zoom < BASEMAP_MINZOOM, terrainGate: !moving || zoomStable });     // 先に最新camをworkerへ（全球=z<4は地形オフ）。海岸線は render worker が従属で追随
+	renderer.draw(cam, { skipBase: !moving, skipMain: mainStale(), noTerrain: cam.zoom < BASEMAP_MINZOOM, terrainGate: !moving || zoomStable });     // 先に最新camをworkerへ（全球=z<4は地形オフ）。海岸線は render worker が従属で追随
 	// 全球ビュー（z<4）：基図(GSI)の詳細は不要＝タイル/結合/地形を止め、基図シーンを空に＝海岸線(gint)だけの軽い地球。
 	// これで pan 中も main の毎フレーム負荷（tiles.update/merge/terrain）が消える。
 	if (cam.zoom < BASEMAP_MINZOOM) {
@@ -878,7 +895,7 @@ function render() {
 			renderer.set("scene", { origin: o, layers: [] }, "main");
 			renderer.set("scene", { origin: o, layers: [] }, "base");
 			renderer.set("labels", []);
-			readySig = ""; baseSig = ""; mergeReq.main.sig = ""; mergeReq.base.sig = ""; lastLabels = []; basemapHidden = true;   // 復帰時に再結合させる
+			readySig = ""; baseSig = ""; mergeReq.main.sig = ""; mergeReq.base.sig = ""; lastLabels = []; mainSceneZoom = -1; basemapHidden = true;   // 復帰時に再結合させる
 		}
 		updateCompass();
 		logEl.textContent = `world  zoom=${cam.zoom.toFixed(1)}  基図・地形オフ・海岸線のみ`;
