@@ -769,11 +769,14 @@ function swapScene(order) {
 
 // 粗い下地（base スロット）：移動中も常に敷き直して先端の空白・ちらつきを消す。低zで少数＝安く広い。
 let baseSig = "";
+// 下地は「地面の色を絶やさない」のが役目＝塗り（陸・水面）だけで足りる。線（道路・鉄道・行政界…）まで
+// 描くと、ズーム中に本命(main)の線と太さ・形状のズレた「LODの荒い線」が透けて汚い＝線レイヤは全部間引く。
+const LINE_LI = new Set(style.layers.map((L, i) => (L.type === "line" ? i : -1)).filter(i => i >= 0));
 function swapBase(coarseOrder) {
 	const sig = coarseOrder.map(o => o.key).join("|") + "#" + styleSig;
 	if (sig === baseSig || !coarseOrder.length) return;
 	requestWithAck("base", sig, () =>
-		requestMerge("base", coarseOrder, [cam.center[0], cam.center[1]], themes.hiddenLi(layerState, cam.zoom), sig));   // 下地も scene worker で結合。baseSig は ack で確定
+		requestMerge("base", coarseOrder, [cam.center[0], cam.center[1]], new Set([...themes.hiddenLi(layerState, cam.zoom), ...LINE_LI]), sig));   // 下地も scene worker で結合。baseSig は ack で確定
 }
 
 // 地形チップの GL 側副作用：等高線(真俯瞰の茶線)の表示切替と、OFF時の地形読込インジケータ消灯。
