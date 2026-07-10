@@ -274,6 +274,7 @@ function autoPlateau() {
 }
 
 function onMove() {
+	cam.center[0] = wrapLon(cam.center[0]);   // パン/回転/フライトの累積を毎移動で正規化＝float32原点相対の前提を守る（階段バグ根治）
 	moving = true; needsDraw = true;
 	autoPlateau();                                                                    // 寄る/離れるで PLATEAU を自動ロード/解放（ガードで実質タダ）
 	renderer.draw(cam, { skipBase: false, skipMain: mainStale(), noTerrain: cam.zoom < BASEMAP_MINZOOM });   // 入力の瞬間に最新camをworkerへ（全球=z<4は地形オフ＝白い地球＋海岸線のみ）
@@ -325,8 +326,12 @@ function parseViewHash(h) {
 	}
 	return v;
 }
+// 経度を(-180,180]へ正規化。地球を回し続けるとlonが1周ごとに+360°累積し（正規化がどこにも無かった）、
+// シーン結合の原点相対float32の前提|Δ|≤0.4°が壊れ、基図が~44m格子に量子化される（長年の「階段バグ」の正体。
+// 実測例=保存カメラに経度5539°=139°+15周が焼かれていた）。周期関数には無害＝見た目は一切変わらない。
+const wrapLon = lon => (Number.isFinite(lon) && (lon > 180 || lon <= -180)) ? ((lon + 180) % 360 + 360) % 360 - 180 : lon;
 function applyCamView(v) {
-	cam.center = [v.lon, Math.max(-85, Math.min(85, v.lat))];
+	cam.center = [wrapLon(v.lon), Math.max(-85, Math.min(85, v.lat))];
 	cam.zoom = Math.max(2, Math.min(19, v.zoom));
 	cam.pitch = Math.max(0, Math.min(MAXPITCH, v.pitch || 0));
 	cam.bearing = Number.isFinite(v.bearing) ? v.bearing : 0;
