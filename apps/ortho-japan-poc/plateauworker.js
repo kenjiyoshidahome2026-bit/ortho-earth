@@ -266,7 +266,13 @@ const CACHE_MAX = 3;       // 1区あたり~100-160MB（typed array一式）＝�
 // レコードはバッチ単位（`${base}#${i}` 各10〜20MB）＋メタ（`${base}#meta`）。メタが揃って初めて有効＝書き途中の中断は無視される。
 // FMT_VER: デコードパイプライン（接地・dedup・軸変換等）を変えたら上げる＝古い形式のキャッシュを自然無効化。
 const IDB_FMT_VER = 1;
-const IDB_MAX_WARDS = 8;   // 1区~150MB → 上限~1.2GB。超過時は lastUsed 最古の区を丸ごと退避
+// 容量上限：固定の区数でなくブラウザのクォータ（オリジン割当）連動＝デモ機のChromeなら実質制限なしに仕込める。
+// 割当の半分まで（MVTタイル・gint等が同じオリジン割当を共有するため）。estimate 不能な環境は従来相当の1.2GBで保守運転。
+let idbBudget = 1.2e9;
+navigator.storage?.estimate?.().then(e => {
+	if (e?.quota) idbBudget = Math.max(e.quota * 0.5, 1.2e9);
+	console.log(`[plateau] IDB budget ${(idbBudget / 1e9).toFixed(1)}GB（オリジン割当 ${((e?.quota || 0) / 1e9).toFixed(1)}GB・使用 ${((e?.usage || 0) / 1e9).toFixed(2)}GB）`);
+}).catch(() => {});
 const idbReady = Cache("GIS/plateau").catch(e => { console.warn("[plateau] IDB無効（メモリキャッシュのみで続行）", e); return null; });
 
 async function idbLoad(base) {
@@ -289,20 +295,24 @@ async function idbStore(base, batches, mask, wardBbox) {
 		// bytes＝メッシュ typed array の合計＝データ管理モーダルの容量表示用（概算。旧レコードは未記録＝0）
 		const bytes = batches.reduce((s, b) => s + Object.values(b).reduce((t, v) => t + (ArrayBuffer.isView(v) ? v.byteLength : 0), 0), 0);
 		await idb(base + "#meta", { ver: IDB_FMT_VER, count: batches.length, mask, wardBbox, ts: Date.now(), bytes });
-		// 区数上限：メタ一覧から lastUsed 最古を退避（バッチレコードも道連れ）
+		// 容量上限：合計バイトが idbBudget（クォータ連動）を超えたら lastUsed 最古の区から丸ごと退避（バッチレコードも道連れ）。
+		// いま書いた区は退避対象にしない＝budget が極端に小さい環境でも自己破壊しない。
 		const keys = (await idb()) || [];
-		const metas = [];
-		for (const k of keys) if (typeof k === "string" && k.endsWith("#meta")) metas.push(k);
-		if (metas.length > IDB_MAX_WARDS) {
-			const entries = [];
-			for (const mk of metas) { const m = await idb(mk).catch(() => null); if (m) entries.push({ mk, ts: m.ts || 0, count: m.count || 0 }); }
-			entries.sort((a, b) => a.ts - b.ts);
-			for (const old of entries.slice(0, entries.length - IDB_MAX_WARDS)) {
-				const oldBase = old.mk.slice(0, -"#meta".length);
-				await idb(old.mk, null);
-				for (let i = 0; i < old.count; i++) await idb(`${oldBase}#${i}`, null);
-				console.log("[plateau] IDB退避（LRU）", oldBase);
-			}
+		const entries = [];
+		let totalBytes = 0;
+		for (const k of keys) if (typeof k === "string" && k.endsWith("#meta")) {
+			const m = await idb(k).catch(() => null);
+			if (m) { entries.push({ mk: k, ts: m.ts || 0, count: m.count || 0, bytes: m.bytes || 0 }); totalBytes += m.bytes || 0; }
+		}
+		entries.sort((a, b) => a.ts - b.ts);
+		for (const old of entries) {
+			if (totalBytes <= idbBudget) break;
+			if (old.mk === base + "#meta") continue;
+			const oldBase = old.mk.slice(0, -"#meta".length);
+			await idb(old.mk, null);
+			for (let i = 0; i < old.count; i++) await idb(`${oldBase}#${i}`, null);
+			totalBytes -= old.bytes;
+			console.log("[plateau] IDB退避（LRU・容量超過）", oldBase);
 		}
 		console.log("[plateau] IDB保存", base, `(${batches.length} batches)`);
 	} catch (e) { console.warn("[plateau] IDB保存失敗（表示には影響なし）", e); }
