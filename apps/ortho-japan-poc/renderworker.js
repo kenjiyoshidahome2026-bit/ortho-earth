@@ -45,8 +45,9 @@ onmessage = e => {
 			};
 			break;
 		case "resize":                                           // 両キャンバスを同じ寸法に（main は transfer 後触れない）
-			if (canvas) { canvas.width = m.width; canvas.height = m.height; }
-			if (labelCanvas) { labelCanvas.width = m.width; labelCanvas.height = m.height; }
+			baseW = m.width; baseH = m.height;
+			applyRes();                                          // GL 側は動的解像度スケールを掛けて適用
+			if (labelCanvas) { labelCanvas.width = m.width; labelCanvas.height = m.height; }   // ラベル(文字)は常にフル解像度
 			dirty = true;
 			break;
 		case "set":
@@ -73,6 +74,36 @@ function applyLabels() {
 	labelLayer.setLabels(list);
 }
 
+// --- 動的解像度（タブレット対策）：連続描画中のフレーム間隔を EMA で監視し、間に合わない端末では
+// GL キャンバスの実解像度を段階的に下げる（1→0.85→0.7→0.55）。ラベルは別キャンバス＝文字は常にくっきり。
+// renderer は毎フレーム canvas.width を読む＝サイズ変更だけで全系（viewport/mvp/terrain）が追随する。
+// 復帰は「軽い状態が続いたら一段上げて様子見」のプローブ式。失敗（また重くなる）したら待ち時間を倍にする
+// ＝重い端末で上げ下げが振動しない。60Hz でも 120Hz でも閾値が成立する（重い=24ms超、軽い=17.5ms未満）。
+let baseW = 0, baseH = 0, resIdx = 0;
+const RES_STEPS = [1, 0.85, 0.7, 0.55];
+let emaMs = 0, lastFrameT = 0, prevDrew = false, resHold = 0, upStreak = 0, upDelay = 300;
+function applyRes() {
+	if (!canvas || !baseW) return;
+	const s = RES_STEPS[resIdx], w = Math.round(baseW * s), h = Math.round(baseH * s);
+	if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; dirty = true; }
+}
+function tuneRes(drew) {
+	const now = performance.now(), dt = now - lastFrameT;
+	lastFrameT = now;
+	const measured = drew && prevDrew && dt < 200;   // 連続描画フレームだけ計測（アイドル明け・タブ切替の外れ値は捨てる）
+	prevDrew = drew;
+	if (!measured) return;
+	emaMs = emaMs ? emaMs + (dt - emaMs) * 0.1 : dt;
+	if (resHold > 0) { resHold--; return; }
+	if (emaMs > 24 && resIdx < RES_STEPS.length - 1) {
+		resIdx++; applyRes(); resHold = 30; upStreak = 0; upDelay = Math.min(upDelay * 2, 4800); emaMs = 0;
+		console.log(`[render] 動的解像度 ↓ ×${RES_STEPS[resIdx]}`);
+	} else if (resIdx > 0 && emaMs < 17.5 && ++upStreak >= upDelay) {
+		resIdx--; applyRes(); resHold = 60; upStreak = 0; emaMs = 0;
+		console.log(`[render] 動的解像度 ↑ ×${RES_STEPS[resIdx]}`);
+	}
+}
+
 // terrain.ensure は視野→セル範囲計算（cameraState＋108回unproject）を伴う＝毎フレームは無駄。
 // アトラス構成が変わり得るだけのカメラ移動（視野幅の~10%・ズーム0.05・チルト/方位~1°）があった時だけ呼ぶ。
 let lastEnsure = null;
@@ -93,14 +124,19 @@ function ensureIfMoved() {
 // try/catch：draw中の例外が末尾の requestAnimationFrame に到達しないとループが永久死＝最後のフレームで凍結する。
 // 失敗フレームは落として次フレームへ（エラーはconsoleに出す＝原因調査可能なまま画は生き続ける）。
 function frame() {
+	let drew = false;
 	try {
 		if (dirty && renderer && cam) {
-			dirty = false;
+			dirty = false; drew = true;
 			// ズーム中(zoom非stable)は標高アトラスを再構築しない＝cellRes連続変化による陰影チラつきを防ぐ（main が opts.terrainGate で通知）。
 			// noTerrain＝全球ビュー(z<4)では地形そのものが不要。
 			if (terrain && !opts?.noTerrain && opts?.terrainGate !== false) ensureIfMoved();
 			if (gintSyncPort) gintSyncPort.postMessage({ cam });     // 海岸線(gint)へ先に転送＝GL描画と並走して同じvsyncに乗せる（描画後に送ると常に1フレーム遅れる）
-			const fogAnim = renderer.draw(cam, opts);                // cameraState=mvp生成 + GL描画（軽い）。true=フォグ追従が収束中
+			// 動的解像度中は GL 側の dpr に resScale を掛ける＝線の太さ(SDF capsule)が CSS 上で不変。
+			// ラベルは自前 canvas（フル解像度）＋自前 cameraState なので素の cam のまま＝幾何は両者で一致する。
+			const s = RES_STEPS[resIdx];
+			const glCam = s === 1 ? cam : { ...cam, dpr: (cam.dpr || 1) * s };
+			const fogAnim = renderer.draw(glCam, opts);              // cameraState=mvp生成 + GL描画（軽い）。true=フォグ追従が収束中
 			const animating = labelLayer && labelLayer.draw(cam);    // ラベルも同じ cam で（＝完全同期）
 			if (animating || fogAnim) dirty = true;                  // フェード/フォグ追従の継続は自前で次フレーム（main関与なし）
 			if (!sentFrame1) { sentFrame1 = true; postMessage({ type: "frame1" }); }   // 初描画成功＝main の起動ウォッチドッグを解除
@@ -109,5 +145,6 @@ function frame() {
 	} catch (e) {
 		console.error("[render] frame例外（このフレームは破棄して継続）", e?.message, e?.stack);
 	}
+	tuneRes(drew);
 	requestAnimationFrame(frame);
 }

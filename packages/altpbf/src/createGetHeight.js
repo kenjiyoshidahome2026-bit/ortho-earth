@@ -12,7 +12,7 @@ export async function createTileLoader(opts = {}) {
 	// worker プール：1本直列だと初訪問時に視野分のセル（R10で最大64枚）が1枚ずつ順番待ちになり
 	// 地形の立ち上がりが数倍遅い。各workerは従来通り1件ずつ直列（応答FIFO＝取りこぼさない）で、
 	// プール間はラウンドロビン＝並列。IDBキャッシュ後は経路無関係に即答。
-	const NW = 3;
+	const NW = Math.min(3, Math.max(1, (navigator.hardwareConcurrency || 4) - 2));   // 低コア端末(タブレット)ではプールを絞る＝worker乱立でメインが飢えない
 	const pool = Array.from({ length: NW }, () => {
 		const w = new Worker(new URL('./worker.js', import.meta.url), { type: 'module' });
 		w.onerror = e => console.error("[tileLoader] worker error:", e.message || "(opaque)", "@", e.filename || "?", "L" + (e.lineno ?? "?"), e.error || "");
