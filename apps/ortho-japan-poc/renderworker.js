@@ -58,9 +58,6 @@ onmessage = e => {
 			cam = m.cam; opts = m.opts; dirty = true;
 			if (pendingLabels) applyLabels();                    // cam が届いた時点で保留中のラベルへ標高を付与
 			break;
-		case "elevAt":                                           // マウス位置の標高照会（座標表示用）。キャッシュ済みセルから即答＝fetchしない
-			postMessage({ type: "elevAt", id: m.id, elev: terrain ? terrain.sampleElev(m.lon, m.lat) : 0 });
-			break;
 		case "destroy":
 			if (renderer && renderer.dispose) renderer.dispose();
 			renderer = null;

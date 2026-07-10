@@ -3,6 +3,7 @@ import {
 	evalExpr, parseRGBA, cameraState, unproject, buildGeoJSONOverlay,
 } from "ortho-japan";
 import { createGeopbf, geopbf } from "geopbf";
+import { createGetHeight, setApiUrl as setAltApiUrl } from "altpbf";
 createGeopbf("https://api.ortho-earth.com");   // bucket 基盤（標高と同じ）。読み出しはキー不要
 import style from "./style-mono.js";
 import { createThemes, defaultLayerState, CHOME_MINZOOM, RAILTR_MINZOOM } from "./themes.js";
@@ -104,7 +105,6 @@ renderWorker.onmessage = e => {
 		else fatalOverlay("GPU の描画が中断されました", "描画コンテキストが失われました（GPUメモリ不足などで起こります）。他のタブやアプリを閉じてから再読み込みしてください。", true);
 		return;
 	}
-	if (d.type === "elevAt") { if (d.id === posElevId) { posElev = d.elev; schedulePos(); } return; }   // マウス標高の返信（最新の照会だけ採用）
 	if (d.type !== "elevPending") return;
 	const { count, range } = d;
 	if (count > 0 && layerState.chikei) { elevEl.style.display = "block"; elevEl.textContent = `⛰ 地形読込中 ${range === 1 ? "R01（秒単位・JAXA）" : range === 10 ? "R10" : "R90"} … ×${count}`; }
@@ -597,10 +597,15 @@ canvas.addEventListener("wheel", e => {
 	else anchoredAt(e.clientX, e.clientY, () => { cam.zoom = Math.max(2, Math.min(19, cam.zoom - e.deltaY * 0.002)); });  // ズーム（z2=地球全体〜z19。16超はベクタのオーバーズーム＝潰れず街路へ）
 }, { passive: false });
 
-// --- 座標読み取り（左下）：マウス位置の緯度経度・zoom・チルト・標高。標高は render worker の
-// キャッシュ済みセル照会（fetchなし・150ms間引き・最新idだけ採用）。表示更新は rAF に畳む＝hot path を汚さない。
+// --- 座標読み取り（左下）：経度・緯度・標高・zoom・チルトの順。表示更新は rAF に畳む＝hot path を汚さない。
+// 標高は altpbf の getHeight（ortho-earth 本体と同じ点サンプラ）＝必要タイルをその場でオンデマンド取得
+// （R90/R10/R01 をズームで自動選択・IDB は地形アトラスと共有）。render worker のアトラス照会だと
+// 未ロード地帯が0mになる劣化版だった。onend＝タイル到着でゲートを開けて再照会（マウス静止中でも値が確定）。
 const posEl = document.getElementById("pos");
-let posMouse = null, posElev = null, posElevId = 0, posElevAt = 0, posRaf = false;
+let posMouse = null, posElev = null, posElevId = 0, posElevAt = 0, posRaf = false, getHeight = null;
+setAltApiUrl("https://api.ortho-earth.com");
+createGetHeight({ apiUrl: "https://api.ortho-earth.com", onend: () => { posElevAt = 0; schedulePos(); } })
+	.then(f => { getHeight = f; });
 function updatePos() {
 	posRaf = false;
 	if (!posMouse) return;
@@ -608,10 +613,13 @@ function updatePos() {
 	const ll = unproject(st, posMouse.x * dpr, posMouse.y * dpr);
 	const zt = `z${cam.zoom.toFixed(1)}  チルト${Math.round((cam.pitch || 0) * R2D)}°`;
 	if (!ll) { posEl.textContent = `—  ${zt}`; posElev = null; return; }   // 球外＝宇宙
-	posEl.textContent = `${ll[1].toFixed(5)}, ${ll[0].toFixed(5)}  ${zt}${posElev == null ? "" : `  標高${Math.round(posElev)}m`}`;
-	if (performance.now() - posElevAt > 150) {
+	posEl.textContent = `${ll[0].toFixed(5)}, ${ll[1].toFixed(5)}${posElev == null ? "" : `  標高${Math.round(posElev)}m`}  ${zt}`;
+	if (getHeight && performance.now() - posElevAt > 150) {
 		posElevAt = performance.now();
-		renderWorker.postMessage({ type: "elevAt", lon: ll[0], lat: ll[1], id: ++posElevId });
+		const id = ++posElevId;
+		getHeight(ll[0], ll[1], cam.zoom).then(h => {   // 値が変わった時だけ再描画＝静止中の照会ループを断つ
+			if (id === posElevId && h != null && h !== posElev) { posElev = h; schedulePos(); }
+		});
 	}
 }
 const schedulePos = () => { if (!posRaf) { posRaf = true; requestAnimationFrame(updatePos); } };
