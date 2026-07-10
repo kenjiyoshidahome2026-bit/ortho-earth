@@ -235,8 +235,11 @@ function autoPlateau() {
 	let hits = PLATEAU_SETS.filter(s => bboxIntersects(s.bbox, view) && !plateauFailed.has(s.name));   // 死んだ地区は候補から除外＝再挑戦しない
 	if (hits.length > PLATEAU_MAX_ACTIVE) {
 		const [lon, lat] = cam.center;
-		const d2 = s => { const cx = (s.bbox[0] + s.bbox[2]) / 2, cy = (s.bbox[1] + s.bbox[3]) / 2; return (cx - lon) ** 2 + (cy - lat) ** 2; };
-		hits = hits.sort((a, b) => d2(a) - d2(b)).slice(0, PLATEAU_MAX_ACTIVE);   // 近い順に上限件数だけ採用
+		// 近さ＝「bboxまでの点距離」（bbox内なら0）。重心距離だと南北に長い区（江東=臨海部で重心が南へ~4km）が
+		// 足元に居ても落選し、チルト北向きの構図で手前だけ基図の間引き建物になる。同点（bbox重複）は重心距離で順序付け。
+		const d2 = s => { const dx = Math.max(s.bbox[0] - lon, 0, lon - s.bbox[2]), dy = Math.max(s.bbox[1] - lat, 0, lat - s.bbox[3]); return dx * dx + dy * dy; };
+		const c2 = s => { const cx = (s.bbox[0] + s.bbox[2]) / 2, cy = (s.bbox[1] + s.bbox[3]) / 2; return (cx - lon) ** 2 + (cy - lat) ** 2; };
+		hits = hits.sort((a, b) => (d2(a) - d2(b)) || (c2(a) - c2(b))).slice(0, PLATEAU_MAX_ACTIVE);   // 近い順に上限件数だけ採用
 	}
 	const hitNames = new Set(hits.map(h => h.name));
 	for (const name of [...plateauActive.keys()]) {

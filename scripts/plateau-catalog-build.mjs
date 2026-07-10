@@ -39,6 +39,9 @@ async function fetchBbox(d, attempt = 1) {
 		if (!region) { console.warn(`  bbox無し(region以外) skip: ${d.id}`); skipped++; return null; }
 		const R2D = 180 / Math.PI;
 		const bbox = [region[0] * R2D, region[1] * R2D, region[2] * R2D, region[3] * R2D];
+		// 廃止区の残骸（浜松旧7区等）は region が日本全域のプレースホルダ（span 30°級）＝全国どこでも自動ロード候補に
+		// 引っかかり無駄fetchを生む。市区町村としてあり得ない広さ（最大の正規例=隠岐の島町1.5°）は捨てる。
+		if (bbox[2] - bbox[0] > 5 || bbox[3] - bbox[1] > 5) { console.warn(`  bbox異常(全国級プレースホルダ) skip: ${d.id}`); skipped++; return null; }
 		const name = (d.ward ? d.city.replace(/市$/, '') + d.ward : d.city);
 		return { name, base, bbox };
 	} catch (e) {
