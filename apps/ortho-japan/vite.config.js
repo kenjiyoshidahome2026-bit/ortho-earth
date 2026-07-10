@@ -22,12 +22,12 @@ const crossOriginIsolation = {
 };
 
 export default defineConfig({
-	// 配信先＝ www.ortho-earth.com/ortho-japan/ （サブパス）。ルート相対の import/asset は base が面倒を見る。
+	// 配信先＝ www.ortho-earth.com/japan/ （サブパス。将来 /globe/ が並ぶ）。ルート相対の import/asset は base が面倒を見る。
 	// 実行時 fetch は main.js 側で import.meta.env.BASE_URL を前置（vite は文字列リテラルの fetch を書き換えない）。
-	base: "/ortho-japan/",
+	base: "/japan/",
 	// Workers assets は「リクエストのパス名＝assets ディレクトリ内の相対パス」で引くため、
-	// dist/site/ をルートに ortho-japan/ サブフォルダへ出力（wrangler.toml の directory = dist/site）。
-	build: { outDir: "dist/site/ortho-japan", emptyOutDir: true },
+	// dist/site/ をルートに japan/ サブフォルダへ出力（wrangler.toml の directory = dist/site）。
+	build: { outDir: "dist/site/japan", emptyOutDir: true },
 	worker: { format: "es" },
 	plugins: [crossOriginIsolation],
 });

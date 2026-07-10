@@ -5,9 +5,12 @@
 export default {
 	async fetch(req, env) {
 		const url = new URL(req.url);
-		// ルート/裸パスの導線：/ → /ortho-japan/（将来 www ルートに landing を置くまでの仮）。/ortho-japan → 正規の末尾スラッシュへ。
-		if (url.pathname === "/" || url.pathname === "") return Response.redirect(url.origin + "/ortho-japan/", 302);
-		if (url.pathname === "/ortho-japan") return Response.redirect(url.origin + "/ortho-japan/", 301);
+		// ルート/裸パスの導線：/ → /japan/（将来 www ルートに landing を置くまでの仮）。/japan → 正規の末尾スラッシュへ。
+		if (url.pathname === "/" || url.pathname === "") return Response.redirect(url.origin + "/japan/", 302);
+		if (url.pathname === "/japan") return Response.redirect(url.origin + "/japan/", 301);
+		// 旧URL（初日だけ公開されていた /ortho-japan/…）は /japan/… へ恒久転送＝リンク切れゼロ。
+		if (url.pathname === "/ortho-japan" || url.pathname.startsWith("/ortho-japan/"))
+			return Response.redirect(url.origin + "/japan" + url.pathname.slice("/ortho-japan".length) + url.search, 301);
 		const res = await env.ASSETS.fetch(req);
 		const h = new Headers(res.headers);
 		h.set("Cross-Origin-Opener-Policy", "same-origin");
