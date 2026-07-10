@@ -11,7 +11,7 @@ export { buildGeoJSONScene, buildGeoJSONOverlay, pointInFeature } from "./geojso
 export { buildBuildings } from "./buildings.js";
 export { fetchR10, toFloat32, sampleHeight, downsampleFlipped } from "./elevation.js";
 export { createLabelLayer } from "./labels2d.js";
-export { cameraState, project, unproject, lonlatTo3D, fovyForZoom } from "./camera.js";
+export { cameraState, project, unproject, lonlatTo3D } from "./camera.js";
 export { pickZoom, visibleTiles, selectLOD } from "./tilecover.js";
 export { createTileManager } from "./tilemanager.js";
 export { mergeTiles } from "./scene.js";

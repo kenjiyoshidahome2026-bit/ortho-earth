@@ -1,6 +1,6 @@
 // ortho-japan PoC — 地理院 optimal_bvmap を球面に直描き（M2: タイルストリーミング＋LOD＋ラベル）。
 import {
-	evalExpr, parseRGBA, cameraState, unproject, buildGeoJSONOverlay, fovyForZoom,
+	evalExpr, parseRGBA, cameraState, unproject, buildGeoJSONOverlay,
 } from "ortho-japan";
 import { createGeopbf, geopbf } from "geopbf";
 import { createGetHeight, setApiUrl as setAltApiUrl } from "altpbf";
@@ -881,14 +881,6 @@ resetBtn.addEventListener("click", () => {
 });
 
 function render() {
-	// 透視⇄正射スライダーの追従：fovy を目標(fovyForZoom)へ毎フレーム滑らかに寄せる。
-	// zoomに即結合するとホイール1目盛りごとに遠近感が跳ねる（ドリーズーム酔い）＝時間方向の低域通過で均す。
-	// cam.fovy を明示セット＝cameraState の全消費者（render/label/unproject/gint）が同じ値で整合。
-	const targetFovy = fovyForZoom(cam.zoom);
-	if (!(cam.fovy > 0)) cam.fovy = targetFovy;
-	const dFovy = targetFovy - cam.fovy;
-	if (Math.abs(dFovy) > 1e-4) { cam.fovy += dFovy * 0.12; needsDraw = true; }   // ~0.5秒で収束（フォグ追従と同じ作法）
-	else cam.fovy = targetFovy;
 	// パン/チルト中（ズーム不変）は詳細も再結合。ズーム中はLODポップ回避で停止まで待つ。
 	const zoomStable = Math.abs(cam.zoom - zoomAtBuild) < 0.12;
 	// 地形アトラスもズーム中は再構築しない：cellRes/セル数が連続変化して全再ロード＆勾配密度の跳びで

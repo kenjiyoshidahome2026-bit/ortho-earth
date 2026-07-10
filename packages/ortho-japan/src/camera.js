@@ -9,18 +9,9 @@ export function lonlatTo3D(lon, lat) {
 	return [cb * Math.cos(a), Math.sin(b), cb * Math.sin(a)];
 }
 
-// 透視⇄正射スライダー：球体が画面の主役になる低ズームでは、カメラを遠ざけ視野角を絞って正射(D→∞)へ漸近させる。
-// 透視の球のシルエットは接線円錐の断面＝光軸から外れる（チルト・画面端）と楕円に伸びるが、視野角を絞ると
-// 円錐が円筒に近づき常に真円を保つ（大気の一皮も痩せ太りしない）。z6以上=50°（街の透視・没入）、z4以下=8°
-//（ほぼ正射）、間は smoothstep。camDist は下の同式が自動補償＝注視点の解像度と見かけの大きさは不変。
-export function fovyForZoom(z) {
-	const t = Math.max(0, Math.min(1, (z - 4) / 2)), s = t * t * (3 - 2 * t);
-	return (8 + 42 * s) * D2R;
-}
-
 // カメラ状態を作る。cam: { center:[lon,lat], zoom, pitch(rad), bearing(rad), fovy(rad), dpr }
 export function cameraState(cam, W, H) {
-	const { center, zoom, pitch = 0, bearing = 0, fovy = fovyForZoom(zoom), dpr = 1 } = cam;
+	const { center, zoom, pitch = 0, bearing = 0, fovy = 50 * D2R, dpr = 1 } = cam;
 	const [lon, lat] = center;
 	const T = lonlatTo3D(lon, lat);
 	const a = lon * D2R, b = lat * D2R;
