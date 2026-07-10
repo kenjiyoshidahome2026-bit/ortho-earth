@@ -162,7 +162,7 @@ export default {
 		// 薄さは opacity でなく実色で作る（#660000 を紙色へ50%寄せ＝#aa7878）＝線分の重なりで濃さがムラにならない。
 		{
 			id: "admin-hi", type: "line", "source-layer": "AdmBdry",
-			paint: { "line-color": "#aa7878", "line-width": 1, "line-opacity": 1 },
+			paint: { "line-color": "#aa7878", "line-width": 0.8, "line-opacity": 1 },
 		},
 
 		// 注記：濃いグレー＋地色ハロー。読めるが主張しない。
