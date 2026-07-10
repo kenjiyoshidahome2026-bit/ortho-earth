@@ -836,7 +836,7 @@ function updateCompass() {
 }
 resetBtn.addEventListener("click", () => {
 	if (flight) flight.cancel();   // リセットアニメと喧嘩しない
-	const p0 = cam.pitch, b0 = shortBearing(), t0 = performance.now(), dur = 350;
+	const p0 = cam.pitch, b0 = shortBearing(), t0 = performance.now(), dur = 700;   // 3D→2Dは少しゆっくり＝地面が起き上がる感覚を残す
 	const step = () => {
 		const k = Math.min(1, (performance.now() - t0) / dur), e = k * k * (3 - 2 * k);   // smoothstep
 		cam.pitch = p0 * (1 - e); cam.bearing = b0 * (1 - e); onMove();
