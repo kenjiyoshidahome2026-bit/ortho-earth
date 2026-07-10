@@ -1,38 +1,69 @@
 // 地名検索：地理院 AddressSearch API 直叩き（キー不要・CORS開放）＝ノーサーバーのまま住所も地名も引ける。
 // 基図タイルが既に地理院依存なので実質的な依存追加ゼロ。UIは Quiet Mono の作法（白の静かな箱、候補は下に）。
 // ヒット→ onGo(lon, lat, zoom) を呼ぶだけ＝飛び方（球面フライト）は呼び出し側の領分。
+// APIの素性が悪い（同名の真の重複・全国散在の同名・並びの癖）ので、全件を前処理してから候補にする。
 const API = "https://msearch.gsi.go.jp/address-search/AddressSearch?q=";
+
+// addressCode（JIS市区町村コード）先頭2桁→都道府県名。'' は市区町村に属さない広域地物（本物の富士山等）。
+const PREF = ",北海道,青森県,岩手県,宮城県,秋田県,山形県,福島県,茨城県,栃木県,群馬県,埼玉県,千葉県,東京都,神奈川県,新潟県,富山県,石川県,福井県,山梨県,長野県,岐阜県,静岡県,愛知県,三重県,滋賀県,京都府,大阪府,兵庫県,奈良県,和歌山県,鳥取県,島根県,岡山県,広島県,山口県,徳島県,香川県,愛媛県,高知県,福岡県,佐賀県,長崎県,熊本県,大分県,宮崎県,鹿児島県,沖縄県".split(",");
+
+// 前処理：APIの生の全件（切り詰め前）を候補に整える。
+// 1) 同タイトルで近接（〜2km）は真の重複（東京駅=路線別座標、スカイツリー=データ源違い）＝平均座標で1件に統合。
+// 2) 統合後も同タイトルが複数残る＝全国散在の同名（富士山は完全一致だけで25件）＝県名の添え書きで区別。
+//    添え書きは表示専用：検索マッチ（rerank）にも input への書き戻しにも viewFor にも使わない＝「長野」で富士山が引っかかったりしない。
+export function preprocess(hits) {
+	const byTitle = new Map();
+	hits.forEach((h, i) => {
+		const t = h.properties.title, [x, y] = h.geometry.coordinates;
+		let group = byTitle.get(t);
+		if (!group) byTitle.set(t, group = []);
+		const near = group.find(c => Math.hypot(c.x / c.n - x, c.y / c.n - y) < 0.02);
+		if (near) { near.x += x; near.y += y; near.n++; }
+		else group.push({ x, y, n: 1, i, code: h.properties.addressCode || "" });
+	});
+	const out = [];
+	for (const [title, group] of byTitle) for (const c of group)
+		out.push({
+			title,                                                                       // マッチ・入力値・viewFor は生タイトル
+			note: group.length > 1 ? PREF[Math.floor(+c.code / 1000)] || "" : "",        // 同名が複数残る時だけ県名を添える
+			lon: c.x / c.n, lat: c.y / c.n, i: c.i,
+			national: !c.code,                                                           // 広域地物フラグ（同点決勝用）
+		});
+	return out;
+}
+
+// 再ランク：完全一致（「富士山」「琵琶湖」等の自然地名の正解はほぼこれ）→ 含む（短い題名ほど上＝
+// 「東京都渋谷区」が「福島県猪苗代町渋谷」より先）→ その他はAPI順。切り詰め前の全件に掛けるのが肝
+//（「大雪山」の正解は22件の奥に居る＝先に8件で切ると捨ててしまう）。
+// 完全一致の同点決勝は広域地物（addressCode無し）を先頭へ＝「富士山」の一発Enterが上田市の富士山でなく本物に飛ぶ。
+export function rerank(q, cands) {
+	const score = c => c.title === q ? (c.national ? 0 : 0.001)
+		: c.title.includes(q) ? 1 + (c.title.length - q.length) / 100 : 2;
+	return cands.map(c => [score(c), c.i, c]).sort((a, b) => a[0] - b[0] || a[1] - b[1]).map(x => x[2]);
+}
 
 export function createSearch({ onGo }) {
 	const input = document.getElementById("search-in");
 	const list = document.getElementById("search-list");
-	let items = [], sel = -1, ac = null, timer = null;
+	let items = [], sel = -1, ac = null, timer = null, composing = false;
 	const close = () => { list.style.display = "none"; list.innerHTML = ""; items = []; sel = -1; };
 
 	async function query(q) {
 		ac?.abort(); ac = new AbortController();
 		try {
 			const res = await fetch(API + encodeURIComponent(q), { signal: ac.signal });
-			render(rerank(q, await res.json()).slice(0, 8));   // 再ランク→8件（APIの素の並びは住所の部分一致が先頭に来る癖がある）
+			render(rerank(q, preprocess(await res.json())).slice(0, 8));
 		} catch (e) { if (e.name !== "AbortError") render(null); }   // 通信断も言葉で（白画面同様、黙らない）
-	}
-
-	// 再ランク：完全一致（「富士山」「琵琶湖」等の自然地名の正解はほぼこれ）→ 含む（短い題名ほど上＝
-	// 「東京都渋谷区」が「福島県猪苗代町渋谷」より先）→ その他はAPI順。切り詰め前の全件に掛けるのが肝
-	//（「大雪山」の正解は22件の奥に居る＝先に8件で切ると捨ててしまう）。
-	function rerank(q, hits) {
-		const score = t => t === q ? 0 : t.includes(q) ? 1 + (t.length - q.length) / 100 : 2;
-		return hits.map((h, i) => [score(h.properties.title), i, h])
-			.sort((a, b) => a[0] - b[0] || a[1] - b[1]).map(x => x[2]);
 	}
 
 	function render(hits) {
 		list.innerHTML = ""; items = hits || []; sel = -1;
 		if (!hits) list.innerHTML = `<div class="search-empty">検索できませんでした（通信状態をご確認ください）</div>`;
 		else if (!hits.length) list.innerHTML = `<div class="search-empty">見つかりませんでした</div>`;
-		else hits.forEach((h, i) => {
+		else hits.forEach((c, i) => {
 			const d = document.createElement("div");
-			d.className = "search-item"; d.textContent = h.properties.title;
+			d.className = "search-item"; d.textContent = c.title;
+			if (c.note) { const s = document.createElement("span"); s.className = "search-note"; s.textContent = c.note; d.appendChild(s); }
 			d.addEventListener("pointerdown", ev => { ev.preventDefault(); go(i); });   // blur(候補を閉じる)より先に拾う
 			list.appendChild(d);
 		});
@@ -51,22 +82,28 @@ export function createSearch({ onGo }) {
 	}
 
 	function go(i) {
-		const h = items[i]; if (!h) return;
-		const [lon, lat] = h.geometry.coordinates;
-		input.value = h.properties.title;
+		const c = items[i]; if (!c) return;
+		input.value = c.title;
 		close(); input.blur();
-		const v = viewFor(h.properties.title);
-		onGo(lon, lat, v.zoom, v.tilt);
+		const v = viewFor(c.title);
+		onGo(c.lon, c.lat, v.zoom, v.tilt);
 	}
 
 	const highlight = () => [...list.children].forEach((d, i) => d.classList.toggle("sel", i === sel));
-	input.addEventListener("input", () => {
+	// IME変換中は一切動かない：input は確定まで query しない（半端な読みで叩かない）、keydown は変換操作
+	//（確定Enter・候補送りの↑↓）を奪わない。奪うと「確定Enterで go()→input書き換え→その後にIMEの確定
+	// テキストが追記される」という二重入力になる（実害確認済み）。確定は compositionend で一度だけ拾う。
+	const onInput = () => {
 		clearTimeout(timer);
 		const q = input.value.trim();
 		if (!q) { close(); return; }
 		timer = setTimeout(() => query(q), 280);   // デバウンス＝タイプ中はAPIを叩かない
-	});
+	};
+	input.addEventListener("compositionstart", () => { composing = true; });
+	input.addEventListener("compositionend", () => { composing = false; onInput(); });
+	input.addEventListener("input", () => { if (!composing) onInput(); });
 	input.addEventListener("keydown", e => {
+		if (e.isComposing || e.keyCode === 229) return;   // IMEの確定Enter/候補送りはIMEの物
 		if (e.key === "Enter") {
 			if (items.length) go(sel < 0 ? 0 : sel);
 			else { clearTimeout(timer); query(input.value.trim()).then(() => { if (items.length) go(0); }); }   // 一発Enter＝先頭ヒットへ飛ぶ
