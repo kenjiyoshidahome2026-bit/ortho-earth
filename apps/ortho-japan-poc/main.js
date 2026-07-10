@@ -80,7 +80,7 @@ const renderer = {
 	draw: (cam, opts) => renderWorker.postMessage({ type: "draw", cam, opts }),
 };
 const elevEl = document.createElement("div");
-elevEl.style.cssText = "position:fixed;bottom:44px;left:10px;font-size:12px;color:#4a5568;background:rgba(255,255,255,.85);padding:5px 11px;border-radius:6px;-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);display:none;z-index:6;";
+elevEl.style.cssText = "position:fixed;bottom:76px;left:10px;font-size:12px;color:#4a5568;background:rgba(255,255,255,.85);padding:5px 11px;border-radius:6px;-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);display:none;z-index:6;";   // bottom:44 は PLATEAU 進捗の席
 document.body.appendChild(elevEl);
 // 等高線(真俯瞰の茶線)・測量点標高・地形読込表示は「地形」チップ(layerState.chikei)に統合＝独立トグル無し。
 // zoom/tileのデバッグログ(#log)はユーザー向けチップから切り離し常時非表示（必要なら devtools で #log を出す）。
@@ -153,7 +153,9 @@ for (let i = 0; i < PLATEAU_NW; i++) {
 	w.postMessage({ type: "init", meshPort: meshChan.port1 }, [meshChan.port1]);
 	renderWorker.postMessage({ type: "plateauPort", port: meshChan.port2 }, [meshChan.port2]);
 	w.onmessage = e => {
+		if (e.data.prog) { plateauProg.set(e.data.prog.name, e.data.prog); renderPlateauProg(); return; }   // バッチ進捗（ネットワーク経路のみ）
 		const p = plateauPending.get(e.data.id); if (!p) return; plateauPending.delete(e.data.id);
+		if (p.name) { plateauProg.delete(p.name); renderPlateauProg(); }   // 完了/失敗どちらでも ack で消灯＝消し忘れが無い
 		if (e.data.error) p.reject(new Error(e.data.error));
 		else p.resolve(e.data.ok);   // ok=false は0三角形など soft failure（worker側でconsole.error済み）。メッシュ本体は直結ポートで render worker へ送付済み
 	};
@@ -167,7 +169,19 @@ function workerLoadPlateau(base, tiles, name, wardBbox) {
 	const id = ++plateauReqId, w = plateauWorkers[hashStr(base) % PLATEAU_NW];
 	// wardBbox＝区単位の被覆マスク座標系。camCenter＝バッチのカメラ近傍優先ソート（目の前から立ち始める）。
 	w.postMessage({ id, base, tiles, name, wardBbox, camCenter: [cam.center[0], cam.center[1]] });
-	return new Promise((resolve, reject) => plateauPending.set(id, { resolve, reject }));
+	return new Promise((resolve, reject) => plateauPending.set(id, { resolve, reject, name }));   // name＝進捗の消灯キー
+}
+// PLATEAU 読込進捗（左下）：地区別のバッチ進捗を1行に集計。ネットワーク経路（初回訪問）だけ表示され、
+// メモリ/IDBキャッシュ命中時は一瞬で終わるので出ない。消灯は ack（完了/失敗）で行う。
+const plateauEl = document.createElement("div");
+plateauEl.style.cssText = "position:fixed;bottom:44px;left:10px;font-size:12px;color:#4a5568;background:rgba(255,255,255,.85);padding:5px 11px;border-radius:6px;-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);display:none;z-index:6;";
+document.body.appendChild(plateauEl);
+const plateauProg = new Map();   // name → { done, total }（total=0＝葉タイル収集中）
+function renderPlateauProg() {
+	if (!plateauProg.size) { plateauEl.style.display = "none"; return; }
+	plateauEl.textContent = "🏙 建物3D 読込中 " + [...plateauProg.values()]
+		.map(p => p.total ? `${p.name} ${p.done}/${p.total}` : `${p.name} 準備中…`).join("・");
+	plateauEl.style.display = "block";
 }
 
 // 現在の画面に映る範囲をラフに見積もる（フラスタム厳密解ではなく自動ロードのゲート用）。z14+の寄った状態でしか呼ばれない＝視野は元々狭く、この近似で十分。

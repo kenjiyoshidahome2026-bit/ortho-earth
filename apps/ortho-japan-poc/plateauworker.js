@@ -328,6 +328,10 @@ async function loadPlateau(base, tiles, ward, wardBbox, camCenter) {
 		if (cache.size > CACHE_MAX) cache.delete(cache.keys().next().value);
 		return true;
 	}
+	// ここからネットワーク経路＝遅い（fetch＋Draco解凍で地区あたり数秒〜数十秒）。進捗を main へ流す。
+	// total=0 は「葉タイル収集中（準備中）」の合図。完了/失敗の消灯は main が ack で行う＝消し忘れが構造的に無い。
+	const prog = (done, total) => self.postMessage({ prog: { name: ward, done, total } });
+	prog(0, 0);
 	let leaves;
 	if (tiles) leaves = tiles.map(u => ({ uri: resolveUrl(base, u), center: null }));
 	else {
@@ -341,11 +345,14 @@ async function loadPlateau(base, tiles, ward, wardBbox, camCenter) {
 		leaves.sort((a, b) => d2(a) - d2(b));
 	}
 	console.log("[plateau] 読込", leaves.length, "tiles ←", base);
+	const nBatch = Math.ceil(leaves.length / BATCH_TILES);
+	prog(0, nBatch);
 	const wardMask = wardBbox ? new Uint8Array(MASK_N * MASK_N) : null;   // 区単位で累積（wardBbox 無し=デバッグ直指定時はマスク無し）
 	const batches = [];
 	for (let bi = 0; bi * BATCH_TILES < leaves.length; bi++) {
 		const slice = leaves.slice(bi * BATCH_TILES, (bi + 1) * BATCH_TILES);
 		const mesh = await decodeBatch(base, slice, wardMask, wardBbox);
+		prog(bi + 1, nBatch);   // 失敗バッチも歩数は進む＝分母が縮まない単純な物差し
 		if (!mesh) continue;
 		sendBatch(ward, batches.length, mesh, wardMask, wardBbox);   // 完成したバッチから即描画へ
 		batches.push(mesh);
