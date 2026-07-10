@@ -1,14 +1,14 @@
 // PLATEAU 全国 LOD2 建築物モデル カタログを生成する。
 // datacatalog API から bldg/lod2/3D Tiles を市区町村ごとに1件へ重複排除し（texture無し版＝我々の loader はテクスチャ未使用なので半分軽い）、
 // 各 tileset.json の root.boundingVolume.region から自動ロード用 bbox(deg) を取って
-// apps/ortho-japan-poc/public/plateau-sets.json に書き出す。
+// apps/ortho-japan/public/plateau-sets.json に書き出す。
 //
 // 使い方: node scripts/plateau-catalog-build.mjs
 
 import { writeFileSync } from 'fs';
 
 const CATALOG_URL = 'https://api.plateauview.mlit.go.jp/datacatalog/plateau-datasets';
-const OUT = 'apps/ortho-japan-poc/public/plateau-sets.json';
+const OUT = 'apps/ortho-japan/public/plateau-sets.json';
 const CONCURRENCY = 16;
 
 console.log('カタログ取得中...', CATALOG_URL);

@@ -8,7 +8,7 @@
 	"exports": {
 		".": "./src/index.js"
 	},
-	"description": "球面ベクタタイル描画エンジン（MLIT/地理院 optimal_bvmap 等のMVTを ortho 球面に直描き）。本番 ortho-map とは独立。",
+	"description": "球面ベクタタイル描画エンジン",
 	"dependencies": {
 		"@mapbox/vector-tile": "^2.0.3",
 		"earcut": "^3.0.1",

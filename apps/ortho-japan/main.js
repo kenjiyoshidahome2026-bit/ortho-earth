@@ -334,7 +334,7 @@ function applyCamView(v) {
 const bootView = parseViewHash(location.hash);
 // 前回ビューの復元（ortho-earth 本体と同じ流儀）：settle 毎に localStorage へ保存し、起動時にそこから立ち上がる。
 // IDBのPLATEAUキャッシュと合わさると「開いた瞬間に前回の街が数秒で立ち上がる」起動になる。
-const CAM_KEY = "ortho-japan-poc.cam";
+const CAM_KEY = "ortho-japan.cam";   // 初デプロイ時に -poc を卒業（旧キーの移行対象ユーザーは未だ居ない）
 if (bootView) applyCamView(bootView);
 else try {
 	const saved = JSON.parse(localStorage.getItem(CAM_KEY) || "null");
