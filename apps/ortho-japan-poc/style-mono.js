@@ -158,10 +158,11 @@ export default {
 			layout: { "line-cap": "round" },
 			paint: { "line-color": "#7aa8cf", "line-width": ["interpolate", ["linear"], ["zoom"], 8, 0.8, 13, 1.6], "line-opacity": 0.85 },
 		},
-		// 行政界 点火：深い赤の細線（地名チップに相乗り＝既定ON。主張しない境界線）
+		// 行政界 点火：くすんだ深紅の細線（地名チップに相乗り＝既定ON。主張しない境界線）。
+		// 薄さは opacity でなく実色で作る（#660000 を紙色へ50%寄せ＝#aa7878）＝線分の重なりで濃さがムラにならない。
 		{
 			id: "admin-hi", type: "line", "source-layer": "AdmBdry",
-			paint: { "line-color": "#660000", "line-width": 1.1, "line-opacity": 0.9 },
+			paint: { "line-color": "#aa7878", "line-width": 1, "line-opacity": 1 },
 		},
 
 		// 注記：濃いグレー＋地色ハロー。読めるが主張しない。
