@@ -47,10 +47,17 @@ export function rerank(q, cands) {
 }
 
 export function createSearch({ onGo }) {
+	const box = document.getElementById("search");
+	const btn = document.getElementById("search-btn");
 	const input = document.getElementById("search-in");
 	const list = document.getElementById("search-list");
 	let items = [], sel = -1, ac = null, timer = null, composing = false;
 	const close = () => { list.style.display = "none"; list.innerHTML = ""; items = []; sel = -1; };
+	// Netflix式：普段は虫めがねだけ。押すと入力欄が右へ開く。空のまま外れたら畳む＝地図面を広く。
+	btn.addEventListener("click", () => {
+		if (box.classList.contains("open")) { box.classList.remove("open"); close(); input.blur(); }
+		else { box.classList.add("open"); input.focus(); }
+	});
 
 	async function query(q) {
 		ac?.abort(); ac = new AbortController();
@@ -89,6 +96,7 @@ export function createSearch({ onGo }) {
 		const c = items[i]; if (!c) return;
 		input.value = c.title;
 		close(); input.blur();
+		box.classList.remove("open");   // 飛んだら畳む＝フライトの見せ場と着地の地図を広く
 		const v = viewFor(c.title);
 		onGo(c.lon, c.lat, v.zoom, v.tilt);
 	}
@@ -115,5 +123,8 @@ export function createSearch({ onGo }) {
 		else if (e.key === "ArrowUp" && items.length) { sel = (sel - 1 + items.length) % items.length; highlight(); e.preventDefault(); }
 		else if (e.key === "Escape") { close(); input.blur(); }
 	});
-	input.addEventListener("blur", () => setTimeout(close, 120));   // 候補の pointerdown を先に通してから閉じる
+	input.addEventListener("blur", () => setTimeout(() => {   // 候補の pointerdown を先に通してから閉じる
+		close();
+		if (!input.value.trim()) box.classList.remove("open");   // 空のまま離れた＝アイコンへ畳む
+	}, 120));
 }

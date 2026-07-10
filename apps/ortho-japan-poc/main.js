@@ -572,10 +572,12 @@ function anchoredAt(clientX, clientY, mutate) {
 	}
 	onMove();
 }
+// 回転修飾キー：Macは⌘（ctrl+wheelはトラックパッドのピンチ＝ズームに温存）、Mac以外は⌘が無いのでCtrl。
+const ROTKEY_IS_META = /Mac/.test(navigator.platform);
 canvas.addEventListener("wheel", e => {
 	e.preventDefault();
 	if (flight) flight.cancel();   // ホイールでもフライト中断
-	if (e.metaKey) anchoredAt(e.clientX, e.clientY, () => { cam.bearing += e.deltaY * 0.01; });   // 軸回転(Cmd)。ctrl+wheelはトラックパッドのピンチ＝ズームに回す
+	if (ROTKEY_IS_META ? e.metaKey : e.ctrlKey) anchoredAt(e.clientX, e.clientY, () => { cam.bearing += e.deltaY * 0.01; });   // 軸回転（⌘/Ctrl＋ホイール）
 	else anchoredAt(e.clientX, e.clientY, () => { cam.zoom = Math.max(2, Math.min(19, cam.zoom - e.deltaY * 0.002)); });  // ズーム（z2=地球全体〜z19。16超はベクタのオーバーズーム＝潰れず街路へ）
 }, { passive: false });
 
@@ -641,6 +643,9 @@ function requestWithAck(slot, sig, doRequest) {
 	}, MERGE_ACK_MS + 100);
 	return true;
 }
+// 政令指定都市（全20市・静的台帳）：区名が見えるズームでは市名を「背景ラベル」へ＝主役を区名に譲る。
+const SEIREI = new Set(["札幌市", "仙台市", "さいたま市", "千葉市", "横浜市", "川崎市", "相模原市", "新潟市", "静岡市", "浜松市",
+	"名古屋市", "京都市", "大阪市", "堺市", "神戸市", "岡山市", "広島市", "北九州市", "福岡市", "熊本市"]);
 let zoomAtBuild = -1;
 function swapScene(order) {
 	const sig = order.map(o => o.key).join("|") + "#" + styleSig + "#z" + (cam.zoom >= CHOME_MINZOOM ? 1 : 0) + (cam.zoom >= RAILTR_MINZOOM ? 1 : 0) + (cam.zoom < AIRPORT_MARK_MAXZ && airportMarks.length ? "A" : "");
@@ -654,9 +659,15 @@ function swapScene(order) {
 		const have = new Set(allLabels.filter(L => L.code === 441).map(L => L.text));
 		for (const a of airportMarks) if (!have.has(a.text)) allLabels.push(a);
 	}
-	lastLabels = themes.filterLabels(allLabels, layerState, cam.zoom, layerState.chikei).map(L => {   // 地形ON＝測量点の標高数値も通す
+	const filtered = themes.filterLabels(allLabels, layerState, cam.zoom, layerState.chikei);   // 地形ON＝測量点の標高数値も通す
+	const kuVisible = filtered.some(L => L.code === 110);   // 区名が見えている＝政令市名は「背景ラベル」へ格下げする合図
+	lastLabels = filtered.map(L => {
 		// 都道府県は大きく薄い背景ラベルに（コピーしてキャッシュ側を壊さない）。他はそのまま。
 		if (L.code === 140) return { ...L, size: L.size * 1.25, color: [L.color[0], L.color[1], L.color[2], L.color[3] * 0.5] };
+		// 郡名は同サイズのままやや薄く＝行政の骨格であって主役ではない。
+		if (L.code === 130) return { ...L, color: [L.color[0], L.color[1], L.color[2], L.color[3] * 0.65] };
+		// 区名が表示されるズームでは、政令指定都市名は大きく薄い背景ラベルに（都道府県と同じ作法＝主役は区名）。
+		if (kuVisible && SEIREI.has(L.text)) return { ...L, size: L.size * 1.2, color: [L.color[0], L.color[1], L.color[2], L.color[3] * 0.5] };
 		// 測量点(7102三角点/7201・7221標高点)は shieldFor が記号＋標高値を描く。flat=真俯瞰の作法＝傾けたら等高線と一緒に消す。
 		if (L.code === 7102 || L.code === 7201 || L.code === 7221) return { ...L, flat: true };
 		return L;
@@ -697,6 +708,17 @@ document.querySelectorAll(".chip").forEach(b => b.addEventListener("click", () =
 document.querySelectorAll(".chip[data-k]").forEach(b => b.classList.toggle("on", !!layerState[b.dataset.k]));
 if (layerState.rail) { renderer.set("view", { showN02: true }); loadN02(); }
 renderer.set("view", { showContour: layerState.chikei });
+
+// 操作方法カード：×で「?」アイコンに畳む（地図面を広く）。閉じた選択は記憶＝二度目からは静か。
+const hintEl = document.getElementById("hint"), hintBtn = document.getElementById("hint-btn");
+function setHint(open) {
+	hintEl.style.display = open ? "" : "none";
+	hintBtn.style.display = open ? "none" : "flex";
+	try { localStorage.setItem("oj.hint", open ? "" : "closed"); } catch { /* private mode 等 */ }
+}
+document.getElementById("hint-close").addEventListener("click", () => setHint(false));
+hintBtn.addEventListener("click", () => setHint(true));
+try { if (localStorage.getItem("oj.hint") === "closed") setHint(false); } catch { /* private mode 等 */ }
 
 // ハッシュの手編集・ペーストで視点ジャンプ（replaceState は hashchange を発火しない＝自分の書き戻しとは無干渉）
 window.addEventListener("hashchange", () => {

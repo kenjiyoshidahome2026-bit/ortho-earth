@@ -3,13 +3,36 @@ html, body { margin: 0; height: 100%; background: #0b1021; color: #cdd; font: 13
 #c { cursor: grab; }
 #c:active { cursor: grabbing; }
 #gint, #labels { pointer-events: none; }   /* 知性/ラベルの層は透過＝pointer は基図(#c)が受ける */
-#hint { position: fixed; top: 54px; left: 10px; font-size: 12px; color: #6a6f78; background: rgba(255,255,255,.7);
-	padding: 6px 10px; border-radius: 6px; -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
-/* 地名検索：静かな白の箱。候補は下にリスト、クリック/Enterで球面フライト */
+/* 操作方法カード：マウス絵柄で視覚的に。×で畳むと「?」アイコン(#hint-btn)に化ける＝地図面を広く */
+#hint { position: fixed; top: 54px; left: 10px; z-index: 5; font-size: 12px; color: #4a5058; background: rgba(255,255,255,.85);
+	padding: 9px 26px 9px 12px; border: 1px solid rgba(120,130,150,.35); border-radius: 10px;
+	-webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); box-shadow: 0 3px 10px rgba(20,30,50,.08); }
+.hint-title { font-weight: 600; font-size: 11px; color: #7a8090; letter-spacing: .08em; margin-bottom: 4px; }
+.hint-row { display: flex; align-items: center; gap: 8px; margin: 5px 0; white-space: nowrap; }
+.hint-row b { color: #2b3b57; font-weight: 600; }
+.mi { width: 17px; height: 22px; flex: none; }
+.key { border: 1px solid #b7bcc6; border-bottom-width: 2px; border-radius: 4px; padding: 1px 5px;
+	font-size: 11px; background: #fff; color: #4a5058; }
+.hint-plus { color: #9aa0ac; margin: 0 -3px; }
+#hint-close { position: absolute; top: 3px; right: 3px; width: 20px; height: 20px; border: none; background: none;
+	color: #9aa0ac; font-size: 15px; line-height: 1; cursor: pointer; border-radius: 50%; }
+#hint-close:hover { background: #eef0f3; color: #4a5058; }
+#hint-btn { position: fixed; top: 54px; left: 10px; z-index: 5; width: 34px; height: 34px; border-radius: 50%; display: none;
+	align-items: center; justify-content: center; border: 1px solid rgba(120,130,150,.4); background: rgba(255,255,255,.85);
+	color: #3f4757; font-size: 16px; font-weight: 600; cursor: pointer; -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
+#hint-btn:hover { border-color: rgba(90,100,120,.7); }
+/* 地名検索：普段は虫めがねアイコンだけ、押すと右へ伸びて入力欄が開く（Netflix式＝地図面を広く）。候補は下にリスト */
 #search { position: fixed; top: 10px; left: 10px; z-index: 7; width: 236px; }
-#search-in { width: 100%; box-sizing: border-box; font: 13px system-ui, sans-serif; color: #333;
-	padding: 8px 12px; border: 1px solid rgba(120,130,150,.45); border-radius: 8px; outline: none;
-	background: rgba(255,255,255,.85); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
+#search-btn { position: absolute; top: 0; left: 0; width: 34px; height: 34px; border-radius: 50%; z-index: 1;
+	border: 1px solid rgba(120,130,150,.4); background: rgba(255,255,255,.85); cursor: pointer; padding: 0;
+	display: flex; align-items: center; justify-content: center; -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
+#search-btn:hover { border-color: rgba(90,100,120,.7); }
+#search.open #search-btn { border-color: transparent; background: none; -webkit-backdrop-filter: none; backdrop-filter: none; }
+#search-in { width: 34px; box-sizing: border-box; font: 13px system-ui, sans-serif; color: #333;
+	padding: 8px 12px 8px 34px; border: 1px solid rgba(120,130,150,.45); border-radius: 17px; outline: none;
+	background: rgba(255,255,255,.85); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+	opacity: 0; pointer-events: none; transition: width .18s ease, opacity .18s ease; }
+#search.open #search-in { width: 100%; opacity: 1; pointer-events: auto; }
 #search-in:focus { border-color: #2b3b57; background: #fff; }
 #search-list { display: none; margin-top: 4px; background: rgba(255,255,255,.96); border: 1px solid rgba(120,130,150,.35);
 	border-radius: 8px; overflow: hidden; box-shadow: 0 4px 14px rgba(20,30,50,.12); }

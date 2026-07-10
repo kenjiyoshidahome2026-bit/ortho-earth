@@ -23,10 +23,35 @@
 	<canvas id="gint"></canvas>
 	<canvas id="labels"></canvas>
 	<div id="search">
+		<button id="search-btn" title="地名・住所を検索">
+			<svg viewBox="0 0 24 24" width="17" height="17"><circle cx="10.5" cy="10.5" r="6.2" fill="none" stroke="#3f4757" stroke-width="2.2"/><line x1="15.2" y1="15.2" x2="20.5" y2="20.5" stroke="#3f4757" stroke-width="2.2" stroke-linecap="round"/></svg>
+		</button>
 		<input id="search-in" type="search" placeholder="地名・住所を検索" autocomplete="off" spellcheck="false">
 		<div id="search-list"></div>
 	</div>
-	<div id="hint">ドラッグ=移動 ／ 右ドラッグ=傾け・回転 ／ ホイール=ズーム</div>
+	<!-- 操作方法：マウス絵柄で視覚的に。×で畳むと「?」アイコンになる（地図面を広く） -->
+	<div id="hint">
+		<button id="hint-close" title="閉じる">×</button>
+		<div class="hint-title">操作方法</div>
+		<div class="hint-row">
+			<svg class="mi" viewBox="0 0 24 32"><rect x="2" y="2" width="20" height="28" rx="10" fill="rgba(255,255,255,.9)" stroke="#9aa0ac" stroke-width="1.6"/><path d="M12 2 a10 10 0 0 0 -10 10 v2 h10 Z" fill="#2b3b57"/><line x1="12" y1="2" x2="12" y2="14" stroke="#9aa0ac" stroke-width="1.2"/><line x1="2" y1="14" x2="22" y2="14" stroke="#9aa0ac" stroke-width="1.2"/></svg>
+			<span>ドラッグ＝<b>移動</b></span>
+		</div>
+		<div class="hint-row">
+			<svg class="mi" viewBox="0 0 24 32"><rect x="2" y="2" width="20" height="28" rx="10" fill="rgba(255,255,255,.9)" stroke="#9aa0ac" stroke-width="1.6"/><path d="M12 2 a10 10 0 0 1 10 10 v2 h-10 Z" fill="#2b3b57"/><line x1="12" y1="2" x2="12" y2="14" stroke="#9aa0ac" stroke-width="1.2"/><line x1="2" y1="14" x2="22" y2="14" stroke="#9aa0ac" stroke-width="1.2"/></svg>
+			<span>右ドラッグ＝<b>傾き・回転</b></span>
+		</div>
+		<div class="hint-row">
+			<svg class="mi" viewBox="0 0 24 32"><rect x="2" y="2" width="20" height="28" rx="10" fill="rgba(255,255,255,.9)" stroke="#9aa0ac" stroke-width="1.6"/><line x1="2" y1="14" x2="22" y2="14" stroke="#9aa0ac" stroke-width="1.2"/><rect x="9.5" y="5.5" width="5" height="10" rx="2.5" fill="#2b3b57"/></svg>
+			<span>ホイール＝<b>ズーム</b></span>
+		</div>
+		<div class="hint-row">
+			<span class="key">⌘/Ctrl</span><span class="hint-plus">＋</span>
+			<svg class="mi" viewBox="0 0 24 32"><rect x="2" y="2" width="20" height="28" rx="10" fill="rgba(255,255,255,.9)" stroke="#9aa0ac" stroke-width="1.6"/><line x1="2" y1="14" x2="22" y2="14" stroke="#9aa0ac" stroke-width="1.2"/><rect x="9.5" y="5.5" width="5" height="10" rx="2.5" fill="#2b3b57"/></svg>
+			<span>＝<b>回転</b></span>
+		</div>
+	</div>
+	<button id="hint-btn" title="操作方法">?</button>
 	<button id="reset" title="北向き・水平に戻す">
 		<svg viewBox="0 0 40 40" width="26" height="26">
 			<polygon points="20,4 26,20 20,16.5 14,20" fill="#d0453d"/>
