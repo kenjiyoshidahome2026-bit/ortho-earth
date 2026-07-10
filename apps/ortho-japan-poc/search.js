@@ -35,9 +35,13 @@ export function preprocess(hits) {
 // 再ランク：完全一致（「富士山」「琵琶湖」等の自然地名の正解はほぼこれ）→ 含む（短い題名ほど上＝
 // 「東京都渋谷区」が「福島県猪苗代町渋谷」より先）→ その他はAPI順。切り詰め前の全件に掛けるのが肝
 //（「大雪山」の正解は22件の奥に居る＝先に8件で切ると捨ててしまう）。
-// 完全一致の同点決勝は広域地物（addressCode無し）を先頭へ＝「富士山」の一発Enterが上田市の富士山でなく本物に飛ぶ。
+// 序列：広域地物の完全一致（本物の富士山=addressCode無し）＞ 市区の本体名一致（渋谷→東京都渋谷区）＞
+// 字名の完全一致（全国の渋谷・上田市の富士山）。市区ブーストが無いと有名市区が全国の同名字名に埋もれる。
+// 町村まで広げると字名の「〜町」（○○市渋谷町等）を誤って掬うので市・区に限定。1文字クエリも誤爆源（山→富山市）なので除外。
 export function rerank(q, cands) {
+	const muni = c => q.length >= 2 && (c.title.endsWith(q + "市") || c.title.endsWith(q + "区"));
 	const score = c => c.title === q ? (c.national ? 0 : 0.001)
+		: muni(c) ? 0.0005
 		: c.title.includes(q) ? 1 + (c.title.length - q.length) / 100 : 2;
 	return cands.map(c => [score(c), c.i, c]).sort((a, b) => a[0] - b[0] || a[1] - b[1]).map(x => x[2]);
 }
