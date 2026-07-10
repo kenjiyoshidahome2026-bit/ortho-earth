@@ -43,8 +43,8 @@ html, body { margin: 0; height: 100%; background: #0b1021; color: #cdd; font: 13
 #log { position: fixed; bottom: 10px; left: 10px; z-index: 6; font-family: ui-monospace, monospace; font-size: 12px; color: #9ab; background: rgba(10,16,33,.7); padding: 6px 8px; border-radius: 6px; }
 /* 距離スケール（真俯瞰=2Dのみ・下辺中央）：ortho-map Accessories の draw_scale と同じ意匠
    （1-2-5系列・両端ティックの横棒・上に「距離 (z=…)」・12px Verdana）。色だけ紙地図の作法に合わせる */
-#scale { position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%); z-index: 5; display: none;
-	text-align: center; font: 12px Verdana, sans-serif; color: #4a5058; pointer-events: none; }   /* 本家と同じ下辺中央（出典の帯だけ避けて30px上） */
+#scale { position: fixed; bottom: 12px; left: 50%; transform: translateX(-50%); z-index: 5; display: none;
+	text-align: center; font: 12px Verdana, sans-serif; color: #4a5058; pointer-events: none; }   /* 本家と同じ下辺中央（出典は右隅3行に畳んだ＝中央は空く） */
 #scale-txt { display: block; margin-bottom: 2px; text-shadow: 0 0 3px rgba(255,255,255,.9); }
 #scale-bar { margin: 0 auto; height: 12px; box-sizing: border-box;
 	border-left: 1px solid currentColor; border-right: 1px solid currentColor; border-bottom: 3px solid currentColor; }
@@ -52,7 +52,7 @@ html, body { margin: 0; height: 100%; background: #0b1021; color: #cdd; font: 13
 #pos { position: fixed; bottom: 6px; left: 10px; z-index: 6; display: none; font-family: ui-monospace, monospace;
 	font-size: 11px; color: #5a6472; background: rgba(255,255,255,.62); padding: 3px 8px; border-radius: 5px;
 	white-space: pre; pointer-events: none; }
-#attr { position: fixed; bottom: 6px; right: 8px; font-size: 11px; color: #7a8; background: rgba(255,255,255,.55); padding: 3px 7px; border-radius: 5px; }
+#attr { position: fixed; bottom: 6px; right: 8px; font-size: 11px; line-height: 1.5; text-align: right; color: #7a8; background: rgba(255,255,255,.55); padding: 3px 7px; border-radius: 5px; }
 #attr a { color: #567; text-decoration: none; }
 #attr a:hover { text-decoration: underline; }
 /* テーマ・チップ：静かな土台に必要な主題だけ"点火"する最小トグル。右上に縦一列（top:10はコンパスの席） */
