@@ -4,9 +4,10 @@
 
 export const CHOME_MINZOOM = 14.5;   // 丁目は寄った時だけ
 export const RAILTR_MINZOOM = 13.5;  // 駅の軌道は寄った時だけ（構内detail）
-export const defaultLayerState = { chimei: true, chikei: false, river: false, rail: false, road: false, admin: false, shisetsu: false };
+// チップは5つ＝使い方をシンプルに：地名(注記＋行政界)・地形(地形名＋等高線＋測量点＋水系)・鉄道・道路・施設。
+export const defaultLayerState = { chimei: true, chikei: false, rail: false, road: false, shisetsu: false };
 
-// 各テーマチップは「色」と「その名前」を一緒に点火する：道路→IC/JCT、鉄道→駅、行政区域→行政単位名。
+// 各テーマチップは「色」と「その名前」を一緒に点火する：道路→IC/JCT、鉄道→駅、地名→行政界＋郡名。
 const CHIMEI_CODES = new Set([140, 1401, 1402, 1403, 220, 110]);   // 地名(常時)：都道府県・主要都市・市・町村・地区・区
 const CHOME_CODES = new Set([210]);                           // 丁目：粒度が一段細かい→寄った時(z14.5〜)だけ自動表示
 // 地形は 3xx 帯が丸ごと自然地形（実測：山311/312/316・湖沼321・河川322・沢323・高原331・
@@ -39,8 +40,8 @@ export function createThemes(style) {
 		if (!layerState.rail || zoom < RAILTR_MINZOOM) h.add(LI_RAILTR);   // 駅の軌道は鉄道ON＋寄った時だけ
 		if (!layerState.road) { h.add(LI_ROADHI); h.add(LI_ROADHITN); }
 		if (!layerState.road) h.add(LI_KOURO);   // 航路は道路チップに相乗り
-		if (!layerState.admin) h.add(LI_ADMINHI);
-		if (!layerState.river) { h.add(LI_RIVER); h.add(LI_WATERHI); }  // 水系＝河川中心線＋WA面の着色
+		if (!layerState.chimei) h.add(LI_ADMINHI);   // 行政界は地名チップに相乗り（既定ON＝深い赤の細線）
+		if (!layerState.chikei) { h.add(LI_RIVER); h.add(LI_WATERHI); }  // 水系＝河川中心線＋WA面の着色。地形チップに相乗り
 		return h;
 	}
 	// ラベル集合を allowlist で間引く。ONのテーマのカテゴリだけ通す。
@@ -53,7 +54,7 @@ export function createThemes(style) {
 				|| (layerState.chikei && isChikei(c))         // 地形＝3xx帯（山/湖/川/岬/海/島…）
 				|| (layerState.road && ROAD_CODES.has(c))     // 道路ON＝IC/JCT/路線番号も点火
 				|| (layerState.rail && RAIL_CODES.has(c))     // 鉄道ON＝駅名/路線名も点火
-				|| (layerState.admin && GYOSEI_CODES.has(c))  // 行政区域ON＝行政単位名も点火
+				|| (layerState.chimei && GYOSEI_CODES.has(c)) // 地名ON＝行政単位名（郡）も点火
 				|| (layerState.shisetsu && !CLAIMED.has(c) && !isChikei(c) && !SURVEY_NOISE.has(c) && !isNum(L.text)); // 施設＝残り全部（数値は除く）
 		});
 	}

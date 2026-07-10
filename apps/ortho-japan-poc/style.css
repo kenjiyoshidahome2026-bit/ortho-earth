@@ -31,7 +31,6 @@ html, body { margin: 0; height: 100%; background: #0b1021; color: #cdd; font: 13
 /* 点火チップはテーマ色で光る（チップ色＝地図上の色） */
 .chip[data-k="rail"].on { background: #4b9e6a; border-color: #4b9e6a; }
 .chip[data-k="road"].on { background: #2f6cad; border-color: #2f6cad; }
-.chip[data-k="admin"].on { background: #e2892f; border-color: #e2892f; }
 /* コンパス兼リセット：針が方位を示し、押すと水平・北向きに戻る */
 #reset { position: fixed; top: 10px; right: 10px; width: 40px; height: 40px; border-radius: 50%; z-index: 5;
 	border: 1px solid rgba(120,130,150,.4); background: rgba(255,255,255,.85); cursor: pointer; padding: 0;

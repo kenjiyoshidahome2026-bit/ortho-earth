@@ -82,7 +82,8 @@ const renderer = {
 const elevEl = document.createElement("div");
 elevEl.style.cssText = "position:fixed;bottom:44px;left:10px;font-size:12px;color:#4a5568;background:rgba(255,255,255,.85);padding:5px 11px;border-radius:6px;-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);display:none;z-index:6;";
 document.body.appendChild(elevEl);
-let contourOn = false;   // 「等高線」ボタン＝等高線(真俯瞰)＋数字(zoom/tileログ・地形読込)の統合トグル。既定 OFF＝真っさらな地図
+// 等高線(真俯瞰の茶線)・測量点標高・地形読込表示は「地形」チップ(layerState.chikei)に統合＝独立トグル無し。
+// zoom/tileのデバッグログ(#log)はユーザー向けチップから切り離し常時非表示（必要なら devtools で #log を出す）。
 logEl.style.display = "none";
 // 起動ウォッチドッグ：最初のフレーム(frame1)が10秒来なければ原因不明でも案内を出す（健全なら1秒未満で来る）。
 // glfail=worker内のWebGL2初期化失敗、contextlost=GPUコンテキスト喪失（1回だけ自動リロード→再発なら案内）。
@@ -105,7 +106,7 @@ renderWorker.onmessage = e => {
 	}
 	if (d.type !== "elevPending") return;
 	const { count, range } = d;
-	if (count > 0 && contourOn) { elevEl.style.display = "block"; elevEl.textContent = `⛰ 地形読込中 ${range === 1 ? "R01（秒単位・JAXA）" : range === 10 ? "R10" : "R90"} … ×${count}`; }
+	if (count > 0 && layerState.chikei) { elevEl.style.display = "block"; elevEl.textContent = `⛰ 地形読込中 ${range === 1 ? "R01（秒単位・JAXA）" : range === 10 ? "R10" : "R90"} … ×${count}`; }
 	else elevEl.style.display = "none";
 };
 
@@ -287,7 +288,6 @@ function viewHash() {
 	if (Math.abs(cam.bearing) > 0.001) parts.push(Math.round(cam.bearing * R2D) + "r");
 	if (JSON.stringify(layerState) !== JSON.stringify(defaultLayerState))
 		parts.push("l=" + Object.keys(layerState).filter(k => layerState[k]).join("."));
-	if (contourOn) parts.push("c");
 	return "#" + parts.join("/");
 }
 const saveView = () => { saveCam(); try { history.replaceState(null, "", viewHash()); } catch { /* file:// 等 */ } };
@@ -621,6 +621,7 @@ window.__fly = flyTo;   // デバッグ/検証用（__cam の飛行版）
 //   rail/road/admin … 色の点火ON/OFF（OFFでも土台グレーは出ている）
 const layerState = { ...defaultLayerState };   // UIトグル状態は main が保持・変更（チップで反転）
 if (bootView?.layers) for (const k of Object.keys(layerState)) layerState[k] = bootView.layers.includes(k);   // 共有URLのレイヤ集合が既定を上書き（チップDOMは下の初期同期で追随）
+if (bootView?.contour) layerState.chikei = true;   // 旧URLの c（等高線トグル時代）＝地形チップに読み替え（後方互換）
 let styleSig = JSON.stringify(layerState);
 const themes = createThemes(style);            // 分類（allowlist）は themes.js の純関数（layerState と zoom を引数で受ける）
 
@@ -653,7 +654,7 @@ function swapScene(order) {
 		const have = new Set(allLabels.filter(L => L.code === 441).map(L => L.text));
 		for (const a of airportMarks) if (!have.has(a.text)) allLabels.push(a);
 	}
-	lastLabels = themes.filterLabels(allLabels, layerState, cam.zoom, contourOn).map(L => {   // contourON＝標高数値も通す
+	lastLabels = themes.filterLabels(allLabels, layerState, cam.zoom, layerState.chikei).map(L => {   // 地形ON＝測量点の標高数値も通す
 		// 都道府県は大きく薄い背景ラベルに（コピーしてキャッシュ側を壊さない）。他はそのまま。
 		if (L.code === 140) return { ...L, size: L.size * 1.25, color: [L.color[0], L.color[1], L.color[2], L.color[3] * 0.5] };
 		// 測量点(7102三角点/7201・7221標高点)は shieldFor が記号＋標高値を描く。flat=真俯瞰の作法＝傾けたら等高線と一緒に消す。
@@ -673,6 +674,15 @@ function swapBase(coarseOrder) {
 		requestMerge("base", coarseOrder, [cam.center[0], cam.center[1]], themes.hiddenLi(layerState, cam.zoom), sig));   // 下地も scene worker で結合。baseSig は ack で確定
 }
 
+// 地形チップの GL 側副作用：等高線(真俯瞰の茶線)の表示切替と、OFF時の地形読込インジケータ消灯。
+// ラベル集合も再結合＝測量点の標高数値を即反映し、動かさなくても1枚描き直す。
+function applyChikei() {
+	renderer.set("view", { showContour: layerState.chikei });
+	if (!layerState.chikei) elevEl.style.display = "none";
+	readySig = ""; mergeReq.main.sig = "";
+	renderer.draw(cam, { skipBase: false, noTerrain: cam.zoom < BASEMAP_MINZOOM, terrainGate: true });
+	needsDraw = true;
+}
 // チップ操作：状態を反転し、styleSig を更新して即再結合（再取得なし・一瞬）。
 document.querySelectorAll(".chip").forEach(b => b.addEventListener("click", () => {
 	const k = b.dataset.k; if (!k) return;   // data-k 無し＝UIトグル（数字など）は別ハンドラ
@@ -680,39 +690,27 @@ document.querySelectorAll(".chip").forEach(b => b.addEventListener("click", () =
 	b.classList.toggle("on", layerState[k]);
 	styleSig = JSON.stringify(layerState); readySig = ""; needsDraw = true;
 	if (k === "rail") { renderer.set("view", { showN02: layerState.rail }); if (layerState.rail) loadN02(); }   // 鉄道ON＝N02新幹線も表示＋初回fetch
+	if (k === "chikei") applyChikei();   // 地形＝等高線・測量点標高・水系も一緒に点火
 	saveView();   // レイヤ状態も共有URLの一部＝即書き戻す
 }));
-// 共有URL復元の初期同期：チップの見た目と rail 副作用を layerState に合わせる（既定どおりなら実質 no-op）
+// 共有URL復元の初期同期：チップの見た目と rail/chikei 副作用を layerState に合わせる（既定どおりなら実質 no-op）
 document.querySelectorAll(".chip[data-k]").forEach(b => b.classList.toggle("on", !!layerState[b.dataset.k]));
 if (layerState.rail) { renderer.set("view", { showN02: true }); loadN02(); }
-
-// 「等高線」トグル：等高線(真俯瞰の茶線)＋数字(zoom/tileログ・地形読込)をまとめて ON/OFF。既定 OFF＝真っさらな地図、押すと解析情報が出る。
-const btnContour = document.getElementById("btn-contour");
-btnContour.addEventListener("click", () => {
-	contourOn = !contourOn;
-	btnContour.classList.toggle("on", contourOn);
-	renderer.set("view", { showContour: contourOn });     // 等高線（GL の茶線）
-	logEl.style.display = contourOn ? "" : "none";         // 左下ログ（zoom/tile/pitch）
-	if (!contourOn) elevEl.style.display = "none";         // 地形読込インジケータ
-	readySig = ""; mergeReq.main.sig = "";                 // ラベル集合を再結合＝標高数値の表示/非表示を即反映（filterLabels に contourOn を渡す）
-	renderer.draw(cam, { skipBase: false, noTerrain: cam.zoom < BASEMAP_MINZOOM, terrainGate: true });   // 即1枚描き直す（動かさなくても反映）
-	needsDraw = true;
-	saveView();   // 等高線状態も共有URLの一部
-});
-if (bootView?.contour) btnContour.click();   // 共有URL復元：等高線ONを副作用ごとボタン経由で再現
+renderer.set("view", { showContour: layerState.chikei });
 
 // ハッシュの手編集・ペーストで視点ジャンプ（replaceState は hashchange を発火しない＝自分の書き戻しとは無干渉）
 window.addEventListener("hashchange", () => {
 	const v = parseViewHash(location.hash);
 	if (!v) return;
 	applyCamView(v);
-	if (v.layers) {
-		for (const k of Object.keys(layerState)) layerState[k] = v.layers.includes(k);
+	if (v.layers || v.contour) {
+		if (v.layers) for (const k of Object.keys(layerState)) layerState[k] = v.layers.includes(k);
+		if (v.contour) layerState.chikei = true;   // 旧URLの c＝地形チップに読み替え（後方互換）
 		document.querySelectorAll(".chip[data-k]").forEach(b => b.classList.toggle("on", !!layerState[b.dataset.k]));
 		styleSig = JSON.stringify(layerState); readySig = "";
 		renderer.set("view", { showN02: layerState.rail }); if (layerState.rail) loadN02();
+		applyChikei();
 	}
-	if (v.contour !== contourOn) btnContour.click();
 	onMove();
 });
 
