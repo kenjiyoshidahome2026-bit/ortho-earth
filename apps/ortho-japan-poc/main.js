@@ -104,6 +104,7 @@ renderWorker.onmessage = e => {
 		else fatalOverlay("GPU の描画が中断されました", "描画コンテキストが失われました（GPUメモリ不足などで起こります）。他のタブやアプリを閉じてから再読み込みしてください。", true);
 		return;
 	}
+	if (d.type === "elevAt") { if (d.id === posElevId) { posElev = d.elev; schedulePos(); } return; }   // マウス標高の返信（最新の照会だけ採用）
 	if (d.type !== "elevPending") return;
 	const { count, range } = d;
 	if (count > 0 && layerState.chikei) { elevEl.style.display = "block"; elevEl.textContent = `⛰ 地形読込中 ${range === 1 ? "R01（秒単位・JAXA）" : range === 10 ? "R10" : "R90"} … ×${count}`; }
@@ -227,6 +228,7 @@ function onMove() {
 	// 海岸線(gint)は render worker が draw 後に従属で駆動＝ここから直接送らない（地図と同cam/同フレーム＝スライド消滅）。
 	clearTimeout(settleT);
 	settleT = setTimeout(() => { moving = false; needsDraw = true; gintWorker.postMessage({ type: "drawn" }); saveView(); }, 150);   // 停止後に identify(picking)＋ビュー保存（localStorage＋共有URL）
+	schedulePos();   // 座標読み取りもカメラに追随（rAF畳み込み＝タダ同然）
 }
 
 // データパイプライン（tile/scene worker）。実装は pipeline.js。
@@ -580,6 +582,27 @@ canvas.addEventListener("wheel", e => {
 	if (ROTKEY_IS_META ? e.metaKey : e.ctrlKey) anchoredAt(e.clientX, e.clientY, () => { cam.bearing += e.deltaY * 0.01; });   // 軸回転（⌘/Ctrl＋ホイール）
 	else anchoredAt(e.clientX, e.clientY, () => { cam.zoom = Math.max(2, Math.min(19, cam.zoom - e.deltaY * 0.002)); });  // ズーム（z2=地球全体〜z19。16超はベクタのオーバーズーム＝潰れず街路へ）
 }, { passive: false });
+
+// --- 座標読み取り（左下）：マウス位置の緯度経度・zoom・チルト・標高。標高は render worker の
+// キャッシュ済みセル照会（fetchなし・150ms間引き・最新idだけ採用）。表示更新は rAF に畳む＝hot path を汚さない。
+const posEl = document.getElementById("pos");
+let posMouse = null, posElev = null, posElevId = 0, posElevAt = 0, posRaf = false;
+function updatePos() {
+	posRaf = false;
+	if (!posMouse) return;
+	const st = cameraState(cam, size.w, size.h);
+	const ll = unproject(st, posMouse.x * dpr, posMouse.y * dpr);
+	const zt = `z${cam.zoom.toFixed(1)}  チルト${Math.round((cam.pitch || 0) * R2D)}°`;
+	if (!ll) { posEl.textContent = `—  ${zt}`; posElev = null; return; }   // 球外＝宇宙
+	posEl.textContent = `${ll[1].toFixed(5)}, ${ll[0].toFixed(5)}  ${zt}${posElev == null ? "" : `  標高${Math.round(posElev)}m`}`;
+	if (performance.now() - posElevAt > 150) {
+		posElevAt = performance.now();
+		renderWorker.postMessage({ type: "elevAt", lon: ll[0], lat: ll[1], id: ++posElevId });
+	}
+}
+const schedulePos = () => { if (!posRaf) { posRaf = true; requestAnimationFrame(updatePos); } };
+canvas.addEventListener("pointermove", e => { posMouse = { x: e.clientX, y: e.clientY }; posEl.style.display = "block"; schedulePos(); });
+canvas.addEventListener("pointerleave", () => { posMouse = null; posEl.style.display = "none"; });
 
 // --- 球面フライト：検索ヒットへ「上昇→巡航→降下」で飛ぶ（球の見せ場＝地球が回って目的地が寄ってくる）。
 // ズームは放物線バンプ（van Wijk 風の近似）＝行程が視野に収まる高度まで上がる。近距離なら上がらない。

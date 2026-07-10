@@ -41,6 +41,10 @@ html, body { margin: 0; height: 100%; background: #0b1021; color: #cdd; font: 13
 .search-note { color: #9aa0ab; font-size: 11px; margin-left: 7px; }   /* 同名候補の県名添え書き（表示専用） */
 .search-empty { padding: 8px 12px; font-size: 12px; color: #999; }
 #log { position: fixed; bottom: 10px; left: 10px; z-index: 6; font-family: ui-monospace, monospace; font-size: 12px; color: #9ab; background: rgba(10,16,33,.7); padding: 6px 8px; border-radius: 6px; }
+/* マウス位置の緯度経度・zoom・チルト・標高（左下・静かな読み取り専用） */
+#pos { position: fixed; bottom: 6px; left: 10px; z-index: 6; display: none; font-family: ui-monospace, monospace;
+	font-size: 11px; color: #5a6472; background: rgba(255,255,255,.62); padding: 3px 8px; border-radius: 5px;
+	white-space: pre; pointer-events: none; }
 #attr { position: fixed; bottom: 6px; right: 8px; font-size: 11px; color: #7a8; background: rgba(255,255,255,.55); padding: 3px 7px; border-radius: 5px; }
 #attr a { color: #567; text-decoration: none; }
 #attr a:hover { text-decoration: underline; }
