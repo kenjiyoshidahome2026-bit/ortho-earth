@@ -610,6 +610,8 @@ canvas.addEventListener("pointermove", e => {
 	onMove();
 });
 // カーソル下の地点を固定したままカメラ変更を適用（ズーム/軸回転の中心＝マウス）。チルト時も unproject で正確。
+// アンカーが取れない（空/地平線の向こう）または補正が画面スパン超（地平線際の遠地点を掴んだ＝1目盛りで
+// 数十km飛ぶ）時は補正を捨て、画面中心の回転/ズームへ退避＝パンのレート併走と同じ「暴れたら大人しい方」。
 function anchoredAt(clientX, clientY, mutate) {
 	const st0 = cameraState(cam, size.w, size.h);
 	const a = unproject(st0, clientX * dpr, clientY * dpr);
@@ -617,7 +619,11 @@ function anchoredAt(clientX, clientY, mutate) {
 	if (a) {
 		const st1 = cameraState(cam, size.w, size.h);
 		const b = unproject(st1, clientX * dpr, clientY * dpr);
-		if (b) { cam.center[0] += a[0] - b[0]; cam.center[1] = Math.max(-85, Math.min(85, cam.center[1] + a[1] - b[1])); }
+		const spanDeg = 360 / (Math.pow(2, cam.zoom) * 512) * Math.max(size.w, size.h);   // 画面いっぱい分の度数（概算）
+		if (b && Math.hypot(a[0] - b[0], a[1] - b[1]) <= spanDeg) {
+			cam.center[0] += a[0] - b[0];
+			cam.center[1] = Math.max(-85, Math.min(85, cam.center[1] + a[1] - b[1]));
+		}
 	}
 	onMove();
 }

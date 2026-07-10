@@ -67,6 +67,9 @@ export function unproject(state, sx, sy) {
 	const disc = bb * bb - 4 * aa * cc;
 	if (disc < 0) return null;
 	const t = (-bb - Math.sqrt(disc)) / (2 * aa);                   // 手前の交点
+	// t<0＝交点が視線の「後方延長」上（高チルトで地平線より上の空を指した時、直線を後ろへ延ばすと
+	// カメラ背後の地球に当たる）。裏半球の鏡像地点（実測: 富士上空で lat19 の海）を返すため null に。
+	if (t < 0) return null;
 	const P = mat.add(A, mat.scale(d, t));
 	const lat = Math.asin(Math.max(-1, Math.min(1, P[1]))) * R2D;
 	const lon = Math.atan2(P[2], P[0]) * R2D;
