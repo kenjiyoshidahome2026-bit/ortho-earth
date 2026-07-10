@@ -49,8 +49,11 @@ export function createGeopbf(apiBase, options = {}) {
     // その worker 版（decoder/pbf.js・decoder/gint.js）は元々用意されているのに配線されていなかった。
     // decoderWorkers 同様 import.meta.url 起点で束ねる＝呼び出し側のバンドラに依存しない。options.worker===false で明示的にオフ可。
     if (options.worker !== false) {
-        GeoPBF._workerUrl     ??= new URL('./decoder/pbf.js',  import.meta.url);
-        GeoPBF._gintWorkerUrl ??= new URL('./decoder/gint.js', import.meta.url);
+        // 重要：バンドラ(vite)が worker チャンクとして静的検出できるのは「new Worker(new URL('…', import.meta.url))」の
+        // 直書きだけ。URL を変数に貯める旧方式はビルドで data:URL にインライン化され、worker 内の相対 import が
+        // 解決できず本番ビルドだけ黙って死ぬ（devはソース直配信なので動く＝発見が遅れる罠）。ファクトリで直書きを保つ。
+        GeoPBF._workerFactory     ??= () => new Worker(new URL('./decoder/pbf.js',  import.meta.url), { type: 'module' });
+        GeoPBF._gintWorkerFactory ??= () => new Worker(new URL('./decoder/gint.js', import.meta.url), { type: 'module' });
     }
     const pbfio = createPbfio(apiBase, options);
     let _server = null;

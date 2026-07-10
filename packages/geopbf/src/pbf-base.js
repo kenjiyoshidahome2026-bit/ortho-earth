@@ -52,7 +52,7 @@ class GeoPBF {
 	}
 	async set(q) {
 		if (q instanceof ArrayBuffer || ArrayBuffer.isView(q)) {
-			if (GeoPBF._workerUrl) return _setViaWorker(this, q instanceof ArrayBuffer ? q : q.buffer.slice(q.byteOffset, q.byteOffset + q.byteLength));
+			if (GeoPBF._workerFactory || GeoPBF._workerUrl) return _setViaWorker(this, q instanceof ArrayBuffer ? q : q.buffer.slice(q.byteOffset, q.byteOffset + q.byteLength));
 			this.pbf = new Pbf(q);
 		} else if (isSimpleObject(q)) {
 			const [keys, buffs] = this.noprop ? [[], []] : await makeKeys(q.features.map(t => t.properties));
@@ -420,7 +420,8 @@ GeoPBF.setProperty({ TAGS, makeKeys, dataType, dataTypeNames, geometryTypes, geo
 
 function _setViaWorker(self, buf) {
 	return new Promise((resolve, reject) => {
-		const w = new Worker(GeoPBF._workerUrl, { type: "module" });
+		// ファクトリ優先＝new Worker(new URL(…)) 直書きをバンドラに見せる（URL変数経由はビルドでdata:URL化して死ぬ）
+		const w = GeoPBF._workerFactory ? GeoPBF._workerFactory() : new Worker(GeoPBF._workerUrl, { type: "module" });
 		w.onmessage = ({ data: r }) => {
 			w.terminate();
 			self.init();
