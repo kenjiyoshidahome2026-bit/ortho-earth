@@ -501,8 +501,10 @@ async function loadN02() {
 		scenes.push(rOuter, rCore);
 	}
 	if (stSn.length) {   // 新幹線駅は通常駅の後＝重なったら新幹線ビーズが勝つ
-		scenes.push(buildGeoJSONOverlay(stSn, N02_ORIGIN, { lineColor: SN_GREEN, lineWidth: 2.4 }));                        // 玉（外径）
-		scenes.push(buildGeoJSONOverlay(stSn, N02_ORIGIN, { lineColor: [0.965, 0.965, 0.957, 1], lineWidth: 1.2 }));        // 芯（紙色）＝○に見える
+		const sOuter = buildGeoJSONOverlay(stSn, N02_ORIGIN, { lineColor: SN_GREEN, lineWidth: 2.4 });                      // 玉（外径）
+		const sCore = buildGeoJSONOverlay(stSn, N02_ORIGIN, { lineColor: [0.965, 0.965, 0.957, 1], lineWidth: 1.2 });       // 芯（紙色）＝○に見える
+		sOuter.minZoom = sCore.minZoom = 6.5;   // 全国ビュー(z〜5)ではビーズ不要＝広域(z6.5+)から。路線の線は全ズームのまま
+		scenes.push(sOuter, sCore);
 	}
 	renderer.set("n02", scenes);
 	needsDraw = true;
