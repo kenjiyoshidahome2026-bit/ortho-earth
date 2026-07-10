@@ -49,12 +49,12 @@ export default {
 			id: "rail", type: "line", "source-layer": "RailCL",
 			filter: ["match", ["get", "vt_railstate"], ["トンネル", "地下"], false, true],
 			layout: { "line-cap": "round" },
-			paint: { "line-color": "#c9c9c7", "line-width": ["interpolate", ["linear"], ["zoom"], 11, 0.4, 16, 1.4] },
+			paint: { "line-color": "#c9c9c7", "line-width": ["interpolate", ["linear"], ["zoom"], 11, 1.1, 14, 2.6, 16, 5.5] },   // 国道並（幹線鉄道は幹線道路と同格の骨格）
 		},
 		{
 			id: "rail-tn", type: "line", "source-layer": "RailCL",
 			filter: ["match", ["get", "vt_railstate"], ["トンネル", "地下"], true, false],
-			paint: { "line-color": "#c9c9c7", "line-width": ["interpolate", ["linear"], ["zoom"], 11, 0.4, 16, 1.4], "line-dasharray": [5, 4] },
+			paint: { "line-color": "#c9c9c7", "line-width": ["interpolate", ["linear"], ["zoom"], 11, 1.1, 14, 2.6, 16, 5.5], "line-dasharray": [5, 4] },
 		},
 
 		// 道路：階層的なグレー。太さ・濃さで格を出すが全体は淡く。casing なし＝静か。トンネル(vt_code 2704)は破線＝別レイヤ。
@@ -105,7 +105,7 @@ export default {
 			layout: { "line-cap": "round" },
 			paint: {
 				"line-color": ["match", ["get", "vt_rtcode"], "JR", "#4b9e6a", "#8eb43e"],
-				"line-width": ["interpolate", ["linear"], ["zoom"], 11, 0.6, 16, 1.9],
+				"line-width": ["interpolate", ["linear"], ["zoom"], 11, 1.3, 14, 3.0, 16, 6.0],   // 土台（国道並）を覆う分だけ太く
 			},
 		},
 		{
@@ -113,7 +113,7 @@ export default {
 			filter: ["match", ["get", "vt_railstate"], ["トンネル", "地下"], true, false],
 			paint: {
 				"line-color": ["match", ["get", "vt_rtcode"], "JR", "#4b9e6a", "#8eb43e"],
-				"line-width": ["interpolate", ["linear"], ["zoom"], 11, 0.6, 16, 1.9],
+				"line-width": ["interpolate", ["linear"], ["zoom"], 11, 1.3, 14, 3.0, 16, 6.0],
 				"line-dasharray": [5, 4],
 			},
 		},
