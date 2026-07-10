@@ -606,12 +606,30 @@ let posMouse = null, posElev = null, posElevId = 0, posElevAt = 0, posRaf = fals
 setAltApiUrl("https://api.ortho-earth.com");
 createGetHeight({ apiUrl: "https://api.ortho-earth.com", onend: () => { posElevAt = 0; schedulePos(); } })
 	.then(f => { getHeight = f; });
+// 距離スケール（真俯瞰=2Dのみ）：ortho-map Accessories draw_scale() と同じ数式・同じ1-2-5系列。
+// d256m＝256px当たりの実距離[m]。本家は256px世界の zoom、当アプリは512px世界なので +1 で読み替える。
+// 正射図法は画面中心のスケールが緯度に依らない＝cos(lat) 補正無しで本家と同じ（チルト時は不均一になるので消す）。
+const scaleEl = document.getElementById("scale"), scaleTxt = document.getElementById("scale-txt"), scaleBar = document.getElementById("scale-bar");
+const comma = s => String(s).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+function updateScale() {
+	if ((cam.pitch || 0) > 0.005) { scaleEl.style.display = "none"; return; }
+	const d256m = 2 * 6372000 * Math.PI / Math.pow(2, cam.zoom + 1);
+	const r = Math.pow(10, Math.floor(Math.log10(d256m)));
+	const vm = (d256m / r) > 5 ? 5 : (d256m / r) > 2 ? 2 : 1;
+	const val = vm * r;
+	const [n, v, unit] = val >= 1000 ? [256 * val / d256m, val / 1000, "km"] : [256 * val / d256m, val, "m"];
+	const decimal = (v < 10 && unit === "km") ? 1 : 0;
+	scaleBar.style.width = n.toFixed(1) + "px";
+	scaleTxt.textContent = `${comma(v.toFixed(decimal))}${unit} (z=${cam.zoom.toFixed(2)})`;
+	scaleEl.style.display = "block";
+}
 function updatePos() {
 	posRaf = false;
+	updateScale();   // スケールはマウス位置と無関係にカメラへ追随（同じrAF窓に相乗り）
 	if (!posMouse) return;
 	const st = cameraState(cam, size.w, size.h);
 	const ll = unproject(st, posMouse.x * dpr, posMouse.y * dpr);
-	const zt = `z${cam.zoom.toFixed(1)}  チルト${Math.round((cam.pitch || 0) * R2D)}°`;
+	const zt = `チルト${Math.round((cam.pitch || 0) * R2D)}°`;   // zoom はスケール(2D)側の (z=…) が持つ＝ここには出さない
 	if (!ll) { posEl.textContent = `—  ${zt}`; posElev = null; return; }   // 球外＝宇宙
 	posEl.textContent = `${ll[0].toFixed(5)}, ${ll[1].toFixed(5)}${posElev == null ? "" : `  標高${Math.round(posElev)}m`}  ${zt}`;
 	if (getHeight && performance.now() - posElevAt > 150) {
@@ -625,6 +643,7 @@ function updatePos() {
 const schedulePos = () => { if (!posRaf) { posRaf = true; requestAnimationFrame(updatePos); } };
 canvas.addEventListener("pointermove", e => { posMouse = { x: e.clientX, y: e.clientY }; posEl.style.display = "block"; schedulePos(); });
 canvas.addEventListener("pointerleave", () => { posMouse = null; posEl.style.display = "none"; });
+schedulePos();   // 起動直後からスケールを出す（真俯瞰復元時。マウス無しでも updateScale は走る）
 
 // --- 球面フライト：検索ヒットへ「上昇→巡航→降下」で飛ぶ（球の見せ場＝地球が回って目的地が寄ってくる）。
 // ズームは放物線バンプ（van Wijk 風の近似）＝行程が視野に収まる高度まで上がる。近距離なら上がらない。
