@@ -65,6 +65,31 @@ html, body { margin: 0; height: 100%; background: #0b1021; color: #cdd; font: 13
 /* 点火チップはテーマ色で光る（チップ色＝地図上の色） */
 .chip[data-k="rail"].on { background: #4b9e6a; border-color: #4b9e6a; }
 .chip[data-k="road"].on { background: #2f6cad; border-color: #2f6cad; }
+.chip.tool { margin-top: 10px; font-size: 12px; padding: 8px 12px; color: #7a8090; }   /* 道具ボタン（テーマ点火とは別物＝一段静かに） */
+/* 建物3D（PLATEAU）データ管理モーダル */
+#pdb { position: fixed; inset: 0; z-index: 20; display: flex; align-items: center; justify-content: center;
+	background: rgba(20,26,40,.35); -webkit-backdrop-filter: blur(2px); backdrop-filter: blur(2px); }
+#pdb-panel { width: 360px; max-height: 72vh; display: flex; flex-direction: column; background: #fff; border-radius: 12px;
+	box-shadow: 0 12px 40px rgba(20,30,50,.28); padding: 14px 16px; font-size: 13px; color: #333; }
+#pdb-head { font-weight: 600; font-size: 14px; color: #2b3b57; position: relative; padding-right: 24px; }
+#pdb-close { position: absolute; top: -2px; right: -4px; width: 24px; height: 24px; border: none; background: none;
+	color: #9aa0ac; font-size: 17px; line-height: 1; cursor: pointer; border-radius: 50%; }
+#pdb-close:hover { background: #eef0f3; color: #4a5058; }
+#pdb-sub { display: flex; justify-content: space-between; align-items: center; margin: 8px 0 6px; color: #667; font-size: 12px; }
+#pdb-purge { border: 1px solid #d3b3b3; color: #844; background: #fff; border-radius: 6px; padding: 3px 9px; cursor: pointer; font-size: 11px; }
+#pdb-purge:hover { background: #faf2f2; }
+#pdb-filter { box-sizing: border-box; width: 100%; font: 13px system-ui, sans-serif; color: #333; padding: 6px 10px;
+	border: 1px solid rgba(120,130,150,.45); border-radius: 8px; outline: none; }
+#pdb-filter:focus { border-color: #2b3b57; }
+#pdb-list { overflow-y: auto; margin-top: 8px; border-top: 1px solid #eef0f3; }
+.pdb-pref { font-weight: 600; font-size: 12px; color: #2b3b57; background: #f2f4f8; padding: 4px 8px; margin-top: 6px; border-radius: 5px; position: sticky; top: 0; }
+.pdb-row { display: flex; align-items: center; gap: 8px; padding: 5px 2px; border-bottom: 1px solid #f2f3f5; }
+.pdb-name { flex: 1; }
+.pdb-status { color: #889; font-size: 12px; font-variant-numeric: tabular-nums; }
+.pdb-act { border: 1px solid rgba(120,130,150,.45); background: #fff; color: #456; border-radius: 6px; padding: 3px 9px; cursor: pointer; font-size: 11px; flex: none; }
+.pdb-act:hover { border-color: rgba(90,100,120,.7); }
+.pdb-act.del { color: #844; border-color: #d3b3b3; }
+.pdb-act.del:hover { background: #faf2f2; }
 /* コンパス兼リセット：針が方位を示し、押すと水平・北向きに戻る */
 #reset { position: fixed; top: 10px; right: 10px; width: 40px; height: 40px; border-radius: 50%; z-index: 5;
 	border: 1px solid rgba(120,130,150,.4); background: rgba(255,255,255,.85); cursor: pointer; padding: 0;

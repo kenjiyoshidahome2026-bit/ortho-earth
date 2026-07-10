@@ -1,0 +1,120 @@
+// 建物3D（PLATEAU）データ管理モーダル：全国カタログ（300市区町村）に IDB キャッシュ状況（済・容量）を重ね、
+// プレロード（事前ダウンロード）と地区単位の削除を行う。回線の細い環境（タブレット・外出先）へ出る前に
+// 自宅で仕込み、ストレージが気になれば返す道具。DOM は open 初回に自前で組む＝main は worker 配線
+// （idbList/idbDelete/preload）とカタログの getter を渡すだけ。進捗は main の renderPlateauProg から onProg で中継される。
+import { PREF } from "./search.js";
+
+export function createPlateauDb({ getSets, idbList, idbDelete, preload, show }) {
+	let root = null, listEl = null, sumEl = null, filterEl = null;
+	const rows = new Map();      // name → { set, pref, rowEl, statusEl, actEl }
+	let blocks = [];             // 都道府県ブロック：{ headerEl, rows: [row…] }（絞り込みで空になった見出しは隠す）
+	let cached = new Map();      // base → { bytes, count, ts }
+	const busy = new Set();      // 実行中の地区名（ボタン連打防止）
+	let wasLoading = new Set(), lastProg = new Map();
+	const fmtMB = b => b >= 1048576 ? (b / 1048576).toFixed(b >= 104857600 ? 0 : 1) + "MB" : b > 0 ? (b / 1024).toFixed(0) + "KB" : "";
+
+	function build() {
+		root = document.createElement("div"); root.id = "pdb";
+		root.innerHTML = `
+			<div id="pdb-panel">
+				<div id="pdb-head">建物3D（PLATEAU）データ管理<button id="pdb-close" title="閉じる">×</button></div>
+				<div id="pdb-sub"><span id="pdb-sum">読込中…</span><button id="pdb-purge">全削除</button></div>
+				<input id="pdb-filter" type="search" placeholder="市区町村名で絞り込み" autocomplete="off" spellcheck="false">
+				<div id="pdb-list"></div>
+			</div>`;
+		document.body.appendChild(root);
+		listEl = root.querySelector("#pdb-list"); sumEl = root.querySelector("#pdb-sum"); filterEl = root.querySelector("#pdb-filter");
+		root.addEventListener("pointerdown", e => { if (e.target === root) close(); });   // 背景クリックで閉じる
+		root.querySelector("#pdb-close").addEventListener("click", close);
+		filterEl.addEventListener("input", applyFilter);
+		root.querySelector("#pdb-purge").addEventListener("click", async () => {
+			if (!cached.size || !confirm(`キャッシュ済みの ${cached.size} 地区をすべて削除しますか？`)) return;
+			for (const base of [...cached.keys()]) await idbDelete(base);
+			refresh();
+		});
+	}
+	function applyFilter() {
+		const q = filterEl.value.trim();
+		// 市区町村名 or 都道府県名でマッチ（「東京」で東京都ブロック全体が出る）。空見出しのブロックは隠す。
+		for (const r of rows.values()) r.rowEl.style.display = !q || r.set.name.includes(q) || r.pref.includes(q) ? "" : "none";
+		for (const b of blocks) b.headerEl.style.display = b.rows.some(r => r.rowEl.style.display !== "none") ? "" : "none";
+	}
+	function buildRows() {
+		rows.clear(); blocks = []; listEl.innerHTML = "";
+		// 市区町村コード順（base URL の "39386-bldg-…" がコード）＝地理院・e-Stat と同じ並び。先頭2桁＝都道府県で見出し。
+		const code = s => +(s.base.match(/\/(\d{5})-/)?.[1] || 99999);
+		const sets = [...getSets()].sort((a, b) => code(a) - code(b));
+		let curPref = -1, block = null;
+		for (const set of sets) {
+			const pn = Math.floor(code(set) / 1000);
+			if (pn !== curPref) {
+				curPref = pn;
+				const headerEl = document.createElement("div"); headerEl.className = "pdb-pref";
+				headerEl.textContent = PREF[pn] || "その他";
+				listEl.appendChild(headerEl);
+				blocks.push(block = { headerEl, rows: [] });
+			}
+			const rowEl = document.createElement("div"); rowEl.className = "pdb-row";
+			const nameEl = document.createElement("span"); nameEl.className = "pdb-name"; nameEl.textContent = set.name;
+			const statusEl = document.createElement("span"); statusEl.className = "pdb-status";
+			const drawEl = document.createElement("button"); drawEl.className = "pdb-act draw"; drawEl.textContent = "描画";
+			drawEl.title = "この地区へ飛んで建物3Dを表示";
+			drawEl.addEventListener("click", () => show(set));   // モーダルを閉じて球面フライト→autoPlateau がキャッシュ命中で即表示
+			const actEl = document.createElement("button"); actEl.className = "pdb-act";
+			actEl.addEventListener("click", () => onAct(set));
+			rowEl.append(nameEl, statusEl, drawEl, actEl); listEl.appendChild(rowEl);
+			const r = { set, pref: PREF[pn] || "", rowEl, statusEl, drawEl, actEl };
+			rows.set(set.name, r); block.rows.push(r);
+		}
+		applyFilter();
+	}
+	async function onAct(set) {
+		if (busy.has(set.name)) return;
+		busy.add(set.name);
+		try {
+			if (cached.has(set.base)) await idbDelete(set.base);
+			else { renderRow(rows.get(set.name), "待機中…"); await preload(set); }   // 進捗は onProg が上書きする
+		} finally { busy.delete(set.name); }
+		refresh();
+	}
+	function renderRow(r, progText) {
+		if (progText != null) { r.statusEl.textContent = progText; r.actEl.style.display = "none"; r.drawEl.style.display = "none"; return; }
+		const c = cached.get(r.set.base);
+		if (c) {
+			r.statusEl.textContent = `済 ${fmtMB(c.bytes) || c.count + " batch"}`;
+			r.drawEl.style.display = "";   // 読み込み済み＝明示的な「描画」ボタン
+			r.actEl.textContent = "削除"; r.actEl.className = "pdb-act del";
+		} else {
+			r.statusEl.textContent = ""; r.drawEl.style.display = "none";
+			r.actEl.textContent = "プレロード"; r.actEl.className = "pdb-act";
+		}
+		r.actEl.style.display = "";
+	}
+	async function refresh() {
+		cached = new Map((await idbList()).map(it => [it.base, it]));
+		if (!rows.size && getSets().length) buildRows();   // カタログ到着後の初回に一覧を組む
+		let total = 0; for (const it of cached.values()) total += it.bytes || 0;
+		sumEl.textContent = `キャッシュ済み ${cached.size} 地区 ・ 約${fmtMB(total) || "0MB"}`;
+		for (const r of rows.values()) renderRow(r);
+		onProg(lastProg);   // 進行中の行は進捗表示を優先で上書き
+	}
+	// main の進捗 Map（name → {scan}|{done,total}）を行表示へ。autoPlateau 起点の読み込みも同じ経路で見える。
+	// 進行中だった行が消えた＝完了/失敗＝一覧を引き直して「済」へ（vanish→refresh→onProg は wasLoading が同期済みなので循環しない）。
+	function onProg(progMap) {
+		lastProg = progMap;
+		if (!root || root.style.display === "none") return;
+		const nowLoading = new Set();
+		for (const [name, p] of progMap) {
+			nowLoading.add(name);
+			const r = rows.get(name); if (!r) continue;
+			renderRow(r, p.total ? `${p.done}/${p.total}枚` : `カタログ走査 ${p.scan ?? 0}…`);
+		}
+		let vanished = false;
+		for (const n of wasLoading) if (!nowLoading.has(n)) vanished = true;
+		wasLoading = nowLoading;
+		if (vanished) refresh();
+	}
+	function open() { if (!root) build(); root.style.display = "flex"; refresh(); }
+	function close() { root.style.display = "none"; }
+	return { open, close, onProg };
+}

@@ -10,6 +10,7 @@ import { createThemes, defaultLayerState, CHOME_MINZOOM, RAILTR_MINZOOM } from "
 import { createOverlay } from "./overlay.js";
 import { createPipeline } from "./pipeline.js";
 import { createSearch } from "./search.js";
+import { createPlateauDb } from "./plateaudb.js";
 import { d3diff } from "./d3diff.js";
 
 const TILE_URL = (z, x, y) => `https://cyberjapandata.gsi.go.jp/xyz/optimal_bvmap-v1/${z}/${x}/${y}.pbf`;
@@ -153,7 +154,9 @@ for (let i = 0; i < PLATEAU_NW; i++) {
 	w.postMessage({ type: "init", meshPort: meshChan.port1 }, [meshChan.port1]);
 	renderWorker.postMessage({ type: "plateauPort", port: meshChan.port2 }, [meshChan.port2]);
 	w.onmessage = e => {
-		if (e.data.prog) { plateauProg.set(e.data.prog.name, e.data.prog); renderPlateauProg(); return; }   // バッチ進捗（ネットワーク経路のみ）
+		if (e.data.prog) { plateauProg.set(e.data.prog.name, e.data.prog); renderPlateauProg(); return; }   // タイル/走査進捗（ネットワーク経路のみ）
+		if (e.data.type === "idbList") { plateauListPending.shift()?.(e.data.items); return; }              // データ管理モーダルの一覧応答
+		if (e.data.type === "idbDeleted") { plateauDeletePending.get(e.data.base)?.(e.data.n); plateauDeletePending.delete(e.data.base); return; }
 		const p = plateauPending.get(e.data.id); if (!p) return; plateauPending.delete(e.data.id);
 		if (p.name) { plateauProg.delete(p.name); renderPlateauProg(); }   // 完了/失敗どちらでも ack で消灯＝消し忘れが無い
 		if (e.data.error) p.reject(new Error(e.data.error));
@@ -176,13 +179,35 @@ function workerLoadPlateau(base, tiles, name, wardBbox) {
 const plateauEl = document.createElement("div");
 plateauEl.style.cssText = "position:fixed;bottom:44px;left:10px;font-size:12px;color:#4a5568;background:rgba(255,255,255,.85);padding:5px 11px;border-radius:6px;-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);display:none;z-index:6;";
 document.body.appendChild(plateauEl);
-const plateauProg = new Map();   // name → { done, total }（total=0＝葉タイル収集中）
+const plateauProg = new Map();   // name → { scan } | { done, total }（scan＝カタログ走査中の枚数）
 function renderPlateauProg() {
-	if (!plateauProg.size) { plateauEl.style.display = "none"; return; }
-	plateauEl.textContent = "🏙 建物3D 読込中 " + [...plateauProg.values()]
-		.map(p => p.total ? `${p.name} ${p.done}/${p.total}` : `${p.name} 準備中…`).join("・");
-	plateauEl.style.display = "block";
+	if (!plateauProg.size) plateauEl.style.display = "none";
+	else {
+		plateauEl.textContent = "🏙 建物3D 読込中 " + [...plateauProg.values()]
+			.map(p => p.total ? `${p.name} ${p.done}/${p.total}枚` : `${p.name} カタログ走査 ${p.scan ?? 0}…`).join("・");
+		plateauEl.style.display = "block";
+	}
+	plateauDb.onProg(plateauProg);   // データ管理モーダルにも同じ進捗を流す（開いていなければ即return）
 }
+// --- 建物3D（PLATEAU）データ管理モーダル：カタログ×IDB。worker 配線だけ渡し、DOMはモジュール側が組む。
+const plateauListPending = [];        // idbList 応答待ち（FIFO。IDBは全workerで共有＝worker0固定で聞く）
+const plateauDeletePending = new Map();   // base → resolver（削除は base ルーティング＝メモリキャッシュの持ち主に届く）
+const plateauIdbList = () => new Promise(res => { plateauListPending.push(res); plateauWorkers[0].postMessage({ type: "idbList" }); });
+const plateauIdbDelete = base => new Promise(res => { plateauDeletePending.set(base, res); plateauWorkers[hashStr(base) % PLATEAU_NW].postMessage({ type: "idbDelete", base }); });
+function plateauPreload(set) {   // プレロード＝IDBに貯めるだけ（描画へ送らない）。表示中/読込中の地区はそのまま成功扱い
+	if (plateauLoading.has(set.name) || plateauActive.has(set.name)) return Promise.resolve(true);
+	plateauLoading.add(set.name);
+	const id = ++plateauReqId, w = plateauWorkers[hashStr(set.base) % PLATEAU_NW];
+	w.postMessage({ id, base: set.base, name: set.name, wardBbox: set.bbox, camCenter: [cam.center[0], cam.center[1]], preload: true });
+	return new Promise((resolve, reject) => plateauPending.set(id, { resolve, reject, name: set.name }))
+		.catch(() => false).finally(() => plateauLoading.delete(set.name));
+}
+const plateauDb = createPlateauDb({
+	getSets: () => PLATEAU_SETS, idbList: plateauIdbList, idbDelete: plateauIdbDelete, preload: plateauPreload,
+	// 描画＝モーダルを閉じて地区中心へ球面フライト（z14.5=PLATEAU自動ロード圏・チルト45°）→ autoPlateau がキャッシュ命中で即表示
+	show: set => { plateauDb.close(); flyTo((set.bbox[0] + set.bbox[2]) / 2, (set.bbox[1] + set.bbox[3]) / 2, 14.5, 45); },
+});
+document.getElementById("btn-3ddata").addEventListener("click", plateauDb.open);
 
 // 現在の画面に映る範囲をラフに見積もる（フラスタム厳密解ではなく自動ロードのゲート用）。z14+の寄った状態でしか呼ばれない＝視野は元々狭く、この近似で十分。
 function approxViewBbox(cam) {

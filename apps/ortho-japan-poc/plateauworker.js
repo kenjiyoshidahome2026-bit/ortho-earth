@@ -32,7 +32,8 @@ function ecef2geo(x, y, z) {
 // tileset.json を辿って葉（=それ以上 children を持たないタイル）を { uri, center:[lon,lat]|null } で集める。
 // center は boundingVolume.region から＝カメラ近傍優先ソートに使う（無い形式なら null＝末尾に回る）。
 // 葉の content.uri 自体が別の tileset.json（外部委譲）のことがある地区があるため、拡張子で判定して再帰的に潜る。
-async function collectLeafTiles(tilesetUrl, depth = 0) {
+async function collectLeafTiles(tilesetUrl, depth = 0, onScan = null) {
+	onScan && onScan();   // tileset.json 1枚fetchするたびに数える＝「準備中」の沈黙を進捗にする
 	const ts = await (await fetch(tilesetUrl)).json();
 	const tsBase = tilesetUrl.slice(0, tilesetUrl.lastIndexOf("/") + 1);
 	const out = [];
@@ -43,7 +44,7 @@ async function collectLeafTiles(tilesetUrl, depth = 0) {
 		const uri = t.content?.uri;
 		if (!uri) return;
 		const abs = resolveUrl(tsBase, uri);
-		if (abs.endsWith(".json") && depth < 4) out.push(...await collectLeafTiles(abs, depth + 1));
+		if (abs.endsWith(".json") && depth < 4) out.push(...await collectLeafTiles(abs, depth + 1, onScan));
 		else {
 			const r = t.boundingVolume?.region;
 			out.push({ uri: abs, center: r ? [(r[0] + r[2]) / 2 * R2D, (r[1] + r[3]) / 2 * R2D] : null });
@@ -71,7 +72,7 @@ function triKey(k0, k1, k2) {
 // バッチ1個（タイル列の一部）をデコードして単一メッシュへ。旧・全区一括処理と同じパイプラインをバッチ範囲に適用：
 // dedup（重複面は同一タイル内が支配的＝バッチ内で完結）・接地グリッド（バッチbbox基準＝むしろ細かく効く）・RTE origin。
 // wardMask には三角形が触れた区単位セルを累積（wardBbox 座標系）。
-async function decodeBatch(base, leaves, wardMask, wardBbox) {
+async function decodeBatch(base, leaves, wardMask, wardBbox, onTile = null) {
 	// 中間データは plain JS Array に push しない：バッチで1700万push級になり要素タグ+GCで数秒を失う。
 	// プリミティブごとに頂点数が既知なので typed セグメントを作り、バッチ末尾で一括結合（memcpy）する。
 	// geo(lon/lat rad)は float64 必須：float32 の相対精度~1e-7 は rad で~0.6m＝dedup の丸め(1e-8rad≈6cm)を壊す。
@@ -129,6 +130,7 @@ async function decodeBatch(base, leaves, wardMask, wardBbox) {
 				const tile = await loadParse(ab, Tiles3DLoader, { "3d-tiles": { loadGLTF: true }, gltf: { loadImages: false, excludeExtensions: { EXT_mesh_features: false, EXT_structural_metadata: false } } });
 				mergeTile(tile);
 			} catch (e) { console.warn("[plateau] tile 失敗", t.uri, e.message); }
+			onTile && onTile();   // 成否に関わらず歩数は進む＝分母が縮まない
 		}
 	}
 	await Promise.all(Array.from({ length: Math.min(TILE_CONCURRENCY, leaves.length) }, tileWorker));
@@ -284,7 +286,9 @@ async function idbStore(base, batches, mask, wardBbox) {
 	const idb = await idbReady; if (!idb) return;
 	try {
 		for (let i = 0; i < batches.length; i++) await idb(`${base}#${i}`, batches[i]);
-		await idb(base + "#meta", { ver: IDB_FMT_VER, count: batches.length, mask, wardBbox, ts: Date.now() });
+		// bytes＝メッシュ typed array の合計＝データ管理モーダルの容量表示用（概算。旧レコードは未記録＝0）
+		const bytes = batches.reduce((s, b) => s + Object.values(b).reduce((t, v) => t + (ArrayBuffer.isView(v) ? v.byteLength : 0), 0), 0);
+		await idb(base + "#meta", { ver: IDB_FMT_VER, count: batches.length, mask, wardBbox, ts: Date.now(), bytes });
 		// 区数上限：メタ一覧から lastUsed 最古を退避（バッチレコードも道連れ）
 		const keys = (await idb()) || [];
 		const metas = [];
@@ -312,31 +316,33 @@ async function idbPurge() {
 
 // ロード本体：葉タイル収集→カメラ近傍順ソート→バッチごとにデコード→完成次第 render worker へ直送（逐次表示）。
 // メモリ→IDB→ネットワークの3段。IDBヒット時もバッチ逐次送信＝プログレッシブ表示のまま。
-async function loadPlateau(base, tiles, ward, wardBbox, camCenter) {
+async function loadPlateau(base, tiles, ward, wardBbox, camCenter, preload = false) {
 	if (cache.has(base)) {
 		const c = cache.get(base);
 		cache.delete(base); cache.set(base, c);   // LRU touch（最近使用へ）
 		console.log("[plateau] キャッシュ命中（fetch/解凍スキップ）", base);
-		c.batches.forEach((mesh, bi) => sendBatch(ward, bi, mesh, c.mask, c.wardBbox));
+		if (!preload) c.batches.forEach((mesh, bi) => sendBatch(ward, bi, mesh, c.mask, c.wardBbox));
 		return true;
 	}
 	const stored = await idbLoad(base);
 	if (stored) {
 		console.log("[plateau] IDB命中（fetch/解凍/変換スキップ）", base, `(${stored.batches.length} batches)`);
-		stored.batches.forEach((mesh, bi) => sendBatch(ward, bi, mesh, stored.mask, stored.wardBbox));
+		if (!preload) stored.batches.forEach((mesh, bi) => sendBatch(ward, bi, mesh, stored.mask, stored.wardBbox));
 		cache.set(base, stored);
 		if (cache.size > CACHE_MAX) cache.delete(cache.keys().next().value);
 		return true;
 	}
 	// ここからネットワーク経路＝遅い（fetch＋Draco解凍で地区あたり数秒〜数十秒）。進捗を main へ流す。
-	// total=0 は「葉タイル収集中（準備中）」の合図。完了/失敗の消灯は main が ack で行う＝消し忘れが構造的に無い。
-	const prog = (done, total) => self.postMessage({ prog: { name: ward, done, total } });
-	prog(0, 0);
+	// scan＝カタログ(tileset.json)走査枚数、done/total＝タイル単位（バッチ単位だと1歩が数秒＝止まって見える）。
+	// 完了/失敗の消灯は main が ack で行う＝消し忘れが構造的に無い。preload＝IDBに貯めるだけ（描画へ送らない）。
+	const prog = p => self.postMessage({ prog: { name: ward, ...p } });
+	prog({ scan: 0 });
 	let leaves;
 	if (tiles) leaves = tiles.map(u => ({ uri: resolveUrl(base, u), center: null }));
 	else {
 		// REPLACE refine：親(粗)と子(詳細)が同じ場所を覆う→両方読むと重なって z-fight(マダラ)。子を持たない「葉」だけ読む。
-		leaves = await collectLeafTiles(base + "tileset.json");
+		let scanned = 0;
+		leaves = await collectLeafTiles(base + "tileset.json", 0, () => prog({ scan: ++scanned }));
 		console.log("[plateau] 葉タイル:", leaves.length, "枚");
 	}
 	// カメラ近傍から遠方の順に＝最初のバッチが「目の前」になる。center 不明のタイルは末尾。
@@ -345,16 +351,15 @@ async function loadPlateau(base, tiles, ward, wardBbox, camCenter) {
 		leaves.sort((a, b) => d2(a) - d2(b));
 	}
 	console.log("[plateau] 読込", leaves.length, "tiles ←", base);
-	const nBatch = Math.ceil(leaves.length / BATCH_TILES);
-	prog(0, nBatch);
+	let tilesDone = 0;
+	prog({ done: 0, total: leaves.length });
 	const wardMask = wardBbox ? new Uint8Array(MASK_N * MASK_N) : null;   // 区単位で累積（wardBbox 無し=デバッグ直指定時はマスク無し）
 	const batches = [];
 	for (let bi = 0; bi * BATCH_TILES < leaves.length; bi++) {
 		const slice = leaves.slice(bi * BATCH_TILES, (bi + 1) * BATCH_TILES);
-		const mesh = await decodeBatch(base, slice, wardMask, wardBbox);
-		prog(bi + 1, nBatch);   // 失敗バッチも歩数は進む＝分母が縮まない単純な物差し
+		const mesh = await decodeBatch(base, slice, wardMask, wardBbox, () => prog({ done: ++tilesDone, total: leaves.length }));
 		if (!mesh) continue;
-		sendBatch(ward, batches.length, mesh, wardMask, wardBbox);   // 完成したバッチから即描画へ
+		if (!preload) sendBatch(ward, batches.length, mesh, wardMask, wardBbox);   // 完成したバッチから即描画へ
 		batches.push(mesh);
 		console.log(`[plateau] batch ${batches.length} (${Math.min((bi + 1) * BATCH_TILES, leaves.length)}/${leaves.length} tiles) tris=${mesh.idx.length / 3}`);
 	}
@@ -362,7 +367,8 @@ async function loadPlateau(base, tiles, ward, wardBbox, camCenter) {
 	cache.set(base, { batches, mask: wardMask, wardBbox });   // デコード結果をこのworker内に保持＝再訪でfetch/Draco解凍を丸ごと省略
 	if (cache.size > CACHE_MAX) cache.delete(cache.keys().next().value);   // LRU: 最古を退避
 	console.log("[plateau] 完了", base, `(${batches.length} batches)`);
-	idbStore(base, batches, wardMask, wardBbox);   // 永続化はバックグラウンドで（表示を待たせない）
+	const storing = idbStore(base, batches, wardMask, wardBbox);   // 永続化（表示経路はバックグラウンド＝待たせない）
+	if (preload) await storing;   // プレロードの本旨はIDB永続化＝書き終わるまで ack しない（ackより先にモーダルが一覧を引くと「済」にならない）
 	return true;
 }
 
@@ -373,15 +379,37 @@ const inflight = new Map();
 self.onmessage = async (e) => {
 	if (e.data.type === "init") { meshPort = e.data.meshPort; return; }
 	if (e.data.type === "purge") { cache.clear(); const n = await idbPurge(); console.log("[plateau] キャッシュ全消去", n, "records"); return; }
-	const { id, base, tiles, name, wardBbox, camCenter } = e.data;
-	try {
-		let p = inflight.get(base);
-		if (!p) {
-			p = loadPlateau(base, tiles, name, wardBbox, camCenter);
-			inflight.set(base, p);
-			p.finally(() => inflight.delete(base)).catch(() => {});   // 掃除専用の枝＝拒否はここで握り潰す（本流の reject は下の await が受ける）
+	if (e.data.type === "idbList") {   // データ管理モーダル用：IDBのメタ一覧（全workerが同一DBを見る＝どの1本に聞いてもよい）
+		const idb = await idbReady, items = [];
+		const keys = idb ? (await idb()) || [] : [];
+		for (const k of keys) if (typeof k === "string" && k.endsWith("#meta")) {
+			const m = await idb(k).catch(() => null);
+			if (m) items.push({ base: k.slice(0, -"#meta".length), count: m.count || 0, bytes: m.bytes || 0, ts: m.ts || 0 });
 		}
-		const ok = await p;
+		self.postMessage({ type: "idbList", items });
+		return;
+	}
+	if (e.data.type === "idbDelete") {   // 地区単位の削除：IDBレコード＋この worker のメモリキャッシュ（base ルーティングで必ず持ち主に届く）
+		const base = e.data.base;
+		cache.delete(base);
+		const idb = await idbReady;
+		let n = 0;
+		if (idb) for (const k of (await idb()) || []) if (typeof k === "string" && k.startsWith(base + "#")) { await idb(k, null); n++; }
+		console.log("[plateau] IDB削除", base, n, "records");
+		self.postMessage({ type: "idbDeleted", base, n });
+		return;
+	}
+	const { id, base, tiles, name, wardBbox, camCenter, preload } = e.data;
+	try {
+		let ent = inflight.get(base);
+		if (!ent) {
+			ent = { p: loadPlateau(base, tiles, name, wardBbox, camCenter, !!preload), preload: !!preload };
+			inflight.set(base, ent);
+			ent.p.finally(() => inflight.delete(base)).catch(() => {});   // 掃除専用の枝＝拒否はここで握り潰す（本流の reject は下の await が受ける）
+		}
+		let ok = await ent.p;
+		// プレロード進行中に表示要求が合流した場合、合流先は描画へ送っていない＝完了後に改めて（キャッシュ命中＝即）送る。
+		if (ok && ent.preload && !preload) ok = await loadPlateau(base, tiles, name, wardBbox, camCenter, false);
 		self.postMessage({ id, ok });
 	} catch (err) {
 		self.postMessage({ id, ok: false, error: err.message });
