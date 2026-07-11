@@ -66,7 +66,11 @@ export function createSearch({ onGo }) {
 	};
 	const showHist = () => { const h = loadHist(); h.length ? render(h, true) : close(); };
 	// Netflix式：普段は虫めがねだけ。押すと入力欄が右へ開く。空のまま外れたら畳む＝地図面を広く。
-	btn.addEventListener("click", () => {
+	// click でなく pointerdown＋preventDefault：人間のクリックは押下〜解放が100ms超あり、その間に input の
+	// blur タイマー(120ms)が先に畳んでしまうと、後から来る click が「閉じてる→開く」と誤判定して再度開く
+	//（＝虫めがねで畳めないバグ）。押した瞬間に開閉を確定させれば競合は構造的に消える。
+	btn.addEventListener("pointerdown", e => {
+		e.preventDefault();
 		if (box.classList.contains("open")) { box.classList.remove("open"); close(); input.blur(); }
 		else { box.classList.add("open"); input.focus(); }
 	});
