@@ -340,7 +340,7 @@ function parseViewHash(h) {
 const wrapLon = lon => (Number.isFinite(lon) && (lon > 180 || lon <= -180)) ? ((lon + 180) % 360 + 360) % 360 - 180 : lon;
 function applyCamView(v) {
 	cam.center = [wrapLon(v.lon), Math.max(-85, Math.min(85, v.lat))];
-	cam.zoom = Math.max(1, Math.min(20, v.zoom));
+	cam.zoom = Math.max(1, Math.min(19, v.zoom));
 	cam.pitch = Math.max(0, Math.min(MAXPITCH, v.pitch || 0));
 	cam.bearing = Number.isFinite(v.bearing) ? v.bearing : 0;
 }
@@ -666,7 +666,7 @@ canvas.addEventListener("wheel", e => {
 	if (flight) flight.cancel();   // ホイールでもフライト中断
 	const [wx, wy] = evXY(e);
 	if (ROTKEY_IS_META ? e.metaKey : e.ctrlKey) anchoredAt(wx, wy, () => { cam.bearing += e.deltaY * 0.01; });   // 軸回転（⌘/Ctrl＋ホイール）
-	else anchoredAt(wx, wy, () => { cam.zoom = Math.max(1, Math.min(20, cam.zoom - e.deltaY * 0.002)); });  // ズーム（z1=宇宙の余白〜z20。16超はベクタのオーバーズーム＝潰れず街路へ）
+	else anchoredAt(wx, wy, () => { cam.zoom = Math.max(1, Math.min(19, cam.zoom - e.deltaY * 0.002)); });  // ズーム（z1=宇宙の余白〜z19。16超はベクタのオーバーズーム（z20はタイルの切れ目が目立つため19まで））
 }, { passive: false });
 
 // --- 座標読み取り（左下）：2段テーブル＝上段ラベル「経度・緯度・標高・z値・傾度」/下段数値（attr右下の複数段と対に）。
