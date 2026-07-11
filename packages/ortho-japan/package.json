@@ -12,6 +12,7 @@
 	"dependencies": {
 		"@mapbox/vector-tile": "^2.0.3",
 		"earcut": "^3.0.1",
-		"pbf": "^4.0.1"
+		"pbf": "^4.0.1",
+		"altpbf": "*"
 	}
 }

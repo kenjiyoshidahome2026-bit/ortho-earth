@@ -2,7 +2,8 @@
 // R01(1°・秒単位)まで寄れるので城下の地形が正確＝建物が実地形に接地する。
 // DOM に触れない純ロジック＝ render worker（OffscreenCanvas側）からそのまま使える。読込インジケータは
 // onPending コールバックで外へ通知し、DOM を持つ側（main）が表示する。
-import { unproject, cameraState, downsampleFlipped } from "ortho-japan";
+import { unproject, cameraState } from "./camera.js";
+import { downsampleFlipped } from "./elevation.js";
 import { createTileLoader } from "altpbf";
 
 export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onPending }) {

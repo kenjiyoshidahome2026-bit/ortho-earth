@@ -2,12 +2,12 @@
 // main は geometry を一切持たず、結合済みバッファを GL に上げるだけ。重い処理も geometry も worker の向こう側。
 // 入口＝style / tileUrl / requestDraw / scenePort(render worker直結)。出口＝tiles(LOD管理) と requestMerge。
 // geometry は main を通らず scene worker → render worker へ直行（main は geometry を知らない）。
-import { createTileManager } from "ortho-japan";
+import { createTileManager } from "./tilemanager.js";
 
 export function createPipeline({ style, tileUrl, requestDraw, scenePort, onMerged, onTile }) {
 	// scene worker：タイル geometry を保持し結合(merge)も担う。結合結果は main を経由せず
 	// render worker へ直結ポートで送る（下の connect）＝main は geometry を一切知らない。
-	const sceneWorker = new Worker(new URL("./sceneworker.js", import.meta.url), { type: "module" });
+	const sceneWorker = new Worker(new URL("./workers/sceneworker.js", import.meta.url), { type: "module" });
 	sceneWorker.postMessage({ type: "connect", port: scenePort }, [scenePort]);   // scene→render 直結
 	// ack：merge 成功時に sig が返る＝main はこれを見て readySig を確定（投げっぱなし＋楽観確定だと
 	// 一度の失敗が「静止中は永遠に欠けたタイル」になる）。失敗時は ack が来ない→main がタイムアウト再要求。
@@ -29,7 +29,7 @@ export function createPipeline({ style, tileUrl, requestDraw, scenePort, onMerge
 	const tileWorkers = [], pending = new Map(), keyToId = new Map();
 	let wIdx = 0, reqId = 0;
 	for (let i = 0; i < NW; i++) {
-		const w = new Worker(new URL("./tileworker.js", import.meta.url), { type: "module" });
+		const w = new Worker(new URL("./workers/tileworker.js", import.meta.url), { type: "module" });
 		w.onmessage = e => {
 			const p = pending.get(e.data.id); if (!p) return; pending.delete(e.data.id);
 			if (keyToId.get(p.key) === e.data.id) keyToId.delete(p.key);

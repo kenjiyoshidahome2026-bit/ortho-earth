@@ -1,7 +1,13 @@
 // タイル worker：fetch→decode→tessellation（earcut/capsule/建物）を worker 内で実行し、
 // 結果の typed array を transfer でメインへ返す。メインは GL アップロード＋カメラだけになる。
 // abort: 高速パンで視野から外れたタイルは fetch ごと中断（帯域とデコードCPUを空ける）。
-import { fetchMVT, buildTileDrawList, buildLabels, buildBuildings, tileBounds } from "ortho-japan";
+// index.js（全部入り）でなく実装ファイル直参照：index は pipeline（worker生成）を含むため、
+// worker から index を引くと vite が「循環worker」と誤認してビルドが落ちる
+import { fetchMVT } from "../decode.js";
+import { buildTileDrawList } from "../build.js";
+import { buildLabels } from "../labels.js";
+import { buildBuildings } from "../buildings.js";
+import { tileBounds } from "../tile.js";
 
 let style = null;
 const aborts = new Map();   // id → AbortController（in-flight のみ保持）

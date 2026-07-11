@@ -16,4 +16,6 @@ export { createFlight, shortBearingOf } from "./flight.js";
 export { parseViewHash, buildViewHash, wrapLon } from "./viewurl.js";
 export { pickZoom, visibleTiles, selectLOD } from "./tilecover.js";
 export { createTileManager } from "./tilemanager.js";
+export { createPipeline } from "./pipeline.js";
+export { createTerrain } from "./terrain.js";
 export { mergeTiles } from "./scene.js";

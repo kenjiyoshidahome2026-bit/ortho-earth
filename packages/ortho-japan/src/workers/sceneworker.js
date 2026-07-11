@@ -1,6 +1,6 @@
 // scene worker：タイルの geometry(ops/buildings) を保持し、merge 要求で結合。
 // 結合結果は render worker へ直結ポートで送る（main を経由しない＝main は geometry を知らない）。
-import { mergeTiles } from "ortho-japan";
+import { mergeTiles } from "../scene.js";   // index直引きはworker循環になる（tileworker側コメント参照）
 
 // geometry は main のタイルキャッシュ(cap=256)の鏡：追加＝tile メッセージ／削除＝evict メッセージ（tilemanager の
 // onEvict と同期）。独自の上限退避は持たない——mainが ready と思っているタイルをこちらだけ捨てると、

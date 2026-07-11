@@ -13,7 +13,7 @@ createGeopbf("https://api.ortho-earth.com");   // bucket 基盤（標高と同�
 import style from "./style-mono.js";
 import { createThemes, defaultLayerState, CHOME_MINZOOM, RAILTR_MINZOOM } from "./themes.js";
 import { createOverlay } from "./overlay.js";
-import { createPipeline } from "./pipeline.js";
+import { createPipeline } from "ortho-japan";   // tile/scene worker のスポーンごとエンジン側
 import { createSearch } from "./search.js";
 import { createPlateauDb } from "./plateaudb.js";
 import { d3diff } from "./d3diff.js";
