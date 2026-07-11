@@ -1,0 +1,11 @@
+{
+	"name": "quiet-mono",
+	"version": "0.0.1",
+	"private": true,
+	"type": "module",
+	"description": "Quiet Mono — ortho系地図アプリ共通の意匠キット（トークン＋UI部品の佇まい）。データは各アプリ固有、顔はここで揃える。",
+	"exports": {
+		"./tokens.css": "./tokens.css",
+		"./components.css": "./components.css"
+	}
+}

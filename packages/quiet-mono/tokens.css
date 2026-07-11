@@ -1,0 +1,41 @@
+/* Quiet Mono — 意匠の憲法（デザイントークン）。
+   ortho系地図アプリ（japan / 将来のglobe…）はデータも配管も独立だが、顔はこの一冊で揃える。
+   変数は #map スコープ＝任意のページに埋め込んでもホート側と衝突しない。 */
+#map {
+	/* 紙とインク（無彩色の階調） */
+	--qm-paper: #f6f6f4;          /* 紙色（致命面・地図の地色と同系） */
+	--qm-ink: #2b3b57;            /* 強調インク（見出し・活性・フォーカス枠） */
+	--qm-text: #4a5058;           /* 本文 */
+	--qm-num: #5a6472;            /* 計器の数値 */
+	--qm-label: #8b93a0;          /* 計器のラベル（数値より一段引く） */
+	--qm-text-dim: #7a8090;       /* 補助文 */
+	--qm-text-faint: #9aa0ac;     /* 消極要素（×ボタン・添え書き） */
+	/* 白パネル（透過の段階＝情報の格） */
+	--qm-panel: rgba(255,255,255,.85);        /* 標準カード・ボタン */
+	--qm-panel-2: rgba(255,255,255,.82);      /* チップ・識別 */
+	--qm-panel-solid: rgba(255,255,255,.96);  /* 候補リスト（読む物＝濃く） */
+	--qm-panel-dim: rgba(255,255,255,.62);    /* 計器（読み取り専用＝薄く） */
+	--qm-panel-faint: rgba(255,255,255,.55);  /* 出典（最も静か） */
+	/* 枠線 */
+	--qm-border: rgba(120,130,150,.45);
+	--qm-border-soft: rgba(120,130,150,.35);
+	--qm-border-strong: rgba(90,100,120,.7);  /* hover */
+	/* 質感 */
+	--qm-blur: 6px;
+	--qm-r-s: 6px;                /* 小物（トースト・計器） */
+	--qm-r-m: 8px;                /* リスト・入力 */
+	--qm-r-l: 10px;               /* カード */
+	--qm-shadow-card: 0 3px 10px rgba(20,30,50,.08);
+	--qm-shadow-pop: 0 4px 14px rgba(20,30,50,.12);
+	/* 点火色（チップ＝地図上の色と同一） */
+	--qm-accent-rail: #4b9e6a;
+	--qm-accent-road: #2f6cad;
+	/* 警告（通信断） */
+	--qm-warn-text: #7a3b2e;
+	--qm-warn-border: #d9b8a8;
+	--qm-warn-bg: rgba(255,250,246,.95);
+	/* 書体 */
+	--qm-font: system-ui, sans-serif;
+	--qm-font-mono: ui-monospace, monospace;
+	--qm-font-gauge: Verdana, sans-serif;     /* スケール等の計器数字（ortho-map以来の顔） */
+}

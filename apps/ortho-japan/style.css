@@ -1,132 +1,34 @@
+/* ortho-japan 固有のスタイル。外観の本体は quiet-mono（意匠キット）＝トークンとUI部品の佇まいを
+   共通契約（#map の家具規格）として輸入する。ここに残るのは日本固有の道具（PLATEAUモーダル・デバッグ）だけ。 */
+@import "quiet-mono/tokens.css";
+@import "quiet-mono/components.css";
+
 html, body { margin: 0; height: 100%; background: #0b1021; color: #cdd; font: 13px/1.5 system-ui, sans-serif; overflow: hidden; }
-/* z-index は全廃＝重なりは DOM 順で裁く：静的UIは記述順（canvas→ヒント→検索…）、
-   動的要素（トースト・識別パネル・モーダル・致命面）は起きた順に #map へ後置＝新しい事件ほど上。 */
-#map { position: relative; width: 100%; height: 100%; overflow: hidden; }   /* 地図一式の容れ物＝任意サイズのdivに埋め込める */
-#c, #gint, #labels { position: absolute; inset: 0; width: 100%; height: 100%; }
-#c { cursor: grab; }
-#c:active { cursor: grabbing; }
-#gint, #labels { pointer-events: none; }   /* 知性/ラベルの層は透過＝pointer は基図(#c)が受ける */
-/* 操作方法カード：マウス絵柄で視覚的に。×で畳むと「?」アイコン(#hint-btn)に化ける＝地図面を広く */
-#hint { position: absolute; top: 54px; left: 10px; font-size: 12px; color: #4a5058; background: rgba(255,255,255,.85);
-	padding: 9px 26px 9px 12px; border: 1px solid rgba(120,130,150,.35); border-radius: 10px;
-	-webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); box-shadow: 0 3px 10px rgba(20,30,50,.08); }
-.hint-title { font-weight: 600; font-size: 11px; color: #7a8090; letter-spacing: .08em; margin-bottom: 4px; }
-.hint-row { display: flex; align-items: center; gap: 8px; margin: 5px 0; white-space: nowrap; }
-.hint-row b { color: #2b3b57; font-weight: 600; }
-.mi { width: 17px; height: 22px; flex: none; }
-.key { border: 1px solid #b7bcc6; border-bottom-width: 2px; border-radius: 4px; padding: 1px 5px;
-	font-size: 11px; background: #fff; color: #4a5058; }
-.hint-plus { color: #9aa0ac; margin: 0 -3px; }
-#hint-close { position: absolute; top: 3px; right: 3px; width: 20px; height: 20px; border: none; background: none;
-	color: #9aa0ac; font-size: 15px; line-height: 1; cursor: pointer; border-radius: 50%; }
-#hint-close:hover { background: #eef0f3; color: #4a5058; }
-#hint-btn { position: absolute; top: 54px; left: 10px; width: 34px; height: 34px; border-radius: 50%; display: none;
-	align-items: center; justify-content: center; border: 1px solid rgba(120,130,150,.4); background: rgba(255,255,255,.85);
-	color: #3f4757; font-size: 16px; font-weight: 600; cursor: pointer; -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
-#hint-btn:hover { border-color: rgba(90,100,120,.7); }
-/* 地名検索：普段は虫めがねアイコンだけ、押すと右へ伸びて入力欄が開く（Netflix式＝地図面を広く）。候補は下にリスト */
-#search { position: absolute; top: 10px; left: 10px; width: 236px; }
-#search-btn { position: absolute; top: 0; left: 0; width: 34px; height: 34px; border-radius: 50%;
-	border: 1px solid rgba(120,130,150,.4); background: rgba(255,255,255,.85); cursor: pointer; padding: 0;
-	display: flex; align-items: center; justify-content: center; -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
-#search-btn:hover { border-color: rgba(90,100,120,.7); }
-#search.open #search-btn { border-color: transparent; background: none; -webkit-backdrop-filter: none; backdrop-filter: none; }
-#search-in { width: 34px; box-sizing: border-box; font: 13px system-ui, sans-serif; color: #333;
-	padding: 8px 12px 8px 34px; border: 1px solid rgba(120,130,150,.45); border-radius: 17px; outline: none;
-	background: rgba(255,255,255,.85); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
-	opacity: 0; pointer-events: none; transition: width .18s ease, opacity .18s ease; }
-#search.open #search-in { width: 100%; opacity: 1; pointer-events: auto; }
-#search-in:focus { border-color: #2b3b57; background: #fff; }
-#search-list { display: none; margin-top: 4px; background: rgba(255,255,255,.96); border: 1px solid rgba(120,130,150,.35);
-	border-radius: 8px; overflow: hidden; box-shadow: 0 4px 14px rgba(20,30,50,.12); }
-.search-item { padding: 8px 12px; font-size: 13px; color: #444; cursor: pointer; }
-.search-item:hover, .search-item.sel { background: #eef2f7; }
-.search-note { color: #9aa0ab; font-size: 11px; margin-left: 7px; }   /* 同名候補の県名添え書き（表示専用） */
-.search-empty { padding: 8px 12px; font-size: 12px; color: #999; }
-#log { position: absolute; bottom: 10px; left: 10px; font-family: ui-monospace, monospace; font-size: 12px; color: #9ab; background: rgba(10,16,33,.7); padding: 6px 8px; border-radius: 6px; }
-/* 距離スケール（真俯瞰=2Dのみ・下辺中央）：ortho-map Accessories の draw_scale と同じ意匠
-   （1-2-5系列・両端ティックの横棒・上に距離・12px Verdana）。z値は左下テーブルへ移設＝距離だけの静かな物差し */
-#scale { position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%); display: none;
-	text-align: center; font: 12px Verdana, sans-serif; color: #4a5058; pointer-events: none; }   /* 本家と同じ下辺中央（出典は右隅3行に畳んだ＝中央は空く） */
-#scale-txt { display: block; margin-bottom: -2px; text-shadow: 0 0 3px rgba(255,255,255,.9); }   /* 数字を横棒へ少し寄せる */
-#scale-bar { margin: 0 auto; height: 12px; box-sizing: border-box;
-	border-left: 1px solid currentColor; border-right: 1px solid currentColor; border-bottom: 3px solid currentColor; }
-/* 座標読み取り（左下）＝2段テーブル：上段ラベル(経度/緯度/標高/z値/傾度)・下段数値。attr(右下)の複数段と対。
-   min-width＝各列の最大桁ぶん固定＝マウス移動で数値が変わっても枠が揺れない */
-#pos { position: absolute; bottom: 6px; left: 10px; display: none;
-	background: rgba(255,255,255,.62); padding: 3px 6px 4px; border-radius: 5px; pointer-events: none; }
-#pos table { border-collapse: collapse; }
-#pos th { font: 400 10px/1.3 system-ui, sans-serif; color: #8b93a0; padding: 0 7px; text-align: center; letter-spacing: .06em; }
-#pos td { font: 12px/1.3 ui-monospace, monospace; color: #5a6472; padding: 0 7px; text-align: center; }   /* 12px＝センターのスケール数字と同格 */
-#pos td:nth-child(1) { min-width: 9ch; }
-#pos td:nth-child(2) { min-width: 8ch; }
-#pos td:nth-child(3) { min-width: 5ch; }
-#pos td:nth-child(4) { min-width: 5ch; }
-#pos td:nth-child(5) { min-width: 5ch; }   /* 回転 -180°まで */
-#pos td:nth-child(6) { min-width: 3ch; }
-#attr { position: absolute; bottom: 6px; right: 8px; font-size: 11px; line-height: 1.5; text-align: right; color: #7a8; background: rgba(255,255,255,.55); padding: 3px 7px; border-radius: 5px; }
-#attr a { color: #567; text-decoration: none; }
-#attr a:hover { text-decoration: underline; }
-/* テーマ・チップ：静かな土台に必要な主題だけ"点火"する最小トグル。右上に縦一列（top:10はコンパスの席） */
-#chips { position: absolute; top: 58px; right: 10px; display: flex; flex-direction: column; gap: 8px; align-items: flex-end; }
-.chip { font: 13px/1 system-ui, sans-serif; padding: 9px 16px; border-radius: 999px; border: 1px solid rgba(120,130,150,.45);
-	background: rgba(255,255,255,.82); color: #5a5f6a; cursor: pointer; -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
-	transition: background .12s, color .12s, border-color .12s; user-select: none; }
-.chip:hover { border-color: rgba(90,100,120,.7); }
-.chip.on { background: #2b3b57; color: #fff; border-color: #2b3b57; }
-/* 点火チップはテーマ色で光る（チップ色＝地図上の色） */
-.chip[data-k="rail"].on { background: #4b9e6a; border-color: #4b9e6a; }
-.chip[data-k="road"].on { background: #2f6cad; border-color: #2f6cad; }
-.chip.tool { margin-top: 10px; font-size: 12px; padding: 8px 12px; color: #7a8090; }   /* 道具ボタン（テーマ点火とは別物＝一段静かに） */
-/* 建物3D（PLATEAU）データ管理モーダル */
+
+/* デバッグログ（常時非表示・devtoolsから出す） */
+#log { position: absolute; bottom: 10px; left: 10px; font-family: var(--qm-font-mono); font-size: 12px; color: #9ab; background: rgba(10,16,33,.7); padding: 6px 8px; border-radius: var(--qm-r-s); }
+
+/* 建物3D（PLATEAU）データ管理モーダル＝日本固有の道具。佇まいはトークン参照 */
 #pdb { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
 	background: rgba(20,26,40,.35); -webkit-backdrop-filter: blur(2px); backdrop-filter: blur(2px); }
 #pdb-panel { width: 360px; max-height: 72vh; display: flex; flex-direction: column; background: #fff; border-radius: 12px;
 	box-shadow: 0 12px 40px rgba(20,30,50,.28); padding: 14px 16px; font-size: 13px; color: #333; }
-#pdb-head { font-weight: 600; font-size: 14px; color: #2b3b57; position: relative; padding-right: 24px; }
+#pdb-head { font-weight: 600; font-size: 14px; color: var(--qm-ink); position: relative; padding-right: 24px; }
 #pdb-close { position: absolute; top: -2px; right: -4px; width: 24px; height: 24px; border: none; background: none;
-	color: #9aa0ac; font-size: 17px; line-height: 1; cursor: pointer; border-radius: 50%; }
-#pdb-close:hover { background: #eef0f3; color: #4a5058; }
+	color: var(--qm-text-faint); font-size: 17px; line-height: 1; cursor: pointer; border-radius: 50%; }
+#pdb-close:hover { background: #eef0f3; color: var(--qm-text); }
 #pdb-sub { display: flex; justify-content: space-between; align-items: center; margin: 8px 0 6px; color: #667; font-size: 12px; }
-#pdb-purge { border: 1px solid #d3b3b3; color: #844; background: #fff; border-radius: 6px; padding: 3px 9px; cursor: pointer; font-size: 11px; }
+#pdb-purge { border: 1px solid #d3b3b3; color: #844; background: #fff; border-radius: var(--qm-r-s); padding: 3px 9px; cursor: pointer; font-size: 11px; }
 #pdb-purge:hover { background: #faf2f2; }
-#pdb-filter { box-sizing: border-box; width: 100%; font: 13px system-ui, sans-serif; color: #333; padding: 6px 10px;
-	border: 1px solid rgba(120,130,150,.45); border-radius: 8px; outline: none; }
-#pdb-filter:focus { border-color: #2b3b57; }
+#pdb-filter { box-sizing: border-box; width: 100%; font: 13px var(--qm-font); color: #333; padding: 6px 10px;
+	border: 1px solid var(--qm-border); border-radius: var(--qm-r-m); outline: none; }
+#pdb-filter:focus { border-color: var(--qm-ink); }
 #pdb-list { overflow-y: auto; margin-top: 8px; border-top: 1px solid #eef0f3; }
-.pdb-pref { font-weight: 600; font-size: 12px; color: #2b3b57; background: #f2f4f8; padding: 4px 8px; margin-top: 6px; border-radius: 5px; position: sticky; top: 0; }
+.pdb-pref { font-weight: 600; font-size: 12px; color: var(--qm-ink); background: #f2f4f8; padding: 4px 8px; margin-top: 6px; border-radius: 5px; position: sticky; top: 0; }
 .pdb-row { display: flex; align-items: center; gap: 8px; padding: 5px 2px; border-bottom: 1px solid #f2f3f5; }
 .pdb-name { flex: 1; }
 .pdb-status { color: #889; font-size: 12px; font-variant-numeric: tabular-nums; }
-.pdb-act { border: 1px solid rgba(120,130,150,.45); background: #fff; color: #456; border-radius: 6px; padding: 3px 9px; cursor: pointer; font-size: 11px; flex: none; }
-.pdb-act:hover { border-color: rgba(90,100,120,.7); }
+.pdb-act { border: 1px solid var(--qm-border); background: #fff; color: #456; border-radius: var(--qm-r-s); padding: 3px 9px; cursor: pointer; font-size: 11px; flex: none; }
+.pdb-act:hover { border-color: var(--qm-border-strong); }
 .pdb-act.del { color: #844; border-color: #d3b3b3; }
 .pdb-act.del:hover { background: #faf2f2; }
-/* コンパス兼リセット：針が方位を示し、押すと水平・北向きに戻る */
-#reset { position: absolute; top: 10px; right: 10px; width: 40px; height: 40px; border-radius: 50%;
-	border: 1px solid rgba(120,130,150,.4); background: rgba(255,255,255,.85); cursor: pointer; padding: 0;
-	display: flex; align-items: center; justify-content: center; -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
-#reset:hover { border-color: rgba(90,100,120,.7); }
-#reset svg { display: block; }
-
-/* --- 実行時に #map へ後置される要素（DOM順で上に乗る＝z-index不要） --- */
-/* 通信断トースト */
-#net-toast { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); font-size: 13px; color: #7a3b2e;
-	background: rgba(255,250,246,.95); border: 1px solid #d9b8a8; padding: 7px 16px; border-radius: 8px; display: none;
-	font-family: system-ui, sans-serif; }
-/* 地形読込・PLATEAU進捗トースト（左下・#pos の上に積む） */
-#elev-toast, #plateau-toast { position: absolute; left: 10px; font-size: 12px; color: #4a5568;
-	background: rgba(255,255,255,.85); padding: 5px 11px; border-radius: 6px;
-	-webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); display: none; }
-#elev-toast { bottom: 76px; }      /* bottom:44 は PLATEAU 進捗の席 */
-#plateau-toast { bottom: 44px; }
-/* identify（クリックした地物の答え） */
-#ident { position: absolute; top: 44px; left: 10px; max-width: 340px; font-size: 12px; color: #334;
-	background: rgba(255,255,255,.82); padding: 6px 10px; border-radius: 6px;
-	-webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); white-space: pre-wrap; display: none; }
-/* 致命エラー面（紙色の全面＝最後に起きる事件＝最後に append＝最上面） */
-#fatal { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: #f6f6f4; padding: 24px; }
-#fatal .fatal-box { max-width: 540px; font-family: system-ui, sans-serif; color: #333; line-height: 1.9; }
-#fatal .fatal-title { font-size: 18px; font-weight: 600; margin-bottom: 10px; }
-#fatal .fatal-detail { font-size: 14px; color: #555; }
-#fatal .fatal-reload { margin-top: 18px; padding: 9px 22px; font-size: 14px; border: 1px solid #bbb; border-radius: 8px; background: #fff; cursor: pointer; }
