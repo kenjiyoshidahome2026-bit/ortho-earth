@@ -743,16 +743,26 @@ document.querySelectorAll(".chip[data-k]").forEach(b => b.classList.toggle("on",
 if (layerState.rail) { renderer.set("view", { showN02: true }); loadN02(); }
 renderer.set("view", { showContour: layerState.chikei });
 
-// 操作方法カード：×で「?」アイコンに畳む（地図面を広く）。閉じた選択は記憶＝二度目からは静か。
+// 操作方法カード：起動時は出さない＝第一印象は地図だけ（マウス絵柄が視界に入らない）。
+// 6秒操作が無い（＝迷っているかもしれない）人にだけ、そっとフェードイン。先に触った人（ドラッグ/ホイール）
+// には出さない＝「?」だけが常に居る。×で畳んだ選択は記憶＝二度目からは完全に静か。
 const hintEl = document.getElementById("hint"), hintBtn = document.getElementById("hint-btn");
-function setHint(open) {
+function setHint(open, remember = true) {
 	hintEl.style.display = open ? "" : "none";
 	hintBtn.style.display = open ? "none" : "flex";
-	try { localStorage.setItem("oj.hint", open ? "" : "closed"); } catch { /* private mode 等 */ }
+	if (remember) try { localStorage.setItem("oj.hint", open ? "" : "closed"); } catch { /* private mode 等 */ }
 }
 document.getElementById("hint-close").addEventListener("click", () => setHint(false));
 hintBtn.addEventListener("click", () => setHint(true));
-try { if (localStorage.getItem("oj.hint") === "closed") setHint(false); } catch { /* private mode 等 */ }
+setHint(false, false);   // 起動は必ず「?」から（記憶には書かない＝初見の人の自動表示権を消費しない）
+try {
+	if (localStorage.getItem("oj.hint") !== "closed") {   // まだ×で畳んだことがない人だけ自動表示の対象
+		const t = setTimeout(() => setHint(true, false), 6000);
+		const armed = () => { clearTimeout(t); canvas.removeEventListener("pointerdown", armed); canvas.removeEventListener("wheel", armed); };
+		canvas.addEventListener("pointerdown", armed);   // 触れた＝操作を知っている人＝出さない
+		canvas.addEventListener("wheel", armed);
+	}
+} catch { /* private mode 等 */ }
 
 // ハッシュの手編集・ペーストで視点ジャンプ（replaceState は hashchange を発火しない＝自分の書き戻しとは無干渉）
 window.addEventListener("hashchange", () => {
