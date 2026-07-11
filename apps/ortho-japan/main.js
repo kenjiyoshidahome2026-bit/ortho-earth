@@ -661,8 +661,8 @@ canvas.addEventListener("wheel", e => {
 // （R90/R10/R01 をズームで自動選択・IDB は地形アトラスと共有）。render worker のアトラス照会だと
 // 未ロード地帯が0mになる劣化版だった。onend＝タイル到着でゲートを開けて再照会（マウス静止中でも値が確定）。
 const posEl = document.getElementById("pos");
-posEl.innerHTML = "<table><thead><tr><th>経度</th><th>緯度</th><th>標高</th><th>z値</th><th>傾度</th></tr></thead><tbody><tr><td></td><td></td><td></td><td></td><td></td></tr></tbody></table>";
-const posCells = [...posEl.querySelectorAll("td")];   // [経度, 緯度, 標高, z値, 傾度]（毎フレームはtextContent更新のみ＝DOM再構築しない）
+posEl.innerHTML = "<table><thead><tr><th>経度</th><th>緯度</th><th>標高</th><th>z値</th><th>回転</th><th>傾度</th></tr></thead><tbody><tr><td></td><td></td><td></td><td></td><td></td><td></td></tr></tbody></table>";
+const posCells = [...posEl.querySelectorAll("td")];   // [経度, 緯度, 標高, z値, 回転, 傾度]（毎フレームはtextContent更新のみ＝DOM再構築しない）
 let posMouse = null, posElev = null, posElevId = 0, posElevAt = 0, posRaf = false, getHeight = null;
 setAltApiUrl("https://api.ortho-earth.com");
 createGetHeight({ apiUrl: "https://api.ortho-earth.com", onend: () => { posElevAt = 0; schedulePos(); } })
@@ -691,7 +691,8 @@ function updatePos() {
 	const st = cameraState(cam, size.w, size.h);
 	const ll = unproject(st, posMouse.x * dpr, posMouse.y * dpr);
 	posCells[3].textContent = cam.zoom.toFixed(2);
-	posCells[4].textContent = `${Math.round((cam.pitch || 0) * R2D)}°`;
+	posCells[4].textContent = `${Math.round(shortBearing() * R2D)}°`;   // 回転＝最短角へ正規化(-180..180]＝コンパスと同じ読み
+	posCells[5].textContent = `${Math.round((cam.pitch || 0) * R2D)}°`;
 	if (!ll) { posCells[0].textContent = posCells[1].textContent = posCells[2].textContent = "—"; posElev = null; return; }   // 球外＝宇宙
 	posCells[0].textContent = ll[0].toFixed(5);
 	posCells[1].textContent = ll[1].toFixed(5);

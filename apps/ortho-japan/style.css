@@ -59,7 +59,8 @@ html, body { margin: 0; height: 100%; background: #0b1021; color: #cdd; font: 13
 #pos td:nth-child(2) { min-width: 8ch; }
 #pos td:nth-child(3) { min-width: 5ch; }
 #pos td:nth-child(4) { min-width: 5ch; }
-#pos td:nth-child(5) { min-width: 3ch; }
+#pos td:nth-child(5) { min-width: 5ch; }   /* 回転 -180°まで */
+#pos td:nth-child(6) { min-width: 3ch; }
 #attr { position: fixed; bottom: 6px; right: 8px; font-size: 11px; line-height: 1.5; text-align: right; color: #7a8; background: rgba(255,255,255,.55); padding: 3px 7px; border-radius: 5px; }
 #attr a { color: #567; text-decoration: none; }
 #attr a:hover { text-decoration: underline; }
