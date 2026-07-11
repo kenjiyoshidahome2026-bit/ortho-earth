@@ -1,4 +1,8 @@
 // ortho-japan PoC — 地理院 optimal_bvmap を球面に直描き（M2: タイルストリーミング＋LOD＋ラベル）。
+// 意匠：quiet-mono（トークン→部品）→ app固有 の順に import＝カスケードの序列そのまま
+import "quiet-mono/tokens.scss";
+import "quiet-mono/components.scss";
+import "./style.scss";
 import {
 	evalExpr, parseRGBA, cameraState, unproject, buildGeoJSONOverlay,
 } from "ortho-japan";
