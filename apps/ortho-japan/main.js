@@ -143,6 +143,7 @@ fetch(import.meta.env.BASE_URL + "airports.json").then(r => r.json()).then(list 
 const PLATEAU_AUTO_Z = 14;                 // これ以上寄ると自動ロード（遠景は対象外＝ズームアウトで全解放）
 // 同時アクティブ地区数の上限。区境をまたいだ隣接分だけを想定＝GPUメモリを有界にする（密集地区(都心部)1件あたりGPUバッファ~100-140MB）。
 const PLATEAU_MAX_ACTIVE = 2;
+let flying = false;                        // フライト中フラグ＝autoPlateau のゲート（flyTo が立て、着地/中断で下ろす）
 const plateauActive = new Map();           // 現在レンダラーに乗っている地区：name → set({name,base,bbox})
 const plateauLoading = new Set();          // fetch/デコード中の地区名（二重発火防止）
 const plateauFailed = new Set();           // 葉0枚/デコード失敗の地区名＝廃止区(浜松西区22133等)の残骸。二度と掴まない（毎onMoveの再挑戦スパムを断つ）
@@ -232,6 +233,7 @@ const bboxIntersects = (a, b) => a[0] <= b[2] && a[2] >= b[0] && a[1] <= b[3] &&
 // 現在地＋ズームで登録簿を引き、視野に重なる地区を全部ロード／外れた地区は解放。区境をまたぐと複数地区が同時アクティブになる（上限 PLATEAU_MAX_ACTIVE）。
 // onMove から毎回呼ぶがガードで実質タダ。
 function autoPlateau() {
+	if (flying) return;   // フライト中は読み込みも解放もしない＝デコード/GPU転送が飛行アニメと帯域を取り合わない。着地の onMove で解禁
 	if (cam.zoom < PLATEAU_AUTO_Z) {
 		for (const name of plateauActive.keys()) { renderer.set("plateauMesh", null, name); console.log("[plateau] 範囲外→解放", name); }
 		if (plateauActive.size) needsDraw = true;
@@ -710,38 +712,50 @@ canvas.addEventListener("pointermove", e => { posMouse = { x: e.clientX, y: e.cl
 canvas.addEventListener("pointerleave", () => { posMouse = null; posEl.style.display = "none"; });
 schedulePos();   // 起動直後からスケールを出す（真俯瞰復元時。マウス無しでも updateScale は走る）
 
-// --- 球面フライト：検索ヒットへ「上昇→巡航→降下」で飛ぶ（球の見せ場＝地球が回って目的地が寄ってくる）。
-// ズームは放物線バンプ（van Wijk 風の近似）＝行程が視野に収まる高度まで上がる。近距離なら上がらない。
-// 着地が z14+ でほぼ真俯瞰なら降下の最終40%でチルト45°を入れる＝着いた瞬間に地形と PLATEAU が立って見える。
+// --- 球面フライト：三段の振り付け「①水平・北向きへ → ②平面のまま飛ぶ → ③着地してから起こす」。
+// ①紙地図の作法＝場所の把握はまず真俯瞰・北向きで（回転や傾きを持ったまま飛ぶと現在地を見失う）。
+// ②van Wijk 風の放物線バンプ（行程が視野に収まる高度まで上昇→降下）。この間 flying=true で PLATEAU を
+//   完全停止＝デコード/GPU転送が飛行アニメと帯域を取り合わない（検索フライトのカクつきの根治）。
+// ③着地の瞬間に PLATEAU 解禁→北向きのままチルトだけ起こす＝ビルが立ち上がる様が着陸の演出になる。
 // ユーザーのドラッグ/ホイールで即中断＝主導権は常に人（自動演出が操作と喧嘩しない）。
 let flight = null;
 function flyTo(lon, lat, zoom, tiltDeg) {
 	if (flight) flight.cancel();
-	const z0 = cam.zoom, z1 = zoom, lon0 = cam.center[0], lat0 = cam.center[1];
-	let dLon = lon - lon0; dLon -= Math.round(dLon / 360) * 360;   // 最短経路（antimeridian 安全側）
-	const dLat = lat - lat0, dist = Math.hypot(dLon, dLat);
-	const zFit = Math.log2(360 / Math.max(0.01, dist * 2.2));              // 行程全体が視野に入るズーム（概算）
-	const bump = Math.min(z0, z1) - Math.max(2, Math.min(Math.min(z0, z1), zFit));   // 巡航高度までの上昇量（≥0。z2=全球が床）
-	// 着地チルト：呼び出し側の指定（自然地名=55°等）＞ z14+着地の既定45°。既に深く傾けているなら維持。
-	const p0 = cam.pitch;
-	const p1 = tiltDeg != null ? Math.max(p0, Math.min(MAXPITCH, tiltDeg * D2R))
-		: (z1 >= 14 && p0 < 30 * D2R) ? 45 * D2R : p0;
-	const dur = Math.min(4000, 900 + dist * 90 + bump * 220);              // 距離と上昇量で 0.9〜4 秒
-	const t0 = performance.now();
 	let cancelled = false;
-	flight = { cancel: () => { cancelled = true; flight = null; } };
-	const step = () => {
-		if (cancelled) return;
-		const k = Math.min(1, (performance.now() - t0) / dur);
-		const e = k * k * (3 - 2 * k);                                     // smoothstep＝入りも抜きも柔らかい
-		cam.center = [lon0 + dLon * e, lat0 + dLat * e];
-		cam.zoom = z0 + (z1 - z0) * e - bump * Math.sin(Math.PI * e);
-		cam.pitch = p0 + (p1 - p0) * Math.max(0, (e - 0.6) / 0.4);
-		onMove();
-		if (k < 1) requestAnimationFrame(step);
-		else { flight = null; onMove(); }                                  // 着地＝settle で saveView（共有URL確定）
+	flight = { cancel: () => { cancelled = true; flying = false; flight = null; } };
+	flying = true;
+	// 着地チルト：指定（自然地名=55°等）＞ z14+着地の既定45°。出発時の姿勢に依存しない＝毎回同じ振り付け
+	const p1 = tiltDeg != null ? Math.min(MAXPITCH, tiltDeg * D2R) : (zoom >= 14 ? 45 * D2R : 0);
+	const tween = (ms, apply, done) => {
+		const t0 = performance.now();
+		const step = () => {
+			if (cancelled) return;
+			const k = Math.min(1, (performance.now() - t0) / ms), e = k * k * (3 - 2 * k);   // smoothstep
+			apply(e); onMove();
+			if (k < 1) requestAnimationFrame(step); else done();
+		};
+		requestAnimationFrame(step);
 	};
-	requestAnimationFrame(step);
+	const P0 = cam.pitch, B0 = shortBearing();
+	const flatten = (Math.abs(P0) > 0.01 || Math.abs(B0) > 0.01)
+		? done => tween(500, e => { cam.pitch = P0 * (1 - e); cam.bearing = B0 * (1 - e); }, done)
+		: done => done();
+	flatten(() => {
+		const z0 = cam.zoom, z1 = zoom, lon0 = cam.center[0], lat0 = cam.center[1];
+		let dLon = lon - lon0; dLon -= Math.round(dLon / 360) * 360;   // 最短経路（antimeridian 安全側）
+		const dLat = lat - lat0, dist = Math.hypot(dLon, dLat);
+		const zFit = Math.log2(360 / Math.max(0.01, dist * 2.2));              // 行程全体が視野に入るズーム（概算）
+		const bump = Math.min(z0, z1) - Math.max(2, Math.min(Math.min(z0, z1), zFit));   // 巡航高度までの上昇量（≥0。z2=全球が床）
+		const dur = Math.min(4000, 900 + dist * 90 + bump * 220);              // 距離と上昇量で 0.9〜4 秒
+		tween(dur, e => {
+			cam.center = [lon0 + dLon * e, lat0 + dLat * e];
+			cam.zoom = z0 + (z1 - z0) * e - bump * Math.sin(Math.PI * e);
+		}, () => {
+			flying = false;   // 着地＝PLATEAU 解禁（次の onMove から autoPlateau が動く）
+			if (p1 < 0.01) { flight = null; onMove(); return; }
+			tween(700, e => { cam.pitch = p1 * e; }, () => { flight = null; onMove(); });   // 北向きのまま起こす
+		});
+	});
 }
 createSearch({ onGo: flyTo });
 window.__fly = flyTo;   // デバッグ/検証用（__cam の飛行版）
