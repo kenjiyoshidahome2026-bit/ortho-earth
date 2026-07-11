@@ -1,5 +1,5 @@
 {
-	"name": "ortho-japan-app",
+	"name": "ortho-japan",
 	"version": "0.0.1",
 	"private": true,
 	"type": "module",
@@ -10,7 +10,7 @@
 		"preview:prod": "vite build && rm -rf dist/site/japan/moj-local && wrangler dev"
 	},
 	"dependencies": {
-		"ortho-japan": "*",
+		"ortho-core": "*",
 		"geopbf": "*",
 		"altpbf": "*",
 		"@loaders.gl/core": "^4.3.0",

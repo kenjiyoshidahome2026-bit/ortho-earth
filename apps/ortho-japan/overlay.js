@@ -3,7 +3,7 @@
 // グローバルに手を伸ばさない。
 // e-Stat 経路は estatworker.js で全処理（fetch/gunzip/行parse/ジオメトリ生成/identify）＝mainをブロックしない。
 // geopbf 経路（loadOverlay）は従来通り main＝identify は findPolygon 相当（pointInFeature）のJSレイキャスト。
-import { unproject, cameraState, buildGeoJSONOverlay, pointInFeature } from "ortho-japan";
+import { unproject, cameraState, buildGeoJSONOverlay, pointInFeature } from "ortho-core";
 import { geopbf } from "geopbf";
 
 export function createOverlay({ renderer, cam, size, dpr, requestDraw }) {

@@ -7,14 +7,14 @@ document.body.style.visibility = "visible";   // 開幕＝上のCSS importの注
 import {
 	evalExpr, parseRGBA, cameraState, unproject, buildGeoJSONOverlay,
 	createFlight, shortBearingOf, parseViewHash, buildViewHash, wrapLon, createInput,
-} from "ortho-japan";
+} from "ortho-core";
 import { createGeopbf, geopbf } from "geopbf";
 import { createGetHeight, setApiUrl as setAltApiUrl } from "altpbf";
 createGeopbf("https://api.ortho-earth.com");   // bucket 基盤（標高と同じ）。読み出しはキー不要
 import style from "./style-mono.js";
 import { createThemes, defaultLayerState, CHOME_MINZOOM, RAILTR_MINZOOM } from "./themes.js";
 import { createOverlay } from "./overlay.js";
-import { createPipeline } from "ortho-japan";   // tile/scene worker のスポーンごとエンジン側
+import { createPipeline } from "ortho-core";   // tile/scene worker のスポーンごとエンジン側
 import { createSearch } from "./search.js";
 import { createPlateauDb } from "./plateaudb.js";
 

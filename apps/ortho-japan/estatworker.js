@@ -1,7 +1,7 @@
 // e-Stat 小地域 worker：fetch→gunzip→行単位JSON.parse→fan/線ジオメトリ生成、までを main から追い出す。
 // 東京23区で数千ポリゴン＝main でやると数百ms ブロックしていた。identify（点in面）もここで実行＝
 // feature 実体は worker に住み、main へは typed array（transfer）とヒット時の properties しか渡らない。
-import { buildGeoJSONOverlay, pointInFeature } from "ortho-japan";
+import { buildGeoJSONOverlay, pointInFeature } from "ortho-core";
 
 let features = null, origin = [138, 37];
 
