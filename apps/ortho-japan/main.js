@@ -3,6 +3,7 @@
 import "quiet-mono/tokens.scss";
 import "quiet-mono/components.scss";
 import "./style.scss";
+document.body.style.visibility = "visible";   // 開幕＝上のCSS importの注入が済んだ直後（critical styleのvisibility:hiddenを解く）
 import {
 	evalExpr, parseRGBA, cameraState, unproject, buildGeoJSONOverlay,
 	createFlight, shortBearingOf, parseViewHash, buildViewHash, wrapLon, createInput,
