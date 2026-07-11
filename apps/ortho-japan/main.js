@@ -5,7 +5,7 @@ import "quiet-mono/components.scss";
 import "./style.scss";
 import {
 	evalExpr, parseRGBA, cameraState, unproject, buildGeoJSONOverlay,
-	createFlight, shortBearingOf, parseViewHash, buildViewHash, wrapLon,
+	createFlight, shortBearingOf, parseViewHash, buildViewHash, wrapLon, createInput,
 } from "ortho-japan";
 import { createGeopbf, geopbf } from "geopbf";
 import { createGetHeight, setApiUrl as setAltApiUrl } from "altpbf";
@@ -575,75 +575,16 @@ new ResizeObserver(resize).observe(mapEl);   // #map のサイズ変化に追随
 resize();
 
 // --- 操作：左ドラッグ=パン / 右(or Shift/Ctrl)ドラッグ=チルト+方位 / ホイール=ズーム ---
-let drag = null;
-// ポインタ座標は常に canvas ローカルへ変換＝#map が body のどこに置かれても（埋め込みでも）幾何が狂わない
-const evXY = e => { const r = canvas.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
-canvas.addEventListener("contextmenu", e => e.preventDefault());
-canvas.addEventListener("pointerdown", e => {
-	flightCtl.cancel();   // 掴んだ瞬間フライト中断＝主導権は人
-	const [x, y] = evXY(e);
-	drag = { x, y, x0: x, y0: y, tilt: e.button === 2 || e.shiftKey || e.ctrlKey };
-	canvas.setPointerCapture(e.pointerId);
+// --- 入力（パン/チルト/ホイール/アンカー）：実装は engine（input.js＝grab+レート併走・縁縮退対策の結晶）。
+// ここは日本アプリ固有の反応だけ注入：クリック→identify（基図overlay＋知性gint）、ホバー→gintの筆識別、
+// ジェスチャ開始→フライト中断（主導権は常に人）。z範囲＝1(宇宙の余白)〜19(z20はタイルの切れ目が目立つ)。
+const input = createInput({
+	canvas, cam, size, dpr, maxPitch: MAXPITCH, zoomMin: 1, zoomMax: 19, onMove,
+	onGesture: () => flightCtl.cancel(),
+	onClick: (x, y) => { overlay.identifyAt(x, y); if (gintInteractive) gintWorker.postMessage({ type: "click", x, y }); },
+	onHover: (x, y) => { if (gintInteractive) gintWorker.postMessage({ type: "move", x, y }); },
 });
-canvas.addEventListener("pointerup", e => {
-	const [x, y] = evXY(e);
-	if (drag && !drag.tilt && Math.hypot(x - drag.x0, y - drag.y0) < 4) { overlay.identifyAt(x, y); if (gintInteractive) gintWorker.postMessage({ type: "click", x, y }); }   // 動いていない＝クリック→identify（基図overlay＋知性gint。海岸線=非interactiveは gint 識別しない）
-	drag = null;
-});
-canvas.addEventListener("pointermove", e => {
-	const [ex, ey] = evXY(e);
-	if (!drag) { if (gintInteractive) gintWorker.postMessage({ type: "move", x: ex, y: ey }); return; }   // ホバー→知性の層で筆を識別（海岸線=非interactiveはホバー無視）
-	const dxp = ex - drag.x, dyp = ey - drag.y;
-	if (drag.tilt) {
-		cam.bearing += dxp * 0.006;
-		cam.pitch = Math.max(0, Math.min(MAXPITCH, cam.pitch + dyp * 0.005));
-	} else {
-		// パン＝「つかんだ地点をカーソル下に保つ」(grab-point)。ただし球の縁では幾何が縮退する（光線が
-		// 球を外す＝unproject null で凍る／縁際でヤコビアン爆発＝すっぽ抜け）。レート方式(ピクセル差∝回転)を
-		// 併走させ、①球外れ時のフォールバック ②縁の爆発の頭打ち に使う＝低ズーム/縁でも張り付かない。
-		const st = cameraState(cam, size.w, size.h);
-		const a = unproject(st, drag.x * dpr, drag.y * dpr), b = unproject(st, ex * dpr, ey * dpr);
-		const degPerPx = 360 / (Math.pow(2, cam.zoom) * 512);                        // ズームでの1CSSpx当たり経度（概算）
-		const rLon = -dxp * degPerPx / Math.max(0.2, Math.cos(cam.center[1] * D2R)); // レート方式（高緯度ほど経度を伸ばす）
-		const rLat = dyp * degPerPx;
-		let dLon = rLon, dLat = rLat;                                                // 既定＝レート（球外れ時のフォールバック）
-		if (a && b) {
-			const gLon = -(b[0] - a[0]), gLat = -(b[1] - a[1]);                      // grab-point（正確）
-			if (Math.hypot(gLon, gLat) <= Math.hypot(rLon, rLat) * 6) { dLon = gLon; dLat = gLat; }  // 暴れてなければ採用、縁の爆発はレートへ退避
-		}
-		cam.center[0] += dLon;
-		cam.center[1] = Math.max(-85, Math.min(85, cam.center[1] + dLat));
-	}
-	drag.x = ex; drag.y = ey;
-	onMove();
-});
-// カーソル下の地点を固定したままカメラ変更を適用（ズーム/軸回転の中心＝マウス）。チルト時も unproject で正確。
-// アンカーが取れない（空/地平線の向こう）または補正が画面スパン超（地平線際の遠地点を掴んだ＝1目盛りで
-// 数十km飛ぶ）時は補正を捨て、画面中心の回転/ズームへ退避＝パンのレート併走と同じ「暴れたら大人しい方」。
-function anchoredAt(px, py, mutate) {   // px/py＝canvasローカルCSS座標
-	const st0 = cameraState(cam, size.w, size.h);
-	const a = unproject(st0, px * dpr, py * dpr);
-	mutate();
-	if (a) {
-		const st1 = cameraState(cam, size.w, size.h);
-		const b = unproject(st1, px * dpr, py * dpr);
-		const spanDeg = 360 / (Math.pow(2, cam.zoom) * 512) * Math.max(size.w, size.h);   // 画面いっぱい分の度数（概算）
-		if (b && Math.hypot(a[0] - b[0], a[1] - b[1]) <= spanDeg) {
-			cam.center[0] += a[0] - b[0];
-			cam.center[1] = Math.max(-85, Math.min(85, cam.center[1] + a[1] - b[1]));
-		}
-	}
-	onMove();
-}
-// 回転修飾キー：Macは⌘（ctrl+wheelはトラックパッドのピンチ＝ズームに温存）、Mac以外は⌘が無いのでCtrl。
-const ROTKEY_IS_META = /Mac/.test(navigator.platform);
-canvas.addEventListener("wheel", e => {
-	e.preventDefault();
-	flightCtl.cancel();   // ホイールでもフライト中断
-	const [wx, wy] = evXY(e);
-	if (ROTKEY_IS_META ? e.metaKey : e.ctrlKey) anchoredAt(wx, wy, () => { cam.bearing += e.deltaY * 0.01; });   // 軸回転（⌘/Ctrl＋ホイール）
-	else anchoredAt(wx, wy, () => { cam.zoom = Math.max(1, Math.min(19, cam.zoom - e.deltaY * 0.002)); });  // ズーム（z1=宇宙の余白〜z19。16超はベクタのオーバーズーム（z20はタイルの切れ目が目立つため19まで））
-}, { passive: false });
+const evXY = input.evXY;   // 座標読み取り（計器）も同じローカル変換を使う
 
 // --- 座標読み取り（左下）：2段テーブル＝上段ラベル「経度・緯度・標高・z値・傾度」/下段数値（attr右下の複数段と対に）。
 // zoom はここ（z値列）が持つ＝スケールバーは距離のみ。表示更新は rAF に畳む＝hot path を汚さない。
