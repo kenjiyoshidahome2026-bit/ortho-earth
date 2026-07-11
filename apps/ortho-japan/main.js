@@ -27,11 +27,11 @@ const mapEl = document.getElementById("map");
 // reload=true で「再読み込み」ボタン付き。fatal は紙色の全面＝地図の世界観のまま静かに伝える。
 function fatalOverlay(title, detail, reload) {
 	const d = document.createElement("div");
-	d.style.cssText = "position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:#f6f6f4;z-index:99;padding:24px;";
-	d.innerHTML = `<div style="max-width:540px;font-family:system-ui,sans-serif;color:#333;line-height:1.9">
-		<div style="font-size:18px;font-weight:600;margin-bottom:10px">${title}</div>
-		<div style="font-size:14px;color:#555">${detail}</div>
-		${reload ? '<button style="margin-top:18px;padding:9px 22px;font-size:14px;border:1px solid #bbb;border-radius:8px;background:#fff;cursor:pointer" onclick="location.reload()">再読み込み</button>' : ""}</div>`;
+	d.id = "fatal";   // スタイルは style.css（#fatal）。最後に起きる事件＝最後の append＝DOM順で最上面
+	d.innerHTML = `<div class="fatal-box">
+		<div class="fatal-title">${title}</div>
+		<div class="fatal-detail">${detail}</div>
+		${reload ? '<button class="fatal-reload" onclick="location.reload()">再読み込み</button>' : ""}</div>`;
 	mapEl.appendChild(d);
 	return d;
 }
@@ -47,7 +47,7 @@ function fatalOverlay(title, detail, reload) {
 }
 // 通信断トースト：offline イベント＋タイル連続失敗で表示、回復（online/タイル成功）で消える。地図は粗い下地で生き続ける。
 const netEl = document.createElement("div");
-netEl.style.cssText = "position:absolute;top:12px;left:50%;transform:translateX(-50%);font-size:13px;color:#7a3b2e;background:rgba(255,250,246,.95);border:1px solid #d9b8a8;padding:7px 16px;border-radius:8px;display:none;z-index:9;font-family:system-ui,sans-serif;";
+netEl.id = "net-toast";   // スタイルは style.css
 netEl.textContent = "地図データの取得に失敗しています（通信状態をご確認ください）";
 mapEl.appendChild(netEl);
 let tileFails = 0;
@@ -84,7 +84,7 @@ const renderer = {
 	draw: (cam, opts) => renderWorker.postMessage({ type: "draw", cam, opts }),
 };
 const elevEl = document.createElement("div");
-elevEl.style.cssText = "position:absolute;bottom:76px;left:10px;font-size:12px;color:#4a5568;background:rgba(255,255,255,.85);padding:5px 11px;border-radius:6px;-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);display:none;z-index:6;";   // bottom:44 は PLATEAU 進捗の席
+elevEl.id = "elev-toast";   // スタイルは style.css
 mapEl.appendChild(elevEl);
 // 等高線(真俯瞰の茶線)・測量点標高・地形読込表示は「地形」チップ(layerState.chikei)に統合＝独立トグル無し。
 // zoom/tileのデバッグログ(#log)はユーザー向けチップから切り離し常時非表示（必要なら devtools で #log を出す）。
@@ -187,7 +187,7 @@ function workerLoadPlateau(base, tiles, name, wardBbox) {
 // PLATEAU 読込進捗（左下）：地区別のバッチ進捗を1行に集計。ネットワーク経路（初回訪問）だけ表示され、
 // メモリ/IDBキャッシュ命中時は一瞬で終わるので出ない。消灯は ack（完了/失敗）で行う。
 const plateauEl = document.createElement("div");
-plateauEl.style.cssText = "position:absolute;bottom:44px;left:10px;font-size:12px;color:#4a5568;background:rgba(255,255,255,.85);padding:5px 11px;border-radius:6px;-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);display:none;z-index:6;";
+plateauEl.id = "plateau-toast";   // スタイルは style.css
 mapEl.appendChild(plateauEl);
 const plateauProg = new Map();   // name → { scan } | { done, total }（scan＝カタログ走査中の枚数）
 function renderPlateauProg() {

@@ -8,8 +8,8 @@ import { geopbf } from "geopbf";
 
 export function createOverlay({ renderer, cam, size, dpr, requestDraw }) {
 	const identEl = document.createElement("div");
-	identEl.style.cssText = "position:fixed;top:44px;left:10px;max-width:340px;font-size:12px;color:#334;background:rgba(255,255,255,.82);padding:6px 10px;border-radius:6px;-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);white-space:pre-wrap;z-index:6;display:none;";
-	document.body.appendChild(identEl);
+	identEl.id = "ident";   // スタイルは style.css（#map 配下に後置＝DOM順で上）
+	(document.getElementById("map") || document.body).appendChild(identEl);
 	// 空のままだと padding+背景が「小さな空箱」として常時見えてしまう＝中身がある時だけ表示
 	const say = t => { identEl.textContent = t; identEl.style.display = t ? "block" : "none"; };
 	let overlayFeatures = null, overlayOrigin = [138, 37];   // geopbf 経路（main側identify）用
