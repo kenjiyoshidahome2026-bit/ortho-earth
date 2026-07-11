@@ -20,13 +20,9 @@
 	<meta name="twitter:card" content="summary_large_image">
 </head>
 <body>
-	<!-- 地図一式は #map 配下＝body の一部（任意サイズのdiv）として埋め込める。UIは全て #map 基準の absolute -->
-	<div id="map">
-	<canvas id="c"></canvas>
-	<canvas id="gint"></canvas>
-	<canvas id="labels"></canvas>
-	<!-- UI（ヒント・検索・チップ・計器盤…）は gadgets/ が JS で生やす＝DOM自給（1行API化の前段） -->
-	</div>
-	<script type="module" src="./main.js"></script>
+	<script type="module">
+		import orthoJapan from "./app.js";
+		orthoJapan();   // 1行＝日本が立ち上がる（divも自作。埋め込みは orthoJapan({ target: "#…" })）
+	</script>
 </body>
 </html>

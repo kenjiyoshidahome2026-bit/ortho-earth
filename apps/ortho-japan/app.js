@@ -3,7 +3,6 @@
 import "quiet-mono/tokens.scss";
 import "quiet-mono/components.scss";
 import "./style.scss";
-document.body.style.visibility = "visible";   // 開幕＝上のCSS importの注入が済んだ直後（critical styleのvisibility:hiddenを解く）
 import {
 	evalExpr, parseRGBA, cameraState, unproject, buildGeoJSONOverlay,
 	createFlight, shortBearingOf, parseViewHash, buildViewHash, wrapLon, createInput,
@@ -19,18 +18,32 @@ import { createSearch } from "./search.js";
 import { createPlateauDb } from "./plateaudb.js";
 import { mountGadgets } from "./gadgets/mount.js";
 
+// ============================================================================================
+// ortho-japan：1行で日本が立ち上がる入口（v1 orthoMap の作法の継承）。
+//   const map = await orthoJapan();                    // body直下の #map（無ければ自作）に起動
+//   const map = await orthoJapan({ target: "#here" }); // 任意のdivへ埋め込み（idはmapに正規化＝家具規格）
+//   opts.view="#z/lat/lon..." で初期視点を上書き。戻り値＝{ cam, flyTo, renderer, mapEl }
+// ============================================================================================
+export default async function orthoJapan(opts = {}) {
+// 起動の容れ物：target指定（selector/要素）→ 無ければ既存#map → それも無ければbody直下に自作。
+// 意匠（quiet-mono）とガジェットは id="map" の家具規格で当たるため、容れ物のidはmapへ正規化する。
+const mapEl = (typeof opts.target === "string" ? document.querySelector(opts.target) : opts.target)
+	|| document.getElementById("map")
+	|| document.body.appendChild(document.createElement("div"));
+mapEl.id = "map";
+// 舞台のcanvas 3層（基図GL/知性gint/ラベル）も自給＝index.htmlは空のdivだけでよい
+for (const cid of ["c", "gint", "labels"]) { const cv = document.createElement("canvas"); cv.id = cid; mapEl.appendChild(cv); }
+
 const TILE_URL = (z, x, y) => `https://cyberjapandata.gsi.go.jp/xyz/optimal_bvmap-v1/${z}/${x}/${y}.pbf`;
 const TILE = 512, D2R = Math.PI / 180, R2D = 180 / Math.PI;
 
-mountGadgets(document.getElementById("map"));   // UI を #map に生やす＝以降の getElementById が実体を掴めるよう、全lookupの前で
+mountGadgets(mapEl);   // UI を #map に生やす＝以降の getElementById が実体を掴めるよう、全lookupの前で
 const canvas = document.getElementById("c");
 const labelCanvas = document.getElementById("labels");
 const logEl = document.getElementById("log");
 const EARTH_M = 6371000, TERR_EXAG = 1.0;   // 標高は実スケール（誇張しない＝地形を歪めない）。ラベル・地形・建物で共有
 
 // --- 初見が死なない：起動できない環境・壊れた環境を白画面でなく言葉で受け止める ---
-// 地図一式の容れ物：全UI・全オーバーレイは #map 基準（position:absolute）＝任意サイズのdivに埋め込める。
-const mapEl = document.getElementById("map");
 // reload=true で「再読み込み」ボタン付き。fatal は紙色の全面＝地図の世界観のまま静かに伝える。
 function fatalOverlay(title, detail, reload) {
 	const d = document.createElement("div");
@@ -326,7 +339,7 @@ function applyCamView(v) {
 	cam.pitch = Math.max(0, Math.min(MAXPITCH, v.pitch || 0));
 	cam.bearing = Number.isFinite(v.bearing) ? v.bearing : 0;
 }
-const bootView = parseViewHash(location.hash);
+const bootView = parseViewHash(opts.view || location.hash);
 // 前回ビューの復元（ortho-earth 本体と同じ流儀）：settle 毎に localStorage へ保存し、起動時にそこから立ち上がる。
 // IDBのPLATEAUキャッシュと合わさると「開いた瞬間に前回の街が数秒で立ち上がる」起動になる。
 const CAM_KEY = "ortho-japan.cam";   // 初デプロイ時に -poc を卒業（旧キーの移行対象ユーザーは未だ居ない）
@@ -852,3 +865,6 @@ requestAnimationFrame(frame);
 
 // 起動時に世界海岸線を自動ロード（最初から描画）。await せず発火＝基図の起動を妨げない。
 loadWorldCoast();
+
+return { cam, flyTo, renderer, mapEl };   // 呼び出し側の手綱（視点操作・飛行・描画設定）
+}

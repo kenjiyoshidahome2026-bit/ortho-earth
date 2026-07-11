@@ -3,6 +3,8 @@
    z-index は使わない＝重なりは DOM 順（静的UIは記述順・動的要素は起きた順に #map へ後置）。 */
 
 /* --- 舞台 --- */
+body { visibility: visible; }   /* 開幕＝このスタイルシートの到着そのもの（index.htmlのcritical styleのhiddenを上書き）。
+                                   JSのinlineに頼らない＝後から body.style を書き換えられても幕は開いたまま */
 #map { position: relative; width: 100%; height: 100%; overflow: hidden; }   /* 地図一式の容れ物＝任意サイズのdivに埋め込める */
 #c, #gint, #labels { position: absolute; inset: 0; width: 100%; height: 100%; }
 #c {
