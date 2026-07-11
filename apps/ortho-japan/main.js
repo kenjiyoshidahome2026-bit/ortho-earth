@@ -16,7 +16,6 @@ import { createOverlay } from "./overlay.js";
 import { createPipeline } from "ortho-japan";   // tile/scene worker のスポーンごとエンジン側
 import { createSearch } from "./search.js";
 import { createPlateauDb } from "./plateaudb.js";
-import { d3diff } from "./d3diff.js";
 
 const TILE_URL = (z, x, y) => `https://cyberjapandata.gsi.go.jp/xyz/optimal_bvmap-v1/${z}/${x}/${y}.pbf`;
 const TILE = 512, D2R = Math.PI / 180, R2D = 180 / Math.PI;
@@ -307,7 +306,6 @@ const { tiles, requestMerge } = createPipeline({
 		needsDraw = true;
 	},
 });
-window.__mergeFail = () => requestMerge.debugFail();   // テスト用：次の merge を故意に失敗させ自己修復を確認
 
 // 透視カメラ：center(注視点lon/lat), zoom(web-mercator float), pitch/bearing(rad)
 const MAXPITCH = 75 * D2R;   // 山岳ビュー(z<13)は地形が深度で自遮蔽・混成アトラスが地平線までカバー＝高チルトの根拠が揃ったので75°まで開放
@@ -519,7 +517,6 @@ async function loadN02() {
 	needsDraw = true;
 	console.log("[N02] 新幹線 描画完了");
 }
-window.__n02 = loadN02;   // 手動用
 // デバッグ用カメラジャンプ：__cam(lon, lat, zoom, pitchDeg, bearingDeg)。検証スクリプトやコンソールから任意視点へ。
 window.__cam = (lon, lat, zoom = cam.zoom, pitchDeg = cam.pitch * R2D, bearingDeg = cam.bearing * R2D) => {
 	cam.center = [lon, lat]; cam.zoom = zoom; cam.pitch = pitchDeg * D2R; cam.bearing = bearingDeg * D2R;
@@ -832,7 +829,6 @@ const overlay = createOverlay({ renderer, cam, size, dpr, requestDraw: () => { n
 window.__loadOverlay = overlay.loadOverlay;   // geopbf 名から（全球等）
 window.__loadEstat = overlay.loadEstat;
 window.__tokyo = () => overlay.loadEstat(Array.from({ length: 23 }, (_, i) => 13101 + i));   // 東京23区の小地域
-window.__d3diff = () => d3diff(cam, size);   // d3 突合：japan(mat4) vs d3.geoOrthographic の逆/順/往復 残差を zoom 掃引で
 // 初期 overlay なし（全球 land は検証用。__tokyo() や __loadOverlay(name) で任意に）
 
 function frame() {
