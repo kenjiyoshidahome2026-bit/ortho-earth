@@ -5,6 +5,7 @@ import "quiet-mono/components.scss";
 import "./style.scss";
 import {
 	evalExpr, parseRGBA, cameraState, unproject, buildGeoJSONOverlay,
+	createFlight, shortBearingOf, parseViewHash, buildViewHash, wrapLon,
 } from "ortho-japan";
 import { createGeopbf, geopbf } from "geopbf";
 import { createGetHeight, setApiUrl as setAltApiUrl } from "altpbf";
@@ -315,29 +316,9 @@ const bldColor = [0.83, 0.83, 0.82];    // 建物色（静かなグレー）
 // cam＝幾何のみ（center/zoom/pitch/bearing/dpr）＝毎フレームの draw payload（将来の worker 境界）。
 // 色（clear/land/atmo/bldColor）は静的なので setView で一度きりアップロード＝hot path から追い出す。
 const cam = { center: [139.767, 35.681], zoom: 3, pitch: 0, bearing: 0, dpr };   // 既定＝世界ビュー（初訪問時のみ。共有URL→前回ビューの順で下で復元）
-// --- 共有URL（パーマリンク）：#zoom/lat/lon[/45t][/-30r][/l=rail.river][/c] ---
-// 語順は地理院地図・OSMと同じ zoom/lat/lon。後置トークン＝ t:チルト(度) / r:方位(度) / l=点火チップのON集合 / c:等高線。
+// --- 共有URL（パーマリンク）：codec は engine（viewurl.js）。ここは起動の優先度と app 固有クランプだけ ---
 // 起動の優先度：URLハッシュ > localStorage(前回ビュー) > 既定の世界ビュー。settle 毎に replaceState で
 // 書き戻す＝アドレスバーが常に「今この視点の共有URL」（コピーするだけで人に渡る＝発表・拡散の生命線）。
-function parseViewHash(h) {
-	const p = (h || "").replace(/^#/, "").split("/").filter(Boolean);
-	if (p.length < 3) return null;
-	const zoom = +p[0], lat = +p[1], lon = +p[2];
-	if (!Number.isFinite(zoom) || !Number.isFinite(lat) || !Number.isFinite(lon)) return null;
-	const v = { zoom, lat, lon, pitch: 0, bearing: 0, layers: null, contour: false };
-	for (const t of p.slice(3)) {
-		let m;
-		if ((m = /^(-?[\d.]+)t$/.exec(t))) v.pitch = +m[1] * D2R;
-		else if ((m = /^(-?[\d.]+)r$/.exec(t))) v.bearing = +m[1] * D2R;
-		else if ((m = /^l=(.*)$/.exec(t))) v.layers = m[1] ? m[1].split(".") : [];   // l=（空）＝全チップOFF も区別する
-		else if (t === "c") v.contour = true;
-	}
-	return v;
-}
-// 経度を(-180,180]へ正規化。地球を回し続けるとlonが1周ごとに+360°累積し（正規化がどこにも無かった）、
-// シーン結合の原点相対float32の前提|Δ|≤0.4°が壊れ、基図が~44m格子に量子化される（長年の「階段バグ」の正体。
-// 実測例=保存カメラに経度5539°=139°+15周が焼かれていた）。周期関数には無害＝見た目は一切変わらない。
-const wrapLon = lon => (Number.isFinite(lon) && (lon > 180 || lon <= -180)) ? ((lon + 180) % 360 + 360) % 360 - 180 : lon;
 function applyCamView(v) {
 	cam.center = [wrapLon(v.lon), Math.max(-85, Math.min(85, v.lat))];
 	cam.zoom = Math.max(1, Math.min(19, v.zoom));
@@ -355,15 +336,10 @@ else try {
 		applyCamView({ lon: saved.center[0], lat: saved.center[1], zoom: saved.zoom, pitch: saved.pitch, bearing: saved.bearing });
 } catch { /* 壊れた保存値は無視して既定の世界ビュー */ }
 const saveCam = () => { try { localStorage.setItem(CAM_KEY, JSON.stringify({ center: cam.center, zoom: cam.zoom, pitch: cam.pitch, bearing: cam.bearing })); } catch { /* private mode 等 */ } };
-// 現在ビュー→ハッシュ。桁は lat/lon 5桁(≈1m)・zoom 2桁＝短く安定。既定と同じ項は省く＝素の視点はURLも素。
-function viewHash() {
-	const parts = [cam.zoom.toFixed(2), cam.center[1].toFixed(5), cam.center[0].toFixed(5)];
-	if (cam.pitch > 0.001) parts.push(Math.round(cam.pitch * R2D) + "t");
-	if (Math.abs(cam.bearing) > 0.001) parts.push(Math.round(cam.bearing * R2D) + "r");
-	if (JSON.stringify(layerState) !== JSON.stringify(defaultLayerState))
-		parts.push("l=" + Object.keys(layerState).filter(k => layerState[k]).join("."));
-	return "#" + parts.join("/");
-}
+// 現在ビュー→ハッシュ（codec は engine）。app 固有の後置トークン＝チップ状態 l=…
+const viewHash = () => buildViewHash(cam,
+	JSON.stringify(layerState) !== JSON.stringify(defaultLayerState)
+		? ["l=" + Object.keys(layerState).filter(k => layerState[k]).join(".")] : []);
 const saveView = () => { saveCam(); try { history.replaceState(null, "", viewHash()); } catch { /* file:// 等 */ } };
 renderer.set("view", { clear, land, atmo, bldColor, showN02: false });   // showN02＝N02交通(新幹線等)の表示。鉄道チップで切替
 // 海：水レイヤ(WA)をビュー一律にゲート＝cam.zoom<13 では描かない（＝紙の海・まだら無し）、z13+で一律点火。
@@ -604,7 +580,7 @@ let drag = null;
 const evXY = e => { const r = canvas.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
 canvas.addEventListener("contextmenu", e => e.preventDefault());
 canvas.addEventListener("pointerdown", e => {
-	if (flight) flight.cancel();   // 掴んだ瞬間フライト中断＝主導権は人
+	flightCtl.cancel();   // 掴んだ瞬間フライト中断＝主導権は人
 	const [x, y] = evXY(e);
 	drag = { x, y, x0: x, y0: y, tilt: e.button === 2 || e.shiftKey || e.ctrlKey };
 	canvas.setPointerCapture(e.pointerId);
@@ -663,7 +639,7 @@ function anchoredAt(px, py, mutate) {   // px/py＝canvasローカルCSS座標
 const ROTKEY_IS_META = /Mac/.test(navigator.platform);
 canvas.addEventListener("wheel", e => {
 	e.preventDefault();
-	if (flight) flight.cancel();   // ホイールでもフライト中断
+	flightCtl.cancel();   // ホイールでもフライト中断
 	const [wx, wy] = evXY(e);
 	if (ROTKEY_IS_META ? e.metaKey : e.ctrlKey) anchoredAt(wx, wy, () => { cam.bearing += e.deltaY * 0.01; });   // 軸回転（⌘/Ctrl＋ホイール）
 	else anchoredAt(wx, wy, () => { cam.zoom = Math.max(1, Math.min(19, cam.zoom - e.deltaY * 0.002)); });  // ズーム（z1=宇宙の余白〜z19。16超はベクタのオーバーズーム（z20はタイルの切れ目が目立つため19まで））
@@ -724,72 +700,10 @@ canvas.addEventListener("pointermove", e => { const [x, y] = evXY(e); posMouse =
 canvas.addEventListener("pointerleave", () => { posMouse = null; posEl.style.display = "none"; });
 schedulePos();   // 起動直後からスケールを出す（真俯瞰復元時。マウス無しでも updateScale は走る）
 
-// --- 球面フライト：三段の振り付け「①水平・北向きへ → ②平面のまま飛ぶ → ③着地してから起こす」。
-// ①紙地図の作法＝場所の把握はまず真俯瞰・北向きで（回転や傾きを持ったまま飛ぶと現在地を見失う）。
-// ②van Wijk 風の放物線バンプ（行程が視野に収まる高度まで上昇→降下）。この間 flying=true で PLATEAU を
-//   完全停止＝デコード/GPU転送が飛行アニメと帯域を取り合わない（検索フライトのカクつきの根治）。
-// ③着地の瞬間に PLATEAU 解禁→北向きのままチルトだけ起こす＝ビルが立ち上がる様が着陸の演出になる。
-// ユーザーのドラッグ/ホイールで即中断＝主導権は常に人（自動演出が操作と喧嘩しない）。
-let flight = null;
-function flyTo(lon, lat, zoom, tiltDeg) {
-	if (flight) flight.cancel();
-	let cancelled = false;
-	flight = { cancel: () => { cancelled = true; flying = false; flight = null; } };
-	flying = true;
-	// 着地チルト：指定（自然地名=55°等）＞ z14+着地の既定45°。出発時の姿勢に依存しない＝毎回同じ振り付け
-	const p1 = tiltDeg != null ? Math.min(MAXPITCH, tiltDeg * D2R) : (zoom >= 14 ? 45 * D2R : 0);
-	const tween = (ms, apply, done, linear) => {
-		const t0 = performance.now();
-		const step = () => {
-			if (cancelled) return;
-			const k = Math.min(1, (performance.now() - t0) / ms), e = linear ? k : k * k * (3 - 2 * k);   // 巡航はlinear（経路自体が緩急を持つ）
-			apply(e); onMove();
-			if (k < 1) requestAnimationFrame(step); else done();
-		};
-		requestAnimationFrame(step);
-	};
-	const P0 = cam.pitch, B0 = shortBearing();
-	const flatten = (Math.abs(P0) > 0.01 || Math.abs(B0) > 0.01)
-		? done => tween(500, e => { cam.pitch = P0 * (1 - e); cam.bearing = B0 * (1 - e); }, done)
-		: done => done();
-	flatten(() => {
-		// van Wijk & Nuij の厳密解（d3.interpolateZoom と同式・ρ=√2）＝ortho-map flyToFeature と同じ足取り。
-		// 旧実装の「行程全体が視野に入る高度まで上げる」放物線近似は上がりすぎ（東京→大阪でz5級）＝低ズーム滞在が
-		// 長く画面の動きが激しかった。厳密解は知覚速度一定の最適経路＝必要最小限しか上がらず、等速に感じる。
-		const z0 = cam.zoom, z1 = zoom, lon0 = cam.center[0], lat0 = cam.center[1];
-		let dLon = lon - lon0; dLon -= Math.round(dLon / 360) * 360;   // 最短経路（antimeridian 安全側）
-		const dLat = lat - lat0;
-		const rho = Math.SQRT2, rho2 = 2, rho4 = 4;
-		const wOf = z => 360 * size.w / (512 * Math.pow(2, z));        // 視野幅[deg]（CSS px基準）
-		const zOf = w => Math.log2(360 * size.w / (512 * w));
-		const w0 = wOf(z0), w1 = wOf(z1), d2 = dLon * dLon + dLat * dLat, d1 = Math.sqrt(d2);
-		let S, frameAt;   // S＝経路長（ρ単位）、frameAt(e)＝[経路割合u(0..1), 視野幅w]
-		if (d1 < 1e-6 * Math.max(w0, w1)) {   // ほぼ真上＝指数ズームのみ
-			S = Math.abs(Math.log(w1 / w0)) / rho;
-			frameAt = e => [e, w0 * Math.pow(w1 / w0, e)];
-		} else {
-			const b0 = (w1 * w1 - w0 * w0 + rho4 * d2) / (2 * w0 * rho2 * d1);
-			const b1 = (w1 * w1 - w0 * w0 - rho4 * d2) / (2 * w1 * rho2 * d1);
-			const r0 = Math.log(Math.sqrt(b0 * b0 + 1) - b0), r1 = Math.log(Math.sqrt(b1 * b1 + 1) - b1);
-			const ch0 = Math.cosh(r0), sh0 = Math.sinh(r0);
-			S = (r1 - r0) / rho;
-			frameAt = e => {
-				const s = e * S;
-				return [w0 / (rho2 * d1) * (ch0 * Math.tanh(rho * s + r0) - sh0), w0 * ch0 / Math.cosh(rho * s + r0)];
-			};
-		}
-		const dur = Math.max(700, Math.min(4000, S * 280));            // d3既定(≈250ms/単位)より一拍ゆったり・上限4秒
-		tween(dur, e => {
-			const [u, w] = frameAt(e);
-			cam.center = [lon0 + dLon * u, lat0 + dLat * u];
-			cam.zoom = Math.max(2, zOf(w));
-		}, () => {
-			flying = false;   // 着地＝PLATEAU 解禁（次の onMove から autoPlateau が動く）
-			if (p1 < 0.01) { flight = null; onMove(); return; }
-			tween(700, e => { cam.pitch = p1 * e; }, () => { flight = null; onMove(); });   // 北向きのまま起こす
-		}, true);   // 巡航はlinear＝van Wijk経路自体が緩急を持つ（smoothstepを重ねると速度が暴れる）
-	});
-}
+// --- 球面フライト：実装は engine（flight.js＝三段振り付け＋van Wijk厳密解）。ここは配線だけ。
+// onFlying＝autoPlateau のゲート（飛行中はPLATEAU完全停止・着地の瞬間に解禁＝立ち上がりが着陸の演出）。
+const flightCtl = createFlight({ cam, viewW: () => size.w, maxPitch: MAXPITCH, onMove, onFlying: f => { flying = f; } });
+const flyTo = flightCtl.flyTo;
 createSearch({ onGo: flyTo });
 window.__fly = flyTo;   // デバッグ/検証用（__cam の飛行版）
 
@@ -921,14 +835,14 @@ window.addEventListener("hashchange", () => {
 // コンパス兼リセット：3D（傾き or 回転）の時だけ表示。針は方位を指し、押すと水平・北向きへスッと戻る。
 const resetBtn = document.getElementById("reset");
 const resetSvg = resetBtn.querySelector("svg");
-const shortBearing = () => ((cam.bearing + Math.PI) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI) - Math.PI;   // 最短回転へ正規化
+const shortBearing = () => shortBearingOf(cam.bearing);   // 最短回転へ正規化（実装はengine）
 function updateCompass() {
 	const is3D = cam.pitch > 0.005 || Math.abs(shortBearing()) > 0.005;
 	resetBtn.style.display = is3D ? "flex" : "none";
 	if (is3D) resetSvg.style.transform = `rotate(${-cam.bearing * 180 / Math.PI}deg)`;
 }
 resetBtn.addEventListener("click", () => {
-	if (flight) flight.cancel();   // リセットアニメと喧嘩しない
+	flightCtl.cancel();   // リセットアニメと喧嘩しない
 	const p0 = cam.pitch, b0 = shortBearing(), t0 = performance.now(), dur = 700;   // 3D→2Dは少しゆっくり＝地面が起き上がる感覚を残す
 	const step = () => {
 		const k = Math.min(1, (performance.now() - t0) / dur), e = k * k * (3 - 2 * k);   // smoothstep

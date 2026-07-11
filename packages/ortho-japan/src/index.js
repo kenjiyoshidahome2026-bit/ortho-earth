@@ -12,6 +12,8 @@ export { buildBuildings } from "./buildings.js";
 export { fetchR10, toFloat32, sampleHeight, downsampleFlipped } from "./elevation.js";
 export { createLabelLayer } from "./labels2d.js";
 export { cameraState, project, unproject, lonlatTo3D } from "./camera.js";
+export { createFlight, shortBearingOf } from "./flight.js";
+export { parseViewHash, buildViewHash, wrapLon } from "./viewurl.js";
 export { pickZoom, visibleTiles, selectLOD } from "./tilecover.js";
 export { createTileManager } from "./tilemanager.js";
 export { mergeTiles } from "./scene.js";
