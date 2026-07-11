@@ -102,8 +102,8 @@
 /* --- 出典（右下・最も静か） --- */
 #attr {
 	position: absolute; bottom: 6px; right: 8px; font-size: 11px; line-height: 1.5; text-align: right;
-	color: #7a8; background: var(--qm-panel-faint); padding: 3px 7px; border-radius: var(--qm-r-s);
-	a { color: #567; text-decoration: none;
+	color: var(--qm-text-faint); background: var(--qm-panel-faint); padding: 3px 7px; border-radius: var(--qm-r-s);   /* 緑がかった旧#7a8はQuiet Monoに似つかわしくない＝無彩色へ */
+	a { color: var(--qm-text-dim); text-decoration: none;
 		&:hover { text-decoration: underline; } }
 }
 
