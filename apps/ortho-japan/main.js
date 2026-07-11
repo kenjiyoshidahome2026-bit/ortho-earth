@@ -655,11 +655,14 @@ canvas.addEventListener("wheel", e => {
 	else anchoredAt(e.clientX, e.clientY, () => { cam.zoom = Math.max(2, Math.min(19, cam.zoom - e.deltaY * 0.002)); });  // ズーム（z2=地球全体〜z19。16超はベクタのオーバーズーム＝潰れず街路へ）
 }, { passive: false });
 
-// --- 座標読み取り（左下）：経度・緯度・標高・zoom・チルトの順。表示更新は rAF に畳む＝hot path を汚さない。
+// --- 座標読み取り（左下）：2段テーブル＝上段ラベル「経度・緯度・標高・z値・傾度」/下段数値（attr右下の複数段と対に）。
+// zoom はここ（z値列）が持つ＝スケールバーは距離のみ。表示更新は rAF に畳む＝hot path を汚さない。
 // 標高は altpbf の getHeight（ortho-earth 本体と同じ点サンプラ）＝必要タイルをその場でオンデマンド取得
 // （R90/R10/R01 をズームで自動選択・IDB は地形アトラスと共有）。render worker のアトラス照会だと
 // 未ロード地帯が0mになる劣化版だった。onend＝タイル到着でゲートを開けて再照会（マウス静止中でも値が確定）。
 const posEl = document.getElementById("pos");
+posEl.innerHTML = "<table><thead><tr><th>経度</th><th>緯度</th><th>標高</th><th>z値</th><th>傾度</th></tr></thead><tbody><tr><td></td><td></td><td></td><td></td><td></td></tr></tbody></table>";
+const posCells = [...posEl.querySelectorAll("td")];   // [経度, 緯度, 標高, z値, 傾度]（毎フレームはtextContent更新のみ＝DOM再構築しない）
 let posMouse = null, posElev = null, posElevId = 0, posElevAt = 0, posRaf = false, getHeight = null;
 setAltApiUrl("https://api.ortho-earth.com");
 createGetHeight({ apiUrl: "https://api.ortho-earth.com", onend: () => { posElevAt = 0; schedulePos(); } })
@@ -678,7 +681,7 @@ function updateScale() {
 	const [n, v, unit] = val >= 1000 ? [256 * val / d256m, val / 1000, "km"] : [256 * val / d256m, val, "m"];
 	const decimal = (v < 10 && unit === "km") ? 1 : 0;
 	scaleBar.style.width = n.toFixed(1) + "px";
-	scaleTxt.textContent = `${comma(v.toFixed(decimal))}${unit} (z=${cam.zoom.toFixed(2)})`;
+	scaleTxt.textContent = `${comma(v.toFixed(decimal))}${unit}`;   // z値は左下テーブルへ移設＝スケールは距離だけの静かな物差し
 	scaleEl.style.display = "block";
 }
 function updatePos() {
@@ -687,9 +690,12 @@ function updatePos() {
 	if (!posMouse) return;
 	const st = cameraState(cam, size.w, size.h);
 	const ll = unproject(st, posMouse.x * dpr, posMouse.y * dpr);
-	const zt = `チルト${Math.round((cam.pitch || 0) * R2D)}°`;   // zoom はスケール(2D)側の (z=…) が持つ＝ここには出さない
-	if (!ll) { posEl.textContent = `—  ${zt}`; posElev = null; return; }   // 球外＝宇宙
-	posEl.textContent = `${ll[0].toFixed(5)}, ${ll[1].toFixed(5)}${posElev == null ? "" : `  標高${Math.round(posElev)}m`}  ${zt}`;
+	posCells[3].textContent = cam.zoom.toFixed(2);
+	posCells[4].textContent = `${Math.round((cam.pitch || 0) * R2D)}°`;
+	if (!ll) { posCells[0].textContent = posCells[1].textContent = posCells[2].textContent = "—"; posElev = null; return; }   // 球外＝宇宙
+	posCells[0].textContent = ll[0].toFixed(5);
+	posCells[1].textContent = ll[1].toFixed(5);
+	posCells[2].textContent = posElev == null ? "—" : `${Math.round(posElev)}m`;
 	if (getHeight && performance.now() - posElevAt > 150) {
 		posElevAt = performance.now();
 		const id = ++posElevId;

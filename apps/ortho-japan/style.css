@@ -42,16 +42,24 @@ html, body { margin: 0; height: 100%; background: #0b1021; color: #cdd; font: 13
 .search-empty { padding: 8px 12px; font-size: 12px; color: #999; }
 #log { position: fixed; bottom: 10px; left: 10px; z-index: 6; font-family: ui-monospace, monospace; font-size: 12px; color: #9ab; background: rgba(10,16,33,.7); padding: 6px 8px; border-radius: 6px; }
 /* 距離スケール（真俯瞰=2Dのみ・下辺中央）：ortho-map Accessories の draw_scale と同じ意匠
-   （1-2-5系列・両端ティックの横棒・上に「距離 (z=…)」・12px Verdana）。色だけ紙地図の作法に合わせる */
+   （1-2-5系列・両端ティックの横棒・上に距離・12px Verdana）。z値は左下テーブルへ移設＝距離だけの静かな物差し */
 #scale { position: fixed; bottom: 12px; left: 50%; transform: translateX(-50%); z-index: 5; display: none;
 	text-align: center; font: 12px Verdana, sans-serif; color: #4a5058; pointer-events: none; }   /* 本家と同じ下辺中央（出典は右隅3行に畳んだ＝中央は空く） */
-#scale-txt { display: block; margin-bottom: 2px; text-shadow: 0 0 3px rgba(255,255,255,.9); }
+#scale-txt { display: block; margin-bottom: -2px; text-shadow: 0 0 3px rgba(255,255,255,.9); }   /* 数字を横棒へ少し寄せる */
 #scale-bar { margin: 0 auto; height: 12px; box-sizing: border-box;
 	border-left: 1px solid currentColor; border-right: 1px solid currentColor; border-bottom: 3px solid currentColor; }
-/* マウス位置の緯度経度・zoom・チルト・標高（左下・静かな読み取り専用） */
-#pos { position: fixed; bottom: 6px; left: 10px; z-index: 6; display: none; font-family: ui-monospace, monospace;
-	font-size: 11px; color: #5a6472; background: rgba(255,255,255,.62); padding: 3px 8px; border-radius: 5px;
-	white-space: pre; pointer-events: none; }
+/* 座標読み取り（左下）＝2段テーブル：上段ラベル(経度/緯度/標高/z値/傾度)・下段数値。attr(右下)の複数段と対。
+   min-width＝各列の最大桁ぶん固定＝マウス移動で数値が変わっても枠が揺れない */
+#pos { position: fixed; bottom: 6px; left: 10px; z-index: 6; display: none;
+	background: rgba(255,255,255,.62); padding: 3px 6px 4px; border-radius: 5px; pointer-events: none; }
+#pos table { border-collapse: collapse; }
+#pos th { font: 400 9px/1.3 system-ui, sans-serif; color: #8b93a0; padding: 0 7px; text-align: center; letter-spacing: .06em; }
+#pos td { font: 11px/1.3 ui-monospace, monospace; color: #5a6472; padding: 0 7px; text-align: center; }
+#pos td:nth-child(1) { min-width: 9ch; }
+#pos td:nth-child(2) { min-width: 8ch; }
+#pos td:nth-child(3) { min-width: 5ch; }
+#pos td:nth-child(4) { min-width: 5ch; }
+#pos td:nth-child(5) { min-width: 3ch; }
 #attr { position: fixed; bottom: 6px; right: 8px; font-size: 11px; line-height: 1.5; text-align: right; color: #7a8; background: rgba(255,255,255,.55); padding: 3px 7px; border-radius: 5px; }
 #attr a { color: #567; text-decoration: none; }
 #attr a:hover { text-decoration: underline; }
