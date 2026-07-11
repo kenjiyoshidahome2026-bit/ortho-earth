@@ -54,6 +54,17 @@ export function createSearch({ onGo }) {
 	const list = document.getElementById("search-list");
 	let items = [], sel = -1, ac = null, timer = null, composing = false;
 	const close = () => { list.style.display = "none"; list.innerHTML = ""; items = []; sel = -1; };
+	// 検索履歴（オートコンプリート）：飛んだ地点だけを保存＝「検索した」でなく「行った」場所。入力が空の時に出す。
+	const HIST_KEY = "ortho-japan.searches", HIST_MAX = 8;
+	const loadHist = () => { try { return JSON.parse(localStorage.getItem(HIST_KEY) || "[]"); } catch { return []; } };
+	const saveHist = c => {
+		try {
+			const h = loadHist().filter(x => x.title !== c.title);
+			h.unshift({ title: c.title, note: c.note || "", lon: c.lon, lat: c.lat });
+			localStorage.setItem(HIST_KEY, JSON.stringify(h.slice(0, HIST_MAX)));
+		} catch { /* private mode 等 */ }
+	};
+	const showHist = () => { const h = loadHist(); h.length ? render(h, true) : close(); };
 	// Netflix式：普段は虫めがねだけ。押すと入力欄が右へ開く。空のまま外れたら畳む＝地図面を広く。
 	btn.addEventListener("click", () => {
 		if (box.classList.contains("open")) { box.classList.remove("open"); close(); input.blur(); }
@@ -68,11 +79,12 @@ export function createSearch({ onGo }) {
 		} catch (e) { if (e.name !== "AbortError") render(null); }   // 通信断も言葉で（白画面同様、黙らない）
 	}
 
-	function render(hits) {
+	function render(hits, isHist = false) {
 		list.innerHTML = ""; items = hits || []; sel = -1;
 		if (!hits) list.innerHTML = `<div class="search-empty">検索できませんでした（通信状態をご確認ください）</div>`;
 		else if (!hits.length) list.innerHTML = `<div class="search-empty">見つかりませんでした</div>`;
-		else hits.forEach((c, i) => {
+		else if (isHist) { const h = document.createElement("div"); h.className = "search-empty"; h.textContent = "最近の検索"; list.appendChild(h); }
+		if (hits?.length) hits.forEach((c, i) => {
 			const d = document.createElement("div");
 			d.className = "search-item"; d.textContent = c.title;
 			if (c.note) { const s = document.createElement("span"); s.className = "search-note"; s.textContent = c.note; d.appendChild(s); }
@@ -95,6 +107,7 @@ export function createSearch({ onGo }) {
 
 	function go(i) {
 		const c = items[i]; if (!c) return;
+		saveHist(c);   // 行った場所だけ履歴へ（次回のオートコンプリート候補）
 		input.value = c.title;
 		close(); input.blur();
 		box.classList.remove("open");   // 飛んだら畳む＝フライトの見せ場と着地の地図を広く
@@ -109,9 +122,10 @@ export function createSearch({ onGo }) {
 	const onInput = () => {
 		clearTimeout(timer);
 		const q = input.value.trim();
-		if (!q) { close(); return; }
+		if (!q) { showHist(); return; }   // 空に戻した＝履歴を出す
 		timer = setTimeout(() => query(q), 280);   // デバウンス＝タイプ中はAPIを叩かない
 	};
+	input.addEventListener("focus", () => { if (!input.value.trim()) showHist(); });   // 開いた直後も履歴
 	input.addEventListener("compositionstart", () => { composing = true; });
 	input.addEventListener("compositionend", () => { composing = false; onInput(); });
 	input.addEventListener("input", () => { if (!composing) onInput(); });
@@ -128,4 +142,12 @@ export function createSearch({ onGo }) {
 		close();
 		if (!input.value.trim()) box.classList.remove("open");   // 空のまま離れた＝アイコンへ畳む
 	}, 120));
+	// canvas はフォーカス可能要素でないため、地図をクリックしても input の blur は発火しない（＝空のまま
+	// 地図を触っても窓が畳まれないバグの正体）。検索箱の外の pointerdown で明示的に畳む。
+	document.addEventListener("pointerdown", e => {
+		if (box.contains(e.target) || !box.classList.contains("open")) return;
+		close();
+		if (!input.value.trim()) box.classList.remove("open");
+		input.blur();
+	});
 }
