@@ -25,57 +25,7 @@
 	<canvas id="c"></canvas>
 	<canvas id="gint"></canvas>
 	<canvas id="labels"></canvas>
-	<!-- 操作方法：マウス絵柄で視覚的に。×で畳むと「?」アイコンになる（地図面を広く） -->
-	<div id="hint" style="display:none"><!-- 初期非表示＝CSS/JS到着前に生の絵が出ない。表示はmain.jsの6秒ロジック -->
-		<button id="hint-close" title="閉じる">×</button>
-		<div class="hint-title">操作方法</div>
-		<div class="hint-row">
-			<svg class="mi" width="17" height="22" viewBox="0 0 24 32"><rect x="2" y="2" width="20" height="28" rx="10" fill="rgba(255,255,255,.9)" stroke="#9aa0ac" stroke-width="1.6"/><path d="M12 2 a10 10 0 0 0 -10 10 v2 h10 Z" fill="#2b3b57"/><line x1="12" y1="2" x2="12" y2="14" stroke="#9aa0ac" stroke-width="1.2"/><line x1="2" y1="14" x2="22" y2="14" stroke="#9aa0ac" stroke-width="1.2"/></svg>
-			<span>ドラッグ＝<b>移動</b></span>
-		</div>
-		<div class="hint-row">
-			<svg class="mi" width="17" height="22" viewBox="0 0 24 32"><rect x="2" y="2" width="20" height="28" rx="10" fill="rgba(255,255,255,.9)" stroke="#9aa0ac" stroke-width="1.6"/><path d="M12 2 a10 10 0 0 1 10 10 v2 h-10 Z" fill="#2b3b57"/><line x1="12" y1="2" x2="12" y2="14" stroke="#9aa0ac" stroke-width="1.2"/><line x1="2" y1="14" x2="22" y2="14" stroke="#9aa0ac" stroke-width="1.2"/></svg>
-			<span>右ドラッグ＝<b>傾き・回転</b></span>
-		</div>
-		<div class="hint-row">
-			<svg class="mi" width="17" height="22" viewBox="0 0 24 32"><rect x="2" y="2" width="20" height="28" rx="10" fill="rgba(255,255,255,.9)" stroke="#9aa0ac" stroke-width="1.6"/><line x1="2" y1="14" x2="22" y2="14" stroke="#9aa0ac" stroke-width="1.2"/><rect x="9.5" y="5.5" width="5" height="10" rx="2.5" fill="#2b3b57"/></svg>
-			<span>ホイール＝<b>ズーム</b></span>
-		</div>
-		<div class="hint-row">
-			<span class="key">⌘/Ctrl</span><span class="hint-plus">＋</span>
-			<svg class="mi" width="17" height="22" viewBox="0 0 24 32"><rect x="2" y="2" width="20" height="28" rx="10" fill="rgba(255,255,255,.9)" stroke="#9aa0ac" stroke-width="1.6"/><line x1="2" y1="14" x2="22" y2="14" stroke="#9aa0ac" stroke-width="1.2"/><rect x="9.5" y="5.5" width="5" height="10" rx="2.5" fill="#2b3b57"/></svg>
-			<span>＝<b>回転</b></span>
-		</div>
-	</div>
-	<button id="hint-btn" title="操作方法">?</button>
-	<!-- 検索はヒントより後置＝候補リストがヒントカードの上に描かれる（DOM順の裁き） -->
-	<div id="search">
-		<input id="search-in" type="search" placeholder="地名・住所を検索" autocomplete="off" spellcheck="false">
-		<button id="search-btn" title="地名・住所を検索">
-			<svg viewBox="0 0 24 24" width="17" height="17"><circle cx="10.5" cy="10.5" r="6.2" fill="none" stroke="#3f4757" stroke-width="2.2"/><line x1="15.2" y1="15.2" x2="20.5" y2="20.5" stroke="#3f4757" stroke-width="2.2" stroke-linecap="round"/></svg>
-		</button>
-		<div id="search-list"></div>
-	</div>
-	<button id="reset" title="北向き・水平に戻す">
-		<svg viewBox="0 0 40 40" width="26" height="26">
-			<polygon points="20,4 26,20 20,16.5 14,20" fill="#2b3b57"/>
-			<polygon points="20,36 26,20 20,23.5 14,20" fill="#ffffff" stroke="#9aa0ac" stroke-width="1"/>
-		</svg>
-	</button>
-	<div id="chips">
-		<button class="chip on" data-k="chimei" title="地名・行政界">地名</button>
-		<button class="chip" data-k="chikei" title="地形の名前・等高線（真俯瞰時）・水系">地形</button>
-		<button class="chip" data-k="rail">鉄道</button>
-		<button class="chip" data-k="road">道路</button>
-		<button class="chip" data-k="shisetsu">施設</button>
-		<button class="chip tool" id="btn-3ddata" title="建物3D（PLATEAU）のプレロードと削除">Plateau</button>
-	</div>
-	<div id="log">起動中…</div>
-	<div id="pos"></div>
-	<div id="scale"><span id="scale-txt"></span><div id="scale-bar"></div></div>
-	<div id="attr">出典：<a href="https://maps.gsi.go.jp/development/ichiran.html#optbv" target="_blank" rel="noopener">国土地理院最適化ベクトルタイル（提供実験）</a><br>
-		<a href="https://www.mlit.go.jp/plateau/" target="_blank" rel="noopener">国土交通省 PLATEAU</a>・<a href="https://www.eorc.jaxa.jp/ALOS/jp/dataset/aw3d30/aw3d30_j.htm" target="_blank" rel="noopener">JAXA AW3D30</a><br>
-		（各データを加工して作成）　© 2026 Kenji Yoshida</div>
+	<!-- UI（ヒント・検索・チップ・計器盤…）は gadgets/ が JS で生やす＝DOM自給（1行API化の前段） -->
 	</div>
 	<script type="module" src="./main.js"></script>
 </body>

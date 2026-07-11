@@ -17,10 +17,12 @@ import { createOverlay } from "./overlay.js";
 import { createPipeline } from "ortho-core";   // tile/scene worker のスポーンごとエンジン側
 import { createSearch } from "./search.js";
 import { createPlateauDb } from "./plateaudb.js";
+import { mountGadgets } from "./gadgets/mount.js";
 
 const TILE_URL = (z, x, y) => `https://cyberjapandata.gsi.go.jp/xyz/optimal_bvmap-v1/${z}/${x}/${y}.pbf`;
 const TILE = 512, D2R = Math.PI / 180, R2D = 180 / Math.PI;
 
+mountGadgets(document.getElementById("map"));   // UI を #map に生やす＝以降の getElementById が実体を掴めるよう、全lookupの前で
 const canvas = document.getElementById("c");
 const labelCanvas = document.getElementById("labels");
 const logEl = document.getElementById("log");
