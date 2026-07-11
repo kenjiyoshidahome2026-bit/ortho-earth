@@ -22,15 +22,17 @@ const logEl = document.getElementById("log");
 const EARTH_M = 6371000, TERR_EXAG = 1.0;   // 標高は実スケール（誇張しない＝地形を歪めない）。ラベル・地形・建物で共有
 
 // --- 初見が死なない：起動できない環境・壊れた環境を白画面でなく言葉で受け止める ---
+// 地図一式の容れ物：全UI・全オーバーレイは #map 基準（position:absolute）＝任意サイズのdivに埋め込める。
+const mapEl = document.getElementById("map");
 // reload=true で「再読み込み」ボタン付き。fatal は紙色の全面＝地図の世界観のまま静かに伝える。
 function fatalOverlay(title, detail, reload) {
 	const d = document.createElement("div");
-	d.style.cssText = "position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:#f6f6f4;z-index:99;padding:24px;";
+	d.style.cssText = "position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:#f6f6f4;z-index:99;padding:24px;";
 	d.innerHTML = `<div style="max-width:540px;font-family:system-ui,sans-serif;color:#333;line-height:1.9">
 		<div style="font-size:18px;font-weight:600;margin-bottom:10px">${title}</div>
 		<div style="font-size:14px;color:#555">${detail}</div>
 		${reload ? '<button style="margin-top:18px;padding:9px 22px;font-size:14px;border:1px solid #bbb;border-radius:8px;background:#fff;cursor:pointer" onclick="location.reload()">再読み込み</button>' : ""}</div>`;
-	document.body.appendChild(d);
+	mapEl.appendChild(d);
 	return d;
 }
 // 対応判定：このアプリの土台は WebGL2 ＋ OffscreenCanvas（GL を worker に置く設計）。無い環境では静かに案内して止まる。
@@ -45,9 +47,9 @@ function fatalOverlay(title, detail, reload) {
 }
 // 通信断トースト：offline イベント＋タイル連続失敗で表示、回復（online/タイル成功）で消える。地図は粗い下地で生き続ける。
 const netEl = document.createElement("div");
-netEl.style.cssText = "position:fixed;top:12px;left:50%;transform:translateX(-50%);font-size:13px;color:#7a3b2e;background:rgba(255,250,246,.95);border:1px solid #d9b8a8;padding:7px 16px;border-radius:8px;display:none;z-index:9;font-family:system-ui,sans-serif;";
+netEl.style.cssText = "position:absolute;top:12px;left:50%;transform:translateX(-50%);font-size:13px;color:#7a3b2e;background:rgba(255,250,246,.95);border:1px solid #d9b8a8;padding:7px 16px;border-radius:8px;display:none;z-index:9;font-family:system-ui,sans-serif;";
 netEl.textContent = "地図データの取得に失敗しています（通信状態をご確認ください）";
-document.body.appendChild(netEl);
+mapEl.appendChild(netEl);
 let tileFails = 0;
 const onTile = ok => {
 	if (ok) { tileFails = 0; if (navigator.onLine !== false) netEl.style.display = "none"; }
@@ -64,7 +66,7 @@ let dpr = Math.min(2, window.devicePixelRatio || 1);
 
 // --- render worker：GL を OffscreenCanvas で worker に置く。main は set/draw を postMessage する薄いプロキシ ---
 // transfer 後は main から canvas.width を触れないので、論理サイズ(size)を main が自前で持つ。
-const size = { w: Math.round(window.innerWidth * dpr), h: Math.round(window.innerHeight * dpr) };
+const size = { w: Math.round(mapEl.clientWidth * dpr), h: Math.round(mapEl.clientHeight * dpr) };
 canvas.width = size.w; canvas.height = size.h;             // transfer 前に初期サイズ
 labelCanvas.width = size.w; labelCanvas.height = size.h;
 const offscreen = canvas.transferControlToOffscreen();
@@ -82,8 +84,8 @@ const renderer = {
 	draw: (cam, opts) => renderWorker.postMessage({ type: "draw", cam, opts }),
 };
 const elevEl = document.createElement("div");
-elevEl.style.cssText = "position:fixed;bottom:76px;left:10px;font-size:12px;color:#4a5568;background:rgba(255,255,255,.85);padding:5px 11px;border-radius:6px;-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);display:none;z-index:6;";   // bottom:44 は PLATEAU 進捗の席
-document.body.appendChild(elevEl);
+elevEl.style.cssText = "position:absolute;bottom:76px;left:10px;font-size:12px;color:#4a5568;background:rgba(255,255,255,.85);padding:5px 11px;border-radius:6px;-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);display:none;z-index:6;";   // bottom:44 は PLATEAU 進捗の席
+mapEl.appendChild(elevEl);
 // 等高線(真俯瞰の茶線)・測量点標高・地形読込表示は「地形」チップ(layerState.chikei)に統合＝独立トグル無し。
 // zoom/tileのデバッグログ(#log)はユーザー向けチップから切り離し常時非表示（必要なら devtools で #log を出す）。
 logEl.style.display = "none";
@@ -185,8 +187,8 @@ function workerLoadPlateau(base, tiles, name, wardBbox) {
 // PLATEAU 読込進捗（左下）：地区別のバッチ進捗を1行に集計。ネットワーク経路（初回訪問）だけ表示され、
 // メモリ/IDBキャッシュ命中時は一瞬で終わるので出ない。消灯は ack（完了/失敗）で行う。
 const plateauEl = document.createElement("div");
-plateauEl.style.cssText = "position:fixed;bottom:44px;left:10px;font-size:12px;color:#4a5568;background:rgba(255,255,255,.85);padding:5px 11px;border-radius:6px;-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);display:none;z-index:6;";
-document.body.appendChild(plateauEl);
+plateauEl.style.cssText = "position:absolute;bottom:44px;left:10px;font-size:12px;color:#4a5568;background:rgba(255,255,255,.85);padding:5px 11px;border-radius:6px;-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);display:none;z-index:6;";
+mapEl.appendChild(plateauEl);
 const plateauProg = new Map();   // name → { scan } | { done, total }（scan＝カタログ走査中の枚数）
 function renderPlateauProg() {
 	if (!plateauProg.size) plateauEl.style.display = "none";
@@ -223,7 +225,7 @@ navigator.storage?.persist?.().then(ok => console.log(`[plateau] storage persist
 // 現在の画面に映る範囲をラフに見積もる（フラスタム厳密解ではなく自動ロードのゲート用）。z14+の寄った状態でしか呼ばれない＝視野は元々狭く、この近似で十分。
 function approxViewBbox(cam) {
 	const metersPerPx = 156543.03392 * Math.cos(cam.center[1] * D2R) / Math.pow(2, cam.zoom);
-	const halfM = Math.max(window.innerWidth, window.innerHeight) * 0.75 * metersPerPx;   // 対角余裕込みの半幅
+	const halfM = Math.max(size.w, size.h) / dpr * 0.75 * metersPerPx;   // 対角余裕込みの半幅
 	const dLat = halfM / 111320, dLon = dLat / Math.max(0.15, Math.cos(cam.center[1] * D2R));
 	const [lon, lat] = cam.center;
 	return [lon - dLon, lat - dLat, lon + dLon, lat + dLat];
@@ -577,7 +579,7 @@ async function loadPlateau(base, tiles, name, wardBbox) {
 }
 
 function resize() {
-	const w = window.innerWidth, h = window.innerHeight;
+	const w = mapEl.clientWidth, h = mapEl.clientHeight;
 	size.w = Math.round(w * dpr); size.h = Math.round(h * dpr);
 	// GL canvas：バッファサイズは worker が持つ（transfer 済）。main は CSS と論理サイズ(size)だけ。
 	canvas.style.width = w + "px"; canvas.style.height = h + "px";
@@ -588,25 +590,30 @@ function resize() {
 	gintWorker.postMessage({ type: "resize", width: size.w, height: size.h });
 	needsDraw = true;
 }
-window.addEventListener("resize", resize);
+new ResizeObserver(resize).observe(mapEl);   // #map のサイズ変化に追随（ウィンドウでも埋め込み先のレイアウトでも同じ経路）
 
 resize();
 
 // --- 操作：左ドラッグ=パン / 右(or Shift/Ctrl)ドラッグ=チルト+方位 / ホイール=ズーム ---
 let drag = null;
+// ポインタ座標は常に canvas ローカルへ変換＝#map が body のどこに置かれても（埋め込みでも）幾何が狂わない
+const evXY = e => { const r = canvas.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
 canvas.addEventListener("contextmenu", e => e.preventDefault());
 canvas.addEventListener("pointerdown", e => {
 	if (flight) flight.cancel();   // 掴んだ瞬間フライト中断＝主導権は人
-	drag = { x: e.clientX, y: e.clientY, x0: e.clientX, y0: e.clientY, tilt: e.button === 2 || e.shiftKey || e.ctrlKey };
+	const [x, y] = evXY(e);
+	drag = { x, y, x0: x, y0: y, tilt: e.button === 2 || e.shiftKey || e.ctrlKey };
 	canvas.setPointerCapture(e.pointerId);
 });
 canvas.addEventListener("pointerup", e => {
-	if (drag && !drag.tilt && Math.hypot(e.clientX - drag.x0, e.clientY - drag.y0) < 4) { overlay.identifyAt(e.clientX, e.clientY); if (gintInteractive) gintWorker.postMessage({ type: "click", x: e.clientX, y: e.clientY }); }   // 動いていない＝クリック→identify（基図overlay＋知性gint。海岸線=非interactiveは gint 識別しない）
+	const [x, y] = evXY(e);
+	if (drag && !drag.tilt && Math.hypot(x - drag.x0, y - drag.y0) < 4) { overlay.identifyAt(x, y); if (gintInteractive) gintWorker.postMessage({ type: "click", x, y }); }   // 動いていない＝クリック→identify（基図overlay＋知性gint。海岸線=非interactiveは gint 識別しない）
 	drag = null;
 });
 canvas.addEventListener("pointermove", e => {
-	if (!drag) { if (gintInteractive) gintWorker.postMessage({ type: "move", x: e.clientX, y: e.clientY }); return; }   // ホバー→知性の層で筆を識別（海岸線=非interactiveはホバー無視）
-	const dxp = e.clientX - drag.x, dyp = e.clientY - drag.y;
+	const [ex, ey] = evXY(e);
+	if (!drag) { if (gintInteractive) gintWorker.postMessage({ type: "move", x: ex, y: ey }); return; }   // ホバー→知性の層で筆を識別（海岸線=非interactiveはホバー無視）
+	const dxp = ex - drag.x, dyp = ey - drag.y;
 	if (drag.tilt) {
 		cam.bearing += dxp * 0.006;
 		cam.pitch = Math.max(0, Math.min(MAXPITCH, cam.pitch + dyp * 0.005));
@@ -615,7 +622,7 @@ canvas.addEventListener("pointermove", e => {
 		// 球を外す＝unproject null で凍る／縁際でヤコビアン爆発＝すっぽ抜け）。レート方式(ピクセル差∝回転)を
 		// 併走させ、①球外れ時のフォールバック ②縁の爆発の頭打ち に使う＝低ズーム/縁でも張り付かない。
 		const st = cameraState(cam, size.w, size.h);
-		const a = unproject(st, drag.x * dpr, drag.y * dpr), b = unproject(st, e.clientX * dpr, e.clientY * dpr);
+		const a = unproject(st, drag.x * dpr, drag.y * dpr), b = unproject(st, ex * dpr, ey * dpr);
 		const degPerPx = 360 / (Math.pow(2, cam.zoom) * 512);                        // ズームでの1CSSpx当たり経度（概算）
 		const rLon = -dxp * degPerPx / Math.max(0.2, Math.cos(cam.center[1] * D2R)); // レート方式（高緯度ほど経度を伸ばす）
 		const rLat = dyp * degPerPx;
@@ -627,19 +634,19 @@ canvas.addEventListener("pointermove", e => {
 		cam.center[0] += dLon;
 		cam.center[1] = Math.max(-85, Math.min(85, cam.center[1] + dLat));
 	}
-	drag.x = e.clientX; drag.y = e.clientY;
+	drag.x = ex; drag.y = ey;
 	onMove();
 });
 // カーソル下の地点を固定したままカメラ変更を適用（ズーム/軸回転の中心＝マウス）。チルト時も unproject で正確。
 // アンカーが取れない（空/地平線の向こう）または補正が画面スパン超（地平線際の遠地点を掴んだ＝1目盛りで
 // 数十km飛ぶ）時は補正を捨て、画面中心の回転/ズームへ退避＝パンのレート併走と同じ「暴れたら大人しい方」。
-function anchoredAt(clientX, clientY, mutate) {
+function anchoredAt(px, py, mutate) {   // px/py＝canvasローカルCSS座標
 	const st0 = cameraState(cam, size.w, size.h);
-	const a = unproject(st0, clientX * dpr, clientY * dpr);
+	const a = unproject(st0, px * dpr, py * dpr);
 	mutate();
 	if (a) {
 		const st1 = cameraState(cam, size.w, size.h);
-		const b = unproject(st1, clientX * dpr, clientY * dpr);
+		const b = unproject(st1, px * dpr, py * dpr);
 		const spanDeg = 360 / (Math.pow(2, cam.zoom) * 512) * Math.max(size.w, size.h);   // 画面いっぱい分の度数（概算）
 		if (b && Math.hypot(a[0] - b[0], a[1] - b[1]) <= spanDeg) {
 			cam.center[0] += a[0] - b[0];
@@ -653,8 +660,9 @@ const ROTKEY_IS_META = /Mac/.test(navigator.platform);
 canvas.addEventListener("wheel", e => {
 	e.preventDefault();
 	if (flight) flight.cancel();   // ホイールでもフライト中断
-	if (ROTKEY_IS_META ? e.metaKey : e.ctrlKey) anchoredAt(e.clientX, e.clientY, () => { cam.bearing += e.deltaY * 0.01; });   // 軸回転（⌘/Ctrl＋ホイール）
-	else anchoredAt(e.clientX, e.clientY, () => { cam.zoom = Math.max(2, Math.min(19, cam.zoom - e.deltaY * 0.002)); });  // ズーム（z2=地球全体〜z19。16超はベクタのオーバーズーム＝潰れず街路へ）
+	const [wx, wy] = evXY(e);
+	if (ROTKEY_IS_META ? e.metaKey : e.ctrlKey) anchoredAt(wx, wy, () => { cam.bearing += e.deltaY * 0.01; });   // 軸回転（⌘/Ctrl＋ホイール）
+	else anchoredAt(wx, wy, () => { cam.zoom = Math.max(2, Math.min(19, cam.zoom - e.deltaY * 0.002)); });  // ズーム（z2=地球全体〜z19。16超はベクタのオーバーズーム＝潰れず街路へ）
 }, { passive: false });
 
 // --- 座標読み取り（左下）：2段テーブル＝上段ラベル「経度・緯度・標高・z値・傾度」/下段数値（attr右下の複数段と対に）。
@@ -708,7 +716,7 @@ function updatePos() {
 	}
 }
 const schedulePos = () => { if (!posRaf) { posRaf = true; requestAnimationFrame(updatePos); } };
-canvas.addEventListener("pointermove", e => { posMouse = { x: e.clientX, y: e.clientY }; posEl.style.display = "block"; schedulePos(); });
+canvas.addEventListener("pointermove", e => { const [x, y] = evXY(e); posMouse = { x, y }; posEl.style.display = "block"; schedulePos(); });
 canvas.addEventListener("pointerleave", () => { posMouse = null; posEl.style.display = "none"; });
 schedulePos();   // 起動直後からスケールを出す（真俯瞰復元時。マウス無しでも updateScale は走る）
 

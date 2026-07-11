@@ -22,7 +22,7 @@ export function createPlateauDb({ getSets, idbList, idbDelete, preload, show }) 
 				<input id="pdb-filter" type="search" placeholder="市区町村名で絞り込み" autocomplete="off" spellcheck="false">
 				<div id="pdb-list"></div>
 			</div>`;
-		document.body.appendChild(root);
+		(document.getElementById("map") || document.body).appendChild(root);   // #map 配下＝埋め込み時もモーダルが地図領域に収まる
 		listEl = root.querySelector("#pdb-list"); sumEl = root.querySelector("#pdb-sum"); filterEl = root.querySelector("#pdb-filter");
 		root.addEventListener("pointerdown", e => { if (e.target === root) close(); });   // 背景クリックで閉じる
 		root.querySelector("#pdb-close").addEventListener("click", close);
