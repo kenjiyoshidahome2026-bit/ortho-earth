@@ -97,8 +97,8 @@ export function createPlateauDb({ getSets, idbList, idbDelete, preload, show }) 
 		// 端末のオリジン割当（クォータ）を添える＝デモ前の仕込みで残り容量を見ながら判断できる。取れない環境は地区合計のみ。
 		const est = await navigator.storage?.estimate?.().catch(() => null);
 		const fmtGB = b => b >= 1073741824 ? (b / 1073741824).toFixed(b >= 10737418240 ? 0 : 1) + "GB" : fmtMB(b) || "0MB";
-		sumEl.textContent = `キャッシュ済み ${cached.size} 地区 ・ 約${fmtGB(total)}`
-			+ (est?.quota ? `（端末割当 ${fmtGB(est.quota)}・使用 ${fmtGB(est.usage || 0)}）` : "");
+		sumEl.innerHTML = `キャッシュ済み ${cached.size} 地区 ・ 約${fmtGB(total)}`   // 挿入値は全て数値生成＝innerHTML可（<br>で2行に）
+			+ (est?.quota ? `<br>（端末割当 ${fmtGB(est.quota)}・使用 ${fmtGB(est.usage || 0)}）` : "");
 		for (const r of rows.values()) renderRow(r);
 		onProg(lastProg);   // 進行中の行は進捗表示を優先で上書き
 	}
