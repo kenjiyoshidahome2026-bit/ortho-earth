@@ -146,7 +146,10 @@ class GeoPBF {
 		if (!this._bodyPos || !this.end) return this;
 		const oldBodyPos = this._bodyPos;
 		const bodyData = this.pbf.buf.subarray(oldBodyPos, this.end);
-		const len = new TextEncoder().encode(this._name+this._description+this._license+this._attribution).length;
+		// 器の見積もりは「これから書く値」（meta優先）で。旧値で測ると、後からdescription等の
+		// 長い文字列を足した時に足りず Uint8Array.set が範囲外で落ちる。+64はフィールドタグ/varint余裕。
+		const nv = k => meta[k] !== undefined ? meta[k] : this["_" + k];
+		const len = new TextEncoder().encode(["name","description","license","attribution"].map(k => nv(k) || "").join("")).length + 64;
 		const buffer = new ArrayBuffer(this.end + len);
 		this.pbf = new Pbf(buffer);
 		this.setHead(this.keys, this.bufs, meta);
