@@ -77,5 +77,5 @@ export function createOverlay({ renderer, cam, size, dpr, requestDraw }) {
 		say(`e-Stat 小地域 読込中 (${codes.length}市区町村)…`);
 		estatWorker.postMessage({ type: "load", codes });
 	}
-	return { identifyAt, loadOverlay, loadEstat };
+	return { identifyAt, loadOverlay, loadEstat, destroy: () => estatWorker.terminate() };   // destroy＝map.destroy() から（worker外し漏れゼロの掟）
 }

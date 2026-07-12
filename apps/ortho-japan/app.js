@@ -878,6 +878,7 @@ function destroy() {
 	destroyPipeline();                           // tile/scene worker
 	renderWorker.terminate(); gintWorker.terminate();
 	plateauWorkers.forEach(w => w.terminate());
+	overlay.destroy();                           // e-Stat worker（createOverlay内で常時起動しているため忘れずに）
 	// デバッグ手はこのインスタンスの閉包を掴んだまま＝GCの錨になるので窓から下ろす
 	for (const k of ["__plateauPurge", "__moj", "__mojFile", "__sapporo", "__arakawaFit", "__coast", "__cam", "__plateau", "__fly", "__loadOverlay", "__loadEstat", "__tokyo", "__lastOrder"]) delete window[k];
 	ownMapEl ? mapEl.remove() : mapEl.replaceChildren();

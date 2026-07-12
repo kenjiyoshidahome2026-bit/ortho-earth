@@ -64,6 +64,10 @@ map.gadget("myGadget", function () { /* this = map */ });   // 自作ガジェ�
 
 > 出典：国土地理院最適化ベクトルタイル（提供実験）・国土交通省 PLATEAU・JAXA AW3D30（各データを加工して作成）
 
+## 開発
+
+UIまわりを改修したら `npm run verify:ui`（要ローカルChrome）。ガジェットスタック・起動opts・destroy・タッチ操作・狭画面の掟を headless で一括検証します（tests/*.html＝判定はページ内、scripts/verify-ui.mjs＝巡回）。
+
 ## 制約
 
 - **1ページ1地図**：家具規格（`#map` `#search` 等の id 契約）のため、複数インスタンスは非対応。

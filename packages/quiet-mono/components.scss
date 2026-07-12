@@ -127,6 +127,11 @@ body { visibility: visible; }   /* 開幕＝このスタイルシートの到着
 
 /* --- 狭画面（スマホ縦）：計器は最小限＝座標テーブルは出さない・スケールは出典の上へ逃がす。
        #pos は pointermove が inline display で開けるため !important＝狭画面の掟が勝つ（標高fetchはJS側 posOn が連動して止める） --- */
+/* --- タッチ端末：iOSは16px未満の入力にフォーカスすると画面ごと自動ズームする仕様＝検索欄だけ16pxへ --- */
+@media (pointer: coarse) {
+	#search #search-in { font-size: 16px; }
+}
+
 @media (max-width: 480px) {
 	#pos { display: none !important; }
 	#scale { bottom: calc(72px + var(--qm-safe-b)); }   /* 出典(#attr 3行＝下から約63px)の上＝中央下段の衝突を断つ */
