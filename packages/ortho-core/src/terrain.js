@@ -121,14 +121,16 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 		const radPerDevPx = 2 * Math.PI / (Math.pow(2, cam.zoom) * 512 * (cam.dpr || 1));
 		const useful = range * Math.PI / 180 / (radPerDevPx * 1.2);   // 画面が使い切れる密度（生値＝スコア用）
 		const resOf = (cx, cy) => Math.min(srcMax, useful, Math.max(512, Math.floor(4096 / Math.max(cx, cy))));
-		// 0を含む窓 [a..b]（幅≤cap）の全組合せから「票×解像度」最大を選ぶ。候補は高々 cap²×cap² 程度＝安い。
-		// 解像度は useful（画面が使い切れる密度）で頭打ち＝それ以上の精細に票を売らない→カバー率が効く。
+		// 0を含む窓 [a..b]（幅≤cap）の全組合せから「票×√解像度」最大を選ぶ。候補は高々 cap²×cap² 程度＝安い。
+		// 解像度は useful（画面が使い切れる密度）で頭打ち。√＝解像度の知覚は平方根程度の効きで、
+		// カバー欠けは「陰影が死ぬ継ぎ目」の崖＝僅差の精細のために画面の一部を切り捨てない
+		//（実例: ハドソン湾チルトで90°セル境界を跨ぐ西側18%が、2700vs2048の僅差で落ちた）。
 		let best = null;
 		for (let ax = Math.max(lox, -cap + 1); ax <= 0; ax++) for (let bx = 0; bx <= Math.min(hix, ax + cap - 1); bx++)
 			for (let ay = Math.max(loy, -cap + 1); ay <= 0; ay++) for (let by = 0; by <= Math.min(hiy, ay + cap - 1); by++) {
 				let s = 0;
 				for (const [k, v] of votes) { const [dx, dy] = k.split(",").map(Number); if (dx >= ax && dx <= bx && dy >= ay && dy <= by) s += v; }
-				const score = s * resOf(bx - ax + 1, by - ay + 1);
+				const score = s * Math.sqrt(resOf(bx - ax + 1, by - ay + 1));
 				if (!best || score > best.score) best = { ax, bx, ay, by, score };
 			}
 		const cellsX = best.bx - best.ax + 1, cellsY = best.by - best.ay + 1;
