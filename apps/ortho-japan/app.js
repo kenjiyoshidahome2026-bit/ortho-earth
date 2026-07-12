@@ -11,7 +11,7 @@ import { createGeopbf, geopbf } from "geopbf";
 import { createGetHeight, setApiUrl as setAltApiUrl } from "altpbf";
 createGeopbf("https://api.ortho-earth.com");   // bucket 基盤（標高と同じ）。読み出しはキー不要
 import style from "./style-mono.js";
-import { createThemes, defaultLayerState, isShisetsu, isChikei, CHOME_MINZOOM, RAILTR_MINZOOM } from "./themes.js";
+import { createThemes, defaultLayerState, isFacility, isTerrain, CHOME_MINZOOM, RAILTR_MINZOOM } from "./themes.js";
 import { createOverlay } from "./overlay.js";
 import { createPipeline } from "ortho-core";   // tile/scene worker のスポーンごとエンジン側
 import { createPlateauDb } from "./plateaudb.js";
@@ -27,7 +27,10 @@ import { plateau as plateauGadget } from "./gadgets/plateau.js";
 //   const map = await orthoJapan({ target: "#here" }); // 任意のdivへ埋め込み（idはmapに正規化＝家具規格）
 //   opts.view="#z/lat/lon..." で初期視点を上書き。戻り値＝{ cam, flyTo, renderer, mapEl, gadget, destroy }
 //   map.destroy()＝worker・リスナー・ループ全停止＋DOM撤去（SPAで剥がす時。IDBキャッシュは残す）
-//   opts.chips＝テーマ・チップの表示（true=全部[既定]／["chimei","rail"]等=選択的／false=出さない）
+//   opts.layers＝表示項目の固定（キー: place地名/terrain地形/rail鉄道/road道路/facility施設）：
+//     true=常時表示・false=常時非表示（どちらもチップ非搭載＝客に触らせない）、未記述=既定値から開始＋チップで選択
+//     例: { rail: true, facility: false }＝鉄道焼き付け・施設封印・残り3つは客に委ねる
+//   opts.chips＝チップ帯そのものの表示（true=搭載[既定]／false=出さない）。旧配列形式は後方互換で残存（非推奨）
 //   opts.instruments＝下部の計器盤の表示（true=全部[既定]／["pos","scale","attr","log"]から選択的／false=出さない）
 //   ★"attr"（出典）を消す場合は埋め込みページ側で出典明記が必要（README「出典表記」）
 //   opts.plateau＝建物3D（PLATEAU）機能スイッチ（true=[既定]／false=カタログ・worker・自動ロード・ガジェットごと停止）
@@ -47,7 +50,18 @@ for (const cid of ["c", "gint", "labels"]) { const cv = document.createElement("
 const TILE_URL = (z, x, y) => `https://cyberjapandata.gsi.go.jp/xyz/optimal_bvmap-v1/${z}/${x}/${y}.pbf`;
 const TILE = 512, D2R = Math.PI / 180, R2D = 180 / Math.PI;
 
-mountGadgets(mapEl, { chips: opts.chips, instruments: opts.instruments });   // UI を #map に生やす＝以降の getElementById が実体を掴めるよう、全lookupの前で
+// 表示項目の固定（opts.layers）：true/false は状態を焼き付けてチップも出さない。未記述だけが客のトグル。
+// 旧romajiキー（chimei/chikei/shisetsu）は公開済み共有URL・埋め込みの互換のため読みだけ受ける。
+const LEGACY_LAYER_KEYS = { chimei: "place", chikei: "terrain", shisetsu: "facility" };
+const normLayerKey = k => LEGACY_LAYER_KEYS[k] || k;
+const fixedLayers = {};
+if (opts.layers) for (const [k0, v] of Object.entries(opts.layers)) {
+	const k = normLayerKey(k0);
+	if (!(k in defaultLayerState)) { console.warn(`[layers] 未知のキー "${k0}"（有効: ${Object.keys(defaultLayerState).join(", ")}）`); continue; }
+	if (typeof v === "boolean") fixedLayers[k] = v;   // boolean だけが固定。それ以外は「記述無し」と同じ＝既定＋チップ
+}
+const FREE_LAYER_KEYS = Object.keys(defaultLayerState).filter(k => !(k in fixedLayers));   // 客が触れる＝URLに載る集合
+mountGadgets(mapEl, { chips: opts.chips, instruments: opts.instruments, fixedLayers });   // UI を #map に生やす＝以降の getElementById が実体を掴めるよう、全lookupの前で
 // 非搭載（chips:false / instruments:false）でも配線コードは無改造＝繋ぎ先が無ければ宙のdiv（どこにも描画されない）へ。
 const orDetached = el => el || document.createElement("div");
 const canvas = document.getElementById("c");
@@ -120,7 +134,7 @@ const renderer = {
 const elevEl = document.createElement("div");
 elevEl.id = "elev-toast";   // スタイルは style.css
 mapEl.appendChild(elevEl);
-// 等高線(真俯瞰の茶線)・測量点標高・地形読込表示は「地形」チップ(layerState.chikei)に統合＝独立トグル無し。
+// 等高線(真俯瞰の茶線)・測量点標高・地形読込表示は「地形」チップ(layerState.terrain)に統合＝独立トグル無し。
 // zoom/tileのデバッグログ(#log)はユーザー向けチップから切り離し常時非表示（必要なら devtools で #log を出す）。
 logEl.style.display = "none";
 // 起動ウォッチドッグ：最初のフレーム(frame1)が10秒来なければ原因不明でも案内を出す（健全なら1秒未満で来る）。
@@ -144,7 +158,7 @@ renderWorker.onmessage = e => {
 	}
 	if (d.type !== "elevPending") return;
 	const { count, range } = d;
-	if (count > 0 && layerState.chikei) { elevEl.style.display = "block"; elevEl.textContent = `⛰ 地形読込中 ${range === 1 ? "R01（秒単位・JAXA）" : range === 10 ? "R10" : "R90"} … ×${count}`; }
+	if (count > 0 && layerState.terrain) { elevEl.style.display = "block"; elevEl.textContent = `⛰ 地形読込中 ${range === 1 ? "R01（秒単位・JAXA）" : range === 10 ? "R10" : "R90"} … ×${count}`; }
 	else elevEl.style.display = "none";
 };
 
@@ -370,9 +384,10 @@ else try {
 } catch { /* 壊れた保存値は無視して既定の世界ビュー */ }
 const saveCam = () => { try { localStorage.setItem(CAM_KEY, JSON.stringify({ center: cam.center, zoom: cam.zoom, pitch: cam.pitch, bearing: cam.bearing })); } catch { /* private mode 等 */ } };
 // 現在ビュー→ハッシュ（codec は engine）。app 固有の後置トークン＝チップ状態 l=…
+// 固定キー(opts.layers)はURLに書かない＝そのURLを本家で開いた人には既定が適用される（埋め込み構成を持ち出さない）。
 const viewHash = () => buildViewHash(cam,
-	JSON.stringify(layerState) !== JSON.stringify(defaultLayerState)
-		? ["l=" + Object.keys(layerState).filter(k => layerState[k]).join(".")] : []);
+	FREE_LAYER_KEYS.some(k => layerState[k] !== defaultLayerState[k])
+		? ["l=" + FREE_LAYER_KEYS.filter(k => layerState[k]).join(".")] : []);
 const saveView = () => { saveCam(); try { history.replaceState(null, "", viewHash()); } catch { /* file:// 等 */ } };
 renderer.set("view", { clear, land, atmo, bldColor, showN02: false });   // showN02＝N02交通(新幹線等)の表示。鉄道チップで切替
 // 海：水レイヤ(WA)をビュー一律にゲート＝cam.zoom<13 では描かない（＝紙の海・まだら無し）、z13+で一律点火。
@@ -705,11 +720,13 @@ window.__fly = flyTo;   // デバッグ/検証用（__cam の飛行版）
 
 // テーマ・チップ状態：静かな白黒の土台は常に全部見えている。チップは主題の「文字の表示」
 // または「色の点火」を切り替えるだけ。すべて既取得データの再スタイル＝再取得・再デコードなし。
-//   chimei/chikei … 文字（注記カテゴリ）の表示ON/OFF
-//   rail/road/admin … 色の点火ON/OFF（OFFでも土台グレーは出ている）
+//   place/terrain … 文字（注記カテゴリ）の表示ON/OFF
+//   rail/road … 色の点火ON/OFF（OFFでも土台グレーは出ている）
 const layerState = { ...defaultLayerState };   // UIトグル状態は main が保持・変更（チップで反転）
-if (bootView?.layers) for (const k of Object.keys(layerState)) layerState[k] = bootView.layers.includes(k);   // 共有URLのレイヤ集合が既定を上書き（チップDOMは下の初期同期で追随）
-if (bootView?.contour) layerState.chikei = true;   // 旧URLの c（等高線トグル時代）＝地形チップに読み替え（後方互換）
+// 共有URLのレイヤ集合は「客が触れるキー」だけ上書き（旧romajiトークンは normLayerKey で読み替え）。
+if (bootView?.layers) { const urlSet = new Set(bootView.layers.map(normLayerKey)); for (const k of FREE_LAYER_KEYS) layerState[k] = urlSet.has(k); }
+if (bootView?.contour && !("terrain" in fixedLayers)) layerState.terrain = true;   // 旧URLの c（等高線トグル時代）＝地形チップに読み替え（後方互換）
+Object.assign(layerState, fixedLayers);   // 固定は最後＝共有URLでも破れない（埋め込み主の意図が勝つ）
 let styleSig = JSON.stringify(layerState);
 const themes = createThemes(style);            // 分類（allowlist）は themes.js の純関数（layerState と zoom を引数で受ける）
 
@@ -748,7 +765,7 @@ function swapScene(order) {
 		const have = new Set(allLabels.filter(L => L.code === 441).map(L => L.text));
 		for (const a of airportMarks) if (!have.has(a.text)) allLabels.push(a);
 	}
-	const filtered = themes.filterLabels(allLabels, layerState, cam.zoom, layerState.chikei);   // 地形ON＝測量点の標高数値も通す
+	const filtered = themes.filterLabels(allLabels, layerState, cam.zoom, layerState.terrain);   // 地形ON＝測量点の標高数値も通す
 	const kuVisible = filtered.some(L => L.code === 110);   // 区名が見えている＝政令市名は「背景ラベル」へ格下げする合図
 	lastLabels = filtered.map(L => {
 		// 都道府県は大きく薄い背景ラベルに（コピーしてキャッシュ側を壊さない）。他はそのまま。
@@ -759,10 +776,10 @@ function swapScene(order) {
 		if (kuVisible && SEIREI.has(L.text)) return { ...L, size: L.size * 1.2, color: [L.color[0], L.color[1], L.color[2], L.color[3] * 0.5] };
 		// 測量点(7102三角点/7201・7221標高点)は shieldFor が記号＋標高値を描く。flat=真俯瞰の作法＝傾けたら等高線と一緒に消す。
 		if (L.code === 7102 || L.code === 7201 || L.code === 7221) return { ...L, flat: true };
-		// 施設は濃い紫＝チップと同色（--qm-accent-shisetsu #6a3d9a。点火の掟：チップ色＝地図上の色）。名前は一回り小さく＝地名の脇役
-		if (layerState.shisetsu && isShisetsu(L)) return { ...L, size: L.size * 0.9, color: [0.416, 0.239, 0.604, L.color[3]] };
-		// 地形名（3xx帯）は濃い茶＝チップと同色（--qm-accent-chikei #754c24＝等高線の茶の同族）
-		if (layerState.chikei && isChikei(L.code)) return { ...L, color: [0.459, 0.298, 0.141, L.color[3]] };
+		// 施設は濃い紫＝チップと同色（--qm-accent-facility #6a3d9a。点火の掟：チップ色＝地図上の色）。名前は一回り小さく＝地名の脇役
+		if (layerState.facility && isFacility(L)) return { ...L, size: L.size * 0.9, color: [0.416, 0.239, 0.604, L.color[3]] };
+		// 地形名（3xx帯）は濃い茶＝チップと同色（--qm-accent-terrain #754c24＝等高線の茶の同族）
+		if (layerState.terrain && isTerrain(L.code)) return { ...L, color: [0.459, 0.298, 0.141, L.color[3]] };
 		return L;
 	});
 	renderer.set("labels", lastLabels);   // ラベル集合を render worker へ。標高付与(sampleElev)も terrain と一緒に worker 側で行う（同期して描く）
@@ -783,9 +800,9 @@ function swapBase(coarseOrder) {
 
 // 地形チップの GL 側副作用：等高線(真俯瞰の茶線)の表示切替と、OFF時の地形読込インジケータ消灯。
 // ラベル集合も再結合＝測量点の標高数値を即反映し、動かさなくても1枚描き直す。
-function applyChikei() {
-	renderer.set("view", { showContour: layerState.chikei });
-	if (!layerState.chikei) elevEl.style.display = "none";
+function applyTerrain() {
+	renderer.set("view", { showContour: layerState.terrain });
+	if (!layerState.terrain) elevEl.style.display = "none";
 	readySig = ""; mergeReq.main.sig = "";
 	renderer.draw(cam, { skipBase: false, noTerrain: cam.zoom < BASEMAP_MINZOOM, terrainGate: true });
 	needsDraw = true;
@@ -799,13 +816,13 @@ document.querySelectorAll(".chip").forEach(b => b.addEventListener("click", () =
 	syncChip(b);
 	styleSig = JSON.stringify(layerState); readySig = ""; needsDraw = true;
 	if (k === "rail") { renderer.set("view", { showN02: layerState.rail }); if (layerState.rail) loadN02(); }   // 鉄道ON＝N02新幹線も表示＋初回fetch
-	if (k === "chikei") applyChikei();   // 地形＝等高線・測量点標高・水系も一緒に点火
+	if (k === "terrain") applyTerrain();   // 地形＝等高線・測量点標高・水系も一緒に点火
 	saveView();   // レイヤ状態も共有URLの一部＝即書き戻す
 }));
-// 共有URL復元の初期同期：チップの見た目と rail/chikei 副作用を layerState に合わせる（既定どおりなら実質 no-op）
+// 起動時の初期同期（共有URL復元＋opts.layersの固定を含む）：チップの見た目と rail/terrain 副作用を layerState に合わせる（既定どおりなら実質 no-op）
 document.querySelectorAll(".chip[data-k]").forEach(syncChip);
 if (layerState.rail) { renderer.set("view", { showN02: true }); loadN02(); }
-renderer.set("view", { showContour: layerState.chikei });
+renderer.set("view", { showContour: layerState.terrain });
 
 // 操作方法カード（#hint）はオプトインガジェットへ移設＝gadgets/hint.js（6秒の自動表示・×の記憶ごと）。
 
@@ -815,12 +832,13 @@ window.addEventListener("hashchange", () => {
 	if (!v) return;
 	applyCamView(v);
 	if (v.layers || v.contour) {
-		if (v.layers) for (const k of Object.keys(layerState)) layerState[k] = v.layers.includes(k);
-		if (v.contour) layerState.chikei = true;   // 旧URLの c＝地形チップに読み替え（後方互換）
+		// 固定キー(opts.layers)はハッシュ手編集でも破れない＝客が触れるキーだけ反映（旧romajiトークンは読み替え）
+		if (v.layers) { const urlSet = new Set(v.layers.map(normLayerKey)); for (const k of FREE_LAYER_KEYS) layerState[k] = urlSet.has(k); }
+		if (v.contour && !("terrain" in fixedLayers)) layerState.terrain = true;   // 旧URLの c＝地形チップに読み替え（後方互換）
 		document.querySelectorAll(".chip[data-k]").forEach(syncChip);
 		styleSig = JSON.stringify(layerState); readySig = "";
 		renderer.set("view", { showN02: layerState.rail }); if (layerState.rail) loadN02();
-		applyChikei();
+		applyTerrain();
 	}
 	onMove();
 }, { signal: ac.signal });

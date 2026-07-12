@@ -159,8 +159,8 @@ body { visibility: visible; }   /* 開幕＝このスタイルシートの到着
 		&.on { background: var(--qm-ink); color: #fff; border-color: var(--qm-ink); }
 		&[data-k="rail"].on { background: var(--qm-accent-rail); border-color: var(--qm-accent-rail); }   /* チップ色＝地図上の色 */
 		&[data-k="road"].on { background: var(--qm-accent-road); border-color: var(--qm-accent-road); }
-		&[data-k="shisetsu"].on { background: var(--qm-accent-shisetsu); border-color: var(--qm-accent-shisetsu); }
-		&[data-k="chikei"].on { background: var(--qm-accent-chikei); border-color: var(--qm-accent-chikei); }
+		&[data-k="facility"].on { background: var(--qm-accent-facility); border-color: var(--qm-accent-facility); }
+		&[data-k="terrain"].on { background: var(--qm-accent-terrain); border-color: var(--qm-accent-terrain); }
 	}
 }
 

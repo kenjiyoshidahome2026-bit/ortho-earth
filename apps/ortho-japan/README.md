@@ -14,19 +14,23 @@
 | オプション | 既定 | 説明 |
 |---|---|---|
 | `target` | 自作 | 埋め込み先（セレクタ or 要素）。id は `map` に正規化される（家具規格） |
-| `view` | 前回ビュー | 初期視点 `"#zoom/lat/lon/45t/30r/l=chimei.rail"`（t=チルト°・r=回転°・l=点火レイヤ） |
-| `chips` | `true` | テーマ・チップ（右上）。`true`=全部／配列=選択的／`false`=出さない。キー: `chimei` `chikei` `rail` `road` `shisetsu` |
+| `view` | 前回ビュー | 初期視点 `"#zoom/lat/lon/45t/30r/l=place.rail"`（t=チルト°・r=回転°・l=点火レイヤ） |
+| `layers` | — | 表示項目の固定。キー: `place`(地名) `terrain`(地形) `rail`(鉄道) `road`(道路) `facility`(施設)。`true`=常時表示・`false`=常時非表示（どちらもチップ非搭載＝利用者は触れない）、未記述=既定値から開始しチップで選択。固定キーは共有URL（`l=`）でも上書きされない |
+| `chips` | `true` | テーマ・チップ帯（右上）そのものの表示。`true`=搭載（`layers` で固定したキーのボタンは出ない）／`false`=出さない。旧配列形式=選択的も後方互換で動作（非推奨） |
 | `instruments` | `true` | 下部の計器盤。`true`=全部／配列=選択的／`false`=出さない。キー: `pos`(座標) `scale`(距離) `attr`(出典) `log`(デバッグ) |
 | `plateau` | `true` | 建物3D（PLATEAU）の**機能スイッチ**。`false`=カタログ取得・worker・z14+の自動ロード・データ管理ガジェットを丸ごと停止（1地区数十〜百MB級の通信が一切発生しない） |
 
 ```js
 const map = await orthoJapan({
   target: "#here",
-  chips: ["chimei", "rail"],        // 地名と鉄道のトグルだけ
+  layers: { rail: true, facility: false },   // 鉄道は焼き付け・施設は封印（両方チップ非搭載）
+                                             // → 残る地名・地形・道路だけが利用者のトグル
   instruments: ["scale", "attr"],   // 座標表示なし（標高照会も止まる＝通信ゼロ）
   plateau: false,                   // 建物3Dを機能ごと切る＝軽量埋め込み
 });
 ```
+
+旧キー（`chimei`/`chikei`/`shisetsu`）と旧共有URLの `l=` トークンは自動で読み替えられます（書き出しは常に新キー）。
 
 戻り値 `map` ＝ `{ cam, flyTo, renderer, mapEl, gadget, destroy }`。
 

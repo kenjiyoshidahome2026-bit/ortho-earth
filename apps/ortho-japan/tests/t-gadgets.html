@@ -29,7 +29,7 @@ const sr = R("search"), lr = R("search-list");
 ok("list", document.getElementById("search-list").parentElement.id === "map"
 	&& Math.round(lr.x) === Math.round(sr.x) && Math.round(lr.y) === Math.round(sr.bottom + 4));
 // チップの aria-pressed が点火と同期（施設＝副作用fetch無しのチップで）
-const chip = document.querySelector('.chip[data-k="shisetsu"]');
+const chip = document.querySelector('.chip[data-k="facility"]');
 ok("aria0", chip.getAttribute("aria-pressed") === "false");
 chip.click();
 ok("aria1", chip.getAttribute("aria-pressed") === "true" && chip.classList.contains("on"));
