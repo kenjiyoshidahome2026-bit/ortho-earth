@@ -19,12 +19,15 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 	let pendingElev = 0;
 	function notifyPending(range) { onPending && onPending(pendingElev, range); }
 
-	// R90=超広域(8×8で覆いきる手前) / R10=中 / R01=城下。
+	// R90=全球〜大陸眺め / R10=中 / R01=城下。
+	// R90/R10境界=z5.5：R90(3.7km格子)は~z5.3まで画素以下＝十分。R10は1枚3.5-4.5MBで
+	// 広域だと6-8枚=25-35MBを一瞥の大陸に払う浪費（本人裁定「この倍率ならR90で十分」）。
+	// R90は90°角1-2枚=一度きり＝全球ぐるぐるの巡航コストがほぼゼロになる。
 	// 高チルト(>0.9rad)の山岳帯は R10 へ落とす：R01 は cap4=4° で地平線(z12で~4°先)まで届かず、
 	// 覆いの切れ目が「遠方の青い帯」になる（R10 なら広域を一括カバー＝地平線までフォグ内で連続）。
 	function selectRange(cam) {
 		const z = cam.zoom;
-		if (z < 4.5) return 90;
+		if (z < 5.5) return 90;
 		if (z < 12 || ((cam.pitch || 0) > 0.9 && z < 13)) return 10;
 		return 1;
 	}
@@ -87,30 +90,59 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 			return { range: 1, originCX: camCX - half + Math.round(fx * 2), originCY: camCY - half + Math.round(fy * 2), cellsX: cells, cellsY: cells, cellRes: 400 };
 		}
 		const st = cameraState(cam, size.w, size.h);
-		// 画面を密にサンプル（傾き時、地平線直下の"遠い地面"まで拾う）。宇宙に外れた点はnull→無視。
-		let lo0 = cam.center[0], la0 = cam.center[1], lo1 = lo0, la1 = la0;
-		const NX = 9, NY = 12;
-		for (let jy = 0; jy < NY; jy++) for (let ix = 0; ix < NX; ix++) {
-			const p = unproject(st, size.w * ix / (NX - 1), size.h * jy / (NY - 1));
+		// 「必要なセル」は画素の実需で計算する：画面を等間隔サンプルし、各サンプル（＝等しい画面面積の代表）が
+		// 落ちるセルへ1票。旧実装の min/max 窓は、地球の縁の掠りサンプル（1pxに数十km）や視界に入った極が
+		// 窓を全球規模に爆発させ、セル予算を縁へ浪費して中心の解像度を潰していた（高緯度×チルトで顕著）。
+		// 窓は「カバーした票 × セル解像度」を最大化する連続矩形（cap以内・カメラセルを必ず含む）＝
+		// 画素が多い場所ほど細かく塗られ、掠りしか見えないセルは票が少なく自然に切り捨てられる。
+		const cellsPerWorld = Math.round(360 / range);
+		const camCX = Math.floor(cam.center[0] / range), camCY = Math.floor(cam.center[1] / range);
+		const wrapDx = d => { d %= cellsPerWorld; return d > cellsPerWorld / 2 ? d - cellsPerWorld : d < -cellsPerWorld / 2 ? d + cellsPerWorld : d; };
+		const votes = new Map();   // "dx,dy"（カメラセル相対・経度は最短ラップ）→ 票
+		const NX = 24, NY = 16;
+		for (let jy = 0; jy <= NY; jy++) for (let ix = 0; ix <= NX; ix++) {
+			const p = unproject(st, size.w * ix / NX, size.h * jy / NY);
 			if (!p) continue;
-			lo0 = Math.min(lo0, p[0]); lo1 = Math.max(lo1, p[0]);
-			la0 = Math.min(la0, p[1]); la1 = Math.max(la1, p[1]);
+			const dx = wrapDx(Math.floor(p[0] / range) - camCX), dy = Math.floor(p[1] / range) - camCY;
+			const k = dx + "," + dy;
+			votes.set(k, (votes.get(k) || 0) + 1);
 		}
-		const cx0 = Math.floor(lo0 / range), cx1 = Math.floor(lo1 / range), cy0 = Math.floor(la0 / range), cy1 = Math.floor(la1 / range);
+		votes.set("0,0", (votes.get("0,0") || 0) + 1);   // カメラセルは錨（全サンプル空振りでも1×1が立つ）
 		// セル上限：R01 は近景特化で小さく高精細に（遠景まで広げると grazing で粗いメッシュの壁が出る）。
-		// R10/R90 は広域カバー優先で 8。混成（高チルト）は 1°×8 を視線方向へ寄せて地平線まで届かせる。
-		const cap = mixed ? 8 : range === 1 ? 4 : 8;
-		const cellsX = Math.min(cap, cx1 - cx0 + 1), cellsY = Math.min(cap, cy1 - cy0 + 1);
-		// センタリング：通常はカメラ中心／混成は視野スパンの中点＝見ている方向へ窓を寄せる
-		const ccx = Math.floor((mixed ? (lo0 + lo1) / 2 : cam.center[0]) / range), ccy = Math.floor((mixed ? (la0 + la1) / 2 : cam.center[1]) / range);
-		const originCX = Math.max(cx0, Math.min(cx1 - cellsX + 1, ccx - (cellsX - 1 >> 1)));
-		const originCY = Math.max(cy0, Math.min(cy1 - cellsY + 1, ccy - (cellsY - 1 >> 1)));
-		// アトラス解像度の予算：総テクスチャ辺≤4096（実用機のMAX_TEXTURE_SIZE下限）に収めつつ下限512を確保。
-		// 旧予算(2048/下限400)は広域ビュー（z~5・高緯度は経度スパンが伸びてセル数が増える）で400に張り付き、
-		// R10ソース(約900m格子=10°で~1200texel)の3倍粗く塗っていた＝陰影・段彩の甘さの原因。
-		// 上限1024＝R10ソース密度を超える水増し（アップサンプルのぼけ）はしない。
-		const cellRes = Math.min(1024, Math.max(512, Math.floor(4096 / Math.max(cellsX, cellsY))));
-		return { range, originCX, originCY, cellsX, cellsY, cellRes };
+		const cap = range === 1 ? 4 : 8;
+		let lox = 0, hix = 0, loy = 0, hiy = 0;
+		for (const k of votes.keys()) { const [dx, dy] = k.split(",").map(Number); lox = Math.min(lox, dx); hix = Math.max(hix, dx); loy = Math.min(loy, dy); hiy = Math.max(hiy, dy); }
+		// アトラス解像度の予算：総テクスチャ辺≤4096（実用機のMAX_TEXTURE_SIZE下限）・下限512・
+		// 上限①ソース密度（R90=2700/90°(3.7km)・R10=2400/10°(463m)・R01=1024運用）＝水増しのぼけをしない。
+		// 上限②画面が使い切れる密度（≈1.2 device px/texel）＝過剰割当でGPUメモリと票を浪費しない。
+		// ②は2の冪へ量子化＝ズーム微動で atlasKey が揺れて再構築が頻発しない（1オクターブ1回）。
+		// 旧予算(2048/一律400)はR90を8.8km/texelに潰し「R90の実力=3.7km」すら出ていなかった。
+		const srcMax = range === 90 ? 2700 : range === 10 ? 2400 : 1024;
+		const radPerDevPx = 2 * Math.PI / (Math.pow(2, cam.zoom) * 512 * (cam.dpr || 1));
+		const useful = range * Math.PI / 180 / (radPerDevPx * 1.2);   // 画面が使い切れる密度（生値＝スコア用）
+		const resOf = (cx, cy) => Math.min(srcMax, useful, Math.max(512, Math.floor(4096 / Math.max(cx, cy))));
+		// 0を含む窓 [a..b]（幅≤cap）の全組合せから「票×解像度」最大を選ぶ。候補は高々 cap²×cap² 程度＝安い。
+		// 解像度は useful（画面が使い切れる密度）で頭打ち＝それ以上の精細に票を売らない→カバー率が効く。
+		let best = null;
+		for (let ax = Math.max(lox, -cap + 1); ax <= 0; ax++) for (let bx = 0; bx <= Math.min(hix, ax + cap - 1); bx++)
+			for (let ay = Math.max(loy, -cap + 1); ay <= 0; ay++) for (let by = 0; by <= Math.min(hiy, ay + cap - 1); by++) {
+				let s = 0;
+				for (const [k, v] of votes) { const [dx, dy] = k.split(",").map(Number); if (dx >= ax && dx <= bx && dy >= ay && dy <= by) s += v; }
+				const score = s * resOf(bx - ax + 1, by - ay + 1);
+				if (!best || score > best.score) best = { ax, bx, ay, by, score };
+			}
+		const cellsX = best.bx - best.ax + 1, cellsY = best.by - best.ay + 1;
+		const originCX = camCX + best.ax, originCY = camCY + best.ay;
+		// 割当は useful を2の冪へ量子化＝ズーム微動で atlasKey が揺れて再構築が頻発しない（1オクターブ1回）。
+		const usefulQ = Math.pow(2, Math.ceil(Math.log2(Math.max(1, useful))));
+		const allocRes = Math.max(512, Math.min(srcMax, usefulQ, Math.max(512, Math.floor(4096 / Math.max(cellsX, cellsY)))));
+		// 窓の中でも票ゼロのセル（対角ビューの角など画面に映らないセル）はフェッチしない＝必要なタイルだけ払う。
+		const wanted = new Set();
+		for (const [k, v] of votes) {
+			const [dx, dy] = k.split(",").map(Number);
+			if (v > 0 && dx >= best.ax && dx <= best.bx && dy >= best.ay && dy <= best.by) wanted.add((dx - best.ax) + "," + (dy - best.ay));
+		}
+		return { range, originCX, originCY, cellsX, cellsY, cellRes: allocRes, wanted };
 	}
 	function ensure(cam, size) {   // 戻り値 false＝ローダ未準備で何もしていない（呼び出し側はスロットル記憶を消して再試行すること）
 		if (!loadTile) return false;
@@ -145,6 +177,7 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 		for (let cy = 0; cy < r.cellsY; cy++) for (let cx = 0; cx < r.cellsX; cx++) {
 			const ck = cx + "," + cy;
 			if (loadedCells.has(ck)) continue;
+			if (r.wanted && !r.wanted.has(ck)) { loadedCells.add(ck); continue; }   // 画面に映らないセルは取りに行かない（票ゼロ＝窓の角）
 			loadedCells.add(ck);
 			if (staging) stagePending.add(ck);
 			const cellLng = (r.originCX + cx) * range, cellLat = (r.originCY + cy) * range;

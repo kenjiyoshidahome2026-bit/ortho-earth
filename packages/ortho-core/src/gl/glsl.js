@@ -200,8 +200,12 @@ void main() {
 	// 粗い標高メッシュが海岸で作る「崖」のガタつき・平野のノイズを消す。
 	float t = smoothstep(1.0, 100.0, v_h);
 	if (t <= 0.0) discard;
-	// 北西光の hillshade（前方差分＝中央差分の半分のフェッチ。歩幅~450m、係数は2倍で従来と同ゲイン）
-	float d = 0.004;
+	// 北西光の hillshade（前方差分＝中央差分の半分のフェッチ）。
+	// 歩幅＝アトラス1texel（下限は従来の0.004°≈450m＝近景は不変）。固定歩幅はズームアウトで
+	// texel未満に落ち「鈍った勾配×小さい歩幅」で陰影がベタ灰色に消えていた（広域の塗りの甘さ）。
+	// texel差分＝アトラスが持つ最小起伏を常に同じゲインで見せる＝どのスケールでも塗りが痩せない。
+	vec2 tsz = vec2(textureSize(u_elevTex, 0));
+	float d = max(0.004, u_elevBounds.w / tsz.y);
 	float h0 = elevF(v_ll);
 	float hx = elevF(v_ll + vec2(d, 0.0)) - h0;
 	float hy = elevF(v_ll + vec2(0.0, d)) - h0;
