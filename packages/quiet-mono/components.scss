@@ -210,3 +210,13 @@ body { visibility: visible; }   /* 開幕＝このスタイルシートの到着
 	.fatal-detail { font-size: 14px; color: #555; }
 	.fatal-reload { margin-top: 18px; padding: 9px 22px; font-size: 14px; border: 1px solid #bbb; border-radius: var(--qm-r-m); background: #fff; cursor: pointer; }
 }
+
+/* --- 星空劇場（全球ビュー）：#map.world で家具が静かに退場＝地球だけを味わう ---
+   attrも含めて消す（全球はGSIタイル非描画＝出典表示義務の対象外。海岸線=Natural Earth=PD）。
+   点火/消灯はアプリ側（ortho-japan render()＝z<BASEMAP_MINZOOM で .world 付与）。 */
+#map :is(#chips, #gadgets, #search, #search-list, #hint, #log, #pos, #scale, #attr) {
+	transition: opacity .6s ease;
+}
+#map.world :is(#chips, #gadgets, #search, #search-list, #hint, #log, #pos, #scale, #attr) {
+	opacity: 0; pointer-events: none;
+}

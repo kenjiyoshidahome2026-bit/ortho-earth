@@ -859,6 +859,8 @@ function render() {
 	renderer.draw(cam, { skipBase: !moving, skipMain: mainStale(), noTerrain: cam.zoom < BASEMAP_MINZOOM, terrainGate: !moving || zoomStable });     // 先に最新camをworkerへ（全球=z<4は地形オフ）。海岸線は render worker が従属で追随
 	// 全球ビュー（z<4）：基図(GSI)の詳細は不要＝タイル/結合/地形を止め、基図シーンを空に＝海岸線(gint)だけの軽い地球。
 	// これで pan 中も main の毎フレーム負荷（tiles.update/merge/terrain）が消える。
+	// 家具も全部フェード退場（attr含む＝quiet-mono #map.world）＝星空劇場の舞台。GSI非描画なので出典義務なし。
+	mapEl.classList.toggle("world", cam.zoom < BASEMAP_MINZOOM);
 	if (cam.zoom < BASEMAP_MINZOOM) {
 		if (!basemapHidden) {
 			const o = [cam.center[0], cam.center[1]];
@@ -914,6 +916,7 @@ function destroy() {
 	overlay.destroy();                           // e-Stat worker（createOverlay内で常時起動しているため忘れずに）
 	// デバッグ手はこのインスタンスの閉包を掴んだまま＝GCの錨になるので窓から下ろす
 	for (const k of ["__plateauPurge", "__moj", "__mojFile", "__sapporo", "__arakawaFit", "__coast", "__cam", "__plateau", "__fly", "__loadOverlay", "__loadEstat", "__tokyo", "__lastOrder"]) delete window[k];
+	mapEl.classList.remove("world");             // 全球ビューの家具フェード状態を預かったdivに残さない
 	ownMapEl ? mapEl.remove() : mapEl.replaceChildren();
 }
 
