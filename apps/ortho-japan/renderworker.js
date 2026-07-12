@@ -29,6 +29,9 @@ onmessage = e => {
 				exag: m.terrainExag, earthM: m.earthM, apiUrl: m.apiUrl,
 				onPending: (count, range) => postMessage({ type: "elevPending", count, range }),
 			});
+			// 全球R90（8枚・計55MB・初回のみ＝以後IDB常備）を起動の山が過ぎた頃に先読み＝
+			// 低ズームの地球ぐるぐるで陰影が最初から途切れない（z1-4を塗る前提の仕込み）。
+			setTimeout(() => { for (const lng of [-180, -90, 0, 90]) for (const lat of [-90, 0]) terrain.prefetch(lng, lat, 90); }, 6000);
 			if (m.scenePort) m.scenePort.onmessage = ev => {     // scene worker から直結：main を経由しない geometry
 				try { renderer.set("scene", ev.data.scene, ev.data.slot); }
 				catch (err) { console.error("[render] scene適用失敗:", err && (err.message || err)); }   // 適用失敗も黙らせない（次の merge で回復）

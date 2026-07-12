@@ -33,9 +33,12 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 	}
 	async function getCell(cellLng, cellLat, range) {
 		if (!loadTile) return null;
-		const k = range + "," + cellLng + "," + cellLat;
+		// 経度は周期正規化：日付変更線を跨いだ窓のセルは cellLng が 180 や -270 になり、そのまま
+		// タイル名にすると実在しない（E180等）＝空振りで陰影が欠けていた（実測: lat70の北極海チルト）。
+		const lngN = ((cellLng % 360) + 540) % 360 - 180;
+		const k = range + "," + lngN + "," + cellLat;
 		if (r10Tiles.has(k)) return r10Tiles.get(k);
-		const tile = await loadTile(cellLng, cellLat, range);
+		const tile = await loadTile(lngN, cellLat, range);
 		if (tile) r10Tiles.set(k, tile);
 		return tile;
 	}
@@ -103,7 +106,8 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 		for (let jy = 0; jy <= NY; jy++) for (let ix = 0; ix <= NX; ix++) {
 			const p = unproject(st, size.w * ix / NX, size.h * jy / NY);
 			if (!p) continue;
-			const dx = wrapDx(Math.floor(p[0] / range) - camCX), dy = Math.floor(p[1] / range) - camCY;
+			// 緯度は極でクランプ：lat=90ちょうどは floor で「90..180」の実在しないセルを指す
+			const dx = wrapDx(Math.floor(p[0] / range) - camCX), dy = Math.floor(Math.min(89.999, Math.max(-90, p[1])) / range) - camCY;
 			const k = dx + "," + dy;
 			votes.set(k, (votes.get(k) || 0) + 1);
 		}
@@ -216,5 +220,6 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 		}
 		return true;
 	}
-	return { ensure, sampleElev };
+	// prefetch＝視野に関係なくセルをRAM/IDBへ温める（例: 全球R90の先読み＝地球ぐるぐるが最初から途切れない）
+	return { ensure, sampleElev, prefetch: getCell };
 }

@@ -336,7 +336,7 @@ function onMove() {
 	moving = true; needsDraw = true;
 	ensureCoast();                                                                    // 世界海岸線は初めて z<8 に出た瞬間に読む（遅延ロード）
 	autoPlateau();                                                                    // 寄る/離れるで PLATEAU を自動ロード/解放（ガードで実質タダ）
-	renderer.draw(cam, { skipBase: false, skipMain: mainStale(), noTerrain: cam.zoom < BASEMAP_MINZOOM });   // 入力の瞬間に最新camをworkerへ（全球=z<4は地形オフ＝白い地球＋海岸線のみ）
+	renderer.draw(cam, { skipBase: false, skipMain: mainStale(), noTerrain: false });   // 入力の瞬間に最新camをworkerへ（全球z<4も標高の塗りは描く＝R90一式は先読み/IDB常備で安い）
 	// 海岸線(gint)は render worker が draw 後に従属で駆動＝ここから直接送らない（地図と同cam/同フレーム＝スライド消滅）。
 	clearTimeout(settleT);
 	settleT = setTimeout(() => { moving = false; needsDraw = true; gintWorker.postMessage({ type: "drawn" }); saveView(); }, 150);   // 停止後に identify(picking)＋ビュー保存（localStorage＋共有URL）
@@ -806,7 +806,7 @@ function applyTerrain() {
 	renderer.set("view", { showContour: layerState.terrain });
 	if (!layerState.terrain) elevEl.style.display = "none";
 	readySig = ""; mergeReq.main.sig = "";
-	renderer.draw(cam, { skipBase: false, noTerrain: cam.zoom < BASEMAP_MINZOOM, terrainGate: true });
+	renderer.draw(cam, { skipBase: false, noTerrain: false, terrainGate: true });
 	needsDraw = true;
 }
 // チップの見た目同期：点火クラスと aria-pressed（支援技術向けのトグル状態）を常に一緒に更新する。
@@ -856,7 +856,7 @@ function render() {
 	// 地形アトラスもズーム中は再構築しない：cellRes/セル数が連続変化して全再ロード＆勾配密度の跳びで
 	// 陰影がチラつくため（terrainGate＝render worker 側の terrain.ensure() 呼び出しを止める合図）。
 	// ズーム中は現アトラスを再投影（球面メッシュなので拡縮は追従）、停止後に再構築。
-	renderer.draw(cam, { skipBase: !moving, skipMain: mainStale(), noTerrain: cam.zoom < BASEMAP_MINZOOM, terrainGate: !moving || zoomStable });     // 先に最新camをworkerへ（全球=z<4は地形オフ）。海岸線は render worker が従属で追随
+	renderer.draw(cam, { skipBase: !moving, skipMain: mainStale(), noTerrain: false, terrainGate: !moving || zoomStable });     // 先に最新camをworkerへ（全球でも標高の塗りは生かす）。海岸線は render worker が従属で追随
 	// 全球ビュー（z<4）：基図(GSI)の詳細は不要＝タイル/結合/地形を止め、基図シーンを空に＝海岸線(gint)だけの軽い地球。
 	// これで pan 中も main の毎フレーム負荷（tiles.update/merge/terrain）が消える。
 	// 家具も全部フェード退場（attr含む＝quiet-mono #map.world）＝星空劇場の舞台。GSI非描画なので出典義務なし。
@@ -870,7 +870,7 @@ function render() {
 			readySig = ""; baseSig = ""; mergeReq.main.sig = ""; mergeReq.base.sig = ""; lastLabels = []; mainSceneZoom = -1; basemapHidden = true;   // 復帰時に再結合させる
 		}
 		updateCompass();
-		logEl.textContent = `world  zoom=${cam.zoom.toFixed(1)}  基図・地形オフ・海岸線のみ`;
+		logEl.textContent = `world  zoom=${cam.zoom.toFixed(1)}  基図オフ・海岸線＋標高の塗り`;
 		return;
 	}
 	basemapHidden = false;

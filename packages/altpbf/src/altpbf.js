@@ -39,8 +39,18 @@ async function load_alos(lng, lat) {
 	const { width, height, data } = raster;
 	return { name: encodeName(lng, lat, range), source, lng, lat, range, width, height, data };
 }
+let _cache = null;
+const getCache = async () => _cache || (_cache = await getNB().Cache(dire));
 async function load_gepco(name) {
-	return decode(await (await getBucket()).get(name));
+	// R90/R10 は IDB へ永続（全球R90=8枚55MBで「地球ぐるぐる」の再訪が通信ゼロに＝IDB直読みの流儀）。
+	// bucket.get は gunzip 済み Blob＝そのまま格納し、命中時は decode だけ。IDB不調でも素通りで従来動作。
+	const cache = await getCache().catch(() => null);
+	const hit = cache && await cache(name).catch(() => null);
+	if (hit) return decode(hit);
+	const blob = await (await getBucket()).get(name);
+	if (!blob) return null;
+	if (cache) cache(name, blob).catch(() => {});
+	return decode(blob);
 }
 const TAGS = {
 	NAME: 1,    // tile name
