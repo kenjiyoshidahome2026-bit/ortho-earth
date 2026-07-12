@@ -10,7 +10,10 @@ import { tiff2canvas, exr2canvas, tile2canvas } from './file2canvas';
 import { geopbf, createGeopbf } from "geopbf";
 
 const API_BASE = import.meta.env.DEV ? `${location.origin}/api` : "https://api.ortho-earth.com";
-const API_KEY = "***REMOVED***";
+// 書込キーはソースに置かない（過去に履歴掃除で "***REMOVED***" 化＝無効キーで PUT が黙って死ぬ事故）。
+// .env.local の VITE_API_KEY から注入。無ければ起動時に警告＝気づけるように。
+const API_KEY = import.meta.env.VITE_API_KEY ?? "";
+if (!API_KEY) console.warn("uploader: VITE_API_KEY が未設定（.env.local）＝アップロードは 403 で失敗します");
 createGeopbf(API_BASE, { apiKey: API_KEY });
 const { Fetch, Bucket, Cache } = nativeBucket(API_BASE, { apiKey: API_KEY });
 import { GEBCO, createGetHeight } from "altpbf";
