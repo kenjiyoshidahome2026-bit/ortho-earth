@@ -370,7 +370,7 @@ const cam = { center: [137.628, 37.783], zoom: 4.86, pitch: 0, bearing: 0, dpr }
 // 書き戻す＝アドレスバーが常に「今この視点の共有URL」（コピーするだけで人に渡る＝発表・拡散の生命線）。
 function applyCamView(v) {
 	cam.center = [wrapLon(v.lon), Math.max(-85, Math.min(85, v.lat))];
-	cam.zoom = Math.max(1, Math.min(19, v.zoom));
+	cam.zoom = Math.max(1, Math.min(20, v.zoom));   // 上限20＝7.5cm/px（正射z＝緯度フリー。精度は原点相対RTEが担保）
 	cam.pitch = Math.max(0, Math.min(MAXPITCH, v.pitch || 0));
 	cam.bearing = Number.isFinite(v.bearing) ? v.bearing : 0;
 }
@@ -648,7 +648,7 @@ resize();
 // ここは日本アプリ固有の反応だけ注入：クリック→identify（基図overlay＋知性gint）、ホバー→gintの筆識別、
 // ジェスチャ開始→フライト中断（主導権は常に人）。z範囲＝1(宇宙の余白)〜19(z20はタイルの切れ目が目立つ)。
 const input = createInput({
-	canvas, cam, size, dpr, maxPitch: MAXPITCH, zoomMin: 1, zoomMax: 19, onMove,
+	canvas, cam, size, dpr, maxPitch: MAXPITCH, zoomMin: 1, zoomMax: 20, onMove,
 	onGesture: () => flightCtl.cancel(),
 	onClick: (x, y) => { overlay.identifyAt(x, y); if (gintInteractive) gintWorker.postMessage({ type: "click", x, y }); },
 	onHover: (x, y) => { if (gintInteractive) gintWorker.postMessage({ type: "move", x, y }); },
