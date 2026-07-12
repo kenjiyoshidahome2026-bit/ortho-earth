@@ -59,7 +59,9 @@ body { visibility: visible; }   /* 開幕＝このスタイルシートの到着
 /* --- 地名検索：普段は虫めがねだけ、押すと右へ開く（Netflix式）。候補は下にリスト --- */
 #search {
 	position: relative; width: 236px;   /* 置き場所はスタック。relative は虫めがねボタンの錨 */
+	pointer-events: none;   /* 透明な帯（閉時の残り202px）がパンを食わない＝実体（虫めがね・入力）だけ受ける */
 	#search-btn {
+		pointer-events: auto;
 		position: absolute; top: 0; left: 0; width: 34px; height: 34px; border-radius: 5px;
 		border: 1px solid var(--qm-border); background: var(--qm-panel); cursor: pointer; padding: 0;
 		display: flex; align-items: center; justify-content: center;
@@ -93,7 +95,7 @@ body { visibility: visible; }   /* 開幕＝このスタイルシートの到着
 
 /* --- 距離スケール（真俯瞰=2Dのみ・下辺中央）：1-2-5系列・両端ティック・距離のみ（z値は計器テーブルへ） --- */
 #scale {
-	position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%); display: none;
+	position: absolute; bottom: calc(12px + var(--qm-safe-b)); left: 50%; transform: translateX(-50%); display: none;
 	text-align: center; font: 12px var(--qm-font-gauge); color: var(--qm-text); pointer-events: none;
 	#scale-txt { display: block; margin-bottom: -2px; text-shadow: 0 0 3px rgba(255,255,255,.9); }   /* 数字を横棒へ少し寄せる */
 	#scale-bar { margin: 0 auto; height: 12px; box-sizing: border-box;
@@ -102,7 +104,7 @@ body { visibility: visible; }   /* 開幕＝このスタイルシートの到着
 
 /* --- 座標読み取り（左下）＝2段テーブル：上段ラベル・下段数値。min-width固定＝数値が変わっても枠が揺れない --- */
 #pos {
-	position: absolute; bottom: 6px; left: 10px; display: none;
+	position: absolute; bottom: calc(6px + var(--qm-safe-b)); left: 10px; display: none;
 	background: var(--qm-panel-dim); padding: 3px 6px 4px; border-radius: var(--qm-r-s); pointer-events: none;
 	table { border-collapse: collapse; }
 	th { font: 400 10px/1.3 var(--qm-font); color: var(--qm-label); padding: 0 7px; text-align: center; letter-spacing: .06em; }
@@ -117,7 +119,7 @@ body { visibility: visible; }   /* 開幕＝このスタイルシートの到着
 
 /* --- 出典（右下・最も静か） --- */
 #attr {
-	position: absolute; bottom: 6px; right: 8px; font-size: 11px; line-height: 1.5; text-align: right;
+	position: absolute; bottom: calc(6px + var(--qm-safe-b)); right: 8px; font-size: 11px; line-height: 1.5; text-align: right;
 	color: var(--qm-text-faint); background: var(--qm-panel-faint); padding: 3px 7px; border-radius: var(--qm-r-s);   /* 緑がかった旧#7a8はQuiet Monoに似つかわしくない＝無彩色へ */
 	a { color: var(--qm-text-dim); text-decoration: none;
 		&:hover { text-decoration: underline; } }
@@ -127,7 +129,8 @@ body { visibility: visible; }   /* 開幕＝このスタイルシートの到着
        #pos は pointermove が inline display で開けるため !important＝狭画面の掟が勝つ（標高fetchはJS側 posOn が連動して止める） --- */
 @media (max-width: 480px) {
 	#pos { display: none !important; }
-	#scale { bottom: 72px; }   /* 出典(#attr 3行＝下から約63px)の上＝中央下段の衝突を断つ */
+	#scale { bottom: calc(72px + var(--qm-safe-b)); }   /* 出典(#attr 3行＝下から約63px)の上＝中央下段の衝突を断つ */
+	#search { width: calc(100vw - 84px); }              /* 開いてもチップ列(右上・約64px)を潰さない幅で頭打ち */
 }
 
 /* --- テーマ・チップ：静かな土台に主題だけ"点火"する最小トグル（右上縦一列＝繋げて一本のカプセル。
@@ -184,8 +187,8 @@ body { visibility: visible; }   /* 開幕＝このスタイルシートの到着
 	background: var(--qm-panel); padding: 5px 11px; border-radius: var(--qm-r-s);
 	-webkit-backdrop-filter: blur(var(--qm-blur)); backdrop-filter: blur(var(--qm-blur)); display: none;
 }
-#elev-toast { bottom: 76px; }      /* bottom:44 は進捗トーストの席 */
-#plateau-toast { bottom: 44px; }
+#elev-toast { bottom: calc(76px + var(--qm-safe-b)); }      /* bottom:44 は進捗トーストの席 */
+#plateau-toast { bottom: calc(44px + var(--qm-safe-b)); }
 #ident {   /* identify＝クリックした地物の答え */
 	position: absolute; top: 44px; left: 10px; max-width: 340px; font-size: 12px; color: #334;
 	background: var(--qm-panel-2); padding: 6px 10px; border-radius: var(--qm-r-s);

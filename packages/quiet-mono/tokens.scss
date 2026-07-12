@@ -22,6 +22,7 @@
 	--qm-border-strong: rgba(90,100,120,.7);  /* hover */
 	/* 質感 */
 	--qm-blur: 6px;
+	--qm-safe-b: env(safe-area-inset-bottom, 0px);   /* iPhoneホームバー等＝下辺UIは全てこの分だけ浮かす（viewport-fit=cover とセット） */
 	--qm-r-s: 6px;                /* 小物（トースト・計器） */
 	--qm-r-m: 8px;                /* リスト・入力 */
 	--qm-r-l: 10px;               /* カード */

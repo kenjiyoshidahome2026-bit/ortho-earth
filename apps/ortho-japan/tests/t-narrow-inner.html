@@ -1,0 +1,14 @@
+<!doctype html>
+<!-- t-narrow.html の中身（375px iframe 内で起動）＝狭画面の掟を検証し、結果を自分の title に書く。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html{background:#0b1021}body{visibility:hidden}</style><title>inner</title></head>
+<body><script type="module">
+import orthoJapan from "../app.js";
+const t = [], ok = (n, c) => t.push((c ? "ok:" : "NG:") + n);
+await orthoJapan({ view: "#12/35.68/139.76", plateau: false });
+document.getElementById("c").dispatchEvent(new PointerEvent("pointermove", { bubbles: true, clientX: 100, clientY: 100 }));   // 通常なら #pos が開く操作
+await new Promise(r => setTimeout(r, 300));
+ok("width", innerWidth <= 480);
+ok("posHidden", getComputedStyle(document.getElementById("pos")).display === "none");
+ok("scaleUp", getComputedStyle(document.getElementById("scale")).bottom === "72px");   // safe-area=0 の環境では 72px ちょうど
+document.title = t.some(x => x.startsWith("NG")) ? "FAIL " + t.join(" ") : "PASS " + t.length;
+</script></body></html>

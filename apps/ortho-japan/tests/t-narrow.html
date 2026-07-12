@@ -1,0 +1,11 @@
+<!doctype html>
+<!-- UI回帰：狭画面（スマホ縦）。headless Chrome は窓を480px未満にできないため、375px の iframe で
+     媒体クエリ環境を作り、内側ページ（t-narrow-inner.html）の判定結果を自分の title へ転記する。 -->
+<html><head><meta charset="utf-8"><title>t-narrow</title></head>
+<body><iframe id="f" src="./t-narrow-inner.html" style="width:375px;height:667px;border:0"></iframe>
+<script>
+setTimeout(() => {
+	const inner = document.getElementById("f").contentDocument.title;
+	document.title = /^PASS/.test(inner) ? "PASS narrow " + inner : "FAIL narrow " + inner;
+}, 6000);
+</script></body></html>

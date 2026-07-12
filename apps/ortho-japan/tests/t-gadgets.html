@@ -1,0 +1,41 @@
+<!doctype html>
+<!-- UI回帰：ガジェットスタック（搭載順・上詰め・二重搭載・候補リスト追随・aria・検索の透明帯素通し）。
+     判定はページ内で行い、結果を <title> に PASS/FAIL で書く＝scripts/verify-ui.mjs が拾う。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html{background:#0b1021}body{visibility:hidden}</style><title>t-gadgets</title></head>
+<body>
+<script>
+window.requestAnimationFrame = cb => setTimeout(() => cb(performance.now()), 30);   /* headless dump-dom は rAF が止まるため代用 */
+localStorage.setItem("ortho-japan.searches", JSON.stringify([{ title: "東京駅", note: "", lon: 139.767, lat: 35.681 }]));
+localStorage.setItem("oj.hint", "closed");
+</script>
+<script type="module">
+import orthoJapan from "../app.js";
+const t = [], ok = (n, c) => t.push((c ? "ok:" : "NG:") + n);
+const map = await orthoJapan({ view: "#12/35.68/139.76" });
+map.gadget.search(); map.gadget.compass(); map.gadget.plateau(); map.gadget.hint();
+map.gadget.search(); map.gadget.compass();   // 二重搭載＝無害のはず
+await new Promise(r => setTimeout(r, 400));
+const R = id => document.getElementById(id).getBoundingClientRect();
+ok("order", [...document.getElementById("gadgets").children].map(e => e.id).join() === "search,reset,plateau-btn,hint,hint-btn");
+ok("dup", document.querySelectorAll("#search").length === 1 && document.querySelectorAll("#reset").length === 1);
+ok("collapse", Math.round(R("plateau-btn").y) === 54);   // 2D＝コンパス非表示→PLATEAUが検索の直下(10+34+10)へ上詰め
+// 検索の透明帯は素通し：帯の右側(x=200)のヒットは #search でなく地図(canvas)が受ける
+const hit = document.elementFromPoint(200, 27);
+ok("strip", hit && hit.id !== "search" && !document.getElementById("search").contains(hit));
+// 検索を開く→履歴リスト＝#map直下・検索箱に追随
+document.getElementById("search-btn").dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, cancelable: true }));
+await new Promise(r => setTimeout(r, 300));
+const sr = R("search"), lr = R("search-list");
+ok("list", document.getElementById("search-list").parentElement.id === "map"
+	&& Math.round(lr.x) === Math.round(sr.x) && Math.round(lr.y) === Math.round(sr.bottom + 4));
+// チップの aria-pressed が点火と同期（施設＝副作用fetch無しのチップで）
+const chip = document.querySelector('.chip[data-k="shisetsu"]');
+ok("aria0", chip.getAttribute("aria-pressed") === "false");
+chip.click();
+ok("aria1", chip.getAttribute("aria-pressed") === "true" && chip.classList.contains("on"));
+// 3D＝コンパスが検索の下（2段目・y=10+34+10）に現れ、PLATEAUが繰り下がる（y=54+40+10）
+window.__cam(139.76, 35.68, 12, 45, 30);
+await new Promise(r => setTimeout(r, 300));
+ok("compass3d", getComputedStyle(document.getElementById("reset")).display !== "none" && Math.round(R("reset").y) === 54 && Math.round(R("plateau-btn").y) === 104);
+document.title = t.some(s => s.startsWith("NG")) ? "FAIL " + t.join(" ") : "PASS " + t.length;
+</script></body></html>

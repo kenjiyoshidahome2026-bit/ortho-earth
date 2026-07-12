@@ -1,0 +1,44 @@
+<!doctype html>
+<!-- UI回帰：入力（タッチ2本指＝ピンチ/チルトロック/ひねり、マウス/1本指パン）。合成PointerEventで駆動。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html{background:#0b1021}body{visibility:hidden}</style><title>t-input</title></head>
+<body><script type="module">
+import orthoJapan from "../app.js";
+const t = [], ok = (n, c) => t.push((c ? "ok:" : "NG:") + n);
+const map = await orthoJapan({ view: "#12/35.68/139.76", plateau: false });
+const c = document.getElementById("c");
+const tv = (type, id, x, y) => c.dispatchEvent(new PointerEvent(type, { pointerId: id, pointerType: "touch", clientX: x, clientY: y, bubbles: true }));
+const mv = (type, x, y, button = 0) => c.dispatchEvent(new PointerEvent(type, { pointerId: 9, pointerType: "mouse", clientX: x, clientY: y, button, bubbles: true }));
+const step = async (fn, n = 8) => { for (let i = 1; i <= n; i++) { fn(i / n); await new Promise(r => setTimeout(r, 15)); } };
+// ① ピンチ＝ズーム：間隔100px→260px（dz=log2(2.6)≒1.38）
+const z0 = map.cam.zoom;
+tv("pointerdown", 1, 150, 300); tv("pointerdown", 2, 250, 300);
+await step(k => tv("pointermove", 2, 250 + 160 * k, 300));
+tv("pointerup", 1, 150, 300); tv("pointerup", 2, 410, 300);
+ok("pinch", Math.abs((map.cam.zoom - z0) - Math.log2(2.6)) < 0.05);
+// ② 平行縦ドラッグ＝チルトにロック（pitch増・ズーム/回転は不動）
+const p0 = map.cam.pitch, z1 = map.cam.zoom, b1 = map.cam.bearing;
+tv("pointerdown", 1, 150, 200); tv("pointerdown", 2, 250, 200);
+await step(k => { tv("pointermove", 1, 150, 200 + 80 * k); tv("pointermove", 2, 250, 200 + 80 * k); });
+tv("pointerup", 1, 150, 280); tv("pointerup", 2, 250, 280);
+ok("tilt", map.cam.pitch - p0 > 0.25 && Math.abs(map.cam.zoom - z1) < 0.02 && Math.abs(map.cam.bearing - b1) < 0.01);
+// ③ ひねり＝回転（指の間の線が地図に貼り付く向き＝bearing減）
+const b0 = map.cam.bearing;
+tv("pointerdown", 1, 150, 300); tv("pointerdown", 2, 250, 300);
+await step(k => { const a = 0.52 * k; tv("pointermove", 2, 200 + 50 * Math.cos(a), 300 + 50 * Math.sin(a)); tv("pointermove", 1, 200 - 50 * Math.cos(a), 300 - 50 * Math.sin(a)); });
+tv("pointerup", 1, 0, 0); tv("pointerup", 2, 0, 0);
+ok("twist", map.cam.bearing - b0 < -0.2);
+// ④ マウス左ドラッグ＝パン（左へ90px＝東へ）。①-③でズーム/姿勢が動いているので基準視点に整えてから測る
+window.__cam(139.76, 35.68, 12, 0, 0);
+const lon0 = map.cam.center[0];
+mv("pointerdown", 300, 300);
+for (let i = 1; i <= 6; i++) mv("pointermove", 300 - i * 15, 300);
+mv("pointerup", 210, 300);
+ok("mousePan", map.cam.center[0] - lon0 > 0.01);
+// ⑤ 1本指＝パン（上へ90px＝南へ＝掴んだ地点が指に付いてくる）
+const lat0 = map.cam.center[1];
+tv("pointerdown", 1, 300, 300);
+for (let i = 1; i <= 6; i++) tv("pointermove", 1, 300, 300 - i * 15);
+tv("pointerup", 1, 300, 210);
+ok("touchPan", map.cam.center[1] - lat0 < -0.005);
+document.title = t.some(x => x.startsWith("NG")) ? "FAIL " + t.join(" ") : "PASS " + t.length;
+</script></body></html>

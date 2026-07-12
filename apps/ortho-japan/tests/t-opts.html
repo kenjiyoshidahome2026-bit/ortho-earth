@@ -1,0 +1,39 @@
+<!doctype html>
+<!-- UI回帰：起動opts（chips/instruments の選択的表示・未知キー警告・plateau機能スイッチ）と destroy/再起動。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html{background:#0b1021}body{visibility:hidden}</style><title>t-opts</title></head>
+<body>
+<script>
+window.__warns = [];
+const _w = console.warn.bind(console);
+console.warn = (...a) => { window.__warns.push(a.join(" ")); _w(...a); };
+</script>
+<script type="module">
+import orthoJapan from "../app.js";
+const t = [], ok = (n, c) => t.push((c ? "ok:" : "NG:") + n);
+const probe = async opts => {   // 起動→観測→destroy＝毎回まっさら（destroy自体も毎回テストされる）
+	const holder = document.createElement("div"); holder.style.cssText = "position:fixed;inset:0";
+	document.body.appendChild(holder);
+	const m = await orthoJapan({ target: holder, view: "#12/35.68/139.76", plateau: false, ...opts });
+	const chips = [...document.querySelectorAll("#chips .chip")].map(b => b.dataset.k).join(".") || "none";
+	const inst = ["log", "pos", "scale", "attr"].filter(id => document.getElementById(id)).join(".") || "none";
+	m.destroy(); holder.remove();
+	return { chips, inst };
+};
+const d = await probe({});
+ok("default", d.chips === "chimei.chikei.rail.road.shisetsu" && d.inst === "log.pos.scale.attr");
+const s = await probe({ chips: ["chimei", "rail"], instruments: ["scale", "attr"] });
+ok("selective", s.chips === "chimei.rail" && s.inst === "scale.attr");
+const o = await probe({ chips: false, instruments: false });
+ok("off", o.chips === "none" && o.inst === "none");
+await probe({ chips: ["chimie"], instruments: ["poss"] });   // typo＝警告2件のはず
+ok("warn", __warns.filter(x => x.includes("未知のキー")).length === 2);
+ok("destroyClean", !document.getElementById("map") && !window.__cam);   // probe後は毎回まっさら
+// plateau:false＝カタログfetchが一切発生していない（全probe共通）
+ok("plateauOff", !performance.getEntriesByType("resource").some(e => e.name.includes("plateau-sets.json")));
+// target無指定＝容れ物を自作→destroyで丸ごと消える・同ページ再起動できる
+const m2 = await orthoJapan({ view: "#12/35.68/139.76", plateau: false });
+ok("reboot", !!document.getElementById("map") && typeof window.__cam === "function");
+m2.destroy();
+ok("ownRemoved", !document.getElementById("map"));
+document.title = t.some(x => x.startsWith("NG")) ? "FAIL " + t.join(" ") : "PASS " + t.length;
+</script></body></html>
