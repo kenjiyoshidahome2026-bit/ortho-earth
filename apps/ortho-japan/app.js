@@ -489,6 +489,9 @@ function ensureCoast() { if (coastArmed && cam.zoom < 8) { coastArmed = false; l
 
 // N02（国土数値情報 鉄道）から新幹線だけ抽出して常駐オーバーレイに（gishub-jp と同じ geopbf 経路）。
 // 新幹線＝N02_002(事業者種別)=1「JRの新幹線」。全国一括・疎＝軽い。鉄道チップONで表示、初回だけ fetch。※駅/空港/道の駅は次段。
+// ソースは coast と同じ事前変換 GeoPBF（bucket GIS/pbf/N02-25_RailroadSection・路線名/事業者の属性付き＝
+// 将来の全線ホバー名表示にそのまま使える）。bucket に無い間だけ生 zip へフォールバック。
+// 同じ棚に N02-25_Station（駅名）/ N06-24_HighwaySection（高速道路名）/ N06-24_Joint（IC/JCT名）も配置済み＝次段の弾。
 const N02_ZIP = "https://nlftp.mlit.go.jp/ksj/gml/data/N02/N02-25/N02-25_GML.zip";
 const N02_ORIGIN = [138, 37];   // 全国オーバーレイの原点（delta符号化用・度スケール＝精度問題なし）
 let n02Loaded = false;
@@ -496,7 +499,11 @@ async function loadN02() {
 	if (n02Loaded) return;
 	n02Loaded = true;
 	console.log("[N02] 鉄道 geojson 読込中（新幹線抽出）…");
-	const rail = await geopbf(`${N02_ZIP}#N02-25_RailroadSection.geojson`).catch(e => { console.warn("[N02] rail 失敗", e); return null; });
+	let rail = await geopbf("N02-25_RailroadSection").catch(e => { console.warn("[N02] bucket load 失敗", e); return null; });
+	if (!rail?.geojson?.features?.length) {
+		console.warn("[N02] bucket に geopbf 無し → 生 zip へフォールバック");
+		rail = await geopbf(`${N02_ZIP}#N02-25_RailroadSection.geojson`).catch(e => { console.warn("[N02] rail 失敗", e); return null; });
+	}
 	console.log("[N02] geopbf 返り:", rail && (rail.constructor?.name), "| keys:", rail && Object.keys(rail).slice(0, 12));
 	const fc = rail?.geojson;   // GeoPBF の境界は FeatureCollection。.geojson getter＝{type:"FeatureCollection",features,name}
 	const feats = fc?.features;

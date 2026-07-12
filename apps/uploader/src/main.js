@@ -36,6 +36,7 @@ CMD.append("button").text("borders and stars").on("click", () => borders(q));
 CMD.append("button").text("constellation lines").on("click", () => constellations(q));
 CMD.append("button").text("messier").on("click", () => messier(q));
 CMD.append("button").text("ne_10m_coastline").on("click", () => coastline(q));
+CMD.append("button").text("KSJ 鉄道/高速道路 (N02/N06)").on("click", () => ksj(q));
 
 // var getHeight = await createGetHeight({onstart:s=>console.log("start: "+s),onend:s=>console.log("end: "+s)});
 // console.log(await getHeight(135.2,35.2,10));
@@ -127,6 +128,31 @@ async function coastline(q) {
 	await pbf.save();
 	q.success(`ne_10m_coastline: (<= ${url})`);
 	q.log(await pbf.profile());
+}
+
+// 国土数値情報 N02(鉄道)/N06(高速道路時系列) を GeoPBF 化して GIS/pbf へ。ortho-japan の新幹線
+// オーバーレイと将来のホバー名表示（路線名/駅名/道路名/IC名）の弾。年度更新時は URL の年式を上げて再クリック。
+// ※国道は現行 KSJ に路線番号付きラインデータが無い（N13 は道路分類のみ・2400万セグメント）＝棚上げ中。
+async function ksj(q) {
+	const N02 = "https://nlftp.mlit.go.jp/ksj/gml/data/N02/N02-25/N02-25_GML.zip";
+	const N06 = "https://nlftp.mlit.go.jp/ksj/gml/data/N06/N06-24/N06-24_GML.zip";
+	const LICENSE = "国土数値情報 利用規約（政府標準利用規約準拠・出典明示で利用可）";
+	const items = [
+		{ zip: N02, name: "N02-25_RailroadSection", description: "鉄道区間（路線名・事業者）2025年度", attribution: "国土交通省 国土数値情報（鉄道データ N02-25）" },
+		{ zip: N02, name: "N02-25_Station", description: "鉄道駅（駅名・路線名・事業者）2025年度", attribution: "国土交通省 国土数値情報（鉄道データ N02-25）" },
+		{ zip: N06, name: "N06-24_HighwaySection", description: "高速道路区間（道路名・供用年度）2024年度", attribution: "国土交通省 国土数値情報（高速道路時系列データ N06-24）" },
+		{ zip: N06, name: "N06-24_Joint", description: "高速道路IC/JCT/SA（施設名）2024年度", attribution: "国土交通省 国土数値情報（高速道路時系列データ N06-24）" },
+	];
+	q.clear();
+	q.title("KSJ 鉄道/高速道路");
+	await thenEach(items, async it => {
+		const pbf = await geopbf(`${it.zip}#${it.name}.geojson`, { name: it.name, nocache: true });
+		if (!pbf.length) throw new Error(`${it.name}: encoding produced 0 features`);
+		pbf.updateHeader({ description: it.description, license: LICENSE, attribution: it.attribution });
+		q.log(`${it.name}: ${pbf.length} features, keys: [${pbf.keys.join(', ')}]`);
+		await pbf.save();
+		q.success(`${it.name}: saved`);
+	});
 }
 
 async function borders(q) {
