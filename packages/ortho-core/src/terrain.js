@@ -105,7 +105,11 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 		const ccx = Math.floor((mixed ? (lo0 + lo1) / 2 : cam.center[0]) / range), ccy = Math.floor((mixed ? (la0 + la1) / 2 : cam.center[1]) / range);
 		const originCX = Math.max(cx0, Math.min(cx1 - cellsX + 1, ccx - (cellsX - 1 >> 1)));
 		const originCY = Math.max(cy0, Math.min(cy1 - cellsY + 1, ccy - (cellsY - 1 >> 1)));
-		const cellRes = Math.max(400, Math.floor(2048 / Math.max(cellsX, cellsY)));
+		// アトラス解像度の予算：総テクスチャ辺≤4096（実用機のMAX_TEXTURE_SIZE下限）に収めつつ下限512を確保。
+		// 旧予算(2048/下限400)は広域ビュー（z~5・高緯度は経度スパンが伸びてセル数が増える）で400に張り付き、
+		// R10ソース(約900m格子=10°で~1200texel)の3倍粗く塗っていた＝陰影・段彩の甘さの原因。
+		// 上限1024＝R10ソース密度を超える水増し（アップサンプルのぼけ）はしない。
+		const cellRes = Math.min(1024, Math.max(512, Math.floor(4096 / Math.max(cellsX, cellsY))));
 		return { range, originCX, originCY, cellsX, cellsY, cellRes };
 	}
 	function ensure(cam, size) {   // 戻り値 false＝ローダ未準備で何もしていない（呼び出し側はスロットル記憶を消して再試行すること）
