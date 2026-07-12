@@ -37,6 +37,7 @@ CMD.append("button").text("constellation lines").on("click", () => constellation
 CMD.append("button").text("messier").on("click", () => messier(q));
 CMD.append("button").text("ne_10m_coastline").on("click", () => coastline(q));
 CMD.append("button").text("KSJ 鉄道/高速道路 (N02/N06)").on("click", () => ksj(q));
+CMD.append("button").text("国立公園 (環境省 nps_all)").on("click", () => nps(q));
 
 // var getHeight = await createGetHeight({onstart:s=>console.log("start: "+s),onend:s=>console.log("end: "+s)});
 // console.log(await getHeight(135.2,35.2,10));
@@ -153,6 +154,53 @@ async function ksj(q) {
 		await pbf.save();
 		q.success(`${it.name}: saved`);
 	});
+}
+
+// 環境省 国立公園区域・地種区分 → GIS/pbf/nps_all。属性＝名称/地域区（特別保護地区・第1〜3種特別地域・
+// 海域公園地区・普通地域）＝ホバーで地種区分まで言える。
+// ソースは環境ジオポータルの FeatureServer（2000件/頁でページング）。全国版 nps_all は2024-05版で
+// 日高山脈襟裳十勝（2024-06指定・35番目）を含まないため、北海道事務所の nps_hokkaido から継ぎ足す。
+// クリーニング＝エンコード→デコードのプローブで precision 6（±11cm）で潰れる退化スライバーと
+// ソース由来 null geometry を実測除去（数十件・全て幅数cmの掃除ゴミ）。
+async function nps(q) {
+	const ALL = "https://services.arcgis.com/wlVTGRSYTzAbjjiC/arcgis/rest/services/nps_all/FeatureServer/0/query";
+	const HOKKAIDO = "https://services5.arcgis.com/xyLLVFhw1NuQvexI/arcgis/rest/services/nps_hokkaido/FeatureServer/0/query";
+	q.clear();
+	q.title("国立公園 (nps_all)");
+	const page = async (url, params, offset) => (await fetch(`${url}?${new URLSearchParams({
+		where: "1=1", outSR: "4326", f: "geojson", resultOffset: offset, resultRecordCount: 2000, ...params })}`)).json();
+	const features = [];
+	for (let off = 0; ; off += 2000) {   // 全国版（名称/地域区）
+		const d = await page(ALL, { outFields: "名称,地域区" }, off);
+		features.push(...d.features);
+		q.log(`nps_all: ${features.length} features …`);
+		if (!d.properties?.exceededTransferLimit && !d.exceededTransferLimit) break;
+	}
+	const hidaka = await page(HOKKAIDO, { where: "NAME LIKE '%日高%'", outFields: "NAME,ZONE" }, 0);
+	for (const f of hidaka.features)
+		features.push({ type: "Feature", properties: { 名称: f.properties.NAME, 地域区: f.properties.ZONE }, geometry: f.geometry });
+	q.log(`日高山脈襟裳十勝: +${hidaka.features.length} features（北海道事務所データ）`);
+
+	// プローブ＝一意IDを焼いて往復し、geometry付きで生き残った個体だけ採用
+	const probeFeats = features.map((f, i) => ({ ...f, properties: { ...f.properties, __i: i } }));
+	const probe = await geopbf({ type: "FeatureCollection", features: probeFeats }, { name: "nps_probe", nocache: true, gint: false });
+	const aliveIdx = new Set();
+	probe.geojson.features.forEach(f => { if (f.geometry?.coordinates?.length) aliveIdx.add(f.properties.__i); });
+	const clean = features.filter((f, i) => aliveIdx.has(i));
+	q.log(`クリーニング: ${clean.length} 採用 / ${features.length - clean.length} 除去（退化スライバー・null）`);
+
+	const pbf = await geopbf({ type: "FeatureCollection", features: clean }, { name: "nps_all", nocache: true });
+	if (!pbf.length) throw new Error("nps_all: encoding produced 0 features");
+	pbf.updateHeader({
+		description: "国立公園区域・地種区分 全35公園（名称・特別保護地区/第1〜3種特別地域/海域公園地区/普通地域。日高山脈襟裳十勝は北海道事務所データで補完）",
+		license: "政府標準利用規約準拠・出典明示で利用可",
+		attribution: "環境省 環境ジオポータル（国立公園区域等 nps_all／nps_hokkaido）",
+	});
+	const parks = new Set(pbf.geojson.features.map(f => f.properties["名称"]));
+	q.log(`nps_all: ${pbf.length} features, 公園数 ${parks.size}`);
+	if (parks.size !== 35) throw new Error(`公園数 ${parks.size} ≠ 35`);
+	await pbf.save();
+	q.success("nps_all: saved（35公園・地種区分付き）");
 }
 
 async function borders(q) {
