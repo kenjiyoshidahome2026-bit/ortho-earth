@@ -348,7 +348,7 @@ const atmo = [0.5, 0.66, 0.96, 0.3];   // 大気色 rgb + 強さ（さりげな�
 const bldColor = [0.83, 0.83, 0.82];    // 建物色（静かなグレー）
 // cam＝幾何のみ（center/zoom/pitch/bearing/dpr）＝毎フレームの draw payload（将来の worker 境界）。
 // 色（clear/land/atmo/bldColor）は静的なので setView で一度きりアップロード＝hot path から追い出す。
-const cam = { center: [139.767, 35.681], zoom: 3, pitch: 0, bearing: 0, dpr };   // 既定＝世界ビュー（初訪問時のみ。共有URL→前回ビューの順で下で復元）
+const cam = { center: [137.628, 37.783], zoom: 4.86, pitch: 0, bearing: 0, dpr };   // 既定＝列島ビュー（本土四島が一枚。沖縄・小笠原には悪いが初手の構図優先。初訪問時のみ＝共有URL→前回ビューの順で下で復元）
 // --- 共有URL（パーマリンク）：codec は engine（viewurl.js）。ここは起動の優先度と app 固有クランプだけ ---
 // 起動の優先度：URLハッシュ > localStorage(前回ビュー) > 既定の世界ビュー。settle 毎に replaceState で
 // 書き戻す＝アドレスバーが常に「今この視点の共有URL」（コピーするだけで人に渡る＝発表・拡散の生命線）。
