@@ -20,7 +20,10 @@ export function cameraState(cam, W, H) {
 	const east = [-Math.sin(a), 0, Math.cos(a)];
 	const fwdH = mat.norm(mat.add(mat.scale(north, Math.cos(bearing)), mat.scale(east, Math.sin(bearing))));
 	// zoom → 対象での解像度 → カメラ高さ(camDist, 単位球のラジアン≈弧長)
-	const radPerDevPx = 2 * Math.PI / (Math.pow(2, zoom) * 512 * dpr) * Math.max(0.05, Math.cos(b));
+	// z は正射(orthographic)スケールそのもの＝同一zは緯度によらず同一倍率（v1 d3-geo と同じ定義）。
+	// 旧実装は ×cos(lat) のwebメルカトル互換定義＝北へパンするほど膨らむ（那覇→札幌で約26%）違和感の原因だった。
+	// メルカトルタイルの緯度分の細かさ補正はタイル選択（tilecover.pickZoom）の仕事＝カメラには漏らさない。
+	const radPerDevPx = 2 * Math.PI / (Math.pow(2, zoom) * 512 * dpr);
 	const camDist = radPerDevPx * (H / 2) / Math.tan(fovy / 2);
 	// カメラ基底を pitch/bearing から明示構築（退化なし）:
 	//   pitch=0 で真上・screen-up=北。pitch>0 で fwdH 方向の地平へ傾く。

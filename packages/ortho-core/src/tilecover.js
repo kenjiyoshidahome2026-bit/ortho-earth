@@ -53,9 +53,13 @@ function tileMetrics(st, t, center, W, H, samples) {
 	return { visible, size };
 }
 
-// cam.zoom を web-mercator ズームに丸める。
+// cam.zoom（正射スケール＝緯度フリー）→ web-mercator タイルz。メルカトルタイルは高緯度ほど
+// 地上が細かい（タイルの地上幅∝cosφ）ので、同じ画面テクセル密度には log2(cosφ) 段下のタイルでよい
+//（那覇-0.15・東京-0.29・札幌-0.45）。ここが正射カメラとメルカトルタイルの唯一の換気口＝
+// カメラ(camera.js)は緯度を知らず、タイル選択だけが緯度を知る。
 export function pickZoom(cam, minZoom = 4, maxZoom = 16) {
-	return Math.max(minZoom, Math.min(maxZoom, Math.round(cam.zoom)));
+	const merc = cam.zoom + Math.log2(Math.max(0.05, Math.cos(cam.center[1] * Math.PI / 180)));
+	return Math.max(minZoom, Math.min(maxZoom, Math.round(merc)));
 }
 
 // 可視タイル一覧 {z,x,y}。画面 grid×grid をサンプルして unproject→タイルへ。

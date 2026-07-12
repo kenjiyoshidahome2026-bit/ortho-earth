@@ -275,7 +275,9 @@ if (plateauOn) navigator.storage?.persist?.().then(ok => console.log(`[plateau] 
 
 // 現在の画面に映る範囲をラフに見積もる（フラスタム厳密解ではなく自動ロードのゲート用）。z14+の寄った状態でしか呼ばれない＝視野は元々狭く、この近似で十分。
 function approxViewBbox(cam) {
-	const metersPerPx = 156543.03392 * Math.cos(cam.center[1] * D2R) / Math.pow(2, cam.zoom);
+	// z＝正射スケール（緯度フリー）に伴い cos(lat) を撤去。係数は従来の東京相当(cos35°≈0.819)を固定＝
+	// PLATEAU区選抜のゲート挙動を全国で従来の東京と同じに（緩めのbboxで拾い、最終判定は点距離が裁く）。
+	const metersPerPx = 156543.03392 * 0.819 / Math.pow(2, cam.zoom);
 	const halfM = Math.max(size.w, size.h) / dpr * 0.75 * metersPerPx;   // 対角余裕込みの半幅
 	const dLat = halfM / 111320, dLon = dLat / Math.max(0.15, Math.cos(cam.center[1] * D2R));
 	const [lon, lat] = cam.center;
