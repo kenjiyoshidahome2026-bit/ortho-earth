@@ -29,6 +29,7 @@ body { visibility: visible; }   /* 開幕＝このスタイルシートの到着
 		b { color: var(--qm-ink); font-weight: 600; }
 	}
 	.mi { width: 17px; height: 22px; flex: none; }
+	.mi.gap { margin-left: 8px; }   /* 1行に2組（移動／ズーム）並べる時の組間の空き */
 	.key { border: 1px solid #b7bcc6; border-bottom-width: 2px; border-radius: 4px; padding: 1px 5px;
 		font-size: 11px; background: #fff; color: var(--qm-text); }
 	.hint-plus { color: var(--qm-text-faint); margin: 0 -3px; }
