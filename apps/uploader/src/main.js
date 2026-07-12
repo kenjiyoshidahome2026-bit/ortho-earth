@@ -32,6 +32,7 @@ CMD.append("button").text("base ER pictures").on("click", () => base(q, Object.v
 CMD.append("button").text("borders and stars").on("click", () => borders(q));
 CMD.append("button").text("constellation lines").on("click", () => constellations(q));
 CMD.append("button").text("messier").on("click", () => messier(q));
+CMD.append("button").text("ne_10m_coastline").on("click", () => coastline(q));
 
 // var getHeight = await createGetHeight({onstart:s=>console.log("start: "+s),onend:s=>console.log("end: "+s)});
 // console.log(await getHeight(135.2,35.2,10));
@@ -111,6 +112,20 @@ async function messier(q) {
 	await pbf.save();
 	q.success("messier: saved");
 }
+// 世界海岸線（Natural Earth 10m）。ortho-japan が起動時に読む＝クライアントに毎回 zip→shp デコードを
+// 払わせず、ここで一度だけ GeoPBF に焼いて GIS/pbf/ne_10m_coastline に置く（読み側は名前慣習で load）。
+async function coastline(q) {
+	const url = "https://naturalearth.s3.amazonaws.com/10m_physical/ne_10m_coastline.zip";
+	q.clear();
+	q.title("ne_10m_coastline");
+	const pbf = await geopbf(url, { name: "ne_10m_coastline", nocache: true });
+	if (!pbf.length) throw new Error("ne_10m_coastline: encoding produced 0 features — check source URL or decoder");
+	q.log(`ne_10m_coastline: ${pbf.length} features, keys: [${pbf.keys.join(', ')}]`);
+	await pbf.save();
+	q.success(`ne_10m_coastline: (<= ${url})`);
+	q.log(await pbf.profile());
+}
+
 async function borders(q) {
 	const nvkelso = _ => `https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/${_}.geojson`;
 	const ofrohn = _ => `https://raw.githubusercontent.com/ofrohn/d3-celestial/master/data/${_}.json`;

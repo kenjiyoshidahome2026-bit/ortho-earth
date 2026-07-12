@@ -447,15 +447,21 @@ window.__arakawaFit = async () => {
 	const file = new File([await res.blob()], "13118_rubbersheet.geojson");
 	return window.__mojFile(file, "moj/13118_rubbersheet");
 };
-// 世界海岸線（Natural Earth 10m・physical・S3）を球へ。gishub と同一経路＝生の .zip URL を geopbf に渡すだけ
-// （server.fetch=api proxy で CORS 無し→shp デコード→既定で GintBUF を焼く）。coastline は native な線＝lineStream
-// （styleId=1＝既定 #00B4D8）。fillColor 既定透明＝縁だけ＝「線だけ」。maxZoom:7 で z≤7 に点火＝低ズームの世界図専用。
+// 世界海岸線（Natural Earth 10m）を球へ。uploader で事前変換済みの GeoPBF を bucket 名慣習
+// （GIS/pbf/ne_10m_coastline）から load＝初回も zip レンジ取得→shp デコードを払わない（gunzip 直読み→GintBUF 焼き→IDB）。
+// 2回目以降は ETag 一致で IDB 直行。bucket に無い間だけ従来の生 zip 経路（api proxy→shp デコード）へフォールバック。
+// coastline は native な線＝lineStream（styleId=1＝既定 #00B4D8）。fillColor 既定透明＝縁だけ＝「線だけ」。
+// maxZoom:7 で z≤7 に点火＝低ズームの世界図専用。
 // VW ランクは GintBUF に焼込済＝10m を間引かず全密度で描く（弦が短く球面に吸い付く＝110m の崩壊が起きない）。
 // 世界海岸線（Natural Earth 10m）を起動時に自動ロード＝__coast() を叩かず「最初から描画」。
 // カメラは動かさない＝ズームアウト（z≤7）した瞬間に海岸線が居る。14条筆と gint 単一スロット共有（相互置換）。
 async function loadWorldCoast() {
-	console.log("[coast] Natural Earth 10m coastline を読込中（S3→GeoPBF→GintBUF）…");
-	const pbf = await geopbf("https://naturalearth.s3.amazonaws.com/10m_physical/ne_10m_coastline.zip", { name: "ne_10m_coastline" }).catch(e => { console.error("[coast] geopbf", e); return null; });
+	console.log("[coast] Natural Earth 10m coastline を読込中（bucket GeoPBF→GintBUF）…");
+	let pbf = await geopbf("ne_10m_coastline").catch(e => { console.warn("[coast] bucket load 失敗", e); return null; });
+	if (!pbf?.unPackGint) {
+		console.warn("[coast] bucket に geopbf 無し → 生 zip へフォールバック（S3→shp デコード）");
+		pbf = await geopbf("https://naturalearth.s3.amazonaws.com/10m_physical/ne_10m_coastline.zip", { name: "ne_10m_coastline" }).catch(e => { console.error("[coast] geopbf", e); return null; });
+	}
 	const g = pbf?.unPackGint;
 	if (!g) { console.error("[coast] GintBUF デコード失敗", pbf); return; }
 	console.log("[coast] unPackGint keys:", Object.keys(g), "| lineStream:", g.lineStream?.length, "| bbox:", g.bbox);
