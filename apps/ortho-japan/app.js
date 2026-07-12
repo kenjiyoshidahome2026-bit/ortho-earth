@@ -11,25 +11,35 @@ import { createGeopbf, geopbf } from "geopbf";
 import { createGetHeight, setApiUrl as setAltApiUrl } from "altpbf";
 createGeopbf("https://api.ortho-earth.com");   // bucket 基盤（標高と同じ）。読み出しはキー不要
 import style from "./style-mono.js";
-import { createThemes, defaultLayerState, CHOME_MINZOOM, RAILTR_MINZOOM } from "./themes.js";
+import { createThemes, defaultLayerState, isShisetsu, isChikei, CHOME_MINZOOM, RAILTR_MINZOOM } from "./themes.js";
 import { createOverlay } from "./overlay.js";
 import { createPipeline } from "ortho-core";   // tile/scene worker のスポーンごとエンジン側
-import { createSearch } from "./search.js";
 import { createPlateauDb } from "./plateaudb.js";
 import { mountGadgets } from "./gadgets/mount.js";
+import { search as searchGadget } from "./gadgets/searchbox.js";
+import { hint as hintGadget } from "./gadgets/hint.js";
+import { compass as compassGadget } from "./gadgets/compass.js";
+import { plateau as plateauGadget } from "./gadgets/plateau.js";
 
 // ============================================================================================
 // ortho-japan：1行で日本が立ち上がる入口（v1 orthoMap の作法の継承）。
 //   const map = await orthoJapan();                    // body直下の #map（無ければ自作）に起動
 //   const map = await orthoJapan({ target: "#here" }); // 任意のdivへ埋め込み（idはmapに正規化＝家具規格）
-//   opts.view="#z/lat/lon..." で初期視点を上書き。戻り値＝{ cam, flyTo, renderer, mapEl }
+//   opts.view="#z/lat/lon..." で初期視点を上書き。戻り値＝{ cam, flyTo, renderer, mapEl, gadget, destroy }
+//   map.destroy()＝worker・リスナー・ループ全停止＋DOM撤去（SPAで剥がす時。IDBキャッシュは残す）
+//   opts.chips＝テーマ・チップの表示（true=全部[既定]／["chimei","rail"]等=選択的／false=出さない）
+//   opts.instruments＝下部の計器盤の表示（true=全部[既定]／["pos","scale","attr","log"]から選択的／false=出さない）
+//   ★"attr"（出典）を消す場合は埋め込みページ側で出典明記が必要（README「出典表記」）
+//   opts.plateau＝建物3D（PLATEAU）機能スイッチ（true=[既定]／false=カタログ・worker・自動ロード・ガジェットごと停止）
+//   検索・操作説明はオプトインガジェット＝ map.gadget.search() / map.gadget.hint() で画面ごとに追加（v1 ortho-map の作法）
 // ============================================================================================
 export default async function orthoJapan(opts = {}) {
 // 起動の容れ物：target指定（selector/要素）→ 無ければ既存#map → それも無ければbody直下に自作。
 // 意匠（quiet-mono）とガジェットは id="map" の家具規格で当たるため、容れ物のidはmapへ正規化する。
-const mapEl = (typeof opts.target === "string" ? document.querySelector(opts.target) : opts.target)
-	|| document.getElementById("map")
-	|| document.body.appendChild(document.createElement("div"));
+let mapEl = (typeof opts.target === "string" ? document.querySelector(opts.target) : opts.target)
+	|| document.getElementById("map");
+const ownMapEl = !mapEl;   // 容れ物を自作した＝destroy で丸ごと消してよい（預かった div は中身だけ空にして返す）
+if (ownMapEl) mapEl = document.body.appendChild(document.createElement("div"));
 mapEl.id = "map";
 // 舞台のcanvas 3層（基図GL/知性gint/ラベル）も自給＝index.htmlは空のdivだけでよい
 for (const cid of ["c", "gint", "labels"]) { const cv = document.createElement("canvas"); cv.id = cid; mapEl.appendChild(cv); }
@@ -37,10 +47,12 @@ for (const cid of ["c", "gint", "labels"]) { const cv = document.createElement("
 const TILE_URL = (z, x, y) => `https://cyberjapandata.gsi.go.jp/xyz/optimal_bvmap-v1/${z}/${x}/${y}.pbf`;
 const TILE = 512, D2R = Math.PI / 180, R2D = 180 / Math.PI;
 
-mountGadgets(mapEl);   // UI を #map に生やす＝以降の getElementById が実体を掴めるよう、全lookupの前で
+mountGadgets(mapEl, { chips: opts.chips, instruments: opts.instruments });   // UI を #map に生やす＝以降の getElementById が実体を掴めるよう、全lookupの前で
+// 非搭載（chips:false / instruments:false）でも配線コードは無改造＝繋ぎ先が無ければ宙のdiv（どこにも描画されない）へ。
+const orDetached = el => el || document.createElement("div");
 const canvas = document.getElementById("c");
 const labelCanvas = document.getElementById("labels");
-const logEl = document.getElementById("log");
+const logEl = orDetached(document.getElementById("log"));
 const EARTH_M = 6371000, TERR_EXAG = 1.0;   // 標高は実スケール（誇張しない＝地形を歪めない）。ラベル・地形・建物で共有
 
 // --- 初見が死なない：起動できない環境・壊れた環境を白画面でなく言葉で受け止める ---
@@ -75,8 +87,10 @@ const onTile = ok => {
 	if (ok) { tileFails = 0; if (navigator.onLine !== false) netEl.style.display = "none"; }
 	else if (++tileFails >= 3) netEl.style.display = "block";   // 3連続失敗＝ネット全滅の疑い（単発404では出さない）
 };
-window.addEventListener("offline", () => { netEl.style.display = "block"; });
-window.addEventListener("online", () => { netEl.style.display = "none"; needsDraw = true; });
+// window/document 級のリスナーは全てこの signal で登録＝destroy() の abort 一発で束ごと外れる（外し漏れゼロ）。
+const ac = new AbortController();
+window.addEventListener("offline", () => { netEl.style.display = "block"; }, { signal: ac.signal });
+window.addEventListener("online", () => { netEl.style.display = "none"; needsDraw = true; }, { signal: ac.signal });
 
 const bg = style.layers.find(L => L.type === "background");
 const land = bg ? parseRGBA(evalExpr(bg.paint?.["background-color"] ?? "#fff", { zoom: 10, props: {}, geom: null, vars: {} })) : [0.96, 0.96, 0.95, 1];
@@ -148,8 +162,11 @@ let moving = false, settleT = null;
 // 移動中は幾何を再結合しない（タイルのポップ＝チラチラ防止）。停止後に再結合。
 // PLATEAU LOD2 データ登録簿：寄ると自動で出す。bbox は自動トリガ用の緩い矩形（実描画は被覆マスクが実フットプリントに沿わせる）。
 // 全国 300 市区町村分は scripts/plateau-catalog-build.mjs で datacatalog API から生成＝public/plateau-sets.json を起動時に fetch。
+// opts.plateau=false＝建物3D機能ごと停止：カタログ・workerプール・自動ロード・データ管理ガジェットの全部
+//（1地区あたり数十〜百MB級の重い機能＝軽い埋め込みが丸ごと切れる口。UIのchips/instrumentsと対になる機能側スイッチ）。
+const plateauOn = opts.plateau !== false;
 let PLATEAU_SETS = [];
-fetch(import.meta.env.BASE_URL + "plateau-sets.json").then(r => r.json()).then(sets => {   // BASE_URL＝サブパス配信(/ortho-japan/)対応
+if (plateauOn) fetch(import.meta.env.BASE_URL + "plateau-sets.json").then(r => r.json()).then(sets => {   // BASE_URL＝サブパス配信(/ortho-japan/)対応
 	PLATEAU_SETS = sets; console.log(`[plateau] カタログ読込 → ${sets.length} 市区町村`);
 	autoPlateau();   // 復元ビューが z14+ の街なら起動直後に自動ロード（IDBキャッシュ命中なら即座に街が立つ）
 }).catch(e => console.warn("[plateau] カタログ取得失敗", e));
@@ -178,7 +195,7 @@ const plateauFailed = new Set();           // 葉0枚/デコード失敗の地�
 const PLATEAU_NW = Math.min(PLATEAU_MAX_ACTIVE, (navigator.hardwareConcurrency || 4) - 1) || 1;
 const plateauWorkers = [], plateauPending = new Map();
 let plateauReqId = 0;
-for (let i = 0; i < PLATEAU_NW; i++) {
+for (let i = 0; plateauOn && i < PLATEAU_NW; i++) {   // plateau OFF＝workerを1本も起こさない
 	const w = new Worker(new URL("./plateauworker.js", import.meta.url), { type: "module" });
 	const meshChan = new MessageChannel();   // この worker → render worker のメッシュ直結パイプ
 	w.postMessage({ type: "init", meshPort: meshChan.port1 }, [meshChan.port1]);
@@ -237,10 +254,10 @@ const plateauDb = createPlateauDb({
 	// 描画＝モーダルを閉じて地区中心へ球面フライト（z14.5=PLATEAU自動ロード圏・チルト45°）→ autoPlateau がキャッシュ命中で即表示
 	show: set => { plateauDb.close(); flyTo((set.bbox[0] + set.bbox[2]) / 2, (set.bbox[1] + set.bbox[3]) / 2, 14.5, 45); },
 });
-document.getElementById("btn-3ddata").addEventListener("click", plateauDb.open);
+// モーダルを開くボタンはオプトインガジェット（gadgets/plateau.js）＝末尾の map.gadget("plateau", …) で open を注入。
 // ストレージの永続化を要求＝ディスク逼迫時にブラウザ都合でオリジンごと退避されるのを防ぐ（デモ機の仕込み保護）。
 // persist() は window 限定 API。Chrome はエンゲージメント次第で無言許可、拒否でも動作は変わらない。
-navigator.storage?.persist?.().then(ok => console.log(`[plateau] storage persist: ${ok ? "許可" : "不許可"}`)).catch(() => {});
+if (plateauOn) navigator.storage?.persist?.().then(ok => console.log(`[plateau] storage persist: ${ok ? "許可" : "不許可"}`)).catch(() => {});
 
 // 現在の画面に映る範囲をラフに見積もる（フラスタム厳密解ではなく自動ロードのゲート用）。z14+の寄った状態でしか呼ばれない＝視野は元々狭く、この近似で十分。
 function approxViewBbox(cam) {
@@ -255,6 +272,7 @@ const bboxIntersects = (a, b) => a[0] <= b[2] && a[2] >= b[0] && a[1] <= b[3] &&
 // 現在地＋ズームで登録簿を引き、視野に重なる地区を全部ロード／外れた地区は解放。区境をまたぐと複数地区が同時アクティブになる（上限 PLATEAU_MAX_ACTIVE）。
 // onMove から毎回呼ぶがガードで実質タダ。
 function autoPlateau() {
+	if (!plateauOn) return;   // 機能ごと停止（opts.plateau=false）
 	if (flying) return;   // フライト中は読み込みも解放もしない＝デコード/GPU転送が飛行アニメと帯域を取り合わない。着地の onMove で解禁
 	if (cam.zoom < PLATEAU_AUTO_Z) {
 		for (const name of plateauActive.keys()) { renderer.set("plateauMesh", null, name); console.log("[plateau] 範囲外→解放", name); }
@@ -300,6 +318,7 @@ function autoPlateau() {
 function onMove() {
 	cam.center[0] = wrapLon(cam.center[0]);   // パン/回転/フライトの累積を毎移動で正規化＝float32原点相対の前提を守る（階段バグ根治）
 	moving = true; needsDraw = true;
+	ensureCoast();                                                                    // 世界海岸線は初めて z<8 に出た瞬間に読む（遅延ロード）
 	autoPlateau();                                                                    // 寄る/離れるで PLATEAU を自動ロード/解放（ガードで実質タダ）
 	renderer.draw(cam, { skipBase: false, skipMain: mainStale(), noTerrain: cam.zoom < BASEMAP_MINZOOM });   // 入力の瞬間に最新camをworkerへ（全球=z<4は地形オフ＝白い地球＋海岸線のみ）
 	// 海岸線(gint)は render worker が draw 後に従属で駆動＝ここから直接送らない（地図と同cam/同フレーム＝スライド消滅）。
@@ -310,7 +329,7 @@ function onMove() {
 
 // データパイプライン（tile/scene worker）。実装は pipeline.js。
 // tiles＝LOD管理（update/labels）、requestMerge＝結合要求（scene worker が結合→render worker へ直行）。
-const { tiles, requestMerge } = createPipeline({
+const { tiles, requestMerge, destroy: destroyPipeline } = createPipeline({
 	style, tileUrl: TILE_URL, requestDraw: () => { needsDraw = true; }, scenePort: sceneChan.port1, onTile,
 	// merge の ack：sig はここで初めて確定する（要求時の楽観確定をやめた＝失敗が永続穴にならない）
 	onMerged: (slot, sig) => {
@@ -383,6 +402,7 @@ canvas.addEventListener("pointerleave", () => gintWorker.postMessage({ type: "le
 // →現状はバッジ判定に使わない。任意座標系の混入検知は変換パイプライン側（外れ値bbox比較）でやるべき課題として残す。
 function applyGintData(pbf, label) {
 	if (!pbf?.unPackGint) { console.error("[14条] gint デコード失敗 (%s)", label, pbf); return null; }
+	coastArmed = false;       // gint 単一スロットにユーザーデータが載った＝以後の海岸線自動ロードは放棄（clobber防止）
 	gintDrawOpts = null;      // 14条筆は既定スタイルへ（海岸線グレーを引きずらない）
 	gintInteractive = true;   // 筆はホバー/クリックで突合
 	sendGintStyle();          // worker にスタイル(null=既定)を保持させる
@@ -455,7 +475,11 @@ async function loadWorldCoast() {
 	needsDraw = true;  // 地図を1枚描かせ→render worker が gint へ従属信号→海岸線が出る
 	console.log("[coast] ロード完了。z≤7 で自動描画");
 }
-window.__coast = loadWorldCoast;   // 手動リロード用（通常は起動時に自動実行）
+window.__coast = loadWorldCoast;   // 手動リロード用
+// 遅延ロードの門番：初めて z<8（海岸線の見えるズーム）に出た瞬間に一度だけ読む＝z14固定の埋め込みは一生読まない
+//（PLATEAUスイッチと同じ思想＝見えない機能のための通信をしない。既定の世界ビュー起動は直下の ensureCoast が即発火＝体験は不変）。
+let coastArmed = true;
+function ensureCoast() { if (coastArmed && cam.zoom < 8) { coastArmed = false; loadWorldCoast(); } }
 
 // N02（国土数値情報 鉄道）から新幹線だけ抽出して常駐オーバーレイに（gishub-jp と同じ geopbf 経路）。
 // 新幹線＝N02_002(事業者種別)=1「JRの新幹線」。全国一括・疎＝軽い。鉄道チップONで表示、初回だけ fetch。※駅/空港/道の駅は次段。
@@ -543,6 +567,7 @@ window.__cam = (lon, lat, zoom = cam.zoom, pitchDeg = cam.pitch * R2D, bearingDe
 // 実体（fetch/デコード/ECEF/RTE/被覆マスク）は全て plateauworker.js（メインスレッドをブロックしないためworker化）。
 // 手打ちデモ：地区名(部分一致)かbase URLを指定して読み込み、カメラもそこへ寄せる（自動と違いカメラを動かす）。省略時は登録簿の先頭。
 window.__plateau = async (nameOrBase, tiles) => {
+	if (!plateauOn) { console.warn("[plateau] opts.plateau=false＝建物3Dは機能ごと停止中"); return; }
 	const set = !nameOrBase ? PLATEAU_SETS[0]
 		: PLATEAU_SETS.find(s => s.base === nameOrBase || s.name === nameOrBase || s.name.includes(nameOrBase));
 	if (!set) { console.error("[plateau] 地区が見つかりません:", nameOrBase, `（登録簿 ${PLATEAU_SETS.length} 件）`); return; }
@@ -583,7 +608,8 @@ function resize() {
 	gintWorker.postMessage({ type: "resize", width: size.w, height: size.h });
 	needsDraw = true;
 }
-new ResizeObserver(resize).observe(mapEl);   // #map のサイズ変化に追随（ウィンドウでも埋め込み先のレイアウトでも同じ経路）
+const ro = new ResizeObserver(resize);   // destroy で disconnect するため手綱を持つ
+ro.observe(mapEl);   // #map のサイズ変化に追随（ウィンドウでも埋め込み先のレイアウトでも同じ経路）
 
 resize();
 
@@ -604,7 +630,11 @@ const evXY = input.evXY;   // 座標読み取り（計器）も同じローカ�
 // 標高は altpbf の getHeight（ortho-earth 本体と同じ点サンプラ）＝必要タイルをその場でオンデマンド取得
 // （R90/R10/R01 をズームで自動選択・IDB は地形アトラスと共有）。render worker のアトラス照会だと
 // 未ロード地帯が0mになる劣化版だった。onend＝タイル到着でゲートを開けて再照会（マウス静止中でも値が確定）。
-const posEl = document.getElementById("pos");
+const posEl = orDetached(document.getElementById("pos"));
+const hasPos = posEl.isConnected;   // 座標表示なし（instrumentsで"pos"非搭載）＝標高照会も止める（見えない計器のためのfetchをしない）
+// 狭画面＝座標テーブルなし（境界はCSSの掟と同値）。回転や窓リサイズで跨ぐため毎回評価＝posOn が表示と標高fetchの両方を裁く。
+const narrowMq = window.matchMedia("(max-width: 480px)");
+const posOn = () => hasPos && !narrowMq.matches;
 posEl.innerHTML = "<table><thead><tr><th>経度</th><th>緯度</th><th>標高</th><th>z値</th><th>回転</th><th>傾度</th></tr></thead><tbody><tr><td></td><td></td><td></td><td></td><td></td><td></td></tr></tbody></table>";
 const posCells = [...posEl.querySelectorAll("td")];   // [経度, 緯度, 標高, z値, 回転, 傾度]（毎フレームはtextContent更新のみ＝DOM再構築しない）
 let posMouse = null, posElev = null, posElevId = 0, posElevAt = 0, posRaf = false, getHeight = null;
@@ -614,7 +644,7 @@ createGetHeight({ apiUrl: "https://api.ortho-earth.com", onend: () => { posElevA
 // 距離スケール（真俯瞰=2Dのみ）：ortho-map Accessories draw_scale() と同じ数式・同じ1-2-5系列。
 // d256m＝256px当たりの実距離[m]。本家は256px世界の zoom、当アプリは512px世界なので +1 で読み替える。
 // 正射図法は画面中心のスケールが緯度に依らない＝cos(lat) 補正無しで本家と同じ（チルト時は不均一になるので消す）。
-const scaleEl = document.getElementById("scale"), scaleTxt = document.getElementById("scale-txt"), scaleBar = document.getElementById("scale-bar");
+const scaleEl = orDetached(document.getElementById("scale")), scaleTxt = orDetached(document.getElementById("scale-txt")), scaleBar = orDetached(document.getElementById("scale-bar"));
 const comma = s => String(s).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 function updateScale() {
 	if ((cam.pitch || 0) > 0.005) { scaleEl.style.display = "none"; return; }
@@ -641,7 +671,7 @@ function updatePos() {
 	posCells[0].textContent = ll[0].toFixed(5);
 	posCells[1].textContent = ll[1].toFixed(5);
 	posCells[2].textContent = posElev == null ? "—" : `${Math.round(posElev)}m`;
-	if (getHeight && performance.now() - posElevAt > 150) {
+	if (posOn() && getHeight && performance.now() - posElevAt > 150) {
 		posElevAt = performance.now();
 		const id = ++posElevId;
 		getHeight(ll[0], ll[1], cam.zoom).then(h => {   // 値が変わった時だけ再描画＝静止中の照会ループを断つ
@@ -650,7 +680,7 @@ function updatePos() {
 	}
 }
 const schedulePos = () => { if (!posRaf) { posRaf = true; requestAnimationFrame(updatePos); } };
-canvas.addEventListener("pointermove", e => { const [x, y] = evXY(e); posMouse = { x, y }; posEl.style.display = "block"; schedulePos(); });
+canvas.addEventListener("pointermove", e => { const [x, y] = evXY(e); posMouse = { x, y }; if (posOn()) posEl.style.display = "block"; schedulePos(); });
 canvas.addEventListener("pointerleave", () => { posMouse = null; posEl.style.display = "none"; });
 schedulePos();   // 起動直後からスケールを出す（真俯瞰復元時。マウス無しでも updateScale は走る）
 
@@ -658,7 +688,6 @@ schedulePos();   // 起動直後からスケールを出す（真俯瞰復元時
 // onFlying＝autoPlateau のゲート（飛行中はPLATEAU完全停止・着地の瞬間に解禁＝立ち上がりが着陸の演出）。
 const flightCtl = createFlight({ cam, viewW: () => size.w, maxPitch: MAXPITCH, onMove, onFlying: f => { flying = f; } });
 const flyTo = flightCtl.flyTo;
-createSearch({ onGo: flyTo });
 window.__fly = flyTo;   // デバッグ/検証用（__cam の飛行版）
 
 // テーマ・チップ状態：静かな白黒の土台は常に全部見えている。チップは主題の「文字の表示」
@@ -717,6 +746,10 @@ function swapScene(order) {
 		if (kuVisible && SEIREI.has(L.text)) return { ...L, size: L.size * 1.2, color: [L.color[0], L.color[1], L.color[2], L.color[3] * 0.5] };
 		// 測量点(7102三角点/7201・7221標高点)は shieldFor が記号＋標高値を描く。flat=真俯瞰の作法＝傾けたら等高線と一緒に消す。
 		if (L.code === 7102 || L.code === 7201 || L.code === 7221) return { ...L, flat: true };
+		// 施設は濃い紫＝チップと同色（--qm-accent-shisetsu #6a3d9a。点火の掟：チップ色＝地図上の色）。名前は一回り小さく＝地名の脇役
+		if (layerState.shisetsu && isShisetsu(L)) return { ...L, size: L.size * 0.9, color: [0.416, 0.239, 0.604, L.color[3]] };
+		// 地形名（3xx帯）は濃い茶＝チップと同色（--qm-accent-chikei #754c24＝等高線の茶の同族）
+		if (layerState.chikei && isChikei(L.code)) return { ...L, color: [0.459, 0.298, 0.141, L.color[3]] };
 		return L;
 	});
 	renderer.set("labels", lastLabels);   // ラベル集合を render worker へ。標高付与(sampleElev)も terrain と一緒に worker 側で行う（同期して描く）
@@ -744,41 +777,24 @@ function applyChikei() {
 	renderer.draw(cam, { skipBase: false, noTerrain: cam.zoom < BASEMAP_MINZOOM, terrainGate: true });
 	needsDraw = true;
 }
+// チップの見た目同期：点火クラスと aria-pressed（支援技術向けのトグル状態）を常に一緒に更新する。
+const syncChip = b => { const on = !!layerState[b.dataset.k]; b.classList.toggle("on", on); b.setAttribute("aria-pressed", String(on)); };
 // チップ操作：状態を反転し、styleSig を更新して即再結合（再取得なし・一瞬）。
 document.querySelectorAll(".chip").forEach(b => b.addEventListener("click", () => {
 	const k = b.dataset.k; if (!k) return;   // data-k 無し＝UIトグル（数字など）は別ハンドラ
 	layerState[k] = !layerState[k];
-	b.classList.toggle("on", layerState[k]);
+	syncChip(b);
 	styleSig = JSON.stringify(layerState); readySig = ""; needsDraw = true;
 	if (k === "rail") { renderer.set("view", { showN02: layerState.rail }); if (layerState.rail) loadN02(); }   // 鉄道ON＝N02新幹線も表示＋初回fetch
 	if (k === "chikei") applyChikei();   // 地形＝等高線・測量点標高・水系も一緒に点火
 	saveView();   // レイヤ状態も共有URLの一部＝即書き戻す
 }));
 // 共有URL復元の初期同期：チップの見た目と rail/chikei 副作用を layerState に合わせる（既定どおりなら実質 no-op）
-document.querySelectorAll(".chip[data-k]").forEach(b => b.classList.toggle("on", !!layerState[b.dataset.k]));
+document.querySelectorAll(".chip[data-k]").forEach(syncChip);
 if (layerState.rail) { renderer.set("view", { showN02: true }); loadN02(); }
 renderer.set("view", { showContour: layerState.chikei });
 
-// 操作方法カード：起動時は出さない＝第一印象は地図だけ（マウス絵柄が視界に入らない）。
-// 6秒操作が無い（＝迷っているかもしれない）人にだけ、そっとフェードイン。先に触った人（ドラッグ/ホイール）
-// には出さない＝「?」だけが常に居る。×で畳んだ選択は記憶＝二度目からは完全に静か。
-const hintEl = document.getElementById("hint"), hintBtn = document.getElementById("hint-btn");
-function setHint(open, remember = true) {
-	hintEl.style.display = open ? "" : "none";
-	hintBtn.style.display = open ? "none" : "flex";
-	if (remember) try { localStorage.setItem("oj.hint", open ? "" : "closed"); } catch { /* private mode 等 */ }
-}
-document.getElementById("hint-close").addEventListener("click", () => setHint(false));
-hintBtn.addEventListener("click", () => setHint(true));
-setHint(false, false);   // 起動は必ず「?」から（記憶には書かない＝初見の人の自動表示権を消費しない）
-try {
-	if (localStorage.getItem("oj.hint") !== "closed") {   // まだ×で畳んだことがない人だけ自動表示の対象
-		const t = setTimeout(() => setHint(true, false), 6000);
-		const armed = () => { clearTimeout(t); canvas.removeEventListener("pointerdown", armed); canvas.removeEventListener("wheel", armed); };
-		canvas.addEventListener("pointerdown", armed);   // 触れた＝操作を知っている人＝出さない
-		canvas.addEventListener("wheel", armed);
-	}
-} catch { /* private mode 等 */ }
+// 操作方法カード（#hint）はオプトインガジェットへ移設＝gadgets/hint.js（6秒の自動表示・×の記憶ごと）。
 
 // ハッシュの手編集・ペーストで視点ジャンプ（replaceState は hashchange を発火しない＝自分の書き戻しとは無干渉）
 window.addEventListener("hashchange", () => {
@@ -788,34 +804,18 @@ window.addEventListener("hashchange", () => {
 	if (v.layers || v.contour) {
 		if (v.layers) for (const k of Object.keys(layerState)) layerState[k] = v.layers.includes(k);
 		if (v.contour) layerState.chikei = true;   // 旧URLの c＝地形チップに読み替え（後方互換）
-		document.querySelectorAll(".chip[data-k]").forEach(b => b.classList.toggle("on", !!layerState[b.dataset.k]));
+		document.querySelectorAll(".chip[data-k]").forEach(syncChip);
 		styleSig = JSON.stringify(layerState); readySig = "";
 		renderer.set("view", { showN02: layerState.rail }); if (layerState.rail) loadN02();
 		applyChikei();
 	}
 	onMove();
-});
+}, { signal: ac.signal });
 
-// コンパス兼リセット：3D（傾き or 回転）の時だけ表示。針は方位を指し、押すと水平・北向きへスッと戻る。
-const resetBtn = document.getElementById("reset");
-const resetSvg = resetBtn.querySelector("svg");
-const shortBearing = () => shortBearingOf(cam.bearing);   // 最短回転へ正規化（実装はengine）
-function updateCompass() {
-	const is3D = cam.pitch > 0.005 || Math.abs(shortBearing()) > 0.005;
-	resetBtn.style.display = is3D ? "flex" : "none";
-	if (is3D) resetSvg.style.transform = `rotate(${-cam.bearing * 180 / Math.PI}deg)`;
-}
-resetBtn.addEventListener("click", () => {
-	flightCtl.cancel();   // リセットアニメと喧嘩しない
-	const p0 = cam.pitch, b0 = shortBearing(), t0 = performance.now(), dur = 700;   // 3D→2Dは少しゆっくり＝地面が起き上がる感覚を残す
-	const step = () => {
-		const k = Math.min(1, (performance.now() - t0) / dur), e = k * k * (3 - 2 * k);   // smoothstep
-		cam.pitch = p0 * (1 - e); cam.bearing = b0 * (1 - e); onMove();
-		if (k < 1) requestAnimationFrame(step);
-		else { cam.pitch = 0; cam.bearing = 0; onMove(); }
-	};
-	requestAnimationFrame(step);
-});
+// コンパス兼リセット（#reset）はオプトインガジェットへ移設＝gadgets/compass.js（針の追従・リセットアニメごと）。
+// 針の毎フレーム追従は render が呼ぶフック＝搭載時に差し替わる（未搭載なら no-op）。
+let updateCompass = () => {};
+const shortBearing = () => shortBearingOf(cam.bearing);   // 最短回転へ正規化（実装はengine）＝計器盤の回転列と共用
 
 function render() {
 	// パン/チルト中（ズーム不変）は詳細も再結合。ズーム中はLODポップ回避で停止まで待つ。
@@ -858,13 +858,53 @@ window.__tokyo = () => overlay.loadEstat(Array.from({ length: 23 }, (_, i) => 13
 // 初期 overlay なし（全球 land は検証用。__tokyo() や __loadOverlay(name) で任意に）
 
 function frame() {
+	if (destroyed) return;   // destroy 後はループを再予約しない＝rAF が自然消滅
 	if (needsDraw) { needsDraw = false; render(); }
 	requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
 
-// 起動時に世界海岸線を自動ロード（最初から描画）。await せず発火＝基図の起動を妨げない。
-loadWorldCoast();
+// --- 後片付け（map.destroy()）：SPA等で地図を剥がす時に呼ぶ。worker・リスナー・ループ・タイマーを全て止める。
+// 自作した容れ物（target無指定で body 直下に作った div）は丸ごと消し、預かった div は中身だけ空にして返す。
+// IDBキャッシュ（PLATEAU/標高）はオリジン資産＝消さない（再訪の速さはそのまま）。
+let destroyed = false;
+function destroy() {
+	if (destroyed) return;
+	destroyed = true;
+	flightCtl.cancel();
+	ac.abort();                                  // window/document のリスナー一括解除（offline/online/hashchange/検索の外側クリック）
+	ro.disconnect();
+	clearTimeout(settleT); clearTimeout(bootT);
+	destroyPipeline();                           // tile/scene worker
+	renderWorker.terminate(); gintWorker.terminate();
+	plateauWorkers.forEach(w => w.terminate());
+	// デバッグ手はこのインスタンスの閉包を掴んだまま＝GCの錨になるので窓から下ろす
+	for (const k of ["__plateauPurge", "__moj", "__mojFile", "__sapporo", "__arakawaFit", "__coast", "__cam", "__plateau", "__fly", "__loadOverlay", "__loadEstat", "__tokyo", "__lastOrder"]) delete window[k];
+	ownMapEl ? mapEl.remove() : mapEl.replaceChildren();
+}
 
-return { cam, flyTo, renderer, mapEl };   // 呼び出し側の手綱（視点操作・飛行・描画設定）
+// 世界海岸線：初期視点が z<8 ならここで即発火（既定の世界ビュー＝従来どおり最初から描画）。await せず＝基図の起動を妨げない。
+ensureCoast();
+
+// 呼び出し側の手綱（視点操作・飛行・描画設定）＋ガジェット登録簿（v1 ortho-map createGadgets の作法の継承）。
+// map.gadget(name, func) で登録し map.gadget.name() で画面に追加する。func 内の this＝この map＝
+// mapEl/flyTo 等の手綱がそのまま使える。検索・操作説明は標準装備から外した最初のオプトインガジェット。
+const map = { cam, flyTo, renderer, mapEl, destroy };
+map.gadget = function (name, func) {
+	typeof name == "function" && name.name && (func = name, name = func.name);
+	map.gadget[name] = function () { return func.apply(map, arguments); };
+};
+map.gadget("search", function (opts) {   // 地名・住所検索 … map.gadget.search({ onGo? })。destroy用のsignalはここで注入
+	return searchGadget.call(this, { signal: ac.signal, ...opts });
+});
+map.gadget("hint", hintGadget);       // 操作説明カード … map.gadget.hint() → { open, close }
+map.gadget("compass", function (opts) {   // コンパス兼リセット … 内部の手綱（フライト中断・onMove）はここで注入
+	const update = compassGadget.call(this, { cancelFlight: () => flightCtl.cancel(), onMove, ...opts });
+	if (update) { updateCompass = update; update(); }   // 針の追従を render のフックへ＝搭載した瞬間から現姿勢を指す
+});
+map.gadget("plateau", function (opts) {   // 建物3D（PLATEAU）データ管理 … モーダルを開く手綱はここで注入
+	if (!plateauOn) { console.warn("[plateau] opts.plateau=false＝機能ごと停止中。ガジェットは搭載しない"); return; }
+	return plateauGadget.call(this, { onOpen: plateauDb.open, ...opts });
+});
+return map;
 }

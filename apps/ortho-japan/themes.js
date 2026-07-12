@@ -13,7 +13,7 @@ const CHOME_CODES = new Set([210]);                           // 丁目：粒度
 // 地形は 3xx 帯が丸ごと自然地形（実測：山311/312/316・湖沼321・河川322・沢323・高原331・
 // 峠火山332・山地333・岬崎343・海345・浜347・島352・礁353…）。範囲判定＝未見コードも取りこぼさない。
 // （施設の大使館/郵便局等は 32xx＝番号帯が別なので誤爆しない）
-const isChikei = c => c >= 300 && c <= 399;
+export const isChikei = c => c >= 300 && c <= 399;   // export＝main のラベル再スタイル（地形名＝濃い茶）でも使う
 const ROAD_CODES = new Set([2941, 2942, 2943, 2944, 2945, 412, 411, 2901, 2902, 2903, 2904]); // 道路ON：高速IC/JCT・SA/PA/SIC・都市高速JCT/路線名・国道/高速番号
 const RAIL_CODES = new Set([422, 421, 431, 441]);             // 鉄道ON：駅名・鉄道路線名・港・空港/飛行場名（交通ハブを鉄道に集約）
 const GYOSEI_CODES = new Set([130]);                          // 行政区域ON：郡（都道府県・区は地名側へ）
@@ -25,6 +25,8 @@ const SURVEY_LAND = new Set([7102, 7201, 7221]);
 const isNum = t => /^\d+(\.\d+)?$/.test(t);                    // 純粋な数値（標高・水深等の計測値）は施設に出さない
 // 施設＝他テーマに属さない残り全部（省庁・大学・神社・寺・大使館・郵便局・橋・トンネル…）。取りこぼし防止。
 const CLAIMED = new Set([...CHIMEI_CODES, ...CHOME_CODES, ...ROAD_CODES, ...RAIL_CODES, ...GYOSEI_CODES]);
+// 施設判定（filterLabels の施設枝と同一条件）：export＝main のラベル再スタイル（施設＝濃い紫）でも使う。
+export const isShisetsu = L => !CLAIMED.has(L.code) && !isChikei(L.code) && !SURVEY_NOISE.has(L.code) && !isNum(L.text);
 
 // style に依存するのは "点火"層のインデックスだけ。style を受けて分類関数を返す。
 export function createThemes(style) {
@@ -55,7 +57,7 @@ export function createThemes(style) {
 				|| (layerState.road && ROAD_CODES.has(c))     // 道路ON＝IC/JCT/路線番号も点火
 				|| (layerState.rail && RAIL_CODES.has(c))     // 鉄道ON＝駅名/路線名も点火
 				|| (layerState.chimei && GYOSEI_CODES.has(c)) // 地名ON＝行政単位名（郡）も点火
-				|| (layerState.shisetsu && !CLAIMED.has(c) && !isChikei(c) && !SURVEY_NOISE.has(c) && !isNum(L.text)); // 施設＝残り全部（数値は除く）
+				|| (layerState.shisetsu && isShisetsu(L)); // 施設＝残り全部（数値は除く）
 		});
 	}
 	return { hiddenLi, filterLabels };

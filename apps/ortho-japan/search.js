@@ -47,7 +47,7 @@ export function rerank(q, cands) {
 	return cands.map(c => [score(c), c.i, c]).sort((a, b) => a[0] - b[0] || a[1] - b[1]).map(x => x[2]);
 }
 
-export function createSearch({ onGo }) {
+export function createSearch({ onGo, signal }) {   // signal＝map.destroy() で document リスナーを束ごと外すため
 	const box = document.getElementById("search");
 	const btn = document.getElementById("search-btn");
 	const input = document.getElementById("search-in");
@@ -83,6 +83,16 @@ export function createSearch({ onGo }) {
 		} catch (e) { if (e.name !== "AbortError") render(null); }   // 通信断も言葉で（白画面同様、黙らない）
 	}
 
+	// 候補リストは #map 直下の動的要素（ガジェットスタックの外＝下段のガジェットより上に描く）。
+	// 表示のたびに検索箱へ位置と幅を追随させる（スタック内の段はガジェット構成で動くため座標は毎回読む）。
+	const placeList = () => {
+		const mapEl = document.getElementById("map");
+		const r = box.getBoundingClientRect(), m = mapEl.getBoundingClientRect();
+		list.style.left = (r.left - m.left) + "px";
+		list.style.top = (r.bottom - m.top + 4) + "px";
+		list.style.width = r.width + "px";
+	};
+
 	function render(hits, isHist = false) {
 		list.innerHTML = ""; items = hits || []; sel = -1;
 		if (!hits) list.innerHTML = `<div class="search-empty">検索できませんでした（通信状態をご確認ください）</div>`;
@@ -91,10 +101,12 @@ export function createSearch({ onGo }) {
 		if (hits?.length) hits.forEach((c, i) => {
 			const d = document.createElement("div");
 			d.className = "search-item"; d.textContent = c.title;
+			d.setAttribute("role", "option"); d.setAttribute("aria-selected", "false");   // ↑↓選択は highlight が反映
 			if (c.note) { const s = document.createElement("span"); s.className = "search-note"; s.textContent = c.note; d.appendChild(s); }
 			d.addEventListener("pointerdown", ev => { ev.preventDefault(); go(i); });   // blur(候補を閉じる)より先に拾う
 			list.appendChild(d);
 		});
+		placeList();
 		list.style.display = "block";
 	}
 
@@ -112,14 +124,14 @@ export function createSearch({ onGo }) {
 	function go(i) {
 		const c = items[i]; if (!c) return;
 		saveHist(c);   // 行った場所だけ履歴へ（次回のオートコンプリート候補）
-		input.value = c.title;
+		input.value = "";   // 飛んだら入力欄は空に戻す＝行き先は履歴（最近の検索）に居るので消えても迷子にならない
 		close(); input.blur();
 		box.classList.remove("open");   // 飛んだら畳む＝フライトの見せ場と着地の地図を広く
 		const v = viewFor(c.title);
 		onGo(c.lon, c.lat, v.zoom, v.tilt);
 	}
 
-	const highlight = () => [...list.children].forEach((d, i) => d.classList.toggle("sel", i === sel));
+	const highlight = () => [...list.children].forEach((d, i) => { d.classList.toggle("sel", i === sel); if (d.getAttribute("role") === "option") d.setAttribute("aria-selected", String(i === sel)); });
 	// IME変換中は一切動かない：input は確定まで query しない（半端な読みで叩かない）、keydown は変換操作
 	//（確定Enter・候補送りの↑↓）を奪わない。奪うと「確定Enterで go()→input書き換え→その後にIMEの確定
 	// テキストが追記される」という二重入力になる（実害確認済み）。確定は compositionend で一度だけ拾う。
@@ -149,9 +161,9 @@ export function createSearch({ onGo }) {
 	// canvas はフォーカス可能要素でないため、地図をクリックしても input の blur は発火しない（＝空のまま
 	// 地図を触っても窓が畳まれないバグの正体）。検索箱の外の pointerdown で明示的に畳む。
 	document.addEventListener("pointerdown", e => {
-		if (box.contains(e.target) || !box.classList.contains("open")) return;
+		if (box.contains(e.target) || list.contains(e.target) || !box.classList.contains("open")) return;   // リストは箱の外（#map直下）＝外側クリック判定に含める
 		close();
 		if (!input.value.trim()) box.classList.remove("open");
 		input.blur();
-	});
+	}, { signal });
 }

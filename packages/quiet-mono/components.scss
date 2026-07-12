@@ -1,5 +1,6 @@
-/* Quiet Mono — UI部品の佇まい（家具規格）。id は共通契約：#map の舞台に #search / #chips / #pos /
-   #scale / #attr / #reset / #hint、実行時後置の #net-toast / #elev-toast / #plateau-toast / #ident / #fatal。
+/* Quiet Mono — UI部品の佇まい（家具規格）。id は共通契約：#map の舞台に #chips / #pos / #scale / #attr、
+   左上の #gadgets スタックにオプトインの #search / #hint / #reset / #plateau-btn（搭載順に縦積み・非表示は上詰め）、
+   実行時後置の #search-list / #net-toast / #elev-toast / #plateau-toast / #ident / #fatal。
    z-index は使わない＝重なりは DOM 順（静的UIは記述順・動的要素は起きた順に #map へ後置）。 */
 
 /* --- 舞台 --- */
@@ -9,6 +10,7 @@ body { visibility: visible; }   /* 開幕＝このスタイルシートの到着
 #c, #gint, #labels { position: absolute; inset: 0; width: 100%; height: 100%; }
 #c {
 	cursor: grab;
+	touch-action: none;   /* ブラウザ既定のスクロール/ピンチに奪わせない＝2本指ジェスチャ（ズーム/回転/チルト）の生命線 */
 	&:active { cursor: grabbing; }
 }
 #gint, #labels { pointer-events: none; }   /* 知性/ラベルの層は透過＝pointer は基図(#c)が受ける */
@@ -18,8 +20,8 @@ body { visibility: visible; }   /* 開幕＝このスタイルシートの到着
 @keyframes qm-fade { from { opacity: 0; transform: translateY(4px); } }
 #hint {
 	animation: qm-fade .45s ease;
-	position: absolute; top: 54px; left: 10px; font-size: 12px; color: var(--qm-text); background: var(--qm-panel);
-	padding: 9px 26px 9px 12px; border: 1px solid var(--qm-border-soft); border-radius: var(--qm-r-l);
+	position: relative; font-size: 12px; color: var(--qm-text); background: var(--qm-panel);   /* 置き場所はスタック。relative は×ボタンの錨 */
+	padding: 9px 26px 9px 12px; border: 1px solid var(--qm-border-soft); border-radius: 5px;
 	-webkit-backdrop-filter: blur(var(--qm-blur)); backdrop-filter: blur(var(--qm-blur)); box-shadow: var(--qm-shadow-card);
 	.hint-title { font-weight: 600; font-size: 11px; color: var(--qm-text-dim); letter-spacing: .08em; margin-bottom: 4px; }
 	.hint-row {
@@ -33,22 +35,32 @@ body { visibility: visible; }   /* 開幕＝このスタイルシートの到着
 }
 #hint-close {
 	position: absolute; top: 3px; right: 3px; width: 20px; height: 20px; border: none; background: none;
-	color: var(--qm-text-faint); font-size: 15px; line-height: 1; cursor: pointer; border-radius: 50%;
+	color: var(--qm-text-faint); font-size: 15px; line-height: 1; cursor: pointer; border-radius: 5px;
 	&:hover { background: #eef0f3; color: var(--qm-text); }
 }
 #hint-btn {
-	position: absolute; top: 54px; left: 10px; width: 34px; height: 34px; border-radius: 50%; display: none;
+	width: 34px; height: 34px; border-radius: 5px; display: none;   /* 置き場所はスタック */
 	align-items: center; justify-content: center; border: 1px solid var(--qm-border); background: var(--qm-panel);
 	color: #3f4757; font-size: 16px; font-weight: 600; cursor: pointer;
 	-webkit-backdrop-filter: blur(var(--qm-blur)); backdrop-filter: blur(var(--qm-blur));
 	&:hover { border-color: var(--qm-border-strong); }
 }
 
+/* --- ガジェットスタック：オプトインガジェット（検索・操作説明・コンパス…）の容れ物。
+       左上から「搭載した順」に縦積み。display:none のガジェットは flex の流れから抜ける＝下のガジェットが
+       上へ詰まる（上詰め）。個々のガジェットは座標を持たない＝並びはスタックが裁く --- */
+#gadgets {
+	position: absolute; top: 10px; left: 10px;
+	display: flex; flex-direction: column; align-items: flex-start; gap: 10px;
+	pointer-events: none;           /* 隙間・余白は地図へ素通し */
+	> * { pointer-events: auto; }   /* ガジェット本体は普通に触れる */
+}
+
 /* --- 地名検索：普段は虫めがねだけ、押すと右へ開く（Netflix式）。候補は下にリスト --- */
 #search {
-	position: absolute; top: 10px; left: 10px; width: 236px;
+	position: relative; width: 236px;   /* 置き場所はスタック。relative は虫めがねボタンの錨 */
 	#search-btn {
-		position: absolute; top: 0; left: 0; width: 34px; height: 34px; border-radius: 50%;
+		position: absolute; top: 0; left: 0; width: 34px; height: 34px; border-radius: 5px;
 		border: 1px solid var(--qm-border); background: var(--qm-panel); cursor: pointer; padding: 0;
 		display: flex; align-items: center; justify-content: center;
 		-webkit-backdrop-filter: blur(var(--qm-blur)); backdrop-filter: blur(var(--qm-blur));
@@ -56,7 +68,7 @@ body { visibility: visible; }   /* 開幕＝このスタイルシートの到着
 	}
 	#search-in {
 		width: 34px; box-sizing: border-box; font: 13px var(--qm-font); color: #333;
-		padding: 8px 12px 8px 34px; border: 1px solid var(--qm-border); border-radius: 17px; outline: none;
+		padding: 8px 12px 8px 34px; border: 1px solid var(--qm-border); border-radius: 5px; outline: none;
 		background: var(--qm-panel); -webkit-backdrop-filter: blur(var(--qm-blur)); backdrop-filter: blur(var(--qm-blur));
 		opacity: 0; pointer-events: none; transition: width .18s ease, opacity .18s ease;
 		&:focus { border-color: var(--qm-ink); background: #fff; }
@@ -65,10 +77,12 @@ body { visibility: visible; }   /* 開幕＝このスタイルシートの到着
 		#search-btn { border-color: transparent; background: none; -webkit-backdrop-filter: none; backdrop-filter: none; }
 		#search-in { width: 100%; opacity: 1; pointer-events: auto; }
 	}
-	#search-list {
-		display: none; margin-top: 4px; background: var(--qm-panel-solid); border: 1px solid var(--qm-border-soft);
-		border-radius: var(--qm-r-m); overflow: hidden; box-shadow: var(--qm-shadow-pop);
-	}
+}
+/* 候補リスト：#map 直下の動的要素（後置＝スタック下段のガジェットより上に描く。z-index不使用の掟のまま）。
+   位置と幅は search.js が検索箱に追随させる */
+#search-list {
+	position: absolute; display: none; background: var(--qm-panel-solid); border: 1px solid var(--qm-border-soft);
+	border-radius: 5px; overflow: hidden; box-shadow: var(--qm-shadow-pop);
 	.search-item {
 		padding: 8px 12px; font-size: 13px; color: #444; cursor: pointer;
 		&:hover, &.sel { background: #eef2f7; }
@@ -109,25 +123,49 @@ body { visibility: visible; }   /* 開幕＝このスタイルシートの到着
 		&:hover { text-decoration: underline; } }
 }
 
-/* --- テーマ・チップ：静かな土台に主題だけ"点火"する最小トグル（右上縦一列。top:10はコンパスの席） --- */
+/* --- 狭画面（スマホ縦）：計器は最小限＝座標テーブルは出さない・スケールは出典の上へ逃がす。
+       #pos は pointermove が inline display で開けるため !important＝狭画面の掟が勝つ（標高fetchはJS側 posOn が連動して止める） --- */
+@media (max-width: 480px) {
+	#pos { display: none !important; }
+	#scale { bottom: 72px; }   /* 出典(#attr 3行＝下から約63px)の上＝中央下段の衝突を断つ */
+}
+
+/* --- テーマ・チップ：静かな土台に主題だけ"点火"する最小トグル（右上縦一列＝繋げて一本のカプセル。
+       角丸は列の外周＝上端・下端だけ、間の境界線は隣と共有） --- */
 #chips {
-	position: absolute; top: 58px; right: 10px; display: flex; flex-direction: column; gap: 8px; align-items: flex-end;
+	position: absolute; top: 10px; right: 10px; display: flex; flex-direction: column; align-items: flex-end;
 	.chip {
-		font: 13px/1 var(--qm-font); padding: 9px 16px; border-radius: 999px; border: 1px solid var(--qm-border);
+		font: 13px/1 var(--qm-font); padding: 9px 16px; border: 1px solid var(--qm-border);
 		background: var(--qm-panel-2); color: #5a5f6a; cursor: pointer;
 		-webkit-backdrop-filter: blur(var(--qm-blur)); backdrop-filter: blur(var(--qm-blur));
 		transition: background .12s, color .12s, border-color .12s; user-select: none;
+		& + .chip { margin-top: -1px; }                     /* 隣接ボーダーを1本に重ねる */
+		&:first-child { border-radius: 5px 5px 0 0; }
+		&:last-child { border-radius: 0 0 5px 5px; }
+		&:hover, &.on { position: relative; }               /* 点火・ホバーの色付き縁を隣の線に食われない（z-index不使用） */
 		&:hover { border-color: var(--qm-border-strong); }
 		&.on { background: var(--qm-ink); color: #fff; border-color: var(--qm-ink); }
 		&[data-k="rail"].on { background: var(--qm-accent-rail); border-color: var(--qm-accent-rail); }   /* チップ色＝地図上の色 */
 		&[data-k="road"].on { background: var(--qm-accent-road); border-color: var(--qm-accent-road); }
-		&.tool { margin-top: 10px; font-size: 12px; padding: 8px 12px; color: var(--qm-text-dim); }   /* 道具（点火とは別＝一段静か） */
+		&[data-k="shisetsu"].on { background: var(--qm-accent-shisetsu); border-color: var(--qm-accent-shisetsu); }
+		&[data-k="chikei"].on { background: var(--qm-accent-chikei); border-color: var(--qm-accent-chikei); }
 	}
 }
 
-/* --- コンパス兼リセット：針が方位、押すと水平・北向きへ --- */
+/* --- 建物3D（PLATEAU）データ管理：公式ロゴマークのボタン。置き場所はスタック --- */
+#plateau-btn {
+	width: 34px; height: 34px; border-radius: 5px;
+	border: 1px solid var(--qm-border); background: var(--qm-panel); cursor: pointer; padding: 0;
+	display: flex; align-items: center; justify-content: center;
+	-webkit-backdrop-filter: blur(var(--qm-blur)); backdrop-filter: blur(var(--qm-blur));
+	&:hover { border-color: var(--qm-border-strong); }
+	svg { display: block; }
+}
+
+/* --- コンパス兼リセット：針が方位、押すと水平・北向きへ。置き場所はスタック
+       （margin-left -3px＝40px枠の中心を34px枠（虫めがね・?・PLATEAU）の中心に揃える） --- */
 #reset {
-	position: absolute; top: 10px; right: 10px; width: 40px; height: 40px; border-radius: 50%;
+	margin-left: -3px; width: 40px; height: 40px; border-radius: 5px;
 	border: 1px solid var(--qm-border); background: var(--qm-panel); cursor: pointer; padding: 0;
 	display: flex; align-items: center; justify-content: center;
 	-webkit-backdrop-filter: blur(var(--qm-blur)); backdrop-filter: blur(var(--qm-blur));

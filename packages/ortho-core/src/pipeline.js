@@ -66,5 +66,13 @@ export function createPipeline({ style, tileUrl, requestDraw, scenePort, onMerge
 		style, tileUrl, onChange: requestDraw, buildTile: workerBuildTile,
 		onEvict: keys => sceneWorker.postMessage({ type: "evict", keys }),
 	});
-	return { tiles, requestMerge };
+	// 後片付け：worker を全て terminate（SPA等で地図を剥がす時＝アプリ側 map.destroy() から）。
+	// in-flight の pending は reject＝呼び出し元の await を宙吊りにしない。
+	function destroy() {
+		for (const p of pending.values()) p.reject(new Error("destroyed"));
+		pending.clear(); keyToId.clear();
+		sceneWorker.terminate();
+		tileWorkers.forEach(w => w.terminate());
+	}
+	return { tiles, requestMerge, destroy };
 }
