@@ -32,6 +32,10 @@ body { visibility: visible; }   /* 開幕＝このスタイルシートの到着
 	.key { border: 1px solid #b7bcc6; border-bottom-width: 2px; border-radius: 4px; padding: 1px 5px;
 		font-size: 11px; background: #fff; color: var(--qm-text); }
 	.hint-plus { color: var(--qm-text-faint); margin: 0 -3px; }
+	.hint-note {   /* 断り書き（3Dの初回読み込み等）＝一段静かに・カード幅なりに折り返す */
+		margin-top: 7px; font-size: 11px; line-height: 1.5; color: var(--qm-text-faint);
+		white-space: normal; max-width: 210px;
+	}
 }
 #hint-close {
 	position: absolute; top: 3px; right: 3px; width: 20px; height: 20px; border: none; background: none;

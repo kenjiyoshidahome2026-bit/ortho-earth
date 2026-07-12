@@ -15,7 +15,8 @@ export function hint() {
 		<div class="hint-row"><span class="key">1本指</span><span>ドラッグ＝<b>移動</b></span></div>
 		<div class="hint-row"><span class="key">2本指</span><span>ひらく・とじる＝<b>ズーム</b></span></div>
 		<div class="hint-row"><span class="key">2本指</span><span>ひねる＝<b>回転</b></span></div>
-		<div class="hint-row"><span class="key">2本指</span><span>上下にドラッグ＝<b>傾き</b></span></div>` : `
+		<div class="hint-row"><span class="key">2本指</span><span>上下に引っ張る＝<b>3D表示</b>（傾き）</span></div>
+		<div class="hint-note">街に寄ると建物が3Dで現れます（初回は読み込みに少し時間がかかります）</div>` : `
 		<button id="hint-close" title="閉じる" aria-label="閉じる">×</button>
 		<div class="hint-title">操作方法</div>
 		<div class="hint-row">
@@ -24,7 +25,7 @@ export function hint() {
 		</div>
 		<div class="hint-row">
 			<svg class="mi" width="17" height="22" viewBox="0 0 24 32"><rect x="2" y="2" width="20" height="28" rx="10" fill="rgba(255,255,255,.9)" stroke="#9aa0ac" stroke-width="1.6"/><path d="M12 2 a10 10 0 0 1 10 10 v2 h-10 Z" fill="#2b3b57"/><line x1="12" y1="2" x2="12" y2="14" stroke="#9aa0ac" stroke-width="1.2"/><line x1="2" y1="14" x2="22" y2="14" stroke="#9aa0ac" stroke-width="1.2"/></svg>
-			<span>右ドラッグ＝<b>傾き・回転</b></span>
+			<span>右ドラッグで引っ張る＝<b>3D表示</b>（傾き・回転）</span>
 		</div>
 		<div class="hint-row">
 			<svg class="mi" width="17" height="22" viewBox="0 0 24 32"><rect x="2" y="2" width="20" height="28" rx="10" fill="rgba(255,255,255,.9)" stroke="#9aa0ac" stroke-width="1.6"/><line x1="2" y1="14" x2="22" y2="14" stroke="#9aa0ac" stroke-width="1.2"/><rect x="9.5" y="5.5" width="5" height="10" rx="2.5" fill="#2b3b57"/></svg>
@@ -34,7 +35,8 @@ export function hint() {
 			<span class="key">⌘/Ctrl</span><span class="hint-plus">＋</span>
 			<svg class="mi" width="17" height="22" viewBox="0 0 24 32"><rect x="2" y="2" width="20" height="28" rx="10" fill="rgba(255,255,255,.9)" stroke="#9aa0ac" stroke-width="1.6"/><line x1="2" y1="14" x2="22" y2="14" stroke="#9aa0ac" stroke-width="1.2"/><rect x="9.5" y="5.5" width="5" height="10" rx="2.5" fill="#2b3b57"/></svg>
 			<span>＝<b>回転</b></span>
-		</div>`;
+		</div>
+		<div class="hint-note">街に寄ると建物が3Dで現れます（初回は読み込みに少し時間がかかります）</div>`;
 	const btn = document.createElement("button");
 	btn.id = "hint-btn"; btn.title = "操作方法"; btn.textContent = "?"; btn.setAttribute("aria-label", "操作方法");
 	// 置き場所はスタック（搭載順＝縦の並び）。カードと「?」は常にどちらか一方だけ表示＝同じ枠を分け合う。
