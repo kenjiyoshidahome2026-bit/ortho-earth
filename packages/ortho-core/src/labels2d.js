@@ -153,6 +153,11 @@ export function createLabelLayer(canvas, { pad = 5, fade = 0.3, recollideMs = 15
 			ctx.fillStyle = `rgba(160,200,255,${0.65 * fade})`;   // v1 border.js と同色
 			for (const L of sky.constellations) { const p = put(L.cel); if (p) ctx.fillText(L.name, p[0], p[1]); }
 		}
+		if (sky.planets) {
+			ctx.font = `10px ${FONT_STACK}`;
+			ctx.fillStyle = `rgba(255,235,200,${0.85 * fade})`;   // 惑星名＝暖色の白（点の少し下に添える）
+			for (const L of sky.planets) { const p = put(L.cel); if (p) ctx.fillText(L.name, p[0], p[1] + 11); }
+		}
 		if (sky.messier) {
 			const sz = 5, P2 = Math.PI * 2;   // v1 の記号語彙：gc=球状星団 gx/gg=銀河 oc=散開星団 他=矩形
 			ctx.lineWidth = 0.8;

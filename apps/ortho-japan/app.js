@@ -13,6 +13,7 @@ createGeopbf("https://api.ortho-earth.com");   // bucket 基盤（標高と同�
 import style from "./style-mono.js";
 import { createThemes, defaultLayerState, isFacility, isTerrain, CHOME_MINZOOM, RAILTR_MINZOOM } from "./themes.js";
 import { createOverlay } from "./overlay.js";
+import { planetPositions } from "./planets.js";
 import { createPipeline } from "ortho-core";   // tile/scene worker のスポーンごとエンジン側
 import { createPlateauDb } from "./plateaudb.js";
 import { mountGadgets } from "./gadgets/mount.js";
@@ -528,7 +529,31 @@ const celVec = (raDeg, decDeg) => {
 	return [cd * Math.cos(ra), Math.sin(dec), cd * Math.sin(ra)];
 };
 let starsArmed = true;
-function ensureStars() { if (starsArmed && cam.zoom < BASEMAP_MINZOOM) { starsArmed = false; loadStars(); } }
+function ensureStars() { if (starsArmed && cam.zoom < BASEMAP_MINZOOM) { starsArmed = false; loadStars(); startPlanets(); } }
+// 惑星（実位置・低精度ケプラー＝planets.js）：星と同じ点バッファ形式で常設。名前は注記トグル(skyLabels)側。
+// 位置は10分毎に再計算（最速の水星でも0.03°/10分＝表示上は静止と同じだが、開きっぱなしの夜に正直でいる）。
+let planetTimer = null, planetLabels = [];
+function updatePlanets() {
+	const ps = planetPositions(new Date());
+	const buf = new Float32Array(ps.length * 8);
+	ps.forEach((p, i) => {
+		const [x, y, z] = celVec(p.ra, p.dec);
+		buf.set([x, y, z, p.color[0], p.color[1], p.color[2],
+			Math.max(0, 1 - p.mag / 15), Math.max(2, (9 - p.mag) * 0.4 * dpr)], i * 8);
+	});
+	renderer.set("planets", buf);
+	planetLabels = ps.map(p => ({ cel: celVec(p.ra, p.dec), name: p.name }));
+	if (skyLabels) {
+		skyLabels.planets = planetLabels;
+		if (constelVisible) renderer.set("skyLabels", skyLabels);
+	}
+	needsDraw = true;
+}
+function startPlanets() {
+	if (planetTimer) return;
+	updatePlanets();
+	planetTimer = setInterval(updatePlanets, 600000);
+}
 async function loadStars() {
 	const pbf = await geopbf("stars.6", { gint: false }).catch(e => { console.warn("[stars] 読込失敗", e); return null; });
 	const g = pbf && pbf.geojson;
@@ -586,7 +611,7 @@ async function toggleConstellations() {
 		const c = f.geometry.coordinates;
 		messier.push({ cel: celVec(c[0], c[1]), name: f.properties?.name || "", type: f.properties?.type || "" });
 	}
-	skyLabels = { constellations: consts, messier };
+	skyLabels = { constellations: consts, messier, planets: planetLabels };   // 惑星名も注記の一員（位置は updatePlanets が更新）
 	renderer.set("constellations", Float32Array.from(seg));
 	constelState = 2; constelVisible = true;
 	renderer.set("view", { showConst: true });
@@ -1003,7 +1028,7 @@ function destroy() {
 	flightCtl.cancel();
 	ac.abort();                                  // window/document のリスナー一括解除（offline/online/hashchange/検索の外側クリック）
 	ro.disconnect();
-	clearTimeout(settleT); clearTimeout(bootT);
+	clearTimeout(settleT); clearTimeout(bootT); clearInterval(planetTimer);
 	destroyPipeline();                           // tile/scene worker
 	renderWorker.terminate(); gintWorker.terminate();
 	plateauWorkers.forEach(w => w.terminate());

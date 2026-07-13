@@ -40,9 +40,10 @@ export function createRenderer(canvas) {
 	// 海：水レイヤ(li)を cam.zoom で一律にゲート＝ビュー単位で描く/描かない（タイル毎の presence まだらを排す）。
 	// cam.zoom < minzoom では水を描かない＝海は球の基色(紙)のまま。以上で一律の色を点火。
 	let sea = { li: -1, minzoom: Infinity };
-	// 星空（z<4）：stars＝点（[cel.xyz, rgb, alpha, size]×8f interleaved）、constel＝星座線（[cel.xyz]×3f、LINES端点列）。
-	// 表示のON/OFFは view.showConst（星座線のみトグル・星は常設）。
-	let stars = null, constel = null;
+	// 星空（z<4）：stars＝点（[cel.xyz, rgb, alpha, size]×8f interleaved）、constel＝星座線（[cel.xyz]×3f、LINES端点列）、
+	// planets＝惑星（starsと同レイアウト・アプリが実位置を計算し10分毎に差し替え）。
+	// 表示のON/OFFは view.showConst（星座線のみトグル・星と惑星は常設）。
+	let stars = null, constel = null, planets = null;
 	function setStarBuf(cur, data, stride, setup) {
 		if (cur) { gl.deleteBuffer(cur.buf); gl.deleteVertexArray(cur.vao); }
 		if (!data || !data.length) return null;
@@ -62,6 +63,13 @@ export function createRenderer(canvas) {
 	function setConstellations(data) {
 		constel = setStarBuf(constel, data, 3, () => {
 			gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 12, 0);
+		});
+	}
+	function setPlanets(data) {
+		planets = setStarBuf(planets, data, 8, () => {
+			gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 32, 0);
+			gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 4, gl.FLOAT, false, 32, 12);
+			gl.enableVertexAttribArray(2); gl.vertexAttribPointer(2, 1, gl.FLOAT, false, 32, 28);
 		});
 	}
 	let fogDist = 0;   // フォグ距離の基準 camDist。ズーム中は凍結（チラチラ防止）、静止で追随
@@ -358,7 +366,7 @@ export function createRenderer(canvas) {
 		// 星空劇場（z<4）：globe より先に描く＝陸には上書きされ・大気ハローは星の上に薄く重なり・宇宙には星が残る。
 		// 深度無関係の背景（VSが clip.z=0 固定）。天球の向きは恒星時(GMST)＝実時刻の空。versor回転にもそのまま追随。
 		const worldFade = !flat2d && cam.zoom < 4 ? Math.min(1, (4 - cam.zoom) / 0.5) : 0;   // 星空劇場（星・夜面）共通の出現フェード
-		const starFade = (stars || constel) ? worldFade : 0;
+		const starFade = (stars || constel || planets) ? worldFade : 0;
 		if (starFade > 0) {
 			const gmst = (((18.697374 + 24.0657098 * (Date.now() / 864e5 + 2440587.5 - 2451545.0)) * 15) % 360) * Math.PI / 180;
 			const cg = Math.cos(gmst), sg = Math.sin(gmst);
@@ -371,11 +379,11 @@ export function createRenderer(canvas) {
 				gl.uniform1f(loc(gl, prog, "u_fade"), starFade);
 				gl.uniform1f(loc(gl, prog, "u_sky"), skyK);
 			};
-			if (stars) {
+			if (stars || planets) {
 				gl.useProgram(starsProg);
 				starUniforms(starsProg);
-				gl.bindVertexArray(stars.vao);
-				gl.drawArrays(gl.POINTS, 0, stars.count);
+				if (stars) { gl.bindVertexArray(stars.vao); gl.drawArrays(gl.POINTS, 0, stars.count); }
+				if (planets) { gl.bindVertexArray(planets.vao); gl.drawArrays(gl.POINTS, 0, planets.count); }   // 惑星＝同じ点プログラム（実位置はアプリが更新）
 			}
 			if (constel && view.showConst) {
 				gl.useProgram(starLineProg);
@@ -586,6 +594,7 @@ export function createRenderer(canvas) {
 			case "plateauMesh": setPlateauMesh(prop, data); break;                             // prop=地区名(key)、data={pos,idx} PLATEAU LOD2 建物（null=解放）
 			case "stars":     setStars(data); break;                                           // data=Float32Array [cel.xyz,rgb,a,size]×n
 			case "constellations": setConstellations(data); break;                             // data=Float32Array [cel.xyz]×2n（LINES端点列）表示は view.showConst
+			case "planets":   setPlanets(data); break;                                         // data=Float32Array（starsと同8fレイアウト・惑星5点）
 			default: console.warn("renderer.set: unknown cmd", cmd);
 		}
 	}
