@@ -46,6 +46,9 @@ export function createLabelLayer(canvas, { pad = 5, fade = 0.3, recollideMs = 15
 	// cel＝天球単位ベクトル（RA/Dec焼き込み・アプリが供給）。null＝非表示（星座線のトグルと同期）。
 	let sky = null;
 	function setSky(data) { sky = data; }
+	// 月＝満ち欠けの円盤（注記トグルと独立＝天体なので常設）。{ cel, sunCel, k }＝方向・太陽方向・輝面比。
+	let moon = null;
+	function setMoon(data) { moon = data; }
 	function clear() {
 		ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, canvas.width, canvas.height);
 		fades.clear(); winners.clear();
@@ -133,7 +136,7 @@ export function createLabelLayer(canvas, { pad = 5, fade = 0.3, recollideMs = 15
 	// 星空劇場の注記：GL星空(renderer)と厳密に同じ変換＝GMST回転→mvp×(dir,0)→天球倍率(u_sky同式)のNDCスケール。
 	// 出現タイミング・フェードも星座線と同一（z<4・z4→3.5）。地球の背後は unproject（光線が球に当たる＝手前に地球）で遮蔽。
 	function drawSky(st, cam, Wc, Hc, dpr) {
-		if (!sky || cam.zoom >= 4) return;
+		if ((!sky && !moon) || cam.zoom >= 4) return;
 		const fade = Math.min(1, (4 - cam.zoom) / 0.5);
 		const gmst = (((18.697374 + 24.0657098 * (Date.now() / 864e5 + 2440587.5 - 2451545.0)) * 15) % 360) * Math.PI / 180;
 		const cg = Math.cos(gmst), sg = Math.sin(gmst);
@@ -148,6 +151,33 @@ export function createLabelLayer(canvas, { pad = 5, fade = 0.3, recollideMs = 15
 			if (unproject(st, sx * dpr, sy * dpr)) return null;   // その画素は地球＝星は隠れる
 			return [sx, sy];
 		};
+		// 月の円盤（満ち欠け）：暗い側は赤黒（地球照の佇まい）、輝面は暖白。輝面比 k と太陽の画面方位から
+		// 半円＋半楕円（x方向スケール 2k-1＝符号で三日月/十三夜を自動で描き分け）の古典構成。
+		if (moon) {
+			const p = put(moon.cel);
+			if (p) {
+				// 太陽の画面方位：月の天球位置から太陽へ接線方向に一歩進めて再投影（w=0方向の射影は対蹠と縮退するため差分で取る）
+				const mc = moon.cel, sc = moon.sunCel, dm = mc[0] * sc[0] + mc[1] * sc[1] + mc[2] * sc[2];
+				let tx = sc[0] - mc[0] * dm, ty = sc[1] - mc[1] * dm, tz = sc[2] - mc[2] * dm;
+				const tl = Math.hypot(tx, ty, tz) || 1;
+				const p2 = put([mc[0] + tx / tl * 0.02, mc[1] + ty / tl * 0.02, mc[2] + tz / tl * 0.02]);
+				const th = p2 ? Math.atan2(p2[1] - p[1], p2[0] - p[0]) : 0;
+				const R = 8, k = Math.max(0, Math.min(1, moon.k));
+				ctx.save();
+				ctx.translate(p[0], p[1]); ctx.rotate(th);   // +x＝太陽方向
+				ctx.globalAlpha = fade;
+				ctx.beginPath(); ctx.arc(0, 0, R, 0, Math.PI * 2);
+				ctx.fillStyle = "rgb(72,22,15)"; ctx.fill();                     // 欠けている側＝赤黒
+				ctx.beginPath();
+				ctx.arc(0, 0, R, -Math.PI / 2, Math.PI / 2);                     // 太陽側の半円
+				ctx.scale(Math.max(1e-3, Math.abs(2 * k - 1)) * Math.sign(2 * k - 1 || 1), 1);
+				ctx.arc(0, 0, R, Math.PI / 2, Math.PI * 1.5);                    // 終端線＝半楕円（負スケール＝三日月側へ折り返し）
+				ctx.fillStyle = "rgb(250,246,232)"; ctx.fill();                  // 輝面＝暖白
+				ctx.globalAlpha = 1;
+				ctx.restore();
+			}
+		}
+		if (!sky) return;
 		if (sky.constellations) {
 			ctx.font = `11px ${FONT_STACK}`;
 			ctx.fillStyle = `rgba(160,200,255,${0.65 * fade})`;   // v1 border.js と同色
@@ -185,5 +215,5 @@ export function createLabelLayer(canvas, { pad = 5, fade = 0.3, recollideMs = 15
 		}
 	}
 
-	return { setLabels, setSky, draw, clear };
+	return { setLabels, setSky, setMoon, draw, clear };
 }

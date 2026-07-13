@@ -13,7 +13,7 @@ createGeopbf("https://api.ortho-earth.com");   // bucket 基盤（標高と同�
 import style from "./style-mono.js";
 import { createThemes, defaultLayerState, isFacility, isTerrain, CHOME_MINZOOM, RAILTR_MINZOOM } from "./themes.js";
 import { createOverlay } from "./overlay.js";
-import { planetPositions, moonPosition } from "./planets.js";
+import { planetPositions, moonPosition, sunPosition } from "./planets.js";
 import { constellationJa } from "./skynames.js";
 import { createPipeline } from "ortho-core";   // tile/scene worker のスポーンごとエンジン側
 import { createPlateauDb } from "./plateaudb.js";
@@ -536,16 +536,18 @@ function ensureStars() { if (starsArmed && cam.zoom < BASEMAP_MINZOOM) { starsAr
 let planetTimer = null, planetLabels = [];
 function updatePlanets() {
 	const now = new Date();
-	const ps = planetPositions(now), moon = moonPosition(now);
-	const buf = new Float32Array((ps.length + 1) * 8);
+	const ps = planetPositions(now), moon = moonPosition(now), sun = sunPosition(now);
+	const buf = new Float32Array(ps.length * 8);
 	ps.forEach((p, i) => {
 		const [x, y, z] = celVec(p.ra, p.dec);
 		buf.set([x, y, z, p.color[0], p.color[1], p.color[2],
 			Math.max(0, 1 - p.mag / 15), Math.max(2, (9 - p.mag) * 0.4 * dpr)], i * 8);
 	});
-	const [mx, my, mz] = celVec(moon.ra, moon.dec);
-	buf.set([mx, my, mz, 1.0, 0.98, 0.92, 1.0, 6.5 * dpr], ps.length * 8);   // 月＝最大の輝点（点表現。満ち欠けの円盤は将来の楽しみ）
 	renderer.set("planets", buf);
+	// 月＝満ち欠けの円盤（ラベルcanvas・欠け側は赤黒）。輝面比 k=(1-cosψ)/2（ψ=太陽との離角。月距離≪太陽距離の近似）
+	const mCel = celVec(moon.ra, moon.dec), sCel = celVec(sun.ra, sun.dec);
+	const k = (1 - (mCel[0] * sCel[0] + mCel[1] * sCel[1] + mCel[2] * sCel[2])) / 2;
+	renderer.set("skyMoon", { cel: mCel, sunCel: sCel, k });
 	planetLabels = [...ps, moon].map(p => ({ cel: celVec(p.ra, p.dec), name: p.name }));
 	if (skyLabels) {
 		skyLabels.planets = planetLabels;
@@ -560,7 +562,7 @@ skyClockEl.id = "sky-clock";
 mapEl.appendChild(skyClockEl);
 const skyAttrEl = document.createElement("div");
 skyAttrEl.id = "sky-attr";
-skyAttrEl.textContent = "星図: d3-celestial ／ 海岸線: Natural Earth ／ 標高: GEBCO・JAXA AW3D30 ／ © Kenji Yoshida";
+skyAttrEl.textContent = "星図: d3-celestial ／ 海岸線: Natural Earth ／ 標高: GEBCO ／ © Kenji Yoshida";   // z<4はR90(GEBCO)のみ＝JAXA(R01)は使わない
 mapEl.appendChild(skyAttrEl);
 const SKY_WD = ["日", "月", "火", "水", "木", "金", "土"];
 const skyClockTimer = setInterval(() => {

@@ -55,6 +55,7 @@ onmessage = e => {
 		case "set":
 			if (m.cmd === "labels") { pendingLabels = m.data; applyLabels(); }   // ラベル集合の更新（標高は cam が揃ってから付与）
 			else if (m.cmd === "skyLabels") { if (labelLayer) labelLayer.setSky(m.data); }   // 星空劇場の注記（星座名・メシエ）＝ラベルcanvasへ
+			else if (m.cmd === "skyMoon") { if (labelLayer) labelLayer.setMoon(m.data); }    // 月の満ち欠け円盤＝ラベルcanvasへ（常設）
 			else if (renderer) renderer.set(m.cmd, m.data, m.prop);              // view/scene/overlay/elev…
 			dirty = true;                                        // 内容が変わった→描き直す
 			break;
