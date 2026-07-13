@@ -1,0 +1,46 @@
+<!doctype html>
+<!-- UI回帰：画面保存(shot)。合成器 composite を合成ピクセルで叩き webp 生成を検証。
+     ★worker越しのGL層 readPixels 往復は headless(virtual-time)で render worker の rAF が
+       メッセージを枯渇させ検証不可＝実ブラウザ専用。ここでは合成ロジック（層重ね・反転・出典・webp化）を確かめる。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021;width:640px;height:420px}body{visibility:hidden}</style><title>t-shot</title></head>
+<body>
+<script>window.requestAnimationFrame = cb => setTimeout(() => cb(performance.now()), 16); localStorage.setItem("oj.hint", "closed");</script>
+<script type="module">
+import orthoJapan from "../app.js";
+const t = [], ok = (n, c) => t.push((c ? "ok:" : "NG:") + n);
+const mk = n => { const a = new Uint8Array(n * n * 4); for (let i = 0; i < a.length; i += 4) { a[i] = 200; a[i + 3] = 255; } return a.buffer; };
+try {
+	const map = await orthoJapan({ view: "#6/36/138" });
+	const h = map.gadget.shot();
+	map.gadget.shot();   // 二重搭載＝無害
+	await new Promise(r => setTimeout(r, 300));
+	ok("mount", document.querySelectorAll("#shot-btn").length === 1 && typeof h.composite === "function");
+
+	// 基図だけの合成 → webp
+	const blob = await h.composite({ W: 8, H: 8, render: { base: mk(8), w: 8, h: 8, labels: null, lw: 0, lh: 0 } });
+	ok("webp", !!blob && blob.type === "image/webp" && blob.size > 0);
+
+	// 3層（基図+知性+ラベル）合成も成立
+	const blob2 = await h.composite({ W: 8, H: 8, render: { base: mk(8), w: 8, h: 8, labels: mk(8), lw: 8, lh: 8 }, gint: { base: mk(8), w: 8, h: 8 } });
+	ok("layers", !!blob2 && blob2.size > 0);
+
+	// クリックで capture 起動（同期例外なし・busy化）。worker往復の完了は実ブラウザで確認する。
+	document.getElementById("shot-btn").click();
+	ok("click", true);
+
+	// ショートカット ⌘/Ctrl+P：印刷を止めて（preventDefault）撮影を起動＝低解像度でボタンが隠れても撮れる
+	const ev = new KeyboardEvent("keydown", { key: "p", ctrlKey: true, bubbles: true, cancelable: true });
+	window.dispatchEvent(ev);
+	ok("key", ev.defaultPrevented);
+	// 入力欄フォーカス中は無効（印刷/入力を邪魔しない）
+	const inp = document.body.appendChild(document.createElement("input")); inp.focus();
+	const ev2 = new KeyboardEvent("keydown", { key: "p", ctrlKey: true, bubbles: true, cancelable: true });
+	window.dispatchEvent(ev2);
+	ok("keyGuard", !ev2.defaultPrevented);
+	inp.remove();
+
+	map.destroy();
+	ok("destroy", true);
+} catch (e) { ok("boot:" + (e && e.message || e), false); }
+document.title = t.some(s => s.startsWith("NG")) ? "FAIL " + t.join(" ") : "PASS " + t.join(" ");
+</script></body></html>

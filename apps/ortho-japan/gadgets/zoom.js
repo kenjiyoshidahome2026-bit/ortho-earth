@@ -4,14 +4,14 @@
 // 内部の手綱（フライト中断・onMove・z範囲）は本体が app.js の登録側で注入。
 // 縦2連の一体ボタン（＋上・−下）＝チップと同じ隣接ボーダー共有の意匠。置き場所はスタック。
 import { gadgetStack } from "./stack.js";
-export function zoom({ cancelFlight, onMove, zoomMin = 1, zoomMax = 20 } = {}) {
+export function zoom({ cancelFlight, onMove, zoomMin = 1, zoomMax = 20, signal } = {}) {
 	const mapEl = this.mapEl, cam = this.cam;
 	if (mapEl.querySelector("#zoom")) return;   // 二重搭載は無害（搭載済みのまま）
 	const box = document.createElement("div");
 	box.id = "zoom";
 	box.innerHTML = `
-		<button id="zoom-in" data-tip="拡大（近づく）" aria-label="拡大（ズームイン）">＋</button>
-		<button id="zoom-out" data-tip="縮小（引く）" aria-label="縮小（ズームアウト）">−</button>`;
+		<button id="zoom-in" data-tip="拡大（↑）" aria-label="拡大（ズームイン）">＋</button>
+		<button id="zoom-out" data-tip="縮小（↓）" aria-label="縮小（ズームアウト）">−</button>`;
 	// 置き場所はスタック（搭載順＝縦の並び）。
 	gadgetStack(mapEl).append(box);
 	let raf = 0;
@@ -32,5 +32,14 @@ export function zoom({ cancelFlight, onMove, zoomMin = 1, zoomMax = 20 } = {}) {
 	};
 	box.querySelector("#zoom-in").addEventListener("click", () => glide(+1));
 	box.querySelector("#zoom-out").addEventListener("click", () => glide(-1));
+	// ショートカット＝↑拡大／↓縮小（押しっぱなしで連続ズーム＝毎押下で次段へ寄せ直す）。
+	// 入力欄（検索等）フォーカス中は無効＝そちらのカーソル移動を邪魔しない。ページスクロールも止める。
+	window.addEventListener("keydown", e => {
+		if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+		if (e.ctrlKey || e.metaKey || e.altKey) return;   // 修飾つきは他操作に譲る
+		const el = document.activeElement, tag = el && el.tagName;
+		if (tag === "INPUT" || tag === "TEXTAREA" || el?.isContentEditable) return;
+		e.preventDefault(); glide(e.key === "ArrowUp" ? +1 : -1);
+	}, { signal });
 	return box;
 }

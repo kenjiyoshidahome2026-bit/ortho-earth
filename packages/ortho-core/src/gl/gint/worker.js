@@ -15,8 +15,22 @@ import { renderCleanScene, drawOverlay, renderPickingBuffer } from './passes.js'
 import { doIdentify, handleMove, handleLeave } from './identify.js';
 import { cameraState, unproject } from '../../camera.js';
 
-const funcs = { init, set, resize, drawing, drawn, move, leave, click, destroy, style };
+const funcs = { init, set, resize, drawing, drawn, move, leave, click, destroy, style, snapshot };
 onmessage = e => (funcs[e.data.type] ?? (() => {}))(e.data);
+
+// shot（画面保存）用：直近の cam で1枚描き直して（WebGLは別タスクでは読めない＝同一タスクで捕獲）
+// ImageBitmap を返す。lastDrawData が無い（範囲外/未描画）なら透明のまま返る＝main が合成でそのまま重ねる。
+function snapshot(data) {
+	try {
+		if (s.lastDrawData) renderCleanScene(s.lastDrawData, null);   // 今の cam で1枚（無ければ透明のまま）
+		// readPixels＝GLを確実に読む（createImageBitmap/transferToImageBitmap は headless GL で詰まる）。上下反転で返る＝main で戻す。
+		const gl = s.gl, w = s.width, h = s.height;
+		const base = new Uint8Array(w * h * 4);
+		gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+		gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, base);
+		postMessage({ action: "snapshot", id: data.id, base: base.buffer, w, h }, [base.buffer]);
+	} catch (e) { console.error("[gint] snapshot例外", e?.message); }
+}
 
 // main が持つ描画スタイル(styleTable/lineWidth 等=gintDrawOpts)を保持。従属描画(onSync)で使う。
 function style(data) { s.drawStyle = data.data ?? null; }

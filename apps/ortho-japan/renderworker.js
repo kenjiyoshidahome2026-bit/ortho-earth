@@ -63,12 +63,39 @@ onmessage = e => {
 			cam = m.cam; opts = m.opts; dirty = true;
 			if (pendingLabels) applyLabels();                    // cam が届いた時点で保留中のラベルへ標高を付与
 			break;
+		case "snapshot": snapshot(m.id); break;   // shot（画面保存）：今のカメラで1枚描いて ImageBitmap で返す
 		case "destroy":
 			if (renderer && renderer.dispose) renderer.dispose();
 			renderer = null;
 			break;
 	}
 };
+
+// shot 用：WebGL は preserveDrawingBuffer 無し＝別タスクでは読めない。同一タスクで「描画直後に createImageBitmap」
+// （呼び出し時点のバッファを捕獲）。基図(GL)とラベル(2D)の両キャンバスを返し、合成は main が担う。
+function snapshot(id) {
+	try {
+		if (renderer && cam) {
+			const s = RES_STEPS[resIdx];
+			const glCam = s === 1 ? cam : { ...cam, dpr: (cam.dpr || 1) * s };
+			renderer.draw(glCam, opts);
+			labelLayer && labelLayer.draw(cam);
+		}
+		// readPixels＝GLキャンバスを確実に読む唯一の手（createImageBitmap/transferToImageBitmap は headless GL で詰まる）。
+		// 生画面は消さない（読むだけ）＝復元不要。GL は上下反転で返るので flip フラグを立て main で戻す。
+		const gl = glRef, w = canvas.width, h = canvas.height;
+		const base = new Uint8Array(w * h * 4);
+		gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+		gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, base);
+		let labels = null, lw = 0, lh = 0;
+		if (labelCanvas) {   // ラベルは2D＝getImageDataで上下正のまま
+			lw = labelCanvas.width; lh = labelCanvas.height;
+			labels = new Uint8Array(labelCanvas.getContext("2d").getImageData(0, 0, lw, lh).data.buffer);
+		}
+		const transfer = [base.buffer]; if (labels) transfer.push(labels.buffer);
+		postMessage({ type: "snapshot", id, base: base.buffer, w, h, labels: labels ? labels.buffer : null, lw, lh }, transfer);
+	} catch (e) { console.error("[render] snapshot例外", e?.message, e?.stack); }
+}
 
 // ラベルに標高を付与（傾き時に地物と一致）。main.js が持っていた terrain.sampleElev(...) 呼び出しをそのままこちらへ移設。
 function applyLabels() {

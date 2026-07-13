@@ -326,6 +326,25 @@ body { visibility: visible; }   /* 開幕＝このスタイルシートの到着
 	&.on { background: var(--qm-ink); border-color: var(--qm-ink); svg { stroke: #fff; } }   /* 計測中＝反転 */
 }
 #measure-lines { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+/* 日本全体へ戻るボタン（スタック・34px規格） */
+#japan-btn {
+	width: 34px; height: 34px; border-radius: 5px;
+	border: 1px solid var(--qm-border); background: var(--qm-panel); cursor: pointer; padding: 0;
+	display: flex; align-items: center; justify-content: center;
+	-webkit-backdrop-filter: blur(var(--qm-blur)); backdrop-filter: blur(var(--qm-blur));
+	&:hover { border-color: var(--qm-border-strong); }
+	svg { display: block; }
+}
+/* 画面保存ボタン（スタック・34px規格）。busy＝合成中は淡く（連打止め） */
+#shot-btn {
+	width: 34px; height: 34px; border-radius: 5px;
+	border: 1px solid var(--qm-border); background: var(--qm-panel); cursor: pointer; padding: 0;
+	display: flex; align-items: center; justify-content: center;
+	-webkit-backdrop-filter: blur(var(--qm-blur)); backdrop-filter: blur(var(--qm-blur));
+	&:hover { border-color: var(--qm-border-strong); }
+	&.busy { opacity: .5; cursor: default; }
+	svg { display: block; }
+}
 #map.measuring #c { cursor: crosshair; }   /* 計測中は照準カーソル（掴み手をやめる） */
 #measure-readout {
 	position: absolute; top: 10px; left: 50%; transform: translateX(-50%);

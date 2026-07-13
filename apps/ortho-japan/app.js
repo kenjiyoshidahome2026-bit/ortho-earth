@@ -31,6 +31,8 @@ import { pop as popGadget } from "./gadgets/pop.js";
 import { explain as explainGadget } from "./gadgets/explain.js";
 import { legend as legendGadget } from "./gadgets/legend.js";
 import { measure as measureGadget } from "./gadgets/measure.js";
+import { shot as shotGadget } from "./gadgets/shot.js";
+import { japan as japanGadget } from "./gadgets/japan.js";
 
 // ============================================================================================
 // ortho-japan：1行で日本が立ち上がる入口（v1 orthoMap の作法の継承）。
@@ -155,6 +157,7 @@ let bootT = setTimeout(() => {
 }, 10000);
 renderWorker.onmessage = e => {
 	const d = e.data;
+	if (d.type === "snapshot") return snapPart(d.id, "render", d);   // shot 用：基図+ラベルの ImageBitmap
 	if (d.type === "frame1") { clearTimeout(bootT); bootT = null; sessionStorage.removeItem("oj.ctxlost"); return; }   // 初描画成功＝自動リロード回数もリセット
 	if (d.type === "glfail") {
 		clearTimeout(bootT);
@@ -390,7 +393,8 @@ const atmo = [0.5, 0.66, 0.96, 0.3];   // 大気色 rgb + 強さ（さりげな�
 const bldColor = [0.83, 0.83, 0.82];    // 建物色（静かなグレー）
 // cam＝幾何のみ（center/zoom/pitch/bearing/dpr）＝毎フレームの draw payload（将来の worker 境界）。
 // 色（clear/land/atmo/bldColor）は静的なので setView で一度きりアップロード＝hot path から追い出す。
-const cam = { center: [137.628, 37.783], zoom: 4.86, pitch: 0, bearing: 0, dpr };   // 既定＝列島ビュー（本土四島が一枚。沖縄・小笠原には悪いが初手の構図優先。初訪問時のみ＝共有URL→前回ビューの順で下で復元）
+const JAPAN_VIEW = [137.628, 37.783, 4.86];   // 列島ビュー（本土四島が一枚・真俯瞰）＝既定起動＆「日本全体」ガジェットの着地点
+const cam = { center: [JAPAN_VIEW[0], JAPAN_VIEW[1]], zoom: JAPAN_VIEW[2], pitch: 0, bearing: 0, dpr };   // 既定＝列島ビュー（沖縄・小笠原には悪いが初手の構図優先。初訪問時のみ＝共有URL→前回ビューの順で下で復元）
 // --- 共有URL（パーマリンク）：codec は engine（viewurl.js）。ここは起動の優先度と app 固有クランプだけ ---
 // 起動の優先度：URLハッシュ > localStorage(前回ビュー) > 既定の世界ビュー。settle 毎に replaceState で
 // 書き戻す＝アドレスバーが常に「今この視点の共有URL」（コピーするだけで人に渡る＝発表・拡散の生命線）。
@@ -440,6 +444,7 @@ let gintInteractive = false;
 const sendGintStyle = () => gintWorker.postMessage({ type: "style", data: gintDrawOpts });
 gintWorker.onmessage = e => {
 	const d = e.data;
+	if (d.action === "snapshot")    return snapPart(d.id, "gint", d);   // shot 用：知性層の ImageBitmap
 	if (d.action === "click")       console.log("[14条] 筆 fid=%s  lng=%s lat=%s", d.featureId, d.lng?.toFixed?.(6), d.lat?.toFixed?.(6));
 	else if (d.action === "redraw") { needsDraw = true; gintWorker.postMessage({ type: "drawn" }); }   // context復帰等→地図を1枚描かせ従属で追随
 };
@@ -454,7 +459,6 @@ function applyGintData(pbf, label) {
 	gintInteractive = true;   // 筆はホバー/クリックで突合
 	sendGintStyle();          // worker にスタイル(null=既定)を保持させる
 	const g = pbf.unPackGint;
-	console.log("[14条] %s unPackGint keys:", label, Object.keys(g), "| bbox:", g.bbox, "| polyStream:", g.polyStream?.length, "arcMeta:", g.arcMeta?.length);
 	gintWorker.postMessage({ type: "set", cmd: "gint", data: g });
 	// 視野をデータへ寄せる＝筆を確実に画面へ（初期は東京駅、moj のデータは離れた区にある）。onMove で基図＋gint 両方が追従。
 	if (g.bbox && g.bbox.length === 4) cam.center = [(g.bbox[0] + g.bbox[2]) / 2, (g.bbox[1] + g.bbox[3]) / 2];
@@ -511,7 +515,6 @@ async function loadWorldCoast() {
 	}
 	const g = pbf?.unPackGint;
 	if (!g) { console.error("[coast] GintBUF デコード失敗", pbf); return; }
-	console.log("[coast] unPackGint keys:", Object.keys(g), "| lineStream:", g.lineStream?.length, "| bbox:", g.bbox);
 	gintWorker.postMessage({ type: "set", cmd: "gint", data: {
 		arcBuffer: g.arcBuffer, arcMeta: g.arcMeta,
 		polyStream: g.polyStream, lineStream: g.lineStream,
@@ -685,7 +688,6 @@ async function loadN02() {
 		console.warn("[N02] bucket に geopbf 無し → 生 zip へフォールバック");
 		rail = await geopbf(`${N02_ZIP}#N02-25_RailroadSection.geojson`).catch(e => { console.warn("[N02] rail 失敗", e); return null; });
 	}
-	console.log("[N02] geopbf 返り:", rail && (rail.constructor?.name), "| keys:", rail && Object.keys(rail).slice(0, 12));
 	const fc = rail?.geojson;   // GeoPBF の境界は FeatureCollection。.geojson getter＝{type:"FeatureCollection",features,name}
 	const feats = fc?.features;
 	if (!feats?.length) { console.warn("[N02] 鉄道読込失敗", rail && Object.keys(rail)); n02Loaded = false; return; }
@@ -1108,6 +1110,22 @@ const unprojectAt = (clientX, clientY) => { const r = canvas.getBoundingClientRe
 // unprojectXY＝canvasローカルCSS座標→経緯度（input.onClick が渡す x,y と同座標系）。
 const makeProjector = () => { const st = cameraState(cam, size.w, size.h); return (lon, lat) => { const [sx, sy, f] = project(st, lon, lat); return [sx / dpr, sy / dpr, f]; }; };
 const unprojectXY = (x, y) => unproject(cameraState(cam, size.w, size.h), x * dpr, y * dpr);
+// shot（画面保存）用スナップショット：各 worker（GLは別スレッド＝mainから読めない）に「今の1枚」を
+// ImageBitmap で出させ集約する。gint は表示中(z<8等)だけ要求＝隠れている層は合成に混ぜない。
+// 解像度は size（device px＝フル）を正とし、shot 側が各層をこの寸法へ合わせて重ねる。
+const snapPending = new Map();
+function snapPart(id, key, data) {
+	const rec = snapPending.get(id); if (!rec) return;
+	rec.parts[key] = data; rec.need.delete(key);
+	if (!rec.need.size) { snapPending.delete(id); rec.resolve(rec.parts); }
+}
+let snapSeq = 0;
+const requestSnapshot = () => new Promise(resolve => {
+	const id = ++snapSeq, wantGint = gintCanvas.style.display !== "none";
+	snapPending.set(id, { need: new Set(["render", ...(wantGint ? ["gint"] : [])]), parts: { W: size.w, H: size.h }, resolve });
+	renderWorker.postMessage({ type: "snapshot", id });
+	if (wantGint) gintWorker.postMessage({ type: "snapshot", id });
+});
 map.gadget = function (name, func) {
 	typeof name == "function" && name.name && (func = name, name = func.name);
 	map.gadget[name] = function () { return func.apply(map, arguments); };
@@ -1125,7 +1143,7 @@ map.gadget("plateau", function (opts) {   // 建物3D（PLATEAU）データ管�
 	return plateauGadget.call(this, { onOpen: plateauDb.open, ...opts });
 });
 map.gadget("zoom", function (opts) {   // ズーム＋/− … フライト中断・onMove・z範囲はここで注入
-	return zoomGadget.call(this, { cancelFlight: () => flightCtl.cancel(), onMove, zoomMin: 1, zoomMax: 20, ...opts });
+	return zoomGadget.call(this, { cancelFlight: () => flightCtl.cancel(), onMove, zoomMin: 1, zoomMax: 20, signal: ac.signal, ...opts });
 });
 map.gadget("full", function (opts) {   // 全画面トグル … destroy用のsignalはここで注入
 	return fullGadget.call(this, { signal: ac.signal, ...opts });
@@ -1155,6 +1173,12 @@ map.gadget("measure", function (opts) {   // 距離・面積の計測 … 投影
 	});
 	if (m && m._update) { frameHooks.add(m._update); m._update(); }
 	return m;
+});
+map.gadget("shot", function (opts) {   // 画面保存 … worker越しの3層+measure層を合成する requestSnapshot を注入
+	return shotGadget.call(this, { requestSnapshot, signal: ac.signal, ...opts });
+});
+map.gadget("japan", function (opts) {   // 日本全体へ（真俯瞰・北向き）… 着地点は既定の列島ビューを共有・⌘/Ctrl+J
+	return japanGadget.call(this, { view: JAPAN_VIEW, signal: ac.signal, ...opts });
 });
 return map;
 }

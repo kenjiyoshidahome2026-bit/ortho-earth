@@ -11,7 +11,7 @@ import orthoJapan from "../app.js";
 const t = [], ok = (n, c) => t.push((c ? "ok:" : "NG:") + n);
 try {
 	const map = await orthoJapan({ view: "#12/35.68/139.76" });
-	map.gadget.zoom(); map.gadget.full(); map.gadget.cpos();
+	map.gadget.zoom(); map.gadget.full(); map.gadget.cpos(); map.gadget.japan();
 	const setMenu = map.gadget.contextmenu();
 	map.gadget.zoom();   // 二重搭載＝無害
 	await new Promise(r => setTimeout(r, 300));
@@ -34,6 +34,16 @@ try {
 	document.getElementById("zoom-out").click();
 	await new Promise(r => setTimeout(r, 500));
 	ok("zoomout", map.cam.zoom < z1);
+	// ショートカット ↑拡大／↓縮小（印刷やスクロールを止める＝preventDefault）
+	const z2 = map.cam.zoom;
+	const up = new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true, cancelable: true });
+	window.dispatchEvent(up);
+	await new Promise(r => setTimeout(r, 500));
+	ok("keyUp", up.defaultPrevented && map.cam.zoom > z2);
+	const z3 = map.cam.zoom;
+	window.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true }));
+	await new Promise(r => setTimeout(r, 500));
+	ok("keyDown", map.cam.zoom < z3);
 
 	// contextmenu：右クリックで既定メニュー2項目が出る（座標ブリッジ unprojectAt 経由）
 	const cv = document.getElementById("c");
@@ -57,6 +67,16 @@ try {
 	document.getElementById("map").dispatchEvent(new PointerEvent("pointermove", { bubbles: true, clientX: 430, clientY: 420, buttons: 1 }));
 	await new Promise(r => setTimeout(r, 20));
 	ok("ctxdrag", getComputedStyle(document.getElementById("ctxmenu")).display === "none");
+
+	// japan：傾けて寄った所から ⌘/Ctrl+J で日本フィット・真俯瞰へ（flyTo で pitch/bearing も0へ）
+	ok("japanMount", document.querySelectorAll("#japan-btn").length === 1);
+	window.__cam(138.5, 37, 8, 40, 25);   // 傾き25°・寄り
+	const jk = new KeyboardEvent("keydown", { key: "j", ctrlKey: true, bubbles: true, cancelable: true });
+	window.dispatchEvent(jk);
+	ok("japanKey", jk.defaultPrevented);
+	await new Promise(r => setTimeout(r, 3500));   // フライト完了待ち
+	ok("japanFit", Math.abs(map.cam.pitch) < 0.02 && map.cam.zoom > 4 && map.cam.zoom < 6
+		&& Math.abs(map.cam.center[0] - 137.628) < 1.2 && Math.abs(map.cam.center[1] - 37.783) < 1.2);
 
 	// destroy：後片付けが走る（例外なく）
 	map.destroy();
