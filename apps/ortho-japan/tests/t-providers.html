@@ -1,0 +1,60 @@
+<!doctype html>
+<!-- UI回帰：汎用プロバイダ（tip/pop/explain/legend）の搭載と setter 挙動。判定は<title>のPASS/FAIL。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html{background:#0b1021}body{visibility:hidden}</style><title>t-providers</title></head>
+<body>
+<script>
+window.requestAnimationFrame = cb => setTimeout(() => cb(performance.now()), 16);
+localStorage.setItem("oj.hint", "closed");
+</script>
+<script type="module">
+import orthoJapan from "../app.js";
+const t = [], ok = (n, c) => t.push((c ? "ok:" : "NG:") + n);
+try {
+	const map = await orthoJapan({ view: "#14/35.681/139.767" });
+	const setTip = map.gadget.tip();
+	const showPop = map.gadget.pop();
+	const setExplain = map.gadget.explain();
+	const setLegend = map.gadget.legend();
+	map.gadget.tip();   // 二重搭載＝無害
+	await new Promise(r => setTimeout(r, 300));
+	ok("mount", ["tip", "pop-lines"].every(id => document.querySelectorAll("#" + id).length === 1));
+	ok("setterType", [setTip, showPop, setExplain, setLegend].every(f => typeof f === "function") && typeof showPop.clear === "function");
+
+	// explain：set→表示、set(null)→非表示
+	setExplain("<b>テスト説明</b>");
+	ok("explainOn", getComputedStyle(document.getElementById("explain")).display !== "none" && document.querySelector("#explain div").innerHTML.includes("テスト説明"));
+	setExplain(null);
+	ok("explainOff", getComputedStyle(document.getElementById("explain")).display === "none");
+
+	// legend：set→表示、×で畳む→#legend-btn 出現、再クリックで戻る
+	setLegend("凡例テスト");
+	ok("legendOn", getComputedStyle(document.getElementById("legend")).display !== "none");
+	document.querySelector("#legend .panel-close").click();
+	ok("legendCollapsed", getComputedStyle(document.getElementById("legend")).display === "none"
+		&& getComputedStyle(document.getElementById("legend-btn")).display !== "none");
+	document.getElementById("legend-btn").click();
+	ok("legendExpand", getComputedStyle(document.getElementById("legend")).display !== "none");
+
+	// tip：set→カーソル位置未確定でも内容は入る。pointermove 後に表示
+	setTip("指先注記");
+	document.getElementById("map").dispatchEvent(new PointerEvent("pointermove", { bubbles: true, clientX: 300, clientY: 300 }));
+	await new Promise(r => setTimeout(r, 50));
+	ok("tipShow", getComputedStyle(document.getElementById("tip")).display !== "none" && document.getElementById("tip").innerHTML.includes("指先注記"));
+	setTip(null);
+	ok("tipHide", getComputedStyle(document.getElementById("tip")).display === "none");
+
+	// pop：地点に紐づけ→#pop 箱が1つ、×で消える。clear で残りも消える
+	showPop("東京駅", { lng: 139.767, lat: 35.681, x: 400, y: 300 });
+	showPop("皇居", { lng: 139.752, lat: 35.685, x: 300, y: 250 });
+	await new Promise(r => setTimeout(r, 100));
+	ok("popTwo", document.querySelectorAll(".pop").length === 2);
+	document.querySelector(".pop .panel-close").click();
+	ok("popClose", document.querySelectorAll(".pop").length === 1);
+	showPop.clear(true);
+	ok("popClear", document.querySelectorAll(".pop").length === 0);
+
+	map.destroy();
+	ok("destroy", true);
+} catch (e) { ok("boot:" + (e && e.message || e), false); }
+document.title = t.some(s => s.startsWith("NG")) ? "FAIL " + t.join(" ") : "PASS " + t.join(" ");
+</script></body></html>

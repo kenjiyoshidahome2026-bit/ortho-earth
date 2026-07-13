@@ -260,6 +260,61 @@ body { visibility: visible; }   /* 開幕＝このスタイルシートの到着
 #chips [data-tip]:hover::after, #chips [data-tip]:focus-visible::after { opacity: 1; }
 @media (pointer: coarse) { #gadgets [data-tip]::after, #chips [data-tip]::after { display: none; } }   /* タッチは操作方法カード(?)が説明役＝hover吹き出しは出さない */
 
+/* --- 汎用プロバイダ（tip=カーソル追従／explain=上辺／legend=左下／pop=地点紐づけ）。
+       いずれも内容を持つ時だけ現れる読み物の枠＝意匠は quiet-mono のパネル語彙で統一。 --- */
+/* パネル共通の×（explain/legend/pop で共有） */
+.panel-close {
+	position: absolute; top: 4px; right: 4px; width: 20px; height: 20px; border: none; background: none;
+	color: var(--qm-text-faint); font-size: 15px; line-height: 1; cursor: pointer; border-radius: 5px; padding: 0;
+	&:hover { background: #eef0f3; color: var(--qm-text); }
+}
+/* カーソル追従の吹き出し：指先の注記。位置は tip.js が毎ムーブで更新＝pointerは素通し */
+#tip {
+	position: absolute; pointer-events: none; max-width: 280px;
+	font: 12px/1.5 var(--qm-font); color: var(--qm-text);
+	background: var(--qm-panel-solid); border: 1px solid var(--qm-border-soft);
+	border-radius: 5px; padding: 5px 9px; box-shadow: var(--qm-shadow-pop);
+}
+/* 説明パネル（上・中央）：主題の解説・お知らせ。relative は×の錨 */
+#explain {
+	position: absolute; top: 10px; left: 50%; transform: translateX(-50%); max-width: min(90%, 520px);
+	font: 13px/1.6 var(--qm-font); color: var(--qm-text);
+	background: var(--qm-panel); border: 1px solid var(--qm-border-soft); border-radius: 5px;
+	padding: 10px 30px 10px 14px; box-shadow: var(--qm-shadow-card);
+	-webkit-backdrop-filter: blur(var(--qm-blur)); backdrop-filter: blur(var(--qm-blur));
+	animation: qm-fade .45s ease;
+}
+/* 凡例パネル（左下）：色・記号の対応表。×で畳むと #legend-btn（スタック）に化ける */
+#legend {
+	position: absolute; bottom: calc(10px + var(--qm-safe-b)); left: 10px; max-width: 300px;
+	font: 12px/1.6 var(--qm-font); color: var(--qm-text);
+	background: var(--qm-panel); border: 1px solid var(--qm-border-soft); border-radius: 5px;
+	padding: 10px 30px 10px 12px; box-shadow: var(--qm-shadow-card);
+	-webkit-backdrop-filter: blur(var(--qm-blur)); backdrop-filter: blur(var(--qm-blur));
+	animation: qm-fade .45s ease;
+}
+#legend-btn {   /* 畳んだ凡例の再表示ボタン＝スタック（他の34px規格と面一・ラベル文字） */
+	height: 34px; padding: 0 12px; border-radius: 5px; display: none;
+	align-items: center; justify-content: center; border: 1px solid var(--qm-border); background: var(--qm-panel);
+	color: #3f4757; font: 13px var(--qm-font); cursor: pointer;
+	-webkit-backdrop-filter: blur(var(--qm-blur)); backdrop-filter: blur(var(--qm-blur));
+	&:hover { border-color: var(--qm-border-strong); }
+}
+/* 引出線の層：地点紐づけ吹き出しの線を描くcanvas（#map一杯・pointerは素通し・pop箱の下） */
+#pop-lines { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+/* 地点に紐づく吹き出し：箱は画面に留まり線が世界の地点へ。relative は×/📌の錨 */
+.pop {
+	position: absolute; max-width: 280px; cursor: grab;
+	font: 12px/1.5 var(--qm-font); color: var(--qm-text);
+	background: var(--qm-panel-solid); border: 1px solid var(--qm-border-soft); border-radius: 5px;
+	padding: 8px 34px 8px 12px; box-shadow: var(--qm-shadow-pop);
+	.pop-pin {
+		position: absolute; top: 3px; right: 22px; width: 20px; height: 20px; border: none; background: none;
+		font-size: 12px; line-height: 1; cursor: pointer; border-radius: 5px; padding: 0; opacity: .5;
+		&:hover { background: #eef0f3; } &.on { opacity: 1; }
+	}
+}
+
 /* --- 実行時に #map へ後置される要素（DOM順で上に乗る） --- */
 #net-toast {   /* 通信断 */
 	position: absolute; top: 12px; left: 50%; transform: translateX(-50%); font-size: 13px; color: var(--qm-warn-text);

@@ -26,6 +26,10 @@ import { zoom as zoomGadget } from "./gadgets/zoom.js";
 import { full as fullGadget } from "./gadgets/full.js";
 import { cpos as cposGadget } from "./gadgets/cpos.js";
 import { contextmenu as contextmenuGadget } from "./gadgets/contextmenu.js";
+import { tip as tipGadget } from "./gadgets/tip.js";
+import { pop as popGadget } from "./gadgets/pop.js";
+import { explain as explainGadget } from "./gadgets/explain.js";
+import { legend as legendGadget } from "./gadgets/legend.js";
 
 // ============================================================================================
 // ortho-japan：1行で日本が立ち上がる入口（v1 orthoMap の作法の継承）。
@@ -1126,5 +1130,15 @@ map.gadget("cpos", function (opts) {   // 現在地（GPS） … マーカー追
 map.gadget("contextmenu", function (opts) {   // 右クリックメニュー … 逆投影と destroy用signalを注入。戻り値＝項目差し替えの setter
 	return contextmenuGadget.call(this, { unprojectAt, signal: ac.signal, ...opts });
 });
+map.gadget("tip", function (opts) {   // カーソル追従の吹き出し … destroy用signalを注入。戻り値＝内容の setter
+	return tipGadget.call(this, { signal: ac.signal, ...opts });
+});
+map.gadget("pop", function (opts) {   // 地点に紐づく吹き出し … 座標ブリッジを注入し _update を render のフックへ。戻り値＝pop 関数
+	const p = popGadget.call(this, { projectLL, signal: ac.signal, ...opts });
+	if (p && p._update) { frameHooks.add(p._update); p._update(); }
+	return p;
+});
+map.gadget("explain", function (opts) { return explainGadget.call(this, opts); });   // 上辺の説明パネル … 戻り値＝内容の setter
+map.gadget("legend", function (opts) { return legendGadget.call(this, opts); });     // 左下の凡例パネル … 戻り値＝内容の setter
 return map;
 }
