@@ -174,15 +174,15 @@ body { visibility: visible; }   /* 開幕＝このスタイルシートの到着
 	svg { display: block; }
 }
 
-/* --- コンパス兼リセット：針が方位、押すと水平・北向きへ。置き場所はスタック
-       （margin-left -3px＝40px枠の中心を34px枠（虫めがね・?・PLATEAU）の中心に揃える） --- */
+/* --- コンパス兼リセット：針が方位、押すと水平・北向きへ。置き場所はスタック。
+       枠は他のガジェット（虫めがね・?・PLATEAU）と同じ34px規格＝スタックで面一（旧40pxは一つだけ大きく見えた） --- */
 #reset {
-	margin-left: -3px; width: 40px; height: 40px; border-radius: 5px;
+	width: 34px; height: 34px; border-radius: 5px;
 	border: 1px solid var(--qm-border); background: var(--qm-panel); cursor: pointer; padding: 0;
 	display: flex; align-items: center; justify-content: center;
 	-webkit-backdrop-filter: blur(var(--qm-blur)); backdrop-filter: blur(var(--qm-blur));
 	&:hover { border-color: var(--qm-border-strong); }
-	svg { display: block; }
+	svg { display: block; width: 24px; height: 24px; }   /* 針は26→24px＝34px枠での余白バランス */
 }
 
 /* --- 実行時に #map へ後置される要素（DOM順で上に乗る） --- */

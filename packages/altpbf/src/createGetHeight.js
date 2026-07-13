@@ -13,22 +13,39 @@ export async function createTileLoader(opts = {}) {
 	// 地形の立ち上がりが数倍遅い。各workerは従来通り1件ずつ直列（応答FIFO＝取りこぼさない）で、
 	// プール間はラウンドロビン＝並列。IDBキャッシュ後は経路無関係に即答。
 	const NW = Math.min(3, Math.max(1, (navigator.hardwareConcurrency || 4) - 2));   // 低コア端末(タブレット)ではプールを絞る＝worker乱立でメインが飢えない
-	const pool = Array.from({ length: NW }, () => {
+	const mkWorker = () => {
 		const w = new Worker(new URL('./worker.js', import.meta.url), { type: 'module' });
 		w.onerror = e => console.error("[tileLoader] worker error:", e.message || "(opaque)", "@", e.filename || "?", "L" + (e.lineno ?? "?"), e.error || "");
-		return { w, queue: [], busy: false };
-	});
+		return w;
+	};
+	const pool = Array.from({ length: NW }, () => ({ w: mkWorker(), queue: [], busy: false }));
 	const inflight = new Map();
+	// 応答の看視：worker.js は失敗でも必ず null を返す作りだが、worker「自体」が死ぬと（devサーバ断・
+	// モジュール取得404・GPU/メモリ起因のkill等）message も error も返らず、レーンが busy のまま永久に詰まる
+	// ＝呼び出し側の pending カウンタが固着（実測:「地形読込中×1」が消えない）。要求ごとにタイムアウトを張り、
+	// 発火時は worker を作り直して null で返す＝詰まりを残さない（R01初回=JAXAで数秒かかるため余裕を持つ）。
+	const REQ_TIMEOUT = 45000;
 	function pump(s) {
 		if (s.busy || !s.queue.length) return;
 		s.busy = true;
 		const { name, res } = s.queue.shift();
-		const onmsg = e => {
-			s.w.removeEventListener("message", onmsg);
-			const obj = e.data; if (obj) cache(name, obj);
+		let done = false, tm = 0;
+		const finish = obj => {
+			if (done) return; done = true;
+			clearTimeout(tm);
+			s.w.removeEventListener("message", onmsg); s.w.removeEventListener("error", onerr);
 			s.busy = false; res(obj); pump(s);
 		};
+		const onmsg = e => { const obj = e.data; if (obj) cache(name, obj); finish(obj); };
+		const onerr = () => {   // worker死＝作り直し（次の要求は新workerで正常化）。この要求は null＝欠けは次の窓替えで再挑戦
+			console.warn("[tileLoader] worker応答不能 → 作り直し:", name);
+			try { s.w.terminate(); } catch { /* 既に死んでいる */ }
+			s.w = mkWorker();
+			finish(null);
+		};
+		tm = setTimeout(onerr, REQ_TIMEOUT);
 		s.w.addEventListener("message", onmsg);
+		s.w.addEventListener("error", onerr);
 		s.w.postMessage({ name, apiUrl: opts.apiUrl });
 	}
 	let rr = 0;

@@ -38,7 +38,9 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 		const lngN = ((cellLng % 360) + 540) % 360 - 180;
 		const k = range + "," + lngN + "," + cellLat;
 		if (r10Tiles.has(k)) return r10Tiles.get(k);
-		const tile = await loadTile(lngN, cellLat, range);
+		// 失敗は null に畳む＝getCell は絶対に reject しない（呼び出し側の pending デクリメントが
+		// .then 購読のみのため、reject が漏れると読込インジケータが永久に残る）
+		const tile = await loadTile(lngN, cellLat, range).catch(e => { console.warn("[terrain] セル取得失敗", k, e); return null; });
 		if (tile) r10Tiles.set(k, tile);
 		return tile;
 	}
