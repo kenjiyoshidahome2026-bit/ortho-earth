@@ -369,7 +369,7 @@ const cam = { center: [137.628, 37.783], zoom: 4.86, pitch: 0, bearing: 0, dpr }
 // 起動の優先度：URLハッシュ > localStorage(前回ビュー) > 既定の世界ビュー。settle 毎に replaceState で
 // 書き戻す＝アドレスバーが常に「今この視点の共有URL」（コピーするだけで人に渡る＝発表・拡散の生命線）。
 function applyCamView(v) {
-	cam.center = [wrapLon(v.lon), Math.max(-85, Math.min(85, v.lat))];
+	cam.center = [wrapLon(v.lon), Math.max(-90, Math.min(90, v.lat))];
 	cam.zoom = Math.max(1, Math.min(20, v.zoom));   // 上限20＝7.5cm/px（正射z＝緯度フリー。精度は原点相対RTEが担保）
 	cam.pitch = Math.max(0, Math.min(MAXPITCH, v.pitch || 0));
 	cam.bearing = Number.isFinite(v.bearing) ? v.bearing : 0;

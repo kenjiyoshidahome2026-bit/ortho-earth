@@ -1,17 +1,19 @@
 // 入力コントローラ（カメラ操作の所作）＝苦労の結晶を一箇所に：
-// ・パン＝grab-point（掴んだ地点をカーソル下に保つ）＋レート方式の併走。球の縁では幾何が縮退する
-//   （光線が球を外す＝unproject null で凍る／縁際でヤコビアン爆発＝すっぽ抜け）ため、レートを
-//   ①球外れ時のフォールバック ②縁の爆発の頭打ち に使う＝低ズーム/縁でも張り付かない。消すと再発する。
-// ・anchoredAt＝カーソル下の地点を固定したままズーム/軸回転。アンカー不成立（空/地平線の向こう）や
-//   補正が画面スパン超（地平線際の遠地点＝1目盛りで数十km飛ぶ）は補正を捨て中心回転へ退避＝「暴れたら大人しい方」。
+// ・パン＝versor（v1 ortho の自由回転）：掴んだ地点→カーソル下の大円回転を姿勢に合成し (lon,lat,bearing) へ
+//   分解し直す＝チルト・周辺部・極でも厳密に貼り付き、極越えも自然（north-up は放棄、bearing が天地を引き受ける）。
+//   球の縁では光線が球を外す（unproject null＝凍る）ため、レート方式を球外れ時のフォールバックに残す。消すと再発する。
+//   limb 際の過敏さ（掴み点が縁ほど1pxの回転角が発散）は1イベント0.5radの頭打ちで受ける。
+// ・anchoredAt＝カーソル下の地点を固定したままズーム/軸回転。補正も同じversor＝アンカーが正確に貼り付く。
+//   アンカー不成立（空/地平線の向こう）は補正を捨て中心回転へ退避＝「暴れたら大人しい方」。
 // ・タッチ＝Google/Apple が世界に教育した2本指の語彙に乗る（v1 ortho-map の pinch+twist の移植＋チルト追加）：
 //   1本指=パン／2本指ひらく=ズーム（重心アンカー）／2本指ひねる=回転／2本指の平行縦ドラッグ=チルト。
 //   チルトは開始の判定窓（〜12px）で「間隔・角度ほぼ不変＋縦優勢」の時だけロック＝ズームと混ざって酔わない（Googleと同じ裁き）。
 //   3本指以上は関知しない＝iPadOS のシステムジェスチャ（コピー/取り消し）に譲る。
 // ・座標は常に canvas ローカル（evXY）＝#map がページのどこに置かれても幾何が狂わない（埋め込み対応）。
 // アプリ固有の反応（identify・ホバー・フライト中断）はコールバックで注入＝エンジンは地図の掴み方だけを知る。
-import { cameraState, unproject } from "./camera.js";
-const D2R = Math.PI / 180;
+import { cameraState, unproject, lonlatTo3D } from "./camera.js";
+import { dot, cross, add, scale } from "./mat.js";
+const D2R = Math.PI / 180, R2D = 180 / Math.PI;
 
 // createInput({ canvas, cam, size, dpr, maxPitch, zoomMin, zoomMax, onMove, onGesture, onClick, onHover })
 //   size＝{w,h}（device px・呼び出し側の resize が更新する参照を共有）。onGesture＝掴んだ/回した瞬間（フライト中断用）。
@@ -26,21 +28,41 @@ export function createInput({ canvas, cam, size, dpr, maxPitch, zoomMin = 1, zoo
 	const clampZoom = v => Math.max(zoomMin, Math.min(zoomMax, v));
 	const wrapAngle = a => Math.atan2(Math.sin(a), Math.cos(a));   // 角度差を(-π,π]へ（atan2跨ぎの跳び防止）
 
-	// パン共通：画面上の移動 (fx,fy)→(tx,ty) を grab＋レート併走で球へ。1本指・マウス・2本指重心、全て同じ所作。
+	// versor回転（v1 ortho/d3-versor の自由回転の移植）：掴んだ地点a→今カーソル下bの大円回転を姿勢に合成し、
+	// (lon,lat,bearing) へ分解し直す。このカメラ族は全球回転で閉じている（pitch/zoomは注視点相対＝回しても不変）
+	// ので、チルト・周辺部・極でも厳密＝掴んだ地点がカーソルに正確に貼り付く。極越えも自然（天地はbearingが引き受ける）。
+	function rotateGrab(a, b) {
+		const ua = lonlatTo3D(a[0], a[1]), ub = lonlatTo3D(b[0], b[1]);
+		const x = cross(ua, ub), s = Math.hypot(x[0], x[1], x[2]);
+		if (s < 1e-12) return;                                        // 無回転（同一点/対蹠点）
+		const th = Math.min(Math.atan2(s, dot(ua, ub)), 0.5);         // 1イベント上限≈29°＝limb際の過敏さの頭打ち（旧「縁の爆発」のversor版。追従は次イベントが担う）
+		const k = scale(x, 1 / s);
+		const cs = Math.cos(th), sn = -Math.sin(th), oc = 1 - cs;     // -th回転＝R⁻¹（世界がaをbへ回る時、カメラ基底は逆へ回る）
+		const rot = v => add(add(scale(v, cs), scale(cross(k, v), sn)), scale(k, dot(k, v) * oc));   // Rodrigues
+		const lo = cam.center[0] * D2R, la = cam.center[1] * D2R;
+		const north = [-Math.sin(la) * Math.cos(lo), Math.cos(la), -Math.sin(la) * Math.sin(lo)];    // camera.jsと同式
+		const east = [-Math.sin(lo), 0, Math.cos(lo)];
+		const f = add(scale(north, Math.cos(cam.bearing)), scale(east, Math.sin(cam.bearing)));      // 画面上方向の地表向き
+		const T2 = rot(lonlatTo3D(cam.center[0], cam.center[1])), f2 = rot(f);
+		const lat2 = Math.asin(Math.max(-1, Math.min(1, T2[1]))) * R2D, lon2 = Math.atan2(T2[2], T2[0]) * R2D;
+		const lo2 = lon2 * D2R, la2 = lat2 * D2R;
+		const north2 = [-Math.sin(la2) * Math.cos(lo2), Math.cos(la2), -Math.sin(la2) * Math.sin(lo2)];
+		const east2 = [-Math.sin(lo2), 0, Math.cos(lo2)];
+		cam.center = [lon2, lat2];
+		cam.bearing = Math.atan2(dot(f2, east2), dot(f2, north2));    // 毎回ベクトルから再導出＝累積誤差なし
+	}
+
+	// パン共通：画面上の移動 (fx,fy)→(tx,ty)。1本指・マウス・2本指重心、全て同じ所作＝versor回転。
+	// 球を外した時（空を掴んだ＝unproject null で凍る）だけレート方式で回す。消すと縁で再発する。
 	function panBy(fx, fy, tx, ty) {
-		const dxp = tx - fx, dyp = ty - fy;
 		const st = cameraState(cam, size.w, size.h);
 		const a = unproject(st, fx * dpr, fy * dpr), b = unproject(st, tx * dpr, ty * dpr);
-		const degPerPx = 360 / (Math.pow(2, cam.zoom) * 512);                        // ズームでの1CSSpx当たり経度（概算）
-		const rLon = -dxp * degPerPx / Math.max(0.2, Math.cos(cam.center[1] * D2R)); // レート方式（高緯度ほど経度を伸ばす）
-		const rLat = dyp * degPerPx;
-		let dLon = rLon, dLat = rLat;                                                // 既定＝レート（球外れ時のフォールバック）
-		if (a && b) {
-			const gLon = -(b[0] - a[0]), gLat = -(b[1] - a[1]);                      // grab-point（正確）
-			if (Math.hypot(gLon, gLat) <= Math.hypot(rLon, rLat) * 6) { dLon = gLon; dLat = gLat; }  // 暴れてなければ採用、縁の爆発はレートへ退避
+		if (a && b) rotateGrab(a, b);
+		else {
+			const degPerPx = 360 / (Math.pow(2, cam.zoom) * 512);                                    // ズームでの1CSSpx当たり経度（概算）
+			cam.center[0] += -(tx - fx) * degPerPx / Math.max(0.2, Math.cos(cam.center[1] * D2R));   // 高緯度ほど経度を伸ばす
+			cam.center[1] = Math.max(-90, Math.min(90, cam.center[1] + (ty - fy) * degPerPx));
 		}
-		cam.center[0] += dLon;
-		cam.center[1] = Math.max(-85, Math.min(85, cam.center[1] + dLat));
 		onMove();
 	}
 
@@ -132,11 +154,7 @@ export function createInput({ canvas, cam, size, dpr, maxPitch, zoomMin = 1, zoo
 		if (a) {
 			const st1 = cameraState(cam, size.w, size.h);
 			const b = unproject(st1, px * dpr, py * dpr);
-			const spanDeg = 360 / (Math.pow(2, cam.zoom) * 512) * Math.max(size.w, size.h);   // 画面いっぱい分の度数（概算）
-			if (b && Math.hypot(a[0] - b[0], a[1] - b[1]) <= spanDeg) {
-				cam.center[0] += a[0] - b[0];
-				cam.center[1] = Math.max(-85, Math.min(85, cam.center[1] + a[1] - b[1]));
-			}
+			if (b) rotateGrab(a, b);   // アンカー点aを元のカーソル位置へ戻す回転（versor・厳密）。不成立（空/地平線の向こう）は中心回転のまま
 		}
 		onMove();
 	}

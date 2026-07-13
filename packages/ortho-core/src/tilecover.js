@@ -67,7 +67,10 @@ export function pickZoom(cam, minZoom = 4, maxZoom = 16) {
 export function visibleTiles(cam, W, H, z, { grid = 6, pad = 1, maxRadius = 8 } = {}) {
 	const st = cameraState(cam, W, H);
 	const n = 1 << z;
-	const [ccx, ccy] = lonLatToTile(cam.center[0], cam.center[1], z);
+	// 中心が極域（|lat|>85.05）だと mercator y が範囲外へ飛び、半径クランプで全タイルが消える。
+	// 半径のアンカーはメルカトル域内へ寄せた中心で取る（極を向いていても最寄りの実在タイル行が基準になる）。
+	const MERC_MAX = 85.0511;
+	const [ccx, ccy] = lonLatToTile(cam.center[0], Math.max(-MERC_MAX, Math.min(MERC_MAX, cam.center[1])), z);
 	let xmin = Infinity, xmax = -Infinity, ymin = Infinity, ymax = -Infinity, hit = false;
 	for (let iy = 0; iy <= grid; iy++) {
 		for (let ix = 0; ix <= grid; ix++) {
