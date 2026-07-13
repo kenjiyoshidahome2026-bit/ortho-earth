@@ -334,12 +334,13 @@ function autoPlateau() {
 function onMove() {
 	cam.center[0] = wrapLon(cam.center[0]);   // パン/回転/フライトの累積を毎移動で正規化＝float32原点相対の前提を守る（階段バグ根治）
 	moving = true; needsDraw = true;
+	if (cam.pitch > 0.005 && layerState.terrain) gintCanvas.style.opacity = "0";     // チルト×標高中は移動中gintを消す（別canvasの追随遅れが起伏上で泳ぐため。静止で復帰）
 	ensureCoast();                                                                    // 世界海岸線は初めて z<8 に出た瞬間に読む（遅延ロード）
 	autoPlateau();                                                                    // 寄る/離れるで PLATEAU を自動ロード/解放（ガードで実質タダ）
 	renderer.draw(cam, { skipBase: false, skipMain: mainStale(), noTerrain: false });   // 入力の瞬間に最新camをworkerへ（全球z<4も標高の塗りは描く＝R90一式は先読み/IDB常備で安い）
 	// 海岸線(gint)は render worker が draw 後に従属で駆動＝ここから直接送らない（地図と同cam/同フレーム＝スライド消滅）。
 	clearTimeout(settleT);
-	settleT = setTimeout(() => { moving = false; needsDraw = true; gintWorker.postMessage({ type: "drawn" }); saveView(); }, 150);   // 停止後に identify(picking)＋ビュー保存（localStorage＋共有URL）
+	settleT = setTimeout(() => { moving = false; needsDraw = true; gintCanvas.style.opacity = "1"; gintWorker.postMessage({ type: "drawn" }); saveView(); }, 150);   // 停止後に identify(picking)＋gint復帰＋ビュー保存（localStorage＋共有URL）
 	schedulePos();   // 座標読み取りもカメラに追随（rAF畳み込み＝タダ同然）
 }
 
@@ -349,6 +350,14 @@ const { tiles, requestMerge, destroy: destroyPipeline } = createPipeline({
 	style, tileUrl: TILE_URL, requestDraw: () => { needsDraw = true; }, scenePort: sceneChan.port1, onTile,
 	// merge の ack：sig はここで初めて確定する（要求時の楽観確定をやめた＝失敗が永続穴にならない）
 	onMerged: (slot, sig) => {
+		// 全球ビュー(z<4)移行後に着地した投げっぱなしmerge：結合結果は scene worker→render worker 直行＝
+		// main では止められないため、render() が空にした後から道路/鉄道が復活する（ズームアウト中の要求が遅れて届く）。
+		// ack＝着地の合図なので、ここで検知して即座に空へ戻す（sig は確定させない＝z4復帰時に再結合させる）。
+		if (cam.zoom < BASEMAP_MINZOOM) {
+			renderer.set("scene", { origin: [cam.center[0], cam.center[1]], layers: [] }, slot);
+			needsDraw = true;
+			return;
+		}
 		if (slot === "main") {
 			readySig = sig;
 			const z = mergePendingZoom.get(sig);
@@ -399,6 +408,10 @@ renderer.set("sea", { li: style.layers.findIndex(L => L.id === "water"), li2: st
 // MVT=描画(render worker)／Gint=知性(この worker)＝層分担。基図の上に重ね、pointer は透過して #c が受ける。
 const gintCanvas = document.getElementById("gint");
 gintCanvas.width = size.w; gintCanvas.height = size.h;
+// 別canvas構成の宿命＝移動中は合成タイミング差で gint(海岸線) が地形から1フレーム級遅れて泳ぐ。
+// チルト×標高表示中は特に目立つ（線が起伏に対して滑る）ので、移動中(drawing)は消し静止(drawn)で戻す。
+// 根治は 1canvas 化（GL2統合）＝それまでの手当て。フェードで出入りの唐突さを消す。
+gintCanvas.style.transition = "opacity .15s";
 const gintOffscreen = gintCanvas.transferControlToOffscreen();
 const gintWorker = new Worker(new URL("./gintworker.js", import.meta.url), { type: "module" });
 gintWorker.postMessage({ type: "init", offscreen: gintOffscreen, dpr, syncPort: gintSyncChan.port2 }, [gintOffscreen, gintSyncChan.port2]);
