@@ -10,7 +10,7 @@
 import { gadgetStack } from "./stack.js";
 
 const R = 6371008.8, D2R = Math.PI / 180, R2D = 180 / Math.PI;
-const LINE = "#880000", FILL = "rgba(136,0,0,0.1)", DOT = "#fff", W = 2, R_VERT = 4, R_MID = 2;
+const LINE = "#880000", FILL = "rgba(136,0,0,0.1)", DOT = "#fff", W = 2, R_VERT = 4;
 
 export function measure({ makeProjector, unprojectXY, setClick, requestDraw, signal } = {}) {
 	const mapEl = this.mapEl;
@@ -177,9 +177,8 @@ export function measure({ makeProjector, unprojectXY, setClick, requestDraw, sig
 		}
 		ctx.shadowBlur = 0;
 
-		// 点（頂点r=4・辺の中点r=2）
+		// 点（頂点r=4のみ）。※v1の中点r=2は辺途中に頂点を挿す編集ハンドル＝編集なしの本実装では出さない
 		for (const v of pp) dot(pr, v, R_VERT);
-		for (let i = 0; i + 1 < pp.length; i++) dot(pr, midGc(pp[i], pp[i + 1]), R_MID);
 
 		readout(hint());
 	}
