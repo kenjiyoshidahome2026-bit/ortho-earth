@@ -1,7 +1,7 @@
 // ラベルを Canvas2D オーバーレイで描く（GL幾何の上に重ねる最前面レイヤ）。
 // 衝突判定（どのラベルを出すか）は間引き（recollideMs毎）で安定化し、描画位置は毎フレーム・ライブ投影。
 // これで文字は地図と一緒に滑らかに動きつつ、当選集合が安定して明滅しない。距離フェードでフォグと連動。
-import { cameraState, project, lonlatTo3D } from "./camera.js";
+import { cameraState, project, unproject, lonlatTo3D } from "./camera.js";
 
 const FONT_STACK = `"Noto Sans JP","Hiragino Sans","Yu Gothic UI","Yu Gothic",sans-serif`;
 const css = (c, op = 1) => `rgba(${Math.round(c[0] * 255)},${Math.round(c[1] * 255)},${Math.round(c[2] * 255)},${c[3] * op})`;
@@ -42,6 +42,10 @@ export function createLabelLayer(canvas, { pad = 5, fade = 0.3, recollideMs = 15
 		labelByKey = new Map(labels.map(L => [keyOf(L), L]));
 		dirty = true;
 	}
+	// 星空劇場の注記（星座名・メシエ天体）。データは { constellations:[{cel,name}], messier:[{cel,name,type}] }、
+	// cel＝天球単位ベクトル（RA/Dec焼き込み・アプリが供給）。null＝非表示（星座線のトグルと同期）。
+	let sky = null;
+	function setSky(data) { sky = data; }
 	function clear() {
 		ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, canvas.width, canvas.height);
 		fades.clear(); winners.clear();
@@ -122,8 +126,59 @@ export function createLabelLayer(canvas, { pad = 5, fade = 0.3, recollideMs = 15
 			if (L.haloW > 0) { ctx.strokeStyle = css(L.halo, o); ctx.lineWidth = L.haloW * 2; ctx.strokeText(L.text, sx, sy); }
 			ctx.fillStyle = css(L.color, o); ctx.fillText(L.text, sx, sy);
 		}
+		drawSky(st, cam, Wc, Hc, dpr);
 		return animating;
 	}
 
-	return { setLabels, draw, clear };
+	// 星空劇場の注記：GL星空(renderer)と厳密に同じ変換＝GMST回転→mvp×(dir,0)→天球倍率(u_sky同式)のNDCスケール。
+	// 出現タイミング・フェードも星座線と同一（z<4・z4→3.5）。地球の背後は unproject（光線が球に当たる＝手前に地球）で遮蔽。
+	function drawSky(st, cam, Wc, Hc, dpr) {
+		if (!sky || cam.zoom >= 4) return;
+		const fade = Math.min(1, (4 - cam.zoom) / 0.5);
+		const gmst = (((18.697374 + 24.0657098 * (Date.now() / 864e5 + 2440587.5 - 2451545.0)) * 15) % 360) * Math.PI / 180;
+		const cg = Math.cos(gmst), sg = Math.sin(gmst);
+		const skyK = (0.4 + 0.3 * cam.zoom) / 1.6;
+		const m = st.mvp;
+		const put = cel => {
+			const x = cel[0] * cg + cel[2] * sg, y = cel[1], z = cel[2] * cg - cel[0] * sg;   // 天球→地球固定（STARS_VSと同式）
+			const cx = m[0] * x + m[4] * y + m[8] * z, cy = m[1] * x + m[5] * y + m[9] * z, cw = m[3] * x + m[7] * y + m[11] * z;
+			if (cw <= 1e-9) return null;   // 背後
+			const sx = (cx / cw * skyK * 0.5 + 0.5) * Wc, sy = (1 - (cy / cw * skyK * 0.5 + 0.5)) * Hc;
+			if (sx < -30 || sx > Wc + 30 || sy < -30 || sy > Hc + 30) return null;
+			if (unproject(st, sx * dpr, sy * dpr)) return null;   // その画素は地球＝星は隠れる
+			return [sx, sy];
+		};
+		if (sky.constellations) {
+			ctx.font = `11px ${FONT_STACK}`;
+			ctx.fillStyle = `rgba(160,200,255,${0.65 * fade})`;   // v1 border.js と同色
+			for (const L of sky.constellations) { const p = put(L.cel); if (p) ctx.fillText(L.name, p[0], p[1]); }
+		}
+		if (sky.messier) {
+			const sz = 5, P2 = Math.PI * 2;   // v1 の記号語彙：gc=球状星団 gx/gg=銀河 oc=散開星団 他=矩形
+			ctx.lineWidth = 0.8;
+			ctx.strokeStyle = `rgba(255,200,100,${0.75 * fade})`;
+			ctx.font = `8px ${FONT_STACK}`;
+			for (const Mo of sky.messier) {
+				const p = put(Mo.cel); if (!p) continue;
+				const [px, py] = p;
+				ctx.beginPath();
+				if (Mo.type === "gc") {
+					ctx.arc(px, py, sz, 0, P2);
+					ctx.moveTo(px - sz, py); ctx.lineTo(px + sz, py);
+					ctx.moveTo(px, py - sz); ctx.lineTo(px, py + sz);
+					ctx.stroke();
+				} else if (Mo.type === "gx" || Mo.type === "gg") {
+					ctx.ellipse(px, py, sz * 1.5, sz * 0.6, 0.4, 0, P2); ctx.stroke();
+				} else if (Mo.type === "oc") {
+					ctx.setLineDash([2, 2]); ctx.arc(px, py, sz, 0, P2); ctx.stroke(); ctx.setLineDash([]);
+				} else {
+					ctx.rect(px - sz, py - sz, sz * 2, sz * 2); ctx.stroke();
+				}
+				ctx.fillStyle = `rgba(255,220,150,${0.65 * fade})`;
+				ctx.fillText(Mo.name, px, py + sz + 6);
+			}
+		}
+	}
+
+	return { setLabels, setSky, draw, clear };
 }

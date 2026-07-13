@@ -54,6 +54,7 @@ onmessage = e => {
 			break;
 		case "set":
 			if (m.cmd === "labels") { pendingLabels = m.data; applyLabels(); }   // ラベル集合の更新（標高は cam が揃ってから付与）
+			else if (m.cmd === "skyLabels") { if (labelLayer) labelLayer.setSky(m.data); }   // 星空劇場の注記（星座名・メシエ）＝ラベルcanvasへ
 			else if (renderer) renderer.set(m.cmd, m.data, m.prop);              // view/scene/overlay/elev…
 			dirty = true;                                        // 内容が変わった→描き直す
 			break;

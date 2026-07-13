@@ -336,6 +336,7 @@ function onMove() {
 	moving = true; needsDraw = true;
 	if (cam.pitch > 0.005 && layerState.terrain) gintCanvas.style.opacity = "0";     // チルト×標高中は移動中gintを消す（別canvasの追随遅れが起伏上で泳ぐため。静止で復帰）
 	ensureCoast();                                                                    // 世界海岸線は初めて z<8 に出た瞬間に読む（遅延ロード）
+	ensureStars();                                                                    // 星空も同じ流儀＝初めて z<4 に出た瞬間に読む
 	autoPlateau();                                                                    // 寄る/離れるで PLATEAU を自動ロード/解放（ガードで実質タダ）
 	renderer.draw(cam, { skipBase: false, skipMain: mainStale(), noTerrain: false });   // 入力の瞬間に最新camをworkerへ（全球z<4も標高の塗りは描く＝R90一式は先読み/IDB常備で安い）
 	// 海岸線(gint)は render worker が draw 後に従属で駆動＝ここから直接送らない（地図と同cam/同フレーム＝スライド消滅）。
@@ -517,6 +518,83 @@ window.__coast = loadWorldCoast;   // 手動リロード用
 let coastArmed = true;
 function ensureCoast() { if (coastArmed && cam.zoom < 8) { coastArmed = false; loadWorldCoast(); } }
 
+// --- 星空劇場（z<4・v1 ortho-map の星空アクセサリー移植）---
+// stars.6（実在星表：RA/Dec・等級・B-V色指数）を天球単位ベクトル＋色＋点径に焼いて render worker へ。
+// 向きは恒星時(GMST)＝engine が毎描画で回す（実時刻の空）。クリックで星座線（constellation_lines）をトグル。
+const bvColor = v => v < -0.3 ? "#b2c8ff" : v < 0.0 ? "#d9e2ff" : v < 0.3 ? "#f8faff" : v < 0.6 ? "#fff8f0" :
+	v < 0.8 ? "#fff2c8" : v < 1.1 ? "#ffe0b5" : v < 1.4 ? "#ffcc99" : "#ffab91";   // v1 border.js と同表
+const celVec = (raDeg, decDeg) => {
+	const ra = raDeg * D2R, dec = decDeg * D2R, cd = Math.cos(dec);
+	return [cd * Math.cos(ra), Math.sin(dec), cd * Math.sin(ra)];
+};
+let starsArmed = true;
+function ensureStars() { if (starsArmed && cam.zoom < BASEMAP_MINZOOM) { starsArmed = false; loadStars(); } }
+async function loadStars() {
+	const pbf = await geopbf("stars.6", { gint: false }).catch(e => { console.warn("[stars] 読込失敗", e); return null; });
+	const g = pbf && pbf.geojson;
+	if (!g) { starsArmed = true; return; }   // 一過性失敗は次の機会に再試行
+	const fs = g.features;
+	const buf = new Float32Array(fs.length * 8);
+	for (let i = 0; i < fs.length; i++) {
+		const { mag, bv } = fs[i].properties, [ra, dec] = fs[i].geometry.coordinates;
+		const hex = bvColor(bv);
+		const [x, y, z] = celVec(ra, dec);
+		buf.set([x, y, z,
+			parseInt(hex.slice(1, 3), 16) / 255, parseInt(hex.slice(3, 5), 16) / 255, parseInt(hex.slice(5, 7), 16) / 255,
+			Math.max(0, 1 - mag / 15),                    // 等級→明るさ（v1と同式）
+			Math.max(1.5, (9 - mag) * 0.4 * dpr)], i * 8);   // 等級→点径（v1の半径0.2css相当をdevice pxへ）
+	}
+	renderer.set("stars", buf);
+	needsDraw = true;
+	console.log(`[stars] ${fs.length}星 ロード完了（z<4で描画・クリックで星座線）`);
+}
+// 星座線＋星座名＋メシエ天体：クリックでトグル（v1と同じ所作＝三点一組）。初回クリックでロード→表示、以降は表示反転のみ。
+// 線は GL（render worker）、名前と記号はラベルcanvas（skyLabels）＝どちらも同じ変換・同じタイミングで出入りする。
+let constelState = 0, constelVisible = false, skyLabels = null;   // 0=未読込 1=読込中 2=読込済
+async function toggleConstellations() {
+	if (constelState === 1) return;
+	if (constelState === 2) {
+		constelVisible = !constelVisible;
+		renderer.set("view", { showConst: constelVisible });
+		renderer.set("skyLabels", constelVisible ? skyLabels : null);
+		needsDraw = true;
+		return;
+	}
+	constelState = 1;
+	const [cl, ms] = await Promise.all([
+		geopbf("constellation_lines", { gint: false }).catch(e => { console.warn("[星座線] 読込失敗", e); return null; }),
+		geopbf("messier", { gint: false }).catch(() => null),   // 任意（v1と同じ＝無ければ星座線と名前だけ）
+	]);
+	const g = cl && cl.geojson;
+	if (!g) { constelState = 0; return; }
+	const seg = [], consts = [];
+	for (const f of g.features) {
+		const lines = f.geometry.type === "MultiLineString" ? f.geometry.coordinates : [f.geometry.coordinates];
+		for (const line of lines) for (let i = 0; i < line.length - 1; i++)
+			seg.push(...celVec(line[i][0], line[i][1]), ...celVec(line[i + 1][0], line[i + 1][1]));
+		// 星座名の置き場＝全頂点の天球ベクトル平均を正規化（v1のra/dec単純平均はRA 0/360跨ぎの星座で狂う。ベクトル平均は跨ぎ無縁）
+		const name = f.properties?.name;
+		if (name) {
+			let vx = 0, vy = 0, vz = 0;
+			for (const line of lines) for (const p of line) { const v = celVec(p[0], p[1]); vx += v[0]; vy += v[1]; vz += v[2]; }
+			const l = Math.hypot(vx, vy, vz) || 1;
+			consts.push({ cel: [vx / l, vy / l, vz / l], name });
+		}
+	}
+	const messier = [];
+	if (ms && ms.geojson) for (const f of ms.geojson.features) {
+		const c = f.geometry.coordinates;
+		messier.push({ cel: celVec(c[0], c[1]), name: f.properties?.name || "", type: f.properties?.type || "" });
+	}
+	skyLabels = { constellations: consts, messier };
+	renderer.set("constellations", Float32Array.from(seg));
+	constelState = 2; constelVisible = true;
+	renderer.set("view", { showConst: true });
+	renderer.set("skyLabels", skyLabels);
+	needsDraw = true;
+	console.log(`[星座線] ${consts.length}星座＋メシエ${messier.length}天体 ロード完了（クリックでON/OFF）`);
+}
+
 // N02（国土数値情報 鉄道）から新幹線だけ抽出して常駐オーバーレイに（gishub-jp と同じ geopbf 経路）。
 // 新幹線＝N02_002(事業者種別)=1「JRの新幹線」。全国一括・疎＝軽い。鉄道チップONで表示、初回だけ fetch。※駅/空港/道の駅は次段。
 // ソースは coast と同じ事前変換 GeoPBF（bucket GIS/pbf/N02-25_RailroadSection・路線名/事業者の属性付き＝
@@ -663,7 +741,10 @@ resize();
 const input = createInput({
 	canvas, cam, size, dpr, maxPitch: MAXPITCH, zoomMin: 1, zoomMax: 20, onMove,
 	onGesture: () => flightCtl.cancel(),
-	onClick: (x, y) => { overlay.identifyAt(x, y); if (gintInteractive) gintWorker.postMessage({ type: "click", x, y }); },
+	onClick: (x, y) => {
+		if (cam.zoom < BASEMAP_MINZOOM) return toggleConstellations();   // 全球ビュー＝クリックで星座線（v1と同じ所作。identify対象の基図も無い）
+		overlay.identifyAt(x, y); if (gintInteractive) gintWorker.postMessage({ type: "click", x, y });
+	},
 	onHover: (x, y) => { if (gintInteractive) gintWorker.postMessage({ type: "move", x, y }); },
 });
 const evXY = input.evXY;   // 座標読み取り（計器）も同じローカル変換を使う
@@ -935,6 +1016,7 @@ function destroy() {
 
 // 世界海岸線：初期視点が z<8 ならここで即発火（既定の世界ビュー＝従来どおり最初から描画）。await せず＝基図の起動を妨げない。
 ensureCoast();
+ensureStars();   // 初期視点が z<4（復元/共有URL）なら星空も最初から
 
 // 呼び出し側の手綱（視点操作・飛行・描画設定）＋ガジェット登録簿（v1 ortho-map createGadgets の作法の継承）。
 // map.gadget(name, func) で登録し map.gadget.name() で画面に追加する。func 内の this＝この map＝

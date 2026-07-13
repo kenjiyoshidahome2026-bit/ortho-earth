@@ -1,7 +1,7 @@
 // WebGL2 レンダラ：可視タイルを跨いで同一 style層を1バッファに結合した「シーン」を描く。
 // draw call は「タイル数×層数」から「層数」へ激減し、uniform も1フレーム1回。共通のシーン原点で投影。
 // fill = earcut三角形、line = capsule(SDF)。scene.layers は style層順（painter's algorithm）。
-import { FILL_VS, FILL_FS, LINE_VS, LINE_FS, GLOBE_VS, GLOBE_FS, BUILDING_VS, BUILDING_FS, TERRAIN_VS, TERRAIN_FS, STENCIL_VS, STENCIL_FS, COVER_FS, PLATEAU_VS, PLATEAU_FS, CONTOUR_FS } from "./glsl.js";
+import { FILL_VS, FILL_FS, LINE_VS, LINE_FS, GLOBE_VS, GLOBE_FS, BUILDING_VS, BUILDING_FS, TERRAIN_VS, TERRAIN_FS, STENCIL_VS, STENCIL_FS, COVER_FS, PLATEAU_VS, PLATEAU_FS, CONTOUR_FS, STARS_VS, STARS_FS, STARLINE_FS, NIGHT_FS } from "./glsl.js";
 import { cameraState, project } from "../camera.js";
 
 const CORNERS = new Float32Array([0, -1, 0, 1, 1, -1, 1, -1, 0, 1, 1, 1]); // 6頂点×(end,side)
@@ -19,6 +19,9 @@ export function createRenderer(canvas) {
 	const stencilProg = program(gl, STENCIL_VS, STENCIL_FS);   // 塗りの stencil パス（fan→巻き数）
 	const coverProg = program(gl, GLOBE_VS, COVER_FS);          // 塗りの cover パス（stencil≠0 を塗る）
 	const contourProg = program(gl, GLOBE_VS, CONTOUR_FS);     // 等高線（真俯瞰でだけ茶の等高線を敷く）
+	const starsProg = program(gl, STARS_VS, STARS_FS);         // 星空（z<4・globeパスの下敷き）
+	const starLineProg = program(gl, STARS_VS, STARLINE_FS);   // 星座線（VS共用・gl.LINES）
+	const nightProg = program(gl, GLOBE_VS, NIGHT_FS);         // 夜面（現在時刻の太陽＝平行光源・全レイヤの上）
 	const cornerBuf = buffer(gl, CORNERS);
 	const emptyVAO = gl.createVertexArray();
 	gl.getExtension("OES_texture_float_linear");   // R32F の線形補間
@@ -37,6 +40,30 @@ export function createRenderer(canvas) {
 	// 海：水レイヤ(li)を cam.zoom で一律にゲート＝ビュー単位で描く/描かない（タイル毎の presence まだらを排す）。
 	// cam.zoom < minzoom では水を描かない＝海は球の基色(紙)のまま。以上で一律の色を点火。
 	let sea = { li: -1, minzoom: Infinity };
+	// 星空（z<4）：stars＝点（[cel.xyz, rgb, alpha, size]×8f interleaved）、constel＝星座線（[cel.xyz]×3f、LINES端点列）。
+	// 表示のON/OFFは view.showConst（星座線のみトグル・星は常設）。
+	let stars = null, constel = null;
+	function setStarBuf(cur, data, stride, setup) {
+		if (cur) { gl.deleteBuffer(cur.buf); gl.deleteVertexArray(cur.vao); }
+		if (!data || !data.length) return null;
+		const vao = gl.createVertexArray(); gl.bindVertexArray(vao);
+		const buf = buffer(gl, data);
+		setup();
+		gl.bindVertexArray(null);
+		return { vao, buf, count: data.length / stride };
+	}
+	function setStars(data) {
+		stars = setStarBuf(stars, data, 8, () => {
+			gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 32, 0);
+			gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 4, gl.FLOAT, false, 32, 12);
+			gl.enableVertexAttribArray(2); gl.vertexAttribPointer(2, 1, gl.FLOAT, false, 32, 28);
+		});
+	}
+	function setConstellations(data) {
+		constel = setStarBuf(constel, data, 3, () => {
+			gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 12, 0);
+		});
+	}
 	let fogDist = 0;   // フォグ距離の基準 camDist。ズーム中は凍結（チラチラ防止）、静止で追随
 	let elevScaleEff = 0;   // pitchで変調した実効スケール（真俯瞰では0＝平面）
 	// base=粗い下書き（underlay）、main=現ズーム、overlay=外部ベクタ(geopbf等)を最前面に。
@@ -328,6 +355,38 @@ export function createRenderer(canvas) {
 		gl.disable(gl.DEPTH_TEST);
 		gl.clear(gl.DEPTH_BUFFER_BIT);
 
+		// 星空劇場（z<4）：globe より先に描く＝陸には上書きされ・大気ハローは星の上に薄く重なり・宇宙には星が残る。
+		// 深度無関係の背景（VSが clip.z=0 固定）。天球の向きは恒星時(GMST)＝実時刻の空。versor回転にもそのまま追随。
+		const worldFade = !flat2d && cam.zoom < 4 ? Math.min(1, (4 - cam.zoom) / 0.5) : 0;   // 星空劇場（星・夜面）共通の出現フェード
+		const starFade = (stars || constel) ? worldFade : 0;
+		if (starFade > 0) {
+			const gmst = (((18.697374 + 24.0657098 * (Date.now() / 864e5 + 2440587.5 - 2451545.0)) * 15) % 360) * Math.PI / 180;
+			const cg = Math.cos(gmst), sg = Math.sin(gmst);
+			// 遠近表現（v1移植）：天球倍率 ∝ (0.4+0.3z)＝ズームに線形（地球は2^z）。z4（フェード境界）で1に正規化
+			// ＝出現時のスケールが素の投影と連続（ポップしない）。ズームアウトで星空が密に寄る＝空が「遠くなる」。
+			const skyK = (0.4 + 0.3 * cam.zoom) / 1.6;
+			const starUniforms = prog => {
+				gl.uniformMatrix4fv(loc(gl, prog, "u_mvp"), false, st.mvp32);
+				gl.uniform2f(loc(gl, prog, "u_gmst"), cg, sg);
+				gl.uniform1f(loc(gl, prog, "u_fade"), starFade);
+				gl.uniform1f(loc(gl, prog, "u_sky"), skyK);
+			};
+			if (stars) {
+				gl.useProgram(starsProg);
+				starUniforms(starsProg);
+				gl.bindVertexArray(stars.vao);
+				gl.drawArrays(gl.POINTS, 0, stars.count);
+			}
+			if (constel && view.showConst) {
+				gl.useProgram(starLineProg);
+				starUniforms(starLineProg);
+				gl.bindVertexArray(constel.vao);
+				gl.vertexAttrib4f(1, 0.47, 0.63, 1.0, 0.4);   // v1 の星座線色 rgba(120,160,255)（定数attrib＝VAO外の文脈状態）
+				gl.drawArrays(gl.LINES, 0, constel.count);
+			}
+			gl.bindVertexArray(emptyVAO);
+		}
+
 		// 球体本体：land基色を縁(リム)まで敷く（宇宙を背に丸い地球）。2D高速パス時は clear で代替＝省略。
 		if (!flat2d) {
 			gl.useProgram(globeProg);
@@ -484,6 +543,20 @@ export function createRenderer(canvas) {
 			}
 		}
 		gl.disable(gl.DEPTH_TEST);
+		// 夜面（星空劇場と同じ z<4 ゲート・同じフェード）：現在時刻の太陽直下点（v1 nightJSON と同式＝
+		// 赤緯23.4°正弦近似＋UTC時刻→経度）を平行光源に、夜半球を夜紺で減光。地図の全レイヤの上に重ねる。
+		if (worldFade > 0) {
+			const dDay = Date.now() / 864e5;
+			const sunLat = 23.4 * Math.sin((dDay / 365.24 % 1 - 0.225) * 2 * Math.PI) * Math.PI / 180;
+			const sunLng = (((dDay % 1 * -360 + 360) % 360) - 180) * Math.PI / 180;
+			const cs = Math.cos(sunLat);
+			gl.useProgram(nightProg);
+			gl.uniformMatrix4fv(loc(gl, nightProg, "u_invMvp"), false, Float32Array.from(st.invMvp));
+			gl.uniform3f(loc(gl, nightProg, "u_sun"), cs * Math.cos(sunLng), Math.sin(sunLat), cs * Math.sin(sunLng));
+			gl.uniform1f(loc(gl, nightProg, "u_alpha"), 0.5 * worldFade);   // v1 の夜面 50% × 出現フェード
+			gl.bindVertexArray(emptyVAO);
+			gl.drawArrays(gl.TRIANGLES, 0, 3);
+		}
 		gl.bindVertexArray(null);
 		return fogAnimating;   // true＝フォグ距離が収束中（呼び出し側は次フレームも描く）
 	}
@@ -511,6 +584,8 @@ export function createRenderer(canvas) {
 			case "elevCellStage": setElevationCellStage(prop.cx, prop.cy, data, prop.cellRes); break;
 			case "elevAtlasCommit": commitElevationStage(); break;                              // 揃ったら一括スワップ＝山影が消えない
 			case "plateauMesh": setPlateauMesh(prop, data); break;                             // prop=地区名(key)、data={pos,idx} PLATEAU LOD2 建物（null=解放）
+			case "stars":     setStars(data); break;                                           // data=Float32Array [cel.xyz,rgb,a,size]×n
+			case "constellations": setConstellations(data); break;                             // data=Float32Array [cel.xyz]×2n（LINES端点列）表示は view.showConst
 			default: console.warn("renderer.set: unknown cmd", cmd);
 		}
 	}

@@ -288,6 +288,70 @@ void main() {
 	fragColor = vec4(col, 1.0);
 }`;
 
+// 星空（z<4の世界ビュー・v1 ortho-map の星空アクセサリー移植）：
+// ・星は無限遠の方向＝mvp×vec4(dir, 0)（w=0で平行移動が消える＝視差ゼロの天球）。
+// ・無限遠は必ず far 平面の外＝clip.z をそのまま使うと全滅するので z=0 に固定（深度無関係の背景。globeパスより先に描く）。
+// ・天球→地球固定は恒星時：星の地球経度 = RA - GMST。u_gmst=(cos,sin) の y軸回り回転を頂点で払う＝バッファは不変・時刻はuniform1個。
+export const STARS_VS = `#version 300 es
+precision highp float;
+layout(location=0) in vec3 a_cel;    // 天球単位ベクトル（RA/Dec 焼き込み・歳差は装飾精度で無視）
+layout(location=1) in vec4 a_col;    // rgb（B-V色）+ 基礎alpha（等級由来）
+layout(location=2) in float a_size;  // 点直径(device px)
+uniform mat4 u_mvp;
+uniform vec2 u_gmst;   // (cos, sin)
+uniform float u_fade;  // z4→z3.5 のフェードイン
+uniform float u_sky;   // 遠近表現（v1の sr=対角×(0.4+0.3z) の移植）：天球の拡大はズームに線形＝地球(2^z)より
+                       // ずっと緩やか＝ズームインで地球だけが近づき星空は奥に留まる。画面中心まわりのNDCスケール。
+out vec4 v_col;
+void main() {
+	vec3 d = vec3(a_cel.x * u_gmst.x + a_cel.z * u_gmst.y, a_cel.y, a_cel.z * u_gmst.x - a_cel.x * u_gmst.y);
+	vec4 p = u_mvp * vec4(d, 0.0);
+	gl_Position = vec4(p.xy * u_sky, 0.0, p.w);   // w<0（背後）は自然にクリップ
+	gl_PointSize = a_size;
+	v_col = vec4(a_col.rgb, a_col.a * u_fade);
+}`;
+export const STARS_FS = `#version 300 es
+precision highp float;
+in vec4 v_col;
+out vec4 fragColor;
+void main() {
+	float r = length(gl_PointCoord - 0.5) * 2.0;
+	float a = v_col.a * smoothstep(1.0, 0.3, r);   // 柔らかい円盤＝回転中のシマーを抑える
+	fragColor = vec4(v_col.rgb * a, a);            // premultiplied
+}`;
+// 星座線：STARS_VS を共用（gl.LINES＝gl_PointCoord は使えないので専用FS）。色は定数attribで注入。
+export const STARLINE_FS = `#version 300 es
+precision highp float;
+in vec4 v_col;
+out vec4 fragColor;
+void main() { fragColor = vec4(v_col.rgb * v_col.a, v_col.a); }`;
+
+// 夜面（現在時刻の太陽＝平行光源・v1 nightJSON の GL 移植）：フルスクリーンで球をレイキャストし、
+// dot(P, 太陽方向) が負の半球を夜紺で減光。黄昏帯は smoothstep（太陽高度 +4.6°〜-10°付近）＝薄明のグラデ。
+// 全レイヤ描画後に重ねる＝陸・海・陰影がまとめて夜に沈む（v1 が地図の上に夜多角形を塗ったのと同じ）。
+export const NIGHT_FS = `#version 300 es
+precision highp float;
+uniform mat4 u_invMvp;
+uniform vec3 u_sun;     // 太陽方向（地球固定・単位ベクトル）
+uniform float u_alpha;  // 夜面の濃さ（星空と同じ z4→3.5 フェード込み）
+in vec2 v_ndc;
+out vec4 fragColor;
+void main() {
+	vec4 np = u_invMvp * vec4(v_ndc, -1.0, 1.0);
+	vec4 fp = u_invMvp * vec4(v_ndc, 1.0, 1.0);
+	vec3 A = np.xyz / np.w, B = fp.xyz / fp.w, d = B - A;
+	float aa = dot(d, d), bb = 2.0 * dot(A, d), cc = dot(A, A) - 1.0;
+	float disc = bb * bb - 4.0 * aa * cc;
+	if (disc < 0.0) discard;
+	float t = (-bb - sqrt(disc)) / (2.0 * aa);
+	if (t < 0.0) discard;
+	vec3 P = A + t * d;
+	float night = smoothstep(0.08, -0.18, dot(P, u_sun));
+	float a = night * u_alpha;
+	if (a <= 0.001) discard;
+	fragColor = vec4(vec3(0.0, 0.02, 0.078) * a, a);   // v1 rgba(0,5,20,0.5) の夜紺（premultiplied）
+}`;
+
 // 等高線：真俯瞰(チルト≈0)でだけ、標高テクスチャから茶(セピア)の等高線を敷く。3Dの誇張は出さず、平面で標高を語る
 // ＝紙の地形図の等高線。フルスクリーン各画素でカメラ光線×単位球→lon/lat→elev→iso線を fwidth でAA。GLOBE_VS を流用。
 // 寂しい地域(山/田舎)に土地の表情を与える＝どの場所も等しく描かれる（公平感）。ベクタの下に敷き、道路/区界は上に乗る。
