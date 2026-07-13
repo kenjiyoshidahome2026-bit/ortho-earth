@@ -553,6 +553,22 @@ function updatePlanets() {
 	}
 	needsDraw = true;
 }
+// 星空劇場の家具（quiet-monoの逆相家具＝#map.worldでだけ点灯）：左下=日時計（1秒針）、右下=空データの出典。
+// 「実時刻の空」を名乗る劇場の証書＝今この瞬間を刻む時計と、データの出どころ。
+const skyClockEl = document.createElement("div");
+skyClockEl.id = "sky-clock";
+mapEl.appendChild(skyClockEl);
+const skyAttrEl = document.createElement("div");
+skyAttrEl.id = "sky-attr";
+skyAttrEl.textContent = "星図: d3-celestial ／ 海岸線: Natural Earth ／ 標高: GEBCO・JAXA AW3D30 ／ © Kenji Yoshida";
+mapEl.appendChild(skyAttrEl);
+const SKY_WD = ["日", "月", "火", "水", "木", "金", "土"];
+const skyClockTimer = setInterval(() => {
+	if (cam.zoom >= BASEMAP_MINZOOM) return;   // 見えていない間はDOMに触れない
+	const d = new Date(), L2 = n => String(n).padStart(2, "0");
+	skyClockEl.textContent = `${d.getFullYear()}/${L2(d.getMonth() + 1)}/${L2(d.getDate())} (${SKY_WD[d.getDay()]}) ${L2(d.getHours())}:${L2(d.getMinutes())}:${L2(d.getSeconds())}`;
+}, 1000);
+
 function startPlanets() {
 	if (planetTimer) return;
 	updatePlanets();
@@ -1044,7 +1060,7 @@ function destroy() {
 	flightCtl.cancel();
 	ac.abort();                                  // window/document のリスナー一括解除（offline/online/hashchange/検索の外側クリック）
 	ro.disconnect();
-	clearTimeout(settleT); clearTimeout(bootT); clearInterval(planetTimer);
+	clearTimeout(settleT); clearTimeout(bootT); clearInterval(planetTimer); clearInterval(skyClockTimer);
 	destroyPipeline();                           // tile/scene worker
 	renderWorker.terminate(); gintWorker.terminate();
 	plateauWorkers.forEach(w => w.terminate());

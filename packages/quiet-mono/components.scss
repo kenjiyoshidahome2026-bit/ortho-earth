@@ -220,3 +220,19 @@ body { visibility: visible; }   /* 開幕＝このスタイルシートの到着
 #map.world :is(#chips, #gadgets, #search, #search-list, #hint, #log, #pos, #scale, #attr) {
 	opacity: 0; pointer-events: none;
 }
+/* 星空劇場の家具（逆相＝worldでだけ点灯）：左下=日時計（1秒針）、右下=空データの出典。
+   舞台は暗い宇宙＝文字は淡い星明かり色（紙用の --qm-text は使わない）。 */
+#sky-clock, #sky-attr {
+	position: absolute; opacity: 0; pointer-events: none; transition: opacity .6s ease;
+	text-shadow: 0 0 4px rgba(0, 0, 0, .8);
+}
+#sky-clock {
+	bottom: calc(10px + var(--qm-safe-b)); left: 14px;
+	font: 19px var(--qm-font-mono); font-variant-numeric: tabular-nums;   /* 等幅数字＝秒針で幅が揺れない */
+	color: rgba(250, 252, 255, .92);   /* 白抜き＝劇場の時計はしっかり読める明るさ */
+}
+#sky-attr {
+	bottom: calc(8px + var(--qm-safe-b)); right: 10px;
+	font-size: 11px; color: rgba(220, 230, 245, .5);
+}
+#map.world :is(#sky-clock, #sky-attr) { opacity: 1; }
