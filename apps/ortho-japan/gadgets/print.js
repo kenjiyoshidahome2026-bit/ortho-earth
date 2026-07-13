@@ -104,20 +104,25 @@ export function composePage({ screen, rectDev, layout, S, corners, font, attr, d
 	ctx.lineWidth = mm(0.7); ctx.strokeRect(mm(O.x), mm(O.y), mm(O.w), mm(O.h));
 	ctx.lineWidth = mm(0.2); ctx.strokeRect(mm(I.x), mm(I.y), mm(I.w), mm(I.h));
 
-	// 北マーク（図郭内右上）＝上が北の名乗り。地図の上に乗るので白ハロー＋墨（注記と同じ可読の作法）
+	// 北マーク（図郭内右上）＝上が北の名乗り。切子矢（カイト型・左半分=墨/右半分=白）＝地図の方位マークの正統・
+	// アプリのコンパス針と同じ語彙。地図の上に乗るので白ハローで縁取る（注記と同じ可読の作法）。
 	{
-		const nx = I.x + I.w - 6, ny = I.y + 4.6;   // "N" の基準位置(mm)
-		const halo = (fn) => { ctx.strokeStyle = "rgba(255,255,255,.9)"; fn(true); ctx.fillStyle = "#222"; ctx.strokeStyle = "#222"; fn(false); };
-		ctx.font = `700 ${mm(3)}px ${font}`; ctx.textAlign = "center"; ctx.textBaseline = "alphabetic";
-		halo(h => { ctx.lineWidth = mm(h ? 0.9 : 0); h ? ctx.strokeText("N", mm(nx), mm(ny)) : ctx.fillText("N", mm(nx), mm(ny)); });
-		// 矢印（上向き）：軸＋鏃。先に白の太線でハロー、上から墨
-		const ax = nx, a0 = ny + 6.6, a1 = ny + 1.4;   // 軸の下端・上端(mm)
-		halo(h => {
-			ctx.lineWidth = mm(h ? 1.5 : 0.5); ctx.lineCap = "round";
-			ctx.beginPath(); ctx.moveTo(mm(ax), mm(a0)); ctx.lineTo(mm(ax), mm(a1 + 1.6)); ctx.stroke();
-			ctx.beginPath(); ctx.moveTo(mm(ax), mm(a1)); ctx.lineTo(mm(ax - 1.3), mm(a1 + 2.6)); ctx.lineTo(mm(ax + 1.3), mm(a1 + 2.6)); ctx.closePath();
-			h ? (ctx.lineWidth = mm(1.2), ctx.stroke()) : ctx.fill();
-		});
+		const cx = I.x + I.w - 6, ty = I.y + 6.2;   // 矢の頂点(mm)
+		// カイト形：頂点(0,0)・右裾(+2.1,+6)・切込(0,+4.6)・左裾(-2.1,+6)（compassの針形を踏襲）
+		const kite = [[0, 0], [2.1, 6], [0, 4.6], [-2.1, 6]];
+		const path = pts => { ctx.beginPath(); pts.forEach(([x, y], i) => i ? ctx.lineTo(mm(cx + x), mm(ty + y)) : ctx.moveTo(mm(cx + x), mm(ty + y))); ctx.closePath(); };
+		ctx.lineJoin = "round";
+		// ハロー：矢の全形＋Nを白で厚めに
+		ctx.font = `700 ${mm(3.1)}px ${font}`; ctx.textAlign = "center"; ctx.textBaseline = "alphabetic";
+		ctx.strokeStyle = "rgba(255,255,255,.92)"; ctx.fillStyle = "rgba(255,255,255,.92)";
+		ctx.lineWidth = mm(1.1); path(kite); ctx.stroke(); ctx.fill();
+		ctx.lineWidth = mm(0.9); ctx.strokeText("N", mm(cx), mm(ty - 1.4));
+		// 本体：左半分=墨・右半分=白+細い墨縁、Nは墨
+		ctx.fillStyle = "#222"; path([kite[0], kite[3], kite[2]]); ctx.fill();
+		ctx.fillStyle = "#fff"; ctx.strokeStyle = "#222"; ctx.lineWidth = mm(0.22);
+		path([kite[0], kite[1], kite[2]]); ctx.fill(); ctx.stroke();
+		path([kite[0], kite[3], kite[2]]); ctx.stroke();   // 左半分も同じ細縁＝輪郭を締める
+		ctx.fillStyle = "#222"; ctx.fillText("N", mm(cx), mm(ty - 1.4));
 	}
 
 	// 経緯線の度分ラベル（枠外・四隅の表記と衝突する端は避ける）
@@ -229,7 +234,7 @@ export function print({ capture, signal } = {}) {
 	modal.id = "print";
 	modal.innerHTML = `
 		<div class="print-box">
-			<div class="print-head">平面図の印刷（中心＝いまの画面・上が北）<button class="panel-close" title="閉じる" aria-label="閉じる">×</button></div>
+			<div class="print-head">平面図の印刷（中心＝表示中の画面・上が北）<button class="panel-close" title="閉じる" aria-label="閉じる">×</button></div>
 			<div class="print-row">
 				<label>用紙</label><select id="print-paper"><option value="a4" selected>A4</option><option value="a3">A3</option></select>
 				<label>向き</label><select id="print-orient"><option value="landscape" selected>横</option><option value="portrait">縦</option></select>
