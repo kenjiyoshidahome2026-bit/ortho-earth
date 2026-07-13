@@ -13,7 +13,8 @@ createGeopbf("https://api.ortho-earth.com");   // bucket 基盤（標高と同�
 import style from "./style-mono.js";
 import { createThemes, defaultLayerState, isFacility, isTerrain, CHOME_MINZOOM, RAILTR_MINZOOM } from "./themes.js";
 import { createOverlay } from "./overlay.js";
-import { planetPositions } from "./planets.js";
+import { planetPositions, moonPosition } from "./planets.js";
+import { constellationJa } from "./skynames.js";
 import { createPipeline } from "ortho-core";   // tile/scene worker のスポーンごとエンジン側
 import { createPlateauDb } from "./plateaudb.js";
 import { mountGadgets } from "./gadgets/mount.js";
@@ -534,15 +535,18 @@ function ensureStars() { if (starsArmed && cam.zoom < BASEMAP_MINZOOM) { starsAr
 // 位置は10分毎に再計算（最速の水星でも0.03°/10分＝表示上は静止と同じだが、開きっぱなしの夜に正直でいる）。
 let planetTimer = null, planetLabels = [];
 function updatePlanets() {
-	const ps = planetPositions(new Date());
-	const buf = new Float32Array(ps.length * 8);
+	const now = new Date();
+	const ps = planetPositions(now), moon = moonPosition(now);
+	const buf = new Float32Array((ps.length + 1) * 8);
 	ps.forEach((p, i) => {
 		const [x, y, z] = celVec(p.ra, p.dec);
 		buf.set([x, y, z, p.color[0], p.color[1], p.color[2],
 			Math.max(0, 1 - p.mag / 15), Math.max(2, (9 - p.mag) * 0.4 * dpr)], i * 8);
 	});
+	const [mx, my, mz] = celVec(moon.ra, moon.dec);
+	buf.set([mx, my, mz, 1.0, 0.98, 0.92, 1.0, 6.5 * dpr], ps.length * 8);   // 月＝最大の輝点（点表現。満ち欠けの円盤は将来の楽しみ）
 	renderer.set("planets", buf);
-	planetLabels = ps.map(p => ({ cel: celVec(p.ra, p.dec), name: p.name }));
+	planetLabels = [...ps, moon].map(p => ({ cel: celVec(p.ra, p.dec), name: p.name }));
 	if (skyLabels) {
 		skyLabels.planets = planetLabels;
 		if (constelVisible) renderer.set("skyLabels", skyLabels);
@@ -552,7 +556,18 @@ function updatePlanets() {
 function startPlanets() {
 	if (planetTimer) return;
 	updatePlanets();
-	planetTimer = setInterval(updatePlanets, 600000);
+	planetTimer = setInterval(updatePlanets, 600000);   // 最速の月でも0.09°/10分＝表示上は連続
+	// 黄道（黄緯0の大円・J2000）＝淡い黄：太陽・月・惑星の通り道。天の赤道（赤緯0）＝淡い青灰：
+	// 地球の赤道の空への投影＝GMSTで空が回る軸の「胴回り」。二本の交点が春分点・秋分点、開き23.4°が地軸の傾き
+	// ＝季節の仕組みがそのまま絵になる。どちらも注記トグル(showConst)と同時に出る。
+	const es = [], qs = [], eps = 23.43928 * D2R;
+	for (let l = 0; l < 360; l += 2) for (const g of [l, l + 2]) {
+		const s = Math.sin(g * D2R), c = Math.cos(g * D2R);
+		es.push(c, s * Math.sin(eps), s * Math.cos(eps));
+		qs.push(c, 0, s);
+	}
+	renderer.set("ecliptic", Float32Array.from(es));
+	renderer.set("celequator", Float32Array.from(qs));
 }
 async function loadStars() {
 	const pbf = await geopbf("stars.6", { gint: false }).catch(e => { console.warn("[stars] 読込失敗", e); return null; });
@@ -598,7 +613,8 @@ async function toggleConstellations() {
 		for (const line of lines) for (let i = 0; i < line.length - 1; i++)
 			seg.push(...celVec(line[i][0], line[i][1]), ...celVec(line[i + 1][0], line[i + 1][1]));
 		// 星座名の置き場＝全頂点の天球ベクトル平均を正規化（v1のra/dec単純平均はRA 0/360跨ぎの星座で狂う。ベクトル平均は跨ぎ無縁）
-		const name = f.properties?.name;
+		// 名前は日本語化（skynames.js＝IAU略号/ラテン名の両対応。v2=japanの流儀＝惑星名と揃える）
+		const name = constellationJa(f.properties?.name ?? f.properties?.id ?? f.id);
 		if (name) {
 			let vx = 0, vy = 0, vz = 0;
 			for (const line of lines) for (const p of line) { const v = celVec(p[0], p[1]); vx += v[0]; vy += v[1]; vz += v[2]; }

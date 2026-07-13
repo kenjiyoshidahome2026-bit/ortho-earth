@@ -43,7 +43,7 @@ export function createRenderer(canvas) {
 	// 星空（z<4）：stars＝点（[cel.xyz, rgb, alpha, size]×8f interleaved）、constel＝星座線（[cel.xyz]×3f、LINES端点列）、
 	// planets＝惑星（starsと同レイアウト・アプリが実位置を計算し10分毎に差し替え）。
 	// 表示のON/OFFは view.showConst（星座線のみトグル・星と惑星は常設）。
-	let stars = null, constel = null, planets = null;
+	let stars = null, constel = null, planets = null, ecliptic = null, celeq = null;
 	function setStarBuf(cur, data, stride, setup) {
 		if (cur) { gl.deleteBuffer(cur.buf); gl.deleteVertexArray(cur.vao); }
 		if (!data || !data.length) return null;
@@ -72,6 +72,9 @@ export function createRenderer(canvas) {
 			gl.enableVertexAttribArray(2); gl.vertexAttribPointer(2, 1, gl.FLOAT, false, 32, 28);
 		});
 	}
+	const lineSetup = () => { gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 12, 0); };
+	function setEcliptic(data) { ecliptic = setStarBuf(ecliptic, data, 3, lineSetup); }
+	function setCelEquator(data) { celeq = setStarBuf(celeq, data, 3, lineSetup); }
 	let fogDist = 0;   // フォグ距離の基準 camDist。ズーム中は凍結（チラチラ防止）、静止で追随
 	let elevScaleEff = 0;   // pitchで変調した実効スケール（真俯瞰では0＝平面）
 	// base=粗い下書き（underlay）、main=現ズーム、overlay=外部ベクタ(geopbf等)を最前面に。
@@ -385,12 +388,20 @@ export function createRenderer(canvas) {
 				if (stars) { gl.bindVertexArray(stars.vao); gl.drawArrays(gl.POINTS, 0, stars.count); }
 				if (planets) { gl.bindVertexArray(planets.vao); gl.drawArrays(gl.POINTS, 0, planets.count); }   // 惑星＝同じ点プログラム（実位置はアプリが更新）
 			}
-			if (constel && view.showConst) {
+			if (view.showConst && (constel || ecliptic || celeq)) {
 				gl.useProgram(starLineProg);
 				starUniforms(starLineProg);
-				gl.bindVertexArray(constel.vao);
-				gl.vertexAttrib4f(1, 0.47, 0.63, 1.0, 0.4);   // v1 の星座線色 rgba(120,160,255)（定数attrib＝VAO外の文脈状態）
-				gl.drawArrays(gl.LINES, 0, constel.count);
+				const lines = [   // [バッファ, 色（定数attrib＝VAO外の文脈状態）]
+					[constel, [0.47, 0.63, 1.0, 0.4]],    // 星座線＝v1と同じ青（rgba(120,160,255)）
+					[ecliptic, [1.0, 0.8, 0.45, 0.35]],   // 黄道＝淡い黄（太陽・月・惑星の通り道）
+					[celeq, [1.0, 0.55, 0.5, 0.32]],      // 天の赤道＝淡い紅（「赤道」の名の通り。地球の赤道の空への投影）
+				];
+				for (const [b, c] of lines) {
+					if (!b) continue;
+					gl.bindVertexArray(b.vao);
+					gl.vertexAttrib4f(1, c[0], c[1], c[2], c[3]);
+					gl.drawArrays(gl.LINES, 0, b.count);
+				}
 			}
 			gl.bindVertexArray(emptyVAO);
 		}
@@ -594,7 +605,9 @@ export function createRenderer(canvas) {
 			case "plateauMesh": setPlateauMesh(prop, data); break;                             // prop=地区名(key)、data={pos,idx} PLATEAU LOD2 建物（null=解放）
 			case "stars":     setStars(data); break;                                           // data=Float32Array [cel.xyz,rgb,a,size]×n
 			case "constellations": setConstellations(data); break;                             // data=Float32Array [cel.xyz]×2n（LINES端点列）表示は view.showConst
-			case "planets":   setPlanets(data); break;                                         // data=Float32Array（starsと同8fレイアウト・惑星5点）
+			case "planets":   setPlanets(data); break;                                         // data=Float32Array（starsと同8fレイアウト・惑星5点＋月）
+			case "ecliptic":  setEcliptic(data); break;                                        // data=Float32Array [cel.xyz]×2n（黄道の大円・LINES）表示は view.showConst
+			case "celequator": setCelEquator(data); break;                                     // data=同上（天の赤道の大円）
 			default: console.warn("renderer.set: unknown cmd", cmd);
 		}
 	}

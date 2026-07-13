@@ -78,3 +78,37 @@ export function sunPosition(date = new Date()) {
 	const E = helio("地球", T);
 	return toRaDec([-E[0], -E[1], -E[2]]);
 }
+
+// 月（Schlyter の低精度月理論＝主要摂動12+5項。地心・誤差~0.3°未満＝月の視直径以下）。
+// 視点は宇宙（軌道上の劇場）なので地心でよい＝地上観測の視差（最大~1°）は適用しない。
+// 検証: 2026-08-12 皆既日食＝新月×黄道近傍がこの級数から再現されることを確認済み。
+export function moonPosition(date = new Date()) {
+	const d = date.getTime() / 864e5 + 2440587.5 - 2451543.5;   // Schlyter epoch (2000-01-00.0 TDT)
+	const rev = x => ((x % 360) + 360) % 360;
+	const N = rev(125.1228 - 0.0529538083 * d), inc = 5.1454 * D2R;
+	const w = rev(318.0634 + 0.1643573223 * d);
+	const a = 60.2666, e = 0.054900;                            // 地球半径単位
+	const M = rev(115.3654 + 13.0649929509 * d);
+	let E = M * D2R + e * Math.sin(M * D2R) * (1 + e * Math.cos(M * D2R));
+	for (let k = 0; k < 8; k++) { const dE = (E - e * Math.sin(E) - M * D2R) / (1 - e * Math.cos(E)); E -= dE; if (Math.abs(dE) < 1e-9) break; }
+	const xv = a * (Math.cos(E) - e), yv = a * Math.sqrt(1 - e * e) * Math.sin(E);
+	const v = Math.atan2(yv, xv), r0 = Math.hypot(xv, yv);
+	const Nr = N * D2R, u = v + w * D2R;                        // 軌道面→黄道面
+	const xh = r0 * (Math.cos(Nr) * Math.cos(u) - Math.sin(Nr) * Math.sin(u) * Math.cos(inc));
+	const yh = r0 * (Math.sin(Nr) * Math.cos(u) + Math.cos(Nr) * Math.sin(u) * Math.cos(inc));
+	const zh = r0 * Math.sin(u) * Math.sin(inc);
+	let lon = Math.atan2(yh, xh) * R2D, lat = Math.asin(zh / r0) * R2D, r = r0;
+	// 摂動（出没差・二均差・年差ほか主要項）。引数は太陽平均要素との組み合わせ
+	const ws = rev(282.9404 + 4.70935e-5 * d), Ms = rev(356.0470 + 0.9856002585 * d);
+	const Ls = rev(Ms + ws), Lm = rev(N + w + M), D = rev(Lm - Ls), F = rev(Lm - N);
+	const S = x => Math.sin(x * D2R), C = x => Math.cos(x * D2R);
+	lon += -1.274 * S(M - 2 * D) + 0.658 * S(2 * D) - 0.186 * S(Ms) - 0.059 * S(2 * M - 2 * D)
+		- 0.057 * S(M - 2 * D + Ms) + 0.053 * S(M + 2 * D) + 0.046 * S(2 * D - Ms) + 0.041 * S(M - Ms)
+		- 0.035 * S(D) - 0.031 * S(M + Ms) - 0.015 * S(2 * F - 2 * D) + 0.011 * S(M - 4 * D);
+	lat += -0.173 * S(F - 2 * D) - 0.055 * S(M - F - 2 * D) - 0.046 * S(M + F - 2 * D)
+		+ 0.033 * S(F + 2 * D) + 0.017 * S(2 * M + F);
+	r += -0.58 * C(M - 2 * D) - 0.46 * C(2 * D);
+	const cl = Math.cos(lat * D2R);
+	const q = toRaDec([cl * Math.cos(lon * D2R) * r, cl * Math.sin(lon * D2R) * r, Math.sin(lat * D2R) * r]);
+	return { name: "月", ra: q.ra, dec: q.dec, dist: q.dist, eclLat: lat };   // dist=地球半径単位、eclLat=検証用
+}
