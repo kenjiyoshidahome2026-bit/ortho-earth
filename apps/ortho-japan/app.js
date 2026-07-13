@@ -196,8 +196,13 @@ fetch(import.meta.env.BASE_URL + "airports.json").then(r => r.json()).then(list 
 	readySig = ""; mergeReq.main.sig = "";   // 読み込めた時点でラベル再結合（要求記憶も消す＝即出し直し）
 }).catch(() => {});
 const PLATEAU_AUTO_Z = 14;                 // これ以上寄ると自動ロード（遠景は対象外＝ズームアウトで全解放）
+// 低メモリ端末判定：deviceMemory は Chrome系のみ（≤4GB＝スマホ帯）。iOS/iPadOS Safari は非対応だが
+// タブ1枚あたり ~1-1.5GB でOSが強制終了（落ちて自動リロード）するため、タッチ端末は一律低メモリ扱い。
+// 誤検知側の被害は「同時1区・キャッシュ縮小」だけ＝安全側に倒す。
+const LOW_MEM = navigator.deviceMemory ? navigator.deviceMemory <= 4 : navigator.maxTouchPoints > 1;
+if (LOW_MEM) console.log("[plateau] 低メモリ端末モード：同時1区・workerキャッシュ1区");
 // 同時アクティブ地区数の上限。区境をまたいだ隣接分だけを想定＝GPUメモリを有界にする（密集地区(都心部)1件あたりGPUバッファ~100-140MB）。
-const PLATEAU_MAX_ACTIVE = 2;
+const PLATEAU_MAX_ACTIVE = LOW_MEM ? 1 : 2;
 let flying = false;                        // フライト中フラグ＝autoPlateau のゲート（flyTo が立て、着地/中断で下ろす）
 const plateauActive = new Map();           // 現在レンダラーに乗っている地区：name → set({name,base,bbox})
 const plateauLoading = new Set();          // fetch/デコード中の地区名（二重発火防止）
@@ -214,7 +219,7 @@ let plateauReqId = 0;
 for (let i = 0; plateauOn && i < PLATEAU_NW; i++) {   // plateau OFF＝workerを1本も起こさない
 	const w = new Worker(new URL("./plateauworker.js", import.meta.url), { type: "module" });
 	const meshChan = new MessageChannel();   // この worker → render worker のメッシュ直結パイプ
-	w.postMessage({ type: "init", meshPort: meshChan.port1 }, [meshChan.port1]);
+	w.postMessage({ type: "init", meshPort: meshChan.port1, lowMem: LOW_MEM }, [meshChan.port1]);
 	renderWorker.postMessage({ type: "plateauPort", port: meshChan.port2 }, [meshChan.port2]);
 	w.onmessage = e => {
 		if (e.data.prog) { plateauProg.set(e.data.prog.name, e.data.prog); renderPlateauProg(); return; }   // タイル/走査進捗（ネットワーク経路のみ）

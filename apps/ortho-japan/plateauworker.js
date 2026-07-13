@@ -259,7 +259,8 @@ function sendBatch(ward, bi, mesh, wardMask, wardBbox) {
 }
 
 const cache = new Map();   // base URL → { batches, mask, wardBbox }（このworker内のみ有効。再訪はfetch/Draco解凍を丸ごと省略）
-const CACHE_MAX = 3;       // 1区あたり~100-160MB（typed array一式）＝無上限だと多区巡回でメモリが積み上がる。LRUで直近3区に制限
+let CACHE_MAX = 3;         // 1区あたり~100-160MB（typed array一式）＝無上限だと多区巡回でメモリが積み上がる。LRUで直近3区に制限。
+                           // 低メモリ端末（init の lowMem）は1区＝スマホのタブ強制終了対策。再訪はIDBが受けるので体感は数秒差
 
 // IDB 永続キャッシュ：GPU直行形式（pos/nrm/idx＋マスク）を区単位で保存＝ページ再読込・再起動後も
 // fetch/Draco解凍/座標変換を丸ごと飛ばして数秒で復元（geopbf の PBF+GINT キャッシュと同じ発想）。
@@ -387,7 +388,7 @@ async function loadPlateau(base, tiles, ward, wardBbox, camCenter, preload = fal
 const inflight = new Map();
 
 self.onmessage = async (e) => {
-	if (e.data.type === "init") { meshPort = e.data.meshPort; return; }
+	if (e.data.type === "init") { meshPort = e.data.meshPort; if (e.data.lowMem) CACHE_MAX = 1; return; }
 	if (e.data.type === "purge") { cache.clear(); const n = await idbPurge(); console.log("[plateau] キャッシュ全消去", n, "records"); return; }
 	if (e.data.type === "idbList") {   // データ管理モーダル用：IDBのメタ一覧（全workerが同一DBを見る＝どの1本に聞いてもよい）
 		const idb = await idbReady, items = [];
