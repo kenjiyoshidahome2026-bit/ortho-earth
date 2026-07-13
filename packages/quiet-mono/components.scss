@@ -315,6 +315,29 @@ body { visibility: visible; }   /* 開幕＝このスタイルシートの到着
 	}
 }
 
+/* --- 距離・面積の計測：📏ボタン（スタック）＋引き回す線の canvas ＋上辺の読み取り。 --- */
+#measure-btn {
+	width: 34px; height: 34px; border-radius: 5px;
+	border: 1px solid var(--qm-border); background: var(--qm-panel); cursor: pointer; padding: 0;
+	display: flex; align-items: center; justify-content: center;
+	-webkit-backdrop-filter: blur(var(--qm-blur)); backdrop-filter: blur(var(--qm-blur));
+	&:hover { border-color: var(--qm-border-strong); }
+	svg { display: block; }
+	&.on { background: var(--qm-ink); border-color: var(--qm-ink); svg { stroke: #fff; } }   /* 計測中＝反転 */
+}
+#measure-lines { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+#map.measuring #c { cursor: crosshair; }   /* 計測中は照準カーソル（掴み手をやめる） */
+#measure-readout {
+	position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
+	font: 13px var(--qm-font); color: var(--qm-text); white-space: nowrap;
+	background: var(--qm-panel); border: 1px solid var(--qm-border-soft); border-radius: 5px;
+	padding: 6px 12px; box-shadow: var(--qm-shadow-card);
+	-webkit-backdrop-filter: blur(var(--qm-blur)); backdrop-filter: blur(var(--qm-blur));
+	b { font-weight: 600; color: var(--qm-ink); }
+	.mr-sep { color: var(--qm-text-faint); margin: 0 4px; }
+	.mr-hint { color: var(--qm-text-faint); font-size: 11px; }
+}
+
 /* --- 実行時に #map へ後置される要素（DOM順で上に乗る） --- */
 #net-toast {   /* 通信断 */
 	position: absolute; top: 12px; left: 50%; transform: translateX(-50%); font-size: 13px; color: var(--qm-warn-text);

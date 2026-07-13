@@ -30,6 +30,7 @@ import { tip as tipGadget } from "./gadgets/tip.js";
 import { pop as popGadget } from "./gadgets/pop.js";
 import { explain as explainGadget } from "./gadgets/explain.js";
 import { legend as legendGadget } from "./gadgets/legend.js";
+import { measure as measureGadget } from "./gadgets/measure.js";
 
 // ============================================================================================
 // ortho-japan：1行で日本が立ち上がる入口（v1 orthoMap の作法の継承）。
@@ -810,10 +811,12 @@ resize();
 // --- 入力（パン/チルト/ホイール/アンカー）：実装は engine（input.js＝grab+レート併走・縁縮退対策の結晶）。
 // ここは日本アプリ固有の反応だけ注入：クリック→identify（基図overlay＋知性gint）、ホバー→gintの筆識別、
 // ジェスチャ開始→フライト中断（主導権は常に人）。z範囲＝1(宇宙の余白)〜19(z20はタイルの切れ目が目立つ)。
+let measureClick = null;   // 測距モード中だけ非null＝クリックを測距へ奪う（識別・星座トグルより先）
 const input = createInput({
 	canvas, cam, size, dpr, maxPitch: MAXPITCH, zoomMin: 1, zoomMax: 20, onMove,
 	onGesture: () => flightCtl.cancel(),
 	onClick: (x, y) => {
+		if (measureClick) return measureClick(x, y);   // 測距モード＝クリックは頂点追加へ（識別/星座は止める）
 		if (cam.zoom < BASEMAP_MINZOOM) return toggleConstellations();   // 全球ビュー＝クリックで星座線（v1と同じ所作。identify対象の基図も無い）
 		overlay.identifyAt(x, y); if (gintInteractive) gintWorker.postMessage({ type: "click", x, y });
 	},
@@ -1101,6 +1104,10 @@ const map = { cam, flyTo, renderer, mapEl, destroy };
 // projectLL＝経緯度→画面CSS座標[x,y,front]（front<0＝裏半球・視界外）。unprojectAt＝画面座標→[lon,lat]（球外は null）。
 const projectLL = (lon, lat) => { const st = cameraState(cam, size.w, size.h); const [sx, sy, f] = project(st, lon, lat); return [sx / dpr, sy / dpr, f]; };
 const unprojectAt = (clientX, clientY) => { const r = canvas.getBoundingClientRect(); const st = cameraState(cam, size.w, size.h); return unproject(st, (clientX - r.left) * dpr, (clientY - r.top) * dpr); };
+// makeProjector＝カメラ状態を1回だけ束ねた投影関数を返す（多点を1描画で投影＝測距の大圏分割で状態計算を積まない）。
+// unprojectXY＝canvasローカルCSS座標→経緯度（input.onClick が渡す x,y と同座標系）。
+const makeProjector = () => { const st = cameraState(cam, size.w, size.h); return (lon, lat) => { const [sx, sy, f] = project(st, lon, lat); return [sx / dpr, sy / dpr, f]; }; };
+const unprojectXY = (x, y) => unproject(cameraState(cam, size.w, size.h), x * dpr, y * dpr);
 map.gadget = function (name, func) {
 	typeof name == "function" && name.name && (func = name, name = func.name);
 	map.gadget[name] = function () { return func.apply(map, arguments); };
@@ -1140,5 +1147,14 @@ map.gadget("pop", function (opts) {   // 地点に紐づく吹き出し … 座�
 });
 map.gadget("explain", function (opts) { return explainGadget.call(this, opts); });   // 上辺の説明パネル … 戻り値＝内容の setter
 map.gadget("legend", function (opts) { return legendGadget.call(this, opts); });     // 左下の凡例パネル … 戻り値＝内容の setter
+map.gadget("measure", function (opts) {   // 距離・面積の計測 … 投影/逆投影とクリック横取りの手綱を注入し _update を frameHooks へ
+	const m = measureGadget.call(this, {
+		makeProjector, unprojectXY, signal: ac.signal,
+		setClick: fn => { measureClick = fn; }, requestDraw: () => { needsDraw = true; },
+		...opts,
+	});
+	if (m && m._update) { frameHooks.add(m._update); m._update(); }
+	return m;
+});
 return map;
 }

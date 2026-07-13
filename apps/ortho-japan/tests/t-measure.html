@@ -1,0 +1,50 @@
+<!doctype html>
+<!-- UI回帰：距離・面積の計測ガジェット。合成ポインタで実クリック経路(input→onClick→addVertex)を叩く。判定は<title>。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021;width:900px;height:650px}body{visibility:hidden}</style><title>t-measure</title></head>
+<body>
+<script>
+window.requestAnimationFrame = cb => setTimeout(() => cb(performance.now()), 16);
+localStorage.setItem("oj.hint", "closed");
+</script>
+<script type="module">
+import orthoJapan from "../app.js";
+const t = [], ok = (n, c) => t.push((c ? "ok:" : "NG:") + n);
+const C = () => document.getElementById("c");
+const click = (x, y) => { const o = { bubbles: true, cancelable: true, clientX: x, clientY: y, pointerId: 1, button: 0 }; C().dispatchEvent(new PointerEvent("pointerdown", o)); C().dispatchEvent(new PointerEvent("pointerup", o)); };
+const rd = () => document.getElementById("measure-readout");
+try {
+	const map = await orthoJapan({ view: "#14/35.681/139.767" });
+	const h = map.gadget.measure();
+	map.gadget.measure();   // 二重搭載＝無害
+	await new Promise(r => setTimeout(r, 300));
+	ok("mount", ["measure-btn", "measure-lines", "measure-readout"].every(id => document.querySelectorAll("#" + id).length === 1));
+
+	// 開始：ボタンで測距モードON（照準カーソル・クリック横取り）
+	document.getElementById("measure-btn").click();
+	ok("start", document.getElementById("map").classList.contains("measuring") && document.getElementById("measure-btn").classList.contains("on")
+		&& rd().style.display !== "none");
+
+	// 頂点2つ＝総距離が出る（球にヒットする画面中央付近をクリック）
+	click(430, 320); click(500, 300);
+	await new Promise(r => setTimeout(r, 60));
+	ok("distance", rd().textContent.includes("総距離") && /(m|km)/.test(rd().textContent));
+
+	// 3点目＝面積が出る
+	click(480, 380);
+	await new Promise(r => setTimeout(r, 60));
+	ok("area", rd().textContent.includes("面積"));
+
+	// 確定：ダブルクリック→ヒント文が変わる（Escで消去…）
+	document.getElementById("map").dispatchEvent(new MouseEvent("dblclick", { bubbles: true, cancelable: true, clientX: 480, clientY: 380 }));
+	await new Promise(r => setTimeout(r, 60));
+	ok("finish", rd().textContent.includes("Escで消去") || rd().textContent.includes("終了"));
+
+	// 終了：ボタンOFFで全消去（読み取り非表示・モード解除）
+	document.getElementById("measure-btn").click();
+	ok("stop", rd().style.display === "none" && !document.getElementById("map").classList.contains("measuring"));
+
+	map.destroy();
+	ok("destroy", true);
+} catch (e) { ok("boot:" + (e && e.message || e), false); }
+document.title = t.some(s => s.startsWith("NG")) ? "FAIL " + t.join(" ") : "PASS " + t.join(" ");
+</script></body></html>

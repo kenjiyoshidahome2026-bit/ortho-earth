@@ -1,0 +1,176 @@
+// ガジェット：距離・面積の計測。標準装備でなくオプトイン＝orthoJapan() の戻り値から
+// map.gadget.measure() で搭載する（v1 ortho-map の gadget 作法＝this が map）。
+// ★ortho-map は d3 の createPolygon 編集系に頼ったが、japan は編集系を持たない＝描画ごと新設。
+//   頂点は経緯度で持ち（球に貼り付く＝パン/ズーム/3Dで泳がない）、線は大圏弧を細分して球面追従、
+//   描画は専用canvas＋render のフレームフック（pop と同じ型：makeProjector で1描画1回に投影を束ねる）。
+// 距離＝haversine 測地線の累積／面積＝球面過剰（3点以上で閉じて算出）。
+// 操作：クリック＝頂点追加／最終点からカーソルへゴムひも／ダブルクリック or Esc＝確定／ボタンOFF＝全消去。
+// 注入（登録側）：makeProjector・unprojectXY・setClick（クリック横取り）・requestDraw・signal。
+import { gadgetStack } from "./stack.js";
+
+const R = 6371008.8, D2R = Math.PI / 180, R2D = 180 / Math.PI;
+const LINE = "#b00020", FILL = "rgba(176,0,32,.12)";
+
+export function measure({ makeProjector, unprojectXY, setClick, requestDraw, signal } = {}) {
+	const mapEl = this.mapEl;
+	if (mapEl.querySelector("#measure-lines")) return () => {};   // 二重搭載は無害
+	const dpr = window.devicePixelRatio || 1;
+
+	const btn = document.createElement("button");
+	btn.id = "measure-btn"; btn.dataset.tip = "距離・面積を測る"; btn.setAttribute("aria-label", "距離・面積を測る");
+	btn.innerHTML = `
+		<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#3f4757" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true">
+			<rect x="2.5" y="7" width="19" height="10" rx="1.5" transform="rotate(-20 12 12)"/>
+			<path d="M6.6 8.2l1 2.4M10 6.9l1.4 3.2M13.4 5.6l1 2.4M16.8 4.3l1.4 3.2" stroke-width="1.3"/></svg>`;
+	gadgetStack(mapEl).append(btn);
+
+	const canvas = document.createElement("canvas");
+	canvas.id = "measure-lines"; mapEl.append(canvas);   // #map 直下の後置（DOM順で上・pointerは素通し）
+	const ctx = canvas.getContext("2d");
+	const out = document.createElement("div");
+	out.id = "measure-readout"; out.style.display = "none"; mapEl.append(out);
+
+	let active = false, finished = false, verts = [], cursorLL = null, cw = 0, ch = 0;
+
+	btn.addEventListener("click", () => (active ? stop() : start()));
+	function start() {
+		active = true; finished = false; verts = []; cursorLL = null;
+		btn.classList.add("on"); mapEl.classList.add("measuring");
+		setClick(addVertex); draw();
+	}
+	function stop() {
+		active = false; verts = []; cursorLL = null; finished = false;
+		btn.classList.remove("on"); mapEl.classList.remove("measuring");
+		setClick(null); draw();
+	}
+	function addVertex(x, y) {   // x,y＝canvasローカルCSS座標（input.onClick と同座標系）
+		const ll = unprojectXY(x, y); if (!ll) return;   // 宇宙（球外）クリックは無視
+		if (finished) { verts = []; finished = false; }   // 確定後の最初のクリック＝新規計測
+		verts.push(ll); draw();
+	}
+	function finish() { if (verts.length >= 1) verts.pop(); finished = true; cursorLL = null; draw(); }   // ダブルクリックの二打目（重複頂点）を落として確定
+
+	mapEl.addEventListener("pointermove", e => {
+		if (!active || finished) return;
+		const r = mapEl.getBoundingClientRect();
+		cursorLL = unprojectXY(e.clientX - r.left, e.clientY - r.top); draw();
+	}, { signal, passive: true });
+	mapEl.addEventListener("dblclick", e => { if (active && !finished) { e.preventDefault(); finish(); } }, { signal });
+	window.addEventListener("keydown", e => {
+		if (!active || e.key !== "Escape") return;
+		if (!finished && verts.length) finish();       // 描画中Esc＝確定
+		else { verts = []; finished = false; draw(); }  // 確定後Esc＝消去（モードは維持）
+	}, { signal });
+
+	const _update = () => {   // 毎フレ：canvas寸法を合わせ→再投影して引き直す（パン/ズーム/3Dで球に追従）
+		const w = mapEl.clientWidth, h = mapEl.clientHeight;
+		if (w !== cw || h !== ch) { cw = w; ch = h; canvas.width = w * dpr; canvas.height = h * dpr; canvas.style.width = w + "px"; canvas.style.height = h + "px"; }
+		draw();
+	};
+	return Object.assign(() => {}, { _update, start, stop });   // 戻り値＝no-op（作法の対称）＋制御ハンドル
+
+	// ---- 幾何 ----
+	function dist(a, b) {
+		const φ1 = a[1] * D2R, φ2 = b[1] * D2R, dφ = (b[1] - a[1]) * D2R, dλ = (b[0] - a[0]) * D2R;
+		const s = Math.sin(dφ / 2) ** 2 + Math.cos(φ1) * Math.cos(φ2) * Math.sin(dλ / 2) ** 2;
+		return 2 * R * Math.asin(Math.min(1, Math.sqrt(s)));
+	}
+	function areaOf(v) {   // 球面多角形（閉じる）＝球面過剰。経度差は[-π,π]へ（antimeridian対策）
+		if (v.length < 3) return 0;
+		let sum = 0;
+		for (let i = 0; i < v.length; i++) {
+			const p1 = v[i], p2 = v[(i + 1) % v.length];
+			let dλ = (p2[0] - p1[0]) * D2R;
+			if (dλ > Math.PI) dλ -= 2 * Math.PI; else if (dλ < -Math.PI) dλ += 2 * Math.PI;
+			sum += dλ * (2 + Math.sin(p1[1] * D2R) + Math.sin(p2[1] * D2R));
+		}
+		return Math.abs(sum) * R * R / 2;
+	}
+	function to3(lon, lat) { const a = lon * D2R, b = lat * D2R, cb = Math.cos(b); return [cb * Math.cos(a), Math.sin(b), cb * Math.sin(a)]; }
+	function toLL(v) { return [Math.atan2(v[2], v[0]) * R2D, Math.asin(Math.max(-1, Math.min(1, v[1]))) * R2D]; }
+	function gcPoints(a, b) {   // 大圏弧を約0.5°刻みで細分（近ければ2点）
+		const A = to3(a[0], a[1]), B = to3(b[0], b[1]);
+		let dot = A[0] * B[0] + A[1] * B[1] + A[2] * B[2]; dot = Math.max(-1, Math.min(1, dot));
+		const om = Math.acos(dot), n = Math.max(1, Math.min(128, Math.round(om * R2D / 0.5)));
+		if (om < 1e-6 || n <= 1) return [a, b];
+		const so = Math.sin(om), pts = [];
+		for (let i = 0; i <= n; i++) {
+			const t = i / n, s0 = Math.sin((1 - t) * om) / so, s1 = Math.sin(t * om) / so;
+			pts.push(toLL([A[0] * s0 + B[0] * s1, A[1] * s0 + B[1] * s1, A[2] * s0 + B[2] * s1]));
+		}
+		return pts;
+	}
+
+	// ---- 描画 ----
+	function strokeArc(pr, a, b, dashed) {   // 大圏弧を投影して描く（裏半球へ回る点で線を切る）
+		const pts = gcPoints(a, b);
+		ctx.setLineDash(dashed ? [5, 4] : []);
+		ctx.beginPath(); let pen = false;
+		for (const p of pts) {
+			const [x, y, front] = pr(p[0], p[1]);
+			if (front < 0) { pen = false; continue; }   // 裏半球＝途切れ
+			pen ? ctx.lineTo(x, y) : ctx.moveTo(x, y); pen = true;
+		}
+		ctx.stroke(); ctx.setLineDash([]);
+	}
+	function label(pr, ll, text, dim) {   // halo付きの小さな注記（画面座標へ投影・裏半球は出さない）
+		const [x, y, front] = pr(ll[0], ll[1]); if (front < 0) return;
+		ctx.font = "600 11px " + (getComputedStyle(document.documentElement).getPropertyValue("--qm-font") || "system-ui");
+		ctx.textAlign = "center"; ctx.textBaseline = "middle";
+		ctx.lineWidth = 3; ctx.strokeStyle = "rgba(255,255,255,.92)"; ctx.strokeText(text, x, y - 10);
+		ctx.fillStyle = dim ? "#555" : LINE; ctx.fillText(text, x, y - 10);
+	}
+	function readout(html) { out.innerHTML = html; out.style.display = html ? "block" : "none"; }
+
+	function draw() {
+		const w = mapEl.clientWidth, h = mapEl.clientHeight;
+		if (w !== cw || h !== ch) { cw = w; ch = h; canvas.width = w * dpr; canvas.height = h * dpr; canvas.style.width = w + "px"; canvas.style.height = h + "px"; }
+		ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, cw, ch);
+		if (!active) return readout("");
+		if (!verts.length) return readout(`クリックで計測開始`);
+		const pr = makeProjector();
+		ctx.lineJoin = "round"; ctx.lineCap = "round";
+
+		// 面積：3点以上なら閉じた多角形を薄く塗る＋閉じ辺を淡い線で
+		if (verts.length >= 3) {
+			ctx.fillStyle = FILL; ctx.beginPath(); let pen = false;
+			for (const v of verts) { const [x, y, f] = pr(v[0], v[1]); if (f < 0) { pen = false; continue; } pen ? ctx.lineTo(x, y) : ctx.moveTo(x, y); pen = true; }
+			ctx.closePath(); ctx.fill();
+			ctx.strokeStyle = "rgba(176,0,32,.4)"; ctx.lineWidth = 1; strokeArc(pr, verts[verts.length - 1], verts[0], true);
+		}
+
+		// 計測辺（実線）＋各辺の距離ラベル
+		ctx.strokeStyle = LINE; ctx.lineWidth = 2;
+		let total = 0;
+		for (let i = 0; i + 1 < verts.length; i++) {
+			strokeArc(pr, verts[i], verts[i + 1], false);
+			const d = dist(verts[i], verts[i + 1]); total += d;
+			label(pr, midGc(verts[i], verts[i + 1]), fmtDist(d), false);
+		}
+		// ゴムひも（確定前・最終点→カーソル、破線）
+		if (!finished && cursorLL && verts.length) {
+			ctx.strokeStyle = LINE; ctx.lineWidth = 1.5; strokeArc(pr, verts[verts.length - 1], cursorLL, true);
+		}
+		// 頂点の点
+		for (const v of verts) {
+			const [x, y, f] = pr(v[0], v[1]); if (f < 0) continue;
+			ctx.setLineDash([]); ctx.beginPath(); ctx.arc(x, y, 4, 0, Math.PI * 2);
+			ctx.fillStyle = "#fff"; ctx.fill(); ctx.strokeStyle = LINE; ctx.lineWidth = 2; ctx.stroke();
+		}
+
+		// 読み取り（総距離・面積）
+		const parts = [`<b>総距離</b> ${fmtDist(total)}`];
+		if (verts.length >= 3) parts.push(`<b>面積</b> ${fmtArea(areaOf(verts))}`);
+		parts.push(finished ? `<span class="mr-hint">Escで消去・ボタンで終了</span>` : `<span class="mr-hint">ダブルクリックで確定</span>`);
+		readout(parts.join(`<span class="mr-sep">／</span>`));
+	}
+	function midGc(a, b) { const p = gcPoints(a, b); return p[Math.floor(p.length / 2)]; }
+}
+
+// ---- 表示整形 ----
+function fmtDist(m) { return m < 1000 ? `${Math.round(m)} m` : `${(m / 1000).toFixed(m < 100000 ? 2 : 1)} km`; }
+function fmtArea(m2) {
+	if (m2 < 1e6) return `${comma(Math.round(m2))} m²`;
+	return `${(m2 / 1e6).toFixed(2)} km²`;
+}
+function comma(n) { return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ","); }
