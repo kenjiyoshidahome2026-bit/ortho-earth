@@ -53,6 +53,7 @@ try {
 	map.gadget.print({ capture: stub });   // 二重搭載＝無害
 	await new Promise(r => setTimeout(r, 200));
 	ok("mount", document.querySelectorAll("#print-btn").length === 1 && document.querySelectorAll("#print").length === 1);
+	ok("title", document.getElementById("print-title").value === "平面図（上が北）");   // 題の既定値
 	document.getElementById("print-btn").click();
 	for (let i = 0; i < 100 && !document.getElementById("print-preview").src.startsWith("blob:"); i++) await new Promise(r => setTimeout(r, 50));
 	ok("preview", document.getElementById("print").classList.contains("open") && document.getElementById("print-preview").src.startsWith("blob:"));

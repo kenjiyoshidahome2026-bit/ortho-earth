@@ -6,7 +6,11 @@
 //   一時的に印刷カメラへ振る。プレビューを見せてから出力（印刷は隠しiframe＝ポップアップ不要）。
 // 縮尺の正しさは「切り出す地表幅 ↔ 紙の地図幅(mm)」の対応で構成的に保証（解像度は精細度にだけ効く）。
 import { gadgetStack } from "./stack.js";
-import { composeLayersToCanvas, attrLines } from "./shot.js";
+import { composeLayersToCanvas } from "./shot.js";
+
+// 印刷の出典＝地理院ベクトルタイルの一行のみ。真俯瞰は建物3Dを描かない（renderer の show3d 裁き）＋
+// noTerrain で標高ラスタも使わない＝PLATEAU/AW3D30 は紙面に写らないので表記不要（写るものだけ名乗る）。
+const PRINT_ATTR = ["出典：国土地理院最適化ベクトルタイル（提供実験）を加工して作成"];
 
 const R = 6371008.8;
 export const PAPERS = { a4: [210, 297], a3: [297, 420] };            // [短辺, 長辺] mm
@@ -61,8 +65,8 @@ function niceBar(S, maxMM = 60) {
 	return best;
 }
 
-// 紙面の組版：白紙→地図→経緯線→二重罫→度分ラベル→四隅経緯度→下帯（縮尺・バー・出典・出力日）。
-export function composePage({ screen, rectDev, layout, S, corners, font, attr, dpi = 240 }) {
+// 紙面の組版：白紙→地図→経緯線→二重罫→北マーク→度分ラベル→四隅経緯度→下帯（題・縮尺バー・出典・出力日）。
+export function composePage({ screen, rectDev, layout, S, corners, font, attr, dpi = 240, title = "平面図（上が北）" }) {
 	const MM = dpi / 25.4, mm = v => v * MM;
 	const page = new OffscreenCanvas(Math.round(layout.W * MM), Math.round(layout.H * MM));
 	const ctx = page.getContext("2d");
@@ -100,6 +104,22 @@ export function composePage({ screen, rectDev, layout, S, corners, font, attr, d
 	ctx.lineWidth = mm(0.7); ctx.strokeRect(mm(O.x), mm(O.y), mm(O.w), mm(O.h));
 	ctx.lineWidth = mm(0.2); ctx.strokeRect(mm(I.x), mm(I.y), mm(I.w), mm(I.h));
 
+	// 北マーク（図郭内右上）＝上が北の名乗り。地図の上に乗るので白ハロー＋墨（注記と同じ可読の作法）
+	{
+		const nx = I.x + I.w - 6, ny = I.y + 4.6;   // "N" の基準位置(mm)
+		const halo = (fn) => { ctx.strokeStyle = "rgba(255,255,255,.9)"; fn(true); ctx.fillStyle = "#222"; ctx.strokeStyle = "#222"; fn(false); };
+		ctx.font = `700 ${mm(3)}px ${font}`; ctx.textAlign = "center"; ctx.textBaseline = "alphabetic";
+		halo(h => { ctx.lineWidth = mm(h ? 0.9 : 0); h ? ctx.strokeText("N", mm(nx), mm(ny)) : ctx.fillText("N", mm(nx), mm(ny)); });
+		// 矢印（上向き）：軸＋鏃。先に白の太線でハロー、上から墨
+		const ax = nx, a0 = ny + 6.6, a1 = ny + 1.4;   // 軸の下端・上端(mm)
+		halo(h => {
+			ctx.lineWidth = mm(h ? 1.5 : 0.5); ctx.lineCap = "round";
+			ctx.beginPath(); ctx.moveTo(mm(ax), mm(a0)); ctx.lineTo(mm(ax), mm(a1 + 1.6)); ctx.stroke();
+			ctx.beginPath(); ctx.moveTo(mm(ax), mm(a1)); ctx.lineTo(mm(ax - 1.3), mm(a1 + 2.6)); ctx.lineTo(mm(ax + 1.3), mm(a1 + 2.6)); ctx.closePath();
+			h ? (ctx.lineWidth = mm(1.2), ctx.stroke()) : ctx.fill();
+		});
+	}
+
 	// 経緯線の度分ラベル（枠外・四隅の表記と衝突する端は避ける）
 	ctx.fillStyle = "#333"; ctx.font = `${mm(2.1)}px ${font}`;
 	for (const g of grat) {
@@ -131,7 +151,7 @@ export function composePage({ screen, rectDev, layout, S, corners, font, attr, d
 	ctx.fillStyle = "#222";
 	ctx.textAlign = "left"; ctx.textBaseline = "alphabetic";
 	ctx.font = `600 ${mm(2.7)}px ${font}`;
-	ctx.fillText("平面図（上が北）", mm(C.x), mm(C.y + 5.4));
+	ctx.fillText(title || "平面図（上が北）", mm(C.x), mm(C.y + 5.4), mm(C.w * 0.34));   // 長い題は左1/3幅に詰める
 	ctx.font = `${mm(2.1)}px ${font}`; ctx.fillStyle = "#555";
 	ctx.fillText(`出力日 ${new Date().toLocaleDateString("sv-SE")}`, mm(C.x), mm(C.y + 9.4));   // sv-SE＝ローカル日付のYYYY-MM-DD表記
 	// 縮尺（中央）＋バー
@@ -216,17 +236,20 @@ export function print({ capture, signal } = {}) {
 				<label>縮尺</label><select id="print-scale">${SCALES.map(s => `<option value="${s}"${s === 25000 ? " selected" : ""}>1:${s.toLocaleString()}</option>`).join("")}</select>
 				<label>dpi</label><select id="print-dpi">${DPIS.map(d => `<option value="${d}"${d === 240 ? " selected" : ""}>${d}</option>`).join("")}</select>
 			</div>
+			<div class="print-row">
+				<label>題</label><input type="text" id="print-title" value="平面図（上が北）" maxlength="40">
+			</div>
 			<img id="print-preview" alt="印刷プレビュー">
 			<div id="print-note"></div>
 			<div class="print-actions"><button id="print-pdf">PDF保存</button><button id="print-go">印刷</button></div>
 		</div>`;
 	mapEl.append(modal);
 	const $ = s => modal.querySelector(s);
-	const img = $("#print-preview"), noteEl = $("#print-note"), goBtn = $("#print-go"), pdfBtn = $("#print-pdf");
+	const img = $("#print-preview"), noteEl = $("#print-note"), goBtn = $("#print-go"), pdfBtn = $("#print-pdf"), titleIn = $("#print-title");
 	const sels = ["#print-paper", "#print-orient", "#print-scale", "#print-dpi"].map(s => $(s));
 	const note = (t, warn) => { noteEl.textContent = t; noteEl.classList.toggle("warn", !!warn); };
 
-	let busy = false, pending = false, lastPage = null, lastPaperCss = "A4 landscape", lastMeta = null, prevUrl = null;
+	let busy = false, pending = false, lastPage = null, lastPaperCss = "A4 landscape", lastMeta = null, lastShot = null, prevUrl = null;
 	const setBusy = b => { sels.forEach(s => s.disabled = b); goBtn.disabled = pdfBtn.disabled = b || !lastPage; img.classList.toggle("busy", b); };
 
 	async function regen() {
@@ -246,12 +269,10 @@ export function print({ capture, signal } = {}) {
 			const screen = composeLayersToCanvas(cap.snap, mapEl.querySelector("#measure-lines"));
 			const k = cap.dpr;
 			const rectDev = { x: Math.round(cap.rect.x * k), y: Math.round(cap.rect.y * k), w: Math.round(cap.rect.w * k), h: Math.round(cap.rect.h * k) };
-			lastPage = composePage({ screen, rectDev, layout: L, S, corners: cap.corners, font, attr: attrLines(mapEl), dpi });
+			lastShot = { screen, rectDev, layout: L, S, corners: cap.corners, dpi };   // 題の打ち直しは再撮影なしで組み直す
 			lastPaperCss = `${paper.toUpperCase()} ${orient === "portrait" ? "portrait" : "landscape"}`;
 			lastMeta = { Wmm: L.W, Hmm: L.H, S, paper };
-			const blob = await lastPage.convertToBlob({ type: "image/png" });
-			if (prevUrl) URL.revokeObjectURL(prevUrl);
-			prevUrl = URL.createObjectURL(blob); img.src = prevUrl;
+			await recompose();
 			note(`カメラz ${zoom.toFixed(1)}・地図部 約${mapDpi}dpi（紙面 ${dpi}dpi）` +
 				(zoom < 4.5 ? "／この縮尺は広域すぎるため基図が写りません" : mapDpi < 110 ? "／画面が小さいため地図の精細度は控えめです" : ""), zoom < 4.5);
 		} catch (e) {
@@ -276,6 +297,15 @@ export function print({ capture, signal } = {}) {
 		};
 	}
 
+	// 紙面の組み直し（撮影済みの切り出しから）：題の打ち直し・出典はここで反映＝再撮影なしで速い
+	async function recompose() {
+		if (!lastShot) return;
+		lastPage = composePage({ ...lastShot, font, attr: PRINT_ATTR, title: titleIn.value.trim() });
+		const blob = await lastPage.convertToBlob({ type: "image/png" });
+		if (prevUrl) URL.revokeObjectURL(prevUrl);
+		prevUrl = URL.createObjectURL(blob); img.src = prevUrl;
+	}
+
 	async function doPdf() {   // MediaBox=用紙実寸のPDF＝「100%で印刷」すれば縮尺が厳密（理想の出力形）
 		if (!lastPage || busy || !lastMeta) return;
 		const blob = await pdfFromCanvas(lastPage, lastMeta.Wmm, lastMeta.Hmm);
@@ -293,6 +323,7 @@ export function print({ capture, signal } = {}) {
 	modal.addEventListener("click", e => { if (e.target === modal) close(); });
 	window.addEventListener("keydown", e => { if (e.key === "Escape" && modal.classList.contains("open")) close(); }, { signal });
 	sels.forEach(s => s.addEventListener("change", regen));
+	titleIn.addEventListener("change", () => { if (!busy) recompose(); });   // 題だけ＝再撮影なしの組み直し
 	goBtn.addEventListener("click", doPrint);
 	pdfBtn.addEventListener("click", doPdf);
 	return { open, close };

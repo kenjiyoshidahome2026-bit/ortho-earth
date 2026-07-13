@@ -380,6 +380,11 @@ body { visibility: visible; }   /* 開幕＝このスタイルシートの到着
 		display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-bottom: 8px;
 		label { font-size: 12px; color: var(--qm-text-dim); margin-left: 4px; }
 		select { font: 13px var(--qm-font); padding: 4px 6px; border: 1px solid var(--qm-border); border-radius: 5px; background: #fff; color: #333; }
+		input[type="text"] {
+			flex: 1; min-width: 120px; font: 13px var(--qm-font); padding: 4px 8px; color: #333;
+			border: 1px solid var(--qm-border); border-radius: 5px; outline: none;
+			&:focus { border-color: var(--qm-ink); }
+		}
 	}
 	#print-preview {
 		display: block; width: 100%; max-height: 52vh; min-height: 120px; object-fit: contain;
