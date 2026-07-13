@@ -102,7 +102,12 @@ export function measure({ makeProjector, unprojectXY, setClick, requestDraw, sig
 		}
 		return pts;
 	}
-	function midGc(a, b) { const p = gcPoints(a, b); return p[Math.floor(p.length / 2)]; }
+	function midGc(a, b) {   // 大圏の中点＝2点の3D中点を正規化（短い辺で終点に化けない＝辺の真ん中に置く）
+		const A = to3(a[0], a[1]), B = to3(b[0], b[1]);
+		let m = [(A[0] + B[0]) / 2, (A[1] + B[1]) / 2, (A[2] + B[2]) / 2];
+		const len = Math.hypot(m[0], m[1], m[2]) || 1;
+		return toLL([m[0] / len, m[1] / len, m[2] / len]);
+	}
 
 	// ---- 描画 ----
 	function syncSize() {
