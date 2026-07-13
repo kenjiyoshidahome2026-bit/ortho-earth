@@ -92,6 +92,16 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 			const cells = 8, half = cells - 1 >> 1;
 			return { range: 1, originCX: camCX - half + Math.round(fx * 2), originCY: camCY - half + Math.round(fy * 2), cellsX: cells, cellsY: cells, cellRes: 400 };
 		}
+		if (range === 90) {
+			// 全球〜大陸ビュー（z<5.5）は窓を固定＝世界8セル（4×2）常駐。窓をカメラに追従させると
+			// versor回転のたびに atlasKey が変わり再構築→縁のセルが見え隠れ（没入感を壊す）。
+			// R90一式は先読み/IDB常備＝8セル固定のコストは初回のみ。4×2@1024=4096×2048で予算内。
+			// cellRes だけはズームの1オクターブ毎に追従（回転・パンではkey不変）。
+			const radPerDevPx = 2 * Math.PI / (Math.pow(2, cam.zoom) * 512 * (cam.dpr || 1));
+			const useful = 90 * Math.PI / 180 / (radPerDevPx * 1.2);
+			const usefulQ = Math.pow(2, Math.ceil(Math.log2(Math.max(1, useful))));
+			return { range, originCX: -2, originCY: -1, cellsX: 4, cellsY: 2, cellRes: Math.max(512, Math.min(usefulQ, 1024)) };
+		}
 		const st = cameraState(cam, size.w, size.h);
 		// 「必要なセル」は画素の実需で計算する：画面を等間隔サンプルし、各サンプル（＝等しい画面面積の代表）が
 		// 落ちるセルへ1票。旧実装の min/max 窓は、地球の縁の掠りサンプル（1pxに数十km）や視界に入った極が
