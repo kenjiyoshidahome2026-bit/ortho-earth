@@ -227,7 +227,7 @@ body { visibility: visible; }   /* 開幕＝このスタイルシートの到着
 	text-shadow: 0 0 4px rgba(0, 0, 0, .8);
 }
 #sky-clock {
-	bottom: calc(10px + var(--qm-safe-b)); left: 14px;
+	top: calc(12px + env(safe-area-inset-top, 0px)); right: 14px;   /* 右上＝夜空の時計（下辺は出典に譲る） */
 	font: 19px var(--qm-font-mono); font-variant-numeric: tabular-nums;   /* 等幅数字＝秒針で幅が揺れない */
 	color: rgba(250, 252, 255, .92);   /* 白抜き＝劇場の時計はしっかり読める明るさ */
 }
@@ -236,3 +236,8 @@ body { visibility: visible; }   /* 開幕＝このスタイルシートの到着
 	font-size: 11px; color: rgba(220, 230, 245, .5);
 }
 #map.world :is(#sky-clock, #sky-attr) { opacity: 1; }
+/* 狭画面（スマホ縦）：時計は一回り小さく、出典は折り返して幅に収める */
+@media (max-width: 480px) {
+	#sky-clock { font-size: 14px; top: calc(10px + env(safe-area-inset-top, 0px)); right: 10px; }
+	#sky-attr { font-size: 9px; max-width: 72vw; line-height: 1.5; }
+}
