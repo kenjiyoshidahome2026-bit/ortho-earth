@@ -65,8 +65,8 @@ export function measure({ makeProjector, unprojectXY, setClick, requestDraw, sig
 		else { verts = []; finished = false; draw(); }  // 確定後Esc＝消去（モードは維持）
 	}, { signal });
 
-	const _update = () => {   // 毎フレ：canvas寸法を合わせ→再投影して引き直す（パン/ズーム/3Dで球に追従）
-		syncSize(); draw();
+	const _update = () => {   // 毎フレ：計測中だけ再投影して引き直す（パン/ズーム/3Dで球に追従）。
+		if (active) draw();   // 非アクティブは即return＝全画面canvasの消去・合成とレイアウト読みを毎フレ積まない（PLATEAU時のカクツキ対策）。最後の消去は stop() の draw()、寸法合わせは draw() 冒頭の syncSize が担う
 	};
 	// 戻り値＝no-op（作法の対称）＋制御ハンドル。stats()＝現在の総距離(m)/面積(m²)/頂点数（アプリが読める）
 	return Object.assign(() => {}, { _update, start, stop, stats: () => ({ total: lastTotal, area: lastArea, points: verts.length }) });

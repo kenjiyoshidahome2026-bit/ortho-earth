@@ -55,10 +55,8 @@ export function pop({ projectLL, signal } = {}) {
 		return div;
 	};
 	pop.clear = all => { pops = pops.filter(p => (all !== true && p.locked) ? true : (p.div.remove(), false)); draw(); };
-	pop._update = () => {   // 毎フレ：canvas寸法を合わせ→再投影して線を引き直す
-		const w = mapEl.clientWidth, h = mapEl.clientHeight;
-		if (w !== cw || h !== ch) { cw = w; ch = h; canvas.width = w * dpr; canvas.height = h * dpr; canvas.style.width = w + "px"; canvas.style.height = h + "px"; }
-		draw();
+	pop._update = () => {   // 毎フレ：popが1つも無ければ即return＝全画面canvasの消去・合成とレイアウト読みを毎フレ積まない（PLATEAU時のカクツキ対策）
+		if (pops.length) draw();   // 空になった時の消去は close/clear 側の draw() が済ませている
 	};
 	return pop;
 
@@ -67,6 +65,8 @@ export function pop({ projectLL, signal } = {}) {
 		const r = rec.div.getBoundingClientRect(); rec.pos = [left + r.width / 2, top + r.height / 2];
 	}
 	function draw() {
+		const w = mapEl.clientWidth, h = mapEl.clientHeight;   // 寸法合わせは描く時だけ（_updateから移設）
+		if (w !== cw || h !== ch) { cw = w; ch = h; canvas.width = w * dpr; canvas.height = h * dpr; canvas.style.width = w + "px"; canvas.style.height = h + "px"; }
 		ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 		ctx.clearRect(0, 0, cw, ch);
 		for (const p of pops) {
