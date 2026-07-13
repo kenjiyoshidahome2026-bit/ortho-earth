@@ -24,15 +24,16 @@ try {
 	ok("start", document.getElementById("map").classList.contains("measuring") && document.getElementById("measure-btn").classList.contains("on")
 		&& rd().style.display !== "none");
 
-	// 頂点2つ＝総距離が出る（球にヒットする画面中央付近をクリック）
-	click(430, 320); click(500, 300);
+	// 頂点2つ＝総距離が出る（球にヒットする画面中央付近をクリック）。値はハンドルの stats() が持つ
+	const move = (x, y) => document.getElementById("map").dispatchEvent(new PointerEvent("pointermove", { bubbles: true, clientX: x, clientY: y }));
+	click(430, 320); click(500, 300); move(500, 300);
 	await new Promise(r => setTimeout(r, 60));
-	ok("distance", rd().textContent.includes("総距離") && /(m|km)/.test(rd().textContent));
+	ok("distance", h.stats().total > 0);
 
-	// 3点目＝面積が出る
-	click(480, 380);
+	// 3点目＋カーソル＝閉じプレビューで面積が出る
+	click(480, 380); move(470, 350);
 	await new Promise(r => setTimeout(r, 60));
-	ok("area", rd().textContent.includes("面積"));
+	ok("area", h.stats().area > 0);
 
 	// 確定：ダブルクリック→ヒント文が変わる（Escで消去…）
 	document.getElementById("map").dispatchEvent(new MouseEvent("dblclick", { bubbles: true, cancelable: true, clientX: 480, clientY: 380 }));

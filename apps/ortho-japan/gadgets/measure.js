@@ -1,20 +1,22 @@
 // ガジェット：距離・面積の計測。標準装備でなくオプトイン＝orthoJapan() の戻り値から
 // map.gadget.measure() で搭載する（v1 ortho-map の gadget 作法＝this が map）。
-// ★ortho-map は d3 の createPolygon 編集系に頼ったが、japan は編集系を持たない＝描画ごと新設。
-//   頂点は経緯度で持ち（球に貼り付く＝パン/ズーム/3Dで泳がない）、線は大圏弧を細分して球面追従、
-//   描画は専用canvas＋render のフレームフック（pop と同じ型：makeProjector で1描画1回に投影を束ねる）。
-// 距離＝haversine 測地線の累積／面積＝球面過剰（3点以上で閉じて算出）。
-// 操作：クリック＝頂点追加／最終点からカーソルへゴムひも／ダブルクリック or Esc＝確定／ボタンOFF＝全消去。
+// ★ortho-map は d3 の createPolygon(measure:true) に頼ったが、japan は編集系を持たない＝描画ごと新設。
+//   仕様は ortho-map に合わせ込む＝辺の中点に区間距離・重心に L=総距離/S=面積・線色#880000・
+//   塗り rgba(136,0,0,.1)・頂点r=4/中点r=2 の白丸(#880000縁)・ラベルは白＋黒影。
+//   頂点は経緯度で持ち（球に貼り付く）、線は大圏弧を細分して球面追従、描画は専用canvas＋frameフック。
+// 距離＝haversine 測地線／面積＝球面過剰（3点以上で閉じて算出・antimeridian対策込み）。
+// 操作：クリックで頂点／最終点＋カーソルで閉じプレビュー／ダブルクリック or Esc で確定／ボタンOFFで全消去。
 // 注入（登録側）：makeProjector・unprojectXY・setClick（クリック横取り）・requestDraw・signal。
 import { gadgetStack } from "./stack.js";
 
 const R = 6371008.8, D2R = Math.PI / 180, R2D = 180 / Math.PI;
-const LINE = "#b00020", FILL = "rgba(176,0,32,.12)";
+const LINE = "#880000", FILL = "rgba(136,0,0,0.1)", DOT = "#fff", W = 2, R_VERT = 4, R_MID = 2;
 
 export function measure({ makeProjector, unprojectXY, setClick, requestDraw, signal } = {}) {
 	const mapEl = this.mapEl;
 	if (mapEl.querySelector("#measure-lines")) return () => {};   // 二重搭載は無害
 	const dpr = window.devicePixelRatio || 1;
+	const font = (getComputedStyle(document.documentElement).getPropertyValue("--qm-font") || "system-ui").trim();
 
 	const btn = document.createElement("button");
 	btn.id = "measure-btn"; btn.dataset.tip = "距離・面積を測る"; btn.setAttribute("aria-label", "距離・面積を測る");
@@ -31,6 +33,7 @@ export function measure({ makeProjector, unprojectXY, setClick, requestDraw, sig
 	out.id = "measure-readout"; out.style.display = "none"; mapEl.append(out);
 
 	let active = false, finished = false, verts = [], cursorLL = null, cw = 0, ch = 0;
+	let lastTotal = 0, lastArea = 0;   // 直近の計測値（アプリ/テストが読む＝stats()）
 
 	btn.addEventListener("click", () => (active ? stop() : start()));
 	function start() {
@@ -63,11 +66,10 @@ export function measure({ makeProjector, unprojectXY, setClick, requestDraw, sig
 	}, { signal });
 
 	const _update = () => {   // 毎フレ：canvas寸法を合わせ→再投影して引き直す（パン/ズーム/3Dで球に追従）
-		const w = mapEl.clientWidth, h = mapEl.clientHeight;
-		if (w !== cw || h !== ch) { cw = w; ch = h; canvas.width = w * dpr; canvas.height = h * dpr; canvas.style.width = w + "px"; canvas.style.height = h + "px"; }
-		draw();
+		syncSize(); draw();
 	};
-	return Object.assign(() => {}, { _update, start, stop });   // 戻り値＝no-op（作法の対称）＋制御ハンドル
+	// 戻り値＝no-op（作法の対称）＋制御ハンドル。stats()＝現在の総距離(m)/面積(m²)/頂点数（アプリが読める）
+	return Object.assign(() => {}, { _update, start, stop, stats: () => ({ total: lastTotal, area: lastArea, points: verts.length }) });
 
 	// ---- 幾何 ----
 	function dist(a, b) {
@@ -100,77 +102,97 @@ export function measure({ makeProjector, unprojectXY, setClick, requestDraw, sig
 		}
 		return pts;
 	}
+	function midGc(a, b) { const p = gcPoints(a, b); return p[Math.floor(p.length / 2)]; }
 
 	// ---- 描画 ----
-	function strokeArc(pr, a, b, dashed) {   // 大圏弧を投影して描く（裏半球へ回る点で線を切る）
+	function syncSize() {
+		const w = mapEl.clientWidth, h = mapEl.clientHeight;
+		if (w !== cw || h !== ch) { cw = w; ch = h; canvas.width = w * dpr; canvas.height = h * dpr; canvas.style.width = w + "px"; canvas.style.height = h + "px"; }
+	}
+	function strokeArc(pr, a, b) {   // 大圏弧を投影して描く（裏半球へ回る点で線を切る）
 		const pts = gcPoints(a, b);
-		ctx.setLineDash(dashed ? [5, 4] : []);
 		ctx.beginPath(); let pen = false;
 		for (const p of pts) {
 			const [x, y, front] = pr(p[0], p[1]);
-			if (front < 0) { pen = false; continue; }   // 裏半球＝途切れ
+			if (front < 0) { pen = false; continue; }
 			pen ? ctx.lineTo(x, y) : ctx.moveTo(x, y); pen = true;
 		}
-		ctx.stroke(); ctx.setLineDash([]);
+		ctx.stroke();
 	}
-	function label(pr, ll, text, dim) {   // halo付きの小さな注記（画面座標へ投影・裏半球は出さない）
+	function dot(pr, ll, r) {
 		const [x, y, front] = pr(ll[0], ll[1]); if (front < 0) return;
-		ctx.font = "600 11px " + (getComputedStyle(document.documentElement).getPropertyValue("--qm-font") || "system-ui");
-		ctx.textAlign = "center"; ctx.textBaseline = "middle";
-		ctx.lineWidth = 3; ctx.strokeStyle = "rgba(255,255,255,.92)"; ctx.strokeText(text, x, y - 10);
-		ctx.fillStyle = dim ? "#555" : LINE; ctx.fillText(text, x, y - 10);
+		ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2);
+		ctx.fillStyle = DOT; ctx.fill(); ctx.strokeStyle = LINE; ctx.lineWidth = W; ctx.stroke();
 	}
-	function readout(html) { out.innerHTML = html; out.style.display = html ? "block" : "none"; }
+	function textAt(pr, ll, text, dy) {   // 白文字＋黒影（ortho-map と同じ体裁）
+		const [x, y, front] = pr(ll[0], ll[1]); if (front < 0) return;
+		ctx.fillText(text, x, y + dy);
+	}
 
 	function draw() {
-		const w = mapEl.clientWidth, h = mapEl.clientHeight;
-		if (w !== cw || h !== ch) { cw = w; ch = h; canvas.width = w * dpr; canvas.height = h * dpr; canvas.style.width = w + "px"; canvas.style.height = h + "px"; }
+		syncSize();
 		ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, cw, ch);
-		if (!active) return readout("");
-		if (!verts.length) return readout(`クリックで計測開始`);
+		if (!active) { lastTotal = lastArea = 0; return readout(""); }
+		if (!verts.length) { lastTotal = lastArea = 0; return readout(hint()); }
 		const pr = makeProjector();
-		ctx.lineJoin = "round"; ctx.lineCap = "round";
 
-		// 面積：3点以上なら閉じた多角形を薄く塗る＋閉じ辺を淡い線で
-		if (verts.length >= 3) {
+		// 表示点列 pp を組む：確定前はカーソルを仮頂点に。閉じる（塗り/面積/閉じ辺）のは
+		// 確定後の3頂点以上、または描画中にカーソルがあり合計3点以上（＝「ここで閉じたら」のプレビュー）＝ortho-map と同じ。
+		let pp = verts.slice();
+		if (!finished && cursorLL) pp.push(cursorLL);
+		const closed = finished ? verts.length >= 3 : (!!cursorLL && pp.length >= 3);
+		if (closed) pp = pp.concat([pp[0]]);
+
+		// 面積の塗り（閉じている時）
+		if (closed) {
 			ctx.fillStyle = FILL; ctx.beginPath(); let pen = false;
-			for (const v of verts) { const [x, y, f] = pr(v[0], v[1]); if (f < 0) { pen = false; continue; } pen ? ctx.lineTo(x, y) : ctx.moveTo(x, y); pen = true; }
+			for (const v of pp) { const [x, y, f] = pr(v[0], v[1]); if (f < 0) { pen = false; continue; } pen ? ctx.lineTo(x, y) : ctx.moveTo(x, y); pen = true; }
 			ctx.closePath(); ctx.fill();
-			ctx.strokeStyle = "rgba(176,0,32,.4)"; ctx.lineWidth = 1; strokeArc(pr, verts[verts.length - 1], verts[0], true);
 		}
+		// 辺（大圏弧・実線）
+		ctx.strokeStyle = LINE; ctx.lineWidth = W; ctx.lineJoin = "round"; ctx.lineCap = "round";
+		for (let i = 0; i + 1 < pp.length; i++) strokeArc(pr, pp[i], pp[i + 1]);
 
-		// 計測辺（実線）＋各辺の距離ラベル
-		ctx.strokeStyle = LINE; ctx.lineWidth = 2;
+		// ラベル体裁（白＋黒影・中央）
+		ctx.font = `12px ${font}`; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+		ctx.shadowColor = "#000"; ctx.shadowBlur = 5; ctx.fillStyle = "#fff";
+		// 各辺の区間距離を中点に／総距離を積む
 		let total = 0;
-		for (let i = 0; i + 1 < verts.length; i++) {
-			strokeArc(pr, verts[i], verts[i + 1], false);
-			const d = dist(verts[i], verts[i + 1]); total += d;
-			label(pr, midGc(verts[i], verts[i + 1]), fmtDist(d), false);
+		for (let i = 0; i + 1 < pp.length; i++) {
+			const d = dist(pp[i], pp[i + 1]); total += d;
+			textAt(pr, midGc(pp[i], pp[i + 1]), fmtDist(d), 0);
 		}
-		// ゴムひも（確定前・最終点→カーソル、破線）
-		if (!finished && cursorLL && verts.length) {
-			ctx.strokeStyle = LINE; ctx.lineWidth = 1.5; strokeArc(pr, verts[verts.length - 1], cursorLL, true);
+		lastTotal = total; lastArea = 0;
+		// 重心に L=総距離 / S=面積（閉じている時）
+		if (closed) {
+			const ring = pp.slice(0, -1), c = centroid(ring);
+			lastArea = areaOf(ring);
+			textAt(pr, c, "L= " + fmtDist(total), -8);
+			textAt(pr, c, "S= " + fmtArea(lastArea), 8);
 		}
-		// 頂点の点
-		for (const v of verts) {
-			const [x, y, f] = pr(v[0], v[1]); if (f < 0) continue;
-			ctx.setLineDash([]); ctx.beginPath(); ctx.arc(x, y, 4, 0, Math.PI * 2);
-			ctx.fillStyle = "#fff"; ctx.fill(); ctx.strokeStyle = LINE; ctx.lineWidth = 2; ctx.stroke();
-		}
+		ctx.shadowBlur = 0;
 
-		// 読み取り（総距離・面積）
-		const parts = [`<b>総距離</b> ${fmtDist(total)}`];
-		if (verts.length >= 3) parts.push(`<b>面積</b> ${fmtArea(areaOf(verts))}`);
-		parts.push(finished ? `<span class="mr-hint">Escで消去・ボタンで終了</span>` : `<span class="mr-hint">ダブルクリックで確定</span>`);
-		readout(parts.join(`<span class="mr-sep">／</span>`));
+		// 点（頂点r=4・辺の中点r=2）
+		for (const v of pp) dot(pr, v, R_VERT);
+		for (let i = 0; i + 1 < pp.length; i++) dot(pr, midGc(pp[i], pp[i + 1]), R_MID);
+
+		readout(hint());
 	}
-	function midGc(a, b) { const p = gcPoints(a, b); return p[Math.floor(p.length / 2)]; }
+	function centroid(ring) { let lon = 0, lat = 0; for (const p of ring) { lon += p[0]; lat += p[1]; } return [lon / ring.length, lat / ring.length]; }
+	function hint() {
+		if (!verts.length) return `<span class="mr-hint">クリックで計測を開始</span>`;
+		return finished ? `<span class="mr-hint">Escで消去・ボタンで終了</span>` : `<span class="mr-hint">クリックで頂点・ダブルクリックで確定</span>`;
+	}
+	function readout(html) { out.innerHTML = html; out.style.display = html ? "block" : "none"; }
 }
 
-// ---- 表示整形 ----
-function fmtDist(m) { return m < 1000 ? `${Math.round(m)} m` : `${(m / 1000).toFixed(m < 100000 ? 2 : 1)} km`; }
-function fmtArea(m2) {
-	if (m2 < 1e6) return `${comma(Math.round(m2))} m²`;
-	return `${(m2 / 1e6).toFixed(2)} km²`;
-}
+// ---- 表示整形（ortho-map の FIX/FIXA に合わせる）----
 function comma(n) { return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ","); }
+function fmtDist(m) {   // m入力：<100m=小数1m ／ <1km=整数m ／ <10km=小数2km ／ <100km=小数1km ／ 以上=整数km
+	const km = m / 1000, c = (v, n) => comma(v.toFixed(n));
+	return km < 0.1 ? c(m, 1) + " m" : km < 1 ? c(Math.round(m), 0) + " m" : km < 10 ? c(km, 2) + " km" : km < 100 ? c(km, 1) + " km" : c(km, 0) + " km";
+}
+function fmtArea(m2) {   // <1e6=整数m² ／ <1e9=小数3km² ／ 以上=整数km²
+	const c = (v, n) => comma((+v).toFixed(n));
+	return m2 < 1e6 ? c(Math.round(m2), 0) + " m²" : m2 < 1e9 ? c(m2 / 1e6, 3) + " km²" : c(m2 / 1e6, 0) + " km²";
+}
