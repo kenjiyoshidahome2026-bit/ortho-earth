@@ -4,7 +4,7 @@ import "quiet-mono/tokens.scss";
 import "quiet-mono/components.scss";
 import "./style.scss";
 import {
-	evalExpr, parseRGBA, cameraState, unproject, buildGeoJSONOverlay,
+	evalExpr, parseRGBA, cameraState, project, unproject, buildGeoJSONOverlay,
 	createFlight, shortBearingOf, parseViewHash, buildViewHash, wrapLon, createInput,
 } from "ortho-core";
 import { createGeopbf, geopbf } from "geopbf";
@@ -22,6 +22,10 @@ import { search as searchGadget } from "./gadgets/searchbox.js";
 import { hint as hintGadget } from "./gadgets/hint.js";
 import { compass as compassGadget } from "./gadgets/compass.js";
 import { plateau as plateauGadget } from "./gadgets/plateau.js";
+import { zoom as zoomGadget } from "./gadgets/zoom.js";
+import { full as fullGadget } from "./gadgets/full.js";
+import { cpos as cposGadget } from "./gadgets/cpos.js";
+import { contextmenu as contextmenuGadget } from "./gadgets/contextmenu.js";
 
 // ============================================================================================
 // ortho-japan：1行で日本が立ち上がる入口（v1 orthoMap の作法の継承）。
@@ -1005,7 +1009,10 @@ window.addEventListener("hashchange", () => {
 
 // コンパス兼リセット（#reset）はオプトインガジェットへ移設＝gadgets/compass.js（針の追従・リセットアニメごと）。
 // 針の毎フレーム追従は render が呼ぶフック＝搭載時に差し替わる（未搭載なら no-op）。
-let updateCompass = () => {};
+// render のフレームフック：搭載したガジェットが毎描画で姿勢/位置を追随させる置き場（コンパスの針・現在地マーカー等）。
+// onMove→needsDraw→render のたびに全員呼ぶ＝静止中は呼ばれない（動いた時だけ追随＝タダに近い）。
+const frameHooks = new Set();
+const runFrameHooks = () => frameHooks.forEach(fn => fn());
 const shortBearing = () => shortBearingOf(cam.bearing);   // 最短回転へ正規化（実装はengine）＝計器盤の回転列と共用
 
 function render() {
@@ -1027,7 +1034,7 @@ function render() {
 			renderer.set("labels", []);
 			readySig = ""; baseSig = ""; mergeReq.main.sig = ""; mergeReq.base.sig = ""; lastLabels = []; mainSceneZoom = -1; basemapHidden = true;   // 復帰時に再結合させる
 		}
-		updateCompass();
+		runFrameHooks();
 		logEl.textContent = `world  zoom=${cam.zoom.toFixed(1)}  基図オフ・海岸線＋標高の塗り`;
 		return;
 	}
@@ -1036,7 +1043,7 @@ function render() {
 	window.__lastOrder = order;   // デバッグ：現在の選択タイル（コンソール/検証スクリプトから確認）
 	swapBase(coarseOrder);                          // 粗い下地は常に敷く（移動中も）＝先端の空白を無くす
 	if (!moving || zoomStable) swapScene(order);
-	updateCompass();                               // 3D時のみコンパス表示・針を方位に追従
+	runFrameHooks();                               // 3D時のみコンパス表示・針を方位／現在地マーカーの追随 等
 	// 世界海岸線(gint)は z8+ では非表示：海岸は WA 塗りが担う上、gint の2D線は球の自遮蔽を持たず
 	// 地平線の先の海岸線（富山湾等）がリムに白線の残影として浮く。14条（interactive）時は表示のまま。
 	gintCanvas.style.display = (!gintInteractive && cam.zoom >= 8) ? "none" : "";
@@ -1086,6 +1093,10 @@ ensureStars();   // 初期視点が z<4（復元/共有URL）なら星空も最�
 // map.gadget(name, func) で登録し map.gadget.name() で画面に追加する。func 内の this＝この map＝
 // mapEl/flyTo 等の手綱がそのまま使える。検索・操作説明は標準装備から外した最初のオプトインガジェット。
 const map = { cam, flyTo, renderer, mapEl, destroy };
+// ガジェット注入用の座標ブリッジ（engine の project/unproject を今の cam/サイズで束ねた手綱）。
+// projectLL＝経緯度→画面CSS座標[x,y,front]（front<0＝裏半球・視界外）。unprojectAt＝画面座標→[lon,lat]（球外は null）。
+const projectLL = (lon, lat) => { const st = cameraState(cam, size.w, size.h); const [sx, sy, f] = project(st, lon, lat); return [sx / dpr, sy / dpr, f]; };
+const unprojectAt = (clientX, clientY) => { const r = canvas.getBoundingClientRect(); const st = cameraState(cam, size.w, size.h); return unproject(st, (clientX - r.left) * dpr, (clientY - r.top) * dpr); };
 map.gadget = function (name, func) {
 	typeof name == "function" && name.name && (func = name, name = func.name);
 	map.gadget[name] = function () { return func.apply(map, arguments); };
@@ -1096,11 +1107,24 @@ map.gadget("search", function (opts) {   // 地名・住所検索 … map.gadget
 map.gadget("hint", hintGadget);       // 操作説明カード … map.gadget.hint() → { open, close }
 map.gadget("compass", function (opts) {   // コンパス兼リセット … 内部の手綱（フライト中断・onMove）はここで注入
 	const update = compassGadget.call(this, { cancelFlight: () => flightCtl.cancel(), onMove, ...opts });
-	if (update) { updateCompass = update; update(); }   // 針の追従を render のフックへ＝搭載した瞬間から現姿勢を指す
+	if (update) { frameHooks.add(update); update(); }   // 針の追従を render のフックへ＝搭載した瞬間から現姿勢を指す
 });
 map.gadget("plateau", function (opts) {   // 建物3D（PLATEAU）データ管理 … モーダルを開く手綱はここで注入
 	if (!plateauOn) { console.warn("[plateau] opts.plateau=false＝機能ごと停止中。ガジェットは搭載しない"); return; }
 	return plateauGadget.call(this, { onOpen: plateauDb.open, ...opts });
+});
+map.gadget("zoom", function (opts) {   // ズーム＋/− … フライト中断・onMove・z範囲はここで注入
+	return zoomGadget.call(this, { cancelFlight: () => flightCtl.cancel(), onMove, zoomMin: 1, zoomMax: 20, ...opts });
+});
+map.gadget("full", function (opts) {   // 全画面トグル … destroy用のsignalはここで注入
+	return fullGadget.call(this, { signal: ac.signal, ...opts });
+});
+map.gadget("cpos", function (opts) {   // 現在地（GPS） … マーカー追随の座標ブリッジを注入し update を render のフックへ
+	const update = cposGadget.call(this, { projectLL, ...opts });
+	if (update) { frameHooks.add(update); update(); }
+});
+map.gadget("contextmenu", function (opts) {   // 右クリックメニュー … 逆投影と destroy用signalを注入。戻り値＝項目差し替えの setter
+	return contextmenuGadget.call(this, { unprojectAt, signal: ac.signal, ...opts });
 });
 return map;
 }

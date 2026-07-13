@@ -33,9 +33,9 @@ const chip = document.querySelector('.chip[data-k="facility"]');
 ok("aria0", chip.getAttribute("aria-pressed") === "false");
 chip.click();
 ok("aria1", chip.getAttribute("aria-pressed") === "true" && chip.classList.contains("on"));
-// 3D＝コンパスが検索の下（2段目・y=10+34+10）に現れ、PLATEAUが繰り下がる（y=54+40+10）
+// 3D＝コンパスが検索の下（2段目・y=10+34+10）に現れ、PLATEAUが繰り下がる（y=54+34+10＝コンパスも34px規格）
 window.__cam(139.76, 35.68, 12, 45, 30);
 await new Promise(r => setTimeout(r, 300));
-ok("compass3d", getComputedStyle(document.getElementById("reset")).display !== "none" && Math.round(R("reset").y) === 54 && Math.round(R("plateau-btn").y) === 104);
+ok("compass3d", getComputedStyle(document.getElementById("reset")).display !== "none" && Math.round(R("reset").y) === 54 && Math.round(R("plateau-btn").y) === 98);
 document.title = t.some(s => s.startsWith("NG")) ? "FAIL " + t.join(" ") : "PASS " + t.length;
 </script></body></html>

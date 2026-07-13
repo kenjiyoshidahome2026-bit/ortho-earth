@@ -6,9 +6,9 @@ const LEGACY = { chimei: "place", chikei: "terrain", shisetsu: "facility" };   /
 const CHIPS = [
 	{ k: "place", label: "地名", title: "地名・行政界", on: true },
 	{ k: "terrain", label: "地形", title: "地形の名前・等高線（真俯瞰時）・水系" },
-	{ k: "rail", label: "鉄道" },
-	{ k: "road", label: "道路" },
-	{ k: "facility", label: "施設" },
+	{ k: "rail", label: "鉄道", title: "鉄道路線・駅／港・空港名" },
+	{ k: "road", label: "道路", title: "道路・IC/JCT・国道/高速番号・航路" },
+	{ k: "facility", label: "施設", title: "各種施設・ランドマーク名" },
 ];
 export function mountChips(mapEl, keys = true, fixed = {}) {
 	let sel = keys;
@@ -23,6 +23,6 @@ export function mountChips(mapEl, keys = true, fixed = {}) {
 	const chips = document.createElement("div");
 	chips.id = "chips";
 	chips.innerHTML = list.map(c =>
-		`<button class="chip${c.on ? " on" : ""}" data-k="${c.k}" aria-pressed="${!!c.on}"${c.title ? ` title="${c.title}"` : ""}>${c.label}</button>`).join("\n");
+		`<button class="chip${c.on ? " on" : ""}" data-k="${c.k}" aria-pressed="${!!c.on}"${c.title ? ` data-tip="${c.title}"` : ""}>${c.label}</button>`).join("\n");
 	mapEl.append(chips);
 }

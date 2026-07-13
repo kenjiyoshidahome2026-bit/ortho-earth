@@ -1,0 +1,59 @@
+<!doctype html>
+<!-- 使い捨て：新規ガジェット（zoom/full/cpos/contextmenu）の搭載と対話挙動。判定は<title>のPASS/FAIL。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html{background:#0b1021}body{visibility:hidden}</style><title>t-newgadgets</title></head>
+<body>
+<script>
+window.requestAnimationFrame = cb => setTimeout(() => cb(performance.now()), 16);
+localStorage.setItem("oj.hint", "closed");
+</script>
+<script type="module">
+import orthoJapan from "../app.js";
+const t = [], ok = (n, c) => t.push((c ? "ok:" : "NG:") + n);
+try {
+	const map = await orthoJapan({ view: "#12/35.68/139.76" });
+	map.gadget.zoom(); map.gadget.full(); map.gadget.cpos();
+	const setMenu = map.gadget.contextmenu();
+	map.gadget.zoom();   // 二重搭載＝無害
+	await new Promise(r => setTimeout(r, 300));
+	// 搭載：スタックに zoom/full/cpos が載る（full は headless Chrome では requestFullscreen 有り＝出る）
+	ok("mount", ["zoom", "full", "cpos-btn"].every(id => document.querySelectorAll("#" + id).length === 1));
+	ok("dup", document.querySelectorAll("#zoom").length === 1);
+	ok("mark", document.querySelectorAll("#cpos-mark").length === 1 && document.getElementById("cpos-mark").parentElement.id === "map");
+	// 吹き出し説明：各ボタンに data-tip が付き、OS既定の title は無い（二重ツールチップ回避）
+	ok("tip", ["zoom-in", "zoom-out", "full", "cpos-btn"].every(id => {
+		const b = document.getElementById(id); return b && b.dataset.tip && !b.title;
+	}));
+
+	// zoom＋：cam.zoom が整数段(13)へ寄る
+	const z0 = map.cam.zoom;
+	document.getElementById("zoom-in").click();
+	await new Promise(r => setTimeout(r, 500));
+	ok("zoomin", map.cam.zoom > z0 && Math.abs(map.cam.zoom - Math.floor(z0 + 1)) < 0.001);
+	// zoom−：戻る
+	const z1 = map.cam.zoom;
+	document.getElementById("zoom-out").click();
+	await new Promise(r => setTimeout(r, 500));
+	ok("zoomout", map.cam.zoom < z1);
+
+	// contextmenu：右クリックで既定メニュー2項目が出る（座標ブリッジ unprojectAt 経由）
+	const cv = document.getElementById("c");
+	cv.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 200, clientY: 200 }));
+	await new Promise(r => setTimeout(r, 100));
+	const menu = document.getElementById("ctxmenu");
+	ok("ctxopen", menu && getComputedStyle(menu).display !== "none" && menu.querySelectorAll(".ctxmenu-item").length === 2);
+	// 項目クリックで閉じる
+	menu.querySelector(".ctxmenu-item").click();
+	await new Promise(r => setTimeout(r, 50));
+	ok("ctxclose", getComputedStyle(document.getElementById("ctxmenu")).display === "none");
+	// setter で差し替え → 1項目に
+	setMenu([{ name: "テスト項目", onClick: () => {} }]);
+	cv.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 150, clientY: 150 }));
+	await new Promise(r => setTimeout(r, 100));
+	ok("ctxset", document.getElementById("ctxmenu").querySelectorAll(".ctxmenu-item").length === 1);
+
+	// destroy：後片付けが走る（例外なく）
+	map.destroy();
+	ok("destroy", true);
+} catch (e) { ok("boot:" + (e && e.message || e), false); }
+document.title = t.some(s => s.startsWith("NG")) ? "FAIL " + t.join(" ") : "PASS " + t.join(" ");
+</script></body></html>

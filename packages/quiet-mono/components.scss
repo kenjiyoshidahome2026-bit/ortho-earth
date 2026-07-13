@@ -185,6 +185,81 @@ body { visibility: visible; }   /* 開幕＝このスタイルシートの到着
 	svg { display: block; width: 24px; height: 24px; }   /* 針は26→24px＝34px枠での余白バランス */
 }
 
+/* --- ズーム＋/−：縦2連の一体ボタン（チップと同じ隣接ボーダー共有＝一本のカプセル）。置き場所はスタック --- */
+#zoom {
+	display: flex; flex-direction: column;
+	button {
+		width: 34px; height: 34px; padding: 0; cursor: pointer;
+		border: 1px solid var(--qm-border); background: var(--qm-panel);
+		color: #3f4757; font-size: 19px; line-height: 1; font-weight: 400;
+		display: flex; align-items: center; justify-content: center;
+		-webkit-backdrop-filter: blur(var(--qm-blur)); backdrop-filter: blur(var(--qm-blur));
+	}
+	#zoom-in { border-radius: 5px 5px 0 0; }
+	#zoom-out { border-radius: 0 0 5px 5px; margin-top: -1px; }   /* 隣接ボーダーを1本に重ねる */
+	button:hover { border-color: var(--qm-border-strong); position: relative; }   /* ホバー縁を隣の線に食われない（z-index不使用） */
+}
+
+/* --- 全画面トグル：拡大/縮小アイコン。置き場所はスタック（34px規格で面一） --- */
+#full {
+	width: 34px; height: 34px; border-radius: 5px;
+	border: 1px solid var(--qm-border); background: var(--qm-panel); cursor: pointer; padding: 0;
+	display: flex; align-items: center; justify-content: center;
+	-webkit-backdrop-filter: blur(var(--qm-blur)); backdrop-filter: blur(var(--qm-blur));
+	&:hover { border-color: var(--qm-border-strong); }
+	svg { display: block; }
+}
+
+/* --- 現在地（GPS）：押すと点灯（.on）。置き場所はスタック。マーカーは #map 直下の後置要素 --- */
+#cpos-btn {
+	width: 34px; height: 34px; border-radius: 5px;
+	border: 1px solid var(--qm-border); background: var(--qm-panel); cursor: pointer; padding: 0;
+	display: flex; align-items: center; justify-content: center;
+	-webkit-backdrop-filter: blur(var(--qm-blur)); backdrop-filter: blur(var(--qm-blur));
+	&:hover { border-color: var(--qm-border-strong); }
+	svg { display: block; }
+	&.on { background: var(--qm-ink); border-color: var(--qm-ink);
+		svg { stroke: #fff; circle[fill] { fill: #fff; } } }   /* 点灯＝反転（十字は白・中心点も白） */
+}
+#cpos-mark {   /* 点滅マーカー＝指した現在地。位置は cpos.js が毎フレ更新（left/top はマーカー中心） */
+	position: absolute; pointer-events: none; transform: translate(-50%, -50%);
+	svg { display: block; }
+}
+
+/* --- 右クリックメニュー：指した地点にポン。#map 直下の後置（DOM順で上）。位置は contextmenu.js --- */
+#ctxmenu {
+	position: absolute; min-width: 140px; padding: 4px; background: var(--qm-panel-solid);
+	border: 1px solid var(--qm-border-soft); border-radius: 5px; box-shadow: var(--qm-shadow-pop);
+	.ctxmenu-item {
+		display: flex; align-items: center; gap: 8px; width: 100%; box-sizing: border-box;
+		padding: 7px 10px; border: none; background: none; border-radius: 4px; cursor: pointer;
+		font: 13px var(--qm-font); color: #444; text-align: left;
+		svg { flex: none; }
+		&:hover { background: #eef2f7; }
+	}
+}
+
+/* --- ボタンの吹き出し説明（data-tip）：hover/focus で静かに出す。OS既定の title ツールチップは廃し意匠統一。
+       z-index は使わない＝::after は自ボタンの子（DOM順で親の上に乗る）。左上スタックは右へ、右上チップは左へ出す。
+       aria-label は各ボタンに別途残す（読み上げ用）＝data-tip は目で読む層だけ。 --- */
+/* ::after の錨は「出す時だけ」relative＝隣接ボーダー共有（チップ/ズームの capsule）の重なり順を平時は崩さない。
+   #search-btn は元の absolute が高詳細度で勝ち、常時そのまま錨になる。 */
+#gadgets [data-tip]:hover, #gadgets [data-tip]:focus-visible,
+#chips [data-tip]:hover, #chips [data-tip]:focus-visible { position: relative; }
+#gadgets [data-tip]::after, #chips [data-tip]::after {
+	content: attr(data-tip); position: absolute; top: 50%; transform: translateY(-50%);
+	white-space: nowrap; pointer-events: none;
+	font: 12px var(--qm-font); color: var(--qm-text);
+	background: var(--qm-panel-solid); border: 1px solid var(--qm-border-soft);
+	border-radius: 5px; padding: 5px 9px; box-shadow: var(--qm-shadow-pop);
+	opacity: 0; transition: opacity .14s ease;   /* ポンと出さない＝フェード（家具の所作と揃える） */
+}
+#gadgets [data-tip]::after { left: calc(100% + 8px); }    /* 左上スタック→ボタンの右へ */
+#chips [data-tip]::after { right: calc(100% + 8px); }     /* 右上チップ→ボタンの左へ */
+#gadgets [data-tip]:hover::after, #gadgets [data-tip]:focus-visible::after,
+#chips [data-tip]:hover::after, #chips [data-tip]:focus-visible::after { opacity: 1; }
+@media (pointer: coarse) { #gadgets [data-tip]::after, #chips [data-tip]::after { display: none; } }   /* タッチは操作方法カード(?)が説明役＝hover吹き出しは出さない */
+
 /* --- 実行時に #map へ後置される要素（DOM順で上に乗る） --- */
 #net-toast {   /* 通信断 */
 	position: absolute; top: 12px; left: 50%; transform: translateX(-50%); font-size: 13px; color: var(--qm-warn-text);

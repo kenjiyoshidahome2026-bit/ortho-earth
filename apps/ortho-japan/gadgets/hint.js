@@ -31,7 +31,7 @@ export function hint() {
 		<div class="hint-row"><span>引っ張る＝<b>3D表示</b>（傾き・回転）</span></div>
 		<div class="hint-note">街に寄ると建物が3Dで現れます<br>（初回は読み込みに少し時間がかかります）</div>`;
 	const btn = document.createElement("button");
-	btn.id = "hint-btn"; btn.title = "操作方法"; btn.textContent = "?"; btn.setAttribute("aria-label", "操作方法");
+	btn.id = "hint-btn"; btn.dataset.tip = "操作方法"; btn.textContent = "?"; btn.setAttribute("aria-label", "操作方法");
 	// 置き場所はスタック（搭載順＝縦の並び）。カードと「?」は常にどちらか一方だけ表示＝同じ枠を分け合う。
 	gadgetStack(mapEl).append(card, btn);
 

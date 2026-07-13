@@ -24,8 +24,12 @@
 		import orthoJapan from "./app.js";
 		orthoJapan().then(map => {   // 1行＝日本が立ち上がる（divも自作。埋め込みは orthoJapan({ target: "#…" })）
 			map.gadget.search();      // 地名・住所検索（オプトインガジェット＝欲しい画面だけが載せる。搭載順＝左上からの並び）
-			map.gadget.compass();     // コンパス兼リセット（検索の直下・3Dの時だけ現れる）
+			map.gadget.zoom();        // ズーム＋/−（縦2連の一体ボタン）
+			map.gadget.full();        // 全画面トグル（非対応端末では出ない）
+			map.gadget.compass();     // コンパス兼リセット（3Dの時だけ現れる）
+			map.gadget.cpos();        // 現在地（GPS。押すと寄って点滅マーカー）
 			map.gadget.plateau();     // 建物3D（PLATEAU）データ管理（公式ロゴマークのボタン）
+			map.gadget.contextmenu(); // 右クリックメニュー（既定＝この地点へ寄る／座標をコピー）
 			map.gadget.hint();        // 操作説明カード（最下段＝カードが開いても上の段を動かさない）
 		});
 	</script>
