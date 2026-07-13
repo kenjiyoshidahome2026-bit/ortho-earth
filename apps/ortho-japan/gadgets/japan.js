@@ -11,14 +11,14 @@ export function japan({ view, signal } = {}) {
 	const keyLabel = mac ? "⌘J" : "Ctrl+J";
 	const btn = document.createElement("button");
 	btn.id = "japan-btn"; btn.dataset.tip = `日本全体を表示 (${keyLabel})`; btn.setAttribute("aria-label", "日本全体を表示");
-	// 手描きの列島ブロック図を画素から輪郭ベクトル化（内部塗り→クラック追跡→24箱に正規化）した4島の線画。
-	// 北海道=右上／本州=Γ＋房／九州=左下／四国=中央下。解釈でなく元絵の忠実トレース（元pngは焼き込み後に破棄）。
+	// 手描きの列島ブロック図（画素トレース）を清書＝形はそのまま・段差の掃除と角丸だけ（感性は本人・清書は機械）。
+	// 北海道=右上／本州=右柱＋南の足＋房の切り欠き＋左へ中国地方の帯／九州=左下（上線=帯・下線=四国と面）／四国=中央下。
 	btn.innerHTML = `
-		<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#3f4757" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round" aria-hidden="true">
-			<path d="M17.06 1.63 L17.06 1.76 L16.8 1.76 L16.8 7.32 L16.93 7.32 L16.93 7.45 L22.87 7.45 L22.87 7.2 L23 7.2 L23 1.89 L22.87 1.89 L22.87 1.63 Z"/>
-			<path d="M17.18 7.95 L17.18 8.08 L16.93 8.08 L16.93 8.21 L16.8 8.21 L16.8 14.15 L6.06 14.15 L6.06 14.28 L5.93 14.28 L5.93 18.07 L6.18 18.07 L6.18 18.2 L12.13 18.2 L12.13 22.24 L12.38 22.24 L12.38 22.37 L18.7 22.37 L18.7 22.24 L18.83 22.24 L18.83 20.6 L19.97 20.6 L19.97 22.11 L20.09 22.11 L20.09 22.24 L20.22 22.24 L20.22 22.37 L22.87 22.37 L22.87 22.11 L23 22.11 L23 8.21 L22.87 8.21 L22.87 8.08 L22.75 8.08 L22.75 7.95 Z"/>
-			<path d="M1.13 14.15 L1.13 14.28 L1 14.28 L1 22.11 L1.13 22.11 L1.13 22.37 L4.92 22.37 L4.92 22.24 L5.05 22.24 L5.05 14.15 Z"/>
-			<path d="M6.06 19.08 L6.06 19.21 L5.93 19.21 L5.93 22.24 L6.06 22.24 L6.06 22.37 L11.11 22.37 L11.11 22.24 L11.24 22.24 L11.24 19.08 Z"/></svg>`;
+		<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#3f4757" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round" aria-hidden="true">
+			<rect x="16.8" y="1.6" width="6.2" height="5.8" rx="1"/>
+			<path d="M17 8 H23 V22.4 H20 V20.7 H18.8 V22.4 H12.1 V18.2 H6 V14.1 H17 Z"/>
+			<rect x="1" y="14.1" width="4" height="8.3" rx="1"/>
+			<rect x="5.9" y="19.1" width="5.3" height="3.3" rx="0.9"/></svg>`;
 	gadgetStack(mapEl).append(btn);   // 置き場所はスタック（搭載順＝縦の並び）
 	const go = () => flyTo(view[0], view[1], view[2], 0);   // tilt=0＝真俯瞰へ着地（bearingもflyToが北へ倒す）
 	btn.addEventListener("click", go);
