@@ -64,17 +64,18 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 		const v = top + (bot - top) * ty;
 		return v < 0 ? 0 : v;
 	}
-	// R10 親タイルから 1°セルを切り出して cellRes² に再標本化（downsampleFlipped と同じ南上げ規約）。
+	// R10 親タイルから 1°セルを切り出して cellRes² に再標本化（downsampleFlipped と同じ南上げ・
+	// texel中心 (i+0.5)/N 規約＝シェーダ uv 直サンプルと一致。角合わせだと±0.5texelずれる）。
 	// 混成アトラスの遠方セル用＝R01 の大量フェッチ（1セル数秒×数十）を避けつつ遠景の起伏を出す。
 	function cropResample(tile, lng0, lat0, span, N) {
 		const { data, width: w, height: h, lng: lo, lat: la, range: r } = tile;
 		const out = new Float32Array(N * N);
 		const H = (x, y) => { const v = data[(h - 1 - y) * w + x]; return (v < -420 || v > 9000) ? 0 : v; };   // y:0=南
 		for (let j = 0; j < N; j++) {
-			const gy = ((lat0 - la) + span * j / (N - 1)) / r * (h - 1);
+			const gy = ((lat0 - la) + span * (j + 0.5) / N) / r * (h - 1);
 			const y0 = Math.max(0, Math.min(h - 2, gy | 0)), fy = Math.min(1, Math.max(0, gy - y0));
 			for (let i = 0; i < N; i++) {
-				const gx = ((lng0 - lo) + span * i / (N - 1)) / r * (w - 1);
+				const gx = ((lng0 - lo) + span * (i + 0.5) / N) / r * (w - 1);
 				const x0 = Math.max(0, Math.min(w - 2, gx | 0)), fx = Math.min(1, Math.max(0, gx - x0));
 				const a = H(x0, y0), b = H(x0 + 1, y0), c = H(x0, y0 + 1), d = H(x0 + 1, y0 + 1);
 				const v = (a + (b - a) * fx) + ((c + (d - c) * fx) - (a + (b - a) * fx)) * fy;
@@ -139,13 +140,20 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 		// 解像度は useful（画面が使い切れる密度）で頭打ち。√＝解像度の知覚は平方根程度の効きで、
 		// カバー欠けは「陰影が死ぬ継ぎ目」の崖＝僅差の精細のために画面の一部を切り捨てない
 		//（実例: ハドソン湾チルトで90°セル境界を跨ぐ西側18%が、2700vs2048の僅差で落ちた）。
+		// ただし√の傾斜だけでは境界ケースを守り切れない（実測: z9.6チルト39°×1920x1080で票7%の東隣セルが
+		// 2400vs2048の0.4%僅差で落ちた）＝「確実に見えているセル（票≥総数の1%）は必ず覆う」を制約に格上げし、
+		// 覆える窓の中からスコア最良を選ぶ。cap内に収まらない時だけ従来スコアへ退避。掠り（1-2票）は制約にしない。
+		let total = 0; for (const v of votes.values()) total += v;
+		const vmin = Math.max(2, total * 0.01);
+		const must = [...votes.entries()].filter(([, v]) => v >= vmin).map(([k]) => k.split(",").map(Number));
 		let best = null;
 		for (let ax = Math.max(lox, -cap + 1); ax <= 0; ax++) for (let bx = 0; bx <= Math.min(hix, ax + cap - 1); bx++)
 			for (let ay = Math.max(loy, -cap + 1); ay <= 0; ay++) for (let by = 0; by <= Math.min(hiy, ay + cap - 1); by++) {
 				let s = 0;
 				for (const [k, v] of votes) { const [dx, dy] = k.split(",").map(Number); if (dx >= ax && dx <= bx && dy >= ay && dy <= by) s += v; }
+				const coversAll = must.every(([dx, dy]) => dx >= ax && dx <= bx && dy >= ay && dy <= by);
 				const score = s * Math.sqrt(resOf(bx - ax + 1, by - ay + 1));
-				if (!best || score > best.score) best = { ax, bx, ay, by, score };
+				if (!best || (coversAll && !best.coversAll) || (coversAll === best.coversAll && score > best.score)) best = { ax, bx, ay, by, score, coversAll };
 			}
 		const cellsX = best.bx - best.ax + 1, cellsY = best.by - best.ay + 1;
 		const originCX = camCX + best.ax, originCY = camCY + best.ay;
