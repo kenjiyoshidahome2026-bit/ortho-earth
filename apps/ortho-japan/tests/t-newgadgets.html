@@ -50,6 +50,13 @@ try {
 	cv.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 150, clientY: 150 }));
 	await new Promise(r => setTimeout(r, 100));
 	ok("ctxset", document.getElementById("ctxmenu").querySelectorAll(".ctxmenu-item").length === 1);
+	// 押下だけでは消えない（menuは瞬間に消えない）／押したまま動いたら（ドラッグ）解除
+	document.getElementById("map").dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, clientX: 400, clientY: 400, buttons: 1 }));
+	await new Promise(r => setTimeout(r, 20));
+	ok("ctxpersist", getComputedStyle(document.getElementById("ctxmenu")).display !== "none");
+	document.getElementById("map").dispatchEvent(new PointerEvent("pointermove", { bubbles: true, clientX: 430, clientY: 420, buttons: 1 }));
+	await new Promise(r => setTimeout(r, 20));
+	ok("ctxdrag", getComputedStyle(document.getElementById("ctxmenu")).display === "none");
 
 	// destroy：後片付けが走る（例外なく）
 	map.destroy();

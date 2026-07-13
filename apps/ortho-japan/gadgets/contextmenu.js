@@ -43,9 +43,10 @@ export function contextmenu({ unprojectAt, signal, items } = {}) {
 		if (cx + m.width > r.width) menu.style.left = Math.max(0, r.width - m.width - 4) + "px";
 		if (cy + m.height > r.height) menu.style.top = Math.max(0, r.height - m.height - 4) + "px";
 	}, { signal });
-	// 閉じる：地図クリック・別所の押下・Esc（メニュー内クリックは項目ハンドラが閉じる）
+	// 閉じる：地図クリック・ドラッグ開始（押したまま動く＝パン/回転）・Esc（メニュー内クリックは項目ハンドラが閉じる）。
+	// 押下だけでは閉じない（メニューは瞬間に消えない）＝ボタンを押したまま動いた時に解除＝地図を掴んだ合図。
 	mapEl.addEventListener("click", hide, { signal });
-	mapEl.addEventListener("pointerdown", e => { if (!menu.contains(e.target)) hide(); }, { signal });
+	mapEl.addEventListener("pointermove", e => { if (e.buttons !== 0 && !menu.contains(e.target)) hide(); }, { signal, passive: true });
 	window.addEventListener("keydown", e => { if (e.key === "Escape") hide(); }, { signal });
 	return set => { list = set; };   // 呼び出し側の手綱（項目の差し替え。配列 or e→配列 の関数）
 }
