@@ -246,7 +246,7 @@ body { visibility: visible; }   /* 開幕＝このスタイルシートの到着
    #search-btn は元の absolute が高詳細度で勝ち、常時そのまま錨になる。 */
 #gadgets [data-tip]:hover, #gadgets [data-tip]:focus-visible,
 #chips [data-tip]:hover, #chips [data-tip]:focus-visible { position: relative; }
-#gadgets [data-tip]::after, #chips [data-tip]::after {
+#gadgets [data-tip]::after, #chips [data-tip]::after, #close-btn[data-tip]::after {
 	content: attr(data-tip); position: absolute; top: 50%; transform: translateY(-50%);
 	white-space: nowrap; pointer-events: none;
 	font: 12px var(--qm-font); color: var(--qm-text);
@@ -255,10 +255,11 @@ body { visibility: visible; }   /* 開幕＝このスタイルシートの到着
 	opacity: 0; transition: opacity .14s ease;   /* ポンと出さない＝フェード（家具の所作と揃える） */
 }
 #gadgets [data-tip]::after { left: calc(100% + 8px); }    /* 左上スタック→ボタンの右へ */
-#chips [data-tip]::after { right: calc(100% + 8px); }     /* 右上チップ→ボタンの左へ */
+#chips [data-tip]::after, #close-btn[data-tip]::after { right: calc(100% + 8px); }     /* 右上（チップ・×）→ボタンの左へ */
 #gadgets [data-tip]:hover::after, #gadgets [data-tip]:focus-visible::after,
-#chips [data-tip]:hover::after, #chips [data-tip]:focus-visible::after { opacity: 1; }
-@media (pointer: coarse) { #gadgets [data-tip]::after, #chips [data-tip]::after { display: none; } }   /* タッチは操作方法カード(?)が説明役＝hover吹き出しは出さない */
+#chips [data-tip]:hover::after, #chips [data-tip]:focus-visible::after,
+#close-btn[data-tip]:hover::after, #close-btn[data-tip]:focus-visible::after { opacity: 1; }
+@media (pointer: coarse) { #gadgets [data-tip]::after, #chips [data-tip]::after, #close-btn[data-tip]::after { display: none; } }   /* タッチは操作方法カード(?)が説明役＝hover吹き出しは出さない */
 
 /* --- 汎用プロバイダ（tip=カーソル追従／explain=上辺／legend=左下／pop=地点紐づけ）。
        いずれも内容を持つ時だけ現れる読み物の枠＝意匠は quiet-mono のパネル語彙で統一。 --- */
@@ -356,6 +357,18 @@ body { visibility: visible; }   /* 開幕＝このスタイルシートの到着
 	.mr-sep { color: var(--qm-text-faint); margin: 0 4px; }
 	.mr-hint { color: var(--qm-text-faint); font-size: 11px; }
 }
+
+/* --- 閉じる×（埋め込み用）：右上の額縁の金具＝スタック不参加。搭載時はチップ列を一段下げる --- */
+#close-btn {
+	position: absolute; top: 10px; right: 10px;
+	width: 34px; height: 34px; border-radius: 5px;
+	border: 1px solid var(--qm-border); background: var(--qm-panel); cursor: pointer; padding: 0;
+	display: flex; align-items: center; justify-content: center;
+	-webkit-backdrop-filter: blur(var(--qm-blur)); backdrop-filter: blur(var(--qm-blur));
+	&:hover { border-color: var(--qm-border-strong); }
+	svg { display: block; }
+}
+#map:has(#close-btn) #chips { top: 54px; }   /* ×が居る画面＝チップは×の下から */
 
 /* --- 印刷（平面図）：📄ボタン（スタック・34px規格）＋モーダル（プレビュー・設定・印刷/PDF） --- */
 #print-btn {

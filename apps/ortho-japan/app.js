@@ -34,6 +34,7 @@ import { measure as measureGadget } from "./gadgets/measure.js";
 import { shot as shotGadget } from "./gadgets/shot.js";
 import { japan as japanGadget } from "./gadgets/japan.js";
 import { print as printGadget } from "./gadgets/print.js";
+import { close as closeGadget } from "./gadgets/close.js";
 
 // ============================================================================================
 // ortho-japan：1行で日本が立ち上がる入口（v1 orthoMap の作法の継承）。
@@ -1220,6 +1221,9 @@ map.gadget("japan", function (opts) {   // 日本全体へ（真俯瞰・北向�
 });
 map.gadget("print", function (opts) {   // 印刷（平面図）… 撮影ハイジャック printCapture を注入。プレビュー→印刷/PDF
 	return printGadget.call(this, { capture: printCapture, signal: ac.signal, ...opts });
+});
+map.gadget("close", function (opts) {   // 閉じる×（埋め込み用）… ortho:close を飛ばすだけ＝閉じる実務は埋め込み側
+	return closeGadget.call(this, { signal: ac.signal, ...opts });
 });
 return map;
 }

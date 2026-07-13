@@ -78,6 +78,20 @@ try {
 	ok("japanFit", Math.abs(map.cam.pitch) < 0.02 && map.cam.zoom > 4 && map.cam.zoom < 6
 		&& Math.abs(map.cam.center[0] - 137.628) < 1.2 && Math.abs(map.cam.center[1] - 37.783) < 1.2);
 
+	// close：×クリック/Escで ortho:close が飛ぶ（閉じる実務は埋め込み側）。入力中のEscは譲る
+	map.gadget.close();
+	let closed = 0;
+	map.mapEl.addEventListener("ortho:close", () => closed++);
+	document.getElementById("close-btn").click();
+	ok("closeClick", closed === 1);
+	window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+	ok("closeEsc", closed === 2);
+	const inp2 = document.body.appendChild(document.createElement("input")); inp2.focus();
+	window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+	ok("closeGuard", closed === 2); inp2.remove();
+	// ×が居る画面＝チップ列が一段下がる（:hasの裁き）
+	ok("closeChips", Math.round(document.getElementById("chips").getBoundingClientRect().y) === 54);
+
 	// destroy：後片付けが走る（例外なく）
 	map.destroy();
 	ok("destroy", true);
