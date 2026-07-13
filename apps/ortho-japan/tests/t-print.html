@@ -1,0 +1,65 @@
+<!doctype html>
+<!-- UI回帰：印刷（平面図）。純関数（レイアウト/縮尺→z/紙面組版/PDFライタ）＋モーダルのUIフロー（captureスタブ注入）。
+     実写（ライブパイプラインの撮影ハイジャック）は headless で worker が応答しないため実機確認＝ここでは合成データ。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021;width:900px;height:600px}body{visibility:hidden}</style><title>t-print</title></head>
+<body>
+<script>window.requestAnimationFrame = cb => setTimeout(() => cb(performance.now()), 16); localStorage.setItem("oj.hint", "closed");</script>
+<script type="module">
+import orthoJapan from "../app.js";
+import { layoutFor, zoomForScale, composePage, pdfFromCanvas, PAPERS } from "../gadgets/print.js";
+const t = [], ok = (n, c) => t.push((c ? "ok:" : "NG:") + n);
+try {
+	// レイアウト：A4横=297×210・内罫は外罫の内側・下帯が外罫の下
+	const L = layoutFor("a4", "landscape");
+	ok("layout", L.W === 297 && L.H === 210 && L.inner.x > L.outer.x && L.cap.y > L.outer.y + L.outer.h - 0.01);
+	const Lp = layoutFor("a3", "portrait");
+	ok("layoutA3", Lp.W === 297 && Lp.H === 420);
+
+	// 縮尺→z：m/csspx=2πR/(2^z·512) の往復で「紙の地図幅×縮尺＝切り出し地表幅」が成立
+	const S = 25000, crop = 1200, z = zoomForScale(S, L.inner.w, crop);
+	const mPerCss = 2 * Math.PI * 6371008.8 / (Math.pow(2, z) * 512);
+	ok("scale", Math.abs(mPerCss * crop - L.inner.w / 1000 * S) / (L.inner.w / 1000 * S) < 1e-6);
+
+	// 紙面組版：合成スクリーン（赤塗り）→ 用紙px寸法・余白は白・外罫は暗い・地図部は赤
+	const scr = new OffscreenCanvas(400, 300); const sctx = scr.getContext("2d");
+	sctx.fillStyle = "#c00"; sctx.fillRect(0, 0, 400, 300);
+	const corners = { nw: [139.70, 35.72], ne: [139.76, 35.72], sw: [139.70, 35.68], se: [139.76, 35.68] };
+	const page = composePage({ screen: scr, rectDev: { x: 20, y: 15, w: 360, h: 255 }, layout: L, S, corners, font: "system-ui", attr: ["出典：テスト", "© test"], dpi: 150 });
+	const MM = 150 / 25.4;
+	ok("pageSize", page.width === Math.round(L.W * MM) && page.height === Math.round(L.H * MM));
+	const px = (x, y) => page.getContext("2d").getImageData(Math.round(x * MM), Math.round(y * MM), 1, 1).data;
+	const corner = px(2, 2);                        // 余白＝白
+	ok("margin", corner[0] > 245 && corner[1] > 245 && corner[2] > 245);
+	const frame = px(L.outer.x + L.outer.w / 2, L.outer.y);   // 外罫＝暗い
+	ok("frame", frame[0] < 150);
+	const mapc = px(L.W / 2, (L.inner.y + L.inner.h / 2));    // 地図部＝赤
+	ok("mapArea", mapc[0] > 150 && mapc[1] < 120);
+
+	// PDFライタ：%PDF ヘッダ・DCTDecode・%%EOF・MediaBox に用紙pt
+	const pdf = await pdfFromCanvas(page, L.W, L.H);
+	const head = new TextDecoder().decode((await pdf.arrayBuffer()).slice(0, 2000));
+	const tail = new TextDecoder().decode((await pdf.arrayBuffer()).slice(-40));
+	ok("pdf", pdf.type === "application/pdf" && head.startsWith("%PDF-1.4") && head.includes("/DCTDecode")
+		&& head.includes(`/MediaBox [0 0 ${(L.W * 72 / 25.4).toFixed(2)} ${(L.H * 72 / 25.4).toFixed(2)}]`) && tail.includes("%%EOF"));
+
+	// UIフロー：captureスタブ注入→モーダル開＝自動プレビュー→img.src が blob:
+	const map = await orthoJapan({ view: "#14/35.681/139.767" });
+	const mk = n => { const a = new Uint8Array(n * n * 4); for (let i = 0; i < a.length; i += 4) { a[i] = 180; a[i + 3] = 255; } return a.buffer; };
+	const stub = async ({ zoom, cropCss }) => ({
+		snap: { W: 640, H: 640, render: { base: mk(640), w: 640, h: 640, labels: null, lw: 0, lh: 0 } },
+		rect: { x: 10, y: 10, w: cropCss.w, h: cropCss.h }, corners, dpr: 1,
+	});
+	const h = map.gadget.print({ capture: stub });
+	map.gadget.print({ capture: stub });   // 二重搭載＝無害
+	await new Promise(r => setTimeout(r, 200));
+	ok("mount", document.querySelectorAll("#print-btn").length === 1 && document.querySelectorAll("#print").length === 1);
+	document.getElementById("print-btn").click();
+	for (let i = 0; i < 100 && !document.getElementById("print-preview").src.startsWith("blob:"); i++) await new Promise(r => setTimeout(r, 50));
+	ok("preview", document.getElementById("print").classList.contains("open") && document.getElementById("print-preview").src.startsWith("blob:"));
+	h.close();
+	ok("close", !document.getElementById("print").classList.contains("open"));
+	map.destroy();
+	ok("destroy", true);
+} catch (e) { ok("boot:" + (e && e.message || e), false); }
+document.title = t.some(s => s.startsWith("NG")) ? "FAIL " + t.join(" ") : "PASS " + t.join(" ");
+</script></body></html>

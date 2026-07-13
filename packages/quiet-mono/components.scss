@@ -357,6 +357,50 @@ body { visibility: visible; }   /* 開幕＝このスタイルシートの到着
 	.mr-hint { color: var(--qm-text-faint); font-size: 11px; }
 }
 
+/* --- 印刷（平面図）：📄ボタン（スタック・34px規格）＋モーダル（プレビュー・設定・印刷/PDF） --- */
+#print-btn {
+	width: 34px; height: 34px; border-radius: 5px;
+	border: 1px solid var(--qm-border); background: var(--qm-panel); cursor: pointer; padding: 0;
+	display: flex; align-items: center; justify-content: center;
+	-webkit-backdrop-filter: blur(var(--qm-blur)); backdrop-filter: blur(var(--qm-blur));
+	&:hover { border-color: var(--qm-border-strong); }
+	svg { display: block; }
+}
+#print {
+	position: absolute; inset: 0; display: none; align-items: center; justify-content: center;
+	background: rgba(10, 16, 33, .55);
+	&.open { display: flex; }
+	.print-box {
+		position: relative; width: min(560px, 94%); padding: 12px 14px;
+		background: var(--qm-panel-solid); border: 1px solid var(--qm-border-soft); border-radius: 8px;
+		box-shadow: var(--qm-shadow-pop); font: 13px var(--qm-font); color: var(--qm-text);
+	}
+	.print-head { font-weight: 600; font-size: 13px; color: var(--qm-ink); margin-bottom: 10px; padding-right: 24px; }
+	.print-row {
+		display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-bottom: 8px;
+		label { font-size: 12px; color: var(--qm-text-dim); margin-left: 4px; }
+		select { font: 13px var(--qm-font); padding: 4px 6px; border: 1px solid var(--qm-border); border-radius: 5px; background: #fff; color: #333; }
+	}
+	#print-preview {
+		display: block; width: 100%; max-height: 52vh; min-height: 120px; object-fit: contain;
+		background: #f3f4f6; border: 1px solid var(--qm-border-soft); border-radius: 4px;
+		transition: opacity .2s;
+		&.busy { opacity: .35; }
+	}
+	#print-note { font-size: 11px; color: var(--qm-text-faint); margin-top: 6px; min-height: 15px;
+		&.warn { color: var(--qm-warn-text); } }
+	.print-actions {
+		display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px;
+		button {
+			font: 13px var(--qm-font); padding: 6px 18px; border: 1px solid var(--qm-border);
+			border-radius: 5px; background: #fff; color: #345; cursor: pointer;
+			&:hover { border-color: var(--qm-border-strong); }
+			&:disabled { opacity: .45; cursor: default; }
+		}
+		#print-go { background: var(--qm-ink); border-color: var(--qm-ink); color: #fff; }
+	}
+}
+
 /* --- 実行時に #map へ後置される要素（DOM順で上に乗る） --- */
 #net-toast {   /* 通信断 */
 	position: absolute; top: 12px; left: 50%; transform: translateX(-50%); font-size: 13px; color: var(--qm-warn-text);

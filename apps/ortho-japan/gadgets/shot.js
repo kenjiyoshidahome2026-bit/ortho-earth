@@ -15,6 +15,34 @@ const DEFAULT_ATTR = [
 	"© 2026 Kenji Yoshida",
 ];
 
+// 出典の文面（#attr があればその文面／無ければ既定）＝shot の焼き込みと print の下帯で共用。
+export function attrLines(mapEl) {
+	const el = mapEl.querySelector("#attr");
+	return (el && el.innerText.trim() ? el.innerText : DEFAULT_ATTR.join("\n")).split(/\n/).map(t => t.trim()).filter(Boolean);
+}
+
+// 生ピクセル(RGBA ArrayBuffer)を source 寸法の一時canvasへ置き、出力 W×H へ伸ばして重ねる。flip=true は GL の上下反転を戻す。
+function blit(ctx, buf, w, h, W, H, flip) {
+	if (!buf || !w || !h) return;
+	const tmp = new OffscreenCanvas(w, h);
+	tmp.getContext("2d").putImageData(new ImageData(new Uint8ClampedArray(buf), w, h), 0, 0);
+	ctx.save();
+	if (flip) { ctx.translate(0, H); ctx.scale(1, -1); }   // GL は原点左下＝上下反転で来る
+	ctx.drawImage(tmp, 0, 0, W, H);
+	ctx.restore();
+}
+
+// スナップショット各層（基図GL・知性GL・ラベル2D・計測2D）を1枚のcanvasへ＝shot と print（平面図）で共用。
+export function composeLayersToCanvas({ W, H, render, gint }, measureCanvas) {
+	const out = new OffscreenCanvas(W, H);
+	const ctx = out.getContext("2d");
+	if (render?.base) blit(ctx, render.base, render.w, render.h, W, H, true);   // GL＝上下反転で戻す。動的解像度で縮む事があるので W×H へ伸ばす
+	if (gint?.base) blit(ctx, gint.base, gint.w, gint.h, W, H, true);           // GL＝反転
+	if (render?.labels) blit(ctx, render.labels, render.lw, render.lh, W, H, false);   // 2D＝そのまま
+	if (measureCanvas && measureCanvas.width) ctx.drawImage(measureCanvas, 0, 0, W, H);   // 計測の線・距離・面積
+	return out;
+}
+
 export function shot({ requestSnapshot, signal } = {}) {
 	const mapEl = this.mapEl;
 	// モバイル（タッチ端末）はボタンごと出さない＝端末標準のスクリーンショットに委ねる（家具を増やさない）。
@@ -48,33 +76,15 @@ export function shot({ requestSnapshot, signal } = {}) {
 		finally { btn.disabled = false; btn.classList.remove("busy"); }
 	}
 
-	// 各層を1枚へ合成→webp Blob。下から：基図 → 知性(海岸線/14条) → ラベル → 計測層 → 出典。
-	async function composite({ W, H, render, gint }) {
-		const out = new OffscreenCanvas(W, H);
-		const ctx = out.getContext("2d");
-		if (render?.base) blit(ctx, render.base, render.w, render.h, W, H, true);   // GL＝上下反転で戻す。動的解像度で縮む事があるので W×H へ伸ばす
-		if (gint?.base) blit(ctx, gint.base, gint.w, gint.h, W, H, true);           // GL＝反転
-		if (render?.labels) blit(ctx, render.labels, render.lw, render.lh, W, H, false);   // 2D＝そのまま
-		const mline = mapEl.querySelector("#measure-lines");                        // 計測の線・距離・面積は canvas に焼いてある＝丸ごと入る
-		if (mline && mline.width) ctx.drawImage(mline, 0, 0, W, H);
-		drawAttr(ctx, W, H);
+	// 各層を1枚へ合成→webp Blob。層重ね（基図→知性→ラベル→計測）は composeLayersToCanvas（printと共用）。
+	async function composite(snap) {
+		const out = composeLayersToCanvas(snap, mapEl.querySelector("#measure-lines"));
+		drawAttr(out.getContext("2d"), snap.W, snap.H);
 		return out.convertToBlob({ type: "image/webp", quality: 0.92 });
 	}
 
-	// 生ピクセル(RGBA ArrayBuffer)を source 寸法の一時canvasへ置き、出力 W×H へ伸ばして重ねる。flip=true は GL の上下反転を戻す。
-	function blit(ctx, buf, w, h, W, H, flip) {
-		if (!buf || !w || !h) return;
-		const tmp = new OffscreenCanvas(w, h);
-		tmp.getContext("2d").putImageData(new ImageData(new Uint8ClampedArray(buf), w, h), 0, 0);
-		ctx.save();
-		if (flip) { ctx.translate(0, H); ctx.scale(1, -1); }   // GL は原点左下＝上下反転で来る
-		ctx.drawImage(tmp, 0, 0, W, H);
-		ctx.restore();
-	}
-
-	function drawAttr(ctx, W, H) {   // 右下に出典を焼き込む（#attr があればその文面／無ければ既定）。白文字＋暗い帯で可読性を担保
-		const el = mapEl.querySelector("#attr");
-		const lines = (el && el.innerText.trim() ? el.innerText : DEFAULT_ATTR.join("\n")).split(/\n/).map(t => t.trim()).filter(Boolean);
+	function drawAttr(ctx, W, H) {   // 右下に出典を焼き込む（文面は attrLines＝printの下帯と共用）。白文字＋暗い帯で可読性を担保
+		const lines = attrLines(mapEl);
 		const dpr = W / mapEl.clientWidth || 1;   // canvas は device px＝表示px比で文字を拡大
 		const fs = Math.round(11 * dpr), pad = Math.round(6 * dpr), lh = Math.round(fs * 1.4), gap = Math.round(8 * dpr);
 		ctx.font = `${fs}px system-ui, sans-serif`; ctx.textAlign = "right"; ctx.textBaseline = "bottom";

@@ -33,6 +33,7 @@ import { legend as legendGadget } from "./gadgets/legend.js";
 import { measure as measureGadget } from "./gadgets/measure.js";
 import { shot as shotGadget } from "./gadgets/shot.js";
 import { japan as japanGadget } from "./gadgets/japan.js";
+import { print as printGadget } from "./gadgets/print.js";
 
 // ============================================================================================
 // ortho-japan：1行で日本が立ち上がる入口（v1 orthoMap の作法の継承）。
@@ -155,6 +156,9 @@ logEl.style.display = "none";
 let bootT = setTimeout(() => {
 	fatalOverlay("起動に時間がかかっています", "描画が始まりません。再読み込みで直ることがあります。改善しない場合は、ブラウザの設定で「ハードウェアアクセラレーション」が有効かご確認ください。", true);
 }, 10000);
+// 印刷（平面図）撮影中の抑止フラグ：autoPlateau/settle保存を止め、描画は noTerrain（真俯瞰の紙仕様＝
+// 標高ラスタの陰影・変位なし＝等高線(ベクタ)だけの厳密な正射平面図。標高タイルの読み込み待ちも不要になる）
+let printHold = false;
 renderWorker.onmessage = e => {
 	const d = e.data;
 	if (d.type === "snapshot") return snapPart(d.id, "render", d);   // shot 用：基図+ラベルの ImageBitmap
@@ -309,6 +313,7 @@ const bboxIntersects = (a, b) => a[0] <= b[2] && a[2] >= b[0] && a[1] <= b[3] &&
 function autoPlateau() {
 	if (!plateauOn) return;   // 機能ごと停止（opts.plateau=false）
 	if (flying) return;   // フライト中は読み込みも解放もしない＝デコード/GPU転送が飛行アニメと帯域を取り合わない。着地の onMove で解禁
+	if (printHold) return;   // 印刷（平面図）撮影中＝印刷カメラで自動ロード/解放をしない（帯域と現ロード状態を乱さない）
 	if (cam.zoom < PLATEAU_AUTO_Z) {
 		for (const name of plateauActive.keys()) { renderer.set("plateauMesh", null, name); console.log("[plateau] 範囲外→解放", name); }
 		if (plateauActive.size) needsDraw = true;
@@ -360,7 +365,7 @@ function onMove() {
 	renderer.draw(cam, { skipBase: false, skipMain: mainStale(), noTerrain: false });   // 入力の瞬間に最新camをworkerへ（全球z<4も標高の塗りは描く＝R90一式は先読み/IDB常備で安い）
 	// 海岸線(gint)は render worker が draw 後に従属で駆動＝ここから直接送らない（地図と同cam/同フレーム＝スライド消滅）。
 	clearTimeout(settleT);
-	settleT = setTimeout(() => { moving = false; needsDraw = true; gintCanvas.style.opacity = "1"; gintWorker.postMessage({ type: "drawn" }); saveView(); }, 150);   // 停止後に identify(picking)＋gint復帰＋ビュー保存（localStorage＋共有URL）
+	settleT = setTimeout(() => { moving = false; needsDraw = true; gintCanvas.style.opacity = "1"; gintWorker.postMessage({ type: "drawn" }); if (!printHold) saveView(); }, 150);   // 停止後に identify(picking)＋gint復帰＋ビュー保存（印刷カメラは保存しない）
 	schedulePos();   // 座標読み取りもカメラに追随（rAF畳み込み＝タダ同然）
 }
 
@@ -1030,7 +1035,7 @@ function render() {
 	// 地形アトラスもズーム中は再構築しない：cellRes/セル数が連続変化して全再ロード＆勾配密度の跳びで
 	// 陰影がチラつくため（terrainGate＝render worker 側の terrain.ensure() 呼び出しを止める合図）。
 	// ズーム中は現アトラスを再投影（球面メッシュなので拡縮は追従）、停止後に再構築。
-	renderer.draw(cam, { skipBase: !moving, skipMain: mainStale(), noTerrain: false, terrainGate: !moving || zoomStable });     // 先に最新camをworkerへ（全球でも標高の塗りは生かす）。海岸線は render worker が従属で追随
+	renderer.draw(cam, { skipBase: !moving, skipMain: mainStale(), noTerrain: printHold, terrainGate: !moving || zoomStable });     // 先に最新camをworkerへ（全球でも標高の塗りは生かす）。印刷撮影中は noTerrain＝紙仕様の平面図。海岸線は render worker が従属で追随
 	// 全球ビュー（z<4）：基図(GSI)の詳細は不要＝タイル/結合/地形を止め、基図シーンを空に＝海岸線(gint)だけの軽い地球。
 	// これで pan 中も main の毎フレーム負荷（tiles.update/merge/terrain）が消える。
 	// 家具も全部フェード退場（attr含む＝quiet-mono #map.world）＝星空劇場の舞台。GSI非描画なので出典義務なし。
@@ -1126,6 +1131,39 @@ const requestSnapshot = () => new Promise(resolve => {
 	renderWorker.postMessage({ type: "snapshot", id });
 	if (wantGint) gintWorker.postMessage({ type: "snapshot", id });
 });
+// --- 印刷（平面図）用の撮影：ライブパイプラインを一時的に「印刷カメラ」（同中心・真俯瞰・北向き・指定z・
+// noTerrain＝紙仕様）へ振り、タイル/注記の読み込みが落ち着いてから readPixels スナップショットを取り、
+// 元のカメラへ戻す。printHold が autoPlateau と settle保存を抑止（印刷カメラを自動ロードや保存に漏らさない）。
+const printSettled = timeout => new Promise(res => {
+	const t0 = performance.now();
+	const tick = () => {
+		const idle = !moving && (cam.zoom < BASEMAP_MINZOOM || (readySig && readySig === mergeReq.main.sig));
+		if (idle || performance.now() - t0 > timeout) return setTimeout(res, 300);   // 一拍おいて描画を確定
+		setTimeout(tick, 200);
+	};
+	setTimeout(tick, 400);
+});
+async function printCapture({ zoom, cropCss }) {
+	flightCtl.cancel();
+	const saved = { center: [...cam.center], zoom: cam.zoom, pitch: cam.pitch, bearing: cam.bearing };
+	printHold = true;
+	try {
+		cam.pitch = 0; cam.bearing = 0; cam.zoom = zoom; onMove();
+		await printSettled(12000);
+		const snap = await requestSnapshot();
+		const cw = mapEl.clientWidth, ch = mapEl.clientHeight;
+		const rect = { x: (cw - cropCss.w) / 2, y: (ch - cropCss.h) / 2, w: cropCss.w, h: cropCss.h };   // 中央切り出し（CSS座標）
+		const corners = {   // 図郭の四隅経緯度（経緯線・隅表記用）。球外は null＝print側が省く
+			nw: unprojectXY(rect.x, rect.y), ne: unprojectXY(rect.x + rect.w, rect.y),
+			sw: unprojectXY(rect.x, rect.y + rect.h), se: unprojectXY(rect.x + rect.w, rect.y + rect.h),
+		};
+		return { snap, rect, corners, dpr };
+	} finally {
+		cam.center = saved.center; cam.zoom = saved.zoom; cam.pitch = saved.pitch; cam.bearing = saved.bearing;
+		onMove();
+		printHold = false;   // 元カメラの settle は保存してよい（印刷カメラの settle は抑止済み）
+	}
+}
 map.gadget = function (name, func) {
 	typeof name == "function" && name.name && (func = name, name = func.name);
 	map.gadget[name] = function () { return func.apply(map, arguments); };
@@ -1179,6 +1217,9 @@ map.gadget("shot", function (opts) {   // 画面保存 … worker越しの3層+m
 });
 map.gadget("japan", function (opts) {   // 日本全体へ（真俯瞰・北向き）… 着地点は既定の列島ビューを共有・⌘/Ctrl+J
 	return japanGadget.call(this, { view: JAPAN_VIEW, signal: ac.signal, ...opts });
+});
+map.gadget("print", function (opts) {   // 印刷（平面図）… 撮影ハイジャック printCapture を注入。プレビュー→印刷/PDF
+	return printGadget.call(this, { capture: printCapture, signal: ac.signal, ...opts });
 });
 return map;
 }
