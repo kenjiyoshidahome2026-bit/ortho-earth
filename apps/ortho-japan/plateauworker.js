@@ -109,8 +109,12 @@ async function decodeBatch(base, leaves, wardMask, wardBbox, onTile = null) {
 					if (g[2] < minH) minH = g[2];
 					geoSeg[i*3] = g[0]; geoSeg[i*3+1] = g[1]; geoSeg[i*3+2] = g[2];
 					// 法線：glTF(Y-up local)→ortho は方向を (nx, ny, -nz)（Yup→Zup＋ECEF→ortho軸swap の合成）。符号は FS で視線側へ。
-					if (NRM) { nrmSeg[i*4] = Math.round(NRM[i*3] * 127); nrmSeg[i*4+1] = Math.round(NRM[i*3+1] * 127); nrmSeg[i*4+2] = Math.round(-NRM[i*3+2] * 127); }
-					else { nrmSeg[i*4+1] = 127; }
+					// 正規化してから量子化：非単位法線が混じると ×127 が ±127 を越え Int8 で符号が巻き戻る（壁が黒落ち/ちらつき）ため。
+					if (NRM) {
+						const nx = NRM[i*3], ny = NRM[i*3+1], nz = -NRM[i*3+2];
+						const s = 127 / (Math.hypot(nx, ny, nz) || 1);
+						nrmSeg[i*4] = Math.round(nx * s); nrmSeg[i*4+1] = Math.round(ny * s); nrmSeg[i*4+2] = Math.round(nz * s);
+					} else { nrmSeg[i*4+1] = 127; }
 				}
 				const idxSeg = new Uint32Array(I ? I.length : n);
 				if (I) for (let k = 0; k < I.length; k++) idxSeg[k] = I[k] + totalV;

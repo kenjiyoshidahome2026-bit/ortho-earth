@@ -142,7 +142,10 @@ out vec4 fragColor;
 void main() {
 	if (v_front < 0.0) discard;                                   // 裏半球
 	vec3 n = normalize(v_n);                                      // glTF 実法線
-	if (dot(n, normalize(v_toEye)) < 0.0) discard;               // 裏面カリング（実法線で判定＝巻き順非依存）＝淵の front/back z-fight とトグル反転を断つ
+	// 裏面カリング（実法線で判定＝巻き順非依存）＝淵の front/back z-fight とトグル反転を断つ。
+	// 閾値 -0.02＝int8量子化(誤差~0.4°, sin≈0.007)の許容帯。0.0 ちょうどだと視線すれすれの壁が
+	// 量子化誤差で描く/捨てるを行き来してちらつく（すれすれ帯の裏面は幅~1px＝描いても実害なし）。
+	if (dot(n, normalize(v_toEye)) < -0.02) discard;
 	vec3 L = normalize(vec3(-0.35, 0.85, 0.30));                  // 斜め上の光＝屋根が立つ
 	float d = clamp(dot(n, L) * 0.28 + 0.76, 0.72, 1.0);         // 基図建物の屋根1.0/壁0.76に合わせる（up向き屋根→~1.0、垂直壁→~0.76）
 	vec3 c = mix(u_bldColor * d, u_fogColor, v_fog);
