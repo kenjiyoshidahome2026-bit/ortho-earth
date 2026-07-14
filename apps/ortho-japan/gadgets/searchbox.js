@@ -29,6 +29,7 @@ export function search(opts = {}) {
 		const el = document.activeElement, tag = el && el.tagName;
 		if (tag === "INPUT" || tag === "TEXTAREA" || el?.isContentEditable) return;
 		e.preventDefault();
+		box.classList.add("open");   // 虫めがねだけの畳んだ状態なら input を展開してから（ボタンクリックと同じ所作）
 		const inp = box.querySelector("#search-in"); inp.focus(); inp.select?.();
 	}, { signal: opts.signal });
 	return box;

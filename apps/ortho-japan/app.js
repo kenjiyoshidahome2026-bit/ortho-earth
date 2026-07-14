@@ -914,6 +914,22 @@ const input = createInput({
 	},
 	onHover: (x, y) => { if (gintInteractive) gintWorker.postMessage({ type: "move", x, y }); },
 });
+
+// アイドル退場：マウスを止めると左上/右上のアイコンが静かに消え、動かす（or キー操作）と戻る。
+// タッチ端末は対象外（指では常時見えていてほしい＝端末標準の消え方に委ねない）。
+// 触れている間（#gadgets/#chips 上）と検索を開いている間は消さない＝操作中に足元が消える事故を防ぐ。
+if (!window.matchMedia("(pointer: coarse)").matches) {
+	const IDLE_MS = 2500;
+	let idleT = 0;
+	const overUI = () => { const h = mapEl.querySelector(":hover"); return !!(h && (h.closest("#gadgets") || h.closest("#chips"))); };
+	const searchOpen = () => !!mapEl.querySelector("#search.open");
+	const hideUI = () => { if (overUI() || searchOpen()) { idleT = setTimeout(hideUI, IDLE_MS); return; } mapEl.classList.add("ui-idle"); };   // 操作中は消さず再武装
+	const wakeUI = () => { mapEl.classList.remove("ui-idle"); clearTimeout(idleT); idleT = setTimeout(hideUI, IDLE_MS); };
+	mapEl.addEventListener("mousemove", wakeUI, { signal: ac.signal, passive: true });
+	mapEl.addEventListener("pointerdown", wakeUI, { signal: ac.signal, passive: true });
+	window.addEventListener("keydown", wakeUI, { signal: ac.signal });
+	idleT = setTimeout(hideUI, IDLE_MS);   // 起動後に無操作なら退場（動かせば戻る）
+}
 const evXY = input.evXY;   // 座標読み取り（計器）も同じローカル変換を使う
 
 // --- 座標読み取り（左下）：2段テーブル＝上段ラベル「経度・緯度・標高・z値・傾度」/下段数値（attr右下の複数段と対に）。
