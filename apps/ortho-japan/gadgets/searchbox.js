@@ -11,7 +11,7 @@ export function search(opts = {}) {
 	box.id = "search";
 	box.innerHTML = `
 		<input id="search-in" type="search" placeholder="地名・住所を検索" aria-label="地名・住所を検索" autocomplete="off" spellcheck="false">
-		<button id="search-btn" data-tip="地名・住所を検索" aria-label="地名・住所を検索">
+		<button id="search-btn" data-tip="地名・住所を検索（/）" aria-label="地名・住所を検索">
 			<svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.2" fill="none" stroke="#3f4757" stroke-width="2.2"/><line x1="15.2" y1="15.2" x2="20.5" y2="20.5" stroke="#3f4757" stroke-width="2.2" stroke-linecap="round"/></svg>
 		</button>`;
 	gadgetStack(mapEl).append(box);   // 置き場所はスタック（搭載順＝縦の並び）
@@ -22,5 +22,14 @@ export function search(opts = {}) {
 	list.setAttribute("role", "listbox"); list.setAttribute("aria-label", "検索候補");
 	mapEl.append(list);
 	createSearch({ onGo: opts.onGo || this.flyTo, signal: opts.signal });   // 飛び方は本体の領分（opts.onGoで差し替え可）。signal＝destroy時のリスナー解除
+	// /＝検索窓へフォーカス（GitHub/YouTube と同じ所作）。入力欄フォーカス中は素通し＝/ をそのまま打てる・
+	// Firefox のクイック検索も preventDefault で抑止。既存文字は選択して即上書きできる状態に。
+	window.addEventListener("keydown", e => {
+		if (e.key !== "/" || e.ctrlKey || e.metaKey || e.altKey) return;
+		const el = document.activeElement, tag = el && el.tagName;
+		if (tag === "INPUT" || tag === "TEXTAREA" || el?.isContentEditable) return;
+		e.preventDefault();
+		const inp = box.querySelector("#search-in"); inp.focus(); inp.select?.();
+	}, { signal: opts.signal });
 	return box;
 }
