@@ -33,15 +33,14 @@ onmessage = e => {
 			// 低ズームの地球ぐるぐるで陰影が最初から途切れない（z1-4を塗る前提の仕込み）。
 			setTimeout(() => { for (const lng of [-180, -90, 0, 90]) for (const lat of [-90, 0]) terrain.prefetch(lng, lat, 90); }, 6000);
 			if (m.scenePort) m.scenePort.onmessage = ev => {     // scene worker から直結：main を経由しない geometry
-				try { renderer.set("scene", ev.data.scene, ev.data.slot); }
-				catch (err) { console.error("[render] scene適用失敗:", err && (err.message || err)); }   // 適用失敗も黙らせない（次の merge で回復）
-				dirty = true;                                    // 内容更新→次の rAF で最新camで描き直す
+				sceneInbox.set(ev.data.slot, ev.data.scene);     // 貯めるだけ＝適用は drainUploads（1件/フレーム・slotごと最新だけ＝ズーム中の中間版は上げずに捨てる）
+				dirty = true;
 			};
 			if (m.gintSyncPort) gintSyncPort = m.gintSyncPort;   // 海岸線(gint)従属の出口
 			requestAnimationFrame(frame);                        // worker 自前の描画ループ開始
 			break;
 		case "plateauPort":                                      // plateau worker → ここ のメッシュ直結パイプ（workerプール1本につき1ポート）
-			m.port.onmessage = ev => { plateauInbox.push(ev.data); dirty = true; };   // 受信は貯めるだけ＝GPU転送は frame() が1件/フレームで平準化（下の drainPlateau）
+			m.port.onmessage = ev => { plateauInbox.push(ev.data); dirty = true; };   // 受信は貯めるだけ＝GPU転送は frame() が1件/フレームで平準化（下の drainUploads）
 			break;
 		case "resize":                                           // 両キャンバスを同じ寸法に（main は transfer 後触れない）
 			baseW = m.width; baseH = m.height;
@@ -54,7 +53,8 @@ onmessage = e => {
 			else if (m.cmd === "skyLabels") { if (labelLayer) labelLayer.setSky(m.data); }   // 星空劇場の注記（星座名・メシエ）＝ラベルcanvasへ
 			else if (m.cmd === "skyMoon") { if (labelLayer) labelLayer.setMoon(m.data); }    // 月の満ち欠け円盤＝ラベルcanvasへ（常設）
 			else if (m.cmd === "plateauMesh") plateauInbox.push({ meshData: m.data, name: m.prop });   // 解放(null)も同じ列へ＝キュー内の未転送バッチを追い越さない（先に解放が効くと後から亡霊バッチが立つ）
-			else if (renderer) renderer.set(m.cmd, m.data, m.prop);              // view/scene/overlay/elev…
+			else if (m.cmd === "scene") sceneInbox.set(m.prop, m.data);          // mainからのシーンクリア（退場の layers:[]）も同じ受け口＝キュー内の古いシーンに追い越されない
+			else if (renderer) renderer.set(m.cmd, m.data, m.prop);              // view/overlay/elev…
 			dirty = true;                                        // 内容が変わった→描き直す
 			break;
 		case "draw":                                             // main からは cam を記録するだけ（実描画は rAF）
@@ -113,13 +113,23 @@ const RES_STEPS = [1, 0.85, 0.7, 0.55];
 let emaMs = 0, lastFrameT = 0, prevDrew = false, resHold = 0, upStreak = 0, upDelay = 300;
 let uploadSkip = 0, pendingUp = false;   // uploadSkip＝PLATEAU転送直後の計測除外（転送スパイクで誤降格しない）。pendingUp＝解像度復帰の予約（適用は静止フレーム）
 
-// PLATEAU バッチ転送の平準化：バッチ（typed array 10〜20MB）が同一フレームに複数届くと bufferData が束で走り、
-// そのフレームだけ数十msの山＝カクツキ。受信は plateauInbox に貯め、frame() が1フレーム1件だけ GPU へ上げる
-// （逐次表示の思想を GPU 転送まで通す）。解放(null)は deleteBuffer だけで軽い＝同フレームで続けて消化し、
-// FIFO は崩さない（解放→後続バッチの追い越しが無い＝区の入替で亡霊メッシュが残らない）。
-const plateauInbox = [];
-function drainPlateau() {
-	while (plateauInbox.length && renderer) {
+// 重い GPU 転送の平準化（1フレーム1件）：同一フレームに bufferData が束で乗るとフレームが飛ぶ。
+// ・シーン（swapBase/swapScene のマージ結果＝丸ごと差し替え）は slot ごとに「最新だけ」保持＝
+//   ズーム中に連続で届く粗い下地の中間版は上げずに捨てる（転送の仕事そのものが減る）。
+// ・PLATEAU バッチ（typed array 10〜20MB）は FIFO＝解放(null)の追い越し禁止（先に解放が効くと
+//   後から亡霊バッチが立つ）。解放は deleteBuffer だけで軽い＝同フレームで続けて消化。
+const sceneInbox = new Map(), plateauInbox = [];
+function drainUploads() {
+	if (!renderer) return;
+	if (sceneInbox.size) {   // シーン優先＝基図の見た目への効きが大きい（PLATEAUは1フレーム待つだけ）
+		const [slot, scene] = sceneInbox.entries().next().value;
+		sceneInbox.delete(slot);
+		try { renderer.set("scene", scene, slot); }
+		catch (err) { console.error("[render] scene適用失敗:", err && (err.message || err)); }   // 適用失敗も黙らせない（次の merge で回復）
+		dirty = true; uploadSkip = 2;
+		return;
+	}
+	while (plateauInbox.length) {
 		const { meshData, name } = plateauInbox.shift();
 		renderer.set("plateauMesh", meshData, name);
 		dirty = true;
@@ -171,7 +181,7 @@ function ensureIfMoved() {
 function frame() {
 	let drew = false;
 	try {
-		drainPlateau();   // PLATEAU転送の平準化（1件/フレーム）。dirty を立てる＝同フレームの下の描画で反映
+		drainUploads();   // 重いGPU転送（シーン/PLATEAU）の平準化＝1件/フレーム。dirty を立てる＝同フレームの下の描画で反映
 		if (dirty && renderer && cam) {
 			dirty = false; drew = true;
 			// ズーム中(zoom非stable)は標高アトラスを再構築しない＝cellRes連続変化による陰影チラつきを防ぐ（main が opts.terrainGate で通知）。
