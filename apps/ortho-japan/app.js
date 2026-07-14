@@ -222,6 +222,9 @@ if (LOW_MEM) console.log("[plateau] 低メモリ端末モード：同時1区・w
 // デスクトップは4区（計~0.5GB＝余裕内）＝高チルトで「手前の区＋正面の区」を同時に立てる。
 // 4はシェーダの被覆マスクスロット上限（glsl u_plateauMask0..3・renderer MAX_PLATEAU_MASKS）＝これ以上は基図建物を伏せられず二重に立つ。
 const PLATEAU_MAX_ACTIVE = LOW_MEM ? 1 : 4;
+// マスク無しセット（橋梁等 noMask:true）の同時数＝別枠。被覆マスクのシェーダスロット(4)を使わないので
+// 建物4区の構図を奪わずに載る。橋梁データは区あたり数MB〜数十MB＝建物より一桁軽い。
+const PLATEAU_EXTRA_ACTIVE = LOW_MEM ? 1 : 4;
 // GPU常駐（再訪の再アップロード根絶）：視野から外れた区は「削除」でなく「非表示(plateauVis)」＝VAOをVRAMに残す。
 // 再訪は vis:true を送るだけ＝100MB級の slice→transfer→bufferData が丸ごと消える（ズームアウト→戻るがタダに）。
 // 本当に削除するのは ①視野中心が区bboxから PLATEAU_FAR_DEG 超離れた時（完全に離れた＝当分戻らない扱い）
@@ -373,18 +376,19 @@ function autoPlateau() {
 		view[0] = Math.min(view[0], foot[0]); view[1] = Math.min(view[1], foot[1]);
 		view[2] = Math.max(view[2], foot[0]); view[3] = Math.max(view[3], foot[1]);
 	}
-	let hits = PLATEAU_SETS.filter(s => bboxIntersects(s.bbox, view) && !plateauFailed.has(s.name));   // 死んだ地区は候補から除外＝再挑戦しない
-	if (hits.length > PLATEAU_MAX_ACTIVE) {
-		// 近さ＝「bboxまでの点距離」（bbox内なら0）。重心距離だと南北に長い区（江東=臨海部で重心が南へ~4km）が
-		// 足元に居ても落選し、チルト北向きの構図で手前だけ基図の間引き建物になる。
-		// 優先順位＝チルト時は「画面下方（足元）に近い区」が主キー（手前＝一番大きく見える建物が先）、
-		// 同点は中心への近さ、それも同点（bbox重複）は重心距離。ロード発火もこの順＝手前から立ち始める。
-		const pd2 = (s, p) => { const dx = Math.max(s.bbox[0] - p[0], 0, p[0] - s.bbox[2]), dy = Math.max(s.bbox[1] - p[1], 0, p[1] - s.bbox[3]); return dx * dx + dy * dy; };
-		const d2 = s => pd2(s, foot || cam.center);   // 主キー：足元（真俯瞰は中心）
-		const m2 = s => pd2(s, cam.center);           // 第2キー：中心
-		const c2 = s => { const cx = (s.bbox[0] + s.bbox[2]) / 2, cy = (s.bbox[1] + s.bbox[3]) / 2; return (cx - cam.center[0]) ** 2 + (cy - cam.center[1]) ** 2; };
-		hits = hits.sort((a, b) => (d2(a) - d2(b)) || (m2(a) - m2(b)) || (c2(a) - c2(b))).slice(0, PLATEAU_MAX_ACTIVE);   // 手前優先で上限件数だけ採用
-	}
+	const hitsAll = PLATEAU_SETS.filter(s => bboxIntersects(s.bbox, view) && !plateauFailed.has(s.name));   // 死んだ地区は候補から除外＝再挑戦しない
+	// 近さ＝「bboxまでの点距離」（bbox内なら0）。重心距離だと南北に長い区（江東=臨海部で重心が南へ~4km）が
+	// 足元に居ても落選し、チルト北向きの構図で手前だけ基図の間引き建物になる。
+	// 優先順位＝チルト時は「画面下方（足元）に近い区」が主キー（手前＝一番大きく見える建物が先）、
+	// 同点は中心への近さ、それも同点（bbox重複）は重心距離。ロード発火もこの順＝手前から立ち始める。
+	const pd2 = (s, p) => { const dx = Math.max(s.bbox[0] - p[0], 0, p[0] - s.bbox[2]), dy = Math.max(s.bbox[1] - p[1], 0, p[1] - s.bbox[3]); return dx * dx + dy * dy; };
+	const d2 = s => pd2(s, foot || cam.center);   // 主キー：足元（真俯瞰は中心）
+	const m2 = s => pd2(s, cam.center);           // 第2キー：中心
+	const c2 = s => { const cx = (s.bbox[0] + s.bbox[2]) / 2, cy = (s.bbox[1] + s.bbox[3]) / 2; return (cx - cam.center[0]) ** 2 + (cy - cam.center[1]) ** 2; };
+	const near = (a, b) => (d2(a) - d2(b)) || (m2(a) - m2(b)) || (c2(a) - c2(b));
+	// 選抜は建物（被覆マスクのスロット4を使う）と橋梁等（noMask＝スロット不要）で別枠＝橋が建物4区の枠を奪わない。
+	const hits = hitsAll.filter(s => !s.noMask).sort(near).slice(0, PLATEAU_MAX_ACTIVE)
+		.concat(hitsAll.filter(s => s.noMask).sort(near).slice(0, PLATEAU_EXTRA_ACTIVE));
 	const hitNames = new Set(hits.map(h => h.name));
 	for (const name of [...plateauActive.keys()]) {
 		if (hitNames.has(name)) continue;
@@ -403,7 +407,7 @@ function autoPlateau() {
 		}
 		plateauLoading.add(h.name);
 		console.log("[plateau] 自動ロード →", h.name);
-		loadPlateau(h.base, undefined, h.name, h.bbox)
+		loadPlateau(h.base, undefined, h.name, h.noMask ? null : h.bbox)   // noMask（橋梁等）＝被覆マスクを作らない・基図建物を伏せない
 			.then(ok => {
 				if (!ok) { plateauFailed.add(h.name); console.warn("[plateau] 読み込めないためスキップ（廃止区/空データ？）:", h.name); return; }   // 一回だけ警告→以後は候補から除外
 				plateauActive.set(h.name, h);
@@ -846,7 +850,7 @@ window.__plateau = async (nameOrBase, tiles) => {
 		} else {
 			plateauLoading.add(set.name);
 			try {
-				const ok = await loadPlateau(set.base, tiles, set.name, set.bbox);
+				const ok = await loadPlateau(set.base, tiles, set.name, set.noMask ? null : set.bbox);
 				if (ok) { plateauActive.set(set.name, set); plateauRetain(set.name, set); }
 			} finally { plateauLoading.delete(set.name); }
 		}
