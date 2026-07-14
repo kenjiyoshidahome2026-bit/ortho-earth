@@ -190,7 +190,14 @@ export function measure({ makeProjector, unprojectXY, setClick, requestDraw, sig
 
 		readout(hint());
 	}
-	function centroid(ring) { let lon = 0, lat = 0; for (const p of ring) { lon += p[0]; lat += p[1]; } return [lon / ring.length, lat / ring.length]; }
+	// 重心＝頂点の単位ベクトル平均を正規化して経緯度へ戻す。経緯度の単純平均は極付近（経度が意味を失う）や
+	// 子午線跨ぎ（経度平均が破綻）でラベルが飛ぶ＝北極跨ぎで実測。3Dなら極も子午線も透過。
+	function centroid(ring) {
+		let x = 0, y = 0, z = 0;
+		for (const p of ring) { const v = to3(p[0], p[1]); x += v[0]; y += v[1]; z += v[2]; }
+		const len = Math.hypot(x, y, z);
+		return len < 1e-9 ? ring[0] : toLL([x / len, y / len, z / len]);   // 対蹠相殺で原点化した時は先頭頂点へ
+	}
 	function hint() {
 		if (!verts.length) return `<span class="mr-hint">クリックで計測を開始</span>`;
 		return finished ? `<span class="mr-hint">Escで消去・ボタンで終了</span>` : `<span class="mr-hint">クリックで頂点・ダブルクリックで確定</span>`;
