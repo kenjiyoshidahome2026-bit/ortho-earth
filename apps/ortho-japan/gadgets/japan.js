@@ -7,10 +7,8 @@ import { gadgetStack } from "./stack.js";
 export function japan({ view, signal } = {}) {
 	const mapEl = this.mapEl, flyTo = this.flyTo;
 	if (mapEl.querySelector("#japan-btn")) return;   // 二重搭載は無害（搭載済みのまま）
-	const mac = /Mac|iP(hone|ad|od)/.test(navigator.platform || "");
-	const keyLabel = mac ? "⌘J" : "Ctrl+J";
 	const btn = document.createElement("button");
-	btn.id = "japan-btn"; btn.dataset.tip = `日本全体を表示 (${keyLabel})`; btn.setAttribute("aria-label", "日本全体を表示");
+	btn.id = "japan-btn"; btn.dataset.tip = "日本全体を表示（J）"; btn.setAttribute("aria-label", "日本全体を表示");
 	// 手描きの列島ブロック図（画素トレース）を清書＝形はそのまま・段差の掃除と角丸だけ（感性は本人・清書は機械）。
 	// 北海道=右上／本州=右柱＋南の足＋房の切り欠き＋左へ中国地方の帯／九州=左下（上線=帯・下線=四国と面）／四国=中央下。
 	btn.innerHTML = `
@@ -22,9 +20,10 @@ export function japan({ view, signal } = {}) {
 	gadgetStack(mapEl).append(btn);   // 置き場所はスタック（搭載順＝縦の並び）
 	const go = () => flyTo(view[0], view[1], view[2], 0);   // tilt=0＝真俯瞰へ着地（bearingもflyToが北へ倒す）
 	btn.addEventListener("click", go);
-	// ⌘/Ctrl+J＝日本へ戻る（ブラウザのダウンロード表示を転用）。入力欄フォーカス中は無効。
+	// J＝日本へ戻る（修飾なし＝球体まで回した所からワンキーで）。入力欄フォーカス中は無効。
 	window.addEventListener("keydown", e => {
-		if (!((e.ctrlKey || e.metaKey) && (e.key === "j" || e.key === "J"))) return;
+		if (e.key !== "j" && e.key !== "J") return;
+		if (e.ctrlKey || e.metaKey || e.altKey) return;   // 修飾つきは他操作に譲る
 		const el = document.activeElement, tag = el && el.tagName;
 		if (tag === "INPUT" || tag === "TEXTAREA" || el?.isContentEditable) return;
 		e.preventDefault(); go();

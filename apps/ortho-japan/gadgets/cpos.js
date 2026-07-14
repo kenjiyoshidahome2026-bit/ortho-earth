@@ -7,9 +7,8 @@ import { gadgetStack } from "./stack.js";
 export function cpos({ projectLL, signal } = {}) {
 	const mapEl = this.mapEl, cam = this.cam, flyTo = this.flyTo;
 	if (mapEl.querySelector("#cpos-btn")) return;   // 二重搭載は無害（搭載済みのまま）
-	const mac = /Mac|iP(hone|ad|od)/.test(navigator.platform || "");
 	const btn = document.createElement("button");
-	btn.id = "cpos-btn"; btn.dataset.tip = `現在地（GPS）へ移動 (${mac ? "⌘@" : "Ctrl+@"})`; btn.setAttribute("aria-label", "現在地（GPS）へ移動");
+	btn.id = "cpos-btn"; btn.dataset.tip = "現在地（GPS）へ移動（@）"; btn.setAttribute("aria-label", "現在地（GPS）へ移動");
 	btn.innerHTML = `
 		<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#3f4757" stroke-width="2" aria-hidden="true">
 			<circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="1.6" fill="#3f4757" stroke="none"/>
@@ -40,9 +39,9 @@ export function cpos({ projectLL, signal } = {}) {
 		flyTo(pos[0], pos[1], Math.max(cam.zoom, 14), cam.pitch * 180 / Math.PI);   // 傾きは今のまま・最低 z14 まで寄る
 	};
 	btn.addEventListener("click", toggle);
-	// ⌘/Ctrl+@＝現在地トグル。入力欄フォーカス中は無効。@ はJIS配列では単独キー・US配列では⇧2＝どちらも e.key==="@"。
+	// @＝現在地トグル（修飾なし）。入力欄フォーカス中は無効。@ はJIS配列では単独キー・US配列では⇧2＝どちらも e.key==="@"。
 	window.addEventListener("keydown", e => {
-		if (!((e.ctrlKey || e.metaKey) && e.key === "@")) return;
+		if (e.key !== "@" || e.ctrlKey || e.metaKey || e.altKey) return;
 		const el = document.activeElement, tag = el && el.tagName;
 		if (tag === "INPUT" || tag === "TEXTAREA" || el?.isContentEditable) return;
 		e.preventDefault(); toggle();
