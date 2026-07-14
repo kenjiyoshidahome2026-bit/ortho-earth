@@ -154,77 +154,40 @@ async function decodeBatch(base, leaves, wardMask, wardBbox, onTile = null) {
 		seen.add(key);
 	}
 	const outIdx = dedup.slice(0, di);   // 実サイズへトリム（cacheに満杯バッファを残さない）
-	// bbox(deg)：接地グリッドの範囲＋renderer側フラスタムカリングに使う。geo は rad なので deg へ。
+	// bbox(deg)：renderer側フラスタムカリングに使う。geo は rad なので deg へ。
 	const M = geo.length / 3;
 	let minLon = Infinity, minLat = Infinity, maxLon = -Infinity, maxLat = -Infinity;
 	for (let i = 0; i < M; i++) { const lo = geo[i*3], la = geo[i*3+1]; if (lo<minLon) minLon=lo; if (lo>maxLon) maxLon=lo; if (la<minLat) minLat=la; if (la>maxLat) maxLat=la; }
 	const bbox = [minLon*R2D, minLat*R2D, maxLon*R2D, maxLat*R2D];
-	// 足元の浮き対策v2：セル毎最低標高グリッド→空セル充填→3x3平滑→バイリニア補間の「連続な地面」から相対高さを取る。
-	// セルは約32m固定（バッチbboxを等分すると~5-8mまで細かくなり、地下・基礎の窪みを鋭く拾って隣接セル間の最低値が
-	// 数十m跳ぶ→セル境界を跨ぐ屋根/壁が別々の量だけ沈み細長い破片状に裂ける＝西新宿の超高層で顕在化した崩れの原因）。
-	// 最近傍参照（区分一定）でなくバイリニア＝地面が連続関数になり、セル境界の段差シアーが原理的に消える。
-	const midLat = (minLat + maxLat) / 2;
-	const spanLonM = Math.max(1, (maxLon - minLon) * EARTH_M * Math.cos(midLat)), spanLatM = Math.max(1, (maxLat - minLat) * EARTH_M);
-	// セル上限256だと、遠方リングのバッチ（カメラ近傍優先の64タイル束＝bboxが数km〜20kmに広がる）でセルが
-	// 60-80mに粗り、急斜面（京都嵯峨野・保津峡）で「セル最低標高と建物足元」が数十mズレて建物が浮く／
-	// 細長い構造物がセル境界シアーでリボン状に裂ける（実写で確認）。1024なら32kmバッチまで32mセルを維持。
-	const GX = Math.max(1, Math.min(1024, Math.ceil(spanLonM / 32))), GY = Math.max(1, Math.min(1024, Math.ceil(spanLatM / 32)));
-	const ground = new Float32Array(GX * GY).fill(Infinity);
-	const gLo = (maxLon - minLon) || 1e-12, gLa = (maxLat - minLat) || 1e-12;
-	for (let i = 0; i < M; i++) {
-		let gx = (geo[i*3] - minLon) / gLo * GX | 0, gy = (geo[i*3+1] - minLat) / gLa * GY | 0;
-		if (gx < 0) gx = 0; else if (gx > GX - 1) gx = GX - 1;
-		if (gy < 0) gy = 0; else if (gy > GY - 1) gy = GY - 1;
-		const c = gy * GX + gx, h = geo[i*3+2];
-		if (h < ground[c]) ground[c] = h;
-	}
-	// 空セル（頂点が1つも落ちないセル）を近傍から充填＝バイリニアが Infinity を拾わないように。
-	// 旧・反復方式は O((GX+GY)×GX×GY)＝1024グリッドで破綻するため、2スイープ伝播（順→逆）に変更。
-	// 実測セルのある所は触らず、空セルだけ左上／右下方向の既知値で埋める＝意味は従来と同等（充填の主目的は
-	// 建物の無い空白域にバイリニアの足場を作ること。そこに建物は無い＝厳密な最小性は要らない）。
-	for (let y = 0; y < GY; y++) for (let x = 0; x < GX; x++) {   // 順方向：左・上から
-		const c = y * GX + x;
-		if (ground[c] !== Infinity) continue;
-		let m = Infinity;
-		if (x > 0 && ground[c-1] < m) m = ground[c-1];
-		if (y > 0 && ground[c-GX] < m) m = ground[c-GX];
-		if (m !== Infinity) ground[c] = m;
-	}
-	for (let y = GY - 1; y >= 0; y--) for (let x = GX - 1; x >= 0; x--) {   // 逆方向：右・下から（順方向で届かなかった空白を埋め、届いた所もより近い値で更新）
-		const c = y * GX + x;
-		let m = ground[c];
-		if (x < GX-1 && ground[c+1] < m) m = ground[c+1];
-		if (y < GY-1 && ground[c+GX] < m) m = ground[c+GX];
-		if (ground[c] === Infinity) ground[c] = m;
-	}
-	// 3x3 平滑（1パス）＝残る細かな段差もならす。
-	const sm = new Float32Array(GX * GY);
-	for (let y = 0; y < GY; y++) for (let x = 0; x < GX; x++) {
-		let s = 0, n = 0;
-		for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
-			const xx = x + dx, yy = y + dy;
-			if (xx < 0 || xx >= GX || yy < 0 || yy >= GY) continue;
-			s += ground[yy * GX + xx]; n++;
+	// 接地v3：建物（連結成分）単位の剛体接地＝各成分から「自分の最低頂点（基部）」の標高を差し引く。
+	// v2までの「グリッド場（セル最低標高→空セル充填→平滑→バイリニア）」は、建物が疎な急斜面で
+	// 空セル充填が谷側の低い値を引きずり、平滑がそれを実測セルへ混ぜて地面を過小評価＝建物が浮く
+	// （京都嵯峨野で実測+19〜40m。セルを32mに細かくしても直らない＝方式の欠陥）。
+	// 剛体移動なら浮きもセル境界シアーも原理的に無い。斜面の建物は基部最低点で接地＝上り側が僅かに
+	// 沈む方向（浮きより無害。地形は都市帯で深度を書かない背景＝沈み込みは見えない）。
+	// 連結判定＝三角形の頂点共有 ＋ 丸め座標一致の頂点同一視（壁・屋根が別プリミティブでも境界座標は
+	// 厳密一致するため。vkeyBig の丸め＝dedup と同じ 6cm/0.1m）。
+	const parent = new Int32Array(M);
+	for (let i = 0; i < M; i++) parent[i] = i;
+	const find = i => { while (parent[i] !== i) { parent[i] = parent[parent[i]]; i = parent[i]; } return i; };
+	const union = (a, b) => { const ra = find(a), rb = find(b); if (ra !== rb) parent[rb] = ra; };
+	{
+		const firstByKey = new Map();   // 丸め座標 → 最初に現れた頂点番号（同座標の頂点を同一視）
+		for (let i = 0; i < M; i++) {
+			const k = vkeyBig(geo, i);
+			const f = firstByKey.get(k);
+			if (f === undefined) firstByKey.set(k, i); else union(f, i);
 		}
-		sm[y * GX + x] = s / n;
 	}
-	// バイリニア地面サンプラ（セル中心基準・端はクランプ）。
-	const groundAt = (lon, lat) => {
-		let fx = (lon - minLon) / gLo * GX - 0.5, fy = (lat - minLat) / gLa * GY - 0.5;
-		if (fx < 0) fx = 0; else if (fx > GX - 1) fx = GX - 1;
-		if (fy < 0) fy = 0; else if (fy > GY - 1) fy = GY - 1;
-		const x0 = fx | 0, y0 = fy | 0, x1 = Math.min(x0 + 1, GX - 1), y1 = Math.min(y0 + 1, GY - 1);
-		const tx = fx - x0, ty = fy - y0;
-		const a = sm[y0 * GX + x0] + (sm[y0 * GX + x1] - sm[y0 * GX + x0]) * tx;
-		const b = sm[y1 * GX + x0] + (sm[y1 * GX + x1] - sm[y1 * GX + x0]) * tx;
-		return a + (b - a) * ty;
-	};
+	for (let k = 0; k < outIdx.length; k += 3) { union(outIdx[k], outIdx[k+1]); union(outIdx[k], outIdx[k+2]); }
+	const minAlt = new Float64Array(M).fill(Infinity);   // 成分代表 → 成分の最低標高（基部）
+	for (let i = 0; i < M; i++) { const r = find(i), h = geo[i*3+2]; if (h < minAlt[r]) minAlt[r] = h; }
 	// RTE-lite：単位球の絶対座標は float32 だと建物1棟が~60段階に量子化される→重心(origin)相対の delta で精度を桁で戻す。
 	const wpos = new Float64Array(geo.length);
 	let ox = 0, oy = 0, oz = 0;
 	for (let i = 0; i < M; i++) {
 		const lon = geo[i*3], lat = geo[i*3+1], cb = Math.cos(lat);
-		const r = 1 + Math.max(geo[i*3+2] - groundAt(lon, lat), 0) / EARTH_M;   // 連続地面からの相対高さ＝接地（地下はr=1に畳む＝従来通り地表より下へ出さない）
+		const r = 1 + (geo[i*3+2] - minAlt[find(i)]) / EARTH_M;   // 基部からの相対高さ＝剛体接地（成分内min差し引き＝負にならない）
 		const x = cb*Math.cos(lon)*r, y = Math.sin(lat)*r, z = cb*Math.sin(lon)*r;
 		wpos[i*3] = x; wpos[i*3+1] = y; wpos[i*3+2] = z; ox += x; oy += y; oz += z;
 	}
@@ -274,7 +237,7 @@ let CACHE_MAX = 2;         // 1区あたり~100-160MB（typed array一式）＝�
 // fetch/Draco解凍/座標変換を丸ごと飛ばして数秒で復元（geopbf の PBF+GINT キャッシュと同じ発想）。
 // レコードはバッチ単位（`${base}#${i}` 各10〜20MB）＋メタ（`${base}#meta`）。メタが揃って初めて有効＝書き途中の中断は無視される。
 // FMT_VER: デコードパイプライン（接地・dedup・軸変換等）を変えたら上げる＝古い形式のキャッシュを自然無効化。
-const IDB_FMT_VER = 2;   // v2: 接地グリッド上限256→1024（遠方バッチの浮き/シアー根治）＝旧接地のキャッシュを無効化
+const IDB_FMT_VER = 3;   // v3: 接地を建物（連結成分）単位の剛体方式へ＝グリッド場の過小評価による浮き（京都嵯峨野+19〜40m）を根治
 // 容量上限：固定の区数でなくブラウザのクォータ（オリジン割当）連動＝デモ機のChromeなら実質制限なしに仕込める。
 // 割当の半分まで（MVTタイル・gint等が同じオリジン割当を共有するため）。estimate 不能な環境は従来相当の1.2GBで保守運転。
 let idbBudget = 1.2e9;
