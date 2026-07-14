@@ -219,12 +219,18 @@ export function createRenderer(canvas) {
 		const vao = gl.createVertexArray(), vbo = buffer(gl, data.pos), nbo = buffer(gl, data.nrm), ibo = gl.createBuffer();
 		gl.bindVertexArray(vao);
 		attrib(gl, plateauProg, "a_pos", vbo, 3);
-		attrib(gl, plateauProg, "a_normal", nbo, 3);
+		if (data.nrm instanceof Int8Array) {   // v4: int8量子化法線（xyz+pad 4B/頂点）。FS が normalize するので精度 1/127 で十分
+			const l = gl.getAttribLocation(plateauProg, "a_normal");
+			gl.bindBuffer(gl.ARRAY_BUFFER, nbo);
+			gl.enableVertexAttribArray(l);
+			gl.vertexAttribPointer(l, 3, gl.BYTE, true, 4, 0);
+		} else attrib(gl, plateauProg, "a_normal", nbo, 3);   // 旧 float32（同セッション内の残骸互換）
 		gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ibo);
 		gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, data.idx, gl.STATIC_DRAW);
 		gl.bindVertexArray(null);
 		const o = data.origin || [0, 0, 0];
-		plateaux.set(key, { vao, bufs: [vbo, nbo, ibo], count: data.idx.length, origin: o, bbox: data.bbox || [1e9, 1e9, -1e9, -1e9], ward: data.ward || String(key).split("#")[0] });
+		// lodH/lodCounts（v4）：index は建物高さ降順＝lodCounts[k] で「高さ lodH[k] 以上だけ」を先頭打ち切り描画できる
+		plateaux.set(key, { vao, bufs: [vbo, nbo, ibo], count: data.idx.length, origin: o, bbox: data.bbox || [1e9, 1e9, -1e9, -1e9], ward: data.ward || String(key).split("#")[0], lodH: data.lodH || null, lodCounts: data.lodCounts || null });
 		// 被覆マスク（NEAREST・CLAMP）。基図建物 FS が uv=区bbox正規化で参照。区単位＝バッチごとに累積スナップショットで丸ごと差し替え。
 		if (data.ward && data.mask && (data.maskN | 0) > 0 && data.maskBbox) {
 			let m = plateauMasks.get(data.ward);
@@ -560,14 +566,28 @@ export function createRenderer(canvas) {
 			gl.useProgram(plateauProg);
 			const c = view.bldColor || [0.86, 0.86, 0.85];   // 基図の押し出し建物と同色＝周辺と地続きに見せる
 			const pad = 0.5 * Math.max(st.W, st.H);          // 高層ビルの頭のはみ出し余白（半画面）
+			// LOD打ち切りの物差し＝画面1pxが何mか（app.js approxViewBbox と同式。ortho-z は緯度非依存）。
+			// 「画面上~1px未満の建物は描かない」＝見た目は変えずに頂点処理を捨てる。遠方バッチは距離で緩やかに閾値を上げる
+			// （チルト時の遠景は透視で1pxがもっと大きい＝控えめ側の近似）。
+			const mppx = 156543.03392 * 0.819 / Math.pow(2, cam.zoom || 0);
+			const cosLat = Math.cos((cam.center[1] || 0) * Math.PI / 180);
 			for (const p of plateaux.values()) {
 				if (plateauHidden.has(p.ward)) continue;   // 常駐中の非表示区（VRAM保持・draw skip）
 				if (!plateauBboxVisible(st, p.bbox, cam.center, pad)) continue;
+				let count = p.count;
+				if (p.lodH) {   // index は建物高さ降順＝先頭 count で「高さ閾値以上だけ」になる
+					const dm = Math.hypot(((p.bbox[0] + p.bbox[2]) / 2 - cam.center[0]) * 111320 * cosLat, ((p.bbox[1] + p.bbox[3]) / 2 - cam.center[1]) * 111320);
+					const minH = mppx * (1 + dm / 4000);
+					let li = 0;
+					for (let i = p.lodH.length - 1; i > 0; i--) if (p.lodH[i] <= minH) { li = i; break; }
+					count = p.lodCounts[li];
+					if (!count) continue;
+				}
 				setCommonUniforms(plateauProg, st, [0, 0], land);
 				gl.uniform3f(loc(gl, plateauProg, "u_bldColor"), c[0], c[1], c[2]);
 				gl.uniform3f(loc(gl, plateauProg, "u_meshOrigin"), p.origin[0], p.origin[1], p.origin[2]);  // RTE 錨（頂点は重心相対 delta）
 				gl.bindVertexArray(p.vao);
-				gl.drawElements(gl.TRIANGLES, p.count, gl.UNSIGNED_INT, 0);
+				gl.drawElements(gl.TRIANGLES, count, gl.UNSIGNED_INT, 0);
 			}
 		}
 		gl.disable(gl.DEPTH_TEST);

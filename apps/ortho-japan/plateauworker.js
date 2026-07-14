@@ -11,6 +11,7 @@ const EARTH_M = 6371000;   // main.js の EARTH_M と同値（建物の接地計
 const TILE_CONCURRENCY = 8;   // バッチ内のタイル並行fetch/デコード数。直列だと往復レイテンシが積み上がり支配的になる。
 const BATCH_TILES = 64;       // 1バッチのタイル数。小さいほど初表示が速く、大きいほどdraw call/RTE origin数が減る。
 const MASK_N = 256;           // 区単位の被覆マスク解像度（基図建物を伏せるセル）
+const LOD_H = [0, 3, 6, 12, 24, 48];   // LOD段の高さ閾値(m)。renderer が「画面上1px未満の建物」を先頭countの打ち切りで捨てる
 const R2D = 180 / Math.PI;
 
 // content.uri は絶対URL（別ホストへの委譲）と相対（同ディレクトリ）の両方があり得る。
@@ -76,7 +77,7 @@ async function decodeBatch(base, leaves, wardMask, wardBbox, onTile = null) {
 	// 中間データは plain JS Array に push しない：バッチで1700万push級になり要素タグ+GCで数秒を失う。
 	// プリミティブごとに頂点数が既知なので typed セグメントを作り、バッチ末尾で一括結合（memcpy）する。
 	// geo(lon/lat rad)は float64 必須：float32 の相対精度~1e-7 は rad で~0.6m＝dedup の丸め(1e-8rad≈6cm)を壊す。
-	const segs = [];   // { geo:Float64Array, nrm:Float32Array, idx:Uint32Array }（idx はバッチ通し番号で焼き込み済み）
+	const segs = [];   // { geo:Float64Array, nrm:Int8Array(xyz+pad 4B), idx:Uint32Array }（idx はバッチ通し番号で焼き込み済み）
 	let totalV = 0, totalI = 0, minH = Infinity;
 	function mergeTile(tile) {
 		const tileRtc = tile.rtcCenter || tile.gltf?.extensions?.CESIUM_RTC?.center;
@@ -99,7 +100,8 @@ async function decodeBatch(base, leaves, wardMask, wardBbox, onTile = null) {
 				const P = pr.attributes?.POSITION?.value; if (!P) continue;
 				const NRM = pr.attributes?.NORMAL?.value;
 				const I = pr.indices?.value, n = P.length / 3;
-				const geoSeg = new Float64Array(n * 3), nrmSeg = new Float32Array(n * 3);
+				// 法線は int8 量子化（xyz+pad の4B/頂点＝float32×3 の 1/3）。FS が normalize するので精度 1/127 で十分。
+				const geoSeg = new Float64Array(n * 3), nrmSeg = new Int8Array(n * 4);
 				for (let i = 0; i < n; i++) {
 					// local(Y-up)→ECEF：Yup→Zup(x,-z,y)＋RTC → geodetic(lon,lat,h) を一旦保持
 					const ex = P[i*3] + rtc[0], ey = -P[i*3+2] + rtc[1], ez = P[i*3+1] + rtc[2];
@@ -107,8 +109,8 @@ async function decodeBatch(base, leaves, wardMask, wardBbox, onTile = null) {
 					if (g[2] < minH) minH = g[2];
 					geoSeg[i*3] = g[0]; geoSeg[i*3+1] = g[1]; geoSeg[i*3+2] = g[2];
 					// 法線：glTF(Y-up local)→ortho は方向を (nx, ny, -nz)（Yup→Zup＋ECEF→ortho軸swap の合成）。符号は FS で視線側へ。
-					if (NRM) { nrmSeg[i*3] = NRM[i*3]; nrmSeg[i*3+1] = NRM[i*3+1]; nrmSeg[i*3+2] = -NRM[i*3+2]; }
-					else { nrmSeg[i*3+1] = 1; }
+					if (NRM) { nrmSeg[i*4] = Math.round(NRM[i*3] * 127); nrmSeg[i*4+1] = Math.round(NRM[i*3+1] * 127); nrmSeg[i*4+2] = Math.round(-NRM[i*3+2] * 127); }
+					else { nrmSeg[i*4+1] = 127; }
 				}
 				const idxSeg = new Uint32Array(I ? I.length : n);
 				if (I) for (let k = 0; k < I.length; k++) idxSeg[k] = I[k] + totalV;
@@ -136,10 +138,10 @@ async function decodeBatch(base, leaves, wardMask, wardBbox, onTile = null) {
 	await Promise.all(Array.from({ length: Math.min(TILE_CONCURRENCY, leaves.length) }, tileWorker));
 	if (!totalI) return null;
 	// セグメントを一括結合（memcpy）。idx はセグメント生成時にバッチ通し番号で焼き込み済み＝コピーだけで整合。
-	const geo = new Float64Array(totalV * 3), outNrm = new Float32Array(totalV * 3), rawIdx = new Uint32Array(totalI);
+	const geo = new Float64Array(totalV * 3), outNrm = new Int8Array(totalV * 4), rawIdx = new Uint32Array(totalI);
 	{
-		let vo = 0, io = 0;
-		for (const s of segs) { geo.set(s.geo, vo); outNrm.set(s.nrm, vo); rawIdx.set(s.idx, io); vo += s.geo.length; io += s.idx.length; }
+		let vtx = 0, io = 0;
+		for (const s of segs) { geo.set(s.geo, vtx * 3); outNrm.set(s.nrm, vtx * 4); rawIdx.set(s.idx, io); vtx += s.geo.length / 3; io += s.idx.length; }
 		segs.length = 0;
 	}
 	// 重複三角形（double-sided/coincident 面）除去＝マダラ(z-fight)の元を断つ。頂点位置(丸め)の3つ組で判定＝巻き順・頂点共有に非依存。
@@ -181,7 +183,31 @@ async function decodeBatch(base, leaves, wardMask, wardBbox, onTile = null) {
 	}
 	for (let k = 0; k < outIdx.length; k += 3) { union(outIdx[k], outIdx[k+1]); union(outIdx[k], outIdx[k+2]); }
 	const minAlt = new Float64Array(M).fill(Infinity);   // 成分代表 → 成分の最低標高（基部）
-	for (let i = 0; i < M; i++) { const r = find(i), h = geo[i*3+2]; if (h < minAlt[r]) minAlt[r] = h; }
+	const maxAlt = new Float64Array(M).fill(-Infinity);  // 成分代表 → 最高標高（max-min＝建物の高さ。LOD並べ替えのキー）
+	for (let i = 0; i < M; i++) { const r = find(i), h = geo[i*3+2]; if (h < minAlt[r]) minAlt[r] = h; if (h > maxAlt[r]) maxAlt[r] = h; }
+	// LOD並べ替え＝gintのVWランクのメッシュ版：三角形を建物（連結成分）の高さ降順に並べ、描画は index 先頭 count で
+	// 打ち切れる形に焼く。lodCounts[k]＝高さ LOD_H[k] 以上の建物だけ描く時の drawElements count（CPUゼロ・シェーダ変更ゼロ）。
+	// キーは Float64 パック（高さ6.25cm刻み16bit + 元三角形番号32bit ＝ 48bit < 仮数53bit）＝コンパレータ無しの高速ソート。
+	// 同高さは元順のまま＝同一タイル由来の三角形が隣接（頂点キャッシュの局所性を崩さない）。
+	const nTri = outIdx.length / 3;
+	const lodKeys = new Float64Array(nTri);
+	for (let t = 0; t < nTri; t++) {
+		const r = find(outIdx[t*3]);
+		const hq = Math.min(65535, (maxAlt[r] - minAlt[r]) * 16 | 0);
+		lodKeys[t] = (65535 - hq) * 4294967296 + t;   // 高い建物ほど小さいキー＝先頭へ
+	}
+	lodKeys.sort();
+	const sortedIdx = new Uint32Array(outIdx.length);
+	for (let t = 0; t < nTri; t++) {
+		const src = (lodKeys[t] % 4294967296) * 3;
+		sortedIdx[t*3] = outIdx[src]; sortedIdx[t*3+1] = outIdx[src+1]; sortedIdx[t*3+2] = outIdx[src+2];
+	}
+	outIdx.set(sortedIdx);
+	const lodCounts = Array(LOD_H.length).fill(outIdx.length);   // 既定＝全描画（その高さ未満の建物が無いバッチ）
+	for (let t = 0, li = LOD_H.length - 1; t < nTri && li > 0; t++) {
+		const h = (65535 - Math.floor(lodKeys[t] / 4294967296)) / 16;
+		while (li > 0 && h < LOD_H[li]) lodCounts[li--] = t * 3;
+	}
 	// RTE-lite：単位球の絶対座標は float32 だと建物1棟が~60段階に量子化される→重心(origin)相対の delta で精度を桁で戻す。
 	const wpos = new Float64Array(geo.length);
 	let ox = 0, oy = 0, oz = 0;
@@ -210,7 +236,7 @@ async function decodeBatch(base, leaves, wardMask, wardBbox, onTile = null) {
 			for (let y = cy0; y <= cy1; y++) { const row = y*MASK_N; for (let x = cx0; x <= cx1; x++) wardMask[row+x] = 255; }
 		}
 	}
-	return { pos: outPos, nrm: outNrm, idx: outIdx, origin, bbox };
+	return { pos: outPos, nrm: outNrm, idx: outIdx, origin, bbox, lodH: LOD_H, lodCounts };
 }
 
 // メッシュの出口＝render worker への直結ポート（main.js が MessageChannel で配線）。
@@ -222,7 +248,7 @@ let meshPort = null;
 function sendBatch(ward, bi, mesh, wardMask, wardBbox) {
 	const pos = mesh.pos.slice(), nrm = mesh.nrm.slice(), idx = mesh.idx.slice();
 	const mask = wardMask ? wardMask.slice() : null;
-	const payload = { name: `${ward}#${bi}`, meshData: { pos, nrm, idx, origin: mesh.origin, bbox: mesh.bbox, ward, mask, maskN: MASK_N, maskBbox: wardBbox } };
+	const payload = { name: `${ward}#${bi}`, meshData: { pos, nrm, idx, origin: mesh.origin, bbox: mesh.bbox, lodH: mesh.lodH, lodCounts: mesh.lodCounts, ward, mask, maskN: MASK_N, maskBbox: wardBbox } };
 	const transfers = [pos.buffer, nrm.buffer, idx.buffer];
 	if (mask) transfers.push(mask.buffer);
 	meshPort.postMessage(payload, transfers);
@@ -237,7 +263,8 @@ let CACHE_MAX = 2;         // 1区あたり~100-160MB（typed array一式）＝�
 // fetch/Draco解凍/座標変換を丸ごと飛ばして数秒で復元（geopbf の PBF+GINT キャッシュと同じ発想）。
 // レコードはバッチ単位（`${base}#${i}` 各10〜20MB）＋メタ（`${base}#meta`）。メタが揃って初めて有効＝書き途中の中断は無視される。
 // FMT_VER: デコードパイプライン（接地・dedup・軸変換等）を変えたら上げる＝古い形式のキャッシュを自然無効化。
-const IDB_FMT_VER = 3;   // v3: 接地を建物（連結成分）単位の剛体方式へ＝グリッド場の過小評価による浮き（京都嵯峨野+19〜40m）を根治
+const IDB_FMT_VER = 4;   // v4: 法線int8量子化(4B/頂点＝1/3)＋建物高さ降順のindex並べ替え+LOD表（サブピクセル建物の打ち切り描画）
+                         // v3: 接地を建物（連結成分）単位の剛体方式へ＝グリッド場の過小評価による浮き（京都嵯峨野+19〜40m）を根治
 // 容量上限：固定の区数でなくブラウザのクォータ（オリジン割当）連動＝デモ機のChromeなら実質制限なしに仕込める。
 // 割当の半分まで（MVTタイル・gint等が同じオリジン割当を共有するため）。estimate 不能な環境は従来相当の1.2GBで保守運転。
 let idbBudget = 1.2e9;
