@@ -148,10 +148,18 @@ export function measure({ makeProjector, unprojectXY, setClick, requestDraw, sig
 		const closed = finished ? verts.length >= 3 : (!!cursorLL && pp.length >= 3);
 		if (closed) pp = pp.concat([pp[0]]);
 
-		// 面積の塗り（閉じている時）
+		// 面積の塗り（閉じている時）：境界は辺と同じ大圏弧に沿わせる＝弦で結ぶと弧との隙間が白帯になる
+		// （大領域ほど顕著＝辺の弧が膨らみ塗りの直線境界が内側に残る）。gcPoints で各辺を細分し、共有端点は重複させない。
 		if (closed) {
 			ctx.fillStyle = FILL; ctx.beginPath(); let pen = false;
-			for (const v of pp) { const [x, y, f] = pr(v[0], v[1]); if (f < 0) { pen = false; continue; } pen ? ctx.lineTo(x, y) : ctx.moveTo(x, y); pen = true; }
+			for (let i = 0; i + 1 < pp.length; i++) {
+				const arc = gcPoints(pp[i], pp[i + 1]);
+				for (let k = i === 0 ? 0 : 1; k < arc.length; k++) {   // 2辺目以降は先頭（前辺の終点）を飛ばす
+					const [x, y, f] = pr(arc[k][0], arc[k][1]);
+					if (f < 0) { pen = false; continue; }
+					pen ? ctx.lineTo(x, y) : ctx.moveTo(x, y); pen = true;
+				}
+			}
 			ctx.closePath(); ctx.fill();
 		}
 		// 辺（大圏弧・実線）
