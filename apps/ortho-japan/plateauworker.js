@@ -165,7 +165,10 @@ async function decodeBatch(base, leaves, wardMask, wardBbox, onTile = null) {
 	// 最近傍参照（区分一定）でなくバイリニア＝地面が連続関数になり、セル境界の段差シアーが原理的に消える。
 	const midLat = (minLat + maxLat) / 2;
 	const spanLonM = Math.max(1, (maxLon - minLon) * EARTH_M * Math.cos(midLat)), spanLatM = Math.max(1, (maxLat - minLat) * EARTH_M);
-	const GX = Math.max(1, Math.min(256, Math.ceil(spanLonM / 32))), GY = Math.max(1, Math.min(256, Math.ceil(spanLatM / 32)));
+	// セル上限256だと、遠方リングのバッチ（カメラ近傍優先の64タイル束＝bboxが数km〜20kmに広がる）でセルが
+	// 60-80mに粗り、急斜面（京都嵯峨野・保津峡）で「セル最低標高と建物足元」が数十mズレて建物が浮く／
+	// 細長い構造物がセル境界シアーでリボン状に裂ける（実写で確認）。1024なら32kmバッチまで32mセルを維持。
+	const GX = Math.max(1, Math.min(1024, Math.ceil(spanLonM / 32))), GY = Math.max(1, Math.min(1024, Math.ceil(spanLatM / 32)));
 	const ground = new Float32Array(GX * GY).fill(Infinity);
 	const gLo = (maxLon - minLon) || 1e-12, gLa = (maxLat - minLat) || 1e-12;
 	for (let i = 0; i < M; i++) {
@@ -175,20 +178,24 @@ async function decodeBatch(base, leaves, wardMask, wardBbox, onTile = null) {
 		const c = gy * GX + gx, h = geo[i*3+2];
 		if (h < ground[c]) ground[c] = h;
 	}
-	// 空セル（頂点が1つも落ちないセル）を近傍最小で充填＝バイリニアが Infinity を拾わないように。
-	for (let pass = 0; pass < GX + GY; pass++) {
-		let changed = false;
-		for (let y = 0; y < GY; y++) for (let x = 0; x < GX; x++) {
-			const c = y * GX + x;
-			if (ground[c] !== Infinity) continue;
-			let m = Infinity;
-			if (x > 0 && ground[c-1] < m) m = ground[c-1];
-			if (x < GX-1 && ground[c+1] < m) m = ground[c+1];
-			if (y > 0 && ground[c-GX] < m) m = ground[c-GX];
-			if (y < GY-1 && ground[c+GX] < m) m = ground[c+GX];
-			if (m !== Infinity) { ground[c] = m; changed = true; }
-		}
-		if (!changed) break;
+	// 空セル（頂点が1つも落ちないセル）を近傍から充填＝バイリニアが Infinity を拾わないように。
+	// 旧・反復方式は O((GX+GY)×GX×GY)＝1024グリッドで破綻するため、2スイープ伝播（順→逆）に変更。
+	// 実測セルのある所は触らず、空セルだけ左上／右下方向の既知値で埋める＝意味は従来と同等（充填の主目的は
+	// 建物の無い空白域にバイリニアの足場を作ること。そこに建物は無い＝厳密な最小性は要らない）。
+	for (let y = 0; y < GY; y++) for (let x = 0; x < GX; x++) {   // 順方向：左・上から
+		const c = y * GX + x;
+		if (ground[c] !== Infinity) continue;
+		let m = Infinity;
+		if (x > 0 && ground[c-1] < m) m = ground[c-1];
+		if (y > 0 && ground[c-GX] < m) m = ground[c-GX];
+		if (m !== Infinity) ground[c] = m;
+	}
+	for (let y = GY - 1; y >= 0; y--) for (let x = GX - 1; x >= 0; x--) {   // 逆方向：右・下から（順方向で届かなかった空白を埋め、届いた所もより近い値で更新）
+		const c = y * GX + x;
+		let m = ground[c];
+		if (x < GX-1 && ground[c+1] < m) m = ground[c+1];
+		if (y < GY-1 && ground[c+GX] < m) m = ground[c+GX];
+		if (ground[c] === Infinity) ground[c] = m;
 	}
 	// 3x3 平滑（1パス）＝残る細かな段差もならす。
 	const sm = new Float32Array(GX * GY);
@@ -267,7 +274,7 @@ let CACHE_MAX = 2;         // 1区あたり~100-160MB（typed array一式）＝�
 // fetch/Draco解凍/座標変換を丸ごと飛ばして数秒で復元（geopbf の PBF+GINT キャッシュと同じ発想）。
 // レコードはバッチ単位（`${base}#${i}` 各10〜20MB）＋メタ（`${base}#meta`）。メタが揃って初めて有効＝書き途中の中断は無視される。
 // FMT_VER: デコードパイプライン（接地・dedup・軸変換等）を変えたら上げる＝古い形式のキャッシュを自然無効化。
-const IDB_FMT_VER = 1;
+const IDB_FMT_VER = 2;   // v2: 接地グリッド上限256→1024（遠方バッチの浮き/シアー根治）＝旧接地のキャッシュを無効化
 // 容量上限：固定の区数でなくブラウザのクォータ（オリジン割当）連動＝デモ機のChromeなら実質制限なしに仕込める。
 // 割当の半分まで（MVTタイル・gint等が同じオリジン割当を共有するため）。estimate 不能な環境は従来相当の1.2GBで保守運転。
 let idbBudget = 1.2e9;
