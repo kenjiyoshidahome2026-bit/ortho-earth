@@ -135,9 +135,12 @@ async function decodeBatch(base, leaves, wardMask, wardBbox, onTile = null, brid
 			const t = leaves[ti++];
 			try {
 				const ab = await (await fetch(t.uri)).arrayBuffer();
-				// excludeExtensions: 属性メタデータ用拡張（未使用）＝loaders.glの特定構成でのassert回避。
+				// excludeExtensions: loaders.gl の流儀＝「キーを載せて値false」で当該拡張の処理を除外。
+				// EXT_mesh_features/EXT_structural_metadata＝属性メタデータ用（未使用・特定構成でのassert回避）。
+				// EXT_texture_webp＝webpテクスチャ版アセット（2025 re-publish以降のbrid等）が extensionsRequired に
+				// 宣言するだけで preprocess が throw する（worker内はwebp判定不能）。テクスチャは不使用＝安全に除外。
 				// loadImages:false: テクスチャ版しか無い区(約35)でJPEGデコードを丸ごと省く（色は使わない）。
-				const tile = await loadParse(ab, Tiles3DLoader, { "3d-tiles": { loadGLTF: true }, gltf: { loadImages: false, excludeExtensions: { EXT_mesh_features: false, EXT_structural_metadata: false } } });
+				const tile = await loadParse(ab, Tiles3DLoader, { "3d-tiles": { loadGLTF: true }, gltf: { loadImages: false, excludeExtensions: { EXT_mesh_features: false, EXT_structural_metadata: false, EXT_texture_webp: false } } });
 				mergeTile(tile);
 			} catch (e) { console.warn("[plateau] tile 失敗", t.uri, e.message); }
 			onTile && onTile();   // 成否に関わらず歩数は進む＝分母が縮まない

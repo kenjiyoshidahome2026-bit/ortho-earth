@@ -37,8 +37,11 @@ console.log(`重複排除後: ${byArea.size} 地区`);
 const LOD_PREF = { 2: 0, 3: 1, 1: 2 };
 const bridCand = new Map();   // key → [dataset…]（優先順）
 {
-	const pool = all.filter(d => d.type_en === 'brid' && d.format === '3D Tiles').map(d => ({ d, yr: Infinity }))
-		.concat(catalog.datasets.filter(d => d.type_en === 'brid' && d.format === '3D Tiles').map(d => ({ d, yr: +d.year || 0 })));
+	// d.city が無いもの（都道府県一括ロールアップ・例 13_tokyo_pref）は除外＝区・市単位と二重被覆になり
+	// 同じ橋が二重に立つ（z-fight）上、名前が「null（橋梁）」になる。
+	const isBrid = d => d.type_en === 'brid' && d.format === '3D Tiles' && d.city;
+	const pool = all.filter(isBrid).map(d => ({ d, yr: Infinity }))
+		.concat(catalog.datasets.filter(isBrid).map(d => ({ d, yr: +d.year || 0 })));
 	pool.sort((a, b) => ((LOD_PREF[a.d.lod] ?? 9) - (LOD_PREF[b.d.lod] ?? 9)) || (b.yr - a.yr));
 	for (const { d } of pool) {
 		const key = d.ward_code || d.city_code;

@@ -1,16 +1,5 @@
 [
 	{
-		"name": "null（橋梁）",
-		"base": "https://assets.cms.plateau.reearth.io/assets/a5/005932-9b5e-40c3-9659-cc2c59f4c81c/13_tokyo_pref_2023_citygml_1_op_brid_3dtiles_lod2/",
-		"bbox": [
-			139.372667871923,
-			35.53595977219575,
-			139.91771827011917,
-			35.77104884774251
-		],
-		"noMask": true
-	},
-	{
 		"name": "いの町",
 		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/39386-bldg-lod2-notexture-latest/",
 		"bbox": [
