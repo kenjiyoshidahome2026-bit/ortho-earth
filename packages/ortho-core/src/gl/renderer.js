@@ -575,7 +575,9 @@ export function createRenderer(canvas) {
 				if (plateauHidden.has(p.ward)) continue;   // 常駐中の非表示区（VRAM保持・draw skip）
 				if (!plateauBboxVisible(st, p.bbox, cam.center, pad)) continue;
 				let count = p.count;
-				if (p.lodH) {   // index は建物高さ降順＝先頭 count で「高さ閾値以上だけ」になる
+				// LOD打ち切りは建物のみ。橋梁（two＝両面）は「高さ3〜5m×長さ数百m」＝高さ基準だと小物と誤判定され
+				// 桁が距離で歯抜けになる（横浜ベイブリッジで実測）ため適用しない。橋梁データは軽い＝全描画で問題ない。
+				if (p.lodH && !p.two) {   // index は建物高さ降順＝先頭 count で「高さ閾値以上だけ」になる
 					const dm = Math.hypot(((p.bbox[0] + p.bbox[2]) / 2 - cam.center[0]) * 111320 * cosLat, ((p.bbox[1] + p.bbox[3]) / 2 - cam.center[1]) * 111320);
 					const minH = mppx * (1 + dm / 4000);
 					let li = 0;
