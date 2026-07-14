@@ -76,6 +76,9 @@ if (opts.layers) for (const [k0, v] of Object.entries(opts.layers)) {
 	if (typeof v === "boolean") fixedLayers[k] = v;   // boolean だけが固定。それ以外は「記述無し」と同じ＝既定＋チップ
 }
 const FREE_LAYER_KEYS = Object.keys(defaultLayerState).filter(k => !(k in fixedLayers));   // 客が触れる＝URLに載る集合
+// 星座線の表示状態も共有URLの l= に載せる疑似キー（layerState/チップとは別系統＝z<4の星空劇場のトグル）。
+// defaultLayerState には無い＝チップ選抜・themes には一切干渉しない（点火/ラベルの経路を汚さない）。
+const SKY_LAYER = "sky";
 mountGadgets(mapEl, { chips: opts.chips, instruments: opts.instruments, fixedLayers });   // UI を #map に生やす＝以降の getElementById が実体を掴めるよう、全lookupの前で
 // 非搭載（chips:false / instruments:false）でも配線コードは無改造＝繋ぎ先が無ければ宙のdiv（どこにも描画されない）へ。
 const orDetached = el => el || document.createElement("div");
@@ -491,9 +494,12 @@ else try {
 const saveCam = () => { try { localStorage.setItem(CAM_KEY, JSON.stringify({ center: cam.center, zoom: cam.zoom, pitch: cam.pitch, bearing: cam.bearing })); } catch { /* private mode 等 */ } };
 // 現在ビュー→ハッシュ（codec は engine）。app 固有の後置トークン＝チップ状態 l=…
 // 固定キー(opts.layers)はURLに書かない＝そのURLを本家で開いた人には既定が適用される（埋め込み構成を持ち出さない）。
-const viewHash = () => buildViewHash(cam,
-	FREE_LAYER_KEYS.some(k => layerState[k] !== defaultLayerState[k])
-		? ["l=" + FREE_LAYER_KEYS.filter(k => layerState[k]).join(".")] : []);
+const viewHash = () => {
+	const on = FREE_LAYER_KEYS.filter(k => layerState[k]);
+	if (constelVisible) on.push(SKY_LAYER);   // 星座ON＝l= に sky を追加（既定OFF＝差分ありで l= を必ず書き出す）
+	const changed = constelVisible || FREE_LAYER_KEYS.some(k => layerState[k] !== defaultLayerState[k]);
+	return buildViewHash(cam, changed ? ["l=" + on.join(".")] : []);
+};
 const saveView = () => { saveCam(); try { history.replaceState(null, "", viewHash()); } catch { /* file:// 等 */ } };
 renderer.set("view", { clear, land, atmo, bldColor, showN02: false });   // showN02＝N02交通(新幹線等)の表示。鉄道チップで切替
 // 海：水レイヤ(WA)をビュー一律にゲート＝cam.zoom<13 では描かない（＝紙の海・まだら無し）、z13+で一律点火。
@@ -744,6 +750,9 @@ async function toggleConstellations() {
 	needsDraw = true;
 	console.log(`[星座線] ${consts.length}星座＋メシエ${messier.length}天体 ロード完了（クリックでON/OFF）`);
 }
+// URL(l=sky)⇄星座表示の冪等同期：望む状態と違う時だけ toggle を叩く（未読込なら読込→表示、読込済なら反転）。
+// z によらず状態を確定させる＝共有URLの往復で消えない（z<4に降りた時に実際に描かれる。worldFade が可視ゲート）。
+function applyConstellations(want) { if (!!want !== constelVisible) toggleConstellations(); }
 
 // N02（国土数値情報 鉄道）から新幹線だけ抽出して常駐オーバーレイに（gishub-jp と同じ geopbf 経路）。
 // 新幹線＝N02_002(事業者種別)=1「JRの新幹線」。全国一括・疎＝軽い。鉄道チップONで表示、初回だけ fetch。※駅/空港/道の駅は次段。
@@ -900,7 +909,7 @@ const input = createInput({
 	onGesture: () => flightCtl.cancel(),
 	onClick: (x, y) => {
 		if (measureClick) return measureClick(x, y);   // 測距モード＝クリックは頂点追加へ（識別/星座は止める）
-		if (cam.zoom < BASEMAP_MINZOOM) return toggleConstellations();   // 全球ビュー＝クリックで星座線（v1と同じ所作。identify対象の基図も無い）
+		if (cam.zoom < BASEMAP_MINZOOM) return void toggleConstellations().then(saveView);   // 全球ビュー＝クリックで星座線。表示状態は共有URL(l=sky)へ即書き戻す
 		overlay.identifyAt(x, y); if (gintInteractive) gintWorker.postMessage({ type: "click", x, y });
 	},
 	onHover: (x, y) => { if (gintInteractive) gintWorker.postMessage({ type: "move", x, y }); },
@@ -979,6 +988,7 @@ window.__fly = flyTo;   // デバッグ/検証用（__cam の飛行版）
 const layerState = { ...defaultLayerState };   // UIトグル状態は main が保持・変更（チップで反転）
 // 共有URLのレイヤ集合は「客が触れるキー」だけ上書き（旧romajiトークンは normLayerKey で読み替え）。
 if (bootView?.layers) { const urlSet = new Set(bootView.layers.map(normLayerKey)); for (const k of FREE_LAYER_KEYS) layerState[k] = urlSet.has(k); }
+if (bootView?.layers?.includes(SKY_LAYER)) applyConstellations(true);   // l=sky＝星座線ONで起動（z<4で実描画）
 if (bootView?.contour && !("terrain" in fixedLayers)) layerState.terrain = true;   // 旧URLの c（等高線トグル時代）＝地形チップに読み替え（後方互換）
 Object.assign(layerState, fixedLayers);   // 固定は最後＝共有URLでも破れない（埋め込み主の意図が勝つ）
 let styleSig = JSON.stringify(layerState);
@@ -1088,6 +1098,7 @@ window.addEventListener("hashchange", () => {
 	if (v.layers || v.contour) {
 		// 固定キー(opts.layers)はハッシュ手編集でも破れない＝客が触れるキーだけ反映（旧romajiトークンは読み替え）
 		if (v.layers) { const urlSet = new Set(v.layers.map(normLayerKey)); for (const k of FREE_LAYER_KEYS) layerState[k] = urlSet.has(k); }
+		if (v.layers) applyConstellations(v.layers.includes(SKY_LAYER));   // ハッシュ手編集での星座ON/OFFも反映
 		if (v.contour && !("terrain" in fixedLayers)) layerState.terrain = true;   // 旧URLの c＝地形チップに読み替え（後方互換）
 		document.querySelectorAll(".chip[data-k]").forEach(syncChip);
 		styleSig = JSON.stringify(layerState); readySig = "";
