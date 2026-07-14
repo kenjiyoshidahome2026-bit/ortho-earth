@@ -218,8 +218,10 @@ const PLATEAU_AUTO_Z = 14;                 // これ以上寄ると自動ロー�
 // 誤検知側の被害は「同時1区・キャッシュ縮小」だけ＝安全側に倒す。
 const LOW_MEM = navigator.deviceMemory ? navigator.deviceMemory <= 4 : navigator.maxTouchPoints > 1;
 if (LOW_MEM) console.log("[plateau] 低メモリ端末モード：同時1区・workerキャッシュ1区");
-// 同時アクティブ地区数の上限。区境をまたいだ隣接分だけを想定＝GPUメモリを有界にする（密集地区(都心部)1件あたりGPUバッファ~100-140MB）。
-const PLATEAU_MAX_ACTIVE = LOW_MEM ? 1 : 2;
+// 同時アクティブ地区数の上限＝GPUメモリを有界にする（密集地区(都心部)1件あたりGPUバッファ~100-140MB）。
+// デスクトップは4区（計~0.5GB＝余裕内）＝高チルトで「手前の区＋正面の区」を同時に立てる。
+// 4はシェーダの被覆マスクスロット上限（glsl u_plateauMask0..3・renderer MAX_PLATEAU_MASKS）＝これ以上は基図建物を伏せられず二重に立つ。
+const PLATEAU_MAX_ACTIVE = LOW_MEM ? 1 : 4;
 let flying = false;                        // フライト中フラグ＝autoPlateau のゲート（flyTo が立て、着地/中断で下ろす）
 const plateauActive = new Map();           // 現在レンダラーに乗っている地区：name → set({name,base,bbox})
 const plateauLoading = new Set();          // fetch/デコード中の地区名（二重発火防止）
@@ -322,14 +324,26 @@ function autoPlateau() {
 		return;
 	}
 	const view = approxViewBbox(cam);
+	// 高チルトでは画面中心の接地点(cam.center)が手前よりずっと先＝「手前（画面下＝足元）の区」が中心距離の
+	// 選抜で落ち、基図の押し出し建物のまま残る（z14.9/70°の新橋で実測）。画面下端中央の接地点(foot)も
+	// 基準点に加え、視野bboxにも含める＝下にある（＝手前で大きく見える）区ほど優先で立つ。
+	// 真俯瞰では下端＝単に南＝優先の意味が無いので、傾き20°超の時だけ使う。
+	const foot = cam.pitch > 0.35 ? unprojectXY(size.w / dpr / 2, size.h / dpr * 0.98) : null;   // 球外(null)はfootなし扱い
+	if (foot) {
+		view[0] = Math.min(view[0], foot[0]); view[1] = Math.min(view[1], foot[1]);
+		view[2] = Math.max(view[2], foot[0]); view[3] = Math.max(view[3], foot[1]);
+	}
 	let hits = PLATEAU_SETS.filter(s => bboxIntersects(s.bbox, view) && !plateauFailed.has(s.name));   // 死んだ地区は候補から除外＝再挑戦しない
 	if (hits.length > PLATEAU_MAX_ACTIVE) {
-		const [lon, lat] = cam.center;
 		// 近さ＝「bboxまでの点距離」（bbox内なら0）。重心距離だと南北に長い区（江東=臨海部で重心が南へ~4km）が
-		// 足元に居ても落選し、チルト北向きの構図で手前だけ基図の間引き建物になる。同点（bbox重複）は重心距離で順序付け。
-		const d2 = s => { const dx = Math.max(s.bbox[0] - lon, 0, lon - s.bbox[2]), dy = Math.max(s.bbox[1] - lat, 0, lat - s.bbox[3]); return dx * dx + dy * dy; };
-		const c2 = s => { const cx = (s.bbox[0] + s.bbox[2]) / 2, cy = (s.bbox[1] + s.bbox[3]) / 2; return (cx - lon) ** 2 + (cy - lat) ** 2; };
-		hits = hits.sort((a, b) => (d2(a) - d2(b)) || (c2(a) - c2(b))).slice(0, PLATEAU_MAX_ACTIVE);   // 近い順に上限件数だけ採用
+		// 足元に居ても落選し、チルト北向きの構図で手前だけ基図の間引き建物になる。
+		// 優先順位＝チルト時は「画面下方（足元）に近い区」が主キー（手前＝一番大きく見える建物が先）、
+		// 同点は中心への近さ、それも同点（bbox重複）は重心距離。ロード発火もこの順＝手前から立ち始める。
+		const pd2 = (s, p) => { const dx = Math.max(s.bbox[0] - p[0], 0, p[0] - s.bbox[2]), dy = Math.max(s.bbox[1] - p[1], 0, p[1] - s.bbox[3]); return dx * dx + dy * dy; };
+		const d2 = s => pd2(s, foot || cam.center);   // 主キー：足元（真俯瞰は中心）
+		const m2 = s => pd2(s, cam.center);           // 第2キー：中心
+		const c2 = s => { const cx = (s.bbox[0] + s.bbox[2]) / 2, cy = (s.bbox[1] + s.bbox[3]) / 2; return (cx - cam.center[0]) ** 2 + (cy - cam.center[1]) ** 2; };
+		hits = hits.sort((a, b) => (d2(a) - d2(b)) || (m2(a) - m2(b)) || (c2(a) - c2(b))).slice(0, PLATEAU_MAX_ACTIVE);   // 手前優先で上限件数だけ採用
 	}
 	const hitNames = new Set(hits.map(h => h.name));
 	for (const name of [...plateauActive.keys()]) {

@@ -259,7 +259,8 @@ function sendBatch(ward, bi, mesh, wardMask, wardBbox) {
 }
 
 const cache = new Map();   // base URL → { batches, mask, wardBbox }（このworker内のみ有効。再訪はfetch/Draco解凍を丸ごと省略）
-let CACHE_MAX = 3;         // 1区あたり~100-160MB（typed array一式）＝無上限だと多区巡回でメモリが積み上がる。LRUで直近3区に制限。
+let CACHE_MAX = 2;         // 1区あたり~100-160MB（typed array一式）＝無上限だと多区巡回でメモリが積み上がる。LRUで直近2区に制限
+                           // （workerは同時4本＝プール全体で最大8区~1GB。同区は base ハッシュで毎回同じ worker＝ヒット率は落ちない）。
                            // 低メモリ端末（init の lowMem）は1区＝スマホのタブ強制終了対策。再訪はIDBが受けるので体感は数秒差
 
 // IDB 永続キャッシュ：GPU直行形式（pos/nrm/idx＋マスク）を区単位で保存＝ページ再読込・再起動後も
