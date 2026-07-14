@@ -286,10 +286,11 @@ window.__plateauPurge = () => {
 	plateauWorkers.forEach(w => w.postMessage({ type: "purge" }));
 	for (const n of [...plateauResident.keys()]) if (!plateauActive.has(n)) plateauEvict(n);   // GPU常駐も非表示分は解放（表示中は残す）
 };
-function workerLoadPlateau(base, tiles, name, wardBbox) {
+function workerLoadPlateau(base, tiles, name, wardBbox, brid) {
 	const id = ++plateauReqId, w = plateauWorkers[hashStr(base) % PLATEAU_NW];
 	// wardBbox＝区単位の被覆マスク座標系。camCenter＝バッチのカメラ近傍優先ソート（目の前から立ち始める）。
-	w.postMessage({ id, base, tiles, name, wardBbox, camCenter: [cam.center[0], cam.center[1]] });
+	// brid＝橋梁モード：バッチ接地（桁が海面へ沈まない）＋両面描画（ケーブル等の開いた薄面が裏から消えない）。
+	w.postMessage({ id, base, tiles, name, wardBbox, brid: !!brid, camCenter: [cam.center[0], cam.center[1]] });
 	return new Promise((resolve, reject) => plateauPending.set(id, { resolve, reject, name }));   // name＝進捗の消灯キー
 }
 // PLATEAU 読込進捗（左下）：地区別のバッチ進捗を1行に集計。ネットワーク経路（初回訪問）だけ表示され、
@@ -321,7 +322,7 @@ function plateauPreload(set) {   // プレロード＝IDBに貯めるだけ（�
 	if (plateauLoading.has(set.name) || plateauActive.has(set.name)) return Promise.resolve(true);
 	plateauLoading.add(set.name);
 	const id = ++plateauReqId, w = plateauWorkers[hashStr(set.base) % PLATEAU_NW];
-	w.postMessage({ id, base: set.base, name: set.name, wardBbox: set.bbox, camCenter: [cam.center[0], cam.center[1]], preload: true });
+	w.postMessage({ id, base: set.base, name: set.name, wardBbox: set.noMask ? null : set.bbox, brid: !!set.noMask, camCenter: [cam.center[0], cam.center[1]], preload: true });
 	return new Promise((resolve, reject) => plateauPending.set(id, { resolve, reject, name: set.name }))
 		.catch(() => false).finally(() => plateauLoading.delete(set.name));
 }
@@ -407,7 +408,7 @@ function autoPlateau() {
 		}
 		plateauLoading.add(h.name);
 		console.log("[plateau] 自動ロード →", h.name);
-		loadPlateau(h.base, undefined, h.name, h.noMask ? null : h.bbox)   // noMask（橋梁等）＝被覆マスクを作らない・基図建物を伏せない
+		loadPlateau(h.base, undefined, h.name, h.noMask ? null : h.bbox, h.noMask)   // noMask（橋梁等）＝マスク不参加＋橋梁モード（バッチ接地・両面）
 			.then(ok => {
 				if (!ok) { plateauFailed.add(h.name); console.warn("[plateau] 読み込めないためスキップ（廃止区/空データ？）:", h.name); return; }   // 一回だけ警告→以後は候補から除外
 				plateauActive.set(h.name, h);
@@ -850,7 +851,7 @@ window.__plateau = async (nameOrBase, tiles) => {
 		} else {
 			plateauLoading.add(set.name);
 			try {
-				const ok = await loadPlateau(set.base, tiles, set.name, set.noMask ? null : set.bbox);
+				const ok = await loadPlateau(set.base, tiles, set.name, set.noMask ? null : set.bbox, set.noMask);
 				if (ok) { plateauActive.set(set.name, set); plateauRetain(set.name, set); }
 			} finally { plateauLoading.delete(set.name); }
 		}
@@ -864,8 +865,8 @@ window.__plateau = async (nameOrBase, tiles) => {
 // ロード本体（カメラは動かさない）：重い処理は plateauworker.js に丸投げ。メッシュはバッチ単位で worker→render worker
 // 直結ポートを流れ逐次表示される（main を通らない。ここに返るのは全バッチ完了の ack だけ）。
 // 成功可否 bool＝呼び出し側が plateauActive に加えるかの判断に使う。
-async function loadPlateau(base, tiles, name, wardBbox) {
-	const ok = await workerLoadPlateau(base, tiles, name, wardBbox);
+async function loadPlateau(base, tiles, name, wardBbox, brid) {
+	const ok = await workerLoadPlateau(base, tiles, name, wardBbox, brid);
 	if (!ok) return false;
 	needsDraw = true;
 	console.log("[plateau] 完了", base);

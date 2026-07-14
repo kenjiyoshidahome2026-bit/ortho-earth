@@ -73,7 +73,11 @@ function triKey(k0, k1, k2) {
 // バッチ1個（タイル列の一部）をデコードして単一メッシュへ。旧・全区一括処理と同じパイプラインをバッチ範囲に適用：
 // dedup（重複面は同一タイル内が支配的＝バッチ内で完結）・接地グリッド（バッチbbox基準＝むしろ細かく効く）・RTE origin。
 // wardMask には三角形が触れた区単位セルを累積（wardBbox 座標系）。
-async function decodeBatch(base, leaves, wardMask, wardBbox, onTile = null) {
+// brid＝橋梁モード：①接地を「成分ごと」でなく「バッチ最低点」に＝桁・ケーブルが塔と非連結でも海面へ沈まない
+// （成分接地だと吊橋の桁が自分の最低点で接地＝水面すれすれに落ちる。バッチ最低点＝橋脚基部≈ジオイド分を
+//   一括で差し引くので、部材同士の相対高さが保たれる）②twoSided=1 を焼き込み＝FS が裏面 discard をやめる
+// （ケーブル・柵など厚みゼロの開いた面は表裏2枚組で来る→dedup が1枚に潰す→片側から見えなくなるため）。
+async function decodeBatch(base, leaves, wardMask, wardBbox, onTile = null, brid = false) {
 	// 中間データは plain JS Array に push しない：バッチで1700万push級になり要素タグ+GCで数秒を失う。
 	// プリミティブごとに頂点数が既知なので typed セグメントを作り、バッチ末尾で一括結合（memcpy）する。
 	// geo(lon/lat rad)は float64 必須：float32 の相対精度~1e-7 は rad で~0.6m＝dedup の丸め(1e-8rad≈6cm)を壊す。
@@ -217,7 +221,7 @@ async function decodeBatch(base, leaves, wardMask, wardBbox, onTile = null) {
 	let ox = 0, oy = 0, oz = 0;
 	for (let i = 0; i < M; i++) {
 		const lon = geo[i*3], lat = geo[i*3+1], cb = Math.cos(lat);
-		const r = 1 + (geo[i*3+2] - minAlt[find(i)]) / EARTH_M;   // 基部からの相対高さ＝剛体接地（成分内min差し引き＝負にならない）
+		const r = 1 + (geo[i*3+2] - (brid ? minH : minAlt[find(i)])) / EARTH_M;   // 基部からの相対高さ＝剛体接地（橋梁はバッチ最低点＝部材の相対高さ保存）
 		const x = cb*Math.cos(lon)*r, y = Math.sin(lat)*r, z = cb*Math.sin(lon)*r;
 		wpos[i*3] = x; wpos[i*3+1] = y; wpos[i*3+2] = z; ox += x; oy += y; oz += z;
 	}
@@ -240,7 +244,7 @@ async function decodeBatch(base, leaves, wardMask, wardBbox, onTile = null) {
 			for (let y = cy0; y <= cy1; y++) { const row = y*MASK_N; for (let x = cx0; x <= cx1; x++) wardMask[row+x] = 255; }
 		}
 	}
-	return { pos: outPos, nrm: outNrm, idx: outIdx, origin, bbox, lodH: LOD_H, lodCounts };
+	return { pos: outPos, nrm: outNrm, idx: outIdx, origin, bbox, lodH: LOD_H, lodCounts, twoSided: brid ? 1 : 0 };
 }
 
 // メッシュの出口＝render worker への直結ポート（main.js が MessageChannel で配線）。
@@ -252,7 +256,7 @@ let meshPort = null;
 function sendBatch(ward, bi, mesh, wardMask, wardBbox) {
 	const pos = mesh.pos.slice(), nrm = mesh.nrm.slice(), idx = mesh.idx.slice();
 	const mask = wardMask ? wardMask.slice() : null;
-	const payload = { name: `${ward}#${bi}`, meshData: { pos, nrm, idx, origin: mesh.origin, bbox: mesh.bbox, lodH: mesh.lodH, lodCounts: mesh.lodCounts, ward, mask, maskN: MASK_N, maskBbox: wardBbox } };
+	const payload = { name: `${ward}#${bi}`, meshData: { pos, nrm, idx, origin: mesh.origin, bbox: mesh.bbox, lodH: mesh.lodH, lodCounts: mesh.lodCounts, twoSided: mesh.twoSided || 0, ward, mask, maskN: MASK_N, maskBbox: wardBbox } };
 	const transfers = [pos.buffer, nrm.buffer, idx.buffer];
 	if (mask) transfers.push(mask.buffer);
 	meshPort.postMessage(payload, transfers);
@@ -278,10 +282,10 @@ navigator.storage?.estimate?.().then(e => {
 }).catch(() => {});
 const idbReady = Cache("GIS/plateau").catch(e => { console.warn("[plateau] IDB無効（メモリキャッシュのみで続行）", e); return null; });
 
-async function idbLoad(base) {
+async function idbLoad(base, brid) {
 	const idb = await idbReady; if (!idb) return null;
 	const meta = await idb(base + "#meta").catch(() => null);
-	if (!meta || meta.ver !== IDB_FMT_VER) return null;
+	if (!meta || meta.ver !== IDB_FMT_VER || !!meta.brid !== !!brid) return null;   // brid不一致＝接地方式が違う焼き＝無効（橋梁だけ選択的に作り直せる）
 	const batches = [];
 	for (let i = 0; i < meta.count; i++) {
 		const b = await idb(`${base}#${i}`).catch(() => null);
@@ -291,13 +295,13 @@ async function idbLoad(base) {
 	idb(base + "#meta", { ...meta, ts: Date.now() });   // LRU touch（待たない）
 	return { batches, mask: meta.mask ?? null, wardBbox: meta.wardBbox ?? null };
 }
-async function idbStore(base, batches, mask, wardBbox) {
+async function idbStore(base, batches, mask, wardBbox, brid) {
 	const idb = await idbReady; if (!idb) return;
 	try {
 		for (let i = 0; i < batches.length; i++) await idb(`${base}#${i}`, batches[i]);
 		// bytes＝メッシュ typed array の合計＝データ管理モーダルの容量表示用（概算。旧レコードは未記録＝0）
 		const bytes = batches.reduce((s, b) => s + Object.values(b).reduce((t, v) => t + (ArrayBuffer.isView(v) ? v.byteLength : 0), 0), 0);
-		await idb(base + "#meta", { ver: IDB_FMT_VER, count: batches.length, mask, wardBbox, ts: Date.now(), bytes });
+		await idb(base + "#meta", { ver: IDB_FMT_VER, count: batches.length, mask, wardBbox, brid: !!brid, ts: Date.now(), bytes });
 		// 容量上限：合計バイトが idbBudget（クォータ連動）を超えたら lastUsed 最古の区から丸ごと退避（バッチレコードも道連れ）。
 		// いま書いた区は退避対象にしない＝budget が極端に小さい環境でも自己破壊しない。
 		const keys = (await idb()) || [];
@@ -329,7 +333,7 @@ async function idbPurge() {
 
 // ロード本体：葉タイル収集→カメラ近傍順ソート→バッチごとにデコード→完成次第 render worker へ直送（逐次表示）。
 // メモリ→IDB→ネットワークの3段。IDBヒット時もバッチ逐次送信＝プログレッシブ表示のまま。
-async function loadPlateau(base, tiles, ward, wardBbox, camCenter, preload = false) {
+async function loadPlateau(base, tiles, ward, wardBbox, camCenter, preload = false, brid = false) {
 	if (cache.has(base)) {
 		const c = cache.get(base);
 		cache.delete(base); cache.set(base, c);   // LRU touch（最近使用へ）
@@ -337,7 +341,7 @@ async function loadPlateau(base, tiles, ward, wardBbox, camCenter, preload = fal
 		if (!preload) c.batches.forEach((mesh, bi) => sendBatch(ward, bi, mesh, c.mask, c.wardBbox));
 		return true;
 	}
-	const stored = await idbLoad(base);
+	const stored = await idbLoad(base, brid);
 	if (stored) {
 		console.log("[plateau] IDB命中（fetch/解凍/変換スキップ）", base, `(${stored.batches.length} batches)`);
 		if (!preload) stored.batches.forEach((mesh, bi) => sendBatch(ward, bi, mesh, stored.mask, stored.wardBbox));
@@ -370,7 +374,7 @@ async function loadPlateau(base, tiles, ward, wardBbox, camCenter, preload = fal
 	const batches = [];
 	for (let bi = 0; bi * BATCH_TILES < leaves.length; bi++) {
 		const slice = leaves.slice(bi * BATCH_TILES, (bi + 1) * BATCH_TILES);
-		const mesh = await decodeBatch(base, slice, wardMask, wardBbox, () => prog({ done: ++tilesDone, total: leaves.length }));
+		const mesh = await decodeBatch(base, slice, wardMask, wardBbox, () => prog({ done: ++tilesDone, total: leaves.length }), brid);
 		if (!mesh) continue;
 		if (!preload) sendBatch(ward, batches.length, mesh, wardMask, wardBbox);   // 完成したバッチから即描画へ
 		batches.push(mesh);
@@ -380,7 +384,7 @@ async function loadPlateau(base, tiles, ward, wardBbox, camCenter, preload = fal
 	cache.set(base, { batches, mask: wardMask, wardBbox });   // デコード結果をこのworker内に保持＝再訪でfetch/Draco解凍を丸ごと省略
 	if (cache.size > CACHE_MAX) cache.delete(cache.keys().next().value);   // LRU: 最古を退避
 	console.log("[plateau] 完了", base, `(${batches.length} batches)`);
-	const storing = idbStore(base, batches, wardMask, wardBbox);   // 永続化（表示経路はバックグラウンド＝待たせない）
+	const storing = idbStore(base, batches, wardMask, wardBbox, brid);   // 永続化（表示経路はバックグラウンド＝待たせない）
 	if (preload) await storing;   // プレロードの本旨はIDB永続化＝書き終わるまで ack しない（ackより先にモーダルが一覧を引くと「済」にならない）
 	return true;
 }
@@ -412,17 +416,17 @@ self.onmessage = async (e) => {
 		self.postMessage({ type: "idbDeleted", base, n });
 		return;
 	}
-	const { id, base, tiles, name, wardBbox, camCenter, preload } = e.data;
+	const { id, base, tiles, name, wardBbox, camCenter, preload, brid } = e.data;
 	try {
 		let ent = inflight.get(base);
 		if (!ent) {
-			ent = { p: loadPlateau(base, tiles, name, wardBbox, camCenter, !!preload), preload: !!preload };
+			ent = { p: loadPlateau(base, tiles, name, wardBbox, camCenter, !!preload, !!brid), preload: !!preload };
 			inflight.set(base, ent);
 			ent.p.finally(() => inflight.delete(base)).catch(() => {});   // 掃除専用の枝＝拒否はここで握り潰す（本流の reject は下の await が受ける）
 		}
 		let ok = await ent.p;
 		// プレロード進行中に表示要求が合流した場合、合流先は描画へ送っていない＝完了後に改めて（キャッシュ命中＝即）送る。
-		if (ok && ent.preload && !preload) ok = await loadPlateau(base, tiles, name, wardBbox, camCenter, false);
+		if (ok && ent.preload && !preload) ok = await loadPlateau(base, tiles, name, wardBbox, camCenter, false, !!brid);
 		self.postMessage({ id, ok });
 	} catch (err) {
 		self.postMessage({ id, ok: false, error: err.message });
