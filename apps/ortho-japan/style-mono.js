@@ -33,14 +33,17 @@ export default {
 
 		// 道路 面（z16タイルのみ）：中心線の代わりに紙色の帯を敷き、道路縁(RdEdg)がそれを縁取る＝道路が「白い面」になる。
 		// 水面より上に描く＝橋・埋立の道路が水を白く抜く（地形図の作法）。幅は実幅 vt_width(cm)→px（z16≈1.94m/px）、無い道は格で近似。
+		// 実幅は 2^(z-16) でスケール＝z17+でも実寸を保つ（固定pxだと寄るほど道の中央に細い帯＝「背骨」が浮く）。
 		{
 			id: "road-face", type: "line", "source-layer": "RdCL", minzoom: 16,
 			filter: ["!=", ["get", "vt_code"], 2704],
 			layout: { "line-cap": "round", "line-join": "round", "line-sort-key": ["coalesce", ["get", "vt_drworder"], 0] },
 			paint: {
 				"line-color": "#f6f6f4",
-				"line-width": ["case", ["has", "vt_width"], ["/", ["to-number", ["get", "vt_width"]], 194],
-					["match", ["get", "vt_rdctg"], "高速自動車国道等", 9, "国道", 7, "都道府県道", 5, 3]],
+				"line-width": ["*",
+					["case", ["has", "vt_width"], ["/", ["to-number", ["get", "vt_width"]], 194],
+						["match", ["get", "vt_rdctg"], "高速自動車国道等", 9, "国道", 7, "都道府県道", 5, 3]],
+					["^", 2, ["-", ["zoom"], 16]]],
 			},
 		},
 
@@ -125,8 +128,10 @@ export default {
 			paint: { "line-color": "#4b9e6a", "line-width": ["interpolate", ["linear"], ["zoom"], 16, 1.5, 19, 3.0] },
 		},
 		// 道路 点火：高速＝明快な青、国道＝淡い青（幹線だけ着色。都道府県道以下は土台グレーのまま）。トンネルは破線＝別レイヤ。
+		// maxzoom 16＝z16+ では中心線をやめ、道路面そのもの（road-hi-face＝road-face と同じ実幅）に色を移す：
+		// 白い面の上に色の中心線が重なるのは冗長（高倍率では中心線いらない）。地理院地図Vector と同じ「色の帯」になる。
 		{
-			id: "road-hi", type: "line", "source-layer": "RdCL",
+			id: "road-hi", type: "line", "source-layer": "RdCL", maxzoom: 16,
 			filter: ["all", ["in", ["get", "vt_rdctg"], ["literal", ["高速自動車国道等", "国道"]]], ["!=", ["get", "vt_code"], 2704]],
 			layout: { "line-cap": "round", "line-join": "round", "line-sort-key": ["coalesce", ["get", "vt_drworder"], 0] },
 			paint: {
@@ -135,6 +140,18 @@ export default {
 					11, ["match", ["get", "vt_rdctg"], "高速自動車国道等", 1.8, 1.4],
 					14, ["match", ["get", "vt_rdctg"], "高速自動車国道等", 4.0, 2.8],
 					16, ["match", ["get", "vt_rdctg"], "高速自動車国道等", 8.0, 5.5]],
+			},
+		},
+		{
+			id: "road-hi-face", type: "line", "source-layer": "RdCL", minzoom: 16,
+			filter: ["all", ["in", ["get", "vt_rdctg"], ["literal", ["高速自動車国道等", "国道"]]], ["!=", ["get", "vt_code"], 2704]],
+			layout: { "line-cap": "round", "line-join": "round", "line-sort-key": ["coalesce", ["get", "vt_drworder"], 0] },
+			paint: {
+				"line-color": ["match", ["get", "vt_rdctg"], "高速自動車国道等", "#2f6cad", "#8fb2d6"],
+				"line-width": ["*",   // road-face と同じ実幅×2^(z-16)＝面がそのまま色になる（固定pxだと背骨化）
+					["case", ["has", "vt_width"], ["/", ["to-number", ["get", "vt_width"]], 194],
+						["match", ["get", "vt_rdctg"], "高速自動車国道等", 9, 7]],
+					["^", 2, ["-", ["zoom"], 16]]],
 			},
 		},
 		{

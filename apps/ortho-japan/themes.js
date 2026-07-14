@@ -33,7 +33,7 @@ export const isFacility = L => !CLAIMED.has(L.code) && !isTerrain(L.code) && !SU
 export function createThemes(style) {
 	const liOf = id => style.layers.findIndex(L => L.id === id);
 	const LI_RAILHI = liOf("rail-hi"), LI_RAILHITN = liOf("rail-hi-tn"), LI_RAILTR = liOf("railtr-hi"),
-		LI_ROADHI = liOf("road-hi"), LI_ROADHITN = liOf("road-hi-tn"), LI_ADMINHI = liOf("admin-hi"),
+		LI_ROADHI = liOf("road-hi"), LI_ROADHIFACE = liOf("road-hi-face"), LI_ROADHITN = liOf("road-hi-tn"), LI_ADMINHI = liOf("admin-hi"),
 		LI_KOURO = liOf("kouro"), LI_RIVER = liOf("river"), LI_WATERHI = liOf("water-hi");
 
 	// "点火"層は既定で隠す（土台グレーが見えている）。ONで色が乗る。
@@ -41,7 +41,7 @@ export function createThemes(style) {
 		const h = new Set();
 		if (!layerState.rail) { h.add(LI_RAILHI); h.add(LI_RAILHITN); }
 		if (!layerState.rail || zoom < RAILTR_MINZOOM) h.add(LI_RAILTR);   // 駅の軌道は鉄道ON＋寄った時だけ
-		if (!layerState.road) { h.add(LI_ROADHI); h.add(LI_ROADHITN); }
+		if (!layerState.road) { h.add(LI_ROADHI); h.add(LI_ROADHIFACE); h.add(LI_ROADHITN); }
 		if (!layerState.road) h.add(LI_KOURO);   // 航路は道路チップに相乗り
 		if (!layerState.place) h.add(LI_ADMINHI);   // 行政界は地名チップに相乗り（既定ON＝深い赤の細線）
 		if (!layerState.terrain) { h.add(LI_RIVER); h.add(LI_WATERHI); }  // 水系＝河川中心線＋WA面の着色。地形チップに相乗り
