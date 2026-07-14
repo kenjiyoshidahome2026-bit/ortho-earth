@@ -222,10 +222,35 @@ if (LOW_MEM) console.log("[plateau] 低メモリ端末モード：同時1区・w
 // デスクトップは4区（計~0.5GB＝余裕内）＝高チルトで「手前の区＋正面の区」を同時に立てる。
 // 4はシェーダの被覆マスクスロット上限（glsl u_plateauMask0..3・renderer MAX_PLATEAU_MASKS）＝これ以上は基図建物を伏せられず二重に立つ。
 const PLATEAU_MAX_ACTIVE = LOW_MEM ? 1 : 4;
+// GPU常駐（再訪の再アップロード根絶）：視野から外れた区は「削除」でなく「非表示(plateauVis)」＝VAOをVRAMに残す。
+// 再訪は vis:true を送るだけ＝100MB級の slice→transfer→bufferData が丸ごと消える（ズームアウト→戻るがタダに）。
+// 本当に削除するのは ①視野中心が区bboxから PLATEAU_FAR_DEG 超離れた時（完全に離れた＝当分戻らない扱い）
+// ②常駐上限超過のLRU。低メモリ端末は常駐なし＝従来どおり即削除（タブ強制終了対策を崩さない）。
+const PLATEAU_RESIDENT_MAX = LOW_MEM ? 0 : 8;   // 密集区~100-160MB/区 → 8区で~1GB＝普通のPCの余裕内
+const PLATEAU_FAR_DEG = 0.5;                    // 本削除の距離閾値（deg≈55km）。都心の区巡り・近郊往復では誰も落ちない
 let flying = false;                        // フライト中フラグ＝autoPlateau のゲート（flyTo が立て、着地/中断で下ろす）
-const plateauActive = new Map();           // 現在レンダラーに乗っている地区：name → set({name,base,bbox})
+const plateauActive = new Map();           // 表示中の地区（renderer で vis=on）：name → set({name,base,bbox})
+const plateauResident = new Map();         // GPUにVAOが乗っている地区（表示中＋非表示）：name → set。Map挿入順＝LRU
 const plateauLoading = new Set();          // fetch/デコード中の地区名（二重発火防止）
 const plateauFailed = new Set();           // 葉0枚/デコード失敗の地区名＝廃止区(浜松西区22133等)の残骸。二度と掴まない（毎onMoveの再挑戦スパムを断つ）
+function plateauHide(name) {   // 視野外れ＝非表示（GPU常駐は維持）。常駐対象外（低メモリ端末）はそのまま削除
+	if (plateauResident.has(name)) renderer.set("plateauVis", false, name);
+	else renderer.set("plateauMesh", null, name);
+}
+function plateauEvict(name) {  // 本削除＝GPUバッファ解放（遠方離脱/常駐上限超過だけがここへ来る）
+	plateauResident.delete(name);
+	renderer.set("plateauMesh", null, name);
+}
+function plateauRetain(name, set) {   // 常駐登録＋LRU touch。上限超過は最古の非表示区から追い出す（表示中/読込中は守る）
+	if (!PLATEAU_RESIDENT_MAX) return;
+	plateauResident.delete(name); plateauResident.set(name, set);
+	while (plateauResident.size > PLATEAU_RESIDENT_MAX) {
+		const oldest = [...plateauResident.keys()].find(n => !plateauActive.has(n) && !plateauLoading.has(n));
+		if (!oldest) break;
+		plateauEvict(oldest);
+		console.log("[plateau] 常駐上限→解放", oldest);
+	}
+}
 
 // PLATEAU worker プール：tileset fetch・Draco解凍・ECEF変換・重複面dedup・RTE・被覆マスク、全部ここでやる（メインスレッドはブロックしない）。
 // 密集地区(都心部)1件のデコードは実測40〜50秒かかる重い処理＝worker化しないとその間UIが完全に固まる。
@@ -254,7 +279,10 @@ for (let i = 0; plateauOn && i < PLATEAU_NW; i++) {   // plateau OFF＝workerを
 // base URL のハッシュで固定の worker へルーティング＝同じ地区は毎回同じ worker が受ける→worker内蔵cacheが再訪で効く。
 function hashStr(s) { let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0; return h >>> 0; }
 // デバッグ用：PLATEAUのメモリ/IDBキャッシュ全消去（デコード形式が壊れた疑いがある時に）。通常はFMT_VERが自動無効化する。
-window.__plateauPurge = () => plateauWorkers.forEach(w => w.postMessage({ type: "purge" }));
+window.__plateauPurge = () => {
+	plateauWorkers.forEach(w => w.postMessage({ type: "purge" }));
+	for (const n of [...plateauResident.keys()]) if (!plateauActive.has(n)) plateauEvict(n);   // GPU常駐も非表示分は解放（表示中は残す）
+};
 function workerLoadPlateau(base, tiles, name, wardBbox) {
 	const id = ++plateauReqId, w = plateauWorkers[hashStr(base) % PLATEAU_NW];
 	// wardBbox＝区単位の被覆マスク座標系。camCenter＝バッチのカメラ近傍優先ソート（目の前から立ち始める）。
@@ -280,7 +308,12 @@ function renderPlateauProg() {
 const plateauListPending = [];        // idbList 応答待ち（FIFO。IDBは全workerで共有＝worker0固定で聞く）
 const plateauDeletePending = new Map();   // base → resolver（削除は base ルーティング＝メモリキャッシュの持ち主に届く）
 const plateauIdbList = () => new Promise(res => { plateauListPending.push(res); plateauWorkers[0].postMessage({ type: "idbList" }); });
-const plateauIdbDelete = base => new Promise(res => { plateauDeletePending.set(base, res); plateauWorkers[hashStr(base) % PLATEAU_NW].postMessage({ type: "idbDelete", base }); });
+const plateauIdbDelete = base => new Promise(res => { plateauDeletePending.set(base, res); plateauWorkers[hashStr(base) % PLATEAU_NW].postMessage({ type: "idbDelete", base }); })
+	.then(n => {   // GPU常駐コピーも道連れ（表示中は従来どおり残す）＝「削除」した区が常駐ヒットで蘇らないように
+		const name = [...plateauResident.entries()].find(([, s]) => s.base === base)?.[0];
+		if (name && !plateauActive.has(name)) plateauEvict(name);
+		return n;
+	});
 function plateauPreload(set) {   // プレロード＝IDBに貯めるだけ（描画へ送らない）。表示中/読込中の地区はそのまま成功扱い
 	if (plateauLoading.has(set.name) || plateauActive.has(set.name)) return Promise.resolve(true);
 	plateauLoading.add(set.name);
@@ -317,8 +350,15 @@ function autoPlateau() {
 	if (!plateauOn) return;   // 機能ごと停止（opts.plateau=false）
 	if (flying) return;   // フライト中は読み込みも解放もしない＝デコード/GPU転送が飛行アニメと帯域を取り合わない。着地の onMove で解禁
 	if (printHold) return;   // 印刷（平面図）撮影中＝印刷カメラで自動ロード/解放をしない（帯域と現ロード状態を乱さない）
+	// 「完全に離れた」常駐区の本削除：区bboxへの点距離が閾値超。ズームアウトだけでは落とさない＝同じ街への戻りはタダのまま。
+	for (const [name, s] of plateauResident) {
+		if (plateauActive.has(name) || plateauLoading.has(name)) continue;
+		const dx = Math.max(s.bbox[0] - cam.center[0], 0, cam.center[0] - s.bbox[2]);
+		const dy = Math.max(s.bbox[1] - cam.center[1], 0, cam.center[1] - s.bbox[3]);
+		if (dx * dx + dy * dy > PLATEAU_FAR_DEG * PLATEAU_FAR_DEG) { plateauEvict(name); console.log("[plateau] 遠方→常駐解除", name); }
+	}
 	if (cam.zoom < PLATEAU_AUTO_Z) {
-		for (const name of plateauActive.keys()) { renderer.set("plateauMesh", null, name); console.log("[plateau] 範囲外→解放", name); }
+		for (const name of plateauActive.keys()) { plateauHide(name); console.log("[plateau] 範囲外→非表示", name); }
 		if (plateauActive.size) needsDraw = true;
 		plateauActive.clear();
 		return;
@@ -348,21 +388,30 @@ function autoPlateau() {
 	const hitNames = new Set(hits.map(h => h.name));
 	for (const name of [...plateauActive.keys()]) {
 		if (hitNames.has(name)) continue;
-		plateauActive.delete(name); renderer.set("plateauMesh", null, name); needsDraw = true;
-		console.log("[plateau] 範囲外→解放", name);
+		plateauActive.delete(name); plateauHide(name); needsDraw = true;
+		console.log("[plateau] 範囲外→非表示", name);
 	}
 	for (const h of hits) {
 		if (plateauActive.has(h.name) || plateauLoading.has(h.name)) continue;
+		if (plateauResident.has(h.name)) {   // 常駐ヒット＝GPUにVAOが居る→表示フラグを戻すだけ（転送ゼロ・即表示）
+			plateauRetain(h.name, h);
+			renderer.set("plateauVis", true, h.name);
+			plateauActive.set(h.name, h);
+			needsDraw = true;
+			console.log("[plateau] 常駐ヒット（再アップロードなし）→", h.name);
+			continue;
+		}
 		plateauLoading.add(h.name);
 		console.log("[plateau] 自動ロード →", h.name);
 		loadPlateau(h.base, undefined, h.name, h.bbox)
 			.then(ok => {
 				if (!ok) { plateauFailed.add(h.name); console.warn("[plateau] 読み込めないためスキップ（廃止区/空データ？）:", h.name); return; }   // 一回だけ警告→以後は候補から除外
 				plateauActive.set(h.name, h);
-				// ★完了時に既に低ズーム/視野外なら stale＝即解放（ロード中にズームアウトすると3Dが居残る件を断つ）。
+				plateauRetain(h.name, h);
+				// ★完了時に既に低ズーム/視野外なら stale＝即非表示（ロード中にズームアウトすると3Dが居残る件を断つ。常駐には残る＝戻ればタダ）。
 				if (cam.zoom < PLATEAU_AUTO_Z || !bboxIntersects(h.bbox, approxViewBbox(cam))) {
-					plateauActive.delete(h.name); renderer.set("plateauMesh", null, h.name); needsDraw = true;
-					console.log("[plateau] ロード完了時に視野外→即解放", h.name);
+					plateauActive.delete(h.name); plateauHide(h.name); needsDraw = true;
+					console.log("[plateau] ロード完了時に視野外→即非表示", h.name);
 				}
 			})
 			.catch(e => { plateauFailed.add(h.name); console.warn("[plateau] 読み込み失敗のためスキップ:", h.name, e.message || e); })   // 一回だけ
@@ -789,11 +838,18 @@ window.__plateau = async (nameOrBase, tiles) => {
 	if (!set) { console.error("[plateau] 地区が見つかりません:", nameOrBase, `（登録簿 ${PLATEAU_SETS.length} 件）`); return; }
 	// カメラ移動→onMove→autoPlateau が同じ地区を並行ロードしないよう、手動ロードも plateauLoading に登録して同一ガードを通す。
 	if (!plateauActive.has(set.name) && !plateauLoading.has(set.name)) {
-		plateauLoading.add(set.name);
-		try {
-			const ok = await loadPlateau(set.base, tiles, set.name, set.bbox);
-			if (ok) plateauActive.set(set.name, set);
-		} finally { plateauLoading.delete(set.name); }
+		if (plateauResident.has(set.name)) {   // 常駐ヒット＝表示フラグを戻すだけ（autoPlateau と同じ経路）
+			plateauRetain(set.name, set);
+			renderer.set("plateauVis", true, set.name);
+			plateauActive.set(set.name, set);
+			needsDraw = true;
+		} else {
+			plateauLoading.add(set.name);
+			try {
+				const ok = await loadPlateau(set.base, tiles, set.name, set.bbox);
+				if (ok) { plateauActive.set(set.name, set); plateauRetain(set.name, set); }
+			} finally { plateauLoading.delete(set.name); }
+		}
 	}
 	const [w, s, e, n] = set.bbox;
 	cam.center = [(w + e) / 2, (s + n) / 2]; cam.zoom = 15; cam.pitch = 45 * D2R; cam.bearing = 0;   // 地区中心・傾けて建物を見る

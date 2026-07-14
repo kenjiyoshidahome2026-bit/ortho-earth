@@ -53,6 +53,7 @@ onmessage = e => {
 			else if (m.cmd === "skyLabels") { if (labelLayer) labelLayer.setSky(m.data); }   // 星空劇場の注記（星座名・メシエ）＝ラベルcanvasへ
 			else if (m.cmd === "skyMoon") { if (labelLayer) labelLayer.setMoon(m.data); }    // 月の満ち欠け円盤＝ラベルcanvasへ（常設）
 			else if (m.cmd === "plateauMesh") plateauInbox.push({ meshData: m.data, name: m.prop });   // 解放(null)も同じ列へ＝キュー内の未転送バッチを追い越さない（先に解放が効くと後から亡霊バッチが立つ）
+			else if (m.cmd === "plateauVis") plateauInbox.push({ vis: !!m.data, name: m.prop });      // 表示切替も同じ列＝未転送バッチ/解放との順序を保つ（適用は軽い＝フレーム予算を消費しない）
 			else if (m.cmd === "scene") sceneInbox.set(m.prop, m.data);          // mainからのシーンクリア（退場の layers:[]）も同じ受け口＝キュー内の古いシーンに追い越されない
 			else if (renderer) renderer.set(m.cmd, m.data, m.prop);              // view/overlay/elev…
 			dirty = true;                                        // 内容が変わった→描き直す
@@ -130,7 +131,9 @@ function drainUploads() {
 		return;
 	}
 	while (plateauInbox.length) {
-		const { meshData, name } = plateauInbox.shift();
+		const item = plateauInbox.shift();
+		if ("vis" in item) { renderer.set("plateauVis", item.vis, item.name); dirty = true; continue; }   // 表示切替＝フラグだけ＝同フレームで続けて消化
+		const { meshData, name } = item;
 		renderer.set("plateauMesh", meshData, name);
 		dirty = true;
 		if (meshData) { uploadSkip = 2; break; }   // 重い転送は1件で打ち切り。転送の山は「次フレームのdt」に出る＝EMA計測を2フレーム除外

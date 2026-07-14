@@ -32,6 +32,7 @@ export function createRenderer(canvas) {
 	// 基図建物を伏せる被覆マスクは区単位で別管理（plateauMasks）＝バッチ数でシェーダの固定スロットを枯渇させない。
 	const plateaux = new Map();
 	const plateauMasks = new Map();   // 区名 → { tex, bbox }（worker が累積スナップショットを送る度に丸ごと差し替え）
+	const plateauHidden = new Set();  // 非表示の区名（VAO/マスクはVRAM保持＝draw skipとスロット除外だけ。再訪は plateauVis 切替のみで再アップロード不要）
 	const MAX_PLATEAU_MASKS = 4;
 	// 静的 view（色・見た目）：初期化時に一度 setView でアップロード。draw は毎フレーム幾何(cam)だけ受け、
 	// 色は view から読む＝描画パラメータを「幾何(動的)」と「見た目(静的)」に分離。将来の worker payload 境界。
@@ -209,6 +210,7 @@ export function createRenderer(canvas) {
 			}
 			const m = plateauMasks.get(key);
 			if (m) { gl.deleteTexture(m.tex); plateauMasks.delete(key); }
+			plateauHidden.delete(key);
 			return;
 		}
 		const old = plateaux.get(key);
@@ -222,7 +224,7 @@ export function createRenderer(canvas) {
 		gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, data.idx, gl.STATIC_DRAW);
 		gl.bindVertexArray(null);
 		const o = data.origin || [0, 0, 0];
-		plateaux.set(key, { vao, bufs: [vbo, nbo, ibo], count: data.idx.length, origin: o, bbox: data.bbox || [1e9, 1e9, -1e9, -1e9] });
+		plateaux.set(key, { vao, bufs: [vbo, nbo, ibo], count: data.idx.length, origin: o, bbox: data.bbox || [1e9, 1e9, -1e9, -1e9], ward: data.ward || String(key).split("#")[0] });
 		// 被覆マスク（NEAREST・CLAMP）。基図建物 FS が uv=区bbox正規化で参照。区単位＝バッチごとに累積スナップショットで丸ごと差し替え。
 		if (data.ward && data.mask && (data.maskN | 0) > 0 && data.maskBbox) {
 			let m = plateauMasks.get(data.ward);
@@ -236,6 +238,12 @@ export function createRenderer(canvas) {
 			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
 			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
 		}
+	}
+
+	// PLATEAU 区単位の表示切替（GPU常駐のまま）。off＝draw skip＋被覆マスクのスロット除外（基図建物が復活する）。
+	// バッファ削除ではないので on へ戻すのは無料＝視野外れの「解放」をこれに置き換えると再訪の再アップロードが消える。
+	function setPlateauVis(ward, on) {
+		if (on) plateauHidden.delete(ward); else plateauHidden.add(ward);
 	}
 
 	// バッチ bbox（経緯度deg）の可視判定：4隅+中心を投影し、拡張スクリーン矩形と交差するか。
@@ -533,7 +541,7 @@ export function createRenderer(canvas) {
 			const c = view.bldColor || [0.86, 0.86, 0.85];
 			setCommonUniforms(bldProg, st, scenes.main.origin, land);
 			gl.uniform3f(loc(gl, bldProg, "u_bldColor"), c[0], c[1], c[2]);
-			const active = [...plateauMasks.values()].slice(0, MAX_PLATEAU_MASKS);
+			const active = [...plateauMasks.entries()].filter(([w]) => !plateauHidden.has(w)).map(([, m]) => m).slice(0, MAX_PLATEAU_MASKS);   // 非表示区のマスクはスロットに載せない＝基図建物が戻る
 			gl.uniform1i(loc(gl, bldProg, "u_plateauCount"), active.length);
 			for (let i = 0; i < MAX_PLATEAU_MASKS; i++) {
 				const m = active[i], pb = m ? m.bbox : [1e9, 1e9, -1e9, -1e9];
@@ -553,6 +561,7 @@ export function createRenderer(canvas) {
 			const c = view.bldColor || [0.86, 0.86, 0.85];   // 基図の押し出し建物と同色＝周辺と地続きに見せる
 			const pad = 0.5 * Math.max(st.W, st.H);          // 高層ビルの頭のはみ出し余白（半画面）
 			for (const p of plateaux.values()) {
+				if (plateauHidden.has(p.ward)) continue;   // 常駐中の非表示区（VRAM保持・draw skip）
 				if (!plateauBboxVisible(st, p.bbox, cam.center, pad)) continue;
 				setCommonUniforms(plateauProg, st, [0, 0], land);
 				gl.uniform3f(loc(gl, plateauProg, "u_bldColor"), c[0], c[1], c[2]);
@@ -603,6 +612,7 @@ export function createRenderer(canvas) {
 			case "elevCellStage": setElevationCellStage(prop.cx, prop.cy, data, prop.cellRes); break;
 			case "elevAtlasCommit": commitElevationStage(); break;                              // 揃ったら一括スワップ＝山影が消えない
 			case "plateauMesh": setPlateauMesh(prop, data); break;                             // prop=地区名(key)、data={pos,idx} PLATEAU LOD2 建物（null=解放）
+			case "plateauVis":  setPlateauVis(prop, data); break;                              // prop=区名、data=真偽（GPU常駐のまま表示切替＝再訪の再アップロード不要）
 			case "stars":     setStars(data); break;                                           // data=Float32Array [cel.xyz,rgb,a,size]×n
 			case "constellations": setConstellations(data); break;                             // data=Float32Array [cel.xyz]×2n（LINES端点列）表示は view.showConst
 			case "planets":   setPlanets(data); break;                                         // data=Float32Array（starsと同8fレイアウト・惑星5点＋月）
