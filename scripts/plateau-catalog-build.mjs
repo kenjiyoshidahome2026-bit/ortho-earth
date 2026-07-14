@@ -29,20 +29,27 @@ for (const d of bldgLod2) {
 }
 console.log(`重複排除後: ${byArea.size} 地区`);
 
-// 橋梁（brid）：LOD 2>3>1 の優先で地区1件（LOD3は細かいが重い、LOD1は箱）。同LODは texture無し優先。
-const bridAll = all.filter(d => d.type_en === 'brid' && d.format === '3D Tiles');
+// 橋梁（brid）：地区ごとに候補リスト＝LOD 2>3>1 の優先（LOD3は細かいが重い、LOD1は箱）、同LODは
+// "-latest" 安定URL優先→年次降順。政令市（横浜・大阪・京都・仙台・広島等）の -latest エイリアスは
+// tileset.json が空殻（children/content無し・region全国プレースホルダ）＝変換側の不具合。年次版の
+// 実URL（reearth CMS assets）は生きている（横浜2024で確認済＝ベイブリッジ）ので、fetchBbox が殻を
+// 検知したら次候補へ落ちる。年次URLはハッシュ入り＝再アップロードで腐り得るが、再生成で追随する。
 const LOD_PREF = { 2: 0, 3: 1, 1: 2 };
-const bridByArea = new Map();
-for (const d of bridAll) {
-	const key = d.ward_code || d.city_code;
-	const cur = bridByArea.get(key);
-	if (!cur || (LOD_PREF[d.lod] ?? 9) < (LOD_PREF[cur.lod] ?? 9)
-		|| (String(d.lod) === String(cur.lod) && cur.texture && !d.texture)) bridByArea.set(key, d);
+const bridCand = new Map();   // key → [dataset…]（優先順）
+{
+	const pool = all.filter(d => d.type_en === 'brid' && d.format === '3D Tiles').map(d => ({ d, yr: Infinity }))
+		.concat(catalog.datasets.filter(d => d.type_en === 'brid' && d.format === '3D Tiles').map(d => ({ d, yr: +d.year || 0 })));
+	pool.sort((a, b) => ((LOD_PREF[a.d.lod] ?? 9) - (LOD_PREF[b.d.lod] ?? 9)) || (b.yr - a.yr));
+	for (const { d } of pool) {
+		const key = d.ward_code || d.city_code;
+		if (!bridCand.has(key)) bridCand.set(key, []);
+		bridCand.get(key).push(d);
+	}
+	console.log(`brid: ${pool.length} 件 → ${bridCand.size} 地区（候補リスト化）`);
 }
-console.log(`brid: ${bridAll.length} 件 → ${bridByArea.size} 地区`);
 
-const areas = [...byArea.values()].map(d => ({ d, kind: 'bldg' }))
-	.concat([...bridByArea.values()].map(d => ({ d, kind: 'brid' })));
+const areas = [...byArea.values()].map(d => ({ cands: [d], kind: 'bldg' }))
+	.concat([...bridCand.values()].map(cands => ({ cands, kind: 'brid' })));
 const results = new Array(areas.length);
 let done = 0, skipped = 0;
 
@@ -51,18 +58,19 @@ async function fetchBbox(d, kind, attempt = 1) {
 	try {
 		const ts = await (await fetch(base + 'tileset.json', { signal: AbortSignal.timeout(25000) })).json();
 		const region = ts.root?.boundingVolume?.region;
-		if (!region) { console.warn(`  bbox無し(region以外) skip: ${d.id}`); skipped++; return null; }
+		if (!region) { console.warn(`  bbox無し(region以外) skip: ${d.id}`); return null; }
+		// 空殻検知：root に children も content も無い＝タイルへ辿り着けない殻（政令市bridの-latestに多い）。
+		if (!ts.root?.children?.length && !ts.root?.content) { console.warn(`  空殻tileset skip: ${d.id} (${d.year || 'latest'})`); return null; }
 		const R2D = 180 / Math.PI;
 		const bbox = [region[0] * R2D, region[1] * R2D, region[2] * R2D, region[3] * R2D];
 		// 廃止区の残骸（浜松旧7区等）は region が日本全域のプレースホルダ（span 30°級）＝全国どこでも自動ロード候補に
 		// 引っかかり無駄fetchを生む。市区町村としてあり得ない広さ（最大の正規例=隠岐の島町1.5°）は捨てる。
-		if (bbox[2] - bbox[0] > 5 || bbox[3] - bbox[1] > 5) { console.warn(`  bbox異常(全国級プレースホルダ) skip: ${d.id}`); skipped++; return null; }
+		if (bbox[2] - bbox[0] > 5 || bbox[3] - bbox[1] > 5) { console.warn(`  bbox異常(全国級プレースホルダ) skip: ${d.id} (${d.year || 'latest'})`); return null; }
 		const name = (d.ward ? d.city.replace(/市$/, '') + d.ward : d.city) + (kind === 'brid' ? '（橋梁）' : '');
 		return kind === 'brid' ? { name, base, bbox, noMask: true } : { name, base, bbox };
 	} catch (e) {
 		if (attempt < 3) return fetchBbox(d, kind, attempt + 1);
 		console.warn(`  失敗 skip: ${d.id} (${e.message})`);
-		skipped++;
 		return null;
 	}
 }
@@ -71,7 +79,11 @@ let idx = 0;
 async function worker() {
 	while (idx < areas.length) {
 		const i = idx++;
-		results[i] = await fetchBbox(areas[i].d, areas[i].kind);
+		for (const d of areas[i].cands) {   // 優先順に試し、最初に生きていた候補を採用（殻/失敗は次へ）
+			results[i] = await fetchBbox(d, areas[i].kind);
+			if (results[i]) break;
+		}
+		if (!results[i]) skipped++;
 		done++;
 		if (done % 25 === 0 || done === areas.length) console.log(`[${done}/${areas.length}]`);
 	}

@@ -1,5 +1,16 @@
 [
 	{
+		"name": "null（橋梁）",
+		"base": "https://assets.cms.plateau.reearth.io/assets/a5/005932-9b5e-40c3-9659-cc2c59f4c81c/13_tokyo_pref_2023_citygml_1_op_brid_3dtiles_lod2/",
+		"bbox": [
+			139.372667871923,
+			35.53595977219575,
+			139.91771827011917,
+			35.77104884774251
+		],
+		"noMask": true
+	},
+	{
 		"name": "いの町",
 		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/39386-bldg-lod2-notexture-latest/",
 		"bbox": [
@@ -48,6 +59,17 @@
 			139.757345058,
 			36.002691504999994
 		]
+	},
+	{
+		"name": "さいたま市（橋梁）",
+		"base": "https://assets.cms.plateau.reearth.io/assets/55/babf04-f2a8-4f85-9440-27e56b473f4f/11100_saitama-shi_city_2025_citygml_1_op_brid_3dtiles_lod2/",
+		"bbox": [
+			139.6206657,
+			35.85646905,
+			139.65886994,
+			35.91192252
+		],
+		"noMask": true
 	},
 	{
 		"name": "さいたま大宮区",
@@ -330,6 +352,17 @@
 			139.747256057,
 			35.330373468
 		]
+	},
+	{
+		"name": "横浜市（橋梁）",
+		"base": "https://assets.cms.plateau.reearth.io/assets/6a/6d2bb2-910d-4e78-be9e-b4ac169610d0/14100_yokohama-shi_city_2024_citygml_2_op_brid_3dtiles_lod2/",
+		"bbox": [
+			139.61388822436427,
+			35.431978852015895,
+			139.70785343615304,
+			35.493941831571576
+		],
+		"noMask": true
 	},
 	{
 		"name": "横浜神奈川区",
@@ -684,6 +717,17 @@
 		]
 	},
 	{
+		"name": "京都市（橋梁）",
+		"base": "https://assets.cms.plateau.reearth.io/assets/9c/8616a4-ec1c-4970-9456-1c36e2d8ec85/26100_kyoto-shi_city_2025_citygml_1_op_brid_3dtiles_lod3/",
+		"bbox": [
+			135.77317606462142,
+			35.00528991491694,
+			135.77476096088245,
+			35.00583372010819
+		],
+		"noMask": true
+	},
+	{
 		"name": "京都上京区",
 		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/26102-bldg-lod2-notexture-latest/",
 		"bbox": [
@@ -914,6 +958,17 @@
 			139.789511608,
 			36.109136667
 		]
+	},
+	{
+		"name": "広島市（橋梁）",
+		"base": "https://assets.cms.plateau.reearth.io/assets/a8/08e37d-8c97-4767-a357-cf202b60f371/34100_hiroshima-shi_city_2024_citygml_1_op_brid_3dtiles_lod3/",
+		"bbox": [
+			132.4755242416558,
+			34.39776159282015,
+			132.47787111376533,
+			34.399641075846255
+		],
+		"noMask": true
 	},
 	{
 		"name": "広島中区",
@@ -1756,6 +1811,17 @@
 		]
 	},
 	{
+		"name": "静岡市（橋梁）",
+		"base": "https://assets.cms.plateau.reearth.io/assets/7b/4904b1-8c6b-4726-b4d9-1e90ec95b617/22100_shizuoka-shi_city_2023_citygml_3_op_brid_3dtiles_lod2/",
+		"bbox": [
+			138.4861983301484,
+			34.985353506031984,
+			138.51908715731375,
+			35.044890722309255
+		],
+		"noMask": true
+	},
+	{
 		"name": "静岡清水区",
 		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/22103-bldg-lod2-notexture-latest/",
 		"bbox": [
@@ -1786,6 +1852,17 @@
 		]
 	},
 	{
+		"name": "仙台市（橋梁）",
+		"base": "https://assets.cms.plateau.reearth.io/assets/d0/7ece60-657d-43c5-94b5-f388f1cb2c3b/04100_sendai-shi_city_2024_citygml_1_op_brid_3dtiles_lod3/",
+		"bbox": [
+			140.879481019149,
+			38.25875975428819,
+			140.88219120027514,
+			38.26346588074559
+		],
+		"noMask": true
+	},
+	{
 		"name": "仙台青葉区",
 		"base": "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/04101-bldg-lod2-notexture-latest/",
 		"bbox": [
@@ -1813,6 +1890,17 @@
 			35.669656360000005,
 			139.782660804,
 			35.705095468
+		],
+		"noMask": true
+	},
+	{
+		"name": "千葉市（橋梁）",
+		"base": "https://assets.cms.plateau.reearth.io/assets/be/8987ee-5f42-49b9-a76d-14ad20d70867/12100_chiba-shi_city_2024_citygml_3_op_brid_3dtiles_lod2/",
+		"bbox": [
+			140.11050196773272,
+			35.60920192151201,
+			140.12023189392673,
+			35.61412128984513
 		],
 		"noMask": true
 	},
@@ -2058,6 +2146,17 @@
 			135.472057224,
 			34.699652775
 		]
+	},
+	{
+		"name": "大阪市（橋梁）",
+		"base": "https://assets.cms.plateau.reearth.io/assets/c1/e2b5e7-f7bd-4961-ab7e-80bc528e7df1/27100_osaka-shi_city_2025_citygml_1_op_brid_3dtiles_lod2/",
+		"bbox": [
+			135.52643887298916,
+			34.68862827071171,
+			135.52680811075498,
+			34.689149948136645
+		],
+		"noMask": true
 	},
 	{
 		"name": "大阪城東区",
