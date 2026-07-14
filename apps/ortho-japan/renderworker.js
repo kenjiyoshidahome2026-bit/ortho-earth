@@ -41,10 +41,7 @@ onmessage = e => {
 			requestAnimationFrame(frame);                        // worker 自前の描画ループ開始
 			break;
 		case "plateauPort":                                      // plateau worker → ここ のメッシュ直結パイプ（workerプール1本につき1ポート）
-			m.port.onmessage = ev => {                           // バッチ単位の typed array を main を経由させず transfer で受ける（逐次表示）
-				if (renderer) renderer.set("plateauMesh", ev.data.meshData, ev.data.name);
-				dirty = true;
-			};
+			m.port.onmessage = ev => { plateauInbox.push(ev.data); dirty = true; };   // 受信は貯めるだけ＝GPU転送は frame() が1件/フレームで平準化（下の drainPlateau）
 			break;
 		case "resize":                                           // 両キャンバスを同じ寸法に（main は transfer 後触れない）
 			baseW = m.width; baseH = m.height;
@@ -56,6 +53,7 @@ onmessage = e => {
 			if (m.cmd === "labels") { pendingLabels = m.data; applyLabels(); }   // ラベル集合の更新（標高は cam が揃ってから付与）
 			else if (m.cmd === "skyLabels") { if (labelLayer) labelLayer.setSky(m.data); }   // 星空劇場の注記（星座名・メシエ）＝ラベルcanvasへ
 			else if (m.cmd === "skyMoon") { if (labelLayer) labelLayer.setMoon(m.data); }    // 月の満ち欠け円盤＝ラベルcanvasへ（常設）
+			else if (m.cmd === "plateauMesh") plateauInbox.push({ meshData: m.data, name: m.prop });   // 解放(null)も同じ列へ＝キュー内の未転送バッチを追い越さない（先に解放が効くと後から亡霊バッチが立つ）
 			else if (renderer) renderer.set(m.cmd, m.data, m.prop);              // view/scene/overlay/elev…
 			dirty = true;                                        // 内容が変わった→描き直す
 			break;
@@ -113,6 +111,21 @@ function applyLabels() {
 let baseW = 0, baseH = 0, resIdx = 0;
 const RES_STEPS = [1, 0.85, 0.7, 0.55];
 let emaMs = 0, lastFrameT = 0, prevDrew = false, resHold = 0, upStreak = 0, upDelay = 300;
+let uploadSkip = 0, pendingUp = false;   // uploadSkip＝PLATEAU転送直後の計測除外（転送スパイクで誤降格しない）。pendingUp＝解像度復帰の予約（適用は静止フレーム）
+
+// PLATEAU バッチ転送の平準化：バッチ（typed array 10〜20MB）が同一フレームに複数届くと bufferData が束で走り、
+// そのフレームだけ数十msの山＝カクツキ。受信は plateauInbox に貯め、frame() が1フレーム1件だけ GPU へ上げる
+// （逐次表示の思想を GPU 転送まで通す）。解放(null)は deleteBuffer だけで軽い＝同フレームで続けて消化し、
+// FIFO は崩さない（解放→後続バッチの追い越しが無い＝区の入替で亡霊メッシュが残らない）。
+const plateauInbox = [];
+function drainPlateau() {
+	while (plateauInbox.length && renderer) {
+		const { meshData, name } = plateauInbox.shift();
+		renderer.set("plateauMesh", meshData, name);
+		dirty = true;
+		if (meshData) { uploadSkip = 2; break; }   // 重い転送は1件で打ち切り。転送の山は「次フレームのdt」に出る＝EMA計測を2フレーム除外
+	}
+}
 function applyRes() {
 	if (!canvas || !baseW) return;
 	const s = RES_STEPS[resIdx], w = Math.round(baseW * s), h = Math.round(baseH * s);
@@ -121,17 +134,18 @@ function applyRes() {
 function tuneRes(drew) {
 	const now = performance.now(), dt = now - lastFrameT;
 	lastFrameT = now;
-	const measured = drew && prevDrew && dt < 200;   // 連続描画フレームだけ計測（アイドル明け・タブ切替の外れ値は捨てる）
+	const skip = uploadSkip > 0 && (uploadSkip--, true);   // PLATEAU転送フレームのdt＝転送コミコミ＝描画の実力でない
+	const measured = drew && prevDrew && !skip && dt < 200;   // 連続描画フレームだけ計測（アイドル明け・タブ切替の外れ値は捨てる）
 	prevDrew = drew;
 	if (!measured) return;
 	emaMs = emaMs ? emaMs + (dt - emaMs) * 0.1 : dt;
 	if (resHold > 0) { resHold--; return; }
 	if (emaMs > 24 && resIdx < RES_STEPS.length - 1) {
+		pendingUp = false;   // また重くなった＝予約中の復帰は取り消し
 		resIdx++; applyRes(); resHold = 30; upStreak = 0; upDelay = Math.min(upDelay * 2, 4800); emaMs = 0;
 		console.log(`[render] 動的解像度 ↓ ×${RES_STEPS[resIdx]}`);
 	} else if (resIdx > 0 && emaMs < 17.5 && ++upStreak >= upDelay) {
-		resIdx--; applyRes(); resHold = 60; upStreak = 0; emaMs = 0;
-		console.log(`[render] 動的解像度 ↑ ×${RES_STEPS[resIdx]}`);
+		pendingUp = true; upStreak = 0; emaMs = 0;   // 即switchせず予約＝適用は静止フレーム（パン/ズーム中に切替の1重フレームを見せない）
 	}
 }
 
@@ -157,6 +171,7 @@ function ensureIfMoved() {
 function frame() {
 	let drew = false;
 	try {
+		drainPlateau();   // PLATEAU転送の平準化（1件/フレーム）。dirty を立てる＝同フレームの下の描画で反映
 		if (dirty && renderer && cam) {
 			dirty = false; drew = true;
 			// ズーム中(zoom非stable)は標高アトラスを再構築しない＝cellRes連続変化による陰影チラつきを防ぐ（main が opts.terrainGate で通知）。
@@ -179,5 +194,12 @@ function frame() {
 		console.error("[render] frame例外（このフレームは破棄して継続）", e?.message, e?.stack);
 	}
 	tuneRes(drew);
+	if (!drew && pendingUp) {   // 解像度復帰は静止フレームで適用＝切替の1重フレームが操作中に見えない（静止中の描き直しは1回きり＋止まれば画面が鮮明に戻る）
+		pendingUp = false;
+		if (resIdx > 0) {
+			resIdx--; applyRes(); resHold = 60;
+			console.log(`[render] 動的解像度 ↑ ×${RES_STEPS[resIdx]}（静止時適用）`);
+		}
+	}
 	requestAnimationFrame(frame);
 }
