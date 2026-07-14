@@ -1,7 +1,7 @@
 // ガジェット：操作方法カード＋「?」ボタン。標準装備でなくオプトイン＝orthoJapan() の戻り値から
 // map.gadget.hint() で搭載する（v1 ortho-map の gadget 作法＝this が map）。DOMと挙動をここで完結。
 import { gadgetStack } from "./stack.js";
-export function hint() {
+export function hint({ signal } = {}) {
 	const mapEl = this.mapEl;
 	if (mapEl.querySelector("#hint")) return;   // 二重搭載は無害（搭載済みのまま）
 	const card = document.createElement("div");
@@ -31,7 +31,7 @@ export function hint() {
 		<div class="hint-row"><span>引っ張る＝<b>3D表示</b>（傾き・回転）</span></div>
 		<div class="hint-note">街に寄ると建物が3Dで現れます<br>（初回は読み込みに少し時間がかかります）</div>`;
 	const btn = document.createElement("button");
-	btn.id = "hint-btn"; btn.dataset.tip = "操作方法"; btn.textContent = "?"; btn.setAttribute("aria-label", "操作方法");
+	btn.id = "hint-btn"; btn.dataset.tip = "操作方法（?）"; btn.textContent = "?"; btn.setAttribute("aria-label", "操作方法");
 	// 置き場所はスタック（搭載順＝縦の並び）。カードと「?」は常にどちらか一方だけ表示＝同じ枠を分け合う。
 	gadgetStack(mapEl).append(card, btn);
 
@@ -47,5 +47,12 @@ export function hint() {
 	let closedOnce = false;
 	try { closedOnce = localStorage.getItem("oj.hint") === "closed"; } catch { /* private mode 等 */ }
 	setHint(!closedOnce, false);   // 初見＝開いた状態で起動／畳んだ人＝「?」から（どちらも記憶には書かない）
+	// ?＝操作方法カードの開閉トグル（修飾なし＝? は多くの配列で⇧付き文字なので e.key で拾う）。入力欄フォーカス中は無効。
+	window.addEventListener("keydown", e => {
+		if (e.key !== "?" || e.ctrlKey || e.metaKey || e.altKey) return;
+		const el = document.activeElement, tag = el && el.tagName;
+		if (tag === "INPUT" || tag === "TEXTAREA" || el?.isContentEditable) return;
+		e.preventDefault(); setHint(card.style.display === "none");   // 閉→開／開→閉
+	}, { signal });
 	return { open: () => setHint(true), close: () => setHint(false) };   // 呼び出し側の手綱（プログラムから開閉）
 }

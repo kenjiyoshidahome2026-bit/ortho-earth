@@ -19,7 +19,7 @@ const D2R = Math.PI / 180, R2D = 180 / Math.PI;
 //   size＝{w,h}（device px・呼び出し側の resize が更新する参照を共有）。onGesture＝掴んだ/回した瞬間（フライト中断用）。
 //   onClick(x,y)＝動かず離した（<4px）＝クリック。onHover(x,y)＝ドラッグ外の移動。座標はローカルCSS px。
 // 戻り値 { evXY, anchoredAt }＝座標変換とアンカー適用は他所（計器・将来のジェスチャ）からも使える。
-export function createInput({ canvas, cam, size, dpr, maxPitch, zoomMin = 1, zoomMax = 19, onMove, onGesture = () => {}, onClick = () => {}, onHover = () => {} }) {
+export function createInput({ canvas, cam, size, dpr, maxPitch, zoomMin = 1, zoomMax = 19, onMove, onGesture = () => {}, onClick = () => {}, onHover = () => {}, signal }) {
 	let drag = null;              // 1本指/マウスのドラッグ状態
 	const touches = new Map();    // アクティブなタッチポインタ pointerId → {x,y}
 	let pinch = null;             // 2本指状態 { d,a,cx,cy（前フレーム）, sd,sa,sx,sy（開始）, mode: null|"tilt"|"free" }
@@ -167,5 +167,42 @@ export function createInput({ canvas, cam, size, dpr, maxPitch, zoomMin = 1, zoo
 		if (ROTKEY_IS_META ? e.metaKey : e.ctrlKey) anchoredAt(wx, wy, () => { cam.bearing += e.deltaY * 0.01; });   // 軸回転（⌘/Ctrl＋ホイール）
 		else anchoredAt(wx, wy, () => { cam.zoom = clampZoom(cam.zoom - e.deltaY * 0.002); });  // ズーム
 	}, { passive: false });
+
+	// キーボードによる連続カメラ操作（押しっぱなしで動き続ける＝毎フレーム微小デルタ）：
+	//   矢印単独＝パン（掴み点=画面中心の versor パン＝チルト/回転中でも画面基準で正しく動く）
+	//   Shift+↑↓＝ズーム／Shift+←→＝回転（どちらも画面中心アンカー＝寄せた中心が動かない）
+	//   ⌘/Ctrl+↑↓＝チルト（上=起こす・下=倒す）
+	// 修飾の優先＝チルト > ズーム/回転 > パン。入力欄フォーカス中は素通し（そちらのカーソル移動を邪魔しない）。
+	const KB_PAN = 9, KB_ZOOM = 0.028, KB_ROT = 0.022, KB_PITCH = 0.018;   // 1フレーム当たりの移動量（60fps基準の手触り）
+	const ARROWS = { ArrowUp: 1, ArrowDown: 1, ArrowLeft: 1, ArrowRight: 1 };
+	const held = new Set();
+	let kbdRaf = 0, mod = { shift: false, ctrl: false, meta: false };
+	const typing = () => { const el = document.activeElement, t = el && el.tagName; return t === "INPUT" || t === "TEXTAREA" || el?.isContentEditable; };
+	function kbdFrame() {
+		if (!held.size) { kbdRaf = 0; return; }
+		const cx = size.w / dpr / 2, cy = size.h / dpr / 2;   // 画面中心（CSS px）＝パン掴み点・ズーム/回転アンカー
+		const up = held.has("ArrowUp") ? 1 : 0, dn = held.has("ArrowDown") ? 1 : 0, lf = held.has("ArrowLeft") ? 1 : 0, rt = held.has("ArrowRight") ? 1 : 0;
+		if (mod.ctrl || mod.meta) {                                        // チルト（上=起こす／下=倒す）
+			if (up || dn) { cam.pitch = clampPitch(cam.pitch + (up - dn) * KB_PITCH); onMove(); }
+		} else if (mod.shift) {                                           // ズーム（上下）＋回転（左右）＝中心アンカーで一括
+			const dz = (up - dn) * KB_ZOOM, db = (rt - lf) * KB_ROT;
+			if (dz || db) anchoredAt(cx, cy, () => { cam.zoom = clampZoom(cam.zoom + dz); cam.bearing += db; });
+		} else {                                                          // パン（← 西を見る＝掴み点を右へ、↑ 北を見る＝掴み点を下へ）
+			const tx = cx + (lf - rt) * KB_PAN, ty = cy + (up - dn) * KB_PAN;
+			if (tx !== cx || ty !== cy) panBy(cx, cy, tx, ty);
+		}
+		kbdRaf = requestAnimationFrame(kbdFrame);
+	}
+	window.addEventListener("keydown", e => {
+		mod = { shift: e.shiftKey, ctrl: e.ctrlKey, meta: e.metaKey };   // 修飾は毎イベントで最新化（押しっぱ中のShift追加/解除に追従）
+		if (!ARROWS[e.key] || typing()) return;
+		e.preventDefault();                                              // ページスクロール/履歴移動を止める
+		if (!held.size) onGesture();                                     // 操作開始＝フライト中断（主導権は人）
+		held.add(e.key);
+		if (!kbdRaf) kbdRaf = requestAnimationFrame(kbdFrame);
+	}, { signal });
+	window.addEventListener("keyup", e => { mod = { shift: e.shiftKey, ctrl: e.ctrlKey, meta: e.metaKey }; if (ARROWS[e.key]) held.delete(e.key); }, { signal });
+	window.addEventListener("blur", () => held.clear(), { signal });    // フォーカスを失ったら押下状態を捨てる（キー詰まり防止）
+
 	return { evXY, anchoredAt };
 }

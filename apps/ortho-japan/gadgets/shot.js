@@ -49,7 +49,7 @@ export function shot({ requestSnapshot, signal } = {}) {
 	if (window.matchMedia("(pointer: coarse)").matches) return;
 	if (mapEl.querySelector("#shot-btn")) return;   // 二重搭載は無害
 	const mac = /Mac|iP(hone|ad|od)/.test(navigator.platform || "");
-	const keyLabel = mac ? "⌘P" : "Ctrl+P";   // ショートカット表記（低解像度でボタンが隠れても撮れる手綱）
+	const keyLabel = mac ? "⌘S" : "Ctrl+S";   // ショートカット表記（低解像度でボタンが隠れても撮れる手綱）
 	const btn = document.createElement("button");
 	btn.id = "shot-btn"; btn.dataset.tip = `画面を画像で保存 (${keyLabel})`; btn.setAttribute("aria-label", "画面を画像で保存");
 	btn.innerHTML = `
@@ -58,10 +58,10 @@ export function shot({ requestSnapshot, signal } = {}) {
 			<circle cx="12" cy="13" r="3.4"/></svg>`;
 	gadgetStack(mapEl).append(btn);
 	btn.addEventListener("click", capture);
-	// ショートカット＝⌘/Ctrl+P（ブラウザの印刷を画面保存へ転用）。低解像度でスタックが溢れボタンが隠れても撮れる。
+	// ショートカット＝⌘/Ctrl+S（ブラウザの「ページ保存」を画面保存へ転用）。低解像度でスタックが溢れボタンが隠れても撮れる。
 	// 入力欄（検索等）フォーカス中は無効＝そちらの操作を邪魔しない。
 	window.addEventListener("keydown", e => {
-		if (!((e.ctrlKey || e.metaKey) && (e.key === "p" || e.key === "P"))) return;
+		if (!((e.ctrlKey || e.metaKey) && !e.shiftKey && (e.key === "s" || e.key === "S"))) return;
 		const el = document.activeElement, tag = el && el.tagName;
 		if (tag === "INPUT" || tag === "TEXTAREA" || el?.isContentEditable) return;
 		e.preventDefault(); capture();

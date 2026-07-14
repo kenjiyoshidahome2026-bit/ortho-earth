@@ -905,7 +905,7 @@ resize();
 // ジェスチャ開始→フライト中断（主導権は常に人）。z範囲＝1(宇宙の余白)〜19(z20はタイルの切れ目が目立つ)。
 let measureClick = null;   // 測距モード中だけ非null＝クリックを測距へ奪う（識別・星座トグルより先）
 const input = createInput({
-	canvas, cam, size, dpr, maxPitch: MAXPITCH, zoomMin: 1, zoomMax: 20, onMove,
+	canvas, cam, size, dpr, maxPitch: MAXPITCH, zoomMin: 1, zoomMax: 20, onMove, signal: ac.signal,
 	onGesture: () => flightCtl.cancel(),
 	onClick: (x, y) => {
 		if (measureClick) return measureClick(x, y);   // 測距モード＝クリックは頂点追加へ（識別/星座は止める）
@@ -1258,9 +1258,11 @@ map.gadget = function (name, func) {
 map.gadget("search", function (opts) {   // 地名・住所検索 … map.gadget.search({ onGo? })。destroy用のsignalはここで注入
 	return searchGadget.call(this, { signal: ac.signal, ...opts });
 });
-map.gadget("hint", hintGadget);       // 操作説明カード … map.gadget.hint() → { open, close }
+map.gadget("hint", function (opts) {   // 操作説明カード … map.gadget.hint() → { open, close }。キー(?)用に signal を注入
+	return hintGadget.call(this, { signal: ac.signal, ...opts });
+});
 map.gadget("compass", function (opts) {   // コンパス兼リセット … 内部の手綱（フライト中断・onMove）はここで注入
-	const update = compassGadget.call(this, { cancelFlight: () => flightCtl.cancel(), onMove, ...opts });
+	const update = compassGadget.call(this, { cancelFlight: () => flightCtl.cancel(), onMove, signal: ac.signal, ...opts });
 	if (update) { frameHooks.add(update); update(); }   // 針の追従を render のフックへ＝搭載した瞬間から現姿勢を指す
 });
 map.gadget("plateau", function (opts) {   // 建物3D（PLATEAU）データ管理 … モーダルを開く手綱はここで注入
@@ -1274,7 +1276,7 @@ map.gadget("full", function (opts) {   // 全画面トグル … destroy用のsi
 	return fullGadget.call(this, { signal: ac.signal, ...opts });
 });
 map.gadget("cpos", function (opts) {   // 現在地（GPS） … マーカー追随の座標ブリッジを注入し update を render のフックへ
-	const update = cposGadget.call(this, { projectLL, ...opts });
+	const update = cposGadget.call(this, { projectLL, signal: ac.signal, ...opts });
 	if (update) { frameHooks.add(update); update(); }
 });
 map.gadget("contextmenu", function (opts) {   // 右クリックメニュー … 逆投影と destroy用signalを注入。戻り値＝項目差し替えの setter

@@ -19,7 +19,7 @@ export function measure({ makeProjector, unprojectXY, setClick, requestDraw, sig
 	const font = (getComputedStyle(document.documentElement).getPropertyValue("--qm-font") || "system-ui").trim();
 
 	const btn = document.createElement("button");
-	btn.id = "measure-btn"; btn.dataset.tip = "距離・面積を測る"; btn.setAttribute("aria-label", "距離・面積を測る");
+	btn.id = "measure-btn"; btn.dataset.tip = "距離・面積を測る（M）"; btn.setAttribute("aria-label", "距離・面積を測る");
 	btn.innerHTML = `
 		<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#3f4757" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true">
 			<rect x="2.5" y="7" width="19" height="10" rx="1.5" transform="rotate(-20 12 12)"/>
@@ -36,6 +36,14 @@ export function measure({ makeProjector, unprojectXY, setClick, requestDraw, sig
 	let lastTotal = 0, lastArea = 0;   // 直近の計測値（アプリ/テストが読む＝stats()）
 
 	btn.addEventListener("click", () => (active ? stop() : start()));
+	// M＝計測モードのトグル（修飾なし＝OS衝突を避けた選択）。入力欄フォーカス中は無効。
+	window.addEventListener("keydown", e => {
+		if (e.key !== "m" && e.key !== "M") return;
+		if (e.ctrlKey || e.metaKey || e.altKey) return;
+		const el = document.activeElement, tag = el && el.tagName;
+		if (tag === "INPUT" || tag === "TEXTAREA" || el?.isContentEditable) return;
+		e.preventDefault(); active ? stop() : start();
+	}, { signal });
 	function start() {
 		active = true; finished = false; verts = []; cursorLL = null;
 		btn.classList.add("on"); mapEl.classList.add("measuring");

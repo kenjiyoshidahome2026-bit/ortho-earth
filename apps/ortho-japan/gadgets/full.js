@@ -11,16 +11,25 @@ export function full({ signal } = {}) {
 	const exit = document.exitFullscreen || document.webkitExitFullscreen;
 	if (!enter) return;   // 非対応はボタンごと出さない
 	if (mapEl.querySelector("#full")) return;   // 二重搭載は無害（搭載済みのまま）
+	const mac = /Mac|iP(hone|ad|od)/.test(navigator.platform || "");
 	const btn = document.createElement("button");
-	btn.id = "full"; btn.dataset.tip = "全画面表示"; btn.setAttribute("aria-label", "全画面表示");
+	btn.id = "full"; btn.dataset.tip = `全画面表示 (${mac ? "⌘Z" : "Ctrl+Z"})`; btn.setAttribute("aria-label", "全画面表示");
 	btn.innerHTML = EXPAND;
 	// 置き場所はスタック（搭載順＝縦の並び）。
 	gadgetStack(mapEl).append(btn);
 	const fsEl = () => document.fullscreenElement || document.webkitFullscreenElement;
-	btn.addEventListener("click", () => {
+	const toggle = () => {
 		if (fsEl()) exit?.call(document);
 		else enter.call(mapEl).catch(() => {});   // ユーザー拒否等は黙って無視（ボタンは元のまま）
-	});
+	};
+	btn.addEventListener("click", toggle);
+	// ⌘/Ctrl+Z＝全画面トグル（このアプリに取り消し概念は無い＝Zを転用）。入力欄フォーカス中は無効。
+	window.addEventListener("keydown", e => {
+		if (!((e.ctrlKey || e.metaKey) && !e.shiftKey && (e.key === "z" || e.key === "Z"))) return;
+		const el = document.activeElement, tag = el && el.tagName;
+		if (tag === "INPUT" || tag === "TEXTAREA" || el?.isContentEditable) return;
+		e.preventDefault(); toggle();
+	}, { signal });
 	const sync = () => {   // 全画面状態はブラウザ主導（Escでも抜ける）＝イベントで絵柄を合わせる
 		const on = fsEl() === mapEl;
 		btn.innerHTML = on ? COMPRESS : EXPAND;

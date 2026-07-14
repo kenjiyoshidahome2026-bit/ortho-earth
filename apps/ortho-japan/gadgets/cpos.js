@@ -4,11 +4,12 @@
 // マーカーの画面追随は本体 render のフック＝この関数が返す update を本体（app.js の登録側）が掴んで毎フレ呼ぶ。
 // projectLL＝経緯度→画面CSS座標（world→screen。実装は engine の project／注入は登録側）。
 import { gadgetStack } from "./stack.js";
-export function cpos({ projectLL } = {}) {
+export function cpos({ projectLL, signal } = {}) {
 	const mapEl = this.mapEl, cam = this.cam, flyTo = this.flyTo;
 	if (mapEl.querySelector("#cpos-btn")) return;   // 二重搭載は無害（搭載済みのまま）
+	const mac = /Mac|iP(hone|ad|od)/.test(navigator.platform || "");
 	const btn = document.createElement("button");
-	btn.id = "cpos-btn"; btn.dataset.tip = "現在地（GPS）へ移動"; btn.setAttribute("aria-label", "現在地（GPS）へ移動");
+	btn.id = "cpos-btn"; btn.dataset.tip = `現在地（GPS）へ移動 (${mac ? "⌘@" : "Ctrl+@"})`; btn.setAttribute("aria-label", "現在地（GPS）へ移動");
 	btn.innerHTML = `
 		<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#3f4757" stroke-width="2" aria-hidden="true">
 			<circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="1.6" fill="#3f4757" stroke="none"/>
@@ -29,7 +30,7 @@ export function cpos({ projectLL } = {}) {
 	mapEl.append(mark);
 	let on = false, pos = null;
 	const off = () => { on = false; pos = null; btn.classList.remove("on"); mark.style.display = "none"; };
-	btn.addEventListener("click", async () => {
+	const toggle = async () => {
 		if (on) return off();
 		on = true; btn.classList.add("on");
 		const p = await getPosition();
@@ -37,7 +38,15 @@ export function cpos({ projectLL } = {}) {
 		if (!p) { console.warn("[cpos] 現在地を取得できませんでした（許可なし/失敗）"); return off(); }
 		pos = p; mark.style.display = "";
 		flyTo(pos[0], pos[1], Math.max(cam.zoom, 14), cam.pitch * 180 / Math.PI);   // 傾きは今のまま・最低 z14 まで寄る
-	});
+	};
+	btn.addEventListener("click", toggle);
+	// ⌘/Ctrl+@＝現在地トグル。入力欄フォーカス中は無効。@ はJIS配列では単独キー・US配列では⇧2＝どちらも e.key==="@"。
+	window.addEventListener("keydown", e => {
+		if (!((e.ctrlKey || e.metaKey) && e.key === "@")) return;
+		const el = document.activeElement, tag = el && el.tagName;
+		if (tag === "INPUT" || tag === "TEXTAREA" || el?.isContentEditable) return;
+		e.preventDefault(); toggle();
+	}, { signal });
 	return function update() {   // マーカーを現在地の画面座標へ（裏半球なら隠す）
 		if (!on || !pos) return;
 		const [x, y, front] = projectLL(pos[0], pos[1]);

@@ -4,11 +4,11 @@
 // 針の毎フレーム追従は本体 render のフック＝この関数が返す update を本体（app.js の登録側）が掴んで呼ぶ。
 import { shortBearingOf } from "ortho-core";
 import { gadgetStack } from "./stack.js";
-export function compass({ cancelFlight, onMove } = {}) {
+export function compass({ cancelFlight, onMove, signal } = {}) {
 	const mapEl = this.mapEl, cam = this.cam;
 	if (mapEl.querySelector("#reset")) return;   // 二重搭載は無害（搭載済みのまま）
 	const btn = document.createElement("button");
-	btn.id = "reset"; btn.dataset.tip = "北向き・水平に戻す"; btn.setAttribute("aria-label", "北向き・水平に戻す");
+	btn.id = "reset"; btn.dataset.tip = "北向き・水平に戻す（N）"; btn.setAttribute("aria-label", "北向き・水平に戻す");
 	btn.innerHTML = `
 		<svg viewBox="0 0 40 40" width="26" height="26" aria-hidden="true">
 			<polygon points="20,4 26,20 20,16.5 14,20" fill="#2b3b57"/>
@@ -18,7 +18,7 @@ export function compass({ cancelFlight, onMove } = {}) {
 	gadgetStack(mapEl).append(btn);
 	const svg = btn.querySelector("svg");
 	const shortBearing = () => shortBearingOf(cam.bearing);   // 最短回転へ正規化（実装はengine）
-	btn.addEventListener("click", () => {
+	const reset = () => {
 		cancelFlight?.();   // リセットアニメと喧嘩しない
 		const p0 = cam.pitch, b0 = shortBearing(), t0 = performance.now(), dur = 700;   // 3D→2Dは少しゆっくり＝地面が起き上がる感覚を残す
 		const step = () => {
@@ -28,7 +28,16 @@ export function compass({ cancelFlight, onMove } = {}) {
 			else { cam.pitch = 0; cam.bearing = 0; onMove(); }
 		};
 		requestAnimationFrame(step);
-	});
+	};
+	btn.addEventListener("click", reset);
+	// N＝北向き・水平へリセット（修飾なし＝OS衝突を避けた選択）。入力欄フォーカス中は無効。
+	window.addEventListener("keydown", e => {
+		if (e.key !== "n" && e.key !== "N") return;
+		if (e.ctrlKey || e.metaKey || e.altKey) return;   // 修飾つきは他操作に譲る
+		const el = document.activeElement, tag = el && el.tagName;
+		if (tag === "INPUT" || tag === "TEXTAREA" || el?.isContentEditable) return;
+		e.preventDefault(); reset();
+	}, { signal });
 	return function update() {   // 3D（傾き or 回転）の時だけ表示・針を方位へ
 		const is3D = cam.pitch > 0.005 || Math.abs(shortBearing()) > 0.005;
 		btn.style.display = is3D ? "flex" : "none";

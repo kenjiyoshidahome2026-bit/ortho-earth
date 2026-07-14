@@ -34,16 +34,20 @@ try {
 	document.getElementById("zoom-out").click();
 	await new Promise(r => setTimeout(r, 500));
 	ok("zoomout", map.cam.zoom < z1);
-	// ショートカット ↑拡大／↓縮小（印刷やスクロールを止める＝preventDefault）
+	// キーボード：⇧+↑＝ズームイン（createInput の連続操作・スクロールを止める＝preventDefault）
 	const z2 = map.cam.zoom;
-	const up = new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true, cancelable: true });
-	window.dispatchEvent(up);
-	await new Promise(r => setTimeout(r, 500));
-	ok("keyUp", up.defaultPrevented && map.cam.zoom > z2);
-	const z3 = map.cam.zoom;
-	window.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true }));
-	await new Promise(r => setTimeout(r, 500));
-	ok("keyDown", map.cam.zoom < z3);
+	const su = new KeyboardEvent("keydown", { key: "ArrowUp", shiftKey: true, bubbles: true, cancelable: true });
+	window.dispatchEvent(su);
+	await new Promise(r => setTimeout(r, 300));
+	window.dispatchEvent(new KeyboardEvent("keyup", { key: "ArrowUp", bubbles: true }));   // 押下を解放（held を後続テストへ漏らさない）
+	ok("keyZoomIn", su.defaultPrevented && map.cam.zoom > z2);
+	// 単独↑＝パン（zoomは不変・center が動く）
+	const c0 = map.cam.center.slice();
+	const zPan = map.cam.zoom;
+	window.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true, cancelable: true }));
+	await new Promise(r => setTimeout(r, 300));
+	window.dispatchEvent(new KeyboardEvent("keyup", { key: "ArrowUp", bubbles: true }));
+	ok("keyPan", Math.abs(map.cam.zoom - zPan) < 0.01 && (Math.abs(map.cam.center[1] - c0[1]) > 1e-6 || Math.abs(map.cam.center[0] - c0[0]) > 1e-6));
 
 	// contextmenu：右クリックで既定メニュー2項目が出る（座標ブリッジ unprojectAt 経由）
 	const cv = document.getElementById("c");

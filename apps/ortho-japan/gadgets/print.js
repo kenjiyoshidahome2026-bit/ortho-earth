@@ -220,8 +220,9 @@ export function print({ capture, signal } = {}) {
 	if (mapEl.querySelector("#print-btn")) return;   // 二重搭載は無害
 	const font = (getComputedStyle(document.documentElement).getPropertyValue("--qm-font") || "system-ui").trim();
 
+	const mac = /Mac|iP(hone|ad|od)/.test(navigator.platform || "");
 	const btn = document.createElement("button");
-	btn.id = "print-btn"; btn.dataset.tip = "平面図を印刷"; btn.setAttribute("aria-label", "平面図を印刷");
+	btn.id = "print-btn"; btn.dataset.tip = `平面図を印刷 (${mac ? "⌘P" : "Ctrl+P"})`; btn.setAttribute("aria-label", "平面図を印刷");
 	btn.innerHTML = `
 		<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#3f4757" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round" aria-hidden="true">
 			<path d="M6.5 9V3.5h11V9"/>
@@ -327,6 +328,13 @@ export function print({ capture, signal } = {}) {
 	$(".panel-close").addEventListener("click", close);
 	modal.addEventListener("click", e => { if (e.target === modal) close(); });
 	window.addEventListener("keydown", e => { if (e.key === "Escape" && modal.classList.contains("open")) close(); }, { signal });
+	// ⌘/Ctrl+P＝印刷（平面図）を開く（ブラウザ印刷を平面図プレビューへ転用・⇧無し＝plateau ⌘⇧P と区別）。入力欄フォーカス中は無効。
+	window.addEventListener("keydown", e => {
+		if (!((e.ctrlKey || e.metaKey) && !e.shiftKey && (e.key === "p" || e.key === "P"))) return;
+		const el = document.activeElement, tag = el && el.tagName;
+		if (tag === "INPUT" || tag === "TEXTAREA" || el?.isContentEditable) return;
+		e.preventDefault(); modal.classList.contains("open") ? close() : open();
+	}, { signal });
 	sels.forEach(s => s.addEventListener("change", regen));
 	titleIn.addEventListener("change", () => { if (!busy) recompose(); });   // 題だけ＝再撮影なしの組み直し
 	goBtn.addEventListener("click", doPrint);

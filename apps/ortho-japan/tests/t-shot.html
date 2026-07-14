@@ -28,13 +28,13 @@ try {
 	document.getElementById("shot-btn").click();
 	ok("click", true);
 
-	// ショートカット ⌘/Ctrl+P：印刷を止めて（preventDefault）撮影を起動＝低解像度でボタンが隠れても撮れる
-	const ev = new KeyboardEvent("keydown", { key: "p", ctrlKey: true, bubbles: true, cancelable: true });
+	// ショートカット ⌘/Ctrl+S：ページ保存を止めて（preventDefault）撮影を起動＝低解像度でボタンが隠れても撮れる
+	const ev = new KeyboardEvent("keydown", { key: "s", ctrlKey: true, bubbles: true, cancelable: true });
 	window.dispatchEvent(ev);
 	ok("key", ev.defaultPrevented);
-	// 入力欄フォーカス中は無効（印刷/入力を邪魔しない）
+	// 入力欄フォーカス中は無効（保存/入力を邪魔しない）
 	const inp = document.body.appendChild(document.createElement("input")); inp.focus();
-	const ev2 = new KeyboardEvent("keydown", { key: "p", ctrlKey: true, bubbles: true, cancelable: true });
+	const ev2 = new KeyboardEvent("keydown", { key: "s", ctrlKey: true, bubbles: true, cancelable: true });
 	window.dispatchEvent(ev2);
 	ok("keyGuard", !ev2.defaultPrevented);
 	inp.remove();
