@@ -21,6 +21,7 @@ const D2R = Math.PI / 180, R2D = 180 / Math.PI;
 // 戻り値 { evXY, anchoredAt }＝座標変換とアンカー適用は他所（計器・将来のジェスチャ）からも使える。
 export function createInput({ canvas, cam, size, dpr, maxPitch, zoomMin = 1, zoomMax = 19, onMove, onGesture = () => {}, onClick = () => {}, onHover = () => {}, signal }) {
 	let drag = null;              // 1本指/マウスのドラッグ状態
+	let ptr = null;               // 直近のマウス位置（CSS px）＝キーボードのズーム/回転アンカー。マウスが地図外なら null（＝画面中心へ退避）
 	const touches = new Map();    // アクティブなタッチポインタ pointerId → {x,y}
 	let pinch = null;             // 2本指状態 { d,a,cx,cy（前フレーム）, sd,sa,sx,sy（開始）, mode: null|"tilt"|"free" }
 	const evXY = e => { const r = canvas.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
@@ -95,8 +96,10 @@ export function createInput({ canvas, cam, size, dpr, maxPitch, zoomMin = 1, zoo
 	};
 	canvas.addEventListener("pointerup", lift);
 	canvas.addEventListener("pointercancel", lift);
+	canvas.addEventListener("pointerleave", e => { if (e.pointerType !== "touch") ptr = null; });   // マウスが地図外へ＝アンカー位置を手放す（キーボードは画面中心へ）
 	canvas.addEventListener("pointermove", e => {
 		const [ex, ey] = evXY(e);
+		if (e.pointerType !== "touch") ptr = [ex, ey];   // マウスの現在地を記録＝キーボードのズーム/回転アンカー
 		if (e.pointerType === "touch" && touches.has(e.pointerId)) {
 			const t = touches.get(e.pointerId); t.x = ex; t.y = ey;
 			if (pinch && touches.size === 2) { movePinch(); return; }
@@ -180,13 +183,14 @@ export function createInput({ canvas, cam, size, dpr, maxPitch, zoomMin = 1, zoo
 	const typing = () => { const el = document.activeElement, t = el && el.tagName; return t === "INPUT" || t === "TEXTAREA" || el?.isContentEditable; };
 	function kbdFrame() {
 		if (!held.size) { kbdRaf = 0; return; }
-		const cx = size.w / dpr / 2, cy = size.h / dpr / 2;   // 画面中心（CSS px）＝パン掴み点・ズーム/回転アンカー
+		const cx = size.w / dpr / 2, cy = size.h / dpr / 2;   // 画面中心（CSS px）＝パン掴み点・アンカーの退避先
 		const up = held.has("ArrowUp") ? 1 : 0, dn = held.has("ArrowDown") ? 1 : 0, lf = held.has("ArrowLeft") ? 1 : 0, rt = held.has("ArrowRight") ? 1 : 0;
 		if (mod.ctrl || mod.meta) {                                        // チルト（上=起こす／下=倒す）
 			if (up || dn) { cam.pitch = clampPitch(cam.pitch + (up - dn) * KB_PITCH); onMove(); }
-		} else if (mod.shift) {                                           // ズーム（上下）＋回転（左右）＝中心アンカーで一括
+		} else if (mod.shift) {                                           // ズーム（上下）＋回転（左右）＝マウス位置を軸に（無ければ画面中心）一括
 			const dz = (up - dn) * KB_ZOOM, db = (rt - lf) * KB_ROT;
-			if (dz || db) anchoredAt(cx, cy, () => { cam.zoom = clampZoom(cam.zoom + dz); cam.bearing += db; });
+			const ax = ptr ? ptr[0] : cx, ay = ptr ? ptr[1] : cy;
+			if (dz || db) anchoredAt(ax, ay, () => { cam.zoom = clampZoom(cam.zoom + dz); cam.bearing += db; });
 		} else {                                                          // パン（← 西を見る＝掴み点を右へ、↑ 北を見る＝掴み点を下へ）
 			const tx = cx + (lf - rt) * KB_PAN, ty = cy + (up - dn) * KB_PAN;
 			if (tx !== cx || ty !== cy) panBy(cx, cy, tx, ty);
