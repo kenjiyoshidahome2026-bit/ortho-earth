@@ -11,7 +11,10 @@ import { selectLOD } from "./tilecover.js";
 const keyOf = t => `${t.z}/${t.x}/${t.y}`;
 const EMPTY = new Set();
 
-export function createTileManager({ style, tileUrl, onChange, cap = 256, buildTile, onEvict }) {
+// lodFloor＝{ minViewZoom, z }：ビューが minViewZoom 以上のとき詳細シーンの LOD 下限を z に強制。
+// optbv の海（WA）は z8 タイルから全面収録＝z7 以下が混ざる遠景は海が紙色に抜ける。下限 z8 で敷けば
+// 海の色がズーム段間で揃う（沖合の z8 タイルは全面WA一枚=50B級なので枚数が増えても実質タダ）。
+export function createTileManager({ style, tileUrl, onChange, cap = 256, buildTile, onEvict, lodFloor }) {
 	const cache = new Map();   // key → { status, origin, dl, labels, z }
 
 	// 既定：メインスレッドで fetch→decode→tessellation（重い）。buildTile 注入で worker へ退避できる。
@@ -48,10 +51,20 @@ export function createTileManager({ style, tileUrl, onChange, cap = 256, buildTi
 	}
 
 	// 距離LODで可視タイルを選定→ロード。ready なタイル列 { key, origin, z } を返す。
+	let stickySplit = null;   // 前回 update で分割された祖先ノード集合＝selectLOD のヒステリシス（境界の親⇔子振動を止める）
 	function update(cam, W, H) {
-		const selected = selectLOD(cam, W, H);
+		const floorZ = lodFloor && cam.zoom >= lodFloor.minViewZoom ? lodFloor.z : 0;
+		const selected = selectLOD(cam, W, H, { sticky: stickySplit, floorZ });
+		// 「分割されたノード」＝選択タイルの祖先チェーンそのもの。次回のヒステリシス判定に持ち越す。
+		stickySplit = new Set();
+		for (const t of selected) {
+			let z = t.z, x = t.x, y = t.y;
+			while (z > 4) { z--; x >>= 1; y >>= 1; const k = `${z}/${x}/${y}`; if (stickySplit.has(k)) break; stickySplit.add(k); }
+		}
 		// 粗い下地：3段低いズームで広く覆う。移動中の先端の空白を常に埋める underlay。
-		const coarse = selectLOD(cam, W, H, { maxZ: Math.max(4, Math.round(cam.zoom) - 3) });
+		// lodFloor 有効時は下地も z8 で敷く（floorZ が強制分割・maxZ が上限開放）：z5-7 の下地は海（WA）を
+		// 持たないため、移動中に下地が顔を出す瞬間だけ海が紙色に白転してちらつく（実害はまさに下地側だった）。
+		const coarse = selectLOD(cam, W, H, { maxZ: Math.max(floorZ || 4, Math.round(cam.zoom) - 3), floorZ });
 		// 毛布：固定 z4 の床タイル＝フォールバックの終点保証。「zoom-6」の動く目標だと高速ズームアウト中に
 		// 毎段コールドフェッチで間に合わず白が出る。z4 固定なら1枚で22.5°＝数枚で日本全体、初回以降キャッシュ常駐
 		// ＝どんな引き方をしても床が必ず先に居る。W/H×3＝視野の3倍を先回り（外周の白露出も防ぐ）。
@@ -65,10 +78,13 @@ export function createTileManager({ style, tileUrl, onChange, cap = 256, buildTi
 		if (build.abort) {
 			for (const [k, c] of cache) if (c.status === "loading" && !keep.has(k)) build.abort(k);
 		}
-		if (cache.size > cap) {
+		// 上限は「今必要な集合＋余白」を下回らない：LOD下限(z8敷き)やチルトで keep が cap に迫ると
+		// 毎フレーム evict→再fetch のスラッシングになる（cap 固定 256 のままだと高チルトで実際に起きる）。
+		const capEff = Math.max(cap, keep.size + 64);
+		if (cache.size > capEff) {
 			const evicted = [];
 			for (const k of [...cache.keys()]) {
-				if (cache.size <= cap) break;
+				if (cache.size <= capEff) break;
 				if (!keep.has(k)) { cache.delete(k); evicted.push(k); }
 			}
 			// geometry 保持側（scene worker）へ同期通知：ここで知らせないと「main は ready・worker は破棄」の

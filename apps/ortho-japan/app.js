@@ -185,6 +185,9 @@ renderWorker.onmessage = e => {
 };
 
 let needsDraw = true, readySig = "", lastLabels = [], sceneOrigin = null;
+// mainDesired＝「今この視点で載っているべき main の sig」（swapScene が毎回更新。request の dedupe とは独立）。
+// base(粗い下地)の退場判定に使う：readySig がこれに追いつく＝穴なしが確定するまで下地を敷いたままにする。
+let mainDesired = "";
 // ズームアウト時は「古い詳細シーンを縮めて見せ続ける」をしない＝写真タイルなら拡縮で誤魔化せるが、
 // ベクタはズーム専用の線幅・密度を焼いているので縮めると質感が浮く。下地(base)に揃えて退場させる。
 // mainSceneZoom＝render workerに現在乗っているmainシーンのzoom（mergeのackで確定）。
@@ -445,6 +448,10 @@ function onMove() {
 // tiles＝LOD管理（update/labels）、requestMerge＝結合要求（scene worker が結合→render worker へ直行）。
 const { tiles, requestMerge, destroy: destroyPipeline } = createPipeline({
 	style, tileUrl: TILE_URL, requestDraw: () => { needsDraw = true; }, scenePort: sceneChan.port1, onTile,
+	// LOD下限＝z8（sea gate と同じ閾値）：optbv は z8 から海が全面WA（沖合タイル=WA一枚50B級）、z7以下は
+	// 「陸=AdmArea・海=背景」モデルでWA無し＝チルトの遠景（z5-7混在）だけ海が紙色に抜けてまだらになる。
+	// 遠景も z8 以上で敷けば海色がズーム段間で揃う（根治）。z<8 のビューは従来どおり紙の海＋gint海岸線。
+	lodFloor: { minViewZoom: 8, z: 8 },
 	// merge の ack：sig はここで初めて確定する（要求時の楽観確定をやめた＝失敗が永続穴にならない）
 	onMerged: (slot, sig) => {
 		// 全球ビュー(z<4)移行後に着地した投げっぱなしmerge：結合結果は scene worker→render worker 直行＝
@@ -1030,9 +1037,18 @@ function requestWithAck(slot, sig, doRequest) {
 const SEIREI = new Set(["札幌市", "仙台市", "さいたま市", "千葉市", "横浜市", "川崎市", "相模原市", "新潟市", "静岡市", "浜松市",
 	"名古屋市", "京都市", "大阪市", "堺市", "神戸市", "岡山市", "広島市", "北九州市", "福岡市", "熊本市"]);
 let zoomAtBuild = -1;
+// 移動中の詳細再結合の最小間隔（≈8Hz）：パン中は選定が毎フレーム揺れて sig が変わり、フルシーン結合＋
+// GPU全アップロードを毎秒~25回やり直していた（チルト75°・z8.46実測）。8Hzでも下地(base)が隙間を敷くので
+// 見た目の追従は落ちない。静止時は無条件（settle の鮮度確定を遅らせない）＝間引くのは移動中だけ。
+let lastMoveSwapT = 0;
+const MOVE_SWAP_MS = 125;
 function swapScene(order) {
 	const sig = order.map(o => o.key).join("|") + "#" + styleSig + "#z" + (cam.zoom >= CHOME_MINZOOM ? 1 : 0) + (cam.zoom >= RAILTR_MINZOOM ? 1 : 0) + (cam.zoom < AIRPORT_MARK_MAXZ && airportMarks.length ? "A" : "");
-	if (sig === readySig || !order.length) return;
+	mainDesired = sig;
+	// 望みのシーンが既に載っている＝この zoom の現行として扱う（zoomAtBuild を追認しないと、微ズーム往復で
+	// sig 不変のまま zoomStable が偽に固定され、base が静止中も退場できなくなる）。
+	if (sig === readySig) { zoomAtBuild = cam.zoom; return; }
+	if (!order.length) return;
 	if (!sceneOrigin || Math.abs(sceneOrigin[0] - cam.center[0]) > 0.4 || Math.abs(sceneOrigin[1] - cam.center[1]) > 0.4)
 		sceneOrigin = [cam.center[0], cam.center[1]];
 	if (!requestWithAck("main", sig, () => {
@@ -1138,7 +1154,12 @@ function render() {
 	// 地形アトラスもズーム中は再構築しない：cellRes/セル数が連続変化して全再ロード＆勾配密度の跳びで
 	// 陰影がチラつくため（terrainGate＝render worker 側の terrain.ensure() 呼び出しを止める合図）。
 	// ズーム中は現アトラスを再投影（球面メッシュなので拡縮は追従）、停止後に再構築。
-	renderer.draw(cam, { skipBase: !moving, skipMain: mainStale(), noTerrain: printHold, terrainGate: !moving || zoomStable });     // 先に最新camをworkerへ（全球でも標高の塗りは生かす）。印刷撮影中は noTerrain＝紙仕様の平面図。海岸線は render worker が従属で追随
+	// base の退場は「静止」だけでなく「main の鮮度確定」まで待つ：settle の瞬間は新しい merge がまだ届いて
+	// いない（ズーム中は swapScene 自体を止めている＝main は古いズームの集合）。ここで即消しすると main が
+	// 覆っていない領域が紙色で露出し、海(#e2e6ea)との差で白フラッシュ＝ちらつきになる（チルト75°で顕著）。
+	// zoomStable も条件に含める＝settle 直後の1フレーム（swapScene が mainDesired を更新する前）を弾く。
+	const mainFresh = !!readySig && readySig === mainDesired && zoomStable;
+	renderer.draw(cam, { skipBase: !moving && mainFresh, skipMain: mainStale(), noTerrain: printHold, terrainGate: !moving || zoomStable });     // 先に最新camをworkerへ（全球でも標高の塗りは生かす）。印刷撮影中は noTerrain＝紙仕様の平面図。海岸線は render worker が従属で追随
 	// 全球ビュー（z<4）：基図(GSI)の詳細は不要＝タイル/結合/地形を止め、基図シーンを空に＝海岸線(gint)だけの軽い地球。
 	// これで pan 中も main の毎フレーム負荷（tiles.update/merge/terrain）が消える。
 	// 家具も全部フェード退場（attr含む＝quiet-mono #map.world）＝星空劇場の舞台。GSI非描画なので出典義務なし。
@@ -1159,7 +1180,8 @@ function render() {
 	const { order, coarseOrder, total } = tiles.update(cam, size.w, size.h);
 	window.__lastOrder = order;   // デバッグ：現在の選択タイル（コンソール/検証スクリプトから確認）
 	swapBase(coarseOrder);                          // 粗い下地は常に敷く（移動中も）＝先端の空白を無くす
-	if (!moving || zoomStable) swapScene(order);
+	if (!moving) swapScene(order);   // 静止フレームは毎回＝mainDesired 更新と settle 後の穴埋め merge を最速で
+	else if (zoomStable && performance.now() - lastMoveSwapT >= MOVE_SWAP_MS) { lastMoveSwapT = performance.now(); swapScene(order); }
 	runFrameHooks();                               // 3D時のみコンパス表示・針を方位／現在地マーカーの追随 等
 	// 世界海岸線(gint)は z8+ では非表示：海岸は WA 塗りが担う上、gint の2D線は球の自遮蔽を持たず
 	// 地平線の先の海岸線（富山湾等）がリムに白線の残影として浮く。14条（interactive）時は表示のまま。

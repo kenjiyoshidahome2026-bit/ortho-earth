@@ -4,7 +4,14 @@ import { cameraState, unproject, project, lonlatTo3D } from "./camera.js";
 
 // 距離別LOD（quadtree）：画面サンプルを含む root から、画面上のタイルサイズが閾値超なら4分割。
 // 近景=高z・遠景=低z を重なりなく敷く。可視判定はサンプル包含で（大タイルの4隅誤カリングを回避）。
-export function selectLOD(cam, W, H, { minZ = 4, maxZ = 16, tilePx = 560, grid = 10 } = {}) {
+// sticky＝前回update で分割されたノード集合（"z/x/y"）。渡すとヒステリシスが効く：一度分割したノードは
+// tilePx×stickyRatio まで縮むまで分割を維持（分割は >tilePx のまま）。境界上のタイルがカメラ微動で
+// 親⇔子に毎フレーム振動し、merge・abort・再fetch を撒き散らすのを断つ（チルト時のちらつきの燃料）。
+// floorZ＝LOD下限：z<floorZ のノードは分割閾値を tilePx×floorRatio へ下げて優先的に割る＝遠景も floorZ 以上の
+// タイルで敷く（optbv は z8 から海が全面WA＝z7以下の遠景が紙色になる配信欠落を、正しいzのタイルで埋める）。
+// 無条件でなく閾値式なのは地平線ぎわの掠りタイル（フォグの彼方＝どうせ見えない）まで z8 で敷き詰めて
+// タイル数が爆発するのを防ぐため。floorRatio=0.45＝フォグ終端(fogDist×5)相当の画面サイズまでは floorZ を強制。
+export function selectLOD(cam, W, H, { minZ = 4, maxZ = 16, tilePx = 560, grid = 10, sticky = null, stickyRatio = 0.8, floorZ = 0, floorRatio = 0.45 } = {}) {
 	const st = cameraState(cam, W, H);
 	const samples = [];
 	for (let iy = 0; iy <= grid; iy++) for (let ix = 0; ix <= grid; ix++) {
@@ -19,7 +26,9 @@ export function selectLOD(cam, W, H, { minZ = 4, maxZ = 16, tilePx = 560, grid =
 		const t = stack.pop();
 		const m = tileMetrics(st, t, cam.center, W, H, samples);
 		if (!m.visible) continue;                   // 画面外＆中心外＆サンプル無し → cull
-		if (t.z < maxZ && m.size > tilePx) {
+		const th = t.z < floorZ ? tilePx * floorRatio
+			: sticky && sticky.has(t.z + "/" + t.x + "/" + t.y) ? tilePx * stickyRatio : tilePx;
+		if (t.z < maxZ && m.size > th) {
 			const z = t.z + 1, x = t.x * 2, y = t.y * 2;
 			stack.push({ z, x, y }, { z, x: x + 1, y }, { z, x, y: y + 1 }, { z, x: x + 1, y: y + 1 });
 		} else out.push(t);
