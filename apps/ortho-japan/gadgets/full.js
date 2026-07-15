@@ -3,6 +3,7 @@
 // #map 自身を requestFullscreen＝埋め込み先でも地図だけが画面いっぱいに（body ではなく容れ物を全画面に）。
 // 非対応（iOS Safari 等）はボタンごと出さない＝出ない機能のボタンを見せない。signal＝destroy 時のリスナー解除。
 import { gadgetStack } from "./stack.js";
+import { keyBusy } from "./keys.js";
 const EXPAND = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#3f4757" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>`;
 const COMPRESS = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#3f4757" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/></svg>`;
 export function full({ signal } = {}) {
@@ -26,8 +27,7 @@ export function full({ signal } = {}) {
 	// ⌘/Ctrl+Z＝全画面トグル（このアプリに取り消し概念は無い＝Zを転用）。入力欄フォーカス中は無効。
 	window.addEventListener("keydown", e => {
 		if (!((e.ctrlKey || e.metaKey) && !e.shiftKey && (e.key === "z" || e.key === "Z"))) return;
-		const el = document.activeElement, tag = el && el.tagName;
-		if (tag === "INPUT" || tag === "TEXTAREA" || el?.isContentEditable) return;
+		if (keyBusy(mapEl)) return;
 		e.preventDefault(); toggle();
 	}, { signal });
 	const sync = () => {   // 全画面状態はブラウザ主導（Escでも抜ける）＝イベントで絵柄を合わせる

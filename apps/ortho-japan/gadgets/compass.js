@@ -4,6 +4,7 @@
 // 針の毎フレーム追従は本体 render のフック＝この関数が返す update を本体（app.js の登録側）が掴んで呼ぶ。
 import { shortBearingOf } from "ortho-core";
 import { gadgetStack } from "./stack.js";
+import { keyBusy } from "./keys.js";
 export function compass({ cancelFlight, onMove, signal } = {}) {
 	const mapEl = this.mapEl, cam = this.cam;
 	if (mapEl.querySelector("#reset")) return;   // 二重搭載は無害（搭載済みのまま）
@@ -34,8 +35,7 @@ export function compass({ cancelFlight, onMove, signal } = {}) {
 	window.addEventListener("keydown", e => {
 		if (e.key !== "n" && e.key !== "N") return;
 		if (e.ctrlKey || e.metaKey || e.altKey) return;   // 修飾つきは他操作に譲る
-		const el = document.activeElement, tag = el && el.tagName;
-		if (tag === "INPUT" || tag === "TEXTAREA" || el?.isContentEditable) return;
+		if (keyBusy(mapEl)) return;
 		e.preventDefault(); reset();
 	}, { signal });
 	return function update() {   // 3D（傾き or 回転）の時だけ表示・針を方位へ

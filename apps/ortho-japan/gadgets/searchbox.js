@@ -4,6 +4,7 @@
 // 検索本体（API・再ランク・履歴・IME）は search.js の createSearch＝ヒットで onGo（既定＝球面フライト）。
 import { createSearch } from "../search.js";
 import { gadgetStack } from "./stack.js";
+import { keyBusy } from "./keys.js";
 export function search(opts = {}) {
 	const mapEl = this.mapEl;
 	if (mapEl.querySelector("#search")) return;   // 二重搭載は無害（搭載済みのまま）
@@ -26,8 +27,7 @@ export function search(opts = {}) {
 	// Firefox のクイック検索も preventDefault で抑止。既存文字は選択して即上書きできる状態に。
 	window.addEventListener("keydown", e => {
 		if (e.key !== "/" || e.ctrlKey || e.metaKey || e.altKey) return;
-		const el = document.activeElement, tag = el && el.tagName;
-		if (tag === "INPUT" || tag === "TEXTAREA" || el?.isContentEditable) return;
+		if (keyBusy(mapEl)) return;
 		e.preventDefault();
 		box.classList.add("open");   // 虫めがねだけの畳んだ状態なら input を展開してから（ボタンクリックと同じ所作）
 		const inp = box.querySelector("#search-in"); inp.focus(); inp.select?.();

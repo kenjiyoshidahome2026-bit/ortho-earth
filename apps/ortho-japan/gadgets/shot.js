@@ -7,6 +7,7 @@
 //   ※pop の引出線は箱(DOM)無しでは意味を成さない＝合成に含めない。DOM家具は html2canvas 無しでは焼けない割り切り。
 // requestSnapshot＝{ W, H, render:{base,w,h,labels,lw,lh}, gint?:{base,w,h} } を返す（注入は登録側）。
 import { gadgetStack } from "./stack.js";
+import { keyBusy } from "./keys.js";
 
 // 出典の既定文（instruments.js の #attr と同義＝#attr が無い画面でもライセンス表記を残す）。
 const DEFAULT_ATTR = [
@@ -62,8 +63,7 @@ export function shot({ requestSnapshot, signal } = {}) {
 	// 入力欄（検索等）フォーカス中は無効＝そちらの操作を邪魔しない。
 	window.addEventListener("keydown", e => {
 		if (!((e.ctrlKey || e.metaKey) && !e.shiftKey && (e.key === "s" || e.key === "S"))) return;
-		const el = document.activeElement, tag = el && el.tagName;
-		if (tag === "INPUT" || tag === "TEXTAREA" || el?.isContentEditable) return;
+		if (keyBusy(mapEl)) return;
 		e.preventDefault(); capture();
 	}, { signal });
 	return { composite };   // 制御ハンドル（composite＝合成器。テスト/プログラムから合成だけ叩ける）

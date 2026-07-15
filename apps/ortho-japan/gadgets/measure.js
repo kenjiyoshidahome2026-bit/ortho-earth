@@ -8,6 +8,7 @@
 // 操作：クリックで頂点／最終点＋カーソルで閉じプレビュー／ダブルクリック or Esc で確定／ボタンOFFで全消去。
 // 注入（登録側）：makeProjector・unprojectXY・setClick（クリック横取り）・requestDraw・signal。
 import { gadgetStack } from "./stack.js";
+import { keyBusy } from "./keys.js";
 
 const R = 6371008.8, D2R = Math.PI / 180, R2D = 180 / Math.PI;
 const LINE = "#880000", FILL = "rgba(136,0,0,0.1)", DOT = "#fff", W = 2, R_VERT = 4;
@@ -40,8 +41,7 @@ export function measure({ makeProjector, unprojectXY, setClick, requestDraw, sig
 	window.addEventListener("keydown", e => {
 		if (e.key !== "m" && e.key !== "M") return;
 		if (e.ctrlKey || e.metaKey || e.altKey) return;
-		const el = document.activeElement, tag = el && el.tagName;
-		if (tag === "INPUT" || tag === "TEXTAREA" || el?.isContentEditable) return;
+		if (keyBusy(mapEl)) return;
 		e.preventDefault(); active ? stop() : start();
 	}, { signal });
 	function start() {

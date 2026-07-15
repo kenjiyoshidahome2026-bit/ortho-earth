@@ -1,6 +1,7 @@
 // ガジェット：操作方法カード＋「?」ボタン。標準装備でなくオプトイン＝orthoJapan() の戻り値から
 // map.gadget.hint() で搭載する（v1 ortho-map の gadget 作法＝this が map）。DOMと挙動をここで完結。
 import { gadgetStack } from "./stack.js";
+import { keyBusy } from "./keys.js";
 export function hint({ signal } = {}) {
 	const mapEl = this.mapEl;
 	if (mapEl.querySelector("#hint")) return;   // 二重搭載は無害（搭載済みのまま）
@@ -50,8 +51,7 @@ export function hint({ signal } = {}) {
 	// ?＝操作方法カードの開閉トグル（修飾なし＝? は多くの配列で⇧付き文字なので e.key で拾う）。入力欄フォーカス中は無効。
 	window.addEventListener("keydown", e => {
 		if (e.key !== "?" || e.ctrlKey || e.metaKey || e.altKey) return;
-		const el = document.activeElement, tag = el && el.tagName;
-		if (tag === "INPUT" || tag === "TEXTAREA" || el?.isContentEditable) return;
+		if (keyBusy(mapEl)) return;
 		e.preventDefault(); setHint(card.style.display === "none");   // 閉→開／開→閉
 	}, { signal });
 	return { open: () => setHint(true), close: () => setHint(false) };   // 呼び出し側の手綱（プログラムから開閉）

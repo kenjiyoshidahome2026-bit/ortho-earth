@@ -6,6 +6,7 @@
 //   一時的に印刷カメラへ振る。プレビューを見せてから出力（印刷は隠しiframe＝ポップアップ不要）。
 // 縮尺の正しさは「切り出す地表幅 ↔ 紙の地図幅(mm)」の対応で構成的に保証（解像度は精細度にだけ効く）。
 import { gadgetStack } from "./stack.js";
+import { keyBusy } from "./keys.js";
 import { composeLayersToCanvas } from "./shot.js";
 
 // 印刷の出典＝地理院ベクトルタイルの一行のみ。真俯瞰(pitch0)は建物3D・地形サーフェスを描かない
@@ -332,8 +333,7 @@ export function print({ capture, signal } = {}) {
 	// ⌘/Ctrl+P＝印刷（平面図）を開く（ブラウザ印刷を平面図プレビューへ転用・⇧無し＝plateau ⌘⇧P と区別）。入力欄フォーカス中は無効。
 	window.addEventListener("keydown", e => {
 		if (!((e.ctrlKey || e.metaKey) && !e.shiftKey && (e.key === "p" || e.key === "P"))) return;
-		const el = document.activeElement, tag = el && el.tagName;
-		if (tag === "INPUT" || tag === "TEXTAREA" || el?.isContentEditable) return;
+		if (keyBusy(mapEl)) return;
 		e.preventDefault(); modal.classList.contains("open") ? close() : open();
 	}, { signal });
 	sels.forEach(s => s.addEventListener("change", regen));

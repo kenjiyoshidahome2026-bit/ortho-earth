@@ -4,6 +4,7 @@
 // 着地点 view=[lon,lat,zoom] は本体の既定起動ビューと同一（登録側が JAPAN_VIEW を注入）。
 // ショートカット＝⌘/Ctrl+J（球体まで回した所からワンキーで日本へ戻す狙い）。signal＝destroy時の解除。
 import { gadgetStack } from "./stack.js";
+import { keyBusy } from "./keys.js";
 export function japan({ view, signal } = {}) {
 	const mapEl = this.mapEl, flyTo = this.flyTo;
 	if (mapEl.querySelector("#japan-btn")) return;   // 二重搭載は無害（搭載済みのまま）
@@ -24,8 +25,7 @@ export function japan({ view, signal } = {}) {
 	window.addEventListener("keydown", e => {
 		if (e.key !== "j" && e.key !== "J") return;
 		if (e.ctrlKey || e.metaKey || e.altKey) return;   // 修飾つきは他操作に譲る
-		const el = document.activeElement, tag = el && el.tagName;
-		if (tag === "INPUT" || tag === "TEXTAREA" || el?.isContentEditable) return;
+		if (keyBusy(mapEl)) return;
 		e.preventDefault(); go();
 	}, { signal });
 	return btn;

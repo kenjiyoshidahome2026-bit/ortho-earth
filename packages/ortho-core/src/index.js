@@ -13,7 +13,7 @@ export { fetchR10, toFloat32, sampleHeight, downsampleFlipped } from "./elevatio
 export { createLabelLayer } from "./labels2d.js";
 export { cameraState, project, unproject, lonlatTo3D } from "./camera.js";
 export { createFlight, shortBearingOf } from "./flight.js";
-export { createInput } from "./input.js";
+export { createInput, isTypingTarget } from "./input.js";
 export { parseViewHash, buildViewHash, wrapLon } from "./viewurl.js";
 export { pickZoom, visibleTiles, selectLOD } from "./tilecover.js";
 export { createTileManager } from "./tilemanager.js";

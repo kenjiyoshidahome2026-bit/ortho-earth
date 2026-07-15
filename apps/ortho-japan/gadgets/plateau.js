@@ -3,6 +3,7 @@
 // アイコンは Project PLATEAU（国土交通省）公式ロゴマーク（plateau.mlit.go.jp の logo_min そのまま・色はブランド紫）。
 // 押した時の挙動（データ管理モーダル #pdb を開く）は本体が onOpen で注入＝モーダル実体は plateaudb.js の領分。
 import { gadgetStack } from "./stack.js";
+import { keyBusy } from "./keys.js";
 export function plateau({ onOpen, signal } = {}) {
 	const mapEl = this.mapEl;
 	if (mapEl.querySelector("#plateau-btn")) return;   // 二重搭載は無害（搭載済みのまま）
@@ -22,8 +23,7 @@ export function plateau({ onOpen, signal } = {}) {
 		// ⌘/Ctrl+⇧+P＝データ管理モーダルを開く（印刷 ⌘P と ⇧ で区別）。入力欄フォーカス中は無効。
 		window.addEventListener("keydown", e => {
 			if (!((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === "p" || e.key === "P"))) return;
-			const el = document.activeElement, tag = el && el.tagName;
-			if (tag === "INPUT" || tag === "TEXTAREA" || el?.isContentEditable) return;
+			if (keyBusy(mapEl)) return;
 			e.preventDefault(); onOpen();
 		}, { signal });
 	}

@@ -15,11 +15,20 @@ import { cameraState, unproject, lonlatTo3D } from "./camera.js";
 import { dot, cross, add, scale } from "./mat.js";
 const D2R = Math.PI / 180, R2D = 180 / Math.PI;
 
+// フォーカスが文字入力系（入力・複数行・プルダウン・編集可能領域）にあるか＝キーボードのカメラ操作/
+// ショートカットを譲る対象。SELECT を含む＝プルダウンの矢印/文字送りを地図に奪わせない（印刷/PLATEAU の
+// 設定 select で顕在化）。呼び出し側のショートカット群と ortho-core の矢印操作で同じ判定を使い回す。
+export const isTypingTarget = (el = document.activeElement) => {
+	const t = el && el.tagName;
+	return t === "INPUT" || t === "TEXTAREA" || t === "SELECT" || !!(el && el.isContentEditable);
+};
+
 // createInput({ canvas, cam, size, dpr, maxPitch, zoomMin, zoomMax, onMove, onGesture, onClick, onHover })
 //   size＝{w,h}（device px・呼び出し側の resize が更新する参照を共有）。onGesture＝掴んだ/回した瞬間（フライト中断用）。
 //   onClick(x,y)＝動かず離した（<4px）＝クリック。onHover(x,y)＝ドラッグ外の移動。座標はローカルCSS px。
+//   blocked()＝真ならキーボードのカメラ操作を止める（モーダル表示中など・呼び出し側が注入）。文字入力中は自前で判定。
 // 戻り値 { evXY, anchoredAt }＝座標変換とアンカー適用は他所（計器・将来のジェスチャ）からも使える。
-export function createInput({ canvas, cam, size, dpr, maxPitch, zoomMin = 1, zoomMax = 19, onMove, onGesture = () => {}, onClick = () => {}, onHover = () => {}, signal }) {
+export function createInput({ canvas, cam, size, dpr, maxPitch, zoomMin = 1, zoomMax = 19, onMove, onGesture = () => {}, onClick = () => {}, onHover = () => {}, blocked, signal }) {
 	let drag = null;              // 1本指/マウスのドラッグ状態
 	let ptr = null;               // 直近のマウス位置（CSS px）＝キーボードのズーム/回転アンカー。マウスが地図外なら null（＝画面中心へ退避）
 	const touches = new Map();    // アクティブなタッチポインタ pointerId → {x,y}
@@ -180,7 +189,6 @@ export function createInput({ canvas, cam, size, dpr, maxPitch, zoomMin = 1, zoo
 	const ARROWS = { ArrowUp: 1, ArrowDown: 1, ArrowLeft: 1, ArrowRight: 1 };
 	const held = new Set();
 	let kbdRaf = 0, mod = { shift: false, ctrl: false, meta: false };
-	const typing = () => { const el = document.activeElement, t = el && el.tagName; return t === "INPUT" || t === "TEXTAREA" || el?.isContentEditable; };
 	function kbdFrame() {
 		if (!held.size) { kbdRaf = 0; return; }
 		const cx = size.w / dpr / 2, cy = size.h / dpr / 2;   // 画面中心（CSS px）＝パン掴み点・アンカーの退避先
@@ -199,7 +207,7 @@ export function createInput({ canvas, cam, size, dpr, maxPitch, zoomMin = 1, zoo
 	}
 	window.addEventListener("keydown", e => {
 		mod = { shift: e.shiftKey, ctrl: e.ctrlKey, meta: e.metaKey };   // 修飾は毎イベントで最新化（押しっぱ中のShift追加/解除に追従）
-		if (!ARROWS[e.key] || typing()) return;
+		if (!ARROWS[e.key] || isTypingTarget() || blocked?.()) return;   // 文字入力中・モーダル表示中(blocked)は矢印を地図に奪わせない
 		e.preventDefault();                                              // ページスクロール/履歴移動を止める
 		if (!held.size) onGesture();                                     // 操作開始＝フライト中断（主導権は人）
 		held.add(e.key);

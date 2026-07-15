@@ -4,6 +4,7 @@
 // マーカーの画面追随は本体 render のフック＝この関数が返す update を本体（app.js の登録側）が掴んで毎フレ呼ぶ。
 // projectLL＝経緯度→画面CSS座標（world→screen。実装は engine の project／注入は登録側）。
 import { gadgetStack } from "./stack.js";
+import { keyBusy } from "./keys.js";
 export function cpos({ projectLL, signal } = {}) {
 	const mapEl = this.mapEl, cam = this.cam, flyTo = this.flyTo;
 	if (mapEl.querySelector("#cpos-btn")) return;   // 二重搭載は無害（搭載済みのまま）
@@ -42,8 +43,7 @@ export function cpos({ projectLL, signal } = {}) {
 	// @＝現在地トグル（修飾なし）。入力欄フォーカス中は無効。@ はJIS配列では単独キー・US配列では⇧2＝どちらも e.key==="@"。
 	window.addEventListener("keydown", e => {
 		if (e.key !== "@" || e.ctrlKey || e.metaKey || e.altKey) return;
-		const el = document.activeElement, tag = el && el.tagName;
-		if (tag === "INPUT" || tag === "TEXTAREA" || el?.isContentEditable) return;
+		if (keyBusy(mapEl)) return;
 		e.preventDefault(); toggle();
 	}, { signal });
 	return function update() {   // マーカーを現在地の画面座標へ（裏半球なら隠す）

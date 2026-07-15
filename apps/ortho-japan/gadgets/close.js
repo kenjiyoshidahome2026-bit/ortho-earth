@@ -3,6 +3,8 @@
 // 押す（or Esc）と mapEl から CustomEvent "ortho:close"（bubbles）を飛ばすだけ＝閉じる実務（モーダルを畳む・
 // destroy を呼ぶ等）は埋め込み側の領分。単体ページでは載せない＝モーダル/ライトボックスに地図を出す画面のための×。
 // 置き場所は右上（チップ列のさらに上ではなく #map 直下の後置＝スタック不参加。×は家具でなく「額縁の金具」）。
+import { modalOpen, isTypingTarget } from "./keys.js";
+
 export function close({ signal } = {}) {
 	const mapEl = this.mapEl;
 	if (mapEl.querySelector("#close-btn")) return;   // 二重搭載は無害（搭載済みのまま）
@@ -15,11 +17,8 @@ export function close({ signal } = {}) {
 	const dispatch = () => mapEl.dispatchEvent(new CustomEvent("ortho:close", { bubbles: true }));
 	btn.addEventListener("click", dispatch);
 	// Esc＝×と同じ。ただし「開いている物」（印刷モーダル・PLATEAUモーダル・右クリックメニュー・測距中・入力中）が
-	// ある間は譲る＝Escはまずそれらを閉じる係（地図ごと閉じる事故を防ぐ）。
-	const overlayOpen = () =>
-		mapEl.classList.contains("measuring")
-		|| ["#print.open", "#pdb", "#ctxmenu"].some(sel => { const el = mapEl.querySelector(sel); return el && getComputedStyle(el).display !== "none"; })
-		|| /INPUT|TEXTAREA/.test(document.activeElement?.tagName || "");
+	// ある間は譲る＝Escはまずそれらを閉じる係（地図ごと閉じる事故を防ぐ）。モーダル/入力判定は keys.js と共有。
+	const overlayOpen = () => mapEl.classList.contains("measuring") || modalOpen(mapEl) || isTypingTarget();
 	window.addEventListener("keydown", e => { if (e.key === "Escape" && !overlayOpen()) dispatch(); }, { signal });
 	return btn;
 }
