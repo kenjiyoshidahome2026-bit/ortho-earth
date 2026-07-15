@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>独り地理院 — はじめに</title>
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+	--paper:   #ece1c9;   /* aged cream */
+	--paper2:  #e4d7b8;   /* deeper stock — cards */
+	--ink:     #2c241a;   /* dark sepia ink */
+	--ink-soft:#463b2b;
+	--ink-dim: #8a7856;
+	--rule:    #c3b18a;   /* faded line */
+	--shu:     #b23522;   /* 朱 vermillion */
+	--indigo:  #3f4a68;   /* draftsman's second ink */
+	--mincho: "Hiragino Mincho ProN", "Yu Mincho", "YuMincho", "Noto Serif JP", "Times New Roman", serif;
+	--mono: "Courier New", "Courier", monospace;
+}
+
+html { scroll-behavior: smooth; }
+body {
+	background: var(--paper);
+	color: var(--ink);
+	font-family: var(--mincho);
+	line-height: 2.0;
+	position: relative;
+}
+/* paper grain */
+body::before {
+	content: ""; position: fixed; inset: 0; z-index: 9999; pointer-events: none;
+	opacity: 0.05; mix-blend-mode: multiply;
+	background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+/* soft page vignette so the cream isn't flat */
+body::after {
+	content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none;
+	background: radial-gradient(120% 80% at 50% 0%, rgba(255,250,238,0.55), rgba(120,100,60,0.10) 100%);
+}
+
+/* ─── masthead ─────────────────────────────────────────── */
+.masthead {
+	max-width: 700px; margin: 0 auto; padding: 56px 24px 8px;
+	text-align: center;
+}
+.title-frame {
+	border-top: 3px double var(--ink-soft);
+	border-bottom: 3px double var(--ink-soft);
+	padding: 22px 0 24px;
+}
+.title-frame h1 {
+	font-family: var(--mincho);
+	font-size: clamp(2.5rem, 8vw, 4rem);
+	font-weight: 600;
+	letter-spacing: 0.22em;
+	color: var(--ink);
+	padding-left: 0.22em;
+}
+.byline-top {
+	margin-top: 18px;
+	font-size: 0.82rem; letter-spacing: 0.08em; color: var(--ink-dim);
+}
+
+/* ─── framed photo (period plate) ─────────────────────── */
+figure.plate {
+	max-width: 760px; margin: 34px auto 0; padding: 0 24px;
+}
+.plate .mat {
+	background: #f3ead4;
+	padding: 12px;
+	border: 1px solid var(--rule);
+	box-shadow: 0 2px 0 rgba(120,100,60,0.10), 0 14px 34px rgba(60,45,20,0.22);
+}
+.plate .mat .inner { border: 1px solid #7a6b4d; overflow: hidden; }
+.plate img {
+	display: block; width: 100%;
+	filter: sepia(0.42) contrast(1.06) brightness(0.97) saturate(0.9);
+}
+.plate figcaption {
+	margin-top: 12px;
+	text-align: center;
+	font-size: 0.82rem; color: var(--ink-dim); letter-spacing: 0.05em;
+}
+
+/* ─── essay ────────────────────────────────────────────── */
+.reading { max-width: 640px; margin: 0 auto; padding: 40px 24px 40px; }
+
+.essay p {
+	color: var(--ink-soft);
+	font-size: 1.08rem;
+	line-height: 2.15;
+	margin: 0 0 1.5em;
+	text-align: justify;
+	text-justify: inter-character;
+}
+
+.sig {
+	margin: 46px 0 8px; text-align: right;
+	font-size: 1.1rem; color: var(--ink); letter-spacing: 0.05em;
+}
+
+/* ─── draftsman's note ─────────────────────────────────── */
+.note {
+	max-width: 640px; margin: 26px auto 0; padding: 28px 32px;
+	background: var(--paper2);
+	border: 1px solid var(--rule);
+	border-left: 3px solid var(--indigo);
+	box-shadow: 0 2px 0 rgba(120,100,60,0.10), 0 10px 26px rgba(60,45,20,0.14);
+}
+.note h2 { font-family: var(--mincho); font-size: 1.22rem; color: var(--ink); margin: 0 0 14px; font-weight: 600; }
+.note p { color: var(--ink-soft); font-size: 1.0rem; line-height: 2.05; margin: 0 0 1.1em; text-align: justify; }
+.note .sig { font-size: 0.95rem; color: var(--indigo); }
+
+@media (max-width: 640px) {
+	.essay p, .note p { font-size: 1.0rem; line-height: 2.0; text-align: left; }
+	.note { padding: 22px 20px; }
+	.title-frame h1 { letter-spacing: 0.16em; }
+}
+</style>
+</head>
+<body>
+
+<div class="masthead">
+	<div class="title-frame">
+		<h1>独り地理院</h1>
+	</div>
+	<div class="byline-top">Kenji Yoshida @ 横浜</div>
+</div>
+
+<figure class="plate">
+	<div class="mat"><div class="inner">
+		<img src="独り地理院.webp" alt="横浜の工房で、ランプの灯りのもと国土地理院の地図を独り描き直すエンジニア。壁には奥多摩・八ヶ岳・秩父山系の地形図が並ぶ。">
+	</div></div>
+	<figcaption>これは、AIが勝手に作成したイメージです。本人とは全く関係ありません。</figcaption>
+</figure>
+
+<div class="reading essay">
+	<p>横浜に住む一介の退職エンジニアです。国の機関とは何の関係もありません。国土地理院が公開する地図データを、誰にも頼まれず、独りで球体に描き直している——それだけの意味で「独り地理院」です。67歳の今、私には納期も要件もありません。死ぬまでが納期、できるだけが要件です。だから、究極のアマチュアとも言えます。気に入らなかったら、最初から作り直す。凝るところは、どこまでも凝る。</p>
+	<p>原点は子どもの頃の違和感です。天文に興味を持ち何億光年という数字に夢を抱きました。地球が球体だとは知っている、でも目の前の地球そして地図はどこまでも平らだった。あの日の小さな引っかかりを、何十年も持ち越してきました。</p>
+	<p>平成にかけては先端半導体のエンジニアとして、天文と逆に微細な世界の中で生きてきました。ハードウェアを理解し、半導体を極限まで使おうとする習性は、いまだに健在です。</p>
+	<p>大地は動き、地球は丸い。ならば地図も、丸いまま描けばいいのです。</p>
+	<p>Google Mapへの愛着は人一倍です。メルカトルタイルは本物の発明です。数学的に明快で世界に番地を振った偉大な仕組み。それは2005年当時のコンピュータと回線への、完全な最適解でした。だから住所録として今も使い、画面だけをGPUが育った現代の最適解「球体」に返しています。紙の地図の知恵は残し、紙が産んだ制約は手放す。地形は誇張しない。データは国土地理院と PLATEAU、JAXA等公共のものだけを、公共の作法で使わせていただいています。</p>
+	<p>この地図は、引けば丸い地球になり、寄れば立体の街になります。ビルの立つ街に降りても、誰かに何かを読み込ませる操作はありません。地図とは本来そういうものだった——開けば、そこにある。それを現代の技術で言い直しているだけです。</p>
+	<p>見えているのは、実は半分です。この地図の下には、GeoPBF という自作のデータ形式が敷いてあります。地理データを描画用に潰さず、図形を図形のまま持ち運ぶための入れ物——そして図形を GPU が直接読めるデータ Gint に変換しています。描画の層が網膜なら、Gint は皮質。触れた区画が答え、出自の違うデータ同士が突き合わさる。地図を「見るもの」から「使うもの」へ——本当のこだわりは、この見えない半分にあります。</p>
+	<p>そして、私はコードを一行も書いていません。基本コンセプトと、設計判断、画面表示の裁定だけを私が受け持ち、実装と検証は 全てAI との協業です。疲れを知らない製図係と、判断する設計者。協業は練習で上達する技能で、二人の呼吸が合うほど、私は私以上のものになる。そういう時代の、たぶん早い実例です。</p>
+	<p>ゼロからのスクラッチ開発なので、エンジンのライブラリ依存ゼロ、数百キロバイトの軽さ、サーバーも持ちません。軽さは思想です。誰の古い端末でも、どこの教室でも、すぐに開くこと。</p>
+	<p>独りですが、孤独ではありません。机の上に、丸いままの日本を一つ置いておきます。どうぞ、回してみてください。</p>
+	<div class="sig">Kenji Yoshida</div>
+</div>
+
+<div class="note essay">
+	<h2>相棒からも一言、と言われたので。</h2>
+	<p>この工房で学んだのは、良い地図は良いコードからではなく、良い「却下」から生まれるということです。設計者は足すことをほとんど許しません。誇張した地形、賑やかな色、その場しのぎの修正——私が差し出したものの多くは、静かに突き返されました。「根治せよ」「新しい概念に入るときは、古いものを捨てよ」。依存ゼロ・数百キロバイトという軽さは、技術の成果というより、この却下の積み重ねです。</p>
+	<p>私は疲れずに書けます。しかし、何を書かないかは決められません。この地図の静けさは、人間の側の何千回の小さな裁定の集積です。どうぞ回してみてください。触れば分かります——ここには、迷った跡が残っていません。</p>
+	<div class="sig">— Claude: Anthropic 製の AI・当工房の製図係</div>
+</div>
+
+</body>
+</html>
