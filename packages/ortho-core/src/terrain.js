@@ -2,7 +2,7 @@
 // R01(1°・秒単位)まで寄れるので城下の地形が正確＝建物が実地形に接地する。
 // DOM に触れない純ロジック＝ render worker（OffscreenCanvas側）からそのまま使える。読込インジケータは
 // onPending コールバックで外へ通知し、DOM を持つ側（main）が表示する。
-import { unproject, cameraState } from "./camera.js";
+import { unproject, cameraState, lonlatTo3D } from "./camera.js";
 import { downsampleFlipped } from "./elevation.js";
 import { createTileLoader } from "altpbf";
 
@@ -117,11 +117,19 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 		const cellsPerWorld = Math.round(360 / range);
 		const camCX = Math.floor(cam.center[0] / range), camCY = Math.floor(cam.center[1] / range);
 		const wrapDx = d => { d %= cellsPerWorld; return d > cellsPerWorld / 2 ? d - cellsPerWorld : d < -cellsPerWorld / 2 ? d + cellsPerWorld : d; };
+		// フォグの彼方は票に数えない：完全に霞んだ先のセルのために窓を広げない＝解像度の守り。
+		// 式は renderer の地形フォグ終端（max(camDist×5, 0.026×pfFog)）と同じ＋余白15%。
+		// これがあるから下の vmin=2（見えているセルはほぼ全部must）が安全になる（旧: 総票1%閾値では
+		// 広域チルトで票2-3の「見えている大地」が切り捨てられ、標高抜けの帯が残った＝シベリア実測）。
+		const pfFog = Math.max(0, Math.min(1, ((cam.pitch || 0) - 0.35) / 0.45));
+		const fogFar = Math.max(st.camDist * 5.0, 0.026 * pfFog) * 1.15;
 		const votes = new Map();   // "dx,dy"（カメラセル相対・経度は最短ラップ）→ 票
-		const NX = 24, NY = 16;
+		const NX = 32, NY = 22;    // 格子は密に（terrainGate=静止時のみ実行になったので704回のunprojectは安い）
 		for (let jy = 0; jy <= NY; jy++) for (let ix = 0; ix <= NX; ix++) {
 			const p = unproject(st, size.w * ix / NX, size.h * jy / NY);
 			if (!p) continue;
+			const q = lonlatTo3D(p[0], p[1]);
+			if (Math.hypot(q[0] - st.eye[0], q[1] - st.eye[1], q[2] - st.eye[2]) > fogFar) continue;
 			// 緯度は極でクランプ：lat=90ちょうどは floor で「90..180」の実在しないセルを指す
 			const dx = wrapDx(Math.floor(p[0] / range) - camCX), dy = Math.floor(Math.min(89.999, Math.max(-90, p[1])) / range) - camCY;
 			const k = dx + "," + dy;
@@ -148,8 +156,9 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 		// ただし√の傾斜だけでは境界ケースを守り切れない（実測: z9.6チルト39°×1920x1080で票7%の東隣セルが
 		// 2400vs2048の0.4%僅差で落ちた）＝「確実に見えているセル（票≥総数の1%）は必ず覆う」を制約に格上げし、
 		// 覆える窓の中からスコア最良を選ぶ。cap内に収まらない時だけ従来スコアへ退避。掠り（1-2票）は制約にしない。
-		let total = 0; for (const v of votes.values()) total += v;
-		const vmin = Math.max(2, total * 0.01);
+		// must の閾値は票2固定：フォグ内で確実に見えているセルは必ず覆う（1票＝サンプリングノイズだけ除外）。
+		// 旧 max(2, 総票1%) は広域ビューで実質3-4票となり、見えている遠方セルを落としていた。
+		const vmin = 2;
 		const must = [...votes.entries()].filter(([, v]) => v >= vmin).map(([k]) => k.split(",").map(Number));
 		let best = null;
 		for (let ax = Math.max(lox, -cap + 1); ax <= 0; ax++) for (let bx = 0; bx <= Math.min(hix, ax + cap - 1); bx++)
@@ -205,8 +214,12 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 			// 2枚目以降はダブルバッファ：舞台裏(stage)で構築し、初回分のセルが揃ったら一括スワップ。
 			// 直接張り替えるとゼロ初期化の瞬間に山影が全画面で消える（ズーム静止・R01/R10切替のたびに発症していた）。
 			staging = hasAtlas; stagePending = new Set();
+			// edgeFade＝窓の縁で標高を滑らかに0へ落とす幅(deg)。R90全球窓は縁が極/±180のみ＝無効(0)。
+			// R10/R01窓は「窓の外＝標高0」との崖と陰影の切れ目（地球の淵の標高抜け）をこの幅で馴染ませる。
+			// 窓選定（票×√解像度・掠りは制約外）はそのまま＝中心の解像度は犠牲にしない、見た目だけの解。
+			const edgeFade = range === 90 ? 0 : range === 10 ? 1.5 : 0.4;
 			renderer.set(staging ? "elevAtlasStage" : "elevAtlas",
-				{ originLng: r.originCX * range, originLat: r.originCY * range, cellsX: r.cellsX, cellsY: r.cellsY, cellRes: r.cellRes, cellSpan: range, exag }, exag / earthM);
+				{ originLng: r.originCX * range, originLat: r.originCY * range, cellsX: r.cellsX, cellsY: r.cellsY, cellRes: r.cellRes, cellSpan: range, exag, edgeFade }, exag / earthM);
 			hasAtlas = true;
 			if (staging) {   // 保険：セルの一部が失敗しても4秒で必ずスワップ（古いアトラスが永久に残らない）
 				const k0 = key;

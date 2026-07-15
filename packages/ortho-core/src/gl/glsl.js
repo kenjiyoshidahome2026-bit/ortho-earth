@@ -29,11 +29,17 @@ uniform sampler2D u_elevTex;
 uniform vec4 u_elevBounds;   // originLng, originLat, spanLng, spanLat（アトラス被覆）
 uniform float u_elevScale;   // (誇張 / 地球半径m) : m → 単位球
 uniform float u_hasElev;     // 0/1
+uniform float u_elevEdgeFade;   // 窓の縁のフェード幅(deg)。0=無効（R90全球窓）。R10/R01窓の外（標高0）との崖を馴染ませる
+float elevFadeAt(vec2 uv) {
+	if (u_elevEdgeFade <= 0.0) return 1.0;
+	vec2 w = vec2(u_elevEdgeFade) / u_elevBounds.zw;
+	return min(smoothstep(0.0, w.x, min(uv.x, 1.0 - uv.x)), smoothstep(0.0, w.y, min(uv.y, 1.0 - uv.y)));
+}
 float elev(vec2 ll) {
 	if (u_hasElev < 0.5) return 0.0;
 	vec2 uv = (ll - u_elevBounds.xy) / u_elevBounds.zw;
 	if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) return 0.0;
-	return texture(u_elevTex, uv).r;   // アトラスは南上げ格納＝v直接
+	return texture(u_elevTex, uv).r * elevFadeAt(uv);   // アトラスは南上げ格納＝v直接
 }
 // clip.xy/clip.w → device px（左上原点, y下向き）
 vec2 toScreen(vec4 c) {
@@ -189,6 +195,7 @@ uniform vec3 u_land;
 uniform sampler2D u_elevTex;
 uniform vec4 u_elevBounds;
 uniform float u_hasElev;
+uniform float u_elevEdgeFade;   // 窓の縁のフェード幅(deg)。変位(VSのelev)と同じ式＝陰影と地形が同時に消える
 in vec2 v_ll;
 in float v_front;
 in float v_fog;
@@ -198,7 +205,12 @@ float elevF(vec2 ll) {
 	if (u_hasElev < 0.5) return 0.0;
 	vec2 uv = (ll - u_elevBounds.xy) / u_elevBounds.zw;
 	if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) return 0.0;
-	return texture(u_elevTex, uv).r;
+	float f = 1.0;
+	if (u_elevEdgeFade > 0.0) {
+		vec2 w = vec2(u_elevEdgeFade) / u_elevBounds.zw;
+		f = min(smoothstep(0.0, w.x, min(uv.x, 1.0 - uv.x)), smoothstep(0.0, w.y, min(uv.y, 1.0 - uv.y)));
+	}
+	return texture(u_elevTex, uv).r * f;
 }
 void main() {
 	if (v_front < -0.0015) discard;   // 海抜0の接線より少し先まで許容＝地平線の先に頭を出す高山（〜9km球換算）を描く。遮蔽は深度とフォグが担う

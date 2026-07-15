@@ -437,7 +437,7 @@ function onMove() {
 	ensureCoast();                                                                    // 世界海岸線は初めて z<8 に出た瞬間に読む（遅延ロード）
 	ensureStars();                                                                    // 星空も同じ流儀＝初めて z<4 に出た瞬間に読む
 	autoPlateau();                                                                    // 寄る/離れるで PLATEAU を自動ロード/解放（ガードで実質タダ）
-	renderer.draw(cam, { skipBase: false, skipMain: mainStale(), noTerrain: false });   // 入力の瞬間に最新camをworkerへ（全球z<4も標高の塗りは描く＝R90一式は先読み/IDB常備で安い）
+	renderer.draw(cam, { skipBase: false, skipMain: mainStale(), noTerrain: false, terrainGate: false });   // 入力の瞬間に最新camをworkerへ（全球z<4も標高の塗りは描く）。terrainGate:false＝入力中はアトラス再構築を起こさない（停止時に一回だけ）
 	// 海岸線(gint)は render worker が draw 後に従属で駆動＝ここから直接送らない（地図と同cam/同フレーム＝スライド消滅）。
 	clearTimeout(settleT);
 	settleT = setTimeout(() => { moving = false; needsDraw = true; gintCanvas.style.opacity = "1"; gintWorker.postMessage({ type: "drawn" }); if (!printHold) saveView(); }, 150);   // 停止後に identify(picking)＋gint復帰＋ビュー保存（印刷カメラは保存しない）
@@ -1159,7 +1159,10 @@ function render() {
 	// 覆っていない領域が紙色で露出し、海(#e2e6ea)との差で白フラッシュ＝ちらつきになる（チルト75°で顕著）。
 	// zoomStable も条件に含める＝settle 直後の1フレーム（swapScene が mainDesired を更新する前）を弾く。
 	const mainFresh = !!readySig && readySig === mainDesired && zoomStable;
-	renderer.draw(cam, { skipBase: !moving && mainFresh, skipMain: mainStale(), noTerrain: printHold, terrainGate: !moving || zoomStable });     // 先に最新camをworkerへ（全球でも標高の塗りは生かす）。印刷撮影中は noTerrain＝紙仕様の平面図。海岸線は render worker が従属で追随
+	// terrainGate: 標高アトラスの再構築（窓選定108unproject＋staging＋セルfetch）は重い＝移動中は一切行わず、
+	// 停止時に一回だけ綺麗に作り直す（staging が旧アトラスを見せたまま静かに差し替える）。移動中の遅れは
+	// 縁フェードと R90/旧窓の残像が受け持つ＝「無理せず、描画終了時に綺麗に描く」方針。
+	renderer.draw(cam, { skipBase: !moving && mainFresh, skipMain: mainStale(), noTerrain: printHold, terrainGate: !moving });     // 先に最新camをworkerへ（全球でも標高の塗りは生かす）。印刷撮影中は noTerrain＝紙仕様の平面図。海岸線は render worker が従属で追随
 	// 全球ビュー（z<4）：基図(GSI)の詳細は不要＝タイル/結合/地形を止め、基図シーンを空に＝海岸線(gint)だけの軽い地球。
 	// これで pan 中も main の毎フレーム負荷（tiles.update/merge/terrain）が消える。
 	// 家具も全部フェード退場（attr含む＝quiet-mono #map.world）＝星空劇場の舞台。GSI非描画なので出典義務なし。

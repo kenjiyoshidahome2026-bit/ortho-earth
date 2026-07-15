@@ -140,7 +140,7 @@ export function createRenderer(canvas) {
 		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
 		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
 		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-		elev = { bounds: [a.originLng, a.originLat, a.cellsX * span, a.cellsY * span], scale, exag: a.exag || 1, has: 1 };
+		elev = { bounds: [a.originLng, a.originLat, a.cellsX * span, a.cellsY * span], scale, exag: a.exag || 1, has: 1, edgeFade: a.edgeFade || 0 };
 		const G = Math.min(1536, Math.max(768, 768 * Math.max(a.cellsX, a.cellsY)));
 		buildTerrainMesh(a.originLng, a.originLat, a.cellsX * span, a.cellsY * span, G);
 	}
@@ -178,7 +178,7 @@ export function createRenderer(canvas) {
 		if (elevTex) gl.deleteTexture(elevTex);
 		elevTex = elevStage.tex;
 		const a = elevStage.a, span = a.cellSpan || 10;
-		elev = { bounds: [a.originLng, a.originLat, a.cellsX * span, a.cellsY * span], scale: elevStage.scale, exag: a.exag || 1, has: 1 };
+		elev = { bounds: [a.originLng, a.originLat, a.cellsX * span, a.cellsY * span], scale: elevStage.scale, exag: a.exag || 1, has: 1, edgeFade: a.edgeFade || 0 };
 		const G = Math.min(1536, Math.max(768, 768 * Math.max(a.cellsX, a.cellsY)));
 		buildTerrainMesh(a.originLng, a.originLat, a.cellsX * span, a.cellsY * span, G);
 		elevStage = null;
@@ -344,6 +344,7 @@ export function createRenderer(canvas) {
 		gl.uniform4f(loc(gl, prog, "u_elevBounds"), elev.bounds[0], elev.bounds[1], elev.bounds[2], elev.bounds[3]);
 		gl.uniform1f(loc(gl, prog, "u_elevScale"), elevScaleEff);
 		gl.uniform1f(loc(gl, prog, "u_hasElev"), elev.has);
+		gl.uniform1f(loc(gl, prog, "u_elevEdgeFade"), elev.edgeFade || 0);   // 窓の縁のフェード幅(deg)。R90全球窓=0
 	}
 
 	function draw(cam, opts) {
