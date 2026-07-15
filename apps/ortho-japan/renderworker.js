@@ -165,17 +165,21 @@ function tuneRes(drew) {
 // terrain.ensure は視野→セル範囲計算（cameraState＋108回unproject）を伴う＝毎フレームは無駄。
 // アトラス構成が変わり得るだけのカメラ移動（視野幅の~10%・ズーム0.05・チルト/方位~1°）があった時だけ呼ぶ。
 let lastEnsure = null;
-function ensureIfMoved() {
-	const tol = 36 / Math.pow(2, cam.zoom);   // 視野スパンの~10%相当(deg)
+// c＝dpr補正済みカメラ（動的解像度中は dpr×resScale）。素の cam を渡すと縮小 canvas と食い違い、
+// camDist が×s に潰れた（＝ズームインした）仮想視点で標高窓の票を取ってしまう→実視野の遠景が窓の外＝
+// 標高ゼロの帯＋窓の縁の壁（スリット）になる（実測: res×0.55 で実視野の3.4%が窓外。res復帰で直る＝
+// 「リロードすると綺麗」の正体）。draw と同じ glCam を受け取り、描画と窓計算の視野を常に一致させる。
+function ensureIfMoved(c) {
+	const tol = 36 / Math.pow(2, c.zoom);   // 視野スパンの~10%相当(deg)
 	if (lastEnsure &&
-		Math.abs(cam.center[0] - lastEnsure.lon) < tol && Math.abs(cam.center[1] - lastEnsure.lat) < tol &&
-		Math.abs(cam.zoom - lastEnsure.zoom) < 0.05 &&
-		Math.abs((cam.pitch || 0) - lastEnsure.pitch) < 0.02 && Math.abs((cam.bearing || 0) - lastEnsure.bearing) < 0.02 &&
+		Math.abs(c.center[0] - lastEnsure.lon) < tol && Math.abs(c.center[1] - lastEnsure.lat) < tol &&
+		Math.abs(c.zoom - lastEnsure.zoom) < 0.05 &&
+		Math.abs((c.pitch || 0) - lastEnsure.pitch) < 0.02 && Math.abs((c.bearing || 0) - lastEnsure.bearing) < 0.02 &&
 		canvas.width === lastEnsure.w && canvas.height === lastEnsure.h) return;
-	lastEnsure = { lon: cam.center[0], lat: cam.center[1], zoom: cam.zoom, pitch: cam.pitch || 0, bearing: cam.bearing || 0, w: canvas.width, h: canvas.height };
+	lastEnsure = { lon: c.center[0], lat: c.center[1], zoom: c.zoom, pitch: c.pitch || 0, bearing: c.bearing || 0, w: canvas.width, h: canvas.height };
 	// false＝標高ローダ未準備（起動直後）。記憶を消して次フレームで再試行——ここで記憶したままだと
 	// 「リロード直後にカメラを動かすまで地形が平ら」になる（チルト復元起動で顕在化した）。
-	if (terrain.ensure(cam, { w: canvas.width, h: canvas.height }) === false) lastEnsure = null;
+	if (terrain.ensure(c, { w: canvas.width, h: canvas.height }) === false) lastEnsure = null;
 }
 
 // worker 自前の rAF ループ。dirty かつ cam があれば、最新 cam で mvp 生成→地図→ラベルを同フレームで描く。
@@ -187,14 +191,14 @@ function frame() {
 		drainUploads();   // 重いGPU転送（シーン/PLATEAU）の平準化＝1件/フレーム。dirty を立てる＝同フレームの下の描画で反映
 		if (dirty && renderer && cam) {
 			dirty = false; drew = true;
-			// ズーム中(zoom非stable)は標高アトラスを再構築しない＝cellRes連続変化による陰影チラつきを防ぐ（main が opts.terrainGate で通知）。
-			// noTerrain＝全球ビュー(z<4)では地形そのものが不要。
-			if (terrain && !opts?.noTerrain && opts?.terrainGate !== false) ensureIfMoved();
-			if (gintSyncPort) gintSyncPort.postMessage({ cam });     // 海岸線(gint)へ先に転送＝GL描画と並走して同じvsyncに乗せる（描画後に送ると常に1フレーム遅れる）
 			// 動的解像度中は GL 側の dpr に resScale を掛ける＝線の太さ(SDF capsule)が CSS 上で不変。
 			// ラベルは自前 canvas（フル解像度）＋自前 cameraState なので素の cam のまま＝幾何は両者で一致する。
 			const s = RES_STEPS[resIdx];
 			const glCam = s === 1 ? cam : { ...cam, dpr: (cam.dpr || 1) * s };
+			// ズーム中(zoom非stable)は標高アトラスを再構築しない＝cellRes連続変化による陰影チラつきを防ぐ（main が opts.terrainGate で通知）。
+			// noTerrain＝全球ビュー(z<4)では地形そのものが不要。ensure には draw と同じ glCam＝縮小 canvas と整合する視野を渡す。
+			if (terrain && !opts?.noTerrain && opts?.terrainGate !== false) ensureIfMoved(glCam);
+			if (gintSyncPort) gintSyncPort.postMessage({ cam });     // 海岸線(gint)へ先に転送＝GL描画と並走して同じvsyncに乗せる（描画後に送ると常に1フレーム遅れる）
 			const fogAnim = renderer.draw(glCam, opts);              // cameraState=mvp生成 + GL描画（軽い）。true=フォグ追従が収束中
 			// skipMain（ズームアウトで古い詳細シーンを退場）中は文字も一緒に退場＝clear()でフェード状態ごと流す。
 			// 新しい段の merge で戻る時はフェードインから始まる＝可逆な退場。

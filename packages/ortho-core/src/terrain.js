@@ -8,6 +8,9 @@ import { createTileLoader } from "altpbf";
 
 export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onPending }) {
 	let atlasKey = "", loadedCells = new Set();
+	let cellFails = new Map();   // ck → 取得失敗回数（窓の世代ごとにリセット。上限内は次の ensure で再挑戦）
+	let writtenCells = new Set();   // 実際にアトラスへ書き込めたセル（検札の突合対象。世代ごとにリセット）
+	let lastEnsureCam = null, lastEnsureSize = null, auditT = 0, auditTries = 0;   // 検札＝静止中の自己修復用
 	let hasAtlas = false, staging = false, stagePending = new Set();   // ダブルバッファ状態（山影がパッと消えるのを防ぐ）
 	const r10Tiles = new Map();   // "range,cx,cy" → 解決した生タイル（ラベル標高のCPUサンプル用）
 	let loadTile = null;          // altpbf createTileLoader（非同期セットアップ）
@@ -170,8 +173,27 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 		}
 		return { range, originCX, originCY, cellsX, cellsY, cellRes: allocRes, wanted };
 	}
+	// 検札（カメラ静止でも自己修復）：wanted なのに書き込めなかったセル（fetch失敗・worker詰まり・部分commit）を
+	// 未読込へ戻して ensure を掛け直す。従来は「次の窓替え／カメラ移動」まで平らなセルが直らず、静止して
+	// 眺めている限りリロードしか回復手段が無かった（実測: チルトで標高抜けの帯が残る）。
+	function scheduleAudit() {
+		clearTimeout(auditT);
+		auditT = setTimeout(() => {
+			if (staging || pendingElev > 0) return scheduleAudit();   // 取り込み中＝結果が出てから検札（tryは消費しない）
+			const missing = [...loadedCells].filter(ck => !ck.endsWith("hi") && !writtenCells.has(ck));
+			if (!missing.length) { auditTries = 0; return; }
+			if (auditTries >= 5) return;   // データが本当に無いセル（ALOS未整備の海等）は諦める＝リフェッチのスパムをしない
+			auditTries++;
+			console.warn("[terrain] 検札: 未書込セルを再取得", missing.join(" "), `(${auditTries}/5)`);
+			for (const ck of missing) loadedCells.delete(ck);
+			if (lastEnsureCam) ensure(lastEnsureCam, lastEnsureSize);
+		}, 1000);
+	}
 	function ensure(cam, size) {   // 戻り値 false＝ローダ未準備で何もしていない（呼び出し側はスロットル記憶を消して再試行すること）
 		if (!loadTile) return false;
+		// 検札の再実行用に最後の視点を控える（cam はアプリ側で毎フレーム書き換わる共有オブジェクト＝必ずコピー）
+		lastEnsureCam = { center: [cam.center[0], cam.center[1]], zoom: cam.zoom, pitch: cam.pitch, bearing: cam.bearing, dpr: cam.dpr, fovy: cam.fovy };
+		lastEnsureSize = { w: size.w, h: size.h };
 		// 混成モード（高チルト×中ズーム）：1°グリッドで近傍3×3=R01（富士の近景ディテール）、
 		// 遠方セル=R10切り出し（地平線までのカバー）。単一アトラス＝レンダラ側は無変更。
 		const mixed = (cam.pitch || 0) > 0.9 && cam.zoom >= 10.5 && cam.zoom < 13;
@@ -179,7 +201,7 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 		const r = viewCellRange(cam, size, range, mixed);
 		const key = [mixed ? "M" : range, r.originCX, r.originCY, r.cellsX, r.cellsY, r.cellRes].join(",");
 		if (key !== atlasKey) {
-			atlasKey = key; loadedCells = new Set();
+			atlasKey = key; loadedCells = new Set(); cellFails = new Map(); writtenCells = new Set(); auditTries = 0;
 			// 2枚目以降はダブルバッファ：舞台裏(stage)で構築し、初回分のセルが揃ったら一括スワップ。
 			// 直接張り替えるとゼロ初期化の瞬間に山影が全画面で消える（ズーム静止・R01/R10切替のたびに発症していた）。
 			staging = hasAtlas; stagePending = new Set();
@@ -203,7 +225,11 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 		for (let cy = 0; cy < r.cellsY; cy++) for (let cx = 0; cx < r.cellsX; cx++) {
 			const ck = cx + "," + cy;
 			if (loadedCells.has(ck)) continue;
-			if (r.wanted && !r.wanted.has(ck)) { loadedCells.add(ck); continue; }   // 画面に映らないセルは取りに行かない（票ゼロ＝窓の角）
+			// 票ゼロ（画面に映らない）セルは取りに行かない。ただし「読込済み」には記録しない：wanted は
+			// ensure のたびに現視点の票で作り直されるので、同じ窓のままパン/回転で映り込めば次の ensure で
+			// 普通にフェッチされる。ここで loadedCells に入れると「窓は生きている・セルは未読込・二度と
+			// 取りに行かない」が成立し、回転後に標高が平らな帯として残る（実測: z7/チルト46°/回転-25°）。
+			if (r.wanted && !r.wanted.has(ck)) continue;
 			loadedCells.add(ck);
 			if (staging) stagePending.add(ck);
 			const cellLng = (r.originCX + cx) * range, cellLat = (r.originCY + cy) * range;
@@ -215,6 +241,11 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 					pendingElev--; notifyPending(range);
 					if (parent && atlasKey === key && !(loadedCells.has(ck + "hi"))) {
 						renderer.set(cellSlot(), cropResample(parent, cellLng, cellLat, range, r.cellRes), { cx, cy, cellRes: r.cellRes });
+						writtenCells.add(ck);
+					}
+					if (!parent && atlasKey === key) {   // 親R10失敗も未読込へ戻す（非mixed経路と同じ再挑戦則）
+						const n = (cellFails.get(ck) || 0) + 1; cellFails.set(ck, n);
+						if (n <= 3) loadedCells.delete(ck);
 					}
 					if (atlasKey === key) doneOne(ck);
 					requestDraw();
@@ -225,6 +256,7 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 						pendingElev--; notifyPending(range);
 						if (tile && atlasKey === key) {
 							loadedCells.add(ck + "hi");   // 以降 R10 切り出しで上書きさせない
+							writtenCells.add(ck);
 							renderer.set(cellSlot(), downsampleFlipped(tile, r.cellRes), { cx, cy, cellRes: r.cellRes }); requestDraw();
 						}
 					});
@@ -232,12 +264,20 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 			} else {
 				getCell(cellLng, cellLat, range).then(tile => {
 					pendingElev--; notifyPending(range);
-					if (tile && atlasKey === key) renderer.set(cellSlot(), downsampleFlipped(tile, r.cellRes), { cx, cy, cellRes: r.cellRes });
+					if (tile && atlasKey === key) { renderer.set(cellSlot(), downsampleFlipped(tile, r.cellRes), { cx, cy, cellRes: r.cellRes }); writtenCells.add(ck); }
+					// 取得失敗は「未読込」へ戻す（上限3回）＝次の ensure（カメラが動けば必ず来る）で再挑戦。
+					// 従来は窓替えまで平らなセルが直らなかった。上限は恒久欠損セル（データ無し域）への
+					// 毎移動リフェッチのスパム防止。
+					if (!tile && atlasKey === key) {
+						const n = (cellFails.get(ck) || 0) + 1; cellFails.set(ck, n);
+						if (n <= 3) loadedCells.delete(ck);
+					}
 					if (atlasKey === key) doneOne(ck);
 					requestDraw();
 				});
 			}
 		}
+		scheduleAudit();   // 取り込みの顛末を後から突合＝失敗セルを静止中でも埋め直す（リロード不要の自己修復）
 		return true;
 	}
 	// prefetch＝視野に関係なくセルをRAM/IDBへ温める（例: 全球R90の先読み＝地球ぐるぐるが最初から途切れない）
