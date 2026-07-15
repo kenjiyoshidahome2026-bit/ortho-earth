@@ -54,13 +54,14 @@ import { modalOpen } from "./gadgets/keys.js";   // 矢印キーのモーダル�
 // ============================================================================================
 export default async function orthoJapan(opts = {}) {
 // 起動の容れ物：target指定（selector/要素）→ 無ければ既存#map → それも無ければbody直下に自作。
-// ルートは .ortho-japan クラスで名乗る（意匠quiet-mono・ガジェットの当たり先）＝預かったdivのidは壊さない。
-// 中身の #c/#gadgets 等は私的配線。globe(v1)と同居できるよう app ごとに名前空間を分ける＝二本建の作法。
+// 意匠（quiet-mono）とガジェットは id="map" の家具規格で当たるため、容れ物のidはmapへ正規化する。
+// ※ id→クラス化（多重化/二本建）は quiet-mono の #map スコープ移設(→中立クラス)とセットでないと
+//   容れ物が無スタイル＝0サイズ化して射影が退化する。単独で変えないこと（回帰の轍）。
 let mapEl = (typeof opts.target === "string" ? document.querySelector(opts.target) : opts.target)
 	|| document.getElementById("map");
 const ownMapEl = !mapEl;   // 容れ物を自作した＝destroy で丸ごと消してよい（預かった div は中身だけ空にして返す）
 if (ownMapEl) mapEl = document.body.appendChild(document.createElement("div"));
-mapEl.classList.add("ortho-japan");
+mapEl.id = "map";
 // 舞台のcanvas 3層（基図GL/知性gint/ラベル）も自給＝index.htmlは空のdivだけでよい
 for (const cid of ["c", "gint", "labels"]) { const cv = document.createElement("canvas"); cv.id = cid; mapEl.appendChild(cv); }
 
