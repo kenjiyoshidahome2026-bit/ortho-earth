@@ -6,7 +6,7 @@
 	"main": "src/index.js",
 	"exports": {
 		".": "./src/index.js",
-		"./*": "./*"
+		"./identify": "./src/extension/identify.js"
 	},
 	"scripts": {
 		"summary": "repomix --style markdown --output project_summary.md"

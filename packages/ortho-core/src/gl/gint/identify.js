@@ -5,7 +5,7 @@
 // 単位：mouse は CSS px で受け、GPU/unproject へは ×dpr で device px に。s.width/height は device px。
 
 import { s, MOVE_THROTTLE_MS } from './state.js';
-import { findPolygon } from 'geopbf/src/extension/identify.js';
+import { findPolygon } from 'geopbf/identify';
 import { drawOverlay } from './passes.js';
 import { unproject } from '../../camera.js';
 

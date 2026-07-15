@@ -1,5 +1,4 @@
 import { geoPath, geoOrthographic } from 'd3-geo';
-//import { GeoPBF } from "geopbf/src/pbf-base.js";
 import  { drawJSON } from "../modules/drawJSON.js"
 let canvas, ctx, width, height, dpr, path;
 let proj = geoOrthographic(), zoom;

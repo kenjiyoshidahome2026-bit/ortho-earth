@@ -2,7 +2,7 @@
 // Polygons also have a JS fallback (findPolygon) for when no GPU hit is found.
 
 import { s, MOVE_THROTTLE_MS } from './gintState.js';
-import { findPolygon } from 'geopbf/src/extension/identify.js';
+import { findPolygon } from 'geopbf/identify';
 import { drawOverlay } from './gintRenderPasses.js';
 
 export function doIdentify(data) {
