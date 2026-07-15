@@ -8,11 +8,11 @@ html, body { margin: 0; height: 100%; background: #0b1021; color: #cdd; font: 13
 #log { position: absolute; bottom: 10px; left: 10px; font-family: var(--qm-font-mono); font-size: 12px; color: #9ab; background: rgba(10,16,33,.7); padding: 6px 8px; border-radius: var(--qm-r-s); }
 
 /* アイドル退場：マウスを止めると左上(#gadgets)・右上(#chips)のアイコンが静かに消え、動かすと戻る。
-   点火/消灯は app.js が #map へ .ui-idle を付与/除去（触れている間・検索を開いている間・タッチ端末では消えない）。
+   点火/消灯は app.js が .ortho-japan へ .ui-idle を付与/除去（触れている間・検索を開いている間・タッチ端末では消えない）。
    トランジション(.6s)は components.scss の #gadgets/#chips 既定に相乗り＝.world の退場と同じ手触り。
    :not(.world) ＝全球ビュー(.world)では従来どおり丸ごと退場が勝つ（二重指定で衝突させない）。 */
-#map.ui-idle:not(.world) :is(#gadgets, #chips) { opacity: 0; }
-#map.ui-idle:not(.world) :is(#gadgets, #chips, #gadgets *, #chips *) { pointer-events: none; }   /* 消えている間は下の地図を素通し（動かせば即復帰＝クリックを奪わない） */
+.ortho-japan.ui-idle:not(.world) :is(#gadgets, #chips) { opacity: 0; }
+.ortho-japan.ui-idle:not(.world) :is(#gadgets, #chips, #gadgets *, #chips *) { pointer-events: none; }   /* 消えている間は下の地図を素通し（動かせば即復帰＝クリックを奪わない） */
 
 /* 建物3D（PLATEAU）データ管理モーダル＝日本固有の道具。佇まいはトークン参照 */
 #pdb {
