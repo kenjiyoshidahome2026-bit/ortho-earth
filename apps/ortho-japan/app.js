@@ -13,8 +13,7 @@ createGeopbf("https://api.ortho-earth.com");   // bucket 基盤（標高と同�
 import style from "./style-mono.js";
 import { createThemes, defaultLayerState, isFacility, isTerrain, CHOME_MINZOOM, RAILTR_MINZOOM } from "./themes.js";
 import { createOverlay } from "./overlay.js";
-import { planetPositions, moonPosition, sunPosition } from "./planets.js";
-import { constellationJa } from "./skynames.js";
+// planets.js / skynames.js は z<4（星空）でしか使わない＝初期バンドルから外し、下の ensureSkyMod で動的読込。
 import { createPipeline } from "ortho-core";   // tile/scene worker のスポーンごとエンジン側
 import { createPlateauDb } from "./plateaudb.js";
 import { mountGadgets } from "./gadgets/mount.js";
@@ -637,8 +636,15 @@ const celVec = (raDeg, decDeg) => {
 	const ra = raDeg * D2R, dec = decDeg * D2R, cd = Math.cos(dec);
 	return [cd * Math.cos(ra), Math.sin(dec), cd * Math.sin(ra)];
 };
+// 星空モジュール（planets/skynames＝z<4専用・計~12K）は初期バンドルに載せず、初めて星空パスに入る時に一度だけ動的読込。
+// 読込後に下の holder へ注入＝以降の updatePlanets/toggleConstellations は従来どおり同期的に使える（memo化＝多重読込なし）。
+let planetPositions, moonPosition, sunPosition, constellationJa;
+let _skyLoad = null;
+const ensureSkyMod = () => (_skyLoad ??= Promise.all([import("./planets.js"), import("./skynames.js")]).then(([p, s]) => {
+	({ planetPositions, moonPosition, sunPosition } = p); ({ constellationJa } = s);
+}));
 let starsArmed = true;
-function ensureStars() { if (starsArmed && cam.zoom < BASEMAP_MINZOOM) { starsArmed = false; loadStars(); startPlanets(); } }
+function ensureStars() { if (starsArmed && cam.zoom < BASEMAP_MINZOOM) { starsArmed = false; loadStars(); ensureSkyMod().then(startPlanets); } }
 // 惑星（実位置・低精度ケプラー＝planets.js）：星と同じ点バッファ形式で常設。名前は注記トグル(skyLabels)側。
 // 位置は10分毎に再計算（最速の水星でも0.03°/10分＝表示上は静止と同じだが、開きっぱなしの夜に正直でいる）。
 let planetTimer = null, planetLabels = [];
@@ -727,6 +733,7 @@ async function toggleConstellations() {
 		return;
 	}
 	constelState = 1;
+	await ensureSkyMod();   // 星座名の日本語化(skynames)を使う前に星空モジュールの読込を保証（初回z<4で通常は既済）
 	const [cl, ms] = await Promise.all([
 		geopbf("constellation_lines", { gint: false }).catch(e => { console.warn("[星座線] 読込失敗", e); return null; }),
 		geopbf("messier", { gint: false }).catch(() => null),   // 任意（v1と同じ＝無ければ星座線と名前だけ）
