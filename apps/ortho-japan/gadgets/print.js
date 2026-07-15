@@ -8,8 +8,9 @@
 import { gadgetStack } from "./stack.js";
 import { composeLayersToCanvas } from "./shot.js";
 
-// 印刷の出典＝地理院ベクトルタイルの一行のみ。真俯瞰は建物3Dを描かない（renderer の show3d 裁き）＋
-// noTerrain で標高ラスタも使わない＝PLATEAU/AW3D30 は紙面に写らないので表記不要（写るものだけ名乗る）。
+// 印刷の出典＝地理院ベクトルタイルの一行のみ。真俯瞰(pitch0)は建物3D・地形サーフェスを描かない
+// （elevScaleEff=0）。標高(AW3D30)は等高線のベクタ線としてだけ写る＝地理院の等高線と同じ位置づけで
+// 出典は基図一行に集約（PLATEAU/AW3D30 の陰影・立体は紙面に出ないので表記不要）。
 const PRINT_ATTR = ["出典：国土地理院最適化ベクトルタイル（提供実験）を加工して作成"];
 
 const R = 6371008.8;

@@ -160,8 +160,9 @@ logEl.style.display = "none";
 let bootT = setTimeout(() => {
 	fatalOverlay("起動に時間がかかっています", "描画が始まりません。再読み込みで直ることがあります。改善しない場合は、ブラウザの設定で「ハードウェアアクセラレーション」が有効かご確認ください。", true);
 }, 10000);
-// 印刷（平面図）撮影中の抑止フラグ：autoPlateau/settle保存を止め、描画は noTerrain（真俯瞰の紙仕様＝
-// 標高ラスタの陰影・変位なし＝等高線(ベクタ)だけの厳密な正射平面図。標高タイルの読み込み待ちも不要になる）
+// 印刷（平面図）撮影中の抑止フラグ：autoPlateau/settle保存を止める。描画は noTerrain にしない＝
+// 標高アトラスは生かす（真俯瞰 pitch0 なので elevScaleEff=0＝地形サーフェス/陰影/変位は自然に消え、
+// 等高線(ベクタ)だけが敷かれた厳密な正射平面図になる）。noTerrain にすると等高線もアトラスごと消えるので不可。
 let printHold = false;
 renderWorker.onmessage = e => {
 	const d = e.data;
@@ -1162,7 +1163,7 @@ function render() {
 	// terrainGate: 標高アトラスの再構築（窓選定108unproject＋staging＋セルfetch）は重い＝移動中は一切行わず、
 	// 停止時に一回だけ綺麗に作り直す（staging が旧アトラスを見せたまま静かに差し替える）。移動中の遅れは
 	// 縁フェードと R90/旧窓の残像が受け持つ＝「無理せず、描画終了時に綺麗に描く」方針。
-	renderer.draw(cam, { skipBase: !moving && mainFresh, skipMain: mainStale(), noTerrain: printHold, terrainGate: !moving });     // 先に最新camをworkerへ（全球でも標高の塗りは生かす）。印刷撮影中は noTerrain＝紙仕様の平面図。海岸線は render worker が従属で追随
+	renderer.draw(cam, { skipBase: !moving && mainFresh, skipMain: mainStale(), noTerrain: false, terrainGate: !moving });     // 先に最新camをworkerへ（全球でも標高の塗りは生かす）。印刷撮影中も標高アトラスは生かす＝真俯瞰(pitch0)で地形サーフェスは自然に平ら(elevScaleEff=0)なまま等高線だけ敷ける。海岸線は render worker が従属で追随
 	// 全球ビュー（z<4）：基図(GSI)の詳細は不要＝タイル/結合/地形を止め、基図シーンを空に＝海岸線(gint)だけの軽い地球。
 	// これで pan 中も main の毎フレーム負荷（tiles.update/merge/terrain）が消える。
 	// 家具も全部フェード退場（attr含む＝quiet-mono #map.world）＝星空劇場の舞台。GSI非描画なので出典義務なし。
