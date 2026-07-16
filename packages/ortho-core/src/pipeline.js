@@ -4,7 +4,7 @@
 // geometry は main を通らず scene worker → render worker へ直行（main は geometry を知らない）。
 import { createTileManager } from "./tilemanager.js";
 
-export function createPipeline({ style, tileUrl, requestDraw, scenePort, onMerged, onTile, lodFloor }) {
+export function createPipeline({ style, tileUrl, requestDraw, scenePort, onMerged, onTile, lodFloor, memBudgetMB }) {
 	// scene worker：タイル geometry を保持し結合(merge)も担う。結合結果は main を経由せず
 	// render worker へ直結ポートで送る（下の connect）＝main は geometry を一切知らない。
 	const sceneWorker = new Worker(new URL("./workers/sceneworker.js", import.meta.url), { type: "module" });
@@ -37,7 +37,7 @@ export function createPipeline({ style, tileUrl, requestDraw, scenePort, onMerge
 			if (onTile && (e.data.ok || !/abort/i.test(String(e.data.error)))) onTile(!!e.data.ok);
 			if (!e.data.ok) { p.reject(new Error(e.data.error)); return; }
 			sceneWorker.postMessage({ type: "tile", key: p.key, ops: e.data.dl.ops, buildings: e.data.buildings }, collectTileBuffers(e.data.dl, e.data.buildings));
-			p.resolve({ origin: e.data.origin, labels: e.data.labels, z: e.data.z });   // メタ＋ラベルのみ
+			p.resolve({ origin: e.data.origin, labels: e.data.labels, z: e.data.z, bytes: e.data.bytes });   // メタ＋ラベル＋geometry実バイト（退避予算用）
 		};
 		w.postMessage({ type: "init", style });
 		tileWorkers.push(w);
@@ -63,7 +63,7 @@ export function createPipeline({ style, tileUrl, requestDraw, scenePort, onMerge
 	// onEvict：main のタイルキャッシュから消えたら scene worker の geometry も同時に消す＝両者は常に鏡。
 	// scene worker 側に独自の上限退避を持たせない（mainがreadyのタイルを勝手に捨てると merge で黙って穴になる）。
 	const tiles = createTileManager({
-		style, tileUrl, onChange: requestDraw, buildTile: workerBuildTile, lodFloor,
+		style, tileUrl, onChange: requestDraw, buildTile: workerBuildTile, lodFloor, memBudgetMB,
 		onEvict: keys => sceneWorker.postMessage({ type: "evict", keys }),
 	});
 	// 後片付け：worker を全て terminate（SPA等で地図を剥がす時＝アプリ側 map.destroy() から）。

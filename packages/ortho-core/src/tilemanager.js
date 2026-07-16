@@ -14,8 +14,18 @@ const EMPTY = new Set();
 // lodFloor＝{ minViewZoom, z }：ビューが minViewZoom 以上のとき詳細シーンの LOD 下限を z に強制。
 // optbv の海（WA）は z8 タイルから全面収録＝z7 以下が混ざる遠景は海が紙色に抜ける。下限 z8 で敷けば
 // 海の色がズーム段間で揃う（沖合の z8 タイルは全面WA一枚=50B級なので枚数が増えても実質タダ）。
-export function createTileManager({ style, tileUrl, onChange, cap = 256, buildTile, onEvict, lodFloor }) {
-	const cache = new Map();   // key → { status, origin, dl, labels, z }
+export function createTileManager({ style, tileUrl, onChange, cap = 256, buildTile, onEvict, lodFloor, memBudgetMB }) {
+	const cache = new Map();   // key → { status, origin, dl, labels, z, bytes, seen }
+
+	// tess済み geometry の常駐量を「枚数」でなく「実バイト」で束ねる：z16密都市(~100KB級)と沖合z8(数十B)を
+	// 同一に数えると枚数上限がメモリの代理にならない。予算は端末メモリで自動調整（navigator.deviceMemory=GB・
+	// 上限8で頭打ち／Safari・FF は未提供＝4GB相当とみなす）。呼び出し側 memBudgetMB で明示上書き可。
+	// geometry の実体は scene worker 側（main はメタのみ保持）＝この予算は onEvict 経由で鏡(scene worker)を縛る。
+	const dm = (typeof navigator !== "undefined" && navigator.deviceMemory) || 4;
+	const autoMB = Math.max(24, Math.min(96, dm * 12));   // 自動＝端末メモリで [24,96]MB（16GB機≒96 / 4GBタブ≒48 / 2GB≒24）
+	const budgetBytes = (memBudgetMB || autoMB) * 1024 * 1024;   // memBudgetMB 明示時はそのまま（呼び出し側を信頼＝上限に丸めない）
+	const hardCap = Math.max(cap, 4096);   // 極小タイル多数での Map 肥大だけ抑える二次ガード（バイト予算が主）
+	let clock = 0;   // update 連番＝LRU の時刻（keep に入る度に更新＝「最近見えた」を保つ）
 
 	// 既定：メインスレッドで fetch→decode→tessellation（重い）。buildTile 注入で worker へ退避できる。
 	const need = neededSourceLayers(style);
@@ -26,9 +36,17 @@ export function createTileManager({ style, tileUrl, onChange, cap = 256, buildTi
 		const dl = buildTileDrawList({ layers, z: t.z, x: t.x, y: t.y }, style, origin);
 		const { labels } = buildLabels({ layers, z: t.z, x: t.x, y: t.y }, style);
 		const buildings = buildBuildings({ layers, z: t.z, x: t.x, y: t.y }, origin);
-		return { origin, dl, labels, buildings, z: t.z };
+		return { origin, dl, labels, buildings, z: t.z, bytes: dlBytes(dl, buildings) };
 	}
 	const build = buildTile || defaultBuildTile;
+
+	// dl+建物の typed array 実バイト（main保持の既定パス用。worker パスは tileworker が bytes を報告）。
+	function dlBytes(dl, buildings) {
+		let b = 0;
+		for (const op of dl.ops) b += op.kind === "fill" ? op.pos.byteLength + op.col.byteLength : op.P1.byteLength + op.P2.byteLength + op.col.byteLength + op.half.byteLength;
+		if (buildings) b += buildings.pos.byteLength + buildings.shade.byteLength + buildings.anchor.byteLength;
+		return b;
+	}
 
 	async function ensure(t) {
 		const k = keyOf(t);
@@ -54,6 +72,7 @@ export function createTileManager({ style, tileUrl, onChange, cap = 256, buildTi
 	// 距離LODで可視タイルを選定→ロード。ready なタイル列 { key, origin, z } を返す。
 	let stickySplit = null;   // 前回 update で分割された祖先ノード集合＝selectLOD のヒステリシス（境界の親⇔子振動を止める）
 	function update(cam, W, H) {
+		clock++;
 		const floorZ = lodFloor && cam.zoom >= lodFloor.minViewZoom ? lodFloor.z : 0;
 		const selected = selectLOD(cam, W, H, { sticky: stickySplit, floorZ });
 		// 「分割されたノード」＝選択タイルの祖先チェーンそのもの。次回のヒステリシス判定に持ち越す。
@@ -79,17 +98,22 @@ export function createTileManager({ style, tileUrl, onChange, cap = 256, buildTi
 		if (build.abort) {
 			for (const [k, c] of cache) if (c.status === "loading" && !keep.has(k)) build.abort(k);
 		}
-		// 上限は「今必要な集合＋余白」を下回らない：LOD下限(z8敷き)やチルトで keep が cap に迫ると
-		// 毎フレーム evict→再fetch のスラッシングになる（cap 固定 256 のままだと高チルトで実際に起きる）。
-		const capEff = Math.max(cap, keep.size + 64);
-		if (cache.size > capEff) {
+		// keep（今見えている／下地／毛布）は常に残す＝merge の穴を作らない。予算はそれを超えて「パンで戻った時に
+		// 即出す」ための履歴分を束ねる。keep 外を LRU（最後に見えた update が古い順）で、バイト予算 かつ 枚数ガードを
+		// 満たすまで退避。geometry の実体は scene worker＝ここで消せば onEvict で鏡が同時に縮む（知らせないと
+		// 「main は ready・worker は破棄」の食い違いで merge が黙って穴になる。scene 側独自CAP退避で実際に起きた）。
+		for (const k of keep) { const c = cache.get(k); if (c) c.seen = clock; }   // 「最近見えた」を更新＝LRUの新しさ
+		let total = 0; for (const c of cache.values()) total += c.bytes || 0;
+		if (total > budgetBytes || cache.size > hardCap) {
+			const cands = [];
+			for (const [k, c] of cache) if (!keep.has(k)) cands.push(k);
+			cands.sort((a, b) => (cache.get(a).seen || 0) - (cache.get(b).seen || 0));   // 古い(seen小)順＝先に捨てる
 			const evicted = [];
-			for (const k of [...cache.keys()]) {
-				if (cache.size <= capEff) break;
-				if (!keep.has(k)) { cache.delete(k); evicted.push(k); }
+			for (const k of cands) {
+				if (total <= budgetBytes && cache.size <= hardCap) break;
+				total -= cache.get(k).bytes || 0;
+				cache.delete(k); evicted.push(k);
 			}
-			// geometry 保持側（scene worker）へ同期通知：ここで知らせないと「main は ready・worker は破棄」の
-			// 食い違いが生まれ、merge で黙って穴になる（scene worker 側の独自CAP退避で実際に起きた）。
 			if (evicted.length && onEvict) onEvict(evicted);
 		}
 		const ready = arr => { const o = []; for (const t of arr) { const c = cache.get(keyOf(t)); if (c && c.status === "ready") o.push({ key: keyOf(t), origin: c.origin, z: t.z }); } return o; };
@@ -193,5 +217,12 @@ export function createTileManager({ style, tileUrl, onChange, cap = 256, buildTi
 		return out;
 	}
 
-	return { update, buildScene, labels, cache };
+	// 常駐 geometry の観測（メモリ確認用）：ready タイル枚数・実バイト・予算・端末メモリ推定。
+	function stats() {
+		let tiles = 0, bytes = 0;
+		for (const c of cache.values()) if (c.status === "ready") { tiles++; bytes += c.bytes || 0; }
+		return { tiles, bytes, budgetBytes, deviceMemoryGB: dm, cacheEntries: cache.size };
+	}
+
+	return { update, buildScene, labels, cache, stats };
 }

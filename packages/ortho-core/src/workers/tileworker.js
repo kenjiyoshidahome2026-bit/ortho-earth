@@ -26,7 +26,9 @@ self.onmessage = async (e) => {
 		const dl = buildTileDrawList({ layers, z, x, y }, style, origin);
 		const { labels } = buildLabels({ layers, z, x, y }, style);
 		const buildings = buildBuildings({ layers, z, x, y }, origin);
-		self.postMessage({ id, ok: true, origin, dl, labels, buildings, z }, collectBuffers(dl, buildings));
+		const bufs = collectBuffers(dl, buildings);
+		let bytes = 0; for (const b of bufs) bytes += b.byteLength;   // scene worker が保持する geometry の実バイト＝main のメモリ予算/退避の基準
+		self.postMessage({ id, ok: true, origin, dl, labels, buildings, z, bytes }, bufs);
 	} catch (err) {
 		self.postMessage({ id, ok: false, error: String(err && err.message || err) });
 	} finally {
