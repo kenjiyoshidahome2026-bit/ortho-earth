@@ -4,7 +4,7 @@ import { gint } from "./gint.js";
 // GintBUF のフォーマット版。レイアウトを変えたら必ず上げる：unPackGintBuffer が版不一致を拒否し、
 // pbf-io.load が「キャッシュのPBFから再焼き」で自己修復する（版なし時代、polyStream/lineStream 導入(v2レイアウト)を
 // 旧版キャッシュが新リーダで読まれて海岸線が全端末で黙って消えた——ETag はソース PBF の版であって派生物の版ではない）。
-topology.FORMAT_VERSION = 2;
+topology.FORMAT_VERSION = 3;   // v3: 接合点判定を出現回数→neighbor-pair方式に（共有arcの切り出しが増える＝旧キャッシュは再焼き）
 
 // V8 Map limit (~16M entries) workaround: distribute keys across multiple bucket Maps.
 class BigMap {
@@ -464,12 +464,12 @@ function buildPolygons(topo) { if (!topo.length) return null;
 }
 function cutPolygon(topo) {
 	const buffs = [];
-	let hash = new Map(), aHash = new BigMap(64);
+	let junctions = null, aHash = new BigMap(64);
 	let totalVerts = 0;
 	for (const q of topo) for (const ring of q.coords) totalVerts += ring.length;
 	const CHUNK = 4_000_000; // 25% of V8 Map limit (2^24=16.7M), with headroom
 	if (totalVerts <= CHUNK) {
-		topo.forEach(setHash);
+		junctions = computeJunctions(topo);
 		topo.forEach(setEdge);
 	} else {
 		// Sort by Morton code so spatially adjacent polygons land in the same chunk.
@@ -478,23 +478,39 @@ function cutPolygon(topo) {
 		for (let i = 0; i < topo.length;) {
 			let cv = 0, j = i;
 			while (j < topo.length && cv < CHUNK) { for (const ring of topo[j].coords) cv += ring.length; j++; }
-			hash = new Map(); // reset per chunk (aHash is shared across chunks to prevent duplicate arc registration)
-			topo.slice(i, j).forEach(setHash);
+			junctions = computeJunctions(topo.slice(i, j)); // per chunk (aHash is shared across chunks to prevent duplicate arc registration)
 			topo.slice(i, j).forEach(setEdge);
 			i = j;
 		}
 	}
-	hash.clear(); aHash.clear(); hash = null; aHash = null;
+	junctions = null; aHash.clear(); aHash = null;
 	return buffs;
-	function setHash(q) { q.coords.forEach(t => t.forEach(t => hash.set(t, (hash.get(t) || 0) + 1))); }
-	function setEdge(q) {
-		const isTerm = (arc, i) => {
-			const n = arc.length, count = hash.get(arc[i]);
-			if (count > 2) return true;
-			if (count == 2 && hash.get(arc[(i - 1 + n) % n]) == 1) return true;
-			if (count == 2 && hash.get(arc[(i + 1) % n]) == 1) return true;
-			return false;
+	// 接合点判定（TopoJSONのjoinと同義）: 各頂点の「非順序の隣接ペア」を出現ごとに照合し、
+	// 異なるペアで再訪された頂点＝接合点。旧・出現回数ベースの判定は「回数2のまま接合点を
+	// 通過する」ケース（地種区分チェーン等）で共有区間を切り損ね、nps実測で共有境界の18%が
+	// 二重格納されていた。共有区間の内側（両リングが同じ隣接ペアで通過）は接合点にならない。
+	function computeJunctions(chunk) {
+		const pairOf = new BigMap(64);      // 頂点 → 初出時の隣接ペア（(min<<64)|max）
+		const marks  = new BigMap(64);      // 頂点 → 1（接合点）
+		const visit = (ring) => {
+			let n = ring.length;
+			while (n > 2 && ring[0] === ring[n - 1]) n--;   // 閉合重複を除いた実長
+			if (n < 3) return;
+			for (let i = 0; i < n; i++) {
+				const v = ring[i];
+				const a = ring[(i - 1 + n) % n], b = ring[(i + 1) % n];
+				const key = a < b ? ((a << 64n) | b) : ((b << 64n) | a);
+				const seen = pairOf.get(v);
+				if (seen === undefined) pairOf.set(v, key);
+				else if (seen !== key) marks.set(v, 1);
+			}
 		};
+		chunk.forEach(q => q.coords.forEach(visit));
+		pairOf.clear();
+		return marks;
+	}
+	function setEdge(q) {
+		const isTerm = (arc, i) => junctions.has(arc[i]);
 		q.arcs = q.coords.map(splitRing);
 		delete q.coords;
 		function splitArc(arc, loop) {
