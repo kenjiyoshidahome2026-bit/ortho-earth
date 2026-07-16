@@ -1,52 +1,8 @@
-import { GeoPBF } from "../pbf-base.js";
 import { gint } from "./gint.js";
-import initWasm, { GintConverter } from '../../wasm/pkg/gint_wasm.js';
 
-// ── WASM state ────────────────────────────────────────────────────────────────
-let _wasmOk = null;        // null=not attempted, true=OK, false=failed
-let _converter = null;     // GintConverter instance (null = JS fallback)
-let _pendingData = null;   // guard against concurrent buildConverter calls
-let _viewBbox = null;      // viewport bbox [xMin,yMin,xMax,yMax] in Morton integer space
-
-async function ensureWasm() {
-	if (_wasmOk === null) {
-		try { await initWasm(); _wasmOk = true; }
-		catch { _wasmOk = false; }
-	}
-	return _wasmOk;
-}
-
-// Reinterpret a BigUint64Array as Uint32Array of (lo32, hi32) pairs (little-endian).
-function u64AsU32(buf) {
-	return buf?.length
-		? new Uint32Array(buf.buffer, buf.byteOffset, buf.length * 2)
-		: new Uint32Array(0);
-}
-
-// Update the viewport bbox on each drawing() call; used by both WASM and JS fallback.
-export function setViewBbox(bbox) {
-	_viewBbox = bbox;
-	if (_converter && bbox) _converter.set_view_bbox(bbox[0], bbox[1], bbox[2], bbox[3]);
-}
-
-// Build a GintConverter from gintData and store it in the module variable.
-// polyStream / lineStream are transferred directly from GintBUF v2 — no conversion needed.
-export async function buildConverter(gintData) {
-	_converter = null;
-	_pendingData = gintData;
-	if (!await ensureWasm()) return;
-	if (_pendingData !== gintData) return;
-	const { arcBuffer, arcMeta, polyStream, lineStream, pointBuffer, point, polyCompBbox } = gintData;
-	_converter = new GintConverter(
-		u64AsU32(arcBuffer),
-		arcMeta      ?? new Uint32Array(0),
-		u64AsU32(pointBuffer),
-		point        ? new Uint32Array(point) : new Uint32Array(0),
-		polyStream   ?? new Int32Array(0),
-		lineStream   ?? new Int32Array(0),
-		polyCompBbox ?? new Uint32Array(0),
-	);
-}
+// 全て純JS実装。wasm側 GintConverter(identify.rs) との連携コード（buildConverter等）は
+// 呼び出し元ゼロのまま識別経路が findPolygon(JS) に一本化されたため 2026-07-17 に撤去した。
+// 再配線するなら identify.rs の TODO（smallest-wins揃え）を参照。
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
@@ -70,24 +26,6 @@ export function identify(self, mx, my, proj, options = {}) {
 	if (!self.unPackGint) return null;
 	const { arcBuffer, arcMeta, polyStream, lineStream, pointBuffer, point, polyBboxByFid } = self.unPackGint;
 
-	if (_converter) {
-		let r;
-		if (pointBuffer && point) {
-			r = _converter.identify_point(mix, miy, Math.round(pointError));
-			if (r !== -1) return r;
-		}
-		if (arcBuffer && arcMeta && lineStream) {
-			r = _converter.identify_polyline(mix, miy, Math.round(polylineError));
-			if (r !== -1) return r;
-		}
-		if (arcBuffer && arcMeta && polyStream) {
-			r = _converter.identify_polygon(mix, miy);
-			if (r !== -1) return r;
-		}
-		return null;
-	}
-
-	// JS fallback (WASM not initialized or failed).
 	if (pointBuffer && point) {
 		const owner = findPoint(pointBuffer, point, mix, miy, pointError);
 		if (owner !== null) return owner;
@@ -103,7 +41,7 @@ export function identify(self, mx, my, proj, options = {}) {
 	return null;
 }
 
-// ── JS implementations (WASM fallback) ────────────────────────────────────────
+// ── JS implementations ────────────────────────────────────────────────────────
 
 function findPoint(buffer, pointMeta, mix, miy, error) {
 	const errSq = error * error;
@@ -229,7 +167,7 @@ function findMortonNear(buffer, meta, lineStream, mix, miy, error) {
 // 地物weight降順（大→小）で書き出すため、全走査して最後にヒットした fid ＝最小地物。
 // 旧・先勝ちは常に外側の大物を返し、入れ子の内側（地種区分の内側ゾーン等）が選べなかった。
 export function findPolygon(buffer, meta, polyStream, mix, miy, polyBboxByFid, viewBbox) {
-	const vb = viewBbox ?? _viewBbox;
+	const vb = viewBbox ?? null;
 	let best = null;
 	let p = 0;
 	while (p < polyStream.length) {
