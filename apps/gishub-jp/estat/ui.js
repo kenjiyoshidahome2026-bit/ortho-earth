@@ -1,5 +1,5 @@
 import ESTAT_MANIFEST from './manifest.json' with { type: 'json' };
-import { PREFS, fmtBytes } from '../ui/shared.js';
+import { PREFS, fmtBytes, escHtml } from '../ui/shared.js';
 import { ctx } from '../ui/ctx.js';
 import { renderMinistryList } from '../ui/ministry-list.js';
 import { geopbf } from '../ui/gpbf.js';
@@ -46,10 +46,10 @@ function estatCityItemHtml(city) {
         ? `<span class="file-sz">${fmtBytes(city.size)} <span class="size-note">ZIP</span></span>`
         : '';
     return `
-        <div class="moj-city-item" data-code="${city.code}" title="クリックでコピー">
-            <span class="moj-city-code">${city.code}</span>
-            <span class="moj-city-name">${city.name}</span>
-            <span class="moj-city-file">A002005212020_${city.code}.zip${sizeBadge}</span>
+        <div class="moj-city-item" data-code="${escHtml(city.code)}" title="クリックで読込・描画">
+            <span class="moj-city-code">${escHtml(city.code)}</span>
+            <span class="moj-city-name">${escHtml(city.name)}</span>
+            <span class="moj-city-file">A002005212020_${escHtml(city.code)}.zip${sizeBadge}</span>
             <span class="badge fmt-shp">SHP</span>
         </div>
     `;

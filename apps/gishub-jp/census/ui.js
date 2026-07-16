@@ -805,7 +805,7 @@ async function _populateSmallAreaBody(bodyEl, code, { withPyramid = true, preIte
 
         if (!items.length) { bodyEl.textContent = 'データなし'; return; }
 
-        const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        const esc = escHtml;   // 属性位置（data-code="…"）にも使うため引用符も落とす共通版を使用
 
         // 年齢構成列は withPyramid 時に枠だけ用意（中身は後追いで流し込む）
         const bodyHtml = items.map(([kc, nm]) => {

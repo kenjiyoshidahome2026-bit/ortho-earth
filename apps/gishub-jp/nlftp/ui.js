@@ -43,7 +43,7 @@ export function renderDetail(ds, showBack = false) {
                                 : cl && typeof cl === 'object'
                                 ? `<button class="codelist-btn" data-cl-code="${escHtml(code)}" data-cl-idx="${i}">参照</button>`
                                 : '—';
-                            return `<tr><td class="mono">${code}</td><td>${label}</td><td>${clCell}</td></tr>`;
+                            return `<tr><td class="mono">${escHtml(code)}</td><td>${escHtml(label)}</td><td>${clCell}</td></tr>`;
                         }).join('')}
                     </tbody>
                 </table>
@@ -51,15 +51,17 @@ export function renderDetail(ds, showBack = false) {
         </section>
     ` : '';
 
+    // カタログはスクレイプ由来の保存型注入面＝全フィールドをエスケープ。hrefは https? のみ許可（javascript:等を遮断）
+    const pageUrl = /^https?:\/\//i.test(ds.page_url || '') ? ds.page_url : '';
     ctx.setDetailHtml(`
         <div class="detail-inner">
             ${backHtml}
             <header class="detail-header">
-                <h2>${ds.title}</h2>
+                <h2>${escHtml(ds.title)}</h2>
                 <div class="detail-meta">
-                    <span class="badge lic-${_licKey(ds.license)}">${ds.license}</span>
-                    <span class="mono" style="color:#888">${ds.dataset_code}</span>
-                    <a href="${ds.page_url}" target="_blank" rel="noopener" class="ext-link">データページ →</a>
+                    <span class="badge lic-${_licKey(ds.license)}">${escHtml(ds.license)}</span>
+                    <span class="mono" style="color:#888">${escHtml(ds.dataset_code)}</span>
+                    ${pageUrl ? `<a href="${escHtml(pageUrl)}" target="_blank" rel="noopener" class="ext-link">データページ →</a>` : ''}
                 </div>
             </header>
             ${attrHtml}
@@ -324,11 +326,11 @@ function _fileRow(f, ds) {
     const area     = _scopeLabel(f);
     return `
         <div class="file-row" data-entry="${escHtml(JSON.stringify(entry))}">
-            <span class="file-year">${f.year || '—'}</span>
-            <span class="file-area">${area}</span>
-            <span class="file-name">${zipName}${fileName ? `<br><span class="file-sub">${fileName}</span>` : ''}</span>
+            <span class="file-year">${escHtml(f.year || '—')}</span>
+            <span class="file-area">${escHtml(area)}</span>
+            <span class="file-name">${escHtml(zipName)}${fileName ? `<br><span class="file-sub">${escHtml(fileName)}</span>` : ''}</span>
             <span class="file-sz-col">${f.size ? fmtBytes(f.size) : ''}</span>
-            <span class="file-fmt"><span class="badge fmt-${f.format}">${f.format.toUpperCase()}</span></span>
+            <span class="file-fmt"><span class="badge fmt-${escHtml(f.format)}">${escHtml(f.format.toUpperCase())}</span></span>
         </div>
     `;
 }
@@ -450,7 +452,7 @@ async function _showAdminBoundaryPopup(btn) {
         });
         tbody.innerHTML = rows.map(r => {
             const cls = r.status === '欠番' ? ' class="ab-obsolete"' : '';
-            return `<tr${cls}><td class="mono">${r.code}</td><td>${escHtml(r.pref)}</td><td>${escHtml(r.city)}</td></tr>`;
+            return `<tr${cls}><td class="mono">${escHtml(r.code)}</td><td>${escHtml(r.pref)}</td><td>${escHtml(r.city)}</td></tr>`;
         }).join('');
     }
 

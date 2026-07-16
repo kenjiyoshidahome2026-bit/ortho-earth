@@ -11,7 +11,7 @@
 		"dev:www": "npm run dev -w www",
 		"dev:viewer": "npm run dev -w viewer",
 		"dev:uploader": "npm run dev -w uploader",
-		"build:all": "npm run build -w www && npm run build -w gishub && npm run build -w gishub-jp && rm -rf apps/www/dist/docs && cp -r apps/docs apps/www/dist/docs && rm -rf apps/www/dist/gishub && cp -r apps/gishub/dist apps/www/dist/gishub && rm -rf apps/www/dist/gishub-jp && cp -r apps/gishub-jp/dist apps/www/dist/gishub-jp",
+		"build:all": "npm run build -w www && npm run build -w gishub && npm run build -w gishub-jp && rm -rf apps/www/dist/docs && cp -r apps/docs apps/www/dist/docs && rm -rf apps/www/dist/gishub && cp -r apps/gishub/dist apps/www/dist/gishub && rm -rf apps/www/dist/gishub-jp && cp -r apps/gishub-jp/dist apps/www/dist/gishub-jp && find apps/www/dist -name "*.map" -delete",
 		"preview:all": "npm run preview -w www",
 		"summary": "repomix --style markdown --output project_summary.md"
 	},

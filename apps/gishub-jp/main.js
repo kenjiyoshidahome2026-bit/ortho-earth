@@ -1,7 +1,7 @@
 // ============================================================
 // インポート
 // ============================================================
-import { showToast }          from './ui/shared.js';
+import { showToast, escHtml } from './ui/shared.js';
 import { setup as ctxSetup }  from './ui/ctx.js';
 import { execGlobeView }      from './ui/globe.js';
 import { renderExecView, closeGeoPreview } from './ui/exec-view.js';
@@ -83,7 +83,7 @@ async function loadCatalog() {
 			}
 		}
 	} catch (e) {
-		list.innerHTML = `<div class="error-msg">読み込みエラー: ${e.message}</div>`;
+		list.innerHTML = `<div class="error-msg">読み込みエラー: ${escHtml(e.message)}</div>`;
 	}
 }
 
@@ -105,17 +105,18 @@ const SOURCE_GROUP_URLS = {
 };
 
 function dsItemHtml(ds) {
+	// nlftpカタログはスクレイプ由来（保存型注入面）＝全フィールドをエスケープして流す
 	return `
-		<div class="ds-item${ds.dataset_code === active ? ' active' : ''}" data-code="${ds.dataset_code}">
+		<div class="ds-item${ds.dataset_code === active ? ' active' : ''}" data-code="${escHtml(ds.dataset_code)}">
 			<div class="ds-line1">
-				<span class="ds-code">${ds.dataset_code}</span>
+				<span class="ds-code">${escHtml(ds.dataset_code)}</span>
 				<span class="ds-line1-right">
 					<span class="meta-num">${ds.file_count.toLocaleString()}件</span>
-					<span class="meta-lic">${ds.license}</span>
+					<span class="meta-lic">${escHtml(ds.license)}</span>
 				</span>
 			</div>
-			<div class="ds-title">${ds.title}</div>
-			${ds.note ? `<div class="ds-note">${ds.note}</div>` : ''}
+			<div class="ds-title">${escHtml(ds.title)}</div>
+			${ds.note ? `<div class="ds-note">${escHtml(ds.note)}</div>` : ''}
 		</div>
 	`;
 }
@@ -143,7 +144,7 @@ function renderList() {
 
 	const html = [];
 	for (const [sid, dsItems] of groups) {
-		const label = SOURCE_GROUP_LABELS[sid] || sid;
+		const label = SOURCE_GROUP_LABELS[sid] || escHtml(sid);
 		const url   = SOURCE_GROUP_URLS[sid];
 		const titleHtml = url
 			? `<a class="sidebar-group-link" href="${url}" target="_blank">${label}</a>`
@@ -198,7 +199,12 @@ async function copyEntries(entries, feedbackEl) {
 	const text = entries.length === 1
 		? JSON.stringify(entries[0], null, 2)
 		: JSON.stringify(entries, null, 2);
-	try { await navigator.clipboard.writeText(text); } catch {}
+	try {
+		await navigator.clipboard.writeText(text);
+	} catch {
+		showToast('コピーできませんでした（クリップボード権限を確認してください）');
+		return;
+	}
 	showToast(entries.length === 1 ? entries[0].name : `${entries.length}件をクリップボードにコピーしました`);
 	if (!feedbackEl) return;
 	const orig = feedbackEl.textContent;

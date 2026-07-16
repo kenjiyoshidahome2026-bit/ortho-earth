@@ -8,6 +8,7 @@ export function renderMinistryList({
     toEntry, bulkByGroup, allEntries, downloadFn = null,
     groupHeaderHtml = null, onItemClick = null,
 }) {
+    const bulkLabel = downloadFn ? '一括↓IDB' : '一括コピー';   // 表記は実挙動（downloadFn無しはクリップボードコピー）に一致させる
     const totalSize = cities.reduce((s, c) => s + (c.size || 0), 0);
     const totalSizeLabel = totalSize
         ? `<span class="moj-total-size">${fmtBytes(totalSize)}</span>`
@@ -20,7 +21,7 @@ export function renderMinistryList({
                         <h2>${title}</h2>
                         <p class="moj-subtitle">${subtitle}<span class="moj-total">${cities.length.toLocaleString()}市区町村</span>${totalSizeLabel}</p>
                     </div>
-                    <button class="bulk-dl-btn" id="${id}-bulk-all">一括↓IDB</button>
+                    <button class="bulk-dl-btn" id="${id}-bulk-all">${bulkLabel}</button>
                 </div>
                 <input type="text" id="${id}-search" class="moj-search" placeholder="市区町村・都道府県を検索...">
             </div>
@@ -37,6 +38,7 @@ export function renderMinistryList({
         query:       getSearch(),
         groupFn,
         groupHeaderHtml,
+        bulkLabel,
         onBulkClick: (group, btn) => {
             if (downloadFn) ctx.bulkDownload(bulkByGroup(group), `${title} ${PREFS[group] || group}`, downloadFn);
             else ctx.copyEntries(bulkByGroup(group), btn);

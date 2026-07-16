@@ -11,7 +11,9 @@ const BUCKET_BASE = `${API_BASE}/bucket/${NLFTP_SOURCE.bucket}`;
 
 async function fetchJson(url) {
     const res  = await fetch(url, { cache: 'no-store' });
+    if (!res.ok) throw new Error(`HTTP ${res.status}: ${url}`);   // エラーHTMLをJSON.parseして意味不明エラーになるのを防ぐ
     const buf  = await res.arrayBuffer();
+    if (buf.byteLength < 2) throw new Error(`empty response: ${url}`);
     const head = new Uint8Array(buf, 0, 2);
     if (head[0] === 0x1f && head[1] === 0x8b) {
         const stream = new DecompressionStream('gzip');

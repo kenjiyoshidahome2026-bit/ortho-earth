@@ -158,7 +158,10 @@ export async function isSmallAreaReady(year = '2020') {
 // バックグラウンドで IDB に書き込み開始（年ごとに二重実行しない）
 export function prefetchSmallAreaIdb(year = '2020') {
     if (!_populatePromise[year])
-        _populatePromise[year] = _populate(year).catch(e => { console.warn(`[small-area] IDB populate failed (${year}):`, e); });
+        _populatePromise[year] = _populate(year).catch(e => {
+            console.warn(`[small-area] IDB populate failed (${year}):`, e);
+            _populatePromise[year] = null;   // 失敗を固定しない＝通信断でも次の操作で再試行（旧: セッション中ずっと「データなし」）
+        });
     return _populatePromise[year];
 }
 
