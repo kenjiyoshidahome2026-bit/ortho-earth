@@ -468,32 +468,3 @@ export function buildCensusChartSections(stat, year = '2020', opts = {}) {
 
     return out;
 }
-
-// backward compat
-export function buildCensusChartSVG(stat, year = '2020', opts = {}) {
-    const { ages, refAges, popTrend } = opts;
-    const svg = d3.SVG([0, 0, W, 10]);
-    svg.elem('rect', { x: 0, y: 0, width: W, height: 9999, fill: BG });
-    const x0 = 8, PAD = 12;
-    let y = 10;
-    const used = [];
-
-    if (popTrend?.length) {
-        const h = appendPopTrend(svg, x0 + 12, y, popTrend);
-        if (h) { y += h + PAD; used.push('trend'); }
-    }
-    if (ages?.length === 32) {
-        const h = appendAgePyramid(svg, x0, y, ages, refAges || null);
-        if (h) { y += h + PAD; used.push('pyramid'); }
-    }
-    if (stat) {
-        if (stat.ind) { const h = appendIndustry(svg, x0, y, stat.ind);    if (h) { y += h + PAD; used.push('ind'); } }
-        if (stat.occ) { const h = appendOccupation(svg, x0, y, stat.occ);  if (h) { y += h + PAD; used.push('occ'); } }
-        if (stat.ind) { const h = appendStatus(svg, x0, y, stat.ind, year);if (h) { y += h + PAD; used.push('sta'); } }
-        if (stat.eco) { const h = appendHousehold(svg, x0, y, stat.eco);   if (h) { y += h + PAD; used.push('eco'); } }
-    }
-    if (!used.length) return null;
-    svg.a.viewBox = `0 0 ${W} ${y}`;
-    svg.children[0].a.height = y;
-    return svg.outerHTML;
-}

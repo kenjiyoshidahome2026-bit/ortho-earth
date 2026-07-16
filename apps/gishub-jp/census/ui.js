@@ -20,7 +20,6 @@ import { fetchSmallAreaData, fetchSmallAreaPyramid, fetchSmallAreaStats, miniAge
 import { prefetchZip, fillZips } from '../zipcode/lookup.js';   // 上位で小地域↔郵便番号を突合
 import { PREFS, escHtml } from '../ui/shared.js';
 import { ctx } from '../ui/ctx.js';
-import { renderGroupedCities } from '../ui/grouped-list.js';
 import { API_BASE } from '../ui/config.js';
 
 // ---- constants -------------------------------------------------------
@@ -45,109 +44,19 @@ const _natAges = year => (_NAT_AGES[year] || CENSUS_2020_AGES)['_national'];
 
 // サイドバー項目は ui/entries.js（正本）へ移動
 
-// ---- city item HTML -------------------------------------------------------
-
-function censusSign(v) { return v > 0 ? `+${v.toFixed(1)}` : v.toFixed(1); }
-
-function census2025CityItemHtml(city) {
-    const p   = CENSUS_2025_POP[city.code];
-    const chg = p ? `<span class="pop-chg ${p.popChange >= 0 ? 'pos' : 'neg'}">${censusSign(p.popChange)}%</span>` : '';
-    const pop = p ? `<span class="pop-val">${p.pop[0].toLocaleString()}人</span>` : '';
-    return `
-        <div class="census-city-item moj-city-item" data-code="${city.code}">
-            <span class="moj-city-code">${city.code}</span>
-            <span class="moj-city-name">${city.name}</span>
-            ${pop}${chg}
-        </div>
-    `;
-}
-function census2020CityItemHtml(city) {
-    const s   = CENSUS_2020_STATS[city.code];
-    const ind = s?.ind?.[0];
-    const emp = ind ? `<span class="pop-val">${ind.toLocaleString()}人就業</span>` : '';
-    return `
-        <div class="census-city-item moj-city-item" data-code="${city.code}">
-            <span class="moj-city-code">${city.code}</span>
-            <span class="moj-city-name">${city.name}</span>
-            ${emp}
-        </div>
-    `;
-}
-function census2015CityItemHtml(city) {
-    const s   = CENSUS_2015_STATS[city.code];
-    const pop = s?.pop?.[0];
-    const val = pop ? `<span class="pop-val">${pop.toLocaleString()}人</span>` : '';
-    return `
-        <div class="census-city-item moj-city-item" data-code="${city.code}">
-            <span class="moj-city-code">${city.code}</span>
-            <span class="moj-city-name">${city.name}</span>
-            ${val}
-        </div>
-    `;
-}
-
-function buildCensusCityList() {
-    return CENSUS_MANIFEST.filter(e => !e.code.endsWith('000') && e.code !== '00000');
-}
-
 // ---- list renders -------------------------------------------------------
-
-let census2025Search = '', census2025Expanded = new Set();
-let census2020Search = '', census2020Expanded = new Set();
-let census2015Search = '', census2015Expanded = new Set();
+// 3世代とも共通骨格 _dNational（下方の年度アダプタ DRILL_YEARS 参照）に入る
 
 export function renderCensus2025List() {
     loadPopHistory();
-    _csDrill25National();
-}
-export function renderCensus2020List() {
-    const cities = buildCensusCityList();
-    renderCensusMinistryList({
-        id:       'census2020',
-        title:    '国勢調査 2020 基本集計',
-        subtitle: '令和2年国勢調査 産業別・職業別就業者、世帯経済構成<span class="moj-fmt-note">2020年10月1日現在</span>',
-        cities,
-        expanded:    census2020Expanded,
-        getSearch:   () => census2020Search,
-        setSearch:   v  => { census2020Search = v; },
-        itemHtml:    census2020CityItemHtml,
-        onItemClick: code => showCensusDetail(code, '2020'),
-    });
+    _dNational(DRILL_YEARS['2025']);
 }
 export function renderCensus2015List() {
     loadPopHistory();
-    _csDrill15National();
+    _dNational(DRILL_YEARS['2015']);
 }
-
-function renderCensusMinistryList({ id, title, subtitle, cities, expanded, getSearch, setSearch, itemHtml, onItemClick }) {
-    ctx.setDetailHtml(`
-        <div class="moj-list-wrap">
-            <div class="moj-list-head">
-                <div class="moj-head-row">
-                    <div>
-                        <h2>${title}</h2>
-                        <p class="moj-subtitle">${subtitle}<span class="moj-total">${cities.length.toLocaleString()}市区町村</span></p>
-                    </div>
-                </div>
-                <input type="text" id="${id}-search" class="moj-search" placeholder="市区町村・都道府県を検索...">
-            </div>
-            <div class="grouped-list" id="${id}-cities"></div>
-        </div>
-    `);
-    const render = () => renderGroupedCities(cities, `${id}-cities`, expanded, itemHtml, {
-        query:       getSearch(),
-        groupFn:     c => ({ key: c.pref, name: PREFS[c.pref] || c.pref }),
-        onBulkClick: () => {},
-        onItemClick: e => {
-            const row = e.target.closest('.moj-city-item');
-            if (row) onItemClick(row.dataset.code);
-        },
-    });
-    document.getElementById(`${id}-search`).addEventListener('input', function() {
-        setSearch(this.value); render();
-    });
-    render();
-}
+// 旧フラット2020ブラウザは census-small-2020 ドリルダウンへ統合済み。#census2020 直リンク互換の別名のみ残す
+export function renderCensus2020List() { return renderCensusSmall2020(); }
 
 // ---- 小地域ドリルダウンブラウザ -------------------------------------------
 // 全国 → 都道府県 → 市区町村 → 小地域テーブル
@@ -157,7 +66,7 @@ export async function renderCensusSmall2020() {
     loadPopHistory();   // 人口推移データを先読み（初回の全国トレンドを速く）
     const ready = await isSmallAreaReady();
     if (!ready) { _csDrillFetch(); return; }
-    _csDrillNational();
+    _dNational(DRILL_YEARS['2020']);
 }
 
 // 初回取得パネル
@@ -214,20 +123,20 @@ function _gunPrefix(code) {
     return g ? `<span class="cs-gun">${escHtml(g)}</span>` : '';
 }
 
-const _crumbNat   = () => ({ label: '全国', go: _csDrillNational });
-const _crumbPref  = prefCode => ({ label: _prefFull(prefCode), go: () => _csDrillPref(prefCode) });
-const _crumbDesig = (code, prefCode) => ({ label: _wardName(code), go: () => _csDrillDesignated(code, prefCode) });
-const _crumbCity  = (code, prefCode, parentCode) => {
+const _crumbNat   = Y => ({ label: '全国', go: () => _dNational(Y) });
+const _crumbPref  = (Y, prefCode) => ({ label: _prefFull(prefCode), go: () => _dPref(Y, prefCode) });
+const _crumbDesig = (Y, code, prefCode) => ({ label: _wardName(code), go: () => _dDesignated(Y, code, prefCode) });
+const _crumbCity  = (Y, code, prefCode, parentCode) => {
     const name   = _wardName(code);
     const parent = parentCode ? _wardName(parentCode) : '';
-    return { label: _addrShort(name, parent), go: () => _csDrillCity(code, prefCode, parentCode) };
+    return { label: _addrShort(name, parent), go: () => _dCity(Y, code, prefCode, parentCode) };
 };
 
 // 全国 → 都道府県 → (政令市) → 市区町村 までのクラム列
-function _cityCrumbs(cityCode, prefCode, parentCode) {
-    const arr = [_crumbNat(), _crumbPref(prefCode)];
-    if (parentCode) arr.push(_crumbDesig(parentCode, prefCode));
-    arr.push(_crumbCity(cityCode, prefCode, parentCode));
+function _cityCrumbs(Y, cityCode, prefCode, parentCode) {
+    const arr = [_crumbNat(Y), _crumbPref(Y, prefCode)];
+    if (parentCode) arr.push(_crumbDesig(Y, parentCode, prefCode));
+    arr.push(_crumbCity(Y, cityCode, prefCode, parentCode));
     return arr;
 }
 
@@ -450,51 +359,6 @@ function _aggKvHtml(agg) {
     return `<div class="cs-kv-grid">${rows.join('')}</div>`;
 }
 
-// 集計レベル（全国/都道府県/政令市）共通ビュー: 積み上げ統計＋全チャート＋子チップ
-function _renderAggView({ crumbs = null, title, pred, trendCode = null, histCode = null, ages = null, refAges = CENSUS_2020_AGES['_national'], listHtml, onChip }) {
-    const agg = _aggForLevel(pred);
-    ctx.setDetailHtml(_drillWrap({
-        crumbs, title, statsHtml: '',
-        chartHtml: _levelDisplayHtml(_aggKvHtml(agg), { ages: ages || agg.ages, refAges, trendCode, histCode, stat: agg.stat }),
-        listHtml,
-    }));
-    if (crumbs) _wireCrumbs(crumbs);
-    _fillTrends();
-    document.querySelectorAll('.cs-drill-chip[data-key]').forEach(el =>
-        el.addEventListener('click', () => onChip(el.dataset.key)));
-}
-
-// 市区町村/区チップのリスト HTML（人口ラベル付き）
-function _cityChipsHtml(headTitle, headCount, items) {
-    return `<h3 class="cs-drill-sec-h3">${headTitle} <span class="cs-year">${headCount}</span></h3>
-        <div class="cs-drill-chips">${items.map(c => {
-            const sub = _popLabel(_cityPop2020(c.code)?.[0]);
-            return `<span class="cs-drill-chip" data-key="${c.code}">${escHtml(c.name)}${sub ? `<span class="cs-chip-sub">${sub}</span>` : ''}</span>`;
-        }).join('')}</div>`;
-}
-
-// Level 0: 全国データ + 都道府県一覧
-function _csDrillNational() {
-    const byPref = new Map();
-    for (const [code, v] of Object.entries(CENSUS_2020_POP)) {
-        const pref = code.slice(0, 2);
-        byPref.set(pref, (byPref.get(pref) || 0) + v[0]);
-    }
-    const listHtml = `<h3 class="cs-drill-sec-h3">都道府県 <span class="cs-year">47都道府県</span></h3>
-        <div class="cs-drill-chips">${
-        [...byPref.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([pref, pop]) =>
-            `<span class="cs-drill-chip" data-key="${pref}">${PREFS[pref] || pref}<span class="cs-chip-sub">${_popLabel(pop)}</span></span>`
-        ).join('')}</div>`;
-    // 全国のピラミッドは precomputed _national（参考線なし）
-    _renderAggView({
-        title: _rubyHtml('全国', 'ぜんこく'), pred: () => true, trendCode: 'national',
-        ages: CENSUS_2020_AGES['_national'], refAges: null,
-        listHtml, onChip: _csDrillPref,
-    });
-}
-
-// 政令指定都市（DESIGNATED_CITIES）と区→親市の解決（_wardParent）は jp/codes.js から import（正本1か所）
-
 // 指定年の実データに存在する cityCode 配下の区一覧 [{code, name}]。
 // manifest（現行境界）ではなく各年データのキーから作るので、政令市の区割り再編
 // （例: 浜松市 2024年 7区→3区）があっても年ごとに正しい区が並ぶ。
@@ -529,19 +393,6 @@ function _cityPop2020(code) {
     return null;
 }
 
-// Level 1: 都道府県データ + 市区町村一覧
-function _csDrillPref(prefCode) {
-    // 政令指定都市の区は除外（政令指定都市自体は残す）
-    const topCities = CENSUS_MANIFEST.filter(e => e.pref === prefCode && !e.code.endsWith('000') && !_wardParent(e.code));
-    _renderAggView({
-        crumbs: [_crumbNat(), _crumbPref(prefCode)],
-        title: _rubyHtml(_prefFull(prefCode), CENSUS_KANA[prefCode]),
-        pred: c => c.slice(0, 2) === prefCode, trendCode: prefCode + '000',
-        listHtml: _cityChipsHtml('市区町村', `${topCities.length}件`, topCities),
-        onChip: code => DESIGNATED_CITIES.has(code) ? _csDrillDesignated(code, prefCode) : _csDrillCity(code, prefCode, null),
-    });
-}
-
 // 小地域名 → 大字/町名グループ（丁目・小字を除いた親名）
 function _areaGroup(name) {
     // 大字○○字△△ → 大字○○
@@ -557,36 +408,198 @@ function _areaGroup(name) {
     return name;
 }
 
-// Level 1.5: 政令指定都市 → 区一覧（区を積み上げ）
-function _csDrillDesignated(cityCode, prefCode) {
-    const wards   = _wardsForYear(cityCode, '2020');
-    const wardSet = new Set(wards.map(w => w.code));
-    _renderAggView({
-        crumbs: [_crumbNat(), _crumbPref(prefCode), _crumbDesig(cityCode, prefCode)],
-        title: _rubyHtml(MANIFEST_BY_CODE.get(cityCode)?.name || cityCode, CENSUS_KANA[cityCode]) + _shichoSuffix(cityCode),
-        pred: c => wardSet.has(c), trendCode: cityCode, histCode: cityCode,
-        listHtml: _cityChipsHtml('行政区', `${wards.length}区`, wards),
-        onChip: code => _csDrillCity(code, prefCode, cityCode),
+// ==== 年度共通ドリルダウン骨格 ==============================================
+// 全国→都道府県→(政令市)→市区町村 のナビは3世代で完全に同型＝骨格を1本にし、
+// 年度差は DRILL_YEARS のアダプタに閉じる（政令指定都市・区→親市の解決は jp/codes.js 正本）。
+//   leafPops()          全国合算に使う葉 [code, 人口] 列。2025の集約行（政令市+特別区部）除外もここ
+//   hasCity(code)       都道府県チップに載せる条件
+//   chipSub/chipExtra   チップの人口ラベル・増減バッジ
+//   aggChartHtml()      集計レベル（全国/県/政令市）の統計+チャートHTML
+//   cityBody(code)      市区町村（終端）の表示HTMLと小地域設定（saYear=null で小地域なし）
+// 新年度の追加＝アダプタを1個足すだけ。葉集合の不変条件（集約行を混ぜない）はアダプタ内で守る。
+
+const DRILL_YEARS = {
+    '2020': {
+        year: '2020',
+        notice: '',
+        nationalOpts: { ages: CENSUS_2020_AGES['_national'], refAges: null },   // 全国は precomputed（参考線なし）
+        hasCity: () => true,
+        leafPops: () => Object.entries(CENSUS_2020_POP).map(([c, v]) => [c, v[0]]),
+        chipSub: code => _popLabel(_cityPop2020(code)?.[0]),
+        chipExtra: () => '',
+        aggChartHtml(pred, { trendCode, histCode, ages, refAges }) {
+            const agg = _aggForLevel(pred);
+            return _levelDisplayHtml(_aggKvHtml(agg), {
+                ages: ages || agg.ages,
+                refAges: refAges !== undefined ? refAges : CENSUS_2020_AGES['_national'],
+                trendCode, histCode, stat: agg.stat,
+            });
+        },
+        cityBody(cityCode) {
+            const entry = MANIFEST_BY_CODE.get(cityCode);
+            const statsHtml = `<div class="cs-kv-grid">${_cityStatsRows(CENSUS_2020_POP[cityCode], CENSUS_2025_POP[cityCode], entry)}</div>`;
+            return {
+                display: _levelDisplayHtml(statsHtml, {
+                    ages: CENSUS_2020_AGES[cityCode], refAges: CENSUS_2020_AGES['_national'],
+                    trendCode: cityCode, histCode: cityCode, stat: CENSUS_2020_STATS[cityCode],
+                }),
+                saYear: '2020', saAvailable: ESTAT_CODE_SET.has(cityCode),
+                diffNote: _smallAreaDiffNoteHtml(cityCode),
+            };
+        },
+    },
+    '2015': {
+        year: '2015',
+        notice: '',
+        nationalOpts: {},
+        hasCity: code => !!(CENSUS_2015_STATS[code] || DESIGNATED_CITIES.has(code)),
+        leafPops: () => Object.entries(CENSUS_2015_STATS).map(([c, t]) => [c, t.pop[0]]),
+        chipSub(code) {
+            let pop = CENSUS_2015_STATS[code]?.pop?.[0];
+            if (!pop && DESIGNATED_CITIES.has(code)) {   // 政令市は区コードを合算
+                for (const [k, t] of Object.entries(CENSUS_2015_STATS))
+                    if (_wardParent(k) === code) pop = (pop || 0) + t.pop[0];
+            }
+            return pop ? _popLabel(pop) : '';
+        },
+        chipExtra: () => '',
+        aggChartHtml(pred, { trendCode, histCode }) {
+            const agg = _agg15ForLevel(pred);
+            return _levelDisplayHtml(_agg15KvHtml(agg), { trendCode, histCode, stat: agg.stat, ages: agg.ages }, '2015');
+        },
+        cityBody(cityCode) {
+            const entry = MANIFEST_BY_CODE.get(cityCode);
+            const stat  = CENSUS_2015_STATS[cityCode];
+            const hhd15 = CENSUS_2015_HOUSEHOLD[cityCode];
+            const chartStat = stat ? { ...stat } : null;
+            if (chartStat && hhd15) for (const k of ['fam', 'dwell', 'own']) if (hhd15[k]) chartStat[k] = hhd15[k];
+            const statsHtml = `<div class="cs-kv-grid">${_city15StatsRows(stat, entry)}</div>`;
+            return {
+                display: _levelDisplayHtml(statsHtml, { trendCode: cityCode, histCode: cityCode, stat: chartStat, ages: CENSUS_2015_AGES[cityCode] }, '2015'),
+                saYear: '2015', saAvailable: true, diffNote: '',
+            };
+        },
+    },
+    // 速報集計のみ（年齢・就業・住宅なし）。基本集計（2026年秋公開予定）が出たら
+    // aggChartHtml/cityBody を _levelDisplayHtml ベースへ差し替え + saYear:'2025'
+    // （小地域側の差し込み手順は census/small-area.js の YEARS 内 2025 テンプレコメント参照）
+    '2025': {
+        year: '2025',
+        notice: `<p class="cs-notice">速報集計（人口・世帯）のみ公開中。基本集計（年齢・就業・住宅）は 2026年秋頃公開予定。</p>`,
+        nationalOpts: {},
+        hasCity: code => !!CENSUS_2025_POP[code],
+        leafPops() {   // 集約行（政令市20市+特別区部）を除外＝二重計上ガードの正本（_agg25ForLevel と同一集合）
+            const out = [];
+            for (const [c, p] of Object.entries(CENSUS_2025_POP))
+                if (!c.endsWith('000') && !_AGG25_ROWS.has(c)) out.push([c, p.pop[0]]);
+            return out;
+        },
+        chipSub(code) { const p = CENSUS_2025_POP[code]; return p ? _popLabel(p.pop[0]) : ''; },
+        chipExtra(code) {
+            const p = CENSUS_2025_POP[code];
+            return p ? `<span class="pop-chg ${p.popChange >= 0 ? 'pos' : 'neg'} cs-chip-sub">${p.popChange >= 0 ? '+' : ''}${p.popChange.toFixed(1)}%</span>` : '';
+        },
+        aggChartHtml(pred, { trendCode, histCode }) {
+            const agg = _agg25ForLevel(pred);
+            return _level25DisplayHtml(_agg25KvHtml(agg), { trendCode, histCode });
+        },
+        cityBody(cityCode) {
+            const entry = MANIFEST_BY_CODE.get(cityCode);
+            const p25   = CENSUS_2025_POP[cityCode];
+            const popTrend = [];
+            const pop2015 = CENSUS_2015_STATS[cityCode];
+            const pop2020 = CENSUS_2020_POP[cityCode];
+            if (pop2015?.pop) popTrend.push({ year: 2015, male: pop2015.pop[1], female: pop2015.pop[2] });
+            if (pop2020)      popTrend.push({ year: 2020, male: pop2020[1], female: pop2020[2] });
+            if (p25?.pop)     popTrend.push({ year: 2025, male: p25.pop[1], female: p25.pop[2] });
+            const ages2020 = CENSUS_2020_AGES[cityCode];
+            const stat2020 = { ...(CENSUS_2020_STATS[cityCode] || {}), ...(CENSUS_2020_HOUSEHOLD[cityCode] || {}) };
+            const has2020  = ages2020?.length === 32 || Object.keys(stat2020).length > 0;
+            const statsHtml = `<div class="cs-kv-grid">${_city25StatsRows(p25, entry)}</div>`;
+            return {
+                display: _level25DisplayHtml(statsHtml, {
+                    trendCode: cityCode, histCode: cityCode,
+                    popTrend: popTrend.length >= 2 ? popTrend : null,
+                    ref2020: has2020 ? { stat: stat2020, ages: ages2020, natAges: CENSUS_2020_AGES['_national'] } : null,
+                }),
+                saYear: null, saAvailable: false, diffNote: '',
+            };
+        },
+    },
+};
+
+// 集計レベル（全国/都道府県/政令市）共通ビュー: 積み上げ統計＋全チャート＋子チップ
+function _renderAggViewY(Y, { crumbs = null, title, pred, trendCode = null, histCode = null, listHtml, onChip, ...opts }) {
+    ctx.setDetailHtml(_drillWrap({
+        crumbs, title,
+        chartHtml: Y.aggChartHtml(pred, { trendCode, histCode, ...opts }),
+        listHtml,
+    }));
+    if (crumbs) _wireCrumbs(crumbs);
+    _fillTrends();
+    document.querySelectorAll('.cs-drill-chip[data-key]').forEach(el =>
+        el.addEventListener('click', () => onChip(el.dataset.key)));
+}
+
+// 市区町村/区チップのリスト HTML（人口ラベル・増減バッジ付き）
+function _chipsHtml(Y, headTitle, headCount, items) {
+    return `<h3 class="cs-drill-sec-h3">${headTitle} <span class="cs-year">${headCount}</span></h3>
+        <div class="cs-drill-chips">${items.map(c => {
+            const sub = Y.chipSub(c.code);
+            return `<span class="cs-drill-chip" data-key="${c.code}">${escHtml(c.name)}${sub ? `<span class="cs-chip-sub">${sub}</span>` : ''}${Y.chipExtra(c.code)}</span>`;
+        }).join('')}</div>`;
+}
+
+// Level 0: 全国
+function _dNational(Y) {
+    const byPref = new Map();
+    for (const [code, pop] of Y.leafPops()) {
+        const pref = code.slice(0, 2);
+        byPref.set(pref, (byPref.get(pref) || 0) + pop);
+    }
+    const listHtml = Y.notice + `<h3 class="cs-drill-sec-h3">都道府県 <span class="cs-year">47都道府県</span></h3>
+        <div class="cs-drill-chips">${
+        [...byPref.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([pref, pop]) =>
+            `<span class="cs-drill-chip" data-key="${pref}">${PREFS[pref] || pref}<span class="cs-chip-sub">${_popLabel(pop)}</span></span>`
+        ).join('')}</div>`;
+    _renderAggViewY(Y, {
+        title: _rubyHtml('全国', 'ぜんこく'), pred: () => true, trendCode: 'national',
+        listHtml, onChip: pref => _dPref(Y, pref),
+        ...Y.nationalOpts,
     });
 }
 
-// Level 2: 市区町村データ + 小地域一覧（IDB から自動ロード）
-async function _csDrillCity(cityCode, prefCode, parentCode = null) {
-    const entry    = CENSUS_MANIFEST.find(e => e.code === cityCode);
-    const cityName = entry?.name || _wardName(cityCode);
-    const stat     = CENSUS_2020_STATS[cityCode];
-    const ages     = CENSUS_2020_AGES[cityCode];
-    const natAges  = CENSUS_2020_AGES['_national'];
+// Level 1: 都道府県
+function _dPref(Y, prefCode) {
+    // 政令指定都市の区は除外（政令指定都市自体は残す）
+    const topCities = CENSUS_MANIFEST.filter(e =>
+        e.pref === prefCode && !e.code.endsWith('000') && !_wardParent(e.code) && Y.hasCity(e.code));
+    _renderAggViewY(Y, {
+        crumbs: [_crumbNat(Y), _crumbPref(Y, prefCode)],
+        title: _rubyHtml(_prefFull(prefCode), CENSUS_KANA[prefCode]),
+        pred: c => c.slice(0, 2) === prefCode, trendCode: prefCode + '000',
+        listHtml: _chipsHtml(Y, '市区町村', `${topCities.length}件`, topCities),
+        onChip: code => DESIGNATED_CITIES.has(code) ? _dDesignated(Y, code, prefCode) : _dCity(Y, code, prefCode, null),
+    });
+}
 
-    const pop20 = CENSUS_2020_POP[cityCode];
-    const p25   = CENSUS_2025_POP[cityCode];
+// Level 1.5: 政令指定都市 → 区一覧（区を積み上げ）
+function _dDesignated(Y, cityCode, prefCode) {
+    const wards = _wardsForYear(cityCode, Y.year);
+    _renderAggViewY(Y, {
+        crumbs: [_crumbNat(Y), _crumbPref(Y, prefCode), _crumbDesig(Y, cityCode, prefCode)],
+        title: _rubyHtml(MANIFEST_BY_CODE.get(cityCode)?.name || cityCode, CENSUS_KANA[cityCode]) + _shichoSuffix(cityCode),
+        pred: c => _wardParent(c) === cityCode, trendCode: cityCode, histCode: cityCode,
+        listHtml: _chipsHtml(Y, '行政区', `${wards.length}区`, wards),
+        onChip: code => _dCity(Y, code, prefCode, cityCode),
+    });
+}
 
-    const statsHtml = `<div class="cs-kv-grid">${_cityStatsRows(pop20, p25, entry)}</div>`;
-    const display = _levelDisplayHtml(statsHtml, { ages, refAges: natAges, trendCode: cityCode, histCode: cityCode, stat });
-
-    const hasSmallArea = ESTAT_CODE_SET.has(cityCode);
-    const crumbs = _cityCrumbs(cityCode, prefCode, parentCode);
-
+// Level 2: 市区町村（終端）
+function _dCity(Y, cityCode, prefCode, parentCode = null) {
+    const cityName = MANIFEST_BY_CODE.get(cityCode)?.name || _wardName(cityCode);
+    const crumbs   = _cityCrumbs(Y, cityCode, prefCode, parentCode);
+    const { display, saYear, saAvailable, diffNote } = Y.cityBody(cityCode);
     ctx.setDetailHtml(`
         <div class="cs-drill-wrap census-detail">
             <div class="cs-drill-head">
@@ -595,15 +608,34 @@ async function _csDrillCity(cityCode, prefCode, parentCode = null) {
                     <h2>${_gunPrefix(cityCode)}${_rubyHtml(cityName, CENSUS_KANA[cityCode])}${_shichoSuffix(cityCode)}</h2>
                 </div>
             </div>
-            ${_smallAreaListSectionHtml('2020', hasSmallArea, _smallAreaDiffNoteHtml(cityCode))}
+            ${saYear ? _smallAreaListSectionHtml(saYear, saAvailable, diffNote) : ''}
             <div class="cs-drill-display">${display}</div>
         </div>
     `);
     _wireCrumbs(crumbs);
     _fillTrends();
+    if (saYear && saAvailable)
+        _attachSmallAreaGated(document.getElementById('cs-drill-sa'), cityCode, crumbs, saYear);
+}
 
-    if (hasSmallArea)
-        _attachSmallAreaList(document.getElementById('cs-drill-sa'), cityCode, crumbs, '2020');
+// 小地域アタッチのゲート（裁定: 2020のボタン同意式に全年度統一。2015も無断9.6MB DLしない）
+// 当該年の全国CSVが未取得なら同意ボタンを出し、取得済みなら即アタッチ（2回目以降は即時）。
+async function _attachSmallAreaGated(saEl, cityCode, crumbs, year) {
+    if (!saEl) return;
+    if (await isSmallAreaReady(year)) { _attachSmallAreaList(saEl, cityCode, crumbs, year); return; }
+    saEl.innerHTML = `
+        <p style="color:#aaa;font-size:12px;margin:4px 0 8px">初回のみ全国データ（約9MB）をダウンロードしてブラウザに保存します。次回以降は即時表示されます。</p>
+        <button class="cs-sa-load">全国データを取得</button>
+        <div class="cs-sa-gate-sta" style="margin-top:8px;font-size:12px;color:#aaa"></div>`;
+    saEl.querySelector('.cs-sa-load').addEventListener('click', async ev => {
+        const sta = saEl.querySelector('.cs-sa-gate-sta');
+        ev.target.disabled = true; sta.textContent = '取得中...';
+        try {
+            await prefetchSmallAreaIdb(year);
+            if (!(await isSmallAreaReady(year))) throw new Error('取得に失敗しました');
+            _attachSmallAreaList(saEl, cityCode, crumbs, year);
+        } catch (e) { sta.textContent = `エラー: ${e.message}`; ev.target.disabled = false; }
+    });
 }
 
 // 市区町村詳細に差し込む小地域セクションの枠（2020/2015 共通）。
@@ -949,126 +981,8 @@ function _city15StatsRows(stat, entry) {
     return [...left, ...right].join('');
 }
 
-function _render15AggView({ crumbs = null, title, pred, trendCode = null, histCode = null, listHtml, onChip }) {
-    const agg = _agg15ForLevel(pred);
-    ctx.setDetailHtml(_drillWrap({
-        crumbs, title,
-        chartHtml: _levelDisplayHtml(_agg15KvHtml(agg), { trendCode, histCode, stat: agg.stat, ages: agg.ages }, '2015'),
-        listHtml,
-    }));
-    if (crumbs) _wireCrumbs(crumbs);
-    _fillTrends();
-    document.querySelectorAll('.cs-drill-chip[data-key]').forEach(el =>
-        el.addEventListener('click', () => onChip(el.dataset.key)));
-}
-
-function _city15ChipsHtml(headTitle, headCount, items) {
-    return `<h3 class="cs-drill-sec-h3">${headTitle} <span class="cs-year">${headCount}</span></h3>
-        <div class="cs-drill-chips">${items.map(c => {
-            let pop = CENSUS_2015_STATS[c.code]?.pop?.[0];
-            // 政令市は区コードを合算
-            if (!pop && DESIGNATED_CITIES.has(c.code)) {
-                for (const [k, s] of Object.entries(CENSUS_2015_STATS))
-                    if (_wardParent(k) === c.code) pop = (pop || 0) + s.pop[0];
-            }
-            const sub = pop ? _popLabel(pop) : '';
-            return `<span class="cs-drill-chip" data-key="${c.code}">${escHtml(c.name)}${sub ? `<span class="cs-chip-sub">${sub}</span>` : ''}</span>`;
-        }).join('')}</div>`;
-}
-
-// Level 0: 全国
-function _csDrill15National() {
-    const byPref = new Map();
-    for (const [code, s] of Object.entries(CENSUS_2015_STATS)) {
-        const pref = code.slice(0, 2);
-        byPref.set(pref, (byPref.get(pref) || 0) + s.pop[0]);
-    }
-    const listHtml = `<h3 class="cs-drill-sec-h3">都道府県 <span class="cs-year">47都道府県</span></h3>
-        <div class="cs-drill-chips">${
-        [...byPref.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([pref, pop]) =>
-            `<span class="cs-drill-chip" data-key="${pref}">${PREFS[pref] || pref}<span class="cs-chip-sub">${_popLabel(pop)}</span></span>`
-        ).join('')}</div>`;
-    _render15AggView({
-        title: _rubyHtml('全国', 'ぜんこく'), pred: () => true, trendCode: 'national',
-        listHtml, onChip: _csDrill15Pref,
-    });
-}
-
-// Level 1: 都道府県
-function _csDrill15Pref(prefCode) {
-    const topCities = CENSUS_MANIFEST.filter(e =>
-        e.pref === prefCode && !e.code.endsWith('000') && !_wardParent(e.code) &&
-        (CENSUS_2015_STATS[e.code] || DESIGNATED_CITIES.has(e.code)));
-    _render15AggView({
-        crumbs: [{ label: '全国', go: _csDrill15National }, { label: _prefFull(prefCode), go: () => _csDrill15Pref(prefCode) }],
-        title: _rubyHtml(_prefFull(prefCode), CENSUS_KANA[prefCode]),
-        pred: c => c.slice(0, 2) === prefCode, trendCode: prefCode + '000',
-        listHtml: _city15ChipsHtml('市区町村', `${topCities.length}件`, topCities),
-        onChip: code => DESIGNATED_CITIES.has(code) ? _csDrill15Designated(code, prefCode) : _csDrill15City(code, prefCode, null),
-    });
-}
-
-// Level 1.5: 政令指定都市
-function _csDrill15Designated(cityCode, prefCode) {
-    const wards = _wardsForYear(cityCode, '2015');
-    _render15AggView({
-        crumbs: [
-            { label: '全国', go: _csDrill15National },
-            { label: _prefFull(prefCode), go: () => _csDrill15Pref(prefCode) },
-            { label: MANIFEST_BY_CODE.get(cityCode)?.name || cityCode, go: () => _csDrill15Designated(cityCode, prefCode) },
-        ],
-        title: _rubyHtml(MANIFEST_BY_CODE.get(cityCode)?.name || cityCode, CENSUS_KANA[cityCode]) + _shichoSuffix(cityCode),
-        pred: c => _wardParent(c) === cityCode, trendCode: cityCode, histCode: cityCode,
-        listHtml: _city15ChipsHtml('行政区', `${wards.length}区`, wards),
-        onChip: code => _csDrill15City(code, prefCode, cityCode),
-    });
-}
-
-// Level 2: 市区町村（終端）
-function _csDrill15City(cityCode, prefCode, parentCode = null) {
-    const entry    = MANIFEST_BY_CODE.get(cityCode);
-    const cityName = entry?.name || _wardName(cityCode);
-    const stat     = CENSUS_2015_STATS[cityCode];
-    const crumbs   = [
-        { label: '全国', go: _csDrill15National },
-        { label: _prefFull(prefCode), go: () => _csDrill15Pref(prefCode) },
-    ];
-    if (parentCode) crumbs.push({ label: MANIFEST_BY_CODE.get(parentCode)?.name || parentCode, go: () => _csDrill15Designated(parentCode, prefCode) });
-    const parent = parentCode ? (MANIFEST_BY_CODE.get(parentCode)?.name || '') : '';
-    crumbs.push({ label: _addrShort(cityName, parent), go: () => _csDrill15City(cityCode, prefCode, parentCode) });
-
-    const ages15 = CENSUS_2015_AGES[cityCode];
-    const hhd15  = CENSUS_2015_HOUSEHOLD[cityCode];
-    const chartStat = stat ? { ...stat } : null;
-    if (chartStat && hhd15) for (const k of ['fam', 'dwell', 'own']) if (hhd15[k]) chartStat[k] = hhd15[k];
-    const statsHtml = `<div class="cs-kv-grid">${_city15StatsRows(stat, entry)}</div>`;
-    const display   = _levelDisplayHtml(statsHtml, { trendCode: cityCode, histCode: cityCode, stat: chartStat, ages: ages15 }, '2015');
-
-    ctx.setDetailHtml(`
-        <div class="cs-drill-wrap census-detail">
-            <div class="cs-drill-head">
-                ${_crumbBarHtml(crumbs)}
-                <div class="cs-drill-title-row">
-                    <h2>${_gunPrefix(cityCode)}${_rubyHtml(cityName, CENSUS_KANA[cityCode])}${_shichoSuffix(cityCode)}</h2>
-                </div>
-            </div>
-            ${_smallAreaListSectionHtml('2015')}
-            <div class="cs-drill-display">${display}</div>
-        </div>
-    `);
-    _wireCrumbs(crumbs);
-    _fillTrends();
-    _attachSmallAreaList(document.getElementById('cs-drill-sa'), cityCode, crumbs, '2015');
-}
-
-// ---- 国勢調査 2025 ドリルダウン -------------------------------------------
-// 全国 → 都道府県 → 市区町村（速報集計: 人口・世帯のみ。年齢・就業・住宅データは未公表）
+// ---- 国勢調査 2025 集計・表示（ナビ骨格は DRILL_YEARS['2025'] が駆動） ------
 // データ: CENSUS_2025_POP[code] = { pop:[t,m,f], pop2020, popChange, hh, hh2020 }
-//
-// ★2025基本集計（年齢・就業・住宅）公開後は 2020/2015 と同じ共通機構に載せられる:
-//   ・_level25DisplayHtml → _levelDisplayHtml(statsHtml, {...}, '2025') に置換（全チャート共通化）
-//   ・_csDrill25City に _attachSmallAreaList(saEl, cityCode, crumbs, '2025') を追加（小地域ドリル）
-//   ・詳細な差し込み手順は census/small-area.js の YEARS 内 2025 テンプレコメント参照
 // 政令市の区割り（浜松市 新3区）は _wardsForYear が 2025 データから自動生成済みで対応不要。
 
 // 2025-pop.json は 2020/2015 と違い葉のみでない：政令市20市と東京特別区部(13100)の
@@ -1187,257 +1101,4 @@ function _level25DisplayHtml(statsHtml, { trendCode = null, histCode = null, pop
     }
 
     return statsHtml + trendHtml + histHtml + ref2020Html;
-}
-
-function _render25AggView({ crumbs = null, title, pred, trendCode = null, listHtml, onChip }) {
-    const agg = _agg25ForLevel(pred);
-    ctx.setDetailHtml(_drillWrap({
-        crumbs, title,
-        chartHtml: _level25DisplayHtml(_agg25KvHtml(agg), { trendCode }),
-        listHtml,
-    }));
-    if (crumbs) _wireCrumbs(crumbs);
-    _fillTrends();
-    document.querySelectorAll('.cs-drill-chip[data-key]').forEach(el =>
-        el.addEventListener('click', () => onChip(el.dataset.key)));
-}
-
-function _city25ChipsHtml(headTitle, headCount, items) {
-    return `<h3 class="cs-drill-sec-h3">${headTitle} <span class="cs-year">${headCount}</span></h3>
-        <div class="cs-drill-chips">${items.map(c => {
-            const p = CENSUS_2025_POP[c.code];
-            const sub = p ? _popLabel(p.pop[0]) : '';
-            const chg = p ? `<span class="pop-chg ${p.popChange >= 0 ? 'pos' : 'neg'} cs-chip-sub">${p.popChange >= 0 ? '+' : ''}${p.popChange.toFixed(1)}%</span>` : '';
-            return `<span class="cs-drill-chip" data-key="${c.code}">${escHtml(c.name)}${sub ? `<span class="cs-chip-sub">${sub}</span>` : ''}${chg}</span>`;
-        }).join('')}</div>`;
-}
-
-// Level 0: 全国
-function _csDrill25National() {
-    const byPref = new Map();
-    for (const [code, p] of Object.entries(CENSUS_2025_POP)) {
-        if (code.endsWith('000') || _AGG25_ROWS.has(code)) continue;
-        const pref = code.slice(0, 2);
-        byPref.set(pref, (byPref.get(pref) || 0) + p.pop[0]);
-    }
-    const notice = `<p class="cs-notice">速報集計（人口・世帯）のみ公開中。基本集計（年齢・就業・住宅）は 2026年秋頃公開予定。</p>`;
-    const listHtml = notice + `<h3 class="cs-drill-sec-h3">都道府県 <span class="cs-year">47都道府県</span></h3>
-        <div class="cs-drill-chips">${
-        [...byPref.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([pref, pop]) =>
-            `<span class="cs-drill-chip" data-key="${pref}">${PREFS[pref] || pref}<span class="cs-chip-sub">${_popLabel(pop)}</span></span>`
-        ).join('')}</div>`;
-    _render25AggView({
-        title: _rubyHtml('全国', 'ぜんこく'), pred: () => true, trendCode: 'national',
-        listHtml, onChip: _csDrill25Pref,
-    });
-}
-
-// Level 1: 都道府県
-function _csDrill25Pref(prefCode) {
-    const topCities = CENSUS_MANIFEST.filter(e =>
-        e.pref === prefCode && !e.code.endsWith('000') && !_wardParent(e.code) && CENSUS_2025_POP[e.code]);
-    _render25AggView({
-        crumbs: [{ label: '全国', go: _csDrill25National }, { label: _prefFull(prefCode), go: () => _csDrill25Pref(prefCode) }],
-        title: _rubyHtml(_prefFull(prefCode), CENSUS_KANA[prefCode]),
-        pred: c => c.slice(0, 2) === prefCode, trendCode: prefCode + '000',
-        listHtml: _city25ChipsHtml('市区町村', `${topCities.length}件`, topCities),
-        onChip: code => DESIGNATED_CITIES.has(code) ? _csDrill25Designated(code, prefCode) : _csDrill25City(code, prefCode, null),
-    });
-}
-
-// Level 1.5: 政令指定都市
-function _csDrill25Designated(cityCode, prefCode) {
-    const wards = _wardsForYear(cityCode, '2025');
-    _render25AggView({
-        crumbs: [
-            { label: '全国', go: _csDrill25National },
-            { label: _prefFull(prefCode), go: () => _csDrill25Pref(prefCode) },
-            { label: MANIFEST_BY_CODE.get(cityCode)?.name || cityCode, go: () => _csDrill25Designated(cityCode, prefCode) },
-        ],
-        title: _rubyHtml(MANIFEST_BY_CODE.get(cityCode)?.name || cityCode, CENSUS_KANA[cityCode]) + _shichoSuffix(cityCode),
-        pred: c => _wardParent(c) === cityCode, trendCode: cityCode, histCode: cityCode,
-        listHtml: _city25ChipsHtml('行政区', `${wards.length}区`, wards),
-        onChip: code => _csDrill25City(code, prefCode, cityCode),
-    });
-}
-
-// Level 2: 市区町村（終端）
-function _csDrill25City(cityCode, prefCode, parentCode = null) {
-    const entry    = MANIFEST_BY_CODE.get(cityCode);
-    const cityName = entry?.name || _wardName(cityCode);
-    const p25      = CENSUS_2025_POP[cityCode];
-    const crumbs   = [
-        { label: '全国', go: _csDrill25National },
-        { label: _prefFull(prefCode), go: () => _csDrill25Pref(prefCode) },
-    ];
-    if (parentCode) crumbs.push({ label: MANIFEST_BY_CODE.get(parentCode)?.name || parentCode, go: () => _csDrill25Designated(parentCode, prefCode) });
-    const parent = parentCode ? (MANIFEST_BY_CODE.get(parentCode)?.name || '') : '';
-    crumbs.push({ label: _addrShort(cityName, parent), go: () => _csDrill25City(cityCode, prefCode, parentCode) });
-
-    const pop2015 = CENSUS_2015_STATS[cityCode];
-    const pop2020 = CENSUS_2020_POP[cityCode];
-    const popTrend = [];
-    if (pop2015?.pop) popTrend.push({ year: 2015, male: pop2015.pop[1], female: pop2015.pop[2] });
-    if (pop2020)      popTrend.push({ year: 2020, male: pop2020[1], female: pop2020[2] });
-    if (p25?.pop)     popTrend.push({ year: 2025, male: p25.pop[1], female: p25.pop[2] });
-
-    const ages2020 = CENSUS_2020_AGES[cityCode];
-    const stat2020 = {
-        ...(CENSUS_2020_STATS[cityCode] || {}),
-        ...(CENSUS_2020_HOUSEHOLD[cityCode] || {}),
-    };
-    const has2020 = ages2020?.length === 32 || Object.keys(stat2020).length > 0;
-
-    const statsHtml = `<div class="cs-kv-grid">${_city25StatsRows(p25, entry)}</div>`;
-    const display   = _level25DisplayHtml(statsHtml, {
-        trendCode: cityCode,
-        histCode: cityCode,
-        popTrend: popTrend.length >= 2 ? popTrend : null,
-        ref2020: has2020 ? { stat: stat2020, ages: ages2020, natAges: CENSUS_2020_AGES['_national'] } : null,
-    });
-
-    ctx.setDetailHtml(`
-        <div class="cs-drill-wrap census-detail">
-            <div class="cs-drill-head">
-                ${_crumbBarHtml(crumbs)}
-                <div class="cs-drill-title-row">
-                    <h2>${_gunPrefix(cityCode)}${_rubyHtml(cityName, CENSUS_KANA[cityCode])}${_shichoSuffix(cityCode)}</h2>
-                </div>
-            </div>
-            <div class="cs-drill-display">${display}</div>
-        </div>
-    `);
-    _wireCrumbs(crumbs);
-    _fillTrends();
-}
-
-// ---- small area list (used by city detail panel) ---------------------------
-
-async function loadSmallAreas(code, bodyEl, year = '2020') {
-    await _populateSmallAreaBody(bodyEl, code, { year });
-}
-
-// ---- detail panel -------------------------------------------------------
-
-function showCensusDetail(code, year) {
-    const entry = CENSUS_MANIFEST.find(e => e.code === code);
-    if (!entry) return;
-    const pop  = year === '2025' ? CENSUS_2025_POP[code] : null;
-    const stat = year === '2020' ? CENSUS_2020_STATS[code]
-                 : year === '2015' ? CENSUS_2015_STATS[code]
-                 : null;
-    const name = entry.name;
-
-    let popHtml = '';
-
-    if (pop) {
-        const total = pop.pop[0], male = pop.pop[1], female = pop.pop[2];
-        const chgSign = pop.popChange >= 0 ? `+${pop.popChange.toFixed(1)}` : pop.popChange.toFixed(1);
-        const chgCl   = pop.popChange >= 0 ? '#0a0' : '#c00';
-        popHtml = `
-            <div class="cs-section">
-                <h3>人口・世帯 <span class="cs-year">2025年</span></h3>
-                <div class="cs-kv-grid">
-                    <div class="cs-kv"><span class="cs-k">総人口</span><span class="cs-v">${total.toLocaleString()} 人</span></div>
-                    <div class="cs-kv"><span class="cs-k">男性</span><span class="cs-v">${male.toLocaleString()} 人</span></div>
-                    <div class="cs-kv"><span class="cs-k">女性</span><span class="cs-v">${female.toLocaleString()} 人</span></div>
-                    <div class="cs-kv"><span class="cs-k">世帯数</span><span class="cs-v">${pop.hh.toLocaleString()} 世帯</span></div>
-                    <div class="cs-kv"><span class="cs-k">5年間増減率</span><span class="cs-v" style="color:${chgCl};font-weight:600">${chgSign}%</span></div>
-                    <div class="cs-kv"><span class="cs-k">2020年人口(組替)</span><span class="cs-v">${pop.pop2020.toLocaleString()} 人</span></div>
-                    ${entry.area    ? `<div class="cs-kv"><span class="cs-k">面積</span><span class="cs-v">${entry.area.toLocaleString()} km²</span></div>` : ''}
-                    ${entry.density ? `<div class="cs-kv"><span class="cs-k">人口密度</span><span class="cs-v">${entry.density.toLocaleString()} 人/km²</span></div>` : ''}
-                </div>
-            </div>`;
-    } else if (year === '2020') {
-        const p20det  = CENSUS_2020_POP[code];
-        const p25ref  = CENSUS_2025_POP[code];
-        if (p20det) {
-            const hh20 = p25ref?.hh2020;
-            popHtml = `
-                <div class="cs-section">
-                    <h3>人口・世帯 <span class="cs-year">2020年</span></h3>
-                    <div class="cs-kv-grid">
-                        <div class="cs-kv"><span class="cs-k">総人口</span><span class="cs-v">${p20det[0].toLocaleString()} 人</span></div>
-                        <div class="cs-kv"><span class="cs-k">男性</span><span class="cs-v">${p20det[1].toLocaleString()} 人</span></div>
-                        <div class="cs-kv"><span class="cs-k">女性</span><span class="cs-v">${p20det[2].toLocaleString()} 人</span></div>
-                        ${hh20           ? `<div class="cs-kv"><span class="cs-k">世帯数</span><span class="cs-v">${hh20.toLocaleString()} 世帯</span></div>` : ''}
-                        ${entry?.area    ? `<div class="cs-kv"><span class="cs-k">面積</span><span class="cs-v">${entry.area.toLocaleString()} km²</span></div>` : ''}
-                        ${entry?.density ? `<div class="cs-kv"><span class="cs-k">人口密度</span><span class="cs-v">${entry.density.toLocaleString()} 人/km²</span></div>` : ''}
-                    </div>
-                </div>`;
-        }
-    } else if (year === '2015' && stat?.pop) {
-        const [total, male, female] = stat.pop;
-        popHtml = `
-            <div class="cs-section">
-                <h3>人口・世帯 <span class="cs-year">2015年</span></h3>
-                <div class="cs-kv-grid">
-                    <div class="cs-kv"><span class="cs-k">総人口</span><span class="cs-v">${total.toLocaleString()} 人</span></div>
-                    <div class="cs-kv"><span class="cs-k">男性</span><span class="cs-v">${male.toLocaleString()} 人</span></div>
-                    <div class="cs-kv"><span class="cs-k">女性</span><span class="cs-v">${female.toLocaleString()} 人</span></div>
-                    <div class="cs-kv"><span class="cs-k">世帯数</span><span class="cs-v">${stat.hh.toLocaleString()} 世帯</span></div>
-                </div>
-            </div>`;
-    }
-
-    // Population trend (2015→2020→2025 if data available)
-    const popTrend = [];
-    const stat2015 = CENSUS_2015_STATS[code];
-    if (stat2015?.pop)          popTrend.push({ year: 2015, male: stat2015.pop[1], female: stat2015.pop[2] });
-    const pop2020det = CENSUS_2020_POP[code];
-    if (pop2020det)             popTrend.push({ year: 2020, male: pop2020det[1], female: pop2020det[2] });
-    const pop2025 = CENSUS_2025_POP[code];
-    if (pop2025?.pop)           popTrend.push({ year: 2025, male: pop2025.pop[1], female: pop2025.pop[2] });
-
-    // Age pyramid data (2020)
-    const ages    = CENSUS_2020_AGES[code]   || null;
-    const refAges = CENSUS_2020_AGES['_national'] || null;
-
-    const chartOpts = {
-        ages:     ages && ages.length === 32 ? ages : null,
-        refAges:  refAges && refAges.length === 32 ? refAges : null,
-        popTrend: popTrend.length >= 2 ? popTrend : null,
-    };
-    const chartSections = buildCensusChartSections(stat, year, chartOpts);
-
-    const SECTION_META = {
-        trend:   { title: '人口推移', year: '2015 – 2025' },
-        pyramid: { title: '年齢別人口構成', year: '2020年（参考：全国平均）' },
-        stats:   { title: '就業・世帯経済', year: year + '年' },
-    };
-    const chartHtml = chartSections.map(sec => {
-        const m = SECTION_META[sec.id] || {};
-        const title = m.title ? `<h3>${m.title}${m.year ? ` <span class="cs-year">${m.year}</span>` : ''}</h3>` : '';
-        const extra = sec.id === 'pyramid' ? _pyramidLegend(true) : '';
-        return `<div class="cs-section cs-svg-wrap">${title}${sec.svg}${extra}</div>`;
-    }).join('');
-
-    const hasSmallArea = (year === '2020' || year === '2015') && ESTAT_CODE_SET.has(code);
-
-    const panel = document.getElementById('geo-preview') || document.createElement('div');
-    panel.classList.add('visible');
-    panel.innerHTML = `
-        <div class="geo-preview-header">
-            <span class="geo-preview-label">${escHtml(name)} — 国勢調査統計</span>
-            <button class="geo-preview-close">✕</button>
-        </div>
-        <div class="geo-preview-body census-detail">
-            ${popHtml}
-            ${chartHtml}
-            ${!pop && !stat && !chartHtml ? '<p style="padding:16px;color:#aaa">統計データなし</p>' : ''}
-            ${hasSmallArea ? `
-            <div class="cs-section cs-sa-section">
-                <h3>小地域（町丁・字等） <span class="cs-year">${year}年</span></h3>
-                <div class="cs-sa-body" id="cs-sa-body">
-                    <button class="cs-sa-load">📋 一覧を読み込む</button>
-                </div>
-            </div>` : ''}
-        </div>
-    `;
-    panel.querySelector('.geo-preview-close').addEventListener('click', ctx.closeGeoPreview);
-    if (hasSmallArea) {
-        const bodyEl = panel.querySelector('#cs-sa-body');
-        panel.querySelector('.cs-sa-load').addEventListener('click', () => loadSmallAreas(code, bodyEl, year));
-    }
-    panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
