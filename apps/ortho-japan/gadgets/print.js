@@ -1,11 +1,12 @@
-// ガジェット：印刷（平面図）。標準装備でなくオプトイン＝orthoJapan() の戻り値から map.gadget.print() で搭載。
+// ガジェット：印刷（平面図）の本体。搭載はスタブ（print-stub.js＝ボタンと⌘P受付だけ常駐）経由で、
+// このファイルは初回起動時に import() される＝初期バンドルから隔離。ボタンはスタブから opts.btn で持参され、
+// モバイル判定・二重搭載ガードもスタブ側の受付で済んでいる。
 // v1(ortho-map) の print（画面まるごと×3倍）とは別物＝新仕様：
 //   表示中の「中心座標」を中心に、真俯瞰（上が北）の平面図を、指定の縮尺(select)・用紙(A4/A3)・縦横・dpi で
 //   組版して印刷する。全くの紙仕様＝二重罫の外枠・経緯線（度分ラベル）・四隅の経緯度・縮尺バー・出典・出力日。
 //   内容は画面と同じ点火状態（地名〜施設のチップ定義どおり）＝撮影は本体注入の capture がライブパイプラインを
 //   一時的に印刷カメラへ振る。プレビューを見せてから出力（印刷は隠しiframe＝ポップアップ不要）。
 // 縮尺の正しさは「切り出す地表幅 ↔ 紙の地図幅(mm)」の対応で構成的に保証（解像度は精細度にだけ効く）。
-import { gadgetStack } from "./stack.js";
 import { keyBusy } from "./keys.js";
 import { composeLayersToCanvas } from "./shot.js";
 
@@ -216,21 +217,9 @@ export async function pdfFromCanvas(canvas, Wmm, Hmm) {
 	return new Blob(chunks, { type: "application/pdf" });
 }
 
-export function print({ capture, signal } = {}) {
+export function print({ capture, signal, btn } = {}) {
 	const mapEl = this.mapEl;
-	if (window.matchMedia("(pointer: coarse)").matches) return;   // モバイル非搭載＝端末の共有/スクショに委ねる（shotと同じ）
-	if (mapEl.querySelector("#print-btn")) return;   // 二重搭載は無害
 	const font = (getComputedStyle(document.documentElement).getPropertyValue("--qm-font") || "system-ui").trim();
-
-	const mac = /Mac|iP(hone|ad|od)/.test(navigator.platform || "");
-	const btn = document.createElement("button");
-	btn.id = "print-btn"; btn.dataset.tip = `平面図を印刷 (${mac ? "⌘P" : "Ctrl+P"})`; btn.setAttribute("aria-label", "平面図を印刷");
-	btn.innerHTML = `
-		<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#3f4757" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round" aria-hidden="true">
-			<path d="M6.5 9V3.5h11V9"/>
-			<path d="M6.5 17.5H4.3A1.8 1.8 0 0 1 2.5 15.7v-4.9A1.8 1.8 0 0 1 4.3 9h15.4a1.8 1.8 0 0 1 1.8 1.8v4.9a1.8 1.8 0 0 1-1.8 1.8h-2.2"/>
-			<rect x="6.5" y="14" width="11" height="6.5"/></svg>`;
-	gadgetStack(mapEl).append(btn);
 
 	// モーダル（プレビュー＋設定）。#map 直下の後置＝DOM順で上（z-index不使用の掟）。
 	const modal = document.createElement("div");

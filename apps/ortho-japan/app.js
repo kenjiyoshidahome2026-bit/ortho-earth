@@ -32,7 +32,7 @@ import { legend as legendGadget } from "./gadgets/legend.js";
 import { measure as measureGadget } from "./gadgets/measure.js";
 import { shot as shotGadget } from "./gadgets/shot.js";
 import { japan as japanGadget } from "./gadgets/japan.js";
-import { print as printGadget } from "./gadgets/print.js";
+import { print as printGadget } from "./gadgets/print-stub.js";   // 本体(print.js)は初回起動時にimport()＝初期バンドルから隔離
 import { close as closeGadget } from "./gadgets/close.js";
 import { modalOpen } from "./gadgets/keys.js";   // 矢印キーのモーダル抑止に使う共通判定（ショートカット群と共有）
 
@@ -1383,7 +1383,7 @@ map.gadget("shot", function (opts) {   // 画面保存 … worker越しの3層+m
 map.gadget("japan", function (opts) {   // 日本全体へ（真俯瞰・北向き）… 着地点は既定の列島ビューを共有・⌘/Ctrl+J
 	return japanGadget.call(this, { view: JAPAN_VIEW, signal: ac.signal, ...opts });
 });
-map.gadget("print", function (opts) {   // 印刷（平面図）… 撮影ハイジャック printCapture を注入。プレビュー→印刷/PDF
+map.gadget("print", function (opts) {   // 印刷（平面図）… 撮影ハイジャック printCapture を注入。プレビュー→印刷/PDF。本体は初回起動時import()
 	return printGadget.call(this, { capture: printCapture, signal: ac.signal, ...opts });
 });
 map.gadget("close", function (opts) {   // 閉じる×（埋め込み用）… ortho:close を飛ばすだけ＝閉じる実務は埋め込み側

@@ -52,13 +52,17 @@ try {
 	const h = map.gadget.print({ capture: stub });
 	map.gadget.print({ capture: stub });   // 二重搭載＝無害
 	await new Promise(r => setTimeout(r, 200));
-	ok("mount", document.querySelectorAll("#print-btn").length === 1 && document.querySelectorAll("#print").length === 1);
+	ok("mount", document.querySelectorAll("#print-btn").length === 1 && !document.getElementById("print"));   // スタブ＝ボタンだけ（本体は初回起動時import）
+	window.dispatchEvent(new KeyboardEvent("keydown", { key: "p", ctrlKey: true }));   // 初回起動＝スタブの⌘/Ctrl+P経路
+	for (let i = 0; i < 100 && !document.getElementById("print-preview")?.src.startsWith("blob:"); i++) await new Promise(r => setTimeout(r, 50));
+	ok("lazy", document.querySelectorAll("#print").length === 1);   // 初回起動で本体（モーダル）が搭載される
 	ok("title", document.getElementById("print-title").value === "平面図（上が北）");   // 題の既定値
-	document.getElementById("print-btn").click();
-	for (let i = 0; i < 100 && !document.getElementById("print-preview").src.startsWith("blob:"); i++) await new Promise(r => setTimeout(r, 50));
 	ok("preview", document.getElementById("print").classList.contains("open") && document.getElementById("print-preview").src.startsWith("blob:"));
-	h.close();
+	await h.close();   // スタブの戻り値＝本体へのプロキシ（Promise越し）
 	ok("close", !document.getElementById("print").classList.contains("open"));
+	document.getElementById("print-btn").click();   // 搭載後のボタン＝本体のリスナーが受ける（スタブは退場済み）
+	ok("reopen", document.getElementById("print").classList.contains("open"));
+	await h.close();
 	map.destroy();
 	ok("destroy", true);
 } catch (e) { ok("boot:" + (e && e.message || e), false); }
