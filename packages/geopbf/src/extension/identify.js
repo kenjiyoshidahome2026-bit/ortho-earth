@@ -5,6 +5,36 @@ import { gint } from "./gint.js";
 // 再配線するなら identify.rs の TODO（smallest-wins揃え）を参照。
 
 // ── Public API ────────────────────────────────────────────────────────────────
+// 【設計意図】ここは「描画レス識別」＝Gint知性面の入口（pbf.identifyAt / pbf.contain / pbf.identify）。
+// レンダラを一切介さず GintBUF のデータ構造だけで「この座標に何があるか」に答える。
+// 地図の hover/click（worker の GPU pick + findPolygon）とは独立した公開 API＝突合・ドリル連携・
+// 逆引き（座標→町丁字コード等）の土台。アプリ内で未使用でも削除しないこと。
+
+// 描画レス識別の本命: proj 不要・経緯度と許容半径[m]で問い合わせる（点→線→面の順に照合）。
+// 許容半径は等方近似（1度≒111.32km）で gint 格子単位へ変換する。面は許容半径不要（内包判定）。
+export function identifyAt(self, lng, lat, options = {}) {
+	if (!self.unPackGint) return null;
+	const { arcBuffer, arcMeta, polyStream, lineStream, pointBuffer, point, polyBboxByFid } = self.unPackGint;
+	const mix = Math.round((lng + 180) * gint.SCALE_E);
+	const miy = Math.round((lat + 90) * gint.SCALE_E);
+	const toUnits = m => (m / 111320) * gint.SCALE_E;
+	const pointError = toUnits(options.point ?? 50);        // 既定: 点は半径50m
+	const polylineError = toUnits(options.polyline ?? 30);  // 既定: 線は半径30m
+
+	if (pointBuffer && point && pointError > 0) {
+		const owner = findPoint(pointBuffer, point, mix, miy, pointError);
+		if (owner !== null) return owner;
+	}
+	if (arcBuffer && arcMeta && lineStream && polylineError > 0) {
+		const owner = findMortonNear(arcBuffer, arcMeta, lineStream, mix, miy, polylineError);
+		if (owner !== null) return owner;
+	}
+	if (arcBuffer && arcMeta && polyStream) {
+		const owner = findPolygon(arcBuffer, arcMeta, polyStream, mix, miy, polyBboxByFid);
+		if (owner !== null) return owner;
+	}
+	return null;
+}
 
 export function contain(self, lng, lat) {
 	if (!self.unPackGint) return null;

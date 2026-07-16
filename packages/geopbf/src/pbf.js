@@ -3,7 +3,7 @@ import { centroid, lineLength, area, getBbox, bboxes, bbox } from "./extension/s
 import { concatinate, clone, cloneHead, cloneMap, classify, getPropertyTable, getCSV } from "./extension/manipulate.js";
 import { dissolve } from "./extension/dissolve.js";
 import { topojson, neighbors, mesh, merge } from "./extension/topojson.js";
-import { identify, contain } from "./extension/identify.js";
+import { identify, identifyAt, contain } from "./extension/identify.js";
 import { unPackGintBuffer } from "./extension/topology.js";
 import { cleanTopology } from "./extension/clean.js";
 import { precision } from "./extension/precision.js";
@@ -35,6 +35,7 @@ GeoPBF.setPrototype("neighbors", function(id) { return neighbors(this, id); });
 GeoPBF.setPrototype("mesh", function(f) { return mesh(this, f); });
 GeoPBF.setPrototype("merge", function(f) { return merge(this, f); });
 GeoPBF.setPrototype("identify", function (mx, my, proj, options) { return identify(this, mx, my, proj, options); });
+GeoPBF.setPrototype("identifyAt", function (lng, lat, options) { return identifyAt(this, lng, lat, options); });   // 描画レス識別（proj不要・許容半径m）
 GeoPBF.setPrototype("contain", function ([lng, lat]) { return contain(this, lng, lat); });
 
 GeoPBF.setPrototype("cleanTopology", function(options) { cleanTopology(this.unPackGint, options); return this; });
