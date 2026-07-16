@@ -12,7 +12,16 @@ import { tileLocalToLonLat } from "./tile.js";
 export function buildTileDrawList({ layers, z, x, y }, style, origin, pale = c => c) {
 	const [ox, oy] = origin;
 	const ops = [];   // { kind:'fill'|'line', li, ... } を style層順に（li=style層index、跨ぎバッチ結合用）
-	const toLL = (px, py, extent) => tileLocalToLonLat(x, y, z, px, py, extent);
+	// タイルローカル(0..extent) → 経緯度(原点相対) を out[oi],out[oi+1] へ直書き。x,y,n はタイル内で不変なので
+	// ここで一度だけ捕獲し、毎頂点の一時配列 [lon,lat] 生成を廃す（＝GC削減）。extent は層毎に渡す。
+	const nTiles = 1 << z, R2D = 180 / Math.PI, HALF_PI = Math.PI / 2;
+	const llInto = (px, py, extent, out, oi) => {
+		const wx = (x + px / extent) / nTiles, wy = (y + py / extent) / nTiles;
+		out[oi] = (wx * 360 - 180) - ox;
+		out[oi + 1] = R2D * (2 * Math.atan(Math.exp(Math.PI * (1 - 2 * wy))) - HALF_PI) - oy;
+	};
+	const sc = new Float64Array(2);    // line 用スクラッチ（1頂点）＝毎回の一時配列を作らない
+	let llBuf = new Float64Array(0);   // fill 用：ポリゴン頂点の経緯度を貯める再利用バッファ（最大サイズまで成長）
 	// 線分細分の閾値（タイル単位）：地形にドレープする際、長い直線が尾根で折れないよう ~700m 毎に分割。
 	const [, cLat] = tileLocalToLonLat(x, y, z, 2048, 2048, 4096);
 	const mPerUnit = 40075016.686 * Math.cos(cLat * Math.PI / 180) / (Math.pow(2, z) * 4096);
@@ -31,16 +40,21 @@ export function buildTileDrawList({ layers, z, x, y }, style, origin, pale = c =
 
 		if (L.type === "fill") {
 			const pos = [], col = [];
+			const ctx = { zoom: z, props: null, geom: null, vars: {} };   // feature 間で使い回す（compile 済み evalExpr は ctx を保持しない＝安全）
 			for (const f of feats) {
-				const ctx = { zoom: z, props: f.props, geom: f.type, vars: {} };
+				ctx.props = f.props; ctx.geom = f.type;
 				if (L.filter && !truthy(evalExpr(L.filter, ctx))) continue;
 				const c = parseRGBA(pale(evalExpr(L.paint?.["fill-color"] ?? "#000", ctx)));
 				const op = L.paint?.["fill-opacity"]; const a = c[3] * (op != null ? evalExpr(op, ctx) : 1);
 				for (const [flat, holes] of polygons(f.geom)) {
 					const tris = earcut(flat, holes, 2);
+					if (!tris.length) continue;
+					// ユニーク頂点を一度だけ経緯度化（原点相対）→ 三角形は共有頂点をインデックスで引く。
+					// 旧版は earcut インデックス毎に toLL していた＝共有頂点を三角形の枚数だけ再変換していた。
+					if (llBuf.length < flat.length) llBuf = new Float64Array(flat.length);
+					for (let i = 0; i < flat.length; i += 2) llInto(flat[i], flat[i + 1], extent, llBuf, i);
 					for (const idx of tris) {
-						const [lon, lat] = toLL(flat[idx * 2], flat[idx * 2 + 1], extent);
-						pos.push(lon - ox, lat - oy); col.push(c[0], c[1], c[2], a);
+						pos.push(llBuf[idx * 2], llBuf[idx * 2 + 1]); col.push(c[0], c[1], c[2], a);
 					}
 				}
 			}
@@ -51,8 +65,9 @@ export function buildTileDrawList({ layers, z, x, y }, style, origin, pale = c =
 			// renderer の capsule は丸端なので、刻んだ破片がそのままピル状のダッシュになる（トンネル破線等）。
 			const dashArr = L.paint?.["line-dasharray"];
 			const du = dashArr ? dashArr[0] * extent / 256 : 0, gu = dashArr ? dashArr[1] * extent / 256 : 0, period = du + gu;
+			const ctx = { zoom: z, props: null, geom: null, vars: {} };   // feature 間で使い回す（compile 済み evalExpr は ctx を保持しない＝安全）
 			for (const f of feats) {
-				const ctx = { zoom: z, props: f.props, geom: f.type, vars: {} };
+				ctx.props = f.props; ctx.geom = f.type;
 				if (L.filter && !truthy(evalExpr(L.filter, ctx))) continue;
 				const c = parseRGBA(pale(evalExpr(L.paint?.["line-color"] ?? "#000", ctx)));
 				const op = L.paint?.["line-opacity"]; const a = c[3] * (op != null ? evalExpr(op, ctx) : 1);
@@ -60,8 +75,9 @@ export function buildTileDrawList({ layers, z, x, y }, style, origin, pale = c =
 				if (typeof w !== "number" || isNaN(w) || w <= 0) w = 1;
 				const hw = w * 0.5;
 				const emit = (ax, ay, bx, by) => {
-					const [alon, alat] = toLL(ax, ay, extent), [blon, blat] = toLL(bx, by, extent);
-					P1.push(alon - ox, alat - oy); P2.push(blon - ox, blat - oy);
+					llInto(ax, ay, extent, sc, 0); const alon = sc[0], alat = sc[1];
+					llInto(bx, by, extent, sc, 0);
+					P1.push(alon, alat); P2.push(sc[0], sc[1]);
 					col.push(c[0], c[1], c[2], a); half.push(hw);
 				};
 				for (const linePts of f.geom) {
@@ -81,13 +97,21 @@ export function buildTileDrawList({ layers, z, x, y }, style, origin, pale = c =
 						}
 						continue;
 					}
-					for (let i = 0; i + 1 < linePts.length; i++) {
-						const A = linePts[i], B = linePts[i + 1];
+					// 細分点を含む頂点を一度だけ経緯度化し、連続ペアで emit（隣接サブ線分＝隣接線分が端点を共有＝
+					// 旧版の「サブ線分ごとに両端を変換」の重複を排除。長い道路の line 頂点変換がほぼ半減）。
+					if (linePts.length < 2) continue;
+					llInto(linePts[0].x, linePts[0].y, extent, sc, 0);
+					let pLon = sc[0], pLat = sc[1];
+					for (let i = 1; i < linePts.length; i++) {
+						const A = linePts[i - 1], B = linePts[i];
 						const dx = B.x - A.x, dy = B.y - A.y;
 						const steps = Math.min(24, Math.max(1, Math.ceil(Math.hypot(dx, dy) / subLen)));  // 地形ドレープ用に細分
-						for (let s = 0; s < steps; s++) {
-							const t0 = s / steps, t1 = (s + 1) / steps;
-							emit(A.x + dx * t0, A.y + dy * t0, A.x + dx * t1, A.y + dy * t1);
+						for (let s = 1; s <= steps; s++) {
+							const t = s / steps;
+							llInto(A.x + dx * t, A.y + dy * t, extent, sc, 0);
+							P1.push(pLon, pLat); P2.push(sc[0], sc[1]);
+							col.push(c[0], c[1], c[2], a); half.push(hw);
+							pLon = sc[0]; pLat = sc[1];
 						}
 					}
 				}
@@ -101,10 +125,14 @@ export function buildTileDrawList({ layers, z, x, y }, style, origin, pale = c =
 // sort-key 式があれば層内の地物を昇順に並べ替える（安定ソート）。無ければ元順のまま。
 function sortFeatures(features, sortExpr, z) {
 	if (!sortExpr) return features;
-	return features
-		.map((f, i) => ({ f, i, k: evalExpr(sortExpr, { zoom: z, props: f.props, geom: f.type, vars: {} }) }))
-		.sort((a, b) => (a.k - b.k) || (a.i - b.i))
-		.map(o => o.f);
+	// {f,i,k} を feature 毎に作らず、キー配列＋インデックス配列で安定ソート（GC削減）。ctx も1個使い回す。
+	const n = features.length, keys = new Array(n), idx = new Array(n);
+	const ctx = { zoom: z, props: null, geom: null, vars: {} };
+	for (let i = 0; i < n; i++) { const f = features[i]; ctx.props = f.props; ctx.geom = f.type; keys[i] = evalExpr(sortExpr, ctx); idx[i] = i; }
+	idx.sort((a, b) => (keys[a] - keys[b]) || (a - b));
+	const out = new Array(n);
+	for (let i = 0; i < n; i++) out[i] = features[idx[i]];
+	return out;
 }
 
 // MVT のリング群を [flatCoords, holeIndices] のポリゴン単位に分割。

@@ -1,9 +1,21 @@
 // CSS色文字列 → [r,g,b,a] (0..1 float)。style の rgba()/rgb()/#hex を GL uniform 用に変換。
 const NAMED = { transparent: [0, 0, 0, 0], white: [1, 1, 1, 1], black: [0, 0, 0, 1] };
 
+// メモ化：style の色は少数の文字列に猛烈に重複する（feature 毎に同じ trim/regex/parseInt を繰り返していた）。
+// 戻り値は共有・凍結配列＝呼び出し側は非破壊で読むだけ（NAMED も従来から共有配列を返している前提と同じ）。
+// 凍結で万一の破壊代入を早期顕在化。distinct 色文字列は style 由来で有界＝上限不要。
+const memo = new Map();
 export function parseRGBA(s) {
 	if (Array.isArray(s)) return s;
 	if (typeof s !== "string") return [0, 0, 0, 1];
+	let hit = memo.get(s);
+	if (hit !== undefined) return hit;
+	hit = Object.freeze(compute(s));
+	memo.set(s, hit);
+	return hit;
+}
+
+function compute(s) {
 	const key = s.trim().toLowerCase();
 	if (NAMED[key]) return NAMED[key];
 	let m = key.match(/rgba?\(([^)]+)\)/);
