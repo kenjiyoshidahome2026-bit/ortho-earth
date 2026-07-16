@@ -11,6 +11,7 @@ import { mergeTiles, coveredTiles } from "../scene.js";   // index直引きはwo
 // geometry は main のタイルキャッシュのバイト予算の鏡：追加＝tile メッセージ／削除＝evict メッセージ（tilemanager の
 // onEvict と同期）。独自の上限退避は持たない——mainが ready と思っているタイルをこちらだけ捨てると、
 // merge が黙って穴になる（CAP=512 の insertion-order 退避で実際に起きた：「描き残しタイル」の根因）。
+// md モードでは鏡＝「geom（未常駐） ∪ md.res（GPU常駐）」：常駐が確定した時点で CPU 側は解放する（ensureUploaded）。
 const geom = new Map();   // key → { ops, buildings }
 const geomOf = k => geom.get(k) || null;
 let renderPort = null;    // render worker への直結ポート（MessageChannel の片端）
@@ -153,6 +154,11 @@ function ensureUploaded(key) {
 	}
 	if (transfer.length) renderPort.postMessage(up, transfer);
 	md.res.set(key, rec);
+	// GPU常駐が確定したらCPU側の元geometryは捨てる＝mainのタイル予算(24-96MB)を CPU と GPU で二重に
+	// 持たない（スマホは GPU も同じ RAM＝実質倍増でタブ落ちする。PLATEAU の百MB級が乗ると顕在化）。
+	// プール成長は GPU 内コピー・再結合は res のレンジだけで済む＝CPU コピーの用途はもう無い。
+	// context lost は main が自動リロード＝ゼロから再取得（従来と同じ）。
+	geom.delete(key);
 	return rec;
 }
 
@@ -233,8 +239,9 @@ self.onmessage = (e) => {
 		// 投げっぱなし＋楽観 sig 確定だと、一度の失敗（結合バッファ確保失敗等）が「静止中は永遠に欠けたタイル」になる。
 		try {
 			if (failNext) { failNext = false; throw new Error("debug-fail"); }
-			// 診断：main が ready と言うタイルの geometry が無い＝そのタイルは黙って穴になる（evict同期後は出ないはず）
-			const missing = m.order.filter(o => !geom.has(o.key));
+			// 診断：main が ready と言うタイルの geometry が無い＝そのタイルは黙って穴になる（evict同期後は出ないはず）。
+			// md モードでは常駐後に CPU 側を解放している＝「geom または res に居る」が正常。
+			const missing = m.order.filter(o => !geom.has(o.key) && !(md && md.res.has(o.key)));
 			if (missing.length) console.warn(`[scene] merge ${m.slot}: geometry欠落 ${missing.length}/${m.order.length} 例:`, missing.slice(0, 6).map(o => o.key).join(" "), `(保持${geom.size})`);
 			if (md) {
 				// multi_draw：draw list を組むだけ（新規タイルのみ up が先行）。up/dl は同一ポートの FIFO＝追い越しなし。

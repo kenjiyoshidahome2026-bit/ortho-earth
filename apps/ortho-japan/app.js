@@ -465,6 +465,10 @@ const { tiles, requestMerge, destroy: destroyPipeline } = createPipeline({
 	// 「陸=AdmArea・海=背景」モデルでWA無し＝チルトの遠景（z5-7混在）だけ海が紙色に抜けてまだらになる。
 	// 遠景も z8 以上で敷けば海色がズーム段間で揃う（根治）。z<8 のビューは従来どおり紙の海＋gint海岸線。
 	lodFloor: { minViewZoom: 8, z: 8 },
+	// 低メモリ端末はタイル予算を絞る：multi_draw の常駐プールは tess 予算の約2倍（idx u32化・線分32B化）を
+	// GPU に占める＝既定の自動予算(48MB)だと従来比で実質メモリが膨らみ、PLATEAU の百MB級が乗った時に
+	// タブごと落ちる（スマホ実機で発生）。24MB でも可視タイル(keep)は余裕で収まり、削るのはパン戻り履歴だけ。
+	memBudgetMB: LOW_MEM ? 24 : undefined,
 	// merge の ack（fallback＝CPU merge 経路のみ。multi_draw では renderer 適用時の dlApplied が同じ関数を呼ぶ）
 	onMerged: (slot, sig) => onSceneApplied(slot, sig),
 });
