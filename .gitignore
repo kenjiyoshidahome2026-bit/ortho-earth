@@ -24,3 +24,7 @@ dust-box/
 
 packages/gdal-geopbf/
 .wrangler/
+
+# 再生成可能な中間生成物（extract-geojson.js / make-catalog-json.js の出力・計31MB）
+apps/gishub-jp/scripts/catalog-geojson.csv
+apps/gishub-jp/scripts/catalog.json
