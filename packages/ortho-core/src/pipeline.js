@@ -19,7 +19,7 @@ export function createPipeline({ style, tileUrl, requestDraw, scenePort, onMerge
 	requestMerge.debugFail = () => sceneWorker.postMessage({ type: "debugFailNext" });   // テスト用：次の merge を故意に失敗させる
 	function collectTileBuffers(dl, buildings) {
 		const bufs = [];
-		for (const op of dl.ops) { if (op.kind === "fill") bufs.push(op.pos.buffer, op.col.buffer); else bufs.push(op.P1.buffer, op.P2.buffer, op.col.buffer, op.half.buffer); }
+		for (const op of dl.ops) { if (op.kind === "fill") bufs.push(op.pos.buffer, op.col.buffer, op.idx.buffer); else bufs.push(op.P1.buffer, op.P2.buffer, op.col.buffer, op.half.buffer); }
 		if (buildings) bufs.push(buildings.pos.buffer, buildings.shade.buffer, buildings.anchor.buffer);
 		return bufs;
 	}

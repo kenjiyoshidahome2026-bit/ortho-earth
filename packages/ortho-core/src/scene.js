@@ -12,14 +12,15 @@ export function mergeTiles(order, geomOf, opts = {}) {
 		tileOps.push({ ox: to[0] - origin[0], oy: to[1] - origin[1], ops: g.ops });
 		for (const op of g.ops) {
 			if (hidden.has(op.li)) continue;
-			let e = size.get(op.li); if (!e) { e = { kind: op.kind, fillN: 0, lineN: 0 }; size.set(op.li, e); }
-			if (op.kind === "fill") e.fillN += op.pos.length / 2; else e.lineN += op.half.length;
+			let e = size.get(op.li); if (!e) { e = { kind: op.kind, fillN: 0, idxN: 0, lineN: 0 }; size.set(op.li, e); }
+			if (op.kind === "fill") { e.fillN += op.pos.length / 2; e.idxN += op.idx.length; } else e.lineN += op.half.length;
 		}
 	}
 	const buf = new Map();
 	for (const [li, e] of size) {
+		// fill の index は結合後に頂点数が 65k を超え得るので常に Uint32（タイル単体は Uint16 で届く）
 		buf.set(li, e.kind === "fill"
-			? { kind: "fill", li, pos: new Float32Array(e.fillN * 2), col: new Uint8Array(e.fillN * 4), pi: 0, ci: 0 }
+			? { kind: "fill", li, pos: new Float32Array(e.fillN * 2), col: new Uint8Array(e.fillN * 4), idx: new Uint32Array(e.idxN), pi: 0, ci: 0, ii: 0 }
 			: { kind: "line", li, P1: new Float32Array(e.lineN * 2), P2: new Float32Array(e.lineN * 2), col: new Uint8Array(e.lineN * 4), half: new Float32Array(e.lineN), pi: 0, ci: 0, hi: 0 });
 	}
 	for (const { ox, oy, ops } of tileOps) {
@@ -27,8 +28,10 @@ export function mergeTiles(order, geomOf, opts = {}) {
 			if (hidden.has(op.li)) continue;
 			const m = buf.get(op.li);
 			if (op.kind === "fill") {
+				const base = m.pi >> 1;   // このタイル分の頂点オフセット（index 再ベース用）
 				const p = op.pos; let pi = m.pi; for (let i = 0; i < p.length; i += 2) { m.pos[pi++] = p[i] + ox; m.pos[pi++] = p[i + 1] + oy; } m.pi = pi;
 				m.col.set(op.col, m.ci); m.ci += op.col.length;
+				const ix = op.idx; let ii = m.ii; for (let i = 0; i < ix.length; i++) m.idx[ii++] = ix[i] + base; m.ii = ii;
 			} else {
 				const P1 = op.P1, P2 = op.P2; let pi = m.pi;
 				for (let i = 0; i < P1.length; i += 2) { m.P1[pi] = P1[i] + ox; m.P1[pi + 1] = P1[i + 1] + oy; m.P2[pi] = P2[i] + ox; m.P2[pi + 1] = P2[i + 1] + oy; pi += 2; } m.pi = pi;
@@ -38,7 +41,7 @@ export function mergeTiles(order, geomOf, opts = {}) {
 		}
 	}
 	const layers = [...buf.values()].sort((a, b) => a.li - b.li).map(m => m.kind === "fill"
-		? { kind: "fill", li: m.li, pos: m.pos, col: m.col }
+		? { kind: "fill", li: m.li, pos: m.pos, col: m.col, idx: m.idx }
 		: { kind: "line", li: m.li, P1: m.P1, P2: m.P2, col: m.col, half: m.half });
 
 	// 建物：全タイルから結合。xy を原点へ再ベース、z(高さ)はそのまま。

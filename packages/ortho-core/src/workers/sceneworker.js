@@ -40,7 +40,7 @@ let failNext = false;
 function collectSceneBuffers(scene) {
 	const bufs = [];
 	for (const L of scene.layers) {
-		if (L.kind === "fill") bufs.push(L.pos.buffer, L.col.buffer);
+		if (L.kind === "fill") bufs.push(L.pos.buffer, L.col.buffer, L.idx.buffer);
 		else bufs.push(L.P1.buffer, L.P2.buffer, L.col.buffer, L.half.buffer);
 	}
 	if (scene.buildings) bufs.push(scene.buildings.pos.buffer, scene.buildings.shade.buffer, scene.buildings.anchor.buffer);

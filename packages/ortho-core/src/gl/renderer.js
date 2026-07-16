@@ -98,8 +98,17 @@ export function createRenderer(canvas) {
 				gl.bindVertexArray(vao);
 				attrib(gl, fillProg, "a_delta", bPos, 2);
 				attrib(gl, fillProg, "a_color", bCol, 4, null, L.col instanceof Uint8Array);   // タイル由来=Uint8正規化／geojson由来=float32 の両対応
+				const bufs = [bPos, bCol];
+				let idxN = 0, idxT = 0;
+				if (L.idx && L.idx.length) {   // タイル由来＝index描画（ELEMENT_ARRAY_BUFFER は VAO 状態）。geojson由来＝三角形スープのまま
+					const ibo = gl.createBuffer();
+					gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ibo);
+					gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, L.idx, gl.STATIC_DRAW);
+					bufs.push(ibo); idxN = L.idx.length;
+					idxT = L.idx instanceof Uint16Array ? gl.UNSIGNED_SHORT : gl.UNSIGNED_INT;   // merge後は常にUint32だが型は実物から
+				}
 				gl.bindVertexArray(null);
-				draws.push({ kind: "fill", li: L.li, vao, count: L.pos.length / 2, bufs: [bPos, bCol] });
+				draws.push({ kind: "fill", li: L.li, vao, count: idxN || L.pos.length / 2, idxT, bufs });
 			} else {
 				if (!L.half.length) continue;
 				const vao = gl.createVertexArray();
@@ -523,7 +532,8 @@ export function createRenderer(canvas) {
 					if (wantDepth !== depthOn) { (wantDepth ? gl.enable : gl.disable).call(gl, gl.DEPTH_TEST); depthOn = wantDepth; }
 					if (curProg !== fillProg) { gl.useProgram(fillProg); curProg = fillProg; }
 					gl.bindVertexArray(d.vao);
-					gl.drawArrays(gl.TRIANGLES, 0, d.count);
+					if (d.idxT) gl.drawElements(gl.TRIANGLES, d.count, d.idxT, 0);
+					else gl.drawArrays(gl.TRIANGLES, 0, d.count);
 				} else {
 					if (slot === "base" && mainLinesOn) continue;   // 本命の線が出ている間は下地の線を伏せる
 					if (terrainDepth && !depthOn) { gl.enable(gl.DEPTH_TEST); depthOn = true; }   // 線は地形遮蔽を維持

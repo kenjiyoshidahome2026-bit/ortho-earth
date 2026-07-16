@@ -42,7 +42,9 @@ export function buildTileDrawList({ layers, z, x, y }, style, origin, pale = c =
 		const feats = sortFeatures(src.features, L.layout?.["line-sort-key"] ?? L.layout?.["fill-sort-key"], z);
 
 		if (L.type === "fill") {
-			const pos = [], col = [];
+			// インデックス描画：ユニーク頂点(pos/col)＋三角形index。スープ展開（3頂点/三角形）をやめ、
+			// 頂点は一度だけ持つ＝典型ポリゴン(tris≈verts)でバイト2/3・GPUのpost-transform cacheも効く。
+			const pos = [], col = [], idx = [];
 			const ctx = { zoom: z, props: null, geom: null, vars: {} };   // feature 間で使い回す（compile 済み evalExpr は ctx を保持しない＝安全）
 			for (const f of feats) {
 				ctx.props = f.props; ctx.geom = f.type;
@@ -54,15 +56,16 @@ export function buildTileDrawList({ layers, z, x, y }, style, origin, pale = c =
 					const tris = earcut(flat, holes, 2);
 					if (!tris.length) continue;
 					// ユニーク頂点を一度だけ経緯度化（原点相対）→ 三角形は共有頂点をインデックスで引く。
-					// 旧版は earcut インデックス毎に toLL していた＝共有頂点を三角形の枚数だけ再変換していた。
 					if (llBuf.length < flat.length) llBuf = new Float64Array(flat.length);
 					for (let i = 0; i < flat.length; i += 2) llInto(flat[i], flat[i + 1], extent, llBuf, i);
-					for (const idx of tris) {
-						pos.push(llBuf[idx * 2], llBuf[idx * 2 + 1]); col.push(cr, cg, cb, ca);
-					}
+					const base = pos.length >> 1;
+					for (let i = 0; i < flat.length; i += 2) { pos.push(llBuf[i], llBuf[i + 1]); col.push(cr, cg, cb, ca); }
+					for (const t of tris) idx.push(base + t);
 				}
 			}
-			if (pos.length) ops.push({ kind: "fill", li, id: L.id, pos: new Float32Array(pos), col: new Uint8Array(col) });
+			// index はタイル単体なら大抵 Uint16 で足りる（65536頂点超の層だけ Uint32）＝transfer/常駐がさらに半減。
+			// merge 側は結合時に常に Uint32 へ広げる（結合後は頂点数が容易に 65k を超える）。
+			if (pos.length) ops.push({ kind: "fill", li, id: L.id, pos: new Float32Array(pos), col: new Uint8Array(col), idx: pos.length >> 1 <= 65535 ? new Uint16Array(idx) : new Uint32Array(idx) });
 		} else { // line
 			const P1 = [], P2 = [], col = [], half = [];
 			// line-dasharray [線, 間隔]（px・タイル基準ズームでの見かけ）：走行距離の位相を保って線分を刻む。
