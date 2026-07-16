@@ -143,7 +143,9 @@ const renderWorker = new Worker(new URL("./renderworker.js", import.meta.url), {
 // scene worker → render worker の直結パイプ（main を経由しない geometry）。両端を各 worker へ渡す。
 const sceneChan = new MessageChannel();
 const gintSyncChan = new MessageChannel();   // render worker → gint worker：海岸線を地図フレームに従属（スライド消滅）
-renderWorker.postMessage({ type: "init", canvas: offscreen, labelCanvas: labelOffscreen, elevBase: TERR_EXAG / EARTH_M, terrainExag: TERR_EXAG, earthM: EARTH_M, apiUrl: "https://api.ortho-earth.com", scenePort: sceneChan.port2, gintSyncPort: gintSyncChan.port1 }, [offscreen, labelOffscreen, sceneChan.port2, gintSyncChan.port1]);
+// ?nomd=1 ＝multi_draw（タイルGPU常駐）を切って従来の CPU merge へ強制フォールバック。同一ビルドで A/B 比較する検証ノブ。
+const noMultiDraw = /[?&]nomd=1/.test(location.search);
+renderWorker.postMessage({ type: "init", canvas: offscreen, labelCanvas: labelOffscreen, elevBase: TERR_EXAG / EARTH_M, terrainExag: TERR_EXAG, earthM: EARTH_M, apiUrl: "https://api.ortho-earth.com", scenePort: sceneChan.port2, gintSyncPort: gintSyncChan.port1, noMultiDraw }, [offscreen, labelOffscreen, sceneChan.port2, gintSyncChan.port1]);
 // 薄いプロキシ：有線(関数呼び)を無線(postMessage)に載せ替え。set/draw 統一済なので pipeline/overlay は無改造。
 // draw は worker 側で「cam を記録するだけ」に受け、実描画は worker 自前 rAF が最新 cam で回す（worker-driven）。
 // 標高アトラス(terrain)も worker 側に住む＝main はもう視野→セル計算・ダウンサンプルを一切やらない。読込インジケータだけ elevPending で受ける。
@@ -169,6 +171,7 @@ let printHold = false;
 renderWorker.onmessage = e => {
 	const d = e.data;
 	if (d.type === "snapshot") return snapPart(d.id, "render", d);   // shot 用：基図+ラベルの ImageBitmap
+	if (d.type === "dlApplied") return onSceneApplied(d.slot, d.sig);   // multi_draw の ack＝renderer が draw list を適用した瞬間（＝画面に載った）
 	if (d.type === "frame1") { clearTimeout(bootT); bootT = null; sessionStorage.removeItem("oj.ctxlost"); return; }   // 初描画成功＝自動リロード回数もリセット
 	if (d.type === "glfail") {
 		clearTimeout(bootT);
@@ -455,24 +458,29 @@ const { tiles, requestMerge, destroy: destroyPipeline } = createPipeline({
 	// 「陸=AdmArea・海=背景」モデルでWA無し＝チルトの遠景（z5-7混在）だけ海が紙色に抜けてまだらになる。
 	// 遠景も z8 以上で敷けば海色がズーム段間で揃う（根治）。z<8 のビューは従来どおり紙の海＋gint海岸線。
 	lodFloor: { minViewZoom: 8, z: 8 },
-	// merge の ack：sig はここで初めて確定する（要求時の楽観確定をやめた＝失敗が永続穴にならない）
-	onMerged: (slot, sig) => {
-		// 全球ビュー(z<4)移行後に着地した投げっぱなしmerge：結合結果は scene worker→render worker 直行＝
-		// main では止められないため、render() が空にした後から道路/鉄道が復活する（ズームアウト中の要求が遅れて届く）。
-		// ack＝着地の合図なので、ここで検知して即座に空へ戻す（sig は確定させない＝z4復帰時に再結合させる）。
-		if (cam.zoom < BASEMAP_MINZOOM) {
-			renderer.set("scene", { origin: [cam.center[0], cam.center[1]], layers: [] }, slot);
-			needsDraw = true;
-			return;
-		}
-		if (slot === "main") {
-			readySig = sig;
-			const z = mergePendingZoom.get(sig);
-			if (z != null) { mainSceneZoom = z; mergePendingZoom.delete(sig); }
-		} else if (slot === "base") baseSig = sig;
-		needsDraw = true;
-	},
+	// merge の ack（fallback＝CPU merge 経路のみ。multi_draw では renderer 適用時の dlApplied が同じ関数を呼ぶ）
+	onMerged: (slot, sig) => onSceneApplied(slot, sig),
 });
+// ack＝「このシーンが画面に載った（fallback は次フレーム、multi_draw は適用の瞬間）」。sig はここで初めて確定する
+// （要求時の楽観確定をやめた＝失敗が永続穴にならない）。hoisted 関数＝renderWorker.onmessage（上方）からも呼ばれる。
+function onSceneApplied(slot, sig) {
+	// 全球ビュー(z<4)移行後に着地した投げっぱなしmerge：結合結果は scene worker→render worker 直行＝
+	// main では止められないため、render() が空にした後から道路/鉄道が復活する（ズームアウト中の要求が遅れて届く）。
+	// ack＝着地の合図なので、ここで検知して即座に空へ戻す（sig は確定させない＝z4復帰時に再結合させる）。
+	if (cam.zoom < BASEMAP_MINZOOM) {
+		renderer.set("scene", { origin: [cam.center[0], cam.center[1]], layers: [] }, slot);
+		needsDraw = true;
+		return;
+	}
+	if (slot === "main") {
+		readySig = sig;
+		const z = mergePendingZoom.get(sig);
+		if (z != null) { mainSceneZoom = z; mergePendingZoom.delete(sig); }
+	} else if (slot === "base") baseSig = sig;
+	needsDraw = true;
+}
+window.__mergeFail = () => requestMerge.debugFail();   // 次の merge を故意に失敗させ ack 自己修復を実地検証
+window.__vtPool = () => requestMerge.stats();          // multi_draw 常駐プールの占有を scene worker の console に出す
 
 // 透視カメラ：center(注視点lon/lat), zoom(web-mercator float), pitch/bearing(rad)
 const MAXPITCH = 75 * D2R;   // 山岳ビュー(z<13)は地形が深度で自遮蔽・混成アトラスが地平線までカバー＝高チルトの根拠が揃ったので75°まで開放

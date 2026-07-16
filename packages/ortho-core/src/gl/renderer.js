@@ -1,12 +1,12 @@
 // WebGL2 レンダラ：可視タイルを跨いで同一 style層を1バッファに結合した「シーン」を描く。
 // draw call は「タイル数×層数」から「層数」へ激減し、uniform も1フレーム1回。共通のシーン原点で投影。
 // fill = earcut三角形、line = capsule(SDF)。scene.layers は style層順（painter's algorithm）。
-import { FILL_VS, FILL_FS, LINE_VS, LINE_FS, GLOBE_VS, GLOBE_FS, BUILDING_VS, BUILDING_FS, TERRAIN_VS, TERRAIN_FS, STENCIL_VS, STENCIL_FS, COVER_FS, PLATEAU_VS, PLATEAU_FS, CONTOUR_FS, STARS_VS, STARS_FS, STARLINE_FS, NIGHT_FS } from "./glsl.js";
+import { FILL_VS, FILL_FS, LINE_VS, LINE_FS, GLOBE_VS, GLOBE_FS, BUILDING_VS, BUILDING_FS, TERRAIN_VS, TERRAIN_FS, STENCIL_VS, STENCIL_FS, COVER_FS, PLATEAU_VS, PLATEAU_FS, CONTOUR_FS, STARS_VS, STARS_FS, STARLINE_FS, NIGHT_FS, FILL_MD_VS, LINE_MD_VS, BUILDING_MD_VS, MD_MAX_DRAWS } from "./glsl.js";
 import { cameraState, project } from "../camera.js";
 
 const CORNERS = new Float32Array([0, -1, 0, 1, 1, -1, 1, -1, 0, 1, 1, 1]); // 6頂点×(end,side)
 
-export function createRenderer(canvas) {
+export function createRenderer(canvas, rOpts = {}) {
 	const gl = canvas.getContext("webgl2", { antialias: true, premultipliedAlpha: true, stencil: true });
 	if (!gl) throw new Error("WebGL2 unavailable");
 
@@ -79,11 +79,134 @@ export function createRenderer(canvas) {
 	let fogDist = 0;   // フォグ距離の基準 camDist。ズーム中は凍結（チラチラ防止）、静止で追随
 	let elevScaleEff = 0;   // pitchで変調した実効スケール（真俯瞰では0＝平面）
 	// base=粗い下書き（underlay）、main=現ズーム、overlay=外部ベクタ(geopbf等)を最前面に。
+	// md（multi_draw モード）のシーンは draws でなく md={layers,bld}＝常駐プールへの参照リストだけを持つ。
 	const scenes = {
-		base: { origin: [0, 0], draws: [], bld: null },
-		main: { origin: [0, 0], draws: [], bld: null },
-		overlay: { origin: [0, 0], draws: [], bld: null },
+		base: { origin: [0, 0], draws: [], bld: null, md: null },
+		main: { origin: [0, 0], draws: [], bld: null, md: null },
+		overlay: { origin: [0, 0], draws: [], bld: null, md: null },
 	};
+
+	// --- multi_draw タイル常駐プール ---
+	// タイル geometry を GPU に常駐させ、シーンは「プール内レンジの列」＝merge の CPU memcpy と
+	// setScene の全バッファ再生成を廃す。配置（アロケータ）の権限は scene worker：ここは
+	// mdGrow（プール成長＝GPU内コピー）/ mdUp（タイルブロックの bufferSubData/texSubImage2D）/
+	// mdScene（draw list 差し替え）を言われた通り実行するだけ。
+	const MD_TEXW = 2048;   // 線分テクスチャの幅（texel）。2texel/線分＝1024線分/行
+	const mdExt = rOpts.noMD ? null : gl.getExtension("WEBGL_multi_draw");
+	const md = mdExt ? {
+		ext: mdExt,
+		fillProg: program(gl, FILL_MD_VS, FILL_FS),
+		lineProg: program(gl, LINE_MD_VS, LINE_FS),
+		bldProg: program(gl, BUILDING_MD_VS, BUILDING_FS),
+		fillV: { buf: null, bytes: 0 },   // 頂点 12B: pos f32×2 + col u8×4（interleave）
+		fillI: { buf: null, bytes: 0 },   // index u32（値はプール絶対頂点番号＝upload 時に再ベース済み）
+		bldV: { buf: null, bytes: 0 },    // 建物頂点 24B: pos f32×3 + shade f32 + anchor f32×2
+		lineTex: null, lineTexH: 0,       // RGBA32UI・2texel/線分
+		fillVAO: null, bldVAO: null,
+	} : null;
+	function mdRebuildFillVAO() {
+		if (md.fillVAO) gl.deleteVertexArray(md.fillVAO);
+		md.fillVAO = gl.createVertexArray(); gl.bindVertexArray(md.fillVAO);
+		gl.bindBuffer(gl.ARRAY_BUFFER, md.fillV.buf);
+		let l = gl.getAttribLocation(md.fillProg, "a_delta");
+		gl.enableVertexAttribArray(l); gl.vertexAttribPointer(l, 2, gl.FLOAT, false, 12, 0);
+		l = gl.getAttribLocation(md.fillProg, "a_color");
+		gl.enableVertexAttribArray(l); gl.vertexAttribPointer(l, 4, gl.UNSIGNED_BYTE, true, 12, 8);
+		gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, md.fillI.buf);   // ELEMENT_ARRAY は VAO 状態
+		gl.bindVertexArray(null);
+	}
+	function mdRebuildBldVAO() {
+		if (md.bldVAO) gl.deleteVertexArray(md.bldVAO);
+		md.bldVAO = gl.createVertexArray(); gl.bindVertexArray(md.bldVAO);
+		gl.bindBuffer(gl.ARRAY_BUFFER, md.bldV.buf);
+		let l = gl.getAttribLocation(md.bldProg, "a_pos");
+		gl.enableVertexAttribArray(l); gl.vertexAttribPointer(l, 3, gl.FLOAT, false, 24, 0);
+		l = gl.getAttribLocation(md.bldProg, "a_shade");
+		gl.enableVertexAttribArray(l); gl.vertexAttribPointer(l, 1, gl.FLOAT, false, 24, 12);
+		l = gl.getAttribLocation(md.bldProg, "a_anchor");
+		gl.enableVertexAttribArray(l); gl.vertexAttribPointer(l, 2, gl.FLOAT, false, 24, 16);
+		gl.bindVertexArray(null);
+	}
+	// プール成長＝新バッファへ GPU 内コピー（CPU の再アップロード不要）。VAO は旧バッファを掴んでいるので作り直す。
+	// WebGL はバッファを「element / 非element」で型ロックする（最初に COPY_WRITE に bind しただけでも非element に
+	// 固定され、以後 ELEMENT_ARRAY_BUFFER に bind できない＝multiDrawElements が黙って空振り）。
+	// index プールは elem=true：生成・確保を ELEMENT_ARRAY_BUFFER で行い element 型に確定させる
+	// （ELEMENT bind は VAO 状態なので default VAO(null) に退避してから）。型確定後の COPY_READ/COPY_WRITE は合法。
+	function mdGrowBuf(pool, bytes, elem) {
+		if (bytes <= pool.bytes) return;
+		const target = elem ? gl.ELEMENT_ARRAY_BUFFER : gl.COPY_WRITE_BUFFER;
+		if (elem) gl.bindVertexArray(null);
+		const nb = gl.createBuffer();
+		gl.bindBuffer(target, nb);
+		gl.bufferData(target, bytes, gl.DYNAMIC_DRAW);
+		if (pool.buf) {
+			gl.bindBuffer(gl.COPY_READ_BUFFER, pool.buf);
+			gl.copyBufferSubData(gl.COPY_READ_BUFFER, target, 0, 0, pool.bytes);
+			gl.deleteBuffer(pool.buf);
+		}
+		gl.bindBuffer(target, null);
+		pool.buf = nb; pool.bytes = bytes;
+	}
+	function mdGrow(pool, units) {
+		if (pool === "fillV") { mdGrowBuf(md.fillV, units * 12); mdRebuildFillVAO(); }
+		else if (pool === "fillI") { mdGrowBuf(md.fillI, units * 4, true); mdRebuildFillVAO(); }
+		else if (pool === "bldV") { mdGrowBuf(md.bldV, units * 24); mdRebuildBldVAO(); }
+		else if (pool === "line") {   // 線分テクスチャ：高さを伸ばして旧内容を FBO 経由で GPU 内コピー
+			const H = Math.ceil(units * 2 / MD_TEXW);
+			if (H <= md.lineTexH) return;
+			const nt = gl.createTexture();
+			gl.bindTexture(gl.TEXTURE_2D, nt);
+			gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32UI, MD_TEXW, H, 0, gl.RGBA_INTEGER, gl.UNSIGNED_INT, null);
+			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+			if (md.lineTex) {
+				const fbo = gl.createFramebuffer();
+				gl.bindFramebuffer(gl.READ_FRAMEBUFFER, fbo);
+				gl.framebufferTexture2D(gl.READ_FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, md.lineTex, 0);
+				gl.copyTexSubImage2D(gl.TEXTURE_2D, 0, 0, 0, 0, 0, MD_TEXW, md.lineTexH);   // RGBA32UI→RGBA32UI＝成分型一致でコピー可
+				gl.bindFramebuffer(gl.READ_FRAMEBUFFER, null);
+				gl.deleteFramebuffer(fbo);
+				gl.deleteTexture(md.lineTex);
+			}
+			md.lineTex = nt; md.lineTexH = H;
+		}
+	}
+	// タイル1枚分のブロック転送。頂点系は COPY_WRITE 経由（VAO 状態を汚さない）。
+	// index プールは element 型ロック済み＝ELEMENT_ARRAY_BUFFER で書く（default VAO(null) に退避してから）。
+	function mdUpload(p) {
+		if (p.fill) { gl.bindBuffer(gl.COPY_WRITE_BUFFER, md.fillV.buf); gl.bufferSubData(gl.COPY_WRITE_BUFFER, p.fill.base * 12, new Uint8Array(p.fill.buf)); }
+		if (p.bld) { gl.bindBuffer(gl.COPY_WRITE_BUFFER, md.bldV.buf); gl.bufferSubData(gl.COPY_WRITE_BUFFER, p.bld.base * 24, p.bld.arr); }
+		gl.bindBuffer(gl.COPY_WRITE_BUFFER, null);
+		if (p.idx) {
+			gl.bindVertexArray(null);
+			gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, md.fillI.buf);
+			gl.bufferSubData(gl.ELEMENT_ARRAY_BUFFER, p.idx.base * 4, p.idx.arr);
+			gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, null);
+		}
+		if (p.line) {   // 線分ブロックはテクスチャ内で行を跨ぎ得る＝先頭の欠け行・中間の全行・末尾の欠け行の最大3回に分けて書く
+			gl.bindTexture(gl.TEXTURE_2D, md.lineTex);
+			gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4);
+			let t = p.line.base * 2, arr = p.line.arr, off = 0;   // t=先頭texel、off=arr内の消化texel数
+			let left = arr.length / 4;
+			const put = (x, y, w, rows) => {
+				gl.texSubImage2D(gl.TEXTURE_2D, 0, x, y, w, rows, gl.RGBA_INTEGER, gl.UNSIGNED_INT, arr.subarray(off * 4, (off + w * rows) * 4));
+				off += w * rows; t += w * rows; left -= w * rows;
+			};
+			const headX = t % MD_TEXW;
+			if (headX) put(headX, (t / MD_TEXW) | 0, Math.min(MD_TEXW - headX, left), 1);
+			const rows = (left / MD_TEXW) | 0;
+			if (rows) put(0, (t / MD_TEXW) | 0, MD_TEXW, rows);
+			if (left) put(0, (t / MD_TEXW) | 0, left, 1);
+		}
+	}
+	// draw list 差し替え：GPU 転送ゼロ（参照リストの入れ替えだけ）。layers は li 昇順＝painter順。
+	function mdScene(m) {
+		disposeSlot(m.slot);
+		scenes[m.slot] = { origin: m.origin, draws: [], bld: null, md: { layers: m.layers, bld: m.bld } };
+	}
+	const sceneHasDraws = s => s.draws.length > 0 || !!(s.md && s.md.layers.length);
 
 	// s: { origin:[lon,lat], layers:[{kind:'fill'|'line', ...typed arrays}] }（style層順）。slot: 'base'|'main'
 	function setScene(s, slot = "main") {
@@ -514,9 +637,37 @@ export function createRenderer(canvas) {
 		// 下地の線は「本命(main)の線と同時に出る時だけ」伏せる＝ズーム中に太さ・形状のズレた「LODの荒い線」が
 		// 透けるのを防ぐ（従来はmerge時に間引いていたがdraw時判断へ移設）。下地が主役の間（skipMain=ズームアウト
 		// 退場中や本命未着）は線も描く＝低ズームは線が絵の本体なので、これが無いと引いた瞬間に真っ白になる。
-		const mainLinesOn = slots.indexOf("main") >= 0 && scenes.main.draws.length > 0;
+		const mainLinesOn = slots.indexOf("main") >= 0 && sceneHasDraws(scenes.main);
 		for (const slot of slots) {   // 粗い下書き→現ズームの順
 			const scene = scenes[slot];
+			if (scene.md) {   // multi_draw シーン＝常駐プールのレンジ列を li 順に流す（分岐ロジックは classic と同一）
+				setCommonUniforms(md.fillProg, st, scene.origin, land);
+				setCommonUniforms(md.lineProg, st, scene.origin, land);
+				gl.useProgram(md.fillProg); gl.uniform1f(loc(gl, md.fillProg, "u_fogFar"), fogFarCap);
+				gl.useProgram(md.lineProg); gl.uniform1f(loc(gl, md.lineProg, "u_fogFar"), fogFarCap);
+				gl.uniform1f(loc(gl, md.lineProg, "u_dpr"), cam.dpr || 1);
+				gl.uniform1i(loc(gl, md.lineProg, "u_segTex"), 6);
+				if (md.lineTex) { gl.activeTexture(gl.TEXTURE6); gl.bindTexture(gl.TEXTURE_2D, md.lineTex); gl.activeTexture(gl.TEXTURE0); }
+				let curProgM = null, depthOnM = terrainDepth;
+				for (const e of scene.md.layers) {
+					if (e.kind === "fill") {
+						if ((e.li === sea.li || e.li === sea.li2) && cam.zoom < sea.minzoom) continue;   // 海：ビュー一律ゲート（classicと同じ）
+						const wantDepth = terrainDepth && !(e.li === sea.li || e.li === sea.li2);
+						if (wantDepth !== depthOnM) { (wantDepth ? gl.enable : gl.disable).call(gl, gl.DEPTH_TEST); depthOnM = wantDepth; }
+						if (curProgM !== md.fillProg) { gl.useProgram(md.fillProg); gl.bindVertexArray(md.fillVAO); curProgM = md.fillProg; }
+						gl.uniform2fv(loc(gl, md.fillProg, "u_tileOff"), e.origins);
+						md.ext.multiDrawElementsWEBGL(gl.TRIANGLES, e.counts, 0, gl.UNSIGNED_INT, e.offsets, 0, e.counts.length);
+					} else {
+						if (slot === "base" && mainLinesOn) continue;   // 本命の線が出ている間は下地の線を伏せる
+						if (terrainDepth && !depthOnM) { gl.enable(gl.DEPTH_TEST); depthOnM = true; }
+						if (curProgM !== md.lineProg) { gl.useProgram(md.lineProg); gl.bindVertexArray(emptyVAO); curProgM = md.lineProg; }
+						gl.uniform2fv(loc(gl, md.lineProg, "u_tileOff"), e.origins);
+						md.ext.multiDrawArraysWEBGL(gl.TRIANGLES, e.firsts, 0, e.counts, 0, e.counts.length);
+					}
+				}
+				gl.bindVertexArray(null);
+				continue;
+			}
 			if (!scene.draws.length) continue;
 			setCommonUniforms(fillProg, st, scene.origin, land);
 			setCommonUniforms(lineProg, st, scene.origin, land);
@@ -553,21 +704,31 @@ export function createRenderer(canvas) {
 		// マスクは区単位（plateauMasks）＝最大 MAX_PLATEAU_MASKS 区まで（シェーダのスロット数固定）。
 		// 真俯瞰（チルト≈0）では基図/PLATEAU とも建物3Dを描かない＝平面地図（閾値は flat2d と同じ 0.02rad≈1.1°）。
 		const show3d = (cam.pitch || 0) >= 0.02;
-		const bld = show3d && !(opts && opts.skipMain) ? scenes.main.bld : null;   // 建物はmainシーンの一部＝一緒に退場
+		const mdBld = scenes.main.md && scenes.main.md.bld;   // multi_draw シーンの建物＝プールレンジ列（チャンク配列）
+		const bld = show3d && !(opts && opts.skipMain) ? (scenes.main.bld || mdBld) : null;   // 建物はmainシーンの一部＝一緒に退場
 		if (bld) {
+			const prog = scenes.main.bld ? bldProg : md.bldProg;
 			const c = view.bldColor || [0.86, 0.86, 0.85];
-			setCommonUniforms(bldProg, st, scenes.main.origin, land);
-			gl.uniform3f(loc(gl, bldProg, "u_bldColor"), c[0], c[1], c[2]);
+			setCommonUniforms(prog, st, scenes.main.origin, land);
+			gl.uniform3f(loc(gl, prog, "u_bldColor"), c[0], c[1], c[2]);
 			const active = [...plateauMasks.entries()].filter(([w]) => !plateauHidden.has(w)).map(([, m]) => m).slice(0, MAX_PLATEAU_MASKS);   // 非表示区のマスクはスロットに載せない＝基図建物が戻る
-			gl.uniform1i(loc(gl, bldProg, "u_plateauCount"), active.length);
+			gl.uniform1i(loc(gl, prog, "u_plateauCount"), active.length);
 			for (let i = 0; i < MAX_PLATEAU_MASKS; i++) {
 				const m = active[i], pb = m ? m.bbox : [1e9, 1e9, -1e9, -1e9];
-				gl.uniform4f(loc(gl, bldProg, `u_plateauBbox${i}`), pb[0], pb[1], pb[2], pb[3]);
+				gl.uniform4f(loc(gl, prog, `u_plateauBbox${i}`), pb[0], pb[1], pb[2], pb[3]);
 				if (m) { gl.activeTexture(gl.TEXTURE2 + i); gl.bindTexture(gl.TEXTURE_2D, m.tex); gl.activeTexture(gl.TEXTURE0); }
-				gl.uniform1i(loc(gl, bldProg, `u_plateauMask${i}`), 2 + i);
+				gl.uniform1i(loc(gl, prog, `u_plateauMask${i}`), 2 + i);
 			}
-			gl.bindVertexArray(bld.vao);
-			gl.drawArrays(gl.TRIANGLES, 0, bld.count);
+			if (scenes.main.bld) {
+				gl.bindVertexArray(bld.vao);
+				gl.drawArrays(gl.TRIANGLES, 0, bld.count);
+			} else {
+				gl.bindVertexArray(md.bldVAO);
+				for (const e of mdBld) {
+					gl.uniform2fv(loc(gl, prog, "u_tileOff"), e.origins);
+					md.ext.multiDrawArraysWEBGL(gl.TRIANGLES, e.firsts, 0, e.counts, 0, e.counts.length);
+				}
+			}
 		}
 		// PLATEAU LOD2 建物メッシュ（任意三角形・面法線陰影）。深度で地形・自身の前後を解決。
 		// ※巻き順が不揃いなデータなので back-face カリングは使わない（屋根を誤って捨てる）＝両面描画。
@@ -626,7 +787,7 @@ export function createRenderer(canvas) {
 	function disposeSlot(slot) {
 		for (const d of scenes[slot].draws) { for (const b of d.bufs) gl.deleteBuffer(b); gl.deleteVertexArray(d.vao); }
 		if (scenes[slot].bld) { for (const b of scenes[slot].bld.bufs) gl.deleteBuffer(b); gl.deleteVertexArray(scenes[slot].bld.vao); }
-		scenes[slot] = { origin: scenes[slot].origin, draws: [], bld: null };
+		scenes[slot] = { origin: scenes[slot].origin, draws: [], bld: null, md: null };   // md シーンは参照リストだけ＝GL資源なし（プールは常駐）
 	}
 	function dispose() { disposeSlot("base"); disposeSlot("main"); disposeOverlay(overlay); disposeOverlay(overlayHi); for (const o of n02) disposeOverlay(o); }
 
@@ -637,6 +798,9 @@ export function createRenderer(canvas) {
 			case "view":      setView(data); break;                                            // data={clear,land,atmo,bldColor}
 			case "sea":       sea = { ...sea, ...data }; break;                                  // data={li, minzoom} 海の点火ゲート
 			case "scene":     setScene(data, prop); break;                                      // prop=slot("base"|"main")
+			case "mdGrow":    mdGrow(data.pool, data.units); break;                            // multi_draw: プール成長（GPU内コピー）
+			case "mdUp":      mdUpload(data); break;                                           // multi_draw: タイルブロック転送
+			case "mdScene":   mdScene(data); break;                                            // multi_draw: draw list 差し替え（転送ゼロ）
 			case "overlay":   setOverlay(data, prop); break;                                    // prop=fillColor(任意)
 			case "overlayHi": setOverlayHi(data, prop); break;
 			case "n02":       setN02(data); break;                                               // data=[シーン…] 交通の常駐オーバーレイ群
@@ -655,7 +819,8 @@ export function createRenderer(canvas) {
 			default: console.warn("renderer.set: unknown cmd", cmd);
 		}
 	}
-	return { gl, set, draw, dispose };
+	// md/mdMax は renderworker が scene worker へ「multi_draw モードで動け」を通知するための能力表明
+	return { gl, set, draw, dispose, md: !!md, mdMax: MD_MAX_DRAWS };
 }
 
 // --- GL ヘルパ ---

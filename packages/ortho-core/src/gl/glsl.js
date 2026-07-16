@@ -456,24 +456,19 @@ void main() {
 }`;
 
 // capsule 方式：両端をスクリーン空間へ投影して定px幅・丸端で描く。透視でも幅が一定。
-export const LINE_VS = `#version 300 es
-precision highp float;
-in vec2 a_p1;
-in vec2 a_p2;
-in vec2 a_corner;   // (end 0/1, side -1/+1)
-in float a_half;    // CSS px
-in vec4 a_color;
-uniform float u_dpr;
-${PROJECT}
+// 本体は classic（インスタンス属性）と multi_draw（テクスチャpull）で共用＝式の乖離を構造的に防ぐ。
+// 変種側が用意するローカル: o(シーン原点+タイル原点差 deg), p1/p2(原点相対 lon/lat), corner(end 0/1, side ±1),
+// hw0(半幅 CSS px), col0(rgba)。
+const LINE_VARY = /* glsl */`
 flat out vec2 v_a;
 flat out vec2 v_b;
 flat out float v_half;
 out vec2 v_pos;
 out vec4 v_color;
 out float v_front;
-out float v_fog;
-void main() {
-	vec2 la1 = u_origin + a_p1, la2 = u_origin + a_p2;
+out float v_fog;`;
+const LINE_MAIN = /* glsl */`
+	vec2 la1 = o + p1, la2 = o + p2;
 	vec3 da = lonlatTo3D(la1), db = lonlatTo3D(la2);
 	// 線は傾き時に深度テストを切って地形の上に描く（renderer側）ので、持ち上げ不要＝浮きゼロ。
 	float lift = 0.0;
@@ -489,18 +484,90 @@ void main() {
 	vec2 d = sb - sa; float len = length(d);
 	vec2 dir = len > 1e-6 ? d / len : vec2(1.0, 0.0);
 	vec2 perp = vec2(-dir.y, dir.x);
-	float hw = a_half * u_dpr + 1.0;        // +1px の AA/丸端余白
-	vec2 base = a_corner.x < 0.5 ? sa : sb;
-	float capSign = a_corner.x < 0.5 ? -1.0 : 1.0;
-	vec2 pos = base + perp * (hw * a_corner.y) + dir * (capSign * hw);
-	v_a = sa; v_b = sb; v_half = a_half * u_dpr; v_pos = pos;
-	v_color = a_color; v_front = min(fa, fb);
+	float hw = hw0 * u_dpr + 1.0;        // +1px の AA/丸端余白
+	vec2 base = corner.x < 0.5 ? sa : sb;
+	float capSign = corner.x < 0.5 ? -1.0 : 1.0;
+	vec2 pos = base + perp * (hw * corner.y) + dir * (capSign * hw);
+	v_a = sa; v_b = sb; v_half = hw0 * u_dpr; v_pos = pos;
+	v_color = col0; v_front = min(fa, fb);
 	v_fog = fogOf((wa + wb) * 0.5);
 	// 端点の深度は対数系（applyLogDepth と同式）＝地形・建物と同じ深度空間（山岳ビューで尾根の向こうを遮蔽）
-	float wz = (a_corner.x < 0.5) ? ca.w : cb.w;
+	float wz = (corner.x < 0.5) ? ca.w : cb.w;
 	float zc = log2(max(1.0 + wz, 1e-6)) * u_logCoef - 1.0;
 	vec2 ndc = vec2(pos.x / u_viewport.x * 2.0 - 1.0, 1.0 - pos.y / u_viewport.y * 2.0);
 	gl_Position = vec4(ndc, zc, 1.0);
+`;
+export const LINE_VS = `#version 300 es
+precision highp float;
+in vec2 a_p1;
+in vec2 a_p2;
+in vec2 a_corner;   // (end 0/1, side -1/+1)
+in float a_half;    // CSS px
+in vec4 a_color;
+uniform float u_dpr;
+${PROJECT}
+${LINE_VARY}
+void main() {
+	vec2 o = u_origin;
+	vec2 p1 = a_p1, p2 = a_p2, corner = a_corner;
+	float hw0 = a_half; vec4 col0 = a_color;
+${LINE_MAIN}
+}`;
+
+// --- multi_draw（タイルバッファGPU常駐）用の変種 ---
+// 頂点はタイル原点相対のまま常駐し、gl_DrawID → u_tileOff[]（タイル原点−シーン原点）で再ベース＝
+// merge の CPU memcpy と setScene の全バッファ再生成を丸ごと廃す。u_tileOff は uniform 配列（UBO不要の規模）。
+export const MD_MAX_DRAWS = 128;   // 1回の multiDraw に載せる最大タイル数（超過は呼び出し側がチャンク分割）
+
+// 既存シェーダの機械変換（対象文字列が消えたらロード時に即 throw ＝サイレントな取りこぼしを防ぐ）
+function mdize(src, subs) {
+	let s = src.replace("#version 300 es", "#version 300 es\n#extension GL_ANGLE_multi_draw : require");
+	for (const [from, to] of subs) {
+		if (!s.includes(from)) throw new Error("mdize: 置換対象が見つからない: " + from);
+		s = s.split(from).join(to);
+	}
+	return s;
+}
+// 加算順は classic（merge済み頂点）と厳密に揃える：小さい値同士（タイル原点差＋タイル相対頂点）を先に足し、
+// 大きい u_origin は最後に1回だけ＝大きい桁での丸めが classic と同じ1回で済む（外側から足すと z18+ で数px级の格子化が出る）。
+export const FILL_MD_VS = mdize(FILL_VS, [
+	["in vec4 a_color;", `in vec4 a_color;\nuniform vec2 u_tileOff[${MD_MAX_DRAWS}];`],
+	["vec2 ll = u_origin + a_delta;", "vec2 ll = u_origin + (u_tileOff[gl_DrawID] + a_delta);"],
+]);
+export const BUILDING_MD_VS = mdize(BUILDING_VS, [
+	["in vec2 a_anchor;", `in vec2 a_anchor;\nuniform vec2 u_tileOff[${MD_MAX_DRAWS}];`],
+	["vec2 ll = u_origin + a_pos.xy;", "vec2 ll = u_origin + (u_tileOff[gl_DrawID] + a_pos.xy);"],
+	["elev(u_origin + a_anchor)", "elev(u_origin + (u_tileOff[gl_DrawID] + a_anchor))"],
+]);
+// 線は属性を持たない multiDrawArrays（6頂点/線分）：WEBGL_multi_draw に baseInstance が無く、
+// インスタンス属性の常駐プール化ができないため、線分データはテクスチャで持ち gl_VertexID から引く。
+// RGBA32UI（float の bit を uint で格納）＝RGBA32F だと色のパックbitが NaN 正規化で壊れる恐れがある。
+export const LINE_MD_VS = `#version 300 es
+#extension GL_ANGLE_multi_draw : require
+precision highp float;
+precision highp usampler2D;
+// 線分プール（2texel/線分）: [bits(p1.x), bits(p1.y), bits(p2.x), bits(p2.y)] [colRGBA8パック, bits(half), 0, 0]
+uniform usampler2D u_segTex;
+uniform vec2 u_tileOff[${MD_MAX_DRAWS}];
+uniform float u_dpr;
+${PROJECT}
+${LINE_VARY}
+const vec2 CORN[6] = vec2[6](vec2(0., -1.), vec2(0., 1.), vec2(1., -1.), vec2(1., -1.), vec2(0., 1.), vec2(1., 1.));   // renderer の CORNERS と同一
+void main() {
+	int seg = gl_VertexID / 6;
+	vec2 corner = CORN[gl_VertexID - seg * 6];
+	int tw = textureSize(u_segTex, 0).x;
+	int t0 = seg * 2;
+	uvec4 A = texelFetch(u_segTex, ivec2(t0 % tw, t0 / tw), 0);
+	uvec4 B = texelFetch(u_segTex, ivec2((t0 + 1) % tw, (t0 + 1) / tw), 0);
+	vec2 off = u_tileOff[gl_DrawID];
+	// タイル原点差はここ（小さい値同士）で足す＝大きい u_origin の加算は LINE_MAIN 内で1回だけ（classic と同じ丸め回数）
+	vec2 p1 = vec2(uintBitsToFloat(A.x), uintBitsToFloat(A.y)) + off;
+	vec2 p2 = vec2(uintBitsToFloat(A.z), uintBitsToFloat(A.w)) + off;
+	vec4 col0 = vec4(float(B.x & 255u), float((B.x >> 8) & 255u), float((B.x >> 16) & 255u), float(B.x >> 24)) / 255.0;
+	float hw0 = uintBitsToFloat(B.y);
+	vec2 o = u_origin;
+${LINE_MAIN}
 }`;
 
 export const LINE_FS = `#version 300 es

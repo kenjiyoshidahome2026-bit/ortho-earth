@@ -17,6 +17,7 @@ export function createPipeline({ style, tileUrl, requestDraw, scenePort, onMerge
 		sceneWorker.postMessage({ type: "merge", slot, sig, order: order.map(o => ({ key: o.key, origin: o.origin, z: o.z })), origin, hidden: hidden && hidden.size ? [...hidden] : null });
 	}
 	requestMerge.debugFail = () => sceneWorker.postMessage({ type: "debugFailNext" });   // テスト用：次の merge を故意に失敗させる
+	requestMerge.stats = () => sceneWorker.postMessage({ type: "stats" });   // 観測用：GPU常駐プールの占有を scene worker が console に出す
 	function collectTileBuffers(dl, buildings) {
 		const bufs = [];
 		for (const op of dl.ops) { if (op.kind === "fill") bufs.push(op.pos.buffer, op.col.buffer, op.idx.buffer); else bufs.push(op.P1.buffer, op.P2.buffer, op.col.buffer, op.half.buffer); }

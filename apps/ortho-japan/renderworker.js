@@ -17,8 +17,9 @@ onmessage = e => {
 		case "init":
 			canvas = m.canvas;                                   // GL 用 OffscreenCanvas
 			// GL 初期化失敗（WebGL2不可・GPUブロックリスト等）は黙って死なず main へ通知＝案内を出させる。
-			try { renderer = createRenderer(canvas); }
+			try { renderer = createRenderer(canvas, { noMD: !!m.noMultiDraw }); }
 			catch (err) { postMessage({ type: "glfail", error: String(err && err.message || err) }); return; }
+			console.log(`[render] multi_draw ${renderer.md ? "有効（タイルGPU常駐）" : "なし（CPU mergeフォールバック）"}`);
 			glRef = canvas.getContext("webgl2");                 // 同一コンテキストが返る＝isContextLost() の監視用
 			labelCanvas = m.labelCanvas;                         // ラベル用 OffscreenCanvas（2D）
 			labelLayer = createLabelLayer(labelCanvas, { shieldFor, elevBase: m.elevBase });
@@ -32,10 +33,18 @@ onmessage = e => {
 			// 全球R90（8枚・計55MB・初回のみ＝以後IDB常備）を起動の山が過ぎた頃に先読み＝
 			// 低ズームの地球ぐるぐるで陰影が最初から途切れない（z1-4を塗る前提の仕込み）。
 			setTimeout(() => { for (const lng of [-180, -90, 0, 90]) for (const lat of [-90, 0]) terrain.prefetch(lng, lat, 90); }, 6000);
-			if (m.scenePort) m.scenePort.onmessage = ev => {     // scene worker から直結：main を経由しない geometry
-				sceneInbox.set(ev.data.slot, ev.data.scene);     // 貯めるだけ＝適用は drainUploads（1件/フレーム・slotごと最新だけ＝ズーム中の中間版は上げずに捨てる）
-				dirty = true;
-			};
+			if (m.scenePort) {
+				m.scenePort.onmessage = ev => {                  // scene worker から直結：main を経由しない geometry
+					const d = ev.data;
+					// multi_draw 系（grow/up/dl）は FIFO＝dl（draw list）が up（タイルブロック転送）を追い越すと
+					// 未転送レンジを描いてゴミが出る。fallback の scene は従来どおり slot 毎に最新だけ。
+					if (d.type === "up" || d.type === "grow" || d.type === "dl") mdInbox.push(d);
+					else sceneInbox.set(d.slot, d.scene);        // 貯めるだけ＝適用は drainUploads（1件/フレーム・slotごと最新だけ＝ズーム中の中間版は上げずに捨てる）
+					dirty = true;
+				};
+				// renderer の能力表明＝scene worker のモードを確定させる（multi_draw か CPU merge フォールバックか）
+				m.scenePort.postMessage({ type: "mode", md: renderer.md, maxDraws: renderer.mdMax });
+			}
 			if (m.gintSyncPort) gintSyncPort = m.gintSyncPort;   // 海岸線(gint)従属の出口
 			requestAnimationFrame(frame);                        // worker 自前の描画ループ開始
 			break;
@@ -54,7 +63,12 @@ onmessage = e => {
 			else if (m.cmd === "skyMoon") { if (labelLayer) labelLayer.setMoon(m.data); }    // 月の満ち欠け円盤＝ラベルcanvasへ（常設）
 			else if (m.cmd === "plateauMesh") plateauInbox.push({ meshData: m.data, name: m.prop });   // 解放(null)も同じ列へ＝キュー内の未転送バッチを追い越さない（先に解放が効くと後から亡霊バッチが立つ）
 			else if (m.cmd === "plateauVis") plateauInbox.push({ vis: !!m.data, name: m.prop });      // 表示切替も同じ列＝未転送バッチ/解放との順序を保つ（適用は軽い＝フレーム予算を消費しない）
-			else if (m.cmd === "scene") sceneInbox.set(m.prop, m.data);          // mainからのシーンクリア（退場の layers:[]）も同じ受け口＝キュー内の古いシーンに追い越されない
+			else if (m.cmd === "scene") {                                        // mainからのシーンクリア（退場の layers:[]）も同じ受け口＝キュー内の古いシーンに追い越されない
+				// 滞留中の同slotの draw list（multi_draw）はこのクリアより古い＝パージ。残すと転送渋滞の1フレーム後に
+				// 古いシーンが復活する（遅れて届く dl は ack 側の再クリア（onMerged の z<4 分岐）が面倒を見る）。
+				for (let i = mdInbox.length - 1; i >= 0; i--) if (mdInbox[i].type === "dl" && mdInbox[i].slot === m.prop) mdInbox.splice(i, 1);
+				sceneInbox.set(m.prop, m.data);
+			}
 			else if (renderer) renderer.set(m.cmd, m.data, m.prop);              // view/overlay/elev…
 			dirty = true;                                        // 内容が変わった→描き直す
 			break;
@@ -119,9 +133,34 @@ let uploadSkip = 0, pendingUp = false;   // uploadSkip＝PLATEAU転送直後の�
 //   ズーム中に連続で届く粗い下地の中間版は上げずに捨てる（転送の仕事そのものが減る）。
 // ・PLATEAU バッチ（typed array 10〜20MB）は FIFO＝解放(null)の追い越し禁止（先に解放が効くと
 //   後から亡霊バッチが立つ）。解放は deleteBuffer だけで軽い＝同フレームで続けて消化。
-const sceneInbox = new Map(), plateauInbox = [];
+const sceneInbox = new Map(), plateauInbox = [], mdInbox = [];
+// multi_draw 系の消化：FIFO 厳守（dl が up を追い越さない）・重い転送(up)だけバイト予算で平準化。
+// grow は GPU 内コピー、dl は参照リスト差し替え＝どちらもタダ同然なので同フレームで続けて消化する。
+const MD_BYTES_PER_FRAME = 3 << 20;
+const upBytes = d => (d.fill ? d.fill.buf.byteLength : 0) + (d.idx ? d.idx.arr.byteLength : 0) + (d.line ? d.line.arr.byteLength : 0) + (d.bld ? d.bld.arr.byteLength : 0);
+function drainMD() {
+	let budget = MD_BYTES_PER_FRAME, spent = false;
+	while (mdInbox.length) {
+		const d = mdInbox[0];
+		if (d.type === "up") {
+			const b = upBytes(d);
+			if (spent && b > budget) break;   // 予算切れ＝続きは次フレーム（先頭の1件は予算超でも必ず通す＝詰まり防止）
+			budget -= b; spent = true;
+		}
+		mdInbox.shift();
+		try {
+			renderer.set(d.type === "up" ? "mdUp" : d.type === "grow" ? "mdGrow" : "mdScene", d);
+			// dl の適用＝この瞬間から画面に載る＝ここで初めて main に ack（sig確定）。scene worker の送信時 ack だと
+			// アップロード渋滞の数フレーム分「ackされたのにまだ旧シーン」の窓ができ、退場機構が先走って古い線が混ざる。
+			if (d.type === "dl" && d.sig) postMessage({ type: "dlApplied", slot: d.slot, sig: d.sig });
+		} catch (err) { console.error("[render] md適用失敗:", err && (err.message || err)); }   // 黙らせない＝ackも返さない（mainがタイムアウト再要求）
+		dirty = true;
+	}
+	if (spent) uploadSkip = 2;   // 転送の山は「次フレームのdt」に出る＝動的解像度のEMA計測から除外
+}
 function drainUploads() {
 	if (!renderer) return;
+	if (mdInbox.length) drainMD();
 	if (sceneInbox.size) {   // シーン優先＝基図の見た目への効きが大きい（PLATEAUは1フレーム待つだけ）
 		const [slot, scene] = sceneInbox.entries().next().value;
 		sceneInbox.delete(slot);
