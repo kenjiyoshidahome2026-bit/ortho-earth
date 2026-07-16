@@ -3,24 +3,24 @@
 // abort: 高速パンで視野から外れたタイルは fetch ごと中断（帯域とデコードCPUを空ける）。
 // index.js（全部入り）でなく実装ファイル直参照：index は pipeline（worker生成）を含むため、
 // worker から index を引くと vite が「循環worker」と誤認してビルドが落ちる
-import { fetchMVT } from "../decode.js";
+import { fetchMVT, neededSourceLayers } from "../decode.js";
 import { buildTileDrawList } from "../build.js";
 import { buildLabels } from "../labels.js";
 import { buildBuildings } from "../buildings.js";
 import { tileBounds } from "../tile.js";
 
-let style = null;
+let style = null, need = null;   // need＝styleが参照する source-layer 集合（未参照層は decode 省略）
 const aborts = new Map();   // id → AbortController（in-flight のみ保持）
 
 self.onmessage = async (e) => {
 	const m = e.data;
-	if (m.type === "init") { style = m.style; return; }
+	if (m.type === "init") { style = m.style; need = neededSourceLayers(style); return; }
 	if (m.type === "abort") { const a = aborts.get(m.id); if (a) a.abort(); return; }
 	const { id, url, z, x, y } = m;
 	const ac = new AbortController();
 	aborts.set(id, ac);
 	try {
-		const layers = await fetchMVT(url, ac.signal);
+		const layers = await fetchMVT(url, ac.signal, need);
 		const [w, , , n] = tileBounds(x, y, z);
 		const origin = [w, n];
 		const dl = buildTileDrawList({ layers, z, x, y }, style, origin);

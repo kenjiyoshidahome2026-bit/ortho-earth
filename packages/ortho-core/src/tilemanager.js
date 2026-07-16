@@ -1,7 +1,7 @@
 // タイル・マネージャ：距離別LOD（近=高z/遠=低z、重なりなし）で可視タイルを選び、取得・生成・キャッシュ。
 // buildScene で全選択タイルを style層ごとに1バッファへ結合（mixed-z, 共通原点に再ベース）。
 // ラベルは近景（高z）タイルのみ＝遠方はテキスト無し。
-import { fetchMVT } from "./decode.js";
+import { fetchMVT, neededSourceLayers } from "./decode.js";
 import { tileBounds } from "./tile.js";
 import { buildTileDrawList } from "./build.js";
 import { buildLabels } from "./labels.js";
@@ -18,8 +18,9 @@ export function createTileManager({ style, tileUrl, onChange, cap = 256, buildTi
 	const cache = new Map();   // key → { status, origin, dl, labels, z }
 
 	// 既定：メインスレッドで fetch→decode→tessellation（重い）。buildTile 注入で worker へ退避できる。
+	const need = neededSourceLayers(style);
 	async function defaultBuildTile(t) {
-		const layers = await fetchMVT(tileUrl(t.z, t.x, t.y));
+		const layers = await fetchMVT(tileUrl(t.z, t.x, t.y), undefined, need);
 		const [w, s, e, n] = tileBounds(t.x, t.y, t.z);
 		const origin = [w, n];
 		const dl = buildTileDrawList({ layers, z: t.z, x: t.x, y: t.y }, style, origin);
