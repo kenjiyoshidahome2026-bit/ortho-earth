@@ -823,6 +823,9 @@ async function loadN02() {
 	// 濃緑の実線（鉄道点火#4b9e6aより暗く、高速の青#2f6cadと衝突しない）。半幅0.9＝計1.8px＝高速(低ズーム)と同太
 	const SN_GREEN = [0.04, 0.42, 0.25, 0.95];
 	const scenes = sn.length ? [buildGeoJSONOverlay(sn, N02_ORIGIN, { lineColor: SN_GREEN, lineWidth: 0.9 })] : [];
+	// 路線ラインも基図と同じ z≥BASEMAP_MINZOOM でだけ描く：全球(z<4)は基図オフの「地球ぐるぐる」＝
+	// 路線だけが宙に浮くバグになる（minZoom 未設定だと renderer の s.minZoom||0=0 で全ズーム描画）。
+	if (scenes.length) scenes[0].minZoom = BASEMAP_MINZOOM;
 	// 駅（Station.geojson＝線路沿いの短いポリライン）：新幹線駅だけをビーズ○で。濃緑の玉に紙色の芯を重ねる＝
 	// 線シェーダは capsule（丸端）なので、極小セグメント×太い半幅がそのまま駅の玉になる。ミニ新幹線の停車駅は
 	// 在来線駅として収録＝路線×駅名の許可リストで拾う（フル新幹線駅は N02_002=1 で正確に取れる）。
@@ -847,7 +850,7 @@ async function loadN02() {
 	if (stSn.length) {   // 新幹線駅は通常駅の後＝重なったら新幹線ビーズが勝つ
 		const sOuter = buildGeoJSONOverlay(stSn, N02_ORIGIN, { lineColor: SN_GREEN, lineWidth: 2.4 });                      // 玉（外径）
 		const sCore = buildGeoJSONOverlay(stSn, N02_ORIGIN, { lineColor: [0.965, 0.965, 0.957, 1], lineWidth: 1.2 });       // 芯（紙色）＝○に見える
-		sOuter.minZoom = sCore.minZoom = 6.5;   // 全国ビュー(z〜5)ではビーズ不要＝広域(z6.5+)から。路線の線は全ズームのまま
+		sOuter.minZoom = sCore.minZoom = 6.5;   // 全国ビュー(z〜5)ではビーズ不要＝広域(z6.5+)から。路線の線は z≥4（基図と同ゲート）
 		scenes.push(sOuter, sCore);
 	}
 	renderer.set("n02", scenes);
