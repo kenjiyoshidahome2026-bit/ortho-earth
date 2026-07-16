@@ -22,4 +22,7 @@ export const censusSmall2020SidebarEntry = () =>
 export const census2015SidebarEntry = () =>
     ({ dataset_code:'census2015', title:'国勢調査 2015 基本集計', file_count:1, license:'CC BY', _sourceId:'estat', attribution:'総務省統計局' });
 
+export const npsSidebarEntry = () =>
+    ({ dataset_code:'nps', title:'国立公園（区域・地種区分）', file_count:35, license:'政府標準利用規約(CC BY互換)', _sourceId:'env', attribution:'環境省 環境ジオポータル' });
+
 export { COUNTS };

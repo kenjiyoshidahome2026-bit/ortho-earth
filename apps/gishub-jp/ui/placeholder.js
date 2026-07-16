@@ -43,6 +43,15 @@ export function placeholder(catalog) {
             unit:  '市区町村',
             desc:  '全国の農地区画。作付・耕地種別などの属性付き（GeoJSON）',
         },
+        {
+            icon:  '🏔️',
+            min:   '環境省',
+            url:   'https://geo.env.go.jp/',
+            label: '国立公園',
+            cnt:   35,
+            unit:  '公園（区域・地種区分）',
+            desc:  '特別保護地区〜普通地域の地種区分付き区域界（GeoPBF）',
+        },
     ].map(c => `
         <a class="ph-card" href="${c.url}" target="_blank">
             <div class="ph-card-min">${c.min}</div>

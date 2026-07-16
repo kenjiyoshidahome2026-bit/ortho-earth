@@ -15,6 +15,7 @@ import { initSidebarToggle }  from './ui/sidebar.js';
 import {
     mojSidebarEntry, maffSidebarEntry, estatSidebarEntry,
     census2025SidebarEntry, censusSmall2020SidebarEntry, census2015SidebarEntry,
+    npsSidebarEntry,
 } from './ui/entries.js';
 
 // dataset_code → { モジュール読込, 描画関数名 }（カタログ外の #amedas/#seismic も同じ機構）
@@ -24,6 +25,7 @@ const LAZY_VIEWS = {
     'estat':             { load: () => import('./estat/ui.js'),  fn: 'renderEstatList' },
     'amedas':            { load: () => import('./jma/ui.js'),    fn: 'showAmedas' },
     'seismic':           { load: () => import('./jishin/ui.js'), fn: 'showSeismic' },
+    'nps':               { load: () => import('./nps/ui.js'),    fn: 'renderNpsView' },
     'census2025':        { load: () => import('./census/ui.js'), fn: 'renderCensus2025List' },
     'census2020':        { load: () => import('./census/ui.js'), fn: 'renderCensus2020List' },
     'census2015':        { load: () => import('./census/ui.js'), fn: 'renderCensus2015List' },
@@ -62,6 +64,7 @@ async function loadCatalog() {
 			census2025SidebarEntry(),
 			censusSmall2020SidebarEntry(),   // 「国勢調査 2020 基本集計」= 全国→小地域の総合ドリルダウン（旧フラット2020を統合）
 			census2015SidebarEntry(),
+			npsSidebarEntry(),
 		];
 
 		const nlftpEntries = await loadCatalogEntries().catch(e => { console.error('[nlftp] catalog load failed:', e); return []; });
@@ -94,6 +97,7 @@ const SOURCE_GROUP_LABELS = {
 	moj:   '法務省 G空間情報センター',
 	maff:  '農林水産省',
 	estat: '総務省 e-Stat',
+	env:   '環境省 環境ジオポータル',
 	nlftp: '国土交通省 国土数値情報',
 };
 
@@ -101,6 +105,7 @@ const SOURCE_GROUP_URLS = {
 	moj:   'https://www.geospatial.jp/ckan/organization/moj',
 	maff:  'https://open.fude.maff.go.jp/',
 	estat: 'https://www.e-stat.go.jp/gis',
+	env:   'https://geo.env.go.jp/',
 	nlftp: 'https://nlftp.mlit.go.jp/ksj/',
 };
 
@@ -215,7 +220,15 @@ async function copyEntries(entries, feedbackEl) {
 // ============================================================
 // ctx 登録（省庁モジュールが参照する共有関数）
 // ============================================================
-ctxSetup({ setDetailHtml, renderExecView, bulkDownload, copyEntries, closeGeoPreview,
+function goHome() {
+	history.replaceState(null, '', '#');
+	setDetailHtml(placeholder(catalog));
+	closeGeoPreview();
+	active = null;
+	document.querySelectorAll('.ds-item').forEach(el => el.classList.remove('active'));
+}
+
+ctxSetup({ setDetailHtml, renderExecView, bulkDownload, copyEntries, closeGeoPreview, goHome,
            renderMojList: () => runLazyView('moj') });
 
 // ============================================================
@@ -280,11 +293,7 @@ init();
 initSidebarToggle();
 initDetailEventListeners();
 
-document.getElementById('sidebar-brand').addEventListener('click', () => {
-	history.replaceState(null, '', '#');
-	setDetailHtml(placeholder(catalog));
-	closeGeoPreview();
-});
+document.getElementById('sidebar-brand').addEventListener('click', goHome);
 
 // execGlobeView を globalThis に置く（将来の外部連携用）
 globalThis._execGlobeView = execGlobeView;
