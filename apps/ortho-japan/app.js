@@ -116,6 +116,13 @@ const netEl = document.createElement("div");
 netEl.id = "net-toast";   // スタイルは style.css
 netEl.textContent = "地図データの取得に失敗しています（通信状態をご確認ください）";
 mapEl.appendChild(netEl);
+// 縦向き案内：スマホ横向き（coarseポインタ＋低い横長ビューポート）で縦向きを促す。表示制御は CSS メディアクエリのみ
+// ＝JSは要素を置くだけ（回転すれば自然に消える）。タップで閉じたら inline display:none がメディアクエリに勝つ＝再表示しない。
+const rotEl = document.createElement("div");
+rotEl.id = "rotate-toast";   // スタイルと表示条件は components.scss（#rotate-toast）
+rotEl.textContent = "端末を縦向きにしてご覧ください（タップで閉じる）";
+rotEl.onclick = () => { rotEl.style.display = "none"; };
+mapEl.appendChild(rotEl);
 let tileFails = 0;
 const onTile = ok => {
 	if (ok) { tileFails = 0; if (navigator.onLine !== false) netEl.style.display = "none"; }

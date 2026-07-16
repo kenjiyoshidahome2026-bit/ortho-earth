@@ -425,6 +425,16 @@ body { visibility: visible; }   /* 開幕＝このスタイルシートの到着
 	background: var(--qm-warn-bg); border: 1px solid var(--qm-warn-border); padding: 7px 16px; border-radius: var(--qm-r-m);
 	display: none; font-family: var(--qm-font);
 }
+#rotate-toast {   /* スマホ横向き→縦向き案内。表示条件はメディアクエリのみ（JS不要・回転すれば自然に消える）。タップで閉じられる */
+	position: absolute; top: 46px; left: 50%; transform: translateX(-50%); font-size: 13px; color: var(--qm-text);
+	background: var(--qm-panel); border: 1px solid var(--qm-border); padding: 7px 16px; border-radius: var(--qm-r-m);
+	display: none; font-family: var(--qm-font); cursor: pointer; white-space: nowrap;
+	-webkit-backdrop-filter: blur(var(--qm-blur)); backdrop-filter: blur(var(--qm-blur));
+}
+/* スマホ横向きだけ：coarseポインタ（タッチ端末）＋横長＋低いビューポート（縦480px未満＝タブレット横は含まない） */
+@media (orientation: landscape) and (pointer: coarse) and (max-height: 480px) {
+	#rotate-toast { display: block; }
+}
 #elev-toast, #plateau-toast {   /* 地形読込・3D都市進捗（左下・#pos の上に積む） */
 	position: absolute; left: 10px; font-size: 12px; color: var(--qm-text);
 	background: var(--qm-panel); padding: 5px 11px; border-radius: var(--qm-r-s);
