@@ -11,6 +11,8 @@
 import { mkdirSync, createWriteStream, statSync } from 'fs';
 import { join } from 'path';
 import AdmZip from 'adm-zip';
+// 都道府県→系番号フォールバック（正本: jp/codes.js・1か所管理）
+import { PREF_SYS } from '../jp/codes.js';
 
 // ============================================================
 // 公共座標系 (JGD2011 平面直角座標系) → WGS84 変換
@@ -100,10 +102,10 @@ function planeToLatLon(x, y, sysNum) {
 	return [parseFloat((lam / DEG).toFixed(8)), parseFloat((phi / DEG).toFixed(8))];
 }
 
-// 座標系テキスト → 系番号
+// 座標系テキスト → 系番号（不明は 0 = フォールバックに委ねる。moj-batch と同一挙動）
 function parseSysNum(txt) {
 	const m = txt && txt.match(/(\d+)系/);
-	return m ? parseInt(m[1]) : 9;
+	return m ? parseInt(m[1]) : 0;
 }
 
 // ============================================================
@@ -111,9 +113,12 @@ function parseSysNum(txt) {
 // ============================================================
 function* parseChizuXmlGen(xml) {
 	// --- ヘッダー情報 ---
-	const sysNum  = parseSysNum((xml.match(/<座標系>(.*?)<\/座標系>/) || [])[1]);
+	// 任意座標系/系不明は都道府県の代表系にフォールバック（旧実装は無条件9系＝関東以外で数百kmズレ）
+	const sysTag   = (xml.match(/<座標系>(.*?)<\/座標系>/) || [])[1] || '';
 	const cityCode = (xml.match(/<市区町村コード>(.*?)<\/市区町村コード>/) || [])[1] || '';
 	const cityName = (xml.match(/<市区町村名>(.*?)<\/市区町村名>/)       || [])[1] || '';
+	const sysNum   = (/任意/.test(sysTag) ? 0 : parseSysNum(sysTag))
+		|| PREF_SYS[cityCode.slice(0, 2)] || 9;
 
 	// yield メタ情報（最初に1回）
 	yield { _meta: true, cityCode, cityName };

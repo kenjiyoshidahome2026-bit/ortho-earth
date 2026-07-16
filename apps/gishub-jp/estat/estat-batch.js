@@ -17,7 +17,7 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import AdmZip from 'adm-zip';
 import * as shapefile from 'shapefile';
-import { Bucket } from '../../packages/native-bucket/src/Bucket.js';
+import { Bucket } from 'native-bucket';   // workspace解決（アプリ移設で相対深度が壊れた轍・exports封印にも整合）
 const __dir = dirname(fileURLToPath(import.meta.url));
 
 const API_BASE      = 'https://api.ortho-earth.com';

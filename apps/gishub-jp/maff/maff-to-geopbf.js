@@ -19,7 +19,7 @@ import { promisify } from 'util';
 import Pbf from 'pbf';
 
 const gunzipAsync = promisify(gunzip);
-import { Bucket } from '../../packages/native-bucket/src/Bucket.js';
+import { Bucket } from 'native-bucket';   // workspace解決（アプリ移設で相対深度が壊れた轍・exports封印にも整合）
 
 const API_BASE   = 'https://api.ortho-earth.com';
 const API_KEY = process.env.API_KEY;

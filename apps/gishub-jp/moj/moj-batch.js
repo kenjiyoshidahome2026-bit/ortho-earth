@@ -16,8 +16,10 @@
 import { readFileSync, existsSync, writeFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
-import { Bucket } from '../../packages/native-bucket/src/Bucket.js';
+import { Bucket } from 'native-bucket';   // workspace解決（アプリ移設で相対深度が壊れた轍・exports封印にも整合）
 import AdmZip from 'adm-zip';
+// 全XMLが任意座標系の場合の都道府県→系番号フォールバック（正本: jp/codes.js・1か所管理）
+import { PREF_SYS } from '../jp/codes.js';
 const __dir = dirname(fileURLToPath(import.meta.url));
 
 // ============================================================
@@ -81,17 +83,6 @@ function planeToLatLon(x, y, sysNum) {
 function parseSysNum(txt) {
 	const m=txt?.match(/(\d+)系/); return m?parseInt(m[1]):0;
 }
-
-// 全XMLが任意座標系の場合の都道府県コード→座標系フォールバック
-const PREF_SYS = {
-	'01':12, '02':10, '03':10, '04':10, '05':10, '06':10, '07': 9,
-	'08': 9, '09': 9, '10': 8, '11': 9, '12': 9, '13': 9, '14': 9,
-	'15': 8, '16': 7, '17': 7, '18': 6, '19': 8, '20': 8, '21': 7,
-	'22': 8, '23': 7, '24': 6, '25': 6, '26': 6, '27': 6, '28': 5,
-	'29': 6, '30': 5, '31': 4, '32': 3, '33': 4, '34': 4, '35': 2,
-	'36': 4, '37': 4, '38': 4, '39': 5, '40': 2, '41': 1, '42': 1,
-	'43': 2, '44': 2, '45': 2, '46': 2, '47':15,
-};
 
 // ============================================================
 // XML → GeoJSONL ジェネレーター (moj-convert.js と同一ロジック)

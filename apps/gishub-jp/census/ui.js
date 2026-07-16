@@ -10,9 +10,10 @@ import CENSUS_2015_HOUSEHOLD from './2015-household.json' with { type: 'json' };
 import SMALL_AREA_DIFF        from './small-area-diff.json' with { type: 'json' };   // 2015↔2020 小地域区分が変わった市区町村: code → [n2015, n2020]
 import CITY_HISTORY from '../history.json' with { type: 'json' };   // [YYYYMMDD, "5桁コード", 説明] × 963件（2024-1980）
 import CENSUS_KANA        from './kana.json'        with { type: 'json' };
-import CENSUS_SHICHO      from './shicho.json'      with { type: 'json' };
-import CENSUS_GUN         from './gun.json'         with { type: 'json' };
 import ESTAT_MANIFEST     from '../estat/manifest.json' with { type: 'json' };
+// 政令市・振興局・郡などの行政コード知識は jp/codes.js が正本（1か所管理）
+import { DESIGNATED_CITIES, wardParent as _wardParent,
+         SHICHO as CENSUS_SHICHO, GUN as CENSUS_GUN } from '../jp/codes.js';
 import { buildCensusChartSections, buildPopTrendSVG, popTrendLegendHtml } from './charts.mjs';
 import { fetchSmallAreaData, fetchSmallAreaPyramid, fetchSmallAreaStats, miniAgeBar,
          prefetchSmallAreaIdb, isSmallAreaReady } from './small-area.js';
@@ -505,29 +506,7 @@ function _csDrillNational() {
     });
 }
 
-// 政令指定都市コード（20市）
-const DESIGNATED_CITIES = new Set([
-    '01100','04100','11100','12100',
-    '14100','14130','14150','15100',
-    '22100','22130','23100','26100',
-    '27100','27140','28100','33100',
-    '34100','40100','40130','43100',
-]);
-
-// code が政令指定都市の区なら親市コードを返す（違えば null）
-// 政令市が複数ある県（神奈川=横浜/川崎/相模原、福岡=北九州/福岡 等）では、
-// 政令市自身が近い方の政令市の区に誤判定されるためガードする
-function _wardParent(code) {
-    if (DESIGNATED_CITIES.has(code)) return null;   // 政令市自体は区ではない
-    const cNum = parseInt(code, 10);
-    let best = null, bestDiff = 40;
-    for (const dc of DESIGNATED_CITIES) {
-        if (dc.slice(0, 2) !== code.slice(0, 2)) continue;
-        const diff = cNum - parseInt(dc, 10);
-        if (diff > 0 && diff < bestDiff) { best = dc; bestDiff = diff; }
-    }
-    return best;
-}
+// 政令指定都市（DESIGNATED_CITIES）と区→親市の解決（_wardParent）は jp/codes.js から import（正本1か所）
 
 // 指定年の実データに存在する cityCode 配下の区一覧 [{code, name}]。
 // manifest（現行境界）ではなく各年データのキーから作るので、政令市の区割り再編
