@@ -13,7 +13,9 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 
 const __dir = path.dirname(fileURLToPath(import.meta.url));
-const CATALOG = path.join(__dir, '../apps/catalog');
+// 正本の manifest はアプリ側（旧 apps/catalog は消滅済み＝gishub-jp へ移設。パス切れでレビュー時に発覚）
+const ESTAT_MANIFEST = path.join(__dir, '../apps/gishub-jp/estat/manifest.json');
+const MAFF_MANIFEST  = path.join(__dir, '../apps/gishub-jp/maff/manifest.json');
 
 const API_BASE   = 'https://api.ortho-earth.com';
 const ESTAT_BASE = 'https://www.e-stat.go.jp/gis/statmap-search/data';
@@ -77,7 +79,7 @@ function progress(done, total, label) {
 
 // ── e-Stat ────────────────────────────────────────────────────
 async function fetchEstatSizes() {
-  const manifest = JSON.parse(fs.readFileSync(path.join(CATALOG, 'estat-manifest.json'), 'utf8'));
+  const manifest = JSON.parse(fs.readFileSync(ESTAT_MANIFEST, 'utf8'));
   const results  = manifest.map(e => ({ ...e }));
   let errors = 0;
 
@@ -89,7 +91,7 @@ async function fetchEstatSizes() {
 
   await runParallel(tasks, CONC, (d, t) => progress(d, t, 'e-Stat'));
 
-  const out = path.join(CATALOG, 'estat-manifest.json');
+  const out = ESTAT_MANIFEST;
   fs.writeFileSync(out, JSON.stringify(results) + '\n');
   const withSize = results.filter(e => e.size).length;
   console.log(`e-Stat: ${withSize}/${results.length} 取得 (${errors} エラー) → ${path.relative(process.cwd(), out)}`);
@@ -97,7 +99,7 @@ async function fetchEstatSizes() {
 
 // ── MAFF ─────────────────────────────────────────────────────
 async function fetchMaffSizes() {
-  const manifest = JSON.parse(fs.readFileSync(path.join(CATALOG, 'maff-manifest.json'), 'utf8'));
+  const manifest = JSON.parse(fs.readFileSync(MAFF_MANIFEST, 'utf8'));
   const results  = manifest.map(e => ({ ...e }));
   let errors = 0;
 
@@ -109,7 +111,7 @@ async function fetchMaffSizes() {
 
   await runParallel(tasks, CONC, (d, t) => progress(d, t, 'MAFF  '));
 
-  const out = path.join(CATALOG, 'maff-manifest.json');
+  const out = MAFF_MANIFEST;
   fs.writeFileSync(out, JSON.stringify(results) + '\n');
   const withSize = results.filter(e => e.size).length;
   console.log(`MAFF: ${withSize}/${results.length} 取得 (${errors} エラー) → ${path.relative(process.cwd(), out)}`);
