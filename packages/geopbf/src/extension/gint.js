@@ -152,6 +152,27 @@ export class gint {
 		};
 		for (let i = 1; i < n - 1; i++) L1arc[i] = this.toL2(L1arc[i], getPhysRank(eff[i]));
 	}
+	// 全arc一括のVW簡略化: wasmへのアップロード/ダウンロードを各1回に（arc単位のmemcpy往復＝数万回を排除）
+	// buffer: 連結済み BigUint64Array / ranges: Uint32Array [offset, len, offset, len, ...]（要素単位）
+	static L1toL2Batch(buffer, ranges) {
+		const count = ranges.length >>> 1;
+		if (!wasmReady || typeof L1toL2_wasm !== 'function' || sharedWasmPtr === 0) {
+			for (let i = 0; i < count; i++) this.L1toL2(buffer.subarray(ranges[i*2], ranges[i*2] + ranges[i*2+1]));
+			return;
+		}
+		const byteLength = buffer.length * 8;
+		if (byteLength === 0) return;
+		const ptr = this._ensureBufferSize(byteLength);
+		new Uint8Array(wasmMemoryBuffer.buffer).set(new Uint8Array(buffer.buffer, buffer.byteOffset, byteLength), ptr);
+		for (let i = 0; i < count; i++) {
+			const len = ranges[i*2+1];
+			if (len >= 3) L1toL2_wasm(ptr + ranges[i*2] * 8, len);
+		}
+		// wasmメモリが処理中に成長した場合に備えビューは取り直す（linear memoryは伸長のみ・ptrは不変）
+		new Uint8Array(buffer.buffer, buffer.byteOffset, byteLength)
+			.set(new Uint8Array(wasmMemoryBuffer.buffer).subarray(ptr, ptr + byteLength));
+	}
+
 	static detectIntersections(arcBuffer, arcMeta, arcCount, snapDistSq, gridUnit) {
 		if (!wasmReady || !arcBuffer || !arcMeta || arcCount === 0) return null;
 		const arcBufBytes  = arcBuffer.byteLength;

@@ -536,7 +536,9 @@ function cutPolygon(topo) {
 			function cutRing(ring) {
 				const len = ring.length;
 				const c = [];
-				for (let i = 0; i < len; i++) c[i] = gint.unpack(ring[i])
+				// 向き判定だけなので toFixed 経由の unpack は不要＝直算術（値は従来と同一グリッド）
+				const INV = gint.INV_SCALE_E;
+				for (let i = 0; i < len; i++) { const [ix, iy] = gint.unpackToInt(ring[i]); c[i] = [ix * INV - 180, iy * INV - 90]; }
 				let sum = 0, max = 0;
 				for (let i = 0; i < len; i++) {
 					const p = c[i], q = i + 1 == len ? c[0] : c[i + 1];
@@ -589,15 +591,20 @@ function metaPolygon(metas, topo) {
 
 function metaArc(buffs) {
 	const Radius = 6371008.8, RAD = Math.PI / 180;
+	// 長さ/面積の計算に intToVal（toFixed=文字列往復）は不要＝直算術。
+	// nps級(390万頂点)で toFixed だけに ~0.4秒 溶けていた実測に基づく
+	const INV = gint.INV_SCALE_E;
 	return buffs.map(calcMeta);
 	function calcMeta(buff, aid) {
 		const n = buff.length;
 		const closed = buff[0] == buff[n - 1]
 		let L = 0, A = 0;
-		let [x0, y0] = gint.unpackToInt(buff[0]), [lng0, lat0] = gint.intToVal([x0, y0]);
+		let [x0, y0] = gint.unpackToInt(buff[0]);
+		let lng0 = x0 * INV - 180, lat0 = y0 * INV - 90;
 		const bbox = new Uint32Array([x0, y0, x0, y0]);
 		for (let i = 1; i < n; i++) {
-			const [x1, y1] = gint.unpackToInt(buff[i]), [lng1, lat1] = gint.intToVal([x1, y1]);
+			const [x1, y1] = gint.unpackToInt(buff[i]);
+			const lng1 = x1 * INV - 180, lat1 = y1 * INV - 90;
 			const cosLat = Math.cos(((lat0 + lat1) / 2) * RAD);
 			const dx = (lng1 - lng0) * RAD * cosLat, dy = (lat1 - lat0) * RAD;
 			L += Math.sqrt(dx * dx + dy * dy);
@@ -700,12 +707,16 @@ function buildArcs(buffs, metas, startOffset = 0) {
 	for (let i = 0; i < count; i++) total += buffs[i].length;
 	const buffer = new BigUint64Array(total);
 	const meta = new Uint32Array(count * mlen);
+	const ranges = new Uint32Array(count * 2);
 	for (let i = 0; i < count; i++) {
 		const m = metas[i], arc = buffs[m.aid];
-		gint.L1toL2(arc);
 		buffer.set(arc, offset);
+		ranges[i * 2] = offset; ranges[i * 2 + 1] = arc.length;
 		meta.set([offset + startOffset, arc.length, m.weight, 0, ...m.bbox], i * mlen);
 		offset += arc.length;
 	}
+	// VW簡略化(L1→L2)は arc ごとに wasm を叩かず一括＝アップロード/ダウンロード各1回
+	// （旧: arc単位で memcpy 往復 ×数万回＝nps級で312ms。境界を跨ぐのはコピーでなく参照が理想、の原則）
+	gint.L1toL2Batch(buffer, ranges);
 	return { count, buffer, meta, mlen };
 }
