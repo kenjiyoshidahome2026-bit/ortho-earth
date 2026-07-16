@@ -485,7 +485,7 @@ const DRILL_YEARS = {
     // （小地域側の差し込み手順は census/small-area.js の YEARS 内 2025 テンプレコメント参照）
     '2025': {
         year: '2025',
-        notice: `<p class="cs-notice">速報集計（人口・世帯）のみ公開中。基本集計（年齢・就業・住宅）は 2026年秋頃公開予定。</p>`,
+        notice: `<p class="cs-notice">速報集計（人口・世帯）のみ公開中。人口等基本集計（年齢・世帯・住居）は 2026年9月、就業状態等基本集計は 2027年3月 公表予定。</p>`,
         nationalOpts: {},
         hasCity: code => !!CENSUS_2025_POP[code],
         leafPops() {   // 集約行（政令市20市+特別区部）を除外＝二重計上ガードの正本（_agg25ForLevel と同一集合）
