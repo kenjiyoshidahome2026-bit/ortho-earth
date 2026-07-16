@@ -152,6 +152,33 @@ export class gint {
 		};
 		for (let i = 1; i < n - 1; i++) L1arc[i] = this.toL2(L1arc[i], getPhysRank(eff[i]));
 	}
+	// XY(Int32ペア)連結バッファ → L1 Morton化＋VW簡略化 を wasm 1往復2パスで一括実行。
+	// int32ペアとu64は同サイズ＝XYtoL1はin-place変換なので、アップロード1回→XYtoL1一括→
+	// arcごとL1toL2（wasmメモリ内・memcpyなし）→ダウンロード1回で完結する。
+	// xy: Int32Array [x,y,...] / ranges: Uint32Array [offset,len,...]（頂点単位）
+	static XYtoGintBatch(xy, ranges) {
+		const count = xy.length >>> 1;
+		const rc = ranges.length >>> 1;
+		if (!wasmReady || typeof XYtoL1_wasm !== 'function' || sharedWasmPtr === 0) {
+			const out = new BigUint64Array(count);
+			for (let i = 0; i < count; i++) out[i] = this.packFromInt(xy[i*2], xy[i*2+1]);
+			for (let i = 0; i < rc; i++) this.L1toL2(out.subarray(ranges[i*2], ranges[i*2] + ranges[i*2+1]));
+			return out;
+		}
+		const byteLength = count * 8;
+		const out = new BigUint64Array(count);
+		if (byteLength === 0) return out;
+		const ptr = this._ensureBufferSize(byteLength);
+		new Uint8Array(wasmMemoryBuffer.buffer).set(new Uint8Array(xy.buffer, xy.byteOffset, byteLength), ptr);
+		XYtoL1_wasm(ptr, count);
+		for (let i = 0; i < rc; i++) {
+			const len = ranges[i*2+1];
+			if (len >= 3) L1toL2_wasm(ptr + ranges[i*2] * 8, len);
+		}
+		new Uint8Array(out.buffer).set(new Uint8Array(wasmMemoryBuffer.buffer).subarray(ptr, ptr + byteLength));
+		return out;
+	}
+
 	// 全arc一括のVW簡略化: wasmへのアップロード/ダウンロードを各1回に（arc単位のmemcpy往復＝数万回を排除）
 	// buffer: 連結済み BigUint64Array / ranges: Uint32Array [offset, len, offset, len, ...]（要素単位）
 	static L1toL2Batch(buffer, ranges) {

@@ -38,6 +38,18 @@ export function topology(self) {
 		if (x < bbox[0]) bbox[0] = x; if (x > bbox[2]) bbox[2] = x;
 		if (y < bbox[1]) bbox[1] = y; if (y > bbox[3]) bbox[3] = y;
 	};
+	// ポリゴン経路は中盤を (x,y) int32 のまま通し、Morton化は出口 buildArcs で一括（uint32-middle設計）。
+	// ライン/ポイントは従来どおり入口でL1化（量が少なく purifier 等がMorton前提のため）
+	const xyStream = (cap) => {
+		let arr = new Int32Array(cap * 2), len = 0;
+		return {
+			push(x, y) {
+				if (len + 2 > arr.length) { const g = new Int32Array(arr.length * 2); g.set(arr); arr = g; }
+				arr[len++] = x; arr[len++] = y;
+			},
+			close() { return arr.slice(0, len); }
+		};
+	};
 	let propTub = new Map();
 	self.forEach((i, map) => { const key = self.props[i].join("|");
 		if (!propTub.has(key)) propTub.set(key, i);
@@ -54,7 +66,7 @@ export function topology(self) {
 					const read = (n) => { elemCount[3]++;
 						let x = 0, y = 0;
 						let prevGX = null, prevGY = null;
-						const stream = gint.XY2L1(n || 4096);
+						const stream = (type >= 4) ? xyStream(n || 4096) : gint.XY2L1(n || 4096);
 						const grab = () => {
 							let dx = pbf.readSVarint(), dy = pbf.readSVarint();
 							if (dx || dy) { x += dx, y += dy;
@@ -464,104 +476,130 @@ function buildPolygons(topo) { if (!topo.length) return null;
 }
 function cutPolygon(topo) {
 	const buffs = [];
-	let junctions = null, aHash = new BigMap(64);
+	// arc照合: "端点キー,端点キー,頂点数" → 候補arc番号列。同キーは内容照合で確定
+	//（旧aKeyは端点+長さのみ＝同端点・同頂点数の別経路が誤併合し得た穴も同時に塞ぐ）
+	const aHash = new Map();
+	// (x,y)→一意な number キー: float64のビットパターン再解釈（頂点辞書のBigIntキーを排除）。
+	// 上位word=y は最大1.8e9 < 2^31 なので符号bit・指数all-1(NaN/Inf)は構成上発生しない
+	const kbuf = new Float64Array(1), kv32 = new Uint32Array(kbuf.buffer);
+	const vkey = (x, y) => { kv32[0] = x; kv32[1] = y; return kbuf[0]; };
+	let junctions = null;
 	let totalVerts = 0;
-	for (const q of topo) for (const ring of q.coords) totalVerts += ring.length;
+	for (const q of topo) for (const ring of q.coords) totalVerts += ring.length >> 1;
 	const CHUNK = 4_000_000; // 25% of V8 Map limit (2^24=16.7M), with headroom
 	if (totalVerts <= CHUNK) {
 		junctions = computeJunctions(topo);
 		topo.forEach(setEdge);
 	} else {
-		// Sort by Morton code so spatially adjacent polygons land in the same chunk.
-		// This detects shared edges within each chunk; the ~few% that straddle chunk boundaries become independent arcs.
-		topo.sort((a, b) => { const va = a.coords[0]?.[0] ?? 0n, vb = b.coords[0]?.[0] ?? 0n; return va < vb ? -1 : va > vb ? 1 : 0; });
+		// 空間ソート（先頭頂点の y,x 辞書順）でチャンク内に隣接ポリゴンを集める。
+		// チャンクを跨ぐ共有辺（数%）は独立arcになる（既知の制限・従来どおり）
+		topo.sort((a, b) => {
+			const ra = a.coords[0], rb = b.coords[0];
+			const ya = ra ? ra[1] : 0, yb = rb ? rb[1] : 0;
+			return ya !== yb ? ya - yb : (ra ? ra[0] : 0) - (rb ? rb[0] : 0);
+		});
 		for (let i = 0; i < topo.length;) {
 			let cv = 0, j = i;
-			while (j < topo.length && cv < CHUNK) { for (const ring of topo[j].coords) cv += ring.length; j++; }
+			while (j < topo.length && cv < CHUNK) { for (const ring of topo[j].coords) cv += ring.length >> 1; j++; }
 			junctions = computeJunctions(topo.slice(i, j)); // per chunk (aHash is shared across chunks to prevent duplicate arc registration)
 			topo.slice(i, j).forEach(setEdge);
 			i = j;
 		}
 	}
-	junctions = null; aHash.clear(); aHash = null;
+	junctions = null; aHash.clear();
 	return buffs;
 	// 接合点判定（TopoJSONのjoinと同義）: 各頂点の「非順序の隣接ペア」を出現ごとに照合し、
 	// 異なるペアで再訪された頂点＝接合点。旧・出現回数ベースの判定は「回数2のまま接合点を
-	// 通過する」ケース（地種区分チェーン等）で共有区間を切り損ね、nps実測で共有境界の18%が
-	// 二重格納されていた。共有区間の内側（両リングが同じ隣接ペアで通過）は接合点にならない。
+	// 通過する」ケース（地種区分チェーン等）で共有区間を切り損ねていた（nps実測18%二重格納）。
 	function computeJunctions(chunk) {
-		const pairOf = new BigMap(64);      // 頂点 → 初出時の隣接ペア（(min<<64)|max）
-		const marks  = new BigMap(64);      // 頂点 → 1（接合点）
+		const pairLo = new Map(), pairHi = new Map(), marks = new Set();
 		const visit = (ring) => {
-			let n = ring.length;
-			while (n > 2 && ring[0] === ring[n - 1]) n--;   // 閉合重複を除いた実長
+			let n = ring.length >> 1;
+			while (n > 2 && ring[0] === ring[(n - 1) * 2] && ring[1] === ring[(n - 1) * 2 + 1]) n--;   // 閉合重複を除いた実長
 			if (n < 3) return;
+			let kPrev = vkey(ring[(n - 1) * 2], ring[(n - 1) * 2 + 1]);
+			let kCur  = vkey(ring[0], ring[1]);
 			for (let i = 0; i < n; i++) {
-				const v = ring[i];
-				const a = ring[(i - 1 + n) % n], b = ring[(i + 1) % n];
-				const key = a < b ? ((a << 64n) | b) : ((b << 64n) | a);
-				const seen = pairOf.get(v);
-				if (seen === undefined) pairOf.set(v, key);
-				else if (seen !== key) marks.set(v, 1);
+				const i2 = ((i + 1) % n) * 2;
+				const kNext = vkey(ring[i2], ring[i2 + 1]);
+				const lo = kPrev < kNext ? kPrev : kNext, hi = kPrev < kNext ? kNext : kPrev;
+				const sLo = pairLo.get(kCur);
+				if (sLo === undefined) { pairLo.set(kCur, lo); pairHi.set(kCur, hi); }
+				else if (sLo !== lo || pairHi.get(kCur) !== hi) marks.add(kCur);
+				kPrev = kCur; kCur = kNext;
 			}
 		};
 		chunk.forEach(q => q.coords.forEach(visit));
-		pairOf.clear();
+		pairLo.clear(); pairHi.clear();
 		return marks;
 	}
 	function setEdge(q) {
-		const isTerm = (arc, i) => junctions.has(arc[i]);
+		const isTerm = (ring, i) => junctions.has(vkey(ring[i * 2], ring[i * 2 + 1]));
 		q.arcs = q.coords.map(splitRing);
 		delete q.coords;
-		function splitArc(arc, loop) {
-			let i = 0;
-			const indices = [], n = arc.length;
-			if (loop) { // isolated polygon (island, enclave, etc.)
-				const aKey = (arc[0] << 32n) | BigInt(n);
-				if (!aHash.has(aKey)) { aHash.set(aKey, buffs.length); buffs.push(arc); }
-				const idx = aHash.get(aKey);
-				return [loop > 0 ? idx : ~idx];
+		// arc登録: 同キー候補と内容照合（前方/逆方向）して既存を返す。戻り値は idx（前方一致）/ ~idx（逆方向一致）
+		function registerArc(seg) {
+			const n2 = seg.length;
+			const k1 = vkey(seg[0], seg[1]), k2 = vkey(seg[n2 - 2], seg[n2 - 1]);
+			const key = (k1 <= k2 ? k1 + ',' + k2 : k2 + ',' + k1) + ',' + n2;
+			let list = aHash.get(key);
+			if (list === undefined) { list = []; aHash.set(key, list); }
+			for (const idx of list) {
+				const b = buffs[idx];
+				let fwd = true, rev = true;
+				for (let t = 0; t < n2; t += 2) {
+					if (fwd && (b[t] !== seg[t] || b[t + 1] !== seg[t + 1])) fwd = false;
+					if (rev && (b[n2 - 2 - t] !== seg[t] || b[n2 - 1 - t] !== seg[t + 1])) rev = false;
+					if (!fwd && !rev) break;
+				}
+				if (fwd) return idx;
+				if (rev) return ~idx;
 			}
+			list.push(buffs.length);
+			buffs.push(seg);
+			return buffs.length - 1;
+		}
+		function splitArc(arc, loop) {
+			const n = arc.length >> 1;
+			if (loop) { // isolated polygon (island, enclave, etc.)
+				const r = registerArc(arc);
+				return [loop > 0 ? r : ~r];   // 出力は時計回り正準（逆巻きは歩行方向を反転）
+			}
+			const indices = [];
+			let i = 0;
 			while (i < n - 1) {
 				let j = i + 1;
 				while (j < n - 1 && !isTerm(arc, j)) j++;
-				const seg = arc.subarray(i, j + 1);
-				const p = seg[0], q = seg[seg.length - 1];
-				const [min, max] = p > q ? [q, p] : [p, q];
-				const aKey = (min << 96n) | (max << 32n) | BigInt(seg.length);
-				if (!aHash.has(aKey)) { aHash.set(aKey, buffs.length); buffs.push(seg); }
-				const idx = aHash.get(aKey);
-				const forward = p === buffs[idx][0];
-				indices.push(forward ? idx : ~idx);
+				indices.push(registerArc(arc.subarray(i * 2, (j + 1) * 2)));
 				i = j;
 			}
 			return indices;
 		}
 		function splitRing(ring) {
 			let start = 0, loop = 0;
-			let n = ring.length;
-			while (ring[0] == ring[n - 1] && n > 2) n--;
+			let n = ring.length >> 1;
+			while (n > 2 && ring[0] === ring[(n - 1) * 2] && ring[1] === ring[(n - 1) * 2 + 1]) n--;
 			if (n < 3) return [];
 			for (let k = 0; k < n; k++) if (isTerm(ring, k)) { start = k; break; }
-			isTerm(ring, start) || cutRing(ring); // isolated ring has no canonical start — pick the vertex with the highest Morton code
-			const rotated = new BigUint64Array(n + 1);
-			rotated.set(ring.subarray(start, n), 0);
-			rotated.set(ring.subarray(0, start), n - start);
-			rotated[n] = ring[start];
+			isTerm(ring, start) || cutRing(ring); // 孤立リング: 正準開始点（y,x辞書順最大）と向きを決める
+			const rotated = new Int32Array((n + 1) * 2);
+			rotated.set(ring.subarray(start * 2, n * 2), 0);
+			rotated.set(ring.subarray(0, start * 2), (n - start) * 2);
+			rotated[n * 2] = ring[start * 2]; rotated[n * 2 + 1] = ring[start * 2 + 1];
 			return splitArc(rotated, loop);
 			function cutRing(ring) {
-				const len = ring.length;
-				const c = [];
-				// 向き判定だけなので toFixed 経由の unpack は不要＝直算術（値は従来と同一グリッド）
+				// 向き判定は従来同様に度単位floatのshoelace（intから直算術・toFixedなし）
 				const INV = gint.INV_SCALE_E;
-				for (let i = 0; i < len; i++) { const [ix, iy] = gint.unpackToInt(ring[i]); c[i] = [ix * INV - 180, iy * INV - 90]; }
-				let sum = 0, max = 0;
-				for (let i = 0; i < len; i++) {
-					const p = c[i], q = i + 1 == len ? c[0] : c[i + 1];
-					sum += (q[0] - p[0]) * (q[1] + p[1]);
-					if (ring[i] > max) { max = ring[i]; start = i; }
+				let sum = 0, maxY = -Infinity, maxX = -Infinity;
+				let lng0 = ring[0] * INV - 180, lat0 = ring[1] * INV - 90;
+				for (let i = 0; i < n; i++) {
+					const j2 = ((i + 1) % n) * 2;
+					const lng1 = ring[j2] * INV - 180, lat1 = ring[j2 + 1] * INV - 90;
+					sum += (lng1 - lng0) * (lat1 + lat0);
+					const xx = ring[i * 2], yy = ring[i * 2 + 1];
+					if (yy > maxY || (yy === maxY && xx > maxX)) { maxY = yy; maxX = xx; start = i; }
+					lng0 = lng1; lat0 = lat1;
 				}
-				c.length = 0;
 				loop = sum > 0 ? 1 : -1; // 1: clockwise, -1: counter-clockwise
 			}
 		}
@@ -612,6 +650,7 @@ function metaArc(buffs) {
 	const INV = gint.INV_SCALE_E;
 	return buffs.map(calcMeta);
 	function calcMeta(buff, aid) {
+		if (buff instanceof Int32Array) return calcMetaXY(buff, aid);   // ポリゴン(XY)経路: unpack不要
 		const n = buff.length;
 		const closed = buff[0] == buff[n - 1]
 		let L = 0, A = 0;
@@ -628,6 +667,26 @@ function metaArc(buffs) {
 			if (x1 < bbox[0]) bbox[0] = x1; else if (x1 > bbox[2]) bbox[2] = x1;
 			if (y1 < bbox[1]) bbox[1] = y1; else if (y1 > bbox[3]) bbox[3] = y1;
 			x0 = x1; y0 = y1; lng0 = lng1; lat0 = lat1;
+		}
+		return { aid, length: L * Radius, area: A * Radius * Radius / 2, closed, bbox };
+	}
+	function calcMetaXY(buff, aid) {
+		const n = buff.length >> 1;
+		const closed = buff[0] === buff[(n - 1) * 2] && buff[1] === buff[(n - 1) * 2 + 1];
+		let L = 0, A = 0;
+		const x0 = buff[0], y0 = buff[1];
+		let lng0 = x0 * INV - 180, lat0 = y0 * INV - 90;
+		const bbox = new Uint32Array([x0, y0, x0, y0]);
+		for (let i = 1; i < n; i++) {
+			const x1 = buff[i * 2], y1 = buff[i * 2 + 1];
+			const lng1 = x1 * INV - 180, lat1 = y1 * INV - 90;
+			const cosLat = Math.cos(((lat0 + lat1) / 2) * RAD);
+			const dx = (lng1 - lng0) * RAD * cosLat, dy = (lat1 - lat0) * RAD;
+			L += Math.sqrt(dx * dx + dy * dy);
+			A += (lng1 - lng0) * RAD * (2 + Math.sin(lat0 * RAD) + Math.sin(lat1 * RAD));
+			if (x1 < bbox[0]) bbox[0] = x1; else if (x1 > bbox[2]) bbox[2] = x1;
+			if (y1 < bbox[1]) bbox[1] = y1; else if (y1 > bbox[3]) bbox[3] = y1;
+			lng0 = lng1; lat0 = lat1;
 		}
 		return { aid, length: L * Radius, area: A * Radius * Radius / 2, closed, bbox };
 	}
@@ -719,6 +778,22 @@ function streamToNeighbors(neighborStream) {
 
 function buildArcs(buffs, metas, startOffset = 0) {
 	const count = buffs.length, mlen = 8;
+	if (count && buffs[0] instanceof Int32Array) {   // ポリゴン(XY)経路: 出口で一括Morton化+VW（wasm 1往復2パス）
+		let total = 0, offset = 0;
+		for (let i = 0; i < count; i++) total += buffs[i].length >> 1;
+		const xy = new Int32Array(total * 2);
+		const meta = new Uint32Array(count * mlen);
+		const ranges = new Uint32Array(count * 2);
+		for (let i = 0; i < count; i++) {
+			const m = metas[i], arc = buffs[m.aid], len = arc.length >> 1;
+			xy.set(arc, offset * 2);
+			ranges[i * 2] = offset; ranges[i * 2 + 1] = len;
+			meta.set([offset + startOffset, len, m.weight, 0, ...m.bbox], i * mlen);
+			offset += len;
+		}
+		const buffer = gint.XYtoGintBatch(xy, ranges);
+		return { count, buffer, meta, mlen };
+	}
 	let total = 0, offset = 0;
 	for (let i = 0; i < count; i++) total += buffs[i].length;
 	const buffer = new BigUint64Array(total);
