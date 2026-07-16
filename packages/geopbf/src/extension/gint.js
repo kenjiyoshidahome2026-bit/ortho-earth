@@ -155,7 +155,7 @@ export class gint {
 	// XY(Int32ペア)連結バッファ → L1 Morton化＋VW簡略化 を wasm 1往復2パスで一括実行。
 	// int32ペアとu64は同サイズ＝XYtoL1はin-place変換なので、アップロード1回→XYtoL1一括→
 	// arcごとL1toL2（wasmメモリ内・memcpyなし）→ダウンロード1回で完結する。
-	// xy: Int32Array [x,y,...] / ranges: Uint32Array [offset,len,...]（頂点単位）
+	// xy: Uint32Array [x,y,...]（座標は符号なし32bit・Int32だとx>2^31の日本全域が負値化） / ranges: Uint32Array [offset,len,...]（頂点単位）
 	static XYtoGintBatch(xy, ranges) {
 		const count = xy.length >>> 1;
 		const rc = ranges.length >>> 1;

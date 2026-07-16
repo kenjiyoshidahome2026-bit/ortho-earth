@@ -40,11 +40,12 @@ export function topology(self) {
 	};
 	// ポリゴン経路は中盤を (x,y) int32 のまま通し、Morton化は出口 buildArcs で一括（uint32-middle設計）。
 	// ライン/ポイントは従来どおり入口でL1化（量が少なく purifier 等がMorton前提のため）
+	// 座標は符号なし32bit（x最大3.6e9>2^31）＝Int32Arrayは厳禁（日本全域が負値化しbbox/weightが壊れる）
 	const xyStream = (cap) => {
-		let arr = new Int32Array(cap * 2), len = 0;
+		let arr = new Uint32Array(cap * 2), len = 0;
 		return {
 			push(x, y) {
-				if (len + 2 > arr.length) { const g = new Int32Array(arr.length * 2); g.set(arr); arr = g; }
+				if (len + 2 > arr.length) { const g = new Uint32Array(arr.length * 2); g.set(arr); arr = g; }
 				arr[len++] = x; arr[len++] = y;
 			},
 			close() { return arr.slice(0, len); }
@@ -582,7 +583,7 @@ function cutPolygon(topo) {
 			if (n < 3) return [];
 			for (let k = 0; k < n; k++) if (isTerm(ring, k)) { start = k; break; }
 			isTerm(ring, start) || cutRing(ring); // 孤立リング: 正準開始点（y,x辞書順最大）と向きを決める
-			const rotated = new Int32Array((n + 1) * 2);
+			const rotated = new Uint32Array((n + 1) * 2);
 			rotated.set(ring.subarray(start * 2, n * 2), 0);
 			rotated.set(ring.subarray(0, start * 2), (n - start) * 2);
 			rotated[n * 2] = ring[start * 2]; rotated[n * 2 + 1] = ring[start * 2 + 1];
@@ -650,7 +651,7 @@ function metaArc(buffs) {
 	const INV = gint.INV_SCALE_E;
 	return buffs.map(calcMeta);
 	function calcMeta(buff, aid) {
-		if (buff instanceof Int32Array) return calcMetaXY(buff, aid);   // ポリゴン(XY)経路: unpack不要
+		if (buff instanceof Uint32Array) return calcMetaXY(buff, aid);   // ポリゴン(XY)経路: unpack不要
 		const n = buff.length;
 		const closed = buff[0] == buff[n - 1]
 		let L = 0, A = 0;
@@ -778,10 +779,10 @@ function streamToNeighbors(neighborStream) {
 
 function buildArcs(buffs, metas, startOffset = 0) {
 	const count = buffs.length, mlen = 8;
-	if (count && buffs[0] instanceof Int32Array) {   // ポリゴン(XY)経路: 出口で一括Morton化+VW（wasm 1往復2パス）
+	if (count && buffs[0] instanceof Uint32Array) {   // ポリゴン(XY)経路: 出口で一括Morton化+VW（wasm 1往復2パス）
 		let total = 0, offset = 0;
 		for (let i = 0; i < count; i++) total += buffs[i].length >> 1;
-		const xy = new Int32Array(total * 2);
+		const xy = new Uint32Array(total * 2);
 		const meta = new Uint32Array(count * mlen);
 		const ranges = new Uint32Array(count * 2);
 		for (let i = 0; i < count; i++) {
