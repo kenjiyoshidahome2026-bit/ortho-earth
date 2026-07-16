@@ -147,6 +147,7 @@ function renderList() {
 
 function _licFilterKey(lic) {
 	if (!lic) return 'ng';
+	if (lic.includes('NC')) return 'ng';   // CC BY-NC 系＝非商用（"CC BY"を含むため先に弾く）
 	if (lic.includes('商用可') || lic.includes('CC BY') || lic.includes('CC_BY')) return 'ok';
 	return 'ng';
 }

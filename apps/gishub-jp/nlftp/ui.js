@@ -13,6 +13,7 @@ let _currentFilteredFiles = [];
 
 export function renderDetail(ds, showBack = false) {
     _currentDs = ds;
+    _currentFilteredFiles = [];   // 前データセットのフィルタ結果を持ち越さない（空=フィルタ未適用）
 
     const backHtml = showBack ? `<button class="back-btn" id="back-to-moj">← 一覧に戻る</button>` : '';
 
@@ -182,6 +183,7 @@ function _isMesh(ds) {
 
 function _licKey(lic) {
     if (!lic) return 'ng';
+    if (lic.includes('NC')) return 'ng';   // CC BY-NC 系＝非商用（"CC BY"を含むため先に弾く）
     if (lic.includes('商用可') || lic.includes('CC BY') || lic.includes('CC_BY')) return 'ok';
     return 'ng';
 }
@@ -465,10 +467,13 @@ async function _handleLoadMore(btn) {
     const row = btn.closest('.more-row');
     btn.disabled = true; btn.textContent = '読み込み中...';
     try {
-        const files = _currentDs.files.some(f => f.format === 'geojson')
-            ? _currentDs.files.filter(f => f.format !== 'shp')
-            : _currentDs.files;
-        row.insertAdjacentHTML('beforebegin', _sortFiles(files).slice(200).map(f => _fileRow(f, _currentDs)).join(''));
+        // フィルタ適用中はその結果の続きを出す（全ファイルを混ぜない）。空=フィルタ未適用
+        const files = _currentFilteredFiles.length
+            ? _currentFilteredFiles
+            : _sortFiles(_currentDs.files.some(f => f.format === 'geojson')
+                ? _currentDs.files.filter(f => f.format !== 'shp')
+                : _currentDs.files);
+        row.insertAdjacentHTML('beforebegin', files.slice(200).map(f => _fileRow(f, _currentDs)).join(''));
         row.remove();
     } catch { btn.textContent = 'エラー'; }
 }

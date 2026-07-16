@@ -1105,12 +1105,16 @@ function _csDrill15City(cityCode, prefCode, parentCode = null) {
 //   ・詳細な差し込み手順は census/small-area.js の YEARS 内 2025 テンプレコメント参照
 // 政令市の区割り（浜松市 新3区）は _wardsForYear が 2025 データから自動生成済みで対応不要。
 
+// 2025-pop.json は 2020/2015 と違い葉のみでない：政令市20市と東京特別区部(13100)の
+// 集約行が区の葉と同居する。合算時に両方を足すと二重計上（全国が1.6億人になる）。
+const _AGG25_ROWS = new Set([...DESIGNATED_CITIES, '13100']);
+
 function _agg25ForLevel(pred) {
     const pop = [0, 0, 0];
     let hh = 0, hh20 = 0, pop20 = 0, area = 0;
     let hasHh = false, hasArea = false, hasPop20 = false;
     for (const [code, p] of Object.entries(CENSUS_2025_POP)) {
-        if (code.endsWith('000')) continue;
+        if (code.endsWith('000') || _AGG25_ROWS.has(code)) continue;
         if (!pred(code)) continue;
         pop[0] += p.pop[0]; pop[1] += p.pop[1]; pop[2] += p.pop[2];
         if (p.hh)     { hh += p.hh; hh20 += (p.hh2020 || 0); hasHh = true; }
@@ -1246,7 +1250,7 @@ function _city25ChipsHtml(headTitle, headCount, items) {
 function _csDrill25National() {
     const byPref = new Map();
     for (const [code, p] of Object.entries(CENSUS_2025_POP)) {
-        if (code.endsWith('000')) continue;
+        if (code.endsWith('000') || _AGG25_ROWS.has(code)) continue;
         const pref = code.slice(0, 2);
         byPref.set(pref, (byPref.get(pref) || 0) + p.pop[0]);
     }
