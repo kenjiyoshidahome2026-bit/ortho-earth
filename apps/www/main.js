@@ -42,5 +42,4 @@ function exitDemo() {
 	closeBtn.hide();
 	d3.select('#demoOverlay').style("opacity",1).style("pointer-events",'auto');
 }
-function showDocs() { open('/docs/', '_blank'); }
 function gishub() { open('/gishub/', '_blank'); }

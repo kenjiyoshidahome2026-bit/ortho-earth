@@ -12,5 +12,6 @@ export default defineConfig({
 		}
 	},
 	worker: { format: 'es' },
-	build: { target: 'esnext', sourcemap: true }
+	// sourcemap: 'hidden' = .mapは出すがJS末尾に参照を書かない＝実質非公開（gishub-jpと同じ方針）
+	build: { target: 'esnext', sourcemap: 'hidden' }
 });

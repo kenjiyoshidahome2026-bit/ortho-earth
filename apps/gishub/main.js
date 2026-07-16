@@ -28,7 +28,7 @@ const groups = (a => { const tub = new Map();
 		group.contents.push(d);
 	});
 	return Object.values(tub);
-})(await d3.json("./catalog.json"));
+})(await d3.json("./catalog.json").catch(e => { console.error("[gishub] catalog load failed:", e); return []; }));
 left.append("img").attr("src", "menu.svg").attr("alt", "MENU").on("click", () => gishub.classed("close", !gishub.classed("close")))	;
 left.append("input").attr("type", "text").attr("name", "search").attr("placeholder", "Search...")
 .on("input", function() {
@@ -37,10 +37,11 @@ left.append("input").attr("type", "text").attr("name", "search").attr("placehold
 	left.selectAll(".group").style("display", d => (d.contents.some(c => hasKeyword(c))|| exist(d.group))? null : "none").highlight(keyword);
 	left.selectAll(".card").style("display", d => hasKeyword(d) ? null : "none").highlight(keyword);
 });
+const escHtml = s => String(s ?? "").replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 const section = left.append("nav").selectAll(".group").data(groups).join("section").attr("class", "group");
 section.append("h2").text(d => d.group);
 section.selectAll(".card").data(d => d.contents).join("button").attr("class", "card")
-	.html(d => `<div class="name">${d.name}</div><div class="desc">${d.description}</div><div class="license">${d.license}</div>`)
+	.html(d => `<div class="name">${escHtml(d.name)}</div><div class="desc">${escHtml(d.description)}</div><div class="license">${escHtml(d.license)}</div>`)
 	.on("click", (e, d) => exec(d));
 ////------------------------------------------------------
 const reset = () => { logger.clear(); tables.empty().hide(); uploads.show(); left.selectAll(".card").attr("disabled", null); };
@@ -137,7 +138,7 @@ function showProp(pbf) {
 
 	logger.hide();
 	tables.show().html(
-		`<h2>${pbf.name()}<span>${pbf.description()}</span></h2>` +
+		`<h2>${esc(pbf.name())}<span>${esc(pbf.description() ?? "")}</span></h2>` +
 		`<div class="prop-table"><table><thead><tr>${headers.map(t => `<th>${esc(String(t))}</th>`).join("")}</tr></thead><tbody></tbody></table></div>`
 	);
 	const tbody = tables.select("tbody");
@@ -158,11 +159,13 @@ function showProp(pbf) {
 	const save = async s => { if (!s) return; const v = await saveTo(s); if (v) logger.log(`📥 Saved: ${s.name} (${comma(s.size)} bytes)`); };
 	h2.append("button").text("📥 CSV").on("click", () => save(new File([pbf.getCSV()], pbf.name()+".csv", {type:"application/csv"})));
 	h2.append("button").text("📥 Excel").on("click", async () => {
-		window.XLSX || await import('https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js');
-		const XLSX = window.XLSX;
-		const workbook = XLSX.read(pbf.getCSV(), { type:'string', raw:true });
-		const buff = XLSX.write(workbook, { bookType:'xlsx', type:'array' });
-		save(new File([buff], pbf.name()+".xlsx", { type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }));
+		// ローカル依存の遅延チャンク（旧: 実行時CDN import＝オフライン死・SRI不能・0.18.5系CVEの供給網リスク）
+		try {
+			const XLSX = await import('xlsx');
+			const workbook = XLSX.read(pbf.getCSV(), { type:'string', raw:true });
+			const buff = XLSX.write(workbook, { bookType:'xlsx', type:'array' });
+			save(new File([buff], pbf.name()+".xlsx", { type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }));
+		} catch (e) { console.error("[excel]", e); logger.error?.("Excel conversion failed."); }
 	});
 	h2.append("button").text("Done").on("click", () => { logger.show(); tables.empty().hide(); });
 }
@@ -185,7 +188,7 @@ async function execView(pbf) {
 	const propTable = id => {
 		const entries = Object.entries(pbf.getProperties(id) ?? {});
 		if (!entries.length) return;
-		const rows = entries.map(([k, v]) => `<tr><th>${k}</th><td>${v}</td></tr>`).join("");
+		const rows = entries.map(([k, v]) => `<tr><th>${escHtml(k)}</th><td>${escHtml(v)}</td></tr>`).join("");
 		return `<table class="identify-table">${rows}</table>`;
 	}
 	if (hasArcs || hasPoints) {
