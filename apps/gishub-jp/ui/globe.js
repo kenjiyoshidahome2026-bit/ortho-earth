@@ -1,5 +1,8 @@
 import { select as d3select, geoContains } from 'd3';
 import orthoMap from 'ortho-map';
+// ortho-map内部のborder読み込みはレガシーgeopbf()＝createGeopbf()呼び出し済みが前提。
+// gpbf.jsを先にimportして初期化順を保証する（本番ビルドはTLA直列化で下のorthoMap()が先に走り全border消失）
+import './gpbf.js';
 import { API_BASE, TILER_BASE } from './config.js';
 
 const _initialZoom = Math.log2(Math.min(window.innerWidth, window.innerHeight) / 2 * 0.5 / 256 * Math.PI * 2);
