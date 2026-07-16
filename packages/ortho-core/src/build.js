@@ -6,6 +6,7 @@ import earcut from "earcut";
 import { evalExpr, truthy } from "./expr.js";
 import { parseRGBA } from "./color.js";
 import { tileLocalToLonLat } from "./tile.js";
+import { polygons } from "./decode.js";   // フラットgeom({coords,ends})→[flat, holes]（buildings と共用）
 
 // origin: [lon,lat] シーン原点（精度確保のため頂点は原点からの差分で持つ）
 // pale: 色文字列→色文字列 の変換（無ければ恒等）
@@ -88,40 +89,45 @@ export function buildTileDrawList({ layers, z, x, y }, style, origin, pale = c =
 					P1.push(alon, alat); P2.push(sc[0], sc[1]);
 					col.push(cr, cg, cb, ca); half.push(hw);
 				};
-				for (const linePts of f.geom) {
+				// フラットgeom：coords([x,y,…]) を ends の区切りで線/リング毎に走査（添字直読み＝Point中間なし）
+				const { coords, ends } = f.geom;
+				let ls = 0;
+				for (let r = 0; r < ends.length; r++) {
+					const le = ends[r];
 					if (dashArr) {
 						let phase = 0;   // 頂点をまたいで位相を継続＝角でダッシュが割れない
-						for (let i = 0; i + 1 < linePts.length; i++) {
-							const A = linePts[i], B = linePts[i + 1];
-							const dx = B.x - A.x, dy = B.y - A.y, len = Math.hypot(dx, dy);
+						for (let i = ls; i + 3 < le; i += 2) {   // 線分＝点(i)→点(i+2)
+							const Ax = coords[i], Ay = coords[i + 1];
+							const dx = coords[i + 2] - Ax, dy = coords[i + 3] - Ay, len = Math.hypot(dx, dy);
 							if (!len) continue;
 							let pos = 0;
 							while (pos < len - 1e-9) {
 								const inDash = phase < du;
 								const take = Math.min(inDash ? du - phase : period - phase, len - pos);
-								if (inDash) emit(A.x + dx * (pos / len), A.y + dy * (pos / len), A.x + dx * ((pos + take) / len), A.y + dy * ((pos + take) / len));
+								if (inDash) emit(Ax + dx * (pos / len), Ay + dy * (pos / len), Ax + dx * ((pos + take) / len), Ay + dy * ((pos + take) / len));
 								pos += take; phase += take; if (phase >= period - 1e-9) phase = 0;
 							}
 						}
-						continue;
+						ls = le; continue;
 					}
 					// 細分点を含む頂点を一度だけ経緯度化し、連続ペアで emit（隣接サブ線分＝隣接線分が端点を共有＝
 					// 旧版の「サブ線分ごとに両端を変換」の重複を排除。長い道路の line 頂点変換がほぼ半減）。
-					if (linePts.length < 2) continue;
-					llInto(linePts[0].x, linePts[0].y, extent, sc, 0);
+					if (le - ls < 4) { ls = le; continue; }   // 2点未満
+					llInto(coords[ls], coords[ls + 1], extent, sc, 0);
 					let pLon = sc[0], pLat = sc[1];
-					for (let i = 1; i < linePts.length; i++) {
-						const A = linePts[i - 1], B = linePts[i];
-						const dx = B.x - A.x, dy = B.y - A.y;
+					for (let i = ls + 2; i < le; i += 2) {
+						const Ax = coords[i - 2], Ay = coords[i - 1];
+						const dx = coords[i] - Ax, dy = coords[i + 1] - Ay;
 						const steps = Math.min(24, Math.max(1, Math.ceil(Math.hypot(dx, dy) / subLen)));  // 地形ドレープ用に細分
 						for (let s = 1; s <= steps; s++) {
 							const t = s / steps;
-							llInto(A.x + dx * t, A.y + dy * t, extent, sc, 0);
+							llInto(Ax + dx * t, Ay + dy * t, extent, sc, 0);
 							P1.push(pLon, pLat); P2.push(sc[0], sc[1]);
 							col.push(cr, cg, cb, ca); half.push(hw);
 							pLon = sc[0]; pLat = sc[1];
 						}
 					}
+					ls = le;
 				}
 			}
 			if (half.length) ops.push({ kind: "line", li, id: L.id, P1: new Float32Array(P1), P2: new Float32Array(P2), col: new Uint8Array(col), half: new Float32Array(half) });
@@ -143,33 +149,3 @@ function sortFeatures(features, sortExpr, z) {
 	return out;
 }
 
-// MVT のリング群を [flatCoords, holeIndices] のポリゴン単位に分割。
-// 外周リング(正の面積)が新しいポリゴンを開始し、続く負の面積リングは穴。
-function polygons(rings) {
-	const out = [];
-	let flat = null, holes = null, base = 0;
-	for (const ring of rings) {
-		const area = signedArea(ring);
-		if (area >= 0 || !flat) {                 // 外周（または最初）
-			if (flat && flat.length) out.push([flat, holes]);
-			flat = []; holes = []; base = 0;
-			for (const p of ring) flat.push(p.x, p.y);
-			base = ring.length;
-		} else {                                   // 穴
-			holes.push(base);
-			for (const p of ring) flat.push(p.x, p.y);
-			base += ring.length;
-		}
-	}
-	if (flat && flat.length) out.push([flat, holes]);
-	return out;
-}
-
-function signedArea(ring) {
-	let s = 0;
-	for (let i = 0, n = ring.length; i < n; i++) {
-		const a = ring[i], b = ring[(i + 1) % n];
-		s += a.x * b.y - b.x * a.y;
-	}
-	return s / 2;
-}

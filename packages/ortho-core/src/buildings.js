@@ -3,6 +3,7 @@
 // PLATEAU実メッシュ（正確な高さ/屋根）への"扉"の叩き台。
 import earcut from "earcut";
 import { tileLocalToLonLat } from "./tile.js";
+import { polygons } from "./decode.js";   // フラットgeom({coords,ends})→[flat, holes]（build と共用）
 
 // vt_code(建物種別) → 概略高さ(m)。3101普通/3102堅ろう/3103高層/3111無壁舎 など。
 const HEIGHT_M = { 3101: 9, 3102: 16, 3103: 34, 3104: 22, 3111: 5, 3112: 5 };
@@ -39,30 +40,4 @@ export function buildBuildings({ layers, z, x, y }, origin) {
 		}
 	}
 	return pos.length ? { pos: new Float32Array(pos), shade: new Float32Array(shade), anchor: new Float32Array(anchor) } : null;
-}
-
-// build.js と同じ：外周(正の面積)で新ポリゴン開始、続く負面積は穴。
-function polygons(rings) {
-	const out = [];
-	let flat = null, holes = null, base = 0;
-	for (const ring of rings) {
-		const area = signedArea(ring);
-		if (area >= 0 || !flat) {
-			if (flat && flat.length) out.push([flat, holes]);
-			flat = []; holes = []; base = 0;
-			for (const p of ring) flat.push(p.x, p.y);
-			base = ring.length;
-		} else {
-			holes.push(base);
-			for (const p of ring) flat.push(p.x, p.y);
-			base += ring.length;
-		}
-	}
-	if (flat && flat.length) out.push([flat, holes]);
-	return out;
-}
-function signedArea(ring) {
-	let s = 0;
-	for (let i = 0, n = ring.length; i < n; i++) { const a = ring[i], b = ring[(i + 1) % n]; s += a.x * b.y - b.x * a.y; }
-	return s / 2;
 }

@@ -27,9 +27,10 @@ export function buildLabels({ layers, z, x, y }, style) {
 			if (L.filter && !truthy(evalExpr(L.filter, ctx))) continue;
 			const text = String(evalExpr(lo["text-field"], ctx) ?? "").trim();
 			if (!text) continue;
-			const p = f.geom[0] && f.geom[0][0]; if (!p) continue;
-			const [lon, lat] = tileLocalToLonLat(x, y, z, p.x, p.y, src.extent);
-			const dkey = text + "@" + Math.round(p.x) + "," + Math.round(p.y);
+			const g = f.geom; if (!g || !g.coords.length) continue;   // フラットgeom：先頭点＝coords[0,1]
+			const px = g.coords[0], py = g.coords[1];
+			const [lon, lat] = tileLocalToLonLat(x, y, z, px, py, src.extent);
+			const dkey = text + "@" + Math.round(px) + "," + Math.round(py);
 			if (seen.has(dkey)) continue; seen.add(dkey);
 			const size = num(evalExpr(lo["text-size"] ?? 16, ctx), 16);
 			const color = parseRGBA(evalExpr(L.paint?.["text-color"] ?? "#000", ctx));
