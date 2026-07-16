@@ -97,7 +97,7 @@ export function createRenderer(canvas) {
 				const bPos = buffer(gl, L.pos), bCol = buffer(gl, L.col);
 				gl.bindVertexArray(vao);
 				attrib(gl, fillProg, "a_delta", bPos, 2);
-				attrib(gl, fillProg, "a_color", bCol, 4);
+				attrib(gl, fillProg, "a_color", bCol, 4, null, L.col instanceof Uint8Array);   // タイル由来=Uint8正規化／geojson由来=float32 の両対応
 				gl.bindVertexArray(null);
 				draws.push({ kind: "fill", li: L.li, vao, count: L.pos.length / 2, bufs: [bPos, bCol] });
 			} else {
@@ -108,7 +108,7 @@ export function createRenderer(canvas) {
 				attrib(gl, lineProg, "a_corner", cornerBuf, 2, 0);
 				attrib(gl, lineProg, "a_p1", bP1, 2, 1);
 				attrib(gl, lineProg, "a_p2", bP2, 2, 1);
-				attrib(gl, lineProg, "a_color", bCol, 4, 1);
+				attrib(gl, lineProg, "a_color", bCol, 4, 1, L.col instanceof Uint8Array);
 				attrib(gl, lineProg, "a_half", bHalf, 1, 1);
 				gl.bindVertexArray(null);
 				draws.push({ kind: "line", vao, count: L.half.length, bufs: [bP1, bP2, bCol, bHalf] });
@@ -284,7 +284,7 @@ export function createRenderer(canvas) {
 			attrib(gl, lineProg, "a_corner", cornerBuf, 2, 0);
 			attrib(gl, lineProg, "a_p1", bP1, 2, 1);
 			attrib(gl, lineProg, "a_p2", bP2, 2, 1);
-			attrib(gl, lineProg, "a_color", bCol, 4, 1);
+			attrib(gl, lineProg, "a_color", bCol, 4, 1, s.lineCol instanceof Uint8Array);
 			attrib(gl, lineProg, "a_half", bHalf, 1, 1);
 			gl.bindVertexArray(null);
 			lineCount = s.lineHalf.length; bufs.push(bP1, bP2, bCol, bHalf);
@@ -675,11 +675,12 @@ function loc(gl, prog, name) {
 	if (!m.has(name)) m.set(name, gl.getUniformLocation(prog, name));
 	return m.get(name);
 }
-function attrib(gl, prog, name, buf, size, divisor) {
+// u8=true で UNSIGNED_BYTE 正規化（頂点色は Uint8×4＝float32×4 の1/4。シェーダは同じ 0..1 を受ける）
+function attrib(gl, prog, name, buf, size, divisor, u8) {
 	const l = gl.getAttribLocation(prog, name);
 	if (l < 0) return;
 	gl.bindBuffer(gl.ARRAY_BUFFER, buf);
 	gl.enableVertexAttribArray(l);
-	gl.vertexAttribPointer(l, size, gl.FLOAT, false, 0, 0);
+	gl.vertexAttribPointer(l, size, u8 ? gl.UNSIGNED_BYTE : gl.FLOAT, !!u8, 0, 0);
 	if (divisor != null) gl.vertexAttribDivisor(l, divisor);
 }

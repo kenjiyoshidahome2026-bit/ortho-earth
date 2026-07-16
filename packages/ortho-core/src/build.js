@@ -22,6 +22,9 @@ export function buildTileDrawList({ layers, z, x, y }, style, origin, pale = c =
 	};
 	const sc = new Float64Array(2);    // line 用スクラッチ（1頂点）＝毎回の一時配列を作らない
 	let llBuf = new Float64Array(0);   // fill 用：ポリゴン頂点の経緯度を貯める再利用バッファ（最大サイズまで成長）
+	// 頂点色は Uint8×4（正規化attribでGLへ）：float32×4 だと fill 頂点24Bの2/3が色＝実質8bit精度のデータに
+	// バス幅の2/3を割いていた。バイト化で tess出力→transfer→常駐→merge→upload の全段が縮む。
+	const b255 = v => v <= 0 ? 0 : v >= 1 ? 255 : (v * 255 + 0.5) | 0;
 	// 線分細分の閾値（タイル単位）：地形にドレープする際、長い直線が尾根で折れないよう ~700m 毎に分割。
 	const [, cLat] = tileLocalToLonLat(x, y, z, 2048, 2048, 4096);
 	const mPerUnit = 40075016.686 * Math.cos(cLat * Math.PI / 180) / (Math.pow(2, z) * 4096);
@@ -46,6 +49,7 @@ export function buildTileDrawList({ layers, z, x, y }, style, origin, pale = c =
 				if (L.filter && !truthy(evalExpr(L.filter, ctx))) continue;
 				const c = parseRGBA(pale(evalExpr(L.paint?.["fill-color"] ?? "#000", ctx)));
 				const op = L.paint?.["fill-opacity"]; const a = c[3] * (op != null ? evalExpr(op, ctx) : 1);
+				const cr = b255(c[0]), cg = b255(c[1]), cb = b255(c[2]), ca = b255(a);
 				for (const [flat, holes] of polygons(f.geom)) {
 					const tris = earcut(flat, holes, 2);
 					if (!tris.length) continue;
@@ -54,11 +58,11 @@ export function buildTileDrawList({ layers, z, x, y }, style, origin, pale = c =
 					if (llBuf.length < flat.length) llBuf = new Float64Array(flat.length);
 					for (let i = 0; i < flat.length; i += 2) llInto(flat[i], flat[i + 1], extent, llBuf, i);
 					for (const idx of tris) {
-						pos.push(llBuf[idx * 2], llBuf[idx * 2 + 1]); col.push(c[0], c[1], c[2], a);
+						pos.push(llBuf[idx * 2], llBuf[idx * 2 + 1]); col.push(cr, cg, cb, ca);
 					}
 				}
 			}
-			if (pos.length) ops.push({ kind: "fill", li, id: L.id, pos: new Float32Array(pos), col: new Float32Array(col) });
+			if (pos.length) ops.push({ kind: "fill", li, id: L.id, pos: new Float32Array(pos), col: new Uint8Array(col) });
 		} else { // line
 			const P1 = [], P2 = [], col = [], half = [];
 			// line-dasharray [線, 間隔]（px・タイル基準ズームでの見かけ）：走行距離の位相を保って線分を刻む。
@@ -71,6 +75,7 @@ export function buildTileDrawList({ layers, z, x, y }, style, origin, pale = c =
 				if (L.filter && !truthy(evalExpr(L.filter, ctx))) continue;
 				const c = parseRGBA(pale(evalExpr(L.paint?.["line-color"] ?? "#000", ctx)));
 				const op = L.paint?.["line-opacity"]; const a = c[3] * (op != null ? evalExpr(op, ctx) : 1);
+				const cr = b255(c[0]), cg = b255(c[1]), cb = b255(c[2]), ca = b255(a);
 				let w = evalExpr(L.paint?.["line-width"] ?? 1, ctx);
 				if (typeof w !== "number" || isNaN(w) || w <= 0) w = 1;
 				const hw = w * 0.5;
@@ -78,7 +83,7 @@ export function buildTileDrawList({ layers, z, x, y }, style, origin, pale = c =
 					llInto(ax, ay, extent, sc, 0); const alon = sc[0], alat = sc[1];
 					llInto(bx, by, extent, sc, 0);
 					P1.push(alon, alat); P2.push(sc[0], sc[1]);
-					col.push(c[0], c[1], c[2], a); half.push(hw);
+					col.push(cr, cg, cb, ca); half.push(hw);
 				};
 				for (const linePts of f.geom) {
 					if (dashArr) {
@@ -110,13 +115,13 @@ export function buildTileDrawList({ layers, z, x, y }, style, origin, pale = c =
 							const t = s / steps;
 							llInto(A.x + dx * t, A.y + dy * t, extent, sc, 0);
 							P1.push(pLon, pLat); P2.push(sc[0], sc[1]);
-							col.push(c[0], c[1], c[2], a); half.push(hw);
+							col.push(cr, cg, cb, ca); half.push(hw);
 							pLon = sc[0]; pLat = sc[1];
 						}
 					}
 				}
 			}
-			if (half.length) ops.push({ kind: "line", li, id: L.id, P1: new Float32Array(P1), P2: new Float32Array(P2), col: new Float32Array(col), half: new Float32Array(half) });
+			if (half.length) ops.push({ kind: "line", li, id: L.id, P1: new Float32Array(P1), P2: new Float32Array(P2), col: new Uint8Array(col), half: new Float32Array(half) });
 		}
 	}
 	return { ops };

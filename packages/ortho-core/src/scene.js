@@ -19,8 +19,8 @@ export function mergeTiles(order, geomOf, opts = {}) {
 	const buf = new Map();
 	for (const [li, e] of size) {
 		buf.set(li, e.kind === "fill"
-			? { kind: "fill", li, pos: new Float32Array(e.fillN * 2), col: new Float32Array(e.fillN * 4), pi: 0, ci: 0 }
-			: { kind: "line", li, P1: new Float32Array(e.lineN * 2), P2: new Float32Array(e.lineN * 2), col: new Float32Array(e.lineN * 4), half: new Float32Array(e.lineN), pi: 0, ci: 0, hi: 0 });
+			? { kind: "fill", li, pos: new Float32Array(e.fillN * 2), col: new Uint8Array(e.fillN * 4), pi: 0, ci: 0 }
+			: { kind: "line", li, P1: new Float32Array(e.lineN * 2), P2: new Float32Array(e.lineN * 2), col: new Uint8Array(e.lineN * 4), half: new Float32Array(e.lineN), pi: 0, ci: 0, hi: 0 });
 	}
 	for (const { ox, oy, ops } of tileOps) {
 		for (const op of ops) {
