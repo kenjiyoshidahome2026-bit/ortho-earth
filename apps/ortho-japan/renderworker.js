@@ -49,7 +49,7 @@ onmessage = e => {
 			requestAnimationFrame(frame);                        // worker 自前の描画ループ開始
 			break;
 		case "plateauPort":                                      // plateau worker → ここ のメッシュ直結パイプ（workerプール1本につき1ポート）
-			m.port.onmessage = ev => { plateauInbox.push(ev.data); dirty = true; };   // 受信は貯めるだけ＝GPU転送は frame() が1件/フレームで平準化（下の drainUploads）
+			m.port.onmessage = ev => { plateauInbox.push({ ...ev.data, port: m.port }); dirty = true; };   // 受信は貯めるだけ＝GPU転送は frame() が1件/フレームで平準化（下の drainUploads）。port＝消化ack（クレジット）の返送先
 			break;
 		case "resize":                                           // 両キャンバスを同じ寸法に（main は transfer 後触れない）
 			baseW = m.width; baseH = m.height;
@@ -173,7 +173,8 @@ function drainUploads() {
 		const item = plateauInbox.shift();
 		if ("vis" in item) { renderer.set("plateauVis", item.vis, item.name); dirty = true; continue; }   // 表示切替＝フラグだけ＝同フレームで続けて消化
 		const { meshData, name } = item;
-		renderer.set("plateauMesh", meshData, name);
+		try { renderer.set("plateauMesh", meshData, name); }
+		finally { if (item.port) item.port.postMessage({ drained: 1 }); }   // 消化ack＝plateau worker のクレジット返却（例外でも返す＝送出が止まらない）
 		dirty = true;
 		if (meshData) { uploadSkip = 2; break; }   // 重い転送は1件で打ち切り。転送の山は「次フレームのdt」に出る＝EMA計測を2フレーム除外
 	}

@@ -254,9 +254,20 @@ async function decodeBatch(base, leaves, wardMask, wardBbox, onTile = null, brid
 // main へ返すのは ok/失敗の ack だけ＝~160MB の typed array がメインスレッドで構造化クローンされるのを断つ。
 let meshPort = null;
 
-// バッチ1個を render worker へ送出。cache の原本は守りたいので transfer 分はコピー。
+// クレジット式フロー制御：render worker は1フレーム1バッチしか消化しないのに、キャッシュ/IDB命中時は
+// 全バッチを一斉送出していた＝完了直後に「worker内の原本＋転送コピー全量（キュー滞留）＋GPUへの積み上げ」が
+// 重なり、密集区(~160MB)では一時的に約3倍＝iPhoneがタブごと落ちる（実測：読み終えた直後に落ちる）。
+// render worker が消化のたびに {drained:1} を返し、未消化は最大 CREDIT_MAX 個＝滞留を数十MBで頭打ちにする。
+const CREDIT_MAX = 2;
+let credits = CREDIT_MAX;
+const creditWaiters = [];
+const takeCredit = () => credits > 0 ? (credits--, Promise.resolve()) : new Promise(r => creditWaiters.push(r));
+const onDrained = () => { const w = creditWaiters.shift(); if (w) w(); else if (credits < CREDIT_MAX) credits++; };
+
+// バッチ1個を render worker へ送出（クレジットが空くまで待つ）。cache の原本は守りたいので transfer 分はコピー。
 // マスクは区単位の累積スナップショット＝renderer 側は毎回丸ごと差し替え（冪等）。
-function sendBatch(ward, bi, mesh, wardMask, wardBbox) {
+async function sendBatch(ward, bi, mesh, wardMask, wardBbox) {
+	await takeCredit();
 	const pos = mesh.pos.slice(), nrm = mesh.nrm.slice(), idx = mesh.idx.slice();
 	const mask = wardMask ? wardMask.slice() : null;
 	const payload = { name: `${ward}#${bi}`, meshData: { pos, nrm, idx, origin: mesh.origin, bbox: mesh.bbox, lodH: mesh.lodH, lodCounts: mesh.lodCounts, twoSided: mesh.twoSided || 0, ward, mask, maskN: MASK_N, maskBbox: wardBbox } };
@@ -341,15 +352,17 @@ async function loadPlateau(base, tiles, ward, wardBbox, camCenter, preload = fal
 		const c = cache.get(base);
 		cache.delete(base); cache.set(base, c);   // LRU touch（最近使用へ）
 		console.log("[plateau] キャッシュ命中（fetch/解凍スキップ）", base);
-		if (!preload) c.batches.forEach((mesh, bi) => sendBatch(ward, bi, mesh, c.mask, c.wardBbox));
+		if (!preload) for (let bi = 0; bi < c.batches.length; bi++) await sendBatch(ward, bi, c.batches[bi], c.mask, c.wardBbox);   // クレジット待ち＝滞留を頭打ちに
 		return true;
 	}
 	const stored = await idbLoad(base, brid);
 	if (stored) {
 		console.log("[plateau] IDB命中（fetch/解凍/変換スキップ）", base, `(${stored.batches.length} batches)`);
-		if (!preload) stored.batches.forEach((mesh, bi) => sendBatch(ward, bi, mesh, stored.mask, stored.wardBbox));
-		cache.set(base, stored);
-		if (cache.size > CACHE_MAX) cache.delete(cache.keys().next().value);
+		if (!preload) for (let bi = 0; bi < stored.batches.length; bi++) await sendBatch(ward, bi, stored.batches[bi], stored.mask, stored.wardBbox);
+		if (CACHE_MAX) {   // 低メモリ端末(CACHE_MAX=0)はメモリ常駐しない＝IDBが再訪を受ける
+			cache.set(base, stored);
+			if (cache.size > CACHE_MAX) cache.delete(cache.keys().next().value);
+		}
 		return true;
 	}
 	// ここからネットワーク経路＝遅い（fetch＋Draco解凍で地区あたり数秒〜数十秒）。進捗を main へ流す。
@@ -379,13 +392,15 @@ async function loadPlateau(base, tiles, ward, wardBbox, camCenter, preload = fal
 		const slice = leaves.slice(bi * BATCH_TILES, (bi + 1) * BATCH_TILES);
 		const mesh = await decodeBatch(base, slice, wardMask, wardBbox, () => prog({ done: ++tilesDone, total: leaves.length }), brid);
 		if (!mesh) continue;
-		if (!preload) sendBatch(ward, batches.length, mesh, wardMask, wardBbox);   // 完成したバッチから即描画へ
+		if (!preload) await sendBatch(ward, batches.length, mesh, wardMask, wardBbox);   // 完成したバッチから即描画へ（クレジット待ち）
 		batches.push(mesh);
 		console.log(`[plateau] batch ${batches.length} (${Math.min((bi + 1) * BATCH_TILES, leaves.length)}/${leaves.length} tiles) tris=${mesh.idx.length / 3}`);
 	}
 	if (!batches.length) return false;   // 葉0枚/全バッチ失敗＝空データ。警告は main 側で一回だけ（廃止区の残骸等）
-	cache.set(base, { batches, mask: wardMask, wardBbox });   // デコード結果をこのworker内に保持＝再訪でfetch/Draco解凍を丸ごと省略
-	if (cache.size > CACHE_MAX) cache.delete(cache.keys().next().value);   // LRU: 最古を退避
+	if (CACHE_MAX) {   // 低メモリ端末(CACHE_MAX=0)は完了後に区一式(~100-160MB)をworker RAMへ残さない（IDBが再訪を受ける）
+		cache.set(base, { batches, mask: wardMask, wardBbox });   // デコード結果をこのworker内に保持＝再訪でfetch/Draco解凍を丸ごと省略
+		if (cache.size > CACHE_MAX) cache.delete(cache.keys().next().value);   // LRU: 最古を退避
+	}
 	console.log("[plateau] 完了", base, `(${batches.length} batches)`);
 	const storing = idbStore(base, batches, wardMask, wardBbox, brid);   // 永続化（表示経路はバックグラウンド＝待たせない）
 	if (preload) await storing;   // プレロードの本旨はIDB永続化＝書き終わるまで ack しない（ackより先にモーダルが一覧を引くと「済」にならない）
@@ -397,7 +412,12 @@ async function loadPlateau(base, tiles, ward, wardBbox, camCenter, preload = fal
 const inflight = new Map();
 
 self.onmessage = async (e) => {
-	if (e.data.type === "init") { meshPort = e.data.meshPort; if (e.data.lowMem) CACHE_MAX = 1; return; }
+	if (e.data.type === "init") {
+		meshPort = e.data.meshPort;
+		meshPort.onmessage = ev => { if (ev.data && ev.data.drained) onDrained(); };   // render worker の消化ack＝クレジット返却
+		if (e.data.lowMem) CACHE_MAX = 0;   // 低メモリ端末＝worker内キャッシュなし（区一式の常駐がタブ落ちの下駄になる。再訪はIDB）
+		return;
+	}
 	if (e.data.type === "purge") { cache.clear(); const n = await idbPurge(); console.log("[plateau] キャッシュ全消去", n, "records"); return; }
 	if (e.data.type === "idbList") {   // データ管理モーダル用：IDBのメタ一覧（全workerが同一DBを見る＝どの1本に聞いてもよい）
 		const idb = await idbReady, items = [];
