@@ -1,6 +1,5 @@
 import { fmtBytes, escHtml, showToast } from './shared.js';
 import { geopbf } from './gpbf.js';
-import { mojSavePbfSize } from '../moj/ui.js';
 
 let _dlActive = false;
 let _dlCancel = false;
@@ -76,7 +75,11 @@ export async function bulkDownload(entries, label, fetchFn = null, parallel = nu
                     s.phase = 'done';
                     const sz = pbf?.size || entry.size || s.total || s.loaded;
                     s.loaded = sz; s.total = sz;
-                    if (pbf?.size && entry.format === 'moj') mojSavePbfSize(entry.name, pbf.size);
+                    // moj/ui.js は静的 import しない（マニフェスト4MB級が初期バンドルへ逆流するため）。
+                    // moj の一括DL時点でモジュールは読込済み＝この import はキャッシュから即時解決
+                    if (pbf?.size && entry.format === 'moj') {
+                        import('../moj/ui.js').then(m => m.mojSavePbfSize(entry.name, pbf.size)).catch(() => {});
+                    }
                 }
             } catch {
                 if (!_dlCancel) errors++;

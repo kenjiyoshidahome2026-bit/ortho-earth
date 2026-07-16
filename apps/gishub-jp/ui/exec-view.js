@@ -1,6 +1,7 @@
 import { geoExec } from 'common/geoExec';
 import { screenLogger } from 'common/screenLogger';
 import { saveTo, openDirectory, comma } from 'common';
+import { showToast } from './shared.js';
 import { select as d3select } from 'd3';
 import { geopbf } from './gpbf.js';
 import { execGlobeView } from './globe.js';
@@ -104,10 +105,13 @@ export function showPropTable(pbf, logEl, tablesEl, actionEl) {
     btnRow.append('button').text('📥 CSV').on('click', () =>
         saveProp(new File([pbf.getCSV()], (pbf._name || 'data') + '.csv', { type: 'text/csv' })));
     btnRow.append('button').text('📥 Excel').on('click', async () => {
-        window.XLSX || await import('https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js');
-        const wb  = window.XLSX.read(pbf.getCSV(), { type: 'string', raw: true });
-        const buf = window.XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
-        saveProp(new File([buf], (pbf._name || 'data') + '.xlsx', { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+        // ローカル依存の遅延チャンク（旧: 実行時CDN import＝オフライン死・SRI不能・0.18.5系CVEの供給網リスク）
+        try {
+            const XLSX = await import('xlsx');
+            const wb  = XLSX.read(pbf.getCSV(), { type: 'string', raw: true });
+            const buf = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+            saveProp(new File([buf], (pbf._name || 'data') + '.xlsx', { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+        } catch (e) { console.error('[excel]', e); showToast('Excel 変換に失敗しました'); }
     });
     btnRow.append('button').text('✕ 閉じる').on('click', () => { tablesEl.hide().html(''); logEl.show(); actionEl.show(); });
 }

@@ -5,7 +5,9 @@ export default defineConfig({
 	base: '/gishub-jp/',
 	plugins: [wasm()],
 	worker: { format: 'es' },
-	build: { target: 'esnext', sourcemap: true },
+	// sourcemap: 'hidden' = .map は生成するが JS 末尾に参照 URL を書かない（=デプロイしても実質非公開、
+	// sealed 済みパッケージの生ソースが sourcesContent で丸見えになるのを防ぐ）。ローカルのデバッグは可能
+	build: { target: 'esnext', sourcemap: 'hidden' },
 	css: { preprocessorOptions: { scss: { api: 'modern-compiler' } } },
 	server: {
 		port: 5173,

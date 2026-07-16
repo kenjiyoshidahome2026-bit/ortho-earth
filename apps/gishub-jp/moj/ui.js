@@ -39,11 +39,7 @@ export function mojSavePbfSize(name, bytes) {
     } catch {}
 }
 
-// ---- sidebar entry -------------------------------------------------------
-
-export function mojSidebarEntry() {
-    return { dataset_code:'moj', title:'登記所備付地図（14条地図）', file_count:MOJ_CITIES.size, license:'CC BY 4.0', _sourceId:'moj' };
-}
+// サイドバー項目は ui/entries.js（正本）へ移動。件数は scripts/gen-counts.mjs → ui/counts.json
 
 // ---- city list -------------------------------------------------------
 

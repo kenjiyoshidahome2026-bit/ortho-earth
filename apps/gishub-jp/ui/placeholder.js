@@ -1,7 +1,5 @@
-import MAFF_MANIFEST   from '../maff/manifest.json'   with { type: 'json' };
-import ESTAT_MANIFEST  from '../estat/manifest.json'  with { type: 'json' };
-import CENSUS_MANIFEST from '../census/manifest.json' with { type: 'json' };
-import { MOJ_CITIES } from '../moj/ui.js';
+// 件数は軽量メタ（重いマニフェストを初期バンドルへ引き込まない）。更新は scripts/gen-counts.mjs
+import COUNTS from './counts.json' with { type: 'json' };
 
 export function placeholder(catalog) {
     const nlftpDs    = catalog.filter(d => d._sourceId === 'nlftp');
@@ -23,7 +21,7 @@ export function placeholder(catalog) {
             min:   '総務省',
             url:   'https://www.e-stat.go.jp/gis',
             label: '統計 GIS・国勢調査',
-            cnt:   ESTAT_MANIFEST.length,
+            cnt:   COUNTS.estat,
             unit:  `市区町村（小地域境界）+ 国勢調査 3セット`,
             desc:  '小地域境界 Shapefile（e-Stat）と 2015/2020/2025 年 国勢調査の人口・世帯・産業別集計',
         },
@@ -32,7 +30,7 @@ export function placeholder(catalog) {
             min:   '法務省',
             url:   'https://www.geospatial.jp/ckan/organization/moj',
             label: '登記所備付地図',
-            cnt:   MOJ_CITIES.size,
+            cnt:   COUNTS.moj,
             unit:  '市区町村',
             desc:  '不動産登記の基礎となる 14 条地図（GeoJSON / GeoPBF）',
         },
@@ -41,7 +39,7 @@ export function placeholder(catalog) {
             min:   '農林水産省',
             url:   'https://open.fude.maff.go.jp/',
             label: '農地（筆ポリゴン）',
-            cnt:   MAFF_MANIFEST.length,
+            cnt:   COUNTS.maff,
             unit:  '市区町村',
             desc:  '全国の農地区画。作付・耕地種別などの属性付き（GeoJSON）',
         },

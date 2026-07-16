@@ -14,9 +14,7 @@ const MAFF_BY_PREF = (() => {
     return m;
 })();
 
-export function maffSidebarEntry() {
-    return { dataset_code:'maff', title:'農地（筆ポリゴン）', file_count:MAFF_MANIFEST.length, license:'CC BY 4.0', _sourceId:'maff' };
-}
+// サイドバー項目は ui/entries.js（正本）へ移動。件数は scripts/gen-counts.mjs → ui/counts.json
 
 // ---- list -------------------------------------------------------
 

@@ -27,9 +27,7 @@ const ESTAT_BY_PREF = (() => {
     return m;
 })();
 
-export function estatSidebarEntry() {
-    return { dataset_code:'estat', title:'統計GIS 小地域境界', file_count:ESTAT_MANIFEST.length, license:'CC BY', _sourceId:'estat' };
-}
+// サイドバー項目は ui/entries.js（正本）へ移動。件数は scripts/gen-counts.mjs → ui/counts.json
 
 // ---- list -------------------------------------------------------
 

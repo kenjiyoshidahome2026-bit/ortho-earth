@@ -43,15 +43,7 @@ const _natAges = year => (_NAT_AGES[year] || CENSUS_2020_AGES)['_national'];
 
 // ---- sidebar entries -------------------------------------------------------
 
-export function census2025SidebarEntry() {
-    return { dataset_code:'census2025', title:'国勢調査 2025 速報集計', file_count:1, license:'CC BY', _sourceId:'estat', attribution:'総務省統計局' };
-}
-export function census2020SidebarEntry() {
-    return { dataset_code:'census2020', title:'国勢調査 2020 基本集計', file_count:1, license:'CC BY', _sourceId:'estat', attribution:'総務省統計局' };
-}
-export function census2015SidebarEntry() {
-    return { dataset_code:'census2015', title:'国勢調査 2015 基本集計', file_count:1, license:'CC BY', _sourceId:'estat', attribution:'総務省統計局' };
-}
+// サイドバー項目は ui/entries.js（正本）へ移動
 
 // ---- city item HTML -------------------------------------------------------
 
@@ -160,11 +152,6 @@ function renderCensusMinistryList({ id, title, subtitle, cities, expanded, getSe
 // ---- 小地域ドリルダウンブラウザ -------------------------------------------
 // 全国 → 都道府県 → 市区町村 → 小地域テーブル
 // 各レベル: そのレベルのデータ（人口・チャート）+ 子リスト
-
-export function censusSmall2020SidebarEntry() {
-    return { dataset_code:'census-small-2020', title:'国勢調査 2020 基本集計',
-             file_count:1, license:'CC BY', _sourceId:'estat', attribution:'総務省統計局' };
-}
 
 export async function renderCensusSmall2020() {
     loadPopHistory();   // 人口推移データを先読み（初回の全国トレンドを速く）

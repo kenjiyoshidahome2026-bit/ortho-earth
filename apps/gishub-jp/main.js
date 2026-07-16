@@ -1,7 +1,6 @@
 // ============================================================
 // インポート
 // ============================================================
-import { API_BASE }           from './ui/config.js';
 import { showToast }          from './ui/shared.js';
 import { setup as ctxSetup }  from './ui/ctx.js';
 import { execGlobeView }      from './ui/globe.js';
@@ -11,16 +10,36 @@ import { initDetailEventListeners, nlftpSelectDataset } from './nlftp/ui.js';
 import { loadCatalogEntries } from './nlftp/catalog.js';
 import { placeholder }        from './ui/placeholder.js';
 import { initSidebarToggle }  from './ui/sidebar.js';
-import { mojSidebarEntry, renderMojList } from './moj/ui.js';
-import { maffSidebarEntry, renderMaffList } from './maff/ui.js';
-import { estatSidebarEntry, renderEstatList } from './estat/ui.js';
-import { showAmedas } from './jma/ui.js';        // 別枠（カタログ外）: #amedas で描画
-import { showSeismic } from './jishin/ui.js';    // 別枠（カタログ外）: #seismic で描画
+// サイドバー項目は軽量メタ（ui/entries.js）から。省庁モジュール本体は選択時に dynamic import
+// （静的 import に戻すと moj/census 等のマニフェスト約4MBが初期バンドルへ逆流するので禁止）
 import {
-    census2025SidebarEntry, census2020SidebarEntry, census2015SidebarEntry,
-    renderCensus2025List, renderCensus2020List, renderCensus2015List,
-    censusSmall2020SidebarEntry, renderCensusSmall2020,
-} from './census/ui.js';
+    mojSidebarEntry, maffSidebarEntry, estatSidebarEntry,
+    census2025SidebarEntry, censusSmall2020SidebarEntry, census2015SidebarEntry,
+} from './ui/entries.js';
+
+// dataset_code → { モジュール読込, 描画関数名 }（カタログ外の #amedas/#seismic も同じ機構）
+const LAZY_VIEWS = {
+    'moj':               { load: () => import('./moj/ui.js'),    fn: 'renderMojList' },
+    'maff':              { load: () => import('./maff/ui.js'),   fn: 'renderMaffList' },
+    'estat':             { load: () => import('./estat/ui.js'),  fn: 'renderEstatList' },
+    'amedas':            { load: () => import('./jma/ui.js'),    fn: 'showAmedas' },
+    'seismic':           { load: () => import('./jishin/ui.js'), fn: 'showSeismic' },
+    'census2025':        { load: () => import('./census/ui.js'), fn: 'renderCensus2025List' },
+    'census2020':        { load: () => import('./census/ui.js'), fn: 'renderCensus2020List' },
+    'census2015':        { load: () => import('./census/ui.js'), fn: 'renderCensus2015List' },
+    'census-small-2020': { load: () => import('./census/ui.js'), fn: 'renderCensusSmall2020' },
+};
+
+async function runLazyView(code) {
+    try {
+        const { load, fn } = LAZY_VIEWS[code];
+        const mod = await load();
+        await mod[fn]();
+    } catch (e) {
+        console.error(`[lazy-view] ${code}:`, e);
+        showToast('モジュールの読み込みに失敗しました。再読み込みしてください');
+    }
+}
 
 // ============================================================
 // State
@@ -57,13 +76,7 @@ async function loadCatalog() {
 
 		const hash = location.hash.slice(1);
 		if (hash) {
-			if      (hash === 'moj')        { selectDataset('moj',        true); }
-			else if (hash === 'maff')       { selectDataset('maff',       true); }
-			else if (hash === 'estat')      { selectDataset('estat',      true); }
-			else if (hash === 'census2025') { selectDataset('census2025', true); }
-			else if (hash === 'census2020') { selectDataset('census2020', true); }
-			else if (hash === 'census2015') { selectDataset('census2015', true); }
-			else if (hash === 'census-small-2020') { selectDataset('census-small-2020', true); }
+			if (LAZY_VIEWS[hash]) { selectDataset(hash, true); }   // #amedas/#seismic の直リンクもここで解決
 			else if (catalog.some(ds => ds.dataset_code === hash)) {
 				selectDataset(hash, true);
 				setTimeout(() => document.querySelector(`.ds-item[data-code="${hash}"]`)?.scrollIntoView({ block: 'center' }), 100);
@@ -173,15 +186,7 @@ async function _selectDatasetNow(code) {
 	closeGeoPreview();
 	document.querySelectorAll('.ds-item').forEach(el => el.classList.toggle('active', el.dataset.code === code));
 
-	if (code === 'moj')        { history.replaceState(null,'','#moj');        renderMojList();        return; }
-	if (code === 'maff')       { history.replaceState(null,'','#maff');       renderMaffList();       return; }
-	if (code === 'estat')      { history.replaceState(null,'','#estat');      renderEstatList();      return; }
-	if (code === 'amedas')     { history.replaceState(null,'','#amedas');     showAmedas();           return; }
-	if (code === 'seismic')    { history.replaceState(null,'','#seismic');    showSeismic();          return; }
-	if (code === 'census2025') { history.replaceState(null,'','#census2025'); renderCensus2025List(); return; }
-	if (code === 'census2020') { history.replaceState(null,'','#census2020'); renderCensus2020List(); return; }
-	if (code === 'census2015')       { history.replaceState(null,'','#census2015');       renderCensus2015List(); return; }
-	if (code === 'census-small-2020') { history.replaceState(null,'','#census-small-2020'); renderCensusSmall2020(); return; }
+	if (LAZY_VIEWS[code]) { history.replaceState(null, '', `#${code}`); runLazyView(code); return; }
 
 	nlftpSelectDataset(code);
 }
@@ -204,7 +209,8 @@ async function copyEntries(entries, feedbackEl) {
 // ============================================================
 // ctx 登録（省庁モジュールが参照する共有関数）
 // ============================================================
-ctxSetup({ setDetailHtml, renderExecView, bulkDownload, copyEntries, closeGeoPreview, renderMojList });
+ctxSetup({ setDetailHtml, renderExecView, bulkDownload, copyEntries, closeGeoPreview,
+           renderMojList: () => runLazyView('moj') });
 
 // ============================================================
 // キーボードナビゲーション
@@ -241,8 +247,7 @@ document.addEventListener('keydown', e => {
 window.addEventListener('hashchange', () => {
 	const hash = location.hash.slice(1);
 	if (!hash) return;
-	if (hash === 'moj') { if (active !== 'moj') selectDataset('moj', true); return; }
-	if (hash === 'amedas' || hash === 'seismic') { selectDataset(hash, true); return; }   // 別枠（カタログ外）
+	if (LAZY_VIEWS[hash]) { if (hash !== active) selectDataset(hash, true); return; }
 	if (hash !== active && catalog.some(ds => ds.dataset_code === hash)) {
 		selectDataset(hash, true);
 		setTimeout(() => document.querySelector(`.ds-item[data-code="${hash}"]`)?.scrollIntoView({ block: 'center' }), 100);
