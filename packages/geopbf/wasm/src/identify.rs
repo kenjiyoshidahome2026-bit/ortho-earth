@@ -127,6 +127,9 @@ impl GintConverter {
 
     /// ポリゴン地物の内側判定（JS: findPolygon と等価）
     /// レイキャスティング法（偶奇規則）。error パラメータ不要。
+    /// TODO: JS側は smallest-wins（全走査で最後のヒット=最小地物を返す）に変更済み。
+    /// 本コンバータは現状未配線（buildConverter の呼び出し元なし）のため据え置き。
+    /// 配線する際はこの first-wins を JS と同じ後勝ちに揃えること。
     pub fn identify_polygon(&self, mix: u32, miy: u32) -> i32 {
         let mut pos = 0;
         let mut comp_idx = 0usize;

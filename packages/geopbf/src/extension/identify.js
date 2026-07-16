@@ -225,8 +225,12 @@ function findMortonNear(buffer, meta, lineStream, mix, miy, error) {
 	return null;
 }
 
+// 重なり・入れ子は「最小の地物」を返す（smallest-wins）。polyStream は topology() が
+// 地物weight降順（大→小）で書き出すため、全走査して最後にヒットした fid ＝最小地物。
+// 旧・先勝ちは常に外側の大物を返し、入れ子の内側（地種区分の内側ゾーン等）が選べなかった。
 export function findPolygon(buffer, meta, polyStream, mix, miy, polyBboxByFid, viewBbox) {
 	const vb = viewBbox ?? _viewBbox;
+	let best = null;
 	let p = 0;
 	while (p < polyStream.length) {
 		const fid = polyStream[p];
@@ -268,7 +272,7 @@ export function findPolygon(buffer, meta, polyStream, mix, miy, polyBboxByFid, v
 				}
 			}
 		}
-		if (inside) return fid;
+		if (inside) best = fid;
 	}
-	return null;
+	return best;
 }
