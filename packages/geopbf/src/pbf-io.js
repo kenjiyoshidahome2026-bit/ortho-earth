@@ -33,11 +33,22 @@ class PBFIO {
     }
     async load(name, opts = {}) {
         const val = await this.cache(name).catch(console.error);
+        // キャッシュの GINT（派生物）は ETag 一致でも信用しきらない：GintBUF のフォーマットが変わると
+        // ETag（ソース PBF の版）は同じまま unpack が失敗する。失敗したら下の「取得→再焼き→put」へ
+        // フォールスルー＝次回からは新フォーマットのキャッシュ（自己修復。旧版キャッシュで海岸線が全端末で消えた教訓）。
+        const fromCache = async v => {
+            const pbf = await (await new GeoPBF().set(v.PBF)).setGintBUF(v.GINT).catch(() => null);
+            return pbf && pbf.unPackGint ? pbf : null;
+        };
         try {
             const res = await fetch(`${this.bucket.url}${name}`, { cache: 'default' });
             if (!res.ok) throw new Error(`Failed to fetch: ${name} (HTTP ${res.status})`);
             const ETag = res.headers.get("etag");
-            if (val && val.ETag === ETag && val.PBF && val.GINT) return await (await new GeoPBF().set(val.PBF)).setGintBUF(val.GINT);
+            if (val && val.ETag === ETag && val.PBF && val.GINT) {
+                const cached = await fromCache(val);
+                if (cached) return cached;
+                console.warn(`[geopbf] ${name}: キャッシュの GintBUF が読めない（旧フォーマット）→ 再焼き`);
+            }
             const blob = await gunzip(await res.blob());
             const pbf = await new GeoPBF().set(await blob.arrayBuffer());
             pbf._etag = ETag;
@@ -45,7 +56,10 @@ class PBFIO {
             await this.put(pbf);
             return pbf;
         } catch (e) {
-            if (val && val.PBF && val.GINT) return await (await new GeoPBF().set(val.PBF)).setGintBUF(val.GINT);
+            if (val && val.PBF && val.GINT) {   // 通信断など＝古くても出せるなら出す（unpack 不能ならここも諦める）
+                const cached = await fromCache(val);
+                if (cached) return cached;
+            }
             console.error(`[Fetch Error]`, e);
         }
     }

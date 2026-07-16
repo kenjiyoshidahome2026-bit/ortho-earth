@@ -42,18 +42,25 @@ GeoPBF.setPrototype("precision", async function (s) { return precision(this, s);
 
 GeoPBF.setPrototype("setGintBUF", async function(buf) {
 	if (!buf) throw new Error("setGintBUF: buf is null — gint encoding failed");
-	if (typeof SharedArrayBuffer === 'undefined') throw new Error("SharedArrayBuffer is not supported in this environment. Please set headers.");
-	const sab = this._gintBuffer = new SharedArrayBuffer(buf.byteLength);
-	new Uint8Array(sab).set(new Uint8Array(buf));
+	// SAB＝worker へのゼロコピー共有（最適化）であって必須ではない。Safari は COEP:credentialless を認識せず
+	// crossOriginIsolated が立たない＝SAB 不在。ここで throw すると海岸線/14条筆が Safari/iPhone で全滅する
+	//（実際に起きた）ので、無い環境は通常 ArrayBuffer＝structured clone のコピー1回を払って動かす。
+	let payload;
+	if (typeof SharedArrayBuffer !== "undefined") {
+		payload = this._gintBuffer = new SharedArrayBuffer(buf.byteLength);
+		new Uint8Array(payload).set(new Uint8Array(buf));
+	} else {
+		payload = this._gintBuffer = buf.slice(0);   // 自前コピーを保持（呼び出し元の buf と縁を切る＝IDB put 等は従来通り）
+	}
 	if (GeoPBF._gintWorkerFactory || GeoPBF._gintWorkerUrl) {
 		this.unPackGint = await new Promise((resolve, reject) => {
 			const w = GeoPBF._gintWorkerFactory ? GeoPBF._gintWorkerFactory() : new Worker(GeoPBF._gintWorkerUrl, { type: "module" });
 			w.onmessage = e => { w.terminate(); resolve(e.data); };
 			w.onerror  = e => { w.terminate(); reject(e); };
-			w.postMessage({ sab });
+			w.postMessage({ sab: payload });   // AB の場合は structured clone（unpack は内部でコピーする設計＝どちらでも正しい）
 		});
 	} else {
-		this.unPackGint = unPackGintBuffer(sab);
+		this.unPackGint = unPackGintBuffer(payload);
 	}
 	return this;
 });

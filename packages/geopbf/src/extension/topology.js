@@ -1,7 +1,10 @@
 import { GeoPBF } from "../pbf-base.js";
 import { gint } from "./gint.js";
 
-topology.FORMAT_VERSION = 1;
+// GintBUF のフォーマット版。レイアウトを変えたら必ず上げる：unPackGintBuffer が版不一致を拒否し、
+// pbf-io.load が「キャッシュのPBFから再焼き」で自己修復する（版なし時代、polyStream/lineStream 導入(v2レイアウト)を
+// 旧版キャッシュが新リーダで読まれて海岸線が全端末で黙って消えた——ETag はソース PBF の版であって派生物の版ではない）。
+topology.FORMAT_VERSION = 2;
 
 // V8 Map limit (~16M entries) workaround: distribute keys across multiple bucket Maps.
 class BigMap {
@@ -169,6 +172,9 @@ export function unPackGintBuffer(GintBUF) {
 		const buf = new Uint8Array(GintBUF).slice().buffer, mlen = 8, SCALE = gint.SCALE_E;
 		const header = new Uint32Array(buf, 0, 16); ptr += 64;
 		if (header[0] !== 1953392967) throw new Error("Invalid Gint buffer");
+		// 版検札：旧レイアウトの GintBUF（IDBキャッシュ由来）を現行リーダで読むとオフセットがずれ、
+		// 例外にすらならず「空の絵」になり得る。ここで確実に弾く＝呼び出し側(pbf-io)が再焼きで自己修復。
+		if (header[1] !== topology.FORMAT_VERSION) throw new Error(`Gint buffer format v${header[1]} (expected v${topology.FORMAT_VERSION}) — 旧キャッシュ`);
 		const polygonCount = header[2], polylineCount = header[3], pointCount = header[4], nodeCount = header[5];
 		const arcLength = header[6], arcCount = header[7], bbox = [...header.slice(8, 12)];
 		bbox[0] = (bbox[0] - 180 * SCALE) / SCALE; bbox[1] = (bbox[1] - 90 * SCALE) / SCALE;
