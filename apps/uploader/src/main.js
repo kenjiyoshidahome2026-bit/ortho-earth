@@ -38,6 +38,7 @@ CMD.append("button").text("messier").on("click", () => messier(q));
 CMD.append("button").text("ne_10m_coastline").on("click", () => coastline(q));
 CMD.append("button").text("KSJ 鉄道/高速道路 (N02/N06)").on("click", () => ksj(q));
 CMD.append("button").text("国立公園 (環境省 nps_all)").on("click", () => nps(q));
+CMD.append("button").text("行政区域 (N03 admin_all)").on("click", () => admin(q));
 
 // var getHeight = await createGetHeight({onstart:s=>console.log("start: "+s),onend:s=>console.log("end: "+s)});
 // console.log(await getHeight(135.2,35.2,10));
@@ -201,6 +202,52 @@ async function nps(q) {
 	if (parks.size !== 35) throw new Error(`公園数 ${parks.size} ≠ 35`);
 	await pbf.save();
 	q.success("nps_all: saved（35公園・地種区分付き）");
+}
+
+// 国土数値情報 N03（行政区域・2025年版）→ GIS/pbf/admin_all
+// 【専用データ】描画用ではなく「座標→市区町村」の逆引き（pbf.identifyAt）専用＝
+// VWランク24（≈z13・境界誤差~20m級）でガッツリ間引く。海岸線が少し太っても identify には無問題。
+// 属性は code（N03_007 行政区域コード＝jp/codes.js のアドレス空間に直結）と name（住所風表記）のみ。
+async function admin(q) {
+	const RANK = 24;
+	q.clear();
+	q.title("行政区域 (admin_all)");
+	const features = [];
+	let rawVerts = 0, keptVerts = 0;
+	for (let p = 1; p <= 47; p++) {
+		const pref = String(p).padStart(2, "0");
+		const url = `https://nlftp.mlit.go.jp/ksj/gml/data/N03/N03-2025/N03-20250101_${pref}_GML.zip`;
+		const pbf = await geopbf(url, { name: `n03_${pref}`, nocache: true });
+		if (!pbf.length) throw new Error(`${pref}: 0 features`);
+		const fc = pbf.simplified(RANK);
+		let kept = 0;
+		for (const f of fc.features) {
+			const pr = f.properties;
+			const code = pr["N03_007"];
+			if (!code) continue;   // 所属未定地
+			f.properties = { code, name: [pr["N03_001"], pr["N03_003"], pr["N03_004"], pr["N03_005"]].filter(t => t && t !== "None").join("") };
+			features.push(f);
+			kept++;
+		}
+		const nv = fc.features.reduce((s2, f) => { const g = f.geometry;
+			const cr = r => s2 += r.length;
+			if (g.type === "Polygon") g.coordinates.forEach(cr);
+			else if (g.type === "MultiPolygon") g.coordinates.forEach(c => c.forEach(cr));
+			return s2; }, 0);
+		keptVerts += nv; rawVerts += pbf.length;
+		q.log(`${pref}: ${kept} features / ${nv.toLocaleString()} verts`);
+	}
+	const out = await geopbf({ type: "FeatureCollection", features }, { name: "admin_all", nocache: true });
+	if (!out.length) throw new Error("admin_all: encoding produced 0 features");
+	out.updateHeader({
+		description: "全国市区町村ポリゴン（座標→市区町村の逆引き専用・VWランク24間引き＝境界誤差~20m級。描画用途には元のN03を使うこと）",
+		license: "政府標準利用規約準拠・出典明示で利用可",
+		attribution: "国土交通省 国土数値情報（行政区域 N03 2025年版）",
+	});
+	const codes = new Set(out.geojson.features.map(f => f.properties.code));
+	q.log(`admin_all: ${out.length.toLocaleString()} features / ${codes.size} 市区町村コード / ${(out.size / 1e6).toFixed(1)}MB / verts ${keptVerts.toLocaleString()}`);
+	await out.save();
+	q.success(`admin_all: saved（${codes.size}市区町村・${(out.size / 1e6).toFixed(1)}MB）`);
 }
 
 async function borders(q) {

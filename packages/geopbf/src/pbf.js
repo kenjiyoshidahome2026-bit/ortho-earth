@@ -4,6 +4,7 @@ import { concatinate, clone, cloneHead, cloneMap, classify, getPropertyTable, ge
 import { dissolve } from "./extension/dissolve.js";
 import { topojson, neighbors, mesh, merge } from "./extension/topojson.js";
 import { identify, identifyAt, contain } from "./extension/identify.js";
+import { simplified } from "./extension/simplify.js";
 import { unPackGintBuffer } from "./extension/topology.js";
 import { cleanTopology } from "./extension/clean.js";
 import { precision } from "./extension/precision.js";
@@ -38,6 +39,7 @@ GeoPBF.setPrototype("identify", function (mx, my, proj, options) { return identi
 GeoPBF.setPrototype("identifyAt", function (lng, lat, options) { return identifyAt(this, lng, lat, options); });   // 描画レス識別（proj不要・許容半径m）
 GeoPBF.setPrototype("contain", function ([lng, lat]) { return contain(this, lng, lat); });
 
+GeoPBF.setPrototype("simplified", function (minRank) { return simplified(this, minRank); });   // VWランク間引きFC（描画でなく専用データ焼き用）
 GeoPBF.setPrototype("cleanTopology", function(options) { cleanTopology(this.unPackGint, options); return this; });
 GeoPBF.setPrototype("precision", async function (s) { return precision(this, s); });
 
