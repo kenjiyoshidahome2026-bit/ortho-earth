@@ -48,8 +48,15 @@ function worldToLonLat(x, y, z) {
 	return [lon, lat];
 }
 
-// ---- カメラ ----
-const cam = { z: 15.5, lon: 141.33, lat: 43.06 };
+// ---- カメラ（区ごとに前回位置を記憶。初回はデータ読込後にアンカー平均へ飛ぶ）----
+const CAM_KEY = `moj-arb-cam-${CODE}`;
+const savedCam = JSON.parse(localStorage.getItem(CAM_KEY) || "null");
+const cam = savedCam ?? { z: 5.5, lon: 137.5, lat: 38 };   // 未訪問なら日本広域（別区の座標が出るのを防ぐ）
+let camTimer = 0;
+function saveCam() {
+	clearTimeout(camTimer);
+	camTimer = setTimeout(() => localStorage.setItem(CAM_KEY, JSON.stringify(cam)), 500);
+}
 function lonLatToScreen(lon, lat) {
 	const [cx, cy] = lonLatToWorld(cam.lon, cam.lat, cam.z);
 	const [x, y] = lonLatToWorld(lon, lat, cam.z);
@@ -70,18 +77,25 @@ function getTile(z, x, y) {
 	let e = tileCache.get(key);
 	if (!e) {
 		const img = new Image();
-		e = { img, loaded: false };
-		img.onload = () => { e.loaded = true; draw(); };
+		img.crossOrigin = "anonymous";
+		e = { tile: null, loaded: false };
+		img.onload = () => {
+			// ロード時に1回だけ彩度を落として canvas 化。毎フレーム ctx.filter を掛けると
+			// 中間サーフェス強制で描画が桁で重くなる（荒川で「下地が出ない・遅い」の主因）。
+			const c = document.createElement("canvas");
+			c.width = c.height = 256;
+			const g = c.getContext("2d");
+			g.filter = "saturate(.35) brightness(1.05)";
+			g.drawImage(img, 0, 0);
+			e.tile = c; e.loaded = true;
+			draw();
+		};
 		img.src = TILE_URL(z, x, y);
 		tileCache.set(key, e);
 	}
-	return e.loaded ? e.img : null;
+	return e.loaded ? e.tile : null;
 }
 function drawTiles() {
-	// GSI淡色は市街地(DID)を水色網掛けで塗る＝青の変換済みレイヤと紛らわしい長方形に見える。
-	// 下地は彩度を落として引かせ、「青＝変換済み」を専有色にする（未対応ブラウザでは無害に素通り）。
-	ctx.save();
-	ctx.filter = "saturate(.35) brightness(1.05)";
 	const z = Math.round(cam.z);
 	const zoomAdjust = Math.pow(2, cam.z - z);
 	const tileScreenSize = 256 * zoomAdjust;
@@ -98,7 +112,6 @@ function drawTiles() {
 		if (img) ctx.drawImage(img, sx, sy, tileScreenSize + 0.5, tileScreenSize + 0.5);
 		else { ctx.fillStyle = "#e8e6e0"; ctx.fillRect(sx, sy, tileScreenSize, tileScreenSize); }
 	}
-	ctx.restore();
 }
 
 // ---- データ ----
@@ -154,9 +167,12 @@ async function loadData() {
 			done: sv?.done ?? false,
 		};
 	});
-	// カメラ初期位置＝アンカー平均
-	cam.lon = sheets.reduce((s, x) => s + x.t.lon, 0) / sheets.length;
-	cam.lat = sheets.reduce((s, x) => s + x.t.lat, 0) / sheets.length;
+	// 初訪問時のみカメラをアンカー平均へ（再訪は前回位置を維持）
+	if (!savedCam) {
+		cam.lon = sheets.reduce((s, x) => s + x.t.lon, 0) / sheets.length;
+		cam.lat = sheets.reduce((s, x) => s + x.t.lat, 0) / sheets.length;
+		cam.z = 14.5;
+	}
 	updateHud();
 	draw();
 }
@@ -167,6 +183,7 @@ function persist() {
 		anchor: [sh.t.lon, sh.t.lat], scale: sh.t.s, thetaDeg: sh.t.theta * R2D, done: sh.done,
 	};
 	localStorage.setItem(LS_KEY, JSON.stringify(out));
+	invalidateSheets();   // 変換・確定状態が変わった＝図郭スナップショット無効
 }
 
 // ---- 相似変換：ローカル[N,E]m ⇄ lon/lat ----
@@ -265,8 +282,8 @@ function drawPublicLayer() {
 	ctx.globalAlpha = 1;
 }
 
-// ---- 図郭1枚の描画（視野カリング＋定数ホイスト済み）----
-function drawSheet(sh) {
+// ---- 図郭1枚の描画（視野カリング＋定数ホイスト済み・描画先 g を取る）----
+function drawSheet(g, sh) {
 	// 視野→図郭ローカルの bbox（逆変換はアフィン＝画面4隅の min/max で保守的に正しい）→筆カリング
 	let vN0 = Infinity, vE0 = Infinity, vN1 = -Infinity, vE1 = -Infinity;
 	for (const [sx, sy] of [[0, 0], [canvas.width, 0], [0, canvas.height], [canvas.width, canvas.height]]) {
@@ -279,10 +296,10 @@ function drawSheet(sh) {
 
 	const sel = sh === selected;
 	// 確定=緑は選択中でも維持（「確定を押したのに緑にならない」を防ぐ）。選択は太さ＋塗りで示す。
-	ctx.lineWidth = (sel ? 1.8 : 0.7) * dpr;
-	ctx.strokeStyle = sh.done ? (sel ? "#2ea043" : "rgba(46,160,67,.75)") : sel ? "#e8622c" : "rgba(232,98,44,.55)";
-	ctx.fillStyle = sh.done ? (sel ? "rgba(46,160,67,.12)" : "rgba(46,160,67,.05)")
-	                        : sel ? "rgba(232,98,44,.10)" : "rgba(232,98,44,.05)";
+	g.lineWidth = (sel ? 1.8 : 0.7) * dpr;
+	g.strokeStyle = sh.done ? (sel ? "#2ea043" : "rgba(46,160,67,.75)") : sel ? "#e8622c" : "rgba(232,98,44,.55)";
+	g.fillStyle = sh.done ? (sel ? "rgba(46,160,67,.12)" : "rgba(46,160,67,.05)")
+	                      : sel ? "rgba(232,98,44,.10)" : "rgba(232,98,44,.05)";
 	// 点ループの定数ホイスト：cos/sin・m/度・メルカトル係数を筆2.5万点ぶん再計算しない（ドラッグのカクつき対策）
 	const t = sh.t, tc = Math.cos(t.theta), ts = Math.sin(t.theta);
 	const lonPerM = 1 / mPerDegLon(t.lat), latPerM = 1 / M_PER_DEG_LAT;
@@ -297,26 +314,57 @@ function drawSheet(sh) {
 			const lat = t.lat + t.s * (E * ts + N * tc) * latPerM;
 			const px = (lon + 180) / 360 * wn + ox;
 			const py = (0.5 - Math.log(Math.tan(HPI4 + lat * D2R * 0.5)) * I2PI) * wn + oy;
-			if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+			if (i === 0) g.moveTo(px, py); else g.lineTo(px, py);
 		}
-		ctx.closePath();
+		g.closePath();
 	};
-	ctx.beginPath();
+	g.beginPath();
 	for (const f of sh.fude) {
 		const b = f.bb;
 		if (f.noFill || b[2] < vN0 || b[0] > vN1 || b[3] < vE0 || b[1] > vE1) continue;
 		addRing(f.ring);
 		if (f.holes) for (const h of f.holes) addRing(h);   // 環状道路等の穴
 	}
-	ctx.fill("evenodd");
-	ctx.beginPath();
+	g.fill("evenodd");
+	g.beginPath();
 	for (const f of sh.fude) {
 		const b = f.bb;
 		if (b[2] < vN0 || b[0] > vN1 || b[3] < vE0 || b[1] > vE1) continue;
 		addRing(f.ring);
 		if (f.holes) for (const h of f.holes) addRing(h);
 	}
-	ctx.stroke();
+	g.stroke();
+}
+
+// ---- 図郭レイヤのスナップショット：パン/ズーム中は貼るだけ、静止後150msで再焼き。
+// 荒川級（19図郭・6.5万筆）を毎フレーム全描画すると下地タイルまで巻き添えで遅くなる ----
+const shCanvas = document.createElement("canvas");
+let shSnap = null, shTimer = 0;
+function invalidateSheets() { shSnap = null; }
+function renderSheetsSnap() {
+	shCanvas.width = canvas.width; shCanvas.height = canvas.height;
+	const g = shCanvas.getContext("2d");
+	for (const sh of sheets) drawSheet(g, sh);
+	shSnap = { z: cam.z, lon: cam.lon, lat: cam.lat, w: canvas.width, h: canvas.height };
+}
+function blitSnap(cnv, snap) {
+	const k = Math.pow(2, cam.z - snap.z);
+	const [cx, cy] = lonLatToWorld(cam.lon, cam.lat, snap.z);
+	const [sx0, sy0] = lonLatToWorld(snap.lon, snap.lat, snap.z);
+	const ox = (sx0 - snap.w / 2 - cx) * k + canvas.width / 2;
+	const oy = (sy0 - snap.h / 2 - cy) * k + canvas.height / 2;
+	ctx.drawImage(cnv, ox, oy, snap.w * k, snap.h * k);
+}
+function drawSheetsLayer() {
+	if (!sheets.length) return;
+	const dirty = !shSnap || shSnap.z !== cam.z || shSnap.lon !== cam.lon || shSnap.lat !== cam.lat
+		|| shSnap.w !== canvas.width || shSnap.h !== canvas.height;
+	if (!shSnap) { renderSheetsSnap(); }
+	else if (dirty) {
+		clearTimeout(shTimer);
+		shTimer = setTimeout(() => { renderSheetsSnap(); draw(); }, 150);
+	}
+	blitSnap(shCanvas, shSnap);
 }
 
 function drawHandles() {
@@ -346,7 +394,8 @@ function drawScene(excludeSheet = null) {
 	ctx.clearRect(0, 0, canvas.width, canvas.height);
 	drawTiles();
 	drawPublicLayer();
-	for (const sh of sheets) if (sh !== excludeSheet) drawSheet(sh);
+	if (excludeSheet !== null) { for (const sh of sheets) if (sh !== excludeSheet) drawSheet(ctx, sh); }
+	else drawSheetsLayer();
 	// 市区町村境界＝深い赤（最前面の参照線）
 	if (cityBoundary.length) {
 		ctx.strokeStyle = "#8b1a1a";
@@ -366,12 +415,13 @@ function draw() {
 	if (dragBG && selected) {
 		ctx.clearRect(0, 0, canvas.width, canvas.height);
 		ctx.drawImage(dragBG, 0, 0);
-		drawSheet(selected);
+		drawSheet(ctx, selected);
 		drawHandles();
 		return;
 	}
 	drawScene();
 	drawHandles();
+	saveCam();
 }
 
 // ---- HUD ----
@@ -454,7 +504,7 @@ canvas.addEventListener("pointerdown", e => {
 	} else {
 		const sh = hitSheet(sx, sy);
 		if (sh) {
-			if (sh !== selected) { selected = sh; updateHud(); draw(); }
+			if (sh !== selected) { selected = sh; updateHud(); invalidateSheets(); draw(); }
 			if (sh.done) {
 				// 確定済み＝ロック：選択（パネルで確定解除は可能）はするがドラッグはパン扱い
 				drag = { mode: "pan", startClient: [e.clientX, e.clientY], startCam: { ...cam } };
@@ -465,7 +515,7 @@ canvas.addEventListener("pointerdown", e => {
 				beginSheetDrag();
 			}
 		} else {
-			if (selected) { selected = null; updateHud(); draw(); }
+			if (selected) { selected = null; updateHud(); invalidateSheets(); draw(); }
 			drag = { mode: "pan", startClient: [e.clientX, e.clientY], startCam: { ...cam } };
 		}
 	}
