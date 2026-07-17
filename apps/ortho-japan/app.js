@@ -695,7 +695,7 @@ skyClockEl.id = "sky-clock";
 mapEl.appendChild(skyClockEl);
 const skyAttrEl = document.createElement("div");
 skyAttrEl.id = "sky-attr";
-skyAttrEl.textContent = "星図: d3-celestial ／ 海岸線: Natural Earth ／ 標高: GEBCO ／ © Kenji Yoshida";   // z<4はR90(GEBCO)のみ＝JAXA(R01)は使わない
+skyAttrEl.textContent = "星図: d3-celestial ／ 海岸線: Natural Earth ／ 標高: GEBCO ／ © 2026 Kenji Yoshida";   // z<4はR90(GEBCO)のみ＝JAXA(R01)は使わない
 mapEl.appendChild(skyAttrEl);
 const SKY_WD = ["日", "月", "火", "水", "木", "金", "土"];
 const skyClockTimer = setInterval(() => {

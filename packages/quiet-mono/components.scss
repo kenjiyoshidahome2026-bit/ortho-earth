@@ -130,7 +130,7 @@ body { visibility: visible; }   /* 開幕＝このスタイルシートの到着
 /* --- 出典（右下・最も静か）：計器(#pos)と同じ薄硝子＝下辺の家具で材質を揃える --- */
 #attr {
 	position: absolute; bottom: calc(6px + var(--qm-safe-b)); right: 8px; font-size: 11px; line-height: 1.5; text-align: right;
-	color: var(--qm-text-faint);   /* 緑がかった旧#7a8はQuiet Monoに似つかわしくない＝無彩色へ */
+	color: var(--qm-text-dim);   /* 本文もリンクと同じ濃さ＝二段調をやめ一色に（旧faintは硝子地では薄すぎた） */
 	background-color: rgba(213,226,242,.28); background-image: var(--qm-glass-sheen-dim);
 	-webkit-backdrop-filter: var(--qm-glass-frost); backdrop-filter: var(--qm-glass-frost);
 	border: 1px solid var(--qm-glass-border);
@@ -505,6 +505,7 @@ body { visibility: visible; }   /* 開幕＝このスタイルシートの到着
 #map.world #gadgets > :not(#japan-btn) {
 	opacity: 0; pointer-events: none;
 }
+#map.world #japan-btn { order: -1; }   /* 独りになったら最上段へ＝迷子の扉は定位置（左上角）に */
 /* 星空劇場の家具（逆相＝worldでだけ点灯）：左下=日時計（1秒針）、右下=空データの出典。
    舞台は暗い宇宙＝文字は淡い星明かり色（紙用の --qm-text は使わない）。 */
 #sky-clock, #sky-attr {
@@ -516,9 +517,14 @@ body { visibility: visible; }   /* 開幕＝このスタイルシートの到着
 	font: 19px var(--qm-font-mono); font-variant-numeric: tabular-nums;   /* 等幅数字＝秒針で幅が揺れない */
 	color: rgba(250, 252, 255, .92);   /* 白抜き＝劇場の時計はしっかり読める明るさ */
 }
-#sky-attr {
+#sky-attr {   /* 劇場の出典も薄硝子＝昼(#attr)と同じ額装。暗い宇宙の上では磨りが黒硝子に転ぶ（japanボタンと同じ見え方） */
 	bottom: calc(8px + var(--qm-safe-b)); right: 10px;
-	font-size: 11px; color: rgba(220, 230, 245, .5);
+	font-size: 11px; color: rgba(220, 230, 245, .62);
+	background-color: rgba(213,226,242,.16); background-image: var(--qm-glass-sheen-dim);
+	-webkit-backdrop-filter: var(--qm-glass-frost); backdrop-filter: var(--qm-glass-frost);
+	border: 1px solid rgba(255,255,255,.28);
+	box-shadow: 0 1px 1px rgba(0,0,0,.2), 0 3px 10px rgba(0,0,0,.3), inset 0 1px 0 rgba(255,255,255,.28);
+	padding: 4px 8px; border-radius: var(--qm-r-m);
 }
 #map.world :is(#sky-clock, #sky-attr) { opacity: 1; }
 /* 狭画面（スマホ縦）：時計は一回り小さく、出典は折り返して幅に収める */
