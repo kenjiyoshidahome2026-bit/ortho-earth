@@ -24,7 +24,7 @@ const panelEl = document.getElementById("panel");
 
 let dpr = Math.min(2, window.devicePixelRatio || 1);
 function resize() {
-	dragBG = null;   // ドラッグ背景はサイズ依存＝リサイズで無効化
+	if (typeof endSheetDrag === "function") endSheetDrag();   // ドラッグ合成はサイズ依存＝リサイズで無効化
 	canvas.width = Math.round(innerWidth * dpr);
 	canvas.height = Math.round(innerHeight * dpr);
 	canvas.style.width = innerWidth + "px";
@@ -378,16 +378,24 @@ function drawHandles() {
 	ctx.beginPath(); ctx.arc(center[0], center[1], 3 * dpr, 0, Math.PI * 2); ctx.fill(); // 重心
 }
 
-// ---- ドラッグ背景合成：図郭ドラッグ中はカメラ不動＝タイル+青+他図郭を1枚に焼いて blit、
-// 毎フレーム描くのは動いている図郭だけ（重さの最終弾）----
-let dragBG = null;
+// ---- ドラッグ合成：背景（タイル+青+他図郭）と選択図郭スプライトを各1枚だけ焼き、
+// ドラッグ中は canvas 変換（平行移動・回転・スケール）で貼るだけ＝筆数無関係の O(1)。
+// 図郭は剛体＝相似変換しか受けないので、毎フレームの再描画は原理的に不要（本人指摘）----
+let dragBG = null, dragSprite = null, dragSpriteP0 = null, dragStartT = null;
 function beginSheetDrag() {
 	drawScene(selected);                       // 選択図郭「抜き」でフル描画
 	dragBG = document.createElement("canvas");
 	dragBG.width = canvas.width; dragBG.height = canvas.height;
 	dragBG.getContext("2d").drawImage(canvas, 0, 0);
+	// 選択図郭だけのスプライト（開始時の変換で1回だけ描く）
+	dragSprite = document.createElement("canvas");
+	dragSprite.width = canvas.width; dragSprite.height = canvas.height;
+	drawSheet(dragSprite.getContext("2d"), selected);
+	dragSpriteP0 = lonLatToScreen(selected.t.lon, selected.t.lat);   // アンカー（回転・スケールの支点）
+	dragStartT = { ...selected.t };
 	draw();
 }
+function endSheetDrag() { dragBG = dragSprite = dragSpriteP0 = dragStartT = null; }
 
 // ---- 描画 ----
 function drawScene(excludeSheet = null) {
@@ -412,10 +420,20 @@ function drawScene(excludeSheet = null) {
 	}
 }
 function draw() {
-	if (dragBG && selected) {
+	if (dragBG && dragSprite && selected) {
 		ctx.clearRect(0, 0, canvas.width, canvas.height);
 		ctx.drawImage(dragBG, 0, 0);
-		drawSheet(ctx, selected);
+		// スプライトを相似変換で貼る。EN空間のθ+はスクリーン（y下向き）では −θ 回転。
+		// 回転・スケール中は補間で僅かに甘くなるが、pointerup で即クリスプに再描画される。
+		const p1 = lonLatToScreen(selected.t.lon, selected.t.lat);
+		const dth = selected.t.theta - dragStartT.theta;
+		const k = selected.t.s / dragStartT.s;
+		ctx.save();
+		ctx.translate(p1[0], p1[1]);
+		ctx.rotate(-dth);
+		ctx.scale(k, k);
+		ctx.drawImage(dragSprite, -dragSpriteP0[0], -dragSpriteP0[1]);
+		ctx.restore();
 		drawHandles();
 		return;
 	}
@@ -554,7 +572,7 @@ canvas.addEventListener("pointermove", e => {
 });
 canvas.addEventListener("pointerup", () => {
 	if (drag && drag.mode !== "pan") persist();   // 変換のコミットは操作終了時に一度
-	drag = null; dragBG = null; canvas.classList.remove("dragging-group");
+	drag = null; endSheetDrag(); canvas.classList.remove("dragging-group");
 	draw();
 });
 
