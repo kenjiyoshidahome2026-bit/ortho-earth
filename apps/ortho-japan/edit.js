@@ -477,12 +477,19 @@ function updateHud() {
 		`${selected.oaza.slice(0, 4).join("・")}　${selected.fude.length}筆<br>` +
 		`<span id="p-stats"></span><br>` +
 		`<button id="p-done">${selected.done ? "確定解除" : "この図郭を確定"}</button> ` +
-		`<button id="p-reset">リセット</button>`;
+		`<button id="p-reset">リセット</button> ` +
+		`<button id="p-scale-all" title="この図郭で合わせた倍率を未確定の全図郭の初期値にする（確定済みには触れない）">s を未確定へ一括適用</button>`;
 	updateStats();
 	document.getElementById("p-done").onclick = () => { selected.done = !selected.done; persist(); updateHud(); draw(); };
 	document.getElementById("p-reset").onclick = () => {
 		selected.t = { lon: selected.anchor[0], lat: selected.anchor[1], s: 1, theta: 0 };
 		selected.done = false; persist(); updateHud(); draw();
+	};
+	// 同じ縮尺系譜（例: 荒川の1/600→1/500系 s≈1.3）の図郭群へ種まき。林野図等の別系譜は個別に再調整すればよい。
+	document.getElementById("p-scale-all").onclick = () => {
+		if (!confirm(`s=×${selected.t.s.toFixed(3)} を未確定の全図郭に適用しますか？`)) return;
+		for (const sh of sheets) if (!sh.done && sh !== selected) sh.t.s = selected.t.s;
+		persist(); invalidateSheets(); updateHud(); draw();
 	};
 }
 // ドラッグ中はDOM全再構築でなく数字だけ差し替え（毎moveのinnerHTML再構築はカクつきの元）
@@ -490,8 +497,8 @@ function updateStats() {
 	const el = document.getElementById("p-stats");
 	if (!el || !selected) return;
 	const t = selected.t;
-	const ppm = Math.round((t.s - 1) * 1000 * 10) / 10;
-	el.textContent = `θ=${(t.theta * R2D).toFixed(2)}°　s=1${ppm >= 0 ? "+" : ""}${ppm}‰`;
+	// 任意系は図郭ごとに単位系が違い得る（荒川実測: 1/600→1/500系譜で s≈1.3 の図郭が多数）＝倍率で素直に表示
+	el.textContent = `θ=${(t.theta * R2D).toFixed(2)}°　s=×${t.s.toFixed(3)}`;
 }
 
 // ---- ヒットテスト：筆ポリゴン精密（bbox 矩形だと図郭同士が重なり「掴めない/違うのが掴まれる」）----
@@ -578,7 +585,7 @@ canvas.addEventListener("pointermove", e => {
 		updateStats(); draw();
 	} else if (drag?.mode === "scale" && selected) {
 		const d = Math.hypot(sx - drag.center[0], sy - drag.center[1]);
-		selected.t.s = Math.max(0.5, Math.min(2, drag.startT.s * d / drag.startDist));
+		selected.t.s = Math.max(0.25, Math.min(4, drag.startT.s * d / drag.startDist));   // 単位系違い(尺/縮尺系譜)も掴めるよう広めのクランプ
 		updateStats(); draw();
 	} else if (drag?.mode === "pan") {
 		const dxPx = (e.clientX - drag.startClient[0]) * dpr, dyPx = (e.clientY - drag.startClient[1]) * dpr;
@@ -624,8 +631,9 @@ window.addEventListener("keydown", e => {
 		case "ArrowDown":  t.lat -= stepLat; break;
 		case "q": case "Q": t.theta += 0.05 * k * D2R; break;
 		case "e": case "E": t.theta -= 0.05 * k * D2R; break;
-		case "+": case "=": t.s = Math.min(2, t.s * (1 + 0.0002 * k)); break;
-		case "-": case "_": t.s = Math.max(0.5, t.s * (1 - 0.0002 * k)); break;
+		// 1% 刻み（Shiftで5%）＝s≈1.3 級の単位系違いにも数押しで届く（旧: 0.2‰は細かすぎて実用不能）
+		case "+": case "=": t.s = Math.min(4, t.s * (e.shiftKey ? 1.05 : 1.01)); break;
+		case "-": case "_": t.s = Math.max(0.25, t.s / (e.shiftKey ? 1.05 : 1.01)); break;
 		default: used = false;
 	}
 	if (used) { e.preventDefault(); persist(); updateStats(); draw(); }
