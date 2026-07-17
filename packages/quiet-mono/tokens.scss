@@ -21,7 +21,27 @@
 	--qm-border-soft: rgba(120,130,150,.35);
 	--qm-border-strong: rgba(90,100,120,.7);  /* hover */
 	/* 質感 */
-	--qm-blur: 6px;
+	--qm-blur: 10px;                  /* すりガラスの磨り（6→10px＝ガラス化で一段深く） */
+	/* ガラスのボタン（components.scss 末尾の共通化粧が参照）：
+	   地は薄く＋上辺が明るいグラデ＝光を受けた凸面。立体は影3態（静・hover・押し込み）で語る */
+	--qm-glass-bg: rgba(213,226,242,.42);         /* 地は寒色の薄硝子＝白い紙地図の上でも「ガラス」と分かる色味 */
+	--qm-glass-sheen: linear-gradient(180deg,     /* 中折れ（46→54%）＝ガラスの照り返し。上半分が受光面・下半分は硝子の青みが残る */
+		rgba(255,255,255,.92), rgba(255,255,255,.4) 46%, rgba(255,255,255,0) 54%, rgba(255,255,255,.22));
+	--qm-glass-frost: blur(14px) saturate(1.5);   /* ボタンの磨りはカード(--qm-blur)より深く */
+	--qm-glass-border: rgba(255,255,255,.62);     /* 縁は白寄り＝グレー枠(--qm-border)では硝子に濃すぎる。輪郭は影が受け持つ */
+	--qm-glass-border-strong: rgba(255,255,255,.95);   /* hover＝縁が明るく灯る（従来の「濃くなる」から反転） */
+	--qm-glass-sheen-dim: linear-gradient(180deg,      /* 点火（色ガラス）用の照り＝白の照りは暗地では強すぎる */
+		rgba(255,255,255,.3), rgba(255,255,255,.06) 46%, rgba(255,255,255,0) 54%, rgba(255,255,255,.12));
+	--qm-shadow-btn-on: 0 1px 1px rgba(20,30,50,.1), 0 5px 14px rgba(20,30,50,.22),
+		inset 0 1px 0 rgba(255,255,255,.5), inset 0 -1px 0 rgba(20,30,50,.15);   /* 上のinsetも点火では半分に */
+	--qm-shadow-btn-on-hover: 0 2px 3px rgba(20,30,50,.12), 0 8px 20px rgba(20,30,50,.28),
+		inset 0 1px 0 rgba(255,255,255,.65), inset 0 -1px 0 rgba(20,30,50,.15);   /* 浮きは無点火hoverと同じ・insetは暗地用のまま */
+	--qm-shadow-btn: 0 1px 1px rgba(20,30,50,.1), 0 5px 14px rgba(20,30,50,.22),
+		inset 0 1px 0 rgba(255,255,255,.95), inset 0 -1px 0 rgba(90,100,120,.2);
+	--qm-shadow-btn-hover: 0 2px 3px rgba(20,30,50,.12), 0 8px 20px rgba(20,30,50,.28),
+		inset 0 1px 0 #fff, inset 0 -1px 0 rgba(90,100,120,.2);
+	--qm-shadow-btn-press: 0 1px 2px rgba(20,30,50,.1),
+		inset 0 2px 5px rgba(20,30,50,.2), inset 0 -1px 0 rgba(255,255,255,.6);
 	--qm-safe-b: env(safe-area-inset-bottom, 0px);   /* iPhoneホームバー等＝下辺UIは全てこの分だけ浮かす（viewport-fit=cover とセット） */
 	--qm-r-s: 6px;                /* 小物（トースト・計器） */
 	--qm-r-m: 8px;                /* リスト・入力 */

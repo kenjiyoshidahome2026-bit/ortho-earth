@@ -106,25 +106,36 @@ body { visibility: visible; }   /* 開幕＝このスタイルシートの到着
 		border-left: 1px solid currentColor; border-right: 1px solid currentColor; border-bottom: 3px solid currentColor; }
 }
 
-/* --- 座標読み取り（左下）＝2段テーブル：上段ラベル・下段数値。min-width固定＝数値が変わっても枠が揺れない --- */
+/* --- 座標読み取り（左下）＝2段テーブル：上段ラベル・下段数値。佇まいはボタンと同じ薄硝子（読み取り専用＝照りは控えめ）。
+       min-width は「あり得る最長値」基準＝数値が変わっても枠が揺れない（経度9chは日本でちょうど満杯＝西へ振った負号で伸びていた） --- */
 #pos {
 	position: absolute; bottom: calc(6px + var(--qm-safe-b)); left: 10px; display: none;
-	background: var(--qm-panel-dim); padding: 3px 6px 4px; border-radius: var(--qm-r-s); pointer-events: none;
+	background-color: rgba(213,226,242,.3); background-image: var(--qm-glass-sheen-dim);
+	-webkit-backdrop-filter: var(--qm-glass-frost); backdrop-filter: var(--qm-glass-frost);
+	border: 1px solid var(--qm-glass-border);
+	box-shadow: 0 1px 1px rgba(20,30,50,.06), 0 3px 10px rgba(20,30,50,.14), inset 0 1px 0 rgba(255,255,255,.7);
+	padding: 3px 6px 4px; border-radius: var(--qm-r-m); pointer-events: none;
 	table { border-collapse: collapse; }
-	th { font: 400 10px/1.3 var(--qm-font); color: var(--qm-label); padding: 0 7px; text-align: center; letter-spacing: .06em; }
-	td { font: 12px/1.3 var(--qm-font-mono); color: var(--qm-num); padding: 0 7px; text-align: center; }   /* 12px＝スケール数字と同格 */
-	td:nth-child(1) { min-width: 9ch; }
-	td:nth-child(2) { min-width: 8ch; }
-	td:nth-child(3) { min-width: 5ch; }
+	th { font: 400 10px/1.3 var(--qm-font); color: var(--qm-label); padding: 0 5px 2px; text-align: center; letter-spacing: .06em;
+		border-bottom: 1px solid rgba(120,130,150,.22); }   /* 目盛り線＝ラベルと数値の仕切り一本 */
+	td { font: 13px/1.3 var(--qm-font-mono); font-variant-numeric: tabular-nums; color: var(--qm-num); padding: 2px 5px 0; text-align: center; }   /* 13px＝スケール数字(12px)より半歩前へ（読む主役は数値） */
+	td:nth-child(1) { min-width: 10ch; }   /* -179.99999（負号込みの最長） */
+	td:nth-child(2) { min-width: 9ch; }    /* -85.05113 */
+	td:nth-child(3) { min-width: 6ch; }    /* -9999m 級まで（富士山3776mに1ch余裕） */
 	td:nth-child(4) { min-width: 5ch; }
-	td:nth-child(5) { min-width: 5ch; }   /* 回転 -180°まで */
-	td:nth-child(6) { min-width: 3ch; }
+	td:nth-child(5) { min-width: 5ch; }    /* 回転 -180°まで */
+	td:nth-child(6) { min-width: 4ch; }
 }
 
-/* --- 出典（右下・最も静か） --- */
+/* --- 出典（右下・最も静か）：計器(#pos)と同じ薄硝子＝下辺の家具で材質を揃える --- */
 #attr {
 	position: absolute; bottom: calc(6px + var(--qm-safe-b)); right: 8px; font-size: 11px; line-height: 1.5; text-align: right;
-	color: var(--qm-text-faint); background: var(--qm-panel-faint); padding: 3px 7px; border-radius: var(--qm-r-s);   /* 緑がかった旧#7a8はQuiet Monoに似つかわしくない＝無彩色へ */
+	color: var(--qm-text-faint);   /* 緑がかった旧#7a8はQuiet Monoに似つかわしくない＝無彩色へ */
+	background-color: rgba(213,226,242,.28); background-image: var(--qm-glass-sheen-dim);
+	-webkit-backdrop-filter: var(--qm-glass-frost); backdrop-filter: var(--qm-glass-frost);
+	border: 1px solid var(--qm-glass-border);
+	box-shadow: 0 1px 1px rgba(20,30,50,.06), 0 3px 10px rgba(20,30,50,.14), inset 0 1px 0 rgba(255,255,255,.7);
+	padding: 4px 8px; border-radius: var(--qm-r-m);
 	a { color: var(--qm-text-dim); text-decoration: none;
 		&:hover { text-decoration: underline; } }
 }
@@ -156,11 +167,12 @@ body { visibility: visible; }   /* 開幕＝このスタイルシートの到着
 		&:last-child { border-radius: 0 0 5px 5px; }
 		&:hover, &.on { position: relative; }               /* 点火・ホバーの色付き縁を隣の線に食われない（z-index不使用） */
 		&:hover { border-color: var(--qm-border-strong); }
-		&.on { background: var(--qm-ink); color: #fff; border-color: var(--qm-ink); }
-		&[data-k="rail"].on { background: var(--qm-accent-rail); border-color: var(--qm-accent-rail); }   /* チップ色＝地図上の色 */
-		&[data-k="road"].on { background: var(--qm-accent-road); border-color: var(--qm-accent-road); }
-		&[data-k="facility"].on { background: var(--qm-accent-facility); border-color: var(--qm-accent-facility); }
-		&[data-k="terrain"].on { background: var(--qm-accent-terrain); border-color: var(--qm-accent-terrain); }
+		/* 点火＝色ガラス（ベタ塗りにしない）：アクセントを透過させ、照り(sheen-dim)と縁は末尾のガラス節が乗せる */
+		&.on { background-color: color-mix(in srgb, var(--qm-ink) 82%, transparent); color: #fff; border-color: rgba(255,255,255,.45); }
+		&[data-k="rail"].on { background-color: color-mix(in srgb, var(--qm-accent-rail) 85%, transparent); }   /* チップ色＝地図上の色 */
+		&[data-k="road"].on { background-color: color-mix(in srgb, var(--qm-accent-road) 85%, transparent); }
+		&[data-k="facility"].on { background-color: color-mix(in srgb, var(--qm-accent-facility) 85%, transparent); }
+		&[data-k="terrain"].on { background-color: color-mix(in srgb, var(--qm-accent-terrain) 85%, transparent); }
 	}
 }
 
@@ -218,7 +230,7 @@ body { visibility: visible; }   /* 開幕＝このスタイルシートの到着
 	-webkit-backdrop-filter: blur(var(--qm-blur)); backdrop-filter: blur(var(--qm-blur));
 	&:hover { border-color: var(--qm-border-strong); }
 	svg { display: block; }
-	&.on { background: var(--qm-ink); border-color: var(--qm-ink);
+	&.on { background-color: color-mix(in srgb, var(--qm-ink) 82%, transparent); border-color: rgba(255,255,255,.45);   /* 点灯＝インクの色ガラス（チップと同材質） */
 		svg { stroke: #fff; circle[fill] { fill: #fff; } } }   /* 点灯＝反転（十字は白・中心点も白） */
 }
 #cpos-mark {   /* 点滅マーカー＝指した現在地。位置は cpos.js が毎フレ更新（left/top はマーカー中心） */
@@ -324,7 +336,8 @@ body { visibility: visible; }   /* 開幕＝このスタイルシートの到着
 	-webkit-backdrop-filter: blur(var(--qm-blur)); backdrop-filter: blur(var(--qm-blur));
 	&:hover { border-color: var(--qm-border-strong); }
 	svg { display: block; }
-	&.on { background: var(--qm-ink); border-color: var(--qm-ink); svg { stroke: #fff; } }   /* 計測中＝反転 */
+	&.on { background-color: color-mix(in srgb, var(--qm-ink) 82%, transparent); border-color: rgba(255,255,255,.45);
+		svg { stroke: #fff; } }   /* 計測中＝インクの色ガラス（チップと同材質） */
 }
 #measure-lines { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
 /* 日本全体へ戻るボタン（スタック・34px規格） */
@@ -440,8 +453,8 @@ body { visibility: visible; }   /* 開幕＝このスタイルシートの到着
 	background: var(--qm-panel); padding: 5px 11px; border-radius: var(--qm-r-s);
 	-webkit-backdrop-filter: blur(var(--qm-blur)); backdrop-filter: blur(var(--qm-blur)); display: none;
 }
-#elev-toast { bottom: calc(76px + var(--qm-safe-b)); }      /* bottom:44 は進捗トーストの席 */
-#plateau-toast { bottom: calc(44px + var(--qm-safe-b)); }
+#elev-toast { bottom: calc(86px + var(--qm-safe-b)); }      /* bottom:56 は進捗トーストの席 */
+#plateau-toast { bottom: calc(56px + var(--qm-safe-b)); }   /* 硝子化で背が伸びた計器(#pos≒49px)の上に載せる */
 #ident {   /* identify＝クリックした地物の答え */
 	position: absolute; top: 44px; left: 10px; max-width: 340px; font-size: 12px; color: #334;
 	background: var(--qm-panel-2); padding: 6px 10px; border-radius: var(--qm-r-s);
@@ -455,13 +468,41 @@ body { visibility: visible; }   /* 開幕＝このスタイルシートの到着
 	.fatal-reload { margin-top: 18px; padding: 9px 22px; font-size: 14px; border: 1px solid #bbb; border-radius: var(--qm-r-m); background: #fff; cursor: pointer; }
 }
 
+/* --- ガラスの仕上げ：ボタン家具の共通化粧（透明感＋わずかな凸）。寸法・配置・状態色は各ブロックのまま、
+       ここは質感だけを後勝ちで上書きする（同格の宣言はファイル順＝この節が勝つ）。
+       点火(.on)や検索の開閉(#search.open)は各所の高詳細度セレクタが勝つ＝壊さない。
+       上辺グラデ＋inset上ハイライト＝光を受けた凸面、押すと1px沈む＝指応え。 --- */
+#hint-btn, #search #search-btn, #plateau-btn, #reset, #zoom button, #full,
+#cpos-btn, #measure-btn, #japan-btn, #shot-btn, #print-btn, #legend-btn, #close-btn,
+#chips .chip {
+	background-color: var(--qm-glass-bg);
+	background-image: var(--qm-glass-sheen);
+	-webkit-backdrop-filter: var(--qm-glass-frost);
+	backdrop-filter: var(--qm-glass-frost);   /* saturate＝すりガラス越しに地図の色が生きる */
+	border-color: var(--qm-glass-border);
+	box-shadow: var(--qm-shadow-btn);
+	transition: background .12s, color .12s, border-color .12s, box-shadow .15s ease, transform .08s ease;   /* 前3つ＝チップ既定の再掲（この節が transition を握るため） */
+	&:hover { border-color: var(--qm-glass-border-strong); box-shadow: var(--qm-shadow-btn-hover); }   /* 各所の :hover（--qm-border-strong）より後勝ち */
+	&:active { transform: translateY(1px); box-shadow: var(--qm-shadow-btn-press); }
+}
+#search.open #search-btn { box-shadow: none; transform: none; }   /* 虫めがねが検索箱へ溶けた後＝影と沈みだけ残さない */
+/* 点火（.on）＝色ガラス仕上げ：地色は各所（インク/アクセントの color-mix 透過）、ここは暗地用に照りと inset を半減 */
+#chips .chip.on, #cpos-btn.on, #measure-btn.on {
+	background-image: var(--qm-glass-sheen-dim);
+	box-shadow: var(--qm-shadow-btn-on);
+	&:hover { box-shadow: var(--qm-shadow-btn-on-hover); }   /* 浮きの所作は同じ・insetだけ暗地用 */
+}
+
 /* --- 星空劇場（全球ビュー）：#map.world で家具が静かに退場＝地球だけを味わう ---
    attrも含めて消す（全球はGSIタイル非描画＝出典表示義務の対象外。海岸線=Natural Earth=PD）。
-   点火/消灯はアプリ側（ortho-japan render()＝z<BASEMAP_MINZOOM で .world 付与）。 */
-#map :is(#chips, #gadgets, #search, #search-list, #hint, #log, #pos, #scale, #attr) {
+   点火/消灯はアプリ側（ortho-japan render()＝z<BASEMAP_MINZOOM で .world 付与）。
+   #japan-btn だけは残す＝迷子救済（宇宙で家具が全部消えると日本へ戻る扉が無い）。
+   親 #gadgets の opacity では子を救えない＝退場はスタックの子を個別に（席は保つ＝復帰時に並びが跳ねない）。 */
+#map :is(#chips, #gadgets, #gadgets > *, #search, #search-list, #hint, #log, #pos, #scale, #attr) {
 	transition: opacity .6s ease;
 }
-#map.world :is(#chips, #gadgets, #search, #search-list, #hint, #log, #pos, #scale, #attr) {
+#map.world :is(#chips, #search-list, #hint, #log, #pos, #scale, #attr),
+#map.world #gadgets > :not(#japan-btn) {
 	opacity: 0; pointer-events: none;
 }
 /* 星空劇場の家具（逆相＝worldでだけ点灯）：左下=日時計（1秒針）、右下=空データの出典。
