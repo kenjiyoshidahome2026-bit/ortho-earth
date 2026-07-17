@@ -10,14 +10,14 @@ export function japan({ view, signal } = {}) {
 	if (mapEl.querySelector("#japan-btn")) return;   // 二重搭載は無害（搭載済みのまま）
 	const btn = document.createElement("button");
 	btn.id = "japan-btn"; btn.dataset.tip = "日本全体を表示（J）"; btn.setAttribute("aria-label", "日本全体を表示");
-	// 手描きの列島ブロック図（画素トレース）を清書＝形はそのまま・段差の掃除と角丸だけ（感性は本人・清書は機械）。
-	// 北海道=右上／本州=右柱＋南の足＋房の切り欠き＋左へ中国地方の帯／九州=左下（上線=帯・下線=四国と面）／四国=中央下。
+	// 筆致4画の列島（輪郭を描き切らない＝18pxで「日本」と読める最小表現）。
+	// 丸端ストローク＝北海道の短画・本州の弧（太平洋側に膨らむ）・四国の点・九州の短画。旧ブロック図はgit履歴に。
 	btn.innerHTML = `
-		<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#3f4757" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round" aria-hidden="true">
-			<rect x="16.8" y="1.6" width="6.2" height="5.8" rx="1"/>
-			<path d="M17 8 H23 V22.4 H20 V20.7 H18.8 V22.4 H12.1 V18.2 H6 V14.1 H17 Z"/>
-			<rect x="1" y="14.1" width="4" height="8.3" rx="1"/>
-			<rect x="5.9" y="19.1" width="5.3" height="3.3" rx="0.9"/></svg>`;
+		<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#3f4757" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+			<path d="M18.4 5.6 L20.9 3.8"/>
+			<path d="M17.7 8.6 C16.5 12.4 12.7 14.7 8.4 15.4"/>
+			<path d="M10.7 18.8 h.01"/>
+			<path d="M6.1 18.3 L5.1 21.1"/></svg>`;
 	gadgetStack(mapEl).append(btn);   // 置き場所はスタック（搭載順＝縦の並び）
 	const go = () => flyTo(view[0], view[1], view[2], 0);   // tilt=0＝真俯瞰へ着地（bearingもflyToが北へ倒す）
 	btn.addEventListener("click", go);
