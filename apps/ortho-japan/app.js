@@ -21,6 +21,7 @@ import { search as searchGadget } from "./gadgets/searchbox.js";
 import { hint as hintGadget } from "./gadgets/hint.js";
 import { compass as compassGadget } from "./gadgets/compass.js";
 import { plateau as plateauGadget } from "./gadgets/plateau.js";
+import { palette as paletteGadget } from "./gadgets/palette.js";
 import { zoom as zoomGadget } from "./gadgets/zoom.js";
 import { full as fullGadget } from "./gadgets/full.js";
 import { cpos as cposGadget } from "./gadgets/cpos.js";
@@ -548,6 +549,17 @@ const viewHash = () => {
 	return buildViewHash(cam, extras);
 };
 const saveView = () => { saveCam(); try { history.replaceState(null, "", viewHash()); } catch { /* file:// 等 */ } };
+// 配色テーマの切替＝現在の視点・チップ（l=）を保ったまま c= を差し替えて reload（style は起動時に worker へ焼き付くため）。
+function switchTheme(name) {
+	if (name === themeName || !MAP_THEMES[name]) return;
+	const on = FREE_LAYER_KEYS.filter(k => layerState[k]);
+	if (constelVisible) on.push(SKY_LAYER);
+	const changed = constelVisible || FREE_LAYER_KEYS.some(k => layerState[k] !== defaultLayerState[k]);
+	const extras = changed ? ["l=" + on.join(".")] : [];
+	if (name !== "mono") extras.push("c=" + name);   // mono は既定＝c= を書かない
+	location.hash = buildViewHash(cam, extras);
+	location.reload();
+}
 // contourColor/distColor/hypso はテーマの任意ノブ（無指定＝renderer 既定：セピア等高線・遠山ブルー・単色陰影）
 renderer.set("view", { clear, land, atmo, bldColor, showN02: false,
 	...(theme.contourColor && { contourColor: theme.contourColor }),
@@ -1371,6 +1383,10 @@ map.gadget("compass", function (opts) {   // コンパス兼リセット … 内
 map.gadget("plateau", function (opts) {   // 建物3D（PLATEAU）データ管理 … モーダルを開く手綱はここで注入
 	if (!plateauOn) { console.warn("[plateau] opts.plateau=false＝機能ごと停止中。ガジェットは搭載しない"); return; }
 	return plateauGadget.call(this, { onOpen: plateauDb.open, ...opts });
+});
+map.gadget("palette", function (opts) {   // 配色テーマ・ピッカー … 現在テーマ(見本から除く)と切替(switchTheme=c=差替+reload)を注入
+	if (themeFixed) { console.warn("[palette] opts.theme 焼き付け中＝c= は破れない。ガジェットは搭載しない"); return; }
+	return paletteGadget.call(this, { current: themeName, onPick: switchTheme, signal: ac.signal, ...opts });
 });
 map.gadget("zoom", function (opts) {   // ズーム＋/− … フライト中断・onMove・z範囲はここで注入
 	return zoomGadget.call(this, { cancelFlight: () => flightCtl.cancel(), onMove, zoomMin: 1, zoomMax: 20, signal: ac.signal, ...opts });

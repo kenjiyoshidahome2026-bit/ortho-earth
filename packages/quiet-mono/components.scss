@@ -214,6 +214,33 @@ body { visibility: visible; }   /* 開幕＝このスタイルシートの到着
 	}
 }
 
+/* --- 配色テーマ：左スタックのパレットボタン → 中央に「自分以外」のテーマの地図見本をポップ（色で選ぶ）。
+       カードは flex:1 で常に横並び・幅は min(vw) 追従＝モバイルでもピッタリ。#print モーダルと同じ流儀（.open で開閉） --- */
+#palette-btn {
+	width: 34px; height: 34px; border-radius: 5px;
+	border: 1px solid var(--qm-border); background: var(--qm-panel); cursor: pointer; padding: 0;
+	display: flex; align-items: center; justify-content: center; color: var(--qm-ink);
+	-webkit-backdrop-filter: blur(var(--qm-blur)); backdrop-filter: blur(var(--qm-blur));
+	&:hover { border-color: var(--qm-border-strong); }
+	svg { display: block; }
+}
+#theme-picker {
+	position: absolute; inset: 0; display: none; align-items: center; justify-content: center;
+	background: rgba(10, 16, 33, .55); padding: 16px; z-index: 0;   /* z-index は DOM順の裁きに委ねる＝0のまま（オーバーレイは末尾append） */
+	-webkit-backdrop-filter: blur(2px); backdrop-filter: blur(2px);
+	&.open { display: flex; }
+	.tp-grid { display: flex; gap: clamp(8px, 2.4vw, 18px); width: min(600px, 94vw); justify-content: center; }
+	.tp-card {
+		flex: 1 1 0; min-width: 0; padding: 0; cursor: pointer; overflow: hidden;
+		display: flex; flex-direction: column; align-items: stretch;
+		background: var(--qm-panel-solid); border: 1px solid var(--qm-border-soft); border-radius: 10px;
+		box-shadow: var(--qm-shadow-pop); transition: transform .12s, border-color .12s;
+		&:hover, &:focus-visible { transform: translateY(-3px); border-color: var(--qm-ink); outline: none; }
+		svg { display: block; width: 100%; height: auto; aspect-ratio: 120 / 84; }
+		.tp-name { font: 12px/1 var(--qm-font); color: var(--qm-text); padding: 8px 4px; text-align: center; }
+	}
+}
+
 /* --- 建物3D（PLATEAU）データ管理：公式ロゴマークのボタン。置き場所はスタック --- */
 #plateau-btn {
 	width: 34px; height: 34px; border-radius: 5px;

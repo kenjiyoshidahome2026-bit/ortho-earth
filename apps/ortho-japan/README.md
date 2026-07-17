@@ -15,7 +15,7 @@
 |---|---|---|
 | `target` | 自作 | 埋め込み先（セレクタ or 要素）。id は `map` に正規化される（家具規格） |
 | `view` | 前回ビュー | 初期視点 `"#zoom/lat/lon/45t/30r/l=place.rail/c=dark"`（t=チルト°・r=回転°・l=点火レイヤ・c=配色テーマ） |
-| `theme` | `"mono"` | 配色テーマの固定（台帳＝palettes.js）。`"dark"`=黒地図の焼き付け（共有URLにも書かれず `c=` でも破れない）。台帳と同形のオブジェクト=カスタムテーマ（styleと色ノブの部分上書き）。未記述=共有URLの `c=<name>` で選択 |
+| `theme` | `"mono"` | 配色テーマの固定（台帳＝palettes.js）。`"mono"`=白地図（既定）／`"dark"`=黒地図（夜家具付き）／`"gsi"`=地理院地図（標準地図）配色・道路は格ごとの色帯／`"sepia"`=暖色・古地図。焼き付け＝共有URLにも書かれず `c=` でも破れない。台帳と同形のオブジェクト=カスタムテーマ（styleと色ノブの部分上書き）。未記述=共有URLの `c=<name>` で選択 |
 | `layers` | — | 表示項目の固定。キー: `place`(地名) `terrain`(地形) `rail`(鉄道) `road`(道路) `facility`(施設)。`true`=常時表示・`false`=常時非表示（どちらもチップ非搭載＝利用者は触れない）、未記述=既定値から開始しチップで選択。固定キーは共有URL（`l=`）でも上書きされない |
 | `chips` | `true` | テーマ・チップ帯（右上）そのものの表示。`true`=搭載（`layers` で固定したキーのボタンは出ない）／`false`=出さない。旧配列形式=選択的も後方互換で動作（非推奨） |
 | `instruments` | `true` | 下部の計器盤。`true`=全部／配列=選択的／`false`=出さない。キー: `pos`(座標) `scale`(距離) `attr`(出典) `log`(デバッグ) |
@@ -53,6 +53,7 @@ map.destroy();   // 完全撤収（この後もう一度 orthoJapan() で再起�
 map.gadget.search();    // 地名・住所検索（地理院API・キー不要）。{ onGo } で飛び方を差し替え可
 map.gadget.compass();   // コンパス兼リセット（3Dの時だけ現れる）
 map.gadget.plateau();   // 建物3D（PLATEAU）データ管理（公式ロゴマーク）
+map.gadget.palette();   // 配色テーマ切替（中央に他テーマの地図見本＝色で選ぶ）→ { open, close }。未搭載でも c= には従う
 map.gadget.hint();      // 操作説明カード（6秒迷った人にだけ自動表示）→ { open, close }
 map.gadget("myGadget", function () { /* this = map */ });   // 自作ガジェットの登録も同じ作法
 ```
