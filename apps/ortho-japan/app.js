@@ -10,7 +10,7 @@ import {
 import { createGeopbf, geopbf } from "geopbf";
 import { createGetHeight, setApiUrl as setAltApiUrl } from "altpbf";
 createGeopbf("https://api.ortho-earth.com");   // bucket 基盤（標高と同じ）。読み出しはキー不要
-import style from "./style-mono.js";
+import { MAP_THEMES } from "./palettes.js";
 import { createThemes, defaultLayerState, isFacility, isTerrain, CHOME_MINZOOM, RAILTR_MINZOOM } from "./themes.js";
 import { createOverlay } from "./overlay.js";
 // planets.js / skynames.js は z<4（星空）でしか使わない＝初期バンドルから外し、下の ensureSkyMod で動的読込。
@@ -49,6 +49,8 @@ import { modalOpen } from "./gadgets/keys.js";   // 矢印キーのモーダル�
 //   opts.instruments＝下部の計器盤の表示（true=全部[既定]／["pos","scale","attr","log"]から選択的／false=出さない）
 //   ★"attr"（出典）を消す場合は埋め込みページ側で出典明記が必要（README「出典表記」）
 //   opts.plateau＝建物3D（PLATEAU）機能スイッチ（true=[既定]／false=カタログ・worker・自動ロード・ガジェットごと停止）
+//   opts.theme＝配色テーマの固定（"dark"等の台帳名＝焼き付け・URLに書かない／台帳と同形のオブジェクト＝カスタムテーマ）。
+//     未記述＝共有URLの c=<name> で選択（既定 mono＝白地図。台帳は palettes.js）
 //   検索・操作説明はオプトインガジェット＝ map.gadget.search() / map.gadget.hint() で画面ごとに追加（v1 ortho-map の作法）
 // ============================================================================================
 export default async function orthoJapan(opts = {}) {
@@ -81,6 +83,16 @@ const FREE_LAYER_KEYS = Object.keys(defaultLayerState).filter(k => !(k in fixedL
 // 星座線の表示状態も共有URLの l= に載せる疑似キー（layerState/チップとは別系統＝z<4の星空劇場のトグル）。
 // defaultLayerState には無い＝チップ選抜・themes には一切干渉しない（点火/ラベルの経路を汚さない）。
 const SKY_LAYER = "sky";
+// 配色テーマ（palettes.js の台帳）：共有URLの c=<name>（sky/l= と同じ後置トークン＝夜のまま人に渡る）。
+// style は起動時に pipeline/worker へ焼き付くため一度だけ選ぶ：ハッシュ手編集での切替は hashchange が reload で応える。
+const themeFixed = !!opts.theme;   // 埋め込みの焼き付け＝URLに書かず、ハッシュでも破れない
+const themeBootV = parseViewHash(opts.view || location.hash);
+const themeName = typeof opts.theme === "string" ? opts.theme
+	: themeBootV?.theme || (themeBootV?.layers?.includes("dark") ? "dark" : "mono");   // l=dark＝c=移行前の互換読み
+if (typeof opts.theme !== "object" && !MAP_THEMES[themeName]) console.warn(`[theme] 未知のテーマ "${themeName}"＝mono で起動（有効: ${Object.keys(MAP_THEMES).join(", ")}）`);
+const theme = typeof opts.theme === "object" ? { ...MAP_THEMES.mono, ...opts.theme }   // カスタム＝mono を土台に部分上書き
+	: (MAP_THEMES[themeName] || MAP_THEMES.mono);
+const style = theme.style;
 mountGadgets(mapEl, { chips: opts.chips, instruments: opts.instruments, fixedLayers });   // UI を #map に生やす＝以降の getElementById が実体を掴めるよう、全lookupの前で
 // 非搭載（chips:false / instruments:false）でも配線コードは無改造＝繋ぎ先が無ければ宙のdiv（どこにも描画されない）へ。
 const orDetached = el => el || document.createElement("div");
@@ -135,6 +147,9 @@ window.addEventListener("online", () => { netEl.style.display = "none"; needsDra
 
 const bg = style.layers.find(L => L.type === "background");
 const land = bg ? parseRGBA(evalExpr(bg.paint?.["background-color"] ?? "#fff", { zoom: 10, props: {}, geom: null, vars: {} })) : [0.96, 0.96, 0.95, 1];
+// 夜家具：紙(land)が暗ければ下辺の計器・出典を黒硝子へ（quiet-mono #map.ui-dark）。テーマ名でなく輝度で
+// 判定＝カスタムテーマ(opts.theme={…})でも正しく転ぶ（style だけ差し替えた黒紙カスタムを取りこぼさない）
+if (0.299 * land[0] + 0.587 * land[1] + 0.114 * land[2] < 0.45) mapEl.classList.add("ui-dark");
 const clear = [0.03, 0.04, 0.07, 1];   // 宇宙（球の外側）
 
 let dpr = Math.min(2, window.devicePixelRatio || 1);
@@ -495,8 +510,8 @@ window.__vtPool = () => requestMerge.stats();          // multi_draw 常駐プ�
 
 // 透視カメラ：center(注視点lon/lat), zoom(web-mercator float), pitch/bearing(rad)
 const MAXPITCH = 75 * D2R;   // 山岳ビュー(z<13)は地形が深度で自遮蔽・混成アトラスが地平線までカバー＝高チルトの根拠が揃ったので75°まで開放
-const atmo = [0.5, 0.66, 0.96, 0.3];   // 大気色 rgb + 強さ（さりげなく）
-const bldColor = [0.83, 0.83, 0.82];    // 建物色（静かなグレー）
+const atmo = theme.atmo;            // 大気色 rgb + 強さ（テーマ台帳のノブ＝palettes.js）
+const bldColor = theme.bldColor;    // 建物色（テーマ台帳のノブ＝palettes.js）
 // cam＝幾何のみ（center/zoom/pitch/bearing/dpr）＝毎フレームの draw payload（将来の worker 境界）。
 // 色（clear/land/atmo/bldColor）は静的なので setView で一度きりアップロード＝hot path から追い出す。
 const JAPAN_VIEW = [137.628, 37.783, 4.86];   // 列島ビュー（本土四島が一枚・真俯瞰）＝既定起動＆「日本全体」ガジェットの着地点
@@ -527,10 +542,17 @@ const viewHash = () => {
 	const on = FREE_LAYER_KEYS.filter(k => layerState[k]);
 	if (constelVisible) on.push(SKY_LAYER);   // 星座ON＝l= に sky を追加（既定OFF＝差分ありで l= を必ず書き出す）
 	const changed = constelVisible || FREE_LAYER_KEYS.some(k => layerState[k] !== defaultLayerState[k]);
-	return buildViewHash(cam, changed ? ["l=" + on.join(".")] : []);
+	const extras = changed ? ["l=" + on.join(".")] : [];
+	// 配色テーマ＝c=<name>（既定 mono は書かない＝素の視点はURLも素。固定(opts.theme)も書かない＝埋め込み構成を持ち出さない）
+	if (!themeFixed && themeName !== "mono" && MAP_THEMES[themeName]) extras.push("c=" + themeName);
+	return buildViewHash(cam, extras);
 };
 const saveView = () => { saveCam(); try { history.replaceState(null, "", viewHash()); } catch { /* file:// 等 */ } };
-renderer.set("view", { clear, land, atmo, bldColor, showN02: false });   // showN02＝N02交通(新幹線等)の表示。鉄道チップで切替
+// contourColor/distColor/hypso はテーマの任意ノブ（無指定＝renderer 既定：セピア等高線・遠山ブルー・単色陰影）
+renderer.set("view", { clear, land, atmo, bldColor, showN02: false,
+	...(theme.contourColor && { contourColor: theme.contourColor }),
+	...(theme.distColor && { distColor: theme.distColor }),
+	...(theme.hypso && { hypso: theme.hypso }) });   // showN02＝N02交通(新幹線等)の表示。鉄道チップで切替
 // 海：水レイヤ(WA)をビュー一律にゲート＝cam.zoom<13 では描かない（＝紙の海・まだら無し）、z13+で一律点火。
 renderer.set("sea", { li: style.layers.findIndex(L => L.id === "water"), li2: style.layers.findIndex(L => L.id === "water-hi"), minzoom: 8 });   // li2＝水系点火面も同じ海ゲート
 
@@ -633,7 +655,7 @@ async function loadWorldCoast() {
 	// 海岸線＝lineStream＝styleId=1。紙＋淡青の色調に合わせ「薄い青灰グレー・細く」。
 	const coastStyle = new Float32Array(256 * 4);
 	coastStyle.set([1.0, 0.42, 0.208, 1.0]);          // style0 polygon（未使用）
-	coastStyle.set([0.74, 0.77, 0.80, 1.0], 4);       // style1 = 海岸線 = 薄い青灰グレー #bcc4cc（alpha=1.0 のまま色だけ白寄せ）
+	coastStyle.set(theme.coastLine, 4);   // style1 = 海岸線（テーマ台帳のノブ。alpha=1.0 のまま色だけ紙寄せ＝重なりムラなし）
 	gintDrawOpts = { styleTable: coastStyle, lineWidth: 0.75 };
 	gintInteractive = false;   // 海岸線は装飾＝ホバー/クリック識別なし
 	sendGintStyle();   // worker にスタイルを保持させる（従属描画で使う）
@@ -862,13 +884,13 @@ async function loadN02() {
 	const stReg = stFeats.filter(f => !snStnSet.has(f));
 	if (stReg.length) {
 		const rOuter = buildGeoJSONOverlay(stReg, N02_ORIGIN, { lineColor: [0.294, 0.62, 0.416, 1], lineWidth: 1.8 });      // 玉＝鉄道点火#4b9e6a
-		const rCore = buildGeoJSONOverlay(stReg, N02_ORIGIN, { lineColor: [0.965, 0.965, 0.957, 1], lineWidth: 0.9 });      // 芯（紙色）
+		const rCore = buildGeoJSONOverlay(stReg, N02_ORIGIN, { lineColor: [land[0], land[1], land[2], 1], lineWidth: 0.9 });      // 芯（紙色＝style由来＝夜も自動追従）
 		rOuter.minZoom = rCore.minZoom = 10.5;   // 駅名の出るタイル(z11)が選ばれ始める頃から
 		scenes.push(rOuter, rCore);
 	}
 	if (stSn.length) {   // 新幹線駅は通常駅の後＝重なったら新幹線ビーズが勝つ
 		const sOuter = buildGeoJSONOverlay(stSn, N02_ORIGIN, { lineColor: SN_GREEN, lineWidth: 2.4 });                      // 玉（外径）
-		const sCore = buildGeoJSONOverlay(stSn, N02_ORIGIN, { lineColor: [0.965, 0.965, 0.957, 1], lineWidth: 1.2 });       // 芯（紙色）＝○に見える
+		const sCore = buildGeoJSONOverlay(stSn, N02_ORIGIN, { lineColor: [land[0], land[1], land[2], 1], lineWidth: 1.2 });       // 芯（紙色＝style由来）＝○に見える
 		sOuter.minZoom = sCore.minZoom = 6.5;   // 全国ビュー(z〜5)ではビーズ不要＝広域(z6.5+)から。路線の線は z≥4（基図と同ゲート）
 		scenes.push(sOuter, sCore);
 	}
@@ -968,6 +990,7 @@ if (!window.matchMedia("(pointer: coarse)").matches) {
 	const wakeUI = () => { mapEl.classList.remove("ui-idle"); clearTimeout(idleT); idleT = setTimeout(hideUI, IDLE_MS); };
 	mapEl.addEventListener("mousemove", wakeUI, { signal: ac.signal, passive: true });
 	mapEl.addEventListener("pointerdown", wakeUI, { signal: ac.signal, passive: true });
+	mapEl.addEventListener("wheel", wakeUI, { signal: ac.signal, passive: true });   // ホイールズームも「操作」＝ズーム中に退場しない（トラックパッド2本指も wheel）
 	window.addEventListener("keydown", wakeUI, { signal: ac.signal });
 	idleT = setTimeout(hideUI, IDLE_MS);   // 起動後に無操作なら退場（動かせば戻る）
 }
@@ -1106,10 +1129,11 @@ function swapScene(order) {
 		if (kuVisible && SEIREI.has(L.text)) return { ...L, size: L.size * 1.2, color: [L.color[0], L.color[1], L.color[2], L.color[3] * 0.5] };
 		// 測量点(7102三角点/7201・7221標高点)は shieldFor が記号＋標高値を描く。flat=真俯瞰の作法＝傾けたら等高線と一緒に消す。
 		if (L.code === 7102 || L.code === 7201 || L.code === 7221) return { ...L, flat: true };
-		// 施設は濃い紫＝チップと同色（--qm-accent-facility #6a3d9a。点火の掟：チップ色＝地図上の色）。名前は一回り小さく＝地名の脇役
-		if (layerState.facility && isFacility(L)) return { ...L, size: L.size * 0.9, color: [0.416, 0.239, 0.604, L.color[3]] };
+		// 施設は濃い紫＝チップと同色（--qm-accent-facility #6a3d9a。点火の掟：チップ色＝地図上の色）。名前は一回り小さく＝地名の脇役。
+		// 色はテーマ台帳のノブ（夜は同色相のまま明度を持ち上げた別値＝palettes.js）
+		if (layerState.facility && isFacility(L)) return { ...L, size: L.size * 0.9, color: [...theme.facilityRGB, L.color[3]] };
 		// 地形名（3xx帯）は濃い茶＝チップと同色（--qm-accent-terrain #754c24＝等高線の茶の同族）
-		if (layerState.terrain && isTerrain(L.code)) return { ...L, color: [0.459, 0.298, 0.141, L.color[3]] };
+		if (layerState.terrain && isTerrain(L.code)) return { ...L, color: [...theme.terrainRGB, L.color[3]] };
 		return L;
 	});
 	renderer.set("labels", lastLabels);   // ラベル集合を render worker へ。標高付与(sampleElev)も terrain と一緒に worker 側で行う（同期して描く）
@@ -1160,6 +1184,9 @@ renderer.set("view", { showContour: layerState.terrain });
 window.addEventListener("hashchange", () => {
 	const v = parseViewHash(location.hash);
 	if (!v) return;
+	// 配色テーマの切替（c= の出入り）：style は起動時に pipeline/worker へ焼き付いている＝reload で選び直すのが正直
+	//（ハッシュは残る＝reload 後に同じ視点・同じチップで配色だけ替わって立ち上がる）。固定(opts.theme)は破れない。
+	if (!themeFixed && (v.theme || (v.layers?.includes("dark") ? "dark" : "mono")) !== themeName) { location.reload(); return; }
 	applyCamView(v);
 	if (v.layers || v.contour) {
 		// 固定キー(opts.layers)はハッシュ手編集でも破れない＝客が触れるキーだけ反映（旧romajiトークンは読み替え）
