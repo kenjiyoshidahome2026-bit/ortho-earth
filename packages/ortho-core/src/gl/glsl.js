@@ -192,6 +192,8 @@ export const TERRAIN_FS = `#version 300 es
 precision highp float;
 uniform vec3 u_fogColor;
 uniform vec3 u_land;
+uniform vec3 u_hypso;    // 標高ティント色（高所を land からこの色へ寄せる＝控えめな標高彩色）
+uniform vec2 u_hypsoP;   // x=1/最大標高(m)（この高さで寄せ切る） y=寄せ量(0=無効…1=全置換)
 uniform sampler2D u_elevTex;
 uniform vec4 u_elevBounds;
 uniform float u_hasElev;
@@ -228,8 +230,10 @@ void main() {
 	float hx = elevF(v_ll + vec2(d, 0.0)) - h0;
 	float hy = elevF(v_ll + vec2(0.0, d)) - h0;
 	float shade = clamp(0.82 + (-hx + hy) * 0.0007, 0.45, 1.15);
+	// 標高ティント：land を高所ほど u_hypso へ寄せる（テーマのノブ＝未指定は y=0 で恒等）。陰影の前＝shade が上に乗る
+	vec3 landC = mix(u_land, u_hypso, clamp(h0 * u_hypsoP.x, 0.0, 1.0) * u_hypsoP.y);
 	// 深度は VS の applyLogDepth() が焼き済み（plateau/building と一貫。FSで書くと early-Z が死ぬ）
-	vec3 col = mix(u_land * shade, u_fogColor, v_fog);
+	vec3 col = mix(landC * shade, u_fogColor, v_fog);
 	fragColor = vec4(col * t, t);           // premultiplied（globe基色→地形へ滑らかに）
 }`;
 

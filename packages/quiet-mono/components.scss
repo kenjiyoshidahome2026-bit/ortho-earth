@@ -140,6 +140,44 @@ body { visibility: visible; }   /* 開幕＝このスタイルシートの到着
 		&:hover { text-decoration: underline; } }
 }
 
+/* --- 夜家具（#map.ui-dark）：紙(land)が暗い配色テーマでアプリが輝度判定で付与。下辺の計器・出典・スケール・
+       トーストだけ黒硝子へ転がす（値は #sky-attr＝星空劇場の黒硝子と同族＝夜の額装を揃える）。
+       上辺のボタン/チップ/検索は白硝子のまま＝白の照り(sheen)が受光面を作るので暗地でも読める。 --- */
+#map.ui-dark {
+	#pos, #attr {
+		background-color: rgba(10, 14, 22, .55);
+		border-color: rgba(255, 255, 255, .22);
+		box-shadow: 0 1px 1px rgba(0,0,0,.25), 0 3px 10px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.14);
+	}
+	#pos th { color: rgba(160, 172, 190, .85); border-bottom-color: rgba(255, 255, 255, .14); }
+	#pos td { color: rgba(225, 232, 242, .92); }
+	#attr { color: rgba(200, 210, 226, .72);
+		a { color: rgba(200, 210, 226, .72); } }
+	#scale { color: rgba(225, 232, 242, .9);
+		#scale-txt { text-shadow: 0 0 3px rgba(0, 0, 0, .85); } }   /* ハローも夜色に（白のままだと灰色に滲む） */
+	#elev-toast, #plateau-toast { color: rgba(215, 224, 238, .9); background: rgba(16, 21, 30, .78); }
+	/* ボタン・チップのインク：ガラス原料は tokens.scss の夜節が差し替え済み＝ここは文字とアイコンの線/塗りだけ。
+	   SVGは属性直書き（stroke/fill）＝属性は詳細度0でCSSが勝つ。属性はルート<svg>にも各要素にもあるため両対応で拾う：
+	   本線(#3f4757)・インク(#2b3b57)→明インク、脇線(#9aa0ac)→中間灰。赤(コンパス針#c00)・白は夜も不変＝触らない。 */
+	#chips .chip { color: rgba(210, 220, 235, .9); }
+	#zoom button { color: rgba(225, 232, 242, .95); }
+	#hint-btn { color: rgba(222, 230, 242, .95); }        /* 「?」はテキスト＝SVG属性経路に乗らないので個別に */
+	#plateau-btn svg { fill: rgba(222, 230, 242, .95); }  /* 公式ロゴ紫(#463C64)も夜は明インクの単色版＝黒硝子に沈まない */
+	:is(svg, svg *):is([stroke="#3f4757"], [stroke="#2b3b57"]) { stroke: rgba(222, 230, 242, .95); }
+	:is(svg, svg *):is([fill="#3f4757"], [fill="#2b3b57"]) { fill: rgba(222, 230, 242, .95); }
+	:is(svg, svg *)[stroke="#9aa0ac"] { stroke: rgba(150, 162, 180, .88); }
+	#cpos-btn.on svg { stroke: #fff; }   /* 点火＝白反転は夜も維持（上の明インクより詳細度で勝たせる再掲） */
+	/* 住所入力：入力欄も黒硝子＝開いた虫めがね（明インク）がそのまま生きる。読む物ではあるが地図の上に
+	   浮く一行の道具＝夜の額装に合わせる（候補リストは白ソリッドのまま＝腰を据えて読む物） */
+	#search #search-in {
+		background: rgba(15, 20, 30, .55); color: rgba(228, 234, 244, .95); border-color: rgba(255, 255, 255, .28);
+		&::placeholder { color: rgba(150, 162, 180, .8); }
+		&:focus { border-color: rgba(255, 255, 255, .6); background: rgba(12, 16, 24, .82); }
+	}
+	/* カーソル追従の吹き出し（#tip）：夜は白ソリッドが眩しい＝黒硝子の注記へ */
+	#tip { background: rgba(16, 21, 30, .88); color: rgba(220, 228, 240, .92); border-color: rgba(255, 255, 255, .2); }
+}
+
 /* --- 狭画面（スマホ縦）：計器は最小限＝座標テーブルは出さない・スケールは出典の上へ逃がす。
        #pos は pointermove が inline display で開けるため !important＝狭画面の掟が勝つ（標高fetchはJS側 posOn が連動して止める） --- */
 /* --- タッチ端末：iOSは16px未満の入力にフォーカスすると画面ごと自動ズームする仕様＝検索欄だけ16pxへ --- */

@@ -593,6 +593,10 @@ export function createRenderer(canvas, rOpts = {}) {
 			gl.uniform1f(loc(gl, terrainProg, "u_fogNear"), Math.max(st.fogDist * 1.2, 0.008 * pfFog));
 			gl.uniform1f(loc(gl, terrainProg, "u_fogFar"), Math.max(st.fogDist * 5.0, 0.026 * pfFog));
 			gl.uniform3f(loc(gl, terrainProg, "u_land"), land[0], land[1], land[2]);
+			// 標高ティント（view.hypso={color,max,amount}＝テーマのノブ）。未指定は amount=0＝恒等（従来の単色陰影）
+			const hy = view.hypso;
+			gl.uniform3f(loc(gl, terrainProg, "u_hypso"), hy ? hy.color[0] : 0, hy ? hy.color[1] : 0, hy ? hy.color[2] : 0);
+			gl.uniform2f(loc(gl, terrainProg, "u_hypsoP"), hy ? 1 / (hy.max || 3000) : 0, hy ? (hy.amount ?? 0.5) : 0);
 			gl.bindVertexArray(terrain.vao);
 			gl.drawElements(gl.TRIANGLES, terrain.count, gl.UNSIGNED_INT, 0);
 			gl.depthMask(true);

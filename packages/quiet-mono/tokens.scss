@@ -62,3 +62,20 @@
 	--qm-font-mono: ui-monospace, monospace;
 	--qm-font-gauge: Verdana, sans-serif;     /* スケール等の計器数字（ortho-map以来の顔） */
 }
+
+/* --- 夜のガラス（#map.ui-dark＝紙が暗い配色テーマ。アプリが land 輝度で付与）：ガラスの原料だけ夜値へ。
+       化粧節・チップ・計器はトークン参照のままセレクタ無改造で一斉に黒硝子に転ぶ。
+       白ソリッド面（検索リスト・モーダル・右クリックメニュー＝読む物）は昼のまま＝そこは紙が主役。
+       sheen-dim は元々「暗地用の照り」＝夜もそのまま。点火(.on)のアクセント色ガラスも夜地で映えるのでそのまま。 */
+#map.ui-dark {
+	--qm-glass-bg: rgba(15, 20, 30, .48);         /* 地は黒硝子（寒色は保つ＝quiet-mono の同族） */
+	--qm-glass-sheen: linear-gradient(180deg,     /* 照りは白を大幅に絞る＝夜の受光面は月明かり程度 */
+		rgba(255,255,255,.20), rgba(255,255,255,.07) 46%, rgba(255,255,255,0) 54%, rgba(255,255,255,.05));
+	--qm-glass-border: rgba(255, 255, 255, .28);
+	--qm-glass-border-strong: rgba(255, 255, 255, .6);
+	--qm-shadow-btn: 0 1px 1px rgba(0,0,0,.25), 0 5px 14px rgba(0,0,0,.4),
+		inset 0 1px 0 rgba(255,255,255,.22), inset 0 -1px 0 rgba(0,0,0,.3);
+	--qm-shadow-btn-hover: 0 2px 3px rgba(0,0,0,.28), 0 8px 20px rgba(0,0,0,.45),
+		inset 0 1px 0 rgba(255,255,255,.3), inset 0 -1px 0 rgba(0,0,0,.3);
+	--qm-shadow-btn-press: 0 1px 2px rgba(0,0,0,.25), inset 0 2px 5px rgba(0,0,0,.45), inset 0 -1px 0 rgba(255,255,255,.15);
+}
