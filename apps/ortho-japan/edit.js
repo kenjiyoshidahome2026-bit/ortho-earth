@@ -183,7 +183,7 @@ function persist() {
 		anchor: [sh.t.lon, sh.t.lat], scale: sh.t.s, thetaDeg: sh.t.theta * R2D, done: sh.done,
 	};
 	localStorage.setItem(LS_KEY, JSON.stringify(out));
-	invalidateSheets();   // 変換・確定状態が変わった＝図郭スナップショット無効
+	invalidateSheet(selected);   // 変換・確定状態が変わった図郭のスプライトだけ焼き直し対象に
 }
 
 // ---- 相似変換：ローカル[N,E]m ⇄ lon/lat ----
@@ -284,9 +284,10 @@ function drawPublicLayer() {
 
 // ---- 図郭1枚の描画（視野カリング＋定数ホイスト済み・描画先 g を取る）----
 function drawSheet(g, sh) {
-	// 視野→図郭ローカルの bbox（逆変換はアフィン＝画面4隅の min/max で保守的に正しい）→筆カリング
+	// 視野(±0.5画面マージン=スプライトのクランプ域)→図郭ローカルの bbox（逆変換はアフィン＝4隅の min/max で保守的に正しい）→筆カリング
+	const W = canvas.width, H = canvas.height;
 	let vN0 = Infinity, vE0 = Infinity, vN1 = -Infinity, vE1 = -Infinity;
-	for (const [sx, sy] of [[0, 0], [canvas.width, 0], [0, canvas.height], [canvas.width, canvas.height]]) {
+	for (const [sx, sy] of [[-W * 0.5, -H * 0.5], [W * 1.5, -H * 0.5], [-W * 0.5, H * 1.5], [W * 1.5, H * 1.5]]) {
 		const [lo, la] = screenToLonLat(sx, sy);
 		const [N, E] = lonLatToLocal(sh, lo, la);
 		if (N < vN0) vN0 = N; if (E < vE0) vE0 = E;
@@ -336,35 +337,61 @@ function drawSheet(g, sh) {
 	g.stroke();
 }
 
-// ---- 図郭レイヤのスナップショット：パン/ズーム中は貼るだけ、静止後150msで再焼き。
-// 荒川級（19図郭・6.5万筆）を毎フレーム全描画すると下地タイルまで巻き添えで遅くなる ----
-const shCanvas = document.createElement("canvas");
-let shSnap = null, shTimer = 0;
-function invalidateSheets() { shSnap = null; }
-function renderSheetsSnap() {
-	shCanvas.width = canvas.width; shCanvas.height = canvas.height;
-	const g = shCanvas.getContext("2d");
-	for (const sh of sheets) drawSheet(g, sh);
-	shSnap = { z: cam.z, lon: cam.lon, lat: cam.lat, w: canvas.width, h: canvas.height };
-}
-function blitSnap(cnv, snap) {
-	const k = Math.pow(2, cam.z - snap.z);
-	const [cx, cy] = lonLatToWorld(cam.lon, cam.lat, snap.z);
-	const [sx0, sy0] = lonLatToWorld(snap.lon, snap.lat, snap.z);
-	const ox = (sx0 - snap.w / 2 - cx) * k + canvas.width / 2;
-	const oy = (sy0 - snap.h / 2 - cy) * k + canvas.height / 2;
-	ctx.drawImage(cnv, ox, oy, snap.w * k, snap.h * k);
-}
-function drawSheetsLayer() {
-	if (!sheets.length) return;
-	const dirty = !shSnap || shSnap.z !== cam.z || shSnap.lon !== cam.lon || shSnap.lat !== cam.lat
-		|| shSnap.w !== canvas.width || shSnap.h !== canvas.height;
-	if (!shSnap) { renderSheetsSnap(); }
-	else if (dirty) {
-		clearTimeout(shTimer);
-		shTimer = setTimeout(() => { renderSheetsSnap(); draw(); }, 150);
+// ---- 図郭ごとのスプライトキャッシュ：各図郭を自分の画面bboxサイズの offscreen に焼く。
+// 合成は blit だけ＝パン/ズームも「掴む瞬間の背景合成」もベクタ再描画ゼロ。
+// 変換や選択スタイルが変わった図郭だけ焼き直す＝pointerup 後の再描画も1枚分 ----
+let shTimer = 0;
+function invalidateSheet(sh) { if (sh) sh.sprite = null; }
+function invalidateSheets() { for (const sh of sheets) sh.sprite = null; }
+function renderSheetSprite(sh) {
+	const snap = { z: cam.z, lon: cam.lon, lat: cam.lat, w: canvas.width, h: canvas.height };
+	// 図郭の画面bbox（4隅＝回転安全）→ ±0.5画面のクランプ域と交差する範囲だけ焼く
+	let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+	for (const [N, E] of [[sh.bbox[0], sh.bbox[1]], [sh.bbox[0], sh.bbox[3]], [sh.bbox[2], sh.bbox[1]], [sh.bbox[2], sh.bbox[3]]]) {
+		const [sx, sy] = localToScreen(sh, N, E);
+		if (sx < x0) x0 = sx; if (sy < y0) y0 = sy;
+		if (sx > x1) x1 = sx; if (sy > y1) y1 = sy;
 	}
-	blitSnap(shCanvas, shSnap);
+	const pad = 4 * dpr;
+	x0 = Math.floor(Math.max(x0 - pad, -canvas.width * 0.5)); y0 = Math.floor(Math.max(y0 - pad, -canvas.height * 0.5));
+	x1 = Math.ceil(Math.min(x1 + pad, canvas.width * 1.5));   y1 = Math.ceil(Math.min(y1 + pad, canvas.height * 1.5));
+	if (x1 <= x0 || y1 <= y0) { sh.sprite = { empty: true, snap }; return; }   // 画面圏外
+	const cnv = document.createElement("canvas");
+	cnv.width = x1 - x0; cnv.height = y1 - y0;
+	const g = cnv.getContext("2d");
+	g.translate(-x0, -y0);
+	drawSheet(g, sh);
+	sh.sprite = { cnv, x0, y0, snap };
+}
+function spriteStale(sp) {
+	return !sp || sp.snap.z !== cam.z || sp.snap.lon !== cam.lon || sp.snap.lat !== cam.lat
+		|| sp.snap.w !== canvas.width || sp.snap.h !== canvas.height;
+}
+function blitSprite(sh) {
+	const sp = sh.sprite;
+	if (!sp || sp.empty) return;
+	const k = Math.pow(2, cam.z - sp.snap.z);
+	const [ccx, ccy] = lonLatToWorld(cam.lon, cam.lat, sp.snap.z);
+	const [scx, scy] = lonLatToWorld(sp.snap.lon, sp.snap.lat, sp.snap.z);
+	const ox = (sp.x0 + scx - sp.snap.w / 2 - ccx) * k + canvas.width / 2;
+	const oy = (sp.y0 + scy - sp.snap.h / 2 - ccy) * k + canvas.height / 2;
+	ctx.drawImage(sp.cnv, ox, oy, sp.cnv.width * k, sp.cnv.height * k);
+}
+function drawSheetsLayer(excludeSheet = null) {
+	if (!sheets.length) return;
+	let stale = false;
+	for (const sh of sheets) {
+		if (!sh.sprite) renderSheetSprite(sh);          // 初回のみ同期
+		else if (spriteStale(sh.sprite)) stale = true;  // カメラ変化＝静止後にまとめて焼き直し
+		if (sh !== excludeSheet) blitSprite(sh);
+	}
+	if (stale) {
+		clearTimeout(shTimer);
+		shTimer = setTimeout(() => {
+			for (const sh of sheets) if (spriteStale(sh.sprite)) renderSheetSprite(sh);
+			draw();
+		}, 150);
+	}
 }
 
 function drawHandles() {
@@ -381,29 +408,25 @@ function drawHandles() {
 // ---- ドラッグ合成：背景（タイル+青+他図郭）と選択図郭スプライトを各1枚だけ焼き、
 // ドラッグ中は canvas 変換（平行移動・回転・スケール）で貼るだけ＝筆数無関係の O(1)。
 // 図郭は剛体＝相似変換しか受けないので、毎フレームの再描画は原理的に不要（本人指摘）----
-let dragBG = null, dragSprite = null, dragSpriteP0 = null, dragStartT = null;
+let dragBG = null, dragSpriteP0 = null, dragStartT = null;
 function beginSheetDrag() {
-	drawScene(selected);                       // 選択図郭「抜き」でフル描画
+	renderSheetSprite(selected);               // 選択図郭のスプライトを最新化（1枚分＝軽い。これがドラッグ用スプライトを兼ねる）
+	drawScene(selected);                       // 背景合成＝タイル+青+他図郭スプライトの blit のみ（ベクタ再描画なし＝掴み即応）
 	dragBG = document.createElement("canvas");
 	dragBG.width = canvas.width; dragBG.height = canvas.height;
 	dragBG.getContext("2d").drawImage(canvas, 0, 0);
-	// 選択図郭だけのスプライト（開始時の変換で1回だけ描く）
-	dragSprite = document.createElement("canvas");
-	dragSprite.width = canvas.width; dragSprite.height = canvas.height;
-	drawSheet(dragSprite.getContext("2d"), selected);
 	dragSpriteP0 = lonLatToScreen(selected.t.lon, selected.t.lat);   // アンカー（回転・スケールの支点）
 	dragStartT = { ...selected.t };
 	draw();
 }
-function endSheetDrag() { dragBG = dragSprite = dragSpriteP0 = dragStartT = null; }
+function endSheetDrag() { dragBG = dragSpriteP0 = dragStartT = null; }
 
 // ---- 描画 ----
 function drawScene(excludeSheet = null) {
 	ctx.clearRect(0, 0, canvas.width, canvas.height);
 	drawTiles();
 	drawPublicLayer();
-	if (excludeSheet !== null) { for (const sh of sheets) if (sh !== excludeSheet) drawSheet(ctx, sh); }
-	else drawSheetsLayer();
+	drawSheetsLayer(excludeSheet);
 	// 市区町村境界＝深い赤（最前面の参照線）
 	if (cityBoundary.length) {
 		ctx.strokeStyle = "#8b1a1a";
@@ -420,11 +443,12 @@ function drawScene(excludeSheet = null) {
 	}
 }
 function draw() {
-	if (dragBG && dragSprite && selected) {
+	if (dragBG && dragStartT && selected?.sprite && !selected.sprite.empty) {
 		ctx.clearRect(0, 0, canvas.width, canvas.height);
 		ctx.drawImage(dragBG, 0, 0);
 		// スプライトを相似変換で貼る。EN空間のθ+はスクリーン（y下向き）では −θ 回転。
 		// 回転・スケール中は補間で僅かに甘くなるが、pointerup で即クリスプに再描画される。
+		const sp = selected.sprite;
 		const p1 = lonLatToScreen(selected.t.lon, selected.t.lat);
 		const dth = selected.t.theta - dragStartT.theta;
 		const k = selected.t.s / dragStartT.s;
@@ -432,7 +456,7 @@ function draw() {
 		ctx.translate(p1[0], p1[1]);
 		ctx.rotate(-dth);
 		ctx.scale(k, k);
-		ctx.drawImage(dragSprite, -dragSpriteP0[0], -dragSpriteP0[1]);
+		ctx.drawImage(sp.cnv, sp.x0 - dragSpriteP0[0], sp.y0 - dragSpriteP0[1]);
 		ctx.restore();
 		drawHandles();
 		return;
@@ -522,7 +546,7 @@ canvas.addEventListener("pointerdown", e => {
 	} else {
 		const sh = hitSheet(sx, sy);
 		if (sh) {
-			if (sh !== selected) { selected = sh; updateHud(); invalidateSheets(); draw(); }
+			if (sh !== selected) { const prev = selected; selected = sh; invalidateSheet(prev); invalidateSheet(sh); updateHud(); draw(); }
 			if (sh.done) {
 				// 確定済み＝ロック：選択（パネルで確定解除は可能）はするがドラッグはパン扱い
 				drag = { mode: "pan", startClient: [e.clientX, e.clientY], startCam: { ...cam } };
@@ -533,7 +557,7 @@ canvas.addEventListener("pointerdown", e => {
 				beginSheetDrag();
 			}
 		} else {
-			if (selected) { selected = null; updateHud(); invalidateSheets(); draw(); }
+			if (selected) { const prev = selected; selected = null; invalidateSheet(prev); updateHud(); draw(); }
 			drag = { mode: "pan", startClient: [e.clientX, e.clientY], startCam: { ...cam } };
 		}
 	}
@@ -630,7 +654,7 @@ document.getElementById("load").addEventListener("change", async e => {
 		const sh = sheets.find(x => x.id === rec.id);
 		if (sh) { sh.t = { lon: rec.anchor[0], lat: rec.anchor[1], s: rec.scale, theta: rec.thetaDeg * D2R }; sh.done = rec.done; }
 	}
-	persist(); updateHud(); draw();
+	persist(); invalidateSheets(); updateHud(); draw();
 });
 
 resize();
