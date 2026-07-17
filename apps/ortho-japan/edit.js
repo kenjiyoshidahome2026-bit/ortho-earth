@@ -11,7 +11,7 @@ createGeopbf("https://api.ortho-earth.com");   // bucket 基盤（読み出し�
 const D2R = Math.PI / 180, R2D = 180 / Math.PI;
 const TILE_URL = (z, x, y) => `https://cyberjapandata.gsi.go.jp/xyz/pale/${z}/${x}/${y}.png`;   // 淡色地図
 const CODE = new URLSearchParams(location.search).get("code") || "01101";
-const DATA_URL = `moj-local/${CODE}-arbitrary.json?v=2`;   // 相対＝vite base(/japan/)配下。?v=形式差し替え時のキャッシュバスター
+const DATA_URL = `moj-local/${CODE}-arbitrary.json?v=5`;   // 相対＝vite base(/japan/)配下。?v=形式差し替え時のキャッシュバスター
 const LS_KEY = `moj-arb-${CODE}`;
 const M_PER_DEG_LAT = 111132;
 const mPerDegLon = lat => 111320 * Math.cos(lat * D2R);
@@ -78,6 +78,10 @@ function getTile(z, x, y) {
 	return e.loaded ? e.img : null;
 }
 function drawTiles() {
+	// GSI淡色は市街地(DID)を水色網掛けで塗る＝青の変換済みレイヤと紛らわしい長方形に見える。
+	// 下地は彩度を落として引かせ、「青＝変換済み」を専有色にする（未対応ブラウザでは無害に素通り）。
+	ctx.save();
+	ctx.filter = "saturate(.35) brightness(1.05)";
 	const z = Math.round(cam.z);
 	const zoomAdjust = Math.pow(2, cam.z - z);
 	const tileScreenSize = 256 * zoomAdjust;
@@ -94,6 +98,7 @@ function drawTiles() {
 		if (img) ctx.drawImage(img, sx, sy, tileScreenSize + 0.5, tileScreenSize + 0.5);
 		else { ctx.fillStyle = "#e8e6e0"; ctx.fillRect(sx, sy, tileScreenSize, tileScreenSize); }
 	}
+	ctx.restore();
 }
 
 // ---- データ ----
@@ -203,22 +208,38 @@ let pubTimer = 0;
 function renderPublic() {
 	pubCanvas.width = canvas.width; pubCanvas.height = canvas.height;
 	const pc = pubCanvas.getContext("2d");
-	// 変換済み＝濃いめの青ベタ塗り（解けた領土の面表示）。線を描かないぶん再焼きも軽い。
-	pc.fillStyle = "rgba(43,108,176,.30)";
+	// 変換済み＝青ベタ塗り＋濃いエッジ線。線なしだと大街区（区画整理の長狭物等）が融合して
+	// のっぺり長方形に見え筆の区画が読めない（本人指摘）。視野カリング済なので線コストは許容。
+	pc.fillStyle = "rgba(43,108,176,.28)";
+	pc.strokeStyle = "rgba(20,60,110,.85)";
+	pc.lineWidth = 0.8 * dpr;
 	// 視野 lon/lat bbox（1画面ぶん余白）で 57k筆→画面内のみに絞る＝再焼きを桁で軽く
 	const [lo0, la0] = screenToLonLat(-canvas.width, canvas.height * 2);
 	const [lo1, la1] = screenToLonLat(canvas.width * 2, -canvas.height);
+	const addRing = ring => {
+		for (let i = 0; i < ring.length; i++) {
+			const [sx, sy] = lonLatToScreen(ring[i][0], ring[i][1]);
+			if (i === 0) pc.moveTo(sx, sy); else pc.lineTo(sx, sy);
+		}
+		pc.closePath();
+	};
+	// 塗り＝通常筆のみ（noFill=長狭物等の環状筆は塗ると内包街区が潰れる）→ 線は全筆
+	pc.beginPath();
+	for (const f of publicFude) {
+		const b = f.bb;
+		if (f.noFill || b[2] < lo0 || b[0] > lo1 || b[3] < la0 || b[1] > la1) continue;
+		addRing(f.ring);
+		if (f.holes) for (const h of f.holes) addRing(h);
+	}
+	pc.fill("evenodd");   // 筆同士は非重複なので evenodd で穴だけが抜ける
 	pc.beginPath();
 	for (const f of publicFude) {
 		const b = f.bb;
 		if (b[2] < lo0 || b[0] > lo1 || b[3] < la0 || b[1] > la1) continue;
-		f.ring.forEach(([lon, lat], i) => {
-			const [sx, sy] = lonLatToScreen(lon, lat);
-			if (i === 0) pc.moveTo(sx, sy); else pc.lineTo(sx, sy);
-		});
-		pc.closePath();
+		addRing(f.ring);
+		if (f.holes) for (const h of f.holes) addRing(h);
 	}
-	pc.fill();
+	pc.stroke();
 	pubSnap = { z: cam.z, lon: cam.lon, lat: cam.lat, w: canvas.width, h: canvas.height };
 }
 function drawPublicLayer() {
@@ -269,11 +290,7 @@ function drawSheet(sh) {
 	const [ccx, ccy] = lonLatToWorld(cam.lon, cam.lat, cam.z);
 	const ox = canvas.width / 2 - ccx, oy = canvas.height / 2 - ccy;
 	const HPI4 = Math.PI / 4, I2PI = 1 / (2 * Math.PI);
-	ctx.beginPath();
-	for (const f of sh.fude) {
-		const b = f.bb;
-		if (b[2] < vN0 || b[0] > vN1 || b[3] < vE0 || b[1] > vE1) continue;
-		const ring = f.ring;
+	const addRing = ring => {
 		for (let i = 0; i < ring.length; i++) {
 			const N = ring[i][0], E = ring[i][1];
 			const lon = t.lon + t.s * (E * tc - N * ts) * lonPerM;
@@ -283,13 +300,27 @@ function drawSheet(sh) {
 			if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
 		}
 		ctx.closePath();
+	};
+	ctx.beginPath();
+	for (const f of sh.fude) {
+		const b = f.bb;
+		if (f.noFill || b[2] < vN0 || b[0] > vN1 || b[3] < vE0 || b[1] > vE1) continue;
+		addRing(f.ring);
+		if (f.holes) for (const h of f.holes) addRing(h);   // 環状道路等の穴
 	}
-	ctx.fill();
+	ctx.fill("evenodd");
+	ctx.beginPath();
+	for (const f of sh.fude) {
+		const b = f.bb;
+		if (b[2] < vN0 || b[0] > vN1 || b[3] < vE0 || b[1] > vE1) continue;
+		addRing(f.ring);
+		if (f.holes) for (const h of f.holes) addRing(h);
+	}
 	ctx.stroke();
 }
 
 function drawHandles() {
-	if (!selected) return;
+	if (!selected || selected.done) return;   // 確定済み＝ロック（ハンドル非表示）
 	const { center, rot, scl } = handlePositions(selected);
 	ctx.strokeStyle = "#2b6cb0"; ctx.lineWidth = 1.5 * dpr;
 	ctx.beginPath(); ctx.moveTo(center[0], center[1]); ctx.lineTo(rot[0], rot[1]); ctx.stroke();
@@ -390,13 +421,15 @@ function hitSheet(sx, sy) {
 		for (const f of sh.fude) {
 			const b = f.bb;
 			if (N < b[0] || N > b[2] || E < b[1] || E > b[3]) continue;
-			if (pointInRingNE(N, E, f.ring)) return sh;
+			if (!pointInRingNE(N, E, f.ring)) continue;
+			if (f.holes && f.holes.some(h => pointInRingNE(N, E, h))) continue;   // 穴の中＝街区内側は掴まない
+			return sh;
 		}
 	}
 	return null;
 }
 function hitHandle(sx, sy) {
-	if (!selected) return null;
+	if (!selected || selected.done) return null;   // 確定済み＝ロック
 	const { rot, scl } = handlePositions(selected);
 	if (Math.hypot(sx - rot[0], sy - rot[1]) < 12 * dpr) return "rotate";
 	if (Math.hypot(sx - scl[0], sy - scl[1]) < 12 * dpr) return "scale";
@@ -421,11 +454,16 @@ canvas.addEventListener("pointerdown", e => {
 	} else {
 		const sh = hitSheet(sx, sy);
 		if (sh) {
-			if (sh !== selected) { selected = sh; updateHud(); }
-			const [lon, lat] = screenToLonLat(sx, sy);
-			drag = { mode: "move", startLonLat: [lon, lat], startT: { ...sh.t } };
-			canvas.classList.add("dragging-group");
-			beginSheetDrag();
+			if (sh !== selected) { selected = sh; updateHud(); draw(); }
+			if (sh.done) {
+				// 確定済み＝ロック：選択（パネルで確定解除は可能）はするがドラッグはパン扱い
+				drag = { mode: "pan", startClient: [e.clientX, e.clientY], startCam: { ...cam } };
+			} else {
+				const [lon, lat] = screenToLonLat(sx, sy);
+				drag = { mode: "move", startLonLat: [lon, lat], startT: { ...sh.t } };
+				canvas.classList.add("dragging-group");
+				beginSheetDrag();
+			}
 		} else {
 			if (selected) { selected = null; updateHud(); draw(); }
 			drag = { mode: "pan", startClient: [e.clientX, e.clientY], startCam: { ...cam } };
@@ -481,7 +519,7 @@ canvas.addEventListener("wheel", e => {
 
 // ---- キーボード微調整（選択図郭）：矢印=移動 / Q,E=回転 / +,-=スケール。Shiftで10倍 ----
 window.addEventListener("keydown", e => {
-	if (!selected || e.target.tagName === "INPUT") return;
+	if (!selected || selected.done || e.target.tagName === "INPUT") return;   // 確定済み＝ロック
 	const t = selected.t;
 	const k = e.shiftKey ? 10 : 1;
 	const stepDeg = 0.5 * k / mPerDegLon(t.lat) * 1;   // 約0.5m

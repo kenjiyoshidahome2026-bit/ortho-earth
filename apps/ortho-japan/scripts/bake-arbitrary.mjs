@@ -73,6 +73,19 @@ async function geocode(q) {
 	return pt;
 }
 
+// ---- 塗り適性：ポリゴン面積/bbox面積（shoelace）。細長い筆＝道路・水路は塗ると図郭全面が
+// ベタ化する（区画整理図郭は道路も筆＝隙間なく敷き詰め）ので線のみにする ----
+function fillFactor(ring) {
+	let s = 0;
+	for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) s += ring[j].x * ring[i].y - ring[i].x * ring[j].y;
+	const area = Math.abs(s / 2);
+	let x0 = 1/0, y0 = 1/0, x1 = -1/0, y1 = -1/0;
+	for (const p of ring) { if (p.x < x0) x0 = p.x; if (p.y < y0) y0 = p.y; if (p.x > x1) x1 = p.x; if (p.y > y1) y1 = p.y; }
+	return area / (((x1 - x0) * (y1 - y0)) || 1e-9);
+}
+// 塗る筆＝数字地番（通常の宅地等）かつ太い形状。道/地区外/別図/長狭物や細長筆は線のみ。
+const isFillable = f => /^\d/.test(f.chiban || '') && fillFactor(f.ring) >= 0.35;
+
 // ---- 地図XML → 図郭1枚分の筆（ローカル座標のまま）----
 function parseSheet(xml) {
 	const sysTag = (xml.match(/<座標系>(.*?)<\/座標系>/) || [])[1] || '';
@@ -99,7 +112,11 @@ function parseSheet(xml) {
 	while ((m = sr.exec(xml)) !== null) {
 		const body = m[2];
 		const extM = body.match(/<zmn:GM_SurfaceBoundary\.exterior>([\s\S]*?)<\/zmn:GM_SurfaceBoundary\.exterior>/);
-		surfaceMap.set(m[1], { ext: extM ? getCIds(extM[1]) : [] });
+		// interior ring（穴）を捨てると環状道路（長狭物）の内側までベタ塗りされ街区が長方形に潰れる
+		const ints = [], intR = /<zmn:GM_SurfaceBoundary\.interior>([\s\S]*?)<\/zmn:GM_SurfaceBoundary\.interior>/g;
+		let im;
+		while ((im = intR.exec(body)) !== null) ints.push(getCIds(im[1]));
+		surfaceMap.set(m[1], { ext: extM ? getCIds(extM[1]) : [], ints });
 	}
 	const buildRing = cids => {
 		const pts = [];
@@ -119,7 +136,8 @@ function parseSheet(xml) {
 		if (!fid) continue;
 		const s = surfaceMap.get(fid); if (!s) continue;
 		const ext = buildRing(s.ext); if (ext.length < 3) continue;
-		fude.push({ oaza: tag('大字名'), chiban: tag('地番'), ring: ext });
+		const holes = s.ints.map(buildRing).filter(r => r.length >= 3);
+		fude.push({ oaza: tag('大字名'), chiban: tag('地番'), ring: ext, ...(holes.length ? { holes } : {}) });
 	}
 	return { sysTag, cityName, fude };
 }
@@ -148,20 +166,51 @@ for (const e of outer.getEntries().filter(e => e.entryName.endsWith('.zip'))) {
 	if (!/任意/.test(sysTag)) {
 		const sysM = sysTag.match(/(\d+)系/);
 		const sn = sysM ? parseInt(sysM[1]) : sysNum;
+		const toLL = p => { const [lo, la] = planeToLatLon(p.x, p.y, sn);
+			return [Math.round(lo * 1e7) / 1e7, Math.round(la * 1e7) / 1e7]; };
+		// 図郭bbox（プレースホルダ枠の判定用）
+		let bx0 = 1/0, by0 = 1/0, bx1 = -1/0, by1 = -1/0;
+		for (const f of fude) for (const p of f.ring) {
+			if (p.x < bx0) bx0 = p.x; if (p.y < by0) by0 = p.y;
+			if (p.x > bx1) bx1 = p.x; if (p.y > by1) by1 = p.y;
+		}
+		const sheetArea = (bx1 - bx0) * (by1 - by0) || 1;
 		for (const f of fude) {
+			let fx0 = 1/0, fy0 = 1/0, fx1 = -1/0, fy1 = -1/0;
+			for (const p of f.ring) {
+				if (p.x < fx0) fx0 = p.x; if (p.y < fy0) fy0 = p.y;
+				if (p.x > fx1) fx1 = p.x; if (p.y > fy1) fy1 = p.y;
+			}
+			const ratio = (fx1 - fx0) * (fy1 - fy0) / sheetArea;
+			// プレースホルダ枠（長狭物不明等＝図郭枠サイズの長方形。点数は5点〜77点と幅がある）→ 線ごと捨てる
+			if (fude.length > 5 && (ratio >= 0.8 || (f.ring.length <= 6 && ratio >= 0.5))) continue;
+			// 塗るのは数字地番×太い形状のみ（道路・水路・地区外・細長筆を塗ると図郭全面ベタ＝長方形化）
+			const noFill = ratio >= 0.3 || !isFillable(f);
 			publicFude.push({
 				oaza: f.oaza, chiban: f.chiban,
-				ring: f.ring.map(p => { const [lo, la] = planeToLatLon(p.x, p.y, sn);
-					return [Math.round(lo * 1e7) / 1e7, Math.round(la * 1e7) / 1e7]; }),
+				...(noFill ? { noFill: 1 } : {}),
+				ring: f.ring.map(toLL),
+				...(f.holes ? { holes: f.holes.map(h => h.map(toLL)) } : {}),
 			});
 		}
 		continue;
 	}
 
-	// 図郭重心（ローカル）
+	// 図郭重心＋bbox（ローカル）
 	let sx = 0, sy = 0, n = 0;
-	for (const f of fude) for (const p of f.ring) { sx += p.x; sy += p.y; n++; }
+	let ax0 = 1/0, ay0 = 1/0, ax1 = -1/0, ay1 = -1/0;
+	for (const f of fude) for (const p of f.ring) {
+		sx += p.x; sy += p.y; n++;
+		if (p.x < ax0) ax0 = p.x; if (p.y < ay0) ay0 = p.y;
+		if (p.x > ax1) ax1 = p.x; if (p.y > ay1) ay1 = p.y;
+	}
 	const cx = sx / n, cy = sy / n;
+	const shArea = (ax1 - ax0) * (ay1 - ay0) || 1;
+	const bboxRatio = f => {
+		let x0 = 1/0, y0 = 1/0, x1 = -1/0, y1 = -1/0;
+		for (const p of f.ring) { if (p.x < x0) x0 = p.x; if (p.y < y0) y0 = p.y; if (p.x > x1) x1 = p.x; if (p.y > y1) y1 = p.y; }
+		return (x1 - x0) * (y1 - y0) / shArea;
+	};
 
 	// 初期アンカー3段構え：①疑似公共（県代表系変換の重心が bbox 内）→②大字名の住所突合（GSIジオコーダ）→③bbox中心
 	let anchor = null, pseudo = false, geocoded = false;
@@ -189,10 +238,13 @@ for (const e of outer.getEntries().filter(e => e.entryName.endsWith('.zip'))) {
 		geocoded,
 		anchor: [Math.round(anchor[0] * 1e7) / 1e7, Math.round(anchor[1] * 1e7) / 1e7],
 		// ローカル座標は重心相対（m・cm精度）。x=北, y=東（地図XML規約）
-		fude: fude.map(f => ({
-			oaza: f.oaza, chiban: f.chiban,
-			ring: f.ring.map(p => [Math.round((p.x - cx) * 100) / 100, Math.round((p.y - cy) * 100) / 100]),
-		})),
+		fude: fude.filter(f => !(fude.length > 5 && (bboxRatio(f) >= 0.8 || (f.ring.length <= 6 && bboxRatio(f) >= 0.5))))   // プレースホルダ枠除去（公共側と同基準）
+			.map(f => {
+				const rel = p => [Math.round((p.x - cx) * 100) / 100, Math.round((p.y - cy) * 100) / 100];
+				return { oaza: f.oaza, chiban: f.chiban, ring: f.ring.map(rel),
+					...(bboxRatio(f) >= 0.3 || !isFillable(f) ? { noFill: 1 } : {}),
+					...(f.holes ? { holes: f.holes.map(h => h.map(rel)) } : {}) };
+			}),
 	});
 	console.log(`  ${e.entryName}  筆=${fude.length}  大字=${oazaSet.slice(0,3).join(',') || '?'}  ${pseudo ? '疑似公共→着地' : geocoded ? '住所突合→大字付近' : '→bbox中心'}  anchor=${anchor.map(v=>v.toFixed(4))}`);
 }
