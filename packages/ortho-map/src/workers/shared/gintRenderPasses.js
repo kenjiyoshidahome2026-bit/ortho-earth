@@ -28,9 +28,13 @@ function bindPointUniforms(u, data, r1, r2) {
 	}
 }
 
+// 線パスを境界メタ（アウトラインのみ）へ切り替えるズーム閾値。
+// これ未満では筆内部の線は視認不能（ベタ潰れ）なので描かない＝低ズームの主コストを桁で削減。
+const OUTLINE_ZOOM = 12;
+
 export function renderCleanScene(data, targetFBO = null) {
-	const { gl, programs, arcTex, metaTex, ptTex, ptMetaTex,
-			totalEdges, totalPoints, TEX_ARC_W, TEX_META_W, width, height } = s;
+	const { gl, programs, arcTex, metaTex, metaTexB, ptTex, ptMetaTex,
+			totalEdges, totalEdgesB, totalPoints, TEX_ARC_W, TEX_META_W, width, height } = s;
 	const { renderProgram, stencilProgram, fillProgram,
 			pointProgram, uRender, uStencil, uFill, uPoint, emptyVAO } = programs;
 
@@ -40,9 +44,14 @@ export function renderCleanScene(data, targetFBO = null) {
 	gl.clear(gl.COLOR_BUFFER_BIT | gl.STENCIL_BUFFER_BIT);
 	gl.bindVertexArray(emptyVAO);
 
+	// 塗りは常時境界メタ（共有 arc は winding 寄与が正味 0 ＝落としても数学的に同一で桁違いに軽い）。
+	const hasB = !!(metaTexB && totalEdgesB > 0);
+	const zoom = Math.log2(data.scale / 40.74);
+
 	// ── Stencil + Fill ──
 	const fc = data.fillColor ?? DEF_FILL;
-	if (fc[3] > 0 && totalEdges > 0) {
+	const stTex = hasB ? metaTexB : metaTex, stCount = hasB ? totalEdgesB : totalEdges;
+	if (fc[3] > 0 && stCount > 0) {
 		gl.enable(gl.STENCIL_TEST);
 		gl.stencilMask(0xFF);
 		gl.clear(gl.STENCIL_BUFFER_BIT);
@@ -51,8 +60,8 @@ export function renderCleanScene(data, targetFBO = null) {
 		gl.stencilOpSeparate(gl.FRONT, gl.KEEP, gl.KEEP, gl.INCR_WRAP);
 		gl.stencilOpSeparate(gl.BACK,  gl.KEEP, gl.KEEP, gl.DECR_WRAP);
 		gl.useProgram(stencilProgram);
-		bindSharedUniforms(gl, uStencil, data, arcTex, metaTex, TEX_ARC_W, TEX_META_W, width, height);
-		gl.drawArrays(gl.TRIANGLES, 0, totalEdges * 3);
+		bindSharedUniforms(gl, uStencil, data, arcTex, stTex, TEX_ARC_W, TEX_META_W, width, height);
+		gl.drawArrays(gl.TRIANGLES, 0, stCount * 3);
 		gl.colorMask(true, true, true, true);
 		gl.stencilMask(0x00);
 		gl.stencilFunc(gl.NOTEQUAL, 0, 0xFF);
@@ -63,17 +72,19 @@ export function renderCleanScene(data, targetFBO = null) {
 		gl.disable(gl.STENCIL_TEST);
 	}
 
-	// ── Fat-line edges ──
-	if (totalEdges > 0) {
+	// ── Fat-line edges ──（低ズームは境界メタ＝アウトライン表示）
+	const lnB = hasB && zoom < OUTLINE_ZOOM;
+	const lnTex = lnB ? metaTexB : metaTex, lnCount = lnB ? totalEdgesB : totalEdges;
+	if (lnCount > 0) {
 		gl.useProgram(renderProgram);
-		bindSharedUniforms(gl, uRender, data, arcTex, metaTex, TEX_ARC_W, TEX_META_W, width, height);
+		bindSharedUniforms(gl, uRender, data, arcTex, lnTex, TEX_ARC_W, TEX_META_W, width, height);
 		gl.uniform1f(uRender.u_line_width,   data.lineWidth ?? 1.0);
 		gl.uniform1f(uRender.u_dpr,          s.dpr);
 		gl.uniform1i(uRender.u_active_id,    -1);
 		gl.uniform4fv(uRender.u_style_table, data.styleTable ?? DEF_STYLE);
 		gl.uniform2fv(uRender.u_dash_table,  data.dashTable  ?? DEF_DASH);
 		gl.uniform1i(uRender.u_pass, 0);
-		gl.drawArrays(gl.TRIANGLES, 0, totalEdges * 6);
+		gl.drawArrays(gl.TRIANGLES, 0, lnCount * 6);
 	}
 
 	// ── Points ──

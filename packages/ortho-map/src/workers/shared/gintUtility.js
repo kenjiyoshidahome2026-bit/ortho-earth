@@ -25,6 +25,16 @@ export function bindSharedUniforms(gl, u, data, arcTex, metaTex, arcW, metaW, wi
 	} else {
 		gl.uniform4f(u.u_jac, 0, 0, 0, 0);
 	}
+	// GPU Dynamic LOD 閾値: 1px が覆う地表面積(sq-deg)を encoder getPhysRank と同式で rank 化。
+	// 正射の中心 1px = (180/π/scale)°。VW eff-area は経度側 cos(lat) 補正済みなので
+	// pxArea = pxDeg² は緯度非依存。rank = 1.5·log2(pxArea)+61.524 = 3·log2(pxDeg)+61.524。
+	// この rank 未満の頂点(辺)は VS が discard＝低ズームの描画コストを桁で削減。
+	// 高ズームでは閾値が 0 に落ちて全頂点＝正確さ無損失（サブpx頂点のみ間引き）。
+	if (u.u_lod_rank) {
+		const pxDeg = (180 / Math.PI) / data.scale;
+		const rank = Math.max(0, Math.min(63, Math.floor(3 * Math.log2(pxDeg) + 61.524)));
+		gl.uniform1f(u.u_lod_rank, rank);
+	}
 }
 
 
@@ -88,31 +98,7 @@ export function buildEdgeMeta(arcMeta, polyStream, lineStream, arcBuffer = null,
 	const buf = new Uint32Array(total * 4);
 	let j = 0;
 
-	const addArc = (arcIdx, styleId, featId) => {
-		const aid = arcIdx < 0 ? ~arcIdx : arcIdx;
-		const off = arcMeta[aid * 8], len = arcMeta[aid * 8 + 1], fid = featId >>> 0;
-		if (!getW) {
-			// Full density mode.
-			for (let i = 0; i < len - 1; i++) {
-				buf[j++] = arcIdx >= 0 ? off + i     : off + len - 1 - i;
-				buf[j++] = arcIdx >= 0 ? off + i + 1 : off + len - 2 - i;
-				buf[j++] = (styleId & 0xFF) | (i << 8); buf[j++] = fid;
-			}
-		} else {
-			// Long-jump mode: connect kept vertices directly, skipping low-weight ones.
-			let prev = -1, ei = 0;
-			const step = arcIdx >= 0 ? 1 : -1;
-			const iStart = arcIdx >= 0 ? 0 : len - 1;
-			const iEnd   = arcIdx >= 0 ? len : -1;
-			for (let i = iStart; i !== iEnd; i += step) {
-				const idx = off + i;
-				if (getW(idx) >= minWeight) {
-					if (prev !== -1) { buf[j++] = prev; buf[j++] = idx; buf[j++] = (styleId & 0xFF) | (ei++ << 8); buf[j++] = fid; }
-					prev = idx;
-				}
-			}
-		}
-	};
+	const addArc = (arcIdx, styleId, featId) => { j = emitArcEdges(buf, j, arcIdx, styleId, featId, arcMeta, getW, minWeight); };
 
 	const polyEdgeByFid = new Map();
 	if (polyStream) { let p = 0;
@@ -135,6 +121,94 @@ export function buildEdgeMeta(arcMeta, polyStream, lineStream, arcBuffer = null,
 		}
 	}
 	return { metaU32: buf, edgeCount: total, polyEdgeByFid };
+}
+
+// 1 arc 分の辺を書き出す共通実装（buildEdgeMeta / buildBoundaryEdgeMeta で共用）。返り値=新しい j。
+function emitArcEdges(buf, j, arcIdx, styleId, featId, arcMeta, getW, minWeight) {
+	const aid = arcIdx < 0 ? ~arcIdx : arcIdx;
+	const off = arcMeta[aid * 8], len = arcMeta[aid * 8 + 1], fid = featId >>> 0;
+	if (!getW) {
+		// Full density mode.
+		for (let i = 0; i < len - 1; i++) {
+			buf[j++] = arcIdx >= 0 ? off + i     : off + len - 1 - i;
+			buf[j++] = arcIdx >= 0 ? off + i + 1 : off + len - 2 - i;
+			buf[j++] = (styleId & 0xFF) | (i << 8); buf[j++] = fid;
+		}
+	} else {
+		// Long-jump mode: connect kept vertices directly, skipping low-weight ones.
+		let prev = -1, ei = 0;
+		const step = arcIdx >= 0 ? 1 : -1;
+		const iStart = arcIdx >= 0 ? 0 : len - 1;
+		const iEnd   = arcIdx >= 0 ? len : -1;
+		for (let i = iStart; i !== iEnd; i += step) {
+			const idx = off + i;
+			if (getW(idx) >= minWeight) {
+				if (prev !== -1) { buf[j++] = prev; buf[j++] = idx; buf[j++] = (styleId & 0xFF) | (ei++ << 8); buf[j++] = fid; }
+				prev = idx;
+			}
+		}
+	}
+	return j;
+}
+
+// 境界エッジメタ＝「正味参照（forward:+1 / reversed:−1 の符号付き合計）が 0 でない arc」だけの辺集合。
+// 隣接筆が共有する arc は必ず逆向きに 2 回参照される＝正味 0 ＝ winding 寄与ゼロなので落として同一。
+// - stencil(NOTEQUAL 0 塗り)は全ズームでこれに置換しても数学的に等価（重複筆=同向き2回も正味±2≠0で保持）。
+// - 線パスは低ズーム(z<outlineZoom)でこれに切替＝筆内部の線は視認不能(ベタ)なのでアウトラインのみ描く。
+// lineStream(折れ線)の arc は面の分割に関与しないため常に全量含める。
+export function buildBoundaryEdgeMeta(arcMeta, polyStream, lineStream, arcBuffer = null, minWeight = 0) {
+	if (!arcMeta) return { metaU32: new Uint32Array(0), edgeCount: 0 };
+	const nArcs = (arcMeta.length / 8) | 0;
+	const net   = new Int32Array(nArcs);
+	const fidOf = new Int32Array(nArcs).fill(-1);
+	if (polyStream) { let p = 0;
+		while (p < polyStream.length) { const fid = polyStream[p++], nr = polyStream[p++];
+			for (let r = 0; r < nr; r++) { const ac = polyStream[p++];
+				for (let a = 0; a < ac; a++) { const ai = polyStream[p++], aid = ai < 0 ? ~ai : ai;
+					net[aid] += ai < 0 ? -1 : 1;
+					if (fidOf[aid] === -1) fidOf[aid] = fid;
+				}
+			}
+		}
+	}
+
+	const arcU32 = (arcBuffer?.length && minWeight > 0)
+		? new Uint32Array(arcBuffer.buffer, arcBuffer.byteOffset, arcBuffer.byteLength / 4)
+		: null;
+	const getW = arcU32
+		? (idx) => (arcU32[idx * 2 + 1] & 0x80000000) ? 63 : (arcU32[idx * 2] & 0x3F)
+		: null;
+	const arcEdges = (aid) => {
+		const len = arcMeta[aid * 8 + 1];
+		if (!getW) return len - 1;
+		const off = arcMeta[aid * 8];
+		let kept = 0;
+		for (let i = 0; i < len; i++) if (getW(off + i) >= minWeight) kept++;
+		return Math.max(0, kept - 1);
+	};
+
+	let total = 0;
+	for (let aid = 0; aid < nArcs; aid++) if (net[aid] !== 0) total += arcEdges(aid);
+	if (lineStream) { let p = 0;
+		while (p < lineStream.length) { p++; const ns = lineStream[p++];
+			for (let g = 0; g < ns; g++) { const ac = lineStream[p++];
+				for (let a = 0; a < ac; a++) { const ai = lineStream[p++]; total += arcEdges(ai < 0 ? ~ai : ai); } }
+		}
+	}
+
+	const buf = new Uint32Array(total * 4);
+	let j = 0;
+	// winding の符号を保つため、描画向きは正味符号に従う（向きを反転すると chain が壊れ塗りが崩れる）。
+	for (let aid = 0; aid < nArcs; aid++) {
+		if (net[aid] !== 0) j = emitArcEdges(buf, j, net[aid] > 0 ? aid : ~aid, 0, fidOf[aid] < 0 ? 0 : fidOf[aid], arcMeta, getW, minWeight);
+	}
+	if (lineStream) { let p = 0;
+		while (p < lineStream.length) { const fid = lineStream[p++], ns = lineStream[p++];
+			for (let g = 0; g < ns; g++) { const ac = lineStream[p++];
+				for (let a = 0; a < ac; a++) j = emitArcEdges(buf, j, lineStream[p++], 1, fid, arcMeta, getW, minWeight); }
+		}
+	}
+	return { metaU32: buf, edgeCount: total };
 }
 
 // Per-feature bbox Map computed in the worker from polyStream (for JS polygon identify fallback).

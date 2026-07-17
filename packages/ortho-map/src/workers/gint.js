@@ -36,7 +36,7 @@ function init(data) {
 
 	s.canvas.addEventListener('webglcontextlost', e => {
 		e.preventDefault();
-		s.arcTex = s.metaTex = s.ptTex = s.ptMetaTex = null;
+		s.arcTex = s.metaTex = s.metaTexB = s.ptTex = s.ptMetaTex = null;
 		s.baseFBO = s.baseColorTex = s.baseDepthStencilRBO = null;
 		s.pickFBO = s.pickColorTex = s.pickDepthStencilRBO = null;
 		s.programs = null;
@@ -186,7 +186,7 @@ function destroy() {
 	s.gintData     = null;
 	s.polyEdgeByFid = null;
 	s.polyBboxByFid = null;
-	s.totalEdges   = s.totalPoints = 0;
+	s.totalEdges   = s.totalEdgesB = s.totalPoints = 0;
 	s.activeId     = -1;
 	s.lastDrawData = null;
 	postMessage({ action: "done", type: "destroy" });

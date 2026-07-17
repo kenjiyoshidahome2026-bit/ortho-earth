@@ -16,6 +16,7 @@ uniform vec4       u_rsincos;  // x=cos(r1), y=sin(r1), z=cos(r2), w=sin(r2)
 uniform uint       u_ix_center;
 uniform uint       u_iy_center;
 uniform vec4       u_jac;  // Jacobian [J00,J10,J01,J11] col-major; all-zero → full trig
+uniform float      u_lod_rank;  // GPU Dynamic LOD 閾値（bindSharedUniforms が scale から毎フレーム算出）
 
 uint compact16(uint m) {
 	m &= 0x55555555u;
@@ -91,6 +92,28 @@ uvec4 fetchEdgeMeta(int edge_id) {
 	ivec2 mtc = ivec2(edge_id % u_meta_w, edge_id / u_meta_w);
 	return texelFetch(u_meta_tex, mtc, 0);
 }
+
+// 頂点の VW rank: L1(terminal bit)=63 恒久保持、L2 は lo-word 下位6bit。
+float fetchRank(uint idx) {
+	ivec2 tc = ivec2(int(idx) % u_arc_w, int(idx) / u_arc_w);
+	uvec4 px = texelFetch(u_arc_tex, tc, 0);
+	return ((px.g >> 31u) != 0u) ? 63.0 : float(px.r & 0x3Fu);
+}
+
+// GPU Dynamic LOD（gap無し）: 始点 A が閾値未満の辺は捨てる（直前の kept 辺が跨いで描く）。
+// 終点 B は「次に閾値を満たす頂点」までスナップ＝間引き頂点を飛ばして kept 同士を直結。
+// ⚠走査は arc の向きに追従（reversed arc は edge meta が index 降順＝+1 固定だと A 側へ
+// 逆走して辺が潰れる）。arc 両端は L1(rank63) なのでどちら向きでも必ず arc 内で停止。
+// 戻り値: true=辺を描く（lodB はスナップ済み）/ false=discard。
+bool lodSnap(inout uint lodA, inout uint lodB) {
+	if (fetchRank(lodA) < u_lod_rank) return false;
+	int stepDir = (lodB > lodA) ? 1 : -1;
+	for (int k = 0; k < 4096; k++) {
+		if (fetchRank(lodB) >= u_lod_rank) break;
+		lodB = uint(int(lodB) + stepDir);
+	}
+	return true;
+}
 `;
 
 // sub=0 → NDC origin (fan pivot); sub=1 → vertex A; sub=2 → vertex B.
@@ -102,7 +125,9 @@ void main() {
 	int sub     = gl_VertexID % 3;
 	if (sub == 0) { gl_Position = vec4(0.0, 0.0, 0.0, 1.0); return; }
 	uvec4 meta = fetchEdgeMeta(edge_id);
-	vec3  p    = fetchProject(sub == 1 ? meta.r : meta.g);
+	uint lodA = meta.r, lodB = meta.g;
+	if (!lodSnap(lodA, lodB)) { gl_Position = vec4(2.0, 0.0, 0.0, 1.0); return; }
+	vec3  p    = fetchProject(sub == 1 ? lodA : lodB);
 	if (p.z < 0.0) {
 		// Back-facing vertex: push outward along its own direction onto the horizon circle (radius u_scale).
 		vec2 v = p.xy - u_viewport * 0.5;
@@ -174,10 +199,13 @@ void main() {
 	if (u_pass == 0 && feat_id == u_active_id) { gl_Position = vec4(2.0, 0.0, 0.0, 1.0); return; }
 	if (u_pass == 1 && feat_id != u_active_id) { gl_Position = vec4(2.0, 0.0, 0.0, 1.0); return; }
 
+	uint lodA = meta.r, lodB = meta.g;
+	if (!lodSnap(lodA, lodB)) { gl_Position = vec4(2.0, 0.0, 0.0, 1.0); return; }
+
 	bool  useA = (sub == 0 || sub == 1 || sub == 3);
 	float side = (sub == 1 || sub == 2 || sub == 4) ? 1.0 : -1.0;
-	uint  si   = useA ? meta.r : meta.g;
-	uint  oi   = useA ? meta.g : meta.r;
+	uint  si   = useA ? lodA : lodB;
+	uint  oi   = useA ? lodB : lodA;
 
 	vec3 ps = fetchProject(si);
 	v_zr = ps.z;
@@ -517,7 +545,7 @@ void main() { fragColor = u_fill_color; }`;
 const SHARED_UNIFORM_NAMES = [
 	'u_arc_tex','u_meta_tex','u_arc_w','u_meta_w',
 	'u_rotate','u_scale','u_viewport','u_rsincos',
-	'u_ix_center','u_iy_center','u_jac',
+	'u_ix_center','u_iy_center','u_jac','u_lod_rank',
 ];
 
 // Compile all gint programs, collect uniforms, set up blend state.

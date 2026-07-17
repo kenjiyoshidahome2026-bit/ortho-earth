@@ -1,7 +1,7 @@
 // Texture management — called from both set() and context-restore. Rebuilds all textures from gintData.
 
 import { s } from './gintState.js';
-import { uploadTex2D, buildEdgeMeta, buildPolyBboxByFid } from './gintUtility.js';
+import { uploadTex2D, buildEdgeMeta, buildBoundaryEdgeMeta, buildPolyBboxByFid } from './gintUtility.js';
 
 
 export function uploadGintTextures() {
@@ -25,7 +25,10 @@ export function uploadGintTextures() {
 	// Binary-search for the minimum minWeight that brings edge count within the limit.
 	if (s.metaTex) gl.deleteTexture(s.metaTex);
 	s.metaTex = null;
-	const MAX_SAFE_EDGES = 2_000_000;
+	// 2M→10M: いわき市(登記所備付地図・約6.9M辺)級でも静的間引きを発火させない＝筆界の正確さ優先。
+	// 描画コスト(VS呼び出し数)は増える＝重ければ GPU 動的LOD (ortho-core 方式) の移植で回収する。
+	const MAX_SAFE_EDGES = 10_000_000;
+	let capMinW = 0;   // 静的キャップ発火時の minWeight（境界メタも同値で構築＝塗りと線の kept 集合を一致させる）
 	let metaResult = buildEdgeMeta(am, ps, ls);
 	if (metaResult.edgeCount > MAX_SAFE_EDGES && ab?.length) {
 		const arcU32 = new Uint32Array(ab.buffer, ab.byteOffset, ab.byteLength / 4);
@@ -54,6 +57,7 @@ export function uploadGintTextures() {
 			if (hist[w] - nUsages <= MAX_SAFE_EDGES) { minW = w; break; }
 		}
 		metaResult = buildEdgeMeta(am, ps, ls, ab, minW);
+		capMinW = minW;
 		console.info('[gint] LOD simplified: %d→%d edges (minWeight=%d)', metaResult.edgeCount + (hist[0] - nUsages | 0), metaResult.edgeCount, minW);
 	}
 	const { metaU32, edgeCount, polyEdgeByFid } = metaResult;
@@ -66,6 +70,23 @@ export function uploadGintTextures() {
 		const metaPad = new Uint32Array(s.TEX_META_W * metaH * 4);
 		metaPad.set(metaU32);
 		s.metaTex = uploadTex2D(gl, metaPad, s.TEX_META_W, metaH, gl.RGBA32UI, gl.RGBA_INTEGER);
+	}
+
+	// metaTexB: 境界エッジメタ（正味参照≠0 の arc のみ＋折れ線全量）。
+	// stencil 塗りは常時こちら（winding 等価で桁違いに軽い）、線パスは低ズームで切替＝アウトライン表示。
+	if (s.metaTexB) gl.deleteTexture(s.metaTexB);
+	s.metaTexB = null;
+	s.totalEdgesB = 0;
+	if (s.totalEdges > 0) {
+		const bResult = buildBoundaryEdgeMeta(am, ps, ls, ab, capMinW);
+		s.totalEdgesB = bResult.edgeCount;
+		if (bResult.edgeCount > 0) {
+			const bH   = Math.ceil(bResult.edgeCount / s.TEX_META_W);
+			const bPad = new Uint32Array(s.TEX_META_W * bH * 4);
+			bPad.set(bResult.metaU32);
+			s.metaTexB = uploadTex2D(gl, bPad, s.TEX_META_W, bH, gl.RGBA32UI, gl.RGBA_INTEGER);
+		}
+		console.debug('[gint] boundary edges=%d (%.1f%%)', s.totalEdgesB, s.totalEdges ? 100 * s.totalEdgesB / s.totalEdges : 0);
 	}
 
 	// ptTex: RG32UI — point coordinates (same format as arcTex)
@@ -93,7 +114,8 @@ export function deleteTextures() {
 	if (!gl) return;
 	if (s.arcTex)    gl.deleteTexture(s.arcTex);
 	if (s.metaTex)   gl.deleteTexture(s.metaTex);
+	if (s.metaTexB)  gl.deleteTexture(s.metaTexB);
 	if (s.ptTex)     gl.deleteTexture(s.ptTex);
 	if (s.ptMetaTex) gl.deleteTexture(s.ptMetaTex);
-	s.arcTex = s.metaTex = s.ptTex = s.ptMetaTex = null;
+	s.arcTex = s.metaTex = s.metaTexB = s.ptTex = s.ptMetaTex = null;
 }

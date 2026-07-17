@@ -7,8 +7,8 @@ export const s = {
 	TEX_ARC_W: 4096, TEX_META_W: 4096,
 
 	// Textures
-	arcTex: null, metaTex: null, ptTex: null, ptMetaTex: null,
-	totalEdges: 0, totalPoints: 0,
+	arcTex: null, metaTex: null, metaTexB: null, ptTex: null, ptMetaTex: null,
+	totalEdges: 0, totalEdgesB: 0, totalPoints: 0,
 
 	// FBOs
 	baseFBO: null, baseColorTex: null, baseDepthStencilRBO: null,
