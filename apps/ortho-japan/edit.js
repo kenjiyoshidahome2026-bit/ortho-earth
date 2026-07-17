@@ -183,9 +183,8 @@ let pubTimer = 0;
 function renderPublic() {
 	pubCanvas.width = canvas.width; pubCanvas.height = canvas.height;
 	const pc = pubCanvas.getContext("2d");
-	pc.lineWidth = 0.6 * dpr;
-	pc.strokeStyle = "rgba(43,108,176,.45)";   // 変換済み＝青系（編集対象の橙と対比）
-	pc.fillStyle = "rgba(43,108,176,.04)";
+	// 変換済み＝濃いめの青ベタ塗り（解けた領土の面表示）。線を描かないぶん再焼きも軽い。
+	pc.fillStyle = "rgba(43,108,176,.30)";
 	// 視野 lon/lat bbox（1画面ぶん余白）で 57k筆→画面内のみに絞る＝再焼きを桁で軽く
 	const [lo0, la0] = screenToLonLat(-canvas.width, canvas.height * 2);
 	const [lo1, la1] = screenToLonLat(canvas.width * 2, -canvas.height);
@@ -200,7 +199,6 @@ function renderPublic() {
 		pc.closePath();
 	}
 	pc.fill();
-	pc.stroke();
 	pubSnap = { z: cam.z, lon: cam.lon, lat: cam.lat, w: canvas.width, h: canvas.height };
 }
 function drawPublicLayer() {
