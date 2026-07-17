@@ -29,9 +29,9 @@ const sampleSVG = t => `<svg viewBox="0 0 120 84" preserveAspectRatio="none" ari
 	<circle cx="46" cy="24" r="1.6" fill="${t.ink}"/>
 </svg>`;
 
-// 左スタックのパレット・アイコン（3つ重なる円＝配色の定番グリフ・線は currentColor でスタックの他アイコンと同調）。
-// 上下＝1つ上・2つ下（三色の重なりが下で開く）。
-const ICON = `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+// 左スタックのパレット・アイコン（3つ重なる円＝配色の定番グリフ）。上下＝1つ上・2つ下（三色の重なりが下で開く）。
+// 線色は本線インク #3f4757 を属性直書き＝quiet-mono の夜節(属性セレクタ)が明インクへ自動反転＝昼夜両対応（currentColor では夜に乗らない）。
+const ICON = `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#3f4757" stroke-width="1.6" aria-hidden="true">
 	<circle cx="12" cy="9" r="5"/><circle cx="9" cy="15" r="5"/><circle cx="15" cy="15" r="5"/></svg>`;
 
 // opts.current＝いま焼き付いているテーマ名（見本から除く＝「自分以外」を出す）。opts.onPick(name)＝切替（app 側が reload）。

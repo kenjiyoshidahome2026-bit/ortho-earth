@@ -219,7 +219,7 @@ body { visibility: visible; }   /* 開幕＝このスタイルシートの到着
 #palette-btn {
 	width: 34px; height: 34px; border-radius: 5px;
 	border: 1px solid var(--qm-border); background: var(--qm-panel); cursor: pointer; padding: 0;
-	display: flex; align-items: center; justify-content: center; color: var(--qm-ink);
+	display: flex; align-items: center; justify-content: center;
 	-webkit-backdrop-filter: blur(var(--qm-blur)); backdrop-filter: blur(var(--qm-blur));
 	&:hover { border-color: var(--qm-border-strong); }
 	svg { display: block; }
@@ -537,7 +537,7 @@ body { visibility: visible; }   /* 開幕＝このスタイルシートの到着
        ここは質感だけを後勝ちで上書きする（同格の宣言はファイル順＝この節が勝つ）。
        点火(.on)や検索の開閉(#search.open)は各所の高詳細度セレクタが勝つ＝壊さない。
        上辺グラデ＋inset上ハイライト＝光を受けた凸面、押すと1px沈む＝指応え。 --- */
-#hint-btn, #search #search-btn, #plateau-btn, #reset, #zoom button, #full,
+#hint-btn, #search #search-btn, #plateau-btn, #palette-btn, #reset, #zoom button, #full,
 #cpos-btn, #measure-btn, #japan-btn, #shot-btn, #print-btn, #legend-btn, #close-btn,
 #chips .chip {
 	background-color: var(--qm-glass-bg);
