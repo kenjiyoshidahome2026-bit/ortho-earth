@@ -28,13 +28,21 @@ function bindPointUniforms(u, data, r1, r2) {
 	}
 }
 
-// 線パスを境界メタ（アウトラインのみ）へ切り替えるズーム閾値。
+// ステンシル可視化デバッグ（プローブ）：塗りの代わりに winding カウントを色分け表示。
+// 緑=1(正常単被覆) 赤=2 マゼンタ=3+ 青=-1(255) シアン=-2(254) 無色=0。
+// 赤/マゼンタ=データ重複、青/シアン=向き/正味符号の異常、無色の穴=隙間スライバー or 輪郭破れ。
+const STENCIL_DEBUG = false;
+
+// 線パスを境界メタ（アウトラインのみ）へ切り替えるズーム閾値の既定値。
+// 実際はデータ粒度から導出した s.outlineZoom（中央値ポリゴン≈4px のズーム）を優先し、
+// 導出不能（ポリゴン無し等）の時だけこの値へフォールバック。
 // これ未満では筆内部の線は視認不能（ベタ潰れ）なので描かない＝低ズームの主コストを桁で削減。
 const OUTLINE_ZOOM = 12;
 
 export function renderCleanScene(data, targetFBO = null) {
 	const { gl, programs, arcTex, metaTex, metaTexB, ptTex, ptMetaTex,
-			totalEdges, totalEdgesB, totalPoints, TEX_ARC_W, TEX_META_W, width, height } = s;
+			totalEdges, totalEdgesB, totalPoints, polyEdges, polyEdgesB,
+			TEX_ARC_W, TEX_META_W, width, height } = s;
 	const { renderProgram, stencilProgram, fillProgram,
 			pointProgram, uRender, uStencil, uFill, uPoint, emptyVAO } = programs;
 
@@ -47,10 +55,18 @@ export function renderCleanScene(data, targetFBO = null) {
 	// 塗りは常時境界メタ（共有 arc は winding 寄与が正味 0 ＝落としても数学的に同一で桁違いに軽い）。
 	const hasB = !!(metaTexB && totalEdgesB > 0);
 	const zoom = Math.log2(data.scale / 40.74);
+	const outlineZoom = s.outlineZoom ?? OUTLINE_ZOOM;
+	const lowZoom = zoom < outlineZoom;
 
 	// ── Stencil + Fill ──
-	const fc = data.fillColor ?? DEF_FILL;
-	const stTex = hasB ? metaTexB : metaTex, stCount = hasB ? totalEdgesB : totalEdges;
+	// 低ズームの既定は面＝ベタ塗り（style 0 の色 × α0.8＝下のタイルの地形・注記がうっすら生きる）。
+	// サブピクセルの線は破れて読めないが、stencil 塗りはピクセルカバレッジ加算なので
+	// どんなに小さい筆も1px を確実に染める＝面が連続。
+	// 明示 fillColor は全ズームでそれを尊重（透明を渡せば従来のアウトラインのみに戻せる）。
+	const st = data.styleTable ?? DEF_STYLE;
+	const fc = data.fillColor ?? (lowZoom ? [st[0], st[1], st[2], st[3] * 0.8] : DEF_FILL);
+	// ステンシルはメタ先頭のポリゴン辺のみ＝折れ線辺を winding にファンさせない（海岸線等の誤塗り防止）。
+	const stTex = hasB ? metaTexB : metaTex, stCount = hasB ? polyEdgesB : polyEdges;
 	if (fc[3] > 0 && stCount > 0) {
 		gl.enable(gl.STENCIL_TEST);
 		gl.stencilMask(0xFF);
@@ -61,19 +77,39 @@ export function renderCleanScene(data, targetFBO = null) {
 		gl.stencilOpSeparate(gl.BACK,  gl.KEEP, gl.KEEP, gl.DECR_WRAP);
 		gl.useProgram(stencilProgram);
 		bindSharedUniforms(gl, uStencil, data, arcTex, stTex, TEX_ARC_W, TEX_META_W, width, height);
+		// 塗りは全密度で巻く（LOD無効）：ロングジャンプ辺は輪郭を自己交差させ得る＝winding パリティ
+		// 反転の斑点（ズームで移動する塗り抜け）が出る。簡略化しない輪郭は自己交差しない＝構造的に根治。
+		// 増えるのは VS 呼び出しのみ（境界メタは辺数が桁で少なく、ラスタライズ面積は LOD 非依存）。
+		gl.uniform1f(uStencil.u_lod_rank, 0);
 		gl.drawArrays(gl.TRIANGLES, 0, stCount * 3);
 		gl.colorMask(true, true, true, true);
 		gl.stencilMask(0x00);
-		gl.stencilFunc(gl.NOTEQUAL, 0, 0xFF);
 		gl.stencilOp(gl.KEEP, gl.KEEP, gl.KEEP);
 		gl.useProgram(fillProgram);
-		gl.uniform4fv(uFill.u_fill_color, fc);
-		gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+		if (STENCIL_DEBUG) {
+			// winding カウント別に色分け（EQUAL で1値ずつ塗る＝プローブ）
+			const probes = [
+				[1,   [0.0, 0.8, 0.0, 0.9]],   // 緑    = +1 正常
+				[2,   [1.0, 0.0, 0.0, 0.9]],   // 赤    = +2 重複
+				[3,   [1.0, 0.0, 1.0, 0.9]],   // マゼンタ= +3
+				[255, [0.0, 0.2, 1.0, 0.9]],   // 青    = -1 向き異常
+				[254, [0.0, 0.9, 1.0, 0.9]],   // シアン = -2
+			];
+			for (const [ref, col] of probes) {
+				gl.stencilFunc(gl.EQUAL, ref, 0xFF);
+				gl.uniform4fv(uFill.u_fill_color, col);
+				gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+			}
+		} else {
+			gl.stencilFunc(gl.NOTEQUAL, 0, 0xFF);
+			gl.uniform4fv(uFill.u_fill_color, fc);
+			gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+		}
 		gl.disable(gl.STENCIL_TEST);
 	}
 
-	// ── Fat-line edges ──（低ズームは境界メタ＝アウトライン表示）
-	const lnB = hasB && zoom < OUTLINE_ZOOM;
+	// ── Fat-line edges ──（低ズームは境界メタ＝アウトライン表示。折れ線は全量含まれるので消えない）
+	const lnB = hasB && lowZoom;
 	const lnTex = lnB ? metaTexB : metaTex, lnCount = lnB ? totalEdgesB : totalEdges;
 	if (lnCount > 0) {
 		gl.useProgram(renderProgram);

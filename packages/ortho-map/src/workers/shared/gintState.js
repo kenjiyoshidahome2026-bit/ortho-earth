@@ -9,6 +9,8 @@ export const s = {
 	// Textures
 	arcTex: null, metaTex: null, metaTexB: null, ptTex: null, ptMetaTex: null,
 	totalEdges: 0, totalEdgesB: 0, totalPoints: 0,
+	polyEdges: 0, polyEdgesB: 0,   // メタ先頭のポリゴン辺数（stencil 塗りはこの範囲だけ＝折れ線をファンさせない）
+	outlineZoom: null,             // アウトライン⇄ベタ塗り切替ズーム（データ粒度から導出。null=既定値）
 
 	// FBOs
 	baseFBO: null, baseColorTex: null, baseDepthStencilRBO: null,

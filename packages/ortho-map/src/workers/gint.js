@@ -186,7 +186,8 @@ function destroy() {
 	s.gintData     = null;
 	s.polyEdgeByFid = null;
 	s.polyBboxByFid = null;
-	s.totalEdges   = s.totalEdgesB = s.totalPoints = 0;
+	s.totalEdges   = s.totalEdgesB = s.totalPoints = s.polyEdges = s.polyEdgesB = 0;
+	s.outlineZoom  = null;
 	s.activeId     = -1;
 	s.lastDrawData = null;
 	postMessage({ action: "done", type: "destroy" });

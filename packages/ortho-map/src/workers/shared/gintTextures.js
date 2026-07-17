@@ -1,13 +1,19 @@
 // Texture management — called from both set() and context-restore. Rebuilds all textures from gintData.
 
 import { s } from './gintState.js';
-import { uploadTex2D, buildEdgeMeta, buildBoundaryEdgeMeta, buildPolyBboxByFid } from './gintUtility.js';
+import { uploadTex2D, buildEdgeMeta, buildBoundaryEdgeMeta, buildPolyBboxByFid, deriveOutlineZoom, normalizeRingOrientation } from './gintUtility.js';
 
 
 export function uploadGintTextures() {
 	const { gl, gintData } = s;
 	if (!gl || !gintData) return;
 	const { arcBuffer: ab, arcMeta: am, polyStream: ps, lineStream: ls, pointBuffer: pb } = gintData;
+
+	// 逆巻きリングの参照符号を正規化（境界メタ netting の前提を担保）。データごとに一回。
+	if (!gintData._ringsNormalized) {
+		normalizeRingOrientation(ab, am, ps);
+		gintData._ringsNormalized = true;
+	}
 
 	// arcTex: RG32UI — 64-bit Morton vertex (lo32, hi32)
 	if (s.arcTex) gl.deleteTexture(s.arcTex);
@@ -60,11 +66,15 @@ export function uploadGintTextures() {
 		capMinW = minW;
 		console.info('[gint] LOD simplified: %d→%d edges (minWeight=%d)', metaResult.edgeCount + (hist[0] - nUsages | 0), metaResult.edgeCount, minW);
 	}
-	const { metaU32, edgeCount, polyEdgeByFid } = metaResult;
+	const { metaU32, edgeCount, polyEdgeCount, polyEdgeByFid } = metaResult;
 	s.totalEdges    = edgeCount;
+	s.polyEdges     = polyEdgeCount;
 	s.polyEdgeByFid = polyEdgeByFid;
 	console.debug('[gint] edges=%d', edgeCount);
 	s.polyBboxByFid = buildPolyBboxByFid(ps, am);
+	// アウトライン⇄ベタ塗りの切替ズームをデータの粒度から導出（筆→z≈15 / 市区町村→z≈6）。null=既定値へ
+	s.outlineZoom = deriveOutlineZoom(s.polyBboxByFid);
+	if (s.outlineZoom !== null) console.debug('[gint] outlineZoom=%s (median poly ≈4px)', s.outlineZoom.toFixed(1));
 	if (s.totalEdges > 0) {
 		const metaH   = Math.ceil(s.totalEdges / s.TEX_META_W);
 		const metaPad = new Uint32Array(s.TEX_META_W * metaH * 4);
@@ -77,9 +87,11 @@ export function uploadGintTextures() {
 	if (s.metaTexB) gl.deleteTexture(s.metaTexB);
 	s.metaTexB = null;
 	s.totalEdgesB = 0;
+	s.polyEdgesB  = 0;
 	if (s.totalEdges > 0) {
 		const bResult = buildBoundaryEdgeMeta(am, ps, ls, ab, capMinW);
 		s.totalEdgesB = bResult.edgeCount;
+		s.polyEdgesB  = bResult.polyEdgeCount;
 		if (bResult.edgeCount > 0) {
 			const bH   = Math.ceil(bResult.edgeCount / s.TEX_META_W);
 			const bPad = new Uint32Array(s.TEX_META_W * bH * 4);
