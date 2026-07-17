@@ -58,9 +58,25 @@ function planeToLatLon(x, y, sysNum) {
 	return [lam/DEG, phi/DEG];
 }
 
+// ---- GSI 住所検索（大字名→代表点）：真の任意図郭の初期アンカー用。認証不要・大字単位でキャッシュ ----
+const geocodeCache = new Map();
+async function geocode(q) {
+	if (geocodeCache.has(q)) return geocodeCache.get(q);
+	let pt = null;
+	try {
+		const res = await fetch(`https://msearch.gsi.go.jp/address-search/AddressSearch?q=${encodeURIComponent(q)}`);
+		const hits = await res.json();
+		if (Array.isArray(hits) && hits.length) pt = hits[0].geometry.coordinates;   // [lon,lat]
+	} catch { /* オフライン等＝nullでフォールバック */ }
+	geocodeCache.set(q, pt);
+	await new Promise(r => setTimeout(r, 150));   // 公共APIへの礼儀
+	return pt;
+}
+
 // ---- 地図XML → 図郭1枚分の筆（ローカル座標のまま）----
 function parseSheet(xml) {
 	const sysTag = (xml.match(/<座標系>(.*?)<\/座標系>/) || [])[1] || '';
+	const cityName = (xml.match(/<市区町村名>(.*?)<\/市区町村名>/) || [])[1] || '';
 	const pointMap = new Map();
 	const pr = /<zmn:GM_Point id="(P\d+)">\s*<zmn:GM_Point\.position>\s*<zmn:DirectPosition>\s*<zmn:X>([-\d.]+)<\/zmn:X>\s*<zmn:Y>([-\d.]+)<\/zmn:Y>/g;
 	let m;
@@ -105,7 +121,7 @@ function parseSheet(xml) {
 		const ext = buildRing(s.ext); if (ext.length < 3) continue;
 		fude.push({ oaza: tag('大字名'), chiban: tag('地番'), ring: ext });
 	}
-	return { sysTag, fude };
+	return { sysTag, cityName, fude };
 }
 
 // ---- main ----
@@ -125,7 +141,7 @@ for (const e of outer.getEntries().filter(e => e.entryName.endsWith('.zip'))) {
 	const xe = iz.getEntries().find(x => x.entryName.endsWith('.xml'));
 	if (!xe) continue;
 	const xml = xe.getData().toString('utf-8');
-	const { sysTag, fude } = parseSheet(xml);
+	const { sysTag, cityName, fude } = parseSheet(xml);
 	if (!fude.length) continue;
 
 	// 公共系図郭 → その系で lon/lat 化して参照レイヤへ
@@ -147,18 +163,30 @@ for (const e of outer.getEntries().filter(e => e.entryName.endsWith('.zip'))) {
 	for (const f of fude) for (const p of f.ring) { sx += p.x; sy += p.y; n++; }
 	const cx = sx / n, cy = sy / n;
 
-	// 疑似公共判定：県代表系で変換した重心が bbox 内なら初期アンカーに採用
-	let anchor = null, pseudo = false;
+	// 初期アンカー3段構え：①疑似公共（県代表系変換の重心が bbox 内）→②大字名の住所突合（GSIジオコーダ）→③bbox中心
+	let anchor = null, pseudo = false, geocoded = false;
 	const [lon, lat] = planeToLatLon(cx, cy, sysNum);
 	if (bbox && lon >= bbox[0] && lon <= bbox[2] && lat >= bbox[1] && lat <= bbox[3]) { anchor = [lon, lat]; pseudo = true; }
-	else if (bbox) anchor = [(bbox[0] + bbox[2]) / 2, (bbox[1] + bbox[3]) / 2];
-	else anchor = [141.35, 43.06];
+	if (!anchor) {
+		// 図郭の最頻大字で住所検索＝「住所突合で近くに置けば操作効率は高い」の実装
+		const counts = new Map();
+		for (const f of fude) if (f.oaza) counts.set(f.oaza, (counts.get(f.oaza) || 0) + 1);
+		const topOaza = [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
+		if (topOaza && cityName) {
+			const pt = await geocode(cityName + topOaza);
+			if (pt && (!bbox || (pt[0] >= bbox[0] - 0.05 && pt[0] <= bbox[2] + 0.05 && pt[1] >= bbox[1] - 0.05 && pt[1] <= bbox[3] + 0.05))) {
+				anchor = pt; geocoded = true;
+			}
+		}
+	}
+	if (!anchor) anchor = bbox ? [(bbox[0] + bbox[2]) / 2, (bbox[1] + bbox[3]) / 2] : [141.35, 43.06];
 
 	const oazaSet = [...new Set(fude.map(f => f.oaza).filter(Boolean))];
 	sheets.push({
 		id: e.entryName.replace(/\.zip$/i, ''),
 		oaza: oazaSet,
 		pseudoPublic: pseudo,
+		geocoded,
 		anchor: [Math.round(anchor[0] * 1e7) / 1e7, Math.round(anchor[1] * 1e7) / 1e7],
 		// ローカル座標は重心相対（m・cm精度）。x=北, y=東（地図XML規約）
 		fude: fude.map(f => ({
@@ -166,7 +194,23 @@ for (const e of outer.getEntries().filter(e => e.entryName.endsWith('.zip'))) {
 			ring: f.ring.map(p => [Math.round((p.x - cx) * 100) / 100, Math.round((p.y - cy) * 100) / 100]),
 		})),
 	});
-	console.log(`  ${e.entryName}  筆=${fude.length}  大字=${oazaSet.slice(0,3).join(',') || '?'}  ${pseudo ? '疑似公共→着地' : '真の任意→bbox中心'}  anchor=${anchor.map(v=>v.toFixed(4))}`);
+	console.log(`  ${e.entryName}  筆=${fude.length}  大字=${oazaSet.slice(0,3).join(',') || '?'}  ${pseudo ? '疑似公共→着地' : geocoded ? '住所突合→大字付近' : '→bbox中心'}  anchor=${anchor.map(v=>v.toFixed(4))}`);
+}
+
+// 同一アンカー（同じ大字等）に積み重なった図郭を格子状に展開＝選択・整理しやすく
+const byAnchor = new Map();
+for (const sh of sheets) {
+	const k = sh.anchor.join(',');
+	if (!byAnchor.has(k)) byAnchor.set(k, []);
+	byAnchor.get(k).push(sh);
+}
+for (const group of byAnchor.values()) {
+	if (group.length < 2) continue;
+	group.forEach((sh, i) => {
+		const col = (i % 3) - 1, row = Math.floor(i / 3) - Math.floor((group.length - 1) / 6);
+		sh.anchor = [Math.round((sh.anchor[0] + col * 0.004) * 1e7) / 1e7,
+		             Math.round((sh.anchor[1] - row * 0.003) * 1e7) / 1e7];   // 約350×330mの格子で展開
+	});
 }
 
 const out = join(__dir, '..', 'public', 'moj-local', `${cityCode}-arbitrary.json`);

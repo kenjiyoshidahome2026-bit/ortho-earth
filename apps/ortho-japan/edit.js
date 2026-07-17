@@ -5,6 +5,9 @@
 // 疑似公共（任意ラベルだが中身が公共座標）の図郭は bake 時点でほぼ着地済み＝人手は微調整のみ。
 // 出力: 図郭ID＋4パラメータの JSON＝「解けた集合」への1コミット。法的境界確定の代替ではない。
 
+import { createGeopbf, geopbf } from "geopbf";
+createGeopbf("https://api.ortho-earth.com");   // bucket 基盤（読み出しはキー不要・IDBキャッシュ込み）
+
 const D2R = Math.PI / 180, R2D = 180 / Math.PI;
 const TILE_URL = (z, x, y) => `https://cyberjapandata.gsi.go.jp/xyz/pale/${z}/${x}/${y}.png`;   // 淡色地図
 const CODE = new URLSearchParams(location.search).get("code") || "01101";
@@ -107,6 +110,23 @@ function ringBbox(ring) {
 		if (x > b[2]) b[2] = x; if (y > b[3]) b[3] = y;
 	}
 	return b;
+}
+
+// ---- 市区町村境界（深い赤・参照線）----
+// admin_all は「座標→市区町村」逆引き専用の rank24 間引き＝境界誤差~20m級。
+// 参照線には十分（合わせ込み自体は青い変換済み筆に対して行う）。IDBキャッシュ＝2回目から即。
+let cityBoundary = [];   // rings: [[lon,lat],...][]
+async function loadBoundary() {
+	try {
+		const pbf = await geopbf("admin_all", { gint: false });
+		for (const f of pbf.geojson.features) {
+			if (f.properties.code !== CODE) continue;
+			const g = f.geometry;
+			if (g.type === "Polygon") cityBoundary.push(...g.coordinates);
+			else if (g.type === "MultiPolygon") for (const c of g.coordinates) cityBoundary.push(...c);
+		}
+		draw();
+	} catch (e) { console.warn("[boundary]", e); }   // 境界はあくまで参考＝失敗しても編集は成立
 }
 
 async function loadData() {
@@ -296,6 +316,20 @@ function drawScene(excludeSheet = null) {
 	drawTiles();
 	drawPublicLayer();
 	for (const sh of sheets) if (sh !== excludeSheet) drawSheet(sh);
+	// 市区町村境界＝深い赤（最前面の参照線）
+	if (cityBoundary.length) {
+		ctx.strokeStyle = "#8b1a1a";
+		ctx.lineWidth = 2.5 * dpr;
+		ctx.lineJoin = "round";
+		ctx.beginPath();
+		for (const ring of cityBoundary) {
+			for (let i = 0; i < ring.length; i++) {
+				const [sx, sy] = lonLatToScreen(ring[i][0], ring[i][1]);
+				if (i === 0) ctx.moveTo(sx, sy); else ctx.lineTo(sx, sy);
+			}
+		}
+		ctx.stroke();
+	}
 }
 function draw() {
 	if (dragBG && selected) {
@@ -495,3 +529,4 @@ document.getElementById("load").addEventListener("change", async e => {
 
 resize();
 loadData();
+loadBoundary();
