@@ -1,25 +1,29 @@
 /**
- * e-Stat 統計GIS 国勢調査2020 小地域（町丁・字等）境界データ マニフェスト生成
- * 出力: estat-manifest.json
+ * e-Stat 統計GIS 国勢調査 小地域（町丁・字等）境界データ マニフェスト生成
+ * 出力: manifest.json（2020）/ manifest-{year}.json（それ以外）
  *   [{code, prefCode, name, date}]
  *   code: 5桁市区町村コード (例: "01101")
  *   ダウンロードURLは固定パターンなので manifest には含めない
  *
- * 使い方: node estat-manifest.js
+ * 使い方: node estat-manifest.js [--year 2015]   # 調査年（2000/2005/2010/2015/2020…）
  */
 import { writeFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 const __dir = dirname(fileURLToPath(import.meta.url));
 
+const YEAR = process.argv.find(a => a.startsWith('--year='))?.split('=')[1]
+					?? (process.argv.includes('--year') ? process.argv[process.argv.indexOf('--year') + 1] : '2020');
+if (!/^\d{4}$/.test(YEAR)) { console.error(`--year が不正: ${YEAR}`); process.exit(1); }
+
 const SEARCH_URL  = 'https://www.e-stat.go.jp/gis/statmap-search/search_detail';
-const SURVEY_ID   = 'A002005212020';
+const SURVEY_ID   = `A00200521${YEAR}`;
 const PREF_CODES  = Array.from({length: 47}, (_, i) => String(i + 1).padStart(2, '0'));
 
 const BASE_PARAMS = {
 	page: '1', type: '2',
 	aggregateUnitForBoundary: 'A',
-	toukeiCode: '00200521', toukeiYear: '2020',
+	toukeiCode: '00200521', toukeiYear: YEAR,
 	serveyId: SURVEY_ID,
 	coordsys: '1', format: 'shape', datum: '2011',
 	download_disp_flg: '1',
@@ -87,8 +91,10 @@ async function main() {
 	console.log(`  市区町村:     ${cities.length}`);
 
 	manifest.sort((a, b) => a.code.localeCompare(b.code));
-	writeFileSync(join(__dir, 'manifest.json'), JSON.stringify(manifest, null, 2));
-	console.log(`✅ 出力: estat-manifest.json (${manifest.length} 件)`);
+	// 2020 は census/ui.js が ../estat/manifest.json を import している既存契約を維持
+	const outName = YEAR === '2020' ? 'manifest.json' : `manifest-${YEAR}.json`;
+	writeFileSync(join(__dir, outName), JSON.stringify(manifest, null, 2));
+	console.log(`✅ 出力: ${outName} (${manifest.length} 件)`);
 }
 
 main().catch(console.error);

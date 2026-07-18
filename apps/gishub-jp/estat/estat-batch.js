@@ -3,14 +3,16 @@
  * SHP → GeoJSONL → native-bucket upload
  *
  * 使い方:
- *   node estat-batch.js              # 全件処理
+ *   node estat-batch.js              # 全件処理（既定: 2020）
+ *   node estat-batch.js --year 2015  # 調査年を指定（manifest-2015.json が必要）
  *   node estat-batch.js --code 01101 # 特定コードのみ
  *   node estat-batch.js --pref 01    # 特定都道府県のみ
  *   node estat-batch.js --start 100  # N番目から再開
  *   node estat-batch.js --dry-run    # 確認のみ
  *
- * 出力: native-bucket "estat/" ディレクトリ
- *   estat/{code}.geojsonl  (1行1小地域 Feature JSON)
+ * 出力: native-bucket "estat/{調査年}/" ディレクトリ
+ *   estat/{year}/{code}.geojsonl  (1行1小地域 Feature JSON)
+ *   キーは (調査年, 市区町村コード) が正式アドレス。年をまたぐ KEY_CODE/区画の互換は保証されない
  */
 import { readFileSync, existsSync, writeFileSync } from 'fs';
 import { fileURLToPath } from 'url';
@@ -20,11 +22,17 @@ import * as shapefile from 'shapefile';
 import { Bucket } from 'native-bucket';   // workspace解決（アプリ移設で相対深度が壊れた轍・exports封印にも整合）
 const __dir = dirname(fileURLToPath(import.meta.url));
 
-const API_BASE      = 'https://api.ortho-earth.com';
+const API_BASE      = process.env.API_BASE ?? 'https://api.ortho-earth.com';   // wrangler dev --remote 経由なら http://localhost:8787
 const API_KEY = process.env.API_KEY;
-const BUCKET_DIR    = 'estat';
-const PROGRESS_FILE = join(__dir, 'progress.json');
-const SURVEY_ID     = 'A002005212020';
+
+const YEAR = process.argv.find(a => a.startsWith('--year='))?.split('=')[1]
+					?? (process.argv.includes('--year') ? process.argv[process.argv.indexOf('--year') + 1] : '2020');
+if (!/^\d{4}$/.test(YEAR)) { console.error(`--year が不正: ${YEAR}`); process.exit(1); }
+
+const BUCKET_DIR    = `estat/${YEAR}`;
+const MANIFEST_FILE = join(__dir, YEAR === '2020' ? 'manifest.json' : `manifest-${YEAR}.json`);
+const PROGRESS_FILE = join(__dir, YEAR === '2020' ? 'progress.json' : `progress-${YEAR}.json`);
+const SURVEY_ID     = `A00200521${YEAR}`;
 
 const DL_BASE = 'https://www.e-stat.go.jp/gis/statmap-search/data';
 function dlUrl(code) {
@@ -87,8 +95,9 @@ async function processEntry(entry, bucket) {
 }
 
 async function main() {
-	const manifest = JSON.parse(readFileSync(join(__dir, 'manifest.json')));
-	let targets = manifest;
+	const manifest = JSON.parse(readFileSync(MANIFEST_FILE));
+	// 「東京都全域」等の都道府県一括エントリは除外（bucket の粒は市区町村 1 コード = 1 ファイル）
+	let targets = manifest.filter(e => !e.name.includes('全域'));
 	if (ONLY_CODE) targets = targets.filter(e => e.code === ONLY_CODE);
 	else if (ONLY_PREF) targets = targets.filter(e => e.prefCode === ONLY_PREF);
 	else targets = targets.slice(START);
