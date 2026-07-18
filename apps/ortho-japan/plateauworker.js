@@ -33,7 +33,8 @@ function ecef2geo(x, y, z) {
 // tileset.json を辿って葉（=それ以上 children を持たないタイル）を { uri, center:[lon,lat]|null } で集める。
 // center は boundingVolume.region から＝カメラ近傍優先ソートに使う（無い形式なら null＝末尾に回る）。
 // 葉の content.uri 自体が別の tileset.json（外部委譲）のことがある地区があるため、拡張子で判定して再帰的に潜る。
-async function collectLeafTiles(tilesetUrl, depth = 0, onScan = null) {
+async function collectLeafTiles(tilesetUrl, depth = 0, onScan = null, stop = null) {
+	if (stop?.()) return [];   // 協調キャンセル：視野離脱した区のカタログ走査を tileset 単位で打ち切る
 	onScan && onScan();   // tileset.json 1枚fetchするたびに数える＝「準備中」の沈黙を進捗にする
 	const ts = await (await fetch(tilesetUrl)).json();
 	const tsBase = tilesetUrl.slice(0, tilesetUrl.lastIndexOf("/") + 1);
@@ -45,7 +46,7 @@ async function collectLeafTiles(tilesetUrl, depth = 0, onScan = null) {
 		const uri = t.content?.uri;
 		if (!uri) return;
 		const abs = resolveUrl(tsBase, uri);
-		if (abs.endsWith(".json") && depth < 4) out.push(...await collectLeafTiles(abs, depth + 1, onScan));
+		if (abs.endsWith(".json") && depth < 4) out.push(...await collectLeafTiles(abs, depth + 1, onScan, stop));
 		else {
 			const r = t.boundingVolume?.region;
 			out.push({ uri: abs, center: r ? [(r[0] + r[2]) / 2 * R2D, (r[1] + r[3]) / 2 * R2D] : null });
@@ -77,7 +78,7 @@ function triKey(k0, k1, k2) {
 // （成分接地だと吊橋の桁が自分の最低点で接地＝水面すれすれに落ちる。バッチ最低点＝橋脚基部≈ジオイド分を
 //   一括で差し引くので、部材同士の相対高さが保たれる）②twoSided=1 を焼き込み＝FS が裏面 discard をやめる
 // （ケーブル・柵など厚みゼロの開いた面は表裏2枚組で来る→dedup が1枚に潰す→片側から見えなくなるため）。
-async function decodeBatch(base, leaves, wardMask, wardBbox, onTile = null, brid = false) {
+async function decodeBatch(base, leaves, wardMask, wardBbox, onTile = null, brid = false, stop = null, laneOf = null) {
 	// 中間データは plain JS Array に push しない：バッチで1700万push級になり要素タグ+GCで数秒を失う。
 	// プリミティブごとに頂点数が既知なので typed セグメントを作り、バッチ末尾で一括結合（memcpy）する。
 	// geo(lon/lat rad)は float64 必須：float32 の相対精度~1e-7 は rad で~0.6m＝dedup の丸め(1e-8rad≈6cm)を壊す。
@@ -130,8 +131,13 @@ async function decodeBatch(base, leaves, wardMask, wardBbox, onTile = null, brid
 	}
 	// タイル取得+デコードを並行プールで回す。mergeTile は同期＝JSシングルスレッドなので並行fetch中でも競合しない。
 	let ti = 0;
-	async function tileWorker() {
+	async function tileWorker(wi) {
 		while (ti < leaves.length) {
+			if (stop?.()) return;   // 協調キャンセル：離脱区の残りタイルは fetch しない（帯域を現役区へ返す）
+			if (laneOf?.() === "slow") {
+				if (wi > 0) return;                            // slow lane＝並行1本へ縮退（残りの worker は降りる）
+				await new Promise(r => setTimeout(r, 250));    // 間隔を空けて帯域/CPUを現地点の fast ロードへ明け渡す
+			}
 			const t = leaves[ti++];
 			try {
 				const ab = await (await fetch(t.uri)).arrayBuffer();
@@ -146,7 +152,7 @@ async function decodeBatch(base, leaves, wardMask, wardBbox, onTile = null, brid
 			onTile && onTile();   // 成否に関わらず歩数は進む＝分母が縮まない
 		}
 	}
-	await Promise.all(Array.from({ length: Math.min(TILE_CONCURRENCY, leaves.length) }, tileWorker));
+	await Promise.all(Array.from({ length: Math.min(TILE_CONCURRENCY, leaves.length) }, (_, wi) => tileWorker(wi)));
 	if (!totalI) return null;
 	// セグメントを一括結合（memcpy）。idx はセグメント生成時にバッチ通し番号で焼き込み済み＝コピーだけで整合。
 	const geo = new Float64Array(totalV * 3), outNrm = new Int8Array(totalV * 4), rawIdx = new Uint32Array(totalI);
@@ -345,8 +351,21 @@ async function idbPurge() {
 	return keys.length;
 }
 
+// 協調キャンセル：main が「もう要らない」と確定した base を積む。worker は
+// tileset走査・タイルfetch・バッチ境界の3点で旗を見て打ち切る。部分結果は描画へ送らずIDBにも書かない。
+const cancelled = new Set();
+// fast/slow の2レーン制：視界が確定した現地点＝fast（並行8・即送信）、視界から外れた在庫ロード＝slow
+// （並行1本＋間隔空け＝帯域/CPUを現地点へ明け渡す。描画への送信も保留）。slow のまま完走したら
+// IDB＋（mainが）非表示常駐へ＝「途中通ってきた区」は捨てずに、さりげなく仕込みに変わる。
+// 戻ってきたら promote＝fast 復帰し送信バックログも再開。
+const lane = new Map();   // base → "fast" | "slow"
+// 動的再ソート用の最新カメラ位置（main が移動中に随時放送）。バッチ境界で残タイルを並べ直す＝
+// 大きい区の中でも「今見ている側」から立つ。
+let latestCam = null;
+
 // ロード本体：葉タイル収集→カメラ近傍順ソート→バッチごとにデコード→完成次第 render worker へ直送（逐次表示）。
 // メモリ→IDB→ネットワークの3段。IDBヒット時もバッチ逐次送信＝プログレッシブ表示のまま。
+// 返り値: true=完了 / false=空データ / "cancelled"=視野離脱キャンセル（main は failed 扱いにしない）。
 async function loadPlateau(base, tiles, ward, wardBbox, camCenter, preload = false, brid = false) {
 	if (cache.has(base)) {
 		const c = cache.get(base);
@@ -369,15 +388,18 @@ async function loadPlateau(base, tiles, ward, wardBbox, camCenter, preload = fal
 	// scan＝カタログ(tileset.json)走査枚数、done/total＝タイル単位（バッチ単位だと1歩が数秒＝止まって見える）。
 	// 完了/失敗の消灯は main が ack で行う＝消し忘れが構造的に無い。preload＝IDBに貯めるだけ（描画へ送らない）。
 	const prog = p => self.postMessage({ prog: { name: ward, ...p } });
+	const stop = () => !preload && cancelled.has(base);   // 協調キャンセルの旗（プレロードは見ない＝完走）
+	const laneOf = () => lane.get(base) ?? "fast";   // 既定fast。demote/promote は main（autoPlateau）が視界確定時に切り替える
 	prog({ scan: 0 });
 	let leaves;
 	if (tiles) leaves = tiles.map(u => ({ uri: resolveUrl(base, u), center: null }));
 	else {
 		// REPLACE refine：親(粗)と子(詳細)が同じ場所を覆う→両方読むと重なって z-fight(マダラ)。子を持たない「葉」だけ読む。
 		let scanned = 0;
-		leaves = await collectLeafTiles(base + "tileset.json", 0, () => prog({ scan: ++scanned }));
+		leaves = await collectLeafTiles(base + "tileset.json", 0, () => prog({ scan: ++scanned }), stop);
 		console.log("[plateau] 葉タイル:", leaves.length, "枚");
 	}
+	if (stop()) { console.log("[plateau] キャンセル（視野離脱・走査段階）", ward); return "cancelled"; }
 	// カメラ近傍から遠方の順に＝最初のバッチが「目の前」になる。center 不明のタイルは末尾。
 	if (camCenter) {
 		const d2 = t => t.center ? (t.center[0] - camCenter[0]) ** 2 + (t.center[1] - camCenter[1]) ** 2 : Infinity;
@@ -388,15 +410,32 @@ async function loadPlateau(base, tiles, ward, wardBbox, camCenter, preload = fal
 	prog({ done: 0, total: leaves.length });
 	const wardMask = wardBbox ? new Uint8Array(MASK_N * MASK_N) : null;   // 区単位で累積（wardBbox 無し=デバッグ直指定時はマスク無し）
 	const batches = [];
-	for (let bi = 0; bi * BATCH_TILES < leaves.length; bi++) {
-		const slice = leaves.slice(bi * BATCH_TILES, (bi + 1) * BATCH_TILES);
-		const mesh = await decodeBatch(base, slice, wardMask, wardBbox, () => prog({ done: ++tilesDone, total: leaves.length }), brid);
+	let sentCount = 0;                          // render worker へ送信済みのバッチ数（slow中は保留＝batches.length と乖離する）
+	let remaining = leaves, sortedFor = null;   // 前方から消費。カメラ更新があればバッチ境界で残りを並べ直す
+	while (remaining.length) {
+		if (stop()) { console.log("[plateau] キャンセル（視野離脱）", ward, `${leaves.length - remaining.length}/${leaves.length} tiles で打ち切り`); return "cancelled"; }
+		if (latestCam && latestCam !== sortedFor) {   // 参照比較＝放送があった時だけ再ソート。区の中でも「今見ている側」から立つ
+			sortedFor = latestCam;
+			const c = latestCam, d2 = t => t.center ? (t.center[0] - c[0]) ** 2 + (t.center[1] - c[1]) ** 2 : Infinity;
+			remaining = remaining.slice().sort((a, b) => d2(a) - d2(b));
+		}
+		const slice = remaining.slice(0, BATCH_TILES);
+		remaining = remaining.slice(BATCH_TILES);
+		const mesh = await decodeBatch(base, slice, wardMask, wardBbox, () => prog({ done: ++tilesDone, total: leaves.length }), brid, stop, laneOf);
+		if (stop()) { console.log("[plateau] キャンセル（視野離脱・部分バッチ破棄）", ward); return "cancelled"; }   // 中断バッチは歯抜け＝送らない
 		if (!mesh) continue;
-		if (!preload) await sendBatch(ward, batches.length, mesh, wardMask, wardBbox);   // 完成したバッチから即描画へ（クレジット待ち）
 		batches.push(mesh);
-		console.log(`[plateau] batch ${batches.length} (${Math.min((bi + 1) * BATCH_TILES, leaves.length)}/${leaves.length} tiles) tris=${mesh.idx.length / 3}`);
+		// fast lane のみ即送信（slow＝在庫化中は保留。promote で fast に戻った瞬間このバックログ送出が追いつく）
+		if (!preload && laneOf() === "fast") {
+			while (sentCount < batches.length) { await sendBatch(ward, sentCount, batches[sentCount], wardMask, wardBbox); sentCount++; }
+		}
+		console.log(`[plateau] batch ${batches.length} (${leaves.length - remaining.length}/${leaves.length} tiles) tris=${mesh.idx.length / 3}${laneOf() === "slow" ? " [slow]" : ""}`);
 	}
 	if (!batches.length) return false;   // 葉0枚/全バッチ失敗＝空データ。警告は main 側で一回だけ（廃止区の残骸等）
+	// slow のまま完走した分も含め、未送信バックログを送り切る＝GPUに全量が揃う（main は "demoted" を受けて非表示常駐へ）。
+	if (!preload) {
+		while (sentCount < batches.length) { await sendBatch(ward, sentCount, batches[sentCount], wardMask, wardBbox); sentCount++; }
+	}
 	if (CACHE_MAX) {   // 低メモリ端末(CACHE_MAX=0)は完了後に区一式(~100-160MB)をworker RAMへ残さない（IDBが再訪を受ける）
 		cache.set(base, { batches, mask: wardMask, wardBbox });   // デコード結果をこのworker内に保持＝再訪でfetch/Draco解凍を丸ごと省略
 		if (cache.size > CACHE_MAX) cache.delete(cache.keys().next().value);   // LRU: 最古を退避
@@ -404,6 +443,7 @@ async function loadPlateau(base, tiles, ward, wardBbox, camCenter, preload = fal
 	console.log("[plateau] 完了", base, `(${batches.length} batches)`);
 	const storing = idbStore(base, batches, wardMask, wardBbox, brid);   // 永続化（表示経路はバックグラウンド＝待たせない）
 	if (preload) await storing;   // プレロードの本旨はIDB永続化＝書き終わるまで ack しない（ackより先にモーダルが一覧を引くと「済」にならない）
+	if (!preload && lane.get(base) === "slow") return "demoted";   // slow のまま完走＝視界外の在庫。main が非表示常駐へ落とす（表示はしない）
 	return true;
 }
 
@@ -418,6 +458,10 @@ self.onmessage = async (e) => {
 		if (e.data.lowMem) CACHE_MAX = 0;   // 低メモリ端末＝worker内キャッシュなし（区一式の常駐がタブ落ちの下駄になる。再訪はIDB）
 		return;
 	}
+	if (e.data.type === "cancel")  { cancelled.add(e.data.base); return; }             // 協調キャンセル（旗を立てるだけ＝各ループが自分で降りる）
+	if (e.data.type === "demote")  { lane.set(e.data.base, "slow"); return; }          // 視界外の在庫化＝slow lane（並行1・送信保留）
+	if (e.data.type === "promote") { lane.set(e.data.base, "fast"); return; }          // 再訪＝fast 復帰（バッチ境界でバックログ送出が追いつく）
+	if (e.data.type === "cam")     { latestCam = e.data.center; return; }              // 動的再ソート用の最新カメラ（バッチ境界で反映）
 	if (e.data.type === "purge") { cache.clear(); const n = await idbPurge(); console.log("[plateau] キャッシュ全消去", n, "records"); return; }
 	if (e.data.type === "idbList") {   // データ管理モーダル用：IDBのメタ一覧（全workerが同一DBを見る＝どの1本に聞いてもよい）
 		const idb = await idbReady, items = [];
@@ -441,6 +485,9 @@ self.onmessage = async (e) => {
 	}
 	const { id, base, tiles, name, wardBbox, camCenter, preload, brid } = e.data;
 	try {
+		cancelled.delete(base);   // 新規要求＝キャンセル旗を降ろす（再訪はゼロから正規に読み直す）
+		if (!preload) lane.set(base, "fast");   // 新規の表ロードは fast lane から
+
 		let ent = inflight.get(base);
 		if (!ent) {
 			ent = { p: loadPlateau(base, tiles, name, wardBbox, camCenter, !!preload, !!brid), preload: !!preload };
@@ -449,7 +496,7 @@ self.onmessage = async (e) => {
 		}
 		let ok = await ent.p;
 		// プレロード進行中に表示要求が合流した場合、合流先は描画へ送っていない＝完了後に改めて（キャッシュ命中＝即）送る。
-		if (ok && ent.preload && !preload) ok = await loadPlateau(base, tiles, name, wardBbox, camCenter, false, !!brid);
+		if (ok === true && ent.preload && !preload) ok = await loadPlateau(base, tiles, name, wardBbox, camCenter, false, !!brid);
 		self.postMessage({ id, ok });
 	} catch (err) {
 		self.postMessage({ id, ok: false, error: err.message });

@@ -236,7 +236,7 @@ const plateauOn = opts.plateau !== false;
 let PLATEAU_SETS = [];
 if (plateauOn) fetch(import.meta.env.BASE_URL + "plateau-sets.json").then(r => r.json()).then(sets => {   // BASE_URL＝サブパス配信(/ortho-japan/)対応
 	PLATEAU_SETS = sets; console.log(`[plateau] カタログ読込 → ${sets.length} 市区町村`);
-	autoPlateau();   // 復元ビューが z14+ の街なら起動直後に自動ロード（IDBキャッシュ命中なら即座に街が立つ）
+	autoPlateau(true);   // 復元ビューが z14+ の街なら起動直後に自動ロード（settled扱い＝起動時の視界は確定している。IDB命中なら即座に街が立つ）
 }).catch(e => console.warn("[plateau] カタログ取得失敗", e));
 // 空港マーク台帳：optbv の空港名注記(441)は z11 以上のタイルにしか無い＝低ズームでは
 // scripts/airports-build.mjs で全国収穫した静的リスト(86空港)から「マークだけ」を注入する（本家地理院地図Vectorの見え方に合わせる）。
@@ -270,6 +270,8 @@ let flying = false;                        // フライト中フラグ＝autoPla
 const plateauActive = new Map();           // 表示中の地区（renderer で vis=on）：name → set({name,base,bbox})
 const plateauResident = new Map();         // GPUにVAOが乗っている地区（表示中＋非表示）：name → set。Map挿入順＝LRU
 const plateauLoading = new Set();          // fetch/デコード中の地区名（二重発火防止）
+const plateauAutoLoading = new Map();      // autoPlateau 発のロード中地区：name → set。視界確定時の fast/slow レーン切替対象（手動/プレロードは含めない）
+const plateauDemoted = new Set();          // slow lane（在庫化）中の地区名。再訪で promote＝fast 復帰
 const plateauFailed = new Set();           // 葉0枚/デコード失敗の地区名＝廃止区(浜松西区22133等)の残骸。二度と掴まない（毎onMoveの再挑戦スパムを断つ）
 function plateauHide(name) {   // 視野外れ＝非表示（GPU常駐は維持）。常駐対象外（低メモリ端末）はそのまま削除
 	if (plateauResident.has(name)) renderer.set("plateauVis", false, name);
@@ -298,6 +300,7 @@ function plateauRetain(name, set) {   // 常駐登録＋LRU touch。上限超過
 const PLATEAU_NW = Math.min(PLATEAU_MAX_ACTIVE, (navigator.hardwareConcurrency || 4) - 1) || 1;
 const plateauWorkers = [], plateauPending = new Map();
 let plateauReqId = 0;
+let plateauCamSent = 0;   // カメラ放送のスロットル（ロード中のみ~4Hz）
 for (let i = 0; plateauOn && i < PLATEAU_NW; i++) {   // plateau OFF＝workerを1本も起こさない
 	const w = new Worker(new URL("./plateauworker.js", import.meta.url), { type: "module" });
 	const meshChan = new MessageChannel();   // この worker → render worker のメッシュ直結パイプ
@@ -385,7 +388,12 @@ const bboxIntersects = (a, b) => a[0] <= b[2] && a[2] >= b[0] && a[1] <= b[3] &&
 
 // 現在地＋ズームで登録簿を引き、視野に重なる地区を全部ロード／外れた地区は解放。区境をまたぐと複数地区が同時アクティブになる（上限 PLATEAU_MAX_ACTIVE）。
 // onMove から毎回呼ぶがガードで実質タダ。
-function autoPlateau() {
+// settled＝「視界が落ち着いた」（onMove の settle タイマー発火）。ロードの意思決定はこの瞬間だけ：
+// - 新規ネットワークロードは settled 時のみ発火＝パンで通過しただけの区はそもそも読み始めない
+// - settled 時に現地点が未ロードなら優先度MAX＝視界に居ない在庫ロードを全キャンセルし帯域/CPUを明け渡す
+//   （現地点が揃っているなら在庫ロードは完走させる＝IDBが温まり無駄にならない）
+// 移動中(settled=false)は表示系のみ：常駐ヒットの即表示・視野外の非表示・カメラ放送（従来の体感は不変）。
+function autoPlateau(settled = false) {
 	if (!plateauOn) return;   // 機能ごと停止（opts.plateau=false）
 	if (flying) return;   // フライト中は読み込みも解放もしない＝デコード/GPU転送が飛行アニメと帯域を取り合わない。着地の onMove で解禁
 	if (printHold) return;   // 印刷（平面図）撮影中＝印刷カメラで自動ロード/解放をしない（帯域と現ロード状態を乱さない）
@@ -396,7 +404,25 @@ function autoPlateau() {
 		const dy = Math.max(s.bbox[1] - cam.center[1], 0, cam.center[1] - s.bbox[3]);
 		if (dx * dx + dy * dy > PLATEAU_FAR_DEG * PLATEAU_FAR_DEG) { plateauEvict(name); console.log("[plateau] 遠方→常駐解除", name); }
 	}
+	// 視界確定時のレーン切替：欲しい集合(wanted)に居ない自動ロードを slow lane（在庫化）へ降格。
+	// worker は並行1本＋間隔空けへ縮退し送信も保留＝帯域/CPU/クレジットが現地点の fast ロードへ返る。
+	// 在庫はそのまま完走して IDB＋非表示常駐に落ちる＝捨てない（通過した区は「さりげない仕込み」になる）。
+	const demoteStale = (wanted) => {
+		for (const [name, s] of plateauAutoLoading) {
+			if (wanted?.has(name) || plateauDemoted.has(name)) continue;
+			plateauWorkers[hashStr(s.base) % PLATEAU_NW].postMessage({ type: "demote", base: s.base });
+			plateauDemoted.add(name);
+			console.log("[plateau] 視界確定・現地点優先→在庫化(slow)", name);
+		}
+	};
+	// ロード中があれば最新カメラを worker 群へ放送（~4Hz）＝バッチ境界の残タイル再ソートで「今見ている側」から立つ。
+	if (plateauLoading.size && performance.now() - plateauCamSent > 250) {
+		plateauCamSent = performance.now();
+		const c = [cam.center[0], cam.center[1]];
+		plateauWorkers.forEach(w => w.postMessage({ type: "cam", center: c }));
+	}
 	if (cam.zoom < PLATEAU_AUTO_Z) {
+		if (settled) demoteStale(null);   // ズームアウトで確定＝表示に急ぎは無い。全ロードを slow で完走させ IDB へ
 		for (const name of plateauActive.keys()) { plateauHide(name); console.log("[plateau] 範囲外→非表示", name); }
 		if (plateauActive.size) needsDraw = true;
 		plateauActive.clear();
@@ -426,13 +452,22 @@ function autoPlateau() {
 	const hits = hitsAll.filter(s => !s.noMask).sort(near).slice(0, PLATEAU_MAX_ACTIVE)
 		.concat(hitsAll.filter(s => s.noMask).sort(near).slice(0, PLATEAU_EXTRA_ACTIVE));
 	const hitNames = new Set(hits.map(h => h.name));
+	if (settled) demoteStale(hitNames);   // 視界確定＝現地点の優先度MAX。視界外の在庫ロードは slow へ
 	for (const name of [...plateauActive.keys()]) {
 		if (hitNames.has(name)) continue;
 		plateauActive.delete(name); plateauHide(name); needsDraw = true;
 		console.log("[plateau] 範囲外→非表示", name);
 	}
 	for (const h of hits) {
-		if (plateauActive.has(h.name) || plateauLoading.has(h.name)) continue;
+		if (plateauActive.has(h.name)) continue;
+		if (plateauLoading.has(h.name)) {
+			if (plateauDemoted.has(h.name)) {   // 在庫化中の区へ戻ってきた→fast 復帰（送信バックログもバッチ境界で追いつく）
+				plateauDemoted.delete(h.name);
+				plateauWorkers[hashStr(h.base) % PLATEAU_NW].postMessage({ type: "promote", base: h.base });
+				console.log("[plateau] 再訪→fast復帰", h.name);
+			}
+			continue;
+		}
 		if (plateauResident.has(h.name)) {   // 常駐ヒット＝GPUにVAOが居る→表示フラグを戻すだけ（転送ゼロ・即表示）
 			plateauRetain(h.name, h);
 			renderer.set("plateauVis", true, h.name);
@@ -441,10 +476,23 @@ function autoPlateau() {
 			console.log("[plateau] 常駐ヒット（再アップロードなし）→", h.name);
 			continue;
 		}
+		if (!settled) continue;   // 新規ネットワークロードは「視界が落ち着いた」時だけ発火＝パンで通過した区は読み始めない
 		plateauLoading.add(h.name);
+		plateauAutoLoading.set(h.name, h);   // 視界確定時のレーン切替対象へ
 		console.log("[plateau] 自動ロード →", h.name);
 		loadPlateau(h.base, undefined, h.name, h.noMask ? null : h.bbox, h.noMask)   // noMask（橋梁等）＝マスク不参加＋橋梁モード（バッチ接地・両面）
 			.then(ok => {
+				if (ok === "cancelled") {   // 協調キャンセル＝failed 扱いにしない（戻れば再ロードできる）。部分バッチのGPU残骸を掃除
+					plateauEvict(h.name);
+					console.log("[plateau] キャンセル完了（部分バッチ解放）", h.name);
+					return;
+				}
+				if (ok === "demoted") {   // slow のまま完走した在庫＝表示せず非表示常駐へ（GPU全量済み・IDB済み）。再訪は常駐ヒットで即
+					plateauRetain(h.name, h);
+					plateauHide(h.name);   // 低メモリ端末（常駐なし）はここでメッシュ削除＝IDBだけが残る
+					console.log("[plateau] 在庫完了→非表示常駐", h.name);
+					return;
+				}
 				if (!ok) { plateauFailed.add(h.name); console.warn("[plateau] 読み込めないためスキップ（廃止区/空データ？）:", h.name); return; }   // 一回だけ警告→以後は候補から除外
 				plateauActive.set(h.name, h);
 				plateauRetain(h.name, h);
@@ -455,7 +503,7 @@ function autoPlateau() {
 				}
 			})
 			.catch(e => { plateauFailed.add(h.name); console.warn("[plateau] 読み込み失敗のためスキップ:", h.name, e.message || e); })   // 一回だけ
-			.finally(() => plateauLoading.delete(h.name));
+			.finally(() => { plateauLoading.delete(h.name); plateauAutoLoading.delete(h.name); plateauDemoted.delete(h.name); });
 	}
 }
 
@@ -469,7 +517,7 @@ function onMove() {
 	renderer.draw(cam, { skipBase: false, skipMain: mainStale(), noTerrain: false, terrainGate: false });   // 入力の瞬間に最新camをworkerへ（全球z<4も標高の塗りは描く）。terrainGate:false＝入力中はアトラス再構築を起こさない（停止時に一回だけ）
 	// 海岸線(gint)は render worker が draw 後に従属で駆動＝ここから直接送らない（地図と同cam/同フレーム＝スライド消滅）。
 	clearTimeout(settleT);
-	settleT = setTimeout(() => { moving = false; needsDraw = true; gintCanvas.style.opacity = "1"; gintWorker.postMessage({ type: "drawn" }); if (!printHold) saveView(); }, 150);   // 停止後に identify(picking)＋gint復帰＋ビュー保存（印刷カメラは保存しない）
+	settleT = setTimeout(() => { moving = false; needsDraw = true; gintCanvas.style.opacity = "1"; gintWorker.postMessage({ type: "drawn" }); autoPlateau(true); if (!printHold) saveView(); }, 150);   // 停止後に identify(picking)＋gint復帰＋PLATEAU確定（settled＝ロード発火/レーン切替はこの瞬間だけ）＋ビュー保存（印刷カメラは保存しない）
 	schedulePos();   // 座標読み取りもカメラに追随（rAF畳み込み＝タダ同然）
 }
 
@@ -935,7 +983,7 @@ window.__plateau = async (nameOrBase, tiles) => {
 			plateauLoading.add(set.name);
 			try {
 				const ok = await loadPlateau(set.base, tiles, set.name, set.noMask ? null : set.bbox, set.noMask);
-				if (ok) { plateauActive.set(set.name, set); plateauRetain(set.name, set); }
+				if (ok === true) { plateauActive.set(set.name, set); plateauRetain(set.name, set); }   // "cancelled"（自動ロード合流の端ケース）を誤って活性化しない
 			} finally { plateauLoading.delete(set.name); }
 		}
 	}
@@ -950,6 +998,7 @@ window.__plateau = async (nameOrBase, tiles) => {
 // 成功可否 bool＝呼び出し側が plateauActive に加えるかの判断に使う。
 async function loadPlateau(base, tiles, name, wardBbox, brid) {
 	const ok = await workerLoadPlateau(base, tiles, name, wardBbox, brid);
+	if (ok === "cancelled") return ok;   // 視野離脱の協調キャンセル＝呼び出し側（autoPlateau）が残骸掃除する
 	if (!ok) return false;
 	needsDraw = true;
 	console.log("[plateau] 完了", base);
