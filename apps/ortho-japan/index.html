@@ -24,6 +24,7 @@
 		import orthoJapan from "./app.js";
 		orthoJapan().then(map => {   // 1行＝日本が立ち上がる（divも自作。埋め込みは orthoJapan({ target: "#…" })）
 			map.gadget.search();      // 地名・住所検索（オプトインガジェット＝欲しい画面だけが載せる。搭載順＝左上からの並び）
+			map.gadget.palette();     // 配色テーマ切替（押すと中央に他テーマの地図見本＝色で選ぶ。未搭載でも c= には従う）
 			map.gadget.zoom();        // ズーム＋/−（縦2連の一体ボタン）
 			map.gadget.full();        // 全画面トグル（非対応端末では出ない）
 			map.gadget.japan();       // 日本全体へ（真俯瞰・北向きに戻る）
@@ -33,7 +34,6 @@
 			map.gadget.shot();        // 画面を画像で保存（3層+計測を合成・出典焼き込み）
 			map.gadget.print();       // 平面図を印刷（縮尺・A4/A3・経緯線・外枠＝紙仕様。プレビュー→印刷/PDF）
 			map.gadget.plateau();     // 建物3D（PLATEAU）データ管理（公式ロゴマークのボタン）
-			map.gadget.palette();     // 配色テーマ切替（押すと中央に他テーマの地図見本＝色で選ぶ。未搭載でも c= には従う）
 			map.gadget.contextmenu(); // 右クリックメニュー（既定＝この地点へ寄る／座標をコピー）
 			map.gadget.hint();        // 操作説明カード（最下段＝カードが開いても上の段を動かさない）
 		});
