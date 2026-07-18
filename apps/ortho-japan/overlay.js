@@ -72,10 +72,10 @@ export function createOverlay({ renderer, cam, size, dpr, requestDraw }) {
 		} else say("identify: ヒットなし");
 		requestDraw();
 	}
-	// e-Stat 小地域（市区町村単位の {code}.geojsonl・gzip）：worker が fetch→gunzip→parse→ジオメトリ生成→transfer。
-	async function loadEstat(codes) {
+	// e-Stat 小地域（estat/{調査年}/{code}.geojsonl・gzip）：worker が fetch→gunzip→parse→ジオメトリ生成→transfer。
+	async function loadEstat(codes, year = "2020") {
 		say(`e-Stat 小地域 読込中 (${codes.length}市区町村)…`);
-		estatWorker.postMessage({ type: "load", codes });
+		estatWorker.postMessage({ type: "load", codes, year });
 	}
 	return { identifyAt, loadOverlay, loadEstat, destroy: () => estatWorker.terminate() };   // destroy＝map.destroy() から（worker外し漏れゼロの掟）
 }
