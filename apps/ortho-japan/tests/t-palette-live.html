@@ -1,0 +1,72 @@
+<!doctype html>
+<!-- UI回帰：配色テーマ・ピッカーの実写見本（現在視点の色域写像）。
+     ★worker越しのGL readPixels 往復は headless で検証不可（t-shot と同じ理由）＝requestSnapshot を
+       合成ピクセルで差し替え、開く→撮影→写像→カード実写化（.live）と写像色の正しさを確かめる。
+     配色の期待値は palette.js の THEMES 見本色と palettes.js の実色に従う（mono→dark：紙・幹線・宇宙）。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021;width:640px;height:420px}body{visibility:hidden}</style><title>t-palette-live</title></head>
+<body>
+<script>window.requestAnimationFrame = cb => setTimeout(() => cb(performance.now()), 16); localStorage.setItem("oj.hint", "closed");</script>
+<script type="module">
+import orthoJapan from "../app.js";
+const t = [], ok = (n, c) => t.push((c ? "ok:" : "NG:") + n);
+// 合成スナップショット（20×14＝カード比10:7そのまま）：列で領域を分ける＝写像後の色をx位置でサンプルできる。
+// 紙／幹線青／水系点火(海・水色)／宇宙(黒)。縦方向は一様＝合成時のGL上下反転に依存しない。
+const mkSnap = () => {
+	const W = 20, H = 14, a = new Uint8Array(W * H * 4);
+	const px = x => x < 8 ? [246, 246, 244] : x < 12 ? [47, 108, 173] : x < 16 ? [174, 203, 230] : [0, 0, 0];   // paper / roads[0] / water2 / 宇宙
+	for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+		const i = (y * W + x) * 4, c = px(x);
+		a[i] = c[0]; a[i + 1] = c[1]; a[i + 2] = c[2]; a[i + 3] = 255;
+	}
+	return { W, H, render: { base: a.buffer.slice(0), w: W, h: H, labels: null, lw: 0, lh: 0 } };
+};
+const near = (got, want, tol = 8) => got.every((v, i) => Math.abs(v - want[i]) <= tol);
+try {
+	const map = await orthoJapan({ view: "#6/36/138" });
+	const h = map.gadget.palette({ requestSnapshot: async () => mkSnap() });   // 撮影を合成で差し替え（...optsが注入を上書き）
+	map.gadget.palette();   // 二重搭載＝無害
+	await new Promise(r => setTimeout(r, 200));
+	const picker = document.getElementById("theme-picker");
+	const cards = [...document.querySelectorAll("#theme-picker .tp-card")];
+	ok("mount", document.querySelectorAll("#palette-btn").length === 1 && cards.length === 3
+		&& cards.every(c => c.querySelector("svg") && c.querySelector("canvas")));   // SVGプレースホルダ＋実写canvasが同居
+
+	// 開く＝撮影→写像→全カード実写化（.live）。canvas は見本実寸(360×252)。
+	document.getElementById("palette-btn").click();
+	await new Promise(r => setTimeout(r, 300));
+	ok("open", picker.classList.contains("open"));
+	ok("live", cards.every(c => c.classList.contains("live") && c.querySelector("canvas").width === 360 && c.querySelector("canvas").height === 252));
+
+	// 写像色の検証（mono→dark カード）：紙→夜の紙、幹線青→夜の幹線青、宇宙(黒)→黒のまま。
+	// サンプルは各領域の中央（境界の平滑化を避ける）：x=20%→紙、x=50%→幹線、x=70%→水系、x=90%→宇宙。
+	const dark = picker.querySelector('.tp-card[data-theme="dark"] canvas');
+	if (dark) {
+		const ctx = dark.getContext("2d", { willReadFrequently: true });
+		const at = fx => [...ctx.getImageData(Math.round(360 * fx), 126, 1, 1).data].slice(0, 3);
+		ok("paper→夜", near(at(0.2), [25, 29, 36]));      // #f6f6f4 → #191d24
+		ok("road→夜", near(at(0.5), [85, 149, 220]));     // #2f6cad → #5595dc
+		ok("宇宙は黒のまま", near(at(0.9), [0, 0, 0]));
+	} else ok("darkカード", false);
+	// gsi カード：幹線青→地理院の緑（対応表写像＝色相ごと替わるのが見どころ）。
+	// 海(水色 #aecbe6)→地理院シアン＝「幹線2の淡青」への誤分類回帰（海がオレンジ #e69212 に化けた実害）を封じる。
+	const gsi = picker.querySelector('.tp-card[data-theme="gsi"] canvas');
+	if (gsi) {
+		const gctx = gsi.getContext("2d", { willReadFrequently: true });
+		const gat = fx => [...gctx.getImageData(Math.round(360 * fx), 126, 1, 1).data].slice(0, 3);
+		ok("road→地理院緑", near(gat(0.5), [61, 151, 56]));    // #2f6cad → #3d9738
+		ok("海→地理院シアン", near(gat(0.7), [0, 176, 236]));  // #aecbe6 → #00b0ec（オレンジ化の回帰封じ）
+	} else ok("gsiカード", false);
+
+	// ESC＝閉じる（従来挙動の回帰）
+	window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+	ok("esc", !picker.classList.contains("open"));
+	// handle.open() でも撮り直しが走る（開く度に「今の視点」）
+	h.open();
+	await new Promise(r => setTimeout(r, 200));
+	ok("reopen", picker.classList.contains("open"));
+
+	map.destroy();
+	ok("destroy", true);
+} catch (e) { ok("boot:" + (e && e.message || e), false); }
+document.title = t.some(s => s.startsWith("NG")) ? "FAIL " + t.join(" ") : "PASS " + t.join(" ");
+</script></body></html>

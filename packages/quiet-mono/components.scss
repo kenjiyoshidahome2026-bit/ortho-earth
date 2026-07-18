@@ -237,6 +237,8 @@ body { visibility: visible; }   /* 開幕＝このスタイルシートの到着
 		box-shadow: var(--qm-shadow-pop); transition: transform .12s, border-color .12s;
 		&:hover, &:focus-visible { transform: translateY(-3px); border-color: var(--qm-ink); outline: none; }
 		svg { display: block; width: 100%; height: auto; aspect-ratio: 120 / 84; }
+		canvas { display: none; width: 100%; height: auto; aspect-ratio: 120 / 84; }   /* 実写見本（今の視点の着せ替え）。撮影が来るまでは SVG 簡易マップ */
+		&.live { svg { display: none; } canvas { display: block; } }
 		.tp-name { font: 12px/1 var(--qm-font); color: var(--qm-text); padding: 8px 4px; text-align: center; }
 	}
 }

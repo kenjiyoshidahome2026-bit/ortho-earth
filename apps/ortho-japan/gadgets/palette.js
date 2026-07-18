@@ -1,17 +1,24 @@
 // ガジェット：配色テーマ・ピッカー（オプトイン＝orthoJapan() の戻り値から map.gadget.palette() で搭載。
 // 呼ばなければ搭載されず、配色は共有URLの c=<name> に従うだけ＝UI は c= を書き替える手段にすぎない）。
-// 左スタックにパレット・ボタン → 押すと中央に「自分以外」のテーマの地図見本をポップ（色で選ぶ＝配色テーマの本質）。
-// 見本＝各テーマの実色で塗った簡易マップ（SVG・同じ絵を色だけ差し替え）。カード＝切替(onPick→reload)／ESC・外クリック＝取消。
+// 左スタックにパレット・ボタン → 押すと中央に「自分以外」のテーマの、★今見ている視点そのものの見本をポップ
+// （＝この画面がそのテーマでどうなるか。色で選ぶ＝配色テーマの本質）。カード＝切替(onPick→reload)／ESC・外クリック＝取消。
+// 見本の作り：style は起動時に worker へ焼き付く＝別テーマの実描画は地図3枚分の起動コストで不可。代わりに
+// shot 用スナップショット（現在視点の合成画像）を1枚撮り、テーマ台帳の代表色で色域写像（最近傍分類＋比率転写＝
+// 陰影・アンチエイリアスを保ったまま色だけ着せ替え）して3枚に増やす。SVG簡易マップは撮影が来るまでの即時プレースホルダ
+// 兼 requestSnapshot 非注入時のフォールバック。
 // テーマの語彙（並び・短名・見本色）はここが持つ（chips.js が主題の語彙を持つのと同じ流儀）。★テーマ追加時はここにも1行。
 import { gadgetStack } from "./stack.js";
+import { composeLayersToCanvas } from "./compose.js";
 
-// 見本色＝palettes.js / style-*.js の実色の代表値（paper=紙・ink=注記・water=水・bldg=建物・
-// roads=[幹線1, 幹線2, 一般]・contour=等高線・admin=界線）。地図に見える最小構成の色だけ持つ。
+// 見本色＝palettes.js / style-*.js の実色（paper=紙・ink=注記・water=海(WA一律)・water2=水系点火(WA面/河川)・
+// bldg=建物・roads=[幹線1, 幹線2, 一般]・contour=等高線・admin=界線）。地図に見える最小構成の色だけ持つ。
+// ★実色写像（remapTheme）の分類語彙も兼ねる＝代表値でなく style-*.js の実色そのままにする事
+// （水色をずらすと海が「幹線2の淡青」に最近傍で吸われ、地理院見本の海がオレンジ #e69212 になる実害があった）。
 const THEMES = [
-	{ k: "mono", name: "白地図", paper: "#f6f6f4", ink: "#86867f", water: "#dde3e9", bldg: "#ececea", roads: ["#2f6cad", "#8fb2d6", "#cececb"], contour: "#b28f5e", admin: "#aa7878" },
-	{ k: "dark", name: "夜", paper: "#191d24", ink: "#9aa1a9", water: "#0b0f17", bldg: "#21252d", roads: ["#5595dc", "#46688f", "#565c66"], contour: "#b89466", admin: "#a03a42" },
-	{ k: "gsi", name: "地理院", paper: "#fefeff", ink: "#555555", water: "#bed2ff", bldg: "#ffe6be", roads: ["#3d9738", "#e69212", "#b8b8b8"], contour: "#c8a03c", admin: "#440080" },
-	{ k: "sepia", name: "セピア", paper: "#f0e6d3", ink: "#6a5c46", water: "#d0d8d2", bldg: "#e6d7bd", roads: ["#5f82a0", "#93a8bd", "#cab896"], contour: "#8c6b45", admin: "#a4685a" },
+	{ k: "mono", name: "白地図", paper: "#f6f6f4", ink: "#86867f", water: "#e2e6ea", water2: "#aecbe6", bldg: "#ececea", roads: ["#2f6cad", "#8fb2d6", "#cececb"], contour: "#b28f5e", admin: "#aa7878" },
+	{ k: "dark", name: "夜", paper: "#191d24", ink: "#9aa1a9", water: "#090c12", water2: "#2b6d80", bldg: "#21252d", roads: ["#5595dc", "#46688f", "#565c66"], contour: "#b89466", admin: "#a03a42" },
+	{ k: "gsi", name: "地理院", paper: "#fefeff", ink: "#555555", water: "#bed2ff", water2: "#00b0ec", bldg: "#ffe6be", roads: ["#3d9738", "#e69212", "#b8b8b8"], contour: "#c8a03c", admin: "#440080" },
+	{ k: "sepia", name: "セピア", paper: "#f0e6d3", ink: "#6a5c46", water: "#d6ddd7", water2: "#b9c8c1", bldg: "#e6d7bd", roads: ["#5f82a0", "#93a8bd", "#cab896"], contour: "#8c6b45", admin: "#a4685a" },
 ];
 
 // 簡易マップの見本（120×84）：紙→水→等高線→建物→道路→界線 の順に、その気配だけを描く。色は t で差し替わる。
@@ -34,8 +41,57 @@ const sampleSVG = t => `<svg viewBox="0 0 120 84" preserveAspectRatio="none" ari
 const ICON = `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#3f4757" stroke-width="1.6" aria-hidden="true">
 	<circle cx="12" cy="9" r="5"/><circle cx="9" cy="15" r="5"/><circle cx="15" cy="15" r="5"/></svg>`;
 
+// --- 見本の実写化：現在視点のスナップショットを、テーマ台帳の代表色で別テーマの色へ写像する ---
+const hex2rgb = h => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
+// テーマの色クラス（分類の語彙）＝見本色そのもの＋宇宙(黒)。宇宙は全テーマ共通＝写像しても黒のまま
+// （dark の紙は黒に近い＝この行が無いと低ズームの宇宙が「紙」に分類され、明テーマの見本で白い宇宙になる）。
+const classesOf = t => [t.paper, t.ink, t.water, t.water2, t.bldg, ...t.roads, t.contour, t.admin].map(hex2rgb).concat([[0, 0, 0]]);
+// 色域写像：各画素を from の最近傍クラスに分類→ to の対応色へ「比率転写」out = to × (px / from)。
+// 比率＝陰影(hillshade・建物の面)は乗算的な暗まりなので、暗い紙のテーマへも陰影の向きが正しく移る（差分転写だと夜で破綻）。
+// 距離には彩度差の罰則を足す＝無彩色（陰影・昼夜のグラデ）が有彩色クラス（等高線茶など）へ落ちない
+// （低ズームの明暗境界が地理院見本でオレンジ帯になる誤分類の対策）。
+// どのクラスからも遠い画素（大気のリム・星など）は原色のまま＝知らない色を無理に染めない。
+// ★写像は「原寸」で呼ぶ事（縮小は写像の後）：縮小平均で生まれる中間色（道路網×紙のモアレ灰）は
+//   どのクラスでもない混色＝先に縮めると誤分類が面で増幅される（東京の街区が地理院見本で一面オレンジになった）。
+// 原寸のコストは 15bit 量子化LUTで吸収（地図の色数は少ない＝初出だけ分類し、以後は表引き。誤差は縮小で消える粒度）。
+function remapTheme(img, from, to) {
+	const A = classesOf(from), B = classesOf(to), n = img.data.length, s = img.data;
+	const satA = A.map(c => Math.max(c[0], c[1], c[2]) - Math.min(c[0], c[1], c[2]));
+	const out = new ImageData(img.width, img.height), d = out.data;
+	const TH = 100 * 100;   // 分類を諦める距離²（陰影・ハローで代表色から離れた分は比率転写が吸収する）
+	const lut = new Int32Array(32768).fill(-1);   // 5bit/ch 量子化色 → 写像済み色（packed RGB）
+	for (let i = 0; i < n; i += 4) {
+		const key = (s[i] & 0xf8) << 7 | (s[i + 1] & 0xf8) << 2 | s[i + 2] >> 3;
+		let v = lut[key];
+		if (v < 0) {   // 初出の色だけ本計算（量子化ビンの中心色で代表＝誤差±4は見本の縮小で消える）
+			const r = (s[i] & 0xf8) + 4, g = (s[i + 1] & 0xf8) + 4, b = (s[i + 2] & 0xf8) + 4;
+			const sat = Math.max(r, g, b) - Math.min(r, g, b);
+			let bi = 0, bd = Infinity;
+			for (let k = 0; k < A.length; k++) {
+				const dr = r - A[k][0], dg = g - A[k][1], db = b - A[k][2], ds = sat - satA[k],
+					dd = dr * dr + dg * dg + db * db + 2 * ds * ds;
+				if (dd < bd) { bd = dd; bi = k; }
+			}
+			let or, og, ob;
+			if (bd > TH) { or = r; og = g; ob = b; }
+			else {
+				const a = A[bi], t = B[bi];
+				or = Math.min(255, Math.round(t[0] * (r / (a[0] || 1))));
+				og = Math.min(255, Math.round(t[1] * (g / (a[1] || 1))));
+				ob = Math.min(255, Math.round(t[2] * (b / (a[2] || 1))));
+			}
+			v = or << 16 | og << 8 | ob;
+			lut[key] = v;
+		}
+		d[i] = v >> 16 & 255; d[i + 1] = v >> 8 & 255; d[i + 2] = v & 255;
+		d[i + 3] = s[i + 3];
+	}
+	return out;
+}
+
 // opts.current＝いま焼き付いているテーマ名（見本から除く＝「自分以外」を出す）。opts.onPick(name)＝切替（app 側が reload）。
-export function palette({ current, onPick, signal } = {}) {
+// opts.requestSnapshot＝shot と同じスナップショット（app が注入）＝見本を「今の視点の実写」にする。無ければ SVG 見本のまま。
+export function palette({ current, onPick, requestSnapshot, signal } = {}) {
 	const mapEl = this.mapEl;
 	if (mapEl.querySelector("#palette-btn")) return;   // 二重搭載は無害
 	const btn = document.createElement("button");
@@ -47,12 +103,41 @@ export function palette({ current, onPick, signal } = {}) {
 	picker.id = "theme-picker";
 	const others = THEMES.filter(t => t.k !== current);   // 自分以外
 	picker.innerHTML = `<div class="tp-grid">` + others.map(t =>
-		`<button class="tp-card" data-theme="${t.k}" aria-label="${t.name}に切替">${sampleSVG(t)}<span class="tp-name">${t.name}</span></button>`
+		`<button class="tp-card" data-theme="${t.k}" aria-label="${t.name}に切替">${sampleSVG(t)}<canvas aria-hidden="true"></canvas><span class="tp-name">${t.name}</span></button>`
 	).join("") + `</div>`;
 	mapEl.append(picker);   // 末尾append＝DOM順で最上面（z-index全廃の裁き）
 
+	// 開く度に撮り直す＝見本は常に「今の視点」。撮影→合成→縮小(中央切り出し・SVGと同じ10:7)→3テーマへ写像。
+	// 失敗・未注入は SVG 見本のまま（.live が付かない＝CSS が SVG を出し続ける）。
+	const TW = 360, TH_ = 252;   // 見本の実寸(10:7)。カード幅(~190css px)の約2倍＝Retinaでも締まる
+	let shooting = false;
+	async function refresh() {
+		if (!requestSnapshot || shooting) return;
+		shooting = true;
+		try {
+			const snap = await requestSnapshot();
+			// 基図+知性のみ。注記(labels)は縮小で読めずノイズ粒になるだけ＝混ぜない（色で選ぶ見本は色だけが綺麗）。計測の線も同様。
+			const full = composeLayersToCanvas({ ...snap, render: snap.render && { ...snap.render, labels: null } });
+			let sw = snap.W, sh = Math.round(snap.W * 7 / 10);   // 画面中央から 10:7 を切り出す
+			if (sh > snap.H) { sh = snap.H; sw = Math.round(snap.H * 10 / 7); }
+			const crop = new OffscreenCanvas(sw, sh), cctx = crop.getContext("2d", { willReadFrequently: true });
+			cctx.drawImage(full, (snap.W - sw) >> 1, (snap.H - sh) >> 1, sw, sh, 0, 0, sw, sh);
+			const src = cctx.getImageData(0, 0, sw, sh);   // 原寸のまま写像へ（縮小は写像の後＝remapTheme の★を参照）
+			const from = THEMES.find(t => t.k === current) || THEMES[0];
+			const tmp = new OffscreenCanvas(sw, sh), tctx = tmp.getContext("2d");
+			for (const t of others) {
+				const card = picker.querySelector(`.tp-card[data-theme="${t.k}"]`), cv = card.querySelector("canvas");
+				tctx.putImageData(remapTheme(src, from, t), 0, 0);
+				cv.width = TW; cv.height = TH_;
+				cv.getContext("2d").drawImage(tmp, 0, 0, sw, sh, 0, 0, TW, TH_);   // 写像済み原寸→見本寸へ縮小（本物を縮めたのと同じ混色）
+				card.classList.add("live");   // 以降この開閉では実写見本（次の refresh で上書き）
+			}
+		} catch (e) { console.warn("[palette] 見本の実写化に失敗＝SVG見本のまま", e); }
+		finally { shooting = false; }
+	}
+
 	const close = () => picker.classList.remove("open");
-	btn.addEventListener("click", () => picker.classList.toggle("open"));
+	btn.addEventListener("click", () => { if (picker.classList.toggle("open")) refresh(); });
 	picker.addEventListener("click", e => {
 		const card = e.target.closest(".tp-card");
 		if (card) onPick?.(card.dataset.theme);   // カード＝そのテーマへ切替（app が c= 差し替え＋reload）
@@ -61,5 +146,5 @@ export function palette({ current, onPick, signal } = {}) {
 	window.addEventListener("keydown", e => {   // ESC＝取消（開いている時だけ・他の Esc 消費と競合しない）
 		if (e.key === "Escape" && picker.classList.contains("open")) { e.preventDefault(); close(); }
 	}, { signal });
-	return { open: () => picker.classList.add("open"), close };
+	return { open: () => { picker.classList.add("open"); refresh(); }, close };
 }

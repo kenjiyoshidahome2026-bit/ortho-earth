@@ -8,7 +8,7 @@
 //   一時的に印刷カメラへ振る。プレビューを見せてから出力（印刷は隠しiframe＝ポップアップ不要）。
 // 縮尺の正しさは「切り出す地表幅 ↔ 紙の地図幅(mm)」の対応で構成的に保証（解像度は精細度にだけ効く）。
 import { keyBusy } from "./keys.js";
-import { composeLayersToCanvas } from "./shot.js";
+import { composeLayersToCanvas } from "./compose.js";
 
 // 印刷の出典＝地理院ベクトルタイルの一行のみ。真俯瞰(pitch0)は建物3D・地形サーフェスを描かない
 // （elevScaleEff=0）。標高(AW3D30)は等高線のベクタ線としてだけ写る＝地理院の等高線と同じ位置づけで
