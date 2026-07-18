@@ -13,4 +13,5 @@ bucket_name = "my-native-bucket"
 
 [vars]
 ALLOWED_DOMAINS = "www.ortho-earth.com,ortho-earth.com,kenjiyoshidahome2026-bit.github.io,localhost:5173,localhost:4173,localhost:5174,localhost:5175"
-API_KEY = "***REMOVED***"
+# API_KEY は Cloudflare の secret（2026-07-19 移設・`wrangler secret list` で確認可）。
+# ここに書き戻すと次の deploy で secret と衝突する。ローカル開発は .dev.vars、値の控えはパスワードアプリ。
