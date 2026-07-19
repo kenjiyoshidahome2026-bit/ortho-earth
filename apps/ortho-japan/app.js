@@ -35,6 +35,7 @@ import { shot as shotGadget } from "./gadgets/shot.js";
 import { japan as japanGadget } from "./gadgets/japan.js";
 import { print as printGadget } from "./gadgets/print-stub.js";   // 本体(print.js)は初回起動時にimport()＝初期バンドルから隔離
 import { close as closeGadget } from "./gadgets/close.js";
+import { demo as demoGadget } from "./gadgets/demo.js";
 import { modalOpen } from "./gadgets/keys.js";   // 矢印キーのモーダル抑止に使う共通判定（ショートカット群と共有）
 
 // ============================================================================================
@@ -234,10 +235,12 @@ let moving = false, settleT = null;
 //（1地区あたり数十〜百MB級の重い機能＝軽い埋め込みが丸ごと切れる口。UIのchips/instrumentsと対になる機能側スイッチ）。
 const plateauOn = opts.plateau !== false;
 let PLATEAU_SETS = [];
-if (plateauOn) fetch(import.meta.env.BASE_URL + "plateau-sets.json").then(r => r.json()).then(sets => {   // BASE_URL＝サブパス配信(/ortho-japan/)対応
-	PLATEAU_SETS = sets; console.log(`[plateau] カタログ読込 → ${sets.length} 市区町村`);
-	autoPlateau(true);   // 復元ビューが z14+ の街なら起動直後に自動ロード（settled扱い＝起動時の視界は確定している。IDB命中なら即座に街が立つ）
-}).catch(e => console.warn("[plateau] カタログ取得失敗", e));
+// カタログ到着の合図＝デモの先読み（prefetchPlateauForViews）が待つ。到着時の自動ロードは従来どおり。
+const plateauCatalogReady = !plateauOn ? Promise.resolve() :
+	fetch(import.meta.env.BASE_URL + "plateau-sets.json").then(r => r.json()).then(sets => {   // BASE_URL＝サブパス配信(/ortho-japan/)対応
+		PLATEAU_SETS = sets; console.log(`[plateau] カタログ読込 → ${sets.length} 市区町村`);
+		autoPlateau(true);   // 復元ビューが z14+ の街なら起動直後に自動ロード（settled扱い＝起動時の視界は確定している。IDB命中なら即座に街が立つ）
+	}).catch(e => console.warn("[plateau] カタログ取得失敗", e));
 // 空港マーク台帳：optbv の空港名注記(441)は z11 以上のタイルにしか無い＝低ズームでは
 // scripts/airports-build.mjs で全国収穫した静的リスト(86空港)から「マークだけ」を注入する（本家地理院地図Vectorの見え方に合わせる）。
 // z11+ はタイル注記が✈＋名称を描くので、静的分は同名をスキップ＝二重表示なし。鉄道チップのON/OFFは filterLabels(441) がそのまま効く。
@@ -356,6 +359,32 @@ const plateauIdbDelete = base => new Promise(res => { plateauDeletePending.set(b
 		if (name && !plateauActive.has(name)) plateauEvict(name);
 		return n;
 	});
+// デモ台本のPLATEAU先読み：z14+で着地するシーンの足元の区を台本から自動導出し、IDBへ静かに仕込む（描画へは送らない）。
+// 台本の早いシーン（球・列島・スライド）の間に裏で完走→PLATEAUシーンに着いた時はIDB直読み＝初見のPCでも一発で街が立つ。
+// 直列1区ずつ＝訪問者の帯域を占有しない（飛行中の基図タイルと取り合わない）。IDB命中は即成功＝二度目からはタダ。
+async function prefetchPlateauForViews(views) {
+	if (!plateauOn) return;
+	await plateauCatalogReady;
+	if (!PLATEAU_SETS.length) return;
+	const MARGIN = 0.012;   // 区bboxへの点距離ゲート（≈1.3km）＝着地視界＋隣接区まで拾う
+	const wanted = [], seen = new Set();
+	for (const hash of views) {
+		const v = typeof hash === "string" ? parseViewHash(hash) : null;
+		if (!v || v.zoom < PLATEAU_AUTO_Z) continue;
+		const p = [wrapLon(v.lon), v.lat];
+		const pd2 = s => { const dx = Math.max(s.bbox[0] - p[0], 0, p[0] - s.bbox[2]), dy = Math.max(s.bbox[1] - p[1], 0, p[1] - s.bbox[3]); return dx * dx + dy * dy; };
+		const near = PLATEAU_SETS.filter(s => !plateauFailed.has(s.name) && pd2(s) < MARGIN * MARGIN).sort((a, b) => pd2(a) - pd2(b));
+		// 建物枠＋橋梁(noMask)別枠＝autoPlateau の選抜と同じ構成＝着地時に立つ区を過不足なく仕込む
+		near.filter(s => !s.noMask).slice(0, PLATEAU_MAX_ACTIVE).concat(near.filter(s => s.noMask).slice(0, PLATEAU_EXTRA_ACTIVE))
+			.forEach(s => { if (!seen.has(s.name)) { seen.add(s.name); wanted.push(s); } });
+	}
+	if (!wanted.length) return;
+	console.log(`[demo] PLATEAU先読み ${wanted.length}区（台本から導出）: ${wanted.map(s => s.name).join("・")}`);
+	for (const s of wanted) {
+		await plateauPreload(s);   // 直列＝静かに。到着済みの区は autoPlateau がIDB直読みで立てる
+		autoPlateau(true);   // 先読み完了の瞬間に表示判定を一突き＝「先読み中にもう着いていた」際、静止したままでも即立つ（読込中ガードで見送られた分の敗者復活）
+	}
+}
 function plateauPreload(set) {   // プレロード＝IDBに貯めるだけ（描画へ送らない）。表示中/読込中の地区はそのまま成功扱い
 	if (plateauLoading.has(set.name) || plateauActive.has(set.name)) return Promise.resolve(true);
 	plateauLoading.add(set.name);
@@ -1249,18 +1278,36 @@ window.addEventListener("hashchange", () => {
 	//（ハッシュは残る＝reload 後に同じ視点・同じチップで配色だけ替わって立ち上がる）。固定(opts.theme)は破れない。
 	if (!themeFixed && (v.theme || (v.layers?.includes("dark") ? "dark" : "mono")) !== themeName) { location.reload(); return; }
 	applyCamView(v);
-	if (v.layers || v.contour) {
-		// 固定キー(opts.layers)はハッシュ手編集でも破れない＝客が触れるキーだけ反映（旧romajiトークンは読み替え）
-		if (v.layers) { const urlSet = new Set(v.layers.map(normLayerKey)); for (const k of FREE_LAYER_KEYS) layerState[k] = urlSet.has(k); }
-		if (v.layers) applyConstellations(v.layers.includes(SKY_LAYER));   // ハッシュ手編集での星座ON/OFFも反映
-		if (v.contour && !("terrain" in fixedLayers)) layerState.terrain = true;   // 旧URLの c＝地形チップに読み替え（後方互換）
-		document.querySelectorAll(".chip[data-k]").forEach(syncChip);
-		styleSig = JSON.stringify(layerState); readySig = "";
-		renderer.set("view", { showN02: layerState.rail }); if (layerState.rail) loadN02();
-		applyTerrain();
-	}
+	applyViewLayers(v);
 	onMove();
 }, { signal: ac.signal });
+// 共有URLの l=/c(等高線) をチップ・描画へ反映（hashchange とデモ台本 flyView の共通部）。
+// 固定キー(opts.layers)はどの経路でも破れない＝客が触れるキーだけ反映（旧romajiトークンは読み替え）
+function applyViewLayers(v) {
+	if (!v.layers && !v.contour) return;
+	if (v.layers) { const urlSet = new Set(v.layers.map(normLayerKey)); for (const k of FREE_LAYER_KEYS) layerState[k] = urlSet.has(k); }
+	if (v.layers) applyConstellations(v.layers.includes(SKY_LAYER));   // 星座ON/OFFも反映
+	if (v.contour && !("terrain" in fixedLayers)) layerState.terrain = true;   // 旧URLの c＝地形チップに読み替え（後方互換）
+	document.querySelectorAll(".chip[data-k]").forEach(syncChip);
+	styleSig = JSON.stringify(layerState); readySig = "";
+	renderer.set("view", { showN02: layerState.rail }); if (layerState.rail) loadN02();
+	applyTerrain();
+}
+// デモ台本の一行＝共有URLハッシュへ「飛ぶ」（hashchangeのジャンプと違い球面フライトで向かう）。
+// ・l= があるシーンだけがチップに触る。無ければ現状維持＝hashchange と同じ意味論
+//   （当初「無し＝既定へリセット」にしたら、手動で消した地名が l= 無しシーンのたびに復活する「時たま出現」を生んだ。
+//    発表者の手が台本に勝つ＝デモ中も地図は生きたままの哲学。シーンの見た目を固定したい時は明示的に l= を書く）
+// ・c= は flyView では無視（style は起動時焼き付け）。デモの配色幕替わりは gadget 側が reload+自動再開で実現（demo.js）
+// ・点火は離陸時＝データは飛行中に読まれ、着地には灯って待つ（PLATEAUだけは着地後＝flight ③の流儀）
+// ・opts.glide＝近距離滑走（シーン内の動き）：三段振り付けでなく 位置→方位→チルト の時分割で滑る（引き・回り込み・立ち上がり）
+function flyView(hash, { glide = false } = {}) {
+	const v = typeof hash === "string" ? parseViewHash(hash) : hash;
+	if (!v) { console.warn(`[flyView] 解釈できないビュー "${hash}"`); return false; }
+	if (v.theme && v.theme !== themeName) console.warn(`[flyView] c=${v.theme} は無視＝配色は起動時焼き付け（デモは現テーマのまま進む）`);
+	applyViewLayers(v);
+	(glide ? flightCtl.glideTo : flyTo)(wrapLon(v.lon), v.lat, v.zoom, v.pitch * 180 / Math.PI, v.bearing * 180 / Math.PI);
+	return true;
+}
 
 // コンパス兼リセット（#reset）はオプトインガジェットへ移設＝gadgets/compass.js（針の追従・リセットアニメごと）。
 // 針の毎フレーム追従は render が呼ぶフック＝搭載時に差し替わる（未搭載なら no-op）。
@@ -1480,6 +1527,9 @@ map.gadget("print", function (opts) {   // 印刷（平面図）… 撮影ハイ
 });
 map.gadget("close", function (opts) {   // 閉じる×（埋め込み用）… ortho:close を飛ばすだけ＝閉じる実務は埋め込み側
 	return closeGadget.call(this, { signal: ac.signal, ...opts });
+});
+map.gadget("demo", function (opts) {   // デモ（発表の台本再生）… 台本の一行=共有URLハッシュ。flyView（球面フライト）・PLATEAU先読み・現テーマ名（幕替わり判定）を注入
+	return demoGadget.call(this, { flyView, prefetchViews: prefetchPlateauForViews, theme: themeName, signal: ac.signal, ...opts });
 });
 return map;
 }

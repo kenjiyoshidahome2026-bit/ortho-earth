@@ -22,6 +22,7 @@
 <body>
 	<script type="module">
 		import orthoJapan from "./app.js";
+		import demoScript from "./demo/scenes.js";   // デモの台本＝demo/scenes.js（編集はあのファイル1枚・index.htmlは触らない）
 		orthoJapan().then(map => {   // 1行＝日本が立ち上がる（divも自作。埋め込みは orthoJapan({ target: "#…" })）
 			map.gadget.search();      // 地名・住所検索（オプトインガジェット＝欲しい画面だけが載せる。搭載順＝左上からの並び）
 			map.gadget.palette();     // 配色テーマ切替（押すと中央に他テーマの地図見本＝色で選ぶ。未搭載でも c= には従う）
@@ -35,6 +36,7 @@
 			map.gadget.print();       // 平面図を印刷（縮尺・A4/A3・経緯線・外枠＝紙仕様。プレビュー→印刷/PDF）
 			map.gadget.plateau();     // 建物3D（PLATEAU）データ管理（公式ロゴマークのボタン）
 			map.gadget.contextmenu(); // 右クリックメニュー（既定＝この地点へ寄る／座標をコピー）
+			map.gadget.demo(demoScript);   // デモ上演（▶→Space=次・BS=戻る・クリッカー(PageUp/Down)対応・Esc終了。書き方の作法は demo/scenes.js 冒頭）
 			map.gadget.hint();        // 操作説明カード（最下段＝カードが開いても上の段を動かさない）
 		});
 	</script>

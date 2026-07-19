@@ -243,6 +243,68 @@ body { visibility: visible; }   /* 開幕＝このスタイルシートの到着
 	}
 }
 
+/* --- デモ（発表の台本再生）：▶＝スタックのボタン、下部中央に操縦バー「‹ タイトル n/N › ×」、
+       スライドは中央ポップ（#theme-picker と同流儀の幕）。バーはスライドより後段のDOM＝スライド表示中も操縦できる。
+       バーの定位置＝#scale の一段上（縮尺と重ねない）。デモ中も地図は生きたまま＝バー以外は素通し --- */
+#demo-btn {
+	width: 34px; height: 34px; border-radius: 5px;
+	border: 1px solid var(--qm-border); background: var(--qm-panel); cursor: pointer; padding: 0;
+	display: flex; align-items: center; justify-content: center;
+	-webkit-backdrop-filter: blur(var(--qm-blur)); backdrop-filter: blur(var(--qm-blur));
+	&:hover { border-color: var(--qm-border-strong); }
+	svg { display: block; }
+	&[aria-pressed="true"] { border-color: var(--qm-border-strong); background-color: var(--qm-panel-solid); }   /* 上演中＝点灯（照りはガラス節の点火リストが担う） */
+}
+/* 上演中の▶は星空劇場（.world＝家具退場）でも残す＝止める手段が常に見えている（バーの×と二重の保険） */
+#map.world #gadgets > #demo-btn[aria-pressed="true"] { opacity: 1; pointer-events: auto; }
+#demo-bar {
+	/* 二丸薬構成：左＝送り（.db-main）・右＝モード（.db-aux ▤▷）を間で分離＝押し間違い対策。バー自体は透明な入れ物 */
+	position: absolute; bottom: calc(46px + var(--qm-safe-b)); left: 50%; transform: translateX(-50%);
+	display: none; align-items: center; gap: 12px;
+	&.on { display: flex; }
+	.db-main, .db-aux {
+		display: flex; align-items: center; gap: 2px; padding: 4px 6px; border-radius: 999px;
+		background: var(--qm-panel); border: 1px solid var(--qm-border); box-shadow: var(--qm-shadow-pop);
+		-webkit-backdrop-filter: blur(var(--qm-blur)); backdrop-filter: blur(var(--qm-blur));
+	}
+	button {
+		width: 30px; height: 30px; border: 0; background: none; cursor: pointer; border-radius: 50%;
+		color: var(--qm-text); font: 20px/1 var(--qm-font); padding: 0;
+		display: flex; align-items: center; justify-content: center;
+		&:hover:not(:disabled) { background: var(--qm-panel-solid); }
+		&:disabled { opacity: .3; cursor: default; }
+		&[aria-pressed="true"] { background: var(--qm-panel-solid); }   /* ▤(幕が上がっている)・❚❚(自動上演中)の点灯 */
+	}
+	#demo-slidetoggle { font-size: 15px; }
+	#demo-play { font-size: 13px; letter-spacing: -1px; }
+	#demo-title {
+		font: 13px/1.2 var(--qm-font); color: var(--qm-text); padding: 0 6px 0 8px;
+		max-width: min(46vw, 420px); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+		&.in { animation: demo-title-in .45s ease; }   /* シーン毎の淡入（クラス付け直しで再点火） */
+	}
+	#demo-step { font: 11px/1 var(--qm-font-gauge); color: var(--qm-text); opacity: .55; padding-right: 2px; }
+}
+@keyframes demo-title-in { from { opacity: 0; transform: translateY(3px); } }
+#demo-slide {
+	position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+	background: rgba(10, 16, 33, .55); padding: 24px; z-index: 0;   /* z-index は DOM順の裁きに委ねる */
+	-webkit-backdrop-filter: blur(2px); backdrop-filter: blur(2px); cursor: pointer;
+	/* 幕はフェード：開閉とも .4s。閉は visibility を遅延＝消え切るまで当たり判定だけ即時に切る（下の地図をすぐ触れる） */
+	opacity: 0; visibility: hidden; pointer-events: none;
+	transition: opacity .4s ease, visibility 0s linear .4s;
+	&.open { opacity: 1; visibility: visible; pointer-events: auto; transition: opacity .4s ease; }
+	img { max-width: 88%; max-height: 84%; border-radius: 10px; box-shadow: var(--qm-shadow-pop); background: var(--qm-panel-solid); }
+	/* 生テキストのスライド（slide="…"が画像でない時）＝紙のカードに一言。改行(\n)は pre-line で活かす */
+	.ds-text {
+		max-width: 78%; max-height: 84%; overflow: auto; padding: clamp(28px, 6vw, 64px) clamp(32px, 7vw, 80px);
+		border-radius: 10px; box-shadow: var(--qm-shadow-pop); background: var(--qm-panel-solid);
+		font: 500 clamp(22px, 3.6vw, 40px)/1.75 var(--qm-font); letter-spacing: .06em;
+		color: var(--qm-text); text-align: center; white-space: pre-line;
+	}
+	&.text img { display: none; }
+	&:not(.text) .ds-text { display: none; }
+}
+
 /* --- 建物3D（PLATEAU）データ管理：公式ロゴマークのボタン。置き場所はスタック --- */
 #plateau-btn {
 	width: 34px; height: 34px; border-radius: 5px;
@@ -540,7 +602,7 @@ body { visibility: visible; }   /* 開幕＝このスタイルシートの到着
        点火(.on)や検索の開閉(#search.open)は各所の高詳細度セレクタが勝つ＝壊さない。
        上辺グラデ＋inset上ハイライト＝光を受けた凸面、押すと1px沈む＝指応え。 --- */
 #hint-btn, #search #search-btn, #plateau-btn, #palette-btn, #reset, #zoom button, #full,
-#cpos-btn, #measure-btn, #japan-btn, #shot-btn, #print-btn, #legend-btn, #close-btn,
+#cpos-btn, #measure-btn, #japan-btn, #shot-btn, #print-btn, #legend-btn, #close-btn, #demo-btn,
 #chips .chip {
 	background-color: var(--qm-glass-bg);
 	background-image: var(--qm-glass-sheen);
@@ -554,7 +616,7 @@ body { visibility: visible; }   /* 開幕＝このスタイルシートの到着
 }
 #search.open #search-btn { box-shadow: none; transform: none; }   /* 虫めがねが検索箱へ溶けた後＝影と沈みだけ残さない */
 /* 点火（.on）＝色ガラス仕上げ：地色は各所（インク/アクセントの color-mix 透過）、ここは暗地用に照りと inset を半減 */
-#chips .chip.on, #cpos-btn.on, #measure-btn.on {
+#chips .chip.on, #cpos-btn.on, #measure-btn.on, #demo-btn[aria-pressed="true"] {
 	background-image: var(--qm-glass-sheen-dim);
 	box-shadow: var(--qm-shadow-btn-on);
 	&:hover { box-shadow: var(--qm-shadow-btn-on-hover); }   /* 浮きの所作は同じ・insetだけ暗地用 */

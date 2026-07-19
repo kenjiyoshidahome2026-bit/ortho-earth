@@ -1,0 +1,145 @@
+<!doctype html>
+<!-- UI回帰：デモ（発表の台本再生）。台本＝共有URLハッシュ。開始→タイトル/歩数→スライド→進む/戻る/キー/Esc→終演。
+     flyView は app 注入の実物（フライトは仮想時間で流れるだけ＝着地は検証しない。カメラが動き出す事だけ見る）。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021;width:640px;height:420px}body{visibility:hidden}</style><title>t-demo</title></head>
+<body>
+<script>window.requestAnimationFrame = cb => setTimeout(() => cb(performance.now()), 16); localStorage.setItem("oj.hint", "closed");</script>
+<script type="module">
+import orthoJapan from "../app.js";
+const t = [], ok = (n, c) => t.push((c ? "ok:" : "NG:") + n);
+const SLIDE = "data:image/svg+xml," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8"><rect width="8" height="8" fill="#ccc"/></svg>');
+try {
+	const map = await orthoJapan({ view: "#6/36/138" });
+	map.gadget.demo();   // 台本なし＝警告して非搭載（無害）
+	let pfCalls = 0, pfViews = null;   // PLATEAU先読みのスパイ（実物は外部ネットワークへ出るため差し替え）
+	const h = map.gadget.demo({ hold: 150, prefetchViews: vs => { pfCalls++; pfViews = vs; }, scenes: [   // hold=150ms＝自動上演の回帰を短時間で回す
+		{ title: "一", view: "#5/40/140" },
+		{ title: "二", view: "#6/39/141", slide: SLIDE },   // view+slide併記＝三拍子：(地図)→(幕)→(地図)→次
+		{ title: "三", view: "#12/35/139/45t/30r/l=place.rail/c=mono" },   // c=現テーマ＝幕替わり不要＝素通り（reloadしない）
+		{ title: "四", slide: "堀は、突合。\n（生テキストの挟み込み）" },   // slideだけ＝入場で幕
+	] });
+	map.gadget.demo({ scenes: [{ title: "重", view: "#5/40/140" }] });   // 二重搭載＝無害
+	await new Promise(r => setTimeout(r, 200));
+	const bar = document.getElementById("demo-bar"), slide = document.getElementById("demo-slide");
+	ok("mount", document.querySelectorAll("#demo-btn").length === 1 && !!bar && !!slide && !bar.classList.contains("on"));
+
+	// ▶＝開始：バー点灯・1/4・タイトル・シーン1へ飛行開始（カメラが動く）
+	const z0 = map.cam.zoom;
+	document.getElementById("demo-btn").click();
+	await new Promise(r => setTimeout(r, 400));
+	ok("start", bar.classList.contains("on") && bar.querySelector("#demo-step").textContent === "1/4"
+		&& bar.querySelector("#demo-title").textContent === "一"
+		&& document.getElementById("demo-btn").getAttribute("aria-pressed") === "true");   // ▶＝点灯
+	ok("fly", map.cam.zoom !== z0 || map.cam.center[1] !== 36);   // フライトが書き始めている
+	ok("prevOff", bar.querySelector("#demo-prev").disabled);      // 先頭では戻れない
+
+	// シーン1はスライド無し＝▤は死んでいる
+	ok("toggleOff", bar.querySelector("#demo-slidetoggle").disabled);
+
+	// ›＝view+slide シーンへ：第一拍＝地図（幕はまだ）・▤は生きて消灯
+	bar.querySelector("#demo-next").click();
+	ok("beat1", !slide.classList.contains("open") && bar.querySelector("#demo-step").textContent === "2/4"
+		&& !bar.querySelector("#demo-slidetoggle").disabled
+		&& bar.querySelector("#demo-slidetoggle").getAttribute("aria-pressed") === "false");
+	// ›＝第二拍＝幕（画像モード・▤点灯・シーンは進まない）
+	bar.querySelector("#demo-next").click();
+	ok("beat2", slide.classList.contains("open") && !slide.classList.contains("text") && bar.querySelector("#demo-step").textContent === "2/4"
+		&& bar.querySelector("#demo-slidetoggle").getAttribute("aria-pressed") === "true");
+	// ›＝第三拍＝幕を下ろしてもう一度地図（シーンは進まない）
+	bar.querySelector("#demo-next").click();
+	ok("beat3", !slide.classList.contains("open") && bar.querySelector("#demo-step").textContent === "2/4");
+	// ‹＝逆拍：見終わり→幕へ戻る→地図(未見)→前シーン
+	bar.querySelector("#demo-prev").click();
+	ok("beatBack", slide.classList.contains("open") && bar.querySelector("#demo-step").textContent === "2/4");
+	bar.querySelector("#demo-prev").click(); bar.querySelector("#demo-prev").click();
+	ok("beatHome", bar.querySelector("#demo-step").textContent === "1/4");
+	// Space＝次（プレゼンの標準作法）＝二の第一拍からSpaceで幕（第二拍）へ。クリックで幕を下ろせば拍消化済み→›で次シーンへ
+	bar.querySelector("#demo-next").click();   // 二の第一拍
+	window.dispatchEvent(new KeyboardEvent("keydown", { key: " ", bubbles: true, cancelable: true }));
+	ok("spaceNext", slide.classList.contains("open"));
+	slide.click();
+	ok("slidePeel", !slide.classList.contains("open") && bar.querySelector("#demo-step").textContent === "2/4");
+
+	// ›＝t/r/l= 付きシーンへ（手動で拍消化済みなので進む・台本の l= がチップに点く）
+	bar.querySelector("#demo-next").click();
+	await new Promise(r => setTimeout(r, 100));
+	ok("layers", bar.querySelector("#demo-title").textContent === "三"
+		&& document.querySelector('.chip[data-k="rail"]')?.classList.contains("on") === true);
+
+	// ←＝前シーン（二）の第一拍（地図）へ・→＝また三へ（PageDown でも同じ）
+	window.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true, cancelable: true }));
+	ok("keyPrev", !slide.classList.contains("open") && bar.querySelector("#demo-step").textContent === "2/4");
+	window.dispatchEvent(new KeyboardEvent("keydown", { key: "PageDown", bubbles: true, cancelable: true }));
+	window.dispatchEvent(new KeyboardEvent("keydown", { key: "PageDown", bubbles: true, cancelable: true }));
+	window.dispatchEvent(new KeyboardEvent("keydown", { key: "PageDown", bubbles: true, cancelable: true }));
+	ok("keyNext", bar.querySelector("#demo-step").textContent === "3/4");
+	// BS＝戻る（三→二の第一拍）→ Space三連で三拍を消化してまた三へ
+	window.dispatchEvent(new KeyboardEvent("keydown", { key: "Backspace", bubbles: true, cancelable: true }));
+	ok("keyBS", bar.querySelector("#demo-step").textContent === "2/4" && !slide.classList.contains("open"));
+	for (let i = 0; i < 3; i++) window.dispatchEvent(new KeyboardEvent("keydown", { key: " ", bubbles: true, cancelable: true }));
+	ok("keySpace3", bar.querySelector("#demo-step").textContent === "3/4");
+
+	// ›＝slideだけのシーン＝入場で幕（生テキスト・紙のカード・改行は pre-line）
+	bar.querySelector("#demo-next").click();
+	ok("textSlide", slide.classList.contains("open") && slide.classList.contains("text")
+		&& slide.querySelector(".ds-text").textContent.includes("堀は、突合。"));
+
+	// 最終シーンの先＝終演（バー消灯）。Esc も終演
+	bar.querySelector("#demo-next").click();
+	ok("finish", !bar.classList.contains("on") && !slide.classList.contains("open"));
+	h.start();
+	await new Promise(r => setTimeout(r, 100));
+	window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+	ok("esc", !bar.classList.contains("on"));
+
+	// ▶の再押下＝終演（トグル）・点灯も消える
+	document.getElementById("demo-btn").click();
+	document.getElementById("demo-btn").click();
+	ok("btnToggle", !bar.classList.contains("on") && document.getElementById("demo-btn").getAttribute("aria-pressed") === "false");
+
+	// 自動上演（▷）＝hold で自動送り→最終シーンの先で自動終演・❚❚点灯/消灯
+	h.start();
+	bar.querySelector("#demo-play").click();
+	ok("playOn", bar.querySelector("#demo-play").getAttribute("aria-pressed") === "true");
+	await new Promise(r => setTimeout(r, 2500));   // hold=150ms×6拍（一→二の三拍→三→四）≪ 2500ms ＝走り切って終演まで到達
+	ok("autoRun", !bar.classList.contains("on"));
+	// PLATEAU先読み＝初回▶で1回だけ・view持ちシーン全部（3本）を渡す（再開では撃ち直さない）
+	ok("prefetchOnce", pfCalls === 1 && Array.isArray(pfViews) && pfViews.length === 3);
+	map.destroy();
+
+	// slide:false＝スライド抜き上演（公開チュートリアル・モード）：スライドだけのシーンは台本から抜け、幕は一切開かない
+	const map2 = await orthoJapan({ view: "#6/36/138" });
+	const h2 = map2.gadget.demo({ slide: false, scenes: [
+		{ title: "一", view: "#5/40/140", slide: SLIDE },   // view持ち＝残る（幕は開かない）
+		{ title: "二", slide: SLIDE },                       // スライドのみ＝抜く
+		{ title: "三", view: "#6/38/141" },
+		{ title: "四", glide: "#7/37.5/140.5/20t/40r" },     // 近距離滑走＝起きずに時分割で滑る
+	] });
+	h2.start();
+	await new Promise(r => setTimeout(r, 100));
+	const bar2 = document.getElementById("demo-bar"), slide2 = document.getElementById("demo-slide");
+	ok("noSlideCount", bar2.querySelector("#demo-step").textContent === "1/3" && !slide2.classList.contains("open"));
+	bar2.querySelector("#demo-next").click();
+	ok("noSlideSkip", bar2.querySelector("#demo-title").textContent === "三" && !slide2.classList.contains("open"));
+	// glide シーン＝滑走の末、URLどおりの姿勢（20t/40r）と位置へ収束する（位置→方位→チルトの時分割）
+	bar2.querySelector("#demo-next").click();
+	await new Promise(r => setTimeout(r, 9000));   // 仮想時間＝全チャンネル走り切るまで
+	const D2R = Math.PI / 180;
+	ok("glide", Math.abs(map2.cam.pitch - 20 * D2R) < 0.03 && Math.abs(map2.cam.bearing - 40 * D2R) < 0.03
+		&& Math.abs(map2.cam.center[1] - 37.5) < 0.01 && Math.abs(map2.cam.zoom - 7) < 0.05);
+	map2.destroy();
+
+	// 幕替わり（配色reload）からの自動復帰：預けた進行があれば、▶を押さずともそのシーンから再開（飛ばない＝視点は起動のまま）
+	sessionStorage.setItem("oj.demo.resume", JSON.stringify({ i: 1, playing: false, t: Date.now() }));
+	const map3 = await orthoJapan({ view: "#6/39/141" });
+	map3.gadget.demo({ scenes: [{ title: "甲", view: "#5/40/140" }, { title: "乙", view: "#6/39/141" }] });
+	await new Promise(r => setTimeout(r, 200));
+	const bar3 = document.getElementById("demo-bar");
+	ok("resume", bar3.classList.contains("on") && bar3.querySelector("#demo-step").textContent === "2/2"
+		&& bar3.querySelector("#demo-title").textContent === "乙"
+		&& !sessionStorage.getItem("oj.demo.resume"));   // 預かりは使い切り（次の素の起動で勝手に始まらない）
+	map3.destroy();
+	ok("destroy", true);
+} catch (e) { ok("boot:" + (e && e.message || e), false); }
+document.title = t.some(s => s.startsWith("NG")) ? "FAIL " + t.join(" ") : "PASS " + t.join(" ");
+</script></body></html>

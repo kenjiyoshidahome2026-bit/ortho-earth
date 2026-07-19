@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 540" font-family="system-ui, sans-serif">
+	<!-- 仮スライド（差し替え前提の見本）：台本 scenes の slide= に svg/png のURLを書くとここに出る -->
+	<rect width="960" height="540" fill="#f6f6f4"/>
+	<circle cx="480" cy="1560" r="1200" fill="none" stroke="#bcc4cc" stroke-width="2"/>
+	<circle cx="480" cy="1560" r="1230" fill="none" stroke="#dde3e9" stroke-width="1"/>
+	<text x="480" y="216" text-anchor="middle" font-size="56" fill="#3f4757" letter-spacing="6">ORTHO EARTH</text>
+	<text x="480" y="278" text-anchor="middle" font-size="24" fill="#86867f" letter-spacing="10">JAPAN</text>
+	<text x="480" y="490" text-anchor="middle" font-size="32" fill="#aab0b6">~ 地球は丸い ~</text>
+</svg>

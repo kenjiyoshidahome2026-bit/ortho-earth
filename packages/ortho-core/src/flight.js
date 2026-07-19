@@ -10,17 +10,19 @@ const D2R = Math.PI / 180;
 // 方位角を最短回転(-π..π]へ正規化（コンパスの読みと同じ）
 export const shortBearingOf = b => ((b + Math.PI) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI) - Math.PI;
 
-// createFlight({ cam, viewW, maxPitch, onMove, onFlying }) → { flyTo(lon,lat,zoom,tiltDeg), cancel(), active }
+// createFlight({ cam, viewW, maxPitch, onMove, onFlying }) → { flyTo(lon,lat,zoom,tiltDeg,bearingDeg), cancel(), active }
 //   cam＝{center,zoom,pitch,bearing} を直接書く（描画は onMove が飛ばす）。viewW()＝視野幅px（van Wijk の尺）。
+//   bearingDeg＝着地方位（省略=北）。巡航は常に北向き＝③の「起こす」で tilt と同時に回り込む（デモ台本の t/r 着地用）。
 export function createFlight({ cam, viewW, maxPitch, onMove, onFlying = () => {} }) {
 	let flight = null;
-	function flyTo(lon, lat, zoom, tiltDeg) {
+	function flyTo(lon, lat, zoom, tiltDeg, bearingDeg) {
 		if (flight) flight.cancel();
 		let cancelled = false;
 		flight = { cancel: () => { cancelled = true; onFlying(false); flight = null; } };
 		onFlying(true);
 		// 着地チルト：指定（自然地名=55°等）＞ z14+着地の既定45°。出発時の姿勢に依存しない＝毎回同じ振り付け
 		const p1 = tiltDeg != null ? Math.min(maxPitch, tiltDeg * D2R) : (zoom >= 14 ? 45 * D2R : 0);
+		const b1 = bearingDeg ? shortBearingOf(bearingDeg * D2R) : 0;   // 着地方位（最短回転側の値へ正規化）
 		const tween = (ms, apply, done, linear) => {
 			const t0 = performance.now();
 			const step = () => {
@@ -65,10 +67,47 @@ export function createFlight({ cam, viewW, maxPitch, onMove, onFlying = () => {}
 				cam.zoom = Math.max(2, zOf(w));
 			}, () => {
 				onFlying(false);   // 着地＝重い自動ロード解禁（次の onMove から動く）
-				if (p1 < 0.01) { flight = null; onMove(); return; }
-				tween(700, e => { cam.pitch = p1 * e; }, () => { flight = null; onMove(); });   // 北向きのまま起こす
+				if (p1 < 0.01 && Math.abs(b1) < 0.01) { flight = null; onMove(); return; }
+				tween(700, e => { cam.pitch = p1 * e; cam.bearing = b1 * e; }, () => { flight = null; onMove(); });   // 起こしながら向ける（省略時は北のまま）
 			}, true);   // 巡航はlinear＝van Wijk経路自体が緩急を持つ（smoothstepを重ねると速度が暴れる）
 		});
 	}
-	return { flyTo, cancel: () => { if (flight) flight.cancel(); }, get active() { return !!flight; } };
+	// 近距離滑走（glide）＝「シーン内の動き」用の第二の振り付け：三段（起きる→飛ぶ→倒す）を使わず、
+	// 緯度経度(+ズーム)→方位→チルト の順に時分割で滑る。動きが一つずつ読める＝画になる
+	// （引き・回り込み・立ち上がり。チルトが最後＝建物が立ち上がるのがフィナーレ）。
+	// 経路は equirect 直線＝球面最適経路ではない：近距離（同じ街・隣街）専用。シーンチェンジは従来どおり flyTo。
+	// 省略チャンネルは現状維持でなく目的値へ（tiltDeg/bearingDeg 未指定＝0＝起こして北へ。共有URLの意味論と同じ）。
+	function glideTo(lon, lat, zoom, tiltDeg, bearingDeg) {
+		if (flight) flight.cancel();
+		let cancelled = false;
+		flight = { cancel: () => { cancelled = true; onFlying(false); flight = null; } };
+		onFlying(true);
+		const lon0 = cam.center[0], lat0 = cam.center[1], z0 = cam.zoom;
+		let dLon = lon - lon0; dLon -= Math.round(dLon / 360) * 360;   // 最短経路（antimeridian 安全側）
+		const dLat = lat - lat0, dZ = zoom - z0, dist = Math.hypot(dLon, dLat);
+		const B0 = shortBearingOf(cam.bearing), dB = shortBearingOf((bearingDeg || 0) * D2R - B0);
+		const P0 = cam.pitch, p1 = Math.min(maxPitch, (tiltDeg || 0) * D2R), dP = p1 - P0;
+		const w0 = 360 * viewW() / (512 * Math.pow(2, Math.max(z0, zoom)));   // 寄った側の視野幅[deg]＝移動の体感尺
+		const phases = [];   // 各チャンネルの尺＝変化量に比例（変化ゼロのチャンネルは飛ばす）
+		if (dist > 1e-7 || Math.abs(dZ) > 0.001) phases.push({
+			ms: Math.max(800, Math.min(4000, dist / w0 * 700 + Math.abs(dZ) * 350)),
+			apply: e => { cam.center = [lon0 + dLon * e, lat0 + dLat * e]; cam.zoom = z0 + dZ * e; },
+		});
+		if (Math.abs(dB) > 0.01) phases.push({ ms: Math.max(500, Math.min(2600, Math.abs(dB) / D2R * 14)), apply: e => { cam.bearing = B0 + dB * e; } });
+		if (Math.abs(dP) > 0.01) phases.push({ ms: Math.max(500, Math.min(1600, Math.abs(dP) / D2R * 16)), apply: e => { cam.pitch = P0 + dP * e; } });
+		const run = i => {
+			if (i >= phases.length) { onFlying(false); flight = null; onMove(); return; }   // 滑走完了＝着地扱い（autoPlateau 解禁）
+			const { ms, apply } = phases[i], t0 = performance.now();
+			const step = () => {
+				if (cancelled) return;
+				const k = Math.min(1, (performance.now() - t0) / ms), e = k * k * (3 - 2 * k);   // 各チャンネルは smoothstep（単独の動き＝緩急を持たせる）
+				apply(e); onMove();
+				if (k < 1) requestAnimationFrame(step); else run(i + 1);
+			};
+			requestAnimationFrame(step);
+		};
+		if (!phases.length) { onFlying(false); flight = null; return; }
+		run(0);
+	}
+	return { flyTo, glideTo, cancel: () => { if (flight) flight.cancel(); }, get active() { return !!flight; } };
 }
