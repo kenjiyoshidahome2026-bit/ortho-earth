@@ -61,10 +61,13 @@ export function createFlight({ cam, viewW, maxPitch, onMove, onFlying = () => {}
 				};
 			}
 			const dur = Math.max(700, Math.min(4000, S * 280));            // d3既定(≈250ms/単位)より一拍ゆったり・上限4秒
+			// 巡航中のズーム下限＝経路の行き過ぎ防止（van Wijkの弧が地球を米粒にしない）。ただし目標がz2未満
+			// （星空劇場の深部等）の時はそこまで降りる＝下限は min(2, 目標z)。従来の一律2は着地も2で頭打ちだった。
+			const zFloor = Math.min(2, zoom);
 			tween(dur, e => {
 				const [u, w] = frameAt(e);
 				cam.center = [lon0 + dLon * u, lat0 + dLat * u];
-				cam.zoom = Math.max(2, zOf(w));
+				cam.zoom = Math.max(zFloor, zOf(w));
 			}, () => {
 				onFlying(false);   // 着地＝重い自動ロード解禁（次の onMove から動く）
 				if (p1 < 0.01 && Math.abs(b1) < 0.01) { flight = null; onMove(); return; }

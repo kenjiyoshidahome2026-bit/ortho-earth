@@ -127,11 +127,12 @@ try {
 		{ title: "二", slide: SLIDE },                       // スライドのみ＝抜く
 		{ title: "三", view: "#6/38/141" },
 		{ title: "四", glide: "#7/37.5/140.5/20t/40r" },     // 近距離滑走＝起きずに時分割で滑る
+		{ title: "五", view: "#1/20/140/l=" },               // z1着地＝星空劇場の深部（フライトのズーム下限が目標まで降りる）
 	] });
 	h2.start();
 	await new Promise(r => setTimeout(r, 100));
 	const bar2 = document.getElementById("demo-bar"), slide2 = document.getElementById("demo-slide");
-	ok("noSlideCount", bar2.querySelector("#demo-step").textContent === "1/3" && !slide2.classList.contains("open"));
+	ok("noSlideCount", bar2.querySelector("#demo-step").textContent === "1/4" && !slide2.classList.contains("open"));
 	bar2.querySelector("#demo-next").click();
 	ok("noSlideSkip", bar2.querySelector("#demo-title").textContent === "三" && !slide2.classList.contains("open"));
 	// glide シーン＝滑走の末、URLどおりの姿勢（20t/40r）と位置へ収束する（位置→方位→チルトの時分割）
@@ -140,6 +141,10 @@ try {
 	const D2R = Math.PI / 180;
 	ok("glide", Math.abs(map2.cam.pitch - 20 * D2R) < 0.03 && Math.abs(map2.cam.bearing - 40 * D2R) < 0.03
 		&& Math.abs(map2.cam.center[1] - 37.5) < 0.01 && Math.abs(map2.cam.zoom - 7) < 0.05);
+	// z1へのフライト着地＝星空の締め（従来は巡航下限の一律2で頭打ちだった）
+	bar2.querySelector("#demo-next").click();
+	await new Promise(r => setTimeout(r, 9000));
+	ok("z1", Math.abs(map2.cam.zoom - 1) < 0.05);
 	map2.destroy();
 
 	// 幕替わり（配色reload）からの自動復帰：預けた進行があれば、▶を押さずともそのシーンから再開（飛ばない＝視点は起動のまま）
