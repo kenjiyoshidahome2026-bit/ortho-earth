@@ -202,6 +202,83 @@ async function decodeBatch(base, leaves, wardMask, wardBbox, onTile = null, brid
 	const minAlt = new Float64Array(M).fill(Infinity);   // 成分代表 → 成分の最低標高（基部）
 	const maxAlt = new Float64Array(M).fill(-Infinity);  // 成分代表 → 最高標高（max-min＝建物の高さ。LOD並べ替えのキー）
 	for (let i = 0; i < M; i++) { const r = find(i), h = geo[i*3+2]; if (h < minAlt[r]) minAlt[r] = h; if (h > maxAlt[r]) maxAlt[r] = h; }
+	// 接地v5＝v3（成分単位の剛体接地）の2つの盲点を塞ぐ。どちらも「自分の最低点を海抜0へ」が仇になるケース：
+	// (a) 地下構造物の浮上：完全地下のソリッド（地下駐車場・地下街・坑体）は基部差引で地表に立ち上がる
+	//     （実測: 西新宿 z17.8/75t＝新宿中央公園に地下駐車場の函体・青梅街道の坑体2本が巨大な板として並ぶ「二重」）。
+	//     対策＝近傍の成分基部の中央値から局所地面を推定し、頂部がどの近傍地面よりも低い成分は「地面下へ沈める」
+	//     （頂部を-0.5mへ＝基図の地面が深度で覆う。三角形は削らない＝index/LOD/マスクの再配管なし・不可視の微小オーバードロー）。
+	// (b) 空中部材の落下：超高層の冠・段状屋根・塔屋が壁と頂点を共有しない別ソリッドだと、空中の基部ごと接地され
+	//     頂部だけが地面に落ちる。対策＝成分中心を2D bboxに含む「8m以上低い成分」の基部を借りて接地（剛体のまま実高度へ）。
+	//     閾値8m＝斜面の隣家bbox借用（数mの浮き）を防ぎつつ、冠・塔屋（基部が塔の基部から数十m上）は確実に拾う。
+	{
+		const roots = [], rBox = new Map();   // 成分代表 → 2D bbox [minLon,minLat,maxLon,maxLat]（rad）
+		for (let i = 0; i < M; i++) {
+			const r = find(i);
+			let b = rBox.get(r);
+			if (!b) { rBox.set(r, b = [Infinity, Infinity, -Infinity, -Infinity]); roots.push(r); }
+			const lo = geo[i*3], la = geo[i*3+1];
+			if (lo < b[0]) b[0] = lo; if (la < b[1]) b[1] = la;
+			if (lo > b[2]) b[2] = lo; if (la > b[3]) b[3] = la;
+		}
+		// バッチbbox上のセルグリッド（座標は上のbbox計算と同じrad）：中心セル＝地面推定の票、bbox掛かり＝重なり候補。
+		const G = 64, sLo = (maxLon - minLon) || 1e-12, sLa = (maxLat - minLat) || 1e-12;
+		const cellX = v => Math.max(0, Math.min(G - 1, (v - minLon) / sLo * G | 0));
+		const cellY = v => Math.max(0, Math.min(G - 1, (v - minLat) / sLa * G | 0));
+		const grid = new Map();     // セル番号 → bboxが掛かる成分代表（(b)の重なり候補）
+		const baseVotes = new Map();   // セル番号 → 中心がそのセルに落ちる成分の基部標高（(a)の地面票）
+		const center = new Map();   // 成分代表 → [cx, cy, 中心セル番号]
+		for (const r of roots) {
+			const b = rBox.get(r), cx = (b[0] + b[2]) / 2, cy = (b[1] + b[3]) / 2, ck = cellY(cy) * G + cellX(cx);
+			center.set(r, [cx, cy, ck]);
+			let v = baseVotes.get(ck); if (!v) baseVotes.set(ck, v = []);
+			v.push(minAlt[r]);
+			for (let y = cellY(b[1]); y <= cellY(b[3]); y++) for (let x = cellX(b[0]); x <= cellX(b[2]); x++) {
+				const k = y * G + x;
+				let a = grid.get(k); if (!a) grid.set(k, a = []);
+				a.push(r);
+			}
+		}
+		const cellGround = new Map();   // 占有セル → 地面推定（そのセルに立つ成分基部の中央値）
+		for (const [k, v] of baseVotes) { v.sort((a, b) => a - b); cellGround.set(k, v[v.length >> 1]); }
+		// (a) 完全地下の判定＝二重条件（両方成立で「地中」確定・候補ゼロの孤立成分は触らない）：
+		//   ①頂部 < 近傍（半径3セル）の占有セル地面の「中央値」−1 …大きな函体は自分の基部票で自セル地面を汚染する
+		//     （公園の地下駐車場＝自セル−25mが唯一の票）ため、min では永遠に地中にならない。中央値は周囲の街の基部が制す。
+		//   ②頂部 < 「自分のbbox外」のセル地面の最小値 −1 …崖下・谷底の実在建物は、自分達の基部が作る低いセル地面が
+		//     ①の中央値を守れない事がある（急斜面）。最も低い他人の地面よりさらに低い時だけ地中と認める＝安全側の錠。
+		const dead = new Set();
+		for (const r of roots) {
+			const [, , ck] = center.get(r), cx0 = ck % G, cy0 = (ck / G) | 0;
+			const b = rBox.get(r);
+			const bx0 = cellX(b[0]), bx1 = cellX(b[2]), by0 = cellY(b[1]), by1 = cellY(b[3]);   // 自分の足元セル範囲
+			const gs = []; let minOut = Infinity;
+			for (let y = Math.max(0, cy0 - 3); y <= Math.min(G - 1, cy0 + 3); y++)
+				for (let x = Math.max(0, cx0 - 3); x <= Math.min(G - 1, cx0 + 3); x++) {
+					const cg = cellGround.get(y * G + x);
+					if (cg === undefined) continue;
+					gs.push(cg);
+					if ((x < bx0 || x > bx1 || y < by0 || y > by1) && cg < minOut) minOut = cg;
+				}
+			if (!gs.length || minOut === Infinity) continue;
+			gs.sort((a, c) => a - c);
+			const med = gs[gs.length >> 1];
+			if (maxAlt[r] < med - 1 && maxAlt[r] < minOut - 1) dead.add(r);
+		}
+		for (const r of dead) minAlt[r] = maxAlt[r] + 0.5;   // 沈める＝頂部が-0.5m（平らな都市地面の下＝不可視）
+		// (b) 借り接地：借用は全成分の判定後に一括適用＝元のminAltだけを読む（連鎖の順序依存を断つ）。地下成分は貸借対象外。
+		const borrowed = new Map();
+		for (const r of roots) {
+			if (dead.has(r)) continue;
+			const [cx, cy, ck] = center.get(r);
+			let g = minAlt[r];
+			for (const o of grid.get(ck) || []) {
+				if (dead.has(o) || minAlt[o] >= g) continue;
+				const ob = rBox.get(o);
+				if (cx >= ob[0] && cx <= ob[2] && cy >= ob[1] && cy <= ob[3]) g = minAlt[o];
+			}
+			if (minAlt[r] - g > 8) borrowed.set(r, g);
+		}
+		for (const [r, g] of borrowed) minAlt[r] = g;
+	}
 	// LOD並べ替え＝gintのVWランクのメッシュ版：三角形を建物（連結成分）の高さ降順に並べ、描画は index 先頭 count で
 	// 打ち切れる形に焼く。lodCounts[k]＝高さ LOD_H[k] 以上の建物だけ描く時の drawElements count（CPUゼロ・シェーダ変更ゼロ）。
 	// キーは Float64 パック（高さ6.25cm刻み16bit + 元三角形番号32bit ＝ 48bit < 仮数53bit）＝コンパレータ無しの高速ソート。
@@ -291,7 +368,8 @@ let CACHE_MAX = 2;         // 1区あたり~100-160MB（typed array一式）＝�
 // fetch/Draco解凍/座標変換を丸ごと飛ばして数秒で復元（geopbf の PBF+GINT キャッシュと同じ発想）。
 // レコードはバッチ単位（`${base}#${i}` 各10〜20MB）＋メタ（`${base}#meta`）。メタが揃って初めて有効＝書き途中の中断は無視される。
 // FMT_VER: デコードパイプライン（接地・dedup・軸変換等）を変えたら上げる＝古い形式のキャッシュを自然無効化。
-const IDB_FMT_VER = 4;   // v4: 法線int8量子化(4B/頂点＝1/3)＋建物高さ降順のindex並べ替え+LOD表（サブピクセル建物の打ち切り描画）
+const IDB_FMT_VER = 5;   // v5: 空中部材の借り接地＝非連結の冠・段状屋根・塔屋が海抜0へ落ちる問題の根治（西新宿の「二重」）
+                         // v4: 法線int8量子化(4B/頂点＝1/3)＋建物高さ降順のindex並べ替え+LOD表（サブピクセル建物の打ち切り描画）
                          // v3: 接地を建物（連結成分）単位の剛体方式へ＝グリッド場の過小評価による浮き（京都嵯峨野+19〜40m）を根治
 // 容量上限：固定の区数でなくブラウザのクォータ（オリジン割当）連動＝デモ機のChromeなら実質制限なしに仕込める。
 // 割当の半分まで（MVTタイル・gint等が同じオリジン割当を共有するため）。estimate 不能な環境は従来相当の1.2GBで保守運転。
