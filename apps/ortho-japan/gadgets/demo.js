@@ -24,6 +24,7 @@
 //   序盤の構成（球・列島・スライド）で時間を稼ぐ＝PLATEAUシーン到着時、初見のPCでも一発で街が立つ。
 // 操縦：Space/→/PageDown=進む・BS/←/PageUp=戻る（プレゼンの標準作法）・▤=幕・▷=自動上演・Esc/▶=終了。
 //   PageUp/Down＝プレゼン用クリッカーがそのまま効く。
+// タイトル/歩数のクリック＝シーン一覧（目次）がバーの真上にポップ→クリックでジャンプ（Esc=一覧だけ閉じる）。
 // デモ中も地図は生きたまま（掴めば飛行は中断＝主導権は常に人・›でいつでも台本に復帰）＝ビデオでない証明が最大の演出。
 // キーボードの地図操作（矢印パン等）はデモ中だけ止める＝keys.js の MODAL_SELECTORS に #demo-bar.on を登録済み。
 import { gadgetStack } from "./stack.js";
@@ -80,6 +81,16 @@ export function demo({ scenes, slide: slideOn = true, hold = 7000, flyView, pref
 		titleEl = bar.querySelector("#demo-title"), stepEl = bar.querySelector("#demo-step"),
 		stBtn = bar.querySelector("#demo-slidetoggle"), playBtn = bar.querySelector("#demo-play");
 	if (!slideOn) stBtn.style.display = "none";   // スライド抜き上演＝▤ごと出さない
+	// シーン一覧（目次）：タイトル/歩数のクリックでバーの真上にポップ＝クリックでそのシーンへジャンプ。
+	// c= 付きシーンへのジャンプも show() 経由＝幕替わり（暗転reload→自動再開）がそのまま効く。
+	const list = document.createElement("div");
+	list.id = "demo-list";
+	const sceneLabel = s => s.title || (s.slide && !s.view && !s.glide ? "（スライド）" : (s.view ?? s.glide ?? "（無題）"));
+	list.innerHTML = scenes.map((s, i) => `<button data-i="${i}">${i + 1}. ${sceneLabel(s)}</button>`).join("");
+	bar.append(list);
+	titleEl.title = "シーン一覧"; titleEl.setAttribute("role", "button"); titleEl.setAttribute("aria-haspopup", "listbox");
+	const listOpen = () => list.classList.contains("open");
+	const syncList = () => list.querySelectorAll("button[data-i]").forEach(b => b.setAttribute("aria-current", String(+b.dataset.i === idx)));
 
 	let idx = -1, playing = false, timer = 0, slideShown = false;   // slideShown＝このシーン滞在中に幕を一度見せたか（三拍子の現在拍）
 	const on = () => bar.classList.contains("on");
@@ -112,6 +123,7 @@ export function demo({ scenes, slide: slideOn = true, hold = 7000, flyView, pref
 		titleEl.textContent = s.title || "";
 		titleEl.classList.remove("in"); void titleEl.offsetWidth; titleEl.classList.add("in");   // タイトルは毎シーン淡入（reflowでアニメ再点火）
 		stepEl.textContent = `${i + 1}/${scenes.length}`;
+		syncList();   // 一覧の現在シーン印を追随（開いたままの送りにも効く）
 		bar.querySelector("#demo-prev").disabled = i === 0;
 		stBtn.disabled = !hasSlide(s);   // ▤はスライドを持つシーンでだけ効く
 		slideShown = false;
@@ -138,6 +150,7 @@ export function demo({ scenes, slide: slideOn = true, hold = 7000, flyView, pref
 	const play = () => { playing = true; playBtn.textContent = "❚❚"; playBtn.setAttribute("aria-pressed", "true"); schedule(); };
 	const exit = () => {
 		pause(); bar.classList.remove("on"); curtain(false); img.removeAttribute("src"); idx = -1;
+		list.classList.remove("open");
 		btn.setAttribute("aria-pressed", "false"); btn.dataset.tip = "デモを上演"; btn.setAttribute("aria-label", "デモを上演");
 	};
 	// ›＝view+slide 併記シーンでは三拍子：(地図)→(幕)→(地図)→次シーン。幕の無いシーンは素直に次へ。
@@ -166,11 +179,18 @@ export function demo({ scenes, slide: slideOn = true, hold = 7000, flyView, pref
 	stBtn.addEventListener("click", toggleSlide);
 	playBtn.addEventListener("click", () => playing ? pause() : play());
 	slide.addEventListener("click", () => { curtain(false); schedule(); });   // 幕のクリック＝幕だけ下ろす（シーンは残る）。自動上演中は拍も仕切り直す
+	const toggleList = () => { if (on()) { list.classList.toggle("open"); syncList(); } };
+	titleEl.addEventListener("click", toggleList);
+	stepEl.addEventListener("click", toggleList);   // 無題シーン（タイトル空）でも歩数から開ける
+	list.addEventListener("click", e => {
+		const b = e.target.closest("button[data-i]");
+		if (b) { list.classList.remove("open"); show(+b.dataset.i); }   // ジャンプ＝一覧は閉じて向かう（c=シーンなら幕替わりへ）
+	});
 	window.addEventListener("keydown", e => {
 		if (!on() || isTypingTarget()) return;   // 検索欄などの入力中は譲る（BSの文字削除・Spaceの入力を奪わない）
 		if (e.key === " " || e.key === "ArrowRight" || e.key === "PageDown") { e.preventDefault(); next(); }        // Space＝次（プレゼンの標準作法）
 		else if (e.key === "Backspace" || e.key === "ArrowLeft" || e.key === "PageUp") { e.preventDefault(); prev(); }   // BS＝戻る
-		else if (e.key === "Escape") { e.preventDefault(); exit(); }
+		else if (e.key === "Escape") { e.preventDefault(); listOpen() ? list.classList.remove("open") : exit(); }   // Esc＝一覧が開いていれば一覧だけ閉じる
 	}, { signal });
 	// 幕替わり（配色reload）からの自動復帰：預けた進行があれば拾って再開。起動ビュー＝もうそのシーンの視点・
 	// チップ・テーマで立ち上がっている＝飛ばずに（fly=false）バーだけ点けて続きから。自動上演中だったら再生も継続。

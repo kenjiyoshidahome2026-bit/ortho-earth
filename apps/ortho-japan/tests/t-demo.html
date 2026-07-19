@@ -84,7 +84,20 @@ try {
 	ok("textSlide", slide.classList.contains("open") && slide.classList.contains("text")
 		&& slide.querySelector(".ds-text").textContent.includes("堀は、突合。"));
 
-	// 最終シーンの先＝終演（バー消灯）。Esc も終演
+	// シーン一覧（目次）：タイトルクリックで開く・現在印・クリックでジャンプ・Escは一覧だけ閉じる
+	const dlist = document.getElementById("demo-list");
+	bar.querySelector("#demo-title").click();
+	ok("listOpen", dlist.classList.contains("open") && dlist.querySelectorAll("button[data-i]").length === 4
+		&& dlist.querySelector('button[data-i="3"]').getAttribute("aria-current") === "true");   // 現在＝四
+	dlist.querySelector('button[data-i="0"]').click();
+	ok("listJump", !dlist.classList.contains("open") && bar.querySelector("#demo-step").textContent === "1/4"
+		&& bar.querySelector("#demo-title").textContent === "一");
+	bar.querySelector("#demo-step").click();   // 歩数からも開ける（無題シーン対策）
+	window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+	ok("listEsc", !dlist.classList.contains("open") && bar.classList.contains("on"));   // 一覧だけ閉じる＝デモは続行
+
+	// 最終シーンの先＝終演（バー消灯）。一からは 二の三拍込みで5送りで四へ
+	for (let i = 0; i < 5; i++) h.next();
 	bar.querySelector("#demo-next").click();
 	ok("finish", !bar.classList.contains("on") && !slide.classList.contains("open"));
 	h.start();

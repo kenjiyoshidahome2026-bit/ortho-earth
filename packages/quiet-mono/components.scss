@@ -280,9 +280,26 @@ body { visibility: visible; }   /* 開幕＝このスタイルシートの到着
 	#demo-title {
 		font: 13px/1.2 var(--qm-font); color: var(--qm-text); padding: 0 6px 0 8px;
 		max-width: min(46vw, 420px); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+		cursor: pointer;   /* クリック＝シーン一覧（目次） */
+		&:hover { text-decoration: underline dotted; text-underline-offset: 3px; }
 		&.in { animation: demo-title-in .45s ease; }   /* シーン毎の淡入（クラス付け直しで再点火） */
 	}
-	#demo-step { font: 11px/1 var(--qm-font-gauge); color: var(--qm-text); opacity: .55; padding-right: 2px; }
+	#demo-step { font: 11px/1 var(--qm-font-gauge); color: var(--qm-text); opacity: .55; padding-right: 2px; cursor: pointer; }
+	/* シーン一覧（目次）：バーの真上にポップ。クリックでジャンプ・現在シーンは点灯 */
+	#demo-list {
+		position: absolute; bottom: calc(100% + 10px); left: 50%; transform: translateX(-50%);
+		display: none; flex-direction: column; gap: 1px; padding: 6px;
+		min-width: 220px; max-width: min(72vw, 420px); max-height: min(46vh, 340px); overflow: auto;
+		background: var(--qm-panel); border: 1px solid var(--qm-border); border-radius: 10px; box-shadow: var(--qm-shadow-pop);
+		-webkit-backdrop-filter: blur(var(--qm-blur)); backdrop-filter: blur(var(--qm-blur));
+		&.open { display: flex; }
+		button {   /* バー共通のボタン化粧（30px円）を目次の行仕様へ上書き */
+			width: 100%; height: auto; border-radius: 6px; padding: 5px 10px;
+			display: block; text-align: left; font: 12.5px/1.5 var(--qm-font);
+			white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+			&[aria-current="true"] { background: var(--qm-panel-solid); font-weight: 600; }
+		}
+	}
 }
 @keyframes demo-title-in { from { opacity: 0; transform: translateY(3px); } }
 #demo-slide {
