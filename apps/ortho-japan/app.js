@@ -35,6 +35,7 @@ import { shot as shotGadget } from "./gadgets/shot.js";
 import { japan as japanGadget } from "./gadgets/japan.js";
 import { print as printGadget } from "./gadgets/print-stub.js";   // 本体(print.js)は初回起動時にimport()＝初期バンドルから隔離
 import { close as closeGadget } from "./gadgets/close.js";
+import { dropFile as dropFileGadget } from "./gadgets/dropfile.js";
 import { demo as demoGadget } from "./gadgets/demo.js";
 import { modalOpen } from "./gadgets/keys.js";   // 矢印キーのモーダル抑止に使う共通判定（ショートカット群と共有）
 
@@ -1535,6 +1536,30 @@ map.gadget("print", function (opts) {   // 印刷（平面図）… 撮影ハイ
 });
 map.gadget("close", function (opts) {   // 閉じる×（埋め込み用）… ortho:close を飛ばすだけ＝閉じる実務は埋め込み側
 	return closeGadget.call(this, { signal: ac.signal, ...opts });
+});
+map.gadget("dropFile", function (opts) {   // GISファイルのD&D取り込み … geopbf(File,{gint:true})→applyGintData を loadFile として束ね注入（gint単一スロット＝置き換え）
+	const loadFile = async file => {
+		const pbf = await geopbf(file, { gint: true, name: `drop/${file.name}` }).catch(err => { console.error("[dropFile] geopbf", file.name, err); return null; });
+		if (!pbf?.unPackGint) return null;
+		// 描画前にカメラを図形へ合わせる＝真俯瞰(tilt/bearing=0)へ倒し bbox へ fit。傾き由来の座標の甘さ・
+		// 別canvas(gint)の追随ちらつきを断ち、最初の1枚から図形が画面へ収まった状態で出す。
+		const bb = pbf.unPackGint.bbox;
+		if (bb && bb.length === 4) {
+			cam.pitch = 0; cam.bearing = 0;                              // 真俯瞰・北向き（fit は north-up 前提＝隅の切れを防ぐ）
+			cam.center = [(bb[0] + bb[2]) / 2, (bb[1] + bb[3]) / 2];
+			const wDeg = Math.max(1e-6, (bb[2] - bb[0]) * 1.3), hDeg = Math.max(1e-6, (bb[3] - bb[1]) * 1.3);   // 30%余白（縁ぴったりを避ける）
+			// 視野幅[deg]=360*size.w/(512*2^z)（flight の van Wijk 尺と同一）を逆解き＝横/縦の狭い側に合わせる。
+			const z = Math.min(Math.log2(360 * size.w / (512 * wDeg)), Math.log2(360 * size.h / (512 * hDeg)));
+			cam.zoom = Math.max(2, Math.min(16, z));
+		}
+		return applyGintData(pbf, file.name);   // gint canvas への set・識別点火（center/onMove もここで。pitch/zoom は上で確定済みなので不変）
+	};
+	const clearGint = () => {   // gint 単一スロットを空に＝ドロップ図形を消す（worker が残像も1枚消す）
+		gintWorker.postMessage({ type: "set", cmd: "gint" });   // data 無し＝空化コマンド
+		gintInteractive = false;                                // ホバー/クリック識別を止める
+		needsDraw = true;
+	};
+	return dropFileGadget.call(this, { loadFile, clearGint, signal: ac.signal, ...opts });
 });
 map.gadget("demo", function (opts) {   // デモ（発表の台本再生）… 台本の一行=共有URLハッシュ。flyView（球面フライト）・フライト中判定・PLATEAU先読み・現テーマ名（幕替わり判定）を注入
 	return demoGadget.call(this, { flyView, flightActive: () => flightCtl.active, prefetchViews: prefetchPlateauForViews, theme: themeName, signal: ac.signal, ...opts });
