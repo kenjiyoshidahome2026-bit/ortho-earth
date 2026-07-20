@@ -541,7 +541,7 @@ function onMove() {
 	cam.center[0] = wrapLon(cam.center[0]);   // パン/回転/フライトの累積を毎移動で正規化＝float32原点相対の前提を守る（階段バグ根治）
 	moving = true; needsDraw = true;
 	if (cam.pitch > 0.005 && layerState.terrain) gintCanvas.style.opacity = "0";     // チルト×標高中は移動中gintを消す（別canvasの追随遅れが起伏上で泳ぐため。静止で復帰）
-	ensureCoast();                                                                    // 世界海岸線は初めて z<8 に出た瞬間に読む（遅延ロード）
+	updateGintSlot();                                                                // gint 単一スロットを z=4 で調停（ユーザー層⇄世界海岸線）＋海岸線の遅延ロード
 	ensureStars();                                                                    // 星空も同じ流儀＝初めて z<4 に出た瞬間に読む
 	autoPlateau();                                                                    // 寄る/離れるで PLATEAU を自動ロード/解放（ガードで実質タダ）
 	renderer.draw(cam, { skipBase: false, skipMain: mainStale(), noTerrain: false, terrainGate: false });   // 入力の瞬間に最新camをworkerへ（全球z<4も標高の塗りは描く）。terrainGate:false＝入力中はアトラス再構築を起こさない（停止時に一回だけ）
@@ -663,28 +663,33 @@ let gintDrawOpts = null;
 let gintInteractive = false;
 // gint スタイルを worker へ保持させる（従属描画で使う）。データ毎に差し替え。
 const sendGintStyle = () => gintWorker.postMessage({ type: "style", data: gintDrawOpts });
+let gintHoverTip = null;   // ドロップ/14条データのホバー tip 内容 setter（dropFile 搭載時に注入＝未搭載なら tip 無し）
 gintWorker.onmessage = e => {
 	const d = e.data;
 	if (d.action === "snapshot")    return snapPart(d.id, "gint", d);   // shot 用：知性層の ImageBitmap
-	if (d.action === "click")       console.log("[14条] 筆 fid=%s  lng=%s lat=%s", d.featureId, d.lng?.toFixed?.(6), d.lat?.toFixed?.(6));
+	if (d.action === "identify") {   // ホバー識別＝当たった feature の properties を指先 tip へ
+		// 外れ(featureId=null)は直前の tip を保持＝疎な点レイヤで点の合間に毎回消えるチラつきを防ぐ（map から出れば tip.js が消す）。
+		if (!gintHoverTip || d.featureId == null || !userGint?.pbf) return;
+		const p = userGint.pbf.getFeature(d.featureId)?.properties;
+		gintHoverTip(p ? Object.entries(p).map(([k, v]) => `${k}: ${v}`) : null);   // 全属性をそのまま（融通なし）
+		return;
+	}
+	if (d.action === "click")       console.log("[gint] fid=%s  lng=%s lat=%s", d.featureId, d.lng?.toFixed?.(6), d.lat?.toFixed?.(6));
 	else if (d.action === "redraw") { needsDraw = true; gintWorker.postMessage({ type: "drawn" }); }   // context復帰等→地図を1枚描かせ従属で追随
 };
 canvas.addEventListener("pointerleave", () => gintWorker.postMessage({ type: "leave" }));
 // 14条地図（法務省 登記所備付地図）を球へ。デコード済み pbf を受けて球へ配線する共通処理。
 // 「座標値種別=図上測量」は測量手法のタグに過ぎず絶対位置の信頼性とは無相関と判明済み（系変換さえ合っていれば図上測量でも正確）
 // →現状はバッジ判定に使わない。任意座標系の混入検知は変換パイプライン側（外れ値bbox比較）でやるべき課題として残す。
-function applyGintData(pbf, label) {
-	if (!pbf?.unPackGint) { console.error("[14条] gint デコード失敗 (%s)", label, pbf); return null; }
-	coastArmed = false;       // gint 単一スロットにユーザーデータが載った＝以後の海岸線自動ロードは放棄（clobber防止）
-	gintDrawOpts = null;      // 14条筆は既定スタイルへ（海岸線グレーを引きずらない）
-	gintInteractive = true;   // 筆はホバー/クリックで突合
-	sendGintStyle();          // worker にスタイル(null=既定)を保持させる
-	const g = pbf.unPackGint;
-	gintWorker.postMessage({ type: "set", cmd: "gint", data: g });
-	// 視野をデータへ寄せる＝筆を確実に画面へ（初期は東京駅、moj のデータは離れた区にある）。onMove で基図＋gint 両方が追従。
-	if (g.bbox && g.bbox.length === 4) cam.center = [(g.bbox[0] + g.bbox[2]) / 2, (g.bbox[1] + g.bbox[3]) / 2];
+function applyGintData(pbf, label, moveCamera = true) {
+	if (!pbf?.unPackGint) { console.error("[gint] デコード失敗 (%s)", label, pbf); return null; }
+	userGint = { g: pbf.unPackGint, label, pbf };   // gint 単一スロットのユーザー層（14条筆/ドロップGISファイル）＝世界海岸線と z=4 で相互切替。pbf 保持＝ホバーで getFeature(id).properties を引く
+	// moj 等はデータへジャンプ（初期は東京駅、moj のデータは離れた区にある）。ドロップは呼び出し側が flyTo で寄る＝moveCamera=false。
+	if (moveCamera) { const b = pbf.unPackGint.bbox; if (b && b.length === 4) cam.center = [(b[0] + b[2]) / 2, (b[1] + b[3]) / 2]; }
+	gintSlot = null;           // 内容が変わった＝再適用を強制
+	updateGintSlot();          // z≥4 ならユーザー層を表示（z<4 は世界海岸線のまま＝世界図の文脈）
 	onMove();
-	console.log("[14条] %s ロード完了 → 中心 %o へ移動。筆をホバー/クリック", label, cam.center);
+	console.log("[gint] %s ロード完了。z≥%d で表示・z<%d は世界海岸線", label, GINT_SWAP_Z, GINT_SWAP_Z);
 	return pbf;
 }
 
@@ -727,7 +732,42 @@ window.__arakawaFit = async () => {
 // VW ランクは GintBUF に焼込済＝10m を間引かず全密度で描く（弦が短く球面に吸い付く＝110m の崩壊が起きない）。
 // 世界海岸線（Natural Earth 10m）を起動時に自動ロード＝__coast() を叩かず「最初から描画」。
 // カメラは動かさない＝ズームアウト（z≤7）した瞬間に海岸線が居る。14条筆と gint 単一スロット共有（相互置換）。
+// gint 単一スロットの調停：ユーザー層（14条筆/ドロップGISファイル）と世界海岸線を z=GINT_SWAP_Z で相互切替。
+// z≥4＝ユーザー層（無ければ海岸線）／z<4＝海岸線（世界図の文脈）。両データはメモリに保持し境界跨ぎで差し替え。
+// スロットは単一（worker側）＝同時表示不可なので「今どちらが載っているか(gintSlot)」を持ち、変更時だけ post。
+const GINT_SWAP_Z = 4;
+let coastGint = null;      // 海岸線の gint ペイロード（初回ロードでキャッシュ＝再取得しない）
+let userGint = null;       // ユーザー層 { g, label }（14条/ドロップ）
+let gintSlot = null;       // 現在スロットの占有者 "coast" | "user"（null=未確定＝次の update で必ず post）
+let coastLoading = false;
+function applyCoastSlot() {
+	if (!coastGint) return;
+	gintWorker.postMessage({ type: "set", cmd: "gint", data: coastGint });
+	// 海岸線＝lineStream＝styleId=1。紙＋淡青の色調に「薄い青灰グレー・細く」。
+	const coastStyle = new Float32Array(256 * 4);
+	coastStyle.set([1.0, 0.42, 0.208, 1.0]);   // style0 polygon（未使用）
+	coastStyle.set(theme.coastLine, 4);        // style1 = 海岸線（テーマ台帳のノブ）
+	gintDrawOpts = { styleTable: coastStyle, lineWidth: 0.75 };
+	gintInteractive = false;   // 海岸線は装飾＝ホバー/クリック識別なし
+	if (gintHoverTip) gintHoverTip(null);   // ユーザー層→海岸線＝残ったホバー tip を消す
+	sendGintStyle(); gintSlot = "coast"; needsDraw = true;
+}
+function applyUserSlot() {
+	if (!userGint) return;
+	gintWorker.postMessage({ type: "set", cmd: "gint", data: userGint.g });
+	gintDrawOpts = null;       // 既定スタイル（海岸線グレーを引きずらない）
+	gintInteractive = true;    // 筆/図形はホバー/クリックで突合
+	sendGintStyle(); gintSlot = "user"; needsDraw = true;
+}
+// ズームでスロットの中身を選ぶ。onMove から毎回呼ばれるが post は変更時だけ＝安い。海岸線は初回のみ遅延取得。
+function updateGintSlot() {
+	if (userGint && cam.zoom >= GINT_SWAP_Z) { if (gintSlot !== "user") applyUserSlot(); return; }
+	if (coastGint) { if (gintSlot !== "coast") applyCoastSlot(); return; }
+	if (cam.zoom < 8 && !coastLoading) loadWorldCoast();   // 海岸線 未取得＝取得後に updateGintSlot が表示
+}
+// 世界海岸線（Natural Earth 10m）を取得しキャッシュ（表示可否は updateGintSlot が決める）。
 async function loadWorldCoast() {
+	if (coastLoading || coastGint) return; coastLoading = true;
 	console.log("[coast] Natural Earth 10m coastline を読込中（bucket GeoPBF→GintBUF）…");
 	let pbf = await geopbf("ne_10m_coastline").catch(e => { console.warn("[coast] bucket load 失敗", e); return null; });
 	if (!pbf?.unPackGint) {
@@ -735,28 +775,20 @@ async function loadWorldCoast() {
 		pbf = await geopbf("https://naturalearth.s3.amazonaws.com/10m_physical/ne_10m_coastline.zip", { name: "ne_10m_coastline" }).catch(e => { console.error("[coast] geopbf", e); return null; });
 	}
 	const g = pbf?.unPackGint;
+	coastLoading = false;
 	if (!g) { console.error("[coast] GintBUF デコード失敗", pbf); return; }
-	gintWorker.postMessage({ type: "set", cmd: "gint", data: {
+	coastGint = {   // maxZoom:8＝z≤8 で点火＝低ズームの世界図専用（worker が範囲外をカリング）
 		arcBuffer: g.arcBuffer, arcMeta: g.arcMeta,
 		polyStream: g.polyStream, lineStream: g.lineStream,
 		pointBuffer: g.pointBuffer, point: g.point, polyCompBbox: g.polyCompBbox,
 		maxZoom: 8,
-	} });
-	// 海岸線＝lineStream＝styleId=1。紙＋淡青の色調に合わせ「薄い青灰グレー・細く」。
-	const coastStyle = new Float32Array(256 * 4);
-	coastStyle.set([1.0, 0.42, 0.208, 1.0]);          // style0 polygon（未使用）
-	coastStyle.set(theme.coastLine, 4);   // style1 = 海岸線（テーマ台帳のノブ。alpha=1.0 のまま色だけ紙寄せ＝重なりムラなし）
-	gintDrawOpts = { styleTable: coastStyle, lineWidth: 0.75 };
-	gintInteractive = false;   // 海岸線は装飾＝ホバー/クリック識別なし
-	sendGintStyle();   // worker にスタイルを保持させる（従属描画で使う）
-	needsDraw = true;  // 地図を1枚描かせ→render worker が gint へ従属信号→海岸線が出る
-	console.log("[coast] ロード完了。z≤7 で自動描画");
+	};
+	updateGintSlot();   // z<4（またはユーザー層なし）なら海岸線を表示
+	console.log("[coast] ロード完了。z<%d で自動表示（ユーザー層が無い/低ズーム時）", GINT_SWAP_Z);
 }
 window.__coast = loadWorldCoast;   // 手動リロード用
-// 遅延ロードの門番：初めて z<8（海岸線の見えるズーム）に出た瞬間に一度だけ読む＝z14固定の埋め込みは一生読まない
-//（PLATEAUスイッチと同じ思想＝見えない機能のための通信をしない。既定の世界ビュー起動は直下の ensureCoast が即発火＝体験は不変）。
-let coastArmed = true;
-function ensureCoast() { if (coastArmed && cam.zoom < 8) { coastArmed = false; loadWorldCoast(); } }
+// 遅延ロードの門番は updateGintSlot（z<8 で海岸線 未取得なら一度だけ取得）＝z14固定の埋め込みは一生読まない
+//（PLATEAUスイッチと同じ思想＝見えない機能のための通信をしない。既定の世界ビュー起動時に updateGintSlot が即発火＝体験は不変）。
 
 // --- 星空劇場（z<4・v1 ortho-map の星空アクセサリー移植）---
 // stars.6（実在星表：RA/Dec・等級・B-V色指数）を天球単位ベクトル＋色＋点径に焼いて render worker へ。
@@ -1407,7 +1439,7 @@ function destroy() {
 }
 
 // 世界海岸線：初期視点が z<8 ならここで即発火（既定の世界ビュー＝従来どおり最初から描画）。await せず＝基図の起動を妨げない。
-ensureCoast();
+updateGintSlot();
 ensureStars();   // 初期視点が z<4（復元/共有URL）なら星空も最初から
 
 // 呼び出し側の手綱（視点操作・飛行・描画設定）＋ガジェット登録簿（v1 ortho-map createGadgets の作法の継承）。
@@ -1538,26 +1570,29 @@ map.gadget("close", function (opts) {   // 閉じる×（埋め込み用）… o
 	return closeGadget.call(this, { signal: ac.signal, ...opts });
 });
 map.gadget("dropFile", function (opts) {   // GISファイルのD&D取り込み … geopbf(File,{gint:true})→applyGintData を loadFile として束ね注入（gint単一スロット＝置き換え）
+	gintHoverTip = this.gadget.tip();   // カーソル追従 tip を搭載＝ホバーで当たった feature の properties を指先へ（gint 識別結果を onmessage が流す）
 	const loadFile = async file => {
 		const pbf = await geopbf(file, { gint: true, name: `drop/${file.name}` }).catch(err => { console.error("[dropFile] geopbf", file.name, err); return null; });
 		if (!pbf?.unPackGint) return null;
-		// 描画前にカメラを図形へ合わせる＝真俯瞰(tilt/bearing=0)へ倒し bbox へ fit。傾き由来の座標の甘さ・
-		// 別canvas(gint)の追随ちらつきを断ち、最初の1枚から図形が画面へ収まった状態で出す。
+		// 低ズーム描画が速くなった＝先に現在ビューへ図形を描き（カメラは動かさない）、その後 flyTo で寄る。
+		// 瞬間ジャンプ(ポップイン)でなく「図形が現れて→近づく」。着地は真俯瞰(tilt/bearing=0)・北向き＝fit の north-up 前提。
+		applyGintData(pbf, file.name, false);   // 先に描画（gint canvas へ set・識別点火・カメラ据え置き）
 		const bb = pbf.unPackGint.bbox;
 		if (bb && bb.length === 4) {
-			cam.pitch = 0; cam.bearing = 0;                              // 真俯瞰・北向き（fit は north-up 前提＝隅の切れを防ぐ）
-			cam.center = [(bb[0] + bb[2]) / 2, (bb[1] + bb[3]) / 2];
+			const cx = (bb[0] + bb[2]) / 2, cy = (bb[1] + bb[3]) / 2;
 			const wDeg = Math.max(1e-6, (bb[2] - bb[0]) * 1.3), hDeg = Math.max(1e-6, (bb[3] - bb[1]) * 1.3);   // 30%余白（縁ぴったりを避ける）
 			// 視野幅[deg]=360*size.w/(512*2^z)（flight の van Wijk 尺と同一）を逆解き＝横/縦の狭い側に合わせる。
 			const z = Math.min(Math.log2(360 * size.w / (512 * wDeg)), Math.log2(360 * size.h / (512 * hDeg)));
-			cam.zoom = Math.max(2, Math.min(16, z));
+			flyTo(cx, cy, Math.max(2, Math.min(16, z)), 0);   // 描画後に寄る＝fit へ球面フライト（tilt/bearing=0）
 		}
-		return applyGintData(pbf, file.name);   // gint canvas への set・識別点火（center/onMove もここで。pitch/zoom は上で確定済みなので不変）
+		return pbf;   // gadget が pbf.length（地物数）をトーストに使う
 	};
-	const clearGint = () => {   // gint 単一スロットを空に＝ドロップ図形を消す（worker が残像も1枚消す）
-		gintWorker.postMessage({ type: "set", cmd: "gint" });   // data 無し＝空化コマンド
-		gintInteractive = false;                                // ホバー/クリック識別を止める
-		needsDraw = true;
+	const clearGint = () => {   // ドロップ図形を消す＝ユーザー層を外し、該当ズームなら世界海岸線へ戻す
+		userGint = null; gintSlot = null;
+		gintWorker.postMessage({ type: "set", cmd: "gint" });   // data 無し＝空化（worker が残像も1枚消去）
+		gintInteractive = false; needsDraw = true;
+		if (gintHoverTip) gintHoverTip(null);   // 消去＝ホバー tip も消す
+		updateGintSlot();                                       // z<4 等で海岸線が該当すれば即戻す
 	};
 	return dropFileGadget.call(this, { loadFile, clearGint, signal: ac.signal, ...opts });
 });

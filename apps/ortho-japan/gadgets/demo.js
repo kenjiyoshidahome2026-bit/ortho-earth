@@ -58,7 +58,7 @@ const RESUME_KEY = "oj.demo.resume";   // 幕替わり（reload）を跨ぐ進�
 // opts.prefetchViews＝PLATEAU先読み（app が注入・任意）：▶の瞬間に台本の全 view を渡す＝寄るシーンの区が裏でIDBへ。
 //   序盤のシーン構成で時間を稼げば、PLATEAUシーン到着時には初見のPCでも一発で街が立つ（データ重力の種まき兼用）。
 // 戻り値＝{start, next, prev, exit, play, pause}（テスト・プログラム駆動用）。
-export function demo({ scenes, slide: slideOn = true, hold = 7000, slideHold = 4000, mobile, flyView, flightActive, prefetchViews, theme, signal } = {}) {
+export function demo({ scenes, slide: slideOn = true, hold = 5500, slideHold = 4000, mobile, flyView, flightActive, prefetchViews, theme, signal } = {}) {
 	const mapEl = this.mapEl;
 	if (!slideOn && Array.isArray(scenes)) scenes = scenes.filter(s => s.view || !s.slide);   // スライドだけのシーン＝空の停留所になるので抜く
 	if (!Array.isArray(scenes) || !scenes.length) { console.warn("[demo] scenes が空＝ガジェットは搭載しない"); return; }

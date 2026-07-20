@@ -36,7 +36,16 @@ function snapshot(data) {
 // main が持つ描画スタイル(styleTable/lineWidth 等=gintDrawOpts)を保持。従属描画(onSync)で使う。
 function style(data) { s.drawStyle = data.data ?? null; }
 // render worker から「この cam で描け」の合図＝地図フレームに従属（地図と同じ cam を同じフレームで出す＝スライド消滅）。
-function onSync(d) { if (d && d.cam) drawNow({ cam: d.cam, panning: true, ...(s.drawStyle || {}) }); }
+function onSync(d) {
+	if (!d || !d.cam) return;
+	// カメラが実際に動いた時だけ panning（＝ホバー識別を止める＝移動中の pick buffer は古い）。
+	// fog追従・ラベル/タイル/PLATEAUロード等でカメラ静止中も同期が来続ける＝それを panning 扱いすると
+	// 識別が settle まで永久に止まる（＝ホバーで内容が変わらない）。静止中の再描画は panning:false＝識別を通す。
+	const c = d.cam, l = s._lastSyncCam;
+	const moved = !l || l.center[0] !== c.center[0] || l.center[1] !== c.center[1] || l.zoom !== c.zoom || l.pitch !== c.pitch || l.bearing !== c.bearing;
+	s._lastSyncCam = { center: [c.center[0], c.center[1]], zoom: c.zoom, pitch: c.pitch, bearing: c.bearing };
+	drawNow({ cam: c, panning: moved, ...(s.drawStyle || {}) });
+}
 
 function init(data) {
 	s.canvas = data.offscreen;
