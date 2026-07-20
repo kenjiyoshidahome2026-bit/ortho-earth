@@ -667,11 +667,10 @@ let gintHoverTip = null;   // ドロップ/14条データのホバー tip 内容
 gintWorker.onmessage = e => {
 	const d = e.data;
 	if (d.action === "snapshot")    return snapPart(d.id, "gint", d);   // shot 用：知性層の ImageBitmap
-	if (d.action === "identify") {   // ホバー識別＝当たった feature の properties を指先 tip へ
-		// 外れ(featureId=null)は直前の tip を保持＝疎な点レイヤで点の合間に毎回消えるチラつきを防ぐ（map から出れば tip.js が消す）。
-		if (!gintHoverTip || d.featureId == null || !userGint?.pbf) return;
-		const p = userGint.pbf.getFeature(d.featureId)?.properties;
-		gintHoverTip(p ? Object.entries(p).map(([k, v]) => `${k}: ${v}`) : null);   // 全属性をそのまま（融通なし）
+	if (d.action === "identify") {   // ホバー識別＝当たった feature の全 properties を指先 tip へ。外れ(featureId=null)は消す。
+		if (!gintHoverTip) return;
+		const p = (d.featureId != null && userGint?.pbf) ? userGint.pbf.getFeature(d.featureId)?.properties : null;
+		gintHoverTip(p ? Object.entries(p).map(([k, v]) => `${k}: ${v}`) : null);   // 全属性そのまま（融通なし）／null で tip を消す
 		return;
 	}
 	if (d.action === "click")       console.log("[gint] fid=%s  lng=%s lat=%s", d.featureId, d.lng?.toFixed?.(6), d.lat?.toFixed?.(6));
