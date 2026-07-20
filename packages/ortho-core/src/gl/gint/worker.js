@@ -13,7 +13,8 @@ import { uploadGintTextures, deleteTextures } from './textures.js';
 import { createFBOs, deleteFBOs } from './fbo.js';
 import { renderCleanScene, drawOverlay, renderPickingBuffer } from './passes.js';
 import { doIdentify, handleMove, handleLeave } from './identify.js';
-import { cameraState, unproject } from '../../camera.js';
+import { cameraState, unproject, lonlatTo3D } from '../../camera.js';
+import * as mat from '../../mat.js';
 
 const funcs = { init, set, resize, drawing, drawn, move, leave, click, destroy, style, snapshot };
 onmessage = e => (funcs[e.data.type] ?? (() => {}))(e.data);
@@ -85,6 +86,13 @@ function set(data) {
 			precision: data.data.precision ?? 6,
 		}));
 		s.activeId = -1; s.lastDrawData = null;
+	} else if (data.cmd === "gint") {   // data 無し＝gint スロットを空に（ドロップ図形のクリア）。
+		// totalEdges===0 の drawNow はキャンバスを消さず早期 return する＝残像が残るので、ここで明示的に1枚消す。
+		deleteTextures();
+		s.gintData = null; s.polyEdgeByFid = null; s.polyBboxByFid = null; s.outlineZoom = null;
+		s.totalEdges = s.totalPoints = 0;
+		s.activeId = -1; s.lastDrawData = null;
+		if (s.gl) { s.gl.bindFramebuffer(s.gl.FRAMEBUFFER, null); s.gl.clearColor(0, 0, 0, 0); s.gl.stencilMask(0xFF); s.gl.clear(s.gl.COLOR_BUFFER_BIT); }
 	}
 	postMessage({ action: "done", type: "set" });
 }
@@ -143,10 +151,16 @@ function drawNow(data) {
 	const st = cameraState(data.cam, s.width, s.height);
 	s.cam = st;                                    // identify の unproject 用（site 4）
 	const origin = data.cam.center;                // 視野中心＝Morton 中心（origin が視野を追う＝精度）
+	// MVP相殺回避の錨＝原点3D の clip 位置と zr を float64(CPU)で先に確定（Float32 化前の st.mvp で）。
+	// シェーダは頂点3D−原点3D（小・正確）だけを u_mvp で回し、この錨へ足す＝高ズームの桁落ちを断つ。
+	const T = lonlatTo3D(origin[0], origin[1]);
+	const clipT = mat.transform(st.mvp, [T[0], T[1], T[2], 1]);
+	const originZr = mat.dot(T, st.eye) - 1;
 	const drawData = {
 		mvp:        st.mvp instanceof Float32Array ? st.mvp : Float32Array.from(st.mvp),
 		eye:        st.eye,
-		origin,
+		origin, clipT, originZr,
+		zoom:       data.cam.zoom,                      // 低ズームのベタ塗り判定用（renderCleanScene が s.outlineZoom と比較）
 		lineWidth:  (data.lineWidth ?? 1.0) * s.dpr,   // device px 一本化（shader は u_dpr=1 前提）
 		fillColor:  data.fillColor,
 		styleTable: data.styleTable,

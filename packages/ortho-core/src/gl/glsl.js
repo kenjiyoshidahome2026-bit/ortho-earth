@@ -24,6 +24,26 @@ vec3 lonlatTo3D(vec2 ll) {
 	float a = ll.x * D2R, b = ll.y * D2R, cb = cos(b);
 	return vec3(cb * cos(a), sin(b), cb * sin(a));
 }
+// ── 原点相対 RTE（MVP相殺回避）─────────────────────────────────────────────
+// 絶対点×MVP は高ズームで ≈1 同士の相殺→数px格子化（コード既知の z18+ 問題）。対策＝原点3D の clip 位置を
+// CPU(double)で先に固定（u_clipT）し、シェーダは「頂点3D−原点3D」の小ベクトルだけを u_mvp で回して足す。
+uniform vec4 u_clipT;      // mvp*[u_originPt,1]（CPU double）＝clip空間の原点（相殺回避の錨）
+uniform vec3 u_originPt;   // lonlatTo3D(u_origin)（CPU double）＝標高項 h*dir と絶対復元の錨
+uniform vec4 u_originTrig; // (cosLon,sinLon,cosLat,sinLat) of u_origin（CPU double）
+// 頂点3D−u_originPt を桁落ちなしで直接作る（cos(θ)-1=-2sin²(θ/2) で全項に小因子）。dDeg=原点相対(dlon,dlat)deg。
+vec3 deltaToRel(vec2 dDeg) {
+	float da = dDeg.x * D2R, db = dDeg.y * D2R;
+	float sda = sin(da), sdb = sin(db);
+	float sha = sin(da * 0.5), shb = sin(db * 0.5);
+	float cdaM1 = -2.0 * sha * sha, cdbM1 = -2.0 * shb * shb;
+	float cda = 1.0 + cdaM1, cdb = 1.0 + cdbM1;
+	float ccM1 = cdaM1 + cdbM1 + cdaM1 * cdbM1;
+	float cLon = u_originTrig.x, sLon = u_originTrig.y, cLat = u_originTrig.z, sLat = u_originTrig.w;
+	float rx = cLat * cLon * ccM1 - cLat * sLon * cdb * sda - sLat * cLon * sdb * cda + sLat * sLon * sdb * sda;
+	float ry = sLat * cdbM1 + cLat * sdb;
+	float rz = cLat * sLon * ccM1 + cLat * cLon * cdb * sda - sLat * sLon * sdb * cda - sLat * cLon * sdb * sda;
+	return vec3(rx, ry, rz);
+}
 // 標高テクスチャ（GEBCO/ALOS, R32F meters）。範囲内なら高さ(m)、外は0。
 uniform sampler2D u_elevTex;
 uniform vec4 u_elevBounds;   // originLng, originLat, spanLng, spanLat（アトラス被覆）
@@ -60,15 +80,19 @@ out float v_front;
 out float v_fog;
 out vec2  v_ll;      // 絶対 lon/lat(deg)＝PLATEAU bbox 内を伏せる判定用
 void main() {
-	vec2 ll = u_origin + a_pos.xy;
+	vec2 dLL = a_pos.xy;                       // 原点相対 (deg)。multidraw は mdize が u_tileOff を足す
+	vec2 dAnchor = a_anchor;                   // 基準点の原点相対 (deg)
+	vec2 ll = u_origin + dLL;
 	v_ll = ll;
-	vec3 dir = lonlatTo3D(ll);
-	float base = elev(u_origin + a_anchor) * u_elevScale;     // 基準点の標高で足元を揃える（屋根水平・壁垂直）
-	vec3 w = dir * (1.0 + base + a_pos.z);                     // 地形の上に建物高さを積む
+	vec3 rel = deltaToRel(dLL);               // 頂点3D − 原点3D（小・正確）
+	vec3 dir = u_originPt + rel;              // 絶対単位球点（front/fog 用＝粗くて可）
+	float base = elev(u_origin + dAnchor) * u_elevScale;     // 基準点の標高で足元を揃える（屋根水平・壁垂直）
+	float h = base + a_pos.z;                  // 地形標高 + 建物高さ
+	vec3 relW = rel + h * dir;                 // (dir*(1+h)) − 原点3D を相殺なしで（地形の上に建物を積む）
 	v_shade = a_shade;
 	v_front = dot(dir, u_eye) - 1.0;
-	v_fog = fogOf(w);
-	gl_Position = u_mvp * vec4(w, 1.0);
+	v_fog = fogOf(u_originPt + relW);
+	gl_Position = u_clipT + u_mvp * vec4(relW, 0.0);
 	applyLogDepth();
 }`;
 
@@ -115,6 +139,7 @@ precision highp float;
 in vec3 a_pos;      // 重心(u_meshOrigin)相対の delta（RTE-lite：小さい値＝float32 仮数がフルに効く＝建物ディテールを高精度に）
 in vec3 a_normal;   // glTF 実法線を ortho へ変換済
 uniform vec3 u_meshOrigin;   // メッシュ重心＝単位球の錨。絶対位置 = u_meshOrigin + a_pos
+uniform vec4 u_clipMesh;     // mvp*[u_meshOrigin,1]（CPU double）＝MVP相殺回避の錨（旧: シェーダ内 float32 で算出＝錨が相殺）
 ${PROJECT}
 out vec3  v_n;      // 実法線
 out vec3  v_toEye;  // 視線ベクトル（巻き順に依存せず法線を表向きへ）
@@ -131,8 +156,9 @@ void main() {
 	// elev() で持ち上げると同一建物内の頂点が異なる量だけ動き屋根が引き裂かれる（実機で形状崩壊を確認済み）。
 	// 地形サーフェスとの深度衝突は「地形は深度を書かない背景」(renderer側depthMask(false))で解いており、
 	// メッシュは焼き込み済みの単位球接地(r=1)のまま描く（基図と同じ街の相対配置は保たれる）。
-	// RTE：原点と delta を別々に射影して加算。原点=画面上の錨(粗)、delta=小さく float32 精度フル → z-fight/淵マダラ/座標ちらつきを断つ
-	gl_Position = u_mvp * vec4(u_meshOrigin, 1.0) + u_mvp * vec4(a_pos, 0.0);
+	// RTE：原点の clip 位置は CPU(double) 錨 u_clipMesh（旧 u_mvp*vec4(u_meshOrigin,1) はシェーダ float32＝
+	// ≈1 同士の相殺で錨自体が高ズームに揺らいだ）。delta は小さく float32 精度フルのまま u_mvp で回す。
+	gl_Position = u_clipMesh + u_mvp * vec4(a_pos, 0.0);
 	applyLogDepth();
 }`;
 
@@ -173,7 +199,9 @@ out float v_front;
 out float v_fog;
 out float v_h;
 void main() {
-	vec3 dir = lonlatTo3D(a_ll);
+	vec2 dDeg = a_ll - u_origin;              // 原点相対 (deg)。renderer は terrain に scenes.main.origin を渡す
+	vec3 rel = deltaToRel(dDeg);              // 頂点3D − 原点3D（小・正確）
+	vec3 dir = u_originPt + rel;              // 絶対単位球点（df/front/fog は粗くて可）
 	// 遠景は変位を距離フェードで平ら化＝grazing(すれすれ角)で粗いメッシュ格子が縦壁に見えるのを消す。
 	// 開始はフォグがほぼ霞み切る距離から＝可視域の山（中央・北アルプス等）は立体のまま、
 	// シルエットが霞に溶けた先だけ平ら化（fogNear基準だと100km先の山脈が丸ごと潰れて見えなくなる）。
@@ -181,10 +209,10 @@ void main() {
 	float h = elev(a_ll) * df;
 	v_h = h;
 	v_ll = a_ll;
-	vec3 w = dir * (1.0 + h * u_elevScale);
+	vec3 relW = rel + (h * u_elevScale) * dir;   // (dir*(1+h*scale)) − 原点3D を相殺なしで
 	v_front = dot(dir, u_eye) - 1.0;
-	v_fog = fogOf(w);
-	gl_Position = u_mvp * vec4(w, 1.0);
+	v_fog = fogOf(u_originPt + relW);
+	gl_Position = u_clipT + u_mvp * vec4(relW, 0.0);
 	applyLogDepth();
 }`;
 
@@ -245,8 +273,7 @@ precision highp float;
 in vec2 a_delta;
 ${PROJECT}
 void main() {
-	vec2 ll = u_origin + a_delta;
-	gl_Position = u_mvp * vec4(lonlatTo3D(ll), 1.0);   // 球面(半径1)へ。塗りは巻き数で決まるので fan の形は問わない
+	gl_Position = u_clipT + u_mvp * vec4(deltaToRel(a_delta), 0.0);   // RTE：mvp*[dir,1] を相殺なしで。塗りは巻き数で決まるので fan の形は問わない
 }`;
 export const STENCIL_FS = `#version 300 es
 precision highp float;
@@ -430,16 +457,19 @@ out vec4 v_color;
 out float v_front;
 out float v_fog;
 void main() {
-	vec2 ll = u_origin + a_delta;
-	vec3 dir = lonlatTo3D(ll);
+	vec2 dLL = a_delta;                       // 原点相対 (deg)。multidraw は mdize が u_tileOff を足す
+	vec2 ll = u_origin + dLL;                  // elev 参照用の絶対（粗くて可）
+	vec3 rel = deltaToRel(dLL);               // 頂点3D − 原点3D（小・正確）
+	vec3 dir = u_originPt + rel;              // 絶対単位球点（front/fog/df 用＝粗くて可）
 	// 標高変位は地形と同じ距離フェード（TERRAIN_VS の df と同式）＝遠景で地形が平ら化された時に
 	// 塗りだけ山の高さに浮くのを防ぐ（浮くと地平線の上に塗りの切れ端が漂う）
 	float df = 1.0 - smoothstep(u_fogFar * 0.8, u_fogFar * 2.0, distance(u_eye, dir));
-	vec3 w = dir * (1.0 + elev(ll) * u_elevScale * df);   // 標高変位（地形に貼りつく）
+	float h = elev(ll) * u_elevScale * df;
+	vec3 relW = rel + h * dir;                // (dir*(1+h)) − 原点3D を相殺なしで（標高で地形に貼りつく）
 	v_color = a_color;
-	v_front = dot(dir, u_eye) - 1.0;          // >0 で手前半球
-	v_fog = fogOf(w);
-	gl_Position = u_mvp * vec4(w, 1.0);
+	v_front = dot(dir, u_eye) - 1.0;          // >0 で手前半球（cull＝粗くて可）
+	v_fog = fogOf(u_originPt + relW);
+	gl_Position = u_clipT + u_mvp * vec4(relW, 0.0);   // RTE：mvp*[w,1] を相殺なしで
 	applyLogDepth();   // 山岳ビュー(z<13)は深度テストON＝地形(対数深度)が尾根の向こうを遮蔽。テストOFF時は無害
 }`;
 
@@ -472,16 +502,19 @@ out vec4 v_color;
 out float v_front;
 out float v_fog;`;
 const LINE_MAIN = /* glsl */`
-	vec2 la1 = o + p1, la2 = o + p2;
-	vec3 da = lonlatTo3D(la1), db = lonlatTo3D(la2);
+	vec2 la1 = o + p1, la2 = o + p2;   // elev 参照用の絶対（粗くて可）。o=u_origin ゆえ p1/p2 が原点相対 delta
+	vec3 rela = deltaToRel(p1), relb = deltaToRel(p2);   // 頂点3D − 原点3D（小・正確）
+	vec3 da = u_originPt + rela, db = u_originPt + relb; // 絶対単位球点（front/fog/df 用＝粗くて可）
 	// 線は傾き時に深度テストを切って地形の上に描く（renderer側）ので、持ち上げ不要＝浮きゼロ。
 	float lift = 0.0;
 	// 標高変位は地形と同じ距離フェード（TERRAIN_VS の df と同式）＝遠景の平ら化に追随。
 	// これが無いと平ら化された山脈の上に線だけがフル標高で浮き、「地平線に漂う点線の鎖」になる
 	float dfa = 1.0 - smoothstep(u_fogFar * 0.8, u_fogFar * 2.0, distance(u_eye, da));
 	float dfb = 1.0 - smoothstep(u_fogFar * 0.8, u_fogFar * 2.0, distance(u_eye, db));
-	vec3 wa = da * (1.0 + elev(la1) * u_elevScale * dfa + lift), wb = db * (1.0 + elev(la2) * u_elevScale * dfb + lift);
-	vec4 ca = u_mvp * vec4(wa, 1.0), cb = u_mvp * vec4(wb, 1.0);
+	float ha = elev(la1) * u_elevScale * dfa + lift, hb = elev(la2) * u_elevScale * dfb + lift;
+	vec3 relWa = rela + ha * da, relWb = relb + hb * db;         // (dir*(1+h)) − 原点3D を相殺なしで
+	vec3 wa = u_originPt + relWa, wb = u_originPt + relWb;       // 絶対（fog 用＝粗くて可）
+	vec4 ca = u_clipT + u_mvp * vec4(relWa, 0.0), cb = u_clipT + u_mvp * vec4(relWb, 0.0);   // RTE：mvp*[w,1] を相殺なしで
 	float fa = dot(da, u_eye) - 1.0, fb = dot(db, u_eye) - 1.0;
 	if (ca.w <= 0.0 || cb.w <= 0.0) { v_front = -1.0; gl_Position = vec4(2.0, 2.0, 2.0, 1.0); return; }  // カメラ背後
 	vec2 sa = toScreen(ca), sb = toScreen(cb);
@@ -536,12 +569,12 @@ function mdize(src, subs) {
 // 大きい u_origin は最後に1回だけ＝大きい桁での丸めが classic と同じ1回で済む（外側から足すと z18+ で数px级の格子化が出る）。
 export const FILL_MD_VS = mdize(FILL_VS, [
 	["in vec4 a_color;", `in vec4 a_color;\nuniform vec2 u_tileOff[${MD_MAX_DRAWS}];`],
-	["vec2 ll = u_origin + a_delta;", "vec2 ll = u_origin + (u_tileOff[gl_DrawID] + a_delta);"],
+	["vec2 dLL = a_delta;", "vec2 dLL = u_tileOff[gl_DrawID] + a_delta;"],   // タイル原点差（小）を先に足す＝原点相対 delta を確定
 ]);
 export const BUILDING_MD_VS = mdize(BUILDING_VS, [
 	["in vec2 a_anchor;", `in vec2 a_anchor;\nuniform vec2 u_tileOff[${MD_MAX_DRAWS}];`],
-	["vec2 ll = u_origin + a_pos.xy;", "vec2 ll = u_origin + (u_tileOff[gl_DrawID] + a_pos.xy);"],
-	["elev(u_origin + a_anchor)", "elev(u_origin + (u_tileOff[gl_DrawID] + a_anchor))"],
+	["vec2 dLL = a_pos.xy;", "vec2 dLL = u_tileOff[gl_DrawID] + a_pos.xy;"],       // タイル原点差（小）を先に足す
+	["vec2 dAnchor = a_anchor;", "vec2 dAnchor = u_tileOff[gl_DrawID] + a_anchor;"],
 ]);
 // 線は属性を持たない multiDrawArrays（6頂点/線分）：WEBGL_multi_draw に baseInstance が無く、
 // インスタンス属性の常駐プール化ができないため、線分データはテクスチャで持ち gl_VertexID から引く。

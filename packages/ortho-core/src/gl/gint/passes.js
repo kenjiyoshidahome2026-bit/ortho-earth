@@ -7,6 +7,9 @@
 import { s, DEF_STYLE, DEF_DASH, DEF_FILL, DEF_MASK } from './state.js';
 import { bindSharedUniforms } from './utility.js';
 
+// 低ズームでアウトライン→ベタ塗りへ切替えるズーム閾値の既定（データ粒度から導出した s.outlineZoom を優先）。
+const OUTLINE_ZOOM = 12;
+
 // site 2（点）：cam 由来の mvp/eye/origin を点プログラムへ。v1 の rotate/scale/rsincos/jac を建て替え。
 function bindPointUniforms(u, data) {
 	const { gl, ptTex, ptMetaTex, TEX_ARC_W, width, height } = s;
@@ -23,6 +26,11 @@ function bindPointUniforms(u, data) {
 	gl.uniform1f(u.u_pt_radius, data.ptRadius ?? 1.5);
 	gl.uniform1ui(u.u_ix_center, (Math.round((lon            + 180) * 1e7)) >>> 0);
 	gl.uniform1ui(u.u_iy_center, (Math.round((data.origin[1] +  90) * 1e7)) >>> 0);
+	// RTE の錨＝原点の三角比＋MVP相殺回避の錨（arc 側 bindSharedUniforms と同一）。
+	const lr = lon * Math.PI / 180, br = data.origin[1] * Math.PI / 180;
+	gl.uniform4f(u.u_origin_trig, Math.cos(lr), Math.sin(lr), Math.cos(br), Math.sin(br));
+	if (data.clipT) gl.uniform4f(u.u_clipT, data.clipT[0], data.clipT[1], data.clipT[2], data.clipT[3]);
+	gl.uniform1f(u.u_origin_zr, data.originZr ?? 0.0);
 }
 
 export function renderCleanScene(data, targetFBO = null) {
@@ -38,7 +46,14 @@ export function renderCleanScene(data, targetFBO = null) {
 	gl.bindVertexArray(emptyVAO);
 
 	// ── Stencil + Fill（stencil-then-cover）──
-	const fc = data.fillColor ?? DEF_FILL;
+	// 低ズームの既定は面＝ベタ塗り（ortho-map から移植）。style0 の色 × α0.8＝下のタイル(地形/注記)がうっすら
+	// 生きる。zoom < outlineZoom（データ粒度から導出＝筆z≈15/市区町村z≈6）かつポリゴンが在る時だけ。
+	// 明示 fillColor は全ズームで尊重（透明を渡せば従来のアウトラインのみ）。polyBboxByFid が空＝線/点のみ
+	// （海岸線等）＝塗らない（線を winding にファンさせる誤塗り防止）。
+	const st = data.styleTable ?? DEF_STYLE;
+	const lowZoom = (data.zoom ?? 99) < (s.outlineZoom ?? OUTLINE_ZOOM);
+	const hasPoly = (s.polyBboxByFid?.size ?? 0) > 0;
+	const fc = data.fillColor ?? (lowZoom && hasPoly ? [st[0], st[1], st[2], st[3] * 0.8] : DEF_FILL);
 	if (fc[3] > 0 && totalEdges > 0) {
 		gl.enable(gl.STENCIL_TEST);
 		gl.stencilMask(0xFF);
@@ -49,6 +64,7 @@ export function renderCleanScene(data, targetFBO = null) {
 		gl.stencilOpSeparate(gl.BACK,  gl.KEEP, gl.KEEP, gl.DECR_WRAP);
 		gl.useProgram(stencilProgram);
 		bindSharedUniforms(gl, uStencil, data, arcTex, metaTex, TEX_ARC_W, TEX_META_W, width, height);
+		gl.uniform1f(uStencil.u_lod_rank, 0);   // 塗りstencilは全密度＝LOD簡略化の自己交差による斑点(winding反転)を防ぐ
 		gl.drawArrays(gl.TRIANGLES, 0, totalEdges * 3);
 		gl.colorMask(true, true, true, true);
 		gl.stencilMask(0x00);

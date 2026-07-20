@@ -20,16 +20,39 @@ uniform int        u_arc_w;
 uniform int        u_meta_w;
 uniform mat4       u_mvp;        // japan の MVP（cameraState 由来）
 uniform vec3       u_eye;        // カメラ位置（単位球ワールド）＝手前/裏半球判定
-uniform vec2       u_origin;     // シーン原点 lon/lat (deg)＝Morton 中心
+uniform vec2       u_origin;     // シーン原点 lon/lat (deg)＝Morton 中心（現状 deltaTo3D 化で未使用・documentation）
+uniform vec4       u_origin_trig; // 原点の三角比 (cosLon,sinLon,cosLat,sinLat)＝CPUでdouble算出＝RTE角度加算の錨
 uniform vec2       u_viewport;   // canvas 幅高 (device px)
 uniform uint       u_ix_center;  // u_origin の Morton 整数（経度）
 uniform uint       u_iy_center;  // u_origin の Morton 整数（緯度）
 uniform float      u_lod_rank;   // GPU Dynamic LOD 閾値（VW rank 0-63）。辺の max(rankA,rankB) 未満は VS で discard
+uniform vec4       u_clipT;      // mvp*[原点3D,1]＝CPU(double)算出＝MVP相殺回避の錨（clip空間の原点）
+uniform float      u_origin_zr;  // dot(原点3D,eye)-1＝CPU(double)算出＝zr相殺回避の錨
 const float D2R = 0.017453292519943295;
 
 vec3 lonlatTo3D(vec2 ll) {
 	float a = ll.x * D2R, b = ll.y * D2R, cb = cos(b);
 	return vec3(cb * cos(a), sin(b), cb * sin(a));
+}
+
+// 原点相対 RTE：絶対経緯度を float32 で組み立てない（u_origin.x≈140 の加算は ulp≈1.8m の格子スナップ＝
+// 原点がカメラ追従で毎フレーム動く→頂点が格子間を飛ぶ＝パンで這う揺らぎ）。原点の三角比（u_origin_trig＝
+// CPUでdouble算出）へ、小さいΔ角(dlon/dlat)を角度加算で合成＝厳密・全球で有効（線形化＝接平面近似ではない）。
+// 頂点3D − 原点3D を「桁落ちなし」で直接作る（絶対 dir を組んで引くと ≈1 同士の相殺で高ズームに揺らぎ）。
+// cos(θ)-1 は -2sin²(θ/2) の恒等式で作り、全項に小因子を残す＝dlon/dlat→0 で rel=0 が厳密。
+// 原点三角比 u_origin_trig=(cosLon0,sinLon0,cosLat0,sinLat0)。原点3D=(cLat cLon, sLat, cLat sLon)。
+vec3 deltaToRel(float dlon_deg, float dlat_deg) {
+	float da = dlon_deg * D2R, db = dlat_deg * D2R;
+	float sda = sin(da), sdb = sin(db);
+	float sha = sin(da * 0.5), shb = sin(db * 0.5);
+	float cdaM1 = -2.0 * sha * sha, cdbM1 = -2.0 * shb * shb;   // cos(da)-1, cos(db)-1（相殺なし）
+	float cda = 1.0 + cdaM1, cdb = 1.0 + cdbM1;
+	float ccM1 = cdaM1 + cdbM1 + cdaM1 * cdbM1;                 // cos(da)cos(db)-1（相殺なし）
+	float cLon = u_origin_trig.x, sLon = u_origin_trig.y, cLat = u_origin_trig.z, sLat = u_origin_trig.w;
+	float rx = cLat * cLon * ccM1 - cLat * sLon * cdb * sda - sLat * cLon * sdb * cda + sLat * sLon * sdb * sda;
+	float ry = sLat * cdbM1 + cLat * sdb;
+	float rz = cLat * sLon * ccM1 + cLat * cLon * cdb * sda - sLat * sLon * sdb * cda - sLat * cLon * sdb * sda;
+	return vec3(rx, ry, rz);
 }
 
 uint compact16(uint m) {
@@ -63,9 +86,9 @@ vec3 fetchProject(uint idx) {
 	// 中心(=シーン原点)からの delta を整数空間で計算（精度確保・antimeridian 対応）。
 	float dlon = dlonE7(ix, u_ix_center) * 1e-7;
 	float dlat = float(int(iy - u_iy_center)) * 1e-7;
-	vec3 dir = lonlatTo3D(vec2(u_origin.x + dlon, u_origin.y + dlat));
-	float zr = dot(dir, u_eye) - 1.0;             // >0 手前半球（v1 の zr と同符号）
-	vec4 clip = u_mvp * vec4(dir, 1.0);
+	vec3 rel = deltaToRel(dlon, dlat);            // 頂点3D − 原点3D（小・正確）
+	float zr = u_origin_zr + dot(rel, u_eye);     // = dot(dir,eye)-1（相殺回避）。>0 手前半球
+	vec4 clip = u_clipT + u_mvp * vec4(rel, 0.0); // = mvp*[dir,1]（相殺回避）
 	if (clip.w <= 0.0) return vec3(u_viewport * 0.5, -1.0);   // カメラ背後 → 裏扱い
 	vec2 ndc = clip.xy / clip.w;
 	return vec3((ndc.x * 0.5 + 0.5) * u_viewport.x,
@@ -101,15 +124,32 @@ uniform int        u_pt_w;
 uniform mat4       u_mvp;
 uniform vec3       u_eye;
 uniform vec2       u_origin;
+uniform vec4       u_origin_trig; // 原点の三角比 (cosLon,sinLon,cosLat,sinLat)＝RTE角度加算の錨
 uniform vec2       u_viewport;
 uniform float      u_pt_radius;
 uniform uint       u_ix_center;
 uniform uint       u_iy_center;
+uniform vec4       u_clipT;      // mvp*[原点3D,1]＝CPU(double)算出＝MVP相殺回避の錨
+uniform float      u_origin_zr;  // dot(原点3D,eye)-1＝CPU(double)算出＝zr相殺回避の錨
 const float D2R = 0.017453292519943295;
 
 vec3 lonlatTo3D(vec2 ll) {
 	float a = ll.x * D2R, b = ll.y * D2R, cb = cos(b);
 	return vec3(cb * cos(a), sin(b), cb * sin(a));
+}
+// 原点相対 RTE（arc 側 deltaToRel と同一）：頂点3D−原点3D を桁落ちなしで直接作る（cos-1=-2sin²(θ/2)）。
+vec3 deltaToRel(float dlon_deg, float dlat_deg) {
+	float da = dlon_deg * D2R, db = dlat_deg * D2R;
+	float sda = sin(da), sdb = sin(db);
+	float sha = sin(da * 0.5), shb = sin(db * 0.5);
+	float cdaM1 = -2.0 * sha * sha, cdbM1 = -2.0 * shb * shb;
+	float cda = 1.0 + cdaM1, cdb = 1.0 + cdbM1;
+	float ccM1 = cdaM1 + cdbM1 + cdaM1 * cdbM1;
+	float cLon = u_origin_trig.x, sLon = u_origin_trig.y, cLat = u_origin_trig.z, sLat = u_origin_trig.w;
+	float rx = cLat * cLon * ccM1 - cLat * sLon * cdb * sda - sLat * cLon * sdb * cda + sLat * sLon * sdb * sda;
+	float ry = sLat * cdbM1 + cLat * sdb;
+	float rz = cLat * sLon * ccM1 + cLat * cLon * cdb * sda - sLat * sLon * sdb * cda - sLat * cLon * sdb * sda;
+	return vec3(rx, ry, rz);
 }
 uint compact16(uint m) {
 	m &= 0x55555555u; m = (m | (m >> 1u)) & 0x33333333u; m = (m | (m >> 2u)) & 0x0F0F0F0Fu;
@@ -128,9 +168,9 @@ vec3 fetchPoint(int pt_id) {
 	uint iy = (compact16(hi_c >> 1u) << 16u) | compact16(px.r >> 1u);
 	float dlon = dlonE7(ix, u_ix_center) * 1e-7;
 	float dlat = float(int(iy - u_iy_center)) * 1e-7;
-	vec3 dir = lonlatTo3D(vec2(u_origin.x + dlon, u_origin.y + dlat));
-	float zr = dot(dir, u_eye) - 1.0;
-	vec4 clip = u_mvp * vec4(dir, 1.0);
+	vec3 rel = deltaToRel(dlon, dlat);            // 頂点3D − 原点3D（小・正確）
+	float zr = u_origin_zr + dot(rel, u_eye);     // = dot(dir,eye)-1（相殺回避）
+	vec4 clip = u_clipT + u_mvp * vec4(rel, 0.0); // = mvp*[dir,1]（相殺回避）
 	if (clip.w <= 0.0) return vec3(u_viewport * 0.5, -1.0);
 	vec2 ndc = clip.xy / clip.w;
 	return vec3((ndc.x * 0.5 + 0.5) * u_viewport.x, (1.0 - (ndc.y * 0.5 + 0.5)) * u_viewport.y, zr);
@@ -422,12 +462,12 @@ void main() { fragColor = u_fill_color; }`;
 // 共有 uniform（v1 の rotate/scale/rsincos/jac を廃し、mat4/eye/origin へ）。
 const SHARED_UNIFORM_NAMES = [
 	'u_arc_tex','u_meta_tex','u_arc_w','u_meta_w',
-	'u_mvp','u_eye','u_origin','u_viewport',
+	'u_mvp','u_eye','u_origin','u_origin_trig','u_clipT','u_origin_zr','u_viewport',
 	'u_ix_center','u_iy_center','u_lod_rank',
 ];
 const PT_UNIFORM_NAMES = [
 	'u_pt_tex','u_pt_meta_tex','u_pt_w',
-	'u_mvp','u_eye','u_origin','u_viewport','u_pt_radius',
+	'u_mvp','u_eye','u_origin','u_origin_trig','u_clipT','u_origin_zr','u_viewport','u_pt_radius',
 	'u_ix_center','u_iy_center',
 ];
 

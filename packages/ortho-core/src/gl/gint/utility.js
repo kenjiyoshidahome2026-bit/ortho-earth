@@ -19,6 +19,12 @@ export function bindSharedUniforms(gl, u, data, arcTex, metaTex, arcW, metaW, wi
 	gl.uniform2f(u.u_viewport, width, height);
 	gl.uniform1ui(u.u_ix_center, (Math.round((lon             + 180) * 1e7)) >>> 0);
 	gl.uniform1ui(u.u_iy_center, (Math.round((data.origin[1] +  90) * 1e7)) >>> 0);
+	// RTE の錨＝原点の三角比を CPU(double) で算出（shader の float32 で origin+delta を組まない）。
+	const lr = lon * Math.PI / 180, br = data.origin[1] * Math.PI / 180;
+	gl.uniform4f(u.u_origin_trig, Math.cos(lr), Math.sin(lr), Math.cos(br), Math.sin(br));
+	// MVP相殺回避の錨（worker が float64 で算出）。欠落時は 0 でなく等価挙動へ退避不能なので必ず渡す。
+	if (data.clipT) gl.uniform4f(u.u_clipT, data.clipT[0], data.clipT[1], data.clipT[2], data.clipT[3]);
+	gl.uniform1f(u.u_origin_zr, data.originZr ?? 0.0);
 	gl.uniform1f(u.u_lod_rank, data.lodRank ?? 0.0);   // GPU Dynamic LOD 閾値（未設定=0=全描画）
 }
 
@@ -135,6 +141,23 @@ export function buildPolyBboxByFid(polyStream, arcMeta) {
 		}
 	}
 	return byFid;
+}
+
+// アウトライン⇄ベタ塗りの切替ズームをデータ粒度から導出（ortho-map から移植）。中央値ポリゴンが
+// 画面 targetPx になるズーム＝これ未満は内部の線がベタ潰れ→面（ベタ塗り）で見せる。筆→z≈15 / 市区町村→z≈6。
+// bbox は e7 単位（1e-7 度）。中央値＝antimeridian 跨ぎ等の外れ bbox に頑健。ポリゴン無しは null（=既定へ）。
+export function deriveOutlineZoom(polyBboxByFid, targetPx = 4) {
+	if (!polyBboxByFid?.size) return null;
+	const diags = [];
+	for (const bb of polyBboxByFid.values()) {
+		const dx = bb[2] - bb[0], dy = bb[3] - bb[1];
+		if (dx > 0 || dy > 0) diags.push(Math.hypot(dx, dy));
+	}
+	if (!diags.length) return null;
+	diags.sort((a, b) => a - b);
+	const med = diags[diags.length >> 1];
+	const z = Math.log2(targetPx / (med * 40.74 * (Math.PI / 180) * 1e-7));
+	return Math.min(16, Math.max(2, z));
 }
 
 // arcMeta bbox から minZoom/maxZoom を導き検証。maxZoom は precision の分解能上限で hard-clamp。

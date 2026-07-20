@@ -2,7 +2,7 @@
 // v1(ortho-map) の gintTextures を移植。node-free（GintBUF→テクスチャ、投影に触れない）＝逐語で携行。
 
 import { s } from './state.js';
-import { uploadTex2D, buildEdgeMeta, buildPolyBboxByFid } from './utility.js';
+import { uploadTex2D, buildEdgeMeta, buildPolyBboxByFid, deriveOutlineZoom } from './utility.js';
 
 
 export function uploadGintTextures() {
@@ -59,6 +59,7 @@ export function uploadGintTextures() {
 	s.polyEdgeByFid = polyEdgeByFid;
 	console.debug('[gint] edges=%d', edgeCount);
 	s.polyBboxByFid = buildPolyBboxByFid(ps, am);
+	s.outlineZoom = deriveOutlineZoom(s.polyBboxByFid);   // 低ズームのベタ塗り切替閾値（ポリゴン無し=null=既定へ）
 	if (s.totalEdges > 0) {
 		const metaH   = Math.ceil(s.totalEdges / s.TEX_META_W);
 		const metaPad = new Uint32Array(s.TEX_META_W * metaH * 4);

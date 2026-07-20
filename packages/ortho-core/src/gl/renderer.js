@@ -2,7 +2,8 @@
 // draw call は「タイル数×層数」から「層数」へ激減し、uniform も1フレーム1回。共通のシーン原点で投影。
 // fill = earcut三角形、line = capsule(SDF)。scene.layers は style層順（painter's algorithm）。
 import { FILL_VS, FILL_FS, LINE_VS, LINE_FS, GLOBE_VS, GLOBE_FS, BUILDING_VS, BUILDING_FS, TERRAIN_VS, TERRAIN_FS, STENCIL_VS, STENCIL_FS, COVER_FS, PLATEAU_VS, PLATEAU_FS, CONTOUR_FS, STARS_VS, STARS_FS, STARLINE_FS, NIGHT_FS, FILL_MD_VS, LINE_MD_VS, BUILDING_MD_VS, MD_MAX_DRAWS } from "./glsl.js";
-import { cameraState, project } from "../camera.js";
+import { cameraState, project, lonlatTo3D } from "../camera.js";
+import * as mat from "../mat.js";
 
 const CORNERS = new Float32Array([0, -1, 0, 1, 1, -1, 1, -1, 0, 1, 1, 1]); // 6頂点×(end,side)
 
@@ -465,6 +466,13 @@ export function createRenderer(canvas, rOpts = {}) {
 		gl.uniformMatrix4fv(loc(gl, prog, "u_mvp"), false, st.mvp32);
 		gl.uniform3f(loc(gl, prog, "u_eye"), st.eye[0], st.eye[1], st.eye[2]);
 		gl.uniform2f(loc(gl, prog, "u_origin"), origin[0], origin[1]);
+		// RTE の錨（MVP相殺回避）＝原点3D の clip 位置と三角比を CPU(double) で（Float32化前の st.mvp で）。
+		const oPt = lonlatTo3D(origin[0], origin[1]);
+		const cT = mat.transform(st.mvp, [oPt[0], oPt[1], oPt[2], 1]);
+		gl.uniform4f(loc(gl, prog, "u_clipT"), cT[0], cT[1], cT[2], cT[3]);
+		gl.uniform3f(loc(gl, prog, "u_originPt"), oPt[0], oPt[1], oPt[2]);
+		const lr = origin[0] * Math.PI / 180, br = origin[1] * Math.PI / 180;
+		gl.uniform4f(loc(gl, prog, "u_originTrig"), Math.cos(lr), Math.sin(lr), Math.cos(br), Math.sin(br));
 		gl.uniform2f(loc(gl, prog, "u_viewport"), canvas.width, canvas.height);
 		gl.uniform1f(loc(gl, prog, "u_fogNear"), (st.fogDist || st.camDist) * 2.5);
 		gl.uniform1f(loc(gl, prog, "u_fogFar"), (st.fogDist || st.camDist) * 14.0);
@@ -580,7 +588,7 @@ export function createRenderer(canvas, rOpts = {}) {
 		if (terrainActive) {
 			gl.depthMask(terrainDepth);
 			if (terrainDepth) { gl.enable(gl.POLYGON_OFFSET_FILL); gl.polygonOffset(1.0, 4.0); }
-			setCommonUniforms(terrainProg, st, [0, 0], land);
+			setCommonUniforms(terrainProg, st, scenes.main.origin || [0, 0], land);   // RTE 錨＝シーン原点（旧[0,0]だと錨が地物から遠く相殺回避が効かない）
 			// 地形だけフォグを「遠山ブルー」に：空気遠近法＝遠くの山は青く霞む。地平線の山並みが
 			// 説明不要で"山"として読める（基図の線/塗りは従来どおり紙色へフェードアウト＝浮かない）。
 			// 距離も地形だけ半分に詰める＝中景の山並み（80-150km）にしっかり青が乗る。
@@ -765,6 +773,8 @@ export function createRenderer(canvas, rOpts = {}) {
 				gl.uniform3f(loc(gl, plateauProg, "u_bldColor"), c[0], c[1], c[2]);
 				gl.uniform1f(loc(gl, plateauProg, "u_cullBack"), p.two ? 0 : 1);   // 橋梁＝両面（開いた薄面が裏から消えない）
 				gl.uniform3f(loc(gl, plateauProg, "u_meshOrigin"), p.origin[0], p.origin[1], p.origin[2]);  // RTE 錨（頂点は重心相対 delta）
+				const cM = mat.transform(st.mvp, [p.origin[0], p.origin[1], p.origin[2], 1]);   // clip錨を CPU(double) で（旧: シェーダ float32 で mvp*meshOrigin＝相殺）
+				gl.uniform4f(loc(gl, plateauProg, "u_clipMesh"), cM[0], cM[1], cM[2], cM[3]);
 				gl.bindVertexArray(p.vao);
 				gl.drawElements(gl.TRIANGLES, count, gl.UNSIGNED_INT, 0);
 			}
