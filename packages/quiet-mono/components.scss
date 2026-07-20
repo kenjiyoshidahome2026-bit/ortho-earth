@@ -262,6 +262,9 @@ body { visibility: visible; }   /* 開幕＝このスタイルシートの到着
 	position: absolute; bottom: calc(46px + var(--qm-safe-b)); left: 50%; transform: translateX(-50%);
 	display: none; align-items: center; gap: 12px;
 	&.on { display: flex; }
+	/* 自動上映中（.playing）＝デスクトップでは操縦バーごと退場（画面は映画・字幕と点灯▶だけ）。
+	   停止は▶の一押し（demo.js が pause で受ける）。狭画面はガジェット退場で▶が見えない事があるためバーを残す＝❚❚で止める */
+	@media (min-width: 481px) { &.on.playing { display: none; } }
 	.db-main, .db-aux {
 		display: flex; align-items: center; gap: 2px; padding: 4px 6px; border-radius: 999px;
 		background: var(--qm-panel); border: 1px solid var(--qm-border); box-shadow: var(--qm-shadow-pop);
@@ -275,7 +278,6 @@ body { visibility: visible; }   /* 開幕＝このスタイルシートの到着
 		&:disabled { opacity: .3; cursor: default; }
 		&[aria-pressed="true"] { background: var(--qm-panel-solid); }   /* ▤(幕が上がっている)・❚❚(自動上演中)の点灯 */
 	}
-	#demo-slidetoggle { font-size: 15px; }
 	#demo-play { font-size: 13px; letter-spacing: -1px; }
 	#demo-title {
 		font: 13px/1.2 var(--qm-font); color: var(--qm-text); padding: 0 6px 0 8px;
@@ -289,11 +291,13 @@ body { visibility: visible; }   /* 開幕＝このスタイルシートの到着
 	#demo-list {
 		position: absolute; bottom: calc(100% + 10px); left: 50%; transform: translateX(-50%);
 		display: none; flex-direction: column; gap: 1px; padding: 6px;
-		min-width: 220px; max-width: min(72vw, 420px); max-height: min(46vh, 340px); overflow: auto;
+		/* 高さ＝約10行（行28.75px＋隙間1px＋余白12px）で頭打ち→以降はスクロール。低い窓では vh が守る */
+		min-width: 220px; max-width: min(72vw, 420px); max-height: min(60vh, 310px); overflow: auto;
 		background: var(--qm-panel); border: 1px solid var(--qm-border); border-radius: 10px; box-shadow: var(--qm-shadow-pop);
 		-webkit-backdrop-filter: blur(var(--qm-blur)); backdrop-filter: blur(var(--qm-blur));
 		&.open { display: flex; }
 		button {   /* バー共通のボタン化粧（30px円）を目次の行仕様へ上書き */
+			flex: none;   /* flex子の既定shrinkを断つ＝行が潰れず、あふれた分が overflow:auto のスクロールになる */
 			width: 100%; height: auto; border-radius: 6px; padding: 5px 10px;
 			display: block; text-align: left; font: 12.5px/1.5 var(--qm-font);
 			white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
@@ -302,6 +306,19 @@ body { visibility: visible; }   /* 開幕＝このスタイルシートの到着
 	}
 }
 @keyframes demo-title-in { from { opacity: 0; transform: translateY(3px); } }
+/* 自動上演の字幕：静止中だけ画面上部にやや大きめ（scene.caption・無ければ title 代用）。
+   触れない（pointer-events:none）＝地図の主役を邪魔しない。出入りはフェード（幕 #demo-slide と同じ呼吸） */
+#demo-caption {
+	position: absolute; top: calc(14px + env(safe-area-inset-top, 0px)); left: 50%; transform: translateX(-50%);
+	max-width: min(86vw, 720px); padding: 9px 22px; border-radius: 999px;
+	background: var(--qm-panel); border: 1px solid var(--qm-border); box-shadow: var(--qm-shadow-pop);
+	-webkit-backdrop-filter: blur(var(--qm-blur)); backdrop-filter: blur(var(--qm-blur));
+	font: 600 clamp(15px, 2.4vw, 21px)/1.4 var(--qm-font); color: var(--qm-text); letter-spacing: .04em;
+	white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center;
+	pointer-events: none;
+	opacity: 0; visibility: hidden; transition: opacity .35s ease, visibility 0s linear .35s;
+	&.show { opacity: 1; visibility: visible; transition: opacity .35s ease; }
+}
 #demo-slide {
 	position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
 	background: rgba(10, 16, 33, .55); padding: 24px; z-index: 0;   /* z-index は DOM順の裁きに委ねる */

@@ -12,7 +12,7 @@ try {
 	const map = await orthoJapan({ view: "#6/36/138" });
 	map.gadget.demo();   // 台本なし＝警告して非搭載（無害）
 	let pfCalls = 0, pfViews = null;   // PLATEAU先読みのスパイ（実物は外部ネットワークへ出るため差し替え）
-	const h = map.gadget.demo({ hold: 150, prefetchViews: vs => { pfCalls++; pfViews = vs; }, scenes: [   // hold=150ms＝自動上演の回帰を短時間で回す
+	const h = map.gadget.demo({ hold: 150, slideHold: 150, prefetchViews: vs => { pfCalls++; pfViews = vs; }, scenes: [   // hold/slideHold=150ms＝自動上演の回帰を短時間で回す
 		{ title: "一", view: "#5/40/140" },
 		{ title: "二", view: "#6/39/141", slide: SLIDE },   // view+slide併記＝三拍子：(地図)→(幕)→(地図)→次
 		{ title: "三", view: "#12/35/139/45t/30r/l=place.rail/c=mono" },   // c=現テーマ＝幕替わり不要＝素通り（reloadしない）
@@ -33,18 +33,15 @@ try {
 	ok("fly", map.cam.zoom !== z0 || map.cam.center[1] !== 36);   // フライトが書き始めている
 	ok("prevOff", bar.querySelector("#demo-prev").disabled);      // 先頭では戻れない
 
-	// シーン1はスライド無し＝▤は死んでいる
-	ok("toggleOff", bar.querySelector("#demo-slidetoggle").disabled);
+	// ▤（スライド切替）ボタンは撤去済み＝幕の上げ下げは ›/‹ の拍と幕クリックだけ
+	ok("noToggleBtn", !bar.querySelector("#demo-slidetoggle"));
 
-	// ›＝view+slide シーンへ：第一拍＝地図（幕はまだ）・▤は生きて消灯
+	// ›＝view+slide シーンへ：第一拍＝地図（幕はまだ）
 	bar.querySelector("#demo-next").click();
-	ok("beat1", !slide.classList.contains("open") && bar.querySelector("#demo-step").textContent === "2/4"
-		&& !bar.querySelector("#demo-slidetoggle").disabled
-		&& bar.querySelector("#demo-slidetoggle").getAttribute("aria-pressed") === "false");
-	// ›＝第二拍＝幕（画像モード・▤点灯・シーンは進まない）
+	ok("beat1", !slide.classList.contains("open") && bar.querySelector("#demo-step").textContent === "2/4");
+	// ›＝第二拍＝幕（画像モード・シーンは進まない）
 	bar.querySelector("#demo-next").click();
-	ok("beat2", slide.classList.contains("open") && !slide.classList.contains("text") && bar.querySelector("#demo-step").textContent === "2/4"
-		&& bar.querySelector("#demo-slidetoggle").getAttribute("aria-pressed") === "true");
+	ok("beat2", slide.classList.contains("open") && !slide.classList.contains("text") && bar.querySelector("#demo-step").textContent === "2/4");
 	// ›＝第三拍＝幕を下ろしてもう一度地図（シーンは進まない）
 	bar.querySelector("#demo-next").click();
 	ok("beat3", !slide.classList.contains("open") && bar.querySelector("#demo-step").textContent === "2/4");
@@ -53,18 +50,16 @@ try {
 	ok("beatBack", slide.classList.contains("open") && bar.querySelector("#demo-step").textContent === "2/4");
 	bar.querySelector("#demo-prev").click(); bar.querySelector("#demo-prev").click();
 	ok("beatHome", bar.querySelector("#demo-step").textContent === "1/4");
-	// Space＝次（プレゼンの標準作法）＝二の第一拍からSpaceで幕（第二拍）へ。クリックで幕を下ろせば拍消化済み→›で次シーンへ
+	// Space＝次（プレゼンの標準作法）＝二の第一拍からSpaceで幕（第二拍）へ
 	bar.querySelector("#demo-next").click();   // 二の第一拍
 	window.dispatchEvent(new KeyboardEvent("keydown", { key: " ", bubbles: true, cancelable: true }));
 	ok("spaceNext", slide.classList.contains("open"));
+	// 幕クリック（手動）＝直後は幕だけ下りてシーンは残り、0.8秒の間を置いて自動で次のシーンへ
 	slide.click();
 	ok("slidePeel", !slide.classList.contains("open") && bar.querySelector("#demo-step").textContent === "2/4");
-
-	// ›＝t/r/l= 付きシーンへ（手動で拍消化済みなので進む・台本の l= がチップに点く）
-	bar.querySelector("#demo-next").click();
-	await new Promise(r => setTimeout(r, 100));
-	ok("layers", bar.querySelector("#demo-title").textContent === "三"
-		&& document.querySelector('.chip[data-k="rail"]')?.classList.contains("on") === true);
+	await new Promise(r => setTimeout(r, 1000));
+	ok("clickAdvance", bar.querySelector("#demo-title").textContent === "三");   // t/r/l= 付きシーン（三）へ到着
+	ok("layers", document.querySelector('.chip[data-k="rail"]')?.classList.contains("on") === true);   // 台本の l= がチップに点く
 
 	// ←＝前シーン（二）の第一拍（地図）へ・→＝また三へ（PageDown でも同じ）
 	window.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true, cancelable: true }));
@@ -76,8 +71,10 @@ try {
 	// BS＝戻る（三→二の第一拍）→ Space三連で三拍を消化してまた三へ
 	window.dispatchEvent(new KeyboardEvent("keydown", { key: "Backspace", bubbles: true, cancelable: true }));
 	ok("keyBS", bar.querySelector("#demo-step").textContent === "2/4" && !slide.classList.contains("open"));
-	for (let i = 0; i < 3; i++) window.dispatchEvent(new KeyboardEvent("keydown", { key: " ", bubbles: true, cancelable: true }));
-	ok("keySpace3", bar.querySelector("#demo-step").textContent === "3/4");
+	for (let i = 0; i < 2; i++) window.dispatchEvent(new KeyboardEvent("keydown", { key: " ", bubbles: true, cancelable: true }));
+	ok("keySpacePeel", !slide.classList.contains("open") && bar.querySelector("#demo-step").textContent === "2/4");   // 幕中のSpace＝幕クリックと同じ（直後は幕だけ下りる）
+	await new Promise(r => setTimeout(r, 1000));
+	ok("keySpace3", bar.querySelector("#demo-step").textContent === "3/4");   // 0.8秒の間を置いて自動で次のシーンへ
 
 	// ›＝slideだけのシーン＝入場で幕（生テキスト・紙のカード・改行は pre-line）
 	bar.querySelector("#demo-next").click();
@@ -112,10 +109,22 @@ try {
 
 	// 自動上演（▷）＝hold で自動送り→最終シーンの先で自動終演・❚❚点灯/消灯
 	h.start();
+	const capEl = document.getElementById("demo-caption");
+	ok("captionIdle", !!capEl && !capEl.classList.contains("show"));   // 字幕は自動上演専用＝手動中は出ない
 	bar.querySelector("#demo-play").click();
 	ok("playOn", bar.querySelector("#demo-play").getAttribute("aria-pressed") === "true");
-	await new Promise(r => setTimeout(r, 2500));   // hold=150ms×6拍（一→二の三拍→三→四）≪ 2500ms ＝走り切って終演まで到達
+	ok("playHideBar", getComputedStyle(bar).display === "none");   // 上映中＝バー退場（デスクトップ幅）＝停止は▶が受ける
+	document.getElementById("demo-btn").click();   // 上映中の▶＝停止（終了ではない）＝バー復帰・デモ続行
+	ok("btnPause", bar.classList.contains("on") && getComputedStyle(bar).display !== "none"
+		&& bar.querySelector("#demo-play").getAttribute("aria-pressed") === "false");
+	bar.querySelector("#demo-play").click();   // ▷を押し直して走り切らせる
+	let capSeen = "";   // 走行中のどこかの静止で字幕（caption 無しのシーン＝title 代用）が点く事を拾う
+	const capPoll = setInterval(() => { if (capEl.classList.contains("show")) capSeen = capEl.textContent; }, 100);
+	await new Promise(r => setTimeout(r, 20000));   // 静止150ms×6拍＋各シーンのフライト実尺（着地後計時＝飛行中はholdが走らない）＝仮想20秒で終演まで到達
+	clearInterval(capPoll);
 	ok("autoRun", !bar.classList.contains("on"));
+	ok("caption", ["一", "二", "三", "四"].includes(capSeen));   // 静止中に字幕が点いていた（最後に見えたのはどれかのタイトル）
+	ok("captionOff", !capEl.classList.contains("show"));   // 終演で字幕も消灯
 	// PLATEAU先読み＝初回▶で1回だけ・view持ちシーン全部（3本）を渡す（再開では撃ち直さない）
 	ok("prefetchOnce", pfCalls === 1 && Array.isArray(pfViews) && pfViews.length === 3);
 	map.destroy();
@@ -128,11 +137,12 @@ try {
 		{ title: "三", view: "#6/38/141" },
 		{ title: "四", glide: "#7/37.5/140.5/20t/40r" },     // 近距離滑走＝起きずに時分割で滑る
 		{ title: "五", view: "#1/20/140/l=" },               // z1着地＝星空劇場の深部（フライトのズーム下限が目標まで降りる）
+		{ title: "六", pre: "#8/38/141/0r/l=", view: "#8/38/141/0r/l=rail" },   // pre＝入場の見せ玉：素の地図に着いて0.5秒後に l=rail が遷移なしで点く
 	] });
 	h2.start();
 	await new Promise(r => setTimeout(r, 100));
 	const bar2 = document.getElementById("demo-bar"), slide2 = document.getElementById("demo-slide");
-	ok("noSlideCount", bar2.querySelector("#demo-step").textContent === "1/4" && !slide2.classList.contains("open"));
+	ok("noSlideCount", bar2.querySelector("#demo-step").textContent === "1/5" && !slide2.classList.contains("open"));
 	bar2.querySelector("#demo-next").click();
 	ok("noSlideSkip", bar2.querySelector("#demo-title").textContent === "三" && !slide2.classList.contains("open"));
 	// glide シーン＝滑走の末、URLどおりの姿勢（20t/40r）と位置へ収束する（位置→方位→チルトの時分割）
@@ -145,6 +155,11 @@ try {
 	bar2.querySelector("#demo-next").click();
 	await new Promise(r => setTimeout(r, 9000));
 	ok("z1", Math.abs(map2.cam.zoom - 1) < 0.05);
+	// pre＝入場の見せ玉：pre（l=無し＝五で全消灯のまま）へ飛び、着地1秒後に view の l=rail が遷移なしで点く
+	bar2.querySelector("#demo-next").click();
+	await new Promise(r => setTimeout(r, 9000));   // フライト＋着地待ち＋1秒 ≪ 仮想9秒
+	ok("pre", Math.abs(map2.cam.zoom - 8) < 0.05
+		&& document.querySelector('.chip[data-k="rail"]')?.classList.contains("on") === true);
 	map2.destroy();
 
 	// 幕替わり（配色reload）からの自動復帰：預けた進行があれば、▶を押さずともそのシーンから再開（飛ばない＝視点は起動のまま）

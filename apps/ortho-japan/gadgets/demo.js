@@ -1,5 +1,5 @@
 // ガジェット：デモ（発表の台本再生）。オプトイン＝orthoJapan() の戻り値から map.gadget.demo({scenes}) で搭載。
-// ▶ボタン → 下部中央に操縦バー（左＝「‹ タイトル n/N ›」の送り・右＝別ピルで「▤ ▷」のモード）が出て、台本（scenes）を順に上演する。
+// ▶ボタン → 下部中央に操縦バー（左＝「‹ タイトル n/N ›」の送り・右＝別ピルで自動上演「▷」）が出て、台本（scenes）を順に上演する。
 // 終了＝点灯した▶の再押下か Esc（×ボタンは置かない＝送りの隣に破壊的ボタンを並べない）。
 // ★台本の一行＝共有URLハッシュそのまま（#z/lat/lon[/t][/r][/l=…]）＝アドレスバーのURLを貼るだけでシーンになる。
 //   移動は球面フライト（flyView 注入＝van Wijk 三段振り付け・t/r 着地対応）＝トランジション自体が見せ場。
@@ -15,14 +15,20 @@
 // view+slide 併記＝三拍子の遷移：(view・幕なし) →›→ (幕) →›→ (幕なし) →›→ 次シーン
 //   ＝着いた地図を見せ、幕で語り、幕を下ろしてもう一度地図、それから次へ。スライドが無ければ › は素直に次シーンへ。
 //   slide だけのシーン＝入場で幕（紙芝居の停留所）。‹ は同じ拍を逆順に戻る。
-//   バーの▤ボタン／Space／幕クリック＝いつでも幕の上げ下げ（語りの呼吸。手で上げ下げした分は拍を消化した扱い）。
+//   幕クリック/幕中のSpace（手動）＝幕を下ろして0.8秒の間で次のシーンへ＝語り終わりのワンタップ送り。
+//   ›/→＝拍どおり（幕を下ろしてもう一度地図＝三拍目を踏みたい時はこちら）。
 // opts.slide=false＝スライドを一切出さない上演モード（公開チュートリアル用。スライドだけのシーンは台本から抜く）。
-// 自動上演（▷）＝「動画」モード：シーンを hold ms（既定 opts.hold=7000・シーン毎 scene.hold 上書き）で自動送り。
-//   三拍子の三拍目（スライドを見終えた後の地図）だけは短い（最大1.5秒）＝既に見た画は「間」だけで次へ。
-//   フライトも幕もそのまま流れる＝画面収録（macOS ⌘⇧5 等）と組めばこのまま動画ファイルになる。もう一押しで停止。
+// 自動上演（▷）＝「動画」モード：シーンの「静止」hold ms（既定 opts.hold=7000・シーン毎 scene.hold 上書き）で自動送り。
+//   静止はフライト/滑走の着地後から数える（flightActive で待つ）＝遷移の長いシーン（glide連鎖・大ジャンプ）でも
+//   見る時間は削られない。幕（スライド）＝slideHold ms（既定 opts.slideHold=4000・シーン毎 scene.slideHold 上書き）。
+//   幕前の地図は最大2秒（着いた画をひと目＝語りは幕で）・幕後の三拍目は最大1.5秒＝既に見た画は「間」だけで次へ。
+//   静止中は字幕＝scene.caption（無ければ title 代用）を画面上部にやや大きめに出す＝無言の動画でも文脈が付く。
+//   上映中は操縦バーごと退場（デスクトップ＝幅481px以上）＝画面は映画・停止は点灯した▶の一押し（＝一時停止でバー復帰）。
+//   狭画面はバーを残す＝❚❚で止める（▶がガジェット退場で見えない事があるため）。
+//   フライトも幕もそのまま流れる＝画面収録（macOS ⌘⇧5 等）と組めばこのまま動画ファイルになる。
 // ▶の瞬間に台本の全 view を prefetchViews（app注入）へ＝寄るシーンのPLATEAU区を裏でIDBへ仕込む。
 //   序盤の構成（球・列島・スライド）で時間を稼ぐ＝PLATEAUシーン到着時、初見のPCでも一発で街が立つ。
-// 操縦：Space/→/PageDown=進む・BS/←/PageUp=戻る（プレゼンの標準作法）・▤=幕・▷=自動上演・Esc/▶=終了。
+// 操縦：Space/→/PageDown=進む・BS/←/PageUp=戻る（プレゼンの標準作法）・▷=自動上演・Esc/▶=終了（上映中の▶=停止）。
 //   PageUp/Down＝プレゼン用クリッカーがそのまま効く。
 // タイトル/歩数のクリック＝シーン一覧（目次）がバーの真上にポップ→クリックでジャンプ（Esc=一覧だけ閉じる）。
 // デモ中も地図は生きたまま（掴めば飛行は中断＝主導権は常に人・›でいつでも台本に復帰）＝ビデオでない証明が最大の演出。
@@ -40,14 +46,19 @@ const isImg = s => /\.(svg|png|jpe?g|webp|gif|avif)([?#]|$)/i.test(s) || /^(data
 const themeTok = s => (/[#/]c=([\w-]+)/.exec(s) || [])[1];
 const RESUME_KEY = "oj.demo.resume";   // 幕替わり（reload）を跨ぐ進行の預け先（タブ限り・60秒で失効）
 
-// opts.scenes＝台本 [{title, view?, glide?, slide?, hold?}]。view/glide=共有URLハッシュ文字列（glide=近距離滑走）／
-//   slide=画像URLか生テキスト。
-// opts.slide=false＝スライド抜き上演。opts.hold＝自動上演の1シーン滞在ms（既定7000）。opts.flyView＝共有URLへ飛ぶ（app が注入）。
+// opts.scenes＝台本 [{title, view?, glide?, pre?, slide?, caption?, hold?, mobile?}]。view/glide=共有URLハッシュ文字列（glide=近距離滑走）／
+//   pre=入場の見せ玉：まず pre の画へ飛び、着地から1秒後に view を遷移なしで重ねる（同座標で l= だけ点ける演出）／
+//   slide=画像URLか生テキスト／caption=自動上演の静止中に画面上部へ出す字幕（無ければ title 代用）／
+//   mobile=Δz：縦長画面（縦>横）でだけシーンの z に足す差分（例 -1.2＝一段引く）。
+//   横パノラマ構図の左右切り落とし対策＝中心・チルト・方位はそのまま、ズームだけ動かす＝台本は1枚のまま。
+// opts.mobile＝Δz の台本全体の既定（全シーンに効く）。シーン毎の mobile が勝つ＝mobile: 0 でそのシーンだけ無効化。
+// opts.slide=false＝スライド抜き上演。opts.hold＝自動上演の静止ms（既定7000・着地後から）。opts.slideHold＝幕の表示ms（既定4000）。
+// opts.flyView＝共有URLへ飛ぶ（app が注入）。opts.flightActive＝フライト/滑走中か（app が注入）＝静止の計時を着地まで待たせる。
 // opts.theme＝現テーマ名（app が注入）＝c= 付きシーンの幕替わり（暗転reload）判定に使う。
 // opts.prefetchViews＝PLATEAU先読み（app が注入・任意）：▶の瞬間に台本の全 view を渡す＝寄るシーンの区が裏でIDBへ。
 //   序盤のシーン構成で時間を稼げば、PLATEAUシーン到着時には初見のPCでも一発で街が立つ（データ重力の種まき兼用）。
-// 戻り値＝{start, next, prev, exit, play, pause, toggleSlide}（テスト・プログラム駆動用）。
-export function demo({ scenes, slide: slideOn = true, hold = 7000, flyView, prefetchViews, theme, signal } = {}) {
+// 戻り値＝{start, next, prev, exit, play, pause}（テスト・プログラム駆動用）。
+export function demo({ scenes, slide: slideOn = true, hold = 7000, slideHold = 4000, mobile, flyView, flightActive, prefetchViews, theme, signal } = {}) {
 	const mapEl = this.mapEl;
 	if (!slideOn && Array.isArray(scenes)) scenes = scenes.filter(s => s.view || !s.slide);   // スライドだけのシーン＝空の停留所になるので抜く
 	if (!Array.isArray(scenes) || !scenes.length) { console.warn("[demo] scenes が空＝ガジェットは搭載しない"); return; }
@@ -64,7 +75,7 @@ export function demo({ scenes, slide: slideOn = true, hold = 7000, flyView, pref
 	slide.innerHTML = `<img alt=""><div class="ds-text"></div>`;
 	const bar = document.createElement("div");
 	bar.id = "demo-bar";
-	// 二丸薬構成：左＝送りだけ（‹ タイトル n/N ›）、右＝モード（▤ ▷）を間を空けて分離＝発表中の押し間違いを断つ。
+	// 二丸薬構成：左＝送りだけ（‹ タイトル n/N ›）、右＝別ピルで自動上演（▷）＝発表中の押し間違いを断つ。
 	// 終了ボタンは置かない＝点灯した▶の再押下か Esc（星空劇場でも▶は残す＝止める口は常にある）。
 	bar.innerHTML = `
 		<span class="db-main">
@@ -73,14 +84,15 @@ export function demo({ scenes, slide: slideOn = true, hold = 7000, flyView, pref
 			<button id="demo-next" aria-label="次のシーンへ" title="次へ (Space/→)">›</button>
 		</span>
 		<span class="db-aux">
-			<button id="demo-slidetoggle" aria-label="スライドの表示切替" aria-pressed="false" title="スライド">▤</button>
 			<button id="demo-play" aria-label="自動上演" aria-pressed="false" title="自動上演">▷</button>
 		</span>`;
-	mapEl.append(slide, bar);
+	// 字幕（自動上演専用）＝静止中だけ画面上部に caption（無ければ title）。触れない（pointer-events無し）＝地図の邪魔をしない
+	const cap = document.createElement("div");
+	cap.id = "demo-caption";
+	mapEl.append(slide, bar, cap);
 	const img = slide.querySelector("img"), textEl = slide.querySelector(".ds-text"),
 		titleEl = bar.querySelector("#demo-title"), stepEl = bar.querySelector("#demo-step"),
-		stBtn = bar.querySelector("#demo-slidetoggle"), playBtn = bar.querySelector("#demo-play");
-	if (!slideOn) stBtn.style.display = "none";   // スライド抜き上演＝▤ごと出さない
+		playBtn = bar.querySelector("#demo-play");
 	// シーン一覧（目次）：タイトル/歩数のクリックでバーの真上にポップ＝クリックでそのシーンへジャンプ。
 	// c= 付きシーンへのジャンプも show() 経由＝幕替わり（暗転reload→自動再開）がそのまま効く。
 	const list = document.createElement("div");
@@ -90,30 +102,57 @@ export function demo({ scenes, slide: slideOn = true, hold = 7000, flyView, pref
 	bar.append(list);
 	titleEl.title = "シーン一覧"; titleEl.setAttribute("role", "button"); titleEl.setAttribute("aria-haspopup", "listbox");
 	const listOpen = () => list.classList.contains("open");
-	const syncList = () => list.querySelectorAll("button[data-i]").forEach(b => b.setAttribute("aria-current", String(+b.dataset.i === idx)));
+	const syncList = () => {
+		list.querySelectorAll("button[data-i]").forEach(b => b.setAttribute("aria-current", String(+b.dataset.i === idx)));
+		// 一覧は約10行でスクロール＝現在シーンが圏外なら見える所へ（開いた時・開いたままの送りの両方）
+		if (listOpen()) list.querySelector('button[aria-current="true"]')?.scrollIntoView({ block: "nearest" });
+	};
 
-	let idx = -1, playing = false, timer = 0, slideShown = false;   // slideShown＝このシーン滞在中に幕を一度見せたか（三拍子の現在拍）
+	// mobile:Δz＝縦長画面ではシーンの z（ハッシュ先頭の数値）にだけ差分を足す。判定は show() の度＝回転にも追随。
+	// 差分＝シーン毎 mobile が台本既定 opts.mobile に勝つ（mobile: 0＝そのシーンだけ明示無効）。t 指定＝pre 等の別ハッシュにも同じ補正
+	const mobView = (s, t = s.view ?? s.glide) => {
+		const d = s.mobile ?? mobile;
+		if (!t || !d || mapEl.clientWidth >= mapEl.clientHeight) return t;
+		return t.replace(/-?[\d.]+/, z => String(Math.round((+z + d) * 100) / 100));
+	};
+
+	let idx = -1, playing = false, timer = 0, preTimer = 0, slideShown = false;   // slideShown＝このシーン滞在中に幕を一度見せたか（三拍子の現在拍）
 	const on = () => bar.classList.contains("on");
-	const schedule = () => {   // 自動上演の滞在timer＝シーン入場と各拍で仕切り直す（幕にも hold 一拍を与える）
+	const caption = show => {   // 自動上演の字幕：静止中だけ scene.caption（無ければ title 代用）を画面上部へ
+		const text = show ? (scenes[idx]?.caption ?? scenes[idx]?.title ?? "") : "";
+		if (text) cap.textContent = text;
+		cap.classList.toggle("show", !!text);
+	};
+	const schedule = () => {   // 自動上演の滞在timer＝シーン入場と各拍で仕切り直す
 		clearTimeout(timer);
 		if (!playing) return;
 		const s = scenes[idx], h = s?.hold ?? hold;
-		// スライドを見終えた後の三拍目（幕を下ろした地図）＝短く：既に見た画への戻りは「間」だけ置いて次へ
-		const ms = hasSlide(s) && s.view && slideShown && !slide.classList.contains("open") ? Math.min(1500, h) : h;
-		timer = setTimeout(() => { if (on()) next(); }, ms);
+		// 拍ごとの滞在：幕＝slideHold（読む時間）／幕前の地図＝最大2秒（着いた画をひと目・語りは幕で）／
+		// 幕後の三拍目＝最大1.5秒（既に見た画は「間」だけ）／素の地図シーン＝hold
+		const ms = slide.classList.contains("open") ? (s?.slideHold ?? slideHold)
+			: hasSlide(s) && s.view ? Math.min(slideShown ? 1500 : 2000, h)
+			: h;
+		// 静止の計時はフライト/滑走の「着地後」から＝遷移の長いシーンでも見る時間が削られない（200ms刻みで着地を待つ）。
+		// 字幕も着地と同時に点く（飛行中・幕中は引っ込む＝地図とスライドが主役）
+		const arm = () => {
+			if (flightActive?.()) { caption(false); timer = setTimeout(arm, 200); return; }
+			caption(!slide.classList.contains("open"));
+			timer = setTimeout(() => { if (on()) next(); }, ms);
+		};
+		arm();
 	};
-	const curtain = open => {   // 幕の上げ下げ＝表示と▤の押下状態を常に一致させる（唯一の出入口）
+	const curtain = open => {   // 幕の上げ下げの唯一の出入口
 		slide.classList.toggle("open", open);
-		stBtn.setAttribute("aria-pressed", String(open));
 		if (open) slideShown = true;
 	};
 	const hasSlide = s => !!(s && s.slide && slideOn);
 	function show(i, fly = true) {   // fly=false＝幕替わり復帰（起動ビュー＝もうシーンの視点に居る＝飛ばない）
 		idx = i;
+		clearTimeout(preTimer);   // 前シーンの pre→view 予約は持ち越さない
 		const s = scenes[i];
 		// 配色の幕替わり：シーンの c= が現テーマと違えば「暗転」＝進行を預けて、そのシーンのURLで reload。
 		// 起動時に下の resume が拾って自動再開する（着せ替えは reload の設計＝パレット切替と同じ道）。
-		const tgt = s.view ?? s.glide, want = tgt && themeTok(tgt);
+		const tgt = mobView(s), want = tgt && themeTok(tgt);   // 幕替わり（reload）のURLにも mobile:Δz を効かせる＝復帰時の視点が既に補正済み
 		if (want && theme && want !== theme) {
 			let saved = false;
 			try { sessionStorage.setItem(RESUME_KEY, JSON.stringify({ i, playing, t: Date.now() })); saved = true; } catch { /* private mode 等 */ }
@@ -125,7 +164,6 @@ export function demo({ scenes, slide: slideOn = true, hold = 7000, flyView, pref
 		stepEl.textContent = `${i + 1}/${scenes.length}`;
 		syncList();   // 一覧の現在シーン印を追随（開いたままの送りにも効く）
 		bar.querySelector("#demo-prev").disabled = i === 0;
-		stBtn.disabled = !hasSlide(s);   // ▤はスライドを持つシーンでだけ効く
 		slideShown = false;
 		if (hasSlide(s)) {
 			const image = isImg(s.slide);
@@ -134,9 +172,15 @@ export function demo({ scenes, slide: slideOn = true, hold = 7000, flyView, pref
 			curtain(!s.view);   // slideだけのシーン＝入場で幕（紙芝居の停留所）。view併記＝まず地図（幕は›の第二拍）
 		}
 		else { curtain(false); img.removeAttribute("src"); }
-		if (fly) {
-			if (s.view) flyView?.(s.view);
-			else if (s.glide) flyView?.(s.glide, { glide: true });   // シーン内の動き＝滑走（起きない・時分割）
+		if (fly && tgt) {
+			// pre＝入場の見せ玉：まず pre の画へ飛び、着地から1秒だけ見せて view を遷移なし（jump）で重ねる。
+			// pre と view は同座標が前提＝実際に動くのは l= だけ（素の地図が着いた後、レイヤが「点く」演出）
+			if (s.pre) {
+				flyView?.(mobView(s, s.pre), s.view ? undefined : { glide: true });
+				const arm = () => { preTimer = flightActive?.() ? setTimeout(arm, 100) : setTimeout(() => flyView?.(tgt, { jump: true }), 1000); };
+				arm();
+			}
+			else flyView?.(tgt, s.view ? undefined : { glide: true });   // glide＝シーン内の動き＝滑走（起きない・時分割）
 		}
 		schedule();
 	}
@@ -146,10 +190,20 @@ export function demo({ scenes, slide: slideOn = true, hold = 7000, flyView, pref
 		btn.setAttribute("aria-pressed", "true"); btn.dataset.tip = "デモを終了 (Esc)"; btn.setAttribute("aria-label", "デモを終了");
 		if (!prefetched) { prefetched = true; prefetchViews?.(scenes.map(s => s.view ?? s.glide).filter(Boolean)); }   // ▶＝裏で台本の街をIDBへ（1回だけ・以降はIDB命中でタダ）
 	};
-	const pause = () => { playing = false; clearTimeout(timer); playBtn.textContent = "▷"; playBtn.setAttribute("aria-pressed", "false"); };
-	const play = () => { playing = true; playBtn.textContent = "❚❚"; playBtn.setAttribute("aria-pressed", "true"); schedule(); };
+	// 上映中（.playing）＝デスクトップでは操縦バーごと退場（CSS）＝停止は点灯した▶が受ける。字幕も止まったら引っ込める
+	const pause = () => {
+		playing = false; clearTimeout(timer); caption(false); bar.classList.remove("playing");
+		playBtn.textContent = "▷"; playBtn.setAttribute("aria-pressed", "false");
+		if (on()) { btn.dataset.tip = "デモを終了 (Esc)"; btn.setAttribute("aria-label", "デモを終了"); }
+	};
+	const play = () => {
+		playing = true; bar.classList.add("playing");
+		playBtn.textContent = "❚❚"; playBtn.setAttribute("aria-pressed", "true");
+		btn.dataset.tip = "上映を停止"; btn.setAttribute("aria-label", "上映を停止");
+		schedule();
+	};
 	const exit = () => {
-		pause(); bar.classList.remove("on"); curtain(false); img.removeAttribute("src"); idx = -1;
+		pause(); clearTimeout(preTimer); bar.classList.remove("on"); curtain(false); img.removeAttribute("src"); idx = -1;
 		list.classList.remove("open");
 		btn.setAttribute("aria-pressed", "false"); btn.dataset.tip = "デモを上演"; btn.setAttribute("aria-label", "デモを上演");
 	};
@@ -171,14 +225,17 @@ export function demo({ scenes, slide: slideOn = true, hold = 7000, flyView, pref
 		}
 		if (idx > 0) show(idx - 1);
 	};
-	const toggleSlide = () => { if (!stBtn.disabled && on()) { curtain(!slide.classList.contains("open")); schedule(); } };   // 手の幕にも拍の仕切り直し
-
-	btn.addEventListener("click", () => on() ? exit() : start());   // ▶＝開始／上演中の再押下＝終了
+	btn.addEventListener("click", () => on() ? (playing ? pause() : exit()) : start());   // ▶＝開始／自動上映中＝停止（バー復帰）／手動中の再押下＝終了
 	bar.querySelector("#demo-next").addEventListener("click", next);
 	bar.querySelector("#demo-prev").addEventListener("click", prev);
-	stBtn.addEventListener("click", toggleSlide);
 	playBtn.addEventListener("click", () => playing ? pause() : play());
-	slide.addEventListener("click", () => { curtain(false); schedule(); });   // 幕のクリック＝幕だけ下ろす（シーンは残る）。自動上演中は拍も仕切り直す
+	const peelNext = () => {   // 幕を下ろすワンタップ送り：手動＝0.8秒の間で次のシーンへ／自動上演＝三拍目の「間」へ
+		curtain(false);
+		if (playing) { schedule(); return; }
+		clearTimeout(timer); timer = setTimeout(() => { if (on()) next(); }, 800);
+		// 途中で手動送りが入っても二重前進しない＝show()→schedule() が冒頭の clearTimeout でこの timer を握り潰す
+	};
+	slide.addEventListener("click", peelNext);
 	const toggleList = () => { if (on()) { list.classList.toggle("open"); syncList(); } };
 	titleEl.addEventListener("click", toggleList);
 	stepEl.addEventListener("click", toggleList);   // 無題シーン（タイトル空）でも歩数から開ける
@@ -188,7 +245,8 @@ export function demo({ scenes, slide: slideOn = true, hold = 7000, flyView, pref
 	});
 	window.addEventListener("keydown", e => {
 		if (!on() || isTypingTarget()) return;   // 検索欄などの入力中は譲る（BSの文字削除・Spaceの入力を奪わない）
-		if (e.key === " " || e.key === "ArrowRight" || e.key === "PageDown") { e.preventDefault(); next(); }        // Space＝次（プレゼンの標準作法）
+		if (e.key === " ") { e.preventDefault(); slide.classList.contains("open") ? peelNext() : next(); }          // Space＝次。幕中は幕クリックと同じワンタップ送り
+		else if (e.key === "ArrowRight" || e.key === "PageDown") { e.preventDefault(); next(); }                   // →/PageDown＝拍どおりの次
 		else if (e.key === "Backspace" || e.key === "ArrowLeft" || e.key === "PageUp") { e.preventDefault(); prev(); }   // BS＝戻る
 		else if (e.key === "Escape") { e.preventDefault(); listOpen() ? list.classList.remove("open") : exit(); }   // Esc＝一覧が開いていれば一覧だけ閉じる
 	}, { signal });
@@ -202,5 +260,5 @@ export function demo({ scenes, slide: slideOn = true, hold = 7000, flyView, pref
 			if (r.playing) play();
 		}
 	} catch { /* storage 不可＝復帰なし（▶で最初から） */ }
-	return { start, next, prev, exit, play, pause, toggleSlide };
+	return { start, next, prev, exit, play, pause };
 }

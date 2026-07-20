@@ -1300,11 +1300,19 @@ function applyViewLayers(v) {
 // ・c= は flyView では無視（style は起動時焼き付け）。デモの配色幕替わりは gadget 側が reload+自動再開で実現（demo.js）
 // ・点火は離陸時＝データは飛行中に読まれ、着地には灯って待つ（PLATEAUだけは着地後＝flight ③の流儀）
 // ・opts.glide＝近距離滑走（シーン内の動き）：三段振り付けでなく 位置→方位→チルト の時分割で滑る（引き・回り込み・立ち上がり）
-function flyView(hash, { glide = false } = {}) {
+// ・opts.jump＝遷移なしの即時反映（カメラ直書き＋l=反映）。デモの pre→view（同座標で l= だけ点ける見せ玉）用
+function flyView(hash, { glide = false, jump = false } = {}) {
 	const v = typeof hash === "string" ? parseViewHash(hash) : hash;
 	if (!v) { console.warn(`[flyView] 解釈できないビュー "${hash}"`); return false; }
 	if (v.theme && v.theme !== themeName) console.warn(`[flyView] c=${v.theme} は無視＝配色は起動時焼き付け（デモは現テーマのまま進む）`);
 	applyViewLayers(v);
+	if (jump) {   // 飛行中なら打ち切ってカメラ直書き＝アニメ無し（pre と view は同座標が前提＝実際に動くのは l= だけ）
+		flightCtl.cancel();
+		cam.center = [wrapLon(v.lon), v.lat]; cam.zoom = v.zoom;
+		cam.pitch = Math.min(MAXPITCH, v.pitch); cam.bearing = shortBearingOf(v.bearing);
+		onMove();
+		return true;
+	}
 	(glide ? flightCtl.glideTo : flyTo)(wrapLon(v.lon), v.lat, v.zoom, v.pitch * 180 / Math.PI, v.bearing * 180 / Math.PI);
 	return true;
 }
@@ -1528,8 +1536,8 @@ map.gadget("print", function (opts) {   // 印刷（平面図）… 撮影ハイ
 map.gadget("close", function (opts) {   // 閉じる×（埋め込み用）… ortho:close を飛ばすだけ＝閉じる実務は埋め込み側
 	return closeGadget.call(this, { signal: ac.signal, ...opts });
 });
-map.gadget("demo", function (opts) {   // デモ（発表の台本再生）… 台本の一行=共有URLハッシュ。flyView（球面フライト）・PLATEAU先読み・現テーマ名（幕替わり判定）を注入
-	return demoGadget.call(this, { flyView, prefetchViews: prefetchPlateauForViews, theme: themeName, signal: ac.signal, ...opts });
+map.gadget("demo", function (opts) {   // デモ（発表の台本再生）… 台本の一行=共有URLハッシュ。flyView（球面フライト）・フライト中判定・PLATEAU先読み・現テーマ名（幕替わり判定）を注入
+	return demoGadget.call(this, { flyView, flightActive: () => flightCtl.active, prefetchViews: prefetchPlateauForViews, theme: themeName, signal: ac.signal, ...opts });
 });
 return map;
 }
