@@ -102,15 +102,19 @@ float fetchRank(uint idx) {
 
 // GPU Dynamic LOD（gap無し）: 始点 A が閾値未満の辺は捨てる（直前の kept 辺が跨いで描く）。
 // 終点 B は「次に閾値を満たす頂点」までスナップ＝間引き頂点を飛ばして kept 同士を直結。
-// ⚠走査は arc の向きに追従（reversed arc は edge meta が index 降順＝+1 固定だと A 側へ
-// 逆走して辺が潰れる）。arc 両端は L1(rank63) なのでどちら向きでも必ず arc 内で停止。
+// B のスナップはメタ隣接エントリを辿る：同一 arc 内は meta[e+1].A == meta[e].B（全密度でも
+// long-jump tier でも成立）＝1 hop ごとに「次の kept 頂点」へ跳ぶ。旧実装は arc の密頂点
+// インデックスを ±1 で線形歩行し、rank と メタ密度の差ぶん texelFetch を浪費していた
+//（ZCTA実測：z7.5 で1辺≈50fetch＝286ms/frame の主因。メタ歩行なら数 hop）。
+// arc 終端は B が L1(rank63)＝必ず rank 判定で停止。隣接エントリが別 arc なら m.r != lodB で停止。
 // 戻り値: true=辺を描く（lodB はスナップ済み）/ false=discard。
-bool lodSnap(inout uint lodA, inout uint lodB) {
+bool lodSnap(inout uint lodA, inout uint lodB, int edge_id) {
 	if (fetchRank(lodA) < u_lod_rank) return false;
-	int stepDir = (lodB > lodA) ? 1 : -1;
-	for (int k = 0; k < 4096; k++) {
+	for (int k = 1; k < 4096; k++) {
 		if (fetchRank(lodB) >= u_lod_rank) break;
-		lodB = uint(int(lodB) + stepDir);
+		uvec4 m = fetchEdgeMeta(edge_id + k);
+		if (m.r != lodB) break;   // 別 arc に踏み込んだ（安全網。通常は L1 端点で先に停止）
+		lodB = m.g;
 	}
 	return true;
 }
@@ -126,7 +130,7 @@ void main() {
 	if (sub == 0) { gl_Position = vec4(0.0, 0.0, 0.0, 1.0); return; }
 	uvec4 meta = fetchEdgeMeta(edge_id);
 	uint lodA = meta.r, lodB = meta.g;
-	if (!lodSnap(lodA, lodB)) { gl_Position = vec4(2.0, 0.0, 0.0, 1.0); return; }
+	if (!lodSnap(lodA, lodB, edge_id)) { gl_Position = vec4(2.0, 0.0, 0.0, 1.0); return; }
 	vec3  p    = fetchProject(sub == 1 ? lodA : lodB);
 	if (p.z < 0.0) {
 		// Back-facing vertex: push outward along its own direction onto the horizon circle (radius u_scale).
@@ -200,7 +204,7 @@ void main() {
 	if (u_pass == 1 && feat_id != u_active_id) { gl_Position = vec4(2.0, 0.0, 0.0, 1.0); return; }
 
 	uint lodA = meta.r, lodB = meta.g;
-	if (!lodSnap(lodA, lodB)) { gl_Position = vec4(2.0, 0.0, 0.0, 1.0); return; }
+	if (!lodSnap(lodA, lodB, edge_id)) { gl_Position = vec4(2.0, 0.0, 0.0, 1.0); return; }
 
 	bool  useA = (sub == 0 || sub == 1 || sub == 3);
 	float side = (sub == 1 || sub == 2 || sub == 4) ? 1.0 : -1.0;
