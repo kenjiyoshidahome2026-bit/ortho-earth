@@ -46,8 +46,12 @@ export function uploadTex2D(gl, u32, w, h, internalFmt, fmt) {
 // polyStream: Int32Array — comp毎 [fid][numRings][arcCount][arcIdx...]（同fid連続＝multi-polygon）
 // lineStream: Int32Array — feature毎 [fid][numSets][arcCount][arcIdx...]
 // 返り値 polyEdgeByFid: Map<fid, [edgeStart, edgeCount]>（O(1) highlight レンジ）。
-export function buildEdgeMeta(arcMeta, polyStream, lineStream, arcBuffer = null, minWeight = 0) {
-	if (!arcMeta) return { metaU32: new Uint32Array(0), edgeCount: 0, polyEdgeByFid: new Map() };
+// opts.orderBbox: Map<fid,bbox> — fid グループを bbox 中心 Morton 順に並べ替え（fid内の辺連続は維持＝
+//   polyEdgeByFid 無傷）。feature は空間的に小さい＝連続グループがそのまま空間タイルになる。
+// opts.chunkEdges: N — feature 境界に揃えた約N辺のチャンク台帳 [{start,end,bbox}] を返す＝可視カリング単位。
+// 返り値 polyEdgeCount: ポリゴン辺は先頭に連続配置＝stencil 塗りはこの範囲だけ（折れ線をファンさせない）。
+export function buildEdgeMeta(arcMeta, polyStream, lineStream, arcBuffer = null, minWeight = 0, opts = null) {
+	if (!arcMeta) return { metaU32: new Uint32Array(0), edgeCount: 0, polyEdgeCount: 0, polyEdgeByFid: new Map(), chunks: null };
 
 	const arcU32 = (arcBuffer?.length && minWeight > 0)
 		? new Uint32Array(arcBuffer.buffer, arcBuffer.byteOffset, arcBuffer.byteLength / 4)
@@ -78,8 +82,32 @@ export function buildEdgeMeta(arcMeta, polyStream, lineStream, arcBuffer = null,
 	const buf = new Uint32Array(total * 4);
 	let j = 0;
 
+	// チャンク台帳（可視カリング単位）
+	const chunkEdges = opts?.chunkEdges ?? 0;
+	const chunks = chunkEdges ? [] : null;
+	let ckStart = 0;
+	let ckBox = null;
+	const mergeBox = (aid) => { if (!chunks) return;
+		const m = aid * 8;
+		if (!ckBox) ckBox = [arcMeta[m + 4], arcMeta[m + 5], arcMeta[m + 6], arcMeta[m + 7]];
+		else {
+			if (arcMeta[m + 4] < ckBox[0]) ckBox[0] = arcMeta[m + 4];
+			if (arcMeta[m + 5] < ckBox[1]) ckBox[1] = arcMeta[m + 5];
+			if (arcMeta[m + 6] > ckBox[2]) ckBox[2] = arcMeta[m + 6];
+			if (arcMeta[m + 7] > ckBox[3]) ckBox[3] = arcMeta[m + 7];
+		}
+	};
+	const closeChunk = (force = false) => { if (!chunks) return;
+		const end = j >> 2;
+		if (end - ckStart >= chunkEdges || (force && end > ckStart)) {
+			chunks.push({ start: ckStart, end, bbox: ckBox ?? [0, 0, 0, 0] });
+			ckStart = end; ckBox = null;
+		}
+	};
+
 	const addArc = (arcIdx, styleId, featId) => {
 		const aid = arcIdx < 0 ? ~arcIdx : arcIdx;
+		mergeBox(aid);
 		const off = arcMeta[aid * 8], len = arcMeta[aid * 8 + 1], fid = featId >>> 0;
 		if (!getW) {
 			for (let i = 0; i < len - 1; i++) {
@@ -102,11 +130,30 @@ export function buildEdgeMeta(arcMeta, polyStream, lineStream, arcBuffer = null,
 		}
 	};
 
+	// Morton 順キー（bbox 中心の上位16bit をインターリーブ）
+	const m16 = v => { v &= 0xFFFF; v = (v | (v << 8)) & 0xFF00FF; v = (v | (v << 4)) & 0xF0F0F0F; v = (v | (v << 2)) & 0x33333333; v = (v | (v << 1)) & 0x55555555; return v; };
+	const mkey = bb => ((m16((((bb[0] >>> 1) + (bb[2] >>> 1)) >>> 16)) | (m16((((bb[1] >>> 1) + (bb[3] >>> 1)) >>> 16)) << 1)) >>> 0);
+
 	const polyEdgeByFid = new Map();
-	if (polyStream) { let p = 0;
+	if (polyStream) {
+		const groups = [];   // [fid, pStart, pEnd]
+		let p = 0;
 		while (p < polyStream.length) {
-			const fid = polyStream[p], eStart = j >> 2;
+			const fid = polyStream[p], start = p;
 			while (p < polyStream.length && polyStream[p] === fid) {
+				p++; const numRings = polyStream[p++];
+				for (let r = 0; r < numRings; r++) { const ac = polyStream[p++]; p += ac; }
+			}
+			groups.push([fid, start, p]);
+		}
+		if (opts?.orderBbox && groups.length > 1) {
+			const keyOf = fid => { const bb = opts.orderBbox.get(fid); return bb ? mkey(bb) : 0; };
+			groups.sort((a, b) => keyOf(a[0]) - keyOf(b[0]));
+		}
+		for (const [fid, start, end] of groups) {
+			const eStart = j >> 2;
+			let p = start;
+			while (p < end) {
 				p++; const numRings = polyStream[p++];
 				for (let r = 0; r < numRings; r++) {
 					const ac = polyStream[p++];
@@ -114,15 +161,60 @@ export function buildEdgeMeta(arcMeta, polyStream, lineStream, arcBuffer = null,
 				}
 			}
 			polyEdgeByFid.set(fid, [eStart, (j >> 2) - eStart]);
+			closeChunk();
 		}
+		closeChunk(true);   // ポリゴン区画の残りを閉じる（stencil の先頭連続規約と揃える）
 	}
-	if (lineStream) { let p = 0;
-		while (p < lineStream.length) { const fid = lineStream[p++], ns = lineStream[p++];
-			for (let s = 0; s < ns; s++) { const ac = lineStream[p++];
+	const polyEdgeCount = j >> 2;
+	if (lineStream) {
+		const groups = [];
+		let p = 0;
+		while (p < lineStream.length) {
+			const fid = lineStream[p], start = p;
+			p++; const ns = lineStream[p++];
+			for (let g = 0; g < ns; g++) { const ac = lineStream[p++]; p += ac; }
+			groups.push([fid, start, p]);
+		}
+		if (opts?.orderBbox && groups.length > 1) {
+			// ライングループは先頭 arc の bbox 中心で代用（[fid][ns][ac][arc0…]＝start+3 が先頭 arc）
+			const keyOf = g => { const ai = lineStream[g[1] + 3], aid = ai < 0 ? ~ai : ai, m = aid * 8;
+				return mkey([arcMeta[m + 4], arcMeta[m + 5], arcMeta[m + 6], arcMeta[m + 7]]); };
+			groups.sort((a, b) => keyOf(a) - keyOf(b));
+		}
+		for (const [fid, start] of groups) {
+			let p = start + 1;
+			const ns = lineStream[p++];
+			for (let g = 0; g < ns; g++) { const ac = lineStream[p++];
 				for (let a = 0; a < ac; a++) addArc(lineStream[p++], 1, fid); }
+			closeChunk();
 		}
+		closeChunk(true);
 	}
-	return { metaU32: buf, edgeCount: total, polyEdgeByFid };
+	return { metaU32: buf, edgeCount: total, polyEdgeCount, polyEdgeByFid, chunks };
+}
+
+// weight レベル別の累積頂点ヒストグラム（静的キャップと段階別メタの minWeight 選定で共用）。
+// hist[w] = weight >= w の頂点総数（arc 使用回数ぶん重複計上）、nUsages = arc 使用回数。
+// totalEdges(w) = hist[w] - nUsages（1使用 = kept-1 辺）。
+export function buildWeightHist(arcMeta, polyStream, lineStream, arcU32) {
+	const getW = (idx) => (arcU32[idx * 2 + 1] & 0x80000000) ? 63 : (arcU32[idx * 2] & 0x3F);
+	const hist = new Float64Array(64);
+	let nUsages = 0;
+	const countStream = (str) => {
+		if (!str) return; let p = 0;
+		while (p < str.length) { p++; const ng = str[p++];
+			for (let g = 0; g < ng; g++) { const ac = str[p++];
+				for (let a = 0; a < ac; a++) {
+					const aid = (str[p] < 0 ? ~str[p] : str[p]); p++; nUsages++;
+					const off = arcMeta[aid * 8], len = arcMeta[aid * 8 + 1];
+					for (let i = 0; i < len; i++) hist[getW(off + i)]++;
+				}
+			}
+		}
+	};
+	countStream(polyStream); countStream(lineStream);
+	for (let w = 62; w >= 0; w--) hist[w] += hist[w + 1];
+	return { hist, nUsages };
 }
 
 // feature毎の bbox Map（Morton整数空間）。JS polygon identify fallback 用。

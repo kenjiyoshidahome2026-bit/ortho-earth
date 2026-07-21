@@ -188,10 +188,16 @@ void main() {
 	// GPU Dynamic LOD（gap無し・線と同骨格）：始点が閾値未満なら捨て、終点は次の kept へ前方スナップ。
 	uint lodA = meta.r, lodB = meta.g;
 	if (float(fetchRank(lodA)) < u_lod_rank) { gl_Position = vec4(2.0, 0.0, 0.0, 1.0); return; }
-	// 走査は arc の向きに追従（reversed arc は edge meta が index 降順＝+1 固定だと A 側へ逆走し
-	// 辺が潰れ stencil 輪郭が破れる）。arc 両端は anchor(rank63) なのでどちら向きでも arc 内で停止。
-	int lodStep = (lodB > lodA) ? 1 : -1;
-	for (int k = 0; k < 4096; k++) { if (float(fetchRank(lodB)) >= u_lod_rank) break; lodB = uint(int(lodB) + lodStep); }
+	// B のスナップはメタ隣接エントリを辿る：同一 arc 内は meta[e+1].A == meta[e].B（全密度でも
+	// long-jump tier でも成立）＝1 hop で次の kept 頂点へ。旧実装（arc 密頂点±1 の線形歩行）は
+	// rank とメタ密度の差ぶん texelFetch を浪費（ortho-map ZCTA実測: 1辺≈50fetch）。
+	// arc 終端は B が anchor(rank63)＝rank 判定で必ず停止。隣接が別 arc なら m.r != lodB で停止。
+	for (int k = 1; k < 4096; k++) {
+		if (float(fetchRank(lodB)) >= u_lod_rank) break;
+		uvec4 mn = fetchEdgeMeta(edge_id + k);
+		if (mn.r != lodB) break;
+		lodB = mn.g;
+	}
 	if (sub == 0) { gl_Position = vec4(0.0, 0.0, 0.0, 1.0); return; }
 	vec3  p    = fetchProject(sub == 1 ? lodA : lodB);
 	gl_Position = toNDC(p.xy);
@@ -250,10 +256,16 @@ void main() {
 	// arc 末尾は anchor(rank63) なので走査は必ず arc 内で停止（隣の arc へ漏れない）。
 	uint lodA = meta.r, lodB = meta.g;
 	if (float(fetchRank(lodA)) < u_lod_rank) { gl_Position = vec4(2.0, 0.0, 0.0, 1.0); return; }
-	// 走査は arc の向きに追従（reversed arc は edge meta が index 降順＝+1 固定だと A 側へ逆走し
-	// 辺が潰れ stencil 輪郭が破れる）。arc 両端は anchor(rank63) なのでどちら向きでも arc 内で停止。
-	int lodStep = (lodB > lodA) ? 1 : -1;
-	for (int k = 0; k < 4096; k++) { if (float(fetchRank(lodB)) >= u_lod_rank) break; lodB = uint(int(lodB) + lodStep); }
+	// B のスナップはメタ隣接エントリを辿る：同一 arc 内は meta[e+1].A == meta[e].B（全密度でも
+	// long-jump tier でも成立）＝1 hop で次の kept 頂点へ。旧実装（arc 密頂点±1 の線形歩行）は
+	// rank とメタ密度の差ぶん texelFetch を浪費（ortho-map ZCTA実測: 1辺≈50fetch）。
+	// arc 終端は B が anchor(rank63)＝rank 判定で必ず停止。隣接が別 arc なら m.r != lodB で停止。
+	for (int k = 1; k < 4096; k++) {
+		if (float(fetchRank(lodB)) >= u_lod_rank) break;
+		uvec4 mn = fetchEdgeMeta(edge_id + k);
+		if (mn.r != lodB) break;
+		lodB = mn.g;
+	}
 
 	if (u_pass == 0 && feat_id == u_active_id) { gl_Position = vec4(2.0, 0.0, 0.0, 1.0); return; }
 	if (u_pass == 1 && feat_id != u_active_id) { gl_Position = vec4(2.0, 0.0, 0.0, 1.0); return; }

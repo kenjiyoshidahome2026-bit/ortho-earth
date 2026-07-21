@@ -2,7 +2,7 @@
 // v1(ortho-map) の gintTextures を移植。node-free（GintBUF→テクスチャ、投影に触れない）＝逐語で携行。
 
 import { s } from './state.js';
-import { uploadTex2D, buildEdgeMeta, buildPolyBboxByFid, deriveOutlineZoom } from './utility.js';
+import { uploadTex2D, buildEdgeMeta, buildPolyBboxByFid, deriveOutlineZoom, buildWeightHist } from './utility.js';
 
 
 export function uploadGintTextures() {
@@ -26,45 +26,64 @@ export function uploadGintTextures() {
 	// per-zoom の Dynamic LOD は GPU 側（VS の rank discard）で行う＝ここは全密度アップロードのみ。
 	if (s.metaTex) gl.deleteTexture(s.metaTex);
 	s.metaTex = null;
-	const MAX_SAFE_EDGES = 2_000_000;
-	let metaResult = buildEdgeMeta(am, ps, ls);
+	// 2M→10M: いわき市(登記所備付地図・約6.9M辺)級でも静的間引きを発火させない＝筆界の正確さ優先
+	//（ortho-map と同判断）。描画コストは段階別tier＋可視チャンクカリングが回収する。
+	const MAX_SAFE_EDGES = 10_000_000;
+	// 空間カリング用：fid グループを bbox Morton 順に並べ替え＋約65536辺のチャンク台帳（bbox付き）。
+	s.polyBboxByFid = buildPolyBboxByFid(ps, am);   // 並べ替えキーに使うため先に計算
+	const metaOpts = { orderBbox: s.polyBboxByFid, chunkEdges: 65536 };
+	let capMinW = 0;
+	let weightHist = null;
+	let metaResult = buildEdgeMeta(am, ps, ls, null, 0, metaOpts);
 	if (metaResult.edgeCount > MAX_SAFE_EDGES && ab?.length) {
 		const arcU32 = new Uint32Array(ab.buffer, ab.byteOffset, ab.byteLength / 4);
-		const getW = (idx) => (arcU32[idx * 2 + 1] & 0x80000000) ? 63 : (arcU32[idx * 2] & 0x3F);
-		const hist = new Float64Array(64);
-		let nUsages = 0;
-		const countStream = (str) => {
-			if (!str) return; let p = 0;
-			while (p < str.length) { p++; const ng = str[p++];
-				for (let g = 0; g < ng; g++) { const ac = str[p++];
-					for (let a = 0; a < ac; a++) {
-						const aid = (str[p] < 0 ? ~str[p] : str[p]); p++; nUsages++;
-						const off = am[aid * 8], len = am[aid * 8 + 1];
-						for (let i = 0; i < len; i++) hist[getW(off + i)]++;
-					}
-				}
-			}
-		};
-		countStream(ps); countStream(ls);
-		for (let w = 62; w >= 0; w--) hist[w] += hist[w + 1];
+		weightHist = buildWeightHist(am, ps, ls, arcU32);
+		const { hist, nUsages } = weightHist;
 		let minW = 63;
 		for (let w = 0; w < 64; w++) {
 			if (hist[w] - nUsages <= MAX_SAFE_EDGES) { minW = w; break; }
 		}
-		metaResult = buildEdgeMeta(am, ps, ls, ab, minW);
+		metaResult = buildEdgeMeta(am, ps, ls, ab, minW, metaOpts);
+		capMinW = minW;
 		console.info('[gint] LOD cap: %d→%d edges (minWeight=%d)', metaResult.edgeCount + (hist[0] - nUsages | 0), metaResult.edgeCount, minW);
 	}
-	const { metaU32, edgeCount, polyEdgeByFid } = metaResult;
+	const { metaU32, edgeCount, polyEdgeCount, polyEdgeByFid } = metaResult;
 	s.totalEdges    = edgeCount;
+	s.polyEdges     = polyEdgeCount;
 	s.polyEdgeByFid = polyEdgeByFid;
-	console.debug('[gint] edges=%d', edgeCount);
-	s.polyBboxByFid = buildPolyBboxByFid(ps, am);
+	s.metaChunks    = metaResult.chunks;
+	console.debug('[gint] edges=%d chunks=%d', edgeCount, s.metaChunks?.length ?? 0);
 	s.outlineZoom = deriveOutlineZoom(s.polyBboxByFid);   // 低ズームのベタ塗り切替閾値（ポリゴン無し=null=既定へ）
 	if (s.totalEdges > 0) {
 		const metaH   = Math.ceil(s.totalEdges / s.TEX_META_W);
 		const metaPad = new Uint32Array(s.TEX_META_W * metaH * 4);
 		metaPad.set(metaU32);
 		s.metaTex = uploadTex2D(gl, metaPad, s.TEX_META_W, metaH, gl.RGBA32UI, gl.RGBA_INTEGER);
+	}
+
+	// ── 段階別 LOD メタ（ortho-map から移植）──
+	// 「全球・全国が視界内＝空間カリングが効かない低〜中ズーム」担当。rank↔zoom はデータ非依存
+	//（r ↔ z=(63-r)/3）なので固定 rank 梯子：w38↔z8.3 / w42↔z7 / w46↔z5.7 / w50↔z4.3。
+	// kept 集合は動的LOD（u_lod_rank）と同一＝見た目不変の純粋な VS 起動数削減。
+	// 高ズーム（rank<38）は可視チャンクカリングが担当。
+	if (s.lodTiers?.length) s.lodTiers.forEach(t => gl.deleteTexture(t.tex));
+	s.lodTiers = [];
+	const TIER_RANKS = [38, 42, 46, 50];
+	if (ab?.length && s.totalEdges > 3_000_000) {
+		let prevEdges = s.totalEdges;
+		for (const w of TIER_RANKS) {
+			if (w <= capMinW) continue;
+			const r = buildEdgeMeta(am, ps, ls, ab, w);
+			if (!r.edgeCount || r.edgeCount >= prevEdges * 0.7) continue;   // weight無しデータ等＝空/効果薄はスキップ
+			const tH   = Math.ceil(r.edgeCount / s.TEX_META_W);
+			const tPad = new Uint32Array(s.TEX_META_W * tH * 4);
+			tPad.set(r.metaU32);
+			s.lodTiers.push({ minW: w, edgeCount: r.edgeCount,
+				tex: uploadTex2D(gl, tPad, s.TEX_META_W, tH, gl.RGBA32UI, gl.RGBA_INTEGER) });
+			prevEdges = r.edgeCount;
+		}
+		if (s.lodTiers.length) console.debug('[gint] LOD tiers: %s',
+			s.lodTiers.map(t => `w${t.minW}=${t.edgeCount}辺`).join(' / '));
 	}
 
 	// ptTex: RG32UI — 点座標（arcTex と同形式）。ptMetaTex: R32UI — 点毎の feature ID。
@@ -93,5 +112,8 @@ export function deleteTextures() {
 	if (s.metaTex)   gl.deleteTexture(s.metaTex);
 	if (s.ptTex)     gl.deleteTexture(s.ptTex);
 	if (s.ptMetaTex) gl.deleteTexture(s.ptMetaTex);
+	if (s.lodTiers?.length) s.lodTiers.forEach(t => gl.deleteTexture(t.tex));
+	s.lodTiers = [];
+	s.metaChunks = null;
 	s.arcTex = s.metaTex = s.ptTex = s.ptMetaTex = null;
 }

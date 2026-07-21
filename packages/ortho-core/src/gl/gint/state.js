@@ -10,7 +10,10 @@ export const s = {
 
 	// Textures
 	arcTex: null, metaTex: null, ptTex: null, ptMetaTex: null,
+	lodTiers: [],                  // 段階別 LOD メタ [{minW, edgeCount, tex}] minW 昇順（粗いほど後ろ）
+	metaChunks: null,              // 基準メタのチャンク台帳 [{start,end,bbox}]（可視カリング用）
 	totalEdges: 0, totalPoints: 0,
+	polyEdges: 0,                  // メタ先頭のポリゴン辺数（stencil 塗りはこの範囲だけ＝折れ線をファンさせない）
 
 	// FBOs
 	baseFBO: null, baseColorTex: null, baseDepthStencilRBO: null,

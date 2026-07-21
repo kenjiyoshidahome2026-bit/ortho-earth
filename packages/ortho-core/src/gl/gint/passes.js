@@ -10,6 +10,39 @@ import { bindSharedUniforms } from './utility.js';
 // 低ズームでアウトライン→ベタ塗りへ切替えるズーム閾値の既定（データ粒度から導出した s.outlineZoom を優先）。
 const OUTLINE_ZOOM = 12;
 
+// 段階別 LOD メタの選択（ortho-map から移植）：動的 rank（worker が drawData.lodRank に載せる）以下の
+// minWeight を持つ最粗 tier を返す。tier の kept 集合（weight >= minW ⊇ weight >= rank）は動的LODの
+// 描画結果と同一＝見た目不変。対象は線・ピッキングのみ（stencil 塗りは全密度＝自己交差斑点の根治を維持、
+// overlay は polyEdgeByFid の辺レンジが基準メタ前提のため基準メタ固定）。
+// tier が無い（rank が低い＝高ズーム）時は runs=可視チャンクだけを描く（空間カリング）。
+function pickLineTier(rank, baseTex, baseCount) {
+	if (s.lodTiers?.length) {
+		let tex = null, count = 0;
+		for (const t of s.lodTiers) if (t.minW <= rank && (tex === null || t.edgeCount < count)) { tex = t.tex; count = t.edgeCount; }
+		if (tex) return { tex, count, runs: null };
+	}
+	return { tex: baseTex, count: baseCount, runs: visibleRuns(baseCount) };
+}
+
+// 可視チャンク run（[startEdge, edgeCount] の列）。チャンク台帳や view bbox が無ければ全量1本。
+// マージン: 線幅ぶん bbox を少し広げる（SE=1e7 単位・約 0.001°）。
+function visibleRuns(totalCount) {
+	const chunks = s.metaChunks, vb = s.lastViewBbox;
+	if (!chunks?.length || !vb) return [[0, totalCount]];
+	const mg = 10000;
+	const vx0 = vb[0] - mg, vy0 = vb[1] - mg, vx1 = vb[2] + mg, vy1 = vb[3] + mg;
+	const runs = [];
+	let curStart = -1, curEnd = 0;
+	for (const c of chunks) {
+		const b = c.bbox;
+		const vis = !(b[2] < vx0 || b[0] > vx1 || b[3] < vy0 || b[1] > vy1);
+		if (vis) { if (curStart < 0) curStart = c.start; curEnd = c.end; }
+		else if (curStart >= 0) { runs.push([curStart, curEnd - curStart]); curStart = -1; }
+	}
+	if (curStart >= 0) runs.push([curStart, curEnd - curStart]);
+	return runs;
+}
+
 // site 2（点）：cam 由来の mvp/eye/origin を点プログラムへ。v1 の rotate/scale/rsincos/jac を建て替え。
 function bindPointUniforms(u, data) {
 	const { gl, ptTex, ptMetaTex, TEX_ARC_W, width, height } = s;
@@ -54,7 +87,7 @@ export function renderCleanScene(data, targetFBO = null) {
 	const lowZoom = (data.zoom ?? 99) < (s.outlineZoom ?? OUTLINE_ZOOM);
 	const hasPoly = (s.polyBboxByFid?.size ?? 0) > 0;
 	const fc = data.fillColor ?? (lowZoom && hasPoly ? [st[0], st[1], st[2], st[3] * 0.8] : DEF_FILL);
-	if (fc[3] > 0 && totalEdges > 0) {
+	if (fc[3] > 0 && s.polyEdges > 0) {
 		gl.enable(gl.STENCIL_TEST);
 		gl.stencilMask(0xFF);
 		gl.clear(gl.STENCIL_BUFFER_BIT);
@@ -65,7 +98,8 @@ export function renderCleanScene(data, targetFBO = null) {
 		gl.useProgram(stencilProgram);
 		bindSharedUniforms(gl, uStencil, data, arcTex, metaTex, TEX_ARC_W, TEX_META_W, width, height);
 		gl.uniform1f(uStencil.u_lod_rank, 0);   // 塗りstencilは全密度＝LOD簡略化の自己交差による斑点(winding反転)を防ぐ
-		gl.drawArrays(gl.TRIANGLES, 0, totalEdges * 3);
+		// ポリゴン辺（メタ先頭連続）のみ winding にファン＝折れ線辺を混ぜない（ortho-map と同規約）
+		gl.drawArrays(gl.TRIANGLES, 0, s.polyEdges * 3);
 		gl.colorMask(true, true, true, true);
 		gl.stencilMask(0x00);
 		gl.stencilFunc(gl.NOTEQUAL, 0, 0xFF);
@@ -76,17 +110,19 @@ export function renderCleanScene(data, targetFBO = null) {
 		gl.disable(gl.STENCIL_TEST);
 	}
 
-	// ── Fat-line edges ──
+	// ── Fat-line edges ──（低〜中ズーム＝tier / 高ズーム＝可視チャンク run）
 	if (totalEdges > 0) {
+		const lnSel = pickLineTier(data.lodRank ?? 0, metaTex, totalEdges);
 		gl.useProgram(renderProgram);
-		bindSharedUniforms(gl, uRender, data, arcTex, metaTex, TEX_ARC_W, TEX_META_W, width, height);
+		bindSharedUniforms(gl, uRender, data, arcTex, lnSel.tex, TEX_ARC_W, TEX_META_W, width, height);
 		gl.uniform1f(uRender.u_line_width,   data.lineWidth ?? 1.0);   // device px（worker 済み）
 		gl.uniform1f(uRender.u_dpr,          1.0);                     // device px 一本化
 		gl.uniform1i(uRender.u_active_id,    -1);
 		gl.uniform4fv(uRender.u_style_table, data.styleTable ?? DEF_STYLE);
 		gl.uniform2fv(uRender.u_dash_table,  data.dashTable  ?? DEF_DASH);
 		gl.uniform1i(uRender.u_pass, 0);
-		gl.drawArrays(gl.TRIANGLES, 0, totalEdges * 6);
+		for (const [est, cnt] of (lnSel.runs ?? [[0, lnSel.count]]))
+			gl.drawArrays(gl.TRIANGLES, est * 6, cnt * 6);
 	}
 
 	// ── Points ──
@@ -191,10 +227,12 @@ export function renderPickingBuffer(data) {
 		// 見た目の線より太く描いて pick 感度を上げる（~12 device px マージン）。
 		const pickMargin = 12 * (s.dpr ?? 1);
 		if (totalEdges > 0 && metaTex) {
+			const pkSel = pickLineTier(data.lodRank ?? 0, metaTex, totalEdges);
 			gl.useProgram(pickLineProgram);
-			bindSharedUniforms(gl, uPickLine, data, arcTex, metaTex, TEX_ARC_W, TEX_META_W, width, height);
+			bindSharedUniforms(gl, uPickLine, data, arcTex, pkSel.tex, TEX_ARC_W, TEX_META_W, width, height);
 			gl.uniform1f(uPickLine.u_line_width, (data.lineWidth ?? 1.0) + pickMargin);
-			gl.drawArrays(gl.TRIANGLES, 0, totalEdges * 6);
+			for (const [est, cnt] of (pkSel.runs ?? [[0, pkSel.count]]))
+				gl.drawArrays(gl.TRIANGLES, est * 6, cnt * 6);
 		}
 
 		if (totalPoints > 0 && ptTex && ptMetaTex) {

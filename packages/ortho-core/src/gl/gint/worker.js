@@ -60,6 +60,7 @@ function init(data) {
 	s.canvas.addEventListener('webglcontextlost', e => {
 		e.preventDefault();
 		s.arcTex = s.metaTex = s.ptTex = s.ptMetaTex = null;
+		s.lodTiers = [];
 		s.baseFBO = s.baseColorTex = s.baseDepthStencilRBO = null;
 		s.pickFBO = s.pickColorTex = s.pickDepthStencilRBO = null;
 		s.programs = null; s.lastDrawData = null;
@@ -99,7 +100,7 @@ function set(data) {
 		// totalEdges===0 の drawNow はキャンバスを消さず早期 return する＝残像が残るので、ここで明示的に1枚消す。
 		deleteTextures();
 		s.gintData = null; s.polyEdgeByFid = null; s.polyBboxByFid = null; s.outlineZoom = null;
-		s.totalEdges = s.totalPoints = 0;
+		s.totalEdges = s.totalPoints = s.polyEdges = 0;
 		s.activeId = -1; s.lastDrawData = null;
 		if (s.gl) { s.gl.bindFramebuffer(s.gl.FRAMEBUFFER, null); s.gl.clearColor(0, 0, 0, 0); s.gl.stencilMask(0xFF); s.gl.clear(s.gl.COLOR_BUFFER_BIT); }
 	}
@@ -199,19 +200,22 @@ function drawNow(data) {
 		drawData.lodRank = rank;
 	}
 
-	// 視野コーナー → Morton 整数 bbox（JS polygon fallback の絞り込み。unproject＝site 4）。
-	let vxMin = 0xFFFFFFFF, vyMin = 0xFFFFFFFF, vxMax = 0, vyMax = 0;
+	// 視野コーナー → Morton 整数 bbox（JS polygon fallback の絞り込み＋可視チャンクカリング）。
+	// 8点のどれかが unproject 不能（地球外/地平線が画面内）なら bbox は「部分」＝信頼できない
+	// → null（カリング全描画・identify 全走査）。部分 bbox でカリングすると画面内の地物を誤って落とす。
+	let vxMin = 0xFFFFFFFF, vyMin = 0xFFFFFFFF, vxMax = 0, vyMax = 0, nValid = 0;
 	for (const [cx, cy] of [
 		[0, 0], [s.width, 0], [0, s.height], [s.width, s.height],
 		[s.width * .5, 0], [s.width * .5, s.height], [0, s.height * .5], [s.width, s.height * .5],
 	]) {
 		const g = unproject(st, cx, cy);
-		if (!g) continue;
+		if (!g || !Number.isFinite(g[0]) || !Number.isFinite(g[1])) continue;
+		nValid++;
 		const vx = toMortonX(g[0]), vy = toMortonY(g[1]);
 		if (vx < vxMin) vxMin = vx; if (vx > vxMax) vxMax = vx;
 		if (vy < vyMin) vyMin = vy; if (vy > vyMax) vyMax = vy;
 	}
-	s.lastViewBbox = vxMin <= vxMax ? [vxMin, vyMin, vxMax, vyMax] : null;
+	s.lastViewBbox = (nValid === 8 && vxMin <= vxMax) ? [vxMin, vyMin, vxMax, vyMax] : null;
 
 	renderCleanScene(drawData, null);
 	s.lastDrawData = drawData;
@@ -259,7 +263,7 @@ function destroy() {
 	}
 	s.programs = null; s.gintData = null;
 	s.polyEdgeByFid = null; s.polyBboxByFid = null;
-	s.totalEdges = s.totalPoints = 0;
+	s.totalEdges = s.totalPoints = s.polyEdges = 0;
 	s.activeId = -1; s.lastDrawData = null;
 	postMessage({ action: "done", type: "destroy" });
 }

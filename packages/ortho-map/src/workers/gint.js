@@ -139,22 +139,25 @@ function drawing(data) {
 	s.lastProj = geoOrthographic()
 		.rotate(data.rotate).scale(data.scale).translate([s.width / 2, s.height / 2]);
 
-	// Map viewport corners to Morton integer-space bbox (used by the JS polygon fallback).
+	// Map viewport corners to Morton integer-space bbox (JS polygon fallback ＋ 可視チャンクカリング).
+	// 8点のどれかが invert 不能/NaN（地球外＝地平線が画面内）なら bbox は「部分」＝信頼できない
+	// → null（カリング全描画・identify 全走査）。部分 bbox でカリングすると画面内の地物を誤って落とす。
 	const SE = 1e7;
-	let vxMin = 0xFFFFFFFF, vyMin = 0xFFFFFFFF, vxMax = 0, vyMax = 0;
+	let vxMin = 0xFFFFFFFF, vyMin = 0xFFFFFFFF, vxMax = 0, vyMax = 0, nValid = 0;
 	for (const [cx, cy] of [
 		[0, 0], [s.width, 0], [0, s.height], [s.width, s.height],
 		[s.width * .5, 0], [s.width * .5, s.height],
 		[0, s.height * .5], [s.width, s.height * .5],
 	]) {
 		const g = s.lastProj.invert([cx, cy]);
-		if (!g) continue;
+		if (!g || !Number.isFinite(g[0]) || !Number.isFinite(g[1])) continue;
+		nValid++;
 		const vx = Math.round((g[0] + 180) * SE) >>> 0;
 		const vy = Math.round((g[1] +  90) * SE) >>> 0;
 		if (vx < vxMin) vxMin = vx; if (vx > vxMax) vxMax = vx;
 		if (vy < vyMin) vyMin = vy; if (vy > vyMax) vyMax = vy;
 	}
-	s.lastViewBbox = vxMin <= vxMax ? [vxMin, vyMin, vxMax, vyMax] : null;
+	s.lastViewBbox = (nValid === 8 && vxMin <= vxMax) ? [vxMin, vyMin, vxMax, vyMax] : null;
 
 	renderCleanScene(data, null);
 	s.lastDrawData = data;
