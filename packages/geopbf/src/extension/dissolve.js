@@ -7,6 +7,20 @@ export async function dissolve(pbfInstance, key = false) {
 		key = pbfInstance.keys.indexOf(key);
 		if (key < 0) key = false;
 	}
+	const keyAt = i => typeof key === "number" ? pbfInstance.props[i][key] : key === true ? "" : pbfInstance.props[i].join("|");
+	// 併合ゼロの先行判定（props のみ・ジオメトリ復号なし）：全キーが一意なら dissolve は
+	// 「全地物デコード→全再エンコード→再インデックス」の空回り（実測 1.4s/57k 地物）。
+	// 地番を持つ地籍・建物・住所系は本質的に全キー一意＝ここで即帰る。重複が1つでもあれば従来経路。
+	{
+		const seen = new Set();
+		let dup = false;
+		for (let i = 0, n = pbfInstance.length; i < n; i++) {
+			const k = keyAt(i);
+			if (seen.has(k)) { dup = true; break; }
+			seen.add(k);
+		}
+		if (!dup) return pbfInstance;
+	}
 	const propTub = new Map();
 	pbfInstance.forEach(i => {
 		const pkey = typeof key === "number" ? pbfInstance.props[i][key] : key === true ? "" : pbfInstance.props[i].join("|");

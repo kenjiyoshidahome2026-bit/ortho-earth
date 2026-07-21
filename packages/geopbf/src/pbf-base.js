@@ -252,7 +252,9 @@ async function makeKeys(q) {
 }
 
 function dataType(q) {
-	const isColor = s => s.trim().match(/^rgba?\s*\([0-9,\.\s]+\)$/) || s.trim().match(/^\#[0-9a-f]{3,6}$/);
+	// 色判定は全文字列値に走る（地物数×キー数回）＝正規表現の前に先頭文字（#/r）で門前払い。判定は等価。
+	const isColor = s => { const t = s.trim(), c = t.charCodeAt(0);
+		return (c === 35 || c === 114) && (t.match(/^rgba?\s*\([0-9,\.\s]+\)$/) || t.match(/^\#[0-9a-f]{3,6}$/)); };
 	if (q == null) return DATATYPE.NULL;
 	const type = typeof q;
 	if (type === "string") return isColor(q) ? DATATYPE.COLOR : DATATYPE.STRING;
