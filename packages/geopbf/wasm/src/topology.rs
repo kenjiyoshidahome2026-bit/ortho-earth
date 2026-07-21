@@ -223,6 +223,167 @@ struct Comp {
     weight: f64,
 }
 
+// ── ライン経路（buildPolylines 相当）────────────────────────────────────────
+// 入力は L1 Morton(u64) 連結バッファ（purifier は JS 側で適用済み＝80kセグ以下の小データ専用）。
+// cutPolyline の掟：arc 照合は「端点キー＋頂点数」のみ（ポリゴンと違い内容照合なし＝JS と同じ）。
+
+#[wasm_bindgen]
+pub struct LineTopology {
+    arc_buffer: Vec<u64>,
+    arc_meta: Vec<u32>,
+    line_stream: Vec<i32>,
+    count: u32,
+}
+
+#[wasm_bindgen]
+impl LineTopology {
+    pub fn count(&self) -> u32 { self.count }
+    pub fn arc_buffer_ptr(&self) -> u32 { self.arc_buffer.as_ptr() as u32 }
+    pub fn arc_buffer_len(&self) -> u32 { self.arc_buffer.len() as u32 }
+    pub fn arc_meta_ptr(&self) -> u32 { self.arc_meta.as_ptr() as u32 }
+    pub fn arc_meta_len(&self) -> u32 { self.arc_meta.len() as u32 }
+    pub fn line_stream_ptr(&self) -> u32 { self.line_stream.as_ptr() as u32 }
+    pub fn line_stream_len(&self) -> u32 { self.line_stream.len() as u32 }
+}
+
+// metaArc calcMeta の u64(L1 Morton) 経路：unpack しつつ長さ/面積/bbox（JS と同一の f64 経路）
+fn calc_meta_u64(buff: &[u64], aid: usize) -> ArcMeta {
+    let n = buff.len();
+    let closed = buff[0] == buff[n - 1];
+    let mut l = 0.0f64;
+    let mut a = 0.0f64;
+    let (x0, y0) = crate::unpack_to_int(buff[0]);
+    let mut lng0 = x0 as f64 * INV_SCALE_E - 180.0;
+    let mut lat0 = y0 as f64 * INV_SCALE_E - 90.0;
+    let mut bbox = [x0, y0, x0, y0];
+    for i in 1..n {
+        let (x1, y1) = crate::unpack_to_int(buff[i]);
+        let lng1 = x1 as f64 * INV_SCALE_E - 180.0;
+        let lat1 = y1 as f64 * INV_SCALE_E - 90.0;
+        let cos_lat = (((lat0 + lat1) / 2.0) * RAD).cos();
+        let dx = (lng1 - lng0) * RAD * cos_lat;
+        let dy = (lat1 - lat0) * RAD;
+        l += (dx * dx + dy * dy).sqrt();
+        a += (lng1 - lng0) * RAD * (2.0 + (lat0 * RAD).sin() + (lat1 * RAD).sin());
+        if x1 < bbox[0] { bbox[0] = x1; } else if x1 > bbox[2] { bbox[2] = x1; }
+        if y1 < bbox[1] { bbox[1] = y1; } else if y1 > bbox[3] { bbox[3] = y1; }
+        lng0 = lng1;
+        lat0 = lat1;
+    }
+    ArcMeta {
+        aid,
+        length: l * RADIUS,
+        area: a * RADIUS * RADIUS / 2.0,
+        closed,
+        bbox,
+        weight: 0.0,
+        owner_count: 0,
+    }
+}
+
+// coords : 全ライン連結の L1 Morton(u64・TERMINAL_BIT 付き・purifier 適用済み)
+// lines  : ラインごとの [offset(要素), len(要素)]
+// fids   : ラインごとの feature id
+// n_poly / vertex_offset : ポリゴン arc 数・頂点数（グローバル index / offset への繰上げ）
+#[wasm_bindgen]
+pub fn build_polylines_wasm(coords: &[u64], lines: &[u32], fids: &[u32], n_poly: u32, vertex_offset: u32) -> LineTopology {
+    let line_ranges: Vec<(usize, usize)> = lines
+        .chunks_exact(2)
+        .map(|c| (c[0] as usize, c[1] as usize))
+        .collect();
+
+    // 1. 頂点出現回数（cutPolyline setHash 相当。キーは raw u64＝JS の BigInt 値と同一）
+    let mut hash: FxHashMap<u64, u32> = FxHashMap::default();
+    for &(off, len) in &line_ranges {
+        for &t in &coords[off..off + len] { *hash.entry(t).or_insert(0) += 1; }
+    }
+
+    // 2. 分割＋共有 arc 照合（端点キー＋頂点数のみ・内容照合なし＝JS cutPolyline と同じ）
+    let mut buffs: Vec<Vec<u64>> = Vec::new();
+    let mut a_hash: FxHashMap<(u64, u64, u32), u32> = FxHashMap::default();
+    let mut line_arcs: Vec<Vec<i32>> = Vec::with_capacity(line_ranges.len());
+    for &(off, len) in &line_ranges {
+        let arc = &coords[off..off + len];
+        let n = arc.len();
+        let is_term = |i: usize| i == 0 || i == n - 1 || hash[&arc[i]] > 2;
+        let mut indices: Vec<i32> = Vec::new();
+        let mut i = 0usize;
+        while n > 0 && i < n - 1 {
+            let mut j = i + 1;
+            while j < n - 1 && !is_term(j) { j += 1; }
+            let seg = &arc[i..=j];
+            let p = seg[0];
+            let q = seg[seg.len() - 1];
+            let (min, max) = if p > q { (q, p) } else { (p, q) };
+            let key = (min, max, seg.len() as u32);
+            let idx = *a_hash.entry(key).or_insert_with(|| {
+                buffs.push(seg.to_vec());
+                (buffs.len() - 1) as u32
+            });
+            let forward = p == buffs[idx as usize][0];
+            indices.push(if forward { idx as i32 } else { !(idx as i32) });
+            i = j;
+        }
+        line_arcs.push(indices);
+    }
+    drop(hash);
+
+    // 3. arc メタ → 長さ降順（stable・同値原順＝ポリゴンと同じ意図的相違）→ remap → n_poly 繰上げ
+    let mut metas: Vec<ArcMeta> = buffs.iter().enumerate().map(|(i, b)| calc_meta_u64(b, i)).collect();
+    metas.sort_by(|p, q| q.length.partial_cmp(&p.length).unwrap_or(std::cmp::Ordering::Equal));
+    let mut aid_to_new = vec![0i32; metas.len()];
+    for (new_id, m) in metas.iter().enumerate() { aid_to_new[m.aid] = new_id as i32; }
+    for arcs in line_arcs.iter_mut() {
+        for aid in arcs.iter_mut() {
+            let is_rev = *aid < 0;
+            let new_id = aid_to_new[(if is_rev { !*aid } else { *aid }) as usize];
+            let shifted = new_id + n_poly as i32;
+            *aid = if is_rev { !shifted } else { shifted };
+        }
+    }
+
+    // 4. buildArcs（u64 経路）：長さ順に連結 → arc ごと VW（L1→L2）→ meta 行（weight＝arc 長）
+    let count = buffs.len();
+    let total: usize = buffs.iter().map(|b| b.len()).sum();
+    let mut arc_buffer: Vec<u64> = Vec::with_capacity(total);
+    let mut arc_meta: Vec<u32> = Vec::with_capacity(count * 8);
+    let mut offset = 0usize;
+    for m in metas.iter() {
+        let arc = &buffs[m.aid];
+        let len = arc.len();
+        arc_buffer.extend_from_slice(arc);
+        arc_meta.extend_from_slice(&[
+            offset as u32 + vertex_offset, len as u32, m.length as u32, 0,
+            m.bbox[0], m.bbox[1], m.bbox[2], m.bbox[3],
+        ]);
+        if len >= 3 {
+            l2_to_l2(&mut arc_buffer[offset..offset + len]);
+        }
+        offset += len;
+    }
+
+    // 5. polyline stream：fid 初出順（原順）にグループ化 [fid][numSets][arcCount][arcIdx...]...
+    let mut fid_slot: FxHashMap<i32, usize> = FxHashMap::default();
+    let mut grouped: Vec<(i32, Vec<usize>)> = Vec::new();
+    for (li, &fid) in fids.iter().enumerate() {
+        let fid = fid as i32;
+        let slot = *fid_slot.entry(fid).or_insert_with(|| { grouped.push((fid, Vec::new())); grouped.len() - 1 });
+        grouped[slot].1.push(li);
+    }
+    let mut line_stream: Vec<i32> = Vec::new();
+    for (fid, sets) in grouped.iter() {
+        line_stream.push(*fid);
+        line_stream.push(sets.len() as i32);
+        for &li in sets {
+            let arcs = &line_arcs[li];
+            line_stream.push(arcs.len() as i32);
+            line_stream.extend_from_slice(arcs);
+        }
+    }
+
+    LineTopology { arc_buffer, arc_meta, line_stream, count: count as u32 }
+}
+
 // ── 本体：JS buildPolygons + topology() の polygon stream / neighbor stream 組立の一括版 ──
 // xy    : 全リング連結 XY（u32 ペア・densify/fit/offset 適用済みの gint 整数座標）
 // rings : リングごとの [offset(頂点), len(頂点)]

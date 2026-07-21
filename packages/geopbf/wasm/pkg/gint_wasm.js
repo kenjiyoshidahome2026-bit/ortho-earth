@@ -111,6 +111,75 @@ export function L1toL2_wasm(ptr, length) {
     wasm.L1toL2_wasm(ptr, length);
 }
 
+export class LineTopology {
+    static __wrap(ptr) {
+        const obj = Object.create(LineTopology.prototype);
+        obj.__wbg_ptr = ptr;
+        LineTopologyFinalization.register(obj, obj.__wbg_ptr, obj);
+        return obj;
+    }
+    __destroy_into_raw() {
+        const ptr = this.__wbg_ptr;
+        this.__wbg_ptr = 0;
+        LineTopologyFinalization.unregister(this);
+        return ptr;
+    }
+    free() {
+        const ptr = this.__destroy_into_raw();
+        wasm.__wbg_linetopology_free(ptr, 0);
+    }
+    /**
+     * @returns {number}
+     */
+    arc_buffer_len() {
+        const ret = wasm.linetopology_arc_buffer_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    arc_buffer_ptr() {
+        const ret = wasm.linetopology_arc_buffer_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    arc_meta_len() {
+        const ret = wasm.linetopology_arc_meta_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    arc_meta_ptr() {
+        const ret = wasm.linetopology_arc_meta_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    count() {
+        const ret = wasm.linetopology_count(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    line_stream_len() {
+        const ret = wasm.linetopology_line_stream_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    line_stream_ptr() {
+        const ret = wasm.linetopology_line_stream_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+}
+if (Symbol.dispose) LineTopology.prototype[Symbol.dispose] = LineTopology.prototype.free;
+
 export class PolyTopology {
     static __wrap(ptr) {
         const obj = Object.create(PolyTopology.prototype);
@@ -229,6 +298,25 @@ export function build_polygons_wasm(xy, rings, comps) {
 }
 
 /**
+ * @param {BigUint64Array} coords
+ * @param {Uint32Array} lines
+ * @param {Uint32Array} fids
+ * @param {number} n_poly
+ * @param {number} vertex_offset
+ * @returns {LineTopology}
+ */
+export function build_polylines_wasm(coords, lines, fids, n_poly, vertex_offset) {
+    const ptr0 = passArray64ToWasm0(coords, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passArray32ToWasm0(lines, wasm.__wbindgen_malloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ptr2 = passArray32ToWasm0(fids, wasm.__wbindgen_malloc);
+    const len2 = WASM_VECTOR_LEN;
+    const ret = wasm.build_polylines_wasm(ptr0, len0, ptr1, len1, ptr2, len2, n_poly, vertex_offset);
+    return LineTopology.__wrap(ret);
+}
+
+/**
  * @param {number} arc_buf_ptr
  * @param {number} arc_buf_len
  * @param {number} arc_meta_ptr
@@ -280,9 +368,20 @@ function __wbg_get_imports() {
 const GintConverterFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_gintconverter_free(ptr, 1));
+const LineTopologyFinalization = (typeof FinalizationRegistry === 'undefined')
+    ? { register: () => {}, unregister: () => {} }
+    : new FinalizationRegistry(ptr => wasm.__wbg_linetopology_free(ptr, 1));
 const PolyTopologyFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_polytopology_free(ptr, 1));
+
+let cachedBigUint64ArrayMemory0 = null;
+function getBigUint64ArrayMemory0() {
+    if (cachedBigUint64ArrayMemory0 === null || cachedBigUint64ArrayMemory0.byteLength === 0) {
+        cachedBigUint64ArrayMemory0 = new BigUint64Array(wasm.memory.buffer);
+    }
+    return cachedBigUint64ArrayMemory0;
+}
 
 function getStringFromWasm0(ptr, len) {
     return decodeText(ptr >>> 0, len);
@@ -311,6 +410,13 @@ function passArray32ToWasm0(arg, malloc) {
     return ptr;
 }
 
+function passArray64ToWasm0(arg, malloc) {
+    const ptr = malloc(arg.length * 8, 8) >>> 0;
+    getBigUint64ArrayMemory0().set(arg, ptr / 8);
+    WASM_VECTOR_LEN = arg.length;
+    return ptr;
+}
+
 let cachedTextDecoder = new TextDecoder('utf-8', { ignoreBOM: true, fatal: true });
 cachedTextDecoder.decode();
 const MAX_SAFARI_DECODE_BYTES = 2146435072;
@@ -332,6 +438,7 @@ function __wbg_finalize_init(instance, module) {
     wasmInstance = instance;
     wasm = instance.exports;
     wasmModule = module;
+    cachedBigUint64ArrayMemory0 = null;
     cachedUint32ArrayMemory0 = null;
     cachedUint8ArrayMemory0 = null;
     wasm.__wbindgen_start();
