@@ -1,4 +1,4 @@
-import init, { L1toL2_wasm, XYtoL1_wasm, alloc_wasm_memory, free_wasm_memory, init_panic_hook, detect_intersections_wasm, build_polygons_wasm, build_polylines_wasm } from "../../wasm/pkg/gint_wasm.js";
+import init, { L1toL2_wasm, XYtoL1_wasm, alloc_wasm_memory, free_wasm_memory, init_panic_hook, detect_intersections_wasm, build_polygons_wasm, build_polylines_wasm, topology_full_wasm } from "../../wasm/pkg/gint_wasm.js";
 let wasmReady = false;
 let wasmMemoryBuffer = null;
 let sharedWasmPtr = 0;
@@ -229,6 +229,27 @@ export class gint {
 			}
 		}
 		return map;
+	}
+
+	// topology() の全量 wasm 版：feature 台帳（[fid,type,geomPos]×n）と PBF 生バイトを1回渡し、
+	// GintBUF 完成品を1回で受け取る。デルタ復号→fit→densify→位相→レイアウト組立まで全部 Rust＝
+	// JS に残るのは props 由来の fid 台帳組立だけ。wasm 不在なら null（従来経路へ）。
+	static topologyFullWasm(self, formatVersion) {
+		if (!wasmReady || typeof topology_full_wasm !== 'function') return null;
+		const dir = [];
+		let tub = new Map();
+		self.forEach((i, map) => { const key = self.props[i].join("|");
+			if (!tub.has(key)) tub.set(key, i);
+			const id = tub.get(key);
+			(map[2] === 6) ? map[3].forEach((p, j) => dir.push(id, map[4][j], p)) : dir.push(id, map[2], map[1]);
+		});
+		tub = null;
+		const res = topology_full_wasm(self.pbf.buf, new Uint32Array(dir), self.e, formatVersion);
+		const len = res.len();
+		const out = new Uint8Array(len);
+		out.set(new Uint8Array(wasmMemoryBuffer.buffer, res.ptr(), len));
+		res.free();
+		return out.buffer;
 	}
 
 	// topology.js ポリゴン経路（cutPolygon→meta→buildArcs→stream組立）の wasm 一括版。

@@ -27,6 +27,10 @@ class BigMap {
 
 export function topology(self) {
 	const { pbf, e } = self;
+	// 全量 wasm 経路：PBF 生バイト＋feature 台帳を1回渡して GintBUF 完成品を受け取る
+	//（デルタ復号→fit→densify→位相→組立まで Rust）。不在なら従来の JS 経路へ。
+	const full = gint.topologyFullWasm(self, topology.FORMAT_VERSION);
+	if (full) return full;
 	const structures = [[], [], []];
 	const elemCount = [0, 0, 0, 0];
 	const factor = gint.SCALE_E < e? gint.SCALE_E / e: Math.round(gint.SCALE_E / e);
