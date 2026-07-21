@@ -36,20 +36,21 @@ function _resolveValue(k, v, ds) {
     return { label: ds?.attributes?.[k] || k, display: String(v), decoded: decoded || null };
 }
 
+// gishub 本家と同じ「全プロパティのテーブル」形式（.identify-table）。
+// jp の強み＝codelist デコード（コード値→名称 (コード)）はセル内で維持する。
 function _buildTip(props, ds) {
     if (!props) return null;
     const rows = Object.entries(props)
         .filter(([, v]) => v !== null && v !== undefined && v !== '')
-        .slice(0, 4)
         .map(([k, v]) => {
             const label = ds?.attributes?.[k] || k;
             const cl = ds?.codelist?.[k];
             const display = (cl && typeof cl === 'object' && cl[String(v)])
-                ? `${cl[String(v)]} (${v})`
-                : String(v);
-            return `${label}: ${display}`;
+                ? `${_esc(cl[String(v)])} <span class="cat-tip-code">(${_esc(String(v))})</span>`
+                : _esc(String(v));
+            return `<tr><th>${_esc(label)}</th><td>${display}</td></tr>`;
         });
-    return rows.length ? rows : null;
+    return rows.length ? `<table class="identify-table">${rows.join('')}</table>` : null;
 }
 
 function _buildPop(props, ds) {

@@ -66,6 +66,14 @@
 .cat-tip-label { color: #888; font-size: 10px; }
 .cat-tip-code  { color: #666; font-size: 10px; }
 
+// tip の属性テーブル（gishub 本家 .identify-table と同形）：全プロパティを th/td で、偶数行に薄い縞。
+.identify-table {
+	border-collapse: collapse; font-size: 10px;
+	th { text-align: left; padding: 1px 3px; color: #ccc; font-weight: normal; white-space: nowrap; }
+	td { padding: 1px 3px; color: #fff; }
+	tr:nth-child(even) { background: rgba(255,255,255,0.05); }
+}
+
 .cat-pop-title {
 	font-size: 11px;
 	font-weight: 600;
