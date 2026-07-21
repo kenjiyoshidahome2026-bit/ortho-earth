@@ -54,10 +54,11 @@ export async function geoExec(info, { geopbf, logger, cache = null, onSuccess, o
 			previewCanvas.height = bitmap.height;
 			previewCanvas.style.width  = (bitmap.width  / 2) + "px";
 			previewCanvas.style.height = (bitmap.height / 2) + "px";
-			previewCanvas.getContext("2d").drawImage(bitmap, 0, 0);
+			previewCanvas.getContext("2d", { willReadFrequently: true }).drawImage(bitmap, 0, 0);
 			trimCanvas(previewCanvas);
 		} else {
 			previewCanvas = document.createElement("canvas");
+			previewCanvas.getContext("2d", { willReadFrequently: true }); // pre-warm so pbf.preview's internal getContext inherits the flag
 			const [bitmap, html] = await Promise.all([
 				pbf.preview(previewCanvas, { size:256, stroke:"#fff", fill:"#222", minDist:0.5, dpr:2 }),
 				pbf.profile({ nohead: true }),

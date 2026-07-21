@@ -148,6 +148,7 @@ function drawNow(data) {
 		// 範囲外は常にクリア（panning中も）。ズームインで z>maxZoom を跨いだ瞬間に消す＝「消し忘れ」防止。
 		// ※v1 は zoomToFeature が範囲外を一瞬通る対策で panning中は前フレーム保持していたが、
 		//   ortho-japan には zoomToFeature が無いので保持不要。将来 fly-to を足すなら要再考。
+		s._inRange = false;   // 描画されていない＝identify(tip) も抑止（handleMove が空振りを返す）
 		s.gl.bindFramebuffer(s.gl.FRAMEBUFFER, null);
 		s.gl.clearColor(0, 0, 0, 0);
 		s.gl.stencilMask(0xFF);
@@ -155,6 +156,7 @@ function drawNow(data) {
 		s.lastDrawData = null;
 		return;
 	}
+	s._inRange = true;
 	if (s.totalEdges === 0 && s.totalPoints === 0) return;
 
 	// ── site 3：japan の心室で cam → mvp/eye/origin（v1 の d3 lastProj の建て替え）──

@@ -686,7 +686,7 @@ function applyGintData(pbf, label, moveCamera = true) {
 	// moj 等はデータへジャンプ（初期は東京駅、moj のデータは離れた区にある）。ドロップは呼び出し側が flyTo で寄る＝moveCamera=false。
 	if (moveCamera) { const b = pbf.unPackGint.bbox; if (b && b.length === 4) cam.center = [(b[0] + b[2]) / 2, (b[1] + b[3]) / 2]; }
 	gintSlot = null;           // 内容が変わった＝再適用を強制
-	updateGintSlot();          // z≥4 ならユーザー層を表示（z<4 は世界海岸線のまま＝世界図の文脈）
+	updateGintSlot();          // z≥GINT_SWAP_Z ならユーザー層を表示（z<GINT_SWAP_Z は世界海岸線のまま＝世界図の文脈）
 	onMove();
 	console.log("[gint] %s ロード完了。z≥%d で表示・z<%d は世界海岸線", label, GINT_SWAP_Z, GINT_SWAP_Z);
 	return pbf;
@@ -732,9 +732,11 @@ window.__arakawaFit = async () => {
 // 世界海岸線（Natural Earth 10m）を起動時に自動ロード＝__coast() を叩かず「最初から描画」。
 // カメラは動かさない＝ズームアウト（z≤7）した瞬間に海岸線が居る。14条筆と gint 単一スロット共有（相互置換）。
 // gint 単一スロットの調停：ユーザー層（14条筆/ドロップGISファイル）と世界海岸線を z=GINT_SWAP_Z で相互切替。
-// z≥4＝ユーザー層（無ければ海岸線）／z<4＝海岸線（世界図の文脈）。両データはメモリに保持し境界跨ぎで差し替え。
+// z≥6＝ユーザー層（無ければ海岸線）／z<6＝海岸線（世界図の文脈）。両データはメモリに保持し境界跨ぎで差し替え。
 // スロットは単一（worker側）＝同時表示不可なので「今どちらが載っているか(gintSlot)」を持ち、変更時だけ post。
-const GINT_SWAP_Z = 4;
+// ※小域ユーザー層は checkZoomRange が bbox から minZoom を自動採用＝実表示はさらに絞られる（例:筆データ z≥10）。
+//   海岸線は z<6 まで見せ、そこから先はユーザー層 minZoom まで基図に委ねる（豆粒の筆を全球に出さない）。
+const GINT_SWAP_Z = 6;
 let coastGint = null;      // 海岸線の gint ペイロード（初回ロードでキャッシュ＝再取得しない）
 let userGint = null;       // ユーザー層 { g, label }（14条/ドロップ）
 let gintSlot = null;       // 現在スロットの占有者 "coast" | "user"（null=未確定＝次の update で必ず post）

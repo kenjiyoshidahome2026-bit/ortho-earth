@@ -275,7 +275,10 @@ export function checkZoomRange({ arcMeta, minZoom, maxZoom, precision = 6 }) {
 		if (maxDim > 0) {
 			const suggested = Math.max(0, Math.floor(Math.log2(360 / maxDim)) - 1);
 			if (suggested > 0) {
-				console.warn(`[gint] minZoom not set. Suggested: ${suggested} (data spans ~${maxDim.toFixed(1)}°)`);
+				// minZoom 未指定＝bbox から導いた値を自動採用（小域データを全球で豆粒描画しない）。
+				// 明示的に minZoom を渡せばこの自動値は上書きされる（呼び出し側の意図が優先）。
+				effectiveMin = suggested;
+				console.info(`[gint] minZoom auto-set to ${suggested} (data spans ~${maxDim.toFixed(1)}°)`);
 			}
 		}
 	}

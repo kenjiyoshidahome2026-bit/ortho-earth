@@ -47,6 +47,9 @@ export function doIdentify(data) {
 }
 
 export function handleMove(data) {
+	// ズーム範囲外＝地物が描画されていない → 識別しない（見えない地物に tip を出さない）。
+	// 直前まで in-range で activeId が残っていれば handleLeave が tip を消す。
+	if (!s._inRange) { handleLeave(); return; }
 	if (!s.cam || !s.gintData || s._isDrawing) {
 		if (s._isDrawing) s._pendingMove = data;
 		return;

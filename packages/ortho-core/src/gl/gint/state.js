@@ -33,6 +33,7 @@ export const s = {
 	lastViewBbox: null,
 	cam: null, lastMX: NaN, lastMY: NaN,   // ← v1 の lastProj を cam(cameraState)へ置換
 	_isDrawing: false, _moveTimer: null, _pendingMove: null,
+	_inRange: false,   // 現ズームが [minZoom,maxZoom] 内で実描画されているか＝identify(tip) の可否。描画されない地物にホバー tip を出さない。
 };
 
 export const DEF_STYLE = new Float32Array(256 * 4);
