@@ -9,19 +9,16 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 :root {
-	--paper:   #ece1c9;   /* aged cream */
-	--paper2:  #e4d7b8;   /* deeper stock — cards */
-	--ink:     #2c241a;   /* dark sepia ink */
-	--ink-soft:#463b2b;
-	--ink-dim: #8a7856;
-	--rule:    #c3b18a;   /* faded line */
-	--shu:     #b23522;   /* 朱 vermillion */
-	--indigo:  #3f4a68;   /* draftsman's second ink */
+	--paper:   #ece1c9;   /* 生成りの用紙 */
+	--paper2:  #e4d7b8;   /* 一段濃い用紙 — 差込み札 */
+	--ink:     #2c241a;   /* 濃い墨（セピア） */
+	--ink-soft:#463b2b;   /* 本文の墨 */
+	--ink-dim: #8a7856;   /* 図版キャプションの淡墨 */
+	--rule:    #c3b18a;   /* 罫線 */
+	--indigo:  #3f4a68;   /* 製図の第二の墨（藍） */
 	--mincho: "Hiragino Mincho ProN", "Yu Mincho", "YuMincho", "Noto Serif JP", "Times New Roman", serif;
-	--mono: "Courier New", "Courier", monospace;
 }
 
-html { scroll-behavior: smooth; }
 body {
 	background: var(--paper);
 	color: var(--ink);
@@ -29,19 +26,19 @@ body {
 	line-height: 2.0;
 	position: relative;
 }
-/* paper grain */
+/* 紙の地合い（微細ノイズ） */
 body::before {
 	content: ""; position: fixed; inset: 0; z-index: 9999; pointer-events: none;
 	opacity: 0.05; mix-blend-mode: multiply;
 	background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
 }
-/* soft page vignette so the cream isn't flat */
+/* 生成りが平坦にならないよう淡い周辺減光 */
 body::after {
 	content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none;
 	background: radial-gradient(120% 80% at 50% 0%, rgba(255,250,238,0.55), rgba(120,100,60,0.10) 100%);
 }
 
-/* ─── masthead ─────────────────────────────────────────── */
+/* ─── 題字 ─────────────────────────────────────────────── */
 .masthead {
 	max-width: 700px; margin: 0 auto; padding: 56px 24px 8px;
 	text-align: center;
@@ -52,19 +49,14 @@ body::after {
 	padding: 22px 0 24px;
 }
 .title-frame h1 {
-	font-family: var(--mincho);
 	font-size: clamp(2.5rem, 8vw, 4rem);
 	font-weight: 600;
 	letter-spacing: 0.22em;
 	color: var(--ink);
 	padding-left: 0.22em;
 }
-.byline-top {
-	margin-top: 18px;
-	font-size: 0.82rem; letter-spacing: 0.08em; color: var(--ink-dim);
-}
 
-/* ─── framed photo (period plate) ─────────────────────── */
+/* ─── 図版（古い写真プレート） ─────────────────────────── */
 figure.plate {
 	max-width: 760px; margin: 34px auto 0; padding: 0 24px;
 }
@@ -85,7 +77,7 @@ figure.plate {
 	font-size: 0.82rem; color: var(--ink-dim); letter-spacing: 0.05em;
 }
 
-/* ─── essay ────────────────────────────────────────────── */
+/* ─── 本文 ─────────────────────────────────────────────── */
 .reading { max-width: 640px; margin: 0 auto; padding: 40px 24px 40px; }
 
 .essay p {
@@ -102,7 +94,7 @@ figure.plate {
 	font-size: 1.1rem; color: var(--ink); letter-spacing: 0.05em;
 }
 
-/* ─── draftsman's note ─────────────────────────────────── */
+/* ─── 製図係の付記 ─────────────────────────────────────── */
 .note {
 	max-width: 640px; margin: 26px auto 0; padding: 28px 32px;
 	background: var(--paper2);
@@ -110,7 +102,7 @@ figure.plate {
 	border-left: 3px solid var(--indigo);
 	box-shadow: 0 2px 0 rgba(120,100,60,0.10), 0 10px 26px rgba(60,45,20,0.14);
 }
-.note h2 { font-family: var(--mincho); font-size: 1.22rem; color: var(--ink); margin: 0 0 14px; font-weight: 600; }
+.note h2 { font-size: 1.22rem; color: var(--ink); margin: 0 0 14px; font-weight: 600; }
 .note p { color: var(--ink-soft); font-size: 1.0rem; line-height: 2.05; margin: 0 0 1.1em; text-align: justify; }
 .note .sig { font-size: 0.95rem; color: var(--indigo); }
 
@@ -138,15 +130,17 @@ figure.plate {
 
 <div class="reading essay">
 	<p>横浜に住む一介の退職エンジニアです。国の機関とは何の関係もありません。
-		誰にも頼まれず独りで、球体に地図を黙々と描き直している——「独り地理院」です。67歳の今、私には納期も要件もありません。死ぬまでが納期、できる限りが要件です。
+		誰にも頼まれず独りで、球体に地図を黙々と描き直している——「独り地理院」です。
+		67歳の今、私には納期も要件もありません。死ぬまでが納期、できる限りが要件です。
 		だから、究極のアマチュアとも言えます。気に入らなかったら、最初から作り直す。凝るところは、どこまでも凝る。
 		データは国土地理院と PLATEAU、JAXA等公共のものだけを、公共の作法で使わせていただいています。
 		大地は動き、地球は丸い。ならば地図も、丸いまま描けばいいのです。</p>
-	<p>子どもの頃天文に興味を持ちながら、就いた仕事は半導体。ハードウェアを理解し、使い尽くそうとする感性は健在です。
+	<p>子どもの頃天文に興味を持ちながら、就いた仕事は半導体。宇宙を夢見ながら、コンピュータを愛し続けてきました。
 		そして、私はコードを一行も書いていません。
 	基本コンセプトと、設計判断、そして画面の裁定だけを私が受け持ち、実装と検証は 全てAI との協業です。
 		協業は練習で上達する技能で、「二人の呼吸が合うほど、私は私以上のものになる。」そういう時代の、たぶん早い実例です。</p>
-	<p>ゼロからのスクラッチ開発なので、エンジンのライブラリ依存ゼロ、数百キロバイトの軽さ、サーバーも持ちません。軽さは思想です。独りですが、孤独ではありません。机の上に、丸いままの日本を一つ置いておきます。どうぞ、回してみてください。</p>
+	<p>ゼロからのスクラッチ開発なので、地図ライブラリへの依存ゼロ、数百キロバイト、地図サーバーも持ちません。軽さは思想です。
+		独りですが、孤独ではありません。机の上に、丸いままの日本を一つ置いておきます。どうぞ、回してみてください。</p>
 	<div class="sig">Kenji Yoshida @ Yokohama</div>
 </div>
 
