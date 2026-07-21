@@ -9,7 +9,7 @@
 // （V8 の「比較器が 0 を返さない sort」は同値を反転させる／Rust は stable で原順維持。
 //   weight 同値の並びは意味を持たないため許容）。
 use wasm_bindgen::prelude::*;
-use rustc_hash::{FxHashMap, FxHashSet};
+use rustc_hash::FxHashMap;
 use super::{pure_morton_from_int, TERMINAL_BIT};
 use crate::l2_to_l2;
 
@@ -21,6 +21,42 @@ const INV_SCALE_E: f64 = 1.0 / 10_000_000.0;
 fn vkey(x: u32, y: u32) -> u64 {
     ((x as u64) << 32) | (y as u64)
 }
+
+// ── 座標キー用ハッシュ ──────────────────────────────────────────────────
+// gint 座標は precision<7 だと全て 10^(7-p) の倍数（ZCTA=precision5 → ×100＝下位2bit常時ゼロ）。
+// FxHash（乗算1回）は下位ビットのエントロピーが下位に留まり、hashbrown のバケツ選択（ハッシュ下位）が
+// 1/4 に集中→プローブ連鎖爆発（ZCTA実測：接合点判定 133s）。splitmix64 の仕上げ混合で
+// 上位のエントロピーを下位へ折り返す＝キー構造に依らず均一分布。
+#[inline(always)]
+fn mix64(mut z: u64) -> u64 {
+    z = (z ^ (z >> 30)).wrapping_mul(0xbf58476d1ce4e5b9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94d049bb133111eb);
+    z ^ (z >> 31)
+}
+
+#[derive(Default)]
+struct MixHasher {
+    h: u64,
+}
+
+impl std::hash::Hasher for MixHasher {
+    #[inline(always)]
+    fn finish(&self) -> u64 { self.h }
+    #[inline(always)]
+    fn write(&mut self, bytes: &[u8]) {
+        for &b in bytes { self.h = mix64(self.h ^ b as u64); }
+    }
+    #[inline(always)]
+    fn write_u32(&mut self, v: u32) { self.h = mix64(self.h ^ v as u64); }
+    #[inline(always)]
+    fn write_u64(&mut self, v: u64) { self.h = mix64(self.h ^ v); }
+    #[inline(always)]
+    fn write_usize(&mut self, v: usize) { self.h = mix64(self.h ^ v as u64); }
+}
+
+type MixBuild = std::hash::BuildHasherDefault<MixHasher>;
+type MixMap<K, V> = std::collections::HashMap<K, V, MixBuild>;
+type MixSet<K> = std::collections::HashSet<K, MixBuild>;
 
 // ── 出力コンテナ：JS は ptr/len 越しに wasm メモリを直接読む（slice→GintBUF へ 1 copy）──
 #[wasm_bindgen]
@@ -55,9 +91,9 @@ fn trimmed_len(ring: &[u32]) -> usize {
 
 // ── 接合点判定（computeJunctions 相当・チャンク無し全量）──
 // 各頂点の「非順序の隣接ペア」を初出時に記録し、異なるペアで再訪された頂点＝接合点。
-fn compute_junctions(xy: &[u32], ring_ranges: &[(usize, usize)]) -> FxHashSet<u64> {
-    let mut pair: FxHashMap<u64, (u64, u64)> = FxHashMap::default();
-    let mut marks: FxHashSet<u64> = FxHashSet::default();
+fn compute_junctions(xy: &[u32], ring_ranges: &[(usize, usize)]) -> MixSet<u64> {
+    let mut pair: MixMap<u64, (u64, u64)> = MixMap::default();
+    let mut marks: MixSet<u64> = MixSet::default();
     for &(off, len) in ring_ranges {
         let ring = &xy[off * 2..(off + len) * 2];
         let n = trimmed_len(ring);
@@ -82,11 +118,11 @@ fn compute_junctions(xy: &[u32], ring_ranges: &[(usize, usize)]) -> FxHashSet<u6
 // ── arc 登録（registerArc 相当）：端点キー＋頂点数で候補を引き、内容照合（前方/逆方向）で確定 ──
 struct ArcRegistry {
     arcs: Vec<Vec<u32>>,
-    index: FxHashMap<(u64, u64, u32), Vec<u32>>,
+    index: MixMap<(u64, u64, u32), Vec<u32>>,
 }
 
 impl ArcRegistry {
-    fn new() -> Self { ArcRegistry { arcs: Vec::new(), index: FxHashMap::default() } }
+    fn new() -> Self { ArcRegistry { arcs: Vec::new(), index: MixMap::default() } }
 
     fn register(&mut self, seg: &[u32]) -> i32 {
         let n2 = seg.len();
@@ -116,7 +152,7 @@ impl ArcRegistry {
 }
 
 // ── リング分割（splitRing/splitArc/cutRing 相当）──
-fn split_ring(ring: &[u32], junctions: &FxHashSet<u64>, reg: &mut ArcRegistry) -> Vec<i32> {
+fn split_ring(ring: &[u32], junctions: &MixSet<u64>, reg: &mut ArcRegistry) -> Vec<i32> {
     let n = trimmed_len(ring);
     if n < 3 { return Vec::new(); }
     let is_term = |i: usize| junctions.contains(&vkey(ring[i * 2], ring[i * 2 + 1]));
@@ -297,14 +333,14 @@ pub fn build_polylines_wasm(coords: &[u64], lines: &[u32], fids: &[u32], n_poly:
 
 fn polylines_core(coords: &[u64], line_ranges: &[(usize, usize)], fids: &[i32], n_poly: u32, vertex_offset: u32) -> LineTopology {
     // 1. 頂点出現回数（cutPolyline setHash 相当。キーは raw u64＝JS の BigInt 値と同一）
-    let mut hash: FxHashMap<u64, u32> = FxHashMap::default();
+    let mut hash: MixMap<u64, u32> = MixMap::default();
     for &(off, len) in line_ranges {
         for &t in &coords[off..off + len] { *hash.entry(t).or_insert(0) += 1; }
     }
 
     // 2. 分割＋共有 arc 照合（端点キー＋頂点数のみ・内容照合なし＝JS cutPolyline と同じ）
     let mut buffs: Vec<Vec<u64>> = Vec::new();
-    let mut a_hash: FxHashMap<(u64, u64, u32), u32> = FxHashMap::default();
+    let mut a_hash: MixMap<(u64, u64, u32), u32> = MixMap::default();
     let mut line_arcs: Vec<Vec<i32>> = Vec::with_capacity(line_ranges.len());
     for &(off, len) in line_ranges {
         let arc = &coords[off..off + len];
