@@ -1,4 +1,4 @@
-import init, { L1toL2_wasm, XYtoL1_wasm, alloc_wasm_memory, free_wasm_memory, init_panic_hook, detect_intersections_wasm } from "../../wasm/pkg/gint_wasm.js";
+import init, { L1toL2_wasm, XYtoL1_wasm, alloc_wasm_memory, free_wasm_memory, init_panic_hook, detect_intersections_wasm, build_polygons_wasm } from "../../wasm/pkg/gint_wasm.js";
 let wasmReady = false;
 let wasmMemoryBuffer = null;
 let sharedWasmPtr = 0;
@@ -229,6 +229,30 @@ export class gint {
 			}
 		}
 		return map;
+	}
+
+	// topology.js ポリゴン経路（cutPolygon→meta→buildArcs→stream組立）の wasm 一括版。
+	// XY連結バッファ＋リング台帳を1回渡し、GintBUF 素材（arc/meta/polyStream/neighborStream）を
+	// 1往復で受け取る＝JS中盤の Map/文字列キー/GC を丸ごと排除。wasm 不在なら null（JS経路へ）。
+	static buildPolygonsWasm(topo) {
+		if (!wasmReady || typeof build_polygons_wasm !== 'function' || !topo.length) return null;
+		let totalV = 0, ringCount = 0;
+		for (const q of topo) { ringCount += q.coords.length; for (const r of q.coords) totalV += r.length >> 1; }
+		const xy = new Uint32Array(totalV * 2), rings = new Uint32Array(ringCount * 2), comps = new Uint32Array(topo.length * 2);
+		let vo = 0, ri = 0;
+		topo.forEach((q, ci) => {
+			comps[ci * 2] = q.id; comps[ci * 2 + 1] = q.coords.length;
+			for (const r of q.coords) { const n = r.length >> 1; rings[ri * 2] = vo; rings[ri * 2 + 1] = n; xy.set(r, vo * 2); vo += n; ri++; }
+		});
+		const res = build_polygons_wasm(xy, rings, comps);
+		// ビューは読む直前に都度取る（処理中に wasm メモリが成長すると旧 buffer は detach するため）
+		const count = res.count();
+		const buffer         = new BigUint64Array(wasmMemoryBuffer.buffer, res.arc_buffer_ptr(), res.arc_buffer_len()).slice();
+		const meta           = new Uint32Array(wasmMemoryBuffer.buffer, res.arc_meta_ptr(), res.arc_meta_len()).slice();
+		const polyStream     = new Int32Array(wasmMemoryBuffer.buffer, res.poly_stream_ptr(), res.poly_stream_len()).slice();
+		const neighborStream = new Int32Array(wasmMemoryBuffer.buffer, res.neighbor_stream_ptr(), res.neighbor_stream_len()).slice();
+		res.free();
+		return { count, buffer, meta, mlen: 8, polyStream, neighborStream };
 	}
 
 	static XY2L1(estimatedPoints = 4096) {

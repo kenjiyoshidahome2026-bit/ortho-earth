@@ -115,44 +115,50 @@ export function topology(self) {
 	propTub.clear(); propTub = null;
 	bbox[0] = Math.round(((bbox[0] / e)+180) * gint.SCALE_E); bbox[1] = Math.round(((bbox[1] / e)+90) * gint.SCALE_E);
 	bbox[2] = Math.round(((bbox[2] / e)+180) * gint.SCALE_E); bbox[3] = Math.round(((bbox[3] / e)+90) * gint.SCALE_E);
-	const polygon = buildPolygons(structures[0]);
+	// ポリゴン経路：wasm 一括版（cutPolygon→meta→buildArcs→stream を1往復）が使えれば使う。
+	// wasm 不在（フォールバック）は従来の JS 経路＝structures[0] に .arcs が生える。
+	const polygon = gint.buildPolygonsWasm(structures[0]) ?? buildPolygons(structures[0]);
 	const polyline = buildPolylines(structures[1], polygon? polygon.count: 0, polygon?.buffer.length ?? 0);
 	const point = buildPoints(structures[2]);
 	const pointCount = point? point.count: 0; if(pointCount) elemCount[2] = pointCount;
 	// Build flat binary topology streams (v2: no JSON)
-	const polyByFid = new Map(), lineByFid = new Map();
-	structures[0].forEach(({ id, arcs }) => { (polyByFid.get(id) ?? (polyByFid.set(id, []), polyByFid.get(id))).push(arcs); });
-	structures[1].forEach(({ id, arcs }) => { (lineByFid.get(id) ?? (lineByFid.set(id, []), lineByFid.get(id))).push(arcs); });
-
-	// polygon stream: per comp: [fid][numRings][arcCount][arcIdx...]...
-	const polyOut = [];
-	for (const [fid, comps] of polyByFid) for (const rings of comps) {
-		polyOut.push(fid, rings.length);
-		for (const ring of rings) { polyOut.push(ring.length); for (const a of ring) polyOut.push(a); }
+	let polyStream, neighborStream;
+	if (polygon?.polyStream) {
+		({ polyStream, neighborStream } = polygon);   // wasm が組立済み
+	} else {
+		const polyByFid = new Map();
+		structures[0].forEach(({ id, arcs }) => { (polyByFid.get(id) ?? (polyByFid.set(id, []), polyByFid.get(id))).push(arcs); });
+		// polygon stream: per comp: [fid][numRings][arcCount][arcIdx...]...
+		const polyOut = [];
+		for (const [fid, comps] of polyByFid) for (const rings of comps) {
+			polyOut.push(fid, rings.length);
+			for (const ring of rings) { polyOut.push(ring.length); for (const a of ring) polyOut.push(a); }
+		}
+		// neighbor stream: [fid][count][neighborId...]...
+		const ownerArr = [];
+		structures[0].forEach(({ id, arcs }) => arcs.forEach(ring => ring.forEach(arcIdx => {
+			const aid = arcIdx < 0 ? ~arcIdx : arcIdx;
+			(ownerArr[aid] = ownerArr[aid] || []).push(id);
+		})));
+		const nbMap = new Map();
+		ownerArr.forEach(ids => { if (!ids || ids.length < 2) return;
+			ids.forEach(id => { let nb = nbMap.get(id); if (!nb) { nb = new Set(); nbMap.set(id, nb); }
+				ids.forEach(t => { if (t !== id) nb.add(t); }); });
+		});
+		const nbOut = [];
+		nbMap.forEach((nb, fid) => { const sorted = [...nb].sort((a, b) => a - b); nbOut.push(fid, sorted.length); for (const n of sorted) nbOut.push(n); });
+		polyStream     = new Int32Array(polyOut);
+		neighborStream = new Int32Array(nbOut);
 	}
 	// polyline stream: per feature: [fid][numSets][arcCount][arcIdx...]...
+	const lineByFid = new Map();
+	structures[1].forEach(({ id, arcs }) => { (lineByFid.get(id) ?? (lineByFid.set(id, []), lineByFid.get(id))).push(arcs); });
 	const lineOut = [];
 	for (const [fid, sets] of lineByFid) {
 		lineOut.push(fid, sets.length);
 		for (const arcs of sets) { lineOut.push(arcs.length); for (const a of arcs) lineOut.push(a); }
 	}
-	// neighbor stream: [fid][count][neighborId...]...
-	const ownerArr = [];
-	structures[0].forEach(({ id, arcs }) => arcs.forEach(ring => ring.forEach(arcIdx => {
-		const aid = arcIdx < 0 ? ~arcIdx : arcIdx;
-		(ownerArr[aid] = ownerArr[aid] || []).push(id);
-	})));
-	const nbMap = new Map();
-	ownerArr.forEach(ids => { if (!ids || ids.length < 2) return;
-		ids.forEach(id => { let nb = nbMap.get(id); if (!nb) { nb = new Set(); nbMap.set(id, nb); }
-			ids.forEach(t => { if (t !== id) nb.add(t); }); });
-	});
-	const nbOut = [];
-	nbMap.forEach((nb, fid) => { const sorted = [...nb].sort((a, b) => a - b); nbOut.push(fid, sorted.length); for (const n of sorted) nbOut.push(n); });
-
-	const polyStream     = new Int32Array(polyOut);
-	const lineStream     = new Int32Array(lineOut);
-	const neighborStream = new Int32Array(nbOut);
+	const lineStream = new Int32Array(lineOut);
 
 	const arcLength = ((polygon? polygon.buffer.length : 0) + (polyline? polyline.buffer.length : 0));
 	const arcCount = (polygon? polygon.count:0) + (polyline? polyline.count:0), mlen = 8;
