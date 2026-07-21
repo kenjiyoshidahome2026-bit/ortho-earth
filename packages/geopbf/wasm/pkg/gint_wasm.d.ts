@@ -1,6 +1,14 @@
 /* tslint:disable */
 /* eslint-disable */
 
+export class GintBufOut {
+    private constructor();
+    free(): void;
+    [Symbol.dispose](): void;
+    len(): number;
+    ptr(): number;
+}
+
 /**
  * JS の unPackGint が返す 7 バッファをそのまま保持する。
  * coordinate_stream : L2 アークバッファ（Morton 昇順ソート済み、TERMINAL_BIT なし）
@@ -87,12 +95,15 @@ export function free_wasm_memory(ptr: number, size: number): void;
 
 export function init_panic_hook(): void;
 
+export function topology_full_wasm(buf: Uint8Array, dir: Uint32Array, e: number, format_version: number): GintBufOut;
+
 export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
 
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
     readonly L1toL2_wasm: (a: number, b: number) => void;
     readonly XYtoL1_wasm: (a: number, b: number) => void;
+    readonly __wbg_gintbufout_free: (a: number, b: number) => void;
     readonly __wbg_gintconverter_free: (a: number, b: number) => void;
     readonly __wbg_linetopology_free: (a: number, b: number) => void;
     readonly __wbg_polytopology_free: (a: number, b: number) => void;
@@ -101,6 +112,8 @@ export interface InitOutput {
     readonly build_polylines_wasm: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => number;
     readonly detect_intersections_wasm: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => number;
     readonly free_wasm_memory: (a: number, b: number) => void;
+    readonly gintbufout_len: (a: number) => number;
+    readonly gintbufout_ptr: (a: number) => number;
     readonly gintconverter_identify_point: (a: number, b: number, c: number, d: number) => number;
     readonly gintconverter_identify_polygon: (a: number, b: number, c: number) => number;
     readonly gintconverter_identify_polyline: (a: number, b: number, c: number, d: number) => number;
@@ -108,7 +121,6 @@ export interface InitOutput {
     readonly gintconverter_set_view_bbox: (a: number, b: number, c: number, d: number, e: number) => void;
     readonly init_panic_hook: () => void;
     readonly linetopology_arc_buffer_len: (a: number) => number;
-    readonly linetopology_arc_buffer_ptr: (a: number) => number;
     readonly linetopology_arc_meta_len: (a: number) => number;
     readonly linetopology_arc_meta_ptr: (a: number) => number;
     readonly linetopology_count: (a: number) => number;
@@ -117,9 +129,11 @@ export interface InitOutput {
     readonly polytopology_count: (a: number) => number;
     readonly polytopology_neighbor_stream_len: (a: number) => number;
     readonly polytopology_neighbor_stream_ptr: (a: number) => number;
+    readonly topology_full_wasm: (a: number, b: number, c: number, d: number, e: number, f: number) => number;
     readonly polytopology_arc_buffer_len: (a: number) => number;
     readonly polytopology_arc_meta_len: (a: number) => number;
     readonly polytopology_poly_stream_len: (a: number) => number;
+    readonly linetopology_arc_buffer_ptr: (a: number) => number;
     readonly polytopology_arc_buffer_ptr: (a: number) => number;
     readonly polytopology_arc_meta_ptr: (a: number) => number;
     readonly polytopology_poly_stream_ptr: (a: number) => number;

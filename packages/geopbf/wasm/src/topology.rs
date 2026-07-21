@@ -291,10 +291,14 @@ pub fn build_polylines_wasm(coords: &[u64], lines: &[u32], fids: &[u32], n_poly:
         .chunks_exact(2)
         .map(|c| (c[0] as usize, c[1] as usize))
         .collect();
+    let fids_i32: Vec<i32> = fids.iter().map(|&f| f as i32).collect();
+    polylines_core(coords, &line_ranges, &fids_i32, n_poly, vertex_offset)
+}
 
+fn polylines_core(coords: &[u64], line_ranges: &[(usize, usize)], fids: &[i32], n_poly: u32, vertex_offset: u32) -> LineTopology {
     // 1. 頂点出現回数（cutPolyline setHash 相当。キーは raw u64＝JS の BigInt 値と同一）
     let mut hash: FxHashMap<u64, u32> = FxHashMap::default();
-    for &(off, len) in &line_ranges {
+    for &(off, len) in line_ranges {
         for &t in &coords[off..off + len] { *hash.entry(t).or_insert(0) += 1; }
     }
 
@@ -302,7 +306,7 @@ pub fn build_polylines_wasm(coords: &[u64], lines: &[u32], fids: &[u32], n_poly:
     let mut buffs: Vec<Vec<u64>> = Vec::new();
     let mut a_hash: FxHashMap<(u64, u64, u32), u32> = FxHashMap::default();
     let mut line_arcs: Vec<Vec<i32>> = Vec::with_capacity(line_ranges.len());
-    for &(off, len) in &line_ranges {
+    for &(off, len) in line_ranges {
         let arc = &coords[off..off + len];
         let n = arc.len();
         let is_term = |i: usize| i == 0 || i == n - 1 || hash[&arc[i]] > 2;
@@ -366,7 +370,6 @@ pub fn build_polylines_wasm(coords: &[u64], lines: &[u32], fids: &[u32], n_poly:
     let mut fid_slot: FxHashMap<i32, usize> = FxHashMap::default();
     let mut grouped: Vec<(i32, Vec<usize>)> = Vec::new();
     for (li, &fid) in fids.iter().enumerate() {
-        let fid = fid as i32;
         let slot = *fid_slot.entry(fid).or_insert_with(|| { grouped.push((fid, Vec::new())); grouped.len() - 1 });
         grouped[slot].1.push(li);
     }
@@ -394,17 +397,22 @@ pub fn build_polygons_wasm(xy: &[u32], rings: &[u32], comps: &[u32]) -> PolyTopo
         .chunks_exact(2)
         .map(|c| (c[0] as usize, c[1] as usize))
         .collect();
+    let comp_pairs: Vec<(i32, usize)> = comps
+        .chunks_exact(2)
+        .map(|c| (c[0] as i32, c[1] as usize))
+        .collect();
+    polygons_core(xy, &ring_ranges, &comp_pairs)
+}
 
+fn polygons_core(xy: &[u32], ring_ranges: &[(usize, usize)], comps: &[(i32, usize)]) -> PolyTopology {
     // 1. 接合点判定
-    let junctions = compute_junctions(xy, &ring_ranges);
+    let junctions = compute_junctions(xy, ring_ranges);
 
     // 2. リング分割＋共有 arc 照合
     let mut reg = ArcRegistry::new();
-    let mut comp_list: Vec<Comp> = Vec::with_capacity(comps.len() / 2);
+    let mut comp_list: Vec<Comp> = Vec::with_capacity(comps.len());
     let mut ring_cursor = 0usize;
-    for c in comps.chunks_exact(2) {
-        let fid = c[0] as i32;
-        let ring_count = c[1] as usize;
+    for &(fid, ring_count) in comps {
         let mut arcs = Vec::with_capacity(ring_count);
         for _ in 0..ring_count {
             let (off, len) = ring_ranges[ring_cursor];
@@ -539,4 +547,289 @@ pub fn build_polygons_wasm(xy: &[u32], rings: &[u32], comps: &[u32]) -> PolyTopo
     }
 
     PolyTopology { arc_buffer, arc_meta, poly_stream, neighbor_stream, count: count as u32 }
+}
+
+// ── 全量経路：PBF 生バイト → GintBUF 完成品 ─────────────────────────────────
+// JS は feature 台帳（[fid, type, geomPos]×n）を組むだけ。デルタ復号（readSVarint）→
+// fit（精度変換）→ densify（1度刻み中間点＝米加国境の弦浮き対策）→ 位相 → GintBUF
+// レイアウト組立まで全部ここ。JS topology() の parse ループと同一の数値経路
+//（f64 の演算順・ゼロデルタ棄却・ToUint32 截断・elemCount の数え方）を保つ。
+
+struct Pbf<'a> {
+    buf: &'a [u8],
+    pos: usize,
+}
+
+impl<'a> Pbf<'a> {
+    #[inline]
+    fn varint(&mut self) -> u64 {
+        let mut v: u64 = 0;
+        let mut shift = 0u32;
+        loop {
+            let b = self.buf[self.pos];
+            self.pos += 1;
+            v |= ((b & 0x7F) as u64) << shift;
+            if b < 0x80 { return v; }
+            shift += 7;
+            if shift >= 64 { return v; }
+        }
+    }
+    #[inline]
+    fn svarint(&mut self) -> i64 {
+        let n = self.varint();
+        ((n >> 1) as i64) ^ (-((n & 1) as i64))
+    }
+    #[inline]
+    fn skip(&mut self, wt: u32) {
+        match wt {
+            0 => { self.varint(); }
+            1 => { self.pos += 8; }
+            2 => { let l = self.varint() as usize; self.pos += l; }
+            5 => { self.pos += 4; }
+            _ => { self.pos = self.buf.len(); }   // 未知 wiretype＝以降を読まない（JS pbf は throw）
+        }
+    }
+}
+
+// JS の ToUint32（Uint32Array 代入時の截断）：非有限は 0、有限は 0 方向へ切って mod 2^32
+#[inline]
+fn to_js_u32(v: f64) -> u32 {
+    if !v.is_finite() { return 0; }
+    (v.trunc() as i64) as u32
+}
+
+// デコード共有状態（頂点カウンタ elem[3] と 生座標 bbox）
+struct ReadCtx {
+    elem3: u32,
+    bx0: f64, by0: f64, bx1: f64, by1: f64,
+    factor: f64,
+    fit_round: bool,
+}
+
+// 1本ぶんのデコード（n=Some(頂点数) or None=ブロック終端 cend まで）。
+// out_xy=Some なら XY(u32) を、out_m=Some なら L1 Morton(u64) を積む。
+// JS read() と同一：呼び出し1回＝elem3++、採用 grab ごとに elem3++・ゼロデルタ棄却・densify 1度刻み。
+fn read_line(p: &mut Pbf, cend: usize, n: Option<usize>, ctx: &mut ReadCtx,
+             mut out_xy: Option<&mut Vec<u32>>, mut out_m: Option<&mut Vec<u64>>) {
+    const SCALE_E_F: f64 = 10_000_000.0;
+    const OFFSET_X: f64 = 180.0 * SCALE_E_F;
+    const OFFSET_Y: f64 = 90.0 * SCALE_E_F;
+    ctx.elem3 += 1;
+    let mut x: i64 = 0;
+    let mut y: i64 = 0;
+    let mut prev: Option<(f64, f64)> = None;
+    macro_rules! push {
+        ($gx:expr, $gy:expr) => {
+            if let Some(v) = out_xy.as_deref_mut() { v.push(to_js_u32($gx)); v.push(to_js_u32($gy)); }
+            if let Some(v) = out_m.as_deref_mut() { v.push(pure_morton_from_int(to_js_u32($gx), to_js_u32($gy)) | TERMINAL_BIT); }
+        };
+    }
+    macro_rules! grab {
+        () => {{
+            let dx = p.svarint();
+            let dy = p.svarint();
+            if dx != 0 || dy != 0 {
+                x += dx;
+                y += dy;
+                let (xf, yf) = (x as f64, y as f64);
+                if xf < ctx.bx0 { ctx.bx0 = xf; }
+                if xf > ctx.bx1 { ctx.bx1 = xf; }
+                if yf < ctx.by0 { ctx.by0 = yf; }
+                if yf > ctx.by1 { ctx.by1 = yf; }
+                let vx = if ctx.fit_round { (xf * ctx.factor).round() } else { xf * ctx.factor };
+                let vy = if ctx.fit_round { (yf * ctx.factor).round() } else { yf * ctx.factor };
+                let gx = vx + OFFSET_X;
+                let gy = vy + OFFSET_Y;
+                if let Some((pgx, pgy)) = prev {
+                    let dgx = gx - pgx;
+                    let dgy = gy - pgy;
+                    let steps = (dgx.abs().max(dgy.abs()) / SCALE_E_F).ceil();
+                    let stepsi = steps as i64;
+                    for s in 1..stepsi {
+                        push!((pgx + dgx * s as f64 / steps).round(), (pgy + dgy * s as f64 / steps).round());
+                    }
+                }
+                push!(gx, gy);
+                prev = Some((gx, gy));
+                ctx.elem3 += 1;
+            }
+        }};
+    }
+    match n {
+        None => { while p.pos < cend { grab!(); } }
+        Some(mut k) => { while k > 0 { grab!(); k -= 1; } }
+    }
+}
+
+#[wasm_bindgen]
+pub struct GintBufOut {
+    data: Vec<u8>,
+}
+
+#[wasm_bindgen]
+impl GintBufOut {
+    pub fn ptr(&self) -> u32 { self.data.as_ptr() as u32 }
+    pub fn len(&self) -> u32 { self.data.len() as u32 }
+}
+
+// buf : GeoPBF の生バイト列（geomPos は絶対オフセット）
+// dir : feature 台帳 [fid, type(0..5), geomPos]×n（GeometryCollection は JS 側で展開済み）
+// e   : ソース精度（10^precision）
+// format_version : topology.FORMAT_VERSION（GintBUF ヘッダへ）
+#[wasm_bindgen]
+pub fn topology_full_wasm(buf: &[u8], dir: &[u32], e: f64, format_version: u32) -> GintBufOut {
+    const SCALE_E_F: f64 = 10_000_000.0;
+    const OFFSET_X: f64 = 180.0 * SCALE_E_F;
+    const OFFSET_Y: f64 = 90.0 * SCALE_E_F;
+
+    // fit：JS と同じ分岐（factor<1 のときだけ round）
+    let factor = if SCALE_E_F < e { SCALE_E_F / e } else { (SCALE_E_F / e).round() };
+    let fit_round = factor < 1.0;
+
+    // 構造体展開先（JS structures 相当・push 順序も同一）
+    let mut poly_xy: Vec<u32> = Vec::new();                 // 全リング連結 XY
+    let mut poly_rings: Vec<(usize, usize)> = Vec::new();   // リング [offset, len]（頂点単位）
+    let mut poly_comps: Vec<(i32, usize)> = Vec::new();     // コンポーネント [fid, ringCount]
+    let mut line_coords: Vec<u64> = Vec::new();             // 全ライン連結 L1 Morton
+    let mut line_ranges: Vec<(usize, usize)> = Vec::new();
+    let mut line_fids: Vec<i32> = Vec::new();
+    let mut points: Vec<(u64, u32)> = Vec::new();           // (L1 Morton, fid)
+
+    let mut elem = [0u32; 4];
+    let mut ctx = ReadCtx {
+        elem3: 0,
+        bx0: f64::INFINITY, by0: f64::INFINITY,
+        bx1: f64::NEG_INFINITY, by1: f64::NEG_INFINITY,
+        factor, fit_round,
+    };
+
+    for d in dir.chunks_exact(3) {
+        let fid = d[0] as i32;
+        let typ = d[1];
+        let mut p = Pbf { buf, pos: d[2] as usize };
+        let msg_len = p.varint() as usize;
+        let end = p.pos + msg_len;
+        let mut lens: Vec<usize> = Vec::new();
+        while p.pos < end {
+            let key = p.varint() as u32;
+            let field = key >> 3;
+            let wt = key & 7;
+            if field == 9 {
+                // LENGTH（packed varint／単発 varint 両対応＝pbf.readPackedVarint 準拠）
+                if wt == 2 {
+                    let l = p.varint() as usize;
+                    let e2 = p.pos + l;
+                    while p.pos < e2 { lens.push(p.varint() as usize); }
+                } else { lens.push(p.varint() as usize); }
+            } else if field == 10 && wt == 2 {
+                // COORDS：デルタ復号＋densify（read_line）。read 1回＝elem3++、採用 grab ごとに elem3++（JS 同一）
+                let l = p.varint() as usize;
+                let cend = p.pos + l;
+                match typ {
+                    0 | 1 => {   // Point / MultiPoint
+                        let mut m: Vec<u64> = Vec::new();
+                        if typ == 0 { read_line(&mut p, cend, Some(1), &mut ctx, None, Some(&mut m)); }
+                        else { read_line(&mut p, cend, None, &mut ctx, None, Some(&mut m)); }
+                        elem[2] += m.len() as u32;
+                        for v in m { points.push((v, fid as u32)); }
+                    }
+                    2 => {       // LineString
+                        let off = line_coords.len();
+                        read_line(&mut p, cend, None, &mut ctx, None, Some(&mut line_coords));
+                        line_ranges.push((off, line_coords.len() - off));
+                        line_fids.push(fid);
+                        elem[1] += 1;
+                    }
+                    3 => {       // MultiLineString
+                        for &t in lens.iter() {
+                            let off = line_coords.len();
+                            read_line(&mut p, cend, Some(t), &mut ctx, None, Some(&mut line_coords));
+                            line_ranges.push((off, line_coords.len() - off));
+                            line_fids.push(fid);
+                            elem[1] += 1;
+                        }
+                    }
+                    4 => {       // Polygon＝1コンポーネント
+                        for &t in lens.iter() {
+                            let off = poly_xy.len() >> 1;
+                            read_line(&mut p, cend, Some(t), &mut ctx, Some(&mut poly_xy), None);
+                            poly_rings.push((off, (poly_xy.len() >> 1) - off));
+                        }
+                        poly_comps.push((fid, lens.len()));
+                        elem[0] += 1;
+                    }
+                    5 => {       // MultiPolygon：lens=[numComps, rings1, v11, v12, …, rings2, …]
+                        let mut li = 0usize;
+                        let num = *lens.first().unwrap_or(&0);
+                        for _ in 0..num {
+                            li += 1;
+                            let rings = *lens.get(li).unwrap_or(&0);
+                            for _ in 0..rings {
+                                li += 1;
+                                let t = *lens.get(li).unwrap_or(&0);
+                                let off = poly_xy.len() >> 1;
+                                read_line(&mut p, cend, Some(t), &mut ctx, Some(&mut poly_xy), None);
+                                poly_rings.push((off, (poly_xy.len() >> 1) - off));
+                            }
+                            poly_comps.push((fid, rings));
+                            elem[0] += 1;
+                        }
+                    }
+                    _ => {}
+                }
+                p.pos = cend;
+            } else {
+                p.skip(wt);
+            }
+        }
+    }
+
+    // bbox：raw min/max → gint 整数座標（JS と同じ f64 経路・空データは ToUint32(Inf)=0）
+    elem[3] = ctx.elem3;
+    let bbox = [
+        to_js_u32((((ctx.bx0 / e) + 180.0) * SCALE_E_F).round()),
+        to_js_u32((((ctx.by0 / e) + 90.0) * SCALE_E_F).round()),
+        to_js_u32((((ctx.bx1 / e) + 180.0) * SCALE_E_F).round()),
+        to_js_u32((((ctx.by1 / e) + 90.0) * SCALE_E_F).round()),
+    ];
+
+    // 位相構築（ポリゴン→ライン→ポイント）
+    let pt = polygons_core(&poly_xy, &poly_rings, &poly_comps);
+    let lt = polylines_core(&line_coords, &line_ranges, &line_fids, pt.count, pt.arc_buffer.len() as u32);
+    // JS buildPoints の sort は比較器が 0 を返さない（equal→-1）＝V8 TimSort では同値が逆順になる
+    //（挿入は「同値なら前へ」・マージは「同値なら右ランを先に」）。座標昇順・同値は元 index 降順で再現。
+    {
+        let mut idx: Vec<(u64, u32, usize)> = points.iter().enumerate().map(|(i, &(m, f))| (m, f, i)).collect();
+        idx.sort_by(|a, b| a.0.cmp(&b.0).then(b.2.cmp(&a.2)));
+        points = idx.into_iter().map(|(m, f, _)| (m, f)).collect();
+    }
+
+    // GintBUF 組立（JS topology() 末尾と同一レイアウト）
+    let arc_length = pt.arc_buffer.len() + lt.arc_buffer.len();
+    let arc_count = (pt.count + lt.count) as usize;
+    let point_count = points.len();
+    if point_count > 0 { elem[2] = point_count as u32; }
+    let header: [u32; 16] = [
+        1953392967, format_version, elem[0], elem[1], elem[2], elem[3],
+        arc_length as u32, arc_count as u32, bbox[0], bbox[1], bbox[2], bbox[3],
+        pt.poly_stream.len() as u32, lt.line_stream.len() as u32, pt.neighbor_stream.len() as u32, 0,
+    ];
+    let total = 64 + arc_length * 8 + arc_count * 8 * 4 + point_count * (8 + 4)
+        + (pt.poly_stream.len() + lt.line_stream.len() + pt.neighbor_stream.len()) * 4;
+    let mut data: Vec<u8> = Vec::with_capacity(total);
+    // wasm32 はリトルエンディアン＝JS の TypedArray view.set と同一のバイト列
+    let as_u8 = |p: *const u8, n: usize| unsafe { std::slice::from_raw_parts(p, n) };
+    data.extend_from_slice(as_u8(header.as_ptr() as *const u8, 64));
+    data.extend_from_slice(as_u8(pt.arc_buffer.as_ptr() as *const u8, pt.arc_buffer.len() * 8));
+    data.extend_from_slice(as_u8(lt.arc_buffer.as_ptr() as *const u8, lt.arc_buffer.len() * 8));
+    for &(m, _) in &points { data.extend_from_slice(&m.to_le_bytes()); }
+    data.extend_from_slice(as_u8(pt.arc_meta.as_ptr() as *const u8, pt.arc_meta.len() * 4));
+    data.extend_from_slice(as_u8(lt.arc_meta.as_ptr() as *const u8, lt.arc_meta.len() * 4));
+    for &(_, f) in &points { data.extend_from_slice(&f.to_le_bytes()); }
+    data.extend_from_slice(as_u8(pt.poly_stream.as_ptr() as *const u8, pt.poly_stream.len() * 4));
+    data.extend_from_slice(as_u8(lt.line_stream.as_ptr() as *const u8, lt.line_stream.len() * 4));
+    data.extend_from_slice(as_u8(pt.neighbor_stream.as_ptr() as *const u8, pt.neighbor_stream.len() * 4));
+    debug_assert_eq!(data.len(), total);
+
+    GintBufOut { data }
 }

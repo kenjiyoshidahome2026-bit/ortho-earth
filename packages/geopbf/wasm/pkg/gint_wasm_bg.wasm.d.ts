@@ -3,6 +3,7 @@
 export const memory: WebAssembly.Memory;
 export const L1toL2_wasm: (a: number, b: number) => void;
 export const XYtoL1_wasm: (a: number, b: number) => void;
+export const __wbg_gintbufout_free: (a: number, b: number) => void;
 export const __wbg_gintconverter_free: (a: number, b: number) => void;
 export const __wbg_linetopology_free: (a: number, b: number) => void;
 export const __wbg_polytopology_free: (a: number, b: number) => void;
@@ -11,6 +12,8 @@ export const build_polygons_wasm: (a: number, b: number, c: number, d: number, e
 export const build_polylines_wasm: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => number;
 export const detect_intersections_wasm: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => number;
 export const free_wasm_memory: (a: number, b: number) => void;
+export const gintbufout_len: (a: number) => number;
+export const gintbufout_ptr: (a: number) => number;
 export const gintconverter_identify_point: (a: number, b: number, c: number, d: number) => number;
 export const gintconverter_identify_polygon: (a: number, b: number, c: number) => number;
 export const gintconverter_identify_polyline: (a: number, b: number, c: number, d: number) => number;
@@ -18,7 +21,6 @@ export const gintconverter_new: (a: number, b: number, c: number, d: number, e: 
 export const gintconverter_set_view_bbox: (a: number, b: number, c: number, d: number, e: number) => void;
 export const init_panic_hook: () => void;
 export const linetopology_arc_buffer_len: (a: number) => number;
-export const linetopology_arc_buffer_ptr: (a: number) => number;
 export const linetopology_arc_meta_len: (a: number) => number;
 export const linetopology_arc_meta_ptr: (a: number) => number;
 export const linetopology_count: (a: number) => number;
@@ -27,9 +29,11 @@ export const linetopology_line_stream_ptr: (a: number) => number;
 export const polytopology_count: (a: number) => number;
 export const polytopology_neighbor_stream_len: (a: number) => number;
 export const polytopology_neighbor_stream_ptr: (a: number) => number;
+export const topology_full_wasm: (a: number, b: number, c: number, d: number, e: number, f: number) => number;
 export const polytopology_arc_buffer_len: (a: number) => number;
 export const polytopology_arc_meta_len: (a: number) => number;
 export const polytopology_poly_stream_len: (a: number) => number;
+export const linetopology_arc_buffer_ptr: (a: number) => number;
 export const polytopology_arc_buffer_ptr: (a: number) => number;
 export const polytopology_arc_meta_ptr: (a: number) => number;
 export const polytopology_poly_stream_ptr: (a: number) => number;

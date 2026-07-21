@@ -1,5 +1,39 @@
 /* @ts-self-types="./gint_wasm.d.ts" */
 
+export class GintBufOut {
+    static __wrap(ptr) {
+        const obj = Object.create(GintBufOut.prototype);
+        obj.__wbg_ptr = ptr;
+        GintBufOutFinalization.register(obj, obj.__wbg_ptr, obj);
+        return obj;
+    }
+    __destroy_into_raw() {
+        const ptr = this.__wbg_ptr;
+        this.__wbg_ptr = 0;
+        GintBufOutFinalization.unregister(this);
+        return ptr;
+    }
+    free() {
+        const ptr = this.__destroy_into_raw();
+        wasm.__wbg_gintbufout_free(ptr, 0);
+    }
+    /**
+     * @returns {number}
+     */
+    len() {
+        const ret = wasm.gintbufout_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    ptr() {
+        const ret = wasm.gintbufout_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+}
+if (Symbol.dispose) GintBufOut.prototype[Symbol.dispose] = GintBufOut.prototype.free;
+
 /**
  * JS の unPackGint が返す 7 バッファをそのまま保持する。
  * coordinate_stream : L2 アークバッファ（Morton 昇順ソート済み、TERMINAL_BIT なし）
@@ -343,6 +377,22 @@ export function free_wasm_memory(ptr, size) {
 export function init_panic_hook() {
     wasm.init_panic_hook();
 }
+
+/**
+ * @param {Uint8Array} buf
+ * @param {Uint32Array} dir
+ * @param {number} e
+ * @param {number} format_version
+ * @returns {GintBufOut}
+ */
+export function topology_full_wasm(buf, dir, e, format_version) {
+    const ptr0 = passArray8ToWasm0(buf, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passArray32ToWasm0(dir, wasm.__wbindgen_malloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ret = wasm.topology_full_wasm(ptr0, len0, ptr1, len1, e, format_version);
+    return GintBufOut.__wrap(ret);
+}
 function __wbg_get_imports() {
     const import0 = {
         __proto__: null,
@@ -365,6 +415,9 @@ function __wbg_get_imports() {
     };
 }
 
+const GintBufOutFinalization = (typeof FinalizationRegistry === 'undefined')
+    ? { register: () => {}, unregister: () => {} }
+    : new FinalizationRegistry(ptr => wasm.__wbg_gintbufout_free(ptr, 1));
 const GintConverterFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_gintconverter_free(ptr, 1));
@@ -413,6 +466,13 @@ function passArray32ToWasm0(arg, malloc) {
 function passArray64ToWasm0(arg, malloc) {
     const ptr = malloc(arg.length * 8, 8) >>> 0;
     getBigUint64ArrayMemory0().set(arg, ptr / 8);
+    WASM_VECTOR_LEN = arg.length;
+    return ptr;
+}
+
+function passArray8ToWasm0(arg, malloc) {
+    const ptr = malloc(arg.length * 1, 1) >>> 0;
+    getUint8ArrayMemory0().set(arg, ptr / 1);
     WASM_VECTOR_LEN = arg.length;
     return ptr;
 }
