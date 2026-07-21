@@ -17,7 +17,7 @@
 // ・公開チュートリアル（スライド抜き）にするなら export に slide: false を足す
 export default { mobile:-1.2,
 	scenes: [
-		{ title: "白地図の日本", view: "#5/37/137/l=/c=mono", slide: "demo/slide-01.svg" },
+		{ title: "白地図の日本", view: "#5/37/137/l=/c=mono", slide: "demo/slide-start.svg" },
 		{ title: "地球は丸い", view: "#3/37/137/l=/c=mono", slide:"地球は丸い=正投影法\nOrgthographic" },
 		{ title: "白地図", view: "#8.14/35.57334/138.11457/0r/l=/c=mono", slide:"4種類の地図スタイル\n地理院・ナイト・セピア・淡色(default)" },
 		{ title: "地理院地図", view: "#8.14/35.57334/138.11457/0r/l=place.terrain.rail.road.facility/c=gsi" },
@@ -45,6 +45,6 @@ export default { mobile:-1.2,
 		{ title: "京都・二条城", view: "#16.95/35.01410/135.74622/67t/-99r" },
 		{ title: "日本列島", glide: "#6/35.01410/135.74622/67t/20r/l=" },
 		{ title: "地球と天体", pre: "#1/35.01410/135.74622/67t/20r/l=", glide: "#1/35.01410/135.74622/67t/20r/l=sky" },
-		{ title: "最後に", view: "#5/37/137/l=/c=mono", slide: "The map meets \"Digital Twin\".\nThank you!" },
+		{ title: "最後に", view: "#5/37/137/l=/c=mono", slide: "demo/slide-end.svg" },
 	],
 };
