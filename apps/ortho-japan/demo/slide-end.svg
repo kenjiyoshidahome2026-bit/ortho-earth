@@ -4,5 +4,5 @@
 	<circle cx="480" cy="1560" r="1230" fill="none" stroke="#80b6eb" stroke-width="2"/>
 	<text x="480" y="216" text-anchor="middle" font-size="40" fill="#3f4757" letter-spacing="5">Thank you very much!</text>
 	<text x="480" y="278" text-anchor="middle" font-size="32" fill="#86867f" letter-spacing="4">The map meets the "Digital Twin" — seamlessly.</text>
-	<text x="480" y="490" text-anchor="middle" font-size="32" fill="#aab0b6">Kenji Yoshida @ Yokohama</text>
+	<text x="480" y="490" text-anchor="middle" font-size="28" fill="#aab0b6">Kenji Yoshida @ Yokohama</text>
 </svg>
