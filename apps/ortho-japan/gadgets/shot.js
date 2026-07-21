@@ -14,7 +14,7 @@ import { composeLayersToCanvas } from "./compose.js";   // 層重ねの実体は
 const DEFAULT_ATTR = [
 	"出典：国土地理院最適化ベクトルタイル（提供実験）",
 	"国土交通省 PLATEAU・JAXA AW3D30（各データを加工して作成）",
-	"© 2026 Kenji Yoshida",
+	'© 2026 <a href="https://www.ortho-earth.com/docs/introduction.html" target="_blank" rel="noopener">Kenji Yoshida</a>',
 ];
 
 // 出典の文面（#attr があればその文面／無ければ既定）＝shot の焼き込みと print の下帯で共用。
