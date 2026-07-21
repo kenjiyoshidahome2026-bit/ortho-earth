@@ -1,7 +1,8 @@
 // デモの台本（map.gadget.demo に渡す opts 丸ごと）。index.html はこのファイルを読むだけ＝台本編集はここ1枚。
-// スライド画像は public/demo/ に置く（URLは "demo/〜" で参照）。※publicのJSはvite掟でimport不可＝台本はソース側のここ。
+// スライド画像(svg)はこのファイルと同じ demo/ に置き、下の `?url` import でvite にバンドルさせる
+//   ＝base(/japan/)差替えも vite が面倒を見る（生URL "demo/〜" 直書きは public/ に無いと 404 になるので使わない）。
 // ★台本の一行＝共有URLハッシュそのまま（アドレスバーからコピーして貼るだけでシーンになる）。フルスペック（l= 込み）推奨。
-// ・slide="画像URL"（public/demo/ に置く）か "生テキスト"（紙のカードに一言・\n改行可）
+// ・slide=画像URL（下の import 変数を渡す）か "生テキスト"（紙のカードに一言・\n改行可）
 // ・caption: "〜"＝オート上映（▷）の静止中に画面上部へ出す字幕（無ければ title を代用表示）
 // ・view+slide併記＝(地図)→›(幕)→›(地図)→›次 の三拍子／slideだけ＝入場で幕
 // ・glide=近距離滑走（シーン内の動き）：起きずに 位置→方位→チルト の時分割で滑る（引き・回り込み・立ち上がり）
@@ -15,9 +16,11 @@
 //   横パノラマ構図の左右切り落とし対策＝中心・チルト・方位はそのまま、ズームだけ。
 //   scenes と並ぶ最上位に書けば台本全体の既定、シーン毎に書けばそのシーンだけ上書き（mobile: 0＝明示無効）
 // ・公開チュートリアル（スライド抜き）にするなら export に slide: false を足す
+import slideStart from "./slide-start.svg?url";   // vite が /assets/…svg にバンドル＝base 差替え自動
+import slideEnd   from "./slide-end.svg?url";
 export default { mobile:-1.2,
 	scenes: [
-		{ title: "白地図の日本", view: "#5/37/137/l=/c=mono", slide: "demo/slide-start.svg" },
+		{ title: "白地図の日本", view: "#5/37/137/l=/c=mono", slide: slideStart },
 		{ title: "地球は丸い", view: "#3/37/137/l=/c=mono", slide:"The earth is round.\nOrgthographic" },
 		{ title: "白地図", view: "#8.14/35.57334/138.11457/0r/l=/c=mono", slide:"4 types of the map style:\ngsi・dark・sepia・mono(default)" },
 		{ title: "地理院地図", view: "#8.14/35.57334/138.11457/0r/l=place.terrain.rail.road.facility/c=gsi" },
@@ -45,6 +48,6 @@ export default { mobile:-1.2,
 		{ title: "京都・二条城", view: "#16.95/35.01410/135.74622/67t/-99r" },
 		{ title: "日本列島", glide: "#6/35.01410/135.74622/67t/20r/l=" },
 		{ title: "地球と天体", pre: "#1/35.01410/135.74622/67t/20r/l=", glide: "#1/35.01410/135.74622/67t/20r/l=sky" },
-		{ title: "最後に", view: "#5/37/137/l=/c=mono", slide: "demo/slide-end.svg" },
+		{ title: "最後に", view: "#5/37/137/l=/c=mono", slide: slideEnd },
 	],
 };
