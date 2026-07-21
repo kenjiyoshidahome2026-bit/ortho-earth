@@ -1,7 +1,7 @@
 // Texture management — called from both set() and context-restore. Rebuilds all textures from gintData.
 
 import { s } from './gintState.js';
-import { uploadTex2D, buildEdgeMeta, buildBoundaryEdgeMeta, buildPolyBboxByFid, deriveOutlineZoom, normalizeRingOrientation } from './gintUtility.js';
+import { uploadTex2D, buildEdgeMeta, buildBoundaryEdgeMeta, buildPolyBboxByFid, deriveOutlineZoom, normalizeRingOrientation, buildWeightHist, dynamicLodRankForZoom } from './gintUtility.js';
 
 
 export function uploadGintTextures() {
@@ -34,35 +34,23 @@ export function uploadGintTextures() {
 	// 2M→10M: いわき市(登記所備付地図・約6.9M辺)級でも静的間引きを発火させない＝筆界の正確さ優先。
 	// 描画コスト(VS呼び出し数)は増える＝重ければ GPU 動的LOD (ortho-core 方式) の移植で回収する。
 	const MAX_SAFE_EDGES = 10_000_000;
+	// 空間カリング用：メタは fid グループを bbox 中心 Morton 順に並べ（feature内の辺連続は維持）、
+	// 約65536辺ごとの feature 境界でチャンク台帳（bbox付き）を作る。描画時は可視チャンクだけ drawArrays。
+	s.polyBboxByFid = buildPolyBboxByFid(ps, am);   // 並べ替えキーに使うため先に計算
+	const metaOpts = { orderBbox: s.polyBboxByFid, chunkEdges: 65536 };
 	let capMinW = 0;   // 静的キャップ発火時の minWeight（境界メタも同値で構築＝塗りと線の kept 集合を一致させる）
-	let metaResult = buildEdgeMeta(am, ps, ls);
+	let metaResult = buildEdgeMeta(am, ps, ls, null, 0, metaOpts);
+	let weightHist = null;   // 段階別メタ（下）と共用
 	if (metaResult.edgeCount > MAX_SAFE_EDGES && ab?.length) {
 		const arcU32 = new Uint32Array(ab.buffer, ab.byteOffset, ab.byteLength / 4);
-		const getW = (idx) => (arcU32[idx * 2 + 1] & 0x80000000) ? 63 : (arcU32[idx * 2] & 0x3F);
-		// Build a cumulative histogram of kept vertex counts per weight level in one pass.
-		const hist = new Float64Array(64);
-		let nUsages = 0;
-		const countStream = (str) => {
-			if (!str) return; let p = 0;
-			while (p < str.length) { p++; const ng = str[p++];
-				for (let g = 0; g < ng; g++) { const ac = str[p++];
-					for (let a = 0; a < ac; a++) {
-						const aid = (str[p] < 0 ? ~str[p] : str[p]); p++; nUsages++;
-						const off = am[aid * 8], len = am[aid * 8 + 1];
-						for (let i = 0; i < len; i++) hist[getW(off + i)]++;
-					}
-				}
-			}
-		};
-		countStream(ps); countStream(ls);
-		// Accumulate right-to-left: hist[w] = total vertices with weight >= w.
-		for (let w = 62; w >= 0; w--) hist[w] += hist[w + 1];
+		weightHist = buildWeightHist(am, ps, ls, arcU32);
+		const { hist, nUsages } = weightHist;
 		// totalEdges(w) = hist[w] - nUsages  (each arc usage contributes kept-1 edges)
 		let minW = 63;
 		for (let w = 0; w < 64; w++) {
 			if (hist[w] - nUsages <= MAX_SAFE_EDGES) { minW = w; break; }
 		}
-		metaResult = buildEdgeMeta(am, ps, ls, ab, minW);
+		metaResult = buildEdgeMeta(am, ps, ls, ab, minW, metaOpts);
 		capMinW = minW;
 		console.info('[gint] LOD simplified: %d→%d edges (minWeight=%d)', metaResult.edgeCount + (hist[0] - nUsages | 0), metaResult.edgeCount, minW);
 	}
@@ -70,8 +58,8 @@ export function uploadGintTextures() {
 	s.totalEdges    = edgeCount;
 	s.polyEdges     = polyEdgeCount;
 	s.polyEdgeByFid = polyEdgeByFid;
-	console.debug('[gint] edges=%d', edgeCount);
-	s.polyBboxByFid = buildPolyBboxByFid(ps, am);
+	s.metaChunks    = metaResult.chunks;
+	console.debug('[gint] edges=%d chunks=%d', edgeCount, s.metaChunks?.length ?? 0);
 	// アウトライン⇄ベタ塗りの切替ズームをデータの粒度から導出（筆→z≈15 / 市区町村→z≈6）。null=既定値へ
 	s.outlineZoom = deriveOutlineZoom(s.polyBboxByFid);
 	if (s.outlineZoom !== null) console.debug('[gint] outlineZoom=%s (median poly ≈4px)', s.outlineZoom.toFixed(1));
@@ -99,6 +87,55 @@ export function uploadGintTextures() {
 			s.metaTexB = uploadTex2D(gl, bPad, s.TEX_META_W, bH, gl.RGBA32UI, gl.RGBA_INTEGER);
 		}
 		console.debug('[gint] boundary edges=%d (%.1f%%)', s.totalEdgesB, s.totalEdges ? 100 * s.totalEdgesB / s.totalEdges : 0);
+	}
+
+	// ── 段階別 LOD メタ（低〜中ズームの VS 空回し対策）──────────────────────
+	// 動的LOD(u_lod_rank)は閾値未満の辺も VS が起動して捨てる＝辺数が数百万を超えると
+	// 「間引いた分がタダにならない」。rank 閾値で事前に間引いたメタを数段焼いておき、
+	// 描画時は現在の動的 rank 以下の minWeight を持つ最粗メタへ差し替える。
+	// kept 集合（weight >= rank）は動的LODと同一＝見た目は完全同一の純粋な VS 起動数削減。
+	// lodSnap の線形歩行も tier 頂点密度に縮む＝二重に効く。
+	if (s.lodTiers?.length) s.lodTiers.forEach(t => gl.deleteTexture(t.tex));
+	s.lodTiers = [];
+	if (s.tierB?.tex) gl.deleteTexture(s.tierB.tex);
+	s.tierB = null;
+	// tier は「全球・全国が視界内＝空間カリングが効かない低〜中ズーム」の担当。
+	// rank↔zoom はデータ非依存（rank r ↔ z=(63−r)/3）なので固定 rank 梯子で刻む：
+	// w38↔z8.3 / w42↔z7 / w46↔z5.7 / w50↔z4.3。これより高ズーム（rank<38）は
+	// 可視チャンクカリングが担当、これより低ズーム（lowZoom）は境界メタ＋境界tierが担当。
+	// 刻みが細かいほど lodSnap の線形歩行も短くなる（tier minW ≈ rank なら歩行ほぼゼロ）。
+	const TIER_RANKS = [38, 42, 46, 50];
+	if (ab?.length && s.totalEdges > 3_000_000) {
+		let prevEdges = s.totalEdges;
+		for (const w of TIER_RANKS) {
+			if (w <= capMinW) continue;                     // 基準メタより粗くならない＝無意味
+			const r = buildEdgeMeta(am, ps, ls, ab, w);
+			if (!r.edgeCount || r.edgeCount >= prevEdges * 0.7) continue;   // weight無しデータ等＝空/効果薄はスキップ
+			const tH   = Math.ceil(r.edgeCount / s.TEX_META_W);
+			const tPad = new Uint32Array(s.TEX_META_W * tH * 4);
+			tPad.set(r.metaU32);
+			s.lodTiers.push({ minW: w, edgeCount: r.edgeCount,
+				tex: uploadTex2D(gl, tPad, s.TEX_META_W, tH, gl.RGBA32UI, gl.RGBA_INTEGER) });
+			prevEdges = r.edgeCount;
+		}
+		if (s.lodTiers.length) console.debug('[gint] LOD tiers: %s',
+			s.lodTiers.map(t => `w${t.minW}=${t.edgeCount}辺`).join(' / '));
+	}
+	// 境界メタの tier（lowZoom の線パス用）：lowZoom では rank ≥ rank(outlineZoom) が保証されるので
+	// その minWeight で 1 段だけ焼けば全 lowZoom 帯をカバーする（lodSnap の線形歩行も消える）。
+	if (ab?.length && s.totalEdgesB > 500_000 && s.outlineZoom !== null) {
+		const wB = Math.max(capMinW, dynamicLodRankForZoom(s.outlineZoom));
+		if (wB > capMinW) {
+			const r = buildBoundaryEdgeMeta(am, ps, ls, ab, wB);
+			if (r.edgeCount > 0 && r.edgeCount < s.totalEdgesB * 0.7) {
+				const tH   = Math.ceil(r.edgeCount / s.TEX_META_W);
+				const tPad = new Uint32Array(s.TEX_META_W * tH * 4);
+				tPad.set(r.metaU32);
+				s.tierB = { minW: wB, edgeCount: r.edgeCount,
+					tex: uploadTex2D(gl, tPad, s.TEX_META_W, tH, gl.RGBA32UI, gl.RGBA_INTEGER) };
+				console.debug('[gint] boundary tier: w%d=%d辺', wB, r.edgeCount);
+			}
+		}
 	}
 
 	// ptTex: RG32UI — point coordinates (same format as arcTex)
@@ -129,5 +166,9 @@ export function deleteTextures() {
 	if (s.metaTexB)  gl.deleteTexture(s.metaTexB);
 	if (s.ptTex)     gl.deleteTexture(s.ptTex);
 	if (s.ptMetaTex) gl.deleteTexture(s.ptMetaTex);
+	if (s.lodTiers?.length) s.lodTiers.forEach(t => gl.deleteTexture(t.tex));
+	s.lodTiers = [];
+	if (s.tierB?.tex) gl.deleteTexture(s.tierB.tex);
+	s.tierB = null;
 	s.arcTex = s.metaTex = s.metaTexB = s.ptTex = s.ptMetaTex = null;
 }

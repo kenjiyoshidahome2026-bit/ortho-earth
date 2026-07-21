@@ -21,7 +21,21 @@ import { createFBOs, deleteFBOs } from './shared/gintFBO.js';
 import { renderCleanScene, drawOverlay, renderPickingBuffer } from './shared/gintRenderPasses.js';
 import { doIdentify, handleMove, handleLeave } from './shared/gintIdentify.js';
 
-const funcs = { init, set, resize, drawing, drawn, move, leave, click, destroy };
+const funcs = { init, set, resize, drawing, drawn, move, leave, click, destroy, bench };
+
+// 描画コスト計測フック（ベンチハーネス用・通常経路では呼ばれない）：
+// drawing 一式を発行し readPixels(1px) で GPU 完了まで待った実時間を返す
+//（gl.finish は ANGLE で遅延され得る＝readPixels が確実な同期点）。
+function bench(data) {
+	const t0 = performance.now();
+	drawing(data);
+	const px = new Uint8Array(4);
+	s.gl.bindFramebuffer(s.gl.FRAMEBUFFER, null);
+	s.gl.readPixels(0, 0, 1, 1, s.gl.RGBA, s.gl.UNSIGNED_BYTE, px);
+	postMessage({ action: "bench", ms: performance.now() - t0,
+		stats: { edges: s.totalEdges, edgesB: s.totalEdgesB, polyEdges: s.polyEdges, polyEdgesB: s.polyEdgesB,
+			outlineZoom: s.outlineZoom, tiers: (s.lodTiers ?? []).map(t => [t.minW, t.edgeCount]) } });
+}
 onmessage = e => (funcs[e.data.type] ?? (() => {}))(e.data);
 
 function init(data) {
@@ -37,6 +51,8 @@ function init(data) {
 	s.canvas.addEventListener('webglcontextlost', e => {
 		e.preventDefault();
 		s.arcTex = s.metaTex = s.metaTexB = s.ptTex = s.ptMetaTex = null;
+		s.lodTiers = [];
+		s.tierB = null;
 		s.baseFBO = s.baseColorTex = s.baseDepthStencilRBO = null;
 		s.pickFBO = s.pickColorTex = s.pickDepthStencilRBO = null;
 		s.programs = null;

@@ -1,0 +1,80 @@
+<!-- 一時ベンチハーネス（dev専用・コミットしない）：gint worker を直接駆動しフレームコストを測る -->
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>gint bench</title></head>
+<body>
+<canvas id="c" style="width:1280px;height:800px"></canvas>
+<script type="module">
+import { unPackGintBuffer } from "../../packages/geopbf/src/extension/topology.js";
+import { gint } from "../../packages/geopbf/src/extension/gint.js";
+
+const W = 1280, H = 800;
+const canvas = document.getElementById("c");
+canvas.width = W; canvas.height = H;
+const Q = new URLSearchParams(location.search);
+const CLNG = +(Q.get("lng") ?? -98), CLAT = +(Q.get("lat") ?? 39);
+const offscreen = canvas.transferControlToOffscreen();
+const worker = new Worker(new URL("../../packages/ortho-map/src/workers/gint.js", import.meta.url), { type: "module" });
+
+window.__worker = worker;
+window.__msgs = [];   // 直近の worker メッセージ（デバッグ観測用）
+worker.addEventListener("message", e => { window.__msgs.push(e.data); if (window.__msgs.length > 50) window.__msgs.shift(); });
+
+const waitMsg = (pred, timeoutMs = 5000) => new Promise(res => {
+	const h = e => { if (pred(e.data)) { clearTimeout(tm); worker.removeEventListener("message", h); res(e.data); } };
+	const tm = setTimeout(() => { worker.removeEventListener("message", h); res({ timeout: true }); }, timeoutMs);
+	worker.addEventListener("message", h);
+});
+
+await gint.initialize();
+const buf = await (await fetch(new URLSearchParams(location.search).get("f") ?? "/gishub/zcta-bench.gint")).arrayBuffer();
+const d = unPackGintBuffer(buf);
+window.__log = [`unpacked arcs=${d.arcCount} verts=${d.arcBuffer.length}`];
+
+worker.postMessage({ type: "init", offscreen, dpr: 1 }, [offscreen]);
+await waitMsg(m => m.type === "init");
+worker.postMessage({ type: "resize", width: W, height: H });
+await waitMsg(m => m.type === "resize");
+
+// polyCompBbox は identify 用（描画には不要）— null でよい
+const setT0 = performance.now();
+worker.postMessage({ type: "set", cmd: "gint", data: {
+	arcBuffer: d.arcBuffer, arcMeta: d.arcMeta,
+	polyStream: d.polyStream ?? new Int32Array(0),
+	lineStream: d.lineStream ?? new Int32Array(0),
+	pointBuffer: d.pointBuffer ?? null, point: d.point ?? null,
+	polyCompBbox: d.polyCompBbox ?? null, minZoom: 2,
+} });
+await waitMsg(m => m.type === "set");
+window.__log.push(`set(): ${(performance.now() - setT0).toFixed(0)}ms`);
+
+// 1フレームの純描画コスト：worker の bench（drawing→gl.finish）＝GPU完了までの実時間
+async function frameCost(z, lng = CLNG, lat = CLAT, runs = 5) {
+	const scale = 40.74 * 2 ** z;
+	const times = [];
+	for (let i = 0; i < runs + 1; i++) {   // 先頭1回はウォームアップ（捨てる）
+		const p = waitMsg(m => m.action === "bench", 30000);
+		worker.postMessage({ type: "bench", rotate: [-lng + i * 0.001, -lat, 0], scale, panning: false });
+		const r = await p;
+		if (r.timeout) { window.__log.push(`z${z}: bench TIMEOUT run${i}`); continue; }
+		if (!window.__statsLogged && r.stats) { window.__statsLogged = true; window.__log.push(`stats: ${JSON.stringify(r.stats)}`); }
+		if (i > 0) times.push(r.ms);
+		await new Promise(rr => setTimeout(rr, 30));
+	}
+	if (!times.length) return NaN;
+	times.sort((a, b) => a - b);
+	const med = times[times.length >> 1];
+	window.__log.push(`z${z}: median ${med.toFixed(1)}ms (${times.map(t => t.toFixed(0)).join(",")})`);
+	return med;
+}
+
+window.__bench = async () => {
+	for (const z of [4, 5, 6, 7, 8, 9, 11, 13, 15]) await frameCost(z);
+	window.__log.push("DONE");
+	return window.__log.join("\n");
+};
+window.__frame = frameCost;
+window.__ready = true;
+</script>
+</body>
+</html>

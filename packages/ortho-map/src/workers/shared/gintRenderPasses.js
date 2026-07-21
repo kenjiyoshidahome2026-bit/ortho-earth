@@ -3,7 +3,41 @@
 // renderPickingBuffer: encode feature IDs as RGB24 into the pick FBO
 
 import { s, DEF_STYLE, DEF_DASH, DEF_FILL, DEF_MASK } from './gintState.js';
-import { bindSharedUniforms } from './gintUtility.js';
+import { bindSharedUniforms, dynamicLodRank } from './gintUtility.js';
+
+// 段階別 LOD メタの選択：現在の動的 rank 以下の minWeight を持つ最粗 tier を返す。
+// tier の kept 集合（weight >= minW ⊇ weight >= rank）は動的LODの描画結果と同一＝見た目不変。
+// 対象は線・ピッキングのみ（stencil 塗りは全密度＝自己交差斑点の根治を維持、overlay は
+// polyEdgeByFid の辺レンジが基準メタ前提のため基準メタ固定）。
+// tier が無い（rank が低い＝高ズーム）時は runs=可視チャンクだけを描く（空間カリング）。
+function pickLineTier(scale, baseTex, baseCount) {
+	if (s.lodTiers?.length) {
+		const rank = dynamicLodRank(scale);
+		let tex = null, count = 0;
+		for (const t of s.lodTiers) if (t.minW <= rank && (tex === null || t.edgeCount < count)) { tex = t.tex; count = t.edgeCount; }
+		if (tex) return { tex, count, runs: null };
+	}
+	return { tex: baseTex, count: baseCount, runs: visibleRuns(baseCount, scale) };
+}
+
+// 可視チャンク run（[startEdge, edgeCount] の列）。チャンク台帳や view bbox が無ければ全量1本。
+// マージン: 線幅ぶん bbox を少し広げる（8px 相当・SE 単位）。
+function visibleRuns(totalCount, scale) {
+	const chunks = s.metaChunks, vb = s.lastViewBbox;
+	if (!chunks?.length || !vb) return [[0, totalCount]];
+	const mg = Math.round(8 / (scale || 1) * (180 / Math.PI) * 1e7) || 0;
+	const vx0 = vb[0] - mg, vy0 = vb[1] - mg, vx1 = vb[2] + mg, vy1 = vb[3] + mg;
+	const runs = [];
+	let curStart = -1, curEnd = 0;
+	for (const c of chunks) {
+		const b = c.bbox;
+		const vis = !(b[2] < vx0 || b[0] > vx1 || b[3] < vy0 || b[1] > vy1);
+		if (vis) { if (curStart < 0) curStart = c.start; curEnd = c.end; }
+		else if (curStart >= 0) { runs.push([curStart, curEnd - curStart]); curStart = -1; }
+	}
+	if (curStart >= 0) runs.push([curStart, curEnd - curStart]);
+	return runs;
+}
 
 function bindPointUniforms(u, data, r1, r2) {
 	const { gl, ptTex, ptMetaTex, TEX_ARC_W, width, height } = s;
@@ -109,18 +143,25 @@ export function renderCleanScene(data, targetFBO = null) {
 	}
 
 	// ── Fat-line edges ──（低ズームは境界メタ＝アウトライン表示。折れ線は全量含まれるので消えない）
-	const lnB = hasB && lowZoom;
-	const lnTex = lnB ? metaTexB : metaTex, lnCount = lnB ? totalEdgesB : totalEdges;
-	if (lnCount > 0) {
+	// lowZoom は境界tier（rank ≥ tierB.minW が保証される帯）→ 無ければ境界メタ全量。
+	// 高ズームは tier（全国視界）→ tier が届かない rank 帯は可視チャンク run（空間カリング）。
+	const lnB = lowZoom && hasB;
+	const lnSel = lnB
+		? (s.tierB && dynamicLodRank(data.scale) >= s.tierB.minW
+			? { tex: s.tierB.tex, count: s.tierB.edgeCount, runs: null }
+			: { tex: metaTexB, count: totalEdgesB, runs: null })
+		: pickLineTier(data.scale, metaTex, totalEdges);
+	if (lnSel.count > 0) {
 		gl.useProgram(renderProgram);
-		bindSharedUniforms(gl, uRender, data, arcTex, lnTex, TEX_ARC_W, TEX_META_W, width, height);
+		bindSharedUniforms(gl, uRender, data, arcTex, lnSel.tex, TEX_ARC_W, TEX_META_W, width, height);
 		gl.uniform1f(uRender.u_line_width,   data.lineWidth ?? 1.0);
 		gl.uniform1f(uRender.u_dpr,          s.dpr);
 		gl.uniform1i(uRender.u_active_id,    -1);
 		gl.uniform4fv(uRender.u_style_table, data.styleTable ?? DEF_STYLE);
 		gl.uniform2fv(uRender.u_dash_table,  data.dashTable  ?? DEF_DASH);
 		gl.uniform1i(uRender.u_pass, 0);
-		gl.drawArrays(gl.TRIANGLES, 0, lnCount * 6);
+		for (const [st, cnt] of (lnSel.runs ?? [[0, lnSel.count]]))
+			gl.drawArrays(gl.TRIANGLES, st * 6, cnt * 6);
 	}
 
 	// ── Points ──
@@ -228,10 +269,12 @@ export function renderPickingBuffer(data) {
 		// Draw wider than the visual line to increase pick sensitivity (~6 CSS px margin including DPR).
 		const pickMargin = 12 * (s.dpr ?? 1);
 		if (totalEdges > 0 && metaTex) {
+			const pkSel = pickLineTier(data.scale, metaTex, totalEdges);
 			gl.useProgram(pickLineProgram);
-			bindSharedUniforms(gl, uPickLine, data, arcTex, metaTex, TEX_ARC_W, TEX_META_W, width, height);
+			bindSharedUniforms(gl, uPickLine, data, arcTex, pkSel.tex, TEX_ARC_W, TEX_META_W, width, height);
 			gl.uniform1f(uPickLine.u_line_width, (data.lineWidth ?? 1.0) + pickMargin);
-			gl.drawArrays(gl.TRIANGLES, 0, totalEdges * 6);
+			for (const [st, cnt] of (pkSel.runs ?? [[0, pkSel.count]]))
+				gl.drawArrays(gl.TRIANGLES, st * 6, cnt * 6);
 		}
 
 		if (totalPoints > 0 && ptTex && ptMetaTex) {
