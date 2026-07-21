@@ -286,7 +286,7 @@ export function buildBoundaryEdgeMeta(arcMeta, polyStream, lineStream, arcBuffer
 	};
 
 	let total = 0;
-	for (let aid = 0; aid < nArcs; aid++) if (net[aid] !== 0) total += arcEdges(aid);
+	for (let aid = 0; aid < nArcs; aid++) if (net[aid] !== 0) total += arcEdges(aid) * Math.abs(net[aid]);
 	if (lineStream) { let p = 0;
 		while (p < lineStream.length) { p++; const ns = lineStream[p++];
 			for (let g = 0; g < ns; g++) { const ac = lineStream[p++];
@@ -297,8 +297,15 @@ export function buildBoundaryEdgeMeta(arcMeta, polyStream, lineStream, arcBuffer
 	const buf = new Uint32Array(total * 4);
 	let j = 0;
 	// winding の符号を保つため、描画向きは正味符号に従う（向きを反転すると chain が壊れ塗りが崩れる）。
+	// さらに |net| 回の多重描画＝多重度を保つ。重複筆（同一リング2回登記＝MOJ名物）で net=±2 の arc を
+	// 1回だけ描くと、二重リングの片方が「開いたチェーン」になり fan 楔の±1不均衡が漏れる
+	//（仙台市青葉区で実測：winding −2 のシアン楔＋0 の無色スリットが画面中心から放射）。
 	for (let aid = 0; aid < nArcs; aid++) {
-		if (net[aid] !== 0) j = emitArcEdges(buf, j, net[aid] > 0 ? aid : ~aid, 0, fidOf[aid] < 0 ? 0 : fidOf[aid], arcMeta, getW, minWeight);
+		if (net[aid] !== 0) {
+			const mult = Math.abs(net[aid]);
+			for (let k = 0; k < mult; k++)
+				j = emitArcEdges(buf, j, net[aid] > 0 ? aid : ~aid, 0, fidOf[aid] < 0 ? 0 : fidOf[aid], arcMeta, getW, minWeight);
+		}
 	}
 	const polyEdgeCount = j >> 2;   // ポリゴン境界辺は先頭に連続配置（buildEdgeMeta と同じ規約）
 	if (lineStream) { let p = 0;
