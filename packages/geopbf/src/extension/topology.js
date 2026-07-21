@@ -151,14 +151,19 @@ export function topology(self) {
 		neighborStream = new Int32Array(nbOut);
 	}
 	// polyline stream: per feature: [fid][numSets][arcCount][arcIdx...]...
-	const lineByFid = new Map();
-	structures[1].forEach(({ id, arcs }) => { (lineByFid.get(id) ?? (lineByFid.set(id, []), lineByFid.get(id))).push(arcs); });
-	const lineOut = [];
-	for (const [fid, sets] of lineByFid) {
-		lineOut.push(fid, sets.length);
-		for (const arcs of sets) { lineOut.push(arcs.length); for (const a of arcs) lineOut.push(a); }
+	let lineStream;
+	if (polyline?.lineStream) {
+		({ lineStream } = polyline);   // wasm が組立済み
+	} else {
+		const lineByFid = new Map();
+		structures[1].forEach(({ id, arcs }) => { (lineByFid.get(id) ?? (lineByFid.set(id, []), lineByFid.get(id))).push(arcs); });
+		const lineOut = [];
+		for (const [fid, sets] of lineByFid) {
+			lineOut.push(fid, sets.length);
+			for (const arcs of sets) { lineOut.push(arcs.length); for (const a of arcs) lineOut.push(a); }
+		}
+		lineStream = new Int32Array(lineOut);
 	}
-	const lineStream = new Int32Array(lineOut);
 
 	const arcLength = ((polygon? polygon.buffer.length : 0) + (polyline? polyline.buffer.length : 0));
 	const arcCount = (polygon? polygon.count:0) + (polyline? polyline.count:0), mlen = 8;
@@ -270,7 +275,10 @@ function buildPoints(topo) { if (!topo.length) return null;
 }
 
 function buildPolylines(topo, n_poly = 0, vertexOffset = 0) { if (!topo.length) return null;
-	purifier(topo);
+	purifier(topo);   // 自己交差修復（80kセグ以下の小データ専用）＝wasm経路でもJSで先に適用＝byte-exact 維持
+	// wasm 一括版（cutPolyline→meta→VW→lineStream）。不在なら従来 JS 経路へ。
+	const w = gint.buildPolylinesWasm(topo, n_poly, vertexOffset);
+	if (w) return w;
 	const buffs = cutPolyline(topo, 0);  // local 0-based indices for metaPolyline
 	const meta = metaArc(buffs);
 	metaPolyline(meta, topo);  // works correctly with local (0-based) indices

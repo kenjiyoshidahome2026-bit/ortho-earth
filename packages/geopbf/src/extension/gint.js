@@ -1,4 +1,4 @@
-import init, { L1toL2_wasm, XYtoL1_wasm, alloc_wasm_memory, free_wasm_memory, init_panic_hook, detect_intersections_wasm, build_polygons_wasm } from "../../wasm/pkg/gint_wasm.js";
+import init, { L1toL2_wasm, XYtoL1_wasm, alloc_wasm_memory, free_wasm_memory, init_panic_hook, detect_intersections_wasm, build_polygons_wasm, build_polylines_wasm } from "../../wasm/pkg/gint_wasm.js";
 let wasmReady = false;
 let wasmMemoryBuffer = null;
 let sharedWasmPtr = 0;
@@ -253,6 +253,24 @@ export class gint {
 		const neighborStream = new Int32Array(wasmMemoryBuffer.buffer, res.neighbor_stream_ptr(), res.neighbor_stream_len()).slice();
 		res.free();
 		return { count, buffer, meta, mlen: 8, polyStream, neighborStream };
+	}
+
+	// topology.js ライン経路（cutPolyline→meta→VW→lineStream）の wasm 一括版。
+	// purifier は呼び出し側(buildPolylines)が JS で適用済み。coords は L1 Morton(u64) のまま渡す。
+	static buildPolylinesWasm(topo, n_poly = 0, vertexOffset = 0) {
+		if (!wasmReady || typeof build_polylines_wasm !== 'function' || !topo.length) return null;
+		let total = 0;
+		for (const q of topo) total += q.coords.length;
+		const coords = new BigUint64Array(total), lines = new Uint32Array(topo.length * 2), fids = new Uint32Array(topo.length);
+		let off = 0;
+		topo.forEach((q, i) => { coords.set(q.coords, off); lines[i * 2] = off; lines[i * 2 + 1] = q.coords.length; fids[i] = q.id; off += q.coords.length; });
+		const res = build_polylines_wasm(coords, lines, fids, n_poly, vertexOffset);
+		const count = res.count();
+		const buffer     = new BigUint64Array(wasmMemoryBuffer.buffer, res.arc_buffer_ptr(), res.arc_buffer_len()).slice();
+		const meta       = new Uint32Array(wasmMemoryBuffer.buffer, res.arc_meta_ptr(), res.arc_meta_len()).slice();
+		const lineStream = new Int32Array(wasmMemoryBuffer.buffer, res.line_stream_ptr(), res.line_stream_len()).slice();
+		res.free();
+		return { count, buffer, meta, mlen: 8, lineStream };
 	}
 
 	static XY2L1(estimatedPoints = 4096) {
