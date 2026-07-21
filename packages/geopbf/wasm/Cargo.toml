@@ -12,6 +12,9 @@ crate-type = ["cdylib", "rlib"]
 # JavaScriptとの仲介役（ラッパー生成など）を担う必須クレート
 wasm-bindgen = "0.2"
 
+# 高速ハッシュ（topology の接合点判定・arc照合。SipHashでは頂点数百万件で遅い）
+rustc-hash = "2"
+
 # 🌟 3. 本番ビルド（WASMファイル）をさらに軽量・高速にするための最適化設定
 [profile.release]
 opt-level = 3        # 最高レベルの速度最適化を適用

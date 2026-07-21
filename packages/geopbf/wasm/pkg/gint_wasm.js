@@ -36,6 +36,9 @@ export class GintConverter {
     /**
      * ポリゴン地物の内側判定（JS: findPolygon と等価）
      * レイキャスティング法（偶奇規則）。error パラメータ不要。
+     * TODO: JS側(findPolygon)は smallest-wins（全走査で最後のヒット=最小地物）に変更済み。
+     * 本コンバータは未配線のまま JS 側の連携コード(buildConverter)も撤去済み(2026-07-17)。
+     * 再配線する場合はこの first-wins を JS と同じ後勝ちに揃えること。
      * @param {number} mix
      * @param {number} miy
      * @returns {number}
@@ -108,6 +111,89 @@ export function L1toL2_wasm(ptr, length) {
     wasm.L1toL2_wasm(ptr, length);
 }
 
+export class PolyTopology {
+    static __wrap(ptr) {
+        const obj = Object.create(PolyTopology.prototype);
+        obj.__wbg_ptr = ptr;
+        PolyTopologyFinalization.register(obj, obj.__wbg_ptr, obj);
+        return obj;
+    }
+    __destroy_into_raw() {
+        const ptr = this.__wbg_ptr;
+        this.__wbg_ptr = 0;
+        PolyTopologyFinalization.unregister(this);
+        return ptr;
+    }
+    free() {
+        const ptr = this.__destroy_into_raw();
+        wasm.__wbg_polytopology_free(ptr, 0);
+    }
+    /**
+     * @returns {number}
+     */
+    arc_buffer_len() {
+        const ret = wasm.polytopology_arc_buffer_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    arc_buffer_ptr() {
+        const ret = wasm.polytopology_arc_buffer_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    arc_meta_len() {
+        const ret = wasm.polytopology_arc_meta_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    arc_meta_ptr() {
+        const ret = wasm.polytopology_arc_meta_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    count() {
+        const ret = wasm.polytopology_count(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    neighbor_stream_len() {
+        const ret = wasm.polytopology_neighbor_stream_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    neighbor_stream_ptr() {
+        const ret = wasm.polytopology_neighbor_stream_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    poly_stream_len() {
+        const ret = wasm.polytopology_poly_stream_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    poly_stream_ptr() {
+        const ret = wasm.polytopology_poly_stream_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+}
+if (Symbol.dispose) PolyTopology.prototype[Symbol.dispose] = PolyTopology.prototype.free;
+
 /**
  * @param {number} ptr
  * @param {number} vertex_count
@@ -123,6 +209,23 @@ export function XYtoL1_wasm(ptr, vertex_count) {
 export function alloc_wasm_memory(size) {
     const ret = wasm.alloc_wasm_memory(size);
     return ret >>> 0;
+}
+
+/**
+ * @param {Uint32Array} xy
+ * @param {Uint32Array} rings
+ * @param {Uint32Array} comps
+ * @returns {PolyTopology}
+ */
+export function build_polygons_wasm(xy, rings, comps) {
+    const ptr0 = passArray32ToWasm0(xy, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passArray32ToWasm0(rings, wasm.__wbindgen_malloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ptr2 = passArray32ToWasm0(comps, wasm.__wbindgen_malloc);
+    const len2 = WASM_VECTOR_LEN;
+    const ret = wasm.build_polygons_wasm(ptr0, len0, ptr1, len1, ptr2, len2);
+    return PolyTopology.__wrap(ret);
 }
 
 /**
@@ -177,6 +280,9 @@ function __wbg_get_imports() {
 const GintConverterFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_gintconverter_free(ptr, 1));
+const PolyTopologyFinalization = (typeof FinalizationRegistry === 'undefined')
+    ? { register: () => {}, unregister: () => {} }
+    : new FinalizationRegistry(ptr => wasm.__wbg_polytopology_free(ptr, 1));
 
 function getStringFromWasm0(ptr, len) {
     return decodeText(ptr >>> 0, len);

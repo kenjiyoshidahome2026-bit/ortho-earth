@@ -22,6 +22,9 @@ export class GintConverter {
     /**
      * ポリゴン地物の内側判定（JS: findPolygon と等価）
      * レイキャスティング法（偶奇規則）。error パラメータ不要。
+     * TODO: JS側(findPolygon)は smallest-wins（全走査で最後のヒット=最小地物）に変更済み。
+     * 本コンバータは未配線のまま JS 側の連携コード(buildConverter)も撤去済み(2026-07-17)。
+     * 再配線する場合はこの first-wins を JS と同じ後勝ちに揃えること。
      */
     identify_polygon(mix: number, miy: number): number;
     /**
@@ -42,9 +45,26 @@ export class GintConverter {
 
 export function L1toL2_wasm(ptr: number, length: number): void;
 
+export class PolyTopology {
+    private constructor();
+    free(): void;
+    [Symbol.dispose](): void;
+    arc_buffer_len(): number;
+    arc_buffer_ptr(): number;
+    arc_meta_len(): number;
+    arc_meta_ptr(): number;
+    count(): number;
+    neighbor_stream_len(): number;
+    neighbor_stream_ptr(): number;
+    poly_stream_len(): number;
+    poly_stream_ptr(): number;
+}
+
 export function XYtoL1_wasm(ptr: number, vertex_count: number): void;
 
 export function alloc_wasm_memory(size: number): number;
+
+export function build_polygons_wasm(xy: Uint32Array, rings: Uint32Array, comps: Uint32Array): PolyTopology;
 
 export function detect_intersections_wasm(arc_buf_ptr: number, arc_buf_len: number, arc_meta_ptr: number, arc_count: number, snap_dist_sq: number, grid_unit: number, out_ptr: number, out_max: number): number;
 
@@ -59,7 +79,9 @@ export interface InitOutput {
     readonly L1toL2_wasm: (a: number, b: number) => void;
     readonly XYtoL1_wasm: (a: number, b: number) => void;
     readonly __wbg_gintconverter_free: (a: number, b: number) => void;
+    readonly __wbg_polytopology_free: (a: number, b: number) => void;
     readonly alloc_wasm_memory: (a: number) => number;
+    readonly build_polygons_wasm: (a: number, b: number, c: number, d: number, e: number, f: number) => number;
     readonly detect_intersections_wasm: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => number;
     readonly free_wasm_memory: (a: number, b: number) => void;
     readonly gintconverter_identify_point: (a: number, b: number, c: number, d: number) => number;
@@ -68,6 +90,15 @@ export interface InitOutput {
     readonly gintconverter_new: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: number, l: number, m: number, n: number) => number;
     readonly gintconverter_set_view_bbox: (a: number, b: number, c: number, d: number, e: number) => void;
     readonly init_panic_hook: () => void;
+    readonly polytopology_arc_buffer_len: (a: number) => number;
+    readonly polytopology_arc_buffer_ptr: (a: number) => number;
+    readonly polytopology_arc_meta_len: (a: number) => number;
+    readonly polytopology_arc_meta_ptr: (a: number) => number;
+    readonly polytopology_count: (a: number) => number;
+    readonly polytopology_neighbor_stream_len: (a: number) => number;
+    readonly polytopology_neighbor_stream_ptr: (a: number) => number;
+    readonly polytopology_poly_stream_len: (a: number) => number;
+    readonly polytopology_poly_stream_ptr: (a: number) => number;
     readonly __wbindgen_externrefs: WebAssembly.Table;
     readonly __wbindgen_malloc: (a: number, b: number) => number;
     readonly __wbindgen_start: () => void;

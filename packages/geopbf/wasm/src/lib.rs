@@ -34,6 +34,7 @@ pub fn free_wasm_memory(ptr: *mut u8, size: usize) {
 // =========================================================================
 
 pub(crate) mod identify;
+pub(crate) mod topology;
 
 #[inline(always)]
 pub(crate) fn spread16(mut x: u32) -> u64 {
@@ -342,7 +343,7 @@ pub fn detect_intersections_wasm(
 // 🌟 Visvalingam-Whyatt エンジン + 自己交差プロテクション
 // =========================================================================
 
-fn l2_to_l2(arc: &mut [u64]) {
+pub(crate) fn l2_to_l2(arc: &mut [u64]) {
     let n = arc.len();
     if n < 3 { return; }
 
