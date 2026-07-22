@@ -1,1 +1,0 @@
-This folder contains the built output assets for the worker "native-bucket" generated at 2026-05-06T04:29:08.689Z.
