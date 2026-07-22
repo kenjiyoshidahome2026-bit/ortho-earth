@@ -79,6 +79,39 @@ try {
 		ok(`小データ描画(px=${px})`, px > 1000 && px < 60000);
 	}
 
+	// ── ②b チルト×部分表示の stencil 塗り：ドーナツをカメラ後方へはみ出させ、穴=非塗り/環=塗り/外=非塗り を検定
+	//（fetchProject がカメラ後方頂点を画面中央へ潰す→winding 破壊→中央へ向かう楔でフラッドした実写バグの回帰。
+	//  修正＝VS_STENCIL は fetchClip でクリップ座標のまま出しハードウェアクリップに任せる）──
+	{
+		const { cameraState, project } = await import("../../../packages/ortho-core/src/camera.js");
+		const C = [139.7, 35.7], R = 0.04, r = 0.015;
+		const ring = (d, cw) => cw
+			? [[C[0] - d, C[1] - d], [C[0] - d, C[1] + d], [C[0] + d, C[1] + d], [C[0] + d, C[1] - d], [C[0] - d, C[1] - d]]
+			: [[C[0] - d, C[1] - d], [C[0] + d, C[1] - d], [C[0] + d, C[1] + d], [C[0] - d, C[1] + d], [C[0] - d, C[1] - d]];
+		const vs = [...ring(R, false), ...ring(r, true)];   // 外環 CCW ＋ 穴 CW
+		const arcBuffer = BigUint64Array.from(vs.map(([lo, la]) => pack(lo, la, true)));
+		const arcMeta = new Uint32Array(2 * 8);
+		[[0, 5, R], [5, 5, r]].forEach(([off, len, d], aid) => { arcMeta[aid * 8] = off; arcMeta[aid * 8 + 1] = len;
+			arcMeta[aid * 8 + 4] = e7(C[0] + 180 - d); arcMeta[aid * 8 + 5] = e7(C[1] + 90 - d);
+			arcMeta[aid * 8 + 6] = e7(C[0] + 180 + d); arcMeta[aid * 8 + 7] = e7(C[1] + 90 + d); });
+		await roundtrip({ type: "set", cmd: "gint", data: { arcBuffer, arcMeta, polyStream: Int32Array.from([1, 2, 1, 0, 1, 1]), minZoom: 2 } }, "set");
+		const cam = { center: [C[0] + 0.02, C[1] + 0.018], zoom: 14, pitch: 1.2, bearing: 3.74 };   // 環内NEから南西向き＝北東の環がカメラ後方（中心非対称の構図＝旧コードで楔が出る）
+		post({ type: "drawing", cam, panning: true, fillColor: [1, 0, 0, 0.6] });
+		post({ type: "drawn" });
+		const snap = await snapshot();
+		const st = cameraState(cam, 256, 256);   // canvas/worker と同じ 256（512 で計算して座標を外した反省）
+		const a8 = new Uint8Array(snap.base);
+		// project → snapshot は readPixels＝上下反転格納なので行を 511-y で引く。赤fill（r高/g低/α有）を 5×5 で数える。
+		const redAt = (lon, lat) => { const p = project(st, lon, lat); if (p[2] <= 0) return -1;
+			const x = Math.round(p[0]), y = Math.round(p[1]); if (x < 2 || x > 253 || y < 2 || y > 253) return -2;
+			let m = 0; for (let dy2 = -2; dy2 <= 2; dy2++) for (let dx2 = -2; dx2 <= 2; dx2++) {
+				const i = ((255 - (y + dy2)) * 256 + (x + dx2)) * 4;
+				if (a8[i] > 120 && a8[i + 3] > 60 && a8[i + 1] < 90) m++; }
+			return m; };
+		const hole = redAt(C[0], C[1]), ann = redAt(C[0] - 0.028, C[1] - 0.02), outv = redAt(C[0] - 0.055, C[1] - 0.035);
+		ok(`チルト部分表示stencil(穴=${hole} 環=${ann} 外=${outv})`, hole === 0 && ann > 5 && outv === 0);
+	}
+
 	// ── ③ 大データ：>200k辺 → tier 梯子が worker 内で構築され、低ズームは tier 経路で描く ──
 	{
 		const nArcs = 500, len = 500, total = nArcs * len;

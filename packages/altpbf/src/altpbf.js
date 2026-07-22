@@ -21,9 +21,21 @@ export async function index_alos() {
 	});
 	return tub;
 }
+// 日本域の R01 は DTM（GSI DEM10B・bake-dem10b.mjs で焼いて bucket 常備）。bbox は焼き対象と同じ。
+// DSM(AW3D30)はビル天端・水面ノイズを含み「都市のテント」「湖の偽の島」の根源＝日本は裸地へ移行。
+export const bakedJapan = (lng, lat) => lng >= 122 && lng < 154 && lat >= 20 && lat < 46;
+
 export async function load(name) {
 	const [lng, lat, range] = decodeName(name);
-	return (range === 1)? await load_alos(lng, lat): await load_gepco(name);
+	if (range !== 1) return load_gepco(name);
+	// R01: bucket（日本域＝GSI DEM10B 焼き済み）優先 → 無ければ JAXA（AW3D30 DSM・海外）
+	const baked = await load_gepco(name).catch(() => null);
+	if (baked) return baked;
+	const alos = await load_alos(lng, lat);
+	// bucket 未収録の印＝bbox 内でも外国陸地（韓国・台湾等）は DEM10B 範囲外で JAXA が正
+	// → staleDSM の失効対象から外す（これが無いと毎セッション再取得ループ）
+	if (alos) alos.noBake = 1;
+	return alos;
 }
 
 async function load_alos(lng, lat) {

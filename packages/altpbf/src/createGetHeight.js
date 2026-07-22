@@ -1,5 +1,13 @@
-import { index_alos, encodeName, setApiUrl } from "./altpbf.js";
+import { index_alos, encodeName, decodeName, bakedJapan, setApiUrl } from "./altpbf.js";
 import { Cache } from "native-bucket";
+
+// 日本域 R01 の旧 DSM(ALOS) キャッシュは失効扱い＝DTM(GSI DEM10B・bucket) へ焼き直したため。
+// bucket 側は source="GSI DEM10B" で返る＝一度差し替われば以後この判定は素通り。
+const staleDSM = (name, obj) => {
+	if (!obj || obj.noBake || !String(obj.source || "").startsWith("ALOS")) return false;   // noBake＝bucket未収録が確認済み（外国陸地）
+	const [lng, lat, range] = decodeName(name);
+	return range === 1 && bakedJapan(lng, lat);
+};
 
 // ラスタタイルを返すローダー（点サンプラでなく生タイル）。ortho-japan の GPU アトラス用。
 // R90/R10=bucket・R01=JAXA（ALOS）を worker で読み、IDB キャッシュ。R01 は ALOS 未整備域では null。
@@ -54,7 +62,7 @@ export async function createTileLoader(opts = {}) {
 	return async function loadTile(lng0, lat0, range) {
 		if (range === 1 && !existAlos(lng0, lat0)) return null;   // R01 は ALOS 未整備（海等）
 		const name = encodeName(lng0, lat0, range);
-		const cached = await cache(name); if (cached) return cached;
+		const cached = await cache(name); if (cached && !staleDSM(name, cached)) return cached;
 		if (inflight.has(name)) return inflight.get(name);
 		const p = loadName(name).then(t => { inflight.delete(name); return t; });
 		inflight.set(name, p); return p;
@@ -85,7 +93,7 @@ export async function createGetHeight(opts = {}) {
 	async function load(lng, lat, range) {
 		const name = encodeName(lng, lat, range);
 		if (cname == name) return current;
-		const obj = await cache(name); if (obj) return obj;
+		const obj = await cache(name); if (obj && !staleDSM(name, obj)) return obj;
 		if (isLoading) return null;
 		return new Promise(res=>{
 			isLoading = performance.now();

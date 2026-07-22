@@ -85,8 +85,8 @@ float dlonE7(uint a, uint b) {
 	return float(d) * s;
 }
 
-// 【swap 本体】gint 整数 → 単位球 → mat4 → screen px。
-vec3 fetchProject(uint idx) {
+// gint 整数 → 原点相対 rel（decode 共通部。fetchProject / fetchClip が共用）。
+vec3 decodeRel(uint idx) {
 	ivec2 tc = ivec2(int(idx) % u_arc_w, int(idx) / u_arc_w);
 	uvec4 px = texelFetch(u_arc_tex, tc, 0);
 	uint lo = px.r, hi = px.g;
@@ -97,7 +97,12 @@ vec3 fetchProject(uint idx) {
 	// 中心(=シーン原点)からの delta を整数空間で計算（精度確保・antimeridian 対応）。
 	float dlon = dlonE7(ix, u_ix_center) * 1e-7;
 	float dlat = float(int(iy - u_iy_center)) * 1e-7;
-	vec3 rel = deltaToRel(dlon, dlat);            // 頂点3D − 原点3D（小・正確）
+	return deltaToRel(dlon, dlat);                // 頂点3D − 原点3D（小・正確）
+}
+
+// 【swap 本体】gint 整数 → 単位球 → mat4 → screen px。
+vec3 fetchProject(uint idx) {
+	vec3 rel = decodeRel(idx);
 	float zr = u_origin_zr + dot(rel, u_eye);     // = dot(dir,eye)-1（相殺回避）。>0 手前半球
 	vec4 clip = u_clipT + u_mvp * vec4(rel, 0.0); // = mvp*[dir,1]（相殺回避）
 	if (clip.w <= 0.0) return vec3(u_viewport * 0.5, -1.0);   // カメラ背後 → 裏扱い
@@ -105,6 +110,14 @@ vec3 fetchProject(uint idx) {
 	return vec3((ndc.x * 0.5 + 0.5) * u_viewport.x,
 				(1.0 - (ndc.y * 0.5 + 0.5)) * u_viewport.y,
 				zr);
+}
+
+// stencil 用：クリップ座標のまま返す＝カメラ後方(w<=0)の頂点も動かさずハードウェアクリップに任せる。
+// スクリーン化(fetchProject)は後方頂点を画面中央へ潰す＝ファン三角形が歪み winding が壊れ、
+// チルトで図形の一部が視野外に出ると塗りが「中央へ向かう楔」でフラッドする（実写バグ）。
+// クリップ空間の三角形はクリッピング後も可視画素の巻き数が厳密に保たれる＝部分表示でも正しい塗り。
+vec4 fetchClip(uint idx) {
+	return u_clipT + u_mvp * vec4(decodeRel(idx), 0.0);
 }
 
 vec4 toNDC(vec2 p) {
@@ -213,8 +226,8 @@ vec3 fetchPoint(int pt_id) {
 `;
 
 // sub=0 → NDC原点(fan pivot); sub=1 → 頂点A; sub=2 → 頂点B。
-// 14条地図(市街地)は手前半球のみ＝v1 の horizon-circle push は不要。裏半球頂点は toNDC のまま
-// （深いチルト/低ズームで背面を含む layer を載せる時に押し出しを足す＝そこは低ズーム精緻化）。
+// 頂点は fetchClip＝クリップ座標のまま出す（チルトでカメラ後方に回った頂点の中央潰れ→塗りフラッドの根治）。
+// 14条地図(市街地)は手前半球のみ＝v1 の horizon-circle push は不要（低ズームの背面対応は低ズーム精緻化で）。
 const VS_STENCIL = `${GLSL_VS_HEADER}
 void main() {
 	int edge_id = gl_VertexID / 3;
@@ -223,8 +236,7 @@ void main() {
 	uint lodA = meta.r, lodB = meta.g;
 	if (!lodSnap(lodA, lodB, edge_id)) { gl_Position = vec4(2.0, 0.0, 0.0, 1.0); return; }
 	if (sub == 0) { gl_Position = vec4(0.0, 0.0, 0.0, 1.0); return; }
-	vec3  p    = fetchProject(sub == 1 ? lodA : lodB);
-	gl_Position = toNDC(p.xy);
+	gl_Position = fetchClip(sub == 1 ? lodA : lodB);
 }`;
 
 // Mask stencil：アクティブ地物のリングだけ stencil を切り抜く。
@@ -233,11 +245,10 @@ flat out int v_feat_id;
 void main() {
 	int edge_id = gl_VertexID / 3;
 	int sub     = gl_VertexID % 3;
-	if (sub == 0) { gl_Position = vec4(0.0, 0.0, 0.0, 1.0); return; }
 	uvec4 meta = fetchEdgeMeta(edge_id);
 	v_feat_id  = int(meta.a);
-	vec3  p    = fetchProject(sub == 1 ? meta.r : meta.g);
-	gl_Position = toNDC(p.xy);
+	if (sub == 0) { gl_Position = vec4(0.0, 0.0, 0.0, 1.0); return; }
+	gl_Position = fetchClip(sub == 1 ? meta.r : meta.g);   // クリップ座標のまま（VS_STENCIL と同じ根治）
 }`;
 
 const FS_STENCIL_MASK = `#version 300 es

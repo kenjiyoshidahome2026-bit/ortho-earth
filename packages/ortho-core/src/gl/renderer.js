@@ -42,6 +42,7 @@ export function createRenderer(canvas, rOpts = {}) {
 	// 海：水レイヤ(li)を cam.zoom で一律にゲート＝ビュー単位で描く/描かない（タイル毎の presence まだらを排す）。
 	// cam.zoom < minzoom では水を描かない＝海は球の基色(紙)のまま。以上で一律の色を点火。
 	let sea = { li: -1, minzoom: Infinity };
+	const WATER_LIFT_M = 30;   // 水面リフト(m)：DSM水面ノイズ瘤(±10m級)を沈める深度テスト用の嵩上げ（誇張前の実標高）
 	// 星空（z<4）：stars＝点（[cel.xyz, rgb, alpha, size]×8f interleaved）、constel＝星座線（[cel.xyz]×3f、LINES端点列）、
 	// planets＝惑星（starsと同レイアウト・アプリが実位置を計算し10分毎に差し替え）。
 	// 表示のON/OFFは view.showConst（星座線のみトグル・星と惑星は常設）。
@@ -660,18 +661,17 @@ export function createRenderer(canvas, rOpts = {}) {
 				gl.uniform1f(loc(gl, md.lineProg, "u_dpr"), cam.dpr || 1);
 				gl.uniform1i(loc(gl, md.lineProg, "u_segTex"), 6);
 				if (md.lineTex) { gl.activeTexture(gl.TEXTURE6); gl.bindTexture(gl.TEXTURE_2D, md.lineTex); gl.activeTexture(gl.TEXTURE0); }
-				let curProgM = null, depthOnM = terrainDepth;
+				let curProgM = null;
 				for (const e of scene.md.layers) {
 					if (e.kind === "fill") {
 						if ((e.li === sea.li || e.li === sea.li2) && cam.zoom < sea.minzoom) continue;   // 海：ビュー一律ゲート（classicと同じ）
-						const wantDepth = terrainDepth && !(e.li === sea.li || e.li === sea.li2);
-						if (wantDepth !== depthOnM) { (wantDepth ? gl.enable : gl.disable).call(gl, gl.DEPTH_TEST); depthOnM = wantDepth; }
+						// 水面は「+30mリフトして深度テスト復帰」（classic 側と同判断＝チルトの尾根遮蔽と琵琶湖の偽島を両立）
 						if (curProgM !== md.fillProg) { gl.useProgram(md.fillProg); gl.bindVertexArray(md.fillVAO); curProgM = md.fillProg; }
+						gl.uniform1f(loc(gl, md.fillProg, "u_lift"), (terrainDepth && (e.li === sea.li || e.li === sea.li2)) ? WATER_LIFT_M : 0);
 						gl.uniform2fv(loc(gl, md.fillProg, "u_tileOff"), e.origins);
 						md.ext.multiDrawElementsWEBGL(gl.TRIANGLES, e.counts, 0, gl.UNSIGNED_INT, e.offsets, 0, e.counts.length);
 					} else {
 						if (slot === "base" && mainLinesOn) continue;   // 本命の線が出ている間は下地の線を伏せる
-						if (terrainDepth && !depthOnM) { gl.enable(gl.DEPTH_TEST); depthOnM = true; }
 						if (curProgM !== md.lineProg) { gl.useProgram(md.lineProg); gl.bindVertexArray(emptyVAO); curProgM = md.lineProg; }
 						gl.uniform2fv(loc(gl, md.lineProg, "u_tileOff"), e.origins);
 						md.ext.multiDrawArraysWEBGL(gl.TRIANGLES, e.firsts, 0, e.counts, 0, e.counts.length);
@@ -685,21 +685,20 @@ export function createRenderer(canvas, rOpts = {}) {
 			setCommonUniforms(lineProg, st, scene.origin, land);
 			gl.useProgram(fillProg); gl.uniform1f(loc(gl, fillProg, "u_fogFar"), fogFarCap);
 			gl.useProgram(lineProg); gl.uniform1f(loc(gl, lineProg, "u_fogFar"), fogFarCap);
-			let curProg = null, depthOn = terrainDepth;
+			let curProg = null;
 			for (const d of scene.draws) {
 				if (d.kind === "fill") {
 					if ((d.li === sea.li || d.li === sea.li2) && cam.zoom < sea.minzoom) continue;   // 海：ビュー一律ゲート（詳細以外は描かない＝紙の海）。li2=水系点火面
-					// 水面は山岳レジームでも深度テスト免除：湖・海の大三角形（頂点は岸のみ）は平面補間のため、
-					// DSMの水面ノイズ瘤が突き抜けて「湖に偽の島」が浮く（琵琶湖で顕在化）。水は常に地形の上に塗る
-					const wantDepth = terrainDepth && !(d.li === sea.li || d.li === sea.li2);
-					if (wantDepth !== depthOn) { (wantDepth ? gl.enable : gl.disable).call(gl, gl.DEPTH_TEST); depthOn = wantDepth; }
+					// 水面は「+30mリフトして深度テスト復帰」：旧・免除（後書き）はチルトで尾根の遮蔽が効かず、
+					// 稜線の向こうの湖が山腹に透けた（山中湖で顕在化）。リフトが DSM の水面ノイズ瘤(±10m級)を
+					// 沈め「湖の偽の島」（琵琶湖）も防ぐ＝両立。数百m級の尾根には引き続き隠される。
 					if (curProg !== fillProg) { gl.useProgram(fillProg); curProg = fillProg; }
+					gl.uniform1f(loc(gl, fillProg, "u_lift"), (terrainDepth && (d.li === sea.li || d.li === sea.li2)) ? WATER_LIFT_M : 0);
 					gl.bindVertexArray(d.vao);
 					if (d.idxT) gl.drawElements(gl.TRIANGLES, d.count, d.idxT, 0);
 					else gl.drawArrays(gl.TRIANGLES, 0, d.count);
 				} else {
 					if (slot === "base" && mainLinesOn) continue;   // 本命の線が出ている間は下地の線を伏せる
-					if (terrainDepth && !depthOn) { gl.enable(gl.DEPTH_TEST); depthOn = true; }   // 線は地形遮蔽を維持
 					if (curProg !== lineProg) { gl.useProgram(lineProg); curProg = lineProg; }
 					gl.bindVertexArray(d.vao);
 					gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, d.count);

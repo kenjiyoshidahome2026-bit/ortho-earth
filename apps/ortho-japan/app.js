@@ -211,7 +211,7 @@ renderWorker.onmessage = e => {
 	}
 	if (d.type !== "elevPending") return;
 	const { count, range } = d;
-	if (count > 0 && layerState.terrain) { elevEl.style.display = "block"; elevEl.textContent = `⛰ 地形読込中 ${range === 1 ? "R01（秒単位・JAXA）" : range === 10 ? "R10" : "R90"} … ×${count}`; }
+	if (count > 0 && layerState.terrain) { elevEl.style.display = "block"; elevEl.textContent = `⛰ 地形読込中 ${range === 1 ? "R01（秒単位）" : range === 10 ? "R10" : "R90"} … ×${count}`; }
 	else elevEl.style.display = "none";
 };
 

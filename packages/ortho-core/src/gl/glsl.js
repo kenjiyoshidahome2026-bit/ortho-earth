@@ -460,6 +460,8 @@ precision highp float;
 in vec2 a_delta;
 in vec4 a_color;
 ${PROJECT}
+uniform float u_lift;   // 水面リフト(m)：水域(fill)だけ山岳レジームで+30m＝DSMの水面ノイズ瘤を沈めつつ
+                        // 尾根(数百m級)の遮蔽は保つ（深度テスト免除=後書きの廃止）。通常塗りは 0。
 out vec4 v_color;
 out float v_front;
 out float v_fog;
@@ -471,7 +473,7 @@ void main() {
 	// 標高変位は地形と同じ距離フェード（TERRAIN_VS の df と同式）＝遠景で地形が平ら化された時に
 	// 塗りだけ山の高さに浮くのを防ぐ（浮くと地平線の上に塗りの切れ端が漂う）
 	float df = 1.0 - smoothstep(u_fogFar * 0.8, u_fogFar * 2.0, distance(u_eye, dir));
-	float h = elev(ll) * u_elevScale * df;
+	float h = (elev(ll) + u_lift) * u_elevScale * df;
 	vec3 relW = rel + h * dir;                // (dir*(1+h)) − 原点3D を相殺なしで（標高で地形に貼りつく）
 	v_color = a_color;
 	v_front = dot(dir, u_eye) - 1.0;          // >0 で手前半球（cull＝粗くて可）
