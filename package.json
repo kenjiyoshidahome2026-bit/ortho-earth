@@ -4,8 +4,7 @@
 	"type": "module",
 	"workspaces": [
 		"packages/*",
-		"apps/*",
-		"packages/wasm/pkg"
+		"apps/*"
 	],
 	"scripts": {
 		"dev:www": "npm run dev -w www",
@@ -17,7 +16,6 @@
 	},
 	"dependencies": {
 		"html2canvas": "^1.4.1",
-		"polygon-clipping": "^0.15.7",
 		"versor": "^0.2.0"
 	},
 	"devDependencies": {

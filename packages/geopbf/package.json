@@ -12,7 +12,6 @@
 		"summary": "repomix --style markdown --output project_summary.md"
 	},
 	"dependencies": {
-		"gishub-wasm": "*",
 		"native-bucket": "*",
 		"pbf": "^4.0.1"
 	},

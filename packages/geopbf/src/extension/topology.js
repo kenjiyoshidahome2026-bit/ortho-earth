@@ -263,12 +263,6 @@ export function repackGintBuffer(d) {
 	return buf;
 }
 
-export function checkCoherence(fB, vB) { // 0:Outside, 1:Partial, 2:Full-In
-	if (fB[2] < vB.minX || fB[0] > vB.maxX || fB[3] < vB.minY || fB[1] > vB.maxY) return 0; // fully outside (cull)
-	if (fB[0] >= vB.minX && fB[2] <= vB.maxX && fB[1] >= vB.minY && fB[3] <= vB.maxY) return 2; // fully inside (no clip)
-	return 1; // partial overlap
-}
-
 function buildPoints(topo) { if (!topo.length) return null;
 	const a = topo.map(({ id, coords })=>[coords, id]).sort((a, b) => a[0] > b[0] ? 1 : -1), count = a.length;
 	const buffer = new BigUint64Array(count), meta = new Uint32Array(count);

@@ -19,8 +19,7 @@ export default defineConfig({
 		}
 	},
 	optimizeDeps: {
-		exclude: ['ortho-map', 'common', 'geopbf', 'altpbf', 'native-bucket', 'calender'],
-		include: ['polygon-clipping']
+		exclude: ['ortho-map', 'common', 'geopbf', 'altpbf', 'native-bucket', 'calender']
 	},
 	server: {
 		fs: { allow: ['../..'] },

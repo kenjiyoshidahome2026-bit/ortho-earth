@@ -2,20 +2,20 @@
 // 本番 ortho-map からは独立。現行アプリのimportグラフには含めない。
 export { evalExpr, truthy } from "./expr.js";
 export { parseRGBA } from "./color.js";
-export { decodeMVT, fetchMVT } from "./decode.js";
+export { fetchMVT } from "./decode.js";
 export { lonLatToTile, tileLocalToLonLat, tileBounds } from "./tile.js";
 export { buildTileDrawList } from "./build.js";
 export { createRenderer } from "./gl/renderer.js";
 export { buildLabels } from "./labels.js";
-export { buildGeoJSONScene, buildGeoJSONOverlay, pointInFeature } from "./geojson.js";
+export { buildGeoJSONOverlay, pointInFeature } from "./geojson.js";
 export { buildBuildings } from "./buildings.js";
-export { fetchR10, toFloat32, sampleHeight, downsampleFlipped } from "./elevation.js";
+export { downsampleFlipped } from "./elevation.js";
 export { createLabelLayer } from "./labels2d.js";
 export { cameraState, project, unproject, lonlatTo3D } from "./camera.js";
 export { createFlight, shortBearingOf } from "./flight.js";
 export { createInput, isTypingTarget } from "./input.js";
 export { parseViewHash, buildViewHash, wrapLon } from "./viewurl.js";
-export { pickZoom, visibleTiles, selectLOD } from "./tilecover.js";
+export { selectLOD } from "./tilecover.js";
 export { createTileManager } from "./tilemanager.js";
 export { createPipeline } from "./pipeline.js";
 export { createTerrain } from "./terrain.js";
