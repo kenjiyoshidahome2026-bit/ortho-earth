@@ -60,7 +60,7 @@ function init(data) {
 	s.canvas.addEventListener('webglcontextlost', e => {
 		e.preventDefault();
 		s.arcTex = s.metaTex = s.ptTex = s.ptMetaTex = null;
-		s.lodTiers = [];
+		s.lodTiers = []; s.tierGen = (s.tierGen ?? 0) + 1;   // 遅延 tier 構築も中止（復元時に作り直す）
 		s.baseFBO = s.baseColorTex = s.baseDepthStencilRBO = null;
 		s.pickFBO = s.pickColorTex = s.pickDepthStencilRBO = null;
 		s.programs = null; s.lastDrawData = null;
@@ -162,7 +162,14 @@ function drawNow(data) {
 	// ── site 3：japan の心室で cam → mvp/eye/origin（v1 の d3 lastProj の建て替え）──
 	const st = cameraState(data.cam, s.width, s.height);
 	s.cam = st;                                    // identify の unproject 用（site 4）
-	const origin = data.cam.center;                // 視野中心＝Morton 中心（origin が視野を追う＝精度）
+	// 視野中心＝Morton 中心（origin が視野を追う＝精度）。ただし【1e-7° に量子化してから】錨を計算する：
+	// 頂点デルタは round された u_ix_center 基準なのに、錨（origin_trig/clipT/origin_zr）を生の center から
+	// 作ると ±0.5e-7° の不一致が「パンで毎フレーム変わる全体オフセット」になり z20+ で這う揺らぎ
+	//（f32忠実シミュ実測: z20=0.15px/z22=0.55px/z23=1.3px → 量子化一致で全ズーム 0.000px）。
+	// カメラ姿勢(st)は生の center のまま＝量子化するのは錨とデルタの「共通原点」だけ。
+	const lonN = ((data.cam.center[0] % 360) + 540) % 360 - 180;
+	const origin = [Math.round((lonN + 180) * 1e7) / 1e7 - 180,
+	                Math.round((data.cam.center[1] + 90) * 1e7) / 1e7 - 90];
 	// MVP相殺回避の錨＝原点3D の clip 位置と zr を float64(CPU)で先に確定（Float32 化前の st.mvp で）。
 	// シェーダは頂点3D−原点3D（小・正確）だけを u_mvp で回し、この錨へ足す＝高ズームの桁落ちを断つ。
 	const T = lonlatTo3D(origin[0], origin[1]);

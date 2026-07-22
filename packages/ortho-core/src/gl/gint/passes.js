@@ -14,20 +14,20 @@ const OUTLINE_ZOOM = 12;
 // minWeight を持つ最粗 tier を返す。tier の kept 集合（weight >= minW ⊇ weight >= rank）は動的LODの
 // 描画結果と同一＝見た目不変。対象は線・ピッキングのみ（stencil 塗りは全密度＝自己交差斑点の根治を維持、
 // overlay は polyEdgeByFid の辺レンジが基準メタ前提のため基準メタ固定）。
-// tier が無い（rank が低い＝高ズーム）時は runs=可視チャンクだけを描く（空間カリング）。
+// tier / 基準メタとも runs=可視チャンクだけを描く（空間カリング。全球ビューは view bbox=null＝全量）。
 function pickLineTier(rank, baseTex, baseCount) {
 	if (s.lodTiers?.length) {
-		let tex = null, count = 0;
-		for (const t of s.lodTiers) if (t.minW <= rank && (tex === null || t.edgeCount < count)) { tex = t.tex; count = t.edgeCount; }
-		if (tex) return { tex, count, runs: null };
+		let best = null;
+		for (const t of s.lodTiers) if (t.minW <= rank && (!best || t.edgeCount < best.edgeCount)) best = t;
+		if (best) return { tex: best.tex, count: best.edgeCount, runs: visibleRuns(best.edgeCount, best.chunks) };
 	}
-	return { tex: baseTex, count: baseCount, runs: visibleRuns(baseCount) };
+	return { tex: baseTex, count: baseCount, runs: visibleRuns(baseCount, s.metaChunks) };
 }
 
 // 可視チャンク run（[startEdge, edgeCount] の列）。チャンク台帳や view bbox が無ければ全量1本。
 // マージン: 線幅ぶん bbox を少し広げる（SE=1e7 単位・約 0.001°）。
-function visibleRuns(totalCount) {
-	const chunks = s.metaChunks, vb = s.lastViewBbox;
+function visibleRuns(totalCount, chunks) {
+	const vb = s.lastViewBbox;
 	if (!chunks?.length || !vb) return [[0, totalCount]];
 	const mg = 10000;
 	const vx0 = vb[0] - mg, vy0 = vb[1] - mg, vx1 = vb[2] + mg, vy1 = vb[3] + mg;

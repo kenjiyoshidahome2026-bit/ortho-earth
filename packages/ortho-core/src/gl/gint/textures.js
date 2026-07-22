@@ -63,27 +63,60 @@ export function uploadGintTextures() {
 
 	// ── 段階別 LOD メタ（ortho-map から移植）──
 	// 「全球・全国が視界内＝空間カリングが効かない低〜中ズーム」担当。rank↔zoom はデータ非依存
-	//（r ↔ z=(63-r)/3）なので固定 rank 梯子：w38↔z8.3 / w42↔z7 / w46↔z5.7 / w50↔z4.3。
+	//（r ↔ z=(63-r)/3）なので固定 rank 梯子：w38↔z8.3 / w42↔z7 / w46↔z5.7 / w50↔z4.3 / w54↔z3 / w58↔z1.7。
 	// kept 集合は動的LOD（u_lod_rank）と同一＝見た目不変の純粋な VS 起動数削減。
 	// 高ズーム（rank<38）は可視チャンクカリングが担当。
+	// 発動閾値 200k：海岸線(NE10m≈41万辺)級を全球ビュー（z<4＝gint が地図そのもの・view bbox=null＝
+	// カリング不能）で毎フレーム全辺 VS＋アンカー辺の長大 walk にしない＝「軽さ」の決め手。
+	// 各 tier にもチャンク台帳（16k辺粒度）＝中ズームで tier×可視カリングを併用。
+	//
+	// 【構築は 1 tier ずつ macrotask に刻む】set() 内で同期に全段作ると、14条級（数百k〜数M辺）の
+	// ドロップ急寄りで worker が数百ms〜秒単位ブロック＝sync(drawing) が詰まり直前フレーム（海岸線）が
+	// 残像として固まる。tier は未完成でも基準メタで正しく描ける（遅いだけ）＝遅延構築が常に安全。
+	// 採否（0.7 ガード）は buildWeightHist の正確な件数（edgeCount(w)=hist[w]-nUsages）で先に判定し、
+	// 作らない tier は走査もしない。構築順は粗い側から＝全球ビューが最初の1段で即恩恵。
 	if (s.lodTiers?.length) s.lodTiers.forEach(t => gl.deleteTexture(t.tex));
 	s.lodTiers = [];
-	const TIER_RANKS = [38, 42, 46, 50];
-	if (ab?.length && s.totalEdges > 3_000_000) {
-		let prevEdges = s.totalEdges;
-		for (const w of TIER_RANKS) {
-			if (w <= capMinW) continue;
-			const r = buildEdgeMeta(am, ps, ls, ab, w);
-			if (!r.edgeCount || r.edgeCount >= prevEdges * 0.7) continue;   // weight無しデータ等＝空/効果薄はスキップ
-			const tH   = Math.ceil(r.edgeCount / s.TEX_META_W);
-			const tPad = new Uint32Array(s.TEX_META_W * tH * 4);
-			tPad.set(r.metaU32);
-			s.lodTiers.push({ minW: w, edgeCount: r.edgeCount,
-				tex: uploadTex2D(gl, tPad, s.TEX_META_W, tH, gl.RGBA32UI, gl.RGBA_INTEGER) });
-			prevEdges = r.edgeCount;
-		}
-		if (s.lodTiers.length) console.debug('[gint] LOD tiers: %s',
-			s.lodTiers.map(t => `w${t.minW}=${t.edgeCount}辺`).join(' / '));
+	const gen = s.tierGen = (s.tierGen ?? 0) + 1;   // 差し替え/クリア/context復元で旧スケジュールを無効化
+	const TIER_RANKS = [38, 42, 46, 50, 54, 58];
+	if (ab?.length && s.totalEdges > 200_000) {
+		const tierOpts = { orderBbox: s.polyBboxByFid, chunkEdges: 16384 };
+		const buildPlan = () => {
+			const arcU32 = new Uint32Array(ab.buffer, ab.byteOffset, ab.byteLength / 4);
+			const { hist, nUsages } = weightHist ?? buildWeightHist(am, ps, ls, arcU32);
+			const plan = [];
+			let prevEdges = s.totalEdges;
+			for (const w of TIER_RANKS) {
+				if (w <= capMinW) continue;
+				const cnt = hist[w] - nUsages;
+				if (!(cnt > 0) || cnt >= prevEdges * 0.7) continue;   // weight無しデータ等＝空/効果薄はスキップ
+				plan.push(w); prevEdges = cnt;
+			}
+			return plan.reverse();   // 粗い側（w58）から
+		};
+		let plan = null;
+		const buildNext = () => {
+			if (gen !== s.tierGen || !s.gl || s.gintData?.arcBuffer !== ab) return;   // データ差し替え/破棄＝中止
+			if (s._isDrawing) { setTimeout(buildNext, 120); return; }   // 移動中は組まない（terrainGate と同じ思想＝停止時に構築）
+			plan ??= buildPlan();
+			const w = plan.shift();
+			if (w == null) {
+				if (s.lodTiers.length) console.debug('[gint] LOD tiers: %s',
+					s.lodTiers.map(t => `w${t.minW}=${t.edgeCount}辺`).join(' / '));
+				postMessage({ action: 'tiers', tiers: s.lodTiers.map(t => ({ minW: t.minW, edgeCount: t.edgeCount })) });
+				return;
+			}
+			const r = buildEdgeMeta(am, ps, ls, ab, w, tierOpts);
+			if (r.edgeCount) {
+				const tH   = Math.ceil(r.edgeCount / s.TEX_META_W);
+				const tPad = new Uint32Array(s.TEX_META_W * tH * 4);
+				tPad.set(r.metaU32);
+				s.lodTiers.push({ minW: w, edgeCount: r.edgeCount, chunks: r.chunks,
+					tex: uploadTex2D(gl, tPad, s.TEX_META_W, tH, gl.RGBA32UI, gl.RGBA_INTEGER) });
+			}
+			setTimeout(buildNext, 0);
+		};
+		setTimeout(buildNext, 0);
 	}
 
 	// ptTex: RG32UI — 点座標（arcTex と同形式）。ptMetaTex: R32UI — 点毎の feature ID。

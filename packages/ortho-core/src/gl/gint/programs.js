@@ -35,6 +35,16 @@ vec3 lonlatTo3D(vec2 ll) {
 	return vec3(cb * cos(a), sin(b), cb * sin(a));
 }
 
+// GPU の sin() は微小角で信用できない：GLSL 仕様は sin/cos の精度を未規定で、SwiftShader は
+// |x|≲1e-7rad を 0 にフラッシュ（transform feedback 実測）、実 GPU も実装依存の近似誤差を持つ。
+// 高ズームは Δ角が 1e-9〜1e-6rad かつ倍率 ~1e8px/rad＝誤差がそのまま px の這いになる（v1 の
+// 「z>16 は三角関数を捨てる（Jacobian）」と同じ問題の v2 形。左下悪化・チルト軽減の空間署名まで一致）。
+// 微小角は Taylor（x−x³/6+x⁵/120＝f32 で厳密同等）、大角（|x|>0.1rad＝低ズームの遠方＝px が km 級）のみ native sin。
+float sinP(float x) {
+	float x2 = x * x;
+	return (abs(x) < 0.1) ? x * (1.0 - x2 * (1.0 / 6.0) * (1.0 - x2 * (1.0 / 20.0))) : sin(x);
+}
+
 // 原点相対 RTE：絶対経緯度を float32 で組み立てない（u_origin.x≈140 の加算は ulp≈1.8m の格子スナップ＝
 // 原点がカメラ追従で毎フレーム動く→頂点が格子間を飛ぶ＝パンで這う揺らぎ）。原点の三角比（u_origin_trig＝
 // CPUでdouble算出）へ、小さいΔ角(dlon/dlat)を角度加算で合成＝厳密・全球で有効（線形化＝接平面近似ではない）。
@@ -43,8 +53,8 @@ vec3 lonlatTo3D(vec2 ll) {
 // 原点三角比 u_origin_trig=(cosLon0,sinLon0,cosLat0,sinLat0)。原点3D=(cLat cLon, sLat, cLat sLon)。
 vec3 deltaToRel(float dlon_deg, float dlat_deg) {
 	float da = dlon_deg * D2R, db = dlat_deg * D2R;
-	float sda = sin(da), sdb = sin(db);
-	float sha = sin(da * 0.5), shb = sin(db * 0.5);
+	float sda = sinP(da), sdb = sinP(db);
+	float sha = sinP(da * 0.5), shb = sinP(db * 0.5);
 	float cdaM1 = -2.0 * sha * sha, cdbM1 = -2.0 * shb * shb;   // cos(da)-1, cos(db)-1（相殺なし）
 	float cda = 1.0 + cdaM1, cdb = 1.0 + cdbM1;
 	float ccM1 = cdaM1 + cdbM1 + cdaM1 * cdbM1;                 // cos(da)cos(db)-1（相殺なし）
@@ -66,12 +76,13 @@ uint compact16(uint m) {
 
 // 経度 Δ（1e-7°単位, 符号付き最短）。経度は 360e7 周期で、素朴な int(a-b) は 2^32 で
 // 折れて ±180° 越えを誤ラップする。max/min で |Δ| を厳密に取り、360e7 で正しく畳む。
+// 【畳み込みは uint のまま】旧実装 f = 3.6e9 - float(d) は float 化後の大数引き算＝f32 ulp(3.6e9)=256
+// （2.56e-5°≈2.8m）に格子化し、antimeridian 跨ぎの頂点がパンで最大数十px 飛ぶ（f32忠実シミュ実測）。
 float dlonE7(uint a, uint b) {
 	uint d = max(a, b) - min(a, b);   // |Δ| ∈ [0, 360e7], exact
-	float f = float(d);
 	float s = (a >= b) ? 1.0 : -1.0;
-	if (d > 1800000000u) { f = 3.6e9 - f; s = -s; }  // take the short way around
-	return f * s;
+	if (d > 1800000000u) { d = 3600000000u - d; s = -s; }  // take the short way around (exact in uint)
+	return float(d) * s;
 }
 
 // 【swap 本体】gint 整数 → 単位球 → mat4 → screen px。
@@ -111,6 +122,24 @@ uint fetchRank(uint idx) {
 	uvec4 px = texelFetch(u_arc_tex, ivec2(int(idx) % u_arc_w, int(idx) / u_arc_w), 0);
 	return ((px.g >> 31u) != 0u) ? 63u : (px.r & 0x3Fu);
 }
+
+// GPU Dynamic LOD（gap無し・全描画パス共通）：始点 A が閾値未満の辺は捨てる（直前の kept 辺が跨いで描く）。
+// 終点 B は「次に閾値を満たす頂点」まで前方スナップ＝間引き頂点を飛ばして kept 同士を直結。
+// B のスナップはメタ隣接エントリを辿る：同一 arc 内は meta[e+1].A == meta[e].B（全密度でも
+// long-jump tier でも成立）＝1 hop で次の kept 頂点へ（reversed arc も meta が向きを吸収済み）。
+// 旧実装（arc 密頂点±1 の線形歩行）は rank とメタ密度の差ぶん texelFetch を浪費（ortho-map ZCTA実測: 1辺≈50fetch）。
+// arc 終端は B が anchor(rank63)＝rank 判定で必ず停止。隣接が別 arc なら m.r != lodB で停止。
+// 戻り値: true=辺を描く（lodB はスナップ済み）/ false=discard。
+bool lodSnap(inout uint lodA, inout uint lodB, int edge_id) {
+	if (float(fetchRank(lodA)) < u_lod_rank) return false;
+	for (int k = 1; k < 4096; k++) {
+		if (float(fetchRank(lodB)) >= u_lod_rank) break;
+		uvec4 m = fetchEdgeMeta(edge_id + k);
+		if (m.r != lodB) break;
+		lodB = m.g;
+	}
+	return true;
+}
 `;
 
 // 点用の投影ヘッダ（u_pt_tex から decode。fetchProject と同じ mat4 swap）。
@@ -137,11 +166,16 @@ vec3 lonlatTo3D(vec2 ll) {
 	float a = ll.x * D2R, b = ll.y * D2R, cb = cos(b);
 	return vec3(cb * cos(a), sin(b), cb * sin(a));
 }
+// 微小角 sin（arc 側と同一＝GPU sin の実装誤差/ゼロフラッシュ回避）。
+float sinP(float x) {
+	float x2 = x * x;
+	return (abs(x) < 0.1) ? x * (1.0 - x2 * (1.0 / 6.0) * (1.0 - x2 * (1.0 / 20.0))) : sin(x);
+}
 // 原点相対 RTE（arc 側 deltaToRel と同一）：頂点3D−原点3D を桁落ちなしで直接作る（cos-1=-2sin²(θ/2)）。
 vec3 deltaToRel(float dlon_deg, float dlat_deg) {
 	float da = dlon_deg * D2R, db = dlat_deg * D2R;
-	float sda = sin(da), sdb = sin(db);
-	float sha = sin(da * 0.5), shb = sin(db * 0.5);
+	float sda = sinP(da), sdb = sinP(db);
+	float sha = sinP(da * 0.5), shb = sinP(db * 0.5);
 	float cdaM1 = -2.0 * sha * sha, cdbM1 = -2.0 * shb * shb;
 	float cda = 1.0 + cdaM1, cdb = 1.0 + cdbM1;
 	float ccM1 = cdaM1 + cdbM1 + cdaM1 * cdbM1;
@@ -156,8 +190,9 @@ uint compact16(uint m) {
 	m = (m | (m >> 4u)) & 0x00FF00FFu; m = (m | (m >> 8u)) & 0x0000FFFFu; return m;
 }
 float dlonE7(uint a, uint b) {
-	uint d = max(a, b) - min(a, b); float f = float(d); float s = (a >= b) ? 1.0 : -1.0;
-	if (d > 1800000000u) { f = 3.6e9 - f; s = -s; } return f * s;
+	uint d = max(a, b) - min(a, b); float s = (a >= b) ? 1.0 : -1.0;
+	if (d > 1800000000u) { d = 3600000000u - d; s = -s; }   // uint で畳む＝exact（arc 側と同修正）
+	return float(d) * s;
 }
 // pt_id → screen px（zr>0 手前）。
 vec3 fetchPoint(int pt_id) {
@@ -185,19 +220,8 @@ void main() {
 	int edge_id = gl_VertexID / 3;
 	int sub     = gl_VertexID % 3;
 	uvec4 meta = fetchEdgeMeta(edge_id);
-	// GPU Dynamic LOD（gap無し・線と同骨格）：始点が閾値未満なら捨て、終点は次の kept へ前方スナップ。
 	uint lodA = meta.r, lodB = meta.g;
-	if (float(fetchRank(lodA)) < u_lod_rank) { gl_Position = vec4(2.0, 0.0, 0.0, 1.0); return; }
-	// B のスナップはメタ隣接エントリを辿る：同一 arc 内は meta[e+1].A == meta[e].B（全密度でも
-	// long-jump tier でも成立）＝1 hop で次の kept 頂点へ。旧実装（arc 密頂点±1 の線形歩行）は
-	// rank とメタ密度の差ぶん texelFetch を浪費（ortho-map ZCTA実測: 1辺≈50fetch）。
-	// arc 終端は B が anchor(rank63)＝rank 判定で必ず停止。隣接が別 arc なら m.r != lodB で停止。
-	for (int k = 1; k < 4096; k++) {
-		if (float(fetchRank(lodB)) >= u_lod_rank) break;
-		uvec4 mn = fetchEdgeMeta(edge_id + k);
-		if (mn.r != lodB) break;
-		lodB = mn.g;
-	}
+	if (!lodSnap(lodA, lodB, edge_id)) { gl_Position = vec4(2.0, 0.0, 0.0, 1.0); return; }
 	if (sub == 0) { gl_Position = vec4(0.0, 0.0, 0.0, 1.0); return; }
 	vec3  p    = fetchProject(sub == 1 ? lodA : lodB);
 	gl_Position = toNDC(p.xy);
@@ -251,21 +275,8 @@ void main() {
 	uvec4 meta  = fetchEdgeMeta(edge_id);
 	int feat_id = int(meta.a);
 
-	// GPU Dynamic LOD（gap無し）：始点A(meta.r)が閾値未満の辺は捨てる（直前の辺が跨いで描く）。
-	// 終点は「次に閾値を満たす頂点」まで前方スナップ＝間引き頂点を飛ばして kept 同士を直結。
-	// arc 末尾は anchor(rank63) なので走査は必ず arc 内で停止（隣の arc へ漏れない）。
 	uint lodA = meta.r, lodB = meta.g;
-	if (float(fetchRank(lodA)) < u_lod_rank) { gl_Position = vec4(2.0, 0.0, 0.0, 1.0); return; }
-	// B のスナップはメタ隣接エントリを辿る：同一 arc 内は meta[e+1].A == meta[e].B（全密度でも
-	// long-jump tier でも成立）＝1 hop で次の kept 頂点へ。旧実装（arc 密頂点±1 の線形歩行）は
-	// rank とメタ密度の差ぶん texelFetch を浪費（ortho-map ZCTA実測: 1辺≈50fetch）。
-	// arc 終端は B が anchor(rank63)＝rank 判定で必ず停止。隣接が別 arc なら m.r != lodB で停止。
-	for (int k = 1; k < 4096; k++) {
-		if (float(fetchRank(lodB)) >= u_lod_rank) break;
-		uvec4 mn = fetchEdgeMeta(edge_id + k);
-		if (mn.r != lodB) break;
-		lodB = mn.g;
-	}
+	if (!lodSnap(lodA, lodB, edge_id)) { gl_Position = vec4(2.0, 0.0, 0.0, 1.0); return; }
 
 	if (u_pass == 0 && feat_id == u_active_id) { gl_Position = vec4(2.0, 0.0, 0.0, 1.0); return; }
 	if (u_pass == 1 && feat_id != u_active_id) { gl_Position = vec4(2.0, 0.0, 0.0, 1.0); return; }
@@ -353,10 +364,15 @@ void main() {
 	// style 0 = polygon edge（JS レイキャストで識別）→ここでは捨てる。1 = polyline。
 	if ((meta.b & 255u) == 0u) { gl_Position = vec4(2.0, 0.0, 0.0, 1.0); return; }
 
+	// pick も描画と同じ kept 集合＝当たり判定が「見えている線」と一致（12px マージンが吸収する範囲の差だが、
+	// settle 毎の VS 起動と walk を描画パスと同じだけ削る＝軽さの均質化）。
+	uint lodA = meta.r, lodB = meta.g;
+	if (!lodSnap(lodA, lodB, edge_id)) { gl_Position = vec4(2.0, 0.0, 0.0, 1.0); return; }
+
 	bool  useA = (sub == 0 || sub == 1 || sub == 3);
 	float side = (sub == 1 || sub == 2 || sub == 4) ? 1.0 : -1.0;
-	uint  si   = useA ? meta.r : meta.g;
-	uint  oi   = useA ? meta.g : meta.r;
+	uint  si   = useA ? lodA : lodB;
+	uint  oi   = useA ? lodB : lodA;
 
 	vec3 ps = fetchProject(si);
 	v_zr = ps.z;

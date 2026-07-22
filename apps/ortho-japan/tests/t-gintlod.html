@@ -1,0 +1,118 @@
+<!doctype html>
+<!-- UI回帰：gint worker（連続GPU-LOD）。worker を直駆動し、①シェーダ全プログラムの compile/link（init）
+     ②小データ＝stencil塗り/線/点/picking の実描画 ③大データ(>200k辺)＝tier 梯子構築＋tier 経路の実描画
+     を snapshot(readPixels) の非透明画素で確かめる。snapshot は worker 内で同期描画→readPixels＝
+     rAF に依存しない（t-shot の「render worker は headless で枯渇」問題を回避）。
+     LOD の gap無し等価性そのものは packages/ortho-core/tests/gint-lod.mjs（Node）が担当。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;width:320px;height:320px}</style><title>t-gintlod</title></head>
+<body><canvas id="g" width="256" height="256"></canvas>
+<script type="module">
+const t = [], ok = (n, c) => t.push((c ? "ok:" : "NG:") + n);
+// タイムアウト保険は置かない：headless の virtual-time では setTimeout が実時間より先に走る
+//（25s ガードが実測 28ms で発火した）。詰まった場合は title が初期値のまま＝verify-ui が FAIL 扱い。
+const fin = () => document.title = t.some(s => s.startsWith("NG")) ? "FAIL " + t.join(" ") : "PASS " + t.join(" ");
+
+// ── Morton pack（geopbf gint.packFromInt と同式・テスト自給）──
+const spread16 = v => { v &= 0xFFFF; v = (v | (v << 8)) & 0xFF00FF; v = (v | (v << 4)) & 0xF0F0F0F; v = (v | (v << 2)) & 0x33333333; v = (v | (v << 1)) & 0x55555555; return v >>> 0; };
+const pack = (lon, lat, terminal, weight = 0) => {
+	const ix = Math.round((lon + 180) * 1e7) >>> 0, iy = Math.round((lat + 90) * 1e7) >>> 0;
+	const lo = (spread16(ix & 0xFFFF) | (spread16(iy & 0xFFFF) << 1)) >>> 0;
+	const hi = (spread16(ix >>> 16) | (spread16(iy >>> 16) << 1)) >>> 0;
+	let v = (BigInt(hi) << 32n) | BigInt(lo);
+	return terminal ? (v | (1n << 63n)) : ((v & ~0x3Fn) | BigInt(weight & 63));
+};
+const e7 = d => Math.round(d * 1e7) >>> 0;
+
+try {
+	const worker = new Worker(new URL("../gintworker.js", import.meta.url), { type: "module" });
+	worker.onerror = e => { ok("worker-error:" + (e.message || "?"), false); fin(); };
+	// pump：headless virtual-time は「worker の実CPU仕事」を待たず budget を食い潰す。
+	// pending fetch 中は仮想時間が停止する性質を使い、worker 応答まで no-store fetch を回して実時間を確保する。
+	// 応答が来なければループは budget 消耗 or verify-ui の execFile timeout で必ず終わる＝ハングしない。
+	const pump = async (p) => { let done = false; p.then(() => done = true, () => done = true);
+		for (let i = 0; !done; i++) await fetch(`./t-gintlod.html?pump=${i}`, { cache: "no-store" }).catch(() => {});
+		return p; };
+	const waitMsg = pred => new Promise(r => { const h = e => { if (pred(e.data)) { worker.removeEventListener("message", h); r(e.data); } }; worker.addEventListener("message", h); });
+	const post = (msg, tr) => worker.postMessage(msg, tr || []);
+	const roundtrip = (msg, type, tr) => { const p = waitMsg(d => d.action === "done" && d.type === type); post(msg, tr); return pump(p); };
+	const snapshot = () => { const p = waitMsg(d => d.action === "snapshot"); post({ type: "snapshot", id: 1 }); return pump(p); };
+	const opaque = snap => { const a = new Uint8Array(snap.base); let n = 0; for (let i = 3; i < a.length; i += 4) if (a[i] > 0) n++; return n; };
+
+	const off = document.getElementById("g").transferControlToOffscreen();
+	const r = await roundtrip({ type: "init", offscreen: off, dpr: 1 }, "init", [off]);
+	ok("init(全シェーダcompile/link)", r.ctx === "WebGL2RenderingContext");
+	await roundtrip({ type: "resize", width: 256, height: 256 }, "resize");
+
+	// ── ② 小データ：ポリゴン（arc 共有 reversed）＋折れ線＋点。stencil塗り・線・点・picking を実行 ──
+	{
+		const C = [139.7, 35.7], d = 0.005;   // 東京近傍 ~0.01°
+		// arc0: P0→P1→P2 / arc1: P0→P3→P2（ring は [0, ~1] ＝ reversed 使用）
+		const verts = [
+			[C[0] - d, C[1] - d, 1, 0], [C[0], C[1] - d * 0.9, 0, 30], [C[0] + d, C[1] - d, 1, 0],
+			[C[0] - d, C[1] - d, 1, 0], [C[0], C[1] + d, 0, 30], [C[0] + d, C[1] - d, 1, 0],
+			[C[0] - d, C[1] + d * 2, 1, 0], [C[0], C[1] + d * 2.2, 0, 30], [C[0] + d, C[1] + d * 2, 1, 0],
+		];
+		const arcBuffer = BigUint64Array.from(verts.map(([lon, lat, term, w]) => pack(lon, lat, !!term, w)));
+		const arcMeta = new Uint32Array(3 * 8);
+		[[0, 3], [3, 3], [6, 3]].forEach(([offv, len], aid) => {
+			arcMeta[aid * 8] = offv; arcMeta[aid * 8 + 1] = len;
+			let xm = 4e9, ym = 4e9, xM = 0, yM = 0;
+			for (let i = 0; i < len; i++) { const [lon, lat] = verts[offv + i];
+				xm = Math.min(xm, e7(lon + 180)); xM = Math.max(xM, e7(lon + 180));
+				ym = Math.min(ym, e7(lat + 90)); yM = Math.max(yM, e7(lat + 90)); }
+			arcMeta[aid * 8 + 4] = xm; arcMeta[aid * 8 + 5] = ym; arcMeta[aid * 8 + 6] = xM; arcMeta[aid * 8 + 7] = yM;
+		});
+		const data = {
+			arcBuffer, arcMeta,
+			polyStream: Int32Array.from([7, 1, 2, 0, ~1]),   // fid7 ring = arc0 + reversed arc1
+			lineStream: Int32Array.from([8, 1, 1, 2]),       // fid8 = arc2
+			pointBuffer: BigUint64Array.from([pack(C[0], C[1] + d, true)]),
+			point: Uint32Array.from([9]),
+			minZoom: 2,
+		};
+		await roundtrip({ type: "set", cmd: "gint", data }, "set");
+		// z14＝リング（±0.005°≈±116px）が viewport 256px に収まる＝「部分塗り」を検定（全面塗りは NG 扱い）
+		const cam = { center: C, zoom: 14, pitch: 0, bearing: 0 };
+		post({ type: "drawing", cam, panning: true, fillColor: [1, 0, 0, 0.6] });
+		post({ type: "drawn" });   // drawn() が pending 描画を同期 flush → baseFBO/picking/overlay
+		const px = opaque(await snapshot());
+		ok(`小データ描画(px=${px})`, px > 1000 && px < 60000);
+	}
+
+	// ── ③ 大データ：>200k辺 → tier 梯子が worker 内で構築され、低ズームは tier 経路で描く ──
+	{
+		const nArcs = 500, len = 500, total = nArcs * len;
+		const arcBuffer = new BigUint64Array(total);
+		const arcMeta = new Uint32Array(nArcs * 8);
+		let rng = 12345; const rnd = () => (rng = (rng * 48271) % 2147483647) / 2147483647;
+		for (let a = 0; a < nArcs; a++) {
+			const lon0 = 120 + rnd() * 40, lat0 = 20 + rnd() * 30, ang = rnd() * 6.28;
+			let xm = 4e9, ym = 4e9, xM = 0, yM = 0;
+			for (let i = 0; i < len; i++) {
+				const lon = lon0 + Math.cos(ang) * i * 2e-4, lat = lat0 + Math.sin(ang) * i * 2e-4;
+				const term = (i === 0 || i === len - 1);
+				let w = 0; while (w < 62 && rnd() < 0.72) w++;
+				arcBuffer[a * len + i] = pack(lon, lat, term, w);
+				xm = Math.min(xm, e7(lon + 180)); xM = Math.max(xM, e7(lon + 180));
+				ym = Math.min(ym, e7(lat + 90)); yM = Math.max(yM, e7(lat + 90));
+			}
+			arcMeta[a * 8] = a * len; arcMeta[a * 8 + 1] = len;
+			arcMeta[a * 8 + 4] = xm; arcMeta[a * 8 + 5] = ym; arcMeta[a * 8 + 6] = xM; arcMeta[a * 8 + 7] = yM;
+		}
+		const lineStream = new Int32Array(nArcs * 4);
+		for (let a = 0; a < nArcs; a++) lineStream.set([50000 + a, 1, 1, a], a * 4);
+		const tiersP = waitMsg(d => d.action === "tiers");   // set 前に張る（遅延構築の完了通知を取り逃さない）
+		await roundtrip({ type: "set", cmd: "gint", data: { arcBuffer, arcMeta, lineStream, minZoom: 1 } }, "set");
+		const ti = await pump(tiersP);                       // tier は macrotask 刻みの遅延構築＝完了を待ってから描く
+		ok(`tier梯子構築(${ti.tiers.length}段)`, ti.tiers.length > 0);
+		const cam = { center: [140, 35], zoom: 3, pitch: 0, bearing: 0 };   // rank≈54 → 粗 tier 経路
+		post({ type: "drawing", cam, panning: true });
+		post({ type: "drawn" });
+		const px = opaque(await snapshot());
+		ok(`大データtier描画(px=${px})`, px > 50);
+	}
+
+	post({ type: "destroy" });
+} catch (e) { ok("boot:" + (e && e.message || e), false); }
+fin();
+</script></body></html>

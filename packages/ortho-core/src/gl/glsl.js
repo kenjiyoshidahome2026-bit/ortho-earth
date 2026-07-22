@@ -30,11 +30,18 @@ vec3 lonlatTo3D(vec2 ll) {
 uniform vec4 u_clipT;      // mvp*[u_originPt,1]（CPU double）＝clip空間の原点（相殺回避の錨）
 uniform vec3 u_originPt;   // lonlatTo3D(u_origin)（CPU double）＝標高項 h*dir と絶対復元の錨
 uniform vec4 u_originTrig; // (cosLon,sinLon,cosLat,sinLat) of u_origin（CPU double）
+// GPU の sin() は微小角で信用できない（GLSL 仕様で精度未規定・SwiftShader は |x|≲1e-7rad をゼロフラッシュ、
+// 実GPUも実装依存誤差）。高ズームは Δ角×倍率~1e8px/rad で誤差がそのまま px の這い＝タイル/建物の揺らぎになる。
+// 微小角は Taylor（x−x³/6+x⁵/120＝f32 で厳密同等）、大角（|x|>0.1rad）のみ native sin（gint 側 sinP と同一）。
+float sinP(float x) {
+	float x2 = x * x;
+	return (abs(x) < 0.1) ? x * (1.0 - x2 * (1.0 / 6.0) * (1.0 - x2 * (1.0 / 20.0))) : sin(x);
+}
 // 頂点3D−u_originPt を桁落ちなしで直接作る（cos(θ)-1=-2sin²(θ/2) で全項に小因子）。dDeg=原点相対(dlon,dlat)deg。
 vec3 deltaToRel(vec2 dDeg) {
 	float da = dDeg.x * D2R, db = dDeg.y * D2R;
-	float sda = sin(da), sdb = sin(db);
-	float sha = sin(da * 0.5), shb = sin(db * 0.5);
+	float sda = sinP(da), sdb = sinP(db);
+	float sha = sinP(da * 0.5), shb = sinP(db * 0.5);
 	float cdaM1 = -2.0 * sha * sha, cdbM1 = -2.0 * shb * shb;
 	float cda = 1.0 + cdaM1, cdb = 1.0 + cdbM1;
 	float ccM1 = cdaM1 + cdbM1 + cdaM1 * cdbM1;

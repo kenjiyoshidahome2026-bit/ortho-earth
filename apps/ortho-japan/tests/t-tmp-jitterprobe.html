@@ -1,0 +1,122 @@
+<!doctype html>
+<!-- 一時プローブ（検証後に削除）：本物の gint worker/シェーダで z20 パンを実行し、
+     snapshot(readPixels) から縦線の x 位置をサブピクセル計測 → フレーム間ジッタを実測する。
+     CPUミラー(sim)が0.000でも実GLSLで揺れるなら、コンパイラの式再結合/実装差が犯人。 -->
+<html lang="ja"><head><meta charset="utf-8"><title>t-tmp-jitterprobe</title></head>
+<body><canvas id="g" width="512" height="512"></canvas>
+<script type="module">
+const fin = t => document.title = t;
+const spread16 = v => { v &= 0xFFFF; v = (v | (v << 8)) & 0xFF00FF; v = (v | (v << 4)) & 0xF0F0F0F; v = (v | (v << 2)) & 0x33333333; v = (v | (v << 1)) & 0x55555555; return v >>> 0; };
+const pack = (lon, lat, terminal, weight = 0) => {
+	const ix = Math.round((lon + 180) * 1e7) >>> 0, iy = Math.round((lat + 90) * 1e7) >>> 0;
+	const lo = (spread16(ix & 0xFFFF) | (spread16(iy & 0xFFFF) << 1)) >>> 0;
+	const hi = (spread16(ix >>> 16) | (spread16(iy >>> 16) << 1)) >>> 0;
+	let v = (BigInt(hi) << 32n) | BigInt(lo);
+	return terminal ? (v | (1n << 63n)) : ((v & ~0x3Fn) | BigInt(weight & 63));
+};
+const e7 = d => Math.round(d * 1e7) >>> 0;
+try {
+	const worker = new Worker(new URL("../gintworker.js", import.meta.url), { type: "module" });
+	worker.onerror = e => fin("FAIL worker-error:" + (e.message || "?"));
+	const pump = async p => { let done = false; p.then(() => done = true, () => done = true);
+		for (let i = 0; !done; i++) await fetch(`./t-tmp-jitterprobe.html?p=${i}`, { cache: "no-store" }).catch(() => {}); return p; };
+	const waitMsg = pred => new Promise(r => { const h = e => { if (pred(e.data)) { worker.removeEventListener("message", h); r(e.data); } }; worker.addEventListener("message", h); });
+	const post = (m, tr) => worker.postMessage(m, tr || []);
+	const roundtrip = (m, ty, tr) => { const p = waitMsg(d => d.action === "done" && d.type === ty); post(m, tr); return pump(p); };
+	const snapshot = () => { const p = waitMsg(d => d.action === "snapshot"); post({ type: "snapshot", id: 1 }); return pump(p); };
+
+	const off = document.getElementById("g").transferControlToOffscreen();
+	await roundtrip({ type: "init", offscreen: off, dpr: 1 }, "init", [off]);
+	await roundtrip({ type: "resize", width: 512, height: 512 }, "resize");
+
+	// データ：C を通る縦線1本（アンカー2点＋中間L2数点）。z20 で画面を縦断する。
+	let C0 = [141.354, 43.062];
+	const setLine = async (C) => {
+		C0 = C;
+		const dy = 0.01, NV = 7, verts = [];
+		for (let i = 0; i < NV; i++) verts.push([C[0], C[1] - dy / 2 + dy * i / (NV - 1), i === 0 || i === NV - 1, 40]);
+		const arcBuffer = BigUint64Array.from(verts.map(([lon, lat, t, w]) => pack(lon, lat, !!t, w)));
+		const arcMeta = new Uint32Array(8);
+		arcMeta[0] = 0; arcMeta[1] = NV;
+		arcMeta[4] = e7(C[0] + 180 - 1e-4); arcMeta[5] = e7(C[1] + 90 - dy);
+		arcMeta[6] = e7(C[0] + 180 + 1e-4); arcMeta[7] = e7(C[1] + 90 + dy);
+		await roundtrip({ type: "set", cmd: "gint", data: { arcBuffer, arcMeta, lineStream: Int32Array.from([1, 1, 1, 0]), minZoom: 2 } }, "set");
+	};
+	await setLine(C0);
+
+	// 縦線の x 位置（アルファ重心）を行ごとに取り平均＝サブピクセル
+	const lineX = snap => {
+		const a = new Uint8Array(snap.base), W = snap.w, H = snap.h;
+		let sum = 0, n = 0;
+		for (let y = 100; y < H - 100; y += 7) {
+			let wsum = 0, xsum = 0;
+			for (let x = 0; x < W; x++) { const al = a[(y * W + x) * 4 + 3]; wsum += al; xsum += al * x; }
+			if (wsum > 0) { sum += xsum / wsum; n++; }
+		}
+		return n ? sum / n : NaN;
+	};
+
+	// CPU f32 ミラー（gint-jitter.mjs と同じ）で同一 cam の予測 x を出す
+	const { cameraState, lonlatTo3D } = await import("../../../packages/ortho-core/src/camera.js");
+	const mat = await import("../../../packages/ortho-core/src/mat.js");
+	const fr = Math.fround, D2R = 0.017453292519943295;
+	const fm = (a, b) => fr(a * b), fa = (a, b) => fr(a + b), fs_ = (a, b) => fr(a - b);
+	const d2r32 = (dlon, dlat, t) => { const da = fm(dlon, fr(D2R)), db = fm(dlat, fr(D2R));
+		const sda = fr(Math.sin(da)), sdb = fr(Math.sin(db)), sha = fr(Math.sin(fm(da, fr(.5)))), shb = fr(Math.sin(fm(db, fr(.5))));
+		const cdaM1 = fm(fr(-2), fm(sha, sha)), cdbM1 = fm(fr(-2), fm(shb, shb));
+		const cda = fa(1, cdaM1), cdb = fa(1, cdbM1), ccM1 = fa(fa(cdaM1, cdbM1), fm(cdaM1, cdbM1));
+		const [cL, sL, cB, sB] = t;
+		return [fa(fs_(fs_(fm(fm(cB, cL), ccM1), fm(fm(fm(cB, sL), cdb), sda)), fm(fm(fm(sB, cL), sdb), cda)), fm(fm(fm(sB, sL), sdb), sda)),
+			fa(fm(sB, cdbM1), fm(cB, sdb)),
+			fs_(fs_(fa(fm(fm(cB, sL), ccM1), fm(fm(fm(cB, cL), cdb), sda)), fm(fm(fm(sB, sL), sdb), cda)), fm(fm(fm(cB, cL), sdb), sda))]; };
+	const mirrorX = (cam, W, H) => {
+		const st = cameraState(cam, W, H);
+		let lon = ((cam.center[0] % 360) + 540) % 360 - 180, lat = cam.center[1];
+		const ixc = Math.round((lon + 180) * 1e7) >>> 0, iyc = Math.round((lat + 90) * 1e7) >>> 0;
+		lon = ixc / 1e7 - 180; lat = iyc / 1e7 - 90;
+		const T = lonlatTo3D(lon, lat), cT = mat.transform(st.mvp, [T[0], T[1], T[2], 1]).map(fr), m32 = Array.from(st.mvp, fr);
+		const lr = lon * D2R, br = lat * D2R, t32 = [fr(Math.cos(lr)), fr(Math.sin(lr)), fr(Math.cos(br)), fr(Math.sin(br))];
+		const vx = e7(C0[0] + 180), vy = e7(C0[1] + 90);   // 線上の1点（lat=中央）
+		const dlon = fm(fr((vx - ixc) | 0), fr(1e-7)), dlat = fm(fr((vy - iyc) | 0), fr(1e-7));
+		const rel = d2r32(dlon, dlat, t32);
+		const c = [0, 1, 2, 3].map(r => fa(cT[r], fa(fa(fm(m32[r], rel[0]), fm(m32[4 + r], rel[1])), fm(m32[8 + r], rel[2]))));
+		return fr((fr(c[0] / c[3]) * 0.5 + 0.5) * W);
+	};
+	const run = async (label, zoom, pitch, bearing, stepPx) => {
+		const degPerPx = 360 / (2 ** zoom * 512);
+		const xs = [], ms = [];
+		for (let f = 0; f < 48; f++) {
+			const cam = { center: [C0[0] + f * stepPx * degPerPx, C0[1]], zoom, pitch, bearing };
+			post({ type: "drawing", cam, panning: true });
+			post({ type: "drawn" });
+			xs.push(lineX(await snapshot()));
+			ms.push(mirrorX(cam, 512, 512));
+		}
+		console.log(`[probe:${label}] gl=${xs.map(v => v.toFixed(2)).join(",")}`);
+		console.log(`[probe:${label}] mi=${ms.map(v => v.toFixed(2)).join(",")}`);
+		// 期待：x は等速で -stepPx/frame（東へパン＝線は西へ）。線形フィット残差の最大＝ジッタ
+		const n = xs.length, fs = xs.map((_, i) => i);
+		const mf = (n - 1) / 2, mx = xs.reduce((s, v) => s + v, 0) / n;
+		const slope = fs.reduce((s, f) => s + (f - mf) * (xs[f] - mx), 0) / fs.reduce((s, f) => s + (f - mf) ** 2, 0);
+		let maxDev = 0, maxStep = 0;
+		for (let f = 0; f < n; f++) maxDev = Math.max(maxDev, Math.abs(xs[f] - (mx + slope * (f - mf))));
+		for (let f = 1; f < n; f++) maxStep = Math.max(maxStep, Math.abs(xs[f] - xs[f - 1] - slope));
+		console.log(`[probe] ${label}: slope=${slope.toFixed(4)} maxDev=${maxDev.toFixed(3)} maxStep=${maxStep.toFixed(3)}`);
+		return `${label} dev=${maxDev.toFixed(2)} step=${maxStep.toFixed(2)}`;
+	};
+	// 静止再現性（同一camを2回描いて差＝0であること）
+	const cam0 = { center: C0, zoom: 20, pitch: 0, bearing: 0 };
+	post({ type: "drawing", cam: cam0, panning: true }); post({ type: "drawn" });
+	const x1 = lineX(await snapshot());
+	post({ type: "drawing", cam: { ...cam0, center: [C0[0], C0[1]] }, panning: true }); post({ type: "drawn" });
+	const x2 = lineX(await snapshot());
+	const rep = `repeat=${Math.abs(x1 - x2).toFixed(3)}`;
+
+	const r = [];
+	r.push(await run("z20", 20, 0, 0, 0.2));
+	r.push(await run("z20tilt", 20, 1.05, 0.7, 0.2));
+	r.push(await run("z22", 22, 0, 0, 0.2));
+	post({ type: "destroy" });
+	fin(`PASS ${rep} | ${r.join(" | ")}`);
+} catch (e) { fin("FAIL " + (e && e.message || e)); }
+</script></body></html>
