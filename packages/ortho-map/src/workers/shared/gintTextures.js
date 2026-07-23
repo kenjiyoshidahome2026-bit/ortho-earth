@@ -61,8 +61,10 @@ export function uploadGintTextures() {
 	s.metaChunks    = metaResult.chunks;
 	console.debug('[gint] edges=%d chunks=%d', edgeCount, s.metaChunks?.length ?? 0);
 	// アウトライン⇄ベタ塗りの切替ズームをデータの粒度から導出（筆→z≈15 / 市区町村→z≈6）。null=既定値へ
-	s.outlineZoom = deriveOutlineZoom(s.polyBboxByFid);
-	if (s.outlineZoom !== null) console.debug('[gint] outlineZoom=%s (median poly ≈4px)', s.outlineZoom.toFixed(1));
+	// ライン専用データはポリゴン bbox が無い＝ライン feature bbox から導出
+	// （lineStream は polyStream と同一の3層構造 [fid][ng][ac][arcIdx…] なので buildPolyBboxByFid がそのまま使える）
+	s.outlineZoom = deriveOutlineZoom(s.polyBboxByFid) ?? deriveOutlineZoom(buildPolyBboxByFid(ls, am));
+	if (s.outlineZoom !== null) console.debug('[gint] outlineZoom=%s (median feature ≈4px)', s.outlineZoom.toFixed(1));
 	if (s.totalEdges > 0) {
 		const metaH   = Math.ceil(s.totalEdges / s.TEX_META_W);
 		const metaPad = new Uint32Array(s.TEX_META_W * metaH * 4);
@@ -72,11 +74,13 @@ export function uploadGintTextures() {
 
 	// metaTexB: 境界エッジメタ（正味参照≠0 の arc のみ＋折れ線全量）。
 	// stencil 塗りは常時こちら（winding 等価で桁違いに軽い）、線パスは低ズームで切替＝アウトライン表示。
+	// ライン専用（polyStream 無し）は境界メタ＝基準メタの複製にしかならず消費者も居ない
+	// （stencil は polyEdgesB=0 で無効・線パスは lnB 判定で不使用）＝構築ごとスキップ（VRAM/構築時間の節約）。
 	if (s.metaTexB) gl.deleteTexture(s.metaTexB);
 	s.metaTexB = null;
 	s.totalEdgesB = 0;
 	s.polyEdgesB  = 0;
-	if (s.totalEdges > 0) {
+	if (s.totalEdges > 0 && ps?.length) {
 		const bResult = buildBoundaryEdgeMeta(am, ps, ls, ab, capMinW);
 		s.totalEdgesB = bResult.edgeCount;
 		s.polyEdgesB  = bResult.polyEdgeCount;
@@ -106,7 +110,10 @@ export function uploadGintTextures() {
 	// 刻みが細かいほど lodSnap の線形歩行も短くなる（tier minW ≈ rank なら歩行ほぼゼロ）。
 	// 細い側 26/30/34（↔z12.3/11/9.7）は「視界が巨大データそのもの＝可視チャンクカリングが効かない」帯の穴埋め（v2 と同判断）。
 	const TIER_RANKS = [26, 30, 34, 38, 42, 46, 50];
-	if (ab?.length && s.totalEdges > 3_000_000) {
+	// 折れ線辺は境界メタでも縮減されない（全量含み）＝ライン主体データ（全米道路網級）は
+	// 低ズームで tier が無いと毎フレーム全辺の VS 空回しになる。ライン辺数でも発火を判定する。
+	const lineEdges = s.totalEdges - s.polyEdges;
+	if (ab?.length && (s.totalEdges > 3_000_000 || lineEdges > 500_000)) {
 		let prevEdges = s.totalEdges;
 		for (const w of TIER_RANKS) {
 			if (w <= capMinW) continue;                     // 基準メタより粗くならない＝無意味
@@ -132,7 +139,8 @@ export function uploadGintTextures() {
 
 	// 境界メタの tier（lowZoom の線パス用）：lowZoom では rank ≥ rank(outlineZoom) が保証されるので
 	// その minWeight で 1 段だけ焼けば全 lowZoom 帯をカバーする（lodSnap の線形歩行も消える）。
-	if (ab?.length && s.totalEdgesB > 500_000 && s.outlineZoom !== null) {
+	// ライン専用（polyEdgesB=0）は線パスが境界メタを使わない（renderPasses の lnB 判定）＝焼かない。
+	if (ab?.length && s.totalEdgesB > 500_000 && s.outlineZoom !== null && s.polyEdgesB > 0) {
 		const wB = Math.max(capMinW, dynamicLodRankForZoom(s.outlineZoom));
 		if (wB > capMinW) {
 			const r = buildBoundaryEdgeMeta(am, ps, ls, ab, wB);
