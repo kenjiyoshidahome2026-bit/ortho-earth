@@ -239,6 +239,14 @@ export function close() {
 		.hide();
 	const dispatch = () => map.node().dispatchEvent(new CustomEvent("ortho:close", { bubbles: true }));
 	btn.on("click", dispatch);
+	// マウスを動かすと淡くハイライト→静止で自動フェード（オレンジのみのホバーだと見つけにくい対策）
+	let wakeTimer = null;
+	map.on("mousemove.orthoClose", () => {
+		if (!btn.isVisible()) return;
+		btn.classed("wake", true);
+		clearTimeout(wakeTimer);
+		wakeTimer = setTimeout(() => btn.classed("wake", false), 1500);
+	});
 	d3.select(window).on("keydown.orthoClose", e => {
 		if (e.key === "Escape" && btn.isVisible()) dispatch();
 	});

@@ -287,6 +287,7 @@ export async function orthographic(map, opts = {}) {
 				const z = zooming(t);
 				proj.rotate(interpolateRotation(t));
 				proj.scale(size / z[2]);
+				initZoom(); // アニメ中も d3.zoom の内部スケールを追従（割り込み操作でのズーム巻き戻り防止）
 				tween();
 			})
 			.end().catch(() => {});
@@ -328,6 +329,7 @@ export async function orthographic(map, opts = {}) {
 				} else {
 					proj.scale(s0 + (s1 - s0) * tRotEased);
 				}
+				initZoom(); // アニメ中も d3.zoom の内部スケールを追従（割り込み操作でのズーム巻き戻り防止）
 				tween();
 			}).end().catch(() => {});
 
@@ -342,6 +344,7 @@ export async function orthographic(map, opts = {}) {
 			.tween("render", () => t => {
 				if (flyTicket !== ticket) return;
 				proj.scale(Math.max(Math.min((1 + (n - 1) * t) * scale, maxScale), minScale));
+				initZoom(); // アニメ中も d3.zoom の内部スケールを追従（割り込み操作でのズーム巻き戻り防止）
 				tween();
 			})
 			.end().catch(() => {});
