@@ -5,7 +5,7 @@
 //   main の2Dキャンバス層（#measure-lines＝距離/面積が焼いてある）を直接重ね、出典(attr)を焼き込んで1枚に合成→webp保存。
 //   GL の生ピクセルは上下反転で来る＝合成時に flip して戻す。2D（ラベル/計測）はそのまま。
 //   ※pop の引出線は箱(DOM)無しでは意味を成さない＝合成に含めない。DOM家具は html2canvas 無しでは焼けない割り切り。
-// requestSnapshot＝{ W, H, render:{base,w,h,labels,lw,lh}, gint?:{base,w,h} } を返す（注入は登録側）。
+// requestSnapshot＝{ W, H, render:{base,w,h,labels,lw,lh} } を返す（注入は登録側。gint は基図GLに写り込み済み）。
 import { gadgetStack } from "./stack.js";
 import { keyBusy } from "./keys.js";
 import { composeLayersToCanvas } from "./compose.js";   // 層重ねの実体は compose.js（shot/print/palette 共用）

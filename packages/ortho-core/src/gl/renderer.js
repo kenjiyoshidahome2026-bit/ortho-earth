@@ -80,6 +80,7 @@ export function createRenderer(canvas, rOpts = {}) {
 	function setCelEquator(data) { celeq = setStarBuf(celeq, data, 3, lineSetup); }
 	let fogDist = 0;   // フォグ距離の基準 camDist。ズーム中は凍結（チラチラ防止）、静止で追随
 	let elevScaleEff = 0;   // pitchで変調した実効スケール（真俯瞰では0＝平面）
+	let gintCtx = null;   // gint 埋込パス用の frame コンテキスト（terrainDepth 時のみ非null。draw() が毎フレーム更新）
 	// base=粗い下書き（underlay）、main=現ズーム、overlay=外部ベクタ(geopbf等)を最前面に。
 	// md（multi_draw モード）のシーンは draws でなく md={layers,bld}＝常駐プールへの参照リストだけを持つ。
 	const scenes = {
@@ -647,6 +648,16 @@ export function createRenderer(canvas, rOpts = {}) {
 		// 線・塗りのフォグ終端は地形と同一式＝地形が完全に霞んだ先に線だけ生き残って「空に浮く白線」に
 		// なるのを構造的に防ぐ。シェーダの遠景平ら化(df)も u_fogFar 基準なので、同値なら線は地形に厳密追随する。
 		const fogFarCap = Math.max(st.fogDist * 5.0, 0.026 * pfFog);
+		// gint（1canvas統合・埋込パス）向けの frame コンテキスト：山岳ビュー（terrainDepth）の間だけ、
+		// 対数深度係数（setCommonUniforms の u_logCoef と同式）と標高ドレープ一式を渡す＝gint 線が
+		// 基図の線と同じ高さ・同じ深度空間で地形に参加（尾根の向こうは隠線＝淡破線）。それ以外は null＝最前面。
+		if (terrainDepth) {
+			const _lb = Math.sqrt(Math.max((1 + st.camDist) * (1 + st.camDist) - 1, 1e-12));
+			gintCtx = { terrainDepth: true,
+				logCoef: 2.0 / Math.log2(_lb * 1.15 + st.camDist + 1.0),
+				fogFar: fogFarCap, elevTex, elevBounds: elev.bounds,
+				elevScale: elevScaleEff, hasElev: elev.has, edgeFade: elev.edgeFade || 0 };
+		} else gintCtx = null;
 		// 下地の線は「本命(main)の線と同時に出る時だけ」伏せる＝ズーム中に太さ・形状のズレた「LODの荒い線」が
 		// 透けるのを防ぐ（従来はmerge時に間引いていたがdraw時判断へ移設）。下地が主役の間（skipMain=ズームアウト
 		// 退場中や本命未着）は線も描く＝低ズームは線が絵の本体なので、これが無いと引いた瞬間に真っ白になる。
@@ -833,7 +844,8 @@ export function createRenderer(canvas, rOpts = {}) {
 		}
 	}
 	// md/mdMax は renderworker が scene worker へ「multi_draw モードで動け」を通知するための能力表明
-	return { gl, set, draw, dispose, md: !!md, mdMax: MD_MAX_DRAWS };
+	// gintCtx＝直近 draw の gint 深度統合コンテキスト（renderworker が gint パスへ渡す）
+	return { gl, set, draw, dispose, md: !!md, mdMax: MD_MAX_DRAWS, gintCtx: () => gintCtx };
 }
 
 // --- GL ヘルパ ---

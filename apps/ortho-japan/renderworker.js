@@ -2,14 +2,38 @@
 // worker-driven：自前 rAF で「最新の cam から mvp 生成 → 地図→ラベルを同じ frame で描画」。
 // main は cam を投げるだけ（往復待ちを排し、溜まった draw は最新一枚に畳む＝低レイテンシ）。
 // 描画フレームは軽い処理のみ（mvp生成+draw）。重い生成は main/他worker が停止後に行い set で渡す。
-import { createRenderer, createLabelLayer, createTerrain } from "ortho-core";
+import { createRenderer, createLabelLayer, createTerrain, createGintLayer } from "ortho-core";
 import { shieldFor } from "./shields.js";   // 地図記号＝日本の語彙。この静的importがある限り renderworker は app の合成点
 
 let renderer = null, labelLayer = null, canvas = null, labelCanvas = null;
 let cam = null, opts = null, dirty = false;   // 最新の描画状態。dirty の時だけ rAF で描く。
 let glRef = null, sentFrame1 = false, sentCtxLost = false;   // 起動ウォッチドッグ(frame1)とコンテキストロスト監視（main へ各1回だけ通知）
-let gintSyncPort = null;   // gint worker への直結：1枚描く度に「この cam で描け」＝海岸線を地図フレームに従属させる。
+let gint = null;   // gint（知性の層＝海岸線/14条筆/AI層）＝同一GLコンテキストの1パス（1canvas統合。旧・別worker+従属駆動）
 let terrain = null, pendingLabels = null;   // pendingLabels: cam 未着で標高付与を保留した最新ラベル集合
+// ?perf=1（init.perf）＝2秒毎にフレーム内訳を console へ：map/gint の CPU 発行時間・フレームEMA・JSヒープ・解像度段。
+let perfOn = false, pfN = 0, pfMap = 0, pfGint = 0, pfLast = 0;
+// GPU 実時間（EXT_disjoint_timer_query_webgl2）：CPU発行が0.1msでも ema が33ms＝「GPUが重い」のか
+// 「rAF/合成のカデンス」なのかを切り分ける本丸。map/gint を兄弟スパンで計測（TIME_ELAPSED は入れ子不可）。
+let tqExt = null;
+const tqPending = [], tqSum = {}, tqN = {};
+function tqSpan(tag, fn) {
+	if (!tqExt || tqPending.length > 60) { fn(); return; }   // 結果詰まり時は計測を落とす（本業を止めない）
+	const q = glRef.createQuery();
+	glRef.beginQuery(tqExt.TIME_ELAPSED_EXT, q);
+	fn();
+	glRef.endQuery(tqExt.TIME_ELAPSED_EXT);
+	tqPending.push({ q, tag });
+}
+function tqPoll() {
+	while (tqPending.length) {
+		const { q, tag } = tqPending[0];
+		if (!glRef.getQueryParameter(q, glRef.QUERY_RESULT_AVAILABLE)) break;
+		const ns = glRef.getQueryParameter(q, glRef.QUERY_RESULT);
+		glRef.deleteQuery(q);
+		tqPending.shift();
+		if (!glRef.getParameter(tqExt.GPU_DISJOINT_EXT)) { tqSum[tag] = (tqSum[tag] || 0) + ns / 1e6; tqN[tag] = (tqN[tag] || 0) + 1; }
+	}
+}
 
 onmessage = e => {
 	const m = e.data;
@@ -21,6 +45,15 @@ onmessage = e => {
 			catch (err) { postMessage({ type: "glfail", error: String(err && err.message || err) }); return; }
 			console.log(`[render] multi_draw ${renderer.md ? "有効（タイルGPU常駐）" : "なし（CPU mergeフォールバック）"}`);
 			glRef = canvas.getContext("webgl2");                 // 同一コンテキストが返る＝isContextLost() の監視用
+			// gint（知性の層）＝renderer と同一コンテキストに同居。描画は frame() が renderer.draw の直後に
+			// 同じ glCam で1パス＝地図と同フレーム同カメラ（別canvas時代の「1フレーム級遅れて泳ぐ」の根治）。
+			gint = createGintLayer(glRef, { requestDraw: () => { dirty = true; } });
+			perfOn = !!m.perf;
+			if (perfOn) {
+				tqExt = glRef.getExtension("EXT_disjoint_timer_query_webgl2");   // 無い環境は null＝CPU計測のみ
+				const dbg = glRef.getExtension("WEBGL_DEBUG_RENDERER_INFO") || glRef.getExtension("WEBGL_debug_renderer_info");
+				console.log(`[perf] gpu="${glRef.getParameter(dbg ? dbg.UNMASKED_RENDERER_WEBGL : glRef.RENDERER)}" timerQuery=${!!tqExt}`);
+			}
 			labelCanvas = m.labelCanvas;                         // ラベル用 OffscreenCanvas（2D）
 			labelLayer = createLabelLayer(labelCanvas, { shieldFor, elevBase: m.elevBase });
 			// 標高アトラス：fetch(altpbf自前worker)・視野→セル範囲計算・ダウンサンプルまで全部ここで完結させ、
@@ -45,7 +78,6 @@ onmessage = e => {
 				// renderer の能力表明＝scene worker のモードを確定させる（multi_draw か CPU merge フォールバックか）
 				m.scenePort.postMessage({ type: "mode", md: renderer.md, maxDraws: renderer.mdMax });
 			}
-			if (m.gintSyncPort) gintSyncPort = m.gintSyncPort;   // 海岸線(gint)従属の出口
 			requestAnimationFrame(frame);                        // worker 自前の描画ループ開始
 			break;
 		case "plateauPort":                                      // plateau worker → ここ のメッシュ直結パイプ（workerプール1本につき1ポート）
@@ -58,7 +90,10 @@ onmessage = e => {
 			dirty = true;
 			break;
 		case "set":
-			if (m.cmd === "labels") { pendingLabels = m.data; applyLabels(); }   // ラベル集合の更新（標高は cam が揃ってから付与）
+			if (m.cmd === "gint") { if (gint) gint.set(m.data); }                // 知性の層のペイロード差し替え（null=空化）
+			else if (m.cmd === "gintStyle") { if (gint) gint.style(m.data); }    // 描画スタイル（styleTable/lineWidth 等）
+			else if (m.cmd === "gintVis") { if (gint) gint.setVisible(m.data); } // 表示切替（旧 #gint canvas の display 相当）
+			else if (m.cmd === "labels") { pendingLabels = m.data; applyLabels(); }   // ラベル集合の更新（標高は cam が揃ってから付与）
 			else if (m.cmd === "skyLabels") { if (labelLayer) labelLayer.setSky(m.data); }   // 星空劇場の注記（星座名・メシエ）＝ラベルcanvasへ
 			else if (m.cmd === "skyMoon") { if (labelLayer) labelLayer.setMoon(m.data); }    // 月の満ち欠け円盤＝ラベルcanvasへ（常設）
 			else if (m.cmd === "plateauMesh") plateauInbox.push({ meshData: m.data, name: m.prop });   // 解放(null)も同じ列へ＝キュー内の未転送バッチを追い越さない（先に解放が効くと後から亡霊バッチが立つ）
@@ -77,7 +112,14 @@ onmessage = e => {
 			if (pendingLabels) applyLabels();                    // cam が届いた時点で保留中のラベルへ標高を付与
 			break;
 		case "snapshot": snapshot(m.id); break;   // shot（画面保存）：今のカメラで1枚描いて ImageBitmap で返す
+		// gint の識別・settle（旧 gint worker のメッセージ面を移設。identify/click の返信は
+		// gint 側が postMessage({action:...}) で直接 main へ＝app は renderWorker.onmessage で受ける）
+		case "gintDrawn": if (gint) gint.drawn(); break;    // 地図静止＝picking buffer 構築（hover 識別の有効化）
+		case "gintMove":  if (gint) gint.move(m);  break;   // ホバー（x/y=CSS px）
+		case "gintLeave": if (gint) gint.leave();  break;
+		case "gintClick": if (gint) gint.click();  break;
 		case "destroy":
+			if (gint) { gint.dispose(); gint = null; }
 			if (renderer && renderer.dispose) renderer.dispose();
 			renderer = null;
 			break;
@@ -92,6 +134,7 @@ function snapshot(id) {
 			const s = RES_STEPS[resIdx];
 			const glCam = s === 1 ? cam : { ...cam, dpr: (cam.dpr || 1) * s };
 			renderer.draw(glCam, opts);
+			if (gint) gint.draw(glCam, renderer.gintCtx());   // 知性の層も同じ1枚に載せる＝旧・別撮り合成（wantGint）は不要
 			labelLayer && labelLayer.draw(cam);
 		}
 		// readPixels＝GLキャンバスを確実に読む唯一の手（createImageBitmap/transferToImageBitmap は headless GL で詰まる）。
@@ -238,8 +281,26 @@ function frame() {
 			// ズーム中(zoom非stable)は標高アトラスを再構築しない＝cellRes連続変化による陰影チラつきを防ぐ（main が opts.terrainGate で通知）。
 			// noTerrain＝全球ビュー(z<4)では地形そのものが不要。ensure には draw と同じ glCam＝縮小 canvas と整合する視野を渡す。
 			if (terrain && !opts?.noTerrain && opts?.terrainGate !== false) ensureIfMoved(glCam);
-			if (gintSyncPort) gintSyncPort.postMessage({ cam });     // 海岸線(gint)へ先に転送＝GL描画と並走して同じvsyncに乗せる（描画後に送ると常に1フレーム遅れる）
-			const fogAnim = renderer.draw(glCam, opts);              // cameraState=mvp生成 + GL描画（軽い）。true=フォグ追従が収束中
+			let fogAnim = false;
+			const pfT0 = perfOn ? performance.now() : 0;
+			if (perfOn) tqPoll();   // 溜まった GPU タイマ結果を回収（数フレーム遅れで確定する）
+			tqSpan("map", () => { fogAnim = renderer.draw(glCam, opts); });   // cameraState=mvp生成 + GL描画（軽い）。true=フォグ追従が収束中
+			const pfT1 = perfOn ? performance.now() : 0;
+			tqSpan("gint", () => { if (gint) gint.draw(glCam, renderer.gintCtx()); });   // 知性の層＝同フレーム同カメラで1パス（泳ぎ根治）。山岳ビューは地形深度に参加（隠線＝淡破線）
+			if (perfOn) {
+				const pfT2 = performance.now();
+				pfN++; pfMap += pfT1 - pfT0; pfGint += pfT2 - pfT1;
+				if (pfT2 - pfLast > 2000 && pfN > 0) {
+					const heap = (performance.memory?.usedJSHeapSize / 1048576) | 0;
+					const glErr = glRef ? glRef.getError() : -1;   // 0以外＝どこかの draw が GL エラーを出している（perf 時のみ照会＝パイプライン停止を常用経路に持ち込まない）
+					const gm = tqN.map ? (tqSum.map / tqN.map).toFixed(2) : "-";     // GPU 実時間（timer query・数フレーム遅れの平均）
+					const gg = tqN.gint ? (tqSum.gint / tqN.gint).toFixed(2) : "-";
+					const gs = gint ? gint.stats() : { drawn: 0, fbo: 0, pickMs: 0, rank: -1, tierW: -1, edges: 0, tiers: 0, tiersDone: false, total: 0 };
+					console.log(`[perf] f=${pfN} map=${(pfMap / pfN).toFixed(2)}ms gint=${(pfGint / pfN).toFixed(2)}ms gpuMap=${gm}ms gpuGint=${gg}ms ema=${emaMs.toFixed(1)}ms res=${RES_STEPS[resIdx]} err=${glErr} drawn=${gs.drawn} fbo=${gs.fbo} pick=${gs.pickMs.toFixed(0)}ms rank=${gs.rank} tierW=${gs.tierW} edges=${gs.edges}/${gs.total} tiers=${gs.tiers}${gs.tiersDone ? "✓" : "…"}`);
+					pfLast = pfT2; pfN = 0; pfMap = 0; pfGint = 0;
+					tqSum.map = tqSum.gint = tqN.map = tqN.gint = 0;
+				}
+			}
 			// skipMain（ズームアウトで古い詳細シーンを退場）中は文字も一緒に退場＝clear()でフェード状態ごと流す。
 			// 新しい段の merge で戻る時はフェードインから始まる＝可逆な退場。
 			const animating = labelLayer && (opts?.skipMain ? (labelLayer.clear(), false) : labelLayer.draw(cam));    // ラベルも同じ cam で（＝完全同期）

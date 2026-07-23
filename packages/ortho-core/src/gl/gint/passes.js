@@ -10,23 +10,31 @@ import { bindSharedUniforms } from './utility.js';
 // 低ズームでアウトライン→ベタ塗りへ切替えるズーム閾値の既定（データ粒度から導出した s.outlineZoom を優先）。
 const OUTLINE_ZOOM = 12;
 
-// 段階別 LOD メタの選択（ortho-map から移植）：動的 rank（worker が drawData.lodRank に載せる）以下の
-// minWeight を持つ最粗 tier を返す。tier の kept 集合（weight >= minW ⊇ weight >= rank）は動的LODの
-// 描画結果と同一＝見た目不変。対象は線・ピッキングのみ（stencil 塗りは全密度＝自己交差斑点の根治を維持、
-// overlay は polyEdgeByFid の辺レンジが基準メタ前提のため基準メタ固定）。
-// tier / 基準メタとも runs=可視チャンクだけを描く（空間カリング。全球ビューは view bbox=null＝全量）。
+// 段階別 LOD メタの選択（ortho-map から移植）：
+//   名目＝「rank 適格（minW ≤ rank）で最も軽い tier」。kept 集合（weight≥minW ⊇ weight≥rank）は動的LODの
+//   描画結果と同一＝見た目不変。適格 tier が無ければ基準メタ（正確・全密度）＋可視チャンクカリング。
+//   安全弁＝名目の可視辺数が「最細 tier の 1.5倍」を超えるなら最細 tier で代用。これ一本で
+//   ①梯子の遅延構築中 ②rank < 最細tier の帯 ③チルトで地平線が入り viewBbox=null＝カリング不能、
+//   の全てを受ける（名目よりわずかに粗い絵になるだけ。旧・個別ゲートは海岸線41万辺のフル密度描画が
+//   地図フレームを塞ぎ GPU 数百ms/フレーム＝実機で激重＋GPUプロセス膨張を起こした）。
+// 対象は線・ピッキングのみ（stencil 塗りは全密度＝自己交差斑点の根治を維持、overlay は
+// polyEdgeByFid の辺レンジが基準メタ前提のため基準メタ固定）。runs＝可視チャンクだけを描く。
 function pickLineTier(rank, baseTex, baseCount) {
-	if (s.lodTiers?.length) {
-		let best = null;
-		for (const t of s.lodTiers) if (t.minW <= rank && (!best || t.edgeCount < best.edgeCount)) best = t;
-		// 梯子構築中（過渡期）の巨大データ：適格 tier（minW≤rank）が未完成なら「有る中で最も細かい tier」で代用。
-		// tier の頂点は全て weight≥minW>rank＝lodSnap は全頂点 kept＝tier をそのまま描く（名目より粗いだけで
-		// 幾何は正しい）。基準メタ全辺 VS（数百万×6）のジャンクよりよく、構築が進めば自然に正規 tier へ戻る。
-		// tiersDone 後は適用しない＝高ズーム（rank<最細tier）を粗い絵で永続させず、基準メタ＋可視チャンクへ返す。
-		if (!best && !s.tiersDone && baseCount > 1_000_000) for (const t of s.lodTiers) if (!best || t.minW < best.minW) best = t;
-		if (best) return { tex: best.tex, count: best.edgeCount, runs: visibleRuns(best.edgeCount, best.chunks) };
+	let nominal = null, finest = null;
+	for (const t of s.lodTiers ?? []) {
+		if (t.minW <= rank && (!nominal || t.edgeCount < nominal.edgeCount)) nominal = t;
+		if (!finest || t.minW < finest.minW) finest = t;
 	}
-	return { tex: baseTex, count: baseCount, runs: visibleRuns(baseCount, s.metaChunks) };
+	const sel = nominal
+		? { tex: nominal.tex, count: nominal.edgeCount, runs: visibleRuns(nominal.edgeCount, nominal.chunks), minW: nominal.minW }
+		: { tex: baseTex, count: baseCount, runs: visibleRuns(baseCount, s.metaChunks), minW: 0 };
+	if (!nominal && finest) {   // 安全弁（適格 tier 無し＝基準メタに落ちた時だけ）
+		let visible = 0;
+		for (const r of sel.runs) visible += r[1];
+		if (visible > finest.edgeCount * 1.5)
+			return { tex: finest.tex, count: finest.edgeCount, runs: visibleRuns(finest.edgeCount, finest.chunks), minW: finest.minW };
+	}
+	return sel;
 }
 
 // 可視チャンク run（[startEdge, edgeCount] の列）。チャンク台帳や view bbox が無ければ全量1本。
@@ -46,6 +54,35 @@ function visibleRuns(totalCount, chunks) {
 	}
 	if (curStart >= 0) runs.push([curStart, curEnd - curStart]);
 	return runs;
+}
+
+// 深度統合（1canvas 段階B）uniform：data.depth（renderer の frame コンテキスト＝terrainDepth 時のみ非null）
+// を renderProgram へ。無ければ全0＝従来動作（worker モード含む）。u_elevTex の unit 割当(7)だけは常に行う
+//（sampler2D の既定 unit0 は u_arc_tex(usampler2D) と同 unit になり draw が INVALID_OPERATION になるため）。
+function bindDepthUniforms(gl, u, data) {
+	const dep = data.depth;
+	gl.uniform1i(u.u_elevTex, 7);
+	gl.uniform1f(u.u_logCoef, dep?.logCoef ?? 0);
+	gl.uniform1f(u.u_fogFar,  dep?.fogFar ?? 1e9);
+	const op = data.originPt;
+	gl.uniform3f(u.u_origin_pt, op?.[0] ?? 0, op?.[1] ?? 0, op?.[2] ?? 0);
+	gl.uniform1f(u.u_elevScale, dep?.elevScale ?? 0);
+	gl.uniform1f(u.u_hasElev,   dep?.hasElev ?? 0);
+	gl.uniform1f(u.u_elevEdgeFade, dep?.edgeFade ?? 0);
+	const b = dep?.elevBounds;
+	gl.uniform4f(u.u_elevBounds, b?.[0] ?? 0, b?.[1] ?? 0, b?.[2] ?? 1, b?.[3] ?? 1);
+	gl.uniform1f(u.u_hidden, 0);
+	if (dep?.elevTex) { gl.activeTexture(gl.TEXTURE7); gl.bindTexture(gl.TEXTURE_2D, dep.elevTex); gl.activeTexture(gl.TEXTURE0); }
+	return dep;
+}
+
+// stencil 塗りの扇要テクスチャ（fid→bbox中心）を unit2 へ。無いデータ（線のみ/疎fid）は従来のクリップ原点。
+// u_pivot_tex の unit 割当は常に行う（usampler の既定 unit0 は無害だが明示＝規約統一）。
+function bindPivot(gl, u) {
+	gl.uniform1i(u.u_pivot_tex, 2);
+	gl.uniform1i(u.u_pivot_w, s.pivotW || 1);
+	gl.uniform1i(u.u_has_pivot, s.pivotTex ? 1 : 0);
+	if (s.pivotTex) { gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, s.pivotTex); gl.activeTexture(gl.TEXTURE0); }
 }
 
 // site 2（点）：cam 由来の mvp/eye/origin を点プログラムへ。v1 の rotate/scale/rsincos/jac を建て替え。
@@ -78,9 +115,16 @@ export function renderCleanScene(data, targetFBO = null) {
 			pointProgram, uRender, uStencil, uFill, uPoint, emptyVAO } = programs;
 
 	gl.bindFramebuffer(gl.FRAMEBUFFER, targetFBO);
-	gl.clearColor(0, 0, 0, 0);
-	gl.stencilMask(0xFF);
-	gl.clear(gl.COLOR_BUFFER_BIT | gl.STENCIL_BUFFER_BIT);
+	if (s.embedded && !targetFBO) {
+		// embedded＝地図が既に描かれた default framebuffer の上に blend で重ねる＝色は消さない。
+		// stencil だけ消す（塗りの winding 判定用。renderer 側の stencil 利用は都度 clear する規約＝衝突しない）。
+		gl.stencilMask(0xFF);
+		gl.clear(gl.STENCIL_BUFFER_BIT);
+	} else {
+		gl.clearColor(0, 0, 0, 0);
+		gl.stencilMask(0xFF);
+		gl.clear(gl.COLOR_BUFFER_BIT | gl.STENCIL_BUFFER_BIT);
+	}
 	gl.bindVertexArray(emptyVAO);
 
 	// ── Stencil + Fill（stencil-then-cover）──
@@ -102,6 +146,7 @@ export function renderCleanScene(data, targetFBO = null) {
 		gl.stencilOpSeparate(gl.BACK,  gl.KEEP, gl.KEEP, gl.DECR_WRAP);
 		gl.useProgram(stencilProgram);
 		bindSharedUniforms(gl, uStencil, data, arcTex, metaTex, TEX_ARC_W, TEX_META_W, width, height);
+		bindPivot(gl, uStencil);
 		gl.uniform1f(uStencil.u_lod_rank, 0);   // 塗りstencilは全密度＝LOD簡略化の自己交差による斑点(winding反転)を防ぐ
 		// ポリゴン辺（メタ先頭連続）のみ winding にファン＝折れ線辺を混ぜない（ortho-map と同規約）
 		gl.drawArrays(gl.TRIANGLES, 0, s.polyEdges * 3);
@@ -126,8 +171,32 @@ export function renderCleanScene(data, targetFBO = null) {
 		gl.uniform4fv(uRender.u_style_table, data.styleTable ?? DEF_STYLE);
 		gl.uniform2fv(uRender.u_dash_table,  data.dashTable  ?? DEF_DASH);
 		gl.uniform1i(uRender.u_pass, 0);
-		for (const [est, cnt] of (lnSel.runs ?? [[0, lnSel.count]]))
+		// 深度統合（段階B・山岳ビュー z<13 のみ dep 非null）：線を地形深度でテスト（書かない）＝
+		// 尾根の向こうは実線が消え、直後の GREATER パスが「淡い固定破線」で拾う（CAD の隠線表現）。
+		const dep = bindDepthUniforms(gl, uRender, data);
+		if (dep) { gl.enable(gl.DEPTH_TEST); gl.depthFunc(gl.LEQUAL); gl.depthMask(false); }
+		let pfEdges = 0;   // perf 計測用（実際に発行した辺数＝tier/カリングの効き確認。?perf=1 の行へ）
+		for (const [est, cnt] of (lnSel.runs ?? [[0, lnSel.count]])) {
+			pfEdges += cnt;
 			gl.drawArrays(gl.TRIANGLES, est * 6, cnt * 6);
+		}
+		s._pfLineEdges = pfEdges; s._pfTierW = lnSel.minW ?? -1;
+		if (dep) {
+			// 隠線パスは静止時のみ（移動中は省略＝tilt山岳ビューの線頂点コストを半減）。淡破線は装飾＝
+			// パン/ズーム中に一瞬消えても違和感がなく、settle の再描画で必ず戻る（terrainGate と同じ思想）。
+			// 可視辺数が大きい時も省略（fillOff と同じ自動品質ノブ）：anchor支配で tier が組めない筆系37万辺で
+			// 2パス目がフレームを倍にする（実機 gpuGint 90ms級）＝装飾のために本業を落とさない。
+			if (!s._isDrawing && pfEdges < 100_000) {
+				gl.depthFunc(gl.GREATER);
+				gl.uniform1f(uRender.u_hidden, 1);
+				for (const [est, cnt] of (lnSel.runs ?? [[0, lnSel.count]]))
+					gl.drawArrays(gl.TRIANGLES, est * 6, cnt * 6);
+				gl.uniform1f(uRender.u_hidden, 0);
+				gl.depthFunc(gl.LEQUAL);
+			}
+			gl.disable(gl.DEPTH_TEST);
+			gl.depthMask(true);
+		}
 	}
 
 	// ── Points ──
@@ -142,9 +211,7 @@ export function renderCleanScene(data, targetFBO = null) {
 }
 
 export function drawOverlay() {
-	const { gl, programs, arcTex, metaTex, ptTex, ptMetaTex,
-			totalEdges, totalPoints, TEX_ARC_W, TEX_META_W, width, height,
-			baseFBO, lastDrawData, activeId, polyEdgeByFid } = s;
+	const { gl, baseFBO, lastDrawData, width, height } = s;
 	if (!baseFBO || !lastDrawData) return;
 
 	// baseFBO → canvas を blit して前フレームの overlay を消す。
@@ -155,10 +222,18 @@ export function drawOverlay() {
 	gl.stencilMask(0xFF);
 	gl.clear(gl.STENCIL_BUFFER_BIT);
 
+	drawHighlight(lastDrawData);
+}
+
+// アクティブ地物のハイライト（太線＋黄・点拡大・外側マスク）。blit を含まない純描画＝
+// worker モードは drawOverlay（blit 後）から、embedded モードは毎フレームの gint パス末尾から呼ぶ。
+export function drawHighlight(data) {
+	const { gl, programs, arcTex, metaTex, ptTex, ptMetaTex,
+			totalEdges, totalPoints, TEX_ARC_W, TEX_META_W, width, height,
+			activeId, polyEdgeByFid } = s;
 	if (activeId === -1) return;
 	if (!arcTex && !ptTex) return;
 
-	const data = lastDrawData;
 	const { renderProgram, stencilProgram, fillProgram,
 			pointProgram, uRender, uStencil, uFill, uPoint, emptyVAO } = programs;
 	gl.bindVertexArray(emptyVAO);
@@ -168,9 +243,11 @@ export function drawOverlay() {
 	const eCount   = range?.[1] ?? null;
 	const hasRange = eStart != null && eCount > 0;
 
-	// Edge highlight：太く＋黄。
+	// Edge highlight：太く＋黄。深度統合時もハイライトは深度免除＝選択地物は尾根の向こうでも実線で示す
+	//（識別の主目的は「どれが当たっているか」＝隠さない）。ドレープだけ掛けて基図と同じ高さに乗せる。
 	gl.useProgram(renderProgram);
 	bindSharedUniforms(gl, uRender, data, arcTex, metaTex, TEX_ARC_W, TEX_META_W, width, height);
+	bindDepthUniforms(gl, uRender, data);
 	gl.uniform1f(uRender.u_line_width,   (data.lineWidth ?? 1.0) + 2.0);
 	gl.uniform1f(uRender.u_dpr,          1.0);
 	gl.uniform1i(uRender.u_active_id,    activeId);
@@ -203,6 +280,7 @@ export function drawOverlay() {
 		gl.stencilOpSeparate(gl.BACK,  gl.KEEP, gl.KEEP, gl.DECR_WRAP);
 		gl.useProgram(stencilProgram);
 		bindSharedUniforms(gl, uStencil, data, arcTex, metaTex, TEX_ARC_W, TEX_META_W, width, height);
+		bindPivot(gl, uStencil);
 		gl.drawArrays(gl.TRIANGLES, eStart * 3, eCount * 3);
 		gl.colorMask(true, true, true, true);
 		gl.stencilMask(0x00);

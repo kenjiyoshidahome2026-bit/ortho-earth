@@ -29,9 +29,11 @@ export function uploadGintTextures() {
 	// 2M→10M: いわき市(登記所備付地図・約6.9M辺)級でも静的間引きを発火させない＝筆界の正確さ優先
 	//（ortho-map と同判断）。描画コストは段階別tier＋可視チャンクカリングが回収する。
 	const MAX_SAFE_EDGES = 10_000_000;
-	// 空間カリング用：fid グループを bbox Morton 順に並べ替え＋約65536辺のチャンク台帳（bbox付き）。
+	// 空間カリング用：fid グループを bbox Morton 順に並べ替え＋約16384辺のチャンク台帳（bbox付き・tier と同粒度）。
+	// 旧 65536 は筆層（37万辺＝台帳6個）でカリングがほぼ効かず、高ズームでも数十万辺を毎フレーム描いた。
+	// 16384 なら台帳走査は数十個＝タダのまま、可視は1-3チャンクへ絞れる（anchor支配で tier が組めない層の生命線）。
 	s.polyBboxByFid = buildPolyBboxByFid(ps, am);   // 並べ替えキーに使うため先に計算
-	const metaOpts = { orderBbox: s.polyBboxByFid, chunkEdges: 65536 };
+	const metaOpts = { orderBbox: s.polyBboxByFid, chunkEdges: 16384 };
 	let capMinW = 0;
 	let weightHist = null;
 	let metaResult = buildEdgeMeta(am, ps, ls, null, 0, metaOpts);
@@ -54,6 +56,27 @@ export function uploadGintTextures() {
 	s.metaChunks    = metaResult.chunks;
 	console.debug('[gint] edges=%d chunks=%d', edgeCount, s.metaChunks?.length ?? 0);
 	s.outlineZoom = deriveOutlineZoom(s.polyBboxByFid);   // 低ズームのベタ塗り切替閾値（ポリゴン無し=null=既定へ）
+	// stencil 塗りの per-feature 扇要（fid→bbox中心 e7整数・RG32UI）。旧・クリップ原点（画面中心）要は
+	// 全三角形が「画面中心→辺」＝TBDR(Apple GPU)のビニング用パラメータバッファが辺数×画面級三角形で
+	// 爆発する（筆50.9万辺の fill 表示瞬間に GPU プロセスがGB級膨張＝実機実測）。巻き数は閉リングなら
+	// 要の位置に依存しない＝feature 局所要で正確さ不変・三角形は筆サイズ＝バッファ正常化。
+	if (s.pivotTex) { gl.deleteTexture(s.pivotTex); s.pivotTex = null; }
+	s.pivotW = 0;
+	if (s.polyBboxByFid?.size) {
+		let maxFid = 0;
+		for (const fid of s.polyBboxByFid.keys()) if (fid > maxFid) maxFid = fid;
+		if (maxFid < (1 << 22)) {   // 異常に疎な fid はテクスチャが無駄に巨大化＝従来要へフォールバック
+			const W = Math.min(4096, s.TEX_ARC_W), H = Math.ceil((maxFid + 1) / W);
+			const px = new Uint32Array(W * H * 2);
+			for (const [fid, bb] of s.polyBboxByFid) {
+				px[fid * 2]     = (bb[0] + Math.floor((bb[2] - bb[0]) / 2)) >>> 0;   // 中点（和は u32 を溢れる＝差分で）
+				px[fid * 2 + 1] = (bb[1] + Math.floor((bb[3] - bb[1]) / 2)) >>> 0;
+			}
+			s.pivotTex = uploadTex2D(gl, px, W, H, gl.RG32UI, gl.RG_INTEGER);
+			s.pivotW = W;
+		}
+	}
+
 	// 巨大ポリゴンデータは自動ベタ塗りを止める（アウトラインのみ）。塗り stencil は tier/カリング非対応の全密度
 	//（斑点根治の設計判断）＝polyEdges×3頂点が毎フレーム走り、国立公園 nps_all（数M辺・広域）で顕在化した。
 	// 明示 fillColor は従来どおり全ズーム尊重（renderCleanScene 側の ?? 条件）＝呼び出し側の意思で塗れる。
@@ -161,8 +184,10 @@ export function deleteTextures() {
 	if (s.metaTex)   gl.deleteTexture(s.metaTex);
 	if (s.ptTex)     gl.deleteTexture(s.ptTex);
 	if (s.ptMetaTex) gl.deleteTexture(s.ptMetaTex);
+	if (s.pivotTex)  gl.deleteTexture(s.pivotTex);
 	if (s.lodTiers?.length) s.lodTiers.forEach(t => gl.deleteTexture(t.tex));
 	s.lodTiers = [];
 	s.metaChunks = null;
-	s.arcTex = s.metaTex = s.ptTex = s.ptMetaTex = null;
+	s.arcTex = s.metaTex = s.ptTex = s.ptMetaTex = s.pivotTex = null;
+	s.pivotW = 0;
 }

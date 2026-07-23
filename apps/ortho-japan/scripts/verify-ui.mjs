@@ -10,7 +10,7 @@ import path from "node:path";
 const APP = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const PORT = 5237;
 const CHROME = process.env.CHROME || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
-const PAGES = ["t-gadgets", "t-newgadgets", "t-providers", "t-measure", "t-shot", "t-palette-live", "t-demo", "t-print", "t-opts", "t-input", "t-narrow", "t-gintlod", "t-ai"];
+const PAGES = ["t-gadgets", "t-newgadgets", "t-providers", "t-measure", "t-shot", "t-palette-live", "t-demo", "t-print", "t-opts", "t-input", "t-narrow", "t-gintlod", "t-gintembed", "t-gintdepth", "t-ai"];
 
 const vite = spawn("npx", ["vite", "--port", String(PORT), "--strictPort"], { cwd: APP, stdio: "ignore" });
 process.on("exit", () => vite.kill());

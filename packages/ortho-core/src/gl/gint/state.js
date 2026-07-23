@@ -10,6 +10,7 @@ export const s = {
 
 	// Textures
 	arcTex: null, metaTex: null, ptTex: null, ptMetaTex: null,
+	pivotTex: null, pivotW: 0,     // stencil塗りの per-feature 扇要（fid→bbox中心 e7整数）。null=従来のクリップ原点
 	lodTiers: [],                  // 段階別 LOD メタ [{minW, edgeCount, tex}] minW 昇順（粗いほど後ろ）
 	metaChunks: null,              // 基準メタのチャンク台帳 [{start,end,bbox}]（可視カリング用）
 	totalEdges: 0, totalPoints: 0,
@@ -28,6 +29,13 @@ export const s = {
 
 	// Zoom range
 	minZoom: null, maxZoom: null,
+
+	// Embedded モード（1canvas統合＝renderworker の GL コンテキストに同居）。
+	// embedded=true の間は「自分のcanvasを clear して描く」worker 前提を全て外す：
+	// renderCleanScene は色を消さず現フレームの地図の上に blend、識別のハイライト反映は
+	// drawOverlay(blit) でなく requestDraw()（＝render worker の dirty）で全再描画に委ねる。
+	embedded: false,
+	requestDraw: null,
 
 	// Identify / hover
 	activeId: -1,

@@ -28,7 +28,30 @@ uniform uint       u_iy_center;  // u_origin の Morton 整数（緯度）
 uniform float      u_lod_rank;   // GPU Dynamic LOD 閾値（VW rank 0-63）。辺の max(rankA,rankB) 未満は VS で discard
 uniform vec4       u_clipT;      // mvp*[原点3D,1]＝CPU(double)算出＝MVP相殺回避の錨（clip空間の原点）
 uniform float      u_origin_zr;  // dot(原点3D,eye)-1＝CPU(double)算出＝zr相殺回避の錨
+// ── 深度統合（1canvas 段階B）：renderer の地形深度（terrainDepth＝山岳ビュー z<13）へ参加する時だけ実値。
+// 全て 0 ＝完全に従来動作（worker モード/非統合は一切影響なし）。使用は VS_RENDER のみ（他は宣言だけ＝prune）。
+uniform float      u_logCoef;      // >0＝対数深度を焼く（renderer applyLogDepth と同式・同係数）。0＝z=0（深度オフ）
+uniform float      u_fogFar;       // 標高変位の距離フェード終端（renderer LINE_MAIN の df と同式＝遠景平ら化に追随）
+uniform vec3       u_origin_pt;    // 原点3D（CPU double 算出）＝絶対方向 dir = u_origin_pt + rel
+uniform sampler2D  u_elevTex;      // 標高アトラス（renderer と共有・texture unit 7 固定）
+uniform vec4       u_elevBounds;   // originLng, originLat, spanLng, spanLat
+uniform float      u_elevScale;    // (誇張/地球半径m)：0＝ドレープなし
+uniform float      u_hasElev;      // 0/1
+uniform float      u_elevEdgeFade; // 標高窓の縁フェード幅(deg)。renderer elev() と同式
 const float D2R = 0.017453292519943295;
+
+// 標高（renderer glsl.js elev() と同式＝基図の線/塗りと同じドレープ＝重ねてズレない）。
+float elevAt(vec2 ll) {
+	if (u_hasElev < 0.5) return 0.0;
+	vec2 uv = (ll - u_elevBounds.xy) / u_elevBounds.zw;
+	if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) return 0.0;
+	float fade = 1.0;
+	if (u_elevEdgeFade > 0.0) {
+		vec2 w = vec2(u_elevEdgeFade) / u_elevBounds.zw;
+		fade = min(smoothstep(0.0, w.x, min(uv.x, 1.0 - uv.x)), smoothstep(0.0, w.y, min(uv.y, 1.0 - uv.y)));
+	}
+	return texture(u_elevTex, uv).r * fade;   // アトラスは南上げ格納＝v直接
+}
 
 vec3 lonlatTo3D(vec2 ll) {
 	float a = ll.x * D2R, b = ll.y * D2R, cb = cos(b);
@@ -85,8 +108,8 @@ float dlonE7(uint a, uint b) {
 	return float(d) * s;
 }
 
-// gint 整数 → 原点相対 rel（decode 共通部。fetchProject / fetchClip が共用）。
-vec3 decodeRel(uint idx) {
+// gint 整数 → 原点相対 delta (deg)（decode 共通部）。
+vec2 decodeDLL(uint idx) {
 	ivec2 tc = ivec2(int(idx) % u_arc_w, int(idx) / u_arc_w);
 	uvec4 px = texelFetch(u_arc_tex, tc, 0);
 	uint lo = px.r, hi = px.g;
@@ -95,9 +118,12 @@ vec3 decodeRel(uint idx) {
 	uint ix = (compact16(hi_c) << 16u) | compact16(lo_c);
 	uint iy = (compact16(hi_c >> 1u) << 16u) | compact16(lo_c >> 1u);
 	// 中心(=シーン原点)からの delta を整数空間で計算（精度確保・antimeridian 対応）。
-	float dlon = dlonE7(ix, u_ix_center) * 1e-7;
-	float dlat = float(int(iy - u_iy_center)) * 1e-7;
-	return deltaToRel(dlon, dlat);                // 頂点3D − 原点3D（小・正確）
+	return vec2(dlonE7(ix, u_ix_center) * 1e-7, float(int(iy - u_iy_center)) * 1e-7);
+}
+// gint 整数 → 原点相対 rel（fetchProject / fetchClip が共用）。
+vec3 decodeRel(uint idx) {
+	vec2 dLL = decodeDLL(idx);
+	return deltaToRel(dLL.x, dLL.y);              // 頂点3D − 原点3D（小・正確）
 }
 
 // 【swap 本体】gint 整数 → 単位球 → mat4 → screen px。
@@ -110,6 +136,44 @@ vec3 fetchProject(uint idx) {
 	return vec3((ndc.x * 0.5 + 0.5) * u_viewport.x,
 				(1.0 - (ndc.y * 0.5 + 0.5)) * u_viewport.y,
 				zr);
+}
+
+// 深度統合（段階B）用の投影：標高ドレープ（u_elevScale>0 時）を掛けた screen px＋clip.w を返す。
+// ドレープは renderer LINE_MAIN と同式（距離フェード df ＝遠景平ら化に追随・relW=rel+h*dir の相殺なしRTE）
+// ＝基図の線と同じ高さに乗る。u_elevScale=0 なら relW=rel が厳密に成立＝fetchProject と同一結果（従来動作）。
+vec3 projectDrape(uint idx, out float clipW) {
+	vec2 dLL = decodeDLL(idx);
+	vec3 rel = deltaToRel(dLL.x, dLL.y);
+	float zr = u_origin_zr + dot(rel, u_eye);     // 半球判定は非ドレープ（粗くて可）
+	vec3 relW = rel;
+	if (u_elevScale > 0.0 && u_hasElev > 0.5) {
+		vec3 dir = u_origin_pt + rel;             // 絶対単位球点（elev/df 用＝粗くて可）
+		float df = 1.0 - smoothstep(u_fogFar * 0.8, u_fogFar * 2.0, distance(u_eye, dir));
+		float h = elevAt(u_origin + dLL) * u_elevScale * df;
+		relW = rel + h * dir;                     // (dir*(1+h)) − 原点3D を相殺なしで
+	}
+	vec4 clip = u_clipT + u_mvp * vec4(relW, 0.0);
+	clipW = clip.w;
+	if (clip.w <= 0.0) return vec3(u_viewport * 0.5, -1.0);   // カメラ背後 → 裏扱い
+	vec2 ndc = clip.xy / clip.w;
+	return vec3((ndc.x * 0.5 + 0.5) * u_viewport.x,
+				(1.0 - (ndc.y * 0.5 + 0.5)) * u_viewport.y,
+				zr);
+}
+
+// stencil 塗りの扇要（per-feature pivot）：fid→bbox中心（e7整数・RG32UI）をクリップ座標へ。
+// 巻き数は閉リングなら要の位置に依存しない＝正確さ不変。旧・クリップ原点（画面中心）要は全三角形が
+// 「画面中心→辺」＝TBDR(Apple GPU) のパラメータバッファが辺数×画面級で爆発した（fill 表示瞬間にGB級）。
+// u_has_pivot=0（線のみ/疎fid フォールバック）は従来のクリップ原点。
+uniform usampler2D u_pivot_tex;   // unit2（stencil 系のみ使用＝他プログラムでは prune）
+uniform int        u_pivot_w;
+uniform int        u_has_pivot;
+vec4 pivotClip(uint fid) {
+	if (u_has_pivot == 0) return vec4(0.0, 0.0, 0.0, 1.0);
+	uvec2 pv = texelFetch(u_pivot_tex, ivec2(int(fid) % u_pivot_w, int(fid) / u_pivot_w), 0).rg;
+	float dlon = dlonE7(pv.x, u_ix_center) * 1e-7;
+	float dlat = float(int(pv.y - u_iy_center)) * 1e-7;
+	return u_clipT + u_mvp * vec4(deltaToRel(dlon, dlat), 0.0);
 }
 
 // stencil 用：クリップ座標のまま返す＝カメラ後方(w<=0)の頂点も動かさずハードウェアクリップに任せる。
@@ -235,7 +299,7 @@ void main() {
 	uvec4 meta = fetchEdgeMeta(edge_id);
 	uint lodA = meta.r, lodB = meta.g;
 	if (!lodSnap(lodA, lodB, edge_id)) { gl_Position = vec4(2.0, 0.0, 0.0, 1.0); return; }
-	if (sub == 0) { gl_Position = vec4(0.0, 0.0, 0.0, 1.0); return; }
+	if (sub == 0) { gl_Position = pivotClip(meta.a); return; }   // 扇要＝feature局所（TBDRパラメータバッファ対策）
 	gl_Position = fetchClip(sub == 1 ? lodA : lodB);
 }`;
 
@@ -247,7 +311,7 @@ void main() {
 	int sub     = gl_VertexID % 3;
 	uvec4 meta = fetchEdgeMeta(edge_id);
 	v_feat_id  = int(meta.a);
-	if (sub == 0) { gl_Position = vec4(0.0, 0.0, 0.0, 1.0); return; }
+	if (sub == 0) { gl_Position = pivotClip(meta.a); return; }   // 扇要＝feature局所（VS_STENCIL と同じ）
 	gl_Position = fetchClip(sub == 1 ? meta.r : meta.g);   // クリップ座標のまま（VS_STENCIL と同じ根治）
 }`;
 
@@ -297,22 +361,28 @@ void main() {
 	uint  si   = useA ? lodA : lodB;
 	uint  oi   = useA ? lodB : lodA;
 
-	vec3 ps = fetchProject(si);
+	float wS, wO;                       // 端点の clip.w（対数深度用。深度オフ時は未使用）
+	vec3 ps = projectDrape(si, wS);     // ドレープ込み投影（u_elevScale=0 なら fetchProject と同一）
 	v_zr = ps.z;
 
-	vec3  po  = fetchProject(oi);
+	vec3  po  = projectDrape(oi, wO);
 	vec2 oXY  = (po.z < 0.0 && ps.z > 0.0)
 		? ps.xy + (ps.z / (ps.z - po.z)) * (po.xy - ps.xy)
 		: po.xy;
 
+	// 対数深度（renderer applyLogDepth/LINE_MAIN の zc と同式・同係数）＝地形/基図線と同じ深度空間。
+	// u_logCoef=0（深度オフ）は z=0＝従来動作（深度テストも off なので値は無関係だが分岐で保証）。
+	float zc = (u_logCoef > 0.0) ? (log2(max(1.0 + wS, 1e-6)) * u_logCoef - 1.0) : 0.0;
+
 	vec2 dir = oXY - ps.xy;
 	float len = length(dir);
-	if (len < 1e-4) { gl_Position = toNDC(ps.xy); return; }
+	if (len < 1e-4) { vec4 nd0 = toNDC(ps.xy); gl_Position = vec4(nd0.xy, zc, 1.0); return; }
 	vec2 tang = dir / len;
 	vec2 perp = vec2(-tang.y, tang.x);
 	float halfCss = u_line_width * 0.5 + 1.0 / u_dpr;
 	vec2 qpos = ps.xy + side * halfCss * perp - tang * halfCss;   // AA余白込みのクアッド（端は FS のカプセルSDFで丸める）
-	gl_Position = toNDC(qpos);
+	vec4 nd = toNDC(qpos);
+	gl_Position = vec4(nd.xy, zc, 1.0);
 	v_frag = qpos; v_ea = ps.xy; v_eb = oXY;
 
 	int style_idx = int(meta.b & 0xFFu);
@@ -328,6 +398,7 @@ void main() {
 
 const FS_RENDER = `#version 300 es
 precision mediump float;
+uniform float u_hidden;   // 1＝隠線パス（深度不合格側＝depthFunc GREATER で再描画）：淡く＋固定破線（CAD流）。既定0＝通常
 in  vec4  v_color;
 in  float v_zr;
 in  float v_dist;
@@ -343,6 +414,12 @@ void main() {
 	if (v_zr < -0.05)     discard;
 	if (v_color.a == 0.0) discard;
 	float alpha = v_color.a * smoothstep(-0.01, 0.02, v_zr);
+	if (u_hidden > 0.5) {
+		// 隠線（尾根の向こう）＝淡い固定破線：消し去らず「向こう側に在る」ことだけ静かに残す（CAD の隠線表現）。
+		float t = mod(v_dist_base + v_dist, 10.0);
+		float aa0 = max(fwidth(v_dist), 0.001);
+		alpha *= (1.0 - smoothstep(6.0 - aa0, 6.0 + aa0, t)) * 0.35;
+	}
 	if (v_dash.y > 0.0) {
 		float d      = v_dist_base + v_dist;
 		float period = v_dash.x + v_dash.y;
@@ -519,8 +596,9 @@ export function createGintPrograms(gl) {
 	const pickLineProgram    = linkProgram(gl, VS_PICK_LINE,     FS_PICK);
 	const pickPointProgram   = linkProgram(gl, VS_PICK_POINT,    FS_PICK_POINT);
 
-	const uRender      = getUniforms(gl, renderProgram,      [...SHARED_UNIFORM_NAMES, 'u_line_width', 'u_dpr', 'u_active_id', 'u_pass', 'u_style_table', 'u_dash_table']);
-	const uStencil     = getUniforms(gl, stencilProgram,     SHARED_UNIFORM_NAMES);
+	const uRender      = getUniforms(gl, renderProgram,      [...SHARED_UNIFORM_NAMES, 'u_line_width', 'u_dpr', 'u_active_id', 'u_pass', 'u_style_table', 'u_dash_table',
+		'u_logCoef', 'u_fogFar', 'u_origin_pt', 'u_elevTex', 'u_elevBounds', 'u_elevScale', 'u_hasElev', 'u_elevEdgeFade', 'u_hidden']);   // 深度統合（段階B）用＝未設定なら全0=従来動作
+	const uStencil     = getUniforms(gl, stencilProgram,     [...SHARED_UNIFORM_NAMES, 'u_pivot_tex', 'u_pivot_w', 'u_has_pivot']);
 	const uFill        = getUniforms(gl, fillProgram,        ['u_fill_color']);
 	const uMaskStencil = getUniforms(gl, maskStencilProgram, [...SHARED_UNIFORM_NAMES, 'u_active_id']);
 	const uPoint       = getUniforms(gl, pointProgram,       [...PT_UNIFORM_NAMES, 'u_active_id']);

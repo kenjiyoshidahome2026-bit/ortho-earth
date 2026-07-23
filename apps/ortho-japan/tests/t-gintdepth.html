@@ -1,0 +1,114 @@
+<!doctype html>
+<!-- UI回帰：gint 深度統合（1canvas 段階B）。gint の描画部品を main スレッドで直接組み（worker 不要＝
+     rAF/virtual-time 非依存）、実GLで
+     ① 対数深度：深度バッファに敗ける半面で実線が消え、GREATER の隠線パスが「淡い破線」で拾う（CAD流）
+     ② 標高ドレープ：elevScale>0 ＋チルトで線が地形の高さぶん画面上方へ乗る（0 なら不動＝従来動作）
+     をピクセルで検定。renderer 側の対数深度式（applyLogDepth）との係数一致は式の共有（gintCtx）が担保。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;width:320px;height:320px}</style><title>t-gintdepth</title></head>
+<body><canvas id="g" width="256" height="256"></canvas>
+<script type="module">
+const t = [], ok = (n, c) => t.push((c ? "ok:" : "NG:") + n);
+const fin = () => document.title = t.some(s => s.startsWith("NG")) ? "FAIL " + t.join(" ") : "PASS " + t.join(" ");
+
+// Morton pack（geopbf gint.packFromInt と同式・テスト自給。t-gintlod と同じ）
+const spread16 = v => { v &= 0xFFFF; v = (v | (v << 8)) & 0xFF00FF; v = (v | (v << 4)) & 0xF0F0F0F; v = (v | (v << 2)) & 0x33333333; v = (v | (v << 1)) & 0x55555555; return v >>> 0; };
+const pack = (lon, lat, terminal, weight = 0) => {
+	const ix = Math.round((lon + 180) * 1e7) >>> 0, iy = Math.round((lat + 90) * 1e7) >>> 0;
+	const lo = (spread16(ix & 0xFFFF) | (spread16(iy & 0xFFFF) << 1)) >>> 0;
+	const hi = (spread16(ix >>> 16) | (spread16(iy >>> 16) << 1)) >>> 0;
+	let v = (BigInt(hi) << 32n) | BigInt(lo);
+	return terminal ? (v | (1n << 63n)) : ((v & ~0x3Fn) | BigInt(weight & 63));
+};
+const e7 = d => Math.round(d * 1e7) >>> 0;
+
+try {
+	const { s } = await import("../../../packages/ortho-core/src/gl/gint/state.js");
+	const { createGintPrograms } = await import("../../../packages/ortho-core/src/gl/gint/programs.js");
+	const { uploadGintTextures } = await import("../../../packages/ortho-core/src/gl/gint/textures.js");
+	const { renderCleanScene } = await import("../../../packages/ortho-core/src/gl/gint/passes.js");
+	const { computeDrawData } = await import("../../../packages/ortho-core/src/gl/gint/drawdata.js");
+
+	const gl = document.getElementById("g").getContext("webgl2", { antialias: false, stencil: true, premultipliedAlpha: false, preserveDrawingBuffer: true });
+	if (!gl) throw new Error("WebGL2なし");
+	s.gl = gl; s.width = 256; s.height = 256; s.dpr = 1;
+	s.programs = createGintPrograms(gl);
+	ok("compile(深度/ドレープ入りシェーダ)", !!s.programs.renderProgram);
+
+	// 東西の水平線1本（lineStream・両端 terminal＝rank63＝LOD不変）。
+	// ズームは z6＝camDist を稼ぐ（FS の horizon フェード smoothstep(v_zr) は zr≈camDist が 0.02 未満だと
+	// α を減衰させる＝小canvas高ズームの合成ハーネスでは実線が「淡」に落ちて検定にならない）。
+	const C = [139.7, 35.7], D = 1.0;
+	const verts = [[C[0] - D, C[1]], [C[0] + D, C[1]]];
+	const arcBuffer = BigUint64Array.from(verts.map(([lo, la]) => pack(lo, la, true)));
+	const arcMeta = new Uint32Array(8);
+	arcMeta[0] = 0; arcMeta[1] = 2;
+	arcMeta[4] = e7(C[0] + 180 - D); arcMeta[5] = e7(C[1] + 90); arcMeta[6] = e7(C[0] + 180 + D); arcMeta[7] = e7(C[1] + 90);
+	s.gintData = { arcBuffer, arcMeta, polyStream: null, lineStream: Int32Array.from([1, 1, 1, 0]), pointBuffer: null, point: null };
+	uploadGintTextures();
+	s.minZoom = 0; s.maxZoom = 22;
+
+	// ── LOD rank フォールバック回帰：チルトで画面中心が地球を外れる（unproject不能）ビューでは
+	// rank はズーム由来 r=63-3z に落ちる（旧・既定0＝最細＝41万辺フル描画で GPU 200-700ms/frame の実機事故）──
+	{
+		const dHi = computeDrawData({ cam: { center: [139.7, 35.7], zoom: 3, pitch: 1.35, bearing: 0 } });   // 高チルト低ズーム＝中心が空
+		const dLo = computeDrawData({ cam: { center: [139.7, 35.7], zoom: 3, pitch: 0, bearing: 0 } });      // 真俯瞰＝実測経路
+		ok(`rankフォールバック(空向き=${dHi.lodRank} 実測=${dLo.lodRank})`, dHi.lodRank >= 50 && dLo.lodRank >= 45);
+	}
+
+	// 対数深度係数＝renderer setCommonUniforms / gintCtx と同式（st.camDist は computeDrawData が s.cam に置く）
+	const logCoefOf = () => { const cd = s.cam.camDist, lb = Math.sqrt(Math.max((1 + cd) * (1 + cd) - 1, 1e-12));
+		return 2.0 / Math.log2(lb * 1.15 + cd + 1.0); };
+	const readAll = () => { const a = new Uint8Array(256 * 256 * 4); gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.readPixels(0, 0, 256, 256, gl.RGBA, gl.UNSIGNED_BYTE, a); return a; };
+	const stats = a => { let solid = 0, faint = 0, ySum = 0, yN = 0;
+		for (let y = 0; y < 256; y++) for (let x = 0; x < 256; x++) { const al = a[(y * 256 + x) * 4 + 3];
+			if (al > 230) { solid++; ySum += y; yN++; }
+			else if (al > 40 && al < 160) faint++; }
+		return { solid, faint, yc: yN ? ySum / yN : -1 }; };
+
+	// ── ① 対数深度＋隠線：全面 depth=1（空）＝実線が勝つ／全面 depth=0（最前面の壁）＝実線は敗け
+	//     GREATER の隠線パスだけが「淡い破線」で拾う（CAD流）──
+	{
+		const cam = { center: C, zoom: 6, pitch: 0, bearing: 0 };
+		gl.viewport(0, 0, 256, 256);
+		const drawWithDepth = d => {
+			const data = computeDrawData({ cam, lineWidth: 4 });
+			gl.clearDepth(d); gl.clear(gl.DEPTH_BUFFER_BIT); gl.clearDepth(1);
+			data.depth = { logCoef: logCoefOf(), fogFar: 1e9, elevTex: null, elevBounds: [0, 0, 1, 1], elevScale: 0, hasElev: 0, edgeFade: 0 };
+			renderCleanScene(data, null);   // worker モード＝色/stencil はクリアするが深度は触らない＝仕込みが生きる
+			return stats(readAll());
+		};
+		// コントロール：深度なし（段階A経路）＝実線が必ず出る
+		const data0 = computeDrawData({ cam, lineWidth: 4 });
+		renderCleanScene(data0, null);
+		const ctl = stats(readAll());
+		const win = drawWithDepth(1);   // 深度に勝つ＝実線
+		const hid = drawWithDepth(0);   // 深度に敗ける＝隠線（淡破線）のみ
+		ok(`ctl(solid=${ctl.solid} faint=${ctl.faint}) err=${gl.getError()}`, ctl.solid > 100);
+		ok(`隠線(勝ちsolid=${win.solid}/${win.faint} 負けsolid=${hid.solid} 負け破線=${hid.faint})`,
+			win.solid > 100 && hid.solid === 0 && hid.faint > 20 && hid.faint < win.solid + win.faint);
+	}
+
+	// ── ② 標高ドレープ：チルト＋標高3000mで線の画面重心が上（y小）へ動く。elevScale=0 は不動 ──
+	{
+		// R32F 1×1 = 3000m。unit7（bindDepthUniforms の固定割当）
+		const elevTex = gl.createTexture();
+		gl.bindTexture(gl.TEXTURE_2D, elevTex);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+		gl.texImage2D(gl.TEXTURE_2D, 0, gl.R32F, 1, 1, 0, gl.RED, gl.FLOAT, Float32Array.from([20000]));   // 20km＝z6の粗い視野でも~20px動く合成値
+		const cam = { center: C, zoom: 6, pitch: 1.0, bearing: 0 };
+		const draw1 = scale => {
+			const data = computeDrawData({ cam, lineWidth: 4 });
+			gl.clear(gl.DEPTH_BUFFER_BIT);   // 全面 depth=1＝深度は常に勝つ（ドレープの幾何だけ見る）
+			data.depth = { logCoef: logCoefOf(), fogFar: 1e9, elevTex, elevBounds: [C[0] - 2, C[1] - 2, 4, 4], elevScale: scale, hasElev: 1, edgeFade: 0 };
+			renderCleanScene(data, null);
+			return stats(readAll()).yc;
+		};
+		const y0 = draw1(0);                      // ドレープなし
+		const y1 = draw1(1.2 / 6371008.8);        // 実アプリと同スケール（TERR_EXAG=1.2 相当）
+		// readPixels は下原点＝「画面上方」は y大。チルト（上向き遠方）では標高で線がカメラへ＝画面上へ動く。
+		ok(`ドレープ(y0=${y0.toFixed(1)} y1=${y1.toFixed(1)})`, y0 >= 0 && y1 >= 0 && (y1 - y0) > 2);
+	}
+} catch (e) { ok("boot:" + (e && e.message || e), false); }
+fin();
+</script></body></html>

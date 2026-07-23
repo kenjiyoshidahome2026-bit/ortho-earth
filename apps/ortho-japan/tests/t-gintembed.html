@@ -1,0 +1,106 @@
+<!doctype html>
+<!-- UI回帰：gint 1canvas統合（embedded パス）。render worker を直駆動し、
+     ① init＝renderer と同一GLコンテキストに gint 層が同居して立つ
+     ② set("gint")＋draw＋snapshot＝基図と同じ1枚（readPixels）に gint の塗りが写る（別canvas別撮りの廃止）
+     ③ gintDrawn→gintMove＝picking/JSフォールバック識別が renderworker 経由で返る（identify/leave）
+     ④ gintVis=false／set("gint", null)＝パス停止・空化で gint 画素が消える（地図は残る）
+     を検定。snapshot は worker 内で同期描画→readPixels＝rAF に依存しない（t-gintlod と同じ pump 技法）。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;width:320px;height:320px}</style><title>t-gintembed</title></head>
+<body><canvas id="c" width="256" height="256"></canvas><canvas id="l" width="256" height="256"></canvas>
+<script type="module">
+const t = [], ok = (n, c) => t.push((c ? "ok:" : "NG:") + n);
+// タイムアウト保険は置かない（headless virtual-time では setTimeout が先走る）＝詰まれば title 初期値で FAIL。
+const fin = () => document.title = t.some(s => s.startsWith("NG")) ? "FAIL " + t.join(" ") : "PASS " + t.join(" ");
+
+// ── Morton pack（geopbf gint.packFromInt と同式・テスト自給。t-gintlod と同じ）──
+const spread16 = v => { v &= 0xFFFF; v = (v | (v << 8)) & 0xFF00FF; v = (v | (v << 4)) & 0xF0F0F0F; v = (v | (v << 2)) & 0x33333333; v = (v | (v << 1)) & 0x55555555; return v >>> 0; };
+const pack = (lon, lat, terminal, weight = 0) => {
+	const ix = Math.round((lon + 180) * 1e7) >>> 0, iy = Math.round((lat + 90) * 1e7) >>> 0;
+	const lo = (spread16(ix & 0xFFFF) | (spread16(iy & 0xFFFF) << 1)) >>> 0;
+	const hi = (spread16(ix >>> 16) | (spread16(iy >>> 16) << 1)) >>> 0;
+	let v = (BigInt(hi) << 32n) | BigInt(lo);
+	return terminal ? (v | (1n << 63n)) : ((v & ~0x3Fn) | BigInt(weight & 63));
+};
+const e7 = d => Math.round(d * 1e7) >>> 0;
+
+try {
+	const { cameraState, project } = await import("../../../packages/ortho-core/src/camera.js");
+	const worker = new Worker(new URL("../renderworker.js", import.meta.url), { type: "module" });
+	worker.onerror = e => { ok("worker-error:" + (e.message || "?"), false); fin(); };
+	// pump：pending fetch 中は仮想時間が停止する性質で worker の実CPU時間を確保（t-gintlod と同じ）。
+	const pump = async (p) => { let done = false; p.then(() => done = true, () => done = true);
+		for (let i = 0; !done; i++) await fetch(`./t-gintembed.html?pump=${i}`, { cache: "no-store" }).catch(() => {});
+		return p; };
+	const waitMsg = pred => new Promise(r => { const h = e => { if (pred(e.data)) { worker.removeEventListener("message", h); r(e.data); } }; worker.addEventListener("message", h); });
+	const post = (msg, tr) => worker.postMessage(msg, tr || []);
+	const snapshot = () => { const p = waitMsg(d => d.type === "snapshot"); post({ type: "snapshot", id: 1 }); return pump(p); };
+
+	// ── ① init：renderer＋gint 層の同居起動（glfail が来たら headless GL 不成立＝FAIL で観測）──
+	const offC = document.getElementById("c").transferControlToOffscreen();
+	const offL = document.getElementById("l").transferControlToOffscreen();
+	const failP = waitMsg(d => d.type === "glfail");
+	post({ type: "init", canvas: offC, labelCanvas: offL, elevBase: 0, terrainExag: 1, earthM: 6371008.8,
+		apiUrl: location.origin + "/nope", noMultiDraw: true }, [offC, offL]);
+	post({ type: "resize", width: 256, height: 256 });
+
+	// ── ② ドーナツポリゴン（fid1）を set → draw → snapshot＝基図と同じ1枚に赤fillが写る ──
+	const C = [139.7, 35.7], R = 0.04, r = 0.015;
+	const ring = (d, cw) => cw
+		? [[C[0] - d, C[1] - d], [C[0] - d, C[1] + d], [C[0] + d, C[1] + d], [C[0] + d, C[1] - d], [C[0] - d, C[1] - d]]
+		: [[C[0] - d, C[1] - d], [C[0] + d, C[1] - d], [C[0] + d, C[1] + d], [C[0] - d, C[1] + d], [C[0] - d, C[1] - d]];
+	const vs = [...ring(R, false), ...ring(r, true)];   // 外環 CCW ＋ 穴 CW
+	const arcBuffer = BigUint64Array.from(vs.map(([lo, la]) => pack(lo, la, true)));
+	const arcMeta = new Uint32Array(2 * 8);
+	[[0, 5, R], [5, 5, r]].forEach(([off, len, d], aid) => { arcMeta[aid * 8] = off; arcMeta[aid * 8 + 1] = len;
+		arcMeta[aid * 8 + 4] = e7(C[0] + 180 - d); arcMeta[aid * 8 + 5] = e7(C[1] + 90 - d);
+		arcMeta[aid * 8 + 6] = e7(C[0] + 180 + d); arcMeta[aid * 8 + 7] = e7(C[1] + 90 + d); });
+	post({ type: "set", cmd: "gint", data: { arcBuffer, arcMeta, polyStream: Int32Array.from([1, 2, 1, 0, 1, 1]), minZoom: 2 } });
+	post({ type: "set", cmd: "gintStyle", data: { fillColor: [1, 0, 0, 0.6], lineWidth: 1 } });
+	const cam = { center: C, zoom: 10.5, pitch: 0, bearing: 0, dpr: 1 };   // 視野≈0.12°＝ドーナツ（±0.04°）が 256px に収まる
+	post({ type: "draw", cam, opts: { noTerrain: true } });
+	const snap = await Promise.race([snapshot(), failP.then(d => { throw new Error("glfail:" + d.error); })]);
+	const a8 = new Uint8Array(snap.base);
+	// 赤fill（straight 0.6 を紙白の上に blend ≈ r250/g100台）を数える。readPixels＝上下反転格納。
+	const isRed = i => a8[i] > 190 && a8[i + 1] < 180 && a8[i + 1] > 30;
+	let redN = 0, whiteN = 0;
+	for (let i = 0; i < a8.length; i += 4) { if (isRed(i)) redN++; else if (a8[i] > 220 && a8[i + 1] > 220) whiteN++; }
+	const st = cameraState(cam, 256, 256);
+	const redAt = (lon, lat) => { const p = project(st, lon, lat); if (p[2] <= 0) return -1;
+		const x = Math.round(p[0]), y = Math.round(p[1]); if (x < 2 || x > 253 || y < 2 || y > 253) return -2;
+		let m = 0; for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++)
+			if (isRed(((255 - (y + dy)) * 256 + (x + dx)) * 4)) m++;
+		return m; };
+	const hole = redAt(C[0], C[1]), ann = redAt(C[0] - 0.028, C[1] - 0.02);
+	ok(`同一canvas合成(red=${redN} paper=${whiteN} 穴=${hole} 環=${ann})`, redN > 1000 && whiteN > 1000 && hole === 0 && ann > 5);
+
+	// ── ③ 識別：settle(gintDrawn)→gintMove＝pick/JSフォールバックが renderworker 経由で返る ──
+	post({ type: "gintDrawn" });   // pick FBO 構築（同期）
+	const annPt = project(st, C[0] - 0.028, C[1] - 0.02);   // 環の内部（CSS px＝dpr1）
+	const idP = waitMsg(d => d.action === "identify");
+	post({ type: "gintMove", x: annPt[0], y: annPt[1] });
+	const idm = await pump(idP);
+	ok(`識別(fid=${idm.featureId})`, idm.featureId === 1);
+	const leaveP = waitMsg(d => d.action === "identify" && d.featureId === null);
+	post({ type: "gintLeave" });
+	await pump(leaveP);
+	ok("leave", true);
+
+	// ── ④ gintVis=false＝パス停止（地図は残る）／set null＝空化 ──
+	post({ type: "set", cmd: "gintVis", data: false });
+	const snap2 = await snapshot();
+	const b8 = new Uint8Array(snap2.base);
+	let red2 = 0, white2 = 0;
+	for (let i = 0; i < b8.length; i += 4) { if (b8[i] > 190 && b8[i + 1] < 180 && b8[i + 1] > 30) red2++; else if (b8[i] > 220) white2++; }
+	ok(`gintVis=false(red=${red2} paper=${white2})`, red2 === 0 && white2 > 10000);
+	post({ type: "set", cmd: "gintVis", data: true });
+	post({ type: "set", cmd: "gint", data: null });   // 空化
+	const snap3 = await snapshot();
+	const c8 = new Uint8Array(snap3.base);
+	let red3 = 0;
+	for (let i = 0; i < c8.length; i += 4) if (c8[i] > 190 && c8[i + 1] < 180 && c8[i + 1] > 30) red3++;
+	ok(`空化(red=${red3})`, red3 === 0);
+
+	post({ type: "destroy" });
+} catch (e) { ok("boot:" + (e && e.message || e), false); }
+fin();
+</script></body></html>

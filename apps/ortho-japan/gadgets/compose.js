@@ -13,12 +13,12 @@ function blit(ctx, buf, w, h, W, H, flip) {
 	ctx.restore();
 }
 
-// スナップショット各層（基図GL・知性GL・ラベル2D・計測2D）を1枚のcanvasへ＝shot と print（平面図）と palette で共用。
-export function composeLayersToCanvas({ W, H, render, gint }, measureCanvas) {
+// スナップショット各層（基図GL＝知性gint込み・ラベル2D・計測2D）を1枚のcanvasへ＝shot と print（平面図）と palette で共用。
+// （gint は 1canvas統合で基図GLの1枚に写り込む＝旧・別層合成は撤去）
+export function composeLayersToCanvas({ W, H, render }, measureCanvas) {
 	const out = new OffscreenCanvas(W, H);
 	const ctx = out.getContext("2d");
 	if (render?.base) blit(ctx, render.base, render.w, render.h, W, H, true);   // GL＝上下反転で戻す。動的解像度で縮む事があるので W×H へ伸ばす
-	if (gint?.base) blit(ctx, gint.base, gint.w, gint.h, W, H, true);           // GL＝反転
 	if (render?.labels) blit(ctx, render.labels, render.lw, render.lh, W, H, false);   // 2D＝そのまま
 	if (measureCanvas && measureCanvas.width) ctx.drawImage(measureCanvas, 0, 0, W, H);   // 計測の線・距離・面積
 	return out;

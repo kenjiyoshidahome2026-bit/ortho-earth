@@ -67,8 +67,9 @@ let mapEl = (typeof opts.target === "string" ? document.querySelector(opts.targe
 const ownMapEl = !mapEl;   // 容れ物を自作した＝destroy で丸ごと消してよい（預かった div は中身だけ空にして返す）
 if (ownMapEl) mapEl = document.body.appendChild(document.createElement("div"));
 mapEl.id = "map";
-// 舞台のcanvas 3層（基図GL/知性gint/ラベル）も自給＝index.htmlは空のdivだけでよい
-for (const cid of ["c", "gint", "labels"]) { const cv = document.createElement("canvas"); cv.id = cid; mapEl.appendChild(cv); }
+// 舞台のcanvas 2層（基図GL＝知性gintも同居/ラベル）も自給＝index.htmlは空のdivだけでよい
+// （旧・#gint 別canvas は 1canvas統合で撤去＝gint は render worker の GL パスとして #c に描かれる）
+for (const cid of ["c", "labels"]) { const cv = document.createElement("canvas"); cv.id = cid; mapEl.appendChild(cv); }
 
 const TILE_URL = (z, x, y) => `https://cyberjapandata.gsi.go.jp/xyz/optimal_bvmap-v1/${z}/${x}/${y}.pbf`;
 const TILE = 512, D2R = Math.PI / 180, R2D = 180 / Math.PI;
@@ -168,10 +169,13 @@ const labelOffscreen = labelCanvas.transferControlToOffscreen();
 const renderWorker = new Worker(new URL("./renderworker.js", import.meta.url), { type: "module" });
 // scene worker → render worker の直結パイプ（main を経由しない geometry）。両端を各 worker へ渡す。
 const sceneChan = new MessageChannel();
-const gintSyncChan = new MessageChannel();   // render worker → gint worker：海岸線を地図フレームに従属（スライド消滅）
 // ?nomd=1 ＝multi_draw（タイルGPU常駐）を切って従来の CPU merge へ強制フォールバック。同一ビルドで A/B 比較する検証ノブ。
 const noMultiDraw = /[?&]nomd=1/.test(location.search);
-renderWorker.postMessage({ type: "init", canvas: offscreen, labelCanvas: labelOffscreen, elevBase: TERR_EXAG / EARTH_M, terrainExag: TERR_EXAG, earthM: EARTH_M, apiUrl: "https://api.ortho-earth.com", scenePort: sceneChan.port2, gintSyncPort: gintSyncChan.port1, noMultiDraw }, [offscreen, labelOffscreen, sceneChan.port2, gintSyncChan.port1]);
+// ?nogint=1 ＝gint（海岸線/知性層）を丸ごと停止＝1canvas統合の負荷・メモリを A/B 比較する検証ノブ（?nomd=1 と同格）。
+const noGint = /[?&]nogint=1/.test(location.search);
+// ?perf=1 ＝render worker がフレーム内訳（map/gint の CPU ms・フレームEMA・JSヒープ）を2秒毎に console へ出す。
+const perfLog = /[?&]perf=1/.test(location.search);
+renderWorker.postMessage({ type: "init", canvas: offscreen, labelCanvas: labelOffscreen, elevBase: TERR_EXAG / EARTH_M, terrainExag: TERR_EXAG, earthM: EARTH_M, apiUrl: "https://api.ortho-earth.com", scenePort: sceneChan.port2, noMultiDraw, perf: perfLog }, [offscreen, labelOffscreen, sceneChan.port2]);
 // 薄いプロキシ：有線(関数呼び)を無線(postMessage)に載せ替え。set/draw 統一済なので pipeline/overlay は無改造。
 // draw は worker 側で「cam を記録するだけ」に受け、実描画は worker 自前 rAF が最新 cam で回す（worker-driven）。
 // 標高アトラス(terrain)も worker 側に住む＝main はもう視野→セル計算・ダウンサンプルを一切やらない。読込インジケータだけ elevPending で受ける。
@@ -196,6 +200,15 @@ let bootT = setTimeout(() => {
 let printHold = false;
 renderWorker.onmessage = e => {
 	const d = e.data;
+	// --- gint（知性の層＝render worker に同居）の返信面（action=旧 gint worker と同形） ---
+	if (d.action === "identify") {   // ホバー識別＝当たった feature の全 properties を指先 tip へ。外れ(featureId=null)は消す。
+		if (!gintHoverTip) return;
+		const p = (d.featureId != null && userGint?.pbf) ? userGint.pbf.getFeature(d.featureId)?.properties : null;
+		gintHoverTip(p ? Object.entries(p).map(([k, v]) => `${k}: ${v}`) : null);   // 全属性そのまま（融通なし）／null で tip を消す
+		return;
+	}
+	if (d.action === "click") return void console.log("[gint] fid=%s  lng=%s lat=%s", d.featureId, d.lng?.toFixed?.(6), d.lat?.toFixed?.(6));
+	if (d.action === "tiers") return;   // gint LOD tier 構築完了の報告（ベンチ用メタ）＝アプリでは使わない
 	if (d.type === "snapshot") return snapPart(d.id, "render", d);   // shot 用：基図+ラベルの ImageBitmap
 	if (d.type === "dlApplied") return onSceneApplied(d.slot, d.sig);   // multi_draw の ack＝renderer が draw list を適用した瞬間（＝画面に載った）
 	if (d.type === "frame1") { clearTimeout(bootT); bootT = null; sessionStorage.removeItem("oj.ctxlost"); return; }   // 初描画成功＝自動リロード回数もリセット
@@ -541,14 +554,13 @@ function autoPlateau(settled = false) {
 function onMove() {
 	cam.center[0] = wrapLon(cam.center[0]);   // パン/回転/フライトの累積を毎移動で正規化＝float32原点相対の前提を守る（階段バグ根治）
 	moving = true; needsDraw = true;
-	if (cam.pitch > 0.005 && layerState.terrain) gintCanvas.style.opacity = "0";     // チルト×標高中は移動中gintを消す（別canvasの追随遅れが起伏上で泳ぐため。静止で復帰）
 	updateGintSlot();                                                                // gint 単一スロットを z=4 で調停（ユーザー層⇄世界海岸線）＋海岸線の遅延ロード
 	ensureStars();                                                                    // 星空も同じ流儀＝初めて z<4 に出た瞬間に読む
 	autoPlateau();                                                                    // 寄る/離れるで PLATEAU を自動ロード/解放（ガードで実質タダ）
 	renderer.draw(cam, { skipBase: false, skipMain: mainStale(), noTerrain: false, terrainGate: false });   // 入力の瞬間に最新camをworkerへ（全球z<4も標高の塗りは描く）。terrainGate:false＝入力中はアトラス再構築を起こさない（停止時に一回だけ）
-	// 海岸線(gint)は render worker が draw 後に従属で駆動＝ここから直接送らない（地図と同cam/同フレーム＝スライド消滅）。
+	// 知性の層(gint)は render worker が frame 末尾に同フレーム同カメラで描く（1canvas統合＝泳ぎ・チルト opacity 手当てとも消滅）。
 	clearTimeout(settleT);
-	settleT = setTimeout(() => { moving = false; needsDraw = true; gintCanvas.style.opacity = "1"; gintWorker.postMessage({ type: "drawn" }); autoPlateau(true); if (!printHold) saveView(); }, 150);   // 停止後に identify(picking)＋gint復帰＋PLATEAU確定（settled＝ロード発火/レーン切替はこの瞬間だけ）＋ビュー保存（印刷カメラは保存しない）
+	settleT = setTimeout(() => { moving = false; needsDraw = true; renderWorker.postMessage({ type: "gintDrawn" }); autoPlateau(true); if (!printHold) saveView(); }, 150);   // 停止後に identify(picking)＋PLATEAU確定（settled＝ロード発火/レーン切替はこの瞬間だけ）＋ビュー保存（印刷カメラは保存しない）
 	schedulePos();   // 座標読み取りもカメラに追随（rAF畳み込み＝タダ同然）
 }
 
@@ -647,37 +659,20 @@ renderer.set("view", { clear, land, atmo, bldColor, showN02: false,
 // 海：水レイヤ(WA)をビュー一律にゲート＝cam.zoom<13 では描かない（＝紙の海・まだら無し）、z13+で一律点火。
 renderer.set("sea", { li: style.layers.findIndex(L => L.id === "water"), li2: style.layers.findIndex(L => L.id === "water-hi"), minzoom: 8 });   // li2＝水系点火面も同じ海ゲート
 
-// --- gint worker（知性の層）：14条など突合可能なエンティティを OffscreenCanvas で別workerに描く。
-// MVT=描画(render worker)／Gint=知性(この worker)＝層分担。基図の上に重ね、pointer は透過して #c が受ける。
-const gintCanvas = document.getElementById("gint");
-gintCanvas.width = size.w; gintCanvas.height = size.h;
-// 別canvas構成の宿命＝移動中は合成タイミング差で gint(海岸線) が地形から1フレーム級遅れて泳ぐ。
-// チルト×標高表示中は特に目立つ（線が起伏に対して滑る）ので、移動中(drawing)は消し静止(drawn)で戻す。
-// 根治は 1canvas 化（GL2統合）＝それまでの手当て。フェードで出入りの唐突さを消す。
-gintCanvas.style.transition = "opacity .15s";
-const gintOffscreen = gintCanvas.transferControlToOffscreen();
-const gintWorker = new Worker(new URL("./gintworker.js", import.meta.url), { type: "module" });
-gintWorker.postMessage({ type: "init", offscreen: gintOffscreen, dpr, syncPort: gintSyncChan.port2 }, [gintOffscreen, gintSyncChan.port2]);
+// --- gint（知性の層）：14条など突合可能なエンティティ。1canvas統合＝render worker の GL コンテキストに
+// 同居し、地図フレーム末尾の1パスとして同フレーム同カメラで描かれる（旧・別worker+OffscreenCanvasは撤去）。
+// MVT=描画／Gint=知性＝層分担は不変。main からは renderer.set("gint"/"gintStyle"/"gintVis") と
+// gintMove/gintClick/gintLeave/gintDrawn メッセージで操る。識別の返信は renderWorker.onmessage（上方）。
 // gint 描画スタイル（styleTable/lineWidth）。データ毎に差し替え（null=既定＝14条筆のオレンジ/シアン）。
 let gintDrawOpts = null;
 // gint 識別の有効/無効。14条筆=true（ホバー/クリックで突合）、世界海岸線=false（装飾＝ホバー不要）。
 let gintInteractive = false;
-// gint スタイルを worker へ保持させる（従属描画で使う）。データ毎に差し替え。
-const sendGintStyle = () => gintWorker.postMessage({ type: "style", data: gintDrawOpts });
+// gint 表示状態（旧 #gint canvas の display 相当）。render() が visibleGintNow() と突き合わせ変更時だけ post。
+let gintVisible = true;
+// gint スタイルを render worker へ預ける（frame 末尾の gint パスが使う）。データ毎に差し替え。
+const sendGintStyle = () => renderer.set("gintStyle", gintDrawOpts);
 let gintHoverTip = null;   // ドロップ/14条データのホバー tip 内容 setter（dropFile 搭載時に注入＝未搭載なら tip 無し）
-gintWorker.onmessage = e => {
-	const d = e.data;
-	if (d.action === "snapshot")    return snapPart(d.id, "gint", d);   // shot 用：知性層の ImageBitmap
-	if (d.action === "identify") {   // ホバー識別＝当たった feature の全 properties を指先 tip へ。外れ(featureId=null)は消す。
-		if (!gintHoverTip) return;
-		const p = (d.featureId != null && userGint?.pbf) ? userGint.pbf.getFeature(d.featureId)?.properties : null;
-		gintHoverTip(p ? Object.entries(p).map(([k, v]) => `${k}: ${v}`) : null);   // 全属性そのまま（融通なし）／null で tip を消す
-		return;
-	}
-	if (d.action === "click")       console.log("[gint] fid=%s  lng=%s lat=%s", d.featureId, d.lng?.toFixed?.(6), d.lat?.toFixed?.(6));
-	else if (d.action === "redraw") { needsDraw = true; gintWorker.postMessage({ type: "drawn" }); }   // context復帰等→地図を1枚描かせ従属で追随
-};
-canvas.addEventListener("pointerleave", () => gintWorker.postMessage({ type: "leave" }));
+canvas.addEventListener("pointerleave", () => renderWorker.postMessage({ type: "gintLeave" }));
 // 14条地図（法務省 登記所備付地図）を球へ。デコード済み pbf を受けて球へ配線する共通処理。
 // 「座標値種別=図上測量」は測量手法のタグに過ぎず絶対位置の信頼性とは無相関と判明済み（系変換さえ合っていれば図上測量でも正確）
 // →現状はバッジ判定に使わない。任意座標系の混入検知は変換パイプライン側（外れ値bbox比較）でやるべき課題として残す。
@@ -746,7 +741,7 @@ let gintSlot = null;       // 現在スロットの占有者 "coast" | "user"（
 let coastLoading = false;
 function applyCoastSlot() {
 	if (!coastGint) return;
-	gintWorker.postMessage({ type: "set", cmd: "gint", data: coastGint });
+	renderer.set("gint", coastGint);
 	// 海岸線＝lineStream＝styleId=1。紙＋淡青の色調に「薄い青灰グレー・細く」。
 	const coastStyle = new Float32Array(256 * 4);
 	coastStyle.set([1.0, 0.42, 0.208, 1.0]);   // style0 polygon（未使用）
@@ -758,13 +753,14 @@ function applyCoastSlot() {
 }
 function applyUserSlot() {
 	if (!userGint) return;
-	gintWorker.postMessage({ type: "set", cmd: "gint", data: userGint.g });
+	renderer.set("gint", userGint.g);
 	gintDrawOpts = userGint.style;           // 層の持参スタイル（AI層=styleTable、null=既定＝14条筆のオレンジ/シアン。海岸線グレーは引きずらない）
 	gintInteractive = userGint.interactive;  // 筆/図形/AI層はホバー/クリックで突合
 	sendGintStyle(); gintSlot = "user"; needsDraw = true;
 }
 // ズームでスロットの中身を選ぶ。onMove から毎回呼ばれるが post は変更時だけ＝安い。海岸線は初回のみ遅延取得。
 function updateGintSlot() {
+	if (noGint) return;   // ?nogint=1＝海岸線ロードもスロット適用もしない（gint パスは空データ＝実質ゼロコスト）
 	if (userGint && cam.zoom >= userGint.minZoom) { if (gintSlot !== "user") applyUserSlot(); return; }   // minZoom は層の属性（全国級AI層=2・筆/ドロップ=GINT_SWAP_Z）
 	if (coastGint) { if (gintSlot !== "coast") applyCoastSlot(); return; }
 	if (cam.zoom < 8 && !coastLoading) loadWorldCoast();   // 海岸線 未取得＝取得後に updateGintSlot が表示
@@ -1079,8 +1075,6 @@ function resize() {
 	renderWorker.postMessage({ type: "resize", width: size.w, height: size.h });
 	// label canvas：worker が持つ（transfer 済）＝main は CSS だけ。バッファは resize メッセージで worker が更新。
 	labelCanvas.style.width = w + "px"; labelCanvas.style.height = h + "px";
-	gintCanvas.style.width = w + "px"; gintCanvas.style.height = h + "px";
-	gintWorker.postMessage({ type: "resize", width: size.w, height: size.h });
 	needsDraw = true;
 }
 const ro = new ResizeObserver(resize);   // destroy で disconnect するため手綱を持つ
@@ -1100,9 +1094,9 @@ const input = createInput({
 	onClick: (x, y) => {
 		if (measureClick) return measureClick(x, y);   // 測距モード＝クリックは頂点追加へ（識別/星座は止める）
 		if (cam.zoom < BASEMAP_MINZOOM) return void toggleConstellations().then(saveView);   // 全球ビュー＝クリックで星座線。表示状態は共有URL(l=sky)へ即書き戻す
-		overlay.identifyAt(x, y); if (gintInteractive) gintWorker.postMessage({ type: "click", x, y });
+		overlay.identifyAt(x, y); if (gintInteractive) renderWorker.postMessage({ type: "gintClick", x, y });
 	},
-	onHover: (x, y) => { if (gintInteractive) gintWorker.postMessage({ type: "move", x, y }); },
+	onHover: (x, y) => { if (gintInteractive) renderWorker.postMessage({ type: "gintMove", x, y }); },
 });
 
 // アイドル退場：マウスを止めると左上/右上のアイコンが静かに消え、動かす（or キー操作）と戻る。
@@ -1363,6 +1357,11 @@ const runFrameHooks = () => frameHooks.forEach(fn => fn());
 const shortBearing = () => shortBearingOf(cam.bearing);   // 最短回転へ正規化（実装はengine）＝計器盤の回転列と共用
 
 function render() {
+	// 世界海岸線(gint)は z8+ では非表示：海岸は WA 塗りが担う上、gint の2D線は球の自遮蔽を持たず
+	// 地平線の先の海岸線（富山湾等）がリムに白線の残影として浮く。14条（interactive）時は表示のまま。
+	// （旧 #gint canvas の display:none 相当＝render worker の gint パスを描くかのフラグ。変更時だけ post）
+	const gv = !(!gintInteractive && cam.zoom >= 8);
+	if (gv !== gintVisible) { gintVisible = gv; renderer.set("gintVis", gv); }
 	// パン/チルト中（ズーム不変）は詳細も再結合。ズーム中はLODポップ回避で停止まで待つ。
 	const zoomStable = Math.abs(cam.zoom - zoomAtBuild) < 0.12;
 	// 地形アトラスもズーム中は再構築しない：cellRes/セル数が連続変化して全再ロード＆勾配密度の跳びで
@@ -1401,9 +1400,6 @@ function render() {
 	if (!moving) swapScene(order);   // 静止フレームは毎回＝mainDesired 更新と settle 後の穴埋め merge を最速で
 	else if (zoomStable && performance.now() - lastMoveSwapT >= MOVE_SWAP_MS) { lastMoveSwapT = performance.now(); swapScene(order); }
 	runFrameHooks();                               // 3D時のみコンパス表示・針を方位／現在地マーカーの追随 等
-	// 世界海岸線(gint)は z8+ では非表示：海岸は WA 塗りが担う上、gint の2D線は球の自遮蔽を持たず
-	// 地平線の先の海岸線（富山湾等）がリムに白線の残影として浮く。14条（interactive）時は表示のまま。
-	gintCanvas.style.display = (!gintInteractive && cam.zoom >= 8) ? "none" : "";
 	logEl.textContent = `tiles=${order.length}/${total}  labels=${lastLabels.length}  zoom=${cam.zoom.toFixed(1)} pitch=${(cam.pitch * 180 / Math.PI).toFixed(0)}°`;
 }
 
@@ -1433,7 +1429,7 @@ function destroy() {
 	ro.disconnect();
 	clearTimeout(settleT); clearTimeout(bootT); clearInterval(planetTimer); clearInterval(skyClockTimer);
 	destroyPipeline();                           // tile/scene worker
-	renderWorker.terminate(); gintWorker.terminate();
+	renderWorker.terminate();
 	plateauWorkers.forEach(w => w.terminate());
 	overlay.destroy();                           // e-Stat worker（createOverlay内で常時起動しているため忘れずに）
 	// デバッグ手はこのインスタンスの閉包を掴んだまま＝GCの錨になるので窓から下ろす
@@ -1458,8 +1454,8 @@ const unprojectAt = (clientX, clientY) => { const r = canvas.getBoundingClientRe
 // unprojectXY＝canvasローカルCSS座標→経緯度（input.onClick が渡す x,y と同座標系）。
 const makeProjector = () => { const st = cameraState(cam, size.w, size.h); return (lon, lat) => { const [sx, sy, f] = project(st, lon, lat); return [sx / dpr, sy / dpr, f]; }; };
 const unprojectXY = (x, y) => unproject(cameraState(cam, size.w, size.h), x * dpr, y * dpr);
-// shot（画面保存）用スナップショット：各 worker（GLは別スレッド＝mainから読めない）に「今の1枚」を
-// ImageBitmap で出させ集約する。gint は表示中(z<8等)だけ要求＝隠れている層は合成に混ぜない。
+// shot（画面保存）用スナップショット：render worker（GLは別スレッド＝mainから読めない）に「今の1枚」を
+// 出させる。gint は 1canvas統合で基図と同じ1枚に写り込む＝旧・別撮り合成（wantGint）は消滅。
 // 解像度は size（device px＝フル）を正とし、shot 側が各層をこの寸法へ合わせて重ねる。
 const snapPending = new Map();
 function snapPart(id, key, data) {
@@ -1469,10 +1465,9 @@ function snapPart(id, key, data) {
 }
 let snapSeq = 0;
 const requestSnapshot = () => new Promise(resolve => {
-	const id = ++snapSeq, wantGint = gintCanvas.style.display !== "none";
-	snapPending.set(id, { need: new Set(["render", ...(wantGint ? ["gint"] : [])]), parts: { W: size.w, H: size.h }, resolve });
+	const id = ++snapSeq;
+	snapPending.set(id, { need: new Set(["render"]), parts: { W: size.w, H: size.h }, resolve });
 	renderWorker.postMessage({ type: "snapshot", id });
-	if (wantGint) gintWorker.postMessage({ type: "snapshot", id });
 });
 // --- 印刷（平面図）用の撮影：ライブパイプラインを一時的に「印刷カメラ」（同中心・真俯瞰・北向き・指定z・
 // noTerrain＝紙仕様）へ振り、タイル/注記の読み込みが落ち着いてから readPixels スナップショットを取り、
@@ -1580,7 +1575,7 @@ map.gadget("dropFile", function (opts) {   // GISファイルのD&D取り込み 
 		if (!pbf?.unPackGint) return null;
 		// 低ズーム描画が速くなった＝先に現在ビューへ図形を描き（カメラは動かさない）、その後 flyTo で寄る。
 		// 瞬間ジャンプ(ポップイン)でなく「図形が現れて→近づく」。着地は真俯瞰(tilt/bearing=0)・北向き＝fit の north-up 前提。
-		applyGintData(pbf, file.name, false);   // 先に描画（gint canvas へ set・識別点火・カメラ据え置き）
+		applyGintData(pbf, file.name, false);   // 先に描画（gint スロットへ set・識別点火・カメラ据え置き）
 		const bb = pbf.unPackGint.bbox;
 		if (bb && bb.length === 4) {
 			const cx = (bb[0] + bb[2]) / 2, cy = (bb[1] + bb[3]) / 2;
@@ -1593,7 +1588,7 @@ map.gadget("dropFile", function (opts) {   // GISファイルのD&D取り込み 
 	};
 	const clearGint = () => {   // ドロップ図形を消す＝ユーザー層を外し、該当ズームなら世界海岸線へ戻す
 		userGint = null; gintSlot = null;
-		gintWorker.postMessage({ type: "set", cmd: "gint" });   // data 無し＝空化（worker が残像も1枚消去）
+		renderer.set("gint", null);   // 空化（次フレームの地図再描画が残像ごと消す）
 		gintInteractive = false; needsDraw = true;
 		if (gintHoverTip) gintHoverTip(null);   // 消去＝ホバー tip も消す
 		updateGintSlot();                                       // z<4 等で海岸線が該当すれば即戻す
@@ -1628,7 +1623,7 @@ map.gadget("ai", function (opts) {   // AIと会話して地図に描く（PC専
 		overlay.clearPlan();
 		if (String(userGint?.label).startsWith("ai/")) {
 			userGint = null; gintSlot = null;
-			gintWorker.postMessage({ type: "set", cmd: "gint" });   // data 無し＝空化
+			renderer.set("gint", null);   // 空化
 			gintInteractive = false; needsDraw = true;
 			if (gintHoverTip) gintHoverTip(null);
 			updateGintSlot();
