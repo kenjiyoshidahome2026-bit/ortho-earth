@@ -107,6 +107,27 @@ function resize(data) {
 	postMessage({ action: "done", type: "resize" });
 }
 
+// キャンバスを確実に消す。毎フレームの提示と同じ経路（baseFBO をクリア→canvas へ blit）を通す。
+// 単なる default-FB clear は OffscreenCanvas 自動提示で前フレーム（blit 済み）を消し切れず残像が出る。
+function clearScreen() {
+	const gl = s.gl, w = s.width * s.dpr, h = s.height * s.dpr;
+	gl.stencilMask(0xFF);
+	if (s.baseFBO) {
+		gl.bindFramebuffer(gl.FRAMEBUFFER, s.baseFBO);
+		gl.clearColor(0, 0, 0, 0);
+		gl.clear(gl.COLOR_BUFFER_BIT | gl.STENCIL_BUFFER_BIT);
+	}
+	gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+	gl.clearColor(0, 0, 0, 0);
+	gl.clear(gl.COLOR_BUFFER_BIT | gl.STENCIL_BUFFER_BIT);
+	if (s.baseFBO) {
+		gl.bindFramebuffer(gl.READ_FRAMEBUFFER, s.baseFBO);
+		gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, null);
+		gl.blitFramebuffer(0, 0, w, h, 0, 0, w, h, gl.COLOR_BUFFER_BIT, gl.NEAREST);
+		gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+	}
+}
+
 function drawing(data) {
 	if (data.panning) {
 		s._isDrawing = true;
@@ -118,17 +139,20 @@ function drawing(data) {
 	s.lastMX = NaN; s.lastMY = NaN;
 
 	const zoom = Math.log2(data.scale / 40.74);
-	const effMin = Math.max(s.minZoom ?? 0,  data.minZoom ?? 0);
-	const effMax = Math.min(s.maxZoom ?? 22, data.maxZoom ?? 22);
-	if (zoom < effMin || zoom > effMax) {
-		// During animation (panning=true), keep the previous frame so features
-		// don't vanish mid-flight when zoomToFeature temporarily passes through
-		// a zoom level outside the data range.
+	const effMin = s._effMin = Math.max(s.minZoom ?? 0,  data.minZoom ?? 0);
+	const effMax = s._effMax = Math.min(s.maxZoom ?? 22, data.maxZoom ?? 22);
+	if (zoom < effMin) {
+		// 引きすぎ（minZoom 割れ）＝データを見せない領域。panning 中でも即クリア。
+		// 前フレーム保持だと、ズームアウト操作中ずっと図形が凍りついて残像になる。
+		clearScreen();
+		s.lastDrawData = null;
+		return;
+	}
+	if (zoom > effMax) {
+		// 寄りすぎ（maxZoom 超過）は panning 中は直前フレームを保持（フライ/ズーム中の
+		// 消失防止）。停止時のみクリア。
 		if (!data.panning) {
-			s.gl.bindFramebuffer(s.gl.FRAMEBUFFER, null);
-			s.gl.clearColor(0, 0, 0, 0);
-			s.gl.stencilMask(0xFF);
-			s.gl.clear(s.gl.COLOR_BUFFER_BIT);
+			clearScreen();
 			s.lastDrawData = null;
 		}
 		return;
@@ -163,8 +187,20 @@ function drawing(data) {
 	s.lastDrawData = data;
 }
 
-function drawn() {
+function drawn(data) {
 	s._isDrawing = false;
+	// remote gint レイヤーの Drawing は常に panning=true で来るため、範囲外クリアは
+	// drawing() では発火しない。停止時のここで最終ズームを判定し、範囲外なら確定的に消す。
+	const scale = data?.scale;
+	if (scale != null) {
+		const zoom = Math.log2(scale / 40.74);
+		if (zoom < (s._effMin ?? 0) || zoom > (s._effMax ?? 22)) {
+			clearScreen();
+			s.lastDrawData = null;
+			s.activeId = -1;
+			return;
+		}
+	}
 	if (!s.lastDrawData) return;
 	renderCleanScene(s.lastDrawData, s.baseFBO);
 	renderPickingBuffer(s.lastDrawData);
