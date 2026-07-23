@@ -13,6 +13,7 @@ export const s = {
 	metaChunks: null,              // 基準メタのチャンク台帳 [{start,end,bbox}]（可視カリング用）
 	totalEdges: 0, totalEdgesB: 0, totalPoints: 0,
 	polyEdges: 0, polyEdgesB: 0,   // メタ先頭のポリゴン辺数（stencil 塗りはこの範囲だけ＝折れ線をファンさせない）
+	fillOff: false,                // 巨大ポリゴンの自動ベタ塗り停止（塗り stencil は LOD 非対応の全密度＝辺数がそのまま毎フレームコスト。uploadGintTextures が判定）
 	outlineZoom: null,             // アウトライン⇄ベタ塗り切替ズーム（データ粒度から導出。null=既定値）
 
 	// FBOs

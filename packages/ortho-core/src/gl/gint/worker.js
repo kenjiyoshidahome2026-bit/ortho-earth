@@ -16,7 +16,20 @@ import { doIdentify, handleMove, handleLeave } from './identify.js';
 import { cameraState, unproject, lonlatTo3D } from '../../camera.js';
 import * as mat from '../../mat.js';
 
-const funcs = { init, set, resize, drawing, drawn, move, leave, click, destroy, style, snapshot };
+const funcs = { init, set, resize, drawing, drawn, move, leave, click, destroy, style, snapshot, bench };
+
+// 描画コスト計測フック（ベンチハーネス用・通常経路では呼ばれない。v1 gint.js の bench と同形）：
+// drawNow 一式を発行し readPixels(1px) で GPU 完了まで待った実時間を返す（gl.finish は ANGLE で遅延され得る）。
+function bench(data) {
+	const t0 = performance.now();
+	drawNow(data);
+	const px = new Uint8Array(4);
+	s.gl.bindFramebuffer(s.gl.FRAMEBUFFER, null);
+	s.gl.readPixels(0, 0, 1, 1, s.gl.RGBA, s.gl.UNSIGNED_BYTE, px);
+	postMessage({ action: "bench", ms: performance.now() - t0,
+		stats: { edges: s.totalEdges, polyEdges: s.polyEdges, outlineZoom: s.outlineZoom,
+			lodRank: s.lastDrawData?.lodRank, tiers: (s.lodTiers ?? []).map(t => [t.minW, t.edgeCount]) } });
+}
 onmessage = e => (funcs[e.data.type] ?? (() => {}))(e.data);
 
 // shot（画面保存）用：直近の cam で1枚描き直して（WebGLは別タスクでは読めない＝同一タスクで捕獲）
@@ -99,7 +112,7 @@ function set(data) {
 	} else if (data.cmd === "gint") {   // data 無し＝gint スロットを空に（ドロップ図形のクリア）。
 		// totalEdges===0 の drawNow はキャンバスを消さず早期 return する＝残像が残るので、ここで明示的に1枚消す。
 		deleteTextures();
-		s.gintData = null; s.polyEdgeByFid = null; s.polyBboxByFid = null; s.outlineZoom = null;
+		s.gintData = null; s.polyEdgeByFid = null; s.polyBboxByFid = null; s.outlineZoom = null; s.fillOff = false;
 		s.totalEdges = s.totalPoints = s.polyEdges = 0;
 		s.activeId = -1; s.lastDrawData = null;
 		if (s.gl) { s.gl.bindFramebuffer(s.gl.FRAMEBUFFER, null); s.gl.clearColor(0, 0, 0, 0); s.gl.stencilMask(0xFF); s.gl.clear(s.gl.COLOR_BUFFER_BIT); }
@@ -271,7 +284,7 @@ function destroy() {
 		if (pickPointProgram)   s.gl.deleteProgram(pickPointProgram);
 	}
 	s.programs = null; s.gintData = null;
-	s.polyEdgeByFid = null; s.polyBboxByFid = null;
+	s.polyEdgeByFid = null; s.polyBboxByFid = null; s.fillOff = false;
 	s.totalEdges = s.totalPoints = s.polyEdges = 0;
 	s.activeId = -1; s.lastDrawData = null;
 	postMessage({ action: "done", type: "destroy" });

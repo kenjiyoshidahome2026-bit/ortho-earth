@@ -98,7 +98,7 @@ export function renderCleanScene(data, targetFBO = null) {
 	// どんなに小さい筆も1px を確実に染める＝面が連続。
 	// 明示 fillColor は全ズームでそれを尊重（透明を渡せば従来のアウトラインのみに戻せる）。
 	const st = data.styleTable ?? DEF_STYLE;
-	const fc = data.fillColor ?? (lowZoom ? [st[0], st[1], st[2], st[3] * 0.8] : DEF_FILL);
+	const fc = data.fillColor ?? (lowZoom && !s.fillOff ? [st[0], st[1], st[2], st[3] * 0.8] : DEF_FILL);   // fillOff＝巨大ポリゴンの自動塗り停止（uploadGintTextures 判定）
 	// ステンシルはメタ先頭のポリゴン辺のみ＝折れ線辺を winding にファンさせない（海岸線等の誤塗り防止）。
 	const stTex = hasB ? metaTexB : metaTex, stCount = hasB ? polyEdgesB : polyEdges;
 	if (fc[3] > 0 && stCount > 0) {

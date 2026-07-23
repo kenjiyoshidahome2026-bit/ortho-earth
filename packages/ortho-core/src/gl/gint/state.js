@@ -14,6 +14,8 @@ export const s = {
 	metaChunks: null,              // 基準メタのチャンク台帳 [{start,end,bbox}]（可視カリング用）
 	totalEdges: 0, totalPoints: 0,
 	polyEdges: 0,                  // メタ先頭のポリゴン辺数（stencil 塗りはこの範囲だけ＝折れ線をファンさせない）
+	fillOff: false,                // 巨大ポリゴンデータの自動ベタ塗り停止（塗り stencil は LOD/カリング非対応＝辺数がそのまま毎フレーム コスト。uploadGintTextures が判定）
+	tiersDone: false,              // tier梯子の遅延構築が完了したか（未完の間だけ pickLineTier が「最細の既存tier」で代用描画）
 
 	// FBOs
 	baseFBO: null, baseColorTex: null, baseDepthStencilRBO: null,

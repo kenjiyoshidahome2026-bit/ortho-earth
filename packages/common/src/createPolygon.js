@@ -1,6 +1,6 @@
 import * as d3 from 'd3';
-import { comma } from "./utility";
-import { antimeridianCut } from "./antimeridianCut";
+import { comma } from "./utility.js";
+import { antimeridianCut } from "./antimeridianCut.js";
 
 export function createPolygon(layer, opts = {}) {
 	const map = layer.base, { dispatcher, proj, layers, cursor, isTouchDevice, isEditable } = map;

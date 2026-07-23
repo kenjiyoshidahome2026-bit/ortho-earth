@@ -19,6 +19,11 @@ function pickLineTier(rank, baseTex, baseCount) {
 	if (s.lodTiers?.length) {
 		let best = null;
 		for (const t of s.lodTiers) if (t.minW <= rank && (!best || t.edgeCount < best.edgeCount)) best = t;
+		// 梯子構築中（過渡期）の巨大データ：適格 tier（minW≤rank）が未完成なら「有る中で最も細かい tier」で代用。
+		// tier の頂点は全て weight≥minW>rank＝lodSnap は全頂点 kept＝tier をそのまま描く（名目より粗いだけで
+		// 幾何は正しい）。基準メタ全辺 VS（数百万×6）のジャンクよりよく、構築が進めば自然に正規 tier へ戻る。
+		// tiersDone 後は適用しない＝高ズーム（rank<最細tier）を粗い絵で永続させず、基準メタ＋可視チャンクへ返す。
+		if (!best && !s.tiersDone && baseCount > 1_000_000) for (const t of s.lodTiers) if (!best || t.minW < best.minW) best = t;
 		if (best) return { tex: best.tex, count: best.edgeCount, runs: visibleRuns(best.edgeCount, best.chunks) };
 	}
 	return { tex: baseTex, count: baseCount, runs: visibleRuns(baseCount, s.metaChunks) };
@@ -85,7 +90,7 @@ export function renderCleanScene(data, targetFBO = null) {
 	// （海岸線等）＝塗らない（線を winding にファンさせる誤塗り防止）。
 	const st = data.styleTable ?? DEF_STYLE;
 	const lowZoom = (data.zoom ?? 99) < (s.outlineZoom ?? OUTLINE_ZOOM);
-	const hasPoly = (s.polyBboxByFid?.size ?? 0) > 0;
+	const hasPoly = (s.polyBboxByFid?.size ?? 0) > 0 && !s.fillOff;   // fillOff＝巨大ポリゴンの自動塗り停止（uploadGintTextures 判定）
 	const fc = data.fillColor ?? (lowZoom && hasPoly ? [st[0], st[1], st[2], st[3] * 0.8] : DEF_FILL);
 	if (fc[3] > 0 && s.polyEdges > 0) {
 		gl.enable(gl.STENCIL_TEST);

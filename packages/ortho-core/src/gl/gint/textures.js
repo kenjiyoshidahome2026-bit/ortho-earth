@@ -54,6 +54,12 @@ export function uploadGintTextures() {
 	s.metaChunks    = metaResult.chunks;
 	console.debug('[gint] edges=%d chunks=%d', edgeCount, s.metaChunks?.length ?? 0);
 	s.outlineZoom = deriveOutlineZoom(s.polyBboxByFid);   // 低ズームのベタ塗り切替閾値（ポリゴン無し=null=既定へ）
+	// 巨大ポリゴンデータは自動ベタ塗りを止める（アウトラインのみ）。塗り stencil は tier/カリング非対応の全密度
+	//（斑点根治の設計判断）＝polyEdges×3頂点が毎フレーム走り、国立公園 nps_all（数M辺・広域）で顕在化した。
+	// 明示 fillColor は従来どおり全ズーム尊重（renderCleanScene 側の ?? 条件）＝呼び出し側の意思で塗れる。
+	const FILL_MAX_EDGES = 2_000_000;
+	s.fillOff = polyEdgeCount > FILL_MAX_EDGES;
+	if (s.fillOff) console.info('[gint] polyEdges=%d > %d＝自動ベタ塗りOFF（アウトラインのみ）', polyEdgeCount, FILL_MAX_EDGES);
 	if (s.totalEdges > 0) {
 		const metaH   = Math.ceil(s.totalEdges / s.TEX_META_W);
 		const metaPad = new Uint32Array(s.TEX_META_W * metaH * 4);
@@ -78,7 +84,9 @@ export function uploadGintTextures() {
 	if (s.lodTiers?.length) s.lodTiers.forEach(t => gl.deleteTexture(t.tex));
 	s.lodTiers = [];
 	const gen = s.tierGen = (s.tierGen ?? 0) + 1;   // 差し替え/クリア/context復元で旧スケジュールを無効化
-	const TIER_RANKS = [38, 42, 46, 50, 54, 58];
+	// 細い側 26/30/34（↔z12.3/11/9.7）は「視界が巨大データそのもの＝可視チャンクカリングが効かない」帯の穴埋め。
+	// 国立公園451万辺の実測で z8(rank35)=最細tier(w38)不適格＋カリング無力＝z6比12倍のフレームコストだった。
+	const TIER_RANKS = [26, 30, 34, 38, 42, 46, 50, 54, 58];
 	if (ab?.length && s.totalEdges > 200_000) {
 		const tierOpts = { orderBbox: s.polyBboxByFid, chunkEdges: 16384 };
 		const buildPlan = () => {
@@ -92,15 +100,23 @@ export function uploadGintTextures() {
 				if (!(cnt > 0) || cnt >= prevEdges * 0.7) continue;   // weight無しデータ等＝空/効果薄はスキップ
 				plan.push(w); prevEdges = cnt;
 			}
-			return plan.reverse();   // 粗い側（w58）から
+			// 構築順：現在ビューの rank で即適格になる最細の段を最優先、残りは粗い側から。
+			// 旧＝一律粗い側からだと、fit直後のズーム（z6級=rank45→w42）が4段目＝巨大データ
+			//（国立公園451万辺）では「梯子が揃うまで基準メタ全辺VS」の窓が体感を支配していた。
+			const rank = s.lastDrawData?.lodRank ?? 0;
+			const usable = plan.filter(w => w <= rank);
+			const first = usable.length ? Math.max(...usable) : null;
+			return [...(first != null ? [first] : []), ...plan.filter(w => w !== first).reverse()];
 		};
 		let plan = null;
+		s.tiersDone = false;   // 構築中＝pickLineTier の代用フォールバック（過渡期限定）を許可
 		const buildNext = () => {
 			if (gen !== s.tierGen || !s.gl || s.gintData?.arcBuffer !== ab) return;   // データ差し替え/破棄＝中止
 			if (s._isDrawing) { setTimeout(buildNext, 120); return; }   // 移動中は組まない（terrainGate と同じ思想＝停止時に構築）
 			plan ??= buildPlan();
 			const w = plan.shift();
 			if (w == null) {
+				s.tiersDone = true;
 				if (s.lodTiers.length) console.debug('[gint] LOD tiers: %s',
 					s.lodTiers.map(t => `w${t.minW}=${t.edgeCount}辺`).join(' / '));
 				postMessage({ action: 'tiers', tiers: s.lodTiers.map(t => ({ minW: t.minW, edgeCount: t.edgeCount })) });

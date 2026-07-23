@@ -104,7 +104,8 @@ export function uploadGintTextures() {
 	// w38↔z8.3 / w42↔z7 / w46↔z5.7 / w50↔z4.3。これより高ズーム（rank<38）は
 	// 可視チャンクカリングが担当、これより低ズーム（lowZoom）は境界メタ＋境界tierが担当。
 	// 刻みが細かいほど lodSnap の線形歩行も短くなる（tier minW ≈ rank なら歩行ほぼゼロ）。
-	const TIER_RANKS = [38, 42, 46, 50];
+	// 細い側 26/30/34（↔z12.3/11/9.7）は「視界が巨大データそのもの＝可視チャンクカリングが効かない」帯の穴埋め（v2 と同判断）。
+	const TIER_RANKS = [26, 30, 34, 38, 42, 46, 50];
 	if (ab?.length && s.totalEdges > 3_000_000) {
 		let prevEdges = s.totalEdges;
 		for (const w of TIER_RANKS) {
@@ -121,6 +122,14 @@ export function uploadGintTextures() {
 		if (s.lodTiers.length) console.debug('[gint] LOD tiers: %s',
 			s.lodTiers.map(t => `w${t.minW}=${t.edgeCount}辺`).join(' / '));
 	}
+	// 巨大ポリゴンは自動ベタ塗りを止める（v2 ortho-core と同判断）。塗り stencil は LOD 非対応の全密度で、
+	// 境界メタ（共有 arc 除去）でも国立公園 nps_all 級の広域データは辺数が桁で残る。塗りの実辺数は
+	// renderPasses の stCount と同じ選択（境界メタ優先）で測る。明示 fillColor は従来どおり全ズーム尊重。
+	const FILL_MAX_EDGES = 2_000_000;
+	const fillEdges = (s.metaTexB && s.totalEdgesB > 0) ? s.polyEdgesB : s.polyEdges;
+	s.fillOff = fillEdges > FILL_MAX_EDGES;
+	if (s.fillOff) console.info('[gint] fill edges=%d > %d＝自動ベタ塗りOFF（アウトラインのみ）', fillEdges, FILL_MAX_EDGES);
+
 	// 境界メタの tier（lowZoom の線パス用）：lowZoom では rank ≥ rank(outlineZoom) が保証されるので
 	// その minWeight で 1 段だけ焼けば全 lowZoom 帯をカバーする（lodSnap の線形歩行も消える）。
 	if (ab?.length && s.totalEdgesB > 500_000 && s.outlineZoom !== null) {
