@@ -36,6 +36,7 @@ export const tooltips = ({
 		legend: "凡例を表示します",
 		lock: "ポップアップのロックをオンオフします。\nロックすると画面に固定されます。",
 		popClose: "ポップアップを閉じます。",
+		close: "閉じる",
 	},
 	en: {
 		constellation: "Toggle Constellation Lines",
@@ -56,6 +57,7 @@ export const tooltips = ({
 		legend: "display legend",
 		lock: "Turns pop-up lock on and off.\nUse this lock the pop-up to the screen.",
 		popClose: "Close this pop-up",
+		close: "Close",
 	},
 	zh: {
 		constellation: "显示星座线",
@@ -76,6 +78,7 @@ export const tooltips = ({
 		legend: "显示图例",
 		lock: "打开和关闭弹出式锁定",
 		popClose: "关闭弹出窗口",
+		close: "关闭",
 	},
 	ko: {
 		constellation: "별자리 선 표시",
@@ -96,5 +99,6 @@ export const tooltips = ({
 		legend: "범례 표시",
 		lock: "팝업 잠금을 켜고 끕니다.\n잠금 시 화면에 고정됩니다.",
 		popClose: "이 팝업을 닫습니다",
+		close: "닫기",
 	}
 });

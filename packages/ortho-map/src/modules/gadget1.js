@@ -233,8 +233,9 @@ export function measure(opts = {}) {
 }
 export function close() {
 	const map = this;
-	const btn = map.append("button").attr("class", "close")
-		.html(`<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg"><path d="M25 25L75 75M25 75L75 25" stroke-width="12" stroke-linecap="round"/></svg>`)
+	const label = (tooltips[map.lang] || tooltips.en).close;
+	const btn = map.append("button").attr("class", "close").attr("aria-label", label)
+		.html(`<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false"><path d="M25 25L75 75M25 75L75 25" stroke-width="12" stroke-linecap="round"/></svg>`)
 		.hide();
 	const dispatch = () => map.node().dispatchEvent(new CustomEvent("ortho:close", { bubbles: true }));
 	btn.on("click", dispatch);
