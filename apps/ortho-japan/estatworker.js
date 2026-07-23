@@ -53,7 +53,7 @@ self.onmessage = async (e) => {
 		origin = [(lo0 + lo1) / 2, (la0 + la1) / 2];
 		// 表示は内側メッシュ（純線・fan ゼロ）。ポリゴンは identify とヒット強調（下の identify 分岐）にだけ使う
 		const mesh = perCode.map(fs => ({ geometry: { type: "MultiLineString", coordinates: interiorMesh(fs) } }));
-		const s = buildGeoJSONOverlay(mesh, origin);
+		const s = buildGeoJSONOverlay(mesh, origin, m.style || undefined);   // style＝AI経路の線色/線幅（無指定は従来既定）
 		self.postMessage({ type: "loaded", ok: true, count: feats.length, center: origin, overlay: s }, overlayBufs(s));
 	} else if (m.type === "identify") {
 		const hit = features ? features.findIndex(f => pointInFeature(m.lon, m.lat, f.geometry)) : -1;

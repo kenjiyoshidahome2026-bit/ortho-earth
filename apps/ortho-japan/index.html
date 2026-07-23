@@ -38,6 +38,7 @@
 			map.gadget.contextmenu(); // 右クリックメニュー（既定＝この地点へ寄る／座標をコピー）
 			map.gadget.dropFile();    // GISファイルのD&D取り込み（geopbfが食う全形式→GeoPBF化→gintへ描画・識別）
 			map.gadget.demo(demoScript);   // デモ上演（▶→Space=次・BS=戻る・クリッカー(PageUp/Down)対応・Esc終了。書き方の作法は demo/scenes.js 冒頭）
+			// map.gadget.ai();       // AIと会話して地図に描く（PC専用＝画面2分割）。1canvas化を優先するため一時休止＝実装・テストは残置（t-ai.html は自前搭載で緑のまま）
 			map.gadget.hint();        // 操作説明カード（最下段＝カードが開いても上の段を動かさない）
 		});
 	</script>

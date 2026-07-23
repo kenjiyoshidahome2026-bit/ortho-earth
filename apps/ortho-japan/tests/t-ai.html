@@ -1,0 +1,66 @@
+<!doctype html>
+<!-- 使い捨て：AI会話ガジェット（2分割搭載・会話→スペック→描画呼び出し・問い返し・消去・閉じる）。判定は<title>のPASS/FAIL。
+     描画(runPlan)はスタブ注入＝ネットワーク非依存（citycodes.json だけは public 配信の実fetch）。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html{background:#0b1021}body{visibility:hidden}</style><title>t-ai</title></head>
+<body>
+<script>
+window.requestAnimationFrame = cb => setTimeout(() => cb(performance.now()), 16);
+localStorage.setItem("oj.hint", "closed");
+</script>
+<script type="module">
+import orthoJapan from "../app.js";
+const t = [], ok = (n, c) => t.push((c ? "ok:" : "NG:") + n);
+try {
+	const map = await orthoJapan({ view: "#12/35.68/139.76" });
+	const calls = [], fits = [];
+	let clearCount = 0;
+	const g = map.gadget.ai({
+		force: true,   // headless は 800×600＝PC判定(min-width:900)を飛ばす
+		runPlan: async plan => { calls.push(plan); return plan.route === "estat" ? { ok: true, count: 5 } : { ok: true, count: 42, bbox: [139, 35, 140, 36] }; },
+		clearPlan: () => clearCount++,
+		fitBbox: bb => fits.push(bb),
+	});
+	await new Promise(r => setTimeout(r, 200));
+	const logEl = document.getElementById("ai-log");
+	const lastMsg = () => { const m = logEl.querySelectorAll(".ai-msg"); return m[m.length - 1]?.textContent || ""; };
+
+	// 搭載：右列パネル＋親flex化＋地図が狭まる（ResizeObserver 追随は app.js の領分）
+	ok("mount", !!document.getElementById("ai"));
+	ok("split", getComputedStyle(document.getElementById("ai").parentElement).display === "flex");
+	ok("mapNarrow", document.getElementById("map").clientWidth < innerWidth - 300);
+	// 開幕：あいさつ1通＋データセット候補チップ（タイプせず指で選べる入口）
+	ok("welcome", logEl.querySelectorAll(".ai-msg.bot").length === 1 && logEl.querySelectorAll(".ai-chip").length >= 4);
+
+	// 会話：ひらがな指示 → rule backend → 描画呼び出し＋narration＋fit
+	await g.ask("てつどうを あおで ふとく");
+	ok("run", calls.length === 1 && calls[0].dataset === "rail" && calls[0].style.lineWidth === 3);
+	ok("narration", [...logEl.querySelectorAll(".ai-msg.bot")].some(m => m.textContent.includes("鉄道路線")));
+	ok("done", lastMsg().includes("描けました"));
+	ok("fit", fits.length === 1);
+
+	// 問い返し：smallarea は area 必須 → 次の入力を地名として受ける（citycodes.json 実fetch→コード解決）
+	await g.ask("町丁目のさかいめ");
+	ok("askArea", lastMsg().includes("市区町村"));
+	await g.ask("横浜市");
+	ok("estat", calls.length === 2 && calls[1].route === "estat" && calls[1].codes.length > 10);
+
+	// 未知の依頼：候補チップつきの問い返し（白紙にしない・throwしない）
+	await g.ask("きょうりゅうをかいて");
+	ok("unknown", lastMsg().includes("選んでください"));
+
+	// 消去コマンド
+	await g.ask("ぜんぶけして");
+	ok("clear", clearCount >= 1 && lastMsg().includes("消しました"));
+
+	// チップから直接（json直入力経路＝dataset単体スペック）
+	logEl.querySelectorAll(".ai-chip")[0].click();
+	await new Promise(r => setTimeout(r, 300));
+	ok("chip", calls.length === 3);
+
+	// 閉じる＝パネル除去＋2分割解除
+	document.getElementById("ai-close").click();
+	ok("close", !document.getElementById("ai") && document.getElementById("map").clientWidth >= innerWidth - 20);
+} catch (e) { t.push("NG:exception " + (e && e.message)); }
+document.title = (t.some(x => x.startsWith("NG")) ? "FAIL " : "PASS ") + t.join(" ");
+</script>
+</body></html>

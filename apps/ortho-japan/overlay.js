@@ -5,6 +5,7 @@
 // geopbf 経路（loadOverlay）は従来通り main＝identify は findPolygon 相当（pointInFeature）のJSレイキャスト。
 import { unproject, cameraState, buildGeoJSONOverlay, pointInFeature } from "ortho-core";
 import { geopbf } from "geopbf";
+import { matchesFilters } from "./ai/interpret.js";
 
 export function createOverlay({ renderer, cam, size, dpr, requestDraw }) {
 	const identEl = document.createElement("div");
@@ -15,10 +16,13 @@ export function createOverlay({ renderer, cam, size, dpr, requestDraw }) {
 	let overlayFeatures = null, overlayOrigin = [138, 37];   // geopbf 経路（main側identify）用
 	let estatActive = false;                                  // e-Stat 経路がアクティブ＝identify は worker へ
 
+	let planWait = null;   // loadPlan(estat経路)の完了待ち＝loaded 到着で解決（結果はAIの会話が報告する）
+
 	const estatWorker = new Worker(new URL("./estatworker.js", import.meta.url), { type: "module" });
 	estatWorker.onmessage = e => {
 		const m = e.data;
 		if (m.type === "loaded") {
+			if (planWait) { planWait({ ok: !!m.ok, count: m.count ?? 0 }); planWait = null; }
 			if (!m.ok) { say("e-Stat 読込失敗"); return; }
 			estatActive = true; overlayFeatures = null;   // 単一スロット＝geopbf 経路の識別対象は置き換え
 			renderer.set("overlay", m.overlay);
@@ -73,9 +77,37 @@ export function createOverlay({ renderer, cam, size, dpr, requestDraw }) {
 		requestDraw();
 	}
 	// e-Stat 小地域（estat/{調査年}/{code}.geojsonl・gzip）：worker が fetch→gunzip→parse→ジオメトリ生成→transfer。
-	async function loadEstat(codes, year = "2020") {
+	async function loadEstat(codes, year = "2020", style = null) {
 		say(`e-Stat 小地域 読込中 (${codes.length}市区町村)…`);
-		estatWorker.postMessage({ type: "load", codes, year });
+		estatWorker.postMessage({ type: "load", codes, year, style });
 	}
-	return { identifyAt, loadOverlay, loadEstat, destroy: () => estatWorker.terminate() };   // destroy＝map.destroy() から（worker外し漏れゼロの掟）
+	// AIガジェットの描画スペック(plan)受け口。overlay経路＝geopbf→属性フィルタ→スタイル付き描画（identify連動）、
+	// estat経路＝worker へ委譲（地名→市区町村コード解決は呼び出し側の領分＝plan.codes で受ける）。throw しない。
+	async function loadPlan(plan) {
+		const style = { lineColor: plan.style.rgba, lineWidth: plan.style.lineWidth };
+		if (plan.route === "estat") {
+			if (!plan.codes?.length) return { ok: false, reason: "nocodes" };
+			const done = new Promise(r => { planWait = r; });
+			loadEstat(plan.codes, "2020", style);
+			return await done;   // カメラは loaded ハンドラが寄せる＝bbox は返さない
+		}
+		const pbf = await geopbf(plan.target, { gint: false }).catch(err => { console.warn("[ai] geopbf", plan.target, err); return null; });
+		if (!pbf?.features?.length) return { ok: false, reason: "load" };
+		const feats = pbf.features.filter(f => matchesFilters(f.properties, plan.filters));
+		if (!feats.length) return { ok: false, reason: "empty", total: pbf.features.length };
+		estatActive = false;
+		overlayFeatures = feats;
+		const bb = bboxCenter(feats);
+		overlayOrigin = bb.center;
+		renderer.set("overlay", buildGeoJSONOverlay(feats, overlayOrigin, style));
+		renderer.set("overlayHi", null);
+		requestDraw();
+		return { ok: true, count: feats.length, bbox: [bb.lo0, bb.la0, bb.lo1, bb.la1] };
+	}
+	function clearPlan() {   // AI層を消す（identify対象も外す）
+		estatActive = false; overlayFeatures = null;
+		renderer.set("overlay", null); renderer.set("overlayHi", null);
+		say(""); requestDraw();
+	}
+	return { identifyAt, loadOverlay, loadEstat, loadPlan, clearPlan, destroy: () => estatWorker.terminate() };   // destroy＝map.destroy() から（worker外し漏れゼロの掟）
 }

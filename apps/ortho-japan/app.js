@@ -37,6 +37,7 @@ import { print as printGadget } from "./gadgets/print-stub.js";   // 本体(prin
 import { close as closeGadget } from "./gadgets/close.js";
 import { dropFile as dropFileGadget } from "./gadgets/dropfile.js";
 import { demo as demoGadget } from "./gadgets/demo.js";
+import { ai as aiGadget } from "./gadgets/ai.js";
 import { modalOpen } from "./gadgets/keys.js";   // 矢印キーのモーダル抑止に使う共通判定（ショートカット群と共有）
 
 // ============================================================================================
@@ -680,9 +681,11 @@ canvas.addEventListener("pointerleave", () => gintWorker.postMessage({ type: "le
 // 14条地図（法務省 登記所備付地図）を球へ。デコード済み pbf を受けて球へ配線する共通処理。
 // 「座標値種別=図上測量」は測量手法のタグに過ぎず絶対位置の信頼性とは無相関と判明済み（系変換さえ合っていれば図上測量でも正確）
 // →現状はバッジ判定に使わない。任意座標系の混入検知は変換パイプライン側（外れ値bbox比較）でやるべき課題として残す。
-function applyGintData(pbf, label, moveCamera = true) {
+function applyGintData(pbf, label, moveCamera = true, opts = {}) {
 	if (!pbf?.unPackGint) { console.error("[gint] デコード失敗 (%s)", label, pbf); return null; }
-	userGint = { g: pbf.unPackGint, label, pbf };   // gint 単一スロットのユーザー層（14条筆/ドロップGISファイル）＝世界海岸線と z=4 で相互切替。pbf 保持＝ホバーで getFeature(id).properties を引く
+	// gint 単一スロットのユーザー層（14条筆/ドロップGISファイル/AI層）＝世界海岸線と相互切替。pbf 保持＝ホバーで getFeature(id).properties を引く。
+	// style/minZoom は層の属性としてここに預ける（スロット再適用(applyUserSlot)がズーム跨ぎの度に走るため、外に置くと切替で剥がれる）
+	userGint = { g: pbf.unPackGint, label, pbf, style: opts.style ?? null, minZoom: opts.minZoom ?? GINT_SWAP_Z, interactive: opts.interactive !== false };
 	// moj 等はデータへジャンプ（初期は東京駅、moj のデータは離れた区にある）。ドロップは呼び出し側が flyTo で寄る＝moveCamera=false。
 	if (moveCamera) { const b = pbf.unPackGint.bbox; if (b && b.length === 4) cam.center = [(b[0] + b[2]) / 2, (b[1] + b[3]) / 2]; }
 	gintSlot = null;           // 内容が変わった＝再適用を強制
@@ -756,13 +759,13 @@ function applyCoastSlot() {
 function applyUserSlot() {
 	if (!userGint) return;
 	gintWorker.postMessage({ type: "set", cmd: "gint", data: userGint.g });
-	gintDrawOpts = null;       // 既定スタイル（海岸線グレーを引きずらない）
-	gintInteractive = true;    // 筆/図形はホバー/クリックで突合
+	gintDrawOpts = userGint.style;           // 層の持参スタイル（AI層=styleTable、null=既定＝14条筆のオレンジ/シアン。海岸線グレーは引きずらない）
+	gintInteractive = userGint.interactive;  // 筆/図形/AI層はホバー/クリックで突合
 	sendGintStyle(); gintSlot = "user"; needsDraw = true;
 }
 // ズームでスロットの中身を選ぶ。onMove から毎回呼ばれるが post は変更時だけ＝安い。海岸線は初回のみ遅延取得。
 function updateGintSlot() {
-	if (userGint && cam.zoom >= GINT_SWAP_Z) { if (gintSlot !== "user") applyUserSlot(); return; }
+	if (userGint && cam.zoom >= userGint.minZoom) { if (gintSlot !== "user") applyUserSlot(); return; }   // minZoom は層の属性（全国級AI層=2・筆/ドロップ=GINT_SWAP_Z）
 	if (coastGint) { if (gintSlot !== "coast") applyCoastSlot(); return; }
 	if (cam.zoom < 8 && !coastLoading) loadWorldCoast();   // 海岸線 未取得＝取得後に updateGintSlot が表示
 }
@@ -1599,6 +1602,39 @@ map.gadget("dropFile", function (opts) {   // GISファイルのD&D取り込み 
 });
 map.gadget("demo", function (opts) {   // デモ（発表の台本再生）… 台本の一行=共有URLハッシュ。flyView（球面フライト）・フライト中判定・PLATEAU先読み・現テーマ名（幕替わり判定）を注入
 	return demoGadget.call(this, { flyView, flightActive: () => flightCtl.active, prefetchViews: prefetchPlateauForViews, theme: themeName, signal: ac.signal, ...opts });
+});
+map.gadget("ai", function (opts) {   // AIと会話して地図に描く（PC専用・画面2分割）… 描画受け口とbboxフィット・消去を注入
+	const fitBbox = bb => {   // dropFile と同じ視野幅の逆解き＝fit へ球面フライト（真俯瞰・北向き）
+		const cx = (bb[0] + bb[2]) / 2, cy = (bb[1] + bb[3]) / 2;
+		const wDeg = Math.max(1e-6, (bb[2] - bb[0]) * 1.3), hDeg = Math.max(1e-6, (bb[3] - bb[1]) * 1.3);
+		const z = Math.min(Math.log2(360 * size.w / (512 * wDeg)), Math.log2(360 * size.h / (512 * hDeg)));
+		flyTo(cx, cy, Math.max(2, Math.min(16, z)), 0);
+	};
+	// route ディスパッチ：overlay/estat＝overlay.loadPlan（main+estat worker）、gint＝worker デコード+GPU 常駐 LOD。
+	// 大規模データ（国立公園=頂点451万）は overlay だと main 数秒凍結＝gint が受け持つ（catalog の route が正本）。
+	const runPlan = async plan => {
+		if (plan.route !== "gint") return overlay.loadPlan(plan);
+		const label = `ai/${plan.dataset}`;
+		const pbf = await geopbf(plan.target, { gint: true, name: label }).catch(err => { console.warn("[ai] gint", plan.target, err); return null; });
+		if (!pbf?.unPackGint) return { ok: false, reason: "load" };
+		const st = new Float32Array(256 * 4);   // styleTable: style0=polygon塗り（薄く＝基図を殺さない）・style1=線
+		const [r, g, b] = plan.style.rgba;
+		st.set([r, g, b, 0.28]); st.set([r, g, b, 1], 4);
+		applyGintData(pbf, label, false, { style: { styleTable: st, lineWidth: plan.style.lineWidth }, minZoom: 2 });   // minZoom:2＝全国級の層は世界図の手前まで見せる
+		const bb = pbf.unPackGint.bbox;
+		return { ok: true, count: pbf.length, bbox: (bb && bb.length === 4) ? bb : null };
+	};
+	const clearPlan = () => {   // AI層の消去＝overlay と、AIが載せた gint 層だけ（ドロップ/14条層は預からない）
+		overlay.clearPlan();
+		if (String(userGint?.label).startsWith("ai/")) {
+			userGint = null; gintSlot = null;
+			gintWorker.postMessage({ type: "set", cmd: "gint" });   // data 無し＝空化
+			gintInteractive = false; needsDraw = true;
+			if (gintHoverTip) gintHoverTip(null);
+			updateGintSlot();
+		}
+	};
+	return aiGadget.call(this, { runPlan, clearPlan, fitBbox, signal: ac.signal, ...opts });
 });
 return map;
 }
