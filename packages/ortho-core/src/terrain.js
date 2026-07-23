@@ -12,7 +12,23 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 	let writtenCells = new Set();   // 実際にアトラスへ書き込めたセル（検札の突合対象。世代ごとにリセット）
 	let lastEnsureCam = null, lastEnsureSize = null, auditT = 0, auditTries = 0;   // 検札＝静止中の自己修復用
 	let hasAtlas = false, staging = false, stagePending = new Set();   // ダブルバッファ状態（山影がパッと消えるのを防ぐ）
-	const r10Tiles = new Map();   // "range,cx,cy" → 解決した生タイル（ラベル標高のCPUサンプル用）
+	// "range,cx,cy" → 解決した生タイル（アトラスセル切り出し＋ラベル標高のCPUサンプル用）。
+	// 【LRUバイト予算】デコード済み標高タイルは R01(DEM10B)=1°で数十MB級。無制限だと混成窓(8×8セル)の
+	// settle 毎取得×地域移動で renderer プロセスが単調成長する（z9チルト75の zoom往復で 0.9→2.2GB/20秒、
+	// 実機では 13GB 到達を実測＝「drawn のたびにメモリ爆発」の正体）。ヒットで末尾へ回す挿入順 LRU。
+	const r10Tiles = new Map();
+	const TILE_CACHE_BYTES = 256 << 20;   // 常駐上限 256MB＝現窓の R01 一式＋R10/R90 が収まる（IDB があるので再取得は安い）
+	let tileBytes = 0;
+	const tileSize = t => (t?.data?.byteLength ?? 0) + 64;
+	function cacheTile(k, tile) {
+		const old = r10Tiles.get(k);
+		if (old) { r10Tiles.delete(k); tileBytes -= tileSize(old); }   // 同キー競合（並行fetch）は差し替え＝二重計上しない
+		r10Tiles.set(k, tile); tileBytes += tileSize(tile);
+		for (const [ok, ot] of r10Tiles) {
+			if (tileBytes <= TILE_CACHE_BYTES || ok === k) break;   // 予算内 or 自分（今入れた分）まで来たら終了
+			r10Tiles.delete(ok); tileBytes -= tileSize(ot);
+		}
+	}
 	let loadTile = null;          // altpbf createTileLoader（非同期セットアップ）
 	createTileLoader({ apiUrl })
 		.then(fn => { loadTile = fn; requestDraw(); })
@@ -40,11 +56,12 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 		// タイル名にすると実在しない（E180等）＝空振りで陰影が欠けていた（実測: lat70の北極海チルト）。
 		const lngN = ((cellLng % 360) + 540) % 360 - 180;
 		const k = range + "," + lngN + "," + cellLat;
-		if (r10Tiles.has(k)) return r10Tiles.get(k);
+		const hit = r10Tiles.get(k);
+		if (hit) { r10Tiles.delete(k); r10Tiles.set(k, hit); return hit; }   // ヒット＝LRU 末尾へ（追い出され順の更新）
 		// 失敗は null に畳む＝getCell は絶対に reject しない（呼び出し側の pending デクリメントが
 		// .then 購読のみのため、reject が漏れると読込インジケータが永久に残る）
 		const tile = await loadTile(lngN, cellLat, range).catch(e => { console.warn("[terrain] セル取得失敗", k, e); return null; });
-		if (tile) r10Tiles.set(k, tile);
+		if (tile) cacheTile(k, tile);
 		return tile;
 	}
 	// ラベル位置の標高(m)。キャッシュ済みの最も細かいセルから（R01→R10→R90 フォールバック）

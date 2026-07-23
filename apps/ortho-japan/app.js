@@ -465,8 +465,11 @@ function autoPlateau(settled = false) {
 		const c = [cam.center[0], cam.center[1]];
 		plateauWorkers.forEach(w => w.postMessage({ type: "cam", center: c }));
 	}
-	if (cam.zoom < PLATEAU_AUTO_Z) {
-		if (settled) demoteStale(null);   // ズームアウトで確定＝表示に急ぎは無い。全ロードを slow で完走させ IDB へ
+	// 真俯瞰（pitch<0.02＝show3d と同閾）は平面地図の世界＝建物3Dは描かれない＝PLATEAU を読み込まない
+	//（Kenji決定 2026-07-23「平面＋3D」：真俯瞰=筆界/ユーザー層、チルト=地形/建物）。傾けた瞬間の
+	// settle で従来どおり自動ロード。常駐（VRAM保持）は触らない＝チルト再開はタダのまま。
+	if (cam.zoom < PLATEAU_AUTO_Z || (cam.pitch || 0) < 0.02) {
+		if (settled) demoteStale(null);   // ズームアウト/真俯瞰で確定＝表示に急ぎは無い。全ロードを slow で完走させ IDB へ
 		for (const name of plateauActive.keys()) { plateauHide(name); console.log("[plateau] 範囲外→非表示", name); }
 		if (plateauActive.size) needsDraw = true;
 		plateauActive.clear();
@@ -1357,10 +1360,13 @@ const runFrameHooks = () => frameHooks.forEach(fn => fn());
 const shortBearing = () => shortBearingOf(cam.bearing);   // 最短回転へ正規化（実装はengine）＝計器盤の回転列と共用
 
 function render() {
-	// 世界海岸線(gint)は z8+ では非表示：海岸は WA 塗りが担う上、gint の2D線は球の自遮蔽を持たず
-	// 地平線の先の海岸線（富山湾等）がリムに白線の残影として浮く。14条（interactive）時は表示のまま。
-	// （旧 #gint canvas の display:none 相当＝render worker の gint パスを描くかのフラグ。変更時だけ post）
-	const gv = !(!gintInteractive && cam.zoom >= 8);
+	// gint 表示ゲート（旧 #gint canvas の display:none 相当。変更時だけ post）：
+	// ・ユーザー層（筆/ドロップ/AI）＝真俯瞰でのみ表示（Kenji決定 2026-07-23「平面＋3D」：真俯瞰=平面地図の
+	//   世界＝筆界・ユーザー層、チルト=3Dの世界＝地形・建物。anchor支配層はチルト＝広可視域で LOD/カリングとも
+	//   利かない重描画の主戦場でもある）。閾は show3d と同じ 0.02rad＝建物3Dと入れ替わりに消える。
+	// ・世界海岸線＝z8+ では非表示（海岸は WA 塗りが担う。gint の2D線は球の自遮蔽を持たず地平線の先が
+	//   リムに残影として浮く）。チルトは表示のまま＝地形ドレープ＋隠線の見せ場。
+	const gv = gintSlot === "user" ? (cam.pitch || 0) < 0.02 : cam.zoom < 8;
 	if (gv !== gintVisible) { gintVisible = gv; renderer.set("gintVis", gv); }
 	// パン/チルト中（ズーム不変）は詳細も再結合。ズーム中はLODポップ回避で停止まで待つ。
 	const zoomStable = Math.abs(cam.zoom - zoomAtBuild) < 0.12;

@@ -92,7 +92,21 @@ export function computeDrawData(data) {
 		if (vx < vxMin) vxMin = vx; if (vx > vxMax) vxMax = vx;
 		if (vy < vyMin) vyMin = vy; if (vy > vyMax) vyMax = vy;
 	}
-	s.lastViewBbox = (nValid === 8 && vxMin <= vxMax) ? [vxMin, vyMin, vxMax, vyMax] : null;
+	if (nValid === 8 && vxMin <= vxMax) {
+		s.lastViewBbox = [vxMin, vyMin, vxMax, vyMax];
+	} else {
+		// コーナー逆写像が欠ける＝地平線が画面内（チルト）。従来は null＝カリング全滅だったが、
+		// 可視地表は「カメラ直下点を中心とする地平キャップ」に必ず収まる＝保守的 bbox は常に作れる。
+		// 半角 = acos(1/|eye|)（+0.5°余白）。広すぎる（>45°＝全球級）・極近傍・antimeridian 跨ぎは従来どおり null。
+		const e = st.eye, eyeLen = Math.hypot(e[0], e[1], e[2]);
+		const half = Math.acos(Math.min(1, 1 / eyeLen)) * 180 / Math.PI + 0.5;
+		const nLat = Math.asin(e[1] / eyeLen) * 180 / Math.PI;
+		const nLon = Math.atan2(e[2], e[0]) * 180 / Math.PI;
+		const lonHalf = half / Math.max(Math.cos(Math.min(85, Math.abs(nLat) + half) * Math.PI / 180), 1e-3);
+		s.lastViewBbox = (half < 45 && Math.abs(nLat) + half < 85 && nLon - lonHalf > -180 && nLon + lonHalf < 180)
+			? [toMortonX(nLon - lonHalf), toMortonY(nLat - half), toMortonX(nLon + lonHalf), toMortonY(nLat + half)]
+			: null;
+	}
 
 	return drawData;
 }

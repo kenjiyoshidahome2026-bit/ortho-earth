@@ -54,12 +54,15 @@ export function uploadGintTextures() {
 	s.polyEdges     = polyEdgeCount;
 	s.polyEdgeByFid = polyEdgeByFid;
 	s.metaChunks    = metaResult.chunks;
-	console.debug('[gint] edges=%d chunks=%d', edgeCount, s.metaChunks?.length ?? 0);
+	console.debug('[gint] edges=%d chunks=%d ck0=%s', edgeCount, s.metaChunks?.length ?? 0, JSON.stringify(s.metaChunks?.[0]?.bbox ?? null));   // ck0＝bbox欠落データ（全ゼロ）の検出用
 	s.outlineZoom = deriveOutlineZoom(s.polyBboxByFid);   // 低ズームのベタ塗り切替閾値（ポリゴン無し=null=既定へ）
-	// stencil 塗りの per-feature 扇要（fid→bbox中心 e7整数・RG32UI）。旧・クリップ原点（画面中心）要は
-	// 全三角形が「画面中心→辺」＝TBDR(Apple GPU)のビニング用パラメータバッファが辺数×画面級三角形で
-	// 爆発する（筆50.9万辺の fill 表示瞬間に GPU プロセスがGB級膨張＝実機実測）。巻き数は閉リングなら
-	// 要の位置に依存しない＝feature 局所要で正確さ不変・三角形は筆サイズ＝バッファ正常化。
+	// per-feature bbox テクスチャ（fid→bbox e7整数・RGBA32UI）。用途は2つ：
+	// ① stencil 塗りの扇要（bbox中心）：旧・クリップ原点（画面中心）要は全三角形が「画面中心→辺」＝
+	//    TBDR(Apple GPU)のビニング用パラメータバッファが辺数×画面級三角形で爆発（筆50.9万辺の fill
+	//    表示瞬間に GPU プロセスがGB級膨張＝実機実測）。巻き数は閉リングなら要の位置に依存しない＝
+	//    feature 局所要で正確さ不変・三角形は筆サイズ＝バッファ正常化。
+	// ② feature 単位の GPU bbox カリング：チャンク粒度（広域ポリゴン＝国立公園級で無力）より細かく、
+	//    VS 冒頭で fid→bbox × 視野bbox の交差判定＝視野外 feature の辺/塗りを丸ごと捨てる。
 	if (s.pivotTex) { gl.deleteTexture(s.pivotTex); s.pivotTex = null; }
 	s.pivotW = 0;
 	if (s.polyBboxByFid?.size) {
@@ -67,12 +70,11 @@ export function uploadGintTextures() {
 		for (const fid of s.polyBboxByFid.keys()) if (fid > maxFid) maxFid = fid;
 		if (maxFid < (1 << 22)) {   // 異常に疎な fid はテクスチャが無駄に巨大化＝従来要へフォールバック
 			const W = Math.min(4096, s.TEX_ARC_W), H = Math.ceil((maxFid + 1) / W);
-			const px = new Uint32Array(W * H * 2);
+			const px = new Uint32Array(W * H * 4);
 			for (const [fid, bb] of s.polyBboxByFid) {
-				px[fid * 2]     = (bb[0] + Math.floor((bb[2] - bb[0]) / 2)) >>> 0;   // 中点（和は u32 を溢れる＝差分で）
-				px[fid * 2 + 1] = (bb[1] + Math.floor((bb[3] - bb[1]) / 2)) >>> 0;
+				px[fid * 4] = bb[0]; px[fid * 4 + 1] = bb[1]; px[fid * 4 + 2] = bb[2]; px[fid * 4 + 3] = bb[3];
 			}
-			s.pivotTex = uploadTex2D(gl, px, W, H, gl.RG32UI, gl.RG_INTEGER);
+			s.pivotTex = uploadTex2D(gl, px, W, H, gl.RGBA32UI, gl.RGBA_INTEGER);
 			s.pivotW = W;
 		}
 	}
@@ -140,8 +142,9 @@ export function uploadGintTextures() {
 			const w = plan.shift();
 			if (w == null) {
 				s.tiersDone = true;
-				if (s.lodTiers.length) console.debug('[gint] LOD tiers: %s',
-					s.lodTiers.map(t => `w${t.minW}=${t.edgeCount}辺`).join(' / '));
+				if (s.lodTiers.length) console.debug('[gint] LOD tiers: %s tcks=%s',
+					s.lodTiers.map(t => `w${t.minW}=${t.edgeCount}辺(ck${t.chunks?.length ?? 0})`).join(' / '),
+					JSON.stringify(s.lodTiers[0]?.chunks?.map(c => c.bbox) ?? null));   // tier チャンク bbox の健全性検査用
 				postMessage({ action: 'tiers', tiers: s.lodTiers.map(t => ({ minW: t.minW, edgeCount: t.edgeCount })) });
 				return;
 			}

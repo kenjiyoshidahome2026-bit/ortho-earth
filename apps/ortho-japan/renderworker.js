@@ -296,7 +296,7 @@ function frame() {
 					const gm = tqN.map ? (tqSum.map / tqN.map).toFixed(2) : "-";     // GPU 実時間（timer query・数フレーム遅れの平均）
 					const gg = tqN.gint ? (tqSum.gint / tqN.gint).toFixed(2) : "-";
 					const gs = gint ? gint.stats() : { drawn: 0, fbo: 0, pickMs: 0, rank: -1, tierW: -1, edges: 0, tiers: 0, tiersDone: false, total: 0 };
-					console.log(`[perf] f=${pfN} map=${(pfMap / pfN).toFixed(2)}ms gint=${(pfGint / pfN).toFixed(2)}ms gpuMap=${gm}ms gpuGint=${gg}ms ema=${emaMs.toFixed(1)}ms res=${RES_STEPS[resIdx]} err=${glErr} drawn=${gs.drawn} fbo=${gs.fbo} pick=${gs.pickMs.toFixed(0)}ms rank=${gs.rank} tierW=${gs.tierW} edges=${gs.edges}/${gs.total} tiers=${gs.tiers}${gs.tiersDone ? "✓" : "…"}`);
+					console.log(`[perf] f=${pfN} map=${(pfMap / pfN).toFixed(2)}ms gint=${(pfGint / pfN).toFixed(2)}ms gpuMap=${gm}ms gpuGint=${gg}ms ema=${emaMs.toFixed(1)}ms res=${RES_STEPS[resIdx]} err=${glErr} drawn=${gs.drawn} fbo=${gs.fbo} pick=${gs.pickMs.toFixed(0)}ms rank=${gs.rank} tierW=${gs.tierW} edges=${gs.edges}/${gs.total} tiers=${gs.tiers}${gs.tiersDone ? "✓" : "…"} runs=${gs.runs}/${gs.chunks} vb=${gs.vb ? gs.vb.join(",") : "null"}`);
 					pfLast = pfT2; pfN = 0; pfMap = 0; pfGint = 0;
 					tqSum.map = tqSum.gint = tqN.map = tqN.gint = 0;
 				}

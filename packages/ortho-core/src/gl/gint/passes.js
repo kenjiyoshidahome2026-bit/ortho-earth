@@ -28,6 +28,7 @@ function pickLineTier(rank, baseTex, baseCount) {
 	const sel = nominal
 		? { tex: nominal.tex, count: nominal.edgeCount, runs: visibleRuns(nominal.edgeCount, nominal.chunks), minW: nominal.minW }
 		: { tex: baseTex, count: baseCount, runs: visibleRuns(baseCount, s.metaChunks), minW: 0 };
+	s._pfRuns = sel.runs.length; s._pfChunks = (nominal ? nominal.chunks : s.metaChunks)?.length ?? 0;   // perf 計測用
 	if (!nominal && finest) {   // 安全弁（適格 tier 無し＝基準メタに落ちた時だけ）
 		let visible = 0;
 		for (const r of sel.runs) visible += r[1];
@@ -76,12 +77,17 @@ function bindDepthUniforms(gl, u, data) {
 	return dep;
 }
 
-// stencil 塗りの扇要テクスチャ（fid→bbox中心）を unit2 へ。無いデータ（線のみ/疎fid）は従来のクリップ原点。
-// u_pivot_tex の unit 割当は常に行う（usampler の既定 unit0 は無害だが明示＝規約統一）。
+// feature bbox テクスチャ（扇要＋GPU bbox カリング）を unit2 へ。無いデータ（線のみ/疎fid）は
+// 従来のクリップ原点＆カリング無効。視野bbox は visibleRuns と同じ線幅マージン（e7 で 10000≈0.001°）。
 function bindPivot(gl, u) {
 	gl.uniform1i(u.u_pivot_tex, 2);
 	gl.uniform1i(u.u_pivot_w, s.pivotW || 1);
 	gl.uniform1i(u.u_has_pivot, s.pivotTex ? 1 : 0);
+	const vb = s.lastViewBbox;
+	gl.uniform1i(u.u_use_vbb, (s.pivotTex && vb) ? 1 : 0);
+	if (vb) gl.uniform4ui(u.u_view_bbox,
+		Math.max(0, vb[0] - 10000), Math.max(0, vb[1] - 10000),
+		Math.min(0xFFFFFFFF, vb[2] + 10000), Math.min(0xFFFFFFFF, vb[3] + 10000));
 	if (s.pivotTex) { gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, s.pivotTex); gl.activeTexture(gl.TEXTURE0); }
 }
 
@@ -171,6 +177,7 @@ export function renderCleanScene(data, targetFBO = null) {
 		gl.uniform4fv(uRender.u_style_table, data.styleTable ?? DEF_STYLE);
 		gl.uniform2fv(uRender.u_dash_table,  data.dashTable  ?? DEF_DASH);
 		gl.uniform1i(uRender.u_pass, 0);
+		bindPivot(gl, uRender);   // feature bbox カリング（ポリゴン辺のみ VS が判定）
 		// 深度統合（段階B・山岳ビュー z<13 のみ dep 非null）：線を地形深度でテスト（書かない）＝
 		// 尾根の向こうは実線が消え、直後の GREATER パスが「淡い固定破線」で拾う（CAD の隠線表現）。
 		const dep = bindDepthUniforms(gl, uRender, data);

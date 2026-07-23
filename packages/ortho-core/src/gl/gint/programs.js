@@ -161,18 +161,31 @@ vec3 projectDrape(uint idx, out float clipW) {
 				zr);
 }
 
-// stencil 塗りの扇要（per-feature pivot）：fid→bbox中心（e7整数・RG32UI）をクリップ座標へ。
-// 巻き数は閉リングなら要の位置に依存しない＝正確さ不変。旧・クリップ原点（画面中心）要は全三角形が
-// 「画面中心→辺」＝TBDR(Apple GPU) のパラメータバッファが辺数×画面級で爆発した（fill 表示瞬間にGB級）。
-// u_has_pivot=0（線のみ/疎fid フォールバック）は従来のクリップ原点。
-uniform usampler2D u_pivot_tex;   // unit2（stencil 系のみ使用＝他プログラムでは prune）
+// per-feature bbox テクスチャ（fid→bbox e7整数・RGBA32UI・unit2）。
+// pivotClip＝stencil 塗りの扇要（bbox中心）：巻き数は閉リングなら要の位置に依存しない＝正確さ不変。
+//   旧・クリップ原点（画面中心）要は全三角形が「画面中心→辺」＝TBDR(Apple GPU) のパラメータバッファが
+//   辺数×画面級で爆発した（fill 表示瞬間にGB級）。u_has_pivot=0（線のみ/疎fid）は従来のクリップ原点。
+// bboxVisible＝feature 単位の GPU bbox カリング：チャンク粒度（広域ポリゴン＝国立公園級で無力）より
+//   細かく、VS 冒頭で視野bbox との交差判定＝視野外 feature を頂点ごと捨てる（walk/raster 前の早期棄却）。
+uniform usampler2D u_pivot_tex;
 uniform int        u_pivot_w;
 uniform int        u_has_pivot;
+uniform uvec4      u_view_bbox;   // 視野 bbox（e7整数・保守的＝地平キャップ fallback 込み）
+uniform int        u_use_vbb;     // 1＝bboxカリング有効（bboxテクスチャと視野bboxが両方ある時だけ）
+uvec4 fetchFidBbox(uint fid) {
+	return texelFetch(u_pivot_tex, ivec2(int(fid) % u_pivot_w, int(fid) / u_pivot_w), 0);
+}
+bool bboxVisible(uint fid) {
+	if (u_use_vbb == 0) return true;
+	uvec4 bb = fetchFidBbox(fid);
+	return !(bb.z < u_view_bbox.x || bb.x > u_view_bbox.z || bb.w < u_view_bbox.y || bb.y > u_view_bbox.w);
+}
 vec4 pivotClip(uint fid) {
 	if (u_has_pivot == 0) return vec4(0.0, 0.0, 0.0, 1.0);
-	uvec2 pv = texelFetch(u_pivot_tex, ivec2(int(fid) % u_pivot_w, int(fid) / u_pivot_w), 0).rg;
-	float dlon = dlonE7(pv.x, u_ix_center) * 1e-7;
-	float dlat = float(int(pv.y - u_iy_center)) * 1e-7;
+	uvec4 bb = fetchFidBbox(fid);
+	uint cx = bb.x + (bb.z - bb.x) / 2u, cy = bb.y + (bb.w - bb.y) / 2u;   // 中点（和は u32 を溢れる＝差分で）
+	float dlon = dlonE7(cx, u_ix_center) * 1e-7;
+	float dlat = float(int(cy - u_iy_center)) * 1e-7;
 	return u_clipT + u_mvp * vec4(deltaToRel(dlon, dlat), 0.0);
 }
 
@@ -297,6 +310,7 @@ void main() {
 	int edge_id = gl_VertexID / 3;
 	int sub     = gl_VertexID % 3;
 	uvec4 meta = fetchEdgeMeta(edge_id);
+	if (!bboxVisible(meta.a)) { gl_Position = vec4(2.0, 0.0, 0.0, 1.0); return; }   // 視野外 feature＝丸ごと棄却
 	uint lodA = meta.r, lodB = meta.g;
 	if (!lodSnap(lodA, lodB, edge_id)) { gl_Position = vec4(2.0, 0.0, 0.0, 1.0); return; }
 	if (sub == 0) { gl_Position = pivotClip(meta.a); return; }   // 扇要＝feature局所（TBDRパラメータバッファ対策）
@@ -350,6 +364,8 @@ void main() {
 	uvec4 meta  = fetchEdgeMeta(edge_id);
 	int feat_id = int(meta.a);
 
+	// feature bbox カリング（ポリゴン辺のみ＝styleId 0。折れ線 fid は bbox テクスチャに無い）
+	if ((meta.b & 255u) == 0u && !bboxVisible(meta.a)) { gl_Position = vec4(2.0, 0.0, 0.0, 1.0); return; }
 	uint lodA = meta.r, lodB = meta.g;
 	if (!lodSnap(lodA, lodB, edge_id)) { gl_Position = vec4(2.0, 0.0, 0.0, 1.0); return; }
 
@@ -597,8 +613,9 @@ export function createGintPrograms(gl) {
 	const pickPointProgram   = linkProgram(gl, VS_PICK_POINT,    FS_PICK_POINT);
 
 	const uRender      = getUniforms(gl, renderProgram,      [...SHARED_UNIFORM_NAMES, 'u_line_width', 'u_dpr', 'u_active_id', 'u_pass', 'u_style_table', 'u_dash_table',
-		'u_logCoef', 'u_fogFar', 'u_origin_pt', 'u_elevTex', 'u_elevBounds', 'u_elevScale', 'u_hasElev', 'u_elevEdgeFade', 'u_hidden']);   // 深度統合（段階B）用＝未設定なら全0=従来動作
-	const uStencil     = getUniforms(gl, stencilProgram,     [...SHARED_UNIFORM_NAMES, 'u_pivot_tex', 'u_pivot_w', 'u_has_pivot']);
+		'u_logCoef', 'u_fogFar', 'u_origin_pt', 'u_elevTex', 'u_elevBounds', 'u_elevScale', 'u_hasElev', 'u_elevEdgeFade', 'u_hidden',   // 深度統合（段階B）用＝未設定なら全0=従来動作
+		'u_pivot_tex', 'u_pivot_w', 'u_has_pivot', 'u_view_bbox', 'u_use_vbb']);   // feature bbox カリング
+	const uStencil     = getUniforms(gl, stencilProgram,     [...SHARED_UNIFORM_NAMES, 'u_pivot_tex', 'u_pivot_w', 'u_has_pivot', 'u_view_bbox', 'u_use_vbb']);
 	const uFill        = getUniforms(gl, fillProgram,        ['u_fill_color']);
 	const uMaskStencil = getUniforms(gl, maskStencilProgram, [...SHARED_UNIFORM_NAMES, 'u_active_id']);
 	const uPoint       = getUniforms(gl, pointProgram,       [...PT_UNIFORM_NAMES, 'u_active_id']);
