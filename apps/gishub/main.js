@@ -235,6 +235,9 @@ async function execView(pbf) {
 		const norm = Math.sqrt(sx * sx + sy * sy + sz * sz);
 		if (norm > 0) {
 			zoomOpts = { center: [Math.atan2(sy, sx) * r2d, Math.asin(sz / norm) * r2d] };
+			// 全球を覆う単一フィーチャ（ne_10m_ocean 等）は点が1つ＝extent 0 で fitExtent が
+			// 発散し maxZoom(z=22)へ張り付く。地球全体を見せる概観ズームに固定する。
+			if (pts.length < 2) zoomOpts.zoom = initialZoom;
 			zoomFeature = { type: "Feature", geometry: { type: "MultiPoint", coordinates: pts }, properties: {} };
 		}
 	}

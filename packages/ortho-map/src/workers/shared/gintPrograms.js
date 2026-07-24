@@ -118,6 +118,26 @@ bool lodSnap(inout uint lodA, inout uint lodB, int edge_id) {
 	}
 	return true;
 }
+
+// 頂点の生 ix（Morton デコード）。ix=(lng+180)*1e7 ∈ [0, 3.6e9]。
+uint fetchIX(uint idx) {
+	ivec2 tc = ivec2(int(idx) % u_arc_w, int(idx) / u_arc_w);
+	uvec4 px = texelFetch(u_arc_tex, tc, 0);
+	uint lo = px.r, hi = px.g;
+	uint lo_c = ((hi >> 31u) != 0u) ? lo : (lo & 0xFFFFFFC0u);
+	uint hi_c = hi & 0x7FFFFFFFu;
+	return (compact16(hi_c) << 16u) | compact16(lo_c);
+}
+// アンチメリディアン継ぎ目辺: 両端が正確に lng=±180（ix=0 または 3.6e9）に載る辺。
+// 全球ラップ多角形（NE ocean 等）の平面表現に生じる人工スリット。球面上は境界でないので
+// 塗り/輪郭/ピッキングから除外する。通常の地域ポリゴンは ±180 に頂点を持たず無影響。
+const uint IX_ANTI_MAX = 3600000000u;
+bool isAntimeridianEdge(uint a, uint b) {
+	uint ixa = fetchIX(a), ixb = fetchIX(b);
+	bool aA = (ixa <= 2u) || (ixa >= IX_ANTI_MAX - 2u);
+	bool bA = (ixb <= 2u) || (ixb >= IX_ANTI_MAX - 2u);
+	return aA && bA;
+}
 `;
 
 // sub=0 → NDC origin (fan pivot); sub=1 → vertex A; sub=2 → vertex B.
@@ -129,6 +149,7 @@ void main() {
 	int sub     = gl_VertexID % 3;
 	if (sub == 0) { gl_Position = vec4(0.0, 0.0, 0.0, 1.0); return; }
 	uvec4 meta = fetchEdgeMeta(edge_id);
+	if (isAntimeridianEdge(meta.r, meta.g)) { gl_Position = vec4(2.0, 0.0, 0.0, 1.0); return; }
 	uint lodA = meta.r, lodB = meta.g;
 	if (!lodSnap(lodA, lodB, edge_id)) { gl_Position = vec4(2.0, 0.0, 0.0, 1.0); return; }
 	vec3  p    = fetchProject(sub == 1 ? lodA : lodB);
@@ -153,6 +174,7 @@ void main() {
 	int sub     = gl_VertexID % 3;
 	if (sub == 0) { gl_Position = vec4(0.0, 0.0, 0.0, 1.0); return; }
 	uvec4 meta = fetchEdgeMeta(edge_id);
+	if (isAntimeridianEdge(meta.r, meta.g)) { gl_Position = vec4(2.0, 0.0, 0.0, 1.0); return; }
 	v_feat_id  = int(meta.a);
 	vec3  p    = fetchProject(sub == 1 ? meta.r : meta.g);
 	if (p.z < 0.0) {
@@ -202,6 +224,7 @@ void main() {
 
 	if (u_pass == 0 && feat_id == u_active_id) { gl_Position = vec4(2.0, 0.0, 0.0, 1.0); return; }
 	if (u_pass == 1 && feat_id != u_active_id) { gl_Position = vec4(2.0, 0.0, 0.0, 1.0); return; }
+	if (isAntimeridianEdge(meta.r, meta.g)) { gl_Position = vec4(2.0, 0.0, 0.0, 1.0); return; }
 
 	uint lodA = meta.r, lodB = meta.g;
 	if (!lodSnap(lodA, lodB, edge_id)) { gl_Position = vec4(2.0, 0.0, 0.0, 1.0); return; }
