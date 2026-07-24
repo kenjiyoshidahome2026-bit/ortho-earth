@@ -27,6 +27,7 @@ export const s = {
 
 	// Zoom range
 	minZoom: null, maxZoom: null,
+	hasAnti: false,   // ±180 継ぎ目辺を持つデータか（set() で arcMeta から判定）
 
 	// Identify / hover
 	activeId: -1,

@@ -17,6 +17,7 @@ uniform uint       u_ix_center;
 uniform uint       u_iy_center;
 uniform vec4       u_jac;  // Jacobian [J00,J10,J01,J11] col-major; all-zero → full trig
 uniform float      u_lod_rank;  // GPU Dynamic LOD 閾値（bindSharedUniforms が scale から毎フレーム算出）
+uniform int        u_has_anti;  // このデータに ±180 継ぎ目辺があるか（0=無→アンチメリディアン判定を丸ごとスキップ）
 
 uint compact16(uint m) {
 	m &= 0x55555555u;
@@ -133,6 +134,7 @@ uint fetchIX(uint idx) {
 // 塗り/輪郭/ピッキングから除外する。通常の地域ポリゴンは ±180 に頂点を持たず無影響。
 const uint IX_ANTI_MAX = 3600000000u;
 bool isAntimeridianEdge(uint a, uint b) {
+	if (u_has_anti == 0) return false;   // 継ぎ目を持たないデータ（roads 等）では texelFetch を一切走らせない
 	uint ixa = fetchIX(a), ixb = fetchIX(b);
 	bool aA = (ixa <= 2u) || (ixa >= IX_ANTI_MAX - 2u);
 	bool bA = (ixb <= 2u) || (ixb >= IX_ANTI_MAX - 2u);
@@ -572,7 +574,7 @@ void main() { fragColor = u_fill_color; }`;
 const SHARED_UNIFORM_NAMES = [
 	'u_arc_tex','u_meta_tex','u_arc_w','u_meta_w',
 	'u_rotate','u_scale','u_viewport','u_rsincos',
-	'u_ix_center','u_iy_center','u_jac','u_lod_rank',
+	'u_ix_center','u_iy_center','u_jac','u_lod_rank','u_has_anti',
 ];
 
 // Compile all gint programs, collect uniforms, set up blend state.

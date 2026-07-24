@@ -69,6 +69,21 @@ function init(data) {
 	postMessage({ action: "done", type: "init", ctx: s.gl.constructor.name });
 }
 
+// arcMeta（arc毎8要素 [off,len,weight,0,xmin,ymin,xmax,ymax]、bbox は ix 整数単位）を走査し、
+// bbox が ±180（ix=0 または 3.6e9）に正確に載る arc が1つでもあるか＝継ぎ目辺の有無を返す。
+// 全球ラップ多角形（NE ocean 等）や antimeridianCut 済み交差データでのみ true。roads や大陸
+// データは ±180 に頂点を持たず false＝シェーダのアンチメリディアン判定を無効化しコスト 0。
+// 判定はシェーダの辺テスト（両端 ix=0/3.6e9）と同じ閾値なので取りこぼしなし。
+function hasAntimeridianSeam(arcMeta) {
+	if (!arcMeta) return false;
+	const IXMAX = 3600000000;
+	for (let i = 0, n = (arcMeta.length / 8) | 0; i < n; i++) {
+		const b = i * 8, xmin = arcMeta[b + 4], xmax = arcMeta[b + 6];
+		if (xmin <= 2 || xmax >= IXMAX - 2) return true;
+	}
+	return false;
+}
+
 function set(data) {
 	if (data.cmd === "gint" && data.data) {
 		const { arcBuffer, arcMeta, polyStream, lineStream, pointBuffer, point,
@@ -84,6 +99,11 @@ function set(data) {
 		};
 
 		uploadGintTextures();
+
+		// このデータに ±180 継ぎ目辺（全球ラップ多角形の平面スリット）があるか一度だけ判定。
+		// arcMeta の bbox が x で退化（xmin==xmax）かつ ±180（ix=0 / 3.6e9）に載る arc＝縦の継ぎ目。
+		// 無ければシェーダのアンチメリディアン判定を丸ごとスキップ＝roads 等で追加コスト 0。
+		s.hasAnti = hasAntimeridianSeam(s.gintData.arcMeta);
 
 		({ minZoom: s.minZoom, maxZoom: s.maxZoom } = checkZoomRange({
 			arcMeta:   s.gintData.arcMeta,

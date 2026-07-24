@@ -1,3 +1,5 @@
+import { s } from './gintState.js';
+
 export function bindSharedUniforms(gl, u, data, arcTex, metaTex, arcW, metaW, width, height) {
 	gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, arcTex);
 	gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, metaTex);
@@ -32,6 +34,9 @@ export function bindSharedUniforms(gl, u, data, arcTex, metaTex, arcW, metaW, wi
 	// 高ズームでは閾値が 0 に落ちて全頂点＝正確さ無損失（サブpx頂点のみ間引き）。
 	if (u.u_lod_rank) {
 		gl.uniform1f(u.u_lod_rank, dynamicLodRank(data.scale));
+	}
+	if (u.u_has_anti) {
+		gl.uniform1i(u.u_has_anti, s.hasAnti ? 1 : 0);
 	}
 }
 

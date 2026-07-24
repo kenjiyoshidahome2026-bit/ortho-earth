@@ -145,7 +145,11 @@ export function renderCleanScene(data, targetFBO = null) {
 	// ── Fat-line edges ──（低ズームは境界メタ＝アウトライン表示。折れ線は全量含まれるので消えない）
 	// lowZoom は境界tier（rank ≥ tierB.minW が保証される帯）→ 無ければ境界メタ全量。
 	// 高ズームは tier（全国視界）→ tier が届かない rank 帯は可視チャンク run（空間カリング）。
-	const lnB = lowZoom && hasB;
+	// 純ポリライン（polyEdgesB=0）は境界メタ＝全辺100%に退化し、しかも outlineZoom が導出できず
+	// tierB も焼かれない＝lowZoom 全帯で数百万辺フル描画（US roads 350万辺で凍結）。境界パスは
+	// ポリゴンのアウトラインが目的なので、ポリゴン境界辺を持つデータに限定し、それ以外は
+	// tier 梯子＋可視チャンク run の通常経路へ流す。
+	const lnB = lowZoom && hasB && s.polyEdgesB > 0;
 	const lnSel = lnB
 		? (s.tierB && dynamicLodRank(data.scale) >= s.tierB.minW
 			? { tex: s.tierB.tex, count: s.tierB.edgeCount, runs: null }
