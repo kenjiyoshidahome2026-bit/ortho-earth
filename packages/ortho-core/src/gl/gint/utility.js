@@ -1,6 +1,8 @@
 // gint 共有ユーティリティ（v2）。v1(ortho-map) の gintUtility を移植。
 // bindSharedUniforms のみ node-dependent（site 2＝投影 uniform）。他は純データ構造＝逐語で携行。
 
+import { s } from './state.js';
+
 // ── site 2：cam 由来の mvp/eye/origin を uniform へ（v1 の rotate/scale/rsincos/jac を建て替え）──
 // mvp/eye/origin は worker が cam から一度だけ生成し data に載せる（site 3）。ここは受けて set するだけ。
 // width/height は CSS px（fetchProject/toNDC が同単位で round-trip、dpr は線幅側で別処理）。
@@ -26,6 +28,21 @@ export function bindSharedUniforms(gl, u, data, arcTex, metaTex, arcW, metaW, wi
 	if (data.clipT) gl.uniform4f(u.u_clipT, data.clipT[0], data.clipT[1], data.clipT[2], data.clipT[3]);
 	gl.uniform1f(u.u_origin_zr, data.originZr ?? 0.0);
 	gl.uniform1f(u.u_lod_rank, data.lodRank ?? 0.0);   // GPU Dynamic LOD 閾値（未設定=0=全描画）
+}
+
+// feature bbox テクスチャ（扇要＋GPU bbox カリング）を unit2 へ。無いデータ（線のみ/疎fid）は
+// 従来のクリップ原点＆カリング無効。視野bbox は visibleRuns と同じ線幅マージン（e7 で 10000≈0.001°）。
+// （passes.js から移設＝idfill.js の ID 塗りパスと共用）
+export function bindPivot(gl, u) {
+	gl.uniform1i(u.u_pivot_tex, 2);
+	gl.uniform1i(u.u_pivot_w, s.pivotW || 1);
+	gl.uniform1i(u.u_has_pivot, s.pivotTex ? 1 : 0);
+	const vb = s.lastViewBbox;
+	gl.uniform1i(u.u_use_vbb, (s.pivotTex && vb) ? 1 : 0);
+	if (vb) gl.uniform4ui(u.u_view_bbox,
+		Math.max(0, vb[0] - 10000), Math.max(0, vb[1] - 10000),
+		Math.min(0xFFFFFFFF, vb[2] + 10000), Math.min(0xFFFFFFFF, vb[3] + 10000));
+	if (s.pivotTex) { gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, s.pivotTex); gl.activeTexture(gl.TEXTURE0); }
 }
 
 // ── 以下 node-independent（投影に触れない純データ構造）＝v1 から逐語で携行 ──

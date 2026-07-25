@@ -679,13 +679,25 @@ canvas.addEventListener("pointerleave", () => renderWorker.postMessage({ type: "
 // 14条地図（法務省 登記所備付地図）を球へ。デコード済み pbf を受けて球へ配線する共通処理。
 // 「座標値種別=図上測量」は測量手法のタグに過ぎず絶対位置の信頼性とは無相関と判明済み（系変換さえ合っていれば図上測量でも正確）
 // →現状はバッジ判定に使わない。任意座標系の混入検知は変換パイプライン側（外れ値bbox比較）でやるべき課題として残す。
+// bbox([lonMin,latMin,lonMax,latMax] deg)全体が画面に収まる zoom。正射の中心近傍は px ≈ scale×角(rad)。
+// zの定義は camera.js の radPerDevPx＝2π/(2^z·512·dpr)＝512pxタイル規約 → CSS px/rad = 2^z·512/(2π)。
+// ※v1 gint の 40.74(=256/(2π)) 規約とは1段ズレる＝ここは必ず camera.js 側の定義に従う。
+// 経度側だけ cos(lat) で実角へ。15% マージン。
+function fitZoomForBbox(b) {
+	const latC = (b[1] + b[3]) / 2;
+	const thX = Math.max(1e-9, (b[2] - b[0]) * Math.cos(latC * D2R) * D2R);
+	const thY = Math.max(1e-9, (b[3] - b[1]) * D2R);
+	const W = mapEl?.clientWidth || innerWidth, H = mapEl?.clientHeight || innerHeight;
+	const scale = 0.85 * Math.min(W / thX, H / thY);
+	return Math.max(1, Math.min(20, Math.log2(scale / (512 / (2 * Math.PI)))));
+}
 function applyGintData(pbf, label, moveCamera = true, opts = {}) {
 	if (!pbf?.unPackGint) { console.error("[gint] デコード失敗 (%s)", label, pbf); return null; }
 	// gint 単一スロットのユーザー層（14条筆/ドロップGISファイル/AI層）＝世界海岸線と相互切替。pbf 保持＝ホバーで getFeature(id).properties を引く。
 	// style/minZoom は層の属性としてここに預ける（スロット再適用(applyUserSlot)がズーム跨ぎの度に走るため、外に置くと切替で剥がれる）
 	userGint = { g: pbf.unPackGint, label, pbf, style: opts.style ?? null, minZoom: opts.minZoom ?? GINT_SWAP_Z, interactive: opts.interactive !== false };
-	// moj 等はデータへジャンプ（初期は東京駅、moj のデータは離れた区にある）。ドロップは呼び出し側が flyTo で寄る＝moveCamera=false。
-	if (moveCamera) { const b = pbf.unPackGint.bbox; if (b && b.length === 4) cam.center = [(b[0] + b[2]) / 2, (b[1] + b[3]) / 2]; }
+	// moj 等はデータ全体へ fit（初期は東京駅、moj のデータは離れた区にある）。ドロップは呼び出し側が flyTo で寄る＝moveCamera=false。
+	if (moveCamera) { const b = pbf.unPackGint.bbox; if (b && b.length === 4) flyTo((b[0] + b[2]) / 2, (b[1] + b[3]) / 2, fitZoomForBbox(b)); }
 	gintSlot = null;           // 内容が変わった＝再適用を強制
 	updateGintSlot();          // z≥GINT_SWAP_Z ならユーザー層を表示（z<GINT_SWAP_Z は世界海岸線のまま＝世界図の文脈）
 	onMove();
@@ -723,6 +735,79 @@ window.__arakawaFit = async () => {
 	const res = await fetch(import.meta.env.BASE_URL + "moj-local/13118-rubbersheet.geojson");
 	const file = new File([await res.blob()], "13118_rubbersheet.geojson");
 	return window.__mojFile(file, "moj/13118_rubbersheet");
+};
+// コロプレス塗り（gint draw spec.md）動作確認用：現在のユーザー層(gint)へ paint/filter を適用。
+// 式は main で一度だけ評価（buildFidStyle）→ fid スタイル表を worker へ＝restyle はテクスチャ更新1回。
+// 例: __paint({ 'fill-color': ['interpolate', ['linear'], ['get','R2'], 0,'#ffeeee', 5000,'#990000'] })
+//     __paint({ 'fill-color': ['match', ['get','市区町村名'], '青葉区', '#cc000080', '#00000010'] })
+//     __paint(null)＝解除（従来の stencil 単色塗りへ）。ortho-core は動的 import＝初期バンドル不変。
+// fid 整列の feature 配列（式評価の入力）。identify の tip と同じ真実源＝getProperties(fid)。
+// ※ .geojson は壊れ geometry の feature をスキップして配列を「詰める」＝fid とズレる（札幌 aigid で実証）。
+//    式評価に .geojson を使ってはならない。読めない props は {}＝既定値評価（§6-4）。
+const gintFidFeatures = () => {
+	const pbf = userGint?.pbf;
+	const n = pbf?.fmap?.length ?? 0;
+	if (!n) return null;
+	const out = new Array(n);
+	for (let i = 0; i < n; i++) {
+		let p = {};
+		try { p = pbf.getProperties(i) ?? {}; } catch (e) { /* 壊れ feature＝既定値へ */ }
+		out[i] = { properties: p, geometry: null };
+	}
+	const skipped = n - (pbf.geojson?.features?.length ?? n);
+	if (skipped > 0) console.info("[paint] fid=%d件中 %d件は .geojson から欠落（fid整列読みで補正済み）", n, skipped);
+	return out;
+};
+// fid ズレ診断用：指定 fid だけ赤・他は薄灰でテーブル直書き（式評価を迂回＝純粋に fid 空間を見る）。
+// 使い方: __paintFid(100) → 赤い筆をクリック → console の [gint] fid=… が 100 なら一致、±k ならズレ量 k。
+window.__paintFid = (...fids) => {
+	const feats = gintFidFeatures();
+	if (!feats) { console.warn("[paintFid] ユーザー層(gint)が未ロード"); return; }
+	const n = feats.length, u32 = new Uint32Array(n * 4);
+	for (let i = 0; i < n; i++) { u32[i * 4] = 0x88888830; u32[i * 4 + 2] = (8 << 24) | (6 << 8) | 1; }
+	for (const f of fids) if (f >= 0 && f < n) u32[f * 4] = 0xcc0000cc;
+	renderer.set("gintPaint", { table: u32, count: n });
+	needsDraw = true;
+	for (const f of fids) console.log("[paintFid] fid=%d props=%o", f, feats[f]?.properties);
+};
+// fid → properties（クリックで出た fid の中身を確認する。identify と同じ getFeature 直読み）
+window.__paintProps = (fid) => userGint?.pbf?.getFeature(fid)?.properties;
+// 重複可視化＝登記データの品質監査プローブ。通常塗りをせず winding 和の異常画素だけを色分け：
+//   マゼンタ＝別筆同士の重なり（fid不定） / 橙＝同一筆の多重登記 / シアン＝向き矛盾の重なり（正味0）
+// __paintOverlap() で点灯・__paintOverlap(false) か __paint(null) で解除。
+window.__paintOverlap = (on = true) => {
+	if (!on) { renderer.set("gintPaint", null); needsDraw = true; return; }
+	const feats = gintFidFeatures();
+	if (!feats) { console.warn("[paintOverlap] ユーザー層(gint)が未ロード"); return; }
+	const n = feats.length, u32 = new Uint32Array(n * 4);
+	for (let i = 0; i < n; i++) u32[i * 4 + 2] = (8 << 24) | (6 << 8) | 1;   // 塗り透明・visible（ID経路の起動条件として表は必要）
+	renderer.set("gintPaint", { table: u32, count: n, overlap: true });
+	needsDraw = true;
+	console.log("[paintOverlap] %d筆を監査: マゼンタ=別筆の重なり / 橙=同一筆の多重登記 / シアン=向き矛盾", n);
+};
+// fid ズレ診断の決定版：偶数fid=赤／奇数fid=青の市松塗り（場所に依らず全面に出る＝見逃し不能）。
+// どの筆でもクリック → console の [gint] fid=… の偶奇と色が一致するか：赤=偶数/青=奇数なら一致、逆なら±1ズレ。
+window.__paintParity = () => {
+	const n = userGint?.pbf?.fmap?.length ?? 0;
+	if (!n) { console.warn("[paintParity] ユーザー層(gint)が未ロード＝先に await __sapporo() 等"); return; }
+	const u32 = new Uint32Array(n * 4);
+	for (let i = 0; i < n; i++) {
+		u32[i * 4] = (i & 1) ? 0x0044cc90 : 0xcc000090;   // 奇数=青 / 偶数=赤
+		u32[i * 4 + 2] = (8 << 24) | (6 << 8) | 1;
+	}
+	renderer.set("gintPaint", { table: u32, count: n });
+	needsDraw = true;
+	console.log("[paintParity] %d筆へ市松（偶数=赤/奇数=青）を適用。何も色が出ない場合は console の [gint] idFill caps 行を確認", n);
+};
+window.__paint = async (paint, filter = null) => {
+	if (!paint) { renderer.set("gintPaint", null); needsDraw = true; return; }
+	const feats = gintFidFeatures();   // fid 整列（.geojson は詰めズレするため使わない）
+	if (!feats) { console.warn("[paint] ユーザー層(gint)が未ロード（__moj 等で先にロード）"); return; }
+	const { buildFidStyle } = await import("ortho-core");
+	const { u32, count } = buildFidStyle(paint, feats, { filter, zoom: cam.zoom });
+	renderer.set("gintPaint", { table: u32, count });
+	needsDraw = true;
+	console.log("[paint] %d features へ適用", count);
 };
 // 世界海岸線（Natural Earth 10m）を球へ。uploader で事前変換済みの GeoPBF を bucket 名慣習
 // （GIS/pbf/ne_10m_coastline）から load＝初回も zip レンジ取得→shp デコードを払わない（gunzip 直読み→GintBUF 焼き→IDB）。

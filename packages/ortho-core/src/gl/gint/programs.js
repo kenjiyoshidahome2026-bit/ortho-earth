@@ -653,3 +653,6 @@ function getUniforms(gl, prog, names) {
 	for (const n of names) u[n] = gl.getUniformLocation(prog, n);
 	return u;
 }
+
+// idfill.js（コロプレス ID バッファ塗り）がシェーダ部品を共用する（VS ヘッダ＝投影/RTE/LOD/pivot 一式）。
+export { GLSL_VS_HEADER, VS_FILL, SHARED_UNIFORM_NAMES, linkProgram, getUniforms };

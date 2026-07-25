@@ -5,7 +5,8 @@
 // 単位は device px 一本（u_dpr=1、線幅/半径は worker が ×dpr 済み、blit は width 直）。
 
 import { s, DEF_STYLE, DEF_DASH, DEF_FILL, DEF_MASK } from './state.js';
-import { bindSharedUniforms } from './utility.js';
+import { bindSharedUniforms, bindPivot } from './utility.js';
+import { canUseIdFill, renderIdFill } from './idfill.js';
 
 // 低ズームでアウトライン→ベタ塗りへ切替えるズーム閾値の既定（データ粒度から導出した s.outlineZoom を優先）。
 const OUTLINE_ZOOM = 12;
@@ -77,20 +78,6 @@ function bindDepthUniforms(gl, u, data) {
 	return dep;
 }
 
-// feature bbox テクスチャ（扇要＋GPU bbox カリング）を unit2 へ。無いデータ（線のみ/疎fid）は
-// 従来のクリップ原点＆カリング無効。視野bbox は visibleRuns と同じ線幅マージン（e7 で 10000≈0.001°）。
-function bindPivot(gl, u) {
-	gl.uniform1i(u.u_pivot_tex, 2);
-	gl.uniform1i(u.u_pivot_w, s.pivotW || 1);
-	gl.uniform1i(u.u_has_pivot, s.pivotTex ? 1 : 0);
-	const vb = s.lastViewBbox;
-	gl.uniform1i(u.u_use_vbb, (s.pivotTex && vb) ? 1 : 0);
-	if (vb) gl.uniform4ui(u.u_view_bbox,
-		Math.max(0, vb[0] - 10000), Math.max(0, vb[1] - 10000),
-		Math.min(0xFFFFFFFF, vb[2] + 10000), Math.min(0xFFFFFFFF, vb[3] + 10000));
-	if (s.pivotTex) { gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, s.pivotTex); gl.activeTexture(gl.TEXTURE0); }
-}
-
 // site 2（点）：cam 由来の mvp/eye/origin を点プログラムへ。v1 の rotate/scale/rsincos/jac を建て替え。
 function bindPointUniforms(u, data) {
 	const { gl, ptTex, ptMetaTex, TEX_ARC_W, width, height } = s;
@@ -142,7 +129,10 @@ export function renderCleanScene(data, targetFBO = null) {
 	const lowZoom = (data.zoom ?? 99) < (s.outlineZoom ?? OUTLINE_ZOOM);
 	const hasPoly = (s.polyBboxByFid?.size ?? 0) > 0 && !s.fillOff;   // fillOff＝巨大ポリゴンの自動塗り停止（uploadGintTextures 判定）
 	const fc = data.fillColor ?? (lowZoom && hasPoly ? [st[0], st[1], st[2], st[3] * 0.8] : DEF_FILL);
-	if (fc[3] > 0 && s.polyEdges > 0) {
+	// paint（fid スタイル表）が預けられていれば ID バッファ塗り＝per-fid コロプレス（gint draw spec.md §7.2）。
+	// 明示 paint は全ズーム尊重（明示 fillColor と同じ原則）。能力なし/fid 超過/FBO 不成立は従来 stencil へ。
+	const idDone = canUseIdFill() && renderIdFill(data, targetFBO);
+	if (!idDone && fc[3] > 0 && s.polyEdges > 0) {
 		gl.enable(gl.STENCIL_TEST);
 		gl.stencilMask(0xFF);
 		gl.clear(gl.STENCIL_BUFFER_BIT);

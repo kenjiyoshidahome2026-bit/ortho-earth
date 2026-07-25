@@ -14,9 +14,19 @@ import { createFBOs, deleteFBOs } from './fbo.js';
 import { renderCleanScene, drawOverlay, renderPickingBuffer } from './passes.js';
 import { doIdentify, handleMove, handleLeave } from './identify.js';
 import { computeDrawData, zoomInRange } from './drawdata.js';
+import { uploadFidStyle, clearFidStyle, restoreFidStyle, idFillContextLost, disposeIdFill } from './idfill.js';
 import { unproject } from '../../camera.js';
 
-const funcs = { init, set, resize, drawing, drawn, move, leave, click, destroy, style, snapshot, bench };
+const funcs = { init, set, resize, drawing, drawn, move, leave, click, destroy, style, paint, snapshot, bench };
+
+// paint（fid スタイル表）の差し替え（gint draw spec.md §7.1）。main が style.js の buildFidStyle で
+// 式を評価済み＝ここは Uint32Array を受けてテクスチャ更新1回のみ。null=解除（従来塗りへ）。
+function paint(data) {
+	if (data.table && data.count > 0) uploadFidStyle(data.table, data.count);
+	else clearFidStyle();
+	s.idOverlapMode = !!data.overlap;   // 重複可視化モード（品質監査プローブ）
+	if (s.lastDrawData) renderCleanScene(s.lastDrawData, null);   // 静止中の即時反映（次の drawing を待たない）
+}
 
 // 描画コスト計測フック（ベンチハーネス用・通常経路では呼ばれない。v1 gint.js の bench と同形）：
 // drawNow 一式を発行し readPixels(1px) で GPU 完了まで待った実時間を返す（gl.finish は ANGLE で遅延され得る）。
@@ -77,10 +87,11 @@ function init(data) {
 		s.baseFBO = s.baseColorTex = s.baseDepthStencilRBO = null;
 		s.pickFBO = s.pickColorTex = s.pickDepthStencilRBO = null;
 		s.programs = null; s.lastDrawData = null;
+		idFillContextLost();   // ID塗りの GL 資産も消滅（CPU 側 fid 表は保持＝restore で再上げ）
 	}, false);
 	s.canvas.addEventListener('webglcontextrestored', () => {
 		s.programs = createGintPrograms(s.gl);
-		createFBOs(); uploadGintTextures();
+		createFBOs(); uploadGintTextures(); restoreFidStyle();
 		postMessage({ action: "redraw" });
 	}, false);
 
@@ -198,6 +209,7 @@ function click() {
 function destroy() {
 	deleteTextures();
 	deleteFBOs();
+	disposeIdFill();
 	if (s.gl && s.programs) {
 		const { renderProgram, stencilProgram, fillProgram, maskStencilProgram,
 				pointProgram, pickLineProgram, pickPointProgram, emptyVAO } = s.programs;

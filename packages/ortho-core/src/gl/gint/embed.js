@@ -20,6 +20,7 @@ import { createFBOs, deleteFBOs } from './fbo.js';
 import { renderCleanScene, drawHighlight, renderPickingBuffer } from './passes.js';
 import { doIdentify, handleMove, handleLeave } from './identify.js';
 import { computeDrawData, zoomInRange } from './drawdata.js';
+import { uploadFidStyle, clearFidStyle, disposeIdFill } from './idfill.js';
 import { unproject } from '../../camera.js';
 
 export function createGintLayer(gl, { requestDraw } = {}) {
@@ -67,6 +68,15 @@ export function createGintLayer(gl, { requestDraw } = {}) {
 	function style(data)   { drawStyle = data ?? null; s.requestDraw?.(); }
 	function setVisible(v) { visible = !!v; s.requestDraw?.(); }
 
+	// paint（fid スタイル表）の差し替え（gint draw spec.md §7.1）。main が style.js の buildFidStyle で
+	// 式を評価済み＝ここは Uint32Array を受けてテクスチャ更新1回のみ（restyle 契約）。null=解除（従来塗りへ）。
+	function paint(data) {
+		if (data?.table && data.count > 0) uploadFidStyle(data.table, data.count);
+		else clearFidStyle();
+		s.idOverlapMode = !!data?.overlap;   // 重複可視化モード（品質監査プローブ。通常 paint では false に戻る）
+		s.requestDraw?.();
+	}
+
 	// 地図フレーム末尾の gint パス。cam は renderer.draw と同じ glCam（動的解像度中は dpr×resScale 済み）
 	// ＝幾何・線幅とも地図と厳密同期。旧 onSync の「実移動判定」もここで行う（識別の panning 抑止）。
 	// ctx＝renderer.gintCtx()：山岳ビュー（terrainDepth）の間だけ非null＝線を地形深度に参加させる
@@ -103,6 +113,7 @@ export function createGintLayer(gl, { requestDraw } = {}) {
 		const MOVE_EDGE_BUDGET = 250_000;
 		if ((s._pfLineEdges ?? 0) > MOVE_EDGE_BUDGET && s._staticN < 4) {
 			s.lastDrawData = null;   // この間の identify/picking は抑止（古い cam の pick を残さない）
+			s._budgetSkipped = true; // settle(drawn) の復帰フック用＝「スキップ中に地図が idle 化」を検出
 			return;
 		}
 
@@ -110,6 +121,8 @@ export function createGintLayer(gl, { requestDraw } = {}) {
 		if (!zoomInRange(data)) { s._inRange = false; s.lastDrawData = null; s._pfLineEdges = 0; s._pfTierW = -1; return; }   // 範囲外＝描かない（identify も抑止）
 		s._inRange = true;
 		if (s.totalEdges === 0 && s.totalPoints === 0) { s.lastDrawData = null; s._pfLineEdges = 0; s._pfTierW = -1; return; }
+
+		s._budgetSkipped = false;   // ここから先は必ず描く＝スキップ状態を解除（settle 復帰フックは drawn 側）
 
 		const drawData = computeDrawData(data);
 		if (ctx && ctx.terrainDepth) drawData.depth = ctx;   // passes.js が線パスだけ深度テスト＋隠線2パスに切替
@@ -122,6 +135,7 @@ export function createGintLayer(gl, { requestDraw } = {}) {
 		renderCleanScene(drawData, null);   // embedded＝色を消さず上書き blend（passes.js の分岐）
 		drawHighlight(drawData);            // ホバー中の地物（activeId≥0）＝blit 復元でなく毎フレーム inline
 		s.lastDrawData = drawData;
+		if (s._pickPending) { s._pickPending = false; drawn(); }   // settle 復帰フレーム＝picking もここで建てる（下記 drawn の復帰フック）
 		// 復元：renderer は次フレーム冒頭で blend を張り直すが、同一タスク内の後続描画（snapshot 経路）と
 		// フレーム間規約のため明示的に戻す。stencil/VAO/テクスチャユニットも中立へ。
 		gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
@@ -136,7 +150,14 @@ export function createGintLayer(gl, { requestDraw } = {}) {
 	function drawn() {
 		s._isDrawing = false;
 		s._pfDrawn = (s._pfDrawn ?? 0) + 1;   // perf 計測用（settle 到達数。?perf=1 の行に出る）
-		if (!s.lastDrawData) return;
+		// 移動中予算スキップ（MOVE_EDGE_BUDGET）の復帰は「静止フレーム4枚」を待つが、フレームは地図が
+		// dirty の間しか回らない＝タイル/ラベルが全てキャッシュ済みだと静止直後に idle 化して4枚に届かず、
+		// レイヤが次の操作まで消えたままになる（実症状）。settle は静止の確定合図＝ここで予算ゲートを
+		// 通過扱いにし、自前でフレームを要求して復帰させる。picking はその復帰フレームの直後に建てる（上記フック）。
+		if (!s.lastDrawData) {
+			if (s._budgetSkipped) { s._budgetSkipped = false; s._staticN = 4; s._pickPending = true; s.requestDraw?.(); }
+			return;
+		}
 		if (!s.polyBboxByFid && s.totalPoints === 0) return;
 		if (!s.pickFBO || fboW !== s.width || fboH !== s.height) {
 			const keep = s.lastDrawData;   // createFBOs は lastDrawData を無効化する（worker 規約）＝ここでは維持
@@ -165,6 +186,7 @@ export function createGintLayer(gl, { requestDraw } = {}) {
 	function dispose() {
 		deleteTextures();
 		deleteFBOs();
+		disposeIdFill();
 		if (s.gl && s.programs) {
 			const { renderProgram, stencilProgram, fillProgram, maskStencilProgram,
 					pointProgram, pickLineProgram, pickPointProgram, emptyVAO } = s.programs;
@@ -186,5 +208,5 @@ export function createGintLayer(gl, { requestDraw } = {}) {
 			runs: s._pfRuns ?? -1, chunks: s._pfChunks ?? -1, vb: s.lastViewBbox };
 	}
 
-	return { set, style, setVisible, draw, drawn, move, leave, click, dispose, stats };
+	return { set, style, setVisible, paint, draw, drawn, move, leave, click, dispose, stats };
 }

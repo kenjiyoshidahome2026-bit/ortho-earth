@@ -7,6 +7,7 @@ export { lonLatToTile, tileLocalToLonLat, tileBounds } from "./tile.js";
 export { buildTileDrawList } from "./build.js";
 export { createRenderer } from "./gl/renderer.js";
 export { createGintLayer } from "./gl/gint/embed.js";
+export { buildFidStyle } from "./gl/gint/style.js";
 export { buildLabels } from "./labels.js";
 export { buildGeoJSONOverlay, pointInFeature } from "./geojson.js";
 export { buildBuildings } from "./buildings.js";

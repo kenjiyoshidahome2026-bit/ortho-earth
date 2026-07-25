@@ -92,6 +92,7 @@ onmessage = e => {
 		case "set":
 			if (m.cmd === "gint") { if (gint) gint.set(m.data); }                // 知性の層のペイロード差し替え（null=空化）
 			else if (m.cmd === "gintStyle") { if (gint) gint.style(m.data); }    // 描画スタイル（styleTable/lineWidth 等）
+			else if (m.cmd === "gintPaint") { if (gint) gint.paint(m.data); }    // fidスタイル表（コロプレス。main が buildFidStyle 評価済み・null=解除）
 			else if (m.cmd === "gintVis") { if (gint) gint.setVisible(m.data); } // 表示切替（旧 #gint canvas の display 相当）
 			else if (m.cmd === "labels") { pendingLabels = m.data; applyLabels(); }   // ラベル集合の更新（標高は cam が揃ってから付与）
 			else if (m.cmd === "skyLabels") { if (labelLayer) labelLayer.setSky(m.data); }   // 星空劇場の注記（星座名・メシエ）＝ラベルcanvasへ
