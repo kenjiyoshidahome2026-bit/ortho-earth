@@ -2,13 +2,19 @@
 // v1(ortho-map) の gintTextures を移植。node-free（GintBUF→テクスチャ、投影に触れない）＝逐語で携行。
 
 import { s } from './state.js';
-import { uploadTex2D, buildEdgeMeta, buildPolyBboxByFid, deriveOutlineZoom, buildWeightHist } from './utility.js';
+import { uploadTex2D, buildEdgeMeta, buildBoundaryEdgeMeta, normalizeRingOrientation, buildPolyBboxByFid, deriveOutlineZoom, buildWeightHist } from './utility.js';
 
 
 export function uploadGintTextures() {
 	const { gl, gintData } = s;
 	if (!gl || !gintData) return;
 	const { arcBuffer: ab, arcMeta: am, polyStream: ps, lineStream: ls, pointBuffer: pb } = gintData;
+
+	// 逆巻きリングの参照符号を正規化（境界メタ netting の前提＋IDバッファ塗りの符号一貫）。データごとに一回。
+	if (!gintData._ringsNormalized) {
+		normalizeRingOrientation(ab, am, ps);
+		gintData._ringsNormalized = true;
+	}
 
 	// arcTex: RG32UI — 64-bit Morton vertex (lo32, hi32)
 	if (s.arcTex) gl.deleteTexture(s.arcTex);
@@ -90,6 +96,27 @@ export function uploadGintTextures() {
 		const metaPad = new Uint32Array(s.TEX_META_W * metaH * 4);
 		metaPad.set(metaU32);
 		s.metaTex = uploadTex2D(gl, metaPad, s.TEX_META_W, metaH, gl.RGBA32UI, gl.RGBA_INTEGER);
+	}
+
+	// metaTexB: 境界エッジメタ（正味参照≠0 の arc のみ＋折れ線全量）。v1 から移植。
+	// stencil 単色塗りは常時こちら（winding 等価で桁違いに軽い）、線パスは低ズーム(z<outlineZoom)で切替＝
+	// アウトライン表示。anchor支配で tier が組めない筆系の中ズーム（37万辺フル密度＝gpuGint 20-37ms実測）の答え。
+	// ライン専用（polyStream 無し）は縮減されない＝構築ごとスキップ。IDバッファ塗りは fid 重みのため使えない＝基準メタ固定。
+	if (s.metaTexB) gl.deleteTexture(s.metaTexB);
+	s.metaTexB = null;
+	s.totalEdgesB = 0;
+	s.polyEdgesB  = 0;
+	if (s.totalEdges > 0 && ps?.length) {
+		const bResult = buildBoundaryEdgeMeta(am, ps, ls, ab, capMinW);
+		s.totalEdgesB = bResult.edgeCount;
+		s.polyEdgesB  = bResult.polyEdgeCount;
+		if (bResult.edgeCount > 0) {
+			const bH   = Math.ceil(bResult.edgeCount / s.TEX_META_W);
+			const bPad = new Uint32Array(s.TEX_META_W * bH * 4);
+			bPad.set(bResult.metaU32);
+			s.metaTexB = uploadTex2D(gl, bPad, s.TEX_META_W, bH, gl.RGBA32UI, gl.RGBA_INTEGER);
+		}
+		console.debug('[gint] boundary edges=%d (%.1f%%)', s.totalEdgesB, s.totalEdges ? 100 * s.totalEdgesB / s.totalEdges : 0);
 	}
 
 	// ── 段階別 LOD メタ（ortho-map から移植）──
@@ -185,12 +212,14 @@ export function deleteTextures() {
 	if (!gl) return;
 	if (s.arcTex)    gl.deleteTexture(s.arcTex);
 	if (s.metaTex)   gl.deleteTexture(s.metaTex);
+	if (s.metaTexB)  gl.deleteTexture(s.metaTexB);
 	if (s.ptTex)     gl.deleteTexture(s.ptTex);
 	if (s.ptMetaTex) gl.deleteTexture(s.ptMetaTex);
 	if (s.pivotTex)  gl.deleteTexture(s.pivotTex);
 	if (s.lodTiers?.length) s.lodTiers.forEach(t => gl.deleteTexture(t.tex));
 	s.lodTiers = [];
 	s.metaChunks = null;
-	s.arcTex = s.metaTex = s.ptTex = s.ptMetaTex = s.pivotTex = null;
+	s.arcTex = s.metaTex = s.metaTexB = s.ptTex = s.ptMetaTex = s.pivotTex = null;
+	s.totalEdgesB = s.polyEdgesB = 0;
 	s.pivotW = 0;
 }

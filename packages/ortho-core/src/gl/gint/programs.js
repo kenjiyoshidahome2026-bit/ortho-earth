@@ -340,6 +340,8 @@ void main() {
 }`;
 
 // 6 verts/edge: (A-)(A+)(B+)(A-)(B+)(B-)。u_pass=0: 非アクティブ, u_pass=1: アクティブのみ(最後に描き z-fight 解消)。
+// per-fid スタイル（paint 時のみ・u_has_fidstyle=1）：fid表(unit5)から visibility/line色/width を上書き。
+// width はスタイル正味（u8×1/8px）＋u_width_add（パス都合の増分＝highlight+2 等。表に混ぜない＝spec §7.1）。
 const VS_RENDER = `${GLSL_VS_HEADER}
 uniform float u_line_width;
 uniform float u_dpr;
@@ -347,6 +349,10 @@ uniform int   u_active_id;
 uniform int   u_pass;
 uniform vec4  u_style_table[256];
 uniform vec2  u_dash_table[256];   // [dash_len, gap_len] in px; gap=0 → solid
+uniform usampler2D u_fid_style;    // fid スタイル表（RGBA32UI・unit5。idfill と同一レイアウト）
+uniform int        u_fidstyle_w;
+uniform int        u_has_fidstyle;
+uniform float      u_width_add;    // パス増分（clean=0 / highlight=+2）
 out vec4  v_color;
 out float v_zr;
 out float v_dist;
@@ -372,6 +378,20 @@ void main() {
 	if (u_pass == 0 && feat_id == u_active_id) { gl_Position = vec4(2.0, 0.0, 0.0, 1.0); return; }
 	if (u_pass == 1 && feat_id != u_active_id) { gl_Position = vec4(2.0, 0.0, 0.0, 1.0); return; }
 
+	// per-fid スタイル（paint 時のみ）。visibility=filter の実体（線にも効く）・width=0=線を描かない（§7.1）。
+	float lw = u_line_width;
+	vec4  fidColor = vec4(0.0);
+	if (u_has_fidstyle == 1) {
+		uvec4 rec = texelFetch(u_fid_style, ivec2(int(meta.a) % u_fidstyle_w, int(meta.a) / u_fidstyle_w), 0);
+		if ((rec.b & 1u) == 0u) { gl_Position = vec4(2.0, 0.0, 0.0, 1.0); return; }
+		uint w8 = (rec.b >> 24u) & 255u;
+		if (w8 == 0u) { gl_Position = vec4(2.0, 0.0, 0.0, 1.0); return; }
+		lw = float(w8) * 0.125 + u_width_add;
+		uint lc = rec.g;
+		if ((lc & 255u) != 0u)
+			fidColor = vec4(float(lc >> 24u), float((lc >> 16u) & 255u), float((lc >> 8u) & 255u), float(lc & 255u)) / 255.0;
+	}
+
 	bool  useA = (sub == 0 || sub == 1 || sub == 3);
 	float side = (sub == 1 || sub == 2 || sub == 4) ? 1.0 : -1.0;
 	uint  si   = useA ? lodA : lodB;
@@ -395,7 +415,7 @@ void main() {
 	if (len < 1e-4) { vec4 nd0 = toNDC(ps.xy); gl_Position = vec4(nd0.xy, zc, 1.0); return; }
 	vec2 tang = dir / len;
 	vec2 perp = vec2(-tang.y, tang.x);
-	float halfCss = u_line_width * 0.5 + 1.0 / u_dpr;
+	float halfCss = lw * 0.5 + 1.0 / u_dpr;
 	vec2 qpos = ps.xy + side * halfCss * perp - tang * halfCss;   // AA余白込みのクアッド（端は FS のカプセルSDFで丸める）
 	vec4 nd = toNDC(qpos);
 	gl_Position = vec4(nd.xy, zc, 1.0);
@@ -404,12 +424,12 @@ void main() {
 	int style_idx = int(meta.b & 0xFFu);
 	v_color = (u_pass == 1)
 		? vec4(1.0, 0.9, 0.0, 1.0)
-		: u_style_table[style_idx];
+		: (fidColor.a > 0.0 ? fidColor : u_style_table[style_idx]);   // fid線色（paint）＞style_table（既定）
 	v_dash      = u_dash_table[style_idx];
 	v_dist_base = float(meta.b >> 8u) * 0.017453292;   // 累積px距離の基底（scale 非依存の相対）
 	v_dist = useA ? 0.0 : len;
 	v_perp  = side * halfCss * u_dpr;
-	v_halfw = u_line_width * 0.5 * u_dpr;
+	v_halfw = lw * 0.5 * u_dpr;
 }`;
 
 const FS_RENDER = `#version 300 es
@@ -457,6 +477,9 @@ void main() {
 // GPU picking：fid+1 を RGB 24bit に。(0,0,0)=地物なし。
 const VS_PICK_LINE = `${GLSL_VS_HEADER}
 uniform float u_line_width;
+uniform usampler2D u_fid_style;    // fid スタイル表（visibility＝filter を pick にも効かせる）
+uniform int        u_fidstyle_w;
+uniform int        u_has_fidstyle;
 out vec4  v_color;
 out float v_zr;
 
@@ -467,6 +490,10 @@ void main() {
 
 	// style 0 = polygon edge（JS レイキャストで識別）→ここでは捨てる。1 = polyline。
 	if ((meta.b & 255u) == 0u) { gl_Position = vec4(2.0, 0.0, 0.0, 1.0); return; }
+	// filter で非表示の feature は pick からも外す（見えない線に当たらない）
+	if (u_has_fidstyle == 1 &&
+		(texelFetch(u_fid_style, ivec2(int(meta.a) % u_fidstyle_w, int(meta.a) / u_fidstyle_w), 0).b & 1u) == 0u)
+		{ gl_Position = vec4(2.0, 0.0, 0.0, 1.0); return; }
 
 	// pick も描画と同じ kept 集合＝当たり判定が「見えている線」と一致（12px マージンが吸収する範囲の差だが、
 	// settle 毎の VS 起動と walk を描画パスと同じだけ削る＝軽さの均質化）。
@@ -614,12 +641,13 @@ export function createGintPrograms(gl) {
 
 	const uRender      = getUniforms(gl, renderProgram,      [...SHARED_UNIFORM_NAMES, 'u_line_width', 'u_dpr', 'u_active_id', 'u_pass', 'u_style_table', 'u_dash_table',
 		'u_logCoef', 'u_fogFar', 'u_origin_pt', 'u_elevTex', 'u_elevBounds', 'u_elevScale', 'u_hasElev', 'u_elevEdgeFade', 'u_hidden',   // 深度統合（段階B）用＝未設定なら全0=従来動作
-		'u_pivot_tex', 'u_pivot_w', 'u_has_pivot', 'u_view_bbox', 'u_use_vbb']);   // feature bbox カリング
+		'u_pivot_tex', 'u_pivot_w', 'u_has_pivot', 'u_view_bbox', 'u_use_vbb',   // feature bbox カリング
+		'u_fid_style', 'u_fidstyle_w', 'u_has_fidstyle', 'u_width_add']);        // per-fid スタイル（paint）
 	const uStencil     = getUniforms(gl, stencilProgram,     [...SHARED_UNIFORM_NAMES, 'u_pivot_tex', 'u_pivot_w', 'u_has_pivot', 'u_view_bbox', 'u_use_vbb']);
 	const uFill        = getUniforms(gl, fillProgram,        ['u_fill_color']);
 	const uMaskStencil = getUniforms(gl, maskStencilProgram, [...SHARED_UNIFORM_NAMES, 'u_active_id']);
 	const uPoint       = getUniforms(gl, pointProgram,       [...PT_UNIFORM_NAMES, 'u_active_id']);
-	const uPickLine    = getUniforms(gl, pickLineProgram,    [...SHARED_UNIFORM_NAMES, 'u_line_width']);
+	const uPickLine    = getUniforms(gl, pickLineProgram,    [...SHARED_UNIFORM_NAMES, 'u_line_width', 'u_fid_style', 'u_fidstyle_w', 'u_has_fidstyle']);
 	const uPickPoint   = getUniforms(gl, pickPointProgram,   PT_UNIFORM_NAMES);
 
 	const emptyVAO = gl.createVertexArray();

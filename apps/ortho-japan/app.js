@@ -799,6 +799,20 @@ window.__paintParity = () => {
 	needsDraw = true;
 	console.log("[paintParity] %d筆へ市松（偶数=赤/奇数=青）を適用。何も色が出ない場合は console の [gint] idFill caps 行を確認", n);
 };
+// 任意の bucket GeoPBF を gint ユーザー層としてロード（例: __gload('admin_all')＝行政界コロプレスの土台。
+// 全国級なので minZoom=2＝ズームアウトしても海岸線に切り替わらない）。
+window.__gload = async (name, opts = {}) => {
+	const pbf = await geopbf(name, { gint: true }).catch(e => { console.error("[gload]", e); return null; });
+	if (!pbf) return null;
+	return applyGintData(pbf, name, true, { minZoom: 2, ...opts });
+};
+// 移動中描画予算のノブ（実測用）。__budget(Infinity)=移動中も常時描画 / __budget()=既定250kへ戻す。
+// ?perf=1 の [perf] 行の gpuGint ms を見ながらズーム操作で実測 → 既定値の再裁定に使う。
+window.__budget = (n) => {
+	gintDrawOpts = { ...(gintDrawOpts || {}), moveBudget: n ?? undefined };
+	sendGintStyle(); needsDraw = true;
+	console.log("[budget] moveBudget=%s", n ?? "既定(250k)");
+};
 window.__paint = async (paint, filter = null) => {
 	if (!paint) { renderer.set("gintPaint", null); needsDraw = true; return; }
 	const feats = gintFidFeatures();   // fid 整列（.geojson は詰めズレするため使わない）

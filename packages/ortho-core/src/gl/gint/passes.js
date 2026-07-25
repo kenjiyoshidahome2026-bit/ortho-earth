@@ -78,6 +78,27 @@ function bindDepthUniforms(gl, u, data) {
 	return dep;
 }
 
+// 境界メタ描画用：扇要=クリップ原点（単一要）＋fid bbox カリング無効。
+// 境界メタのループは「多数 fid の arc の寄せ集め」＝per-fid 扇要（pivotClip）では1つの閉ループが
+// 別々の要から扇られて閉じず、巻き数の閉じ残しが巨大な楔として漏れる（札幌 大字圏で実測）。
+// 同様に fid bbox カリングは視界外 fid 帰属の arc を落とし、視界内ループを破る＝両方無効化が正解。
+// v1 は常に単一要・カリング無し＝この流儀そのもの。境界メタは辺数が桁減済みなので TBDR も安全。
+function bindPivotBoundary(gl, u) {
+	gl.uniform1i(u.u_has_pivot, 0);   // pivotClip → クリップ原点 vec4(0,0,0,1)
+	gl.uniform1i(u.u_use_vbb, 0);     // bboxVisible → 常に true
+}
+
+// per-fid スタイル表（paint 時のみ・unit5）：visibility（filter）/line色/width を VS が引く。
+// u_width_add＝パス都合の幅増分（clean=0 / highlight=+2。表はスタイル正味のみ＝spec §7.1）。
+function bindFidStyle(gl, u, widthAdd = 0) {
+	gl.uniform1i(u.u_has_fidstyle, s.fidStyleTex ? 1 : 0);
+	if (u.u_width_add) gl.uniform1f(u.u_width_add, widthAdd);
+	if (!s.fidStyleTex) return;
+	gl.uniform1i(u.u_fid_style, 5);
+	gl.uniform1i(u.u_fidstyle_w, s.fidStyleW || 1);
+	gl.activeTexture(gl.TEXTURE5); gl.bindTexture(gl.TEXTURE_2D, s.fidStyleTex); gl.activeTexture(gl.TEXTURE0);
+}
+
 // site 2（点）：cam 由来の mvp/eye/origin を点プログラムへ。v1 の rotate/scale/rsincos/jac を建て替え。
 function bindPointUniforms(u, data) {
 	const { gl, ptTex, ptMetaTex, TEX_ARC_W, width, height } = s;
@@ -126,13 +147,33 @@ export function renderCleanScene(data, targetFBO = null) {
 	// 明示 fillColor は全ズームで尊重（透明を渡せば従来のアウトラインのみ）。polyBboxByFid が空＝線/点のみ
 	// （海岸線等）＝塗らない（線を winding にファンさせる誤塗り防止）。
 	const st = data.styleTable ?? DEF_STYLE;
-	const lowZoom = (data.zoom ?? 99) < (s.outlineZoom ?? OUTLINE_ZOOM);
+	const zoomV = data.zoom ?? 99, oz = s.outlineZoom ?? OUTLINE_ZOOM;
+	const lowZoom = zoomV < oz;
+	// 切替ズーム（outlineZoom）跨ぎのもたつき対策＝ヒステリシス：移動中は安い表現（境界メタ＋ベタ塗り）を
+	// +1.5z 延長し、崖（境界3万辺→基準20万辺級のコスト跳ね）を操作中に跨がない。静止(settle)で必ず正表現へ
+	// 戻る＝止まった絵は従来と同一（terrainGate と同じ「動いている間だけ粗く」の思想）。
+	// 「移動中」は静止4フレームまで含む＝wheel の tick 間の1-2フレーム静止で表現が明滅しない
+	//（MOVE_EDGE_BUDGET の _staticN<4 と同じデバウンス。embedded 以外は _staticN 無し＝_isDrawing のみ）。
+	const moving = s._isDrawing || (s._staticN ?? 99) < 4;
+	const lowZoomEff = lowZoom || (moving && zoomV < oz + 1.5);
+	// ヒステリシス帯で静止カウント中はフレームを自前で継続要求＝地図が即 idle 化しても正表現へ必ず収束
+	//（予算スキップの settle 復帰と同じ「他人のフレームに相乗りしない」原則）。
+	if (!s._isDrawing && moving && !lowZoom && lowZoomEff) s.requestDraw?.();
 	const hasPoly = (s.polyBboxByFid?.size ?? 0) > 0 && !s.fillOff;   // fillOff＝巨大ポリゴンの自動塗り停止（uploadGintTextures 判定）
-	const fc = data.fillColor ?? (lowZoom && hasPoly ? [st[0], st[1], st[2], st[3] * 0.8] : DEF_FILL);
+	// 既定塗り＝α0.8（v1 と同値。0.5 も試したが 0.8 へ戻す＝2026-07-26 目視裁定）。
+	// oz 跨ぎで即消しせず oz〜oz+1.2z で 0.8→0 へ線形フェード＝切替を「ポン」でなくグラデーションに溶かす
+	//（z≤oz は clamp で常に 0.8。塗りは境界メタ stencil＝帯の延長コストは実質ゼロ）。移動中は lowZoomEff が
+	// さらに帯を持ち上げるが、フェード式は zoom 連続なので明滅しない。
+	const fillA = st[3] * 0.8 * Math.max(0, Math.min(1, ((oz + 1.2) - zoomV) / 1.2));
+	const fc = data.fillColor ?? (hasPoly && (lowZoomEff || fillA > 0.004) ? [st[0], st[1], st[2], fillA] : DEF_FILL);
 	// paint（fid スタイル表）が預けられていれば ID バッファ塗り＝per-fid コロプレス（gint draw spec.md §7.2）。
 	// 明示 paint は全ズーム尊重（明示 fillColor と同じ原則）。能力なし/fid 超過/FBO 不成立は従来 stencil へ。
 	const idDone = canUseIdFill() && renderIdFill(data, targetFBO);
-	if (!idDone && fc[3] > 0 && s.polyEdges > 0) {
+	// 単色 stencil 塗りは常時境界メタ（共有 arc は winding 寄与が正味 0＝落としても数学的に同一で桁違いに軽い）。
+	// ID バッファ塗りは fid 重みのため境界メタ不可＝基準メタ固定（renderIdFill 側）。
+	const hasB = !!(s.metaTexB && s.polyEdgesB > 0);
+	const stTex = hasB ? s.metaTexB : metaTex, stCount = hasB ? s.polyEdgesB : s.polyEdges;
+	if (!idDone && fc[3] > 0 && stCount > 0) {
 		gl.enable(gl.STENCIL_TEST);
 		gl.stencilMask(0xFF);
 		gl.clear(gl.STENCIL_BUFFER_BIT);
@@ -141,11 +182,11 @@ export function renderCleanScene(data, targetFBO = null) {
 		gl.stencilOpSeparate(gl.FRONT, gl.KEEP, gl.KEEP, gl.INCR_WRAP);
 		gl.stencilOpSeparate(gl.BACK,  gl.KEEP, gl.KEEP, gl.DECR_WRAP);
 		gl.useProgram(stencilProgram);
-		bindSharedUniforms(gl, uStencil, data, arcTex, metaTex, TEX_ARC_W, TEX_META_W, width, height);
-		bindPivot(gl, uStencil);
+		bindSharedUniforms(gl, uStencil, data, arcTex, stTex, TEX_ARC_W, TEX_META_W, width, height);
+		if (hasB) bindPivotBoundary(gl, uStencil); else bindPivot(gl, uStencil);   // 境界メタ＝単一要・カリング無効（fid混成ループ）
 		gl.uniform1f(uStencil.u_lod_rank, 0);   // 塗りstencilは全密度＝LOD簡略化の自己交差による斑点(winding反転)を防ぐ
 		// ポリゴン辺（メタ先頭連続）のみ winding にファン＝折れ線辺を混ぜない（ortho-map と同規約）
-		gl.drawArrays(gl.TRIANGLES, 0, s.polyEdges * 3);
+		gl.drawArrays(gl.TRIANGLES, 0, stCount * 3);
 		gl.colorMask(true, true, true, true);
 		gl.stencilMask(0x00);
 		gl.stencilFunc(gl.NOTEQUAL, 0, 0xFF);
@@ -156,9 +197,14 @@ export function renderCleanScene(data, targetFBO = null) {
 		gl.disable(gl.STENCIL_TEST);
 	}
 
-	// ── Fat-line edges ──（低〜中ズーム＝tier / 高ズーム＝可視チャンク run）
+	// ── Fat-line edges ──（低ズーム＝境界メタ＝アウトラインのみ / 中〜高ズーム＝tier＋可視チャンク run）
+	// lowZoom(z<outlineZoom) では筆内部の線は視認不能（ベタ潰れ）＝境界メタで街区外郭だけ描く。
+	// anchor支配で tier が組めない筆系（札幌37万辺=tiers0）の中ズームを桁で軽くする＝ズーム中描画の生命線。
 	if (totalEdges > 0) {
-		const lnSel = pickLineTier(data.lodRank ?? 0, metaTex, totalEdges);
+		const lnB = lowZoomEff && s.metaTexB && s.polyEdgesB > 0;
+		const lnSel = lnB
+			? { tex: s.metaTexB, count: s.totalEdgesB, runs: null, minW: -2 }   // minW=-2＝perf行で境界パスと分かる印
+			: pickLineTier(data.lodRank ?? 0, metaTex, totalEdges);
 		gl.useProgram(renderProgram);
 		bindSharedUniforms(gl, uRender, data, arcTex, lnSel.tex, TEX_ARC_W, TEX_META_W, width, height);
 		gl.uniform1f(uRender.u_line_width,   data.lineWidth ?? 1.0);   // device px（worker 済み）
@@ -167,7 +213,9 @@ export function renderCleanScene(data, targetFBO = null) {
 		gl.uniform4fv(uRender.u_style_table, data.styleTable ?? DEF_STYLE);
 		gl.uniform2fv(uRender.u_dash_table,  data.dashTable  ?? DEF_DASH);
 		gl.uniform1i(uRender.u_pass, 0);
-		bindPivot(gl, uRender);   // feature bbox カリング（ポリゴン辺のみ VS が判定）
+		if (lnB) bindPivotBoundary(gl, uRender);   // 境界メタ＝fidカリング無効（視界外fid帰属arcで外郭が欠けるのを防ぐ）
+		else bindPivot(gl, uRender);               // feature bbox カリング（ポリゴン辺のみ VS が判定）
+		bindFidStyle(gl, uRender, 0);   // per-fid 線スタイル（paint 時のみ有効）
 		// 深度統合（段階B・山岳ビュー z<13 のみ dep 非null）：線を地形深度でテスト（書かない）＝
 		// 尾根の向こうは実線が消え、直後の GREATER パスが「淡い固定破線」で拾う（CAD の隠線表現）。
 		const dep = bindDepthUniforms(gl, uRender, data);
@@ -245,6 +293,7 @@ export function drawHighlight(data) {
 	gl.useProgram(renderProgram);
 	bindSharedUniforms(gl, uRender, data, arcTex, metaTex, TEX_ARC_W, TEX_META_W, width, height);
 	bindDepthUniforms(gl, uRender, data);
+	bindFidStyle(gl, uRender, 2.0);   // per-fid 幅にもハイライト増分 +2px（表には混ぜない）
 	gl.uniform1f(uRender.u_line_width,   (data.lineWidth ?? 1.0) + 2.0);
 	gl.uniform1f(uRender.u_dpr,          1.0);
 	gl.uniform1i(uRender.u_active_id,    activeId);
@@ -310,6 +359,7 @@ export function renderPickingBuffer(data) {
 			const pkSel = pickLineTier(data.lodRank ?? 0, metaTex, totalEdges);
 			gl.useProgram(pickLineProgram);
 			bindSharedUniforms(gl, uPickLine, data, arcTex, pkSel.tex, TEX_ARC_W, TEX_META_W, width, height);
+			bindFidStyle(gl, uPickLine);   // filter 非表示の feature を pick からも外す
 			gl.uniform1f(uPickLine.u_line_width, (data.lineWidth ?? 1.0) + pickMargin);
 			for (const [est, cnt] of (pkSel.runs ?? [[0, pkSel.count]]))
 				gl.drawArrays(gl.TRIANGLES, est * 6, cnt * 6);

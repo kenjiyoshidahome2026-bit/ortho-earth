@@ -10,6 +10,8 @@ export const s = {
 
 	// Textures
 	arcTex: null, metaTex: null, ptTex: null, ptMetaTex: null,
+	metaTexB: null,                // 境界エッジメタ（正味0の共有arc除去。stencil単色塗り常用＋低ズーム線パス）
+	totalEdgesB: 0, polyEdgesB: 0,
 	fidStyleTex: null, fidStyleW: 0, fidStyleCount: 0,   // fid スタイル表（RGBA32UI・paint の実体＝idfill.js）。CPU 控えは _fidStyleData（context restore 用）
 	pivotTex: null, pivotW: 0,     // stencil塗りの per-feature 扇要（fid→bbox中心 e7整数）。null=従来のクリップ原点
 	lodTiers: [],                  // 段階別 LOD メタ [{minW, edgeCount, tex}] minW 昇順（粗いほど後ろ）

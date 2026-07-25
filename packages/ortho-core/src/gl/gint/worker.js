@@ -82,7 +82,8 @@ function init(data) {
 
 	s.canvas.addEventListener('webglcontextlost', e => {
 		e.preventDefault();
-		s.arcTex = s.metaTex = s.ptTex = s.ptMetaTex = null;
+		s.arcTex = s.metaTex = s.metaTexB = s.ptTex = s.ptMetaTex = null;
+		s.totalEdgesB = s.polyEdgesB = 0;
 		s.lodTiers = []; s.tierGen = (s.tierGen ?? 0) + 1;   // 遅延 tier 構築も中止（復元時に作り直す）
 		s.baseFBO = s.baseColorTex = s.baseDepthStencilRBO = null;
 		s.pickFBO = s.pickColorTex = s.pickDepthStencilRBO = null;
@@ -155,6 +156,8 @@ function drawNow(data) {
 	if (data.panning) {
 		s._isDrawing = true;
 		clearTimeout(s._moveTimer); s._moveTimer = null; s._pendingMove = null;
+		// カメラ操作に入った瞬間に tip とハイライトを即消す（embedded 側と同挙動）。
+		if (s.activeId !== -1) { s.activeId = -1; postMessage({ action: "identify", featureId: null }); }
 	} else {
 		s._isDrawing = false;
 	}

@@ -99,6 +99,9 @@ export function createGintLayer(gl, { requestDraw } = {}) {
 			s._isDrawing = true;
 			clearTimeout(s._moveTimer); s._moveTimer = null; s._pendingMove = null;
 			s._staticN = 0;
+			// カメラ操作（zoom/pan）に入った瞬間に tip とハイライトを即消す（handleLeave と同形の通知）。
+			// activeId ガード＝遷移の1回だけ発火（移動中の毎フレーム postMessage はしない）。
+			if (s.activeId !== -1) { s.activeId = -1; postMessage({ action: "identify", featureId: null }); }
 		} else {
 			s._isDrawing = false;
 			s._staticN = (s._staticN ?? 0) + 1;
@@ -110,7 +113,9 @@ export function createGintLayer(gl, { requestDraw } = {}) {
 		//（短arc＝anchor支配）の「チルト/広域＝数十万辺×毎フレーム＝GPU 100ms級」から地図の応答性を守る
 		//（旧 #gint canvas opacity 手当ての一般化＝データ量で自動発動。海岸線19万辺級は予算内＝常時同フレーム）。
 		// settle(150ms) までに静止フレームが必ず数枚入る＝drawn() の picking は新鮮な lastDrawData で走る。
-		const MOVE_EDGE_BUDGET = 250_000;
+		// 予算は drawStyle.moveBudget で可変（既定 250k）。根拠だった「GPU 100ms級」実測は pivotClip/隠線ガード
+		// 導入前のもの＝実機で測り直して閾値を決め直すためのノブ（Infinity=移動中も常時描画）。
+		const MOVE_EDGE_BUDGET = drawStyle?.moveBudget ?? 250_000;
 		if ((s._pfLineEdges ?? 0) > MOVE_EDGE_BUDGET && s._staticN < 4) {
 			s.lastDrawData = null;   // この間の identify/picking は抑止（古い cam の pick を残さない）
 			s._budgetSkipped = true; // settle(drawn) の復帰フック用＝「スキップ中に地図が idle 化」を検出
