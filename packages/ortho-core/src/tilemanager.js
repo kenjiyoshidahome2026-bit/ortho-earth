@@ -84,7 +84,7 @@ export function createTileManager({ style, tileUrl, onChange, cap = 256, buildTi
 		// 粗い下地：3段低いズームで広く覆う。移動中の先端の空白を常に埋める underlay。
 		// lodFloor 有効時は下地も z8 で敷く（floorZ が強制分割・maxZ が上限開放）：z5-7 の下地は海（WA）を
 		// 持たないため、移動中に下地が顔を出す瞬間だけ海が紙色に白転してちらつく（実害はまさに下地側だった）。
-		const coarse = selectLOD(cam, W, H, { maxZ: Math.max(floorZ || 4, Math.round(cam.zoom) - 3), floorZ });
+		const coarse = selectLOD(cam, W, H, { maxZ: Math.max(floorZ || 4, Math.round(cam.zoom) - 4), floorZ });   // -4＝主層(タイルz≈zoom-1)の3段下（256px世界の z はタイルzより1大きい）
 		// 毛布：固定 z4 の床タイル＝フォールバックの終点保証。「zoom-6」の動く目標だと高速ズームアウト中に
 		// 毎段コールドフェッチで間に合わず白が出る。z4 固定なら1枚で22.5°＝数枚で日本全体、初回以降キャッシュ常駐
 		// ＝どんな引き方をしても床が必ず先に居る。W/H×3＝視野の3倍を先回り（外周の白露出も防ぐ）。
@@ -117,7 +117,7 @@ export function createTileManager({ style, tileUrl, onChange, cap = 256, buildTi
 			if (evicted.length && onEvict) onEvict(evicted);
 		}
 		const ready = arr => { const o = []; for (const t of arr) { const c = cache.get(keyOf(t)); if (c && c.status === "ready") o.push({ key: keyOf(t), origin: c.origin, z: t.z }); } return o; };
-		// 下地は祖先フォールバック付き：ズームで下地の段(round(zoom)-3)が切り替わる度に新段が未着で
+		// 下地は祖先フォールバック付き：ズームで下地の段(round(zoom)-4)が切り替わる度に新段が未着で
 		// 紙色の空白がチラつくのを、キャッシュ済みの粗い親で埋めて防ぐ。粗い順＝下に描かれる。
 		const readyWithFallback = arr => {
 			const o = [], seen = new Set();

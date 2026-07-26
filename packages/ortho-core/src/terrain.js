@@ -2,7 +2,7 @@
 // R01(1°・秒単位)まで寄れるので城下の地形が正確＝建物が実地形に接地する。
 // DOM に触れない純ロジック＝ render worker（OffscreenCanvas側）からそのまま使える。読込インジケータは
 // onPending コールバックで外へ通知し、DOM を持つ側（main）が表示する。
-import { unproject, cameraState, lonlatTo3D } from "./camera.js";
+import { unproject, cameraState, lonlatTo3D, WORLD_PX } from "./camera.js";
 import { downsampleFlipped } from "./elevation.js";
 import { createTileLoader } from "altpbf";
 
@@ -39,15 +39,15 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 	function notifyPending(range) { onPending && onPending(pendingElev, range); }
 
 	// R90=全球〜大陸眺め / R10=中 / R01=城下。
-	// R90/R10境界=z5.5：R90(3.7km格子)は~z5.3まで画素以下＝十分。R10は1枚3.5-4.5MBで
+	// R90/R10境界=z6.5：R90(3.7km格子)は~z6.3まで画素以下＝十分。R10は1枚3.5-4.5MBで
 	// 広域だと6-8枚=25-35MBを一瞥の大陸に払う浪費（本人裁定「この倍率ならR90で十分」）。
 	// R90は90°角1-2枚=一度きり＝全球ぐるぐるの巡航コストがほぼゼロになる。
-	// 高チルト(>0.9rad)の山岳帯は R10 へ落とす：R01 は cap4=4° で地平線(z12で~4°先)まで届かず、
+	// 高チルト(>0.9rad)の山岳帯は R10 へ落とす：R01 は cap4=4° で地平線(z13で~4°先)まで届かず、
 	// 覆いの切れ目が「遠方の青い帯」になる（R10 なら広域を一括カバー＝地平線までフォグ内で連続）。
 	function selectRange(cam) {
 		const z = cam.zoom;
-		if (z < 5.5) return 90;
-		if (z < 12 || ((cam.pitch || 0) > 0.9 && z < 13)) return 10;
+		if (z < 6.5) return 90;
+		if (z < 13 || ((cam.pitch || 0) > 0.9 && z < 14)) return 10;
 		return 1;
 	}
 	async function getCell(cellLng, cellLat, range) {
@@ -118,11 +118,11 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 			return { range: 1, originCX: camCX - half + Math.round(fx * 2), originCY: camCY - half + Math.round(fy * 2), cellsX: cells, cellsY: cells, cellRes: 400 };
 		}
 		if (range === 90) {
-			// 全球〜大陸ビュー（z<5.5）は窓を固定＝世界8セル（4×2）常駐。窓をカメラに追従させると
+			// 全球〜大陸ビュー（z<6.5）は窓を固定＝世界8セル（4×2）常駐。窓をカメラに追従させると
 			// versor回転のたびに atlasKey が変わり再構築→縁のセルが見え隠れ（没入感を壊す）。
 			// R90一式は先読み/IDB常備＝8セル固定のコストは初回のみ。4×2@1024=4096×2048で予算内。
 			// cellRes だけはズームの1オクターブ毎に追従（回転・パンではkey不変）。
-			const radPerDevPx = 2 * Math.PI / (Math.pow(2, cam.zoom) * 512 * (cam.dpr || 1));
+			const radPerDevPx = 2 * Math.PI / (Math.pow(2, cam.zoom) * WORLD_PX * (cam.dpr || 1));
 			const useful = 90 * Math.PI / 180 / (radPerDevPx * 1.2);
 			const usefulQ = Math.pow(2, Math.ceil(Math.log2(Math.max(1, useful))));
 			return { range, originCX: -2, originCY: -1, cellsX: 4, cellsY: 2, cellRes: Math.max(512, Math.min(usefulQ, 1024)) };
@@ -176,7 +176,7 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 		// ②は2の冪へ量子化＝ズーム微動で atlasKey が揺れて再構築が頻発しない（1オクターブ1回）。
 		// 旧予算(2048/一律400)はR90を8.8km/texelに潰し「R90の実力=3.7km」すら出ていなかった。
 		const srcMax = range === 90 ? 2700 : range === 10 ? 2400 : 1024;
-		const radPerDevPx = 2 * Math.PI / (Math.pow(2, cam.zoom) * 512 * (cam.dpr || 1));
+		const radPerDevPx = 2 * Math.PI / (Math.pow(2, cam.zoom) * WORLD_PX * (cam.dpr || 1));
 		const useful = range * Math.PI / 180 / (radPerDevPx * 1.2);   // 画面が使い切れる密度（生値＝スコア用）
 		const resOf = (cx, cy) => Math.min(srcMax, useful, Math.max(512, Math.floor(4096 / Math.max(cx, cy))));
 		// 0を含む窓 [a..b]（幅≤cap）の全組合せから「票×√解像度」最大を選ぶ。候補は高々 cap²×cap² 程度＝安い。
@@ -235,7 +235,7 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 		lastEnsureSize = { w: size.w, h: size.h };
 		// 混成モード（高チルト×中ズーム）：1°グリッドで近傍3×3=R01（富士の近景ディテール）、
 		// 遠方セル=R10切り出し（地平線までのカバー）。単一アトラス＝レンダラ側は無変更。
-		const mixed = (cam.pitch || 0) > 0.9 && cam.zoom >= 10.5 && cam.zoom < 13;
+		const mixed = (cam.pitch || 0) > 0.9 && cam.zoom >= 11.5 && cam.zoom < 14;
 		const range = mixed ? 1 : selectRange(cam);
 		const r = viewCellRange(cam, size, range, mixed);
 		const key = [mixed ? "M" : range, r.originCX, r.originCY, r.cellsX, r.cellsY, r.cellRes].join(",");

@@ -10,7 +10,7 @@ import orthoJapan from "../app.js";
 const t = [], ok = (n, c) => t.push((c ? "ok:" : "NG:") + n);
 const mk = n => { const a = new Uint8Array(n * n * 4); for (let i = 0; i < a.length; i += 4) { a[i] = 200; a[i + 3] = 255; } return a.buffer; };
 try {
-	const map = await orthoJapan({ view: "#6/36/138" });
+	const map = await orthoJapan({ view: "#7/36/138" });
 	const h = map.gadget.shot();
 	map.gadget.shot();   // 二重搭載＝無害
 	await new Promise(r => setTimeout(r, 300));

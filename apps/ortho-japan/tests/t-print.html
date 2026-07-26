@@ -15,9 +15,9 @@ try {
 	const Lp = layoutFor("a3", "portrait");
 	ok("layoutA3", Lp.W === 297 && Lp.H === 420);
 
-	// 縮尺→z：m/csspx=2πR/(2^z·512) の往復で「紙の地図幅×縮尺＝切り出し地表幅」が成立
+	// 縮尺→z：m/csspx=2πR/(2^z·256) の往復で「紙の地図幅×縮尺＝切り出し地表幅」が成立（256px世界）
 	const S = 25000, crop = 1200, z = zoomForScale(S, L.inner.w, crop);
-	const mPerCss = 2 * Math.PI * 6371008.8 / (Math.pow(2, z) * 512);
+	const mPerCss = 2 * Math.PI * 6371008.8 / (Math.pow(2, z) * 256);
 	ok("scale", Math.abs(mPerCss * crop - L.inner.w / 1000 * S) / (L.inner.w / 1000 * S) < 1e-6);
 
 	// 紙面組版：合成スクリーン（赤塗り）→ 用紙px寸法・余白は白・外罫は暗い・地図部は赤
@@ -43,7 +43,7 @@ try {
 		&& head.includes(`/MediaBox [0 0 ${(L.W * 72 / 25.4).toFixed(2)} ${(L.H * 72 / 25.4).toFixed(2)}]`) && tail.includes("%%EOF"));
 
 	// UIフロー：captureスタブ注入→モーダル開＝自動プレビュー→img.src が blob:
-	const map = await orthoJapan({ view: "#14/35.681/139.767" });
+	const map = await orthoJapan({ view: "#15/35.681/139.767" });
 	const mk = n => { const a = new Uint8Array(n * n * 4); for (let i = 0; i < a.length; i += 4) { a[i] = 180; a[i + 3] = 255; } return a.buffer; };
 	const stub = async ({ zoom, cropCss }) => ({
 		snap: { W: 640, H: 640, render: { base: mk(640), w: 640, h: 640, labels: null, lw: 0, lh: 0 } },

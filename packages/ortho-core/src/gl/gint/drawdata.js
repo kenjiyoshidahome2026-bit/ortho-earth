@@ -60,6 +60,7 @@ export function computeDrawData(data) {
 		const ex = unproject(st, s.width * 0.5 + 1.0, s.height * 0.5);
 		const ey = unproject(st, s.width * 0.5,       s.height * 0.5 + 1.0);
 		// フォールバック＝ズーム由来 rank（r↔z の既知対応 r=63-3z。w38↔z8.3 / w54↔z3 の梯子と同系）。
+		// r=63-3z は 256px世界の z で下の物理式(pxArea)と厳密一致（旧512世界では3ランク粗い側にズレていた）。
 		// 旧・既定 0（最細）は「チルトで画面中心が地球を外れる（空を向く）＝unproject不能」の全ビューで
 		// LOD/tier が全滅＝海岸線41万辺をフル密度で毎フレーム描画し、GPU 200-700ms/フレームの過負荷になっていた
 		//（実機 perf 実測。worker 分離時代は別スレッドで露見せず、1canvas統合で地図フレームごと道連れに）。

@@ -27,7 +27,7 @@ export function createOverlay({ renderer, cam, size, dpr, requestDraw }) {
 			estatActive = true; overlayFeatures = null;   // 単一スロット＝geopbf 経路の識別対象は置き換え
 			renderer.set("overlay", m.overlay);
 			renderer.set("overlayHi", null);
-			cam.center = [m.center[0], m.center[1]]; cam.zoom = 11; cam.pitch = 0; requestDraw();
+			cam.center = [m.center[0], m.center[1]]; cam.zoom = 12; cam.pitch = 0; requestDraw();
 			say(`e-Stat 小地域: ${m.count} 地物 — クリックで identify（小地域コード＝突合の種）`);
 		} else if (m.type === "identify") {
 			renderer.set("overlayHi", m.overlay || null);

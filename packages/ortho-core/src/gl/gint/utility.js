@@ -464,7 +464,7 @@ export function checkZoomRange({ arcMeta, minZoom, maxZoom, precision = 6 }) {
 		}
 		const maxDim = Math.max(bxMax - bxMin, byMax - byMin) * 1e-7;
 		if (maxDim > 0) {
-			const suggested = Math.max(0, Math.floor(Math.log2(360 / maxDim)) - 1);
+			const suggested = Math.max(0, Math.floor(Math.log2(360 / maxDim)));   // 256px世界のz（旧512世界では -1 していた）
 			if (suggested > 0) {
 				// minZoom 未指定＝bbox から導いた値を自動採用（小域データを全球で豆粒描画しない）。
 				// 明示的に minZoom を渡せばこの自動値は上書きされる（呼び出し側の意図が優先）。

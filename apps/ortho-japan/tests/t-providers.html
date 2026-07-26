@@ -10,7 +10,7 @@ localStorage.setItem("oj.hint", "closed");
 import orthoJapan from "../app.js";
 const t = [], ok = (n, c) => t.push((c ? "ok:" : "NG:") + n);
 try {
-	const map = await orthoJapan({ view: "#14/35.681/139.767" });
+	const map = await orthoJapan({ view: "#15/35.681/139.767" });
 	const setTip = map.gadget.tip();
 	const showPop = map.gadget.pop();
 	const setExplain = map.gadget.explain();

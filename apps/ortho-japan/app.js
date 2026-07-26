@@ -5,7 +5,7 @@ import "quiet-mono/components.scss";
 import "./style.scss";
 import {
 	evalExpr, parseRGBA, cameraState, project, unproject, buildGeoJSONOverlay,
-	createFlight, shortBearingOf, parseViewHash, buildViewHash, wrapLon, createInput,
+	createFlight, shortBearingOf, parseViewHash, buildViewHash, wrapLon, createInput, WORLD_PX,
 } from "ortho-core";
 import { createGeopbf, geopbf } from "geopbf";
 import { createGetHeight, setApiUrl as setAltApiUrl } from "altpbf";
@@ -241,7 +241,7 @@ const mergePendingZoom = new Map();   // merge要求sig → 要求時のzoom
 const STALE_ZOOMOUT = 0.5;            // これ以上ズームアウトしたら古い詳細を隠す（微小ズームでは点滅させない）
 const mainStale = () => mainSceneZoom > cam.zoom + STALE_ZOOMOUT;
 let basemapHidden = false;                 // z<BASEMAP_MINZOOM で基図(GSI)を止めてるか（全球ビュー＝海岸線のみ）
-const BASEMAP_MINZOOM = 4;                 // これ未満は基図の詳細を描かない（海岸線 gint で十分／main負荷を断つ）
+const BASEMAP_MINZOOM = 5;                 // これ未満は基図の詳細を描かない（海岸線 gint で十分／main負荷を断つ）
 let moving = false, settleT = null;
 // 移動中は幾何を再結合しない（タイルのポップ＝チラチラ防止）。停止後に再結合。
 // PLATEAU LOD2 データ登録簿：寄ると自動で出す。bbox は自動トリガ用の緩い矩形（実描画は被覆マスクが実フットプリントに沿わせる）。
@@ -254,18 +254,18 @@ let PLATEAU_SETS = [];
 const plateauCatalogReady = !plateauOn ? Promise.resolve() :
 	fetch(import.meta.env.BASE_URL + "plateau-sets.json").then(r => r.json()).then(sets => {   // BASE_URL＝サブパス配信(/ortho-japan/)対応
 		PLATEAU_SETS = sets; console.log(`[plateau] カタログ読込 → ${sets.length} 市区町村`);
-		autoPlateau(true);   // 復元ビューが z14+ の街なら起動直後に自動ロード（settled扱い＝起動時の視界は確定している。IDB命中なら即座に街が立つ）
+		autoPlateau(true);   // 復元ビューが z15+ の街なら起動直後に自動ロード（settled扱い＝起動時の視界は確定している。IDB命中なら即座に街が立つ）
 	}).catch(e => console.warn("[plateau] カタログ取得失敗", e));
 // 空港マーク台帳：optbv の空港名注記(441)は z11 以上のタイルにしか無い＝低ズームでは
 // scripts/airports-build.mjs で全国収穫した静的リスト(86空港)から「マークだけ」を注入する（本家地理院地図Vectorの見え方に合わせる）。
 // z11+ はタイル注記が✈＋名称を描くので、静的分は同名をスキップ＝二重表示なし。鉄道チップのON/OFFは filterLabels(441) がそのまま効く。
-const AIRPORT_MARK_MAXZ = 12;              // これ未満のズームで静的マークを注入
+const AIRPORT_MARK_MAXZ = 13;              // これ未満のズームで静的マークを注入
 let airportMarks = [];
 fetch(import.meta.env.BASE_URL + "airports.json").then(r => r.json()).then(list => {
 	airportMarks = list.map(a => ({ text: a.name, code: 441, anchor: [a.lon, a.lat], size: 10, sort: 2, color: [0.53, 0.53, 0.5, 1], halo: [0.965, 0.965, 0.957, 1], haloW: 1.1, markOnly: true }));
 	readySig = ""; mergeReq.main.sig = "";   // 読み込めた時点でラベル再結合（要求記憶も消す＝即出し直し）
 }).catch(() => {});
-const PLATEAU_AUTO_Z = 14;                 // これ以上寄ると自動ロード（遠景は対象外＝ズームアウトで全解放）
+const PLATEAU_AUTO_Z = 15;                 // これ以上寄ると自動ロード（遠景は対象外＝ズームアウトで全解放）
 // 低メモリ端末判定：deviceMemory は Chrome系のみ（≤4GB＝スマホ帯）。iOS/iPadOS Safari は非対応だが
 // タブ1枚あたり ~1-1.5GB でOSが強制終了（落ちて自動リロード）するため、タッチ端末は一律低メモリ扱い。
 // 誤検知側の被害は「同時1区・キャッシュ縮小」だけ＝安全側に倒す。
@@ -410,8 +410,8 @@ function plateauPreload(set) {   // プレロード＝IDBに貯めるだけ（�
 }
 const plateauDb = createPlateauDb({
 	getSets: () => PLATEAU_SETS, idbList: plateauIdbList, idbDelete: plateauIdbDelete, preload: plateauPreload,
-	// 描画＝モーダルを閉じて地区中心へ球面フライト（z14.5=PLATEAU自動ロード圏・チルト45°）→ autoPlateau がキャッシュ命中で即表示
-	show: set => { plateauDb.close(); flyTo((set.bbox[0] + set.bbox[2]) / 2, (set.bbox[1] + set.bbox[3]) / 2, 14.5, 45); },
+	// 描画＝モーダルを閉じて地区中心へ球面フライト（z15.5=PLATEAU自動ロード圏・チルト45°）→ autoPlateau がキャッシュ命中で即表示
+	show: set => { plateauDb.close(); flyTo((set.bbox[0] + set.bbox[2]) / 2, (set.bbox[1] + set.bbox[3]) / 2, 15.5, 45); },
 });
 // モーダルを開くボタンはオプトインガジェット（gadgets/plateau.js）＝末尾の map.gadget("plateau", …) で open を注入。
 // ストレージの永続化を要求＝ディスク逼迫時にブラウザ都合でオリジンごと退避されるのを防ぐ（デモ機の仕込み保護）。
@@ -604,10 +604,10 @@ function onMove() {
 // tiles＝LOD管理（update/labels）、requestMerge＝結合要求（scene worker が結合→render worker へ直行）。
 const { tiles, requestMerge, destroy: destroyPipeline } = createPipeline({
 	style, tileUrl: TILE_URL, requestDraw: () => { needsDraw = true; }, scenePort: sceneChan.port1, onTile,
-	// LOD下限＝z8（sea gate と同じ閾値）：optbv は z8 から海が全面WA（沖合タイル=WA一枚50B級）、z7以下は
+	// LOD下限＝タイルz8（sea gate と同じ閾値）：optbv は z8 から海が全面WA（沖合タイル=WA一枚50B級）、z7以下は
 	// 「陸=AdmArea・海=背景」モデルでWA無し＝チルトの遠景（z5-7混在）だけ海が紙色に抜けてまだらになる。
-	// 遠景も z8 以上で敷けば海色がズーム段間で揃う（根治）。z<8 のビューは従来どおり紙の海＋gint海岸線。
-	lodFloor: { minViewZoom: 8, z: 8 },
+	// 遠景もタイルz8 以上で敷けば海色がズーム段間で揃う（根治）。ビューz<9 は従来どおり紙の海＋gint海岸線。
+	lodFloor: { minViewZoom: 9, z: 8 },
 	// 低メモリ端末はタイル予算を絞る：multi_draw の常駐プールは tess 予算の約2倍（idx u32化・線分32B化）を
 	// GPU に占める＝既定の自動予算(48MB)だと従来比で実質メモリが膨らみ、PLATEAU の百MB級が乗った時に
 	// タブごと落ちる（スマホ実機で発生）。24MB でも可視タイル(keep)は余裕で収まり、削るのはパン戻り履歴だけ。
@@ -642,21 +642,21 @@ const atmo = theme.atmo;            // 大気色 rgb + 強さ（テーマ台帳�
 const bldColor = theme.bldColor;    // 建物色（テーマ台帳のノブ＝palettes.js）
 // cam＝幾何のみ（center/zoom/pitch/bearing/dpr）＝毎フレームの draw payload（将来の worker 境界）。
 // 色（clear/land/atmo/bldColor）は静的なので setView で一度きりアップロード＝hot path から追い出す。
-const JAPAN_VIEW = [137.628, 37.783, 4.86];   // 列島ビュー（本土四島が一枚・真俯瞰）＝既定起動＆「日本全体」ガジェットの着地点
+const JAPAN_VIEW = [137.628, 37.783, 5.86];   // 列島ビュー（本土四島が一枚・真俯瞰）＝既定起動＆「日本全体」ガジェットの着地点
 const cam = { center: [JAPAN_VIEW[0], JAPAN_VIEW[1]], zoom: JAPAN_VIEW[2], pitch: 0, bearing: 0, dpr };   // 既定＝列島ビュー（沖縄・小笠原には悪いが初手の構図優先。初訪問時のみ＝共有URL→前回ビューの順で下で復元）
 // --- 共有URL（パーマリンク）：codec は engine（viewurl.js）。ここは起動の優先度と app 固有クランプだけ ---
 // 起動の優先度：URLハッシュ > localStorage(前回ビュー) > 既定の世界ビュー。settle 毎に replaceState で
 // 書き戻す＝アドレスバーが常に「今この視点の共有URL」（コピーするだけで人に渡る＝発表・拡散の生命線）。
 function applyCamView(v) {
 	cam.center = [wrapLon(v.lon), Math.max(-90, Math.min(90, v.lat))];
-	cam.zoom = Math.max(1, Math.min(20, v.zoom));   // 上限20＝7.5cm/px（正射z＝緯度フリー。精度は原点相対RTEが担保）
+	cam.zoom = Math.max(2, Math.min(21, v.zoom));   // 上限21＝7.5cm/px（正射z＝緯度フリー。精度は原点相対RTEが担保）
 	cam.pitch = Math.max(0, Math.min(MAXPITCH, v.pitch || 0));
 	cam.bearing = Number.isFinite(v.bearing) ? v.bearing : 0;
 }
 const bootView = parseViewHash(opts.view || location.hash);
 // 前回ビューの復元（ortho-earth 本体と同じ流儀）：settle 毎に localStorage へ保存し、起動時にそこから立ち上がる。
 // IDBのPLATEAUキャッシュと合わさると「開いた瞬間に前回の街が数秒で立ち上がる」起動になる。
-const CAM_KEY = "ortho-japan.cam";   // 初デプロイ時に -poc を卒業（旧キーの移行対象ユーザーは未だ居ない）
+const CAM_KEY = "ortho-japan.cam256";   // 256px世界のz移行(2026-07-26)でキー更新＝旧512世界の保存ビュー（zが1小さい）を読まない
 if (bootView) applyCamView(bootView);
 else try {
 	const saved = JSON.parse(localStorage.getItem(CAM_KEY) || "null");
@@ -692,8 +692,8 @@ renderer.set("view", { clear, land, atmo, bldColor, showN02: false,
 	...(theme.contourColor && { contourColor: theme.contourColor }),
 	...(theme.distColor && { distColor: theme.distColor }),
 	...(theme.hypso && { hypso: theme.hypso }) });   // showN02＝N02交通(新幹線等)の表示。鉄道チップで切替
-// 海：水レイヤ(WA)をビュー一律にゲート＝cam.zoom<13 では描かない（＝紙の海・まだら無し）、z13+で一律点火。
-renderer.set("sea", { li: style.layers.findIndex(L => L.id === "water"), li2: style.layers.findIndex(L => L.id === "water-hi"), minzoom: 8 });   // li2＝水系点火面も同じ海ゲート
+// 海：水レイヤ(WA)をビュー一律にゲート＝cam.zoom<9 では描かない（＝紙の海・まだら無し）、z9+で一律点火。
+renderer.set("sea", { li: style.layers.findIndex(L => L.id === "water"), li2: style.layers.findIndex(L => L.id === "water-hi"), minzoom: 9 });   // li2＝水系点火面も同じ海ゲート
 renderer.set("bldFill", { li: style.layers.findIndex(L => L.id === "building") });   // 建物フットプリント塗り＝3D（チルト）時は伏せる（押し出しと二重表現のため）
 
 // --- gint（知性の層）：14条など突合可能なエンティティ。1canvas統合＝render worker の GL コンテキストに
@@ -714,8 +714,8 @@ canvas.addEventListener("pointerleave", () => renderWorker.postMessage({ type: "
 // 「座標値種別=図上測量」は測量手法のタグに過ぎず絶対位置の信頼性とは無相関と判明済み（系変換さえ合っていれば図上測量でも正確）
 // →現状はバッジ判定に使わない。任意座標系の混入検知は変換パイプライン側（外れ値bbox比較）でやるべき課題として残す。
 // bbox([lonMin,latMin,lonMax,latMax] deg)全体が画面に収まる zoom。正射の中心近傍は px ≈ scale×角(rad)。
-// zの定義は camera.js の radPerDevPx＝2π/(2^z·512·dpr)＝512pxタイル規約 → CSS px/rad = 2^z·512/(2π)。
-// ※v1 gint の 40.74(=256/(2π)) 規約とは1段ズレる＝ここは必ず camera.js 側の定義に従う。
+// zの定義は camera.js の radPerDevPx＝2π/(2^z·WORLD_PX·dpr)＝256px世界 → CSS px/rad = 2^z·256/(2π)。
+// v1 gint の 40.74(=256/(2π)) 規約と同目盛り（2026-07-26 の256統一でズレ解消）。
 // 経度側だけ cos(lat) で実角へ。15% マージン。
 function fitZoomForBbox(b) {
 	const latC = (b[1] + b[3]) / 2;
@@ -723,7 +723,7 @@ function fitZoomForBbox(b) {
 	const thY = Math.max(1e-9, (b[3] - b[1]) * D2R);
 	const W = mapEl?.clientWidth || innerWidth, H = mapEl?.clientHeight || innerHeight;
 	const scale = 0.85 * Math.min(W / thX, H / thY);
-	return Math.max(1, Math.min(20, Math.log2(scale / (512 / (2 * Math.PI)))));
+	return Math.max(2, Math.min(21, Math.log2(scale / (WORLD_PX / (2 * Math.PI)))));
 }
 function applyGintData(pbf, label, moveCamera = true, opts = {}) {
 	if (!pbf?.unPackGint) { console.error("[gint] デコード失敗 (%s)", label, pbf); return null; }
@@ -834,11 +834,11 @@ window.__paintParity = () => {
 	console.log("[paintParity] %d筆へ市松（偶数=赤/奇数=青）を適用。何も色が出ない場合は console の [gint] idFill caps 行を確認", n);
 };
 // 任意の bucket GeoPBF を gint ユーザー層としてロード（例: __gload('admin_all')＝行政界コロプレスの土台。
-// 全国級なので minZoom=2＝ズームアウトしても海岸線に切り替わらない）。
+// 全国級なので minZoom=3＝ズームアウトしても海岸線に切り替わらない）。
 window.__gload = async (name, opts = {}) => {
 	const pbf = await geopbf(name, { gint: true }).catch(e => { console.error("[gload]", e); return null; });
 	if (!pbf) return null;
-	return applyGintData(pbf, name, true, { minZoom: 2, ...opts });
+	return applyGintData(pbf, name, true, { minZoom: 3, ...opts });
 };
 // 移動中描画予算のノブ（実測用）。__budget(Infinity)=移動中も常時描画 / __budget()=既定250kへ戻す。
 // ?perf=1 の [perf] 行の gpuGint ms を見ながらズーム操作で実測 → 既定値の再裁定に使う。
@@ -870,7 +870,7 @@ window.__paint = async (paint, filter = null) => {
 // スロットは単一（worker側）＝同時表示不可なので「今どちらが載っているか(gintSlot)」を持ち、変更時だけ post。
 // ※小域ユーザー層は checkZoomRange が bbox から minZoom を自動採用＝実表示はさらに絞られる（例:筆データ z≥10）。
 //   海岸線は z<6 まで見せ、そこから先はユーザー層 minZoom まで基図に委ねる（豆粒の筆を全球に出さない）。
-const GINT_SWAP_Z = 6;
+const GINT_SWAP_Z = 7;
 let coastGint = null;      // 海岸線の gint ペイロード（初回ロードでキャッシュ＝再取得しない）
 let userGint = null;       // ユーザー層 { g, label }（14条/ドロップ）
 let gintSlot = null;       // 現在スロットの占有者 "coast" | "user"（null=未確定＝次の update で必ず post）
@@ -899,7 +899,7 @@ function updateGintSlot() {
 	if (noGint) return;   // ?nogint=1＝海岸線ロードもスロット適用もしない（gint パスは空データ＝実質ゼロコスト）
 	if (userGint && cam.zoom >= userGint.minZoom) { if (gintSlot !== "user") applyUserSlot(); return; }   // minZoom は層の属性（全国級AI層=2・筆/ドロップ=GINT_SWAP_Z）
 	if (coastGint) { if (gintSlot !== "coast") applyCoastSlot(); return; }
-	if (cam.zoom < 8 && !coastLoading) loadWorldCoast();   // 海岸線 未取得＝取得後に updateGintSlot が表示
+	if (cam.zoom < 9 && !coastLoading) loadWorldCoast();   // 海岸線 未取得＝取得後に updateGintSlot が表示
 }
 // 世界海岸線（Natural Earth 10m）を取得しキャッシュ（表示可否は updateGintSlot が決める）。
 async function loadWorldCoast() {
@@ -913,17 +913,17 @@ async function loadWorldCoast() {
 	const g = pbf?.unPackGint;
 	coastLoading = false;
 	if (!g) { console.error("[coast] GintBUF デコード失敗", pbf); return; }
-	coastGint = {   // maxZoom:8＝z≤8 で点火＝低ズームの世界図専用（worker が範囲外をカリング）
+	coastGint = {   // maxZoom:9＝z≤9 で点火＝低ズームの世界図専用（worker が範囲外をカリング）
 		arcBuffer: g.arcBuffer, arcMeta: g.arcMeta,
 		polyStream: g.polyStream, lineStream: g.lineStream,
 		pointBuffer: g.pointBuffer, point: g.point, polyCompBbox: g.polyCompBbox,
-		maxZoom: 8,
+		maxZoom: 9,
 	};
-	updateGintSlot();   // z<4（またはユーザー層なし）なら海岸線を表示
+	updateGintSlot();   // z<5（またはユーザー層なし）なら海岸線を表示
 	console.log("[coast] ロード完了。z<%d で自動表示（ユーザー層が無い/低ズーム時）", GINT_SWAP_Z);
 }
 window.__coast = loadWorldCoast;   // 手動リロード用
-// 遅延ロードの門番は updateGintSlot（z<8 で海岸線 未取得なら一度だけ取得）＝z14固定の埋め込みは一生読まない
+// 遅延ロードの門番は updateGintSlot（z<9 で海岸線 未取得なら一度だけ取得）＝高ズーム固定の埋め込みは一生読まない
 //（PLATEAUスイッチと同じ思想＝見えない機能のための通信をしない。既定の世界ビュー起動時に updateGintSlot が即発火＝体験は不変）。
 
 // --- 星空劇場（z<4・v1 ortho-map の星空アクセサリー移植）---
@@ -1143,13 +1143,13 @@ async function loadN02() {
 	if (stReg.length) {
 		const rOuter = buildGeoJSONOverlay(stReg, N02_ORIGIN, { lineColor: [0.294, 0.62, 0.416, 1], lineWidth: 1.8 });      // 玉＝鉄道点火#4b9e6a
 		const rCore = buildGeoJSONOverlay(stReg, N02_ORIGIN, { lineColor: [land[0], land[1], land[2], 1], lineWidth: 0.9 });      // 芯（紙色＝style由来＝夜も自動追従）
-		rOuter.minZoom = rCore.minZoom = 10.5;   // 駅名の出るタイル(z11)が選ばれ始める頃から
+		rOuter.minZoom = rCore.minZoom = 11.5;   // 駅名の出るタイル(z11)が選ばれ始める頃から
 		scenes.push(rOuter, rCore);
 	}
 	if (stSn.length) {   // 新幹線駅は通常駅の後＝重なったら新幹線ビーズが勝つ
 		const sOuter = buildGeoJSONOverlay(stSn, N02_ORIGIN, { lineColor: SN_GREEN, lineWidth: 2.4 });                      // 玉（外径）
 		const sCore = buildGeoJSONOverlay(stSn, N02_ORIGIN, { lineColor: [land[0], land[1], land[2], 1], lineWidth: 1.2 });       // 芯（紙色＝style由来）＝○に見える
-		sOuter.minZoom = sCore.minZoom = 6.5;   // 全国ビュー(z〜5)ではビーズ不要＝広域(z6.5+)から。路線の線は z≥4（基図と同ゲート）
+		sOuter.minZoom = sCore.minZoom = 7.5;   // 全国ビュー(z〜6)ではビーズ不要＝広域(z7.5+)から。路線の線は z≥5（基図と同ゲート）
 		scenes.push(sOuter, sCore);
 	}
 	renderer.set("n02", scenes);
@@ -1186,9 +1186,9 @@ window.__plateau = async (nameOrBase, tiles) => {
 		}
 	}
 	const [w, s, e, n] = set.bbox;
-	cam.center = [(w + e) / 2, (s + n) / 2]; cam.zoom = 15; cam.pitch = 45 * D2R; cam.bearing = 0;   // 地区中心・傾けて建物を見る
+	cam.center = [(w + e) / 2, (s + n) / 2]; cam.zoom = 16; cam.pitch = 45 * D2R; cam.bearing = 0;   // 地区中心・傾けて建物を見る
 	onMove();
-	console.log(`[plateau] 完了 → ${set.name} z15 tilt45°。右ドラッグで傾け調整`);
+	console.log(`[plateau] 完了 → ${set.name} z16 tilt45°。右ドラッグで傾け調整`);
 };
 
 // ロード本体（カメラは動かさない）：重い処理は plateauworker.js に丸投げ。メッシュはバッチ単位で worker→render worker
@@ -1224,7 +1224,7 @@ resize();
 // ジェスチャ開始→フライト中断（主導権は常に人）。z範囲＝1(宇宙の余白)〜19(z20はタイルの切れ目が目立つ)。
 let measureClick = null;   // 測距モード中だけ非null＝クリックを測距へ奪う（識別・星座トグルより先）
 const input = createInput({
-	canvas, cam, size, dpr, maxPitch: MAXPITCH, zoomMin: 1, zoomMax: 20, onMove, signal: ac.signal,
+	canvas, cam, size, dpr, maxPitch: MAXPITCH, zoomMin: 2, zoomMax: 21, onMove, signal: ac.signal,
 	blocked: () => modalOpen(mapEl),   // モーダル表示中は矢印キーで背後の地図を動かさない（文字入力中は input.js が自前で判定）
 	onGesture: () => flightCtl.cancel(),
 	onClick: (x, y) => {
@@ -1270,13 +1270,13 @@ setAltApiUrl("https://api.ortho-earth.com");
 createGetHeight({ apiUrl: "https://api.ortho-earth.com", onend: () => { posElevAt = 0; schedulePos(); } })
 	.then(f => { getHeight = f; });
 // 距離スケール（真俯瞰=2Dのみ）：ortho-map Accessories draw_scale() と同じ数式・同じ1-2-5系列。
-// d256m＝256px当たりの実距離[m]。本家は256px世界の zoom、当アプリは512px世界なので +1 で読み替える。
+// d256m＝256px当たりの実距離[m]。当アプリも256px世界(2026-07-26統一)＝本家と同じ zoom がそのまま使える。
 // 正射図法は画面中心のスケールが緯度に依らない＝cos(lat) 補正無しで本家と同じ（チルト時は不均一になるので消す）。
 const scaleEl = orDetached(document.getElementById("scale")), scaleTxt = orDetached(document.getElementById("scale-txt")), scaleBar = orDetached(document.getElementById("scale-bar"));
 const comma = s => String(s).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 function updateScale() {
 	if ((cam.pitch || 0) > 0.005) { scaleEl.style.display = "none"; return; }
-	const d256m = 2 * 6372000 * Math.PI / Math.pow(2, cam.zoom + 1);
+	const d256m = 2 * 6372000 * Math.PI / Math.pow(2, cam.zoom);
 	const r = Math.pow(10, Math.floor(Math.log10(d256m)));
 	const vm = (d256m / r) > 5 ? 5 : (d256m / r) > 2 ? 2 : 1;
 	const val = vm * r;
@@ -1499,7 +1499,7 @@ function render() {
 	//   利かない重描画の主戦場でもある）。閾は show3d と同じ 0.02rad＝建物3Dと入れ替わりに消える。
 	// ・世界海岸線＝z8+ では非表示（海岸は WA 塗りが担う。gint の2D線は球の自遮蔽を持たず地平線の先が
 	//   リムに残影として浮く）。チルトは表示のまま＝地形ドレープ＋隠線の見せ場。
-	const gv = gintSlot === "user" ? (cam.pitch || 0) < 0.02 : cam.zoom < 8;
+	const gv = gintSlot === "user" ? (cam.pitch || 0) < 0.02 : cam.zoom < 9;
 	if (gv !== gintVisible) { gintVisible = gv; renderer.set("gintVis", gv); }
 	// パン/チルト中（ズーム不変）は詳細も再結合。ズーム中はLODポップ回避で停止まで待つ。
 	const zoomStable = Math.abs(cam.zoom - zoomAtBuild) < 0.12;
@@ -1577,9 +1577,9 @@ function destroy() {
 	ownMapEl ? mapEl.remove() : mapEl.replaceChildren();
 }
 
-// 世界海岸線：初期視点が z<8 ならここで即発火（既定の世界ビュー＝従来どおり最初から描画）。await せず＝基図の起動を妨げない。
+// 世界海岸線：初期視点が z<9 ならここで即発火（既定の世界ビュー＝従来どおり最初から描画）。await せず＝基図の起動を妨げない。
 updateGintSlot();
-ensureStars();   // 初期視点が z<4（復元/共有URL）なら星空も最初から
+ensureStars();   // 初期視点が z<5（復元/共有URL）なら星空も最初から
 
 // 呼び出し側の手綱（視点操作・飛行・描画設定）＋ガジェット登録簿（v1 ortho-map createGadgets の作法の継承）。
 // map.gadget(name, func) で登録し map.gadget.name() で画面に追加する。func 内の this＝この map＝
@@ -1681,7 +1681,7 @@ map.gadget("palette", function (opts) {   // 配色テーマ・ピッカー … 
 	return paletteGadget.call(this, { current: themeName, onPick: switchTheme, requestSnapshot, signal: ac.signal, ...opts });
 });
 map.gadget("zoom", function (opts) {   // ズーム＋/− … フライト中断・onMove・z範囲はここで注入
-	return zoomGadget.call(this, { cancelFlight: () => flightCtl.cancel(), onMove, zoomMin: 1, zoomMax: 20, signal: ac.signal, ...opts });
+	return zoomGadget.call(this, { cancelFlight: () => flightCtl.cancel(), onMove, zoomMin: 2, zoomMax: 21, signal: ac.signal, ...opts });
 });
 map.gadget("full", function (opts) {   // 全画面トグル … destroy用のsignalはここで注入
 	return fullGadget.call(this, { signal: ac.signal, ...opts });
@@ -1736,9 +1736,9 @@ map.gadget("dropFile", function (opts) {   // GISファイルのD&D取り込み 
 		if (bb && bb.length === 4) {
 			const cx = (bb[0] + bb[2]) / 2, cy = (bb[1] + bb[3]) / 2;
 			const wDeg = Math.max(1e-6, (bb[2] - bb[0]) * 1.3), hDeg = Math.max(1e-6, (bb[3] - bb[1]) * 1.3);   // 30%余白（縁ぴったりを避ける）
-			// 視野幅[deg]=360*size.w/(512*2^z)（flight の van Wijk 尺と同一）を逆解き＝横/縦の狭い側に合わせる。
-			const z = Math.min(Math.log2(360 * size.w / (512 * wDeg)), Math.log2(360 * size.h / (512 * hDeg)));
-			flyTo(cx, cy, Math.max(2, Math.min(16, z)), 0);   // 描画後に寄る＝fit へ球面フライト（tilt/bearing=0）
+			// 視野幅[deg]=360*size.w/(WORLD_PX*2^z)（flight の van Wijk 尺と同一）を逆解き＝横/縦の狭い側に合わせる。
+			const z = Math.min(Math.log2(360 * size.w / (WORLD_PX * wDeg)), Math.log2(360 * size.h / (WORLD_PX * hDeg)));
+			flyTo(cx, cy, Math.max(3, Math.min(17, z)), 0);   // 描画後に寄る＝fit へ球面フライト（tilt/bearing=0）
 		}
 		return pbf;   // gadget が pbf.length（地物数）をトーストに使う
 	};
@@ -1758,8 +1758,8 @@ map.gadget("ai", function (opts) {   // AIと会話して地図に描く（PC専
 	const fitBbox = bb => {   // dropFile と同じ視野幅の逆解き＝fit へ球面フライト（真俯瞰・北向き）
 		const cx = (bb[0] + bb[2]) / 2, cy = (bb[1] + bb[3]) / 2;
 		const wDeg = Math.max(1e-6, (bb[2] - bb[0]) * 1.3), hDeg = Math.max(1e-6, (bb[3] - bb[1]) * 1.3);
-		const z = Math.min(Math.log2(360 * size.w / (512 * wDeg)), Math.log2(360 * size.h / (512 * hDeg)));
-		flyTo(cx, cy, Math.max(2, Math.min(16, z)), 0);
+		const z = Math.min(Math.log2(360 * size.w / (WORLD_PX * wDeg)), Math.log2(360 * size.h / (WORLD_PX * hDeg)));
+		flyTo(cx, cy, Math.max(3, Math.min(17, z)), 0);
 	};
 	// route ディスパッチ：overlay/estat＝overlay.loadPlan（main+estat worker）、gint＝worker デコード+GPU 常駐 LOD。
 	// 大規模データ（国立公園=頂点451万）は overlay だと main 数秒凍結＝gint が受け持つ（catalog の route が正本）。
@@ -1771,7 +1771,7 @@ map.gadget("ai", function (opts) {   // AIと会話して地図に描く（PC専
 		const st = new Float32Array(256 * 4);   // styleTable: style0=polygon塗り（薄く＝基図を殺さない）・style1=線
 		const [r, g, b] = plan.style.rgba;
 		st.set([r, g, b, 0.28]); st.set([r, g, b, 1], 4);
-		applyGintData(pbf, label, false, { style: { styleTable: st, lineWidth: plan.style.lineWidth }, minZoom: 2 });   // minZoom:2＝全国級の層は世界図の手前まで見せる
+		applyGintData(pbf, label, false, { style: { styleTable: st, lineWidth: plan.style.lineWidth }, minZoom: 3 });   // minZoom:3＝全国級の層は世界図の手前まで見せる
 		const bb = pbf.unPackGint.bbox;
 		return { ok: true, count: pbf.length, bbox: (bb && bb.length === 4) ? bb : null };
 	};

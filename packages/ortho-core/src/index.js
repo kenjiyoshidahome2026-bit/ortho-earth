@@ -13,7 +13,7 @@ export { buildGeoJSONOverlay, pointInFeature } from "./geojson.js";
 export { buildBuildings } from "./buildings.js";
 export { downsampleFlipped } from "./elevation.js";
 export { createLabelLayer } from "./labels2d.js";
-export { cameraState, project, unproject, lonlatTo3D } from "./camera.js";
+export { cameraState, project, unproject, lonlatTo3D, WORLD_PX } from "./camera.js";
 export { createFlight, shortBearingOf } from "./flight.js";
 export { createInput, isTypingTarget } from "./input.js";
 export { parseViewHash, buildViewHash, wrapLon } from "./viewurl.js";

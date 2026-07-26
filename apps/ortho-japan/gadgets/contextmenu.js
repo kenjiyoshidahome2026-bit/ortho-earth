@@ -9,7 +9,7 @@ export function contextmenu({ unprojectAt, signal, items } = {}) {
 	const mapEl = this.mapEl, cam = this.cam, flyTo = this.flyTo, map = this;
 	if (mapEl.querySelector("#ctxmenu")) return () => {};   // 二重搭載は無害
 	const DEFAULT = [
-		{ name: "この地点へ寄る", onClick: c => c.lng != null && flyTo(c.lng, c.lat, Math.max(cam.zoom, 14), cam.pitch * 180 / Math.PI) },
+		{ name: "この地点へ寄る", onClick: c => c.lng != null && flyTo(c.lng, c.lat, Math.max(cam.zoom, 15), cam.pitch * 180 / Math.PI) },
 		{ name: "座標をコピー", onClick: c => c.lng != null && navigator.clipboard?.writeText(`${c.lat.toFixed(6)}, ${c.lng.toFixed(6)}`) },
 	];
 	let list = items || DEFAULT;

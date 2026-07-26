@@ -2,8 +2,8 @@
 // allowlist＝ONのテーマのカテゴリだけ描く（紙地図の全部盛りをやめる）。分類は純関数＝layerState と zoom を
 // 引数で受け、グローバルに触れない。UIトグル状態(layerState)自体は main が保持・変更する。
 
-export const CHOME_MINZOOM = 14.5;   // 丁目は寄った時だけ
-export const RAILTR_MINZOOM = 13.5;  // 駅の軌道は寄った時だけ（構内detail）
+export const CHOME_MINZOOM = 15.5;   // 丁目は寄った時だけ
+export const RAILTR_MINZOOM = 14.5;  // 駅の軌道は寄った時だけ（構内detail）
 // チップは5つ＝使い方をシンプルに：place=地名(注記＋行政界)・terrain=地形(地形名＋等高線＋測量点＋水系)・
 // rail=鉄道・road=道路・facility=施設。キーは英語（opts.layers／URL l= トークンと共通の公開語彙）。
 export const defaultLayerState = { place: true, terrain: false, rail: false, road: false, facility: false };

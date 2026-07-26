@@ -4,7 +4,7 @@
 <body><script type="module">
 import orthoJapan from "../app.js";
 const t = [], ok = (n, c) => t.push((c ? "ok:" : "NG:") + n);
-const map = await orthoJapan({ view: "#12/35.68/139.76", plateau: false });
+const map = await orthoJapan({ view: "#13/35.68/139.76", plateau: false });
 document.getElementById("c").dispatchEvent(new PointerEvent("pointermove", { bubbles: true, clientX: 100, clientY: 100 }));   // 通常なら #pos が開く操作
 await new Promise(r => setTimeout(r, 300));
 ok("width", innerWidth <= 480);
@@ -14,16 +14,16 @@ ok("scaleUp", getComputedStyle(document.getElementById("scale")).bottom === "72p
 // 優先順＝シーン毎 > 台本既定（最上位 mobile）> 無し。mobile: 0＝そのシーンだけ明示無効
 let flown = null;
 const h = map.gadget.demo({ mobile: -1, flyView: v => { flown = v; }, prefetchViews: () => {}, scenes: [
-	{ title: "パノラマ", view: "#11.71/36.69051/137.57752/70t/145r/l=terrain", mobile: -1.5 },
-	{ title: "既定", view: "#5/40/140" },
-	{ title: "据置", view: "#5/40/140", mobile: 0 },
+	{ title: "パノラマ", view: "#12.71/36.69051/137.57752/70t/145r/l=terrain", mobile: -1.5 },
+	{ title: "既定", view: "#6/40/140" },
+	{ title: "据置", view: "#6/40/140", mobile: 0 },
 ] });
 h.start();
-ok("mobileScene", flown === "#10.21/36.69051/137.57752/70t/145r/l=terrain");   // シーン毎 -1.5 が既定 -1 に勝つ（緯度経度・t/r/l=は不変）
+ok("mobileScene", flown === "#11.21/36.69051/137.57752/70t/145r/l=terrain");   // シーン毎 -1.5 が既定 -1 に勝つ（緯度経度・t/r/l=は不変）
 h.next();
-ok("mobileGlobal", flown === "#4/40/140");   // mobile無しのシーン＝台本既定 -1 が効く
+ok("mobileGlobal", flown === "#5/40/140");   // mobile無しのシーン＝台本既定 -1 が効く
 h.next();
-ok("mobileOff", flown === "#5/40/140");   // mobile: 0＝明示無効＝素通し
+ok("mobileOff", flown === "#6/40/140");   // mobile: 0＝明示無効＝素通し
 h.exit();
 document.title = t.some(x => x.startsWith("NG")) ? "FAIL " + t.join(" ") : "PASS " + t.length;
 </script></body></html>

@@ -11,7 +11,7 @@
 //   3本指以上は関知しない＝iPadOS のシステムジェスチャ（コピー/取り消し）に譲る。
 // ・座標は常に canvas ローカル（evXY）＝#map がページのどこに置かれても幾何が狂わない（埋め込み対応）。
 // アプリ固有の反応（identify・ホバー・フライト中断）はコールバックで注入＝エンジンは地図の掴み方だけを知る。
-import { cameraState, unproject, lonlatTo3D } from "./camera.js";
+import { cameraState, unproject, lonlatTo3D, WORLD_PX } from "./camera.js";
 import { dot, cross, add, scale } from "./mat.js";
 const D2R = Math.PI / 180, R2D = 180 / Math.PI;
 
@@ -28,7 +28,7 @@ export const isTypingTarget = (el = document.activeElement) => {
 //   onClick(x,y)＝動かず離した（<4px）＝クリック。onHover(x,y)＝ドラッグ外の移動。座標はローカルCSS px。
 //   blocked()＝真ならキーボードのカメラ操作を止める（モーダル表示中など・呼び出し側が注入）。文字入力中は自前で判定。
 // 戻り値 { evXY, anchoredAt }＝座標変換とアンカー適用は他所（計器・将来のジェスチャ）からも使える。
-export function createInput({ canvas, cam, size, dpr, maxPitch, zoomMin = 1, zoomMax = 19, onMove, onGesture = () => {}, onClick = () => {}, onHover = () => {}, blocked, signal }) {
+export function createInput({ canvas, cam, size, dpr, maxPitch, zoomMin = 2, zoomMax = 20, onMove, onGesture = () => {}, onClick = () => {}, onHover = () => {}, blocked, signal }) {
 	let drag = null;              // 1本指/マウスのドラッグ状態
 	let ptr = null;               // 直近のマウス位置（CSS px）＝キーボードのズーム/回転アンカー。マウスが地図外なら null（＝画面中心へ退避）
 	const touches = new Map();    // アクティブなタッチポインタ pointerId → {x,y}
@@ -69,7 +69,7 @@ export function createInput({ canvas, cam, size, dpr, maxPitch, zoomMin = 1, zoo
 		const a = unproject(st, fx * dpr, fy * dpr), b = unproject(st, tx * dpr, ty * dpr);
 		if (a && b) rotateGrab(a, b);
 		else {
-			const degPerPx = 360 / (Math.pow(2, cam.zoom) * 512);                                    // ズームでの1CSSpx当たり経度（概算）
+			const degPerPx = 360 / (Math.pow(2, cam.zoom) * WORLD_PX);                               // ズームでの1CSSpx当たり経度（概算）
 			cam.center[0] += -(tx - fx) * degPerPx / Math.max(0.2, Math.cos(cam.center[1] * D2R));   // 高緯度ほど経度を伸ばす
 			cam.center[1] = Math.max(-90, Math.min(90, cam.center[1] + (ty - fy) * degPerPx));
 		}

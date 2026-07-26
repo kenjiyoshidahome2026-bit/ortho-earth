@@ -3,6 +3,11 @@
 import * as mat from "./mat.js";
 const D2R = Math.PI / 180, R2D = 180 / Math.PI;
 
+// z の目盛り＝256px 世界（赤道一周 = 2^z × 256 CSSpx）。v1(d3-geo)・地理院地図・OSM と同一目盛り。
+// 旧実装は 512px 世界（MapLibre 流）＝同じ視野で z が1小さく、v1 移植の gint 式（256px 前提）や
+// altpbf の DEM 段閾値と1段ズレていた（2026-07-26 に 256 へ統一）。zoom→幾何の変換は必ずこの定数を通す。
+export const WORLD_PX = 256;
+
 // 経緯度 → 単位球3D
 export function lonlatTo3D(lon, lat) {
 	const a = lon * D2R, b = lat * D2R, cb = Math.cos(b);
@@ -23,7 +28,7 @@ export function cameraState(cam, W, H) {
 	// z は正射(orthographic)スケールそのもの＝同一zは緯度によらず同一倍率（v1 d3-geo と同じ定義）。
 	// 旧実装は ×cos(lat) のwebメルカトル互換定義＝北へパンするほど膨らむ（那覇→札幌で約26%）違和感の原因だった。
 	// メルカトルタイルの緯度分の細かさ補正はタイル選択（tilecover.selectLOD）の仕事＝カメラには漏らさない。
-	const radPerDevPx = 2 * Math.PI / (Math.pow(2, zoom) * 512 * dpr);
+	const radPerDevPx = 2 * Math.PI / (Math.pow(2, zoom) * WORLD_PX * dpr);
 	const camDist = radPerDevPx * (H / 2) / Math.tan(fovy / 2);
 	// カメラ基底を pitch/bearing から明示構築（退化なし）:
 	//   pitch=0 で真上・screen-up=北。pitch>0 で fwdH 方向の地平へ傾く。

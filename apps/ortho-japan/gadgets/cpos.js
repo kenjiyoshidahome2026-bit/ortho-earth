@@ -37,7 +37,7 @@ export function cpos({ projectLL, signal } = {}) {
 		if (!on) return;   // 取得待ちの間にもう一度押して消していた＝結果は捨てる
 		if (!p) { console.warn("[cpos] 現在地を取得できませんでした（許可なし/失敗）"); return off(); }
 		pos = p; mark.style.display = "";
-		flyTo(pos[0], pos[1], Math.max(cam.zoom, 14), cam.pitch * 180 / Math.PI);   // 傾きは今のまま・最低 z14 まで寄る
+		flyTo(pos[0], pos[1], Math.max(cam.zoom, 15), cam.pitch * 180 / Math.PI);   // 傾きは今のまま・最低 z15 まで寄る
 	};
 	btn.addEventListener("click", toggle);
 	// @＝現在地トグル（修飾なし）。入力欄フォーカス中は無効。@ はJIS配列では単独キー・US配列では⇧2＝どちらも e.key==="@"。

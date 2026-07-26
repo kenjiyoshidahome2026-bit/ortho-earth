@@ -10,7 +10,7 @@ localStorage.setItem("oj.hint", "closed");
 import orthoJapan from "../app.js";
 const t = [], ok = (n, c) => t.push((c ? "ok:" : "NG:") + n);
 try {
-	const map = await orthoJapan({ view: "#12/35.68/139.76" });
+	const map = await orthoJapan({ view: "#13/35.68/139.76" });
 	map.gadget.zoom(); map.gadget.full(); map.gadget.cpos(); map.gadget.japan();
 	const setMenu = map.gadget.contextmenu();
 	map.gadget.zoom();   // 二重搭載＝無害

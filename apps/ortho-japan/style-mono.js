@@ -9,7 +9,7 @@ export default {
 		{ id: "bg", type: "background", paint: { "background-color": "#f6f6f4" } },
 
 		// 水域：全タイルで作る（minzoom無し・均一色）。描く/描かないは renderer が cam.zoom で"ビュー一律"に決める
-		// （set("sea",{li,minzoom:13})）＝タイル毎の presence まだらが構造的に消える。z<13=紙の海／z13+=一律の青。
+		// （set("sea",{li,minzoom:9})）＝タイル毎の presence まだらが構造的に消える。z<9=紙の海／z9+=一律の青。
 		{ id: "water", type: "fill", "source-layer": "WA", paint: { "fill-color": "#e2e6ea" } },
 
 		// 水系 点火（面）：WA を水色に染める。水系ONで川面・湖・海が河川中心線（river）と地続きの色になる

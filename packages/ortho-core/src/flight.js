@@ -5,6 +5,7 @@
 // ③着地の瞬間 onFlying(false)＝重い自動ロード（PLATEAU等）の解禁は呼び出し側がここで行う＝
 //   デコード/GPU転送が飛行アニメと帯域を取り合わない。立ち上がりが着陸の演出になる。
 // ユーザーのドラッグ/ホイールで即中断＝主導権は常に人（呼び出し側が cancel() を叩く）。
+import { WORLD_PX } from "./camera.js";
 const D2R = Math.PI / 180;
 
 // 方位角を最短回転(-π..π]へ正規化（コンパスの読みと同じ）
@@ -20,8 +21,8 @@ export function createFlight({ cam, viewW, maxPitch, onMove, onFlying = () => {}
 		let cancelled = false;
 		flight = { cancel: () => { cancelled = true; onFlying(false); flight = null; } };
 		onFlying(true);
-		// 着地チルト：指定（自然地名=55°等）＞ z14+着地の既定45°。出発時の姿勢に依存しない＝毎回同じ振り付け
-		const p1 = tiltDeg != null ? Math.min(maxPitch, tiltDeg * D2R) : (zoom >= 14 ? 45 * D2R : 0);
+		// 着地チルト：指定（自然地名=55°等）＞ z15+着地の既定45°。出発時の姿勢に依存しない＝毎回同じ振り付け
+		const p1 = tiltDeg != null ? Math.min(maxPitch, tiltDeg * D2R) : (zoom >= 15 ? 45 * D2R : 0);
 		const b1 = bearingDeg ? shortBearingOf(bearingDeg * D2R) : 0;   // 着地方位（最短回転側の値へ正規化）
 		const tween = (ms, apply, done, linear) => {
 			const t0 = performance.now();
@@ -42,8 +43,8 @@ export function createFlight({ cam, viewW, maxPitch, onMove, onFlying = () => {}
 			let dLon = lon - lon0; dLon -= Math.round(dLon / 360) * 360;   // 最短経路（antimeridian 安全側）
 			const dLat = lat - lat0;
 			const rho = Math.SQRT2, rho2 = 2, rho4 = 4;
-			const wOf = z => 360 * viewW() / (512 * Math.pow(2, z));       // 視野幅[deg]
-			const zOf = w => Math.log2(360 * viewW() / (512 * w));
+			const wOf = z => 360 * viewW() / (WORLD_PX * Math.pow(2, z));       // 視野幅[deg]
+			const zOf = w => Math.log2(360 * viewW() / (WORLD_PX * w));
 			const w0 = wOf(z0), w1 = wOf(z1), d2 = dLon * dLon + dLat * dLat, d1 = Math.sqrt(d2);
 			let S, frameAt;   // S＝経路長（ρ単位）、frameAt(e)＝[経路割合u(0..1), 視野幅w]
 			if (d1 < 1e-6 * Math.max(w0, w1)) {   // ほぼ真上＝指数ズームのみ
@@ -90,7 +91,7 @@ export function createFlight({ cam, viewW, maxPitch, onMove, onFlying = () => {}
 		const dLat = lat - lat0, dZ = zoom - z0, dist = Math.hypot(dLon, dLat);
 		const B0 = shortBearingOf(cam.bearing), dB = shortBearingOf((bearingDeg || 0) * D2R - B0);
 		const P0 = cam.pitch, p1 = Math.min(maxPitch, (tiltDeg || 0) * D2R), dP = p1 - P0;
-		const w0 = 360 * viewW() / (512 * Math.pow(2, Math.max(z0, zoom)));   // 寄った側の視野幅[deg]＝移動の体感尺
+		const w0 = 360 * viewW() / (WORLD_PX * Math.pow(2, Math.max(z0, zoom)));   // 寄った側の視野幅[deg]＝移動の体感尺
 		const phases = [];   // 各チャンネルの尺＝変化量に比例（変化ゼロのチャンネルは飛ばす）
 		if (dist > 1e-7 || Math.abs(dZ) > 0.001) phases.push({
 			ms: Math.max(800, Math.min(4000, dist / w0 * 700 + Math.abs(dZ) * 350)),

@@ -9,16 +9,16 @@ import orthoJapan from "../app.js";
 const t = [], ok = (n, c) => t.push((c ? "ok:" : "NG:") + n);
 const SLIDE = "data:image/svg+xml," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8"><rect width="8" height="8" fill="#ccc"/></svg>');
 try {
-	const map = await orthoJapan({ view: "#6/36/138" });
+	const map = await orthoJapan({ view: "#7/36/138" });
 	map.gadget.demo();   // 台本なし＝警告して非搭載（無害）
 	let pfCalls = 0, pfViews = null;   // PLATEAU先読みのスパイ（実物は外部ネットワークへ出るため差し替え）
 	const h = map.gadget.demo({ hold: 150, slideHold: 150, prefetchViews: vs => { pfCalls++; pfViews = vs; }, scenes: [   // hold/slideHold=150ms＝自動上演の回帰を短時間で回す
-		{ title: "一", view: "#5/40/140" },
-		{ title: "二", view: "#6/39/141", slide: SLIDE },   // view+slide併記＝三拍子：(地図)→(幕)→(地図)→次
-		{ title: "三", view: "#12/35/139/45t/30r/l=place.rail/c=mono" },   // c=現テーマ＝幕替わり不要＝素通り（reloadしない）
+		{ title: "一", view: "#6/40/140" },
+		{ title: "二", view: "#7/39/141", slide: SLIDE },   // view+slide併記＝三拍子：(地図)→(幕)→(地図)→次
+		{ title: "三", view: "#13/35/139/45t/30r/l=place.rail/c=mono" },   // c=現テーマ＝幕替わり不要＝素通り（reloadしない）
 		{ title: "四", slide: "堀は、突合。\n（生テキストの挟み込み）" },   // slideだけ＝入場で幕
 	] });
-	map.gadget.demo({ scenes: [{ title: "重", view: "#5/40/140" }] });   // 二重搭載＝無害
+	map.gadget.demo({ scenes: [{ title: "重", view: "#6/40/140" }] });   // 二重搭載＝無害
 	await new Promise(r => setTimeout(r, 200));
 	const bar = document.getElementById("demo-bar"), slide = document.getElementById("demo-slide");
 	ok("mount", document.querySelectorAll("#demo-btn").length === 1 && !!bar && !!slide && !bar.classList.contains("on"));
@@ -130,14 +130,14 @@ try {
 	map.destroy();
 
 	// slide:false＝スライド抜き上演（公開チュートリアル・モード）：スライドだけのシーンは台本から抜け、幕は一切開かない
-	const map2 = await orthoJapan({ view: "#6/36/138" });
+	const map2 = await orthoJapan({ view: "#7/36/138" });
 	const h2 = map2.gadget.demo({ slide: false, scenes: [
-		{ title: "一", view: "#5/40/140", slide: SLIDE },   // view持ち＝残る（幕は開かない）
+		{ title: "一", view: "#6/40/140", slide: SLIDE },   // view持ち＝残る（幕は開かない）
 		{ title: "二", slide: SLIDE },                       // スライドのみ＝抜く
-		{ title: "三", view: "#6/38/141" },
-		{ title: "四", glide: "#7/37.5/140.5/20t/40r" },     // 近距離滑走＝起きずに時分割で滑る
-		{ title: "五", view: "#1/20/140/l=" },               // z1着地＝星空劇場の深部（フライトのズーム下限が目標まで降りる）
-		{ title: "六", pre: "#8/38/141/0r/l=", view: "#8/38/141/0r/l=rail" },   // pre＝入場の見せ玉：素の地図に着いて0.5秒後に l=rail が遷移なしで点く
+		{ title: "三", view: "#7/38/141" },
+		{ title: "四", glide: "#8/37.5/140.5/20t/40r" },     // 近距離滑走＝起きずに時分割で滑る
+		{ title: "五", view: "#2/20/140/l=" },               // z2着地＝星空劇場の深部（フライトのズーム下限が目標まで降りる）
+		{ title: "六", pre: "#9/38/141/0r/l=", view: "#9/38/141/0r/l=rail" },   // pre＝入場の見せ玉：素の地図に着いて0.5秒後に l=rail が遷移なしで点く
 	] });
 	h2.start();
 	await new Promise(r => setTimeout(r, 100));
@@ -150,22 +150,22 @@ try {
 	await new Promise(r => setTimeout(r, 9000));   // 仮想時間＝全チャンネル走り切るまで
 	const D2R = Math.PI / 180;
 	ok("glide", Math.abs(map2.cam.pitch - 20 * D2R) < 0.03 && Math.abs(map2.cam.bearing - 40 * D2R) < 0.03
-		&& Math.abs(map2.cam.center[1] - 37.5) < 0.01 && Math.abs(map2.cam.zoom - 7) < 0.05);
-	// z1へのフライト着地＝星空の締め（従来は巡航下限の一律2で頭打ちだった）
+		&& Math.abs(map2.cam.center[1] - 37.5) < 0.01 && Math.abs(map2.cam.zoom - 8) < 0.05);
+	// z2へのフライト着地＝星空の締め（256px世界＝旧z1相当。ズーム下限が目標まで降りる）
 	bar2.querySelector("#demo-next").click();
 	await new Promise(r => setTimeout(r, 9000));
-	ok("z1", Math.abs(map2.cam.zoom - 1) < 0.05);
+	ok("z1", Math.abs(map2.cam.zoom - 2) < 0.05);
 	// pre＝入場の見せ玉：pre（l=無し＝五で全消灯のまま）へ飛び、着地1秒後に view の l=rail が遷移なしで点く
 	bar2.querySelector("#demo-next").click();
 	await new Promise(r => setTimeout(r, 9000));   // フライト＋着地待ち＋1秒 ≪ 仮想9秒
-	ok("pre", Math.abs(map2.cam.zoom - 8) < 0.05
+	ok("pre", Math.abs(map2.cam.zoom - 9) < 0.05
 		&& document.querySelector('.chip[data-k="rail"]')?.classList.contains("on") === true);
 	map2.destroy();
 
 	// 幕替わり（配色reload）からの自動復帰：預けた進行があれば、▶を押さずともそのシーンから再開（飛ばない＝視点は起動のまま）
 	sessionStorage.setItem("oj.demo.resume", JSON.stringify({ i: 1, playing: false, t: Date.now() }));
-	const map3 = await orthoJapan({ view: "#6/39/141" });
-	map3.gadget.demo({ scenes: [{ title: "甲", view: "#5/40/140" }, { title: "乙", view: "#6/39/141" }] });
+	const map3 = await orthoJapan({ view: "#7/39/141" });
+	map3.gadget.demo({ scenes: [{ title: "甲", view: "#6/40/140" }, { title: "乙", view: "#7/39/141" }] });
 	await new Promise(r => setTimeout(r, 200));
 	const bar3 = document.getElementById("demo-bar");
 	ok("resume", bar3.classList.contains("on") && bar3.querySelector("#demo-step").textContent === "2/2"

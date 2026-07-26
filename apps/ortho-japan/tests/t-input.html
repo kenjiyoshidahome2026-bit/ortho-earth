@@ -4,7 +4,7 @@
 <body><script type="module">
 import orthoJapan from "../app.js";
 const t = [], ok = (n, c) => t.push((c ? "ok:" : "NG:") + n);
-const map = await orthoJapan({ view: "#12/35.68/139.76", plateau: false });
+const map = await orthoJapan({ view: "#13/35.68/139.76", plateau: false });
 const c = document.getElementById("c");
 const tv = (type, id, x, y) => c.dispatchEvent(new PointerEvent(type, { pointerId: id, pointerType: "touch", clientX: x, clientY: y, bubbles: true }));
 const mv = (type, x, y, button = 0) => c.dispatchEvent(new PointerEvent(type, { pointerId: 9, pointerType: "mouse", clientX: x, clientY: y, button, bubbles: true }));

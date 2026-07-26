@@ -111,14 +111,14 @@ export function createSearch({ onGo, signal }) {   // signal＝map.destroy() で
 	}
 
 	// ヒットの粒度→着地ズーム＋チルト。APIは extent を返さないので名前で近似（v1の割り切り）。
-	// 自然地名（山・湖・岬…）は山岳レジーム（z12・チルト55°）＝地形が主役の着地。
-	// 住所・地名は z14.5＝PLATEAU自動ロード圏＝着地で街が立つ。
+	// 自然地名（山・湖・岬…）は山岳レジーム（z13・チルト55°）＝地形が主役の着地。
+	// 住所・地名は z15.5＝PLATEAU自動ロード圏＝着地で街が立つ。
 	const NATURE = /([山岳峰湖沼池岬崎峠島滝湾](\s*\(.*\))?|高原|湿原|ヶ原|渓谷|盆地|平野|半島|諸島|列島)$/;
 	function viewFor(title) {
-		if (/^(東京都|北海道|(京都|大阪)府|.{2,3}県)$/.test(title)) return { zoom: 9 };      // 都道府県
-		if (NATURE.test(title)) return { zoom: 11.8, tilt: 55 };                            // 自然地名＝地形ビュー
-		if (/[市区町村]$/.test(title)) return { zoom: 12 };                                 // 市区町村
-		return { zoom: 14.5 };                                                              // 住所・丁目・施設
+		if (/^(東京都|北海道|(京都|大阪)府|.{2,3}県)$/.test(title)) return { zoom: 10 };     // 都道府県
+		if (NATURE.test(title)) return { zoom: 12.8, tilt: 55 };                            // 自然地名＝地形ビュー
+		if (/[市区町村]$/.test(title)) return { zoom: 13 };                                 // 市区町村
+		return { zoom: 15.5 };                                                              // 住所・丁目・施設
 	}
 
 	function go(i) {

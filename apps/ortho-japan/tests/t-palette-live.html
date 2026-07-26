@@ -22,7 +22,7 @@ const mkSnap = () => {
 };
 const near = (got, want, tol = 8) => got.every((v, i) => Math.abs(v - want[i]) <= tol);
 try {
-	const map = await orthoJapan({ view: "#6/36/138" });
+	const map = await orthoJapan({ view: "#7/36/138" });
 	const h = map.gadget.palette({ requestSnapshot: async () => mkSnap() });   // 撮影を合成で差し替え（...optsが注入を上書き）
 	map.gadget.palette();   // 二重搭載＝無害
 	await new Promise(r => setTimeout(r, 200));

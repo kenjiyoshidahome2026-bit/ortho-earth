@@ -13,7 +13,7 @@ const C = () => document.getElementById("c");
 const click = (x, y) => { const o = { bubbles: true, cancelable: true, clientX: x, clientY: y, pointerId: 1, button: 0 }; C().dispatchEvent(new PointerEvent("pointerdown", o)); C().dispatchEvent(new PointerEvent("pointerup", o)); };
 const rd = () => document.getElementById("measure-readout");
 try {
-	const map = await orthoJapan({ view: "#14/35.681/139.767" });
+	const map = await orthoJapan({ view: "#15/35.681/139.767" });
 	const h = map.gadget.measure();
 	map.gadget.measure();   // 二重搭載＝無害
 	await new Promise(r => setTimeout(r, 300));

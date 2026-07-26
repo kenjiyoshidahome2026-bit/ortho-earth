@@ -11,7 +11,7 @@ localStorage.setItem("oj.hint", "closed");
 <script type="module">
 import orthoJapan from "../app.js";
 const t = [], ok = (n, c) => t.push((c ? "ok:" : "NG:") + n);
-const map = await orthoJapan({ view: "#12/35.68/139.76" });
+const map = await orthoJapan({ view: "#13/35.68/139.76" });
 map.gadget.search(); map.gadget.compass(); map.gadget.plateau(); map.gadget.hint();
 map.gadget.search(); map.gadget.compass();   // 二重搭載＝無害のはず
 await new Promise(r => setTimeout(r, 400));

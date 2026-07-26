@@ -516,7 +516,7 @@ export function createRenderer(canvas, rOpts = {}) {
 		// 真俯瞰(pitch≈0)＋十分な寄り＝画面全面が陸。地球の縁/大気のレイキャストは映らず無駄なので、
 		// 陸色で塗りつぶす clear だけの2D高速パスへ（フルスクリーンの球シェーダを丸ごと省略）。
 		const land = view.land || [0.96, 0.96, 0.95, 1], atmo = view.atmo || [0.45, 0.62, 0.95, 0.6];
-		const flat2d = (cam.pitch || 0) < 0.02 && cam.zoom >= 8;
+		const flat2d = (cam.pitch || 0) < 0.02 && cam.zoom >= 9;
 		const c = flat2d ? [land[0], land[1], land[2], 1] : (view.clear || [1, 1, 1, 1]);
 		gl.clearColor(c[0] * c[3], c[1] * c[3], c[2] * c[3], c[3]);
 		gl.clear(gl.COLOR_BUFFER_BIT);
@@ -525,9 +525,9 @@ export function createRenderer(canvas, rOpts = {}) {
 		gl.disable(gl.DEPTH_TEST);
 		gl.clear(gl.DEPTH_BUFFER_BIT);
 
-		// 星空劇場（z<4）：globe より先に描く＝陸には上書きされ・大気ハローは星の上に薄く重なり・宇宙には星が残る。
+		// 星空劇場（z<5）：globe より先に描く＝陸には上書きされ・大気ハローは星の上に薄く重なり・宇宙には星が残る。
 		// 深度無関係の背景（VSが clip.z=0 固定）。天球の向きは恒星時(GMST)＝実時刻の空。versor回転にもそのまま追随。
-		const worldFade = !flat2d && cam.zoom < 4 ? Math.min(1, (4 - cam.zoom) / 0.5) : 0;   // 星空劇場（星・夜面）共通の出現フェード
+		const worldFade = !flat2d && cam.zoom < 5 ? Math.min(1, (5 - cam.zoom) / 0.5) : 0;   // 星空劇場（星・夜面）共通の出現フェード
 		const starFade = (stars || constel || planets) ? worldFade : 0;
 		if (starFade > 0) {
 			const gmst = (((18.697374 + 24.0657098 * (Date.now() / 864e5 + 2440587.5 - 2451545.0)) * 15) % 360) * Math.PI / 180;
@@ -591,12 +591,12 @@ export function createRenderer(canvas, rOpts = {}) {
 		// 出た以上、深度が無いと尾根の向こうの建物・道路が透ける（札幌 藻岩山で実測）。
 		// polygonOffset で地形をわずかに奥へ＝ドレープした基図(同じ対数深度)が z-fight せず表に出る。
 		const terrainDepth = terrainActive;
-		// 水面リフト(+30m)は DSM 帯（R10 混成があり得る z<13）限定＝DTM の都市帯で川を 30m 浮かせない。
-		const dsmLift = terrainDepth && cam.zoom < 13;
+		// 水面リフト(+30m)は DSM 帯（R10 混成があり得る z<14）限定＝DTM の都市帯で川を 30m 浮かせない。
+		const dsmLift = terrainDepth && cam.zoom < 14;
 		// 都市帯の基図接地リフト(+5m)：深度テスト×DTM起伏で、線/塗りのドレープ（頂点毎バイリニア）と
 		// 地形メッシュ（72m級格子）の近似差から道路が地形面を出入りしてギザギザになる（札幌 z16.9 実測）
-		// のを上へ逃がす。山岳帯(z<13)は 0＝従来の見た目。根治は RTT ドレープ（基図を地形に貼る）＝将来課題。
-		const cityLift = terrainDepth && cam.zoom >= 13 ? 5 : 0;
+		// のを上へ逃がす。山岳帯(z<14)は 0＝従来の見た目。根治は RTT ドレープ（基図を地形に貼る）＝将来課題。
+		const cityLift = terrainDepth && cam.zoom >= 14 ? 5 : 0;
 		// 3D（チルト）では建物フットプリント塗りを伏せる：押し出し建物と二重表現になり、起伏＋接地リフト下では
 		// 「浮いた濃い平板」として露出する（札幌 z16.9 実測・本人指摘「3Dならフットプリント不要では」）。
 		// 真俯瞰(2D)では従来どおり描く＝平面地図の建物表現はフットプリントが本体。閾値は show3d と同じ。
@@ -640,15 +640,15 @@ export function createRenderer(canvas, rOpts = {}) {
 		// 等高線：真俯瞰(チルト≈0)でだけ茶の等高線を敷く（3Dが立ち上がる前＝ちょうど入れ替わりでフェード）。ベクタの下＝道路/区界は上に乗る。
 		{
 			const ps = Math.max(0, Math.min(1, ((cam.pitch || 0) - 0.01) / 0.05));   // pitch 0.01→0.06rad で 3D と入れ替わり
-			const zf = 1 - Math.max(0, Math.min(1, (cam.zoom - 16.5) / 1.5));        // z16.5→18 でフェードアウト（DEM過拡大＝ボケ/汚れを出さない）
+			const zf = 1 - Math.max(0, Math.min(1, (cam.zoom - 17.5) / 1.5));        // z17.5→19 でフェードアウト（DEM過拡大＝ボケ/汚れを出さない）
 			const cAlpha = (elev.has && !(opts && opts.noTerrain) && view.showContour === true) ? (1 - ps * ps * (3 - 2 * ps)) * zf : 0;
-			if (cAlpha > 0.003 && cam.zoom >= 8) {
+			if (cAlpha > 0.003 && cam.zoom >= 9) {
 				gl.useProgram(contourProg);
 				gl.uniformMatrix4fv(loc(gl, contourProg, "u_invMvp"), false, Float32Array.from(st.invMvp));
 				gl.uniform1i(loc(gl, contourProg, "u_elevTex"), 1);
 				gl.uniform4f(loc(gl, contourProg, "u_elevBounds"), elev.bounds[0], elev.bounds[1], elev.bounds[2], elev.bounds[3]);
 				gl.uniform1f(loc(gl, contourProg, "u_hasElev"), elev.has);
-				const iv = cam.zoom >= 14 ? 15 : cam.zoom >= 11 ? 30 : 60;   // 寄るほど細かい間隔(m)
+				const iv = cam.zoom >= 15 ? 15 : cam.zoom >= 12 ? 30 : 60;   // 寄るほど細かい間隔(m)
 				gl.uniform1f(loc(gl, contourProg, "u_interval"), iv);
 				gl.uniform1f(loc(gl, contourProg, "u_major"), iv * 5.0);
 				gl.uniform1f(loc(gl, contourProg, "u_alpha"), cAlpha * (view.contourAlpha || 1));

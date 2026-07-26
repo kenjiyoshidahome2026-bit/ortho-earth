@@ -13,7 +13,7 @@ const t = [], ok = (n, c) => t.push((c ? "ok:" : "NG:") + n);
 const probe = async opts => {   // 起動→観測→destroy＝毎回まっさら（destroy自体も毎回テストされる）
 	const holder = document.createElement("div"); holder.style.cssText = "position:fixed;inset:0";
 	document.body.appendChild(holder);
-	const m = await orthoJapan({ target: holder, view: "#12/35.68/139.76", plateau: false, ...opts });
+	const m = await orthoJapan({ target: holder, view: "#13/35.68/139.76", plateau: false, ...opts });
 	const chips = [...document.querySelectorAll("#chips .chip")].map(b => b.dataset.k).join(".") || "none";
 	const inst = ["log", "pos", "scale", "attr"].filter(id => document.getElementById(id)).join(".") || "none";
 	m.destroy(); holder.remove();
@@ -38,7 +38,7 @@ ok("destroyClean", !document.getElementById("map") && !window.__cam);   // probe
 // plateau:false＝カタログfetchが一切発生していない（全probe共通）
 ok("plateauOff", !performance.getEntriesByType("resource").some(e => e.name.includes("plateau-sets.json")));
 // target無指定＝容れ物を自作→destroyで丸ごと消える・同ページ再起動できる
-const m2 = await orthoJapan({ view: "#12/35.68/139.76", plateau: false });
+const m2 = await orthoJapan({ view: "#13/35.68/139.76", plateau: false });
 ok("reboot", !!document.getElementById("map") && typeof window.__cam === "function");
 m2.destroy();
 ok("ownRemoved", !document.getElementById("map"));

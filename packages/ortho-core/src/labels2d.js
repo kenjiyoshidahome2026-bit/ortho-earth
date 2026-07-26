@@ -134,10 +134,10 @@ export function createLabelLayer(canvas, { pad = 5, fade = 0.3, recollideMs = 15
 	}
 
 	// 星空劇場の注記：GL星空(renderer)と厳密に同じ変換＝GMST回転→mvp×(dir,0)→天球倍率(u_sky同式)のNDCスケール。
-	// 出現タイミング・フェードも星座線と同一（z<4・z4→3.5）。地球の背後は unproject（光線が球に当たる＝手前に地球）で遮蔽。
+	// 出現タイミング・フェードも星座線と同一（z<5・z5→4.5）。地球の背後は unproject（光線が球に当たる＝手前に地球）で遮蔽。
 	function drawSky(st, cam, Wc, Hc, dpr) {
-		if ((!sky && !moon) || cam.zoom >= 4) return;
-		const fade = Math.min(1, (4 - cam.zoom) / 0.5);
+		if ((!sky && !moon) || cam.zoom >= 5) return;
+		const fade = Math.min(1, (5 - cam.zoom) / 0.5);
 		const gmst = (((18.697374 + 24.0657098 * (Date.now() / 864e5 + 2440587.5 - 2451545.0)) * 15) % 360) * Math.PI / 180;
 		const cg = Math.cos(gmst), sg = Math.sin(gmst);
 		const skyK = (0.4 + 0.3 * cam.zoom) / 1.6;

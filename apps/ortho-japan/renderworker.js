@@ -255,7 +255,7 @@ let lastEnsure = null;
 // 標高ゼロの帯＋窓の縁の壁（スリット）になる（実測: res×0.55 で実視野の3.4%が窓外。res復帰で直る＝
 // 「リロードすると綺麗」の正体）。draw と同じ glCam を受け取り、描画と窓計算の視野を常に一致させる。
 function ensureIfMoved(c) {
-	const tol = 36 / Math.pow(2, c.zoom);   // 視野スパンの~10%相当(deg)
+	const tol = 72 / Math.pow(2, c.zoom);   // 視野スパンの~10%相当(deg)（256px世界のz）
 	if (lastEnsure &&
 		Math.abs(c.center[0] - lastEnsure.lon) < tol && Math.abs(c.center[1] - lastEnsure.lat) < tol &&
 		Math.abs(c.zoom - lastEnsure.zoom) < 0.05 &&

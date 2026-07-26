@@ -9,6 +9,7 @@
 // 縮尺の正しさは「切り出す地表幅 ↔ 紙の地図幅(mm)」の対応で構成的に保証（解像度は精細度にだけ効く）。
 import { keyBusy } from "./keys.js";
 import { composeLayersToCanvas } from "./compose.js";
+import { WORLD_PX } from "ortho-core";
 
 // 印刷の出典＝地理院ベクトルタイルの一行のみ。真俯瞰(pitch0)は建物3D・地形サーフェスを描かない
 // （elevScaleEff=0）。標高(AW3D30)は等高線のベクタ線としてだけ写る＝地理院の等高線と同じ位置づけで
@@ -31,10 +32,10 @@ export function layoutFor(paper = "a4", orient = "landscape") {
 	return { W, H, outer, inner, cap };
 }
 
-// 縮尺→カメラz：m/csspx = 2πR/(2^z·512)（正射z＝dpr非依存）を「紙の地図幅(mm)×縮尺S＝切り出しCSS幅の地表幅」で解く。
+// 縮尺→カメラz：m/csspx = 2πR/(2^z·WORLD_PX)（正射z＝dpr非依存・256px世界）を「紙の地図幅(mm)×縮尺S＝切り出しCSS幅の地表幅」で解く。
 export function zoomForScale(S, mapWmm, cropCssW) {
 	const groundW = mapWmm / 1000 * S;   // 地表幅[m]
-	return Math.log2(2 * Math.PI * R * cropCssW / (512 * groundW));
+	return Math.log2(2 * Math.PI * R * cropCssW / (WORLD_PX * groundW));
 }
 
 // 度→度分秒（"北緯35°41′07″" 形式）。秒の繰り上がり処理つき。
@@ -271,7 +272,7 @@ export function print({ capture, signal, btn } = {}) {
 			lastMeta = { Wmm: L.W, Hmm: L.H, S, paper };
 			await recompose();
 			note(`カメラz ${zoom.toFixed(1)}・地図部 約${mapDpi}dpi（紙面 ${dpi}dpi）` +
-				(zoom < 4.5 ? "／この縮尺は広域すぎるため基図が写りません" : mapDpi < 110 ? "／画面が小さいため地図の精細度は控えめです" : ""), zoom < 4.5);
+				(zoom < 5.5 ? "／この縮尺は広域すぎるため基図が写りません" : mapDpi < 110 ? "／画面が小さいため地図の精細度は控えめです" : ""), zoom < 5.5);
 		} catch (e) {
 			console.error("[print] プレビュー作成に失敗", e);
 			note("プレビューの作成に失敗しました", true);

@@ -4,7 +4,7 @@
 // 内部の手綱（フライト中断・onMove・z範囲）は本体が app.js の登録側で注入。
 // 縦2連の一体ボタン（＋上・−下）＝チップと同じ隣接ボーダー共有の意匠。置き場所はスタック。
 import { gadgetStack } from "./stack.js";
-export function zoom({ cancelFlight, onMove, zoomMin = 1, zoomMax = 20, signal } = {}) {
+export function zoom({ cancelFlight, onMove, zoomMin = 2, zoomMax = 21, signal } = {}) {
 	const mapEl = this.mapEl, cam = this.cam;
 	if (mapEl.querySelector("#zoom")) return;   // 二重搭載は無害（搭載済みのまま）
 	const box = document.createElement("div");
