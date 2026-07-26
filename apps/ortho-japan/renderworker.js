@@ -49,6 +49,7 @@ onmessage = e => {
 			// 同じ glCam で1パス＝地図と同フレーム同カメラ（別canvas時代の「1フレーム級遅れて泳ぐ」の根治）。
 			gint = createGintLayer(glRef, { requestDraw: () => { dirty = true; } });
 			perfOn = !!m.perf;
+			self.__perfElev = perfOn;   // renderer の標高パイプライン計器（[elev] 行）を点灯
 			if (perfOn) {
 				tqExt = glRef.getExtension("EXT_disjoint_timer_query_webgl2");   // 無い環境は null＝CPU計測のみ
 				const dbg = glRef.getExtension("WEBGL_DEBUG_RENDERER_INFO") || glRef.getExtension("WEBGL_debug_renderer_info");

@@ -506,11 +506,11 @@ export function createRenderer(canvas, rOpts = {}) {
 		// 真俯瞰では標高オフ、傾けるほどフェードイン（3.4°→11.5°）
 		const pt = Math.max(0, Math.min(1, ((cam.pitch || 0) - 0.06) / 0.14));
 		const pf = pt * pt * (3 - 2 * pt);
-		// ズーム taper：都市ズームでは地形を平らにする。ALOS AW3D30 は DSM(地表面)でビル/樹木を含むため、
-		// 都市の"起伏"は実はビル天端＝ベクタ建物と二重になる。都市では地形を平らにし、3Dはベクタ建物に任せる。
-		// 山(中ズーム)は誇張フルのまま。地形・建物・塗りは同じu_elevScaleを共有＝平らにすれば足並みも揃う。
-		const cityFlat = Math.max(0, Math.min(1, (cam.zoom - 13.5) / 2.5));   // z13.5:誇張フル → z16:平ら
-		elevScaleEff = elev.scale * pf * (1 - cityFlat);
+		// 都市ズームの平ら化(cityFlat: z13.5→16)は撤去（2026-07-26）。あれは ALOS AW3D30=DSM 時代の名残で、
+		// 「都市の起伏＝ビル天端がベクタ建物と二重になる」対策だった。現在 z≥12 の標高源は R01=DEM10B（地理院
+		// 10m DTM＝裸地）＝都市の起伏は本物の地形（台地・谷・扇状地）なので全ズームで見せるのが正しい。
+		// ⚠轍：都市帯の標高源を DSM 系へ戻す時はこの taper（と深度のテント問題）が再び必要になる。
+		elevScaleEff = elev.scale * pf;
 		// 真俯瞰(pitch≈0)＋十分な寄り＝画面全面が陸。地球の縁/大気のレイキャストは映らず無駄なので、
 		// 陸色で塗りつぶす clear だけの2D高速パスへ（フルスクリーンの球シェーダを丸ごと省略）。
 		const land = view.land || [0.96, 0.96, 0.95, 1], atmo = view.atmo || [0.45, 0.62, 0.95, 0.6];
@@ -579,14 +579,26 @@ export function createRenderer(canvas, rOpts = {}) {
 		// ここから深度あり（建物同士の前後関係を共有）
 		gl.enable(gl.DEPTH_TEST); gl.depthFunc(gl.LEQUAL);
 		// 地形サーフェス（標高変位＋hillshade）。真俯瞰(pf≈0)では描かない＝平面地図。
-		// 深度は書かない＝背景扱い：ALOS AW3D30 は DSM(地表面)でビル天端を含む＝都市では地形サーフェスが
-		// 「屋根の高さのテント」になり、深度を書くとその下の建物(基図/PLATEAU)を z14〜16帯で丸ごと飲み込む
-		// （z16+は cityFlat が平らにするので露見しない）。塗り・線が既にペインタ順で地形の上な設計（半透明の山）
+		// 深度は書かない＝背景扱い：地形サーフェスが深度を書くと、その上に立つ建物(基図/PLATEAU)と
+		// 干渉し得る（DSM時代は「屋根の高さのテント」が建物を丸ごと飲んだ。現 R01=DTM でも接地誤差の
+		// z-fight を避ける）。塗り・線が既にペインタ順で地形の上な設計（半透明の山）
 		// に建物も合わせ、地形深度との衝突を根絶する。地形自身は凸地形の重なりが稀に透けるが設計内の割り切り。
-		// 山岳ビュー(z<13)だけ地形が深度を書く＝凸地形の自遮蔽（富士の"頂上抜け"対策）＋基図・建物も尾根の向こうは隠れる。
-		// 都市帯(z>=13)は従来通り深度を書かない：ALOS DSM はビル天端を含み、深度を書くと建物を飲む（既知のテント問題）。
+		// 地形の深度書き＝凸地形の自遮蔽（富士の"頂上抜け"対策）＋基図・建物も尾根の向こうは隠れる。
+		// 旧: z<13 限定（都市帯は ALOS DSM のビル天端が建物を飲む＝テント問題）。cityFlat 撤去（2026-07-26）と
+		// ペアで全ズーム化：z≥12 の標高源は R01=DEM10B（DTM＝裸地）なのでテントは存在せず、都市帯にも起伏が
+		// 出た以上、深度が無いと尾根の向こうの建物・道路が透ける（札幌 藻岩山で実測）。
 		// polygonOffset で地形をわずかに奥へ＝ドレープした基図(同じ対数深度)が z-fight せず表に出る。
-		const terrainDepth = terrainActive && cam.zoom < 13;
+		const terrainDepth = terrainActive;
+		// 水面リフト(+30m)は DSM 帯（R10 混成があり得る z<13）限定＝DTM の都市帯で川を 30m 浮かせない。
+		const dsmLift = terrainDepth && cam.zoom < 13;
+		// 標高パイプライン計器（?perf=1 時・2秒毎）：「高度が消える」系の切り分け用＝どの因子が0かを1行で。
+		if (self.__perfElev && performance.now() - (self.__perfElevT || 0) > 2000) {
+			self.__perfElevT = performance.now();
+			console.log('[elev] z=%s pitch=%s scale=%s pf=%s eff=%s has=%s mesh=%s active=%s depth=%s bounds=%s',
+				cam.zoom.toFixed(2), ((cam.pitch || 0) * 180 / Math.PI).toFixed(0),
+				elev.scale?.toExponential?.(2), pf.toFixed(2), elevScaleEff?.toExponential?.(2),
+				elev.has, !!terrain, terrainActive, terrainDepth, elev.bounds?.map(v => +v.toFixed(2)).join(','));
+		}
 		if (terrainActive) {
 			gl.depthMask(terrainDepth);
 			if (terrainDepth) { gl.enable(gl.POLYGON_OFFSET_FILL); gl.polygonOffset(1.0, 4.0); }
@@ -678,7 +690,7 @@ export function createRenderer(canvas, rOpts = {}) {
 						if ((e.li === sea.li || e.li === sea.li2) && cam.zoom < sea.minzoom) continue;   // 海：ビュー一律ゲート（classicと同じ）
 						// 水面は「+30mリフトして深度テスト復帰」（classic 側と同判断＝チルトの尾根遮蔽と琵琶湖の偽島を両立）
 						if (curProgM !== md.fillProg) { gl.useProgram(md.fillProg); gl.bindVertexArray(md.fillVAO); curProgM = md.fillProg; }
-						gl.uniform1f(loc(gl, md.fillProg, "u_lift"), (terrainDepth && (e.li === sea.li || e.li === sea.li2)) ? WATER_LIFT_M : 0);
+						gl.uniform1f(loc(gl, md.fillProg, "u_lift"), (dsmLift && (e.li === sea.li || e.li === sea.li2)) ? WATER_LIFT_M : 0);
 						gl.uniform2fv(loc(gl, md.fillProg, "u_tileOff"), e.origins);
 						md.ext.multiDrawElementsWEBGL(gl.TRIANGLES, e.counts, 0, gl.UNSIGNED_INT, e.offsets, 0, e.counts.length);
 					} else {
@@ -704,7 +716,7 @@ export function createRenderer(canvas, rOpts = {}) {
 					// 稜線の向こうの湖が山腹に透けた（山中湖で顕在化）。リフトが DSM の水面ノイズ瘤(±10m級)を
 					// 沈め「湖の偽の島」（琵琶湖）も防ぐ＝両立。数百m級の尾根には引き続き隠される。
 					if (curProg !== fillProg) { gl.useProgram(fillProg); curProg = fillProg; }
-					gl.uniform1f(loc(gl, fillProg, "u_lift"), (terrainDepth && (d.li === sea.li || d.li === sea.li2)) ? WATER_LIFT_M : 0);
+					gl.uniform1f(loc(gl, fillProg, "u_lift"), (dsmLift && (d.li === sea.li || d.li === sea.li2)) ? WATER_LIFT_M : 0);
 					gl.bindVertexArray(d.vao);
 					if (d.idxT) gl.drawElements(gl.TRIANGLES, d.count, d.idxT, 0);
 					else gl.drawArrays(gl.TRIANGLES, 0, d.count);

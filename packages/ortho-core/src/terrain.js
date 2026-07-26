@@ -106,6 +106,8 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 		}
 		return out;
 	}
+	// 窓縁の標高フェード幅(deg)。viewCellRange の隣セル強制包含と ensure の renderer.set で共用（値ズレ防止）。
+	const EDGE_FADE = r => r === 90 ? 0 : r === 10 ? 1.5 : 0.4;
 	function viewCellRange(cam, size, range, mixed) {
 		if (mixed) {
 			// 混成窓は決定的に：カメラセル基準＋方位ベクトルで前方（視線方向）へ2セル寄せる。
@@ -153,6 +155,17 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 			votes.set(k, (votes.get(k) || 0) + 1);
 		}
 		votes.set("0,0", (votes.get("0,0") || 0) + 1);   // カメラセルは錨（全サンプル空振りでも1×1が立つ）
+		// カメラ近傍の縁フェード対策：カメラがセル境界から edgeFade+α 以内なら隣セルを必ず窓へ（票ブースト＝must化）。
+		// 窓の縁＝標高が0へ落ちるフェード帯が視界のど真ん中へ来るのを防ぐ。実測: z15 R01 で窓が1セルに縮み、
+		// カメラが南縁から0.014°＝視界(1-2km)全域がフェード帯(0.4°)内＝「z~15で高度が消える」（札幌 2026-07-26）。
+		const fadeFrac = EDGE_FADE(range) / range + 0.05;
+		if (fadeFrac < 0.5) {
+			const fx = cam.center[0] / range - camCX, fy = cam.center[1] / range - camCY;
+			if (fx < fadeFrac)     votes.set("-1,0", (votes.get("-1,0") || 0) + 999);
+			if (fx > 1 - fadeFrac) votes.set("1,0",  (votes.get("1,0")  || 0) + 999);
+			if (fy < fadeFrac)     votes.set("0,-1", (votes.get("0,-1") || 0) + 999);
+			if (fy > 1 - fadeFrac) votes.set("0,1",  (votes.get("0,1")  || 0) + 999);
+		}
 		// セル上限：R01 は近景特化で小さく高精細に（遠景まで広げると grazing で粗いメッシュの壁が出る）。
 		const cap = range === 1 ? 4 : 8;
 		let lox = 0, hix = 0, loy = 0, hiy = 0;
@@ -234,7 +247,7 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 			// edgeFade＝窓の縁で標高を滑らかに0へ落とす幅(deg)。R90全球窓は縁が極/±180のみ＝無効(0)。
 			// R10/R01窓は「窓の外＝標高0」との崖と陰影の切れ目（地球の淵の標高抜け）をこの幅で馴染ませる。
 			// 窓選定（票×√解像度・掠りは制約外）はそのまま＝中心の解像度は犠牲にしない、見た目だけの解。
-			const edgeFade = range === 90 ? 0 : range === 10 ? 1.5 : 0.4;
+			const edgeFade = EDGE_FADE(range);
 			renderer.set(staging ? "elevAtlasStage" : "elevAtlas",
 				{ originLng: r.originCX * range, originLat: r.originCY * range, cellsX: r.cellsX, cellsY: r.cellsY, cellRes: r.cellRes, cellSpan: range, exag, edgeFade }, exag / earthM);
 			hasAtlas = true;
