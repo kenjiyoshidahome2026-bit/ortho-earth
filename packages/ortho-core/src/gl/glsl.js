@@ -477,6 +477,7 @@ uniform float u_lift;   // 水面リフト(m)：水域(fill)だけ山岳レジ�
 out vec4 v_color;
 out float v_front;
 out float v_fog;
+out float v_w;    // clip w（perspective-correct 補間＝フラグメントで真の視距離。水域の厳密深度用）
 void main() {
 	vec2 dLL = a_delta;                       // 原点相対 (deg)。multidraw は mdize が u_tileOff を足す
 	vec2 ll = u_origin + dLL;                  // elev 参照用の絶対（粗くて可）
@@ -492,14 +493,18 @@ void main() {
 	v_fog = fogOf(u_originPt + relW);
 	gl_Position = u_clipT + u_mvp * vec4(relW, 0.0);   // RTE：mvp*[w,1] を相殺なしで
 	applyLogDepth();   // 山岳ビュー(z<13)は深度テストON＝地形(対数深度)が尾根の向こうを遮蔽。テストOFF時は無害
+	v_w = gl_Position.w;
 }`;
 
 export const FILL_FS = `#version 300 es
 precision highp float;
 uniform vec3 u_fogColor;
+uniform float u_logCoef;
+uniform float u_exactDepth;   // 1＝フラグメント厳密対数深度（terrainDepth 中の水域のみ）
 in vec4 v_color;
 in float v_front;
 in float v_fog;
+in float v_w;
 out vec4 fragColor;
 void main() {
 	if (v_front < -0.0015) discard;         // 裏半球は描かない（接線に標高許容＝地平線に頭を出す山上の塗りも描く）
@@ -508,6 +513,14 @@ void main() {
 	float af = v_color.a * clamp(1.0 - 1.2 * v_fog, 0.0, 1.0);
 	if (af <= 0.003) discard;
 	fragColor = vec4(mix(v_color.rgb, u_fogColor, v_fog) * af, af);  // premultiplied
+	// 水域の厳密深度：applyLogDepth（VS焼き）は「三角形が小さい」前提の頂点線形補間＝湖全体を跨ぐ
+	// 水ポリの巨大三角形では真の対数曲線から数百m相当外れ、掠め視線で地形が偽って手前勝ちする
+	// ＝湖中の偽島（琵琶湖 75° 実測・真俯瞰で消える・R01/R10 とも発症＝データ非依存の深度補間誤差）。
+	// v_w は perspective-correct 補間＝平面水面の真の clip w → 真の対数深度を書き直す。
+	// gl_FragDepth の静的使用で fill 全描画の early-Z は失うが、fill は深度を書かない・FS も軽い＝実害なし。
+	gl_FragDepth = (u_exactDepth > 0.5)
+		? clamp((log2(max(1.0 + v_w, 1e-6)) * u_logCoef - 1.0) * 0.5 + 0.5, 0.0, 1.0)
+		: gl_FragCoord.z;
 }`;
 
 // capsule 方式：両端をスクリーン空間へ投影して定px幅・丸端で描く。透視でも幅が一定。

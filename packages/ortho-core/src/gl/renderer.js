@@ -706,6 +706,7 @@ export function createRenderer(canvas, rOpts = {}) {
 						if (curProgM !== md.fillProg) { gl.useProgram(md.fillProg); gl.bindVertexArray(md.fillVAO); curProgM = md.fillProg; }
 						const waterM = e.li === sea.li || e.li === sea.li2;
 						gl.uniform1f(loc(gl, md.fillProg, "u_lift"), waterM ? (dsmLift ? WATER_LIFT_M : CITY_WATER_LIFT_M) : cityLift);
+						gl.uniform1f(loc(gl, md.fillProg, "u_exactDepth"), (terrainDepth && waterM) ? 1 : 0);   // 湖級の巨大水ポリ＝頂点補間対数深度の誤差で偽島（FSで厳密化）
 						gl.uniform2fv(loc(gl, md.fillProg, "u_tileOff"), e.origins);
 						md.ext.multiDrawElementsWEBGL(gl.TRIANGLES, e.counts, 0, gl.UNSIGNED_INT, e.offsets, 0, e.counts.length);
 					} else {
@@ -736,6 +737,7 @@ export function createRenderer(canvas, rOpts = {}) {
 					// 水面リフト＝md 経路と同判断（深度は全帯維持・DSM帯30m/都市帯10m）
 					const waterC = d.li === sea.li || d.li === sea.li2;
 					gl.uniform1f(loc(gl, fillProg, "u_lift"), waterC ? (dsmLift ? WATER_LIFT_M : CITY_WATER_LIFT_M) : cityLift);
+					gl.uniform1f(loc(gl, fillProg, "u_exactDepth"), (terrainDepth && waterC) ? 1 : 0);   // 湖級の巨大水ポリ＝頂点補間対数深度の誤差で偽島（FSで厳密化）
 					gl.bindVertexArray(d.vao);
 					if (d.idxT) gl.drawElements(gl.TRIANGLES, d.count, d.idxT, 0);
 					else gl.drawArrays(gl.TRIANGLES, 0, d.count);

@@ -1587,11 +1587,28 @@ ensureStars();   // 初期視点が z<4（復元/共有URL）なら星空も最�
 const map = { cam, flyTo, renderer, mapEl, destroy };
 // ガジェット注入用の座標ブリッジ（engine の project/unproject を今の cam/サイズで束ねた手綱）。
 // projectLL＝経緯度→画面CSS座標[x,y,front]（front<0＝裏半球・視界外）。unprojectAt＝画面座標→[lon,lat]（球外は null）。
-const projectLL = (lon, lat) => { const st = cameraState(cam, size.w, size.h); const [sx, sy, f] = project(st, lon, lat); return [sx / dpr, sy / dpr, f]; };
+// DOMオーバーレイ（現在地マーカー/pop/計測）の標高乗せ：radius=1（標高0の球面）へ投影すると、
+// DTM開通後はチルトで「地中の位置」が投影され地面とずれる（現在地マーカーで実測。真俯瞰は放射変位＝不変）。
+// 表示中の地形変位と同式（TERR_EXAG/EARTH_M × pitchフェード＝renderer elevScaleEff と同形・cityFlatは撤去済み）。
+// 標高は getHeight を100m格子でメモ（非同期＝到着まで0m、次フレームで乗る。キーはマーカー/pop地点のみ＝有界）。
+const elevMemo = new Map();
+const elevOf = (lon, lat) => {
+	const k = Math.round(lon * 1000) + "," + Math.round(lat * 1000);
+	const hit = elevMemo.get(k);
+	if (hit !== undefined) return typeof hit === "number" ? hit : 0;
+	elevMemo.set(k, null);
+	if (getHeight) Promise.resolve(getHeight(lon, lat, cam.zoom)).then(h => { elevMemo.set(k, +h || 0); needsDraw = true; }).catch(() => elevMemo.set(k, 0));
+	return 0;
+};
+const dispRadius = (lon, lat) => {
+	const pt = Math.max(0, Math.min(1, ((cam.pitch || 0) - 0.06) / 0.14)), pf = pt * pt * (3 - 2 * pt);
+	return pf > 0 ? 1 + elevOf(lon, lat) * pf * (TERR_EXAG / EARTH_M) : 1;
+};
+const projectLL = (lon, lat) => { const st = cameraState(cam, size.w, size.h); const [sx, sy, f] = project(st, lon, lat, dispRadius(lon, lat)); return [sx / dpr, sy / dpr, f]; };
 const unprojectAt = (clientX, clientY) => { const r = canvas.getBoundingClientRect(); const st = cameraState(cam, size.w, size.h); return unproject(st, (clientX - r.left) * dpr, (clientY - r.top) * dpr); };
 // makeProjector＝カメラ状態を1回だけ束ねた投影関数を返す（多点を1描画で投影＝測距の大圏分割で状態計算を積まない）。
 // unprojectXY＝canvasローカルCSS座標→経緯度（input.onClick が渡す x,y と同座標系）。
-const makeProjector = () => { const st = cameraState(cam, size.w, size.h); return (lon, lat) => { const [sx, sy, f] = project(st, lon, lat); return [sx / dpr, sy / dpr, f]; }; };
+const makeProjector = () => { const st = cameraState(cam, size.w, size.h); return (lon, lat) => { const [sx, sy, f] = project(st, lon, lat, dispRadius(lon, lat)); return [sx / dpr, sy / dpr, f]; }; };
 const unprojectXY = (x, y) => unproject(cameraState(cam, size.w, size.h), x * dpr, y * dpr);
 // shot（画面保存）用スナップショット：render worker（GLは別スレッド＝mainから読めない）に「今の1枚」を
 // 出させる。gint は 1canvas統合で基図と同じ1枚に写り込む＝旧・別撮り合成（wantGint）は消滅。
