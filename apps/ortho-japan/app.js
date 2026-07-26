@@ -554,9 +554,42 @@ function autoPlateau(settled = false) {
 	}
 }
 
+// --- カメラ地形クランプ（地形とだけ衝突・建物は素通し＝地図系の業界標準。Cesium流の押し上げ） ---
+// eye 直下の地表標高+マージンを cam.minEyeAlt（単位球高度）へ供給し、cameraState が eye を放射方向に
+// 押し上げる（注視点保持＝実質ピッチが滑らかに浅くなる）。DTM開通(746b48a)で「山に潜れる」条件が
+// 生まれたことへの対。サンプラ（getHeight＝座標計器と共用）は非同期＝1フレーム遅れはマージンが吸収。
+// 上げ即時・下げローパス＝動的な急変を見せない（fovyスライダー撤回「暴れる」の教訓）。
+// 真俯瞰(pitch≈0)は 2D＝地形表示も無い＝クランプ無効（山頂への 2D オーバーズームを妨げない）。
+let clampT = 0, clampCur = 0, clampBusy = false;
+const CLAMP_MARGIN_M = 40;
+function updateCamClamp() {
+	if (!getHeight || clampBusy || performance.now() - clampT < 100) return;   // 10Hz で十分（マージンが吸収）
+	clampT = performance.now(); clampBusy = true;
+	const done = tgt => {
+		clampBusy = false;
+		clampCur = tgt > clampCur ? tgt : clampCur + (tgt - clampCur) * 0.25;   // 上げ即時／下げ緩やか
+		if (clampCur < 1e-9) clampCur = 0;
+		const v = clampCur || undefined;
+		if (v !== cam.minEyeAlt) {
+			cam.minEyeAlt = v; needsDraw = true;
+			renderer.draw(cam, { skipBase: false, skipMain: mainStale(), noTerrain: false, terrainGate: !moving });
+		}
+		if (Math.abs(tgt - clampCur) > 1e-8) requestAnimationFrame(updateCamClamp);   // 収束まで自走（10Hzスロットルが上限）
+	};
+	if ((cam.pitch || 0) < 0.06) return done(0);
+	const st = cameraState(cam, size.w, size.h);
+	const len = Math.hypot(st.eye[0], st.eye[1], st.eye[2]);
+	const lon = Math.atan2(st.eye[2], st.eye[0]) * 180 / Math.PI;
+	const lat = Math.asin(Math.max(-1, Math.min(1, st.eye[1] / len))) * 180 / Math.PI;
+	Promise.resolve(getHeight(lon, lat, cam.zoom))
+		.then(h => done(Math.max(0, (+h || 0) + CLAMP_MARGIN_M) / EARTH_M))
+		.catch(() => done(0));
+}
+
 function onMove() {
 	cam.center[0] = wrapLon(cam.center[0]);   // パン/回転/フライトの累積を毎移動で正規化＝float32原点相対の前提を守る（階段バグ根治）
 	moving = true; needsDraw = true;
+	updateCamClamp();                          // カメラ地形クランプ（非同期＝次フレームから効く。マージン40mが遅れを吸収）
 	updateGintSlot();                                                                // gint 単一スロットを z=4 で調停（ユーザー層⇄世界海岸線）＋海岸線の遅延ロード
 	ensureStars();                                                                    // 星空も同じ流儀＝初めて z<4 に出た瞬間に読む
 	autoPlateau();                                                                    // 寄る/離れるで PLATEAU を自動ロード/解放（ガードで実質タダ）

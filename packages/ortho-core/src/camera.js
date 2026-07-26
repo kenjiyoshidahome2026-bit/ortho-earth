@@ -29,14 +29,25 @@ export function cameraState(cam, W, H) {
 	//   pitch=0 で真上・screen-up=北。pitch>0 で fwdH 方向の地平へ傾く。
 	const back = mat.add(mat.scale(nrm, Math.cos(pitch)), mat.scale(fwdH, -Math.sin(pitch)));   // 対象→カメラ
 	const upCam = mat.add(mat.scale(nrm, Math.sin(pitch)), mat.scale(fwdH, Math.cos(pitch)));   // 画面上方向
-	const eye = mat.add(T, mat.scale(back, camDist));
+	let eye = mat.add(T, mat.scale(back, camDist));
+	// 地形クランプ（cam.minEyeAlt＝単位球高度。main が eye 直下の地表標高+マージンから供給・省略時は無効）:
+	// eye が地形に潜る時だけ放射方向へ押し上げる（注視点は保持＝実質ピッチが滑らかに浅くなる。Cesium と同流儀。
+	// 建物とは衝突しない＝素通し＝地図系の業界標準）。cam の純関数＝main/renderworker/ラベル/gint の
+	// 全消費者が同じ cameraState を通る限り整合は壊れない。
+	let push = 0;
+	if (cam.minEyeAlt > 0) {
+		const len = Math.hypot(eye[0], eye[1], eye[2]), want = 1 + cam.minEyeAlt;
+		if (len < want) { push = want - len; eye = mat.scale(eye, want / len); }
+	}
 	const view = mat.lookAt(eye, T, upCam);
 	const aspect = W / H;
 	// near/far を可視範囲（最近点camDist〜地平線limb）にタイトに。極端なオーバーズームでの精度崩壊を防ぐ。
-	const limb = Math.sqrt(Math.max((1 + camDist) * (1 + camDist) - 1, 1e-12));
+	// クランプ時は高度が camDist を超え得る＝limb/far は大きい側で取る（遠景が欠けない）。
+	const limbBase = Math.max(camDist, cam.minEyeAlt || 0);
+	const limb = Math.sqrt(Math.max((1 + limbBase) * (1 + limbBase) - 1, 1e-12));
 	// 傾けるほど近景の足元がカメラに寄るので、near を浅くして下が抜けるのを防ぐ（真俯瞰0.3→急チルト0.03）。
 	const pf = Math.min(1, pitch / (60 * D2R));
-	const near = Math.max(camDist * (0.3 - 0.27 * pf), 1e-7), far = limb * 1.15 + camDist;
+	const near = Math.max(camDist * (0.3 - 0.27 * pf), 1e-7), far = limb * 1.15 + camDist + push;
 	const proj = mat.perspective(fovy, aspect, near, far);
 	const mvp = mat.multiply(proj, view);
 	// 上空から見ると座標系が鏡像になるため clip.x を反転（東=画面右）。行0を符号反転。

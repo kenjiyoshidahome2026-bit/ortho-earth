@@ -44,6 +44,7 @@ export function createRenderer(canvas, rOpts = {}) {
 	let sea = { li: -1, minzoom: Infinity };
 	let bldFill = { li: -1 };   // 建物フットプリント塗り（基図 fill）の layer index。3D（チルト）時は伏せる＝押し出しと二重表現になるため
 	const WATER_LIFT_M = 30;   // 水面リフト(m)：DSM水面ノイズ瘤(±10m級)を沈める深度テスト用の嵩上げ（誇張前の実標高）
+	const CITY_WATER_LIFT_M = 10;   // 都市帯(z≥13・DTM)の水面リフト(m)：河道の彫り込み・中州へ疎頂点の水ポリ三角形が潜るのを沈める（豊平川実測。5mでは不足・30mは近接ズームで川が堤防より浮く）
 	// 星空（z<4）：stars＝点（[cel.xyz, rgb, alpha, size]×8f interleaved）、constel＝星座線（[cel.xyz]×3f、LINES端点列）、
 	// planets＝惑星（starsと同レイアウト・アプリが実位置を計算し10分毎に差し替え）。
 	// 表示のON/OFFは view.showConst（星座線のみトグル・星と惑星は常設）。
@@ -699,9 +700,12 @@ export function createRenderer(canvas, rOpts = {}) {
 					if (e.kind === "fill") {
 						if ((e.li === sea.li || e.li === sea.li2) && cam.zoom < sea.minzoom) continue;   // 海：ビュー一律ゲート（classicと同じ）
 						if (hideBldFill && e.li === bldFill.li) continue;   // 3D時＝フットプリント塗りを伏せる（押し出しに委ねる）
-						// 水面は「+30mリフトして深度テスト復帰」（classic 側と同判断＝チルトの尾根遮蔽と琵琶湖の偽島を両立）
+						// 水面：全帯で深度テスト維持＝尾根遮蔽（深度免除は「尾根の向こうの湖が山腹に透ける」＝
+						// 山中湖バグの復活＝富士 z13 で実測・撤回済み）。DSM帯(z<13)=+30m（ノイズ瘤・偽島対策）、
+						// 都市帯(z≥13)=+10m（DTM の河道彫り込み・中州へ疎頂点の水ポリが潜る豊平川対策。5m では不足）。
 						if (curProgM !== md.fillProg) { gl.useProgram(md.fillProg); gl.bindVertexArray(md.fillVAO); curProgM = md.fillProg; }
-						gl.uniform1f(loc(gl, md.fillProg, "u_lift"), (dsmLift && (e.li === sea.li || e.li === sea.li2)) ? WATER_LIFT_M : cityLift);
+						const waterM = e.li === sea.li || e.li === sea.li2;
+						gl.uniform1f(loc(gl, md.fillProg, "u_lift"), waterM ? (dsmLift ? WATER_LIFT_M : CITY_WATER_LIFT_M) : cityLift);
 						gl.uniform2fv(loc(gl, md.fillProg, "u_tileOff"), e.origins);
 						md.ext.multiDrawElementsWEBGL(gl.TRIANGLES, e.counts, 0, gl.UNSIGNED_INT, e.offsets, 0, e.counts.length);
 					} else {
@@ -729,7 +733,9 @@ export function createRenderer(canvas, rOpts = {}) {
 					// 稜線の向こうの湖が山腹に透けた（山中湖で顕在化）。リフトが DSM の水面ノイズ瘤(±10m級)を
 					// 沈め「湖の偽の島」（琵琶湖）も防ぐ＝両立。数百m級の尾根には引き続き隠される。
 					if (curProg !== fillProg) { gl.useProgram(fillProg); curProg = fillProg; }
-					gl.uniform1f(loc(gl, fillProg, "u_lift"), (dsmLift && (d.li === sea.li || d.li === sea.li2)) ? WATER_LIFT_M : cityLift);
+					// 水面リフト＝md 経路と同判断（深度は全帯維持・DSM帯30m/都市帯10m）
+					const waterC = d.li === sea.li || d.li === sea.li2;
+					gl.uniform1f(loc(gl, fillProg, "u_lift"), waterC ? (dsmLift ? WATER_LIFT_M : CITY_WATER_LIFT_M) : cityLift);
 					gl.bindVertexArray(d.vao);
 					if (d.idxT) gl.drawElements(gl.TRIANGLES, d.count, d.idxT, 0);
 					else gl.drawArrays(gl.TRIANGLES, 0, d.count);
