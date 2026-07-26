@@ -427,9 +427,12 @@ export function buildPolyBboxByFid(polyStream, arcMeta) {
 }
 
 // アウトライン⇄ベタ塗りの切替ズームをデータ粒度から導出（ortho-map から移植）。中央値ポリゴンが
-// 画面 targetPx になるズーム＝これ未満は内部の線がベタ潰れ→面（ベタ塗り）で見せる。筆→z≈15 / 市区町村→z≈6。
+// 画面 targetPx になるズーム＝これ未満は内部の線がベタ潰れ→面（ベタ塗り）で見せる。筆→z≈16 / 市区町村→z≈7。
+// targetPx=8＝v2 の実測調律（256px世界統一 2026-07-26 で 4→8 に+1段。4 のままだと切替が1段広域側へ降り、
+// 移動中の境界メタ→フル表現の引き継ぎ（oz+1.5）が可視辺27万＞移動予算25万の縮尺に落ちて
+// 「ズーム中に描画なし帯」が生まれる＝札幌37万辺で実証。8 で引き継ぎ点の可視辺18万＝予算内＝連続）。
 // bbox は e7 単位（1e-7 度）。中央値＝antimeridian 跨ぎ等の外れ bbox に頑健。ポリゴン無しは null（=既定へ）。
-export function deriveOutlineZoom(polyBboxByFid, targetPx = 4) {
+export function deriveOutlineZoom(polyBboxByFid, targetPx = 8) {
 	if (!polyBboxByFid?.size) return null;
 	const diags = [];
 	for (const bb of polyBboxByFid.values()) {
@@ -440,7 +443,7 @@ export function deriveOutlineZoom(polyBboxByFid, targetPx = 4) {
 	diags.sort((a, b) => a - b);
 	const med = diags[diags.length >> 1];
 	const z = Math.log2(targetPx / (med * 40.74 * (Math.PI / 180) * 1e-7));
-	return Math.min(16, Math.max(2, z));
+	return Math.min(17, Math.max(3, z));
 }
 
 // arcMeta bbox から minZoom/maxZoom を導き検証。maxZoom は precision の分解能上限で hard-clamp。

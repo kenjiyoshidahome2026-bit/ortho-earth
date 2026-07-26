@@ -422,8 +422,11 @@ if (plateauOn) navigator.storage?.persist?.().then(ok => console.log(`[plateau] 
 function approxViewBbox(cam) {
 	// z＝正射スケール（緯度フリー）に伴い cos(lat) を撤去。係数は従来の東京相当(cos35°≈0.819)を固定＝
 	// PLATEAU区選抜のゲート挙動を全国で従来の東京と同じに（緩めのbboxで拾い、最終判定は点距離が裁く）。
+	// 156543=256px世界の赤道m/px。旧512世界のzで割っていた頃は実質2倍の余裕マージンがあり、それがチルトの
+	// 奥行き（画面奥の区の選抜）を担っていた＝256統一(2026-07-26)で式が正確になった分、係数1.5で明示復元
+	//（0.75のままだと札幌60°チルトで東区・北区がbbox外＝奥の建物が立たない回帰を実測）。
 	const metersPerPx = 156543.03392 * 0.819 / Math.pow(2, cam.zoom);
-	const halfM = Math.max(size.w, size.h) / dpr * 0.75 * metersPerPx;   // 対角余裕込みの半幅
+	const halfM = Math.max(size.w, size.h) / dpr * 1.5 * metersPerPx;   // 対角余裕込みの半幅×旧実効マージン
 	const dLat = halfM / 111320, dLon = dLat / Math.max(0.15, Math.cos(cam.center[1] * D2R));
 	const [lon, lat] = cam.center;
 	return [lon - dLon, lat - dLat, lon + dLon, lat + dLat];

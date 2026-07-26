@@ -443,8 +443,11 @@ float elevAt(vec2 ll) {
 }
 float band(float g) {                                   // iso線：整数の g で 1、離れると 0（fwidth で画面一定幅・AA）
 	float dd = abs(fract(g + 0.5) - 0.5);
-	float w = fwidth(g) * 0.5 + 1e-5;                   // 係数＝線の細さ（細すぎるとサブピクセルで破線化＝汚い）
-	return 1.0 - smoothstep(0.0, w, dd);
+	float fw = fwidth(g);
+	float w = fw * 0.5 + 1e-5;                          // 係数＝線の細さ（細すぎるとサブピクセルで破線化＝汚い）
+	// 勾配ゼロ抑制：整数m量子化の平坦な街区が等高線値ちょうどに乗ると面ごと点火する（都市部の薄茶四角）。
+	// 紙の地形図の作法どおり「平坦地に等高線の面は無い」＝勾配が消える所では線も消す（1e-4 g≈3mm/px相当）。
+	return (1.0 - smoothstep(0.0, w, dd)) * smoothstep(0.0, 1e-4, fw);
 }
 void main() {
 	if (u_alpha <= 0.002 || u_hasElev < 0.5) discard;

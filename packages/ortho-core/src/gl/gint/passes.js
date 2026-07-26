@@ -9,7 +9,7 @@ import { bindSharedUniforms, bindPivot } from './utility.js';
 import { canUseIdFill, renderIdFill } from './idfill.js';
 
 // 低ズームでアウトライン→ベタ塗りへ切替えるズーム閾値の既定（データ粒度から導出した s.outlineZoom を優先）。
-const OUTLINE_ZOOM = 12;
+const OUTLINE_ZOOM = 13;   // 既定の切替z（256px世界。deriveOutlineZoom targetPx=8 と同じ「旧v2視覚と同点」の調律）
 
 // 段階別 LOD メタの選択（ortho-map から移植）：
 //   名目＝「rank 適格（minW ≤ rank）で最も軽い tier」。kept 集合（weight≥minW ⊇ weight≥rank）は動的LODの

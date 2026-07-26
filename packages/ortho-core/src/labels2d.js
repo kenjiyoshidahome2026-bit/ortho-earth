@@ -13,12 +13,12 @@ const nowMs = () => (typeof performance !== "undefined" ? performance.now() : Da
 // elevBase = 誇張/地球半径m（地物の u_elevScale の pitch非依存部分）。各ラベルを L.elev(m) 分だけ
 // 地形に乗せて投影＝傾き時に地物とラベルの位置が一致する（標高視差のズレを解消）。
 export function createLabelLayer(canvas, { pad = 5, fade = 0.3, recollideMs = 150, shieldFor = null, elevBase = 0 } = {}) {
-	// pitch ゲート（renderer と同式）。真俯瞰0→11.5°で全開。cityFlat（z13.5→16で地形が平らになる）も
-	// 同式で畳む＝地形が沈むのにラベルだけ持ち上がったまま「浮く」のを防ぐ。
+	// pitch ゲート（renderer の elevScaleEff=elev.scale×pf と同式）。真俯瞰0→11.5°で全開。
+	// 旧 cityFlat 項（z13.5→16でラベル標高を畳む）は撤去＝地形側の cityFlat 撤去（renderer 2026-07-26・
+	// DEM10B=DTM化）に追随。残すと都市ズームのチルトで地形は起伏のまま・ラベルだけ楕円体へ沈み位置がズレる。
 	const pitchScale = (pitch, zoom) => {
 		const t = Math.max(0, Math.min(1, ((pitch || 0) - 0.06) / 0.14));
-		const cf = 1 - Math.max(0, Math.min(1, ((zoom || 0) - 13.5) / 2.5));
-		return elevBase * t * t * (3 - 2 * t) * cf;
+		return elevBase * t * t * (3 - 2 * t);
 	};
 	// 標高の持ち上げは地形の遠景平坦化(df・TERRAIN_VSと同式)にも追随＝平坦化された遠くの山の上で
 	// ラベルだけがフル標高で浮かない。fogF=フォグ終端（renderer の fogFarCap と同式・camDist近似）。
@@ -89,7 +89,7 @@ export function createLabelLayer(canvas, { pad = 5, fade = 0.3, recollideMs = 15
 	function draw(cam) {
 		const dpr = cam.dpr || 1, W = canvas.width, H = canvas.height, Wc = W / dpr, Hc = H / dpr;
 		const st = cameraState(cam, W, H);
-		const eScale = pitchScale(cam.pitch, cam.zoom);   // 標高→単位球（pitch・cityFlat連動、地物と同式）
+		const eScale = pitchScale(cam.pitch, cam.zoom);   // 標高→単位球（pitch連動＝renderer elevScaleEff と同式）
 		// フォグ終端（renderer の fogFarCap と同式・camDist近似）＝遠景平坦化 df の基準
 		const pfFog = Math.max(0, Math.min(1, ((cam.pitch || 0) - 0.35) / 0.45));
 		const showFlat = (cam.pitch || 0) < 0.06;      // 等高線と同じゲート（pitch 0.06rad で 3D と入れ替わり消える）
