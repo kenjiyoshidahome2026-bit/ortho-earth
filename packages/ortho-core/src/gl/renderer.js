@@ -276,7 +276,7 @@ export function createRenderer(canvas, rOpts = {}) {
 		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
 		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
 		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-		elev = { bounds: [a.originLng, a.originLat, a.cellsX * span, a.cellsY * span], scale, exag: a.exag || 1, has: 1, edgeFade: a.edgeFade || 0 };
+		elev = { bounds: [a.originLng, a.originLat, a.cellsX * span, a.cellsY * span], scale, exag: a.exag || 1, has: 1, edgeFade: a.edgeFade || 0, liftBounds: a.liftBounds || null };
 		const G = Math.min(1536, Math.max(768, 768 * Math.max(a.cellsX, a.cellsY)));
 		buildTerrainMesh(a.originLng, a.originLat, a.cellsX * span, a.cellsY * span, G);
 	}
@@ -314,7 +314,7 @@ export function createRenderer(canvas, rOpts = {}) {
 		if (elevTex) gl.deleteTexture(elevTex);
 		elevTex = elevStage.tex;
 		const a = elevStage.a, span = a.cellSpan || 10;
-		elev = { bounds: [a.originLng, a.originLat, a.cellsX * span, a.cellsY * span], scale: elevStage.scale, exag: a.exag || 1, has: 1, edgeFade: a.edgeFade || 0 };
+		elev = { bounds: [a.originLng, a.originLat, a.cellsX * span, a.cellsY * span], scale: elevStage.scale, exag: a.exag || 1, has: 1, edgeFade: a.edgeFade || 0, liftBounds: a.liftBounds || null };
 		const G = Math.min(1536, Math.max(768, 768 * Math.max(a.cellsX, a.cellsY)));
 		buildTerrainMesh(a.originLng, a.originLat, a.cellsX * span, a.cellsY * span, G);
 		elevStage = null;
@@ -805,6 +805,8 @@ export function createRenderer(canvas, rOpts = {}) {
 					if (!count) continue;
 				}
 				setCommonUniforms(plateauProg, st, [0, 0], land);
+				const lb = elev.liftBounds;   // DTM保証域（無ければ全0＝リフトなし）
+				gl.uniform4f(loc(gl, plateauProg, "u_liftBounds"), lb ? lb[0] : 0, lb ? lb[1] : 0, lb ? lb[2] : 0, lb ? lb[3] : 0);
 				gl.uniform3f(loc(gl, plateauProg, "u_bldColor"), c[0], c[1], c[2]);
 				gl.uniform1f(loc(gl, plateauProg, "u_cullBack"), p.two ? 0 : 1);   // 橋梁＝両面（開いた薄面が裏から消えない）
 				gl.uniform3f(loc(gl, plateauProg, "u_meshOrigin"), p.origin[0], p.origin[1], p.origin[2]);  // RTE 錨（頂点は重心相対 delta）

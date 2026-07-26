@@ -3,10 +3,18 @@ import { Cache } from "native-bucket";
 
 // 日本域 R01 の旧 DSM(ALOS) キャッシュは失効扱い＝DTM(GSI DEM10B・bucket) へ焼き直したため。
 // bucket 側は source="GSI DEM10B" で返る＝一度差し替われば以後この判定は素通り。
+// 判定は「GSI 銘のあるタイルだけ信用」の向き：source フィールド導入前に焼かれた旧 ALOS タイルは
+// source=undefined＝旧判定（"ALOS"で始まる時だけ失効）をすり抜けて DSM が永久に生き残っていた
+//（東新橋の屋上斜面＝PLATEAU 接地リフトが旧 DSM を食った実測。札幌は初取得が bucket=DEM10B で無症状）。
 const staleDSM = (name, obj) => {
-	if (!obj || obj.noBake || !String(obj.source || "").startsWith("ALOS")) return false;   // noBake＝bucket未収録が確認済み（外国陸地）
+	if (!obj) return false;
+	if (String(obj.source || "").startsWith("GSI")) return false;   // 焼き直し済み＝信用
 	const [lng, lat, range] = decodeName(name);
-	return range === 1 && bakedJapan(lng, lat);
+	if (range !== 1 || !bakedJapan(lng, lat)) return false;
+	// noBake（bucket未収録の印）は bakedJapan の「外」概念だが、bbox 内の外国陸地（韓国・台湾等）にも付く。
+	// bbox 内では noBake を信用しない＝毎セッション bucket を確認（load_gepco の decode 事故で日本セルに
+	// noBake が毒入りした実害の自己修復。本当に未収録の外国陸地は JAXA 再取得のコスト＝レアケースとして許容）。
+	return true;   // GSI 銘なし（ALOS 明記・無記名・noBake とも）＝失効 → bucket(DEM10B) を再確認
 };
 
 // ラスタタイルを返すローダー（点サンプラでなく生タイル）。ortho-japan の GPU アトラス用。

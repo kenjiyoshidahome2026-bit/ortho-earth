@@ -58,7 +58,11 @@ async function load_gepco(name) {
 	// bucket.get は gunzip 済み Blob＝そのまま格納し、命中時は decode だけ。IDB不調でも素通りで従来動作。
 	const cache = await getCache().catch(() => null);
 	const hit = cache && await cache(name).catch(() => null);
-	if (hit) return decode(hit);
+	// 命中は decode 成功時のみ信用。同じ IDB ストア・同じキーに外側ローダ（createGetHeight）が
+	// 「デコード済み obj」を保存する運用があり、それを Blob と誤って decode すると例外＝catch で
+	// 「bucket 未収録」と誤判定 → JAXA(DSM) 再取得＋noBake 毒入り、という事故が起きた（東新橋の
+	// 屋上斜面の第二原因）。壊れ形式は捨てて bucket 本体へ進む＝自己修復。
+	if (hit) { try { return await decode(hit); } catch (e) { /* 旧/別形式＝素通りして bucket へ（await 必須＝decode は async・reject は同期 catch に掛からない） */ } }
 	const blob = await (await getBucket()).get(name);
 	if (!blob) return null;
 	if (cache) cache(name, blob).catch(() => {});

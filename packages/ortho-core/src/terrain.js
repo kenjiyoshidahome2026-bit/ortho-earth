@@ -248,8 +248,15 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 			// R10/R01窓は「窓の外＝標高0」との崖と陰影の切れ目（地球の淵の標高抜け）をこの幅で馴染ませる。
 			// 窓選定（票×√解像度・掠りは制約外）はそのまま＝中心の解像度は犠牲にしない、見た目だけの解。
 			const edgeFade = EDGE_FADE(range);
+			// liftBounds＝「DTM(裸地=DEM10B)が保証される経緯度域」。PLATEAU 接地リフトはこの中でだけ有効：
+			// R10/R90=ALOS(DSM=ビル天端込み)でリフトすると屋根が斜面に裂ける（東新橋/汐留 z<13 高チルトで実測）。
+			// 純R01窓=全域 / 混成窓=近傍3×3（nearCam=camセル±1）のみ / R10・R90窓=なし(null)。
+			// ※混成の近傍セルは R01 到着までの数秒だけ R10 切り出しが入る＝過渡の歪みは許容（すぐ直る）。
+			const c1x = Math.floor(cam.center[0]), c1y = Math.floor(cam.center[1]);
+			const liftBounds = mixed ? [c1x - 1, c1y - 1, 3, 3]
+				: range === 1 ? [r.originCX, r.originCY, r.cellsX, r.cellsY] : null;
 			renderer.set(staging ? "elevAtlasStage" : "elevAtlas",
-				{ originLng: r.originCX * range, originLat: r.originCY * range, cellsX: r.cellsX, cellsY: r.cellsY, cellRes: r.cellRes, cellSpan: range, exag, edgeFade }, exag / earthM);
+				{ originLng: r.originCX * range, originLat: r.originCY * range, cellsX: r.cellsX, cellsY: r.cellsY, cellRes: r.cellRes, cellSpan: range, exag, edgeFade, liftBounds }, exag / earthM);
 			hasAtlas = true;
 			if (staging) {   // 保険：セルの一部が失敗しても4秒で必ずスワップ（古いアトラスが永久に残らない）
 				const k0 = key;

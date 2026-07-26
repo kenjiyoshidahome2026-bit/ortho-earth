@@ -147,6 +147,7 @@ in vec3 a_pos;      // 重心(u_meshOrigin)相対の delta（RTE-lite：小さ�
 in vec3 a_normal;   // glTF 実法線を ortho へ変換済
 uniform vec3 u_meshOrigin;   // メッシュ重心＝単位球の錨。絶対位置 = u_meshOrigin + a_pos
 uniform vec4 u_clipMesh;     // mvp*[u_meshOrigin,1]（CPU double）＝MVP相殺回避の錨（旧: シェーダ内 float32 で算出＝錨が相殺）
+uniform vec4 u_liftBounds;   // DTM(裸地=DEM10B)保証域 [lng0,lat0,spanLng,spanLat]。外＝接地リフトしない（DSM=ビル天端でリフトすると屋根が斜面に裂ける）
 ${PROJECT}
 out vec3  v_n;      // 実法線
 out vec3  v_toEye;  // 視線ベクトル（巻き順に依存せず法線を表向きへ）
@@ -170,7 +171,12 @@ void main() {
 	// リフト項 h*dir も delta 側に足す＝RTE を壊さない（gint projectDrape と同形）。
 	float lat = degrees(asin(clamp(dir.y, -1.0, 1.0)));
 	float lon = degrees(atan(dir.z, dir.x));
-	float h = elev(vec2(lon, lat)) * u_elevScale;
+	// DTM保証域(u_liftBounds)の中でだけリフト：混成窓の遠方セル等＝ALOS DSM（ビル天端込み）でリフトすると
+	// 屋上が斜面に裂ける（東新橋/汐留 高チルトで実測＝旧「形状崩壊」の再現）。境界は 0.05° の smoothstep で
+	// 畳む＝境界を跨ぐ建物（≦0.002°）を引き裂かない。域外・bounds無し(全0)は h=0＝従来の r=1 接地。
+	float inX = smoothstep(0.0, 0.05, min(lon - u_liftBounds.x, u_liftBounds.x + u_liftBounds.z - lon));
+	float inY = smoothstep(0.0, 0.05, min(lat - u_liftBounds.y, u_liftBounds.y + u_liftBounds.w - lat));
+	float h = elev(vec2(lon, lat)) * u_elevScale * inX * inY;
 	gl_Position = u_clipMesh + u_mvp * vec4(a_pos + h * dir, 0.0);
 	applyLogDepth();
 }`;
