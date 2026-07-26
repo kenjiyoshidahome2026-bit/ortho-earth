@@ -159,13 +159,19 @@ void main() {
 	v_toEye = u_eye - wp;
 	v_front = dot(dir, u_eye) - 1.0;
 	v_fog = fogOf(wp);
-	// 標高リフトはしない：ALOS DSM はビル天端を含み建物の縁で数十〜100m級の不連続があるため、頂点ごとに
-	// elev() で持ち上げると同一建物内の頂点が異なる量だけ動き屋根が引き裂かれる（実機で形状崩壊を確認済み）。
-	// 地形サーフェスとの深度衝突は「地形は深度を書かない背景」(renderer側depthMask(false))で解いており、
-	// メッシュは焼き込み済みの単位球接地(r=1)のまま描く（基図と同じ街の相対配置は保たれる）。
+	// 接地リフト（DTM 化で解禁・746b48a の続き）：メッシュは単位球接地(r=1)で焼き込み済み＝頂点位置の
+	// 地表標高（DTM）を elev() でサンプルし法線方向へ持ち上げる。旧・リフト禁止の根拠は ALOS DSM の
+	// 不連続（ビル天端の縁で数十〜100m級→同一建物内の頂点が別量動き屋根が裂ける・実機確認）だったが、
+	// 現 z≥12 の標高源 R01=DEM10B（裸地・滑らか）では不発。地形の深度書き全ズーム化に伴い、リフト無しでは
+	// 持ち上がった地面が建物を深度で飲む（札幌 z16.9 で実測）。建物内の微小な地勾配は頂点へそのまま乗る
+	//（斜面の建物は基礎が地形に沿う近似）。⚠橋梁(two=両面)は径間中央が谷の DTM に沿って数m沈み得る＝既知の割り切り。
 	// RTE：原点の clip 位置は CPU(double) 錨 u_clipMesh（旧 u_mvp*vec4(u_meshOrigin,1) はシェーダ float32＝
 	// ≈1 同士の相殺で錨自体が高ズームに揺らいだ）。delta は小さく float32 精度フルのまま u_mvp で回す。
-	gl_Position = u_clipMesh + u_mvp * vec4(a_pos, 0.0);
+	// リフト項 h*dir も delta 側に足す＝RTE を壊さない（gint projectDrape と同形）。
+	float lat = degrees(asin(clamp(dir.y, -1.0, 1.0)));
+	float lon = degrees(atan(dir.z, dir.x));
+	float h = elev(vec2(lon, lat)) * u_elevScale;
+	gl_Position = u_clipMesh + u_mvp * vec4(a_pos + h * dir, 0.0);
 	applyLogDepth();
 }`;
 
@@ -503,6 +509,7 @@ void main() {
 // 変種側が用意するローカル: o(シーン原点+タイル原点差 deg), p1/p2(原点相対 lon/lat), corner(end 0/1, side ±1),
 // hw0(半幅 CSS px), col0(rgba)。
 const LINE_VARY = /* glsl */`
+uniform float u_lift;   // 接地リフト(m)。都市帯（深度テスト×DTM起伏）で線を地形メッシュ面の上へ逃がす（fill の u_lift と同意味論）
 flat out vec2 v_a;
 flat out vec2 v_b;
 flat out float v_half;
@@ -514,13 +521,15 @@ const LINE_MAIN = /* glsl */`
 	vec2 la1 = o + p1, la2 = o + p2;   // elev 参照用の絶対（粗くて可）。o=u_origin ゆえ p1/p2 が原点相対 delta
 	vec3 rela = deltaToRel(p1), relb = deltaToRel(p2);   // 頂点3D − 原点3D（小・正確）
 	vec3 da = u_originPt + rela, db = u_originPt + relb; // 絶対単位球点（front/fog/df 用＝粗くて可）
-	// 線は傾き時に深度テストを切って地形の上に描く（renderer側）ので、持ち上げ不要＝浮きゼロ。
-	float lift = 0.0;
+	// 接地リフト u_lift(m)：都市帯（深度テスト×DTM起伏）では、線ドレープ（頂点毎バイリニア）と
+	// 地形サーフェス（72m級格子の三角形）の近似差＋疎頂点区間の直線化で、線が地形面を数十cm〜数m
+	// 出入りする＝潜った区間が深度に食われ道路がギザギザになる（札幌 z16.9 実測）。数mのリフトで
+	// 上へ逃がす。山岳帯は renderer が 0 を渡す＝従来の見た目のまま。
 	// 標高変位は地形と同じ距離フェード（TERRAIN_VS の df と同式）＝遠景の平ら化に追随。
 	// これが無いと平ら化された山脈の上に線だけがフル標高で浮き、「地平線に漂う点線の鎖」になる
 	float dfa = 1.0 - smoothstep(u_fogFar * 0.8, u_fogFar * 2.0, distance(u_eye, da));
 	float dfb = 1.0 - smoothstep(u_fogFar * 0.8, u_fogFar * 2.0, distance(u_eye, db));
-	float ha = elev(la1) * u_elevScale * dfa + lift, hb = elev(la2) * u_elevScale * dfb + lift;
+	float ha = (elev(la1) + u_lift) * u_elevScale * dfa, hb = (elev(la2) + u_lift) * u_elevScale * dfb;
 	vec3 relWa = rela + ha * da, relWb = relb + hb * db;         // (dir*(1+h)) − 原点3D を相殺なしで
 	vec3 wa = u_originPt + relWa, wb = u_originPt + relWb;       // 絶対（fog 用＝粗くて可）
 	vec4 ca = u_clipT + u_mvp * vec4(relWa, 0.0), cb = u_clipT + u_mvp * vec4(relWb, 0.0);   // RTE：mvp*[w,1] を相殺なしで

@@ -42,6 +42,7 @@ export function createRenderer(canvas, rOpts = {}) {
 	// 海：水レイヤ(li)を cam.zoom で一律にゲート＝ビュー単位で描く/描かない（タイル毎の presence まだらを排す）。
 	// cam.zoom < minzoom では水を描かない＝海は球の基色(紙)のまま。以上で一律の色を点火。
 	let sea = { li: -1, minzoom: Infinity };
+	let bldFill = { li: -1 };   // 建物フットプリント塗り（基図 fill）の layer index。3D（チルト）時は伏せる＝押し出しと二重表現になるため
 	const WATER_LIFT_M = 30;   // 水面リフト(m)：DSM水面ノイズ瘤(±10m級)を沈める深度テスト用の嵩上げ（誇張前の実標高）
 	// 星空（z<4）：stars＝点（[cel.xyz, rgb, alpha, size]×8f interleaved）、constel＝星座線（[cel.xyz]×3f、LINES端点列）、
 	// planets＝惑星（starsと同レイアウト・アプリが実位置を計算し10分毎に差し替え）。
@@ -591,6 +592,14 @@ export function createRenderer(canvas, rOpts = {}) {
 		const terrainDepth = terrainActive;
 		// 水面リフト(+30m)は DSM 帯（R10 混成があり得る z<13）限定＝DTM の都市帯で川を 30m 浮かせない。
 		const dsmLift = terrainDepth && cam.zoom < 13;
+		// 都市帯の基図接地リフト(+5m)：深度テスト×DTM起伏で、線/塗りのドレープ（頂点毎バイリニア）と
+		// 地形メッシュ（72m級格子）の近似差から道路が地形面を出入りしてギザギザになる（札幌 z16.9 実測）
+		// のを上へ逃がす。山岳帯(z<13)は 0＝従来の見た目。根治は RTT ドレープ（基図を地形に貼る）＝将来課題。
+		const cityLift = terrainDepth && cam.zoom >= 13 ? 5 : 0;
+		// 3D（チルト）では建物フットプリント塗りを伏せる：押し出し建物と二重表現になり、起伏＋接地リフト下では
+		// 「浮いた濃い平板」として露出する（札幌 z16.9 実測・本人指摘「3Dならフットプリント不要では」）。
+		// 真俯瞰(2D)では従来どおり描く＝平面地図の建物表現はフットプリントが本体。閾値は show3d と同じ。
+		const hideBldFill = bldFill.li >= 0 && (cam.pitch || 0) >= 0.02;
 		// 標高パイプライン計器（?perf=1 時・2秒毎）：「高度が消える」系の切り分け用＝どの因子が0かを1行で。
 		if (self.__perfElev && performance.now() - (self.__perfElevT || 0) > 2000) {
 			self.__perfElevT = performance.now();
@@ -681,6 +690,7 @@ export function createRenderer(canvas, rOpts = {}) {
 				setCommonUniforms(md.lineProg, st, scene.origin, land);
 				gl.useProgram(md.fillProg); gl.uniform1f(loc(gl, md.fillProg, "u_fogFar"), fogFarCap);
 				gl.useProgram(md.lineProg); gl.uniform1f(loc(gl, md.lineProg, "u_fogFar"), fogFarCap);
+				gl.uniform1f(loc(gl, md.lineProg, "u_lift"), cityLift);
 				gl.uniform1f(loc(gl, md.lineProg, "u_dpr"), cam.dpr || 1);
 				gl.uniform1i(loc(gl, md.lineProg, "u_segTex"), 6);
 				if (md.lineTex) { gl.activeTexture(gl.TEXTURE6); gl.bindTexture(gl.TEXTURE_2D, md.lineTex); gl.activeTexture(gl.TEXTURE0); }
@@ -688,9 +698,10 @@ export function createRenderer(canvas, rOpts = {}) {
 				for (const e of scene.md.layers) {
 					if (e.kind === "fill") {
 						if ((e.li === sea.li || e.li === sea.li2) && cam.zoom < sea.minzoom) continue;   // 海：ビュー一律ゲート（classicと同じ）
+						if (hideBldFill && e.li === bldFill.li) continue;   // 3D時＝フットプリント塗りを伏せる（押し出しに委ねる）
 						// 水面は「+30mリフトして深度テスト復帰」（classic 側と同判断＝チルトの尾根遮蔽と琵琶湖の偽島を両立）
 						if (curProgM !== md.fillProg) { gl.useProgram(md.fillProg); gl.bindVertexArray(md.fillVAO); curProgM = md.fillProg; }
-						gl.uniform1f(loc(gl, md.fillProg, "u_lift"), (dsmLift && (e.li === sea.li || e.li === sea.li2)) ? WATER_LIFT_M : 0);
+						gl.uniform1f(loc(gl, md.fillProg, "u_lift"), (dsmLift && (e.li === sea.li || e.li === sea.li2)) ? WATER_LIFT_M : cityLift);
 						gl.uniform2fv(loc(gl, md.fillProg, "u_tileOff"), e.origins);
 						md.ext.multiDrawElementsWEBGL(gl.TRIANGLES, e.counts, 0, gl.UNSIGNED_INT, e.offsets, 0, e.counts.length);
 					} else {
@@ -708,15 +719,17 @@ export function createRenderer(canvas, rOpts = {}) {
 			setCommonUniforms(lineProg, st, scene.origin, land);
 			gl.useProgram(fillProg); gl.uniform1f(loc(gl, fillProg, "u_fogFar"), fogFarCap);
 			gl.useProgram(lineProg); gl.uniform1f(loc(gl, lineProg, "u_fogFar"), fogFarCap);
+			gl.uniform1f(loc(gl, lineProg, "u_lift"), cityLift);
 			let curProg = null;
 			for (const d of scene.draws) {
 				if (d.kind === "fill") {
 					if ((d.li === sea.li || d.li === sea.li2) && cam.zoom < sea.minzoom) continue;   // 海：ビュー一律ゲート（詳細以外は描かない＝紙の海）。li2=水系点火面
+					if (hideBldFill && d.li === bldFill.li) continue;   // 3D時＝フットプリント塗りを伏せる（押し出しに委ねる）
 					// 水面は「+30mリフトして深度テスト復帰」：旧・免除（後書き）はチルトで尾根の遮蔽が効かず、
 					// 稜線の向こうの湖が山腹に透けた（山中湖で顕在化）。リフトが DSM の水面ノイズ瘤(±10m級)を
 					// 沈め「湖の偽の島」（琵琶湖）も防ぐ＝両立。数百m級の尾根には引き続き隠される。
 					if (curProg !== fillProg) { gl.useProgram(fillProg); curProg = fillProg; }
-					gl.uniform1f(loc(gl, fillProg, "u_lift"), (dsmLift && (d.li === sea.li || d.li === sea.li2)) ? WATER_LIFT_M : 0);
+					gl.uniform1f(loc(gl, fillProg, "u_lift"), (dsmLift && (d.li === sea.li || d.li === sea.li2)) ? WATER_LIFT_M : cityLift);
 					gl.bindVertexArray(d.vao);
 					if (d.idxT) gl.drawElements(gl.TRIANGLES, d.count, d.idxT, 0);
 					else gl.drawArrays(gl.TRIANGLES, 0, d.count);
@@ -833,6 +846,7 @@ export function createRenderer(canvas, rOpts = {}) {
 		switch (cmd) {
 			case "view":      setView(data); break;                                            // data={clear,land,atmo,bldColor}
 			case "sea":       sea = { ...sea, ...data }; break;                                  // data={li, minzoom} 海の点火ゲート
+			case "bldFill":   bldFill = { ...bldFill, ...data }; break;                          // data={li} 建物フットプリント塗り（3D時に伏せる）
 			case "scene":     setScene(data, prop); break;                                      // prop=slot("base"|"main")
 			case "mdGrow":    mdGrow(data.pool, data.units); break;                            // multi_draw: プール成長（GPU内コピー）
 			case "mdUp":      mdUpload(data); break;                                           // multi_draw: タイルブロック転送

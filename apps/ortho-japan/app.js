@@ -661,6 +661,7 @@ renderer.set("view", { clear, land, atmo, bldColor, showN02: false,
 	...(theme.hypso && { hypso: theme.hypso }) });   // showN02＝N02交通(新幹線等)の表示。鉄道チップで切替
 // 海：水レイヤ(WA)をビュー一律にゲート＝cam.zoom<13 では描かない（＝紙の海・まだら無し）、z13+で一律点火。
 renderer.set("sea", { li: style.layers.findIndex(L => L.id === "water"), li2: style.layers.findIndex(L => L.id === "water-hi"), minzoom: 8 });   // li2＝水系点火面も同じ海ゲート
+renderer.set("bldFill", { li: style.layers.findIndex(L => L.id === "building") });   // 建物フットプリント塗り＝3D（チルト）時は伏せる（押し出しと二重表現のため）
 
 // --- gint（知性の層）：14条など突合可能なエンティティ。1canvas統合＝render worker の GL コンテキストに
 // 同居し、地図フレーム末尾の1パスとして同フレーム同カメラで描かれる（旧・別worker+OffscreenCanvasは撤去）。
