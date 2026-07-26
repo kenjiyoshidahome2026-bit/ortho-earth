@@ -3,6 +3,7 @@
 // fill = earcut三角形、line = capsule(SDF)。scene.layers は style層順（painter's algorithm）。
 import { FILL_VS, FILL_FS, LINE_VS, LINE_FS, GLOBE_VS, GLOBE_FS, BUILDING_VS, BUILDING_FS, TERRAIN_VS, TERRAIN_FS, STENCIL_VS, STENCIL_FS, COVER_FS, PLATEAU_VS, PLATEAU_FS, CONTOUR_FS, STARS_VS, STARS_FS, STARLINE_FS, NIGHT_FS, FILL_MD_VS, LINE_MD_VS, BUILDING_MD_VS, MD_MAX_DRAWS } from "./glsl.js";
 import { cameraState, project, lonlatTo3D } from "../camera.js";
+import { seaFbReal } from "../scene.js";   // 図郭外フォールバック水域の擬似li帯判定（build.js buildEmptySeaOps と対）
 import * as mat from "../mat.js";
 
 const CORNERS = new Float32Array([0, -1, 0, 1, 1, -1, 1, -1, 0, 1, 1, 1]); // 6頂点×(end,side)
@@ -698,15 +699,17 @@ export function createRenderer(canvas, rOpts = {}) {
 				let curProgM = null;
 				for (const e of scene.md.layers) {
 					if (e.kind === "fill") {
-						if ((e.li === sea.li || e.li === sea.li2) && cam.zoom < sea.minzoom) continue;   // 海：ビュー一律ゲート（classicと同じ）
+						const seaFBM = seaFbReal(e.li) != null;   // 図郭外フォールバック水域（標高ゲート付き全面WA）
+						if ((seaFBM || e.li === sea.li || e.li === sea.li2) && cam.zoom < sea.minzoom) continue;   // 海：ビュー一律ゲート（classicと同じ。フォールバックも紙の海に従う）
 						if (hideBldFill && e.li === bldFill.li) continue;   // 3D時＝フットプリント塗りを伏せる（押し出しに委ねる）
 						// 水面：全帯で深度テスト維持＝尾根遮蔽（深度免除は「尾根の向こうの湖が山腹に透ける」＝
 						// 山中湖バグの復活＝富士 z13 で実測・撤回済み）。DSM帯(z<13)=+30m（ノイズ瘤・偽島対策）、
 						// 都市帯(z≥13)=+10m（DTM の河道彫り込み・中州へ疎頂点の水ポリが潜る豊平川対策。5m では不足）。
 						if (curProgM !== md.fillProg) { gl.useProgram(md.fillProg); gl.bindVertexArray(md.fillVAO); curProgM = md.fillProg; }
 						const waterM = e.li === sea.li || e.li === sea.li2;
+						gl.uniform1f(loc(gl, md.fillProg, "u_seaGate"), seaFBM ? 1 : 0);
 						gl.uniform1f(loc(gl, md.fillProg, "u_lift"), waterM ? (dsmLift ? WATER_LIFT_M : CITY_WATER_LIFT_M) : cityLift);
-						gl.uniform1f(loc(gl, md.fillProg, "u_exactDepth"), (terrainDepth && waterM) ? 1 : 0);   // 湖級の巨大水ポリ＝頂点補間対数深度の誤差で偽島（FSで厳密化）
+						gl.uniform1f(loc(gl, md.fillProg, "u_exactDepth"), (terrainDepth && (waterM || seaFBM)) ? 1 : 0);   // 湖級の巨大水ポリ＝頂点補間対数深度の誤差で偽島（FSで厳密化）
 						gl.uniform2fv(loc(gl, md.fillProg, "u_tileOff"), e.origins);
 						md.ext.multiDrawElementsWEBGL(gl.TRIANGLES, e.counts, 0, gl.UNSIGNED_INT, e.offsets, 0, e.counts.length);
 					} else {
@@ -728,7 +731,8 @@ export function createRenderer(canvas, rOpts = {}) {
 			let curProg = null;
 			for (const d of scene.draws) {
 				if (d.kind === "fill") {
-					if ((d.li === sea.li || d.li === sea.li2) && cam.zoom < sea.minzoom) continue;   // 海：ビュー一律ゲート（詳細以外は描かない＝紙の海）。li2=水系点火面
+					const seaFBC = seaFbReal(d.li) != null;   // 図郭外フォールバック水域（標高ゲート付き全面WA）
+					if ((seaFBC || d.li === sea.li || d.li === sea.li2) && cam.zoom < sea.minzoom) continue;   // 海：ビュー一律ゲート（詳細以外は描かない＝紙の海）。li2=水系点火面
 					if (hideBldFill && d.li === bldFill.li) continue;   // 3D時＝フットプリント塗りを伏せる（押し出しに委ねる）
 					// 水面は「+30mリフトして深度テスト復帰」：旧・免除（後書き）はチルトで尾根の遮蔽が効かず、
 					// 稜線の向こうの湖が山腹に透けた（山中湖で顕在化）。リフトが DSM の水面ノイズ瘤(±10m級)を
@@ -736,8 +740,9 @@ export function createRenderer(canvas, rOpts = {}) {
 					if (curProg !== fillProg) { gl.useProgram(fillProg); curProg = fillProg; }
 					// 水面リフト＝md 経路と同判断（深度は全帯維持・DSM帯30m/都市帯10m）
 					const waterC = d.li === sea.li || d.li === sea.li2;
+					gl.uniform1f(loc(gl, fillProg, "u_seaGate"), seaFBC ? 1 : 0);
 					gl.uniform1f(loc(gl, fillProg, "u_lift"), waterC ? (dsmLift ? WATER_LIFT_M : CITY_WATER_LIFT_M) : cityLift);
-					gl.uniform1f(loc(gl, fillProg, "u_exactDepth"), (terrainDepth && waterC) ? 1 : 0);   // 湖級の巨大水ポリ＝頂点補間対数深度の誤差で偽島（FSで厳密化）
+					gl.uniform1f(loc(gl, fillProg, "u_exactDepth"), (terrainDepth && (waterC || seaFBC)) ? 1 : 0);   // 湖級の巨大水ポリ＝頂点補間対数深度の誤差で偽島（FSで厳密化）
 					gl.bindVertexArray(d.vao);
 					if (d.idxT) gl.drawElements(gl.TRIANGLES, d.count, d.idxT, 0);
 					else gl.drawArrays(gl.TRIANGLES, 0, d.count);

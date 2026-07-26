@@ -146,7 +146,7 @@ export function polygons(geom) {
 	return out;
 }
 
-function signedArea(c, s, e) {
+export function signedArea(c, s, e) {
 	let sum = 0;
 	for (let i = s; i < e; i += 2) {
 		const j = i + 2 < e ? i + 2 : s;
@@ -159,7 +159,8 @@ export async function fetchMVT(url, signal, need) {
 	const r = await fetch(url, { signal });
 	// 404/204＝「そこにタイルが無い」という正当なデータ（optimal_bvmap は日本域のみ＝広域ビューでは
 	// 国外・外洋のタイルが常に404）。エラーでなく空タイルとして ready 扱い＝リトライも失敗計上もしない。
-	if (r.status === 404 || r.status === 204) return {};
+	// __empty＝図郭外の印（build 側が「標高ゲート付き全面水域」を敷く判定に使う。source-layer 名とは衝突しない）
+	if (r.status === 404 || r.status === 204) return { __empty: true };
 	if (!r.ok) throw new Error(`MVT HTTP ${r.status} ${url}`);
 	return decodeMVT(new Uint8Array(await r.arrayBuffer()), need);
 }

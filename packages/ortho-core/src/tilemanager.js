@@ -3,7 +3,7 @@
 // ラベルは近景（高z）タイルのみ＝遠方はテキスト無し。
 import { fetchMVT, neededSourceLayers } from "./decode.js";
 import { tileBounds } from "./tile.js";
-import { buildTileDrawList } from "./build.js";
+import { buildTileDrawList, buildEmptySeaOps } from "./build.js";
 import { buildLabels } from "./labels.js";
 import { buildBuildings } from "./buildings.js";
 import { selectLOD } from "./tilecover.js";
@@ -34,6 +34,8 @@ export function createTileManager({ style, tileUrl, onChange, cap = 256, buildTi
 		const [w, s, e, n] = tileBounds(t.x, t.y, t.z);
 		const origin = [w, n];
 		const dl = buildTileDrawList({ layers, z: t.z, x: t.x, y: t.y }, style, origin);
+		// 図郭外（404/図郭縁の WA スライバ）＝標高ゲート付き全面水域（worker 経路 tileworker.js と同処置）
+		const seaOps = buildEmptySeaOps(layers, { z: t.z, x: t.x, y: t.y }, style, origin); if (seaOps) dl.ops.unshift(...seaOps);
 		const { labels } = buildLabels({ layers, z: t.z, x: t.x, y: t.y }, style);
 		const buildings = buildBuildings({ layers, z: t.z, x: t.x, y: t.y }, origin);
 		return { origin, dl, labels, buildings, z: t.z, bytes: dlBytes(dl, buildings) };
@@ -71,10 +73,13 @@ export function createTileManager({ style, tileUrl, onChange, cap = 256, buildTi
 
 	// 距離LODで可視タイルを選定→ロード。ready なタイル列 { key, origin, z } を返す。
 	let stickySplit = null;   // 前回 update で分割された祖先ノード集合＝selectLOD のヒステリシス（境界の親⇔子振動を止める）
-	function update(cam, W, H) {
+	function update(cam, W, H, opts) {
 		clock++;
 		const floorZ = lodFloor && cam.zoom >= lodFloor.minViewZoom ? lodFloor.z : 0;
-		const selected = selectLOD(cam, W, H, { sticky: stickySplit, floorZ });
+		// tilePx＝分割閾（画面px）。静止時に小さく渡すと主層だけ一段細かく割れる＝近景ほど画面サイズが
+		// 大きい＝真っ先に閾を越えて分割＝「手前のズームが上がる」。下地/毛布は据置（先端の空白埋めは粗いまま）。
+		// 未指定(undefined)なら selectLOD 既定(560)＝移動中は従来通り重くしない。
+		const selected = selectLOD(cam, W, H, { sticky: stickySplit, floorZ, tilePx: opts?.tilePx ?? undefined });   // null/未指定→undefined＝selectLOD既定560（destructuring既定はundefinedでのみ発火・nullだと閾0で全分割の罠）
 		// 「分割されたノード」＝選択タイルの祖先チェーンそのもの。次回のヒステリシス判定に持ち越す。
 		stickySplit = new Set();
 		for (const t of selected) {

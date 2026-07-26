@@ -2,6 +2,13 @@
 // order の各タイルの geometry(ops/buildings) を style層(li)ごとに1バッファへ結合し、共通 origin へ再ベース。
 // geomOf(key) → { ops, buildings } | null（geometry の供給元。cache でも worker の Map でも）。
 
+// 図郭外フォールバック水域（build.js buildEmptySeaOps）の擬似 li 帯：擬似li = SEA_FB_BASE + 実li。
+// 実在の style 層(0..n)と衝突せず、li 昇順ソートで実層より先＝全レイヤの下に敷かれ、かつ帯内では
+// 実li の相対順（water → water-hi）を保つ。renderer はこの帯を見て u_seaGate=1（標高h>0をdiscard）を立てる。
+// merge の hidden（チップ消灯）判定は seaFbReal で実li に還元＝水系チップの点消灯にフォールバックも追随する。
+export const SEA_FB_BASE = -1000;
+export const seaFbReal = li => li < -500 ? li - SEA_FB_BASE : null;   // 擬似→実li（非該当は null）
+
 // LOD重複の線ゲート：order 内に「自分の子孫タイル」が居るタイル（＝blanket/祖先フォールバックの下敷き）の集合。
 // 塗りは z 昇順の上塗りで隠れるが、線は加算的に二重描きされ「簡略化度の違う同じ高速道路が2本」になる
 // ＝下敷きタイルの線は結合に組み込まない（そのタイルの塗りは残す＝空白は出さない）。
@@ -26,7 +33,7 @@ export function mergeTiles(order, geomOf, opts = {}) {
 		const g = geomOf(key); if (!g || !g.ops) continue;
 		tileOps.push({ ox: to[0] - origin[0], oy: to[1] - origin[1], ops: g.ops, noLine: lineOff.has(key) });
 		for (const op of g.ops) {
-			if (hidden.has(op.li)) continue;
+			if (hidden.has(seaFbReal(op.li) ?? op.li)) continue;   // フォールバック水域は実liでチップ消灯判定
 			if (op.kind === "line" && lineOff.has(key)) continue;
 			let e = size.get(op.li); if (!e) { e = { kind: op.kind, fillN: 0, idxN: 0, lineN: 0 }; size.set(op.li, e); }
 			if (op.kind === "fill") { e.fillN += op.pos.length / 2; e.idxN += op.idx.length; } else e.lineN += op.half.length;
@@ -41,7 +48,7 @@ export function mergeTiles(order, geomOf, opts = {}) {
 	}
 	for (const { ox, oy, ops, noLine } of tileOps) {
 		for (const op of ops) {
-			if (hidden.has(op.li)) continue;
+			if (hidden.has(seaFbReal(op.li) ?? op.li)) continue;   // サイズ集計と同条件
 			if (op.kind === "line" && noLine) continue;   // 下敷きタイルの線（サイズ集計と同条件）
 			const m = buf.get(op.li);
 			if (op.kind === "fill") {

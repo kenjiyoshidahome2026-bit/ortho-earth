@@ -1,6 +1,27 @@
 // 透視カメラ（チルト対応）。経緯度→単位球3D→u_mvp でクリップ座標へ。
 // 頂点はシーン原点(u_origin)からの経緯度差分。fill は clip 直行、line/capsule はスクリーン空間で幅付け。
 
+// 標高サンプラ（GEBCO/ALOS, R32F meters）。PROJECT（VS用）と FILL_FS（標高ゲート＝図郭外の陸/海裁定）で
+// 同一テキストを共有＝両ステージの uniform 宣言が厳密一致（リンク保証）し、式の乖離も構造的に防ぐ。
+const ELEV = /* glsl */`
+uniform sampler2D u_elevTex;
+uniform vec4 u_elevBounds;   // originLng, originLat, spanLng, spanLat（アトラス被覆）
+uniform float u_elevScale;   // (誇張 / 地球半径m) : m → 単位球
+uniform float u_hasElev;     // 0/1
+uniform float u_elevEdgeFade;   // 窓の縁のフェード幅(deg)。0=無効（R90全球窓）。R10/R01窓の外（標高0）との崖を馴染ませる
+float elevFadeAt(vec2 uv) {
+	if (u_elevEdgeFade <= 0.0) return 1.0;
+	vec2 w = vec2(u_elevEdgeFade) / u_elevBounds.zw;
+	return min(smoothstep(0.0, w.x, min(uv.x, 1.0 - uv.x)), smoothstep(0.0, w.y, min(uv.y, 1.0 - uv.y)));
+}
+float elev(vec2 ll) {
+	if (u_hasElev < 0.5) return 0.0;
+	vec2 uv = (ll - u_elevBounds.xy) / u_elevBounds.zw;
+	if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) return 0.0;
+	return texture(u_elevTex, uv).r * elevFadeAt(uv);   // アトラスは南上げ格納＝v直接
+}
+`;
+
 export const PROJECT = /* glsl */`
 uniform mat4  u_mvp;
 uniform vec3  u_eye;        // カメラ位置（単位球ワールド）
@@ -51,23 +72,8 @@ vec3 deltaToRel(vec2 dDeg) {
 	float rz = cLat * sLon * ccM1 + cLat * cLon * cdb * sda - sLat * sLon * sdb * cda - sLat * cLon * sdb * sda;
 	return vec3(rx, ry, rz);
 }
-// 標高テクスチャ（GEBCO/ALOS, R32F meters）。範囲内なら高さ(m)、外は0。
-uniform sampler2D u_elevTex;
-uniform vec4 u_elevBounds;   // originLng, originLat, spanLng, spanLat（アトラス被覆）
-uniform float u_elevScale;   // (誇張 / 地球半径m) : m → 単位球
-uniform float u_hasElev;     // 0/1
-uniform float u_elevEdgeFade;   // 窓の縁のフェード幅(deg)。0=無効（R90全球窓）。R10/R01窓の外（標高0）との崖を馴染ませる
-float elevFadeAt(vec2 uv) {
-	if (u_elevEdgeFade <= 0.0) return 1.0;
-	vec2 w = vec2(u_elevEdgeFade) / u_elevBounds.zw;
-	return min(smoothstep(0.0, w.x, min(uv.x, 1.0 - uv.x)), smoothstep(0.0, w.y, min(uv.y, 1.0 - uv.y)));
-}
-float elev(vec2 ll) {
-	if (u_hasElev < 0.5) return 0.0;
-	vec2 uv = (ll - u_elevBounds.xy) / u_elevBounds.zw;
-	if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) return 0.0;
-	return texture(u_elevTex, uv).r * elevFadeAt(uv);   // アトラスは南上げ格納＝v直接
-}
+// 標高テクスチャ（範囲内なら高さ(m)、外は0）＝ELEV チャンク（FILL_FS と共有）
+${ELEV}
 // clip.xy/clip.w → device px（左上原点, y下向き）
 vec2 toScreen(vec4 c) {
 	vec2 ndc = c.xy / c.w;
@@ -477,19 +483,23 @@ in vec4 a_color;
 ${PROJECT}
 uniform float u_lift;   // 水面リフト(m)：水域(fill)だけ山岳レジームで+30m＝DSMの水面ノイズ瘤を沈めつつ
                         // 尾根(数百m級)の遮蔽は保つ（深度テスト免除=後書きの廃止）。通常塗りは 0。
+uniform float u_seaGate;   // 1＝図郭外フォールバック水域（empty-sea op）：頂点は海抜0の球面に置き
+                           // （全面クアッドの隅が山に乗ると水面ごと傾くため）、FS が elev>0 を discard
 out vec4 v_color;
 out float v_front;
 out float v_fog;
 out float v_w;    // clip w（perspective-correct 補間＝フラグメントで真の視距離。水域の厳密深度用）
+out vec2 v_ll;    // 絶対 lon/lat(deg)＝FS 標高ゲート（u_seaGate）用
 void main() {
 	vec2 dLL = a_delta;                       // 原点相対 (deg)。multidraw は mdize が u_tileOff を足す
 	vec2 ll = u_origin + dLL;                  // elev 参照用の絶対（粗くて可）
+	v_ll = ll;
 	vec3 rel = deltaToRel(dLL);               // 頂点3D − 原点3D（小・正確）
 	vec3 dir = u_originPt + rel;              // 絶対単位球点（front/fog/df 用＝粗くて可）
 	// 標高変位は地形と同じ距離フェード（TERRAIN_VS の df と同式）＝遠景で地形が平ら化された時に
 	// 塗りだけ山の高さに浮くのを防ぐ（浮くと地平線の上に塗りの切れ端が漂う）
 	float df = 1.0 - smoothstep(u_fogFar * 0.8, u_fogFar * 2.0, distance(u_eye, dir));
-	float h = (elev(ll) + u_lift) * u_elevScale * df;
+	float h = u_seaGate > 0.5 ? 0.0 : (elev(ll) + u_lift) * u_elevScale * df;
 	vec3 relW = rel + h * dir;                // (dir*(1+h)) − 原点3D を相殺なしで（標高で地形に貼りつく）
 	v_color = a_color;
 	v_front = dot(dir, u_eye) - 1.0;          // >0 で手前半球（cull＝粗くて可）
@@ -504,13 +514,18 @@ precision highp float;
 uniform vec3 u_fogColor;
 uniform float u_logCoef;
 uniform float u_exactDepth;   // 1＝フラグメント厳密対数深度（terrainDepth 中の水域のみ）
+uniform float u_seaGate;      // 1＝図郭外フォールバック水域：標高が陸(h>0)の画素は塗らない
+                              // ＝「水域は地理院・陸は標高(GEBCO/R10)」の管轄裁定を画素単位で行う
+${ELEV}
 in vec4 v_color;
 in float v_front;
 in float v_fog;
 in float v_w;
+in vec2 v_ll;
 out vec4 fragColor;
 void main() {
 	if (v_front < -0.0015) discard;         // 裏半球は描かない（接線に標高許容＝地平線に頭を出す山上の塗りも描く）
+	if (u_seaGate > 0.5 && elev(v_ll) > 0.0) discard;   // 図郭外＝陸は塗り残す（紙色+等高線に委ねる）
 	// 霧はフェードアウト（透明化）：紙色で塗り潰すと、地平線の先＝球に隠れるべき塗りが空に不透明で浮く。
 	// 1.2倍＝霧83%で完全消滅：地形の霞（fog=1で紙色の帯）より一歩先に消え、暗い空に尻尾が残らない
 	float af = v_color.a * clamp(1.0 - 1.2 * v_fog, 0.0, 1.0);

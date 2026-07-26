@@ -4,7 +4,7 @@
 // index.js（全部入り）でなく実装ファイル直参照：index は pipeline（worker生成）を含むため、
 // worker から index を引くと vite が「循環worker」と誤認してビルドが落ちる
 import { fetchMVT, neededSourceLayers } from "../decode.js";
-import { buildTileDrawList } from "../build.js";
+import { buildTileDrawList, buildEmptySeaOps } from "../build.js";
 import { buildLabels } from "../labels.js";
 import { buildBuildings } from "../buildings.js";
 import { tileBounds } from "../tile.js";
@@ -24,6 +24,8 @@ self.onmessage = async (e) => {
 		const [w, , , n] = tileBounds(x, y, z);
 		const origin = [w, n];
 		const dl = buildTileDrawList({ layers, z, x, y }, style, origin);
+		// 図郭外（404/図郭縁の WA スライバ）＝標高ゲート付き全面水域を敷く（詳細は buildEmptySeaOps。style.emptySea 未設定なら不発）
+		const seaOps = buildEmptySeaOps(layers, { z, x, y }, style, origin); if (seaOps) dl.ops.unshift(...seaOps);
 		const { labels } = buildLabels({ layers, z, x, y }, style);
 		const buildings = buildBuildings({ layers, z, x, y }, origin);
 		const bufs = collectBuffers(dl, buildings);

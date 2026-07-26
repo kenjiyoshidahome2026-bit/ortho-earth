@@ -242,6 +242,10 @@ const STALE_ZOOMOUT = 0.5;            // これ以上ズームアウトしたら
 const mainStale = () => mainSceneZoom > cam.zoom + STALE_ZOOMOUT;
 let basemapHidden = false;                 // z<BASEMAP_MINZOOM で基図(GSI)を止めてるか（全球ビュー＝海岸線のみ）
 const BASEMAP_MINZOOM = 5;                 // これ未満は基図の詳細を描かない（海岸線 gint で十分／main負荷を断つ）
+// 静止時の詳細化＝主層の分割閾を下げる（既定560→この値）。近景ほど画面上のタイルが大きい＝真っ先に
+// 閾を越えて割れる＝チルトで「手前だけズームが上がる」（遠景は小さく閾に届かず据置＝奥のPLATEAUと詳細が拮抗）。
+// 移動中は渡さない＝560のまま重くしない。値を下げるほど手前が細かくなる（=負荷↑）＝ここが唯一の調律つまみ。
+const IDLE_TILE_PX = 256;
 let moving = false, settleT = null;
 // 移動中は幾何を再結合しない（タイルのポップ＝チラチラ防止）。停止後に再結合。
 // PLATEAU LOD2 データ登録簿：寄ると自動で出す。bbox は自動トリガ用の緩い矩形（実描画は被覆マスクが実フットプリントに沿わせる）。
@@ -605,6 +609,10 @@ function onMove() {
 
 // データパイプライン（tile/scene worker）。実装は pipeline.js。
 // tiles＝LOD管理（update/labels）、requestMerge＝結合要求（scene worker が結合→render worker へ直行）。
+// 図郭外フォールバック水域：optimal_bvmap が 404 を返す提供圏外（韓国・台湾等の外国域）に、water 層の色で
+// 「標高ゲート付き全面水域」を敷く（FS が標高h>0を discard＝海は地理院・陸は標高(GEBCO/R10) の管轄裁定。
+// 敷かないと圏外は紙色＝l=terrain の等高線が乗ると「白い偽の陸」に見える）。z≥8・sea.minzoom(z9) ゲート共有。
+style.emptySea = "water";
 const { tiles, requestMerge, destroy: destroyPipeline } = createPipeline({
 	style, tileUrl: TILE_URL, requestDraw: () => { needsDraw = true; }, scenePort: sceneChan.port1, onTile,
 	// LOD下限＝タイルz8（sea gate と同じ閾値）：optbv は z8 から海が全面WA（沖合タイル=WA一枚50B級）、z7以下は
@@ -862,7 +870,8 @@ window.__paint = async (paint, filter = null) => {
 };
 // 世界海岸線（Natural Earth 10m）を球へ。uploader で事前変換済みの GeoPBF を bucket 名慣習
 // （GIS/pbf/ne_10m_coastline）から load＝初回も zip レンジ取得→shp デコードを払わない（gunzip 直読み→GintBUF 焼き→IDB）。
-// 2回目以降は ETag 一致で IDB 直行。bucket に無い間だけ従来の生 zip 経路（api proxy→shp デコード）へフォールバック。
+// 2回目以降は IDB 直行＝ネットワークを待たない（ETag 確認は裏で回し新版は次回反映＝激遅会場回線でも即表示）。
+// bucket に無い間だけ従来の生 zip 経路（api proxy→shp デコード）へフォールバック。
 // coastline は native な線＝lineStream（styleId=1＝既定 #00B4D8）。fillColor 既定透明＝縁だけ＝「線だけ」。
 // maxZoom:7 で z≤7 に点火＝低ズームの世界図専用。
 // VW ランクは GintBUF に焼込済＝10m を間引かず全密度で描く（弦が短く球面に吸い付く＝110m の崩壊が起きない）。
@@ -1535,7 +1544,7 @@ function render() {
 		return;
 	}
 	basemapHidden = false;
-	const { order, coarseOrder, total } = tiles.update(cam, size.w, size.h);
+	const { order, coarseOrder, total } = tiles.update(cam, size.w, size.h, moving ? null : { tilePx: IDLE_TILE_PX });   // 静止時だけ主層を一段細かく（手前の詳細化）。settle が needsDraw を立て、細タイルの ready は requestDraw で連鎖再描画
 	window.__lastOrder = order;   // デバッグ：現在の選択タイル（コンソール/検証スクリプトから確認）
 	window.__tileStats = () => { const s = tiles.stats(); console.log(`[tiles] 常駐 ${s.tiles}枚 / ${(s.bytes/1048576).toFixed(1)}MB（予算 ${(s.budgetBytes/1048576).toFixed(0)}MB, deviceMemory≈${s.deviceMemoryGB}GB, cacheEntries ${s.cacheEntries}）`); return s; };   // コンソールから常駐メモリ確認
 	swapBase(coarseOrder);                          // 粗い下地は常に敷く（移動中も）＝先端の空白を無くす

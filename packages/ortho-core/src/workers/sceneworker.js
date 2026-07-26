@@ -6,7 +6,7 @@
 //   を組むだけ＝CPU memcpy もフルシーンの GPU 再アップロードも無い。プール配置（アロケータ）の権限はここ：
 //   renderer には grow（成長）/ up（タイルブロック転送）/ dl（draw list）を順に流すだけ（FIFO＝dl が up を追い越さない）。
 // - fallback（WEBGL_multi_draw 非対応 or ?nomd=1）：従来どおり mergeTiles で結合した scene を送る。
-import { mergeTiles, coveredTiles } from "../scene.js";   // index直引きはworker循環になる（tileworker側コメント参照）
+import { mergeTiles, coveredTiles, seaFbReal } from "../scene.js";   // index直引きはworker循環になる（tileworker側コメント参照）
 
 // geometry は main のタイルキャッシュのバイト予算の鏡：追加＝tile メッセージ／削除＝evict メッセージ（tilemanager の
 // onEvict と同期）。独自の上限退避は持たない——mainが ready と思っているタイルをこちらだけ捨てると、
@@ -177,7 +177,7 @@ function composeMD(m) {
 		const noLine = lineOff.has(o.key);
 		const ox = o.origin[0] - origin[0], oy = o.origin[1] - origin[1];
 		for (const s of rec.subs) {
-			if (hidden && hidden.has(s.li)) continue;
+			if (hidden && hidden.has(seaFbReal(s.li) ?? s.li)) continue;   // フォールバック水域は実liでチップ消灯判定
 			if (s.kind === "line" && noLine) continue;
 			let e = byLi.get(s.li); if (!e) byLi.set(s.li, e = { kind: s.kind, items: [] });
 			e.items.push(s.kind === "fill" ? [s.idxOff * 4, s.idxN, ox, oy] : [s.segOff * 6, s.segN * 6, ox, oy]);   // fill=byteオフセット / line=先頭頂点番号(6頂点/線分)

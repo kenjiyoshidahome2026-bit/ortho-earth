@@ -6,7 +6,8 @@ import earcut from "earcut";
 import { evalExpr, truthy } from "./expr.js";
 import { parseRGBA } from "./color.js";
 import { tileLocalToLonLat } from "./tile.js";
-import { polygons } from "./decode.js";   // フラットgeom({coords,ends})→[flat, holes]（buildings と共用）
+import { polygons, signedArea } from "./decode.js";   // フラットgeom({coords,ends})→[flat, holes]（buildings と共用）
+import { SEA_FB_BASE } from "./scene.js";
 
 // origin: [lon,lat] シーン原点（精度確保のため頂点は原点からの差分で持つ）
 // pale: 色文字列→色文字列 の変換（無ければ恒等）
@@ -134,6 +135,44 @@ export function buildTileDrawList({ layers, z, x, y }, style, origin, pale = c =
 		}
 	}
 	return { ops };
+}
+
+// 図郭外に敷く「標高ゲート付き全面水域」op列（フォールバック水域）。
+// GSI 自身が z8+ の提供圏内の外洋・外国領土に配る全面WAダミー（57B・全面ポリゴン一枚）の自前版：
+// style.emptySea（水層の id・app がオプトイン）と同じ source-layer を使う全 fill 層（water＋water-hi 等）の
+// 色・式で全面ポリゴンを焼き、li を擬似帯 SEA_FB_BASE+実li へ付け替える（実層より下・チップ連動は merge が
+// seaFbReal で還元）。renderer はこの帯で u_seaGate=1 を立て、FS が elev(v_ll)>0 の画素を discard
+// ＝「水域は地理院・陸は標高(GEBCO/R10)」の管轄裁定を画素単位で行う（韓国等が偽の白い陸になる件の根治）。
+// 敷く条件（z≥8。z<8 は GSI 自身も全面WAを配らない紙の海の領分。表示は renderer の sea.minzoom にも従う）:
+//  (a) __empty＝404/204＝提供図郭の完全な外
+//  (b) タイルの中身が「WA だけ・しかも全面を覆わない」＝図郭の縁のダミー（マスクで刈られた WA スライバが
+//      1個だけ残る 51B 級タイル。日本の実タイルは陸があれば AdmArea/道路等を必ず伴うので誤爆しない。
+//      純外洋で WA 全面のものは覆率≈1 で除外＝既に青いので敷く必要がない）
+export function buildEmptySeaOps(layers, { z, x, y }, style, origin) {
+	const id = style.emptySea; if (!id || z < 8) return null;
+	const base = style.layers.find(L => L.id === id); if (!base) return null;
+	const src = base["source-layer"];
+	if (!layers.__empty && !waOnlyPartial(layers, src)) return null;
+	const idxs = [];
+	style.layers.forEach((L, i) => { if (L.type === "fill" && L["source-layer"] === src) idxs.push(i); });
+	if (!idxs.length) return null;
+	const sq = { [src]: { extent: 4096, features: [{ type: "Polygon", id: 0, props: { vt_code: 5101 },   // 5101＝海（色式が vt_code を見る style でも水色に転ぶ）
+		geom: { coords: new Int32Array([0, 0, 4096, 0, 4096, 4096, 0, 4096, 0, 0]), ends: [10] } }] } };
+	const dl = buildTileDrawList({ layers: sq, z, x, y }, { layers: idxs.map(i => style.layers[i]) }, origin);
+	for (const op of dl.ops) { op.li = SEA_FB_BASE + idxs[op.li]; op.id = "empty-sea:" + op.id; }   // sub-style の li(0..)→実li→擬似帯
+	return dl.ops.length ? dl.ops : null;
+}
+// 「WA しか無く、その WA が全面を覆っていない」＝図郭縁ダミーの判定（覆率 99.5% 未満）。穴は無い前提の |面積| 和。
+function waOnlyPartial(layers, src) {
+	const names = Object.keys(layers); if (names.length !== 1 || names[0] !== src) return false;
+	const { extent, features } = layers[src];
+	let area = 0;
+	for (const f of features) {
+		if (f.type !== "Polygon") continue;
+		const { coords, ends } = f.geom; let p = 0;
+		for (const e of ends) { area += Math.abs(signedArea(coords, p, e)); p = e; }
+	}
+	return area < extent * extent * 0.995;
 }
 
 // sort-key 式があれば層内の地物を昇順に並べ替える（安定ソート）。無ければ元順のまま。
