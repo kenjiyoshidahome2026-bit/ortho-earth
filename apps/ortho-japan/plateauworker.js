@@ -8,8 +8,11 @@ import { Tiles3DLoader } from "@loaders.gl/3d-tiles";
 import { Cache } from "native-bucket";
 
 const EARTH_M = 6371000;   // main.js の EARTH_M と同値（建物の接地計算に使う単位球換算）
-const TILE_CONCURRENCY = 8;   // バッチ内のタイル並行fetch/デコード数。直列だと往復レイテンシが積み上がり支配的になる。
-const BATCH_TILES = 64;       // 1バッチのタイル数。小さいほど初表示が速く、大きいほどdraw call/RTE origin数が減る。
+// バッチ/並行度は低メモリ端末で縮小（init lowMem で上書き）：デコードの過渡メモリ（Float64座標+BigInt dedup+
+// glTFバッファ）はバッチ規模にほぼ比例＝64タイル/並行8はデスクトップ実測~2.5GB/区で、iOSのタブ予算(~1.4GB)を
+// 超え jetsam（デモ上演中のタブ再読み込み＝iPhone 16 Pro 実機で確認）。16タイル/並行4＝ピーク~1/4。
+let TILE_CONCURRENCY = 8;   // バッチ内のタイル並行fetch/デコード数。直列だと往復レイテンシが積み上がり支配的になる。
+let BATCH_TILES = 64;       // 1バッチのタイル数。小さいほど初表示が速く、大きいほどdraw call/RTE origin数が減る。
 const MASK_N = 256;           // 区単位の被覆マスク解像度（基図建物を伏せるセル）
 const LOD_H = [0, 3, 6, 12, 24, 48];   // LOD段の高さ閾値(m)。renderer が「画面上1px未満の建物」を先頭countの打ち切りで捨てる
 const R2D = 180 / Math.PI;
@@ -536,7 +539,7 @@ self.onmessage = async (e) => {
 	if (e.data.type === "init") {
 		meshPort = e.data.meshPort;
 		meshPort.onmessage = ev => { if (ev.data && ev.data.drained) onDrained(); };   // render worker の消化ack＝クレジット返却
-		if (e.data.lowMem) CACHE_MAX = 0;   // 低メモリ端末＝worker内キャッシュなし（区一式の常駐がタブ落ちの下駄になる。再訪はIDB）
+		if (e.data.lowMem) { CACHE_MAX = 0; BATCH_TILES = 16; TILE_CONCURRENCY = 4; }   // 低メモリ端末＝worker内キャッシュなし（区一式の常駐がタブ落ちの下駄になる。再訪はIDB）＋デコード過渡を~1/4に縮小（iOS jetsam対策）
 		return;
 	}
 	if (e.data.type === "cancel")  { cancelled.add(e.data.base); return; }             // 協調キャンセル（旗を立てるだけ＝各ループが自分で降りる）
