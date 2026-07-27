@@ -6,7 +6,7 @@ import { unproject, cameraState, lonlatTo3D, WORLD_PX } from "./camera.js";
 import { downsampleFlipped } from "./elevation.js";
 import { createTileLoader } from "altpbf";
 
-export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onPending }) {
+export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onPending, lowMem = false }) {
 	let atlasKey = "", loadedCells = new Set();
 	let cellFails = new Map();   // ck → 取得失敗回数（窓の世代ごとにリセット。上限内は次の ensure で再挑戦）
 	let writtenCells = new Set();   // 実際にアトラスへ書き込めたセル（検札の突合対象。世代ごとにリセット）
@@ -17,7 +17,9 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 	// settle 毎取得×地域移動で renderer プロセスが単調成長する（z9チルト75の zoom往復で 0.9→2.2GB/20秒、
 	// 実機では 13GB 到達を実測＝「drawn のたびにメモリ爆発」の正体）。ヒットで末尾へ回す挿入順 LRU。
 	const r10Tiles = new Map();
-	const TILE_CACHE_BYTES = 256 << 20;   // 常駐上限 256MB＝現窓の R01 一式＋R10/R90 が収まる（IDB があるので再取得は安い）
+	// 常駐上限：デスクトップ256MB＝現窓の R01 一式＋R10/R90 が収まる（IDB があるので再取得は安い）。
+	// 低メモリ端末（iOS＝タブ~1.4GBでjetsam）は64MB＝タブ予算の2割弱を1キャッシュに渡さない（不足分はIDB再取得）。
+	const TILE_CACHE_BYTES = (lowMem ? 64 : 256) << 20;
 	let tileBytes = 0;
 	const tileSize = t => (t?.data?.byteLength ?? 0) + 64;
 	function cacheTile(k, tile) {

@@ -89,7 +89,7 @@ onmessage = e => {
 			// main には触れさせない（postMessage/main側CPUを丸ごと排除）。DOM(読込インジケータ)だけ main へ通知。
 			terrain = createTerrain({
 				renderer, requestDraw: () => { dirty = true; },
-				exag: m.terrainExag, earthM: m.earthM, apiUrl: m.apiUrl,
+				exag: m.terrainExag, earthM: m.earthM, apiUrl: m.apiUrl, lowMem: !!m.lowMem,
 				onPending: (count, range) => postMessage({ type: "elevPending", count, range }),
 			});
 			// 全球R90（8枚・計55MB・初回のみ＝以後IDB常備）を起動の山が過ぎた頃に先読み＝
