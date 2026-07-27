@@ -271,6 +271,10 @@ const IDLE_TILE_PX = 384;   // 静止時の手前詳細化は gpuFast（renderwo
                             // 自動落選（256は dpr=2 で停止毎に~10秒の描き直しラッシュ＋gpuMap 1.5倍＝「モサっと」の実測正体。
                             // 384 は fast マシンなら静止後の連鎖再描画ゼロ）。560=移動中と同値＝詳細化オフの値。
 let gpuFast = false;        // renderworker からの格付け通知（gpuTier）。既定 false＝格付け確定まで詳細化しない安全側
+// idleCalm＝settle(150ms)からさらに待った「本当の静止」でだけ手前詳細化を許す。ホイールのノッチ刻み
+//（間隔150〜500ms）が「詳細化merge→次ノッチで破棄→通常merge」のチャーンを毎ノッチ起こすのを防ぐ
+//（fast格付け機でズームがかえってモサつく実害＝ノッチの隙間は静止ではない）。
+let idleCalm = false, calmT = null;
 let moving = false, settleT = null;
 // 移動中は幾何を再結合しない（タイルのポップ＝チラチラ防止）。停止後に再結合。
 // PLATEAU LOD2 データ登録簿：寄ると自動で出す。bbox は自動トリガ用の緩い矩形（実描画は被覆マスクが実フットプリントに沿わせる）。
@@ -632,6 +636,7 @@ function updateCamClamp() {
 function onMove() {
 	cam.center[0] = wrapLon(cam.center[0]);   // パン/回転/フライトの累積を毎移動で正規化＝float32原点相対の前提を守る（階段バグ根治）
 	moving = true; needsDraw = true;
+	idleCalm = false; clearTimeout(calmT);     // 動いた瞬間に「本当の静止」を取り下げ（詳細化は許可待ちに戻る）
 	updateCamClamp();                          // カメラ地形クランプ（非同期＝次フレームから効く。マージン40mが遅れを吸収）
 	updateGintSlot();                                                                // gint 単一スロットを z=4 で調停（ユーザー層⇄世界海岸線）＋海岸線の遅延ロード
 	ensureStars();                                                                    // 星空も同じ流儀＝初めて z<4 に出た瞬間に読む
@@ -639,7 +644,10 @@ function onMove() {
 	renderer.draw(cam, { skipBase: false, skipMain: mainStale(), noTerrain: false, terrainGate: false });   // 入力の瞬間に最新camをworkerへ（全球z<4も標高の塗りは描く）。terrainGate:false＝入力中はアトラス再構築を起こさない（停止時に一回だけ）
 	// 知性の層(gint)は render worker が frame 末尾に同フレーム同カメラで描く（1canvas統合＝泳ぎ・チルト opacity 手当てとも消滅）。
 	clearTimeout(settleT);
-	settleT = setTimeout(() => { moving = false; needsDraw = true; renderWorker.postMessage({ type: "gintDrawn" }); autoPlateau(true); if (!printHold) saveView(); }, 150);   // 停止後に identify(picking)＋PLATEAU確定（settled＝ロード発火/レーン切替はこの瞬間だけ）＋ビュー保存（印刷カメラは保存しない）
+	settleT = setTimeout(() => {
+		moving = false; needsDraw = true; renderWorker.postMessage({ type: "gintDrawn" }); autoPlateau(true); if (!printHold) saveView();   // 停止後に identify(picking)＋PLATEAU確定（settled＝ロード発火/レーン切替はこの瞬間だけ）＋ビュー保存（印刷カメラは保存しない）
+		calmT = setTimeout(() => { idleCalm = true; needsDraw = true; }, 550);   // さらに550ms（停止から計700ms）＝ホイール刻みを跨いだ「本当の静止」でだけ手前詳細化
+	}, 150);
 	schedulePos();   // 座標読み取りもカメラに追随（rAF畳み込み＝タダ同然）
 }
 
@@ -1580,7 +1588,7 @@ function render() {
 		return;
 	}
 	basemapHidden = false;
-	const { order, coarseOrder, total } = tiles.update(cam, size.w, size.h, (moving || !gpuFast) ? null : { tilePx: IDLE_TILE_PX });   // 静止時だけ主層を一段細かく（手前の詳細化）＝GPU格付け fast のマシン限定。settle が needsDraw を立て、細タイルの ready は requestDraw で連鎖再描画
+	const { order, coarseOrder, total } = tiles.update(cam, size.w, size.h, (moving || !gpuFast || !idleCalm) ? null : { tilePx: IDLE_TILE_PX });   // 「本当の静止」（settle+550ms）だけ主層を一段細かく（手前の詳細化）＝GPU格付け fast のマシン限定。calm が needsDraw を立て、細タイルの ready は requestDraw で連鎖再描画
 	window.__lastOrder = order;   // デバッグ：現在の選択タイル（コンソール/検証スクリプトから確認）
 	window.__tileStats = () => { const s = tiles.stats(); console.log(`[tiles] 常駐 ${s.tiles}枚 / ${(s.bytes/1048576).toFixed(1)}MB（予算 ${(s.budgetBytes/1048576).toFixed(0)}MB, deviceMemory≈${s.deviceMemoryGB}GB, cacheEntries ${s.cacheEntries}）`); return s; };   // コンソールから常駐メモリ確認
 	swapBase(coarseOrder);                          // 粗い下地は常に敷く（移動中も）＝先端の空白を無くす
@@ -1614,7 +1622,7 @@ function destroy() {
 	flightCtl.cancel();
 	ac.abort();                                  // window/document のリスナー一括解除（offline/online/hashchange/検索の外側クリック）
 	ro.disconnect();
-	clearTimeout(settleT); clearTimeout(bootT); clearInterval(planetTimer); clearInterval(skyClockTimer);
+	clearTimeout(settleT); clearTimeout(calmT); clearTimeout(bootT); clearInterval(planetTimer); clearInterval(skyClockTimer);
 	destroyPipeline();                           // tile/scene worker
 	renderWorker.terminate();
 	plateauWorkers.forEach(w => w.terminate());
