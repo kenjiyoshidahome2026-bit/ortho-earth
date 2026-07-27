@@ -119,14 +119,33 @@ function fatalOverlay(title, detail, reload) {
 	return d;
 }
 // 対応判定：このアプリの土台は WebGL2 ＋ OffscreenCanvas（GL を worker に置く設計）。無い環境では静かに案内して止まる。
+// 「非対応」の確実な判別器は transferControlToOffscreen の欠落だけ（これを持つ世代のブラウザは全て WebGL2 対応）。
+// webgl2=null 単独は非対応と断定できない：GPUプロセスのクラッシュ直後（OOM→contextlost の自動リロード直後）は
+// 対応ブラウザでも一時的に null を返す＝以前はここで「ブラウザ非対応」と誤診して行き止まりになっていた（M1実機で発生）。
+// → 復帰を10秒リトライ（クラッシュ直後は1〜数秒で戻る）。復帰すればそのまま起動続行、ダメなら環境向け案内＋再読み込み。
 {
-	const probe = document.createElement("canvas").getContext("webgl2");
-	if (!probe || !HTMLCanvasElement.prototype.transferControlToOffscreen) {
+	const probeGL = () => {
+		const g = document.createElement("canvas").getContext("webgl2");
+		g?.getExtension("WEBGL_lose_context")?.loseContext();   // 判定用コンテキストは即返却（スロットを食い潰さない）
+		return !!g;
+	};
+	if (!HTMLCanvasElement.prototype.transferControlToOffscreen) {
 		fatalOverlay("この地図はお使いのブラウザでは表示できません",
 			"3Dの地球儀を WebGL2 と OffscreenCanvas で描いています。最新の Chrome / Edge / Firefox、または Safari 17 以降でお試しください。");
-		throw new Error("unsupported: webgl2 / offscreencanvas");
+		throw new Error("unsupported: offscreencanvas");
 	}
-	probe.getExtension("WEBGL_lose_context")?.loseContext();   // 判定用コンテキストは即返却（スロットを食い潰さない）
+	if (!probeGL()) {
+		const waiting = fatalOverlay("GPU の応答を待っています…",
+			"描画プロセスの再起動直後はこの表示が出ることがあります。数秒で自動的に始まります。");
+		let ok = false;
+		for (let i = 0; i < 10 && !ok; i++) { await new Promise(r => setTimeout(r, 1000)); ok = probeGL(); }
+		waiting.remove();
+		if (!ok) {
+			fatalOverlay("3D描画を開始できません",
+				"お使いのブラウザは対応していますが、GPU（WebGL2）が応答しません。ブラウザを完全に終了して開き直すか、設定で「ハードウェアアクセラレーション」が有効かご確認ください。", true);
+			throw new Error("unsupported: webgl2 unavailable (after 10s retry)");
+		}
+	}
 }
 // 通信断トースト：offline イベント＋タイル連続失敗で表示、回復（online/タイル成功）で消える。地図は粗い下地で生き続ける。
 const netEl = document.createElement("div");
@@ -219,7 +238,9 @@ renderWorker.onmessage = e => {
 	}
 	if (d.type === "contextlost") {
 		const n = +(sessionStorage.getItem("oj.ctxlost") || 0);
-		if (n < 1) { sessionStorage.setItem("oj.ctxlost", String(n + 1)); location.reload(); }   // まず黙って1回だけ立て直す
+		// まず黙って1回だけ立て直す。1秒待ってから＝GPUプロセスの再起動を待つ（即リロードだと復帰前の
+		// getContext が null＝旧・probe が「ブラウザ非対応」と誤診した。probe側のリトライと二段の保険）。
+		if (n < 1) { sessionStorage.setItem("oj.ctxlost", String(n + 1)); setTimeout(() => location.reload(), 1000); }
 		else fatalOverlay("GPU の描画が中断されました", "描画コンテキストが失われました（GPUメモリ不足などで起こります）。他のタブやアプリを閉じてから再読み込みしてください。", true);
 		return;
 	}
@@ -285,8 +306,16 @@ const PLATEAU_EXTRA_ACTIVE = LOW_MEM ? 1 : 4;
 // GPU常駐（再訪の再アップロード根絶）：視野から外れた区は「削除」でなく「非表示(plateauVis)」＝VAOをVRAMに残す。
 // 再訪は vis:true を送るだけ＝100MB級の slice→transfer→bufferData が丸ごと消える（ズームアウト→戻るがタダに）。
 // 本当に削除するのは ①視野中心が区bboxから PLATEAU_FAR_DEG 超離れた時（完全に離れた＝当分戻らない扱い）
-// ②常駐上限超過のLRU。低メモリ端末は常駐なし＝従来どおり即削除（タブ強制終了対策を崩さない）。
-const PLATEAU_RESIDENT_MAX = LOW_MEM ? 0 : 8;   // 密集区~100-160MB/区 → 8区で~1GB＝普通のPCの余裕内
+// ②常駐予算超過のLRU。低メモリ端末は常駐なし＝従来どおり即削除（タブ強制終了対策を崩さない）。
+// 上限は「区数」でなく「バイト」＝ackに同乗する実測メッシュバイトで数える。旧・区数8上限は橋梁も建物も同じ「1」と
+// 数える上、テクスチャ付き都市は区あたり数百MB級＝区数では総量が読めない。GPUメモリOOM→context lost→自動リロード
+// →GPU未復帰でwebgl2 probe null＝「表示できません」誤診の連鎖（M1 16GB実機で発生）を、総量の物差しで元から断つ。
+// 実測（IDB #meta・都心notexture）：港141/新宿109/品川100/中央98MB…23区+川崎横浜の建物15セット計1.28GB。
+const PLATEAU_RESIDENT_BYTES = LOW_MEM ? 0 : 1.2e9;   // 非表示常駐まで含めた総予算。表示中(最大4+橋4)は退避対象外＝予算超過でも守る
+const PLATEAU_BYTES_FALLBACK = 200e6;                 // ack未着/不明時の安全側見積り（notexture実測最大141MB・texture都市はより大の想定）。橋梁(noMask)は一桁軽い
+const plateauBytes = new Map();                       // name → メッシュ実バイト（workerのackに同乗。セッション中は不変なので消さない）
+const bytesOf = (name, set) => plateauBytes.get(name) ?? (set?.noMask ? 20e6 : PLATEAU_BYTES_FALLBACK);
+const residentBytes = () => [...plateauResident].reduce((s, [n, st]) => s + bytesOf(n, st), 0);
 const PLATEAU_FAR_DEG = 0.5;                    // 本削除の距離閾値（deg≈55km）。都心の区巡り・近郊往復では誰も落ちない
 let flying = false;                        // フライト中フラグ＝autoPlateau のゲート（flyTo が立て、着地/中断で下ろす）
 const plateauActive = new Map();           // 表示中の地区（renderer で vis=on）：name → set({name,base,bbox})
@@ -303,14 +332,16 @@ function plateauEvict(name) {  // 本削除＝GPUバッファ解放（遠方離�
 	plateauResident.delete(name);
 	renderer.set("plateauMesh", null, name);
 }
-function plateauRetain(name, set) {   // 常駐登録＋LRU touch。上限超過は最古の非表示区から追い出す（表示中/読込中は守る）
-	if (!PLATEAU_RESIDENT_MAX) return;
+function plateauRetain(name, set) {   // 常駐登録＋LRU touch。予算超過は最古の非表示区から追い出す（表示中/読込中は守る）
+	if (!PLATEAU_RESIDENT_BYTES) return;
 	plateauResident.delete(name); plateauResident.set(name, set);
-	while (plateauResident.size > PLATEAU_RESIDENT_MAX) {
-		const oldest = [...plateauResident.keys()].find(n => !plateauActive.has(n) && !plateauLoading.has(n));
-		if (!oldest) break;
+	while (residentBytes() > PLATEAU_RESIDENT_BYTES) {
+		// n !== name＝いま touch した本人は守る（常駐ヒット経路は plateauActive.set より先に retain が走る＝
+		// activeガードだけだと「これから点灯する区」を自分で追い出し、消えたメッシュに vis:true を送る亡霊状態になる）
+		const oldest = [...plateauResident.keys()].find(n => n !== name && !plateauActive.has(n) && !plateauLoading.has(n));
+		if (!oldest) break;   // 退避できるのは非表示だけ＝表示中だけで予算超過なら何もしない（構図は崩さない）
 		plateauEvict(oldest);
-		console.log("[plateau] 常駐上限→解放", oldest);
+		console.log(`[plateau] 常駐予算→解放 ${oldest}（残 ${plateauResident.size}区 ~${(residentBytes() / 1048576) | 0}MB / 予算 ${(PLATEAU_RESIDENT_BYTES / 1048576) | 0}MB）`);
 	}
 }
 
@@ -334,6 +365,7 @@ for (let i = 0; plateauOn && i < PLATEAU_NW; i++) {   // plateau OFF＝workerを
 		if (e.data.type === "idbDeleted") { plateauDeletePending.get(e.data.base)?.(e.data.n); plateauDeletePending.delete(e.data.base); return; }
 		const p = plateauPending.get(e.data.id); if (!p) return; plateauPending.delete(e.data.id);
 		if (p.name) { plateauProg.delete(p.name); renderPlateauProg(); }   // 完了/失敗どちらでも ack で消灯＝消し忘れが無い
+		if (e.data.bytes && p.name) plateauBytes.set(p.name, e.data.bytes);   // 実測メッシュバイト＝常駐バイト予算LRUの物差し
 		if (e.data.error) p.reject(new Error(e.data.error));
 		else p.resolve(e.data.ok);   // ok=false は0三角形など soft failure（worker側でconsole.error済み）。メッシュ本体は直結ポートで render worker へ送付済み
 	};

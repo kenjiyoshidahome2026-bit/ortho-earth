@@ -393,12 +393,15 @@ async function idbLoad(base, brid) {
 	idb(base + "#meta", { ...meta, ts: Date.now() });   // LRU touch（待たない）
 	return { batches, mask: meta.mask ?? null, wardBbox: meta.wardBbox ?? null };
 }
+// メッシュ typed array の合計バイト＝GPU頂点バッファ量のほぼ等身大の proxy（rendererはこれをbufferDataで上げる）。
+// IDBの容量表示と、main の GPU常駐バイト予算LRU（ackに同乗）の両方がこの一つの物差しを使う。
+const batchBytes = batches => batches.reduce((s, b) => s + Object.values(b).reduce((t, v) => t + (ArrayBuffer.isView(v) ? v.byteLength : 0), 0), 0);
 async function idbStore(base, batches, mask, wardBbox, brid) {
 	const idb = await idbReady; if (!idb) return;
 	try {
 		for (let i = 0; i < batches.length; i++) await idb(`${base}#${i}`, batches[i]);
-		// bytes＝メッシュ typed array の合計＝データ管理モーダルの容量表示用（概算。旧レコードは未記録＝0）
-		const bytes = batches.reduce((s, b) => s + Object.values(b).reduce((t, v) => t + (ArrayBuffer.isView(v) ? v.byteLength : 0), 0), 0);
+		// bytes＝データ管理モーダルの容量表示用（概算。旧レコードは未記録＝0）
+		const bytes = batchBytes(batches);
 		await idb(base + "#meta", { ver: IDB_FMT_VER, count: batches.length, mask, wardBbox, brid: !!brid, ts: Date.now(), bytes });
 		// 容量上限：合計バイトが idbBudget（クォータ連動）を超えたら lastUsed 最古の区から丸ごと退避（バッチレコードも道連れ）。
 		// いま書いた区は退避対象にしない＝budget が極端に小さい環境でも自己破壊しない。
@@ -575,7 +578,9 @@ self.onmessage = async (e) => {
 		let ok = await ent.p;
 		// プレロード進行中に表示要求が合流した場合、合流先は描画へ送っていない＝完了後に改めて（キャッシュ命中＝即）送る。
 		if (ok === true && ent.preload && !preload) ok = await loadPlateau(base, tiles, name, wardBbox, camCenter, false, !!brid);
-		self.postMessage({ id, ok });
+		// bytes＝この区のメッシュ実バイト（成功時は3経路とも cache に居る）。main のGPU常駐バイト予算LRUの実測値。
+		// 低メモリ端末(CACHE_MAX=0)は cache 不在＝0 → main側も常駐なしなので使われない。
+		self.postMessage({ id, ok, bytes: cache.has(base) ? batchBytes(cache.get(base).batches) : 0 });
 	} catch (err) {
 		self.postMessage({ id, ok: false, error: err.message });
 	}

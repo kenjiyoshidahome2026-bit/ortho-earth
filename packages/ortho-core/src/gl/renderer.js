@@ -576,8 +576,12 @@ export function createRenderer(canvas, rOpts = {}) {
 			gl.drawArrays(gl.TRIANGLES, 0, 3);
 		}
 
-		// 標高テクスチャをユニット1へ（全プログラムが elev() で参照）
-		if (elev.has && elevTex) { gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, elevTex); gl.activeTexture(gl.TEXTURE0); }
+		// 標高テクスチャをユニット1へ（全プログラムが elev() で参照）。標高なしでも必ず「null を」バインド＝
+		// 同居する gint が unit1 に RGBA32UI（metaTex/ptMetaTex＝整数）を残すため、条件付きバインドだと
+		// 標高未着/noTerrain のフレームで float sampler(u_elevTex) が整数テクスチャを掴み、全ドローが
+		// GL_INVALID_OPERATION「Mismatch between texture format and sampler type」を吐く（実機GPUログで確認）。
+		// null＝incomplete texture は黒を返すだけでエラーにならない（u_hasElev=0 ガードで値は不使用）。
+		gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, (elev.has && elevTex) ? elevTex : null); gl.activeTexture(gl.TEXTURE0);
 		const terrainActive = !!(terrain && elev.has && elevScaleEff > 1e-9) && !(opts && opts.noTerrain);   // 傾き時のみ地形あり。noTerrain=全球ビューでは矩形アトラスを描かない
 		// ここから深度あり（建物同士の前後関係を共有）
 		gl.enable(gl.DEPTH_TEST); gl.depthFunc(gl.LEQUAL);
@@ -776,7 +780,9 @@ export function createRenderer(canvas, rOpts = {}) {
 			for (let i = 0; i < MAX_PLATEAU_MASKS; i++) {
 				const m = active[i], pb = m ? m.bbox : [1e9, 1e9, -1e9, -1e9];
 				gl.uniform4f(loc(gl, prog, `u_plateauBbox${i}`), pb[0], pb[1], pb[2], pb[3]);
-				if (m) { gl.activeTexture(gl.TEXTURE2 + i); gl.bindTexture(gl.TEXTURE_2D, m.tex); gl.activeTexture(gl.TEXTURE0); }
+				// 空きスロットも「null を」バインド＝unit2..5 は gint（pivotTex/idTex/fidStyle＝RGBA32UI整数）と共用。
+				// 残留整数テクスチャを float sampler(u_plateauMask) が掴むと sampler型不整合で draw 全滅（unit1 と同病）。
+				gl.activeTexture(gl.TEXTURE2 + i); gl.bindTexture(gl.TEXTURE_2D, m ? m.tex : null); gl.activeTexture(gl.TEXTURE0);
 				gl.uniform1i(loc(gl, prog, `u_plateauMask${i}`), 2 + i);
 			}
 			if (scenes.main.bld) {
