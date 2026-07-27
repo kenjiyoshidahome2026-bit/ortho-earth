@@ -106,6 +106,7 @@ void main() {
 	v_front = dot(dir, u_eye) - 1.0;
 	v_fog = fogOf(u_originPt + relW);
 	gl_Position = u_clipT + u_mvp * vec4(relW, 0.0);
+	gl_PointSize = 7.0;   // GL_POINTS 描画時のみ有効（線/面描画では無視）＝draped の点データ用
 	applyLogDepth();
 }`;
 

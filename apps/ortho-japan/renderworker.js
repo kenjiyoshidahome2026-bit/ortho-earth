@@ -205,6 +205,11 @@ let gpuEmaRaw = 0, gintEmaRaw = 0;   // 現解像度での素のGPU時間EMA（m
 const RES_STEPS = [1, 0.85, 0.7, 0.55];
 let emaMs = 0, lastFrameT = 0, prevDrew = false, resHoldUntil = 0, upStreak = 0, upDelay = 300;   // resHoldは時間制＝重いフレームでは「30枚」が数秒に化けて降段が間に合わない（ズームでガクつく）
 let uploadSkip = 0, pendingUp = false;   // uploadSkip＝PLATEAU転送直後の計測除外（転送スパイクで誤降格しない）。pendingUp＝解像度復帰の予約（適用は静止フレーム）
+// 静止復帰：重いエピソード（デモ飛行など）は busyMs が終始高く upStreak を稼げない＝pendingUp が立たないまま静止に入り 0.55 に張り付く
+// （静止中は計測フレームが無く登れない）。そこで「描画が RES_SETTLE_MS 続けて止まった」＝フル解像度で描いてもタダ同然、を検出したら
+// 予約の有無に関わらず段階を踏まず一気に res=1 へ戻す。少し余裕（500ms）を持たせて誤検出を避ける。
+const RES_SETTLE_MS = 500;
+let lastDrewT = 0;
 
 // 重い GPU 転送の平準化（1フレーム1件）：同一フレームに bufferData が束で乗るとフレームが飛ぶ。
 // ・シーン（swapBase/swapScene のマージ結果＝丸ごと差し替え）は slot ごとに「最新だけ」保持＝
@@ -358,10 +363,16 @@ function frame() {
 		console.error("[render] frame例外（このフレームは破棄して継続）", e?.message, e?.stack);
 	}
 	tuneRes(drew);
-	if (!drew && pendingUp) {   // 解像度復帰は静止フレームで適用＝切替の1重フレームが操作中に見えない（静止中の描き直しは1回きり＋止まれば画面が鮮明に戻る）
+	const nowT = performance.now();
+	if (drew) lastDrewT = nowT;
+	if (!drew && resIdx > 0 && nowT - lastDrewT > RES_SETTLE_MS) {
+		// 静止が RES_SETTLE_MS 続いた＝止まれば画面が鮮明に戻る。段階を踏まず一気に res=1（静止フレームは全解像度でも軽い）。
+		pendingUp = false; resIdx = 0; applyRes(); resHoldUntil = nowT + 700;
+		console.log(`[render] 動的解像度 ↑ ×1（静止復帰）`);
+	} else if (!drew && pendingUp) {   // 軽い連続描画で予約された段階復帰（従来路）。切替の1重フレームが操作中に見えない
 		pendingUp = false;
 		if (resIdx > 0) {
-			resIdx--; applyRes(); resHoldUntil = performance.now() + 700;
+			resIdx--; applyRes(); resHoldUntil = nowT + 700;
 			console.log(`[render] 動的解像度 ↑ ×${RES_STEPS[resIdx]}（静止時適用）`);
 		}
 	}

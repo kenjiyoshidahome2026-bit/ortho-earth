@@ -10,7 +10,7 @@ export { createGintLayer } from "./gl/gint/embed.js";
 export { buildFidStyle } from "./gl/gint/style.js";
 export { buildLabels } from "./labels.js";
 export { buildGeoJSONOverlay, pointInFeature } from "./geojson.js";
-export { buildBuildings } from "./buildings.js";
+export { buildBuildings, buildExtrudedParcels, buildDrapedGeometry } from "./buildings.js";
 export { downsampleFlipped } from "./elevation.js";
 export { createLabelLayer } from "./labels2d.js";
 export { cameraState, project, unproject, lonlatTo3D, WORLD_PX } from "./camera.js";

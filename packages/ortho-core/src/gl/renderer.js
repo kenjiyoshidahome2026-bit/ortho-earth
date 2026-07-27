@@ -44,6 +44,7 @@ export function createRenderer(canvas, rOpts = {}) {
 	// cam.zoom < minzoom では水を描かない＝海は球の基色(紙)のまま。以上で一律の色を点火。
 	let sea = { li: -1, minzoom: Infinity };
 	let bldFill = { li: -1 };   // 建物フットプリント塗り（基図 fill）の layer index。3D（チルト）時は伏せる＝押し出しと二重表現になるため
+	let gintBld = null;   // gint ユーザー層（moj筆/ドロップ図形）の地形沿い境界線＝独自 origin・BUILDING_VS 再利用・GL_LINES（各頂点 anchor=自分＝自標高に乗る）
 	const WATER_LIFT_M = 30;   // 水面リフト(m)：DSM水面ノイズ瘤(±10m級)を沈める深度テスト用の嵩上げ（誇張前の実標高）
 	const CITY_WATER_LIFT_M = 10;   // 都市帯(z≥13・DTM)の水面リフト(m)：河道の彫り込み・中州へ疎頂点の水ポリ三角形が潜るのを沈める（豊平川実測。5mでは不足・30mは近接ズームで川が堤防より浮く）
 	// 星空（z<4）：stars＝点（[cel.xyz, rgb, alpha, size]×8f interleaved）、constel＝星座線（[cel.xyz]×3f、LINES端点列）、
@@ -264,6 +265,28 @@ export function createRenderer(canvas, rOpts = {}) {
 			bld = { vao, count: s.buildings.pos.length / 3, bufs: [bPos, bSh, bAnc] };
 		}
 		scenes[slot] = { origin: s.origin, draws, bld };
+	}
+
+	// gint ユーザー層の地形沿いジオメトリを差し替え。data={ origin:[lon,lat], lines:{pos,shade,anchor}?, points:{…}?, color? }。
+	// 全て BUILDING_VS の 24B レイアウト（a_pos xyz / a_shade / a_anchor）＝bldProg で line=GL_LINES / point=GL_POINTS 描画。null=解放。
+	function setGintBld(data) {
+		if (gintBld) { for (const b of gintBld.bufs) gl.deleteBuffer(b); if (gintBld.lineVAO) gl.deleteVertexArray(gintBld.lineVAO); if (gintBld.pointVAO) gl.deleteVertexArray(gintBld.pointVAO); gintBld = null; }
+		const mk = g => {
+			if (!g || !g.pos.length) return null;
+			const vao = gl.createVertexArray();
+			const bP = buffer(gl, g.pos), bS = buffer(gl, g.shade), bA = buffer(gl, g.anchor);
+			gl.bindVertexArray(vao);
+			attrib(gl, bldProg, "a_pos", bP, 3); attrib(gl, bldProg, "a_shade", bS, 1); attrib(gl, bldProg, "a_anchor", bA, 2);
+			gl.bindVertexArray(null);
+			return { vao, count: g.pos.length / 3, bufs: [bP, bS, bA] };
+		};
+		const L = mk(data && data.lines), P = mk(data && data.points);
+		if (!L && !P) return;
+		gintBld = {
+			lineVAO: L?.vao || null, lineCount: L?.count || 0,
+			pointVAO: P?.vao || null, pointCount: P?.count || 0,
+			bufs: [...(L?.bufs || []), ...(P?.bufs || [])], origin: data.origin, color: data.color || null,
+		};
 	}
 
 	// 標高アトラス：セル群を1枚のテクスチャに敷く。a:{originLng,originLat,cellsX,cellsY,cellRes,cellSpan}
@@ -796,6 +819,23 @@ export function createRenderer(canvas, rOpts = {}) {
 				}
 			}
 		}
+		// gint ユーザー層（moj筆/ドロップ図形）の地形沿い境界線：各頂点が自分の標高に乗る（anchor=自分）＝辺が地形に沿う。
+		// ★常時描画（show3d ゲートなし）＝平面との連続性：高さ=elev×elevScaleEff で、真俯瞰(elevScaleEff=0)は海面の平面、
+		//   チルトで滑らかに地形へ立ち上がる（同じ線が elevScale でモーフ＝ポップしない）。独自 origin・深度で地形/尾根に遮蔽。
+		// fillなし＝GL_LINES。PLATEAUマスク不要(count0)。
+		if (gintBld) {
+			const c = gintBld.color || view.bldColor || [0.86, 0.86, 0.85];
+			setCommonUniforms(bldProg, st, gintBld.origin, land);
+			gl.uniform3f(loc(gl, bldProg, "u_bldColor"), c[0], c[1], c[2]);
+			gl.uniform1i(loc(gl, bldProg, "u_plateauCount"), 0);
+			for (let i = 0; i < MAX_PLATEAU_MASKS; i++) {   // 空きスロットも null バインド＝残留整数texをfloat samplerが掴む事故を防ぐ（main bld と同病対策）
+				gl.uniform4f(loc(gl, bldProg, `u_plateauBbox${i}`), 1e9, 1e9, -1e9, -1e9);
+				gl.activeTexture(gl.TEXTURE2 + i); gl.bindTexture(gl.TEXTURE_2D, null); gl.activeTexture(gl.TEXTURE0);
+				gl.uniform1i(loc(gl, bldProg, `u_plateauMask${i}`), 2 + i);
+			}
+			if (gintBld.lineCount) { gl.bindVertexArray(gintBld.lineVAO); gl.drawArrays(gl.LINES, 0, gintBld.lineCount); }
+			if (gintBld.pointCount) { gl.bindVertexArray(gintBld.pointVAO); gl.drawArrays(gl.POINTS, 0, gintBld.pointCount); }
+		}
 		// PLATEAU LOD2 建物メッシュ（任意三角形・面法線陰影）。深度で地形・自身の前後を解決。
 		// ※巻き順が不揃いなデータなので back-face カリングは使わない（屋根を誤って捨てる）＝両面描画。
 		//   z-fight の元＝重複面は worker 側の頂点3つ組 dedup で断つ。
@@ -859,7 +899,7 @@ export function createRenderer(canvas, rOpts = {}) {
 		if (scenes[slot].bld) { for (const b of scenes[slot].bld.bufs) gl.deleteBuffer(b); gl.deleteVertexArray(scenes[slot].bld.vao); }
 		scenes[slot] = { origin: scenes[slot].origin, draws: [], bld: null, md: null };   // md シーンは参照リストだけ＝GL資源なし（プールは常駐）
 	}
-	function dispose() { disposeSlot("base"); disposeSlot("main"); disposeOverlay(overlay); disposeOverlay(overlayHi); for (const o of n02) disposeOverlay(o); }
+	function dispose() { disposeSlot("base"); disposeSlot("main"); disposeOverlay(overlay); disposeOverlay(overlayHi); for (const o of n02) disposeOverlay(o); setGintBld(null); }
 
 	// 汎用 set(cmd, data, prop)：ortho-map createLayers の set プロトコルに整合。将来 worker では
 	// postMessage({ type:"set", cmd, data, prop }, transferables) にそのまま載る。prop は cmd ごとに融通。
@@ -868,6 +908,7 @@ export function createRenderer(canvas, rOpts = {}) {
 			case "view":      setView(data); break;                                            // data={clear,land,atmo,bldColor}
 			case "sea":       sea = { ...sea, ...data }; break;                                  // data={li, minzoom} 海の点火ゲート
 			case "bldFill":   bldFill = { ...bldFill, ...data }; break;                          // data={li} 建物フットプリント塗り（3D時に伏せる）
+			case "gintBld":   setGintBld(data); break;                                          // data={origin,walls,roof,color} gintユーザー層の3D押し出し（null=解放）
 			case "scene":     setScene(data, prop); break;                                      // prop=slot("base"|"main")
 			case "mdGrow":    mdGrow(data.pool, data.units); break;                            // multi_draw: プール成長（GPU内コピー）
 			case "mdUp":      mdUpload(data); break;                                           // multi_draw: タイルブロック転送

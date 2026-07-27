@@ -789,9 +789,11 @@ let gintDrawOpts = null;
 let gintInteractive = false;
 // gint 表示状態（旧 #gint canvas の display 相当）。render() が visibleGintNow() と突き合わせ変更時だけ post。
 let gintVisible = true;
+// 地形沿い境界線(gintBld)が出ている層か＝視覚は draped 一本に統一し、gint層の2D視覚は平面でも出さない（識別は裏で生存）。二重線の解消。
+let drapedOn = false;
 // gint スタイルを render worker へ預ける（frame 末尾の gint パスが使う）。データ毎に差し替え。
 const sendGintStyle = () => renderer.set("gintStyle", gintDrawOpts);
-let gintHoverTip = null;   // ドロップ/14条データのホバー tip 内容 setter（dropFile 搭載時に注入＝未搭載なら tip 無し）
+let gintHoverTip = null;   // ホバー tip 内容 setter（init末尾で map.gadget.tip() を一度だけ搭載＝全gint層で有効）
 canvas.addEventListener("pointerleave", () => renderWorker.postMessage({ type: "gintLeave" }));
 // 14条地図（法務省 登記所備付地図）を球へ。デコード済み pbf を受けて球へ配線する共通処理。
 // 「座標値種別=図上測量」は測量手法のタグに過ぎず絶対位置の信頼性とは無相関と判明済み（系変換さえ合っていれば図上測量でも正確）
@@ -818,6 +820,8 @@ function applyGintData(pbf, label, moveCamera = true, opts = {}) {
 	gintSlot = null;           // 内容が変わった＝再適用を強制
 	updateGintSlot();          // z≥GINT_SWAP_Z ならユーザー層を表示（z<GINT_SWAP_Z は世界海岸線のまま＝世界図の文脈）
 	onMove();
+	// moj筆(opts.drape)＝地形沿い境界線を自動発火（0=実標高ぴったり）。非drape層へ切替時は前の draped を消す（層と一蓮托生）。
+	if (opts.drape) standupGint(DRAPE_LIFT_M, { auto: true }); else { renderer.set("gintBld", null); drapedOn = false; needsDraw = true; }
 	console.log("[gint] %s ロード完了。z≥%d で表示・z<%d は世界海岸線", label, GINT_SWAP_Z, GINT_SWAP_Z);
 	return pbf;
 }
@@ -832,13 +836,13 @@ window.__moj = async (code = "13118") => {
 	const head = new Uint8Array(buf, 0, 2);   // bucket は gzip 圧縮で置かれる。name 慣習の load は自動 gunzip するが直叩きは生バイト＝手動で解凍。
 	if (head[0] === 0x1f && head[1] === 0x8b) buf = await new Response(new Blob([buf]).stream().pipeThrough(new DecompressionStream("gzip"))).arrayBuffer();
 	const pbf = await geopbf(buf, { gint: true, name: `moj/${code}` });
-	applyGintData(pbf, code);
+	applyGintData(pbf, code, true, { drape: true });   // 14条筆＝地形沿い境界線を自動発火
 };
 // 任意の File/URL（例: aigidなど第三者が公共座標系→WGS84まで変換済みのGeoJSON）を直接デコードして球へ。
 // bucket 変換パイプラインを経由せず動作検証したい時用。
 window.__mojFile = async (fileOrUrl, name = "moj/local") => {
 	const pbf = await geopbf(fileOrUrl, { gint: true, name });
-	return applyGintData(pbf, name);
+	return applyGintData(pbf, name, true, { drape: true });   // 14条筆＝地形沿い境界線を自動発火
 };
 // 動作確認用ショートカット：public/moj-local/ に置いた aigid変換済みGeoJSONをワンコマンドでロード。
 window.__sapporo = async () => {
@@ -889,6 +893,44 @@ window.__paintFid = (...fids) => {
 };
 // fid → properties（クリックで出た fid の中身を確認する。identify と同じ getFeature 直読み）
 window.__paintProps = (fid) => userGint?.pbf?.getFeature(fid)?.properties;
+// gint ユーザー層（moj筆/ドロップ図形）を地形に沿わせる＝各頂点が自分の標高に乗る（buildDrapedGeometry・ポリゴン/線/点）。
+// liftM=null で解除。auto=読み込み時の自動発火（moj）＝静かめ。平面↔地形は elevScaleEff で連続モーフ（renderer 側・show3dゲートなし）。
+const DRAPE_MAX_EDGES = 4000000;   // 地形沿い線化の辺数上限。moj一区は数十万〜百万級＝通す。全国級(admin_all)の暴走だけ止める安全弁
+// リフト＝地形からわずかに浮かせる高さ(m)。0だと「頂点間の直線の辺」が「頂点間で膨らむ地形面」の下に潜り、
+// チルト時に深度で地形に負けて消える（真俯瞰は地形メッシュ無効で0でも見えていた）。数mで膨らみを越えて安定。
+const DRAPE_LIFT_M = 2;
+async function standupGint(liftM = 0, { auto = false } = {}) {
+	if (liftM == null) { renderer.set("gintBld", null); drapedOn = false; needsDraw = true; if (!auto) console.log("[standup] 解除"); return; }
+	const feats = userGint?.pbf?.geojson?.features;
+	if (!feats?.length) { renderer.set("gintBld", null); drapedOn = false; needsDraw = true; if (!auto) console.warn("[standup] gintユーザー層が未ロード＝先に await __sapporo() 等"); return; }
+	let edges = 0;
+	for (const f of feats) {
+		const g = f?.geometry;
+		if (g?.type === "Polygon") for (const r of g.coordinates) edges += r.length;
+		else if (g?.type === "MultiPolygon") for (const p of g.coordinates) for (const r of p) edges += r.length;
+		else if (g?.type === "LineString") edges += g.coordinates.length;
+		else if (g?.type === "MultiLineString") for (const l of g.coordinates) edges += l.length;
+		if (edges > DRAPE_MAX_EDGES) break;
+	}
+	if (edges > DRAPE_MAX_EDGES) { renderer.set("gintBld", null); drapedOn = false; needsDraw = true; console.warn("[standup] ⚠ 辺数%d>上限%d＝地形沿い線化スキップ（巨大層）。DRAPE_MAX_EDGES を上げれば通る", edges, DRAPE_MAX_EDGES); return; }
+	const { buildDrapedGeometry } = await import("ortho-core");
+	const b = userGint.pbf.unPackGint.bbox;                       // 表示CRS(経緯度)の bbox＝RTE の origin に使う
+	const origin = [(b[0] + b[2]) / 2, (b[1] + b[3]) / 2];
+	// CRS サニティ：geojson の座標が bbox(経緯度)から大きく外れていたら局所座標系＝線だけズレる（gint表示は変換済で正しい）
+	const s = feats.find(f => f?.geometry?.coordinates)?.geometry?.coordinates?.flat(Infinity);
+	if (s && (s[0] < b[0] - 1 || s[0] > b[2] + 1 || s[1] < b[1] - 1 || s[1] > b[3] + 1))
+		console.warn("[standup] ⚠ geojson座標(%o,%o)が bbox[%o..%o] 外＝局所座標系かも。線がズレたらCRS要変換", s[0].toFixed?.(3), s[1].toFixed?.(3), b[0].toFixed?.(2), b[2].toFixed?.(2));
+	const geo = buildDrapedGeometry(feats, origin, { liftM });   // { lines, points }（ポリゴン境界＋線＋点）
+	const has = !!(geo.lines || geo.points);
+	// 色は層の持参色（style1=線色 rgb）から。moj/ドロップは style 無し＝既定オレンジ（14条筆の系統色）、AI層は plan の色。
+	const st = userGint?.style?.styleTable;
+	const col = st && st.length >= 8 ? [st[4], st[5], st[6]] : [1.0, 0.55, 0.15];
+	renderer.set("gintBld", has ? { origin, lines: geo.lines, points: geo.points, color: col } : null);
+	drapedOn = has;   // draped が出た層＝gint層の2D視覚は消す（二重線解消・識別は裏で生存）
+	needsDraw = true;
+	console.log("[standup] %s：feature%d → 線%d本・点%d（リフト%dm）%s", auto ? "自動" : "手動", feats.length, geo.lines ? geo.lines.pos.length / 6 : 0, geo.points ? geo.points.pos.length / 3 : 0, liftM, has ? "" : "＝生成ゼロ");
+}
+window.__standup = (liftM = DRAPE_LIFT_M) => standupGint(liftM);   // 手動ノブ（実験）。既定=DRAPE_LIFT_M。null で解除・大きくすると浮く
 // 重複可視化＝登記データの品質監査プローブ。通常塗りをせず winding 和の異常画素だけを色分け：
 //   マゼンタ＝別筆同士の重なり（fid不定） / 橙＝同一筆の多重登記 / シアン＝向き矛盾の重なり（正味0）
 // __paintOverlap() で点灯・__paintOverlap(false) か __paint(null) で解除。
@@ -955,10 +997,16 @@ window.__paint = async (paint, filter = null) => {
 // ※小域ユーザー層は checkZoomRange が bbox から minZoom を自動採用＝実表示はさらに絞られる（例:筆データ z≥10）。
 //   海岸線は z<6 まで見せ、そこから先はユーザー層 minZoom まで基図に委ねる（豆粒の筆を全球に出さない）。
 const GINT_SWAP_Z = 7;
+const COAST_Z = 9;         // 世界海岸線の表示・ロード上限＝これ未満で出す（maxZoom9 と対）
 let coastGint = null;      // 海岸線の gint ペイロード（初回ロードでキャッシュ＝再取得しない）
 let userGint = null;       // ユーザー層 { g, label }（14条/ドロップ）
 let gintSlot = null;       // 現在スロットの占有者 "coast" | "user"（null=未確定＝次の update で必ず post）
 let coastLoading = false;
+// 飛行中の海岸線抑制：両端が coast 表示条件外（z≥COAST_Z）なら、van Wijk の弧が中間で低ズームへ潜っても
+// 世界海岸線を出さない＝通過するだけの一瞬のために重い海岸線を描いて動的解像度を落とすのを防ぐ。
+// より重要なのはメモリ：長距離フライトは弧が大きく潜り loadWorldCoast（NE10m を fetch→GintBUF→GPU、
+// しかも永久キャッシュ）を誘発する＝両端が高ズームの飛行では丸ごと払わせない。着地で解除→再評価。
+let suppressCoast = false;
 function applyCoastSlot() {
 	if (!coastGint) return;
 	renderer.set("gint", coastGint);
@@ -978,12 +1026,30 @@ function applyUserSlot() {
 	gintInteractive = userGint.interactive;  // 筆/図形/AI層はホバー/クリックで突合
 	sendGintStyle(); gintSlot = "user"; needsDraw = true;
 }
+// gint ユーザー層（14条筆/ドロップ/AI層）を丸ごと撤去＝clearGint(dropFile)/clearPlan(ai) の重複6行を一本化。
+// 本体・地形沿い境界線(gintBld)・識別(gintInteractive)/tip を落とし、スロットを再調停（該当ズームなら海岸線へ戻す）。
+function clearUserGint() {
+	userGint = null; gintSlot = null;
+	renderer.set("gint", null);      // gint本体を空化（次フレームの地図再描画が残像ごと消す）
+	renderer.set("gintBld", null); drapedOn = false;   // 地形沿い境界線も一蓮托生
+	gintInteractive = false;
+	gintHoverTip?.(null);            // ホバー tip を消す
+	needsDraw = true;
+	updateGintSlot();                // z<GINT_SWAP_Z 等で海岸線が該当すれば戻す
+}
+// gint スロットを空化（海岸線を降ろす）＝ null で worker 側を空データにし GPU バッファを解放。coastGint(JS)は残す（再訪で即）。
+function clearGintSlot() {
+	renderer.set("gint", null);
+	if (gintHoverTip) gintHoverTip(null);
+	gintSlot = null; needsDraw = true;
+}
 // ズームでスロットの中身を選ぶ。onMove から毎回呼ばれるが post は変更時だけ＝安い。海岸線は初回のみ遅延取得。
 function updateGintSlot() {
 	if (noGint) return;   // ?nogint=1＝海岸線ロードもスロット適用もしない（gint パスは空データ＝実質ゼロコスト）
 	if (userGint && cam.zoom >= userGint.minZoom) { if (gintSlot !== "user") applyUserSlot(); return; }   // minZoom は層の属性（全国級AI層=2・筆/ドロップ=GINT_SWAP_Z）
+	if (suppressCoast) { if (gintSlot === "coast") clearGintSlot(); return; }   // 飛行中の抑制：既に載っていれば降ろし、ロードもしない（loadWorldCoast へ落とさない）
 	if (coastGint) { if (gintSlot !== "coast") applyCoastSlot(); return; }
-	if (cam.zoom < 9 && !coastLoading) loadWorldCoast();   // 海岸線 未取得＝取得後に updateGintSlot が表示
+	if (cam.zoom < COAST_Z && !coastLoading) loadWorldCoast();   // 海岸線 未取得＝取得後に updateGintSlot が表示
 }
 // 世界海岸線（Natural Earth 10m）を取得しキャッシュ（表示可否は updateGintSlot が決める）。
 async function loadWorldCoast() {
@@ -1398,8 +1464,17 @@ schedulePos();   // 起動直後からスケールを出す（真俯瞰復元時
 
 // --- 球面フライト：実装は engine（flight.js＝三段振り付け＋van Wijk厳密解）。ここは配線だけ。
 // onFlying＝autoPlateau のゲート（飛行中はPLATEAU完全停止・着地の瞬間に解禁＝立ち上がりが着陸の演出）。
-const flightCtl = createFlight({ cam, viewW: () => size.w, maxPitch: MAXPITCH, onMove, onFlying: f => { flying = f; } });
-const flyTo = flightCtl.flyTo;
+const flightCtl = createFlight({ cam, viewW: () => size.w, maxPitch: MAXPITCH, onMove, onFlying: f => {
+	flying = f;
+	if (!f && suppressCoast) { suppressCoast = false; updateGintSlot(); }   // 着地＝抑制解除→再評価（着地が低ズームなら海岸線が戻る）
+} });
+// flyTo をラップ：両端が z≥COAST_Z（coast 表示条件外）なら飛行中の海岸線を抑制＝弧の中間の低ズームで
+// loadWorldCoast を誘発しない（描画も出さない）。片方でも coast 条件内なら従来どおり（端の海岸線をポップさせない）。
+const flyTo = (lon, lat, zoom, tiltDeg, bearingDeg) => {
+	suppressCoast = cam.zoom >= COAST_Z && zoom >= COAST_Z;
+	if (suppressCoast) updateGintSlot();   // 既に coast がスロットに載っていれば離陸前に降ろす
+	return flightCtl.flyTo(lon, lat, zoom, tiltDeg, bearingDeg);
+};
 window.__fly = flyTo;   // デバッグ/検証用（__cam の飛行版）
 
 // テーマ・チップ状態：静かな白黒の土台は常に全部見えている。チップは主題の「文字の表示」
@@ -1583,7 +1658,9 @@ function render() {
 	//   利かない重描画の主戦場でもある）。閾は show3d と同じ 0.02rad＝建物3Dと入れ替わりに消える。
 	// ・世界海岸線＝z8+ では非表示（海岸は WA 塗りが担う。gint の2D線は球の自遮蔽を持たず地平線の先が
 	//   リムに残影として浮く）。チルトは表示のまま＝地形ドレープ＋隠線の見せ場。
-	const gv = gintSlot === "user" ? (cam.pitch || 0) < 0.02 : cam.zoom < 9;
+	// draped 層（moj筆）＝視覚はオレンジ draped 一本に統一し gint層の2D視覚は常に出さない（識別は裏で生存＝二重線解消）。
+	// 非draped層（ドロップ/AI）＝従来通り真俯瞰でのみ表示（平面=2D筆界／チルト=3D）。海岸線＝z8+で非表示。
+	const gv = gintSlot === "user" ? (drapedOn ? false : (cam.pitch || 0) < 0.02) : cam.zoom < 9;
 	if (gv !== gintVisible) { gintVisible = gv; renderer.set("gintVis", gv); }
 	// パン/チルト中（ズーム不変）は詳細も再結合。ズーム中はLODポップ回避で停止まで待つ。
 	const zoomStable = Math.abs(cam.zoom - zoomAtBuild) < 0.12;
@@ -1814,13 +1891,12 @@ map.gadget("close", function (opts) {   // 閉じる×（埋め込み用）… o
 	return closeGadget.call(this, { signal: ac.signal, ...opts });
 });
 map.gadget("dropFile", function (opts) {   // GISファイルのD&D取り込み … geopbf(File,{gint:true})→applyGintData を loadFile として束ね注入（gint単一スロット＝置き換え）
-	gintHoverTip = this.gadget.tip();   // カーソル追従 tip を搭載＝ホバーで当たった feature の properties を指先へ（gint 識別結果を onmessage が流す）
 	const loadFile = async file => {
 		const pbf = await geopbf(file, { gint: true, name: `drop/${file.name}` }).catch(err => { console.error("[dropFile] geopbf", file.name, err); return null; });
 		if (!pbf?.unPackGint) return null;
 		// 低ズーム描画が速くなった＝先に現在ビューへ図形を描き（カメラは動かさない）、その後 flyTo で寄る。
 		// 瞬間ジャンプ(ポップイン)でなく「図形が現れて→近づく」。着地は真俯瞰(tilt/bearing=0)・北向き＝fit の north-up 前提。
-		applyGintData(pbf, file.name, false);   // 先に描画（gint スロットへ set・識別点火・カメラ据え置き）
+		applyGintData(pbf, file.name, false, { drape: true });   // 先に描画（gint スロットへ set・識別点火・カメラ据え置き）＋ポリゴンは地形沿い境界線を自動発火
 		const bb = pbf.unPackGint.bbox;
 		if (bb && bb.length === 4) {
 			const cx = (bb[0] + bb[2]) / 2, cy = (bb[1] + bb[3]) / 2;
@@ -1831,14 +1907,7 @@ map.gadget("dropFile", function (opts) {   // GISファイルのD&D取り込み 
 		}
 		return pbf;   // gadget が pbf.length（地物数）をトーストに使う
 	};
-	const clearGint = () => {   // ドロップ図形を消す＝ユーザー層を外し、該当ズームなら世界海岸線へ戻す
-		userGint = null; gintSlot = null;
-		renderer.set("gint", null);   // 空化（次フレームの地図再描画が残像ごと消す）
-		gintInteractive = false; needsDraw = true;
-		if (gintHoverTip) gintHoverTip(null);   // 消去＝ホバー tip も消す
-		updateGintSlot();                                       // z<4 等で海岸線が該当すれば即戻す
-	};
-	return dropFileGadget.call(this, { loadFile, clearGint, signal: ac.signal, ...opts });
+	return dropFileGadget.call(this, { loadFile, clearGint: clearUserGint, signal: ac.signal, ...opts });
 });
 map.gadget("demo", function (opts) {   // デモ（発表の台本再生）… 台本の一行=共有URLハッシュ。flyView（球面フライト）・フライト中判定・PLATEAU先読み・現テーマ名（幕替わり判定）を注入
 	return demoGadget.call(this, { flyView, flightActive: () => flightCtl.active, prefetchViews: prefetchPlateauForViews, theme: themeName, signal: ac.signal, ...opts });
@@ -1866,15 +1935,12 @@ map.gadget("ai", function (opts) {   // AIと会話して地図に描く（PC専
 	};
 	const clearPlan = () => {   // AI層の消去＝overlay と、AIが載せた gint 層だけ（ドロップ/14条層は預からない）
 		overlay.clearPlan();
-		if (String(userGint?.label).startsWith("ai/")) {
-			userGint = null; gintSlot = null;
-			renderer.set("gint", null);   // 空化
-			gintInteractive = false; needsDraw = true;
-			if (gintHoverTip) gintHoverTip(null);
-			updateGintSlot();
-		}
+		if (String(userGint?.label).startsWith("ai/")) clearUserGint();
 	};
 	return aiGadget.call(this, { runPlan, clearPlan, fitBbox, signal: ac.signal, ...opts });
 });
+// tip（カーソル追従の吹き出し）を既定搭載＝gint 層のホバー識別を指先へ。搭載はここ一箇所（dropFile/AI/14条どの経路でも効く）。
+// 見えない div＝gint interactive 層をホバーした時だけ内容が出る＝非gintの埋め込みでは無害。
+gintHoverTip = map.gadget.tip();
 return map;
 }

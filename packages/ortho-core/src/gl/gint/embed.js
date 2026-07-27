@@ -83,7 +83,9 @@ export function createGintLayer(gl, { requestDraw } = {}) {
 	//（対数深度＋標高ドレープ＋隠線淡破線）。null なら段階A と同じ最前面描画。
 	function draw(cam, ctx) {
 		if (!s.programs) return;
-		if (!visible) { s._inRange = false; s.lastDrawData = null; return; }
+		// 非表示でも識別ジオメトリ(polyBbox/点)を持つ層は下へ進み lastDrawData/pick を建てる＝視覚を消しても hover 識別は生かす
+		// （筆界はチルトで視覚を消す設計だが、draped 線を hover して tip を出すために identify は生存させる）。純装飾(線のみ=海岸線)は従来通り bail。
+		if (!visible && !s.polyBboxByFid && s.totalPoints === 0) { s._inRange = false; s.lastDrawData = null; return; }
 		s.width  = gl.canvas.width;    // 毎フレーム実寸へ追随（resize/動的解像度）。FBO は drawn() で追随
 		s.height = gl.canvas.height;
 		s.dpr    = cam.dpr || 1;       // 線幅・identify の CSS→device 変換も同じ実効 dpr を共有
@@ -135,10 +137,12 @@ export function createGintLayer(gl, { requestDraw } = {}) {
 		// ── GL 状態の切替と退避復元 ──
 		// renderer は premultiplied（ONE, ONE_MINUS_SRC_ALPHA）・gint シェーダは straight alpha 出力。
 		// 深度は段階A＝最前面（renderer は夜面の後で DEPTH_TEST off のまま渡してくるが、明示 off で自衛）。
-		gl.disable(gl.DEPTH_TEST);
-		gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
-		renderCleanScene(drawData, null);   // embedded＝色を消さず上書き blend（passes.js の分岐）
-		drawHighlight(drawData);            // ホバー中の地物（activeId≥0）＝blit 復元でなく毎フレーム inline
+		if (visible) {   // 実描画は表示中だけ。非表示層（チルトで消した筆界など）はここを飛ばし、下の lastDrawData/pick だけ建てて hover 識別を生かす
+			gl.disable(gl.DEPTH_TEST);
+			gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+			renderCleanScene(drawData, null);   // embedded＝色を消さず上書き blend（passes.js の分岐）
+			drawHighlight(drawData);            // ホバー中の地物（activeId≥0）＝blit 復元でなく毎フレーム inline
+		}
 		s.lastDrawData = drawData;
 		if (s._pickPending) { s._pickPending = false; drawn(); }   // settle 復帰フレーム＝picking もここで建てる（下記 drawn の復帰フック）
 		// 復元：renderer は次フレーム冒頭で blend を張り直すが、同一タスク内の後続描画（snapshot 経路）と
