@@ -41,7 +41,8 @@ function tqPoll() {
 			//（詳細化は真っ先に切る贅沢品）。17〜24msの中間帯は現状維持（ヒステリシス＝境目マシンの点滅防止）。
 			// M1+dpr2級は重いビューで自然に落選、軽いビューでは昇格＝機種名簿でなくビュー込みの実力で決まる。切替時だけ通知。
 			if (tag === "map") {
-				const s = RES_STEPS[resIdx], msFull = (ns / 1e6) / (s * s);
+				const ms = ns / 1e6, s = RES_STEPS[resIdx], msFull = ms / (s * s);
+				gpuEmaRaw = gpuEmaRaw ? gpuEmaRaw + (ms - gpuEmaRaw) * 0.1 : ms;   // 動的解像度用（現解像度の実コスト）
 				gpuEma = gpuEma ? gpuEma + (msFull - gpuEma) * 0.1 : msFull;
 				if (gpuEma < 17) {
 					if (++gpuFastStreak >= 60 && !gpuFast) { gpuFast = true; self.postMessage({ type: "gpuTier", fast: true }); console.log(`[render] GPU格付け fast（map換算 ${gpuEma.toFixed(1)}ms）＝静止時の手前詳細化を許可`); }
@@ -190,7 +191,8 @@ function applyLabels() {
 // 復帰は「軽い状態が続いたら一段上げて様子見」のプローブ式。失敗（また重くなる）したら待ち時間を倍にする
 // ＝重い端末で上げ下げが振動しない。60Hz でも 120Hz でも閾値が成立する（重い=24ms超、軽い=17.5ms未満）。
 let baseW = 0, baseH = 0, resIdx = 0;
-let gpuFast = false, gpuFastStreak = 0, gpuEma = 0;   // GPU格付け（tqPollの純GPU時間）＝静止時の手前詳細化の可否をmainへ通知
+let gpuFast = false, gpuFastStreak = 0, gpuEma = 0;   // GPU格付け（tqPollの純GPU時間・res²正規化）＝静止時の手前詳細化の可否をmainへ通知
+let gpuEmaRaw = 0;   // 現解像度での素のGPU時間EMA＝動的解像度の物差し（正規化しない＝「今の絵の実コスト」）
 const RES_STEPS = [1, 0.85, 0.7, 0.55];
 let emaMs = 0, lastFrameT = 0, prevDrew = false, resHold = 0, upStreak = 0, upDelay = 300;
 let uploadSkip = 0, pendingUp = false;   // uploadSkip＝PLATEAU転送直後の計測除外（転送スパイクで誤降格しない）。pendingUp＝解像度復帰の予約（適用は静止フレーム）
@@ -260,12 +262,17 @@ function tuneRes(drew) {
 	if (!measured) return;
 	emaMs = emaMs ? emaMs + (dt - emaMs) * 0.1 : dt;
 	if (resHold > 0) { resHold--; return; }
-	if (emaMs > 24 && resIdx < RES_STEPS.length - 1) {
+	// 物差し：timer query があれば素のGPU時間（gpuEmaRaw）＝壁時計dtはvsync量子化で、30Hzモニタ
+	//（実機のデュアル外部ディスプレイで実測）では常に33ms＝速いGPUでも移動中必ず0.55まで縮む恒常誤判定だった。
+	// 解像度を下げて効くのはGPUバウンドの時だけ＝GPU実測が本来の物差し（CPU/カデンス起因のdtで絵を粗くしない）。
+	// 非対応環境（Safari等）は従来の壁時計へフォールバック＝挙動不変。閾値は従来のまま（24/17.5）。
+	const busyMs = tqExt ? gpuEmaRaw : emaMs;
+	if (busyMs > 24 && resIdx < RES_STEPS.length - 1) {
 		pendingUp = false;   // また重くなった＝予約中の復帰は取り消し
-		resIdx++; applyRes(); resHold = 30; upStreak = 0; upDelay = Math.min(upDelay * 2, 4800); emaMs = 0;
+		resIdx++; applyRes(); resHold = 30; upStreak = 0; upDelay = Math.min(upDelay * 2, 4800); emaMs = 0; gpuEmaRaw = 0;   // 段替え＝両物差しとも仕切り直し
 		console.log(`[render] 動的解像度 ↓ ×${RES_STEPS[resIdx]}`);
-	} else if (resIdx > 0 && emaMs < 17.5 && ++upStreak >= upDelay) {
-		pendingUp = true; upStreak = 0; emaMs = 0;   // 即switchせず予約＝適用は静止フレーム（パン/ズーム中に切替の1重フレームを見せない）
+	} else if (resIdx > 0 && busyMs > 0 && busyMs < 17.5 && ++upStreak >= upDelay) {
+		pendingUp = true; upStreak = 0; emaMs = 0; gpuEmaRaw = 0;   // 即switchせず予約＝適用は静止フレーム（パン/ズーム中に切替の1重フレームを見せない）
 	}
 }
 
