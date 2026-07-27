@@ -336,6 +336,7 @@ const plateauResident = new Map();         // GPUにVAOが乗っている地区�
 const plateauLoading = new Set();          // fetch/デコード中の地区名（二重発火防止）
 const plateauAutoLoading = new Map();      // autoPlateau 発のロード中地区：name → set。視界確定時の fast/slow レーン切替対象（手動/プレロードは含めない）
 const plateauDemoted = new Set();          // slow lane（在庫化）中の地区名。再訪で promote＝fast 復帰
+let plateauPrefetchBusy = false;           // デモ先読みが直列デコード中＝autoPlateau の建物枠を1つ譲る（総同時2区の保証）
 const plateauFailed = new Set();           // 葉0枚/デコード失敗の地区名＝廃止区(浜松西区22133等)の残骸。二度と掴まない（毎onMoveの再挑戦スパムを断つ）
 function plateauHide(name) {   // 視野外れ＝非表示（GPU常駐は維持）。常駐対象外（低メモリ端末）はそのまま削除
 	if (plateauResident.has(name)) renderer.set("plateauVis", false, name);
@@ -450,10 +451,13 @@ async function prefetchPlateauForViews(views) {
 	}
 	if (!wanted.length) return;
 	console.log(`[demo] PLATEAU先読み ${wanted.length}区（台本から導出）: ${wanted.map(s => s.name).join("・")}`);
-	for (const s of wanted) {
-		await plateauPreload(s);   // 直列＝静かに。到着済みの区は autoPlateau がIDB直読みで立てる
-		autoPlateau(true);   // 先読み完了の瞬間に表示判定を一突き＝「先読み中にもう着いていた」際、静止したままでも即立つ（読込中ガードで見送られた分の敗者復活）
-	}
+	plateauPrefetchBusy = true;   // 先読み中＝autoPlateau の建物枠を1つ譲る（総同時デコード2区の保証）
+	try {
+		for (const s of wanted) {
+			await plateauPreload(s);   // 直列＝静かに。到着済みの区は autoPlateau がIDB直読みで立てる
+			autoPlateau(true);   // 先読み完了の瞬間に表示判定を一突き＝「先読み中にもう着いていた」際、静止したままでも即立つ（読込中ガードで見送られた分の敗者復活）
+		}
+	} finally { plateauPrefetchBusy = false; autoPlateau(true); }   // 先読み終了＝譲っていた枠を返して再選抜
 }
 function plateauPreload(set) {   // プレロード＝IDBに貯めるだけ（描画へ送らない）。表示中/読込中の地区はそのまま成功扱い
 	if (plateauLoading.has(set.name) || plateauActive.has(set.name)) return Promise.resolve(true);
@@ -586,7 +590,9 @@ function autoPlateau(settled = false) {
 		// デモPLATEAUシーンで renderer 12.3GB・計14.9GB＝16GB機のスワップ/GPU OOMの引き金。2区制限で山を半減）。
 		// 橋梁(noMask)は一桁軽いので素通し。IDB命中ロードは数秒で枠が空く＝実害なし。あぶれた区は次の
 		// autoPlateau（settle毎）で再挑戦＝手前優先の順のまま自然に順番待ちになる。
-		if (!h.noMask && [...plateauAutoLoading.values()].filter(s => !s.noMask).length >= (LOW_MEM ? 1 : 2)) continue;
+		// デモ先読み中は枠を1つ譲る＝先読み込みで総同時2区を保証（先読み+auto2区=3区同時が「14G級」の残犯）。
+		const bldCap = Math.max(1, (LOW_MEM ? 1 : 2) - (plateauPrefetchBusy ? 1 : 0));
+		if (!h.noMask && [...plateauAutoLoading.values()].filter(s => !s.noMask).length >= bldCap) continue;
 		plateauLoading.add(h.name);
 		plateauAutoLoading.set(h.name, h);   // 視界確定時のレーン切替対象へ
 		console.log("[plateau] 自動ロード →", h.name);
