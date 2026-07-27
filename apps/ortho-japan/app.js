@@ -428,10 +428,10 @@ const plateauIdbDelete = base => new Promise(res => { plateauDeletePending.set(b
 // 直列1区ずつ＝訪問者の帯域を占有しない（飛行中の基図タイルと取り合わない）。IDB命中は即成功＝二度目からはタダ。
 async function prefetchPlateauForViews(views) {
 	if (!plateauOn) return;
-	// 低メモリ端末（iPhone等）は先読みしない：デモ序盤の裏でデコードの過渡メモリ（デスクトップ実測~2.5GB/区、
-	// lowMem縮小後も数百MB）が走るとiOSのタブ予算(~1.4GB)を超えjetsam＝「デモ上演中にタブ再読み込み」で実機確認。
-	// PLATEAUシーン到着時のその場デコード（縮小バッチ・1区・進行表示あり）に委ねる。
-	if (LOW_MEM) return;
+	// 低メモリ端末も先読み許可（2026-07-27 再点火）：一時停止していたのは「先読みデコード＋z14.5タイル＋
+	// md常駐プール」の三重奏でjetsamしたため。主犯のmdプールがlowMem既定OFFになり数百MBの余裕が戻った＋
+	// 先読みは元々直列1区＋lowMemはバッチ16/並行4縮小が自動適用＝過渡は抑制済み。切っていた間は
+	// LOD2が間に合わず基図の箱建物ばかりになる実害（iPhone実機所感）が出ていた。
 	await plateauCatalogReady;
 	if (!PLATEAU_SETS.length) return;
 	const MARGIN = 0.012;   // 区bboxへの点距離ゲート（≈1.3km）＝着地視界＋隣接区まで拾う
