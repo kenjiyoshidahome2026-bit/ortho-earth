@@ -40,10 +40,14 @@ function tqPoll() {
 			// フル換算<17ms を60サンプル維持＝fast＝main が静止時の手前詳細化(IDLE_TILE_PX)を許可。>24ms＝即降格
 			//（詳細化は真っ先に切る贅沢品）。17〜24msの中間帯は現状維持（ヒステリシス＝境目マシンの点滅防止）。
 			// M1+dpr2級は重いビューで自然に落選、軽いビューでは昇格＝機種名簿でなくビュー込みの実力で決まる。切替時だけ通知。
+			// 動的解像度用（現解像度の実コスト・map/gint別に追う）。非対称ゲイン＝重くなる方向は即応
+			//（軽ビュー→重ビューのズームで降段が遅れてガクつかない）、軽くなる方向はゆっくり（単発の谷で暴れない）。
+			if (tag === "gint") {
+				const ms = ns / 1e6;
+				gintEmaRaw = gintEmaRaw ? gintEmaRaw + (ms - gintEmaRaw) * (ms > gintEmaRaw ? 0.3 : 0.1) : ms;
+			}
 			if (tag === "map") {
 				const ms = ns / 1e6, s = RES_STEPS[resIdx], msFull = ms / (s * s);
-				// 動的解像度用（現解像度の実コスト）。非対称ゲイン＝重くなる方向は即応（軽ビュー→重ビューの
-				// ズームで降段が遅れてガクつかない）、軽くなる方向はゆっくり（single-frame の谷で暴れない）。
 				gpuEmaRaw = gpuEmaRaw ? gpuEmaRaw + (ms - gpuEmaRaw) * (ms > gpuEmaRaw ? 0.3 : 0.1) : ms;
 				gpuEma = gpuEma ? gpuEma + (msFull - gpuEma) * 0.1 : msFull;
 				if (gpuEma < 17) {
@@ -194,7 +198,9 @@ function applyLabels() {
 // ＝重い端末で上げ下げが振動しない。60Hz でも 120Hz でも閾値が成立する（重い=24ms超、軽い=17.5ms未満）。
 let baseW = 0, baseH = 0, resIdx = 0;
 let gpuFast = false, gpuFastStreak = 0, gpuEma = 0;   // GPU格付け（tqPollの純GPU時間・res²正規化）＝静止時の手前詳細化の可否をmainへ通知
-let gpuEmaRaw = 0;   // 現解像度での素のGPU時間EMA＝動的解像度の物差し（正規化しない＝「今の絵の実コスト」）
+let gpuEmaRaw = 0, gintEmaRaw = 0;   // 現解像度での素のGPU時間EMA（map/gint別）＝動的解像度の物差しは合計
+// （正規化しない＝「今の絵の実コスト」。gint を足すのが肝＝球ビューのデモ飛行は gint海岸線 ≫ map で、
+//   map単独だと総GPUが予算超過でも降段せず「スムーズな動きがなくなった」＝実機フルスクリーンで顕在化）
 const RES_STEPS = [1, 0.85, 0.7, 0.55];
 let emaMs = 0, lastFrameT = 0, prevDrew = false, resHoldUntil = 0, upStreak = 0, upDelay = 300;   // resHoldは時間制＝重いフレームでは「30枚」が数秒に化けて降段が間に合わない（ズームでガクつく）
 let uploadSkip = 0, pendingUp = false;   // uploadSkip＝PLATEAU転送直後の計測除外（転送スパイクで誤降格しない）。pendingUp＝解像度復帰の予約（適用は静止フレーム）
@@ -264,21 +270,23 @@ function tuneRes(drew) {
 	if (!measured) return;
 	emaMs = emaMs ? emaMs + (dt - emaMs) * 0.1 : dt;
 	if (now < resHoldUntil) return;
-	// 物差し：timer query があれば素のGPU時間（gpuEmaRaw）＝壁時計dtはvsync量子化で、30Hzモニタ
+	// 物差し：timer query があれば素のGPU時間の合計（map+gint）＝壁時計dtはvsync量子化で、30Hzモニタ
 	//（実機のデュアル外部ディスプレイで実測）では常に33ms＝速いGPUでも移動中必ず0.55まで縮む恒常誤判定だった。
 	// 解像度を下げて効くのはGPUバウンドの時だけ＝GPU実測が本来の物差し（CPU/カデンス起因のdtで絵を粗くしない）。
+	// gint を足すのが肝：球ビュー（デモ飛行）は gint海岸線 ≫ map＝map単独では総GPU予算超過を見逃す。
 	// 非対応環境（Safari等）は従来の壁時計へフォールバック＝挙動不変。閾値は従来のまま（24/17.5）。
-	const busyMs = tqExt ? gpuEmaRaw : emaMs;
+	const busyMs = tqExt ? gpuEmaRaw + gintEmaRaw : emaMs;
 	if (busyMs > 24 && resIdx < RES_STEPS.length - 1) {
 		pendingUp = false;   // また重くなった＝予約中の復帰は取り消し
 		const sOld = RES_STEPS[resIdx];
 		resIdx++; applyRes(); resHoldUntil = now + 350; upStreak = 0; upDelay = Math.min(upDelay * 2, 4800); emaMs = 0;
 		// EMAはゼロから再学習させず fill-bound 予測（×(sNew/sOld)²）で継承＝まだ重ければ350ms後に即もう一段
 		//（ゼロ化だと再学習+ホールドで降段カスケードが数秒かかり、フル解像度のまま重ビューへ突っ込んだズームがガクつく）。
-		gpuEmaRaw *= (RES_STEPS[resIdx] * RES_STEPS[resIdx]) / (sOld * sOld);
+		const k = (RES_STEPS[resIdx] * RES_STEPS[resIdx]) / (sOld * sOld);
+		gpuEmaRaw *= k; gintEmaRaw *= k;
 		console.log(`[render] 動的解像度 ↓ ×${RES_STEPS[resIdx]}`);
 	} else if (resIdx > 0 && busyMs > 0 && busyMs < 17.5 && ++upStreak >= upDelay) {
-		pendingUp = true; upStreak = 0; emaMs = 0; gpuEmaRaw = 0;   // 即switchせず予約＝適用は静止フレーム（パン/ズーム中に切替の1重フレームを見せない）
+		pendingUp = true; upStreak = 0; emaMs = 0; gpuEmaRaw = 0; gintEmaRaw = 0;   // 即switchせず予約＝適用は静止フレーム（パン/ズーム中に切替の1重フレームを見せない）
 	}
 }
 
