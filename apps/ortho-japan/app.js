@@ -571,6 +571,11 @@ function autoPlateau(settled = false) {
 			continue;
 		}
 		if (!settled) continue;   // 新規ネットワークロードは「視界が落ち着いた」時だけ発火＝パンで通過した区は読み始めない
+		// 建物(bldg)の同時ロードは2区まで＝4worker同時デコードの過渡メモリスパイク対策（実測：コールドIDBの
+		// デモPLATEAUシーンで renderer 12.3GB・計14.9GB＝16GB機のスワップ/GPU OOMの引き金。2区制限で山を半減）。
+		// 橋梁(noMask)は一桁軽いので素通し。IDB命中ロードは数秒で枠が空く＝実害なし。あぶれた区は次の
+		// autoPlateau（settle毎）で再挑戦＝手前優先の順のまま自然に順番待ちになる。
+		if (!h.noMask && [...plateauAutoLoading.values()].filter(s => !s.noMask).length >= (LOW_MEM ? 1 : 2)) continue;
 		plateauLoading.add(h.name);
 		plateauAutoLoading.set(h.name, h);   // 視界確定時のレーン切替対象へ
 		console.log("[plateau] 自動ロード →", h.name);
@@ -597,7 +602,12 @@ function autoPlateau(settled = false) {
 				}
 			})
 			.catch(e => { plateauFailed.add(h.name); console.warn("[plateau] 読み込み失敗のためスキップ:", h.name, e.message || e); })   // 一回だけ
-			.finally(() => { plateauLoading.delete(h.name); plateauAutoLoading.delete(h.name); plateauDemoted.delete(h.name); });
+			.finally(() => {
+				plateauLoading.delete(h.name); plateauAutoLoading.delete(h.name); plateauDemoted.delete(h.name);
+				// 同時2区制限であぶれた区の補充＝枠が空いた瞬間に再選抜（静止シーン中はonMoveが来ない＝これが無いと
+				// 3区目以降が次のカメラ操作まで立たない）。failed/cancelled はそれぞれのガードが再発火を止める。
+				if (!moving) autoPlateau(true);
+			});
 	}
 }
 
