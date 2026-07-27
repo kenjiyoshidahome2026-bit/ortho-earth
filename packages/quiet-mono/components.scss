@@ -174,8 +174,7 @@ body { visibility: visible; }   /* 開幕＝このスタイルシートの到着
 		&::placeholder { color: rgba(150, 162, 180, .8); }
 		&:focus { border-color: rgba(255, 255, 255, .6); background: rgba(12, 16, 24, .82); }
 	}
-	/* カーソル追従の吹き出し（#tip）：夜は白ソリッドが眩しい＝黒硝子の注記へ */
-	#tip { background: rgba(16, 21, 30, .88); color: rgba(220, 228, 240, .92); border-color: rgba(255, 255, 255, .2); }
+	/* #tip は基準スタイル（gishub 同一の黒0.75）が夜もそのまま成立＝ここでの再化粧なし */
 }
 
 /* --- 狭画面（スマホ縦）：計器は最小限＝座標テーブルは出さない・スケールは出典の上へ逃がす。
@@ -444,12 +443,14 @@ body { visibility: visible; }   /* 開幕＝このスタイルシートの到着
 	color: var(--qm-text-faint); font-size: 15px; line-height: 1; cursor: pointer; border-radius: 5px; padding: 0;
 	&:hover { background: #eef0f3; color: var(--qm-text); }
 }
-/* カーソル追従の吹き出し：指先の注記。位置は tip.js が毎ムーブで更新＝pointerは素通し */
+/* カーソル追従の吹き出し：指先の注記。位置は tip.js が毎ムーブで更新＝pointerは素通し。
+   意匠は gishub の .identify-tip と同一（黒0.75・白文字・角丸4px）＝昼夜共通で成立するので夜の再化粧は不要 */
 #tip {
-	position: absolute; pointer-events: none; max-width: 280px;
-	font: 12px/1.5 var(--qm-font); color: var(--qm-text);
-	background: var(--qm-panel-solid); border: 1px solid var(--qm-border-soft);
-	border-radius: 5px; padding: 5px 9px; box-shadow: var(--qm-shadow-pop);
+	position: absolute; pointer-events: none; z-index: 100;
+	background: rgba(0, 0, 0, .75); color: #fff; font-size: 12px;
+	padding: 4px 8px; border-radius: 4px; white-space: nowrap;
+	border: 1px solid rgba(255, 255, 255, .2);
+	max-width: 280px; overflow: hidden; text-overflow: ellipsis;
 }
 /* 説明パネル（上・中央）：主題の解説・お知らせ。relative は×の錨 */
 #explain {
