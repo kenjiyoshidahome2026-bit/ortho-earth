@@ -428,10 +428,12 @@ const plateauIdbDelete = base => new Promise(res => { plateauDeletePending.set(b
 // 直列1区ずつ＝訪問者の帯域を占有しない（飛行中の基図タイルと取り合わない）。IDB命中は即成功＝二度目からはタダ。
 async function prefetchPlateauForViews(views) {
 	if (!plateauOn) return;
-	// 低メモリ端末も先読み許可（2026-07-27 再点火）：一時停止していたのは「先読みデコード＋z14.5タイル＋
-	// md常駐プール」の三重奏でjetsamしたため。主犯のmdプールがlowMem既定OFFになり数百MBの余裕が戻った＋
-	// 先読みは元々直列1区＋lowMemはバッチ16/並行4縮小が自動適用＝過渡は抑制済み。切っていた間は
-	// LOD2が間に合わず基図の箱建物ばかりになる実害（iPhone実機所感）が出ていた。
+	// 低メモリ端末＝先読みの点火を boot+45秒に遅延（即時だと鉄道地図=z14.5都心タイルと先読みデコードが重なり
+	// jetsam再発＝iPhone実機で確認）。テーマ切替（c=）の各ページは十数秒でreloadされタイマーごと消える＝
+	// 危険地帯（テーマ〜鉄道〜道路）では構造的に走らない。最後のreload（淡色）以降のページだけ45秒後＝
+	// 山岳シーン帯（地形は混成OFFで軽い）から先読み開始→東京駅到着までに先頭の区が仕込める（部分先読みでも
+	// 箱建物だけよりずっと良い）。先読み自体は直列1区＋lowMemバッチ16/並行4縮小が自動適用。
+	if (LOW_MEM) await new Promise(r => setTimeout(r, 45000));
 	await plateauCatalogReady;
 	if (!PLATEAU_SETS.length) return;
 	const MARGIN = 0.012;   // 区bboxへの点距離ゲート（≈1.3km）＝着地視界＋隣接区まで拾う
