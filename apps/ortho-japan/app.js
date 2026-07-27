@@ -693,6 +693,7 @@ window.__vtPool = () => requestMerge.stats();          // multi_draw 常駐プ�
 
 // 透視カメラ：center(注視点lon/lat), zoom(web-mercator float), pitch/bearing(rad)
 const MAXPITCH = 75 * D2R;   // 山岳ビュー(z<13)は地形が深度で自遮蔽・混成アトラスが地平線までカバー＝高チルトの根拠が揃ったので75°まで開放
+const ZOOM_MAX = 20;         // 上限20＝15cm/px（正射z＝緯度フリー。精度は原点相対RTEが担保）。21でも動くが余裕を持って1段残す
 const atmo = theme.atmo;            // 大気色 rgb + 強さ（テーマ台帳のノブ＝palettes.js）
 const bldColor = theme.bldColor;    // 建物色（テーマ台帳のノブ＝palettes.js）
 // cam＝幾何のみ（center/zoom/pitch/bearing/dpr）＝毎フレームの draw payload（将来の worker 境界）。
@@ -704,7 +705,7 @@ const cam = { center: [JAPAN_VIEW[0], JAPAN_VIEW[1]], zoom: JAPAN_VIEW[2], pitch
 // 書き戻す＝アドレスバーが常に「今この視点の共有URL」（コピーするだけで人に渡る＝発表・拡散の生命線）。
 function applyCamView(v) {
 	cam.center = [wrapLon(v.lon), Math.max(-90, Math.min(90, v.lat))];
-	cam.zoom = Math.max(2, Math.min(21, v.zoom));   // 上限21＝7.5cm/px（正射z＝緯度フリー。精度は原点相対RTEが担保）
+	cam.zoom = Math.max(2, Math.min(ZOOM_MAX, v.zoom));
 	cam.pitch = Math.max(0, Math.min(MAXPITCH, v.pitch || 0));
 	cam.bearing = Number.isFinite(v.bearing) ? v.bearing : 0;
 }
@@ -778,7 +779,7 @@ function fitZoomForBbox(b) {
 	const thY = Math.max(1e-9, (b[3] - b[1]) * D2R);
 	const W = mapEl?.clientWidth || innerWidth, H = mapEl?.clientHeight || innerHeight;
 	const scale = 0.85 * Math.min(W / thX, H / thY);
-	return Math.max(2, Math.min(21, Math.log2(scale / (WORLD_PX / (2 * Math.PI)))));
+	return Math.max(2, Math.min(ZOOM_MAX, Math.log2(scale / (WORLD_PX / (2 * Math.PI)))));
 }
 function applyGintData(pbf, label, moveCamera = true, opts = {}) {
 	if (!pbf?.unPackGint) { console.error("[gint] デコード失敗 (%s)", label, pbf); return null; }
@@ -1280,7 +1281,7 @@ resize();
 // ジェスチャ開始→フライト中断（主導権は常に人）。z範囲＝1(宇宙の余白)〜19(z20はタイルの切れ目が目立つ)。
 let measureClick = null;   // 測距モード中だけ非null＝クリックを測距へ奪う（識別・星座トグルより先）
 const input = createInput({
-	canvas, cam, size, dpr, maxPitch: MAXPITCH, zoomMin: 2, zoomMax: 21, onMove, signal: ac.signal,
+	canvas, cam, size, dpr, maxPitch: MAXPITCH, zoomMin: 2, zoomMax: ZOOM_MAX, onMove, signal: ac.signal,
 	blocked: () => modalOpen(mapEl),   // モーダル表示中は矢印キーで背後の地図を動かさない（文字入力中は input.js が自前で判定）
 	onGesture: () => flightCtl.cancel(),
 	onClick: (x, y) => {
@@ -1737,7 +1738,7 @@ map.gadget("palette", function (opts) {   // 配色テーマ・ピッカー … 
 	return paletteGadget.call(this, { current: themeName, onPick: switchTheme, requestSnapshot, signal: ac.signal, ...opts });
 });
 map.gadget("zoom", function (opts) {   // ズーム＋/− … フライト中断・onMove・z範囲はここで注入
-	return zoomGadget.call(this, { cancelFlight: () => flightCtl.cancel(), onMove, zoomMin: 2, zoomMax: 21, signal: ac.signal, ...opts });
+	return zoomGadget.call(this, { cancelFlight: () => flightCtl.cancel(), onMove, zoomMin: 2, zoomMax: ZOOM_MAX, signal: ac.signal, ...opts });
 });
 map.gadget("full", function (opts) {   // 全画面トグル … destroy用のsignalはここで注入
 	return fullGadget.call(this, { signal: ac.signal, ...opts });
