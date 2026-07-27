@@ -94,7 +94,8 @@ onmessage = e => {
 			});
 			// 全球R90（8枚・計55MB・初回のみ＝以後IDB常備）を起動の山が過ぎた頃に先読み＝
 			// 低ズームの地球ぐるぐるで陰影が最初から途切れない（z1-4を塗る前提の仕込み）。
-			setTimeout(() => { for (const lng of [-180, -90, 0, 90]) for (const lat of [-90, 0]) terrain.prefetch(lng, lat, 90); }, 6000);
+			// 低メモリ端末はスキップ＝デモ序盤の裏でデコードの山を作らない（必要時はオンデマンド取得＝機能不変）。
+			if (!m.lowMem) setTimeout(() => { for (const lng of [-180, -90, 0, 90]) for (const lat of [-90, 0]) terrain.prefetch(lng, lat, 90); }, 6000);
 			if (m.scenePort) {
 				m.scenePort.onmessage = ev => {                  // scene worker から直結：main を経由しない geometry
 					const d = ev.data;

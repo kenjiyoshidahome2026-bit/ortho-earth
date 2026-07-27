@@ -1649,6 +1649,11 @@ function destroy() {
 	mapEl.classList.remove("world");             // 全球ビューの家具フェード状態を預かったdivに残さない
 	ownMapEl ? mapEl.remove() : mapEl.replaceChildren();
 }
+// reload/離脱の瞬間に即 destroy＝worker群（renderworker のGL含む）を同期的に畳む。iOSは遷移中
+// 「旧ページ＋新ページの二重居住」があり、テーマ切替（c=の暗転reload）連発のデモで boot メモリ×2が
+// タブ予算(~1.4GB)を突く＝「淡色/鉄道地図で落ちる」の主犯。旧ページを殻にしてから新ページを立てる。
+// persisted=true（bfcache行き）は畳まない＝戻る操作の即復帰を壊さない。
+window.addEventListener("pagehide", e => { if (!e.persisted) destroy(); }, { signal: ac.signal });
 
 // 世界海岸線：初期視点が z<9 ならここで即発火（既定の世界ビュー＝従来どおり最初から描画）。await せず＝基図の起動を妨げない。
 updateGintSlot();
