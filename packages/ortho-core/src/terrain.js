@@ -180,7 +180,8 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 		const srcMax = range === 90 ? 2700 : range === 10 ? 2400 : 1024;
 		const radPerDevPx = 2 * Math.PI / (Math.pow(2, cam.zoom) * WORLD_PX * (cam.dpr || 1));
 		const useful = range * Math.PI / 180 / (radPerDevPx * 1.2);   // 画面が使い切れる密度（生値＝スコア用）
-		const resOf = (cx, cy) => Math.min(srcMax, useful, Math.max(512, Math.floor(4096 / Math.max(cx, cy))));
+		const edgeBudget = lowMem ? 2048 : 4096;   // 低メモリ端末＝アトラス総辺半分（R32F面積1/4＝GPU+アップロード過渡も1/4）
+		const resOf = (cx, cy) => Math.min(srcMax, useful, Math.max(512, Math.floor(edgeBudget / Math.max(cx, cy))));
 		// 0を含む窓 [a..b]（幅≤cap）の全組合せから「票×√解像度」最大を選ぶ。候補は高々 cap²×cap² 程度＝安い。
 		// 解像度は useful（画面が使い切れる密度）で頭打ち。√＝解像度の知覚は平方根程度の効きで、
 		// カバー欠けは「陰影が死ぬ継ぎ目」の崖＝僅差の精細のために画面の一部を切り捨てない
@@ -237,7 +238,10 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 		lastEnsureSize = { w: size.w, h: size.h };
 		// 混成モード（高チルト×中ズーム）：1°グリッドで近傍3×3=R01（富士の近景ディテール）、
 		// 遠方セル=R10切り出し（地平線までのカバー）。単一アトラス＝レンダラ側は無変更。
-		const mixed = (cam.pitch || 0) > 0.9 && cam.zoom >= 11.5 && cam.zoom < 14;
+		// 低メモリ端末は混成OFF＝全面R10：R01近傍9枚（1°タイル=数十MB級のデコード）＋アトラス二重化の
+		// 一斉スパイクが実測+1GB（0t→73tの遷移）＝iOSタブ予算(~1.4GB)を突破し「富士山(3D)で落ちる」の正体。
+		// スマホの画面密度ならR10の起伏で十分＝デスクトップの絵は不変。
+		const mixed = !lowMem && (cam.pitch || 0) > 0.9 && cam.zoom >= 11.5 && cam.zoom < 14;
 		const range = mixed ? 1 : selectRange(cam);
 		const r = viewCellRange(cam, size, range, mixed);
 		const key = [mixed ? "M" : range, r.originCX, r.originCY, r.cellsX, r.cellsY, r.cellRes].join(",");
