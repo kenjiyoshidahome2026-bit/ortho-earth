@@ -31,7 +31,26 @@ function tqPoll() {
 		const ns = glRef.getQueryParameter(q, glRef.QUERY_RESULT);
 		glRef.deleteQuery(q);
 		tqPending.shift();
-		if (!glRef.getParameter(tqExt.GPU_DISJOINT_EXT)) { tqSum[tag] = (tqSum[tag] || 0) + ns / 1e6; tqN[tag] = (tqN[tag] || 0) + 1; }
+		if (!glRef.getParameter(tqExt.GPU_DISJOINT_EXT)) {
+			tqSum[tag] = (tqSum[tag] || 0) + ns / 1e6; tqN[tag] = (tqN[tag] || 0) + 1;
+			// GPU格付け（スピードビニング）：物差しは純GPU時間＝ディスプレイ非依存（壁時計dtはvsync量子化＝
+			// 30Hzモニタでは常に33ms＝速いGPUでも永遠に「遅い」判定。動的解像度も同じ壁時計で30Hz環境では
+			// 移動中必ず縮むため resIdx をゲートに使うと恒久falseになる＝両方実測で確認。この計器だけが本丸）。
+			// 解像度段で正規化（ms/res²＝フル解像度換算。頂点負荷はピクセルに比例しない＝過大見積り側＝昇格が保守的）。
+			// フル換算<17ms を60サンプル維持＝fast＝main が静止時の手前詳細化(IDLE_TILE_PX)を許可。>24ms＝即降格
+			//（詳細化は真っ先に切る贅沢品）。17〜24msの中間帯は現状維持（ヒステリシス＝境目マシンの点滅防止）。
+			// M1+dpr2級は重いビューで自然に落選、軽いビューでは昇格＝機種名簿でなくビュー込みの実力で決まる。切替時だけ通知。
+			if (tag === "map") {
+				const s = RES_STEPS[resIdx], msFull = (ns / 1e6) / (s * s);
+				gpuEma = gpuEma ? gpuEma + (msFull - gpuEma) * 0.1 : msFull;
+				if (gpuEma < 17) {
+					if (++gpuFastStreak >= 60 && !gpuFast) { gpuFast = true; self.postMessage({ type: "gpuTier", fast: true }); console.log(`[render] GPU格付け fast（map換算 ${gpuEma.toFixed(1)}ms）＝静止時の手前詳細化を許可`); }
+				} else {
+					gpuFastStreak = 0;
+					if (gpuFast && gpuEma > 24) { gpuFast = false; self.postMessage({ type: "gpuTier", fast: false }); console.log(`[render] GPU格付け slow（map換算 ${gpuEma.toFixed(1)}ms）＝手前詳細化オフ`); }
+				}
+			}
+		}
 	}
 }
 
@@ -50,8 +69,10 @@ onmessage = e => {
 			gint = createGintLayer(glRef, { requestDraw: () => { dirty = true; } });
 			perfOn = !!m.perf;
 			self.__perfElev = perfOn;   // renderer の標高パイプライン計器（[elev] 行）を点灯
+			// timer query は perf HUD 専用から常時初期化へ＝GPU格付け（スピードビニング）の物差しに使う。
+			// 非対応環境（Safari等）は null＝格付けが立たない＝手前詳細化オフの安全側。
+			tqExt = glRef.getExtension("EXT_disjoint_timer_query_webgl2");
 			if (perfOn) {
-				tqExt = glRef.getExtension("EXT_disjoint_timer_query_webgl2");   // 無い環境は null＝CPU計測のみ
 				const dbg = glRef.getExtension("WEBGL_DEBUG_RENDERER_INFO") || glRef.getExtension("WEBGL_debug_renderer_info");
 				console.log(`[perf] gpu="${glRef.getParameter(dbg ? dbg.UNMASKED_RENDERER_WEBGL : glRef.RENDERER)}" timerQuery=${!!tqExt}`);
 			}
@@ -169,6 +190,7 @@ function applyLabels() {
 // 復帰は「軽い状態が続いたら一段上げて様子見」のプローブ式。失敗（また重くなる）したら待ち時間を倍にする
 // ＝重い端末で上げ下げが振動しない。60Hz でも 120Hz でも閾値が成立する（重い=24ms超、軽い=17.5ms未満）。
 let baseW = 0, baseH = 0, resIdx = 0;
+let gpuFast = false, gpuFastStreak = 0, gpuEma = 0;   // GPU格付け（tqPollの純GPU時間）＝静止時の手前詳細化の可否をmainへ通知
 const RES_STEPS = [1, 0.85, 0.7, 0.55];
 let emaMs = 0, lastFrameT = 0, prevDrew = false, resHold = 0, upStreak = 0, upDelay = 300;
 let uploadSkip = 0, pendingUp = false;   // uploadSkip＝PLATEAU転送直後の計測除外（転送スパイクで誤降格しない）。pendingUp＝解像度復帰の予約（適用は静止フレーム）
@@ -285,7 +307,7 @@ function frame() {
 			if (terrain && !opts?.noTerrain && opts?.terrainGate !== false) ensureIfMoved(glCam);
 			let fogAnim = false;
 			const pfT0 = perfOn ? performance.now() : 0;
-			if (perfOn) tqPoll();   // 溜まった GPU タイマ結果を回収（数フレーム遅れで確定する）
+			tqPoll();   // 溜まった GPU タイマ結果を回収（数フレーム遅れで確定）。perf HUD専用→常時＝GPU格付けの給餌
 			tqSpan("map", () => { fogAnim = renderer.draw(glCam, opts); });   // cameraState=mvp生成 + GL描画（軽い）。true=フォグ追従が収束中
 			const pfT1 = perfOn ? performance.now() : 0;
 			tqSpan("gint", () => { if (gint) gint.draw(glCam, renderer.gintCtx()); });   // 知性の層＝同フレーム同カメラで1パス（泳ぎ根治）。山岳ビューは地形深度に参加（隠線＝淡破線）

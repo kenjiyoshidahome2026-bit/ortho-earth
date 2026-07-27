@@ -236,6 +236,7 @@ renderWorker.onmessage = e => {
 		fatalOverlay("3D描画を開始できませんでした", `WebGL2 の初期化に失敗しました（${d.error}）。ブラウザの「ハードウェアアクセラレーション」が無効になっている可能性があります。`, true);
 		return;
 	}
+	if (d.type === "gpuTier") { gpuFast = d.fast; return; }   // GPU格付け（renderworker tuneRes）＝静止時の手前詳細化の可否
 	if (d.type === "contextlost") {
 		const n = +(sessionStorage.getItem("oj.ctxlost") || 0);
 		// まず黙って1回だけ立て直す。1秒待ってから＝GPUプロセスの再起動を待つ（即リロードだと復帰前の
@@ -266,7 +267,10 @@ const BASEMAP_MINZOOM = 5;                 // これ未満は基図の詳細を�
 // 静止時の詳細化＝主層の分割閾を下げる（既定560→この値）。近景ほど画面上のタイルが大きい＝真っ先に
 // 閾を越えて割れる＝チルトで「手前だけズームが上がる」（遠景は小さく閾に届かず据置＝奥のPLATEAUと詳細が拮抗）。
 // 移動中は渡さない＝560のまま重くしない。値を下げるほど手前が細かくなる（=負荷↑）＝ここが唯一の調律つまみ。
-const IDLE_TILE_PX = 256;
+const IDLE_TILE_PX = 384;   // 静止時の手前詳細化は gpuFast（renderworker の実測格付け）が立つマシンだけ＝M1+dpr2級は
+                            // 自動落選（256は dpr=2 で停止毎に~10秒の描き直しラッシュ＋gpuMap 1.5倍＝「モサっと」の実測正体。
+                            // 384 は fast マシンなら静止後の連鎖再描画ゼロ）。560=移動中と同値＝詳細化オフの値。
+let gpuFast = false;        // renderworker からの格付け通知（gpuTier）。既定 false＝格付け確定まで詳細化しない安全側
 let moving = false, settleT = null;
 // 移動中は幾何を再結合しない（タイルのポップ＝チラチラ防止）。停止後に再結合。
 // PLATEAU LOD2 データ登録簿：寄ると自動で出す。bbox は自動トリガ用の緩い矩形（実描画は被覆マスクが実フットプリントに沿わせる）。
@@ -1576,7 +1580,7 @@ function render() {
 		return;
 	}
 	basemapHidden = false;
-	const { order, coarseOrder, total } = tiles.update(cam, size.w, size.h, moving ? null : { tilePx: IDLE_TILE_PX });   // 静止時だけ主層を一段細かく（手前の詳細化）。settle が needsDraw を立て、細タイルの ready は requestDraw で連鎖再描画
+	const { order, coarseOrder, total } = tiles.update(cam, size.w, size.h, (moving || !gpuFast) ? null : { tilePx: IDLE_TILE_PX });   // 静止時だけ主層を一段細かく（手前の詳細化）＝GPU格付け fast のマシン限定。settle が needsDraw を立て、細タイルの ready は requestDraw で連鎖再描画
 	window.__lastOrder = order;   // デバッグ：現在の選択タイル（コンソール/検証スクリプトから確認）
 	window.__tileStats = () => { const s = tiles.stats(); console.log(`[tiles] 常駐 ${s.tiles}枚 / ${(s.bytes/1048576).toFixed(1)}MB（予算 ${(s.budgetBytes/1048576).toFixed(0)}MB, deviceMemory≈${s.deviceMemoryGB}GB, cacheEntries ${s.cacheEntries}）`); return s; };   // コンソールから常駐メモリ確認
 	swapBase(coarseOrder);                          // 粗い下地は常に敷く（移動中も）＝先端の空白を無くす
