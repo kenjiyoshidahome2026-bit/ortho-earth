@@ -230,8 +230,10 @@ self.onmessage = (e) => {
 	}
 	if (m.type === "debugFailNext") { failNext = true; return; }   // テスト用：次の merge を故意に失敗させる（自己修復の実地検証）
 	if (m.type === "stats") {   // 観測用：プール占有と常駐タイル数（main から postMessage で叩く）
-		const ps = md ? Object.fromEntries(Object.values(md.pools).map(p => [p.name, { cap: p.cap, used: p.used, frag: p.free.length }])) : null;
-		console.log(`[scene] geom ${geom.size}枚 / md ${md ? `常駐${md.res.size}枚 保留${md.pendingFree.length}` : "off"}`, ps || "");
+		// バイト換算＝renderer 側の unit→byte（fillV×12/fillI×4/bldV×24/line=2texel×16B=32B）。cap=高水位（縮まない）。
+		const U2B = { fillV: 12, fillI: 4, bldV: 24, line: 32 };
+		const ps = md ? Object.fromEntries(Object.values(md.pools).map(p => [p.name, { capMB: (p.cap * (U2B[p.name] || 1) / 1048576).toFixed(1), usedMB: (p.used * (U2B[p.name] || 1) / 1048576).toFixed(1), frag: p.free.length }])) : null;
+		console.log(`[scene] geom ${geom.size}枚 / md ${md ? `常駐${md.res.size}枚 保留${md.pendingFree.length}` : "off"} ${ps ? JSON.stringify(ps) : ""}`);
 		return;
 	}
 	if (m.type === "merge") {
