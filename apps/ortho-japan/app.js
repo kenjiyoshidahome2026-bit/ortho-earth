@@ -828,14 +828,8 @@ function applyGintData(pbf, label, moveCamera = true, opts = {}) {
 	userGint = { g: pbf.unPackGint, label, pbf, style: opts.style ?? null, minZoom: opts.minZoom ?? GINT_SWAP_Z, interactive: opts.interactive !== false };
 	// bake-ahead：メタ/tier梯子を bake worker で焼き切ってから搭載（render worker はテクスチャ搭載のみ＝
 	// ロード時の同期ベイクで地図が固まらない）。焼き上がりの onDone で sent を立てて再調停＝そこで点火。
-	{
-		const g = userGint.g;
-		cancelBake("user");
-		bakeAndSend("user", g, {}, () => {
-			if (userGint?.g !== g) return;   // 焼いている間に別の層へ差し替わった＝結果は捨てられている（cancelBake）
-			userGint.sent = true; gintSlot = null; updateGintSlot(); needsDraw = true;
-		});
-	}
+	cancelBake("user");
+	bakeUser();
 	// moj 等はデータ全体へ fit（初期は東京駅、moj のデータは離れた区にある）。ドロップは呼び出し側が flyTo で寄る＝moveCamera=false。
 	if (moveCamera) { const b = pbf.unPackGint.bbox; if (b && b.length === 4) flyTo((b[0] + b[2]) / 2, (b[1] + b[3]) / 2, fitZoomForBbox(b)); }
 	gintSlot = null;           // 内容が変わった＝再適用を強制
@@ -908,7 +902,7 @@ window.__paintFid = (...fids) => {
 	const n = feats.length, u32 = new Uint32Array(n * 4);
 	for (let i = 0; i < n; i++) { u32[i * 4] = 0x88888830; u32[i * 4 + 2] = (8 << 24) | (6 << 8) | 1; }
 	for (const f of fids) if (f >= 0 && f < n) u32[f * 4] = 0xcc0000cc;
-	renderer.set("gintPaint", { table: u32, count: n });
+	sendGintPaint({ table: u32, count: n });
 	needsDraw = true;
 	for (const f of fids) console.log("[paintFid] fid=%d props=%o", f, feats[f]?.properties);
 };
@@ -956,12 +950,12 @@ window.__standup = (liftM = DRAPE_LIFT_M) => standupGint(liftM);   // 手動ノ�
 //   マゼンタ＝別筆同士の重なり（fid不定） / 橙＝同一筆の多重登記 / シアン＝向き矛盾の重なり（正味0）
 // __paintOverlap() で点灯・__paintOverlap(false) か __paint(null) で解除。
 window.__paintOverlap = (on = true) => {
-	if (!on) { renderer.set("gintPaint", null); needsDraw = true; return; }
+	if (!on) { sendGintPaint(null); needsDraw = true; return; }
 	const feats = gintFidFeatures();
 	if (!feats) { console.warn("[paintOverlap] ユーザー層(gint)が未ロード"); return; }
 	const n = feats.length, u32 = new Uint32Array(n * 4);
 	for (let i = 0; i < n; i++) u32[i * 4 + 2] = (8 << 24) | (6 << 8) | 1;   // 塗り透明・visible（ID経路の起動条件として表は必要）
-	renderer.set("gintPaint", { table: u32, count: n, overlap: true });
+	sendGintPaint({ table: u32, count: n, overlap: true });
 	needsDraw = true;
 	console.log("[paintOverlap] %d筆を監査: マゼンタ=別筆の重なり / 橙=同一筆の多重登記 / シアン=向き矛盾", n);
 };
@@ -975,7 +969,7 @@ window.__paintParity = () => {
 		u32[i * 4] = (i & 1) ? 0x0044cc90 : 0xcc000090;   // 奇数=青 / 偶数=赤
 		u32[i * 4 + 2] = (8 << 24) | (6 << 8) | 1;
 	}
-	renderer.set("gintPaint", { table: u32, count: n });
+	sendGintPaint({ table: u32, count: n });
 	needsDraw = true;
 	console.log("[paintParity] %d筆へ市松（偶数=赤/奇数=青）を適用。何も色が出ない場合は console の [gint] idFill caps 行を確認", n);
 };
@@ -994,12 +988,12 @@ window.__budget = (n) => {
 	console.log("[budget] moveBudget=%s", n ?? "既定(250k)");
 };
 window.__paint = async (paint, filter = null) => {
-	if (!paint) { renderer.set("gintPaint", null); needsDraw = true; return; }
+	if (!paint) { sendGintPaint(null); needsDraw = true; return; }
 	const feats = gintFidFeatures();   // fid 整列（.geojson は詰めズレするため使わない）
 	if (!feats) { console.warn("[paint] ユーザー層(gint)が未ロード（__moj 等で先にロード）"); return; }
 	const { buildFidStyle } = await import("ortho-core");
 	const { u32, count } = buildFidStyle(paint, feats, { filter, zoom: cam.zoom });
-	renderer.set("gintPaint", { table: u32, count });
+	sendGintPaint({ table: u32, count });
 	needsDraw = true;
 	console.log("[paint] %d features へ適用", count);
 };
@@ -1092,9 +1086,36 @@ function bakeCoast() {
 	bakeAndSend("coast", coastGint, { maxZoom: 9 },
 		() => { coastBaking = false; coastSent = true; gintSlot = null; updateGintSlot(); needsDraw = true; });
 }
+// ユーザー層のベイク発火（applyGintData の初回と、LOW_MEM で束を破棄した後の再入の両方から）。
+// 進行フラグは userGint オブジェクト自身に持つ＝層差し替え（新オブジェクト）で自然にリセット。
+function bakeUser() {
+	if (!userGint || userGint.sent || userGint.baking) return;
+	userGint.baking = true;
+	const g = userGint.g;
+	bakeAndSend("user", g, {}, () => {
+		if (userGint?.g !== g) return;   // 焼いている間に別の層へ差し替わった＝結果は捨てられている（cancelBake）
+		userGint.baking = false; userGint.sent = true;
+		gintSlot = null; updateGintSlot(); needsDraw = true;
+		if (userGint.pendingPaint !== undefined) {   // ベイク中に預かった paint を、点火（gintSlot 適用）後に着色
+			renderer.set("gintPaint", userGint.pendingPaint);
+			delete userGint.pendingPaint;
+		}
+	});
+}
+// gint paint（fidスタイル表）の送達＝スロット事情の吸収。paint はエンジン側で「アクティブ束」に
+// 着地するため、user 層のベイク完了前（海岸線表示中）に送ると海岸線束へ迷子になり、点火後も無着色に
+// なる（AI層が paint をロード直後に適用するケース）。未 sent の間は預かり、bakeUser の onDone
+//（gintSlot 適用後＝user がアクティブ）で着色する。null（解除）も同じ経路＝順序が保たれる。
+function sendGintPaint(p) {
+	if (userGint && !userGint.sent) { userGint.pendingPaint = p; return; }
+	renderer.set("gintPaint", p);
+}
 function applyCoastSlot() {
 	if (!coastGint) return;
 	if (!coastSent) { bakeCoast(); return; }   // ベイク中/未ベイク＝焼き上がりの onDone が再調停する
+	// LOW_MEM＝海岸線表示中は user 束（nps級で GPU 100MB超）を眠らせておかない＝破棄（iOS jetsam 対策）。
+	// 再入（z≥minZoom）は bakeUser が非ブロッキング再ベイク＝海岸線を描いたまま焼き上がりで点火。
+	if (LOW_MEM && userGint?.sent) { renderer.set("gint", null, "user"); userGint.sent = false; }
 	renderer.set("gintSlot", "coast");
 	// 海岸線＝lineStream＝styleId=1。紙＋淡青の色調に「薄い青灰グレー・細く」。
 	const coastStyle = new Float32Array(256 * 4);
@@ -1106,7 +1127,8 @@ function applyCoastSlot() {
 	sendGintStyle(); gintSlot = "coast"; needsDraw = true;
 }
 function applyUserSlot() {
-	if (!userGint?.sent) return;   // ベイク中（bake-ahead）＝焼き上がりの onDone が再調停する（それまで海岸線のまま）
+	if (!userGint) return;
+	if (!userGint.sent) { bakeUser(); return; }   // 未ベイク（初回/LOW_MEM退避後）＝焼き上がりの onDone が再調停する（それまで海岸線のまま）
 	renderer.set("gintSlot", "user");
 	gintDrawOpts = userGint.style;           // 層の持参スタイル（AI層=styleTable、null=既定＝14条筆のオレンジ/シアン。海岸線グレーは引きずらない）
 	gintInteractive = userGint.interactive;  // 筆/図形/AI層はホバー/クリックで突合

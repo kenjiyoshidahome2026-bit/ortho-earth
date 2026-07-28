@@ -218,7 +218,14 @@ export function renderCleanScene(data, targetFBO = null) {
 	// lowZoom(z<outlineZoom) では筆内部の線は視認不能（ベタ潰れ）＝境界メタで街区外郭だけ描く。
 	// anchor支配で tier が組めない筆系（札幌37万辺=tiers0）の中ズームを桁で軽くする＝ズーム中描画の生命線。
 	if (totalEdges > 0) {
-		const lnB = lowZoomEff && s.metaTexB && s.polyEdgesB > 0;
+		// 境界メタ線パスの安全弁：離散データ（nps_all級）は netting が効かず境界メタ≈全辺（実測120万辺）に
+		// 退化するが、この経路は runs=null＝カリング/tier/ハードキャップの全てをすり抜ける唯一の線パスだった。
+		// 最細 tier（台帳先頭＝minW最小＝辺数最大）の1.5倍を超える境界メタは tier 経路へ（pickLineTier の
+		// 安全弁と同じ物差し）。梯子不在の窓では絶対予算600kと比較＝pickLineTier 側のハードキャップに任せる。
+		// tier が組めない筆系（anchor支配・境界メタが桁減する本来の受益者）は従来どおり境界メタ＝視覚不変。
+		const finestT = s.lodTiers?.length ? s.lodTiers[0] : null;   // minW 昇順台帳＝先頭が最細（辺数最大）
+		const lnB = lowZoomEff && s.metaTexB && s.polyEdgesB > 0
+			&& (finestT ? s.totalEdgesB <= finestT.edgeCount * 1.5 : s.totalEdgesB <= 600_000);
 		const lnSel = lnB
 			? { tex: s.metaTexB, count: s.totalEdgesB, runs: null, minW: -2 }   // minW=-2＝perf行で境界パスと分かる印
 			: pickLineTier(data.lodRank ?? 0, metaTex, totalEdges);

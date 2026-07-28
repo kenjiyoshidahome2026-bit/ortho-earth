@@ -10,13 +10,13 @@
 
 import { buildEdgeMeta, buildWeightHist, buildBoundaryEdgeMeta,
          normalizeRingOrientation, buildPolyBboxByFid, deriveOutlineZoom } from '../src/gl/gint/utility.js';
+import { TIER_RANKS, CHUNK_EDGES } from '../src/gl/gint/bake.js';   // 本番と同じ梯子/チャンク粒度＝drift しない
 import { readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
 const DATA = path.join(path.dirname(fileURLToPath(import.meta.url)), 'data');
 const PREFIX = process.argv[2] && !process.argv[2].startsWith('-') ? process.argv[2] : 'nps';
-const TIER_RANKS = [26, 30, 34, 38, 42, 46, 50, 54, 58];   // textures.js と同じ梯子（変えたら両方変える）
 
 // ── データ読込（polystream/linestream はどちらか欠けてよい）──
 const p = n => path.join(DATA, `${PREFIX}-${n}.bin`);
@@ -36,7 +36,7 @@ const t0 = performance.now();
 normalizeRingOrientation(arcBuffer, arcMeta, polyStream);
 const tNorm = performance.now();
 const polyBboxByFid = buildPolyBboxByFid(polyStream, arcMeta);
-const metaOpts = { orderBbox: polyBboxByFid, chunkEdges: 16384 };
+const metaOpts = { orderBbox: polyBboxByFid, chunkEdges: CHUNK_EDGES };
 const base = buildEdgeMeta(arcMeta, polyStream, lineStream, null, 0, metaOpts);
 const tBase = performance.now();
 const outlineZoom = deriveOutlineZoom(polyBboxByFid);
