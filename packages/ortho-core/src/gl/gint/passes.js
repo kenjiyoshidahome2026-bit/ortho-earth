@@ -36,6 +36,23 @@ function pickLineTier(rank, baseTex, baseCount) {
 		if (visible > finest.edgeCount * 1.5)
 			return { tex: finest.tex, count: finest.edgeCount, runs: visibleRuns(finest.edgeCount, finest.chunks), minW: finest.minW };
 	}
+	if (!nominal && !finest) {
+		// ハードキャップ＝梯子が1段も無い窓（初回ロード直後の遅延構築中など）の最後の柵。
+		// nps_all 実測でこの窓は基準メタ451万辺/フレーム（定常の42倍＝GPU秒級）＝「固まる」の実体だった。
+		// 可視 run を辺予算で打ち切る（Morton順＝空間的に偏るが一過性。梯子完成時に scheduleTierBuild が
+		// requestDraw で完全な絵に描き直す）。
+		const CAP = 600_000;
+		let acc = 0;
+		for (let i = 0; i < sel.runs.length; i++) {
+			if (acc + sel.runs[i][1] > CAP) {
+				sel.runs = sel.runs.slice(0, i + 1);
+				sel.runs[i] = [sel.runs[i][0], Math.max(0, CAP - acc)];
+				sel.minW = -3;   // perf 行で「キャップ発動」と分かる印
+				break;
+			}
+			acc += sel.runs[i][1];
+		}
+	}
 	return sel;
 }
 

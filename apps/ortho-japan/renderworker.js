@@ -120,7 +120,9 @@ onmessage = e => {
 			dirty = true;
 			break;
 		case "set":
-			if (m.cmd === "gint") { if (gint) gint.set(m.data); }                // 知性の層のペイロード差し替え（null=空化）
+			if (m.cmd === "gint") { if (gint) gint.set(m.data, m.prop); }        // 知性の層のペイロード差し替え（prop=スロットキー "coast"/"user"、null=そのスロットを空化）
+			else if (m.cmd === "gintSlot") { if (gint) gint.setSlot(m.data); }   // スロット交替（ベイク済み束の差し替えのみ＝z7跨ぎをゼロコスト化。null=何も載せない）
+			else if (m.cmd === "gintBaked") { if (gint) gint.setBaked(m.data, m.prop); }   // bake worker 完成品の搭載（CPU ベイク無し＝テクスチャのみ・表示は変えない）
 			else if (m.cmd === "gintStyle") { if (gint) gint.style(m.data); }    // 描画スタイル（styleTable/lineWidth 等）
 			else if (m.cmd === "gintPaint") { if (gint) gint.paint(m.data); }    // fidスタイル表（コロプレス。main が buildFidStyle 評価済み・null=解除）
 			else if (m.cmd === "gintVis") { if (gint) gint.setVisible(m.data); } // 表示切替（旧 #gint canvas の display 相当）

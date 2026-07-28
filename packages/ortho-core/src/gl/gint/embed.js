@@ -15,7 +15,7 @@
 import { createGintPrograms } from './programs.js';
 import { checkZoomRange } from './utility.js';
 import { s } from './state.js';
-import { uploadGintTextures, deleteTextures } from './textures.js';
+import { uploadGintTextures, uploadBaked, addBakedTier, finishBakedTiers, deleteTextures, scheduleTierBuild } from './textures.js';
 import { createFBOs, deleteFBOs } from './fbo.js';
 import { renderCleanScene, drawHighlight, renderPickingBuffer } from './passes.js';
 import { doIdentify, handleMove, handleLeave } from './identify.js';
@@ -35,19 +35,79 @@ export function createGintLayer(gl, { requestDraw } = {}) {
 	let visible = true;      // main が set("gintVis") で切替（旧 #gint canvas の display:none 相当）
 	let fboW = 0, fboH = 0;  // pick FBO の実寸（canvas と食い違ったら settle で作り直す）
 
-	// gint ペイロードの差し替え（null/undefined＝空化）。worker 版 set() と同じ台帳更新。
+	// ── スロット束（"coast"/"user" 等）＝ベイク済み GPU/台帳資産のキャッシュ ─────────
+	// 旧・単一スロットは z7 の海岸線⇄ユーザー層交替のたび set()＝フルベイク＋tier梯子リセットで、
+	// 「梯子不在の窓」（nps_all 実測＝基準メタ451万辺/フレーム、定常の42倍）に毎回落ちていた。
+	// 束ごと退避/復帰すれば交替はポインタ差し替え＝再ベイク・再アップロード・梯子喪失すべてゼロ。
+	// passes.js/identify.js は s.* を読むだけ＝無改造で束の中身に従う。
+	const SLOT_FIELDS = [
+		'gintData', 'arcTex', 'metaTex', 'metaTexB', 'ptTex', 'ptMetaTex', 'pivotTex', 'pivotW',
+		'totalEdges', 'totalPoints', 'polyEdges', 'totalEdgesB', 'polyEdgesB',
+		'fillOff', 'tiersDone', 'lodTiers', 'metaChunks',
+		'polyEdgeByFid', 'polyBboxByFid', 'outlineZoom', 'minZoom', 'maxZoom',
+		'fidStyleTex', 'fidStyleW', '_fidStyleH', 'fidStyleCount', '_fidStyleData',   // paint（コロプレス表）も層の属性
+	];
+	// 空束は毎回新品（lodTiers 等の配列参照を共有すると空スロット中の構築が全スロットを汚す）
+	const emptySlot = () => ({ gintData: null, arcTex: null, metaTex: null, metaTexB: null, ptTex: null, ptMetaTex: null,
+		pivotTex: null, pivotW: 0, totalEdges: 0, totalPoints: 0, polyEdges: 0, totalEdgesB: 0, polyEdgesB: 0,
+		fillOff: false, tiersDone: false, lodTiers: [], metaChunks: null,
+		polyEdgeByFid: null, polyBboxByFid: null, outlineZoom: null, minZoom: null, maxZoom: null,
+		fidStyleTex: null, fidStyleW: 0, _fidStyleH: 0, fidStyleCount: 0, _fidStyleData: null });
+	const slots = new Map();   // key → bundle（s と同名フィールドの入れ物）
+	let activeKey = null;      // いま s に住んでいる束のキー（null=空スロット表示中）
+
+	const saveActive = () => {
+		if (activeKey == null) return;
+		const b = slots.get(activeKey) ?? {};
+		for (const f of SLOT_FIELDS) b[f] = s[f];
+		slots.set(activeKey, b);
+	};
+	const loadBundle = (b) => {
+		for (const f of SLOT_FIELDS) s[f] = b[f];
+		s.tierGen = (s.tierGen ?? 0) + 1;             // 旧スロット向けの遅延 tier 構築を確実に止める
+		s.activeId = -1; s.lastDrawData = null;       // ハイライト/描画キャッシュは層に紐付かない＝リセット
+		s._pfLineEdges = 0; s._pfTierW = -1;          // 移動予算の物差しも新スロットで測り直す
+	};
+	const deleteBundleTextures = (b) => {             // 束の GPU 資産だけ解放（s を経由しない）
+		for (const f of ['arcTex', 'metaTex', 'metaTexB', 'ptTex', 'ptMetaTex', 'pivotTex', 'fidStyleTex'])
+			if (b[f]) { gl.deleteTexture(b[f]); b[f] = null; }
+		if (b.lodTiers?.length) b.lodTiers.forEach(t => gl.deleteTexture(t.tex));
+		b.lodTiers = [];
+	};
+
+	// スロット交替（軽量コマンド）：key=null は「何も載せない」（海岸線を降ろす等）。
+	// 束が未ベイク（データ未送信）の key は空扱い＝app 側が set(data, key) を先に送る契約。
+	function setSlot(key) {
+		if (key === activeKey) return;
+		saveActive();
+		loadBundle(slots.get(key) ?? emptySlot());
+		activeKey = slots.has(key) ? key : null;
+		// 交替で眠っていた層の梯子が未完なら途中再開（構築済みの段は plan から除外される）
+		if (activeKey != null && !s.tiersDone && s.totalEdges > 0) scheduleTierBuild();
+		s.requestDraw?.();
+	}
+
+	// gint ペイロードの差し替え（null/undefined＝スロット空化）。worker 版 set() と同じ台帳更新。
+	// key 指定時はそのスロット束として保存（既存束は GPU 資産ごと差し替え）。key 省略＝旧挙動（"user" 扱い）。
 	// embedded では canvas の明示クリア不要＝地図の再描画（requestDraw）が残像ごと消す。
-	function set(data) {
+	function set(data, key) {
+		key = key ?? 'user';
 		if (data) {
-			const { arcBuffer, arcMeta, polyStream, lineStream, pointBuffer, point, polyCompBbox } = data;
+			// アップロードは常に s 上で行う＝先に現スロットを退避し、対象スロットをアクティブにしてから焼く。
+			saveActive();
+			const old = slots.get(key);
+			if (old && key !== activeKey) deleteBundleTextures(old);   // 同キー差し替え＝旧資産を解放（active は下の deleteTextures が s 経由で解放）
+			if (key === activeKey) deleteTextures();                   // s に載っている旧資産（束と同一ハンドル）を解放
+			loadBundle(emptySlot());
+			activeKey = key;
 			s.gintData = {
-				arcBuffer:    arcBuffer   ?? null,
-				arcMeta:      arcMeta     ?? null,
-				polyStream:   polyStream?.length  ? polyStream  : null,
-				lineStream:   lineStream?.length  ? lineStream  : null,
-				pointBuffer:  pointBuffer?.length ? pointBuffer : null,
-				point:        point ?? null,
-				polyCompBbox: polyCompBbox ?? null,
+				arcBuffer:    data.arcBuffer   ?? null,
+				arcMeta:      data.arcMeta     ?? null,
+				polyStream:   data.polyStream?.length  ? data.polyStream  : null,
+				lineStream:   data.lineStream?.length  ? data.lineStream  : null,
+				pointBuffer:  data.pointBuffer?.length ? data.pointBuffer : null,
+				point:        data.point ?? null,
+				polyCompBbox: data.polyCompBbox ?? null,
 			};
 			uploadGintTextures();
 			({ minZoom: s.minZoom, maxZoom: s.maxZoom } = checkZoomRange({
@@ -56,12 +116,47 @@ export function createGintLayer(gl, { requestDraw } = {}) {
 				maxZoom:   data.maxZoom   ?? null,
 				precision: data.precision ?? 6,
 			}));
-		} else {
+			slots.set(key, {});   // 実体は saveActive が次の交替時に写す（それまで s が真実源）
+		} else if (key === activeKey) {          // 表示中の層を消す＝s 経由で解放し空スロットへ
 			deleteTextures();
-			s.gintData = null; s.polyEdgeByFid = null; s.polyBboxByFid = null; s.outlineZoom = null; s.fillOff = false;
-			s.totalEdges = s.totalPoints = s.polyEdges = 0;
+			loadBundle(emptySlot());
+			slots.delete(key);
+			activeKey = null;
+		} else {                                  // 眠っている束の破棄（GPU 資産ごと）
+			const b = slots.get(key);
+			if (b) { deleteBundleTextures(b); slots.delete(key); }
 		}
 		s.activeId = -1; s.lastDrawData = null;
+		s.requestDraw?.();
+	}
+
+	// bake worker 完成品の搭載（bake-ahead）＝CPU ベイクを一切せずテクスチャ搭載のみ。
+	// 【非活性】表示スロットは変えない＝純粋なキャッシュ搭載（同期ハンドラ内で元の束へ戻す＝
+	// 途中の絵は1フレームも出ない）。表示の切替は app の調停（gintSlot コマンド）が別途行う。
+	// 表示中スロット自身の再ベイク（key===activeKey）はその場で新しい絵に差し替わる。
+	function setBaked(p, key) {
+		key = key ?? 'user';
+		if (!p) return set(null, key);
+		const prevKey = activeKey;
+		saveActive();
+		const old = slots.get(key);
+		if (old && key !== activeKey) deleteBundleTextures(old);
+		if (key === activeKey) deleteTextures();
+		loadBundle(emptySlot());
+		activeKey = key;
+		s.gintData = p.gint;                       // bake worker が正規化済み（_ringsNormalized/_capMinW 同梱）
+		uploadBaked(p.artifacts);
+		for (const t of p.tiers ?? []) addBakedTier(t);
+		finishBakedTiers();                        // 梯子完成＝以後の交替で scheduleTierBuild は走らない
+		({ minZoom: s.minZoom, maxZoom: s.maxZoom } = checkZoomRange({
+			arcMeta:   s.gintData.arcMeta,
+			minZoom:   p.minZoom   ?? null,
+			maxZoom:   p.maxZoom   ?? null,
+			precision: p.precision ?? 6,
+		}));
+		slots.set(key, {});                        // 実体は saveActive が写す（それまで s が真実源）
+		s.activeId = -1; s.lastDrawData = null;
+		if (prevKey !== key) setSlot(prevKey);     // 元の表示へ戻す（prevKey=null 含む）＝非活性の要
 		s.requestDraw?.();
 	}
 
@@ -193,6 +288,9 @@ export function createGintLayer(gl, { requestDraw } = {}) {
 	}
 
 	function dispose() {
+		saveActive();                                    // s 上の資産も束に写してから全束一括解放（漏れ防止）
+		for (const b of slots.values()) deleteBundleTextures(b);
+		slots.clear(); activeKey = null;
 		deleteTextures();
 		deleteFBOs();
 		disposeIdFill();
@@ -217,5 +315,5 @@ export function createGintLayer(gl, { requestDraw } = {}) {
 			runs: s._pfRuns ?? -1, chunks: s._pfChunks ?? -1, vb: s.lastViewBbox };
 	}
 
-	return { set, style, setVisible, paint, draw, drawn, move, leave, click, dispose, stats };
+	return { set, setSlot, setBaked, style, setVisible, paint, draw, drawn, move, leave, click, dispose, stats };
 }

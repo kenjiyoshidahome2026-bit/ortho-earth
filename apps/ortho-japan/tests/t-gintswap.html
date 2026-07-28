@@ -1,0 +1,171 @@
+<!doctype html>
+<!-- UI回帰：gint スロットキャッシュ（z7 交替のゼロコスト化）＋ bake-ahead 搭載。
+     ① set("gint", A, "user")＝従来同期経路で搭載・描画（赤fillが写る）
+     ② set("gint", B, "coast")＝別スロット搭載で表示が B へ（A の場所は消える）
+     ③ gintSlot "user"/"coast" 交替＝再ベイク無しで両束が生存（描画位置と identify fid で機能証明）
+     ④ gintBaked（bake.js 直呼びで焼いた完成品）＝uploadBaked 経路が実GLで立つ・非活性（表示は変わらない）
+        → gintSlot で点火 ⑤ set(null,"user")＝user 束だけ破棄・coast は無傷
+     snapshot は worker 内で同期描画→readPixels＝rAF 非依存（t-gintembed と同じ pump 技法）。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;width:320px;height:320px}</style><title>t-gintswap</title></head>
+<body><canvas id="c" width="256" height="256"></canvas><canvas id="l" width="256" height="256"></canvas>
+<script type="module">
+const t = [], ok = (n, c) => t.push((c ? "ok:" : "NG:") + n);
+// タイムアウト保険は置かない（headless virtual-time では setTimeout が先走る）＝詰まれば title 初期値で FAIL。
+const fin = () => document.title = t.some(s => s.startsWith("NG")) ? "FAIL " + t.join(" ") : "PASS " + t.join(" ");
+
+// ── Morton pack（t-gintembed と同じ・テスト自給）──
+const spread16 = v => { v &= 0xFFFF; v = (v | (v << 8)) & 0xFF00FF; v = (v | (v << 4)) & 0xF0F0F0F; v = (v | (v << 2)) & 0x33333333; v = (v | (v << 1)) & 0x55555555; return v >>> 0; };
+const pack = (lon, lat, terminal, weight = 0) => {
+	const ix = Math.round((lon + 180) * 1e7) >>> 0, iy = Math.round((lat + 90) * 1e7) >>> 0;
+	const lo = (spread16(ix & 0xFFFF) | (spread16(iy & 0xFFFF) << 1)) >>> 0;
+	const hi = (spread16(ix >>> 16) | (spread16(iy >>> 16) << 1)) >>> 0;
+	let v = (BigInt(hi) << 32n) | BigInt(lo);
+	return terminal ? (v | (1n << 63n)) : ((v & ~0x3Fn) | BigInt(weight & 63));
+};
+const e7 = d => Math.round(d * 1e7) >>> 0;
+// 正方形リング1本のポリゴン層（fid 指定）。中心 c・半径 d（度）。
+const mkLayer = (c, d, fid) => {
+	const vs = [[c[0] - d, c[1] - d], [c[0] + d, c[1] - d], [c[0] + d, c[1] + d], [c[0] - d, c[1] + d], [c[0] - d, c[1] - d]];   // CCW
+	const arcBuffer = BigUint64Array.from(vs.map(([lo, la]) => pack(lo, la, true)));
+	const arcMeta = new Uint32Array(8);
+	arcMeta[0] = 0; arcMeta[1] = 5;
+	arcMeta[4] = e7(c[0] + 180 - d); arcMeta[5] = e7(c[1] + 90 - d);
+	arcMeta[6] = e7(c[0] + 180 + d); arcMeta[7] = e7(c[1] + 90 + d);
+	return { arcBuffer, arcMeta, polyStream: Int32Array.from([fid, 1, 1, 0]), minZoom: 2 };
+};
+
+try {
+	const { cameraState, project } = await import("../../../packages/ortho-core/src/camera.js");
+	const { bakeBase, bakeTier, tierPlan } = await import("../../../packages/ortho-core/src/gl/gint/bake.js");
+	const worker = new Worker(new URL("../renderworker.js", import.meta.url), { type: "module" });
+	worker.onerror = e => { ok("worker-error:" + (e.message || "?"), false); fin(); };
+	const pump = async (p) => { let done = false; p.then(() => done = true, () => done = true);
+		for (let i = 0; !done; i++) await fetch(`./t-gintswap.html?pump=${i}`, { cache: "no-store" }).catch(() => {});
+		return p; };
+	const waitMsg = pred => new Promise(r => { const h = e => { if (pred(e.data)) { worker.removeEventListener("message", h); r(e.data); } }; worker.addEventListener("message", h); });
+	const post = (msg, tr) => worker.postMessage(msg, tr || []);
+	let snapId = 0;
+	const snapshot = () => { const id = ++snapId; const p = waitMsg(d => d.type === "snapshot" && d.id === id); post({ type: "snapshot", id }); return pump(p); };
+
+	// ── init（t-gintembed と同一）──
+	const offC = document.getElementById("c").transferControlToOffscreen();
+	const offL = document.getElementById("l").transferControlToOffscreen();
+	const failP = waitMsg(d => d.type === "glfail");
+	post({ type: "init", canvas: offC, labelCanvas: offL, elevBase: 0, terrainExag: 1, earthM: 6371008.8,
+		apiUrl: location.origin + "/nope", noMultiDraw: true }, [offC, offL]);
+	post({ type: "resize", width: 256, height: 256 });
+
+	// user 層＝西の正方形（fid7）／coast 層＝東の正方形（fid3）。同一 cam に両方収まる配置。
+	const CAM = [139.7, 35.7], D = 0.03, OFF = 0.06;
+	const CU = [CAM[0] - OFF, CAM[1]], CC = [CAM[0] + OFF, CAM[1]];
+	const cam = { center: CAM, zoom: 9.8, pitch: 0, bearing: 0, dpr: 1 };
+	const st = cameraState(cam, 256, 256);
+	post({ type: "set", cmd: "gintStyle", data: { fillColor: [1, 0, 0, 0.6], lineWidth: 1 } });
+	const isRed = (a8, i) => a8[i] > 190 && a8[i + 1] < 180 && a8[i + 1] > 30;
+	const redAt = (a8, lon, lat) => { const p = project(st, lon, lat); const x = Math.round(p[0]), y = Math.round(p[1]);
+		let m = 0; for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++)
+			if (isRed(a8, ((255 - (y + dy)) * 256 + (x + dx)) * 4)) m++;
+		return m; };
+	const shot = async () => new Uint8Array((await snapshot()).base);
+	const draw = () => post({ type: "draw", cam, opts: { noTerrain: true } });
+
+	// ── ① user 層を従来同期経路で搭載 → 表示 ──
+	post({ type: "set", cmd: "gint", data: mkLayer(CU, D, 7), prop: "user" });
+	draw();
+	let a8 = await Promise.race([shot(), failP.then(d => { throw new Error("glfail:" + d.error); })]);
+	ok(`①user搭載(西=${redAt(a8, CU[0], CU[1])} 東=${redAt(a8, CC[0], CC[1])})`, redAt(a8, CU[0], CU[1]) > 5 && redAt(a8, CC[0], CC[1]) === 0);
+
+	// ── ② coast 層を別スロットへ搭載＝表示が coast へ（set は搭載スロットを表示する契約）──
+	post({ type: "set", cmd: "gint", data: mkLayer(CC, D, 3), prop: "coast" });
+	draw();
+	a8 = await shot();
+	ok(`②coast搭載(西=${redAt(a8, CU[0], CU[1])} 東=${redAt(a8, CC[0], CC[1])})`, redAt(a8, CU[0], CU[1]) === 0 && redAt(a8, CC[0], CC[1]) > 5);
+
+	// ── ③ gintSlot 交替＝両束が再ベイク無しで生存（描画＋identify の機能証明）──
+	post({ type: "set", cmd: "gintSlot", data: "user" });
+	draw();
+	a8 = await shot();
+	ok(`③swap→user(西=${redAt(a8, CU[0], CU[1])})`, redAt(a8, CU[0], CU[1]) > 5 && redAt(a8, CC[0], CC[1]) === 0);
+	post({ type: "gintDrawn" });   // settle＝pick FBO 構築
+	const pU = project(st, CU[0], CU[1]);
+	let idP = waitMsg(d => d.action === "identify" && d.featureId != null);
+	post({ type: "gintMove", x: pU[0], y: pU[1] });
+	const idU = await pump(idP);
+	ok(`③identify user(fid=${idU.featureId})`, idU.featureId === 7);
+	post({ type: "gintLeave" });
+	post({ type: "set", cmd: "gintSlot", data: "coast" });
+	draw();
+	a8 = await shot();
+	ok(`③swap→coast(東=${redAt(a8, CC[0], CC[1])})`, redAt(a8, CC[0], CC[1]) > 5 && redAt(a8, CU[0], CU[1]) === 0);
+	post({ type: "gintDrawn" });
+	const pC = project(st, CC[0], CC[1]);
+	idP = waitMsg(d => d.action === "identify" && d.featureId != null);
+	post({ type: "gintMove", x: pC[0], y: pC[1] });
+	const idC = await pump(idP);
+	ok(`③identify coast(fid=${idC.featureId})`, idC.featureId === 3);
+	post({ type: "gintLeave" });
+
+	// ── ④ gintBaked（bake.js を main で直呼び＝bake worker の出力と同形）＝非活性搭載 → gintSlot 点火 ──
+	const CB = [CAM[0], CAM[1] + 0.05];
+	const rawB = mkLayer(CB, D, 5);
+	const gintData = { arcBuffer: rawB.arcBuffer, arcMeta: rawB.arcMeta, polyStream: rawB.polyStream,
+		lineStream: null, pointBuffer: null, point: null, polyCompBbox: null };
+	const art = bakeBase(gintData);
+	const tiers = tierPlan(gintData, art.base.edgeCount, art.weightHist).map(w => bakeTier(gintData, w, art.polyBboxByFid));
+	delete art.weightHist;
+	post({ type: "set", cmd: "gintBaked", prop: "user2", data: { gint: gintData, artifacts: art, tiers, minZoom: 2 } });
+	draw();
+	a8 = await shot();
+	ok(`④baked非活性(東=${redAt(a8, CC[0], CC[1])} 北=${redAt(a8, CB[0], CB[1])})`, redAt(a8, CC[0], CC[1]) > 5 && redAt(a8, CB[0], CB[1]) === 0);
+	post({ type: "set", cmd: "gintSlot", data: "user2" });
+	draw();
+	a8 = await shot();
+	ok(`④baked点火(北=${redAt(a8, CB[0], CB[1])})`, redAt(a8, CB[0], CB[1]) > 5 && redAt(a8, CC[0], CC[1]) === 0);
+
+	// ── ⑤ user 束だけ破棄（眠っている束の削除）＝user2/coast は無傷 ──
+	post({ type: "set", cmd: "gint", data: null, prop: "user" });
+	post({ type: "set", cmd: "gintSlot", data: "user" });   // 破棄済みスロットへの交替＝空表示（クラッシュしない）
+	draw();
+	a8 = await shot();
+	ok(`⑤user破棄→空(西=${redAt(a8, CU[0], CU[1])})`, redAt(a8, CU[0], CU[1]) === 0);
+	post({ type: "set", cmd: "gintSlot", data: "coast" });
+	draw();
+	a8 = await shot();
+	ok(`⑤coast健在(東=${redAt(a8, CC[0], CC[1])})`, redAt(a8, CC[0], CC[1]) > 5);
+
+	// ── ⑥ 巨大層（>20万辺＝tier 実構築）：遅延構築の途中で交替→戻ると梯子が途中再開して完成する ──
+	// nps_all フリーズの縮図＝「z7 交替で梯子が消え、操作中は組み直せない」旧構造の regression 検定。
+	const CD = [CAM[0], CAM[1] - 0.05];
+	{
+		const NF = 500, NV = 600;   // 500 地物 × 599 辺 ≈ 30万辺（>200k＝梯子発動）
+		const verts = [], meta = new Uint32Array(NF * 8), poly = [];
+		let rs = 0xBEEF;
+		const rnd = () => { rs = rs * 1103515245 + 12345 & 0x7FFFFFFF; return rs / 0x80000000; };
+		for (let f = 0; f < NF; f++) {
+			const rad = 0.005 + 0.00004 * f;   // 同心円（全て CCW）＝中心は全リング内側＝winding 検定点
+			meta[f * 8] = verts.length; meta[f * 8 + 1] = NV;
+			for (let i = 0; i < NV; i++) {
+				const th = 2 * Math.PI * i / (NV - 1), last = i === NV - 1;
+				const lon = CD[0] + rad * Math.cos(last ? 0 : th), lat = CD[1] + rad * Math.sin(last ? 0 : th);
+				let w = 0; while (w < 62 && rnd() < 0.72) w++;   // VW 風の幾何分布（tier 採否を実発火させる）
+				verts.push(pack(lon, lat, i === 0 || last, w));
+			}
+			meta[f * 8 + 4] = e7(CD[0] + 180 - rad); meta[f * 8 + 5] = e7(CD[1] + 90 - rad);
+			meta[f * 8 + 6] = e7(CD[0] + 180 + rad); meta[f * 8 + 7] = e7(CD[1] + 90 + rad);
+			poly.push(100 + f, 1, 1, f);
+		}
+		post({ type: "set", cmd: "gint", data: { arcBuffer: BigUint64Array.from(verts), arcMeta: meta, polyStream: Int32Array.from(poly), minZoom: 2 }, prop: "user" });
+		post({ type: "set", cmd: "gintSlot", data: "coast" });   // 構築中に交替＝旧実装なら梯子は永久喪失、新実装は中断→swap-in 再開
+		const tiersP = waitMsg(d => d.action === "tiers");
+		post({ type: "set", cmd: "gintSlot", data: "user" });    // 戻る＝scheduleTierBuild が途中再開
+		const tiersMsg = await pump(tiersP);
+		ok(`⑥交替後に梯子完成(tiers=${tiersMsg.tiers.map(x => "w" + x.minW + ":" + x.edgeCount).join("/")})`, tiersMsg.tiers.length >= 1);
+		draw();
+		a8 = await shot();
+		ok(`⑥巨大層描画(南=${redAt(a8, CD[0], CD[1])})`, redAt(a8, CD[0], CD[1]) > 5);
+	}
+
+	post({ type: "destroy" });
+} catch (e) { ok("boot:" + (e && e.message || e), false); }
+fin();
+</script></body></html>

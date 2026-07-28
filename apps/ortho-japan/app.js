@@ -815,6 +815,16 @@ function applyGintData(pbf, label, moveCamera = true, opts = {}) {
 	// gint 単一スロットのユーザー層（14条筆/ドロップGISファイル/AI層）＝世界海岸線と相互切替。pbf 保持＝ホバーで getFeature(id).properties を引く。
 	// style/minZoom は層の属性としてここに預ける（スロット再適用(applyUserSlot)がズーム跨ぎの度に走るため、外に置くと切替で剥がれる）
 	userGint = { g: pbf.unPackGint, label, pbf, style: opts.style ?? null, minZoom: opts.minZoom ?? GINT_SWAP_Z, interactive: opts.interactive !== false };
+	// bake-ahead：メタ/tier梯子を bake worker で焼き切ってから搭載（render worker はテクスチャ搭載のみ＝
+	// ロード時の同期ベイクで地図が固まらない）。焼き上がりの onDone で sent を立てて再調停＝そこで点火。
+	{
+		const g = userGint.g;
+		cancelBake("user");
+		bakeAndSend("user", g, {}, () => {
+			if (userGint?.g !== g) return;   // 焼いている間に別の層へ差し替わった＝結果は捨てられている（cancelBake）
+			userGint.sent = true; gintSlot = null; updateGintSlot(); needsDraw = true;
+		});
+	}
 	// moj 等はデータ全体へ fit（初期は東京駅、moj のデータは離れた区にある）。ドロップは呼び出し側が flyTo で寄る＝moveCamera=false。
 	if (moveCamera) { const b = pbf.unPackGint.bbox; if (b && b.length === 4) flyTo((b[0] + b[2]) / 2, (b[1] + b[3]) / 2, fitZoomForBbox(b)); }
 	gintSlot = null;           // 内容が変わった＝再適用を強制
@@ -1007,9 +1017,74 @@ let coastLoading = false;
 // より重要なのはメモリ：長距離フライトは弧が大きく潜り loadWorldCoast（NE10m を fetch→GintBUF→GPU、
 // しかも永久キャッシュ）を誘発する＝両端が高ズームの飛行では丸ごと払わせない。着地で解除→再評価。
 let suppressCoast = false;
+// スロット搭載の送信済み台帳：データ本体は「スロットにつき1回」だけ worker へ送り（クローン数十MB級）、
+// 以後の交替は "gintSlot" の軽量コマンド＝worker 側のベイク済み束（テクスチャ/LOD梯子/台帳）を差し替えるだけ。
+// 旧・毎交替 set() は z7 跨ぎのたびフルベイク＋梯子リセット＝「LOD/カリング不在の窓」（nps_all 実測で
+// 定常の42倍＝451万辺/フレーム）に落ちていた。内容差し替え時は sent を折って再送させる。
+let coastSent = false;
+
+// --- gint bake worker（bake-ahead）---------------------------------------------------------
+// メタ/tier梯子の全ベイクを専用 worker で焼き、完成品を transfer で render worker へ中継する。
+// render worker は uploadBaked（テクスチャ搭載のみ）＝ロード時の同期ベイク（nps_all 級で数百ms、
+// タブレットは秒級）が地図フレームを塞がない。ベイク中は現表示（海岸線）を描いたまま＝焼き上がりで点火。
+// worker 不成立/ベイク失敗は従来の同期経路（renderer.set("gint", raw, key)）へフォールバック。
+let bakeWorker = null, bakeSeq = 0;
+const bakePending = new Map();   // id → { key, raw, meta, onDone, cancelled }
+const legacyGintSend = p => { renderer.set("gint", p.raw, p.key); p.onDone?.(); };
+function ensureBakeWorker() {
+	if (bakeWorker !== null) return bakeWorker;
+	try { bakeWorker = new Worker(new URL("./gintbakeworker.js", import.meta.url), { type: "module" }); }
+	catch (e) { console.warn("[gint] bake worker 起動失敗＝同期経路へ", e); return (bakeWorker = false); }
+	bakeWorker.onmessage = e => {
+		const d = e.data, p = bakePending.get(d.id);
+		if (!p) return;
+		bakePending.delete(d.id);
+		if (p.cancelled) return;   // 焼いている間に層が差し替え/撤去された＝結果を捨てる
+		if (d.kind === "error") { console.warn("[gint] bake 失敗＝同期経路へ:", d.message); legacyGintSend(p); return; }
+		if (d.kind !== "done") return;
+		// 完成品をゼロコピー中継（TypedArray の underlying buffer を transfer。共有 buffer は Set で重複除去）
+		const bufs = new Set();
+		const collect = o => { for (const v of Object.values(o ?? {})) if (ArrayBuffer.isView(v)) bufs.add(v.buffer); };
+		collect(d.gint); collect(d.artifacts?.base); collect(d.artifacts?.boundary);
+		if (d.artifacts?.pivot?.px) bufs.add(d.artifacts.pivot.px.buffer);
+		for (const t of d.tiers ?? []) if (t.metaU32) bufs.add(t.metaU32.buffer);
+		renderWorker.postMessage({ type: "set", cmd: "gintBaked", prop: p.key,
+			data: { gint: d.gint, artifacts: d.artifacts, tiers: d.tiers, ...p.meta } }, [...bufs]);
+		p.onDone?.();
+	};
+	bakeWorker.onerror = err => {   // worker 自体が死んだ＝保留全件を同期経路で救済し、以後は使わない
+		console.warn("[gint] bake worker error＝以後同期経路", err?.message ?? err);
+		for (const p of bakePending.values()) if (!p.cancelled) legacyGintSend(p);
+		bakePending.clear();
+		bakeWorker.terminate(); bakeWorker = false;
+	};
+	return bakeWorker;
+}
+const cancelBake = key => { for (const p of bakePending.values()) if (p.key === key) p.cancelled = true; };
+// raw（unPackGint 一式）を焼いて key スロットへ搭載。onDone は「render worker に届いた」後の再調停用。
+// clone は bake worker への1回だけ（main の原本は identify の properties 参照用に生存）。
+function bakeAndSend(key, raw, meta, onDone) {
+	const w = ensureBakeWorker();
+	const p = { key, raw, meta, onDone, cancelled: false };
+	if (!w) return legacyGintSend(p);
+	const id = ++bakeSeq;
+	bakePending.set(id, p);
+	w.postMessage({ id, data: {
+		arcBuffer: raw.arcBuffer, arcMeta: raw.arcMeta, polyStream: raw.polyStream, lineStream: raw.lineStream,
+		pointBuffer: raw.pointBuffer, point: raw.point, polyCompBbox: raw.polyCompBbox } });
+}
+// 海岸線のベイク発火（初回ロード後と、LOW_MEM で束を破棄した後の再入の両方から）。
+let coastBaking = false;
+function bakeCoast() {
+	if (coastBaking || coastSent || !coastGint) return;
+	coastBaking = true;
+	bakeAndSend("coast", coastGint, { maxZoom: 9 },
+		() => { coastBaking = false; coastSent = true; gintSlot = null; updateGintSlot(); needsDraw = true; });
+}
 function applyCoastSlot() {
 	if (!coastGint) return;
-	renderer.set("gint", coastGint);
+	if (!coastSent) { bakeCoast(); return; }   // ベイク中/未ベイク＝焼き上がりの onDone が再調停する
+	renderer.set("gintSlot", "coast");
 	// 海岸線＝lineStream＝styleId=1。紙＋淡青の色調に「薄い青灰グレー・細く」。
 	const coastStyle = new Float32Array(256 * 4);
 	coastStyle.set([1.0, 0.42, 0.208, 1.0]);   // style0 polygon（未使用）
@@ -1020,8 +1095,8 @@ function applyCoastSlot() {
 	sendGintStyle(); gintSlot = "coast"; needsDraw = true;
 }
 function applyUserSlot() {
-	if (!userGint) return;
-	renderer.set("gint", userGint.g);
+	if (!userGint?.sent) return;   // ベイク中（bake-ahead）＝焼き上がりの onDone が再調停する（それまで海岸線のまま）
+	renderer.set("gintSlot", "user");
 	gintDrawOpts = userGint.style;           // 層の持参スタイル（AI層=styleTable、null=既定＝14条筆のオレンジ/シアン。海岸線グレーは引きずらない）
 	gintInteractive = userGint.interactive;  // 筆/図形/AI層はホバー/クリックで突合
 	sendGintStyle(); gintSlot = "user"; needsDraw = true;
@@ -1030,16 +1105,20 @@ function applyUserSlot() {
 // 本体・地形沿い境界線(gintBld)・識別(gintInteractive)/tip を落とし、スロットを再調停（該当ズームなら海岸線へ戻す）。
 function clearUserGint() {
 	userGint = null; gintSlot = null;
-	renderer.set("gint", null);      // gint本体を空化（次フレームの地図再描画が残像ごと消す）
+	cancelBake("user");                   // 焼き途中の結果は捨てる（届いても中継しない）
+	renderer.set("gint", null, "user");   // user 束を GPU 資産ごと破棄（次フレームの地図再描画が残像ごと消す）
 	renderer.set("gintBld", null); drapedOn = false;   // 地形沿い境界線も一蓮托生
 	gintInteractive = false;
 	gintHoverTip?.(null);            // ホバー tip を消す
 	needsDraw = true;
 	updateGintSlot();                // z<GINT_SWAP_Z 等で海岸線が該当すれば戻す
 }
-// gint スロットを空化（海岸線を降ろす）＝ null で worker 側を空データにし GPU バッファを解放。coastGint(JS)は残す（再訪で即）。
+// gint スロットを空化（海岸線を降ろす）＝軽量交替で「何も載せない」。束（GPU資産）は worker 側に残す＝
+// 再訪で即（suppressCoast は「重いロードを避ける」が目的で、キャッシュ済み束の保持はメモリ十数MB＝許容）。
+// LOW_MEM 端末だけは束ごと破棄（iOS jetsam 対策）＝再訪時は coastSent を折って再送。
 function clearGintSlot() {
-	renderer.set("gint", null);
+	if (LOW_MEM) { renderer.set("gint", null, "coast"); coastSent = false; }
+	else renderer.set("gintSlot", null);
 	if (gintHoverTip) gintHoverTip(null);
 	gintSlot = null; needsDraw = true;
 }
@@ -1069,7 +1148,8 @@ async function loadWorldCoast() {
 		pointBuffer: g.pointBuffer, point: g.point, polyCompBbox: g.polyCompBbox,
 		maxZoom: 9,
 	};
-	updateGintSlot();   // z<5（またはユーザー層なし）なら海岸線を表示
+	// bake-ahead：メタ/tier梯子を焼き切ってから搭載（焼き上がりの onDone で再調停＝そこで表示）
+	bakeCoast();
 	console.log("[coast] ロード完了。z<%d で自動表示（ユーザー層が無い/低ズーム時）", GINT_SWAP_Z);
 }
 window.__coast = loadWorldCoast;   // 手動リロード用
