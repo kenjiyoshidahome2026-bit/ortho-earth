@@ -70,6 +70,10 @@ mapEl.id = "map";
 // 舞台のcanvas 2層（基図GL＝知性gintも同居/ラベル）も自給＝index.htmlは空のdivだけでよい
 // （旧・#gint 別canvas は 1canvas統合で撤去＝gint は render worker の GL パスとして #c に描かれる）
 for (const cid of ["c", "labels"]) { const cv = document.createElement("canvas"); cv.id = cid; mapEl.appendChild(cv); }
+// 地中フェードの覆い（カメラが地表より下へ潜った時に暗くする＝クランプの代替。updateUnderground が opacity を駆動）。
+// canvas 2層の直後・UI より前＝基図/ラベル/gint を覆い、計器・検索は上に残す（脱出できる）。スタイルは style.css の #underground。
+const undergroundEl = mapEl.appendChild(document.createElement("div"));
+undergroundEl.id = "underground";
 
 const TILE_URL = (z, x, y) => `https://cyberjapandata.gsi.go.jp/xyz/optimal_bvmap-v1/${z}/${x}/${y}.pbf`;
 const TILE = 512, D2R = Math.PI / 180, R2D = 180 / Math.PI;
@@ -628,43 +632,50 @@ function autoPlateau(settled = false) {
 	}
 }
 
-// --- カメラ地形クランプ（地形とだけ衝突・建物は素通し＝地図系の業界標準。Cesium流の押し上げ） ---
-// eye 直下の地表標高+マージンを cam.minEyeAlt（単位球高度）へ供給し、cameraState が eye を放射方向に
-// 押し上げる（注視点保持＝実質ピッチが滑らかに浅くなる）。DTM開通(746b48a)で「山に潜れる」条件が
-// 生まれたことへの対。サンプラ（getHeight＝座標計器と共用）は非同期＝1フレーム遅れはマージンが吸収。
-// 上げ即時・下げローパス＝動的な急変を見せない（fovyスライダー撤回「暴れる」の教訓）。
-// 真俯瞰(pitch≈0)は 2D＝地形表示も無い＝クランプ無効（山頂への 2D オーバーズームを妨げない）。
-let clampT = 0, clampCur = 0, clampBusy = false;
-const CLAMP_MARGIN_M = 40;
-function updateCamClamp() {
-	if (!getHeight || clampBusy || performance.now() - clampT < 100) return;   // 10Hz で十分（マージンが吸収）
-	clampT = performance.now(); clampBusy = true;
-	const done = tgt => {
-		clampBusy = false;
-		clampCur = tgt > clampCur ? tgt : clampCur + (tgt - clampCur) * 0.25;   // 上げ即時／下げ緩やか
-		if (clampCur < 1e-9) clampCur = 0;
-		const v = clampCur || undefined;
-		if (v !== cam.minEyeAlt) {
-			cam.minEyeAlt = v; needsDraw = true;
-			renderer.draw(cam, { skipBase: false, skipMain: mainStale(), noTerrain: false, terrainGate: !moving });
-		}
-		if (Math.abs(tgt - clampCur) > 1e-8) requestAnimationFrame(updateCamClamp);   // 収束まで自走（10Hzスロットルが上限）
-	};
-	if ((cam.pitch || 0) < 0.06) return done(0);
+// --- 地中フェード（クランプの代替・2026-07-28）: カメラが地表(DTM)より下へ潜ったら全画面を暗色で覆う ---
+// 旧・カメラ地形クランプ（eye 押し上げ）は廃止：山頂×高チルトで eye が sea-level 軌道ごと山体に埋まり、
+// eye直下サンプルは下った斜面を見る＝山頂が計算に入らず効かなかった（富士 z15/75° で裏面を見上げる絵）。
+// 代替はカメラを一切動かさず「入ったら暗くする」。判定は eye が自分の直下の地表柱より下か＝1サンプルで完結
+// （山も建物も同じ地べた基準。土管など地中構造が要るなら別案）。カメラ数学に触れない＝「妙なブレ」ゼロ。
+// 覆いは #map 直下の DOM オーバーレイ（#underground）＝基図GL(#c)・ラベル(#labels)・gint を一度に覆う
+// （GL板だと別canvasのラベルや renderer.draw 後に描かれる gint を覆えない）。UI(計器/検索)より下＝脱出はできる。
+//   ・空間フェード（smoothstep）：eye直下の余裕 d[m] を d=+20m(0)→d=-15m(1) で不透明度へ＝地表手前から翳り、
+//     15m 潜れば全面。連続量＝閾値のパチつき無し（＝ヒステリシス相当の帯）。
+//   ・時間フェード：opacity の CSS transition（style.css の #underground＝.1s）が ~16Hz サンプルのジッタ/遅れを均す。
+//   ・静止コミット：止まったら帯を捨てて確定＝地中なら全黒（commitUnderground、下の settle）。中途半端なグレーを残さない。
+//   ・真俯瞰(pitch<0.06)=2D は無効（山頂への 2D オーバーズームを妨げない＝地形表示も無い平面地図）。
+let ugT = 0, ugBusy = false, ugLastD = Infinity;   // ugLastD＝直近サンプルの eye直下地表からの余裕[m]（静止時コミット用。Infinity=地上/不明）
+const UG_FADE_TOP_M = 20, UG_FADE_FULL_M = -15;
+function updateUnderground() {   // ~16Hz サンプラ（onMove から）：eye直下の地表との高低差→オーバーレイ不透明度
+	if (!getHeight || ugBusy || performance.now() - ugT < 60) return;
+	ugT = performance.now(); ugBusy = true;
+	const done = (t, d) => { ugBusy = false; ugLastD = d; undergroundEl.style.opacity = t; };
+	if ((cam.pitch || 0) < 0.06) return done(0, Infinity);   // 2D=地中判定なし
 	const st = cameraState(cam, size.w, size.h);
 	const len = Math.hypot(st.eye[0], st.eye[1], st.eye[2]);
 	const lon = Math.atan2(st.eye[2], st.eye[0]) * 180 / Math.PI;
 	const lat = Math.asin(Math.max(-1, Math.min(1, st.eye[1] / len))) * 180 / Math.PI;
+	const eyeAltM = (len - 1) * EARTH_M;   // eye の海抜[m]（軌道は sea-level 球なので len-1 がそのまま高度）
 	Promise.resolve(getHeight(lon, lat, cam.zoom))
-		.then(h => done(Math.max(0, (+h || 0) + CLAMP_MARGIN_M) / EARTH_M))
-		.catch(() => done(0));
+		.then(h => {
+			const d = eyeAltM - (+h || 0);   // 直下地表からの余裕[m]（d<0=地中）
+			const x = Math.max(0, Math.min(1, (UG_FADE_TOP_M - d) / (UG_FADE_TOP_M - UG_FADE_FULL_M)));
+			done(x * x * (3 - 2 * x), d);   // smoothstep
+		})
+		.catch(() => done(0, Infinity));
+}
+// 静止（settle＝描画確定）時のコミット：動作中は帯（smoothstep）で滑らかに翳らせるが、止まったら確定する
+// ＝地中(d<0)なら中途半端なグレーを残さず全黒（opacity=1）、地上なら解除（0）。Kenji「止まった時はヒステリシスが
+// あっても真っ黒に」。直近サンプル ugLastD を同期で使う（新規fetchの競合なし。静止時は eye≈最終onMove位置＝十分新鮮）。
+function commitUnderground() {
+	undergroundEl.style.opacity = ((cam.pitch || 0) >= 0.06 && ugLastD < 0) ? 1 : 0;
 }
 
 function onMove() {
 	cam.center[0] = wrapLon(cam.center[0]);   // パン/回転/フライトの累積を毎移動で正規化＝float32原点相対の前提を守る（階段バグ根治）
 	moving = true; needsDraw = true;
 	idleCalm = false; clearTimeout(calmT);     // 動いた瞬間に「本当の静止」を取り下げ（詳細化は許可待ちに戻る）
-	updateCamClamp();                          // カメラ地形クランプ（非同期＝次フレームから効く。マージン40mが遅れを吸収）
+	updateUnderground();                       // 地中フェード（非同期・10Hz＝eye直下の地表との高低差→#underground の opacity。時間フェードはCSS transition）
 	updateGintSlot();                                                                // gint 単一スロットを z=4 で調停（ユーザー層⇄世界海岸線）＋海岸線の遅延ロード
 	ensureStars();                                                                    // 星空も同じ流儀＝初めて z<4 に出た瞬間に読む
 	autoPlateau();                                                                    // 寄る/離れるで PLATEAU を自動ロード/解放（ガードで実質タダ）
@@ -672,7 +683,7 @@ function onMove() {
 	// 知性の層(gint)は render worker が frame 末尾に同フレーム同カメラで描く（1canvas統合＝泳ぎ・チルト opacity 手当てとも消滅）。
 	clearTimeout(settleT);
 	settleT = setTimeout(() => {
-		moving = false; needsDraw = true; renderWorker.postMessage({ type: "gintDrawn" }); autoPlateau(true); if (!printHold) saveView();   // 停止後に identify(picking)＋PLATEAU確定（settled＝ロード発火/レーン切替はこの瞬間だけ）＋ビュー保存（印刷カメラは保存しない）
+		moving = false; needsDraw = true; commitUnderground(); renderWorker.postMessage({ type: "gintDrawn" }); autoPlateau(true); if (!printHold) saveView();   // 停止後に identify(picking)＋PLATEAU確定（settled＝ロード発火/レーン切替はこの瞬間だけ）＋ビュー保存＋地中フェード確定（止まったら地中=全黒）
 		calmT = setTimeout(() => { idleCalm = true; needsDraw = true; }, 550);   // さらに550ms（停止から計700ms）＝ホイール刻みを跨いだ「本当の静止」でだけ手前詳細化
 	}, 150);
 	schedulePos();   // 座標読み取りもカメラに追随（rAF畳み込み＝タダ同然）

@@ -4,6 +4,13 @@
 
 html, body { margin: 0; height: 100%; background: #0b1021; color: #cdd; font: 13px/1.5 system-ui, sans-serif; overflow: hidden; }
 
+/* 地中フェード：カメラが地表(DTM)より下に潜った時、地図(#c)・ラベル(#labels)・gint を一枚のダークグレーで覆う
+   （山頂×高チルトで山体の裏を見上げる不正な絵の代替＝旧・カメラ地形クランプ廃止の相方）。app.js の
+   updateUnderground が eye 直下との高低差を smoothstep して opacity を駆動、transition が時間フェード（10Hz
+   サンプルのジッタ/遅れを均す）。真っ黒でなく ~#666＝地中の中立な暗さ。pointer-events:none＝操作を奪わず脱出できる。
+   canvas 直後・UI より前に append＝基図を覆い計器/検索は上に残る。★将来 LOD4+ の屋内シーンが出来たら差し替える口。 */
+#underground { position: absolute; inset: 0; background: #666; opacity: 0; pointer-events: none; transition: opacity .1s ease-out; }
+
 /* デバッグログ（常時非表示・devtoolsから出す） */
 #log { position: absolute; bottom: 10px; left: 10px; font-family: var(--qm-font-mono); font-size: 12px; color: #9ab; background: rgba(10,16,33,.7); padding: 6px 8px; border-radius: var(--qm-r-s); }
 
