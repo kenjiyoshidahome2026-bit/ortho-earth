@@ -475,22 +475,30 @@ async function prefetchPlateauForViews(views) {
 	for (const v of perView) v.bld.slice(1).filter(s => pd2q(s, v.fwd) < NEIGH * NEIGH).forEach(take);   // 二巡目＝視線の先の隣接区だけ
 	if (!wanted.length) return;
 	console.log(`[demo] PLATEAU先読み ${wanted.length}区（台本から導出）: ${wanted.map(s => s.name).join("・")}`);
-	plateauPrefetchBusy = true;   // 先読み中＝autoPlateau の建物枠を1つ譲る（総同時デコード2区の保証）
+	plateauPrefetchBusy = true;   // 先読み中＝autoPlateau の建物枠を1つ譲る（デコード同時数の総枠を保つ）
 	try {
-		for (const s of wanted) {
-			await plateauPreload(s);   // 直列＝静かに。到着済みの区は autoPlateau がIDB直読みで立てる
-			autoPlateau(true);   // 先読み完了の瞬間に表示判定を一突き＝「先読み中にもう着いていた」際、静止したままでも即立つ（読込中ガードで見送られた分の敗者復活）
-		}
+		// 並行2区（Kenji 指定 2026-07-29「2つずつぐらい読まないと間に合わない」）。直列1区は帯域を
+		// 使い切れず（fetch レイテンシの谷）、東京駅到着までに主役区が揃わなかった。到着済みの区は
+		// autoPlateau がIDB直読みで立てる。base ハッシュの worker 固定ルーティングは並行でも維持される。
+		let wi = 0;
+		const pump = async () => {
+			for (;;) {
+				const s = wanted[wi++];
+				if (!s) return;
+				await plateauPreload(s);
+				autoPlateau(true);   // 先読み完了の瞬間に表示判定を一突き＝「先読み中にもう着いていた」際、静止したままでも即立つ（読込中ガードで見送られた分の敗者復活）
+			}
+		};
+		await Promise.all([pump(), pump()]);
 	} finally { plateauPrefetchBusy = false; autoPlateau(true); }   // 先読み終了＝譲っていた枠を返して再選抜
 }
 function plateauPreload(set) {   // プレロード＝IDBに貯めるだけ（描画へ送らない）。表示中/読込中の地区はそのまま成功扱い
 	if (plateauLoading.has(set.name) || plateauActive.has(set.name)) return Promise.resolve(true);
 	plateauLoading.add(set.name);
 	const id = ++plateauReqId, w = plateauWorkers[hashStr(set.base) % PLATEAU_NW];
-	// 低メモリ端末＝slow レーンで焼く（並行1本＋間隔空け）＝デモ本編のタイル/デコードと重ねない
-	//（旧 boot+45秒遅延の jetsam 対策をレーン側へ交代＝▶の瞬間から静かに走れる）。実訪問が来れば
-	// worker 側の非preload要求が lane を fast に戻す＝待たせない。
-	if (LOW_MEM) w.postMessage({ type: "demote", base: set.base });
+	// レーンは fast のまま（lowMem も）。slow（並行1本＋250ms間隔）を一度試したが、港区級（数百タイル）が
+	// デモ1周かかっても終わらない実測＝「故意に遅い」。lowMem の jetsam 余裕は BATCH_TILES=16・並行4・
+	// CACHE_MAX=0・クレジット送出で既に取ってある＝先読みは普通の速度で焼き、直列1区が帯域の上限を裁く。
 	w.postMessage({ id, base: set.base, name: set.name, wardBbox: set.noMask ? null : set.bbox, brid: !!set.noMask, camCenter: [cam.center[0], cam.center[1]], preload: true });
 	return new Promise((resolve, reject) => plateauPending.set(id, { resolve, reject, name: set.name }))
 		.catch(() => false).finally(() => plateauLoading.delete(set.name));
