@@ -670,6 +670,20 @@ body { visibility: visible; }   /* 開幕＝このスタイルシートの到着
 	opacity: 0; pointer-events: none;
 }
 #map.world #japan-btn { order: -1; }   /* 独りになったら最上段へ＝迷子の扉は定位置（左上角）に */
+
+/* --- 映画館モード（狭画面のデモ上演）：#map.demo-live × 狭幅で家具が退場＝画面は映画と字幕だけ ---
+   星空劇場と同じ .6s フェード退場（transition は上の共通指定を共有）。残すのは
+   ①点灯▶（#demo-btn）＝唯一の停止ボタン（demo.js が狭画面では pause でなく exit で受ける）
+   ②#attr＝上演中も GSI タイルは描かれる＝出典は消さない。
+   操縦バー（#demo-bar）ごと非表示＝スライド送りは自動上演（狭画面の▶開始＝即 play）が担う。 */
+@media (max-width: 480px) {
+	#map.demo-live :is(#chips, #search-list, #hint, #log, #pos, #scale),
+	#map.demo-live #gadgets > :not(#demo-btn) {
+		opacity: 0; pointer-events: none;
+	}
+	#map.demo-live #demo-bar { display: none !important; }   /* .on/.playing より強く＝バーは一切出さない */
+	#map.demo-live #demo-btn { order: -1; }   /* 独りになったら最上段へ（#japan-btn の作法と同じ） */
+}
 /* 星空劇場の家具（逆相＝worldでだけ点灯）：左下=日時計（1秒針）、右下=空データの出典。
    舞台は暗い宇宙＝文字は淡い星明かり色（紙用の --qm-text は使わない）。 */
 #sky-clock, #sky-attr {

@@ -185,10 +185,14 @@ export function demo({ scenes, slide: slideOn = true, hold = 5500, slideHold = 4
 		schedule();
 	}
 	let prefetched = false;
+	// 狭画面（スマホ）＝映画館モード：操縦バー/家具は出さず（quiet-mono #map.demo-live のCSS退場）、
+	// ▶開始＝即・自動上演。止める口は点灯▶（と Esc）だけ＝「ストップボタンのみ」。回転に追随＝押下時評価。
+	const narrow = () => window.matchMedia("(max-width: 480px)").matches;
 	const start = (i = 0, fly = true) => {
-		bar.classList.add("on"); show(i, fly);
+		bar.classList.add("on"); mapEl.classList.add("demo-live"); show(i, fly);
 		btn.setAttribute("aria-pressed", "true"); btn.dataset.tip = "デモを終了 (Esc)"; btn.setAttribute("aria-label", "デモを終了");
 		if (!prefetched) { prefetched = true; prefetchViews?.(scenes.map(s => s.view ?? s.glide).filter(Boolean)); }   // ▶＝裏で台本の街をIDBへ（1回だけ・以降はIDB命中でタダ）
+		if (narrow()) play();   // 幕替わり（reload）復帰は下の resume が r.playing を見て再度 play＝play は再入無害
 	};
 	// 上映中（.playing）＝デスクトップでは操縦バーごと退場（CSS）＝停止は点灯した▶が受ける。字幕も止まったら引っ込める
 	const pause = () => {
@@ -197,13 +201,14 @@ export function demo({ scenes, slide: slideOn = true, hold = 5500, slideHold = 4
 		if (on()) { btn.dataset.tip = "デモを終了 (Esc)"; btn.setAttribute("aria-label", "デモを終了"); }
 	};
 	const play = () => {
+		if (playing) return;   // 再入（狭画面start→resume の二重 play 等）＝スケジューラを重ねない
 		playing = true; bar.classList.add("playing");
 		playBtn.textContent = "❚❚"; playBtn.setAttribute("aria-pressed", "true");
 		btn.dataset.tip = "上映を停止"; btn.setAttribute("aria-label", "上映を停止");
 		schedule();
 	};
 	const exit = () => {
-		pause(); clearTimeout(preTimer); bar.classList.remove("on"); curtain(false); img.removeAttribute("src"); idx = -1;
+		pause(); clearTimeout(preTimer); bar.classList.remove("on"); mapEl.classList.remove("demo-live"); curtain(false); img.removeAttribute("src"); idx = -1;
 		list.classList.remove("open");
 		btn.setAttribute("aria-pressed", "false"); btn.dataset.tip = "デモを上演"; btn.setAttribute("aria-label", "デモを上演");
 	};
@@ -225,7 +230,9 @@ export function demo({ scenes, slide: slideOn = true, hold = 5500, slideHold = 4
 		}
 		if (idx > 0) show(idx - 1);
 	};
-	btn.addEventListener("click", () => on() ? (playing ? pause() : exit()) : start());   // ▶＝開始／自動上映中＝停止（バー復帰）／手動中の再押下＝終了
+	// ▶＝開始／自動上映中＝停止（バー復帰）／手動中の再押下＝終了。
+	// 狭画面はバーが無い（映画館モード）＝pause で手動へ落とすと操縦不能＝▶は常に「終了」。
+	btn.addEventListener("click", () => on() ? ((playing && !narrow()) ? pause() : exit()) : start());
 	bar.querySelector("#demo-next").addEventListener("click", next);
 	bar.querySelector("#demo-prev").addEventListener("click", prev);
 	playBtn.addEventListener("click", () => playing ? pause() : play());

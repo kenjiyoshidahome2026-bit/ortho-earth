@@ -379,7 +379,9 @@ const IDB_FMT_VER = 5;   // v5: 空中部材の借り接地＝非連結の冠・
 // 割当の半分まで（MVTタイル・gint等が同じオリジン割当を共有するため）。estimate 不能な環境は従来相当の1.2GBで保守運転。
 let idbBudget = 1.2e9;
 navigator.storage?.estimate?.().then(e => {
-	if (e?.quota) idbBudget = Math.max(e.quota * 0.5, 1.2e9);
+	// 旧 max(quota*0.5, 1.2G) は割当の小さい端末（iOS Safari）で予算が実割当を超え、LRU退避が
+	// 発火する前に書き込みが QuotaExceeded で全滅していた＝割当の8割を天井にクランプ（床3億=最低限の仕込み）。
+	if (e?.quota) idbBudget = Math.min(Math.max(e.quota * 0.5, 1.2e9), Math.max(e.quota * 0.8, 3e8));
 	console.log(`[plateau] IDB budget ${(idbBudget / 1e9).toFixed(1)}GB（オリジン割当 ${((e?.quota || 0) / 1e9).toFixed(1)}GB・使用 ${((e?.usage || 0) / 1e9).toFixed(2)}GB）`);
 }).catch(() => {});
 const idbReady = Cache("GIS/plateau").catch(e => { console.warn("[plateau] IDB無効（メモリキャッシュのみで続行）", e); return null; });
@@ -387,7 +389,7 @@ const idbReady = Cache("GIS/plateau").catch(e => { console.warn("[plateau] IDB�
 async function idbLoad(base, brid) {
 	const idb = await idbReady; if (!idb) return null;
 	const meta = await idb(base + "#meta").catch(() => null);
-	if (!meta || meta.ver !== IDB_FMT_VER || !!meta.brid !== !!brid) return null;   // brid不一致＝接地方式が違う焼き＝無効（橋梁だけ選択的に作り直せる）
+	if (!meta || meta.partial || meta.ver !== IDB_FMT_VER || !!meta.brid !== !!brid) return null;   // partial＝ネットワーク経路が再開で受ける／brid不一致＝接地方式が違う焼き＝無効
 	const batches = [];
 	for (let i = 0; i < meta.count; i++) {
 		const b = await idb(`${base}#${i}`).catch(() => null);
@@ -397,37 +399,56 @@ async function idbLoad(base, brid) {
 	idb(base + "#meta", { ...meta, ts: Date.now() });   // LRU touch（待たない）
 	return { batches, mask: meta.mask ?? null, wardBbox: meta.wardBbox ?? null };
 }
+// 部分保存（partial meta）の読み出し＝ネットワーク経路の「続きから」用。バッチには tiles（消費した
+// タイルURI一覧）が同梱されている＝残りタイルの差分計算に使う。欠けはそこまでで再開（以降は焼き直し）。
+async function idbLoadPartial(base, brid) {
+	const idb = await idbReady; if (!idb) return null;
+	const meta = await idb(base + "#meta").catch(() => null);
+	if (!meta?.partial || meta.ver !== IDB_FMT_VER || !!meta.brid !== !!brid) return null;
+	const batches = [];
+	for (let i = 0; i < meta.count; i++) {
+		const b = await idb(`${base}#${i}`).catch(() => null);
+		if (!b?.tiles) break;
+		batches.push(b);
+	}
+	return batches.length ? { batches, mask: meta.mask ?? null, wardBbox: meta.wardBbox ?? null } : null;
+}
 // メッシュ typed array の合計バイト＝GPU頂点バッファ量のほぼ等身大の proxy（rendererはこれをbufferDataで上げる）。
 // IDBの容量表示と、main の GPU常駐バイト予算LRU（ackに同乗）の両方がこの一つの物差しを使う。
 const batchBytes = batches => batches.reduce((s, b) => s + Object.values(b).reduce((t, v) => t + (ArrayBuffer.isView(v) ? v.byteLength : 0), 0), 0);
-async function idbStore(base, batches, mask, wardBbox, brid) {
+// LRU退避＋孤児掃除。keepBase＝いま書いている区（退避対象にしない＝budget が極端に小さい環境でも自己破壊しない）。
+// force＝QuotaExceeded からの緊急退避（budget を待たず最古1区を落とす）。
+// 孤児＝meta の無い base の `#i` 残骸（書き途中のクラッシュ/旧quota失敗の遺物）。台帳（meta の bytes 合計）に
+// 映らないまま quota を食い、以後の保存を連鎖失敗させる＝ここで一掃する。
+async function idbEvict(keepBase, force = false) {
 	const idb = await idbReady; if (!idb) return;
-	try {
-		for (let i = 0; i < batches.length; i++) await idb(`${base}#${i}`, batches[i]);
-		// bytes＝データ管理モーダルの容量表示用（概算。旧レコードは未記録＝0）
-		const bytes = batchBytes(batches);
-		await idb(base + "#meta", { ver: IDB_FMT_VER, count: batches.length, mask, wardBbox, brid: !!brid, ts: Date.now(), bytes });
-		// 容量上限：合計バイトが idbBudget（クォータ連動）を超えたら lastUsed 最古の区から丸ごと退避（バッチレコードも道連れ）。
-		// いま書いた区は退避対象にしない＝budget が極端に小さい環境でも自己破壊しない。
-		const keys = (await idb()) || [];
-		const entries = [];
-		let totalBytes = 0;
-		for (const k of keys) if (typeof k === "string" && k.endsWith("#meta")) {
-			const m = await idb(k).catch(() => null);
-			if (m) { entries.push({ mk: k, ts: m.ts || 0, count: m.count || 0, bytes: m.bytes || 0 }); totalBytes += m.bytes || 0; }
-		}
-		entries.sort((a, b) => a.ts - b.ts);
-		for (const old of entries) {
-			if (totalBytes <= idbBudget) break;
-			if (old.mk === base + "#meta") continue;
-			const oldBase = old.mk.slice(0, -"#meta".length);
-			await idb(old.mk, null);
-			for (let i = 0; i < old.count; i++) await idb(`${oldBase}#${i}`, null);
-			totalBytes -= old.bytes;
-			console.log("[plateau] IDB退避（LRU・容量超過）", oldBase);
-		}
-		console.log("[plateau] IDB保存", base, `(${batches.length} batches)`);
-	} catch (e) { console.warn("[plateau] IDB保存失敗（表示には影響なし）", e); }
+	const keys = (await idb()) || [];
+	const metaBases = new Set(), entries = [];
+	let totalBytes = 0;
+	for (const k of keys) if (typeof k === "string" && k.endsWith("#meta")) {
+		const m = await idb(k).catch(() => null);
+		const b = k.slice(0, -"#meta".length);
+		metaBases.add(b);
+		if (m) { entries.push({ base: b, ts: m.ts || 0, count: m.count || 0, bytes: m.bytes || 0 }); totalBytes += m.bytes || 0; }
+	}
+	let orphans = 0;
+	for (const k of keys) {
+		if (typeof k !== "string" || k.endsWith("#meta")) continue;
+		const h = k.lastIndexOf("#"); if (h < 0) continue;
+		if (!metaBases.has(k.slice(0, h))) { await idb(k, null); orphans++; }
+	}
+	if (orphans) console.log("[plateau] IDB孤児掃除", orphans, "records");
+	entries.sort((a, b) => a.ts - b.ts);
+	let freed = 0;
+	for (const old of entries) {
+		if (!force && totalBytes <= idbBudget) break;
+		if (old.base === keepBase) continue;
+		await idb(old.base + "#meta", null);
+		for (let i = 0; i < old.count; i++) await idb(`${old.base}#${i}`, null);
+		totalBytes -= old.bytes; freed++;
+		console.log("[plateau] IDB退避（LRU）", old.base);
+		if (force && freed >= 1 && totalBytes <= idbBudget) break;   // 緊急時は最低1区で切り上げ（書き込み再試行が裁く）
+	}
 }
 async function idbPurge() {
 	const idb = await idbReady; if (!idb) return 0;
@@ -476,6 +497,26 @@ async function loadPlateau(base, tiles, ward, wardBbox, camCenter, preload = fal
 	const stop = () => !preload && cancelled.has(base);   // 協調キャンセルの旗（プレロードは見ない＝完走）
 	const laneOf = () => lane.get(base) ?? "fast";   // 既定fast。demote/promote は main（autoPlateau）が視界確定時に切り替える
 	prog({ scan: 0 });
+
+	// ── 部分再開：前回の中断（タブ切替/jetsam/テーマreload）までの成果を土台に「続きから」──
+	// 旧・全バッチ完走後の一括保存は「中断＝全損」＝iPhone では区が一生貯まらなかった。
+	// 保存済みバッチは即座に描画へ（fetch/解凍スキップ）、残りタイルだけをネットワークから。
+	const part = await idbLoadPartial(base, brid);
+	const wardMask = wardBbox
+		? (part?.mask?.length === MASK_N * MASK_N ? part.mask : new Uint8Array(MASK_N * MASK_N))
+		: null;   // 区単位で累積（wardBbox 無し=デバッグ直指定時はマスク無し）。再開時は保存済みマスクの上へ
+	const batches = part ? part.batches : [];
+	const doneTiles = new Set();
+	for (const b of batches) for (const u of b.tiles ?? []) doneTiles.add(u);
+	let sentCount = 0;   // render worker へ送信済みのバッチ数（slow中は保留＝batches.length と乖離する）
+	if (part) {
+		console.log("[plateau] IDB部分再開", base, `(${batches.length} batches・${doneTiles.size} tiles 済)`);
+		// 保存済みぶんを先に描画へ＝カタログ走査（数秒）を待たず「あるだけの街」が立つ
+		if (!preload && laneOf() === "fast") {
+			while (sentCount < batches.length) { await sendBatch(ward, sentCount, batches[sentCount], wardMask, wardBbox); sentCount++; }
+		}
+	}
+
 	let leaves;
 	if (tiles) leaves = tiles.map(u => ({ uri: resolveUrl(base, u), center: null }));
 	else {
@@ -485,20 +526,43 @@ async function loadPlateau(base, tiles, ward, wardBbox, camCenter, preload = fal
 		console.log("[plateau] 葉タイル:", leaves.length, "枚");
 	}
 	if (stop()) { console.log("[plateau] キャンセル（視野離脱・走査段階）", ward); return "cancelled"; }
+	const totalTiles = leaves.length;
+	if (doneTiles.size) leaves = leaves.filter(t => !doneTiles.has(t.uri));   // 保存済みタイルは読まない（差分だけ）
 	// カメラ近傍から遠方の順に＝最初のバッチが「目の前」になる。center 不明のタイルは末尾。
 	if (camCenter) {
 		const d2 = t => t.center ? (t.center[0] - camCenter[0]) ** 2 + (t.center[1] - camCenter[1]) ** 2 : Infinity;
 		leaves.sort((a, b) => d2(a) - d2(b));
 	}
-	console.log("[plateau] 読込", leaves.length, "tiles ←", base);
-	let tilesDone = 0;
-	prog({ done: 0, total: leaves.length });
-	const wardMask = wardBbox ? new Uint8Array(MASK_N * MASK_N) : null;   // 区単位で累積（wardBbox 無し=デバッグ直指定時はマスク無し）
-	const batches = [];
-	let sentCount = 0;                          // render worker へ送信済みのバッチ数（slow中は保留＝batches.length と乖離する）
+	console.log("[plateau] 読込", leaves.length, part ? `tiles（差分。全${totalTiles}枚中）←` : "tiles ←", base);
+	let tilesDone = totalTiles - leaves.length;
+	prog({ done: tilesDone, total: totalTiles });
+
+	// ── 逐次書き：バッチ完成のたび即 IDB へ（レコードに消費タイルURIを同梱＝再開の差分計算用）。
+	// meta は partial:true で毎バッチ更新＝どこで死んでも「meta が指す範囲」は常に有効。
+	// QuotaExceeded は最古区を緊急退避して1回だけ再試行、それでも駄目なら以後この区は書かない（表示は継続）。
+	let idbBytes = batchBytes(batches);
+	let idbFail = false;
+	const putBatch = async (i, mesh, uris) => {
+		const idb = await idbReady; if (!idb || idbFail) return;
+		const nb = idbBytes + batchBytes([mesh]);
+		const write = async () => {
+			await idb(`${base}#${i}`, { ...mesh, tiles: uris });
+			await idb(base + "#meta", { ver: IDB_FMT_VER, partial: true, count: i + 1, mask: wardMask, wardBbox, brid: !!brid, ts: Date.now(), bytes: nb });
+		};
+		try { await write(); idbBytes = nb; }
+		catch (e) {
+			if (e?.name === "QuotaExceededError") {
+				await idbEvict(base, true).catch(() => {});
+				try { await write(); idbBytes = nb; return; } catch (e2) { e = e2; }
+			}
+			idbFail = true;
+			console.warn("[plateau] IDB書込停止（この区は表示のみ継続）", e?.message ?? e);
+		}
+	};
+
 	let remaining = leaves, sortedFor = null;   // 前方から消費。カメラ更新があればバッチ境界で残りを並べ直す
 	while (remaining.length) {
-		if (stop()) { console.log("[plateau] キャンセル（視野離脱）", ward, `${leaves.length - remaining.length}/${leaves.length} tiles で打ち切り`); return "cancelled"; }
+		if (stop()) { console.log("[plateau] キャンセル（視野離脱）", ward, `${totalTiles - remaining.length}/${totalTiles} tiles で打ち切り`); return "cancelled"; }
 		if (latestCam && latestCam !== sortedFor) {   // 参照比較＝放送があった時だけ再ソート。区の中でも「今見ている側」から立つ
 			sortedFor = latestCam;
 			const c = latestCam, d2 = t => t.center ? (t.center[0] - c[0]) ** 2 + (t.center[1] - c[1]) ** 2 : Infinity;
@@ -506,15 +570,16 @@ async function loadPlateau(base, tiles, ward, wardBbox, camCenter, preload = fal
 		}
 		const slice = remaining.slice(0, BATCH_TILES);
 		remaining = remaining.slice(BATCH_TILES);
-		const mesh = await decodeBatch(base, slice, wardMask, wardBbox, () => prog({ done: ++tilesDone, total: leaves.length }), brid, stop, laneOf);
+		const mesh = await decodeBatch(base, slice, wardMask, wardBbox, () => prog({ done: ++tilesDone, total: totalTiles }), brid, stop, laneOf);
 		if (stop()) { console.log("[plateau] キャンセル（視野離脱・部分バッチ破棄）", ward); return "cancelled"; }   // 中断バッチは歯抜け＝送らない
 		if (!mesh) continue;
 		batches.push(mesh);
+		await putBatch(batches.length - 1, mesh, slice.map(t => t.uri));   // 失敗タイルも消費扱い＝完走時と同じ「歯抜けは再訪しない」規約
 		// fast lane のみ即送信（slow＝在庫化中は保留。promote で fast に戻った瞬間このバックログ送出が追いつく）
 		if (!preload && laneOf() === "fast") {
 			while (sentCount < batches.length) { await sendBatch(ward, sentCount, batches[sentCount], wardMask, wardBbox); sentCount++; }
 		}
-		console.log(`[plateau] batch ${batches.length} (${leaves.length - remaining.length}/${leaves.length} tiles) tris=${mesh.idx.length / 3}${laneOf() === "slow" ? " [slow]" : ""}`);
+		console.log(`[plateau] batch ${batches.length} (${totalTiles - remaining.length}/${totalTiles} tiles) tris=${mesh.idx.length / 3}${laneOf() === "slow" ? " [slow]" : ""}`);
 	}
 	if (!batches.length) return false;   // 葉0枚/全バッチ失敗＝空データ。警告は main 側で一回だけ（廃止区の残骸等）
 	// slow のまま完走した分も含め、未送信バックログを送り切る＝GPUに全量が揃う（main は "demoted" を受けて非表示常駐へ）。
@@ -526,7 +591,15 @@ async function loadPlateau(base, tiles, ward, wardBbox, camCenter, preload = fal
 		if (cache.size > CACHE_MAX) cache.delete(cache.keys().next().value);   // LRU: 最古を退避
 	}
 	console.log("[plateau] 完了", base, `(${batches.length} batches)`);
-	const storing = idbStore(base, batches, wardMask, wardBbox, brid);   // 永続化（表示経路はバックグラウンド＝待たせない）
+	// 完成印＝partial を外した meta（バッチ本体は逐次書き済み）＋LRU退避・孤児掃除。表示経路は待たせない。
+	const storing = (async () => {
+		const idb = await idbReady; if (!idb || idbFail) return;   // idbFail＝部分metaのまま残す（次回再開が続きを試す）
+		try {
+			await idb(base + "#meta", { ver: IDB_FMT_VER, count: batches.length, mask: wardMask, wardBbox, brid: !!brid, ts: Date.now(), bytes: idbBytes });
+			console.log("[plateau] IDB保存完了", base, `(${batches.length} batches)`);
+			await idbEvict(base);
+		} catch (e) { console.warn("[plateau] IDB保存失敗（表示には影響なし）", e); }
+	})();
 	if (preload) await storing;   // プレロードの本旨はIDB永続化＝書き終わるまで ack しない（ackより先にモーダルが一覧を引くと「済」にならない）
 	if (!preload && lane.get(base) === "slow") return "demoted";   // slow のまま完走＝視界外の在庫。main が非表示常駐へ落とす（表示はしない）
 	return true;
@@ -553,7 +626,7 @@ self.onmessage = async (e) => {
 		const keys = idb ? (await idb()) || [] : [];
 		for (const k of keys) if (typeof k === "string" && k.endsWith("#meta")) {
 			const m = await idb(k).catch(() => null);
-			if (m) items.push({ base: k.slice(0, -"#meta".length), count: m.count || 0, bytes: m.bytes || 0, ts: m.ts || 0 });
+			if (m) items.push({ base: k.slice(0, -"#meta".length), count: m.count || 0, bytes: m.bytes || 0, ts: m.ts || 0, partial: !!m.partial });
 		}
 		self.postMessage({ type: "idbList", items });
 		return;

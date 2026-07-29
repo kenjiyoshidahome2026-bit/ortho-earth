@@ -442,7 +442,11 @@ async function prefetchPlateauForViews(views) {
 	await plateauCatalogReady;
 	if (!PLATEAU_SETS.length) return;
 	const MARGIN = 0.012;   // 区bboxへの点距離ゲート（≈1.3km）＝着地視界＋隣接区まで拾う
-	const wanted = [], seen = new Set();
+	// 【順序＝一巡目に「各停止位置の中心区」】旧・台本順に停止位置ごと全区を流すと、序盤の停止位置の
+	// 隣接区で時間を使い切り後半の停止位置は素通しになる（iPhone のデモ実測＝重要シーンほど出ない）。
+	// 一巡目＝各停止位置の最寄り建物1区（全シーンの「主役」を先に確保）→二巡目＝残り（隣接区・橋梁）。
+	// 中断は plateauworker の部分再開が貯金に変える＝テーマ切替 reload で切れても続きから。
+	const perView = [];
 	for (const hash of views) {
 		const v = typeof hash === "string" ? parseViewHash(hash) : null;
 		if (!v || v.zoom < PLATEAU_AUTO_Z) continue;
@@ -450,9 +454,12 @@ async function prefetchPlateauForViews(views) {
 		const pd2 = s => { const dx = Math.max(s.bbox[0] - p[0], 0, p[0] - s.bbox[2]), dy = Math.max(s.bbox[1] - p[1], 0, p[1] - s.bbox[3]); return dx * dx + dy * dy; };
 		const near = PLATEAU_SETS.filter(s => !plateauFailed.has(s.name) && pd2(s) < MARGIN * MARGIN).sort((a, b) => pd2(a) - pd2(b));
 		// 建物枠＋橋梁(noMask)別枠＝autoPlateau の選抜と同じ構成＝着地時に立つ区を過不足なく仕込む
-		near.filter(s => !s.noMask).slice(0, PLATEAU_MAX_ACTIVE).concat(near.filter(s => s.noMask).slice(0, PLATEAU_EXTRA_ACTIVE))
-			.forEach(s => { if (!seen.has(s.name)) { seen.add(s.name); wanted.push(s); } });
+		perView.push({ bld: near.filter(s => !s.noMask).slice(0, PLATEAU_MAX_ACTIVE), brid: near.filter(s => s.noMask).slice(0, PLATEAU_EXTRA_ACTIVE) });
 	}
+	const wanted = [], seen = new Set();
+	const take = s => { if (s && !seen.has(s.name)) { seen.add(s.name); wanted.push(s); } };
+	for (const v of perView) take(v.bld[0]);                                    // 一巡目＝各停止位置の中心区
+	for (const v of perView) [...v.bld.slice(1), ...v.brid].forEach(take);      // 二巡目＝隣接区・橋梁
 	if (!wanted.length) return;
 	console.log(`[demo] PLATEAU先読み ${wanted.length}区（台本から導出）: ${wanted.map(s => s.name).join("・")}`);
 	plateauPrefetchBusy = true;   // 先読み中＝autoPlateau の建物枠を1つ譲る（総同時デコード2区の保証）

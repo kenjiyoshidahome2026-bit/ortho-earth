@@ -72,18 +72,23 @@ export function createPlateauDb({ getSets, idbList, idbDelete, preload, show }) 
 		if (busy.has(set.name)) return;
 		busy.add(set.name);
 		try {
-			if (cached.has(set.base)) await idbDelete(set.base);
-			else { renderRow(rows.get(set.name), "待機中…"); await preload(set); }   // 進捗は onProg が上書きする
+			const c = cached.get(set.base);
+			if (c && !c.partial) await idbDelete(set.base);
+			else { renderRow(rows.get(set.name), "待機中…"); await preload(set); }   // 途中＝続きから（部分再開）。進捗は onProg が上書きする
 		} finally { busy.delete(set.name); }
 		refresh();
 	}
 	function renderRow(r, progText) {
 		if (progText != null) { r.statusEl.textContent = progText; r.actEl.style.display = "none"; r.drawEl.style.display = "none"; return; }
 		const c = cached.get(r.set.base);
-		if (c) {
+		if (c && !c.partial) {
 			r.statusEl.textContent = `済 ${fmtMB(c.bytes) || c.count + " batch"}`;
 			r.drawEl.style.display = "";   // 読み込み済み＝明示的な「描画」ボタン
 			r.actEl.textContent = "削除"; r.actEl.className = "pdb-act del";
+		} else if (c) {   // 中断の貯金（partial）＝続きからプレロードできる
+			r.statusEl.textContent = `途中 ${fmtMB(c.bytes) || c.count + " batch"}`;
+			r.drawEl.style.display = "none";
+			r.actEl.textContent = "続きから"; r.actEl.className = "pdb-act";
 		} else {
 			r.statusEl.textContent = ""; r.drawEl.style.display = "none";
 			r.actEl.textContent = "プレロード"; r.actEl.className = "pdb-act";
