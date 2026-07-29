@@ -12,6 +12,8 @@ let gint = null;   // gint（知性の層＝海岸線/14条筆/AI層）＝同一
 let terrain = null, pendingLabels = null;   // pendingLabels: cam 未着で標高付与を保留した最新ラベル集合
 // ?perf=1（init.perf）＝2秒毎にフレーム内訳を console へ：map/gint の CPU 発行時間・フレームEMA・JSヒープ・解像度段。
 let perfOn = false, pfN = 0, pfMap = 0, pfGint = 0, pfLast = 0;
+// ?mem=1（init.mem）＝常駐メモリ台帳を main へ~2Hzで送る（terrain の LRU バイト＋JSヒープ）。main が plateau/tiles と合算して HUD 表示。
+let memOn = false, memLast = 0;
 // GPU 実時間（EXT_disjoint_timer_query_webgl2）：CPU発行が0.1msでも ema が33ms＝「GPUが重い」のか
 // 「rAF/合成のカデンス」なのかを切り分ける本丸。map/gint を兄弟スパンで計測（TIME_ELAPSED は入れ子不可）。
 let tqExt = null;
@@ -75,6 +77,7 @@ onmessage = e => {
 			// 同じ glCam で1パス＝地図と同フレーム同カメラ（別canvas時代の「1フレーム級遅れて泳ぐ」の根治）。
 			gint = createGintLayer(glRef, { requestDraw: () => { dirty = true; } });
 			perfOn = !!m.perf;
+			memOn = !!m.mem;
 			self.__perfElev = perfOn;   // renderer の標高パイプライン計器（[elev] 行）を点灯
 			// timer query は perf HUD 専用から常時初期化へ＝GPU格付け（スピードビニング）の物差しに使う。
 			// 非対応環境（Safari等）は null＝格付けが立たない＝手前詳細化オフの安全側。
@@ -359,6 +362,10 @@ function frame() {
 			const animating = labelLayer && (opts?.skipMain ? (labelLayer.clear(), false) : labelLayer.draw(cam));    // ラベルも同じ cam で（＝完全同期）
 			if (animating || fogAnim) dirty = true;                  // フェード/フォグ追従の継続は自前で次フレーム（main関与なし）
 			if (!sentFrame1) { sentFrame1 = true; postMessage({ type: "frame1" }); }   // 初描画成功＝main の起動ウォッチドッグを解除
+			if (memOn && performance.now() - memLast > 500) {   // ?mem=1：常駐メモリ台帳を~2Hzで main へ（terrain LRU＋JSヒープ。plateau/tiles は main 側が持つ）
+				memLast = performance.now();
+				postMessage({ type: "mem", terrain: terrain?.bytes?.() || 0, heap: performance.memory?.usedJSHeapSize || 0 });
+			}
 		}
 		if (glRef && !sentCtxLost && glRef.isContextLost()) { sentCtxLost = true; postMessage({ type: "contextlost" }); }   // GPU喪失＝mainが立て直す
 	} catch (e) {

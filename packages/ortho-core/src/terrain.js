@@ -354,5 +354,5 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 		return true;
 	}
 	// prefetch＝視野に関係なくセルをRAM/IDBへ温める（例: 全球R90の先読み＝地球ぐるぐるが最初から途切れない）
-	return { ensure, sampleElev, prefetch: getCell };
+	return { ensure, sampleElev, prefetch: getCell, bytes: () => tileBytes };   // bytes: 標高LRU の常駐実バイト（?mem=1 HUD が render worker 経由で吸い上げる）
 }

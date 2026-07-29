@@ -197,6 +197,10 @@ const labelOffscreen = labelCanvas.transferControlToOffscreen();
 const renderWorker = new Worker(new URL("./renderworker.js", import.meta.url), { type: "module" });
 // scene worker → render worker の直結パイプ（main を経由しない geometry）。両端を各 worker へ渡す。
 const sceneChan = new MessageChannel();
+// ?maxact=N / ?tbudget=N ＝低メモリ端末の安全側の絞りを実機で緩めて jetsam 完走を A/B する数値ノブ（?nomd と同格）。
+// 狙いは②GPU常駐（表示区数）と④タイル予算だけを動かすこと＝①過渡デコードメモリ（jetsamの主犯）には触れない
+// ＝bldCap・BATCH_TILES・TILE_CONCURRENCY は据置。基準機は 4GB 実機（タブ予算は 8GB 機の~1.4GBより小さい）。
+const qNum = (re, def) => { const m = location.search.match(re); return m ? +m[1] : def; };
 // ?nomd=1 ＝multi_draw（タイルGPU常駐）を切って従来の CPU merge へ強制フォールバック。同一ビルドで A/B 比較する検証ノブ。
 // 低メモリ端末は既定OFF：iOSではWebGLバッファがWebContentプロセス＝タブ予算(~1.4GB)に直接乗り、常駐プールは
 // 伸びる一方＝鉄道地図(z14.5都心)級の密度でjetsam（iPhone 16 Pro実機の?nomd=1 A/Bでデモ完走＝犯人確定）。
@@ -206,7 +210,10 @@ const noMultiDraw = /[?&]nomd=1/.test(location.search) || (LOW_MEM && !/[?&]md=1
 const noGint = /[?&]nogint=1/.test(location.search);
 // ?perf=1 ＝render worker がフレーム内訳（map/gint の CPU ms・フレームEMA・JSヒープ）を2秒毎に console へ出す。
 const perfLog = /[?&]perf=1/.test(location.search);
-renderWorker.postMessage({ type: "init", canvas: offscreen, labelCanvas: labelOffscreen, elevBase: TERR_EXAG / EARTH_M, terrainExag: TERR_EXAG, earthM: EARTH_M, apiUrl: "https://api.ortho-earth.com", scenePort: sceneChan.port2, noMultiDraw, perf: perfLog, lowMem: LOW_MEM }, [offscreen, labelOffscreen, sceneChan.port2]);
+// ?mem=1 ＝常駐メモリHUD（plateau＋tiles＋terrain を合算・走行後ピーク・4GB機予算まで残り）を画面右上に表示。過渡①は非表示。
+const memHud = /[?&]mem=1/.test(location.search);
+let memTerrain = 0, memHeap = 0;   // render worker から届く terrain LRU バイトと JS ヒープ（?mem=1 時のみ更新）
+renderWorker.postMessage({ type: "init", canvas: offscreen, labelCanvas: labelOffscreen, elevBase: TERR_EXAG / EARTH_M, terrainExag: TERR_EXAG, earthM: EARTH_M, apiUrl: "https://api.ortho-earth.com", scenePort: sceneChan.port2, noMultiDraw, perf: perfLog, mem: memHud, lowMem: LOW_MEM }, [offscreen, labelOffscreen, sceneChan.port2]);
 // 薄いプロキシ：有線(関数呼び)を無線(postMessage)に載せ替え。set/draw 統一済なので pipeline/overlay は無改造。
 // draw は worker 側で「cam を記録するだけ」に受け、実描画は worker 自前 rAF が最新 cam で回す（worker-driven）。
 // 標高アトラス(terrain)も worker 側に住む＝main はもう視野→セル計算・ダウンサンプルを一切やらない。読込インジケータだけ elevPending で受ける。
@@ -258,6 +265,7 @@ renderWorker.onmessage = e => {
 		else fatalOverlay("GPU の描画が中断されました", "描画コンテキストが失われました（GPUメモリ不足などで起こります）。他のタブやアプリを閉じてから再読み込みしてください。", true);
 		return;
 	}
+	if (d.type === "mem") { memTerrain = d.terrain || 0; memHeap = d.heap || 0; return; }   // ?mem=1：render worker からの terrain LRU バイト＋JSヒープ（HUD が合算表示）
 	if (d.type !== "elevPending") return;
 	const { count, range, stat } = d;
 	elevBusy = count > 0;   // 標高タイル読込中＝PLATEAU先読みポンプの柵（地形シーンの起伏が先・下記 runPrefetch）
@@ -321,7 +329,7 @@ if (LOW_MEM) console.log("[plateau] 低メモリ端末モード：同時1区・w
 // 同時アクティブ地区数の上限＝GPUメモリを有界にする（密集地区(都心部)1件あたりGPUバッファ~100-140MB）。
 // デスクトップは4区（計~0.5GB＝余裕内）＝高チルトで「手前の区＋正面の区」を同時に立てる。
 // 4はシェーダの被覆マスクスロット上限（glsl u_plateauMask0..3・renderer MAX_PLATEAU_MASKS）＝これ以上は基図建物を伏せられず二重に立つ。
-const PLATEAU_MAX_ACTIVE = LOW_MEM ? 1 : 4;
+const PLATEAU_MAX_ACTIVE = qNum(/[?&]maxact=(\d+)/, LOW_MEM ? 1 : 4);   // ?maxact=2 で同時表示2区（千代田⇄中央カタカタ根治のA/B）。過渡は bldCap 据置で増やさない
 // マスク無しセット（橋梁等 noMask:true）の同時数＝別枠。被覆マスクのシェーダスロット(4)を使わないので
 // 建物4区の構図を奪わずに載る。橋梁データは区あたり数MB〜数十MB＝建物より一桁軽い。
 const PLATEAU_EXTRA_ACTIVE = LOW_MEM ? 1 : 4;
@@ -371,10 +379,13 @@ function plateauRetain(name, set) {   // 常駐登録＋LRU touch。予算超過
 
 // PLATEAU worker プール：tileset fetch・Draco解凍・ECEF変換・重複面dedup・RTE・被覆マスク、全部ここでやる（メインスレッドはブロックしない）。
 // 密集地区(都心部)1件のデコードは実測40〜50秒かかる重い処理＝worker化しないとその間UIが完全に固まる。
-// PLATEAU_MAX_ACTIVE と同数だけ用意＝同時アクティブな2地区が別コアで並行デコードできる。
+// 非LOW_MEM は PLATEAU_MAX_ACTIVE と同数だけ用意＝同時アクティブな複数地区が別コアで並行デコードできる。
 // メッシュ本体（密集区で~160MB の typed array）は sceneChan と同じく worker→render worker の直結ポートで渡す。
 // main 経由で postMessage すると transfer 無しの構造化クローン＝メインスレッドが数百msブロックされるため、main には ok/失敗の ack しか流さない。
-const PLATEAU_NW = Math.min(PLATEAU_MAX_ACTIVE, (navigator.hardwareConcurrency || 4) - 1) || 1;
+// ⚠ LOW_MEM は worker 1本固定＝maxact と非連動。各 worker は loaders.gl(Draco wasm/3d-tiles) を丸ごと抱える＝起動ベースラインが重く、
+// maxact=2 で 2本に増やすと PLATEAU 描画前（2D段階）にタブ予算を超えて落ちた（8GB実機で実測 2026-07-30）。
+// bldCap=1 で同時デコードは1区ずつ＝worker 1本で maxact=2 の「表示2区」も順次達成できる（並行デコードは不要）。
+const PLATEAU_NW = LOW_MEM ? 1 : (Math.min(PLATEAU_MAX_ACTIVE, (navigator.hardwareConcurrency || 4) - 1) || 1);
 const plateauWorkers = [], plateauPending = new Map();
 let plateauReqId = 0;
 let plateauCamSent = 0;   // カメラ放送のスロットル（ロード中のみ~4Hz）
@@ -777,7 +788,7 @@ const { tiles, requestMerge, destroy: destroyPipeline } = createPipeline({
 	// 低メモリ端末はタイル予算を絞る：multi_draw の常駐プールは tess 予算の約2倍（idx u32化・線分32B化）を
 	// GPU に占める＝既定の自動予算(48MB)だと従来比で実質メモリが膨らみ、PLATEAU の百MB級が乗った時に
 	// タブごと落ちる（スマホ実機で発生）。24MB でも可視タイル(keep)は余裕で収まり、削るのはパン戻り履歴だけ。
-	memBudgetMB: LOW_MEM ? 24 : undefined,
+	memBudgetMB: qNum(/[?&]tbudget=(\d+)/, LOW_MEM ? 24 : 0) || undefined,   // ?tbudget=48 でタイル予算を戻すA/B（未指定=LOW_MEM 24 / 非LOW_MEM auto、?tbudget=0 で強制auto）
 	// merge の ack（fallback＝CPU merge 経路のみ。multi_draw では renderer 適用時の dlApplied が同じ関数を呼ぶ）
 	onMerged: (slot, sig) => onSceneApplied(slot, sig),
 });
@@ -1897,6 +1908,30 @@ function render() {
 // --- 統合スパイク：geopbf/e-Stat を overlay に描き、クリックで identify（実装は overlay.js）---
 const overlay = createOverlay({ renderer, cam, size, dpr, requestDraw: () => { needsDraw = true; } });
 window.__loadOverlay = overlay.loadOverlay;   // geopbf 名から（全球等）
+// ?mem=1：常駐メモリ台帳 HUD。plateau（表示＋常駐）＋tiles（tess）＋terrain（標高LRU）を合算し、走行後のピークと
+// 「4GB機の推定タブ予算(~0.9GB)まで残り」を右上に出す。過渡①デコードは台帳に乗らない＝別途コメント実測(~0.3GB/区)で補正する前提。
+if (memHud) {
+	const memEl = document.createElement("div");
+	memEl.style.cssText = "position:fixed;top:8px;right:8px;z-index:99999;font:11px/1.45 ui-monospace,monospace;background:rgba(0,0,0,.72);color:#4ade80;padding:6px 9px;border-radius:5px;white-space:pre;pointer-events:none;text-align:right";
+	document.body.appendChild(memEl);
+	const BUDGET = 900 * 1048576;   // 4GB機の推定タブ予算（8GB機の~1.4GBより小さい）
+	const mb = b => (b / 1048576).toFixed(0);
+	let peak = 0;
+	setInterval(() => {
+		const names = new Set([...plateauActive.keys(), ...plateauResident.keys()]);
+		let plat = 0; for (const n of names) plat += bytesOf(n, plateauActive.get(n) || plateauResident.get(n));
+		const ts = tiles.stats();
+		const total = plat + ts.bytes + memTerrain;
+		if (total > peak) peak = total;
+		memEl.textContent =
+			`PLATEAU ${mb(plat)}MB（表示${plateauActive.size}区）\n` +
+			`tiles   ${mb(ts.bytes)} / ${mb(ts.budgetBytes)}MB\n` +
+			`terrain ${mb(memTerrain)}MB` + (memHeap ? `\nJS heap ${mb(memHeap)}MB` : ``) + `\n` +
+			`常駐計  ${mb(total)}MB（peak ${mb(peak)}）\n` +
+			`4GB予算 残 ${mb(BUDGET - peak)} / ${mb(BUDGET)}MB\n` +
+			`※過渡①は非表示（+~0.3GB/区）`;
+	}, 500);
+}
 window.__loadEstat = overlay.loadEstat;
 window.__tokyo = () => overlay.loadEstat(Array.from({ length: 23 }, (_, i) => 13101 + i));   // 東京23区の小地域
 // 初期 overlay なし（全球 land は検証用。__tokyo() や __loadOverlay(name) で任意に）
