@@ -21,9 +21,12 @@ const staleDSM = (name, obj) => {
 // R90/R10=bucket・R01=JAXA（ALOS）を worker で読み、IDB キャッシュ。R01 は ALOS 未整備域では null。
 export async function createTileLoader(opts = {}) {
 	if (opts.apiUrl) setApiUrl(opts.apiUrl);   // メイン側の bucket/JAXA fetch（index_alos 等）に必要
-	const cache = await Cache("GIS/alt");
-	let index = await cache("index_alos");
-	if (!index) { index = await index_alos(); cache("index_alos", index); }
+	// IDB 不可（プライベートブラウズ/破損）は「キャッシュ無しで続行」へ縮退＝標高システムを一発死させない
+	//（旧・素の await は reject が createTileLoader ごと落とし、山が永久に平らになる＝iPhone私的モード実症状）。
+	// worker 側（altpbf.js load）は元から getCache().catch(()=>null) で同じ縮退＝これで経路が揃う。
+	const cache = await Cache("GIS/alt").catch(e => { console.warn("[tileLoader] IDB無効（キャッシュ無しで続行）", e?.message ?? e); return null; });
+	let index = cache ? await Promise.resolve(cache("index_alos")).catch(() => null) : null;
+	if (!index) { index = await index_alos(); if (cache) Promise.resolve(cache("index_alos", index)).catch(() => {}); }
 	const existAlos = (lng, lat) => index[encodeName(lng, lat)];
 	// worker プール：1本直列だと初訪問時に視野分のセル（R10で最大64枚）が1枚ずつ順番待ちになり
 	// 地形の立ち上がりが数倍遅い。各workerは従来通り1件ずつ直列（応答FIFO＝取りこぼさない）で、
@@ -79,10 +82,11 @@ export async function createTileLoader(opts = {}) {
 
 export async function createGetHeight(opts = {}) {
 	const dire = `GIS/alt`;
-	const cache = await Cache(dire);
+	// createTileLoader と同じ縮退（IDB無し環境で標高取得ごと死なない）
+	const cache = await Cache(dire).catch(() => null);
 	const indexName = "index_alos";
-	const index = (await cache(indexName)) || (await index_alos());
-	cache(indexName, index);
+	const index = (cache ? await Promise.resolve(cache(indexName)).catch(() => null) : null) || (await index_alos());
+	if (cache) Promise.resolve(cache(indexName, index)).catch(() => {});
 	const exist = (lng,lat) => index[encodeName(lng, lat)];
 	let isLoading = null;
 	const level1 = opts.level1||7, level2 = opts.level2||12;

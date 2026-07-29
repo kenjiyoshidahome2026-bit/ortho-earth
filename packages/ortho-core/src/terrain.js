@@ -32,9 +32,18 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 		}
 	}
 	let loadTile = null;          // altpbf createTileLoader（非同期セットアップ）
-	createTileLoader({ apiUrl })
+	// 【一発死の禁止】旧・単発 await＝setup が一度落ちると標高システム全体が永久沈黙（loadTile=null →
+	// ensure が何もしない → トーストすら出ない → 山が平ら。借り物 iPhone13 のプライベートブラウズで実症状）。
+	// IDB 起因は altpbf 側で「キャッシュ無しで続行」へ縮退済み＝ここは残る失敗（index_alos のネットワーク断）
+	// を指数バックオフで再試行。成立時の requestDraw → 次の settle の ensure が自然に拾って自己回復する。
+	let loaderTries = 0;
+	const setupLoader = () => createTileLoader({ apiUrl })
 		.then(fn => { loadTile = fn; requestDraw(); })
-		.catch(e => console.error("[tileLoader] setup failed", e));
+		.catch(e => {
+			console.error("[tileLoader] setup failed", e, loaderTries < 8 ? "→ 再試行" : "→ 打ち切り");
+			if (loaderTries++ < 8) setTimeout(setupLoader, Math.min(30000, 1000 * 2 ** loaderTries));
+		});
+	setupLoader();
 
 	// 地形読込インジケータ：R01 初回は JAXA から数秒かかるので「何が起きているか」を明示（表示自体は呼び出し側=DOMを持つ側の責務）。
 	let pendingElev = 0;
