@@ -342,6 +342,7 @@ const plateauAutoLoading = new Map();      // autoPlateau 発のロード中地�
 const plateauDemoted = new Set();          // slow lane（在庫化）中の地区名。再訪で promote＝fast 復帰
 let plateauPrefetchBusy = false;           // デモ先読みが直列デコード中＝autoPlateau の建物枠を1つ譲る（総同時2区の保証）
 const plateauFailed = new Set();           // 葉0枚/デコード失敗の地区名＝廃止区(浜松西区22133等)の残骸。二度と掴まない（毎onMoveの再挑戦スパムを断つ）
+let plateauPinned = new Set();             // 台本 plateau: リスト記載の地区名＝視界内なら選抜キャップ無視で強制表示（デモ▶で設定・カタカタ根治）
 function plateauHide(name) {   // 視野外れ＝非表示（GPU常駐は維持）。常駐対象外（低メモリ端末）はそのまま削除
 	if (plateauResident.has(name)) renderer.set("plateauVis", false, name);
 	else renderer.set("plateauMesh", null, name);
@@ -446,6 +447,8 @@ async function prefetchPlateauForViews(views, names) {
 			.map(n => { const s = PLATEAU_SETS.find(x => x.name === n); if (!s) bad.push(n); return s; })
 			.filter(s => s && !plateauFailed.has(s.name));
 		if (bad.length) console.warn("[demo] plateau 指定名がカタログに無い（台本の誤記？）:", bad.join("・"));
+		// ピン留め＝リスト記載の区は autoPlateau の選抜キャップを無視して強制表示（デモ終了後もセッション中は有効）
+		plateauPinned = new Set(wanted.map(s => s.name));
 		return runPrefetch(wanted, "台本指定");
 	}
 	const MARGIN = 0.012;   // 区bboxへの点距離ゲート（≈1.3km）＝着地視界＋隣接区まで拾う
@@ -617,8 +620,17 @@ function autoPlateau(settled = false) {
 	const c2 = s => { const cx = (s.bbox[0] + s.bbox[2]) / 2, cy = (s.bbox[1] + s.bbox[3]) / 2; return (cx - cam.center[0]) ** 2 + (cy - cam.center[1]) ** 2; };
 	const near = (a, b) => (d2(a) - d2(b)) || (m2(a) - m2(b)) || (c2(a) - c2(b));
 	// 選抜は建物（被覆マスクのスロット4を使う）と橋梁等（noMask＝スロット不要）で別枠＝橋が建物4区の枠を奪わない。
-	const hits = hitsAll.filter(s => !s.noMask).sort(near).slice(0, PLATEAU_MAX_ACTIVE)
-		.concat(hitsAll.filter(s => s.noMask).sort(near).slice(0, PLATEAU_EXTRA_ACTIVE));
+	// 台本 plateau: リスト記載の区＝ピン留め＝視界に入っていれば選抜キャップを無視して同時表示
+	//（マスクスロット上限=4区まで）。LOW_MEM の同時1区キャップは、東京駅〜丸の内の滑走で最寄り区が
+	// 千代田⇄中央と入れ替わるたび「片方を消して片方を読み直す」スラッシング（カタカタ）を起こしていた
+	//（lowMem=常駐ゼロ＝flip 毎に再ロード）。両方立てば入れ替わり自体が消える（Kenji 指定 2026-07-29）。
+	const capMerge = (list, cap) => {
+		const sel = list.slice(0, cap);
+		for (const s of list.slice(cap)) if (plateauPinned.has(s.name) && sel.length < 4) sel.push(s);
+		return sel;
+	};
+	const hits = capMerge(hitsAll.filter(s => !s.noMask).sort(near), PLATEAU_MAX_ACTIVE)
+		.concat(capMerge(hitsAll.filter(s => s.noMask).sort(near), PLATEAU_EXTRA_ACTIVE));
 	const hitNames = new Set(hits.map(h => h.name));
 	if (settled) demoteStale(hitNames);   // 視界確定＝現地点の優先度MAX。視界外の在庫ロードは slow へ
 	for (const name of [...plateauActive.keys()]) {
