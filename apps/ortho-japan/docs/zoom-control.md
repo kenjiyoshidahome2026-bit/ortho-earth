@@ -11,7 +11,9 @@ engine（`packages/ortho-core`）＝純粋なカメラ/入力/飛行/URLの数�
 すべての土台。zの目盛りは「256px世界」＝**赤道一周 = 2^z × 256 CSSpx**。v1(d3-geo)・地理院地図・OSM と同一目盛り。
 
 - `WORLD_PX = 256` — [camera.js:9](../../packages/ortho-core/src/camera.js#L9)
+
 - 旧実装は 512px世界（MapLibre流）で、同じ視野でもzが1小さく、gint式（256前提）やDEM段閾値と1段ズレていた。commit `1bdb053` / `f3c7694` の「256統一」でここへ寄せた。
+
 - スケール⇄zの相互変換は**必ずこの定数を通す**。`scale = 40.74·2^z`（`40.74 = 256/2π`）、逆に `z = log2(scale/40.74)`。
   - [gintUtility.js:48](../../packages/ortho-map/src/workers/shared/gintUtility.js#L48)、workers各所
 - localStorageのキーも `ortho-japan.cam256`（[app.js:670](../app.js#L670)）へ変更＝旧512世界の保存ビュー（zが1ズレ）を読まないため。
@@ -23,16 +25,21 @@ engine（`packages/ortho-core`）＝純粋なカメラ/入力/飛行/URLの数�
 中枢は [camera.js](../../packages/ortho-core/src/camera.js) の `cameraState()`。
 
 ### z → カメラ距離
+
 ```
 radPerDevPx = 2π / (2^z · 256 · dpr)          // camera.js:31 単位球の「1デバイスpxあたりラジアン」
 camDist      = radPerDevPx · (H/2) / tan(fovy/2)  // camera.js:32 カメラ高さ（単位球ラジアン≈弧長）
 ```
+
 - 単位球の赤道弧長 2π を `2^z·256` CSSpx（×dpr）で割ったのが角解像度。メートル毎ピクセルの球版。
+
 - 透視投影の逆算：距離 `camDist`・半画角 `fovy/2` のとき画面高の半分 `H/2` px がちょうど狙いのラジアンを張るようにカメラを置く。**zが大きい＝camDistが小さい＝地表に近い**。
 
 ### camDist → view/proj行列（mat4）
+
 [camera.js:35-61](../../packages/ortho-core/src/camera.js#L35-L61)
 - eye = `T + back·camDist`（T＝単位球上の注視点）。lookAt + perspective で MVP を生成。
+
 - **near/far が camDist にスケール**：`near = max(camDist·(0.3 − 0.27·pf), 1e-7)`（`pf = min(1, pitch/60°)`）、`far = limb·1.15 + camDist + push`（`limb`＝地平線距離）。極端なオーバーズームでも深度精度を保つため範囲をタイトに保つ。
 - `mvp[0],[4],[8],[12]` を符号反転＝真上から見て東＝画面右。
 
