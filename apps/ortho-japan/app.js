@@ -460,7 +460,13 @@ async function prefetchPlateauForViews(views) {
 			? [p[0] + Math.sin(v.bearing) * NEIGH / Math.max(0.2, Math.cos(v.lat * D2R)), p[1] + Math.cos(v.bearing) * NEIGH]
 			: p;
 		const pd2 = (s, q) => { const dx = Math.max(s.bbox[0] - q[0], 0, q[0] - s.bbox[2]), dy = Math.max(s.bbox[1] - q[1], 0, q[1] - s.bbox[3]); return dx * dx + dy * dy; };
-		const near = PLATEAU_SETS.filter(s => !plateauFailed.has(s.name) && pd2(s, p) < MARGIN * MARGIN).sort((a, b) => pd2(a, p) - pd2(b, p));
+		// 同点タイブレーク＝重心距離（autoPlateau の near と同じ規約）。bbox は矩形＝密集地では複数区の
+		// bbox が停止点を含み pd2=0 の同点になり、旧・カタログ配列順の成り行きで
+		// 東京駅→港区／スカイツリー→荒川区／新宿→渋谷区 と「主役でない区」を先読みしていた
+		//（＝正しい区はシーン到着後にゼロから読む二重読み＝iPhone クラッシュ圧の正体。実カタログで再現確認済み）。
+		const c2 = s => { const cx = (s.bbox[0] + s.bbox[2]) / 2, cy = (s.bbox[1] + s.bbox[3]) / 2; return (cx - p[0]) ** 2 + (cy - p[1]) ** 2; };
+		const near = PLATEAU_SETS.filter(s => !plateauFailed.has(s.name) && pd2(s, p) < MARGIN * MARGIN)
+			.sort((a, b) => (pd2(a, p) - pd2(b, p)) || (c2(a) - c2(b)));
 		// 建物枠＋橋梁(noMask)別枠＝autoPlateau の選抜と同じ構成＝着地時に立つ区を過不足なく仕込む
 		perView.push({
 			bld:  near.filter(s => !s.noMask).slice(0, PLATEAU_MAX_ACTIVE),
@@ -480,9 +486,15 @@ async function prefetchPlateauForViews(views) {
 		// 並行2区（Kenji 指定 2026-07-29「2つずつぐらい読まないと間に合わない」）。直列1区は帯域を
 		// 使い切れず（fetch レイテンシの谷）、東京駅到着までに主役区が揃わなかった。到着済みの区は
 		// autoPlateau がIDB直読みで立てる。base ハッシュの worker 固定ルーティングは並行でも維持される。
+		// 【本番最優先】可視の自動ロード（PLATEAUシーンで今まさに立てている区）が走っている間は
+		// 次の先読みを始めない＝帯域・Dracoデコード・IDB書き込みを全部シーンへ明け渡す
+		//（plateau シーン中の二重読み＝iPhone クラッシュ圧／タイル到着ジッタの元）。demoted（在庫slow）は
+		// 待たない＝背景同士。既に走っている先読みは中断しない（多くは同区で inflight 合流する）。
+		const visibleBusy = () => [...plateauAutoLoading.keys()].some(n => !plateauDemoted.has(n));
 		let wi = 0;
 		const pump = async () => {
 			for (;;) {
+				while (visibleBusy()) await new Promise(r => setTimeout(r, 1000));
 				const s = wanted[wi++];
 				if (!s) return;
 				await plateauPreload(s);
