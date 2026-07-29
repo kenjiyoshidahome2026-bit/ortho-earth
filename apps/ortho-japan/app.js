@@ -214,6 +214,7 @@ const renderer = {
 	set: (cmd, data, prop) => renderWorker.postMessage({ type: "set", cmd, data, prop }),
 	draw: (cam, opts) => renderWorker.postMessage({ type: "draw", cam, opts }),
 };
+let elevBusy = false;   // 標高タイル（R01/R10/R90）読込中＝PLATEAU先読みの柵（デモの地形シーンで起伏が立たない事故の防止）
 const elevEl = document.createElement("div");
 elevEl.id = "elev-toast";   // スタイルは style.css
 mapEl.appendChild(elevEl);
@@ -259,6 +260,7 @@ renderWorker.onmessage = e => {
 	}
 	if (d.type !== "elevPending") return;
 	const { count, range } = d;
+	elevBusy = count > 0;   // 標高タイル読込中＝PLATEAU先読みポンプの柵（地形シーンの起伏が先・下記 runPrefetch）
 	if (count > 0 && layerState.terrain) { elevEl.style.display = "block"; elevEl.textContent = `⛰ 地形読込中 ${range === 1 ? "R01（秒単位）" : range === 10 ? "R10" : "R90"} … ×${count}`; }
 	else elevEl.style.display = "none";
 };
@@ -500,11 +502,12 @@ async function runPrefetch(wanted, how) {
 		// 並行2区（Kenji 指定 2026-07-29「2つずつぐらい読まないと間に合わない」）。直列1区は帯域を
 		// 使い切れず（fetch レイテンシの谷）、東京駅到着までに主役区が揃わなかった。到着済みの区は
 		// autoPlateau がIDB直読みで立てる。base ハッシュの worker 固定ルーティングは並行でも維持される。
-		// 【本番最優先】可視の自動ロード（PLATEAUシーンで今まさに立てている区）が走っている間は
-		// 次の先読みを始めない＝帯域・Dracoデコード・IDB書き込みを全部シーンへ明け渡す
-		//（plateau シーン中の二重読み＝iPhone クラッシュ圧／タイル到着ジッタの元）。demoted（在庫slow）は
-		// 待たない＝背景同士。既に走っている先読みは中断しない（多くは同区で inflight 合流する）。
-		const visibleBusy = () => [...plateauAutoLoading.keys()].some(n => !plateauDemoted.has(n));
+		// 【本番最優先】①可視の自動ロード（PLATEAUシーンで今まさに立てている区）②標高タイル読込
+		//（elevBusy＝地形シーンの起伏。iPhone13実測：▶直後から全速の先読みが富士山〜阿蘇帯で標高タイルと
+		// 帯域/IDBを取り合い「標高が表示されない」）——のどちらかが走っている間は次の先読みを始めない＝
+		// 帯域・Dracoデコード・IDB書き込みを全部シーンへ明け渡す。demoted（在庫slow）は待たない＝背景同士。
+		// 既に走っている先読みは中断しない（多くは同区で inflight 合流する）。
+		const visibleBusy = () => elevBusy || [...plateauAutoLoading.keys()].some(n => !plateauDemoted.has(n));
 		let wi = 0;
 		const pump = async () => {
 			for (;;) {
