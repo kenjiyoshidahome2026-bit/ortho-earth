@@ -444,22 +444,35 @@ async function prefetchPlateauForViews(views) {
 	// 【順序＝一巡目に「各停止位置の中心区＋橋梁」】旧・台本順に停止位置ごと全区を流すと、序盤の停止位置の
 	// 隣接区で時間を使い切り後半の停止位置は素通しになる（iPhone のデモ実測＝重要シーンほど出ない）。
 	// 一巡目＝各停止位置の最寄り建物1区＋橋梁（サイズ一桁小さい割にシーンの主役＝レインボーブリッジ等。
-	// Kenji 指定 2026-07-29）→二巡目＝残りの隣接建物区。
+	// Kenji 指定 2026-07-29）→二巡目＝「視線の先に居る」隣接建物区だけ。
+	// 隣接区の要否は距離でなく構図＝チルト時は視界が bearing 方向へ伸びる。前方点（中心から視線方向へ
+	// ~900m）への近さで裁く＝東京駅シーン(東向き)の中央区(八重洲)は入り、新宿シーン(北東向き)の南隣・
+	// 渋谷区（大区＝読むのに時間がかかる割に構図外）は落ちる（Kenji 指摘 2026-07-29）。
 	// 中断は plateauworker の部分再開が貯金に変える＝テーマ切替 reload で切れても続きから。
+	const NEIGH = 0.008;   // 隣接区の前方点ゲート（≈900m）。MARGIN より狭い＝構図に実際入る近さだけ
 	const perView = [];
 	for (const hash of views) {
 		const v = typeof hash === "string" ? parseViewHash(hash) : null;
 		if (!v || v.zoom < PLATEAU_AUTO_Z) continue;
 		const p = [wrapLon(v.lon), v.lat];
-		const pd2 = s => { const dx = Math.max(s.bbox[0] - p[0], 0, p[0] - s.bbox[2]), dy = Math.max(s.bbox[1] - p[1], 0, p[1] - s.bbox[3]); return dx * dx + dy * dy; };
-		const near = PLATEAU_SETS.filter(s => !plateauFailed.has(s.name) && pd2(s) < MARGIN * MARGIN).sort((a, b) => pd2(a) - pd2(b));
+		// 前方点＝チルト構図（pitch>20°）だけ視線方向へ押し出す（autoPlateau の foot と対の「奥」判定）
+		const fwd = v.pitch > 0.35
+			? [p[0] + Math.sin(v.bearing) * NEIGH / Math.max(0.2, Math.cos(v.lat * D2R)), p[1] + Math.cos(v.bearing) * NEIGH]
+			: p;
+		const pd2 = (s, q) => { const dx = Math.max(s.bbox[0] - q[0], 0, q[0] - s.bbox[2]), dy = Math.max(s.bbox[1] - q[1], 0, q[1] - s.bbox[3]); return dx * dx + dy * dy; };
+		const near = PLATEAU_SETS.filter(s => !plateauFailed.has(s.name) && pd2(s, p) < MARGIN * MARGIN).sort((a, b) => pd2(a, p) - pd2(b, p));
 		// 建物枠＋橋梁(noMask)別枠＝autoPlateau の選抜と同じ構成＝着地時に立つ区を過不足なく仕込む
-		perView.push({ bld: near.filter(s => !s.noMask).slice(0, PLATEAU_MAX_ACTIVE), brid: near.filter(s => s.noMask).slice(0, PLATEAU_EXTRA_ACTIVE) });
+		perView.push({
+			bld:  near.filter(s => !s.noMask).slice(0, PLATEAU_MAX_ACTIVE),
+			brid: near.filter(s => s.noMask).slice(0, PLATEAU_EXTRA_ACTIVE),
+			fwd,
+		});
 	}
 	const wanted = [], seen = new Set();
 	const take = s => { if (s && !seen.has(s.name)) { seen.add(s.name); wanted.push(s); } };
+	const pd2q = (s, q) => { const dx = Math.max(s.bbox[0] - q[0], 0, q[0] - s.bbox[2]), dy = Math.max(s.bbox[1] - q[1], 0, q[1] - s.bbox[3]); return dx * dx + dy * dy; };
 	for (const v of perView) { take(v.bld[0]); v.brid.forEach(take); }          // 一巡目＝各停止位置の中心区＋橋梁（軽くて主役）
-	for (const v of perView) v.bld.slice(1).forEach(take);                      // 二巡目＝隣接建物区
+	for (const v of perView) v.bld.slice(1).filter(s => pd2q(s, v.fwd) < NEIGH * NEIGH).forEach(take);   // 二巡目＝視線の先の隣接区だけ
 	if (!wanted.length) return;
 	console.log(`[demo] PLATEAU先読み ${wanted.length}区（台本から導出）: ${wanted.map(s => s.name).join("・")}`);
 	plateauPrefetchBusy = true;   // 先読み中＝autoPlateau の建物枠を1つ譲る（総同時デコード2区の保証）
