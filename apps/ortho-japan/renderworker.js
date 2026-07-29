@@ -90,7 +90,7 @@ onmessage = e => {
 			terrain = createTerrain({
 				renderer, requestDraw: () => { dirty = true; },
 				exag: m.terrainExag, earthM: m.earthM, apiUrl: m.apiUrl, lowMem: !!m.lowMem,
-				onPending: (count, range) => postMessage({ type: "elevPending", count, range }),
+				onPending: (count, range, stat) => postMessage({ type: "elevPending", count, range, stat }),   // stat＝ローダ状態の自己申告（沈黙死の可視化）
 			});
 			// 全球R90（8枚・計55MB・初回のみ＝以後IDB常備）を起動の山が過ぎた頃に先読み＝
 			// 低ズームの地球ぐるぐるで陰影が最初から途切れない（z1-4を塗る前提の仕込み）。

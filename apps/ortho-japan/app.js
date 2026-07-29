@@ -259,8 +259,11 @@ renderWorker.onmessage = e => {
 		return;
 	}
 	if (d.type !== "elevPending") return;
-	const { count, range } = d;
+	const { count, range, stat } = d;
 	elevBusy = count > 0;   // 標高タイル読込中＝PLATEAU先読みポンプの柵（地形シーンの起伏が先・下記 runPrefetch）
+	// stat＝標高ローダの自己申告（初期化中/初期化失敗:理由）。旧・沈黙死は「山が平ら・トーストも出ない・
+	// 理由は誰にも見えない」＝借り物端末（インスペクタ不可）で追跡不能だった。地形チップに関係なく出す＝診断が主目的。
+	if (stat) { elevEl.style.display = "block"; elevEl.textContent = `⛰ 標高ローダ ${stat}`; return; }
 	if (count > 0 && layerState.terrain) { elevEl.style.display = "block"; elevEl.textContent = `⛰ 地形読込中 ${range === 1 ? "R01（秒単位）" : range === 10 ? "R10" : "R90"} … ×${count}`; }
 	else elevEl.style.display = "none";
 };

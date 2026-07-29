@@ -37,11 +37,14 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 	// IDB 起因は altpbf 側で「キャッシュ無しで続行」へ縮退済み＝ここは残る失敗（index_alos のネットワーク断）
 	// を指数バックオフで再試行。成立時の requestDraw → 次の settle の ensure が自然に拾って自己回復する。
 	let loaderTries = 0;
+	let loaderStat = "初期化中…";   // ⛰トーストに出す自己申告（借り物端末＝インスペクタ不可でも画面から死因が読める）
 	const setupLoader = () => createTileLoader({ apiUrl })
-		.then(fn => { loadTile = fn; requestDraw(); })
+		.then(fn => { loadTile = fn; loaderStat = null; onPending && onPending(0, 0, null); requestDraw(); })   // stat トーストの残留も消す
 		.catch(e => {
-			console.error("[tileLoader] setup failed", e, loaderTries < 8 ? "→ 再試行" : "→ 打ち切り");
-			if (loaderTries++ < 8) setTimeout(setupLoader, Math.min(30000, 1000 * 2 ** loaderTries));
+			const retry = loaderTries++ < 8;
+			loaderStat = `初期化失敗: ${(e?.message ?? e)}${retry ? "（再試行中）" : "（打ち切り）"}`;
+			console.error("[tileLoader] setup failed", e, retry ? "→ 再試行" : "→ 打ち切り");
+			if (retry) setTimeout(setupLoader, Math.min(30000, 1000 * 2 ** loaderTries));
 		});
 	setupLoader();
 
@@ -241,7 +244,12 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 		}, 1000);
 	}
 	function ensure(cam, size) {   // 戻り値 false＝ローダ未準備で何もしていない（呼び出し側はスロットル記憶を消して再試行すること）
-		if (!loadTile) return false;
+		if (!loadTile) {
+			// 沈黙禁止：ローダ未成立のまま地形が要求されている＝状態をトーストへ（stat 付き onPending）。
+			// 旧・黙って false は「山が平ら・トーストも出ない・理由は誰にも見えない」を生んだ（借り物iPhone13実症状）。
+			onPending && onPending(1, 0, loaderStat ?? "初期化中…");
+			return false;
+		}
 		// 検札の再実行用に最後の視点を控える（cam はアプリ側で毎フレーム書き換わる共有オブジェクト＝必ずコピー）
 		lastEnsureCam = { center: [cam.center[0], cam.center[1]], zoom: cam.zoom, pitch: cam.pitch, bearing: cam.bearing, dpr: cam.dpr, fovy: cam.fovy };
 		lastEnsureSize = { w: size.w, h: size.h };
