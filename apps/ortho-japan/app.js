@@ -433,18 +433,18 @@ const plateauIdbDelete = base => new Promise(res => { plateauDeletePending.set(b
 // 直列1区ずつ＝訪問者の帯域を占有しない（飛行中の基図タイルと取り合わない）。IDB命中は即成功＝二度目からはタダ。
 async function prefetchPlateauForViews(views) {
 	if (!plateauOn) return;
-	// 低メモリ端末＝先読みの点火を boot+45秒に遅延（即時だと鉄道地図=z14.5都心タイルと先読みデコードが重なり
-	// jetsam再発＝iPhone実機で確認）。テーマ切替（c=）の各ページは十数秒でreloadされタイマーごと消える＝
-	// 危険地帯（テーマ〜鉄道〜道路）では構造的に走らない。最後のreload（淡色）以降のページだけ45秒後＝
-	// 山岳シーン帯（地形は混成OFFで軽い）から先読み開始→東京駅到着までに先頭の区が仕込める（部分先読みでも
-	// 箱建物だけよりずっと良い）。先読み自体は直列1区＋lowMemバッチ16/並行4縮小が自動適用。
-	if (LOW_MEM) await new Promise(r => setTimeout(r, 45000));
+	// 【▶の瞬間から走る】旧・LOW_MEM は boot+45秒遅延（鉄道地図z14.5タイルとデコードが重なる jetsam 対策）
+	// だったが、テーマ切替（c=）の各ページは十数秒で reload されタイマーごと消える＝iPhone では実質
+	// 「最後の reload+45秒後」まで先読みが始まらず、重要シーンに間に合わなかった。
+	// 遅延は撤去し、jetsam 対策は plateauPreload の slow レーン（並行1本＋間隔空け＝lowMem のみ）へ交代。
+	// reload で切れても plateauworker の部分再開が続きから＝reload 毎の切れ端も貯金になる。
 	await plateauCatalogReady;
 	if (!PLATEAU_SETS.length) return;
 	const MARGIN = 0.012;   // 区bboxへの点距離ゲート（≈1.3km）＝着地視界＋隣接区まで拾う
-	// 【順序＝一巡目に「各停止位置の中心区」】旧・台本順に停止位置ごと全区を流すと、序盤の停止位置の
+	// 【順序＝一巡目に「各停止位置の中心区＋橋梁」】旧・台本順に停止位置ごと全区を流すと、序盤の停止位置の
 	// 隣接区で時間を使い切り後半の停止位置は素通しになる（iPhone のデモ実測＝重要シーンほど出ない）。
-	// 一巡目＝各停止位置の最寄り建物1区（全シーンの「主役」を先に確保）→二巡目＝残り（隣接区・橋梁）。
+	// 一巡目＝各停止位置の最寄り建物1区＋橋梁（サイズ一桁小さい割にシーンの主役＝レインボーブリッジ等。
+	// Kenji 指定 2026-07-29）→二巡目＝残りの隣接建物区。
 	// 中断は plateauworker の部分再開が貯金に変える＝テーマ切替 reload で切れても続きから。
 	const perView = [];
 	for (const hash of views) {
@@ -458,8 +458,8 @@ async function prefetchPlateauForViews(views) {
 	}
 	const wanted = [], seen = new Set();
 	const take = s => { if (s && !seen.has(s.name)) { seen.add(s.name); wanted.push(s); } };
-	for (const v of perView) take(v.bld[0]);                                    // 一巡目＝各停止位置の中心区
-	for (const v of perView) [...v.bld.slice(1), ...v.brid].forEach(take);      // 二巡目＝隣接区・橋梁
+	for (const v of perView) { take(v.bld[0]); v.brid.forEach(take); }          // 一巡目＝各停止位置の中心区＋橋梁（軽くて主役）
+	for (const v of perView) v.bld.slice(1).forEach(take);                      // 二巡目＝隣接建物区
 	if (!wanted.length) return;
 	console.log(`[demo] PLATEAU先読み ${wanted.length}区（台本から導出）: ${wanted.map(s => s.name).join("・")}`);
 	plateauPrefetchBusy = true;   // 先読み中＝autoPlateau の建物枠を1つ譲る（総同時デコード2区の保証）
@@ -474,6 +474,10 @@ function plateauPreload(set) {   // プレロード＝IDBに貯めるだけ（�
 	if (plateauLoading.has(set.name) || plateauActive.has(set.name)) return Promise.resolve(true);
 	plateauLoading.add(set.name);
 	const id = ++plateauReqId, w = plateauWorkers[hashStr(set.base) % PLATEAU_NW];
+	// 低メモリ端末＝slow レーンで焼く（並行1本＋間隔空け）＝デモ本編のタイル/デコードと重ねない
+	//（旧 boot+45秒遅延の jetsam 対策をレーン側へ交代＝▶の瞬間から静かに走れる）。実訪問が来れば
+	// worker 側の非preload要求が lane を fast に戻す＝待たせない。
+	if (LOW_MEM) w.postMessage({ type: "demote", base: set.base });
 	w.postMessage({ id, base: set.base, name: set.name, wardBbox: set.noMask ? null : set.bbox, brid: !!set.noMask, camCenter: [cam.center[0], cam.center[1]], preload: true });
 	return new Promise((resolve, reject) => plateauPending.set(id, { resolve, reject, name: set.name }))
 		.catch(() => false).finally(() => plateauLoading.delete(set.name));
