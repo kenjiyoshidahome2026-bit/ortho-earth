@@ -58,7 +58,7 @@ const RESUME_KEY = "oj.demo.resume";   // 幕替わり（reload）を跨ぐ進�
 // opts.prefetchViews＝PLATEAU先読み（app が注入・任意）：▶の瞬間に台本の全 view を渡す＝寄るシーンの区が裏でIDBへ。
 //   序盤のシーン構成で時間を稼げば、PLATEAUシーン到着時には初見のPCでも一発で街が立つ（データ重力の種まき兼用）。
 // 戻り値＝{start, next, prev, exit, play, pause}（テスト・プログラム駆動用）。
-export function demo({ scenes, slide: slideOn = true, hold = 5500, slideHold = 4000, mobile, flyView, flightActive, prefetchViews, theme, signal } = {}) {
+export function demo({ scenes, slide: slideOn = true, hold = 5500, slideHold = 4000, mobile, flyView, flightActive, prefetchViews, theme, signal, plateau } = {}) {
 	const mapEl = this.mapEl;
 	if (!slideOn && Array.isArray(scenes)) scenes = scenes.filter(s => s.view || !s.slide);   // スライドだけのシーン＝空の停留所になるので抜く
 	if (!Array.isArray(scenes) || !scenes.length) { console.warn("[demo] scenes が空＝ガジェットは搭載しない"); return; }
@@ -191,7 +191,7 @@ export function demo({ scenes, slide: slideOn = true, hold = 5500, slideHold = 4
 	const start = (i = 0, fly = true) => {
 		bar.classList.add("on"); mapEl.classList.add("demo-live"); show(i, fly);
 		btn.setAttribute("aria-pressed", "true"); btn.dataset.tip = "デモを終了 (Esc)"; btn.setAttribute("aria-label", "デモを終了");
-		if (!prefetched) { prefetched = true; prefetchViews?.(scenes.map(s => s.view ?? s.glide).filter(Boolean)); }   // ▶＝裏で台本の街をIDBへ（1回だけ・以降はIDB命中でタダ）
+		if (!prefetched) { prefetched = true; prefetchViews?.(scenes.map(s => s.view ?? s.glide).filter(Boolean), plateau); }   // ▶＝裏で台本の街をIDBへ（1回だけ・以降はIDB命中でタダ）。plateau=台本の明示リスト（任意）
 		if (narrow()) play();   // 幕替わり（reload）復帰は下の resume が r.playing を見て再度 play＝play は再入無害
 	};
 	// 上映中（.playing）＝デスクトップでは操縦バーごと退場（CSS）＝停止は点灯した▶が受ける。字幕も止まったら引っ込める

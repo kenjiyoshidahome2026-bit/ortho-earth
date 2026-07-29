@@ -431,15 +431,23 @@ const plateauIdbDelete = base => new Promise(res => { plateauDeletePending.set(b
 // デモ台本のPLATEAU先読み：z14+で着地するシーンの足元の区を台本から自動導出し、IDBへ静かに仕込む（描画へは送らない）。
 // 台本の早いシーン（球・列島・スライド）の間に裏で完走→PLATEAUシーンに着いた時はIDB直読み＝初見のPCでも一発で街が立つ。
 // 直列1区ずつ＝訪問者の帯域を占有しない（飛行中の基図タイルと取り合わない）。IDB命中は即成功＝二度目からはタダ。
-async function prefetchPlateauForViews(views) {
+async function prefetchPlateauForViews(views, names) {
 	if (!plateauOn) return;
 	// 【▶の瞬間から走る】旧・LOW_MEM は boot+45秒遅延（鉄道地図z14.5タイルとデコードが重なる jetsam 対策）
 	// だったが、テーマ切替（c=）の各ページは十数秒で reload されタイマーごと消える＝iPhone では実質
-	// 「最後の reload+45秒後」まで先読みが始まらず、重要シーンに間に合わなかった。
-	// 遅延は撤去し、jetsam 対策は plateauPreload の slow レーン（並行1本＋間隔空け＝lowMem のみ）へ交代。
+	// 「最後の reload+45秒後」まで先読みが始まらず、重要シーンに間に合わなかった。遅延は撤去。
 	// reload で切れても plateauworker の部分再開が続きから＝reload 毎の切れ端も貯金になる。
+	// names＝台本（scenes.js の plateau:）の明示リスト（優先順）。指定があれば導出は使わない＝決定的。
 	await plateauCatalogReady;
 	if (!PLATEAU_SETS.length) return;
+	if (names?.length) {
+		const bad = [];
+		const wanted = names
+			.map(n => { const s = PLATEAU_SETS.find(x => x.name === n); if (!s) bad.push(n); return s; })
+			.filter(s => s && !plateauFailed.has(s.name));
+		if (bad.length) console.warn("[demo] plateau 指定名がカタログに無い（台本の誤記？）:", bad.join("・"));
+		return runPrefetch(wanted, "台本指定");
+	}
 	const MARGIN = 0.012;   // 区bboxへの点距離ゲート（≈1.3km）＝着地視界＋隣接区まで拾う
 	// 【順序＝一巡目に「各停止位置の中心区＋橋梁」】旧・台本順に停止位置ごと全区を流すと、序盤の停止位置の
 	// 隣接区で時間を使い切り後半の停止位置は素通しになる（iPhone のデモ実測＝重要シーンほど出ない）。
@@ -479,8 +487,11 @@ async function prefetchPlateauForViews(views) {
 	const pd2q = (s, q) => { const dx = Math.max(s.bbox[0] - q[0], 0, q[0] - s.bbox[2]), dy = Math.max(s.bbox[1] - q[1], 0, q[1] - s.bbox[3]); return dx * dx + dy * dy; };
 	for (const v of perView) { take(v.bld[0]); v.brid.forEach(take); }          // 一巡目＝各停止位置の中心区＋橋梁（軽くて主役）
 	for (const v of perView) v.bld.slice(1).filter(s => pd2q(s, v.fwd) < NEIGH * NEIGH).forEach(take);   // 二巡目＝視線の先の隣接区だけ
+	return runPrefetch(wanted, "台本から導出");
+}
+async function runPrefetch(wanted, how) {
 	if (!wanted.length) return;
-	console.log(`[demo] PLATEAU先読み ${wanted.length}区（台本から導出）: ${wanted.map(s => s.name).join("・")}`);
+	console.log(`[demo] PLATEAU先読み ${wanted.length}区（${how}）: ${wanted.map(s => s.name).join("・")}`);
 	plateauPrefetchBusy = true;   // 先読み中＝autoPlateau の建物枠を1つ譲る（デコード同時数の総枠を保つ）
 	try {
 		// 並行2区（Kenji 指定 2026-07-29「2つずつぐらい読まないと間に合わない」）。直列1区は帯域を
@@ -1210,11 +1221,16 @@ function updateGintSlot() {
 // 世界海岸線（Natural Earth 10m）を取得しキャッシュ（表示可否は updateGintSlot が決める）。
 async function loadWorldCoast() {
 	if (coastLoading || coastGint) return; coastLoading = true;
-	console.log("[coast] Natural Earth 10m coastline を読込中（bucket GeoPBF→GintBUF）…");
-	let pbf = await geopbf("ne_10m_coastline").catch(e => { console.warn("[coast] bucket load 失敗", e); return null; });
+	// モバイル（LOW_MEM）は 50m 版＝頂点数が一桁小さい（10m=41万頂点→50m=数万）＝GintBUF焼き・GPU・
+	// スロット束の常駐とも軽量化（Kenji指定 2026-07-29）。z≤9 の世界図用途では見た目の差は僅か。
+	// 50m は bucket 未収録＝毎回 zip フォールバック（S3→shpデコード）だが geopbf が URL キーで IDB
+	// キャッシュする＝初回のみ。デスクトップは従来どおり 10m 全密度。
+	const RES = LOW_MEM ? "50m" : "10m";
+	console.log(`[coast] Natural Earth ${RES} coastline を読込中（bucket GeoPBF→GintBUF）…`);
+	let pbf = await geopbf(`ne_${RES}_coastline`).catch(e => { console.warn("[coast] bucket load 失敗", e); return null; });
 	if (!pbf?.unPackGint) {
 		console.warn("[coast] bucket に geopbf 無し → 生 zip へフォールバック（S3→shp デコード）");
-		pbf = await geopbf("https://naturalearth.s3.amazonaws.com/10m_physical/ne_10m_coastline.zip", { name: "ne_10m_coastline" }).catch(e => { console.error("[coast] geopbf", e); return null; });
+		pbf = await geopbf(`https://naturalearth.s3.amazonaws.com/${RES}_physical/ne_${RES}_coastline.zip`, { name: `ne_${RES}_coastline` }).catch(e => { console.error("[coast] geopbf", e); return null; });
 	}
 	const g = pbf?.unPackGint;
 	coastLoading = false;
