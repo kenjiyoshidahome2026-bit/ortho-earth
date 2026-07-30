@@ -884,6 +884,7 @@ function switchTheme(name) {
 		hypso: theme.hypso || null });
 	renderer.set("sea", { li: style.layers.findIndex(L => L.id === "water"), li2: style.layers.findIndex(L => L.id === "water-hi"), minzoom: 9 });
 	mapEl.classList.toggle("ui-dark", 0.299 * land[0] + 0.587 * land[1] + 0.114 * land[2] < 0.45);   // 夜家具＝land輝度で（テーマ名でなく輝度＝黒紙カスタムも転ぶ）
+	if (gintSlot === "coast") applyCoastSlot();   // 海岸線色(theme.coastLine)を新テーマで塗り直す＝gint別層＝基図タイル再ビルドでは直らない（色の居座り根治）
 	if (layerState.rail && n02Loaded) { n02Loaded = false; loadN02(); }   // N02新幹線の芯(land色)を新テーマで引き直す（データは温間）
 	try { history.replaceState(null, "", viewHash()); } catch { /* file:// 等 */ }   // c= を reload無しで書換（replaceStateはhashchange非発火＝自己リロード無し）
 	readySig = ""; baseSig = ""; mergeReq.main.sig = ""; mergeReq.base.sig = ""; needsDraw = true; onMove();   // 下地・主層を強制再結合（次のupdateで新styleビルド→順次merge）
@@ -1856,8 +1857,8 @@ function applyViewLayers(v) {
 function flyView(hash, { glide = false, jump = false } = {}) {
 	const v = typeof hash === "string" ? parseViewHash(hash) : hash;
 	if (!v) { console.warn(`[flyView] 解釈できないビュー "${hash}"`); return false; }
+	applyViewLayers(v);   // 先にチップ(l=)を反映＝この後 switchTheme の viewHash が「新チップの l=」で書ける（旧l=の書き込みを断つ）
 	if (v.theme && v.theme !== themeName && !themeFixed) switchTheme(v.theme);   // c= の幕替わりを生き替え（reload無し）＝この後の飛行はそのまま進む＝暗転が消える
-	applyViewLayers(v);
 	if (jump) {   // 飛行中なら打ち切ってカメラ直書き＝アニメ無し（pre と view は同座標が前提＝実際に動くのは l= だけ）
 		flightCtl.cancel();
 		cam.center = [wrapLon(v.lon), v.lat]; cam.zoom = v.zoom;
