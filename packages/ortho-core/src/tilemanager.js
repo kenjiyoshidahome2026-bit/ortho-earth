@@ -2,7 +2,7 @@
 // buildScene で全選択タイルを style層ごとに1バッファへ結合（mixed-z, 共通原点に再ベース）。
 // ラベルは近景（高z）タイルのみ＝遠方はテキスト無し。
 import { fetchMVT, neededSourceLayers } from "./decode.js";
-import { tileBounds } from "./tile.js";
+import { tileBounds, tileOutsideCoverage } from "./tile.js";
 import { buildTileDrawList, buildEmptySeaOps } from "./build.js";
 import { buildLabels } from "./labels.js";
 import { buildBuildings } from "./buildings.js";
@@ -14,7 +14,7 @@ const EMPTY = new Set();
 // lodFloor＝{ minViewZoom, z }：ビューが minViewZoom 以上のとき詳細シーンの LOD 下限を z に強制。
 // optbv の海（WA）は z8 タイルから全面収録＝z7 以下が混ざる遠景は海が紙色に抜ける。下限 z8 で敷けば
 // 海の色がズーム段間で揃う（沖合の z8 タイルは全面WA一枚=50B級なので枚数が増えても実質タダ）。
-export function createTileManager({ style, tileUrl, onChange, cap = 256, buildTile, onEvict, lodFloor, memBudgetMB }) {
+export function createTileManager({ style, tileUrl, onChange, cap = 256, buildTile, onEvict, lodFloor, memBudgetMB, coverage }) {
 	const cache = new Map();   // key → { status, origin, dl, labels, z, bytes, seen }
 
 	// tess済み geometry の常駐量を「枚数」でなく「実バイト」で束ねる：z16密都市(~100KB級)と沖合z8(数十B)を
@@ -30,7 +30,8 @@ export function createTileManager({ style, tileUrl, onChange, cap = 256, buildTi
 	// 既定：メインスレッドで fetch→decode→tessellation（重い）。buildTile 注入で worker へ退避できる。
 	const need = neededSourceLayers(style);
 	async function defaultBuildTile(t) {
-		const layers = await fetchMVT(tileUrl(t.z, t.x, t.y), undefined, need);
+		// 配信圏外は fetch を省き空タイル(=404と同じ全面水域)扱い＝外洋・国外への無駄な 404 を断つ（worker 経路 tileworker.js と同処置）
+		const layers = tileOutsideCoverage(t.x, t.y, t.z, coverage) ? { __empty: true } : await fetchMVT(tileUrl(t.z, t.x, t.y), undefined, need);
 		const [w, s, e, n] = tileBounds(t.x, t.y, t.z);
 		const origin = [w, n];
 		const dl = buildTileDrawList({ layers, z: t.z, x: t.x, y: t.y }, style, origin);

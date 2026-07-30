@@ -7,20 +7,22 @@ import { fetchMVT, neededSourceLayers } from "../decode.js";
 import { buildTileDrawList, buildEmptySeaOps } from "../build.js";
 import { buildLabels } from "../labels.js";
 import { buildBuildings } from "../buildings.js";
-import { tileBounds } from "../tile.js";
+import { tileBounds, tileOutsideCoverage } from "../tile.js";
 
-let style = null, need = null;   // need＝styleが参照する source-layer 集合（未参照層は decode 省略）
+let style = null, need = null, coverage = null;   // need＝styleが参照する source-layer 集合（未参照層は decode 省略）。coverage＝配信圏 bbox
 const aborts = new Map();   // id → AbortController（in-flight のみ保持）
 
 self.onmessage = async (e) => {
 	const m = e.data;
-	if (m.type === "init") { style = m.style; need = neededSourceLayers(style); return; }
+	if (m.type === "init") { style = m.style; need = neededSourceLayers(style); coverage = m.coverage || null; return; }
 	if (m.type === "abort") { const a = aborts.get(m.id); if (a) a.abort(); return; }
 	const { id, url, z, x, y } = m;
 	const ac = new AbortController();
 	aborts.set(id, ac);
 	try {
-		const layers = await fetchMVT(url, ac.signal, need);
+		// 配信圏外（日本域外の外洋・国外）は fetch を省いて空タイル扱い＝提供側の 404 への無駄打ちを断つ。
+		// 描画は 404 と同一（fetchMVT が 404 で返すのと同じ {__empty:true}）＝下の buildEmptySeaOps が全面水域を敷く。
+		const layers = tileOutsideCoverage(x, y, z, coverage) ? { __empty: true } : await fetchMVT(url, ac.signal, need);
 		const [w, , , n] = tileBounds(x, y, z);
 		const origin = [w, n];
 		const dl = buildTileDrawList({ layers, z, x, y }, style, origin);

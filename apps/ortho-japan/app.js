@@ -76,6 +76,11 @@ const undergroundEl = mapEl.appendChild(document.createElement("div"));
 undergroundEl.id = "underground";
 
 const TILE_URL = (z, x, y) => `https://cyberjapandata.gsi.go.jp/xyz/optimal_bvmap-v1/${z}/${x}/${y}.pbf`;
+// optimal_bvmap の配信圏（日本域）の外接矩形 [west,south,east,north]。これと全く重ならないタイルは GSI が
+// 常に 404 を返す提供圏外＝pipeline が fetch を省いて空タイル(標高ゲート付き全面水域)扱いにする（無駄な 404 を断つ）。
+// 症状＝縦長のスマホ画面が北海道以北の外洋(z8 y=87/88≈50°N)まで写して 404 を量産（横長のデスクトップでは出にくい）。
+// 保守的に本土＋離島（南鳥島154E/沖ノ鳥島20.4N/与那国123E/宗谷45.5N）を余裕で内包＝実在タイルは絶対に巻き込まない。
+const JP_COVERAGE = [121, 19, 155, 46];
 const TILE = 512, D2R = Math.PI / 180, R2D = 180 / Math.PI;
 
 // 表示項目の固定（opts.layers）：true/false は状態を焼き付けてチップも出さない。未記述だけが客のトグル。
@@ -781,6 +786,8 @@ function onMove() {
 style.emptySea = "water";
 const { tiles, requestMerge, destroy: destroyPipeline } = createPipeline({
 	style, tileUrl: TILE_URL, requestDraw: () => { needsDraw = true; }, scenePort: sceneChan.port1, onTile,
+	coverage: /[?&]nocov=1/.test(location.search) ? null : JP_COVERAGE,   // 配信圏外タイルは fetch せず空タイル(海)扱い＝外洋・国外への無駄な 404 を断つ（縦長スマホの周縁 404 の根治）。?nocov=1 で無効化＝A/B 検証ノブ
+
 	// LOD下限＝タイルz8（sea gate と同じ閾値）：optbv は z8 から海が全面WA（沖合タイル=WA一枚50B級）、z7以下は
 	// 「陸=AdmArea・海=背景」モデルでWA無し＝チルトの遠景（z5-7混在）だけ海が紙色に抜けてまだらになる。
 	// 遠景もタイルz8 以上で敷けば海色がズーム段間で揃う（根治）。ビューz<9 は従来どおり紙の海＋gint海岸線。
