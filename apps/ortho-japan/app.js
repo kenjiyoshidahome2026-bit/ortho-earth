@@ -876,10 +876,12 @@ function switchTheme(name) {
 	land = bg ? parseRGBA(evalExpr(bg.paint?.["background-color"] ?? "#fff", { zoom: 10, props: {}, geom: null, vars: {} })) : [0.96, 0.96, 0.95, 1];
 	atmo = theme.atmo; bldColor = theme.bldColor;
 	setPipelineStyle(style);   // 基図タイルを全捨て→新styleで再ビルド（生バイトはIDB/HTTP温間キャッシュ命中で速い）
+	// ★任意ノブ(等高線色/遠山/標高段彩)は「新テーマが持たなければ null」で必ず既定へ戻す＝前テーマの居座り防止。
+	// 条件付きspreadだと未指定キーが setView のマージで残る＝例: sepia/dark の暖茶hypso が mono/gsi へ漏れて「山が茶色」になる。
 	renderer.set("view", { clear, land, atmo, bldColor,
-		...(theme.contourColor && { contourColor: theme.contourColor }),
-		...(theme.distColor && { distColor: theme.distColor }),
-		...(theme.hypso && { hypso: theme.hypso }) });
+		contourColor: theme.contourColor || null,
+		distColor: theme.distColor || null,
+		hypso: theme.hypso || null });
 	renderer.set("sea", { li: style.layers.findIndex(L => L.id === "water"), li2: style.layers.findIndex(L => L.id === "water-hi"), minzoom: 9 });
 	mapEl.classList.toggle("ui-dark", 0.299 * land[0] + 0.587 * land[1] + 0.114 * land[2] < 0.45);   // 夜家具＝land輝度で（テーマ名でなく輝度＝黒紙カスタムも転ぶ）
 	if (layerState.rail && n02Loaded) { n02Loaded = false; loadN02(); }   // N02新幹線の芯(land色)を新テーマで引き直す（データは温間）

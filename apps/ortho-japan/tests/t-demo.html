@@ -170,7 +170,7 @@ try {
 	await new Promise(r => setTimeout(r, 200));
 	const bar3 = document.getElementById("demo-bar");
 	bar3.querySelector("#demo-next").click();   // 乙(c=dark)へ＝flyView が switchTheme("dark") を生き替え
-	await new Promise(r => setTimeout(r, 9000));   // フライト＋新styleでの再ビルド（reload しないのでテストは継続）
+	await new Promise(r => setTimeout(r, 800));   // c=dark は next→flyView→switchTheme→replaceState で同期的にURLへ載る＝長い着地待ちは不要（仮想時間の節約）
 	ok("liveThemeSwitch", bar3.classList.contains("on") && bar3.querySelector("#demo-step").textContent === "2/2"
 		&& /c=dark/.test(location.hash));   // reload せず＝switchTheme が c=dark を共有URLへ書いた＝暗転無しの幕替わり
 	map3.destroy();
