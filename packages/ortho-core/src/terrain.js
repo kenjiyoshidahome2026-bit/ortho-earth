@@ -6,7 +6,7 @@ import { unproject, cameraState, lonlatTo3D, WORLD_PX } from "./camera.js";
 import { downsampleFlipped } from "./elevation.js";
 import { createTileLoader } from "altpbf";
 
-export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onPending, lowMem = false }) {
+export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onPending, lowMem = false, forceMixed = false }) {
 	let atlasKey = "", loadedCells = new Set();
 	let cellFails = new Map();   // ck → 取得失敗回数（窓の世代ごとにリセット。上限内は次の ensure で再挑戦）
 	let writtenCells = new Set();   // 実際にアトラスへ書き込めたセル（検札の突合対象。世代ごとにリセット）
@@ -258,7 +258,8 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 		// 低メモリ端末は混成OFF＝全面R10：R01近傍9枚（1°タイル=数十MB級のデコード）＋アトラス二重化の
 		// 一斉スパイクが実測+1GB（0t→73tの遷移）＝iOSタブ予算(~1.4GB)を突破し「富士山(3D)で落ちる」の正体。
 		// スマホの画面密度ならR10の起伏で十分＝デスクトップの絵は不変。
-		const mixed = !lowMem && (cam.pitch || 0) > 0.9 && cam.zoom >= 11.5 && cam.zoom < 14;
+		// forceMixed(?r01=1)＝低メモリ端末でも混成R01を強制＝4GB機にR01の余裕があるかを実機A/Bする計測ノブ（既定OFF）。
+		const mixed = (!lowMem || forceMixed) && (cam.pitch || 0) > 0.9 && cam.zoom >= 11.5 && cam.zoom < 14;
 		const range = mixed ? 1 : selectRange(cam);
 		const r = viewCellRange(cam, size, range, mixed);
 		const key = [mixed ? "M" : range, r.originCX, r.originCY, r.cellsX, r.cellsY, r.cellRes].join(",");
