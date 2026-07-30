@@ -98,7 +98,7 @@ function remapTheme(img, from, to) {
 
 // opts.current＝いま焼き付いているテーマ名（見本から除く＝「自分以外」を出す）。opts.onPick(name)＝切替（app 側が生き替え＝reload無し）。
 // opts.requestSnapshot＝shot と同じスナップショット（app が注入）＝見本を「今の視点の実写」にする。無ければ SVG 見本のまま。
-export function palette({ current, onPick, requestSnapshot, getZoom, signal } = {}) {
+export function palette({ current, onPick, requestSnapshot, getZoom, getCurrent, signal } = {}) {
 	const mapEl = this.mapEl;
 	if (mapEl.querySelector("#palette-btn")) return;   // 二重搭載は無害
 	const btn = document.createElement("button");
@@ -156,7 +156,9 @@ export function palette({ current, onPick, requestSnapshot, getZoom, signal } = 
 	const syncAspect = () => canLive()
 		? picker.style.setProperty("--tp-ar", String((mapEl.clientWidth || 4) / (mapEl.clientHeight || 3)))
 		: picker.style.removeProperty("--tp-ar");
-	btn.addEventListener("click", () => { if (picker.classList.toggle("open")) { syncAspect(); refresh(); } });
+	// 開く直前に「今の実テーマ」へ curr を同期＝外部切替(手編集ハッシュ/デモの幕替わり)でも見本の「自分以外」が正しくなる
+	const openSync = () => { const c = getCurrent?.(); if (c && c !== curr) { curr = c; buildCards(); } };
+	btn.addEventListener("click", () => { if (picker.classList.toggle("open")) { openSync(); syncAspect(); refresh(); } });
 	picker.addEventListener("click", e => {
 		const card = e.target.closest(".tp-card");
 		if (card) { const k = card.dataset.theme; onPick?.(k); curr = k; buildCards(); close(); }   // 生き替え＝地図を切替→現在テーマ更新→見本カード作り直し→閉じる（reloadしないので手で）
@@ -165,5 +167,5 @@ export function palette({ current, onPick, requestSnapshot, getZoom, signal } = 
 	window.addEventListener("keydown", e => {   // ESC＝取消（開いている時だけ・他の Esc 消費と競合しない）
 		if (e.key === "Escape" && picker.classList.contains("open")) { e.preventDefault(); close(); }
 	}, { signal });
-	return { open: () => { picker.classList.add("open"); syncAspect(); refresh(); }, close };
+	return { open: () => { openSync(); picker.classList.add("open"); syncAspect(); refresh(); }, close };
 }

@@ -1825,11 +1825,12 @@ renderer.set("view", { showContour: layerState.terrain });
 window.addEventListener("hashchange", () => {
 	const v = parseViewHash(location.hash);
 	if (!v) return;
-	// 配色テーマの切替（c= の出入り）：style は起動時に pipeline/worker へ焼き付いている＝reload で選び直すのが正直
-	//（ハッシュは残る＝reload 後に同じ視点・同じチップで配色だけ替わって立ち上がる）。固定(opts.theme)は破れない。
-	if (!themeFixed && (v.theme || (v.layers?.includes("dark") ? "dark" : "mono")) !== themeName) { location.reload(); return; }
 	applyCamView(v);
 	applyViewLayers(v);
+	// 配色テーマ（c=）の手編集/貼り付けも生き替え（reload無し＝画面維持）。視点・チップを先に適用済みなので、
+	// この後 switchTheme 内の replaceState は「新視点」で正しく書ける（順序さえ守れば貼った視点は上書きされない）。
+	// 固定(opts.theme)は破れない。設定は switchTheme が同一テーマをガード＝c= 無し/同一の貼り付けは素通り。
+	if (!themeFixed) { const want = v.theme || (v.layers?.includes("dark") ? "dark" : "mono"); if (want !== themeName) switchTheme(want); }
 	onMove();
 }, { signal: ac.signal });
 // 共有URLの l=/c(等高線) をチップ・描画へ反映（hashchange とデモ台本 flyView の共通部）。
@@ -2093,7 +2094,7 @@ map.gadget("plateau", function (opts) {   // 建物3D（PLATEAU）データ管�
 });
 map.gadget("palette", function (opts) {   // 配色テーマ・ピッカー … 現在テーマ(見本から除く)と切替(switchTheme=c=差替+reload)と撮影(見本=今の視点の実写)を注入
 	if (themeFixed) { console.warn("[palette] opts.theme 焼き付け中＝c= は破れない。ガジェットは搭載しない"); return; }
-	return paletteGadget.call(this, { current: themeName, onPick: switchTheme, requestSnapshot, getZoom: () => cam.zoom, signal: ac.signal, ...opts });
+	return paletteGadget.call(this, { current: themeName, onPick: switchTheme, requestSnapshot, getZoom: () => cam.zoom, getCurrent: () => themeName, signal: ac.signal, ...opts });
 });
 map.gadget("zoom", function (opts) {   // ズーム＋/− … フライト中断・onMove・z範囲はここで注入
 	return zoomGadget.call(this, { cancelFlight: () => flightCtl.cancel(), onMove, zoomMin: 2, zoomMax: ZOOM_MAX, signal: ac.signal, ...opts });
