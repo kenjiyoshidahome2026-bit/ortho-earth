@@ -42,9 +42,10 @@ try {
 	const dark = picker.querySelector('.tp-card[data-theme="dark"] canvas');
 	if (dark) {
 		const ctx = dark.getContext("2d", { willReadFrequently: true });
-		const at = fx => [...ctx.getImageData(Math.round(360 * fx), 126, 1, 1).data].slice(0, 3);
-		ok("paper→夜", near(at(0.2), [25, 29, 36]));      // #f6f6f4 → #191d24
-		ok("road→夜", near(at(0.5), [85, 149, 220]));     // #2f6cad → #5595dc
+		// 見本canvasの寸法は画面比追従で可変＝中心を実寸から取る（旧・360×252固定の直値サンプルを廃す）
+		const at = fx => [...ctx.getImageData(Math.round((dark.width - 1) * fx), dark.height >> 1, 1, 1).data].slice(0, 3);
+		ok("paper→ダーク", near(at(0.2), [25, 29, 36]));      // #f6f6f4 → #191d24
+		ok("road→ダーク", near(at(0.5), [85, 149, 220]));     // #2f6cad → #5595dc
 		ok("宇宙は黒のまま", near(at(0.9), [0, 0, 0]));
 	} else ok("darkカード", false);
 	// gsi カード：幹線青→地理院の緑（対応表写像＝色相ごと替わるのが見どころ）。

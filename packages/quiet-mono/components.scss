@@ -235,8 +235,8 @@ body { visibility: visible; }   /* 開幕＝このスタイルシートの到着
 		background: var(--qm-panel-solid); border: 1px solid var(--qm-border-soft); border-radius: 10px;
 		box-shadow: var(--qm-shadow-pop); transition: transform .12s, border-color .12s;
 		&:hover, &:focus-visible { transform: translateY(-3px); border-color: var(--qm-ink); outline: none; }
-		svg { display: block; width: 100%; height: auto; aspect-ratio: 120 / 84; }
-		canvas { display: none; width: 100%; height: auto; aspect-ratio: 120 / 84; }   /* 実写見本（今の視点の着せ替え）。撮影が来るまでは SVG 簡易マップ */
+		svg { display: block; width: 100%; height: auto; aspect-ratio: var(--tp-ar, 120 / 84); }
+		canvas { display: none; width: 100%; height: auto; aspect-ratio: var(--tp-ar, 120 / 84); }   /* 実写見本（今の視点の着せ替え・縦横比は画面追従 --tp-ar）。撮影が来るまでは SVG 簡易マップ */
 		&.live { svg { display: none; } canvas { display: block; } }
 		.tp-name { font: 12px/1 var(--qm-font); color: var(--qm-text); padding: 8px 4px; text-align: center; }
 	}
@@ -373,6 +373,8 @@ body { visibility: visible; }   /* 開幕＝このスタイルシートの到着
 	#zoom-out { border-radius: 0 0 5px 5px; margin-top: -1px; }   /* 隣接ボーダーを1本に重ねる */
 	button:hover { border-color: var(--qm-border-strong); position: relative; }   /* ホバー縁を隣の線に食われない（z-index不使用） */
 }
+/* タッチ端末＝ピンチで拡縮できる＝＋/−ボタンは不要（スタックから外す＝display:none で下の家具が上へ詰まる） */
+@media (pointer: coarse) { #zoom { display: none; } }
 
 /* --- 全画面トグル：拡大/縮小アイコン。置き場所はスタック（34px規格で面一） --- */
 #full {
@@ -683,6 +685,10 @@ body { visibility: visible; }   /* 開幕＝このスタイルシートの到着
 	}
 	#map.demo-live #demo-bar { display: none !important; }   /* .on/.playing より強く＝バーは一切出さない */
 	#map.demo-live #demo-btn { order: -1; }   /* 独りになったら最上段へ（#japan-btn の作法と同じ） */
+	/* 映画館モード×星空劇場(z小)の同居：world は #japan-btn を order:-1 で最上段へ上げるが、demo-live 下では
+	   その japan は非表示（opacity:0）のまま席だけ残り、同じ order:-1 の▶を DOM 順で2段目へ押し下げる。
+	   映画館モードの唯一の生存者は▶＝ここで japan の昇格を戻し、▶を最上段へ戻す。 */
+	#map.demo-live.world #japan-btn { order: 0; }
 }
 /* 星空劇場の家具（逆相＝worldでだけ点灯）：左下=日時計（1秒針）、右下=空データの出典。
    舞台は暗い宇宙＝文字は淡い星明かり色（紙用の --qm-text は使わない）。 */

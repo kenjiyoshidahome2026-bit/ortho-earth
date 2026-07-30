@@ -16,7 +16,7 @@ import { composeLayersToCanvas } from "./compose.js";
 // （水色をずらすと海が「幹線2の淡青」に最近傍で吸われ、地理院見本の海がオレンジ #e69212 になる実害があった）。
 const THEMES = [
 	{ k: "mono", name: "白地図", paper: "#f6f6f4", ink: "#86867f", water: "#e2e6ea", water2: "#aecbe6", bldg: "#ececea", roads: ["#2f6cad", "#8fb2d6", "#cececb"], contour: "#b28f5e", admin: "#aa7878" },
-	{ k: "dark", name: "夜", paper: "#191d24", ink: "#9aa1a9", water: "#090c12", water2: "#2b6d80", bldg: "#21252d", roads: ["#5595dc", "#46688f", "#565c66"], contour: "#b89466", admin: "#a03a42" },
+	{ k: "dark", name: "ダーク", paper: "#191d24", ink: "#9aa1a9", water: "#090c12", water2: "#2b6d80", bldg: "#21252d", roads: ["#5595dc", "#46688f", "#565c66"], contour: "#b89466", admin: "#a03a42" },
 	{ k: "gsi", name: "地理院", paper: "#fefeff", ink: "#555555", water: "#bed2ff", water2: "#00b0ec", bldg: "#ffe6be", roads: ["#3d9738", "#e69212", "#b8b8b8"], contour: "#c8a03c", admin: "#440080" },
 	{ k: "sepia", name: "セピア", paper: "#f0e6d3", ink: "#6a5c46", water: "#d6ddd7", water2: "#b9c8c1", bldg: "#e6d7bd", roads: ["#5f82a0", "#93a8bd", "#cab896"], contour: "#8c6b45", admin: "#a4685a" },
 ];
@@ -107,9 +107,9 @@ export function palette({ current, onPick, requestSnapshot, signal } = {}) {
 	).join("") + `</div>`;
 	mapEl.append(picker);   // 末尾append＝DOM順で最上面（z-index全廃の裁き）
 
-	// 開く度に撮り直す＝見本は常に「今の視点」。撮影→合成→縮小(中央切り出し・SVGと同じ10:7)→3テーマへ写像。
+	// 開く度に撮り直す＝見本は常に「今の視点」。撮影→合成→画面の縦横比に追従して縮小→3テーマへ写像。
 	// 失敗・未注入は SVG 見本のまま（.live が付かない＝CSS が SVG を出し続ける）。
-	const TW = 360, TH_ = 252;   // 見本の実寸(10:7)。カード幅(~190css px)の約2倍＝Retinaでも締まる
+	const CAP = 360;   // 見本の実寸＝長辺このpx（カード幅の約2倍＝Retinaでも締まる）。もう片辺は画面比で決める
 	let shooting = false;
 	async function refresh() {
 		if (!requestSnapshot || shooting) return;
@@ -118,18 +118,20 @@ export function palette({ current, onPick, requestSnapshot, signal } = {}) {
 			const snap = await requestSnapshot();
 			// 基図+知性のみ。注記(labels)は縮小で読めずノイズ粒になるだけ＝混ぜない（色で選ぶ見本は色だけが綺麗）。計測の線も同様。
 			const full = composeLayersToCanvas({ ...snap, render: snap.render && { ...snap.render, labels: null } });
-			let sw = snap.W, sh = Math.round(snap.W * 7 / 10);   // 画面中央から 10:7 を切り出す
-			if (sh > snap.H) { sh = snap.H; sw = Math.round(snap.H * 10 / 7); }
-			const crop = new OffscreenCanvas(sw, sh), cctx = crop.getContext("2d", { willReadFrequently: true });
-			cctx.drawImage(full, (snap.W - sw) >> 1, (snap.H - sh) >> 1, sw, sh, 0, 0, sw, sh);
-			const src = cctx.getImageData(0, 0, sw, sh);   // 原寸のまま写像へ（縮小は写像の後＝remapTheme の★を参照）
+			// 見本＝今の視点そのまま＝画面全体を使い、カードの縦横比も画面に追従させる（--tp-ar）。
+			// 旧・横長10:7の中央切り出しは縦画面で「中央の薄い帯」だけになり実際の眺めと別物だった＝全画面を見本に。
+			const sw = snap.W, sh = snap.H, ar = sw / sh;
+			picker.style.setProperty("--tp-ar", String(ar));   // canvas も SVG もこの比で（CSS aspect-ratio）
+			const src = full.getContext("2d").getImageData(0, 0, sw, sh);   // 原寸のまま写像へ（縮小は写像の後＝remapTheme の★を参照）
 			const from = THEMES.find(t => t.k === current) || THEMES[0];
+			const cw = ar >= 1 ? CAP : Math.max(1, Math.round(CAP * ar));   // 長辺CAP・短辺は画面比（縦画面＝縦長カード）
+			const ch = ar >= 1 ? Math.max(1, Math.round(CAP / ar)) : CAP;
 			const tmp = new OffscreenCanvas(sw, sh), tctx = tmp.getContext("2d");
 			for (const t of others) {
 				const card = picker.querySelector(`.tp-card[data-theme="${t.k}"]`), cv = card.querySelector("canvas");
 				tctx.putImageData(remapTheme(src, from, t), 0, 0);
-				cv.width = TW; cv.height = TH_;
-				cv.getContext("2d").drawImage(tmp, 0, 0, sw, sh, 0, 0, TW, TH_);   // 写像済み原寸→見本寸へ縮小（本物を縮めたのと同じ混色）
+				cv.width = cw; cv.height = ch;
+				cv.getContext("2d").drawImage(tmp, 0, 0, sw, sh, 0, 0, cw, ch);   // 写像済み原寸→見本寸へ縮小（本物を縮めたのと同じ混色）
 				card.classList.add("live");   // 以降この開閉では実写見本（次の refresh で上書き）
 			}
 		} catch (e) { console.warn("[palette] 見本の実写化に失敗＝SVG見本のまま", e); }
@@ -137,7 +139,9 @@ export function palette({ current, onPick, requestSnapshot, signal } = {}) {
 	}
 
 	const close = () => picker.classList.remove("open");
-	btn.addEventListener("click", () => { if (picker.classList.toggle("open")) refresh(); });
+	// カードの縦横比を画面に合わせる（開いた瞬間＝まだSVG見本の段階にも効く。refresh は snap から精密に上書き）
+	const syncAspect = () => picker.style.setProperty("--tp-ar", String((mapEl.clientWidth || 4) / (mapEl.clientHeight || 3)));
+	btn.addEventListener("click", () => { if (picker.classList.toggle("open")) { syncAspect(); refresh(); } });
 	picker.addEventListener("click", e => {
 		const card = e.target.closest(".tp-card");
 		if (card) onPick?.(card.dataset.theme);   // カード＝そのテーマへ切替（app が c= 差し替え＋reload）
@@ -146,5 +150,5 @@ export function palette({ current, onPick, requestSnapshot, signal } = {}) {
 	window.addEventListener("keydown", e => {   // ESC＝取消（開いている時だけ・他の Esc 消費と競合しない）
 		if (e.key === "Escape" && picker.classList.contains("open")) { e.preventDefault(); close(); }
 	}, { signal });
-	return { open: () => { picker.classList.add("open"); refresh(); }, close };
+	return { open: () => { picker.classList.add("open"); syncAspect(); refresh(); }, close };
 }
