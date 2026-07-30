@@ -7,7 +7,7 @@
 		"dev": "vite",
 		"build": "vite build",
 		"verify:ui": "node scripts/verify-ui.mjs",
-		"deploy": "vite build && rm -rf dist/site/japan/moj-local && wrangler deploy",
+		"deploy": "vite build && rm -rf dist/site/japan/moj-local && find dist/site -name .DS_Store -delete && wrangler deploy",
 		"preview:prod": "vite build && rm -rf dist/site/japan/moj-local && wrangler dev"
 	},
 	"dependencies": {
