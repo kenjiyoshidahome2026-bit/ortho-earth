@@ -116,7 +116,7 @@ const logEl = orDetached(document.getElementById("log"));
 const EARTH_M = 6371000, TERR_EXAG = 1.0;   // 標高は実スケール（誇張しない＝地形を歪めない）。ラベル・地形・建物で共有
 // 低メモリ端末判定：deviceMemory は Chrome系のみ（≤4GB＝スマホ帯）。iOS/iPadOS Safari は非対応だが
 // タブ1枚あたり ~1-1.5GB でOSが強制終了（落ちて自動リロード）するため、タッチ端末は一律低メモリ扱い。
-// 誤検知側の被害は「同時1区・キャッシュ縮小」だけ＝安全側に倒す。renderWorker（R10キャッシュ縮小）と
+// 誤検知側の被害は「同時2区・キャッシュ縮小」だけ＝安全側に倒す。renderWorker（R10キャッシュ縮小）と
 // plateau worker（キャッシュ0・バッチ縮小）の両方に配るため、worker生成より前＝ここで定義。
 const LOW_MEM = navigator.deviceMemory ? navigator.deviceMemory <= 4 : navigator.maxTouchPoints > 1;
 
@@ -334,11 +334,11 @@ fetch(import.meta.env.BASE_URL + "airports.json").then(r => r.json()).then(list 
 }).catch(() => {});
 const PLATEAU_AUTO_Z = 15;                 // これ以上寄ると自動ロード（遠景は対象外＝ズームアウトで全解放）
 // LOW_MEM（低メモリ端末判定）はファイル冒頭で定義（renderWorker init にも渡すため）。
-if (LOW_MEM) console.log("[plateau] 低メモリ端末モード：同時1区・workerキャッシュ1区");
+if (LOW_MEM) console.log("[plateau] 低メモリ端末モード：同時2区・worker1本・キャッシュ無し");
 // 同時アクティブ地区数の上限＝GPUメモリを有界にする（密集地区(都心部)1件あたりGPUバッファ~100-140MB）。
 // デスクトップは4区（計~0.5GB＝余裕内）＝高チルトで「手前の区＋正面の区」を同時に立てる。
 // 4はシェーダの被覆マスクスロット上限（glsl u_plateauMask0..3・renderer MAX_PLATEAU_MASKS）＝これ以上は基図建物を伏せられず二重に立つ。
-const PLATEAU_MAX_ACTIVE = qNum(/[?&]maxact=(\d+)/, LOW_MEM ? 1 : 4);   // ?maxact=2 で同時表示2区（千代田⇄中央カタカタ根治のA/B）。過渡は bldCap 据置で増やさない
+const PLATEAU_MAX_ACTIVE = qNum(/[?&]maxact=(\d+)/, LOW_MEM ? 2 : 4);   // LOW_MEM=2区（千代田⇄中央カタカタ根治）。worker切離し済＝増えるのは常駐のみ(+1区~100-140MB)・過渡はbldCap据置で不変。?maxact=1 が逃げ道
 // マスク無しセット（橋梁等 noMask:true）の同時数＝別枠。被覆マスクのシェーダスロット(4)を使わないので
 // 建物4区の構図を奪わずに載る。橋梁データは区あたり数MB〜数十MB＝建物より一桁軽い。
 const PLATEAU_EXTRA_ACTIVE = LOW_MEM ? 1 : 4;
@@ -647,9 +647,9 @@ function autoPlateau(settled = false) {
 	const near = (a, b) => (d2(a) - d2(b)) || (m2(a) - m2(b)) || (c2(a) - c2(b));
 	// 選抜は建物（被覆マスクのスロット4を使う）と橋梁等（noMask＝スロット不要）で別枠＝橋が建物4区の枠を奪わない。
 	// 台本 plateau: リスト記載の区＝ピン留め＝視界に入っていれば選抜キャップを無視して同時表示
-	//（マスクスロット上限=4区まで）。LOW_MEM の同時1区キャップは、東京駅〜丸の内の滑走で最寄り区が
+	//（マスクスロット上限=4区まで）。旧・LOW_MEM の同時1区キャップは、東京駅〜丸の内の滑走で最寄り区が
 	// 千代田⇄中央と入れ替わるたび「片方を消して片方を読み直す」スラッシング（カタカタ）を起こしていた
-	//（lowMem=常駐ゼロ＝flip 毎に再ロード）。両方立てば入れ替わり自体が消える（Kenji 指定 2026-07-29）。
+	//（lowMem=常駐ゼロ＝flip 毎に再ロード）。→ LOW_MEM=2区に既定化＝両方立てて入れ替わり自体が消えた（Kenji 指定 2026-07-29／2化 2026-07-30）。
 	const capMerge = (list, cap) => {
 		const sel = list.slice(0, cap);
 		for (const s of list.slice(cap)) if (plateauPinned.has(s.name) && sel.length < 4) sel.push(s);
