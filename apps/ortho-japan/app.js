@@ -32,6 +32,7 @@ import { explain as explainGadget } from "./gadgets/explain.js";
 import { legend as legendGadget } from "./gadgets/legend.js";
 import { measure as measureGadget } from "./gadgets/measure.js";
 import { shot as shotGadget } from "./gadgets/shot.js";
+import { qr as qrGadget } from "./gadgets/qr.js";
 import { japan as japanGadget } from "./gadgets/japan.js";
 import { print as printGadget } from "./gadgets/print-stub.js";   // 本体(print.js)は初回起動時にimport()＝初期バンドルから隔離
 import { close as closeGadget } from "./gadgets/close.js";
@@ -2135,6 +2136,9 @@ map.gadget("measure", function (opts) {   // 距離・面積の計測 … 投影
 });
 map.gadget("shot", function (opts) {   // 画面保存 … worker越しの3層+measure層を合成する requestSnapshot を注入
 	return shotGadget.call(this, { requestSnapshot, signal: ac.signal, ...opts });
+});
+map.gadget("qr", function (opts) {   // 共有QR … 現在の共有URL(origin+path+viewHash＝今の視点)を注入＝スクリーン投影→スキャンでその視点を開く＝拡散
+	return qrGadget.call(this, { getUrl: () => location.origin + location.pathname + viewHash(), signal: ac.signal, ...opts });
 });
 map.gadget("japan", function (opts) {   // 日本全体へ（真俯瞰・北向き）… 着地点は既定の列島ビューを共有・⌘/Ctrl+J
 	return japanGadget.call(this, { view: JAPAN_VIEW, signal: ac.signal, ...opts });

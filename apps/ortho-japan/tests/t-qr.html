@@ -1,0 +1,42 @@
+<!doctype html>
+<!-- UI回帰：共有QRガジェット。エンコーダ自己テスト（GF/RS既知ベクトル/フォーマットBCH/構造）＋搭載＋開いてQR描画＋Escで閉じる。
+     ★実スキャン検証はオフライン不可＝ここは「エンコーダの検証可能部＋ガジェットがQRを canvas に描く」までを固める。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html{background:#0b1021}body{visibility:hidden}</style><title>t-qr</title></head>
+<body>
+<script>window.requestAnimationFrame = cb => setTimeout(() => cb(performance.now()), 16); localStorage.setItem("oj.hint", "closed");</script>
+<script type="module">
+import orthoJapan from "../app.js";
+import { qrSelfTest, qrMatrix } from "../gadgets/qrcode.js";
+const t = [], ok = (n, c) => t.push((c ? "ok:" : "NG:") + n);
+try {
+	const map = await orthoJapan({ view: "#5/37/138" });
+	// 1) エンコーダの自己テスト（GF・RS既知ベクトル・フォーマットBCH・構造）
+	ok("encoder", qrSelfTest());
+	// version 自動選定：短文=小さい版、長文=大きい版（単調増加）
+	ok("versions", qrMatrix("HELLO").length === 21 && qrMatrix("x".repeat(120)).length > qrMatrix("x".repeat(30)).length);
+	// 2) 搭載
+	const h = map.gadget.qr();
+	map.gadget.qr();   // 二重搭載＝無害
+	await new Promise(r => setTimeout(r, 80));
+	const btn = document.getElementById("qr-btn"), panel = document.getElementById("qr-panel");
+	ok("mount", document.querySelectorAll("#qr-btn").length === 1 && !!panel && !!panel.querySelector("canvas") && typeof h.open === "function");
+	// 3) 開く→QRを canvas に描く（黒白両方の画素がある＝QRらしい）
+	btn.click();
+	await new Promise(r => setTimeout(r, 80));
+	ok("open", panel.classList.contains("open"));
+	const canvas = panel.querySelector("canvas"), ctx = canvas.getContext("2d");
+	const px = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+	let black = 0, white = 0; for (let i = 0; i < px.length; i += 4) { if (px[i] < 40) black++; else if (px[i] > 200) white++; }
+	ok("render", canvas.width > 0 && black > 100 && white > 100);
+	// URL 文字列（共有URL）が入る
+	const u = panel.querySelector(".qr-url").textContent;
+	ok("url", u.startsWith("http") && u.includes("#"));
+	// 4) Esc で閉じる
+	window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+	ok("esc", !panel.classList.contains("open"));
+
+	map.destroy();
+	ok("destroy", true);
+} catch (e) { ok("boot:" + (e && e.message || e), false); }
+document.title = t.some(s => s.startsWith("NG")) ? "FAIL " + t.join(" ") : "PASS " + t.join(" ");
+</script></body></html>

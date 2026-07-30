@@ -242,6 +242,30 @@ body { visibility: visible; }   /* 開幕＝このスタイルシートの到着
 	}
 }
 
+/* --- 共有QR：左スタックのQRボタン → 中央に白カードで「現在の共有URL」の QR コード（スキャンで拡散）。
+       カードは常に白＝スキャンの掟（白背景+黒モジュール+四周のクワイエットゾーン）。テーマ（夜等）に依らず白。 --- */
+#qr-btn {
+	width: 34px; height: 34px; border-radius: 5px;
+	border: 1px solid var(--qm-border); background: var(--qm-panel); cursor: pointer; padding: 0;
+	display: flex; align-items: center; justify-content: center;
+	-webkit-backdrop-filter: blur(var(--qm-blur)); backdrop-filter: blur(var(--qm-blur));
+	&:hover { border-color: var(--qm-border-strong); }
+	svg { display: block; }
+}
+#qr-panel {
+	position: absolute; inset: 0; display: none; align-items: center; justify-content: center;
+	background: rgba(10, 16, 33, .55); padding: 16px; z-index: 0;   /* z-index は DOM順の裁きに委ねる（末尾append） */
+	-webkit-backdrop-filter: blur(2px); backdrop-filter: blur(2px);
+	&.open { display: flex; }
+	.qr-card {
+		display: flex; flex-direction: column; align-items: center; gap: 12px;
+		padding: clamp(16px, 3vw, 24px); background: #fff; border-radius: 12px; box-shadow: var(--qm-shadow-pop); max-width: 94vw;
+	}
+	canvas { display: block; width: min(72vw, 58vh); height: auto; image-rendering: pixelated; border-radius: 2px; }   /* pixelated＝モジュールが滲まず遠くから読める */
+	.qr-cap { font: 600 15px/1.4 var(--qm-font); color: #222; letter-spacing: .04em; text-align: center; }
+	.qr-url { font: 11px/1.5 var(--qm-font-mono); color: #667; word-break: break-all; text-align: center; max-width: min(72vw, 58vh); }
+}
+
 /* --- デモ（発表の台本再生）：▶＝スタックのボタン、下部中央に操縦バー「‹ タイトル n/N › ×」、
        スライドは中央ポップ（#theme-picker と同流儀の幕）。バーはスライドより後段のDOM＝スライド表示中も操縦できる。
        バーの定位置＝#scale の一段上（縮尺と重ねない）。デモ中も地図は生きたまま＝バー以外は素通し --- */
@@ -639,7 +663,7 @@ body { visibility: visible; }   /* 開幕＝このスタイルシートの到着
        点火(.on)や検索の開閉(#search.open)は各所の高詳細度セレクタが勝つ＝壊さない。
        上辺グラデ＋inset上ハイライト＝光を受けた凸面、押すと1px沈む＝指応え。 --- */
 #hint-btn, #search #search-btn, #plateau-btn, #palette-btn, #reset, #zoom button, #full,
-#cpos-btn, #measure-btn, #japan-btn, #shot-btn, #print-btn, #legend-btn, #close-btn, #demo-btn,
+#cpos-btn, #measure-btn, #japan-btn, #shot-btn, #print-btn, #legend-btn, #close-btn, #demo-btn, #qr-btn,
 #chips .chip {
 	background-color: var(--qm-glass-bg);
 	background-image: var(--qm-glass-sheen);
