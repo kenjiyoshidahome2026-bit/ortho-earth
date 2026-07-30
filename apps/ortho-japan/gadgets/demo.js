@@ -7,9 +7,8 @@
 //   時分割で滑る。引き・回り込み・立ち上がりの画。大手町→レインボーブリッジのような同じ街のホップ用）。
 //   点火チップ(l=)は「l= を書いたシーンだけ」がチップに触る＝無ければ現状維持（発表者の手動チップが台本に勝つ）。
 //   シーンの見た目を固定したい時は明示的に l= を（全消し＝末尾 "l="）。
-//   c= 付きシーン＝配色の幕替わり：現テーマと違えば「暗転」＝進行を sessionStorage に預け、そのシーンのURLで
-//   reload→起動時に自動で台本を再開（着せ替えは元々 reload の設計＝パレットの切替と同じ道。タイル/PLATEAUは
-//   IDBが温まっているので復帰は速い）。幕替わりシーンはフルスペック（l= 込み）で書く事＝reloadは状態を持ち越さない。
+//   c= 付きシーン＝配色の幕替わり：flyView が「生き替え」で反映する（reload無し＝暗転が消える・進行はそのまま）。
+//   タイルは新styleで再ビルド（IDB温間で速い）・建物/大気は uniform 差替＝飛行の継ぎ目でテーマが溶け替わる。
 // スライド＝各シーンの持ち物（view と併存可）：slide="画像URL"（svg/png/webp…拡張子か data:/http で判定）
 //   または slide="生テキスト"（思いついた一言を紙のカードで・\n改行可）。
 // view+slide 併記＝三拍子の遷移：(view・幕なし) →›→ (幕) →›→ (幕なし) →›→ 次シーン
@@ -42,9 +41,7 @@ const ICON = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke
 
 // slide の中身が画像か生テキストか：画像拡張子・data:/blob:/http(s): だけを画像と見る（それ以外は全部テキスト＝安全側）
 const isImg = s => /\.(svg|png|jpe?g|webp|gif|avif)([?#]|$)/i.test(s) || /^(data:|blob:|https?:)/.test(s);
-// ビュー文字列の c= トークン（配色テーマ名）＝幕替わり判定用。書式は viewurl.js の共有URL語彙と同じ
-const themeTok = s => (/[#/]c=([\w-]+)/.exec(s) || [])[1];
-const RESUME_KEY = "oj.demo.resume";   // 幕替わり（reload）を跨ぐ進行の預け先（タブ限り・60秒で失効）
+// 配色テーマ（c=）の幕替わりは flyView 側の「生き替え」（reload無し）で反映＝ここでのトークン判定/進行預け(RESUME_KEY)は不要になった。
 
 // opts.scenes＝台本 [{title, view?, glide?, pre?, slide?, caption?, hold?, mobile?}]。view/glide=共有URLハッシュ文字列（glide=近距離滑走）／
 //   pre=入場の見せ玉：まず pre の画へ飛び、着地から1秒後に view を遷移なしで重ねる（同座標で l= だけ点ける演出）／
@@ -54,11 +51,11 @@ const RESUME_KEY = "oj.demo.resume";   // 幕替わり（reload）を跨ぐ進�
 // opts.mobile＝Δz の台本全体の既定（全シーンに効く）。シーン毎の mobile が勝つ＝mobile: 0 でそのシーンだけ無効化。
 // opts.slide=false＝スライド抜き上演。opts.hold＝自動上演の静止ms（既定7000・着地後から）。opts.slideHold＝幕の表示ms（既定4000）。
 // opts.flyView＝共有URLへ飛ぶ（app が注入）。opts.flightActive＝フライト/滑走中か（app が注入）＝静止の計時を着地まで待たせる。
-// opts.theme＝現テーマ名（app が注入）＝c= 付きシーンの幕替わり（暗転reload）判定に使う。
+// （opts.theme は撤去：c= 付きシーンの幕替わりは flyView 側の生き替え＝reload無しが反映する＝demo は持たない）
 // opts.prefetchViews＝PLATEAU先読み（app が注入・任意）：▶の瞬間に台本の全 view を渡す＝寄るシーンの区が裏でIDBへ。
 //   序盤のシーン構成で時間を稼げば、PLATEAUシーン到着時には初見のPCでも一発で街が立つ（データ重力の種まき兼用）。
 // 戻り値＝{start, next, prev, exit, play, pause}（テスト・プログラム駆動用）。
-export function demo({ scenes, slide: slideOn = true, hold = 5500, slideHold = 4000, mobile, flyView, flightActive, prefetchViews, theme, signal, plateau } = {}) {
+export function demo({ scenes, slide: slideOn = true, hold = 5500, slideHold = 4000, mobile, flyView, flightActive, prefetchViews, signal, plateau } = {}) {
 	const mapEl = this.mapEl;
 	if (!slideOn && Array.isArray(scenes)) scenes = scenes.filter(s => s.view || !s.slide);   // スライドだけのシーン＝空の停留所になるので抜く
 	if (!Array.isArray(scenes) || !scenes.length) { console.warn("[demo] scenes が空＝ガジェットは搭載しない"); return; }
@@ -94,7 +91,7 @@ export function demo({ scenes, slide: slideOn = true, hold = 5500, slideHold = 4
 		titleEl = bar.querySelector("#demo-title"), stepEl = bar.querySelector("#demo-step"),
 		playBtn = bar.querySelector("#demo-play");
 	// シーン一覧（目次）：タイトル/歩数のクリックでバーの真上にポップ＝クリックでそのシーンへジャンプ。
-	// c= 付きシーンへのジャンプも show() 経由＝幕替わり（暗転reload→自動再開）がそのまま効く。
+	// c= 付きシーンへのジャンプも show()→flyView 経由＝生き替え（reload無し）がそのまま効く。
 	const list = document.createElement("div");
 	list.id = "demo-list";
 	const sceneLabel = s => s.title || (s.slide && !s.view && !s.glide ? "（スライド）" : (s.view ?? s.glide ?? "（無題）"));
@@ -146,19 +143,13 @@ export function demo({ scenes, slide: slideOn = true, hold = 5500, slideHold = 4
 		if (open) slideShown = true;
 	};
 	const hasSlide = s => !!(s && s.slide && slideOn);
-	function show(i, fly = true) {   // fly=false＝幕替わり復帰（起動ビュー＝もうシーンの視点に居る＝飛ばない）
+	function show(i, fly = true) {   // fly=false＝飛ばずに即表示（もうその視点に居る等・現状は常に fly=true）
 		idx = i;
 		clearTimeout(preTimer);   // 前シーンの pre→view 予約は持ち越さない
 		const s = scenes[i];
-		// 配色の幕替わり：シーンの c= が現テーマと違えば「暗転」＝進行を預けて、そのシーンのURLで reload。
-		// 起動時に下の resume が拾って自動再開する（着せ替えは reload の設計＝パレット切替と同じ道）。
-		const tgt = mobView(s), want = tgt && themeTok(tgt);   // 幕替わり（reload）のURLにも mobile:Δz を効かせる＝復帰時の視点が既に補正済み
-		if (want && theme && want !== theme) {
-			let saved = false;
-			try { sessionStorage.setItem(RESUME_KEY, JSON.stringify({ i, playing, t: Date.now() })); saved = true; } catch { /* private mode 等 */ }
-			if (saved) { location.hash = tgt.startsWith("#") ? tgt : "#" + tgt; location.reload(); return; }
-			console.warn("[demo] sessionStorage不可＝幕替わり（配色reload）を諦めて配色そのままで続行");
-		}
+		// 配色の幕替わり：シーンの c=（配色テーマ）は flyView が「生き替え」で反映する（reload無し＝暗転が消える・進行はそのまま）。
+		// タイルは新styleで再ビルド（IDB温間で速い）・建物/大気は uniform 差替＝飛行の継ぎ目でテーマが溶け替わる。ここは素の送りに徹する。
+		const tgt = mobView(s);   // mobile:Δz を効かせたシーンURL（c= 込み＝この後 flyView に渡り switchTheme が効く）
 		titleEl.textContent = s.title || "";
 		titleEl.classList.remove("in"); void titleEl.offsetWidth; titleEl.classList.add("in");   // タイトルは毎シーン淡入（reflowでアニメ再点火）
 		stepEl.textContent = `${i + 1}/${scenes.length}`;
@@ -192,7 +183,7 @@ export function demo({ scenes, slide: slideOn = true, hold = 5500, slideHold = 4
 		bar.classList.add("on"); mapEl.classList.add("demo-live"); show(i, fly);
 		btn.setAttribute("aria-pressed", "true"); btn.dataset.tip = "デモを終了 (Esc)"; btn.setAttribute("aria-label", "デモを終了");
 		if (!prefetched) { prefetched = true; prefetchViews?.(scenes.map(s => s.view ?? s.glide).filter(Boolean), plateau); }   // ▶＝裏で台本の街をIDBへ（1回だけ・以降はIDB命中でタダ）。plateau=台本の明示リスト（任意）
-		if (narrow()) play();   // 幕替わり（reload）復帰は下の resume が r.playing を見て再度 play＝play は再入無害
+		if (narrow()) play();   // 狭画面の▶開始＝即・自動上演（play は再入無害）
 	};
 	// 上映中（.playing）＝デスクトップでは操縦バーごと退場（CSS）＝停止は点灯した▶が受ける。字幕も止まったら引っ込める
 	const pause = () => {
@@ -201,7 +192,7 @@ export function demo({ scenes, slide: slideOn = true, hold = 5500, slideHold = 4
 		if (on()) { btn.dataset.tip = "デモを終了 (Esc)"; btn.setAttribute("aria-label", "デモを終了"); }
 	};
 	const play = () => {
-		if (playing) return;   // 再入（狭画面start→resume の二重 play 等）＝スケジューラを重ねない
+		if (playing) return;   // 再入（狭画面 start→play が重なる等）＝スケジューラを重ねない
 		playing = true; bar.classList.add("playing");
 		playBtn.textContent = "❚❚"; playBtn.setAttribute("aria-pressed", "true");
 		btn.dataset.tip = "上映を停止"; btn.setAttribute("aria-label", "上映を停止");
@@ -248,7 +239,7 @@ export function demo({ scenes, slide: slideOn = true, hold = 5500, slideHold = 4
 	stepEl.addEventListener("click", toggleList);   // 無題シーン（タイトル空）でも歩数から開ける
 	list.addEventListener("click", e => {
 		const b = e.target.closest("button[data-i]");
-		if (b) { list.classList.remove("open"); show(+b.dataset.i); }   // ジャンプ＝一覧は閉じて向かう（c=シーンなら幕替わりへ）
+		if (b) { list.classList.remove("open"); show(+b.dataset.i); }   // ジャンプ＝一覧は閉じて向かう（c=シーンは flyView が生き替え）
 	});
 	window.addEventListener("keydown", e => {
 		if (!on() || isTypingTarget()) return;   // 検索欄などの入力中は譲る（BSの文字削除・Spaceの入力を奪わない）
@@ -257,15 +248,6 @@ export function demo({ scenes, slide: slideOn = true, hold = 5500, slideHold = 4
 		else if (e.key === "Backspace" || e.key === "ArrowLeft" || e.key === "PageUp") { e.preventDefault(); prev(); }   // BS＝戻る
 		else if (e.key === "Escape") { e.preventDefault(); listOpen() ? list.classList.remove("open") : exit(); }   // Esc＝一覧が開いていれば一覧だけ閉じる
 	}, { signal });
-	// 幕替わり（配色reload）からの自動復帰：預けた進行があれば拾って再開。起動ビュー＝もうそのシーンの視点・
-	// チップ・テーマで立ち上がっている＝飛ばずに（fly=false）バーだけ点けて続きから。自動上演中だったら再生も継続。
-	try {
-		const r = JSON.parse(sessionStorage.getItem(RESUME_KEY) || "null");
-		sessionStorage.removeItem(RESUME_KEY);
-		if (r && Date.now() - r.t < 60000 && r.i >= 0 && r.i < scenes.length) {
-			start(r.i, false);
-			if (r.playing) play();
-		}
-	} catch { /* storage 不可＝復帰なし（▶で最初から） */ }
+	// 配色の幕替わりは flyView の生き替え（reload無し）へ移行＝reload を跨ぐ自動復帰は不要になった（RESUME_KEY 撤去）。
 	return { start, next, prev, exit, play, pause };
 }

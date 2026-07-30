@@ -1846,14 +1846,14 @@ function applyViewLayers(v) {
 // ・l= があるシーンだけがチップに触る。無ければ現状維持＝hashchange と同じ意味論
 //   （当初「無し＝既定へリセット」にしたら、手動で消した地名が l= 無しシーンのたびに復活する「時たま出現」を生んだ。
 //    発表者の手が台本に勝つ＝デモ中も地図は生きたままの哲学。シーンの見た目を固定したい時は明示的に l= を書く）
-// ・c= は flyView では無視（style は起動時焼き付け）。デモの配色幕替わりは gadget 側が reload+自動再開で実現（demo.js）
+// ・c= はここで生き替え（switchTheme・reload無し）＝飛行はそのまま進む＝デモの幕替わりの暗転が消える（demo.js は素の送りに徹する）
 // ・点火は離陸時＝データは飛行中に読まれ、着地には灯って待つ（PLATEAUだけは着地後＝flight ③の流儀）
 // ・opts.glide＝近距離滑走（シーン内の動き）：三段振り付けでなく 位置→方位→チルト の時分割で滑る（引き・回り込み・立ち上がり）
 // ・opts.jump＝遷移なしの即時反映（カメラ直書き＋l=反映）。デモの pre→view（同座標で l= だけ点ける見せ玉）用
 function flyView(hash, { glide = false, jump = false } = {}) {
 	const v = typeof hash === "string" ? parseViewHash(hash) : hash;
 	if (!v) { console.warn(`[flyView] 解釈できないビュー "${hash}"`); return false; }
-	if (v.theme && v.theme !== themeName) console.warn(`[flyView] c=${v.theme} は無視＝配色は起動時焼き付け（デモは現テーマのまま進む）`);
+	if (v.theme && v.theme !== themeName && !themeFixed) switchTheme(v.theme);   // c= の幕替わりを生き替え（reload無し）＝この後の飛行はそのまま進む＝暗転が消える
 	applyViewLayers(v);
 	if (jump) {   // 飛行中なら打ち切ってカメラ直書き＝アニメ無し（pre と view は同座標が前提＝実際に動くのは l= だけ）
 		flightCtl.cancel();
@@ -2157,7 +2157,7 @@ map.gadget("dropFile", function (opts) {   // GISファイルのD&D取り込み 
 	return dropFileGadget.call(this, { loadFile, clearGint: clearUserGint, signal: ac.signal, ...opts });
 });
 map.gadget("demo", function (opts) {   // デモ（発表の台本再生）… 台本の一行=共有URLハッシュ。flyView（球面フライト）・フライト中判定・PLATEAU先読み・現テーマ名（幕替わり判定）を注入
-	return demoGadget.call(this, { flyView, flightActive: () => flightCtl.active, prefetchViews: prefetchPlateauForViews, theme: themeName, signal: ac.signal, ...opts });
+	return demoGadget.call(this, { flyView, flightActive: () => flightCtl.active, prefetchViews: prefetchPlateauForViews, signal: ac.signal, ...opts });
 });
 map.gadget("ai", function (opts) {   // AIと会話して地図に描く（PC専用・画面2分割）… 描画受け口とbboxフィット・消去を注入
 	const fitBbox = bb => {   // dropFile と同じ視野幅の逆解き＝fit へ球面フライト（真俯瞰・北向き）

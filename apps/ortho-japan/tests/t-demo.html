@@ -162,15 +162,17 @@ try {
 		&& document.querySelector('.chip[data-k="rail"]')?.classList.contains("on") === true);
 	map2.destroy();
 
-	// 幕替わり（配色reload）からの自動復帰：預けた進行があれば、▶を押さずともそのシーンから再開（飛ばない＝視点は起動のまま）
-	sessionStorage.setItem("oj.demo.resume", JSON.stringify({ i: 1, playing: false, t: Date.now() }));
-	const map3 = await orthoJapan({ view: "#7/39/141" });
-	map3.gadget.demo({ scenes: [{ title: "甲", view: "#6/40/140" }, { title: "乙", view: "#7/39/141" }] });
+	// 配色の幕替わり＝flyView の生き替え（reload無し）：乙(c=dark)へ送ると reload せず switchTheme が走り、
+	// c=dark が共有URLに載る＝暗転無しでテーマが替わる（旧: sessionStorage 預け→reload→自動再開＝撤去済み）。
+	const map3 = await orthoJapan({ view: "#7/39/141" });   // 既定 mono で起動
+	const h3 = map3.gadget.demo({ scenes: [{ title: "甲", view: "#7/39/141" }, { title: "乙", view: "#8/38/140/c=dark" }] });
+	h3.start(0);   // ▶＝1シーン目（mono・素通り）
 	await new Promise(r => setTimeout(r, 200));
 	const bar3 = document.getElementById("demo-bar");
-	ok("resume", bar3.classList.contains("on") && bar3.querySelector("#demo-step").textContent === "2/2"
-		&& bar3.querySelector("#demo-title").textContent === "乙"
-		&& !sessionStorage.getItem("oj.demo.resume"));   // 預かりは使い切り（次の素の起動で勝手に始まらない）
+	bar3.querySelector("#demo-next").click();   // 乙(c=dark)へ＝flyView が switchTheme("dark") を生き替え
+	await new Promise(r => setTimeout(r, 9000));   // フライト＋新styleでの再ビルド（reload しないのでテストは継続）
+	ok("liveThemeSwitch", bar3.classList.contains("on") && bar3.querySelector("#demo-step").textContent === "2/2"
+		&& /c=dark/.test(location.hash));   // reload せず＝switchTheme が c=dark を共有URLへ書いた＝暗転無しの幕替わり
 	map3.destroy();
 	ok("destroy", true);
 } catch (e) { ok("boot:" + (e && e.message || e), false); }
