@@ -4,7 +4,7 @@
 // ボタンの説明（data-tip）とは別物＝あちらは静的ラベル、こちらは動的な指先の注記。signal＝destroy時の解除。
 export function tip({ signal } = {}) {
 	const mapEl = this.mapEl;
-	if (mapEl.querySelector("#tip")) return () => {};   // 二重搭載は無害
+	const had = mapEl.querySelector("#tip"); if (had) return had._setTip || (() => {});   // 二重搭載＝既存の working setter を返す（冪等）。app が起動時に搭載済み(gintHoverTip)でも、後から map.gadget.tip() で同じ手綱を得られる
 	const div = document.createElement("div");
 	div.id = "tip"; div.style.display = "none";
 	mapEl.append(div);   // #map 直下の後置（DOM順で上・pointer-events は CSS で none）
@@ -26,11 +26,13 @@ export function tip({ signal } = {}) {
 		let top = y + osy; if (top < 0) top = 0; else if (top + h > H) top = H - h;
 		div.style.left = left + "px"; div.style.top = top + "px"; div.style.display = "block";
 	}
-	return content => {   // 内容の setter（呼び出し側の手綱）
+	const setTip = content => {   // 内容の setter（呼び出し側の手綱）
 		if (!content) { div.innerHTML = ""; size = { w: 0, h: 0 }; return hide(); }
 		div.innerHTML = toHTML(content);
 		div.style.display = "block"; div.style.visibility = "hidden";   // 実寸を測ってからカーソル脇へ
 		const r = div.getBoundingClientRect(); size = { w: r.width, h: r.height };
 		div.style.visibility = ""; last ? move() : hide();
 	};
+	div._setTip = setTip;   // 二重搭載で同じ手綱を返せるよう #tip に保持
+	return setTip;
 }
