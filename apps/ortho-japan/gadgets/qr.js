@@ -12,13 +12,15 @@ const ICON = `<svg viewBox="0 0 24 24" width="20" height="20" fill="#3f4757" ari
 	<rect x="14" y="14" width="2" height="2"/><rect x="19" y="14" width="2" height="2"/><rect x="17" y="17" width="2" height="2"/><rect x="14" y="19" width="2" height="2"/><rect x="19" y="19" width="2" height="2"/></svg>`;
 
 // opts.getUrl＝現在の共有URL文字列を返す（app が注入＝location.origin+pathname+viewHash()＝常に「今の視点」）。無ければ location.href。
-export function qr({ getUrl, signal } = {}) {
+export function qr({ getUrl, signal, btn } = {}) {
 	const mapEl = this.mapEl;
-	if (mapEl.querySelector("#qr-btn")) return;   // 二重搭載は無害
-	const btn = document.createElement("button");
-	btn.id = "qr-btn"; btn.dataset.tip = "この視点をQRで共有"; btn.setAttribute("aria-label", "現在の視点をQRコードで共有");
-	btn.innerHTML = ICON;
-	gadgetStack(mapEl).append(btn);   // 置き場所はスタック（搭載順＝縦の並び）
+	if (!btn) {   // 直搭載（qr-stub 非経由＝単体でも動く＝独立）＝自前でボタン生成。stub 経由は btn 持参で再利用
+		if (mapEl.querySelector("#qr-btn")) return;   // 二重搭載は無害
+		btn = document.createElement("button");
+		btn.id = "qr-btn"; btn.dataset.tip = "この視点をQRで共有"; btn.setAttribute("aria-label", "現在の視点をQRコードで共有");
+		btn.innerHTML = ICON;
+		gadgetStack(mapEl).append(btn);   // 置き場所はスタック（搭載順＝縦の並び）
+	}
 
 	const panel = document.createElement("div");
 	panel.id = "qr-panel";

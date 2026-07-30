@@ -14,17 +14,16 @@ try {
 	ok("encoder", qrSelfTest());
 	// version 自動選定：短文=小さい版、長文=大きい版（単調増加）
 	ok("versions", qrMatrix("HELLO").length === 21 && qrMatrix("x".repeat(120)).length > qrMatrix("x".repeat(30)).length);
-	// 2) 搭載
+	// 2) 搭載＝スタブ（ボタンだけ常駐・本体はまだ import しない＝遅延ロード。panel は未生成）
 	const h = map.gadget.qr();
 	map.gadget.qr();   // 二重搭載＝無害
-	await new Promise(r => setTimeout(r, 80));
-	const btn = document.getElementById("qr-btn"), panel = document.getElementById("qr-panel");
-	ok("mount", document.querySelectorAll("#qr-btn").length === 1 && !!panel && !!panel.querySelector("canvas") && typeof h.open === "function");
-	// 3) 開く→QRを canvas に描く（黒白両方の画素がある＝QRらしい）
-	btn.click();
-	await new Promise(r => setTimeout(r, 80));
-	ok("open", panel.classList.contains("open"));
-	const canvas = panel.querySelector("canvas"), ctx = canvas.getContext("2d");
+	ok("stub", document.querySelectorAll("#qr-btn").length === 1 && typeof h.open === "function" && !document.getElementById("qr-panel"));
+	// 3) 開く＝ここで本体(qr.js＋qrcode.js)を import()→panel生成→QR描画→open（遅延ロード）
+	await h.open();
+	const panel = document.getElementById("qr-panel"), canvas = panel?.querySelector("canvas");
+	ok("lazyOpen", !!panel && panel.classList.contains("open") && !!canvas);
+	// canvas に QR が描かれた（黒白両方の画素がある＝QRらしい）
+	const ctx = canvas.getContext("2d");
 	const px = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
 	let black = 0, white = 0; for (let i = 0; i < px.length; i += 4) { if (px[i] < 40) black++; else if (px[i] > 200) white++; }
 	ok("render", canvas.width > 0 && black > 100 && white > 100);
@@ -35,6 +34,10 @@ try {
 	window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
 	ok("esc", !panel.classList.contains("open"));
 
+	// 後始末の一呼吸：本体を import() した直後に destroy すると、地図初期化の未完フェッチを道連れに中断し、
+	// headless の --virtual-time-budget が「保留ネットワーク待ち」で時計を止め dump されない（実ブラウザでは無害な計測アーティファクト）。
+	// t-measure/t-palette-live は多数の await で自然に凪ぐのと同じく、少し置いてフェッチを凪がせてから畳む。
+	await new Promise(r => setTimeout(r, 400));
 	map.destroy();
 	ok("destroy", true);
 } catch (e) { ok("boot:" + (e && e.message || e), false); }

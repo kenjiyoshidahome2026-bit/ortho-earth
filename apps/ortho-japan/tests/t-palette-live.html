@@ -23,19 +23,20 @@ const mkSnap = () => {
 const near = (got, want, tol = 8) => got.every((v, i) => Math.abs(v - want[i]) <= tol);
 try {
 	const map = await orthoJapan({ view: "#12/35.68/139.76" });   // 高ズーム＝実写モード（LIVE_MIN_Z以上）で撮影→写像を通す（低ズームは陰影で写像退避＝別挙動）
-	const h = map.gadget.palette({ requestSnapshot: async () => mkSnap() });   // 撮影を合成で差し替え（...optsが注入を上書き）
+	const h = map.gadget.palette({ requestSnapshot: async () => mkSnap() });   // スタブ。撮影を合成で差し替え（...optsが注入を上書き＝本体到着時に効く）
 	map.gadget.palette();   // 二重搭載＝無害
-	await new Promise(r => setTimeout(r, 200));
+	// 搭載直後＝スタブ（ボタンだけ常駐・本体はアイドル先読み or open で載る）。picker/カードは本体が作る＝まだ無い。
+	ok("stub", document.querySelectorAll("#palette-btn").length === 1 && typeof h.open === "function" && !document.getElementById("theme-picker"));
+
+	// 開く＝h.open()＝本体(palette.js)を import()→搭載→開く（撮影→写像を発火）。アイドル先読みの発火順に依らず冪等。
+	await h.open();
+	await new Promise(r => setTimeout(r, 300));   // 撮影→写像→全カード実写化(.live) の完了待ち
 	const picker = document.getElementById("theme-picker");
 	const cards = [...document.querySelectorAll("#theme-picker .tp-card")];
 	ok("mount", document.querySelectorAll("#palette-btn").length === 1 && cards.length === 3
 		&& cards.every(c => c.querySelector("svg") && c.querySelector("canvas")));   // SVGプレースホルダ＋実写canvasが同居
-
-	// 開く＝撮影→写像→全カード実写化（.live）。canvas は見本実寸(360×252)。
-	document.getElementById("palette-btn").click();
-	await new Promise(r => setTimeout(r, 300));
 	ok("open", picker.classList.contains("open"));
-	ok("live", cards.every(c => c.classList.contains("live") && c.querySelector("canvas").width === 360 && c.querySelector("canvas").height === 252));
+	ok("live", cards.every(c => c.classList.contains("live") && c.querySelector("canvas").width === 360 && c.querySelector("canvas").height === 252));   // canvas は見本実寸(360×252＝撮影20×14=10:7)
 
 	// 写像色の検証（mono→dark カード）：紙→夜の紙、幹線青→夜の幹線青、宇宙(黒)→黒のまま。
 	// サンプルは各領域の中央（境界の平滑化を避ける）：x=20%→紙、x=50%→幹線、x=70%→水系、x=90%→宇宙。

@@ -16,11 +16,13 @@ try {
 	const map = await orthoJapan({ view: "#15/35.681/139.767" });
 	const h = map.gadget.measure();
 	map.gadget.measure();   // 二重搭載＝無害
-	await new Promise(r => setTimeout(r, 300));
-	ok("mount", ["measure-btn", "measure-lines", "measure-readout"].every(id => document.querySelectorAll("#" + id).length === 1));
+	// 搭載直後＝スタブ（ボタンだけ常駐・本体はまだ import しない＝遅延）。measure-lines/readout は本体が作る＝まだ無い。
+	ok("stub", document.querySelectorAll("#measure-btn").length === 1 && !document.getElementById("measure-lines"));
 
-	// 開始：ボタンで測距モードON（照準カーソル・クリック横取り）
-	document.getElementById("measure-btn").click();
+	// 開始：h.open()＝本体(measure.js)を import()→搭載→計測モードON。open は本体handleを解決＝stats() を読める。
+	const g = await h.open();
+	await new Promise(r => setTimeout(r, 60));   // frame hook 配線 / 初回 draw の一拍
+	ok("mount", ["measure-btn", "measure-lines", "measure-readout"].every(id => document.querySelectorAll("#" + id).length === 1));
 	ok("start", document.getElementById("map").classList.contains("measuring") && document.getElementById("measure-btn").classList.contains("on")
 		&& rd().style.display !== "none");
 
@@ -28,12 +30,12 @@ try {
 	const move = (x, y) => document.getElementById("map").dispatchEvent(new PointerEvent("pointermove", { bubbles: true, clientX: x, clientY: y }));
 	click(430, 320); click(500, 300); move(500, 300);
 	await new Promise(r => setTimeout(r, 60));
-	ok("distance", h.stats().total > 0);
+	ok("distance", g.stats().total > 0);
 
 	// 3点目＋カーソル＝閉じプレビューで面積が出る
 	click(480, 380); move(470, 350);
 	await new Promise(r => setTimeout(r, 60));
-	ok("area", h.stats().area > 0);
+	ok("area", g.stats().area > 0);
 
 	// 確定：ダブルクリック→ヒント文が変わる（Escで消去…）
 	document.getElementById("map").dispatchEvent(new MouseEvent("dblclick", { bubbles: true, cancelable: true, clientX: 480, clientY: 380 }));

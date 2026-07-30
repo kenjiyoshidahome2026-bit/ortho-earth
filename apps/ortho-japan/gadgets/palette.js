@@ -98,13 +98,15 @@ function remapTheme(img, from, to) {
 
 // opts.current＝いま焼き付いているテーマ名（見本から除く＝「自分以外」を出す）。opts.onPick(name)＝切替（app 側が生き替え＝reload無し）。
 // opts.requestSnapshot＝shot と同じスナップショット（app が注入）＝見本を「今の視点の実写」にする。無ければ SVG 見本のまま。
-export function palette({ current, onPick, requestSnapshot, getZoom, getCurrent, signal } = {}) {
+export function palette({ current, onPick, requestSnapshot, getZoom, getCurrent, signal, btn } = {}) {
 	const mapEl = this.mapEl;
-	if (mapEl.querySelector("#palette-btn")) return;   // 二重搭載は無害
-	const btn = document.createElement("button");
-	btn.id = "palette-btn"; btn.dataset.tip = "配色テーマ"; btn.setAttribute("aria-label", "配色テーマを選ぶ");
-	btn.innerHTML = ICON;
-	gadgetStack(mapEl).append(btn);   // 置き場所はスタック（搭載順＝縦の並び）
+	if (!btn) {   // 直搭載（palette-stub 非経由＝単体でも動く＝独立）＝自前でボタン生成。stub 経由は btn 持参で再利用
+		if (mapEl.querySelector("#palette-btn")) return;   // 二重搭載は無害
+		btn = document.createElement("button");
+		btn.id = "palette-btn"; btn.dataset.tip = "配色テーマ"; btn.setAttribute("aria-label", "配色テーマを選ぶ");
+		btn.innerHTML = ICON;
+		gadgetStack(mapEl).append(btn);   // 置き場所はスタック（搭載順＝縦の並び）
+	}
 
 	const picker = document.createElement("div");
 	picker.id = "theme-picker";

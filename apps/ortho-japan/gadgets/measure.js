@@ -13,19 +13,21 @@ import { keyBusy } from "./keys.js";
 const R = 6371008.8, D2R = Math.PI / 180, R2D = 180 / Math.PI;
 const LINE = "#880000", FILL = "rgba(136,0,0,0.1)", DOT = "#fff", W = 2, R_VERT = 4;
 
-export function measure({ makeProjector, unprojectXY, setClick, requestDraw, signal } = {}) {
+export function measure({ makeProjector, unprojectXY, setClick, requestDraw, signal, btn } = {}) {
 	const mapEl = this.mapEl;
 	if (mapEl.querySelector("#measure-lines")) return () => {};   // 二重搭載は無害
 	const dpr = window.devicePixelRatio || 1;
 	const font = (getComputedStyle(document.documentElement).getPropertyValue("--qm-font") || "system-ui").trim();
 
-	const btn = document.createElement("button");
-	btn.id = "measure-btn"; btn.dataset.tip = "距離・面積を測る（M）"; btn.setAttribute("aria-label", "距離・面積を測る");
-	btn.innerHTML = `
-		<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#3f4757" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true">
-			<rect x="2.5" y="7" width="19" height="10" rx="1.5" transform="rotate(-20 12 12)"/>
-			<path d="M6.6 8.2l1 2.4M10 6.9l1.4 3.2M13.4 5.6l1 2.4M16.8 4.3l1.4 3.2" stroke-width="1.3"/></svg>`;
-	gadgetStack(mapEl).append(btn);
+	if (!btn) {   // 直搭載（measure-stub 非経由＝単体でも動く＝独立）＝自前でボタン生成。stub 経由は btn 持参で再利用
+		btn = document.createElement("button");
+		btn.id = "measure-btn"; btn.dataset.tip = "距離・面積を測る（M）"; btn.setAttribute("aria-label", "距離・面積を測る");
+		btn.innerHTML = `
+			<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#3f4757" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true">
+				<rect x="2.5" y="7" width="19" height="10" rx="1.5" transform="rotate(-20 12 12)"/>
+				<path d="M6.6 8.2l1 2.4M10 6.9l1.4 3.2M13.4 5.6l1 2.4M16.8 4.3l1.4 3.2" stroke-width="1.3"/></svg>`;
+		gadgetStack(mapEl).append(btn);
+	}
 
 	const canvas = document.createElement("canvas");
 	canvas.id = "measure-lines"; mapEl.append(canvas);   // #map 直下の後置（DOM順で上・pointerは素通し）
@@ -76,8 +78,9 @@ export function measure({ makeProjector, unprojectXY, setClick, requestDraw, sig
 	const _update = () => {   // 毎フレ：計測中だけ再投影して引き直す（パン/ズーム/3Dで球に追従）。
 		if (active) draw();   // 非アクティブは即return＝全画面canvasの消去・合成とレイアウト読みを毎フレ積まない（PLATEAU時のカクツキ対策）。最後の消去は stop() の draw()、寸法合わせは draw() 冒頭の syncSize が担う
 	};
-	// 戻り値＝no-op（作法の対称）＋制御ハンドル。stats()＝現在の総距離(m)/面積(m²)/頂点数（アプリが読める）
-	return Object.assign(() => {}, { _update, start, stop, stats: () => ({ total: lastTotal, area: lastArea, points: verts.length }) });
+	// 戻り値＝no-op（作法の対称）＋制御ハンドル。stats()＝現在の総距離(m)/面積(m²)/頂点数（アプリが読める）。
+	// open/close＝start/stop の別名＝遅延スタブ（measure-stub）の共通IF（open で本体到着→計測開始）に相乗り。
+	return Object.assign(() => {}, { _update, start, stop, open: start, close: stop, stats: () => ({ total: lastTotal, area: lastArea, points: verts.length }) });
 
 	// ---- 幾何 ----
 	function dist(a, b) {

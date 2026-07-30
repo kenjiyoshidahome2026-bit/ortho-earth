@@ -21,7 +21,7 @@ import { search as searchGadget } from "./gadgets/searchbox.js";
 import { hint as hintGadget } from "./gadgets/hint.js";
 import { compass as compassGadget } from "./gadgets/compass.js";
 import { plateau as plateauGadget } from "./gadgets/plateau.js";
-import { palette as paletteGadget } from "./gadgets/palette.js";
+import { palette as paletteGadget } from "./gadgets/palette-stub.js";   // 玄関スタブ＝ボタン常駐、本体(palette.js＝色域写像＋合成)は起動後アイドルで先読み（常用ゆえ押した時に即開く）
 import { zoom as zoomGadget } from "./gadgets/zoom.js";
 import { full as fullGadget } from "./gadgets/full.js";
 import { cpos as cposGadget } from "./gadgets/cpos.js";
@@ -30,9 +30,9 @@ import { tip as tipGadget } from "./gadgets/tip.js";
 import { pop as popGadget } from "./gadgets/pop.js";
 import { explain as explainGadget } from "./gadgets/explain.js";
 import { legend as legendGadget } from "./gadgets/legend.js";
-import { measure as measureGadget } from "./gadgets/measure.js";
+import { measure as measureGadget } from "./gadgets/measure-stub.js";   // 玄関スタブ＝ボタン+Mキー常駐、本体(measure.js＝球面測地/専用canvas)は初回クリック/Mで import()
 import { shot as shotGadget } from "./gadgets/shot.js";
-import { qr as qrGadget } from "./gadgets/qr.js";
+import { qr as qrGadget } from "./gadgets/qr-stub.js";   // 玄関スタブ＝ボタンだけ常駐、本体(qr.js＋自作QRエンコーダ qrcode.js 14KB)は初回クリックで import()＝初期バンドルから隔離
 import { japan as japanGadget } from "./gadgets/japan.js";
 import { print as printGadget } from "./gadgets/print-stub.js";   // 本体(print.js)は初回起動時にimport()＝初期バンドルから隔離
 import { close as closeGadget } from "./gadgets/close.js";
@@ -2125,14 +2125,13 @@ map.gadget("pop", function (opts) {   // 地点に紐づく吹き出し … 座�
 });
 map.gadget("explain", function (opts) { return explainGadget.call(this, opts); });   // 上辺の説明パネル … 戻り値＝内容の setter
 map.gadget("legend", function (opts) { return legendGadget.call(this, opts); });     // 左下の凡例パネル … 戻り値＝内容の setter
-map.gadget("measure", function (opts) {   // 距離・面積の計測 … 投影/逆投影とクリック横取りの手綱を注入し _update を frameHooks へ
-	const m = measureGadget.call(this, {
+map.gadget("measure", function (opts) {   // 距離・面積の計測 … 投影/逆投影とクリック横取りの手綱を注入。本体は初回クリック/Mで import()＝frame hook は onBody で本体到着後に配線
+	return measureGadget.call(this, {
 		makeProjector, unprojectXY, signal: ac.signal,
 		setClick: fn => { measureClick = fn; }, requestDraw: () => { needsDraw = true; },
+		onBody: m => { if (m && m._update) { frameHooks.add(m._update); m._update(); } },   // 抽象アクセス：本体(measure.js)到着後に _update を毎フレ描画へ（frameHooks は core 側）
 		...opts,
 	});
-	if (m && m._update) { frameHooks.add(m._update); m._update(); }
-	return m;
 });
 map.gadget("shot", function (opts) {   // 画面保存 … worker越しの3層+measure層を合成する requestSnapshot を注入
 	return shotGadget.call(this, { requestSnapshot, signal: ac.signal, ...opts });
