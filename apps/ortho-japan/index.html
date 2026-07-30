@@ -60,6 +60,11 @@
 			// map.gadget.ai();       // AIと会話して地図に描く（PC専用＝画面2分割）。1canvas化を優先するため一時休止＝実装・テストは残置（t-ai.html は自前搭載で緑のまま）
 			map.gadget.hint();        // 操作説明カード（最下段＝カードが開いても上の段を動かさない）
 		});
+		// サービスワーカー登録（public/sw.js＝ビルド資産を Cache API で版管理＝再訪の無通信起動/オフライン）。
+		// 本番httpsのみ＝localhost/headless(http)は掛けない（計測とテストを汚さない）。app.js でなくページ側に置く＝埋め込みを汚さない。
+		// updateViaCache:none＝SWスクリプト自体は毎回検証（版番号を上げたら確実に更新される）。load 後＝起動描画を邪魔しない。
+		if (location.protocol === "https:" && "serviceWorker" in navigator)
+			addEventListener("load", () => navigator.serviceWorker.register("sw.js", { updateViaCache: "none" }).catch(e => console.warn("[sw] 登録失敗", e)));
 	</script>
 </body>
 </html>
