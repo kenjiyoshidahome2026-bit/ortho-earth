@@ -26,7 +26,11 @@ export function createRenderer(canvas, rOpts = {}) {
 	const nightProg = program(gl, GLOBE_VS, NIGHT_FS);         // 夜面（現在時刻の太陽＝平行光源・全レイヤの上）
 	const cornerBuf = buffer(gl, CORNERS);
 	const emptyVAO = gl.createVertexArray();
-	gl.getExtension("OES_texture_float_linear");   // R32F の線形補間
+	// R32F の線形補間は OES_texture_float_linear が要る。非対応GPU（古い4G機など）で R32F に LINEAR を張ると
+	// テクスチャが不完全＝標高サンプルが 0 に落ちて地形が全面フラット化する（例外もトーストも出ない沈黙故障・
+	// デスクトップの SwiftShader/ANGLE は対応するので絶対に再現しない）。対応可否でアトラスのフィルタを切替＝
+	// 非対応でも NEAREST で標高を出す（セル間の補間が無く僅かに角ばるだけ＝平らよりはるかにマシ）。
+	const elevFilter = gl.getExtension("OES_texture_float_linear") ? gl.LINEAR : gl.NEAREST;
 	// 標高（GEBCO/ALOS）：テクスチャ＋地形格子メッシュ
 	let elevTex = null, elev = { bounds: [0, 0, 1, 0], scale: 0, has: 0 }, terrain = null;
 	// PLATEAU LOD2 建物メッシュ：バッチキー "区名#i" →{ vao, bufs, count, origin, bbox }（頂点は重心相対 delta）。
@@ -297,8 +301,8 @@ export function createRenderer(canvas, rOpts = {}) {
 		gl.bindTexture(gl.TEXTURE_2D, elevTex);
 		gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
 		gl.texImage2D(gl.TEXTURE_2D, 0, gl.R32F, W, H, 0, gl.RED, gl.FLOAT, new Float32Array(W * H));  // 0(海)で初期化
-		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, elevFilter);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, elevFilter);
 		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
 		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
 		elev = { bounds: [a.originLng, a.originLat, a.cellsX * span, a.cellsY * span], scale, exag: a.exag || 1, has: 1, edgeFade: a.edgeFade || 0, liftBounds: a.liftBounds || null };
@@ -322,8 +326,8 @@ export function createRenderer(canvas, rOpts = {}) {
 		gl.bindTexture(gl.TEXTURE_2D, tex);
 		gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
 		gl.texImage2D(gl.TEXTURE_2D, 0, gl.R32F, W, H, 0, gl.RED, gl.FLOAT, new Float32Array(W * H));
-		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, elevFilter);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, elevFilter);
 		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
 		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
 		elevStage = { tex, a, scale };
