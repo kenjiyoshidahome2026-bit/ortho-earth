@@ -192,7 +192,7 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 		const srcMax = range === 90 ? 2700 : range === 10 ? 2400 : 1024;
 		const radPerDevPx = 2 * Math.PI / (Math.pow(2, cam.zoom) * WORLD_PX * (cam.dpr || 1));
 		const useful = range * Math.PI / 180 / (radPerDevPx * 1.2);   // 画面が使い切れる密度（生値＝スコア用）
-		const edgeBudget = lowMem ? 2048 : 4096;   // 低メモリ端末＝アトラス総辺半分（R32F面積1/4＝GPU+アップロード過渡も1/4）
+		const edgeBudget = lowMem ? 2048 : 4096;   // 低メモリ端末＝アトラス総辺半分（面積1/4＝GPU+アップロード過渡も1/4。アトラスは R16F＝2B/texel）
 		const resOf = (cx, cy) => Math.min(srcMax, useful, Math.max(512, Math.floor(edgeBudget / Math.max(cx, cy))));
 		// 0を含む窓 [a..b]（幅≤cap）の全組合せから「票×√解像度」最大を選ぶ。候補は高々 cap²×cap² 程度＝安い。
 		// 解像度は useful（画面が使い切れる密度）で頭打ち。√＝解像度の知覚は平方根程度の効きで、
