@@ -71,6 +71,8 @@ try {
 	picker.querySelector('.tp-card[data-theme="dark"]')?.click();
 	await new Promise(r => setTimeout(r, 120));
 	ok("liveSwitch", !picker.classList.contains("open") && !picker.querySelector('.tp-card[data-theme="dark"]') && !!picker.querySelector('.tp-card[data-theme="mono"]'));
+	// map.view＝表示状態を常時参照（theme=c／layers=l／hash=共有URL）。生き替え後 theme=dark・hash に c=dark が載る。
+	ok("mapView", map.view.theme === "dark" && Array.isArray(map.view.layers) && /c=dark/.test(map.view.hash) && Number.isFinite(map.view.zoom));
 
 	map.destroy();
 	ok("destroy", true);

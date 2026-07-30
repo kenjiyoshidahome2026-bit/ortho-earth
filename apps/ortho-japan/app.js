@@ -865,10 +865,10 @@ const viewHash = () => {
 	return buildViewHash(cam, extras);
 };
 const saveView = () => { saveCam(); try { history.replaceState(null, "", viewHash()); } catch { /* file:// 等 */ } };
-// 配色テーマの生き替え（reload無し restyle）：現在の視点・チップを保ったまま、基図タイルを新styleで組み直し、
-// 静的色・夜家具(ui-dark)・URL(c=)・N02芯色を差し替える。色は dl.ops に焼き込まれるため基図は再ビルド必須
-// （setPipelineStyle が evict→新styleビルドを起こす＝GPUは入れ替え＝ピーク約1倍）。建物/大気/海岸線は uniform 差替で済む。
-// 一瞬の空白（貼り直し）は許容＝実測で再ビルドが十分速く、クロスフェードは不要と判断（実機確認 2026-07-30）。
+// 配色テーマの生き替え（reload無し restyle）：基図タイルを新styleで組み直し、静的色・夜家具(ui-dark)・海岸線色・
+// N02芯色を差し替える。★URLは書かない＝呼び出し側が「全状態が揃った後」に1回だけ書く（applyView 末尾の saveView／
+// palette は switchTheme 後に saveView）＝URL⇄状態の一元化・順序取りこぼしの防止。色は dl.ops に焼き込まれるため基図は
+// 再ビルド必須（setPipelineStyle が evict→新styleビルド＝GPU入れ替え＝ピーク約1倍）。一瞬の貼り直しは許容（fade不要）。
 function switchTheme(name) {
 	if (name === themeName || !MAP_THEMES[name]) return;
 	themeName = name; theme = MAP_THEMES[name]; style = theme.style;
@@ -886,7 +886,6 @@ function switchTheme(name) {
 	mapEl.classList.toggle("ui-dark", 0.299 * land[0] + 0.587 * land[1] + 0.114 * land[2] < 0.45);   // 夜家具＝land輝度で（テーマ名でなく輝度＝黒紙カスタムも転ぶ）
 	if (gintSlot === "coast") applyCoastSlot();   // 海岸線色(theme.coastLine)を新テーマで塗り直す＝gint別層＝基図タイル再ビルドでは直らない（色の居座り根治）
 	if (layerState.rail && n02Loaded) { n02Loaded = false; loadN02(); }   // N02新幹線の芯(land色)を新テーマで引き直す（データは温間）
-	try { history.replaceState(null, "", viewHash()); } catch { /* file:// 等 */ }   // c= を reload無しで書換（replaceStateはhashchange非発火＝自己リロード無し）
 	readySig = ""; baseSig = ""; mergeReq.main.sig = ""; mergeReq.base.sig = ""; needsDraw = true; onMove();   // 下地・主層を強制再結合（次のupdateで新styleビルド→順次merge）
 }
 // contourColor/distColor/hypso はテーマの任意ノブ（無指定＝renderer 既定：セピア等高線・遠山ブルー・単色陰影）
@@ -1826,13 +1825,10 @@ renderer.set("view", { showContour: layerState.terrain });
 window.addEventListener("hashchange", () => {
 	const v = parseViewHash(location.hash);
 	if (!v) return;
-	applyCamView(v);
-	applyViewLayers(v);
-	// 配色テーマ（c=）の手編集/貼り付けも生き替え（reload無し＝画面維持）。視点・チップを先に適用済みなので、
-	// この後 switchTheme 内の replaceState は「新視点」で正しく書ける（順序さえ守れば貼った視点は上書きされない）。
-	// 固定(opts.theme)は破れない。設定は switchTheme が同一テーマをガード＝c= 無し/同一の貼り付けは素通り。
-	if (!themeFixed) { const want = v.theme || (v.layers?.includes("dark") ? "dark" : "mono"); if (want !== themeName) switchTheme(want); }
-	onMove();
+	// 手編集/貼り付けは共有URLの「完全再現」＝c= 無しは既定 mono へ戻す（旧 l=dark 互換もここで前処理）。
+	// デモの「無指定=現状維持」とは掟が違う＝入口ごとの方針は v.theme へ焼き、適用は applyView 一本に委ねる（画面維持・reload無し）。
+	if (!themeFixed && !v.theme) v.theme = v.layers?.includes("dark") ? "dark" : "mono";
+	applyView(v);   // 即時適用（l=→c=→カメラ→URL を1本の順序で・固定(opts.theme)は applyView 内で不変）
 }, { signal: ac.signal });
 // 共有URLの l=/c(等高線) をチップ・描画へ反映（hashchange とデモ台本 flyView の共通部）。
 // 固定キー(opts.layers)はどの経路でも破れない＝客が触れるキーだけ反映（旧romajiトークンは読み替え）
@@ -1854,20 +1850,25 @@ function applyViewLayers(v) {
 // ・点火は離陸時＝データは飛行中に読まれ、着地には灯って待つ（PLATEAUだけは着地後＝flight ③の流儀）
 // ・opts.glide＝近距離滑走（シーン内の動き）：三段振り付けでなく 位置→方位→チルト の時分割で滑る（引き・回り込み・立ち上がり）
 // ・opts.jump＝遷移なしの即時反映（カメラ直書き＋l=反映）。デモの pre→view（同座標で l= だけ点ける見せ玉）用
-function flyView(hash, { glide = false, jump = false } = {}) {
+// ★共有ビュー（parseViewHash 済み v）→ 表示状態を「1本の固定順」で適用する唯一の道＝全入口(hashchange/flyView/デモ)が通る。
+// 順序＝ l=(チップ) → c=(テーマ) → カメラ → URL。saveView は末尾で1回（全状態が揃った後）＝即時は確定視点、
+// フライトは離陸視点＋新テーマ/チップを書き、着地(settle)で dest cam に更新＝l=/coast の順序取りこぼしが構造的に起きない（URL⇄状態の一元化）。
+// mode: {fly}=球面フライト / {fly,glide}=滑走 / {jump}=即時カメラ直書き(pre→view) / 無し=即時(hashchange貼付け)。
+// テーマ方針の違い（貼付け=c=無しはmonoへ／デモ=無指定は現状維持）は入口側で v.theme を前処理して吸収＝ここは一様。
+function applyView(v, { fly = false, glide = false, jump = false } = {}) {
+	if (!v) return false;
+	applyViewLayers(v);                                                        // 1) l=（チップ）＝先に反映
+	if (!themeFixed && v.theme && v.theme !== themeName) switchTheme(v.theme);  // 2) c=（テーマ生き替え・switchThemeはURLを書かない＝ここで束ねる）
+	if (fly && !jump) (glide ? flightCtl.glideTo : flyTo)(wrapLon(v.lon), v.lat, v.zoom, v.pitch * R2D, v.bearing * R2D);   // 3a) フライト（離陸＝現視点のまま animate）
+	else { if (jump) flightCtl.cancel(); applyCamView(v); onMove(); }          // 3b) 即時＝カメラ直書き（jump／hashchange貼付け）
+	saveView();   // 4) URL書込＝全状態が揃った後に1回。即時=確定視点／フライト=離陸時に(新テーマ/チップ+離陸視点)、着地settleで dest cam へ更新
+	return true;
+}
+// デモ台本／内部から共有ビューへ「飛ぶ」薄いラッパ（applyView に委譲＝順序と URL 書込を一本化）。glide=滑走・jump=即時。
+function flyView(hash, opts = {}) {
 	const v = typeof hash === "string" ? parseViewHash(hash) : hash;
 	if (!v) { console.warn(`[flyView] 解釈できないビュー "${hash}"`); return false; }
-	applyViewLayers(v);   // 先にチップ(l=)を反映＝この後 switchTheme の viewHash が「新チップの l=」で書ける（旧l=の書き込みを断つ）
-	if (v.theme && v.theme !== themeName && !themeFixed) switchTheme(v.theme);   // c= の幕替わりを生き替え（reload無し）＝この後の飛行はそのまま進む＝暗転が消える
-	if (jump) {   // 飛行中なら打ち切ってカメラ直書き＝アニメ無し（pre と view は同座標が前提＝実際に動くのは l= だけ）
-		flightCtl.cancel();
-		cam.center = [wrapLon(v.lon), v.lat]; cam.zoom = v.zoom;
-		cam.pitch = Math.min(MAXPITCH, v.pitch); cam.bearing = shortBearingOf(v.bearing);
-		onMove();
-		return true;
-	}
-	(glide ? flightCtl.glideTo : flyTo)(wrapLon(v.lon), v.lat, v.zoom, v.pitch * 180 / Math.PI, v.bearing * 180 / Math.PI);
-	return true;
+	return applyView(v, { fly: true, glide: opts.glide, jump: opts.jump });
 }
 
 // コンパス兼リセット（#reset）はオプトインガジェットへ移設＝gadgets/compass.js（針の追従・リセットアニメごと）。
@@ -2001,7 +2002,10 @@ ensureStars();   // 初期視点が z<5（復元/共有URL）なら星空も最�
 // 呼び出し側の手綱（視点操作・飛行・描画設定）＋ガジェット登録簿（v1 ortho-map createGadgets の作法の継承）。
 // map.gadget(name, func) で登録し map.gadget.name() で画面に追加する。func 内の this＝この map＝
 // mapEl/flyTo 等の手綱がそのまま使える。検索・操作説明は標準装備から外した最初のオプトインガジェット。
-const map = { cam, flyTo, renderer, mapEl, destroy };
+const map = { cam, flyTo, renderer, mapEl, destroy,
+	// ★表示状態（共有される「単一の真実」）を map インスタンスから常時参照可能に＝viewHash が直列化するのと同じ状態。
+	// center/zoom/pitch/bearing（cam）＋ theme(c=)＋ layers(l=・sky含む)＋ sky ＋ 現在の共有URL文字列(hash)。読み取り専用スナップショット。
+	get view() { return { center: [...cam.center], zoom: cam.zoom, pitch: cam.pitch, bearing: cam.bearing, theme: themeName, layers: FREE_LAYER_KEYS.filter(k => layerState[k]).concat(constelVisible ? [SKY_LAYER] : []), sky: constelVisible, hash: viewHash() }; } };
 // ガジェット注入用の座標ブリッジ（engine の project/unproject を今の cam/サイズで束ねた手綱）。
 // projectLL＝経緯度→画面CSS座標[x,y,front]（front<0＝裏半球・視界外）。unprojectAt＝画面座標→[lon,lat]（球外は null）。
 // DOMオーバーレイ（現在地マーカー/pop/計測）の標高乗せ：radius=1（標高0の球面）へ投影すると、
@@ -2095,7 +2099,7 @@ map.gadget("plateau", function (opts) {   // 建物3D（PLATEAU）データ管�
 });
 map.gadget("palette", function (opts) {   // 配色テーマ・ピッカー … 現在テーマ(見本から除く)と切替(switchTheme=c=差替+reload)と撮影(見本=今の視点の実写)を注入
 	if (themeFixed) { console.warn("[palette] opts.theme 焼き付け中＝c= は破れない。ガジェットは搭載しない"); return; }
-	return paletteGadget.call(this, { current: themeName, onPick: switchTheme, requestSnapshot, getZoom: () => cam.zoom, getCurrent: () => themeName, signal: ac.signal, ...opts });
+	return paletteGadget.call(this, { current: themeName, onPick: name => { switchTheme(name); saveView(); }, requestSnapshot, getZoom: () => cam.zoom, getCurrent: () => themeName, signal: ac.signal, ...opts });   // pick=テーマ生き替え→URL即書込（switchThemeはURLを書かない＝ここで saveView）
 });
 map.gadget("zoom", function (opts) {   // ズーム＋/− … フライト中断・onMove・z範囲はここで注入
 	return zoomGadget.call(this, { cancelFlight: () => flightCtl.cancel(), onMove, zoomMin: 2, zoomMax: ZOOM_MAX, signal: ac.signal, ...opts });
