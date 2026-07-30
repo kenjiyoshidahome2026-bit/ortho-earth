@@ -868,7 +868,7 @@ const saveView = () => { saveCam(); try { history.replaceState(null, "", viewHas
 // 配色テーマの生き替え（reload無し restyle）：現在の視点・チップを保ったまま、基図タイルを新styleで組み直し、
 // 静的色・夜家具(ui-dark)・URL(c=)・N02芯色を差し替える。色は dl.ops に焼き込まれるため基図は再ビルド必須
 // （setPipelineStyle が evict→新styleビルドを起こす＝GPUは入れ替え＝ピーク約1倍）。建物/大気/海岸線は uniform 差替で済む。
-// 一瞬の空白（貼り直し）は許容。クロスフェードは switchThemeFade が上に被せる（呼び出し側で選ぶ）。
+// 一瞬の空白（貼り直し）は許容＝実測で再ビルドが十分速く、クロスフェードは不要と判断（実機確認 2026-07-30）。
 function switchTheme(name) {
 	if (name === themeName || !MAP_THEMES[name]) return;
 	themeName = name; theme = MAP_THEMES[name]; style = theme.style;
