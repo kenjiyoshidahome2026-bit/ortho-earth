@@ -26,6 +26,7 @@ iOS Safari はタブ1枚あたりのメモリ上限を超えると **WebContent 
 ## 2. 端末判定：`LOW_MEM`
 
 [app.js:121](../app.js#L121)
+
 ```js
 const LOW_MEM = navigator.deviceMemory ? navigator.deviceMemory <= 4 : navigator.maxTouchPoints > 1;
 ```
@@ -46,7 +47,8 @@ jetsam は **常駐（resident）** と **過渡スパイク（transient）** �
   **HUD には出ない**＝別途コメント実測で補正する。**jetsam の主犯はたいてい過渡。**
 
 判定式（4GB機を出す時の目安）:
-```
+
+```text
 peak(常駐) + 過渡(~0.3GB × 同時デコード数)  <  タブ予算(~900MB / 4GB)
 ```
 
