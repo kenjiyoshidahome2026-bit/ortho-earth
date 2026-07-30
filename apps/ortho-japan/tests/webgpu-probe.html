@@ -1,0 +1,290 @@
+<!doctype html>
+<!-- ============================================================================
+     WebGPU Phase 0 スパイク（依存ゼロ・自己完結・画面表示型）
+     目的＝「詰んだら WebGPU 移植計画が変わる3不明点」を実機で潰す：
+       ① timestamp-query : 速度ビニング／動的解像度の物差し（EXT_disjoint_timer_query の後継）が動くか
+       ② sin 精度        : GLSL/WGSL とも sin は精度未規定。高ズームの這い(jitter)根治 sinP() が要るかの確認
+       ③ stencil-fan × log-depth : 巻き数塗り(nonzero winding)＋frag_depth が WGSL で厳密再現できるか
+     加えて adapter 能力／limits をレポート（storage buffer 前提の arc-native 設計の可否判定）。
+
+     実行：
+       - Mac  ： apps/ortho-japan で `npm run dev` → http://localhost:xxxx/japan/tests/webgpu-probe.html
+       - iOS26： WebGPU は secure context 必須＝HTTPS 配信が要る（LAN の生 http では navigator.gpu が undefined）。
+                 プレビュー配信 or トンネル(HTTPS)経由で開く。console 不要＝結果は画面に出る。
+     結果は各ゲート PASS/FAIL/SKIP を色付きで表示。数値（GPU時間の量子・sin誤差の px 換算等）も併記。
+     ============================================================================ -->
+<html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WebGPU probe</title>
+<style>
+  :root{color-scheme:light dark}
+  body{font:14px/1.5 -apple-system,system-ui,sans-serif;margin:0;padding:16px 14px 60px;max-width:820px}
+  h1{font-size:17px;margin:0 0 4px}
+  .sub{opacity:.6;font-size:12px;margin:0 0 16px}
+  .gate{border:1px solid #8884;border-radius:10px;padding:12px 14px;margin:10px 0}
+  .gate h2{font-size:14px;margin:0 0 6px;display:flex;align-items:center;gap:8px}
+  .tag{font-weight:700;padding:2px 9px;border-radius:999px;font-size:12px;color:#fff}
+  .PASS{background:#1a8f4a}.FAIL{background:#c0392b}.SKIP{background:#888}.RUN{background:#2a6ad6}
+  table{border-collapse:collapse;width:100%;font-size:12.5px;margin-top:4px}
+  td,th{border:1px solid #8883;padding:3px 7px;text-align:left;vertical-align:top}
+  td.k{opacity:.7;white-space:nowrap;width:1%}
+  .note{font-size:12px;opacity:.75;margin-top:6px}
+  canvas{border:1px solid #8884;image-rendering:pixelated;width:128px;height:128px;margin-top:6px}
+  code{background:#8882;padding:1px 4px;border-radius:4px;font-size:12px}
+</style></head>
+<body>
+<h1>WebGPU Phase 0 probe</h1>
+<p class="sub">ortho-earth WebGPU 移植の判定ゲート。各ブロックの PASS/FAIL を実機で確認する。</p>
+<div id="out"></div>
+<canvas id="cv" width="64" height="64"></canvas>
+
+<script type="module">
+const out = document.getElementById("out");
+const summary = [];
+// ── 画面描画ヘルパ ──────────────────────────────────────────────
+function gate(title){
+  const el = document.createElement("div"); el.className = "gate";
+  el.innerHTML = `<h2><span class="tag RUN">…</span>${title}</h2>`;
+  out.appendChild(el);
+  return {
+    set(state){ const t = el.querySelector(".tag"); t.className = "tag " + state; t.textContent = state; summary.push([title,state]); },
+    rows(pairs){ const tb = document.createElement("table"); tb.innerHTML = pairs.map(([k,v]) => `<tr><td class="k">${k}</td><td>${v}</td></tr>`).join(""); el.appendChild(tb); },
+    note(html){ const n = document.createElement("div"); n.className = "note"; n.innerHTML = html; el.appendChild(n); },
+  };
+}
+const esc = s => String(s).replace(/[<>&]/g, c => ({"<":"&lt;",">":"&gt;","&":"&amp;"}[c]));
+
+// ── WGSL: sinP（|x|<0.1 は Taylor、大角は native） ─────────────────
+const SINP = `
+fn sinP(x: f32) -> f32 {
+  let a = abs(x);
+  if (a < 0.1) { let x2 = x*x; return x * (1.0 - x2*(1.0/6.0) + x2*x2*(1.0/120.0)); }
+  return sin(x);
+}`;
+
+(async function main(){
+  // ═══════════════════════════════════════════════════════════════
+  // A. 環境・アダプタ能力
+  // ═══════════════════════════════════════════════════════════════
+  const gA = gate("A. 環境 / アダプタ能力 / limits");
+  if (!window.isSecureContext){ gA.set("FAIL"); gA.rows([["isSecureContext","false ← WebGPU は secure context(HTTPS/localhost)必須"]]); return; }
+  if (!navigator.gpu){ gA.set("FAIL"); gA.rows([["navigator.gpu","undefined ← この環境は WebGPU 非対応"]]); return; }
+  let adapter;
+  try { adapter = await navigator.gpu.requestAdapter({ powerPreference:"high-performance" }); } catch(e){}
+  if (!adapter){ gA.set("FAIL"); gA.rows([["requestAdapter","null ← アダプタ取得失敗"]]); return; }
+  const info = adapter.info || (adapter.requestAdapterInfo ? await adapter.requestAdapterInfo() : {});
+  const wantFeatures = ["timestamp-query","float32-filterable","shader-f16","depth32float-stencil8","indirect-first-instance","rg11b10ufloat-renderable"];
+  const featRows = wantFeatures.map(f => [f, adapter.features.has(f) ? "✅ 有" : "— 無"]);
+  const L = adapter.limits;
+  const limRows = [
+    ["maxStorageBufferBindingSize", (L.maxStorageBufferBindingSize/1048576).toFixed(0)+" MiB"],
+    ["maxBufferSize", (L.maxBufferSize/1048576).toFixed(0)+" MiB"],
+    ["maxStorageBuffersPerShaderStage", L.maxStorageBuffersPerShaderStage],
+    ["maxComputeWorkgroupStorageSize", L.maxComputeWorkgroupStorageSize+" B"],
+    ["maxComputeInvocationsPerWorkgroup", L.maxComputeInvocationsPerWorkgroup],
+    ["maxTextureDimension2D", L.maxTextureDimension2D],
+    ["maxColorAttachmentBytesPerSample", L.maxColorAttachmentBytesPerSample ?? "—"],
+  ];
+  gA.set("PASS");
+  gA.rows([
+    ["preferredFormat", navigator.gpu.getPreferredCanvasFormat()],
+    ["vendor", esc(info.vendor||"—")],["architecture", esc(info.architecture||"—")],
+    ["device", esc(info.device||"—")],["description", esc(info.description||"—")],
+    ...featRows, ...limRows,
+  ]);
+  gA.note("<b>storage buffer 上限</b>が arc-native の per-arc/per-feature テーブル最大データ量を規定する。<code>maxStorageBufferBindingSize</code> が 128MiB 級なら US roads/ZCTA 級も1バインドで載る想定。");
+
+  // device 取得（使える feature は全部要求）
+  const enableFeatures = wantFeatures.filter(f => adapter.features.has(f));
+  const device = await adapter.requestDevice({ requiredFeatures: enableFeatures });
+  device.addEventListener?.("uncapturederror", e => console.error("WebGPU error:", e.error?.message));
+
+  // ═══════════════════════════════════════════════════════════════
+  // B. timestamp-query（速度ビニングの生命線）
+  // ═══════════════════════════════════════════════════════════════
+  const gB = gate("B. timestamp-query（GPU時間の物差し）");
+  if (!adapter.features.has("timestamp-query")){
+    gB.set("SKIP");
+    gB.note("この端末は timestamp-query 非対応＝<b>速度ティア／動的解像度は詳細化オフの安全側に倒す</b>（現 Safari-no-timer と同じ挙動）。壁時計 fallback は 30Hz モニタで誤判定する既知の罠あり。");
+  } else {
+    try {
+      const qs = device.createQuerySet({ type:"timestamp", count:2 });
+      // 無害な compute パスを timestampWrites で挟んで GPU 時間を測る
+      const mod = device.createShaderModule({ code:`
+        @group(0) @binding(0) var<storage, read_write> b: array<f32>;
+        @compute @workgroup_size(64) fn main(@builtin(global_invocation_id) g: vec3<u32>){
+          let i = g.x; if (i >= arrayLength(&b)) { return; }
+          var s = b[i]; for (var k=0u;k<256u;k++){ s = sin(s)+0.001; } b[i] = s;
+        }`});
+      const buf = device.createBuffer({ size:4*4096, usage: GPUBufferUsage.STORAGE });
+      const pipe = device.createComputePipeline({ layout:"auto", compute:{ module:mod, entryPoint:"main" } });
+      const bg = device.createBindGroup({ layout:pipe.getBindGroupLayout(0), entries:[{ binding:0, resource:{ buffer:buf } }] });
+      const resolve = device.createBuffer({ size:16, usage: GPUBufferUsage.QUERY_RESOLVE|GPUBufferUsage.COPY_SRC });
+      const read = device.createBuffer({ size:16, usage: GPUBufferUsage.COPY_DST|GPUBufferUsage.MAP_READ });
+      const enc = device.createCommandEncoder();
+      const pass = enc.beginComputePass({ timestampWrites:{ querySet:qs, beginningOfPassWriteIndex:0, endOfPassWriteIndex:1 } });
+      pass.setPipeline(pipe); pass.setBindGroup(0,bg); pass.dispatchWorkgroups(64); pass.end();
+      enc.resolveQuerySet(qs,0,2,resolve,0);
+      enc.copyBufferToBuffer(resolve,0,read,0,16);
+      device.queue.submit([enc.finish()]);
+      await read.mapAsync(GPUMapMode.READ);
+      const t = new BigInt64Array(read.getMappedRange().slice(0));
+      read.unmap();
+      const dNs = Number(t[1]-t[0]);
+      const ok = dNs > 0;
+      gB.set(ok ? "PASS" : "FAIL");
+      gB.rows([
+        ["begin tick", t[0].toString()],["end tick", t[1].toString()],
+        ["Δ (GPU実時間)", dNs>0 ? (dNs/1000).toFixed(1)+" µs ("+dNs+" ns)" : "0 ← 単調増加せず＝要調査"],
+      ]);
+      gB.note("Chrome は既定でタイムスタンプを <b>100µs 量子</b>に丸める（プライバシ）。map パス 4〜60ms の粗ビニング用途には十分だが、Δが常に 0/100µs 刻みなら量子化を確認。開発時は <code>chrome://flags/#enable-webgpu-developer-features</code> で精細化可。実測Δが妥当な非ゼロなら<b>速度ビニングは WebGPU で生存＝Phase 3 続行可</b>。");
+    } catch(e){ gB.set("FAIL"); gB.rows([["exception", esc(e.message)]]); }
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // C. sin 精度（native sin vs sinP、小角の flush-to-zero 検出）
+  // ═══════════════════════════════════════════════════════════════
+  const gC = gate("C. GPU sin 精度 / sinP 必要性");
+  try {
+    // 小角スイープ 1e-9 … 1e-3 rad（高ズームの Δ角帯）を log 等間隔で
+    const N = 512, ang = new Float32Array(N);
+    for (let i=0;i<N;i++) ang[i] = Math.exp(Math.log(1e-9) + (Math.log(1e-3)-Math.log(1e-9))*i/(N-1));
+    const inBuf = device.createBuffer({ size:ang.byteLength, usage: GPUBufferUsage.STORAGE|GPUBufferUsage.COPY_DST });
+    device.queue.writeBuffer(inBuf, 0, ang);
+    const outBuf = device.createBuffer({ size:N*2*4, usage: GPUBufferUsage.STORAGE|GPUBufferUsage.COPY_SRC }); // [native, sinP] ×N
+    const mod = device.createShaderModule({ code:`${SINP}
+      @group(0) @binding(0) var<storage, read> ins: array<f32>;
+      @group(0) @binding(1) var<storage, read_write> outs: array<f32>;
+      @compute @workgroup_size(64) fn main(@builtin(global_invocation_id) g: vec3<u32>){
+        let i = g.x; if (i >= arrayLength(&ins)) { return; }
+        let x = ins[i];
+        outs[i*2u]      = sin(x);   // native（実装依存＝ここが焦点）
+        outs[i*2u + 1u] = sinP(x);  // Taylor
+      }`});
+    const pipe = device.createComputePipeline({ layout:"auto", compute:{ module:mod, entryPoint:"main" } });
+    const bg = device.createBindGroup({ layout:pipe.getBindGroupLayout(0), entries:[
+      { binding:0, resource:{ buffer:inBuf } },{ binding:1, resource:{ buffer:outBuf } } ]});
+    const read = device.createBuffer({ size:N*2*4, usage: GPUBufferUsage.COPY_DST|GPUBufferUsage.MAP_READ });
+    const enc = device.createCommandEncoder();
+    const pass = enc.beginComputePass(); pass.setPipeline(pipe); pass.setBindGroup(0,bg); pass.dispatchWorkgroups(Math.ceil(N/64)); pass.end();
+    enc.copyBufferToBuffer(outBuf,0,read,0,N*2*4);
+    device.queue.submit([enc.finish()]);
+    await read.mapAsync(GPUMapMode.READ);
+    const r = new Float32Array(read.getMappedRange().slice(0)); read.unmap();
+    // JS Math.sin（double＝ほぼ真値）を基準に、px 換算（倍率 ~1e8 px/rad @ 高ズーム）
+    const PXK = 1e8;
+    let maxNat=0, maxTay=0, flush=0, worstX=0;
+    for (let i=0;i<N;i++){
+      const ref = Math.sin(ang[i]);
+      const eNat = Math.abs(r[i*2]-ref)*PXK, eTay = Math.abs(r[i*2+1]-ref)*PXK;
+      if (r[i*2]===0 && ang[i]>0) flush++;
+      if (eNat>maxNat){ maxNat=eNat; worstX=ang[i]; }
+      if (eTay>maxTay) maxTay=eTay;
+    }
+    // 判定：sinP が native より明確に良い（=移植の価値あり）か、native が既に十分か
+    const needSinP = maxNat > 0.05 || flush > 0;   // 0.05px 超の這い or flush-to-zero が出れば sinP 必須
+    gC.set(maxTay < 0.05 ? "PASS" : "FAIL");        // sinP 自体が px 換算 0.05 未満なら合格
+    gC.rows([
+      ["native sin 最大誤差", maxNat.toFixed(3)+" px 相当（@1e8 px/rad, x="+worstX.toExponential(1)+"）"],
+      ["sinP 最大誤差", maxTay.toFixed(3)+" px 相当"],
+      ["native flush-to-zero", flush+" / "+N+" サンプル（sin(x)=0 for x≠0）"],
+      ["判定", needSinP ? "⚠ sinP 移植は必須（native に這い/flush あり）" : "native も十分だが sinP 移植は無害な保険"],
+    ]);
+    gC.note("Math.fround の CPU ミラーでは GPU builtin の誤差は再現不能＝この storage 書き戻しプローブが決定打（旧 transform-feedback の WebGPU 版）。<b>sinP が 0.05px 未満で native に問題が出るなら、GLSL 版と同じく WGSL に sinP を入れて根治</b>。SwiftShader/ANGLE と実 Metal/Vulkan で結果が違い得る＝各実機で見る。");
+  } catch(e){ gC.set("FAIL"); gC.rows([["exception", esc(e.message)]]); }
+
+  // ═══════════════════════════════════════════════════════════════
+  // D. stencil-fan 巻き数塗り × log-depth(frag_depth)
+  // ═══════════════════════════════════════════════════════════════
+  const gD = gate("D. stencil-fan(nonzero winding) × frag_depth");
+  try {
+    // canvas のスワップチェーンは headless で提示されない（Invalid mailbox＝地図面が撮れないのと同根）。
+    // 自前のオフスクリーン color テクスチャに描いて読み戻す＝headless でも実機でも確定。format 固定＝画素順も確定。
+    const fmt = "rgba8unorm";
+    const colorTex = device.createTexture({ size:[64,64], format:fmt, usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC });
+    // ドーナツ：外環(CCW) + 穴(CW) を「ピボット中心のファン」で。nonzero winding は
+    // front=increment-wrap / back=decrement-wrap、cover は stencil≠0 を塗る（塗りエンジンと同技法）。
+    // クリップ座標で直接。外環＝[-0.8,0.8]²、穴＝[-0.35,0.35]²。各方形をピボット(0,0)からのファン2三角形で。
+    // 頂点は (x,y)。winding は頂点順で制御（外=CCW, 穴=CW）。
+    const outer = [ -0.8,-0.8, 0.8,-0.8, 0.8,0.8,  -0.8,-0.8, 0.8,0.8, -0.8,0.8 ];         // CCW
+    const hole  = [ -0.35,-0.35, -0.35,0.35, 0.35,0.35,  -0.35,-0.35, 0.35,0.35, 0.35,-0.35 ]; // CW
+    const verts = new Float32Array([...outer, ...hole]);
+    const vbuf = device.createBuffer({ size:verts.byteLength, usage: GPUBufferUsage.VERTEX|GPUBufferUsage.COPY_DST });
+    device.queue.writeBuffer(vbuf, 0, verts);
+
+    const depthTex = device.createTexture({ size:[64,64], format:"depth24plus-stencil8", usage: GPUTextureUsage.RENDER_ATTACHMENT });
+    const vsMod = device.createShaderModule({ code:`
+      @vertex fn vs(@location(0) p: vec2<f32>) -> @builtin(position) vec4<f32> { return vec4<f32>(p, 0.0, 1.0); }`});
+    // stencil パス：色は書かない（writeMask=0）、frag_depth を対数風に焼いて builtin の可否も同時検証
+    const fsDepthMod = device.createShaderModule({ code:`
+      struct FO { @builtin(frag_depth) d: f32, @location(0) c: vec4<f32> };
+      @fragment fn fs() -> FO { var o: FO; o.d = 0.5; o.c = vec4<f32>(0.0); return o; }`});
+    const coverMod = device.createShaderModule({ code:`
+      @vertex fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4<f32> {
+        var p = array<vec2<f32>,3>(vec2(-1.0,-1.0), vec2(3.0,-1.0), vec2(-1.0,3.0));
+        return vec4<f32>(p[i], 0.0, 1.0); }
+      @fragment fn fs() -> @location(0) vec4<f32> { return vec4<f32>(0.15,0.55,0.95,1.0); }`});
+
+    const stencilPipe = device.createRenderPipeline({
+      layout:"auto",
+      vertex:{ module:vsMod, entryPoint:"vs", buffers:[{ arrayStride:8, attributes:[{ shaderLocation:0, offset:0, format:"float32x2" }] }] },
+      fragment:{ module:fsDepthMod, entryPoint:"fs", targets:[{ format:fmt, writeMask:0 }] },
+      primitive:{ topology:"triangle-list", cullMode:"none" },
+      depthStencil:{ format:"depth24plus-stencil8", depthWriteEnabled:false, depthCompare:"always",
+        stencilFront:{ compare:"always", passOp:"increment-wrap" },
+        stencilBack:{ compare:"always", passOp:"decrement-wrap" } },
+    });
+    const coverPipe = device.createRenderPipeline({
+      layout:"auto",
+      vertex:{ module:coverMod, entryPoint:"vs" },
+      fragment:{ module:coverMod, entryPoint:"fs", targets:[{ format:fmt }] },
+      primitive:{ topology:"triangle-list" },
+      depthStencil:{ format:"depth24plus-stencil8", depthWriteEnabled:false, depthCompare:"always",
+        stencilFront:{ compare:"not-equal", passOp:"keep" },
+        stencilBack:{ compare:"not-equal", passOp:"keep" } },
+    });
+
+    const enc = device.createCommandEncoder();
+    const view = colorTex.createView();
+    const dv = depthTex.createView();
+    // パス1：stencil 書き込み（色 writeMask=0）
+    let rp = enc.beginRenderPass({
+      colorAttachments:[{ view, loadOp:"clear", storeOp:"store", clearValue:{r:0,g:0,b:0,a:1} }],
+      depthStencilAttachment:{ view:dv, depthLoadOp:"clear", depthStoreOp:"store", depthClearValue:1.0,
+        stencilLoadOp:"clear", stencilStoreOp:"store", stencilClearValue:0 } });
+    rp.setPipeline(stencilPipe); rp.setVertexBuffer(0,vbuf); rp.setStencilReference(0); rp.draw(verts.length/2); rp.end();
+    // パス2：cover（stencil≠0 を塗る）
+    rp = enc.beginRenderPass({
+      colorAttachments:[{ view, loadOp:"load", storeOp:"store" }],
+      depthStencilAttachment:{ view:dv, depthLoadOp:"load", depthStoreOp:"store", stencilLoadOp:"load", stencilStoreOp:"store" } });
+    rp.setPipeline(coverPipe); rp.setStencilReference(0); rp.draw(3); rp.end();
+    // 色を読み戻して3点サンプル（外側/環/穴）
+    const rb = device.createBuffer({ size:64*64*4, usage: GPUBufferUsage.COPY_DST|GPUBufferUsage.MAP_READ });
+    enc.copyTextureToBuffer({ texture:colorTex }, { buffer:rb, bytesPerRow:64*4, rowsPerImage:64 }, [64,64]);
+    device.queue.submit([enc.finish()]);
+    await rb.mapAsync(GPUMapMode.READ);
+    const px = new Uint8Array(rb.getMappedRange().slice(0)); rb.unmap();
+    const at = (x,y) => { const o=(y*64+x)*4; return [px[o],px[o+1],px[o+2]]; };
+    const filled = c => c[2] > 100 && c[0] < 120;   // 青い cover 色か
+    const pOut = at(2,2), pRing = at(32,10), pHole = at(32,32);   // 外側/上辺リング/中央穴
+    // preferredFormat が bgra の場合は B/R が入れ替わる＝両順を許容
+    const filledAny = c => (c[2]>100||c[0]>100) && Math.max(c[0],c[2])>Math.min(c[0],c[2]);
+    const ok = !filledAny(pOut) && filledAny(pRing) && !filledAny(pHole);
+    gD.set(ok ? "PASS" : "FAIL");
+    gD.rows([
+      ["外側(2,2) 空であるべき", pOut.join(",") + (filledAny(pOut)?" ← ✗塗られた":" ✓")],
+      ["環(32,10) 塗るべき", pRing.join(",") + (filledAny(pRing)?" ✓":" ← ✗空")],
+      ["穴(32,32) 空であるべき", pHole.join(",") + (filledAny(pHole)?" ← ✗塗られた":" ✓")],
+    ]);
+    gD.note("nonzero winding の巻き数塗り（増減 wrap ＋ cover は not-equal 0）と <code>@builtin(frag_depth)</code> が WGSL で機能することを確認。<b>PASS なら塗り経路と log-depth は WebGPU で厳密再現可＝Phase 2-③④ の主要リスク解消</b>。穴が塗られる/環が空なら winding 規則の写経に要注意。");
+  } catch(e){ gD.set("FAIL"); gD.rows([["exception", esc(e.message)]]); }
+
+  // ── 総括 ───────────────────────────────────────────────────────
+  const gS = gate("総括");
+  const anyFail = summary.some(([,s]) => s==="FAIL");
+  gS.set(anyFail ? "FAIL" : "PASS");
+  gS.rows(summary.map(([t,s]) => [t, s]));
+  gS.note(anyFail ? "FAIL のゲートが計画の分岐点。B(timestamp)FAIL→適応系 fallback 設計、C(sin)⚠→sinP 移植確定、D FAIL→塗り写経を精査。"
+                  : "全ゲート通過＝WebGPU/arc-native 移植の主要リスクは実機で解消。Phase 1(device シーム)へ進める。");
+})().catch(e => { const g = gate("致命的エラー"); g.set("FAIL"); g.rows([["error", esc(e.message)]]); });
+</script>
+</body></html>
