@@ -36,8 +36,8 @@ import { japan as japanGadget } from "./gadgets/japan.js";
 import { print as printGadget } from "./gadgets/print-stub.js";   // 本体(print.js)は初回起動時にimport()＝初期バンドルから隔離
 import { close as closeGadget } from "./gadgets/close.js";
 import { dropFile as dropFileGadget } from "./gadgets/dropfile.js";
-import { demo as demoGadget } from "./gadgets/demo.js";
-import { ai as aiGadget } from "./gadgets/ai.js";
+import { demo as demoGadget } from "./gadgets/demo-stub.js";   // 玄関スタブ＝同期ファサードを即返し、本体(demo.js＝再生エンジン)は搭載時に import()＝初期バンドルから隔離
+import { ai as aiGadget } from "./gadgets/ai-stub.js";   // 玄関スタブ＝同期ファサードを即返し、本体(ai.js＋ai/一式＋将来LLM)は搭載時に import()＝初期バンドルから完全隔離
 import { modalOpen } from "./gadgets/keys.js";   // 矢印キーのモーダル抑止に使う共通判定（ショートカット群と共有）
 
 // ============================================================================================

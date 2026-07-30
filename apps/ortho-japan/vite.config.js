@@ -21,6 +21,22 @@ const crossOriginIsolation = {
 	configurePreviewServer: coiHeaders,   // vite preview（ビルド後のローカル確認）にも同条件を刻む
 };
 
+// 本番CSS（quiet-mono＋app＝37KB）を render-blocking から外す＝起動画面(#boot・head内インラインCSSで自足)を
+// HTML到着直後に描かせる（FCPをCSS往復の後ろから前へ）。アプリUIはJS実行(~2s)後に生成＝その時にはCSSは届いており
+// FOUCは起きない。media=print で一旦非適用→onload で all に戻す定石。JS無効環境向けに noscript の実体linkも残す。
+const asyncMainCss = {
+	name: "async-main-css",
+	enforce: "post",
+	transformIndexHtml(html) {
+		return html.replace(
+			/<link rel="stylesheet"([^>]*?)href="([^"]+)"([^>]*)>/g,
+			(_m, pre, href, post) =>
+				`<link rel="stylesheet"${pre}href="${href}"${post} media="print" onload="this.media='all'">` +
+				`<noscript><link rel="stylesheet"${pre}href="${href}"${post}></noscript>`,
+		);
+	},
+};
+
 export default defineConfig({
 	// 配信先＝ www.ortho-earth.com/japan/ （サブパス。将来 /globe/ が並ぶ）。ルート相対の import/asset は base が面倒を見る。
 	// 実行時 fetch は main.js 側で import.meta.env.BASE_URL を前置（vite は文字列リテラルの fetch を書き換えない）。
@@ -29,5 +45,5 @@ export default defineConfig({
 	// dist/site/ をルートに japan/ サブフォルダへ出力（wrangler.toml の directory = dist/site）。
 	build: { outDir: "dist/site/japan", emptyOutDir: true },
 	worker: { format: "es" },
-	plugins: [crossOriginIsolation],
+	plugins: [crossOriginIsolation, asyncMainCss],
 });

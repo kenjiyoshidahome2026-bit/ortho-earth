@@ -1,4 +1,7 @@
-import * as d3 from 'd3';
+// フルd3バレルは未使用の d3-zoom/brush/drag/transition 一式まで芋づるで初期バンドルに載る。
+// 実際に使うのは d3-geo の5関数と d3-selection の select のみ＝個別importに絞って重い連鎖を断つ。
+import { select } from "d3-selection";
+import { geoArea, geoCentroid, geoDistance, geoInterpolate, geoPath } from "d3-geo";
 import { comma } from "./utility.js";
 import { antimeridianCut } from "./antimeridianCut.js";
 
@@ -47,7 +50,7 @@ export function createPolygon(layer, opts = {}) {
 			if (!e) return;
 			isTouchDevice || e.stopPropagation();
 			const num = search(); if (num < 0) return;
-			const doc = d3.select(document)
+			const doc = select(document)
 				.on("mouseup.point mouseleave.point touchend.point", () => { cursor("grab"); doc.on(".point", null); })
 				.on("mousemove.point touchmove.point", e => {
 					cursor("grabbing");
@@ -62,7 +65,7 @@ export function createPolygon(layer, opts = {}) {
 					if (p && near(p)) return i;
 				}
 				for (let i = 0; i < points.length - 1; i++) {
-					const p = proj(d3.geoInterpolate(points[i], points[i + 1])(0.5));
+					const p = proj(geoInterpolate(points[i], points[i + 1])(0.5));
 					if (p && near(p)) { points.splice(i + 1, 0, p); return i + 1; }
 				}
 				return -1;
@@ -78,7 +81,7 @@ export function createPolygon(layer, opts = {}) {
 		var f = pts2feature(); if (!f) return null;
 		draw();
 		p.forEach(t => mark(t, radius[0]));
-		p.map((t, i) => i ? d3.geoInterpolate(p[i - 1], t)(0.5) : null).slice(1).forEach(t => mark(t, radius[1]));
+		p.map((t, i) => i ? geoInterpolate(p[i - 1], t)(0.5) : null).slice(1).forEach(t => mark(t, radius[1]));
 		measure && distance();
 
 		function onGenerating() {
@@ -87,7 +90,7 @@ export function createPolygon(layer, opts = {}) {
 			cpos && p.length >= 3 && (p = p.concat([p[0]]));
 		}
 		function draw() {
-			const path = d3.geoPath(proj, ctx);
+			const path = geoPath(proj, ctx);
 			ctx.beginPath(); path(f);
 			ctx.fillStyle = fill; p.length > 3 && ctx.fill();
 			ctx.strokeStyle = color; ctx.lineWidth = width; ctx.setLineDash(dash.map(t => t * width / 2)); ctx.stroke();
@@ -110,7 +113,7 @@ export function createPolygon(layer, opts = {}) {
 				const f = { type: "Feature", geometry: { type: "MultiPolygon", coordinates: multiCoords } };
 
 				// Prevent D3 from filling the entire globe: if area >= hemisphere, reverse winding to flip inside/outside.
-				if (d3.geoArea(f) > 2 * Math.PI) {
+				if (geoArea(f) > 2 * Math.PI) {
 					multiCoords = multiCoords.map(poly => poly.map(ring => [...ring].reverse()));
 					f.geometry.coordinates = multiCoords;
 				}
@@ -132,17 +135,17 @@ export function createPolygon(layer, opts = {}) {
 			ctx.textAlign = "center"; ctx.textBaseline = "middle";
 
 			for (let i = 0; i < p.length - 1; i++) {
-				var d = d3.geoDistance(p[i], p[i + 1]) * radius; sum += d;
-				const mid = proj(d3.geoInterpolate(p[i], p[i + 1])(0.5));
+				var d = geoDistance(p[i], p[i + 1]) * radius; sum += d;
+				const mid = proj(geoInterpolate(p[i], p[i + 1])(0.5));
 				if (mid) ctx.fillText(FIX(d), ...mid);
 			}
 
 			if (p.length > 3) {
 				// The feature is always winding-corrected above, so area can be computed directly.
-				const areaRad = d3.geoArea(f);
+				const areaRad = geoArea(f);
 				const areaSqMeters = areaRad * 6371000 * 6371000;
 
-				let center = d3.geoCentroid(f);
+				let center = geoCentroid(f);
 				let projected = proj(center);
 				if (!projected) {
 					let lon = 0, lat = 0;

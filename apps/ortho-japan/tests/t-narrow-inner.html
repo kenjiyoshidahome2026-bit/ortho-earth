@@ -18,6 +18,7 @@ const h = map.gadget.demo({ mobile: -1, flyView: v => { flown = v; }, prefetchVi
 	{ title: "既定", view: "#6/40/140" },
 	{ title: "据置", view: "#6/40/140", mobile: 0 },
 ] });
+await h.ready;   // demo エンジンは lazy（初期バンドル外）＝搭載直後に叩く前に本体到着を待つ。以降 h.start()/next() は同期委譲。
 h.start();
 ok("mobileScene", flown === "#11.21/36.69051/137.57752/70t/145r/l=terrain");   // シーン毎 -1.5 が既定 -1 に勝つ（緯度経度・t/r/l=は不変）
 h.next();

@@ -68,24 +68,8 @@ function fail(narration, datasets) {
 	};
 }
 
-// plan.filters を feature.properties へ適用する述語（描画側 overlay.js が使う）。
-// 値欠損は「不一致」扱い＝フィルタ指定時に属性のない地物は描かない。
-export function matchesFilters(props, filters) {
-	if (!filters || !filters.length) return true;
-	const p = props || {};
-	return filters.every(f => {
-		const v = p[f.attr];
-		if (v == null) return false;
-		switch (f.op) {
-			case "eq": return String(v) === String(f.value);
-			case "ne": return String(v) !== String(f.value);
-			case "lt": return Number(v) < f.value;
-			case "gt": return Number(v) > f.value;
-			case "contains": return String(v).includes(String(f.value));
-		}
-		return false;
-	});
-}
+// （matchesFilters は overlay.js へ移設＝描画コアが ai/ ツリーを import しないようにするため。
+//  interpret.js は ai.js からのみ import される＝初期バンドルに載らない lazy 側。）
 
 export function interpret(raw, { datasets = readyDatasets() } = {}) {
 	const notes = [];

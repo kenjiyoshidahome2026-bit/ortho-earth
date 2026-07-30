@@ -5,7 +5,25 @@
 // geopbf 経路（loadOverlay）は従来通り main＝identify は findPolygon 相当（pointInFeature）のJSレイキャスト。
 import { unproject, cameraState, buildGeoJSONOverlay, pointInFeature } from "ortho-core";
 import { geopbf } from "geopbf";
-import { matchesFilters } from "./ai/interpret.js";
+
+// 属性フィルタ照合＝自己完結の純関数（旧 ai/interpret.js から移設）。overlay が ai/ ツリーを
+// import しない＝AI本体(ai.js/backend/catalog/interpret＋将来LLM)を初期バンドルから完全に隔離するため。
+function matchesFilters(props, filters) {
+	if (!filters || !filters.length) return true;
+	const p = props || {};
+	return filters.every(f => {
+		const v = p[f.attr];
+		if (v == null) return false;
+		switch (f.op) {
+			case "eq": return String(v) === String(f.value);
+			case "ne": return String(v) !== String(f.value);
+			case "lt": return Number(v) < f.value;
+			case "gt": return Number(v) > f.value;
+			case "contains": return String(v).includes(String(f.value));
+		}
+		return false;
+	});
+}
 
 export function createOverlay({ renderer, cam, size, dpr, requestDraw }) {
 	const identEl = document.createElement("div");
