@@ -166,17 +166,11 @@ onmessage = e => {
 // （呼び出し時点のバッファを捕獲）。基図(GL)とラベル(2D)の両キャンバスを返し、合成は main が担う。
 function snapshot(id) {
 	try {
-		// 見本(palette)・画像保存(shot)・印刷(print)は常に「全解像度」で撮る。動的解像度で縮んだ canvas のまま撮ると、
-		// main 側 compose が原寸へ引き伸ばす際のバイリニア中間色（道路×紙の混色など）が全面に乗り、palette の remapTheme が
-		// それを最近傍クラスへ誤分類して「色がおかしい見本」になる（モバイルは静止復帰が遅れ縮小段のまま開きがち＝多発）。
-		// 一時的に原寸へ戻して素の cam で描き、読み終えたら applyRes で動的解像度の段へ戻す（次フレームは従来どおり軽い）。
-		let reduced = false;
 		if (renderer && cam) {
-			if (resIdx !== 0 && baseW && baseH && (canvas.width !== baseW || canvas.height !== baseH)) {
-				canvas.width = baseW; canvas.height = baseH; reduced = true;   // renderer は毎フレーム canvas.width を読む＝原寸化はこれだけで全系（viewport/mvp）が追随
-			}
-			renderer.draw(cam, opts);
-			if (gint) gint.draw(cam, renderer.gintCtx());   // 知性の層も同じ1枚に載せる＝旧・別撮り合成（wantGint）は不要
+			const s = RES_STEPS[resIdx];
+			const glCam = s === 1 ? cam : { ...cam, dpr: (cam.dpr || 1) * s };
+			renderer.draw(glCam, opts);
+			if (gint) gint.draw(glCam, renderer.gintCtx());   // 知性の層も同じ1枚に載せる＝旧・別撮り合成（wantGint）は不要
 			labelLayer && labelLayer.draw(cam);
 		}
 		// readPixels＝GLキャンバスを確実に読む唯一の手（createImageBitmap/transferToImageBitmap は headless GL で詰まる）。
@@ -186,13 +180,12 @@ function snapshot(id) {
 		gl.bindFramebuffer(gl.FRAMEBUFFER, null);
 		gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, base);
 		let labels = null, lw = 0, lh = 0;
-		if (labelCanvas) {   // ラベルは2D＝getImageDataで上下正のまま（動的解像度でも labelCanvas は縮まない＝常に原寸）
+		if (labelCanvas) {   // ラベルは2D＝getImageDataで上下正のまま
 			lw = labelCanvas.width; lh = labelCanvas.height;
 			labels = new Uint8Array(labelCanvas.getContext("2d").getImageData(0, 0, lw, lh).data.buffer);
 		}
 		const transfer = [base.buffer]; if (labels) transfer.push(labels.buffer);
 		postMessage({ type: "snapshot", id, base: base.buffer, w, h, labels: labels ? labels.buffer : null, lw, lh }, transfer);
-		if (reduced) applyRes();   // 動的解像度の縮小段へ戻す（撮影のための原寸は1フレームだけ＝生アニメの負荷は増やさない）
 	} catch (e) { console.error("[render] snapshot例外", e?.message, e?.stack); }
 }
 

@@ -21,6 +21,13 @@ const THEMES = [
 	{ k: "sepia", name: "セピア", paper: "#f0e6d3", ink: "#6a5c46", water: "#d6ddd7", water2: "#b9c8c1", bldg: "#e6d7bd", roads: ["#5f82a0", "#93a8bd", "#cab896"], contour: "#8c6b45", admin: "#a4685a" },
 ];
 
+// 実写見本を出す最小ズーム。これ未満＝正射の球体の陰影（周縁減光）＋大気が画面全体に緩い明暗グラデを乗せ、
+// 色域写像が破綻する：「紙(明るい灰)」と「注記ink(中間灰)」は色みが同じ＝明るさでしか分かれないため、陰で暗んだ
+// 紙がink階級へ誤分類され、ダークが白いまま・グラデ境界に横縞が出る（分類を賢くしても直せない原理限界）。
+// よって低ズームは実写化せず、テーマ色で描いた模式図(SVG見本)へ退避する。平ら＝高ズームでは実写のまま。
+// ★実機で調整可：もっと引き（低ズーム）でも実写にしたければ下げる／まだ縞が出るなら上げる。
+const LIVE_MIN_Z = 9;
+
 // 簡易マップの見本（120×84）：紙→水→等高線→建物→道路→界線 の順に、その気配だけを描く。色は t で差し替わる。
 const sampleSVG = t => `<svg viewBox="0 0 120 84" preserveAspectRatio="none" aria-hidden="true">
 	<rect width="120" height="84" fill="${t.paper}"/>
@@ -91,7 +98,7 @@ function remapTheme(img, from, to) {
 
 // opts.current＝いま焼き付いているテーマ名（見本から除く＝「自分以外」を出す）。opts.onPick(name)＝切替（app 側が reload）。
 // opts.requestSnapshot＝shot と同じスナップショット（app が注入）＝見本を「今の視点の実写」にする。無ければ SVG 見本のまま。
-export function palette({ current, onPick, requestSnapshot, signal } = {}) {
+export function palette({ current, onPick, requestSnapshot, getZoom, signal } = {}) {
 	const mapEl = this.mapEl;
 	if (mapEl.querySelector("#palette-btn")) return;   // 二重搭載は無害
 	const btn = document.createElement("button");
@@ -110,9 +117,12 @@ export function palette({ current, onPick, requestSnapshot, signal } = {}) {
 	// 開く度に撮り直す＝見本は常に「今の視点」。撮影→合成→画面の縦横比に追従して縮小→3テーマへ写像。
 	// 失敗・未注入は SVG 見本のまま（.live が付かない＝CSS が SVG を出し続ける）。
 	const CAP = 360;   // 見本の実寸＝長辺このpx（カード幅の約2倍＝Retinaでも締まる）。もう片辺は画面比で決める
+	const canLive = () => !getZoom || getZoom() >= LIVE_MIN_Z;   // 実写化してよいズームか（低ズーム＝球の陰影で写像破綻＝SVG見本へ退避）
 	let shooting = false;
 	async function refresh() {
 		if (!requestSnapshot || shooting) return;
+		// 低ズーム＝球の陰影で色域写像が破綻（白いダーク・横縞）＝実写化せずSVG見本へ退避（.live を外すとCSSがSVGを出す）
+		if (!canLive()) { picker.querySelectorAll(".tp-card.live").forEach(c => c.classList.remove("live")); return; }
 		shooting = true;
 		try {
 			const snap = await requestSnapshot();
@@ -140,7 +150,10 @@ export function palette({ current, onPick, requestSnapshot, signal } = {}) {
 
 	const close = () => picker.classList.remove("open");
 	// カードの縦横比を画面に合わせる（開いた瞬間＝まだSVG見本の段階にも効く。refresh は snap から精密に上書き）
-	const syncAspect = () => picker.style.setProperty("--tp-ar", String((mapEl.clientWidth || 4) / (mapEl.clientHeight || 3)));
+	// 実写する時だけカードを画面比に合わせる。SVG見本（低ズーム退避）は本来比(120/84)のまま＝縦画面で模式図が引き伸びない
+	const syncAspect = () => canLive()
+		? picker.style.setProperty("--tp-ar", String((mapEl.clientWidth || 4) / (mapEl.clientHeight || 3)))
+		: picker.style.removeProperty("--tp-ar");
 	btn.addEventListener("click", () => { if (picker.classList.toggle("open")) { syncAspect(); refresh(); } });
 	picker.addEventListener("click", e => {
 		const card = e.target.closest(".tp-card");

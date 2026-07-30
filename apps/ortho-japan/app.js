@@ -2081,7 +2081,7 @@ map.gadget("plateau", function (opts) {   // 建物3D（PLATEAU）データ管�
 });
 map.gadget("palette", function (opts) {   // 配色テーマ・ピッカー … 現在テーマ(見本から除く)と切替(switchTheme=c=差替+reload)と撮影(見本=今の視点の実写)を注入
 	if (themeFixed) { console.warn("[palette] opts.theme 焼き付け中＝c= は破れない。ガジェットは搭載しない"); return; }
-	return paletteGadget.call(this, { current: themeName, onPick: switchTheme, requestSnapshot, signal: ac.signal, ...opts });
+	return paletteGadget.call(this, { current: themeName, onPick: switchTheme, requestSnapshot, getZoom: () => cam.zoom, signal: ac.signal, ...opts });
 });
 map.gadget("zoom", function (opts) {   // ズーム＋/− … フライト中断・onMove・z範囲はここで注入
 	return zoomGadget.call(this, { cancelFlight: () => flightCtl.cancel(), onMove, zoomMin: 2, zoomMax: ZOOM_MAX, signal: ac.signal, ...opts });
