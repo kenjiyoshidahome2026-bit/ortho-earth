@@ -233,5 +233,12 @@ export function createTileManager({ style, tileUrl, onChange, cap = 256, buildTi
 		return { tiles, bytes, budgetBytes, deviceMemoryGB: dm, cacheEntries: cache.size };
 	}
 
-	return { update, buildScene, labels, cache, stats };
+	// restyle（配色テーマの生き替え）：全タイルを捨てる＝scene worker の鏡(geom/GPU常駐)も onEvict で同時に空へ。
+	// 次の update() で可視タイルが新style（tile worker 側で差替済み）で再ビルドされる。stickySplit も捨てて、
+	// 分割ヒステリシスが「もう無いタイル」を指さないようにする（clock=LRU時刻は単調のまま据置で無害）。
+	function reset() {
+		if (cache.size && onEvict) onEvict([...cache.keys()]);
+		cache.clear(); stickySplit = null;
+	}
+	return { update, buildScene, labels, cache, stats, reset };
 }

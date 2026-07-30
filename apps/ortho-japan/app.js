@@ -101,12 +101,12 @@ const SKY_LAYER = "sky";
 // style は起動時に pipeline/worker へ焼き付くため一度だけ選ぶ：ハッシュ手編集での切替は hashchange が reload で応える。
 const themeFixed = !!opts.theme;   // 埋め込みの焼き付け＝URLに書かず、ハッシュでも破れない
 const themeBootV = parseViewHash(opts.view || location.hash);
-const themeName = typeof opts.theme === "string" ? opts.theme
+let themeName = typeof opts.theme === "string" ? opts.theme
 	: themeBootV?.theme || (themeBootV?.layers?.includes("dark") ? "dark" : "mono");   // l=dark＝c=移行前の互換読み
 if (typeof opts.theme !== "object" && !MAP_THEMES[themeName]) console.warn(`[theme] 未知のテーマ "${themeName}"＝mono で起動（有効: ${Object.keys(MAP_THEMES).join(", ")}）`);
-const theme = typeof opts.theme === "object" ? { ...MAP_THEMES.mono, ...opts.theme }   // カスタム＝mono を土台に部分上書き
+let theme = typeof opts.theme === "object" ? { ...MAP_THEMES.mono, ...opts.theme }   // カスタム＝mono を土台に部分上書き
 	: (MAP_THEMES[themeName] || MAP_THEMES.mono);
-const style = theme.style;
+let style = theme.style;
 mountGadgets(mapEl, { chips: opts.chips, instruments: opts.instruments, fixedLayers });   // UI を #map に生やす＝以降の getElementById が実体を掴めるよう、全lookupの前で
 // 非搭載（chips:false / instruments:false）でも配線コードは無改造＝繋ぎ先が無ければ宙のdiv（どこにも描画されない）へ。
 const orDetached = el => el || document.createElement("div");
@@ -183,8 +183,8 @@ const ac = new AbortController();
 window.addEventListener("offline", () => { netEl.style.display = "block"; }, { signal: ac.signal });
 window.addEventListener("online", () => { netEl.style.display = "none"; needsDraw = true; }, { signal: ac.signal });
 
-const bg = style.layers.find(L => L.type === "background");
-const land = bg ? parseRGBA(evalExpr(bg.paint?.["background-color"] ?? "#fff", { zoom: 10, props: {}, geom: null, vars: {} })) : [0.96, 0.96, 0.95, 1];
+let bg = style.layers.find(L => L.type === "background");
+let land = bg ? parseRGBA(evalExpr(bg.paint?.["background-color"] ?? "#fff", { zoom: 10, props: {}, geom: null, vars: {} })) : [0.96, 0.96, 0.95, 1];
 // 夜家具：紙(land)が暗ければ下辺の計器・出典を黒硝子へ（quiet-mono #map.ui-dark）。テーマ名でなく輝度で
 // 判定＝カスタムテーマ(opts.theme={…})でも正しく転ぶ（style だけ差し替えた黒紙カスタムを取りこぼさない）
 if (0.299 * land[0] + 0.587 * land[1] + 0.114 * land[2] < 0.45) mapEl.classList.add("ui-dark");
@@ -788,7 +788,7 @@ function onMove() {
 // 「標高ゲート付き全面水域」を敷く（FS が標高h>0を discard＝海は地理院・陸は標高(GEBCO/R10) の管轄裁定。
 // 敷かないと圏外は紙色＝l=terrain の等高線が乗ると「白い偽の陸」に見える）。z≥8・sea.minzoom(z9) ゲート共有。
 style.emptySea = "water";
-const { tiles, requestMerge, destroy: destroyPipeline } = createPipeline({
+const { tiles, requestMerge, setStyle: setPipelineStyle, destroy: destroyPipeline } = createPipeline({
 	style, tileUrl: TILE_URL, requestDraw: () => { needsDraw = true; }, scenePort: sceneChan.port1, onTile,
 	coverage: /[?&]nocov=1/.test(location.search) ? null : JP_COVERAGE,   // 配信圏外タイルは fetch せず空タイル(海)扱い＝外洋・国外への無駄な 404 を断つ（縦長スマホの周縁 404 の根治）。?nocov=1 で無効化＝A/B 検証ノブ
 
@@ -827,8 +827,8 @@ window.__vtPool = () => requestMerge.stats();          // multi_draw 常駐プ�
 // 透視カメラ：center(注視点lon/lat), zoom(web-mercator float), pitch/bearing(rad)
 const MAXPITCH = 75 * D2R;   // 山岳ビュー(z<13)は地形が深度で自遮蔽・混成アトラスが地平線までカバー＝高チルトの根拠が揃ったので75°まで開放
 const ZOOM_MAX = 20;         // 上限20＝15cm/px（正射z＝緯度フリー。精度は原点相対RTEが担保）。21でも動くが余裕を持って1段残す
-const atmo = theme.atmo;            // 大気色 rgb + 強さ（テーマ台帳のノブ＝palettes.js）
-const bldColor = theme.bldColor;    // 建物色（テーマ台帳のノブ＝palettes.js）
+let atmo = theme.atmo;              // 大気色 rgb + 強さ（テーマ台帳のノブ＝palettes.js）※生き替えで差し替わる
+let bldColor = theme.bldColor;      // 建物色（テーマ台帳のノブ＝palettes.js）※生き替えで差し替わる
 // cam＝幾何のみ（center/zoom/pitch/bearing/dpr）＝毎フレームの draw payload（将来の worker 境界）。
 // 色（clear/land/atmo/bldColor）は静的なので setView で一度きりアップロード＝hot path から追い出す。
 const JAPAN_VIEW = [137.628, 37.783, 5.86];   // 列島ビュー（本土四島が一枚・真俯瞰）＝既定起動＆「日本全体」ガジェットの着地点
@@ -865,16 +865,26 @@ const viewHash = () => {
 	return buildViewHash(cam, extras);
 };
 const saveView = () => { saveCam(); try { history.replaceState(null, "", viewHash()); } catch { /* file:// 等 */ } };
-// 配色テーマの切替＝現在の視点・チップ（l=）を保ったまま c= を差し替えて reload（style は起動時に worker へ焼き付くため）。
+// 配色テーマの生き替え（reload無し restyle）：現在の視点・チップを保ったまま、基図タイルを新styleで組み直し、
+// 静的色・夜家具(ui-dark)・URL(c=)・N02芯色を差し替える。色は dl.ops に焼き込まれるため基図は再ビルド必須
+// （setPipelineStyle が evict→新styleビルドを起こす＝GPUは入れ替え＝ピーク約1倍）。建物/大気/海岸線は uniform 差替で済む。
+// 一瞬の空白（貼り直し）は許容。クロスフェードは switchThemeFade が上に被せる（呼び出し側で選ぶ）。
 function switchTheme(name) {
 	if (name === themeName || !MAP_THEMES[name]) return;
-	const on = FREE_LAYER_KEYS.filter(k => layerState[k]);
-	if (constelVisible) on.push(SKY_LAYER);
-	const changed = constelVisible || FREE_LAYER_KEYS.some(k => layerState[k] !== defaultLayerState[k]);
-	const extras = changed ? ["l=" + on.join(".")] : [];
-	if (name !== "mono") extras.push("c=" + name);   // mono は既定＝c= を書かない
-	location.hash = buildViewHash(cam, extras);
-	location.reload();
+	themeName = name; theme = MAP_THEMES[name]; style = theme.style;
+	bg = style.layers.find(L => L.type === "background");
+	land = bg ? parseRGBA(evalExpr(bg.paint?.["background-color"] ?? "#fff", { zoom: 10, props: {}, geom: null, vars: {} })) : [0.96, 0.96, 0.95, 1];
+	atmo = theme.atmo; bldColor = theme.bldColor;
+	setPipelineStyle(style);   // 基図タイルを全捨て→新styleで再ビルド（生バイトはIDB/HTTP温間キャッシュ命中で速い）
+	renderer.set("view", { clear, land, atmo, bldColor,
+		...(theme.contourColor && { contourColor: theme.contourColor }),
+		...(theme.distColor && { distColor: theme.distColor }),
+		...(theme.hypso && { hypso: theme.hypso }) });
+	renderer.set("sea", { li: style.layers.findIndex(L => L.id === "water"), li2: style.layers.findIndex(L => L.id === "water-hi"), minzoom: 9 });
+	mapEl.classList.toggle("ui-dark", 0.299 * land[0] + 0.587 * land[1] + 0.114 * land[2] < 0.45);   // 夜家具＝land輝度で（テーマ名でなく輝度＝黒紙カスタムも転ぶ）
+	if (layerState.rail && n02Loaded) { n02Loaded = false; loadN02(); }   // N02新幹線の芯(land色)を新テーマで引き直す（データは温間）
+	try { history.replaceState(null, "", viewHash()); } catch { /* file:// 等 */ }   // c= を reload無しで書換（replaceStateはhashchange非発火＝自己リロード無し）
+	readySig = ""; baseSig = ""; mergeReq.main.sig = ""; mergeReq.base.sig = ""; needsDraw = true; onMove();   // 下地・主層を強制再結合（次のupdateで新styleビルド→順次merge）
 }
 // contourColor/distColor/hypso はテーマの任意ノブ（無指定＝renderer 既定：セピア等高線・遠山ブルー・単色陰影）
 renderer.set("view", { clear, land, atmo, bldColor, showN02: false,

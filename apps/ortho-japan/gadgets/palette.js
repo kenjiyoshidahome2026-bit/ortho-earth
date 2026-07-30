@@ -96,7 +96,7 @@ function remapTheme(img, from, to) {
 	return out;
 }
 
-// opts.current＝いま焼き付いているテーマ名（見本から除く＝「自分以外」を出す）。opts.onPick(name)＝切替（app 側が reload）。
+// opts.current＝いま焼き付いているテーマ名（見本から除く＝「自分以外」を出す）。opts.onPick(name)＝切替（app 側が生き替え＝reload無し）。
 // opts.requestSnapshot＝shot と同じスナップショット（app が注入）＝見本を「今の視点の実写」にする。無ければ SVG 見本のまま。
 export function palette({ current, onPick, requestSnapshot, getZoom, signal } = {}) {
 	const mapEl = this.mapEl;
@@ -108,11 +108,12 @@ export function palette({ current, onPick, requestSnapshot, getZoom, signal } = 
 
 	const picker = document.createElement("div");
 	picker.id = "theme-picker";
-	const others = THEMES.filter(t => t.k !== current);   // 自分以外
-	picker.innerHTML = `<div class="tp-grid">` + others.map(t =>
-		`<button class="tp-card" data-theme="${t.k}" aria-label="${t.name}に切替">${sampleSVG(t)}<canvas aria-hidden="true"></canvas><span class="tp-name">${t.name}</span></button>`
-	).join("") + `</div>`;
+	let curr = current;   // 現在テーマ＝生き替え(reload無し)で変わる＝pick後に更新＝見本の「自分以外」を追従させる
+	const cardHTML = t => `<button class="tp-card" data-theme="${t.k}" aria-label="${t.name}に切替">${sampleSVG(t)}<canvas aria-hidden="true"></canvas><span class="tp-name">${t.name}</span></button>`;
+	const buildCards = () => { picker.querySelector(".tp-grid").innerHTML = THEMES.filter(t => t.k !== curr).map(cardHTML).join(""); };   // curr以外を3枚（生き替え後は reload しないので手で組み直す）
+	picker.innerHTML = `<div class="tp-grid"></div>`;
 	mapEl.append(picker);   // 末尾append＝DOM順で最上面（z-index全廃の裁き）
+	buildCards();
 
 	// 開く度に撮り直す＝見本は常に「今の視点」。撮影→合成→画面の縦横比に追従して縮小→3テーマへ写像。
 	// 失敗・未注入は SVG 見本のまま（.live が付かない＝CSS が SVG を出し続ける）。
@@ -133,12 +134,13 @@ export function palette({ current, onPick, requestSnapshot, getZoom, signal } = 
 			const sw = snap.W, sh = snap.H, ar = sw / sh;
 			picker.style.setProperty("--tp-ar", String(ar));   // canvas も SVG もこの比で（CSS aspect-ratio）
 			const src = full.getContext("2d").getImageData(0, 0, sw, sh);   // 原寸のまま写像へ（縮小は写像の後＝remapTheme の★を参照）
-			const from = THEMES.find(t => t.k === current) || THEMES[0];
+			const from = THEMES.find(t => t.k === curr) || THEMES[0];
 			const cw = ar >= 1 ? CAP : Math.max(1, Math.round(CAP * ar));   // 長辺CAP・短辺は画面比（縦画面＝縦長カード）
 			const ch = ar >= 1 ? Math.max(1, Math.round(CAP / ar)) : CAP;
 			const tmp = new OffscreenCanvas(sw, sh), tctx = tmp.getContext("2d");
-			for (const t of others) {
-				const card = picker.querySelector(`.tp-card[data-theme="${t.k}"]`), cv = card.querySelector("canvas");
+			for (const card of picker.querySelectorAll(".tp-card")) {   // 現在のカード群（curr追従＝生き替えで中身が入れ替わる）
+				const t = THEMES.find(x => x.k === card.dataset.theme); if (!t) continue;
+				const cv = card.querySelector("canvas");
 				tctx.putImageData(remapTheme(src, from, t), 0, 0);
 				cv.width = cw; cv.height = ch;
 				cv.getContext("2d").drawImage(tmp, 0, 0, sw, sh, 0, 0, cw, ch);   // 写像済み原寸→見本寸へ縮小（本物を縮めたのと同じ混色）
@@ -157,7 +159,7 @@ export function palette({ current, onPick, requestSnapshot, getZoom, signal } = 
 	btn.addEventListener("click", () => { if (picker.classList.toggle("open")) { syncAspect(); refresh(); } });
 	picker.addEventListener("click", e => {
 		const card = e.target.closest(".tp-card");
-		if (card) onPick?.(card.dataset.theme);   // カード＝そのテーマへ切替（app が c= 差し替え＋reload）
+		if (card) { const k = card.dataset.theme; onPick?.(k); curr = k; buildCards(); close(); }   // 生き替え＝地図を切替→現在テーマ更新→見本カード作り直し→閉じる（reloadしないので手で）
 		else close();                             // カード外（背景）＝取消
 	});
 	window.addEventListener("keydown", e => {   // ESC＝取消（開いている時だけ・他の Esc 消費と競合しない）

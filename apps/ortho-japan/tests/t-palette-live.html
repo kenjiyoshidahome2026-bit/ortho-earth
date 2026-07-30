@@ -66,6 +66,12 @@ try {
 	await new Promise(r => setTimeout(r, 200));
 	ok("reopen", picker.classList.contains("open"));
 
+	// 生き替え（reload無し restyle）：ダークカードのクリック→地図が切替＋picker閉じ＋現在テーマがdarkへ
+	// （見本から除外＝dataset.theme=dark のカードが消え、旧currentの mono が選べる側に現れる）。switchTheme が例外なら閉じない＝検出。
+	picker.querySelector('.tp-card[data-theme="dark"]')?.click();
+	await new Promise(r => setTimeout(r, 120));
+	ok("liveSwitch", !picker.classList.contains("open") && !picker.querySelector('.tp-card[data-theme="dark"]') && !!picker.querySelector('.tp-card[data-theme="mono"]'));
+
 	map.destroy();
 	ok("destroy", true);
 } catch (e) { ok("boot:" + (e && e.message || e), false); }

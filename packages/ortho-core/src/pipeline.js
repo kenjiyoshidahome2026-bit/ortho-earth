@@ -67,6 +67,14 @@ export function createPipeline({ style, tileUrl, requestDraw, scenePort, onMerge
 		style, tileUrl, onChange: requestDraw, buildTile: workerBuildTile, lodFloor, memBudgetMB, coverage,
 		onEvict: keys => sceneWorker.postMessage({ type: "evict", keys }),
 	});
+	// 配色テーマの生き替え（reload無し restyle）：tile worker 群へ新styleを配り、既存タイルを全て捨てる。
+	// 色は dl.ops に焼き込まれるため、次の update() 群で可視タイルが新styleで再ビルドされる（生バイトは
+	// fetchMVT のIDB/HTTP温間キャッシュ命中で速い）。scene worker の geom/GPU常駐は tiles.reset の onEvict で
+	// 同時解放＝ピーク約1倍（次テーマの先組みはしない＝GPUメモリ2倍を避ける）。
+	function setStyle(newStyle) {
+		for (const w of tileWorkers) w.postMessage({ type: "setStyle", style: newStyle });
+		tiles.reset();
+	}
 	// 後片付け：worker を全て terminate（SPA等で地図を剥がす時＝アプリ側 map.destroy() から）。
 	// in-flight の pending は reject＝呼び出し元の await を宙吊りにしない。
 	function destroy() {
@@ -75,5 +83,5 @@ export function createPipeline({ style, tileUrl, requestDraw, scenePort, onMerge
 		sceneWorker.terminate();
 		tileWorkers.forEach(w => w.terminate());
 	}
-	return { tiles, requestMerge, destroy };
+	return { tiles, requestMerge, setStyle, destroy };
 }

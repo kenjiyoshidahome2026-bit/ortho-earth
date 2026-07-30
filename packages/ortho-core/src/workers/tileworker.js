@@ -15,6 +15,7 @@ const aborts = new Map();   // id → AbortController（in-flight のみ保持�
 self.onmessage = async (e) => {
 	const m = e.data;
 	if (m.type === "init") { style = m.style; need = neededSourceLayers(style); coverage = m.coverage || null; return; }
+	if (m.type === "setStyle") { style = m.style; need = neededSourceLayers(style); return; }   // 配色テーマ生き替え＝色を焼き直す新style。以降のビルドは新styleで（coverage は据置）
 	if (m.type === "abort") { const a = aborts.get(m.id); if (a) a.abort(); return; }
 	const { id, url, z, x, y } = m;
 	const ac = new AbortController();
