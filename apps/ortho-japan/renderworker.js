@@ -92,7 +92,7 @@ onmessage = e => {
 			// main には触れさせない（postMessage/main側CPUを丸ごと排除）。DOM(読込インジケータ)だけ main へ通知。
 			terrain = createTerrain({
 				renderer, requestDraw: () => { dirty = true; },
-				exag: m.terrainExag, earthM: m.earthM, apiUrl: m.apiUrl, lowMem: !!m.lowMem, forceMixed: !!m.forceMixed,
+				exag: m.terrainExag, earthM: m.earthM, apiUrl: m.apiUrl, lowMem: !!m.lowMem, noMixed: !!m.noMixed,
 				onPending: (count, range, stat) => postMessage({ type: "elevPending", count, range, stat }),   // stat＝ローダ状態の自己申告（沈黙死の可視化）
 			});
 			// 全球R90（8枚・計55MB・初回のみ＝以後IDB常備）を起動の山が過ぎた頃に先読み＝

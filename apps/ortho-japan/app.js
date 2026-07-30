@@ -218,10 +218,11 @@ const perfLog = /[?&]perf=1/.test(location.search);
 // ?mem=1 ＝常駐メモリHUD（plateau＋tiles＋terrain を合算・走行後ピーク・4GB機予算まで残り）を画面右上に表示。過渡①は非表示。
 const memHud = /[?&]mem=1/.test(location.search);
 let memTerrain = 0, memHeap = 0;   // render worker から届く terrain LRU バイトと JS ヒープ（?mem=1 時のみ更新）
-// ?r01=1 ＝低メモリ端末でも混成R01近景モード（高チルト山岳の細かい起伏）を強制ON＝4GB機に R01 の余裕があるかの A/B ノブ。
-// 既定 OFF（lowMem は R10 止まり＝富士3Dの jetsam 対策 80170b8）。R01 はタイル9枚デコードのメモリスパイクを伴う＝?mem=1 で実機計測してから既定化を判断。
-const forceMixedR01 = /[?&]r01=1/.test(location.search);
-renderWorker.postMessage({ type: "init", canvas: offscreen, labelCanvas: labelOffscreen, elevBase: TERR_EXAG / EARTH_M, terrainExag: TERR_EXAG, earthM: EARTH_M, apiUrl: "https://api.ortho-earth.com", scenePort: sceneChan.port2, noMultiDraw, perf: perfLog, mem: memHud, lowMem: LOW_MEM, forceMixed: forceMixedR01 }, [offscreen, labelOffscreen, sceneChan.port2]);
+// 混成R01近景（高チルト山岳の細かい起伏）は全端末で既定ON（lowMem含む）。旧・lowMemはR10止まり（富士3Dのjetsam対策80170b8）
+// だったが、標高アトラスR16F化（GPU半減）＋iOS 4GB実機で peak 84MB・完走を実測して安全確認済み。
+// ?nor01=1 ＝過渡デコードで落ちる端末が出た時の逃げ道（無効化＝全面R10へ）。
+const noMixedR01 = /[?&]nor01=1/.test(location.search);
+renderWorker.postMessage({ type: "init", canvas: offscreen, labelCanvas: labelOffscreen, elevBase: TERR_EXAG / EARTH_M, terrainExag: TERR_EXAG, earthM: EARTH_M, apiUrl: "https://api.ortho-earth.com", scenePort: sceneChan.port2, noMultiDraw, perf: perfLog, mem: memHud, lowMem: LOW_MEM, noMixed: noMixedR01 }, [offscreen, labelOffscreen, sceneChan.port2]);
 // 薄いプロキシ：有線(関数呼び)を無線(postMessage)に載せ替え。set/draw 統一済なので pipeline/overlay は無改造。
 // draw は worker 側で「cam を記録するだけ」に受け、実描画は worker 自前 rAF が最新 cam で回す（worker-driven）。
 // 標高アトラス(terrain)も worker 側に住む＝main はもう視野→セル計算・ダウンサンプルを一切やらない。読込インジケータだけ elevPending で受ける。
