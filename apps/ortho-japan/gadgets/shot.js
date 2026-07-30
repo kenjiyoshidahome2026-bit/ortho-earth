@@ -21,20 +21,22 @@ export function attrLines(mapEl) {
 	return (el && el.innerText.trim() ? el.innerText : DEFAULT_ATTR.join("\n")).split(/\n/).map(t => t.trim()).filter(Boolean);
 }
 
-export function shot({ requestSnapshot, signal } = {}) {
+export function shot({ requestSnapshot, signal, btn } = {}) {
 	const mapEl = this.mapEl;
 	// モバイル（タッチ端末）はボタンごと出さない＝端末標準のスクリーンショットに委ねる（家具を増やさない）。
 	if (window.matchMedia("(pointer: coarse)").matches) return;
-	if (mapEl.querySelector("#shot-btn")) return;   // 二重搭載は無害
-	const mac = /Mac|iP(hone|ad|od)/.test(navigator.platform || "");
-	const keyLabel = mac ? "⌘S" : "Ctrl+S";   // ショートカット表記（低解像度でボタンが隠れても撮れる手綱）
-	const btn = document.createElement("button");
-	btn.id = "shot-btn"; btn.dataset.tip = `画面を画像で保存 (${keyLabel})`; btn.setAttribute("aria-label", "画面を画像で保存");
-	btn.innerHTML = `
-		<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#3f4757" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true">
-			<path d="M4 8h3l1.5-2h7L17 8h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z"/>
-			<circle cx="12" cy="13" r="3.4"/></svg>`;
-	gadgetStack(mapEl).append(btn);
+	if (!btn) {   // 直搭載（shot-stub 非経由＝単体でも動く＝独立）＝自前でボタン生成。stub 経由は btn 持参で再利用
+		if (mapEl.querySelector("#shot-btn")) return;   // 二重搭載は無害
+		const mac = /Mac|iP(hone|ad|od)/.test(navigator.platform || "");
+		const keyLabel = mac ? "⌘S" : "Ctrl+S";   // ショートカット表記（低解像度でボタンが隠れても撮れる手綱）
+		btn = document.createElement("button");
+		btn.id = "shot-btn"; btn.dataset.tip = `画面を画像で保存 (${keyLabel})`; btn.setAttribute("aria-label", "画面を画像で保存");
+		btn.innerHTML = `
+			<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#3f4757" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true">
+				<path d="M4 8h3l1.5-2h7L17 8h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z"/>
+				<circle cx="12" cy="13" r="3.4"/></svg>`;
+		gadgetStack(mapEl).append(btn);
+	}
 	btn.addEventListener("click", capture);
 	// ショートカット＝⌘/Ctrl+S（ブラウザの「ページ保存」を画面保存へ転用）。低解像度でスタックが溢れボタンが隠れても撮れる。
 	// 入力欄（検索等）フォーカス中は無効＝そちらの操作を邪魔しない。
@@ -43,7 +45,7 @@ export function shot({ requestSnapshot, signal } = {}) {
 		if (keyBusy(mapEl)) return;
 		e.preventDefault(); capture();
 	}, { signal });
-	return { composite };   // 制御ハンドル（composite＝合成器。テスト/プログラムから合成だけ叩ける）
+	return { composite, open: capture };   // composite＝合成器（テスト/プログラムから合成だけ叩ける）／open=capture＝遅延スタブ(shot-stub)の共通IF＝クリックで撮影を起動
 
 	async function capture() {
 		if (btn.disabled) return;

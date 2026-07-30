@@ -39,6 +39,9 @@ try {
 	ok("keyGuard", !ev2.defaultPrevented);
 	inp.remove();
 
+	// 後始末の一呼吸：本体を import() した直後の destroy は初期化の未完フェッチを道連れに中断し、headless の
+	// --virtual-time-budget が保留ネット待ちで時計を止め dump 不発でハングする（実ブラウザでは無害な計測アーティファクト）。少し置いて凪がせる。
+	await new Promise(r => setTimeout(r, 400));
 	map.destroy();
 	ok("destroy", true);
 } catch (e) { ok("boot:" + (e && e.message || e), false); }
