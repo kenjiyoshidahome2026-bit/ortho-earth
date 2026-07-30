@@ -35,7 +35,7 @@ CMD.append("button").text("base ER pictures").on("click", () => base(q, Object.v
 CMD.append("button").text("borders and stars").on("click", () => borders(q));
 CMD.append("button").text("constellation lines").on("click", () => constellations(q));
 CMD.append("button").text("messier").on("click", () => messier(q));
-CMD.append("button").text("ne_10m_coastline").on("click", () => coastline(q));
+CMD.append("button").text("coastline (10m+50m)").on("click", () => coastline(q));
 CMD.append("button").text("KSJ 鉄道/高速道路 (N02/N06)").on("click", () => ksj(q));
 CMD.append("button").text("国立公園 (環境省 nps_all)").on("click", () => nps(q));
 CMD.append("button").text("行政区域 (N03 admin_all)").on("click", () => admin(q));
@@ -118,18 +118,30 @@ async function messier(q) {
 	await pbf.save();
 	q.success("messier: saved");
 }
-// 世界海岸線（Natural Earth 10m）。ortho-japan が起動時に読む＝クライアントに毎回 zip→shp デコードを
-// 払わせず、ここで一度だけ GeoPBF に焼いて GIS/pbf/ne_10m_coastline に置く（読み側は名前慣習で load）。
+// 世界海岸線（Natural Earth）。ortho-japan が起動時に読む＝クライアントに毎回 zip→shp デコードを
+// 払わせず、ここで一度だけ GeoPBF に焼いて GIS/pbf/ne_{RES}_coastline に置く（読み側は名前慣習で load）。
+// 10m=デスクトップ／50m=モバイル（LOW_MEM＝頂点が一桁小さく GPU・常駐束を軽く＝Kenji 指定 2026-07-29）。
+// 両解像度とも bucket に置くのが要点：50m を bucket 未収録のままにすると、モバイルは毎回 S3 生zip
+// フォールバック（shape デコード）に落ちる＝(a) 提供圏外と同じく 404 がコンソールに出る、(b) WebKit で
+// props.join TypeError の既知バグ経路（＝iOS で海岸線が出ない恐れ）。bucket 収録で両方を根から断つ。
 async function coastline(q) {
-	const url = "https://naturalearth.s3.amazonaws.com/10m_physical/ne_10m_coastline.zip";
 	q.clear();
-	q.title("ne_10m_coastline");
-	const pbf = await geopbf(url, { name: "ne_10m_coastline", nocache: true });
-	if (!pbf.length) throw new Error("ne_10m_coastline: encoding produced 0 features — check source URL or decoder");
-	q.log(`ne_10m_coastline: ${pbf.length} features, keys: [${pbf.keys.join(', ')}]`);
-	await pbf.save();
-	q.success(`ne_10m_coastline: (<= ${url})`);
-	q.log(await pbf.profile());
+	q.title("coastline (50m + 10m)");
+	// 50m を先に焼く（モバイルで欠けている本命）。各解像度は独立＝10m の失敗が 50m を巻き添えにしない。
+	for (const res of ["50m", "10m"]) {
+		const name = `ne_${res}_coastline`;
+		const url = `https://naturalearth.s3.amazonaws.com/${res}_physical/${name}.zip`;
+		try {
+			const pbf = await geopbf(url, { name, nocache: true });
+			if (!pbf.length) throw new Error(`0 features — check source URL or decoder`);
+			q.log(`${name}: ${pbf.length} features, keys: [${pbf.keys.join(', ')}]`);
+			await pbf.save();   // ← VITE_API_KEY 未設定だとここで 403（起動時の警告が出ていたら鍵を設定して dev server 再起動）
+			q.success(`${name}: saved (<= ${url})`);
+			q.log(await pbf.profile());
+		} catch (e) {
+			q.error(`${name}: 失敗 — ${e.message}`);
+		}
+	}
 }
 
 // 国土数値情報 N02(鉄道)/N06(高速道路時系列) を GeoPBF 化して GIS/pbf へ。ortho-japan の新幹線
