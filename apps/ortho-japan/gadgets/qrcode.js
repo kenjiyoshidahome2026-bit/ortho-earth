@@ -173,7 +173,7 @@ function fmtPositions2(size) {
 }
 function placeFormat(m, size, bits) {
 	const c1 = fmtPositions(size).slice(0, 15), c2 = fmtPositions2(size);
-	for (let i = 0; i <= 14; i++) { const b = (bits >> i) & 1; m[c1[i][0]][c1[i][1]] = b === 1; m[c2[i][0]][c2[i][1]] = b === 1; }
+	for (let i = 0; i <= 14; i++) { const b = (bits >> (14 - i)) & 1; m[c1[i][0]][c1[i][1]] = b === 1; m[c2[i][0]][c2[i][1]] = b === 1; }   // ★MSB(bit14)を先頭座標へ＝標準の並び（bit0先頭だと逆順でスキャン不可だった）
 }
 function xorMask(m, fn, fnMask) {
 	for (let r = 0; r < m.length; r++) for (let c = 0; c < m.length; c++) if (!fn[r][c] && fnMask(r, c)) m[r][c] = !m[r][c];
@@ -220,6 +220,10 @@ export function qrSelfTest() {
 	const rd = [0x10, 0x20, 0x0C, 0x56, 0x61, 0x80, 0xEC, 0x11, 0xEC, 0x11, 0xEC, 0x11, 0xEC, 0x11, 0xEC, 0x11];
 	const re = [0xA5, 0x24, 0xD4, 0xC1, 0xED, 0x36, 0xC7, 0x87, 0x2C, 0x55];
 	if (rsEC(rd, 10).some((v, i) => v !== re[i])) fails.push("RS:" + [...rsEC(rd, 10)].map(x => x.toString(16)).join(","));
+	// golden-master：既知の正しい出力（開発時に jsQR で往復デコード検証済み・v1/v3/v6＝配置/マスク/RS/整列/複数ブロックを網羅）の
+	// FNVハッシュ。フォーマット配置のビット順のような「値は正しいが並びが逆」の回帰を丸ごと捕まえる（実際にそれで一度出荷が壊れた）。
+	const fnv = s => { const g = qrMatrix(s).flat(); let x = 2166136261 >>> 0; for (let i = 0; i < g.length; i++) { x ^= (g[i] ? 1 : 0); x = Math.imul(x, 16777619) >>> 0; } return x; };
+	for (const [s, h] of [["OJ", 3987601905], ["https://www.ortho-earth.com/japan/#12/35/139/c=dark", 3733310888], ["x".repeat(120), 2753418475]]) if (fnv(s) !== h) fails.push("golden:" + s.slice(0, 10));
 	// 構造：短文の QR が v1(21x21)・3隅にファインダ・行6タイミング
 	const m = qrMatrix("HELLO");
 	const okFinder = m.length === 21 && m[0][0] && m[0][6] && !m[1][1] && m[2][2] && m[0][20] && m[20][0];   // ファインダ：外枠黒(0,0)(0,6)・白リング(1,1)・中心黒(2,2)・他2隅も黒
