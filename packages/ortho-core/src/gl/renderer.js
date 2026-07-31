@@ -294,12 +294,24 @@ export function createRenderer(canvas, rOpts = {}) {
 
 	// 標高アトラス：セル群を1枚のテクスチャに敷く。a:{originLng,originLat,cellsX,cellsY,cellRes,cellSpan}
 	// cellSpan=1セルの度数（R90=90/R10=10/R01=1）。
+	// R16F アトラスを確保して 0(海)で初期化。全面ぶんの Float32Array（4096²＝67MB）を毎回作らず、
+	// 4MB 級の使い回しストリップを縦に流す＝窓替えのたびの巨大な一時確保を無くす（GC 圧・footprint 対策）。
+	let zeroStrip = null;
+	function allocZeroR16F(W, H) {
+		gl.texImage2D(gl.TEXTURE_2D, 0, gl.R16F, W, H, 0, gl.RED, gl.FLOAT, null);
+		const rows = Math.max(1, Math.min(H, (1 << 20) / W | 0));
+		if (!zeroStrip || zeroStrip.length < W * rows) zeroStrip = new Float32Array(W * rows);
+		for (let y = 0; y < H; y += rows) {
+			const h = Math.min(rows, H - y);
+			gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, y, W, h, gl.RED, gl.FLOAT, zeroStrip.subarray(0, W * h));
+		}
+	}
 	function setElevationAtlas(a, scale) {
 		const W = a.cellsX * a.cellRes, H = a.cellsY * a.cellRes, span = a.cellSpan || 10;
 		if (!elevTex) elevTex = gl.createTexture();
 		gl.bindTexture(gl.TEXTURE_2D, elevTex);
 		gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
-		gl.texImage2D(gl.TEXTURE_2D, 0, gl.R16F, W, H, 0, gl.RED, gl.FLOAT, new Float32Array(W * H));  // 0(海)で初期化
+		allocZeroR16F(W, H);
 		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
 		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
 		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
@@ -324,7 +336,7 @@ export function createRenderer(canvas, rOpts = {}) {
 		const tex = gl.createTexture();
 		gl.bindTexture(gl.TEXTURE_2D, tex);
 		gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
-		gl.texImage2D(gl.TEXTURE_2D, 0, gl.R16F, W, H, 0, gl.RED, gl.FLOAT, new Float32Array(W * H));
+		allocZeroR16F(W, H);
 		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
 		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
 		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
@@ -347,19 +359,26 @@ export function createRenderer(canvas, rOpts = {}) {
 		buildTerrainMesh(a.originLng, a.originLat, a.cellsX * span, a.cellsY * span, G);
 		elevStage = null;
 	}
+	// 地形メッシュ＝単位格子 [0,1]²（G だけに依存）。窓の原点/幅は uniform u_mesh で渡す＝
+	// 標高アトラスの窓替え（パンのたび）でメッシュを作り直さない。旧実装は毎回 lon/lat を焼いた
+	// 頂点配列(G=1536 で 18.9MB)＋index(56.5MB)を作って GPU へ上げ直しており、広域×高チルトの
+	// パンで「1窓替えごとに 75MB の GPU バッファ再確保＋CPU 一時配列」＝GPUプロセスが単調に膨れる
+	// 主因だった（実測: 陸上パン34ホップで累計 GL alloc 1.2GB・GPUプロセス 1.45→1.95GB）。
+	// G が変わる時だけ作り直す＝実質「起動時に一度」。
 	function buildTerrainMesh(oLng, oLat, spanLng, spanLat, G) {
-		const ll = new Float32Array(G * G * 2);
-		for (let j = 0; j < G; j++) for (let i = 0; i < G; i++) { const k = (j * G + i) * 2; ll[k] = oLng + spanLng * i / (G - 1); ll[k + 1] = oLat + spanLat * j / (G - 1); }
+		if (terrain && terrain.G === G) { terrain.mesh = [oLng, oLat, spanLng, spanLat]; return; }
+		const uv = new Float32Array(G * G * 2);
+		for (let j = 0; j < G; j++) for (let i = 0; i < G; i++) { const k = (j * G + i) * 2; uv[k] = i / (G - 1); uv[k + 1] = j / (G - 1); }
 		const idx = new Uint32Array((G - 1) * (G - 1) * 6);
 		let p = 0; for (let j = 0; j < G - 1; j++) for (let i = 0; i < G - 1; i++) { const a = j * G + i, b = a + 1, c = a + G, d = c + 1; idx[p++] = a; idx[p++] = c; idx[p++] = b; idx[p++] = b; idx[p++] = c; idx[p++] = d; }
 		if (terrain) { gl.deleteVertexArray(terrain.vao); gl.deleteBuffer(terrain.vbo); gl.deleteBuffer(terrain.ibo); }
-		const vao = gl.createVertexArray(), vbo = buffer(gl, ll), ibo = gl.createBuffer();
+		const vao = gl.createVertexArray(), vbo = buffer(gl, uv), ibo = gl.createBuffer();
 		gl.bindVertexArray(vao);
-		attrib(gl, terrainProg, "a_ll", vbo, 2);
+		attrib(gl, terrainProg, "a_uv", vbo, 2);
 		gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ibo);
 		gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, idx, gl.STATIC_DRAW);
 		gl.bindVertexArray(null);
-		terrain = { vao, vbo, ibo, count: idx.length };
+		terrain = { vao, vbo, ibo, count: idx.length, G, mesh: [oLng, oLat, spanLng, spanLat] };
 	}
 
 	// PLATEAU LOD2 建物メッシュを受ける。key=バッチキー "区名#i"（data あり）または区名（data=null＝区の全バッチ+マスク解放）。
@@ -660,6 +679,8 @@ export function createRenderer(canvas, rOpts = {}) {
 			const hy = view.hypso;
 			gl.uniform3f(loc(gl, terrainProg, "u_hypso"), hy ? hy.color[0] : 0, hy ? hy.color[1] : 0, hy ? hy.color[2] : 0);
 			gl.uniform2f(loc(gl, terrainProg, "u_hypsoP"), hy ? 1 / (hy.max || 3000) : 0, hy ? (hy.amount ?? 0.5) : 0);
+			const mh = terrain.mesh;   // 窓の原点/幅＝単位格子メッシュを実座標へ伸ばす（メッシュ自体は使い回し）
+			gl.uniform4f(loc(gl, terrainProg, "u_mesh"), mh[0], mh[1], mh[2], mh[3]);
 			gl.bindVertexArray(terrain.vao);
 			gl.drawElements(gl.TRIANGLES, terrain.count, gl.UNSIGNED_INT, 0);
 			gl.depthMask(true);

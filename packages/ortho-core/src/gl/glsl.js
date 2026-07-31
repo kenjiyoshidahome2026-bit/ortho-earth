@@ -218,13 +218,15 @@ void main() {
 // FS側は可視フラグメント数ぶんの3フェッチ＝総量でも減る上、頂点補間よりシャープな陰影になる。
 export const TERRAIN_VS = `#version 300 es
 precision highp float;
-in vec2 a_ll;      // 絶対 lon/lat
+in vec2 a_uv;      // 単位格子 [0,1]²（メッシュは G だけに依存＝窓が動いても作り直さない）
+uniform vec4 u_mesh;   // xy=窓の原点(lon,lat)  zw=窓の幅(deg)
 ${PROJECT}
 out vec2 v_ll;
 out float v_front;
 out float v_fog;
 out float v_h;
 void main() {
+	vec2 a_ll = u_mesh.xy + u_mesh.zw * a_uv;   // 絶対 lon/lat（旧・頂点属性を単位格子＋uniform へ）
 	vec2 dDeg = a_ll - u_origin;              // 原点相対 (deg)。renderer は terrain に scenes.main.origin を渡す
 	vec3 rel = deltaToRel(dDeg);              // 頂点3D − 原点3D（小・正確）
 	vec3 dir = u_originPt + rel;              // 絶対単位球点（df/front/fog は粗くて可）

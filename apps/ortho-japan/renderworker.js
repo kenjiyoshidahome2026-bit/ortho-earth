@@ -90,7 +90,7 @@ onmessage = e => {
 			labelLayer = createLabelLayer(labelCanvas, { shieldFor, elevBase: m.elevBase });
 			// 標高アトラス：fetch(altpbf自前worker)・視野→セル範囲計算・ダウンサンプルまで全部ここで完結させ、
 			// main には触れさせない（postMessage/main側CPUを丸ごと排除）。DOM(読込インジケータ)だけ main へ通知。
-			terrain = createTerrain({
+			if (!m.noTerr) terrain = createTerrain({
 				renderer, requestDraw: () => { dirty = true; },
 				exag: m.terrainExag, earthM: m.earthM, apiUrl: m.apiUrl, lowMem: !!m.lowMem, noMixed: !!m.noMixed,
 				onPending: (count, range, stat) => postMessage({ type: "elevPending", count, range, stat }),   // stat＝ローダ状態の自己申告（沈黙死の可視化）
@@ -98,7 +98,7 @@ onmessage = e => {
 			// 全球R90（8枚・計55MB・初回のみ＝以後IDB常備）を起動の山が過ぎた頃に先読み＝
 			// 低ズームの地球ぐるぐるで陰影が最初から途切れない（z1-4を塗る前提の仕込み）。
 			// 低メモリ端末はスキップ＝デモ序盤の裏でデコードの山を作らない（必要時はオンデマンド取得＝機能不変）。
-			if (!m.lowMem) setTimeout(() => { for (const lng of [-180, -90, 0, 90]) for (const lat of [-90, 0]) terrain.prefetch(lng, lat, 90); }, 6000);
+			if (!m.lowMem && terrain) setTimeout(() => { for (const lng of [-180, -90, 0, 90]) for (const lat of [-90, 0]) terrain.prefetch(lng, lat, 90); }, 6000);
 			if (m.scenePort) {
 				m.scenePort.onmessage = ev => {                  // scene worker から直結：main を経由しない geometry
 					const d = ev.data;
@@ -193,7 +193,7 @@ function snapshot(id) {
 function applyLabels() {
 	if (!labelLayer || !cam) return;
 	const list = pendingLabels; pendingLabels = null;
-	for (const L of list) L.elev = terrain.sampleElev(L.anchor[0], L.anchor[1], cam);
+	for (const L of list) L.elev = terrain ? terrain.sampleElev(L.anchor[0], L.anchor[1], cam) : 0;
 	labelLayer.setLabels(list);
 }
 
