@@ -118,9 +118,7 @@ onmessage = e => {
 			break;
 		case "resize":                                           // 両キャンバスを同じ寸法に（main は transfer 後触れない）
 			baseW = m.width; baseH = m.height;
-			applyRes();                                          // GL 側は動的解像度スケールを掛けて適用
-			if (labelCanvas) { labelCanvas.width = m.width; labelCanvas.height = m.height; }   // ラベル(文字)は常にフル解像度
-			dirty = true;
+			scheduleRes();                                       // 適用は次の描画フレーム先頭（リサイズ＝バッファクリアを描画と同一タスクに束ねる＝白フラッシュを見せない）
 			break;
 		case "set":
 			if (m.cmd === "gint") { if (gint) gint.set(m.data, m.prop); }        // 知性の層のペイロード差し替え（prop=スロットキー "coast"/"user"、null=そのスロットを空化）
@@ -167,6 +165,7 @@ onmessage = e => {
 function snapshot(id) {
 	try {
 		if (renderer && cam) {
+			if (resPending) applyRes();   // 予約中のリサイズを先に＝撮影サイズと canvas を一致させる（frame() と同じ掟）
 			const s = RES_STEPS[resIdx];
 			const glCam = s === 1 ? cam : { ...cam, dpr: (cam.dpr || 1) * s };
 			renderer.draw(glCam, opts);
@@ -267,10 +266,20 @@ function drainUploads() {
 		if (meshData) { uploadSkip = 2; break; }   // 重い転送は1件で打ち切り。転送の山は「次フレームのdt」に出る＝EMA計測を2フレーム除外
 	}
 }
+// キャンバスのリサイズは即適用しない：canvas.width/height 代入はバッファを透明にクリアし、その状態が
+// rAF タスク末尾で compositor へ commit されると「地図だけ白抜け→次フレームで描き直し」の1フレーム点滅になる
+// （ラベルは別キャンバス＝文字だけ残るので「ベクタータイルの白抜け」に見える）。Mac は res=1 張り付きで
+// 無症状、Windows は ANGLE/D3D が遅く動的解像度の段切替が実際に起きる＝切替のたびに点滅が見えていた。
+// scheduleRes＝予約だけ立て、適用(applyRes)は frame() の描画直前＝リサイズと全描画が同一タスク＝
+// commit される絵は常に完成品。クリア済みバッファは構造的に画面へ出ない（ウィンドウリサイズも同経路）。
+let resPending = false;
+function scheduleRes() { resPending = true; dirty = true; }
 function applyRes() {
+	resPending = false;
 	if (!canvas || !baseW) return;
 	const s = RES_STEPS[resIdx], w = Math.round(baseW * s), h = Math.round(baseH * s);
 	if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; dirty = true; }
+	if (labelCanvas && (labelCanvas.width !== baseW || labelCanvas.height !== baseH)) { labelCanvas.width = baseW; labelCanvas.height = baseH; }   // ラベル(文字)は常にフル解像度
 }
 function tuneRes(drew) {
 	const now = performance.now(), dt = now - lastFrameT;
@@ -290,7 +299,7 @@ function tuneRes(drew) {
 	if (busyMs > 24 && resIdx < RES_STEPS.length - 1) {
 		pendingUp = false;   // また重くなった＝予約中の復帰は取り消し
 		const sOld = RES_STEPS[resIdx];
-		resIdx++; applyRes(); resHoldUntil = now + 350; upStreak = 0; upDelay = Math.min(upDelay * 2, 4800); emaMs = 0;
+		resIdx++; scheduleRes(); resHoldUntil = now + 350; upStreak = 0; upDelay = Math.min(upDelay * 2, 4800); emaMs = 0;
 		// EMAはゼロから再学習させず fill-bound 予測（×(sNew/sOld)²）で継承＝まだ重ければ350ms後に即もう一段
 		//（ゼロ化だと再学習+ホールドで降段カスケードが数秒かかり、フル解像度のまま重ビューへ突っ込んだズームがガクつく）。
 		const k = (RES_STEPS[resIdx] * RES_STEPS[resIdx]) / (sOld * sOld);
@@ -329,6 +338,7 @@ function frame() {
 	try {
 		drainUploads();   // 重いGPU転送（シーン/PLATEAU）の平準化＝1件/フレーム。dirty を立てる＝同フレームの下の描画で反映
 		if (dirty && renderer && cam) {
+			if (resPending) applyRes();   // 予約されたリサイズ＝描画の直前に適用（クリア→同一タスクで全描画＝白フレームをcommitさせない）
 			dirty = false; drew = true;
 			// 動的解像度中は GL 側の dpr に resScale を掛ける＝線の太さ(SDF capsule)が CSS 上で不変。
 			// ラベルは自前 canvas（フル解像度）＋自前 cameraState なので素の cam のまま＝幾何は両者で一致する。
@@ -376,12 +386,12 @@ function frame() {
 	if (drew) lastDrewT = nowT;
 	if (!drew && resIdx > 0 && nowT - lastDrewT > RES_SETTLE_MS) {
 		// 静止が RES_SETTLE_MS 続いた＝止まれば画面が鮮明に戻る。段階を踏まず一気に res=1（静止フレームは全解像度でも軽い）。
-		pendingUp = false; resIdx = 0; applyRes(); resHoldUntil = nowT + 700;
+		pendingUp = false; resIdx = 0; scheduleRes(); resHoldUntil = nowT + 700;
 		console.log(`[render] 動的解像度 ↑ ×1（静止復帰）`);
 	} else if (!drew && pendingUp) {   // 軽い連続描画で予約された段階復帰（従来路）。切替の1重フレームが操作中に見えない
 		pendingUp = false;
 		if (resIdx > 0) {
-			resIdx--; applyRes(); resHoldUntil = nowT + 700;
+			resIdx--; scheduleRes(); resHoldUntil = nowT + 700;
 			console.log(`[render] 動的解像度 ↑ ×${RES_STEPS[resIdx]}（静止時適用）`);
 		}
 	}
