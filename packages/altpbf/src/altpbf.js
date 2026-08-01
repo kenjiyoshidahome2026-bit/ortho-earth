@@ -96,9 +96,15 @@ export async function encode(obj) {
 	return deflateRaw(pbf.buf);
 }
 
+// 標高本体は「varint を読みながら Int16Array へ直書き」＝中間の JS 配列を作らない。
+// 旧実装は readPackedSVarint(deltas)（要素数ぶんの JS 配列＝push で倍々成長）＋ deltas.map()（もう1本）で、
+// R10(2400²=576万点)1枚あたり heap を ~230MB 食い、しかも altpbf worker の V8 ヒープは縮まない
+//（実測: Node 単発 decode で RSS +232MB・heapTotal 299MB・99ms）。標高 worker は3本＝広域×高チルトで
+// セルを取り続けるパン中に数百MBが居座る＝「メモリが解放されない」の正体だった。直書きは 21ms / +12MB。
+// 語順は encode() が WIDTH/HEIGHT を DATA より先に書く＝DATA 到達時に寸法は既知。念のため未知の場合は
+// 「1値≥1バイト」の上界で確保して最後に正寸へ詰める（旧キャッシュ・別実装の産物への保険）。
 export async function decode(v) {
 	const pbf = new Pbf(await inflateRaw(await v.arrayBuffer())), obj = {};
-	const deltas = [];
 	pbf.readFields(tag => {
 		if (tag === TAGS.NAME) obj.name = pbf.readString();
 		else if (tag === TAGS.SOURCE) obj.source = pbf.readString();
@@ -107,9 +113,15 @@ export async function decode(v) {
 		else if (tag === TAGS.LNG) obj.lng = pbf.readSVarint();
 		else if (tag === TAGS.LAT) obj.lat = pbf.readSVarint();
 		else if (tag === TAGS.RANGE) obj.range = pbf.readSVarint();
-		else if (tag === TAGS.DATA) pbf.readPackedSVarint(deltas);
+		else if (tag === TAGS.DATA) {
+			const end = pbf.readPackedEnd();
+			const known = (obj.width | 0) * (obj.height | 0);
+			const out = new Int16Array(known || (end - pbf.pos));
+			let sum = 0, i = 0;
+			while (pbf.pos < end) { sum += pbf.readSVarint(); out[i++] = sum; }
+			obj.data = (known || i === out.length) ? out : out.slice(0, i);
+		}
 	});
-	let sum = 0; obj.data = new Int16Array(deltas.map(d => sum += d));
 	return obj;
 }
 

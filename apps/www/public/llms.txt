@@ -1,0 +1,20 @@
+# Ortho Earth
+
+> A dependency-free, serverless WebGL2 map engine that renders vector tiles and PBF binary data directly onto a 3D globe in the browser.
+
+Ortho Earth is a high-performance orthographic map engine built from scratch — no map libraries, no tile servers, no runtime dependencies. It draws government vector tiles straight onto the sphere at true scale, lifts real terrain, and raises PLATEAU 3D city models as you zoom in. The same engine powers a family of open-data map viewers.
+
+## Apps
+
+- [Ortho Earth](https://www.ortho-earth.com/): The engine demo and landing page — an orthographic globe rendered with Web Workers and Canvas2D/WebGL2.
+- [ortho-japan](https://www.ortho-earth.com/japan/): A map of Japan drawn directly on the sphere from GSI (Geospatial Information Authority) vector tiles, with real-scale terrain and PLATEAU 3D buildings.
+- [GIS-HUB](https://www.ortho-earth.com/gishub/): A viewer for global open GIS datasets, including Natural Earth and US Census TIGER.
+- [GIS-HUB Japan](https://www.ortho-earth.com/gishub-jp/): A viewer for Japanese open datasets, including national census small-area statistics.
+
+## Documentation
+
+- [Docs](https://www.ortho-earth.com/docs/): Guides and reference for using and embedding the map engine.
+
+## Source
+
+- [GitHub repository](https://github.com/kenjiyoshidahome2026-bit/ortho-earth): Full source code (GPL-3.0-or-later).
