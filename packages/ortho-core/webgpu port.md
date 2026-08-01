@@ -28,6 +28,33 @@ bake.js・checkZoomRange・findPolygon。terrain・plateau ワーカーも rende
 （gl_PointSize が WebGPU に無い＝インスタンス四角形化が必要）・idfill（コロプレスIDバッファ塗り＝
 paint は fid 線スタイルのみ効き、塗りは単色 stencil へフォールバック）・snapshot の基図読み出し。
 
+## 懸念点・既知の穴（要レビュー・後日）
+
+移植は速度優先で進めているので、以下は「?gpu=1 実験フラグの範囲では許容・本採用前に潰す」もの。
+既定（WebGL2）には一切影響しない（?gpu=1 を付けた時だけの話）。
+
+**A. 未搭載機能（set は無視＝?gpu=1 でその層が出ない）**
+- overlay(stencil)：geopbf/e-Stat の identify overlay・N02 交通（新幹線/駅）が WebGPU では非表示。
+- 星空/夜面：z<4 の世界ビューが素の globe（星なし）。※次フェーズで着手。
+- idfill：コロプレス（fid 重み ID 塗り）＝paint は fid 線スタイルのみ効き、面のコロプレスは単色 stencil へ縮退。
+- snapshot 基図：shot ガジェットは WebGPU では labels のみ（GL の readPixels 相当未実装）＝画面保存が基図抜け。
+
+**B. 性能パスの差**
+- タイル描画は classic CPU merge 固定（md=false）＝multi_draw のタイル GPU 常駐を使わない。密タイル
+  （z14+ 都心）で merge のアップロードが WebGL の multi_draw 経路より重い可能性（未計測）。
+- 動的解像度/GPU格付け：WebGPU に timestamp-query（EXT_disjoint_timer_query 相当）を未配線＝renderworker の
+  tqSpan は WebGPU では無計測。動的解像度は壁時計 EMA へフォールバック（動くが粗い）、GPU格付け（静止時の
+  手前詳細化）は WebGPU では立たない。
+
+**C. キャップ/打ち切り**
+- PLATEAU 可視バッチ MAX_PL_BATCH=512 超過＝console.warn を出して打ち切り（超密都心で発生し得る）。
+- PLATEAU マスク 4区上限（GL と同じ＝新規懸念でない）。
+
+**D. 未検証（headless Metal でのみ確認）**
+- 実機 Windows Chrome / モバイルの WebGPU 動作（フォールバックは効くが WebGPU 本体は Mac Metal のみ検証）。
+- device lost からの復旧（renderer.lost→contextlost は配線済みだが発火は未検証）。
+- 実機での動的解像度の滑らかさ（B の壁時計フォールバックが実機で十分か）。
+
 ## 使い方・検証
 
 - `?gpu=1` … WebGPU バックエンド。非対応/失敗は worker 内で WebGL2 へ自動フォールバック（挙動同一）。
