@@ -15,7 +15,7 @@
 import { cameraState, lonlatTo3D, project } from "../camera.js";
 import { seaFbReal } from "../scene.js";
 import * as mat from "../mat.js";
-import { FILL_WGSL, LINE_WGSL, GLOBE_WGSL, TERRAIN_WGSL, BUILDING_WGSL, CONTOUR_WGSL, PLATEAU_WGSL } from "./wgsl.js";
+import { FILL_WGSL, LINE_WGSL, GLOBE_WGSL, TERRAIN_WGSL, BUILDING_WGSL, CONTOUR_WGSL, PLATEAU_WGSL, SKY_WGSL } from "./wgsl.js";
 
 const CORNERS = new Float32Array([0, -1, 0, 1, 1, -1, 1, -1, 0, 1, 1, 1]); // 6頂点×(end,side)＝gl/renderer.js と同一
 const FRAME_SLOT = 512;    // frame UBO のスロット境界（実使用272B・minUniformBufferOffsetAlignment 上限256の倍数）
@@ -146,6 +146,29 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 		primitive: { topology: "triangle-list" },
 		depthStencil: dsOff, multisample: ms,
 	});
+	// 星空劇場（z<4）：Sky UBO（group0）＋星座線の色 UBO（group1）。深度無関係の背景（dsOff）
+	const skyMod = device.createShaderModule({ code: SKY_WGSL });
+	const bglSky = device.createBindGroupLayout({ entries: [{ binding: 0, visibility: VF, buffer: {} }] });
+	const bglSkyLine = device.createBindGroupLayout({ entries: [{ binding: 0, visibility: GPUShaderStage.VERTEX, buffer: {} }] });
+	const skyLayout = device.createPipelineLayout({ bindGroupLayouts: [bglSky] });
+	const skyLineLayout = device.createPipelineLayout({ bindGroupLayouts: [bglSky, bglSkyLine] });
+	const STAR_BUF = [{ arrayStride: 32, stepMode: "instance", attributes: [   // cel.xyz + rgba + size（GL の 8f interleave）
+		{ shaderLocation: 0, offset: 0, format: "float32x3" }, { shaderLocation: 1, offset: 12, format: "float32x4" }, { shaderLocation: 2, offset: 28, format: "float32" }] }];
+	const starsPipe = device.createRenderPipeline({
+		layout: skyLayout, vertex: { module: skyMod, entryPoint: "vsStar", buffers: STAR_BUF },
+		fragment: { module: skyMod, entryPoint: "fsStar", targets: [target] },
+		primitive: { topology: "triangle-list" }, depthStencil: dsOff, multisample: ms,
+	});
+	const starLinePipe = device.createRenderPipeline({
+		layout: skyLineLayout, vertex: { module: skyMod, entryPoint: "vsLine", buffers: [{ arrayStride: 12, attributes: [{ shaderLocation: 0, offset: 0, format: "float32x3" }] }] },
+		fragment: { module: skyMod, entryPoint: "fsLine", targets: [target] },
+		primitive: { topology: "line-list" }, depthStencil: dsOff, multisample: ms,
+	});
+	const nightPipe = device.createRenderPipeline({
+		layout: skyLayout, vertex: { module: skyMod, entryPoint: "vsNight" },
+		fragment: { module: skyMod, entryPoint: "fsNight", targets: [target] },
+		primitive: { topology: "triangle-list" }, depthStencil: dsOff, multisample: ms,
+	});
 
 	// UBO：Frame 4スロット / DrawP N_ROLESスロット / globe 専用 / PLATEAU per-batch（dynamic offset）
 	const frameBuf = device.createBuffer({ size: FRAME_SLOT * 4, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
@@ -163,6 +186,28 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 	const plBatchBuf = device.createBuffer({ size: PL_BATCH_SLOT * MAX_PL_BATCH, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
 	const plBatchBG = device.createBindGroup({ layout: bglPlBatch, entries: [{ binding: 0, resource: { buffer: plBatchBuf, offset: 0, size: 32 } }] });
 	const plBatchCPU = new Float32Array(PL_BATCH_SLOT / 4 * MAX_PL_BATCH);
+	// 星空劇場：Sky UBO（176B）＋星座線の色 UBO（3スロット×256B＝constel/ecliptic/celeq を静的 offset で切替）
+	const skyBuf = device.createBuffer({ size: 192, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+	const skyCPU = new Float32Array(48);   // Sky（176B＝44f、192B確保でアラインメント余白）
+	const skyBG = device.createBindGroup({ layout: bglSky, entries: [{ binding: 0, resource: { buffer: skyBuf } }] });
+	const LINE_SLOT = 256, LINE_ROLE = { constel: 0, ecliptic: 1, celeq: 2 };
+	const skyLineBuf = device.createBuffer({ size: LINE_SLOT * 3, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+	const skyLineCPU = new Float32Array(LINE_SLOT / 4 * 3);
+	const skyLineBG = [0, 1, 2].map(i => device.createBindGroup({ layout: bglSkyLine, entries: [{ binding: 0, resource: { buffer: skyLineBuf, offset: i * LINE_SLOT, size: 16 } }] }));
+	// 星座線の色（GL renderer と同値）：星座=青 / 黄道=淡黄 / 天の赤道=淡紅。fadeSky.x（出現α）は VS で掛ける
+	skyLineCPU.set([0.47, 0.63, 1.0, 0.4], LINE_ROLE.constel * (LINE_SLOT / 4));
+	skyLineCPU.set([1.0, 0.8, 0.45, 0.35], LINE_ROLE.ecliptic * (LINE_SLOT / 4));
+	skyLineCPU.set([1.0, 0.55, 0.5, 0.32], LINE_ROLE.celeq * (LINE_SLOT / 4));
+	device.queue.writeBuffer(skyLineBuf, 0, skyLineCPU);
+	let stars = null, planets = null, constel = null, ecliptic = null, celeq = null;   // { buf, count }
+	function setStarBuf(cur, data, stride) {
+		if (cur) cur.buf.destroy();
+		if (!data || !data.length) return null;
+		const src = data instanceof Float32Array ? data : new Float32Array(data);
+		const buf = device.createBuffer({ size: (src.byteLength + 3) & ~3, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
+		device.queue.writeBuffer(buf, 0, src);
+		return { buf, count: src.length / stride };
+	}
 	const cornerBuf = device.createBuffer({ size: CORNERS.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
 	device.queue.writeBuffer(cornerBuf, 0, CORNERS);
 
@@ -490,6 +535,27 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 			g[20] = atmo[0]; g[21] = atmo[1]; g[22] = atmo[2]; g[23] = atmo[3];
 			device.queue.writeBuffer(globeBuf, 0, g);
 		}
+		// 星空劇場（z<5）：星/夜面共通の出現フェード（gl/renderer.js と同式）。恒星時 GMST の天球回転・太陽方位も。
+		const worldFade = !flat2d && cam.zoom < 5 ? Math.min(1, (5 - cam.zoom) / 0.5) : 0;
+		const starFade = (stars || constel || planets) ? worldFade : 0;
+		const showConst = view.showConst && (constel || ecliptic || celeq);
+		if (worldFade > 0) {
+			const now = Date.now();
+			const gmst = (((18.697374 + 24.0657098 * (now / 864e5 + 2440587.5 - 2451545.0)) * 15) % 360) * Math.PI / 180;
+			const skyK = (0.4 + 0.3 * cam.zoom) / 1.6;   // 遠近表現（ズームに線形＝地球は 2^z）
+			const dDay = now / 864e5;   // 夜面の太陽直下点（v1 nightJSON と同式）
+			const sunLat = 23.4 * Math.sin((dDay / 365.24 % 1 - 0.225) * 2 * Math.PI) * Math.PI / 180;
+			const sunLng = (((dDay % 1 * -360 + 360) % 360) - 180) * Math.PI / 180;
+			const cs = Math.cos(sunLat);
+			const s = skyCPU;
+			s.set(st.mvp, 0); s.set(st.invMvp, 16);
+			s[32] = Math.cos(gmst); s[33] = Math.sin(gmst);
+			s[34] = starFade; s[35] = skyK;
+			s[36] = W; s[37] = H;
+			s[40] = cs * Math.cos(sunLng); s[41] = Math.sin(sunLat); s[42] = cs * Math.sin(sunLng);
+			s[43] = 0.5 * worldFade;   // 夜面 50% × 出現フェード
+			device.queue.writeBuffer(skyBuf, 0, skyCPU);
+		}
 
 		const t = targets(W, H);
 		const enc = device.createCommandEncoder();
@@ -506,6 +572,21 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 				stencilLoadOp: "clear", stencilStoreOp: "discard",                    // renderer 自身は stencil 不使用（gint パスが自前で clear）
 			},
 		});
+		// 星空劇場（z<5）：globe より先に描く＝陸には上書きされ・大気ハローは星の上に薄く重なり・宇宙には星が残る
+		if (starFade > 0) {
+			pass.setBindGroup(0, skyBG);
+			if (stars) { pass.setPipeline(starsPipe); pass.setVertexBuffer(0, stars.buf); pass.draw(6, stars.count); }
+			if (planets) { pass.setPipeline(starsPipe); pass.setVertexBuffer(0, planets.buf); pass.draw(6, planets.count); }
+			if (showConst) {   // 星座線・黄道・天の赤道（view.showConst のみ・色は per-buffer UBO）
+				pass.setPipeline(starLinePipe);
+				for (const [b, role] of [[constel, LINE_ROLE.constel], [ecliptic, LINE_ROLE.ecliptic], [celeq, LINE_ROLE.celeq]]) {
+					if (!b) continue;
+					pass.setBindGroup(1, skyLineBG[role]);
+					pass.setVertexBuffer(0, b.buf);
+					pass.draw(b.count);
+				}
+			}
+		}
 		if (!flat2d) {   // 球体本体：land基色を縁(リム)まで敷く。2D高速パス時は clear で代替＝省略
 			pass.setPipeline(globePipe);
 			pass.setBindGroup(0, globeBG);
@@ -620,6 +701,13 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 				}
 			}
 		}
+		// 夜面（星空劇場と同じ z<4 ゲート・同じフェード）：現在時刻の太陽を平行光源に夜半球を夜紺で減光。
+		// 基図の全レイヤの上に重ねる（この後の gint 海岸線パスは loadOp:load で夜面の上に描く＝GL と同順）。
+		if (worldFade > 0) {
+			pass.setPipeline(nightPipe);
+			pass.setBindGroup(0, skyBG);
+			pass.draw(3);
+		}
 		pass.end();
 		frame = { enc, colorView: t.view, depthView: t.depthView, w: W, h: H };
 		// gint の深度統合コンテキスト（GL renderer の gintCtx と同意味論＝terrainDepth の間だけ非null）。
@@ -643,8 +731,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 	}
 
 	// 未搭載の set は静かに握り潰す（初回だけ告知）＝app の呼び出しを壊さない
-	const IGNORE = new Set(["overlay", "overlayHi", "n02", "gintBld",
-		"stars", "constellations", "planets", "ecliptic", "celequator", "mdGrow", "mdUp", "mdScene"]);
+	const IGNORE = new Set(["overlay", "overlayHi", "n02", "gintBld", "mdGrow", "mdUp", "mdScene"]);
 	const ignored = new Set();
 	function set(cmd, data, prop) {
 		switch (cmd) {
@@ -659,6 +746,11 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 			case "elevAtlasCommit": commitElevationStage(); break;
 			case "plateauMesh": setPlateauMesh(prop, data); break;   // prop=キー(区名#i)、data={pos,nrm,idx,...}／null=区解放
 			case "plateauVis":  setPlateauVis(prop, data); break;    // prop=区名、data=真偽（GPU常駐のまま表示切替）
+			case "stars":       stars = setStarBuf(stars, data, 8); break;         // data=Float32Array [cel.xyz,rgba,size]×n
+			case "planets":     planets = setStarBuf(planets, data, 8); break;     // 惑星（starsと同8fレイアウト・アプリが実位置更新）
+			case "constellations": constel = setStarBuf(constel, data, 3); break;  // [cel.xyz]×2n（LINES端点列）表示は view.showConst
+			case "ecliptic":    ecliptic = setStarBuf(ecliptic, data, 3); break;   // 黄道の大円
+			case "celequator":  celeq = setStarBuf(celeq, data, 3); break;         // 天の赤道の大円
 			default:
 				if (IGNORE.has(cmd)) { if (!ignored.has(cmd)) { ignored.add(cmd); console.log(`[gpu] set("${cmd}") は未搭載＝無視（WebGPU移植の次フェーズ）`); } }
 				else console.warn("[gpu] renderer.set: unknown cmd", cmd);
@@ -669,6 +761,8 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 		disposeSlot("base"); disposeSlot("main");
 		frameBuf.destroy(); paramBuf.destroy(); globeBuf.destroy(); cornerBuf.destroy();
 		plBatchBuf.destroy(); maskParamBuf.destroy();
+		skyBuf.destroy(); skyLineBuf.destroy();
+		for (const b of [stars, planets, constel, ecliptic, celeq]) if (b) b.buf.destroy();
 		for (const p of plateaux.values()) { p.vbo.destroy(); p.nbo.destroy(); p.ibo.destroy(); }
 		plateaux.clear();
 		for (const m of plateauMasks.values()) m.tex.destroy();

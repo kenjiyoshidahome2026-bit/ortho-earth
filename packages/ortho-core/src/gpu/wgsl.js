@@ -378,6 +378,83 @@ struct PlOut {
 }
 `;
 
+// 星空劇場（z<4 の世界ビュー・STARS_VS/FS・STARLINE_FS・NIGHT_FS の移植）。
+// ・星/惑星＝GL は gl_PointSize の点。WebGPU に点サイズが無い＝**インスタンス四角形**（6頂点/星・
+//   corner を size×device px で screen 空間に広げ、FS で soft disc）。
+// ・星座線/黄道/天の赤道＝gl.LINES → topology "line-list"（1px・GL と同じ）。色は per-buffer uniform（LC）。
+// ・夜面＝フルスクリーン・単位球レイキャストで夜半球を夜紺で減光（globe/contour と同じ全画面パス）。
+// 天球の向きは恒星時 GMST の y 軸回転（バッファ不変・時刻は uniform）。u_sky＝遠近表現（ズームに線形）。
+export const SKY_WGSL = /* wgsl */`
+struct Sky {
+	mvp: mat4x4f,
+	invMvp: mat4x4f,   // 夜面レイキャスト
+	gmst: vec2f,       // (cos, sin) 恒星時
+	fadeSky: vec2f,    // (fade=出現α, sky=天球倍率)
+	viewport: vec2f,   // device px（星の四角形展開）
+	pad: vec2f,
+	sun: vec3f,        // 夜面の太陽方向（地球固定・単位）
+	alpha: f32,        // 夜面の濃さ
+};
+@group(0) @binding(0) var<uniform> SK: Sky;
+@group(1) @binding(0) var<uniform> LC: vec4f;   // 星座線の色（per-buffer）
+fn rotY(cel: vec3f) -> vec3f {   // 天球→地球固定＝GMST の y 軸回転（STARS_VS と同式）
+	return vec3f(cel.x * SK.gmst.x + cel.z * SK.gmst.y, cel.y, cel.z * SK.gmst.x - cel.x * SK.gmst.y);
+}
+const QUAD = array<vec2f, 6>(vec2f(-0.5, -0.5), vec2f(0.5, -0.5), vec2f(-0.5, 0.5), vec2f(-0.5, 0.5), vec2f(0.5, -0.5), vec2f(0.5, 0.5));
+struct StarOut { @builtin(position) pos: vec4f, @location(0) col: vec4f, @location(1) uv: vec2f };
+@vertex fn vsStar(@builtin(vertex_index) vi: u32, @location(0) a_cel: vec3f, @location(1) a_col: vec4f, @location(2) a_size: f32) -> StarOut {
+	var o: StarOut;
+	let d = rotY(a_cel);
+	let p = SK.mvp * vec4f(d, 0.0);
+	let corner = QUAD[vi];
+	// GL: gl_Position=vec4(p.xy*sky,0,p.w) の点を、corner を size×2/viewport（NDC）で広げる（×p.w＝rasterの/w相殺）
+	o.pos = vec4f(p.xy * SK.fadeSky.y + corner * (a_size * 2.0 / SK.viewport) * p.w, 0.0, p.w);
+	o.uv = corner;
+	o.col = vec4f(a_col.rgb, a_col.a * SK.fadeSky.x);
+	return o;
+}
+@fragment fn fsStar(in: StarOut) -> @location(0) vec4f {
+	let r = length(in.uv) * 2.0;                     // GL gl_PointCoord 相当（edge-mid=1・corner=1.41）
+	let a = in.col.a * smoothstep(1.0, 0.3, r);      // 柔らかい円盤＝回転中のシマーを抑える
+	return vec4f(in.col.rgb * a, a);                 // premultiplied
+}
+struct LineOut { @builtin(position) pos: vec4f, @location(0) col: vec4f };
+@vertex fn vsLine(@location(0) a_cel: vec3f) -> LineOut {
+	var o: LineOut;
+	let d = rotY(a_cel);
+	let p = SK.mvp * vec4f(d, 0.0);
+	o.pos = vec4f(p.xy * SK.fadeSky.y, 0.0, p.w);    // w<0（背後）は自然にクリップ
+	o.col = vec4f(LC.rgb, LC.a * SK.fadeSky.x);
+	return o;
+}
+@fragment fn fsLine(in: LineOut) -> @location(0) vec4f {
+	return vec4f(in.col.rgb * in.col.a, in.col.a);   // premultiplied
+}
+struct NOut { @builtin(position) pos: vec4f, @location(0) ndc: vec2f };
+@vertex fn vsNight(@builtin(vertex_index) vi: u32) -> NOut {
+	var o: NOut;
+	let p = vec2f(select(-1.0, 3.0, vi == 1u), select(-1.0, 3.0, vi == 2u));
+	o.ndc = p;
+	o.pos = vec4f(p, 0.0, 1.0);
+	return o;
+}
+@fragment fn fsNight(in: NOut) -> @location(0) vec4f {
+	let np = SK.invMvp * vec4f(in.ndc, -1.0, 1.0);
+	let fp = SK.invMvp * vec4f(in.ndc, 1.0, 1.0);
+	let A = np.xyz / np.w; let B = fp.xyz / fp.w; let d = B - A;
+	let aa = dot(d, d); let bb = 2.0 * dot(A, d); let cc = dot(A, A) - 1.0;
+	let disc = bb * bb - 4.0 * aa * cc;
+	if (disc < 0.0) { discard; }
+	let t = (-bb - sqrt(disc)) / (2.0 * aa);
+	if (t < 0.0) { discard; }
+	let Pt = A + t * d;
+	let night = smoothstep(0.08, -0.18, dot(Pt, SK.sun));   // 太陽直下から遠い半球ほど夜
+	let a = night * SK.alpha;
+	if (a <= 0.001) { discard; }
+	return vec4f(vec3f(0.0, 0.02, 0.078) * a, a);           // v1 の夜紺（premultiplied）
+}
+`;
+
 // 等高線（CONTOUR_FS の移植）：真俯瞰でだけ、フルスクリーン各画素でカメラ光線×単位球→lon/lat→elev→iso線を
 // fwidth で AA。紙の地形図の等高線＝平面で標高を語る。ベクタの下に敷く。
 export const CONTOUR_WGSL = /* wgsl */`

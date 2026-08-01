@@ -4,7 +4,7 @@
 `createRenderer`（WebGL2）と同じ公開面 `{ set, draw, dispose, md, mdMax, gintCtx }` を持つ
 `createRendererGPU` を並走させ、renderworker が起動時に選ぶ。**WebGL2 は恒久フォールバック**（旧iOS/Android）。
 
-## 現在地（Phase 4・2026-08-01）
+## 現在地（Phase 5・2026-08-01）
 
 動く：globe（大気・リム）＋基図シーン（fill/line・**classic merge 経路**）＋**標高アトラス（r16float・
 stage/commit ダブルバッファ）・地形サーフェス（hillshade/hypso/遠山ブルー）・深度（対数・尾根の遮蔽・
@@ -17,16 +17,19 @@ GL の PBO+fence と同族）＋JS フォールバック（findPolygon）・ス�
 ＋**PLATEAU LOD2 建物（Phase 4）**＝`PLATEAU_WGSL`：重心相対 RTE（meshOrigin+clipMesh 錨）・int8量子化法線
 （snorm8x4）・面法線フラット陰影・両面（cullBack は FS 判定）・接地リフト（DTM 保証域 liftBounds 内）・
 バッチフラスタムカリング・高さ LOD 打ち切り（lodH/lodCounts）・**被覆マスク**（区単位 r8unorm で基図建物の
-footprint を伏せる＝二重建物 z-fight 断ち）。共有する純CPU臓器（無改造）：state.js の s・drawdata.js・
+footprint を伏せる＝二重建物 z-fight 断ち）。＋**星空劇場（Phase 5）**＝`SKY_WGSL`：星/惑星（gl_PointSize が
+WebGPU に無い＝**インスタンス四角形**＝6頂点/星・corner を size×device px で screen 展開・FS で soft disc）・
+星座線/黄道/天の赤道（topology "line-list"・色は per-buffer UBO）・夜面（フルスクリーン単位球レイキャストで
+夜半球を夜紺・GMST 回転＋太陽直下点は Date.now）。共有する純CPU臓器（無改造）：state.js の s・drawdata.js・
 bake.js・checkZoomRange・findPolygon。terrain・plateau ワーカーも renderer.set 契約のみ＝無改造で両バックエンド共通。
 
 検証：スクリーンショット比較（WebGL2 と目視同一）＝z13 東京平面 / 富士 z13 60°（地形+ドレープ+湖）/
-東京駅 z16.5 55°（建物+深度）/ 山頂等高線 / z5.5・z8.5 60° 海岸線（gint）/ **東京駅 z16.5 55° PLATEAU
-（LOD2 建物+footprint マスク）**。＋ **tests/t-gintgpu.html**（実時間・ピクセル検定）。
+東京駅 z16.5 55°（建物+深度）/ 山頂等高線 / z5.5・z8.5 60° 海岸線（gint）/ 東京駅 z16.5 55° PLATEAU
+（LOD2 建物+footprint マスク）/ **z2 世界ビュー（星・星座線・黄道・夜面・月）**。＋ **tests/t-gintgpu.html**（実時間・ピクセル検定）。
 
-未搭載（set は握り潰し・初回のみ console 告知）：overlay(stencil・geopbf/e-Stat/N02)・星空/夜面
-（gl_PointSize が WebGPU に無い＝インスタンス四角形化が必要）・idfill（コロプレスIDバッファ塗り＝
-paint は fid 線スタイルのみ効き、塗りは単色 stencil へフォールバック）・snapshot の基図読み出し。
+未搭載（set は握り潰し・初回のみ console 告知）：overlay(stencil・geopbf/e-Stat/N02)・
+idfill（コロプレスIDバッファ塗り＝paint は fid 線スタイルのみ効き、塗りは単色 stencil へフォールバック）・
+snapshot の基図読み出し。
 
 ## 懸念点・既知の穴（要レビュー・後日）
 
@@ -35,7 +38,6 @@ paint は fid 線スタイルのみ効き、塗りは単色 stencil へフォー
 
 **A. 未搭載機能（set は無視＝?gpu=1 でその層が出ない）**
 - overlay(stencil)：geopbf/e-Stat の identify overlay・N02 交通（新幹線/駅）が WebGPU では非表示。
-- 星空/夜面：z<4 の世界ビューが素の globe（星なし）。※次フェーズで着手。
 - idfill：コロプレス（fid 重み ID 塗り）＝paint は fid 線スタイルのみ効き、面のコロプレスは単色 stencil へ縮退。
 - snapshot 基図：shot ガジェットは WebGPU では labels のみ（GL の readPixels 相当未実装）＝画面保存が基図抜け。
 
@@ -106,12 +108,16 @@ paint は fid 線スタイルのみ効き、塗りは単色 stencil へフォー
 - **PLATEAU 被覆マスクの visibility 轍**：per-batch UBO の `cullBack`(meshOrigin.w) は **FS が読む**＝
   bind group layout の visibility は VERTEX|FRAGMENT 両方（VERTEX だけだと「Fragment stage not in binding
   visibility」で pipeline 作成が落ちる）。マスクは r8unorm・区単位・active 集合が変わった時だけ bind group 再構築。
+- **星の gl_PointSize 代替（Phase 5）**：WebGPU に点サイズが無い＝**インスタンス四角形**（6頂点/星・
+  vertex_index で corner・星データは instance-step 属性）。screen 空間サイズは `pos.xy*sky + corner*(size*2/viewport)*p.w`
+  （×p.w で raster の /w を相殺＝画面 px 一定）。FS の soft disc は `r=length(uv)*2`（GL gl_PointCoord 相当）。
+  星座線/黄道/天の赤道は topology "line-list"（GL の gl.LINES＝1px と等価）で自然移植。
 
 ## 次の道順
 
 1. **overlay(stencil)**：geopbf/e-Stat/N02 の外部ベクタ＝stencil-then-cover 塗り＋境界線。gint の
-   stencil パイプライン（GINT_STENCIL_WGSL）が流用の下地。星空/夜面＝gl_PointSize が WebGPU に無い＝
-   星をインスタンス四角形へ。snapshot（shot）＝copyTextureToBuffer＋mapAsync。idfill（コロプレスID塗り）。
+   stencil パイプライン（GINT_STENCIL_WGSL）が流用の下地。snapshot（shot）＝copyTextureToBuffer＋mapAsync。
+   idfill（コロプレスID塗り＝RGBA32UI storage/texture）。以上で「懸念点 A」の未搭載を全消化。
 3. **multi_draw の後継**：WebGPU に multiDraw は無いが、(a) `drawIndexed` に **baseVertex がある**＝
    index 再ベース（sceneworker ensureUploaded の絶対頂点番号化）ごと不要にできる、
    (b) **render bundle** で composition を1回記録→毎フレーム再生＝md の狙い（CPU発行ゼロ）を
