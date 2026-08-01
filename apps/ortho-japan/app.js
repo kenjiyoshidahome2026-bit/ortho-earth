@@ -247,14 +247,19 @@ const diagHud = /[?&]stay=1/.test(location.search) ? (() => {
 if (/[?&]gpu=1/.test(location.search) && !gpuBackend) console.warn("[boot] 前回 WebGPU の present 検証に失敗＝このセッションは WebGL2 固定（タブを閉じると再試行）");
 // ?noterr=1 ＝標高（アトラス・地形メッシュ・タイルLRU）を丸ごと停止する A/B 計測ノブ（?nogint=1 と同格）。
 const noTerr = /[?&]noterr=1/.test(location.search);
-renderWorker.postMessage({ type: "init", canvas: offscreen, labelCanvas: labelOffscreen, elevBase: TERR_EXAG / EARTH_M, terrainExag: TERR_EXAG, earthM: EARTH_M, apiUrl: "https://api.ortho-earth.com", scenePort: sceneChan.port2, noMultiDraw, perf: perfLog, mem: memHud, lowMem: LOW_MEM, noMixed: noMixedR01, gpu: gpuBackend, noTQ: /[?&]notq=1/.test(location.search), noGint: /[?&]nogint=1/.test(location.search), stay: /[?&]stay=1/.test(location.search), noTerr }, [offscreen, labelOffscreen, sceneChan.port2]);
+// ⚠iOS WebKit の轍（2026-08-02 実機確定）：WebGPU 構成の worker への「直結 postMessage」は init 以降
+// 黙って消える（main送信8回/worker受信0回・エラー皆無。MessageChannel ポート経由は全て配達される＝
+// scene/plateau ポートが生きている実証つき）。よって init 以外の制御メッセージは全部 ctrlPort 経由。
+const ctrlChan = new MessageChannel();
+const wPost = (msg, transfer) => ctrlChan.port1.postMessage(msg, transfer || []);
+renderWorker.postMessage({ type: "init", ctrlPort: ctrlChan.port2, canvas: offscreen, labelCanvas: labelOffscreen, elevBase: TERR_EXAG / EARTH_M, terrainExag: TERR_EXAG, earthM: EARTH_M, apiUrl: "https://api.ortho-earth.com", scenePort: sceneChan.port2, noMultiDraw, perf: perfLog, mem: memHud, lowMem: LOW_MEM, noMixed: noMixedR01, gpu: gpuBackend, noTQ: /[?&]notq=1/.test(location.search), noGint: /[?&]nogint=1/.test(location.search), stay: /[?&]stay=1/.test(location.search), noTerr }, [ctrlChan.port2, offscreen, labelOffscreen, sceneChan.port2]);
 // 薄いプロキシ：有線(関数呼び)を無線(postMessage)に載せ替え。set/draw 統一済なので pipeline/overlay は無改造。
 // draw は worker 側で「cam を記録するだけ」に受け、実描画は worker 自前 rAF が最新 cam で回す（worker-driven）。
 // 標高アトラス(terrain)も worker 側に住む＝main はもう視野→セル計算・ダウンサンプルを一切やらない。読込インジケータだけ elevPending で受ける。
 const renderer = {
-	set: (cmd, data, prop) => renderWorker.postMessage({ type: "set", cmd, data, prop }),
+	set: (cmd, data, prop) => wPost({ type: "set", cmd, data, prop }),
 	draw: (cam, opts) => {
-		try { renderWorker.postMessage({ type: "draw", cam, opts }); window.__drawSendN = (window.__drawSendN || 0) + 1; }
+		try { wPost({ type: "draw", cam, opts }); window.__drawSendN = (window.__drawSendN || 0) + 1; }
 		catch (e) { window.__drawSendErr = String(e && e.message); console.error("[boot] draw送信失敗:", e); }
 	},
 };
@@ -485,7 +490,7 @@ for (let i = 0; plateauOn && i < PLATEAU_NW; i++) {   // plateau OFF＝workerを
 	const w = new Worker(new URL("./plateauworker.js", import.meta.url), { type: "module" });
 	const meshChan = new MessageChannel();   // この worker → render worker のメッシュ直結パイプ
 	w.postMessage({ type: "init", meshPort: meshChan.port1, lowMem: LOW_MEM }, [meshChan.port1]);
-	renderWorker.postMessage({ type: "plateauPort", port: meshChan.port2 }, [meshChan.port2]);
+	wPost({ type: "plateauPort", port: meshChan.port2 }, [meshChan.port2]);
 	w.onmessage = e => {
 		if (e.data.prog) { plateauProg.set(e.data.prog.name, e.data.prog); renderPlateauProg(); return; }   // タイル/走査進捗（ネットワーク経路のみ）
 		if (e.data.type === "idbList") { plateauListPending.shift()?.(e.data.items); return; }              // データ管理モーダルの一覧応答
@@ -907,7 +912,7 @@ function onMove() {
 	// 知性の層(gint)は render worker が frame 末尾に同フレーム同カメラで描く（1canvas統合＝泳ぎ・チルト opacity 手当てとも消滅）。
 	clearTimeout(settleT);
 	settleT = setTimeout(() => {
-		moving = false; needsDraw = true; commitUnderground(); renderWorker.postMessage({ type: "gintDrawn" }); autoPlateau(true); if (!printHold) saveView();   // 停止後に identify(picking)＋PLATEAU確定（settled＝ロード発火/レーン切替はこの瞬間だけ）＋ビュー保存＋地中フェード確定（止まったら地中=全黒）
+		moving = false; needsDraw = true; commitUnderground(); wPost({ type: "gintDrawn" }); autoPlateau(true); if (!printHold) saveView();   // 停止後に identify(picking)＋PLATEAU確定（settled＝ロード発火/レーン切替はこの瞬間だけ）＋ビュー保存＋地中フェード確定（止まったら地中=全黒）
 		calmT = setTimeout(() => { idleCalm = true; needsDraw = true; }, 550);   // さらに550ms（停止から計700ms）＝ホイール刻みを跨いだ「本当の静止」でだけ手前詳細化
 	}, 150);
 	schedulePos();   // 座標読み取りもカメラに追随（rAF畳み込み＝タダ同然）
@@ -1043,7 +1048,7 @@ let drapedOn = false;
 // gint スタイルを render worker へ預ける（frame 末尾の gint パスが使う）。データ毎に差し替え。
 const sendGintStyle = () => renderer.set("gintStyle", gintDrawOpts);
 let gintHoverTip = null;   // ホバー tip 内容 setter（init末尾で map.gadget.tip() を一度だけ搭載＝全gint層で有効）
-canvas.addEventListener("pointerleave", () => renderWorker.postMessage({ type: "gintLeave" }));
+canvas.addEventListener("pointerleave", () => wPost({ type: "gintLeave" }));
 // 14条地図（法務省 登記所備付地図）を球へ。デコード済み pbf を受けて球へ配線する共通処理。
 // 「座標値種別=図上測量」は測量手法のタグに過ぎず絶対位置の信頼性とは無相関と判明済み（系変換さえ合っていれば図上測量でも正確）
 // →現状はバッジ判定に使わない。任意座標系の混入検知は変換パイプライン側（外れ値bbox比較）でやるべき課題として残す。
@@ -1291,7 +1296,7 @@ function ensureBakeWorker() {
 		collect(d.gint); collect(d.artifacts?.base); collect(d.artifacts?.boundary);
 		if (d.artifacts?.pivot?.px) bufs.add(d.artifacts.pivot.px.buffer);
 		for (const t of d.tiers ?? []) if (t.metaU32) bufs.add(t.metaU32.buffer);
-		renderWorker.postMessage({ type: "set", cmd: "gintBaked", prop: p.key,
+		wPost({ type: "set", cmd: "gintBaked", prop: p.key,
 			data: { gint: d.gint, artifacts: d.artifacts, tiers: d.tiers, ...p.meta } }, [...bufs]);
 		p.onDone?.();
 	};
@@ -1714,7 +1719,7 @@ function resize() {
 	size.w = Math.round(w * dpr); size.h = Math.round(h * dpr);
 	// GL canvas：バッファサイズは worker が持つ（transfer 済）。main は CSS と論理サイズ(size)だけ。
 	canvas.style.width = w + "px"; canvas.style.height = h + "px";
-	renderWorker.postMessage({ type: "resize", width: size.w, height: size.h });
+	wPost({ type: "resize", width: size.w, height: size.h });
 	// label canvas：worker が持つ（transfer 済）＝main は CSS だけ。バッファは resize メッセージで worker が更新。
 	labelCanvas.style.width = w + "px"; labelCanvas.style.height = h + "px";
 	needsDraw = true;
@@ -1736,9 +1741,9 @@ const input = createInput({
 	onClick: (x, y) => {
 		if (measureClick) return measureClick(x, y);   // 測距モード＝クリックは頂点追加へ（識別/星座は止める）
 		if (cam.zoom < BASEMAP_MINZOOM) return void toggleConstellations().then(saveView);   // 全球ビュー＝クリックで星座線。表示状態は共有URL(l=sky)へ即書き戻す
-		overlay.identifyAt(x, y); if (gintInteractive) renderWorker.postMessage({ type: "gintClick", x, y });
+		overlay.identifyAt(x, y); if (gintInteractive) wPost({ type: "gintClick", x, y });
 	},
-	onHover: (x, y) => { if (gintInteractive) renderWorker.postMessage({ type: "gintMove", x, y }); },
+	onHover: (x, y) => { if (gintInteractive) wPost({ type: "gintMove", x, y }); },
 });
 
 // アイドル退場：マウスを止めると左上/右上のアイコンが静かに消え、動かす（or キー操作）と戻る。
@@ -2175,7 +2180,7 @@ let snapSeq = 0;
 const requestSnapshot = () => new Promise(resolve => {
 	const id = ++snapSeq;
 	snapPending.set(id, { need: new Set(["render"]), parts: { W: size.w, H: size.h }, resolve });
-	renderWorker.postMessage({ type: "snapshot", id });
+	wPost({ type: "snapshot", id });
 });
 // --- 印刷（平面図）用の撮影：ライブパイプラインを一時的に「印刷カメラ」（同中心・真俯瞰・北向き・指定z・
 // noTerrain＝紙仕様）へ振り、タイル/注記の読み込みが落ち着いてから readPixels スナップショットを取り、

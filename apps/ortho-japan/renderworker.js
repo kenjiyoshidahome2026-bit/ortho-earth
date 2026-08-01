@@ -143,6 +143,7 @@ onmessage = e => {
 	if (initQueue && m.type !== "init") { initQueue.push(m); return; }
 	switch (m.type) {
 		case "init":
+			if (m.ctrlPort) m.ctrlPort.onmessage = ev => onmessage(ev);   // iOS轍：直結postMessageはinit以降消える＝制御は全部このポート経由（同じディスパッチャ＝initQueue順序保証も共通）
 			canvas = m.canvas;                                   // GL/GPU 用 OffscreenCanvas
 			labelCanvas = m.labelCanvas;                         // ラベル用 OffscreenCanvas（2D）＝バックエンド非依存
 			labelLayer = createLabelLayer(labelCanvas, { shieldFor, elevBase: m.elevBase });
