@@ -52,6 +52,12 @@ paint は fid 線スタイルのみ効き、塗りは単色 stencil へフォー
 - **標高アトラス**：r16float（コアで filterable＝GL が R16F を選んだ理由がそのまま活きる）。
   GL は texImage2D がドライバで f32→f16 変換、WebGPU は生バイト渡し＝**CPU で f32→f16**（renderer.js
   `f32ToF16`・最近接丸め）。VS のサンプルは textureSampleLevel（頂点ステージは暗黙 LOD 不可）。
+  ゼロ初期化は WebGPU が createTexture で保証＝GL の `allocZeroR16F`（67MB Float32 一時確保回避）は不要。
+- **地形メッシュ＝単位格子＋uniform**（GL 版 295c1e5 と同処置・移植済）：頂点は unit uv [0,1]²（G だけに依存）、
+  窓の原点/幅は `Frame.mesh`（vec4f）で渡す＝標高アトラスの窓替え（パンのたび）でメッシュを作り直さない。
+  旧・絶対 lon/lat 格子は G=1536 で頂点18MB+index56.5MB=**75MB を窓替えごとに GPU 再確保**していた
+  （実測: 広域パン8ホップで BUILD 1回＋SKIP 7回＝525MB 分の再確保を uniform 更新へ置換）。
+  G が変わる時だけ再構築＝実質「起動時に一度」。
 - **MSAA**：canvas 属性でなく明示 4x テクスチャ→resolveTarget。動的解像度のリサイズは
   getCurrentTexture が canvas 寸法に自動追随＝再 configure 不要。
 - **数学は 1:1**：sinP テイラー・deltaToRel（桁落ち回避 RTE）・capsule SDF・フォグ・海のズームゲート・

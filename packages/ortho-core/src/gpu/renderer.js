@@ -19,7 +19,7 @@ import { FILL_WGSL, LINE_WGSL, GLOBE_WGSL, TERRAIN_WGSL, BUILDING_WGSL, CONTOUR_
 
 const CORNERS = new Float32Array([0, -1, 0, 1, 1, -1, 1, -1, 0, 1, 1, 1]); // 6頂点×(end,side)＝gl/renderer.js と同一
 const FRAME_SLOT = 512;    // frame UBO のスロット境界（実使用272B・minUniformBufferOffsetAlignment 上限256の倍数）
-const FRAME_F32 = 68;      // 272B/4（wgsl.js Frame と厳密対応。詰め順は packFrame 参照）
+const FRAME_F32 = 72;      // 288B/4（wgsl.js Frame と厳密対応。詰め順は packFrame 参照。末尾 mesh vec4f 含む）
 const SLOT = { base: 0, main: 1, terrain: 2, bld: 3 };   // terrain/bld は main と同 origin・fog だけ違うスロット
 const PARAM_SLOT = 256;    // DrawP（3×vec4=48B）のスロット境界
 const ROLE = { normal: 0, water: 1, seaFb: 2, terrain: 3, bld: 4, contour: 5 };
@@ -196,17 +196,23 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 		elevStage = null;
 		rebuildBG0();
 	}
+	// 地形メッシュ＝単位格子 [0,1]²（G だけに依存）。窓の原点/幅は uniform（u_mesh＝Frame.mesh）で渡す
+	// ＝標高アトラスの窓替え（パンのたびの atlasMeta）でメッシュを作り直さない。旧実装は毎回 lon/lat を
+	// 焼いた頂点配列(G=1536 で 18.9MB)＋index(56.5MB)を作って GPU へ上げ直しており、広域×高チルトの
+	// パンで「1窓替えごとに 75MB の GPU バッファ再確保」＝GPUメモリが単調に膨れる主因（GL 版 295c1e5 と同処置）。
+	// G が変わる時だけ作り直す＝実質「起動時に一度」。頂点は uv 不変なので mesh 更新は Float32×4 の uniform だけ。
 	function buildTerrainMesh(oLng, oLat, spanLng, spanLat, G) {
-		const ll = new Float32Array(G * G * 2);
-		for (let j = 0; j < G; j++) for (let i = 0; i < G; i++) { const k = (j * G + i) * 2; ll[k] = oLng + spanLng * i / (G - 1); ll[k + 1] = oLat + spanLat * j / (G - 1); }
+		if (terrain && terrain.G === G) { terrain.mesh = [oLng, oLat, spanLng, spanLat]; return; }
+		const uv = new Float32Array(G * G * 2);
+		for (let j = 0; j < G; j++) for (let i = 0; i < G; i++) { const k = (j * G + i) * 2; uv[k] = i / (G - 1); uv[k + 1] = j / (G - 1); }
 		const idx = new Uint32Array((G - 1) * (G - 1) * 6);
 		let p = 0; for (let j = 0; j < G - 1; j++) for (let i = 0; i < G - 1; i++) { const a = j * G + i, b = a + 1, c = a + G, d = c + 1; idx[p++] = a; idx[p++] = c; idx[p++] = b; idx[p++] = b; idx[p++] = c; idx[p++] = d; }
 		if (terrain) { terrain.vbo.destroy(); terrain.ibo.destroy(); }
-		const vbo = device.createBuffer({ size: ll.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
+		const vbo = device.createBuffer({ size: uv.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
 		const ibo = device.createBuffer({ size: idx.byteLength, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST });
-		device.queue.writeBuffer(vbo, 0, ll);
+		device.queue.writeBuffer(vbo, 0, uv);
 		device.queue.writeBuffer(ibo, 0, idx);
-		terrain = { vbo, ibo, count: idx.length };
+		terrain = { vbo, ibo, count: idx.length, G, mesh: [oLng, oLat, spanLng, spanLat] };
 	}
 
 	// --- シーン（classic merge）：slot → { origin, draws, bld } ---
@@ -254,7 +260,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 
 	// frame UBO の詰め物（wgsl.js Frame と厳密対応）。RTE 錨（clipT/originPt/trig）は CPU double で。
 	const frameF32 = new Float32Array(FRAME_F32);
-	function packFrame(st, origin, fogNear, fogFar, fogColor, logCoef, dpr) {
+	function packFrame(st, origin, fogNear, fogFar, fogColor, logCoef, dpr, mesh) {
 		const f = frameF32;
 		f.set(st.mvp, 0);
 		f.set(st.invMvp, 16);
@@ -271,6 +277,8 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 		f[56] = fogNear; f[57] = fogFar; f[58] = logCoef; f[59] = dpr;
 		f[60] = elev.bounds[0]; f[61] = elev.bounds[1]; f[62] = elev.bounds[2]; f[63] = elev.bounds[3];
 		f[64] = elevScaleEff; f[65] = elev.has; f[66] = elev.edgeFade || 0; f[67] = 0;
+		// mesh（地形メッシュの窓：原点lon/lat＋幅deg）＝terrain slot のみ。他スロットは 0（未使用）
+		f[68] = mesh ? mesh[0] : 0; f[69] = mesh ? mesh[1] : 0; f[70] = mesh ? mesh[2] : 0; f[71] = mesh ? mesh[3] : 0;
 		return f;
 	}
 	// DrawP 6スロットを一括で書く（256Bストライド・各48B使用）
@@ -338,7 +346,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 		device.queue.writeBuffer(frameBuf, SLOT.base * FRAME_SLOT, packFrame(st, scenes.base.origin || [0, 0], st.fogDist * 2.5, fogFarCap, land, logCoef, dpr));
 		device.queue.writeBuffer(frameBuf, SLOT.main * FRAME_SLOT, packFrame(st, mainOrigin, st.fogDist * 2.5, fogFarCap, land, logCoef, dpr));
 		const dc = view.distColor || [0.63, 0.72, 0.83];   // 空気遠近法＝遠くの山は青く霞む
-		device.queue.writeBuffer(frameBuf, SLOT.terrain * FRAME_SLOT, packFrame(st, mainOrigin, Math.max(st.fogDist * 1.2, 0.008 * pfFog), fogFarCap, dc, logCoef, dpr));
+		device.queue.writeBuffer(frameBuf, SLOT.terrain * FRAME_SLOT, packFrame(st, mainOrigin, Math.max(st.fogDist * 1.2, 0.008 * pfFog), fogFarCap, dc, logCoef, dpr, terrain ? terrain.mesh : null));
 		device.queue.writeBuffer(frameBuf, SLOT.bld * FRAME_SLOT, packFrame(st, mainOrigin, st.fogDist * 2.5, st.fogDist * 14.0, land, logCoef, dpr));
 		// 等高線：真俯瞰でだけ茶の等高線（gl/renderer.js と同式のフェード・間隔）
 		const ps = Math.max(0, Math.min(1, ((cam.pitch || 0) - 0.01) / 0.05));

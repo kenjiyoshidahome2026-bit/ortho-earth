@@ -29,6 +29,7 @@ struct Frame {
 	params: vec4f,     // fogNear, fogFar, logCoef, dpr
 	elevBounds: vec4f, // originLng, originLat, spanLng, spanLat（アトラス被覆）
 	elevP: vec4f,      // elevScaleEff((誇張/半径)×pitchフェード), hasElev(0/1), edgeFade(deg), 0
+	mesh: vec4f,       // 地形メッシュの窓：xy=原点(lon,lat) zw=幅(deg)。頂点は単位格子 uv＝窓替えで作り直さない（terrain slot のみ非0）
 };
 @group(0) @binding(0) var<uniform> F: Frame;
 @group(0) @binding(1) var elevTex: texture_2d<f32>;
@@ -223,8 +224,9 @@ struct TerrOut {
 	@location(2) fog: f32,
 	@location(3) h: f32,
 };
-@vertex fn vs(@location(0) a_ll: vec2f) -> TerrOut {
+@vertex fn vs(@location(0) a_uv: vec2f) -> TerrOut {
 	var o: TerrOut;
+	let a_ll = F.mesh.xy + F.mesh.zw * a_uv;   // 単位格子 uv→絶対 lon/lat（頂点属性でなく uniform 窓＝窓替えで作り直さない）
 	let dDeg = a_ll - F.origin;               // 原点相対 (deg)。renderer は main シーン原点を渡す
 	let rel = deltaToRel(dDeg);
 	let dir = F.originPt + rel;
