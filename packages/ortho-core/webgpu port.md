@@ -4,15 +4,19 @@
 `createRenderer`（WebGL2）と同じ公開面 `{ set, draw, dispose, md, mdMax, gintCtx }` を持つ
 `createRendererGPU` を並走させ、renderworker が起動時に選ぶ。**WebGL2 は恒久フォールバック**（旧iOS/Android）。
 
-## 現在地（Phase 1・2026-08-01）
+## 現在地（Phase 2・2026-08-01）
 
-動く：globe（大気・リム）＋基図シーン（fill/line・**classic merge 経路**＝scene worker の CPU merge、
-`?nomd=1` と同じ実証済みパス）。z13 東京・z5.5 全国で WebGL2 と目視同一（スクリーンショット比較済）。
-真俯瞰の平面地図と同等の絵＝2D 利用は今日から差が無い。
+動く：globe（大気・リム）＋基図シーン（fill/line・**classic merge 経路**）＋**標高アトラス（r16float・
+stage/commit ダブルバッファ）・地形サーフェス（hillshade/hypso/遠山ブルー）・深度（対数・尾根の遮蔽・
+水面リフト＋厳密深度）・基図ドレープ（fill/line の標高変位＋距離フェード）・建物押し出し（anchor標高・
+フットプリント伏せ）・等高線**。terrain モジュール（視野→セル選定・altpbf fetch・ダウンサンプル）は
+renderer.set 契約のみ＝無改造で両バックエンド共通（renderworker finishInit で生成）。
+検証（スクリーンショット比較＝WebGL2 と目視同一）：z13 東京平面 / 富士 z13 60°チルト（地形+ドレープ+湖）/
+東京駅 z16.5 55°（建物+深度）/ 富士山頂 z13.5 真俯瞰（等高線+地形名）。
 
-未搭載（set は握り潰し・初回のみ console 告知）：標高/地形・建物3D・PLATEAU・overlay(stencil)・
-星空/夜面・**gint**（canvas は1コンテキスト制＝webgl2 と同居不可。gint の WGSL 移植は Phase 3）・
-snapshot の基図読み出し（labels のみ返す＝compose は base 無し許容）。
+未搭載（set は握り潰し・初回のみ console 告知）：PLATEAU・overlay(stencil)・星空/夜面
+（gl_PointSize が WebGPU に無い＝インスタンス四角形化が必要）・**gint**（canvas は1コンテキスト制＝
+webgl2 と同居不可。gint の WGSL 移植は Phase 3）・snapshot の基図読み出し（labels のみ返す）。
 
 ## 使い方・検証
 
@@ -30,17 +34,27 @@ snapshot の基図読み出し（labels のみ返す＝compose は base 無し�
 - **クリップ z**：GL [-1,1] → WebGPU [0,1]。対数深度は `z01 = 0.5·log2(1+w)·coef` を直接書く
   （GL の window 深度と同値＝深度互換）。wgsl.js `logDepthZ`。
 - **smoothstep 逆順引数**：GLSL は黙認・WGSL は未定義動作明記＝`1-smoothstep(正順)` へ等価書換（globe）。
-- **uniform**：per-draw の gl.uniform* → 1フレーム1回の UBO 書込。base/main の2スロットを 256B 境界で
-  1バッファ同居（origin がスロット毎に違うため）。詰め順は renderer.js `packFrame` と wgsl.js `Frame` が対。
+- **uniform**：per-draw の gl.uniform* → 1フレーム1回の UBO 書込。Frame は 512B×4スロット
+  （base/main/terrain/bld＝origin と fog の違いをスロットで表現＝GL の setCommonUniforms＋per-program
+  上書きの写し）。per-draw の小物（seaGate/lift/exactDepth/色ノブ）は DrawP＝役割別6スロットの静的
+  bind group（dynamic offset 不要）。詰め順は renderer.js `packFrame`/`packParams` と wgsl.js が対。
+- **深度**：depth24plus 常設＋パイプライン変種で GL の enable/disable/depthMask を表現
+  （fill/line: off/test-only・terrain: write+depthBias(4,1)≒polygonOffset(1,4)・building: test+write）。
+  水域の厳密対数深度は `fsExact` エントリポイント（@builtin(frag_depth)）＝GL の u_exactDepth と同じ棲み分け。
+- **標高アトラス**：r16float（コアで filterable＝GL が R16F を選んだ理由がそのまま活きる）。
+  GL は texImage2D がドライバで f32→f16 変換、WebGPU は生バイト渡し＝**CPU で f32→f16**（renderer.js
+  `f32ToF16`・最近接丸め）。VS のサンプルは textureSampleLevel（頂点ステージは暗黙 LOD 不可）。
 - **MSAA**：canvas 属性でなく明示 4x テクスチャ→resolveTarget。動的解像度のリサイズは
   getCurrentTexture が canvas 寸法に自動追随＝再 configure 不要。
 - **数学は 1:1**：sinP テイラー・deltaToRel（桁落ち回避 RTE）・capsule SDF・フォグ・海のズームゲート・
-  下地線の伏せ（mainLinesOn）まで GL 版と同式・同分岐。
+  下地線の伏せ（mainLinesOn）・hillshade（texel歩幅前方差分）・等高線（fwidth AA）まで GL 版と同式・同分岐。
 
 ## 次の道順
 
-1. **Phase 2**：標高（R16F アトラス→texture_2d<f32>＋sampler）・地形サーフェス・深度バッファ・建物押し出し。
-2. **Phase 3**：gint（RGBA32UI テクスチャ群→storage buffer が自然。頂点プル前提の設計はそのまま乗る）。
+1. **Phase 3**：gint（RGBA32UI テクスチャ群→storage buffer が自然。頂点プル前提の設計はそのまま乗る）。
+2. **PLATEAU**：LOD2 メッシュ（RTE-lite 重心相対＋u_clipMesh 錨）＋被覆マスク（BUILDING_FS のスロット4本）＋
+   バッチカリング。星空/夜面＝gl_PointSize が WebGPU に無い＝星をインスタンス四角形へ。
+   snapshot（shot）＝copyTextureToBuffer＋mapAsync の非同期読み出し。
 3. **multi_draw の後継**：WebGPU に multiDraw は無いが、(a) `drawIndexed` に **baseVertex がある**＝
    index 再ベース（sceneworker ensureUploaded の絶対頂点番号化）ごと不要にできる、
    (b) **render bundle** で composition を1回記録→毎フレーム再生＝md の狙い（CPU発行ゼロ）を

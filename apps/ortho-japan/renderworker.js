@@ -80,8 +80,12 @@ function bootWebGL(m) {
 		const dbg = glRef.getExtension("WEBGL_DEBUG_RENDERER_INFO") || glRef.getExtension("WEBGL_debug_renderer_info");
 		console.log(`[perf] gpu="${glRef.getParameter(dbg ? dbg.UNMASKED_RENDERER_WEBGL : glRef.RENDERER)}" timerQuery=${!!tqExt}`);
 	}
+}
+// バックエンド確定後の共通仕上げ：標高(terrain)＋scene worker 直結ポート＋能力表明＋描画ループ開始。
+function finishInit(m) {
 	// 標高アトラス：fetch(altpbf自前worker)・視野→セル範囲計算・ダウンサンプルまで全部ここで完結させ、
 	// main には触れさせない（postMessage/main側CPUを丸ごと排除）。DOM(読込インジケータ)だけ main へ通知。
+	// terrain モジュールは renderer.set 契約のみ＝バックエンド非依存（webgpu Phase 2 で elev* を実装済み）。
 	terrain = createTerrain({
 		renderer, requestDraw: () => { dirty = true; },
 		exag: m.terrainExag, earthM: m.earthM, apiUrl: m.apiUrl, lowMem: !!m.lowMem, noMixed: !!m.noMixed,
@@ -91,9 +95,6 @@ function bootWebGL(m) {
 	// 低ズームの地球ぐるぐるで陰影が最初から途切れない（z1-4を塗る前提の仕込み）。
 	// 低メモリ端末はスキップ＝デモ序盤の裏でデコードの山を作らない（必要時はオンデマンド取得＝機能不変）。
 	if (!m.lowMem) setTimeout(() => { for (const lng of [-180, -90, 0, 90]) for (const lat of [-90, 0]) terrain.prefetch(lng, lat, 90); }, 6000);
-}
-// バックエンド確定後の共通仕上げ：scene worker 直結ポート＋能力表明＋描画ループ開始。
-function finishInit(m) {
 	if (renderer.lost) renderer.lost.then(info => {   // WebGPU の device lost＝WebGL の contextlost と同じ扱いで main が立て直す
 		if (!sentCtxLost) { sentCtxLost = true; console.warn("[render] GPU device lost:", info && info.message); postMessage({ type: "contextlost" }); }
 	});
@@ -134,7 +135,7 @@ onmessage = e => {
 					.then(({ createRendererGPU }) => createRendererGPU(canvas))
 					.then(r => {
 						renderer = r; backendName = "webgpu";
-						console.log("[render] backend=webgpu（Phase 1: globe+基図。gint/地形/建物/PLATEAU/星空は未搭載＝WebGL版で継続）");
+						console.log("[render] backend=webgpu（Phase 2: globe+基図+標高/地形/深度+建物+等高線。gint/PLATEAU/星空/overlayは未搭載＝WebGL版で継続）");
 					})
 					.catch(err => {
 						console.warn("[render] WebGPU init失敗→WebGL2フォールバック:", err && (err.message || err));
