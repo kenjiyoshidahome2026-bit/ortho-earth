@@ -266,11 +266,25 @@ struct TerrOut {
 // 壁垂直）。PLATEAU 被覆マスクは Phase 2 未搭載（u_plateauCount=0 相当）＝PLATEAU 移植時に追加。
 export const BUILDING_WGSL = /* wgsl */`
 ${FRAME}
+// PLATEAU 被覆マスク（group(2)）：実フットプリントが立つ区（最大4）を uv 正規化で参照し、基図の押し出し
+// 建物を伏せる＝同一体積の全面 z-fight を断ちつつ範囲外は残す（GL BUILDING_FS の u_plateauMaskN 移植）。
+// mparams.count=0（PLATEAU 無し）なら discard は起きない＝素通し。
+struct MaskP { count: vec4u, bbox: array<vec4f, 4> };
+@group(2) @binding(0) var<uniform> M: MaskP;
+@group(2) @binding(1) var maskTex0: texture_2d<f32>;
+@group(2) @binding(2) var maskTex1: texture_2d<f32>;
+@group(2) @binding(3) var maskTex2: texture_2d<f32>;
+@group(2) @binding(4) var maskTex3: texture_2d<f32>;
+@group(2) @binding(5) var maskSamp: sampler;
+fn maskedBy(bbox: vec4f, uvOK: vec2f, hit: f32) -> bool {
+	return uvOK.x >= 0.0 && uvOK.x <= 1.0 && uvOK.y >= 0.0 && uvOK.y <= 1.0 && hit > 0.5;
+}
 struct BldOut {
 	@builtin(position) pos: vec4f,
 	@location(0) shade: f32,
 	@location(1) front: f32,
 	@location(2) fog: f32,
+	@location(3) ll: vec2f,   // 絶対 lon/lat＝被覆マスクの uv 参照
 };
 @vertex fn vs(@location(0) a_pos: vec3f, @location(1) a_shade: f32, @location(2) a_anchor: vec2f) -> BldOut {
 	var o: BldOut;
@@ -282,6 +296,7 @@ struct BldOut {
 	o.shade = a_shade;
 	o.front = dot(dir, F.eye) - 1.0;
 	o.fog = fogOf(F.originPt + relW);
+	o.ll = F.origin + a_pos.xy;
 	var p = F.clipT + F.mvp * vec4f(relW, 0.0);
 	p.z = logDepthZ(p.w);
 	o.pos = p;
@@ -289,7 +304,76 @@ struct BldOut {
 }
 @fragment fn fs(in: BldOut) -> @location(0) vec4f {
 	if (in.front < 0.0) { discard; }
+	// 実フットプリントが立つセルだけ基図建物を伏せる（矩形でなく被覆マスク＝空白地帯なし）。GLSL ES の
+	// sampler 配列動的添字不可に倣い 4本アンロール（uv は各 bbox 正規化・textureSampleLevel＝FS でも明示 LOD）。
+	if (M.count.x > 0u) {
+		let uv0 = (in.ll - M.bbox[0].xy) / (M.bbox[0].zw - M.bbox[0].xy);
+		if (maskedBy(M.bbox[0], uv0, textureSampleLevel(maskTex0, maskSamp, uv0, 0.0).r)) { discard; }
+	}
+	if (M.count.x > 1u) {
+		let uv1 = (in.ll - M.bbox[1].xy) / (M.bbox[1].zw - M.bbox[1].xy);
+		if (maskedBy(M.bbox[1], uv1, textureSampleLevel(maskTex1, maskSamp, uv1, 0.0).r)) { discard; }
+	}
+	if (M.count.x > 2u) {
+		let uv2 = (in.ll - M.bbox[2].xy) / (M.bbox[2].zw - M.bbox[2].xy);
+		if (maskedBy(M.bbox[2], uv2, textureSampleLevel(maskTex2, maskSamp, uv2, 0.0).r)) { discard; }
+	}
+	if (M.count.x > 3u) {
+		let uv3 = (in.ll - M.bbox[3].xy) / (M.bbox[3].zw - M.bbox[3].xy);
+		if (maskedBy(M.bbox[3], uv3, textureSampleLevel(maskTex3, maskSamp, uv3, 0.0).r)) { discard; }
+	}
 	let c = mix(P.p0.rgb * in.shade, F.fogColor, in.fog);
+	return vec4f(c, 1.0);
+}
+`;
+
+// PLATEAU LOD2 建物メッシュ（PLATEAU_VS/FS の移植）。頂点は重心(u_meshOrigin)相対 delta（RTE-lite＝
+// 小さい値＝float32 仮数フル活用）、法線は int8 量子化（FS で normalize＝精度 1/127 で十分）。
+// 投影は基図(fill/line/terrain)と別＝重心相対（scene 原点相対でない）：絶対位置 = meshOrigin + a_pos、
+// clip 錨は u_clipMesh（CPU double・相殺回避）。接地リフトは DTM 保証域(P.p0=liftBounds)内だけ。
+// フレーム共通 uniform は建物 bld スロットの Frame を流用（mvp/eye/fog/elev が同一）＝group(0)=bld。
+// group(1)=DrawP（p0=liftBounds・p1=bldColor）、group(2)=per-batch（meshOrigin+cullBack・clipMesh）。
+export const PLATEAU_WGSL = /* wgsl */`
+${FRAME}
+struct PB { meshOrigin: vec4f, clipMesh: vec4f };   // xyz+cullBack, clip錨
+@group(2) @binding(0) var<uniform> B: PB;
+struct PlOut {
+	@builtin(position) pos: vec4f,
+	@location(0) n: vec3f,       // 実法線（巻き順非依存で表向きへ）
+	@location(1) toEye: vec3f,
+	@location(2) front: f32,
+	@location(3) fog: f32,
+};
+@vertex fn vs(@location(0) a_pos: vec3f, @location(1) a_normal: vec4f) -> PlOut {
+	var o: PlOut;
+	let wp = B.meshOrigin.xyz + a_pos;                 // 絶対位置（陰影/フォグ/半球判定＝粗くて可）
+	let dir = normalize(wp);
+	o.n = a_normal.xyz;
+	o.toEye = F.eye - wp;
+	o.front = dot(dir, F.eye) - 1.0;
+	o.fog = fogOf(wp);
+	// 接地リフト（DTM 保証域 P.p0=liftBounds 内だけ・境界 0.05° smoothstep）。域外/bounds無しは h=0（r=1 接地）
+	let lat = degrees(asin(clamp(dir.y, -1.0, 1.0)));
+	let lon = degrees(atan2(dir.z, dir.x));
+	let lb = P.p0;   // [lng0, lat0, spanLng, spanLat]
+	let inX = smoothstep(0.0, 0.05, min(lon - lb.x, lb.x + lb.z - lon));
+	let inY = smoothstep(0.0, 0.05, min(lat - lb.y, lb.y + lb.w - lat));
+	let h = elev(vec2f(lon, lat)) * F.elevP.x * inX * inY;
+	var p = B.clipMesh + F.mvp * vec4f(a_pos + h * dir, 0.0);
+	p.z = logDepthZ(p.w);
+	o.pos = p;
+	return o;
+}
+@fragment fn fs(in: PlOut) -> @location(0) vec4f {
+	if (in.front < 0.0) { discard; }
+	var n = normalize(in.n);
+	let fe = dot(n, normalize(in.toEye));
+	// 裏面カリング（実法線判定＝巻き順非依存）。閾値 -0.02＝int8量子化誤差の許容帯。cullBack=B.meshOrigin.w
+	if (B.meshOrigin.w > 0.5 && fe < -0.02) { discard; }
+	if (fe < 0.0) { n = -n; }   // 両面時は法線を視線側へ＝裏から見ても陰影が成立
+	let L = normalize(vec3f(-0.35, 0.85, 0.30));   // 斜め上の光＝屋根が立つ
+	let d = clamp(dot(n, L) * 0.28 + 0.76, 0.72, 1.0);   // 基図建物の屋根1.0/壁0.76に合わせる
+	let c = mix(P.p1.rgb * d, F.fogColor, in.fog);
 	return vec4f(c, 1.0);
 }
 `;

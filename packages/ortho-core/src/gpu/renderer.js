@@ -12,17 +12,21 @@
 // ・標高アトラスは r16float＝CPU で f32→f16 変換（GL は texImage2D がドライバ変換。WebGPU は生バイト渡し）。
 //   r16float はコアで filterable＝GL 版が R16F を選んだ理由（全デバイス線形補間）がそのまま活きる。
 // ・MSAA 4x 明示（GL の canvas antialias:true と同格）。リサイズは getCurrentTexture が canvas 寸法へ自動追随。
-import { cameraState, lonlatTo3D } from "../camera.js";
+import { cameraState, lonlatTo3D, project } from "../camera.js";
 import { seaFbReal } from "../scene.js";
 import * as mat from "../mat.js";
-import { FILL_WGSL, LINE_WGSL, GLOBE_WGSL, TERRAIN_WGSL, BUILDING_WGSL, CONTOUR_WGSL } from "./wgsl.js";
+import { FILL_WGSL, LINE_WGSL, GLOBE_WGSL, TERRAIN_WGSL, BUILDING_WGSL, CONTOUR_WGSL, PLATEAU_WGSL } from "./wgsl.js";
 
 const CORNERS = new Float32Array([0, -1, 0, 1, 1, -1, 1, -1, 0, 1, 1, 1]); // 6頂点×(end,side)＝gl/renderer.js と同一
 const FRAME_SLOT = 512;    // frame UBO のスロット境界（実使用272B・minUniformBufferOffsetAlignment 上限256の倍数）
 const FRAME_F32 = 72;      // 288B/4（wgsl.js Frame と厳密対応。詰め順は packFrame 参照。末尾 mesh vec4f 含む）
 const SLOT = { base: 0, main: 1, terrain: 2, bld: 3 };   // terrain/bld は main と同 origin・fog だけ違うスロット
 const PARAM_SLOT = 256;    // DrawP（3×vec4=48B）のスロット境界
-const ROLE = { normal: 0, water: 1, seaFb: 2, terrain: 3, bld: 4, contour: 5 };
+const ROLE = { normal: 0, water: 1, seaFb: 2, terrain: 3, bld: 4, contour: 5, plateau: 6 };
+const N_ROLES = 7;
+const PL_BATCH_SLOT = 256; // PLATEAU per-batch UBO（meshOrigin+cullBack, clipMesh＝32B）のスロット境界（dynamic offset）
+const MAX_PL_BATCH = 512;  // 1フレームに描く可視バッチ上限（超過は log して打ち切り）
+const MAX_PLATEAU_MASKS = 4;
 const WATER_LIFT_M = 30;        // 水面リフト(m)：DSM帯（gl/renderer.js と同値・同意味論）
 const CITY_WATER_LIFT_M = 10;   // 都市帯(z≥14・DTM)の水面リフト(m)
 
@@ -73,6 +77,20 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 	] });
 	const bgl1 = device.createBindGroupLayout({ entries: [{ binding: 0, visibility: VF, buffer: {} }] });
 	const layout = device.createPipelineLayout({ bindGroupLayouts: [bgl0, bgl1] });
+	// building group(2)＝PLATEAU 被覆マスク（count+bbox UBO＋4テクスチャ＋sampler）。PLATEAU 無しでも count=0 で素通し
+	const bglMask = device.createBindGroupLayout({ entries: [
+		{ binding: 0, visibility: GPUShaderStage.FRAGMENT, buffer: {} },
+		{ binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
+		{ binding: 2, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
+		{ binding: 3, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
+		{ binding: 4, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
+		{ binding: 5, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "filtering" } },
+	] });
+	const bldLayout = device.createPipelineLayout({ bindGroupLayouts: [bgl0, bgl1, bglMask] });
+	// PLATEAU group(2)＝per-batch UBO（meshOrigin+cullBack, clipMesh）を dynamic offset で切替。
+	// cullBack(meshOrigin.w) は FS が裏面判定に読む＝visibility は VERTEX|FRAGMENT 両方。
+	const bglPlBatch = device.createBindGroupLayout({ entries: [{ binding: 0, visibility: VF, buffer: { hasDynamicOffset: true } }] });
+	const plLayout = device.createPipelineLayout({ bindGroupLayouts: [bgl0, bgl1, bglPlBatch] });
 
 	const fillMod = device.createShaderModule({ code: FILL_WGSL });
 	const lineMod = device.createShaderModule({ code: LINE_WGSL });
@@ -80,6 +98,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 	const terrMod = device.createShaderModule({ code: TERRAIN_WGSL });
 	const bldMod = device.createShaderModule({ code: BUILDING_WGSL });
 	const contMod = device.createShaderModule({ code: CONTOUR_WGSL });
+	const plMod = device.createShaderModule({ code: PLATEAU_WGSL });
 	// 深度状態の変種＝GL の enable/disable/depthMask/polygonOffset の写し（深度アタッチメントは常設）
 	const dsOff = { format: DEPTH, depthWriteEnabled: false, depthCompare: "always" };
 	const dsTest = { format: DEPTH, depthWriteEnabled: false, depthCompare: "less-equal" };
@@ -96,11 +115,11 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 		{ arrayStride: 4, stepMode: "instance", attributes: [{ shaderLocation: 3, offset: 0, format: "unorm8x4" }] },    // color
 		{ arrayStride: 4, stepMode: "instance", attributes: [{ shaderLocation: 4, offset: 0, format: "float32" }] },     // half(CSS px)
 	];
-	const pipe = (mod, bufs, ds, fsEntry = "fs") => device.createRenderPipeline({
-		layout,
+	const pipe = (mod, bufs, ds, fsEntry = "fs", lay = layout, cull = "none") => device.createRenderPipeline({
+		layout: lay,
 		vertex: { module: mod, entryPoint: "vs", buffers: bufs },
 		fragment: { module: mod, entryPoint: fsEntry, targets: [target] },
-		primitive: { topology: "triangle-list" },
+		primitive: { topology: "triangle-list", cullMode: cull },
 		depthStencil: ds, multisample: ms,
 	});
 	const fillOff = pipe(fillMod, FILL_BUFS, dsOff);
@@ -113,7 +132,12 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 		{ arrayStride: 12, attributes: [{ shaderLocation: 0, offset: 0, format: "float32x3" }] },   // a_pos (dlon,dlat,hWorld)
 		{ arrayStride: 4, attributes: [{ shaderLocation: 1, offset: 0, format: "float32" }] },      // a_shade
 		{ arrayStride: 8, attributes: [{ shaderLocation: 2, offset: 0, format: "float32x2" }] },    // a_anchor
-	], dsWrite);
+	], dsWrite, "fs", bldLayout);   // group(2)=PLATEAU 被覆マスク
+	// PLATEAU LOD2：頂点=重心相対 pos(f32x3)＋int8量子化法線(snorm8x4・stride4)。裏面カリングは FS（両面データ）＝cullMode none
+	const plateauPipe = pipe(plMod, [
+		{ arrayStride: 12, attributes: [{ shaderLocation: 0, offset: 0, format: "float32x3" }] },   // a_pos（重心相対 delta）
+		{ arrayStride: 4, attributes: [{ shaderLocation: 1, offset: 0, format: "snorm8x4" }] },     // a_normal（xyz+pad・FS で normalize）
+	], dsWrite, "fs", plLayout);
 	const contourPipe = pipe(contMod, undefined, dsOff);
 	const globePipe = device.createRenderPipeline({   // globe は Frame 非依存＝専用レイアウト(auto)
 		layout: "auto",
@@ -123,18 +147,22 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 		depthStencil: dsOff, multisample: ms,
 	});
 
-	// UBO：Frame 4スロット / DrawP 6スロット / globe 専用
+	// UBO：Frame 4スロット / DrawP N_ROLESスロット / globe 専用 / PLATEAU per-batch（dynamic offset）
 	const frameBuf = device.createBuffer({ size: FRAME_SLOT * 4, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
-	const paramBuf = device.createBuffer({ size: PARAM_SLOT * 6, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+	const paramBuf = device.createBuffer({ size: PARAM_SLOT * N_ROLES, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
 	const globeBuf = device.createBuffer({ size: 96, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
 	const globeBG = device.createBindGroup({
 		layout: globePipe.getBindGroupLayout(0),
 		entries: [{ binding: 0, resource: { buffer: globeBuf } }],
 	});
 	const paramBG = [];   // 役割別（静的オフセット＝dynamic offset 不要）
-	for (let r = 0; r < 6; r++) paramBG.push(device.createBindGroup({
+	for (let r = 0; r < N_ROLES; r++) paramBG.push(device.createBindGroup({
 		layout: bgl1, entries: [{ binding: 0, resource: { buffer: paramBuf, offset: r * PARAM_SLOT, size: 48 } }],
 	}));
+	// PLATEAU per-batch UBO（dynamic offset＝1つの bind group で全バッチを切替）
+	const plBatchBuf = device.createBuffer({ size: PL_BATCH_SLOT * MAX_PL_BATCH, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+	const plBatchBG = device.createBindGroup({ layout: bglPlBatch, entries: [{ binding: 0, resource: { buffer: plBatchBuf, offset: 0, size: 32 } }] });
+	const plBatchCPU = new Float32Array(PL_BATCH_SLOT / 4 * MAX_PL_BATCH);
 	const cornerBuf = device.createBuffer({ size: CORNERS.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
 	device.queue.writeBuffer(cornerBuf, 0, CORNERS);
 
@@ -215,6 +243,99 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 		terrain = { vbo, ibo, count: idx.length, G, mesh: [oLng, oLat, spanLng, spanLat] };
 	}
 
+	// --- PLATEAU LOD2 建物（gl/renderer.js setPlateauMesh/setPlateauVis/plateauBboxVisible の移植）---
+	// plateaux: key("区名#i") → { vbo(pos), nbo(normal), ibo, count, origin, bbox, ward, lodH, lodCounts, two }
+	// plateauMasks: 区名 → { tex(r8unorm 被覆マスク), bbox }（基図建物 FS が uv 参照して footprint を伏せる）
+	const plateaux = new Map();
+	const plateauMasks = new Map();
+	const plateauHidden = new Set();
+	const maskSampler = device.createSampler({ magFilter: "nearest", minFilter: "nearest", addressModeU: "clamp-to-edge", addressModeV: "clamp-to-edge" });
+	const dummyMask = device.createTexture({ size: [1, 1], format: "r8unorm", usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST });
+	const dummyMaskView = dummyMask.createView();
+	// building group(2)：mask params UBO（count vec4u + 4×bbox vec4f＝80B）＋4テクスチャ＋sampler。
+	// active mask 集合が変わった時だけ作り直す（毎フレーム生成を避ける）。
+	const maskParamBuf = device.createBuffer({ size: 96, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+	const maskParamCPU = new ArrayBuffer(96);
+	const maskParamU = new Uint32Array(maskParamCPU), maskParamF = new Float32Array(maskParamCPU);
+	let maskBG = null, maskSig = "";
+	function buildMaskBG(active) {
+		const sig = active.map(m => m.ward).join("|");
+		if (maskBG && sig === maskSig) return maskBG;   // active 集合不変＝作り直さない
+		maskSig = sig;
+		maskParamU[0] = active.length;
+		for (let i = 0; i < MAX_PLATEAU_MASKS; i++) {
+			const bb = active[i] ? active[i].bbox : [1e9, 1e9, -1e9, -1e9];
+			maskParamF[4 + i * 4] = bb[0]; maskParamF[5 + i * 4] = bb[1]; maskParamF[6 + i * 4] = bb[2]; maskParamF[7 + i * 4] = bb[3];
+		}
+		device.queue.writeBuffer(maskParamBuf, 0, maskParamCPU);
+		maskBG = device.createBindGroup({ layout: bglMask, entries: [
+			{ binding: 0, resource: { buffer: maskParamBuf } },
+			{ binding: 1, resource: active[0] ? active[0].view : dummyMaskView },
+			{ binding: 2, resource: active[1] ? active[1].view : dummyMaskView },
+			{ binding: 3, resource: active[2] ? active[2].view : dummyMaskView },
+			{ binding: 4, resource: active[3] ? active[3].view : dummyMaskView },
+			{ binding: 5, resource: maskSampler },
+		] });
+		return maskBG;
+	}
+	function freePlateauWard(ward) {
+		for (const k of [...plateaux.keys()]) {
+			if (k !== ward && !k.startsWith(ward + "#")) continue;
+			const p = plateaux.get(k);
+			p.vbo.destroy(); p.nbo.destroy(); p.ibo.destroy();
+			plateaux.delete(k);
+		}
+		const m = plateauMasks.get(ward);
+		if (m) { m.tex.destroy(); plateauMasks.delete(ward); }
+		plateauHidden.delete(ward);
+		maskSig = "\0";   // active 集合が変わり得る＝次フレーム再構築を強制
+	}
+	function setPlateauMesh(key, data) {
+		if (!data) { freePlateauWard(key); return; }   // key=区名：全バッチ+マスク解放
+		const old = plateaux.get(key);
+		if (old) { old.vbo.destroy(); old.nbo.destroy(); old.ibo.destroy(); plateaux.delete(key); }
+		if (data.pos?.length && data.idx?.length) {
+			const nrm = data.nrm instanceof Int8Array ? data.nrm : Int8Array.from(data.nrm || new Int8Array(data.pos.length / 3 * 4));
+			const vbo = device.createBuffer({ size: (data.pos.byteLength + 3) & ~3, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
+			const nbo = device.createBuffer({ size: (nrm.byteLength + 3) & ~3, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
+			const ibo = device.createBuffer({ size: (data.idx.byteLength + 3) & ~3, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST });
+			device.queue.writeBuffer(vbo, 0, data.pos.buffer, data.pos.byteOffset, data.pos.byteLength);
+			device.queue.writeBuffer(nbo, 0, nrm.buffer, nrm.byteOffset, nrm.byteLength);
+			device.queue.writeBuffer(ibo, 0, data.idx.buffer, data.idx.byteOffset, data.idx.byteLength);
+			plateaux.set(key, { vbo, nbo, ibo, count: data.idx.length, origin: data.origin || [0, 0, 0],
+				bbox: data.bbox || [1e9, 1e9, -1e9, -1e9], ward: data.ward || String(key).split("#")[0],
+				lodH: data.lodH || null, lodCounts: data.lodCounts || null, two: data.twoSided ? 1 : 0 });
+		}
+		// 被覆マスク（r8unorm・NEAREST）＝区単位で累積スナップショットを丸ごと差し替え
+		if (data.ward && data.mask && (data.maskN | 0) > 0 && data.maskBbox) {
+			let m = plateauMasks.get(data.ward);
+			if (m) m.tex.destroy();
+			const tex = device.createTexture({ size: [data.maskN, data.maskN], format: "r8unorm", usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST });
+			device.queue.writeTexture({ texture: tex }, data.mask, { bytesPerRow: data.maskN, rowsPerImage: data.maskN }, [data.maskN, data.maskN]);
+			plateauMasks.set(data.ward, { tex, view: tex.createView(), bbox: data.maskBbox });
+			maskSig = "\0";   // 次フレーム再構築
+		}
+	}
+	function setPlateauVis(ward, on) {
+		if (on) plateauHidden.delete(ward); else plateauHidden.add(ward);
+		maskSig = "\0";   // 非表示区はマスクスロットから外す＝基図建物が戻る（次フレーム再構築）
+	}
+	// バッチ bbox（経緯度deg）の可視判定＝gl/renderer.js plateauBboxVisible と同一（4隅+中心を投影）
+	function plateauBboxVisible(st, bbox, center, pad) {
+		if (center[0] >= bbox[0] && center[0] <= bbox[2] && center[1] >= bbox[1] && center[1] <= bbox[3]) return true;
+		const pts = [[bbox[0], bbox[1]], [bbox[2], bbox[1]], [bbox[0], bbox[3]], [bbox[2], bbox[3]], [(bbox[0] + bbox[2]) * 0.5, (bbox[1] + bbox[3]) * 0.5]];
+		let minx = 1e9, miny = 1e9, maxx = -1e9, maxy = -1e9, nf = 0;
+		for (const q of pts) {
+			const [sx, sy, f] = project(st, q[0], q[1]);
+			if (f < 0) continue;
+			nf++;
+			if (sx < minx) minx = sx; if (sx > maxx) maxx = sx;
+			if (sy < miny) miny = sy; if (sy > maxy) maxy = sy;
+		}
+		if (!nf) return false;
+		return !(maxx < -pad || minx > st.W + pad || maxy < -pad || miny > st.H + pad);
+	}
+
 	// --- シーン（classic merge）：slot → { origin, draws, bld } ---
 	const scenes = {
 		base: { origin: [0, 0], draws: [], bld: null },
@@ -281,9 +402,9 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 		f[68] = mesh ? mesh[0] : 0; f[69] = mesh ? mesh[1] : 0; f[70] = mesh ? mesh[2] : 0; f[71] = mesh ? mesh[3] : 0;
 		return f;
 	}
-	// DrawP 6スロットを一括で書く（256Bストライド・各48B使用）
-	const paramF32 = new Float32Array(PARAM_SLOT / 4 * 6);
-	function packParams({ cityLift, waterLift, exact, land, bldColor, contour }) {
+	// DrawP N_ROLESスロットを一括で書く（256Bストライド・各48B使用）
+	const paramF32 = new Float32Array(PARAM_SLOT / 4 * N_ROLES);
+	function packParams({ cityLift, waterLift, exact, land, bldColor, contour, liftBounds }) {
 		const f = paramF32; f.fill(0);
 		const at = (role, vals) => { const o = role * (PARAM_SLOT / 4); for (let i = 0; i < vals.length; i++) f[o + i] = vals[i]; };
 		at(ROLE.normal, [0, cityLift, 0, 0]);
@@ -296,6 +417,9 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 		at(ROLE.bld, [bldColor[0], bldColor[1], bldColor[2], 0]);
 		at(ROLE.contour, [contour.color[0], contour.color[1], contour.color[2], contour.interval,
 			contour.major, contour.alpha, 0, 0]);
+		// PLATEAU: p0=liftBounds（DTM保証域・無ければ全0＝リフト無し）, p1=bldColor
+		const lb = liftBounds || [0, 0, 0, 0];
+		at(ROLE.plateau, [lb[0], lb[1], lb[2], lb[3], bldColor[0], bldColor[1], bldColor[2], 0]);
 		return f;
 	}
 
@@ -357,6 +481,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 			cityLift, waterLift: dsmLift ? WATER_LIFT_M : CITY_WATER_LIFT_M, exact: terrainDepth ? 1 : 0,
 			land, bldColor: view.bldColor || [0.86, 0.86, 0.85],
 			contour: { color: view.contourColor || [0.42, 0.30, 0.18], interval: iv, major: iv * 5.0, alpha: cAlpha * (view.contourAlpha || 1) },
+			liftBounds: elev.liftBounds,   // PLATEAU 接地リフトの DTM 保証域
 		}));
 		if (!flat2d) {
 			const g = new Float32Array(24);
@@ -440,15 +565,60 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 		}
 		// 建物（3D押し出し）：深度で前後関係を解決（地形・尾根にも遮蔽される）。真俯瞰では描かない＝平面地図
 		const show3d = (cam.pitch || 0) >= 0.02;
+		// PLATEAU の実フットプリントが立つ区の被覆マスク（最大4・非表示区は除外）＝基図建物を伏せる
+		const activeMasks = [...plateauMasks.entries()].filter(([w]) => !plateauHidden.has(w)).map(([, m]) => m).slice(0, MAX_PLATEAU_MASKS);
+		const bldMaskBG = buildMaskBG(activeMasks);
 		const bld = show3d && !(opts && opts.skipMain) ? scenes.main.bld : null;
 		if (bld) {
 			pass.setPipeline(bldPipe);
 			pass.setBindGroup(0, bg0.bld);
 			pass.setBindGroup(1, paramBG[ROLE.bld]);
+			pass.setBindGroup(2, bldMaskBG);   // PLATEAU 区の footprint を伏せる（count=0 なら素通し）
 			pass.setVertexBuffer(0, bld.bPos);
 			pass.setVertexBuffer(1, bld.bSh);
 			pass.setVertexBuffer(2, bld.bAnc);
 			pass.draw(bld.count);
+		}
+		// PLATEAU LOD2 建物メッシュ（任意三角形・面法線陰影）。バッチ単位フラスタムカリング＋高さLOD打ち切り。
+		// per-batch uniform（meshOrigin/clipMesh/cullBack）は dynamic offset UBO で1バッチ1スロット。
+		if (plateaux.size && show3d && !(opts && opts.skipMain)) {
+			const pad = 0.5 * Math.max(st.W, st.H);   // 高層ビルの頭のはみ出し余白（半画面）
+			const mppx = 156543.03392 * 0.819 / Math.pow(2, cam.zoom || 0);   // 画面1pxが何m（LOD打ち切りの物差し）
+			const cosLat = Math.cos((cam.center[1] || 0) * Math.PI / 180);
+			// ① CPU カリング＋LOD＝可視バッチ列を作り、per-batch uniform を一括で書く（writeBuffer は pass より先に適用）
+			const draws = [];
+			for (const p of plateaux.values()) {
+				if (draws.length >= MAX_PL_BATCH) { console.warn(`[gpu] PLATEAU 可視バッチ ${MAX_PL_BATCH} 超過＝打ち切り`); break; }
+				if (plateauHidden.has(p.ward)) continue;
+				if (!plateauBboxVisible(st, p.bbox, cam.center, pad)) continue;
+				let count = p.count;
+				if (p.lodH && !p.two) {   // index は建物高さ降順＝先頭 count で「高さ閾値以上だけ」（橋梁 two は全描画）
+					const dm = Math.hypot(((p.bbox[0] + p.bbox[2]) / 2 - cam.center[0]) * 111320 * cosLat, ((p.bbox[1] + p.bbox[3]) / 2 - cam.center[1]) * 111320);
+					const minH = mppx * (1 + dm / 4000);
+					let li = 0;
+					for (let i = p.lodH.length - 1; i > 0; i--) if (p.lodH[i] <= minH) { li = i; break; }
+					count = p.lodCounts[li];
+					if (!count) continue;
+				}
+				const slot = draws.length, o = slot * (PL_BATCH_SLOT / 4);
+				const cM = mat.transform(st.mvp, [p.origin[0], p.origin[1], p.origin[2], 1]);   // clip錨を CPU(double) で
+				plBatchCPU[o] = p.origin[0]; plBatchCPU[o + 1] = p.origin[1]; plBatchCPU[o + 2] = p.origin[2]; plBatchCPU[o + 3] = p.two ? 0 : 1;   // meshOrigin.xyz + cullBack
+				plBatchCPU[o + 4] = cM[0]; plBatchCPU[o + 5] = cM[1]; plBatchCPU[o + 6] = cM[2]; plBatchCPU[o + 7] = cM[3];   // clipMesh
+				draws.push({ p, count, slot });
+			}
+			if (draws.length) {
+				device.queue.writeBuffer(plBatchBuf, 0, plBatchCPU.buffer, 0, draws.length * PL_BATCH_SLOT);
+				pass.setPipeline(plateauPipe);
+				pass.setBindGroup(0, bg0.bld);              // フレーム共通（mvp/eye/fog/elev）は建物と同一
+				pass.setBindGroup(1, paramBG[ROLE.plateau]); // p0=liftBounds, p1=bldColor
+				for (const { p, count, slot } of draws) {
+					pass.setBindGroup(2, plBatchBG, [slot * PL_BATCH_SLOT]);   // dynamic offset＝このバッチの uniform
+					pass.setVertexBuffer(0, p.vbo);
+					pass.setVertexBuffer(1, p.nbo);
+					pass.setIndexBuffer(p.ibo, "uint32");
+					pass.drawIndexed(count);
+				}
+			}
 		}
 		pass.end();
 		frame = { enc, colorView: t.view, depthView: t.depthView, w: W, h: H };
@@ -473,7 +643,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 	}
 
 	// 未搭載の set は静かに握り潰す（初回だけ告知）＝app の呼び出しを壊さない
-	const IGNORE = new Set(["overlay", "overlayHi", "n02", "gintBld", "plateauMesh", "plateauVis",
+	const IGNORE = new Set(["overlay", "overlayHi", "n02", "gintBld",
 		"stars", "constellations", "planets", "ecliptic", "celequator", "mdGrow", "mdUp", "mdScene"]);
 	const ignored = new Set();
 	function set(cmd, data, prop) {
@@ -487,6 +657,8 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 			case "elevAtlasStage": setElevationAtlasStage(data, prop); break;
 			case "elevCellStage": setElevationCellStage(prop.cx, prop.cy, data, prop.cellRes); break;
 			case "elevAtlasCommit": commitElevationStage(); break;
+			case "plateauMesh": setPlateauMesh(prop, data); break;   // prop=キー(区名#i)、data={pos,nrm,idx,...}／null=区解放
+			case "plateauVis":  setPlateauVis(prop, data); break;    // prop=区名、data=真偽（GPU常駐のまま表示切替）
 			default:
 				if (IGNORE.has(cmd)) { if (!ignored.has(cmd)) { ignored.add(cmd); console.log(`[gpu] set("${cmd}") は未搭載＝無視（WebGPU移植の次フェーズ）`); } }
 				else console.warn("[gpu] renderer.set: unknown cmd", cmd);
@@ -496,6 +668,12 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 		frame = null; gctx = null;
 		disposeSlot("base"); disposeSlot("main");
 		frameBuf.destroy(); paramBuf.destroy(); globeBuf.destroy(); cornerBuf.destroy();
+		plBatchBuf.destroy(); maskParamBuf.destroy();
+		for (const p of plateaux.values()) { p.vbo.destroy(); p.nbo.destroy(); p.ibo.destroy(); }
+		plateaux.clear();
+		for (const m of plateauMasks.values()) m.tex.destroy();
+		plateauMasks.clear(); plateauHidden.clear();
+		dummyMask.destroy();
 		if (terrain) { terrain.vbo.destroy(); terrain.ibo.destroy(); terrain = null; }
 		if (elevTexObj) { elevTexObj.destroy(); elevTexObj = null; }
 		if (elevStage) { elevStage.tex.destroy(); elevStage = null; }

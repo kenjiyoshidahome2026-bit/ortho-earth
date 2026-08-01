@@ -4,7 +4,7 @@
 `createRenderer`（WebGL2）と同じ公開面 `{ set, draw, dispose, md, mdMax, gintCtx }` を持つ
 `createRendererGPU` を並走させ、renderworker が起動時に選ぶ。**WebGL2 は恒久フォールバック**（旧iOS/Android）。
 
-## 現在地（Phase 3・2026-08-01）
+## 現在地（Phase 4・2026-08-01）
 
 動く：globe（大気・リム）＋基図シーン（fill/line・**classic merge 経路**）＋**標高アトラス（r16float・
 stage/commit ダブルバッファ）・地形サーフェス（hillshade/hypso/遠山ブルー）・深度（対数・尾根の遮蔽・
@@ -14,15 +14,17 @@ stage/commit ダブルバッファ）・地形サーフェス（hillshade/hypso/
 stencil winding 塗り（低ズームベタ塗り/ヒステリシス/pivot 扇要/bbox カリング）・点・ハイライト＋マスク・
 標高ドレープ＋隠線淡破線（terrainDepth 統合）・**非同期 pick 識別**（copyTextureToBuffer+mapAsync＝
 GL の PBO+fence と同族）＋JS フォールバック（findPolygon）・スロット束（coast⇄user 交替）。
-共有する純CPU臓器（無改造）：state.js の s・drawdata.js・bake.js・checkZoomRange・findPolygon。
-terrain モジュールも renderer.set 契約のみ＝無改造で両バックエンド共通。
+＋**PLATEAU LOD2 建物（Phase 4）**＝`PLATEAU_WGSL`：重心相対 RTE（meshOrigin+clipMesh 錨）・int8量子化法線
+（snorm8x4）・面法線フラット陰影・両面（cullBack は FS 判定）・接地リフト（DTM 保証域 liftBounds 内）・
+バッチフラスタムカリング・高さ LOD 打ち切り（lodH/lodCounts）・**被覆マスク**（区単位 r8unorm で基図建物の
+footprint を伏せる＝二重建物 z-fight 断ち）。共有する純CPU臓器（無改造）：state.js の s・drawdata.js・
+bake.js・checkZoomRange・findPolygon。terrain・plateau ワーカーも renderer.set 契約のみ＝無改造で両バックエンド共通。
 
 検証：スクリーンショット比較（WebGL2 と目視同一）＝z13 東京平面 / 富士 z13 60°（地形+ドレープ+湖）/
-東京駅 z16.5 55°（建物+深度）/ 山頂等高線 / **z5.5・z8.5 60° 海岸線（gint・大陸沿岸まで）**。
-＋ **tests/t-gintgpu.html**（実時間・ピクセル検定）＝winding塗り・チルト×部分表示ドーナツ（楔フラッド回帰）・
-tier 梯子・GPU pick（折れ線）・JS フォールバック（ポリゴン包含）。
+東京駅 z16.5 55°（建物+深度）/ 山頂等高線 / z5.5・z8.5 60° 海岸線（gint）/ **東京駅 z16.5 55° PLATEAU
+（LOD2 建物+footprint マスク）**。＋ **tests/t-gintgpu.html**（実時間・ピクセル検定）。
 
-未搭載（set は握り潰し・初回のみ console 告知）：PLATEAU・overlay(stencil)・星空/夜面
+未搭載（set は握り潰し・初回のみ console 告知）：overlay(stencil・geopbf/e-Stat/N02)・星空/夜面
 （gl_PointSize が WebGPU に無い＝インスタンス四角形化が必要）・idfill（コロプレスIDバッファ塗り＝
 paint は fid 線スタイルのみ効き、塗りは単色 stencil へフォールバック）・snapshot の基図読み出し。
 
@@ -70,12 +72,19 @@ paint は fid 線スタイルのみ効き、塗りは単色 stencil へフォー
   分岐内から呼べない＝FS 冒頭へ巻き上げ（discard は demote＝微分は健在）／BSD sed に `\b` は無い。
 - **テストの轍**：WebGPU canvas は present 後に current texture が空の新品＝`drawImage` 読み戻しは
   **flush と同一タスク**で行う（rAF 跨ぎの読みは常に px0 の偽陰性）。
+- **PLATEAU の per-batch uniform（Phase 4）**：GL は gl.uniform* を draw 毎に叩くが WebGPU はパス内で
+  UBO を書けない＝**dynamic offset UBO**（1 bind group＋バッチ毎 256B スロット）に切替。フレーム冒頭で
+  可視バッチをカリング→per-batch uniform（meshOrigin+cullBack, clipMesh）を一括 writeBuffer→パス内は
+  `setBindGroup(2, bg, [slot*256])` で切替。フレーム共通（mvp/eye/fog/elev）は建物 bld スロットの Frame を流用。
+- **PLATEAU 被覆マスクの visibility 轍**：per-batch UBO の `cullBack`(meshOrigin.w) は **FS が読む**＝
+  bind group layout の visibility は VERTEX|FRAGMENT 両方（VERTEX だけだと「Fragment stage not in binding
+  visibility」で pipeline 作成が落ちる）。マスクは r8unorm・区単位・active 集合が変わった時だけ bind group 再構築。
 
 ## 次の道順
 
-1. **PLATEAU**：LOD2 メッシュ（RTE-lite 重心相対＋u_clipMesh 錨）＋被覆マスク（BUILDING_FS のスロット4本）＋
-   バッチカリング。星空/夜面＝gl_PointSize が WebGPU に無い＝星をインスタンス四角形へ。
-   snapshot（shot）＝copyTextureToBuffer＋mapAsync の非同期読み出し。idfill（コロプレスIDバッファ塗り）。
+1. **overlay(stencil)**：geopbf/e-Stat/N02 の外部ベクタ＝stencil-then-cover 塗り＋境界線。gint の
+   stencil パイプライン（GINT_STENCIL_WGSL）が流用の下地。星空/夜面＝gl_PointSize が WebGPU に無い＝
+   星をインスタンス四角形へ。snapshot（shot）＝copyTextureToBuffer＋mapAsync。idfill（コロプレスID塗り）。
 3. **multi_draw の後継**：WebGPU に multiDraw は無いが、(a) `drawIndexed` に **baseVertex がある**＝
    index 再ベース（sceneworker ensureUploaded の絶対頂点番号化）ごと不要にできる、
    (b) **render bundle** で composition を1回記録→毎フレーム再生＝md の狙い（CPU発行ゼロ）を
