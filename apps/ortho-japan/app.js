@@ -369,6 +369,8 @@ const plateauLoading = new Set();          // fetch/デコード中の地区名�
 const plateauAutoLoading = new Map();      // autoPlateau 発のロード中地区：name → set。視界確定時の退避対象（手動/プレロードは含めない）
 const plateauCancelling = new Set();       // 遠方離脱→キャンセル送信済みの地区名。bldCap から除外＋再訪は promote で即再開（un-cancel）。部分はIDBに残る
 const plateauDemoted = new Set();          // 近距離の視界外→slow lane（在庫化）中の地区名。完走して IDB＋非表示常駐へ＝さりげない仕込み。再訪は promote で fast 復帰
+const plateauFastT = new Map();            // name → fast レーン入場時刻。fast枠ローテーション（下）の物差し
+const PLATEAU_ROTATE_MS = 60e3;            // fast枠の占有タイムスライス：これを超えて待ち区が居れば席を譲る（巨大区×低速APIの飢餓対策）
 let plateauPrefetchBusy = false;           // デモ先読みが直列デコード中＝autoPlateau の建物枠を1つ譲る（総同時2区の保証）
 const plateauFailed = new Set();           // 葉0枚/デコード失敗の地区名＝廃止区(浜松西区22133等)の残骸。二度と掴まない（毎onMoveの再挑戦スパムを断つ）
 let plateauPinned = new Set();             // 台本 plateau: リスト記載の地区名＝視界内なら選抜キャップ無視で強制表示（デモ▶で設定・カタカタ根治）
@@ -678,13 +680,38 @@ function autoPlateau(settled = false) {
 		plateauActive.delete(name); plateauHide(name); needsDraw = true;
 		console.log("[plateau] 範囲外→非表示", name);
 	}
+	// fast枠の台帳：建物(bldg)ロードで fast レーンに居るもの＝デコード過渡メモリの実占有（退避中は除外）。
+	const fastBldg = () => [...plateauAutoLoading.values()].filter(s => !s.noMask && !plateauCancelling.has(s.name) && !plateauDemoted.has(s.name));
+	// 建物(bldg)の同時 fast は2区まで＝4worker同時デコードの過渡メモリスパイク対策（実測：コールドIDBの
+	// デモPLATEAUシーンで renderer 12.3GB・計14.9GB＝16GB機のスワップ/GPU OOMの引き金。2区制限で山を半減）。
+	// 橋梁(noMask)は一桁軽いので素通し。デモ先読み中は枠を1つ譲る（先読み+auto2区=3区同時が「14G級」の残犯）。
+	const bldCap = Math.max(1, (LOW_MEM ? 1 : 2) - (plateauPrefetchBusy ? 1 : 0));
 	for (const h of hits) {
 		if (plateauActive.has(h.name)) continue;
 		if (plateauLoading.has(h.name)) {
-			if (plateauCancelling.has(h.name) || plateauDemoted.has(h.name)) {   // 退避中の区へ戻ってきた→即復帰（promote＝un-cancel＋fast。in-flight ならメモリ上のバッチから続行）
-				plateauCancelling.delete(h.name); plateauDemoted.delete(h.name);
-				plateauWorkers[hashStr(h.base) % PLATEAU_NW].postMessage({ type: "promote", base: h.base });
-				console.log("[plateau] 再訪→ロード再開", h.name);
+			if (plateauCancelling.has(h.name) || plateauDemoted.has(h.name)) {
+				// 退避中の区が視界に居る：fast 枠が空いていれば即復帰。塞がっていれば「ローテーション」＝
+				// PLATEAU_ROTATE_MS 以上 fast を占有した区を slow（在庫）へ回して席を譲る。巨大区×低速APIで
+				// 枠が空かず「目の前の区が永遠に始まらない」飢餓の対策（杉並 z16 実測：中野+新宿(510枚)が
+				// 枠を持ち切り杉並(bldg)が開始すらしなかった）。譲った区の既送出バッチは表示のまま＝消えない。
+				const free = h.noMask || fastBldg().length < bldCap;
+				let seat = free;
+				if (!free && !LOW_MEM) {   // 低メモリ端末はローテーション無し（in-flight在庫のRAMを増やさない）
+					const v = fastBldg().filter(s => performance.now() - (plateauFastT.get(s.name) || 0) >= PLATEAU_ROTATE_MS)
+						.sort((a, b) => (plateauFastT.get(a.name) || 0) - (plateauFastT.get(b.name) || 0))[0];
+					if (v) {
+						plateauWorkers[hashStr(v.base) % PLATEAU_NW].postMessage({ type: "demote", base: v.base });
+						plateauDemoted.add(v.name);
+						console.log("[plateau] fast枠ローテーション→在庫化(slow)", v.name);
+						seat = true;
+					}
+				}
+				if (seat) {
+					plateauCancelling.delete(h.name); plateauDemoted.delete(h.name);
+					plateauFastT.set(h.name, performance.now());
+					plateauWorkers[hashStr(h.base) % PLATEAU_NW].postMessage({ type: "promote", base: h.base });
+					console.log("[plateau] 再訪→ロード再開", h.name);
+				}
 			}
 			continue;
 		}
@@ -697,19 +724,15 @@ function autoPlateau(settled = false) {
 			continue;
 		}
 		if (!settled) continue;   // 新規ネットワークロードは「視界が落ち着いた」時だけ発火＝パンで通過した区は読み始めない
-		// 建物(bldg)の同時ロードは2区まで＝4worker同時デコードの過渡メモリスパイク対策（実測：コールドIDBの
-		// デモPLATEAUシーンで renderer 12.3GB・計14.9GB＝16GB機のスワップ/GPU OOMの引き金。2区制限で山を半減）。
-		// 橋梁(noMask)は一桁軽いので素通し。IDB命中ロードは数秒で枠が空く＝実害なし。あぶれた区は次の
-		// autoPlateau（settle毎）で再挑戦＝手前優先の順のまま自然に順番待ちになる。
-		// デモ先読み中は枠を1つ譲る＝先読み込みで総同時2区を保証（先読み+auto2区=3区同時が「14G級」の残犯）。
-		const bldCap = Math.max(1, (LOW_MEM ? 1 : 2) - (plateauPrefetchBusy ? 1 : 0));
-		// bldCap（同時デコードのメモリ上限）は fast の区だけで数える＝キャンセル/在庫slow へ退避済みの区は数えない。
-		// これを数えると「画面外の古い区（例：千代田=463タイル）」が枠を占め続け、今見ている区の新規ロードを塞ぐ
-		// （実測：東京→名古屋→大阪で名古屋以降が読まれなかった＝退避を枠に数えていた時代の主症状）。
-		if (!h.noMask && [...plateauAutoLoading.values()].filter(s => !s.noMask && !plateauCancelling.has(s.name) && !plateauDemoted.has(s.name)).length >= bldCap) continue;
+		// fast枠が塞がっていても可視区は「slow在庫」で即開始（非LOW_MEM）＝進捗と部分IDBが貯まり始め、
+		// ローテーション/枠空きの promote で即 8並行へ（枠待ちで開始すらしない飢餓を断つ）。
+		// LOW_MEM は従来どおり順番待ち＝同時in-flightのRAM在庫（区あたり~100MB級）を増やさない。
+		const capFull = !h.noMask && fastBldg().length >= bldCap;
+		if (capFull && LOW_MEM) continue;
 		plateauLoading.add(h.name);
-		plateauAutoLoading.set(h.name, h);   // 視界確定時のキャンセル対象へ
-		console.log("[plateau] 自動ロード →", h.name);
+		plateauAutoLoading.set(h.name, h);   // 視界確定時の退避対象へ
+		if (!capFull) plateauFastT.set(h.name, performance.now());
+		console.log(capFull ? "[plateau] 自動ロード(slow在庫・fast枠待ち) →" : "[plateau] 自動ロード →", h.name);
 		loadPlateau(h.base, undefined, h.name, h.noMask ? null : h.bbox, h.noMask)   // noMask（橋梁等）＝マスク不参加＋橋梁モード（バッチ接地・両面）
 			.then(ok => {
 				if (ok === "cancelled") {   // 協調キャンセル＝failed 扱いにしない（戻れば再ロードできる）。部分バッチのGPU残骸を掃除
@@ -717,10 +740,19 @@ function autoPlateau(settled = false) {
 					console.log("[plateau] キャンセル完了（部分バッチ解放）", h.name);
 					return;
 				}
-				if (ok === "demoted") {   // slow のまま完走した在庫＝表示せず非表示常駐へ（GPU全量済み・IDB済み）。再訪は常駐ヒットで即
+				if (ok === "demoted") {   // slow のまま完走（GPU全量済み＝送出は完走時に必ず流し切る・IDB済み）
 					plateauRetain(h.name, h);
-					plateauHide(h.name);   // 低メモリ端末（常駐なし）はここでメッシュ削除＝IDBだけが残る
-					console.log("[plateau] 在庫完了→非表示常駐", h.name);
+					// 視界内で完走した在庫（fast枠ローテーション中の区など）＝そのまま点灯。従来の一律非表示だと
+					// 目の前に立っていた既送出バッチごと消える。視界外だけ従来どおり非表示常駐（再訪は常駐ヒットで即）。
+					if (cam.zoom >= PLATEAU_AUTO_Z && (cam.pitch || 0) >= 0.02 && bboxIntersects(h.bbox, approxViewBbox(cam))) {
+						renderer.set("plateauVis", true, h.name);
+						plateauActive.set(h.name, h);
+						needsDraw = true;
+						console.log("[plateau] 在庫完了→視界内＝即表示", h.name);
+					} else {
+						plateauHide(h.name);   // 低メモリ端末（常駐なし）はここでメッシュ削除＝IDBだけが残る
+						console.log("[plateau] 在庫完了→非表示常駐", h.name);
+					}
 					return;
 				}
 				if (!ok) { plateauFailed.add(h.name); console.warn("[plateau] 読み込めないためスキップ（廃止区/空データ？）:", h.name); return; }   // 一回だけ警告→以後は候補から除外
@@ -734,13 +766,21 @@ function autoPlateau(settled = false) {
 			})
 			.catch(e => { plateauFailed.add(h.name); console.warn("[plateau] 読み込み失敗のためスキップ:", h.name, e.message || e); })   // 一回だけ
 			.finally(() => {
-				plateauLoading.delete(h.name); plateauAutoLoading.delete(h.name); plateauCancelling.delete(h.name); plateauDemoted.delete(h.name);
-				// 同時2区制限であぶれた区の補充＝枠が空いた瞬間に再選抜（静止シーン中はonMoveが来ない＝これが無いと
-				// 3区目以降が次のカメラ操作まで立たない）。failed/cancelled はそれぞれのガードが再発火を止める。
+				plateauLoading.delete(h.name); plateauAutoLoading.delete(h.name); plateauCancelling.delete(h.name); plateauDemoted.delete(h.name); plateauFastT.delete(h.name);
+				// 枠が空いた瞬間に再選抜（静止シーン中はonMoveが来ない＝これが無いと3区目以降が
+				// 次のカメラ操作まで立たない）。failed/cancelled はそれぞれのガードが再発火を止める。
 				if (!moving) autoPlateau(true);
 			});
+		// fast枠が塞がっていた区＝ロード要求の直後に slow へ落として開始（同一 worker の FIFO＝要求(fast初期化)→demote の順が保証される）
+		if (capFull) {
+			plateauDemoted.add(h.name);
+			plateauWorkers[hashStr(h.base) % PLATEAU_NW].postMessage({ type: "demote", base: h.base });
+		}
 	}
 }
+// 静止中の見張り：ロード中が居る間は10秒毎に再選抜＝fast枠ローテーション・枠空き補充・退避復帰を
+// カメラ操作なしでも回す（onMove/settle が来ない「静止して待つ」シーンでの飢餓/取りこぼし対策）。
+setInterval(() => { if (plateauLoading.size && !moving && !flying) autoPlateau(true); }, 10e3);
 
 // --- 地中フェード（クランプの代替・2026-07-28）: カメラが地表(DTM)より下へ潜ったら全画面を暗色で覆う ---
 // 旧・カメラ地形クランプ（eye 押し上げ）は廃止：山頂×高チルトで eye が sea-level 軌道ごと山体に埋まり、

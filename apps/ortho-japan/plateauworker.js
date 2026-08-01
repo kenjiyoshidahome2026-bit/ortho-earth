@@ -37,10 +37,25 @@ function ecef2geo(x, y, z) {
 // tileset.json を辿って葉（=それ以上 children を持たないタイル）を { uri, center:[lon,lat]|null } で集める。
 // center は boundingVolume.region から＝カメラ近傍優先ソートに使う（無い形式なら null＝末尾に回る）。
 // 葉の content.uri 自体が別の tileset.json（外部委譲）のことがある地区があるため、拡張子で判定して再帰的に潜る。
+// タイムアウト付き fetch（PLATEAU API はハング接続が起きる＝タイムアウト無しだと worker 枠が数分死ぬ。
+// 実測 2026-08-02：API不調時に区の並行8本が全部無応答＝70秒で0タイル「極端に遅い」の実体）。
+// abort は body 読み（json/arrayBuffer）まで効かせる＝ヘッダ後の本文ストール（stalled mid-stream）も切る。
+async function fetchBody(url, read, ms = 20000, retries = 1) {
+	for (let a = 0; ; a++) {
+		const ac = new AbortController();
+		const tm = setTimeout(() => ac.abort(), ms);
+		try { const r = await fetch(url, { signal: ac.signal }); return await read(r); }
+		catch (e) { if (a >= retries) throw e; }
+		finally { clearTimeout(tm); }
+	}
+}
+const fetchJSON = (url) => fetchBody(url, r => r.json(), 15000);
+const fetchAB = (url) => fetchBody(url, r => r.arrayBuffer(), 25000);
+
 async function collectLeafTiles(tilesetUrl, depth = 0, onScan = null, stop = null) {
 	if (stop?.()) return [];   // 協調キャンセル：視野離脱した区のカタログ走査を tileset 単位で打ち切る
 	onScan && onScan();   // tileset.json 1枚fetchするたびに数える＝「準備中」の沈黙を進捗にする
-	const ts = await (await fetch(tilesetUrl)).json();
+	const ts = await fetchJSON(tilesetUrl);
 	const tsBase = tilesetUrl.slice(0, tilesetUrl.lastIndexOf("/") + 1);
 	const out = [];
 	async function walk(t) {
@@ -147,7 +162,7 @@ async function decodeBatch(base, leaves, wardMask, wardBbox, onTile = null, brid
 			}
 			const t = leaves[ti++];
 			try {
-				const ab = await (await fetch(t.uri)).arrayBuffer();
+				const ab = await fetchAB(t.uri);   // 25s タイムアウト＋1リトライ＝ハング接続で worker 枠を殺さない
 				// excludeExtensions: loaders.gl の流儀＝「キーを載せて値false」で当該拡張の処理を除外。
 				// EXT_mesh_features/EXT_structural_metadata＝属性メタデータ用（未使用・特定構成でのassert回避）。
 				// EXT_texture_webp＝webpテクスチャ版アセット（2025 re-publish以降のbrid等）が extensionsRequired に
