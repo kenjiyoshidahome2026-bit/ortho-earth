@@ -84,7 +84,8 @@ async function mainTest(name, opts) {
 async function workerTest(name, opts) {
 	const el = line(`⏳ ${name}`, "info");
 	try {
-		const cv = document.createElement("canvas"); cv.width = 64; cv.height = 64;
+		const W = opts.size ? opts.size[0] : 64, H = opts.size ? opts.size[1] : 64;
+		const cv = document.createElement("canvas"); cv.width = W; cv.height = H;
 		el.prepend(cv);
 		const off = cv.transferControlToOffscreen();
 		const src = `onmessage = async (e) => {
@@ -102,12 +103,13 @@ async function workerTest(name, opts) {
 				ctx.configure({ device, format, alphaMode: opts.alphaMode, usage: GPUTextureUsage.RENDER_ATTACHMENT | (opts.copySrc ? GPUTextureUsage.COPY_SRC : 0) });
 				const cfgErr = await device.popErrorScope();
 				if (cfgErr) post("configure検証: " + cfgErr.message);
+				if (opts.resize) { canvas.width = opts.resize[0]; canvas.height = opts.resize[1]; post("リサイズ " + canvas.width + "x" + canvas.height + "（configure後・アプリ applyRes 相当）"); }
 				const draw = () => {
 					device.pushErrorScope("validation");
 					const enc = device.createCommandEncoder();
 					if (opts.msaa3pass) {
-						const ms = device.createTexture({ size: [64, 64], format, sampleCount: 4, usage: GPUTextureUsage.RENDER_ATTACHMENT });
-						const dep = device.createTexture({ size: [64, 64], format: "depth24plus-stencil8", sampleCount: 4, usage: GPUTextureUsage.RENDER_ATTACHMENT });
+						const ms = device.createTexture({ size: [canvas.width, canvas.height], format, sampleCount: 4, usage: GPUTextureUsage.RENDER_ATTACHMENT });
+						const dep = device.createTexture({ size: [canvas.width, canvas.height], format: "depth24plus-stencil8", sampleCount: 4, usage: GPUTextureUsage.RENDER_ATTACHMENT });
 						const v = ms.createView(), dv = dep.createView();
 						let p = enc.beginRenderPass({ colorAttachments: [{ view: v, loadOp: "clear", clearValue: { r: 1, g: 0, b: 0, a: 1 }, storeOp: "store" }],
 							depthStencilAttachment: { view: dv, depthLoadOp: "clear", depthClearValue: 1, depthStoreOp: "store", stencilLoadOp: "clear", stencilStoreOp: "discard" } });
@@ -150,6 +152,7 @@ async function workerTest(name, opts) {
 	if (!navigator.gpu) { line("❌ navigator.gpu なし（main）＝WebGPU未対応ブラウザ", "ng"); return; }
 	const a = await navigator.gpu.requestAdapter();
 	line(`adapter: ${a ? "あり" : "null"} / preferredFormat=${navigator.gpu.getPreferredCanvasFormat()} / features=${a ? [...a.features].join(",") || "(なし)" : "-"}`, "info");
+	if (a) line(`dpr=${devicePixelRatio} / maxTex2D=${a.limits.maxTextureDimension2D} / maxBuf=${(a.limits.maxBufferSize / 1048576) | 0}MB / 画面=${innerWidth}x${innerHeight}`, "info");
 	await mainTest("A: main・単純クリア・premultiplied+COPY_SRC", { alphaMode: "premultiplied", copySrc: true });
 	await mainTest("B: main・単純クリア・opaque", { alphaMode: "opaque", copySrc: true });
 	await mainTest("C: main・単純クリア・premultiplied・COPY_SRCなし", { alphaMode: "premultiplied", copySrc: false });
@@ -157,6 +160,8 @@ async function workerTest(name, opts) {
 	await workerTest("W1: worker・単純クリア・premultiplied+COPY_SRC（本番同構成の最小形）", { alphaMode: "premultiplied", copySrc: true });
 	await workerTest("W2: worker・MSAA3パス構造（本番同型）", { alphaMode: "premultiplied", copySrc: true, msaa3pass: true });
 	await workerTest("W3: worker・単純クリア・opaque・COPY_SRCなし", { alphaMode: "opaque", copySrc: false });
+	await workerTest("W4: worker・実機級 大canvas（dpr2相当）・MSAA3パス", { alphaMode: "premultiplied", copySrc: true, msaa3pass: true, size: [Math.min(innerWidth * 2, 1600) | 0, Math.min(innerHeight * 2, 2400) | 0] });
+	await workerTest("W5: worker・configure後リサイズ→描画（アプリ起動と同じ順序）", { alphaMode: "premultiplied", copySrc: true, msaa3pass: true, size: [300, 150], resize: [640, 640] });
 	line("完了。この画面をスクリーンショットしてください。", "info");
 })();
 </script></body></html>
