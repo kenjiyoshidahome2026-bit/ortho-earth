@@ -140,7 +140,7 @@ onmessage = e => {
 				// 失敗（非対応・adapter無し）は WebGL2 へフォールバック＝既定経路と同一挙動。
 				initQueue = [];
 				import("ortho-core/gpu")
-					.then(({ createRendererGPU, createGintLayerGPU }) => createRendererGPU(canvas).then(r => {
+					.then(({ createRendererGPU, createGintLayerGPU }) => createRendererGPU(canvas, { noTQ: !!m.noTQ }).then(r => {
 						renderer = r; backendName = "webgpu";
 						// gint（知性の層）＝renderer の frame（開いたエンコーダ）へ自分の render pass を足す＝1canvas統合の WebGPU 形。
 						gint = createGintLayerGPU(r, { requestDraw: () => { dirty = true; } });

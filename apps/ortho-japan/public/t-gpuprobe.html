@@ -95,7 +95,14 @@ async function workerTest(name, opts) {
 				if (!navigator.gpu) { post("navigator.gpu なし(worker)"); postMessage({ done: 1 }); return; }
 				const adapter = await navigator.gpu.requestAdapter();
 				if (!adapter) { post("adapter null(worker)"); postMessage({ done: 1 }); return; }
-				const device = await adapter.requestDevice();
+				const hasTQ = adapter.features.has("timestamp-query");
+				if (opts.tq) post("adapter timestamp-query=" + hasTQ);
+				const device = await adapter.requestDevice(opts.tq && hasTQ ? { requiredFeatures: ["timestamp-query"] } : undefined);
+				const tqOn = !!(opts.tq && hasTQ);
+				const qs = tqOn ? device.createQuerySet({ type: "timestamp", count: 4 }) : null;
+				const qRes = tqOn && opts.tqResolve ? device.createBuffer({ size: 32, usage: GPUBufferUsage.QUERY_RESOLVE | GPUBufferUsage.COPY_SRC }) : null;
+				const qStg = qRes ? device.createBuffer({ size: 32, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ }) : null;
+				let qBusy = false, qReported = false;
 				const ctx = canvas.getContext("webgpu");
 				if (!ctx) { post("getContext(webgpu) null(worker)"); postMessage({ done: 1 }); return; }
 				const format = navigator.gpu.getPreferredCanvasFormat();
@@ -111,16 +118,22 @@ async function workerTest(name, opts) {
 						const ms = device.createTexture({ size: [canvas.width, canvas.height], format, sampleCount: 4, usage: GPUTextureUsage.RENDER_ATTACHMENT });
 						const dep = device.createTexture({ size: [canvas.width, canvas.height], format: "depth24plus-stencil8", sampleCount: 4, usage: GPUTextureUsage.RENDER_ATTACHMENT });
 						const v = ms.createView(), dv = dep.createView();
-						let p = enc.beginRenderPass({ colorAttachments: [{ view: v, loadOp: "clear", clearValue: { r: 1, g: 0, b: 0, a: 1 }, storeOp: "store" }],
+						let p = enc.beginRenderPass({ timestampWrites: tqOn ? { querySet: qs, beginningOfPassWriteIndex: 0, endOfPassWriteIndex: 1 } : undefined, colorAttachments: [{ view: v, loadOp: "clear", clearValue: { r: 1, g: 0, b: 0, a: 1 }, storeOp: "store" }],
 							depthStencilAttachment: { view: dv, depthLoadOp: "clear", depthClearValue: 1, depthStoreOp: "store", stencilLoadOp: "clear", stencilStoreOp: "discard" } });
 						p.end();
-						p = enc.beginRenderPass({ colorAttachments: [{ view: v, resolveTarget: ctx.getCurrentTexture().createView(), loadOp: "load", storeOp: "discard" }] });
+						p = enc.beginRenderPass({ timestampWrites: tqOn ? { querySet: qs, beginningOfPassWriteIndex: 2, endOfPassWriteIndex: 3 } : undefined, colorAttachments: [{ view: v, resolveTarget: ctx.getCurrentTexture().createView(), loadOp: "load", storeOp: "discard" }] });
 						p.end();
 					} else {
-						const p = enc.beginRenderPass({ colorAttachments: [{ view: ctx.getCurrentTexture().createView(), loadOp: "clear", clearValue: { r: 1, g: 0, b: 0, a: 1 }, storeOp: "store" }] });
+						const p = enc.beginRenderPass({ timestampWrites: tqOn ? { querySet: qs, beginningOfPassWriteIndex: 0, endOfPassWriteIndex: 1 } : undefined, colorAttachments: [{ view: ctx.getCurrentTexture().createView(), loadOp: "clear", clearValue: { r: 1, g: 0, b: 0, a: 1 }, storeOp: "store" }] });
 						p.end();
 					}
+					if (qRes && !qBusy) { enc.resolveQuerySet(qs, 0, 2, qRes, 0); enc.copyBufferToBuffer(qRes, 0, qStg, 0, 32); }
 					device.queue.submit([enc.finish()]);
+					if (qRes && !qBusy) { qBusy = true; setTimeout(() => qStg.mapAsync(GPUMapMode.READ).then(() => {
+						const tv = new BigUint64Array(qStg.getMappedRange()); const tms = Number(tv[1] - tv[0]) / 1e6;
+						qStg.unmap(); qBusy = false;
+						if (!qReported) { qReported = true; post("timestamp実測: pass=" + tms.toFixed(3) + "ms（値が出れば計測系も健全）"); }
+					}).catch(e => { qBusy = false; post("mapAsync失敗: " + e.message); }), 0); }
 					device.popErrorScope().then(err => { if (err) post("pass検証: " + err.message); });
 				};
 				// rAF が worker に無い環境も想定＝両対応で数フレーム描く
@@ -162,6 +175,8 @@ async function workerTest(name, opts) {
 	await workerTest("W3: worker・単純クリア・opaque・COPY_SRCなし", { alphaMode: "opaque", copySrc: false });
 	await workerTest("W4: worker・実機級 大canvas（dpr2相当）・MSAA3パス", { alphaMode: "premultiplied", copySrc: true, msaa3pass: true, size: [Math.min(innerWidth * 2, 1600) | 0, Math.min(innerHeight * 2, 2400) | 0] });
 	await workerTest("W5: worker・configure後リサイズ→描画（アプリ起動と同じ順序）", { alphaMode: "premultiplied", copySrc: true, msaa3pass: true, size: [300, 150], resize: [640, 640] });
+	await workerTest("W6: worker・timestamp-queryフル（本番TQ同型＝打刻+resolve+copy+遅延mapAsync）", { alphaMode: "premultiplied", copySrc: true, msaa3pass: true, tq: true, tqResolve: true });
+	await workerTest("W7: worker・timestampWritesのみ（resolve系なし）", { alphaMode: "premultiplied", copySrc: true, msaa3pass: true, tq: true });
 	line("完了。この画面をスクリーンショットしてください。", "info");
 })();
 </script></body></html>

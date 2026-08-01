@@ -54,7 +54,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 	// A/B 計測用の GPU 識別（WebGL の WEBGL_debug_renderer_info 相当）。info は環境で空の事があるので緩く。
 	const ai = adapter.info || {};
 	const gpuInfo = [ai.vendor, ai.architecture, ai.device, ai.description].filter(Boolean).join(" ") || "unknown";
-	const wantTQ = !!(adapter.features && adapter.features.has && adapter.features.has("timestamp-query"));
+	const wantTQ = !rOpts.noTQ && !!(adapter.features && adapter.features.has && adapter.features.has("timestamp-query"));   // noTQ＝?notq=1 の切り分けフラグ（iOS Safari 診断 2026-08-02）
 	const device = await adapter.requestDevice(wantTQ ? { requiredFeatures: ["timestamp-query"] } : undefined);
 	const ctx = canvas.getContext("webgpu");
 	if (!ctx) throw new Error("webgpu context unavailable");
