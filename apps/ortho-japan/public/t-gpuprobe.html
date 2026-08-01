@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WebGPU present 診断</title>
+<style>
+	body { font: 14px/1.5 -apple-system, sans-serif; margin: 12px; background: #111; color: #eee; }
+	h1 { font-size: 16px; }
+	.t { margin: 6px 0; padding: 6px 8px; border-radius: 6px; background: #222; }
+	.ok { color: #7f7; } .ng { color: #f77; } .info { color: #aaf; }
+	canvas { width: 72px; height: 72px; border: 1px solid #444; image-rendering: pixelated; margin-right: 6px; vertical-align: middle; }
+	code { color: #fda; word-break: break-all; }
+</style></head><body>
+<h1>WebGPU present 診断（結果は画面表示＝コンソール不要）</h1>
+<div id="out"></div>
+<script>
+// 各テスト＝「赤にクリアして present → placeholder を drawImage→getImageData で画素検証」。
+// pushErrorScope(validation) で沈黙の検証エラーも吸い出して表示する。
+const out = document.getElementById("out");
+const line = (html, cls) => { const d = document.createElement("div"); d.className = "t " + (cls || ""); d.innerHTML = html; out.appendChild(d); return d; };
+const raf2 = () => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+const readPx = (cv) => {   // 表示中 canvas（placeholder含む）の画素を読む
+	const t = document.createElement("canvas"); t.width = 8; t.height = 8;
+	const g = t.getContext("2d", { willReadFrequently: true });
+	g.drawImage(cv, 0, 0, 8, 8);
+	const px = g.getImageData(0, 0, 8, 8).data;
+	let nz = 0, red = 0;
+	for (let i = 0; i < px.length; i += 4) { if (px[i] | px[i+1] | px[i+2] | px[i+3]) nz++; if (px[i] > 128 && px[i+1] < 100) red++; }
+	return { nz, red, total: 64, sample: [...px.slice(0, 4)] };
+};
+
+// メインスレッド系テスト：opts = { alphaMode, copySrc, msaa3pass, format }
+async function mainTest(name, opts) {
+	const el = line(`⏳ ${name}`, "info");
+	try {
+		const cv = document.createElement("canvas"); cv.width = 64; cv.height = 64;
+		el.prepend(cv);
+		const adapter = await navigator.gpu.requestAdapter();
+		if (!adapter) throw new Error("adapter null");
+		const device = await adapter.requestDevice();
+		const errs = [];
+		device.addEventListener?.("uncapturederror", e => errs.push("uncaptured: " + (e.error?.message || e.error)));
+		if (!device.addEventListener && "onuncapturederror" in device) device.onuncapturederror = e => errs.push("uncaptured: " + (e.error?.message || e.error));
+		const ctx = cv.getContext("webgpu");
+		if (!ctx) throw new Error("getContext(webgpu) null");
+		const format = opts.format || navigator.gpu.getPreferredCanvasFormat();
+		device.pushErrorScope("validation");
+		ctx.configure({ device, format, alphaMode: opts.alphaMode, usage: GPUTextureUsage.RENDER_ATTACHMENT | (opts.copySrc ? GPUTextureUsage.COPY_SRC : 0) });
+		const cfgErr = await device.popErrorScope();
+		device.pushErrorScope("validation");
+		const enc = device.createCommandEncoder();
+		if (opts.msaa3pass) {   // 本番 renderer と同じ3パス構造：MSAA(clear,store)→(load,store)→(load,discard,resolveTarget)
+			const ms = device.createTexture({ size: [64, 64], format, sampleCount: 4, usage: GPUTextureUsage.RENDER_ATTACHMENT });
+			const dep = device.createTexture({ size: [64, 64], format: "depth24plus-stencil8", sampleCount: 4, usage: GPUTextureUsage.RENDER_ATTACHMENT });
+			const v = ms.createView(), dv = dep.createView();
+			let p = enc.beginRenderPass({ colorAttachments: [{ view: v, loadOp: "clear", clearValue: { r: 1, g: 0, b: 0, a: 1 }, storeOp: "store" }],
+				depthStencilAttachment: { view: dv, depthLoadOp: "clear", depthClearValue: 1, depthStoreOp: "store", stencilLoadOp: "clear", stencilStoreOp: "discard" } });
+			p.end();
+			p = enc.beginRenderPass({ colorAttachments: [{ view: v, loadOp: "load", storeOp: "store" }],
+				depthStencilAttachment: { view: dv, depthLoadOp: "load", depthStoreOp: "store", stencilLoadOp: "clear", stencilStoreOp: "discard" } });
+			p.end();
+			p = enc.beginRenderPass({ colorAttachments: [{ view: v, resolveTarget: ctx.getCurrentTexture().createView(), loadOp: "load", storeOp: "discard" }] });
+			p.end();
+		} else {
+			const p = enc.beginRenderPass({ colorAttachments: [{ view: ctx.getCurrentTexture().createView(), loadOp: "clear", clearValue: { r: 1, g: 0, b: 0, a: 1 }, storeOp: "store" }] });
+			p.end();
+		}
+		device.queue.submit([enc.finish()]);
+		const rNow = readPx(cv);   // 同一タスク読み（⚠present後のdrawImageは空になり得る＝轍。Chrome実測：mainはこちらだけ有効）
+		const passErr = await device.popErrorScope();
+		await raf2(); await raf2();
+		const rLater = readPx(cv);   // rAF後読み（worker placeholderはこちらでも残る）
+		const r = rLater.red >= rNow.red ? rLater : rNow;
+		const bad = cfgErr || passErr || errs.length;
+		const verdict = r.red > 32 ? `PASS（赤が届いた・即読${rNow.red}/後読${rLater.red}）` : `FAIL（即読red=${rNow.red} 後読red=${rLater.red} nz=${r.nz} sample=${r.sample}）→目視：左の□が赤いか？`;
+		el.className = "t " + (r.red > 32 && !bad ? "ok" : "ng");
+		el.innerHTML = `${r.red > 32 ? "✅" : "❌"} ${name}: ${verdict}` +
+			(cfgErr ? `<br><code>configure検証: ${cfgErr.message}</code>` : "") +
+			(passErr ? `<br><code>pass検証: ${passErr.message}</code>` : "") +
+			(errs.length ? `<br><code>${errs.join("<br>")}</code>` : "");
+		el.prepend(cv);
+	} catch (e) { el.className = "t ng"; el.textContent = `❌ ${name}: 例外 ${e.message}`; }
+}
+
+// worker系テスト：placeholder へ present されるかが本丸（renderworker と同じ transferControlToOffscreen 構成）
+async function workerTest(name, opts) {
+	const el = line(`⏳ ${name}`, "info");
+	try {
+		const cv = document.createElement("canvas"); cv.width = 64; cv.height = 64;
+		el.prepend(cv);
+		const off = cv.transferControlToOffscreen();
+		const src = `onmessage = async (e) => {
+			const post = (s) => postMessage({ log: s });
+			try {
+				const { canvas, opts } = e.data;
+				if (!navigator.gpu) { post("navigator.gpu なし(worker)"); postMessage({ done: 1 }); return; }
+				const adapter = await navigator.gpu.requestAdapter();
+				if (!adapter) { post("adapter null(worker)"); postMessage({ done: 1 }); return; }
+				const device = await adapter.requestDevice();
+				const ctx = canvas.getContext("webgpu");
+				if (!ctx) { post("getContext(webgpu) null(worker)"); postMessage({ done: 1 }); return; }
+				const format = navigator.gpu.getPreferredCanvasFormat();
+				device.pushErrorScope("validation");
+				ctx.configure({ device, format, alphaMode: opts.alphaMode, usage: GPUTextureUsage.RENDER_ATTACHMENT | (opts.copySrc ? GPUTextureUsage.COPY_SRC : 0) });
+				const cfgErr = await device.popErrorScope();
+				if (cfgErr) post("configure検証: " + cfgErr.message);
+				const draw = () => {
+					device.pushErrorScope("validation");
+					const enc = device.createCommandEncoder();
+					if (opts.msaa3pass) {
+						const ms = device.createTexture({ size: [64, 64], format, sampleCount: 4, usage: GPUTextureUsage.RENDER_ATTACHMENT });
+						const dep = device.createTexture({ size: [64, 64], format: "depth24plus-stencil8", sampleCount: 4, usage: GPUTextureUsage.RENDER_ATTACHMENT });
+						const v = ms.createView(), dv = dep.createView();
+						let p = enc.beginRenderPass({ colorAttachments: [{ view: v, loadOp: "clear", clearValue: { r: 1, g: 0, b: 0, a: 1 }, storeOp: "store" }],
+							depthStencilAttachment: { view: dv, depthLoadOp: "clear", depthClearValue: 1, depthStoreOp: "store", stencilLoadOp: "clear", stencilStoreOp: "discard" } });
+						p.end();
+						p = enc.beginRenderPass({ colorAttachments: [{ view: v, resolveTarget: ctx.getCurrentTexture().createView(), loadOp: "load", storeOp: "discard" }] });
+						p.end();
+					} else {
+						const p = enc.beginRenderPass({ colorAttachments: [{ view: ctx.getCurrentTexture().createView(), loadOp: "clear", clearValue: { r: 1, g: 0, b: 0, a: 1 }, storeOp: "store" }] });
+						p.end();
+					}
+					device.queue.submit([enc.finish()]);
+					device.popErrorScope().then(err => { if (err) post("pass検証: " + err.message); });
+				};
+				// rAF が worker に無い環境も想定＝両対応で数フレーム描く
+				let n = 0;
+				const loop = () => { draw(); if (++n < 5) (self.requestAnimationFrame ? requestAnimationFrame(loop) : setTimeout(loop, 16)); else postMessage({ done: 1 }); };
+				post("worker rAF=" + !!self.requestAnimationFrame + " 描画開始");
+				loop();
+			} catch (err) { post("worker例外: " + err.message); postMessage({ done: 1 }); }
+		};`;
+		const w = new Worker(URL.createObjectURL(new Blob([src], { type: "text/javascript" })));
+		const logs = [];
+		await new Promise((res) => {
+			w.onmessage = (ev) => { if (ev.data.log) logs.push(ev.data.log); if (ev.data.done) res(); };
+			w.postMessage({ canvas: off, opts }, [off]);
+			setTimeout(res, 5000);   // 保険
+		});
+		await raf2(); await raf2();
+		const r = readPx(cv);
+		el.className = "t " + (r.red > 32 ? "ok" : "ng");
+		el.innerHTML = `${r.red > 32 ? "✅" : "❌"} ${name}: ${r.red > 32 ? "PASS（worker の赤が届いた）" : `FAIL（画素 nz=${r.nz}/64 red=${r.red} sample=${r.sample}）`}` +
+			(logs.length ? `<br><code>${logs.join("<br>")}</code>` : "");
+		el.prepend(cv);
+		w.terminate();
+	} catch (e) { el.className = "t ng"; el.textContent = `❌ ${name}: 例外 ${e.message}`; }
+}
+
+(async () => {
+	line(`UA: <code>${navigator.userAgent}</code>`, "info");
+	if (!navigator.gpu) { line("❌ navigator.gpu なし（main）＝WebGPU未対応ブラウザ", "ng"); return; }
+	const a = await navigator.gpu.requestAdapter();
+	line(`adapter: ${a ? "あり" : "null"} / preferredFormat=${navigator.gpu.getPreferredCanvasFormat()} / features=${a ? [...a.features].join(",") || "(なし)" : "-"}`, "info");
+	await mainTest("A: main・単純クリア・premultiplied+COPY_SRC", { alphaMode: "premultiplied", copySrc: true });
+	await mainTest("B: main・単純クリア・opaque", { alphaMode: "opaque", copySrc: true });
+	await mainTest("C: main・単純クリア・premultiplied・COPY_SRCなし", { alphaMode: "premultiplied", copySrc: false });
+	await mainTest("D: main・MSAA3パス構造（本番同型）", { alphaMode: "premultiplied", copySrc: true, msaa3pass: true });
+	await workerTest("W1: worker・単純クリア・premultiplied+COPY_SRC（本番同構成の最小形）", { alphaMode: "premultiplied", copySrc: true });
+	await workerTest("W2: worker・MSAA3パス構造（本番同型）", { alphaMode: "premultiplied", copySrc: true, msaa3pass: true });
+	await workerTest("W3: worker・単純クリア・opaque・COPY_SRCなし", { alphaMode: "opaque", copySrc: false });
+	line("完了。この画面をスクリーンショットしてください。", "info");
+})();
+</script></body></html>
