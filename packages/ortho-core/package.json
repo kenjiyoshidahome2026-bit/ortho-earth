@@ -6,7 +6,8 @@
 	"type": "module",
 	"main": "src/index.js",
 	"exports": {
-		".": "./src/index.js"
+		".": "./src/index.js",
+		"./gpu": "./src/gpu/backend.js"
 	},
 	"description": "球面ベクタタイル描画エンジン（ortho系アプリ共通の核）",
 	"dependencies": {

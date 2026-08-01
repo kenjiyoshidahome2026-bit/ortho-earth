@@ -63,55 +63,92 @@ function tqPoll() {
 	}
 }
 
+// WebGL2 バックエンドの起動（従来経路そのまま）：renderer＋gint＋timer query＋標高(terrain)。
+// GL 初期化失敗（WebGL2不可・GPUブロックリスト等）は黙って死なず main へ通知＝案内を出させる。
+function bootWebGL(m) {
+	try { renderer = createRenderer(canvas, { noMD: !!m.noMultiDraw }); }
+	catch (err) { postMessage({ type: "glfail", error: String(err && err.message || err) }); return; }
+	console.log(`[render] multi_draw ${renderer.md ? "有効（タイルGPU常駐）" : "なし（CPU mergeフォールバック）"}`);
+	glRef = canvas.getContext("webgl2");                 // 同一コンテキストが返る＝isContextLost() の監視用
+	// gint（知性の層）＝renderer と同一コンテキストに同居。描画は frame() が renderer.draw の直後に
+	// 同じ glCam で1パス＝地図と同フレーム同カメラ（別canvas時代の「1フレーム級遅れて泳ぐ」の根治）。
+	gint = createGintLayer(glRef, { requestDraw: () => { dirty = true; } });
+	// timer query は perf HUD 専用から常時初期化へ＝GPU格付け（スピードビニング）の物差しに使う。
+	// 非対応環境（Safari等）は null＝格付けが立たない＝手前詳細化オフの安全側。
+	tqExt = glRef.getExtension("EXT_disjoint_timer_query_webgl2");
+	if (perfOn) {
+		const dbg = glRef.getExtension("WEBGL_DEBUG_RENDERER_INFO") || glRef.getExtension("WEBGL_debug_renderer_info");
+		console.log(`[perf] gpu="${glRef.getParameter(dbg ? dbg.UNMASKED_RENDERER_WEBGL : glRef.RENDERER)}" timerQuery=${!!tqExt}`);
+	}
+	// 標高アトラス：fetch(altpbf自前worker)・視野→セル範囲計算・ダウンサンプルまで全部ここで完結させ、
+	// main には触れさせない（postMessage/main側CPUを丸ごと排除）。DOM(読込インジケータ)だけ main へ通知。
+	terrain = createTerrain({
+		renderer, requestDraw: () => { dirty = true; },
+		exag: m.terrainExag, earthM: m.earthM, apiUrl: m.apiUrl, lowMem: !!m.lowMem, noMixed: !!m.noMixed,
+		onPending: (count, range, stat) => postMessage({ type: "elevPending", count, range, stat }),   // stat＝ローダ状態の自己申告（沈黙死の可視化）
+	});
+	// 全球R90（8枚・計55MB・初回のみ＝以後IDB常備）を起動の山が過ぎた頃に先読み＝
+	// 低ズームの地球ぐるぐるで陰影が最初から途切れない（z1-4を塗る前提の仕込み）。
+	// 低メモリ端末はスキップ＝デモ序盤の裏でデコードの山を作らない（必要時はオンデマンド取得＝機能不変）。
+	if (!m.lowMem) setTimeout(() => { for (const lng of [-180, -90, 0, 90]) for (const lat of [-90, 0]) terrain.prefetch(lng, lat, 90); }, 6000);
+}
+// バックエンド確定後の共通仕上げ：scene worker 直結ポート＋能力表明＋描画ループ開始。
+function finishInit(m) {
+	if (renderer.lost) renderer.lost.then(info => {   // WebGPU の device lost＝WebGL の contextlost と同じ扱いで main が立て直す
+		if (!sentCtxLost) { sentCtxLost = true; console.warn("[render] GPU device lost:", info && info.message); postMessage({ type: "contextlost" }); }
+	});
+	if (m.scenePort) {
+		m.scenePort.onmessage = ev => {                  // scene worker から直結：main を経由しない geometry
+			const d = ev.data;
+			// multi_draw 系（grow/up/dl）は FIFO＝dl（draw list）が up（タイルブロック転送）を追い越すと
+			// 未転送レンジを描いてゴミが出る。fallback の scene は従来どおり slot 毎に最新だけ。
+			if (d.type === "up" || d.type === "grow" || d.type === "dl") mdInbox.push(d);
+			else sceneInbox.set(d.slot, d.scene);        // 貯めるだけ＝適用は drainUploads（1件/フレーム・slotごと最新だけ＝ズーム中の中間版は上げずに捨てる）
+			dirty = true;
+		};
+		// renderer の能力表明＝scene worker のモードを確定させる（multi_draw か CPU merge フォールバックか）
+		m.scenePort.postMessage({ type: "mode", md: renderer.md, maxDraws: renderer.mdMax });
+	}
+	requestAnimationFrame(frame);                        // worker 自前の描画ループ開始
+}
+
+let initQueue = null;   // WebGPU 非同期init中に届いたメッセージの待避列（backend確定後に元の順で再投入＝取りこぼさない）
+let backendName = "webgl2";
 onmessage = e => {
 	const m = e.data;
+	if (initQueue && m.type !== "init") { initQueue.push(m); return; }
 	switch (m.type) {
 		case "init":
-			canvas = m.canvas;                                   // GL 用 OffscreenCanvas
-			// GL 初期化失敗（WebGL2不可・GPUブロックリスト等）は黙って死なず main へ通知＝案内を出させる。
-			try { renderer = createRenderer(canvas, { noMD: !!m.noMultiDraw }); }
-			catch (err) { postMessage({ type: "glfail", error: String(err && err.message || err) }); return; }
-			console.log(`[render] multi_draw ${renderer.md ? "有効（タイルGPU常駐）" : "なし（CPU mergeフォールバック）"}`);
-			glRef = canvas.getContext("webgl2");                 // 同一コンテキストが返る＝isContextLost() の監視用
-			// gint（知性の層）＝renderer と同一コンテキストに同居。描画は frame() が renderer.draw の直後に
-			// 同じ glCam で1パス＝地図と同フレーム同カメラ（別canvas時代の「1フレーム級遅れて泳ぐ」の根治）。
-			gint = createGintLayer(glRef, { requestDraw: () => { dirty = true; } });
+			canvas = m.canvas;                                   // GL/GPU 用 OffscreenCanvas
+			labelCanvas = m.labelCanvas;                         // ラベル用 OffscreenCanvas（2D）＝バックエンド非依存
+			labelLayer = createLabelLayer(labelCanvas, { shieldFor, elevBase: m.elevBase });
 			perfOn = !!m.perf;
 			memOn = !!m.mem;
 			self.__perfElev = perfOn;   // renderer の標高パイプライン計器（[elev] 行）を点灯
-			// timer query は perf HUD 専用から常時初期化へ＝GPU格付け（スピードビニング）の物差しに使う。
-			// 非対応環境（Safari等）は null＝格付けが立たない＝手前詳細化オフの安全側。
-			tqExt = glRef.getExtension("EXT_disjoint_timer_query_webgl2");
-			if (perfOn) {
-				const dbg = glRef.getExtension("WEBGL_DEBUG_RENDERER_INFO") || glRef.getExtension("WEBGL_debug_renderer_info");
-				console.log(`[perf] gpu="${glRef.getParameter(dbg ? dbg.UNMASKED_RENDERER_WEBGL : glRef.RENDERER)}" timerQuery=${!!tqExt}`);
+			if (m.gpu) {
+				// 実験フラグ ?gpu=1＝WebGPU バックエンド（Phase 1: globe+基図 fill/line・classic merge）。
+				// init は非同期（adapter/device 取得）＝その間のメッセージは initQueue へ待避し順序ごと再投入。
+				// 失敗（非対応・adapter無し）は WebGL2 へフォールバック＝既定経路と同一挙動。
+				initQueue = [];
+				import("ortho-core/gpu")
+					.then(({ createRendererGPU }) => createRendererGPU(canvas))
+					.then(r => {
+						renderer = r; backendName = "webgpu";
+						console.log("[render] backend=webgpu（Phase 1: globe+基図。gint/地形/建物/PLATEAU/星空は未搭載＝WebGL版で継続）");
+					})
+					.catch(err => {
+						console.warn("[render] WebGPU init失敗→WebGL2フォールバック:", err && (err.message || err));
+						bootWebGL(m);
+					})
+					.then(() => {
+						if (renderer) finishInit(m);
+						const q = initQueue; initQueue = null;
+						if (q) for (const qm of q) onmessage({ data: qm });   // 待避分を順序どおり再投入
+					});
+				break;
 			}
-			labelCanvas = m.labelCanvas;                         // ラベル用 OffscreenCanvas（2D）
-			labelLayer = createLabelLayer(labelCanvas, { shieldFor, elevBase: m.elevBase });
-			// 標高アトラス：fetch(altpbf自前worker)・視野→セル範囲計算・ダウンサンプルまで全部ここで完結させ、
-			// main には触れさせない（postMessage/main側CPUを丸ごと排除）。DOM(読込インジケータ)だけ main へ通知。
-			terrain = createTerrain({
-				renderer, requestDraw: () => { dirty = true; },
-				exag: m.terrainExag, earthM: m.earthM, apiUrl: m.apiUrl, lowMem: !!m.lowMem, noMixed: !!m.noMixed,
-				onPending: (count, range, stat) => postMessage({ type: "elevPending", count, range, stat }),   // stat＝ローダ状態の自己申告（沈黙死の可視化）
-			});
-			// 全球R90（8枚・計55MB・初回のみ＝以後IDB常備）を起動の山が過ぎた頃に先読み＝
-			// 低ズームの地球ぐるぐるで陰影が最初から途切れない（z1-4を塗る前提の仕込み）。
-			// 低メモリ端末はスキップ＝デモ序盤の裏でデコードの山を作らない（必要時はオンデマンド取得＝機能不変）。
-			if (!m.lowMem) setTimeout(() => { for (const lng of [-180, -90, 0, 90]) for (const lat of [-90, 0]) terrain.prefetch(lng, lat, 90); }, 6000);
-			if (m.scenePort) {
-				m.scenePort.onmessage = ev => {                  // scene worker から直結：main を経由しない geometry
-					const d = ev.data;
-					// multi_draw 系（grow/up/dl）は FIFO＝dl（draw list）が up（タイルブロック転送）を追い越すと
-					// 未転送レンジを描いてゴミが出る。fallback の scene は従来どおり slot 毎に最新だけ。
-					if (d.type === "up" || d.type === "grow" || d.type === "dl") mdInbox.push(d);
-					else sceneInbox.set(d.slot, d.scene);        // 貯めるだけ＝適用は drainUploads（1件/フレーム・slotごと最新だけ＝ズーム中の中間版は上げずに捨てる）
-					dirty = true;
-				};
-				// renderer の能力表明＝scene worker のモードを確定させる（multi_draw か CPU merge フォールバックか）
-				m.scenePort.postMessage({ type: "mode", md: renderer.md, maxDraws: renderer.mdMax });
-			}
-			requestAnimationFrame(frame);                        // worker 自前の描画ループ開始
+			bootWebGL(m);
+			if (renderer) finishInit(m);
 			break;
 		case "plateauPort":                                      // plateau worker → ここ のメッシュ直結パイプ（workerプール1本につき1ポート）
 			m.port.onmessage = ev => { plateauInbox.push({ ...ev.data, port: m.port }); dirty = true; };   // 受信は貯めるだけ＝GPU転送は frame() が1件/フレームで平準化（下の drainUploads）。port＝消化ack（クレジット）の返送先
@@ -164,6 +201,15 @@ onmessage = e => {
 // （呼び出し時点のバッファを捕獲）。基図(GL)とラベル(2D)の両キャンバスを返し、合成は main が担う。
 function snapshot(id) {
 	try {
+		if (!glRef) {   // webgpu バックエンド（Phase 1）：readPixels 相当は未搭載＝基図なし（labelsのみ）で応答。compose は base 無しを許容＝promise を宙吊りにしない
+			let labels = null, lw = 0, lh = 0;
+			if (labelCanvas) {
+				lw = labelCanvas.width; lh = labelCanvas.height;
+				labels = new Uint8Array(labelCanvas.getContext("2d").getImageData(0, 0, lw, lh).data.buffer);
+			}
+			postMessage({ type: "snapshot", id, base: null, w: 0, h: 0, labels: labels ? labels.buffer : null, lw, lh }, labels ? [labels.buffer] : []);
+			return;
+		}
 		if (renderer && cam) {
 			if (resPending) applyRes();   // 予約中のリサイズを先に＝撮影サイズと canvas を一致させる（frame() と同じ掟）
 			const s = RES_STEPS[resIdx];
@@ -192,7 +238,7 @@ function snapshot(id) {
 function applyLabels() {
 	if (!labelLayer || !cam) return;
 	const list = pendingLabels; pendingLabels = null;
-	for (const L of list) L.elev = terrain.sampleElev(L.anchor[0], L.anchor[1], cam);
+	for (const L of list) L.elev = terrain ? terrain.sampleElev(L.anchor[0], L.anchor[1], cam) : 0;   // webgpuバックエンド(Phase 1)は標高未搭載＝平面
 	labelLayer.setLabels(list);
 }
 
@@ -371,7 +417,7 @@ function frame() {
 			// 新しい段の merge で戻る時はフェードインから始まる＝可逆な退場。
 			const animating = labelLayer && (opts?.skipMain ? (labelLayer.clear(), false) : labelLayer.draw(cam));    // ラベルも同じ cam で（＝完全同期）
 			if (animating || fogAnim) dirty = true;                  // フェード/フォグ追従の継続は自前で次フレーム（main関与なし）
-			if (!sentFrame1) { sentFrame1 = true; postMessage({ type: "frame1" }); }   // 初描画成功＝main の起動ウォッチドッグを解除
+			if (!sentFrame1) { sentFrame1 = true; postMessage({ type: "frame1", backend: backendName }); }   // 初描画成功＝main の起動ウォッチドッグを解除（backend はスモークテスト用）
 			if (memOn && performance.now() - memLast > 500) {   // ?mem=1：常駐メモリ台帳を~2Hzで main へ（terrain LRU＋JSヒープ。plateau/tiles は main 側が持つ）
 				memLast = performance.now();
 				postMessage({ type: "mem", terrain: terrain?.bytes?.() || 0, heap: performance.memory?.usedJSHeapSize || 0 });
