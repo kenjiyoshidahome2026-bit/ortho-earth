@@ -62,7 +62,10 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 	// COPY_SRC＝snapshot（shot/print）が resolve 済みの canvas テクスチャを copyTextureToBuffer で読む
 	ctx.configure({ device, format, alphaMode: "premultiplied", usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC });
 	const isBGRA = format === "bgra8unorm";   // Mac の既定＝readback は BGRA＝RGBA へ swizzle
-	device.addEventListener?.("uncapturederror", e => console.error("[gpu] uncaptured:", e.error?.message || e.error));
+	// WebKit(Safari) は GPUDevice の EventTarget 実装が無い版がある＝onuncapturederror 属性も併用（両対応・二重発火なし＝どちらか一方しか効かない環境前提）
+	const onUncap = e => console.error("[gpu] uncaptured:", e.error?.message || e.error);
+	if (device.addEventListener) device.addEventListener("uncapturederror", onUncap);
+	else if ("onuncapturederror" in device) device.onuncapturederror = onUncap;
 
 	// --- GPU 実時間（timestamp-query）＝GL の EXT_disjoint_timer_query_webgl2 相当 ---
 	// パス単位で begin/end を打ち（writeTimestamp は仕様から撤去済＝pass の timestampWrites 一択）、
@@ -71,12 +74,18 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 	// perf 行の gpuMap/gpuGint が WebGPU でも復活する。未対応 GPU は tq=null＝従来の壁時計フォールバック。
 	// ⚠Chrome は値を~100µs に量子化＝ms 級のパス計測には十分（GL タイマも同程度のノイズ）。
 	const TQ_N = 16;   // 1フレームの計測パス上限×2（begin/end）。枠切れは打たない＝計測を落とすだけで本業は止めない
-	const tq = wantTQ ? {
+	let tq = wantTQ ? {   // 自己修復で null 化あり（下 tqOff）
 		qs: device.createQuerySet({ type: "timestamp", count: TQ_N }),
 		resolve: device.createBuffer({ size: TQ_N * 8, usage: GPUBufferUsage.QUERY_RESOLVE | GPUBufferUsage.COPY_SRC }),
 		staging: Array.from({ length: 3 }, () => ({ buf: device.createBuffer({ size: TQ_N * 8, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ }), busy: false, spans: null, n: 0 })),
 		idx: 0, spans: [], ready: [],
 	} : null;
+	// timestampWrites を受け付けない環境（WebKit の版差等）＝初回の失敗で TQ を丸ごと畳む（以後 undefined＝無計測で本業続行）
+	function tqOff(err) {
+		console.warn("[gpu] timestamp-query を無効化（この環境では使えない）:", err && (err.message || err));
+		try { tq && tq.qs.destroy && tq.qs.destroy(); } catch {}
+		tq = null;
+	}
 	function passTS(tag) {   // beginRenderPass の timestampWrites（未対応/枠切れ＝undefined＝無計測）
 		if (!tq || tq.idx + 2 > TQ_N) return undefined;
 		const i0 = tq.idx; tq.idx += 2;
@@ -734,7 +743,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 		const t = targets(W, H);
 		const enc = device.createCommandEncoder();
 		if (tq) { tq.idx = 0; tq.spans.length = 0; }   // フレーム開始＝計測枠をリセット（draw→gint→flush で1周）
-		const pass = enc.beginRenderPass({
+		const passDesc = {
 			timestampWrites: passTS("map"),
 			colorAttachments: [{
 				view: t.view,
@@ -747,7 +756,15 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 				depthLoadOp: "clear", depthClearValue: 1.0, depthStoreOp: "store",   // gint の隠線（地形深度テスト）が読む
 				stencilLoadOp: "clear", stencilStoreOp: "discard",                    // renderer 自身は stencil 不使用（gint パスが自前で clear）
 			},
-		});
+		};
+		let pass;
+		try { pass = enc.beginRenderPass(passDesc); }
+		catch (err) {   // timestampWrites 非対応の環境＝TQ を畳んで同フレームを無計測で続行（絵は止めない）
+			if (!tq) throw err;
+			tqOff(err);
+			delete passDesc.timestampWrites;
+			pass = enc.beginRenderPass(passDesc);
+		}
 		// 星空劇場（z<5）：globe より先に描く＝陸には上書きされ・大気ハローは星の上に薄く重なり・宇宙には星が残る
 		if (starFade > 0) {
 			pass.setBindGroup(0, skyBG);
@@ -918,10 +935,18 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 	// フレーム確定：MSAA を canvas へ resolve して submit（gint パスが足された後＝地図と同フレーム同カメラの1枚）。
 	function flush() {
 		if (!frame) return;
-		const pass = frame.enc.beginRenderPass({
+		const flushDesc = {
 			timestampWrites: passTS("map"),   // resolve の実費も map に計上
 			colorAttachments: [{ view: frame.colorView, resolveTarget: ctx.getCurrentTexture().createView(), loadOp: "load", storeOp: "discard" }],
-		});
+		};
+		let pass;
+		try { pass = frame.enc.beginRenderPass(flushDesc); }
+		catch (err) {
+			if (!tq) throw err;
+			tqOff(err);
+			delete flushDesc.timestampWrites;
+			pass = frame.enc.beginRenderPass(flushDesc);
+		}
 		pass.end();
 		let st = null;
 		if (tq && tq.idx) {
@@ -1029,5 +1054,5 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 	// device/format/frameInfo/flush＝gint（createGintLayerGPU）のホスト面：開いたフレームに render pass を足す口。
 	// passTS("gint")＝gint が自分のパスに GPU タイマを打つ口。tqTake/hasTQ＝renderworker の計測回収。
 	return { set, draw, flush, readback, dispose, md: false, mdMax: 0, gintCtx: () => gctx, backend: "webgpu", lost: device.lost,
-		device, format, gpuInfo, frameInfo: () => frame, passTS, tqTake, hasTQ: !!tq };
+		device, format, gpuInfo, frameInfo: () => frame, passTS, tqTake, get hasTQ() { return !!tq; } };
 }

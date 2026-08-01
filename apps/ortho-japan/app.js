@@ -270,6 +270,11 @@ renderWorker.onmessage = e => {
 		document.getElementById("fatal")?.remove();   // 遅い回線でウォッチドッグ(10s)が先に出た後の遅着 frame1＝案内を畳む（地図は生きているのに被さったまま＝「何も出ない」の正体・モバイル実測 2026-08-02）
 		return;
 	}
+	if (d.type === "drawErr") {   // worker の draw 例外（初回のみ）＝毎フレーム失敗系の一次診断。モバイルは worker コンソールが見づらい＝main 側へ転写
+		console.error("[render] draw失敗（worker報告・一度だけ）:", d.msg, d.stack);
+		window.__drawErr = d.msg;
+		return;
+	}
 	if (d.type === "glfail") {
 		clearTimeout(bootT);
 		fatalOverlay("3D描画を開始できませんでした", `WebGL2 の初期化に失敗しました（${d.error}）。ブラウザの「ハードウェアアクセラレーション」が無効になっている可能性があります。`, true);

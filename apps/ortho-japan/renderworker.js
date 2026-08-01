@@ -7,7 +7,7 @@ import { shieldFor } from "./shields.js";   // 地図記号＝日本の語彙。
 
 let renderer = null, labelLayer = null, canvas = null, labelCanvas = null;
 let cam = null, opts = null, dirty = false;   // 最新の描画状態。dirty の時だけ rAF で描く。
-let glRef = null, sentFrame1 = false, sentCtxLost = false;   // 起動ウォッチドッグ(frame1)とコンテキストロスト監視（main へ各1回だけ通知）
+let glRef = null, sentFrame1 = false, sentCtxLost = false, sentDrawErr = false;   // 起動ウォッチドッグ(frame1)・コンテキストロスト・draw例外の一次診断（main へ各1回だけ通知）
 let gint = null;   // gint（知性の層＝海岸線/14条筆/AI層）＝同一GLコンテキストの1パス（1canvas統合。旧・別worker+従属駆動）
 let terrain = null, pendingLabels = null;   // pendingLabels: cam 未着で標高付与を保留した最新ラベル集合
 // ?perf=1（init.perf）＝2秒毎にフレーム内訳を console へ：map/gint の CPU 発行時間・フレームEMA・JSヒープ・解像度段。
@@ -451,6 +451,9 @@ function frame() {
 		if (glRef && !sentCtxLost && glRef.isContextLost()) { sentCtxLost = true; postMessage({ type: "contextlost" }); }   // GPU喪失＝mainが立て直す
 	} catch (e) {
 		console.error("[render] frame例外（このフレームは破棄して継続）", e?.message, e?.stack);
+		// 初回だけ main へ通報＝モバイル等で worker コンソールが見づらい環境の一次診断（window.__drawErr に残る）。
+		// 毎フレーム失敗系（例：バックエンド固有の非対応）は frame1 が来ない＝この通報が唯一の手掛かりになる。
+		if (!sentDrawErr) { sentDrawErr = true; postMessage({ type: "drawErr", msg: String(e?.message || e), stack: String(e?.stack || "").slice(0, 400) }); }
 	}
 	tuneRes(drew);
 	const nowT = performance.now();
