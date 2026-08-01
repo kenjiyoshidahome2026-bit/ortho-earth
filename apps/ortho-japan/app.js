@@ -255,7 +255,7 @@ let bootT = setTimeout(() => {
 // gpu=1 の frame1 不達（20秒）＝WebGPU 経路が固まっている疑い＝WebGL2 で仕切り直し（遅い回線のコールドブート実測
 // 16秒@400kbps を考慮した余裕。present 沈黙故障と対で、実験フラグがどう転んでも WebGL2 の絵に必ず着地させる）。
 if (gpuBackend) setTimeout(() => {
-	if (!window.__backend) {
+	if (!window.__backend && !/[?&]stay=1/.test(location.search)) {
 		console.error("[boot] gpu=1 で 20秒 frame1 なし → WebGL2 で再起動");
 		sessionStorage.setItem("oj.nogpu", "1");
 		location.reload();
@@ -286,8 +286,10 @@ renderWorker.onmessage = e => {
 		// 届かない（iOS Safari 実測＝worker×OffscreenCanvas×WebGPU の present 未接続）。placeholder canvas を
 		// drawImage→getImageData し、全画素ゼロなら WebGL2 で自動再起動（Chrome は正常時 全画素非ゼロを実測確認済）。
 		if (window.__backend === "webgpu") setTimeout(() => {
+			const stay = /[?&]stay=1/.test(location.search);   // 診断閲覧モード＝フォールバックせず留まる（白画面のままエラー行を読む）
 			const bail = why => {
-				console.error(`[boot] WebGPU present 検証失敗（${why}）→ 3秒後に WebGL2 で再起動（GPU診断の到着待ち＝この間に [gpu]/GPU診断 の赤行が出たらそれが根因）`);
+				if (stay) { console.error(`[boot] WebGPU present 検証失敗（${why}）。stay=1＝フォールバック抑止＝このまま診断行を確認してください`); return; }
+				console.error(`[boot] WebGPU present 検証失敗（${why}）→ 3秒後に WebGL2 で再起動（GPU診断の到着待ち）`);
 				sessionStorage.setItem("oj.nogpu", "1");
 				setTimeout(() => location.reload(), 3000);
 			};
