@@ -54,7 +54,8 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 	// A/B 計測用の GPU 識別（WebGL の WEBGL_debug_renderer_info 相当）。info は環境で空の事があるので緩く。
 	const ai = adapter.info || {};
 	const gpuInfo = [ai.vendor, ai.architecture, ai.device, ai.description].filter(Boolean).join(" ") || "unknown";
-	const device = await adapter.requestDevice();
+	const wantTQ = !!(adapter.features && adapter.features.has && adapter.features.has("timestamp-query"));
+	const device = await adapter.requestDevice(wantTQ ? { requiredFeatures: ["timestamp-query"] } : undefined);
 	const ctx = canvas.getContext("webgpu");
 	if (!ctx) throw new Error("webgpu context unavailable");
 	const format = navigator.gpu.getPreferredCanvasFormat();
@@ -62,6 +63,26 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 	ctx.configure({ device, format, alphaMode: "premultiplied", usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC });
 	const isBGRA = format === "bgra8unorm";   // Mac の既定＝readback は BGRA＝RGBA へ swizzle
 	device.addEventListener?.("uncapturederror", e => console.error("[gpu] uncaptured:", e.error?.message || e.error));
+
+	// --- GPU 実時間（timestamp-query）＝GL の EXT_disjoint_timer_query_webgl2 相当 ---
+	// パス単位で begin/end を打ち（writeTimestamp は仕様から撤去済＝pass の timestampWrites 一択）、
+	// flush で resolveQuerySet→staging コピー→mapAsync＝数フレーム遅れの非同期回収（GL と同じ運用）。
+	// 消費者は renderworker の tqFeed：動的解像度の busyMs・GPU格付け(gpuFast＝静止時の手前詳細化)・
+	// perf 行の gpuMap/gpuGint が WebGPU でも復活する。未対応 GPU は tq=null＝従来の壁時計フォールバック。
+	// ⚠Chrome は値を~100µs に量子化＝ms 級のパス計測には十分（GL タイマも同程度のノイズ）。
+	const TQ_N = 16;   // 1フレームの計測パス上限×2（begin/end）。枠切れは打たない＝計測を落とすだけで本業は止めない
+	const tq = wantTQ ? {
+		qs: device.createQuerySet({ type: "timestamp", count: TQ_N }),
+		resolve: device.createBuffer({ size: TQ_N * 8, usage: GPUBufferUsage.QUERY_RESOLVE | GPUBufferUsage.COPY_SRC }),
+		staging: Array.from({ length: 3 }, () => ({ buf: device.createBuffer({ size: TQ_N * 8, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ }), busy: false, spans: null, n: 0 })),
+		idx: 0, spans: [], ready: [],
+	} : null;
+	function passTS(tag) {   // beginRenderPass の timestampWrites（未対応/枠切れ＝undefined＝無計測）
+		if (!tq || tq.idx + 2 > TQ_N) return undefined;
+		const i0 = tq.idx; tq.idx += 2;
+		tq.spans.push({ tag, i0 });
+		return { querySet: tq.qs, beginningOfPassWriteIndex: i0, endOfPassWriteIndex: i0 + 1 };
+	}
 
 	// premultiplied 合成（gl.blendFunc(ONE, ONE_MINUS_SRC_ALPHA) と同じ）
 	const BLEND = {
@@ -712,7 +733,9 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 
 		const t = targets(W, H);
 		const enc = device.createCommandEncoder();
+		if (tq) { tq.idx = 0; tq.spans.length = 0; }   // フレーム開始＝計測枠をリセット（draw→gint→flush で1周）
 		const pass = enc.beginRenderPass({
+			timestampWrites: passTS("map"),
 			colorAttachments: [{
 				view: t.view,
 				loadOp: "clear",
@@ -896,11 +919,37 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 	function flush() {
 		if (!frame) return;
 		const pass = frame.enc.beginRenderPass({
+			timestampWrites: passTS("map"),   // resolve の実費も map に計上
 			colorAttachments: [{ view: frame.colorView, resolveTarget: ctx.getCurrentTexture().createView(), loadOp: "load", storeOp: "discard" }],
 		});
 		pass.end();
+		let st = null;
+		if (tq && tq.idx) {
+			frame.enc.resolveQuerySet(tq.qs, 0, tq.idx, tq.resolve, 0);
+			st = tq.staging.find(s => !s.busy) || null;   // 空きが無い＝そのフレームは計測を落とす（結果詰まりで本業を止めない）
+			if (st) { st.busy = true; st.spans = tq.spans.slice(); st.n = tq.idx; frame.enc.copyBufferToBuffer(tq.resolve, 0, st.buf, 0, tq.idx * 8); }
+		}
 		device.queue.submit([frame.enc.finish()]);
 		frame = null;
+		if (st) {
+			st.buf.mapAsync(GPUMapMode.READ).then(() => {
+				const v = new BigUint64Array(st.buf.getMappedRange(0, st.n * 8));
+				const sums = {};
+				for (const sp of st.spans) {
+					const ms = Number(v[sp.i0 + 1] - v[sp.i0]) / 1e6;
+					if (ms >= 0 && ms < 1e4) sums[sp.tag] = (sums[sp.tag] || 0) + ms;   // 負値/異常値は捨てる（GL の disjoint 相当）
+				}
+				st.buf.unmap(); st.busy = false;
+				for (const tg in sums) tq.ready.push({ tag: tg, ms: sums[tg] });
+			}).catch(() => { st.busy = false; });
+		}
+	}
+	// 回収済み GPU 時間の引き取り口（renderworker の tqPoll から）。未対応=null＝呼び出し側が壁時計へフォールバック
+	function tqTake() {
+		if (!tq) return null;
+		if (!tq.ready.length) return [];
+		const r = tq.ready; tq.ready = [];
+		return r;
 	}
 	// snapshot 基図読み出し（shot/print）：flush 直後（同一タスク・present 前）に current texture を
 	// copyTextureToBuffer→mapAsync で読む。GL の readPixels 相当だが top-down（flip 不要）＋Mac は BGRA＝RGBA へ swizzle。
@@ -978,6 +1027,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 	}
 	// lost：GPU デバイス喪失（WebGL の contextlost と同じ扱いで main が立て直す）
 	// device/format/frameInfo/flush＝gint（createGintLayerGPU）のホスト面：開いたフレームに render pass を足す口。
+	// passTS("gint")＝gint が自分のパスに GPU タイマを打つ口。tqTake/hasTQ＝renderworker の計測回収。
 	return { set, draw, flush, readback, dispose, md: false, mdMax: 0, gintCtx: () => gctx, backend: "webgpu", lost: device.lost,
-		device, format, gpuInfo, frameInfo: () => frame };
+		device, format, gpuInfo, frameInfo: () => frame, passTS, tqTake, hasTQ: !!tq };
 }

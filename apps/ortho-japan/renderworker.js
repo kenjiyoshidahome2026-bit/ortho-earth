@@ -27,14 +27,24 @@ function tqSpan(tag, fn) {
 	tqPending.push({ q, tag });
 }
 function tqPoll() {
+	// WebGPU 経路：renderer 内蔵の timestamp-query（pass単位・非同期回収）を同じ給餌口へ流す。
+	// GL の tqExt と排他（バックエンドはどちらか一方）＝以降の EMA/格付け/perf 行が両バックエンド共通で回る。
+	if (renderer && renderer.tqTake) {
+		const r = renderer.tqTake();
+		if (r) for (const e of r) tqFeed(e.tag, e.ms);
+	}
 	while (tqPending.length) {
 		const { q, tag } = tqPending[0];
 		if (!glRef.getQueryParameter(q, glRef.QUERY_RESULT_AVAILABLE)) break;
 		const ns = glRef.getQueryParameter(q, glRef.QUERY_RESULT);
 		glRef.deleteQuery(q);
 		tqPending.shift();
-		if (!glRef.getParameter(tqExt.GPU_DISJOINT_EXT)) {
-			tqSum[tag] = (tqSum[tag] || 0) + ns / 1e6; tqN[tag] = (tqN[tag] || 0) + 1;
+		if (!glRef.getParameter(tqExt.GPU_DISJOINT_EXT)) tqFeed(tag, ns / 1e6);
+	}
+}
+// GPU 実測1本ぶんの給餌（両バックエンド共通の合流点：GL=tqPoll のクエリ回収／WebGPU=renderer.tqTake）。
+function tqFeed(tag, ms) {
+	tqSum[tag] = (tqSum[tag] || 0) + ms; tqN[tag] = (tqN[tag] || 0) + 1;
 			// GPU格付け（スピードビニング）：物差しは純GPU時間＝ディスプレイ非依存（壁時計dtはvsync量子化＝
 			// 30Hzモニタでは常に33ms＝速いGPUでも永遠に「遅い」判定。動的解像度も同じ壁時計で30Hz環境では
 			// 移動中必ず縮むため resIdx をゲートに使うと恒久falseになる＝両方実測で確認。この計器だけが本丸）。
@@ -44,21 +54,18 @@ function tqPoll() {
 			// M1+dpr2級は重いビューで自然に落選、軽いビューでは昇格＝機種名簿でなくビュー込みの実力で決まる。切替時だけ通知。
 			// 動的解像度用（現解像度の実コスト・map/gint別に追う）。非対称ゲイン＝重くなる方向は即応
 			//（軽ビュー→重ビューのズームで降段が遅れてガクつかない）、軽くなる方向はゆっくり（単発の谷で暴れない）。
-			if (tag === "gint") {
-				const ms = ns / 1e6;
-				gintEmaRaw = gintEmaRaw ? gintEmaRaw + (ms - gintEmaRaw) * (ms > gintEmaRaw ? 0.3 : 0.1) : ms;
-			}
-			if (tag === "map") {
-				const ms = ns / 1e6, s = RES_STEPS[resIdx], msFull = ms / (s * s);
-				gpuEmaRaw = gpuEmaRaw ? gpuEmaRaw + (ms - gpuEmaRaw) * (ms > gpuEmaRaw ? 0.3 : 0.1) : ms;
-				gpuEma = gpuEma ? gpuEma + (msFull - gpuEma) * 0.1 : msFull;
-				if (gpuEma < 17) {
-					if (++gpuFastStreak >= 60 && !gpuFast) { gpuFast = true; self.postMessage({ type: "gpuTier", fast: true }); console.log(`[render] GPU格付け fast（map換算 ${gpuEma.toFixed(1)}ms）＝静止時の手前詳細化を許可`); }
-				} else {
-					gpuFastStreak = 0;
-					if (gpuFast && gpuEma > 24) { gpuFast = false; self.postMessage({ type: "gpuTier", fast: false }); console.log(`[render] GPU格付け slow（map換算 ${gpuEma.toFixed(1)}ms）＝手前詳細化オフ`); }
-				}
-			}
+	if (tag === "gint") {
+		gintEmaRaw = gintEmaRaw ? gintEmaRaw + (ms - gintEmaRaw) * (ms > gintEmaRaw ? 0.3 : 0.1) : ms;
+	}
+	if (tag === "map") {
+		const s = RES_STEPS[resIdx], msFull = ms / (s * s);
+		gpuEmaRaw = gpuEmaRaw ? gpuEmaRaw + (ms - gpuEmaRaw) * (ms > gpuEmaRaw ? 0.3 : 0.1) : ms;
+		gpuEma = gpuEma ? gpuEma + (msFull - gpuEma) * 0.1 : msFull;
+		if (gpuEma < 17) {
+			if (++gpuFastStreak >= 60 && !gpuFast) { gpuFast = true; self.postMessage({ type: "gpuTier", fast: true }); console.log(`[render] GPU格付け fast（map換算 ${gpuEma.toFixed(1)}ms）＝静止時の手前詳細化を許可`); }
+		} else {
+			gpuFastStreak = 0;
+			if (gpuFast && gpuEma > 24) { gpuFast = false; self.postMessage({ type: "gpuTier", fast: false }); console.log(`[render] GPU格付け slow（map換算 ${gpuEma.toFixed(1)}ms）＝手前詳細化オフ`); }
 		}
 	}
 }
@@ -139,7 +146,7 @@ onmessage = e => {
 						gint = createGintLayerGPU(r, { requestDraw: () => { dirty = true; } });
 						console.log("[render] backend=webgpu（Phase 6: 主要描画スタック完走＝基図/標高/地形/深度/建物/等高線/gint/PLATEAU/星空/overlay/idfill/gintBld。md系のみ未搭載）");
 						// A/B 計測：?perf=1 で GPU 識別を1行（WebGL 経路の debug_renderer_info と対）。WebGPU は timestamp-query 未配線＝ema は壁時計で比較
-						if (perfOn) console.log(`[perf] backend=webgpu gpu="${r.gpuInfo}" timerQuery=false（ema は壁時計＝両BE比較可）`);
+						if (perfOn) console.log(`[perf] backend=webgpu gpu="${r.gpuInfo}" timerQuery=${!!r.hasTQ}${r.hasTQ ? "（timestamp-query＝gpuMap/gpuGint 実測・GPU格付け有効）" : "（非対応＝ema 壁時計フォールバック）"}`);
 					}))
 					.catch(err => {
 						console.warn("[render] WebGPU init失敗→WebGL2フォールバック:", err && (err.message || err));
@@ -357,7 +364,7 @@ function tuneRes(drew) {
 	// 解像度を下げて効くのはGPUバウンドの時だけ＝GPU実測が本来の物差し（CPU/カデンス起因のdtで絵を粗くしない）。
 	// gint を足すのが肝：球ビュー（デモ飛行）は gint海岸線 ≫ map＝map単独では総GPU予算超過を見逃す。
 	// 非対応環境（Safari等）は従来の壁時計へフォールバック＝挙動不変。閾値は従来のまま（24/17.5）。
-	const busyMs = tqExt ? gpuEmaRaw + gintEmaRaw : emaMs;
+	const busyMs = (tqExt || (renderer && renderer.hasTQ)) ? gpuEmaRaw + gintEmaRaw : emaMs;   // GPU実測が有る方（GL=tqExt／WebGPU=timestamp-query）を物差しに
 	if (busyMs > 24 && resIdx < RES_STEPS.length - 1) {
 		pendingUp = false;   // また重くなった＝予約中の復帰は取り消し
 		const sOld = RES_STEPS[resIdx];

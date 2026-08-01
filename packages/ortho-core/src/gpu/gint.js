@@ -599,7 +599,7 @@ export function createGintLayerGPU(host, { requestDraw } = {}) {
 		if (idFill) {
 			idRCPU[0] = s.fidStyleW || 1; idRCPU[1] = s.fidStyleCount; idRCPU[2] = s.idOverlapMode ? 1 : 0; idRCPU[3] = 0;
 			device.queue.writeBuffer(idRBuf, 0, idRCPU);
-			const idPass = fr.enc.beginRenderPass({ colorAttachments: [{ view: idTexView, loadOp: "clear", clearValue: { r: 0, g: 0, b: 0, a: 0 }, storeOp: "store" }] });
+			const idPass = fr.enc.beginRenderPass({ timestampWrites: host.passTS?.("gint"), colorAttachments: [{ view: idTexView, loadOp: "clear", clearValue: { r: 0, g: 0, b: 0, a: 0 }, storeOp: "store" }] });
 			idPass.setPipeline(idAccumPipe);
 			idPass.setBindGroup(0, frameBG[GF_FILL]); idPass.setBindGroup(1, paramBG[ROLE.stencil]);
 			idPass.setBindGroup(2, texBG(s.arcTex, s.metaTex)); idPass.setBindGroup(3, aux);
@@ -607,6 +607,7 @@ export function createGintLayerGPU(host, { requestDraw } = {}) {
 			idPass.end();
 		}
 		const pass = fr.enc.beginRenderPass({
+			timestampWrites: host.passTS?.("gint"),   // GPU 実時間＝renderworker の gint スパン（GL の tqSpan("gint") と同格）
 			colorAttachments: [{ view: fr.colorView, loadOp: "load", storeOp: "store" }],
 			depthStencilAttachment: {
 				view: fr.depthView,
