@@ -49,9 +49,10 @@ bake.js・checkZoomRange・findPolygon。terrain・plateau ワーカーも rende
 **B. 性能パスの差**
 - タイル描画は classic CPU merge 固定（md=false）＝multi_draw のタイル GPU 常駐を使わない。密タイル
   （z14+ 都心）で merge のアップロードが WebGL の multi_draw 経路より重い可能性（未計測）。
-- 動的解像度/GPU格付け：WebGPU に timestamp-query（EXT_disjoint_timer_query 相当）を未配線＝renderworker の
-  tqSpan は WebGPU では無計測。動的解像度は壁時計 EMA へフォールバック（動くが粗い）、GPU格付け（静止時の
-  手前詳細化）は WebGPU では立たない。
+- ~~動的解像度/GPU格付け：timestamp-query 未配線~~ → **解消（2026-08-02・19e82b5）**：pass 単位の
+  timestampWrites＋flush で resolve→mapAsync 非同期回収。renderworker の tqFeed（GL と共通の給餌口）へ
+  流し、gpuMap/gpuGint 実測・動的解像度 busyMs・GPU格付け(gpuFast＝静止時の手前詳細化)が WebGPU でも回る。
+  非対応 GPU は従来の壁時計フォールバック。⚠Chrome は timestamp を ~100µs 量子化（ms級計測には十分）。
 
 **C. キャップ/打ち切り**
 - PLATEAU 可視バッチ MAX_PL_BATCH=512 超過＝console.warn を出して打ち切り（超密都心で発生し得る）。
