@@ -956,7 +956,11 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 		}
 		device.queue.submit([frame.enc.finish()]);
 		frame = null;
-		if (st) {
+		// ⚠WebKit(Safari) の轍：submit と同一タスクで mapAsync を呼ぶと canvas present が黙って止まる
+		//（例外・検証エラー・uncaptured 一切なし＝白画面。Playwright WebKit の二分探索で確定 2026-08-02：
+		//  timestampWrites／resolveQuerySet／copyBufferToBuffer は全て無罪、同一タスクの mapAsync だけが毒）。
+		// 別タスク（setTimeout 0）へ剥がすだけで全環境無害・TQ 全機能が生きる＝iOS Safari 白画面の根治。
+		if (st) { setTimeout(() => {
 			st.buf.mapAsync(GPUMapMode.READ).then(() => {
 				const v = new BigUint64Array(st.buf.getMappedRange(0, st.n * 8));
 				const sums = {};
@@ -967,7 +971,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 				st.buf.unmap(); st.busy = false;
 				for (const tg in sums) tq.ready.push({ tag: tg, ms: sums[tg] });
 			}).catch(() => { st.busy = false; });
-		}
+		}, 0); }
 	}
 	// 回収済み GPU 時間の引き取り口（renderworker の tqPoll から）。未対応=null＝呼び出し側が壁時計へフォールバック
 	function tqTake() {
@@ -987,6 +991,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 		const enc = device.createCommandEncoder();
 		enc.copyTextureToBuffer({ texture: ctx.getCurrentTexture() }, { buffer: buf, bytesPerRow: bpr, rowsPerImage: H }, { width: W, height: H });
 		device.queue.submit([enc.finish()]);
+		await new Promise(r => setTimeout(r, 0));   // WebKit 轍の予防：submit と同一タスクの mapAsync は present を止める（TQ で実証）
 		await buf.mapAsync(GPUMapMode.READ);
 		const src = new Uint8Array(buf.getMappedRange());
 		const out = new Uint8Array(W * H * 4);

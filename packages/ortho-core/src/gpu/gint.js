@@ -759,14 +759,15 @@ export function createGintLayerGPU(host, { requestDraw } = {}) {
 		enc.copyTextureToBuffer({ texture: pickTex, origin: { x: pickX, y: pickY } }, { buffer: pickBuf, bytesPerRow: 256 }, { width: 1, height: 1 });
 		device.queue.submit([enc.finish()]);
 		prInFlight = { data };
-		pickBuf.mapAsync(GPUMapMode.READ).then(() => {
+		// WebKit 轍の予防：submit と同一タスクの mapAsync は canvas present を黙って止める（renderer.js の TQ で実証）＝別タスクへ
+		setTimeout(() => pickBuf.mapAsync(GPUMapMode.READ).then(() => {
 			const px = new Uint8Array(pickBuf.getMappedRange(0, 4)).slice();
 			pickBuf.unmap();
 			const pr = prInFlight; prInFlight = null;
 			if (!pr) return;
 			finishIdentify(px, pr.data);
 			if (pr.next) { s.lastMX = NaN; doIdentify(pr.next.data); }
-		}).catch(() => { prInFlight = null; });   // destroy 中の map 失敗は握る
+		}).catch(() => { prInFlight = null; }), 0);   // destroy 中の map 失敗は握る
 	}
 	function finishIdentify(px, data) {
 		const fid1 = px[0] | (px[1] << 8) | (px[2] << 16);
