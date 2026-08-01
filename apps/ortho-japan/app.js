@@ -229,10 +229,24 @@ const noMixedR01 = /[?&]nor01=1/.test(location.search);
 // ＝このタブセッションは WebGL2 固定（タブを閉じれば解除）。iOS Safari 実測 2026-08-02：backend=webgpu ログまで
 // 進むが画面に画素が届かない（worker×OffscreenCanvas×WebGPU の present 未接続系）＝例外ゼロの沈黙故障。
 const gpuBackend = /[?&]gpu=1/.test(location.search) && !sessionStorage.getItem("oj.nogpu");
+// stay=1 の診断HUD：コンソールを見なくても分かるよう、判定を画面へ大書（iOS 実機診断 2026-08-02）
+const diagHud = /[?&]stay=1/.test(location.search) ? (() => {
+	const d = document.createElement("div");
+	d.style.cssText = "position:fixed;left:8px;top:8px;z-index:99999;background:rgba(0,0,0,.82);color:#7f7;font:13px/1.5 monospace;padding:8px 10px;border-radius:8px;max-width:86vw;word-break:break-all;white-space:pre-wrap";
+	d.textContent = "診断HUD 起動…";
+	addEventListener("DOMContentLoaded", () => document.body.appendChild(d));
+	if (document.body) document.body.appendChild(d);
+	const t0 = performance.now();
+	const lines = new Map();
+	const put = (k, v) => { lines.set(k, v); d.textContent = [...lines.entries()].map(([a, b]) => a + ": " + b).join("\n"); };
+	put("経過", "0s"); setInterval(() => put("経過", ((performance.now() - t0) / 1000).toFixed(0) + "s"), 1000);
+	put("frame1", "未着 ✗");
+	return put;
+})() : null;
 if (/[?&]gpu=1/.test(location.search) && !gpuBackend) console.warn("[boot] 前回 WebGPU の present 検証に失敗＝このセッションは WebGL2 固定（タブを閉じると再試行）");
 // ?noterr=1 ＝標高（アトラス・地形メッシュ・タイルLRU）を丸ごと停止する A/B 計測ノブ（?nogint=1 と同格）。
 const noTerr = /[?&]noterr=1/.test(location.search);
-renderWorker.postMessage({ type: "init", canvas: offscreen, labelCanvas: labelOffscreen, elevBase: TERR_EXAG / EARTH_M, terrainExag: TERR_EXAG, earthM: EARTH_M, apiUrl: "https://api.ortho-earth.com", scenePort: sceneChan.port2, noMultiDraw, perf: perfLog, mem: memHud, lowMem: LOW_MEM, noMixed: noMixedR01, gpu: gpuBackend, noTQ: /[?&]notq=1/.test(location.search), noTerr }, [offscreen, labelOffscreen, sceneChan.port2]);
+renderWorker.postMessage({ type: "init", canvas: offscreen, labelCanvas: labelOffscreen, elevBase: TERR_EXAG / EARTH_M, terrainExag: TERR_EXAG, earthM: EARTH_M, apiUrl: "https://api.ortho-earth.com", scenePort: sceneChan.port2, noMultiDraw, perf: perfLog, mem: memHud, lowMem: LOW_MEM, noMixed: noMixedR01, gpu: gpuBackend, noTQ: /[?&]notq=1/.test(location.search), noGint: /[?&]nogint=1/.test(location.search), noTerr }, [offscreen, labelOffscreen, sceneChan.port2]);
 // 薄いプロキシ：有線(関数呼び)を無線(postMessage)に載せ替え。set/draw 統一済なので pipeline/overlay は無改造。
 // draw は worker 側で「cam を記録するだけ」に受け、実描画は worker 自前 rAF が最新 cam で回す（worker-driven）。
 // 標高アトラス(terrain)も worker 側に住む＝main はもう視野→セル計算・ダウンサンプルを一切やらない。読込インジケータだけ elevPending で受ける。
@@ -282,13 +296,14 @@ renderWorker.onmessage = e => {
 		clearTimeout(bootT); bootT = null; window.__backend = d.backend || "webgl2"; sessionStorage.removeItem("oj.ctxlost");   // 初描画成功＝自動リロード回数もリセット。__backend＝スモークテスト用（webgl2/webgpu）
 		document.getElementById("fatal")?.remove();   // 遅い回線でウォッチドッグ(10s)が先に出た後の遅着 frame1＝案内を畳む（地図は生きているのに被さったまま＝「何も出ない」の正体・モバイル実測 2026-08-02）
 		console.log(`[boot] frame1 受信 backend=${window.__backend}`);
+		diagHud && diagHud("frame1", `受信 ✓ backend=${window.__backend}`);
 		// WebGPU の present 検証：worker 側は例外ゼロで描けている「つもり」でも、環境によっては canvas に画素が
 		// 届かない（iOS Safari 実測＝worker×OffscreenCanvas×WebGPU の present 未接続）。placeholder canvas を
 		// drawImage→getImageData し、全画素ゼロなら WebGL2 で自動再起動（Chrome は正常時 全画素非ゼロを実測確認済）。
 		if (window.__backend === "webgpu") setTimeout(() => {
 			const stay = /[?&]stay=1/.test(location.search);   // 診断閲覧モード＝フォールバックせず留まる（白画面のままエラー行を読む）
 			const bail = why => {
-				if (stay) { console.error(`[boot] WebGPU present 検証失敗（${why}）。stay=1＝フォールバック抑止＝このまま診断行を確認してください`); return; }
+				if (stay) { console.error(`[boot] WebGPU present 検証失敗（${why}）。stay=1＝フォールバック抑止＝このまま診断行を確認してください`); diagHud && diagHud("present", `失敗 ✗（${why}）`); return; }
 				console.error(`[boot] WebGPU present 検証失敗（${why}）→ 3秒後に WebGL2 で再起動（GPU診断の到着待ち）`);
 				sessionStorage.setItem("oj.nogpu", "1");
 				setTimeout(() => location.reload(), 3000);
@@ -300,7 +315,7 @@ renderWorker.onmessage = e => {
 				const px = g.getImageData(0, 0, 16, 16).data;
 				let nz = 0; for (let i = 0; i < px.length; i += 4) if (px[i] | px[i + 1] | px[i + 2] | px[i + 3]) nz++;
 				if (nz === 0) bail("画素が canvas に届いていない");
-				else console.log(`[boot] WebGPU present 検証OK（画素 ${nz}/256）`);
+				else { console.log(`[boot] WebGPU present 検証OK（画素 ${nz}/256）`); diagHud && diagHud("present", `OK ✓ 画素${nz}/256`); }
 			} catch (e) { bail("検証中の例外: " + (e && e.message)); }
 		}, 1500);
 		return;
@@ -308,6 +323,7 @@ renderWorker.onmessage = e => {
 	if (d.type === "drawErr") {   // worker の draw 例外（初回のみ）＝毎フレーム失敗系の一次診断。モバイルは worker コンソールが見づらい＝main 側へ転写
 		console.error("[render] draw失敗（worker報告・一度だけ）:", d.msg, d.stack);
 		window.__drawErr = d.msg;
+		diagHud && diagHud("GPUエラー", d.msg.slice(0, 300));
 		return;
 	}
 	if (d.type === "glfail") {
@@ -365,7 +381,7 @@ let moving = false, settleT = null;
 // 全国 300 市区町村分は scripts/plateau-catalog-build.mjs で datacatalog API から生成＝public/plateau-sets.json を起動時に fetch。
 // opts.plateau=false＝建物3D機能ごと停止：カタログ・workerプール・自動ロード・データ管理ガジェットの全部
 //（1地区あたり数十〜百MB級の重い機能＝軽い埋め込みが丸ごと切れる口。UIのchips/instrumentsと対になる機能側スイッチ）。
-const plateauOn = opts.plateau !== false;
+const plateauOn = opts.plateau !== false && !/[?&]nopl=1/.test(location.search);   // ?nopl=1＝建物3D層別切り（iOS診断）
 let PLATEAU_SETS = [];
 // カタログ到着の合図＝デモの先読み（prefetchPlateauForViews）が待つ。到着時の自動ロードは従来どおり。
 const plateauCatalogReady = !plateauOn ? Promise.resolve() :

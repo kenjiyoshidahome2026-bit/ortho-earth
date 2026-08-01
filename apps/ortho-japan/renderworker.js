@@ -149,7 +149,7 @@ onmessage = e => {
 							setTimeout(() => { if (r.gpuErrors.length) postMessage({ type: "drawErr", msg: "GPU診断 " + r.gpuErrors.length + "件: " + r.gpuErrors.slice(0, 4).join(" ｜ "), stack: r.gpuErrors.join("\n").slice(0, 800) }); }, 2500);
 						}, 400);
 						// gint（知性の層）＝renderer の frame（開いたエンコーダ）へ自分の render pass を足す＝1canvas統合の WebGPU 形。
-						gint = createGintLayerGPU(r, { requestDraw: () => { dirty = true; } });
+						if (!m.noGint) gint = createGintLayerGPU(r, { requestDraw: () => { dirty = true; } });   // ?nogint=1＝gint 層別切り（iOS診断）
 						console.log("[render] backend=webgpu（Phase 6: 主要描画スタック完走＝基図/標高/地形/深度/建物/等高線/gint/PLATEAU/星空/overlay/idfill/gintBld。md系のみ未搭載）");
 						// A/B 計測：?perf=1 で GPU 識別を1行（WebGL 経路の debug_renderer_info と対）。WebGPU は timestamp-query 未配線＝ema は壁時計で比較
 						if (perfOn) console.log(`[perf] backend=webgpu gpu="${r.gpuInfo}" timerQuery=${!!r.hasTQ}${r.hasTQ ? "（timestamp-query＝gpuMap/gpuGint 実測・GPU格付け有効）" : "（非対応＝ema 壁時計フォールバック）"}`);
