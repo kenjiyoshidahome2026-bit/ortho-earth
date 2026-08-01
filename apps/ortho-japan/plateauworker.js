@@ -139,7 +139,10 @@ async function decodeBatch(base, leaves, wardMask, wardBbox, onTile = null, brid
 		while (ti < leaves.length) {
 			if (stop?.()) return;   // 協調キャンセル：離脱区の残りタイルは fetch しない（帯域を現役区へ返す）
 			if (laneOf?.() === "slow") {
-				if (wi > 0) return;                            // slow lane＝並行1本へ縮退（残りの worker は降りる）
+				// slow lane＝実働1本へ縮退。残りは「待機」＝promote(fast復帰)の瞬間に全並行が即蘇る。
+				// 旧・return で降ろすと復帰後も現行バッチの末尾まで1本のまま＝復帰直後の目の前のバッチ
+				//（近傍優先ソートの先頭）が直列で這う＝「必要になっても回復しない」体感（Kenji 指摘 2026-08-02）。
+				if (wi > 0) { await new Promise(r => setTimeout(r, 300)); continue; }
 				await new Promise(r => setTimeout(r, 250));    // 間隔を空けて帯域/CPUを現地点の fast ロードへ明け渡す
 			}
 			const t = leaves[ti++];
