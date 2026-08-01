@@ -320,6 +320,10 @@ renderWorker.onmessage = e => {
 		}, 1500);
 		return;
 	}
+	if (d.type === "beat") {   // stay診断：workerフレームループの実行回数（rAF発火の生死判定）
+		diagHud && diagHud("frameループ", `${d.n}回（ポンプ駆動 ${d.pump}回）${d.n === 0 ? " ✗rAF未発火" : ""}`);
+		return;
+	}
 	if (d.type === "gpuPix") {   // stay診断：present 前の GPU テクスチャ実画素（rendering と present の切り分け）
 		console.log(`[boot] GPU内画素 ${d.nz}/${d.total}（present前読み戻し）`);
 		diagHud && diagHud("GPU内画素", `${d.nz}/${d.total} ${d.nz > 0 ? "→描画は生きている＝present側の問題" : "→クリアすら不在＝submit側の問題"}`);

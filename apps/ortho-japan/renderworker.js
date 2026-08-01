@@ -13,6 +13,19 @@ let terrain = null, pendingLabels = null;   // pendingLabels: cam 未着で標�
 // ?perf=1（init.perf）＝2秒毎にフレーム内訳を console へ：map/gint の CPU 発行時間・フレームEMA・JSヒープ・解像度段。
 let perfOn = false, pfN = 0, pfMap = 0, pfGint = 0, pfLast = 0;
 let stayProbe = 0;   // stay診断：frame1 後に present 前テクスチャを1回読み戻し＝rendering/present の切り分け
+// ⚠iOS WebKit の疑い（2026-08-02）：WebGPU を構成した OffscreenCanvas の worker では rAF が一度も発火しない
+// （WebGL2 なら発火＝日常動作。probe は初回描画が同期だったため見逃した）。rAF を一元武装（rafArmed）し、
+// ポンプ（33ms 間隔）が「最後の frame 実行から 100ms 以上」を検知したら手動で frame() を回す＝自己修復。
+// 健全環境は rAF が 16ms で回る＝ポンプは常に不発（無害）。frameTicks は stay 診断 HUD 用の実行回数。
+let rafArmed = false, lastFrameRun = 0, frameTicks = 0, pumpTicks = 0;
+function armRaf() {
+	if (rafArmed) return;
+	rafArmed = true;
+	requestAnimationFrame(() => { rafArmed = false; frame(); });
+}
+setInterval(() => {
+	if (renderer && performance.now() - lastFrameRun > 100) { pumpTicks++; frame(); }
+}, 33);
 // ?mem=1（init.mem）＝常駐メモリ台帳を main へ~2Hzで送る（terrain の LRU バイト＋JSヒープ）。main が plateau/tiles と合算して HUD 表示。
 let memOn = false, memLast = 0;
 // GPU 実時間（EXT_disjoint_timer_query_webgl2）：CPU発行が0.1msでも ema が33ms＝「GPUが重い」のか
@@ -119,7 +132,7 @@ function finishInit(m) {
 		// renderer の能力表明＝scene worker のモードを確定させる（multi_draw か CPU merge フォールバックか）
 		m.scenePort.postMessage({ type: "mode", md: renderer.md, maxDraws: renderer.mdMax });
 	}
-	requestAnimationFrame(frame);                        // worker 自前の描画ループ開始
+	armRaf();                                            // worker 自前の描画ループ開始（rAF一元武装＋飢餓ポンプ併走）
 }
 
 let initQueue = null;   // WebGPU 非同期init中に届いたメッセージの待避列（backend確定後に元の順で再投入＝取りこぼさない）
@@ -134,6 +147,7 @@ onmessage = e => {
 			labelLayer = createLabelLayer(labelCanvas, { shieldFor, elevBase: m.elevBase });
 			perfOn = !!m.perf;
 			stayProbe = m.stay ? 1 : 0;
+			if (m.stay) setInterval(() => postMessage({ type: "beat", n: frameTicks, pump: pumpTicks, raf: !rafArmed ? "idle" : "armed" }), 1000);
 			memOn = !!m.mem;
 			self.__perfElev = perfOn;   // renderer の標高パイプライン計器（[elev] 行）を点灯
 			if (m.gpu) {
@@ -411,6 +425,7 @@ function ensureIfMoved(c) {
 // try/catch：draw中の例外が末尾の requestAnimationFrame に到達しないとループが永久死＝最後のフレームで凍結する。
 // 失敗フレームは落として次フレームへ（エラーはconsoleに出す＝原因調査可能なまま画は生き続ける）。
 function frame() {
+	lastFrameRun = performance.now(); frameTicks++;
 	let drew = false;
 	try {
 		drainUploads();   // 重いGPU転送（シーン/PLATEAU）の平準化＝1件/フレーム。dirty を立てる＝同フレームの下の描画で反映
@@ -486,5 +501,5 @@ function frame() {
 			console.log(`[render] 動的解像度 ↑ ×${RES_STEPS[resIdx]}（静止時適用）`);
 		}
 	}
-	requestAnimationFrame(frame);
+	armRaf();
 }
