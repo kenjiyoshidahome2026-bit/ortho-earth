@@ -239,6 +239,7 @@ const diagHud = /[?&]stay=1/.test(location.search) ? (() => {
 	const t0 = performance.now();
 	const lines = new Map();
 	const put = (k, v) => { lines.set(k, v); d.textContent = [...lines.entries()].map(([a, b]) => a + ": " + b).join("\n"); };
+	put("build", "v-ctrl2");
 	put("経過", "0s"); setInterval(() => put("経過", ((performance.now() - t0) / 1000).toFixed(0) + "s"), 1000);
 	setInterval(() => put("main送信", `draw ${window.__drawSendN || 0}回${window.__drawSendErr ? " 送信エラー:" + window.__drawSendErr : ""}`), 1000);
 	put("frame1", "未着 ✗");
@@ -329,9 +330,15 @@ renderWorker.onmessage = e => {
 		}, 1500);
 		return;
 	}
+	if (d.type === "pingReq") {   // stay診断：両チャネルで即応答＝どちらが届くかをworker側で数える
+		try { renderWorker.postMessage({ type: "pongD" }); } catch {}
+		try { wPost({ type: "pongC" }); } catch {}
+		return;
+	}
 	if (d.type === "beat") {   // stay診断：ループ実行数＋描画ゲートの生死（dirty/cam/draw受信）
 		diagHud && diagHud("frameループ", `${d.n}回（ポンプ${d.pump}）`);
 		diagHud && diagHud("ゲート", `draw受信${d.drawMsgN}回 cam=${d.hasCam ? "✓" : "✗"} dirty=${d.dirty ? "✓" : "✗"} renderer=${d.hasRenderer ? "✓" : "✗"} frame1送信=${d.sentFrame1 ? "✓" : "✗"}`);
+		diagHud && diagHud("配達", `pong直結${d.pongD} ポート${d.pongC} 自己${d.loopN}`);
 		return;
 	}
 	if (d.type === "gpuPix") {   // stay診断：present 前の GPU テクスチャ実画素（rendering と present の切り分け）

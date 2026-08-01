@@ -19,6 +19,7 @@ let stayProbe = 0;   // stay診断：frame1 後に present 前テクスチャを
 // 健全環境は rAF が 16ms で回る＝ポンプは常に不発（無害）。frameTicks は stay 診断 HUD 用の実行回数。
 let rafArmed = false, lastFrameRun = 0, frameTicks = 0, pumpTicks = 0;
 let drawMsgN = 0;   // stay診断：main からの draw 受信回数（cam/dirty の給餌が届いているか）
+let pongD = 0, pongC = 0, loopN = 0;   // stay診断：main→worker 直結/ポートの生死＋worker内ループバック（message イベント配給の飢餓判定）
 function armRaf() {
 	if (rafArmed) return;
 	rafArmed = true;
@@ -149,7 +150,12 @@ onmessage = e => {
 			labelLayer = createLabelLayer(labelCanvas, { shieldFor, elevBase: m.elevBase });
 			perfOn = !!m.perf;
 			stayProbe = m.stay ? 1 : 0;
-			if (m.stay) setInterval(() => postMessage({ type: "beat", n: frameTicks, pump: pumpTicks, dirty, hasCam: !!cam, hasRenderer: !!renderer, drawMsgN, sentFrame1 }), 1000);
+			if (m.stay) {
+				setInterval(() => postMessage({ type: "beat", n: frameTicks, pump: pumpTicks, dirty, hasCam: !!cam, hasRenderer: !!renderer, drawMsgN, sentFrame1, pongD, pongC, loopN }), 1000);
+				const lc = new MessageChannel();   // worker内ループバック＝message イベント配給そのものの生死
+				lc.port1.onmessage = () => { loopN++; };
+				setInterval(() => { lc.port2.postMessage(1); postMessage({ type: "pingReq" }); }, 500);
+			}
 			memOn = !!m.mem;
 			self.__perfElev = perfOn;   // renderer の標高パイプライン計器（[elev] 行）を点灯
 			if (m.gpu) {
@@ -214,6 +220,8 @@ onmessage = e => {
 			else if (renderer) renderer.set(m.cmd, m.data, m.prop);              // view/overlay/elev…
 			dirty = true;                                        // 内容が変わった→描き直す
 			break;
+		case "pongD": pongD++; break;   // stay診断：main→worker 直結チャネルの配達実証
+		case "pongC": pongC++; break;   // stay診断：main→worker ctrlPort の配達実証
 		case "draw":                                             // main からは cam を記録するだけ（実描画は rAF）
 			drawMsgN++;
 			cam = m.cam; opts = m.opts; dirty = true;
@@ -504,5 +512,5 @@ function frame() {
 			console.log(`[render] 動的解像度 ↑ ×${RES_STEPS[resIdx]}（静止時適用）`);
 		}
 	}
-	armRaf();
+	if (cam || dirty) armRaf();   // cam未着のアイドル期は rAF を寝かせる（ポンプが10Hzで駆動）＝iOSのmessage配給飢餓仮説の治癒窓
 }
