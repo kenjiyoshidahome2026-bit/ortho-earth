@@ -366,8 +366,8 @@ let flying = false;                        // フライト中フラグ＝autoPla
 const plateauActive = new Map();           // 表示中の地区（renderer で vis=on）：name → set({name,base,bbox})
 const plateauResident = new Map();         // GPUにVAOが乗っている地区（表示中＋非表示）：name → set。Map挿入順＝LRU
 const plateauLoading = new Set();          // fetch/デコード中の地区名（二重発火防止）
-const plateauAutoLoading = new Map();      // autoPlateau 発のロード中地区：name → set。視界確定時の fast/slow レーン切替対象（手動/プレロードは含めない）
-const plateauDemoted = new Set();          // slow lane（在庫化）中の地区名。再訪で promote＝fast 復帰
+const plateauAutoLoading = new Map();      // autoPlateau 発のロード中地区：name → set。視界確定時のキャンセル対象（手動/プレロードは含めない）
+const plateauCancelling = new Set();       // 視界外→キャンセル送信済みの地区名。bldCap から除外＋再訪は promote で即再開（un-cancel）。部分はIDBに残る
 let plateauPrefetchBusy = false;           // デモ先読みが直列デコード中＝autoPlateau の建物枠を1つ譲る（総同時2区の保証）
 const plateauFailed = new Set();           // 葉0枚/デコード失敗の地区名＝廃止区(浜松西区22133等)の残骸。二度と掴まない（毎onMoveの再挑戦スパムを断つ）
 let plateauPinned = new Set();             // 台本 plateau: リスト記載の地区名＝視界内なら選抜キャップ無視で強制表示（デモ▶で設定・カタカタ根治）
@@ -534,9 +534,9 @@ async function runPrefetch(wanted, how) {
 		// 【本番最優先】①可視の自動ロード（PLATEAUシーンで今まさに立てている区）②標高タイル読込
 		//（elevBusy＝地形シーンの起伏。iPhone13実測：▶直後から全速の先読みが富士山〜阿蘇帯で標高タイルと
 		// 帯域/IDBを取り合い「標高が表示されない」）——のどちらかが走っている間は次の先読みを始めない＝
-		// 帯域・Dracoデコード・IDB書き込みを全部シーンへ明け渡す。demoted（在庫slow）は待たない＝背景同士。
+		// 帯域・Dracoデコード・IDB書き込みを全部シーンへ明け渡す。キャンセル中の区は待たない＝もう畳んでいる。
 		// 既に走っている先読みは中断しない（多くは同区で inflight 合流する）。
-		const visibleBusy = () => elevBusy || [...plateauAutoLoading.keys()].some(n => !plateauDemoted.has(n));
+		const visibleBusy = () => elevBusy || [...plateauAutoLoading.keys()].some(n => !plateauCancelling.has(n));
 		let wi = 0;
 		const pump = async () => {
 			for (;;) {
@@ -604,15 +604,17 @@ function autoPlateau(settled = false) {
 		const dy = Math.max(s.bbox[1] - cam.center[1], 0, cam.center[1] - s.bbox[3]);
 		if (dx * dx + dy * dy > PLATEAU_FAR_DEG * PLATEAU_FAR_DEG) { plateauEvict(name); console.log("[plateau] 遠方→常駐解除", name); }
 	}
-	// 視界確定時のレーン切替：欲しい集合(wanted)に居ない自動ロードを slow lane（在庫化）へ降格。
-	// worker は並行1本＋間隔空けへ縮退し送信も保留＝帯域/CPU/クレジットが現地点の fast ロードへ返る。
-	// 在庫はそのまま完走して IDB＋非表示常駐に落ちる＝捨てない（通過した区は「さりげない仕込み」になる）。
-	const demoteStale = (wanted) => {
+	// 視界確定時のキャンセル：欲しい集合(wanted)に居ない自動ロードを中止＝帯域/CPU/クレジット/デコードメモリを
+	// 現地点の新規ロードへ全部返す（worker はバッチ境界で自分から降りる＝協調キャンセル）。★捨てない：完成済み
+	// バッチは逐次 IDB（partial）へ書けているので、戻れば idbLoadPartial が「続きから」読む＝通過した区は仕込み
+	// として残る。以前は slow lane 完走で在庫化していたが、画面外の重い区（千代田=463タイル等）が延々走り続けて
+	// 「PLATEAUの読み込みが全般に遅い」の主因になった（Kenji 指摘 2026-08-01）＝止めて部分保持へ切替。
+	const cancelStale = (wanted) => {
 		for (const [name, s] of plateauAutoLoading) {
-			if (wanted?.has(name) || plateauDemoted.has(name)) continue;
-			plateauWorkers[hashStr(s.base) % PLATEAU_NW].postMessage({ type: "demote", base: s.base });
-			plateauDemoted.add(name);
-			console.log("[plateau] 視界確定・現地点優先→在庫化(slow)", name);
+			if (wanted?.has(name) || plateauCancelling.has(name)) continue;
+			plateauWorkers[hashStr(s.base) % PLATEAU_NW].postMessage({ type: "cancel", base: s.base });
+			plateauCancelling.add(name);   // bldCap から除外＝新規区を塞がない。"cancelled" 完了で .finally が全集合から除去
+			console.log("[plateau] 視界外→ロード中止（部分IDB保持・再訪で続きから）", name);
 		}
 	};
 	// ロード中があれば最新カメラを worker 群へ放送（~4Hz）＝バッチ境界の残タイル再ソートで「今見ている側」から立つ。
@@ -625,7 +627,7 @@ function autoPlateau(settled = false) {
 	//（Kenji決定 2026-07-23「平面＋3D」：真俯瞰=筆界/ユーザー層、チルト=地形/建物）。傾けた瞬間の
 	// settle で従来どおり自動ロード。常駐（VRAM保持）は触らない＝チルト再開はタダのまま。
 	if (cam.zoom < PLATEAU_AUTO_Z || (cam.pitch || 0) < 0.02) {
-		if (settled) demoteStale(null);   // ズームアウト/真俯瞰で確定＝表示に急ぎは無い。全ロードを slow で完走させ IDB へ
+		if (settled) cancelStale(null);   // ズームアウト/真俯瞰で確定＝3Dは描かれない＝全ロード中止（部分IDB保持・再訪で続きから）
 		for (const name of plateauActive.keys()) { plateauHide(name); console.log("[plateau] 範囲外→非表示", name); }
 		if (plateauActive.size) needsDraw = true;
 		plateauActive.clear();
@@ -664,7 +666,7 @@ function autoPlateau(settled = false) {
 	const hits = capMerge(hitsAll.filter(s => !s.noMask).sort(near), PLATEAU_MAX_ACTIVE)
 		.concat(capMerge(hitsAll.filter(s => s.noMask).sort(near), PLATEAU_EXTRA_ACTIVE));
 	const hitNames = new Set(hits.map(h => h.name));
-	if (settled) demoteStale(hitNames);   // 視界確定＝現地点の優先度MAX。視界外の在庫ロードは slow へ
+	if (settled) cancelStale(hitNames);   // 視界確定＝現地点の優先度MAX。視界外の自動ロードは中止（部分IDB保持・再訪で続きから）
 	for (const name of [...plateauActive.keys()]) {
 		if (hitNames.has(name)) continue;
 		plateauActive.delete(name); plateauHide(name); needsDraw = true;
@@ -673,10 +675,10 @@ function autoPlateau(settled = false) {
 	for (const h of hits) {
 		if (plateauActive.has(h.name)) continue;
 		if (plateauLoading.has(h.name)) {
-			if (plateauDemoted.has(h.name)) {   // 在庫化中の区へ戻ってきた→fast 復帰（送信バックログもバッチ境界で追いつく）
-				plateauDemoted.delete(h.name);
-				plateauWorkers[hashStr(h.base) % PLATEAU_NW].postMessage({ type: "promote", base: h.base });
-				console.log("[plateau] 再訪→fast復帰", h.name);
+			if (plateauCancelling.has(h.name)) {   // キャンセル送信中の区へ戻ってきた→即再開（旗を降ろす＝worker はメモリ上のバッチから続行・IDB往復不要）
+				plateauCancelling.delete(h.name);
+				plateauWorkers[hashStr(h.base) % PLATEAU_NW].postMessage({ type: "promote", base: h.base });   // promote＝un-cancel（cancelled 旗を降ろして続行）
+				console.log("[plateau] 再訪→ロード再開", h.name);
 			}
 			continue;
 		}
@@ -695,9 +697,13 @@ function autoPlateau(settled = false) {
 		// autoPlateau（settle毎）で再挑戦＝手前優先の順のまま自然に順番待ちになる。
 		// デモ先読み中は枠を1つ譲る＝先読み込みで総同時2区を保証（先読み+auto2区=3区同時が「14G級」の残犯）。
 		const bldCap = Math.max(1, (LOW_MEM ? 1 : 2) - (plateauPrefetchBusy ? 1 : 0));
-		if (!h.noMask && [...plateauAutoLoading.values()].filter(s => !s.noMask).length >= bldCap) continue;
+		// bldCap（同時デコードのメモリ上限）はアクティブな区だけで数える＝キャンセル送信済みの区は数えない。
+		// これを数えると「画面外の古い区（例：千代田=463タイル）」が枠を占め続け、今見ている区の新規ロードを塞ぐ
+		// （実測：東京→名古屋→大阪で名古屋以降が読まれなかった＝旧・在庫slow時代の主症状）。キャンセル済みは
+		// バッチ境界で降りる＝すぐ枠が空く。
+		if (!h.noMask && [...plateauAutoLoading.values()].filter(s => !s.noMask && !plateauCancelling.has(s.name)).length >= bldCap) continue;
 		plateauLoading.add(h.name);
-		plateauAutoLoading.set(h.name, h);   // 視界確定時のレーン切替対象へ
+		plateauAutoLoading.set(h.name, h);   // 視界確定時のキャンセル対象へ
 		console.log("[plateau] 自動ロード →", h.name);
 		loadPlateau(h.base, undefined, h.name, h.noMask ? null : h.bbox, h.noMask)   // noMask（橋梁等）＝マスク不参加＋橋梁モード（バッチ接地・両面）
 			.then(ok => {
@@ -723,7 +729,7 @@ function autoPlateau(settled = false) {
 			})
 			.catch(e => { plateauFailed.add(h.name); console.warn("[plateau] 読み込み失敗のためスキップ:", h.name, e.message || e); })   // 一回だけ
 			.finally(() => {
-				plateauLoading.delete(h.name); plateauAutoLoading.delete(h.name); plateauDemoted.delete(h.name);
+				plateauLoading.delete(h.name); plateauAutoLoading.delete(h.name); plateauCancelling.delete(h.name);
 				// 同時2区制限であぶれた区の補充＝枠が空いた瞬間に再選抜（静止シーン中はonMoveが来ない＝これが無いと
 				// 3区目以降が次のカメラ操作まで立たない）。failed/cancelled はそれぞれのガードが再発火を止める。
 				if (!moving) autoPlateau(true);
