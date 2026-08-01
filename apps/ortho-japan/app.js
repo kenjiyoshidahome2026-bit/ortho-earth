@@ -240,6 +240,7 @@ const diagHud = /[?&]stay=1/.test(location.search) ? (() => {
 	const lines = new Map();
 	const put = (k, v) => { lines.set(k, v); d.textContent = [...lines.entries()].map(([a, b]) => a + ": " + b).join("\n"); };
 	put("経過", "0s"); setInterval(() => put("経過", ((performance.now() - t0) / 1000).toFixed(0) + "s"), 1000);
+	setInterval(() => put("main送信", `draw ${window.__drawSendN || 0}回${window.__drawSendErr ? " 送信エラー:" + window.__drawSendErr : ""}`), 1000);
 	put("frame1", "未着 ✗");
 	return put;
 })() : null;
@@ -252,7 +253,10 @@ renderWorker.postMessage({ type: "init", canvas: offscreen, labelCanvas: labelOf
 // 標高アトラス(terrain)も worker 側に住む＝main はもう視野→セル計算・ダウンサンプルを一切やらない。読込インジケータだけ elevPending で受ける。
 const renderer = {
 	set: (cmd, data, prop) => renderWorker.postMessage({ type: "set", cmd, data, prop }),
-	draw: (cam, opts) => renderWorker.postMessage({ type: "draw", cam, opts }),
+	draw: (cam, opts) => {
+		try { renderWorker.postMessage({ type: "draw", cam, opts }); window.__drawSendN = (window.__drawSendN || 0) + 1; }
+		catch (e) { window.__drawSendErr = String(e && e.message); console.error("[boot] draw送信失敗:", e); }
+	},
 };
 let elevBusy = false;   // 標高タイル（R01/R10/R90）読込中＝PLATEAU先読みの柵（デモの地形シーンで起伏が立たない事故の防止）
 const elevEl = document.createElement("div");
