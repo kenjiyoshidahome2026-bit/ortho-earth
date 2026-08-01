@@ -113,6 +113,12 @@ bake.js・checkZoomRange・findPolygon。terrain・plateau ワーカーも rende
 - **PLATEAU 被覆マスクの visibility 轍**：per-batch UBO の `cullBack`(meshOrigin.w) は **FS が読む**＝
   bind group layout の visibility は VERTEX|FRAGMENT 両方（VERTEX だけだと「Fragment stage not in binding
   visibility」で pipeline 作成が落ちる）。マスクは r8unorm・区単位・active 集合が変わった時だけ bind group 再構築。
+- **skipMain の等価性（滑走シーン抜けの轍・2026-08-01 修正済）**：skipMain（ズームアウト中の古い詳細シーン退場）が
+  伏せてよいのは**タイル slots と建物 bld だけ**（GL 720/819 と同一）。移植時に PLATEAU/gintBld にも `!skipMain` を
+  発明して掛けていた→ classic merge（WebGPU は恒常）は滑走中に merge が追いつかず skipMain が長く立つ＝**街ごと
+  消える**（東京駅〜丸の内の glide で gpu 単独のシーン抜け・実機報告→CDP 温間三者比較で確定）。GL は PLATEAU を
+  show3d のみ・gintBld を無条件で描く＝基図退場中も街は立ち続ける。教訓＝退場フラグの適用範囲は GL 本文と突き合わせる
+  （「main の一部か、別ソースか」で線を引く。PLATEAU/gintBld は別ソース＝退場対象でない）。
 - **星の gl_PointSize 代替（Phase 5）**：WebGPU に点サイズが無い＝**インスタンス四角形**（6頂点/星・
   vertex_index で corner・星データは instance-step 属性）。screen 空間サイズは `pos.xy*sky + corner*(size*2/viewport)*p.w`
   （×p.w で raster の /w を相殺＝画面 px 一定）。FS の soft disc は `r=length(uv)*2`（GL gl_PointCoord 相当）。
@@ -132,6 +138,12 @@ bake.js・checkZoomRange・findPolygon。terrain・plateau ワーカーも rende
 `?perf=1`（WebGL2）と `?gpu=1&perf=1`（WebGPU）を実機で開き、**同じ飛行（t-demo 等）をして `[perf] ema=…ms` を並べる**。
 ema＝壁時計フレーム時間＝両バックエンド共通の物差し（WebGPU は timestamp-query 未配線で gpuMap/gpuGint は "-"、
 だが ema は両方出る）。init 行に `backend=… gpu="…"`（GPU 識別）も出る。これで「?gpu=1 が実機で本当に速いか」を数字で。
+⚠**ema は 60fps 機では 16.7ms に飽和し差が出ない**（実測 2026-08-01 Mac＝両方16.7で同着。ema はフレーム間隔＝
+3ms仕事+13.7ms待ちも16ms仕事+0.7ms待ちも同じ16.7。WebGL 側 gpuMap=4〜8ms の実仕事は vsync の下に隠れる）。
+白黒は ①予算超え環境（モバイル高dpr/Windows iGPU）② timestamp-query 配線後の GPU 実時間、のどちらかで付ける。
+**実機で確定した差（2026-08-01）＝メモリ**：WebGPU（classic merge）は md 常駐プール（高水位で縮まない）を
+持たない＝メモリ消費が極端に軽い（本人実機観測）。モバイル jetsam 戦線への含意大。性能パスBで md 後継を積む際は
+このメモリ優位を捨てない設計（eviction 前提）にすること。
 ※本人の規律（[[mobile-app-strategy]]）＝この計測で「壁は描画か IDB か」を確定してから性能パス（下の B）へ投資。
 
 ## 次の道順

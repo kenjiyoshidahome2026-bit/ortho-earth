@@ -810,8 +810,8 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 			pass.draw(bld.count);
 		}
 		// gintBld（gint ユーザー層の地形沿い境界線/点＝moj筆ドレープ）：独自 origin・深度で地形/尾根に遮蔽・マスク無し。
-		// ★常時描画（show3d ゲート無し）＝真俯瞰(elevScaleEff=0)は海面の平面、チルトで地形へ立ち上がる（GL と同じモーフ）。
-		if (gintBld && (gintBld.line || gintBld.point) && !(opts && opts.skipMain)) {
+		// ★常時描画（show3d/skipMain ゲート無し＝GL 同等）＝真俯瞰(elevScaleEff=0)は海面の平面、チルトで地形へ立ち上がる（GL と同じモーフ）。
+		if (gintBld && (gintBld.line || gintBld.point)) {
 			ensureOvFrameBG();
 			const gc = gintBld.color || view.bldColor || [0.86, 0.86, 0.85];
 			device.queue.writeBuffer(ovFrameBuf, GB_SLOT * FRAME_SLOT, packFrame(st, gintBld.origin, st.fogDist * 2.5, st.fogDist * 14.0, land, logCoef, dpr));
@@ -826,7 +826,10 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 		}
 		// PLATEAU LOD2 建物メッシュ（任意三角形・面法線陰影）。バッチ単位フラスタムカリング＋高さLOD打ち切り。
 		// per-batch uniform（meshOrigin/clipMesh/cullBack）は dynamic offset UBO で1バッチ1スロット。
-		if (plateaux.size && show3d && !(opts && opts.skipMain)) {
+		// ⚠skipMain では消さない（GL 867 と同等）：skipMain＝ズームアウト滑走中の「古いタイルシーン退場」であり、
+		// PLATEAU は別ソース＝退場対象でない。移植時にここへ !skipMain を発明していた＝滑走中に街ごと消える
+		// 「シーン抜け」（gpu単独・東京駅〜丸の内で実測）の正体。基図退場中も街は立ち続けるのが GL の挙動。
+		if (plateaux.size && show3d) {
 			const pad = 0.5 * Math.max(st.W, st.H);   // 高層ビルの頭のはみ出し余白（半画面）
 			const mppx = 156543.03392 * 0.819 / Math.pow(2, cam.zoom || 0);   // 画面1pxが何m（LOD打ち切りの物差し）
 			const cosLat = Math.cos((cam.center[1] || 0) * Math.PI / 180);
