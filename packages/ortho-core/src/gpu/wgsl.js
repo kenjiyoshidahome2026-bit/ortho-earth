@@ -455,6 +455,32 @@ struct NOut { @builtin(position) pos: vec4f, @location(0) ndc: vec2f };
 }
 `;
 
+// overlay（外部ベクタ=geopbf/e-Stat/N02）の stencil-then-cover 塗り（STENCIL_VS/FS・COVER_FS の移植）。
+// 塗りは巻き数（FRONT+1/BACK-1・NOTEQUAL 0）で決まる＝earcut 不要でロバスト。フレーム（origin/mvp/elev/fog）は
+// per-scene で違う＝呼び出し側が dynamic offset で Frame(group0)＋DrawP(group1) を切替。塗り色は DrawP.p1。
+// 線は LINE_WGSL を流用（同じ dynamic frame レイアウトで別パイプライン）＝ここには面（stencil/cover）だけ。
+export const OVERLAY_WGSL = /* wgsl */`
+${FRAME}
+struct SOut { @builtin(position) pos: vec4f };
+@vertex fn vsStencil(@location(0) a_delta: vec2f) -> SOut {
+	var o: SOut;
+	// 巻き数で塗る＝fan の形は問わない。クリップ座標のまま（GL[-w,w]→WebGPU[0,w] へ z 写像・深度は off）
+	let c = F.clipT + F.mvp * vec4f(deltaToRel(a_delta), 0.0);
+	o.pos = vec4f(c.xy, (c.z + c.w) * 0.5, c.w);
+	return o;
+}
+@fragment fn fsNull(in: SOut) -> @location(0) vec4f { return vec4f(0.0); }   // colorWriteMask 0 で無視
+struct CoOut { @builtin(position) pos: vec4f };
+@vertex fn vsCover(@builtin(vertex_index) vi: u32) -> CoOut {
+	var o: CoOut;
+	o.pos = vec4f(select(-1.0, 3.0, vi == 1u), select(-1.0, 3.0, vi == 2u), 0.5, 1.0);
+	return o;
+}
+@fragment fn fsCover(in: CoOut) -> @location(0) vec4f {
+	return vec4f(P.p1.rgb * P.p1.a, P.p1.a);   // premultiplied 塗り色（DrawP.p1）
+}
+`;
+
 // 等高線（CONTOUR_FS の移植）：真俯瞰でだけ、フルスクリーン各画素でカメラ光線×単位球→lon/lat→elev→iso線を
 // fwidth で AA。紙の地形図の等高線＝平面で標高を語る。ベクタの下に敷く。
 export const CONTOUR_WGSL = /* wgsl */`

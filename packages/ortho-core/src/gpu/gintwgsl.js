@@ -374,6 +374,63 @@ struct FOut { @builtin(position) pos: vec4f };
 	return o;
 }
 @fragment fn fsFill(in: FOut) -> @location(0) vec4f { return P.color; }   // straight alpha
+// コロプレス ID 蓄積（idfill.js VS_ID/FS_ID）：stencil と同じ fan 幾何＋fid を flat varying へ。
+// FS は front_facing で ±(fid+1) を rg16float へ加算＝R=Σ±(fid+1)・G=Σ±1(winding)。解決パスが R/G で fid 復元。
+struct IdOut { @builtin(position) pos: vec4f, @location(0) @interpolate(flat) fid1: f32 };
+@vertex fn vsId(@builtin(vertex_index) vi: u32) -> IdOut {
+	var o: IdOut;
+	o.pos = DEGEN; o.fid1 = 0.0;
+	let edgeId = i32(vi) / 3;
+	let sub = i32(vi) % 3;
+	let em = fetchEdgeMeta(edgeId);
+	o.fid1 = f32(em.a + 1u);
+	if (!bboxVisible(em.a)) { return o; }
+	let sn = lodSnap(em.r, em.g, edgeId);   // lodRank=0（GF側）＝全密度（自己交差斑点を出さない）
+	if (!sn.keep) { return o; }
+	if (sub == 0) { o.pos = pivotClip(em.a); return o; }
+	o.pos = fetchClip(select(sn.b, sn.a, sub == 1));
+	return o;
+}
+@fragment fn fsId(in: IdOut, @builtin(front_facing) ff: bool) -> @location(0) vec4f {
+	let sgn = select(-1.0, 1.0, ff);
+	return vec4f(sgn * in.fid1, sgn, 0.0, 0.0);   // rg16float＝rg のみ格納。blend 加算(ONE,ONE)
+}
+`;
+
+// コロプレス解決（idfill.js FS_RESOLVE）：ID バッファ画素→fid→スタイル表→色。専用バインド（idTex+fidTex+小uniform）。
+// R/G で fid 復元（多重登記は約分で消える）。overlap=1 は監査プローブ（異常画素だけ色分け）。
+export const GINT_IDRESOLVE_WGSL = /* wgsl */`
+@group(0) @binding(0) var idTex: texture_2d<f32>;
+@group(0) @binding(1) var fidTex: texture_2d<u32>;
+@group(0) @binding(2) var<uniform> R: vec4u;   // (fid_w, fid_count, overlap, 0)
+struct FOut { @builtin(position) pos: vec4f };
+@vertex fn vs(@builtin(vertex_index) vi: u32) -> FOut {
+	var o: FOut;
+	o.pos = vec4f(select(-1.0, 3.0, vi == 1u), select(-1.0, 3.0, vi == 2u), 0.5, 1.0);
+	return o;
+}
+@fragment fn fs(in: FOut) -> @location(0) vec4f {
+	let t = textureLoad(idTex, vec2i(floor(in.pos.xy)), 0).rg;
+	if (R.z == 1u) {   // 監査プローブ（品質監査）：winding 和の異常だけ色分け
+		let ar = abs(t.r); let ag = abs(t.g);
+		if (ag < 0.5) { if (ar > 0.5) { return vec4f(0.0, 0.9, 1.0, 0.85); } discard; }   // シアン＝向き矛盾
+		let qo = t.r / t.g;
+		if (abs(qo - round(qo)) > 0.25) { return vec4f(1.0, 0.0, 0.8, 0.85); }   // マゼンタ＝別筆の重なり
+		if (ag > 1.5) { return vec4f(1.0, 0.55, 0.0, 0.85); }                    // 橙＝同一筆の多重登記
+		discard;
+	}
+	if (abs(t.g) < 0.5) { discard; }        // 被覆なし（穴・外）。G の符号は外環 CW も吸収
+	let q = t.r / t.g;                      // 多重登記は約分で消える（R=k(fid+1),G=k → q=fid+1）
+	if (abs(q - round(q)) > 0.25) { discard; }   // 別 feature の真の重複＝fid 不定＝塗らない
+	let fid = i32(round(q)) - 1;
+	if (fid < 0 || fid >= i32(R.y)) { discard; }
+	let rec = textureLoad(fidTex, vec2i(fid % i32(R.x), fid / i32(R.x)), 0);
+	if ((rec.b & 1u) == 0u) { discard; }    // flags bit0 = visible（filter）
+	let c = rec.r;                          // R = fill 色 RGBA8
+	let col = vec4f(f32(c >> 24u), f32((c >> 16u) & 255u), f32((c >> 8u) & 255u), f32(c & 255u)) / 255.0;
+	if (col.a <= 0.0) { discard; }
+	return vec4f(col.rgb, col.a);           // straight alpha（blend が SRC_ALPHA/1-SRC_ALPHA）
+}
 `;
 
 // 点＋pick 点（VS_POINT / FS_POINT / VS_PICK_POINT / FS_PICK_POINT の移植）。

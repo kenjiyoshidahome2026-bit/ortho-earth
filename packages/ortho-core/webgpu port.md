@@ -4,7 +4,7 @@
 `createRenderer`（WebGL2）と同じ公開面 `{ set, draw, dispose, md, mdMax, gintCtx }` を持つ
 `createRendererGPU` を並走させ、renderworker が起動時に選ぶ。**WebGL2 は恒久フォールバック**（旧iOS/Android）。
 
-## 現在地（Phase 5・2026-08-01）
+## 現在地（Phase 6・完走・2026-08-01）
 
 動く：globe（大気・リム）＋基図シーン（fill/line・**classic merge 経路**）＋**標高アトラス（r16float・
 stage/commit ダブルバッファ）・地形サーフェス（hillshade/hypso/遠山ブルー）・深度（対数・尾根の遮蔽・
@@ -23,23 +23,27 @@ WebGPU に無い＝**インスタンス四角形**＝6頂点/星・corner を si
 夜半球を夜紺・GMST 回転＋太陽直下点は Date.now）。共有する純CPU臓器（無改造）：state.js の s・drawdata.js・
 bake.js・checkZoomRange・findPolygon。terrain・plateau ワーカーも renderer.set 契約のみ＝無改造で両バックエンド共通。
 
-検証：スクリーンショット比較（WebGL2 と目視同一）＝z13 東京平面 / 富士 z13 60°（地形+ドレープ+湖）/
-東京駅 z16.5 55°（建物+深度）/ 山頂等高線 / z5.5・z8.5 60° 海岸線（gint）/ 東京駅 z16.5 55° PLATEAU
-（LOD2 建物+footprint マスク）/ **z2 世界ビュー（星・星座線・黄道・夜面・月）**。＋ **tests/t-gintgpu.html**（実時間・ピクセル検定）。
+＋**overlay/snapshot/idfill（Phase 6）**＝これで主要描画スタック完走。
+- overlay(stencil-then-cover)＝geopbf/e-Stat/N02 外部ベクタ。per-scene origin は dynamic offset の Frame＋DrawP で切替、
+  面=stencil fan(FRONT+1/BACK-1)→cover(NOTEQUAL 0→zero)・線=LINE_WGSL 流用。`OVERLAY_WGSL`。
+- snapshot 基図読み出し＝COPY_SRC 付き canvas を flush 直後に copyTextureToBuffer+mapAsync（GL readPixels 相当）。
+  top-down（compose flip:false）・Mac は BGRA→RGBA swizzle。shot/print ガジェットが両バックエンドで撮れる。
+- idfill(コロプレス)＝winding 和 ID 蓄積（rg16float・加算 blend・R=Σ±(fid+1)/G=Σ±1）→解決(R/G で fid 復元→
+  スタイル表→色)。`GINT_STENCIL_WGSL` vsId/fsId＋`GINT_IDRESOLVE_WGSL`。rg16float はコア blendable＝
+  fidStyleCount≤2047(市区町村1919)で足りる（超過/paint 無し/fillOff は単色 stencil フォールバック）。
 
-未搭載（set は握り潰し・初回のみ console 告知）：overlay(stencil・geopbf/e-Stat/N02)・
-idfill（コロプレスIDバッファ塗り＝paint は fid 線スタイルのみ効き、塗りは単色 stencil へフォールバック）・
-snapshot の基図読み出し。
+検証：スクリーンショット比較（WebGL2 と目視同一）＝z13 東京平面 / 富士 z13 60° / 東京駅 z16.5 55°（建物+深度）/
+山頂等高線 / z5.5・z8.5 60° 海岸線 / 東京駅 PLATEAU / z2 世界ビュー / **z7 N02 新幹線オーバーレイ**。
+＋ **tests/t-gintgpu.html**（実時間・ピクセル検定＝小データ塗り/pick両経路/チルトstencil/tier/**overlay塗り/readback基図/idfillコロプレス**）。
 
 ## 懸念点・既知の穴（要レビュー・後日）
 
 移植は速度優先で進めているので、以下は「?gpu=1 実験フラグの範囲では許容・本採用前に潰す」もの。
 既定（WebGL2）には一切影響しない（?gpu=1 を付けた時だけの話）。
 
-**A. 未搭載機能（set は無視＝?gpu=1 でその層が出ない）**
-- overlay(stencil)：geopbf/e-Stat の identify overlay・N02 交通（新幹線/駅）が WebGPU では非表示。
-- idfill：コロプレス（fid 重み ID 塗り）＝paint は fid 線スタイルのみ効き、面のコロプレスは単色 stencil へ縮退。
-- snapshot 基図：shot ガジェットは WebGPU では labels のみ（GL の readPixels 相当未実装）＝画面保存が基図抜け。
+**A. 未搭載機能** … Phase 6 で解消（overlay・idfill・snapshot 基図を全搭載）。gintBld（gint 3D 押し出し・
+renderer 側の setGintBld）だけは未搭載＝moj筆のドレープ境界線が ?gpu=1 で出ない（gint 本体の海岸線/筆は出る）。
+残る IGNORE は gintBld と md 系（下記 B）のみ。
 
 **B. 性能パスの差**
 - タイル描画は classic CPU merge 固定（md=false）＝multi_draw のタイル GPU 常駐を使わない。密タイル
@@ -112,12 +116,20 @@ snapshot の基図読み出し。
   vertex_index で corner・星データは instance-step 属性）。screen 空間サイズは `pos.xy*sky + corner*(size*2/viewport)*p.w`
   （×p.w で raster の /w を相殺＝画面 px 一定）。FS の soft disc は `r=length(uv)*2`（GL gl_PointCoord 相当）。
   星座線/黄道/天の赤道は topology "line-list"（GL の gl.LINES＝1px と等価）で自然移植。
+- **overlay の per-scene frame（Phase 6）**：外部ベクタは scene 毎に origin が違う＝PLATEAU と同じ
+  **dynamic offset**（Frame＋DrawP を per-scene スロットで切替）。塗り色は DrawP.p1（cover が読む）。
+  境界線は LINE_WGSL を同じ dynamic frame レイアウトの別パイプラインで流用（シェーダ再利用）。
+- **idfill の 2パス（Phase 6）**：ID 蓄積は fr.enc に **別 render pass**（idTex=rg16float・単一サンプル・
+  加算 blend）→ main パスで解決を fullscreen 描画。解決は別 bind group layout＝**後続の線/点用に group3(aux) を
+  張り直す**（pipeline layout 非互換で bind group がリセットされる轍）。rg16float はコア blendable（float32-blendable
+  feature 不要）＝市区町村コロプレスに十分。
+- **snapshot（Phase 6）**：canvas を `usage: RENDER_ATTACHMENT | COPY_SRC` で configure＝flush 直後（同一タスク・
+  present 前）に current texture を copyTextureToBuffer→mapAsync。top-down（compose の flip:false）・BGRA→RGBA swizzle。
 
 ## 次の道順
 
-1. **overlay(stencil)**：geopbf/e-Stat/N02 の外部ベクタ＝stencil-then-cover 塗り＋境界線。gint の
-   stencil パイプライン（GINT_STENCIL_WGSL）が流用の下地。snapshot（shot）＝copyTextureToBuffer＋mapAsync。
-   idfill（コロプレスID塗り＝RGBA32UI storage/texture）。以上で「懸念点 A」の未搭載を全消化。
+1. **gintBld**（moj筆のドレープ境界線・renderer setGintBld）＝残る唯一の未搭載レンダ機能。BUILDING_VS 系の
+   GL_LINES/GL_POINTS＝WebGPU では line-list/インスタンス点。gint 本体（海岸線/筆/識別/コロプレス）は搭載済。
 3. **multi_draw の後継**：WebGPU に multiDraw は無いが、(a) `drawIndexed` に **baseVertex がある**＝
    index 再ベース（sceneworker ensureUploaded の絶対頂点番号化）ごと不要にできる、
    (b) **render bundle** で composition を1回記録→毎フレーム再生＝md の狙い（CPU発行ゼロ）を

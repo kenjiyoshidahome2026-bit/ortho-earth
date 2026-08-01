@@ -202,17 +202,14 @@ onmessage = e => {
 
 // shot 用：WebGL は preserveDrawingBuffer 無し＝別タスクでは読めない。同一タスクで「描画直後に createImageBitmap」
 // （呼び出し時点のバッファを捕獲）。基図(GL)とラベル(2D)の両キャンバスを返し、合成は main が担う。
+function readLabels() {   // ラベル(2D)＝getImageDataで上下正のまま（両バックエンド共通）
+	if (!labelCanvas) return { labels: null, lw: 0, lh: 0 };
+	const lw = labelCanvas.width, lh = labelCanvas.height;
+	return { labels: new Uint8Array(labelCanvas.getContext("2d").getImageData(0, 0, lw, lh).data.buffer), lw, lh };
+}
 function snapshot(id) {
+	if (!glRef && renderer?.readback) { snapshotGPU(id); return; }   // WebGPU＝非同期 readback 経路
 	try {
-		if (!glRef) {   // webgpu バックエンド（Phase 1）：readPixels 相当は未搭載＝基図なし（labelsのみ）で応答。compose は base 無しを許容＝promise を宙吊りにしない
-			let labels = null, lw = 0, lh = 0;
-			if (labelCanvas) {
-				lw = labelCanvas.width; lh = labelCanvas.height;
-				labels = new Uint8Array(labelCanvas.getContext("2d").getImageData(0, 0, lw, lh).data.buffer);
-			}
-			postMessage({ type: "snapshot", id, base: null, w: 0, h: 0, labels: labels ? labels.buffer : null, lw, lh }, labels ? [labels.buffer] : []);
-			return;
-		}
 		if (renderer && cam) {
 			if (resPending) applyRes();   // 予約中のリサイズを先に＝撮影サイズと canvas を一致させる（frame() と同じ掟）
 			const s = RES_STEPS[resIdx];
@@ -222,19 +219,33 @@ function snapshot(id) {
 			labelLayer && labelLayer.draw(cam);
 		}
 		// readPixels＝GLキャンバスを確実に読む唯一の手（createImageBitmap/transferToImageBitmap は headless GL で詰まる）。
-		// 生画面は消さない（読むだけ）＝復元不要。GL は上下反転で返るので flip フラグを立て main で戻す。
+		// 生画面は消さない（読むだけ）＝復元不要。GL は上下反転で返るので flip:true で main が戻す。
 		const gl = glRef, w = canvas.width, h = canvas.height;
 		const base = new Uint8Array(w * h * 4);
 		gl.bindFramebuffer(gl.FRAMEBUFFER, null);
 		gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, base);
-		let labels = null, lw = 0, lh = 0;
-		if (labelCanvas) {   // ラベルは2D＝getImageDataで上下正のまま
-			lw = labelCanvas.width; lh = labelCanvas.height;
-			labels = new Uint8Array(labelCanvas.getContext("2d").getImageData(0, 0, lw, lh).data.buffer);
-		}
+		const { labels, lw, lh } = readLabels();
 		const transfer = [base.buffer]; if (labels) transfer.push(labels.buffer);
-		postMessage({ type: "snapshot", id, base: base.buffer, w, h, labels: labels ? labels.buffer : null, lw, lh }, transfer);
+		postMessage({ type: "snapshot", id, base: base.buffer, w, h, labels: labels ? labels.buffer : null, lw, lh, flip: true }, transfer);
 	} catch (e) { console.error("[render] snapshot例外", e?.message, e?.stack); }
+}
+// WebGPU snapshot：draw→gint→flush→readback（copyTextureToBuffer+mapAsync）＝top-down（flip:false）。RGBA へ swizzle 済み。
+async function snapshotGPU(id) {
+	try {
+		if (renderer && cam) {
+			if (resPending) applyRes();
+			const s = RES_STEPS[resIdx];
+			const glCam = s === 1 ? cam : { ...cam, dpr: (cam.dpr || 1) * s };
+			renderer.draw(glCam, opts);
+			if (gint) gint.draw(glCam, renderer.gintCtx());
+			renderer.flush();
+			labelLayer && labelLayer.draw(cam);
+			const rb = await renderer.readback();   // { base:ArrayBuffer(RGBA), w, h }
+			const { labels, lw, lh } = readLabels();
+			const transfer = []; if (rb?.base) transfer.push(rb.base); if (labels) transfer.push(labels.buffer);
+			postMessage({ type: "snapshot", id, base: rb?.base ?? null, w: rb?.w ?? 0, h: rb?.h ?? 0, labels: labels ? labels.buffer : null, lw, lh, flip: false }, transfer);
+		}
+	} catch (e) { console.error("[render] snapshotGPU例外", e?.message, e?.stack); }
 }
 
 // ラベルに標高を付与（傾き時に地物と一致）。main.js が持っていた terrain.sampleElev(...) 呼び出しをそのままこちらへ移設。

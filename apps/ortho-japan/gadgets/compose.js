@@ -18,7 +18,7 @@ function blit(ctx, buf, w, h, W, H, flip) {
 export function composeLayersToCanvas({ W, H, render }, measureCanvas) {
 	const out = new OffscreenCanvas(W, H);
 	const ctx = out.getContext("2d");
-	if (render?.base) blit(ctx, render.base, render.w, render.h, W, H, true);   // GL＝上下反転で戻す。動的解像度で縮む事があるので W×H へ伸ばす
+	if (render?.base) blit(ctx, render.base, render.w, render.h, W, H, render.flip !== false);   // GL＝上下反転で戻す(flip:true)／WebGPU＝top-down(flip:false)。動的解像度で縮む事があるので W×H へ伸ばす
 	if (render?.labels) blit(ctx, render.labels, render.lw, render.lh, W, H, false);   // 2D＝そのまま
 	if (measureCanvas && measureCanvas.width) ctx.drawImage(measureCanvas, 0, 0, W, H);   // 計測の線・距離・面積
 	return out;

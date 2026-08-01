@@ -163,6 +163,53 @@ try {
 		for (let i = 0; i < a8.length; i += 4) if (a8[i + 2] > 150 && a8[i] < 130) px++;
 		ok(`大データtier描画(px=${px})`, px > 50);
 	}
+
+	// ── ⑤ overlay：stencil-then-cover 塗り（純赤の正方形ポリゴン）＝面パスの検定 ──
+	{
+		gint.set(null);   // gint を空に＝overlay だけを見る
+		const C = [139.7, 35.7], d = 0.01;
+		const sq = [[C[0] - d, C[1] - d], [C[0] + d, C[1] - d], [C[0] + d, C[1] + d], [C[0] - d, C[1] + d]];   // CCW リング
+		const ax = 0, ay = 0;   // 原点=C＝delta で持つ（fan の要=外周先頭）
+		const fan = [];
+		for (let i = 0; i + 1 < sq.length; i++) fan.push(ax, ay, sq[i][0] - C[0], sq[i][1] - C[1], sq[i + 1][0] - C[0], sq[i + 1][1] - C[1]);
+		fan.push(ax, ay, sq[3][0] - C[0], sq[3][1] - C[1], sq[0][0] - C[0], sq[0][1] - C[1]);   // 閉じ辺
+		r.set("overlay", { origin: C, fanPos: new Float32Array(fan), P1: new Float32Array(0), P2: new Float32Array(0), lineCol: new Float32Array(0), lineHalf: new Float32Array(0) }, [1, 0, 0, 0.8]);
+		const cam = { center: C, zoom: 13, pitch: 0, bearing: 0, dpr: 1 };
+		const a8 = await shot(cam);
+		let px = 0;   // 赤塗り（premultiplied α0.8＝r≈0.8・g≈0）
+		for (let i = 0; i < a8.length; i += 4) if (a8[i] > 120 && a8[i + 1] < 90 && a8[i + 2] < 90) px++;
+		ok(`overlay塗り(px=${px})`, px > 2000 && px < 40000);
+
+		// ── ⑥ snapshot readback（copyTextureToBuffer+mapAsync）＝shot 基図読み出しの検定 ──
+		r.draw(cam, {}); r.flush();   // overlay の赤square をもう1枚（flush 直後・同一タスクで readback）
+		const rb = await r.readback();
+		const rba = new Uint8Array(rb.base);
+		let rpx = 0;   // RGBA へ swizzle 済み＝赤（r高/g低）
+		for (let i = 0; i < rba.length; i += 4) if (rba[i] > 120 && rba[i + 1] < 90 && rba[i + 2] < 90) rpx++;
+		ok(`readback基図(px=${rpx} ${rb.w}x${rb.h})`, rpx > 2000 && rb.w === 256 && rb.h === 256);
+		r.set("overlay", null);
+	}
+
+	// ── ⑦ idfill コロプレス（paint）：ポリゴンを fid 別色で塗る＝winding 和 ID 蓄積→fid→スタイル表→色 ──
+	{
+		const C = [139.7, 35.7], d = 0.004;   // z14 で ~115px 角＝キャンバス内に収まる
+		const sq = [[C[0] - d, C[1] - d], [C[0] + d, C[1] - d], [C[0] + d, C[1] + d], [C[0] - d, C[1] + d], [C[0] - d, C[1] - d]];   // CCW
+		const arcBuffer = BigUint64Array.from(sq.map(([lo, la]) => pack(lo, la, true)));
+		const arcMeta = new Uint32Array(8);
+		arcMeta[0] = 0; arcMeta[1] = 5;
+		arcMeta[4] = e7(C[0] + 180 - d); arcMeta[5] = e7(C[1] + 90 - d); arcMeta[6] = e7(C[0] + 180 + d); arcMeta[7] = e7(C[1] + 90 + d);
+		gint.set({ arcBuffer, arcMeta, polyStream: Int32Array.from([7, 1, 1, 0]), minZoom: 2 });   // fid7・1リング・arc0
+		const table = new Uint32Array(8 * 4);   // fid 0..7（fidStyleCount=8）
+		table[7 * 4] = 0xFF0000CC >>> 0;         // R=fill RGBA8＝赤 α0.8（resolve: c>>24=R…）
+		table[7 * 4 + 2] = 1;                    // B bit0 = visible
+		gint.paint({ table, count: 8 });
+		const cam = { center: C, zoom: 14, pitch: 0, bearing: 0, dpr: 1 };
+		const a8 = await shot(cam);
+		let px = 0;   // コロプレス赤（premultiplied α0.8）
+		for (let i = 0; i < a8.length; i += 4) if (a8[i] > 120 && a8[i + 1] < 90 && a8[i + 2] < 90) px++;
+		ok(`idfillコロプレス(px=${px})`, px > 5000 && px < 25000);   // ~115px角＝約13000px²（キャンバス全面塗り＝バグでない事も担保）
+		gint.paint(null);
+	}
 	gint.dispose(); r.dispose();
 	fin();
 	}

@@ -15,7 +15,7 @@
 import { cameraState, lonlatTo3D, project } from "../camera.js";
 import { seaFbReal } from "../scene.js";
 import * as mat from "../mat.js";
-import { FILL_WGSL, LINE_WGSL, GLOBE_WGSL, TERRAIN_WGSL, BUILDING_WGSL, CONTOUR_WGSL, PLATEAU_WGSL, SKY_WGSL } from "./wgsl.js";
+import { FILL_WGSL, LINE_WGSL, GLOBE_WGSL, TERRAIN_WGSL, BUILDING_WGSL, CONTOUR_WGSL, PLATEAU_WGSL, SKY_WGSL, OVERLAY_WGSL } from "./wgsl.js";
 
 const CORNERS = new Float32Array([0, -1, 0, 1, 1, -1, 1, -1, 0, 1, 1, 1]); // 6頂点×(end,side)＝gl/renderer.js と同一
 const FRAME_SLOT = 512;    // frame UBO のスロット境界（実使用272B・minUniformBufferOffsetAlignment 上限256の倍数）
@@ -55,7 +55,9 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 	const ctx = canvas.getContext("webgpu");
 	if (!ctx) throw new Error("webgpu context unavailable");
 	const format = navigator.gpu.getPreferredCanvasFormat();
-	ctx.configure({ device, format, alphaMode: "premultiplied" });
+	// COPY_SRC＝snapshot（shot/print）が resolve 済みの canvas テクスチャを copyTextureToBuffer で読む
+	ctx.configure({ device, format, alphaMode: "premultiplied", usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC });
+	const isBGRA = format === "bgra8unorm";   // Mac の既定＝readback は BGRA＝RGBA へ swizzle
 	device.addEventListener?.("uncapturederror", e => console.error("[gpu] uncaptured:", e.error?.message || e.error));
 
 	// premultiplied 合成（gl.blendFunc(ONE, ONE_MINUS_SRC_ALPHA) と同じ）
@@ -169,6 +171,37 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 		fragment: { module: skyMod, entryPoint: "fsNight", targets: [target] },
 		primitive: { topology: "triangle-list" }, depthStencil: dsOff, multisample: ms,
 	});
+	// overlay（外部ベクタ）：per-scene の Frame(group0)＋DrawP(group1) を dynamic offset で切替。
+	// stencil-then-cover 塗り＋境界線（線は LINE_WGSL 流用）。深度 off・stencil で巻き数塗り。
+	const ovMod = device.createShaderModule({ code: OVERLAY_WGSL });
+	const bglOvFrame = device.createBindGroupLayout({ entries: [
+		{ binding: 0, visibility: VF, buffer: { hasDynamicOffset: true } },
+		{ binding: 1, visibility: VF, texture: { sampleType: "float" } },
+		{ binding: 2, visibility: VF, sampler: { type: "filtering" } },
+	] });
+	const bglOvParam = device.createBindGroupLayout({ entries: [{ binding: 0, visibility: VF, buffer: { hasDynamicOffset: true } }] });
+	const ovLayout = device.createPipelineLayout({ bindGroupLayouts: [bglOvFrame, bglOvParam] });
+	const dsOvStencil = { format: DEPTH, depthWriteEnabled: false, depthCompare: "always",   // fan→巻き数（FRONT+1/BACK-1）
+		stencilFront: { compare: "always", failOp: "keep", depthFailOp: "keep", passOp: "increment-wrap" },
+		stencilBack: { compare: "always", failOp: "keep", depthFailOp: "keep", passOp: "decrement-wrap" }, stencilWriteMask: 0xFF };
+	const dsOvCover = { format: DEPTH, depthWriteEnabled: false, depthCompare: "always",     // stencil≠0 を塗り→0 へ戻す
+		stencilFront: { compare: "not-equal", failOp: "keep", depthFailOp: "keep", passOp: "zero" },
+		stencilBack: { compare: "not-equal", failOp: "keep", depthFailOp: "keep", passOp: "zero" }, stencilWriteMask: 0xFF };
+	const ovStencilPipe = device.createRenderPipeline({
+		layout: ovLayout, vertex: { module: ovMod, entryPoint: "vsStencil", buffers: [{ arrayStride: 8, attributes: [{ shaderLocation: 0, offset: 0, format: "float32x2" }] }] },
+		fragment: { module: ovMod, entryPoint: "fsNull", targets: [{ format, writeMask: 0 }] },   // 色は書かない（stencil のみ）
+		primitive: { topology: "triangle-list" }, depthStencil: dsOvStencil, multisample: ms,
+	});
+	const ovCoverPipe = device.createRenderPipeline({
+		layout: ovLayout, vertex: { module: ovMod, entryPoint: "vsCover" },
+		fragment: { module: ovMod, entryPoint: "fsCover", targets: [target] },
+		primitive: { topology: "triangle-list" }, depthStencil: dsOvCover, multisample: ms,
+	});
+	const ovLinePipe = device.createRenderPipeline({   // 境界線/N02線＝LINE_WGSL 流用（dynamic frame レイアウト）
+		layout: ovLayout, vertex: { module: lineMod, entryPoint: "vs", buffers: LINE_BUFS },
+		fragment: { module: lineMod, entryPoint: "fs", targets: [target] },
+		primitive: { topology: "triangle-list" }, depthStencil: dsOff, multisample: ms,
+	});
 
 	// UBO：Frame 4スロット / DrawP N_ROLESスロット / globe 専用 / PLATEAU per-batch（dynamic offset）
 	const frameBuf = device.createBuffer({ size: FRAME_SLOT * 4, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
@@ -207,6 +240,78 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 		const buf = device.createBuffer({ size: (src.byteLength + 3) & ~3, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
 		device.queue.writeBuffer(buf, 0, src);
 		return { buf, count: src.length / stride };
+	}
+	// overlay：per-scene の Frame（FRAME_SLOT）＋DrawP（PARAM_SLOT）を dynamic offset で切替。最大 MAX_OV シーン/フレーム。
+	const MAX_OV = 32;
+	const ovFrameBuf = device.createBuffer({ size: FRAME_SLOT * MAX_OV, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+	const ovParamBuf = device.createBuffer({ size: PARAM_SLOT * MAX_OV, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+	const ovParamCPU = new Float32Array(PARAM_SLOT / 4 * MAX_OV);
+	let ovFrameBG = null, ovFrameBGView = null;   // drawOverlay が elevTexView 変化時だけ作り直す（rebuildBG0 と独立）
+	const ovParamBG = device.createBindGroup({ layout: bglOvParam, entries: [{ binding: 0, resource: { buffer: ovParamBuf, offset: 0, size: 48 } }] });
+	function ensureOvFrameBG() {
+		const v = (elev.has && elevTexView) ? elevTexView : dummyView;
+		if (ovFrameBG && ovFrameBGView === v) return;
+		ovFrameBGView = v;
+		ovFrameBG = device.createBindGroup({ layout: bglOvFrame, entries: [
+			{ binding: 0, resource: { buffer: ovFrameBuf, offset: 0, size: FRAME_SLOT } },
+			{ binding: 1, resource: v }, { binding: 2, resource: elevSampler }] });
+	}
+	// overlay スロット：{ fanBuf, fanCount, lineBufs?, lineCount, origin, fill, minZoom }
+	let overlay = null, overlayHi = null, n02 = [];
+	const u8colOv = col => { const u = new Uint8Array(col.length); for (let i = 0; i < col.length; i++) u[i] = Math.max(0, Math.min(255, Math.round(col[i] * 255))); return u; };
+	function buildOverlaySlot(s, fill) {
+		if (!s || (!s.fanPos.length && !(s.lineHalf && s.lineHalf.length))) return null;
+		const o = { origin: s.origin, fill, minZoom: s.minZoom || 0, fanCount: s.fanPos.length / 2, lineCount: 0, bufs: [] };
+		if (s.fanPos.length) { o.fanBuf = makeBuf(s.fanPos, GPUBufferUsage.VERTEX); o.bufs.push(o.fanBuf); }
+		if (s.lineHalf && s.lineHalf.length) {
+			o.lineCount = s.lineHalf.length;
+			o.bP1 = makeBuf(s.P1, GPUBufferUsage.VERTEX); o.bP2 = makeBuf(s.P2, GPUBufferUsage.VERTEX);
+			o.bCol = makeBuf(u8colOv(s.lineCol), GPUBufferUsage.VERTEX); o.bHalf = makeBuf(s.lineHalf, GPUBufferUsage.VERTEX);
+			o.bufs.push(o.bP1, o.bP2, o.bCol, o.bHalf);
+		}
+		return o;
+	}
+	function disposeOverlay(o) { if (o) for (const b of o.bufs) b.destroy(); }
+	function setOverlay(s, fill) { disposeOverlay(overlay); overlay = s ? buildOverlaySlot(s, fill || [0.20, 0.45, 0.85, 0.32]) : null; }
+	function setOverlayHi(s, fill) { disposeOverlay(overlayHi); overlayHi = s ? buildOverlaySlot(s, fill || [0.95, 0.55, 0.15, 0.6]) : null; }
+	function setN02(scenes) { for (const o of n02) disposeOverlay(o); n02 = (scenes || []).map(s => buildOverlaySlot(s, [0, 0, 0, 0])); }
+	// overlay 群を描く（基図の上・建物の下・深度off）。per-scene Frame＋DrawP を dynamic offset で切替。
+	// 呼び出し側 draw() が Frame を書く（packFrame の scene origin 版）＝ここは stencil-then-cover＋線の発行だけ。
+	function drawOverlay(pass, st, packF, zoom) {
+		const scenes = [];
+		if (view.showN02 !== false) for (const o of n02) if (o && zoom >= o.minZoom) scenes.push(o);
+		if (overlay) scenes.push(overlay);
+		if (overlayHi) scenes.push(overlayHi);
+		if (!scenes.length) return;
+		ensureOvFrameBG();
+		const n = Math.min(scenes.length, MAX_OV);
+		// per-scene の Frame＋DrawP を一括で書く（writeBuffer は pass より先に適用）
+		ovParamCPU.fill(0);
+		for (let i = 0; i < n; i++) {
+			const o = scenes[i];
+			device.queue.writeBuffer(ovFrameBuf, i * FRAME_SLOT, packF(o.origin));   // scene origin の Frame
+			const po = i * (PARAM_SLOT / 4);
+			ovParamCPU[po + 4] = o.fill[0]; ovParamCPU[po + 5] = o.fill[1]; ovParamCPU[po + 6] = o.fill[2]; ovParamCPU[po + 7] = o.fill[3];   // p1=塗り色
+		}
+		device.queue.writeBuffer(ovParamBuf, 0, ovParamCPU.buffer, 0, n * PARAM_SLOT);
+		pass.setStencilReference(0);
+		for (let i = 0; i < n; i++) {
+			const o = scenes[i], fOff = i * FRAME_SLOT, pOff = i * PARAM_SLOT;
+			if (o.fanCount) {   // 面：stencil fan → cover（stencil≠0 を塗り・0 へ戻す）
+				pass.setPipeline(ovStencilPipe);
+				pass.setBindGroup(0, ovFrameBG, [fOff]); pass.setBindGroup(1, ovParamBG, [pOff]);
+				pass.setVertexBuffer(0, o.fanBuf); pass.draw(o.fanCount);
+				pass.setPipeline(ovCoverPipe);
+				pass.setBindGroup(0, ovFrameBG, [fOff]); pass.setBindGroup(1, ovParamBG, [pOff]);
+				pass.draw(3);
+			}
+			if (o.lineCount) {   // 線（境界線 / N02 の鉄道線）＝LINE_WGSL 流用
+				pass.setPipeline(ovLinePipe);
+				pass.setBindGroup(0, ovFrameBG, [fOff]); pass.setBindGroup(1, ovParamBG, [pOff]);
+				pass.setVertexBuffer(0, cornerBuf); pass.setVertexBuffer(1, o.bP1); pass.setVertexBuffer(2, o.bP2); pass.setVertexBuffer(3, o.bCol); pass.setVertexBuffer(4, o.bHalf);
+				pass.draw(6, o.lineCount);
+			}
+		}
 	}
 	const cornerBuf = device.createBuffer({ size: CORNERS.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
 	device.queue.writeBuffer(cornerBuf, 0, CORNERS);
@@ -644,6 +749,8 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 				}
 			}
 		}
+		// overlay（外部ベクタ=geopbf/e-Stat/N02）：基図の上・建物の下・深度off。per-scene origin の Frame を渡す
+		drawOverlay(pass, st, (origin) => packFrame(st, origin, st.fogDist * 2.5, st.fogDist * 14.0, land, logCoef, dpr), cam.zoom || 0);
 		// 建物（3D押し出し）：深度で前後関係を解決（地形・尾根にも遮蔽される）。真俯瞰では描かない＝平面地図
 		const show3d = (cam.pitch || 0) >= 0.02;
 		// PLATEAU の実フットプリントが立つ区の被覆マスク（最大4・非表示区は除外）＝基図建物を伏せる
@@ -729,12 +836,37 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 		device.queue.submit([frame.enc.finish()]);
 		frame = null;
 	}
+	// snapshot 基図読み出し（shot/print）：flush 直後（同一タスク・present 前）に current texture を
+	// copyTextureToBuffer→mapAsync で読む。GL の readPixels 相当だが top-down（flip 不要）＋Mac は BGRA＝RGBA へ swizzle。
+	// 戻り＝{ base: ArrayBuffer(RGBA・行パディング除去済), w, h }。呼び出し側（renderworker）は draw→gint.draw→flush の直後に await。
+	async function readback() {
+		const W = canvas.width, H = canvas.height;
+		if (!W || !H) return null;
+		const bpr = Math.ceil(W * 4 / 256) * 256;
+		const buf = device.createBuffer({ size: bpr * H, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
+		const enc = device.createCommandEncoder();
+		enc.copyTextureToBuffer({ texture: ctx.getCurrentTexture() }, { buffer: buf, bytesPerRow: bpr, rowsPerImage: H }, { width: W, height: H });
+		device.queue.submit([enc.finish()]);
+		await buf.mapAsync(GPUMapMode.READ);
+		const src = new Uint8Array(buf.getMappedRange());
+		const out = new Uint8Array(W * H * 4);
+		for (let y = 0; y < H; y++) {
+			const so = y * bpr, do2 = y * W * 4;
+			if (isBGRA) for (let x = 0; x < W; x++) { const s = so + x * 4, d = do2 + x * 4; out[d] = src[s + 2]; out[d + 1] = src[s + 1]; out[d + 2] = src[s]; out[d + 3] = src[s + 3]; }
+			else out.set(src.subarray(so, so + W * 4), do2);
+		}
+		buf.unmap(); buf.destroy();
+		return { base: out.buffer, w: W, h: H };
+	}
 
 	// 未搭載の set は静かに握り潰す（初回だけ告知）＝app の呼び出しを壊さない
-	const IGNORE = new Set(["overlay", "overlayHi", "n02", "gintBld", "mdGrow", "mdUp", "mdScene"]);
+	const IGNORE = new Set(["gintBld", "mdGrow", "mdUp", "mdScene"]);
 	const ignored = new Set();
 	function set(cmd, data, prop) {
 		switch (cmd) {
+			case "overlay":   setOverlay(data, prop); break;    // prop=fillColor（任意）
+			case "overlayHi": setOverlayHi(data, prop); break;
+			case "n02":       setN02(data); break;               // data=[シーン…] 交通の常駐オーバーレイ群
 			case "view":    view = { ...view, ...data }; break;
 			case "sea":     sea = { ...sea, ...data }; break;
 			case "bldFill": bldFill = { ...bldFill, ...data }; break;
@@ -762,6 +894,8 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 		frameBuf.destroy(); paramBuf.destroy(); globeBuf.destroy(); cornerBuf.destroy();
 		plBatchBuf.destroy(); maskParamBuf.destroy();
 		skyBuf.destroy(); skyLineBuf.destroy();
+		ovFrameBuf.destroy(); ovParamBuf.destroy();
+		disposeOverlay(overlay); disposeOverlay(overlayHi); for (const o of n02) disposeOverlay(o);
 		for (const b of [stars, planets, constel, ecliptic, celeq]) if (b) b.buf.destroy();
 		for (const p of plateaux.values()) { p.vbo.destroy(); p.nbo.destroy(); p.ibo.destroy(); }
 		plateaux.clear();
@@ -777,6 +911,6 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 	}
 	// lost：GPU デバイス喪失（WebGL の contextlost と同じ扱いで main が立て直す）
 	// device/format/frameInfo/flush＝gint（createGintLayerGPU）のホスト面：開いたフレームに render pass を足す口。
-	return { set, draw, flush, dispose, md: false, mdMax: 0, gintCtx: () => gctx, backend: "webgpu", lost: device.lost,
+	return { set, draw, flush, readback, dispose, md: false, mdMax: 0, gintCtx: () => gctx, backend: "webgpu", lost: device.lost,
 		device, format, frameInfo: () => frame };
 }

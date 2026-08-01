@@ -14,7 +14,7 @@ import { checkZoomRange } from "../gl/gint/utility.js";
 import { bakeBase, bakeTier, tierPlan } from "../gl/gint/bake.js";
 import { findPolygon } from "geopbf/identify";
 import { unproject } from "../camera.js";
-import { GINT_LINE_WGSL, GINT_STENCIL_WGSL, GINT_POINT_WGSL } from "./gintwgsl.js";
+import { GINT_LINE_WGSL, GINT_STENCIL_WGSL, GINT_POINT_WGSL, GINT_IDRESOLVE_WGSL } from "./gintwgsl.js";
 
 const OUTLINE_ZOOM = 13;   // 既定の切替z（passes.js と同値）
 const GP_SLOT = 256;
@@ -80,6 +80,26 @@ export function createGintLayerGPU(host, { requestDraw } = {}) {
 	const pointPipe = pipe(pointMod, "vsPoint", "fsPoint");
 	const pickLinePipe = pipe(lineMod, "vsPickLine", "fsPick", { ds: null, blend: undefined, samples: 1, fmt: "rgba8unorm" });
 	const pickPointPipe = pipe(pointMod, "vsPickPoint", "fsPickPoint", { ds: null, blend: undefined, samples: 1, fmt: "rgba8unorm" });
+	// コロプレス ID 塗り（idfill.js）：① winding 和を rg16float へ加算蓄積（fan 幾何・単一サンプル・深度なし）
+	// ② 解決＝ID 画素→fid→スタイル表→色を main パスへ。rg16float はコア blendable＝fidStyleCount≤2047(市区町村1919)で足りる。
+	const ID_MAX_FID = 2047, ID_FMT = "rg16float";
+	const idAccumPipe = device.createRenderPipeline({
+		layout, vertex: { module: stencilMod, entryPoint: "vsId" },
+		fragment: { module: stencilMod, entryPoint: "fsId", targets: [{ format: ID_FMT, blend: { color: { srcFactor: "one", dstFactor: "one", operation: "add" }, alpha: { srcFactor: "one", dstFactor: "one", operation: "add" } } }] },
+		primitive: { topology: "triangle-list" }, multisample: { count: 1 },
+	});
+	const idResolveMod = device.createShaderModule({ code: GINT_IDRESOLVE_WGSL });
+	const bglIdResolve = device.createBindGroupLayout({ entries: [
+		{ binding: 0, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "unfilterable-float" } },   // idTex rg16float
+		{ binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "uint" } },                 // fidTex RGBA32UI
+		{ binding: 2, visibility: GPUShaderStage.FRAGMENT, buffer: {} },                                      // R uniform
+	] });
+	const idResolvePipe = device.createRenderPipeline({
+		layout: device.createPipelineLayout({ bindGroupLayouts: [bglIdResolve] }),
+		vertex: { module: idResolveMod, entryPoint: "vs" },
+		fragment: { module: idResolveMod, entryPoint: "fs", targets: [{ format, blend: SBLEND }] },
+		primitive: { topology: "triangle-list" }, depthStencil: keepDS, multisample: { count: 4 },
+	});
 
 	// ── UBO（GF 4スロット＝(rank, rank0)×(pivot有効, 境界メタ=単一要・カリング無効)・GP 役割別・style表）──
 	// 境界メタは「多数 fid の arc 寄せ集め」＝per-fid 扇要では閉ループが閉じず巻き数が漏れる＝GL 版
@@ -99,6 +119,25 @@ export function createGintLayerGPU(host, { requestDraw } = {}) {
 	const dummyU32 = device.createTexture({ size: [1, 1], format: "r32uint", usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST });
 	const dummyF32 = device.createTexture({ size: [1, 1], format: "r16float", usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST });
 	const dummySamp = device.createSampler({ magFilter: "linear", minFilter: "linear" });
+	// idfill：ID テクスチャ（rg16float・canvas 同寸・単一サンプル）＋解決 uniform（fid_w,count,overlap）＋bind group。
+	let idTex = null, idTexView = null, idW = 0, idH = 0, idResolveBG = null, idResolveFid = null;
+	const idRBuf = device.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+	const idRCPU = new Uint32Array(4);
+	function ensureIdTex() {
+		if (idTex && idW === s.width && idH === s.height) { if (idResolveFid !== s.fidStyleTex) rebuildIdResolveBG(); return !!idResolveBG; }
+		if (idTex) idTex.destroy();
+		idTex = device.createTexture({ size: [s.width, s.height], format: ID_FMT, usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING });
+		idTexView = idTex.createView(); idW = s.width; idH = s.height;
+		rebuildIdResolveBG();
+		return !!idResolveBG;
+	}
+	function rebuildIdResolveBG() {
+		idResolveFid = s.fidStyleTex;
+		idResolveBG = s.fidStyleTex ? device.createBindGroup({ layout: bglIdResolve, entries: [
+			{ binding: 0, resource: idTexView }, { binding: 1, resource: s.fidStyleTex.createView() }, { binding: 2, resource: { buffer: idRBuf } }] }) : null;
+	}
+	// コロプレス塗りが使えるか（idfill.js canUseIdFill）：paint(fid表)あり・ポリゴンあり・fillOff でない・fid が rg16float 上限内。
+	function canUseIdFill() { return !!s.fidStyleTex && s.polyEdges > 0 && !s.fillOff && !!s.arcTex && s.fidStyleCount <= ID_MAX_FID; }
 
 	// group(2)＝(arc|pt, meta|ptMeta) の bind group キャッシュ（テクスチャ差し替えで自然無効化）
 	const texBGs = new WeakMap();
@@ -530,6 +569,8 @@ export function createGintLayerGPU(host, { requestDraw } = {}) {
 		const hasB = !!(s.metaTexB && s.polyEdgesB > 0);
 		const stTex = hasB ? s.metaTexB : s.metaTex, stCount = hasB ? s.polyEdgesB : s.polyEdges;
 		const doFill = fc[3] > 0 && stCount > 0 && s.arcTex;
+		// コロプレス（paint 時）＝ID バッファ塗り。能力あり＝単色 stencil でなく idfill（優先）。基準メタ固定（fid 重み）
+		const idFill = canUseIdFill() && ensureIdTex();
 		// 線 tier 選択（passes.js と同判断）
 		let lnSel = null;
 		if (s.totalEdges > 0 && s.arcTex) {
@@ -554,6 +595,17 @@ export function createGintLayerGPU(host, { requestDraw } = {}) {
 		device.queue.writeBuffer(gpBuf, 0, gpAB);
 
 		const aux = auxGroup(ctx?.elevView, ctx?.elevSampler);
+		// ① ID 蓄積パス（main パスより前・fr.enc の別 render pass）＝winding 和を rg16float へ。基準メタ・rank0・pivot 有効
+		if (idFill) {
+			idRCPU[0] = s.fidStyleW || 1; idRCPU[1] = s.fidStyleCount; idRCPU[2] = s.idOverlapMode ? 1 : 0; idRCPU[3] = 0;
+			device.queue.writeBuffer(idRBuf, 0, idRCPU);
+			const idPass = fr.enc.beginRenderPass({ colorAttachments: [{ view: idTexView, loadOp: "clear", clearValue: { r: 0, g: 0, b: 0, a: 0 }, storeOp: "store" }] });
+			idPass.setPipeline(idAccumPipe);
+			idPass.setBindGroup(0, frameBG[GF_FILL]); idPass.setBindGroup(1, paramBG[ROLE.stencil]);
+			idPass.setBindGroup(2, texBG(s.arcTex, s.metaTex)); idPass.setBindGroup(3, aux);
+			idPass.draw(s.polyEdges * 3);
+			idPass.end();
+		}
 		const pass = fr.enc.beginRenderPass({
 			colorAttachments: [{ view: fr.colorView, loadOp: "load", storeOp: "store" }],
 			depthStencilAttachment: {
@@ -566,8 +618,12 @@ export function createGintLayerGPU(host, { requestDraw } = {}) {
 		pass.setBindGroup(1, paramBG[ROLE.stencil]);
 		pass.setBindGroup(3, aux);
 
-		// ── stencil-then-cover 塗り（低ズーム既定ベタ塗り。境界メタ優先＝winding 等価で桁違いに軽い）──
-		if (doFill) {
+		// ② 塗り：コロプレス（idfill）＝解決パスを描画／それ以外＝stencil-then-cover 単色（境界メタ優先）
+		if (idFill) {   // ID 画素→fid→スタイル表→色（②の解決＝①で蓄積した idTex を読む）
+			pass.setPipeline(idResolvePipe);
+			pass.setBindGroup(0, idResolveBG);
+			pass.draw(3);
+		} else if (doFill) {
 			pass.setBindGroup(0, frameBG[hasB ? GF_FILL_B : GF_FILL]);   // rank0＝全密度（自己交差斑点の根治）。境界メタ＝単一要・カリング無効
 			pass.setBindGroup(2, texBG(s.arcTex, stTex));
 			pass.setPipeline(stencilFanPipe);
@@ -576,6 +632,7 @@ export function createGintLayerGPU(host, { requestDraw } = {}) {
 			pass.setBindGroup(1, paramBG[ROLE.fill]);
 			pass.draw(3);
 		}
+		if (idFill) pass.setBindGroup(3, aux);   // idResolvePipe は別レイアウト＝bind group がリセットされる＝後続の線/点用に group3(aux) を張り直す
 		// ── 線（tier＋可視 run。深度統合時はテストのみ→GREATER 隠線）──
 		if (lnSel) {
 			pass.setBindGroup(0, frameBG[lnSel.boundary ? GF_LINE_B : GF_LINE]);
@@ -764,7 +821,8 @@ export function createGintLayerGPU(host, { requestDraw } = {}) {
 		clearFidStyle();
 		if (pickTex) { pickTex.destroy(); pickTex = null; }
 		if (pickBuf) { pickBuf.destroy(); pickBuf = null; }
-		gfBuf.destroy(); gpBuf.destroy(); styleBuf.destroy();
+		if (idTex) { idTex.destroy(); idTex = null; }
+		gfBuf.destroy(); gpBuf.destroy(); styleBuf.destroy(); idRBuf.destroy();
 		dummyU32.destroy(); dummyF32.destroy();
 		s.gintData = null;
 		s.polyEdgeByFid = null; s.polyBboxByFid = null; s.fillOff = false;
