@@ -225,7 +225,11 @@ let memTerrain = 0, memHeap = 0;   // render worker から届く terrain LRU バ
 const noMixedR01 = /[?&]nor01=1/.test(location.search);
 // ?gpu=1 ＝WebGPU バックエンド（実験・Phase 1: globe+基図 fill/line）。非対応/失敗は worker 内で WebGL2 へ
 // 自動フォールバック＝既定挙動と同一。既定経路には dynamic import すら発生しない（バンドル・実行とも無負担）。
-const gpuBackend = /[?&]gpu=1/.test(location.search);
+// ?gpu=1＝WebGPU 実験フラグ。oj.nogpu＝この環境で「初期化は成功するのに絵が出ない」を検出済み（下の present 検証）
+// ＝このタブセッションは WebGL2 固定（タブを閉じれば解除）。iOS Safari 実測 2026-08-02：backend=webgpu ログまで
+// 進むが画面に画素が届かない（worker×OffscreenCanvas×WebGPU の present 未接続系）＝例外ゼロの沈黙故障。
+const gpuBackend = /[?&]gpu=1/.test(location.search) && !sessionStorage.getItem("oj.nogpu");
+if (/[?&]gpu=1/.test(location.search) && !gpuBackend) console.warn("[boot] 前回 WebGPU の present 検証に失敗＝このセッションは WebGL2 固定（タブを閉じると再試行）");
 // ?noterr=1 ＝標高（アトラス・地形メッシュ・タイルLRU）を丸ごと停止する A/B 計測ノブ（?nogint=1 と同格）。
 const noTerr = /[?&]noterr=1/.test(location.search);
 renderWorker.postMessage({ type: "init", canvas: offscreen, labelCanvas: labelOffscreen, elevBase: TERR_EXAG / EARTH_M, terrainExag: TERR_EXAG, earthM: EARTH_M, apiUrl: "https://api.ortho-earth.com", scenePort: sceneChan.port2, noMultiDraw, perf: perfLog, mem: memHud, lowMem: LOW_MEM, noMixed: noMixedR01, gpu: gpuBackend, noTerr }, [offscreen, labelOffscreen, sceneChan.port2]);
@@ -248,6 +252,15 @@ logEl.style.display = "none";
 let bootT = setTimeout(() => {
 	fatalOverlay("起動に時間がかかっています", "回線が遅い場合、初回は読み込みに時間がかかることがあります（読み込みは続いています）。そのまま少しお待ちください。改善しない場合は再読み込みを。それでも駄目な場合は、ブラウザの設定で「ハードウェアアクセラレーション」が有効かご確認ください。", true);
 }, 10000);
+// gpu=1 の frame1 不達（20秒）＝WebGPU 経路が固まっている疑い＝WebGL2 で仕切り直し（遅い回線のコールドブート実測
+// 16秒@400kbps を考慮した余裕。present 沈黙故障と対で、実験フラグがどう転んでも WebGL2 の絵に必ず着地させる）。
+if (gpuBackend) setTimeout(() => {
+	if (!window.__backend) {
+		console.error("[boot] gpu=1 で 20秒 frame1 なし → WebGL2 で再起動");
+		sessionStorage.setItem("oj.nogpu", "1");
+		location.reload();
+	}
+}, 20000);
 // 印刷（平面図）撮影中の抑止フラグ：autoPlateau/settle保存を止める。描画は noTerrain にしない＝
 // 標高アトラスは生かす（真俯瞰 pitch0 なので elevScaleEff=0＝地形サーフェス/陰影/変位は自然に消え、
 // 等高線(ベクタ)だけが敷かれた厳密な正射平面図になる）。noTerrain にすると等高線もアトラスごと消えるので不可。
@@ -268,6 +281,22 @@ renderWorker.onmessage = e => {
 	if (d.type === "frame1") {
 		clearTimeout(bootT); bootT = null; window.__backend = d.backend || "webgl2"; sessionStorage.removeItem("oj.ctxlost");   // 初描画成功＝自動リロード回数もリセット。__backend＝スモークテスト用（webgl2/webgpu）
 		document.getElementById("fatal")?.remove();   // 遅い回線でウォッチドッグ(10s)が先に出た後の遅着 frame1＝案内を畳む（地図は生きているのに被さったまま＝「何も出ない」の正体・モバイル実測 2026-08-02）
+		console.log(`[boot] frame1 受信 backend=${window.__backend}`);
+		// WebGPU の present 検証：worker 側は例外ゼロで描けている「つもり」でも、環境によっては canvas に画素が
+		// 届かない（iOS Safari 実測＝worker×OffscreenCanvas×WebGPU の present 未接続）。placeholder canvas を
+		// drawImage→getImageData し、全画素ゼロなら WebGL2 で自動再起動（Chrome は正常時 全画素非ゼロを実測確認済）。
+		if (window.__backend === "webgpu") setTimeout(() => {
+			const bail = why => { console.error(`[boot] WebGPU present 検証失敗（${why}）→ WebGL2 で再起動`); sessionStorage.setItem("oj.nogpu", "1"); location.reload(); };
+			try {
+				const t = document.createElement("canvas"); t.width = 16; t.height = 16;
+				const g = t.getContext("2d", { willReadFrequently: true });
+				g.drawImage(canvas, 0, 0, 16, 16);
+				const px = g.getImageData(0, 0, 16, 16).data;
+				let nz = 0; for (let i = 0; i < px.length; i += 4) if (px[i] | px[i + 1] | px[i + 2] | px[i + 3]) nz++;
+				if (nz === 0) bail("画素が canvas に届いていない");
+				else console.log(`[boot] WebGPU present 検証OK（画素 ${nz}/256）`);
+			} catch (e) { bail("検証中の例外: " + (e && e.message)); }
+		}, 1500);
 		return;
 	}
 	if (d.type === "drawErr") {   // worker の draw 例外（初回のみ）＝毎フレーム失敗系の一次診断。モバイルは worker コンソールが見づらい＝main 側へ転写
