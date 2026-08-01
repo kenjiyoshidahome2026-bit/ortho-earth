@@ -1,0 +1,170 @@
+<!doctype html>
+<!-- WebGPU gint（Phase 3）の回帰：createRendererGPU+createGintLayerGPU をメインスレッドで直駆動し、
+     ①小データ＝stencil塗り（reversed arc の winding）/線/点 ②チルト×部分表示のドーナツ（穴/環/外）
+     ③大データ＝tier 梯子構築＋tier 経路描画 ④pick識別＝GPU hit（折れ線）と JS fallback（ポリゴン包含）
+     を 2D canvas 読み戻し（drawImage→getImageData）で検める。t-gintlod（GL worker 版）の WebGPU 対。
+     ⚠実時間専用（verify-webgpu.mjs が回す）：--virtual-time-budget は WebGPU async と非両立（偽陽性）。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;width:320px;height:320px}</style><title>t-gintgpu</title></head>
+<body><canvas id="g" width="256" height="256"></canvas>
+<script type="module">
+const t = [], ok = (n, c) => { t.push((c ? "ok:" : "NG:") + n); console.log("[t]", t[t.length - 1]); };
+window.__t = t;   // ハング時の切り分け用（CDP から進捗を読める）
+const fin = () => document.title = t.some(s => s.startsWith("NG")) ? "FAIL " + t.join(" ") : "PASS " + t.join(" ");
+const spread16 = v => { v &= 0xFFFF; v = (v | (v << 8)) & 0xFF00FF; v = (v | (v << 4)) & 0xF0F0F0F; v = (v | (v << 2)) & 0x33333333; v = (v | (v << 1)) & 0x55555555; return v >>> 0; };
+const pack = (lon, lat, terminal, weight = 0) => {
+	const ix = Math.round((lon + 180) * 1e7) >>> 0, iy = Math.round((lat + 90) * 1e7) >>> 0;
+	const lo = (spread16(ix & 0xFFFF) | (spread16(iy & 0xFFFF) << 1)) >>> 0;
+	const hi = (spread16(ix >>> 16) | (spread16(iy >>> 16) << 1)) >>> 0;
+	let v = (BigInt(hi) << 32n) | BigInt(lo);
+	return terminal ? (v | (1n << 63n)) : ((v & ~0x3Fn) | BigInt(weight & 63));
+};
+const e7 = d => Math.round(d * 1e7) >>> 0;
+try {
+	if (!navigator.gpu) { ok("webgpu-unavailable→スキップ扱いPASS", true); fin(); }
+	else {
+	const { createRendererGPU, createGintLayerGPU } = await import("../../../packages/ortho-core/src/gpu/backend.js");
+	const { cameraState, project } = await import("../../../packages/ortho-core/src/camera.js");
+	const canvas = document.getElementById("g");
+	const r = await createRendererGPU(canvas);
+	const gint = createGintLayerGPU(r, { requestDraw: () => {} });
+	ok("boot(webgpu+gint)", !!r.device);
+	const rd = document.createElement("canvas"); rd.width = 256; rd.height = 256;
+	const rctx = rd.getContext("2d", { willReadFrequently: true });
+	const shot = async (cam) => {   // 1フレーム描いて読み戻す。⚠drawImage は flush と同一タスク＝
+		// WebGPU canvas は present 後に current texture が空の新品になる（rAF 跨ぎの読みは常に空＝px0 の罠）。
+		// 同一タスクの drawImage は queue の依存として順序保証される＝submit 済み描画を正しく捕獲する。
+		r.draw(cam, {});
+		gint.draw(cam, r.gintCtx());
+		r.flush();
+		rctx.clearRect(0, 0, 256, 256);
+		rctx.drawImage(canvas, 0, 0);
+		const px = rctx.getImageData(0, 0, 256, 256).data;
+		await new Promise(res => requestAnimationFrame(() => setTimeout(res, 10)));   // present 消化＝次 shot と分離
+		return px;
+	};
+	const redAt = (a8, st, lon, lat) => {   // 赤fill（r高/g低）を 5×5 で数える（t-gintlod ②b と同判定・上下反転なし）
+		const p = project(st, lon, lat); if (p[2] <= 0) return -1;
+		const x = Math.round(p[0]), y = Math.round(p[1]); if (x < 2 || x > 253 || y < 2 || y > 253) return -2;
+		let m = 0;
+		for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) {
+			const i = ((y + dy) * 256 + (x + dx)) * 4;
+			if (a8[i] > 150 && a8[i + 1] < 130) m++;
+		}
+		return m;
+	};
+
+	// ── ① 小データ：ポリゴン（reversed arc 共有）＋折れ線＋点 ──
+	const C = [139.7, 35.7], d = 0.005;
+	{
+		const verts = [
+			[C[0] - d, C[1] - d, 1, 0], [C[0], C[1] - d * 0.9, 0, 30], [C[0] + d, C[1] - d, 1, 0],
+			[C[0] - d, C[1] - d, 1, 0], [C[0], C[1] + d, 0, 30], [C[0] + d, C[1] - d, 1, 0],
+			[C[0] - d, C[1] + d * 2, 1, 0], [C[0], C[1] + d * 2.2, 0, 30], [C[0] + d, C[1] + d * 2, 1, 0],
+		];
+		const arcBuffer = BigUint64Array.from(verts.map(([lon, lat, term, w]) => pack(lon, lat, !!term, w)));
+		const arcMeta = new Uint32Array(3 * 8);
+		[[0, 3], [3, 3], [6, 3]].forEach(([offv, len], aid) => {
+			arcMeta[aid * 8] = offv; arcMeta[aid * 8 + 1] = len;
+			let xm = 4e9, ym = 4e9, xM = 0, yM = 0;
+			for (let i = 0; i < len; i++) { const [lon, lat] = verts[offv + i];
+				xm = Math.min(xm, e7(lon + 180)); xM = Math.max(xM, e7(lon + 180));
+				ym = Math.min(ym, e7(lat + 90)); yM = Math.max(yM, e7(lat + 90)); }
+			arcMeta[aid * 8 + 4] = xm; arcMeta[aid * 8 + 5] = ym; arcMeta[aid * 8 + 6] = xM; arcMeta[aid * 8 + 7] = yM;
+		});
+		gint.set({
+			arcBuffer, arcMeta,
+			polyStream: Int32Array.from([7, 1, 2, 0, ~1]),
+			lineStream: Int32Array.from([8, 1, 1, 2]),
+			pointBuffer: BigUint64Array.from([pack(C[0], C[1] + d, true)]),
+			point: Uint32Array.from([9]),
+			minZoom: 2,
+		});
+		gint.style({ fillColor: [1, 0, 0, 0.6] });
+		const cam = { center: C, zoom: 14, pitch: 0, bearing: 0, dpr: 1 };
+		const a8 = await shot(cam);
+		let px = 0;
+		for (let i = 0; i < a8.length; i += 4) if (a8[i] > 150 && a8[i + 1] < 130) px++;   // 赤fill画素
+		ok(`小データ塗り(px=${px})`, px > 1000 && px < 60000);
+
+		// ── ④ pick識別：折れ線＝GPU hit / ポリゴン中心＝JS fallback（findPolygon）──
+		const st = cameraState(cam, 256, 256);
+		const idOnce = () => new Promise(res => {   // 3s で "timeout"＝ハングを NG として可視化（無変化=無通知の設計と区別）
+			const h = e => { if (e.data?.action === "identify") { clearTimeout(tm); removeEventListener("message", h); res(e.data.featureId); } };
+			const tm = setTimeout(() => { removeEventListener("message", h); res("timeout"); }, 3000);
+			addEventListener("message", h);
+		});
+		gint.drawn();   // settle＝pick buffer 構築
+		await r.device.queue.onSubmittedWorkDone();
+		const lp = project(st, C[0] - d, C[1] + d * 2);   // 折れ線（∧形）の左端点＝丸キャップ中心（fid8・帯の縁ではなく芯を突く）
+		let p1 = idOnce(); gint.move({ x: lp[0], y: lp[1] });
+		const fidLine = await p1;
+		ok(`pick折れ線(fid=${fidLine})`, fidLine === 8);
+		const pp = project(st, C[0], C[1] - d * 0.2);    // ポリゴン内部（fid7＝GPU pick 外＝JS包含判定）
+		let p2 = idOnce(); gint.move({ x: pp[0], y: pp[1] });
+		const fidPoly = await p2;
+		ok(`pickポリゴンJS-fallback(fid=${fidPoly})`, fidPoly === 7);
+		gint.leave();
+	}
+
+	// ── ② チルト×部分表示の stencil 塗り（ドーナツ＝穴/環/外。楔フラッドの回帰）──
+	{
+		const R = 0.04, rr = 0.015;
+		const ring = (dd, cw) => cw
+			? [[C[0] - dd, C[1] - dd], [C[0] - dd, C[1] + dd], [C[0] + dd, C[1] + dd], [C[0] + dd, C[1] - dd], [C[0] - dd, C[1] - dd]]
+			: [[C[0] - dd, C[1] - dd], [C[0] + dd, C[1] - dd], [C[0] + dd, C[1] + dd], [C[0] - dd, C[1] + dd], [C[0] - dd, C[1] - dd]];
+		const vs = [...ring(R, false), ...ring(rr, true)];
+		const arcBuffer = BigUint64Array.from(vs.map(([lo, la]) => pack(lo, la, true)));
+		const arcMeta = new Uint32Array(2 * 8);
+		[[0, 5, R], [5, 5, rr]].forEach(([off, len, dd], aid) => { arcMeta[aid * 8] = off; arcMeta[aid * 8 + 1] = len;
+			arcMeta[aid * 8 + 4] = e7(C[0] + 180 - dd); arcMeta[aid * 8 + 5] = e7(C[1] + 90 - dd);
+			arcMeta[aid * 8 + 6] = e7(C[0] + 180 + dd); arcMeta[aid * 8 + 7] = e7(C[1] + 90 + dd); });
+		gint.set({ arcBuffer, arcMeta, polyStream: Int32Array.from([1, 2, 1, 0, 1, 1]), minZoom: 2 });
+		gint.style({ fillColor: [1, 0, 0, 0.6] });
+		const cam = { center: [C[0] + 0.02, C[1] + 0.018], zoom: 14, pitch: 1.2, bearing: 3.74, dpr: 1 };
+		const a8 = await shot(cam);
+		const st = cameraState(cam, 256, 256);
+		const hole = redAt(a8, st, C[0], C[1]), ann = redAt(a8, st, C[0] - 0.028, C[1] - 0.02), outv = redAt(a8, st, C[0] - 0.055, C[1] - 0.035);
+		ok(`チルト部分表示stencil(穴=${hole} 環=${ann} 外=${outv})`, hole === 0 && ann > 5 && outv === 0);
+	}
+
+	// ── ③ 大データ：>200k辺 → tier 梯子（macrotask 遅延構築）→ tier 経路描画 ──
+	{
+		const nArcs = 500, len = 500, total = nArcs * len;
+		const arcBuffer = new BigUint64Array(total);
+		const arcMeta = new Uint32Array(nArcs * 8);
+		let rng = 12345; const rnd = () => (rng = (rng * 48271) % 2147483647) / 2147483647;
+		for (let a = 0; a < nArcs; a++) {
+			const lon0 = 120 + rnd() * 40, lat0 = 20 + rnd() * 30, ang = rnd() * 6.28;
+			let xm = 4e9, ym = 4e9, xM = 0, yM = 0;
+			for (let i = 0; i < len; i++) {
+				const lon = lon0 + Math.cos(ang) * i * 2e-4, lat = lat0 + Math.sin(ang) * i * 2e-4;
+				const term = (i === 0 || i === len - 1);
+				let w = 0; while (w < 62 && rnd() < 0.72) w++;
+				arcBuffer[a * len + i] = pack(lon, lat, term, w);
+				xm = Math.min(xm, e7(lon + 180)); xM = Math.max(xM, e7(lon + 180));
+				ym = Math.min(ym, e7(lat + 90)); yM = Math.max(yM, e7(lat + 90));
+			}
+			arcMeta[a * 8] = a * len; arcMeta[a * 8 + 1] = len;
+			arcMeta[a * 8 + 4] = xm; arcMeta[a * 8 + 5] = ym; arcMeta[a * 8 + 6] = xM; arcMeta[a * 8 + 7] = yM;
+		}
+		const lineStream = new Int32Array(nArcs * 4);
+		for (let a = 0; a < nArcs; a++) lineStream.set([50000 + a, 1, 1, a], a * 4);
+		const tiersP = new Promise(res => {
+			const h = e => { if (e.data?.action === "tiers") { removeEventListener("message", h); res(e.data.tiers); } };
+			addEventListener("message", h);
+		});
+		gint.set({ arcBuffer, arcMeta, lineStream, minZoom: 1 });
+		const cam = { center: [140, 35], zoom: 3, pitch: 0, bearing: 0, dpr: 1 };
+		await shot(cam); await shot(cam);   // 同カメラ2回＝_isDrawing を静止へ（tier 遅延構築は移動中組まない）
+		const ti = await tiersP;
+		ok(`tier梯子構築(${ti.length}段)`, ti.length > 0);
+		const a8 = await shot(cam);
+		let px = 0;   // style1（折れ線 #00B4D8＝シアン系）
+		for (let i = 0; i < a8.length; i += 4) if (a8[i + 2] > 150 && a8[i] < 130) px++;
+		ok(`大データtier描画(px=${px})`, px > 50);
+	}
+	gint.dispose(); r.dispose();
+	fin();
+	}
+} catch (e) { ok("boot:" + (e && e.message || e), false); fin(); }
+</script></body></html>

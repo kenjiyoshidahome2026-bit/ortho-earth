@@ -60,7 +60,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 		alpha: { srcFactor: "one", dstFactor: "one-minus-src-alpha", operation: "add" },
 	};
 	const SAMPLES = 4;   // WebGL 版 canvas の antialias:true と同格（MSAA 4x→resolve）
-	const DEPTH = "depth24plus";
+	const DEPTH = "depth24plus-stencil8";   // stencil は gint（winding 塗り）が同一アタッチメントで使う（renderer 自身は不使用＝既定 keep で不干渉）
 	const target = { format, blend: BLEND };
 	const ms = { count: SAMPLES };
 	const VF = GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT;
@@ -149,15 +149,17 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 	// GL 版と同じダブルバッファ：stage で舞台裏に組み、セルが揃ったら commit で一括スワップ（山影がパッと消えない）。
 	const elevSampler = device.createSampler({ magFilter: "linear", minFilter: "linear", addressModeU: "clamp-to-edge", addressModeV: "clamp-to-edge" });
 	const dummyTex = device.createTexture({ size: [1, 1], format: "r16float", usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST });
-	let elevTexObj = null, elev = { bounds: [0, 0, 1, 0], scale: 0, has: 0 }, terrain = null, elevStage = null;
+	const dummyView = dummyTex.createView();
+	let elevTexObj = null, elevTexView = null, elev = { bounds: [0, 0, 1, 0], scale: 0, has: 0 }, terrain = null, elevStage = null;
 	let bg0 = null;   // group(0) の4スロット bind group（elevTex 差し替えで作り直し）
 	function rebuildBG0() {
-		const tex = (elev.has && elevTexObj) ? elevTexObj : dummyTex;
+		elevTexView = elevTexObj ? elevTexObj.createView() : null;   // view は1回だけ作って使い回す（gint の bind group キャッシュも view 同一性で安定）
+		const view = (elev.has && elevTexView) ? elevTexView : dummyView;
 		bg0 = {};
 		for (const [name, idx] of Object.entries(SLOT)) bg0[name] = device.createBindGroup({
 			layout: bgl0, entries: [
 				{ binding: 0, resource: { buffer: frameBuf, offset: idx * FRAME_SLOT, size: FRAME_SLOT } },
-				{ binding: 1, resource: tex.createView() },
+				{ binding: 1, resource: view },
 				{ binding: 2, resource: elevSampler },
 			],
 		});
@@ -301,7 +303,10 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 		return msaa;
 	}
 
+	// frame＝開いたコマンドエンコーダ＋描画の的（gint が自分の render pass を足す口）。flush() で resolve→submit。
+	let frame = null, gctx = null;
 	function draw(cam, opts) {
+		if (frame) flush();   // 保険：前フレームの flush 漏れ（例外経路）を清算してから
 		const W = canvas.width, H = canvas.height;
 		if (!W || !H) return false;
 		const st = cameraState(cam, W, H);
@@ -358,12 +363,15 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 		const pass = enc.beginRenderPass({
 			colorAttachments: [{
 				view: t.view,
-				resolveTarget: ctx.getCurrentTexture().createView(),
 				loadOp: "clear",
 				clearValue: { r: c[0] * c[3], g: c[1] * c[3], b: c[2] * c[3], a: c[3] },
-				storeOp: "discard",   // MSAA 実体は保存不要（resolve 先が本体）
+				storeOp: "store",   // gint パスが同じ的に重ねる＝resolve は flush() の終端パスで（GL の「地図の後に gint」と同順）
 			}],
-			depthStencilAttachment: { view: t.depthView, depthLoadOp: "clear", depthClearValue: 1.0, depthStoreOp: "discard" },
+			depthStencilAttachment: {
+				view: t.depthView,
+				depthLoadOp: "clear", depthClearValue: 1.0, depthStoreOp: "store",   // gint の隠線（地形深度テスト）が読む
+				stencilLoadOp: "clear", stencilStoreOp: "discard",                    // renderer 自身は stencil 不使用（gint パスが自前で clear）
+			},
 		});
 		if (!flat2d) {   // 球体本体：land基色を縁(リム)まで敷く。2D高速パス時は clear で代替＝省略
 			pass.setPipeline(globePipe);
@@ -435,8 +443,25 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 			pass.draw(bld.count);
 		}
 		pass.end();
-		device.queue.submit([enc.finish()]);
+		frame = { enc, colorView: t.view, depthView: t.depthView, w: W, h: H };
+		// gint の深度統合コンテキスト（GL renderer の gintCtx と同意味論＝terrainDepth の間だけ非null）。
+		// elevView は安定参照（rebuildBG0 で1回生成）＝gint 側の bind group キャッシュが毎フレーム破れない。
+		gctx = terrainDepth ? {
+			terrainDepth: true, logCoef, fogFar: fogFarCap,
+			elevView: (elev.has && elevTexView) ? elevTexView : null, elevSampler,
+			elevBounds: elev.bounds, elevScale: elevScaleEff, hasElev: elev.has, edgeFade: elev.edgeFade || 0,
+		} : null;
 		return fogAnimating;
+	}
+	// フレーム確定：MSAA を canvas へ resolve して submit（gint パスが足された後＝地図と同フレーム同カメラの1枚）。
+	function flush() {
+		if (!frame) return;
+		const pass = frame.enc.beginRenderPass({
+			colorAttachments: [{ view: frame.colorView, resolveTarget: ctx.getCurrentTexture().createView(), loadOp: "load", storeOp: "discard" }],
+		});
+		pass.end();
+		device.queue.submit([frame.enc.finish()]);
+		frame = null;
 	}
 
 	// 未搭載の set は静かに握り潰す（初回だけ告知）＝app の呼び出しを壊さない
@@ -460,6 +485,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 		}
 	}
 	function dispose() {
+		frame = null; gctx = null;
 		disposeSlot("base"); disposeSlot("main");
 		frameBuf.destroy(); paramBuf.destroy(); globeBuf.destroy(); cornerBuf.destroy();
 		if (terrain) { terrain.vbo.destroy(); terrain.ibo.destroy(); terrain = null; }
@@ -470,5 +496,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 		device.destroy();
 	}
 	// lost：GPU デバイス喪失（WebGL の contextlost と同じ扱いで main が立て直す）
-	return { set, draw, dispose, md: false, mdMax: 0, gintCtx: () => null, backend: "webgpu", lost: device.lost };
+	// device/format/frameInfo/flush＝gint（createGintLayerGPU）のホスト面：開いたフレームに render pass を足す口。
+	return { set, draw, flush, dispose, md: false, mdMax: 0, gintCtx: () => gctx, backend: "webgpu", lost: device.lost,
+		device, format, frameInfo: () => frame };
 }

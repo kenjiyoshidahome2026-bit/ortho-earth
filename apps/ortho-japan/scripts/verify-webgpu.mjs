@@ -33,26 +33,32 @@ try {
 		if (i > 60) throw new Error("chrome devtools が起動しない");
 		await sleep(250);
 	}
-	const url = `http://localhost:${PORT}/japan/tests/t-webgpu.html`;
-	const target = await (await fetch(`http://127.0.0.1:${CDP}/json/new?${encodeURIComponent(url)}`, { method: "PUT" })).json();
-	ws = new WebSocket(target.webSocketDebuggerUrl);
-	await new Promise((res, rej) => { ws.onopen = res; ws.onerror = rej; });
-	let id = 0; const pending = new Map();
-	const send = (method, params = {}) => new Promise(res => { const i = ++id; pending.set(i, res); ws.send(JSON.stringify({ id: i, method, params })); });
-	ws.onmessage = ev => { const m = JSON.parse(ev.data); if (m.id && pending.has(m.id)) { pending.get(m.id)(m.result); pending.delete(m.id); } };
-	await send("Runtime.enable");
-	const t0 = Date.now();
-	let title = "";
-	while (Date.now() - t0 < 40000) {   // 健全なら数秒（boot+frame1+destroy）
-		await sleep(1000);
-		const r = await send("Runtime.evaluate", { expression: "document.title", returnByValue: true });
-		title = r?.result?.value || "";
-		if (/^(PASS|FAIL)/.test(title)) break;
+	fail = 0;
+	for (const page of ["t-webgpu", "t-gintgpu"]) {
+		const url = `http://localhost:${PORT}/japan/tests/${page}.html`;
+		const target = await (await fetch(`http://127.0.0.1:${CDP}/json/new?${encodeURIComponent(url)}`, { method: "PUT" })).json();
+		ws = new WebSocket(target.webSocketDebuggerUrl);
+		await new Promise((res, rej) => { ws.onopen = res; ws.onerror = rej; });
+		let id = 0; const pending = new Map();
+		const send = (method, params = {}) => new Promise(res => { const i = ++id; pending.set(i, res); ws.send(JSON.stringify({ id: i, method, params })); });
+		ws.onmessage = ev => { const m = JSON.parse(ev.data); if (m.id && pending.has(m.id)) { pending.get(m.id)(m.result); pending.delete(m.id); } };
+		await send("Runtime.enable");
+		const t0 = Date.now();
+		let title = "";
+		while (Date.now() - t0 < 40000) {   // 健全なら数秒
+			await sleep(1000);
+			const r = await send("Runtime.evaluate", { expression: "document.title", returnByValue: true });
+			title = r?.result?.value || "";
+			if (/^(PASS|FAIL)/.test(title)) break;
+		}
+		const bad = title.startsWith("PASS") ? 0 : 1;
+		fail += bad;
+		console.log(`${bad ? "FAIL" : "PASS"}  ${page.padEnd(10)} ${title.replace(/^(PASS|FAIL) ?/, "") || "（titleがPASS/FAILにならない＝起動不能）"}`);
+		try { ws.close(); } catch { /* 次ページへ */ }
 	}
-	fail = title.startsWith("PASS") ? 0 : 1;
-	console.log(`${fail ? "FAIL" : "PASS"}  t-webgpu   ${title.replace(/^(PASS|FAIL) ?/, "") || "（titleがPASS/FAILにならない＝起動不能）"}`);
 } catch (e) {
-	console.error("FAIL  t-webgpu  ", e.message);
+	console.error("FAIL  verify-webgpu  ", e.message);
+	fail = fail || 1;
 } finally {
 	try { ws && ws.close(); } catch { /* 終了時 */ }
 	vite.kill(); chrome.kill();

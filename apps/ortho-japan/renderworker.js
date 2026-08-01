@@ -132,11 +132,12 @@ onmessage = e => {
 				// 失敗（非対応・adapter無し）は WebGL2 へフォールバック＝既定経路と同一挙動。
 				initQueue = [];
 				import("ortho-core/gpu")
-					.then(({ createRendererGPU }) => createRendererGPU(canvas))
-					.then(r => {
+					.then(({ createRendererGPU, createGintLayerGPU }) => createRendererGPU(canvas).then(r => {
 						renderer = r; backendName = "webgpu";
-						console.log("[render] backend=webgpu（Phase 2: globe+基図+標高/地形/深度+建物+等高線。gint/PLATEAU/星空/overlayは未搭載＝WebGL版で継続）");
-					})
+						// gint（知性の層）＝renderer の frame（開いたエンコーダ）へ自分の render pass を足す＝1canvas統合の WebGPU 形。
+						gint = createGintLayerGPU(r, { requestDraw: () => { dirty = true; } });
+						console.log("[render] backend=webgpu（Phase 3: globe+基図+標高/地形/深度+建物+等高線+gint。PLATEAU/星空/overlay/idfillは未搭載＝WebGL版で継続）");
+					}))
 					.catch(err => {
 						console.warn("[render] WebGPU init失敗→WebGL2フォールバック:", err && (err.message || err));
 						bootWebGL(m);
@@ -400,6 +401,7 @@ function frame() {
 			tqSpan("map", () => { fogAnim = renderer.draw(glCam, opts); });   // cameraState=mvp生成 + GL描画（軽い）。true=フォグ追従が収束中
 			const pfT1 = perfOn ? performance.now() : 0;
 			tqSpan("gint", () => { if (gint) gint.draw(glCam, renderer.gintCtx()); });   // 知性の層＝同フレーム同カメラで1パス（泳ぎ根治）。山岳ビューは地形深度に参加（隠線＝淡破線）
+			renderer.flush?.();   // webgpu＝gint パスまで積んだフレームを resolve→submit（WebGL は undefined＝無縁）
 			if (perfOn) {
 				const pfT2 = performance.now();
 				pfN++; pfMap += pfT1 - pfT0; pfGint += pfT2 - pfT1;
