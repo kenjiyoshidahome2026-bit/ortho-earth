@@ -65,8 +65,8 @@ bake.js・checkZoomRange・findPolygon。terrain・plateau ワーカーも rende
 ## 使い方・検証
 
 - `?gpu=1` … WebGPU バックエンド。非対応/失敗は worker 内で WebGL2 へ自動フォールバック（挙動同一）。
-  既定経路には dynamic import すら発生しない＝バンドル分離（build で `backend-*.js` 約14KB が別チャンク、
-  renderworker 本体には入らない）。
+  既定経路には dynamic import すら発生しない＝バンドル分離（build で `backend-*.js` が別チャンク、
+  renderworker 本体には入らない。実測 2026-08-01 全スタック搭載後＝103KB / gzip 34KB）。
 - `npm run verify:webgpu` … 実時間 CDP スモーク（t-webgpu.html）。frame1 到達＋backend 確認。
 - **轍：`--virtual-time-budget`（verify:ui の headless 流儀）と WebGPU は両立しない**。
   requestAdapter/requestDevice は実時間の GPU IPC＝ページの仮想時計が先に燃え尽き、worker の
