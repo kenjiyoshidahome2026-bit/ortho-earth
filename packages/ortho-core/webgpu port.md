@@ -34,16 +34,17 @@ bake.js・checkZoomRange・findPolygon。terrain・plateau ワーカーも rende
 
 検証：スクリーンショット比較（WebGL2 と目視同一）＝z13 東京平面 / 富士 z13 60° / 東京駅 z16.5 55°（建物+深度）/
 山頂等高線 / z5.5・z8.5 60° 海岸線 / 東京駅 PLATEAU / z2 世界ビュー / **z7 N02 新幹線オーバーレイ**。
-＋ **tests/t-gintgpu.html**（実時間・ピクセル検定＝小データ塗り/pick両経路/チルトstencil/tier/**overlay塗り/readback基図/idfillコロプレス**）。
+＋ **tests/t-gintgpu.html**（実時間・9ピクセル検定＝小データ塗り/pick両経路/チルトstencil/tier/overlay塗り/readback基図/idfillコロプレス/**gintBldドレープ線**）。
+＋**gintBld**（moj筆ドレープ線/点＝BUILDING_WGSL 流用・line-list/point-list・独自 origin は overlay の dynamic frame 機構に間借り）。
 
 ## 懸念点・既知の穴（要レビュー・後日）
 
 移植は速度優先で進めているので、以下は「?gpu=1 実験フラグの範囲では許容・本採用前に潰す」もの。
 既定（WebGL2）には一切影響しない（?gpu=1 を付けた時だけの話）。
 
-**A. 未搭載機能** … Phase 6 で解消（overlay・idfill・snapshot 基図を全搭載）。gintBld（gint 3D 押し出し・
-renderer 側の setGintBld）だけは未搭載＝moj筆のドレープ境界線が ?gpu=1 で出ない（gint 本体の海岸線/筆は出る）。
-残る IGNORE は gintBld と md 系（下記 B）のみ。
+**A. 未搭載機能** … 解消済（Phase 6＝overlay・idfill・snapshot 基図、＋gintBld ドレープ線/点）。
+残る IGNORE は md 系（mdGrow/mdUp/mdScene＝classic merge 固定ゆえ無縁・下記 B）のみ。
+※gintBld の点は line-list でなく **point-list（1px）**＝GL の gl_PointSize=7 より小さい（線が主・点は副＝許容）。
 
 **B. 性能パスの差**
 - タイル描画は classic CPU merge 固定（md=false）＝multi_draw のタイル GPU 常駐を使わない。密タイル
@@ -126,10 +127,17 @@ renderer 側の setGintBld）だけは未搭載＝moj筆のドレープ境界線
 - **snapshot（Phase 6）**：canvas を `usage: RENDER_ATTACHMENT | COPY_SRC` で configure＝flush 直後（同一タスク・
   present 前）に current texture を copyTextureToBuffer→mapAsync。top-down（compose の flip:false）・BGRA→RGBA swizzle。
 
+## A/B 計測（実機で ?gpu=1 が速いか）
+
+`?perf=1`（WebGL2）と `?gpu=1&perf=1`（WebGPU）を実機で開き、**同じ飛行（t-demo 等）をして `[perf] ema=…ms` を並べる**。
+ema＝壁時計フレーム時間＝両バックエンド共通の物差し（WebGPU は timestamp-query 未配線で gpuMap/gpuGint は "-"、
+だが ema は両方出る）。init 行に `backend=… gpu="…"`（GPU 識別）も出る。これで「?gpu=1 が実機で本当に速いか」を数字で。
+※本人の規律（[[mobile-app-strategy]]）＝この計測で「壁は描画か IDB か」を確定してから性能パス（下の B）へ投資。
+
 ## 次の道順
 
-1. **gintBld**（moj筆のドレープ境界線・renderer setGintBld）＝残る唯一の未搭載レンダ機能。BUILDING_VS 系の
-   GL_LINES/GL_POINTS＝WebGPU では line-list/インスタンス点。gint 本体（海岸線/筆/識別/コロプレス）は搭載済。
+1. **性能パス B（計測で速いと出たら）**：タイルの multi_draw 後継（render bundle / drawIndexed baseVertex）＋
+   timestamp-query（動的解像度・GPU格付けの物差しを WebGPU でも回復）。計測前は着手しない（measure-first）。
 3. **multi_draw の後継**：WebGPU に multiDraw は無いが、(a) `drawIndexed` に **baseVertex がある**＝
    index 再ベース（sceneworker ensureUploaded の絶対頂点番号化）ごと不要にできる、
    (b) **render bundle** で composition を1回記録→毎フレーム再生＝md の狙い（CPU発行ゼロ）を

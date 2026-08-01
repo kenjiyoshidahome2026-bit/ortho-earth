@@ -210,6 +210,23 @@ try {
 		ok(`idfillコロプレス(px=${px})`, px > 5000 && px < 25000);   // ~115px角＝約13000px²（キャンバス全面塗り＝バグでない事も担保）
 		gint.paint(null);
 	}
+
+	// ── ⑧ gintBld（moj筆ドレープ線）：BUILDING_WGSL 流用・line-list・独自 origin。赤い横線が出るか ──
+	{
+		gint.set(null);   // 筆ポリゴンを空に＝gintBld 線だけを見る（前テストの残りを消す）
+		const C = [139.7, 35.7], d = 0.01;
+		r.set("gintBld", {
+			origin: C,
+			lines: { pos: new Float32Array([-d, 0, 0, d, 0, 0]), shade: new Float32Array([1, 1]), anchor: new Float32Array([-d, 0, d, 0]) },   // (dlon,dlat,h)×2＝1本の横線
+			color: [1, 0, 0],
+		});
+		const cam = { center: C, zoom: 14, pitch: 0, bearing: 0, dpr: 1 };
+		const a8 = await shot(cam);
+		let px = 0;   // 赤優勢（1px 線＝MSAA で背景灰と混色＝淡赤ゆえ絶対値でなく赤優勢で拾う）
+		for (let i = 0; i < a8.length; i += 4) if (a8[i] > 150 && a8[i] > a8[i + 1] + 40 && a8[i] > a8[i + 2] + 40) px++;
+		ok(`gintBldドレープ線(px=${px})`, px > 40 && px < 3000);   // 1px 線＝細い（面塗りでない事も担保）
+		r.set("gintBld", null);
+	}
 	gint.dispose(); r.dispose();
 	fin();
 	}

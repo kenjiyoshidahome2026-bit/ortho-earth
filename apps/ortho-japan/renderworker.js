@@ -78,7 +78,7 @@ function bootWebGL(m) {
 	tqExt = glRef.getExtension("EXT_disjoint_timer_query_webgl2");
 	if (perfOn) {
 		const dbg = glRef.getExtension("WEBGL_DEBUG_RENDERER_INFO") || glRef.getExtension("WEBGL_debug_renderer_info");
-		console.log(`[perf] gpu="${glRef.getParameter(dbg ? dbg.UNMASKED_RENDERER_WEBGL : glRef.RENDERER)}" timerQuery=${!!tqExt}`);
+		console.log(`[perf] backend=webgl2 gpu="${glRef.getParameter(dbg ? dbg.UNMASKED_RENDERER_WEBGL : glRef.RENDERER)}" timerQuery=${!!tqExt}`);
 	}
 }
 // バックエンド確定後の共通仕上げ：標高(terrain)＋scene worker 直結ポート＋能力表明＋描画ループ開始。
@@ -137,7 +137,9 @@ onmessage = e => {
 						renderer = r; backendName = "webgpu";
 						// gint（知性の層）＝renderer の frame（開いたエンコーダ）へ自分の render pass を足す＝1canvas統合の WebGPU 形。
 						gint = createGintLayerGPU(r, { requestDraw: () => { dirty = true; } });
-						console.log("[render] backend=webgpu（Phase 3: globe+基図+標高/地形/深度+建物+等高線+gint。PLATEAU/星空/overlay/idfillは未搭載＝WebGL版で継続）");
+						console.log("[render] backend=webgpu（Phase 6: 主要描画スタック完走＝基図/標高/地形/深度/建物/等高線/gint/PLATEAU/星空/overlay/idfill/gintBld。md系のみ未搭載）");
+						// A/B 計測：?perf=1 で GPU 識別を1行（WebGL 経路の debug_renderer_info と対）。WebGPU は timestamp-query 未配線＝ema は壁時計で比較
+						if (perfOn) console.log(`[perf] backend=webgpu gpu="${r.gpuInfo}" timerQuery=false（ema は壁時計＝両BE比較可）`);
 					}))
 					.catch(err => {
 						console.warn("[render] WebGPU init失敗→WebGL2フォールバック:", err && (err.message || err));
@@ -423,7 +425,8 @@ function frame() {
 					const gm = tqN.map ? (tqSum.map / tqN.map).toFixed(2) : "-";     // GPU 実時間（timer query・数フレーム遅れの平均）
 					const gg = tqN.gint ? (tqSum.gint / tqN.gint).toFixed(2) : "-";
 					const gs = gint ? gint.stats() : { drawn: 0, fbo: 0, pickMs: 0, rank: -1, tierW: -1, edges: 0, tiers: 0, tiersDone: false, total: 0 };
-					console.log(`[perf] f=${pfN} map=${(pfMap / pfN).toFixed(2)}ms gint=${(pfGint / pfN).toFixed(2)}ms gpuMap=${gm}ms gpuGint=${gg}ms ema=${emaMs.toFixed(1)}ms res=${RES_STEPS[resIdx]} err=${glErr} drawn=${gs.drawn} fbo=${gs.fbo} pick=${gs.pickMs.toFixed(0)}ms rank=${gs.rank} tierW=${gs.tierW} edges=${gs.edges}/${gs.total} tiers=${gs.tiers}${gs.tiersDone ? "✓" : "…"} runs=${gs.runs}/${gs.chunks} vb=${gs.vb ? gs.vb.join(",") : "null"}`);
+					// backend＋ema（壁時計＝両BE比較可）を先頭へ＝?perf=1 の A/B はこの ema を並べる。gpuMap/gpuGint は WebGL のみ（timer query）
+					console.log(`[perf] backend=${backendName} ema=${emaMs.toFixed(1)}ms f=${pfN} map=${(pfMap / pfN).toFixed(2)}ms gint=${(pfGint / pfN).toFixed(2)}ms gpuMap=${gm}ms gpuGint=${gg}ms res=${RES_STEPS[resIdx]} err=${glErr} drawn=${gs.drawn} fbo=${gs.fbo} pick=${gs.pickMs.toFixed(0)}ms rank=${gs.rank} tierW=${gs.tierW} edges=${gs.edges}/${gs.total} tiers=${gs.tiers}${gs.tiersDone ? "✓" : "…"} runs=${gs.runs}/${gs.chunks} vb=${gs.vb ? gs.vb.join(",") : "null"}`);
 					pfLast = pfT2; pfN = 0; pfMap = 0; pfGint = 0;
 					tqSum.map = tqSum.gint = tqN.map = tqN.gint = 0;
 				}

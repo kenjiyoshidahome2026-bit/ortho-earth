@@ -49,8 +49,11 @@ function f32ToF16(src) {
 
 export async function createRendererGPU(canvas, rOpts = {}) {
 	if (typeof navigator === "undefined" || !navigator.gpu) throw new Error("WebGPU unavailable");
-	const adapter = await navigator.gpu.requestAdapter();
+	const adapter = await navigator.gpu.requestAdapter(rOpts.powerPreference ? { powerPreference: rOpts.powerPreference } : undefined);
 	if (!adapter) throw new Error("WebGPU adapter unavailable");
+	// A/B 計測用の GPU 識別（WebGL の WEBGL_debug_renderer_info 相当）。info は環境で空の事があるので緩く。
+	const ai = adapter.info || {};
+	const gpuInfo = [ai.vendor, ai.architecture, ai.device, ai.description].filter(Boolean).join(" ") || "unknown";
 	const device = await adapter.requestDevice();
 	const ctx = canvas.getContext("webgpu");
 	if (!ctx) throw new Error("webgpu context unavailable");
@@ -202,6 +205,24 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 		fragment: { module: lineMod, entryPoint: "fs", targets: [target] },
 		primitive: { topology: "triangle-list" }, depthStencil: dsOff, multisample: ms,
 	});
+	// gintBld（moj筆ドレープ線/点）＝BUILDING_WGSL 流用・独自 origin（dynamic frame）＋DrawP(dynamic)＋mask(count0)。
+	// GL_LINES/GL_POINTS → topology line-list/point-list。深度で地形/尾根に遮蔽（建物と同じ dsWrite）。
+	const gbLayout = device.createPipelineLayout({ bindGroupLayouts: [bglOvFrame, bglOvParam, bglMask] });
+	const GB_BUFS = [
+		{ arrayStride: 12, attributes: [{ shaderLocation: 0, offset: 0, format: "float32x3" }] },   // a_pos (dlon,dlat,hWorld)
+		{ arrayStride: 4, attributes: [{ shaderLocation: 1, offset: 0, format: "float32" }] },      // a_shade
+		{ arrayStride: 8, attributes: [{ shaderLocation: 2, offset: 0, format: "float32x2" }] },    // a_anchor
+	];
+	const gbLinePipe = device.createRenderPipeline({
+		layout: gbLayout, vertex: { module: bldMod, entryPoint: "vs", buffers: GB_BUFS },
+		fragment: { module: bldMod, entryPoint: "fs", targets: [target] },
+		primitive: { topology: "line-list" }, depthStencil: dsWrite, multisample: ms,
+	});
+	const gbPointPipe = device.createRenderPipeline({
+		layout: gbLayout, vertex: { module: bldMod, entryPoint: "vs", buffers: GB_BUFS },
+		fragment: { module: bldMod, entryPoint: "fs", targets: [target] },
+		primitive: { topology: "point-list" }, depthStencil: dsWrite, multisample: ms,
+	});
 
 	// UBO：Frame 4スロット / DrawP N_ROLESスロット / globe 専用 / PLATEAU per-batch（dynamic offset）
 	const frameBuf = device.createBuffer({ size: FRAME_SLOT * 4, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
@@ -242,10 +263,11 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 		return { buf, count: src.length / stride };
 	}
 	// overlay：per-scene の Frame（FRAME_SLOT）＋DrawP（PARAM_SLOT）を dynamic offset で切替。最大 MAX_OV シーン/フレーム。
-	const MAX_OV = 32;
-	const ovFrameBuf = device.createBuffer({ size: FRAME_SLOT * MAX_OV, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
-	const ovParamBuf = device.createBuffer({ size: PARAM_SLOT * MAX_OV, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
-	const ovParamCPU = new Float32Array(PARAM_SLOT / 4 * MAX_OV);
+	// 末尾スロット GB_SLOT は gintBld（moj筆ドレープ線・独自 origin）が間借り＝同じ dynamic frame 機構を再利用。
+	const MAX_OV = 32, GB_SLOT = MAX_OV, OV_SLOTS = MAX_OV + 1;
+	const ovFrameBuf = device.createBuffer({ size: FRAME_SLOT * OV_SLOTS, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+	const ovParamBuf = device.createBuffer({ size: PARAM_SLOT * OV_SLOTS, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+	const ovParamCPU = new Float32Array(PARAM_SLOT / 4 * OV_SLOTS);
 	let ovFrameBG = null, ovFrameBGView = null;   // drawOverlay が elevTexView 変化時だけ作り直す（rebuildBG0 と独立）
 	const ovParamBG = device.createBindGroup({ layout: bglOvParam, entries: [{ binding: 0, resource: { buffer: ovParamBuf, offset: 0, size: 48 } }] });
 	function ensureOvFrameBG() {
@@ -275,6 +297,19 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 	function setOverlay(s, fill) { disposeOverlay(overlay); overlay = s ? buildOverlaySlot(s, fill || [0.20, 0.45, 0.85, 0.32]) : null; }
 	function setOverlayHi(s, fill) { disposeOverlay(overlayHi); overlayHi = s ? buildOverlaySlot(s, fill || [0.95, 0.55, 0.15, 0.6]) : null; }
 	function setN02(scenes) { for (const o of n02) disposeOverlay(o); n02 = (scenes || []).map(s => buildOverlaySlot(s, [0, 0, 0, 0])); }
+	// gintBld（gint ユーザー層の地形沿い境界線・点）＝独自 origin・BUILDING_WGSL 24B レイアウト・line/point 描画。null=解放。
+	let gintBld = null;   // { origin, color, line?:{bPos,bSh,bAnc,count}, point?:{...} }
+	function gbMesh(g) {
+		if (!g || !g.pos?.length) return null;
+		return { bPos: makeBuf(g.pos, GPUBufferUsage.VERTEX), bSh: makeBuf(g.shade, GPUBufferUsage.VERTEX), bAnc: makeBuf(g.anchor, GPUBufferUsage.VERTEX), count: g.pos.length / 3 };
+	}
+	function disposeGintBld() { if (gintBld) { for (const m of [gintBld.line, gintBld.point]) if (m) for (const b of [m.bPos, m.bSh, m.bAnc]) b.destroy(); gintBld = null; } }
+	function setGintBld(data) {
+		disposeGintBld();
+		const line = gbMesh(data && data.lines), point = gbMesh(data && data.points);
+		if (!line && !point) return;
+		gintBld = { origin: data.origin, color: data.color || null, line, point };
+	}
 	// overlay 群を描く（基図の上・建物の下・深度off）。per-scene Frame＋DrawP を dynamic offset で切替。
 	// 呼び出し側 draw() が Frame を書く（packFrame の scene origin 版）＝ここは stencil-then-cover＋線の発行だけ。
 	function drawOverlay(pass, st, packF, zoom) {
@@ -428,6 +463,13 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 		] });
 		return maskBG;
 	}
+	// gintBld 用の固定「マスク無し」BG（count=0・専用 param）＝building の maskParamBuf 共有によるフレーム毎 thrashing を避ける
+	const emptyMaskParamBuf = device.createBuffer({ size: 96, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });   // count=0 で初期化（createBuffer はゼロ）
+	const emptyMaskBG = device.createBindGroup({ layout: bglMask, entries: [
+		{ binding: 0, resource: { buffer: emptyMaskParamBuf } },
+		{ binding: 1, resource: dummyMaskView }, { binding: 2, resource: dummyMaskView },
+		{ binding: 3, resource: dummyMaskView }, { binding: 4, resource: dummyMaskView }, { binding: 5, resource: maskSampler },
+	] });
 	function freePlateauWard(ward) {
 		for (const k of [...plateaux.keys()]) {
 			if (k !== ward && !k.startsWith(ward + "#")) continue;
@@ -767,6 +809,21 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 			pass.setVertexBuffer(2, bld.bAnc);
 			pass.draw(bld.count);
 		}
+		// gintBld（gint ユーザー層の地形沿い境界線/点＝moj筆ドレープ）：独自 origin・深度で地形/尾根に遮蔽・マスク無し。
+		// ★常時描画（show3d ゲート無し）＝真俯瞰(elevScaleEff=0)は海面の平面、チルトで地形へ立ち上がる（GL と同じモーフ）。
+		if (gintBld && (gintBld.line || gintBld.point) && !(opts && opts.skipMain)) {
+			ensureOvFrameBG();
+			const gc = gintBld.color || view.bldColor || [0.86, 0.86, 0.85];
+			device.queue.writeBuffer(ovFrameBuf, GB_SLOT * FRAME_SLOT, packFrame(st, gintBld.origin, st.fogDist * 2.5, st.fogDist * 14.0, land, logCoef, dpr));
+			const gpo = GB_SLOT * (PARAM_SLOT / 4);
+			ovParamCPU[gpo] = gc[0]; ovParamCPU[gpo + 1] = gc[1]; ovParamCPU[gpo + 2] = gc[2]; ovParamCPU[gpo + 3] = 0;   // p0=bldColor
+			device.queue.writeBuffer(ovParamBuf, GB_SLOT * PARAM_SLOT, ovParamCPU.buffer, GB_SLOT * PARAM_SLOT, PARAM_SLOT);
+			pass.setBindGroup(0, ovFrameBG, [GB_SLOT * FRAME_SLOT]);
+			pass.setBindGroup(1, ovParamBG, [GB_SLOT * PARAM_SLOT]);
+			pass.setBindGroup(2, emptyMaskBG);   // マスク無し（count=0＝footprint 伏せ無し・固定BGで thrashing 回避）
+			if (gintBld.line) { pass.setPipeline(gbLinePipe); pass.setVertexBuffer(0, gintBld.line.bPos); pass.setVertexBuffer(1, gintBld.line.bSh); pass.setVertexBuffer(2, gintBld.line.bAnc); pass.draw(gintBld.line.count); }
+			if (gintBld.point) { pass.setPipeline(gbPointPipe); pass.setVertexBuffer(0, gintBld.point.bPos); pass.setVertexBuffer(1, gintBld.point.bSh); pass.setVertexBuffer(2, gintBld.point.bAnc); pass.draw(gintBld.point.count); }
+		}
 		// PLATEAU LOD2 建物メッシュ（任意三角形・面法線陰影）。バッチ単位フラスタムカリング＋高さLOD打ち切り。
 		// per-batch uniform（meshOrigin/clipMesh/cullBack）は dynamic offset UBO で1バッチ1スロット。
 		if (plateaux.size && show3d && !(opts && opts.skipMain)) {
@@ -859,14 +916,15 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 		return { base: out.buffer, w: W, h: H };
 	}
 
-	// 未搭載の set は静かに握り潰す（初回だけ告知）＝app の呼び出しを壊さない
-	const IGNORE = new Set(["gintBld", "mdGrow", "mdUp", "mdScene"]);
+	// 未搭載の set は静かに握り潰す（初回だけ告知）＝app の呼び出しを壊さない。md 系＝classic merge 固定ゆえ無縁
+	const IGNORE = new Set(["mdGrow", "mdUp", "mdScene"]);
 	const ignored = new Set();
 	function set(cmd, data, prop) {
 		switch (cmd) {
 			case "overlay":   setOverlay(data, prop); break;    // prop=fillColor（任意）
 			case "overlayHi": setOverlayHi(data, prop); break;
 			case "n02":       setN02(data); break;               // data=[シーン…] 交通の常駐オーバーレイ群
+			case "gintBld":   setGintBld(data); break;           // data={origin,lines,points,color}／null=解放
 			case "view":    view = { ...view, ...data }; break;
 			case "sea":     sea = { ...sea, ...data }; break;
 			case "bldFill": bldFill = { ...bldFill, ...data }; break;
@@ -894,8 +952,8 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 		frameBuf.destroy(); paramBuf.destroy(); globeBuf.destroy(); cornerBuf.destroy();
 		plBatchBuf.destroy(); maskParamBuf.destroy();
 		skyBuf.destroy(); skyLineBuf.destroy();
-		ovFrameBuf.destroy(); ovParamBuf.destroy();
-		disposeOverlay(overlay); disposeOverlay(overlayHi); for (const o of n02) disposeOverlay(o);
+		ovFrameBuf.destroy(); ovParamBuf.destroy(); emptyMaskParamBuf.destroy();
+		disposeOverlay(overlay); disposeOverlay(overlayHi); for (const o of n02) disposeOverlay(o); disposeGintBld();
 		for (const b of [stars, planets, constel, ecliptic, celeq]) if (b) b.buf.destroy();
 		for (const p of plateaux.values()) { p.vbo.destroy(); p.nbo.destroy(); p.ibo.destroy(); }
 		plateaux.clear();
@@ -912,5 +970,5 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 	// lost：GPU デバイス喪失（WebGL の contextlost と同じ扱いで main が立て直す）
 	// device/format/frameInfo/flush＝gint（createGintLayerGPU）のホスト面：開いたフレームに render pass を足す口。
 	return { set, draw, flush, readback, dispose, md: false, mdMax: 0, gintCtx: () => gctx, backend: "webgpu", lost: device.lost,
-		device, format, frameInfo: () => frame };
+		device, format, gpuInfo, frameInfo: () => frame };
 }
