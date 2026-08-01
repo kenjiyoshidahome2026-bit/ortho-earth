@@ -18,6 +18,7 @@ let stayProbe = 0;   // stay診断：frame1 後に present 前テクスチャを
 // ポンプ（33ms 間隔）が「最後の frame 実行から 100ms 以上」を検知したら手動で frame() を回す＝自己修復。
 // 健全環境は rAF が 16ms で回る＝ポンプは常に不発（無害）。frameTicks は stay 診断 HUD 用の実行回数。
 let rafArmed = false, lastFrameRun = 0, frameTicks = 0, pumpTicks = 0;
+let drawMsgN = 0;   // stay診断：main からの draw 受信回数（cam/dirty の給餌が届いているか）
 function armRaf() {
 	if (rafArmed) return;
 	rafArmed = true;
@@ -147,7 +148,7 @@ onmessage = e => {
 			labelLayer = createLabelLayer(labelCanvas, { shieldFor, elevBase: m.elevBase });
 			perfOn = !!m.perf;
 			stayProbe = m.stay ? 1 : 0;
-			if (m.stay) setInterval(() => postMessage({ type: "beat", n: frameTicks, pump: pumpTicks, raf: !rafArmed ? "idle" : "armed" }), 1000);
+			if (m.stay) setInterval(() => postMessage({ type: "beat", n: frameTicks, pump: pumpTicks, dirty, hasCam: !!cam, hasRenderer: !!renderer, drawMsgN, sentFrame1 }), 1000);
 			memOn = !!m.mem;
 			self.__perfElev = perfOn;   // renderer の標高パイプライン計器（[elev] 行）を点灯
 			if (m.gpu) {
@@ -213,6 +214,7 @@ onmessage = e => {
 			dirty = true;                                        // 内容が変わった→描き直す
 			break;
 		case "draw":                                             // main からは cam を記録するだけ（実描画は rAF）
+			drawMsgN++;
 			cam = m.cam; opts = m.opts; dirty = true;
 			if (pendingLabels) applyLabels();                    // cam が届いた時点で保留中のラベルへ標高を付与
 			break;

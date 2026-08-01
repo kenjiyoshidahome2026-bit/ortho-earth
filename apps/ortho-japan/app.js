@@ -320,8 +320,9 @@ renderWorker.onmessage = e => {
 		}, 1500);
 		return;
 	}
-	if (d.type === "beat") {   // stay診断：workerフレームループの実行回数（rAF発火の生死判定）
-		diagHud && diagHud("frameループ", `${d.n}回（ポンプ駆動 ${d.pump}回）${d.n === 0 ? " ✗rAF未発火" : ""}`);
+	if (d.type === "beat") {   // stay診断：ループ実行数＋描画ゲートの生死（dirty/cam/draw受信）
+		diagHud && diagHud("frameループ", `${d.n}回（ポンプ${d.pump}）`);
+		diagHud && diagHud("ゲート", `draw受信${d.drawMsgN}回 cam=${d.hasCam ? "✓" : "✗"} dirty=${d.dirty ? "✓" : "✗"} renderer=${d.hasRenderer ? "✓" : "✗"} frame1送信=${d.sentFrame1 ? "✓" : "✗"}`);
 		return;
 	}
 	if (d.type === "gpuPix") {   // stay診断：present 前の GPU テクスチャ実画素（rendering と present の切り分け）
