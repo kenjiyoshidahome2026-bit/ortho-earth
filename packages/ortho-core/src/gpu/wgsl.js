@@ -276,7 +276,7 @@ struct MaskP { count: vec4u, bbox: array<vec4f, 4> };
 @group(2) @binding(3) var maskTex2: texture_2d<f32>;
 @group(2) @binding(4) var maskTex3: texture_2d<f32>;
 @group(2) @binding(5) var maskSamp: sampler;
-fn maskedBy(bbox: vec4f, uvOK: vec2f, hit: f32) -> bool {
+fn maskedBy(offInv: vec4f, uvOK: vec2f, hit: f32) -> bool {   // offInv.xy=(origin−bboxMin)/span・zw=1/span（空きスロット=uv圏外）
 	return uvOK.x >= 0.0 && uvOK.x <= 1.0 && uvOK.y >= 0.0 && uvOK.y <= 1.0 && hit > 0.5;
 }
 struct BldOut {
@@ -296,7 +296,9 @@ struct BldOut {
 	o.shade = a_shade;
 	o.front = dot(dir, F.eye) - 1.0;
 	o.fog = fogOf(F.originPt + relW);
-	o.ll = F.origin + a_pos.xy;
+	// ⚠絶対経緯度を varying で運ばない：f32 ulp≈1.4m(経度139°)がマスクセル境界の画素ジッタ＝深ズームの点描ゴースト。
+	// 原点相対の小値を渡し、大きい定数部は MaskP 側（CPU f64 前計算の off）に持たせる（glsl.js BUILDING_VS と同文）。
+	o.ll = a_pos.xy;
 	var p = F.clipT + F.mvp * vec4f(relW, 0.0);
 	p.z = logDepthZ(p.w);
 	o.pos = p;
@@ -307,19 +309,19 @@ struct BldOut {
 	// 実フットプリントが立つセルだけ基図建物を伏せる（矩形でなく被覆マスク＝空白地帯なし）。GLSL ES の
 	// sampler 配列動的添字不可に倣い 4本アンロール（uv は各 bbox 正規化・textureSampleLevel＝FS でも明示 LOD）。
 	if (M.count.x > 0u) {
-		let uv0 = (in.ll - M.bbox[0].xy) / (M.bbox[0].zw - M.bbox[0].xy);
+		let uv0 = M.bbox[0].xy + in.ll * M.bbox[0].zw;   // (off,inv)方式＝uv=off+rel×inv（off/invはCPUのf64前計算）
 		if (maskedBy(M.bbox[0], uv0, textureSampleLevel(maskTex0, maskSamp, uv0, 0.0).r)) { discard; }
 	}
 	if (M.count.x > 1u) {
-		let uv1 = (in.ll - M.bbox[1].xy) / (M.bbox[1].zw - M.bbox[1].xy);
+		let uv1 = M.bbox[1].xy + in.ll * M.bbox[1].zw;   // (off,inv)方式＝uv=off+rel×inv（off/invはCPUのf64前計算）
 		if (maskedBy(M.bbox[1], uv1, textureSampleLevel(maskTex1, maskSamp, uv1, 0.0).r)) { discard; }
 	}
 	if (M.count.x > 2u) {
-		let uv2 = (in.ll - M.bbox[2].xy) / (M.bbox[2].zw - M.bbox[2].xy);
+		let uv2 = M.bbox[2].xy + in.ll * M.bbox[2].zw;   // (off,inv)方式＝uv=off+rel×inv（off/invはCPUのf64前計算）
 		if (maskedBy(M.bbox[2], uv2, textureSampleLevel(maskTex2, maskSamp, uv2, 0.0).r)) { discard; }
 	}
 	if (M.count.x > 3u) {
-		let uv3 = (in.ll - M.bbox[3].xy) / (M.bbox[3].zw - M.bbox[3].xy);
+		let uv3 = M.bbox[3].xy + in.ll * M.bbox[3].zw;   // (off,inv)方式＝uv=off+rel×inv（off/invはCPUのf64前計算）
 		if (maskedBy(M.bbox[3], uv3, textureSampleLevel(maskTex3, maskSamp, uv3, 0.0).r)) { discard; }
 	}
 	let c = mix(P.p0.rgb * in.shade, F.fogColor, in.fog);
@@ -365,10 +367,17 @@ struct PlOut {
 	return o;
 }
 @fragment fn fs(in: PlOut) -> @location(0) vec4f {
+	// 面の幾何法線＝スクリーン微分（FS冒頭＝uniform control flow・discard より前＝fwidth の轍と同じ掟）。
+	// toEye = eye − pos で eye は定数＝微分は −dPos、cross で符号相殺＝位置微分の面法線と等価（varying追加不要）。
+	let gnRaw = cross(dpdx(in.toEye), dpdy(in.toEye));
 	if (in.front < 0.0) { discard; }
 	var n = normalize(in.n);
-	let fe = dot(n, normalize(in.toEye));
-	// 裏面カリング（実法線判定＝巻き順非依存）。閾値 -0.02＝int8量子化誤差の許容帯。cullBack=B.meshOrigin.w
+	// 裏面カリングは幾何法線＝面内で一定＝画素毎の揺れゼロ。旧・補間int8法線のdot閾値は「すれすれ帯≈1px」
+	// 前提が深ズーム(z20)で崩れ点描ゴーストになった（glsl.js PLATEAU_FS と同文・2026-08-02）。
+	// 向きは属性法線で採決＝巻き順非依存。退化面（微分ゼロ）だけ旧判定へフォールバック。
+	let g2 = dot(gnRaw, gnRaw);
+	let fe = select(dot(n, normalize(in.toEye)), dot(normalize(gnRaw * sign(dot(gnRaw, n))), normalize(in.toEye)), g2 > 1e-18);
+	// 裏面カリング。cullBack=B.meshOrigin.w
 	if (B.meshOrigin.w > 0.5 && fe < -0.02) { discard; }
 	if (fe < 0.0) { n = -n; }   // 両面時は法線を視線側へ＝裏から見ても陰影が成立
 	let L = normalize(vec3f(-0.35, 0.85, 0.30));   // 斜め上の光＝屋根が立つ

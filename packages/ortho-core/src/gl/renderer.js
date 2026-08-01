@@ -824,9 +824,13 @@ export function createRenderer(canvas, rOpts = {}) {
 			gl.uniform3f(loc(gl, prog, "u_bldColor"), c[0], c[1], c[2]);
 			const active = [...plateauMasks.entries()].filter(([w]) => !plateauHidden.has(w)).map(([, m]) => m).slice(0, MAX_PLATEAU_MASKS);   // 非表示区のマスクはスロットに載せない＝基図建物が戻る
 			gl.uniform1i(loc(gl, prog, "u_plateauCount"), active.length);
+			const mo = scenes.main.origin || [0, 0];
 			for (let i = 0; i < MAX_PLATEAU_MASKS; i++) {
-				const m = active[i], pb = m ? m.bbox : [1e9, 1e9, -1e9, -1e9];
-				gl.uniform4f(loc(gl, prog, `u_plateauBbox${i}`), pb[0], pb[1], pb[2], pb[3]);
+				// スロットは (off, inv)＝FS の uv = off + rel×inv。off=(origin−bboxMin)/span を JS の f64 で前計算＝
+				// FS は原点相対の小値だけ扱う（絶対経緯度 varying の f32 ジッタ＝深ズームの点描ゴースト根治）。空きは uv 圏外。
+				const m = active[i], bb = m && m.bbox;
+				const sx = bb ? bb[2] - bb[0] : 1, sy = bb ? bb[3] - bb[1] : 1;
+				gl.uniform4f(loc(gl, prog, `u_plateauBbox${i}`), bb ? (mo[0] - bb[0]) / sx : 2e9, bb ? (mo[1] - bb[1]) / sy : 2e9, bb ? 1 / sx : 0, bb ? 1 / sy : 0);
 				// 空きスロットも「null を」バインド＝unit2..5 は gint（pivotTex/idTex/fidStyle＝RGBA32UI整数）と共用。
 				// 残留整数テクスチャを float sampler(u_plateauMask) が掴むと sampler型不整合で draw 全滅（unit1 と同病）。
 				gl.activeTexture(gl.TEXTURE2 + i); gl.bindTexture(gl.TEXTURE_2D, m ? m.tex : null); gl.activeTexture(gl.TEXTURE0);

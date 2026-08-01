@@ -91,12 +91,14 @@ ${PROJECT}
 out float v_shade;
 out float v_front;
 out float v_fog;
-out vec2  v_ll;      // 絶対 lon/lat(deg)＝PLATEAU bbox 内を伏せる判定用
+out vec2  v_ll;      // シーン原点相対の lon/lat 差分(deg)＝PLATEAU マスク uv 用。⚠絶対経緯度を varying で運ばない：
+                     // f32 の ulp は経度139°で~1.4m＝25mマスクセルの境界で画素ジッタ→深ズーム(z20)で櫛状の
+                     // まだら discard（点描ゴースト・2026-08-02 中野実測）。大きい定数部は uniform 側で f64 前計算。
 void main() {
 	vec2 dLL = a_pos.xy;                       // 原点相対 (deg)。multidraw は mdize が u_tileOff を足す
 	vec2 dAnchor = a_anchor;                   // 基準点の原点相対 (deg)
 	vec2 ll = u_origin + dLL;
-	v_ll = ll;
+	v_ll = dLL;
 	vec3 rel = deltaToRel(dLL);               // 頂点3D − 原点3D（小・正確）
 	vec3 dir = u_originPt + rel;              // 絶対単位球点（front/fog 用＝粗くて可）
 	float base = elev(u_origin + dAnchor) * u_elevScale;     // 基準点の標高で足元を揃える（屋根水平・壁垂直）
@@ -130,8 +132,10 @@ in float v_front;
 in float v_fog;
 in vec2  v_ll;
 out vec4 fragColor;
-bool maskedBy(vec4 bbox, sampler2D mask, vec2 ll) {
-	vec2 uv = (ll - bbox.xy) / (bbox.zw - bbox.xy);   // bbox 内 0..1
+bool maskedBy(vec4 offInv, sampler2D mask, vec2 rel) {
+	// uv = (origin−bboxMin)/span + rel/span。offInv.xy=(origin−bboxMin)/span（CPUでf64計算）・zw=1/span。
+	// rel はシーン原点相対の小値＝f32 で精密。旧・絶対経緯度 (ll−bboxMin)/span は f32 ジッタでセル境界がまだらになった。
+	vec2 uv = offInv.xy + rel * offInv.zw;
 	return uv.x >= 0.0 && uv.x <= 1.0 && uv.y >= 0.0 && uv.y <= 1.0 && texture(mask, uv).r > 0.5;
 }
 void main() {
@@ -199,12 +203,17 @@ in float v_front;
 in float v_fog;
 out vec4 fragColor;
 void main() {
+	// 面の幾何法線＝スクリーン微分（discard より前＝隣接ヘルパー画素が生きているうちに取る）。
+	// v_toEye = eye − pos で eye は定数＝微分は −dPos、cross で符号が相殺し位置微分の面法線と等価＝varying追加不要。
+	vec3 gn = cross(dFdx(v_toEye), dFdy(v_toEye));
 	if (v_front < 0.0) discard;                                   // 裏半球
-	vec3 n = normalize(v_n);                                      // glTF 実法線
-	float fe = dot(n, normalize(v_toEye));
-	// 裏面カリング（実法線で判定＝巻き順非依存）＝淵の front/back z-fight とトグル反転を断つ。
-	// 閾値 -0.02＝int8量子化(誤差~0.4°, sin≈0.007)の許容帯。0.0 ちょうどだと視線すれすれの壁が
-	// 量子化誤差で描く/捨てるを行き来してちらつく（すれすれ帯の裏面は幅~1px＝描いても実害なし）。
+	vec3 n = normalize(v_n);                                      // glTF 実法線（陰影用＝従来のまま）
+	// 裏面カリングは幾何法線で判定＝面内で一定値＝画素毎の揺れが構造的に消える。旧・補間int8法線の
+	// dot閾値(-0.02)は「すれすれ帯≈1px」前提が深ズーム(z20)で数十pxに化け、閾値をまたぐ画素だけ
+	// discard される「点描ゴースト」になった（2026-08-02 実測・中野z20）。向き（表裏）は属性法線で
+	// 採決＝巻き順非依存・面単位で一定。退化面（微分ゼロ）だけ旧判定へフォールバック。
+	float g2 = dot(gn, gn);
+	float fe = g2 > 1e-18 ? dot(normalize(gn * sign(dot(gn, n))), normalize(v_toEye)) : dot(n, normalize(v_toEye));
 	if (u_cullBack > 0.5 && fe < -0.02) discard;
 	if (fe < 0.0) n = -n;                                         // 両面時は法線を視線側へ＝裏から見ても陰影が成立
 	vec3 L = normalize(vec3(-0.35, 0.85, 0.30));                  // 斜め上の光＝屋根が立つ

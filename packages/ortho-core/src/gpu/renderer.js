@@ -443,14 +443,20 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 	const maskParamCPU = new ArrayBuffer(96);
 	const maskParamU = new Uint32Array(maskParamCPU), maskParamF = new Float32Array(maskParamCPU);
 	let maskBG = null, maskSig = "";
-	function buildMaskBG(active) {
-		const sig = active.map(m => m.ward).join("|");
-		if (maskBG && sig === maskSig) return maskBG;   // active 集合不変＝作り直さない
+	function buildMaskBG(active, origin) {
+		const sig = active.map(m => m.ward).join("|") + "@" + origin[0] + "," + origin[1];   // origin もシグネチャ＝シーン差し替えで off を焼き直す
+		if (maskBG && sig === maskSig) return maskBG;   // active 集合・origin 不変＝作り直さない
 		maskSig = sig;
 		maskParamU[0] = active.length;
 		for (let i = 0; i < MAX_PLATEAU_MASKS; i++) {
-			const bb = active[i] ? active[i].bbox : [1e9, 1e9, -1e9, -1e9];
-			maskParamF[4 + i * 4] = bb[0]; maskParamF[5 + i * 4] = bb[1]; maskParamF[6 + i * 4] = bb[2]; maskParamF[7 + i * 4] = bb[3];
+			// スロットは (off, inv)＝FS の uv = off + rel×inv。off=(origin−bboxMin)/span を JS の f64 で前計算＝
+			// FS は原点相対の小値だけ扱う（絶対経緯度 varying の f32 ジッタ＝深ズームの点描ゴースト根治・gl 同文）。空きは uv 圏外。
+			const bb = active[i] && active[i].bbox;
+			const sx = bb ? bb[2] - bb[0] : 1, sy = bb ? bb[3] - bb[1] : 1;
+			maskParamF[4 + i * 4] = bb ? (origin[0] - bb[0]) / sx : 2e9;
+			maskParamF[5 + i * 4] = bb ? (origin[1] - bb[1]) / sy : 2e9;
+			maskParamF[6 + i * 4] = bb ? 1 / sx : 0;
+			maskParamF[7 + i * 4] = bb ? 1 / sy : 0;
 		}
 		device.queue.writeBuffer(maskParamBuf, 0, maskParamCPU);
 		maskBG = device.createBindGroup({ layout: bglMask, entries: [
@@ -797,7 +803,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 		const show3d = (cam.pitch || 0) >= 0.02;
 		// PLATEAU の実フットプリントが立つ区の被覆マスク（最大4・非表示区は除外）＝基図建物を伏せる
 		const activeMasks = [...plateauMasks.entries()].filter(([w]) => !plateauHidden.has(w)).map(([, m]) => m).slice(0, MAX_PLATEAU_MASKS);
-		const bldMaskBG = buildMaskBG(activeMasks);
+		const bldMaskBG = buildMaskBG(activeMasks, scenes.main.origin || [0, 0]);
 		const bld = show3d && !(opts && opts.skipMain) ? scenes.main.bld : null;
 		if (bld) {
 			pass.setPipeline(bldPipe);
