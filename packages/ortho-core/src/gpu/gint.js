@@ -44,9 +44,16 @@ export function createGintLayerGPU(host, { requestDraw } = {}) {
 		{ binding: 3, visibility: GPUShaderStage.VERTEX, sampler: { type: "filtering" } },
 	] });
 	const layout = device.createPipelineLayout({ bindGroupLayouts: [bglFrame, bglParam, bglTex2, bglAux] });
-	const lineMod = device.createShaderModule({ code: GINT_LINE_WGSL });
-	const stencilMod = device.createShaderModule({ code: GINT_STENCIL_WGSL });
-	const pointMod = device.createShaderModule({ code: GINT_POINT_WGSL });
+	const mkMod = (code, label) => {   // WGSL コンパイル失敗の可視化（renderer.js mkMod と同文・host.gpuErrors へ合流）
+		const m = device.createShaderModule({ code });
+		m.getCompilationInfo && m.getCompilationInfo().then(info => {
+			for (const x of info.messages || []) if (x.type === "error") { const t = `WGSL gint-${label}: ${x.lineNum}:${x.linePos} ${x.message}`; host.gpuErrors && host.gpuErrors.push(t); console.error("[gpu] " + t); }
+		});
+		return m;
+	};
+	const lineMod = mkMod(GINT_LINE_WGSL, "line");
+	const stencilMod = mkMod(GINT_STENCIL_WGSL, "stencil");
+	const pointMod = mkMod(GINT_POINT_WGSL, "point");
 	// gint は straight alpha（GL blendFuncSeparate(SRC_ALPHA, 1-SA, ONE, 1-SA) と同じ）
 	const SBLEND = {
 		color: { srcFactor: "src-alpha", dstFactor: "one-minus-src-alpha", operation: "add" },
@@ -88,7 +95,7 @@ export function createGintLayerGPU(host, { requestDraw } = {}) {
 		fragment: { module: stencilMod, entryPoint: "fsId", targets: [{ format: ID_FMT, blend: { color: { srcFactor: "one", dstFactor: "one", operation: "add" }, alpha: { srcFactor: "one", dstFactor: "one", operation: "add" } } }] },
 		primitive: { topology: "triangle-list" }, multisample: { count: 1 },
 	});
-	const idResolveMod = device.createShaderModule({ code: GINT_IDRESOLVE_WGSL });
+	const idResolveMod = mkMod(GINT_IDRESOLVE_WGSL, "idresolve");
 	const bglIdResolve = device.createBindGroupLayout({ entries: [
 		{ binding: 0, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "unfilterable-float" } },   // idTex rg16float
 		{ binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "uint" } },                 // fidTex RGBA32UI

@@ -142,6 +142,12 @@ onmessage = e => {
 				import("ortho-core/gpu")
 					.then(({ createRendererGPU, createGintLayerGPU }) => createRendererGPU(canvas, { noTQ: !!m.noTQ }).then(r => {
 						renderer = r; backendName = "webgpu";
+						// iOS Safari 診断：gint のパイプライン生成も検証スコープで包み、frame1 後にまとめて main へ転写
+						r.device.pushErrorScope("validation");
+						setTimeout(() => {
+							r.device.popErrorScope().then(e => { if (e) { r.gpuErrors.push("gint init検証: " + e.message); console.error("[gpu] gint init検証:", e.message); } }).catch(() => {});
+							setTimeout(() => { if (r.gpuErrors.length) postMessage({ type: "drawErr", msg: "GPU診断 " + r.gpuErrors.length + "件: " + r.gpuErrors.slice(0, 4).join(" ｜ "), stack: r.gpuErrors.join("\n").slice(0, 800) }); }, 2500);
+						}, 400);
 						// gint（知性の層）＝renderer の frame（開いたエンコーダ）へ自分の render pass を足す＝1canvas統合の WebGPU 形。
 						gint = createGintLayerGPU(r, { requestDraw: () => { dirty = true; } });
 						console.log("[render] backend=webgpu（Phase 6: 主要描画スタック完走＝基図/標高/地形/深度/建物/等高線/gint/PLATEAU/星空/overlay/idfill/gintBld。md系のみ未搭載）");

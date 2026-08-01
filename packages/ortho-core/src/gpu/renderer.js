@@ -67,6 +67,23 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 	if (device.addEventListener) device.addEventListener("uncapturederror", onUncap);
 	else if ("onuncapturederror" in device) device.onuncapturederror = onUncap;
 
+	// --- iOS Safari 診断（2026-08-02）：沈黙故障の可視化 ---
+	// パイプラインの WGSL コンパイル失敗は非同期＝環境によっては console にも uncaptured にも出ず、
+	// 無効パイプラインを含む submit が丸ごと落ちて「クリアすら出ない白画面」になる。
+	// ①全シェーダの getCompilationInfo で行番号つきの失敗を暴く ②init/初回フレームを errorScope で包む。
+	// 発見物は gpuErrors へ＝renderworker が frame1 後に main へ転写（モバイルでも見える）。
+	const gpuErrors = [];
+	let frame1Scoped = 0;
+	const gpuErr = (where, msg) => { const t = `${where}: ${msg}`; gpuErrors.push(t); console.error("[gpu] " + t); };
+	const mkMod = (code, label) => {
+		const m = device.createShaderModule({ code });
+		m.getCompilationInfo && m.getCompilationInfo().then(info => {
+			for (const x of info.messages || []) if (x.type === "error") gpuErr(`WGSL ${label}`, `${x.lineNum}:${x.linePos} ${x.message}`);
+		});
+		return m;
+	};
+	device.pushErrorScope("validation");   // init 全体（pipeline/texture/buffer 作成）を包む＝pop は return 直前
+
 	// --- GPU 実時間（timestamp-query）＝GL の EXT_disjoint_timer_query_webgl2 相当 ---
 	// パス単位で begin/end を打ち（writeTimestamp は仕様から撤去済＝pass の timestampWrites 一択）、
 	// flush で resolveQuerySet→staging コピー→mapAsync＝数フレーム遅れの非同期回収（GL と同じ運用）。
@@ -127,13 +144,13 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 	const bglPlBatch = device.createBindGroupLayout({ entries: [{ binding: 0, visibility: VF, buffer: { hasDynamicOffset: true } }] });
 	const plLayout = device.createPipelineLayout({ bindGroupLayouts: [bgl0, bgl1, bglPlBatch] });
 
-	const fillMod = device.createShaderModule({ code: FILL_WGSL });
-	const lineMod = device.createShaderModule({ code: LINE_WGSL });
-	const globeMod = device.createShaderModule({ code: GLOBE_WGSL });
-	const terrMod = device.createShaderModule({ code: TERRAIN_WGSL });
-	const bldMod = device.createShaderModule({ code: BUILDING_WGSL });
-	const contMod = device.createShaderModule({ code: CONTOUR_WGSL });
-	const plMod = device.createShaderModule({ code: PLATEAU_WGSL });
+	const fillMod = mkMod(FILL_WGSL, "fill");
+	const lineMod = mkMod(LINE_WGSL, "line");
+	const globeMod = mkMod(GLOBE_WGSL, "globe");
+	const terrMod = mkMod(TERRAIN_WGSL, "terrain");
+	const bldMod = mkMod(BUILDING_WGSL, "building");
+	const contMod = mkMod(CONTOUR_WGSL, "contour");
+	const plMod = mkMod(PLATEAU_WGSL, "plateau");
 	// 深度状態の変種＝GL の enable/disable/depthMask/polygonOffset の写し（深度アタッチメントは常設）
 	const dsOff = { format: DEPTH, depthWriteEnabled: false, depthCompare: "always" };
 	const dsTest = { format: DEPTH, depthWriteEnabled: false, depthCompare: "less-equal" };
@@ -182,7 +199,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 		depthStencil: dsOff, multisample: ms,
 	});
 	// 星空劇場（z<4）：Sky UBO（group0）＋星座線の色 UBO（group1）。深度無関係の背景（dsOff）
-	const skyMod = device.createShaderModule({ code: SKY_WGSL });
+	const skyMod = mkMod(SKY_WGSL, "sky");
 	const bglSky = device.createBindGroupLayout({ entries: [{ binding: 0, visibility: VF, buffer: {} }] });
 	const bglSkyLine = device.createBindGroupLayout({ entries: [{ binding: 0, visibility: GPUShaderStage.VERTEX, buffer: {} }] });
 	const skyLayout = device.createPipelineLayout({ bindGroupLayouts: [bglSky] });
@@ -206,7 +223,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 	});
 	// overlay（外部ベクタ）：per-scene の Frame(group0)＋DrawP(group1) を dynamic offset で切替。
 	// stencil-then-cover 塗り＋境界線（線は LINE_WGSL 流用）。深度 off・stencil で巻き数塗り。
-	const ovMod = device.createShaderModule({ code: OVERLAY_WGSL });
+	const ovMod = mkMod(OVERLAY_WGSL, "overlay");
 	const bglOvFrame = device.createBindGroupLayout({ entries: [
 		{ binding: 0, visibility: VF, buffer: { hasDynamicOffset: true } },
 		{ binding: 1, visibility: VF, texture: { sampleType: "float" } },
@@ -742,6 +759,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 
 		const t = targets(W, H);
 		const enc = device.createCommandEncoder();
+		if (!frame1Scoped) { frame1Scoped = 1; device.pushErrorScope("validation"); }   // 初回フレーム全体を包む（pop は flush）
 		if (tq) { tq.idx = 0; tq.spans.length = 0; }   // フレーム開始＝計測枠をリセット（draw→gint→flush で1周）
 		const passDesc = {
 			timestampWrites: passTS("map"),
@@ -956,6 +974,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 		}
 		device.queue.submit([frame.enc.finish()]);
 		frame = null;
+		if (frame1Scoped === 1) { frame1Scoped = 2; device.popErrorScope().then(e => { if (e) gpuErr("初回フレーム検証", e.message); }).catch(() => {}); }
 		// ⚠WebKit(Safari) の轍：submit と同一タスクで mapAsync を呼ぶと canvas present が黙って止まる
 		//（例外・検証エラー・uncaptured 一切なし＝白画面。Playwright WebKit の二分探索で確定 2026-08-02：
 		//  timestampWrites／resolveQuerySet／copyBufferToBuffer は全て無罪、同一タスクの mapAsync だけが毒）。
@@ -1056,8 +1075,9 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 		device.destroy();
 	}
 	// lost：GPU デバイス喪失（WebGL の contextlost と同じ扱いで main が立て直す）
+	device.popErrorScope().then(e => { if (e) gpuErr("init検証", e.message); }).catch(() => {});
 	// device/format/frameInfo/flush＝gint（createGintLayerGPU）のホスト面：開いたフレームに render pass を足す口。
 	// passTS("gint")＝gint が自分のパスに GPU タイマを打つ口。tqTake/hasTQ＝renderworker の計測回収。
 	return { set, draw, flush, readback, dispose, md: false, mdMax: 0, gintCtx: () => gctx, backend: "webgpu", lost: device.lost,
-		device, format, gpuInfo, frameInfo: () => frame, passTS, tqTake, get hasTQ() { return !!tq; } };
+		device, format, gpuInfo, frameInfo: () => frame, passTS, tqTake, gpuErrors, get hasTQ() { return !!tq; } };
 }

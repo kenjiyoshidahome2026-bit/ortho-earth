@@ -286,7 +286,11 @@ renderWorker.onmessage = e => {
 		// 届かない（iOS Safari 実測＝worker×OffscreenCanvas×WebGPU の present 未接続）。placeholder canvas を
 		// drawImage→getImageData し、全画素ゼロなら WebGL2 で自動再起動（Chrome は正常時 全画素非ゼロを実測確認済）。
 		if (window.__backend === "webgpu") setTimeout(() => {
-			const bail = why => { console.error(`[boot] WebGPU present 検証失敗（${why}）→ WebGL2 で再起動`); sessionStorage.setItem("oj.nogpu", "1"); location.reload(); };
+			const bail = why => {
+				console.error(`[boot] WebGPU present 検証失敗（${why}）→ 3秒後に WebGL2 で再起動（GPU診断の到着待ち＝この間に [gpu]/GPU診断 の赤行が出たらそれが根因）`);
+				sessionStorage.setItem("oj.nogpu", "1");
+				setTimeout(() => location.reload(), 3000);
+			};
 			try {
 				const t = document.createElement("canvas"); t.width = 16; t.height = 16;
 				const g = t.getContext("2d", { willReadFrequently: true });
