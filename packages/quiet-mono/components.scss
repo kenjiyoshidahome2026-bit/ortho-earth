@@ -345,6 +345,8 @@ body { visibility: visible; }   /* 開幕＝このスタイルシートの到着
 	pointer-events: none;
 	opacity: 0; visibility: hidden; transition: opacity .35s ease, visibility 0s linear .35s;
 	&.show { opacity: 1; visibility: visible; transition: opacity .35s ease; }
+	/* 狭画面＝字幕が86vw幅で中央に広がり、右上の劇場時計(#sky-clock=日付・時刻)と重なる→時計の下へ一段降ろす */
+	@media (max-width: 480px) { top: calc(42px + env(safe-area-inset-top, 0px)); }
 }
 #demo-slide {
 	position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
