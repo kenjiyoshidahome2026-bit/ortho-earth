@@ -14,9 +14,10 @@ export const shortBearingOf = b => ((b + Math.PI) % (2 * Math.PI) + 2 * Math.PI)
 // createFlight({ cam, viewW, maxPitch, onMove, onFlying }) → { flyTo(lon,lat,zoom,tiltDeg,bearingDeg), cancel(), active }
 //   cam＝{center,zoom,pitch,bearing} を直接書く（描画は onMove が飛ばす）。viewW()＝視野幅px（van Wijk の尺）。
 //   bearingDeg＝着地方位（省略=北）。巡航は常に北向き＝③の「起こす」で tilt と同時に回り込む（デモ台本の t/r 着地用）。
-export function createFlight({ cam, viewW, maxPitch, onMove, onFlying = () => {} }) {
+export function createFlight({ cam, viewW, maxPitch, minZoom = 0, onMove, onFlying = () => {} }) {
 	let flight = null;
 	function flyTo(lon, lat, zoom, tiltDeg, bearingDeg) {
+		zoom = Math.max(minZoom, zoom);   // 床下の目標でも飛行で潜らない（applyView の床と同じ掟）
 		if (flight) flight.cancel();
 		let cancelled = false;
 		flight = { cancel: () => { cancelled = true; onFlying(false); flight = null; } };
@@ -82,6 +83,7 @@ export function createFlight({ cam, viewW, maxPitch, onMove, onFlying = () => {}
 	// 経路は equirect 直線＝球面最適経路ではない：近距離（同じ街・隣街）専用。シーンチェンジは従来どおり flyTo。
 	// 省略チャンネルは現状維持でなく目的値へ（tiltDeg/bearingDeg 未指定＝0＝起こして北へ。共有URLの意味論と同じ）。
 	function glideTo(lon, lat, zoom, tiltDeg, bearingDeg) {
+		zoom = Math.max(minZoom, zoom);   // 同上（glide は cam 直書き＝ここで守らないと床を素通りする）
 		if (flight) flight.cancel();
 		let cancelled = false;
 		flight = { cancel: () => { cancelled = true; onFlying(false); flight = null; } };

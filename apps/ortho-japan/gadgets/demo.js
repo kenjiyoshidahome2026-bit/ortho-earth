@@ -110,7 +110,9 @@ export function demo({ scenes, slide: slideOn = true, hold = 5500, slideHold = 4
 	const mobView = (s, t = s.view ?? s.glide) => {
 		const d = s.mobile ?? mobile;
 		if (!t || !d || mapEl.clientWidth >= mapEl.clientHeight) return t;
-		return t.replace(/-?[\d.]+/, z => String(Math.round((+z + d) * 100) / 100));
+		// シフト後はアプリのズーム床(2)でクランプ：低z台本（例 地球と天体 z2）にΔを足すと床下(z0.8)になり、
+		// glide（cam直書き＝床素通り）と jump（applyView＝床で弾く）の差で「星座が点く瞬間に z が跳ぶ」（モバイル実測 2026-08-02）
+		return t.replace(/-?[\d.]+/, z => String(Math.max(2, Math.round((+z + d) * 100) / 100)));
 	};
 
 	let idx = -1, playing = false, timer = 0, preTimer = 0, slideShown = false;   // slideShown＝このシーン滞在中に幕を一度見せたか（三拍子の現在拍）

@@ -1596,6 +1596,7 @@ async function toggleConstellations() {
 	renderer.set("skyLabels", skyLabels);
 	needsDraw = true;
 	console.log(`[星座線] ${consts.length}星座＋メシエ${messier.length}天体 ロード完了（クリックでON/OFF）`);
+	if (!printHold) saveView();   // 初回ロード(2秒級)中に settle の saveView が sky 抜きで先行する＝完了後に l=sky を書き戻す（レース根治・モバイル実測）
 }
 // URL(l=sky)⇄星座表示の冪等同期：望む状態と違う時だけ toggle を叩く（未読込なら読込→表示、読込済なら反転）。
 // z によらず状態を確定させる＝共有URLの往復で消えない（z<4に降りた時に実際に描かれる。worldFade が可視ゲート）。
@@ -1844,7 +1845,7 @@ schedulePos();   // 起動直後からスケールを出す（真俯瞰復元時
 
 // --- 球面フライト：実装は engine（flight.js＝三段振り付け＋van Wijk厳密解）。ここは配線だけ。
 // onFlying＝autoPlateau のゲート（飛行中はPLATEAU完全停止・着地の瞬間に解禁＝立ち上がりが着陸の演出）。
-const flightCtl = createFlight({ cam, viewW: () => size.w, maxPitch: MAXPITCH, onMove, onFlying: f => {
+const flightCtl = createFlight({ cam, viewW: () => size.w, maxPitch: MAXPITCH, minZoom: 2, onMove, onFlying: f => {
 	flying = f;
 	if (!f && suppressCoast) { suppressCoast = false; updateGintSlot(); }   // 着地＝抑制解除→再評価（着地が低ズームなら海岸線が戻る）
 } });
