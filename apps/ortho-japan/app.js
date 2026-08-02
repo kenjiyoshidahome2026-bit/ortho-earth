@@ -982,6 +982,7 @@ window.__vtPool = () => requestMerge.stats();          // multi_draw 常駐プ�
 // 透視カメラ：center(注視点lon/lat), zoom(web-mercator float), pitch/bearing(rad)
 const MAXPITCH = 75 * D2R;   // 山岳ビュー(z<13)は地形が深度で自遮蔽・混成アトラスが地平線までカバー＝高チルトの根拠が揃ったので75°まで開放
 const ZOOM_MAX = 20;         // 上限20＝15cm/px（正射z＝緯度フリー。精度は原点相対RTEが担保）。21でも動くが余裕を持って1段残す
+const ZOOM_MIN = 1;          // 床1＝地球全体を余白つきで（z1=世界512px＝スマホ縦にも収まる。旧床2は縦画面で地球がはみ出し、モバイルΔ補正が床に潰される素だった 2026-08-02）
 let atmo = theme.atmo;              // 大気色 rgb + 強さ（テーマ台帳のノブ＝palettes.js）※生き替えで差し替わる
 let bldColor = theme.bldColor;      // 建物色（テーマ台帳のノブ＝palettes.js）※生き替えで差し替わる
 // cam＝幾何のみ（center/zoom/pitch/bearing/dpr）＝毎フレームの draw payload（将来の worker 境界）。
@@ -993,7 +994,7 @@ const cam = { center: [JAPAN_VIEW[0], JAPAN_VIEW[1]], zoom: JAPAN_VIEW[2], pitch
 // 書き戻す＝アドレスバーが常に「今この視点の共有URL」（コピーするだけで人に渡る＝発表・拡散の生命線）。
 function applyCamView(v) {
 	cam.center = [wrapLon(v.lon), Math.max(-90, Math.min(90, v.lat))];
-	cam.zoom = Math.max(2, Math.min(ZOOM_MAX, v.zoom));
+	cam.zoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, v.zoom));
 	cam.pitch = Math.max(0, Math.min(MAXPITCH, v.pitch || 0));
 	cam.bearing = Number.isFinite(v.bearing) ? v.bearing : 0;
 }
@@ -1081,7 +1082,7 @@ function fitZoomForBbox(b) {
 	const thY = Math.max(1e-9, (b[3] - b[1]) * D2R);
 	const W = mapEl?.clientWidth || innerWidth, H = mapEl?.clientHeight || innerHeight;
 	const scale = 0.85 * Math.min(W / thX, H / thY);
-	return Math.max(2, Math.min(ZOOM_MAX, Math.log2(scale / (WORLD_PX / (2 * Math.PI)))));
+	return Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, Math.log2(scale / (WORLD_PX / (2 * Math.PI)))));
 }
 function applyGintData(pbf, label, moveCamera = true, opts = {}) {
 	if (!pbf?.unPackGint) { console.error("[gint] デコード失敗 (%s)", label, pbf); return null; }
@@ -1754,7 +1755,7 @@ resize();
 // ここは日本アプリ固有の反応だけ注入：クリック→identify（基図overlay＋知性gint）、ホバー→gintの筆識別、
 // ジェスチャ開始→フライト中断（主導権は常に人）。z範囲＝1(宇宙の余白)〜19(z20はタイルの切れ目が目立つ)。
 let measureClick = null;   // 測距モード中だけ非null＝クリックを測距へ奪う（識別・星座トグルより先）
-const input = createInput({
+const input = createInput({ zoomMin: ZOOM_MIN,
 	canvas, cam, size, dpr, maxPitch: MAXPITCH, zoomMin: 2, zoomMax: ZOOM_MAX, onMove, signal: ac.signal,
 	blocked: () => modalOpen(mapEl),   // モーダル表示中は矢印キーで背後の地図を動かさない（文字入力中は input.js が自前で判定）
 	onGesture: () => flightCtl.cancel(),
@@ -1845,7 +1846,7 @@ schedulePos();   // 起動直後からスケールを出す（真俯瞰復元時
 
 // --- 球面フライト：実装は engine（flight.js＝三段振り付け＋van Wijk厳密解）。ここは配線だけ。
 // onFlying＝autoPlateau のゲート（飛行中はPLATEAU完全停止・着地の瞬間に解禁＝立ち上がりが着陸の演出）。
-const flightCtl = createFlight({ cam, viewW: () => size.w, maxPitch: MAXPITCH, minZoom: 2, onMove, onFlying: f => {
+const flightCtl = createFlight({ cam, viewW: () => size.w, maxPitch: MAXPITCH, minZoom: ZOOM_MIN, onMove, onFlying: f => {
 	flying = f;
 	if (!f && suppressCoast) { suppressCoast = false; updateGintSlot(); }   // 着地＝抑制解除→再評価（着地が低ズームなら海岸線が戻る）
 } });
@@ -2327,7 +2328,7 @@ map.gadget("dropFile", function (opts) {   // GISファイルのD&D取り込み 
 	return dropFileGadget.call(this, { loadFile, clearGint: clearUserGint, signal: ac.signal, ...opts });
 });
 map.gadget("demo", function (opts) {   // デモ（発表の台本再生）… 台本の一行=共有URLハッシュ。flyView（球面フライト）・フライト中判定・PLATEAU先読み・現テーマ名（幕替わり判定）を注入
-	return demoGadget.call(this, { flyView, flightActive: () => flightCtl.active, prefetchViews: prefetchPlateauForViews, signal: ac.signal, ...opts });
+	return demoGadget.call(this, { flyView, flightActive: () => flightCtl.active, prefetchViews: prefetchPlateauForViews, signal: ac.signal, zoomMin: ZOOM_MIN, ...opts });
 });
 map.gadget("ai", function (opts) {   // AIと会話して地図に描く（PC専用・画面2分割）… 描画受け口とbboxフィット・消去を注入
 	const fitBbox = bb => {   // dropFile と同じ視野幅の逆解き＝fit へ球面フライト（真俯瞰・北向き）

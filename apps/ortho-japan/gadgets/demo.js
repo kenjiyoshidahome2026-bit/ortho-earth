@@ -55,7 +55,7 @@ const isImg = s => /\.(svg|png|jpe?g|webp|gif|avif)([?#]|$)/i.test(s) || /^(data
 // opts.prefetchViews＝PLATEAU先読み（app が注入・任意）：▶の瞬間に台本の全 view を渡す＝寄るシーンの区が裏でIDBへ。
 //   序盤のシーン構成で時間を稼げば、PLATEAUシーン到着時には初見のPCでも一発で街が立つ（データ重力の種まき兼用）。
 // 戻り値＝{start, next, prev, exit, play, pause}（テスト・プログラム駆動用）。
-export function demo({ scenes, slide: slideOn = true, hold = 5500, slideHold = 4000, mobile, flyView, flightActive, prefetchViews, signal, plateau } = {}) {
+export function demo({ scenes, slide: slideOn = true, hold = 5500, slideHold = 4000, mobile, zoomMin = 1, flyView, flightActive, prefetchViews, signal, plateau } = {}) {
 	const mapEl = this.mapEl;
 	if (!slideOn && Array.isArray(scenes)) scenes = scenes.filter(s => s.view || !s.slide);   // スライドだけのシーン＝空の停留所になるので抜く
 	if (!Array.isArray(scenes) || !scenes.length) { console.warn("[demo] scenes が空＝ガジェットは搭載しない"); return; }
@@ -112,7 +112,7 @@ export function demo({ scenes, slide: slideOn = true, hold = 5500, slideHold = 4
 		if (!t || !d || mapEl.clientWidth >= mapEl.clientHeight) return t;
 		// シフト後はアプリのズーム床(2)でクランプ：低z台本（例 地球と天体 z2）にΔを足すと床下(z0.8)になり、
 		// glide（cam直書き＝床素通り）と jump（applyView＝床で弾く）の差で「星座が点く瞬間に z が跳ぶ」（モバイル実測 2026-08-02）
-		return t.replace(/-?[\d.]+/, z => String(Math.max(2, Math.round((+z + d) * 100) / 100)));
+		return t.replace(/-?[\d.]+/, z => String(Math.max(zoomMin, Math.round((+z + d) * 100) / 100)));
 	};
 
 	let idx = -1, playing = false, timer = 0, preTimer = 0, slideShown = false;   // slideShown＝このシーン滞在中に幕を一度見せたか（三拍子の現在拍）
