@@ -55,7 +55,8 @@ const isImg = s => /\.(svg|png|jpe?g|webp|gif|avif)([?#]|$)/i.test(s) || /^(data
 // opts.prefetchViews＝PLATEAU先読み（app が注入・任意）：▶の瞬間に台本の全 view を渡す＝寄るシーンの区が裏でIDBへ。
 //   序盤のシーン構成で時間を稼げば、PLATEAUシーン到着時には初見のPCでも一発で街が立つ（データ重力の種まき兼用）。
 // 戻り値＝{start, next, prev, exit, play, pause}（テスト・プログラム駆動用）。
-export function demo({ scenes, slide: slideOn = true, hold = 5500, slideHold = 4000, mobile, zoomMin = 1, flyView, flightActive, prefetchViews, signal, plateau } = {}) {
+// opts.finale＝台本を最後まで走り切った時だけ呼ばれる終演フック（app が japan-fit を注入）。Esc/▶の途中終了では呼ばない。
+export function demo({ scenes, slide: slideOn = true, hold = 5500, slideHold = 4000, mobile, zoomMin = 1, flyView, flightActive, prefetchViews, finale, signal, plateau } = {}) {
 	const mapEl = this.mapEl;
 	if (!slideOn && Array.isArray(scenes)) scenes = scenes.filter(s => s.view || !s.slide);   // スライドだけのシーン＝空の停留所になるので抜く
 	if (!Array.isArray(scenes) || !scenes.length) { console.warn("[demo] scenes が空＝ガジェットは搭載しない"); return; }
@@ -213,7 +214,7 @@ export function demo({ scenes, slide: slideOn = true, hold = 5500, slideHold = 4
 			if (slide.classList.contains("open")) { curtain(false); schedule(); return; }   // 第三拍＝幕を下ろしてもう一度地図
 			if (!slideShown) { curtain(true); schedule(); return; }                          // 第二拍＝幕
 		}
-		if (idx + 1 < scenes.length) show(idx + 1); else exit();   // 最終シーンの先＝そのまま終演（自動上演もここで止まる）
+		if (idx + 1 < scenes.length) show(idx + 1); else { exit(); finale?.(); }   // 最終シーンの先＝終演＋定位置へ（japan-fit。Esc等の途中終了は現在地に留まる＝その場の会話用）
 	};
 	const prev = () => {   // ‹＝同じ拍を逆順に：幕中→地図(未見に戻す)、見終わり→幕へ、地図(未見)→前シーンへ
 		const s = scenes[idx];

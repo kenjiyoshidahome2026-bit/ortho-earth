@@ -130,6 +130,7 @@ body { visibility: visible; }   /* 開幕＝このスタイルシートの到着
 /* --- 出典（右下・最も静か）：計器(#pos)と同じ薄硝子＝下辺の家具で材質を揃える --- */
 #attr {
 	position: absolute; bottom: calc(6px + var(--qm-safe-b)); right: 8px; font-size: 11px; line-height: 1.5; text-align: right;
+	text-wrap: balance;   /* 狭画面（iPhone等）で長い行が折れた時に行長を均す＝<br>区切りの各セグメント内だけ効く。広い画面は折れない＝不変。非対応ブラウザは無視＝無害 */
 	color: var(--qm-text-dim);   /* 本文もリンクと同じ濃さ＝二段調をやめ一色に（旧faintは硝子地では薄すぎた） */
 	background-color: rgba(213,226,242,.28); background-image: var(--qm-glass-sheen-dim);
 	-webkit-backdrop-filter: var(--qm-glass-frost); backdrop-filter: var(--qm-glass-frost);

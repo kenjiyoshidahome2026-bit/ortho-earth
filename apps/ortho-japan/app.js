@@ -2339,7 +2339,12 @@ map.gadget("dropFile", function (opts) {   // GISファイルのD&D取り込み 
 	return dropFileGadget.call(this, { loadFile, clearGint: clearUserGint, signal: ac.signal, ...opts });
 });
 map.gadget("demo", function (opts) {   // デモ（発表の台本再生）… 台本の一行=共有URLハッシュ。flyView（球面フライト）・フライト中判定・PLATEAU先読み・現テーマ名（幕替わり判定）を注入
-	return demoGadget.call(this, { flyView, flightActive: () => flightCtl.active, prefetchViews: prefetchPlateauForViews, signal: ac.signal, zoomMin: ZOOM_MIN, ...opts });
+	const japanFit = () => {   // 終演の定位置＝日本列島が画面に収まる真俯瞰・北向き（fitBbox と同じ視野幅の逆解き＝縦横どちらの画面でも収まる）
+		const wDeg = 17.4 * 1.15, hDeg = 15.2 * 1.15;   // 列島の大づかみ [129..146.4]×[30.6..45.8]（沖縄本島は列島の画角を殺すので外＝台本の白地図と同じ構図）
+		const z = Math.min(Math.log2(360 * size.w / (WORLD_PX * wDeg)), Math.log2(360 * size.h / (WORLD_PX * hDeg)));
+		flyTo(137, 37, Math.max(ZOOM_MIN, Math.min(7, z)), 0, 0);
+	};
+	return demoGadget.call(this, { flyView, flightActive: () => flightCtl.active, prefetchViews: prefetchPlateauForViews, finale: japanFit, signal: ac.signal, zoomMin: ZOOM_MIN, ...opts });
 });
 map.gadget("ai", function (opts) {   // AIと会話して地図に描く（PC専用・画面2分割）… 描画受け口とbboxフィット・消去を注入
 	const fitBbox = bb => {   // dropFile と同じ視野幅の逆解き＝fit へ球面フライト（真俯瞰・北向き）
