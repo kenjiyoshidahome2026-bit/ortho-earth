@@ -143,6 +143,7 @@ function finishInit(m) {
 }
 
 let initQueue = null;   // WebGPU 非同期init中に届いたメッセージの待避列（backend確定後に元の順で再投入＝取りこぼさない）
+let bootStage = "起動前";   // iOS診断：initチェーンの里程標（どこで止まったかを beat で可視化）
 let backendName = "webgl2";
 onmessage = e => {
 	const m = e.data;
@@ -156,7 +157,8 @@ onmessage = e => {
 			perfOn = !!m.perf;
 			stayProbe = m.stay ? 1 : 0;
 			if (m.stay) {
-				setInterval(() => postMessage({ type: "beat", n: frameTicks, pump: pumpTicks, dirty, hasCam: !!cam, hasRenderer: !!renderer, drawMsgN, sentFrame1, pongD, pongC, loopN, sceneMsgN, relayRecvN, pongB }), 1000);
+				setInterval(() => postMessage({ type: "beat", n: frameTicks, pump: pumpTicks, dirty, hasCam: !!cam, hasRenderer: !!renderer, drawMsgN, sentFrame1, pongD, pongC, loopN, sceneMsgN, relayRecvN, pongB, bootStage, iqLen: initQueue ? initQueue.length : -1 }), 1000);
+				setTimeout(() => { if (initQueue) { console.error("[render] initQueue が15秒解放されず＝強制解放（診断）"); const q = initQueue; initQueue = null; bootStage += "→強制解放(" + q.length + ")"; for (const qm of q) onmessage({ data: qm }); } }, 15000);
 				const lc = new MessageChannel();   // worker内ループバック＝message イベント配給そのものの生死
 				lc.port1.onmessage = () => { loopN++; };
 				setInterval(() => { lc.port2.postMessage(1); postMessage({ type: "pingReq" }); }, 500);
@@ -167,10 +169,10 @@ onmessage = e => {
 				// 実験フラグ ?gpu=1＝WebGPU バックエンド（Phase 1: globe+基図 fill/line・classic merge）。
 				// init は非同期（adapter/device 取得）＝その間のメッセージは initQueue へ待避し順序ごと再投入。
 				// 失敗（非対応・adapter無し）は WebGL2 へフォールバック＝既定経路と同一挙動。
-				initQueue = [];
+				initQueue = []; bootStage = "import待ち";
 				import("ortho-core/gpu")
 					.then(({ createRendererGPU, createGintLayerGPU }) => createRendererGPU(canvas, { noTQ: !!m.noTQ }).then(r => {
-						renderer = r; backendName = "webgpu";
+						renderer = r; backendName = "webgpu"; bootStage = "renderer済";
 						// iOS Safari 診断：gint のパイプライン生成も検証スコープで包み、frame1 後にまとめて main へ転写
 						r.device.pushErrorScope("validation");
 						setTimeout(() => {
@@ -179,6 +181,7 @@ onmessage = e => {
 						}, 400);
 						// gint（知性の層）＝renderer の frame（開いたエンコーダ）へ自分の render pass を足す＝1canvas統合の WebGPU 形。
 						if (!m.noGint) gint = createGintLayerGPU(r, { requestDraw: () => { dirty = true; } });   // ?nogint=1＝gint 層別切り（iOS診断）
+						bootStage = "gint済";
 						console.log("[render] backend=webgpu（Phase 6: 主要描画スタック完走＝基図/標高/地形/深度/建物/等高線/gint/PLATEAU/星空/overlay/idfill/gintBld。md系のみ未搭載）");
 						// A/B 計測：?perf=1 で GPU 識別を1行（WebGL 経路の debug_renderer_info と対）。WebGPU は timestamp-query 未配線＝ema は壁時計で比較
 						if (perfOn) console.log(`[perf] backend=webgpu gpu="${r.gpuInfo}" timerQuery=${!!r.hasTQ}${r.hasTQ ? "（timestamp-query＝gpuMap/gpuGint 実測・GPU格付け有効）" : "（非対応＝ema 壁時計フォールバック）"}`);
@@ -188,9 +191,12 @@ onmessage = e => {
 						bootWebGL(m);
 					})
 					.then(() => {
+						bootStage = "finishInit前";
 						if (renderer) finishInit(m);
+						bootStage = "finishInit済";
 						const q = initQueue; initQueue = null;
 						if (q) for (const qm of q) onmessage({ data: qm });   // 待避分を順序どおり再投入
+						bootStage = "queue解放済(" + (q ? q.length : 0) + "件)";
 					});
 				break;
 			}

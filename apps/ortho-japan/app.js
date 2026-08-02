@@ -239,7 +239,7 @@ const diagHud = /[?&]stay=1/.test(location.search) ? (() => {
 	const t0 = performance.now();
 	const lines = new Map();
 	const put = (k, v) => { lines.set(k, v); d.textContent = [...lines.entries()].map(([a, b]) => a + ": " + b).join("\n"); };
-	put("build", "v-bc1");
+	put("build", "v-stage1");
 	put("経過", "0s"); setInterval(() => put("経過", ((performance.now() - t0) / 1000).toFixed(0) + "s"), 1000);
 	setInterval(() => put("main送信", `draw ${window.__drawSendN || 0}回${window.__drawSendErr ? " 送信エラー:" + window.__drawSendErr : ""}`), 1000);
 	put("frame1", "未着 ✗");
@@ -352,6 +352,7 @@ renderWorker.onmessage = e => {
 		diagHud && diagHud("ゲート", `draw受信${d.drawMsgN}回 cam=${d.hasCam ? "✓" : "✗"} dirty=${d.dirty ? "✓" : "✗"} renderer=${d.hasRenderer ? "✓" : "✗"} frame1送信=${d.sentFrame1 ? "✓" : "✗"}`);
 		diagHud && diagHud("配達", `pong直結${d.pongD} ポート${d.pongC} BC${d.pongB} 自己${d.loopN}`);
 		diagHud && diagHud("経路", `scenePort着${d.sceneMsgN} relay最終着${d.relayRecvN} hop1受${globalThis.__relayCtlN || 0}`);
+		diagHud && diagHud("boot", `${d.bootStage} 待避列=${d.iqLen}`);
 		return;
 	}
 	if (d.type === "gpuPix") {   // stay診断：present 前の GPU テクスチャ実画素（rendering と present の切り分け）
