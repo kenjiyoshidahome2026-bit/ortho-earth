@@ -21,8 +21,6 @@ let rafArmed = false, lastFrameRun = 0, frameTicks = 0, pumpTicks = 0;
 let drawMsgN = 0;   // stay診断：main からの draw 受信回数（cam/dirty の給餌が届いているか）
 let pongD = 0, pongC = 0, loopN = 0;   // stay診断：main→worker 直結/ポートの生死＋worker内ループバック（message イベント配給の飢餓判定）
 let sceneMsgN = 0, relayRecvN = 0, pongB = 0;   // iOS診断：scenePort到着数・relay最終着数・BroadcastChannel生死
-// BroadcastChannel＝第三の配達路（page→worker の越境が全滅する iOS 轍の代替候補）。生きていれば制御をそのまま受ける。
-try { const bc = new BroadcastChannel("oj-ctl"); bc.onmessage = ev => { const d = ev.data; if (!d || !d.type) return; if (d.type === "pongB") { pongB++; return; } dispatch({ data: d }); }; } catch {}
 function armRaf() {
 	if (rafArmed) return;
 	rafArmed = true;
