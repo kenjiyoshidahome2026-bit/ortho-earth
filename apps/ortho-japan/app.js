@@ -239,7 +239,7 @@ const diagHud = /[?&]stay=1/.test(location.search) ? (() => {
 	const t0 = performance.now();
 	const lines = new Map();
 	const put = (k, v) => { lines.set(k, v); d.textContent = [...lines.entries()].map(([a, b]) => a + ": " + b).join("\n"); };
-	put("build", "v-ctrl2");
+	put("build", "v-ctrl3");
 	put("経過", "0s"); setInterval(() => put("経過", ((performance.now() - t0) / 1000).toFixed(0) + "s"), 1000);
 	setInterval(() => put("main送信", `draw ${window.__drawSendN || 0}回${window.__drawSendErr ? " 送信エラー:" + window.__drawSendErr : ""}`), 1000);
 	put("frame1", "未着 ✗");
