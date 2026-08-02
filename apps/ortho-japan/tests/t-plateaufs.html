@@ -1,0 +1,15 @@
+<!doctype html>
+<!-- UI回帰：PLATEAU バッチ本体の OPFS ストア（plateaufs.js）。同期ハンドルは worker 専用＝dedicated worker で
+     put/read/headerOnly/上書きtruncate/has/delBase/purge を実 OPFS に対して往復する。判定は <title> の PASS/FAIL。 -->
+<html lang="ja"><head><meta charset="utf-8"><title>t-plateaufs</title></head>
+<body>
+<script type="module">
+const w = new Worker(new URL("./t-plateaufs.worker.js", import.meta.url), { type: "module" });
+const t = await new Promise((res, rej) => {
+	w.onmessage = e => res(e.data);
+	w.onerror = e => rej(new Error(e.message || "worker error"));
+	setTimeout(() => rej(new Error("timeout")), 20000);
+}).catch(e => ["NG:page:" + e.message]);
+w.terminate();
+document.title = t.some(s => s.startsWith("NG")) ? "FAIL " + t.join(" ") : "PASS " + t.join(" ");
+</script></body></html>

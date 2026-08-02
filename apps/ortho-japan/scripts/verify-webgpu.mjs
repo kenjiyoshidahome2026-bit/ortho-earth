@@ -34,7 +34,7 @@ try {
 		await sleep(250);
 	}
 	fail = 0;
-	for (const page of ["t-webgpu", "t-gintgpu"]) {
+	for (const page of ["t-webgpu", "t-gintgpu", "t-plateaufs"]) {   // t-plateaufs＝OPFS 実I/O（同期ハンドル）＝実時間必須（仮想時間はタイマー先燃えで偽陽性）
 		const url = `http://localhost:${PORT}/japan/tests/${page}.html`;
 		const target = await (await fetch(`http://127.0.0.1:${CDP}/json/new?${encodeURIComponent(url)}`, { method: "PUT" })).json();
 		ws = new WebSocket(target.webSocketDebuggerUrl);

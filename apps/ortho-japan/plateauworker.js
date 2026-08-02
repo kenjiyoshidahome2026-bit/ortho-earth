@@ -6,6 +6,7 @@
 import { parse as loadParse } from "@loaders.gl/core";
 import { Tiles3DLoader } from "@loaders.gl/3d-tiles";
 import { Cache } from "native-bucket";
+import { opfsStore } from "./plateaufs.js";
 
 const EARTH_M = 6371000;   // main.js の EARTH_M と同値（建物の接地計算に使う単位球換算）
 // バッチ/並行度は低メモリ端末で縮小（init lowMem で上書き）：デコードの過渡メモリ（Float64座標+BigInt dedup+
@@ -370,10 +371,11 @@ const takeCredit = () => credits > 0 ? (credits--, Promise.resolve()) : new Prom
 const onDrained = () => { const w = creditWaiters.shift(); if (w) w(); else if (credits < CREDIT_MAX) credits++; };
 
 // バッチ1個を render worker へ送出（クレジットが空くまで待つ）。cache の原本は守りたいので transfer 分はコピー。
-// マスクは区単位の累積スナップショット＝renderer 側は毎回丸ごと差し替え（冪等）。
-async function sendBatch(ward, bi, mesh, wardMask, wardBbox) {
+// own=true＝この mesh はもう誰も使わない（ストリーミング復元＝送ったら手放す）＝コピー無しで transfer
+// （渡した後は detached＝呼び出し側は触らない約束）。マスクは累積原本ゆえ常にコピー＝renderer 側は毎回丸ごと差し替え（冪等）。
+async function sendBatch(ward, bi, mesh, wardMask, wardBbox, own = false) {
 	await takeCredit();
-	const pos = mesh.pos.slice(), nrm = mesh.nrm.slice(), idx = mesh.idx.slice();
+	const pos = own ? mesh.pos : mesh.pos.slice(), nrm = own ? mesh.nrm : mesh.nrm.slice(), idx = own ? mesh.idx : mesh.idx.slice();
 	const mask = wardMask ? wardMask.slice() : null;
 	const payload = { name: `${ward}#${bi}`, meshData: { pos, nrm, idx, origin: mesh.origin, bbox: mesh.bbox, lodH: mesh.lodH, lodCounts: mesh.lodCounts, twoSided: mesh.twoSided || 0, ward, mask, maskN: MASK_N, maskBbox: wardBbox } };
 	const transfers = [pos.buffer, nrm.buffer, idx.buffer];
@@ -386,10 +388,11 @@ let CACHE_MAX = 2;         // 1区あたり~100-160MB（typed array一式）＝�
                            // （workerは同時4本＝プール全体で最大8区~1GB。同区は base ハッシュで毎回同じ worker＝ヒット率は落ちない）。
                            // 低メモリ端末（init の lowMem）は1区＝スマホのタブ強制終了対策。再訪はIDBが受けるので体感は数秒差
 
-// IDB 永続キャッシュ：GPU直行形式（pos/nrm/idx＋マスク）を区単位で保存＝ページ再読込・再起動後も
+// 永続キャッシュ：GPU直行形式（pos/nrm/idx＋マスク）を区単位で保存＝ページ再読込・再起動後も
 // fetch/Draco解凍/座標変換を丸ごと飛ばして数秒で復元（geopbf の PBF+GINT キャッシュと同じ発想）。
-// レコードはバッチ単位（`${base}#${i}` 各10〜20MB）＋メタ（`${base}#meta`）。メタが揃って初めて有効＝書き途中の中断は無視される。
+// バッチ単位（各10〜20MB。本体の置き場は下の OPFS 二層を参照）＋メタ（IDB `${base}#meta`）。メタが揃って初めて有効＝書き途中の中断は無視される。
 // FMT_VER: デコードパイプライン（接地・dedup・軸変換等）を変えたら上げる＝古い形式のキャッシュを自然無効化。
+// （置き場の別は ver でなく meta.fs＝形式が同じままなら旧焼きは読める）。
 const IDB_FMT_VER = 5;   // v5: 空中部材の借り接地＝非連結の冠・段状屋根・塔屋が海抜0へ落ちる問題の根治（西新宿の「二重」）
                          // v4: 法線int8量子化(4B/頂点＝1/3)＋建物高さ降順のindex並べ替え+LOD表（サブピクセル建物の打ち切り描画）
                          // v3: 接地を建物（連結成分）単位の剛体方式へ＝グリッド場の過小評価による浮き（京都嵯峨野+19〜40m）を根治
@@ -404,33 +407,45 @@ navigator.storage?.estimate?.().then(e => {
 }).catch(() => {});
 const idbReady = Cache("GIS/plateau").catch(e => { console.warn("[plateau] IDB無効（メモリキャッシュのみで続行）", e); return null; });
 
-async function idbLoad(base, brid) {
+// ── バッチ本体の置き場＝OPFS（2026-08-02・XS温走行の「読了時落ち」対策）。台帳(meta)は IDB のまま二層 ──
+// 狙いは唯一「読みでピークを積まない」：旧・IDB命中は区の全バッチ(100-160MB)を配列に実体化してから送出＝
+// 温読みほど同時滞留が積み上がり、読み終えた瞬間が最鋭のピーク（4GB実機で落ちる実測）。以後は
+// 「1バッチ読む→transferで送る→手放す」のストリーミング＝滞留はクレジット(CREDIT_MAX)×バッチで頭打ち。
+// meta.fs="opfs" が置き場の印。旧v5焼き（fs無し＝本体もIDB）はそのまま読める＝既存資産を無駄にしない。
+// OPFS不能環境（プライベートブラウズ等）は ofs=null＝従来どおり本体もIDBへ。?noopfs=1 が逃げ道。
+let ofs = null, fsReady = Promise.resolve();
+function initFs(noOpfs) {
+	if (noOpfs) { console.log("[plateau] OPFS無効化（?noopfs=1）"); return; }
+	fsReady = opfsStore().then(s => { ofs = s; console.log(s ? "[plateau] OPFS有効（バッチ本体=ファイル・台帳=IDB）" : "[plateau] OPFS不可（本体もIDBで続行）"); })
+		.catch(e => console.warn("[plateau] OPFS初期化失敗（本体もIDBで続行）", e?.message ?? e));   // 沈黙失敗禁止＝フォールバックした事実は必ず見える化
+}
+// meta を引いて検分（complete/partial 両用）。fs="opfs" 焼きなのに OPFS が使えない環境＝読めない→null（焼き直し）。
+async function loadMeta(base, brid) {
 	const idb = await idbReady; if (!idb) return null;
 	const meta = await idb(base + "#meta").catch(() => null);
-	if (!meta || meta.partial || meta.ver !== IDB_FMT_VER || !!meta.brid !== !!brid) return null;   // partial＝ネットワーク経路が再開で受ける／brid不一致＝接地方式が違う焼き＝無効
-	const batches = [];
-	for (let i = 0; i < meta.count; i++) {
-		const b = await idb(`${base}#${i}`).catch(() => null);
-		if (!b) return null;   // 欠けあり＝無効（次回フルデコードで上書き）
-		batches.push(b);
-	}
-	idb(base + "#meta", { ...meta, ts: Date.now() });   // LRU touch（待たない）
-	return { batches, mask: meta.mask ?? null, wardBbox: meta.wardBbox ?? null };
+	if (!meta || meta.ver !== IDB_FMT_VER || !!meta.brid !== !!brid) return null;   // brid不一致＝接地方式が違う焼き＝無効
+	if (meta.fs === "opfs" && !ofs) return null;
+	return meta;
 }
-// 部分保存（partial meta）の読み出し＝ネットワーク経路の「続きから」用。バッチには tiles（消費した
-// タイルURI一覧）が同梱されている＝残りタイルの差分計算に使う。欠けはそこまでで再開（以降は焼き直し）。
-async function idbLoadPartial(base, brid) {
+// バッチ1個の読み出し（置き場は ward 単位で固定＝fs 引数）。無い/壊れ＝null。
+// headerOnly＝tiles/軽量メタだけ（OPFSは本体3配列を読まない。IDBは値全体クローンの仕組み上フル読みと同じ）。
+async function readStored(base, fs, i, headerOnly = false) {
+	if (fs === "opfs") return ofs ? ofs.read(base, i, headerOnly) : null;
 	const idb = await idbReady; if (!idb) return null;
-	const meta = await idb(base + "#meta").catch(() => null);
-	if (!meta?.partial || meta.ver !== IDB_FMT_VER || !!meta.brid !== !!brid) return null;
-	const batches = [];
-	for (let i = 0; i < meta.count; i++) {
-		const b = await idb(`${base}#${i}`).catch(() => null);
-		if (!b?.tiles) break;
-		batches.push(b);
-	}
-	return batches.length ? { batches, mask: meta.mask ?? null, wardBbox: meta.wardBbox ?? null } : null;
+	return idb(`${base}#${i}`).catch(() => null);
 }
+// プレロード時の完全性確認＝本体を読まず存在だけ見る（旧・全バッチをRAMへ読んで確認していた無駄と山を消す）。
+async function storedComplete(base, meta) {
+	if (meta.fs === "opfs") {
+		for (let i = 0; i < meta.count; i++) if (!await ofs.has(base, i)) return false;
+		return true;
+	}
+	const idb = await idbReady; if (!idb) return false;
+	const keys = new Set((await idb()) || []);
+	for (let i = 0; i < meta.count; i++) if (!keys.has(`${base}#${i}`)) return false;
+	return true;
+}
+const touchMeta = async (base, meta) => { const idb = await idbReady; idb && idb(base + "#meta", { ...meta, ts: Date.now() }); };   // LRU touch（待たない）
 // メッシュ typed array の合計バイト＝GPU頂点バッファ量のほぼ等身大の proxy（rendererはこれをbufferDataで上げる）。
 // IDBの容量表示と、main の GPU常駐バイト予算LRU（ackに同乗）の両方がこの一つの物差しを使う。
 const batchBytes = batches => batches.reduce((s, b) => s + Object.values(b).reduce((t, v) => t + (ArrayBuffer.isView(v) ? v.byteLength : 0), 0), 0);
@@ -455,7 +470,11 @@ async function idbEvict(keepBase, force = false) {
 		const h = k.lastIndexOf("#"); if (h < 0) continue;
 		if (!metaBases.has(k.slice(0, h))) { await idb(k, null); orphans++; }
 	}
-	if (orphans) console.log("[plateau] IDB孤児掃除", orphans, "records");
+	// OPFS側の孤児＝meta の無い base のバッチファイル（書き途中クラッシュの遺物）。台帳外で quota を食う点はIDB孤児と同じ。
+	if (ofs) for (const b of await ofs.bases().catch(() => new Set())) {
+		if (!metaBases.has(b) && b !== keepBase) orphans += await ofs.delBase(b);
+	}
+	if (orphans) console.log("[plateau] 孤児掃除", orphans, "records");
 	entries.sort((a, b) => a.ts - b.ts);
 	let freed = 0;
 	for (const old of entries) {
@@ -463,16 +482,19 @@ async function idbEvict(keepBase, force = false) {
 		if (old.base === keepBase) continue;
 		await idb(old.base + "#meta", null);
 		for (let i = 0; i < old.count; i++) await idb(`${old.base}#${i}`, null);
+		if (ofs) await ofs.delBase(old.base);   // 置き場がどちらでも冪等に両方掃く（fs印を見ずに済む＝残骸ゼロ）
 		totalBytes -= old.bytes; freed++;
 		console.log("[plateau] IDB退避（LRU）", old.base);
 		if (force && freed >= 1 && totalBytes <= idbBudget) break;   // 緊急時は最低1区で切り上げ（書き込み再試行が裁く）
 	}
 }
 async function idbPurge() {
-	const idb = await idbReady; if (!idb) return 0;
-	const keys = (await idb()) || [];
+	const idb = await idbReady;
+	const keys = idb ? (await idb()) || [] : [];
 	for (const k of keys) await idb(k, null);
-	return keys.length;
+	let n = keys.length;
+	if (ofs) n += await ofs.purge().catch(() => 0);
+	return n;
 }
 
 // 協調キャンセル：main が「もう要らない」と確定した base を積む。worker は
@@ -498,15 +520,33 @@ async function loadPlateau(base, tiles, ward, wardBbox, camCenter, preload = fal
 		if (!preload) for (let bi = 0; bi < c.batches.length; bi++) await sendBatch(ward, bi, c.batches[bi], c.mask, c.wardBbox);   // クレジット待ち＝滞留を頭打ちに
 		return true;
 	}
-	const stored = await idbLoad(base, brid);
-	if (stored) {
-		console.log("[plateau] IDB命中（fetch/解凍/変換スキップ）", base, `(${stored.batches.length} batches)`);
-		if (!preload) for (let bi = 0; bi < stored.batches.length; bi++) await sendBatch(ward, bi, stored.batches[bi], stored.mask, stored.wardBbox);
-		if (CACHE_MAX) {   // 低メモリ端末(CACHE_MAX=0)はメモリ常駐しない＝IDBが再訪を受ける
-			cache.set(base, stored);
-			if (cache.size > CACHE_MAX) cache.delete(cache.keys().next().value);
+	await fsReady;   // OPFS の可否が確定してから台帳を検分（init 直後の初回ロードとの競争を断つ）
+	// ── 完全焼きのストリーミング復元：1バッチ 読む→送る→手放す（区全量をRAMに積まない＝温読了時ピークの根治）──
+	// 滞留はクレジット（CREDIT_MAX×バッチ）で頭打ち。欠け（並行退避等）はそこで打ち切り→下の部分再開が差分で受ける。
+	const whole = await loadMeta(base, brid);
+	if (whole && !whole.partial) {
+		if (preload) {
+			if (await storedComplete(base, whole)) { touchMeta(base, whole); return true; }   // 本体は読まない（存在確認のみ）
+		} else {
+			const keep = CACHE_MAX ? [] : null;   // desktop＝worker内cache用に保持／低メモリ＝送ったら手放す
+			let bi = 0;
+			for (; bi < whole.count; bi++) {
+				const mesh = await readStored(base, whole.fs, bi);
+				if (!mesh) break;
+				if (keep) keep.push(mesh);
+				await sendBatch(ward, bi, mesh, whole.mask ?? null, whole.wardBbox ?? null, !keep);   // !keep＝transferで手放す
+			}
+			if (bi === whole.count) {
+				console.log("[plateau] 焼き命中（streaming復元・fetch/解凍/変換スキップ）", base, `(${whole.count} batches)`);
+				touchMeta(base, whole);
+				if (keep) {
+					cache.set(base, { batches: keep, mask: whole.mask ?? null, wardBbox: whole.wardBbox ?? null });
+					if (cache.size > CACHE_MAX) cache.delete(cache.keys().next().value);
+				}
+				return true;
+			}
+			console.warn("[plateau] 焼きに欠け→差分再開へ", base, `(${bi}/${whole.count})`);   // 送信済みぶんは名前一致で再送上書き＝冪等
 		}
-		return true;
 	}
 	// ここからネットワーク経路＝遅い（fetch＋Draco解凍で地区あたり数秒〜数十秒）。進捗を main へ流す。
 	// scan＝カタログ(tileset.json)走査枚数、done/total＝タイル単位（バッチ単位だと1歩が数秒＝止まって見える）。
@@ -518,21 +558,46 @@ async function loadPlateau(base, tiles, ward, wardBbox, camCenter, preload = fal
 
 	// ── 部分再開：前回の中断（タブ切替/jetsam/テーマreload）までの成果を土台に「続きから」──
 	// 旧・全バッチ完走後の一括保存は「中断＝全損」＝iPhone では区が一生貯まらなかった。
-	// 保存済みバッチは即座に描画へ（fetch/解凍スキップ）、残りタイルだけをネットワークから。
-	const part = await idbLoadPartial(base, brid);
+	// 保存済みバッチはストリーミングで即座に描画へ（読む→送る→手放す）、残りタイルだけをネットワークから。
+	// 上の streaming 復元が欠けで落ちた complete も、ここで tiles 差分の再開に化ける（meta は partial/complete 両用）。
+	const part = await loadMeta(base, brid);
+	const wardFs = part ? part.fs : (ofs ? "opfs" : undefined);   // 焼き途中の区は置き場を変えない（混在させない）。新規区はOPFS
 	const wardMask = wardBbox
 		? (part?.mask?.length === MASK_N * MASK_N ? part.mask : new Uint8Array(MASK_N * MASK_N))
 		: null;   // 区単位で累積（wardBbox 無し=デバッグ直指定時はマスク無し）。再開時は保存済みマスクの上へ
-	const batches = part ? part.batches : [];
+	const keep = CACHE_MAX ? [] : null;   // desktop＝完走後の worker内cache 用に全量保持／低メモリ＝保持しない（保存が再送を受ける）
+	const pending = new Map();   // 保存失敗(idbFail)時だけの未送信RAM退避＝「書けない環境でも表示は完走する」旧・全量RAM保持の代替
 	const doneTiles = new Set();
-	for (const b of batches) for (const u of b.tiles ?? []) doneTiles.add(u);
-	let sentCount = 0;   // render worker へ送信済みのバッチ数（slow中は保留＝batches.length と乖離する）
-	if (part) {
-		console.log("[plateau] IDB部分再開", base, `(${batches.length} batches・${doneTiles.size} tiles 済)`);
-		// 保存済みぶんを先に描画へ＝カタログ走査（数秒）を待たず「あるだけの街」が立つ
-		if (!preload && laneOf() === "fast") {
-			while (sentCount < batches.length) { await sendBatch(ward, sentCount, batches[sentCount], wardMask, wardBbox); sentCount++; }
+	let batchCount = 0, sentCount = 0, idbBytes = 0;   // sentCount＝送信済みバッチ数（slow中は保留＝batchCount と乖離する）
+	// 未送信バックログ（slow期間の在庫・部分再開の頭）を順に送る。保持していないぶんは保存から読み戻す＝RAMに積まない。
+	// force＝完走時の送り切り（slowでも送る）。justIdx/justMesh＝直前に読み/デコードしたバッチ（保存直後の再読を省く）。
+	// 命名 `${ward}#${bi}` と送信順は sentCount の単調前進が守る（lane が途中で振れても欠番・入替は出ない）。
+	const flush = async (force = false, justIdx = -1, justMesh = null) => {
+		if (!force && laneOf() !== "fast") return;
+		while (sentCount < batchCount) {
+			let m = keep ? keep[sentCount] : pending.get(sentCount);
+			if (!m && sentCount === justIdx) m = justMesh;
+			if (!m) m = await readStored(base, wardFs, sentCount);
+			if (!m) { console.warn("[plateau] 送出欠け（保存失敗区間）", ward, sentCount); break; }
+			if (keep) keep[sentCount] = m;   // 再読ぶんの穴埋め＝完走時の cache 一式を揃える
+			pending.delete(sentCount);
+			await sendBatch(ward, sentCount, m, wardMask, wardBbox, !keep);   // !keep＝transferで手放す（以後 m は触らない）
+			sentCount++;
 		}
+	};
+	if (part) {
+		for (let bi = 0; bi < part.count; bi++) {
+			// 差分計算に要るのは tiles だけ。fast は本体ごと読んで即送り、slow/preload はヘッダだけ＝読みの山を作らない
+			const headerOnly = preload || laneOf() !== "fast";
+			const mesh = await readStored(base, wardFs, bi, headerOnly);
+			if (!mesh?.tiles) break;   // 欠け/旧形式＝ここまでを土台に（以降のタイルは差分fetch）
+			for (const u of mesh.tiles) doneTiles.add(u);
+			idbBytes += batchBytes([mesh]) || mesh.bytes || 0;   // headerOnly(OPFS)はファイルサイズ代用＝台帳の物差しを保つ
+			batchCount++;
+			if (keep && !headerOnly) keep[bi] = mesh;
+			if (!preload) await flush(false, bi, headerOnly ? null : mesh);
+		}
+		if (batchCount) console.log("[plateau] 部分再開", base, `(${batchCount} batches・${doneTiles.size} tiles 済)`);
 	}
 
 	let leaves;
@@ -555,17 +620,17 @@ async function loadPlateau(base, tiles, ward, wardBbox, camCenter, preload = fal
 	let tilesDone = totalTiles - leaves.length;
 	prog({ done: tilesDone, total: totalTiles });
 
-	// ── 逐次書き：バッチ完成のたび即 IDB へ（レコードに消費タイルURIを同梱＝再開の差分計算用）。
+	// ── 逐次書き：バッチ完成のたび即保存（本体＝wardFs の置き場・tiles 同梱＝再開の差分計算用。台帳＝IDB）。
 	// meta は partial:true で毎バッチ更新＝どこで死んでも「meta が指す範囲」は常に有効。
 	// QuotaExceeded は最古区を緊急退避して1回だけ再試行、それでも駄目なら以後この区は書かない（表示は継続）。
-	let idbBytes = batchBytes(batches);
 	let idbFail = false;
 	const putBatch = async (i, mesh, uris) => {
 		const idb = await idbReady; if (!idb || idbFail) return;
 		const nb = idbBytes + batchBytes([mesh]);
 		const write = async () => {
-			await idb(`${base}#${i}`, { ...mesh, tiles: uris });
-			await idb(base + "#meta", { ver: IDB_FMT_VER, partial: true, count: i + 1, mask: wardMask, wardBbox, brid: !!brid, ts: Date.now(), bytes: nb });
+			if (wardFs === "opfs") await ofs.put(base, i, { ...mesh, tiles: uris });   // 1ファイル=1バッチ・書いたら即close
+			else await idb(`${base}#${i}`, { ...mesh, tiles: uris });
+			await idb(base + "#meta", { ver: IDB_FMT_VER, partial: true, count: i + 1, mask: wardMask, wardBbox, brid: !!brid, ts: Date.now(), bytes: nb, fs: wardFs });
 		};
 		try { await write(); idbBytes = nb; }
 		catch (e) {
@@ -591,32 +656,31 @@ async function loadPlateau(base, tiles, ward, wardBbox, camCenter, preload = fal
 		const mesh = await decodeBatch(base, slice, wardMask, wardBbox, () => prog({ done: ++tilesDone, total: totalTiles }), brid, stop, laneOf);
 		if (stop()) { console.log("[plateau] キャンセル（視野離脱・部分バッチ破棄）", ward); return "cancelled"; }   // 中断バッチは歯抜け＝送らない
 		if (!mesh) continue;
-		batches.push(mesh);
-		await putBatch(batches.length - 1, mesh, slice.map(t => t.uri));   // 失敗タイルも消費扱い＝完走時と同じ「歯抜けは再訪しない」規約
+		const bi = batchCount++;
+		const tris = mesh.idx.length / 3;   // ログ用に先へ退避（下の flush が transfer で手放すと detached＝0 に見える）
+		await putBatch(bi, mesh, slice.map(t => t.uri));   // 失敗タイルも消費扱い＝完走時と同じ「歯抜けは再訪しない」規約
+		if (keep) keep[bi] = mesh;
+		else if (idbFail) pending.set(bi, mesh);   // 書けない環境の在庫だけRAM退避（書けた分は保存が再送を受ける）
 		// fast lane のみ即送信（slow＝在庫化中は保留。promote で fast に戻った瞬間このバックログ送出が追いつく）
-		if (!preload && laneOf() === "fast") {
-			while (sentCount < batches.length) { await sendBatch(ward, sentCount, batches[sentCount], wardMask, wardBbox); sentCount++; }
-		}
-		console.log(`[plateau] batch ${batches.length} (${totalTiles - remaining.length}/${totalTiles} tiles) tris=${mesh.idx.length / 3}${laneOf() === "slow" ? " [slow]" : ""}`);
+		if (!preload) await flush(false, bi, mesh);
+		console.log(`[plateau] batch ${batchCount} (${totalTiles - remaining.length}/${totalTiles} tiles) tris=${tris}${laneOf() === "slow" ? " [slow]" : ""}`);
 	}
-	if (!batches.length) return false;   // 葉0枚/全バッチ失敗＝空データ。警告は main 側で一回だけ（廃止区の残骸等）
+	if (!batchCount) return false;   // 葉0枚/全バッチ失敗＝空データ。警告は main 側で一回だけ（廃止区の残骸等）
 	// slow のまま完走した分も含め、未送信バックログを送り切る＝GPUに全量が揃う（main は "demoted" を受けて非表示常駐へ）。
-	if (!preload) {
-		while (sentCount < batches.length) { await sendBatch(ward, sentCount, batches[sentCount], wardMask, wardBbox); sentCount++; }
-	}
-	if (CACHE_MAX) {   // 低メモリ端末(CACHE_MAX=0)は完了後に区一式(~100-160MB)をworker RAMへ残さない（IDBが再訪を受ける）
-		cache.set(base, { batches, mask: wardMask, wardBbox });   // デコード結果をこのworker内に保持＝再訪でfetch/Draco解凍を丸ごと省略
+	if (!preload) await flush(true);
+	if (CACHE_MAX && keep && keep.filter(Boolean).length === batchCount) {   // 穴あり（送出欠け・preloadのヘッダ読み等）は cache しない＝再訪は保存が受ける。filter＝疎配列の穴を every が素通りする罠を避ける
+		cache.set(base, { batches: keep, mask: wardMask, wardBbox });   // デコード結果をこのworker内に保持＝再訪でfetch/Draco解凍を丸ごと省略
 		if (cache.size > CACHE_MAX) cache.delete(cache.keys().next().value);   // LRU: 最古を退避
 	}
-	console.log("[plateau] 完了", base, `(${batches.length} batches)`);
+	console.log("[plateau] 完了", base, `(${batchCount} batches)`);
 	// 完成印＝partial を外した meta（バッチ本体は逐次書き済み）＋LRU退避・孤児掃除。表示経路は待たせない。
 	const storing = (async () => {
 		const idb = await idbReady; if (!idb || idbFail) return;   // idbFail＝部分metaのまま残す（次回再開が続きを試す）
 		try {
-			await idb(base + "#meta", { ver: IDB_FMT_VER, count: batches.length, mask: wardMask, wardBbox, brid: !!brid, ts: Date.now(), bytes: idbBytes });
-			console.log("[plateau] IDB保存完了", base, `(${batches.length} batches)`);
+			await idb(base + "#meta", { ver: IDB_FMT_VER, count: batchCount, mask: wardMask, wardBbox, brid: !!brid, ts: Date.now(), bytes: idbBytes, fs: wardFs });
+			console.log("[plateau] 保存完了", base, `(${batchCount} batches)`);
 			await idbEvict(base);
-		} catch (e) { console.warn("[plateau] IDB保存失敗（表示には影響なし）", e); }
+		} catch (e) { console.warn("[plateau] 保存失敗（表示には影響なし）", e); }
 	})();
 	if (preload) await storing;   // プレロードの本旨はIDB永続化＝書き終わるまで ack しない（ackより先にモーダルが一覧を引くと「済」にならない）
 	if (!preload && lane.get(base) === "slow") return "demoted";   // slow のまま完走＝視界外の在庫。main が非表示常駐へ落とす（表示はしない）
@@ -631,6 +695,7 @@ self.onmessage = async (e) => {
 	if (e.data.type === "init") {
 		meshPort = e.data.meshPort;
 		meshPort.onmessage = ev => { if (ev.data && ev.data.drained) onDrained(); };   // render worker の消化ack＝クレジット返却
+		initFs(e.data.noOpfs);   // バッチ本体の置き場（OPFS可否の確定は fsReady。ロード側が await して待つ）
 		if (e.data.lowMem) { CACHE_MAX = 0; BATCH_TILES = 8; TILE_CONCURRENCY = 4; }   // 低メモリ端末＝worker内キャッシュなし（区一式の常駐がタブ落ちの下駄になる。再訪はIDB）＋バッチ8タイル＝デコード過渡・IDBレコード（1書込のcommitバースト）・送信ペイロードの粒度を半減（Kenji指定 2026-07-29「IDB書き込みの粒度を下げる」。draw call 増は LOW_MEM=同時1区で相殺）
 		return;
 	}
@@ -638,7 +703,7 @@ self.onmessage = async (e) => {
 	if (e.data.type === "demote")  { lane.set(e.data.base, "slow"); return; }          // 視界外の在庫化＝slow lane（並行1・送信保留）
 	if (e.data.type === "promote") { lane.set(e.data.base, "fast"); cancelled.delete(e.data.base); return; }   // 再訪＝キャンセル旗を降ろして即再開（メモリ上のバッチから続行）＋fast 復帰。既に降りた後なら無害（main が改めて読み直す）
 	if (e.data.type === "cam")     { latestCam = e.data.center; return; }              // 動的再ソート用の最新カメラ（バッチ境界で反映）
-	if (e.data.type === "purge") { cache.clear(); const n = await idbPurge(); console.log("[plateau] キャッシュ全消去", n, "records"); return; }
+	if (e.data.type === "purge") { cache.clear(); await fsReady; const n = await idbPurge(); console.log("[plateau] キャッシュ全消去", n, "records"); return; }
 	if (e.data.type === "idbList") {   // データ管理モーダル用：IDBのメタ一覧（全workerが同一DBを見る＝どの1本に聞いてもよい）
 		const idb = await idbReady, items = [];
 		const keys = idb ? (await idb()) || [] : [];
@@ -649,12 +714,14 @@ self.onmessage = async (e) => {
 		self.postMessage({ type: "idbList", items });
 		return;
 	}
-	if (e.data.type === "idbDelete") {   // 地区単位の削除：IDBレコード＋この worker のメモリキャッシュ（base ルーティングで必ず持ち主に届く）
+	if (e.data.type === "idbDelete") {   // 地区単位の削除：IDBレコード＋OPFSファイル＋この worker のメモリキャッシュ（base ルーティングで必ず持ち主に届く）
 		const base = e.data.base;
 		cache.delete(base);
 		const idb = await idbReady;
 		let n = 0;
 		if (idb) for (const k of (await idb()) || []) if (typeof k === "string" && k.startsWith(base + "#")) { await idb(k, null); n++; }
+		await fsReady;
+		if (ofs) n += await ofs.delBase(base).catch(() => 0);
 		console.log("[plateau] IDB削除", base, n, "records");
 		self.postMessage({ type: "idbDeleted", base, n });
 		return;
