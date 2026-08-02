@@ -118,7 +118,8 @@ struct FillOut {
 }
 fn fillColor(in: FillOut) -> vec4f {
 	// 霧はフェードアウト（透明化）＝地平線の先の塗りが空に浮かない（glsl.js FILL_FS と同式）
-	let af = in.color.a * clamp(1.0 - 1.2 * in.fog, 0.0, 1.0);
+	// ×P.p0.w＝グローバルα（シーン差し替えクロスフェード用。通常は1）
+	let af = in.color.a * clamp(1.0 - 1.2 * in.fog, 0.0, 1.0) * P.p0.w;
 	if (af <= 0.003) { discard; }
 	return vec4f(mix(in.color.rgb, F.fogColor, in.fog) * af, af);
 }
@@ -209,7 +210,8 @@ fn toScreen(c: vec4f) -> vec2f {
 	if (alpha <= 0.0) { discard; }
 	let a = in.color.a * alpha * clamp(1.0 - 1.2 * in.fog, 0.0, 1.0);
 	if (a <= 0.003) { discard; }
-	return vec4f(mix(in.color.rgb, F.fogColor, in.fog) * a, a);
+	let ga = a * P.p0.w;   // ×グローバルα（クロスフェード用・通常1）
+	return vec4f(mix(in.color.rgb, F.fogColor, in.fog) * ga, ga);
 }
 `;
 
@@ -325,7 +327,7 @@ struct BldOut {
 		if (maskedBy(M.bbox[3], uv3, textureSampleLevel(maskTex3, maskSamp, uv3, 0.0).r)) { discard; }
 	}
 	let c = mix(P.p0.rgb * in.shade, F.fogColor, in.fog);
-	return vec4f(c, 1.0);
+	return vec4f(c * P.p0.w, P.p0.w);   // ×グローバルα（クロスフェード・通常1＝不変）
 }
 `;
 

@@ -239,7 +239,7 @@ const diagHud = /[?&]stay=1/.test(location.search) ? (() => {
 	const t0 = performance.now();
 	const lines = new Map();
 	const put = (k, v) => { lines.set(k, v); d.textContent = [...lines.entries()].map(([a, b]) => a + ": " + b).join("\n"); };
-	put("build", "v-ios1");
+	put("build", "v-fade1");
 	put("経過", "0s"); setInterval(() => put("経過", ((performance.now() - t0) / 1000).toFixed(0) + "s"), 1000);
 	setInterval(() => put("main送信", `draw ${window.__drawSendN || 0}回${window.__drawSendErr ? " 送信エラー:" + window.__drawSendErr : ""}`), 1000);
 	put("frame1", "未着 ✗");
@@ -1889,7 +1889,7 @@ function requestWithAck(slot, sig, doRequest) {
 // 政令指定都市（全20市・静的台帳）：区名が見えるズームでは市名を「背景ラベル」へ＝主役を区名に譲る。
 const SEIREI = new Set(["札幌市", "仙台市", "さいたま市", "千葉市", "横浜市", "川崎市", "相模原市", "新潟市", "静岡市", "浜松市",
 	"名古屋市", "京都市", "大阪市", "堺市", "神戸市", "岡山市", "広島市", "北九州市", "福岡市", "熊本市"]);
-let zoomAtBuild = -1;
+let zoomAtBuild = -1, lastMainReqT = 0;   // lastMainReqT＝main merge 要求の合流用（タイル流入中の細切れ merge を間引く）
 // 移動中の詳細再結合の最小間隔（≈8Hz）：パン中は選定が毎フレーム揺れて sig が変わり、フルシーン結合＋
 // GPU全アップロードを毎秒~25回やり直していた（チルト75°・z8.46実測）。8Hzでも下地(base)が隙間を敷くので
 // 見た目の追従は落ちない。静止時は無条件（settle の鮮度確定を遅らせない）＝間引くのは移動中だけ。
@@ -1904,7 +1904,11 @@ function swapScene(order) {
 	if (!order.length) return;
 	if (!sceneOrigin || Math.abs(sceneOrigin[0] - cam.center[0]) > 0.4 || Math.abs(sceneOrigin[1] - cam.center[1]) > 0.4)
 		sceneOrigin = [cam.center[0], cam.center[1]];
+	// merge 合流：新 sig の要求は最短200ms間隔（タイル流入中の細切れ merge 連発＝classic のパラパラ感の素）。
+	// needsDraw 維持で次フレーム再試行＝取りこぼしなし。同一 sig の ack 待ちは requestWithAck が従来どおり看る。
+	if (performance.now() - lastMainReqT < 200) { needsDraw = true; return; }
 	if (!requestWithAck("main", sig, () => {
+		lastMainReqT = performance.now();
 		mergePendingZoom.set(sig, cam.zoom);   // ackが来たらこのzoomのシーンが乗る（ズームアウト退場判定の基準）
 		if (mergePendingZoom.size > 32) mergePendingZoom.clear();   // ack喪失の残骸が溜まらないよう頭打ち
 		requestMerge("main", order, sceneOrigin, themes.hiddenLi(layerState, cam.zoom), sig);

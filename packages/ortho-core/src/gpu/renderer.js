@@ -22,8 +22,9 @@ const FRAME_SLOT = 512;    // frame UBO のスロット境界（実使用272B・
 const FRAME_F32 = 72;      // 288B/4（wgsl.js Frame と厳密対応。詰め順は packFrame 参照。末尾 mesh vec4f 含む）
 const SLOT = { base: 0, main: 1, terrain: 2, bld: 3 };   // terrain/bld は main と同 origin・fog だけ違うスロット
 const PARAM_SLOT = 256;    // DrawP（3×vec4=48B）のスロット境界
-const ROLE = { normal: 0, water: 1, seaFb: 2, terrain: 3, bld: 4, contour: 5, plateau: 6 };
-const N_ROLES = 7;
+const ROLE = { normal: 0, water: 1, seaFb: 2, terrain: 3, bld: 4, contour: 5, plateau: 6, fadeNormal: 7, fadeWater: 8, fadeSeaFb: 9, fadeBld: 10 };   // fade*=クロスフェード中の新シーン用（p0.w=α）
+const N_ROLES = 11;
+const FADE_MS = 180;   // classic merge のシーン一括差し替えをフェードに（「ポンッ」→融ける。モバイルのパラパラ感対策）
 const PL_BATCH_SLOT = 256; // PLATEAU per-batch UBO（meshOrigin+cullBack, clipMesh＝32B）のスロット境界（dynamic offset）
 const MAX_PL_BATCH = 512;  // 1フレームに描く可視バッチ上限（超過は log して打ち切り）
 const MAX_PLATEAU_MASKS = 4;
@@ -373,6 +374,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 			const o = scenes[i];
 			device.queue.writeBuffer(ovFrameBuf, i * FRAME_SLOT, packF(o.origin));   // scene origin の Frame
 			const po = i * (PARAM_SLOT / 4);
+			ovParamCPU[po + 3] = 1;   // p0.w=グローバルα（LINE FS が乗算＝境界線の可視・fill(0)のままだと全消灯）
 			ovParamCPU[po + 4] = o.fill[0]; ovParamCPU[po + 5] = o.fill[1]; ovParamCPU[po + 6] = o.fill[2]; ovParamCPU[po + 7] = o.fill[3];   // p1=塗り色
 		}
 		device.queue.writeBuffer(ovParamBuf, 0, ovParamCPU.buffer, 0, n * PARAM_SLOT);
@@ -592,13 +594,31 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 		return b;
 	}
 	const u8col = col => col instanceof Uint8Array ? col : Uint8Array.from(col, v => Math.max(0, Math.min(255, Math.round(v * 255))));   // geojson 由来 float32 の保険
+	function disposeFadePrev(slot) {
+		const fp = scenes[slot].fadePrev;
+		if (!fp) return;
+		for (const d of fp.draws) for (const b of d.bufs) b.destroy();
+		if (fp.bld) for (const b of fp.bld.bufs) b.destroy();
+		scenes[slot].fadePrev = null;
+	}
 	function disposeSlot(slot) {
+		disposeFadePrev(slot);
 		for (const d of scenes[slot].draws) for (const b of d.bufs) b.destroy();
 		if (scenes[slot].bld) for (const b of scenes[slot].bld.bufs) b.destroy();
 		scenes[slot] = { origin: scenes[slot].origin, draws: [], bld: null };
 	}
 	function setScene(s, slot = "main") {
 		if (!scenes[slot]) return;   // overlay 等の未知スロットは対象外
+		// クロスフェード：main の同一原点差し替え（ロード流入中の典型）は旧シーンを FADE_MS だけ温存し
+		// 新シーンをα昇順で重ねる＝classic merge の「ポンッ」を溶かす（モバイルのパラパラ感対策）。
+		// 原点が変わる大移動は従来どおり即替え（旧シーンの Frame origin が異なり二重描画できないため）。
+		let keepPrev = null;
+		if (slot === "main" && scenes[slot].draws.length && scenes[slot].origin && s.origin
+			&& scenes[slot].origin[0] === s.origin[0] && scenes[slot].origin[1] === s.origin[1]) {
+			disposeFadePrev(slot);
+			keepPrev = { draws: scenes[slot].draws, bld: scenes[slot].bld };
+			scenes[slot].draws = []; scenes[slot].bld = null;   // disposeSlot に破棄させない（付け替え）
+		}
 		disposeSlot(slot);
 		const draws = [];
 		for (const L of s.layers || []) {
@@ -621,7 +641,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 			const bPos = makeBuf(s.buildings.pos, GPUBufferUsage.VERTEX), bSh = makeBuf(s.buildings.shade, GPUBufferUsage.VERTEX), bAnc = makeBuf(s.buildings.anchor, GPUBufferUsage.VERTEX);
 			bld = { bufs: [bPos, bSh, bAnc], bPos, bSh, bAnc, count: s.buildings.pos.length / 3 };
 		}
-		scenes[slot] = { origin: s.origin, draws, bld };
+		scenes[slot] = { origin: s.origin, draws, bld, fadePrev: keepPrev, fadeT0: keepPrev ? performance.now() : 0 };
 	}
 
 	// frame UBO の詰め物（wgsl.js Frame と厳密対応）。RTE 錨（clipT/originPt/trig）は CPU double で。
@@ -649,22 +669,27 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 	}
 	// DrawP N_ROLESスロットを一括で書く（256Bストライド・各48B使用）
 	const paramF32 = new Float32Array(PARAM_SLOT / 4 * N_ROLES);
-	function packParams({ cityLift, waterLift, exact, land, bldColor, contour, liftBounds }) {
+	function packParams({ cityLift, waterLift, exact, land, bldColor, contour, liftBounds, fadeK = 1 }) {
 		const f = paramF32; f.fill(0);
 		const at = (role, vals) => { const o = role * (PARAM_SLOT / 4); for (let i = 0; i < vals.length; i++) f[o + i] = vals[i]; };
-		at(ROLE.normal, [0, cityLift, 0, 0]);
-		at(ROLE.water, [0, waterLift, exact, 0]);
-		at(ROLE.seaFb, [1, waterLift, exact, 0]);
+		at(ROLE.normal, [0, cityLift, 0, 1]);
+		at(ROLE.water, [0, waterLift, exact, 1]);
+		at(ROLE.seaFb, [1, waterLift, exact, 1]);
 		const hy = view.hypso;
 		at(ROLE.terrain, [land[0], land[1], land[2], 0,
 			hy ? hy.color[0] : 0, hy ? hy.color[1] : 0, hy ? hy.color[2] : 0, hy ? (hy.amount ?? 0.5) : 0,
 			hy ? 1 / (hy.max || 3000) : 0, 0, 0, 0]);
-		at(ROLE.bld, [bldColor[0], bldColor[1], bldColor[2], 0]);
+		at(ROLE.bld, [bldColor[0], bldColor[1], bldColor[2], 1]);
 		at(ROLE.contour, [contour.color[0], contour.color[1], contour.color[2], contour.interval,
 			contour.major, contour.alpha, 0, 0]);
 		// PLATEAU: p0=liftBounds（DTM保証域・無ければ全0＝リフト無し）, p1=bldColor
 		const lb = liftBounds || [0, 0, 0, 0];
 		at(ROLE.plateau, [lb[0], lb[1], lb[2], lb[3], bldColor[0], bldColor[1], bldColor[2], 0]);
+		// クロスフェード中の新シーン用＝通常ロールの複製＋p0.w=α（旧シーンは通常ロールでα1のまま下に描く）
+		at(ROLE.fadeNormal, [0, cityLift, 0, fadeK]);
+		at(ROLE.fadeWater, [0, waterLift, exact, fadeK]);
+		at(ROLE.fadeSeaFb, [1, waterLift, exact, fadeK]);
+		at(ROLE.fadeBld, [bldColor[0], bldColor[1], bldColor[2], fadeK]);
 		return f;
 	}
 
@@ -722,7 +747,15 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 		const zf = 1 - Math.max(0, Math.min(1, (cam.zoom - 17.5) / 1.5));
 		const cAlpha = (elev.has && !(opts && opts.noTerrain) && view.showContour === true) ? (1 - ps * ps * (3 - 2 * ps)) * zf : 0;
 		const iv = cam.zoom >= 15 ? 15 : cam.zoom >= 12 ? 30 : 60;
+		// クロスフェード進行（main の同一原点差し替え）：期限切れは旧を破棄、進行中は fadeK(0→1) を fade ロールへ
+		let fadeK = 1, fading = false;
+		if (scenes.main.fadePrev) {
+			const fa = performance.now() - scenes.main.fadeT0;
+			if (fa >= FADE_MS) disposeFadePrev("main");
+			else { fadeK = fa / FADE_MS; fading = true; }
+		}
 		device.queue.writeBuffer(paramBuf, 0, packParams({
+			fadeK,
 			cityLift, waterLift: dsmLift ? WATER_LIFT_M : CITY_WATER_LIFT_M, exact: terrainDepth ? 1 : 0,
 			land, bldColor: view.bldColor || [0.86, 0.86, 0.85],
 			contour: { color: view.contourColor || [0.42, 0.30, 0.18], interval: iv, major: iv * 5.0, alpha: cAlpha * (view.contourAlpha || 1) },
@@ -826,8 +859,13 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 		const linePipe = terrainDepth ? lineTest : lineOff;
 		for (const slot of slots) {
 			const scene = scenes[slot];
-			if (!scene.draws.length) continue;
-			for (const d of scene.draws) {
+			// フェード中の main＝旧シーン（通常ロール・α1）を先に敷き、新シーンを fade ロール（α=fadeK）で重ねる
+			const passes = (slot === "main" && fading)
+				? [[scene.fadePrev.draws, scene.fadePrev.bldIgnored, false], [scene.draws, null, true]]
+				: [[scene.draws, null, false]];
+			for (const [drawList,, useFade] of passes) {
+			if (!drawList.length) continue;
+			for (const d of drawList) {
 				if (d.kind === "fill") {
 					const seaFB = seaFbReal(d.li) != null;   // 図郭外フォールバック水域（標高ゲート付き全面WA）
 					const waterC = d.li === sea.li || d.li === sea.li2;
@@ -836,7 +874,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 					// 水面は「リフトして深度テスト維持」＝尾根の遮蔽を保ちつつDSMノイズ瘤を沈める。厳密深度は水域のみ
 					pass.setPipeline(terrainDepth && (waterC || seaFB) ? fillTestExact : fillPipe);
 					pass.setBindGroup(0, bg0[slot]);
-					pass.setBindGroup(1, paramBG[seaFB ? ROLE.seaFb : waterC ? ROLE.water : ROLE.normal]);
+					pass.setBindGroup(1, paramBG[useFade ? (seaFB ? ROLE.fadeSeaFb : waterC ? ROLE.fadeWater : ROLE.fadeNormal) : (seaFB ? ROLE.seaFb : waterC ? ROLE.water : ROLE.normal)]);
 					pass.setVertexBuffer(0, d.bPos);
 					pass.setVertexBuffer(1, d.bCol);
 					if (d.bIdx) { pass.setIndexBuffer(d.bIdx, "uint32"); pass.drawIndexed(d.count); }
@@ -845,7 +883,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 					if (slot === "base" && mainLinesOn) continue;   // 本命の線が出ている間は下地の線を伏せる
 					pass.setPipeline(linePipe);
 					pass.setBindGroup(0, bg0[slot]);
-					pass.setBindGroup(1, paramBG[ROLE.normal]);     // 線の接地リフト＝cityLift（fill の通常塗りと同じ）
+					pass.setBindGroup(1, paramBG[useFade ? ROLE.fadeNormal : ROLE.normal]);   // 線の接地リフト＝cityLift（fill の通常塗りと同じ）
 					pass.setVertexBuffer(0, cornerBuf);
 					pass.setVertexBuffer(1, d.bP1);
 					pass.setVertexBuffer(2, d.bP2);
@@ -853,6 +891,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 					pass.setVertexBuffer(4, d.bHalf);
 					pass.draw(6, d.count);
 				}
+			}
 			}
 		}
 		// overlay（外部ベクタ=geopbf/e-Stat/N02）：基図の上・建物の下・深度off。per-scene origin の Frame を渡す
@@ -863,10 +902,21 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 		const activeMasks = [...plateauMasks.entries()].filter(([w]) => !plateauHidden.has(w)).map(([, m]) => m).slice(0, MAX_PLATEAU_MASKS);
 		const bldMaskBG = buildMaskBG(activeMasks, scenes.main.origin || [0, 0]);
 		const bld = show3d && !(opts && opts.skipMain) ? scenes.main.bld : null;
-		if (bld) {
+		const bldPrev = show3d && !(opts && opts.skipMain) && fading ? scenes.main.fadePrev.bld : null;
+		if (bldPrev) {   // フェード中＝旧建物を通常ロール（α1）で先に（新は fadeBld で重なる＝クロスフェード）
 			pass.setPipeline(bldPipe);
 			pass.setBindGroup(0, bg0.bld);
 			pass.setBindGroup(1, paramBG[ROLE.bld]);
+			pass.setBindGroup(2, bldMaskBG);
+			pass.setVertexBuffer(0, bldPrev.bPos);
+			pass.setVertexBuffer(1, bldPrev.bSh);
+			pass.setVertexBuffer(2, bldPrev.bAnc);
+			pass.draw(bldPrev.count);
+		}
+		if (bld) {
+			pass.setPipeline(bldPipe);
+			pass.setBindGroup(0, bg0.bld);
+			pass.setBindGroup(1, paramBG[fading ? ROLE.fadeBld : ROLE.bld]);
 			pass.setBindGroup(2, bldMaskBG);   // PLATEAU 区の footprint を伏せる（count=0 なら素通し）
 			pass.setVertexBuffer(0, bld.bPos);
 			pass.setVertexBuffer(1, bld.bSh);
@@ -880,7 +930,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 			const gc = gintBld.color || view.bldColor || [0.86, 0.86, 0.85];
 			device.queue.writeBuffer(ovFrameBuf, GB_SLOT * FRAME_SLOT, packFrame(st, gintBld.origin, st.fogDist * 2.5, st.fogDist * 14.0, land, logCoef, dpr));
 			const gpo = GB_SLOT * (PARAM_SLOT / 4);
-			ovParamCPU[gpo] = gc[0]; ovParamCPU[gpo + 1] = gc[1]; ovParamCPU[gpo + 2] = gc[2]; ovParamCPU[gpo + 3] = 0;   // p0=bldColor
+			ovParamCPU[gpo] = gc[0]; ovParamCPU[gpo + 1] = gc[1]; ovParamCPU[gpo + 2] = gc[2]; ovParamCPU[gpo + 3] = 1;   // p0=bldColor＋w=グローバルα（BUILDING FS が乗算）
 			device.queue.writeBuffer(ovParamBuf, GB_SLOT * PARAM_SLOT, ovParamCPU.buffer, GB_SLOT * PARAM_SLOT, PARAM_SLOT);
 			pass.setBindGroup(0, ovFrameBG, [GB_SLOT * FRAME_SLOT]);
 			pass.setBindGroup(1, ovParamBG, [GB_SLOT * PARAM_SLOT]);
@@ -948,7 +998,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 			elevView: (elev.has && elevTexView) ? elevTexView : null, elevSampler,
 			elevBounds: elev.bounds, elevScale: elevScaleEff, hasElev: elev.has, edgeFade: elev.edgeFade || 0,
 		} : null;
-		return fogAnimating;
+		return fogAnimating || fading;   // fading＝クロスフェード進行中も連続フレーム
 	}
 	// フレーム確定：MSAA を canvas へ resolve して submit（gint パスが足された後＝地図と同フレーム同カメラの1枚）。
 	function flush() {
