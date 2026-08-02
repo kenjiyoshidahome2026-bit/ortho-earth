@@ -512,5 +512,5 @@ function frame() {
 			console.log(`[render] 動的解像度 ↑ ×${RES_STEPS[resIdx]}（静止時適用）`);
 		}
 	}
-	if (cam || dirty) armRaf();   // cam未着のアイドル期は rAF を寝かせる（ポンプが10Hzで駆動）＝iOSのmessage配給飢餓仮説の治癒窓
+	if (cam) armRaf();   // cam未着の間は rAF を寝かせる（dirtyはcam不在だと消費されず立ちっぱなし＝条件に使えない）。ポンプ10Hzが駆動し、message配給の窓を開ける（iOS飢餓仮説の治癒）
 }
