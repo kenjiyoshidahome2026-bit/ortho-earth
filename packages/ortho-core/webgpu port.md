@@ -59,9 +59,23 @@ bake.js・checkZoomRange・findPolygon。terrain・plateau ワーカーも rende
 - PLATEAU マスク 4区上限（GL と同じ＝新規懸念でない）。
 
 **D. 未検証（headless Metal でのみ確認）**
-- 実機 Windows Chrome / モバイルの WebGPU 動作（フォールバックは効くが WebGPU 本体は Mac Metal のみ検証）。
+- 実機 Windows Chrome の WebGPU 動作（フォールバックは効くが未目視）。
 - device lost からの復旧（renderer.lost→contextlost は配線済みだが発火は未検証）。
-- 実機での動的解像度の滑らかさ（B の壁時計フォールバックが実機で十分か）。
+- ~~モバイル~~ → **iOS Safari 実機で動作達成（2026-08-02）**。ただし下記「iOS の轍」2件の回避が必須だった。
+
+**iOS WebKit の轍（2026-08-02・実機診断で確定・全て回避済み）**
+QR＋画面診断HUD（?stay=1）で実機を計測しながら二分探索した成果。エラー・例外・uncaptured が
+一切出ない「沈黙故障」ばかり＝計器（bootStage/配達カウンタ/GPU内画素/present検証）が唯一の目。
+1. **WebGPU device を作った worker への「ページ発の受信」が全チャネル死ぬ**（直結 postMessage も
+   MessageChannel も。worker内部配達・worker→page・page→他worker・WebGL2 構成なら同 worker も全部生存）。
+   回避＝**生存経路リレー**：page→scene worker（受信健在）→既存 scenePort→render worker。
+   iOS 判定（iPadOS の Mac 偽装込み）×gpu=1 のときだけ自動。?relay=1＝他環境での検証用強制。
+2. **module worker でグローバル onmessage を「読む」と関数が返らない**＝`onmessage({data})` の
+   手動呼び出しが TypeError で silently 死ぬ（実イベント配達は正常・macOS は getter も正常）。
+   回避＝ディスパッチャを自前参照 `dispatch` に持ち、実イベントも合成配達も全てこれを直接呼ぶ。
+3. （macOS WebKit の轍・再掲）submit と同一タスクの mapAsync は present を黙って止める＝別タスクへ剥がす。
+恒久装備：worker の error/unhandledrejection→main 転写（drawErr）・present 自動検証（frame1 後に
+placeholder 画素チェック→失敗時 WebGL2 自動着地）・?stay=1 の画面診断HUD（frame1/配達/経路/boot里程標）。
 
 ## 使い方・検証
 
