@@ -24,7 +24,8 @@ let fail = 0;
 for (const p of PAGES) {
 	const title = await new Promise(res => execFile(CHROME,
 		["--headless=new", "--disable-gpu", "--use-angle=swiftshader", "--enable-unsafe-swiftshader",
-			"--virtual-time-budget=60000", "--dump-dom", `http://localhost:${PORT}/japan/tests/${p}.html`],   // 60s＝t-demoのフライト実尺（glide/z1着地×9s＋自動上演の着地後計時＝仮想20s）を収める
+			"--virtual-time-budget=60000", "--dump-dom", `http://localhost:${PORT}/japan/tests/${p}.html?gl2=1`],   // 60s＝t-demoのフライト実尺（glide/z1着地×9s＋自動上演の着地後計時＝仮想20s）を収める
+			// ?gl2=1＝WebGPU既定化(2026-08-02)後も虚時間ハーネスはGL2固定（WebGPU async init×virtual-time の轍＝t-webgpu を PAGES に載せない理由と同じ）
 		{ timeout: 90000, maxBuffer: 64 * 1024 * 1024 },
 		(e, out) => res(e && !out ? `FAIL chrome: ${e.message}` : (String(out).match(/<title>([^<]*)<\/title>/) || [, "FAIL no-title"])[1])));
 	const pass = title.startsWith("PASS");
