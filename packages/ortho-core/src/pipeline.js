@@ -14,7 +14,10 @@ export function createPipeline({ style, tileUrl, requestDraw, scenePort, onMerge
 	const relayCtl = (msg, transfer) => sceneWorker.postMessage({ type: "relayCtl", msg }, transfer || []);
 	// ack：merge 成功時に sig が返る＝main はこれを見て readySig を確定（投げっぱなし＋楽観確定だと
 	// 一度の失敗が「静止中は永遠に欠けたタイル」になる）。失敗時は ack が来ない→main がタイムアウト再要求。
-	sceneWorker.onmessage = e => { if (e.data.type === "merged" && onMerged) onMerged(e.data.slot, e.data.sig); };
+	sceneWorker.onmessage = e => {
+		if (e.data.type === "relayCtlN") { globalThis.__relayCtlN = e.data.n; return; }   // iOS診断：hop1受信数
+		if (e.data.type === "merged" && onMerged) onMerged(e.data.slot, e.data.sig);
+	};
 	function requestMerge(slot, order, origin, hidden, sig) {
 		// 要求だけ main が出す（何を結合するか）。結果は render worker へ直行（merge同期＝要求順＝最後が最新）。
 		sceneWorker.postMessage({ type: "merge", slot, sig, order: order.map(o => ({ key: o.key, origin: o.origin, z: o.z })), origin, hidden: hidden && hidden.size ? [...hidden] : null });

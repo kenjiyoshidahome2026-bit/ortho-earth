@@ -20,6 +20,9 @@ let stayProbe = 0;   // stay診断：frame1 後に present 前テクスチャを
 let rafArmed = false, lastFrameRun = 0, frameTicks = 0, pumpTicks = 0;
 let drawMsgN = 0;   // stay診断：main からの draw 受信回数（cam/dirty の給餌が届いているか）
 let pongD = 0, pongC = 0, loopN = 0;   // stay診断：main→worker 直結/ポートの生死＋worker内ループバック（message イベント配給の飢餓判定）
+let sceneMsgN = 0, relayRecvN = 0, pongB = 0;   // iOS診断：scenePort到着数・relay最終着数・BroadcastChannel生死
+// BroadcastChannel＝第三の配達路（page→worker の越境が全滅する iOS 轍の代替候補）。生きていれば制御をそのまま受ける。
+try { const bc = new BroadcastChannel("oj-ctl"); bc.onmessage = ev => { const d = ev.data; if (!d || !d.type) return; if (d.type === "pongB") { pongB++; return; } onmessage({ data: d }); }; } catch {}
 function armRaf() {
 	if (rafArmed) return;
 	rafArmed = true;
@@ -124,8 +127,9 @@ function finishInit(m) {
 	});
 	if (m.scenePort) {
 		m.scenePort.onmessage = ev => {                  // scene worker から直結：main を経由しない geometry
+			sceneMsgN++;
 			const d = ev.data;
-			if (d.type === "relayCtl") { onmessage({ data: d.msg }); return; }   // iOS轍の中継路＝制御を同じディスパッチャへ（initQueue順序保証も共通）
+			if (d.type === "relayCtl") { relayRecvN++; onmessage({ data: d.msg }); return; }   // iOS轍の中継路＝制御を同じディスパッチャへ（initQueue順序保証も共通）
 			// multi_draw 系（grow/up/dl）は FIFO＝dl（draw list）が up（タイルブロック転送）を追い越すと
 			// 未転送レンジを描いてゴミが出る。fallback の scene は従来どおり slot 毎に最新だけ。
 			if (d.type === "up" || d.type === "grow" || d.type === "dl") mdInbox.push(d);
@@ -152,7 +156,7 @@ onmessage = e => {
 			perfOn = !!m.perf;
 			stayProbe = m.stay ? 1 : 0;
 			if (m.stay) {
-				setInterval(() => postMessage({ type: "beat", n: frameTicks, pump: pumpTicks, dirty, hasCam: !!cam, hasRenderer: !!renderer, drawMsgN, sentFrame1, pongD, pongC, loopN }), 1000);
+				setInterval(() => postMessage({ type: "beat", n: frameTicks, pump: pumpTicks, dirty, hasCam: !!cam, hasRenderer: !!renderer, drawMsgN, sentFrame1, pongD, pongC, loopN, sceneMsgN, relayRecvN, pongB }), 1000);
 				const lc = new MessageChannel();   // worker内ループバック＝message イベント配給そのものの生死
 				lc.port1.onmessage = () => { loopN++; };
 				setInterval(() => { lc.port2.postMessage(1); postMessage({ type: "pingReq" }); }, 500);

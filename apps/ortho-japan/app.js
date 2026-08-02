@@ -239,7 +239,7 @@ const diagHud = /[?&]stay=1/.test(location.search) ? (() => {
 	const t0 = performance.now();
 	const lines = new Map();
 	const put = (k, v) => { lines.set(k, v); d.textContent = [...lines.entries()].map(([a, b]) => a + ": " + b).join("\n"); };
-	put("build", "v-relay1");
+	put("build", "v-bc1");
 	put("経過", "0s"); setInterval(() => put("経過", ((performance.now() - t0) / 1000).toFixed(0) + "s"), 1000);
 	setInterval(() => put("main送信", `draw ${window.__drawSendN || 0}回${window.__drawSendErr ? " 送信エラー:" + window.__drawSendErr : ""}`), 1000);
 	put("frame1", "未着 ✗");
@@ -255,9 +255,11 @@ const ctrlChan = new MessageChannel();
 // iOS（iPadOS の Mac 偽装込み）＝WebGPU worker への直接配達が死ぬ環境：生きている scene worker 経由のリレーへ。
 const IOS_RELAY = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1) || /[?&]relay=1/.test(location.search);   // relay=1＝他環境でのリレー経路検証用
 let relayCtl = null; const relayPending = [];   // pipeline 生成前の制御は待機列（生成直後に順序どおり流す）
+let bcCtl = null; try { bcCtl = new BroadcastChannel("oj-ctl"); } catch {}   // 第三の配達路（iOS轍の代替候補）
 const wPost = (msg, transfer) => {
 	if (IOS_RELAY && gpuBackend) {   // リレーが要るのは WebGPU 構成の時だけ（WebGL2 は直結が健在）
 		if (relayCtl) relayCtl(msg, transfer); else relayPending.push([msg, transfer]);
+		if (bcCtl && (!transfer || !transfer.length)) { try { bcCtl.postMessage(msg); } catch {} }   // BC ミラー（transfer 無しのみ・重複はcam上書き等で無害）
 		return;
 	}
 	ctrlChan.port1.postMessage(msg, transfer || []);
@@ -342,12 +344,14 @@ renderWorker.onmessage = e => {
 	if (d.type === "pingReq") {   // stay診断：両チャネルで即応答＝どちらが届くかをworker側で数える
 		try { renderWorker.postMessage({ type: "pongD" }); } catch {}
 		try { wPost({ type: "pongC" }); } catch {}
+		try { bcCtl && bcCtl.postMessage({ type: "pongB" }); } catch {}
 		return;
 	}
 	if (d.type === "beat") {   // stay診断：ループ実行数＋描画ゲートの生死（dirty/cam/draw受信）
 		diagHud && diagHud("frameループ", `${d.n}回（ポンプ${d.pump}）`);
 		diagHud && diagHud("ゲート", `draw受信${d.drawMsgN}回 cam=${d.hasCam ? "✓" : "✗"} dirty=${d.dirty ? "✓" : "✗"} renderer=${d.hasRenderer ? "✓" : "✗"} frame1送信=${d.sentFrame1 ? "✓" : "✗"}`);
-		diagHud && diagHud("配達", `pong直結${d.pongD} ポート${d.pongC} 自己${d.loopN}`);
+		diagHud && diagHud("配達", `pong直結${d.pongD} ポート${d.pongC} BC${d.pongB} 自己${d.loopN}`);
+		diagHud && diagHud("経路", `scenePort着${d.sceneMsgN} relay最終着${d.relayRecvN} hop1受${globalThis.__relayCtlN || 0}`);
 		return;
 	}
 	if (d.type === "gpuPix") {   // stay診断：present 前の GPU テクスチャ実画素（rendering と present の切り分け）

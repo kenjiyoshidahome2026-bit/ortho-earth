@@ -15,6 +15,7 @@ import { mergeTiles, coveredTiles, seaFbReal } from "../scene.js";   // index直
 const geom = new Map();   // key → { ops, buildings }
 const geomOf = k => geom.get(k) || null;
 let renderPort = null;    // render worker への直結ポート（MessageChannel の片端）
+let relayCtlN = 0;   // iOS診断：page からの relayCtl 受信数
 let failNext = false;
 
 // --- multi_draw モードの状態 ---
@@ -209,6 +210,8 @@ function collectDlBuffers(dl) {
 self.onmessage = (e) => {
 	const m = e.data;
 	if (m.type === "relayCtl") {   // iOS轍の中継：page→ここ→renderPort→render worker（WebGPU worker はページ受信が死ぬ）
+		relayCtlN++;
+		self.postMessage({ type: "relayCtlN", n: relayCtlN });   // hop1 生死の自己申告（診断）
 		const tr = m.msg && m.msg.port ? [m.msg.port] : [];
 		if (renderPort) renderPort.postMessage({ type: "relayCtl", msg: m.msg }, tr);
 		return;
