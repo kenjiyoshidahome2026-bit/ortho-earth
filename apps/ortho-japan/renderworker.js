@@ -22,7 +22,7 @@ let drawMsgN = 0;   // stay診断：main からの draw 受信回数（cam/dirty
 let pongD = 0, pongC = 0, loopN = 0;   // stay診断：main→worker 直結/ポートの生死＋worker内ループバック（message イベント配給の飢餓判定）
 let sceneMsgN = 0, relayRecvN = 0, pongB = 0;   // iOS診断：scenePort到着数・relay最終着数・BroadcastChannel生死
 // BroadcastChannel＝第三の配達路（page→worker の越境が全滅する iOS 轍の代替候補）。生きていれば制御をそのまま受ける。
-try { const bc = new BroadcastChannel("oj-ctl"); bc.onmessage = ev => { const d = ev.data; if (!d || !d.type) return; if (d.type === "pongB") { pongB++; return; } onmessage({ data: d }); }; } catch {}
+try { const bc = new BroadcastChannel("oj-ctl"); bc.onmessage = ev => { const d = ev.data; if (!d || !d.type) return; if (d.type === "pongB") { pongB++; return; } dispatch({ data: d }); }; } catch {}
 function armRaf() {
 	if (rafArmed) return;
 	rafArmed = true;
@@ -129,7 +129,7 @@ function finishInit(m) {
 		m.scenePort.onmessage = ev => {                  // scene worker から直結：main を経由しない geometry
 			sceneMsgN++;
 			const d = ev.data;
-			if (d.type === "relayCtl") { relayRecvN++; onmessage({ data: d.msg }); return; }   // iOS轍の中継路＝制御を同じディスパッチャへ（initQueue順序保証も共通）
+			if (d.type === "relayCtl") { relayRecvN++; dispatch({ data: d.msg }); return; }   // iOS轍の中継路＝制御を同じディスパッチャへ（initQueue順序保証も共通）
 			// multi_draw 系（grow/up/dl）は FIFO＝dl（draw list）が up（タイルブロック転送）を追い越すと
 			// 未転送レンジを描いてゴミが出る。fallback の scene は従来どおり slot 毎に最新だけ。
 			if (d.type === "up" || d.type === "grow" || d.type === "dl") mdInbox.push(d);
@@ -145,12 +145,15 @@ function finishInit(m) {
 let initQueue = null;   // WebGPU 非同期init中に届いたメッセージの待避列（backend確定後に元の順で再投入＝取りこぼさない）
 let bootStage = "起動前";   // iOS診断：initチェーンの里程標（どこで止まったかを beat で可視化）
 let backendName = "webgl2";
-onmessage = e => {
+// ⚠iOS WebKit の轍（2026-08-02 実機確定）：module worker でグローバル onmessage を「読む」と関数が返らず、
+// onmessage({data}) の手動呼び出しが TypeError で silently 死ぬ（イベント経由の配達は正常・macOS は getter 正常）。
+// ＝自前の関数参照 dispatch を正とし、全ての合成配達（relay/BC/ctrlPort/再投入）は dispatch を呼ぶ。
+const dispatch = e => {
 	const m = e.data;
 	if (initQueue && m.type !== "init") { initQueue.push(m); return; }
 	switch (m.type) {
 		case "init":
-			if (m.ctrlPort) m.ctrlPort.onmessage = ev => onmessage(ev);   // iOS轍：直結postMessageはinit以降消える＝制御は全部このポート経由（同じディスパッチャ＝initQueue順序保証も共通）
+			if (m.ctrlPort) m.ctrlPort.onmessage = ev => dispatch(ev);   // iOS轍：直結postMessageはinit以降消える＝制御は全部このポート経由（同じディスパッチャ＝initQueue順序保証も共通）
 			canvas = m.canvas;                                   // GL/GPU 用 OffscreenCanvas
 			labelCanvas = m.labelCanvas;                         // ラベル用 OffscreenCanvas（2D）＝バックエンド非依存
 			labelLayer = createLabelLayer(labelCanvas, { shieldFor, elevBase: m.elevBase });
@@ -158,7 +161,7 @@ onmessage = e => {
 			stayProbe = m.stay ? 1 : 0;
 			if (m.stay) {
 				setInterval(() => postMessage({ type: "beat", n: frameTicks, pump: pumpTicks, dirty, hasCam: !!cam, hasRenderer: !!renderer, drawMsgN, sentFrame1, pongD, pongC, loopN, sceneMsgN, relayRecvN, pongB, bootStage, iqLen: initQueue ? initQueue.length : -1 }), 1000);
-				setTimeout(() => { if (initQueue) { console.error("[render] initQueue が15秒解放されず＝強制解放（診断）"); const q = initQueue; initQueue = null; bootStage += "→強制解放(" + q.length + ")"; for (const qm of q) onmessage({ data: qm }); } }, 15000);
+				setTimeout(() => { if (initQueue) { console.error("[render] initQueue が15秒解放されず＝強制解放（診断）"); const q = initQueue; initQueue = null; bootStage += "→強制解放(" + q.length + ")"; for (const qm of q) dispatch({ data: qm }); } }, 15000);
 				const lc = new MessageChannel();   // worker内ループバック＝message イベント配給そのものの生死
 				lc.port1.onmessage = () => { loopN++; };
 				setInterval(() => { lc.port2.postMessage(1); postMessage({ type: "pingReq" }); }, 500);
@@ -195,7 +198,7 @@ onmessage = e => {
 						if (renderer) finishInit(m);
 						bootStage = "finishInit済";
 						const q = initQueue; initQueue = null;
-						if (q) for (const qm of q) onmessage({ data: qm });   // 待避分を順序どおり再投入
+						if (q) for (const qm of q) dispatch({ data: qm });   // 待避分を順序どおり再投入
 						bootStage = "queue解放済(" + (q ? q.length : 0) + "件)";
 					});
 				break;
@@ -252,6 +255,9 @@ onmessage = e => {
 			break;
 	}
 };
+self.onmessage = dispatch;   // 実イベントも同じディスパッチャ（グローバル getter は信用しない＝iOS轍）
+self.addEventListener("error", e => { try { postMessage({ type: "drawErr", msg: "worker error: " + (e.message || e), stack: String(e.filename || "") + ":" + (e.lineno || 0) }); } catch {} });   // 見えない例外の可視化（iOS診断で手動dispatchの silent throw を見逃した反省）
+self.addEventListener("unhandledrejection", e => { try { postMessage({ type: "drawErr", msg: "worker rejection: " + (e.reason && e.reason.message || e.reason) }); } catch {} });
 
 // shot 用：WebGL は preserveDrawingBuffer 無し＝別タスクでは読めない。同一タスクで「描画直後に createImageBitmap」
 // （呼び出し時点のバッファを捕獲）。基図(GL)とラベル(2D)の両キャンバスを返し、合成は main が担う。
