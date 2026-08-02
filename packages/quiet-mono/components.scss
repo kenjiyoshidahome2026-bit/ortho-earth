@@ -6,7 +6,9 @@
 /* --- 舞台 --- */
 body { visibility: visible; }   /* 開幕＝このスタイルシートの到着そのもの（index.htmlのcritical styleのhiddenを上書き）。
                                    JSのinlineに頼らない＝後から body.style を書き換えられても幕は開いたまま */
-#map { position: relative; width: 100%; height: 100%; overflow: hidden; }   /* 地図一式の容れ物＝任意サイズのdivに埋め込める */
+#map { position: relative; width: 100%; height: 100%; overflow: hidden;
+	-webkit-text-size-adjust: 100%; text-size-adjust: 100%;   /* iOS横向きの文字自動拡大を全家具で禁止（出典が横回転で太る件・2026-08-02）。文字サイズは自分で決める */
+}   /* 地図一式の容れ物＝任意サイズのdivに埋め込める */
 #c, #gint, #labels { position: absolute; inset: 0; width: 100%; height: 100%; }
 #c {
 	cursor: grab;
