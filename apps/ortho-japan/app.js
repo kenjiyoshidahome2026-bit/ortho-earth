@@ -228,6 +228,10 @@ const noMixedR01 = /[?&]nor01=1/.test(location.search);
 // ?gpu=1＝WebGPU 実験フラグ。oj.nogpu＝この環境で「初期化は成功するのに絵が出ない」を検出済み（下の present 検証）
 // ＝このタブセッションは WebGL2 固定（タブを閉じれば解除）。iOS Safari 実測 2026-08-02：backend=webgpu ログまで
 // 進むが画面に画素が届かない（worker×OffscreenCanvas×WebGPU の present 未接続系）＝例外ゼロの沈黙故障。
+// モバイル：ページ自体のネイティブズーム禁止＝地図のズームだけが生きる。iOS Safari は viewport の
+// user-scalable=no を無視するため gesture 系 preventDefault が本丸（canvas の touch-action:none は
+// canvas 起点タッチのみ＝UI 跨ぎピンチやダブルタップは素通りする。Kenji 指示 2026-08-02）。
+for (const t of ["gesturestart", "gesturechange", "gestureend"]) document.addEventListener(t, e => e.preventDefault(), { passive: false });
 const gpuBackend = /[?&]gpu=1/.test(location.search) && !sessionStorage.getItem("oj.nogpu");
 // stay=1 の診断HUD：コンソールを見なくても分かるよう、判定を画面へ大書（iOS 実機診断 2026-08-02）
 const diagHud = /[?&]stay=1/.test(location.search) ? (() => {

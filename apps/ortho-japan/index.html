@@ -2,7 +2,8 @@
 <html lang="ja">
 <head>
 	<meta charset="utf-8">
-	<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><!-- cover＝safe-area-inset を有効化（下辺UIの浮かせとセット） -->
+	<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"><!-- cover＝safe-area-inset を有効化（下辺UIの浮かせとセット）。maximum-scale/user-scalable＝ネイティブのページズーム禁止（地図のズームだけが生きる。iOS Safari は無視するため app.js の gesture 抑止が本丸・Android/入力フォーカス自動ズームはこれが効く） -->
+	<style>html, body { touch-action: manipulation; overscroll-behavior: none; }</style><!-- ダブルタップ拡大とラバーバンド/引っ張り更新の抑止（canvas は quiet-mono が touch-action:none） -->
 	<!-- 起動の critical style：生HTMLの代わりに「設計された1枚」＝球儀マークの起動画面を即描画（FCPをJS完了(2.5s)から〜0.8sへ前倒し）。
 	     開幕（#boot のフェード）はmain.js立ち上がり後＝下の module script が担う。#boot は最前面の不透明カバーなのでbodyは隠さない。 -->
 	<style>
