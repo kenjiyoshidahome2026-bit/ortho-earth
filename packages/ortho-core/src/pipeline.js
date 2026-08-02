@@ -9,6 +9,9 @@ export function createPipeline({ style, tileUrl, requestDraw, scenePort, onMerge
 	// render worker へ直結ポートで送る（下の connect）＝main は geometry を一切知らない。
 	const sceneWorker = new Worker(new URL("./workers/sceneworker.js", import.meta.url), { type: "module" });
 	sceneWorker.postMessage({ type: "connect", port: scenePort }, [scenePort]);   // scene→render 直結
+	// iOS WebKit の轍（2026-08-02）：WebGPU を作った worker はページからの受信が全チャネル死ぬ。
+	// 生きている「page→scene worker→（scenePort）→render worker」で制御メッセージを中継する口。
+	const relayCtl = (msg, transfer) => sceneWorker.postMessage({ type: "relayCtl", msg }, transfer || []);
 	// ack：merge 成功時に sig が返る＝main はこれを見て readySig を確定（投げっぱなし＋楽観確定だと
 	// 一度の失敗が「静止中は永遠に欠けたタイル」になる）。失敗時は ack が来ない→main がタイムアウト再要求。
 	sceneWorker.onmessage = e => { if (e.data.type === "merged" && onMerged) onMerged(e.data.slot, e.data.sig); };
@@ -83,5 +86,6 @@ export function createPipeline({ style, tileUrl, requestDraw, scenePort, onMerge
 		sceneWorker.terminate();
 		tileWorkers.forEach(w => w.terminate());
 	}
-	return { tiles, requestMerge, setStyle, destroy };
+	return { relayCtl,
+ tiles, requestMerge, setStyle, destroy };
 }

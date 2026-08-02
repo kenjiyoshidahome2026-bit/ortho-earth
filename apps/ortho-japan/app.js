@@ -239,7 +239,7 @@ const diagHud = /[?&]stay=1/.test(location.search) ? (() => {
 	const t0 = performance.now();
 	const lines = new Map();
 	const put = (k, v) => { lines.set(k, v); d.textContent = [...lines.entries()].map(([a, b]) => a + ": " + b).join("\n"); };
-	put("build", "v-ctrl3");
+	put("build", "v-relay1");
 	put("経過", "0s"); setInterval(() => put("経過", ((performance.now() - t0) / 1000).toFixed(0) + "s"), 1000);
 	setInterval(() => put("main送信", `draw ${window.__drawSendN || 0}回${window.__drawSendErr ? " 送信エラー:" + window.__drawSendErr : ""}`), 1000);
 	put("frame1", "未着 ✗");
@@ -252,7 +252,16 @@ const noTerr = /[?&]noterr=1/.test(location.search);
 // 黙って消える（main送信8回/worker受信0回・エラー皆無。MessageChannel ポート経由は全て配達される＝
 // scene/plateau ポートが生きている実証つき）。よって init 以外の制御メッセージは全部 ctrlPort 経由。
 const ctrlChan = new MessageChannel();
-const wPost = (msg, transfer) => ctrlChan.port1.postMessage(msg, transfer || []);
+// iOS（iPadOS の Mac 偽装込み）＝WebGPU worker への直接配達が死ぬ環境：生きている scene worker 経由のリレーへ。
+const IOS_RELAY = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1) || /[?&]relay=1/.test(location.search);   // relay=1＝他環境でのリレー経路検証用
+let relayCtl = null; const relayPending = [];   // pipeline 生成前の制御は待機列（生成直後に順序どおり流す）
+const wPost = (msg, transfer) => {
+	if (IOS_RELAY && gpuBackend) {   // リレーが要るのは WebGPU 構成の時だけ（WebGL2 は直結が健在）
+		if (relayCtl) relayCtl(msg, transfer); else relayPending.push([msg, transfer]);
+		return;
+	}
+	ctrlChan.port1.postMessage(msg, transfer || []);
+};
 renderWorker.postMessage({ type: "init", ctrlPort: ctrlChan.port2, canvas: offscreen, labelCanvas: labelOffscreen, elevBase: TERR_EXAG / EARTH_M, terrainExag: TERR_EXAG, earthM: EARTH_M, apiUrl: "https://api.ortho-earth.com", scenePort: sceneChan.port2, noMultiDraw, perf: perfLog, mem: memHud, lowMem: LOW_MEM, noMixed: noMixedR01, gpu: gpuBackend, noTQ: /[?&]notq=1/.test(location.search), noGint: /[?&]nogint=1/.test(location.search), stay: /[?&]stay=1/.test(location.search), noTerr }, [ctrlChan.port2, offscreen, labelOffscreen, sceneChan.port2]);
 // 薄いプロキシ：有線(関数呼び)を無線(postMessage)に載せ替え。set/draw 統一済なので pipeline/overlay は無改造。
 // draw は worker 側で「cam を記録するだけ」に受け、実描画は worker 自前 rAF が最新 cam で回す（worker-driven）。
@@ -931,7 +940,7 @@ function onMove() {
 // 「標高ゲート付き全面水域」を敷く（FS が標高h>0を discard＝海は地理院・陸は標高(GEBCO/R10) の管轄裁定。
 // 敷かないと圏外は紙色＝l=terrain の等高線が乗ると「白い偽の陸」に見える）。z≥8・sea.minzoom(z9) ゲート共有。
 style.emptySea = "water";
-const { tiles, requestMerge, setStyle: setPipelineStyle, destroy: destroyPipeline } = createPipeline({
+const { relayCtl: pipelineRelay, tiles, requestMerge, setStyle: setPipelineStyle, destroy: destroyPipeline } = createPipeline({
 	style, tileUrl: TILE_URL, requestDraw: () => { needsDraw = true; }, scenePort: sceneChan.port1, onTile,
 	coverage: /[?&]nocov=1/.test(location.search) ? null : JP_COVERAGE,   // 配信圏外タイルは fetch せず空タイル(海)扱い＝外洋・国外への無駄な 404 を断つ（縦長スマホの周縁 404 の根治）。?nocov=1 で無効化＝A/B 検証ノブ
 
@@ -946,6 +955,7 @@ const { tiles, requestMerge, setStyle: setPipelineStyle, destroy: destroyPipelin
 	// merge の ack（fallback＝CPU merge 経路のみ。multi_draw では renderer 適用時の dlApplied が同じ関数を呼ぶ）
 	onMerged: (slot, sig) => onSceneApplied(slot, sig),
 });
+if (IOS_RELAY && gpuBackend) { relayCtl = pipelineRelay; const pend = relayPending.splice(0); for (const [m2, t2] of pend) relayCtl(m2, t2); console.log("[boot] iOSリレー経路有効（page→scene worker→render worker）＝待機分", pend.length, "件流し込み済"); }
 // ack＝「このシーンが画面に載った（fallback は次フレーム、multi_draw は適用の瞬間）」。sig はここで初めて確定する
 // （要求時の楽観確定をやめた＝失敗が永続穴にならない）。hoisted 関数＝renderWorker.onmessage（上方）からも呼ばれる。
 function onSceneApplied(slot, sig) {

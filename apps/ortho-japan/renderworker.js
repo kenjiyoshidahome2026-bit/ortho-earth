@@ -125,6 +125,7 @@ function finishInit(m) {
 	if (m.scenePort) {
 		m.scenePort.onmessage = ev => {                  // scene worker から直結：main を経由しない geometry
 			const d = ev.data;
+			if (d.type === "relayCtl") { onmessage({ data: d.msg }); return; }   // iOS轍の中継路＝制御を同じディスパッチャへ（initQueue順序保証も共通）
 			// multi_draw 系（grow/up/dl）は FIFO＝dl（draw list）が up（タイルブロック転送）を追い越すと
 			// 未転送レンジを描いてゴミが出る。fallback の scene は従来どおり slot 毎に最新だけ。
 			if (d.type === "up" || d.type === "grow" || d.type === "dl") mdInbox.push(d);

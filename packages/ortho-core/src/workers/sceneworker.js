@@ -208,6 +208,11 @@ function collectDlBuffers(dl) {
 
 self.onmessage = (e) => {
 	const m = e.data;
+	if (m.type === "relayCtl") {   // iOS轍の中継：page→ここ→renderPort→render worker（WebGPU worker はページ受信が死ぬ）
+		const tr = m.msg && m.msg.port ? [m.msg.port] : [];
+		if (renderPort) renderPort.postMessage({ type: "relayCtl", msg: m.msg }, tr);
+		return;
+	}
 	if (m.type === "connect") {   // main が繋ぐ render worker への直結。逆方向は renderer の能力表明（mode）
 		renderPort = m.port;
 		renderPort.onmessage = ev => {
