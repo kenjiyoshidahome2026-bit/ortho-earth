@@ -2,7 +2,7 @@
 	<rect width="960" height="540" fill="#f6f6f4"/>
 	<circle cx="480" cy="1560" r="1200" fill="none" stroke="#2663a0" stroke-width="8"/>
 	<circle cx="480" cy="1560" r="1230" fill="none" stroke="#80b6eb" stroke-width="2"/>
-	<text x="480" y="216" text-anchor="middle" font-size="56" fill="#3f4757" letter-spacing="6">Ortho Earth / Japan</text>
-	<text x="480" y="278" text-anchor="middle" font-size="32" fill="#86867f" letter-spacing="5">~ only with Japanese public database ~</text>
+	<text x="480" y="216" text-anchor="middle" font-size="56" fill="#3f4757">Ortho Earth / Japan</text>
+	<text x="480" y="278" text-anchor="middle" font-size="32" fill="#86867f">~ only with Japanese public database ~</text>
 	<text x="480" y="490" text-anchor="middle" font-size="28" fill="#aab0b6">Kenji Yoshida @ Yokohama</text>
 </svg>

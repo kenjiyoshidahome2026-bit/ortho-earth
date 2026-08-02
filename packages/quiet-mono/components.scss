@@ -336,10 +336,11 @@ body { visibility: visible; }   /* 開幕＝このスタイルシートの到着
    触れない（pointer-events:none）＝地図の主役を邪魔しない。出入りはフェード（幕 #demo-slide と同じ呼吸） */
 #demo-caption {
 	position: absolute; top: calc(14px + env(safe-area-inset-top, 0px)); left: 50%; transform: translateX(-50%);
-	max-width: min(86vw, 720px); padding: 9px 22px; border-radius: 999px;
-	background: var(--qm-panel); border: 1px solid var(--qm-border); box-shadow: var(--qm-shadow-pop);
-	-webkit-backdrop-filter: blur(var(--qm-blur)); backdrop-filter: blur(var(--qm-blur));
-	font: 600 clamp(15px, 2.4vw, 21px)/1.4 var(--qm-font); color: var(--qm-text); letter-spacing: .04em;
+	max-width: min(86vw, 720px); padding: 9px 22px;
+	/* 背景透明＝地図の上に文字だけ浮かせる。可読性は映画字幕式の黒縁白抜き＝どのテーマ・どの地図でも同じで効く
+	   （ピル(パネル/縁/ぼかし)は置かない・夜節の上書きも不要） */
+	text-shadow: 0 0 2px rgba(0,0,0,.95), 0 0 6px rgba(0,0,0,.85), 0 1px 14px rgba(0,0,0,.6);
+	font: 600 clamp(15px, 2.4vw, 21px)/1.4 var(--qm-font); color: #fff; letter-spacing: .04em;
 	white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center;
 	pointer-events: none;
 	opacity: 0; visibility: hidden; transition: opacity .35s ease, visibility 0s linear .35s;

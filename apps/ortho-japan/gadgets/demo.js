@@ -29,7 +29,7 @@
 //   序盤の構成（球・列島・スライド）で時間を稼ぐ＝PLATEAUシーン到着時、初見のPCでも一発で街が立つ。
 // 操縦：Space/→/PageDown=進む・BS/←/PageUp=戻る（プレゼンの標準作法）・▷=自動上演・Esc/▶=終了（上映中の▶=停止）。
 //   PageUp/Down＝プレゼン用クリッカーがそのまま効く。
-// タイトル/歩数のクリック＝シーン一覧（目次）がバーの真上にポップ→クリックでジャンプ（Esc=一覧だけ閉じる）。
+// タイトル/歩数のクリック＝シーン一覧（目次）がバーの真上にポップ→クリックでジャンプ（Esc/枠外クリック=一覧だけ閉じる）。
 // デモ中も地図は生きたまま（掴めば飛行は中断＝主導権は常に人・›でいつでも台本に復帰）＝ビデオでない証明が最大の演出。
 // キーボードの地図操作（矢印パン等）はデモ中だけ止める＝keys.js の MODAL_SELECTORS に #demo-bar.on を登録済み。
 import { gadgetStack } from "./stack.js";
@@ -46,6 +46,8 @@ const isImg = s => /\.(svg|png|jpe?g|webp|gif|avif)([?#]|$)/i.test(s) || /^(data
 // opts.scenes＝台本 [{title, view?, glide?, pre?, slide?, caption?, hold?, mobile?}]。view/glide=共有URLハッシュ文字列（glide=近距離滑走）／
 //   pre=入場の見せ玉：まず pre の画へ飛び、着地から1秒後に view を遷移なしで重ねる（同座標で l= だけ点ける演出）／
 //   slide=画像URLか生テキスト／caption=自動上演の静止中に画面上部へ出す字幕（無ければ title 代用）／
+//   言語＝en基準・拡張可能：title は英語が正、シーンに言語コードのフィールド（jp:/en:…）を足すと opts.lang で切替。
+//   opts.lang＝表示言語（例 "jp"。?lang= から index.html が渡す）：タイトル・字幕・一覧が scene[lang] ?? title で解決／
 //   mobile=Δz：縦長画面（縦>横）でだけシーンの z に足す差分（例 -1.2＝一段引く）。
 //   横パノラマ構図の左右切り落とし対策＝中心・チルト・方位はそのまま、ズームだけ動かす＝台本は1枚のまま。
 // opts.mobile＝Δz の台本全体の既定（全シーンに効く）。シーン毎の mobile が勝つ＝mobile: 0 でそのシーンだけ無効化。
@@ -56,7 +58,7 @@ const isImg = s => /\.(svg|png|jpe?g|webp|gif|avif)([?#]|$)/i.test(s) || /^(data
 //   序盤のシーン構成で時間を稼げば、PLATEAUシーン到着時には初見のPCでも一発で街が立つ（データ重力の種まき兼用）。
 // 戻り値＝{start, next, prev, exit, play, pause}（テスト・プログラム駆動用）。
 // opts.finale＝台本を最後まで走り切った時だけ呼ばれる終演フック（app が japan-fit を注入）。Esc/▶の途中終了では呼ばない。
-export function demo({ scenes, slide: slideOn = true, hold = 5500, slideHold = 4000, mobile, zoomMin = 1, flyView, flightActive, prefetchViews, finale, signal, plateau } = {}) {
+export function demo({ scenes, slide: slideOn = true, hold = 5500, slideHold = 4000, mobile, zoomMin = 1, lang, flyView, flightActive, prefetchViews, finale, signal, plateau } = {}) {
 	const mapEl = this.mapEl;
 	if (!slideOn && Array.isArray(scenes)) scenes = scenes.filter(s => s.view || !s.slide);   // スライドだけのシーン＝空の停留所になるので抜く
 	if (!Array.isArray(scenes) || !scenes.length) { console.warn("[demo] scenes が空＝ガジェットは搭載しない"); return; }
@@ -95,7 +97,9 @@ export function demo({ scenes, slide: slideOn = true, hold = 5500, slideHold = 4
 	// c= 付きシーンへのジャンプも show()→flyView 経由＝生き替え（reload無し）がそのまま効く。
 	const list = document.createElement("div");
 	list.id = "demo-list";
-	const sceneLabel = s => s.title || (s.slide && !s.view && !s.glide ? "（スライド）" : (s.view ?? s.glide ?? "（無題）"));
+	// 言語解決：scene[lang]（jp:/en:… の言語フィールド）→ 無ければ title（en基準）。タイトル・字幕・一覧の3か所共通
+	const T = s => s?.[lang] ?? s?.title ?? "";
+	const sceneLabel = s => T(s) || (s.slide && !s.view && !s.glide ? "（スライド）" : (s.view ?? s.glide ?? "（無題）"));
 	list.innerHTML = scenes.map((s, i) => `<button data-i="${i}">${i + 1}. ${sceneLabel(s)}</button>`).join("");
 	bar.append(list);
 	titleEl.title = "シーン一覧"; titleEl.setAttribute("role", "button"); titleEl.setAttribute("aria-haspopup", "listbox");
@@ -119,7 +123,7 @@ export function demo({ scenes, slide: slideOn = true, hold = 5500, slideHold = 4
 	let idx = -1, playing = false, timer = 0, preTimer = 0, slideShown = false;   // slideShown＝このシーン滞在中に幕を一度見せたか（三拍子の現在拍）
 	const on = () => bar.classList.contains("on");
 	const caption = show => {   // 自動上演の字幕：静止中だけ scene.caption（無ければ title 代用）を画面上部へ
-		const text = show ? (scenes[idx]?.caption ?? scenes[idx]?.title ?? "") : "";
+		const text = show ? (scenes[idx]?.caption ?? T(scenes[idx])) : "";
 		if (text) cap.textContent = text;
 		cap.classList.toggle("show", !!text);
 	};
@@ -153,7 +157,7 @@ export function demo({ scenes, slide: slideOn = true, hold = 5500, slideHold = 4
 		// 配色の幕替わり：シーンの c=（配色テーマ）は flyView が「生き替え」で反映する（reload無し＝暗転が消える・進行はそのまま）。
 		// タイルは新styleで再ビルド（IDB温間で速い）・建物/大気は uniform 差替＝飛行の継ぎ目でテーマが溶け替わる。ここは素の送りに徹する。
 		const tgt = mobView(s);   // mobile:Δz を効かせたシーンURL（c= 込み＝この後 flyView に渡り switchTheme が効く）
-		titleEl.textContent = s.title || "";
+		titleEl.textContent = T(s);
 		titleEl.classList.remove("in"); void titleEl.offsetWidth; titleEl.classList.add("in");   // タイトルは毎シーン淡入（reflowでアニメ再点火）
 		stepEl.textContent = `${i + 1}/${scenes.length}`;
 		syncList();   // 一覧の現在シーン印を追随（開いたままの送りにも効く）
@@ -244,6 +248,11 @@ export function demo({ scenes, slide: slideOn = true, hold = 5500, slideHold = 4
 		const b = e.target.closest("button[data-i]");
 		if (b) { list.classList.remove("open"); show(+b.dataset.i); }   // ジャンプ＝一覧は閉じて向かう（c=シーンは flyView が生き替え）
 	});
+	// 枠外クリック（地図を掴む・他ガジェット等）＝一覧だけ閉じる。pointerdown＝地図ドラッグ開始（clickにならない）でも閉じる。
+	// 一覧自身と開閉トグル（タイトル/歩数）は除外＝トグルの click と二重処理で「閉じて即開く」を防ぐ。
+	window.addEventListener("pointerdown", e => {
+		if (listOpen() && !e.target.closest("#demo-list, #demo-title, #demo-step")) list.classList.remove("open");
+	}, { signal });
 	window.addEventListener("keydown", e => {
 		if (!on() || isTypingTarget()) return;   // 検索欄などの入力中は譲る（BSの文字削除・Spaceの入力を奪わない）
 		if (e.key === " ") { e.preventDefault(); slide.classList.contains("open") ? peelNext() : next(); }          // Space＝次。幕中は幕クリックと同じワンタップ送り
