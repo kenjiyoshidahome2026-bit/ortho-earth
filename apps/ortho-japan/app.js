@@ -981,6 +981,33 @@ function commitUnderground() {
 	undergroundEl.style.opacity = ((cam.pitch || 0) >= 0.06 && ugLastD < 0) ? 1 : 0;
 }
 
+// --- 選抜リフト球（タイル被覆の地形補正・2026-08-03）: 中心の地面標高 → tiles.update の groundR ---
+// selectLOD の unproject は海面球が既定＝標高の高い土地ではチルト時に「持ち上がった地面が画面下端へ
+// 映り込む手前領域」が画面外扱いになり、主層/下地/毛布とも被覆が欠けて紙色のくさびが残る
+//（実測: 草津1200m・z15.8・チルト52°で画面左下1/3が空白。Node被覆シミュで海面欠け0/リフト欠け48%）。
+// 表示中の地形変位と同式（renderer elevScaleEff と同じ pitch フェード）で半径を作る＝真俯瞰は1（従来通り）。
+// 標高は getHeight の非同期サンプル＝到着まで0（海面挙動）、到着時 needsDraw で選抜し直し＝自己回復。
+let groundElevM = 0, geBusy = false, geKey = "";
+function sampleGroundElev() {
+	if (!getHeight || geBusy) return;
+	const k = Math.round(cam.center[0] * 1000) + "," + Math.round(cam.center[1] * 1000);   // ~100m格子＝微パンで照会を積まない
+	if (k === geKey) return;
+	geBusy = true;
+	Promise.resolve(getHeight(cam.center[0], cam.center[1], cam.zoom))
+		.then(h => { geBusy = false; geKey = k; const v = Math.max(0, +h || 0); if (Math.abs(v - groundElevM) > 1) { groundElevM = v; needsDraw = true; } })
+		.catch(() => { geBusy = false; });   // 失敗は geKey 据置＝次の render で再挑戦
+}
+const groundRNow = () => {
+	const pt = Math.max(0, Math.min(1, ((cam.pitch || 0) - 0.06) / 0.14)), pf = pt * pt * (3 - 2 * pt);
+	if (pf <= 0 || groundElevM <= 0) return 1;   // 真俯瞰 or 海面＝従来挙動
+	// リフト量は eye の下に留める（-30m マージン）：球が eye を呑むと unproject の出口が地球の裏側＝
+	// ゴミサンプル。谷を見下ろす縁などで中心標高が eye を超えても、選抜は海面球との和集合が受け持つ。
+	const st = cameraState(cam, size.w, size.h);
+	const eyeAltM = (Math.hypot(st.eye[0], st.eye[1], st.eye[2]) - 1) * EARTH_M;
+	const lift = Math.min(groundElevM * pf, Math.max(0, eyeAltM - 30));
+	return 1 + lift * (TERR_EXAG / EARTH_M);
+};
+
 function onMove() {
 	cam.center[0] = wrapLon(cam.center[0]);   // パン/回転/フライトの累積を毎移動で正規化＝float32原点相対の前提を守る（階段バグ根治）
 	moving = true; needsDraw = true;
@@ -2145,7 +2172,8 @@ function render() {
 		return;
 	}
 	basemapHidden = false;
-	const { order, coarseOrder, total } = tiles.update(cam, size.w, size.h, (moving || !gpuFast || !idleCalm) ? null : { tilePx: IDLE_TILE_PX });   // 「本当の静止」（settle+550ms）だけ主層を一段細かく（手前の詳細化）＝GPU格付け fast のマシン限定。calm が needsDraw を立て、細タイルの ready は requestDraw で連鎖再描画
+	sampleGroundElev();   // 中心の地面標高を追随（非同期・~100m格子メモ）＝groundR の材料
+	const { order, coarseOrder, total } = tiles.update(cam, size.w, size.h, { tilePx: (moving || !gpuFast || !idleCalm) ? undefined : IDLE_TILE_PX, groundR: groundRNow() });   // 「本当の静止」（settle+550ms）だけ主層を一段細かく（手前の詳細化）＝GPU格付け fast のマシン限定。calm が needsDraw を立て、細タイルの ready は requestDraw で連鎖再描画。groundR＝地形リフト球（チルト×高標高地の手前くさび欠け根治）
 	window.__lastOrder = order;   // デバッグ：現在の選択タイル（コンソール/検証スクリプトから確認）
 	window.__tileStats = () => { const s = tiles.stats(); console.log(`[tiles] 常駐 ${s.tiles}枚 / ${(s.bytes/1048576).toFixed(1)}MB（予算 ${(s.budgetBytes/1048576).toFixed(0)}MB, deviceMemory≈${s.deviceMemoryGB}GB, cacheEntries ${s.cacheEntries}）`); return s; };   // コンソールから常駐メモリ確認
 	swapBase(coarseOrder);                          // 粗い下地は常に敷く（移動中も）＝先端の空白を無くす

@@ -80,7 +80,10 @@ export function createTileManager({ style, tileUrl, onChange, cap = 256, buildTi
 		// tilePx＝分割閾（画面px）。静止時に小さく渡すと主層だけ一段細かく割れる＝近景ほど画面サイズが
 		// 大きい＝真っ先に閾を越えて分割＝「手前のズームが上がる」。下地/毛布は据置（先端の空白埋めは粗いまま）。
 		// 未指定(undefined)なら selectLOD 既定(560)＝移動中は従来通り重くしない。
-		const selected = selectLOD(cam, W, H, { sticky: stickySplit, floorZ, tilePx: opts?.tilePx ?? undefined });   // null/未指定→undefined＝selectLOD既定560（destructuring既定はundefinedでのみ発火・nullだと閾0で全分割の罠）
+		// groundR＝地形リフト球の半径（app が表示中の地形変位と同式で計算）。主層・下地・毛布の3経路とも
+		// 同じ球で選抜する＝チルト×高標高地の「手前くさび欠け」をどの層にも作らない（草津1200m根治）。
+		const groundR = opts?.groundR ?? 1;
+		const selected = selectLOD(cam, W, H, { sticky: stickySplit, floorZ, tilePx: opts?.tilePx ?? undefined, groundR });   // null/未指定→undefined＝selectLOD既定560（destructuring既定はundefinedでのみ発火・nullだと閾0で全分割の罠）
 		// 「分割されたノード」＝選択タイルの祖先チェーンそのもの。次回のヒステリシス判定に持ち越す。
 		stickySplit = new Set();
 		for (const t of selected) {
@@ -90,11 +93,11 @@ export function createTileManager({ style, tileUrl, onChange, cap = 256, buildTi
 		// 粗い下地：3段低いズームで広く覆う。移動中の先端の空白を常に埋める underlay。
 		// lodFloor 有効時は下地も z8 で敷く（floorZ が強制分割・maxZ が上限開放）：z5-7 の下地は海（WA）を
 		// 持たないため、移動中に下地が顔を出す瞬間だけ海が紙色に白転してちらつく（実害はまさに下地側だった）。
-		const coarse = selectLOD(cam, W, H, { maxZ: Math.max(floorZ || 4, Math.round(cam.zoom) - 4), floorZ });   // -4＝主層(タイルz≈zoom-1)の3段下（256px世界の z はタイルzより1大きい）
+		const coarse = selectLOD(cam, W, H, { maxZ: Math.max(floorZ || 4, Math.round(cam.zoom) - 4), floorZ, groundR });   // -4＝主層(タイルz≈zoom-1)の3段下（256px世界の z はタイルzより1大きい）
 		// 毛布：固定 z4 の床タイル＝フォールバックの終点保証。「zoom-6」の動く目標だと高速ズームアウト中に
 		// 毎段コールドフェッチで間に合わず白が出る。z4 固定なら1枚で22.5°＝数枚で日本全体、初回以降キャッシュ常駐
 		// ＝どんな引き方をしても床が必ず先に居る。W/H×3＝視野の3倍を先回り（外周の白露出も防ぐ）。
-		const blanket = selectLOD(cam, W * 3, H * 3, { maxZ: 4 });
+		const blanket = selectLOD(cam, W * 3, H * 3, { maxZ: 4, groundR });
 		const keep = new Set([...selected, ...coarse, ...blanket].map(keyOf));
 		for (const t of blanket) ensure(t);
 		for (const t of coarse) ensure(t);
