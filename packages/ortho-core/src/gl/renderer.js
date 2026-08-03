@@ -414,14 +414,22 @@ export function createRenderer(canvas, rOpts = {}) {
 		const o = data.origin || [0, 0, 0];
 		// lodH/lodCounts（v4）：index は建物高さ降順＝lodCounts[k] で「高さ lodH[k] 以上だけ」を先頭打ち切り描画できる
 		plateaux.set(key, { vao, bufs: [vbo, nbo, ibo], count: data.idx.length, origin: o, bbox: data.bbox || [1e9, 1e9, -1e9, -1e9], ward: data.ward || String(key).split("#")[0], lodH: data.lodH || null, lodCounts: data.lodCounts || null, two: data.twoSided ? 1 : 0 });
-		// 被覆マスク（NEAREST・CLAMP）。基図建物 FS が uv=区bbox正規化で参照。区単位＝バッチごとに累積スナップショットで丸ごと差し替え。
-		if (data.ward && data.mask && (data.maskN | 0) > 0 && data.maskBbox) {
+		// 被覆マスク（NEAREST・CLAMP）＝届いたバッチの断片(maskCells)だけをOR合成（gpu/renderer.js と同意味論）。
+		// 旧・全量スナップショット差し替えはマスクがメッシュに先行し「矩形の隙間」を作った＝断片方式で根治。
+		if (data.ward && (data.maskCells || data.mask) && (data.maskN | 0) > 0 && data.maskBbox) {
+			const N = data.maskN | 0;
 			let m = plateauMasks.get(data.ward);
-			if (!m) { m = { tex: gl.createTexture(), bbox: data.maskBbox }; plateauMasks.set(data.ward, m); }
+			if (!m || m.n !== N) {
+				if (m) gl.deleteTexture(m.tex);
+				m = { tex: gl.createTexture(), bbox: data.maskBbox, n: N, bytes: new Uint8Array(N * N) };
+				plateauMasks.set(data.ward, m);
+			}
 			m.bbox = data.maskBbox;
+			if (data.maskCells) { for (let i = 0; i < data.maskCells.length; i++) { const c = data.maskCells[i]; if (c < m.bytes.length) m.bytes[c] = 255; } }
+			else for (let i = 0; i < data.mask.length && i < m.bytes.length; i++) if (data.mask[i]) m.bytes[i] = 255;   // 旧worker互換（全量OR＝単調なので破壊しない）
 			gl.bindTexture(gl.TEXTURE_2D, m.tex);
 			gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
-			gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, data.maskN, data.maskN, 0, gl.RED, gl.UNSIGNED_BYTE, data.mask);
+			gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, N, N, 0, gl.RED, gl.UNSIGNED_BYTE, m.bytes);
 			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
 			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
 			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
@@ -642,11 +650,14 @@ export function createRenderer(canvas, rOpts = {}) {
 		// polygonOffset で地形をわずかに奥へ＝ドレープした基図(同じ対数深度)が z-fight せず表に出る。
 		const terrainDepth = terrainActive;
 		// 水面リフト(+30m)は DSM 帯（R10 混成があり得る z<14）限定＝DTM の都市帯で川を 30m 浮かせない。
-		const dsmLift = terrainDepth && cam.zoom < 14;
 		// 都市帯の基図接地リフト(+5m)：深度テスト×DTM起伏で、線/塗りのドレープ（頂点毎バイリニア）と
 		// 地形メッシュ（72m級格子）の近似差から道路が地形面を出入りしてギザギザになる（札幌 z16.9 実測）
 		// のを上へ逃がす。山岳帯(z<14)は 0＝従来の見た目。根治は RTT ドレープ（基図を地形に貼る）＝将来課題。
-		const cityLift = terrainDepth && cam.zoom >= 14 ? 5 : 0;
+		// z14切替はランプ化（z13.5→14 の0.5幅で連続モーフ）＝keepFine保持のズームアウトで露出した段差ポップ対策。
+		// 両端値は実測チューニングのまま＝z≥14とz≤13.5の絵は従来と完全一致。gpu/renderer.js と同式。
+		const cityK = terrainDepth ? Math.max(0, Math.min(1, (cam.zoom - 13.5) / 0.5)) : 0;
+		const cityLift = 5 * cityK;
+		const waterLiftM = terrainDepth ? WATER_LIFT_M + (CITY_WATER_LIFT_M - WATER_LIFT_M) * cityK : CITY_WATER_LIFT_M;
 		// 3D（チルト）では建物フットプリント塗りを伏せる：押し出し建物と二重表現になり、起伏＋接地リフト下では
 		// 「浮いた濃い平板」として露出する（札幌 z16.9 実測・本人指摘「3Dならフットプリント不要では」）。
 		// 真俯瞰(2D)では従来どおり描く＝平面地図の建物表現はフットプリントが本体。閾値は show3d と同じ。
@@ -759,7 +770,7 @@ export function createRenderer(canvas, rOpts = {}) {
 						if (curProgM !== md.fillProg) { gl.useProgram(md.fillProg); gl.bindVertexArray(md.fillVAO); curProgM = md.fillProg; }
 						const waterM = e.li === sea.li || e.li === sea.li2;
 						gl.uniform1f(loc(gl, md.fillProg, "u_seaGate"), seaFBM ? 1 : 0);
-						gl.uniform1f(loc(gl, md.fillProg, "u_lift"), waterM ? (dsmLift ? WATER_LIFT_M : CITY_WATER_LIFT_M) : cityLift);
+						gl.uniform1f(loc(gl, md.fillProg, "u_lift"), waterM ? waterLiftM : cityLift);
 						gl.uniform1f(loc(gl, md.fillProg, "u_exactDepth"), (terrainDepth && (waterM || seaFBM)) ? 1 : 0);   // 湖級の巨大水ポリ＝頂点補間対数深度の誤差で偽島（FSで厳密化）
 						gl.uniform2fv(loc(gl, md.fillProg, "u_tileOff"), e.origins);
 						md.ext.multiDrawElementsWEBGL(gl.TRIANGLES, e.counts, 0, gl.UNSIGNED_INT, e.offsets, 0, e.counts.length);
@@ -792,7 +803,7 @@ export function createRenderer(canvas, rOpts = {}) {
 					// 水面リフト＝md 経路と同判断（深度は全帯維持・DSM帯30m/都市帯10m）
 					const waterC = d.li === sea.li || d.li === sea.li2;
 					gl.uniform1f(loc(gl, fillProg, "u_seaGate"), seaFBC ? 1 : 0);
-					gl.uniform1f(loc(gl, fillProg, "u_lift"), waterC ? (dsmLift ? WATER_LIFT_M : CITY_WATER_LIFT_M) : cityLift);
+					gl.uniform1f(loc(gl, fillProg, "u_lift"), waterC ? waterLiftM : cityLift);
 					gl.uniform1f(loc(gl, fillProg, "u_exactDepth"), (terrainDepth && (waterC || seaFBC)) ? 1 : 0);   // 湖級の巨大水ポリ＝頂点補間対数深度の誤差で偽島（FSで厳密化）
 					gl.bindVertexArray(d.vao);
 					if (d.idxT) gl.drawElements(gl.TRIANGLES, d.count, d.idxT, 0);

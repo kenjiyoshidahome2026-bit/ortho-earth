@@ -339,21 +339,28 @@ async function decodeBatch(base, leaves, wardMask, wardBbox, onTile = null, brid
 	for (let i = 0; i < M; i++) {
 		outPos[i*3] = wpos[i*3] - origin[0]; outPos[i*3+1] = wpos[i*3+1] - origin[1]; outPos[i*3+2] = wpos[i*3+2] - origin[2];
 	}
-	// 被覆マスク（区単位で累積）：三角形が触れた wardBbox 座標系のセルを立てる。基図建物はこのマスクが立つ所だけ伏せる。
-	// バッチが進むほどマスクが育つ＝未ロード地帯は基図建物が残る＝逐次表示中も空白地帯が出ない。
+	// 被覆マスク：三角形が触れた wardBbox 座標系のセルを「このバッチの断片(maskCells)」として持つ。
+	// 旧・区単位のwardMask累積は継続する（IDB meta 互換・ロールバック安全）が、描画へはもう送らない＝
+	// renderer は届いたバッチの断片だけをOR合成する（マスクがメッシュに先行して「基図は伏せたのに
+	// PLATEAUが無い」矩形の隙間を作る非対称の根治。demote/cancel/復元中断で顕在化していた）。
+	let maskCells = null;
 	if (wardMask && wardBbox) {
 		const wLo = wardBbox[0] / R2D, wLa = wardBbox[1] / R2D;   // マスク座標系は rad で統一（geo が rad のため）
 		const spanLo = (wardBbox[2] - wardBbox[0]) / R2D || 1e-12, spanLa = (wardBbox[3] - wardBbox[1]) / R2D || 1e-12;
+		const bm = new Uint8Array(MASK_N * MASK_N);   // このバッチ分だけの塗り
 		for (let t = 0; t < outIdx.length; t += 3) {
 			const a = outIdx[t], b = outIdx[t+1], c = outIdx[t+2];
 			const lo0 = geo[a*3], lo1 = geo[b*3], lo2 = geo[c*3], la0 = geo[a*3+1], la1 = geo[b*3+1], la2 = geo[c*3+1];
 			let cx0 = (Math.min(lo0,lo1,lo2) - wLo) / spanLo * MASK_N | 0, cx1 = (Math.max(lo0,lo1,lo2) - wLo) / spanLo * MASK_N | 0;
 			let cy0 = (Math.min(la0,la1,la2) - wLa) / spanLa * MASK_N | 0, cy1 = (Math.max(la0,la1,la2) - wLa) / spanLa * MASK_N | 0;
 			if (cx0 < 0) cx0 = 0; if (cy0 < 0) cy0 = 0; if (cx1 > MASK_N-1) cx1 = MASK_N-1; if (cy1 > MASK_N-1) cy1 = MASK_N-1;
-			for (let y = cy0; y <= cy1; y++) { const row = y*MASK_N; for (let x = cx0; x <= cx1; x++) wardMask[row+x] = 255; }
+			for (let y = cy0; y <= cy1; y++) { const row = y*MASK_N; for (let x = cx0; x <= cx1; x++) { wardMask[row+x] = 255; bm[row+x] = 1; } }
 		}
+		const cells = [];
+		for (let i = 0; i < bm.length; i++) if (bm[i]) cells.push(i);
+		maskCells = Uint32Array.from(cells);   // バッチは空間的に密＝典型数十〜数百セル（数百B）。永続化にも同乗する
 	}
-	return { pos: outPos, nrm: outNrm, idx: outIdx, origin, bbox, lodH: LOD_H, lodCounts, twoSided: brid ? 1 : 0 };
+	return { pos: outPos, nrm: outNrm, idx: outIdx, origin, bbox, lodH: LOD_H, lodCounts, twoSided: brid ? 1 : 0, maskCells };
 }
 
 // メッシュの出口＝render worker への直結ポート（main.js が MessageChannel で配線）。
@@ -373,13 +380,40 @@ const onDrained = () => { const w = creditWaiters.shift(); if (w) w(); else if (
 // バッチ1個を render worker へ送出（クレジットが空くまで待つ）。cache の原本は守りたいので transfer 分はコピー。
 // own=true＝この mesh はもう誰も使わない（ストリーミング復元＝送ったら手放す）＝コピー無しで transfer
 // （渡した後は detached＝呼び出し側は触らない約束）。マスクは累積原本ゆえ常にコピー＝renderer 側は毎回丸ごと差し替え（冪等）。
+// マスク断片：メッシュ持参の maskCells（新形式）を、無ければ**実頂点**からセル導出（旧焼き互換＝再焼き不要）。
+// ⚠bbox代用は禁止：バッチはカメラ近傍順ソートの塊＝空間的に広く散り得て、bboxが区の半分級になる
+// （実測2026-08-04：旧焼き復元の初バッチが巨大矩形を一撃で伏せ「領域の建物が全部消える」退行）。
+// 頂点→経緯度は world 軸（camera.js lonlatTo3D と同規約：lat=asin(y)・lon=atan2(z,x)）。セル41m級 ≫ 建物
+// ＝頂点打ちで隙間なし。区bbox外に出た頂点は捨てる＝失敗は常に「伏せない」側（空白でなく二重立ち）に倒れる。
+function maskCellsOf(mesh, wardBbox) {
+	if (!wardBbox) return null;
+	if (mesh.maskCells?.length) return Uint32Array.from(mesh.maskCells);   // 常にコピー＝cache原本をtransferで壊さない
+	const pos = mesh.pos, o = mesh.origin;
+	if (!pos || !o) return null;
+	const bm = new Uint8Array(MASK_N * MASK_N);
+	const wLo = wardBbox[0], wLa = wardBbox[1];
+	const sx = (wardBbox[2] - wardBbox[0]) || 1e-12, sy = (wardBbox[3] - wardBbox[1]) || 1e-12;
+	const R2Dg = 180 / Math.PI;
+	for (let i = 0; i < pos.length; i += 3) {
+		const x = pos[i] + o[0], y = pos[i + 1] + o[1], z = pos[i + 2] + o[2];
+		const r = Math.hypot(x, y, z) || 1;
+		const lat = Math.asin(Math.max(-1, Math.min(1, y / r))) * R2Dg, lon = Math.atan2(z, x) * R2Dg;
+		const cx = (lon - wLo) / sx * MASK_N | 0, cy = (lat - wLa) / sy * MASK_N | 0;
+		if (cx >= 0 && cy >= 0 && cx < MASK_N && cy < MASK_N) bm[cy * MASK_N + cx] = 1;
+	}
+	const cells = [];
+	for (let i = 0; i < bm.length; i++) if (bm[i]) cells.push(i);
+	return cells.length ? Uint32Array.from(cells) : null;
+}
+// wardMask 引数は未使用（旧・全量スナップショット送出の名残＝呼び出し側の引数順を保つため残置）。
+// マスクは maskCells（このバッチの断片）だけを送る＝renderer 側が届いた分だけOR合成（隙間根治の本体）。
 async function sendBatch(ward, bi, mesh, wardMask, wardBbox, own = false) {
 	await takeCredit();
 	const pos = own ? mesh.pos : mesh.pos.slice(), nrm = own ? mesh.nrm : mesh.nrm.slice(), idx = own ? mesh.idx : mesh.idx.slice();
-	const mask = wardMask ? wardMask.slice() : null;
-	const payload = { name: `${ward}#${bi}`, meshData: { pos, nrm, idx, origin: mesh.origin, bbox: mesh.bbox, lodH: mesh.lodH, lodCounts: mesh.lodCounts, twoSided: mesh.twoSided || 0, ward, mask, maskN: MASK_N, maskBbox: wardBbox } };
+	const maskCells = maskCellsOf(mesh, wardBbox);
+	const payload = { name: `${ward}#${bi}`, meshData: { pos, nrm, idx, origin: mesh.origin, bbox: mesh.bbox, lodH: mesh.lodH, lodCounts: mesh.lodCounts, twoSided: mesh.twoSided || 0, ward, maskCells, maskN: MASK_N, maskBbox: wardBbox } };
 	const transfers = [pos.buffer, nrm.buffer, idx.buffer];
-	if (mask) transfers.push(mask.buffer);
+	if (maskCells) transfers.push(maskCells.buffer);
 	meshPort.postMessage(payload, transfers);
 }
 

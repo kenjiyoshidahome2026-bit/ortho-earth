@@ -553,13 +553,23 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 				bbox: data.bbox || [1e9, 1e9, -1e9, -1e9], ward: data.ward || String(key).split("#")[0],
 				lodH: data.lodH || null, lodCounts: data.lodCounts || null, two: data.twoSided ? 1 : 0 });
 		}
-		// 被覆マスク（r8unorm・NEAREST）＝区単位で累積スナップショットを丸ごと差し替え
-		if (data.ward && data.mask && (data.maskN | 0) > 0 && data.maskBbox) {
+		// 被覆マスク（r8unorm・NEAREST）＝届いたバッチの断片(maskCells)だけをOR合成。
+		// 旧・全量スナップショット差し替えはマスクがメッシュに先行し「基図は伏せたのにPLATEAUが無い」
+		// 矩形の隙間を作った（demote/cancel/復元中断で顕在化）。断片方式ならマスクはメッシュと同時にしか
+		// 育たず、解放は区単位（freePlateauWard＝メッシュとマスクを同時破棄）で対称＝隙間は構造的に出ない。
+		if (data.ward && (data.maskCells || data.mask) && (data.maskN | 0) > 0 && data.maskBbox) {
+			const N = data.maskN | 0;
 			let m = plateauMasks.get(data.ward);
-			if (m) m.tex.destroy();
-			const tex = device.createTexture({ size: [data.maskN, data.maskN], format: "r8unorm", usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST });
-			device.queue.writeTexture({ texture: tex }, data.mask, { bytesPerRow: data.maskN, rowsPerImage: data.maskN }, [data.maskN, data.maskN]);
-			plateauMasks.set(data.ward, { tex, view: tex.createView(), bbox: data.maskBbox });
+			if (!m || m.n !== N) {
+				if (m) m.tex.destroy();
+				const tex = device.createTexture({ size: [N, N], format: "r8unorm", usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST });
+				m = { tex, view: tex.createView(), bbox: data.maskBbox, n: N, bytes: new Uint8Array(N * N) };
+				plateauMasks.set(data.ward, m);
+			}
+			m.bbox = data.maskBbox;
+			if (data.maskCells) { for (let i = 0; i < data.maskCells.length; i++) { const c = data.maskCells[i]; if (c < m.bytes.length) m.bytes[c] = 255; } }
+			else for (let i = 0; i < data.mask.length && i < m.bytes.length; i++) if (data.mask[i]) m.bytes[i] = 255;   // 旧worker互換（全量OR＝単調なので破壊しない）
+			device.queue.writeTexture({ texture: m.tex }, m.bytes, { bytesPerRow: N, rowsPerImage: N }, [N, N]);
 			maskSig = "\0";   // 次フレーム再構築
 		}
 	}
@@ -731,8 +741,12 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 		const fogFarCap = Math.max(st.fogDist * 5.0, 0.026 * pfFog);   // fill/line/terrain 共通の終端＝線が地形に厳密追随
 		const terrainActive = !!(terrain && elev.has && elevScaleEff > 1e-9) && !(opts && opts.noTerrain);
 		const terrainDepth = terrainActive;   // 地形の深度書き＝尾根の遮蔽（gl/renderer.js と同じ全ズーム）
-		const dsmLift = terrainDepth && cam.zoom < 14;
-		const cityLift = terrainDepth && cam.zoom >= 14 ? 5 : 0;
+		// z14切替のランプ化：DSM帯⇄都市帯のリフト（川面30⇄10m・接地0⇄5m）を z13.5→14 の0.5幅で連続モーフ＝
+		// keepFine保持のズームアウトで露出した「跨いだ瞬間の段差ポップ」対策。両端値は実測チューニングのまま
+		//（z≥14とz≤13.5の絵は従来と完全一致）。gl/renderer.js と同式。
+		const cityK = terrainDepth ? Math.max(0, Math.min(1, (cam.zoom - 13.5) / 0.5)) : 0;
+		const cityLift = 5 * cityK;
+		const waterLiftM = terrainDepth ? WATER_LIFT_M + (CITY_WATER_LIFT_M - WATER_LIFT_M) * cityK : CITY_WATER_LIFT_M;
 		const hideBldFill = bldFill.li >= 0 && (cam.pitch || 0) >= 0.02;
 		const dpr = cam.dpr || 1;
 		const mainOrigin = scenes.main.origin || [0, 0];
@@ -756,7 +770,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 		}
 		device.queue.writeBuffer(paramBuf, 0, packParams({
 			fadeK,
-			cityLift, waterLift: dsmLift ? WATER_LIFT_M : CITY_WATER_LIFT_M, exact: terrainDepth ? 1 : 0,
+			cityLift, waterLift: waterLiftM, exact: terrainDepth ? 1 : 0,
 			land, bldColor: view.bldColor || [0.86, 0.86, 0.85],
 			contour: { color: view.contourColor || [0.42, 0.30, 0.18], interval: iv, major: iv * 5.0, alpha: cAlpha * (view.contourAlpha || 1) },
 			liftBounds: elev.liftBounds,   // PLATEAU 接地リフトの DTM 保証域

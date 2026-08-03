@@ -404,11 +404,18 @@ let needsDraw = true, readySig = "", lastLabels = [], sceneOrigin = null;
 let mainDesired = "";
 // ズームアウト時は「古い詳細シーンを縮めて見せ続ける」をしない＝写真タイルなら拡縮で誤魔化せるが、
 // ベクタはズーム専用の線幅・密度を焼いているので縮めると質感が浮く。下地(base)に揃えて退場させる。
+// keepFine＝ズームアウトで常駐子孫を親に差し替えない深さ（tilemanager の子孫代打・0=従来）。細かい絵のまま
+// 引ける＝「消して同じものを描き直す」を集合不変（mergeシグネチャ不変）で構造的に回避。頂点は増える方向なので
+// WebGPU×非LOW_MEM 限定（PLATEAU全保持と同じゲート）。?keepfine=N で深さ変更・?keepfine=0 で従来動作。
+const KEEP_FINE = (gpuBackend && !LOW_MEM) ? qNum(/[?&]keepfine=(\d+)/, 2) : 0;
 // mainSceneZoom＝render workerに現在乗っているmainシーンのzoom（mergeのackで確定）。
 let mainSceneZoom = -1;
 const mergePendingZoom = new Map();   // merge要求sig → 要求時のzoom
 const STALE_ZOOMOUT = 0.5;            // これ以上ズームアウトしたら古い詳細を隠す（微小ズームでは点滅させない）
-const mainStale = () => mainSceneZoom > cam.zoom + STALE_ZOOMOUT;
+// keepFine 時はズームアウト隠しを無効化：保持中の細集合は「古い詳細」でなく望みの絵そのもの（sig不変で merge も
+// 来ない＝隠すと戻す契機がなくパッと消えたままになる・実機で露見）。集合が変わる引き方でも隠さず、新 merge の
+// ack で原子的に差し替え＝連続した絵を保つ。従来動作（GL2/LOW_MEM）は据置。
+const mainStale = () => !KEEP_FINE && mainSceneZoom > cam.zoom + STALE_ZOOMOUT;
 let basemapHidden = false;                 // z<BASEMAP_MINZOOM で基図(GSI)を止めてるか（全球ビュー＝海岸線のみ）
 const BASEMAP_MINZOOM = 5;                 // これ未満は基図の詳細を描かない（海岸線 gint で十分／main負荷を断つ）
 // 静止時の詳細化＝主層の分割閾を下げる（既定560→この値）。近景ほど画面上のタイルが大きい＝真っ先に
@@ -445,7 +452,13 @@ fetch(import.meta.env.BASE_URL + "airports.json").then(r => r.json()).then(list 
 	airportMarks = list.map(a => ({ text: a.name, code: 441, anchor: [a.lon, a.lat], size: 10, sort: 2, color: [0.53, 0.53, 0.5, 1], halo: [0.965, 0.965, 0.957, 1], haloW: 1.1, markOnly: true }));
 	readySig = ""; mergeReq.main.sig = "";   // 読み込めた時点でラベル再結合（要求記憶も消す＝即出し直し）
 }).catch(() => {});
-const PLATEAU_AUTO_Z = 15;                 // これ以上寄ると自動ロード（遠景は対象外＝ズームアウトで全解放）
+const PLATEAU_AUTO_Z = qNum(/[?&]paz=(\d+(?:\.\d+)?)/, 15);   // これ以上寄ると自動ロード（遠景は対象外＝ズームアウトで全解放）。?paz=16＝タイル最細(z≈16-17)までベクタ建物で粘るA/B実験ノブ（デモのz15.5フライトは15前提＝既定は据置）
+// ズームアウトの保持：既に立っている区はズームアウトでは消さない＝「一回消えて基図建物で書き直す」没入切れ
+// の根治（本人裁定2026-08-03「格段良くなった」＝全保持を既定化）。手放すのは遠方離脱（FAR_DEG）と真俯瞰だけ。
+// 非表示は元々メモリを返さない（解放は遠方evictのみ＝常駐保持）ので保持のコストは頂点処理時間だけ
+// → WebGPU×非LOW_MEM 限定（GL2/低メモリ端末は従来どおりズームアウトで即非表示）。新規ロード発火は従来どおり AUTO_Z 以上のみ。
+// ?pazh=N＝保持を浅く戻す口（AUTO_Z−N で非表示・低ズームの頂点代が問題になった時の後退線。例 pazh=2）。
+const PLATEAU_HIDE_Z = (gpuBackend && !LOW_MEM) ? PLATEAU_AUTO_Z - qNum(/[?&]pazh=(\d+(?:\.\d+)?)/, Infinity) : PLATEAU_AUTO_Z;
 // LOW_MEM（低メモリ端末判定）はファイル冒頭で定義（renderWorker init にも渡すため）。
 if (LOW_MEM) console.log("[plateau] 低メモリ端末モード：同時2区・worker1本・キャッシュ無し");
 // 同時アクティブ地区数の上限＝GPUメモリを有界にする（密集地区(都心部)1件あたりGPUバッファ~100-140MB）。
@@ -744,6 +757,14 @@ function autoPlateau(settled = false) {
 	// settle で従来どおり自動ロード。常駐（VRAM保持）は触らない＝チルト再開はタダのまま。
 	if (cam.zoom < PLATEAU_AUTO_Z || (cam.pitch || 0) < 0.02) {
 		if (settled) parkStale(null);   // ズームアウト/真俯瞰で確定＝表示に急ぎは無い。近距離は在庫slowで完走・遠方のみ中止
+		if (cam.zoom >= PLATEAU_HIDE_Z && (cam.pitch || 0) >= 0.02) {   // ヒステリシス帯＝既表示は保持（消して書き直さない）・新規ロードだけ止める
+			for (const [name, s] of plateauActive) {   // 保持中でも「完全に離れた」区だけは手放す（evictと同じ物差し）＝active が遠方evictを永久に塞ぐ漏れの防止
+				const dx = Math.max(s.bbox[0] - cam.center[0], 0, cam.center[0] - s.bbox[2]);
+				const dy = Math.max(s.bbox[1] - cam.center[1], 0, cam.center[1] - s.bbox[3]);
+				if (dx * dx + dy * dy > PLATEAU_FAR_DEG * PLATEAU_FAR_DEG) { plateauActive.delete(name); plateauHide(name); needsDraw = true; console.log("[plateau] 保持帯で遠方離脱→非表示", name); }
+			}
+			return;
+		}
 		for (const name of plateauActive.keys()) { plateauHide(name); console.log("[plateau] 範囲外→非表示", name); }
 		if (plateauActive.size) needsDraw = true;
 		plateauActive.clear();
@@ -852,7 +873,7 @@ function autoPlateau(settled = false) {
 					plateauRetain(h.name, h);
 					// 視界内で完走した在庫（fast枠ローテーション中の区など）＝そのまま点灯。従来の一律非表示だと
 					// 目の前に立っていた既送出バッチごと消える。視界外だけ従来どおり非表示常駐（再訪は常駐ヒットで即）。
-					if (cam.zoom >= PLATEAU_AUTO_Z && (cam.pitch || 0) >= 0.02 && bboxIntersects(h.bbox, approxViewBbox(cam))) {
+					if (cam.zoom >= PLATEAU_HIDE_Z && (cam.pitch || 0) >= 0.02 && bboxIntersects(h.bbox, approxViewBbox(cam))) {
 						renderer.set("plateauVis", true, h.name);
 						plateauActive.set(h.name, h);
 						needsDraw = true;
@@ -867,7 +888,7 @@ function autoPlateau(settled = false) {
 				plateauActive.set(h.name, h);
 				plateauRetain(h.name, h);
 				// ★完了時に既に低ズーム/視野外なら stale＝即非表示（ロード中にズームアウトすると3Dが居残る件を断つ。常駐には残る＝戻ればタダ）。
-				if (cam.zoom < PLATEAU_AUTO_Z || !bboxIntersects(h.bbox, approxViewBbox(cam))) {
+				if (cam.zoom < PLATEAU_HIDE_Z || !bboxIntersects(h.bbox, approxViewBbox(cam))) {
 					plateauActive.delete(h.name); plateauHide(h.name); needsDraw = true;
 					console.log("[plateau] ロード完了時に視野外→即非表示", h.name);
 				}
@@ -984,7 +1005,8 @@ function onSceneApplied(slot, sig) {
 		readySig = sig;
 		const z = mergePendingZoom.get(sig);
 		if (z != null) { mainSceneZoom = z; mergePendingZoom.delete(sig); }
-	} else if (slot === "base") baseSig = sig;
+		slog("main merge 画面に載った（ここが見える瞬間）");
+	} else if (slot === "base") { baseSig = sig; slog("base 差し替え載った"); }
 	needsDraw = true;
 }
 window.__mergeFail = () => requestMerge.debugFail();   // 次の merge を故意に失敗させ ack 自己修復を実地検証
@@ -1908,12 +1930,23 @@ let zoomAtBuild = -1, lastMainReqT = 0;   // lastMainReqT＝main merge 要求の
 // 見た目の追従は落ちない。静止時は無条件（settle の鮮度確定を遅らせない）＝間引くのは移動中だけ。
 let lastMoveSwapT = 0;
 const MOVE_SWAP_MS = 125;
+// ラベルはGLシーンと別経路（render worker のテキスト描画）＝丁目(z15.5)/空港マーク(z13)のz門で GL バッファを
+// 全再結合する理由は無い（本人指摘 2026-08-04「テキストにmergeは要らない」）。両者を merge シグネチャから外し、
+// ラベルだけ独立に更新＝ズームアウトで z15.5/z13 を跨いでも基図の書き直しゼロ。駅軌道(z14.5)は本物のGL層
+//（hiddenLi）なので merge 側に残す（railチップON時のみ効く）。
+let lastLabelGate = "";
+const labelGate = () => "" + (cam.zoom >= CHOME_MINZOOM ? 1 : 0) + (cam.zoom < AIRPORT_MARK_MAXZ && airportMarks.length ? "A" : "");
+// ?swaplog=1＝「書き直し」イベントの計器：main merge（タイル集合の増減つき）・ラベル再構築・base差し替えを
+// 時刻つきで出す。ズームアウトのポップがどのイベントと同時刻かで犯人を特定する切り分け用。
+const swapLog = /[?&]swaplog=1/.test(location.search);
+const slog = (...a) => swapLog && console.log(`[swap ${(performance.now() / 1000).toFixed(2)}s z${cam.zoom.toFixed(2)}]`, ...a);
 function swapScene(order) {
-	const sig = order.map(o => o.key).join("|") + "#" + styleSig + "#z" + (cam.zoom >= CHOME_MINZOOM ? 1 : 0) + (cam.zoom >= RAILTR_MINZOOM ? 1 : 0) + (cam.zoom < AIRPORT_MARK_MAXZ && airportMarks.length ? "A" : "");
+	const sig = order.map(o => o.key).join("|") + "#" + styleSig + "#z" + (cam.zoom >= RAILTR_MINZOOM ? 1 : 0);
 	mainDesired = sig;
 	// 望みのシーンが既に載っている＝この zoom の現行として扱う（zoomAtBuild を追認しないと、微ズーム往復で
-	// sig 不変のまま zoomStable が偽に固定され、base が静止中も退場できなくなる）。
-	if (sig === readySig) { zoomAtBuild = cam.zoom; return; }
+	// sig 不変のまま zoomStable が偽に固定され、base が静止中も退場できなくなる）。ラベル門だけ跨いだ時は
+	// ラベルのみ作り直す（merge なし）。
+	if (sig === readySig) { zoomAtBuild = cam.zoom; if (labelGate() !== lastLabelGate) rebuildLabels(order); return; }
 	if (!order.length) return;
 	if (!sceneOrigin || Math.abs(sceneOrigin[0] - cam.center[0]) > 0.4 || Math.abs(sceneOrigin[1] - cam.center[1]) > 0.4)
 		sceneOrigin = [cam.center[0], cam.center[1]];
@@ -1924,8 +1957,20 @@ function swapScene(order) {
 		lastMainReqT = performance.now();
 		mergePendingZoom.set(sig, cam.zoom);   // ackが来たらこのzoomのシーンが乗る（ズームアウト退場判定の基準）
 		if (mergePendingZoom.size > 32) mergePendingZoom.clear();   // ack喪失の残骸が溜まらないよう頭打ち
+		if (swapLog) {   // 集合の増減＝この merge が「何を書き直すか」。zの分布も出す（keepFine深さ切れの検出）
+			const prev = new Set((readySig.split("#")[0] || "").split("|").filter(Boolean));
+			const cur = new Set(order.map(o => o.key));
+			const zHist = {}; for (const o of order) zHist[o.z] = (zHist[o.z] || 0) + 1;
+			slog(`main merge 要求: +${[...cur].filter(k => !prev.has(k)).length} -${[...prev].filter(k => !cur.has(k)).length} / ${cur.size}枚`, "z分布", zHist);
+		}
 		requestMerge("main", order, sceneOrigin, themes.hiddenLi(layerState, cam.zoom), sig);
 	})) return;   // 結合は scene worker（非同期）→ render worker へ直行
+	rebuildLabels(order);
+	zoomAtBuild = cam.zoom;   // readySig は ack（onMerged）で確定
+}
+function rebuildLabels(order) {
+	lastLabelGate = labelGate();
+	slog("labels 再構築（mergeなし）");
 	const allLabels = tiles.labels(order);
 	if (airportMarks.length && cam.zoom < AIRPORT_MARK_MAXZ) {   // 低ズーム＝静的台帳から空港マークのみ注入（タイル注記441と同名は二重にしない）
 		const have = new Set(allLabels.filter(L => L.code === 441).map(L => L.text));
@@ -1950,7 +1995,6 @@ function swapScene(order) {
 		return L;
 	});
 	renderer.set("labels", lastLabels);   // ラベル集合を render worker へ。標高付与(sampleElev)も terrain と一緒に worker 側で行う（同期して描く）
-	zoomAtBuild = cam.zoom;   // readySig は ack（onMerged）で確定
 }
 
 // 粗い下地（base スロット）：移動中も常に敷き直して先端の空白・ちらつきを消す。低zで少数＝安く広い。
@@ -2093,9 +2137,10 @@ function render() {
 		return;
 	}
 	basemapHidden = false;
-	const { order, coarseOrder, total } = tiles.update(cam, size.w, size.h, (moving || !gpuFast || !idleCalm) ? null : { tilePx: IDLE_TILE_PX });   // 「本当の静止」（settle+550ms）だけ主層を一段細かく（手前の詳細化）＝GPU格付け fast のマシン限定。calm が needsDraw を立て、細タイルの ready は requestDraw で連鎖再描画
+	const { order, coarseOrder, total } = tiles.update(cam, size.w, size.h, { tilePx: (moving || !gpuFast || !idleCalm) ? undefined : IDLE_TILE_PX, keepFine: KEEP_FINE });   // tilePx＝「本当の静止」（settle+550ms）だけ主層を一段細かく（手前の詳細化・GPU格付け fast 限定・undefined=既定560）。keepFine＝ズームアウトの子孫代打。calm が needsDraw を立て、細タイルの ready は requestDraw で連鎖再描画
 	window.__lastOrder = order;   // デバッグ：現在の選択タイル（コンソール/検証スクリプトから確認）
 	window.__tileStats = () => { const s = tiles.stats(); console.log(`[tiles] 常駐 ${s.tiles}枚 / ${(s.bytes/1048576).toFixed(1)}MB（予算 ${(s.budgetBytes/1048576).toFixed(0)}MB, deviceMemory≈${s.deviceMemoryGB}GB, cacheEntries ${s.cacheEntries}）`); return s; };   // コンソールから常駐メモリ確認
+	window.__tileCache = tiles.cache;   // デバッグ：タイル台帳の生参照（status/tries/seen を界隈キーで覗く＝矩形再描画の切り分け用）
 	swapBase(coarseOrder);                          // 粗い下地は常に敷く（移動中も）＝先端の空白を無くす
 	if (!moving) swapScene(order);   // 静止フレームは毎回＝mainDesired 更新と settle 後の穴埋め merge を最速で
 	else if (zoomStable && performance.now() - lastMoveSwapT >= MOVE_SWAP_MS) { lastMoveSwapT = performance.now(); swapScene(order); }

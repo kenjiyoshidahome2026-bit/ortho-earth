@@ -16,6 +16,7 @@ export function packBatch(mesh) {
 	const head = {
 		origin: mesh.origin, bbox: mesh.bbox, lodH: mesh.lodH, lodCounts: mesh.lodCounts,
 		twoSided: mesh.twoSided || 0, tiles: mesh.tiles ?? null,
+		cells: mesh.maskCells ? Array.from(mesh.maskCells) : null,   // 被覆マスクのバッチ断片（セル添字・典型数十個）＝復元時もメッシュと同時にしか伏せない
 		pos: mesh.pos.length, nrm: mesh.nrm.length, idx: mesh.idx.length,
 	};
 	const json = new TextEncoder().encode(JSON.stringify(head));
@@ -45,7 +46,7 @@ export function unpackBatch(readAt, headerOnly = false) {
 	if (readAt(jb, 8) < jl) return null;
 	let h;
 	try { h = JSON.parse(new TextDecoder().decode(jb)); } catch { return null; }
-	const base = { origin: h.origin, bbox: h.bbox, lodH: h.lodH, lodCounts: h.lodCounts, twoSided: h.twoSided, tiles: h.tiles ?? undefined };
+	const base = { origin: h.origin, bbox: h.bbox, lodH: h.lodH, lodCounts: h.lodCounts, twoSided: h.twoSided, tiles: h.tiles ?? undefined, maskCells: h.cells ? Uint32Array.from(h.cells) : undefined };
 	if (headerOnly) return base;
 	const start = dataStart(jl);
 	const pos = new Float32Array(h.pos), nrm = new Int8Array(h.nrm), idx = new Uint32Array(h.idx);

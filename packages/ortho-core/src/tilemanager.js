@@ -72,8 +72,27 @@ export function createTileManager({ style, tileUrl, onChange, cap = 256, buildTi
 		}
 	}
 
+	// keepFine（ズームアウトの書き直し回避）：選択タイルの枠を「常駐している最細の子孫」で隙間なく覆えるなら
+	// その子孫集合を、覆えなければ ready な自身を返す（どちらも無ければ null＝従来どおり pending）。
+	// 子孫優先＝ズームアウトで親が ready でも細かい絵を保つ。判断はキャッシュ照合 O(4^depth)＝マイクロ秒級で、
+	// 集合が変わらなければ上位の merge シグネチャも変わらない＝MB級の再結合＋GPU再アップロードが丸ごと消える。
+	function residentCover(z, x, y, depth) {
+		if (depth > 0) {
+			const kids = [];
+			for (let i = 0; i < 4; i++) {
+				const r = residentCover(z + 1, x * 2 + (i & 1), y * 2 + (i >> 1), depth - 1);
+				if (!r) { kids.length = 0; break; }
+				kids.push(...r);
+			}
+			if (kids.length) return kids;
+		}
+		const c = cache.get(`${z}/${x}/${y}`);
+		return c && c.status === "ready" ? [{ z, x, y }] : null;
+	}
+
 	// 距離LODで可視タイルを選定→ロード。ready なタイル列 { key, origin, z } を返す。
 	let stickySplit = null;   // 前回 update で分割された祖先ノード集合＝selectLOD のヒステリシス（境界の親⇔子振動を止める）
+	let selMaxZ = 0;          // 直近 update の「選択レベル」の最細 z（keepFine の子孫代打を除いた素の選抜）＝labels の近景窓の基準
 	function update(cam, W, H, opts) {
 		clock++;
 		const floorZ = lodFloor && cam.zoom >= lodFloor.minViewZoom ? lodFloor.z : 0;
@@ -87,6 +106,19 @@ export function createTileManager({ style, tileUrl, onChange, cap = 256, buildTi
 			let z = t.z, x = t.x, y = t.y;
 			while (z > 4) { z--; x >>= 1; y >>= 1; const k = `${z}/${x}/${y}`; if (stickySplit.has(k)) break; stickySplit.add(k); }
 		}
+		selMaxZ = selected.length ? Math.max(...selected.map(t => t.z)) : 0;
+		// keepFine＝ズームアウトの書き直し回避：常駐子孫（keepFine 段まで）で隙間なく覆える枠は親に差し替えず
+		// 子孫のまま描く＝描画キー集合が変わらない＝merge シグネチャ不変＝再結合ゼロ。親の ensure は従来どおり
+		// 走る（下で ensure(selected)）＝子孫が LRU 予算で消えた象限だけ、その時点で用意済みの親へ一度で交代する。
+		// 象限単位の再帰＝端の未訪問域は親のまま・訪問済みの中心だけ細かさが残る（全か無かにしない）。
+		let drawSel = selected;
+		if (opts?.keepFine) {
+			drawSel = [];
+			for (const t of selected) {
+				const cov = residentCover(t.z, t.x, t.y, opts.keepFine);
+				if (cov) drawSel.push(...cov); else drawSel.push(t);
+			}
+		}
 		// 粗い下地：3段低いズームで広く覆う。移動中の先端の空白を常に埋める underlay。
 		// lodFloor 有効時は下地も z8 で敷く（floorZ が強制分割・maxZ が上限開放）：z5-7 の下地は海（WA）を
 		// 持たないため、移動中に下地が顔を出す瞬間だけ海が紙色に白転してちらつく（実害はまさに下地側だった）。
@@ -95,7 +127,7 @@ export function createTileManager({ style, tileUrl, onChange, cap = 256, buildTi
 		// 毎段コールドフェッチで間に合わず白が出る。z4 固定なら1枚で22.5°＝数枚で日本全体、初回以降キャッシュ常駐
 		// ＝どんな引き方をしても床が必ず先に居る。W/H×3＝視野の3倍を先回り（外周の白露出も防ぐ）。
 		const blanket = selectLOD(cam, W * 3, H * 3, { maxZ: 4 });
-		const keep = new Set([...selected, ...coarse, ...blanket].map(keyOf));
+		const keep = new Set([...selected, ...drawSel, ...coarse, ...blanket].map(keyOf));   // drawSel（keepFine の子孫代打）も keep＝描画中の子孫を LRU に食わせない
 		for (const t of blanket) ensure(t);
 		for (const t of coarse) ensure(t);
 		for (const t of selected) ensure(t);
@@ -142,7 +174,7 @@ export function createTileManager({ style, tileUrl, onChange, cap = 256, buildTi
 		};
 		// 毛布は祖先フォールバックの「保険」でなく下地mergeに直接混ぜる（z昇順ソートで一番下に敷かれる）
 		// ＝ズームを引いた瞬間も画面全域に必ず一番粗い絵がある。真っ白は出ない。
-		return { order: ready(selected), coarseOrder: readyWithFallback([...blanket, ...coarse]), total: selected.length };
+		return { order: ready(drawSel), coarseOrder: readyWithFallback([...blanket, ...coarse]), total: selected.length };
 	}
 
 	// order の全タイルの op を style層(li)ごとに結合。origin(=cam.center)へ再ベースして精度確保。
@@ -212,7 +244,9 @@ export function createTileManager({ style, tileUrl, onChange, cap = 256, buildTi
 	function labels(order) {
 		if (!order.length) return [];
 		const maxZ = Math.max(...order.map(o => o.z));
-		const near = maxZ - 2;                 // 最細から2段以内＝近景
+		// 近景窓の基準は「選択レベル」（selMaxZ）＝keepFine の子孫代打で order に混ざる高zに引きずられて
+		// 窓が上がり、親のままの象限（選択レベル素のタイル）が無ラベル化するのを防ぐ。子孫は窓より上＝常に通る。
+		const near = (selMaxZ || maxZ) - 2;    // 最細から2段以内＝近景
 		const out = [], seen = new Set();
 		for (const { key, z } of order) {
 			if (z < near) continue;
