@@ -138,9 +138,12 @@ function fatalOverlay(title, detail, reload) {
 // webgl2=null 単独は非対応と断定できない：GPUプロセスのクラッシュ直後（OOM→contextlost の自動リロード直後）は
 // 対応ブラウザでも一時的に null を返す＝以前はここで「ブラウザ非対応」と誤診して行き止まりになっていた（M1実機で発生）。
 // → 復帰を10秒リトライ（クラッシュ直後は1〜数秒で戻る）。復帰すればそのまま起動続行、ダメなら環境向け案内＋再読み込み。
+let gpuRenderer = "";   // GPU 素性の文字列（下の MID_TIER 判定用）。probe の使い捨てコンテキストから同乗で頂く
 {
 	const probeGL = () => {
 		const g = document.createElement("canvas").getContext("webgl2");
+		const dbg = g?.getExtension("WEBGL_debug_renderer_info");   // 専用コンテキストは新設しない＝この判定用の1枚に相乗り
+		if (dbg) gpuRenderer = g.getParameter(dbg.UNMASKED_RENDERER_WEBGL) || "";
 		g?.getExtension("WEBGL_lose_context")?.loseContext();   // 判定用コンテキストは即返却（スロットを食い潰さない）
 		return !!g;
 	};
@@ -162,6 +165,27 @@ function fatalOverlay(title, detail, reload) {
 		}
 	}
 }
+// --- 非力デスクトップ・ティア（MID_TIER）：メモリ天井の低い機体を見抜いて PLATEAU の山を半分にする ---
+// 2026-08-03 実測：Windows10 / i7 / 16GB / 内蔵HD Graphics / HDD が、コールド（キャッシュ無し）の PLATEAU 表示で
+// タブごと落ちた。既定値（同時4区・常駐1.2GB・worker4本・worker内cache 2区/本）は Apple の 16GB ユニファイド機で
+// 調律したもので、コールド時のピークは 16GB 機で renderer 12.3GB という自前実測がある（下の bldCap のコメント）。
+// なぜ deviceMemory で見抜けないか：Chrome の deviceMemory は 8 が上限＝16GB機も64GB機も 8 を返す。
+// LOW_MEM（≤4GB＝スマホ帯）は素通りし、非力な 8〜16GB デスクトップだけが素の既定値を浴びる。
+// 代わりの signal＝GPU の素性：内蔵GPU（Apple 以外）は VRAM がシステムRAMの取り分＝PLATEAU の常駐・過渡と
+// 同じ財布を食う（Apple のユニファイドは同じ物理RAMでも OS がまとめて面倒を見る＝別枠扱いしない）。
+// 不明（文字列マスク環境）は現状維持側＝回帰を出さない。?mid=1 / ?mid=0 で手動上書き（実機A/Bの戻し口）。
+// もう一つの穴＝**RAM の多いスマホ**：LOW_MEM は deviceMemory ≤4 だけなので、8GB の Android（入門機でも
+// 「8GB+仮想4GB」を謳う機種が普通にある）は LOW_MEM を素通りして**デスクトップ扱い**になっていた
+// （4区・1.2GB・worker4本）。タブ予算はデスクトップより遥かに小さい＝最低でも非力機ティアへ落とす。
+// 判定は coarse ポインタ×タッチ＝スマホ/タブレット（タッチ対応ノートPCは主ポインタが fine ＝巻き込まない）。
+const MOBILE_UA = navigator.userAgentData?.mobile === true || (matchMedia("(pointer: coarse)").matches && navigator.maxTouchPoints > 1);
+const MID_TIER = /[?&]mid=1/.test(location.search) || (!/[?&]mid=0/.test(location.search) && !LOW_MEM && (
+	MOBILE_UA ||                                                            // RAM の多いスマホ/タブレット（LOW_MEM を素通りする層）
+	(navigator.hardwareConcurrency || 8) <= 4 ||                            // 4コア以下＝worker4本を養えない
+	(/\bintel\b/i.test(gpuRenderer) && !/\barc\b/i.test(gpuRenderer)) ||    // Intel HD/UHD/Iris/Xe＝内蔵（Arc は独立GPU＝対象外）
+	/\bvega\b|radeon\(tm\) graphics/i.test(gpuRenderer) ||                  // AMD APU の内蔵GPU
+	/swiftshader|llvmpipe|basic render/i.test(gpuRenderer)));               // ソフトウェアラスタ＝論外に非力
+if (MID_TIER) console.log(`[boot] 非力機ティア＝PLATEAU を安全側へ（gpu="${gpuRenderer || "不明"}" cores=${navigator.hardwareConcurrency || "?"}）`);
 // 通信断トースト：offline イベント＋タイル連続失敗で表示、回復（online/タイル成功）で消える。地図は粗い下地で生き続ける。
 const netEl = document.createElement("div");
 netEl.id = "net-toast";   // スタイルは style.css
@@ -218,6 +242,10 @@ const noGint = /[?&]nogint=1/.test(location.search);
 const perfLog = /[?&]perf=1/.test(location.search);
 // ?mem=1 ＝常駐メモリHUD（plateau＋tiles＋terrain を合算・走行後ピーク・4GB機予算まで残り）を画面右上に表示。過渡①は非表示。
 const memHud = /[?&]mem=1/.test(location.search);
+// ?drawhud=1 ＝描画実績HUD（実機用の計器）。「背景が黒くなる」瞬間に、塗りが何枚描かれたか・退場フラグ・
+// フェード進行・PLATEAUバッチ数を画面へ出す。塗り0枚なら CPU/状態側（シーンが空・退場）、
+// 枚数が出ているのに黒なら GPU 側＝二分の起点になる（Android 実機の反転 2026-08-03・USB接続なしで読める）。
+const drawHud = /[?&]drawhud=1/.test(location.search);
 let memTerrain = 0, memHeap = 0;   // render worker から届く terrain LRU バイトと JS ヒープ（?mem=1 時のみ更新）
 // 混成R01近景（高チルト山岳の細かい起伏）は全端末で既定ON（lowMem含む）。旧・lowMemはR10止まり（富士3Dのjetsam対策80170b8）
 // だったが、標高アトラスR16F化（GPU半減）＋iOS 4GB実機で peak 84MB・完走を実測して安全確認済み。
@@ -237,8 +265,18 @@ for (const t of ["gesturestart", "gesturechange", "gestureend"]) document.addEve
 // 最初から WebGL2 直結＝dynamic import もリレー迂回も発生しない＝従来と完全同一。落ち先の網は3枚：
 // ①worker内 adapter/初期化失敗→GL2 自動フォールバック ②present沈黙故障→oj.nogpu＋reload ③frame1 20秒→GL2再起動。
 // ?gl2=1＝手動逃げ道（強制GL2）。?gpu=1＝nogpu印を無視して再試行（診断用）。⚠Windows実機は未確認＝網の内側の残リスク。
+// 【Android は一律 GL2・2026-08-03 本人裁定】入門機実機で「遷移中に基図だけ黒く落ちる」（?gl2=1 は正常＝WebGPU 経路で
+// 確定・エラー無しの沈黙故障・Mac 再現せず）。外部調査＝Adreno/Mali の Vulkan には黒画面バグ族が多数記録され、
+// 最有力の正しさバグ（Adreno 830 の非決定的コマンド化け）は**2025年フラッグシップの報告**＝「高級機なら安全」は
+// 成り立たない。一方 GL2 に落として失うものは Android では計測上ない（WebGPU のメモリ優位は Apple 実機の実測・
+// スマホは画面が狭く classic merge でも体感差なしの裁定済み）。機種別 allowlist は検証手段が無く作らない＝一律。
+// iOS は非対称のまま WebGPU 既定（実機検証済み＋メモリ優位実測済み）。将来 Dawn が枯れたら ?gpu=1 で再評価
+//（?gpu=1 はこのゲートも突破する＝再評価の入口を残す）。⚠デスクトップモード偽装 UA は Android を名乗らない＝
+// 素通りするが、稀ケースかつ落ち網3枚の内側なので許容。
+const IS_ANDROID = /Android/.test(navigator.userAgent) || navigator.userAgentData?.platform === "Android";
 const forceGl2 = /[?&]gl2=1/.test(location.search);
-const gpuBackend = !forceGl2 && "gpu" in navigator && (/[?&]gpu=1/.test(location.search) || !sessionStorage.getItem("oj.nogpu"));
+const gpuBackend = !forceGl2 && "gpu" in navigator && (/[?&]gpu=1/.test(location.search) || (!IS_ANDROID && !sessionStorage.getItem("oj.nogpu")));
+if (IS_ANDROID && "gpu" in navigator && !gpuBackend && !forceGl2) console.log("[boot] Android＝WebGL2 既定（WebGPUはドライバ黒画面族のため封印・?gpu=1で再試行可）");
 // stay=1 の診断HUD：コンソールを見なくても分かるよう、判定を画面へ大書（iOS 実機診断 2026-08-02）
 const diagHud = /[?&]stay=1/.test(location.search) ? (() => {
 	const d = document.createElement("div");
@@ -272,7 +310,7 @@ const wPost = (msg, transfer) => {
 	}
 	ctrlChan.port1.postMessage(msg, transfer || []);
 };
-renderWorker.postMessage({ type: "init", ctrlPort: ctrlChan.port2, canvas: offscreen, labelCanvas: labelOffscreen, elevBase: TERR_EXAG / EARTH_M, terrainExag: TERR_EXAG, earthM: EARTH_M, apiUrl: "https://api.ortho-earth.com", scenePort: sceneChan.port2, noMultiDraw, perf: perfLog, mem: memHud, lowMem: LOW_MEM, noMixed: noMixedR01, gpu: gpuBackend, noTQ: /[?&]notq=1/.test(location.search), noGint: /[?&]nogint=1/.test(location.search), stay: /[?&]stay=1/.test(location.search), noTerr }, [ctrlChan.port2, offscreen, labelOffscreen, sceneChan.port2]);
+renderWorker.postMessage({ type: "init", ctrlPort: ctrlChan.port2, canvas: offscreen, labelCanvas: labelOffscreen, elevBase: TERR_EXAG / EARTH_M, terrainExag: TERR_EXAG, earthM: EARTH_M, apiUrl: "https://api.ortho-earth.com", scenePort: sceneChan.port2, noMultiDraw, perf: perfLog, mem: memHud, lowMem: LOW_MEM, noMixed: noMixedR01, gpu: gpuBackend, noTQ: /[?&]notq=1/.test(location.search), noGint: /[?&]nogint=1/.test(location.search), noFade: /[?&]nofade=1/.test(location.search), msaa1: /[?&]msaa=0/.test(location.search), drawHud: drawHud, stay: /[?&]stay=1/.test(location.search), noTerr }, [ctrlChan.port2, offscreen, labelOffscreen, sceneChan.port2]);
 // 薄いプロキシ：有線(関数呼び)を無線(postMessage)に載せ替え。set/draw 統一済なので pipeline/overlay は無改造。
 // draw は worker 側で「cam を記録するだけ」に受け、実描画は worker 自前 rAF が最新 cam で回す（worker-driven）。
 // 標高アトラス(terrain)も worker 側に住む＝main はもう視野→セル計算・ダウンサンプルを一切やらない。読込インジケータだけ elevPending で受ける。
@@ -388,6 +426,7 @@ renderWorker.onmessage = e => {
 		return;
 	}
 	if (d.type === "mem") { memTerrain = d.terrain || 0; memHeap = d.heap || 0; return; }   // ?mem=1：render worker からの terrain LRU バイト＋JSヒープ（HUD が合算表示）
+	if (d.type === "drawhud") { showDrawHud(d); return; }                                   // ?drawhud=1：直近フレームの描画実績を画面へ（実機計器）
 	if (d.type !== "elevPending") return;
 	const { count, range, stat } = d;
 	elevBusy = count > 0;   // 標高タイル読込中＝PLATEAU先読みポンプの柵（地形シーンの起伏が先・下記 runPrefetch）
@@ -451,11 +490,12 @@ if (LOW_MEM) console.log("[plateau] 低メモリ端末モード：同時2区・w
 // 同時アクティブ地区数の上限＝GPUメモリを有界にする（密集地区(都心部)1件あたりGPUバッファ~100-140MB）。
 // デスクトップは4区（計~0.5GB＝余裕内）＝高チルトで「手前の区＋正面の区」を同時に立てる。
 // 4はシェーダの被覆マスクスロット上限（glsl u_plateauMask0..3・renderer MAX_PLATEAU_MASKS）＝これ以上は基図建物を伏せられず二重に立つ。
-const PLATEAU_MAX_ACTIVE = qNum(/[?&]maxact=(\d+)/, LOW_MEM ? (gpuBackend ? 2 : 1) : 4);   // LOW_MEM=2区（千代田⇄中央カタカタ根治）。worker切離し済＝増えるのは常駐のみ(+1区~100-140MB)・過渡はbldCap据置で不変。
+const PLATEAU_MAX_ACTIVE = qNum(/[?&]maxact=(\d+)/, LOW_MEM ? (gpuBackend ? 2 : 1) : (MID_TIER ? 2 : 4));   // LOW_MEM=2区（千代田⇄中央カタカタ根治）。worker切離し済＝増えるのは常駐のみ(+1区~100-140MB)・過渡はbldCap据置で不変。
+                            // MID_TIER=2区＝内蔵GPU機はVRAMがシステムRAMの取り分＝4区(~0.5GB)が同じ財布から出る（Windows 16GB+HD の落ち・2026-08-03）
                             // GL2フォールバック時のLOW_MEMは1区＝WebGPUの無い旧iOS(XR級3GB)の②常駐天井を守る安全モード（XS=4GBは2でも実証済みだが端末RAMはiOSから検出不能＝低い方に合わせる。?maxact=2 が戻し口）
 // マスク無しセット（橋梁等 noMask:true）の同時数＝別枠。被覆マスクのシェーダスロット(4)を使わないので
 // 建物4区の構図を奪わずに載る。橋梁データは区あたり数MB〜数十MB＝建物より一桁軽い。
-const PLATEAU_EXTRA_ACTIVE = LOW_MEM ? 1 : 4;
+const PLATEAU_EXTRA_ACTIVE = LOW_MEM ? 1 : (MID_TIER ? 2 : 4);
 // GPU常駐（再訪の再アップロード根絶）：視野から外れた区は「削除」でなく「非表示(plateauVis)」＝VAOをVRAMに残す。
 // 再訪は vis:true を送るだけ＝100MB級の slice→transfer→bufferData が丸ごと消える（ズームアウト→戻るがタダに）。
 // 本当に削除するのは ①視野中心が区bboxから PLATEAU_FAR_DEG 超離れた時（完全に離れた＝当分戻らない扱い）
@@ -464,7 +504,8 @@ const PLATEAU_EXTRA_ACTIVE = LOW_MEM ? 1 : 4;
 // 数える上、テクスチャ付き都市は区あたり数百MB級＝区数では総量が読めない。GPUメモリOOM→context lost→自動リロード
 // →GPU未復帰でwebgl2 probe null＝「表示できません」誤診の連鎖（M1 16GB実機で発生）を、総量の物差しで元から断つ。
 // 実測（IDB #meta・都心notexture）：港141/新宿109/品川100/中央98MB…23区+川崎横浜の建物15セット計1.28GB。
-const PLATEAU_RESIDENT_BYTES = LOW_MEM ? 0 : 1.2e9;   // 非表示常駐まで含めた総予算。表示中(最大4+橋4)は退避対象外＝予算超過でも守る
+const PLATEAU_RESIDENT_BYTES = LOW_MEM ? 0 : (MID_TIER ? 0.5e9 : 1.2e9);   // 非表示常駐まで含めた総予算。表示中(最大4+橋4)は退避対象外＝予算超過でも守る
+                                                      // MID_TIER=0.5GB＝内蔵GPUは常駐がシステムRAMを直に削る（1.2GBは独立VRAM/ユニファイド前提の値）
 const PLATEAU_BYTES_FALLBACK = 200e6;                 // ack未着/不明時の安全側見積り（notexture実測最大141MB・texture都市はより大の想定）。橋梁(noMask)は一桁軽い
 const plateauBytes = new Map();                       // name → メッシュ実バイト（workerのackに同乗。セッション中は不変なので消さない）
 const bytesOf = (name, set) => plateauBytes.get(name) ?? (set?.noMask ? 20e6 : PLATEAU_BYTES_FALLBACK);
@@ -511,19 +552,23 @@ function plateauRetain(name, set) {   // 常駐登録＋LRU touch。予算超過
 // ⚠ LOW_MEM は worker 1本固定＝maxact と非連動。各 worker は loaders.gl(Draco wasm/3d-tiles) を丸ごと抱える＝起動ベースラインが重く、
 // maxact=2 で 2本に増やすと PLATEAU 描画前（2D段階）にタブ予算を超えて落ちた（8GB実機で実測 2026-07-30）。
 // bldCap=1 で同時デコードは1区ずつ＝worker 1本で maxact=2 の「表示2区」も順次達成できる（並行デコードは不要）。
-const PLATEAU_NW = LOW_MEM ? 1 : (Math.min(PLATEAU_MAX_ACTIVE, (navigator.hardwareConcurrency || 4) - 1) || 1);
+// MID_TIER は 2本上限＝各 worker が loaders.gl(Draco wasm/3d-tiles) を丸ごと抱える起動ベースラインが、
+// コールドの山にそのまま人数分加算されるため（8GB実機では 1→2 本でも 2D 段階で落ちた実測＝上のコメント）。
+const PLATEAU_NW = LOW_MEM ? 1 : (Math.min(MID_TIER ? 2 : PLATEAU_MAX_ACTIVE, (navigator.hardwareConcurrency || 4) - 1) || 1);
 const plateauWorkers = [], plateauPending = new Map();
+const plateauMemW = [];   // ?mem=1：worker index → {cache, live}＝HUD の「過渡」行（常駐台帳に乗らないRAM）
 let plateauReqId = 0;
 let plateauCamSent = 0;   // カメラ放送のスロットル（ロード中のみ~4Hz）
 for (let i = 0; plateauOn && i < PLATEAU_NW; i++) {   // plateau OFF＝workerを1本も起こさない
 	const w = new Worker(new URL("./plateauworker.js", import.meta.url), { type: "module" });
 	const meshChan = new MessageChannel();   // この worker → render worker のメッシュ直結パイプ
-	w.postMessage({ type: "init", meshPort: meshChan.port1, lowMem: LOW_MEM, noOpfs: /[?&]noopfs=1/.test(location.search) }, [meshChan.port1]);   // ?noopfs=1＝バッチ本体のOPFS置きを無効化（従来IDB）＝A/B・切り分け用
+	w.postMessage({ type: "init", meshPort: meshChan.port1, lowMem: LOW_MEM, mid: MID_TIER, mem: memHud, noOpfs: /[?&]noopfs=1/.test(location.search) }, [meshChan.port1]);   // ?noopfs=1＝バッチ本体のOPFS置きを無効化（従来IDB）＝A/B・切り分け用
 	wPost({ type: "plateauPort", port: meshChan.port2 }, [meshChan.port2]);
 	w.onmessage = e => {
 		if (e.data.prog) { plateauProg.set(e.data.prog.name, e.data.prog); renderPlateauProg(); return; }   // タイル/走査進捗（ネットワーク経路のみ）
 		if (e.data.type === "idbList") { plateauListPending.shift()?.(e.data.items); return; }              // データ管理モーダルの一覧応答
 		if (e.data.type === "idbDeleted") { plateauDeletePending.get(e.data.base)?.(e.data.n); plateauDeletePending.delete(e.data.base); return; }
+		if (e.data.type === "membytes") { plateauMemW[i] = e.data; return; }   // ?mem=1：この worker の過渡（内部cache＋ロード中の保持）バイト
 		const p = plateauPending.get(e.data.id); if (!p) return; plateauPending.delete(e.data.id);
 		if (p.name) { plateauProg.delete(p.name); renderPlateauProg(); }   // 完了/失敗どちらでも ack で消灯＝消し忘れが無い
 		if (e.data.bytes && p.name) plateauBytes.set(p.name, e.data.bytes);   // 実測メッシュバイト＝常駐バイト予算LRUの物差し
@@ -793,7 +838,7 @@ function autoPlateau(settled = false) {
 	// 建物(bldg)の同時 fast は2区まで＝4worker同時デコードの過渡メモリスパイク対策（実測：コールドIDBの
 	// デモPLATEAUシーンで renderer 12.3GB・計14.9GB＝16GB機のスワップ/GPU OOMの引き金。2区制限で山を半減）。
 	// 橋梁(noMask)は一桁軽いので素通し。デモ先読み中は枠を1つ譲る（先読み+auto2区=3区同時が「14G級」の残犯）。
-	const bldCap = Math.max(1, (LOW_MEM ? 1 : 2) - (plateauPrefetchBusy ? 1 : 0));
+	const bldCap = Math.max(1, (LOW_MEM || MID_TIER ? 1 : 2) - (plateauPrefetchBusy ? 1 : 0));   // MID_TIER=1区＝過渡の山（デコード中の全量保持）を非力機では重ねない
 	for (const h of hits) {
 		if (plateauActive.has(h.name)) continue;
 		if (plateauLoading.has(h.name)) {
@@ -2106,8 +2151,33 @@ function render() {
 // --- 統合スパイク：geopbf/e-Stat を overlay に描き、クリックで identify（実装は overlay.js）---
 const overlay = createOverlay({ renderer, cam, size, dpr, requestDraw: () => { needsDraw = true; } });
 window.__loadOverlay = overlay.loadOverlay;   // geopbf 名から（全球等）
-// ?mem=1：常駐メモリ台帳 HUD。plateau（表示＋常駐）＋tiles（tess）＋terrain（標高LRU）を合算し、走行後のピークと
-// 「4GB機の推定タブ予算(~0.9GB)まで残り」を右上に出す。過渡①デコードは台帳に乗らない＝別途コメント実測(~0.3GB/区)で補正する前提。
+// ?mem=1：メモリ台帳 HUD。plateau（表示＋常駐）＋tiles（tess）＋terrain（標高LRU）＋過渡（plateau worker が
+// RAM に抱えるぶん＝内部cache／ロード中の全量保持）を合算し、走行後のピークと「4GB機の推定タブ予算(~0.9GB)まで
+// 残り」を右上に出す。過渡は 2026-08-03 に追加＝Windows 16GB のコールド落ちが「常駐は予算内なのにピークで死ぬ」
+// 形だったため（台帳が常駐しか映さないと、犯人が画面に出ない）。Draco 解凍の中間バッファだけは今も台帳外。
+// ?drawhud=1：直近フレームの描画実績を実機の画面へ。USB接続やコンソールが要らない＝端末だけで二分できる。
+// 読み方：「背景が黒」の瞬間に **塗り(main/base)が 0 枚**なら CPU/状態側（シーンが空・退場フラグ）、
+// **枚数が出ているのに黒**なら GPU 側（描いたのに画素にならない）。赤字＝塗り0＝異常の目印。
+// hoisted 関数＝renderWorker.onmessage（上方）から呼ばれる。
+let drawHudEl = null;
+function showDrawHud(msg) {
+	if (!drawHud) return;
+	if (!drawHudEl) {
+		drawHudEl = document.createElement("div");
+		drawHudEl.style.cssText = "position:fixed;left:50%;top:6px;transform:translateX(-50%);z-index:99999;font:12px/1.5 ui-monospace,monospace;background:rgba(0,0,0,.78);color:#7ee787;padding:6px 10px;border-radius:6px;white-space:pre;pointer-events:none;text-align:left";
+		document.body.appendChild(drawHudEl);
+	}
+	const d = msg.d;
+	if (!d) { drawHudEl.textContent = `${msg.backend || "?"}：描画実績なし（このバックエンドは未計装）`; return; }
+	const fills = (d.baseFill || 0) + (d.mainFill || 0);
+	drawHudEl.style.color = fills ? "#7ee787" : "#ff7b72";   // 塗り0＝赤＝「背景が黒」の犯人が CPU 側である証拠
+	drawHudEl.textContent =
+		`${msg.backend}  z${d.zoom}  ${fills ? "" : "⚠ 塗り0枚"}\n` +
+		`塗り base ${d.baseFill} / main ${d.mainFill}\n` +
+		`線   base ${d.baseLine} / main ${d.mainLine}\n` +
+		`退場 skipMain=${d.skipMain ? 1 : 0} skipBase=${d.skipBase ? 1 : 0} fade=${(d.fadeK ?? 1).toFixed(2)}\n` +
+		`PLATEAU ${d.pl ?? 0}バッチ  深度=${d.terrainDepth ? "on" : "off"}`;
+}
 if (memHud) {
 	const memEl = document.createElement("div");
 	memEl.style.cssText = "position:fixed;top:8px;right:8px;z-index:99999;font:11px/1.45 ui-monospace,monospace;background:rgba(0,0,0,.72);color:#4ade80;padding:6px 9px;border-radius:5px;white-space:pre;pointer-events:none;text-align:right";
@@ -2119,15 +2189,21 @@ if (memHud) {
 		const names = new Set([...plateauActive.keys(), ...plateauResident.keys()]);
 		let plat = 0; for (const n of names) plat += bytesOf(n, plateauActive.get(n) || plateauResident.get(n));
 		const ts = tiles.stats();
-		const total = plat + ts.bytes + memTerrain;
+		// 過渡＝plateau worker が RAM に抱えているぶん（worker内cache＋ロード中の全量保持）。常駐台帳に乗らない
+		// のに実ピークの主役＝コールド落ちの犯人はここ（Windows 16GB 2026-08-03）。Draco 中間はさらに外側。
+		const trC = plateauMemW.reduce((s, m) => s + (m?.cache || 0), 0);
+		const trL = plateauMemW.reduce((s, m) => s + (m?.live || 0), 0);
+		const total = plat + ts.bytes + memTerrain + trC + trL;
 		if (total > peak) peak = total;
 		memEl.textContent =
 			`PLATEAU ${mb(plat)}MB（表示${plateauActive.size}区）\n` +
 			`tiles   ${mb(ts.bytes)} / ${mb(ts.budgetBytes)}MB\n` +
 			`terrain ${mb(memTerrain)}MB` + (memHeap ? `\nJS heap ${mb(memHeap)}MB` : ``) + `\n` +
-			`常駐計  ${mb(total)}MB（peak ${mb(peak)}）\n` +
-			`4GB予算 残 ${mb(BUDGET - peak)} / ${mb(BUDGET)}MB\n` +
-			`※過渡①は非表示（+~0.3GB/区）`;
+			`過渡    ${mb(trC + trL)}MB（cache ${mb(trC)}／読込中 ${mb(trL)}）\n` +
+			`合計    ${mb(total)}MB（peak ${mb(peak)}）\n` +
+			`4GB予算 残 ${mb(BUDGET - peak)} / ${mb(BUDGET)}MB` +
+			(MID_TIER ? `\n非力機ティア ON（${PLATEAU_MAX_ACTIVE}区/${(PLATEAU_RESIDENT_BYTES / 1e9).toFixed(1)}GB/w${PLATEAU_NW}）` : ``) + `\n` +
+			`※Draco解凍の中間は台帳外`;
 	}, 500);
 }
 window.__loadEstat = overlay.loadEstat;
