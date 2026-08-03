@@ -584,11 +584,19 @@ window.__plateauPurge = () => {
 	plateauWorkers.forEach(w => w.postMessage({ type: "purge" }));
 	for (const n of [...plateauResident.keys()]) if (!plateauActive.has(n)) plateauEvict(n);   // GPU常駐も非表示分は解放（表示中は残す）
 };
+// タイル読み順の錨＝「目の前」。真俯瞰は注視点（center）だが、チルト時は画面下端の接地点（foot）＝
+// 正射投影では画面下半分が数kmぶんの手前地面を占め、注視点中心のリング順だと**画面の主役（足元の街）が
+// 最後に立つ**（飯山 z15.75/63t 実測 2026-08-03「手前に何もない」）。区の選抜（autoPlateau の foot 優先）と
+// 同じ作法を、区内タイルのソート（plateauworker への camCenter／cam 放送）にも通す。foot が球外なら center。
+function plateauSortAnchor() {
+	const foot = cam.pitch > 0.35 ? unprojectXY(size.w / dpr / 2, size.h / dpr * 0.98) : null;
+	return foot ? [wrapLon(foot[0]), foot[1]] : [cam.center[0], cam.center[1]];
+}
 function workerLoadPlateau(base, tiles, name, wardBbox, brid) {
 	const id = ++plateauReqId, w = plateauWorkers[hashStr(base) % PLATEAU_NW];
 	// wardBbox＝区単位の被覆マスク座標系。camCenter＝バッチのカメラ近傍優先ソート（目の前から立ち始める）。
 	// brid＝橋梁モード：バッチ接地（桁が海面へ沈まない）＋両面描画（ケーブル等の開いた薄面が裏から消えない）。
-	w.postMessage({ id, base, tiles, name, wardBbox, brid: !!brid, camCenter: [cam.center[0], cam.center[1]] });
+	w.postMessage({ id, base, tiles, name, wardBbox, brid: !!brid, camCenter: plateauSortAnchor() });
 	return new Promise((resolve, reject) => plateauPending.set(id, { resolve, reject, name }));   // name＝進捗の消灯キー
 }
 // PLATEAU 読込進捗（左下）：地区別のバッチ進捗を1行に集計。ネットワーク経路（初回訪問）だけ表示され、
@@ -713,7 +721,7 @@ function plateauPreload(set) {   // プレロード＝IDBに貯めるだけ（�
 	// レーンは fast のまま（lowMem も）。slow（並行1本＋250ms間隔）を一度試したが、港区級（数百タイル）が
 	// デモ1周かかっても終わらない実測＝「故意に遅い」。lowMem の jetsam 余裕は BATCH_TILES=16・並行4・
 	// CACHE_MAX=0・クレジット送出で既に取ってある＝先読みは普通の速度で焼き、直列1区が帯域の上限を裁く。
-	w.postMessage({ id, base: set.base, name: set.name, wardBbox: set.noMask ? null : set.bbox, brid: !!set.noMask, camCenter: [cam.center[0], cam.center[1]], preload: true });
+	w.postMessage({ id, base: set.base, name: set.name, wardBbox: set.noMask ? null : set.bbox, brid: !!set.noMask, camCenter: plateauSortAnchor(), preload: true });
 	return new Promise((resolve, reject) => plateauPending.set(id, { resolve, reject, name: set.name }))
 		.catch(() => false).finally(() => plateauLoading.delete(set.name));
 }
@@ -781,8 +789,7 @@ function autoPlateau(settled = false) {
 	// ロード中があれば最新カメラを worker 群へ放送（~4Hz）＝バッチ境界の残タイル再ソートで「今見ている側」から立つ。
 	if (plateauLoading.size && performance.now() - plateauCamSent > 250) {
 		plateauCamSent = performance.now();
-		const c = [cam.center[0], cam.center[1]];
-		plateauWorkers.forEach(w => w.postMessage({ type: "cam", center: c }));
+		plateauWorkers.forEach(w => w.postMessage({ type: "cam", center: plateauSortAnchor() }));
 	}
 	// 真俯瞰（pitch<0.02＝show3d と同閾）は平面地図の世界＝建物3Dは描かれない＝PLATEAU を読み込まない
 	//（Kenji決定 2026-07-23「平面＋3D」：真俯瞰=筆界/ユーザー層、チルト=地形/建物）。傾けた瞬間の
