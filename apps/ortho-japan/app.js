@@ -459,6 +459,23 @@ const PLATEAU_AUTO_Z = qNum(/[?&]paz=(\d+(?:\.\d+)?)/, 15);   // これ以上寄
 // → WebGPU×非LOW_MEM 限定（GL2/低メモリ端末は従来どおりズームアウトで即非表示）。新規ロード発火は従来どおり AUTO_Z 以上のみ。
 // ?pazh=N＝保持を浅く戻す口（AUTO_Z−N で非表示・低ズームの頂点代が問題になった時の後退線。例 pazh=2）。
 const PLATEAU_HIDE_Z = (gpuBackend && !LOW_MEM) ? PLATEAU_AUTO_Z - qNum(/[?&]pazh=(\d+(?:\.\d+)?)/, Infinity) : PLATEAU_AUTO_Z;
+// ── 遠景far-DB＝「いつも描くDB」（本人裁定2026-08-04・閾値15m）：z15帯の建物の崖をPLATEAU抽出の軽量箱で埋める。
+// 実体は plateauworker（#far導出・プリズム生成）→ 既存plateauパイプに `${ward}#far` バッチで相乗り（マスク不参加）。
+// 可用性＝一度でも完走焼きした区だけ＝訪れるほど遠景が育つ（ambient/データ重力と同思想）。WebGPU×非LOW_MEM限定。
+const FAR_H = qNum(/[&?]farh=(\d+)/, 100);  // 高さ閾値(m)＝100m級＝純粋な超高層・ランドマークの星座（本人裁定2026-08-04「100で十分」・都内~600棟）。
+                                            // 15m案は都心区でほぼ全建物が通り数万箱＝メモリ爆上がりの轍→50m→実機比較で100に着地。?farh=Nで実験可
+const FAR_Z = 13;                           // 遠景箱の点灯下限ズーム（z15帯が見え始める辺り）
+const farShown = new Set();                 // 要求済み/表示中の区（active化で退場→再要求可に戻す）
+const farMissed = new Set();                // #far整備不能（完走焼き無し）＝farReadyが来るまで再要求しない
+// far育成キュー：#far無し(farMiss)の区は、焼きがあれば worker のfarBakeで「読むだけ導出」。1区ずつ直列＝
+// 視界いっぱいのfarMiss一斉発生でIDB/OPFS読みの山を作らない。育ったら farReady→autoFar が次のパスで点灯。
+const farBakeQ = []; const farBakeTried = new Set(); let farBaking = null;
+function farBakeNext() {
+	if (farBaking || !farBakeQ.length) return;
+	farBaking = farBakeQ.shift();
+	plateauWorkers[hashStr(farBaking.base) % PLATEAU_NW].postMessage({ type: "farBake", base: farBaking.base, ward: farBaking.name });
+}
+window.__farState = () => ({ shown: [...farShown], missed: [...farMissed], baking: farBaking?.name ?? null, q: farBakeQ.length, tried: [...farBakeTried] });   // デバッグ：遠景枠の現在地
 // LOW_MEM（低メモリ端末判定）はファイル冒頭で定義（renderWorker init にも渡すため）。
 if (LOW_MEM) console.log("[plateau] 低メモリ端末モード：同時2区・worker1本・キャッシュ無し");
 // 同時アクティブ地区数の上限＝GPUメモリを有界にする（密集地区(都心部)1件あたりGPUバッファ~100-140MB）。
@@ -501,7 +518,8 @@ function plateauHide(name) {   // 視野外れ＝非表示（GPU常駐は維持�
 }
 function plateauEvict(name) {  // 本削除＝GPUバッファ解放（遠方離脱/常駐上限超過だけがここへ来る）
 	plateauResident.delete(name);
-	renderer.set("plateauMesh", null, name);
+	renderer.set("plateauMesh", null, name);   // freePlateauWard の prefix 一致で `名前#far` の遠景箱も同時に手放す
+	farShown.delete(name);                     // 再訪時に autoFar が箱を再点灯できるように
 }
 function plateauRetain(name, set) {   // 常駐登録＋LRU touch。予算超過は最古の非表示区から追い出す（表示中/読込中は守る）
 	if (!PLATEAU_RESIDENT_BYTES) return;
@@ -531,10 +549,24 @@ let plateauCamSent = 0;   // カメラ放送のスロットル（ロード中の
 for (let i = 0; plateauOn && i < PLATEAU_NW; i++) {   // plateau OFF＝workerを1本も起こさない
 	const w = new Worker(new URL("./plateauworker.js", import.meta.url), { type: "module" });
 	const meshChan = new MessageChannel();   // この worker → render worker のメッシュ直結パイプ
-	w.postMessage({ type: "init", meshPort: meshChan.port1, lowMem: LOW_MEM, noOpfs: /[?&]noopfs=1/.test(location.search) }, [meshChan.port1]);   // ?noopfs=1＝バッチ本体のOPFS置きを無効化（従来IDB）＝A/B・切り分け用
+	w.postMessage({ type: "init", meshPort: meshChan.port1, lowMem: LOW_MEM, noOpfs: /[?&]noopfs=1/.test(location.search), farH: FAR_H }, [meshChan.port1]);   // ?noopfs=1＝バッチ本体のOPFS置きを無効化（従来IDB）＝A/B・切り分け用。farH＝遠景far-DBの高さ閾値
 	wPost({ type: "plateauPort", port: meshChan.port2 }, [meshChan.port2]);
 	w.onmessage = e => {
 		if (e.data.prog) { plateauProg.set(e.data.prog.name, e.data.prog); renderPlateauProg(); return; }   // タイル/走査進捗（ネットワーク経路のみ）
+		if (e.data.farMiss) {   // #far無し：焼きがあるかもしれない＝一度だけ育成を試す（perm=完走焼き無し＝実ロード完走待ち）
+			const n = e.data.farMiss.name;
+			farShown.delete(n); farMissed.add(n);   // 育成中/不能の間は再要求を止める（解除は farReady）
+			if (farBaking?.name === n) { farBaking = null; farBakeNext(); }   // 育成失敗の返信＝次の区へ
+			const s = !e.data.farMiss.perm && !farBakeTried.has(n) && PLATEAU_SETS.find(x => x.name === n);
+			if (s) { farBakeTried.add(n); farBakeQ.push({ base: s.base, name: n }); farBakeNext(); }
+			return;
+		}
+		if (e.data.farReady) {   // #farが育った（完走保存/育成どちらでも）＝点灯可
+			farMissed.delete(e.data.farReady.name);
+			if (farBaking?.name === e.data.farReady.name) { farBaking = null; farBakeNext(); }
+			if (!moving && !flying) autoPlateau(true);   // 静止シーンでも即点灯（onMoveが来ない＝この一突きが無いと次のカメラ操作まで立たない）
+			return;
+		}
 		if (e.data.type === "idbList") { plateauListPending.shift()?.(e.data.items); return; }              // データ管理モーダルの一覧応答
 		if (e.data.type === "idbDeleted") { plateauDeletePending.get(e.data.base)?.(e.data.n); plateauDeletePending.delete(e.data.base); return; }
 		const p = plateauPending.get(e.data.id); if (!p) return; plateauPending.delete(e.data.id);
@@ -717,10 +749,41 @@ const bboxIntersects = (a, b) => a[0] <= b[2] && a[2] >= b[0] && a[1] <= b[3] &&
 // - settled 時に現地点が未ロードなら優先度MAX＝視界に居ない在庫ロードを全キャンセルし帯域/CPUを明け渡す
 //   （現地点が揃っているなら在庫ロードは完走させる＝IDBが温まり無駄にならない）
 // 移動中(settled=false)は表示系のみ：常駐ヒットの即表示・視野外の非表示・カメラ放送（従来の体感は不変）。
+// 遠景far枠の選抜：視界に掛かる非active区の軽量箱を点灯・本物が立つ区は箱を退場（二重立ち回避）。
+// 常駐（VRAM保持）区は触らない＝本物のメッシュ/マスクの状態機械（autoPlateau）と競合させない。
+// z13未満/真俯瞰は消灯（本人裁定2026-08-04「流石の遠景もz13で辞めていい」）＝vis切替のみ＝GPU常駐保持・復帰はタダ。
+let farLit = true;
+function autoFar() {
+	if (!plateauOn || !gpuBackend || LOW_MEM || !PLATEAU_SETS.length) return;
+	if (cam.zoom < FAR_Z || (cam.pitch || 0) < 0.02) {
+		if (farLit) { for (const n of farShown) renderer.set("plateauVis", false, n + "#far"); farLit = false; }
+		return;
+	}
+	if (!farLit) { for (const n of farShown) renderer.set("plateauVis", true, n + "#far"); farLit = true; }
+	const view = approxViewBbox(cam);
+	for (const s of PLATEAU_SETS) {
+		if (s.noMask) continue;   // 橋梁等は遠景箱の対象外
+		if (plateauActive.has(s.name) || plateauLoading.has(s.name)) {
+			// 本物が立つ/来る区＝箱は退場（空メッシュ送信＝rendererが旧バッチを削除）。擬似ward `#far` なので
+			// 本物の hide/vis には一切触れない。常駐で隠れているだけの区は箱を出したまま（本物は暗いまま）
+			if (farShown.has(s.name)) {
+				renderer.set("plateauMesh", { pos: new Float32Array(0), nrm: new Int8Array(0), idx: new Uint32Array(0) }, s.name + "#far");
+				farShown.delete(s.name);
+			}
+			continue;
+		}
+		if (farShown.has(s.name) || farMissed.has(s.name)) continue;
+		if (!bboxIntersects(s.bbox, view)) continue;
+		farShown.add(s.name);
+		renderer.set("plateauVis", true, s.name + "#far");   // 冪等unhide＝evict後の残りhideフラグ/消灯帯で届いたバッチの両方を掃除
+		plateauWorkers[hashStr(s.base) % PLATEAU_NW].postMessage({ type: "far", base: s.base, ward: s.name });
+	}
+}
 function autoPlateau(settled = false) {
 	if (!plateauOn) return;   // 機能ごと停止（opts.plateau=false）
 	if (flying) return;   // フライト中は読み込みも解放もしない＝デコード/GPU転送が飛行アニメと帯域を取り合わない。着地の onMove で解禁
 	if (printHold) return;   // 印刷（平面図）撮影中＝印刷カメラで自動ロード/解放をしない（帯域と現ロード状態を乱さない）
+	autoFar();   // 遠景枠は本流のゲート（zoom/pitch/視界）と独立に毎パス選抜
 	// 「完全に離れた」常駐区の本削除：区bboxへの点距離が閾値超。ズームアウトだけでは落とさない＝同じ街への戻りはタダのまま。
 	for (const [name, s] of plateauResident) {
 		if (plateauActive.has(name) || plateauLoading.has(name)) continue;

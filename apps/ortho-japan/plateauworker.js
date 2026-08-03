@@ -16,6 +16,8 @@ let TILE_CONCURRENCY = 8;   // バッチ内のタイル並行fetch/デコード�
 let BATCH_TILES = 32;       // 1バッチのタイル数。小さいほど初表示が速く（＋デコード過渡メモリも比例減）、大きいほどdraw call/RTE origin数が減る。
                             // 64→32（2026-07-27）：デモ中「メモリ14G級」の実害＝過渡~2.5GB/区の半減を優先（バッチ数は倍＝描画影響は軽微）。
 const MASK_N = 256;           // 区単位の被覆マスク解像度（基図建物を伏せるセル）
+const FAR_VER = 2;            // 遠景far-DB（#far）の形式版。抽出方法を変えたら上げる＝次のロードで自然再導出。v2=頂点溶接（v1は三角形単位に退化＝83k箱/区の轍）
+let FAR_MIN_H = 100;          // far-DBの高さ閾値(m)＝100m級＝超高層ランドマークのみ（本人裁定2026-08-04「100で十分」・15m/50mは実機比較で却下）。init(farH)/?farh=Nで上書き
 const LOD_H = [0, 3, 6, 12, 24, 48];   // LOD段の高さ閾値(m)。renderer が「画面上1px未満の建物」を先頭countの打ち切りで捨てる
 const R2D = 180 / Math.PI;
 
@@ -405,6 +407,130 @@ function maskCellsOf(mesh, wardBbox) {
 	for (let i = 0; i < bm.length; i++) if (bm[i]) cells.push(i);
 	return cells.length ? Uint32Array.from(cells) : null;
 }
+// ── 遠景far-DB＝「いつも描くDB」の一般化（z15帯の建物の崖をPLATEAU抽出で埋める・本人裁定2026-08-04）──
+// 建物単位の箱 [lonMin,latMin,lonMax,latMax,hMax(m)] をメッシュから抽出。建物分割は idx の共有頂点
+// union-find（v3接地の連結成分と同じ考え）＝保存済み旧焼きメッシュからも導出できる（再焼き不要）。
+// 座標逆算は maskCellsOf と同じ world→経緯度（lonlatTo3D規約）。高さ＝海面半径からの相対(m)。
+function farBoxesOf(mesh) {
+	const pos = mesh.pos, o = mesh.origin, idx = mesh.idx;
+	if (!pos || !o || !idx) return [];
+	const n = pos.length / 3;
+	// 頂点溶接（0.5mグリッド）：Draco出力は建物内でも頂点非共有＝素のidx連結は三角形単位に退化する
+	//（実測v1＝中野83k箱/区・三角形を数えていた）。位置量子化で同一点を1ノードに束ねてから連結する。
+	const wq = 6371000 / 0.5;   // 単位球座標×wq ≈ 0.5m格子
+	const weld = new Int32Array(n);
+	{
+		const first = new Map();
+		for (let i = 0; i < n; i++) {
+			const k = Math.round(pos[i * 3] * wq) + "," + Math.round(pos[i * 3 + 1] * wq) + "," + Math.round(pos[i * 3 + 2] * wq);
+			const f = first.get(k);
+			if (f === undefined) { first.set(k, i); weld[i] = i; } else weld[i] = f;
+		}
+	}
+	const par = new Int32Array(n); for (let i = 0; i < n; i++) par[i] = i;
+	const find = i => { while (par[i] !== i) { par[i] = par[par[i]]; i = par[i]; } return i; };
+	for (let t = 0; t < idx.length; t += 3) {
+		const a = find(weld[idx[t]]), b = find(weld[idx[t + 1]]), c = find(weld[idx[t + 2]]);
+		if (b !== a) par[b] = a; if (c !== find(a)) par[find(c)] = find(a);
+	}
+	const R2Dg = 180 / Math.PI, EARTH = 6371000;
+	const comp = new Map();   // root → [lonMin,latMin,lonMax,latMax,hMax]
+	for (let i = 0; i < n; i++) {
+		const x = pos[i * 3] + o[0], y = pos[i * 3 + 1] + o[1], z = pos[i * 3 + 2] + o[2];
+		const r = Math.hypot(x, y, z) || 1;
+		const lat = Math.asin(Math.max(-1, Math.min(1, y / r))) * R2Dg, lon = Math.atan2(z, x) * R2Dg;
+		const h = (r - 1) * EARTH;
+		const k = find(weld[i]);   // ⚠素の find(i) は溶接された重複頂点が孤児成分になり箱を量産（145k/区の轍）
+		const b = comp.get(k);
+		if (!b) comp.set(k, [lon, lat, lon, lat, h]);
+		else {
+			if (lon < b[0]) b[0] = lon; if (lat < b[1]) b[1] = lat;
+			if (lon > b[2]) b[2] = lon; if (lat > b[3]) b[3] = lat;
+			if (h > b[4]) b[4] = h;
+		}
+	}
+	const out = [];
+	for (const b of comp.values()) if (b[4] >= FAR_MIN_H) out.push(b);
+	return out;
+}
+
+// far-DB配信：#far の箱群→プリズムメッシュを既存plateauパイプへ `${ward}#far` バッチとして相乗り。
+// マスク不参加（wardBbox=null）＝基図を伏せない（z15帯に基図建物は無い＝二重立ちは原理的に無い）。
+// twoSided=1＝巻き向き不問の両面描画（brid と同じパイプ変種）＝生成コードを単純に保つ。
+async function sendFar(base, ward) {
+	const idb = await idbReady; if (!idb) { self.postMessage({ farMiss: { name: ward } }); return; }
+	const far = await idb(base + "#far").catch(() => null);
+	if (!far?.boxes?.length || far.ver !== FAR_VER) { self.postMessage({ farMiss: { name: ward } }); return; }   // 版違い＝miss扱い→farBakeが新版で再導出
+	const boxes = far.boxes, nb = boxes.length / 5;
+	const D2Rg = Math.PI / 180, EARTH = 6371000;
+	const toW = (lon, lat, h) => { const a = lon * D2Rg, b = lat * D2Rg, cb = Math.cos(b), r = 1 + h / EARTH; return [cb * Math.cos(a) * r, Math.sin(b) * r, cb * Math.sin(a) * r]; };
+	// origin＝先頭箱の南西角（RTE-lite・f32精度の桁を戻す）
+	const org = toW(boxes[0], boxes[1], 0);
+	const pos = new Float32Array(nb * 20 * 3), nrm = new Int8Array(nb * 20 * 4), idxA = new Uint32Array(nb * 30);
+	let pi = 0, ni = 0, ii = 0, vbase = 0;
+	const bbox = [1e9, 1e9, -1e9, -1e9];
+	for (let b = 0; b < nb; b++) {
+		const lo0 = boxes[b * 5], la0 = boxes[b * 5 + 1], lo1 = boxes[b * 5 + 2], la1 = boxes[b * 5 + 3], H = boxes[b * 5 + 4];
+		if (lo0 < bbox[0]) bbox[0] = lo0; if (la0 < bbox[1]) bbox[1] = la0;
+		if (lo1 > bbox[2]) bbox[2] = lo1; if (la1 > bbox[3]) bbox[3] = la1;
+		const cl = (lo0 + lo1) / 2 * D2Rg, ct = (la0 + la1) / 2 * D2Rg;
+		const up = [Math.cos(ct) * Math.cos(cl), Math.sin(ct), Math.cos(ct) * Math.sin(cl)];
+		const east = [-Math.sin(cl), 0, Math.cos(cl)];
+		const north = [-Math.sin(ct) * Math.cos(cl), Math.cos(ct), -Math.sin(ct) * Math.sin(cl)];
+		// 4隅×(地上0/天端H)＝8点を先に作り、屋根1面＋壁4面（各4頂点・法線は面単位）
+		const c00 = [lo0, la0], c10 = [lo1, la0], c11 = [lo1, la1], c01 = [lo0, la1];
+		const faces = [
+			[[c00, H], [c10, H], [c11, H], [c01, H], up],                              // 屋根
+			[[c00, 0], [c10, 0], [c10, H], [c00, H], [-north[0], -north[1], -north[2]]],   // 南壁
+			[[c10, 0], [c11, 0], [c11, H], [c10, H], east],                            // 東壁
+			[[c11, 0], [c01, 0], [c01, H], [c11, H], north],                           // 北壁
+			[[c01, 0], [c00, 0], [c00, H], [c01, H], [-east[0], -east[1], -east[2]]],  // 西壁
+		];
+		for (const [p0, p1, p2, p3, nv] of faces) {
+			for (const [ll, h] of [p0, p1, p2, p3]) {
+				const w = toW(ll[0], ll[1], h);
+				pos[pi++] = w[0] - org[0]; pos[pi++] = w[1] - org[1]; pos[pi++] = w[2] - org[2];
+				nrm[ni++] = nv[0] * 127 | 0; nrm[ni++] = nv[1] * 127 | 0; nrm[ni++] = nv[2] * 127 | 0; ni++;
+			}
+			idxA[ii++] = vbase; idxA[ii++] = vbase + 1; idxA[ii++] = vbase + 2;
+			idxA[ii++] = vbase; idxA[ii++] = vbase + 2; idxA[ii++] = vbase + 3;
+			vbase += 4;
+		}
+	}
+	// 擬似ward `${ward}#far` として送出＝本物の区の hide/vis 状態機械と独立（常駐で隠れた区の上にも箱を出せる）。
+	// freePlateauWard(ward) の prefix 一致（`ward#`）には掛かる＝区evictで箱も同時に手放す。マスク不参加。
+	await takeCredit();
+	meshPort.postMessage(
+		{ name: `${ward}#far`, meshData: { pos, nrm, idx: idxA, origin: org, bbox, lodH: null, lodCounts: null, twoSided: 1, ward: `${ward}#far`, maskCells: null, maskN: 0, maskBbox: null } },
+		[pos.buffer, nrm.buffer, idxA.buffer]);
+	console.log(`[plateau] far点灯 ${ward} ${nb}棟`);
+}
+
+// far育成ジョブ：#far が無い区を、IDB/OPFSの完走焼きから「読むだけ」で導出（表示に送らない・クレジット不使用）。
+// 主要区が「更新後に再訪するまで遠景に立たない」育ち待ちを埋める。main が farMiss を受けて1区ずつ直列に依頼。
+// 完走焼きが無い区は perm:true＝育てられない（ネットワークからは読まない＝帯域を奪わない。次の実ロード完走が育てる）。
+async function farBake(base, ward) {
+	const idb = await idbReady; if (!idb) { self.postMessage({ farMiss: { name: ward, perm: true } }); return; }
+	const stored = await idb(base + "#far").catch(() => null);
+	if (stored?.ver === FAR_VER && stored.h === FAR_MIN_H) { self.postMessage({ farReady: { name: ward } }); return; }
+	await fsReady;
+	const meta = await loadMeta(base, false);
+	if (!meta || meta.partial) { self.postMessage({ farMiss: { name: ward, perm: true } }); return; }
+	const acc = [];
+	for (let i = 0; i < meta.count; i++) {
+		const mesh = await readStored(base, meta.fs, i);   // 1バッチずつ 読む→導出→手放す（滞留させない）
+		if (!mesh?.pos) { self.postMessage({ farMiss: { name: ward, perm: true } }); return; }
+		acc.push(...farBoxesOf(mesh));
+	}
+	const flat = new Float32Array(acc.length * 5);
+	acc.forEach((b, i) => flat.set(b, i * 5));
+	try {
+		await idb(base + "#far", { ver: FAR_VER, h: FAR_MIN_H, boxes: flat, ward, ts: Date.now() });
+		console.log(`[plateau] far育成 ${ward} ${acc.length}棟（焼きから導出）`);
+		self.postMessage({ farReady: { name: ward } });
+	} catch { self.postMessage({ farMiss: { name: ward, perm: true } }); }
+}
+
 // wardMask 引数は未使用（旧・全量スナップショット送出の名残＝呼び出し側の引数順を保つため残置）。
 // マスクは maskCells（このバッチの断片）だけを送る＝renderer 側が届いた分だけOR合成（隙間根治の本体）。
 async function sendBatch(ward, bi, mesh, wardMask, wardBbox, own = false) {
@@ -555,6 +681,23 @@ async function loadPlateau(base, tiles, ward, wardBbox, camCenter, preload = fal
 		return true;
 	}
 	await fsReady;   // OPFS の可否が確定してから台帳を検分（init 直後の初回ロードとの競争を断つ）
+	// ── far-DB導出の要否（裁定2026-08-04＝復元時にも導出・再焼き不要）：#far が無い/形式・閾値が変わった時だけ、
+	// このロードのついでに各バッチへ farBoxesOf を掛けて累積し、全バッチを本体込みで見られた場合のみ保存 ──
+	const idbF = await idbReady;
+	const farStored = (!brid && wardBbox && idbF) ? await idbF(base + "#far").catch(() => null) : null;
+	let farAcc = (!brid && wardBbox && idbF && (!farStored || farStored.ver !== FAR_VER || farStored.h !== FAR_MIN_H)) ? [] : null;
+	let farOk = true;   // headerOnly読み等で本体を見ていないバッチがあれば false＝保存しない（次の完全パスが受ける）
+	const farSave = async (label) => {
+		if (!farAcc || !farOk) return;
+		const flat = new Float32Array(farAcc.length * 5);
+		farAcc.forEach((b, i) => flat.set(b, i * 5));
+		try {
+			await idbF(base + "#far", { ver: FAR_VER, h: FAR_MIN_H, boxes: flat, ward, ts: Date.now() });
+			console.log(`[plateau] far-DB保存 ${ward} ${farAcc.length}棟 (${label})`);
+			self.postMessage({ farReady: { name: ward } });   // main が farMissed を解除＝次の選抜で点灯
+		} catch { /* 保存失敗＝次のロードが再試行 */ }
+		farAcc = null;
+	};
 	// ── 完全焼きのストリーミング復元：1バッチ 読む→送る→手放す（区全量をRAMに積まない＝温読了時ピークの根治）──
 	// 滞留はクレジット（CREDIT_MAX×バッチ）で頭打ち。欠け（並行退避等）はそこで打ち切り→下の部分再開が差分で受ける。
 	const whole = await loadMeta(base, brid);
@@ -567,11 +710,13 @@ async function loadPlateau(base, tiles, ward, wardBbox, camCenter, preload = fal
 			for (; bi < whole.count; bi++) {
 				const mesh = await readStored(base, whole.fs, bi);
 				if (!mesh) break;
+				if (farAcc) farAcc.push(...farBoxesOf(mesh));   // transferで手放す前に導出（旧焼き→#far の育成）
 				if (keep) keep.push(mesh);
 				await sendBatch(ward, bi, mesh, whole.mask ?? null, whole.wardBbox ?? null, !keep);   // !keep＝transferで手放す
 			}
 			if (bi === whole.count) {
 				console.log("[plateau] 焼き命中（streaming復元・fetch/解凍/変換スキップ）", base, `(${whole.count} batches)`);
+				farSave("復元");   // 待たない＝表示経路を塞がない
 				touchMeta(base, whole);
 				if (keep) {
 					cache.set(base, { batches: keep, mask: whole.mask ?? null, wardBbox: whole.wardBbox ?? null });
@@ -625,6 +770,7 @@ async function loadPlateau(base, tiles, ward, wardBbox, camCenter, preload = fal
 			const headerOnly = preload || laneOf() !== "fast";
 			const mesh = await readStored(base, wardFs, bi, headerOnly);
 			if (!mesh?.tiles) break;   // 欠け/旧形式＝ここまでを土台に（以降のタイルは差分fetch）
+			if (farAcc) { if (mesh.pos) farAcc.push(...farBoxesOf(mesh)); else farOk = false; }   // ヘッダ読み＝本体未見＝このパスでは#far保存しない
 			for (const u of mesh.tiles) doneTiles.add(u);
 			idbBytes += batchBytes([mesh]) || mesh.bytes || 0;   // headerOnly(OPFS)はファイルサイズ代用＝台帳の物差しを保つ
 			batchCount++;
@@ -690,6 +836,7 @@ async function loadPlateau(base, tiles, ward, wardBbox, camCenter, preload = fal
 		const mesh = await decodeBatch(base, slice, wardMask, wardBbox, () => prog({ done: ++tilesDone, total: totalTiles }), brid, stop, laneOf);
 		if (stop()) { console.log("[plateau] キャンセル（視野離脱・部分バッチ破棄）", ward); return "cancelled"; }   // 中断バッチは歯抜け＝送らない
 		if (!mesh) continue;
+		if (farAcc) farAcc.push(...farBoxesOf(mesh));   // 新規デコード分もfar-DBへ累積（flushのtransferより前）
 		const bi = batchCount++;
 		const tris = mesh.idx.length / 3;   // ログ用に先へ退避（下の flush が transfer で手放すと detached＝0 に見える）
 		await putBatch(bi, mesh, slice.map(t => t.uri));   // 失敗タイルも消費扱い＝完走時と同じ「歯抜けは再訪しない」規約
@@ -707,6 +854,7 @@ async function loadPlateau(base, tiles, ward, wardBbox, camCenter, preload = fal
 		if (cache.size > CACHE_MAX) cache.delete(cache.keys().next().value);   // LRU: 最古を退避
 	}
 	console.log("[plateau] 完了", base, `(${batchCount} batches)`);
+	await farSave("完走");   // 全バッチ本体を見た時だけ中身がある（farOk）。数十KB＝一瞬
 	// 完成印＝partial を外した meta（バッチ本体は逐次書き済み）＋LRU退避・孤児掃除。表示経路は待たせない。
 	const storing = (async () => {
 		const idb = await idbReady; if (!idb || idbFail) return;   // idbFail＝部分metaのまま残す（次回再開が続きを試す）
@@ -730,6 +878,7 @@ self.onmessage = async (e) => {
 		meshPort = e.data.meshPort;
 		meshPort.onmessage = ev => { if (ev.data && ev.data.drained) onDrained(); };   // render worker の消化ack＝クレジット返却
 		initFs(e.data.noOpfs);   // バッチ本体の置き場（OPFS可否の確定は fsReady。ロード側が await して待つ）
+		if (e.data.farH > 0) FAR_MIN_H = e.data.farH;   // 遠景far-DBの高さ閾値（?farh=N・既定15m）
 		if (e.data.lowMem) { CACHE_MAX = 0; BATCH_TILES = 8; TILE_CONCURRENCY = 4; }   // 低メモリ端末＝worker内キャッシュなし（区一式の常駐がタブ落ちの下駄になる。再訪はIDB）＋バッチ8タイル＝デコード過渡・IDBレコード（1書込のcommitバースト）・送信ペイロードの粒度を半減（Kenji指定 2026-07-29「IDB書き込みの粒度を下げる」。draw call 増は LOW_MEM=同時1区で相殺）
 		return;
 	}
@@ -737,6 +886,8 @@ self.onmessage = async (e) => {
 	if (e.data.type === "demote")  { lane.set(e.data.base, "slow"); return; }          // 視界外の在庫化＝slow lane（並行1・送信保留）
 	if (e.data.type === "promote") { lane.set(e.data.base, "fast"); cancelled.delete(e.data.base); return; }   // 再訪＝キャンセル旗を降ろして即再開（メモリ上のバッチから続行）＋fast 復帰。既に降りた後なら無害（main が改めて読み直す）
 	if (e.data.type === "cam")     { latestCam = e.data.center; return; }              // 動的再ソート用の最新カメラ（バッチ境界で反映）
+	if (e.data.type === "far")     { sendFar(e.data.base, e.data.ward); return; }      // 遠景far-DB点灯要求（#far無し＝farMiss返信）
+	if (e.data.type === "farBake") { farBake(e.data.base, e.data.ward); return; }      // far育成＝完走焼きから#farだけ導出（表示しない）
 	if (e.data.type === "purge") { cache.clear(); await fsReady; const n = await idbPurge(); console.log("[plateau] キャッシュ全消去", n, "records"); return; }
 	if (e.data.type === "idbList") {   // データ管理モーダル用：IDBのメタ一覧（全workerが同一DBを見る＝どの1本に聞いてもよい）
 		const idb = await idbReady, items = [];
