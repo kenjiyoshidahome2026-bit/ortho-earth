@@ -585,9 +585,13 @@ async function sendBatch(ward, bi, mesh, wardMask, wardBbox, own = false) {
 }
 
 const cache = new Map();   // base URL → { batches, mask, wardBbox }（このworker内のみ有効。再訪はfetch/Draco解凍を丸ごと省略）
-let CACHE_MAX = 2;         // 1区あたり~100-160MB（typed array一式）＝無上限だと多区巡回でメモリが積み上がる。LRUで直近2区に制限
-                           // （workerは同時4本＝プール全体で最大8区~1GB。同区は base ハッシュで毎回同じ worker＝ヒット率は落ちない）。
-                           // 低メモリ端末（init の lowMem）は1区＝スマホのタブ強制終了対策。再訪はIDBが受けるので体感は数秒差
+let CACHE_MAX = 1;         // 1区あたり~100-160MB（typed array一式）＝無上限だと多区巡回でメモリが積み上がる。LRUで直近1区に制限
+                           // （workerは複数本＝プール全体では ×本数。同区は base ハッシュで毎回同じ worker＝ヒット率は落ちない）。
+                           // 【2→1・2026-08-03】この RAM キャッシュは OPFS 二層化（916d180）より前の設計で、当時は再訪＝IDB全読み
+                           // だったから2区抱える価値があった。今の再訪は OPFS のストリーミング復元（読む→送る→手放す）＝
+                           // 数秒差でしかないのに、worker 4本×2区＝最大8区~1GB が GPU常駐(1.2GB)・OPFS と三重化していた。
+                           // ⚠この cache を持つと ロード中も keep[] に区の全量を積む＝コールド時ピークの主因（下の keep 参照）。
+                           // 低メモリ端末（lowMem）と非力機（mid）は 0＝抱えない。再訪は OPFS が受ける
 
 // 永続キャッシュ：GPU直行形式（pos/nrm/idx＋マスク）を区単位で保存＝ページ再読込・再起動後も
 // fetch/Draco解凍/座標変換を丸ごと飛ばして数秒で復元（geopbf の PBF+GINT キャッシュと同じ発想）。
@@ -650,6 +654,18 @@ const touchMeta = async (base, meta) => { const idb = await idbReady; idb && idb
 // メッシュ typed array の合計バイト＝GPU頂点バッファ量のほぼ等身大の proxy（rendererはこれをbufferDataで上げる）。
 // IDBの容量表示と、main の GPU常駐バイト予算LRU（ackに同乗）の両方がこの一つの物差しを使う。
 const batchBytes = batches => batches.reduce((s, b) => s + Object.values(b).reduce((t, v) => t + (ArrayBuffer.isView(v) ? v.byteLength : 0), 0), 0);
+// 区のメッシュ実バイト（cache に居なくても覚えておく）＝main の GPU常駐バイト予算LRU の物差し。
+// cache を持たない構成（lowMem/mid）でも 200MB の保守見積り（PLATEAU_BYTES_FALLBACK）でなく実測が返る。
+const meshBytes = new Map();
+// ?mem=1：過渡メモリの実測を main へ。HUDの常駐台帳（GPU常駐＋タイル＋標高）に乗らないのは
+// ①この worker 内 cache ②ロード中に keep[] が抱える区の全量 ③保存失敗時の pending — の3つ。
+// 既定は memOn=false＝postMessage も加算も一切走らない（計測コストゼロ）。
+let memOn = false;
+const memLive = new Map();   // base → 進行中ロードが RAM に抱えているバイト（完了/中断で消す）
+const cacheBytes = () => [...cache.values()].reduce((s, c) => s + batchBytes(c.batches.filter(Boolean)), 0);
+const memReport = () => { if (memOn) self.postMessage({ type: "membytes", cache: cacheBytes(), live: [...memLive.values()].reduce((a, b) => a + b, 0) }); };
+const memAdd = (base, b) => { if (memOn && b) { memLive.set(base, (memLive.get(base) || 0) + b); memReport(); } };
+const memDone = base => { if (memOn && memLive.delete(base)) memReport(); };
 // LRU退避＋孤児掃除。keepBase＝いま書いている区（退避対象にしない＝budget が極端に小さい環境でも自己破壊しない）。
 // force＝QuotaExceeded からの緊急退避（budget を待たず最古1区を落とす）。
 // 孤児＝meta の無い base の `#i` 残骸（書き途中のクラッシュ/旧quota失敗の遺物）。台帳（meta の bytes 合計）に
@@ -752,16 +768,18 @@ async function loadPlateau(base, tiles, ward, wardBbox, camCenter, preload = fal
 				const mesh = await readStored(base, whole.fs, bi);
 				if (!mesh) break;
 				if (farAcc) farAcc.push(...farBoxesOf(mesh));   // transferで手放す前に導出（旧焼き→#far の育成）
-				if (keep) keep.push(mesh);
+				if (keep) { keep.push(mesh); memAdd(base, batchBytes([mesh])); }
 				await sendBatch(ward, bi, mesh, whole.mask ?? null, whole.wardBbox ?? null, !keep);   // !keep＝transferで手放す
 			}
 			if (bi === whole.count) {
 				console.log("[plateau] 焼き命中（streaming復元・fetch/解凍/変換スキップ）", base, `(${whole.count} batches)`);
 				farSave("復元");   // 待たない＝表示経路を塞がない
 				touchMeta(base, whole);
+				meshBytes.set(base, whole.bytes || batchBytes(keep || []));   // 常駐LRUの物差し（cache 不在構成でも実測を返す）
 				if (keep) {
 					cache.set(base, { batches: keep, mask: whole.mask ?? null, wardBbox: whole.wardBbox ?? null });
 					if (cache.size > CACHE_MAX) cache.delete(cache.keys().next().value);
+					memReport();
 				}
 				return true;
 			}
@@ -799,8 +817,8 @@ async function loadPlateau(base, tiles, ward, wardBbox, camCenter, preload = fal
 			if (!m && sentCount === justIdx) m = justMesh;
 			if (!m) m = await readStored(base, wardFs, sentCount);
 			if (!m) { console.warn("[plateau] 送出欠け（保存失敗区間）", ward, sentCount); break; }
-			if (keep) keep[sentCount] = m;   // 再読ぶんの穴埋め＝完走時の cache 一式を揃える
-			pending.delete(sentCount);
+			if (keep && keep[sentCount] !== m) { keep[sentCount] = m; memAdd(base, batchBytes([m])); }   // 再読ぶんの穴埋め＝完走時の cache 一式を揃える（!==＝既に居る物の再代入は台帳に二重計上しない）
+			if (pending.delete(sentCount)) memAdd(base, -batchBytes([m]));   // RAM在庫を送り切った＝過渡から降りる（transfer前に数える＝送った後は detached で 0）
 			await sendBatch(ward, sentCount, m, wardMask, wardBbox, !keep);   // !keep＝transferで手放す（以後 m は触らない）
 			sentCount++;
 		}
@@ -815,7 +833,7 @@ async function loadPlateau(base, tiles, ward, wardBbox, camCenter, preload = fal
 			for (const u of mesh.tiles) doneTiles.add(u);
 			idbBytes += batchBytes([mesh]) || mesh.bytes || 0;   // headerOnly(OPFS)はファイルサイズ代用＝台帳の物差しを保つ
 			batchCount++;
-			if (keep && !headerOnly) keep[bi] = mesh;
+			if (keep && !headerOnly) { keep[bi] = mesh; memAdd(base, batchBytes([mesh])); }
 			if (!preload) await flush(false, bi, headerOnly ? null : mesh);
 		}
 		if (batchCount) console.log("[plateau] 部分再開", base, `(${batchCount} batches・${doneTiles.size} tiles 済)`);
@@ -883,16 +901,19 @@ async function loadPlateau(base, tiles, ward, wardBbox, camCenter, preload = fal
 		await putBatch(bi, mesh, slice.map(t => t.uri));   // 失敗タイルも消費扱い＝完走時と同じ「歯抜けは再訪しない」規約
 		if (keep) keep[bi] = mesh;
 		else if (idbFail) pending.set(bi, mesh);   // 書けない環境の在庫だけRAM退避（書けた分は保存が再送を受ける）
+		if (keep || idbFail) memAdd(base, batchBytes([mesh]));
 		// fast lane のみ即送信（slow＝在庫化中は保留。promote で fast に戻った瞬間このバックログ送出が追いつく）
 		if (!preload) await flush(false, bi, mesh);
 		console.log(`[plateau] batch ${batchCount} (${totalTiles - remaining.length}/${totalTiles} tiles) tris=${tris}${laneOf() === "slow" ? " [slow]" : ""}`);
 	}
 	if (!batchCount) return false;   // 葉0枚/全バッチ失敗＝空データ。警告は main 側で一回だけ（廃止区の残骸等）
+	meshBytes.set(base, idbBytes || batchBytes((keep || []).filter(Boolean)));   // 常駐LRUの物差し（cache 不在構成でも実測を返す）
 	// slow のまま完走した分も含め、未送信バックログを送り切る＝GPUに全量が揃う（main は "demoted" を受けて非表示常駐へ）。
 	if (!preload) await flush(true);
 	if (CACHE_MAX && keep && keep.filter(Boolean).length === batchCount) {   // 穴あり（送出欠け・preloadのヘッダ読み等）は cache しない＝再訪は保存が受ける。filter＝疎配列の穴を every が素通りする罠を避ける
 		cache.set(base, { batches: keep, mask: wardMask, wardBbox });   // デコード結果をこのworker内に保持＝再訪でfetch/Draco解凍を丸ごと省略
 		if (cache.size > CACHE_MAX) cache.delete(cache.keys().next().value);   // LRU: 最古を退避
+		memReport();
 	}
 	console.log("[plateau] 完了", base, `(${batchCount} batches)`);
 	await farSave("完走");   // 全バッチ本体を見た時だけ中身がある（farOk）。数十KB＝一瞬
@@ -919,7 +940,9 @@ self.onmessage = async (e) => {
 		meshPort = e.data.meshPort;
 		meshPort.onmessage = ev => { if (ev.data && ev.data.drained) onDrained(); };   // render worker の消化ack＝クレジット返却
 		initFs(e.data.noOpfs);   // バッチ本体の置き場（OPFS可否の確定は fsReady。ロード側が await して待つ）
-		if (e.data.farH > 0) FAR_MIN_H = e.data.farH;   // 遠景far-DBの高さ閾値（?farh=N・既定15m）
+		if (e.data.farH > 0) FAR_MIN_H = e.data.farH;   // 遠景far-DBの高さ閾値（?farh=N・既定200m）
+		memOn = !!e.data.mem;   // ?mem=1＝過渡バイトの報告を有効化（既定は完全無音＝計測コストゼロ）
+		if (e.data.mid) CACHE_MAX = 0;   // 非力機（内蔵GPU/低コア）＝worker内キャッシュなし＝ロード中の全量保持(keep)も同時に消える（送ったら手放す）。再訪はOPFS
 		if (e.data.lowMem) { CACHE_MAX = 0; BATCH_TILES = 8; TILE_CONCURRENCY = 4; }   // 低メモリ端末＝worker内キャッシュなし（区一式の常駐がタブ落ちの下駄になる。再訪はIDB）＋バッチ8タイル＝デコード過渡・IDBレコード（1書込のcommitバースト）・送信ペイロードの粒度を半減（Kenji指定 2026-07-29「IDB書き込みの粒度を下げる」。draw call 増は LOW_MEM=同時1区で相殺）
 		return;
 	}
@@ -966,10 +989,12 @@ self.onmessage = async (e) => {
 		let ok = await ent.p;
 		// プレロード進行中に表示要求が合流した場合、合流先は描画へ送っていない＝完了後に改めて（キャッシュ命中＝即）送る。
 		if (ok === true && ent.preload && !preload) ok = await loadPlateau(base, tiles, name, wardBbox, camCenter, false, !!brid);
-		// bytes＝この区のメッシュ実バイト（成功時は3経路とも cache に居る）。main のGPU常駐バイト予算LRUの実測値。
-		// 低メモリ端末(CACHE_MAX=0)は cache 不在＝0 → main側も常駐なしなので使われない。
-		self.postMessage({ id, ok, bytes: cache.has(base) ? batchBytes(cache.get(base).batches) : 0 });
+		// bytes＝この区のメッシュ実バイト＝main のGPU常駐バイト予算LRUの物差し。cache 命中時はその実体から、
+		// cache を持たない構成（lowMem/mid）は meshBytes の記録から返す（0を返すと main は 200MB の保守見積りに落ちる）。
+		self.postMessage({ id, ok, bytes: cache.has(base) ? batchBytes(cache.get(base).batches) : (meshBytes.get(base) || 0) });
 	} catch (err) {
 		self.postMessage({ id, ok: false, error: err.message });
+	} finally {
+		memDone(base);   // ?mem=1：この区の過渡（keep/pending）は完了・中断とも手を離れた
 	}
 };

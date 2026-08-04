@@ -61,7 +61,7 @@ export function createGintLayerGPU(host, { requestDraw } = {}) {
 	};
 	const DS = "depth24plus-stencil8";   // renderer と共有する深度・ステンシル
 	const keepDS = { format: DS, depthWriteEnabled: false, depthCompare: "always" };
-	const pipe = (mod, vs, fs, { ds = keepDS, blend = SBLEND, writeMask, samples = 4, fmt = format } = {}) =>
+	const pipe = (mod, vs, fs, { ds = keepDS, blend = SBLEND, writeMask, samples = host.samples || 4, fmt = format } = {}) =>   // 既定＝renderer の MSAA 段数（?msaa=0＝1x に追随）
 		device.createRenderPipeline({
 			layout,
 			vertex: { module: mod, entryPoint: vs },
@@ -105,7 +105,7 @@ export function createGintLayerGPU(host, { requestDraw } = {}) {
 		layout: device.createPipelineLayout({ bindGroupLayouts: [bglIdResolve] }),
 		vertex: { module: idResolveMod, entryPoint: "vs" },
 		fragment: { module: idResolveMod, entryPoint: "fs", targets: [{ format, blend: SBLEND }] },
-		primitive: { topology: "triangle-list" }, depthStencil: keepDS, multisample: { count: 4 },
+		primitive: { topology: "triangle-list" }, depthStencil: keepDS, multisample: { count: host.samples || 4 },   // main パスへ描く＝renderer の段数に追随（?msaa=0）
 	});
 
 	// ── UBO（GF 4スロット＝(rank, rank0)×(pivot有効, 境界メタ=単一要・カリング無効)・GP 役割別・style表）──

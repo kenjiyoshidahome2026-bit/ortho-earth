@@ -60,8 +60,13 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 	const ctx = canvas.getContext("webgpu");
 	if (!ctx) throw new Error("webgpu context unavailable");
 	const format = navigator.gpu.getPreferredCanvasFormat();
-	// COPY_SRC＝snapshot（shot/print）が resolve 済みの canvas テクスチャを copyTextureToBuffer で読む
-	ctx.configure({ device, format, alphaMode: "premultiplied", usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC });
+	// COPY_SRC＝snapshot（shot/print）が resolve 済みの canvas テクスチャを copyTextureToBuffer で読む。
+	// alphaMode:"opaque"＝**キャンバスのα channel を合成に使わせない**（既定値でもある）。地図は画面全面を
+	// 不透明に塗る＝αは常に1のはずで、premultiplied との差はゼロ……**αが1でない端末を除けば**。
+	// αがどこかで落ちると、透けた先はページ背景 #0b1021（起動スプラッシュの紺）＝画面が暗転して
+	// 「白黒反転」に見える。Android 実機の反転（?gl2=1では正常・?nofade/noterr/nogint すべてで再現）は
+	// この形の疑いが濃い＝合成をαから切り離して構造的に断つ（2026-08-03）。
+	ctx.configure({ device, format, alphaMode: "opaque", usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC });
 	const isBGRA = format === "bgra8unorm";   // Mac の既定＝readback は BGRA＝RGBA へ swizzle
 	// WebKit(Safari) は GPUDevice の EventTarget 実装が無い版がある＝onuncapturederror 属性も併用（両対応・二重発火なし＝どちらか一方しか効かない環境前提）
 	const onUncap = e => console.error("[gpu] uncaptured:", e.error?.message || e.error);
@@ -116,7 +121,11 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 		color: { srcFactor: "one", dstFactor: "one-minus-src-alpha", operation: "add" },
 		alpha: { srcFactor: "one", dstFactor: "one-minus-src-alpha", operation: "add" },
 	};
-	const SAMPLES = 4;   // WebGL 版 canvas の antialias:true と同格（MSAA 4x→resolve）
+	// MSAA 4x＝WebGL 版 canvas の antialias:true と同格。?msaa=0（rOpts.msaa1）＝1x 直描き＝
+	// 「MSAA テクスチャを複数パスで store→load し終端で resolve」という、タイル型GPU（Adreno/Mali）の
+	// ドライバが最も踏み外しやすい経路を丸ごと外す切り分けノブ（Android 実機の黒背景 2026-08-03。
+	// Vulkan 界の定石でも multisampled attachment の store/load は避けよ＝ARM 公式ガイダンス）。
+	const SAMPLES = rOpts.msaa1 ? 1 : 4;
 	const DEPTH = "depth24plus-stencil8";   // stencil は gint（winding 塗り）が同一アタッチメントで使う（renderer 自身は不使用＝既定 keep で不干渉）
 	const target = { format, blend: BLEND };
 	const ms = { count: SAMPLES };
@@ -629,6 +638,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 		base: { origin: [0, 0], draws: [], bld: null },
 		main: { origin: [0, 0], draws: [], bld: null },
 	};
+	let dbg = null;   // 直近フレームの描画実績（?drawhud=1 の実機計器。draw() が毎フレーム詰め替える）
 	function makeBuf(data, usage) {
 		const b = device.createBuffer({ size: (data.byteLength + 3) & ~3, usage: usage | GPUBufferUsage.COPY_DST });
 		device.queue.writeBuffer(b, 0, data.buffer, data.byteOffset, data.byteLength);
@@ -653,8 +663,10 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 		// クロスフェード：main の同一原点差し替え（ロード流入中の典型）は旧シーンを FADE_MS だけ温存し
 		// 新シーンをα昇順で重ねる＝classic merge の「ポンッ」を溶かす（モバイルのパラパラ感対策）。
 		// 原点が変わる大移動は従来どおり即替え（旧シーンの Frame origin が異なり二重描画できないため）。
+		// ?nofade=1＝クロスフェードを丸ごと止める切り分けノブ（WebGPU にしか無い機構＝実機で「遷移中だけ壊れる」
+		// 現象の容疑者。Android 実機で基図が黒く落ちる報告 2026-08-03。旧シーンは即破棄＝Phase 6 以前の挙動）。
 		let keepPrev = null;
-		if (slot === "main" && scenes[slot].draws.length && scenes[slot].origin && s.origin
+		if (!rOpts.noFade && slot === "main" && scenes[slot].draws.length && scenes[slot].origin && s.origin
 			&& scenes[slot].origin[0] === s.origin[0] && scenes[slot].origin[1] === s.origin[1]) {
 			disposeFadePrev(slot);
 			keepPrev = { draws: scenes[slot].draws, bld: scenes[slot].bld };
@@ -738,14 +750,15 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 	}
 
 	// MSAA カラー＋深度ターゲット（canvas 寸法に追随）。resolve 先は毎フレーム getCurrentTexture。
+	// 1x（?msaa=0）はカラーを作らない＝全パスが canvas の current texture へ直描き（resolve 自体が消える）。
 	let msaa = null;
 	function targets(W, H) {
 		if (!msaa || msaa.w !== W || msaa.h !== H) {
-			if (msaa) { msaa.tex.destroy(); msaa.depth.destroy(); }
-			const tex = device.createTexture({ size: [W, H], sampleCount: SAMPLES, format, usage: GPUTextureUsage.RENDER_ATTACHMENT });
+			if (msaa) { msaa.tex?.destroy(); msaa.depth.destroy(); }
+			const tex = SAMPLES > 1 ? device.createTexture({ size: [W, H], sampleCount: SAMPLES, format, usage: GPUTextureUsage.RENDER_ATTACHMENT }) : null;
 			const depth = device.createTexture({ size: [W, H], sampleCount: SAMPLES, format: DEPTH, usage: GPUTextureUsage.RENDER_ATTACHMENT });
-			msaa = { tex, depth, view: tex.createView(), depthView: depth.createView(), w: W, h: H };
-			memMsaa = W * H * SAMPLES * (4 + 4);   // color(bgra8)+depth24plus-stencil8 ≈ 各4B/sample
+			msaa = { tex, depth, view: tex ? tex.createView() : null, depthView: depth.createView(), w: W, h: H };
+			memMsaa = W * H * SAMPLES * ((SAMPLES > 1 ? 4 : 0) + 4);   // color(bgra8・1xは直描き=0)+depth24plus-stencil8 ≈ 各4B/sample
 		}
 		return msaa;
 	}
@@ -845,10 +858,13 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 		const enc = device.createCommandEncoder();
 		if (!frame1Scoped) { frame1Scoped = 1; device.pushErrorScope("validation"); }   // 初回フレーム全体を包む（pop は flush）
 		if (tq) { tq.idx = 0; tq.spans.length = 0; }   // フレーム開始＝計測枠をリセット（draw→gint→flush で1周）
+		// 1x（?msaa=0）＝canvas の current texture へ直描き。以降の全パス（gint 含む）が同じ view に load で重ね、
+		// flush() の resolve パスは丸ごと消える＝MSAA store/load/resolve という容疑経路がフレームから消滅する。
+		const colorView = SAMPLES > 1 ? t.view : ctx.getCurrentTexture().createView();
 		const passDesc = {
 			timestampWrites: passTS("map"),
 			colorAttachments: [{
-				view: t.view,
+				view: colorView,
 				loadOp: "clear",
 				clearValue: { r: c[0] * c[3], g: c[1] * c[3], b: c[2] * c[3], a: c[3] },
 				storeOp: "store",   // gint パスが同じ的に重ねる＝resolve は flush() の終端パスで（GL の「地図の後に gint」と同順）
@@ -910,6 +926,10 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 			pass.draw(3);
 		}
 		// 基図（塗り/線）：ペインタ順。山岳ビュー＝地形深度でテストだけ（書かない）＝尾根の向こうが透けない
+		// dbg＝?drawhud=1 の実機計器（描いた枚数と状態）。「背景が黒＝塗りが一枚も出ていない」時に、
+		// 犯人が CPU 側（シーンが空・スロット退場）か GPU 側（描いたのに出ない）かを画面で名指しするための物差し
+		// （Android 実機の反転 2026-08-03。数え上げは加算だけ＝常時オンでも実害なし）。
+		dbg = { baseFill: 0, baseLine: 0, mainFill: 0, mainLine: 0, skipMain: !!(opts && opts.skipMain), skipBase: !!(opts && opts.skipBase), fadeK, terrainDepth: !!terrainDepth, zoom: +(cam.zoom || 0).toFixed(1) };
 		const slots = (opts && opts.skipMain) ? ["base"] : (opts && opts.skipBase) ? ["main"] : ["base", "main"];
 		const mainLinesOn = slots.indexOf("main") >= 0 && scenes.main.draws.length > 0;
 		const fillPipe = terrainDepth ? fillTest : fillOff;
@@ -936,6 +956,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 					pass.setVertexBuffer(1, d.bCol);
 					if (d.bIdx) { pass.setIndexBuffer(d.bIdx, "uint32"); pass.drawIndexed(d.count); }
 					else pass.draw(d.count);
+					if (slot === "base") dbg.baseFill++; else dbg.mainFill++;
 				} else {
 					if (slot === "base" && mainLinesOn) continue;   // 本命の線が出ている間は下地の線を伏せる
 					pass.setPipeline(linePipe);
@@ -947,6 +968,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 					pass.setVertexBuffer(3, d.bCol);
 					pass.setVertexBuffer(4, d.bHalf);
 					pass.draw(6, d.count);
+					if (slot === "base") dbg.baseLine++; else dbg.mainLine++;
 				}
 			}
 			}
@@ -1030,6 +1052,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 				plBatchCPU[o + 4] = cM[0]; plBatchCPU[o + 5] = cM[1]; plBatchCPU[o + 6] = cM[2]; plBatchCPU[o + 7] = cM[3];   // clipMesh
 				draws.push({ p, count, slot });
 			}
+			dbg.pl = draws.length;   // ?drawhud=1：PLATEAU の可視バッチ数（「建物は出ているのに紙が無い」の裏取り）
 			if (draws.length) {
 				device.queue.writeBuffer(plBatchBuf, 0, plBatchCPU.buffer, 0, draws.length * PL_BATCH_SLOT);
 				pass.setPipeline(plateauPipe);
@@ -1052,7 +1075,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 			pass.draw(3);
 		}
 		pass.end();
-		frame = { enc, colorView: t.view, depthView: t.depthView, w: W, h: H };
+		frame = { enc, colorView, depthView: t.depthView, w: W, h: H };   // 1x＝colorView は canvas 直（gint も同じ的に load で重ねる）
 		// gint の深度統合コンテキスト（GL renderer の gintCtx と同意味論＝terrainDepth の間だけ非null）。
 		// elevView は安定参照（rebuildBG0 で1回生成）＝gint 側の bind group キャッシュが毎フレーム破れない。
 		gctx = terrainDepth ? {
@@ -1063,21 +1086,24 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 		return fogAnimating || fading;   // fading＝クロスフェード進行中も連続フレーム
 	}
 	// フレーム確定：MSAA を canvas へ resolve して submit（gint パスが足された後＝地図と同フレーム同カメラの1枚）。
+	// 1x（?msaa=0）は直描き済み＝resolve パス自体が不要（TQ 回収と submit だけ行う）。
 	function flush() {
 		if (!frame) return;
-		const flushDesc = {
-			timestampWrites: passTS("map"),   // resolve の実費も map に計上
-			colorAttachments: [{ view: frame.colorView, resolveTarget: ctx.getCurrentTexture().createView(), loadOp: "load", storeOp: "discard" }],
-		};
-		let pass;
-		try { pass = frame.enc.beginRenderPass(flushDesc); }
-		catch (err) {
-			if (!tq) throw err;
-			tqOff(err);
-			delete flushDesc.timestampWrites;
-			pass = frame.enc.beginRenderPass(flushDesc);
+		if (SAMPLES > 1) {
+			const flushDesc = {
+				timestampWrites: passTS("map"),   // resolve の実費も map に計上
+				colorAttachments: [{ view: frame.colorView, resolveTarget: ctx.getCurrentTexture().createView(), loadOp: "load", storeOp: "discard" }],
+			};
+			let pass;
+			try { pass = frame.enc.beginRenderPass(flushDesc); }
+			catch (err) {
+				if (!tq) throw err;
+				tqOff(err);
+				delete flushDesc.timestampWrites;
+				pass = frame.enc.beginRenderPass(flushDesc);
+			}
+			pass.end();
 		}
-		pass.end();
 		let st = null;
 		if (tq && tq.idx) {
 			frame.enc.resolveQuerySet(tq.qs, 0, tq.idx, tq.resolve, 0);
@@ -1196,6 +1222,8 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 	// passTS("gint")＝gint が自分のパスに GPU タイマを打つ口。tqTake/hasTQ＝renderworker の計測回収。
 	return { set, draw, flush, readback, dispose, md: false, mdMax: 0, gintCtx: () => gctx, backend: "webgpu", lost: device.lost,
 		device, format, gpuInfo, frameInfo: () => frame, passTS, tqTake, gpuErrors, get hasTQ() { return !!tq; },
+		samples: SAMPLES,   // gint が自パイプラインの multisample count を揃える（?msaa=0＝1x 直描き）
 		// ?mem=1 台帳のGPU固定常駐（自前確保分の概算バイト）：標高アトラス（近/舞台裏/遠）＋地形メッシュ＋MSAAターゲット
-		memEstimate: () => ({ atlas: memAtlas + memStage + memFar, mesh: memMesh, msaa: memMsaa }) };
+		memEstimate: () => ({ atlas: memAtlas + memStage + memFar, mesh: memMesh, msaa: memMsaa }),
+		dbg: () => dbg };   // ?drawhud=1：直近フレームの描画実績（実機の画面に出す計器）
 }

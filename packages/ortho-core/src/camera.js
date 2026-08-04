@@ -66,24 +66,32 @@ export function project(state, lon, lat, radius = 1) {
 	return [sx, sy, frontHemi];
 }
 
-// screen(devicePx) → [lon,lat] または null（球に当たらない）。カメラ光線×単位球。
-export function unproject(state, sx, sy) {
+// screen(devicePx) → [lon,lat] または null（球に当たらない）。カメラ光線×半径R球（既定=海面球）。
+// R>1＝地形リフト球：チルト時、標高hの地面は海面球より手前（画面下）まで映り込む。タイル選抜
+// (tilecover.selectLOD) が海面基準のままだと、その手前領域を「画面外」と誤判定して被覆が欠ける
+//（実測: 草津1200m・z15.8・チルト52°で画面下1/3が紙色＝タイル未選抜。2026-08-03）。
+export function unproject(state, sx, sy, R = 1) {
 	const ndcx = sx / state.W * 2 - 1, ndcy = (1 - sy / state.H) * 2 - 1;
 	const near = mat.transform(state.invMvp, [ndcx, ndcy, -1, 1]);
 	const far = mat.transform(state.invMvp, [ndcx, ndcy, 1, 1]);
 	const A = [near[0] / near[3], near[1] / near[3], near[2] / near[3]];
 	const B = [far[0] / far[3], far[1] / far[3], far[2] / far[3]];
 	const d = mat.sub(B, A);
-	// |A + t d|^2 = 1
-	const aa = mat.dot(d, d), bb = 2 * mat.dot(A, d), cc = mat.dot(A, A) - 1;
+	// |A + t d|^2 = R^2
+	const aa = mat.dot(d, d), bb = 2 * mat.dot(A, d), cc = mat.dot(A, A) - R * R;
 	const disc = bb * bb - 4 * aa * cc;
 	if (disc < 0) return null;
 	const t = (-bb - Math.sqrt(disc)) / (2 * aa);                   // 手前の交点
 	// t<0＝交点が視線の「後方延長」上（高チルトで地平線より上の空を指した時、直線を後ろへ延ばすと
 	// カメラ背後の地球に当たる）。裏半球の鏡像地点（実測: 富士上空で lat19 の海）を返すため null に。
-	if (t < 0) return null;
-	const P = mat.add(A, mat.scale(d, t));
-	const lat = Math.asin(Math.max(-1, Math.min(1, P[1]))) * R2D;
+	// ただし R≠1（地形リフト球）で cc<0＝レイ起点(近平面点)が球の内側（高チルトで近平面が球面を割る＝
+	// 草津63°で実測：下端レイが全滅しタイル選抜が崩壊）は、起点直下の地面位置を返す：正根（前方の出口）は
+	// 惑星を貫いた裏側＝ゴミ。起点の真下がこのレイに映りうる最も手前の地面＝被覆サンプルとして正しい端点。
+	// R=1（海面球＝カメラ埋没時）は従来通り null＝picker 等の既定挙動を変えない。
+	const P = t >= 0 ? mat.add(A, mat.scale(d, t))
+		: (R !== 1 && cc < 0) ? A : null;
+	if (!P) return null;
+	const lat = Math.asin(Math.max(-1, Math.min(1, P[1] / R))) * R2D;
 	const lon = Math.atan2(P[2], P[0]) * R2D;
 	return [lon, lat];
 }

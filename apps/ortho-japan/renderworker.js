@@ -34,6 +34,7 @@ let memOn = false, memLast = 0;
 // ?nobld=1（init.noBld）＝基図建物の3D押し出しだけを伏せる診断ノブ：壁面ちらつきが「基図×PLATEAUの二重壁」か
 // 「PLATEAU内部/地形」かを一発で二分する（消えれば前者＝マスクの穴を追う・残れば後者）。
 let noBld = false;
+let drawHudOn = false, drawHudLast = 0;   // ?drawhud=1＝描画実績HUD（実機で「背景が黒」の犯人を CPU/GPU に二分する計器）
 // GPU 実時間（EXT_disjoint_timer_query_webgl2）：CPU発行が0.1msでも ema が33ms＝「GPUが重い」のか
 // 「rAF/合成のカデンス」なのかを切り分ける本丸。map/gint を兄弟スパンで計測（TIME_ELAPSED は入れ子不可）。
 let tqExt = null;
@@ -169,6 +170,7 @@ const dispatch = e => {
 			}
 			memOn = !!m.mem;
 			noBld = !!m.noBld;
+			drawHudOn = !!m.drawHud;
 			self.__perfElev = perfOn;   // renderer の標高パイプライン計器（[elev] 行）を点灯
 			if (m.gpu) {
 				// 実験フラグ ?gpu=1＝WebGPU バックエンド（Phase 1: globe+基図 fill/line・classic merge）。
@@ -176,7 +178,7 @@ const dispatch = e => {
 				// 失敗（非対応・adapter無し）は WebGL2 へフォールバック＝既定経路と同一挙動。
 				initQueue = []; bootStage = "import待ち";
 				import("ortho-core/gpu")
-					.then(({ createRendererGPU, createGintLayerGPU }) => createRendererGPU(canvas, { noTQ: !!m.noTQ }).then(r => {
+					.then(({ createRendererGPU, createGintLayerGPU }) => createRendererGPU(canvas, { noTQ: !!m.noTQ, noFade: !!m.noFade, msaa1: !!m.msaa1 }).then(r => {
 						renderer = r; backendName = "webgpu"; bootStage = "renderer済";
 						// iOS Safari 診断：gint のパイプライン生成も検証スコープで包み、frame1 後にまとめて main へ転写
 						r.device.pushErrorScope("validation");
@@ -508,6 +510,12 @@ function frame() {
 			if (memOn && performance.now() - memLast > 500) {   // ?mem=1：常駐メモリ台帳を~2Hzで main へ（terrain LRU＋JSヒープ。plateau/tiles は main 側が持つ）
 				memLast = performance.now();
 				postMessage({ type: "mem", terrain: terrain?.bytes?.() || 0, heap: performance.memory?.usedJSHeapSize || 0, gpu: renderer?.memEstimate?.() || null });
+			}
+			// ?drawhud=1：直近フレームの描画実績を ~3Hz で main へ（実機の画面に出す計器）。
+			// 「背景が黒」の時に塗りの枚数がゼロなら CPU/状態側、枚数が出ているのに黒なら GPU 側＝二分の起点。
+			if (drawHudOn && performance.now() - drawHudLast > 350) {
+				drawHudLast = performance.now();
+				postMessage({ type: "drawhud", d: renderer?.dbg?.() || null, backend: backendName });
 			}
 		}
 		if (glRef && !sentCtxLost && glRef.isContextLost()) { sentCtxLost = true; postMessage({ type: "contextlost" }); }   // GPU喪失＝mainが立て直す
