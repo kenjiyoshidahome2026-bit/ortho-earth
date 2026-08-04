@@ -79,6 +79,7 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 		// 失敗は null に畳む＝getCell は絶対に reject しない（呼び出し側の pending デクリメントが
 		// .then 購読のみのため、reject が漏れると読込インジケータが永久に残る）
 		const tile = await loadTile(lngN, cellLat, range).catch(e => { console.warn("[terrain] セル取得失敗", k, e); return null; });
+		if (tile && !(tile.data && tile.width)) { console.warn("[terrain] 不正形のタイル（Blob混入キャッシュ？）→ null扱い", k); return null; }   // クラッシュ保険＝描画ループを絶対に落とさない（根治はローダ側の形検札）
 		if (tile) cacheTile(k, tile);
 		return tile;
 	}

@@ -73,7 +73,11 @@ export async function createTileLoader(opts = {}) {
 	return async function loadTile(lng0, lat0, range) {
 		if (range === 1 && !existAlos(lng0, lat0)) return null;   // R01 は ALOS 未整備（海等）
 		const name = encodeName(lng0, lat0, range);
-		const cached = await cache(name); if (cached && !staleDSM(name, cached)) return cached;
+		// 形の検札（2026-08-04夜）：同じIDBキーに worker側=圧縮Blob（load_gepco）と外側=デコード済みobj（下のonmsg）の
+		// 二者が非awaitで書く＝別コネクションでコミット順不定＝Blobが最後に勝ったセルが生まれ得る。それを素通しすると
+		// downsampleFlipped が blob.data=undefined を踏み描画ループごと毎フレーム例外（Mac実機実測・マシン/セル依存の地雷）。
+		// data/width を持つ「デコード済みタイル」だけ信用＝Blob なら worker 経路へ（worker はキャッシュBlobをデコードして返す＝自己修復）。
+		const cached = await cache(name); if (cached && cached.data && cached.width && !staleDSM(name, cached)) return cached;
 		if (inflight.has(name)) return inflight.get(name);
 		const p = loadName(name).then(t => { inflight.delete(name); return t; });
 		inflight.set(name, p); return p;
@@ -105,7 +109,7 @@ export async function createGetHeight(opts = {}) {
 	async function load(lng, lat, range) {
 		const name = encodeName(lng, lat, range);
 		if (cname == name) return current;
-		const obj = await cache(name); if (obj && !staleDSM(name, obj)) return obj;
+		const obj = await cache(name); if (obj && obj.data && obj.width && !staleDSM(name, obj)) return obj;   // 形の検札＝Blob混入（loadTile側と同じ地雷）は worker 経路へ
 		if (isLoading) return null;
 		return new Promise(res=>{
 			isLoading = performance.now();
