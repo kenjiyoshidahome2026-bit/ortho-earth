@@ -6,7 +6,7 @@
 <script>window.requestAnimationFrame = cb => setTimeout(() => cb(performance.now()), 16); localStorage.setItem("oj.hint", "closed");</script>
 <script type="module">
 import orthoJapan from "../app.js";
-import { qrSelfTest, qrMatrix } from "../gadgets/qrcode.js";
+import { qrSelfTest, qrMatrix, qrEncode } from "../gadgets/qrcode.js";
 const t = [], ok = (n, c) => t.push((c ? "ok:" : "NG:") + n);
 try {
 	const map = await orthoJapan({ view: "#5/37/138" });
@@ -14,6 +14,8 @@ try {
 	ok("encoder", qrSelfTest());
 	// version 自動選定：短文=小さい版、長文=大きい版（単調増加）
 	ok("versions", qrMatrix("HELLO").length === 21 && qrMatrix("x".repeat(120)).length > qrMatrix("x".repeat(30)).length);
+	// 自動 EC：短い名刺URL=収まる中で最強(H)＝中央ロゴを大きく置ける／長い視点URL=L まで落ちる（中央ロゴは自動で控えめ）
+	ok("adaptiveEC", qrEncode("https://ortho-earth.com/japan/").level === "H" && qrEncode("x".repeat(120)).level === "L" && qrEncode("x".repeat(120)).ec > 0);
 	// 2) 搭載＝スタブ（ボタンだけ常駐・本体はまだ import しない＝遅延ロード。panel は未生成）
 	const h = map.gadget.qr();
 	map.gadget.qr();   // 二重搭載＝無害
@@ -27,6 +29,9 @@ try {
 	const px = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
 	let black = 0, white = 0; for (let i = 0; i < px.length; i += 4) { if (px[i] < 40) black++; else if (px[i] > 200) white++; }
 	ok("render", canvas.width > 0 && black > 100 && white > 100);
+	// 中央のベクトル印＝favicon の <img>（data:svg）が重なり、白ヌキに合わせた幅(%>0)が付く
+	const mark = panel.querySelector(".qr-mark");
+	ok("mark", !!mark && (mark.getAttribute("src") || "").startsWith("data:image/svg") && parseFloat(mark.style.width) > 0);
 	// URL 文字列（共有URL）が入る
 	const u = panel.querySelector(".qr-url").textContent;
 	ok("url", u.startsWith("http") && u.includes("#"));

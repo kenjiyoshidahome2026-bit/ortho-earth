@@ -2576,8 +2576,9 @@ map.gadget("measure", function (opts) {   // 距離・面積の計測 … 投影
 map.gadget("shot", function (opts) {   // 画面保存 … worker越しの3層+measure層を合成する requestSnapshot を注入
 	return shotGadget.call(this, { requestSnapshot, signal: ac.signal, ...opts });
 });
-map.gadget("qr", function (opts) {   // 共有QR … 現在の共有URL(origin+path+viewHash＝今の視点)を注入＝スクリーン投影→スキャンでその視点を開く＝拡散
-	return qrGadget.call(this, { getUrl: () => location.origin + location.pathname + viewHash(), signal: ac.signal, ...opts });
+map.gadget("qr", function (opts) {   // 共有QR … 現在の共有URL(origin+path+search+viewHash＝今の視点)を注入＝スクリーン投影→スキャンでその視点を開く＝拡散
+	// location.search を挟む＝アドレスバーの ?hud=1 等のフラグもQRに載る（スキャン先で同じ計器/条件が点く）。順は path→?query→#hash＝URLの正順。
+	return qrGadget.call(this, { getUrl: () => location.origin + location.pathname + location.search + viewHash(), signal: ac.signal, ...opts });
 });
 map.gadget("japan", function (opts) {   // 日本全体へ（真俯瞰・北向き）… 着地点は既定の列島ビューを共有・⌘/Ctrl+J
 	return japanGadget.call(this, { view: JAPAN_VIEW, signal: ac.signal, ...opts });

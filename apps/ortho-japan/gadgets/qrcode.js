@@ -1,9 +1,10 @@
-// 自作 QR コード生成（依存ゼロ・byte モード・EC レベル L・version 1〜6）。ISO/IEC 18004 準拠の最小実装。
+// 自作 QR コード生成（依存ゼロ・byte モード・EC レベル L/M/Q/H・version 1〜6）。ISO/IEC 18004 準拠の最小実装。
 // 用途＝現在の共有URL（視点）を画面に QR で出す＝スクリーン投影→観客がスキャン→そのままの視点で開く＝拡散。
-// 共有URLは概ね 50〜110字＝v6-L(134byte)で余裕。version を 1〜6 に絞る＝v7+ の version-info・複数アラインメントを避け、
-//   実装を小さく安全に（v1〜5 は 1 ブロック、v6 のみ 2 ブロック）。EC-L＝きれいな画面表示なら誤り訂正は最小で十分＋モジュールが疎で遠くから読める。
-// 返り＝真偽値の2次元配列（true=黒モジュール）。描画は呼び出し側（canvas / SVG）。qrMatrix(text) が入口。
-// ★オフラインではスキャン検証ができないため、検証可能な所（フォーマット情報のBCH・GF）は末尾の自己テストで固める。
+//   ＋中央に大きなサイン（favicon）を載せるため、URLが短いほど強い誤り訂正(H>Q>M>L)を自動採用＝ロゴで欠けても直る余白を稼ぐ。
+//   短い名刺URL＝EC-H＝ロゴ大でもスキャン可／長い視点URL＝EC-L＝ロゴは自動で控えめ（実測=EC-Lでロゴ倍化は復号不能）。
+// version を 1〜6 に絞る＝v7+ の version-info・複数アラインメントを避け、実装を小さく安全に（低versionは1ブロック・v5/6等は複数ブロック）。
+// 返り＝qrEncode(text,{level})→{ matrix, ver, level, ec }。qrMatrix(text)＝行列だけ（既定 L・後方互換）。描画は呼び出し側（canvas / SVG）。
+// ★オフラインではスキャン検証ができないため、検証可能な所（フォーマットBCH・GF・RS既知ベクトル・golden-master）は末尾の自己テストで固める。
 
 // --- GF(256)（原始多項式 0x11d）：Reed-Solomon 用の指数/対数表 ---
 const EXP = new Uint8Array(512), LOG = new Uint8Array(256);
@@ -31,25 +32,27 @@ function rsEC(data, n) {
 	return ec;
 }
 
-// version 1〜6 の EC-L テーブル：{ ec:ブロック毎のEC符号語数, blocks:[[ブロック数, ブロック毎データ符号語数]...], dataCW:総データ符号語 }
-// 総符号語 = 26,44,70,100,134,172。EC-L のデータ符号語 = 19,34,55,80,108,136。v6 のみ 2 ブロック(68+68)。
-const TABLE = {
-	1: { ec: 7, blocks: [[1, 19]], dataCW: 19 },
-	2: { ec: 10, blocks: [[1, 34]], dataCW: 34 },
-	3: { ec: 15, blocks: [[1, 55]], dataCW: 55 },
-	4: { ec: 20, blocks: [[1, 80]], dataCW: 80 },
-	5: { ec: 26, blocks: [[1, 108]], dataCW: 108 },
-	6: { ec: 18, blocks: [[2, 68]], dataCW: 136 },
+// version × EC レベルのブロック構成（ISO/IEC 18004 表9）：{ ec:ブロック毎EC符号語数, blocks:[[ブロック数, ブロック毎データ符号語数]...], dataCW:総データ符号語 }。
+// 各(v,level)で data+EC = 総符号語(26,44,70,100,134,172)。v5-Q/H は 2 群（データ長違い）＝下のインターリーブが吸収。訂正能力 ≈ 総EC/2 符号語。
+const TABLES = {
+	L: { 1: { ec: 7, blocks: [[1, 19]], dataCW: 19 }, 2: { ec: 10, blocks: [[1, 34]], dataCW: 34 }, 3: { ec: 15, blocks: [[1, 55]], dataCW: 55 }, 4: { ec: 20, blocks: [[1, 80]], dataCW: 80 }, 5: { ec: 26, blocks: [[1, 108]], dataCW: 108 }, 6: { ec: 18, blocks: [[2, 68]], dataCW: 136 } },
+	M: { 1: { ec: 10, blocks: [[1, 16]], dataCW: 16 }, 2: { ec: 16, blocks: [[1, 28]], dataCW: 28 }, 3: { ec: 26, blocks: [[1, 44]], dataCW: 44 }, 4: { ec: 18, blocks: [[2, 32]], dataCW: 64 }, 5: { ec: 24, blocks: [[2, 43]], dataCW: 86 }, 6: { ec: 16, blocks: [[4, 27]], dataCW: 108 } },
+	Q: { 1: { ec: 13, blocks: [[1, 13]], dataCW: 13 }, 2: { ec: 22, blocks: [[1, 22]], dataCW: 22 }, 3: { ec: 18, blocks: [[2, 17]], dataCW: 34 }, 4: { ec: 26, blocks: [[2, 24]], dataCW: 48 }, 5: { ec: 18, blocks: [[2, 15], [2, 16]], dataCW: 62 }, 6: { ec: 24, blocks: [[4, 19]], dataCW: 76 } },
+	H: { 1: { ec: 17, blocks: [[1, 9]], dataCW: 9 }, 2: { ec: 28, blocks: [[1, 16]], dataCW: 16 }, 3: { ec: 22, blocks: [[2, 13]], dataCW: 26 }, 4: { ec: 16, blocks: [[4, 9]], dataCW: 36 }, 5: { ec: 22, blocks: [[2, 11], [2, 12]], dataCW: 46 }, 6: { ec: 28, blocks: [[4, 15]], dataCW: 60 } },
 };
+const EC_IND = { L: 0b01, M: 0b00, Q: 0b11, H: 0b10 };   // フォーマット情報の EC レベル指示子（2bit）
 const ALIGN = { 2: 18, 3: 22, 4: 26, 5: 30, 6: 34 };   // v2〜6 のアラインメント中心座標（v1 は無し）
+// bytes 長 → そのレベルで収まる最小 version（無ければ 0）。ヘッダ(mode4+count8=12bit)+終端≒2byte を差し引いた容量で判定。
+const pickVersion = (len, level) => { const T = TABLES[level]; for (let v = 1; v <= 6; v++) if (len <= T[v].dataCW - 2) return v; return 0; };
+// 「収まる中で最も強い EC」＝H>Q>M>L の順に最初に v≤6 へ収まるレベル。短いURLほど強くなり＝中央ロゴの被覆余白が増える。
+const bestLevel = len => { for (const lv of ["H", "Q", "M", "L"]) if (pickVersion(len, lv)) return lv; return "L"; };
 
-// テキスト → 最終コード語列（データ＋EC・インターリーブ済み）と version
-function encode(text) {
+// テキスト+レベル → 最終コード語列（データ＋EC・インターリーブ済み）と version・総EC符号語数
+function encode(text, level) {
 	const bytes = new TextEncoder().encode(text);   // UTF-8（共有URLは基本ASCII）
-	let ver = 0;
-	for (let v = 1; v <= 6; v++) if (bytes.length <= TABLE[v].dataCW - 2) { ver = v; break; }   // ヘッダ(mode4+count8=12bit)+終端≒2byte を差し引いた容量
-	if (!ver) throw new Error(`QR: データが長すぎます（${bytes.length}byte > v6-L 134byte）`);
-	const t = TABLE[ver];
+	const ver = pickVersion(bytes.length, level);
+	if (!ver) throw new Error(`QR: データが長すぎます（${bytes.length}byte > v6-${level} 上限）`);
+	const t = TABLES[level][ver];
 	// ビット列を作る
 	const bits = [];
 	const put = (val, len) => { for (let i = len - 1; i >= 0; i--) bits.push((val >> i) & 1); };
@@ -75,12 +78,12 @@ function encode(text) {
 	const maxD = Math.max(...dBlocks.map(d => d.length));
 	for (let i = 0; i < maxD; i++) for (const d of dBlocks) if (i < d.length) out.push(d[i]);
 	for (let i = 0; i < t.ec; i++) for (const e of eBlocks) out.push(e[i]);
-	return { ver, codewords: out };
+	return { ver, codewords: out, ecTotal: t.ec * t.blocks.reduce((s, [cnt]) => s + cnt, 0) };
 }
 
-// フォーマット情報 15bit（EC-L=指示子 0b01・BCH(15,5)・マスク 0x5412 で撹拌）。bit0=LSB。
-function formatBits(mask) {
-	const data = (0b01 << 3) | mask;   // 5bit
+// フォーマット情報 15bit（EC指示子 2bit＝L01/M00/Q11/H10・BCH(15,5)・マスク 0x5412 で撹拌）。bit0=LSB。
+function formatBits(mask, level) {
+	const data = (EC_IND[level] << 3) | mask;   // 5bit
 	let rem = data << 10;
 	for (let i = 14; i >= 10; i--) if (rem & (1 << i)) rem ^= 0b10100110111 << (i - 10);   // ÷ G(x)=0x537
 	return ((data << 10) | (rem & 0x3ff)) ^ 0b101010000010010;
@@ -98,8 +101,8 @@ const MASKS = [
 	(r, c) => (((r + c) % 2 + (r * c) % 3) % 2) === 0,
 ];
 
-// version + コード語列 → モジュール行列。マスクは 8 種を採点して最良を採用。
-function buildMatrix(ver, codewords) {
+// version + コード語列 + EC レベル → モジュール行列。マスクは 8 種を採点して最良を採用。
+function buildMatrix(ver, codewords, level) {
 	const size = ver * 4 + 17;
 	const m = Array.from({ length: size }, () => new Array(size).fill(false));   // モジュール（true=黒）
 	const fn = Array.from({ length: size }, () => new Array(size).fill(false));  // 機能モジュール（データ配置/マスク対象外）
@@ -150,8 +153,8 @@ function buildMatrix(ver, codewords) {
 		xorMask(m, fn, MASKS[k]);   // 戻す
 	}
 	xorMask(m, fn, MASKS[best]);
-	// フォーマット情報を焼き込む（採用マスク）
-	placeFormat(m, size, formatBits(best));
+	// フォーマット情報を焼き込む（採用マスク＋EC レベル指示子）
+	placeFormat(m, size, formatBits(best, level));
 	return m;
 }
 
@@ -202,28 +205,46 @@ function penalty(m, size) {
 	return s;
 }
 
-// 入口：テキスト → モジュール行列（boolean[][]、true=黒）。version は自動（1〜6）。
+// 入口（推奨）：テキスト → { matrix:boolean[][](true=黒), ver, level, ec:総EC符号語数 }。
+// opts.level＝"L"|"M"|"Q"|"H"（明示）／"auto" or 未指定＝収まる中で最も強いレベルを自動採用（bestLevel）。
+// ec は呼び出し側の中央ロゴ寸法決めに使う（覆えるモジュール ≈ 訂正能力＝ec/2 に収める）。
+export function qrEncode(text, opts = {}) {
+	const level = opts.level && opts.level !== "auto" ? opts.level : bestLevel(new TextEncoder().encode(text).length);
+	const { ver, codewords, ecTotal } = encode(text, level);
+	return { matrix: buildMatrix(ver, codewords, level), ver, level, ec: ecTotal };
+}
+// 後方互換：テキスト → モジュール行列（boolean[][]）だけ。既定 EC-L 固定（golden-master と同じ既定）。
 export function qrMatrix(text) {
-	const { ver, codewords } = encode(text);
-	return buildMatrix(ver, codewords);
+	const { ver, codewords } = encode(text, "L");
+	return buildMatrix(ver, codewords, "L");
 }
 
 // --- 自己テスト（検証可能な所だけ・オフラインでスキャン検証はできないため）。壊れていたら console.error で自己申告 ---
 export function qrSelfTest() {
 	const fails = [];
-	// フォーマット情報 BCH：EC-L の 8 マスクの既知値と一致するか（ISO 表）
-	const known = [0b111011111000100, 0b111001011110011, 0b111110110101010, 0b111100010011101, 0b110011000101111, 0b110001100011000, 0b110110001000001, 0b110100101110110];
-	for (let k = 0; k < 8; k++) if (formatBits(k) !== known[k]) fails.push(`format[${k}] ${formatBits(k).toString(2)}≠${known[k].toString(2)}`);
+	// フォーマット情報 BCH：4 EC レベル × 8 マスクの既知値（ISO/IEC 18004 表 C.1）と一致するか。指示子(L01/M00/Q11/H10)→BCH→マスクの全経路を固める。
+	const known = {
+		L: [0b111011111000100, 0b111001011110011, 0b111110110101010, 0b111100010011101, 0b110011000101111, 0b110001100011000, 0b110110001000001, 0b110100101110110],
+		M: [0b101010000010010, 0b101000100100101, 0b101111001111100, 0b101101101001011, 0b100010111111001, 0b100000011001110, 0b100111110010111, 0b100101010100000],
+		Q: [0b011010101011111, 0b011000001101000, 0b011111100110001, 0b011101000000110, 0b010010010110100, 0b010000110000011, 0b010111011011010, 0b010101111101101],
+		H: [0b001011010001001, 0b001001110111110, 0b001110011100111, 0b001100111010000, 0b000011101100010, 0b000001001010101, 0b000110100001100, 0b000100000111011],
+	};
+	for (const lv of ["L", "M", "Q", "H"]) for (let k = 0; k < 8; k++) if (formatBits(k, lv) !== known[lv][k]) fails.push(`format[${lv}][${k}] ${formatBits(k, lv).toString(2)}≠${known[lv][k].toString(2)}`);
 	// GF：α^0=1, α^255=1（周期）, 乗算の可換
 	if (EXP[0] !== 1 || EXP[255] !== 1 || gfMul(3, 7) !== gfMul(7, 3)) fails.push("GF");
 	// RS：ISO 附属書の既知ベクトル（1-M "01234567"）＝データ16→EC10 が一致するか（GF+RS を実証）
 	const rd = [0x10, 0x20, 0x0C, 0x56, 0x61, 0x80, 0xEC, 0x11, 0xEC, 0x11, 0xEC, 0x11, 0xEC, 0x11, 0xEC, 0x11];
 	const re = [0xA5, 0x24, 0xD4, 0xC1, 0xED, 0x36, 0xC7, 0x87, 0x2C, 0x55];
 	if (rsEC(rd, 10).some((v, i) => v !== re[i])) fails.push("RS:" + [...rsEC(rd, 10)].map(x => x.toString(16)).join(","));
-	// golden-master：既知の正しい出力（開発時に jsQR で往復デコード検証済み・v1/v3/v6＝配置/マスク/RS/整列/複数ブロックを網羅）の
-	// FNVハッシュ。フォーマット配置のビット順のような「値は正しいが並びが逆」の回帰を丸ごと捕まえる（実際にそれで一度出荷が壊れた）。
-	const fnv = s => { const g = qrMatrix(s).flat(); let x = 2166136261 >>> 0; for (let i = 0; i < g.length; i++) { x ^= (g[i] ? 1 : 0); x = Math.imul(x, 16777619) >>> 0; } return x; };
-	for (const [s, h] of [["OJ", 3987601905], ["https://www.ortho-earth.com/japan/#12/35/139/c=dark", 3733310888], ["x".repeat(120), 2753418475]]) if (fnv(s) !== h) fails.push("golden:" + s.slice(0, 10));
+	// 自動 EC レベル：短い名刺URL＝収まる中で最強(H)・長い視点URL＝L まで落ちる（bestLevel の契約）。
+	if (qrEncode("https://ortho-earth.com/japan/").level !== "H" || qrEncode("x".repeat(120)).level !== "L") fails.push("autoLevel");
+	// golden-master：既知の正しい出力（BarcodeDetector で往復デコード検証済み）の FNVハッシュ。level=null は qrMatrix(既定L)、
+	// それ以外は qrEncode(s,{level})＝レベル別の指示子・ブロック構成・RS・整列まで丸ごと固定（「値は正しいが並びが逆」の回帰も捕まえる）。
+	const fnv = mat => { const g = mat.flat(); let x = 2166136261 >>> 0; for (let i = 0; i < g.length; i++) { x ^= (g[i] ? 1 : 0); x = Math.imul(x, 16777619) >>> 0; } return x; };
+	for (const [s, lv, h] of [
+		["OJ", null, 3987601905], ["https://www.ortho-earth.com/japan/#12/35/139/c=dark", null, 3733310888], ["x".repeat(120), null, 2753418475],
+		["https://ortho-earth.com/japan/", "H", 1048296628], ["https://www.ortho-earth.com/japan/?hud=1#5/37/138", "Q", 1146452263], ["x".repeat(60), "M", 3224508297],
+	]) if (fnv(lv ? qrEncode(s, { level: lv }).matrix : qrMatrix(s)) !== h) fails.push("golden:" + (lv || "L") + ":" + s.slice(0, 10));
 	// 構造：短文の QR が v1(21x21)・3隅にファインダ・行6タイミング
 	const m = qrMatrix("HELLO");
 	const okFinder = m.length === 21 && m[0][0] && m[0][6] && !m[1][1] && m[2][2] && m[0][20] && m[20][0];   // ファインダ：外枠黒(0,0)(0,6)・白リング(1,1)・中心黒(2,2)・他2隅も黒

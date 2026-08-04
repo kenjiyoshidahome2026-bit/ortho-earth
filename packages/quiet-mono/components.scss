@@ -290,6 +290,8 @@ body { visibility: visible; }   /* 開幕＝このスタイルシートの到着
 		padding: clamp(16px, 3vw, 24px); background: #fff; border-radius: 12px; box-shadow: var(--qm-shadow-pop); max-width: 94vw;
 	}
 	canvas { display: block; width: min(72vw, 58vh); height: auto; image-rendering: pixelated; border-radius: 2px; }   /* pixelated＝モジュールが滲まず遠くから読める */
+	.qr-wrap { position: relative; line-height: 0; }   /* canvas を包む＝中央印(.qr-mark)の位置基準。幅=canvas幅ゆえ %指定が効く */
+	.qr-mark { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); height: auto; pointer-events: none; }   /* ベクトル印を canvas に重ねる＝pixelated 非継承＝拡大/名刺印刷でも鮮鋭 */
 	.qr-cap { font: 600 15px/1.4 var(--qm-font); color: #222; letter-spacing: .04em; text-align: center; }
 	.qr-url { font: 11px/1.5 var(--qm-font-mono); color: #667; word-break: break-all; text-align: center; max-width: min(72vw, 58vh); }
 }
