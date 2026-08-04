@@ -8,6 +8,7 @@ body { visibility: visible; }   /* 開幕＝このスタイルシートの到着
                                    JSのinlineに頼らない＝後から body.style を書き換えられても幕は開いたまま */
 #map { position: relative; width: 100%; height: 100%; overflow: hidden;
 	-webkit-text-size-adjust: 100%; text-size-adjust: 100%;   /* iOS横向きの文字自動拡大を全家具で禁止（出典が横回転で太る件・2026-08-02）。文字サイズは自分で決める */
+	touch-action: manipulation;   /* UI家具のダブルタップ拡大だけ禁止（パン/ピンチは許可＝viewportメタのuser-scalable=no撤去とセット・Lighthouse a11y対応 2026-08-04）。地図面は #c の none が交差で勝つ */
 }   /* 地図一式の容れ物＝任意サイズのdivに埋め込める */
 #c, #gint, #labels { position: absolute; inset: 0; width: 100%; height: 100%; }
 #c {
