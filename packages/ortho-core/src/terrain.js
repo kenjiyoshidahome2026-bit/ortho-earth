@@ -222,8 +222,10 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 		const cellsX = best.bx - best.ax + 1, cellsY = best.by - best.ay + 1;
 		const originCX = camCX + best.ax, originCY = camCY + best.ay;
 		// 割当は useful を2の冪へ量子化＝ズーム微動で atlasKey が揺れて再構築が頻発しない（1オクターブ1回）。
+		// 実確保も edgeBudget（lowMem=2048）に従う：従来ここだけ 4096 直書きで「lowMem はアトラス総辺半分」が
+		// スコア計算にしか効いていなかった（far/R10 窓が 3GB 機でも最大 33.5MB 確保）＝意図どおり面積1/4へ。
 		const usefulQ = Math.pow(2, Math.ceil(Math.log2(Math.max(1, useful))));
-		const allocRes = Math.max(512, Math.min(srcMax, usefulQ, Math.max(512, Math.floor(4096 / Math.max(cellsX, cellsY)))));
+		const allocRes = Math.max(512, Math.min(srcMax, usefulQ, Math.max(512, Math.floor(edgeBudget / Math.max(cellsX, cellsY)))));
 		// 窓の中でも票ゼロのセル（対角ビューの角など画面に映らないセル）はフェッチしない＝必要なタイルだけ払う。
 		const wanted = new Set();
 		for (const [k, v] of votes) {
@@ -286,8 +288,11 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 			const c1x = Math.floor(cam.center[0]), c1y = Math.floor(cam.center[1]);
 			const liftBounds = mixed ? [c1x - 1, c1y - 1, 3, 3]
 				: range === 1 ? [r.originCX, r.originCY, r.cellsX, r.cellsY] : null;
+			// gMax＝地形メッシュ格子の上限（renderer が窓形状から G を決める時の天井）。lowMem=1024 で
+			// 頂点+index を 75MB→33.5MB（-42MB）。メッシュは GPU 固定常駐の最大項＝3GB 機の一番効く一枠。
+			// 見た目の代償＝quad が 1.5 倍粗くなるが、スマホ/タブレットの画面密度では絵の破綻はない側。
 			renderer.set(staging ? "elevAtlasStage" : "elevAtlas",
-				{ originLng: r.originCX * range, originLat: r.originCY * range, cellsX: r.cellsX, cellsY: r.cellsY, cellRes: r.cellRes, cellSpan: range, exag, edgeFade, liftBounds }, exag / earthM);
+				{ originLng: r.originCX * range, originLat: r.originCY * range, cellsX: r.cellsX, cellsY: r.cellsY, cellRes: r.cellRes, cellSpan: range, exag, edgeFade, liftBounds, gMax: lowMem ? 1024 : 1536 }, exag / earthM);
 			hasAtlas = true;
 			if (staging) {   // 保険：セルの一部が失敗しても4秒で必ずスワップ（古いアトラスが永久に残らない）
 				const k0 = key;
@@ -365,6 +370,10 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 		const farOn = !noFar && range === 1 && (cam.pitch || 0) > 0.9;
 		if (farOn) {
 			const fr = viewCellRange(cam, size, 10, false);
+			// 低メモリ端末＝遠層は 256/セル（926m/texel）へクランプ：遠層の仕事はフォグ越しの山のシルエット＝
+			// 精細は近窓の領分。8セル窓は 512 下限で edgeBudget が効かないため、ここで直接絞る
+			//（例 8×4 窓 16.8MB→4.2MB。3GB 機の飛行中 jetsam 対策の一部）。
+			if (lowMem) fr.cellRes = Math.min(fr.cellRes, 256);
 			const fkey = ["F", fr.originCX, fr.originCY, fr.cellsX, fr.cellsY, fr.cellRes].join(",");
 			if (fkey !== farKey) {
 				farKey = fkey; farLoaded = new Set(); farWritten = new Set(); farFails = new Map();
