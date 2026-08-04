@@ -384,7 +384,16 @@ function drainUploads() {
 		if ("vis" in item) { renderer.set("plateauVis", item.vis, item.name); dirty = true; continue; }   // 表示切替＝フラグだけ＝同フレームで続けて消化
 		const { meshData, name } = item;
 		try { renderer.set("plateauMesh", meshData, name); }
-		finally { if (item.port) item.port.postMessage({ drained: 1 }); }   // 消化ack＝plateau worker のクレジット返却（例外でも返す＝送出が止まらない）
+		finally {
+			if (item.port) {
+				// 消化ack＝クレジット返却（例外でも返す＝送出が止まらない）＋器の返却：GPU登録（bufferData/writeBuffer）は
+				// この時点で同期コピー済み＝pos/nrm/idx の ArrayBuffer を transfer で返し、plateau worker が次の復元で再利用
+				//（使い捨て根絶＝復元churnのヒープ高水位対策）。共有バッファ等で transfer 不可なら ack だけ（従来動作）。
+				const rec = meshData ? [...new Set([meshData.pos?.buffer, meshData.nrm?.buffer, meshData.idx?.buffer].filter(b => b && b.byteLength))] : [];
+				try { item.port.postMessage({ drained: 1, recycle: rec }, rec); }
+				catch { item.port.postMessage({ drained: 1 }); }
+			}
+		}
 		dirty = true;
 		if (meshData) { uploadSkip = 2; break; }   // 重い転送は1件で打ち切り。転送の山は「次フレームのdt」に出る＝EMA計測を2フレーム除外
 	}

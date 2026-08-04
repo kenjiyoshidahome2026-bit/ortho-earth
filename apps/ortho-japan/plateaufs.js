@@ -36,7 +36,10 @@ const dataStart = jsonLen => { const h = 8 + jsonLen; return h + ((4 - h % 4) % 
 
 // 読み＝readAt(view, at) コールバック（worker では ah.read(view,{at})、テストでは配列コピー）。
 // headerOnly＝tiles だけ欲しい部分再開の走査用（本体3配列を読まない）。壊れていれば null。
-export function unpackBatch(readAt, headerOnly = false) {
+// take＝バッファ返却プールの取り出し口（byteLen→ArrayBuffer|null）：render worker が GPU 登録後に返した器を
+// 再利用し pos/nrm/idx の使い捨てを断つ（復元churnのヒープ高水位対策・2026-08-04夜）。器は要求以上の大きさ
+// でもよい＝view（byteOffset0・要素数指定）が正寸を切り出す。null/未指定＝従来どおり新規確保。
+export function unpackBatch(readAt, headerOnly = false, take = null) {
 	const pre = new Uint8Array(8);
 	if (readAt(pre, 0) < 8) return null;
 	const dv = new DataView(pre.buffer);
@@ -49,7 +52,8 @@ export function unpackBatch(readAt, headerOnly = false) {
 	const base = { origin: h.origin, bbox: h.bbox, lodH: h.lodH, lodCounts: h.lodCounts, twoSided: h.twoSided, tiles: h.tiles ?? undefined, maskCells: h.cells ? Uint32Array.from(h.cells) : undefined };
 	if (headerOnly) return base;
 	const start = dataStart(jl);
-	const pos = new Float32Array(h.pos), nrm = new Int8Array(h.nrm), idx = new Uint32Array(h.idx);
+	const mk = (Ctor, elems) => { const need = elems * Ctor.BYTES_PER_ELEMENT; const buf = take && take(need); return buf ? new Ctor(buf, 0, elems) : new Ctor(elems); };
+	const pos = mk(Float32Array, h.pos), nrm = mk(Int8Array, h.nrm), idx = mk(Uint32Array, h.idx);
 	if (readAt(pos, start) < pos.byteLength) return null;
 	if (readAt(nrm, start + pos.byteLength) < nrm.byteLength) return null;
 	if (readAt(idx, start + pos.byteLength + nrm.byteLength) < idx.byteLength) return null;
@@ -77,12 +81,12 @@ export async function opfsStore() {
 			try { const u8 = packBatch(mesh); ah.truncate(0); ah.write(u8, { at: 0 }); ah.flush(); }
 			finally { ah.close(); }
 		},
-		async read(base, i, headerOnly = false) {
+		async read(base, i, headerOnly = false, take = null) {
 			try {
 				const fh = await dir.getFileHandle(nameOf(base, i));
 				const ah = await fh.createSyncAccessHandle();
 				try {
-					const out = unpackBatch((view, at) => ah.read(view, { at }), headerOnly);
+					const out = unpackBatch((view, at) => ah.read(view, { at }), headerOnly, take);
 					if (out && headerOnly) out.bytes = ah.getSize();   // 本体を読まない時の容量台帳用（ファイルサイズ≒メッシュ実バイト）
 					return out;
 				} finally { ah.close(); }

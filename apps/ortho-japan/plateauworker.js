@@ -643,8 +643,26 @@ async function loadMeta(base, brid) {
 }
 // バッチ1個の読み出し（置き場は ward 単位で固定＝fs 引数）。無い/壊れ＝null。
 // headerOnly＝tiles/軽量メタだけ（OPFSは本体3配列を読まない。IDBは値全体クローンの仕組み上フル読みと同じ）。
+// ── バッファ返却プール（本人号令の「工事」2026-08-04夜）：復元/送出の pos/nrm/idx は使い捨てで
+// ヒープ高水位の主要燃料だった。render worker が GPU 登録後に ack と同便で器を返し（recycle）、
+// 次の復元は poolTake で器を再利用＝OPFS 同期 read の「与えた器へ流し込む」形と噛み合う。
+// キャッシュ保持(keep)時はクローン送信＝返ってくるのは renderer 側の複製＝これも器として再利用できる。
+const bufPool = [];   // ArrayBuffer（サイズ混在・要求以上で最小の器を first-fit）
+let POOL_MAX = 64 << 20;   // lowMem/mid は init で 16MB へ（在庫を抱えすぎない）
+let poolBytes = 0;
+function poolTake(need) {
+	let bi = -1, best = Infinity;
+	for (let i = 0; i < bufPool.length; i++) { const b = bufPool[i].byteLength; if (b >= need && b < best) { best = b; bi = i; } }
+	if (bi < 0) return null;
+	const b = bufPool.splice(bi, 1)[0]; poolBytes -= b.byteLength; return b;
+}
+function poolPut(buf) {
+	if (!buf || !buf.byteLength || buf.byteLength > (32 << 20)) return;   // 巨大器・空は返さない
+	if (poolBytes + buf.byteLength > POOL_MAX) return;
+	bufPool.push(buf); poolBytes += buf.byteLength;
+}
 async function readStored(base, fs, i, headerOnly = false) {
-	if (fs === "opfs") return ofs ? ofs.read(base, i, headerOnly) : null;
+	if (fs === "opfs") return ofs ? ofs.read(base, i, headerOnly, headerOnly ? null : poolTake) : null;
 	const idb = await idbReady; if (!idb) return null;
 	return idb(`${base}#${i}`).catch(() => null);
 }
@@ -950,7 +968,12 @@ const inflight = new Map();
 self.onmessage = async (e) => {
 	if (e.data.type === "init") {
 		meshPort = e.data.meshPort;
-		meshPort.onmessage = ev => { if (ev.data && ev.data.drained) onDrained(); };   // render worker の消化ack＝クレジット返却
+		meshPort.onmessage = ev => {   // render worker の消化ack＝クレジット返却＋器の返却（バッファ返却プール）
+			const d = ev.data; if (!d) return;
+			if (d.recycle) for (const b of d.recycle) poolPut(b);
+			if (d.drained) onDrained();
+		};
+		if (e.data.lowMem || e.data.mid) POOL_MAX = 16 << 20;
 		initFs(e.data.noOpfs);   // バッチ本体の置き場（OPFS可否の確定は fsReady。ロード側が await して待つ）
 		if (e.data.farH > 0) FAR_MIN_H = e.data.farH;   // 遠景far-DBの高さ閾値（?farh=N・既定200m）
 		memOn = !!e.data.mem;   // ?mem=1＝過渡バイトの報告を有効化（既定は完全無音＝計測コストゼロ）
