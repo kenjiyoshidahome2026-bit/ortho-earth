@@ -254,7 +254,7 @@ const noMixedR01 = /[?&]nor01=1/.test(location.search);
 // ?gpu=1 ＝WebGPU バックエンド（実験・Phase 1: globe+基図 fill/line）。非対応/失敗は worker 内で WebGL2 へ
 // 自動フォールバック＝既定挙動と同一。既定経路には dynamic import すら発生しない（バンドル・実行とも無負担）。
 // ?gpu=1＝WebGPU 実験フラグ。oj.nogpu＝この環境で「初期化は成功するのに絵が出ない」を検出済み（下の present 検証）
-// ＝このタブセッションは WebGL2 固定（タブを閉じれば解除）。iOS Safari 実測 2026-08-02：backend=webgpu ログまで
+// ＝次の1ブートだけ WebGL2（起動時に消費・累積2回で固定＝柔らか鍵、下の定義部）。iOS Safari 実測 2026-08-02：backend=webgpu ログまで
 // 進むが画面に画素が届かない（worker×OffscreenCanvas×WebGPU の present 未接続系）＝例外ゼロの沈黙故障。
 // モバイル：ページ自体のネイティブズーム禁止＝地図のズームだけが生きる。iOS Safari は viewport の
 // user-scalable=no を無視するため gesture 系 preventDefault が本丸（canvas の touch-action:none は
@@ -275,7 +275,20 @@ for (const t of ["gesturestart", "gesturechange", "gestureend"]) document.addEve
 // 素通りするが、稀ケースかつ落ち網3枚の内側なので許容。
 const IS_ANDROID = /Android/.test(navigator.userAgent) || navigator.userAgentData?.platform === "Android";
 const forceGl2 = /[?&]gl2=1/.test(location.search);
-const gpuBackend = !forceGl2 && "gpu" in navigator && (/[?&]gpu=1/.test(location.search) || (!IS_ANDROID && !sessionStorage.getItem("oj.nogpu")));
+// 【柔らか鍵 2026-08-04】旧 oj.nogpu は「一発失敗＝タブが生きている限り GL2 固定・表示なし」＝黙殺だった。
+// だが失敗2経路のうち watchdog(20秒 frame1 不達)は遅い回線でも誤爆する＝一度の躓きで 3GB 機が重い GL2 に
+// 落ちたまま jetsam（タブ落ち→Safari 自動リロードでも sessionStorage は生き残る＝固定が続く悪循環）。
+// 新方式＝①印は起動時に消費（このブートだけ GL2・次のリロードは WebGPU 再試行）②累積 oj.nogpuN が
+// 2 回に達したら本物の故障とみなしタブセッション固定 ③フォールバック中は画面チップで明示＋タップで
+// 印を全部消して再試行（CNG フリートの見回り診断）。WebGPU の present 検証が通ったら累積もリセット。
+const nogpuN = +(sessionStorage.getItem("oj.nogpuN") || 0);
+const nogpuMark = sessionStorage.getItem("oj.nogpu");
+if (nogpuMark && nogpuN < 2) sessionStorage.removeItem("oj.nogpu");   // 一発分を消費＝次のリロードで WebGPU 再試行
+const markNoGpu = why => { sessionStorage.setItem("oj.nogpu", why); sessionStorage.setItem("oj.nogpuN", String(nogpuN + 1)); };
+const gpuBackend = !forceGl2 && "gpu" in navigator && (/[?&]gpu=1/.test(location.search) || (!IS_ANDROID && !nogpuMark && nogpuN < 2));
+// フォールバック起因の GL2（＝WebGPU が使えるはずの環境で印により落ちている）だけチップを出す。
+// Android 既定 GL2・?gl2=1・navigator.gpu 無しの「設計どおり GL2」には出さない（ノイズにしない）。
+const gl2Fallback = !forceGl2 && "gpu" in navigator && !IS_ANDROID && !gpuBackend;
 if (IS_ANDROID && "gpu" in navigator && !gpuBackend && !forceGl2) console.log("[boot] Android＝WebGL2 既定（WebGPUはドライバ黒画面族のため封印・?gpu=1で再試行可）");
 // stay=1 の診断HUD：コンソールを見なくても分かるよう、判定を画面へ大書（iOS 実機診断 2026-08-02）
 const diagHud = /[?&]stay=1/.test(location.search) ? (() => {
@@ -293,7 +306,8 @@ const diagHud = /[?&]stay=1/.test(location.search) ? (() => {
 	put("frame1", "未着 ✗");
 	return put;
 })() : null;
-if (/[?&]gpu=1/.test(location.search) && !gpuBackend) console.warn("[boot] 前回 WebGPU の present 検証に失敗＝このセッションは WebGL2 固定（タブを閉じると再試行）");
+if (/[?&]gpu=1/.test(location.search) && !gpuBackend) console.warn("[boot] gpu=1 指定だが WebGPU 不可（navigator.gpu なし or gl2=1 併記）＝WebGL2 で起動");
+if (gl2Fallback) console.warn(`[boot] WebGPU フォールバック中＝WebGL2（理由=${nogpuMark || "累積" }・累積${nogpuN}回${nogpuN >= 2 ? "＝このタブは固定" : "＝次のリロードで再試行"}）`);
 // ?noterr=1 ＝標高（アトラス・地形メッシュ・タイルLRU）を丸ごと停止する A/B 計測ノブ（?nogint=1 と同格）。
 const noTerr = /[?&]noterr=1/.test(location.search);
 // ?farterr=0 ＝遠景地形層（深ズーム×チルトの R10 第2アトラス＝ズームインしても遠方の山が消えない一般則）を
@@ -341,7 +355,7 @@ let bootT = setTimeout(() => {
 if (gpuBackend) setTimeout(() => {
 	if (!window.__backend && !/[?&]stay=1/.test(location.search)) {
 		console.error("[boot] gpu=1 で 20秒 frame1 なし → WebGL2 で再起動");
-		sessionStorage.setItem("oj.nogpu", "1");
+		markNoGpu("frame1-20s");
 		location.reload();
 	}
 }, 20000);
@@ -367,6 +381,16 @@ renderWorker.onmessage = e => {
 		document.getElementById("fatal")?.remove();   // 遅い回線でウォッチドッグ(10s)が先に出た後の遅着 frame1＝案内を畳む（地図は生きているのに被さったまま＝「何も出ない」の正体・モバイル実測 2026-08-02）
 		console.log(`[boot] frame1 受信 backend=${window.__backend}`);
 		diagHud && diagHud("frame1", `受信 ✓ backend=${window.__backend}`);
+		// フォールバック GL2 の画面表示（柔らか鍵の③）：黙って重いモードで走らない。タップ＝印を全消しして
+		// WebGPU 再試行（CNG フリートで端末を覗いた瞬間に状態が分かる・観客の端末でも1タップで復帰を試せる）。
+		if (window.__backend !== "webgpu" && gl2Fallback) {
+			const chip = document.createElement("div");
+			chip.id = "gl2-chip";
+			chip.style.cssText = "position:fixed;left:8px;bottom:calc(8px + env(safe-area-inset-bottom,0px));z-index:9000;background:rgba(20,24,34,.78);color:#ffd479;font:11px/1.4 system-ui,sans-serif;padding:5px 9px;border-radius:14px;cursor:pointer;user-select:none;-webkit-user-select:none";
+			chip.textContent = nogpuN >= 2 ? "互換描画(WebGL2)モード — タップで高速モード再試行" : "互換描画(WebGL2)で起動 — 再読み込みで高速モード再試行";
+			chip.onclick = () => { sessionStorage.removeItem("oj.nogpu"); sessionStorage.removeItem("oj.nogpuN"); location.reload(); };
+			document.body.appendChild(chip);
+		}
 		// WebGPU の present 検証：worker 側は例外ゼロで描けている「つもり」でも、環境によっては canvas に画素が
 		// 届かない（iOS Safari 実測＝worker×OffscreenCanvas×WebGPU の present 未接続）。placeholder canvas を
 		// drawImage→getImageData し、全画素ゼロなら WebGL2 で自動再起動（Chrome は正常時 全画素非ゼロを実測確認済）。
@@ -375,7 +399,7 @@ renderWorker.onmessage = e => {
 			const bail = why => {
 				if (stay) { console.error(`[boot] WebGPU present 検証失敗（${why}）。stay=1＝フォールバック抑止＝このまま診断行を確認してください`); diagHud && diagHud("present", `失敗 ✗（${why}）`); return; }
 				console.error(`[boot] WebGPU present 検証失敗（${why}）→ 3秒後に WebGL2 で再起動（GPU診断の到着待ち）`);
-				sessionStorage.setItem("oj.nogpu", "1");
+				markNoGpu("present:" + why);
 				setTimeout(() => location.reload(), 3000);
 			};
 			try {
@@ -385,7 +409,7 @@ renderWorker.onmessage = e => {
 				const px = g.getImageData(0, 0, 16, 16).data;
 				let nz = 0; for (let i = 0; i < px.length; i += 4) if (px[i] | px[i + 1] | px[i + 2] | px[i + 3]) nz++;
 				if (nz === 0) bail("画素が canvas に届いていない");
-				else { console.log(`[boot] WebGPU present 検証OK（画素 ${nz}/256）`); diagHud && diagHud("present", `OK ✓ 画素${nz}/256`); }
+				else { console.log(`[boot] WebGPU present 検証OK（画素 ${nz}/256）`); diagHud && diagHud("present", `OK ✓ 画素${nz}/256`); sessionStorage.removeItem("oj.nogpuN"); }   // 検証通過＝この環境の WebGPU は本物＝過去の躓きの累積を消す
 			} catch (e) { bail("検証中の例外: " + (e && e.message)); }
 		}, 1500);
 		return;
@@ -755,7 +779,11 @@ async function runPrefetch(wanted, how) {
 		// 帯域/IDBを取り合い「標高が表示されない」）——のどちらかが走っている間は次の先読みを始めない＝
 		// 帯域・Dracoデコード・IDB書き込みを全部シーンへ明け渡す。キャンセル中/在庫slow中の区は待たない＝背景同士。
 		// 既に走っている先読みは中断しない（多くは同区で inflight 合流する）。
-		const visibleBusy = () => elevBusy || [...plateauAutoLoading.keys()].some(n => !plateauCancelling.has(n) && !plateauDemoted.has(n));
+		// flying/moving も柵に加える（2026-08-04）：飛行中は terrainGate が標高 ensure を止めるので elevBusy=false
+		// ＝旧柵では「飛行中こそ先読みが全力で回る」だった。着地の瞬間は R01 近傍9枚（生Int16 26MB級×並列）＋
+		// R10 窓のデコードバーストが来る＝そこへ Draco デコードが重なるのが 3GB 機（iPad Air3）の飛行中 jetsam の型。
+		// 飛行は数秒＝先読みの遅れは誤差（走行中の先読みは中断しない＝止めるのは「次の区の開始」だけ）。
+		const visibleBusy = () => flying || moving || elevBusy || [...plateauAutoLoading.keys()].some(n => !plateauCancelling.has(n) && !plateauDemoted.has(n));
 		let wi = 0;
 		const pump = async () => {
 			for (;;) {
