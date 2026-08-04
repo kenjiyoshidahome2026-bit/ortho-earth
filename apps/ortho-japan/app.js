@@ -218,7 +218,7 @@ const noGint = /[?&]nogint=1/.test(location.search);
 const perfLog = /[?&]perf=1/.test(location.search);
 // ?mem=1 ＝常駐メモリHUD（plateau＋tiles＋terrain を合算・走行後ピーク・4GB機予算まで残り）を画面右上に表示。過渡①は非表示。
 const memHud = /[?&]mem=1/.test(location.search);
-let memTerrain = 0, memHeap = 0;   // render worker から届く terrain LRU バイトと JS ヒープ（?mem=1 時のみ更新）
+let memTerrain = 0, memHeap = 0, memGpu = null;   // render worker から届く terrain LRU バイト・JS ヒープ・GPU固定常駐概算（?mem=1 時のみ更新）
 // 混成R01近景（高チルト山岳の細かい起伏）は全端末で既定ON（lowMem含む）。旧・lowMemはR10止まり（富士3Dのjetsam対策80170b8）
 // だったが、標高アトラスR16F化（GPU半減）＋iOS 4GB実機で peak 84MB・完走を実測して安全確認済み。
 // ?nor01=1 ＝過渡デコードで落ちる端末が出た時の逃げ道（無効化＝全面R10へ）。
@@ -258,6 +258,9 @@ const diagHud = /[?&]stay=1/.test(location.search) ? (() => {
 if (/[?&]gpu=1/.test(location.search) && !gpuBackend) console.warn("[boot] 前回 WebGPU の present 検証に失敗＝このセッションは WebGL2 固定（タブを閉じると再試行）");
 // ?noterr=1 ＝標高（アトラス・地形メッシュ・タイルLRU）を丸ごと停止する A/B 計測ノブ（?nogint=1 と同格）。
 const noTerr = /[?&]noterr=1/.test(location.search);
+// ?farterr=0 ＝遠景地形層（深ズーム×チルトの R10 第2アトラス＝ズームインしても遠方の山が消えない一般則）を
+// 無効化する逃げ道。コスト＝GPU 10-16MB＋遠景メッシュ2度描き（チルト深ズーム時のみ）。
+const noFarTerr = /[?&]farterr=0/.test(location.search);
 // ⚠iOS WebKit の轍（2026-08-02 実機確定）：WebGPU 構成の worker への「直結 postMessage」は init 以降
 // 黙って消える（main送信8回/worker受信0回・エラー皆無。MessageChannel ポート経由は全て配達される＝
 // scene/plateau ポートが生きている実証つき）。よって init 以外の制御メッセージは全部 ctrlPort 経由。
@@ -272,7 +275,7 @@ const wPost = (msg, transfer) => {
 	}
 	ctrlChan.port1.postMessage(msg, transfer || []);
 };
-renderWorker.postMessage({ type: "init", ctrlPort: ctrlChan.port2, canvas: offscreen, labelCanvas: labelOffscreen, elevBase: TERR_EXAG / EARTH_M, terrainExag: TERR_EXAG, earthM: EARTH_M, apiUrl: "https://api.ortho-earth.com", scenePort: sceneChan.port2, noMultiDraw, perf: perfLog, mem: memHud, lowMem: LOW_MEM, noMixed: noMixedR01, gpu: gpuBackend, noTQ: /[?&]notq=1/.test(location.search), noGint: /[?&]nogint=1/.test(location.search), stay: /[?&]stay=1/.test(location.search), noTerr }, [ctrlChan.port2, offscreen, labelOffscreen, sceneChan.port2]);
+renderWorker.postMessage({ type: "init", ctrlPort: ctrlChan.port2, canvas: offscreen, labelCanvas: labelOffscreen, elevBase: TERR_EXAG / EARTH_M, terrainExag: TERR_EXAG, earthM: EARTH_M, apiUrl: "https://api.ortho-earth.com", scenePort: sceneChan.port2, noMultiDraw, perf: perfLog, mem: memHud, lowMem: LOW_MEM, noMixed: noMixedR01, noFarTerr, noBld: /[?&]nobld=1/.test(location.search), gpu: gpuBackend, noTQ: /[?&]notq=1/.test(location.search), noGint: /[?&]nogint=1/.test(location.search), stay: /[?&]stay=1/.test(location.search), noTerr }, [ctrlChan.port2, offscreen, labelOffscreen, sceneChan.port2]);
 // 薄いプロキシ：有線(関数呼び)を無線(postMessage)に載せ替え。set/draw 統一済なので pipeline/overlay は無改造。
 // draw は worker 側で「cam を記録するだけ」に受け、実描画は worker 自前 rAF が最新 cam で回す（worker-driven）。
 // 標高アトラス(terrain)も worker 側に住む＝main はもう視野→セル計算・ダウンサンプルを一切やらない。読込インジケータだけ elevPending で受ける。
@@ -387,7 +390,7 @@ renderWorker.onmessage = e => {
 		else fatalOverlay("GPU の描画が中断されました", "描画コンテキストが失われました（GPUメモリ不足などで起こります）。他のタブやアプリを閉じてから再読み込みしてください。", true);
 		return;
 	}
-	if (d.type === "mem") { memTerrain = d.terrain || 0; memHeap = d.heap || 0; return; }   // ?mem=1：render worker からの terrain LRU バイト＋JSヒープ（HUD が合算表示）
+	if (d.type === "mem") { memTerrain = d.terrain || 0; memHeap = d.heap || 0; memGpu = d.gpu || null; return; }   // ?mem=1：render worker からの terrain LRU バイト＋JSヒープ＋GPU固定常駐概算（HUD が合算表示）
 	if (d.type !== "elevPending") return;
 	const { count, range, stat } = d;
 	elevBusy = count > 0;   // 標高タイル読込中＝PLATEAU先読みポンプの柵（地形シーンの起伏が先・下記 runPrefetch）
@@ -408,6 +411,10 @@ let mainDesired = "";
 // 引ける＝「消して同じものを描き直す」を集合不変（mergeシグネチャ不変）で構造的に回避。頂点は増える方向なので
 // WebGPU×非LOW_MEM 限定（PLATEAU全保持と同じゲート）。?keepfine=N で深さ変更・?keepfine=0 で従来動作。
 const KEEP_FINE = (gpuBackend && !LOW_MEM) ? qNum(/[?&]keepfine=(\d+)/, 2) : 0;
+// 子孫代打は 3D（チルト）限定：真俯瞰=2D は「素の選抜と同じベクトルタイル」を見せる（本人裁定 2026-08-04）。
+// チルトから回復した平面図に細密パッチが残ると、周囲と線幅・密度の質感が違う継ぎはぎになる（横浜実絵）。
+// 閾値は flat2d/hideBldFill と同じ 0.02rad＝「3Dが立つ瞬間」と同期。
+const keepFineNow = () => (cam.pitch || 0) >= 0.02 ? KEEP_FINE : 0;
 // mainSceneZoom＝render workerに現在乗っているmainシーンのzoom（mergeのackで確定）。
 let mainSceneZoom = -1;
 const mergePendingZoom = new Map();   // merge要求sig → 要求時のzoom
@@ -415,7 +422,7 @@ const STALE_ZOOMOUT = 0.5;            // これ以上ズームアウトしたら
 // keepFine 時はズームアウト隠しを無効化：保持中の細集合は「古い詳細」でなく望みの絵そのもの（sig不変で merge も
 // 来ない＝隠すと戻す契機がなくパッと消えたままになる・実機で露見）。集合が変わる引き方でも隠さず、新 merge の
 // ack で原子的に差し替え＝連続した絵を保つ。従来動作（GL2/LOW_MEM）は据置。
-const mainStale = () => !KEEP_FINE && mainSceneZoom > cam.zoom + STALE_ZOOMOUT;
+const mainStale = () => !keepFineNow() && mainSceneZoom > cam.zoom + STALE_ZOOMOUT;
 let basemapHidden = false;                 // z<BASEMAP_MINZOOM で基図(GSI)を止めてるか（全球ビュー＝海岸線のみ）
 const BASEMAP_MINZOOM = 5;                 // これ未満は基図の詳細を描かない（海岸線 gint で十分／main負荷を断つ）
 // 静止時の詳細化＝主層の分割閾を下げる（既定560→この値）。近景ほど画面上のタイルが大きい＝真っ先に
@@ -462,9 +469,9 @@ const PLATEAU_HIDE_Z = (gpuBackend && !LOW_MEM) ? PLATEAU_AUTO_Z - qNum(/[?&]paz
 // ── 遠景far-DB＝「いつも描くDB」（本人裁定2026-08-04・閾値15m）：z15帯の建物の崖をPLATEAU抽出の軽量箱で埋める。
 // 実体は plateauworker（#far導出・プリズム生成）→ 既存plateauパイプに `${ward}#far` バッチで相乗り（マスク不参加）。
 // 可用性＝一度でも完走焼きした区だけ＝訪れるほど遠景が育つ（ambient/データ重力と同思想）。WebGPU×非LOW_MEM限定。
-const FAR_H = qNum(/[&?]farh=(\d+)/, 100);  // 高さ閾値(m)＝100m級＝純粋な超高層・ランドマークの星座（本人裁定2026-08-04「100で十分」・都内~600棟）。
+const FAR_H = qNum(/[&?]farh=(\d+)/, 200);  // 高さ閾値(m)＝200m級＝真の超高層だけの星座（本人裁定2026-08-04夜「z14から+200m以上で少し綺麗にかつ軽く」・100m=都内~600棟から更に絞る）。
                                             // 15m案は都心区でほぼ全建物が通り数万箱＝メモリ爆上がりの轍→50m→実機比較で100に着地。?farh=Nで実験可
-const FAR_Z = 13;                           // 遠景箱の点灯下限ズーム（z15帯が見え始める辺り）
+const FAR_Z = 14;                           // 遠景箱の点灯下限ズーム（本人裁定2026-08-04夜=13→14へ・出現を遅らせて遠すぎる箱を見せない）
 const farShown = new Set();                 // 要求済み/表示中の区（active化で退場→再要求可に戻す）
 const farMissed = new Set();                // #far整備不能（完走焼き無し）＝farReadyが来るまで再要求しない
 // far育成キュー：#far無し(farMiss)の区は、焼きがあれば worker のfarBakeで「読むだけ導出」。1区ずつ直列＝
@@ -2200,7 +2207,7 @@ function render() {
 		return;
 	}
 	basemapHidden = false;
-	const { order, coarseOrder, total } = tiles.update(cam, size.w, size.h, { tilePx: (moving || !gpuFast || !idleCalm) ? undefined : IDLE_TILE_PX, keepFine: KEEP_FINE });   // tilePx＝「本当の静止」（settle+550ms）だけ主層を一段細かく（手前の詳細化・GPU格付け fast 限定・undefined=既定560）。keepFine＝ズームアウトの子孫代打。calm が needsDraw を立て、細タイルの ready は requestDraw で連鎖再描画
+	const { order, coarseOrder, total } = tiles.update(cam, size.w, size.h, { tilePx: (moving || !gpuFast || !idleCalm) ? undefined : IDLE_TILE_PX, keepFine: keepFineNow() });   // tilePx＝「本当の静止」（settle+550ms）だけ主層を一段細かく（手前の詳細化・GPU格付け fast 限定・undefined=既定560）。keepFine＝ズームアウトの子孫代打。calm が needsDraw を立て、細タイルの ready は requestDraw で連鎖再描画
 	window.__lastOrder = order;   // デバッグ：現在の選択タイル（コンソール/検証スクリプトから確認）
 	window.__tileStats = () => { const s = tiles.stats(); console.log(`[tiles] 常駐 ${s.tiles}枚 / ${(s.bytes/1048576).toFixed(1)}MB（予算 ${(s.budgetBytes/1048576).toFixed(0)}MB, deviceMemory≈${s.deviceMemoryGB}GB, cacheEntries ${s.cacheEntries}）`); return s; };   // コンソールから常駐メモリ確認
 	window.__tileCache = tiles.cache;   // デバッグ：タイル台帳の生参照（status/tries/seen を界隈キーで覗く＝矩形再描画の切り分け用）
@@ -2227,12 +2234,16 @@ if (memHud) {
 		const names = new Set([...plateauActive.keys(), ...plateauResident.keys()]);
 		let plat = 0; for (const n of names) plat += bytesOf(n, plateauActive.get(n) || plateauResident.get(n));
 		const ts = tiles.stats();
-		const total = plat + ts.bytes + memTerrain;
+		// GPU固定＝renderer 自前確保分の概算（標高アトラス近/舞台裏/遠＋地形メッシュ＋MSAA[webgpuのみ]）。
+		// GL2 は canvas antialias:true の MSAA がブラウザ暗黙確保＝msaa0 表示だが実在する（+α と読む）。
+		const gpu = memGpu ? memGpu.atlas + memGpu.mesh + memGpu.msaa : 0;
+		const total = plat + ts.bytes + memTerrain + gpu;
 		if (total > peak) peak = total;
 		memEl.textContent =
 			`PLATEAU ${mb(plat)}MB（表示${plateauActive.size}区）\n` +
 			`tiles   ${mb(ts.bytes)} / ${mb(ts.budgetBytes)}MB\n` +
 			`terrain ${mb(memTerrain)}MB` + (memHeap ? `\nJS heap ${mb(memHeap)}MB` : ``) + `\n` +
+			(memGpu ? `GPU固定 ${mb(gpu)}MB（atlas${mb(memGpu.atlas)}+mesh${mb(memGpu.mesh)}+msaa${mb(memGpu.msaa)}）\n` : ``) +
 			`常駐計  ${mb(total)}MB（peak ${mb(peak)}）\n` +
 			`4GB予算 残 ${mb(BUDGET - peak)} / ${mb(BUDGET)}MB\n` +
 			`※過渡①は非表示（+~0.3GB/区）`;

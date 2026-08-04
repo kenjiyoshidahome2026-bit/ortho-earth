@@ -16,8 +16,8 @@ let TILE_CONCURRENCY = 8;   // バッチ内のタイル並行fetch/デコード�
 let BATCH_TILES = 32;       // 1バッチのタイル数。小さいほど初表示が速く（＋デコード過渡メモリも比例減）、大きいほどdraw call/RTE origin数が減る。
                             // 64→32（2026-07-27）：デモ中「メモリ14G級」の実害＝過渡~2.5GB/区の半減を優先（バッチ数は倍＝描画影響は軽微）。
 const MASK_N = 256;           // 区単位の被覆マスク解像度（基図建物を伏せるセル）
-const FAR_VER = 2;            // 遠景far-DB（#far）の形式版。抽出方法を変えたら上げる＝次のロードで自然再導出。v2=頂点溶接（v1は三角形単位に退化＝83k箱/区の轍）
-let FAR_MIN_H = 100;          // far-DBの高さ閾値(m)＝100m級＝超高層ランドマークのみ（本人裁定2026-08-04「100で十分」・15m/50mは実機比較で却下）。init(farH)/?farh=Nで上書き
+const FAR_VER = 3;            // 遠景far-DB（#far）の形式版。抽出方法を変えたら上げる＝次のロードで自然再導出。v2=頂点溶接（v1は三角形単位に退化＝83k箱/区の轍）・v3=先細り塔の除外（スカイツリー箱化対策）
+let FAR_MIN_H = 200;          // far-DBの高さ閾値(m)＝200m級＝真の超高層だけの星座（本人裁定2026-08-04夜「z14から+200m以上で少し綺麗にかつ軽く」・15m/50m/100mは実機比較で却下）。init(farH)/?farh=Nで上書き
 const LOD_H = [0, 3, 6, 12, 24, 48];   // LOD段の高さ閾値(m)。renderer が「画面上1px未満の建物」を先頭countの打ち切りで捨てる
 const R2D = 180 / Math.PI;
 
@@ -382,26 +382,45 @@ const onDrained = () => { const w = creditWaiters.shift(); if (w) w(); else if (
 // バッチ1個を render worker へ送出（クレジットが空くまで待つ）。cache の原本は守りたいので transfer 分はコピー。
 // own=true＝この mesh はもう誰も使わない（ストリーミング復元＝送ったら手放す）＝コピー無しで transfer
 // （渡した後は detached＝呼び出し側は触らない約束）。マスクは累積原本ゆえ常にコピー＝renderer 側は毎回丸ごと差し替え（冪等）。
-// マスク断片：メッシュ持参の maskCells（新形式）を、無ければ**実頂点**からセル導出（旧焼き互換＝再焼き不要）。
-// ⚠bbox代用は禁止：バッチはカメラ近傍順ソートの塊＝空間的に広く散り得て、bboxが区の半分級になる
-// （実測2026-08-04：旧焼き復元の初バッチが巨大矩形を一撃で伏せ「領域の建物が全部消える」退行）。
-// 頂点→経緯度は world 軸（camera.js lonlatTo3D と同規約：lat=asin(y)・lon=atan2(z,x)）。セル41m級 ≫ 建物
-// ＝頂点打ちで隙間なし。区bbox外に出た頂点は捨てる＝失敗は常に「伏せない」側（空白でなく二重立ち）に倒れる。
+// マスク断片：メッシュ持参の maskCells（新形式）を、無ければ**三角形bbox**からセル導出（旧焼き互換＝再焼き不要・
+// decodeBatch と同じ塗り方）。⚠バッチbbox代用は禁止：バッチはカメラ近傍順ソートの塊＝空間的に広く散り得て、
+// bboxが区の半分級になる（実測2026-08-04：旧焼き復元の初バッチが巨大矩形を一撃で伏せ「領域の建物が全部消える」退行）。
+// ⚠頂点打ちも禁止（v1の轍・2026-08-04夜）：「セル41m級≫建物＝頂点打ちで隙間なし」は長い単純壁で嘘になる
+//（大きなビルの一枚壁＝三角形2枚・頂点は角だけ→中間セルが未マーク→基図建物の壁がそこだけ生き残り
+// PLATEAU壁と深度戦い＝pan/zoom中の壁面の瞬き・?nobld=1切り分けで本人特定）。
+// 頂点→経緯度は world 軸（camera.js lonlatTo3D と同規約：lat=asin(y)・lon=atan2(z,x)）。
+// 区bbox外に完全に出た三角形は捨てる＝失敗は常に「伏せない」側（空白でなく二重立ち）に倒れる。
 function maskCellsOf(mesh, wardBbox) {
 	if (!wardBbox) return null;
 	if (mesh.maskCells?.length) return Uint32Array.from(mesh.maskCells);   // 常にコピー＝cache原本をtransferで壊さない
-	const pos = mesh.pos, o = mesh.origin;
+	const pos = mesh.pos, o = mesh.origin, idx = mesh.idx;
 	if (!pos || !o) return null;
+	const n = pos.length / 3;
+	const lons = new Float64Array(n), lats = new Float64Array(n);
+	const R2Dg = 180 / Math.PI;
+	for (let i = 0; i < n; i++) {
+		const x = pos[i * 3] + o[0], y = pos[i * 3 + 1] + o[1], z = pos[i * 3 + 2] + o[2];
+		const r = Math.hypot(x, y, z) || 1;
+		lats[i] = Math.asin(Math.max(-1, Math.min(1, y / r))) * R2Dg;
+		lons[i] = Math.atan2(z, x) * R2Dg;
+	}
 	const bm = new Uint8Array(MASK_N * MASK_N);
 	const wLo = wardBbox[0], wLa = wardBbox[1];
 	const sx = (wardBbox[2] - wardBbox[0]) || 1e-12, sy = (wardBbox[3] - wardBbox[1]) || 1e-12;
-	const R2Dg = 180 / Math.PI;
-	for (let i = 0; i < pos.length; i += 3) {
-		const x = pos[i] + o[0], y = pos[i + 1] + o[1], z = pos[i + 2] + o[2];
-		const r = Math.hypot(x, y, z) || 1;
-		const lat = Math.asin(Math.max(-1, Math.min(1, y / r))) * R2Dg, lon = Math.atan2(z, x) * R2Dg;
-		const cx = (lon - wLo) / sx * MASK_N | 0, cy = (lat - wLa) / sy * MASK_N | 0;
-		if (cx >= 0 && cy >= 0 && cx < MASK_N && cy < MASK_N) bm[cy * MASK_N + cx] = 1;
+	if (idx?.length) {
+		for (let t = 0; t < idx.length; t += 3) {
+			const a = idx[t], b = idx[t + 1], c = idx[t + 2];
+			let cx0 = (Math.min(lons[a], lons[b], lons[c]) - wLo) / sx * MASK_N | 0, cx1 = (Math.max(lons[a], lons[b], lons[c]) - wLo) / sx * MASK_N | 0;
+			let cy0 = (Math.min(lats[a], lats[b], lats[c]) - wLa) / sy * MASK_N | 0, cy1 = (Math.max(lats[a], lats[b], lats[c]) - wLa) / sy * MASK_N | 0;
+			if (cx1 < 0 || cy1 < 0 || cx0 > MASK_N - 1 || cy0 > MASK_N - 1) continue;   // 区bbox外＝捨てる（伏せない側）
+			if (cx0 < 0) cx0 = 0; if (cy0 < 0) cy0 = 0; if (cx1 > MASK_N - 1) cx1 = MASK_N - 1; if (cy1 > MASK_N - 1) cy1 = MASK_N - 1;
+			for (let y2 = cy0; y2 <= cy1; y2++) { const row = y2 * MASK_N; for (let x2 = cx0; x2 <= cx1; x2++) bm[row + x2] = 1; }
+		}
+	} else {   // idx無しの保険＝従来の頂点打ち（現行データは全て idx 持ち）
+		for (let i = 0; i < n; i++) {
+			const cx = (lons[i] - wLo) / sx * MASK_N | 0, cy = (lats[i] - wLa) / sy * MASK_N | 0;
+			if (cx >= 0 && cy >= 0 && cx < MASK_N && cy < MASK_N) bm[cy * MASK_N + cx] = 1;
+		}
 	}
 	const cells = [];
 	for (let i = 0; i < bm.length; i++) if (bm[i]) cells.push(i);
@@ -434,7 +453,7 @@ function farBoxesOf(mesh) {
 		if (b !== a) par[b] = a; if (c !== find(a)) par[find(c)] = find(a);
 	}
 	const R2Dg = 180 / Math.PI, EARTH = 6371000;
-	const comp = new Map();   // root → [lonMin,latMin,lonMax,latMax,hMax]
+	const comp = new Map();   // root → [lonMin,latMin,lonMax,latMax,hMax, hMin]（hMinは先細り判定用・保存形式は先頭5要素のまま）
 	for (let i = 0; i < n; i++) {
 		const x = pos[i * 3] + o[0], y = pos[i * 3 + 1] + o[1], z = pos[i * 3 + 2] + o[2];
 		const r = Math.hypot(x, y, z) || 1;
@@ -442,15 +461,37 @@ function farBoxesOf(mesh) {
 		const h = (r - 1) * EARTH;
 		const k = find(weld[i]);   // ⚠素の find(i) は溶接された重複頂点が孤児成分になり箱を量産（145k/区の轍）
 		const b = comp.get(k);
-		if (!b) comp.set(k, [lon, lat, lon, lat, h]);
+		if (!b) comp.set(k, [lon, lat, lon, lat, h, h]);
 		else {
 			if (lon < b[0]) b[0] = lon; if (lat < b[1]) b[1] = lat;
 			if (lon > b[2]) b[2] = lon; if (lat > b[3]) b[3] = lat;
-			if (h > b[4]) b[4] = h;
+			if (h > b[4]) b[4] = h; if (h < b[5]) b[5] = h;
 		}
 	}
+	// 先細り判定（v3・本人裁定2026-08-04「スカイツリーが箱にならないほうがいい。出現ズームを上げていいから綺麗に出す」）：
+	// 上部40%帯（h ≥ hMin+0.6×高さ）の水平広がりが全体bboxの45%未満なら「塔」（先細り＝bbox箱にすると嘘の巨箱）
+	// ＝far-DBに入れない→実メッシュのPLATEAU表示（z15帯）で初めて綺麗に登場する。角柱型の超高層（都庁・ランドマーク
+	// タワー・ドコモ代々木＝上部帯に本体が入る）は残る。スカイツリー(634m・上部帯=細シャフト)・東京タワー級が除外対象。
+	const cand = new Map();   // root → { b, slabH, top:[lonMin,latMin,lonMax,latMax] }
+	for (const [k, b] of comp) if (b[4] >= FAR_MIN_H) cand.set(k, { b, slabH: b[5] + 0.6 * (b[4] - b[5]), top: [1e9, 1e9, -1e9, -1e9] });
+	if (!cand.size) return [];
+	for (let i = 0; i < n; i++) {
+		const c = cand.get(find(weld[i]));
+		if (!c) continue;
+		const x = pos[i * 3] + o[0], y = pos[i * 3 + 1] + o[1], z = pos[i * 3 + 2] + o[2];
+		const r = Math.hypot(x, y, z) || 1;
+		if ((r - 1) * EARTH < c.slabH) continue;
+		const lat = Math.asin(Math.max(-1, Math.min(1, y / r))) * R2Dg, lon = Math.atan2(z, x) * R2Dg;
+		const t = c.top;
+		if (lon < t[0]) t[0] = lon; if (lat < t[1]) t[1] = lat;
+		if (lon > t[2]) t[2] = lon; if (lat > t[3]) t[3] = lat;
+	}
 	const out = [];
-	for (const b of comp.values()) if (b[4] >= FAR_MIN_H) out.push(b);
+	for (const { b, top } of cand.values()) {
+		const fw = b[2] - b[0], fh = b[3] - b[1];
+		const boxy = fw <= 0 || fh <= 0 || ((top[2] - top[0]) >= fw * 0.45 && (top[3] - top[1]) >= fh * 0.45);
+		if (boxy) out.push([b[0], b[1], b[2], b[3], b[4]]);
+	}
 	return out;
 }
 
@@ -460,7 +501,7 @@ function farBoxesOf(mesh) {
 async function sendFar(base, ward) {
 	const idb = await idbReady; if (!idb) { self.postMessage({ farMiss: { name: ward } }); return; }
 	const far = await idb(base + "#far").catch(() => null);
-	if (!far?.boxes?.length || far.ver !== FAR_VER) { self.postMessage({ farMiss: { name: ward } }); return; }   // 版違い＝miss扱い→farBakeが新版で再導出
+	if (!far?.boxes?.length || far.ver !== FAR_VER || far.h !== FAR_MIN_H) { self.postMessage({ farMiss: { name: ward } }); return; }   // 版違い・閾値違い＝miss扱い→farBakeが新版で再導出（旧閾値の箱を一瞬も点けない）
 	const boxes = far.boxes, nb = boxes.length / 5;
 	const D2Rg = Math.PI / 180, EARTH = 6371000;
 	const toW = (lon, lat, h) => { const a = lon * D2Rg, b = lat * D2Rg, cb = Math.cos(b), r = 1 + h / EARTH; return [cb * Math.cos(a) * r, Math.sin(b) * r, cb * Math.sin(a) * r]; };

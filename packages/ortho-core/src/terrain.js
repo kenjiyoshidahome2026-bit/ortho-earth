@@ -6,9 +6,13 @@ import { unproject, cameraState, lonlatTo3D, WORLD_PX } from "./camera.js";
 import { downsampleFlipped } from "./elevation.js";
 import { createTileLoader } from "altpbf";
 
-export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onPending, lowMem = false, noMixed = false }) {
+export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onPending, lowMem = false, noMixed = false, noFar = false }) {
 	let atlasKey = "", loadedCells = new Set();
 	let cellFails = new Map();   // ck → 取得失敗回数（窓の世代ごとにリセット。上限内は次の ensure で再挑戦）
+	// 遠景層（far）＝近窓が R01 級（cap4=4°）へ縮む深ズーム×チルトで、粗い R10 を第2アトラスへ常設。
+	// 特定の山の特別扱いはしない一般則：ズームインで近窓の外へ出た遠方の山（富士・アルプス・筑波…）は
+	// 全てこの層が受け持ち、シェーダ elev() が近窓の縁フェードで遠層の値へ溶ける（0 へ落とさない）。
+	let farKey = "", farLoaded = new Set(), farWritten = new Set(), farFails = new Map();
 	let writtenCells = new Set();   // 実際にアトラスへ書き込めたセル（検札の突合対象。世代ごとにリセット）
 	let lastEnsureCam = null, lastEnsureSize = null, auditT = 0, auditTries = 0;   // 検札＝静止中の自己修復用
 	let hasAtlas = false, staging = false, stagePending = new Set();   // ダブルバッファ状態（山影がパッと消えるのを防ぐ）
@@ -235,11 +239,13 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 		auditT = setTimeout(() => {
 			if (staging || pendingElev > 0) return scheduleAudit();   // 取り込み中＝結果が出てから検札（tryは消費しない）
 			const missing = [...loadedCells].filter(ck => !ck.endsWith("hi") && !writtenCells.has(ck));
-			if (!missing.length) { auditTries = 0; return; }
+			const missingFar = [...farLoaded].filter(ck => !farWritten.has(ck));   // 遠景層も同じ検札（失敗セル＝遠方が平らなまま静止、を自己修復）
+			if (!missing.length && !missingFar.length) { auditTries = 0; return; }
 			if (auditTries >= 5) return;   // データが本当に無いセル（ALOS未整備の海等）は諦める＝リフェッチのスパムをしない
 			auditTries++;
-			console.warn("[terrain] 検札: 未書込セルを再取得", missing.join(" "), `(${auditTries}/5)`);
+			console.warn("[terrain] 検札: 未書込セルを再取得", [...missing, ...missingFar.map(k => "F" + k)].join(" "), `(${auditTries}/5)`);
 			for (const ck of missing) loadedCells.delete(ck);
+			for (const ck of missingFar) farLoaded.delete(ck);
 			if (lastEnsureCam) ensure(lastEnsureCam, lastEnsureSize);
 		}, 1000);
 	}
@@ -350,6 +356,43 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 					requestDraw();
 				});
 			}
+		}
+		// ── 遠景層（far）＝R10 第2アトラス ──────────────────────────────────
+		// 発動は「近窓が R01 級」×チルト時のみ：真俯瞰は近窓(4°)が視界を覆う＝遠層は見えないのに
+		// 10-16MB のアトラスと遠景メッシュ2度描きを払わない。閾値は混成モードと同じ pitch>0.9。
+		// 窓選定は近窓と同じ viewCellRange（票×フォグ切り）＝画面が実際に見る R10 セルだけを持つ。
+		const farOn = !noFar && range === 1 && (cam.pitch || 0) > 0.9;
+		if (farOn) {
+			const fr = viewCellRange(cam, size, 10, false);
+			const fkey = ["F", fr.originCX, fr.originCY, fr.cellsX, fr.cellsY, fr.cellRes].join(",");
+			if (fkey !== farKey) {
+				farKey = fkey; farLoaded = new Set(); farWritten = new Set(); farFails = new Map();
+				// ダブルバッファ無し（近窓の staging と違い）：R10 は直前の窓/混成遠方で LRU に居ることが多く、
+				// ゼロ初期化→同フレーム内のキャッシュヒット書込で埋まる。コールドはセル到着順にせり上がる（許容）。
+				renderer.set("elevAtlasFar", { originLng: fr.originCX * 10, originLat: fr.originCY * 10, cellsX: fr.cellsX, cellsY: fr.cellsY, cellRes: fr.cellRes, cellSpan: 10, edgeFade: EDGE_FADE(10) });
+				requestDraw();
+			}
+			for (let cy = 0; cy < fr.cellsY; cy++) for (let cx = 0; cx < fr.cellsX; cx++) {
+				const ck = cx + "," + cy;
+				if (farLoaded.has(ck)) continue;
+				if (fr.wanted && !fr.wanted.has(ck)) continue;   // 票ゼロ（画面に映らない）セルは取りに行かない（近窓と同じ規約＝映り込めば次の ensure で拾う）
+				farLoaded.add(ck);
+				const cellLng = (fr.originCX + cx) * 10, cellLat = (fr.originCY + cy) * 10;
+				pendingElev++; notifyPending(10);
+				getCell(cellLng, cellLat, 10).then(tile => {
+					pendingElev--; notifyPending(10);
+					if (tile && farKey === fkey) { renderer.set("elevCellFar", downsampleFlipped(tile, fr.cellRes), { cx, cy, cellRes: fr.cellRes }); farWritten.add(ck); }
+					if (!tile && farKey === fkey) {   // 取得失敗は未読込へ戻す（上限3回）＝近窓と同じ再挑戦則
+						const n = (farFails.get(ck) || 0) + 1; farFails.set(ck, n);
+						if (n <= 3) farLoaded.delete(ck);
+					}
+					requestDraw();
+				});
+			}
+		} else if (farKey) {   // 深ズーム離脱／真俯瞰へ＝遠層を畳んで GPU メモリを返す
+			farKey = ""; farLoaded = new Set(); farWritten = new Set(); farFails = new Map();
+			renderer.set("elevAtlasFarOff");
+			requestDraw();
 		}
 		scheduleAudit();   // 取り込みの顛末を後から突合＝失敗セルを静止中でも埋め直す（リロード不要の自己修復）
 		return true;

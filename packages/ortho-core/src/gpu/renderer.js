@@ -18,9 +18,9 @@ import * as mat from "../mat.js";
 import { FILL_WGSL, LINE_WGSL, GLOBE_WGSL, TERRAIN_WGSL, BUILDING_WGSL, CONTOUR_WGSL, PLATEAU_WGSL, SKY_WGSL, OVERLAY_WGSL } from "./wgsl.js";
 
 const CORNERS = new Float32Array([0, -1, 0, 1, 1, -1, 1, -1, 0, 1, 1, 1]); // 6頂点×(end,side)＝gl/renderer.js と同一
-const FRAME_SLOT = 512;    // frame UBO のスロット境界（実使用272B・minUniformBufferOffsetAlignment 上限256の倍数）
-const FRAME_F32 = 72;      // 288B/4（wgsl.js Frame と厳密対応。詰め順は packFrame 参照。末尾 mesh vec4f 含む）
-const SLOT = { base: 0, main: 1, terrain: 2, bld: 3 };   // terrain/bld は main と同 origin・fog だけ違うスロット
+const FRAME_SLOT = 512;    // frame UBO のスロット境界（実使用320B・minUniformBufferOffsetAlignment 上限256の倍数）
+const FRAME_F32 = 80;      // 320B/4（wgsl.js Frame と厳密対応。詰め順は packFrame 参照。末尾 mesh/farBounds/farP vec4f 含む）
+const SLOT = { base: 0, main: 1, terrain: 2, bld: 3, terrainFar: 4 };   // terrain/bld は main と同 origin・fog だけ違うスロット。terrainFar＝遠景メッシュパス（mesh=遠窓・farPass=1）
 const PARAM_SLOT = 256;    // DrawP（3×vec4=48B）のスロット境界
 const ROLE = { normal: 0, water: 1, seaFb: 2, terrain: 3, bld: 4, contour: 5, plateau: 6, fadeNormal: 7, fadeWater: 8, fadeSeaFb: 9, fadeBld: 10 };   // fade*=クロスフェード中の新シーン用（p0.w=α）
 const N_ROLES = 11;
@@ -127,6 +127,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 		{ binding: 0, visibility: VF, buffer: {} },
 		{ binding: 1, visibility: VF, texture: { sampleType: "float" } },
 		{ binding: 2, visibility: VF, sampler: { type: "filtering" } },
+		{ binding: 3, visibility: VF, texture: { sampleType: "float" } },   // 遠景層（far）アトラス。elev() が静的参照＝FRAME を含む全モジュールのレイアウトに必須
 	] });
 	const bgl1 = device.createBindGroupLayout({ entries: [{ binding: 0, visibility: VF, buffer: {} }] });
 	const layout = device.createPipelineLayout({ bindGroupLayouts: [bgl0, bgl1] });
@@ -229,6 +230,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 		{ binding: 0, visibility: VF, buffer: { hasDynamicOffset: true } },
 		{ binding: 1, visibility: VF, texture: { sampleType: "float" } },
 		{ binding: 2, visibility: VF, sampler: { type: "filtering" } },
+		{ binding: 3, visibility: VF, texture: { sampleType: "float" } },   // 遠景層（LINE/BUILDING/OVERLAY モジュールの elev() が静的参照）
 	] });
 	const bglOvParam = device.createBindGroupLayout({ entries: [{ binding: 0, visibility: VF, buffer: { hasDynamicOffset: true } }] });
 	const ovLayout = device.createPipelineLayout({ bindGroupLayouts: [bglOvFrame, bglOvParam] });
@@ -273,7 +275,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 	});
 
 	// UBO：Frame 4スロット / DrawP N_ROLESスロット / globe 専用 / PLATEAU per-batch（dynamic offset）
-	const frameBuf = device.createBuffer({ size: FRAME_SLOT * 4, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+	const frameBuf = device.createBuffer({ size: FRAME_SLOT * 5, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });   // 5スロット目=terrainFar（遠景メッシュパス）
 	const paramBuf = device.createBuffer({ size: PARAM_SLOT * N_ROLES, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
 	const globeBuf = device.createBuffer({ size: 96, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
 	const globeBG = device.createBindGroup({
@@ -316,15 +318,16 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 	const ovFrameBuf = device.createBuffer({ size: FRAME_SLOT * OV_SLOTS, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
 	const ovParamBuf = device.createBuffer({ size: PARAM_SLOT * OV_SLOTS, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
 	const ovParamCPU = new Float32Array(PARAM_SLOT / 4 * OV_SLOTS);
-	let ovFrameBG = null, ovFrameBGView = null;   // drawOverlay が elevTexView 変化時だけ作り直す（rebuildBG0 と独立）
+	let ovFrameBG = null, ovFrameBGView = null, ovFrameBGFarView = null;   // drawOverlay が elevTexView/farTexView 変化時だけ作り直す（rebuildBG0 と独立）
 	const ovParamBG = device.createBindGroup({ layout: bglOvParam, entries: [{ binding: 0, resource: { buffer: ovParamBuf, offset: 0, size: 48 } }] });
 	function ensureOvFrameBG() {
 		const v = (elev.has && elevTexView) ? elevTexView : dummyView;
-		if (ovFrameBG && ovFrameBGView === v) return;
-		ovFrameBGView = v;
+		const fv = (far.has && farTexView) ? farTexView : dummyView;
+		if (ovFrameBG && ovFrameBGView === v && ovFrameBGFarView === fv) return;
+		ovFrameBGView = v; ovFrameBGFarView = fv;
 		ovFrameBG = device.createBindGroup({ layout: bglOvFrame, entries: [
 			{ binding: 0, resource: { buffer: ovFrameBuf, offset: 0, size: FRAME_SLOT } },
-			{ binding: 1, resource: v }, { binding: 2, resource: elevSampler }] });
+			{ binding: 1, resource: v }, { binding: 2, resource: elevSampler }, { binding: 3, resource: fv }] });
 	}
 	// overlay スロット：{ fanBuf, fanCount, lineBufs?, lineCount, origin, fill, minZoom }
 	let overlay = null, overlayHi = null, n02 = [];
@@ -413,16 +416,23 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 	const dummyTex = device.createTexture({ size: [1, 1], format: "r16float", usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST });
 	const dummyView = dummyTex.createView();
 	let elevTexObj = null, elevTexView = null, elev = { bounds: [0, 0, 1, 0], scale: 0, has: 0 }, terrain = null, elevStage = null;
-	let bg0 = null;   // group(0) の4スロット bind group（elevTex 差し替えで作り直し）
+	// 遠景層（far）＝近窓の外を受け持つ粗い R10 第2アトラス（terrain.js が深ズーム×チルトで常設）
+	let farTexObj = null, farTexView = null, far = { bounds: [0, 0, 1, 0], has: 0, edgeFade: 0 };
+	// ?mem=1 台帳のGPU固定常駐（自前確保分の概算）：標高アトラス（近/舞台裏/遠）＋地形メッシュ＋MSAAターゲット
+	let memAtlas = 0, memStage = 0, memFar = 0, memMesh = 0, memMsaa = 0;
+	let bg0 = null;   // group(0) の5スロット bind group（elevTex/farTex 差し替えで作り直し）
 	function rebuildBG0() {
 		elevTexView = elevTexObj ? elevTexObj.createView() : null;   // view は1回だけ作って使い回す（gint の bind group キャッシュも view 同一性で安定）
+		farTexView = farTexObj ? farTexObj.createView() : null;
 		const view = (elev.has && elevTexView) ? elevTexView : dummyView;
+		const farView = (far.has && farTexView) ? farTexView : dummyView;
 		bg0 = {};
 		for (const [name, idx] of Object.entries(SLOT)) bg0[name] = device.createBindGroup({
 			layout: bgl0, entries: [
 				{ binding: 0, resource: { buffer: frameBuf, offset: idx * FRAME_SLOT, size: FRAME_SLOT } },
 				{ binding: 1, resource: view },
 				{ binding: 2, resource: elevSampler },
+				{ binding: 3, resource: farView },
 			],
 		});
 	}
@@ -441,6 +451,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 	function setElevationAtlas(a, scale) {
 		if (elevTexObj) elevTexObj.destroy();
 		elevTexObj = mkAtlasTex(a.cellsX * a.cellRes, a.cellsY * a.cellRes);
+		memAtlas = a.cellsX * a.cellRes * a.cellsY * a.cellRes * 2;   // r16float=2B/texel
 		atlasMeta(a, scale);
 		rebuildBG0();
 	}
@@ -448,14 +459,33 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 	function setElevationAtlasStage(a, scale) {
 		if (elevStage) elevStage.tex.destroy();
 		elevStage = { tex: mkAtlasTex(a.cellsX * a.cellRes, a.cellsY * a.cellRes), a, scale };
+		memStage = a.cellsX * a.cellRes * a.cellsY * a.cellRes * 2;
 	}
 	function setElevationCellStage(cx, cy, data, cellRes) { if (elevStage) writeCell(elevStage.tex, cx, cy, data, cellRes); }
 	function commitElevationStage() {
 		if (!elevStage) return;
 		if (elevTexObj) elevTexObj.destroy();
 		elevTexObj = elevStage.tex;
+		memAtlas = memStage; memStage = 0;
 		atlasMeta(elevStage.a, elevStage.scale);
 		elevStage = null;
+		rebuildBG0();
+	}
+	// ── 遠景層（far）アトラス ──：ダブルバッファ無し（R10 は LRU ヒットが常＝terrain.js 側コメント参照）。
+	// メッシュは近窓と同じ単位格子を Frame.mesh（terrainFar slot）で遠窓へ伸ばす＝専用メッシュ不要。
+	function setElevationAtlasFar(a) {
+		const span = a.cellSpan || 10;
+		if (farTexObj) farTexObj.destroy();
+		farTexObj = mkAtlasTex(a.cellsX * a.cellRes, a.cellsY * a.cellRes);
+		memFar = a.cellsX * a.cellRes * a.cellsY * a.cellRes * 2;
+		far = { bounds: [a.originLng, a.originLat, a.cellsX * span, a.cellsY * span], has: 1, edgeFade: a.edgeFade || 0 };
+		rebuildBG0();
+	}
+	function setElevationCellFar(cx, cy, data, cellRes) { if (farTexObj) writeCell(farTexObj, cx, cy, data, cellRes); }
+	function clearElevationFar() {   // 深ズーム離脱＝GPU メモリを返す（10-16MB）
+		if (!farTexObj) return;
+		farTexObj.destroy(); farTexObj = null;
+		far = { bounds: [0, 0, 1, 0], has: 0, edgeFade: 0 }; memFar = 0;
 		rebuildBG0();
 	}
 	// 地形メッシュ＝単位格子 [0,1]²（G だけに依存）。窓の原点/幅は uniform（u_mesh＝Frame.mesh）で渡す
@@ -474,6 +504,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 		const ibo = device.createBuffer({ size: idx.byteLength, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST });
 		device.queue.writeBuffer(vbo, 0, uv);
 		device.queue.writeBuffer(ibo, 0, idx);
+		memMesh = uv.byteLength + idx.byteLength;
 		terrain = { vbo, ibo, count: idx.length, G, mesh: [oLng, oLat, spanLng, spanLat] };
 	}
 
@@ -656,7 +687,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 
 	// frame UBO の詰め物（wgsl.js Frame と厳密対応）。RTE 錨（clipT/originPt/trig）は CPU double で。
 	const frameF32 = new Float32Array(FRAME_F32);
-	function packFrame(st, origin, fogNear, fogFar, fogColor, logCoef, dpr, mesh) {
+	function packFrame(st, origin, fogNear, fogFar, fogColor, logCoef, dpr, mesh, farPass) {
 		const f = frameF32;
 		f.set(st.mvp, 0);
 		f.set(st.invMvp, 16);
@@ -673,8 +704,11 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 		f[56] = fogNear; f[57] = fogFar; f[58] = logCoef; f[59] = dpr;
 		f[60] = elev.bounds[0]; f[61] = elev.bounds[1]; f[62] = elev.bounds[2]; f[63] = elev.bounds[3];
 		f[64] = elevScaleEff; f[65] = elev.has; f[66] = elev.edgeFade || 0; f[67] = 0;
-		// mesh（地形メッシュの窓：原点lon/lat＋幅deg）＝terrain slot のみ。他スロットは 0（未使用）
+		// mesh（地形メッシュの窓：原点lon/lat＋幅deg）＝terrain/terrainFar slot のみ。他スロットは 0（未使用）
 		f[68] = mesh ? mesh[0] : 0; f[69] = mesh ? mesh[1] : 0; f[70] = mesh ? mesh[2] : 0; f[71] = mesh ? mesh[3] : 0;
+		// 遠景層（far）：bounds/has/edgeFade は全スロット共通（elev() のフォールバック参照）・farPass は terrainFar slot のみ 1
+		f[72] = far.bounds[0]; f[73] = far.bounds[1]; f[74] = far.bounds[2]; f[75] = far.bounds[3];
+		f[76] = far.has; f[77] = far.edgeFade || 0; f[78] = farPass ? 1 : 0; f[79] = 0;
 		return f;
 	}
 	// DrawP N_ROLESスロットを一括で書く（256Bストライド・各48B使用）
@@ -711,6 +745,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 			const tex = device.createTexture({ size: [W, H], sampleCount: SAMPLES, format, usage: GPUTextureUsage.RENDER_ATTACHMENT });
 			const depth = device.createTexture({ size: [W, H], sampleCount: SAMPLES, format: DEPTH, usage: GPUTextureUsage.RENDER_ATTACHMENT });
 			msaa = { tex, depth, view: tex.createView(), depthView: depth.createView(), w: W, h: H };
+			memMsaa = W * H * SAMPLES * (4 + 4);   // color(bgra8)+depth24plus-stencil8 ≈ 各4B/sample
 		}
 		return msaa;
 	}
@@ -755,6 +790,8 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 		device.queue.writeBuffer(frameBuf, SLOT.main * FRAME_SLOT, packFrame(st, mainOrigin, st.fogDist * 2.5, fogFarCap, land, logCoef, dpr));
 		const dc = view.distColor || [0.63, 0.72, 0.83];   // 空気遠近法＝遠くの山は青く霞む
 		device.queue.writeBuffer(frameBuf, SLOT.terrain * FRAME_SLOT, packFrame(st, mainOrigin, Math.max(st.fogDist * 1.2, 0.008 * pfFog), fogFarCap, dc, logCoef, dpr, terrain ? terrain.mesh : null));
+		const farActive = terrainActive && far.has && !!farTexObj;   // 遠景メッシュパス（terrain slot と同 fog・mesh=遠窓・farPass=1）
+		if (farActive) device.queue.writeBuffer(frameBuf, SLOT.terrainFar * FRAME_SLOT, packFrame(st, mainOrigin, Math.max(st.fogDist * 1.2, 0.008 * pfFog), fogFarCap, dc, logCoef, dpr, far.bounds, 1));
 		device.queue.writeBuffer(frameBuf, SLOT.bld * FRAME_SLOT, packFrame(st, mainOrigin, st.fogDist * 2.5, st.fogDist * 14.0, land, logCoef, dpr));
 		// 等高線：真俯瞰でだけ茶の等高線（gl/renderer.js と同式のフェード・間隔）
 		const ps = Math.max(0, Math.min(1, ((cam.pitch || 0) - 0.01) / 0.05));
@@ -858,6 +895,12 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 			pass.setVertexBuffer(0, terrain.vbo);
 			pass.setIndexBuffer(terrain.ibo, "uint32");
 			pass.drawIndexed(terrain.count);
+			if (farActive) {
+				// 遠景メッシュ＝同じ単位格子を遠窓へ2度目のドロー（FS が近窓の内側を discard＝二重描画なし）。
+				// 近を先に描く＝遠の被り分は深度で早期棄却。頂点コストは近と同額＝チルト×深ズーム時のみ発生。
+				pass.setBindGroup(0, bg0.terrainFar);
+				pass.drawIndexed(terrain.count);
+			}
 		}
 		// 等高線：真俯瞰でだけ敷く（ベクタの下＝道路/区界は上に乗る）。深度無関係
 		if (cAlpha > 0.003 && cam.zoom >= 9) {
@@ -913,10 +956,15 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 		// 建物（3D押し出し）：深度で前後関係を解決（地形・尾根にも遮蔽される）。真俯瞰では描かない＝平面地図
 		const show3d = (cam.pitch || 0) >= 0.02;
 		// PLATEAU の実フットプリントが立つ区の被覆マスク（最大4・非表示区は除外）＝基図建物を伏せる
-		const activeMasks = [...plateauMasks.entries()].filter(([w]) => !plateauHidden.has(w)).map(([, m]) => m).slice(0, MAX_PLATEAU_MASKS);
+		// 可視優先の4枠選抜（2026-08-04・gl/renderer.js と同文）：旧・読み込み順slice(0,4)は全保持化でマスクが
+		// 溜まると今見ている区が枠に入らず、基図建物の壁がPLATEAU壁と深度戦い＝pan/zoom中の壁面の瞬き。
+		const mcx = cam.center[0], mcy = cam.center[1], mcw = Math.cos(mcy * Math.PI / 180);
+		const mdist = m => { const bb = m.bbox; const dx = Math.max(bb[0] - mcx, 0, mcx - bb[2]) * mcw, dy = Math.max(bb[1] - mcy, 0, mcy - bb[3]); return dx * dx + dy * dy; };
+		const activeMasks = [...plateauMasks.entries()].filter(([w]) => !plateauHidden.has(w)).map(([, m]) => m)
+			.sort((a, b) => mdist(a) - mdist(b)).slice(0, MAX_PLATEAU_MASKS);
 		const bldMaskBG = buildMaskBG(activeMasks, scenes.main.origin || [0, 0]);
-		const bld = show3d && !(opts && opts.skipMain) ? scenes.main.bld : null;
-		const bldPrev = show3d && !(opts && opts.skipMain) && fading ? scenes.main.fadePrev.bld : null;
+		const bld = show3d && !(opts && opts.skipMain) && !(opts && opts.noBld) ? scenes.main.bld : null;   // noBld=?nobld=1診断ノブ（二重壁の切り分け）
+		const bldPrev = show3d && !(opts && opts.skipMain) && !(opts && opts.noBld) && fading ? scenes.main.fadePrev.bld : null;
 		if (bldPrev) {   // フェード中＝旧建物を通常ロール（α1）で先に（新は fadeBld で重なる＝クロスフェード）
 			pass.setPipeline(bldPipe);
 			pass.setBindGroup(0, bg0.bld);
@@ -1105,6 +1153,9 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 			case "elevAtlasStage": setElevationAtlasStage(data, prop); break;
 			case "elevCellStage": setElevationCellStage(prop.cx, prop.cy, data, prop.cellRes); break;
 			case "elevAtlasCommit": commitElevationStage(); break;
+			case "elevAtlasFar": setElevationAtlasFar(data); break;
+			case "elevCellFar": setElevationCellFar(prop.cx, prop.cy, data, prop.cellRes); break;
+			case "elevAtlasFarOff": clearElevationFar(); break;
 			case "plateauMesh": setPlateauMesh(prop, data); break;   // prop=キー(区名#i)、data={pos,nrm,idx,...}／null=区解放
 			case "plateauVis":  setPlateauVis(prop, data); break;    // prop=区名、data=真偽（GPU常駐のまま表示切替）
 			case "stars":       stars = setStarBuf(stars, data, 8); break;         // data=Float32Array [cel.xyz,rgba,size]×n
@@ -1133,6 +1184,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 		dummyMask.destroy();
 		if (terrain) { terrain.vbo.destroy(); terrain.ibo.destroy(); terrain = null; }
 		if (elevTexObj) { elevTexObj.destroy(); elevTexObj = null; }
+		if (farTexObj) { farTexObj.destroy(); farTexObj = null; }
 		if (elevStage) { elevStage.tex.destroy(); elevStage = null; }
 		dummyTex.destroy();
 		if (msaa) { msaa.tex.destroy(); msaa.depth.destroy(); msaa = null; }
@@ -1143,5 +1195,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 	// device/format/frameInfo/flush＝gint（createGintLayerGPU）のホスト面：開いたフレームに render pass を足す口。
 	// passTS("gint")＝gint が自分のパスに GPU タイマを打つ口。tqTake/hasTQ＝renderworker の計測回収。
 	return { set, draw, flush, readback, dispose, md: false, mdMax: 0, gintCtx: () => gctx, backend: "webgpu", lost: device.lost,
-		device, format, gpuInfo, frameInfo: () => frame, passTS, tqTake, gpuErrors, get hasTQ() { return !!tq; } };
+		device, format, gpuInfo, frameInfo: () => frame, passTS, tqTake, gpuErrors, get hasTQ() { return !!tq; },
+		// ?mem=1 台帳のGPU固定常駐（自前確保分の概算バイト）：標高アトラス（近/舞台裏/遠）＋地形メッシュ＋MSAAターゲット
+		memEstimate: () => ({ atlas: memAtlas + memStage + memFar, mesh: memMesh, msaa: memMsaa }) };
 }

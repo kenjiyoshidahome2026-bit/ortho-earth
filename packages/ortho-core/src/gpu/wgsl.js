@@ -29,11 +29,14 @@ struct Frame {
 	params: vec4f,     // fogNear, fogFar, logCoef, dpr
 	elevBounds: vec4f, // originLng, originLat, spanLng, spanLat（アトラス被覆）
 	elevP: vec4f,      // elevScaleEff((誇張/半径)×pitchフェード), hasElev(0/1), edgeFade(deg), 0
-	mesh: vec4f,       // 地形メッシュの窓：xy=原点(lon,lat) zw=幅(deg)。頂点は単位格子 uv＝窓替えで作り直さない（terrain slot のみ非0）
+	mesh: vec4f,       // 地形メッシュの窓：xy=原点(lon,lat) zw=幅(deg)。頂点は単位格子 uv＝窓替えで作り直さない（terrain/terrainFar slot のみ非0）
+	farBounds: vec4f,  // 遠景層（far）アトラス被覆＝近窓の外を受け持つ粗い R10 第2アトラス（深ズーム×チルトで常設）
+	farP: vec4f,       // hasFar(0/1), farEdgeFade(deg), farPass(1=遠景メッシュパス・terrainFar slot のみ), 0
 };
 @group(0) @binding(0) var<uniform> F: Frame;
 @group(0) @binding(1) var elevTex: texture_2d<f32>;
 @group(0) @binding(2) var elevSamp: sampler;
+@group(0) @binding(3) var farElevTex: texture_2d<f32>;
 // 描画役割毎の小物（renderer.js が役割別スロットに詰める）：
 //   fill/line … p0 = (seaGate, lift(m), exactDepth, 0)
 //   terrain  … p0 = (land.rgb, 0)  p1 = (hypso.rgb, hypso量)  p2 = (1/hypso最大標高, 0, 0, 0)
@@ -75,11 +78,24 @@ fn elevFadeAt(uv: vec2f) -> f32 {
 	let w = vec2f(F.elevP.z) / F.elevBounds.zw;
 	return min(smoothstep(0.0, w.x, min(uv.x, 1.0 - uv.x)), smoothstep(0.0, w.y, min(uv.y, 1.0 - uv.y)));
 }
+// 遠景層＝近窓の縁は「0 へ落とす」でなく「遠層の値へ溶かす」（ズームインで近窓が縮んでも遠方の山が
+// 消えない一般則）。遠層なし（farP.x=0）は elevFar=0 で従来式 near×fade に厳密一致＝挙動不変。glsl.js ELEV と同式。
+fn elevFar(ll: vec2f) -> f32 {
+	if (F.farP.x < 0.5) { return 0.0; }
+	let uv = (ll - F.farBounds.xy) / F.farBounds.zw;
+	if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) { return 0.0; }
+	var f = 1.0;
+	if (F.farP.y > 0.0) {   // 遠窓自身の縁は従来どおり 0 へフェード（その先は覆いが無い）
+		let w = vec2f(F.farP.y) / F.farBounds.zw;
+		f = min(smoothstep(0.0, w.x, min(uv.x, 1.0 - uv.x)), smoothstep(0.0, w.y, min(uv.y, 1.0 - uv.y)));
+	}
+	return textureSampleLevel(farElevTex, elevSamp, uv, 0.0).r * f;
+}
 fn elev(ll: vec2f) -> f32 {
 	if (F.elevP.y < 0.5) { return 0.0; }
 	let uv = (ll - F.elevBounds.xy) / F.elevBounds.zw;
-	if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) { return 0.0; }
-	return textureSampleLevel(elevTex, elevSamp, uv, 0.0).r * elevFadeAt(uv);
+	if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) { return elevFar(ll); }
+	return mix(elevFar(ll), textureSampleLevel(elevTex, elevSamp, uv, 0.0).r, elevFadeAt(uv));
 }
 `;
 
@@ -247,10 +263,14 @@ struct TerrOut {
 }
 @fragment fn fs(in: TerrOut) -> @location(0) vec4f {
 	if (in.front < -0.0015) { discard; }   // 接線より少し先まで許容＝地平線に頭を出す高山。遮蔽は深度とフォグ
+	if (F.farP.z > 0.5) {   // 遠景メッシュパス：近窓の内側は近メッシュの担当＝discard（縁の連続は elev() が保証）
+		let uvN = (in.ll - F.elevBounds.xy) / F.elevBounds.zw;
+		if (uvN.x >= 0.0 && uvN.x <= 1.0 && uvN.y >= 0.0 && uvN.y <= 1.0) { discard; }
+	}
 	// 海〜低地は地形を透明化し海岸線は精細なベクタに委ねる（粗いメッシュの海岸の崖・平野ノイズを消す）
 	let t = smoothstep(1.0, 100.0, in.h);
 	if (t <= 0.0) { discard; }
-	// 北西光の hillshade（前方差分）。歩幅＝アトラス1texel（下限0.004°）＝どのスケールでも塗りが痩せない
+	// 北西光の hillshade（前方差分）。歩幅＝アトラス1texel（下限0.004°≈R10 texel＝遠層域の歩幅としても妥当）
 	let tsz = vec2f(textureDimensions(elevTex, 0));
 	let d = max(0.004, F.elevBounds.w / tsz.y);
 	let h0 = elev(in.ll);

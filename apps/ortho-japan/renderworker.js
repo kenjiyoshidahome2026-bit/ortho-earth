@@ -31,6 +31,9 @@ setInterval(() => {
 }, 33);
 // ?mem=1（init.mem）＝常駐メモリ台帳を main へ~2Hzで送る（terrain の LRU バイト＋JSヒープ）。main が plateau/tiles と合算して HUD 表示。
 let memOn = false, memLast = 0;
+// ?nobld=1（init.noBld）＝基図建物の3D押し出しだけを伏せる診断ノブ：壁面ちらつきが「基図×PLATEAUの二重壁」か
+// 「PLATEAU内部/地形」かを一発で二分する（消えれば前者＝マスクの穴を追う・残れば後者）。
+let noBld = false;
 // GPU 実時間（EXT_disjoint_timer_query_webgl2）：CPU発行が0.1msでも ema が33ms＝「GPUが重い」のか
 // 「rAF/合成のカデンス」なのかを切り分ける本丸。map/gint を兄弟スパンで計測（TIME_ELAPSED は入れ子不可）。
 let tqExt = null;
@@ -113,7 +116,7 @@ function finishInit(m) {
 	// ?noterr=1 ＝標高を丸ごと停止する A/B 計測ノブ（terrain=null＝以後の全参照が null ガードで平面へ）。
 	if (!m.noTerr) terrain = createTerrain({
 		renderer, requestDraw: () => { dirty = true; },
-		exag: m.terrainExag, earthM: m.earthM, apiUrl: m.apiUrl, lowMem: !!m.lowMem, noMixed: !!m.noMixed,
+		exag: m.terrainExag, earthM: m.earthM, apiUrl: m.apiUrl, lowMem: !!m.lowMem, noMixed: !!m.noMixed, noFar: !!m.noFarTerr,
 		onPending: (count, range, stat) => postMessage({ type: "elevPending", count, range, stat }),   // stat＝ローダ状態の自己申告（沈黙死の可視化）
 	});
 	// 全球R90（8枚・計55MB・初回のみ＝以後IDB常備）を起動の山が過ぎた頃に先読み＝
@@ -165,6 +168,7 @@ const dispatch = e => {
 				setInterval(() => { lc.port2.postMessage(1); postMessage({ type: "pingReq" }); }, 500);
 			}
 			memOn = !!m.mem;
+			noBld = !!m.noBld;
 			self.__perfElev = perfOn;   // renderer の標高パイプライン計器（[elev] 行）を点灯
 			if (m.gpu) {
 				// 実験フラグ ?gpu=1＝WebGPU バックエンド（Phase 1: globe+基図 fill/line・classic merge）。
@@ -468,7 +472,7 @@ function frame() {
 			let fogAnim = false;
 			const pfT0 = perfOn ? performance.now() : 0;
 			tqPoll();   // 溜まった GPU タイマ結果を回収（数フレーム遅れで確定）。perf HUD専用→常時＝GPU格付けの給餌
-			tqSpan("map", () => { fogAnim = renderer.draw(glCam, opts); });   // cameraState=mvp生成 + GL描画（軽い）。true=フォグ追従が収束中
+			tqSpan("map", () => { fogAnim = renderer.draw(glCam, noBld ? { ...opts, noBld: 1 } : opts); });   // cameraState=mvp生成 + GL描画（軽い）。true=フォグ追従が収束中
 			const pfT1 = perfOn ? performance.now() : 0;
 			tqSpan("gint", () => { if (gint) gint.draw(glCam, renderer.gintCtx()); });   // 知性の層＝同フレーム同カメラで1パス（泳ぎ根治）。山岳ビューは地形深度に参加（隠線＝淡破線）
 			renderer.flush?.();   // webgpu＝gint パスまで積んだフレームを resolve→submit（WebGL は undefined＝無縁）
@@ -503,7 +507,7 @@ function frame() {
 			}
 			if (memOn && performance.now() - memLast > 500) {   // ?mem=1：常駐メモリ台帳を~2Hzで main へ（terrain LRU＋JSヒープ。plateau/tiles は main 側が持つ）
 				memLast = performance.now();
-				postMessage({ type: "mem", terrain: terrain?.bytes?.() || 0, heap: performance.memory?.usedJSHeapSize || 0 });
+				postMessage({ type: "mem", terrain: terrain?.bytes?.() || 0, heap: performance.memory?.usedJSHeapSize || 0, gpu: renderer?.memEstimate?.() || null });
 			}
 		}
 		if (glRef && !sentCtxLost && glRef.isContextLost()) { sentCtxLost = true; postMessage({ type: "contextlost" }); }   // GPU喪失＝mainが立て直す

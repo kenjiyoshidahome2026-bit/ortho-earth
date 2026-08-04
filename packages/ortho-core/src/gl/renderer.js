@@ -32,6 +32,11 @@ export function createRenderer(canvas, rOpts = {}) {
 	// ＝jetsam にも効く。標高はメートル値を half-float で格納＝精度は十分（~4km で ±2m・低地は ±0.25m 級）。
 	// 標高（GEBCO/ALOS）：テクスチャ＋地形格子メッシュ
 	let elevTex = null, elev = { bounds: [0, 0, 1, 0], scale: 0, has: 0 }, terrain = null;
+	// 遠景層（far）＝近窓の外を受け持つ粗い R10 第2アトラス（terrain.js が深ズーム×チルトで常設）。unit8（2-5=PLATEAUマスク・6=md線・7=gint elev と不干渉）
+	let farTex = null, far = { bounds: [0, 0, 1, 0], has: 0, edgeFade: 0 };
+	// ?mem=1 台帳のGPU固定常駐（自前確保分の概算）：標高アトラス（近/舞台裏/遠）＋地形メッシュ。
+	// canvas antialias:true の MSAA はブラウザ暗黙確保＝ここでは数えない（HUD 側注記）。
+	let memAtlas = 0, memStage = 0, memFar = 0, memMesh = 0;
 	// PLATEAU LOD2 建物メッシュ：バッチキー "区名#i" →{ vao, bufs, count, origin, bbox }（頂点は重心相対 delta）。
 	// worker が区をバッチ分割して逐次送ってくる＝完成した近傍から順に立つ。bbox は draw 時のフラスタムカリングに使う。
 	// 基図建物を伏せる被覆マスクは区単位で別管理（plateauMasks）＝バッチ数でシェーダの固定スロットを枯渇させない。
@@ -308,6 +313,7 @@ export function createRenderer(canvas, rOpts = {}) {
 	}
 	function setElevationAtlas(a, scale) {
 		const W = a.cellsX * a.cellRes, H = a.cellsY * a.cellRes, span = a.cellSpan || 10;
+		memAtlas = W * H * 2;   // R16F=2B/texel
 		if (!elevTex) elevTex = gl.createTexture();
 		gl.bindTexture(gl.TEXTURE_2D, elevTex);
 		gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
@@ -333,6 +339,7 @@ export function createRenderer(canvas, rOpts = {}) {
 	function setElevationAtlasStage(a, scale) {
 		if (elevStage) gl.deleteTexture(elevStage.tex);
 		const W = a.cellsX * a.cellRes, H = a.cellsY * a.cellRes;
+		memStage = W * H * 2;
 		const tex = gl.createTexture();
 		gl.bindTexture(gl.TEXTURE_2D, tex);
 		gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
@@ -353,11 +360,37 @@ export function createRenderer(canvas, rOpts = {}) {
 		if (!elevStage) return;
 		if (elevTex) gl.deleteTexture(elevTex);
 		elevTex = elevStage.tex;
+		memAtlas = memStage; memStage = 0;
 		const a = elevStage.a, span = a.cellSpan || 10;
 		elev = { bounds: [a.originLng, a.originLat, a.cellsX * span, a.cellsY * span], scale: elevStage.scale, exag: a.exag || 1, has: 1, edgeFade: a.edgeFade || 0, liftBounds: a.liftBounds || null };
 		const G = Math.min(1536, Math.max(768, 768 * Math.max(a.cellsX, a.cellsY)));
 		buildTerrainMesh(a.originLng, a.originLat, a.cellsX * span, a.cellsY * span, G);
 		elevStage = null;
+	}
+	// ── 遠景層（far）アトラス ──：ダブルバッファ無し（R10 は LRU ヒットが常＝ゼロ初期化→同フレーム書込で
+	// 埋まる。terrain.js 側コメント参照）。メッシュは近窓と同じ単位格子を u_mesh で遠窓へ伸ばす＝専用メッシュ不要。
+	function setElevationAtlasFar(a) {
+		const W = a.cellsX * a.cellRes, H = a.cellsY * a.cellRes, span = a.cellSpan || 10;
+		memFar = W * H * 2;
+		if (!farTex) farTex = gl.createTexture();
+		gl.bindTexture(gl.TEXTURE_2D, farTex);
+		gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+		allocZeroR16F(W, H);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+		far = { bounds: [a.originLng, a.originLat, a.cellsX * span, a.cellsY * span], has: 1, edgeFade: a.edgeFade || 0 };
+	}
+	function setElevationCellFar(cx, cy, data, cellRes) {
+		if (!farTex) return;
+		gl.bindTexture(gl.TEXTURE_2D, farTex);
+		gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+		gl.texSubImage2D(gl.TEXTURE_2D, 0, cx * cellRes, cy * cellRes, cellRes, cellRes, gl.RED, gl.FLOAT, data);
+	}
+	function clearElevationFar() {   // 深ズーム離脱＝GPU メモリを返す（10-16MB）
+		if (farTex) gl.deleteTexture(farTex);
+		farTex = null; far = { bounds: [0, 0, 1, 0], has: 0, edgeFade: 0 }; memFar = 0;
 	}
 	// 地形メッシュ＝単位格子 [0,1]²（G だけに依存）。窓の原点/幅は uniform u_mesh で渡す＝
 	// 標高アトラスの窓替え（パンのたび）でメッシュを作り直さない。旧実装は毎回 lon/lat を焼いた
@@ -378,6 +411,7 @@ export function createRenderer(canvas, rOpts = {}) {
 		gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ibo);
 		gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, idx, gl.STATIC_DRAW);
 		gl.bindVertexArray(null);
+		memMesh = uv.byteLength + idx.byteLength;
 		terrain = { vao, vbo, ibo, count: idx.length, G, mesh: [oLng, oLat, spanLng, spanLat] };
 	}
 
@@ -543,6 +577,10 @@ export function createRenderer(canvas, rOpts = {}) {
 		gl.uniform1f(loc(gl, prog, "u_elevScale"), elevScaleEff);
 		gl.uniform1f(loc(gl, prog, "u_hasElev"), elev.has);
 		gl.uniform1f(loc(gl, prog, "u_elevEdgeFade"), elev.edgeFade || 0);   // 窓の縁のフェード幅(deg)。R90全球窓=0
+		gl.uniform1i(loc(gl, prog, "u_farElevTex"), 8);   // 遠景層（unit8＝PLATEAUマスク2-5/md線6/gint7と不干渉）
+		gl.uniform4f(loc(gl, prog, "u_farBounds"), far.bounds[0], far.bounds[1], far.bounds[2], far.bounds[3]);
+		gl.uniform1f(loc(gl, prog, "u_hasFar"), far.has);
+		gl.uniform1f(loc(gl, prog, "u_farEdgeFade"), far.edgeFade || 0);
 	}
 
 	function draw(cam, opts) {
@@ -634,7 +672,9 @@ export function createRenderer(canvas, rOpts = {}) {
 		// 標高未着/noTerrain のフレームで float sampler(u_elevTex) が整数テクスチャを掴み、全ドローが
 		// GL_INVALID_OPERATION「Mismatch between texture format and sampler type」を吐く（実機GPUログで確認）。
 		// null＝incomplete texture は黒を返すだけでエラーにならない（u_hasElev=0 ガードで値は不使用）。
-		gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, (elev.has && elevTex) ? elevTex : null); gl.activeTexture(gl.TEXTURE0);
+		gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, (elev.has && elevTex) ? elevTex : null);
+		gl.activeTexture(gl.TEXTURE8); gl.bindTexture(gl.TEXTURE_2D, (far.has && farTex) ? farTex : null);   // 遠景層（null＝incomplete=黒。u_hasFar=0 ガードで不使用）
+		gl.activeTexture(gl.TEXTURE0);
 		const terrainActive = !!(terrain && elev.has && elevScaleEff > 1e-9) && !(opts && opts.noTerrain);   // 傾き時のみ地形あり。noTerrain=全球ビューでは矩形アトラスを描かない
 		// ここから深度あり（建物同士の前後関係を共有）
 		gl.enable(gl.DEPTH_TEST); gl.depthFunc(gl.LEQUAL);
@@ -665,10 +705,11 @@ export function createRenderer(canvas, rOpts = {}) {
 		// 標高パイプライン計器（?perf=1 時・2秒毎）：「高度が消える」系の切り分け用＝どの因子が0かを1行で。
 		if (self.__perfElev && performance.now() - (self.__perfElevT || 0) > 2000) {
 			self.__perfElevT = performance.now();
-			console.log('[elev] z=%s pitch=%s scale=%s pf=%s eff=%s has=%s mesh=%s active=%s depth=%s bounds=%s',
+			console.log('[elev] z=%s pitch=%s scale=%s pf=%s eff=%s has=%s mesh=%s active=%s depth=%s bounds=%s far=%s farBounds=%s',
 				cam.zoom.toFixed(2), ((cam.pitch || 0) * 180 / Math.PI).toFixed(0),
 				elev.scale?.toExponential?.(2), pf.toFixed(2), elevScaleEff?.toExponential?.(2),
-				elev.has, !!terrain, terrainActive, terrainDepth, elev.bounds?.map(v => +v.toFixed(2)).join(','));
+				elev.has, !!terrain, terrainActive, terrainDepth, elev.bounds?.map(v => +v.toFixed(2)).join(','),
+				far.has, far.bounds?.map(v => +v.toFixed(2)).join(','));
 		}
 		if (terrainActive) {
 			gl.depthMask(terrainDepth);
@@ -691,9 +732,18 @@ export function createRenderer(canvas, rOpts = {}) {
 			gl.uniform3f(loc(gl, terrainProg, "u_hypso"), hy ? hy.color[0] : 0, hy ? hy.color[1] : 0, hy ? hy.color[2] : 0);
 			gl.uniform2f(loc(gl, terrainProg, "u_hypsoP"), hy ? 1 / (hy.max || 3000) : 0, hy ? (hy.amount ?? 0.5) : 0);
 			const mh = terrain.mesh;   // 窓の原点/幅＝単位格子メッシュを実座標へ伸ばす（メッシュ自体は使い回し）
+			gl.uniform1f(loc(gl, terrainProg, "u_farPass"), 0);
 			gl.uniform4f(loc(gl, terrainProg, "u_mesh"), mh[0], mh[1], mh[2], mh[3]);
 			gl.bindVertexArray(terrain.vao);
 			gl.drawElements(gl.TRIANGLES, terrain.count, gl.UNSIGNED_INT, 0);
+			if (far.has && farTex) {
+				// 遠景メッシュ＝同じ単位格子を遠窓へ2度目のドロー（FS が近窓の内側を discard＝二重描画なし）。
+				// 近を先に描く＝遠の被り分は深度で早期棄却。頂点コストは近と同額＝チルト×深ズーム時のみ発生。
+				gl.uniform1f(loc(gl, terrainProg, "u_farPass"), 1);
+				gl.uniform4f(loc(gl, terrainProg, "u_mesh"), far.bounds[0], far.bounds[1], far.bounds[2], far.bounds[3]);
+				gl.drawElements(gl.TRIANGLES, terrain.count, gl.UNSIGNED_INT, 0);
+				gl.uniform1f(loc(gl, terrainProg, "u_farPass"), 0);
+			}
 			gl.depthMask(true);
 			if (terrainDepth) gl.disable(gl.POLYGON_OFFSET_FILL);
 		}
@@ -827,13 +877,21 @@ export function createRenderer(canvas, rOpts = {}) {
 		// 真俯瞰（チルト≈0）では基図/PLATEAU とも建物3Dを描かない＝平面地図（閾値は flat2d と同じ 0.02rad≈1.1°）。
 		const show3d = (cam.pitch || 0) >= 0.02;
 		const mdBld = scenes.main.md && scenes.main.md.bld;   // multi_draw シーンの建物＝プールレンジ列（チャンク配列）
-		const bld = show3d && !(opts && opts.skipMain) ? (scenes.main.bld || mdBld) : null;   // 建物はmainシーンの一部＝一緒に退場
+		const bld = show3d && !(opts && opts.skipMain) && !(opts && opts.noBld) ? (scenes.main.bld || mdBld) : null;   // 建物はmainシーンの一部＝一緒に退場。noBld=?nobld=1診断ノブ（二重壁の切り分け）
 		if (bld) {
 			const prog = scenes.main.bld ? bldProg : md.bldProg;
 			const c = view.bldColor || [0.86, 0.86, 0.85];
 			setCommonUniforms(prog, st, scenes.main.origin, land);
 			gl.uniform3f(loc(gl, prog, "u_bldColor"), c[0], c[1], c[2]);
-			const active = [...plateauMasks.entries()].filter(([w]) => !plateauHidden.has(w)).map(([, m]) => m).slice(0, MAX_PLATEAU_MASKS);   // 非表示区のマスクはスロットに載せない＝基図建物が戻る
+			// 可視優先の4枠選抜（2026-08-04）：旧・読み込み順slice(0,4)は、全保持化(2026-08-03)でマスクが何区も
+			// 溜まると「今見ている区が枠に入らない」→基図建物が伏せられずPLATEAU壁と数十cm差の深度戦い＝
+			// pan/zoom中だけ壁面が瞬く（対数深度係数が毎フレーム再配分・大きいビルは基図押し出しが低いぶん
+			// 下部だけ・本人実機で特定）。カメラ→区bbox距離の昇順＝画面の区が必ず枠を取る（内包=距離0・
+			// 同率はsort安定性でMap挿入順のまま＝フレーム間で選抜が揺れない）。
+			const mcx = cam.center[0], mcy = cam.center[1], mcw = Math.cos(mcy * Math.PI / 180);
+			const mdist = m => { const bb = m.bbox; const dx = Math.max(bb[0] - mcx, 0, mcx - bb[2]) * mcw, dy = Math.max(bb[1] - mcy, 0, mcy - bb[3]); return dx * dx + dy * dy; };
+			const active = [...plateauMasks.entries()].filter(([w]) => !plateauHidden.has(w)).map(([, m]) => m)
+				.sort((a, b) => mdist(a) - mdist(b)).slice(0, MAX_PLATEAU_MASKS);   // 非表示区のマスクはスロットに載せない＝基図建物が戻る
 			gl.uniform1i(loc(gl, prog, "u_plateauCount"), active.length);
 			const mo = scenes.main.origin || [0, 0];
 			for (let i = 0; i < MAX_PLATEAU_MASKS; i++) {
@@ -960,6 +1018,9 @@ export function createRenderer(canvas, rOpts = {}) {
 			case "elevAtlasStage": setElevationAtlasStage(data, prop); break;                   // 舞台裏アトラス（ダブルバッファ）
 			case "elevCellStage": setElevationCellStage(prop.cx, prop.cy, data, prop.cellRes); break;
 			case "elevAtlasCommit": commitElevationStage(); break;                              // 揃ったら一括スワップ＝山影が消えない
+			case "elevAtlasFar": setElevationAtlasFar(data); break;                             // 遠景層（R10 第2アトラス）
+			case "elevCellFar": setElevationCellFar(prop.cx, prop.cy, data, prop.cellRes); break;
+			case "elevAtlasFarOff": clearElevationFar(); break;                                 // 深ズーム離脱＝GPUメモリ返却
 			case "plateauMesh": setPlateauMesh(prop, data); break;                             // prop=地区名(key)、data={pos,idx} PLATEAU LOD2 建物（null=解放）
 			case "plateauVis":  setPlateauVis(prop, data); break;                              // prop=区名、data=真偽（GPU常駐のまま表示切替＝再訪の再アップロード不要）
 			case "stars":     setStars(data); break;                                           // data=Float32Array [cel.xyz,rgb,a,size]×n
@@ -972,7 +1033,9 @@ export function createRenderer(canvas, rOpts = {}) {
 	}
 	// md/mdMax は renderworker が scene worker へ「multi_draw モードで動け」を通知するための能力表明
 	// gintCtx＝直近 draw の gint 深度統合コンテキスト（renderworker が gint パスへ渡す）
-	return { gl, set, draw, dispose, md: !!md, mdMax: MD_MAX_DRAWS, gintCtx: () => gintCtx };
+	// ?mem=1 台帳のGPU固定常駐（自前確保分の概算バイト）。msaa=0＝canvas antialias:true はブラウザ暗黙確保（HUD 注記）
+	const memEstimate = () => ({ atlas: memAtlas + memStage + memFar, mesh: memMesh, msaa: 0 });
+	return { gl, set, draw, dispose, md: !!md, mdMax: MD_MAX_DRAWS, gintCtx: () => gintCtx, memEstimate };
 }
 
 // --- GL ヘルパ ---

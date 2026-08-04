@@ -9,16 +9,35 @@ uniform vec4 u_elevBounds;   // originLng, originLat, spanLng, spanLat（アト�
 uniform float u_elevScale;   // (誇張 / 地球半径m) : m → 単位球
 uniform float u_hasElev;     // 0/1
 uniform float u_elevEdgeFade;   // 窓の縁のフェード幅(deg)。0=無効（R90全球窓）。R10/R01窓の外（標高0）との崖を馴染ませる
+// 遠景層（far）＝近窓の外を受け持つ粗い R10 第2アトラス（terrain.js が深ズーム×チルトで常設）。
+// 近窓の縁は「0 へ落とす」でなく「遠層の値へ溶かす」＝ズームインで近窓(cap4=4°)が縮んでも
+// 遠方の山（富士等）が消えない一般則。遠層なし（u_hasFar=0）は elevFar=0 で従来式
+// mix(0, near, fade) = near×fade に厳密一致＝挙動不変。
+uniform sampler2D u_farElevTex;
+uniform vec4 u_farBounds;
+uniform float u_hasFar;
+uniform float u_farEdgeFade;
 float elevFadeAt(vec2 uv) {
 	if (u_elevEdgeFade <= 0.0) return 1.0;
 	vec2 w = vec2(u_elevEdgeFade) / u_elevBounds.zw;
 	return min(smoothstep(0.0, w.x, min(uv.x, 1.0 - uv.x)), smoothstep(0.0, w.y, min(uv.y, 1.0 - uv.y)));
 }
+float elevFar(vec2 ll) {
+	if (u_hasFar < 0.5) return 0.0;
+	vec2 uv = (ll - u_farBounds.xy) / u_farBounds.zw;
+	if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) return 0.0;
+	float f = 1.0;
+	if (u_farEdgeFade > 0.0) {   // 遠窓自身の縁は従来どおり 0 へフェード（その先は覆いが無い）
+		vec2 w = vec2(u_farEdgeFade) / u_farBounds.zw;
+		f = min(smoothstep(0.0, w.x, min(uv.x, 1.0 - uv.x)), smoothstep(0.0, w.y, min(uv.y, 1.0 - uv.y)));
+	}
+	return texture(u_farElevTex, uv).r * f;
+}
 float elev(vec2 ll) {
 	if (u_hasElev < 0.5) return 0.0;
 	vec2 uv = (ll - u_elevBounds.xy) / u_elevBounds.zw;
-	if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) return 0.0;
-	return texture(u_elevTex, uv).r * elevFadeAt(uv);   // アトラスは南上げ格納＝v直接
+	if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) return elevFar(ll);
+	return mix(elevFar(ll), texture(u_elevTex, uv).r, elevFadeAt(uv));   // アトラスは南上げ格納＝v直接
 }
 `;
 
@@ -259,28 +278,19 @@ uniform vec3 u_fogColor;
 uniform vec3 u_land;
 uniform vec3 u_hypso;    // 標高ティント色（高所を land からこの色へ寄せる＝控えめな標高彩色）
 uniform vec2 u_hypsoP;   // x=1/最大標高(m)（この高さで寄せ切る） y=寄せ量(0=無効…1=全置換)
-uniform sampler2D u_elevTex;
-uniform vec4 u_elevBounds;
-uniform float u_hasElev;
-uniform float u_elevEdgeFade;   // 窓の縁のフェード幅(deg)。変位(VSのelev)と同じ式＝陰影と地形が同時に消える
+uniform float u_farPass;   // 1=遠景メッシュパス：近窓の内側は近メッシュの担当＝discard（二重描画・z-fight回避）
+${ELEV}
 in vec2 v_ll;
 in float v_front;
 in float v_fog;
 in float v_h;
 out vec4 fragColor;
-float elevF(vec2 ll) {
-	if (u_hasElev < 0.5) return 0.0;
-	vec2 uv = (ll - u_elevBounds.xy) / u_elevBounds.zw;
-	if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) return 0.0;
-	float f = 1.0;
-	if (u_elevEdgeFade > 0.0) {
-		vec2 w = vec2(u_elevEdgeFade) / u_elevBounds.zw;
-		f = min(smoothstep(0.0, w.x, min(uv.x, 1.0 - uv.x)), smoothstep(0.0, w.y, min(uv.y, 1.0 - uv.y)));
-	}
-	return texture(u_elevTex, uv).r * f;
-}
 void main() {
 	if (v_front < -0.0015) discard;   // 海抜0の接線より少し先まで許容＝地平線の先に頭を出す高山（〜9km球換算）を描く。遮蔽は深度とフォグが担う
+	if (u_farPass > 0.5) {   // 遠景パスは近窓の内側を塗らない。縁の座標一致は連続な elev()（近縁が遠層値へ溶ける）が保証
+		vec2 uvN = (v_ll - u_elevBounds.xy) / u_elevBounds.zw;
+		if (uvN.x >= 0.0 && uvN.x <= 1.0 && uvN.y >= 0.0 && uvN.y <= 1.0) discard;
+	}
 	// 海〜低地は地形を透明化し、海岸線は精細なベクタに委ねる。低地から滑らかに陰影を立ち上げ、
 	// 粗い標高メッシュが海岸で作る「崖」のガタつき・平野のノイズを消す。
 	float t = smoothstep(1.0, 100.0, v_h);
@@ -289,11 +299,12 @@ void main() {
 	// 歩幅＝アトラス1texel（下限は従来の0.004°≈450m＝近景は不変）。固定歩幅はズームアウトで
 	// texel未満に落ち「鈍った勾配×小さい歩幅」で陰影がベタ灰色に消えていた（広域の塗りの甘さ）。
 	// texel差分＝アトラスが持つ最小起伏を常に同じゲインで見せる＝どのスケールでも塗りが痩せない。
+	// 遠層域は下限 0.004°≈450m がそのまま R10 texel（463m）＝遠景の歩幅として妥当（別計算しない）。
 	vec2 tsz = vec2(textureSize(u_elevTex, 0));
 	float d = max(0.004, u_elevBounds.w / tsz.y);
-	float h0 = elevF(v_ll);
-	float hx = elevF(v_ll + vec2(d, 0.0)) - h0;
-	float hy = elevF(v_ll + vec2(0.0, d)) - h0;
+	float h0 = elev(v_ll);
+	float hx = elev(v_ll + vec2(d, 0.0)) - h0;
+	float hy = elev(v_ll + vec2(0.0, d)) - h0;
 	float shade = clamp(0.82 + (-hx + hy) * 0.0007, 0.45, 1.15);
 	// 標高ティント：land を高所ほど u_hypso へ寄せる（テーマのノブ＝未指定は y=0 で恒等）。陰影の前＝shade が上に乗る
 	vec3 landC = mix(u_land, u_hypso, clamp(h0 * u_hypsoP.x, 0.0, 1.0) * u_hypsoP.y);
