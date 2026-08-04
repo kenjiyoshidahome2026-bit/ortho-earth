@@ -144,6 +144,30 @@ body { visibility: visible; }   /* 開幕＝このスタイルシートの到着
 		&:hover { text-decoration: underline; } }
 }
 
+/* --- 状態盤HUD（?hud=1／?hud=0・右下＝出典の上）：実機で「落ちる」の切り分け用の計器（Device / Render / Memory 台帳）。
+       中身と開閉は gadgets/hud.js＝既定は display:none、計測器ボタン(#hud-btn)で開く。位置は bottom を JS が出典(#attr)の
+       実高さぶんへ寄せる。★どんな下地（黒い宇宙/夜地形も）でも読めるよう常時ソリッド暗色＝ぼかし無し・テーマ非依存。 --- */
+#hud {
+	position: absolute; right: 8px; bottom: calc(6px + var(--qm-safe-b)); display: none; max-width: 82vw;
+	background: rgba(13, 17, 25, .88); border: 1px solid rgba(255, 255, 255, .15);
+	box-shadow: 0 2px 12px rgba(0, 0, 0, .45);
+	padding: 5px 9px 6px; border-radius: var(--qm-r-m); pointer-events: none;
+	font: 11px/1.45 var(--qm-font-mono); color: rgba(228, 234, 244, .95);
+	&.on { display: block; }
+	table { border-collapse: collapse; }
+	th, td { padding: 1px 5px; vertical-align: baseline; }
+	th { text-align: left; font-weight: 400; color: rgba(158, 170, 188, .9); white-space: nowrap; letter-spacing: .02em; }
+	td { text-align: right; font-variant-numeric: tabular-nums; color: rgba(228, 234, 244, .95); white-space: nowrap; }
+	td.val { color: #fff; font-weight: 600; }                               /* バックエンド・合計＝読む主役 */
+	td.warn { color: #ff8f80; font-weight: 600; }                           /* ピークが予算に迫る＝落ちる寸前＝赤（.val より後置＝色は warn が勝つ） */
+	.sec th { color: rgba(230, 236, 245, .98); font-weight: 600; padding-top: 6px; letter-spacing: .04em;
+		border-bottom: 1px solid rgba(255, 255, 255, .15); }                /* 節見出し（Device/Render/Memory） */
+	.sec:first-child th { padding-top: 1px; }
+	.note { color: rgba(150, 162, 180, .8); font-size: 10px; }              /* 数値に添える短い内訳（区数・ピーク…） */
+	tr.det td { text-align: right; white-space: normal; word-break: break-word; padding: 0 5px 2px;
+		color: rgba(150, 162, 180, .8); font-size: 10px; line-height: 1.3; }   /* 長い内訳を次行へ逃がす折返し行（GPU resident / transient） */
+}
+
 /* --- 夜家具（#map.ui-dark）：紙(land)が暗い配色テーマでアプリが輝度判定で付与。下辺の計器・出典・スケール・
        トーストだけ黒硝子へ転がす（値は #sky-attr＝星空劇場の黒硝子と同族＝夜の額装を揃える）。
        上辺のボタン/チップ/検索は白硝子のまま＝白の照り(sheen)が受光面を作るので暗地でも読める。 --- */
@@ -282,8 +306,11 @@ body { visibility: visible; }   /* 開幕＝このスタイルシートの到着
 	svg { display: block; }
 	&[aria-pressed="true"] { border-color: var(--qm-border-strong); background-color: var(--qm-panel-solid); }   /* 上演中＝点灯（照りはガラス節の点火リストが担う） */
 }
-/* 上演中の▶は星空劇場（.world＝家具退場）でも残す＝止める手段が常に見えている（バーの×と二重の保険） */
-#map.world #gadgets > #demo-btn[aria-pressed="true"] { opacity: 1; pointer-events: auto; }
+/* 上演中の▶を星空劇場（.world＝家具退場）でも残すのは狭画面だけ＝Escも操縦バー(.playingで退場)も無く、これが唯一の停止口だから。
+   デスクトップは z<4 でも▶を退場＝球/星だけの締めを綺麗に（停止は Esc＝demo.js keydown、休止中は操縦バーが担う・本人裁定 2026-08-05）。 */
+@media (max-width: 480px) {
+	#map.world #gadgets > #demo-btn[aria-pressed="true"] { opacity: 1; pointer-events: auto; }
+}
 #demo-bar {
 	/* 二丸薬構成：左＝送り（.db-main）・右＝モード（.db-aux ▤▷）を間で分離＝押し間違い対策。バー自体は透明な入れ物 */
 	position: absolute; bottom: calc(46px + var(--qm-safe-b)); left: 50%; transform: translateX(-50%);
@@ -589,6 +616,15 @@ body { visibility: visible; }   /* 開幕＝このスタイルシートの到着
 	&:hover { border-color: var(--qm-border-strong); }
 	svg { display: block; }
 }
+/* --- 状態盤HUD（計測器ボタン・スタック・34px規格）：クリックで #hud を開閉。点火(.on)＝パネル表示中（下の共通ガラス化粧＋点火リストが担う） --- */
+#hud-btn {
+	width: 34px; height: 34px; border-radius: 5px;
+	border: 1px solid var(--qm-border); background: var(--qm-panel); cursor: pointer; padding: 0;
+	display: flex; align-items: center; justify-content: center;
+	-webkit-backdrop-filter: blur(var(--qm-blur)); backdrop-filter: blur(var(--qm-blur));
+	&:hover { border-color: var(--qm-border-strong); }
+	svg { display: block; }
+}
 #print {
 	position: absolute; inset: 0; display: none; align-items: center; justify-content: center;
 	background: rgba(10, 16, 33, .55);
@@ -670,7 +706,7 @@ body { visibility: visible; }   /* 開幕＝このスタイルシートの到着
        点火(.on)や検索の開閉(#search.open)は各所の高詳細度セレクタが勝つ＝壊さない。
        上辺グラデ＋inset上ハイライト＝光を受けた凸面、押すと1px沈む＝指応え。 --- */
 #hint-btn, #search #search-btn, #plateau-btn, #palette-btn, #reset, #zoom button, #full,
-#cpos-btn, #measure-btn, #japan-btn, #shot-btn, #print-btn, #legend-btn, #close-btn, #demo-btn, #qr-btn,
+#cpos-btn, #measure-btn, #japan-btn, #shot-btn, #print-btn, #legend-btn, #close-btn, #demo-btn, #qr-btn, #hud-btn,
 #chips .chip {
 	background-color: var(--qm-glass-bg);
 	background-image: var(--qm-glass-sheen);
@@ -684,7 +720,7 @@ body { visibility: visible; }   /* 開幕＝このスタイルシートの到着
 }
 #search.open #search-btn { box-shadow: none; transform: none; }   /* 虫めがねが検索箱へ溶けた後＝影と沈みだけ残さない */
 /* 点火（.on）＝色ガラス仕上げ：地色は各所（インク/アクセントの color-mix 透過）、ここは暗地用に照りと inset を半減 */
-#chips .chip.on, #cpos-btn.on, #measure-btn.on, #demo-btn[aria-pressed="true"] {
+#chips .chip.on, #cpos-btn.on, #measure-btn.on, #hud-btn.on, #demo-btn[aria-pressed="true"] {
 	background-image: var(--qm-glass-sheen-dim);
 	box-shadow: var(--qm-shadow-btn-on);
 	&:hover { box-shadow: var(--qm-shadow-btn-on-hover); }   /* 浮きの所作は同じ・insetだけ暗地用 */

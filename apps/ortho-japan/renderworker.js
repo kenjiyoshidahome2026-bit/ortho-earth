@@ -29,8 +29,8 @@ function armRaf() {
 setInterval(() => {
 	if (renderer && performance.now() - lastFrameRun > 100) { pumpTicks++; frame(); }
 }, 33);
-// ?mem=1（init.mem）＝常駐メモリ台帳を main へ~2Hzで送る（terrain の LRU バイト＋JSヒープ）。main が plateau/tiles と合算して HUD 表示。
-let memOn = false, memLast = 0;
+// ?hud=1（init.mem・旧mem=1）＝状態盤テレメトリを main へ~2Hzで送る（terrain LRU＋JSヒープ＋GPU固定＋描画実測）。main が plateau/tiles と合算して HUD 表示。
+let memOn = false, memLast = 0, hudFrames = 0, hudGpuName = "";   // hudFrames＝FPS用の窓内実描画枚数・hudGpuName＝GPU名（backend確定時に一度採取）
 // ?nobld=1（init.noBld）＝基図建物の3D押し出しだけを伏せる診断ノブ：壁面ちらつきが「基図×PLATEAUの二重壁」か
 // 「PLATEAU内部/地形」かを一発で二分する（消えれば前者＝マスクの穴を追う・残れば後者）。
 let noBld = false;
@@ -104,10 +104,9 @@ function bootWebGL(m) {
 	// timer query は perf HUD 専用から常時初期化へ＝GPU格付け（スピードビニング）の物差しに使う。
 	// 非対応環境（Safari等）は null＝格付けが立たない＝手前詳細化オフの安全側。
 	tqExt = glRef.getExtension("EXT_disjoint_timer_query_webgl2");
-	if (perfOn) {
-		const dbg = glRef.getExtension("WEBGL_DEBUG_RENDERER_INFO") || glRef.getExtension("WEBGL_debug_renderer_info");
-		console.log(`[perf] backend=webgl2 gpu="${glRef.getParameter(dbg ? dbg.UNMASKED_RENDERER_WEBGL : glRef.RENDERER)}" timerQuery=${!!tqExt}`);
-	}
+	const dbg = glRef.getExtension("WEBGL_DEBUG_RENDERER_INFO") || glRef.getExtension("WEBGL_debug_renderer_info");
+	hudGpuName = String(glRef.getParameter(dbg ? dbg.UNMASKED_RENDERER_WEBGL : glRef.RENDERER) || "");   // ?hud=1 状態盤に出すGPU名（perfログとも共有・落ちの端末特定に使う）
+	if (perfOn) console.log(`[perf] backend=webgl2 gpu="${hudGpuName}" timerQuery=${!!tqExt}`);
 }
 // バックエンド確定後の共通仕上げ：標高(terrain)＋scene worker 直結ポート＋能力表明＋描画ループ開始。
 function finishInit(m) {
@@ -179,7 +178,7 @@ const dispatch = e => {
 				initQueue = []; bootStage = "import待ち";
 				import("ortho-core/gpu")
 					.then(({ createRendererGPU, createGintLayerGPU }) => createRendererGPU(canvas, { noTQ: !!m.noTQ, noFade: !!m.noFade, msaa1: !!m.msaa1 }).then(r => {
-						renderer = r; backendName = "webgpu"; bootStage = "renderer済";
+						renderer = r; backendName = "webgpu"; bootStage = "renderer済"; hudGpuName = String(r.gpuInfo || "");   // ?hud=1 状態盤のGPU名
 						// iOS Safari 診断：gint のパイプライン生成も検証スコープで包み、frame1 後にまとめて main へ転写
 						r.device.pushErrorScope("validation");
 						setTimeout(() => {
@@ -516,10 +515,7 @@ function frame() {
 					postMessage({ type: "gpuPix", nz, total: px.length / 4 });
 				}).catch(e => postMessage({ type: "gpuPix", nz: -2, total: 0, err: String(e && e.message) }));
 			}
-			if (memOn && performance.now() - memLast > 500) {   // ?mem=1：常駐メモリ台帳を~2Hzで main へ（terrain LRU＋JSヒープ。plateau/tiles は main 側が持つ）
-				memLast = performance.now();
-				postMessage({ type: "mem", terrain: terrain?.bytes?.() || 0, heap: performance.memory?.usedJSHeapSize || 0, gpu: renderer?.memEstimate?.() || null });
-			}
+			// ?hud=1 の状態盤テレメトリは dirty ブロックの外（frame 末尾）へ移設＝静止中も送る（FPS が実測で 0 に落ちる／メモリは動き続ける）。
 			// ?drawhud=1：直近フレームの描画実績を ~3Hz で main へ（実機の画面に出す計器）。
 			// 「背景が黒」の時に塗りの枚数がゼロなら CPU/状態側、枚数が出ているのに黒なら GPU 側＝二分の起点。
 			if (drawHudOn && performance.now() - drawHudLast > 350) {
@@ -536,7 +532,7 @@ function frame() {
 	}
 	tuneRes(drew);
 	const nowT = performance.now();
-	if (drew) lastDrewT = nowT;
+	if (drew) { lastDrewT = nowT; hudFrames++; }   // hudFrames＝?hud=1 の FPS 用（この窓で実際に描いた枚数）
 	if (!drew && resIdx > 0 && nowT - lastDrewT > RES_SETTLE_MS) {
 		// 静止が RES_SETTLE_MS 続いた＝止まれば画面が鮮明に戻る。段階を踏まず一気に res=1（静止フレームは全解像度でも軽い）。
 		pendingUp = false; resIdx = 0; scheduleRes(); resHoldUntil = nowT + 700;
@@ -547,6 +543,14 @@ function frame() {
 			resIdx--; scheduleRes(); resHoldUntil = nowT + 700;
 			console.log(`[render] 動的解像度 ↑ ×${RES_STEPS[resIdx]}（静止時適用）`);
 		}
+	}
+	// ?hud=1（旧mem=1）：状態盤テレメトリを~2Hzで main へ。dirty 外＝静止中も送る。terrain LRU＋JSヒープ＋GPU固定＋
+	// 描画実測（fps＝窓内の実描画枚数／frameMs＝emaMs／res＝動的解像度）＋backend/GPU名。plateau/tiles/navigator は main 側が合算。
+	if (memOn && renderer && nowT - memLast > 500) {
+		const fps = nowT > memLast ? Math.round(hudFrames * 1000 / (nowT - memLast)) : 0;
+		hudFrames = 0; memLast = nowT;
+		postMessage({ type: "mem", terrain: terrain?.bytes?.() || 0, heap: performance.memory?.usedJSHeapSize || 0, gpu: renderer?.memEstimate?.() || null,
+			fps, frameMs: emaMs, res: RES_STEPS[resIdx], backend: backendName, gpuName: hudGpuName });
 	}
 	if (cam) armRaf();   // cam未着の間は rAF を寝かせる（dirtyはcam不在だと消費されず立ちっぱなし＝条件に使えない）。ポンプ10Hzが駆動し、message配給の窓を開ける（iOS飢餓仮説の治癒）
 }

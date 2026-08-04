@@ -684,7 +684,7 @@ const batchBytes = batches => batches.reduce((s, b) => s + Object.values(b).redu
 // 区のメッシュ実バイト（cache に居なくても覚えておく）＝main の GPU常駐バイト予算LRU の物差し。
 // cache を持たない構成（lowMem/mid）でも 200MB の保守見積り（PLATEAU_BYTES_FALLBACK）でなく実測が返る。
 const meshBytes = new Map();
-// ?mem=1：過渡メモリの実測を main へ。HUDの常駐台帳（GPU常駐＋タイル＋標高）に乗らないのは
+// ?hud=1（旧mem=1）：過渡メモリの実測を main へ。HUDの常駐台帳（GPU常駐＋タイル＋標高）に乗らないのは
 // ①この worker 内 cache ②ロード中に keep[] が抱える区の全量 ③保存失敗時の pending — の3つ。
 // 既定は memOn=false＝postMessage も加算も一切走らない（計測コストゼロ）。
 let memOn = false;
@@ -976,7 +976,7 @@ self.onmessage = async (e) => {
 		if (e.data.lowMem || e.data.mid) POOL_MAX = 16 << 20;
 		initFs(e.data.noOpfs);   // バッチ本体の置き場（OPFS可否の確定は fsReady。ロード側が await して待つ）
 		if (e.data.farH > 0) FAR_MIN_H = e.data.farH;   // 遠景far-DBの高さ閾値（?farh=N・既定200m）
-		memOn = !!e.data.mem;   // ?mem=1＝過渡バイトの報告を有効化（既定は完全無音＝計測コストゼロ）
+		memOn = !!e.data.mem;   // ?hud=1（旧mem=1）＝過渡バイトの報告を有効化（既定は完全無音＝計測コストゼロ）
 		if (e.data.mid) CACHE_MAX = 0;   // 非力機（内蔵GPU/低コア）＝worker内キャッシュなし＝ロード中の全量保持(keep)も同時に消える（送ったら手放す）。再訪はOPFS
 		if (e.data.lowMem) { CACHE_MAX = 0; BATCH_TILES = 8; TILE_CONCURRENCY = 4; }   // 低メモリ端末＝worker内キャッシュなし（区一式の常駐がタブ落ちの下駄になる。再訪はIDB）＋バッチ8タイル＝デコード過渡・IDBレコード（1書込のcommitバースト）・送信ペイロードの粒度を半減（Kenji指定 2026-07-29「IDB書き込みの粒度を下げる」。draw call 増は LOW_MEM=同時1区で相殺）
 		return;
@@ -1030,6 +1030,6 @@ self.onmessage = async (e) => {
 	} catch (err) {
 		self.postMessage({ id, ok: false, error: err.message });
 	} finally {
-		memDone(base);   // ?mem=1：この区の過渡（keep/pending）は完了・中断とも手を離れた
+		memDone(base);   // ?hud=1：この区の過渡（keep/pending）は完了・中断とも手を離れた
 	}
 };

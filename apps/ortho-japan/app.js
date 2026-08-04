@@ -240,13 +240,18 @@ const noMultiDraw = /[?&]nomd=1/.test(location.search) || (LOW_MEM && !/[?&]md=1
 const noGint = /[?&]nogint=1/.test(location.search);
 // ?perf=1 ＝render worker がフレーム内訳（map/gint の CPU ms・フレームEMA・JSヒープ）を2秒毎に console へ出す。
 const perfLog = /[?&]perf=1/.test(location.search);
-// ?mem=1 ＝常駐メモリHUD（plateau＋tiles＋terrain を合算・走行後ピーク・4GB機予算まで残り）を画面右上に表示。過渡①は非表示。
-const memHud = /[?&]mem=1/.test(location.search);
+// 状態盤HUD（旧 mem=1）。左上スタックの「計測器」ボタンで右下（出典の上）のテーブルを開閉する。実機で「落ちる」の切り分け用＝
+// device(RAM/DPR/UA)・backend(WebGPU/GL2)・FPS・メモリ台帳(合計/ピーク/予算残)を一望。三態＝?hud=1 は計測器ボタン＋最初から開く／
+// ?hud=0 はボタンのみ（畳んだ状態で搭載＝落ちそうな時だけ開く）／無指定は非搭載（ボタンもテレメトリも無し）。どちらの値でも render/plateau
+// worker へテレメトリ送出を要求し、本体 gadgets/hud.js は hud= 指定時だけ遅延 import＝通常ユーザーの初期バンドルには一切乗らない。
+const hudParam = /[?&]hud=([01])/.exec(location.search);
+const hudOn = !!hudParam, hudOpenInit = hudParam?.[1] === "1";   // hudOn＝ボタン＋テレメトリを載せる（1でも0でも）・hudOpenInit＝パネルの初期表示（1=開く/0=畳む）
 // ?drawhud=1 ＝描画実績HUD（実機用の計器）。「背景が黒くなる」瞬間に、塗りが何枚描かれたか・退場フラグ・
 // フェード進行・PLATEAUバッチ数を画面へ出す。塗り0枚なら CPU/状態側（シーンが空・退場）、
 // 枚数が出ているのに黒なら GPU 側＝二分の起点になる（Android 実機の反転 2026-08-03・USB接続なしで読める）。
 const drawHud = /[?&]drawhud=1/.test(location.search);
-let memTerrain = 0, memHeap = 0, memGpu = null;   // render worker から届く terrain LRU バイト・JS ヒープ・GPU固定常駐概算（?mem=1 時のみ更新）
+let memTerrain = 0, memHeap = 0, memGpu = null;   // render worker から届く terrain LRU バイト・JS ヒープ・GPU固定常駐概算（?hud=1 時のみ更新）
+let memFps = 0, memFrameMs = 0, memRes = 1, memBackend = null, memGpuName = "";   // 同テレメトリの描画実測＝FPS・frame ms・動的解像度・backend(webgpu/webgl2)・GPU名
 // 混成R01近景（高チルト山岳の細かい起伏）は全端末で既定ON（lowMem含む）。旧・lowMemはR10止まり（富士3Dのjetsam対策80170b8）
 // だったが、標高アトラスR16F化（GPU半減）＋iOS 4GB実機で peak 84MB・完走を実測して安全確認済み。
 // ?nor01=1 ＝過渡デコードで落ちる端末が出た時の逃げ道（無効化＝全面R10へ）。
@@ -327,7 +332,7 @@ const wPost = (msg, transfer) => {
 	}
 	ctrlChan.port1.postMessage(msg, transfer || []);
 };
-renderWorker.postMessage({ type: "init", ctrlPort: ctrlChan.port2, canvas: offscreen, labelCanvas: labelOffscreen, elevBase: TERR_EXAG / EARTH_M, terrainExag: TERR_EXAG, earthM: EARTH_M, apiUrl: "https://api.ortho-earth.com", scenePort: sceneChan.port2, noMultiDraw, perf: perfLog, mem: memHud, lowMem: LOW_MEM, noMixed: noMixedR01, noFarTerr, noBld: /[?&]nobld=1/.test(location.search), gpu: gpuBackend, noTQ: /[?&]notq=1/.test(location.search), noGint: /[?&]nogint=1/.test(location.search), noFade: /[?&]nofade=1/.test(location.search), msaa1: /[?&]msaa=0/.test(location.search), drawHud: drawHud, stay: /[?&]stay=1/.test(location.search), noTerr }, [ctrlChan.port2, offscreen, labelOffscreen, sceneChan.port2]);
+renderWorker.postMessage({ type: "init", ctrlPort: ctrlChan.port2, canvas: offscreen, labelCanvas: labelOffscreen, elevBase: TERR_EXAG / EARTH_M, terrainExag: TERR_EXAG, earthM: EARTH_M, apiUrl: "https://api.ortho-earth.com", scenePort: sceneChan.port2, noMultiDraw, perf: perfLog, mem: hudOn, lowMem: LOW_MEM, noMixed: noMixedR01, noFarTerr, noBld: /[?&]nobld=1/.test(location.search), gpu: gpuBackend, noTQ: /[?&]notq=1/.test(location.search), noGint: /[?&]nogint=1/.test(location.search), noFade: /[?&]nofade=1/.test(location.search), msaa1: /[?&]msaa=0/.test(location.search), drawHud: drawHud, stay: /[?&]stay=1/.test(location.search), noTerr }, [ctrlChan.port2, offscreen, labelOffscreen, sceneChan.port2]);
 // 薄いプロキシ：有線(関数呼び)を無線(postMessage)に載せ替え。set/draw 統一済なので pipeline/overlay は無改造。
 // draw は worker 側で「cam を記録するだけ」に受け、実描画は worker 自前 rAF が最新 cam で回す（worker-driven）。
 // 標高アトラス(terrain)も worker 側に住む＝main はもう視野→セル計算・ダウンサンプルを一切やらない。読込インジケータだけ elevPending で受ける。
@@ -452,7 +457,7 @@ renderWorker.onmessage = e => {
 		else fatalOverlay("GPU の描画が中断されました", "描画コンテキストが失われました（GPUメモリ不足などで起こります）。他のタブやアプリを閉じてから再読み込みしてください。", true);
 		return;
 	}
-	if (d.type === "mem") { memTerrain = d.terrain || 0; memHeap = d.heap || 0; memGpu = d.gpu || null; return; }   // ?mem=1：render worker からの terrain LRU バイト＋JSヒープ＋GPU固定常駐概算（HUD が合算表示）
+	if (d.type === "mem") { memTerrain = d.terrain || 0; memHeap = d.heap || 0; memGpu = d.gpu || null; memFps = d.fps ?? memFps; memFrameMs = d.frameMs ?? memFrameMs; memRes = d.res ?? memRes; memBackend = d.backend || memBackend; memGpuName = d.gpuName || memGpuName; return; }   // ?hud=1：render worker からのメモリ台帳＋描画実測（HUD が合算・表示）
 	if (d.type === "drawhud") { showDrawHud(d); return; }                                   // ?drawhud=1：直近フレームの描画実績を画面へ（実機計器）
 	if (d.type !== "elevPending") return;
 	const { count, range, stat } = d;
@@ -621,13 +626,13 @@ function plateauRetain(name, set) {   // 常駐登録＋LRU touch。予算超過
 // コールドの山にそのまま人数分加算されるため（8GB実機では 1→2 本でも 2D 段階で落ちた実測＝上のコメント）。
 const PLATEAU_NW = LOW_MEM ? 1 : (Math.min(MID_TIER ? 2 : PLATEAU_MAX_ACTIVE, (navigator.hardwareConcurrency || 4) - 1) || 1);
 const plateauWorkers = [], plateauPending = new Map();
-const plateauMemW = [];   // ?mem=1：worker index → {cache, live}＝HUD の「過渡」行（常駐台帳に乗らないRAM）
+const plateauMemW = [];   // ?hud=1（旧mem=1）：worker index → {cache, live}＝HUD の「過渡」行（常駐台帳に乗らないRAM）
 let plateauReqId = 0;
 let plateauCamSent = 0;   // カメラ放送のスロットル（ロード中のみ~4Hz）
 for (let i = 0; plateauOn && i < PLATEAU_NW; i++) {   // plateau OFF＝workerを1本も起こさない
 	const w = new Worker(new URL("./plateauworker.js", import.meta.url), { type: "module" });
 	const meshChan = new MessageChannel();   // この worker → render worker のメッシュ直結パイプ
-	w.postMessage({ type: "init", meshPort: meshChan.port1, lowMem: LOW_MEM, mid: MID_TIER, mem: memHud, noOpfs: /[?&]noopfs=1/.test(location.search), farH: FAR_H }, [meshChan.port1]);   // ?noopfs=1＝バッチ本体のOPFS置きを無効化（従来IDB）＝A/B・切り分け用。farH＝遠景far-DBの高さ閾値
+	w.postMessage({ type: "init", meshPort: meshChan.port1, lowMem: LOW_MEM, mid: MID_TIER, mem: hudOn, noOpfs: /[?&]noopfs=1/.test(location.search), farH: FAR_H }, [meshChan.port1]);   // ?noopfs=1＝バッチ本体のOPFS置きを無効化（従来IDB）＝A/B・切り分け用。farH＝遠景far-DBの高さ閾値
 	wPost({ type: "plateauPort", port: meshChan.port2 }, [meshChan.port2]);
 	w.onmessage = e => {
 		if (e.data.prog) { plateauProg.set(e.data.prog.name, e.data.prog); renderPlateauProg(); return; }   // タイル/走査進捗（ネットワーク経路のみ）
@@ -647,7 +652,7 @@ for (let i = 0; plateauOn && i < PLATEAU_NW; i++) {   // plateau OFF＝workerを
 		}
 		if (e.data.type === "idbList") { plateauListPending.shift()?.(e.data.items); return; }              // データ管理モーダルの一覧応答
 		if (e.data.type === "idbDeleted") { plateauDeletePending.get(e.data.base)?.(e.data.n); plateauDeletePending.delete(e.data.base); return; }
-		if (e.data.type === "membytes") { plateauMemW[i] = e.data; return; }   // ?mem=1：この worker の過渡（内部cache＋ロード中の保持）バイト
+		if (e.data.type === "membytes") { plateauMemW[i] = e.data; return; }   // ?hud=1：この worker の過渡（内部cache＋ロード中の保持）バイト
 		const p = plateauPending.get(e.data.id); if (!p) return; plateauPending.delete(e.data.id);
 		if (p.name) { plateauProg.delete(p.name); renderPlateauProg(); }   // 完了/失敗どちらでも ack で消灯＝消し忘れが無い
 		if (e.data.bytes && p.name) plateauBytes.set(p.name, e.data.bytes);   // 実測メッシュバイト＝常駐バイト予算LRUの物差し
@@ -2336,10 +2341,7 @@ function render() {
 // --- 統合スパイク：geopbf/e-Stat を overlay に描き、クリックで identify（実装は overlay.js）---
 const overlay = createOverlay({ renderer, cam, size, dpr, requestDraw: () => { needsDraw = true; } });
 window.__loadOverlay = overlay.loadOverlay;   // geopbf 名から（全球等）
-// ?mem=1：メモリ台帳 HUD。plateau（表示＋常駐）＋tiles（tess）＋terrain（標高LRU）＋過渡（plateau worker が
-// RAM に抱えるぶん＝内部cache／ロード中の全量保持）を合算し、走行後のピークと「4GB機の推定タブ予算(~0.9GB)まで
-// 残り」を右上に出す。過渡は 2026-08-03 に追加＝Windows 16GB のコールド落ちが「常駐は予算内なのにピークで死ぬ」
-// 形だったため（台帳が常駐しか映さないと、犯人が画面に出ない）。Draco 解凍の中間バッファだけは今も台帳外。
+// ?hud=1（旧mem=1）のメモリ台帳HUD 本体は下方の hudSnapshot＋gadgets/hud.js（右下・出典の上・計測器ボタンで開閉）。以下は別計器：
 // ?drawhud=1：直近フレームの描画実績を実機の画面へ。USB接続やコンソールが要らない＝端末だけで二分できる。
 // 読み方：「背景が黒」の瞬間に **塗り(main/base)が 0 枚**なら CPU/状態側（シーンが空・退場フラグ）、
 // **枚数が出ているのに黒**なら GPU 側（描いたのに画素にならない）。赤字＝塗り0＝異常の目印。
@@ -2363,38 +2365,40 @@ function showDrawHud(msg) {
 		`退場 skipMain=${d.skipMain ? 1 : 0} skipBase=${d.skipBase ? 1 : 0} fade=${(d.fadeK ?? 1).toFixed(2)}\n` +
 		`PLATEAU ${d.pl ?? 0}バッチ  深度=${d.terrainDepth ? "on" : "off"}`;
 }
-if (memHud) {
-	const memEl = document.createElement("div");
-	memEl.style.cssText = "position:fixed;top:8px;right:8px;z-index:99999;font:11px/1.45 ui-monospace,monospace;background:rgba(0,0,0,.72);color:#4ade80;padding:6px 9px;border-radius:5px;white-space:pre;pointer-events:none;text-align:right";
-	document.body.appendChild(memEl);
-	const BUDGET = 900 * 1048576;   // 4GB機の推定タブ予算（8GB機の~1.4GBより小さい）
-	const mb = b => (b / 1048576).toFixed(0);
-	let peak = 0;
-	setInterval(() => {
-		const names = new Set([...plateauActive.keys(), ...plateauResident.keys()]);
-		let plat = 0; for (const n of names) plat += bytesOf(n, plateauActive.get(n) || plateauResident.get(n));
-		const ts = tiles.stats();
-		// GPU固定＝renderer 自前確保分の概算（標高アトラス近/舞台裏/遠＋地形メッシュ＋MSAA[webgpuのみ]）。
-		// GL2 は canvas antialias:true の MSAA がブラウザ暗黙確保＝msaa0 表示だが実在する（+α と読む）。
-		const gpu = memGpu ? memGpu.atlas + memGpu.mesh + memGpu.msaa : 0;
-		// 過渡＝plateau worker が RAM に抱えているぶん（worker内cache＋ロード中の全量保持）。常駐台帳に乗らない
-		// のに実ピークの主役＝コールド落ちの犯人はここ（Windows 16GB 2026-08-03）。Draco 中間はさらに外側。
-		const trC = plateauMemW.reduce((s, m) => s + (m?.cache || 0), 0);
-		const trL = plateauMemW.reduce((s, m) => s + (m?.live || 0), 0);
-		const total = plat + ts.bytes + memTerrain + gpu + trC + trL;
-		if (total > peak) peak = total;
-		memEl.textContent =
-			`PLATEAU ${mb(plat)}MB（表示${plateauActive.size}区）\n` +
-			`tiles   ${mb(ts.bytes)} / ${mb(ts.budgetBytes)}MB\n` +
-			`terrain ${mb(memTerrain)}MB` + (memHeap ? `\nJS heap ${mb(memHeap)}MB` : ``) + `\n` +
-			(memGpu ? `GPU固定 ${mb(gpu)}MB（atlas${mb(memGpu.atlas)}+mesh${mb(memGpu.mesh)}+msaa${mb(memGpu.msaa)}）\n` : ``) +
-			`過渡    ${mb(trC + trL)}MB（cache ${mb(trC)}／読込中 ${mb(trL)}）\n` +
-			`合計    ${mb(total)}MB（peak ${mb(peak)}）\n` +
-			`4GB予算 残 ${mb(BUDGET - peak)} / ${mb(BUDGET)}MB` +
-			(MID_TIER ? `\n非力機ティア ON（${PLATEAU_MAX_ACTIVE}区/${(PLATEAU_RESIDENT_BYTES / 1e9).toFixed(1)}GB/w${PLATEAU_NW}）` : ``) + `\n` +
-			`※Draco解凍の中間は台帳外`;
-	}, 500);
+// ?hud=1（旧 mem=1）：状態盤HUD。plateau/tiles/terrain/GPU固定/過渡を合算する台帳＋描画実測（backend/FPS/frame/動的解像度）＋
+// device（navigator：RAM/コア/DPR/回線/UA）を gadgets/hud.js（計測器ボタンで開閉するガジェット）へ供給する。数値の出所は全て
+// この closure＝ガジェットはレイアウトと更新のみ（抽象アクセス）。本体は ?hud=1 の時だけ import＝通常バンドル不干渉（三戒：独立/遅延/抽象アクセス）。
+let hudPeak = 0;   // 走行後ピーク（HUD を畳んでいる間も積む＝閉じても最悪値＝落ちる寸前の値を失わない）
+function hudSnapshot() {
+	const names = new Set([...plateauActive.keys(), ...plateauResident.keys()]);
+	let plat = 0; for (const n of names) plat += bytesOf(n, plateauActive.get(n) || plateauResident.get(n));
+	const ts = tiles.stats();
+	const gpu = memGpu ? memGpu.atlas + memGpu.mesh + memGpu.msaa : 0;   // GPU固定＝標高アトラス近/裏/遠＋地形メッシュ＋MSAA（webgpuのみ・GL2は暗黙確保で0表示）
+	const trC = plateauMemW.reduce((s, m) => s + (m?.cache || 0), 0);    // 過渡＝worker内cache（常駐台帳外・コールド落ちの主役）
+	const trL = plateauMemW.reduce((s, m) => s + (m?.live || 0), 0);     // 過渡＝ロード中の区の全量保持
+	const total = plat + ts.bytes + memTerrain + gpu + trC + trL;
+	if (total > hudPeak) hudPeak = total;
+	const nc = navigator.connection || {};
+	return {
+		backend: window.__backend || memBackend, gpuName: memGpuName, fps: memFps, frameMs: memFrameMs, res: memRes,
+		zoom: cam?.zoom ?? 0, pitch: cam?.pitch ?? 0, bearing: cam?.bearing ?? 0,
+		device: {   // navigator/画面＝どの端末が落ちたかの特定（RAMは4GB級/8GB級の判別、DPR×viewport＝フレームバッファのGPU圧）
+			ram: navigator.deviceMemory || null, cores: navigator.hardwareConcurrency || null,
+			dpr: window.devicePixelRatio || 1, vw: window.innerWidth, vh: window.innerHeight,
+			net: nc.effectiveType || null, down: nc.downlink || null, ua: navigator.userAgent,
+		},
+		plateau: { bytes: plat, regions: plateauActive.size }, tiles: { bytes: ts.bytes, budget: ts.budgetBytes },
+		terrain: memTerrain, heap: memHeap, gpu: memGpu, gpuBytes: gpu,
+		transient: { cache: trC, live: trL, bytes: trC + trL },
+		total, peak: hudPeak, budget: 900 * 1048576,   // 4GB機の推定タブ予算（8GB機の~1.4GBより小さい）＝残りが薄いほど落ちる寸前
+		tier: MID_TIER ? { active: PLATEAU_MAX_ACTIVE, residentGB: PLATEAU_RESIDENT_BYTES / 1e9, workers: PLATEAU_NW } : null,
+	};
 }
+// 本体は遅延 import＝.then は同期init完走後（map.gadget 定義済み）に走る。hud= 指定時だけ計測器ボタンを載せる（open=1/畳=0 は hudOpenInit）。
+if (hudOn) import("./gadgets/hud.js").then(({ hud }) => {
+	map.gadget("hud", function (opts) { return hud.call(this, { snapshot: hudSnapshot, open: hudOpenInit, signal: ac.signal, ...opts }); });
+	map.gadget.hud();
+}).catch(e => console.error("[hud] 本体の読み込みに失敗", e));
 window.__loadEstat = overlay.loadEstat;
 window.__tokyo = () => overlay.loadEstat(Array.from({ length: 23 }, (_, i) => 13101 + i));   // 東京23区の小地域
 // 初期 overlay なし（全球 land は検証用。__tokyo() や __loadOverlay(name) で任意に）
