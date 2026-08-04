@@ -210,9 +210,9 @@ window.addEventListener("online", () => { netEl.style.display = "none"; needsDra
 
 let bg = style.layers.find(L => L.type === "background");
 let land = bg ? parseRGBA(evalExpr(bg.paint?.["background-color"] ?? "#fff", { zoom: 10, props: {}, geom: null, vars: {} })) : [0.96, 0.96, 0.95, 1];
-// 夜家具：紙(land)が暗ければ下辺の計器・出典を黒硝子へ（quiet-mono #map.ui-dark）。テーマ名でなく輝度で
-// 判定＝カスタムテーマ(opts.theme={…})でも正しく転ぶ（style だけ差し替えた黒紙カスタムを取りこぼさない）
-if (0.299 * land[0] + 0.587 * land[1] + 0.114 * land[2] < 0.45) mapEl.classList.add("ui-dark");
+// 白抜き家具（本人裁定 2026-08-05「紙の世界を司る神」）：計器・アイコン・出典を地図の明暗に依らず常に黒硝子＋白線へ（quiet-mono #map.ui-dark）。
+// 旧＝land輝度<0.45（暗い紙）の時だけ夜家具。今は常時ON＝昼夜で意匠がブレず、白線 on 黒硝子で輪郭が締まる（状態HUDと同族）。戻すなら下の add を輝度条件へ。
+mapEl.classList.add("ui-dark");
 const clear = [0.03, 0.04, 0.07, 1];   // 宇宙（球の外側）
 
 let dpr = Math.min(2, window.devicePixelRatio || 1);
@@ -1261,7 +1261,7 @@ function switchTheme(name) {
 		distColor: theme.distColor || null,
 		hypso: theme.hypso || null });
 	renderer.set("sea", { li: style.layers.findIndex(L => L.id === "water"), li2: style.layers.findIndex(L => L.id === "water-hi"), minzoom: 9 });
-	mapEl.classList.toggle("ui-dark", 0.299 * land[0] + 0.587 * land[1] + 0.114 * land[2] < 0.45);   // 夜家具＝land輝度で（テーマ名でなく輝度＝黒紙カスタムも転ぶ）
+	mapEl.classList.add("ui-dark");   // 白抜き家具＝常時ON（本人裁定2026-08-05）＝テーマ生き替えでも外さない（旧＝land輝度で付け外し）
 	if (gintSlot === "coast") applyCoastSlot();   // 海岸線色(theme.coastLine)を新テーマで塗り直す＝gint別層＝基図タイル再ビルドでは直らない（色の居座り根治）
 	if (layerState.rail && n02Loaded) { n02Loaded = false; loadN02(); }   // N02新幹線の芯(land色)を新テーマで引き直す（データは温間）
 	readySig = ""; baseSig = ""; mergeReq.main.sig = ""; mergeReq.base.sig = ""; needsDraw = true; onMove();   // 下地・主層を強制再結合（次のupdateで新styleビルド→順次merge）
