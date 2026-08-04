@@ -771,20 +771,21 @@ async function loadPlateau(base, tiles, ward, wardBbox, camCenter, preload = fal
 		if (preload) {
 			if (await storedComplete(base, whole)) { touchMeta(base, whole); return true; }   // 本体は読まない（存在確認のみ）
 		} else {
-			// 復元パスは far導出をしない（2026-08-04夜）：v3/閾値移行の直後は全区の#farが無効＝復元×4worker並列と
-			// 同時に全バッチ導出が走り、起動ヒープがGB級に膨張した（本人実測10GB）。復元は表示最速に徹し、
-			// #farの育成は farMiss→main の直列 farBake キュー（1区ずつ・落ち着いた読み直し）へ一本化する。
-			farAcc = null;
+			// 復元の「ついで導出」は数値キー溶接とセットで維持（2026-08-04夜の二転）：一度farBakeキューへ全面移管
+			// したが、それは同じ区を後から全量読み直す＝flyToのたび二度読みのchurn（+1GB/飛行の一因）。メッシュが
+			// 手元にある今ここで導出するのが総量最小。旧・文字列キー溶接の数百MB/バッチ一時ゴミは数値化で根治済み。
 			const keep = CACHE_MAX ? [] : null;   // desktop＝worker内cache用に保持／低メモリ＝送ったら手放す
 			let bi = 0;
 			for (; bi < whole.count; bi++) {
 				const mesh = await readStored(base, whole.fs, bi);
 				if (!mesh) break;
+				if (farAcc) farAcc.push(...farBoxesOf(mesh));   // transferで手放す前に導出（旧焼き→#far の育成・追加I/Oゼロ）
 				if (keep) { keep.push(mesh); memAdd(base, batchBytes([mesh])); }
 				await sendBatch(ward, bi, mesh, whole.mask ?? null, whole.wardBbox ?? null, !keep);   // !keep＝transferで手放す
 			}
 			if (bi === whole.count) {
 				console.log("[plateau] 焼き命中（streaming復元・fetch/解凍/変換スキップ）", base, `(${whole.count} batches)`);
+				farSave("復元");   // 待たない＝表示経路を塞がない
 				touchMeta(base, whole);
 				meshBytes.set(base, whole.bytes || batchBytes(keep || []));   // 常駐LRUの物差し（cache 不在構成でも実測を返す）
 				if (keep) {

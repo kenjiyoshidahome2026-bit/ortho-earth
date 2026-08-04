@@ -518,6 +518,9 @@ const farMissed = new Set();                // #far整備不能（完走焼き�
 const farBakeQ = []; const farBakeTried = new Set(); let farBaking = null;
 function farBakeNext() {
 	if (farBaking || !farBakeQ.length) return;
+	// 育成は暇な時だけ：v3/閾値移行の残務（区ごと全量読み直し）が復元・飛行と重なると、workerヒープの
+	// 一時ゴミ高水位が段階的に積み上がる（本人実測「FlyToで+1GB→14.5GB」2026-08-04夜）。移動/飛行中は退いて再試行
+	if (moving || flying) { setTimeout(farBakeNext, 3000); return; }
 	farBaking = farBakeQ.shift();
 	plateauWorkers[hashStr(farBaking.base) % PLATEAU_NW].postMessage({ type: "farBake", base: farBaking.base, ward: farBaking.name });
 }
@@ -607,14 +610,14 @@ for (let i = 0; plateauOn && i < PLATEAU_NW; i++) {   // plateau OFF＝workerを
 		if (e.data.farMiss) {   // #far無し：焼きがあるかもしれない＝一度だけ育成を試す（perm=完走焼き無し＝実ロード完走待ち）
 			const n = e.data.farMiss.name;
 			farShown.delete(n); farMissed.add(n);   // 育成中/不能の間は再要求を止める（解除は farReady）
-			if (farBaking?.name === n) { farBaking = null; farBakeNext(); }   // 育成失敗の返信＝次の区へ
+			if (farBaking?.name === n) { farBaking = null; setTimeout(farBakeNext, 3000); }   // 育成失敗の返信＝間を置いて次の区へ（連打で churn の山を作らない）
 			const s = !e.data.farMiss.perm && !farBakeTried.has(n) && PLATEAU_SETS.find(x => x.name === n);
 			if (s) { farBakeTried.add(n); farBakeQ.push({ base: s.base, name: n }); farBakeNext(); }
 			return;
 		}
 		if (e.data.farReady) {   // #farが育った（完走保存/育成どちらでも）＝点灯可
 			farMissed.delete(e.data.farReady.name);
-			if (farBaking?.name === e.data.farReady.name) { farBaking = null; farBakeNext(); }
+			if (farBaking?.name === e.data.farReady.name) { farBaking = null; setTimeout(farBakeNext, 3000); }   // 間隔つき＝残務を静かに消化
 			if (!moving && !flying) autoPlateau(true);   // 静止シーンでも即点灯（onMoveが来ない＝この一突きが無いと次のカメラ操作まで立たない）
 			return;
 		}
