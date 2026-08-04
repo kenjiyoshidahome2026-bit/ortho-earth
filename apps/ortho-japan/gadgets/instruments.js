@@ -25,14 +25,19 @@ export function mountInstruments(mapEl, keys = true) {
 		els.push(scale);
 	}
 	if (want("attr")) {   // 出典（右下・最も静か）
-		const attr = document.createElement("div");
-		attr.id = "attr";
+		// 養子縁組（LCP前倒し・2026-08-04）：index.html が同文の静的 #attr[data-boot] を幕の上に先描き
+		//（初回ペイントでLCP確定＝従来はここでの生成~2.0sが律速）。あれば実体を引き取り #map 配下へ移す。
+		// data-boot を剥がすと boot 用インラインCSSが外れ quiet-mono の #attr 意匠へ自然に切り替わる。
+		// 埋め込みページ（静的版なし）は従来どおり新規生成。
+		const boot = document.querySelector("#attr[data-boot]");
+		const attr = boot || document.createElement("div");
+		if (boot) boot.removeAttribute("data-boot"); else attr.id = "attr";
 		// 行割りは iPhone 幅（375px・11px 字）で折り返さないことを基準に3行固定：
 		//   1行目=長い正式名称を単独で／2行目=残りのデータ源3つ／3行目=加工注記+©。#attr の text-wrap:balance は超狭幅の保険
 		attr.innerHTML = `出典：<a href="https://maps.gsi.go.jp/development/ichiran.html#optbv" target="_blank" rel="noopener">国土地理院最適化ベクトルタイル（提供実験）</a><br>
 			<a href="https://maps.gsi.go.jp/development/ichiran.html#dem" target="_blank" rel="noopener">標高タイル（DEM10B）</a>・<a href="https://www.mlit.go.jp/plateau/" target="_blank" rel="noopener">国土交通省 PLATEAU</a>・<a href="https://www.eorc.jaxa.jp/ALOS/jp/dataset/aw3d30/aw3d30_j.htm" target="_blank" rel="noopener">JAXA AW3D30</a><br>
 			（各データを加工して作成）© 2026 <a href="https://www.ortho-earth.com/docs/introduction.html" target="_blank" rel="noopener">Kenji Yoshida</a>`;
 		els.push(attr);
-	}
+	} else document.querySelector("#attr[data-boot]")?.remove();   // 出典を出さない構成＝静的版も残さない（埋め込み側の出典明記義務は README どおり）
 	mapEl.append(...els);
 }

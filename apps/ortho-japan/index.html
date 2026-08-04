@@ -20,6 +20,13 @@
 		#boot svg{width:72px;height:72px;animation:boot-breathe 1.6s ease-in-out infinite}
 		@keyframes boot-breathe{0%,100%{opacity:.35}50%{opacity:1}}
 		@media (prefers-reduced-motion:reduce){#boot svg{animation:none;opacity:.8}}
+		/* 静的出典（LCP前倒し・2026-08-04）：画面最大のテキスト塊＝出典を初回ペイントで幕の右下に描く（映画のクレジット風）。
+		   従来はJS起動後(~2.0s)の#attr生成がLCPの律速だった。app.jsのinstrumentsが養子縁組（data-bootを剥がして#map配下へ）＝入れ替わりゼロ */
+		#attr[data-boot]{position:fixed;bottom:calc(6px + env(safe-area-inset-bottom,0px));right:8px;z-index:2147483647;
+			font:11px/1.5 "Noto Sans JP","Hiragino Sans","Yu Gothic UI","Yu Gothic",sans-serif;text-align:right;
+			color:rgba(200,210,226,.82);background:rgba(16,24,44,.4);border:1px solid rgba(255,255,255,.14);
+			padding:4px 8px;border-radius:8px}
+		#attr[data-boot] a{color:rgba(200,210,226,.82);text-decoration:none}
 	</style>
 	<link rel="icon" href="/favicon.svg" type="image/svg+xml">
 	<title>ortho-japan — 球面に直描きする日本地図</title>
@@ -38,6 +45,10 @@
 <body>
 	<!-- 起動画面（球儀マーク）：外部CSS/JSに一切依存せずHTMLパース直後に描画＝FCPの実体。ready後に #boot.gone でフェード消去 -->
 	<div id="boot"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-label="ortho-earth 起動中"><g fill="none" stroke="#cdd6e6" stroke-width="6"><ellipse cx="50" cy="50" rx="45" ry="45"/><ellipse cx="50" cy="50" rx="25" ry="45"/><path d="M11 28H88 M11 72H88M50 5V95M5 50 H95"/></g></svg></div>
+	<!-- 静的出典＝LCP前倒し（幕の上・クレジット風）。文言は instruments.js と同文＝起動後に養子縁組される -->
+	<div id="attr" data-boot>出典：<a href="https://maps.gsi.go.jp/development/ichiran.html#optbv" target="_blank" rel="noopener">国土地理院最適化ベクトルタイル（提供実験）</a><br>
+		<a href="https://maps.gsi.go.jp/development/ichiran.html#dem" target="_blank" rel="noopener">標高タイル（DEM10B）</a>・<a href="https://www.mlit.go.jp/plateau/" target="_blank" rel="noopener">国土交通省 PLATEAU</a>・<a href="https://www.eorc.jaxa.jp/ALOS/jp/dataset/aw3d30/aw3d30_j.htm" target="_blank" rel="noopener">JAXA AW3D30</a><br>
+		（各データを加工して作成）© 2026 <a href="https://www.ortho-earth.com/docs/introduction.html" target="_blank" rel="noopener">Kenji Yoshida</a></div>
 	<script type="module">
 		import orthoJapan from "./app.js";
 		// 台本（demo/scenes.js）は起動バンドルに載せない＝下で動的 import()。編集はあのファイル1枚・index.htmlは触らない。
