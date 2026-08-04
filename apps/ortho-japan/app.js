@@ -981,8 +981,11 @@ function autoPlateau(settled = false) {
 		// fast枠が塞がっていても可視区は「slow在庫」で即開始（非LOW_MEM）＝進捗と部分IDBが貯まり始め、
 		// ローテーション/枠空きの promote で即 8並行へ（枠待ちで開始すらしない飢餓を断つ）。
 		// LOW_MEM は従来どおり順番待ち＝同時in-flightのRAM在庫（区あたり~100MB級）を増やさない。
+		// 起動猶予（2026-08-04夜）：ブート直後の45秒は在庫slowを起こさない＝表示本命のfast枠だけ。
+		// 起動時は在庫まで一斉復元→worker/転送の一時ゴミ高水位が積み上がり「立ち上がりで5GB」（本人実測）。
+		// 見えている本命2区が先・在庫は落ち着いてから＝autoPlateauは移動/settleで再訪するので取り漏らさない。
 		const capFull = !h.noMask && fastBldg().length >= bldCap;
-		if (capFull && LOW_MEM) continue;
+		if (capFull && (LOW_MEM || performance.now() < 45000)) continue;
 		plateauLoading.add(h.name);
 		plateauAutoLoading.set(h.name, h);   // 視界確定時の退避対象へ
 		if (!capFull) plateauFastT.set(h.name, performance.now());
@@ -1035,6 +1038,7 @@ function autoPlateau(settled = false) {
 // 静止中の見張り：ロード中が居る間は10秒毎に再選抜＝fast枠ローテーション・枠空き補充・退避復帰を
 // カメラ操作なしでも回す（onMove/settle が来ない「静止して待つ」シーンでの飢餓/取りこぼし対策）。
 setInterval(() => { if (plateauLoading.size && !moving && !flying) autoPlateau(true); }, 10e3);
+setTimeout(() => { if (!moving && !flying) autoPlateau(true); }, 46e3);   // 起動猶予(45s)明けの一突き＝触らず眺めているだけでも在庫slowが静かに育ち始める（上のポーラーはロード中のみ発火のため）
 
 // --- 地中フェード（クランプの代替・2026-07-28）: カメラが地表(DTM)より下へ潜ったら全画面を暗色で覆う ---
 // 旧・カメラ地形クランプ（eye 押し上げ）は廃止：山頂×高チルトで eye が sea-level 軌道ごと山体に埋まり、
