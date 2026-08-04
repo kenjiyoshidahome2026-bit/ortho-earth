@@ -436,14 +436,23 @@ function farBoxesOf(mesh) {
 	const n = pos.length / 3;
 	// 頂点溶接（0.5mグリッド）：Draco出力は建物内でも頂点非共有＝素のidx連結は三角形単位に退化する
 	//（実測v1＝中野83k箱/区・三角形を数えていた）。位置量子化で同一点を1ノードに束ねてから連結する。
+	// ⚠キーは数値二段（文字列キー禁止）：旧実装の頂点毎"x,y,z"文字列は数百MB/バッチの一時アロケ＝
+	// v3移行の全区再導出が復元と重なった起動でヒープがGB級に膨張（本人実測「すぐ10GB近く」2026-08-04夜）。
+	// pos は origin相対（|Δ|≲区対角/地球半径≈1e-2）＝×wq で ±13万格子に収まる→2^17オフセットで正整数化。
+	// 外側キー= qx*2^18+qy（<2^36＝安全）・内側キー= qz。圏外はクランプ（区bbox外の断片＝far対象外の彼方）。
 	const wq = 6371000 / 0.5;   // 単位球座標×wq ≈ 0.5m格子
 	const weld = new Int32Array(n);
 	{
-		const first = new Map();
+		const QO = 1 << 17, QMAX = (1 << 18) - 1;
+		const q = v => { const x = Math.round(v * wq) + QO; return x < 0 ? 0 : x > QMAX ? QMAX : x; };
+		const first = new Map();   // 外側キー → Map(qz → 代表頂点index)
 		for (let i = 0; i < n; i++) {
-			const k = Math.round(pos[i * 3] * wq) + "," + Math.round(pos[i * 3 + 1] * wq) + "," + Math.round(pos[i * 3 + 2] * wq);
-			const f = first.get(k);
-			if (f === undefined) { first.set(k, i); weld[i] = i; } else weld[i] = f;
+			const ko = q(pos[i * 3]) * 262144 + q(pos[i * 3 + 1]);   // ×2^18
+			let inner = first.get(ko);
+			if (!inner) { inner = new Map(); first.set(ko, inner); }
+			const kz = q(pos[i * 3 + 2]);
+			const f = inner.get(kz);
+			if (f === undefined) { inner.set(kz, i); weld[i] = i; } else weld[i] = f;
 		}
 	}
 	const par = new Int32Array(n); for (let i = 0; i < n; i++) par[i] = i;
@@ -762,18 +771,20 @@ async function loadPlateau(base, tiles, ward, wardBbox, camCenter, preload = fal
 		if (preload) {
 			if (await storedComplete(base, whole)) { touchMeta(base, whole); return true; }   // 本体は読まない（存在確認のみ）
 		} else {
+			// 復元パスは far導出をしない（2026-08-04夜）：v3/閾値移行の直後は全区の#farが無効＝復元×4worker並列と
+			// 同時に全バッチ導出が走り、起動ヒープがGB級に膨張した（本人実測10GB）。復元は表示最速に徹し、
+			// #farの育成は farMiss→main の直列 farBake キュー（1区ずつ・落ち着いた読み直し）へ一本化する。
+			farAcc = null;
 			const keep = CACHE_MAX ? [] : null;   // desktop＝worker内cache用に保持／低メモリ＝送ったら手放す
 			let bi = 0;
 			for (; bi < whole.count; bi++) {
 				const mesh = await readStored(base, whole.fs, bi);
 				if (!mesh) break;
-				if (farAcc) farAcc.push(...farBoxesOf(mesh));   // transferで手放す前に導出（旧焼き→#far の育成）
 				if (keep) { keep.push(mesh); memAdd(base, batchBytes([mesh])); }
 				await sendBatch(ward, bi, mesh, whole.mask ?? null, whole.wardBbox ?? null, !keep);   // !keep＝transferで手放す
 			}
 			if (bi === whole.count) {
 				console.log("[plateau] 焼き命中（streaming復元・fetch/解凍/変換スキップ）", base, `(${whole.count} batches)`);
-				farSave("復元");   // 待たない＝表示経路を塞がない
 				touchMeta(base, whole);
 				meshBytes.set(base, whole.bytes || batchBytes(keep || []));   // 常駐LRUの物差し（cache 不在構成でも実測を返す）
 				if (keep) {
