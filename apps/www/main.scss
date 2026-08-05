@@ -26,7 +26,7 @@ body { font-family: 'Helvetica Neue', Arial, 'Hiragino Kaku Gothic ProN', sans-s
 		}
 		main { flex: 1; display: flex; flex-direction: column;
 			background:rgba(0,0,0,0.6); padding: 2.5rem 2rem;
-			justify-content: safe center; align-items: center; text-align: center; overflow-y: auto;
+			justify-content: flex-start; align-items: center; text-align: center; overflow-y: auto;
 			.title { font-size: clamp(2rem, 5vw, 3.5rem); font-weight: 900; line-height: 1.1; margin-bottom: 1rem; }
 			.highlight { color: var(--accent-color); text-shadow: 0 0 30px var(--accent-glow); }
 			.tagline { font-size: clamp(0.95rem, 2vw, 1.15rem); color: var(--text-secondary);
@@ -84,11 +84,11 @@ body { font-family: 'Helvetica Neue', Arial, 'Hiragino Kaku Gothic ProN', sans-s
 }
 /* Section tabs (Demos / Technologies) + Technologies cards.
    Full selectors so they beat the base `button` / `.card` rules that sit under the body{} nest. */
-body #demoOverlay main .tabs { display: inline-flex; gap: .25rem; margin-bottom: 1.75rem; padding: .3rem;
+body #demoOverlay main .tabs { display: inline-flex; gap: .3rem; margin-bottom: 1.75rem; padding: .35rem;
 	border-radius: 999px; background: var(--glass-bg); border: 1px solid var(--glass-border);
 	backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
-body #demoOverlay main .tabs .tab { padding: .5rem 1.4rem; border-radius: 999px; border: none; background: transparent;
-	color: var(--text-secondary); font-size: .95rem; font-weight: 600; cursor: pointer; box-shadow: none;
+body #demoOverlay main .tabs .tab { padding: .7rem 2rem; border-radius: 999px; border: none; background: transparent;
+	color: var(--text-secondary); font-size: 1.05rem; font-weight: 600; cursor: pointer; box-shadow: none;
 	transition: color .2s ease, background .2s ease; }
 body #demoOverlay main .tabs .tab:hover { color: var(--text-primary); transform: none; }
 body #demoOverlay main .tabs .tab.is-active { background: var(--accent-color); color: #000; }
