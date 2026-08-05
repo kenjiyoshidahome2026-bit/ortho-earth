@@ -11,7 +11,7 @@ import { createGeopbf, geopbf } from "geopbf";
 import { createGetHeight, setApiUrl as setAltApiUrl } from "altpbf";
 createGeopbf("https://api.ortho-earth.com");   // bucket 基盤（標高と同じ）。読み出しはキー不要
 import { MAP_THEMES } from "./palettes.js";
-import { createThemes, defaultLayerState, isFacility, isTerrain, CHOME_MINZOOM, RAILTR_MINZOOM } from "./themes.js";
+import { createThemes, defaultLayerState, isFacility, isTerrain, CHOME_MINZOOM, CHOME800_MINZOOM, RAILTR_MINZOOM } from "./themes.js";
 import { createOverlay } from "./overlay.js";
 // planets.js / skynames.js は z<4（星空）でしか使わない＝初期バンドルから外し、下の ensureSkyMod で動的読込。
 import { createPipeline } from "ortho-core";   // tile/scene worker のスポーンごとエンジン側
@@ -2124,7 +2124,7 @@ const MOVE_SWAP_MS = 125;
 // ラベルだけ独立に更新＝ズームアウトで z15.5/z13 を跨いでも基図の書き直しゼロ。駅軌道(z14.5)は本物のGL層
 //（hiddenLi）なので merge 側に残す（railチップON時のみ効く）。
 let lastLabelGate = "";
-const labelGate = () => "" + (cam.zoom >= CHOME_MINZOOM ? 1 : 0) + (cam.zoom < AIRPORT_MARK_MAXZ && airportMarks.length ? "A" : "");
+const labelGate = () => "" + (cam.zoom >= CHOME_MINZOOM ? 1 : 0) + (cam.zoom >= CHOME800_MINZOOM ? 1 : 0) + (cam.zoom < AIRPORT_MARK_MAXZ && airportMarks.length ? "A" : "");
 // ?swaplog=1＝「書き直し」イベントの計器：main merge（タイル集合の増減つき）・ラベル再構築・base差し替えを
 // 時刻つきで出す。ズームアウトのポップがどのイベントと同時刻かで犯人を特定する切り分け用。
 const swapLog = /[?&]swaplog=1/.test(location.search);
@@ -2157,6 +2157,47 @@ function swapScene(order) {
 	rebuildLabels(order);
 	zoomAtBuild = cam.zoom;   // readySig は ack（onMerged）で確定
 }
+// 町丁名の二系統を畳む＝Anno の 210「下落合（三）」と 800「下落合三丁目」は同じ町丁の別表記。
+// 表記は（N）へ統一し（本人指定 2026-08-05「札幌が丁目で長いので（N）で統一・重複は出さない」）、
+// 210 と重なる 800 は捨てる。残った 800 は code を 210 に化かす＝以降の全経路（allowlist・色・サイズ・
+// 衝突優先度・labelGate）が既存の丁目と同じ扱いになる＝分岐を増やさない。
+// 実測（z16・市中心5km四方）：重複除去が効くのは東京(566中274=48%)・高知(205中157=77%)で、
+// 札幌(1330中37)・京都(2081中4)は 210 側がほぼ空＝800 が本体なので減らない。密度は丁目の低い
+// symbol-sort-key と labels2d の衝突間引きに任せ、足りなければ CHOME800_MINZOOM を上げる。
+const chomeCanon = t => t.replace(/[（(]([一二三四五六七八九十百]+)[)）]$/, "$1丁目");   // 突合キー＝正式表記へ寄せる
+const chomeShort = t => t.replace(/([一二三四五六七八九十百]+)丁目$/, "（$1）");        // 表示＝（N）へ（丁目の無い町名はそのまま）
+const nearAnchor = (list, a, m) => {   // list（経緯度の列）に a から m メートル以内の点があるか
+	if (!list) return false;
+	const cos = Math.cos(a[1] * Math.PI / 180);
+	return list.some(p => Math.hypot((p[0] - a[0]) * 111320 * cos, (p[1] - a[1]) * 111320) < m);
+};
+function mergeChome(all, zoom) {
+	if (!all.some(L => L.code === 800)) return all;   // 800 が来ないズーム/地域＝素通り（配列コピーもしない）
+	if (zoom < CHOME800_MINZOOM) return all.filter(L => L.code !== 800);
+	const by = new Map();   // 210 の正規化名 → アンカー列（同名の町丁が全国に居るので位置でも裁く）
+	for (const L of all) if (L.code === 210) {
+		const k = chomeCanon(L.text);
+		let a = by.get(k); if (!a) by.set(k, a = []);
+		a.push(L.anchor);
+	}
+	const seen = new Map();   // 出した町丁名 → アンカー列（同じ注記が隣タイルにも入っている分の重複よけ）
+	const out = [];
+	for (const L of all) {
+		if (L.code !== 800 && L.code !== 210) { out.push(L); continue; }
+		const k = chomeCanon(L.text);
+		// 1km＝同じ町丁の 210/800 のアンカーずれ（実測で最大300m級）は確実に拾い、
+		// 同名の別の町（「本町一丁目」等は全国にある）は拾わない距離。
+		if (L.code === 800 && nearAnchor(by.get(k), L.anchor, 1000)) continue;   // 210 が既に出す町丁＝そちらに任せる
+		// 30m＝「同じ注記が二度来た」だけを消す距離。GSI は境界の注記を隣タイルにも入れており、
+		// 800 は件数が桁違いなので実害が出る（実測 z16 市中心5km四方の同名30m以内ペア：札幌104・京都230。
+		// うち大半は距離5m未満＝完全な同一点）。長い町丁を両端に打った正規の二つ（数百m離れ）は残る。
+		if (nearAnchor(seen.get(k), L.anchor, 30)) continue;
+		let a = seen.get(k); if (!a) seen.set(k, a = []);
+		a.push(L.anchor);
+		out.push(L.code === 800 ? { ...L, text: chomeShort(L.text), code: 210 } : L);   // コピー＝タイル側のラベルキャッシュを壊さない
+	}
+	return out;
+}
 function rebuildLabels(order) {
 	lastLabelGate = labelGate();
 	slog("labels 再構築（mergeなし）");
@@ -2165,7 +2206,8 @@ function rebuildLabels(order) {
 		const have = new Set(allLabels.filter(L => L.code === 441).map(L => L.text));
 		for (const a of airportMarks) if (!have.has(a.text)) allLabels.push(a);
 	}
-	const filtered = themes.filterLabels(allLabels, layerState, cam.zoom, layerState.terrain);   // 地形ON＝測量点の標高数値も通す
+	const merged = mergeChome(allLabels, cam.zoom);   // 町丁名の二系統(210/800)を（N）表記ひとつへ畳んでから allowlist へ
+	const filtered = themes.filterLabels(merged, layerState, cam.zoom, layerState.terrain);   // 地形ON＝測量点の標高数値も通す
 	const kuVisible = filtered.some(L => L.code === 110);   // 区名が見えている＝政令市名は「背景ラベル」へ格下げする合図
 	lastLabels = filtered.map(L => {
 		// 都道府県は大きく薄い背景ラベルに（コピーしてキャッシュ側を壊さない）。他はそのまま。
