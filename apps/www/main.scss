@@ -25,13 +25,35 @@ body { font-family: 'Helvetica Neue', Arial, 'Hiragino Kaku Gothic ProN', sans-s
 			}
 		}
 		main { flex: 1; display: flex; flex-direction: column;
-			background:rgba(0,0,0,0.6); padding: 0 2rem;
-			justify-content: center; align-items: center; text-align: center;
-			.title { font-size: clamp(3rem, 6vw, 5rem); font-weight: 900; line-height: 1.1; margin-bottom: 1.5rem; }
+			background:rgba(0,0,0,0.6); padding: 2.5rem 2rem;
+			justify-content: safe center; align-items: center; text-align: center; overflow-y: auto;
+			.title { font-size: clamp(2rem, 5vw, 3.5rem); font-weight: 900; line-height: 1.1; margin-bottom: 1rem; }
 			.highlight { color: var(--accent-color); text-shadow: 0 0 30px var(--accent-glow); }
-			.description { font-size: clamp(1rem, 2vw, 1.25rem); color: var(--text-secondary);
-				margin-bottom: 3rem; line-height: 1.6; max-width: 600px; }
-			.actions { display: flex; gap: 1.5rem; }
+			.tagline { font-size: clamp(0.95rem, 2vw, 1.15rem); color: var(--text-secondary);
+				margin-bottom: 2.5rem; line-height: 1.6; max-width: 640px; }
+			.apps { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1rem;
+				width: 100%; max-width: 900px; margin-bottom: 2rem;
+				.card { display: flex; flex-direction: column; text-align: left;
+					padding: 1.5rem 1.6rem; border-radius: 16px; text-decoration: none; color: var(--text-primary);
+					background: var(--glass-bg); border: 1px solid var(--glass-border);
+					backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+					transition: transform .25s ease, border-color .25s ease, box-shadow .25s ease;
+					&:hover { transform: translateY(-4px); border-color: var(--accent-color); box-shadow: 0 10px 30px rgba(0,0,0,0.45); }
+					.card-eyebrow { font-size: .7rem; letter-spacing: .15em; text-transform: uppercase; color: var(--accent-color); margin-bottom: .5rem; }
+					.card-title { font-size: 1.35rem; font-weight: 800; margin-bottom: .5rem; }
+					.card-desc { font-size: .9rem; color: var(--text-secondary); line-height: 1.55; }
+					.card-cta { margin-top: auto; padding-top: 1.1rem; font-size: .85rem; font-weight: 600; color: var(--accent-color); }
+					&.featured { grid-column: 1 / -1; flex-direction: row; padding: 0; overflow: hidden;
+						border-color: var(--accent-glow); box-shadow: 0 0 40px rgba(0, 255, 204, 0.12);
+						.card-poster { display: block; flex: 0 0 42%; width: 42%; height: 300px;
+							object-fit: cover; background: #0d0d12; }
+						.card-body { flex: 1; display: flex; flex-direction: column; justify-content: center; padding: 1.8rem 2rem; }
+						.card-title { font-size: 1.9rem; }
+						.card-desc { font-size: 1rem; }
+						.card-cta { margin-top: 1.2rem; padding-top: 0; }
+					}
+				}
+			}
 		}
 		footer { padding: 1.5rem; text-align: center; font-size: 0.8rem; border-top: 1px solid var(--glass-border);
 			a { color:var(--text-secondary); text-decoration: none; }
@@ -48,5 +70,15 @@ body { font-family: 'Helvetica Neue', Arial, 'Hiragino Kaku Gothic ProN', sans-s
 			border: 1px solid var(--glass-border); backdrop-filter: blur(10px);
 			&:hover { background-color: rgba(255, 255, 255, 0.1); }
 		}
+	}
+}
+
+@media (max-width: 640px) {
+	body #demoOverlay main { justify-content: flex-start; padding: 1.5rem; }
+	body #demoOverlay main .apps { grid-template-columns: 1fr; }
+	body #demoOverlay main .apps .card.featured { flex-direction: column;
+		.card-poster { width: 100%; flex-basis: auto; height: 168px; min-height: 0; }
+		.card-body { padding: 1.4rem 1.5rem; }
+		.card-title { font-size: 1.6rem; }
 	}
 }

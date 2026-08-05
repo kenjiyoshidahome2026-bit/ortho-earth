@@ -13,7 +13,6 @@ const closeBtn = mapInst.gadget.close();
 mapInst.on("ortho:close", exitDemo);
 await initDemo(mapInst);
 d3.select('#execDemo').on('click', orthomap);
-d3.select('#gishub').on('click', gishub);
 //------------------------------------------------------
 async function initDemo(map) {
 	map.explain = map.gadget.explain({ width: 300 });
@@ -42,4 +41,3 @@ function exitDemo() {
 	closeBtn.hide();
 	d3.select('#demoOverlay').style("opacity",1).style("pointer-events",'auto');
 }
-function gishub() { open('/gishub/', '_blank'); }
