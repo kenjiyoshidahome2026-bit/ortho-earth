@@ -3,13 +3,13 @@
 <head>
 	<meta charset="UTF-8" />
 	<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-	<meta name="description" content="High-performance, lightweight orthographic map engine utilizing Web Workers and Canvas2D/WebGL2. Renders PBF binary data directly for a seamless experience." />
+	<meta name="description" content="A serverless WebGPU/GL2 orthographic map engine built from scratch — no libraries, no tile servers. Renders government vector tiles and PBF binary directly onto a 3D globe." />
 	<title>Ortho Earth - High Performance Orthographic Map Engine</title>
 	<meta name="theme-color" content="#4A90E2" />
 	<meta property="og:type" content="website" />
 	<meta property="og:url" content="https://www.ortho-earth.com/" />
 	<meta property="og:title" content="Ortho Earth" />
-	<meta property="og:description" content="A serverless WebGL2 map engine built from scratch — no libraries, no tile servers. Explore the family of open-data maps it powers, from a 3D globe of Japan to global open GIS." />
+	<meta property="og:description" content="A serverless WebGPU/GL2 map engine built from scratch — no libraries, no tile servers. Explore the family of open-data maps it powers, from a 3D globe of Japan to global open GIS." />
 	<meta property="og:image" content="https://www.ortho-earth.com/og-image.jpg" />
 	<meta property="og:image:type" content="image/jpeg" />
 	<meta property="og:image:width" content="1200" />
@@ -17,7 +17,7 @@
 	<meta property="og:image:alt" content="PLATEAU 3D buildings of central Tokyo rendered from GSI vector tiles" />
 	<meta name="twitter:card" content="summary_large_image" />
 	<meta name="twitter:title" content="Ortho Earth" />
-	<meta name="twitter:description" content="A serverless WebGL2 map engine built from scratch — explore the open-data maps it powers." />
+	<meta name="twitter:description" content="A serverless WebGPU/GL2 map engine built from scratch — explore the open-data maps it powers." />
 	<meta name="twitter:image" content="https://www.ortho-earth.com/og-image.jpg" />
 	<link rel="preconnect" href="https://api.ortho-earth.com">
 	<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
@@ -43,7 +43,7 @@
 		<main class="main">
 			<h1 class="title" translate="no">Explore the World<br><span class="highlight">Orthographically.</span></h1>
 			<p class="tagline">
-				A serverless WebGL2 map engine built from scratch<br>
+				A serverless WebGPU/GL2 map engine built from scratch<br>
 				— no libraries, no tile servers.<br>
 				Explore the family of open-data maps it powers.
 			</p>
@@ -53,21 +53,24 @@
 			</div>
 			<div class="apps" id="panel-demos" role="tabpanel" aria-labelledby="tab-demos">
 				<a class="card featured" href="/japan/">
+					<span class="card-badge v2">V2 · WebGPU · OPFS</span>
 					<img class="card-poster" src="/hero-japan.webp" width="1600" height="1000" loading="lazy" decoding="async" alt="PLATEAU 3D buildings of central Tokyo with the Rainbow Bridge, rendered from GSI vector tiles" />
 					<span class="card-body">
-						<span class="card-eyebrow">Flagship · WebGPU</span>
+						<span class="card-eyebrow">Flagship</span>
 						<span class="card-title" translate="no">ortho-japan</span>
 						<span class="card-desc">The whole of Japan on a real sphere — government vector tiles, true-scale terrain, and PLATEAU 3D cities that rise out of the map as you zoom in. WebGPU-accelerated, still no libraries.</span>
 						<span class="card-cta">Enter the 3D map →</span>
 					</span>
 				</a>
 				<a class="card" href="/gishub/">
+					<span class="card-badge v1">V1 · WebGL2</span>
 					<span class="card-eyebrow">Global · Open data</span>
 					<span class="card-title" translate="no">GIS-HUB</span>
 					<span class="card-desc">A universal Web GIS workstation. Fetch, decode and render any open dataset — Natural Earth, US Census TIGER — at full resolution, right in the browser.</span>
 					<span class="card-cta">Launch →</span>
 				</a>
 				<a class="card" href="/gishub-jp/">
+					<span class="card-badge v1">V1 · WebGL2</span>
 					<span class="card-eyebrow">Japan · Open data</span>
 					<span class="card-title" translate="no">GIS-HUB Japan</span>
 					<span class="card-desc">Japan's open datasets on the same engine — national census small-area statistics, choropleths, and more.</span>
@@ -81,7 +84,7 @@
 					<span class="card-desc">A Protocol Buffers geospatial binary format extending GeoJSON — about 1/10 the size, with bidirectional converters to common GIS formats. Can even carry icons.</span>
 					<span class="doclinks">
 						<a href="/docs/geopbf.html">Overview</a>
-						<a href="/docs/geopbf-jp.html" lang="ja" translate="no">技術概要</a>
+						<a href="/docs/geopbf-jp.html" lang="ja" translate="no">日本語</a>
 					</span>
 				</div>
 				<div class="card tech-card">
@@ -90,7 +93,7 @@
 					<span class="card-desc">Protocol Buffers raster elevation tiles — 3-tier zoom LOD, GEBCO + ALOS sources, Int16 delta with deflate, zero-copy worker transfer for high-throughput terrain.</span>
 					<span class="doclinks">
 						<a href="/docs/altpbf.html">Overview</a>
-						<a href="/docs/altpbf-jp.html" lang="ja" translate="no">技術概要</a>
+						<a href="/docs/altpbf-jp.html" lang="ja" translate="no">日本語</a>
 					</span>
 				</div>
 				<div class="card tech-card">
@@ -99,7 +102,7 @@
 					<span class="card-desc">A WebGL framework for the orthographic globe — composites base map, vector (Gint) and terrain through a worker pipeline. Reads GeoPBF / AltPBF natively.</span>
 					<span class="doclinks">
 						<a href="/docs/ortho-map.html">Overview</a>
-						<a href="/docs/ortho-map-jp.html" lang="ja" translate="no">技術概要</a>
+						<a href="/docs/ortho-map-jp.html" lang="ja" translate="no">日本語</a>
 					</span>
 				</div>
 				<div class="card tech-card">
@@ -108,8 +111,9 @@
 					<span class="card-desc">Geographic Interleaved Binary — a 64-bit format pairing Morton spatial indexing with Visvalingam–Whyatt LOD weighting. Dynamic LOD and stencil polygon fill, straight on the GPU.</span>
 					<span class="doclinks">
 						<a href="/docs/gintbuf.html">Overview</a>
-						<a href="/docs/gintbuf-jp.html" lang="ja" translate="no">技術概要</a>
+						<a href="/docs/gintbuf-jp.html" lang="ja" translate="no">日本語</a>
 					</span>
+					<span class="doclinks-label">Interactive demos</span>
 					<span class="doclinks demos">
 						<a href="/docs/gint.html">What is Gint?</a>
 						<a href="/docs/lod.html">Dynamic LOD</a>

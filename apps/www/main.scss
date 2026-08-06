@@ -102,10 +102,17 @@ body #demoOverlay main .apps.tech .card.tech-card .doclinks a { display: inline-
 	border-radius: 8px; font-size: .8rem; font-weight: 600; text-decoration: none; color: var(--accent-color);
 	background: rgba(0, 255, 204, 0.08); border: 1px solid rgba(0, 255, 204, 0.25); transition: background .15s ease; }
 body #demoOverlay main .apps.tech .card.tech-card .doclinks a:hover { background: rgba(0, 255, 204, 0.16); }
-body #demoOverlay main .apps.tech .card.tech-card .doclinks.demos a { color: #a7b8ff; background: rgba(130, 150, 255, 0.08); border-color: rgba(130, 150, 255, 0.28); }
-body #demoOverlay main .apps.tech .card.tech-card .doclinks.demos a:hover { background: rgba(130, 150, 255, 0.16); }
 body #demoOverlay main .apps.tech .tech-note { grid-column: 1 / -1; text-align: center; margin: .25rem 0 0; font-size: .85rem; color: var(--text-secondary); }
 body #demoOverlay main .apps.tech .tech-note a { color: var(--accent-color); text-decoration: none; }
 body #demoOverlay main .apps.tech .tech-note a:hover { text-decoration: underline; }
 /* .apps sets display:grid which overrides the UA [hidden]{display:none} — restore it for panel toggling. */
 body #demoOverlay main .apps[hidden] { display: none; }
+/* Engine-version badges on Demos cards (V1 = WebGL2 / V2 = WebGPU, accent = new). */
+body #demoOverlay main .apps .card { position: relative; }
+body #demoOverlay main .apps .card .card-badge { position: absolute; top: 1rem; right: 1rem; z-index: 3;
+	padding: .24rem .62rem; border-radius: 999px; font-size: .68rem; font-weight: 700; letter-spacing: .03em;
+	white-space: nowrap; border: 1px solid; backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
+body #demoOverlay main .apps .card .card-badge.v2 { color: var(--accent-color); border-color: var(--accent-color); background: rgba(10, 10, 15, 0.72); }
+body #demoOverlay main .apps .card .card-badge.v1 { color: var(--text-secondary); border-color: var(--glass-border); background: rgba(10, 10, 15, 0.72); }
+body #demoOverlay main .apps.tech .card.tech-card .doclinks-label { display: block; margin-top: 1rem; font-size: .66rem; letter-spacing: .1em; text-transform: uppercase; color: var(--text-secondary); opacity: .7; }
+body #demoOverlay main .apps.tech .card.tech-card .doclinks.demos { margin-top: .45rem; }
