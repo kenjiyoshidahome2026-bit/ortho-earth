@@ -270,4 +270,13 @@ function exitView() {
 	_autoRotateTimeout = setTimeout(() => { _autoRotateTimeout = null; mapInst.autoRotate(true); }, 250);
 	closeBtn.hide();
 	gishub.classed("viewing", false);
+	history.replaceState(null, "", location.pathname + location.search);   // clear the permalink hash on exit
 }
+
+// ── Permalink (V1): the interactive globe view ⇄ URL hash, so any view is shareable ──
+const viewToHash = () => { const [[vlng, vlat, vrot], z] = mapInst.view;
+	return `#${z.toFixed(2)}/${(-vlat).toFixed(4)}/${(-vlng).toFixed(4)}/${vrot.toFixed(1)}r`; };
+const hashToView = h => { const m = /^#(-?\d+(?:\.\d+)?)\/(-?\d+(?:\.\d+)?)\/(-?\d+(?:\.\d+)?)(?:\/(-?\d+(?:\.\d+)?)r?)?/.exec(h || "");
+	return m ? { zoom: +m[1], lat: +m[2], lng: +m[3], angle: +(m[4] || 0) } : null; };
+mapInst.dispatcher.on("Drawn.permalink", () => { if (gishub.classed("viewing")) history.replaceState(null, "", viewToHash()); });
+{ const v = hashToView(location.hash); if (v) { mapInst.setView([v.lng, v.lat], v.zoom, v.angle); globeView(); } }
