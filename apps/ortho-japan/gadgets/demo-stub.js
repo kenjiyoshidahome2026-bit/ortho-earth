@@ -10,7 +10,7 @@
 export function demo(opts = {}) {
 	const map = this, mapEl = this.mapEl;
 	const facade = {};
-	const keys = ["start", "next", "prev", "exit", "play", "pause", "load"];   // load＝落としたシーン台本の差し替え再生（本体到着後は同期委譲・到着前は ready 待ち）
+	const keys = ["start", "next", "prev", "exit", "play", "pause"];   // 本体到着後は同期委譲・到着前は ready 待ち。ドロップ再生は start(0,{scenes,bare}) を直接呼ぶ（旧 load は廃止）
 	// 二重搭載を「同期で」弾く＝順序非依存。本体(demo.js)の #demo-btn ガードは import 解決“後”に走るため、
 	// 同フレームで複数搭載すると、どの import() が先に解決するかで台本が入れ替わりうる（他モジュールの読込順で反転する実測あり）。
 	// ∴ 有効な scenes を持つ搭載を同期で「予約」し、2発目以降は即・無害ファサードを返す。空 scenes は予約しない（非搭載＝後続の本物を妨げない）。

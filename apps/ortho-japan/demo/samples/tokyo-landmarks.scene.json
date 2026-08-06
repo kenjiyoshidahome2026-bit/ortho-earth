@@ -2,7 +2,7 @@
   "type": "sceneCollection",
   "title": "東京ランドマーク巡り",
   "lang": "jp",
-  "waitPlateau": true,
+  "waitLoading": true,
   "defaults": { "transition": "fly", "hold": 4 },
   "scenes": [
     { "view": "#19.87/35.68209/139.76340/75t/86r/l=", "caption": "東京駅", "en": "Tokyo Station" },

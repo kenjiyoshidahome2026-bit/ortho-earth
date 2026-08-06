@@ -8,20 +8,20 @@ let fail = 0;
 const ok = (name, cond) => { console.log((cond ? "✓" : "✗") + " " + name); if (!cond) fail++; };
 const load = f => JSON.parse(readFileSync(new URL(f, import.meta.url), "utf8"));
 
-// ── sample 1: yokohama-fuji（全 fly・先頭 jump・waitPlateau）──
+// ── sample 1: yokohama-fuji（みなとみらい 2シーン・チルトアップのリビール・waitLoading）──
 {
-	const { scenes, lang, waitPlateau } = sceneCollectionToScenes(load("./yokohama-fuji.scene.json"));
-	ok("yokohama: 3 scenes, no path", scenes.length === 3 && scenes.every(s => !s.path));
-	ok("yokohama: scene0 jump=true (start as-defined)", scenes[0].jump === true && scenes[0].view === "#5.2/36.3/138.4/0t/0r/l=terrain/c=mono");
-	ok("yokohama: last hold 5000 / lang jp / waitPlateau", scenes[2].hold === 5000 && lang === "jp" && waitPlateau === true);
-	ok("yokohama: caption jp", scenes[2].caption === "みなとみらい ― 富士を望む");
+	const { scenes, lang, waitLoading } = sceneCollectionToScenes(load("./yokohama-fuji.scene.json"));
+	ok("yokohama: 2 scenes, no path", scenes.length === 2 && scenes.every(s => !s.path));
+	ok("yokohama: scene0 jump=true (start as-defined)", scenes[0].jump === true && scenes[0].glide === "#18.35/35.45723/139.63562/0t/-97r/l=");
+	ok("yokohama: last hold 5000 / lang jp / waitLoading", scenes[1].hold === 5000 && lang === "jp" && waitLoading === true);
+	ok("yokohama: caption jp", scenes[1].caption === "みなとみらい ― 富士を望む");
 }
 
 // ── sample 2: sumida-dolly（establishing + hold:0連続5 の spline 束ね）──
 {
 	const { scenes } = sceneCollectionToScenes(load("./sumida-dolly.scene.json"));
 	ok("sumida: 2 scenes (establishing + path)", scenes.length === 2);
-	ok("sumida: scene0 jump glide (河口) hold 2000", scenes[0].jump === true && scenes[0].glide === "#14.9/35.658/139.786/66t/10r/l=place.rail.road.facility/c=mono" && scenes[0].hold === 2000);
+	ok("sumida: scene0 jump glide (河口) hold 2000", scenes[0].jump === true && scenes[0].glide === "#15.1/35.658/139.786/66t/10r/l=place.rail.road.facility/c=mono" && scenes[0].hold === 2000);
 	ok("sumida: scene1 path of 5, hold 4000, no jump", scenes[1].path?.length === 5 && scenes[1].hold === 4000 && !scenes[1].jump);
 	ok("sumida: path caption = first non-empty (遡上)", scenes[1].caption === "隅田川を遡る");
 	ok("sumida: path secs summed (~13)", Math.abs(scenes[1].secs - 13) < 0.05);

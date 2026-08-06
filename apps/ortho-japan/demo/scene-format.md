@@ -14,7 +14,7 @@
   "type": "sceneCollection",       // 必須・見分け
   "title": "隅田川を遡る",
   "lang": "jp",                    // 既定表示言語（?lang= が上書き）
-  "waitPlateau": true,             // 任意：PLATEAU が立ち上がるまで開始を待つ（リビールが必ず街に着地・道中のポップイン無し）
+  "waitLoading": true,             // 任意：重いデータ（3D都市＝PLATEAU）が立ち上がるまで開始を待つ（リビールが必ず街に着地・道中のポップイン無し）
   "defaults": { "transition":"glide", "hold":0, "secs":2.6 },   // 各 scene が継承（省略時の値）
   "scenes": [ … ],                 // ← キーフレームの配列（これが本体）
   "audio": [ … ]                   // 任意・予約（外部URL/blob のみ・再生は次ステージ）
@@ -43,8 +43,8 @@
 { "view":"#…", "caption":"東京駅", "en":"Tokyo Station" }   // jp表示→東京駅／en表示→Tokyo Station
 ```
 
-## 4. waitPlateau（PLATEAU 待ち・任意）
-`waitPlateau:true` ＝ 全 scene の view の PLATEAU（3D建物）を先読みし、**立ち上がるまで開始を待つ**（「Loading city…」表示）。リビールが必ず建物に着地し、ドリーの道中も建物が揃う。タイムアウトで諦めて開始（回線が細い時も止まらない）。
+## 4. waitLoading（読み込み待ち・任意）
+`waitLoading:true` ＝ 全 scene の view の重いデータ（3D都市＝PLATEAU）を先読みし、**立ち上がるまで開始を待つ**（「Loading city…」表示）。リビールが必ず建物に着地し、ドリーの道中も建物が揃う。タイムアウトで諦めて開始（回線が細い時も止まらない）。※ Plateau は固有名詞ゆえ書式のキーは汎用名（`waitLoading`）。
 
 ## 5. audio（任意・予約）
 `audio:[{ kind:"music"|"sfx", at, src, gain, fade, loop }]`。`src` は外部URL/`blob:` のみ。**v1 は型のみ・再生は次ステージ**（Web Audio）。

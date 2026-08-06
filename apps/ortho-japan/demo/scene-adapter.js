@@ -42,5 +42,5 @@ export function sceneCollectionToScenes(obj, langOverride) {
 		} else { scenes.push(oneScene(keys[i])); i++; }
 	}
 	if (scenes[0] && (scenes[0].view || scenes[0].glide)) scenes[0].jump = true;   // 先頭は「定義したそのまま」＝その視点で即開始（遠景の弧を作らない）
-	return { scenes, lang, mobile: dflt.mobile, waitPlateau: !!obj.waitPlateau };   // waitPlateau＝PLATEAU が立ち上がるまで開始を待つ（呼び出し側でゲート）
+	return { scenes, lang, mobile: dflt.mobile, waitLoading: !!obj.waitLoading };   // waitLoading＝重いデータ（3D都市＝PLATEAU）が立ち上がるまで開始を待つ（呼び出し側でゲート）。Plateau は固有名詞ゆえ書式は汎用名
 }

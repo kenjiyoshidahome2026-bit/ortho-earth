@@ -121,6 +121,11 @@ export function demo({ scenes, slide: slideOn = true, hold = 5500, slideHold = 4
 	};
 
 	let idx = -1, playing = false, timer = 0, preTimer = 0, slideShown = false;   // slideShown＝このシーン滞在中に幕を一度見せたか（三拍子の現在拍）
+	// 「デモの入り口(▶)」と「ドロップの入り口」は別で、同じ再生ルーチン(start)を呼ぶだけ＝台本を渡すのが違うだけ。
+	// ▶は常に組み込み設定を渡す＝ドロップで別台本を流しても壊れない（上書きも復帰もしない）。
+	const builtin = { scenes, finale, lang, mobile };   // 組み込み(▶)の再生設定＝マウント時に保持
+	let activeFinale = finale;   // 「今の再生」の終演フック（start で差し替え・ドロップ=null＝末尾に何も足さない）
+	let bareLive = false;        // ドロップ再生中＝素モード（バー無し・上映中ノーアクション）＝操作ハンドラを不活性化する鍵
 	const on = () => bar.classList.contains("on");
 	const caption = show => {   // 自動上演の字幕：静止中だけ scene.caption（無ければ title 代用）を画面上部へ
 		const text = show ? (scenes[idx]?.caption ?? T(scenes[idx])) : "";
@@ -190,11 +195,23 @@ export function demo({ scenes, slide: slideOn = true, hold = 5500, slideHold = 4
 	// 狭画面（スマホ）＝映画館モード：操縦バー/家具は出さず（quiet-mono #map.demo-live のCSS退場）、
 	// ▶開始＝即・自動上演。止める口は点灯▶（と Esc）だけ＝「ストップボタンのみ」。回転に追随＝押下時評価。
 	const narrow = () => window.matchMedia("(max-width: 480px)").matches;
-	const start = (i = 0, fly = true) => {
+	// start＝再生の共通ルーチンの入り口。opts で「どの台本(scenes)／終演(finale)／言語(lang)／Δz(mobile)／素モード(bare)」を渡す。
+	// ▶（デモの入り口）は組み込み設定を、ドロップ（別の入り口）は落とした台本を渡すだけ＝ルーチンは共通・入り口だけ別。
+	// bare＝素モード：バーも操作も出さない（上映中ノーアクション）・自動再生。落としたら始まり、最後まで流れて終わり。
+	const start = (i = 0, fly = true, opts = {}) => {
+		if (opts.lang !== undefined) lang = opts.lang;
+		if (opts.mobile !== undefined) mobile = opts.mobile;
+		if ("finale" in opts) activeFinale = opts.finale;   // 終演フックの差し替え（ドロップ=null）
+		if (Array.isArray(opts.scenes) && opts.scenes.length) {   // 別台本を渡された＝載せ替え＋目次再構築（▶=組み込み／ドロップ=落とした台本）
+			scenes = slideOn ? opts.scenes : opts.scenes.filter(s => s.view || s.glide || !s.slide);
+			list.innerHTML = scenes.map((s, k) => `<button data-i="${k}">${k + 1}. ${sceneLabel(s)}</button>`).join("");
+			prefetched = false;
+		}
+		bareLive = !!opts.bare;
 		bar.classList.add("on"); mapEl.classList.add("demo-live"); show(i, fly);
-		btn.setAttribute("aria-pressed", "true"); btn.dataset.tip = "デモを終了 (Esc)"; btn.setAttribute("aria-label", "デモを終了");
-		if (!prefetched) { prefetched = true; prefetchViews?.(scenes.flatMap(s => s.path || [s.view ?? s.glide]).filter(Boolean), plateau); }   // path シーンは各制御点も先読み対象（ドリー中の街を裏でIDBへ）   // ▶＝裏で台本の街をIDBへ（1回だけ・以降はIDB命中でタダ）。plateau=台本の明示リスト（任意）
-		if (narrow()) play();   // 狭画面の▶開始＝即・自動上演（play は再入無害）
+		if (!bareLive) { btn.setAttribute("aria-pressed", "true"); btn.dataset.tip = "デモを終了 (Esc)"; btn.setAttribute("aria-label", "デモを終了"); }   // 素モードは▶を触らない（バー/ボタンを出さない）
+		if (!prefetched) { prefetched = true; prefetchViews?.(scenes.flatMap(s => s.path || [s.view ?? s.glide]).filter(Boolean), plateau); }   // ▶/ドロップとも裏で台本の街をIDBへ（1回だけ）
+		if (bareLive || narrow()) play();   // 素モード＝自動再生（映画）／狭画面も自動（play は再入無害）
 	};
 	// 上映中（.playing）＝デスクトップでは操縦バーごと退場（CSS）＝停止は点灯した▶が受ける。字幕も止まったら引っ込める
 	const pause = () => {
@@ -213,6 +230,7 @@ export function demo({ scenes, slide: slideOn = true, hold = 5500, slideHold = 4
 		pause(); clearTimeout(preTimer); bar.classList.remove("on"); mapEl.classList.remove("demo-live"); curtain(false); img.removeAttribute("src"); idx = -1;
 		list.classList.remove("open");
 		btn.setAttribute("aria-pressed", "false"); btn.dataset.tip = "デモを上演"; btn.setAttribute("aria-label", "デモを上演");
+		bareLive = false;   // 素モード解除（次の入り口が改めて設定）
 	};
 	// ›＝view+slide 併記シーンでは三拍子：(地図)→(幕)→(地図)→次シーン。幕の無いシーンは素直に次へ。
 	// 手で幕を上げ下げした分（▤/Space/クリック）は拍を消化した扱い＝shown&閉なら次で進む。
@@ -222,7 +240,7 @@ export function demo({ scenes, slide: slideOn = true, hold = 5500, slideHold = 4
 			if (slide.classList.contains("open")) { curtain(false); schedule(); return; }   // 第三拍＝幕を下ろしてもう一度地図
 			if (!slideShown) { curtain(true); schedule(); return; }                          // 第二拍＝幕
 		}
-		if (idx + 1 < scenes.length) show(idx + 1); else { exit(); finale?.(); }   // 最終シーンの先＝終演＋定位置へ（japan-fit。Esc等の途中終了は現在地に留まる＝その場の会話用）
+		if (idx + 1 < scenes.length) show(idx + 1); else { exit(); activeFinale?.(); }   // 最終シーンの先＝終演＋「今の再生」の終演フックへ（▶=japan-fit／ドロップ=null＝何もしない）。Esc等の途中終了は現在地に留まる
 	};
 	const prev = () => {   // ‹＝同じ拍を逆順に：幕中→地図(未見に戻す)、見終わり→幕へ、地図(未見)→前シーンへ
 		const s = scenes[idx];
@@ -234,11 +252,12 @@ export function demo({ scenes, slide: slideOn = true, hold = 5500, slideHold = 4
 	};
 	// ▶＝開始／自動上映中＝停止（バー復帰）／手動中の再押下＝終了。
 	// 狭画面はバーが無い（映画館モード）＝pause で手動へ落とすと操縦不能＝▶は常に「終了」。
-	btn.addEventListener("click", () => on() ? ((playing && !narrow()) ? pause() : exit()) : start());
+	btn.addEventListener("click", () => { if (bareLive) return; on() ? ((playing && !narrow()) ? pause() : exit()) : start(0, true, builtin); });   // ▶＝デモの入り口＝常に組み込み設定を渡して再生（ドロップで別台本が流れても▶は組み込みへ）。素モード中は不活性（上映中ノーアクション）
 	bar.querySelector("#demo-next").addEventListener("click", next);
 	bar.querySelector("#demo-prev").addEventListener("click", prev);
 	playBtn.addEventListener("click", () => playing ? pause() : play());
 	const peelNext = () => {   // 幕を下ろすワンタップ送り：手動＝0.8秒の間で次のシーンへ／自動上演＝三拍目の「間」へ
+		if (bareLive) return;   // 素モード＝上映中ノーアクション（幕クリック/Spaceも効かせない）
 		curtain(false);
 		if (playing) { schedule(); return; }
 		clearTimeout(timer); timer = setTimeout(() => { if (on()) next(); }, 800);
@@ -258,29 +277,13 @@ export function demo({ scenes, slide: slideOn = true, hold = 5500, slideHold = 4
 		if (listOpen() && !e.target.closest("#demo-list, #demo-title, #demo-step")) list.classList.remove("open");
 	}, { signal });
 	window.addEventListener("keydown", e => {
-		if (!on() || isTypingTarget()) return;   // 検索欄などの入力中は譲る（BSの文字削除・Spaceの入力を奪わない）
+		if (bareLive || !on() || isTypingTarget()) return;   // 素モード(ドロップ再生)は上映中ノーアクション／検索欄などの入力中は譲る（BSの文字削除・Spaceの入力を奪わない）
 		if (e.key === " ") { e.preventDefault(); slide.classList.contains("open") ? peelNext() : next(); }          // Space＝次。幕中は幕クリックと同じワンタップ送り
 		else if (e.key === "ArrowRight" || e.key === "PageDown") { e.preventDefault(); next(); }                   // →/PageDown＝拍どおりの次
 		else if (e.key === "Backspace" || e.key === "ArrowLeft" || e.key === "PageUp") { e.preventDefault(); prev(); }   // BS＝戻る
 		else if (e.key === "Escape") { e.preventDefault(); listOpen() ? list.classList.remove("open") : exit(); }   // Esc＝一覧が開いていれば一覧だけ閉じる
 	}, { signal });
-	// load＝落としたシーン台本で丸ごと差し替え（ドロップ再生／将来のエディタ・プレビュー）。共有シーン・フォーマット（demo/scene-format.md）の入口。
-	//   現在の上演を畳み、scenes/lang/mobile/hold を載せ替え、目次を組み直して idx を戻す（start()/play() は呼び手が叩く）。
-	//   demo は起動時に1度だけマウント済み（index.html）＝この1インスタンスに台本を差し替える＝二重搭載しない。
-	const load = arg => {
-		const o = Array.isArray(arg) ? { scenes: arg } : (arg || {});
-		if (Array.isArray(o.scenes) && o.scenes.length) scenes = o.scenes;
-		if (o.lang !== undefined) lang = o.lang;
-		if (o.mobile !== undefined) mobile = o.mobile;
-		if (o.hold !== undefined) hold = o.hold;
-		if ("finale" in o) finale = o.finale;   // 終演フックの差し替え（ドロップ再生＝finale:null＝末尾に遠景を足さない）
-		if (!slideOn) scenes = scenes.filter(s => s.view || s.glide || !s.slide);   // スライドだけのシーン＝空の停留所ゆえ抜く（搭載時と同じ規約）
-		exit();                                                                       // 上演中なら畳む（idx=-1・バー消灯・幕/字幕を下ろす）
-		prefetched = false;                                                           // 新台本＝▶先読みを1回許す
-		list.innerHTML = scenes.map((s, i) => `<button data-i="${i}">${i + 1}. ${sceneLabel(s)}</button>`).join("");   // 目次を組み直す（委譲clickは list に付くので健在）
-		idx = -1;
-		return { start, play };
-	};
-	// 配色の幕替わりは flyView の生き替え（reload無し）へ移行＝reload を跨ぐ自動復帰は不要になった（RESUME_KEY 撤去）。
-	return { start, next, prev, exit, play, pause, load };
+	// ドロップ再生は別の入り口（playScene）から start(0, {scenes:落とした台本, bare:true}) を直接呼ぶ＝共通ルーチンを素モードで借りるだけ。
+	// 旧 load() での台本上書きは廃止＝▶（組み込みの入り口）は常に builtin を渡すので壊れない（上書きも復帰もしない）。
+	return { start, next, prev, exit, play, pause };
 }

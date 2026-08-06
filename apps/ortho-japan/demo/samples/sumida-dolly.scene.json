@@ -2,10 +2,10 @@
   "type": "sceneCollection",
   "title": "隅田川を遡る",
   "lang": "jp",
-  "waitPlateau": true,
+  "waitLoading": true,
   "defaults": { "transition": "glide", "hold": 0, "secs": 2.6 },
   "scenes": [
-    { "view": "#14.9/35.658/139.786/66t/10r/l=place.rail.road.facility/c=mono", "hold": 2, "caption": "隅田川・河口" },
+    { "view": "#15.1/35.658/139.786/66t/10r/l=place.rail.road.facility/c=mono", "hold": 2, "caption": "隅田川・河口" },
     { "view": "#15.3/35.672/139.792/67t/10r/l=place.rail.road.facility", "caption": "隅田川を遡る" },
     { "view": "#15.3/35.688/139.800/68t/6r/l=place.rail.road.facility" },
     { "view": "#15.3/35.702/139.805/68t/2r/l=place.rail.road.facility" },

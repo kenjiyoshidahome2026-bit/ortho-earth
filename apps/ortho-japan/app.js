@@ -776,7 +776,7 @@ async function runPrefetch(wanted, how, onProgress) {
 	if (!wanted.length) return;
 	console.log(`[demo] PLATEAU先読み ${wanted.length}区（${how}）: ${wanted.map(s => s.name).join("・")}`);
 	plateauPrefetchBusy = true;   // 先読み中＝autoPlateau の建物枠を1つ譲る（デコード同時数の総枠を保つ）
-	let done = 0; onProgress?.(0, wanted.length, null);   // 進捗＝総区数を先に伝える（waitPlateau の中央表示用）
+	let done = 0; onProgress?.(0, wanted.length, null);   // 進捗＝総区数を先に伝える（waitLoading の中央表示用）
 	try {
 		// 並行2区（Kenji 指定 2026-07-29「2つずつぐらい読まないと間に合わない」）。直列1区は帯域を
 		// 使い切れず（fetch レイテンシの谷）、東京駅到着までに主役区が揃わなかった。到着済みの区は
@@ -878,9 +878,20 @@ function autoFar() {
 		plateauWorkers[hashStr(s.base) % PLATEAU_NW].postMessage({ type: "far", base: s.base, ward: s.name });
 	}
 }
+// 飛行中の「見せるだけ」：移動中は新規ロードしない（＝ロードのジッタ対策の原spec を保つ）。ただし既に GPU 常駐している区を
+// 表示へ戻すのは"ロード"でない（vis フリップ＝転送ゼロ・ジッタ無し）。waitLoading が停止中に GPU まで積んだ区を、シーンの
+// グライドがチルトで立ち上げる瞬間に灯すだけ＝基図の押し出し箱（LOD1）を出さず本物の PLATEAU がそのまま立ち上がる（手動チルトと同じ絵）。
+function showResidentInFlight() {
+	if (!gpuBackend || LOW_MEM || cam.zoom < PLATEAU_AUTO_Z || (cam.pitch || 0) < 0.02) return;
+	const view = approxViewBbox(cam);
+	for (const [name, s] of plateauResident) {
+		if (plateauActive.has(name) || !bboxIntersects(s.bbox, view)) continue;
+		plateauRetain(name, s); renderer.set("plateauVis", true, name); plateauActive.set(name, s); needsDraw = true;   // 常駐＝転送ゼロの点灯（ロードでない）
+	}
+}
 function autoPlateau(settled = false) {
 	if (!plateauOn) return;   // 機能ごと停止（opts.plateau=false）
-	if (flying) return;   // フライト中は読み込みも解放もしない＝デコード/GPU転送が飛行アニメと帯域を取り合わない。着地の onMove で解禁
+	if (flying) { showResidentInFlight(); return; }   // フライト中は新規ロード/解放はしない（原spec＝ジッタ対策）が、既に常駐する区の点灯（=ロードでない）だけは通す＝グライドのリビールで基図の箱を出さない
 	if (printHold) return;   // 印刷（平面図）撮影中＝印刷カメラで自動ロード/解放をしない（帯域と現ロード状態を乱さない）
 	autoFar();   // 遠景枠は本流のゲート（zoom/pitch/視界）と独立に毎パス選抜
 	// 「完全に離れた」常駐区の本削除：区bboxへの点距離が閾値超。ズームアウトだけでは落とさない＝同じ街への戻りはタダのまま。
@@ -1921,27 +1932,27 @@ window.__cam = (lon, lat, zoom = cam.zoom, pitchDeg = cam.pitch * R2D, bearingDe
 
 // --- PLATEAU LOD2 建物スパイク（A＝loaders.gl）：b3dm を Draco 解凍→ECEF→単位球へ変換→mesh pass で球に立てる ---
 // 実体（fetch/デコード/ECEF/RTE/被覆マスク）は全て plateauworker.js（メインスレッドをブロックしないためworker化）。
+// 特定区を「今すぐ立てる」（カメラは動かさない）：常駐ヒット＝vis を戻すだけ（転送ゼロ）／未常駐＝IDB（温）or 網から
+// ロードして常駐＋表示。ロードのジッタ対策の外＝停止中の積み込み（waitLoading のリビール準備）と手打ちデモ(__plateau)で共用。
+// onMove→autoPlateau との二重ロードは plateauLoading ガードで防ぐ。返り＝立ったか(bool)の Promise。
+function standUpWard(set, tiles) {
+	if (plateauActive.has(set.name) || plateauLoading.has(set.name)) return Promise.resolve(false);
+	if (plateauResident.has(set.name)) {   // 常駐ヒット＝表示フラグを戻すだけ（autoPlateau と同じ経路）
+		plateauRetain(set.name, set); renderer.set("plateauVis", true, set.name); plateauActive.set(set.name, set); needsDraw = true;
+		return Promise.resolve(true);
+	}
+	plateauLoading.add(set.name);
+	return loadPlateau(set.base, tiles, set.name, set.noMask ? null : set.bbox, set.noMask)
+		.then(ok => { if (ok === true) { plateauActive.set(set.name, set); plateauRetain(set.name, set); } return ok === true; })   // "cancelled"（自動ロード合流の端ケース）は活性化しない
+		.finally(() => plateauLoading.delete(set.name));
+}
 // 手打ちデモ：地区名(部分一致)かbase URLを指定して読み込み、カメラもそこへ寄せる（自動と違いカメラを動かす）。省略時は登録簿の先頭。
 window.__plateau = async (nameOrBase, tiles) => {
 	if (!plateauOn) { console.warn("[plateau] opts.plateau=false＝建物3Dは機能ごと停止中"); return; }
 	const set = !nameOrBase ? PLATEAU_SETS[0]
 		: PLATEAU_SETS.find(s => s.base === nameOrBase || s.name === nameOrBase || s.name.includes(nameOrBase));
 	if (!set) { console.error("[plateau] 地区が見つかりません:", nameOrBase, `（登録簿 ${PLATEAU_SETS.length} 件）`); return; }
-	// カメラ移動→onMove→autoPlateau が同じ地区を並行ロードしないよう、手動ロードも plateauLoading に登録して同一ガードを通す。
-	if (!plateauActive.has(set.name) && !plateauLoading.has(set.name)) {
-		if (plateauResident.has(set.name)) {   // 常駐ヒット＝表示フラグを戻すだけ（autoPlateau と同じ経路）
-			plateauRetain(set.name, set);
-			renderer.set("plateauVis", true, set.name);
-			plateauActive.set(set.name, set);
-			needsDraw = true;
-		} else {
-			plateauLoading.add(set.name);
-			try {
-				const ok = await loadPlateau(set.base, tiles, set.name, set.noMask ? null : set.bbox, set.noMask);
-				if (ok === true) { plateauActive.set(set.name, set); plateauRetain(set.name, set); }   // "cancelled"（自動ロード合流の端ケース）を誤って活性化しない
-			} finally { plateauLoading.delete(set.name); }
-		}
-	}
+	await standUpWard(set, tiles);   // 立ち上げ（常駐ヒット＝vis戻し／未常駐＝ロード）。二重ロードは standUpWard 内の plateauLoading ガードで防ぐ
 	const [w, s, e, n] = set.bbox;
 	cam.center = [(w + e) / 2, (s + n) / 2]; cam.zoom = 16; cam.pitch = 45 * D2R; cam.bearing = 0;   // 地区中心・傾けて建物を見る
 	onMove();
@@ -2644,15 +2655,25 @@ map.gadget("close", function (opts) {   // 閉じる×（埋め込み用）… o
 // ── 共有シーン(sceneCollection)の再生 ── 落とした .scene.json を demo プレーヤーで自動上演する（demo/scene-format.md）。
 // demo は起動時に1度マウント済み（index.html）＝その1インスタンスに load() で台本を差し替える（下の demo ラッパが手綱 demoHandle を掴む）。
 let demoHandle = null;
+// 台本の中で「建物が実際に見える最初の視点」（チルト＋寄り＝pitch≥閾 かつ zoom≥AUTO_Z）の視界に掛かる建物区を返す。
+// waitLoading のリビール準備で「開幕で立つ区だけ」を停止中に GPU へ積むための最小集合＝要らない区（真俯瞰・低ズーム・視界外の隣接・後続ホップ）は含めない。
+function firstRevealSets(views) {
+	for (const hash of views || []) {
+		const v = typeof hash === "string" ? parseViewHash(hash) : hash;
+		if (!v || v.zoom < PLATEAU_AUTO_Z || (v.pitch || 0) < 0.02) continue;   // 真俯瞰/低ズーム＝建物は出ない＝積まない
+		const vb = approxViewBbox({ center: [v.lon, v.lat], zoom: v.zoom });   // approxViewBbox は zoom と center だけ使う（pitch/bearing 不問）
+		return PLATEAU_SETS.filter(s => !s.noMask && bboxIntersects(s.bbox, vb));
+	}
+	return [];
+}
 function playScene(obj) {
 	const urlLang = new URLSearchParams(location.search).get("lang");   // ?lang が台本の obj.lang に勝つ（demo と同じ流儀）
-	const { scenes, lang, mobile, waitPlateau } = sceneCollectionToScenes(obj, urlLang);
+	const { scenes, lang, mobile, waitLoading } = sceneCollectionToScenes(obj, urlLang);
 	if (!scenes.length) { console.warn("[scene] scenes が空＝再生しない", obj?.title); return; }
-	if (!demoHandle) demoHandle = map.gadget.demo({ scenes, lang, mobile, finale: null });   // 保険：万一 demo 未搭載でも起こす。finale:null＝終端に遠景を足さない
+	if (!demoHandle) { console.warn("[scene] demo 未搭載＝少し待って再ドロップを（起動直後）"); return; }   // demo は起動時に index.html が搭載済み（通常は在る）＝ドロップは ▶ と同じ実体の再生ルーチンを借りる
 	const views = scenes.flatMap(s => s.path || [s.view ?? s.glide]).filter(Boolean);   // 全 view（path も展開）＝先読み対象
 	Promise.resolve(demoHandle.ready).then(async () => {   // 遅延本体の到着を待ってから（起動直後ドロップの保険。通常は解決済み＝即）
-		demoHandle.load?.({ scenes, lang, mobile, finale: null });   // finale:null＝「定義したそのまま」で終わる（japanFit の遠景を出さない）
-		if (waitPlateau && plateauOn) {   // ★PLATEAU 待ちモード：深ズームの街が IDB に温まるまで開始しない（リビールが必ず建物に着地・道中のポップイン無し）
+		if (waitLoading && plateauOn) {   // ★読み込み待ちモード：深ズームの街(PLATEAU)が IDB に温まるまで開始しない（リビールが必ず建物に着地・道中のポップイン無し）
 			const first = scenes[0], firstView = first.view ?? first.glide ?? first.path?.[0];
 			if (firstView) flyView(firstView, { jump: true });   // 開始画へ即 jump（demo の内部先読みを起こさず、自前の進捗つき先読みへ一本化）
 			sceneLoading({});   // 準備中…（総区数が分かるまで）
@@ -2661,12 +2682,17 @@ function playScene(obj) {
 				new Promise(r => setTimeout(r, 25000)),   // 最長25秒で諦め＝細回線でも止めない
 			]);
 			sceneLoading(false);
+			// ★リビール準備：チルト＋寄りで建物が実際に見える最初の視点の視界に掛かる区「だけ」を、停止中に GPU 常駐まで積む。
+			// ＝ロードは"止まっている間"に完結（原spec＝移動中はロードしない＝ジッタ対策）。グライド中は showResidentInFlight が
+			// 点灯するだけ＝基図の押し出し箱を出さず本物が立ち上がる。真俯瞰/低ズームのシーン・視界外・後続ホップは積まない（要らない物はロードしない）。
+			for (const s of firstRevealSets(views)) standUpWard(s);
 		}
-		demoHandle.start?.(0);   // 先頭シーンへ（jump・冪等）＝台本どおり開始
-		demoHandle.play?.();   // 自動上演＝「動画」モードで流す
+		// ★ドロップの入り口：組み込み demo(▶) と同じ再生ルーチンを「素モード(バー/操作なし・上映中ノーアクション)」で呼ぶだけ＝落とした台本を渡す。
+		//   ▶ は次に組み込み設定を渡されて再生する＝demoHandle を上書きも復帰もしない（壊さない）。
+		demoHandle.start?.(0, true, { scenes, lang, mobile, finale: null, bare: true });
 	});
 }
-// waitPlateau の待機中に画面中央へ大きく出す進捗（何をしているか／あと何区か）。触れない・待ち終わりに退場。
+// waitLoading の待機中に画面中央へ大きく出す進捗（何をしているか／あと何区か）。触れない・待ち終わりに退場。
 let slEl = null, slFill = null, slSub = null, slCount = null;
 function sceneLoading(state) {
 	const en = new URLSearchParams(location.search).get("lang") === "en";
@@ -2731,7 +2757,7 @@ map.gadget("demo", function (opts) {   // デモ（発表の台本再生）… �
 		const z = Math.min(Math.log2(360 * size.w / (WORLD_PX * wDeg)), Math.log2(360 * size.h / (WORLD_PX * hDeg)));
 		flyTo(137, 37, Math.max(ZOOM_MIN, Math.min(7, z)), 0, 0);
 	};
-	demoHandle = demoGadget.call(this, { flyView, glidePath: glidePathView, flightActive: () => flightCtl.active, prefetchViews: prefetchPlateauForViews, finale: japanFit, signal: ac.signal, zoomMin: ZOOM_MIN, ...opts });   // 手綱を掴む＝落としたシーンは playScene→demoHandle.load() で差し替え再生。glidePath＝hold:0連続のスプライン
+	demoHandle = demoGadget.call(this, { flyView, glidePath: glidePathView, flightActive: () => flightCtl.active, prefetchViews: prefetchPlateauForViews, finale: japanFit, signal: ac.signal, zoomMin: ZOOM_MIN, ...opts });   // 手綱を掴む＝ドロップは playScene→demoHandle.start(落とした台本, bare) で別入り口再生（▶=組み込みは壊さない）。glidePath＝hold:0連続のスプライン
 	return demoHandle;
 });
 map.gadget("ai", function (opts) {   // AIと会話して地図に描く（PC専用・画面2分割）… 描画受け口とbboxフィット・消去を注入
