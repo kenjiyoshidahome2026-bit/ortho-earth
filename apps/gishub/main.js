@@ -19,6 +19,8 @@ const closeBtn = mapInst.gadget.close();
 mapInst.on("ortho:close", exitView);
 const gintTip = mapInst.gadget.tip();
 const gintPop = mapInst.gadget.pop();
+// map gadgets (navigation / utility) — the ones the original www demo carried. Visible in the interactive globe view.
+mapInst.gadget.north(); mapInst.gadget.zoom(); mapInst.gadget.full(); mapInst.gadget.cpos(); mapInst.gadget.measure(); mapInst.gadget.shot();
 const gishub = d3.select("body").append("div").attr("class", "gishub");
 ////------------------------------------------------------
 const left = gishub.append("aside").attr("class", "left");
@@ -46,7 +48,10 @@ section.selectAll(".card").data(d => d.contents).join("button").attr("class", "c
 ////------------------------------------------------------
 const reset = () => { logger.clear(); tables.empty().hide(); uploads.show(); left.selectAll(".card").attr("disabled", null); };
 const main = gishub.append("main").attr("class", "main");
-main.append("h1").html(`<img src="favicon.svg" alt="GIS-HUB"/><span>GIS-HUB</span>`).on("click", reset);
+const hdr = main.append("h1");
+hdr.html(`<img src="favicon.svg" alt="GIS-HUB"/><span>GIS-HUB</span>`).on("click", reset);
+hdr.append("button").attr("class", "globe-btn").attr("title", "Draw the bare Earth — no data").html("🌐 Globe")
+	.on("click", e => { e.stopPropagation(); globeView(); });
 ////------------------------------------------------------
 const logger = new screenLogger(main.append("div"));
 const tables = main.append("div").attr("class","tables").hide();
@@ -249,6 +254,14 @@ async function execView(pbf) {
 	await mapInst.zoomToFeature(zoomFeature, zoomOpts);
 }
 
+// Bare-Earth route: enter the interactive globe with NO GeoPBF loaded — just spin the real planet.
+function globeView() {
+	uploads.hide(); tables.empty().hide(); logger.hide();
+	if (_autoRotateTimeout !== null) { clearTimeout(_autoRotateTimeout); _autoRotateTimeout = null; }
+	mapInst.autoRotate(false);
+	closeBtn.show();
+	gishub.classed("viewing", true);
+}
 function exitView() {
 	gintTip(null);
 	gintPop.clear(true);
