@@ -9,7 +9,24 @@
 // 進捗は geopbf の window発火 ConvertProgress（detail: {name, loaded, total}）を拾って歩を出す。
 // signal＝destroy 時のリスナ解除。DOMは自給＝#map直下の後置（z-index全廃＝DOM順の裁き）。
 
-export function dropFile({ loadFile, clearGint, signal } = {}) {
+// 落としたファイルが共有シーン台本(sceneCollection)か嗅ぎ分ける（demo/scene-format.md §0）。
+//   .scene.json は確定／.json・.geojson は先頭64KBに discriminator があるか覗いてから全 parse（巨大 geojson を無駄に読まない）。
+//   権威は中身の type:"sceneCollection"（geopbf の掟＝IF は type で見分ける に揃える。geojson=FeatureCollection）。
+export async function sniffScene(file) {
+	const name = (file.name || "").toLowerCase();
+	const isSceneExt = name.endsWith(".scene.json");
+	if (!isSceneExt && !/\.(json|geojson)$/.test(name)) return null;
+	try {
+		if (!isSceneExt) {   // 素の .json/.geojson＝まず覗く（無ければ geopbf に譲る）
+			const head = await file.slice(0, 65536).text();
+			if (!/["']type["']\s*:\s*["']sceneCollection["']/.test(head)) return null;
+		}
+		const obj = JSON.parse(await file.text());
+		return obj && obj.type === "sceneCollection" ? obj : null;
+	} catch (e) { console.warn("[dropFile] scene 解釈失敗", file.name, e); return null; }
+}
+
+export function dropFile({ loadFile, clearGint, playScene, signal } = {}) {
 	const mapEl = this.mapEl;
 	if (mapEl.querySelector("#dropzone")) return () => {};   // 二重搭載は無害
 
@@ -29,7 +46,7 @@ export function dropFile({ loadFile, clearGint, signal } = {}) {
 		textAlign: "center", whiteSpace: "pre-line",
 		font: "600 15px/1.6 system-ui, sans-serif", color: "#fff",
 	});
-	card.textContent = "GISファイルをここにドロップ\nGeoJSON / Shapefile(zip) / KML / GPX / FlatGeobuf …";
+	card.textContent = "GISファイル / シーンをここにドロップ\nGeoJSON / Shapefile(zip) / KML / GPX / FlatGeobuf / .scene.json";
 	zone.append(card);
 	mapEl.append(zone);
 
@@ -79,6 +96,8 @@ export function dropFile({ loadFile, clearGint, signal } = {}) {
 		const files = Array.from(e.dataTransfer.files || []);
 		if (!files.length) return;
 		for (const file of files) {   // 単一スロット置き換え＝順に読み最後の1枚が残る
+			const scene = playScene ? await sniffScene(file) : null;   // シーン台本(.scene.json / type:sceneCollection)＝プレーヤーへ回す（geopbf に渡さない）
+			if (scene) { say(`🎬 シーン再生: ${scene.title || file.name}`); playScene(scene); continue; }
 			say(`読込中: ${file.name} …`, true);
 			try {
 				const pbf = await loadFile(file);

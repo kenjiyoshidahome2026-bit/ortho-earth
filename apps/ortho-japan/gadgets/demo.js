@@ -58,7 +58,7 @@ const isImg = s => /\.(svg|png|jpe?g|webp|gif|avif)([?#]|$)/i.test(s) || /^(data
 //   序盤のシーン構成で時間を稼げば、PLATEAUシーン到着時には初見のPCでも一発で街が立つ（データ重力の種まき兼用）。
 // 戻り値＝{start, next, prev, exit, play, pause}（テスト・プログラム駆動用）。
 // opts.finale＝台本を最後まで走り切った時だけ呼ばれる終演フック（app が japan-fit を注入）。Esc/▶の途中終了では呼ばない。
-export function demo({ scenes, slide: slideOn = true, hold = 5500, slideHold = 4000, mobile, zoomMin = 1, lang, flyView, flightActive, prefetchViews, finale, signal, plateau } = {}) {
+export function demo({ scenes, slide: slideOn = true, hold = 5500, slideHold = 4000, mobile, zoomMin = 1, lang, flyView, glidePath, flightActive, prefetchViews, finale, signal, plateau } = {}) {
 	const mapEl = this.mapEl;
 	if (!slideOn && Array.isArray(scenes)) scenes = scenes.filter(s => s.view || !s.slide);   // スライドだけのシーン＝空の停留所になるので抜く
 	if (!Array.isArray(scenes) || !scenes.length) { console.warn("[demo] scenes が空＝ガジェットは搭載しない"); return; }
@@ -139,7 +139,7 @@ export function demo({ scenes, slide: slideOn = true, hold = 5500, slideHold = 4
 		// 静止の計時はフライト/滑走の「着地後」から＝遷移の長いシーンでも見る時間が削られない（200ms刻みで着地を待つ）。
 		// 字幕も着地と同時に点く（飛行中・幕中は引っ込む＝地図とスライドが主役）
 		const arm = () => {
-			if (flightActive?.()) { caption(false); timer = setTimeout(arm, 200); return; }
+			if (flightActive?.()) { caption(scenes[idx]?.path ? !slide.classList.contains("open") : false); timer = setTimeout(arm, 200); return; }   // path（連続ドリー）は移動中も字幕を出す＝川を遡る間ずっと見出しが乗る
 			caption(!slide.classList.contains("open"));
 			timer = setTimeout(() => { if (on()) next(); }, ms);
 		};
@@ -170,7 +170,11 @@ export function demo({ scenes, slide: slideOn = true, hold = 5500, slideHold = 4
 			curtain(!s.view);   // slideだけのシーン＝入場で幕（紙芝居の停留所）。view併記＝まず地図（幕は›の第二拍）
 		}
 		else { curtain(false); img.removeAttribute("src"); }
-		if (fly && tgt) {
+		if (fly && s.jump && tgt) {
+			flyView?.(tgt, { jump: true });   // 先頭シーン等＝遷移なしで即その視点（遠景の弧を作らない＝「定義したそのまま」で開始）
+		} else if (fly && s.path && glidePath) {
+			glidePath(s.path.map(v => mobView(s, v)), { secs: s.secs });   // ★ hold:0 連続＝1本のスプライン（隅田川ドリー）。cam から滑らかに入り、通過保証で曲線を辿る（5自由度：経緯度=曲線／zoom/pitch/bearing=区間補間）
+		} else if (fly && tgt) {
 			// pre＝入場の見せ玉：まず pre の画へ飛び、着地から1秒だけ見せて view を遷移なし（jump）で重ねる。
 			// pre と view は同座標が前提＝実際に動くのは l= だけ（素の地図が着いた後、レイヤが「点く」演出）
 			if (s.pre) {
@@ -189,7 +193,7 @@ export function demo({ scenes, slide: slideOn = true, hold = 5500, slideHold = 4
 	const start = (i = 0, fly = true) => {
 		bar.classList.add("on"); mapEl.classList.add("demo-live"); show(i, fly);
 		btn.setAttribute("aria-pressed", "true"); btn.dataset.tip = "デモを終了 (Esc)"; btn.setAttribute("aria-label", "デモを終了");
-		if (!prefetched) { prefetched = true; prefetchViews?.(scenes.map(s => s.view ?? s.glide).filter(Boolean), plateau); }   // ▶＝裏で台本の街をIDBへ（1回だけ・以降はIDB命中でタダ）。plateau=台本の明示リスト（任意）
+		if (!prefetched) { prefetched = true; prefetchViews?.(scenes.flatMap(s => s.path || [s.view ?? s.glide]).filter(Boolean), plateau); }   // path シーンは各制御点も先読み対象（ドリー中の街を裏でIDBへ）   // ▶＝裏で台本の街をIDBへ（1回だけ・以降はIDB命中でタダ）。plateau=台本の明示リスト（任意）
 		if (narrow()) play();   // 狭画面の▶開始＝即・自動上演（play は再入無害）
 	};
 	// 上映中（.playing）＝デスクトップでは操縦バーごと退場（CSS）＝停止は点灯した▶が受ける。字幕も止まったら引っ込める
@@ -260,6 +264,23 @@ export function demo({ scenes, slide: slideOn = true, hold = 5500, slideHold = 4
 		else if (e.key === "Backspace" || e.key === "ArrowLeft" || e.key === "PageUp") { e.preventDefault(); prev(); }   // BS＝戻る
 		else if (e.key === "Escape") { e.preventDefault(); listOpen() ? list.classList.remove("open") : exit(); }   // Esc＝一覧が開いていれば一覧だけ閉じる
 	}, { signal });
+	// load＝落としたシーン台本で丸ごと差し替え（ドロップ再生／将来のエディタ・プレビュー）。共有シーン・フォーマット（demo/scene-format.md）の入口。
+	//   現在の上演を畳み、scenes/lang/mobile/hold を載せ替え、目次を組み直して idx を戻す（start()/play() は呼び手が叩く）。
+	//   demo は起動時に1度だけマウント済み（index.html）＝この1インスタンスに台本を差し替える＝二重搭載しない。
+	const load = arg => {
+		const o = Array.isArray(arg) ? { scenes: arg } : (arg || {});
+		if (Array.isArray(o.scenes) && o.scenes.length) scenes = o.scenes;
+		if (o.lang !== undefined) lang = o.lang;
+		if (o.mobile !== undefined) mobile = o.mobile;
+		if (o.hold !== undefined) hold = o.hold;
+		if ("finale" in o) finale = o.finale;   // 終演フックの差し替え（ドロップ再生＝finale:null＝末尾に遠景を足さない）
+		if (!slideOn) scenes = scenes.filter(s => s.view || s.glide || !s.slide);   // スライドだけのシーン＝空の停留所ゆえ抜く（搭載時と同じ規約）
+		exit();                                                                       // 上演中なら畳む（idx=-1・バー消灯・幕/字幕を下ろす）
+		prefetched = false;                                                           // 新台本＝▶先読みを1回許す
+		list.innerHTML = scenes.map((s, i) => `<button data-i="${i}">${i + 1}. ${sceneLabel(s)}</button>`).join("");   // 目次を組み直す（委譲clickは list に付くので健在）
+		idx = -1;
+		return { start, play };
+	};
 	// 配色の幕替わりは flyView の生き替え（reload無し）へ移行＝reload を跨ぐ自動復帰は不要になった（RESUME_KEY 撤去）。
-	return { start, next, prev, exit, play, pause };
+	return { start, next, prev, exit, play, pause, load };
 }

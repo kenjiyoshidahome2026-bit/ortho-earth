@@ -1,0 +1,14 @@
+{
+  "type": "sceneCollection",
+  "title": "東京ランドマーク巡り",
+  "lang": "jp",
+  "waitPlateau": true,
+  "defaults": { "transition": "fly", "hold": 4 },
+  "scenes": [
+    { "view": "#19.87/35.68209/139.76340/75t/86r/l=", "caption": "東京駅", "en": "Tokyo Station" },
+    { "view": "#17.33/35.72628/139.81200/75t/-180r/l=", "caption": "東京スカイツリー", "en": "Tokyo Skytree" },
+    { "view": "#17.00/35.63672/139.76048/55t/160r/l=", "caption": "レインボーブリッジ", "en": "Rainbow Bridge" },
+    { "view": "#17.24/35.68990/139.69321/75t/50r/l=", "caption": "新宿高層ビル街", "en": "Shinjuku Skyscrapers" },
+    { "view": "#17.33/35.45658/139.63297/72t/-91r/l=", "hold": 5, "caption": "横浜・みなとみらい", "en": "Yokohama Minato Mirai" }
+  ]
+}

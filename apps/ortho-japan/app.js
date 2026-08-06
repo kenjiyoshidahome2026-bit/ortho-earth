@@ -38,6 +38,7 @@ import { print as printGadget } from "./gadgets/print-stub.js";   // 本体(prin
 import { close as closeGadget } from "./gadgets/close.js";
 import { dropFile as dropFileGadget } from "./gadgets/dropfile.js";
 import { demo as demoGadget } from "./gadgets/demo-stub.js";   // 玄関スタブ＝同期ファサードを即返し、本体(demo.js＝再生エンジン)は搭載時に import()＝初期バンドルから隔離
+import { sceneCollectionToScenes } from "./demo/scene-adapter.js";   // 共有シーン(sceneCollection)→ demo scenes[] の純翻訳（ドロップ再生／将来のエディタで共有）
 import { ai as aiGadget } from "./gadgets/ai-stub.js";   // 玄関スタブ＝同期ファサードを即返し、本体(ai.js＋ai/一式＋将来LLM)は搭載時に import()＝初期バンドルから完全隔離
 import { modalOpen } from "./gadgets/keys.js";   // 矢印キーのモーダル抑止に使う共通判定（ショートカット群と共有）
 
@@ -711,7 +712,7 @@ const plateauIdbDelete = base => new Promise(res => { plateauDeletePending.set(b
 // デモ台本のPLATEAU先読み：z14+で着地するシーンの足元の区を台本から自動導出し、IDBへ静かに仕込む（描画へは送らない）。
 // 台本の早いシーン（球・列島・スライド）の間に裏で完走→PLATEAUシーンに着いた時はIDB直読み＝初見のPCでも一発で街が立つ。
 // 直列1区ずつ＝訪問者の帯域を占有しない（飛行中の基図タイルと取り合わない）。IDB命中は即成功＝二度目からはタダ。
-async function prefetchPlateauForViews(views, names) {
+async function prefetchPlateauForViews(views, names, onProgress) {
 	if (!plateauOn) return;
 	// 【▶の瞬間から走る】旧・LOW_MEM は boot+45秒遅延（鉄道地図z14.5タイルとデコードが重なる jetsam 対策）
 	// だったが、テーマ切替（c=）の各ページは十数秒で reload されタイマーごと消える＝iPhone では実質
@@ -728,7 +729,7 @@ async function prefetchPlateauForViews(views, names) {
 		if (bad.length) console.warn("[demo] plateau 指定名がカタログに無い（台本の誤記？）:", bad.join("・"));
 		// ピン留め＝リスト記載の区は autoPlateau の選抜キャップを無視して強制表示（デモ終了後もセッション中は有効）
 		plateauPinned = new Set(wanted.map(s => s.name));
-		return runPrefetch(wanted, "台本指定");
+		return runPrefetch(wanted, "台本指定", onProgress);
 	}
 	const MARGIN = 0.012;   // 区bboxへの点距離ゲート（≈1.3km）＝着地視界＋隣接区まで拾う
 	// 【順序＝一巡目に「各停止位置の中心区＋橋梁」】旧・台本順に停止位置ごと全区を流すと、序盤の停止位置の
@@ -769,12 +770,13 @@ async function prefetchPlateauForViews(views, names) {
 	const pd2q = (s, q) => { const dx = Math.max(s.bbox[0] - q[0], 0, q[0] - s.bbox[2]), dy = Math.max(s.bbox[1] - q[1], 0, q[1] - s.bbox[3]); return dx * dx + dy * dy; };
 	for (const v of perView) { take(v.bld[0]); v.brid.forEach(take); }          // 一巡目＝各停止位置の中心区＋橋梁（軽くて主役）
 	for (const v of perView) v.bld.slice(1).filter(s => pd2q(s, v.fwd) < NEIGH * NEIGH).forEach(take);   // 二巡目＝視線の先の隣接区だけ
-	return runPrefetch(wanted, "台本から導出");
+	return runPrefetch(wanted, "台本から導出", onProgress);
 }
-async function runPrefetch(wanted, how) {
+async function runPrefetch(wanted, how, onProgress) {
 	if (!wanted.length) return;
 	console.log(`[demo] PLATEAU先読み ${wanted.length}区（${how}）: ${wanted.map(s => s.name).join("・")}`);
 	plateauPrefetchBusy = true;   // 先読み中＝autoPlateau の建物枠を1つ譲る（デコード同時数の総枠を保つ）
+	let done = 0; onProgress?.(0, wanted.length, null);   // 進捗＝総区数を先に伝える（waitPlateau の中央表示用）
 	try {
 		// 並行2区（Kenji 指定 2026-07-29「2つずつぐらい読まないと間に合わない」）。直列1区は帯域を
 		// 使い切れず（fetch レイテンシの谷）、東京駅到着までに主役区が揃わなかった。到着済みの区は
@@ -796,6 +798,7 @@ async function runPrefetch(wanted, how) {
 				const s = wanted[wi++];
 				if (!s) return;
 				await plateauPreload(s);
+				onProgress?.(++done, wanted.length, s.name);   // 1区 IDB へ焼けた＝進捗を1つ進める
 				autoPlateau(true);   // 先読み完了の瞬間に表示判定を一突き＝「先読み中にもう着いていた」際、静止したままでも即立つ（読込中ガードで見送られた分の敗者復活）
 			}
 		};
@@ -2317,6 +2320,13 @@ function flyView(hash, opts = {}) {
 	if (!v) { console.warn(`[flyView] 解釈できないビュー "${hash}"`); return false; }
 	return applyView(v, { fly: true, glide: opts.glide, jump: opts.jump });
 }
+// シーン台本の連続ドリー（glidePath）＝共有URLハッシュの列を parseViewHash → flightCtl.glidePath へ（hold:0 連続を1本の centripetal Catmull-Rom で貫く＝隅田川ドリー）。
+// P1b＝カメラのみ（l=/c= は道中で触らない＝直前シーンが設定済み）。pitch/bearing はラジアンのまま cam へ。
+function glidePathView(hashes, opts = {}) {
+	const pts = (hashes || []).map(h => { const v = typeof h === "string" ? parseViewHash(h) : h; return v ? { lon: wrapLon(v.lon), lat: v.lat, zoom: v.zoom, pitch: v.pitch || 0, bearing: v.bearing || 0 } : null; }).filter(Boolean);
+	if (pts.length) flightCtl.glidePath(pts, opts);
+	return true;
+}
 
 // コンパス兼リセット（#reset）はオプトインガジェットへ移設＝gadgets/compass.js（針の追従・リセットアニメごと）。
 // 針の毎フレーム追従は render が呼ぶフック＝搭載時に差し替わる（未搭載なら no-op）。
@@ -2631,6 +2641,71 @@ map.gadget("print", function (opts) {   // 印刷（平面図）… 撮影ハイ
 map.gadget("close", function (opts) {   // 閉じる×（埋め込み用）… ortho:close を飛ばすだけ＝閉じる実務は埋め込み側
 	return closeGadget.call(this, { signal: ac.signal, ...opts });
 });
+// ── 共有シーン(sceneCollection)の再生 ── 落とした .scene.json を demo プレーヤーで自動上演する（demo/scene-format.md）。
+// demo は起動時に1度マウント済み（index.html）＝その1インスタンスに load() で台本を差し替える（下の demo ラッパが手綱 demoHandle を掴む）。
+let demoHandle = null;
+function playScene(obj) {
+	const urlLang = new URLSearchParams(location.search).get("lang");   // ?lang が台本の obj.lang に勝つ（demo と同じ流儀）
+	const { scenes, lang, mobile, waitPlateau } = sceneCollectionToScenes(obj, urlLang);
+	if (!scenes.length) { console.warn("[scene] scenes が空＝再生しない", obj?.title); return; }
+	if (!demoHandle) demoHandle = map.gadget.demo({ scenes, lang, mobile, finale: null });   // 保険：万一 demo 未搭載でも起こす。finale:null＝終端に遠景を足さない
+	const views = scenes.flatMap(s => s.path || [s.view ?? s.glide]).filter(Boolean);   // 全 view（path も展開）＝先読み対象
+	Promise.resolve(demoHandle.ready).then(async () => {   // 遅延本体の到着を待ってから（起動直後ドロップの保険。通常は解決済み＝即）
+		demoHandle.load?.({ scenes, lang, mobile, finale: null });   // finale:null＝「定義したそのまま」で終わる（japanFit の遠景を出さない）
+		if (waitPlateau && plateauOn) {   // ★PLATEAU 待ちモード：深ズームの街が IDB に温まるまで開始しない（リビールが必ず建物に着地・道中のポップイン無し）
+			const first = scenes[0], firstView = first.view ?? first.glide ?? first.path?.[0];
+			if (firstView) flyView(firstView, { jump: true });   // 開始画へ即 jump（demo の内部先読みを起こさず、自前の進捗つき先読みへ一本化）
+			sceneLoading({});   // 準備中…（総区数が分かるまで）
+			await Promise.race([   // prefetchPlateauForViews は「台本の建物区を IDB へ焼き終えた時」に解決＝それが待ち条件（着地時は IDB 直読みで即立つ）。onProgress で中央に大きく進捗
+				prefetchPlateauForViews(views, undefined, (d, total, name) => sceneLoading({ done: d, total, name })).catch(() => {}),
+				new Promise(r => setTimeout(r, 25000)),   // 最長25秒で諦め＝細回線でも止めない
+			]);
+			sceneLoading(false);
+		}
+		demoHandle.start?.(0);   // 先頭シーンへ（jump・冪等）＝台本どおり開始
+		demoHandle.play?.();   // 自動上演＝「動画」モードで流す
+	});
+}
+// waitPlateau の待機中に画面中央へ大きく出す進捗（何をしているか／あと何区か）。触れない・待ち終わりに退場。
+let slEl = null, slFill = null, slSub = null, slCount = null;
+function sceneLoading(state) {
+	const en = new URLSearchParams(location.search).get("lang") === "en";
+	if (state === false) { if (slEl) slEl.style.display = "none"; return; }
+	if (!slEl) {
+		slEl = document.createElement("div");
+		slEl.id = "scene-loading";
+		Object.assign(slEl.style, { position: "absolute", inset: "0", display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(8,12,20,.45)", zIndex: "7", pointerEvents: "none" });
+		const card = document.createElement("div");
+		Object.assign(card.style, { minWidth: "min(320px, 78vw)", maxWidth: "82vw", padding: "28px 36px", borderRadius: "18px", background: "rgba(16,24,36,.92)", color: "#fff", textAlign: "center", fontFamily: "system-ui, sans-serif", boxShadow: "0 8px 40px rgba(0,0,0,.45)" });
+		const title = document.createElement("div");
+		title.textContent = en ? "Loading 3D city…" : "3D都市を読み込み中…";
+		Object.assign(title.style, { fontSize: "23px", fontWeight: "700", letterSpacing: ".01em", marginBottom: "6px" });
+		slSub = document.createElement("div");
+		Object.assign(slSub.style, { fontSize: "13px", opacity: ".7", marginBottom: "18px" });
+		const bar = document.createElement("div");
+		Object.assign(bar.style, { height: "9px", borderRadius: "999px", background: "rgba(255,255,255,.16)", overflow: "hidden" });
+		slFill = document.createElement("div");
+		Object.assign(slFill.style, { height: "100%", width: "6%", borderRadius: "999px", background: "linear-gradient(90deg,#4b90ff,#7db4ff)", transition: "width .35s ease" });
+		bar.append(slFill);
+		slCount = document.createElement("div");
+		Object.assign(slCount.style, { fontSize: "13.5px", opacity: ".88", marginTop: "12px", fontVariantNumeric: "tabular-nums" });
+		card.append(title, slSub, bar, slCount);
+		slEl.append(card);
+		mapEl.append(slEl);
+	}
+	slEl.style.display = "flex";
+	const bldLabel = en ? "PLATEAU buildings" : "PLATEAU 建物データ";
+	if (!state || !state.total) {   // 準備中（総数未確定）
+		slSub.textContent = bldLabel;
+		slFill.style.width = "6%";
+		slCount.textContent = en ? "preparing…" : "準備中…";
+	} else {
+		const { done, total, name } = state;
+		slSub.textContent = name ? `${bldLabel} · ${name}` : bldLabel;
+		slFill.style.width = Math.max(6, Math.round((done / total) * 100)) + "%";
+		slCount.textContent = en ? `${done} / ${total} districts` : `${done} / ${total} 区`;
+	}
+}
 map.gadget("dropFile", function (opts) {   // GISファイルのD&D取り込み … geopbf(File,{gint:true})→applyGintData を loadFile として束ね注入（gint単一スロット＝置き換え）
 	const loadFile = async file => {
 		const pbf = await geopbf(file, { gint: true, name: `drop/${file.name}` }).catch(err => { console.error("[dropFile] geopbf", file.name, err); return null; });
@@ -2648,7 +2723,7 @@ map.gadget("dropFile", function (opts) {   // GISファイルのD&D取り込み 
 		}
 		return pbf;   // gadget が pbf.length（地物数）をトーストに使う
 	};
-	return dropFileGadget.call(this, { loadFile, clearGint: clearUserGint, signal: ac.signal, ...opts });
+	return dropFileGadget.call(this, { loadFile, clearGint: clearUserGint, playScene, signal: ac.signal, ...opts });
 });
 map.gadget("demo", function (opts) {   // デモ（発表の台本再生）… 台本の一行=共有URLハッシュ。flyView（球面フライト）・フライト中判定・PLATEAU先読み・現テーマ名（幕替わり判定）を注入
 	const japanFit = () => {   // 終演の定位置＝日本列島が画面に収まる真俯瞰・北向き（fitBbox と同じ視野幅の逆解き＝縦横どちらの画面でも収まる）
@@ -2656,7 +2731,8 @@ map.gadget("demo", function (opts) {   // デモ（発表の台本再生）… �
 		const z = Math.min(Math.log2(360 * size.w / (WORLD_PX * wDeg)), Math.log2(360 * size.h / (WORLD_PX * hDeg)));
 		flyTo(137, 37, Math.max(ZOOM_MIN, Math.min(7, z)), 0, 0);
 	};
-	return demoGadget.call(this, { flyView, flightActive: () => flightCtl.active, prefetchViews: prefetchPlateauForViews, finale: japanFit, signal: ac.signal, zoomMin: ZOOM_MIN, ...opts });
+	demoHandle = demoGadget.call(this, { flyView, glidePath: glidePathView, flightActive: () => flightCtl.active, prefetchViews: prefetchPlateauForViews, finale: japanFit, signal: ac.signal, zoomMin: ZOOM_MIN, ...opts });   // 手綱を掴む＝落としたシーンは playScene→demoHandle.load() で差し替え再生。glidePath＝hold:0連続のスプライン
+	return demoHandle;
 });
 map.gadget("ai", function (opts) {   // AIと会話して地図に描く（PC専用・画面2分割）… 描画受け口とbboxフィット・消去を注入
 	const fitBbox = bb => {   // dropFile と同じ視野幅の逆解き＝fit へ球面フライト（真俯瞰・北向き）
