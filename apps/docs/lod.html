@@ -49,10 +49,33 @@ input[type=range] { flex: 1; accent-color: #38bdf8; cursor: pointer; }
 .mc { font-family: monospace; font-size: 0.7rem; color: #94a3b8; margin-top: 5px; word-break: break-all; }
 .mhi { color: #38bdf8; } .mlo { color: #334155; }
 </style>
+<style>
+.dhdr{position:sticky;top:0;z-index:30;display:flex;align-items:center;gap:9px;padding:10px 16px;margin:0 0 14px;background:#0b1220;border-bottom:1px solid #1e293b;font-family:monospace;font-size:0.78rem;flex-wrap:wrap}
+.dhdr .sec{color:#38bdf8;font-weight:bold;text-decoration:none}
+.dhdr .sep{color:#334155}
+.dhdr a{color:#64748b;text-decoration:none}
+.dhdr a:hover{color:#38bdf8}
+.dhdr .crumb-link{color:#94a3b8}
+.dhdr .cur{color:#e2e8f0}
+.dhdr .nav{display:flex;gap:14px;margin-left:auto;align-items:center}
+.dhdr .cur-tab{color:#e2e8f0;font-weight:700}
+</style>
 </head>
 <body>
-
-<a href="/" style="display:inline-flex;align-items:center;justify-content:center;gap:5px;margin-bottom:10px;margin-right:8px;padding:4px 10px;border-radius:6px;border:1px solid #334155;background:#0f172a;color:#64748b;font-size:0.75rem;font-family:monospace;text-decoration:none;min-width:10em" onmouseover="this.style.color='#38bdf8'" onmouseout="this.style.color='#64748b'">← ortho-earth</a><a href="gintbuf.html" style="display:inline-flex;align-items:center;justify-content:center;gap:5px;margin-bottom:10px;padding:4px 10px;border-radius:6px;border:1px solid #334155;background:#0f172a;color:#64748b;font-size:0.75rem;font-family:monospace;text-decoration:none;min-width:10em" onmouseover="this.style.color='#38bdf8'" onmouseout="this.style.color='#64748b'">← Gint Pipeline</a>
+<div class="dhdr">
+	<img src="favicon.svg" width="22" height="22">
+	<a href="/#technologies" class="sec">Technologies</a>
+	<span class="sep">/</span>
+	<a href="gintbuf.html" class="crumb-link">Gint</a>
+	<span class="sep">/</span>
+	<span class="cur">Dynamic LOD</span>
+	<div class="nav">
+		<a href="/#technologies">top ⇧</a>
+		<a href="gint.html">Morton</a>
+		<span class="cur-tab">Dynamic LOD</span>
+		<a href="st.html">GPU Stencil</a>
+	</div>
+</div>
 
 <h1>Gint Dynamic LOD Pipeline</h1>
 <div class="subtitle">GPU Vertex Shader LOD · 64-bit Morton Bit-Mask · Zero Network Overhead · Zero CPU on LOD Change</div>

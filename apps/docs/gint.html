@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>What is Gint?</title>
+<title>Morton — Gint</title>
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -82,12 +82,35 @@ input[type=range] { accent-color: #c084fc; cursor: pointer; width: 80px; }
 .lc-val { font-size: 1.0rem; font-weight: bold; font-family: monospace; color: #f1f5f9; }
 .lc-sub { font-size: 0.65rem; color: #475569; font-family: monospace; margin-top: 3px; line-height: 1.5; }
 </style>
+<style>
+.dhdr{position:sticky;top:0;z-index:30;display:flex;align-items:center;gap:9px;padding:10px 16px;margin:0 0 14px;background:#0b1220;border-bottom:1px solid #1e293b;font-family:monospace;font-size:0.78rem;flex-wrap:wrap}
+.dhdr .sec{color:#38bdf8;font-weight:bold;text-decoration:none}
+.dhdr .sep{color:#334155}
+.dhdr a{color:#64748b;text-decoration:none}
+.dhdr a:hover{color:#38bdf8}
+.dhdr .crumb-link{color:#94a3b8}
+.dhdr .cur{color:#e2e8f0}
+.dhdr .nav{display:flex;gap:14px;margin-left:auto;align-items:center}
+.dhdr .cur-tab{color:#e2e8f0;font-weight:700}
+</style>
 </head>
 <body>
+<div class="dhdr">
+	<img src="favicon.svg" width="22" height="22">
+	<a href="/#technologies" class="sec">Technologies</a>
+	<span class="sep">/</span>
+	<a href="gintbuf.html" class="crumb-link">Gint</a>
+	<span class="sep">/</span>
+	<span class="cur">Morton</span>
+	<div class="nav">
+		<a href="/#technologies">top ⇧</a>
+		<span class="cur-tab">Morton</span>
+		<a href="lod.html">Dynamic LOD</a>
+		<a href="st.html">GPU Stencil</a>
+	</div>
+</div>
 
-<a href="/" style="display:inline-flex;align-items:center;justify-content:center;gap:5px;margin-bottom:10px;margin-right:8px;padding:4px 10px;border-radius:6px;border:1px solid #334155;background:#0f172a;color:#64748b;font-size:0.75rem;font-family:monospace;text-decoration:none;min-width:10em" onmouseover="this.style.color='#38bdf8'" onmouseout="this.style.color='#64748b'">← ortho-earth</a><a href="gintbuf.html" style="display:inline-flex;align-items:center;justify-content:center;gap:5px;margin-bottom:10px;padding:4px 10px;border-radius:6px;border:1px solid #334155;background:#0f172a;color:#64748b;font-size:0.75rem;font-family:monospace;text-decoration:none;min-width:10em" onmouseover="this.style.color='#38bdf8'" onmouseout="this.style.color='#64748b'">← Gint Pipeline</a>
-
-<h1>What is Gint?</h1>
+<h1>Morton</h1>
 <div class="lead">
 	<span style="color:#fb923c">Morton order</span> for spatial indexing ·
 	<span style="color:#38bdf8">L1 Anchor</span> structural vertices ·
@@ -145,7 +168,7 @@ input[type=range] { accent-color: #c084fc; cursor: pointer; width: 80px; }
 		<div class="lc lc-l1">
 		<div class="lc-tag">L1 · Anchor</div>
 		<div class="lc-val"><span id="l1-cnt">—</span> vertices</div>
-		<div class="lc-sub">structural skeleton<br>polygon nodes · always present</div>
+		<div class="lc-sub">structural skeleton<br>line vertices · always present</div>
 		</div>
 		<div class="lc lc-l2">
 		<div class="lc-tag">L2 · Arc</div>
@@ -259,9 +282,9 @@ const cx2 = cv.getContext('2d');
 const W = cv.width, H = cv.height;
 
 const ANCHORS = [
-	{x:0.08,y:0.15},{x:0.20,y:0.06},{x:0.36,y:0.04},{x:0.54,y:0.05},{x:0.70,y:0.11},
-	{x:0.84,y:0.24},{x:0.90,y:0.42},{x:0.83,y:0.63},{x:0.67,y:0.78},
-	{x:0.42,y:0.84},{x:0.14,y:0.75},{x:0.05,y:0.46},
+	{x:0.05,y:0.52},{x:0.14,y:0.34},{x:0.24,y:0.60},{x:0.34,y:0.30},{x:0.44,y:0.64},
+	{x:0.53,y:0.38},{x:0.62,y:0.66},{x:0.71,y:0.32},{x:0.80,y:0.60},
+	{x:0.87,y:0.40},{x:0.93,y:0.56},{x:0.98,y:0.46},
 ];
 const AN = ANCHORS.length;
 
@@ -279,8 +302,8 @@ function buildArc(a,b,depth,rng){
 	return[...buildArc(a,mid,depth-1,rng),mid,...buildArc(mid,b,depth-1,rng)];
 }
 function buildArcs(depth){
-	return ANCHORS.map((a,i)=>{
-		const b=ANCHORS[(i+1)%AN];
+	return ANCHORS.slice(0,-1).map((a,i)=>{
+		const b=ANCHORS[i+1];
 		const rng=mkRng(1000+i*37);
 		return{pts:[a,...buildArc(a,b,depth,rng),b],col:ARC_COLS[i]};
 	});
@@ -313,7 +336,7 @@ function drawL1L2(){
 		cx2.closePath();
 		const lg=cx2.createLinearGradient(W*0.15,H*0.1,W*0.85,H*0.9);
 		lg.addColorStop(0,'rgba(92,128,74,0.88)'); lg.addColorStop(1,'rgba(60,88,40,0.88)');
-		cx2.fillStyle=lg; cx2.fill();
+		/* land fill removed — line, not polygon */
 
 		// L2 arc strokes (color-coded)
 		arcs.forEach(arc=>{
@@ -327,14 +350,14 @@ function drawL1L2(){
 	if(showL1){
 		// L1 land fill (if L2 not shown, otherwise just overlay skeleton)
 		if(!showL2){
-			cx2.beginPath(); ancPts.forEach((p,i)=>i===0?cx2.moveTo(p.x,p.y):cx2.lineTo(p.x,p.y)); cx2.closePath();
+			cx2.beginPath(); ancPts.forEach((p,i)=>i===0?cx2.moveTo(p.x,p.y):cx2.lineTo(p.x,p.y));
 			const lg=cx2.createLinearGradient(W*0.15,H*0.1,W*0.85,H*0.9);
 			lg.addColorStop(0,'rgba(92,128,74,0.75)'); lg.addColorStop(1,'rgba(60,88,40,0.75)');
-			cx2.fillStyle=lg; cx2.fill();
+			/* land fill removed — line, not polygon */
 		}
 
 		// L1 straight edges
-		cx2.beginPath(); ancPts.forEach((p,i)=>i===0?cx2.moveTo(p.x,p.y):cx2.lineTo(p.x,p.y)); cx2.closePath();
+		cx2.beginPath(); ancPts.forEach((p,i)=>i===0?cx2.moveTo(p.x,p.y):cx2.lineTo(p.x,p.y));
 		cx2.strokeStyle=showL2?'rgba(56,189,248,0.55)':'rgba(168,212,126,0.8)';
 		cx2.lineWidth=showL2?1.5:2;
 		cx2.setLineDash(showL2?[5,4]:[]);
