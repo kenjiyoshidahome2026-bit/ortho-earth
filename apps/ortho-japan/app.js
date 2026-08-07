@@ -613,6 +613,7 @@ const PLATEAU_HIDE_Z = (gpuBackend && !LOW_MEM) ? PLATEAU_AUTO_Z - qNum(/[?&]paz
 const FAR_H = qNum(/[&?]farh=(\d+)/, 200);  // 高さ閾値(m)＝200m級＝真の超高層だけの星座（本人裁定2026-08-04夜「z14から+200m以上で少し綺麗にかつ軽く」・100m=都内~600棟から更に絞る）。
                                             // 15m案は都心区でほぼ全建物が通り数万箱＝メモリ爆上がりの轍→50m→実機比較で100に着地。?farh=Nで実験可
 const FAR_Z = 14;                           // 遠景箱の点灯下限ズーム（本人裁定2026-08-04夜=13→14へ・出現を遅らせて遠すぎる箱を見せない）
+const noFar = /[?&]nofar=1/.test(location.search);   // ?nofar=1＝遠景far-DB箱を完全に切る（刺さり/めり込みの切り分け用）
 const farShown = new Set();                 // 要求済み/表示中の区（active化で退場→再要求可に戻す）
 const farMissed = new Set();                // #far整備不能（完走焼き無し）＝farReadyが来るまで再要求しない
 // far育成キュー：#far無し(farMiss)の区は、焼きがあれば worker のfarBakeで「読むだけ導出」。1区ずつ直列＝
@@ -925,7 +926,7 @@ const bboxIntersects = (a, b) => a[0] <= b[2] && a[2] >= b[0] && a[1] <= b[3] &&
 // z13未満/真俯瞰は消灯（本人裁定2026-08-04「流石の遠景もz13で辞めていい」）＝vis切替のみ＝GPU常駐保持・復帰はタダ。
 let farLit = true;
 function autoFar() {
-	if (!plateauOn || !gpuBackend || LOW_MEM || !PLATEAU_SETS.length) return;
+	if (noFar || !plateauOn || !gpuBackend || LOW_MEM || !PLATEAU_SETS.length) return;   // ?nofar=1＝遠景箱を切る
 	if (cam.zoom < FAR_Z || (cam.pitch || 0) < 0.02) {
 		if (farLit) { for (const n of farShown) renderer.set("plateauVis", false, n + "#far"); farLit = false; }
 		return;
@@ -2358,7 +2359,9 @@ function rebuildLabels(order) {
 		if (L.code === 7102 || L.code === 7201 || L.code === 7221) return { ...L, flat: true };
 		// 施設は濃い紫＝チップと同色（--qm-accent-facility #6a3d9a。点火の掟：チップ色＝地図上の色）。名前は一回り小さく＝地名の脇役。
 		// 色はテーマ台帳のノブ（夜は同色相のまま明度を持ち上げた別値＝palettes.js）
-		if (layerState.facility && isFacility(L)) return { ...L, size: L.size * 0.9, color: [...theme.facilityRGB, L.color[3]] };
+		// 施設は「小さい方」に統一：基図の並施設はスタイル既定(13.5)を丁目(12)へ頭打ち＝重要でない施設が大きく出る問題を消す
+		// （本人指摘 2026-08-08）。ただし 9xxx 合成コード（landmark/POI＝超高層の名前・意図的に大きい）は据え置く。
+		if (layerState.facility && isFacility(L)) return { ...L, size: (L.code >= 9000 ? L.size : Math.min(L.size, 12)) * 0.9, color: [...theme.facilityRGB, L.color[3]] };
 		// 地形名（3xx帯）は濃い茶＝チップと同色（--qm-accent-terrain #754c24＝等高線の茶の同族）
 		if (layerState.terrain && isTerrain(L.code)) return { ...L, color: [...theme.terrainRGB, L.color[3]] };
 		return L;
