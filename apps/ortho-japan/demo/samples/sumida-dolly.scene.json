@@ -1,15 +1,14 @@
 {
   "type": "sceneCollection",
   "title": "隅田川を遡る",
-  "lang": "jp",
   "waitLoading": true,
-  "defaults": { "transition": "glide", "hold": 0, "secs": 2.6 },
+  "defaults": { "transition": "glide", "hold": 0, "secs": 4 },
   "scenes": [
-    { "view": "#15.1/35.658/139.786/66t/10r/l=place.rail.road.facility/c=mono", "hold": 2, "caption": "隅田川・河口" },
-    { "view": "#15.3/35.672/139.792/67t/10r/l=place.rail.road.facility", "caption": "隅田川を遡る" },
-    { "view": "#15.3/35.688/139.800/68t/6r/l=place.rail.road.facility" },
-    { "view": "#15.3/35.702/139.805/68t/2r/l=place.rail.road.facility" },
-    { "view": "#15.3/35.714/139.804/68t/-2r/l=place.rail.road.facility" },
-    { "view": "#15.4/35.726/139.799/70t/-8r/l=place.rail.road.facility", "hold": 4, "caption": "東京スカイツリー" }
+    { "view": "#17.61/35.66116/139.77129/75t/39r/l=terrain", "hold": 1, "caption": "隅田川・河口" },
+    { "view": "#17.62/35.67716/139.78766/75t/20r/l=terrain", "caption": "隅田川を遡る" },
+    { "view": "#17.47/35.68842/139.79006/75t/-29r/l=terrain" },
+    { "view": "#17.47/35.69733/139.78959/75t/13r/l=terrainn","secs":10 },
+    { "view": "#17.47/35.71286/139.79984/75t/25r/l=terrain" },
+    { "view": "#16.47/35.71677/139.80776/75t/133r/l=terrain", "hold": 4, "caption": "東京スカイツリー" }
   ]
 }
