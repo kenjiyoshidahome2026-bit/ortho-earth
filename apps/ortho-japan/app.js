@@ -554,23 +554,40 @@ const POI_CODE = 9102;                                         // landmark(9101)
 const POI_SRC_ANNO = 1;                                        // 出典の pos-src=注記＝権威位置（基図を上書きしてよい）＝schema.SRC.ANNO
 const poiZAppear = rank => 14 + (255 - rank) * 3 / 255;        // rank 大＝早く出る（255→z14 / 中位→z15 / 小→z17）＝§11.5 の解禁段
 const poiTiles = new Map();                                    // "x/y" → 地物配列 ／ "loading" ／ []（POI 無しタイル）
-const POI_BUST = Date.now();                                   // セッション毎の一意クエリ＝HTTPキャッシュも素通り（nocacheはIDBのみ・再焼き後の古いタイルをHTTPが返す罠を断つ）
+const POI_BUST = Date.now();                                   // セッション毎の一意値＝マニフェストのHTTPキャッシュ回避／未整備時のフォールバック版
+const POI_INDEX = "https://api.ortho-earth.com/bucket/GIS/pbf/poi/14/index.json";   // タイル在庫マニフェスト（存在タイル一覧＋版）
 let poiVer = 0;                                                // タイル到着ごとに ++＝labelGate が拾ってラベルのみ再構築（merge なし）
-const poiLog = /[?&]poilog=1/.test(location.search);           // ?poilog=1＝POI層の診断（在庫/表示/rank待ち/基図重複を毎再構築で出す）
+let poiManifest = null, poiManReq = null;                      // {v:版, tiles:Set}＝404空振りを断ち版でキャッシュ制御（?b=ハック卒業）
+const poiLog = /[?&]poilog=1/.test(location.search);           // ?poilog=1＝POI層の診断（在庫/表示/rank待ち/基図重複/上書きを毎再構築で出す）
 const poiAll = /[?&]poiall=1/.test(location.search);           // ?poiall=1＝rank解禁と dedup を無効化＝全POIを z14+ で出す（「層が描くか」の評価用）
+// タイル在庫マニフェストを一度だけ取得。bucketは生gzipで返す（Content-Encoding無し）＝自前gunzip。
+// 無ければ（未焼き/旧焼き）フォールバック＝bbox全スキャン＋?b=（404は出るが動く）。焼き直すと版が変わりタイルも自動失効。
+function loadPoiManifest() {
+	if (poiManReq) return poiManReq;
+	return poiManReq = fetch(`${POI_INDEX}?_=${POI_BUST}`).then(async r => {
+		if (!r.ok) return;
+		let buf = new Uint8Array(await r.arrayBuffer());
+		if (buf[0] === 0x1f && buf[1] === 0x8b) buf = new Uint8Array(await new Response(new Blob([buf]).stream().pipeThrough(new DecompressionStream("gzip"))).arrayBuffer());
+		const j = JSON.parse(new TextDecoder().decode(buf));
+		if (j?.tiles) { poiManifest = { v: j.v, tiles: new Set(j.tiles) }; poiVer++; needsDraw = true; if (poiLog) console.log(`[poi] マニフェスト ${j.tiles.length}タイル v${j.v}`); }
+	}).catch(() => { /* マニフェスト無し＝フォールバック（bboxスキャン） */ });
+}
 function loadPOI(cam) {
+	loadPoiManifest();                                        // 非同期・到着までは全スキャン（フォールバック）
 	const [w, s, e, n] = approxViewBbox(cam);
 	const [x0, y0] = lonLatToTile(w, n, 14), [x1, y1] = lonLatToTile(e, s, 14);   // 北西→(minx,miny) 南東→(maxx,maxy)
+	const ver = poiManifest ? poiManifest.v : POI_BUST;       // 版でキャッシュ制御（再焼きで自動失効）／フォールバックはセッション値
 	for (let x = Math.min(x0, x1); x <= Math.max(x0, x1); x++)
 		for (let y = Math.min(y0, y1); y <= Math.max(y0, y1); y++) {
 			const key = x + "/" + y;
 			if (poiTiles.has(key)) continue;                  // 既取得（空タイル [] 含む）＝二度と要求しない
+			if (poiManifest && !poiManifest.tiles.has(key)) { poiTiles.set(key, []); continue; }   // 在庫外＝空＝要求しない（404根絶）
 			poiTiles.set(key, "loading");
-			geopbf(`poi/14/${key}?b=${POI_BUST}`, { nocache: true }).then(pbf => {   // ?b=＝HTTPキャッシュ素通り／nocache＝IDB素通り＝再焼き後も常に新タイル。bucketはクエリ無視で同一オブジェクトを返す
+			geopbf(`poi/14/${key}?v=${ver}`).then(pbf => {    // ?v=版＝IDB/HTTPとも版キーでキャッシュ・再焼きで失効。在庫のみ要求で404なし
 				const feats = pbf?.geojson?.features || [];
 				poiTiles.set(key, feats.map(f => ({ anchor: f.geometry.coordinates, n: f.properties.n, r: f.properties.r, s: f.properties.s ?? 0 })));
 				if (feats.length) { poiVer++; needsDraw = true; if (poiLog) console.log(`[poi] tile ${key} ロード ${feats.length}件`); }   // 中身ありだけ再構築を促す（空タイルは黙って埋める）
-			}).catch(() => poiTiles.set(key, []));            // 404＝そのタイルに POI 無し＝空で確定（再要求しない）
+			}).catch(() => poiTiles.set(key, []));            // 万一の404＝空で確定（再要求しない）
 		}
 }
 const PLATEAU_AUTO_Z = qNum(/[?&]paz=(\d+(?:\.\d+)?)/, 15);   // これ以上寄ると自動ロード（遠景は対象外＝ズームアウトで全解放）。?paz=16＝タイル最細(z≈16-17)までベクタ建物で粘るA/B実験ノブ（デモのz15.5フライトは15前提＝既定は据置）

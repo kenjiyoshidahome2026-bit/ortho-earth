@@ -337,6 +337,14 @@ async function poi(q, { prefs = ["26"], sets = ["P29"], anno = [], withAnno = fa
 		n++; bytes += pbf.size;
 		if (n % 50 === 0) q.log(`  ${n}/${tiles.size} タイル…`);
 	}
+	// タイル在庫マニフェスト：表示側が存在タイルだけ取りに行く＝404空振りゼロ＋版でキャッシュ制御。
+	// 既存に今回のタイルを合流＝他地域を別便で焼いても消えない。版(Date.now)で表示側キャッシュを失効させる。
+	const bkt = await Bucket("GIS/pbf");
+	let prev = [];
+	try { const m = await bkt.get("poi/14/index.json", "json"); if (m?.tiles) prev = m.tiles; } catch { }
+	const idx = { v: Date.now(), tiles: [...new Set([...prev, ...tiles.keys()])].sort() };
+	await bkt.put(new File([JSON.stringify(idx)], "poi/14/index.json", { type: "application/json" }));
+	q.log(`マニフェスト poi/14/index.json → ${idx.tiles.length}タイル（今回${tiles.size}・既存${prev.length}）`);
 	q.success(`POI civic: ${n} タイル・${recs.length}点・${(bytes / 1024).toFixed(0)}KB → GIS/pbf/poi/14/`);
 }
 
