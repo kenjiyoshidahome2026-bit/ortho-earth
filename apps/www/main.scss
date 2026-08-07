@@ -48,7 +48,7 @@ body { font-family: 'Helvetica Neue', Arial, 'Hiragino Kaku Gothic ProN', sans-s
 					.card-cta { margin-top: auto; padding-top: 1.1rem; font-size: .85rem; font-weight: 600; color: var(--accent-color); }
 					&.featured { grid-column: 1 / -1; flex-direction: row; padding: 0; overflow: hidden;
 						border-color: var(--accent-glow); box-shadow: 0 0 40px rgba(0, 255, 204, 0.12);
-						.card-poster { display: block; flex: 0 0 42%; width: 42%; height: 300px;
+						.card-poster { display: block; flex: 0 0 42%; width: 42%; align-self: stretch; min-height: 300px;
 							object-fit: cover; background: #0d0d12; }
 						.card-body { flex: 1; display: flex; flex-direction: column; justify-content: center; padding: 1.8rem 2rem; }
 						.card-title { font-size: 1.9rem; }
