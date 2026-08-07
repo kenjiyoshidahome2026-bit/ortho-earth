@@ -7,7 +7,8 @@
 	"main": "src/index.js",
 	"exports": {
 		".": "./src/index.js",
-		"./gpu": "./src/gpu/backend.js"
+		"./gpu": "./src/gpu/backend.js",
+		"./decode": "./src/decode.js"
 	},
 	"description": "球面ベクタタイル描画エンジン（ortho系アプリ共通の核）",
 	"dependencies": {

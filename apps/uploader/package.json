@@ -12,6 +12,7 @@
 		"common": "*",
 		"geotiff": "^3.0.5",
 		"native-bucket": "*",
+		"ortho-core": "*",
 		"ortho-map":"*",
 		"three": "^0.177.0"
 	},

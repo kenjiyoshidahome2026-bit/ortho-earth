@@ -5,7 +5,7 @@ import "quiet-mono/components.scss";
 import "./style.scss";
 import {
 	evalExpr, parseRGBA, cameraState, project, unproject, buildGeoJSONOverlay,
-	createFlight, shortBearingOf, parseViewHash, buildViewHash, wrapLon, createInput, WORLD_PX,
+	createFlight, shortBearingOf, parseViewHash, buildViewHash, wrapLon, createInput, WORLD_PX, lonLatToTile,
 } from "ortho-core";
 import { createGeopbf, geopbf } from "geopbf";
 import { createGetHeight, setApiUrl as setAltApiUrl } from "altpbf";
@@ -546,6 +546,31 @@ function loadLandmarks() {
 		console.log(`[landmark] 台帳読込 → ${landmarks.length}棟（h>=${j.h}m）`);
 		readySig = ""; mergeReq.main.sig = ""; needsDraw = true;   // 到着＝ラベル再結合（空港台帳と同じ作法）
 	}).catch(e => console.warn("[landmark] 台帳取得失敗", e));
+}
+// ── POI台帳（施設の点・z14+）＝uploader で焼いた poi/14/x/y を「寄った時だけ」読み、rank で解禁（docs/poi-ledger.md §11）。
+// landmark 名札と同じ経路に相乗り：施設チップの傘（9xxx 合成コード＝isFacility 真）・現テーマ色・案A で同名 dedup。
+// アイコン化は後段＝まず名札で「見える」を取る。線/面/地名/交通は optbv のまま（施設の点だけ自前台帳）。
+const POI_CODE = 9102;                                         // landmark(9101) の隣。9xxx 帯は空き＝施設チップ傘下に自動で入る
+const POI_SRC_ANNO = 1;                                        // 出典の pos-src=注記＝権威位置（基図を上書きしてよい）＝schema.SRC.ANNO
+const poiZAppear = rank => 14 + (255 - rank) * 3 / 255;        // rank 大＝早く出る（255→z14 / 中位→z15 / 小→z17）＝§11.5 の解禁段
+const poiTiles = new Map();                                    // "x/y" → 地物配列 ／ "loading" ／ []（POI 無しタイル）
+let poiVer = 0;                                                // タイル到着ごとに ++＝labelGate が拾ってラベルのみ再構築（merge なし）
+const poiLog = /[?&]poilog=1/.test(location.search);           // ?poilog=1＝POI層の診断（在庫/表示/rank待ち/基図重複を毎再構築で出す）
+const poiAll = /[?&]poiall=1/.test(location.search);           // ?poiall=1＝rank解禁と dedup を無効化＝全POIを z14+ で出す（「層が描くか」の評価用）
+function loadPOI(cam) {
+	const [w, s, e, n] = approxViewBbox(cam);
+	const [x0, y0] = lonLatToTile(w, n, 14), [x1, y1] = lonLatToTile(e, s, 14);   // 北西→(minx,miny) 南東→(maxx,maxy)
+	for (let x = Math.min(x0, x1); x <= Math.max(x0, x1); x++)
+		for (let y = Math.min(y0, y1); y <= Math.max(y0, y1); y++) {
+			const key = x + "/" + y;
+			if (poiTiles.has(key)) continue;                  // 既取得（空タイル [] 含む）＝二度と要求しない
+			poiTiles.set(key, "loading");
+			geopbf(`poi/14/${key}`).then(pbf => {             // GIS/pbf/poi/14/x/y（IDB 優先・無ければ 404＝空）
+				const feats = pbf?.geojson?.features || [];
+				poiTiles.set(key, feats.map(f => ({ anchor: f.geometry.coordinates, n: f.properties.n, r: f.properties.r, s: f.properties.s ?? 0 })));
+				if (feats.length) { poiVer++; needsDraw = true; if (poiLog) console.log(`[poi] tile ${key} ロード ${feats.length}件`); }   // 中身ありだけ再構築を促す（空タイルは黙って埋める）
+			}).catch(() => poiTiles.set(key, []));            // 404＝そのタイルに POI 無し＝空で確定（再要求しない）
+		}
 }
 const PLATEAU_AUTO_Z = qNum(/[?&]paz=(\d+(?:\.\d+)?)/, 15);   // これ以上寄ると自動ロード（遠景は対象外＝ズームアウトで全解放）。?paz=16＝タイル最細(z≈16-17)までベクタ建物で粘るA/B実験ノブ（デモのz15.5フライトは15前提＝既定は据置）
 // ズームアウトの保持：既に立っている区はズームアウトでは消さない＝「一回消えて基図建物で書き直す」没入切れ
@@ -2159,7 +2184,8 @@ const MOVE_SWAP_MS = 125;
 let lastLabelGate = "";
 const labelGate = () => "" + (cam.zoom >= CHOME_MINZOOM ? 1 : 0) + (cam.zoom >= CHOME800_MINZOOM ? 1 : 0)
 	+ (cam.zoom < AIRPORT_MARK_MAXZ && airportMarks.length ? "A" : "")
-	+ (landmarks && layerState.facility ? "L" + landmarkMinH(cam.zoom) : "");   // 高さ梯子の段を跨いだらラベルだけ作り直す
+	+ (landmarks && layerState.facility ? "L" + landmarkMinH(cam.zoom) : "")   // 高さ梯子の段を跨いだらラベルだけ作り直す
+	+ (layerState.facility && cam.zoom >= 14 ? "P" + poiVer + "z" + Math.floor(cam.zoom * 2) : "");   // POI台帳＝タイル到着(poiVer)・半ズーム(rank解禁)で作り直す
 // ?swaplog=1＝「書き直し」イベントの計器：main merge（タイル集合の増減つき）・ラベル再構築・base差し替えを
 // 時刻つきで出す。ズームアウトのポップがどのイベントと同時刻かで犯人を特定する切り分け用。
 const swapLog = /[?&]swaplog=1/.test(location.search);
@@ -2257,6 +2283,38 @@ function rebuildLabels(order) {
 				allLabels.push({ text: m.text, code: LANDMARK_CODE, anchor: m.anchor, size: 15, sort: 3, color, halo, haloW });
 			}
 		}
+	}
+	// POI台帳（施設チップON・z14+）：焼いた点を rank で解禁。同名は既存注記＋landmark に譲る（§11.2 案A＝d2 の実行時版）。
+	// 色/ハローは landmark と同じく現テーマの注記層から（テーマ生き替えに追随）。sort=4−rank/255＝rank 大ほど衝突に強い（§11.5 の二役）。
+	if (poiTiles.size && layerState.facility && cam.zoom >= 14) {
+		const lp = style.layers.find(l => l.id === "label")?.paint || {};
+		const color = parseRGBA(lp["text-color"] ?? "#333") || [0.2, 0.2, 0.2, 1];
+		const halo = parseRGBA(lp["text-halo-color"] ?? "#fff") || [1, 1, 1, 1];
+		const haloW = +(lp["text-halo-width"] ?? 1.1);
+		// 権威位置（注記由来 s>>4=ANNO＝寺社など）のPOI名を集め、基図の同名注記を先に消す＝POIが基図を上書き
+		//（§1 の三十三間堂 274mズレの解決＝基図の間違った位置を台帳の正しい位置で置換）。landmark/POI自身は消さない。
+		// 学校(KSJ位置)は非権威＝基図に譲る（基図もほぼ正確・§2＝壊れてるのは寺社系6%）。
+		const authNames = new Set();
+		for (const feats of poiTiles.values()) if (Array.isArray(feats)) for (const p of feats)
+			if ((p.s >> 4) === POI_SRC_ANNO && (poiAll || cam.zoom >= poiZAppear(p.r))) authNames.add(p.n);
+		if (authNames.size) for (let i = allLabels.length - 1; i >= 0; i--) {
+			const c = allLabels[i].code;
+			if (c !== POI_CODE && c !== LANDMARK_CODE && authNames.has(allLabels[i].text)) allLabels.splice(i, 1);
+		}
+		const have = new Set(allLabels.map(L => L.text));   // タイル注記(上書き済)＋landmark に既出の名前は出さない（案A）
+		let nAvail = 0, nShown = 0, nGated = 0, nDedup = 0;
+		for (const feats of poiTiles.values()) {
+			if (!Array.isArray(feats)) continue;            // "loading" は飛ばす
+			for (const p of feats) {
+				nAvail++;
+				if (!poiAll && cam.zoom < poiZAppear(p.r)) { nGated++; continue; }   // rank解禁（?poiall=1で無効）
+				const auth = (p.s >> 4) === POI_SRC_ANNO;   // 権威＝基図を消した側＝必ず出す。非権威は基図/landmarkに譲る
+				if (!poiAll && !auth && have.has(p.n)) { nDedup++; continue; }        // 案A dedup（?poiall=1で無効）
+				allLabels.push({ text: p.n, code: POI_CODE, anchor: p.anchor, size: 13, sort: 4 - p.r / 255, color, halo, haloW });
+				have.add(p.n); nShown++;   // 別タイルの同名（同じ名の学校）も1つに
+			}
+		}
+		if (poiLog) console.log(`[poi] z${cam.zoom.toFixed(1)} → 表示${nShown} / 在庫${nAvail}（rank待ち${nGated}・基図重複${nDedup}・上書き${authNames.size}）${poiAll ? " [poiall]" : ""}`);
 	}
 	const merged = mergeChome(allLabels, cam.zoom);   // 町丁名の二系統(210/800)を（N）表記ひとつへ畳んでから allowlist へ
 	const filtered = themes.filterLabels(merged, layerState, cam.zoom, layerState.terrain);   // 地形ON＝測量点の標高数値も通す
@@ -2432,6 +2490,7 @@ function render() {
 	basemapHidden = false;
 	sampleGroundElev();   // 中心の地面標高を追随（非同期・~100m格子メモ）＝groundR の材料
 	const { order, coarseOrder, total } = tiles.update(cam, size.w, size.h, { tilePx: (moving || !gpuFast || !idleCalm) ? undefined : IDLE_TILE_PX, groundR: groundRNow(), keepFine: keepFineNow() });   // tilePx＝「本当の静止」（settle+550ms）だけ主層を一段細かく（手前の詳細化・GPU格付け fast 限定・undefined=既定560）。groundR＝地形リフト球（チルト×高標高地の手前くさび欠け根治）。keepFine＝ズームアウトの子孫代打（3D限定）。calm が needsDraw を立て、細タイルの ready は requestDraw で連鎖再描画
+	if (layerState.facility && cam.zoom >= 14) loadPOI(cam);   // z14+×施設ON＝POI台帳タイル(poi/14/x/y)を可視ぶん先読み（既取得は素通り）
 	window.__lastOrder = order;   // デバッグ：現在の選択タイル（コンソール/検証スクリプトから確認）
 	window.__tileStats = () => { const s = tiles.stats(); console.log(`[tiles] 常駐 ${s.tiles}枚 / ${(s.bytes/1048576).toFixed(1)}MB（予算 ${(s.budgetBytes/1048576).toFixed(0)}MB, deviceMemory≈${s.deviceMemoryGB}GB, cacheEntries ${s.cacheEntries}）`); return s; };   // コンソールから常駐メモリ確認
 	window.__tileCache = tiles.cache;   // デバッグ：タイル台帳の生参照（status/tries/seen を界隈キーで覗く＝矩形再描画の切り分け用）
