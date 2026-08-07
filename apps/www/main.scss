@@ -25,13 +25,35 @@ body { font-family: 'Helvetica Neue', Arial, 'Hiragino Kaku Gothic ProN', sans-s
 			}
 		}
 		main { flex: 1; display: flex; flex-direction: column;
-			background:rgba(0,0,0,0.6); padding: 0 2rem;
-			justify-content: center; align-items: center; text-align: center;
-			.title { font-size: clamp(3rem, 6vw, 5rem); font-weight: 900; line-height: 1.1; margin-bottom: 1.5rem; }
+			background:rgba(0,0,0,0.6); padding: 2.5rem 2rem;
+			justify-content: flex-start; align-items: center; text-align: center; overflow-y: auto;
+			.title { font-size: clamp(2rem, 5vw, 3.5rem); font-weight: 900; line-height: 1.1; margin-bottom: 1rem; }
 			.highlight { color: var(--accent-color); text-shadow: 0 0 30px var(--accent-glow); }
-			.description { font-size: clamp(1rem, 2vw, 1.25rem); color: var(--text-secondary);
-				margin-bottom: 3rem; line-height: 1.6; max-width: 600px; }
-			.actions { display: flex; gap: 1.5rem; }
+			.tagline { font-size: clamp(0.95rem, 2vw, 1.15rem); color: var(--text-secondary);
+				margin-bottom: 1.75rem; line-height: 1.6; max-width: 640px; }
+			.apps { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1rem;
+				width: 100%; max-width: 900px; margin-bottom: 2rem;
+				.card { display: flex; flex-direction: column; text-align: left;
+					padding: 1.5rem 1.6rem; border-radius: 16px; text-decoration: none; color: var(--text-primary);
+					background: var(--glass-bg); border: 1px solid var(--glass-border);
+					backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+					transition: transform .25s ease, border-color .25s ease, box-shadow .25s ease;
+					&:hover { transform: translateY(-4px); border-color: var(--accent-color); box-shadow: 0 10px 30px rgba(0,0,0,0.45); }
+					.card-eyebrow { font-size: .7rem; letter-spacing: .15em; text-transform: uppercase; color: var(--accent-color); margin-bottom: .5rem; }
+					.card-title { font-size: 1.35rem; font-weight: 800; margin-bottom: .5rem; }
+					.card-desc { font-size: .9rem; color: var(--text-secondary); line-height: 1.55; }
+					.card-cta { margin-top: auto; padding-top: 1.1rem; font-size: .85rem; font-weight: 600; color: var(--accent-color); }
+					&.featured { grid-column: 1 / -1; flex-direction: row; padding: 0; overflow: hidden;
+						border-color: var(--accent-glow); box-shadow: 0 0 40px rgba(0, 255, 204, 0.12);
+						.card-poster { display: block; flex: 0 0 42%; width: 42%; height: 300px;
+							object-fit: cover; background: #0d0d12; }
+						.card-body { flex: 1; display: flex; flex-direction: column; justify-content: center; padding: 1.8rem 2rem; }
+						.card-title { font-size: 1.9rem; }
+						.card-desc { font-size: 1rem; }
+						.card-cta { margin-top: 1.2rem; padding-top: 0; }
+					}
+				}
+			}
 		}
 		footer { padding: 1.5rem; text-align: center; font-size: 0.8rem; border-top: 1px solid var(--glass-border);
 			a { color:var(--text-secondary); text-decoration: none; }
@@ -50,3 +72,47 @@ body { font-family: 'Helvetica Neue', Arial, 'Hiragino Kaku Gothic ProN', sans-s
 		}
 	}
 }
+
+@media (max-width: 640px) {
+	body #demoOverlay main { justify-content: flex-start; padding: 1.5rem; }
+	body #demoOverlay main .apps { grid-template-columns: 1fr; }
+	body #demoOverlay main .apps .card.featured { flex-direction: column;
+		.card-poster { width: 100%; flex-basis: auto; height: 168px; min-height: 0; }
+		.card-body { padding: 1.4rem 1.5rem; }
+		.card-title { font-size: 1.6rem; }
+	}
+}
+/* Section tabs (Demos / Technologies) + Technologies cards.
+   Full selectors so they beat the base `button` / `.card` rules that sit under the body{} nest. */
+body #demoOverlay main .tabs { display: inline-flex; gap: .3rem; margin-bottom: 1.75rem; padding: .35rem;
+	border-radius: 999px; background: var(--glass-bg); border: 1px solid var(--glass-border);
+	backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
+body #demoOverlay main .tabs .tab { padding: .7rem 2rem; border-radius: 999px; border: none; background: transparent;
+	color: var(--text-secondary); font-size: 1.05rem; font-weight: 600; cursor: pointer; box-shadow: none;
+	transition: color .2s ease, background .2s ease; }
+body #demoOverlay main .tabs .tab:hover { color: var(--text-primary); transform: none; }
+body #demoOverlay main .tabs .tab.is-active { background: var(--accent-color); color: #000; }
+body #demoOverlay main .tabs .tab.is-active:hover { transform: none; color: #000; }
+
+body #demoOverlay main .apps.tech { align-items: start; }
+body #demoOverlay main .apps.tech .card.tech-card:hover { transform: none; border-color: var(--glass-border); box-shadow: none; }
+body #demoOverlay main .apps.tech .card.tech-card .doclinks { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: 1rem; }
+body #demoOverlay main .apps.tech .card.tech-card .doclinks.demos { margin-top: .5rem; }
+body #demoOverlay main .apps.tech .card.tech-card .doclinks a { display: inline-flex; align-items: center; padding: .35rem .8rem;
+	border-radius: 8px; font-size: .8rem; font-weight: 600; text-decoration: none; color: var(--accent-color);
+	background: rgba(0, 255, 204, 0.08); border: 1px solid rgba(0, 255, 204, 0.25); transition: background .15s ease; }
+body #demoOverlay main .apps.tech .card.tech-card .doclinks a:hover { background: rgba(0, 255, 204, 0.16); }
+body #demoOverlay main .apps.tech .tech-note { grid-column: 1 / -1; text-align: center; margin: .25rem 0 0; font-size: .85rem; color: var(--text-secondary); }
+body #demoOverlay main .apps.tech .tech-note a { color: var(--accent-color); text-decoration: none; }
+body #demoOverlay main .apps.tech .tech-note a:hover { text-decoration: underline; }
+/* .apps sets display:grid which overrides the UA [hidden]{display:none} — restore it for panel toggling. */
+body #demoOverlay main .apps[hidden] { display: none; }
+/* Engine-version badges on Demos cards (V1 = WebGL2 / V2 = WebGPU, accent = new). */
+body #demoOverlay main .apps .card { position: relative; }
+body #demoOverlay main .apps .card .card-badge { position: absolute; top: 1rem; right: 1rem; z-index: 3;
+	padding: .24rem .62rem; border-radius: 999px; font-size: .68rem; font-weight: 700; letter-spacing: .03em;
+	white-space: nowrap; border: 1px solid; backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
+body #demoOverlay main .apps .card .card-badge.v2 { color: var(--accent-color); border-color: var(--accent-color); background: rgba(10, 10, 15, 0.72); }
+body #demoOverlay main .apps .card .card-badge.v1 { color: var(--text-secondary); border-color: var(--glass-border); background: rgba(10, 10, 15, 0.72); }
+body #demoOverlay main .apps.tech .card.tech-card .doclinks-label { display: block; margin-top: 1rem; font-size: .66rem; letter-spacing: .1em; text-transform: uppercase; color: var(--text-secondary); opacity: .7; }
+body #demoOverlay main .apps.tech .card.tech-card .doclinks.demos { margin-top: .45rem; }

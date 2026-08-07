@@ -74,3 +74,8 @@ tr:hover td { background: rgba(255,255,255,0.02); }
 .rule { border: none; border-top: 1px solid var(--muted); margin: 40px 0; }
 .tag { display: inline-block; padding: 1px 7px; border-radius: 10px; font-family: var(--mono); font-size: 0.72rem; font-weight: bold; vertical-align: middle; }
 .tag-file { background: #1e293b; color: #94a3b8; border: 1px solid #334155; }
+/* redesigned doc header: breadcrumb + current + top + flag */
+.header-bar .crumb-cur { color: var(--text); font-family: var(--mono); font-size: 0.9rem; font-weight: 600; }
+.header-bar .nav-cur { color: var(--text); font-weight: 700; font-family: var(--mono); font-size: 0.78rem; }
+.header-bar .nav-top { color: var(--dim); letter-spacing: .02em; }
+.header-bar .nav-flag { font-size: 1.05rem; line-height: 1; }

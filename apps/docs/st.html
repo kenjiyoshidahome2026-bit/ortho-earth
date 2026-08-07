@@ -93,10 +93,33 @@ canvas { background: #020617; border-radius: 8px; display: block; width: 100%; }
 .adv-icon { font-size: 1rem; flex-shrink: 0; }
 .adv-title { color: #e2e8f0; font-weight: bold; font-size: 0.82rem; }
 </style>
+<style>
+.dhdr{position:sticky;top:0;z-index:30;display:flex;align-items:center;gap:9px;padding:10px 16px;margin:0 0 14px;background:#0b1220;border-bottom:1px solid #1e293b;font-family:monospace;font-size:0.78rem;flex-wrap:wrap}
+.dhdr .sec{color:#38bdf8;font-weight:bold;text-decoration:none}
+.dhdr .sep{color:#334155}
+.dhdr a{color:#64748b;text-decoration:none}
+.dhdr a:hover{color:#38bdf8}
+.dhdr .crumb-link{color:#94a3b8}
+.dhdr .cur{color:#e2e8f0}
+.dhdr .nav{display:flex;gap:14px;margin-left:auto;align-items:center}
+.dhdr .cur-tab{color:#e2e8f0;font-weight:700}
+</style>
 </head>
 <body>
-
-<a href="/" style="display:inline-flex;align-items:center;justify-content:center;gap:5px;margin-bottom:10px;margin-right:8px;padding:4px 10px;border-radius:6px;border:1px solid #334155;background:#0f172a;color:#64748b;font-size:0.75rem;font-family:monospace;text-decoration:none;min-width:10em" onmouseover="this.style.color='#38bdf8'" onmouseout="this.style.color='#64748b'">← ortho-earth</a><a href="gintbuf.html" style="display:inline-flex;align-items:center;justify-content:center;gap:5px;margin-bottom:10px;padding:4px 10px;border-radius:6px;border:1px solid #334155;background:#0f172a;color:#64748b;font-size:0.75rem;font-family:monospace;text-decoration:none;min-width:10em" onmouseover="this.style.color='#38bdf8'" onmouseout="this.style.color='#64748b'">← Gint Pipeline</a>
+<div class="dhdr">
+	<img src="favicon.svg" width="22" height="22">
+	<a href="/#technologies" class="sec">Technologies</a>
+	<span class="sep">/</span>
+	<a href="gintbuf.html" class="crumb-link">Gint</a>
+	<span class="sep">/</span>
+	<span class="cur">GPU Stencil</span>
+	<div class="nav">
+		<a href="/#technologies">top ⇧</a>
+		<a href="gint.html">Morton</a>
+		<a href="lod.html">Dynamic LOD</a>
+		<span class="cur-tab">GPU Stencil</span>
+	</div>
+</div>
 
 <h1>Gint Stencil Tessellation</h1>
 <div class="subtitle">Hardware-Driven Fill · Even-Odd Rule · No Pre-processing Required</div>

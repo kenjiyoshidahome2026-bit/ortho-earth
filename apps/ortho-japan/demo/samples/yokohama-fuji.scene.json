@@ -1,0 +1,11 @@
+{
+  "type": "sceneCollection",
+  "title": "横浜・みなとみらい ― 富士を望む",
+  "lang": "jp",
+  "waitLoading": true,
+  "defaults": { "transition": "glide", "hold": 3 },
+  "scenes": [
+    { "view": "#18.35/35.45723/139.63562/0t/-97r/l=", "hold": 2.5, "caption": "みなとみらい" },
+    { "view": "#18.35/35.45723/139.63562/75t/-97r/l=", "hold": 5, "caption": "みなとみらい ― 富士を望む" }
+  ]
+}

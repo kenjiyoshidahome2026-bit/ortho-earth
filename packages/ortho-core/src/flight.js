@@ -115,5 +115,57 @@ export function createFlight({ cam, viewW, maxPitch, minZoom = 0, onMove, onFlyi
 		if (!phases.length) { onFlying(false); flight = null; return; }
 		run(0);
 	}
-	return { flyTo, glideTo, cancel: () => { if (flight) flight.cancel(); }, get active() { return !!flight; } };
+	// 連続ドリー（glidePath）＝hold:0 の連続キーを1本の centripetal Catmull-Rom で通す（例：隅田川に沿ってカメラを流す）。
+	// pts＝[{lon,lat,zoom,pitch,bearing}]（pitch/bearing はラジアン＝cam と同じ単位）。現在のカメラを先頭制御点に足して滑らかに入る。
+	// 経緯度は曲線（通過保証・オーバーシュートなし＝centripetal α=0.5・端は反射ファントムで係数破綻を回避）、zoom/pitch/bearing は各区間を線形。
+	// 全体に ease in/out。ユーザー操作で cancel（flyTo/glideTo と同じ手綱）。glideTo と違い「一続き」＝停止せずに複数点を貫く。
+	function glidePath(pts, { secs } = {}) {
+		if (!Array.isArray(pts) || pts.length < 1) return;
+		if (pts.length === 1) return glideTo(pts[0].lon, pts[0].lat, pts[0].zoom, (pts[0].pitch || 0) / D2R, (pts[0].bearing || 0) / D2R);   // 1点＝ただの滑走
+		if (flight) flight.cancel();
+		let cancelled = false;
+		flight = { cancel: () => { cancelled = true; onFlying(false); flight = null; } };
+		onFlying(true);
+		// 制御点＝[現カメラ, ...pts]。経度は前点基準で連続化（antimeridian/360跳び回避）、方位も最短側で連続化。
+		const ctrl = [{ lon: cam.center[0], lat: cam.center[1], zoom: cam.zoom, pitch: cam.pitch, bearing: shortBearingOf(cam.bearing) }];
+		for (const p of pts) {
+			const prev = ctrl[ctrl.length - 1];
+			let lon = p.lon; lon -= Math.round((lon - prev.lon) / 360) * 360;
+			ctrl.push({ lon, lat: p.lat, zoom: p.zoom, pitch: Math.min(maxPitch, p.pitch || 0), bearing: prev.bearing + shortBearingOf((p.bearing || 0) - prev.bearing) });
+		}
+		const n = ctrl.length;
+		// 端の反射ファントム（端で制御点が重なり centripetal のノット間隔が 0 になる係数破綻を避ける）
+		const gp = j => j < 0 ? { lon: 2 * ctrl[0].lon - ctrl[1].lon, lat: 2 * ctrl[0].lat - ctrl[1].lat }
+			: j > n - 1 ? { lon: 2 * ctrl[n - 1].lon - ctrl[n - 2].lon, lat: 2 * ctrl[n - 1].lat - ctrl[n - 2].lat } : ctrl[j];
+		// centripetal Catmull-Rom（Barry–Goldman の再帰形）でスカラ key を param tt（∈[t1,t2]）で評価
+		const cr = (P, t, tt, key) => {
+			const g = (a, b, ta, tb) => ((tb - tt) * P[a][key] + (tt - ta) * P[b][key]) / ((tb - ta) || 1e-9);
+			const A1 = g(0, 1, t[0], t[1]), A2 = g(1, 2, t[1], t[2]), A3 = g(2, 3, t[2], t[3]);
+			const B1 = ((t[2] - tt) * A1 + (tt - t[0]) * A2) / ((t[2] - t[0]) || 1e-9);
+			const B2 = ((t[3] - tt) * A2 + (tt - t[1]) * A3) / ((t[3] - t[1]) || 1e-9);
+			return ((t[2] - tt) * B1 + (tt - t[1]) * B2) / ((t[2] - t[1]) || 1e-9);
+		};
+		const posAt = u => {
+			const f = u * (n - 1), i = Math.min(n - 2, Math.max(0, Math.floor(f))), lt = f - i;
+			const P = [gp(i - 1), gp(i), gp(i + 1), gp(i + 2)];
+			const t = [0, 0, 0, 0];
+			for (let k = 1; k < 4; k++) { const d = Math.hypot(P[k].lon - P[k - 1].lon, P[k].lat - P[k - 1].lat); t[k] = t[k - 1] + Math.sqrt(Math.max(d, 1e-9)); }
+			const tt = t[1] + (t[2] - t[1]) * lt, a = ctrl[i], b = ctrl[i + 1];
+			return { lon: cr(P, t, tt, "lon"), lat: cr(P, t, tt, "lat"), zoom: a.zoom + (b.zoom - a.zoom) * lt, pitch: a.pitch + (b.pitch - a.pitch) * lt, bearing: a.bearing + (b.bearing - a.bearing) * lt };
+		};
+		let pathLen = 0; for (let i = 1; i < n; i++) pathLen += Math.hypot(ctrl[i].lon - ctrl[i - 1].lon, ctrl[i].lat - ctrl[i - 1].lat);
+		const w0 = 360 * viewW() / (WORLD_PX * Math.pow(2, Math.max(...ctrl.map(c => c.zoom))));
+		const dur = secs ? secs * 1000 : Math.max(1500, Math.min(16000, pathLen / w0 * 650));   // secs 指定＝それ／無ければ経路長を寄った側の視野幅で割った体感尺
+		const t0 = performance.now();
+		const step = () => {
+			if (cancelled) return;
+			const k = Math.min(1, (performance.now() - t0) / dur), e = k * k * (3 - 2 * k);
+			const c = posAt(e);
+			cam.center = [c.lon, c.lat]; cam.zoom = Math.max(minZoom, c.zoom); cam.pitch = c.pitch; cam.bearing = c.bearing;
+			onMove();
+			if (k < 1) requestAnimationFrame(step); else { onFlying(false); flight = null; onMove(); }   // 走破＝着地扱い（autoPlateau 解禁）
+		};
+		requestAnimationFrame(step);
+	}
+	return { flyTo, glideTo, glidePath, cancel: () => { if (flight) flight.cancel(); }, get active() { return !!flight; } };
 }
