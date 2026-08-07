@@ -203,9 +203,13 @@ export function demo({ scenes, slide: slideOn = true, hold = 5500, slideHold = 4
 		if (opts.mobile !== undefined) mobile = opts.mobile;
 		if ("finale" in opts) activeFinale = opts.finale;   // 終演フックの差し替え（ドロップ=null）
 		if (Array.isArray(opts.scenes) && opts.scenes.length) {   // 別台本を渡された＝載せ替え＋目次再構築（▶=組み込み／ドロップ=落とした台本）
-			scenes = slideOn ? opts.scenes : opts.scenes.filter(s => s.view || s.glide || !s.slide);
+			const next = slideOn ? opts.scenes : opts.scenes.filter(s => s.view || s.glide || !s.slide);
+			// 先読みの撃ち直しは「台本が実際に入れ替わった時だけ」。▶は毎回 builtin を渡す（ドロップ台本から組み込みへ戻す口）ので、
+			// 無条件に prefetched=false にすると ▶ を押すたび先読みが再発火する＝「▶の瞬間に1回だけ」の掟が壊れ、
+			// 同じ区の二重読み（iPhone のクラッシュ圧の正体だった型）が戻ってくる。同一台本の再生は撃ち直さない。
+			if (next.length !== scenes.length || next.some((s, k) => s !== scenes[k])) prefetched = false;
+			scenes = next;
 			list.innerHTML = scenes.map((s, k) => `<button data-i="${k}">${k + 1}. ${sceneLabel(s)}</button>`).join("");
-			prefetched = false;
 		}
 		bareLive = !!opts.bare;
 		bar.classList.add("on"); mapEl.classList.add("demo-live"); show(i, fly);
