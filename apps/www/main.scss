@@ -2,6 +2,9 @@
 	--bg-color: #0a0a0f; --text-primary: #fff; --text-secondary: #ccc; --accent-color: #00ffcc;
 	--glass-bg: rgba(10, 10, 15, 0.6); --glass-border: rgba(255, 255, 255, 0.1);
 	--accent-glow: rgba(0, 255, 204, 0.4);
+	/* Second accent — a vivid azure blue. Warms up the white/green palette; anchors the Demos/Technologies tabs. */
+	--accent-2: #3178c6; --accent-2-glow: rgba(49, 120, 198, 0.5); --accent-2-tint: rgba(49, 120, 198, 0.16);
+	--accent-2-bright: #5b9fe0; /* lighter azure for small labels on dark (card eyebrows) */
 }
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -39,7 +42,7 @@ body { font-family: 'Helvetica Neue', Arial, 'Hiragino Kaku Gothic ProN', sans-s
 					backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
 					transition: transform .25s ease, border-color .25s ease, box-shadow .25s ease;
 					&:hover { transform: translateY(-4px); border-color: var(--accent-color); box-shadow: 0 10px 30px rgba(0,0,0,0.45); }
-					.card-eyebrow { font-size: .7rem; letter-spacing: .15em; text-transform: uppercase; color: var(--accent-color); margin-bottom: .5rem; }
+					.card-eyebrow { font-size: .7rem; letter-spacing: .15em; text-transform: uppercase; color: var(--accent-2-bright); font-weight: 700; margin-bottom: .5rem; }
 					.card-title { font-size: 1.35rem; font-weight: 800; margin-bottom: .5rem; }
 					.card-desc { font-size: .9rem; color: var(--text-secondary); line-height: 1.55; }
 					.card-cta { margin-top: auto; padding-top: 1.1rem; font-size: .85rem; font-weight: 600; color: var(--accent-color); }
@@ -89,10 +92,10 @@ body #demoOverlay main .tabs { display: inline-flex; gap: .3rem; margin-bottom: 
 	backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
 body #demoOverlay main .tabs .tab { padding: .7rem 2rem; border-radius: 999px; border: none; background: transparent;
 	color: var(--text-secondary); font-size: 1.05rem; font-weight: 600; cursor: pointer; box-shadow: none;
-	transition: color .2s ease, background .2s ease; }
-body #demoOverlay main .tabs .tab:hover { color: var(--text-primary); transform: none; }
-body #demoOverlay main .tabs .tab.is-active { background: var(--accent-color); color: #000; }
-body #demoOverlay main .tabs .tab.is-active:hover { transform: none; color: #000; }
+	transition: color .2s ease, background .2s ease, box-shadow .2s ease; }
+body #demoOverlay main .tabs .tab:hover { color: var(--text-primary); background: var(--accent-2-tint); transform: none; }
+body #demoOverlay main .tabs .tab.is-active { background: var(--accent-2); color: #fff; box-shadow: 0 4px 18px var(--accent-2-glow); }
+body #demoOverlay main .tabs .tab.is-active:hover { transform: none; color: #fff; background: var(--accent-2); }
 
 body #demoOverlay main .apps.tech { align-items: start; }
 body #demoOverlay main .apps.tech .card.tech-card:hover { transform: none; border-color: var(--glass-border); box-shadow: none; }
@@ -102,6 +105,9 @@ body #demoOverlay main .apps.tech .card.tech-card .doclinks a { display: inline-
 	border-radius: 8px; font-size: .8rem; font-weight: 600; text-decoration: none; color: var(--accent-color);
 	background: rgba(0, 255, 204, 0.08); border: 1px solid rgba(0, 255, 204, 0.25); transition: background .15s ease; }
 body #demoOverlay main .apps.tech .card.tech-card .doclinks a:hover { background: rgba(0, 255, 204, 0.16); }
+/* "Interactive demos" links (Morton / Dynamic LOD / GPU Stencil) — blue pills to set them apart from the doc links. */
+body #demoOverlay main .apps.tech .card.tech-card .doclinks.demos a { color: var(--accent-2-bright); background: rgba(91, 159, 224, 0.10); border-color: rgba(91, 159, 224, 0.30); }
+body #demoOverlay main .apps.tech .card.tech-card .doclinks.demos a:hover { background: rgba(91, 159, 224, 0.18); }
 body #demoOverlay main .apps.tech .tech-note { grid-column: 1 / -1; text-align: center; margin: .25rem 0 0; font-size: .85rem; color: var(--text-secondary); }
 body #demoOverlay main .apps.tech .tech-note a { color: var(--accent-color); text-decoration: none; }
 body #demoOverlay main .apps.tech .tech-note a:hover { text-decoration: underline; }
