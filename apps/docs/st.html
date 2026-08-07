@@ -94,30 +94,31 @@ canvas { background: #020617; border-radius: 8px; display: block; width: 100%; }
 .adv-title { color: #e2e8f0; font-weight: bold; font-size: 0.82rem; }
 </style>
 <style>
-.dhdr{position:sticky;top:0;z-index:30;display:flex;align-items:center;gap:9px;padding:10px 16px;margin:0 0 14px;background:#0b1220;border-bottom:1px solid #1e293b;font-family:monospace;font-size:0.78rem;flex-wrap:wrap}
-.dhdr .sec{color:#38bdf8;font-weight:bold;text-decoration:none}
-.dhdr .sep{color:#334155}
-.dhdr a{color:#64748b;text-decoration:none}
-.dhdr a:hover{color:#38bdf8}
-.dhdr .crumb-link{color:#94a3b8}
-.dhdr .cur{color:#e2e8f0}
-.dhdr .nav{display:flex;gap:14px;margin-left:auto;align-items:center}
-.dhdr .cur-tab{color:#e2e8f0;font-weight:700}
+.header-bar{background:#111827;border-bottom:1px solid #334155;padding:12px 24px;margin:-20px -20px 16px;align-self:stretch;position:sticky;top:0;z-index:30;display:flex;align-items:center;gap:12px;flex-wrap:wrap;font-family:'JetBrains Mono','Fira Code',monospace;font-size:0.78rem}
+.header-bar img{flex-shrink:0}
+.header-bar .logo{color:#38bdf8;font-weight:bold;font-size:0.95rem;text-decoration:none}
+.header-bar .sep{color:#334155}
+.header-bar a{color:#64748b;text-decoration:none}
+.header-bar a:hover{color:#38bdf8}
+.header-bar .crumb-cur{color:#e2e8f0;font-size:0.9rem;font-weight:600}
+.header-bar .nav-links{display:flex;gap:16px;margin-left:auto;align-items:center}
+.header-bar .nav-cur{color:#e2e8f0;font-weight:700}
+.header-bar .nav-top{color:#64748b;letter-spacing:.02em}
 </style>
 </head>
 <body>
-<div class="dhdr">
-	<img src="favicon.svg" width="22" height="22">
-	<a href="/#technologies" class="sec">Technologies</a>
+<div class="header-bar">
+	<img src="favicon.svg" width="24" height="24">
+	<a href="/#technologies" class="logo">Technologies</a>
 	<span class="sep">/</span>
-	<a href="gintbuf.html" class="crumb-link">Gint</a>
+	<a href="gintbuf.html">Gint</a>
 	<span class="sep">/</span>
-	<span class="cur">GPU Stencil</span>
-	<div class="nav">
-		<a href="/#technologies">top ⇧</a>
+	<span class="crumb-cur">GPU Stencil</span>
+	<div class="nav-links">
+		<a href="/#technologies" class="nav-top">top ⇧</a>
 		<a href="gint.html">Morton</a>
 		<a href="lod.html">Dynamic LOD</a>
-		<span class="cur-tab">GPU Stencil</span>
+		<span class="nav-cur">GPU Stencil</span>
 	</div>
 </div>
 

@@ -98,29 +98,30 @@ input[type=range]::-moz-range-track { height: 8px; border-radius: 999px; backgro
 }
 </style>
 <style>
-.dhdr{position:sticky;top:10px;z-index:30;display:flex;align-items:center;gap:10px;padding:9px 16px;margin:0 0 18px;background:rgba(10,15,30,0.72);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border:1px solid rgba(56,189,248,0.16);border-radius:14px;box-shadow:0 12px 34px -12px rgba(0,0,0,0.6);font-family:ui-monospace,monospace;font-size:0.76rem;flex-wrap:wrap}
-.dhdr .sec{color:#38bdf8;font-weight:bold;text-decoration:none;text-shadow:0 0 12px rgba(56,189,248,0.4)}
-.dhdr .sep{color:#334155}
-.dhdr a{color:#64748b;text-decoration:none;transition:color .15s ease}
-.dhdr a:hover{color:#7dd3fc}
-.dhdr .crumb-link{color:#94a3b8}
-.dhdr .cur{color:#e2e8f0}
-.dhdr .nav{display:flex;gap:14px;margin-left:auto;align-items:center}
-.dhdr .cur-tab{color:#7dd3fc;font-weight:700;text-shadow:0 0 12px rgba(56,189,248,0.4)}
+.header-bar{background:#111827;border-bottom:1px solid #334155;padding:12px 24px;margin:-16px -14px 16px;align-self:stretch;position:sticky;top:0;z-index:30;display:flex;align-items:center;gap:12px;flex-wrap:wrap;font-family:'JetBrains Mono','Fira Code',monospace;font-size:0.78rem}
+.header-bar img{flex-shrink:0}
+.header-bar .logo{color:#38bdf8;font-weight:bold;font-size:0.95rem;text-decoration:none}
+.header-bar .sep{color:#334155}
+.header-bar a{color:#64748b;text-decoration:none}
+.header-bar a:hover{color:#38bdf8}
+.header-bar .crumb-cur{color:#e2e8f0;font-size:0.9rem;font-weight:600}
+.header-bar .nav-links{display:flex;gap:16px;margin-left:auto;align-items:center}
+.header-bar .nav-cur{color:#e2e8f0;font-weight:700}
+.header-bar .nav-top{color:#64748b;letter-spacing:.02em}
 </style>
 </head>
 <body>
-<div class="dhdr">
-	<img src="favicon.svg" width="22" height="22">
-	<a href="/#technologies" class="sec">Technologies</a>
+<div class="header-bar">
+	<img src="favicon.svg" width="24" height="24">
+	<a href="/#technologies" class="logo">Technologies</a>
 	<span class="sep">/</span>
-	<a href="gintbuf.html" class="crumb-link">Gint</a>
+	<a href="gintbuf.html">Gint</a>
 	<span class="sep">/</span>
-	<span class="cur">Dynamic LOD</span>
-	<div class="nav">
-		<a href="/#technologies">top ⇧</a>
+	<span class="crumb-cur">Dynamic LOD</span>
+	<div class="nav-links">
+		<a href="/#technologies" class="nav-top">top ⇧</a>
 		<a href="gint.html">Morton</a>
-		<span class="cur-tab">Dynamic LOD</span>
+		<span class="nav-cur">Dynamic LOD</span>
 		<a href="st.html">GPU Stencil</a>
 	</div>
 </div>
