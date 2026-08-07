@@ -557,7 +557,7 @@ const poiTiles = new Map();                                    // "x/y" → 地�
 const POI_BASE = "https://api.ortho-earth.com/bucket/GIS/pbf/";   // POIタイル/マニフェストのバケツ基底（自前fetch＝geopbf名前解決を通さない）
 const POI_BUST = Date.now();                                   // セッション毎の一意値＝マニフェストのHTTPキャッシュ回避／未整備時のフォールバック版
 let poiVer = 0;                                                // タイル到着ごとに ++＝labelGate が拾ってラベルのみ再構築（merge なし）
-let poiManifest = null, poiManReq = null;                      // {v:版, tiles:Set}＝在庫のみ取得（404空振り根絶）＋版でキャッシュ制御
+let poiManifest = null, poiManReq = null, poiManState = "none";   // マニフェスト {v,tiles:Set}＋状態(none/loading/loaded/absent)。解決前はタイル要求しない（race404防止）
 const poiLog = /[?&]poilog=1/.test(location.search);           // ?poilog=1＝POI層の診断（在庫/表示/rank待ち/基図重複/上書き）
 const poiAll = /[?&]poiall=1/.test(location.search);           // ?poiall=1＝rank解禁と dedup を無効化＝全POIを z14+ で出す（評価用）
 // 自前fetch：404を例外でなく「空(null)」として静かに返す（geopbf(name) は PBFIO が404を毎回コンソールに吐く＝
@@ -572,14 +572,16 @@ async function poiFetch(url) {
 // タイル在庫マニフェストを一度だけ取得。無ければ（未焼き/旧焼き）フォールバック＝bbox全スキャン（自前fetchなので404は静か）。
 function loadPoiManifest() {
 	if (poiManReq) return poiManReq;
+	poiManState = "loading";
 	return poiManReq = poiFetch(`${POI_BASE}poi/14/index.json?_=${POI_BUST}`).then(buf => {
-		if (!buf) return;
-		const j = JSON.parse(new TextDecoder().decode(buf));
-		if (j?.tiles) { poiManifest = { v: j.v, tiles: new Set(j.tiles) }; poiVer++; needsDraw = true; if (poiLog) console.log(`[poi] マニフェスト ${j.tiles.length}タイル v${j.v}`); }
-	}).catch(() => { /* 取得失敗＝フォールバック */ });
+		if (buf) { const j = JSON.parse(new TextDecoder().decode(buf)); if (j?.tiles) { poiManifest = { v: j.v, tiles: new Set(j.tiles) }; poiManState = "loaded"; if (poiLog) console.log(`[poi] マニフェスト ${j.tiles.length}タイル v${j.v}`); } }
+		if (poiManState !== "loaded") poiManState = "absent";   // 無し/壊れ＝フォールバック（bboxスキャン）
+		poiVer++; needsDraw = true;                            // 解決＝loadPOI を回して在庫ゲート/スキャン開始
+	}).catch(() => { poiManState = "absent"; poiVer++; needsDraw = true; });
 }
 function loadPOI(cam) {
-	loadPoiManifest();                                        // 非同期・到着までは全スキャン（フォールバック・自前fetchで静か）
+	loadPoiManifest();
+	if (poiManState === "loading") return;                    // マニフェスト解決待ち＝未存在タイルへの空振り404を防ぐ（race根治）
 	const [w, s, e, n] = approxViewBbox(cam);
 	const [x0, y0] = lonLatToTile(w, n, 14), [x1, y1] = lonLatToTile(e, s, 14);   // 北西→(minx,miny) 南東→(maxx,maxy)
 	const ver = poiManifest ? poiManifest.v : POI_BUST;       // 版でキャッシュ制御（再焼きで自動失効）／フォールバックはセッション値
