@@ -527,6 +527,25 @@ fetch(import.meta.env.BASE_URL + "airports.json").then(r => r.json()).then(list 
 	airportMarks = list.map(a => ({ text: a.name, code: 441, anchor: [a.lon, a.lat], size: 10, sort: 2, color: [0.53, 0.53, 0.5, 1], halo: [0.965, 0.965, 0.957, 1], haloW: 1.1, markOnly: true }));
 	readySig = ""; mergeReq.main.sig = "";   // 読み込めた時点でラベル再結合（要求記憶も消す＝即出し直し）
 }).catch(() => {});
+// ── PLATEAU ランドマークの名札（施設チップONの時だけ）──────────────────────────
+// 台帳＝scripts/plateau-names-build.mjs（採取）→ plateau-names-merge.mjs --emit-landmarks（h≥60m・
+// タイル注記に同名がある棟は焼いた時点で除外済み）。数百棟・数十KB＝施設チップが初めてONになった時に取りに行く。
+// ★「建物名を全部名札にする」はやらない（本人指摘 2026-08-05）：PLATEAU整備は336/1741市区町村で、
+// 整備された町だけ名札だらけ・隣町はゼロ＝地図が壊れて見える。高さで足切りすると穴は原理的に見えない
+// ——未整備の町にはそもそも高層建築が無いため。実測（101地区10476棟）でも h≥60m は108棟(1.0%)・17地区のみ。
+// PLATEAUメッシュのロードとは無関係＝遠景（z11〜）から超高層の名前だけが静かに立つ。
+const LANDMARK_CODE = 9101;                                   // 合成コード（optbv の実コードは 8105 まで＝9xxx帯は空き）。isFacility が真＝施設チップの傘下に入り、色も施設の紫になる
+const LANDMARK_LADDER = [[11, 150], [12.5, 100], [14, 60]];   // [このズーム以上, 出す高さの下限m]＝寄るほど低い建物まで降りてくる
+const landmarkMinH = z => { let h = Infinity; for (const [lz, lh] of LANDMARK_LADDER) if (z >= lz) h = Math.min(h, lh); return h; };
+let landmarks = null, landmarkReq = null;
+function loadLandmarks() {
+	if (landmarkReq) return landmarkReq;   // 一度だけ（失敗しても再試行しない＝名札は無くても地図は成立する）
+	return landmarkReq = fetch(import.meta.env.BASE_URL + "plateau-landmarks.json").then(r => r.json()).then(j => {
+		landmarks = j.f.map(([text, lon, lat, h, pair]) => ({ text, anchor: [lon, lat], h, pair }));
+		console.log(`[landmark] 台帳読込 → ${landmarks.length}棟（h>=${j.h}m）`);
+		readySig = ""; mergeReq.main.sig = ""; needsDraw = true;   // 到着＝ラベル再結合（空港台帳と同じ作法）
+	}).catch(e => console.warn("[landmark] 台帳取得失敗", e));
+}
 const PLATEAU_AUTO_Z = qNum(/[?&]paz=(\d+(?:\.\d+)?)/, 15);   // これ以上寄ると自動ロード（遠景は対象外＝ズームアウトで全解放）。?paz=16＝タイル最細(z≈16-17)までベクタ建物で粘るA/B実験ノブ（デモのz15.5フライトは15前提＝既定は据置）
 // ズームアウトの保持：既に立っている区はズームアウトでは消さない＝「一回消えて基図建物で書き直す」没入切れ
 // の根治（本人裁定2026-08-03「格段良くなった」＝全保持を既定化）。手放すのは遠方離脱（FAR_DEG）と真俯瞰だけ。
@@ -2124,7 +2143,9 @@ const MOVE_SWAP_MS = 125;
 // ラベルだけ独立に更新＝ズームアウトで z15.5/z13 を跨いでも基図の書き直しゼロ。駅軌道(z14.5)は本物のGL層
 //（hiddenLi）なので merge 側に残す（railチップON時のみ効く）。
 let lastLabelGate = "";
-const labelGate = () => "" + (cam.zoom >= CHOME_MINZOOM ? 1 : 0) + (cam.zoom >= CHOME800_MINZOOM ? 1 : 0) + (cam.zoom < AIRPORT_MARK_MAXZ && airportMarks.length ? "A" : "");
+const labelGate = () => "" + (cam.zoom >= CHOME_MINZOOM ? 1 : 0) + (cam.zoom >= CHOME800_MINZOOM ? 1 : 0)
+	+ (cam.zoom < AIRPORT_MARK_MAXZ && airportMarks.length ? "A" : "")
+	+ (landmarks && layerState.facility ? "L" + landmarkMinH(cam.zoom) : "");   // 高さ梯子の段を跨いだらラベルだけ作り直す
 // ?swaplog=1＝「書き直し」イベントの計器：main merge（タイル集合の増減つき）・ラベル再構築・base差し替えを
 // 時刻つきで出す。ズームアウトのポップがどのイベントと同時刻かで犯人を特定する切り分け用。
 const swapLog = /[?&]swaplog=1/.test(location.search);
@@ -2206,6 +2227,23 @@ function rebuildLabels(order) {
 		const have = new Set(allLabels.filter(L => L.code === 441).map(L => L.text));
 		for (const a of airportMarks) if (!have.has(a.text)) allLabels.push(a);
 	}
+	// PLATEAU ランドマーク（施設チップON時のみ・高さの梯子で段階表示）。文字の色/ハローは現テーマの注記層から取る
+	// ＝テーマ生き替え(switchTheme)にそのまま追随する（読み込み時に焼くと夜テーマで紙色のハローが残る）。
+	if (landmarks && layerState.facility) {
+		const minH = landmarkMinH(cam.zoom);
+		if (minH < Infinity) {
+			const lp = style.layers.find(l => l.id === "label")?.paint || {};
+			const color = parseRGBA(lp["text-color"] ?? "#333") || [0.2, 0.2, 0.2, 1];
+			const halo = parseRGBA(lp["text-halo-color"] ?? "#fff") || [1, 1, 1, 1];
+			const haloW = +(lp["text-halo-width"] ?? 1.1);
+			const have = new Set(allLabels.map(L => L.text));   // タイル注記に同名があれば出さない（焼いた時の d2 除外に対する実行時の保険）
+			for (const m of landmarks) {
+				if (m.h < minH || have.has(m.text)) continue;
+				// size 15＝施設の再スタイル(×0.9)を通ると13.5＝並の施設注記(12.2)より一回り大きい。sort 3＝施設の中では優先して残る
+				allLabels.push({ text: m.text, code: LANDMARK_CODE, anchor: m.anchor, size: 15, sort: 3, color, halo, haloW });
+			}
+		}
+	}
 	const merged = mergeChome(allLabels, cam.zoom);   // 町丁名の二系統(210/800)を（N）表記ひとつへ畳んでから allowlist へ
 	const filtered = themes.filterLabels(merged, layerState, cam.zoom, layerState.terrain);   // 地形ON＝測量点の標高数値も通す
 	const kuVisible = filtered.some(L => L.code === 110);   // 区名が見えている＝政令市名は「背景ラベル」へ格下げする合図
@@ -2258,12 +2296,14 @@ document.querySelectorAll(".chip").forEach(b => b.addEventListener("click", () =
 	syncChip(b);
 	styleSig = JSON.stringify(layerState); readySig = ""; needsDraw = true;
 	if (k === "rail") { renderer.set("view", { showN02: layerState.rail }); if (layerState.rail) loadN02(); }   // 鉄道ON＝N02新幹線も表示＋初回fetch
+	if (k === "facility" && layerState.facility) loadLandmarks();   // 施設ON＝PLATEAUランドマーク台帳も初回fetch
 	if (k === "terrain") applyTerrain();   // 地形＝等高線・測量点標高・水系も一緒に点火
 	saveView();   // レイヤ状態も共有URLの一部＝即書き戻す
 }));
 // 起動時の初期同期（共有URL復元＋opts.layersの固定を含む）：チップの見た目と rail/terrain 副作用を layerState に合わせる（既定どおりなら実質 no-op）
 document.querySelectorAll(".chip[data-k]").forEach(syncChip);
 if (layerState.rail) { renderer.set("view", { showN02: true }); loadN02(); }
+if (layerState.facility) loadLandmarks();   // 起動時に共有URL(l=facility)や opts.layers で施設ONなら台帳も取りに行く
 renderer.set("view", { showContour: layerState.terrain });
 
 // 操作方法カード（#hint）はオプトインガジェットへ移設＝gadgets/hint.js（6秒の自動表示・×の記憶ごと）。
@@ -2287,6 +2327,7 @@ function applyViewLayers(v) {
 	document.querySelectorAll(".chip[data-k]").forEach(syncChip);
 	styleSig = JSON.stringify(layerState); readySig = "";
 	renderer.set("view", { showN02: layerState.rail }); if (layerState.rail) loadN02();
+	if (layerState.facility) loadLandmarks();
 	applyTerrain();
 }
 // デモ台本の一行＝共有URLハッシュへ「飛ぶ」（hashchangeのジャンプと違い球面フライトで向かう）。

@@ -26,6 +26,8 @@ const arg = (k, d) => { const i = argv.indexOf(k); return i < 0 ? d : argv[i + 1
 const ONLY = (arg("--only", "") || "").split(",").filter(Boolean);
 const CONC = +arg("--conc", 12) || 12;
 const EMIT = argv.includes("--emit");
+const EMIT_LM = argv.includes("--emit-landmarks");
+const LM_H = +arg("--h", 60) || 60;   // 名札に出す高さの下限(m)。実測(101地区・10476棟)＝60m以上は108棟(1.0%)・17地区にしか無い
 const Z = 16;                 // optbv の注記(Anno)は z16 タイルが本場。施設名(88x帯)もここにしか無い
 const MATCH_M = 150;          // 突合半径。実測の被りは0〜30mだが、駅・大学など代表点が離れる型を拾うため広めに取る
 const COMPANY = 888;          // 会社名の注記コード（＝テナント企業名。建物名との対で使う）
@@ -173,6 +175,40 @@ await mkdir(MERGEDIR, { recursive: true });
 const baked = (await readdir(OUTDIR)).filter(f => f.endsWith(".json")).map(f => f.slice(0, -5));
 const done = new Set((await readdir(MERGEDIR).catch(() => [])).filter(f => f.endsWith(".json")).map(f => f.slice(0, -5)));
 
+if (EMIT_LM) {
+	// ランドマーク名札用の小さな台帳（施設チップONの時だけ地図に出す分）。
+	// ★2D地図に「全部の建物名」を重ねるのは筋が悪い：PLATEAU整備は336/1741市区町村＝いの町に157個の名札が立ち
+	// 隣町はゼロ＝地図が壊れて見える（Kenji指摘 2026-08-05）。高さで足切りすると穴が原理的に見えなくなる
+	// ——未整備の町にはそもそも高層が無いため。だから台帳は「高さ LM_H 以上」だけを載せる。
+	// d===2（タイル注記に同名がある）は載せない。理由は二重表示だけではなく品質で、PLATEAUの gml:name は
+	// 「塔そのもの」ではなく**中に入っている施設の名前**であることがある——実測：区立城東小学校238m・
+	// 特別養護老人ホーム「つきしま」187m・中之島郵便局200m・特許庁六本木仮庁舎249.6m（＝六本木ヒルズ森タワー）。
+	// これらは軒並み d2（タイルが同じ施設名を持つ）なので、d2を落とすと「テナント名を塔の名札にする」事故ごと消える。
+	// ただし 300m級は塔そのものが目印＝テナント名である確率が実質ゼロなので d2 でも通す
+	// （実測：250m以上の5棟のうち d2 は東京スカイツリー634.9mだけ。88x帯の施設名注記は z16タイルにしか無く、
+	//  z11〜15では地図に名前が一つも出ない＝ここで落とすと最大の目印が遠景で無名になる。z16+は実行時の同名スキップが効く）。
+	// もう一つの通し口＝**タイル側の注記が会社名(888)なら、その名前は塔の識別そのもの**。実測でこの分岐は
+	// 東海旅客鉄道(本社)245m・ソフトバンク(本社)208m・東京電力HD202m・関西電力(本店)197m・JR東日本(本社)157m…を通し、
+	// 区立城東小学校238m[885]・特別養護老人ホーム「つきしま」187m[890]・中之島郵便局200m[887]・
+	// 特許庁六本木仮庁舎249m[880]（＝六本木ヒルズ森タワー）を落とす＝欲しいものだけが綺麗に残る。
+	// これが無いと台帳は東京の一人勝ちになる（大阪・名古屋の超高層はテナント名＝d2で全滅するため）。
+	const LM_KEEP_D2 = 300, LM_KEEP_CORP = 150, CORP_CODE = 888;
+	const keepD2 = r => (r.h ?? 0) >= LM_KEEP_D2 || ((r.h ?? 0) >= LM_KEEP_CORP && r.c === CORP_CODE);
+	const rows = [];
+	for (const name of [...done].sort()) {
+		const j = JSON.parse(await readFile(path.join(MERGEDIR, name + ".json"), "utf8"));
+		for (const r of j.named) {
+			if ((r.h ?? 0) < LM_H || (r.d === 2 && !keepD2(r))) continue;
+			rows.push([r.n, r.x, r.y, Math.round(r.h), r.p || ""]);
+		}
+	}
+	rows.sort((a, b) => b[3] - a[3]);   // 高い順＝ズーム段階で先頭から出せる
+	const out = fileURLToPath(new URL("../public/plateau-landmarks.json", import.meta.url));
+	await writeFile(out, JSON.stringify({ ver: 1, h: LM_H, note: "[名前,経度,緯度,高さm,同居企業名]。高さ降順。タイル注記と同名の棟は除外済み", f: rows }));
+	console.log(`書き出し public/plateau-landmarks.json ${((await readFile(out)).length / 1024).toFixed(1)}KB ・ ${rows.length}棟（h>=${LM_H}m・突合済み${done.size}地区から）`);
+	console.log(rows.slice(0, 15).map(r => `  ${r[3]}m ${r[0]}${r[4] ? "（" + r[4] + "）" : ""}`).join("\n"));
+	process.exit(0);
+}
 if (EMIT) {
 	// 公開用：地区ごとの配列にまとめる（棟の並びは名前順のまま）。表示側は d でしきい値を決める。
 	const wards = {};
