@@ -25,19 +25,21 @@ h1 { font-size: 1.7rem; font-weight: 800; letter-spacing: -0.015em; margin: 6px 
 .subtitle .feat { font-family: ui-monospace, 'SF Mono', monospace; font-size: 0.67rem; letter-spacing: 0.02em; color: #9fb3c8;
 	padding: 3px 10px; border-radius: 999px; background: rgba(56,189,248,0.06); border: 1px solid rgba(56,189,248,0.15); }
 .subtitle .feat.hot { color: #bae6fd; background: rgba(56,189,248,0.12); border-color: rgba(56,189,248,0.35); }
+.subtitle .brk { flex-basis: 100%; height: 0; }
 .layout { display: flex; gap: 16px; width: 100%; max-width: 1010px; align-items: stretch; }
 .left, .right { border: 1px solid rgba(148,163,184,0.10); border-radius: 16px;
 	background: linear-gradient(180deg, rgba(30,41,59,0.72), rgba(18,27,45,0.72));
 	box-shadow: 0 18px 50px -14px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,255,255,0.05);
 	backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
 .left { padding: 14px; flex: 1; min-width: 0; display: flex; flex-direction: column; }
-.leftnote { margin-top: auto; padding-top: 13px; border-top: 1px solid rgba(148,163,184,0.08); text-align: center; font-size: 0.68rem; line-height: 1.5; color: #64748b; font-family: ui-monospace, monospace; }
+.leftnote { margin-top: 13px; padding-top: 13px; border-top: 1px solid rgba(148,163,184,0.08); text-align: center; text-wrap: balance; font-size: 0.68rem; line-height: 1.5; color: #64748b; font-family: ui-monospace, monospace; }
 .leftnote b { color: #7dd3fc; font-weight: 600; }
 .right { padding: 14px; width: 264px; flex-shrink: 0; display: flex; flex-direction: column; gap: 11px; }
-canvas { display: block; max-width: 100%; border-radius: 12px;
+.canvaswrap { position: relative; flex: 1 1 auto; min-height: 340px; border-radius: 12px; overflow: hidden;
 	box-shadow: 0 0 0 1px rgba(56,189,248,0.14), 0 12px 34px -10px rgba(0,0,0,0.65); }
+canvas { display: block; width: 100%; height: 100%; }
 .controls { margin-top: 14px; }
-.ctrl-label { text-align: center; color: #9fb3c8; font-size: 0.78rem; line-height: 1.5; margin-bottom: 11px; }
+.ctrl-label { text-align: center; text-wrap: balance; color: #9fb3c8; font-size: 0.78rem; line-height: 1.5; margin-bottom: 11px; }
 .ctrl-label b { color: #7dd3fc; font-weight: 600; }
 .srow { display: flex; align-items: center; gap: 10px; }
 .srow span { font-family: ui-monospace, monospace; font-size: 0.72rem; color: #64748b; }
@@ -128,13 +130,14 @@ input[type=range]::-moz-range-track { height: 8px; border-radius: 999px; backgro
 	<span class="feat hot">GPU Vertex-Shader LOD</span>
 	<span class="feat hot">Sub-pixel auto-detection</span>
 	<span class="feat">Visvalingam–Whyatt rank</span>
+	<span class="brk"></span>
 	<span class="feat">64-bit Morton bit-mask</span>
 	<span class="feat">Zero CPU · Zero network on zoom</span>
 </div>
 
 <div class="layout">
 	<div class="left">
-	<canvas id="c" width="636" height="410"></canvas>
+	<div class="canvaswrap"><canvas id="c"></canvas></div>
 	<div class="controls">
 		<div class="ctrl-label">Drag to zoom. The GPU vertex shader keeps every vertex whose detail is <b>≥ 1 pixel</b> and auto-discards the <b>sub-pixel</b> rest — on the GPU, zero CPU, zero extra bytes.</div>
 		<div class="srow">
@@ -146,7 +149,7 @@ input[type=range]::-moz-range-track { height: 8px; border-radius: 999px; backgro
 		<span>🌍 World</span><span>🌏 Continent</span><span>🗾 Country</span><span>🏔 Region</span><span>🔬 Street</span>
 		</div>
 	</div>
-	<div class="leftnote">One Gint buffer · Visvalingam–Whyatt rank — the GPU re-selects which vertices survive <b>every frame</b>, per zoom. No re-fetch, no CPU rebuild.</div>
+	<div class="leftnote">One Gint buffer · re-selected on the GPU <b>every frame</b> · no re-fetch · no CPU rebuild</div>
 	</div>
 
 	<div class="right">
@@ -268,14 +271,23 @@ function fmtPx(px){ return px>=10 ? px.toFixed(0) : px.toFixed(px<1?2:1); }
 
 const canvas=document.getElementById('c');
 const ctx=canvas.getContext('2d');
-const W=canvas.width, H=canvas.height;
+const RW=636, RH=410;   // reference space the island anchors are authored in
+let curZoom=10;
+function fit(){
+	const r=canvas.getBoundingClientRect();
+	const w=Math.max(1,Math.round(r.width)), h=Math.max(1,Math.round(r.height));
+	if(canvas.width!==w||canvas.height!==h){ canvas.width=w; canvas.height=h; }
+	draw(curZoom);
+}
 
 function draw(zoom) {
+	curZoom=zoom;
 	const lod=ZOOM_LOD[zoom];
+	const W=canvas.width, H=canvas.height;
 	ctx.clearRect(0,0,W,H);
 
-	// Sea
-	const sg=ctx.createRadialGradient(W/2,H*0.46,40,W/2,H/2,Math.hypot(W,H)/1.7);
+	// Sea (fills the whole canvas)
+	const sg=ctx.createRadialGradient(W/2,H*0.44,40,W/2,H/2,Math.hypot(W,H)/1.7);
 	sg.addColorStop(0,'#103257'); sg.addColorStop(1,'#050b16');
 	ctx.fillStyle=sg; ctx.fillRect(0,0,W,H);
 
@@ -284,8 +296,16 @@ function draw(zoom) {
 	for(let x=0;x<=W;x+=48){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,H);ctx.stroke();}
 	for(let y=0;y<=H;y+=48){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(W,y);ctx.stroke();}
 
+	// Fit the reference island space (RW×RH) into the canvas, biased upward:
+	// reserve a top strip for the z-label and a taller bottom strip for the GPU caption,
+	// so the figure never collides with the on-canvas text.
+	const padT=18, padB=54;
+	const s=Math.min(W/RW, (H-padT-padB)/RH)*0.98;
+	const ox=(W-RW*s)/2, oy=padT+((H-padT-padB)-RH*s)/2;
+	const TX=x=>ox+x*s, TY=y=>oy+y*s;
+
 	// Land fill + coastline, using only vertices kept at this zoom (>= 1px)
-	const landGrad=ctx.createLinearGradient(120,40,520,380);
+	const landGrad=ctx.createLinearGradient(TX(120),TY(40),TX(520),TY(380));
 	landGrad.addColorStop(0,'rgba(98,134,78,0.96)');
 	landGrad.addColorStop(1,'rgba(58,90,46,0.96)');
 
@@ -295,7 +315,7 @@ function draw(zoom) {
 		if (act.length<3) return;
 		ctx.save();
 		ctx.beginPath();
-		act.forEach((p,i)=>i===0?ctx.moveTo(p.x,p.y):ctx.lineTo(p.x,p.y));
+		act.forEach((p,i)=>i===0?ctx.moveTo(TX(p.x),TY(p.y)):ctx.lineTo(TX(p.x),TY(p.y)));
 		ctx.closePath();
 		// soft coastal glow, then solid land, then crisp shoreline
 		ctx.shadowColor='rgba(125,211,95,0.45)'; ctx.shadowBlur=16;
@@ -312,7 +332,7 @@ function draw(zoom) {
 		P.verts.filter(v=>v.lod<=lod).forEach(p=>{
 			const col=LOD_COL[p.lod], sz=LOD_SZ[p.lod];
 			ctx.fillStyle=col; ctx.shadowColor=col; ctx.shadowBlur=sz*2.4;
-			ctx.beginPath(); ctx.arc(p.x,p.y,sz/2,0,Math.PI*2); ctx.fill();
+			ctx.beginPath(); ctx.arc(TX(p.x),TY(p.y),sz/2,0,Math.PI*2); ctx.fill();
 			ctx.shadowBlur=0;
 		});
 	});
@@ -320,7 +340,7 @@ function draw(zoom) {
 	// z label (top-left)
 	ctx.font='bold 12px ui-monospace, monospace'; ctx.fillStyle='rgba(125,211,252,0.85)';
 	ctx.textAlign='left'; ctx.textBaseline='top';
-	ctx.fillText(`z = ${zoom}`,10,10);
+	ctx.fillText(`z = ${zoom}`,12,12);
 
 	// GPU emphasis (bottom-left) — the theme, right on the canvas
 	const active=POLYS.filter(P=>zoom>=P.minZoom).flatMap(P=>P.verts).filter(v=>v.lod<=lod);
@@ -330,9 +350,9 @@ function draw(zoom) {
 	if (culledIslands) msg+=` + ${culledIslands} whole islet${culledIslands>1?'s':''}`;
 	ctx.textAlign='left'; ctx.textBaseline='bottom';
 	ctx.font='bold 11px ui-monospace, monospace'; ctx.fillStyle='rgba(56,189,248,0.92)';
-	ctx.fillText('⚡ GPU vertex shader',10,H-24);
+	ctx.fillText('⚡ GPU vertex shader',12,H-27);
 	ctx.font='11px ui-monospace, monospace'; ctx.fillStyle='rgba(148,163,184,0.8)';
-	ctx.fillText(`${msg} — 0 CPU`,10,H-9);
+	ctx.fillText(`${msg} — 0 CPU`,12,H-12);
 
 	// ── Stats panel ──
 	document.getElementById('zd').textContent=`z = ${zoom}`;
@@ -362,7 +382,8 @@ function draw(zoom) {
 }
 
 document.getElementById('sl').addEventListener('input',e=>draw(+e.target.value));
-draw(10); // Start at max detail (z=10)
+new ResizeObserver(fit).observe(canvas);
+fit(); // size the canvas to its container, then draw at z=10
 </script>
 </body>
 </html>
