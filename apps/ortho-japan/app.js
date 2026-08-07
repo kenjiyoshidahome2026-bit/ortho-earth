@@ -554,6 +554,7 @@ const POI_CODE = 9102;                                         // landmark(9101)
 const POI_SRC_ANNO = 1;                                        // 出典の pos-src=注記＝権威位置（基図を上書きしてよい）＝schema.SRC.ANNO
 const poiZAppear = rank => 14 + (255 - rank) * 3 / 255;        // rank 大＝早く出る（255→z14 / 中位→z15 / 小→z17）＝§11.5 の解禁段
 const poiTiles = new Map();                                    // "x/y" → 地物配列 ／ "loading" ／ []（POI 無しタイル）
+const POI_BUST = Date.now();                                   // セッション毎の一意クエリ＝HTTPキャッシュも素通り（nocacheはIDBのみ・再焼き後の古いタイルをHTTPが返す罠を断つ）
 let poiVer = 0;                                                // タイル到着ごとに ++＝labelGate が拾ってラベルのみ再構築（merge なし）
 const poiLog = /[?&]poilog=1/.test(location.search);           // ?poilog=1＝POI層の診断（在庫/表示/rank待ち/基図重複を毎再構築で出す）
 const poiAll = /[?&]poiall=1/.test(location.search);           // ?poiall=1＝rank解禁と dedup を無効化＝全POIを z14+ で出す（「層が描くか」の評価用）
@@ -565,7 +566,7 @@ function loadPOI(cam) {
 			const key = x + "/" + y;
 			if (poiTiles.has(key)) continue;                  // 既取得（空タイル [] 含む）＝二度と要求しない
 			poiTiles.set(key, "loading");
-			geopbf(`poi/14/${key}`, { nocache: true }).then(pbf => {   // IDB素通り＝再焼き後も古いタイルを掴まない(stale根治)。POIタイルは小さく再取得も安い
+			geopbf(`poi/14/${key}?b=${POI_BUST}`, { nocache: true }).then(pbf => {   // ?b=＝HTTPキャッシュ素通り／nocache＝IDB素通り＝再焼き後も常に新タイル。bucketはクエリ無視で同一オブジェクトを返す
 				const feats = pbf?.geojson?.features || [];
 				poiTiles.set(key, feats.map(f => ({ anchor: f.geometry.coordinates, n: f.properties.n, r: f.properties.r, s: f.properties.s ?? 0 })));
 				if (feats.length) { poiVer++; needsDraw = true; if (poiLog) console.log(`[poi] tile ${key} ロード ${feats.length}件`); }   // 中身ありだけ再構築を促す（空タイルは黙って埋める）
