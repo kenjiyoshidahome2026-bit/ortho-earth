@@ -565,7 +565,7 @@ function loadPOI(cam) {
 			const key = x + "/" + y;
 			if (poiTiles.has(key)) continue;                  // 既取得（空タイル [] 含む）＝二度と要求しない
 			poiTiles.set(key, "loading");
-			geopbf(`poi/14/${key}`).then(pbf => {             // GIS/pbf/poi/14/x/y（IDB 優先・無ければ 404＝空）
+			geopbf(`poi/14/${key}`, { nocache: true }).then(pbf => {   // IDB素通り＝再焼き後も古いタイルを掴まない(stale根治)。POIタイルは小さく再取得も安い
 				const feats = pbf?.geojson?.features || [];
 				poiTiles.set(key, feats.map(f => ({ anchor: f.geometry.coordinates, n: f.properties.n, r: f.properties.r, s: f.properties.s ?? 0 })));
 				if (feats.length) { poiVer++; needsDraw = true; if (poiLog) console.log(`[poi] tile ${key} ロード ${feats.length}件`); }   // 中身ありだけ再構築を促す（空タイルは黙って埋める）
