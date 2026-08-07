@@ -7,58 +7,104 @@
 <style>
 * { box-sizing: border-box; }
 body {
-	background: #0f172a; color: #f8fafc;
-	font-family: 'Segoe UI', sans-serif;
-	margin: 0; padding: 14px;
+	background:
+		radial-gradient(1100px 620px at 50% -8%, rgba(56,189,248,0.10), transparent 60%),
+		radial-gradient(900px 560px at 88% 112%, rgba(129,140,248,0.10), transparent 55%),
+		linear-gradient(180deg, #0f172a 0%, #0a0f1e 100%);
+	background-attachment: fixed;
+	color: #f8fafc;
+	font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+	margin: 0; padding: 16px 14px 44px; min-height: 100vh;
 	display: flex; flex-direction: column; align-items: center;
 }
-h1 { color: #38bdf8; font-size: 1.5rem; margin: 0 0 3px; }
-.subtitle { color: #64748b; font-size: 0.78rem; font-family: monospace; margin-bottom: 12px; text-align: center; }
-.layout { display: flex; gap: 14px; width: 100%; max-width: 1010px; align-items: flex-start; }
-.left { background: #1e293b; border-radius: 12px; padding: 12px; flex: 1; min-width: 0; }
-canvas { display: block; max-width: 100%; border-radius: 8px; }
-.controls { margin-top: 10px; }
-.ctrl-label { text-align: center; color: #94a3b8; font-size: 0.78rem; margin-bottom: 5px; }
-.srow { display: flex; align-items: center; gap: 8px; }
-.srow span { font-family: monospace; font-size: 0.75rem; color: #475569; }
-input[type=range] { flex: 1; accent-color: #38bdf8; cursor: pointer; }
-.zlabels { display: flex; justify-content: space-between; font-size: 0.7rem; color: #475569; margin-top: 3px; }
-.right { background: #1e293b; border-radius: 12px; padding: 12px; width: 258px; flex-shrink: 0; display: flex; flex-direction: column; gap: 10px; }
-.sb { background: #0f172a; border-radius: 8px; padding: 10px; border: 1px solid #1e293b; }
-.sb h3 { color: #475569; font-size: 0.68rem; margin: 0 0 7px; font-family: monospace; text-transform: uppercase; letter-spacing: 0.06em; }
-.zbig { text-align: center; font-family: monospace; font-size: 1.9rem; font-weight: bold; color: #38bdf8; }
-.ltag { display: inline-block; padding: 2px 9px; border-radius: 11px; font-family: monospace; font-size: 0.75rem; font-weight: bold; }
-.t0{background:#1e3a5f;color:#38bdf8} .t1{background:#064e3b;color:#34d399}
-.t2{background:#713f12;color:#f59e0b} .t3{background:#7f1d1d;color:#f87171}
-.t4{background:#4a1d96;color:#c084fc}
-.vc { display: flex; align-items: baseline; gap: 5px; }
-.vn { font-size: 1.7rem; font-weight: bold; color: #38bdf8; font-family: monospace; }
-.vt { color: #475569; font-size: 0.8rem; }
-.vbw { margin-top: 5px; background: #1e293b; border-radius: 3px; height: 5px; overflow: hidden; }
-.vb  { height: 100%; background: linear-gradient(to right,#0ea5e9,#6366f1); border-radius: 3px; transition: width 0.2s; }
-.lrows { display: flex; flex-direction: column; gap: 4px; }
-.lr { display: flex; align-items: center; justify-content: space-between; font-size: 0.75rem; }
-.ld { width: 7px; height: 7px; border-radius: 50%; display: inline-block; margin-right: 4px; flex-shrink: 0; }
-.ln { color: #94a3b8; }
-.nrows { display: flex; flex-direction: column; gap: 4px; font-size: 0.75rem; font-family: monospace; }
+h1 { font-size: 1.7rem; font-weight: 800; letter-spacing: -0.015em; margin: 6px 0 8px; text-align: center;
+	background: linear-gradient(110deg, #bae6fd 0%, #38bdf8 44%, #818cf8 100%);
+	-webkit-background-clip: text; background-clip: text; color: transparent;
+	filter: drop-shadow(0 3px 22px rgba(56,189,248,0.28)); }
+.subtitle { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; margin-bottom: 16px; max-width: 740px; }
+.subtitle .feat { font-family: ui-monospace, 'SF Mono', monospace; font-size: 0.67rem; letter-spacing: 0.02em; color: #9fb3c8;
+	padding: 3px 10px; border-radius: 999px; background: rgba(56,189,248,0.06); border: 1px solid rgba(56,189,248,0.15); }
+.subtitle .feat.hot { color: #bae6fd; background: rgba(56,189,248,0.12); border-color: rgba(56,189,248,0.35); }
+.layout { display: flex; gap: 16px; width: 100%; max-width: 1010px; align-items: stretch; }
+.left, .right { border: 1px solid rgba(148,163,184,0.10); border-radius: 16px;
+	background: linear-gradient(180deg, rgba(30,41,59,0.72), rgba(18,27,45,0.72));
+	box-shadow: 0 18px 50px -14px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,255,255,0.05);
+	backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
+.left { padding: 14px; flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.leftnote { margin-top: auto; padding-top: 13px; border-top: 1px solid rgba(148,163,184,0.08); text-align: center; font-size: 0.68rem; line-height: 1.5; color: #64748b; font-family: ui-monospace, monospace; }
+.leftnote b { color: #7dd3fc; font-weight: 600; }
+.right { padding: 14px; width: 264px; flex-shrink: 0; display: flex; flex-direction: column; gap: 11px; }
+canvas { display: block; max-width: 100%; border-radius: 12px;
+	box-shadow: 0 0 0 1px rgba(56,189,248,0.14), 0 12px 34px -10px rgba(0,0,0,0.65); }
+.controls { margin-top: 14px; }
+.ctrl-label { text-align: center; color: #9fb3c8; font-size: 0.78rem; line-height: 1.5; margin-bottom: 11px; }
+.ctrl-label b { color: #7dd3fc; font-weight: 600; }
+.srow { display: flex; align-items: center; gap: 10px; }
+.srow span { font-family: ui-monospace, monospace; font-size: 0.72rem; color: #64748b; }
+input[type=range] { -webkit-appearance: none; appearance: none; flex: 1; height: 8px; border-radius: 999px; cursor: pointer; outline: none;
+	background: linear-gradient(to right, #38bdf8 0 20%, #34d399 20% 40%, #f59e0b 40% 60%, #f87171 60% 80%, #c084fc 80% 100%);
+	box-shadow: inset 0 0 0 1px rgba(255,255,255,0.07), 0 2px 8px rgba(0,0,0,0.45); }
+input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 22px; height: 22px; border-radius: 50%;
+	background: radial-gradient(circle at 34% 32%, #f0f9ff, #38bdf8 72%); border: 2px solid #0a0f1e;
+	box-shadow: 0 0 0 3px rgba(56,189,248,0.30), 0 0 16px rgba(56,189,248,0.65); transition: transform .12s ease, box-shadow .15s ease; }
+input[type=range]::-webkit-slider-thumb:hover { transform: scale(1.14); }
+input[type=range]:active::-webkit-slider-thumb { box-shadow: 0 0 0 5px rgba(56,189,248,0.26), 0 0 24px rgba(56,189,248,0.9); }
+input[type=range]::-moz-range-thumb { width: 22px; height: 22px; border-radius: 50%; border: 2px solid #0a0f1e;
+	background: radial-gradient(circle at 34% 32%, #f0f9ff, #38bdf8 72%); box-shadow: 0 0 0 3px rgba(56,189,248,0.30), 0 0 16px rgba(56,189,248,0.65); }
+input[type=range]::-moz-range-track { height: 8px; border-radius: 999px; background: transparent; }
+.zlabels { display: flex; justify-content: space-between; font-size: 0.68rem; color: #64748b; margin-top: 8px; }
+.sb { background: linear-gradient(180deg, rgba(12,19,34,0.85), rgba(9,14,26,0.85)); border-radius: 11px; padding: 11px 12px;
+	border: 1px solid rgba(148,163,184,0.09); transition: border-color .2s ease, box-shadow .2s ease, transform .2s ease; }
+.sb:hover { border-color: rgba(56,189,248,0.28); box-shadow: 0 0 24px -8px rgba(56,189,248,0.4); transform: translateY(-1px); }
+.sb h3 { color: #64748b; font-size: 0.66rem; margin: 0 0 8px; font-family: ui-monospace, monospace; text-transform: uppercase; letter-spacing: 0.1em; }
+.zbig { text-align: center; font-family: ui-monospace, monospace; font-size: 2rem; font-weight: bold; color: #7dd3fc; text-shadow: 0 0 20px rgba(56,189,248,0.5); }
+.ltag { display: inline-block; padding: 2px 10px; border-radius: 999px; font-family: ui-monospace, monospace; font-size: 0.75rem; font-weight: bold; box-shadow: 0 0 14px -4px currentColor; }
+.t0{background:#12314f;color:#7dd3fc} .t1{background:#06432f;color:#6ee7b7}
+.t2{background:#5f3711;color:#fbbf24} .t3{background:#6b1a1a;color:#fca5a5}
+.t4{background:#3f1a7a;color:#d8b4fe}
+.vc { display: flex; align-items: baseline; gap: 6px; }
+.vn { font-size: 1.85rem; font-weight: bold; color: #7dd3fc; font-family: ui-monospace, monospace; text-shadow: 0 0 16px rgba(56,189,248,0.42); }
+.vt { color: #64748b; font-size: 0.8rem; } .vt span { color: #94a3b8; }
+.vbw { margin-top: 7px; background: rgba(15,23,42,0.9); border: 1px solid rgba(148,163,184,0.08); border-radius: 999px; height: 7px; overflow: hidden; }
+.vb  { height: 100%; background: linear-gradient(to right,#0ea5e9,#6366f1); border-radius: 999px; box-shadow: 0 0 12px rgba(99,102,241,0.6); transition: width 0.25s ease; }
+.gpuline { font-size: 0.68rem; color: #94a3b8; margin-top: 7px; font-family: ui-monospace, monospace; }
+.gpuline b { color: #7dd3fc; font-weight: 700; }
+.pxbars { display: flex; flex-direction: column; gap: 7px; }
+.pxrow { display: grid; grid-template-columns: 58px 1fr 46px; align-items: center; gap: 8px; }
+.pxname { display: flex; align-items: center; color: #94a3b8; font-family: ui-monospace, monospace; font-size: 0.68rem; }
+.pxrow.culled .pxname { opacity: 0.5; }
+.ld { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 6px; flex-shrink: 0; box-shadow: 0 0 7px -1px currentColor; }
+.pxtrack { position: relative; height: 9px; border-radius: 999px; background: rgba(15,23,42,0.9); border: 1px solid rgba(148,163,184,0.08); }
+.pxfill { position: absolute; left: 0; top: 0; height: 100%; min-width: 4px; border-radius: 999px; transition: width .3s cubic-bezier(.4,0,.2,1), filter .2s ease; }
+.pxrow.culled .pxfill { filter: grayscale(0.9) brightness(0.5); }
+.pxmark { position: absolute; left: 30.3%; top: -3px; bottom: -3px; width: 2px; border-radius: 2px; background: #7dd3fc; box-shadow: 0 0 9px rgba(56,189,248,0.8); z-index: 2; }
+.pxval { font-family: ui-monospace, monospace; font-size: 0.7rem; font-weight: bold; text-align: right; white-space: nowrap; }
+.pxval.keep { color: #7dd3fc; } .pxval.cull { color: #475569; }
+.axis { margin-top: 10px; font-size: 0.62rem; color: #64748b; font-family: ui-monospace, monospace; line-height: 1.5; }
+.axis b { color: #7dd3fc; }
+.nrows { display: flex; flex-direction: column; gap: 5px; font-size: 0.75rem; font-family: ui-monospace, monospace; }
 .nr { display: flex; justify-content: space-between; }
 .nk { color: #64748b; } .bad { color: #f87171; } .good { color: #34d399; }
-.bdgs { display: flex; gap: 5px; flex-wrap: wrap; margin-top: 7px; }
-.bdg { padding: 2px 9px; border-radius: 16px; font-size: 0.7rem; font-family: monospace; font-weight: bold; }
-.bdg-b{background:#7f1d1d;color:#fca5a5} .bdg-g{background:#064e3b;color:#6ee7b7}
-.mc { font-family: monospace; font-size: 0.7rem; color: #94a3b8; margin-top: 5px; word-break: break-all; }
-.mhi { color: #38bdf8; } .mlo { color: #334155; }
+.bdgs { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+.bdg { padding: 2px 10px; border-radius: 999px; font-size: 0.7rem; font-family: ui-monospace, monospace; font-weight: bold; box-shadow: 0 0 14px -5px currentColor; }
+.bdg-b{background:#6b1a1a;color:#fca5a5} .bdg-g{background:#06432f;color:#6ee7b7}
+.mc { font-family: ui-monospace, monospace; font-size: 0.72rem; color: #94a3b8; margin-top: 5px; word-break: break-all; letter-spacing: 0.04em; }
+.mhi { color: #7dd3fc; text-shadow: 0 0 8px rgba(56,189,248,0.4); } .mlo { color: #334155; }
+@media (max-width: 720px) {
+	.layout { flex-direction: column; align-items: stretch; }
+	.right { width: 100%; }
+}
 </style>
 <style>
-.dhdr{position:sticky;top:0;z-index:30;display:flex;align-items:center;gap:9px;padding:10px 16px;margin:0 0 14px;background:#0b1220;border-bottom:1px solid #1e293b;font-family:monospace;font-size:0.78rem;flex-wrap:wrap}
-.dhdr .sec{color:#38bdf8;font-weight:bold;text-decoration:none}
+.dhdr{position:sticky;top:10px;z-index:30;display:flex;align-items:center;gap:10px;padding:9px 16px;margin:0 0 18px;background:rgba(10,15,30,0.72);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border:1px solid rgba(56,189,248,0.16);border-radius:14px;box-shadow:0 12px 34px -12px rgba(0,0,0,0.6);font-family:ui-monospace,monospace;font-size:0.76rem;flex-wrap:wrap}
+.dhdr .sec{color:#38bdf8;font-weight:bold;text-decoration:none;text-shadow:0 0 12px rgba(56,189,248,0.4)}
 .dhdr .sep{color:#334155}
-.dhdr a{color:#64748b;text-decoration:none}
-.dhdr a:hover{color:#38bdf8}
+.dhdr a{color:#64748b;text-decoration:none;transition:color .15s ease}
+.dhdr a:hover{color:#7dd3fc}
 .dhdr .crumb-link{color:#94a3b8}
 .dhdr .cur{color:#e2e8f0}
 .dhdr .nav{display:flex;gap:14px;margin-left:auto;align-items:center}
-.dhdr .cur-tab{color:#e2e8f0;font-weight:700}
+.dhdr .cur-tab{color:#7dd3fc;font-weight:700;text-shadow:0 0 12px rgba(56,189,248,0.4)}
 </style>
 </head>
 <body>
@@ -77,14 +123,20 @@ input[type=range] { flex: 1; accent-color: #38bdf8; cursor: pointer; }
 	</div>
 </div>
 
-<h1>Gint Dynamic LOD Pipeline</h1>
-<div class="subtitle">GPU Vertex Shader LOD · 64-bit Morton Bit-Mask · Zero Network Overhead · Zero CPU on LOD Change</div>
+<h1>Gint Dynamic LOD</h1>
+<div class="subtitle">
+	<span class="feat hot">GPU Vertex-Shader LOD</span>
+	<span class="feat hot">Sub-pixel auto-detection</span>
+	<span class="feat">Visvalingam–Whyatt rank</span>
+	<span class="feat">64-bit Morton bit-mask</span>
+	<span class="feat">Zero CPU · Zero network on zoom</span>
+</div>
 
 <div class="layout">
 	<div class="left">
 	<canvas id="c" width="636" height="410"></canvas>
 	<div class="controls">
-		<div class="ctrl-label">Drag to zoom — vertex shader discards higher-LOD vertices on GPU, zero CPU work</div>
+		<div class="ctrl-label">Drag to zoom. The GPU vertex shader keeps every vertex whose detail is <b>≥ 1 pixel</b> and auto-discards the <b>sub-pixel</b> rest — on the GPU, zero CPU, zero extra bytes.</div>
 		<div class="srow">
 		<span>z=2</span>
 		<input type="range" id="sl" min="2" max="10" step="2" value="10">
@@ -94,29 +146,25 @@ input[type=range] { flex: 1; accent-color: #38bdf8; cursor: pointer; }
 		<span>🌍 World</span><span>🌏 Continent</span><span>🗾 Country</span><span>🏔 Region</span><span>🔬 Street</span>
 		</div>
 	</div>
+	<div class="leftnote">One Gint buffer · Visvalingam–Whyatt rank — the GPU re-selects which vertices survive <b>every frame</b>, per zoom. No re-fetch, no CPU rebuild.</div>
 	</div>
 
 	<div class="right">
 	<div class="sb">
 		<h3>Current Zoom</h3>
 		<div class="zbig" id="zd">z = 10</div>
-		<div style="text-align:center;margin-top:4px" id="lt"></div>
+		<div style="text-align:center;margin-top:5px" id="lt"></div>
 	</div>
 	<div class="sb">
-		<h3>GPU-Rendered Vertices</h3>
-		<div class="vc"><div class="vn" id="va">—</div><div class="vt">/ <span id="vt">—</span> on GPU</div></div>
+		<h3>GPU Vertices Kept</h3>
+		<div class="vc"><div class="vn" id="va">—</div><div class="vt">/ <span id="vt">—</span> in buffer</div></div>
 		<div class="vbw"><div class="vb" id="vb" style="width:0%"></div></div>
-		<div style="font-size:0.68rem;color:#475569;margin-top:5px;font-family:monospace">vertex shader: discard if lod_bits &gt; zoom</div>
+		<div class="gpuline">vertex shader: <b>discard if detail &lt; 1&nbsp;px</b> (VW-rank × zoom)</div>
 	</div>
 	<div class="sb">
-		<h3>LOD Breakdown</h3>
-		<div class="lrows">
-		<div class="lr"><div><span class="ld" style="background:#38bdf8"></span><span class="ln">LOD 0 — Anchor</span></div><span class="ltag t0" id="c0">—</span></div>
-		<div class="lr"><div><span class="ld" style="background:#34d399"></span><span class="ln">LOD 1 — Major</span></div><span class="ltag t1" id="c1">—</span></div>
-		<div class="lr"><div><span class="ld" style="background:#f59e0b"></span><span class="ln">LOD 2 — Medium</span></div><span class="ltag t2" id="c2">—</span></div>
-		<div class="lr"><div><span class="ld" style="background:#f87171"></span><span class="ln">LOD 3 — Fine</span></div><span class="ltag t3" id="c3">—</span></div>
-		<div class="lr"><div><span class="ld" style="background:#c084fc"></span><span class="ln">LOD 4 — Detail</span></div><span class="ltag t4" id="c4">—</span></div>
-		</div>
+		<h3>Sub-pixel Detection · live with zoom</h3>
+		<div class="pxbars" id="subrows"></div>
+		<div class="axis">detail on a log axis (0.1–200px). The <b>1px</b> line is fixed; zoom slides every bar across it — bars left of it are sub-pixel and auto-culled.</div>
 	</div>
 	<div class="sb">
 		<h3>Morton Bit Mask (64-bit)</h3>
@@ -144,12 +192,12 @@ function mkRng(s) {
 	return () => { s ^= s<<13; s ^= s>>17; s ^= s<<5; return (s>>>0)/0x100000000; };
 }
 
-// Recursive midpoint-displacement: generates polygon vertices between a and b in order
+// Recursive midpoint-displacement: each deeper level adds finer, smaller-amplitude coastline detail.
 function sub(a, b, depth, max, rng) {
 	if (depth > max) return [];
 	const mx=(a.x+b.x)/2, my=(a.y+b.y)/2;
 	const dx=b.x-a.x, dy=b.y-a.y, len=Math.hypot(dx,dy);
-	const amp = len * 0.2 * (rng()-0.5) * Math.pow(0.58, depth-1);
+	const amp = len * 0.42 * (rng()-0.5) * Math.pow(0.85, depth-1);
 	const mid = { x: mx+(-dy/len)*amp, y: my+(dx/len)*amp, lod: depth };
 	return [...sub(a,mid,depth+1,max,rng), mid, ...sub(mid,b,depth+1,max,rng)];
 }
@@ -163,55 +211,60 @@ function build(anchors, maxD, seed) {
 	return v;
 }
 
-// ── Anchor definitions ───────────────────────────────────────────────────────
-
-// Main peninsula (22 anchors): irregular top coast + right bay (concave) + south peninsula
+// ── Island (abstract, clean landmass) ────────────────────────────────────────
+// Main island: smooth north coast, a concave east bay, a short southern cape, tapered west coast.
 const MAIN = [
-	{x:55, y:52}, {x:148,y:26}, {x:255,y:16}, {x:358,y:23}, {x:462,y:40}, {x:545,y:70},
-	{x:594,y:155},
-	// Right-side bay — polygon indents creating a concave bay
-	{x:576,y:212}, {x:506,y:242}, {x:456,y:232}, {x:428,y:255}, {x:486,y:286}, {x:570,y:302},
-	// Lower right coast
-	{x:550,y:352},
-	// Bottom peninsula jutting south
-	{x:442,y:375}, {x:358,y:396}, {x:312,y:410}, {x:265,y:394}, {x:182,y:368},
-	// Left coast going north
-	{x:85, y:340}, {x:40, y:256}, {x:44, y:155},
+	{x:126,y:74}, {x:222,y:50}, {x:330,y:58}, {x:430,y:46}, {x:520,y:92},
+	{x:560,y:168},
+	// east bay — indents to a concave inlet
+	{x:512,y:206}, {x:452,y:196}, {x:430,y:240}, {x:498,y:276}, {x:558,y:300},
+	{x:522,y:352},
+	// southern cape
+	{x:420,y:374}, {x:332,y:360}, {x:282,y:394}, {x:210,y:372},
+	// west coast climbing north
+	{x:120,y:344}, {x:74,y:262}, {x:92,y:168}, {x:80,y:112},
 ];
-
-// Small island — upper right (in open sea, east of main coast)
+// Small island — open sea, upper right
 const ISL1 = [
-	{x:580,y:82}, {x:602,y:68}, {x:624,y:86}, {x:620,y:110}, {x:598,y:120}, {x:574,y:106},
+	{x:590,y:96}, {x:612,y:84}, {x:628,y:104}, {x:618,y:128}, {x:592,y:120},
 ];
-
 // Small island — lower left
 const ISL2 = [
-	{x:38,y:378}, {x:60,y:364}, {x:76,y:376}, {x:72,y:398}, {x:46,y:406},
+	{x:62,y:372}, {x:88,y:358}, {x:102,y:378}, {x:84,y:400}, {x:56,y:394},
 ];
 
 const DEFS = [
-	{anchors:MAIN, maxD:4, seed:9973},
-	{anchors:ISL1, maxD:3, seed:1234},
-	{anchors:ISL2, maxD:2, seed:5678},
+	{anchors:MAIN, maxD:4, seed:9973, minZoom:2},   // main island — always on screen
+	{anchors:ISL1, maxD:3, seed:1234, minZoom:6},   // islet — whole feature is sub-pixel below z=6 → culled
+	{anchors:ISL2, maxD:2, seed:5678, minZoom:8},   // tiny islet — only survives at z>=8
 ];
 
-const POLYS = DEFS.map(d=>build(d.anchors,d.maxD,d.seed));
-const ALL   = POLYS.flat();
+const POLYS = DEFS.map(d=>({verts: build(d.anchors,d.maxD,d.seed), minZoom: d.minZoom}));
+const ALL   = POLYS.flatMap(p=>p.verts);
 const TOTAL = ALL.length;
 
-const ZOOM_LOD={2:0,4:1,6:2,8:3,10:4};
-const LOD_COL =['#38bdf8','#34d399','#f59e0b','#f87171','#c084fc'];
-const LOD_SZ  =[5.5,4.5,3.5,2.5,2.0];
-const LOD_NAME=['LOD 0','LOD 1','LOD 2','LOD 3','LOD 4'];
-const LOD_CLS =['t0','t1','t2','t3','t4'];
-const TILE_N  ={2:1,4:4,6:16,8:64,10:256};
-const MORTON  ={
+const ZOOM_LOD ={2:0,4:1,6:2,8:3,10:4};
+const LOD_COL  =['#38bdf8','#34d399','#f59e0b','#f87171','#c084fc'];
+const LOD_SZ   =[5.5,4.5,3.5,2.5,2.0];
+const LOD_NAME =['LOD 0 · Anchor','LOD 1 · Major','LOD 2 · Medium','LOD 3 · Fine','LOD 4 · Detail'];
+const LOD_CLS  =['t0','t1','t2','t3','t4'];
+const SCALE_NM =['World','Continent','Country','Region','Street'];
+const TILE_N   ={2:1,4:4,6:16,8:64,10:256};
+const MORTON   ={
 	2: ['FF','000000','000000  ','00000000'],
 	4: ['FFFF','0000','000000  ','00000000'],
 	6: ['FFFFFF','00','000000  ','00000000'],
 	8: ['FFFFFFFF','','000000  ','00000000'],
 	10:['FFFFFFFF','','FFFFFF  ','00000000'],
 };
+
+// Sub-pixel model: the screen-space detail (px) each LOD contributes, per zoom.
+// DPX10 = detail size at max zoom (z=10); SCALEZ scales it down ~3x per two zoom steps.
+// A vertex is kept iff its detail projects to >= 1px — otherwise it is sub-pixel and the GPU discards it.
+const DPX10  = [126, 42, 14, 4.6, 1.6];
+const SCALEZ = {2:1/81, 4:1/27, 6:1/9, 8:1/3, 10:1};
+function detailPx(lod, zoom){ return DPX10[lod] * SCALEZ[zoom]; }
+function fmtPx(px){ return px>=10 ? px.toFixed(0) : px.toFixed(px<1?2:1); }
 
 const canvas=document.getElementById('c');
 const ctx=canvas.getContext('2d');
@@ -221,92 +274,82 @@ function draw(zoom) {
 	const lod=ZOOM_LOD[zoom];
 	ctx.clearRect(0,0,W,H);
 
-	// Sea background
-	const sg=ctx.createRadialGradient(W/2,H/2,40,W/2,H/2,Math.hypot(W,H)/2);
-	sg.addColorStop(0,'#0d2040'); sg.addColorStop(1,'#060e1a');
+	// Sea
+	const sg=ctx.createRadialGradient(W/2,H*0.46,40,W/2,H/2,Math.hypot(W,H)/1.7);
+	sg.addColorStop(0,'#103257'); sg.addColorStop(1,'#050b16');
 	ctx.fillStyle=sg; ctx.fillRect(0,0,W,H);
 
-	// Lat/lon grid
-	ctx.strokeStyle='rgba(56,189,248,0.04)'; ctx.lineWidth=1;
-	for(let x=0;x<=W;x+=40){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,H);ctx.stroke();}
-	for(let y=0;y<=H;y+=40){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(W,y);ctx.stroke();}
+	// Graticule (subtle map context)
+	ctx.strokeStyle='rgba(56,189,248,0.05)'; ctx.lineWidth=1;
+	for(let x=0;x<=W;x+=48){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,H);ctx.stroke();}
+	for(let y=0;y<=H;y+=48){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(W,y);ctx.stroke();}
 
-	// Ghost: true max-LOD coastline (dashed, shows what detail exists in memory)
-	if (lod<4) {
-		ctx.save();
-		POLYS.forEach(poly=>{
-			ctx.beginPath();
-			poly.forEach((p,i)=>i===0?ctx.moveTo(p.x,p.y):ctx.lineTo(p.x,p.y));
-			ctx.closePath();
-		});
-		ctx.strokeStyle='rgba(255,255,255,0.07)'; ctx.lineWidth=1; ctx.setLineDash([3,4]);
-		ctx.stroke(); ctx.setLineDash([]);
-		ctx.restore();
-	}
+	// Land fill + coastline, using only vertices kept at this zoom (>= 1px)
+	const landGrad=ctx.createLinearGradient(120,40,520,380);
+	landGrad.addColorStop(0,'rgba(98,134,78,0.96)');
+	landGrad.addColorStop(1,'rgba(58,90,46,0.96)');
 
-	// Land fill + coastline for each polygon filtered to current LOD
-	const landGrad=ctx.createLinearGradient(180,40,480,380);
-	landGrad.addColorStop(0,'rgba(92,128,74,0.93)');
-	landGrad.addColorStop(1,'rgba(65,95,50,0.93)');
-
-	POLYS.forEach(poly=>{
-		const act=poly.filter(v=>v.lod<=lod);
+	POLYS.forEach(P=>{
+		if (zoom < P.minZoom) return;   // whole islet is sub-pixel here → GPU culls the entire feature
+		const act=P.verts.filter(v=>v.lod<=lod);
 		if (act.length<3) return;
 		ctx.save();
 		ctx.beginPath();
 		act.forEach((p,i)=>i===0?ctx.moveTo(p.x,p.y):ctx.lineTo(p.x,p.y));
 		ctx.closePath();
+		// soft coastal glow, then solid land, then crisp shoreline
+		ctx.shadowColor='rgba(125,211,95,0.45)'; ctx.shadowBlur=16;
 		ctx.fillStyle=landGrad; ctx.fill();
-		ctx.strokeStyle='#a8d47e'; ctx.lineWidth=1.5;
-		ctx.shadowColor='#a8d47e'; ctx.shadowBlur=5;
-		ctx.stroke(); ctx.shadowBlur=0;
+		ctx.shadowBlur=0;
+		ctx.strokeStyle='#b6e08a'; ctx.lineWidth=1.6;
+		ctx.shadowColor='#7dd35f'; ctx.shadowBlur=6; ctx.stroke(); ctx.shadowBlur=0;
 		ctx.restore();
 	});
 
-	// Ghost vertices: data in memory, not rendered at this LOD
-	ALL.filter(v=>v.lod>lod).forEach(p=>{
-		ctx.fillStyle='rgba(255,255,255,0.055)';
-		ctx.beginPath(); ctx.arc(p.x,p.y,1.2,0,Math.PI*2); ctx.fill();
+	// Kept vertices, colored by LOD level (skip culled islets entirely)
+	POLYS.forEach(P=>{
+		if (zoom < P.minZoom) return;
+		P.verts.filter(v=>v.lod<=lod).forEach(p=>{
+			const col=LOD_COL[p.lod], sz=LOD_SZ[p.lod];
+			ctx.fillStyle=col; ctx.shadowColor=col; ctx.shadowBlur=sz*2.4;
+			ctx.beginPath(); ctx.arc(p.x,p.y,sz/2,0,Math.PI*2); ctx.fill();
+			ctx.shadowBlur=0;
+		});
 	});
 
-	// Active vertices, colored by LOD level
-	ALL.filter(v=>v.lod<=lod).forEach(p=>{
-		const col=LOD_COL[p.lod], sz=LOD_SZ[p.lod];
-		ctx.fillStyle=col; ctx.shadowColor=col; ctx.shadowBlur=sz*2;
-		ctx.beginPath(); ctx.arc(p.x,p.y,sz/2,0,Math.PI*2); ctx.fill();
-		ctx.shadowBlur=0;
-	});
-
-	// Viewport indicator
-	if (lod>0) {
-		const m=Math.max(8,110-lod*24);
-		ctx.strokeStyle='rgba(56,189,248,0.25)'; ctx.lineWidth=1.5;
-		ctx.setLineDash([5,4]); ctx.strokeRect(m,m,W-m*2,H-m*2);
-		ctx.setLineDash([]);
-		ctx.fillStyle='rgba(56,189,248,0.04)'; ctx.fillRect(m,m,W-m*2,H-m*2);
-	}
-
-	// Corner labels
-	ctx.font='bold 12px monospace'; ctx.fillStyle='rgba(56,189,248,0.72)';
+	// z label (top-left)
+	ctx.font='bold 12px ui-monospace, monospace'; ctx.fillStyle='rgba(125,211,252,0.85)';
 	ctx.textAlign='left'; ctx.textBaseline='top';
-	ctx.fillText(`z = ${zoom}`,8,8);
+	ctx.fillText(`z = ${zoom}`,10,10);
 
-	const inact=ALL.filter(v=>v.lod>lod).length;
-	ctx.font='10px monospace'; ctx.fillStyle='rgba(255,255,255,0.18)';
-	ctx.textAlign='right'; ctx.textBaseline='bottom';
-	ctx.fillText(`${inact} vertices in memory — not rendered at z=${zoom}`,W-6,H-5);
+	// GPU emphasis (bottom-left) — the theme, right on the canvas
+	const active=POLYS.filter(P=>zoom>=P.minZoom).flatMap(P=>P.verts).filter(v=>v.lod<=lod);
+	const culled=TOTAL-active.length;
+	const culledIslands=POLYS.filter(P=>zoom<P.minZoom).length;
+	let msg=`auto-discards ${culled} sub-pixel vertices (< 1px)`;
+	if (culledIslands) msg+=` + ${culledIslands} whole islet${culledIslands>1?'s':''}`;
+	ctx.textAlign='left'; ctx.textBaseline='bottom';
+	ctx.font='bold 11px ui-monospace, monospace'; ctx.fillStyle='rgba(56,189,248,0.92)';
+	ctx.fillText('⚡ GPU vertex shader',10,H-24);
+	ctx.font='11px ui-monospace, monospace'; ctx.fillStyle='rgba(148,163,184,0.8)';
+	ctx.fillText(`${msg} — 0 CPU`,10,H-9);
 
-	// ── Update stats panel ──
-	const active=ALL.filter(v=>v.lod<=lod);
-	const cnt=[0,0,0,0,0];
-	active.forEach(v=>cnt[v.lod]++);
-
+	// ── Stats panel ──
 	document.getElementById('zd').textContent=`z = ${zoom}`;
-	document.getElementById('lt').innerHTML=`<span class="ltag ${LOD_CLS[lod]}">${LOD_NAME[lod]}</span>`;
+	document.getElementById('lt').innerHTML=`<span class="ltag ${LOD_CLS[lod]}">${SCALE_NM[lod]}</span>`;
 	document.getElementById('va').textContent=active.length;
 	document.getElementById('vt').textContent=TOTAL;
 	document.getElementById('vb').style.width=`${(active.length/TOTAL*100).toFixed(1)}%`;
-	['c0','c1','c2','c3','c4'].forEach((id,i)=>document.getElementById(id).textContent=cnt[i]||'—');
+
+	// Sub-pixel detection rows: each LOD's detail size (px) at this zoom, kept vs sub-pixel
+	document.getElementById('subrows').innerHTML=[0,1,2,3,4].map(d=>{
+		const px=detailPx(d,zoom), kept=px>=1;
+		const pos=Math.max(0,Math.min(100,(Math.log10(px)+1)/3.301*100));
+		return `<div class="pxrow ${kept?'':'culled'}">`+
+			`<span class="pxname"><span class="ld" style="background:${LOD_COL[d]};color:${LOD_COL[d]}"></span>LOD ${d}</span>`+
+			`<div class="pxtrack"><div class="pxfill" style="width:${pos.toFixed(1)}%;background:${LOD_COL[d]};box-shadow:0 0 10px -1px ${LOD_COL[d]}"></div><span class="pxmark"></span></div>`+
+			`<span class="pxval ${kept?'keep':'cull'}">${fmtPx(px)}px</span></div>`;
+	}).join('');
 
 	const [hA,hB,lA,lB]=MORTON[zoom];
 	document.getElementById('mc').innerHTML=
