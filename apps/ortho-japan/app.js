@@ -2808,8 +2808,8 @@ let sceneBusy = false;   // ドロップ台本の上映ライフサイクル中�
 const playingNow = () => sceneBusy || !!mapEl.querySelector("#demo-bar.on");   // 上映中判定＝▶デモ(バー点灯)もドロップ再生も
 function playScene(obj) {
 	if (playingNow()) { console.warn("[scene] 上映中＝ドロップは無視"); return false; }
-	const urlLang = new URLSearchParams(location.search).get("lang");   // ?lang が台本の obj.lang に勝つ（demo と同じ流儀）
-	const { scenes, lang, mobile, hold, slideHold, preload, waitLoading } = parseScenes(obj, urlLang);
+	const lang = new URLSearchParams(location.search).get("lang");   // 言語選択は視聴者の ?lang= だけ（台本側の言語指定は無い＝既定は title の言語そのまま）
+	const { scenes, mobile, hold, slideHold, preload, waitLoading } = parseScenes(obj);
 	if (!scenes.length) { console.warn("[scene] scenes が空＝再生しない", obj?.title); return; }
 	if (!demoHandle) { console.warn("[scene] demo 未搭載＝少し待って再ドロップを（起動直後）"); return; }   // demo は起動時に index.html が搭載済み（通常は在る）＝ドロップは ▶ と同じ実体の再生ルーチンを借りる
 	sceneBusy = true;   // 解除＝終幕括弧の閉じ（returnToStart 完了）か失敗 fallback

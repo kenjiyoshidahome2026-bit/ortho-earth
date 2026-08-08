@@ -11,22 +11,21 @@ const load = f => JSON.parse(readFileSync(new URL(f, import.meta.url), "utf8"));
 // ── sumida-dolly.scenes（via 4連続＝1本のスプライン・travel の緩急）──
 {
 	const p = parseScenes(load("./sumida-dolly.scenes"));
-	ok("sumida: waitLoading / lang jp / 行6（via は生のまま）", p.waitLoading === true && p.lang === "jp" && p.scenes.length === 6);
+	ok("sumida: waitLoading / 行6（via は生のまま）", p.waitLoading === true && p.scenes.length === 6);
 	ok("sumida: 先頭は jump 付き視点行", p.scenes[0].jump === true && p.scenes[0].view?.startsWith("#17.61"));
 	const c = compileVias(p.scenes);
 	ok("sumida: compile 後は 2 シーン（via は行から消える）", c.length === 2);
 	ok("sumida: path＝5点（via4＋着点自身）", c[1].path?.length === 5 && c[1].path[4].view === c[1].view);
-	ok("sumida: travel が各点に乗る（4,4,8,4,5）", JSON.stringify(c[1].path.map(x => x.travel)) === "[4,4,8,4,5]");
+	ok("sumida: travel が各点に乗る", JSON.stringify(c[1].path.map(x => x.travel)) === "[4,4,3,8,5]");
 	ok("sumida: hold は秒のまま素通し", c[0].hold === 1 && c[1].hold === 4);
-	ok("sumida: 着点の title/jp が残る", c[1].jp === "隅田川を遡り、スカイツリーへ");
+	ok("sumida: 着点の title（既定言語）＋en 兄弟が残る", c[1].title === "隅田川を遡り、スカイツリーへ" && c[1].en === "Up the Sumida to Skytree");
 }
 
-// ── tokyo-landmarks.scenes（via 無し＝恒等・最上位 hold・title+jp）──
+// ── tokyo-landmarks.scenes（via 無し＝恒等・最上位 hold・title=既定言語+en 兄弟）──
 {
 	const p = parseScenes(load("./tokyo-landmarks.scenes"));
 	ok("landmarks: 5行・台本既定 hold=4（秒）", p.scenes.length === 5 && p.hold === 4);
-	ok("landmarks: title/jp は行にそのまま（翻訳しない）", p.scenes[0].title === "Tokyo Station" && p.scenes[0].jp === "東京駅");
-	ok("landmarks: langOverride が台本の lang に勝つ", parseScenes(load("./tokyo-landmarks.scenes"), "en").lang === "en");
+	ok("landmarks: title/en は行にそのまま（翻訳しない・台本側に言語指定なし）", p.scenes[0].title === "東京駅" && p.scenes[0].en === "Tokyo Station" && p.lang === undefined);
 	ok("landmarks: via 無し＝compileVias は恒等（同一配列）", compileVias(p.scenes) === p.scenes);
 	ok("landmarks: 行毎 hold 上書き", p.scenes[4].hold === 5);
 }

@@ -1,14 +1,13 @@
 {
   "type": "scenes",
   "title": "東京ランドマーク巡り",
-  "lang": "jp",
   "waitLoading": true,
   "hold": 4,
   "scenes": [
-    { "title": "Tokyo Station", "jp": "東京駅", "view": "#19.87/35.68209/139.76340/75t/86r/l=" },
-    { "title": "Tokyo Skytree", "jp": "東京スカイツリー", "view": "#17.33/35.72628/139.81200/75t/-180r/l=" },
-    { "title": "Rainbow Bridge", "jp": "レインボーブリッジ", "view": "#17.00/35.63672/139.76048/55t/160r/l=" },
-    { "title": "Shinjuku Skyscrapers", "jp": "新宿高層ビル街", "view": "#17.24/35.68990/139.69321/75t/50r/l=" },
-    { "title": "Yokohama Minato Mirai", "jp": "横浜・みなとみらい", "view": "#17.33/35.45658/139.63297/72t/-91r/l=", "hold": 5 }
+    { "title": "東京駅", "en": "Tokyo Station", "view": "#19.87/35.68209/139.76340/75t/86r/l=" },
+    { "title": "東京スカイツリー", "en": "Tokyo Skytree", "view": "#17.33/35.72628/139.81200/75t/-180r/l=" },
+    { "title": "レインボーブリッジ", "en": "Rainbow Bridge", "view": "#17.00/35.63672/139.76048/55t/160r/l=" },
+    { "title": "新宿高層ビル街", "en": "Shinjuku Skyscrapers", "view": "#17.24/35.68990/139.69321/75t/50r/l=" },
+    { "title": "横浜・みなとみらい", "en": "Yokohama Minato Mirai", "view": "#17.33/35.45658/139.63297/72t/-91r/l=", "hold": 5 }
   ]
 }

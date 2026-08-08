@@ -22,12 +22,14 @@ export function compileVias(rows) {
 	return out;
 }
 
-// 台本(JSON) → demo プレーヤーへの受け渡し {scenes, lang, mobile, hold, slideHold, preload, waitLoading}。
+// 台本(JSON) → demo プレーヤーへの受け渡し {scenes, mobile, hold, slideHold, preload, waitLoading}。
 // 行は翻訳しない（書式が demo と同一）。やるのは (1)中身の無い行の除去 (2)出発点の無い先頭 via の除去（台本は視点行から）
 // (3)先頭が視点行なら jump 印＝「定義したそのまま」その視点で即開始（遠景の弧を作らない）。via の畳み込みは compileVias（demo.js が通す）。
 // waitLoading＝重いデータ（3D都市）が立ち上がるまで開始を待つ／preload＝明示先読みリスト（カタログ名・無指定＝視点から自動導出）。
 //   キーは汎用名＝書式に固有名詞を入れない掟（Plateau 等は説明にだけ現れる）。
-export function parseScenes(obj, langOverride) {
+// 言語：台本側に言語指定は無い（旧 top-level lang は撤去 2026-08-08）＝既定で見せたい言語を title にそのまま書く。
+//   他言語は行の言語兄弟（en:/jp:…）で足し、選ぶのは視聴者の ?lang=（demo の scene[lang] ?? title）。
+export function parseScenes(obj) {
 	let rows = (Array.isArray(obj?.scenes) ? obj.scenes : []).filter(r => r && (r.view || r.glide || r.via != null || r.slide));
 	const firstView = rows.findIndex(r => r.view || r.glide);
 	if (rows.slice(0, Math.max(firstView, 0)).some(r => r.via != null)) {
@@ -36,7 +38,7 @@ export function parseScenes(obj, langOverride) {
 	}
 	if (rows[0] && (rows[0].view || rows[0].glide)) rows[0] = { ...rows[0], jump: true };
 	return {
-		scenes: rows, lang: langOverride ?? obj?.lang, mobile: obj?.mobile,
+		scenes: rows, mobile: obj?.mobile,
 		hold: obj?.hold, slideHold: obj?.slideHold, preload: obj?.preload,
 		waitLoading: !!obj?.waitLoading,
 	};
