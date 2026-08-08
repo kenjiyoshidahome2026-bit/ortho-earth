@@ -115,13 +115,15 @@ export function createFlight({ cam, viewW, maxPitch, minZoom = 0, onMove, onFlyi
 		if (!phases.length) { onFlying(false); flight = null; return; }
 		run(0);
 	}
-	// 連続ドリー（glidePath）＝hold:0 の連続キーを1本の centripetal Catmull-Rom で通す（例：隅田川に沿ってカメラを流す）。
-	// pts＝[{lon,lat,zoom,pitch,bearing}]（pitch/bearing はラジアン＝cam と同じ単位）。現在のカメラを先頭制御点に足して滑らかに入る。
+	// 連続ドリー（glidePath）＝via 通過点の列を1本の centripetal Catmull-Rom で通す（例：隅田川に沿ってカメラを流す）。
+	// pts＝[{lon,lat,zoom,pitch,bearing,secs?}]（pitch/bearing はラジアン＝cam と同じ単位）。現在のカメラを先頭制御点に足して滑らかに入る。
 	// 経緯度は曲線（通過保証・オーバーシュートなし＝centripetal α=0.5・端は反射ファントムで係数破綻を回避）、zoom/pitch/bearing は各区間を線形。
-	// 全体に ease in/out。ユーザー操作で cancel（flyTo/glideTo と同じ手綱）。glideTo と違い「一続き」＝停止せずに複数点を貫く。
-	function glidePath(pts, { secs } = {}) {
+	// secs＝「その点に到達するまで」の区間尺[秒]（pts[0].secs＝現カメラ→最初の点）。省略区間は経路長比例の自動尺
+	// ＝区間ごとに緩急が書ける（ランドマーク前だけゆっくり等・台本キーは travel）。全体に ease in/out。
+	// ユーザー操作で cancel（flyTo/glideTo と同じ手綱）。glideTo と違い「一続き」＝停止せずに複数点を貫く。
+	function glidePath(pts) {
 		if (!Array.isArray(pts) || pts.length < 1) return;
-		if (pts.length === 1) return glideTo(pts[0].lon, pts[0].lat, pts[0].zoom, (pts[0].pitch || 0) / D2R, (pts[0].bearing || 0) / D2R);   // 1点＝ただの滑走
+		if (pts.length === 1 && !pts[0].secs) return glideTo(pts[0].lon, pts[0].lat, pts[0].zoom, (pts[0].pitch || 0) / D2R, (pts[0].bearing || 0) / D2R);   // 1点・尺なし＝ただの滑走（時分割）。尺あり＝1区間のスプライン（尺どおり同時補間）
 		if (flight) flight.cancel();
 		let cancelled = false;
 		flight = { cancel: () => { cancelled = true; onFlying(false); flight = null; } };
@@ -145,22 +147,27 @@ export function createFlight({ cam, viewW, maxPitch, minZoom = 0, onMove, onFlyi
 			const B2 = ((t[3] - tt) * A2 + (tt - t[1]) * A3) / ((t[3] - t[1]) || 1e-9);
 			return ((t[2] - tt) * B1 + (tt - t[1]) * B2) / ((t[2] - t[1]) || 1e-9);
 		};
-		const posAt = u => {
-			const f = u * (n - 1), i = Math.min(n - 2, Math.max(0, Math.floor(f))), lt = f - i;
+		const posSeg = (i, lt) => {   // 区間 i（ctrl[i]→ctrl[i+1]）の局所位置 lt∈[0,1] を評価
 			const P = [gp(i - 1), gp(i), gp(i + 1), gp(i + 2)];
 			const t = [0, 0, 0, 0];
 			for (let k = 1; k < 4; k++) { const d = Math.hypot(P[k].lon - P[k - 1].lon, P[k].lat - P[k - 1].lat); t[k] = t[k - 1] + Math.sqrt(Math.max(d, 1e-9)); }
 			const tt = t[1] + (t[2] - t[1]) * lt, a = ctrl[i], b = ctrl[i + 1];
 			return { lon: cr(P, t, tt, "lon"), lat: cr(P, t, tt, "lat"), zoom: a.zoom + (b.zoom - a.zoom) * lt, pitch: a.pitch + (b.pitch - a.pitch) * lt, bearing: a.bearing + (b.bearing - a.bearing) * lt };
 		};
-		let pathLen = 0; for (let i = 1; i < n; i++) pathLen += Math.hypot(ctrl[i].lon - ctrl[i - 1].lon, ctrl[i].lat - ctrl[i - 1].lat);
+		// 区間尺→時間ノット：secs 指定はそのまま・無指定は経路長を寄った側の視野幅で割った体感尺（下限300ms）。
+		// 全区間が無指定なら総尺を従来レンジ[1.5s,16s]に一様スケールでクランプ（旧挙動の体感を維持）。
 		const w0 = 360 * viewW() / (WORLD_PX * Math.pow(2, Math.max(...ctrl.map(c => c.zoom))));
-		const dur = secs ? secs * 1000 : Math.max(1500, Math.min(16000, pathLen / w0 * 650));   // secs 指定＝それ／無ければ経路長を寄った側の視野幅で割った体感尺
+		let segMs = pts.map((p, j) => p.secs ? p.secs * 1000 : Math.max(300, Math.hypot(ctrl[j + 1].lon - ctrl[j].lon, ctrl[j + 1].lat - ctrl[j].lat) / w0 * 650));
+		if (!pts.some(p => p.secs)) { const tot = segMs.reduce((a, b) => a + b, 0), f = Math.max(1500, Math.min(16000, tot)) / tot; segMs = segMs.map(m => m * f); }
+		const T = [0]; for (const m of segMs) T.push(T[T.length - 1] + m);
+		const dur = T[n - 1];
 		const t0 = performance.now();
 		const step = () => {
 			if (cancelled) return;
-			const k = Math.min(1, (performance.now() - t0) / dur), e = k * k * (3 - 2 * k);
-			const c = posAt(e);
+			const k = Math.min(1, (performance.now() - t0) / dur), e = k * k * (3 - 2 * k);   // 全体 ease＝出入りだけ滑らか・道中は書いた区間尺どおり
+			const tt = e * dur;
+			let i = 0; while (i < n - 2 && tt > T[i + 1]) i++;
+			const c = posSeg(i, Math.min(1, (tt - T[i]) / ((T[i + 1] - T[i]) || 1e-9)));
 			cam.center = [c.lon, c.lat]; cam.zoom = Math.max(minZoom, c.zoom); cam.pitch = c.pitch; cam.bearing = c.bearing;
 			onMove();
 			if (k < 1) requestAnimationFrame(step); else { onFlying(false); flight = null; onMove(); }   // 走破＝着地扱い（autoPlateau 解禁）

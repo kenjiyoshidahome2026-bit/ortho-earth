@@ -1,57 +1,63 @@
-// 単体テスト（素のESM）：平ら sceneCollection の翻訳＋hold:0連続のspline束ね＋先頭jump＋flat i18n＋嗅ぎ分け。
+// 単体テスト（素のESM）：v2 書式＝行そのまま受け渡し（parseScenes）＋via 畳み込み（compileVias）＋先頭jump＋秒の素通し＋嗅ぎ分け。
 //   実行＝ node demo/samples/test-scene-adapter.mjs
 import { readFileSync } from "node:fs";
-import { sceneCollectionToScenes } from "../scene-adapter.js";
+import { parseScenes, compileVias } from "../scene-adapter.js";
 import { sniffScene } from "../../gadgets/dropfile.js";
 
 let fail = 0;
 const ok = (name, cond) => { console.log((cond ? "✓" : "✗") + " " + name); if (!cond) fail++; };
 const load = f => JSON.parse(readFileSync(new URL(f, import.meta.url), "utf8"));
 
-// ── sample 1: yokohama-fuji（みなとみらい 2シーン・チルトアップのリビール・waitLoading）──
+// ── sumida-dolly.scenes（via 4連続＝1本のスプライン・travel の緩急）──
 {
-	const { scenes, lang, waitLoading } = sceneCollectionToScenes(load("./yokohama-fuji.scene.json"));
-	ok("yokohama: 2 scenes, no path", scenes.length === 2 && scenes.every(s => !s.path));
-	ok("yokohama: scene0 jump=true (start as-defined)", scenes[0].jump === true && scenes[0].glide === "#18.35/35.45723/139.63562/0t/-97r/l=");
-	ok("yokohama: last hold 5000 / lang jp / waitLoading", scenes[1].hold === 5000 && lang === "jp" && waitLoading === true);
-	ok("yokohama: caption jp", scenes[1].caption === "みなとみらい ― 富士を望む");
+	const p = parseScenes(load("./sumida-dolly.scenes"));
+	ok("sumida: waitLoading / lang jp / 行6（via は生のまま）", p.waitLoading === true && p.lang === "jp" && p.scenes.length === 6);
+	ok("sumida: 先頭は jump 付き視点行", p.scenes[0].jump === true && p.scenes[0].view?.startsWith("#17.61"));
+	const c = compileVias(p.scenes);
+	ok("sumida: compile 後は 2 シーン（via は行から消える）", c.length === 2);
+	ok("sumida: path＝5点（via4＋着点自身）", c[1].path?.length === 5 && c[1].path[4].view === c[1].view);
+	ok("sumida: travel が各点に乗る（4,4,8,4,5）", JSON.stringify(c[1].path.map(x => x.travel)) === "[4,4,8,4,5]");
+	ok("sumida: hold は秒のまま素通し", c[0].hold === 1 && c[1].hold === 4);
+	ok("sumida: 着点の title/jp が残る", c[1].jp === "隅田川を遡り、スカイツリーへ");
 }
 
-// ── sample 2: sumida-dolly（establishing + hold:0連続5 の spline 束ね）──
+// ── tokyo-landmarks.scenes（via 無し＝恒等・最上位 hold・title+jp）──
 {
-	const { scenes } = sceneCollectionToScenes(load("./sumida-dolly.scene.json"));
-	ok("sumida: 2 scenes (establishing + path)", scenes.length === 2);
-	ok("sumida: scene0 jump glide (河口) hold 2000", scenes[0].jump === true && scenes[0].glide === "#15.1/35.658/139.786/66t/10r/l=place.rail.road.facility/c=mono" && scenes[0].hold === 2000);
-	ok("sumida: scene1 path of 5, hold 4000, no jump", scenes[1].path?.length === 5 && scenes[1].hold === 4000 && !scenes[1].jump);
-	ok("sumida: path caption = first non-empty (遡上)", scenes[1].caption === "隅田川を遡る");
-	ok("sumida: path secs summed (~13)", Math.abs(scenes[1].secs - 13) < 0.05);
+	const p = parseScenes(load("./tokyo-landmarks.scenes"));
+	ok("landmarks: 5行・台本既定 hold=4（秒）", p.scenes.length === 5 && p.hold === 4);
+	ok("landmarks: title/jp は行にそのまま（翻訳しない）", p.scenes[0].title === "Tokyo Station" && p.scenes[0].jp === "東京駅");
+	ok("landmarks: langOverride が台本の lang に勝つ", parseScenes(load("./tokyo-landmarks.scenes"), "en").lang === "en");
+	ok("landmarks: via 無し＝compileVias は恒等（同一配列）", compileVias(p.scenes) === p.scenes);
+	ok("landmarks: 行毎 hold 上書き", p.scenes[4].hold === 5);
 }
 
-// ── sample 3: tokyo-landmarks（flat i18n: caption=jp 既定, en 兄弟）──
+// ── yokohama-fuji.scenes（glide キー・先頭 view jump）──
 {
-	const jp = sceneCollectionToScenes(load("./tokyo-landmarks.scene.json"), "jp").scenes;
-	const en = sceneCollectionToScenes(load("./tokyo-landmarks.scene.json"), "en").scenes;
-	ok("landmarks: 5 scenes, no path, scene0 jump", en.length === 5 && en.every(s => !s.path) && en[0].jump === true);
-	ok("landmarks: jp → caption 東京駅", jp[0].caption === "東京駅");
-	ok("landmarks: en → sibling Tokyo Station", en[0].caption === "Tokyo Station");
-	ok("landmarks: last hold override 5000", en[4].hold === 5000);
+	const p = parseScenes(load("./yokohama-fuji.scenes"));
+	ok("yokohama: glide キーが素通し", p.scenes[1].glide?.includes("75t/-91r") && !p.scenes[1].view);
+	ok("yokohama: 先頭 jump / hold 2.5 秒", p.scenes[0].jump === true && p.scenes[0].hold === 2.5);
 }
 
-// ── grouping edge cases（合成・平ら defaults.transition glide）──
-const G = keys => sceneCollectionToScenes({ defaults: { transition: "glide" }, scenes: keys }).scenes;
-ok("edge: single glide hold>0 → normal glide (no path)", (() => { const s = G([{ view: "#7/35/139", hold: 2 }]); return s.length === 1 && s[0].glide === "#7/35/139" && !s[0].path; })());
-ok("edge: two hold:0 glide → one path(2)", (() => { const s = G([{ view: "#7/35/139", hold: 0 }, { view: "#7/36/139", hold: 0 }]); return s.length === 1 && s[0].path?.length === 2 && s[0].hold === 0; })());
-ok("edge: [glide h0, fly, glide h0] → [glide, view, glide]", (() => { const s = G([{ view: "#7/35/139", hold: 0 }, { view: "#8/35/139", transition: "fly", hold: 1 }, { view: "#7/36/139", hold: 0 }]); return s.length === 3 && s[0].glide && s[1].view && s[2].glide && !s.some(x => x.path); })());
-ok("edge: back-compat camera.keys still works", (() => { const s = sceneCollectionToScenes({ camera: { defaults: { transition: "fly" }, keys: [{ view: "#6/40/140" }] } }).scenes; return s.length === 1 && s[0].view === "#6/40/140" && s[0].jump === true; })());
+// ── compileVias エッジ ──
+ok("edge: 末尾 via（着点無し）＝捨てる", compileVias([{ view: "#7/35/139" }, { via: "#7/36/139" }]).length === 1);
+ok("edge: スライド行の前の via＝捨てる", (() => { const c = compileVias([{ view: "#7/35/139" }, { via: "#7/36/139" }, { slide: "x" }]); return c.length === 2 && !c[1].path; })());
+ok("edge: glide 着点でも path になる", (() => { const c = compileVias([{ view: "#7/35/139" }, { via: "#7/36/139", travel: 2 }, { glide: "#8/37/140", travel: 3 }]); return c.length === 2 && c[1].path?.length === 2 && c[1].path[1].view === "#8/37/140" && c[1].path[1].travel === 3; })());
+ok("edge: travel 省略＝undefined のまま（自動尺はエンジン側）", compileVias([{ view: "#7/35/139" }, { via: "#7/36/139" }, { view: "#8/37/140" }])[1].path[0].travel === undefined);
+
+// ── parseScenes エッジ ──
+ok("edge: 先頭 via（出発点無し）＝除去して view 行が先頭 jump", (() => { const p = parseScenes({ scenes: [{ via: "#6/35/139" }, { view: "#7/35/139" }] }); return p.scenes.length === 1 && p.scenes[0].jump === true; })());
+ok("edge: 空行の除去", parseScenes({ scenes: [{}, { caption: "x" }, { view: "#7/35/139" }] }).scenes.length === 1);
+ok("edge: 先頭スライド行＝jump 無し", (() => { const p = parseScenes({ scenes: [{ slide: "x" }, { view: "#7/35/139" }] }); return p.scenes.length === 2 && !p.scenes[0].jump && !p.scenes[1].jump; })());
 
 // ── sniffScene（ドロップ嗅ぎ分け・mock File）──
 const mockFile = (name, text) => ({ name, slice: (a, b) => ({ text: async () => text.slice(a, b) }), text: async () => text });
-const t = readFileSync(new URL("./sumida-dolly.scene.json", import.meta.url), "utf8");
-ok("sniff .scene.json → detected", !!(await sniffScene(mockFile("sumida-dolly.scene.json", t))));
-ok("sniff plain .json w/ type → detected", !!(await sniffScene(mockFile("tour.json", t))));
+const t = readFileSync(new URL("./sumida-dolly.scenes", import.meta.url), "utf8");
+ok("sniff .scenes → detected", !!(await sniffScene(mockFile("sumida-dolly.scenes", t))));
+ok("sniff plain .json w/ type:scenes → detected", !!(await sniffScene(mockFile("tour.json", t))));
 ok("sniff geojson FeatureCollection → null", (await sniffScene(mockFile("x.geojson", '{"type":"FeatureCollection","features":[]}'))) === null);
 ok("sniff .zip (not json) → null", (await sniffScene(mockFile("x.shp.zip", "PK"))) === null);
-ok("sniff malformed .scene.json → null (no throw)", (await sniffScene(mockFile("bad.scene.json", "{ not json"))) === null);
+ok("sniff 旧 v1 sceneCollection → null（クリーンブレーク）", (await sniffScene(mockFile("old.scene.json", '{"type":"sceneCollection","scenes":[]}'))) === null);
+ok("sniff malformed .scenes → null (no throw)", (await sniffScene(mockFile("bad.scenes", "{ not json"))) === null);
 
 console.log(fail ? `\n${fail} FAILED` : "\nALL PASS ✓");
 process.exit(fail ? 1 : 0);

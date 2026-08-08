@@ -38,7 +38,7 @@ import { print as printGadget } from "./gadgets/print-stub.js";   // 本体(prin
 import { close as closeGadget } from "./gadgets/close.js";
 import { dropFile as dropFileGadget } from "./gadgets/dropfile.js";
 import { demo as demoGadget } from "./gadgets/demo-stub.js";   // 玄関スタブ＝同期ファサードを即返し、本体(demo.js＝再生エンジン)は搭載時に import()＝初期バンドルから隔離
-import { sceneCollectionToScenes } from "./demo/scene-adapter.js";   // 共有シーン(sceneCollection)→ demo scenes[] の純翻訳（ドロップ再生／将来のエディタで共有）
+import { parseScenes } from "./demo/scene-adapter.js";   // 共有シーン台本(type:"scenes")→ demo プレーヤー受け渡しの純関数（ドロップ/?scene= 再生／将来のエディタで共有）
 import { ai as aiGadget } from "./gadgets/ai-stub.js";   // 玄関スタブ＝同期ファサードを即返し、本体(ai.js＋ai/一式＋将来LLM)は搭載時に import()＝初期バンドルから完全隔離
 import { modalOpen } from "./gadgets/keys.js";   // 矢印キーのモーダル抑止に使う共通判定（ショートカット群と共有）
 
@@ -763,6 +763,7 @@ const plateauEl = document.createElement("div");
 plateauEl.id = "plateau-toast";   // スタイルは style.css
 mapEl.appendChild(plateauEl);
 const plateauProg = new Map();   // name → { scan } | { done, total }（scan＝カタログ走査中の枚数）
+let sceneProgTap = null;   // シーン再生(waitLoading)の進捗パネルへの中継口＝待機中だけ playScene が配線（宣言は使用点 renderPlateauProg より先＝初期化中の worker 便で TDZ を踏まない）
 function renderPlateauProg() {
 	if (!plateauProg.size) plateauEl.style.display = "none";
 	else {
@@ -771,6 +772,7 @@ function renderPlateauProg() {
 		plateauEl.style.display = "block";
 	}
 	plateauDb.onProg(plateauProg);   // データ管理モーダルにも同じ進捗を流す（開いていなければ即return）
+	sceneProgTap?.();   // シーン再生の読み込み待ちパネルにも同じ進捗を流す（waitLoading 中だけ配線・未設定なら無音）
 }
 // --- 建物3D（PLATEAU）データ管理モーダル：カタログ×IDB。worker 配線だけ渡し、DOMはモジュール側が組む。
 const plateauListPending = [];        // idbList 応答待ち（FIFO。IDBは全workerで共有＝worker0固定で聞く）
@@ -786,14 +788,14 @@ const plateauIdbDelete = base => new Promise(res => { plateauDeletePending.set(b
 // 台本の早いシーン（球・列島・スライド）の間に裏で完走→PLATEAUシーンに着いた時はIDB直読み＝初見のPCでも一発で街が立つ。
 // 直列1区ずつ＝訪問者の帯域を占有しない（飛行中の基図タイルと取り合わない）。IDB命中は即成功＝二度目からはタダ。
 async function prefetchPlateauForViews(views, names, onProgress) {
-	if (!plateauOn) return;
+	if (!plateauOn) return [];
 	// 【▶の瞬間から走る】旧・LOW_MEM は boot+45秒遅延（鉄道地図z14.5タイルとデコードが重なる jetsam 対策）
 	// だったが、テーマ切替（c=）の各ページは十数秒で reload されタイマーごと消える＝iPhone では実質
 	// 「最後の reload+45秒後」まで先読みが始まらず、重要シーンに間に合わなかった。遅延は撤去。
 	// reload で切れても plateauworker の部分再開が続きから＝reload 毎の切れ端も貯金になる。
 	// names＝台本（scenes.js の plateau:）の明示リスト（優先順）。指定があれば導出は使わない＝決定的。
 	await plateauCatalogReady;
-	if (!PLATEAU_SETS.length) return;
+	if (!PLATEAU_SETS.length) return [];
 	if (names?.length) {
 		const bad = [];
 		const wanted = names
@@ -845,8 +847,8 @@ async function prefetchPlateauForViews(views, names, onProgress) {
 	for (const v of perView) v.bld.slice(1).filter(s => pd2q(s, v.fwd) < NEIGH * NEIGH).forEach(take);   // 二巡目＝視線の先の隣接区だけ
 	return runPrefetch(wanted, "台本から導出", onProgress);
 }
-async function runPrefetch(wanted, how, onProgress) {
-	if (!wanted.length) return;
+async function runPrefetch(wanted, how, onProgress) {   // 戻り値＝対象区リスト（scene 再生のリビール準備＝全区スタンドアップが使う）
+	if (!wanted.length) return wanted;
 	console.log(`[demo] PLATEAU先読み ${wanted.length}区（${how}）: ${wanted.map(s => s.name).join("・")}`);
 	plateauPrefetchBusy = true;   // 先読み中＝autoPlateau の建物枠を1つ譲る（デコード同時数の総枠を保つ）
 	let done = 0; onProgress?.(0, wanted.length, null);   // 進捗＝総区数を先に伝える（waitLoading の中央表示用）
@@ -877,6 +879,7 @@ async function runPrefetch(wanted, how, onProgress) {
 		};
 		await Promise.all([pump(), pump()]);
 	} finally { plateauPrefetchBusy = false; autoPlateau(true); }   // 先読み終了＝譲っていた枠を返して再選抜
+	return wanted;
 }
 function plateauPreload(set) {   // プレロード＝IDBに貯めるだけ（描画へ送らない）。表示中/読込中の地区はそのまま成功扱い
 	if (plateauLoading.has(set.name) || plateauActive.has(set.name)) return Promise.resolve(true);
@@ -2461,11 +2464,15 @@ function flyView(hash, opts = {}) {
 	if (!v) { console.warn(`[flyView] 解釈できないビュー "${hash}"`); return false; }
 	return applyView(v, { fly: true, glide: opts.glide, jump: opts.jump });
 }
-// シーン台本の連続ドリー（glidePath）＝共有URLハッシュの列を parseViewHash → flightCtl.glidePath へ（hold:0 連続を1本の centripetal Catmull-Rom で貫く＝隅田川ドリー）。
-// P1b＝カメラのみ（l=/c= は道中で触らない＝直前シーンが設定済み）。pitch/bearing はラジアンのまま cam へ。
-function glidePathView(hashes, opts = {}) {
-	const pts = (hashes || []).map(h => { const v = typeof h === "string" ? parseViewHash(h) : h; return v ? { lon: wrapLon(v.lon), lat: v.lat, zoom: v.zoom, pitch: v.pitch || 0, bearing: v.bearing || 0 } : null; }).filter(Boolean);
-	if (pts.length) flightCtl.glidePath(pts, opts);
+// シーン台本の連続ドリー（glidePath）＝{view,travel} の列を parseViewHash → flightCtl.glidePath へ（via 連続を1本の centripetal Catmull-Rom で貫く＝隅田川ドリー）。
+// travel＝その点に到達するまでの区間尺[秒]（エンジン側キーは secs）。カメラのみ＝l=/c= は道中で触らない（直前シーンが設定済み）。pitch/bearing はラジアンのまま cam へ。
+function glidePathView(entries) {
+	const pts = (entries || []).map(h => {
+		const e = typeof h === "string" ? { view: h } : h;
+		const v = typeof e.view === "string" ? parseViewHash(e.view) : e.view;
+		return v ? { lon: wrapLon(v.lon), lat: v.lat, zoom: v.zoom, pitch: v.pitch || 0, bearing: v.bearing || 0, secs: e.travel } : null;
+	}).filter(Boolean);
+	if (pts.length) flightCtl.glidePath(pts);
 	return true;
 }
 
@@ -2783,7 +2790,7 @@ map.gadget("print", function (opts) {   // 印刷（平面図）… 撮影ハイ
 map.gadget("close", function (opts) {   // 閉じる×（埋め込み用）… ortho:close を飛ばすだけ＝閉じる実務は埋め込み側
 	return closeGadget.call(this, { signal: ac.signal, ...opts });
 });
-// ── 共有シーン(sceneCollection)の再生 ── 落とした .scene.json を demo プレーヤーで自動上演する（demo/scene-format.md）。
+// ── 共有シーン台本(type:"scenes")の再生 ── 落とした .scenes（または ?scene=URL）を demo プレーヤーで自動上演する（demo/scene-format.md）。
 // demo は起動時に1度マウント済み（index.html）＝その1インスタンスに load() で台本を差し替える（下の demo ラッパが手綱 demoHandle を掴む）。
 let demoHandle = null;
 // 台本の中で「建物が実際に見える最初の視点」（チルト＋寄り＝pitch≥閾 かつ zoom≥AUTO_Z）の視界に掛かる建物区を返す。
@@ -2797,37 +2804,109 @@ function firstRevealSets(views) {
 	}
 	return [];
 }
+let sceneBusy = false;   // ドロップ台本の上映ライフサイクル中（準備〜走破〜終幕括弧）＝再ドロップは無視（デモ中はドロップ禁止の裁定）
+const playingNow = () => sceneBusy || !!mapEl.querySelector("#demo-bar.on");   // 上映中判定＝▶デモ(バー点灯)もドロップ再生も
 function playScene(obj) {
+	if (playingNow()) { console.warn("[scene] 上映中＝ドロップは無視"); return false; }
 	const urlLang = new URLSearchParams(location.search).get("lang");   // ?lang が台本の obj.lang に勝つ（demo と同じ流儀）
-	const { scenes, lang, mobile, waitLoading } = sceneCollectionToScenes(obj, urlLang);
+	const { scenes, lang, mobile, hold, slideHold, preload, waitLoading } = parseScenes(obj, urlLang);
 	if (!scenes.length) { console.warn("[scene] scenes が空＝再生しない", obj?.title); return; }
 	if (!demoHandle) { console.warn("[scene] demo 未搭載＝少し待って再ドロップを（起動直後）"); return; }   // demo は起動時に index.html が搭載済み（通常は在る）＝ドロップは ▶ と同じ実体の再生ルーチンを借りる
-	const views = scenes.flatMap(s => s.path || [s.view ?? s.glide]).filter(Boolean);   // 全 view（path も展開）＝先読み対象
+	sceneBusy = true;   // 解除＝終幕括弧の閉じ（returnToStart 完了）か失敗 fallback
+	const views = scenes.flatMap(s => s.via != null ? [s.via] : [s.view ?? s.glide]).filter(Boolean);   // 全視点（via 通過点も込み）＝先読み対象
+	const returnView = viewHash();   // ★ドロップした画面（l=/c= 込みの共有URL）＝終幕の戻り先 兼 失敗時の fallback（括弧構造）
+	// 終幕＝最終シーンの hold を終えたら、黒を挟んでドロップした画面へ帰る（映画の括弧＝始まった所で終わる）。上映ロックもここで解除。
+	// 帰還 jump は黒の中で行い、350ms 置いてから溶明＝戻った画面の再構築（タイル敷き直し）を黒の下で始めさせる
+	const returnToStart = async () => { await sceneCover(true, { fade: true }); flyView(returnView, { jump: true }); await new Promise(r => setTimeout(r, 350)); sceneCover(false); sceneBusy = false; };
+	sceneCover(true);   // ★開幕の黒幕＝jump も読み込みも隠し、開始の瞬間に fade-in（scene-format.md §開幕の作法）
 	Promise.resolve(demoHandle.ready).then(async () => {   // 遅延本体の到着を待ってから（起動直後ドロップの保険。通常は解決済み＝即）
-		if (waitLoading && plateauOn) {   // ★読み込み待ちモード：深ズームの街(PLATEAU)が IDB に温まるまで開始しない（リビールが必ず建物に着地・道中のポップイン無し）
-			const first = scenes[0], firstView = first.view ?? first.glide ?? first.path?.[0];
-			if (firstView) flyView(firstView, { jump: true });   // 開始画へ即 jump（demo の内部先読みを起こさず、自前の進捗つき先読みへ一本化）
-			sceneLoading({});   // 準備中…（総区数が分かるまで）
-			await Promise.race([   // prefetchPlateauForViews は「台本の建物区を IDB へ焼き終えた時」に解決＝それが待ち条件（着地時は IDB 直読みで即立つ）。onProgress で中央に大きく進捗
-				prefetchPlateauForViews(views, undefined, (d, total, name) => sceneLoading({ done: d, total, name })).catch(() => {}),
-				new Promise(r => setTimeout(r, 25000)),   // 最長25秒で諦め＝細回線でも止めない
-			]);
+		if (waitLoading && plateauOn) {   // ★読み込み待ちモード＝プリロード前提：重いデータを読み切り、都市をGPUへ立て切ってから開幕。
+			// scene 再生＝「綺麗な動画が撮れる」側のプロファイル（PC前提）＝タイムアウトで妥協しない（▶デモ＝「絶対失敗しない」側とは別・そちらは従来どおり）。
+			const first = scenes[0], firstView = first.view ?? first.glide;   // 先頭は視点行（via は parseScenes が先頭から除去済み）
+			if (firstView) flyView(firstView, { jump: true });   // 開始画へ即 jump（黒幕の下・demo の内部先読みを起こさず、自前の進捗つき先読みへ一本化）
+			// パネルは「実際に読むものがある時」だけ出す（IDB温間・全て焼き済みなら黒幕→即開幕＝何も出さない）。
+			// 実読みの兆候＝(a)建物のネットワーク進捗 plateauProg（renderPlateauProg の tap＝網経路のみ発火・区名+枚数）
+			//             (b)標高タイル読込 elevBusy（jump した開始画の地形＝先読みポンプの柵でもある）。
+			let ward = { done: 0, total: 0 };
+			const poke = () => sceneLoading({ ...ward, show: true });       // 兆候あり＝出す（以降は更新）
+			const tick = setInterval(() => { if (plateauProg.size || elevBusy) poke(); }, 400);   // elevBusy はイベントが無い＝小さく見回る
+			sceneProgTap = poke;   // 建物の枚数進捗はイベント駆動で即時反映
+			// 読み切るまで待つ（タイムアウト無し）：各区は成功/失敗(plateauFailed)で必ず終端＝この await も必ず終わる。待ち時間の顔はパネルが引き受ける
+			const wanted = (await prefetchPlateauForViews(views, preload, (d, total) => { ward = { done: d, total }; sceneLoading(ward); }).catch(() => [])) || [];
+			clearInterval(tick); sceneProgTap = null;
+			// ★リビール準備＝立ち切ってから開幕：最初のフレームから本物の3D（基図の押し出し箱を見せない）。
+			// PC（WebGPU×非LOW_MEM＝全保持ヒステリシスと同じゲート）＝台本の全区を停止中に GPU 常駐まで積む＝道中・後続シーンも vis 点灯だけで即立つ。
+			// 「ロードは停止中に・移動中は点灯だけ」の原則は不変（今は停止中）。低級機フォールバック＝最初のリビール視点の区だけ（従来）。
+			// 失敗区(plateauFailed)は諦めて進む＝黒画面で永遠に待たない。
+			// 低級機フォールバックの選抜（firstRevealSets＝bbox交差）はプリロード選抜（前方点ゲート）より緩い＝
+			// 未プリロード区が混ざると立ち上げ段で網ロードが始まる（実測=千代田区・リビール直前の想定外ネットワーク）。
+			// →プリロード済み区との積集合に絞る＝立ち上げ段は常に IDB→GPU だけ（wanted 空の縁だけ従来通り）。
+			const wantedNames = new Set(wanted.map(s => s.name));
+			const targets = ((gpuBackend && !LOW_MEM && wanted.length) ? wanted
+				: firstRevealSets(views).filter(s => !wanted.length || wantedNames.has(s.name))).filter(s => !plateauFailed.has(s.name));
+			if (targets.length) {
+				const gpuHint = setTimeout(() => sceneLoading({ ...ward, show: true, phase: "gpu" }), 700);   // 一瞬で立ち切る時はパネルを出さない
+				await Promise.all(targets.map(s => standUpWard(s)));
+				// standUpWard は「既に可視ロードが走行中」の区を false 即決で素通しする＝活性化の完了を見届ける（安全弁120秒・failed も抜け口）
+				for (const t0 = performance.now(); !targets.every(s => plateauActive.has(s.name) || plateauFailed.has(s.name)) && performance.now() - t0 < 120000;) await new Promise(r => setTimeout(r, 250));
+				clearTimeout(gpuHint);
+			}
 			sceneLoading(false);
-			// ★リビール準備：チルト＋寄りで建物が実際に見える最初の視点の視界に掛かる区「だけ」を、停止中に GPU 常駐まで積む。
-			// ＝ロードは"止まっている間"に完結（原spec＝移動中はロードしない＝ジッタ対策）。グライド中は showResidentInFlight が
-			// 点灯するだけ＝基図の押し出し箱を出さず本物が立ち上がる。真俯瞰/低ズームのシーン・視界外・後続ホップは積まない（要らない物はロードしない）。
-			for (const s of firstRevealSets(views)) standUpWard(s);
 		}
-		// ★ドロップの入り口：組み込み demo(▶) と同じ再生ルーチンを「素モード(バー/操作なし・上映中ノーアクション)」で呼ぶだけ＝落とした台本を渡す。
-		//   ▶ は次に組み込み設定を渡されて再生する＝demoHandle を上書きも復帰もしない（壊さない）。
-		demoHandle.start?.(0, true, { scenes, lang, mobile, finale: null, bare: true });
+		// ★ドロップ/?scene= の入り口：組み込み demo(▶) と同じ再生ルーチンを「素モード(バー/操作なし・上映中ノーアクション)」で呼ぶだけ＝落とした台本を渡す。
+		//   ▶ は次に組み込み設定を渡されて再生する＝demoHandle を上書きも復帰もしない（壊さない）。via の畳み込みは start 側（compileVias）。
+		demoHandle.start?.(0, true, { scenes, lang, mobile, hold, slideHold, preload, finale: returnToStart, bare: true });   // 終演＝括弧を閉じる（黒→ドロップした画面へ）
+		sceneCover(false);   // ★開始と同時に黒幕を fade-out＝最初の画面へ fade-in（約1.2秒）
+	}).catch(e => {   // ★fallback＝どの失敗でも「黒幕を残さず、ドロップした画面へ帰る」＝終幕と同じ着地（上映ロックも解除）
+		sceneLoading(false); sceneProgTap = null; sceneBusy = false;
+		console.warn("[scene] 再生準備で失敗＝ドロップした画面へ戻す", e);
+		flyView(returnView, { jump: true }); sceneCover(false);
 	});
 }
-// waitLoading の待機中に画面中央へ大きく出す進捗（何をしているか／あと何区か）。触れない・待ち終わりに退場。
+// ?scene=<URL>＝共有シーン台本の URL ロード（ドロップと同じ道＝取得→type 判定→playScene）。相対URL可（同梱サンプル等）。
+// demo ガジェットは index.html が少し遅れて搭載する＝居るまで小さく待つ（最大10秒・居なければ諦めて警告）。
+{
+	const sceneUrl = new URLSearchParams(location.search).get("scene");
+	if (sceneUrl) fetch(sceneUrl).then(r => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))).then(obj => {
+		if (obj?.type !== "scenes") { console.warn(`[scene] type:"scenes" でない＝再生しない`, sceneUrl); return; }
+		const arm = tries => demoHandle ? playScene(obj) : (tries < 100 ? setTimeout(() => arm(tries + 1), 100) : console.warn("[scene] demo 未搭載のまま＝?scene= を諦めた"));
+		arm(0);
+	}).catch(err => console.warn("[scene] ?scene= の取得に失敗", sceneUrl, err));
+}
+// ★開幕の黒幕（fade-in）：ドロップ/?scene= の再生は必ず黒から立ち上がる＝jump・読み込み・基図タイルの立ち上がりを
+// 隠し、開始と同時に約1.2秒で溶明。DOMオーバーレイ＝#underground（地中フェード）と同じ流儀。パネル(#scene-loading)は
+// zIndex 7＝黒幕(6)より上。触れない（pointerEvents:none）＝掴んで中断する主導権は奪わない。
+let coverEl = null, coverT = 0;
+function sceneCover(on, { fade = false } = {}) {
+	if (on) {
+		clearTimeout(coverT);
+		if (!coverEl) {
+			coverEl = document.createElement("div");
+			coverEl.id = "scene-cover";
+			Object.assign(coverEl.style, { position: "absolute", inset: "0", background: "#000", opacity: "1", transition: "opacity 1.2s ease", zIndex: "6", pointerEvents: "none" });
+		}
+		mapEl.append(coverEl);   // 再ドロップでも常に最前へ（DOM順）
+		if (!fade) { coverEl.style.opacity = "1"; return Promise.resolve(); }   // 即・黒（開幕前）
+		// fade:true＝黒へ溶暗（終幕）：透明から黒へ＝約1.2秒。reflow flush で transition を確実に発火（rAF 依存を断つ＝
+		// 静止後の headless 実測で rAF 連鎖が遅れて溶暗が飛ぶ轍・demo.js のタイトル淡入と同じ作法）。解決＝ほぼ真っ黒になった頃
+		coverEl.style.opacity = "0";
+		void coverEl.offsetWidth;
+		coverEl.style.opacity = "1";
+		return new Promise(r => { coverT = setTimeout(r, 1350); });
+	}
+	if (coverEl) {
+		requestAnimationFrame(() => { coverEl && (coverEl.style.opacity = "0"); });   // 次フレームで溶明開始（append 直後の transition 不発を避ける）
+		coverT = setTimeout(() => { coverEl?.remove(); }, 1500);
+	}
+}
+// waitLoading の待機中に画面中央へ出す進捗パネル。**実際に読むものがある時だけ**出す（state.show が兆候の合図＝
+// 温間・全焼き済みは無表示のまま黒幕→即開幕）。「何をどう読んでいるか」＝ plateauProg（区名+枚数・網経路のみ）と
+// elevBusy（標高タイル）をここで直接読んで一行に組む。触れない・待ち終わりに退場。
 let slEl = null, slFill = null, slSub = null, slCount = null;
 function sceneLoading(state) {
 	const en = new URLSearchParams(location.search).get("lang") === "en";
 	if (state === false) { if (slEl) slEl.style.display = "none"; return; }
+	if (!state.show && !(slEl && slEl.style.display !== "none")) return;   // 兆候(show)が来るまで出さない＝区tickだけではパネルを開かない
 	if (!slEl) {
 		slEl = document.createElement("div");
 		slEl.id = "scene-loading";
@@ -2835,10 +2914,10 @@ function sceneLoading(state) {
 		const card = document.createElement("div");
 		Object.assign(card.style, { minWidth: "min(320px, 78vw)", maxWidth: "82vw", padding: "28px 36px", borderRadius: "18px", background: "rgba(16,24,36,.92)", color: "#fff", textAlign: "center", fontFamily: "system-ui, sans-serif", boxShadow: "0 8px 40px rgba(0,0,0,.45)" });
 		const title = document.createElement("div");
-		title.textContent = en ? "Loading 3D city…" : "3D都市を読み込み中…";
+		title.textContent = en ? "Loading the scene…" : "シーンを読み込み中…";
 		Object.assign(title.style, { fontSize: "23px", fontWeight: "700", letterSpacing: ".01em", marginBottom: "6px" });
 		slSub = document.createElement("div");
-		Object.assign(slSub.style, { fontSize: "13px", opacity: ".7", marginBottom: "18px" });
+		Object.assign(slSub.style, { fontSize: "13px", opacity: ".7", marginBottom: "18px", minHeight: "1.4em" });
 		const bar = document.createElement("div");
 		Object.assign(bar.style, { height: "9px", borderRadius: "999px", background: "rgba(255,255,255,.16)", overflow: "hidden" });
 		slFill = document.createElement("div");
@@ -2848,19 +2927,26 @@ function sceneLoading(state) {
 		Object.assign(slCount.style, { fontSize: "13.5px", opacity: ".88", marginTop: "12px", fontVariantNumeric: "tabular-nums" });
 		card.append(title, slSub, bar, slCount);
 		slEl.append(card);
-		mapEl.append(slEl);
 	}
+	mapEl.append(slEl);   // 毎回最後尾へ＝黒幕(#scene-cover)より必ず上（DOM順＋zIndex の二重保険）
 	slEl.style.display = "flex";
-	const bldLabel = en ? "PLATEAU buildings" : "PLATEAU 建物データ";
-	if (!state || !state.total) {   // 準備中（総数未確定）
-		slSub.textContent = bldLabel;
+	// 今まさに読んでいる物＝建物（区名 done/total枚・カタログ走査）＋標高。網経路のみ＝IDB命中は現れない（それが正しい）
+	const parts = [...plateauProg.values()].map(p =>
+		p.total ? `${p.name} ${p.done}/${p.total}${en ? "" : "枚"}` : `${p.name} ${en ? "scanning" : "カタログ走査"} ${p.scan ?? 0}…`);
+	if (elevBusy) parts.push(en ? "terrain tiles" : "標高タイル");
+	slSub.textContent = parts.join("・") || (en ? "3D city (PLATEAU)" : "3D都市（PLATEAU）");
+	const { done = 0, total = 0 } = state;
+	if (state.phase === "gpu") {   // 読み切った後の最終段＝IDB→GPU 常駐へ立ち切る待ち（開幕の直前）
+		slFill.style.width = "100%";
+		slCount.textContent = en ? "standing up the city…" : "都市を立ち上げ中…";
+	} else if (total) {
+		// バーは区の歩み＋読みかけ区のタイル進捗（なめらか担当・並行読みの分は全部加算＝残り区数でクランプ）
+		const frac = Math.min(Math.max(0, total - done), [...plateauProg.values()].reduce((a, p) => a + (p.total ? Math.min(1, p.done / p.total) : 0), 0));
+		slFill.style.width = Math.max(6, Math.round(Math.min(1, (done + frac) / total) * 100)) + "%";
+		slCount.textContent = en ? `${done} / ${total} districts` : `${done} / ${total} 区`;
+	} else {
 		slFill.style.width = "6%";
 		slCount.textContent = en ? "preparing…" : "準備中…";
-	} else {
-		const { done, total, name } = state;
-		slSub.textContent = name ? `${bldLabel} · ${name}` : bldLabel;
-		slFill.style.width = Math.max(6, Math.round((done / total) * 100)) + "%";
-		slCount.textContent = en ? `${done} / ${total} districts` : `${done} / ${total} 区`;
 	}
 }
 map.gadget("dropFile", function (opts) {   // GISファイルのD&D取り込み … geopbf(File,{gint:true})→applyGintData を loadFile として束ね注入（gint単一スロット＝置き換え）
@@ -2880,7 +2966,7 @@ map.gadget("dropFile", function (opts) {   // GISファイルのD&D取り込み 
 		}
 		return pbf;   // gadget が pbf.length（地物数）をトーストに使う
 	};
-	return dropFileGadget.call(this, { loadFile, clearGint: clearUserGint, playScene, signal: ac.signal, ...opts });
+	return dropFileGadget.call(this, { loadFile, clearGint: clearUserGint, playScene, busy: playingNow, signal: ac.signal, ...opts });   // busy＝上映中はドロップ無視（デモ中はドロップ禁止）
 });
 map.gadget("demo", function (opts) {   // デモ（発表の台本再生）… 台本の一行=共有URLハッシュ。flyView（球面フライト）・フライト中判定・PLATEAU先読み・現テーマ名（幕替わり判定）を注入
 	const japanFit = () => {   // 終演の定位置＝日本列島が画面に収まる真俯瞰・北向き（fitBbox と同じ視野幅の逆解き＝縦横どちらの画面でも収まる）
@@ -2888,7 +2974,7 @@ map.gadget("demo", function (opts) {   // デモ（発表の台本再生）… �
 		const z = Math.min(Math.log2(360 * size.w / (WORLD_PX * wDeg)), Math.log2(360 * size.h / (WORLD_PX * hDeg)));
 		flyTo(137, 37, Math.max(ZOOM_MIN, Math.min(7, z)), 0, 0);
 	};
-	demoHandle = demoGadget.call(this, { flyView, glidePath: glidePathView, flightActive: () => flightCtl.active, prefetchViews: prefetchPlateauForViews, finale: japanFit, signal: ac.signal, zoomMin: ZOOM_MIN, ...opts });   // 手綱を掴む＝ドロップは playScene→demoHandle.start(落とした台本, bare) で別入り口再生（▶=組み込みは壊さない）。glidePath＝hold:0連続のスプライン
+	demoHandle = demoGadget.call(this, { flyView, glidePath: glidePathView, flightActive: () => flightCtl.active, prefetchViews: prefetchPlateauForViews, finale: japanFit, signal: ac.signal, zoomMin: ZOOM_MIN, ...opts });   // 手綱を掴む＝ドロップ/?scene= は playScene→demoHandle.start(落とした台本, bare) で別入り口再生（▶=組み込みは壊さない）。glidePath＝via連続ドリーのスプライン
 	return demoHandle;
 });
 map.gadget("ai", function (opts) {   // AIと会話して地図に描く（PC専用・画面2分割）… 描画受け口とbboxフィット・消去を注入

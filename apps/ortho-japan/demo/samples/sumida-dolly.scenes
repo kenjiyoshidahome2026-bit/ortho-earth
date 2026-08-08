@@ -1,0 +1,14 @@
+{
+  "type": "scenes",
+  "title": "隅田川を遡る",
+  "lang": "jp",
+  "waitLoading": true,
+  "scenes": [
+    { "title": "Sumida River Mouth", "jp": "隅田川・河口", "view": "#17.61/35.66116/139.77129/75t/39r/l=terrain", "hold": 1 },
+    { "via": "#17.62/35.67716/139.78766/75t/20r", "travel": 4 },
+    { "via": "#17.47/35.68842/139.79006/75t/-29r", "travel": 4 },
+    { "via": "#17.47/35.69733/139.78959/75t/13r", "travel": 3 },
+    { "via": "#17.47/35.71286/139.79984/75t/25r", "travel": 8 },
+    { "title": "Up the Sumida to Skytree", "jp": "隅田川を遡り、スカイツリーへ", "view": "#16.47/35.71677/139.80776/75t/133r/l=terrain", "travel": 5, "hold": 4 }
+  ]
+}

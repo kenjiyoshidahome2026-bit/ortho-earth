@@ -5,6 +5,9 @@
 //   移動は球面フライト（flyView 注入＝van Wijk 三段振り付け・t/r 着地対応）＝トランジション自体が見せ場。
 //   view の代わりに glide＝近距離滑走（シーンチェンジでなく「シーン内の動き」＝起きずに 位置→方位→チルト の
 //   時分割で滑る。引き・回り込み・立ち上がりの画。大手町→レインボーブリッジのような同じ街のホップ用）。
+//   { via:"#〜", travel:秒 } 行＝通過点：view/glide 行の間に挟むと、直前の着点から次の着点まで1本のスプライン
+//   （連続ドリー・5自由度）で貫く。travel＝その点に到達するまでの区間尺[秒]（省略＝経路長比例の自動）。
+//   via はシーンに数えない（歩数・目次から消える）。道中はカメラのみ＝l=/c= は直前シーンで設定しておく。
 //   点火チップ(l=)は「l= を書いたシーンだけ」がチップに触る＝無ければ現状維持（発表者の手動チップが台本に勝つ）。
 //   シーンの見た目を固定したい時は明示的に l= を（全消し＝末尾 "l="）。
 //   c= 付きシーン＝配色の幕替わり：flyView が「生き替え」で反映する（reload無し＝暗転が消える・進行はそのまま）。
@@ -17,9 +20,10 @@
 //   幕クリック/幕中のSpace（手動）＝幕を下ろして0.8秒の間で次のシーンへ＝語り終わりのワンタップ送り。
 //   ›/→＝拍どおり（幕を下ろしてもう一度地図＝三拍目を踏みたい時はこちら）。
 // opts.slide=false＝スライドを一切出さない上演モード（公開チュートリアル用。スライドだけのシーンは台本から抜く）。
-// 自動上演（▷）＝「動画」モード：シーンの「静止」hold ms（既定 opts.hold=7000・シーン毎 scene.hold 上書き）で自動送り。
-//   静止はフライト/滑走の着地後から数える（flightActive で待つ）＝遷移の長いシーン（glide連鎖・大ジャンプ）でも
-//   見る時間は削られない。幕（スライド）＝slideHold ms（既定 opts.slideHold=4000・シーン毎 scene.slideHold 上書き）。
+// 自動上演（▷）＝「動画」モード：シーンの「静止」hold 秒（既定 opts.hold=5.5・シーン毎 scene.hold 上書き）で自動送り。
+//   時間は台本もオプションも全部「秒」＝ms 化はこのファイルの内側だけ（v2 で統一・2026-08-08）。
+//   静止はフライト/滑走の着地後から数える（flightActive で待つ）＝遷移の長いシーン（via ドリー・大ジャンプ）でも
+//   見る時間は削られない。幕（スライド）＝slideHold 秒（既定 opts.slideHold=4・シーン毎 scene.slideHold 上書き）。
 //   幕前の地図は最大2秒（着いた画をひと目＝語りは幕で）・幕後の三拍目は最大1.5秒＝既に見た画は「間」だけで次へ。
 //   静止中は字幕＝scene.caption（無ければ title 代用）を画面上部にやや大きめに出す＝無言の動画でも文脈が付く。
 //   上映中は操縦バーごと退場（デスクトップ＝幅481px以上）＝画面は映画・停止は点灯した▶の一押し（＝一時停止でバー復帰）。
@@ -34,6 +38,7 @@
 // キーボードの地図操作（矢印パン等）はデモ中だけ止める＝keys.js の MODAL_SELECTORS に #demo-bar.on を登録済み。
 import { gadgetStack } from "./stack.js";
 import { isTypingTarget } from "./keys.js";
+import { compileVias } from "../demo/scene-adapter.js";   // via 行（通過点）→ 着点シーンの path:[{view,travel}…] への畳み込み（純関数・台本受領時に必ず通す）
 
 // ▶（上演開始）。線色は本線インク直書き＝quiet-mono の夜節が自動反転（palette と同じ流儀）。
 const ICON = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#3f4757" stroke-width="1.6" stroke-linejoin="round" aria-hidden="true">
@@ -43,7 +48,8 @@ const ICON = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke
 const isImg = s => /\.(svg|png|jpe?g|webp|gif|avif)([?#]|$)/i.test(s) || /^(data:|blob:|https?:)/.test(s);
 // 配色テーマ（c=）の幕替わりは flyView 側の「生き替え」（reload無し）で反映＝ここでのトークン判定/進行預け(RESUME_KEY)は不要になった。
 
-// opts.scenes＝台本 [{title, view?, glide?, pre?, slide?, caption?, hold?, mobile?}]。view/glide=共有URLハッシュ文字列（glide=近距離滑走）／
+// opts.scenes＝台本 [{title, view?, glide?, via?, travel?, pre?, slide?, caption?, hold?, mobile?}]。view/glide=共有URLハッシュ文字列（glide=近距離滑走）／
+//   via=通過点（連続ドリー・compileVias が着点の path に畳む＝シーンに数えない）／travel=その点に到達するまでの区間尺[秒]／
 //   pre=入場の見せ玉：まず pre の画へ飛び、着地から1秒後に view を遷移なしで重ねる（同座標で l= だけ点ける演出）／
 //   slide=画像URLか生テキスト／caption=自動上演の静止中に画面上部へ出す字幕（無ければ title 代用）／
 //   言語＝en基準・拡張可能：title は英語が正、シーンに言語コードのフィールド（jp:/en:…）を足すと opts.lang で切替。
@@ -51,16 +57,18 @@ const isImg = s => /\.(svg|png|jpe?g|webp|gif|avif)([?#]|$)/i.test(s) || /^(data
 //   mobile=Δz：縦長画面（縦>横）でだけシーンの z に足す差分（例 -1.2＝一段引く）。
 //   横パノラマ構図の左右切り落とし対策＝中心・チルト・方位はそのまま、ズームだけ動かす＝台本は1枚のまま。
 // opts.mobile＝Δz の台本全体の既定（全シーンに効く）。シーン毎の mobile が勝つ＝mobile: 0 でそのシーンだけ無効化。
-// opts.slide=false＝スライド抜き上演。opts.hold＝自動上演の静止ms（既定7000・着地後から）。opts.slideHold＝幕の表示ms（既定4000）。
+// opts.slide=false＝スライド抜き上演。opts.hold＝自動上演の静止秒（既定5.5・着地後から）。opts.slideHold＝幕の表示秒（既定4）。
 // opts.flyView＝共有URLへ飛ぶ（app が注入）。opts.flightActive＝フライト/滑走中か（app が注入）＝静止の計時を着地まで待たせる。
 // （opts.theme は撤去：c= 付きシーンの幕替わりは flyView 側の生き替え＝reload無しが反映する＝demo は持たない）
-// opts.prefetchViews＝PLATEAU先読み（app が注入・任意）：▶の瞬間に台本の全 view を渡す＝寄るシーンの区が裏でIDBへ。
-//   序盤のシーン構成で時間を稼げば、PLATEAUシーン到着時には初見のPCでも一発で街が立つ（データ重力の種まき兼用）。
+// opts.prefetchViews＝重いデータ（3D都市）の先読み（app が注入・任意）：▶の瞬間に台本の全 view を渡す＝寄るシーンの区が裏でIDBへ。
+//   序盤のシーン構成で時間を稼げば、深ズームのシーン到着時には初見のPCでも一発で街が立つ（データ重力の種まき兼用）。
+// opts.preload＝明示の先読みリスト（カタログ名・prefetchViews の第2引数へ）＝台本の持ち物（載せ替え時に台本の指定へ差し替わる）。
 // 戻り値＝{start, next, prev, exit, play, pause}（テスト・プログラム駆動用）。
 // opts.finale＝台本を最後まで走り切った時だけ呼ばれる終演フック（app が japan-fit を注入）。Esc/▶の途中終了では呼ばない。
-export function demo({ scenes, slide: slideOn = true, hold = 5500, slideHold = 4000, mobile, zoomMin = 1, lang, flyView, glidePath, flightActive, prefetchViews, finale, signal, plateau } = {}) {
+export function demo({ scenes, slide: slideOn = true, hold = 5.5, slideHold = 4, mobile, zoomMin = 1, lang, flyView, glidePath, flightActive, prefetchViews, finale, signal, preload } = {}) {
 	const mapEl = this.mapEl;
 	if (!slideOn && Array.isArray(scenes)) scenes = scenes.filter(s => s.view || !s.slide);   // スライドだけのシーン＝空の停留所になるので抜く
+	scenes = compileVias(scenes ?? []);   // via 行→着点の path へ（via の無い台本は恒等＝同じ配列のまま）
 	if (!Array.isArray(scenes) || !scenes.length) { console.warn("[demo] scenes が空＝ガジェットは搭載しない"); return; }
 	if (mapEl.querySelector("#demo-btn")) return;   // 二重搭載は無害
 	const btn = document.createElement("button");
@@ -123,7 +131,8 @@ export function demo({ scenes, slide: slideOn = true, hold = 5500, slideHold = 4
 	let idx = -1, playing = false, timer = 0, preTimer = 0, slideShown = false;   // slideShown＝このシーン滞在中に幕を一度見せたか（三拍子の現在拍）
 	// 「デモの入り口(▶)」と「ドロップの入り口」は別で、同じ再生ルーチン(start)を呼ぶだけ＝台本を渡すのが違うだけ。
 	// ▶は常に組み込み設定を渡す＝ドロップで別台本を流しても壊れない（上書きも復帰もしない）。
-	const builtin = { scenes, finale, lang, mobile };   // 組み込み(▶)の再生設定＝マウント時に保持
+	const dflt = { lang, mobile, hold, slideHold };   // マウント時の既定＝台本載せ替え時のリセット先（前の台本の設定を持ち越さない）
+	const builtin = { scenes, finale, preload };      // 組み込み(▶)の再生設定＝マウント時に保持（lang等は dflt が復元する）
 	let activeFinale = finale;   // 「今の再生」の終演フック（start で差し替え・ドロップ=null＝末尾に何も足さない）
 	let bareLive = false;        // ドロップ再生中＝素モード（バー無し・上映中ノーアクション）＝操作ハンドラを不活性化する鍵
 	const on = () => bar.classList.contains("on");
@@ -135,10 +144,10 @@ export function demo({ scenes, slide: slideOn = true, hold = 5500, slideHold = 4
 	const schedule = () => {   // 自動上演の滞在timer＝シーン入場と各拍で仕切り直す
 		clearTimeout(timer);
 		if (!playing) return;
-		const s = scenes[idx], h = s?.hold ?? hold;
+		const s = scenes[idx], h = (s?.hold ?? hold) * 1000;   // 台本は秒＝ms 化はここ（内側）だけ
 		// 拍ごとの滞在：幕＝slideHold（読む時間）／幕前の地図＝最大2秒（着いた画をひと目・語りは幕で）／
 		// 幕後の三拍目＝最大1.5秒（既に見た画は「間」だけ）／素の地図シーン＝hold
-		const ms = slide.classList.contains("open") ? (s?.slideHold ?? slideHold)
+		const ms = slide.classList.contains("open") ? (s?.slideHold ?? slideHold) * 1000
 			: hasSlide(s) && s.view ? Math.min(slideShown ? 1500 : 2000, h)
 			: h;
 		// 静止の計時はフライト/滑走の「着地後」から＝遷移の長いシーンでも見る時間が削られない（200ms刻みで着地を待つ）。
@@ -178,7 +187,7 @@ export function demo({ scenes, slide: slideOn = true, hold = 5500, slideHold = 4
 		if (fly && s.jump && tgt) {
 			flyView?.(tgt, { jump: true });   // 先頭シーン等＝遷移なしで即その視点（遠景の弧を作らない＝「定義したそのまま」で開始）
 		} else if (fly && s.path && glidePath) {
-			glidePath(s.path.map(v => mobView(s, v)), { secs: s.secs });   // ★ hold:0 連続＝1本のスプライン（隅田川ドリー）。cam から滑らかに入り、通過保証で曲線を辿る（5自由度：経緯度=曲線／zoom/pitch/bearing=区間補間）
+			glidePath(s.path.map(p => ({ view: mobView(s, p.view), travel: p.travel })));   // ★ via 連続＝1本のスプライン（隅田川ドリー）。cam から滑らかに入り、通過保証で曲線を辿る（5自由度：経緯度=曲線／zoom/pitch/bearing=区間補間）。travel＝各点への区間尺[秒]
 		} else if (fly && tgt) {
 			// pre＝入場の見せ玉：まず pre の画へ飛び、着地から1秒だけ見せて view を遷移なし（jump）で重ねる。
 			// pre と view は同座標が前提＝実際に動くのは l= だけ（素の地図が着いた後、レイヤが「点く」演出）
@@ -199,22 +208,26 @@ export function demo({ scenes, slide: slideOn = true, hold = 5500, slideHold = 4
 	// ▶（デモの入り口）は組み込み設定を、ドロップ（別の入り口）は落とした台本を渡すだけ＝ルーチンは共通・入り口だけ別。
 	// bare＝素モード：バーも操作も出さない（上映中ノーアクション）・自動再生。落としたら始まり、最後まで流れて終わり。
 	const start = (i = 0, fly = true, opts = {}) => {
-		if (opts.lang !== undefined) lang = opts.lang;
-		if (opts.mobile !== undefined) mobile = opts.mobile;
 		if ("finale" in opts) activeFinale = opts.finale;   // 終演フックの差し替え（ドロップ=null）
 		if (Array.isArray(opts.scenes) && opts.scenes.length) {   // 別台本を渡された＝載せ替え＋目次再構築（▶=組み込み／ドロップ=落とした台本）
-			const next = slideOn ? opts.scenes : opts.scenes.filter(s => s.view || s.glide || !s.slide);
+			// 表示設定は「この台本の指定 ?? マウント既定」へ毎回リセット＝前の台本の lang/hold 等を次の再生に持ち越さない。
+			lang = opts.lang ?? dflt.lang; mobile = opts.mobile ?? dflt.mobile; hold = opts.hold ?? dflt.hold; slideHold = opts.slideHold ?? dflt.slideHold;
+			preload = opts.preload;   // 明示先読みリストは台本の持ち物（無指定＝undefined＝視点から自動導出）
+			const next = compileVias(slideOn ? opts.scenes : opts.scenes.filter(s => s.view || !s.slide));   // via 畳み込み（無ければ恒等＝識別比較を壊さない）
 			// 先読みの撃ち直しは「台本が実際に入れ替わった時だけ」。▶は毎回 builtin を渡す（ドロップ台本から組み込みへ戻す口）ので、
 			// 無条件に prefetched=false にすると ▶ を押すたび先読みが再発火する＝「▶の瞬間に1回だけ」の掟が壊れ、
 			// 同じ区の二重読み（iPhone のクラッシュ圧の正体だった型）が戻ってくる。同一台本の再生は撃ち直さない。
 			if (next.length !== scenes.length || next.some((s, k) => s !== scenes[k])) prefetched = false;
 			scenes = next;
 			list.innerHTML = scenes.map((s, k) => `<button data-i="${k}">${k + 1}. ${sceneLabel(s)}</button>`).join("");
+		} else {   // 台本なしの再開（テスト・プログラム駆動）＝今の台本のまま個別上書きだけ
+			if (opts.lang !== undefined) lang = opts.lang;
+			if (opts.mobile !== undefined) mobile = opts.mobile;
 		}
 		bareLive = !!opts.bare;
 		bar.classList.add("on"); mapEl.classList.add("demo-live"); show(i, fly);
 		if (!bareLive) { btn.setAttribute("aria-pressed", "true"); btn.dataset.tip = "デモを終了 (Esc)"; btn.setAttribute("aria-label", "デモを終了"); }   // 素モードは▶を触らない（バー/ボタンを出さない）
-		if (!prefetched) { prefetched = true; prefetchViews?.(scenes.flatMap(s => s.path || [s.view ?? s.glide]).filter(Boolean), plateau); }   // ▶/ドロップとも裏で台本の街をIDBへ（1回だけ）
+		if (!prefetched) { prefetched = true; prefetchViews?.(scenes.flatMap(s => s.path ? s.path.map(p => p.view) : [s.view ?? s.glide]).filter(Boolean), preload); }   // ▶/ドロップとも裏で台本の街をIDBへ（1回だけ・path は通過点込み）
 		if (bareLive || narrow()) play();   // 素モード＝自動再生（映画）／狭画面も自動（play は再入無害）
 	};
 	// 上映中（.playing）＝デスクトップでは操縦バーごと退場（CSS）＝停止は点灯した▶が受ける。字幕も止まったら引っ込める

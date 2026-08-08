@@ -9,24 +9,25 @@
 // 進捗は geopbf の window発火 ConvertProgress（detail: {name, loaded, total}）を拾って歩を出す。
 // signal＝destroy 時のリスナ解除。DOMは自給＝#map直下の後置（z-index全廃＝DOM順の裁き）。
 
-// 落としたファイルが共有シーン台本(sceneCollection)か嗅ぎ分ける（demo/scene-format.md §0）。
-//   .scene.json は確定／.json・.geojson は先頭64KBに discriminator があるか覗いてから全 parse（巨大 geojson を無駄に読まない）。
-//   権威は中身の type:"sceneCollection"（geopbf の掟＝IF は type で見分ける に揃える。geojson=FeatureCollection）。
+// 落としたファイルが共有シーン台本(type:"scenes")か嗅ぎ分ける（demo/scene-format.md §0）。
+//   .scenes（正典・単一サフィックス）は確定／.json・.geojson は先頭64KBに discriminator があるか覗いてから全 parse（巨大 geojson を無駄に読まない）。
+//   権威は中身の type:"scenes"（geopbf の掟＝IF は type で見分ける に揃える。geojson=FeatureCollection）。
 export async function sniffScene(file) {
 	const name = (file.name || "").toLowerCase();
-	const isSceneExt = name.endsWith(".scene.json");
+	const isSceneExt = name.endsWith(".scenes");
 	if (!isSceneExt && !/\.(json|geojson)$/.test(name)) return null;
 	try {
 		if (!isSceneExt) {   // 素の .json/.geojson＝まず覗く（無ければ geopbf に譲る）
 			const head = await file.slice(0, 65536).text();
-			if (!/["']type["']\s*:\s*["']sceneCollection["']/.test(head)) return null;
+			if (!/["']type["']\s*:\s*["']scenes["']/.test(head)) return null;
 		}
 		const obj = JSON.parse(await file.text());
-		return obj && obj.type === "sceneCollection" ? obj : null;
+		return obj && obj.type === "scenes" ? obj : null;
 	} catch (e) { console.warn("[dropFile] scene 解釈失敗", file.name, e); return null; }
 }
 
-export function dropFile({ loadFile, clearGint, playScene, signal } = {}) {
+// busy＝上映中判定（app が注入・任意）：デモ/シーン再生の上映中はドロップを無視する（上映と積み込み・flyTo が喧嘩しない）。
+export function dropFile({ loadFile, clearGint, playScene, busy, signal } = {}) {
 	const mapEl = this.mapEl;
 	if (mapEl.querySelector("#dropzone")) return () => {};   // 二重搭載は無害
 
@@ -46,7 +47,7 @@ export function dropFile({ loadFile, clearGint, playScene, signal } = {}) {
 		textAlign: "center", whiteSpace: "pre-line",
 		font: "600 15px/1.6 system-ui, sans-serif", color: "#fff",
 	});
-	card.textContent = "GISファイル / シーンをここにドロップ\nGeoJSON / Shapefile(zip) / KML / GPX / FlatGeobuf / .scene.json";
+	card.textContent = "GISファイル / シーンをここにドロップ\nGeoJSON / Shapefile(zip) / KML / GPX / FlatGeobuf / .scenes";
 	zone.append(card);
 	mapEl.append(zone);
 
@@ -95,8 +96,9 @@ export function dropFile({ loadFile, clearGint, playScene, signal } = {}) {
 		e.preventDefault(); depth = 0; arm(false);
 		const files = Array.from(e.dataTransfer.files || []);
 		if (!files.length) return;
+		if (busy?.()) { say("🎬 上映中はドロップ無効"); return; }   // デモ中はドロップ禁止（無視）＝台本もGISファイルも受けない
 		for (const file of files) {   // 単一スロット置き換え＝順に読み最後の1枚が残る
-			const scene = playScene ? await sniffScene(file) : null;   // シーン台本(.scene.json / type:sceneCollection)＝プレーヤーへ回す（geopbf に渡さない）
+			const scene = playScene ? await sniffScene(file) : null;   // シーン台本(.scenes / type:"scenes")＝プレーヤーへ回す（geopbf に渡さない）
 			if (scene) { say(`🎬 シーン再生: ${scene.title || file.name}`); playScene(scene); continue; }
 			say(`読込中: ${file.name} …`, true);
 			try {

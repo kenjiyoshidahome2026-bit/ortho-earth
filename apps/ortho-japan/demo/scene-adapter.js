@@ -1,46 +1,43 @@
-// 共有シーン(sceneCollection)→ demo プレーヤーの scenes[] へ翻訳する純関数（demo/scene-format.md）。
-// フォーマットは平ら：{ type, title, lang, defaults, scenes:[ {view, transition?, hold?, secs?, caption?, <lang>?, pre?, slide?, mobile?} ] }。
-//   transition: glide→scene.glide／他(fly/fade/cut)→scene.view。hold は 秒→ms。
-//   ★hold:0 が連続する glide キー＝1本のスプライン（隅田川ドリー）＝ scene.path に束ね、demo が glidePath で一続きに流す。
-//   caption＝表示言語の解決＝ key[lang] ?? key.caption（言語は1つが基本・en:/jp: 兄弟フィールドがあり lang と一致すればそれ）。
-//   ★「定義したそのまま」＝先頭 scene は jump（遠景の弧を作らず、その視点で開始）。末尾の finale（遠景）は呼び出し側で無効化（playScene が finale:null）。
-export function sceneCollectionToScenes(obj, langOverride) {
-	const keys = obj?.scenes ?? obj?.camera?.keys;   // 平ら scenes（新）／camera.keys（旧・後方互換）
-	if (!Array.isArray(keys)) return { scenes: [] };
-	const dflt = obj.defaults ?? obj.camera?.defaults ?? {};
-	const lang = langOverride ?? obj.lang;
-	const transOf = k => k.transition || dflt.transition || "glide";
-	const holdOf = k => (k.hold ?? dflt.hold ?? 2);
-	const capOf = k => { const c = (lang && k[lang] != null) ? k[lang] : k.caption; return (c != null && c !== "") ? c : null; };
+// 共有シーン台本（type:"scenes"・拡張子 .scenes）の純関数集（書式の正典＝demo/scene-format.md）。
+// 行の書式は組み込み台本 demo/scenes.js と同一＝一つの書式（v2・2026-08-08 クリーンブレーク・未公開のうちに）。
+//   旧 v1（type:"sceneCollection"）の transition/defaults・hold:0 連続の束ね規約・camera.keys 互換・秒⇄ms 変換はすべて撤去。
+//   時間の単位は台本もオプションも全部「秒」（hold/slideHold/travel）＝ms 化は demo.js の内側だけ。
 
-	// 1点キー→ふつうのシーン。glide→scene.glide／他→scene.view。
-	const oneScene = k => {
-		const s = { hold: Math.max(0, holdOf(k) * 1000) };
-		if (transOf(k) === "glide") s.glide = k.view; else s.view = k.view;
-		if (k.pre) s.pre = k.pre;
-		if (k.slide) s.slide = k.slide;
-		if (k.mobile !== undefined) s.mobile = k.mobile;
-		const cap = capOf(k); if (cap) { s.caption = cap; s.title = cap; }
-		return s;
-	};
-
-	const scenes = [];
-	let i = 0;
-	while (i < keys.length) {
-		if (transOf(keys[i]) === "glide") {
-			// glide 連続を hold>0（停止）で区切る：先頭から、直前が hold:0 かつ次も glide の間だけ伸ばす（stop で閉じる）。
-			const run = [keys[i]]; let j = i;
-			while (holdOf(run[run.length - 1]) === 0 && j + 1 < keys.length && transOf(keys[j + 1]) === "glide") { j++; run.push(keys[j]); }
-			if (run.length >= 2) {
-				const last = run[run.length - 1];
-				const s = { path: run.map(k => k.view), hold: Math.max(0, holdOf(last) * 1000), secs: run.reduce((a, k) => a + (k.secs ?? dflt.secs ?? 2.5), 0) };
-				const cap = run.map(capOf).find(Boolean); if (cap) { s.caption = cap; s.title = cap; }   // 束の最初の字幕をドリー中の見出しに（複数字幕＝絶対トラックは P1b.2）
-				if (run[0].mobile !== undefined) s.mobile = run[0].mobile;
-				scenes.push(s);
-			} else scenes.push(oneScene(run[0]));
-			i = j + 1;
-		} else { scenes.push(oneScene(keys[i])); i++; }
+// via 行（通過点）を次の view/glide 行（着点）へ畳む＝scene.path:[{view,travel}…]（末尾＝着点自身）。
+// demo.js が台本受領時に必ず通す＝組み込み台本(demo/scenes.js)でも .scenes(JSON) でも同じ書式で連続ドリーが書ける。
+// travel＝「その点に到達するまで」の区間尺[秒]（先頭 via は直前シーンの着点→via・着点行の travel＝最終区間）。
+//   省略した区間はエンジンの自動尺（経路長比例）。カメラのみ＝道中の l=/c= は触らない（直前シーンで設定しておく）。
+// via の無い台本は同じ配列をそのまま返す（恒等）＝▶再押下の識別比較（先読みは1回だけの掟）を壊さない。
+export function compileVias(rows) {
+	if (!Array.isArray(rows) || !rows.some(r => r?.via != null)) return rows;
+	const out = []; let vias = [];
+	for (const r of rows) {
+		if (r.via != null && !r.view && !r.glide) { vias.push(r); continue; }
+		const tgt = r.view ?? r.glide;
+		if (vias.length && !tgt) console.warn(`[scene] 着点(view/glide)の無い via ×${vias.length}＝捨てる`);
+		out.push(vias.length && tgt ? { ...r, path: [...vias.map(v => ({ view: v.via, travel: v.travel })), { view: tgt, travel: r.travel }] } : r);
+		vias = [];
 	}
-	if (scenes[0] && (scenes[0].view || scenes[0].glide)) scenes[0].jump = true;   // 先頭は「定義したそのまま」＝その視点で即開始（遠景の弧を作らない）
-	return { scenes, lang, mobile: dflt.mobile, waitLoading: !!obj.waitLoading };   // waitLoading＝重いデータ（3D都市＝PLATEAU）が立ち上がるまで開始を待つ（呼び出し側でゲート）。Plateau は固有名詞ゆえ書式は汎用名
+	if (vias.length) console.warn(`[scene] 末尾の via ×${vias.length} は着点が無い＝捨てる`);
+	return out;
+}
+
+// 台本(JSON) → demo プレーヤーへの受け渡し {scenes, lang, mobile, hold, slideHold, preload, waitLoading}。
+// 行は翻訳しない（書式が demo と同一）。やるのは (1)中身の無い行の除去 (2)出発点の無い先頭 via の除去（台本は視点行から）
+// (3)先頭が視点行なら jump 印＝「定義したそのまま」その視点で即開始（遠景の弧を作らない）。via の畳み込みは compileVias（demo.js が通す）。
+// waitLoading＝重いデータ（3D都市）が立ち上がるまで開始を待つ／preload＝明示先読みリスト（カタログ名・無指定＝視点から自動導出）。
+//   キーは汎用名＝書式に固有名詞を入れない掟（Plateau 等は説明にだけ現れる）。
+export function parseScenes(obj, langOverride) {
+	let rows = (Array.isArray(obj?.scenes) ? obj.scenes : []).filter(r => r && (r.view || r.glide || r.via != null || r.slide));
+	const firstView = rows.findIndex(r => r.view || r.glide);
+	if (rows.slice(0, Math.max(firstView, 0)).some(r => r.via != null)) {
+		console.warn("[scene] 先頭の via は出発点が無い＝捨てる（台本は view/glide 行から）");
+		rows = rows.filter((r, i) => i >= firstView || r.via == null);
+	}
+	if (rows[0] && (rows[0].view || rows[0].glide)) rows[0] = { ...rows[0], jump: true };
+	return {
+		scenes: rows, lang: langOverride ?? obj?.lang, mobile: obj?.mobile,
+		hold: obj?.hold, slideHold: obj?.slideHold, preload: obj?.preload,
+		waitLoading: !!obj?.waitLoading,
+	};
 }

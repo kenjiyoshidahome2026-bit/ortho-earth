@@ -1,0 +1,14 @@
+{
+  "type": "scenes",
+  "title": "横浜・みなとみらい ― 富士を望む",
+  "lang": "jp",
+  "waitLoading": true,
+  "hold": 1,
+  "scenes": [
+    { "title": "Minato Mirai", "jp": "みなとみらい", "view": "#16/35.45688/139.63001/l=place.terrain.rail.road.facility", "hold": 2.5 },
+    { "title": "Facing Mt. Fuji", "jp": "みなとみらい ― 富士を望む", "glide": "#17.38/35.45688/139.63001/75t/-91r/l=" },
+    { "title": "Bay Bridge", "jp": "ベイブリッジ", "glide": "#16.28/35.45823/139.67008/59t/-76r/l=" },
+    { "title": "Minato Mirai", "jp": "みなとみらい", "glide": "#16/35.45688/139.63001/l=" },
+    { "title": "Minato Mirai", "jp": "みなとみらい", "view": "#16/35.45688/139.63001/l=place.terrain.rail.road.facility" }
+  ]
+}

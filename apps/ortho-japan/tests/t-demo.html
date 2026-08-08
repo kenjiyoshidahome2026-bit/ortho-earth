@@ -12,7 +12,7 @@ try {
 	const map = await orthoJapan({ view: "#7/36/138" });
 	map.gadget.demo();   // 台本なし＝警告して非搭載（無害）
 	let pfCalls = 0, pfViews = null;   // PLATEAU先読みのスパイ（実物は外部ネットワークへ出るため差し替え）
-	const h = map.gadget.demo({ hold: 150, slideHold: 150, prefetchViews: vs => { pfCalls++; pfViews = vs; }, scenes: [   // hold/slideHold=150ms＝自動上演の回帰を短時間で回す
+	const h = map.gadget.demo({ hold: 0.15, slideHold: 0.15, prefetchViews: vs => { pfCalls++; pfViews = vs; }, scenes: [   // hold/slideHold=0.15秒＝自動上演の回帰を短時間で回す（v2＝時間は全部「秒」）
 		{ title: "一", view: "#6/40/140" },
 		{ title: "二", view: "#7/39/141", slide: SLIDE },   // view+slide併記＝三拍子：(地図)→(幕)→(地図)→次
 		{ title: "三", view: "#13/35/139/45t/30r/l=place.rail/c=mono" },   // c=現テーマ＝幕替わり不要＝素通り（reloadしない）
@@ -174,6 +174,25 @@ try {
 	ok("liveThemeSwitch", bar3.classList.contains("on") && bar3.querySelector("#demo-step").textContent === "2/2"
 		&& /c=dark/.test(location.hash));   // reload せず＝switchTheme が c=dark を共有URLへ書いた＝暗転無しの幕替わり
 	map3.destroy();
+
+	// via＝通過点の連続ドリー：view→via→view が1本のスプライン（glidePath）で流れ、via はシーンに数えない（歩数・目次から消える）
+	const map4 = await orthoJapan({ view: "#12/35.60/139.75" });
+	let pf4 = null;
+	const h4 = map4.gadget.demo({ hold: 0.15, prefetchViews: vs => { pf4 = vs; }, scenes: [
+		{ title: "河口", view: "#13/35.60/139.78/30t" },
+		{ via: "#13/35.63/139.79", travel: 0.4 },
+		{ title: "遡上", view: "#13/35.66/139.80/30t/20r", travel: 0.4 },
+	] });
+	h4.start();
+	await new Promise(r => setTimeout(r, 200));
+	const bar4 = document.getElementById("demo-bar");
+	ok("viaSteps", bar4.querySelector("#demo-step").textContent === "1/2");   // via は行から消える＝2シーン
+	ok("viaPrefetch", Array.isArray(pf4) && pf4.length === 3 && pf4[1] === "#13/35.63/139.79");   // ▶の先読みは via 通過点も込みの3視点
+	h4.next();   // 2シーン目＝path 滑走（現在地→via→着点・travel 0.4+0.4＝計0.8秒）
+	await new Promise(r => setTimeout(r, 2000));
+	ok("viaDolly", Math.abs(map4.cam.center[1] - 35.66) < 0.01 && Math.abs(map4.cam.bearing - 20 * D2R) < 0.03
+		&& Math.abs(map4.cam.zoom - 13) < 0.05);   // 着点へ通過保証で到達（travel 指定の区間尺・5自由度）
+	map4.destroy();
 	ok("destroy", true);
 } catch (e) { ok("boot:" + (e && e.message || e), false); }
 document.title = t.some(s => s.startsWith("NG")) ? "FAIL " + t.join(" ") : "PASS " + t.join(" ");
