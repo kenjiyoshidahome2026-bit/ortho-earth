@@ -10,7 +10,7 @@ import path from "node:path";
 const APP = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const PORT = 5237;
 const CHROME = process.env.CHROME || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
-const PAGES = ["t-gadgets", "t-newgadgets", "t-providers", "t-measure", "t-shot", "t-palette-live", "t-demo", "t-print", "t-qr", "t-opts", "t-input", "t-narrow", "t-gintlod", "t-gintembed", "t-gintswap", "t-gintdepth", "t-ai"];
+const PAGES = ["t-gadgets", "t-newgadgets", "t-providers", "t-measure", "t-shot", "t-palette-live", "t-demo", "t-scene", "t-print", "t-qr", "t-opts", "t-input", "t-narrow", "t-gintlod", "t-gintembed", "t-gintswap", "t-gintdepth", "t-ai"];
 // t-plateaufs は verify:webgpu（実時間）側：OPFS の実 I/O は virtual-time と両立しない（t-webgpu と同じ轍）。
 
 const vite = spawn("npx", ["vite", "--port", String(PORT), "--strictPort"], { cwd: APP, stdio: "ignore" });
@@ -24,7 +24,7 @@ let fail = 0;
 for (const p of PAGES) {
 	const title = await new Promise(res => execFile(CHROME,
 		["--headless=new", "--disable-gpu", "--use-angle=swiftshader", "--enable-unsafe-swiftshader",
-			"--virtual-time-budget=60000", "--dump-dom", `http://localhost:${PORT}/japan/tests/${p}.html?gl2=1`],   // 60s＝t-demoのフライト実尺（glide/z1着地×9s＋自動上演の着地後計時＝仮想20s）を収める
+			"--virtual-time-budget=75000", "--dump-dom", `http://localhost:${PORT}/japan/tests/${p}.html?gl2=1`],   // 75s＝t-demoのフライト実尺（glide/z1着地×9s＋自動上演の着地後計時＝仮想20s＋scene-player API回帰）を収める
 			// ?gl2=1＝WebGPU既定化(2026-08-02)後も虚時間ハーネスはGL2固定（WebGPU async init×virtual-time の轍＝t-webgpu を PAGES に載せない理由と同じ）
 		{ timeout: 90000, maxBuffer: 64 * 1024 * 1024 },
 		(e, out) => res(e && !out ? `FAIL chrome: ${e.message}` : (String(out).match(/<title>([^<]*)<\/title>/) || [, "FAIL no-title"])[1])));

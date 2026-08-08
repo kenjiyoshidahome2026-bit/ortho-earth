@@ -193,6 +193,37 @@ try {
 	ok("viaDolly", Math.abs(map4.cam.center[1] - 35.66) < 0.01 && Math.abs(map4.cam.bearing - 20 * D2R) < 0.03
 		&& Math.abs(map4.cam.zoom - 13) < 0.05);   // 着点へ通過保証で到達（travel 指定の区間尺・5自由度）
 	map4.destroy();
+
+	// scene-player API（map.playScenes / map.stopScenes・scene-format.md §7）＝エディタの土台：
+	// quick試写（黒幕なし）・観測イベント（onScene/onEnd）・停止でロックを残さない（旧「exit直叩きで再受付不能」の根治）
+	const map5 = await orthoJapan({ view: "#7/36/138" });
+	map5.gadget.demo({ scenes: [{ title: "組込", view: "#6/40/140" }] });   // 組み込み台本は別＝playScenes が壊さない
+	await new Promise(r => setTimeout(r, 200));
+	const ev5 = [];
+	const acc = map5.playScenes({ type: "scenes", scenes: [
+		{ title: "甲", view: "#7.2/36.2/138.2", hold: 0.2 },
+		{ title: "乙", view: "#7.4/36.4/138.4", hold: 0.2 },
+	] }, { quick: true, onScene: i => ev5.push("s" + i), onEnd: r => ev5.push(r) });
+	await new Promise(r => setTimeout(r, 300));
+	const bar5 = document.getElementById("demo-bar");
+	ok("apiQuick", acc === true && bar5.classList.contains("on") && !document.getElementById("scene-cover") && ev5[0] === "s0");   // quick＝黒幕なし・素モード・行イベント
+	ok("apiBusy", map5.playScenes({ type: "scenes", scenes: [{ view: "#5/35/135" }] }) === false);   // 上映中は受けない（stopScenes してから）
+	ok("apiStop", map5.stopScenes() === true && !bar5.classList.contains("on") && ev5.includes("stopped"));   // 停止＝即・onEnd("stopped")
+	const ev6 = [];   // 停止後は再受付（ロックが残らない）→走破は "finished"
+	ok("apiReaccept", map5.playScenes({ type: "scenes", scenes: [{ title: "丙", view: "#7.1/36.1/138.1", hold: 0.2 }] }, { quick: true, onScene: i => ev6.push(i), onEnd: r => ev6.push(r) }) === true);
+	await new Promise(r => setTimeout(r, 1500));   // 先頭は jump（定義したそのまま）＋hold 0.2s＝走破終演まで
+	ok("apiFinished", ev6[0] === 0 && ev6.includes("finished") && !bar5.classList.contains("on"));
+	map5.destroy();
+
+	// player 搭載（組み込み台本なし・▶なし）＝エディタの器：start({scenes}) が台本を持ち込む
+	const map6 = await orthoJapan({ view: "#7/36/138" });
+	const h6 = map6.gadget.demo({ player: true });
+	await new Promise(r => setTimeout(r, 200));
+	ok("playerMount", !document.getElementById("demo-btn") && !!document.getElementById("demo-bar"));
+	h6.start(0, true, { scenes: [{ title: "只", view: "#7.1/36.1/138.1", hold: 0.2 }], bare: true, finale: null });
+	await new Promise(r => setTimeout(r, 200));
+	ok("playerStart", document.getElementById("demo-bar").classList.contains("on"));
+	map6.destroy();
 	ok("destroy", true);
 } catch (e) { ok("boot:" + (e && e.message || e), false); }
 document.title = t.some(s => s.startsWith("NG")) ? "FAIL " + t.join(" ") : "PASS " + t.join(" ");

@@ -43,13 +43,30 @@ ok("edge: スライド行の前の via＝捨てる", (() => { const c = compileV
 ok("edge: glide 着点でも path になる", (() => { const c = compileVias([{ view: "#7/35/139" }, { via: "#7/36/139", travel: 2 }, { glide: "#8/37/140", travel: 3 }]); return c.length === 2 && c[1].path?.length === 2 && c[1].path[1].view === "#8/37/140" && c[1].path[1].travel === 3; })());
 ok("edge: travel 省略＝undefined のまま（自動尺はエンジン側）", compileVias([{ view: "#7/35/139" }, { via: "#7/36/139" }, { view: "#8/37/140" }])[1].path[0].travel === undefined);
 
+// ── fade（遷移キー3種目＝黒挟み切替）──
+ok("fade: 視点行として有効・先頭 jump", (() => { const p = parseScenes({ scenes: [{ fade: "#7/35/139" }] }); return p.scenes.length === 1 && p.scenes[0].jump === true; })());
+ok("fade: via の着点になれる", (() => { const c = compileVias([{ view: "#a" }, { via: "#b" }, { fade: "#c" }]); return c.length === 2 && c[1].path?.length === 2 && c[1].path[1].view === "#c"; })());
+
 // ── parseScenes エッジ ──
 ok("edge: 先頭 via（出発点無し）＝除去して view 行が先頭 jump", (() => { const p = parseScenes({ scenes: [{ via: "#6/35/139" }, { view: "#7/35/139" }] }); return p.scenes.length === 1 && p.scenes[0].jump === true; })());
 ok("edge: 空行の除去", parseScenes({ scenes: [{}, { caption: "x" }, { view: "#7/35/139" }] }).scenes.length === 1);
 ok("edge: 先頭スライド行＝jump 無し", (() => { const p = parseScenes({ scenes: [{ slide: "x" }, { view: "#7/35/139" }] }); return p.scenes.length === 2 && !p.scenes[0].jump && !p.scenes[1].jump; })());
 
+// ── issues 収集（エディタ用診断・scene-format.md §7＝渡すと console.warn しない）──
+{
+	const d1 = [];
+	parseScenes({ scenes: [{ via: "#6/35/139" }, { view: "#7/35/139" }, {}] }, d1);
+	ok("diag: leading-via / empty-row が行番号つきで返る", d1.some(i => i.code === "leading-via" && i.row === 0) && d1.some(i => i.code === "empty-row" && i.row === 2));
+	const d2 = [];
+	compileVias([{ view: "#7/35/139" }, { via: "#7/36/139" }], d2);
+	ok("diag: 末尾 orphan-via（行番号つき）", d2.length === 1 && d2[0].code === "orphan-via" && d2[0].row === 1 && typeof d2[0].msg === "string");
+	const d3 = [];
+	compileVias([{ view: "#7/35/139" }, { via: "#7/36/139" }, { slide: "x" }], d3);
+	ok("diag: スライド前 orphan-via", d3.length === 1 && d3[0].code === "orphan-via" && d3[0].row === 1);
+}
+
 // ── sniffScene（ドロップ嗅ぎ分け・mock File）──
-const mockFile = (name, text) => ({ name, slice: (a, b) => ({ text: async () => text.slice(a, b) }), text: async () => text });
+const mockFile = (name, text) => ({ name, slice: (a, b) => ({ text: async () => text.slice(a, b) }), text: async () => text, arrayBuffer: async () => new TextEncoder().encode(text).buffer });
 const t = readFileSync(new URL("./sumida-dolly.scenes", import.meta.url), "utf8");
 ok("sniff .scenes → detected", !!(await sniffScene(mockFile("sumida-dolly.scenes", t))));
 ok("sniff plain .json w/ type:scenes → detected", !!(await sniffScene(mockFile("tour.json", t))));

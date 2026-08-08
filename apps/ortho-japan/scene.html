@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="ja">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<!-- PC専用ツール（scene再生と同じプロファイル）＝モバイル最適化はしない。配色はアプリが決める＝自動反転を断る -->
+	<meta name="color-scheme" content="only light">
+	<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+	<title>scenes エディタ — ortho-japan</title>
+	<!-- ページ骨格だけここ（舞台＝マット＋フレーム＋パネル）。エディタUIの中身は demo/editor.js が自給（ガジェット作法） -->
+	<style>
+		html, body { margin: 0; height: 100%; overflow: hidden; background: #444; }   /* マット＝中間グレー（編集台の作法） */
+		body { display: flex; }
+		#sc-stage { flex: 1; position: relative; display: flex; align-items: center; justify-content: center; min-width: 0; background: #444; }
+		/* フレーム＝作品の画角（editor.js の fit() が画角比で内接サイズを与える）。初期サイズ＝起動時の #map 0サイズ回避 */
+		#sc-frame { position: relative; width: 70%; height: 70%; background: #0b1021;
+			box-shadow: 0 0 0 1px rgba(0,0,0,.4), 0 12px 42px rgba(0,0,0,.45); }
+		#sc-panel { width: 400px; min-width: 400px; height: 100%; overflow-y: auto; background: #11161f;
+			border-left: 1px solid rgba(255,255,255,.08); box-sizing: border-box; }
+	</style>
+</head>
+<body>
+	<div id="sc-stage"><div id="sc-frame"><div id="map"></div></div></div>
+	<aside id="sc-panel"></aside>
+	<script type="module">
+		import orthoJapan from "./app.js";
+		import { mountSceneEditor } from "./demo/editor.js";
+		(async () => {   // TLA はビルドターゲット外＝async IIFE で包む
+			const map = await orthoJapan({ target: "#map" });   // フル機能の japan（PLATEAU・waitLoading の実物の上で編集する）
+			map.gadget.demo({ player: true });   // 素のプレーヤー（▶なし）＝map.playScenes の器（scene-format.md §7）
+			mountSceneEditor({ map, stageEl: document.getElementById("sc-stage"), panelEl: document.getElementById("sc-panel") });
+		})();
+	</script>
+</body>
+</html>

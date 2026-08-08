@@ -2647,7 +2647,10 @@ ensureStars();   // 初期視点が z<5（復元/共有URL）なら星空も最�
 const map = { cam, flyTo, renderer, mapEl, destroy,
 	// ★表示状態（共有される「単一の真実」）を map インスタンスから常時参照可能に＝viewHash が直列化するのと同じ状態。
 	// center/zoom/pitch/bearing（cam）＋ theme(c=)＋ layers(l=・sky含む)＋ sky ＋ 現在の共有URL文字列(hash)。読み取り専用スナップショット。
-	get view() { return { center: [...cam.center], zoom: cam.zoom, pitch: cam.pitch, bearing: cam.bearing, theme: themeName, layers: FREE_LAYER_KEYS.filter(k => layerState[k]).concat(constelVisible ? [SKY_LAYER] : []), sky: constelVisible, hash: viewHash() }; } };
+	get view() { return { center: [...cam.center], zoom: cam.zoom, pitch: cam.pitch, bearing: cam.bearing, theme: themeName, layers: FREE_LAYER_KEYS.filter(k => layerState[k]).concat(constelVisible ? [SKY_LAYER] : []), sky: constelVisible, hash: viewHash() }; },
+	// ★scene-player API（v2整備 2026-08-09）＝台本オブジェクトの直接上映（第三の入口・エディタの土台）。要 demo ガジェット搭載。
+	//   playScenes(obj, {from, quick, onScene, onEnd})／stopScenes()＝停止（準備中でも安全）。正典＝demo/scene-format.md §7
+	playScenes: (obj, opts) => playScenes(obj, opts), stopScenes: () => stopScenes() };
 // ガジェット注入用の座標ブリッジ（engine の project/unproject を今の cam/サイズで束ねた手綱）。
 // projectLL＝経緯度→画面CSS座標[x,y,front]（front<0＝裏半球・視界外）。unprojectAt＝画面座標→[lon,lat]（球外は null）。
 // DOMオーバーレイ（現在地マーカー/pop/計測）の標高乗せ：radius=1（標高0の球面）へ投影すると、
@@ -2804,25 +2807,33 @@ function firstRevealSets(views) {
 	}
 	return [];
 }
-let sceneBusy = false;   // ドロップ台本の上映ライフサイクル中（準備〜走破〜終幕括弧）＝再ドロップは無視（デモ中はドロップ禁止の裁定）
-const playingNow = () => sceneBusy || !!mapEl.querySelector("#demo-bar.on");   // 上映中判定＝▶デモ(バー点灯)もドロップ再生も
-function playScene(obj) {
-	if (playingNow()) { console.warn("[scene] 上映中＝ドロップは無視"); return false; }
+let sceneBusy = false, sceneRun = 0;   // sceneBusy＝上映ライフサイクル中（準備〜走破〜終幕括弧）／sceneRun＝世代トークン：stopScenes が進めると準備中の再生は静かに降りる
+const playingNow = () => sceneBusy || !!mapEl.querySelector("#demo-bar.on");   // 上映中判定＝▶デモ(バー点灯)もシーン再生も（上映中はドロップ禁止の裁定）
+// ★scene-player API（プラットフォーム公開面・map.playScenes）：台本オブジェクトを直接上映する第三の入口（drop / ?scene= も同じ道）。
+//   opts.from＝開始行／opts.quick=true＝軽い試写（黒幕・waitLoadingゲート・終幕括弧なし＝エディタの行プレビュー用）／
+//   opts.onScene(i, scene)＝行の上映開始（フライト開始前＝行ハイライト用）／opts.onEnd(reason)＝どの終わり方でも1発（"finished"=走破・"stopped"=中断）。
+//   戻り値＝受けたら true・上映中で受けなければ false（先に map.stopScenes()）。終演/中断/失敗のどの経路でも黒幕と上映ロックを残さない（手仕舞い一本化）。
+function playScenes(obj, { from = 0, quick = false, onScene, onEnd } = {}) {
+	if (playingNow()) { console.warn("[scene] 上映中＝受けない（stopScenes() で停止してから）"); return false; }
 	const lang = new URLSearchParams(location.search).get("lang");   // 言語選択は視聴者の ?lang= だけ（台本側の言語指定は無い＝既定は title の言語そのまま）
 	const { scenes, mobile, hold, slideHold, preload, waitLoading } = parseScenes(obj);
-	if (!scenes.length) { console.warn("[scene] scenes が空＝再生しない", obj?.title); return; }
-	if (!demoHandle) { console.warn("[scene] demo 未搭載＝少し待って再ドロップを（起動直後）"); return; }   // demo は起動時に index.html が搭載済み（通常は在る）＝ドロップは ▶ と同じ実体の再生ルーチンを借りる
-	sceneBusy = true;   // 解除＝終幕括弧の閉じ（returnToStart 完了）か失敗 fallback
-	const views = scenes.flatMap(s => s.via != null ? [s.via] : [s.view ?? s.glide]).filter(Boolean);   // 全視点（via 通過点も込み）＝先読み対象
-	const returnView = viewHash();   // ★ドロップした画面（l=/c= 込みの共有URL）＝終幕の戻り先 兼 失敗時の fallback（括弧構造）
-	// 終幕＝最終シーンの hold を終えたら、黒を挟んでドロップした画面へ帰る（映画の括弧＝始まった所で終わる）。上映ロックもここで解除。
+	if (!scenes.length) { console.warn("[scene] scenes が空＝再生しない", obj?.title); return false; }
+	if (!demoHandle) { console.warn("[scene] demo 未搭載＝少し待って再度（起動直後）"); return false; }   // demo は起動時に index.html が搭載済み（通常は在る）＝ ▶ と同じ実体の再生ルーチンを借りる
+	sceneBusy = true;   // 解除＝終幕括弧の閉じ（returnToStart 完了）／endHook（中断・quick走破）／失敗 fallback＝どの経路でも必ず一箇所
+	const run = ++sceneRun;
+	const views = scenes.flatMap(s => s.via != null ? [s.via] : [s.view ?? s.glide ?? s.fade]).filter(Boolean);   // 全視点（via 通過点も込み）＝先読み対象
+	const returnView = viewHash();   // ★上映前の画面（l=/c= 込みの共有URL）＝終幕の戻り先 兼 失敗時の fallback（括弧構造）
+	// 終幕＝最終シーンの hold を終えたら、黒を挟んで上映前の画面へ帰る（映画の括弧＝始まった所で終わる）。上映ロックもここで解除。
 	// 帰還 jump は黒の中で行い、350ms 置いてから溶明＝戻った画面の再構築（タイル敷き直し）を黒の下で始めさせる
 	const returnToStart = async () => { await sceneCover(true, { fade: true }); flyView(returnView, { jump: true }); await new Promise(r => setTimeout(r, 350)); sceneCover(false); sceneBusy = false; };
-	sceneCover(true);   // ★開幕の黒幕＝jump も読み込みも隠し、開始の瞬間に fade-in（scene-format.md §開幕の作法）
-	Promise.resolve(demoHandle.ready).then(async () => {   // 遅延本体の到着を待ってから（起動直後ドロップの保険。通常は解決済み＝即）
-		if (waitLoading && plateauOn) {   // ★読み込み待ちモード＝プリロード前提：重いデータを読み切り、都市をGPUへ立て切ってから開幕。
+	// 終演フック（demo の exit から必ず1発）：フル上映の走破は finale=returnToStart が括弧を閉じて解除＝ここは素通し。
+	// それ以外（中断・quick の走破）はここで即解除＝ demoHandle.exit() 直叩きでもロックが残らない（旧バグの根治）
+	const endHook = r => { if (r !== "finished" || quick) { sceneBusy = false; sceneCover(false); } onEnd?.(r); };
+	if (!quick) sceneCover(true);   // ★開幕の黒幕＝jump も読み込みも隠し、開始の瞬間に fade-in（quick＝試写は儀式なし）
+	Promise.resolve(demoHandle.ready).then(async () => {   // 遅延本体の到着を待ってから（起動直後の保険。通常は解決済み＝即）
+		if (!quick && waitLoading && plateauOn) {   // ★読み込み待ちモード＝プリロード前提：重いデータを読み切り、都市をGPUへ立て切ってから開幕。
 			// scene 再生＝「綺麗な動画が撮れる」側のプロファイル（PC前提）＝タイムアウトで妥協しない（▶デモ＝「絶対失敗しない」側とは別・そちらは従来どおり）。
-			const first = scenes[0], firstView = first.view ?? first.glide;   // 先頭は視点行（via は parseScenes が先頭から除去済み）
+			const first = scenes[from] ?? scenes[0], firstView = first.view ?? first.glide ?? first.fade;   // 開始行の視点（via は parseScenes が先頭から除去済み）
 			if (firstView) flyView(firstView, { jump: true });   // 開始画へ即 jump（黒幕の下・demo の内部先読みを起こさず、自前の進捗つき先読みへ一本化）
 			// パネルは「実際に読むものがある時」だけ出す（IDB温間・全て焼き済みなら黒幕→即開幕＝何も出さない）。
 			// 実読みの兆候＝(a)建物のネットワーク進捗 plateauProg（renderPlateauProg の tap＝網経路のみ発火・区名+枚数）
@@ -2852,22 +2863,41 @@ function playScene(obj) {
 				clearTimeout(gpuHint);
 			}
 			sceneLoading(false);
+			if (run !== sceneRun) { sceneCover(false); return; }   // 準備中に stopScenes された＝静かに降りる（先読み済みは貯金）
 		}
-		// ★ドロップ/?scene= の入り口：組み込み demo(▶) と同じ再生ルーチンを「素モード(バー/操作なし・上映中ノーアクション)」で呼ぶだけ＝落とした台本を渡す。
+		if (run !== sceneRun) { sceneCover(false); return; }
+		// ★上映：組み込み demo(▶) と同じ再生ルーチンを「素モード(バー/操作なし・上映中ノーアクション)」で呼ぶだけ＝台本を渡す。
 		//   ▶ は次に組み込み設定を渡されて再生する＝demoHandle を上書きも復帰もしない（壊さない）。via の畳み込みは start 側（compileVias）。
-		demoHandle.start?.(0, true, { scenes, lang, mobile, hold, slideHold, preload, finale: returnToStart, bare: true });   // 終演＝括弧を閉じる（黒→ドロップした画面へ）
-		sceneCover(false);   // ★開始と同時に黒幕を fade-out＝最初の画面へ fade-in（約1.2秒）
-	}).catch(e => {   // ★fallback＝どの失敗でも「黒幕を残さず、ドロップした画面へ帰る」＝終幕と同じ着地（上映ロックも解除）
+		demoHandle.start?.(from, true, { scenes, lang, mobile, hold, slideHold, preload, finale: quick ? null : returnToStart, bare: true, onScene, onEnd: endHook });   // フル＝終演で括弧を閉じる（黒→上映前の画面へ）
+		if (!quick) sceneCover(false);   // ★開始と同時に黒幕を fade-out＝最初の画面へ fade-in（約1.2秒）
+	}).catch(e => {   // ★fallback＝どの失敗でも「黒幕を残さず、上映前の画面へ帰る」＝終幕と同じ着地（上映ロックも解除）
 		sceneLoading(false); sceneProgTap = null; sceneBusy = false;
-		console.warn("[scene] 再生準備で失敗＝ドロップした画面へ戻す", e);
-		flyView(returnView, { jump: true }); sceneCover(false);
+		console.warn("[scene] 再生準備で失敗＝上映前の画面へ戻す", e);
+		if (!quick) { flyView(returnView, { jump: true }); sceneCover(false); }
 	});
+	return true;
+}
+const playScene = obj => playScenes(obj);   // 旧名の薄い別名（dropfile / ?scene= 注入用＝既定の儀式フル）
+// 停止（scene-player API・map.stopScenes）：上映中でも準備中（黒幕+読み込み待ち）でも安全に降ろす＝黒幕・パネル・ロックを残さない。
+// 現在地に留まる（括弧は閉じない＝終幕の帰還は走破だけの儀式）。戻り値＝止める物があったか。
+function stopScenes() {
+	if (!playingNow()) return false;
+	sceneRun++;   // 準備中の再生を降ろす（黒幕の下で待っている then 連鎖が run 不一致で静かに終わる）
+	demoHandle?.exit?.();   // 上映中なら exit→onEnd("stopped")→endHook が解除（▶デモの上映中でも安全＝ただ終演するだけ）
+	sceneBusy = false; sceneLoading(false); sceneCover(false); sceneProgTap = null;
+	return true;
 }
 // ?scene=<URL>＝共有シーン台本の URL ロード（ドロップと同じ道＝取得→type 判定→playScene）。相対URL可（同梱サンプル等）。
+// gzip（.scenes.gz や gzip 中身）も可＝中身の印(1f 8b)で判定して解凍（サーバが Content-Encoding で解く場合は素通り）。
 // demo ガジェットは index.html が少し遅れて搭載する＝居るまで小さく待つ（最大10秒・居なければ諦めて警告）。
 {
 	const sceneUrl = new URLSearchParams(location.search).get("scene");
-	if (sceneUrl) fetch(sceneUrl).then(r => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))).then(obj => {
+	if (sceneUrl) fetch(sceneUrl).then(async r => {
+		if (!r.ok) throw new Error(`HTTP ${r.status}`);
+		const buf = new Uint8Array(await r.arrayBuffer());
+		const { gunzipText } = await import("./gadgets/dropfile.js");
+		return JSON.parse((buf[0] === 0x1f && buf[1] === 0x8b) ? await gunzipText(buf) : new TextDecoder().decode(buf));
+	}).then(obj => {
 		if (obj?.type !== "scenes") { console.warn(`[scene] type:"scenes" でない＝再生しない`, sceneUrl); return; }
 		const arm = tries => demoHandle ? playScene(obj) : (tries < 100 ? setTimeout(() => arm(tries + 1), 100) : console.warn("[scene] demo 未搭載のまま＝?scene= を諦めた"));
 		arm(0);
@@ -2876,8 +2906,8 @@ function playScene(obj) {
 // ★開幕の黒幕（fade-in）：ドロップ/?scene= の再生は必ず黒から立ち上がる＝jump・読み込み・基図タイルの立ち上がりを
 // 隠し、開始と同時に約1.2秒で溶明。DOMオーバーレイ＝#underground（地中フェード）と同じ流儀。パネル(#scene-loading)は
 // zIndex 7＝黒幕(6)より上。触れない（pointerEvents:none）＝掴んで中断する主導権は奪わない。
-let coverEl = null, coverT = 0;
-function sceneCover(on, { fade = false } = {}) {
+let coverEl = null, coverT = 0, coverSecs = 1.2;   // coverSecs＝直近の溶暗/溶明の尺（fade 行の travel が上書き・既定1.2秒）
+function sceneCover(on, { fade = false, secs } = {}) {
 	if (on) {
 		clearTimeout(coverT);
 		if (!coverEl) {
@@ -2885,19 +2915,33 @@ function sceneCover(on, { fade = false } = {}) {
 			coverEl.id = "scene-cover";
 			Object.assign(coverEl.style, { position: "absolute", inset: "0", background: "#000", opacity: "1", transition: "opacity 1.2s ease", zIndex: "6", pointerEvents: "none" });
 		}
+		coverSecs = (Number.isFinite(secs) && secs > 0) ? secs : 1.2;
+		coverEl.style.transitionDuration = coverSecs + "s";
 		mapEl.append(coverEl);   // 再ドロップでも常に最前へ（DOM順）
 		if (!fade) { coverEl.style.opacity = "1"; return Promise.resolve(); }   // 即・黒（開幕前）
-		// fade:true＝黒へ溶暗（終幕）：透明から黒へ＝約1.2秒。reflow flush で transition を確実に発火（rAF 依存を断つ＝
+		// fade:true＝黒へ溶暗（終幕・fade 行）：透明から黒へ。reflow flush で transition を確実に発火（rAF 依存を断つ＝
 		// 静止後の headless 実測で rAF 連鎖が遅れて溶暗が飛ぶ轍・demo.js のタイトル淡入と同じ作法）。解決＝ほぼ真っ黒になった頃
 		coverEl.style.opacity = "0";
 		void coverEl.offsetWidth;
 		coverEl.style.opacity = "1";
-		return new Promise(r => { coverT = setTimeout(r, 1350); });
+		return new Promise(r => { coverT = setTimeout(r, coverSecs * 1000 + 150); });
 	}
 	if (coverEl) {
 		requestAnimationFrame(() => { coverEl && (coverEl.style.opacity = "0"); });   // 次フレームで溶明開始（append 直後の transition 不発を避ける）
-		coverT = setTimeout(() => { coverEl?.remove(); }, 1500);
+		coverT = setTimeout(() => { coverEl?.remove(); }, coverSecs * 1000 + 300);
 	}
+}
+// フェード遷移（fade: 行・demo が注入で呼ぶ）＝黒への溶暗→jump→溶明（sceneCover 流用）。secs＝溶暗/溶明それぞれの尺（既定1.2）。
+// fadeBusy＝demo の flightActive（着地待ち）に乗せる＝黒の間は hold の計時も字幕も走らない（フライトと同じ扱い）
+let fadeBusy = false;
+async function fadeViewRun(hash, secs) {
+	fadeBusy = true;
+	try {
+		await sceneCover(true, { fade: true, secs });
+		flyView(hash, { jump: true });
+		await new Promise(r => setTimeout(r, 300));   // 切替後のタイル敷き直しを黒の下で始めさせる
+		sceneCover(false);
+	} finally { fadeBusy = false; }
 }
 // waitLoading の待機中に画面中央へ出す進捗パネル。**実際に読むものがある時だけ**出す（state.show が兆候の合図＝
 // 温間・全焼き済みは無表示のまま黒幕→即開幕）。「何をどう読んでいるか」＝ plateauProg（区名+枚数・網経路のみ）と
@@ -2974,7 +3018,7 @@ map.gadget("demo", function (opts) {   // デモ（発表の台本再生）… �
 		const z = Math.min(Math.log2(360 * size.w / (WORLD_PX * wDeg)), Math.log2(360 * size.h / (WORLD_PX * hDeg)));
 		flyTo(137, 37, Math.max(ZOOM_MIN, Math.min(7, z)), 0, 0);
 	};
-	demoHandle = demoGadget.call(this, { flyView, glidePath: glidePathView, flightActive: () => flightCtl.active, prefetchViews: prefetchPlateauForViews, finale: japanFit, signal: ac.signal, zoomMin: ZOOM_MIN, ...opts });   // 手綱を掴む＝ドロップ/?scene= は playScene→demoHandle.start(落とした台本, bare) で別入り口再生（▶=組み込みは壊さない）。glidePath＝via連続ドリーのスプライン
+	demoHandle = demoGadget.call(this, { flyView, fadeView: fadeViewRun, glidePath: glidePathView, flightActive: () => flightCtl.active || fadeBusy, prefetchViews: prefetchPlateauForViews, finale: japanFit, signal: ac.signal, zoomMin: ZOOM_MIN, ...opts });   // 手綱を掴む＝ドロップ/?scene= は playScene→demoHandle.start(落とした台本, bare) で別入り口再生（▶=組み込みは壊さない）。glidePath＝via連続ドリー／fadeView＝黒挟み遷移（fadeBusy を着地待ちに乗せる）
 	return demoHandle;
 });
 map.gadget("ai", function (opts) {   // AIと会話して地図に描く（PC専用・画面2分割）… 描画受け口とbboxフィット・消去を注入

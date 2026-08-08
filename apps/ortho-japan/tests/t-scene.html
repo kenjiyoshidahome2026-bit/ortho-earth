@@ -1,0 +1,102 @@
+<!doctype html>
+<!-- UI回帰：scenes エディタ（demo/editor.js＝scene.html の芯）。定義（フレーム）→撮影（撮る/通過点）→編集（診断・並べ替え）→
+     出力（.scenes）→試写（scene-player API）→読み込み（gzip 込み）。判定はページ内・結果は<title>のPASS/FAIL。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021;width:960px;height:540px}body{visibility:hidden}</style><title>t-scene</title></head>
+<body>
+<script>window.requestAnimationFrame = cb => setTimeout(() => cb(performance.now()), 16); localStorage.setItem("oj.hint", "closed"); localStorage.removeItem("t.sceneDraft");</script>
+<script type="module">
+import orthoJapan from "../app.js";
+import { mountSceneEditor } from "../demo/editor.js";
+import { sniffScene } from "../gadgets/dropfile.js";
+const t = [], ok = (n, c) => t.push((c ? "ok:" : "NG:") + n);
+try {
+	document.body.insertAdjacentHTML("beforeend",
+		`<div id="sc-stage" style="position:absolute;inset:0 300px 0 0;display:flex;align-items:center;justify-content:center">
+			<div id="sc-frame" style="position:relative;width:70%;height:70%"><div id="map"></div></div></div>
+		<aside id="sc-panel" style="position:absolute;right:0;top:0;bottom:0;width:300px;overflow:auto"></aside>`);
+	const stageEl = document.getElementById("sc-stage"), panelEl = document.getElementById("sc-panel");
+	const map = await orthoJapan({ target: "#map", view: "#7/36/138" });
+	map.gadget.demo({ player: true });   // 素のプレーヤー＝playScenes の器
+	const ed = mountSceneEditor({ map, stageEl, panelEl, storageKey: "t.sceneDraft" });
+	await new Promise(r => setTimeout(r, 200));
+
+	// 定義：下書き無し＝フレーム選択から。16:9 を選ぶと枠が画角比で内接する
+	const start = document.getElementById("sc-start");
+	ok("startOverlay", !!start);
+	start.querySelector('button[data-f="16:9"]').click();
+	const fr = document.getElementById("sc-frame");
+	ok("frame169", !document.getElementById("sc-start") && Math.abs(fr.clientWidth / fr.clientHeight - 16 / 9) < 0.03 && ed.doc.frame === "16:9");
+
+	// 撮影：撮る＝今の permalink がそのまま行に。カメラを動かして2枚目＝別ハッシュ
+	ed.shoot();
+	map.cam.center = [139.7, 35.6]; map.cam.zoom = 12;
+	ed.shoot();
+	ok("shoot", ed.doc.scenes.length === 2 && ed.doc.scenes[0].view?.startsWith("#") && ed.doc.scenes[0].view !== ed.doc.scenes[1].view);
+
+	// 編集：末尾の通過点＝orphan-via の行内診断が点き、着点を撮ると消える
+	ed.addVia();
+	await new Promise(r => setTimeout(r, 50));
+	ok("diagOrphan", panelEl.querySelectorAll(".sc-row.err").length === 1 && panelEl.querySelector(".sc-err-msg"));
+	map.cam.center = [139.8, 35.7];
+	ed.shoot();
+	await new Promise(r => setTimeout(r, 50));
+	ok("diagClear", panelEl.querySelectorAll(".sc-row.err").length === 0 && panelEl.querySelectorAll(".sc-row").length === 4);
+
+	// 編集：hold 入力＝モデル直結（input イベントで 2.5 が入る）
+	const hi = panelEl.querySelector('.sc-row[data-i="0"] input[data-k="hold"]');
+	hi.value = "2.5"; hi.dispatchEvent(new Event("input", { bubbles: true }));
+	ok("holdEdit", ed.doc.scenes[0].hold === 2.5);
+	// 遷移セレクタ：地図遷移⇄フェード＝キー名の入れ替え（v2 の掟＝キー名が遷移）
+	{
+		const tsel = panelEl.querySelector('.sc-row[data-i="0"] select[data-k="trans"]');
+		tsel.value = "fade"; tsel.dispatchEvent(new Event("change", { bubbles: true }));
+		ok("transFade", !!ed.doc.scenes[0].fade && !ed.doc.scenes[0].view);
+		const t2 = panelEl.querySelector('.sc-row[data-i="0"] select[data-k="trans"]');
+		t2.value = "view"; t2.dispatchEvent(new Event("change", { bubbles: true }));
+		ok("transBack", !!ed.doc.scenes[0].view && !ed.doc.scenes[0].fade);
+	}
+	// 並べ替え：行2（データ行1）のハンドルを行1（データ行0）の上半分へドラッグ＝先頭へ
+	{
+		const h0 = ed.doc.scenes[0].view, h1 = ed.doc.scenes[1].view;
+		const dt = new DataTransfer();
+		panelEl.querySelector('.sc-row[data-i="1"] .sc-grip').dispatchEvent(new DragEvent("dragstart", { bubbles: true, dataTransfer: dt }));
+		const tgt = panelEl.querySelector('.sc-row[data-i="0"]'), rc = tgt.getBoundingClientRect();
+		tgt.dispatchEvent(new DragEvent("dragover", { bubbles: true, dataTransfer: dt, clientY: rc.top + 2 }));
+		tgt.dispatchEvent(new DragEvent("drop", { bubbles: true, dataTransfer: dt, clientY: rc.top + 2 }));
+		ok("dragSort", ed.doc.scenes[0].view === h1 && ed.doc.scenes[1].view === h0 && ed.doc.scenes[1].hold === 2.5);
+	}
+
+	// 行クリック＝その視点へ（シーン切替の主動線＝location.hash 経由・入力/ボタン上は除外）
+	{
+		const target = ed.doc.scenes[0].view;
+		panelEl.querySelector('.sc-row[data-i="0"] .sc-n').dispatchEvent(new MouseEvent("click", { bubbles: true }));
+		ok("rowJump", location.hash === target);
+	}
+	// 出典（#attr）＝画角の外＝パネル最下部へ養子縁組
+	ok("attrInPanel", panelEl.contains(document.getElementById("attr")));
+
+	// 出力：.scenes（frame 込み・via/travel は素通し）
+	const out = JSON.parse(ed.exportText());
+	ok("export", out.type === "scenes" && out.frame === "16:9" && out.scenes.length === 4 && out.scenes[2].via?.startsWith("#"));
+
+	// 試写：quick＝黒幕なしで素モード点灯・onScene ハイライト・停止でロックを残さない（再受付）
+	ed.doc.scenes.forEach(s => { s.hold = 0.2; });
+	ok("quickPlay", ed.play({ quick: true }) === true);
+	await new Promise(r => setTimeout(r, 300));
+	const bar = document.getElementById("demo-bar");
+	ok("quickLive", bar.classList.contains("on") && !document.getElementById("scene-cover") && panelEl.querySelectorAll(".sc-row.live").length >= 1);
+	ed.stop();
+	ok("stop", !bar.classList.contains("on") && ed.play({ quick: true }) === true);   // 停止→即再受付
+	ed.stop();
+
+	// 読み込み：load（オブジェクト）と sniffScene（gzip の .scenes.gz ＝中身の 1f8b 印で解凍）
+	ok("load", ed.load({ type: "scenes", scenes: [{ title: "読", view: "#8/35/139" }] }) === true && ed.doc.scenes.length === 1);
+	const gzBlob = await new Response(new Response(JSON.stringify({ type: "scenes", scenes: [{ view: "#7/35/139" }] })).body.pipeThrough(new CompressionStream("gzip"))).blob();
+	ok("gzSniff", (await sniffScene(new File([gzBlob], "x.scenes.gz")))?.type === "scenes");
+	ok("gzSniffPlainName", (await sniffScene(new File([gzBlob], "y.scenes")))?.type === "scenes");   // 拡張子でなく中身の印で判定
+
+	ed.destroy(); map.destroy();
+	ok("destroy", true);
+} catch (e) { ok("boot:" + (e && e.message || e), false); }
+document.title = t.some(s => s.startsWith("NG")) ? "FAIL " + t.join(" ") : "PASS " + t.join(" ");
+</script></body></html>

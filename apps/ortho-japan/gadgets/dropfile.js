@@ -10,18 +10,25 @@
 // signal＝destroy 時のリスナ解除。DOMは自給＝#map直下の後置（z-index全廃＝DOM順の裁き）。
 
 // 落としたファイルが共有シーン台本(type:"scenes")か嗅ぎ分ける（demo/scene-format.md §0）。
-//   .scenes（正典・単一サフィックス）は確定／.json・.geojson は先頭64KBに discriminator があるか覗いてから全 parse（巨大 geojson を無駄に読まない）。
+//   .scenes / .scenes.gz（正典・単一サフィックス＋gzip）は確定／.json・.geojson は先頭64KBに discriminator があるか覗いてから全 parse（巨大 geojson を無駄に読まない）。
 //   権威は中身の type:"scenes"（geopbf の掟＝IF は type で見分ける に揃える。geojson=FeatureCollection）。
+//   gzip は拡張子でなく中身の印（1f 8b）で判定＝.scenes のまま gzip でも通る（解凍はブラウザ標準 DecompressionStream・依存ゼロ）。
+export const gunzipText = async bytes => await new Response(new Response(bytes).body.pipeThrough(new DecompressionStream("gzip"))).text();
 export async function sniffScene(file) {
 	const name = (file.name || "").toLowerCase();
-	const isSceneExt = name.endsWith(".scenes");
+	const isSceneExt = name.endsWith(".scenes") || name.endsWith(".scenes.gz");
 	if (!isSceneExt && !/\.(json|geojson)$/.test(name)) return null;
 	try {
-		if (!isSceneExt) {   // 素の .json/.geojson＝まず覗く（無ければ geopbf に譲る）
+		let text;
+		if (isSceneExt) {
+			const buf = new Uint8Array(await file.arrayBuffer());
+			text = (buf[0] === 0x1f && buf[1] === 0x8b) ? await gunzipText(buf) : new TextDecoder().decode(buf);
+		} else {   // 素の .json/.geojson＝まず覗く（無ければ geopbf に譲る）
 			const head = await file.slice(0, 65536).text();
 			if (!/["']type["']\s*:\s*["']scenes["']/.test(head)) return null;
+			text = await file.text();
 		}
-		const obj = JSON.parse(await file.text());
+		const obj = JSON.parse(text);
 		return obj && obj.type === "scenes" ? obj : null;
 	} catch (e) { console.warn("[dropFile] scene 解釈失敗", file.name, e); return null; }
 }
