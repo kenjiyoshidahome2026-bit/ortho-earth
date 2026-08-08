@@ -97,6 +97,50 @@ try {
 	ok("gzSniff", (await sniffScene(new File([gzBlob], "x.scenes.gz")))?.type === "scenes");
 	ok("gzSniffPlainName", (await sniffScene(new File([gzBlob], "y.scenes")))?.type === "scenes");   // 拡張子でなく中身の印で判定
 
+	// タイムライン・スクラブ（map.sceneTimeline＝時刻評価）：総尺=遷移+保持・at で行間のカメラ/fadeの黒・seek で画面へ
+	{
+		ed.load({ type: "scenes", scenes: [
+			{ title: "a", view: "#10/35/135" },
+			{ via: "#10/35.5/135.5", travel: 2 },
+			{ title: "b", view: "#10/36/136", travel: 3, hold: 2 },
+			{ title: "c", fade: "#8/34/134", travel: 1, hold: 1 },
+		] });
+		const tl = map.sceneTimeline(ed.doc);
+		// 行0=jump+hold3 → 3 ／ 行1=ドリー(2+3=5s)+hold2 → 10 ／ 行2=fade(1+0.3+1=2.3s)+hold1 → 13.3
+		ok("tlDur", tl && Math.abs(tl.dur - 13.3) < 0.05 && tl.rows.length === 3);
+		ok("tlRows", tl.rows[1].tArrive - tl.rows[1].t0 > 4.9 && tl.rows[1].knots?.length === 2);
+		const mid = tl.at(5.5);   // ドリー道中＝35..36 の間・黒なし
+		ok("tlMid", mid.i === 1 && mid.lat > 35 && mid.lat < 36 && !(mid.cover > 0));
+		ok("tlFadeBlack", tl.at(11.2).cover === 1);   // fade の切替点＝真っ黒
+		const endF = tl.at(tl.dur);
+		ok("tlEnd", endF.i === 2 && Math.abs(endF.lat - 34) < 1e-6 && Math.abs(endF.zoom - 8) < 1e-6);
+		ok("tlSeek", tl.seek(5.5) === true && map.cam.center[1] > 35 && map.cam.center[1] < 36 && !document.getElementById("scrub-cover"));
+		tl.seek(11.2);
+		ok("tlSeekCover", document.getElementById("scrub-cover")?.style.opacity === "1");
+		tl.end();
+		ok("tlEndClean", !document.getElementById("scrub-cover"));
+		// エディタのスクラブバー：区間（遷移+保持）と◇目盛りが敷かれ、pointerdown でその時刻の絵へ（総尺は常時表示）
+		await new Promise(r => setTimeout(r, 400));   // save の300msデバウンス→tlRefresh
+		const sb = document.getElementById("sc-scrub"), tk = sb?.querySelector(".tk");
+		ok("scrubBar", !!tk && tk.querySelectorAll(".sg").length === 5 && tk.querySelectorAll(".kn").length === 1 && /13\.3s/.test(sb.textContent));
+		const rc = tk.getBoundingClientRect();
+		tk.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, clientX: rc.left + rc.width * 0.42, pointerId: 1 }));
+		tk.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, pointerId: 1 }));
+		ok("scrubDrag", map.cam.center[1] > 35 && map.cam.center[1] < 36.01 && sb.querySelector(".ph"));
+		// 上映ヘッド：試写中はバーの再生ヘッドが実時間で進む（onScene で行頭へ再同期）・停止で止まる
+		const tmOf = () => parseFloat(sb.querySelector(".tm").textContent);
+		ok("headPlay", ed.play({ quick: true }) === true);
+		await new Promise(r => setTimeout(r, 400));
+		const h1 = tmOf();
+		await new Promise(r => setTimeout(r, 400));
+		const h2 = tmOf();
+		ok("headAdvance", h1 < 2 && h2 > h1);   // 行0の頭(0秒)へ再同期→実時間で前進
+		ed.stop();
+		const h3 = tmOf();
+		await new Promise(r => setTimeout(r, 350));
+		ok("headStop", Math.abs(tmOf() - h3) < 0.05);   // 停止＝ヘッドも止まる
+	}
+
 	ed.destroy(); map.destroy();
 	ok("destroy", true);
 } catch (e) { ok("boot:" + (e && e.message || e), false); }

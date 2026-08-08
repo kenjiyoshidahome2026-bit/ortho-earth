@@ -13,6 +13,15 @@ const isVia = r => r?.via != null && !r.view && !r.glide && !r.fade;
 const hashOf = r => r.view ?? r.glide ?? r.fade ?? r.via;   // 行の視点（遷移キー3種＋via）
 
 const CSS = `
+	#sc-stage { padding-bottom:46px; box-sizing:border-box; }   /* 下端＝タイムライン・スクラブの帯（fit も同じ分を差し引く） */
+	#sc-scrub { position:absolute; left:16px; right:16px; bottom:9px; display:flex; align-items:center; gap:10px; color:#cdd6e6; font:11px/1 system-ui,sans-serif; user-select:none; }
+	#sc-scrub .tk { position:relative; flex:1; height:22px; cursor:pointer; touch-action:none; }
+	#sc-scrub .tk::before { content:""; position:absolute; left:0; right:0; top:9px; height:4px; border-radius:2px; background:rgba(255,255,255,.12); }
+	#sc-scrub .sg { position:absolute; top:9px; height:4px; border-radius:2px; background:rgba(255,255,255,.38); }
+	#sc-scrub .sg.tr { background:rgba(125,180,255,.6); }
+	#sc-scrub .kn { position:absolute; top:6px; width:2px; height:10px; background:#e8b64c; }
+	#sc-scrub .ph { position:absolute; top:2px; width:2px; height:18px; background:#fff; box-shadow:0 0 4px rgba(0,0,0,.8); pointer-events:none; }
+	#sc-scrub .tm { min-width:92px; text-align:right; font-variant-numeric:tabular-nums; opacity:.85; }
 	#sc-panel { display:flex; flex-direction:column; font:13px/1.5 system-ui,sans-serif; color:#cdd6e6; }
 	.sc-brand { display:flex; align-items:center; gap:9px; padding:12px 14px 2px; font-size:15px; font-weight:700; color:#e6edf3; letter-spacing:.02em; }
 	.sc-brand svg { width:22px; height:22px; color:#cdd6e6; flex:none; }
@@ -71,18 +80,19 @@ const CSS = `
 export function mountSceneEditor({ map, stageEl, panelEl, storageKey = "oj.sceneDraft" }) {
 	let doc = { type: "scenes", title: "", frame: "16:9", waitLoading: true, scenes: [] };
 	let sel = -1, playing = false, liveGroup = -1, saveT = 0;
+	let tlDirty = true, tlRefresh = () => {};   // タイムライン（スクラブ）の鮮度＝編集(save)で汚れ、300msデバウンスで作り直す（実体は下のスクラブ節）
 
 	// ── 復元（下書き＝localStorage）。無ければ「定義」＝フレーム選択から始める ──
 	let restored = false;
 	try { const d = JSON.parse(localStorage.getItem(storageKey) || "null"); if (d?.type === "scenes") { doc = { frame: "16:9", ...d }; restored = true; } } catch { /* 壊れた下書きは捨てる */ }
-	const save = () => { clearTimeout(saveT); saveT = setTimeout(() => { try { localStorage.setItem(storageKey, JSON.stringify(doc)); } catch { /* 容量等 */ } }, 300); };
+	const save = () => { tlDirty = true; clearTimeout(saveT); saveT = setTimeout(() => { try { localStorage.setItem(storageKey, JSON.stringify(doc)); } catch { /* 容量等 */ } tlRefresh(); }, 300); };
 
 	// ── 画面定義：フレーム枠(#sc-frame)を舞台へ内接（自由=舞台いっぱい）。#map は quiet-mono の 100%/100% で枠に従う ──
 	const frameEl = stageEl.querySelector("#sc-frame");
 	const fit = () => {
 		const f = FRAMES[doc.frame];
 		if (!f) { frameEl.style.width = "100%"; frameEl.style.height = "100%"; return; }
-		const pad = 18, W = stageEl.clientWidth - pad * 2, H = stageEl.clientHeight - pad * 2;
+		const pad = 18, W = stageEl.clientWidth - pad * 2, H = stageEl.clientHeight - 46 - pad * 2;   // 46＝下端スクラブ帯（#sc-stage の padding-bottom）
 		const k = Math.max(1, Math.min(W / f[0], H / f[1]));
 		frameEl.style.width = Math.round(f[0] * k) + "px";
 		frameEl.style.height = Math.round(f[1] * k) + "px";
@@ -187,19 +197,94 @@ export function mountSceneEditor({ map, stageEl, panelEl, storageKey = "oj.scene
 	const shoot = () => { const r = { title: "", view: map.view.hash }; doc.scenes.splice(insertAt(), 0, r); sel = doc.scenes.indexOf(r); save(); paint(); return r; };
 	const addVia = () => { const r = { via: map.view.hash }; doc.scenes.splice(insertAt(), 0, r); sel = doc.scenes.indexOf(r); save(); paint(); return r; };
 
-	// ── 試写（scene-player API）：quick＝黒幕・ゲート・括弧なし／dress＝本番同等。onScene で行ハイライト・onEnd で解除 ──
+	// ── 試写（scene-player API）：quick＝黒幕・ゲート・括弧なし／dress＝本番同等。onScene で行ハイライト＋上映ヘッド再同期・onEnd で解除 ──
 	const play = opts => {
 		map.stopScenes();
 		const okd = map.playScenes(doc, {
 			...opts,
-			onScene: ci => { liveGroup = ci; paint(); },
-			onEnd: r => { playing = false; liveGroup = -1; paint(); opts?.onEnd?.(r); },   // 呼び出し側の onEnd も連鎖（録画の停止フック等）
+			onScene: ci => { liveGroup = ci; paint(); headSync(ci); },
+			onEnd: r => { playing = false; liveGroup = -1; headStop(); paint(); opts?.onEnd?.(r); },   // 呼び出し側の onEnd も連鎖（録画の停止フック等）
 		});
 		playing = okd === true; liveGroup = -1; paint();
 		return okd;
 	};
 	const playFrom = () => play({ quick: true, from: Math.max(0, groupsOf(doc.scenes)[sel] ?? 0) });
 	const stop = () => map.stopScenes();
+
+	// ── タイムライン・スクラブ（map.sceneTimeline＝時刻評価・scene-format.md §7）：ドラッグで任意秒の絵＝再生せず構図と緩急を確かめる ──
+	// 総尺は常時表示（作品の長さの読み）。目盛り＝行ごとの遷移(青)+保持(白)・◇通過点=黄の刻み。編集(save)の300msデバウンスで作り直し。
+	// ドラッグ中は行ハイライト（.live＝試写と同じ印）が追随・離した時に URL を1回確定（tl.end()＝saveView の掟）。
+	const scrub = document.createElement("div");
+	scrub.id = "sc-scrub";
+	scrub.innerHTML = `<div class="tk" title="タイムライン＝ドラッグでその時刻の絵（上映は止まる）"></div><span class="tm"></span>`;
+	stageEl.append(scrub);
+	const scrubTk = scrub.querySelector(".tk"), scrubTm = scrub.querySelector(".tm");
+	const fmtSec = s => (Math.round(s * 10) / 10).toFixed(1) + "s";
+	let tl = null, scrubSec = 0;
+	tlRefresh = () => {
+		tlDirty = false;
+		try { tl = doc.scenes.length ? (map.sceneTimeline?.(doc) ?? null) : null; } catch { tl = null; }   // 診断エラー中の台本でも落とさない（バーを引っ込めるだけ）
+		scrub.style.display = tl ? "" : "none";
+		if (!tl) return;
+		scrubSec = Math.min(scrubSec, tl.dur);
+		const W = 100 / tl.dur;
+		scrubTk.innerHTML = tl.rows.map(r => (r.tArrive > r.t0 ? `<div class="sg tr" style="left:${(r.t0 * W).toFixed(3)}%;width:${((r.tArrive - r.t0) * W).toFixed(3)}%"></div>` : "")
+			+ `<div class="sg" style="left:${(r.tArrive * W).toFixed(3)}%;width:${((r.t1 - r.tArrive) * W).toFixed(3)}%"></div>`
+			+ (r.knots || []).slice(0, -1).map(k => `<div class="kn" style="left:${((r.t0 + k) * W).toFixed(3)}%"></div>`).join("")).join("")
+			+ `<div class="ph" style="left:${(scrubSec * W).toFixed(3)}%"></div>`;
+		scrubTm.textContent = `${fmtSec(scrubSec)} / ${fmtSec(tl.dur)}`;
+	};
+	const headPaint = sec => {   // ヘッドと時刻の表示だけ（seek しない）＝スクラブと上映追随の共用
+		const ph = scrubTk.querySelector(".ph");
+		if (ph) ph.style.left = (sec / tl.dur * 100) + "%";
+		scrubTm.textContent = `${fmtSec(sec)} / ${fmtSec(tl.dur)}`;
+	};
+	const seekAt = clientX => {
+		const rc = scrubTk.getBoundingClientRect();
+		if (!tl || !rc.width) return;
+		scrubSec = Math.max(0, Math.min(1, (clientX - rc.left) / rc.width)) * tl.dur;
+		tl.seek(scrubSec);
+		headPaint(scrubSec);
+		const ci = tl.at(scrubSec).i;   // 行ハイライト追随（compiled index＝試写の onScene と同じ座標系）
+		if (ci !== liveGroup) {
+			liveGroup = ci;
+			const g = groupsOf(doc.scenes);
+			rowsEl.querySelectorAll(".sc-row").forEach(li => li.classList.toggle("live", g[+li.dataset.i] === ci));
+		}
+	};
+	// 上映ヘッド＝再生中の現在位置をバーに追随表示（表示のみ・seek しない＝絵は本物の再生が描いている）。
+	// 行頭（onScene）で実時間クロックを t0 へ再同期し、行の終端 t1 で待機＝実再生の揺らぎ（読み待ち・着地待ち・
+	// 200ms刻みの計時）は次の行頭で吸収する。遷移尺はプラン共有（flight 時刻評価）＝道中はほぼ実尺どおり進む。
+	// 止めは世代トークン（flight.js の cancelled と同じ流儀）＝rAF が setTimeout に差し替わる虚時間ハーネスでも確実に止まる
+	let headRun = 0;
+	const headSync = ci => {
+		if (tlDirty || !tl) tlRefresh();
+		const r = tl?.rows[ci];
+		if (!r) return;
+		const run = ++headRun;
+		const t0 = performance.now();
+		const step = () => {
+			if (run !== headRun) return;
+			scrubSec = Math.min(r.t1, r.t0 + (performance.now() - t0) / 1000);
+			headPaint(scrubSec);
+			requestAnimationFrame(step);
+		};
+		step();
+	};
+	const headStop = () => { headRun++; };
+	let scrubbing = false;
+	scrubTk.addEventListener("pointerdown", e => {
+		map.stopScenes();   // スクラブは上映と排他（掴んだら止める＝主導権は人）
+		if (tlDirty || !tl) tlRefresh();
+		if (!tl) return;
+		scrubbing = true;
+		try { scrubTk.setPointerCapture(e.pointerId); } catch { /* 合成イベント（テスト）等 */ }
+		seekAt(e.clientX);
+	});
+	scrubTk.addEventListener("pointermove", e => { if (scrubbing) seekAt(e.clientX); });
+	const scrubEnd = () => { if (scrubbing) { scrubbing = false; tl?.end(); } };   // 離す＝URL確定（saveView は1回）
+	scrubTk.addEventListener("pointerup", scrubEnd);
+	scrubTk.addEventListener("pointercancel", scrubEnd);
 
 	// ── 録画（🎥）＝画角フレームを Region Capture でタブから切り出し、MediaRecorder の MP4/H.264 で直接動画ファイル化 ──
 	// iMovie 等へそのまま渡せる .mp4（MP4 録画が無い環境だけ .webm へフォールバック）。字幕・黒フェード等の DOM 演出も忠実に写る。
@@ -212,7 +297,7 @@ export function mountSceneEditor({ map, stageEl, panelEl, storageKey = "oj.scene
 		const t = REC_RES[doc.frame], dpr = devicePixelRatio || 1;
 		if (!t) return [Math.round(frameEl.clientWidth * dpr), Math.round(frameEl.clientHeight * dpr)];   // 自由枠＝今の実寸のまま
 		const pad = 18, cssW = t[0] / dpr, cssH = t[1] / dpr;
-		const k = Math.min(1, (stageEl.clientWidth - pad * 2) / cssW, (stageEl.clientHeight - pad * 2) / cssH);
+		const k = Math.min(1, (stageEl.clientWidth - pad * 2) / cssW, (stageEl.clientHeight - 46 - pad * 2) / cssH);
 		frameEl.style.width = Math.round(cssW * k) + "px"; frameEl.style.height = Math.round(cssH * k) + "px";
 		return [Math.round(cssW * k * dpr), Math.round(cssH * k * dpr)];
 	};
@@ -373,8 +458,8 @@ export function mountSceneEditor({ map, stageEl, panelEl, storageKey = "oj.scene
 	};
 	adoptAttr(0);
 
-	fit(); paint();
-	const destroy = () => { window.removeEventListener("resize", fit); clearTimeout(saveT); map.stopScenes?.(); styleEl.remove(); };
+	fit(); paint(); tlRefresh();
+	const destroy = () => { window.removeEventListener("resize", fit); clearTimeout(saveT); map.stopScenes?.(); headStop(); styleEl.remove(); scrub.remove(); };
 	return { get doc() { return doc; }, load, exportText, shoot, addVia, play, playFrom, stop, fit, destroy,
 		select: i => { sel = i; paint(); } };
 }

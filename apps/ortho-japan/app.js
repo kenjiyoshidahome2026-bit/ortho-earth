@@ -39,6 +39,7 @@ import { close as closeGadget } from "./gadgets/close.js";
 import { dropFile as dropFileGadget } from "./gadgets/dropfile.js";
 import { demo as demoGadget } from "./gadgets/demo-stub.js";   // 玄関スタブ＝同期ファサードを即返し、本体(demo.js＝再生エンジン)は搭載時に import()＝初期バンドルから隔離
 import { parseScenes } from "./demo/scene-adapter.js";   // 共有シーン台本(type:"scenes")→ demo プレーヤー受け渡しの純関数（ドロップ/?scene= 再生／将来のエディタで共有）
+import { buildSceneTimeline } from "./demo/scene-timeline.js";   // 台本→総タイムライン（時刻評価・純関数）＝スクラブの芯（map.sceneTimeline が env と画面適用を束ねる）
 import { ai as aiGadget } from "./gadgets/ai-stub.js";   // 玄関スタブ＝同期ファサードを即返し、本体(ai.js＋ai/一式＋将来LLM)は搭載時に import()＝初期バンドルから完全隔離
 import { modalOpen } from "./gadgets/keys.js";   // 矢印キーのモーダル抑止に使う共通判定（ショートカット群と共有）
 
@@ -2651,6 +2652,8 @@ const map = { cam, flyTo, renderer, mapEl, destroy,
 	// ★scene-player API（v2整備 2026-08-09）＝台本オブジェクトの直接上映（第三の入口・エディタの土台）。要 demo ガジェット搭載。
 	//   playScenes(obj, {from, quick, onScene, onEnd})／stopScenes()＝停止（準備中でも安全）。正典＝demo/scene-format.md §7
 	playScenes: (obj, opts) => playScenes(obj, opts), stopScenes: () => stopScenes(),
+	//   sceneTimeline(obj)＝タイムライン（時刻評価・スクラブ）→ {dur, rows, at, seek, end}（再生せず任意秒の絵＝エディタ用）
+	sceneTimeline: obj => sceneTimeline(obj),
 	// 録画用（scene エディタ）：動的解像度を固定（映像に縮み絵を混ぜない）。on=true で即 res=1・降段停止／false で通常運転へ
 	pinRes: on => renderWorker.postMessage({ type: "pinRes", on: !!on }) };
 // ガジェット注入用の座標ブリッジ（engine の project/unproject を今の cam/サイズで束ねた手綱）。
@@ -2888,6 +2891,43 @@ function stopScenes() {
 	demoHandle?.exit?.();   // 上映中なら exit→onEnd("stopped")→endHook が解除（▶デモの上映中でも安全＝ただ終演するだけ）
 	sceneBusy = false; sceneLoading(false); sceneCover(false); sceneProgTap = null;
 	return true;
+}
+// ★タイムライン・スクラブ（scene-player API・map.sceneTimeline）：台本→時刻評価＝再生せず任意秒の絵を出す（エディタのスクラブ用）。
+// 中身は純関数（demo/scene-timeline.js＝プレーヤー規則の写し × flightCtl.plan＝飛行の時刻評価プラン）。
+// seek(秒)＝l=/c= はその行までの累積（l= は絶対指定＝手前の最後に書いた行が勝つ・無ければ現状維持＝プレーヤーの離陸時点火と同じ意味論・逆走も決定的）
+// ＋カメラ直書き＋fade の黒(cover)。URL は書かない＝end() で1回（スクラブ終了＝確定視点の掟・saveView）。上映中は受けない（先に stopScenes）。
+function sceneTimeline(obj) {
+	const tl = buildSceneTimeline(obj, { plan: flightCtl.plan, parseView: parseViewHash, portrait: mapEl.clientHeight > mapEl.clientWidth, zoomMin: ZOOM_MIN });
+	if (!tl) return null;
+	const rowV = tl.rows.map(r => r.hash ? parseViewHash(r.hash) : null);   // 行ごとの l=/c=（累積適用の材料）
+	let lastI = -1;
+	const seek = sec => {
+		if (playingNow()) return false;   // 上映中はスクラブ不可（先に map.stopScenes()）
+		const f = tl.at(sec);
+		if (f.i !== lastI) {   // 行を跨いだ＝この行までの l=/c= を累積適用
+			lastI = f.i;
+			for (let j = f.i; j >= 0; j--) if (rowV[j]?.layers || rowV[j]?.contour) { applyViewLayers(rowV[j]); break; }
+			for (let j = f.i; j >= 0; j--) if (rowV[j]?.theme) { if (!themeFixed && rowV[j].theme !== themeName) switchTheme(rowV[j].theme); break; }
+		}
+		flightCtl.cancel();   // 手綱＝走行中の飛行があれば降ろしてから直書き
+		applyCamView(f);      // クランプ（ZOOM/MAXPITCH/緯度）は共有URLの掟と同じ
+		scrubCover(f.cover);
+		onMove();
+		return true;
+	};
+	return { dur: tl.dur, rows: tl.rows, at: tl.at, seek, end: () => { scrubCover(0); saveView(); } };
+}
+// スクラブ用の黒（fade 行の途中絵）＝透明度直書きの薄い幕（sceneCover は CSS transition 前提＝別物）。0 で退場。
+let scrubEl = null;
+function scrubCover(a) {
+	if (!(a > 0)) { scrubEl?.remove(); scrubEl = null; return; }
+	if (!scrubEl) {
+		scrubEl = document.createElement("div");
+		scrubEl.id = "scrub-cover";
+		Object.assign(scrubEl.style, { position: "absolute", inset: "0", background: "#000", zIndex: "6", pointerEvents: "none" });
+		mapEl.append(scrubEl);
+	}
+	scrubEl.style.opacity = String(Math.min(1, a));
 }
 // ?scene=<URL>＝共有シーン台本の URL ロード（ドロップと同じ道＝取得→type 判定→playScene）。相対URL可（同梱サンプル等）。
 // gzip（.scenes.gz や gzip 中身）も可＝中身の印(1f 8b)で判定して解凍（サーバが Content-Encoding で解く場合は素通り）。
