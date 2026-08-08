@@ -74,6 +74,8 @@ try {
 	}
 	// 出典（#attr）＝画角の外＝パネル最下部へ養子縁組
 	ok("attrInPanel", panelEl.contains(document.getElementById("attr")));
+	// 録画（🎥）＝ボタンと下部レール（MP4 対応と pinRes 口）。実録画は getDisplayMedia の許可が要る＝CDP 実測側で
+	ok("recRail", !!panelEl.querySelector("#sc-rec") && typeof map.pinRes === "function" && MediaRecorder.isTypeSupported("video/mp4;codecs=avc1.640028"));
 
 	// 出力：.scenes（frame 込み・via/travel は素通し）
 	const out = JSON.parse(ed.exportText());

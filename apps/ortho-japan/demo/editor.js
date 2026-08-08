@@ -110,6 +110,7 @@ export function mountSceneEditor({ map, stageEl, panelEl, storageKey = "oj.scene
 			<div class="sc-tools">
 				<button id="sc-play-here" title="軽い試写（選択行から・未選択なら先頭から。黒幕・読み込み待ちなし）">▶ ここから</button>
 				<button id="sc-dress" title="本番同等＝最初から（黒幕・読み込み待ち・終幕の括弧つき）">🎬 上映</button>
+				<button id="sc-rec" title="上映を録画して動画ファイル（MP4）に＝iMovie 等へそのまま。最初に「このタブを共有」を1回許可">🎥 録画</button>
 				<button id="sc-stop">■ 停止</button>
 			</div>
 		</div>
@@ -163,7 +164,7 @@ export function mountSceneEditor({ map, stageEl, panelEl, storageKey = "oj.scene
 						<span class="sc-hash">${hash}</span>
 					</div>
 					${via ? "" : `<div class="sc-sub sc-ctl">
-						<label>保持 <input type="number" data-k="hold" step="0.5" min="0" value="${r.hold ?? ""}" placeholder="5.5">秒</label>
+						<label>保持 <input type="number" data-k="hold" step="0.5" min="0" value="${r.hold ?? ""}" placeholder="3">秒</label>
 						<label>遷移 <select data-k="trans">
 							<option value="view"${trans === "view" ? " selected" : ""}>地図遷移</option>
 							<option value="glide"${trans === "glide" ? " selected" : ""}>直線移動</option>
@@ -192,13 +193,66 @@ export function mountSceneEditor({ map, stageEl, panelEl, storageKey = "oj.scene
 		const okd = map.playScenes(doc, {
 			...opts,
 			onScene: ci => { liveGroup = ci; paint(); },
-			onEnd: () => { playing = false; liveGroup = -1; paint(); },
+			onEnd: r => { playing = false; liveGroup = -1; paint(); opts?.onEnd?.(r); },   // 呼び出し側の onEnd も連鎖（録画の停止フック等）
 		});
 		playing = okd === true; liveGroup = -1; paint();
 		return okd;
 	};
 	const playFrom = () => play({ quick: true, from: Math.max(0, groupsOf(doc.scenes)[sel] ?? 0) });
 	const stop = () => map.stopScenes();
+
+	// ── 録画（🎥）＝画角フレームを Region Capture でタブから切り出し、MediaRecorder の MP4/H.264 で直接動画ファイル化 ──
+	// iMovie 等へそのまま渡せる .mp4（MP4 録画が無い環境だけ .webm へフォールバック）。字幕・黒フェード等の DOM 演出も忠実に写る。
+	// 画質＝①録画中は動的解像度を固定（map.pinRes・縮み絵を混ぜない）②フレームを目標解像度（16:9=1920×1080 等）の
+	// CSS×dpr サイズへ一時リサイズ（舞台に入り切らない分は内接クランプ＝実際に切り出されるのは画面上のピクセル）③高ビットレート。
+	// 頭とケツ＝上映の儀式そのまま：黒幕が立ってから録画開始・終幕の黒が完成した頃に停止＝黒 in/黒 out の完成素材。
+	const REC_RES = { "16:9": [1920, 1080], "9:16": [1080, 1920], "1:1": [1080, 1080], "4:3": [1440, 1080] };
+	let recState = null;
+	const recFit = () => {   // 目標解像度に合わせた CSS サイズへ（戻しは fit()）。返り値＝実効デバイス px
+		const t = REC_RES[doc.frame], dpr = devicePixelRatio || 1;
+		if (!t) return [Math.round(frameEl.clientWidth * dpr), Math.round(frameEl.clientHeight * dpr)];   // 自由枠＝今の実寸のまま
+		const pad = 18, cssW = t[0] / dpr, cssH = t[1] / dpr;
+		const k = Math.min(1, (stageEl.clientWidth - pad * 2) / cssW, (stageEl.clientHeight - pad * 2) / cssH);
+		frameEl.style.width = Math.round(cssW * k) + "px"; frameEl.style.height = Math.round(cssH * k) + "px";
+		return [Math.round(cssW * k * dpr), Math.round(cssH * k * dpr)];
+	};
+	const record = async () => {
+		if (playing || recState) return false;
+		const px = recFit();
+		map.pinRes?.(true);   // 動的解像度を固定＝録画に縮み絵を混ぜない
+		let stream;
+		try {
+			stream = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 60 }, audio: false, preferCurrentTab: true });
+		} catch { map.pinRes?.(false); fit(); return false; }   // 共有ダイアログのキャンセル＝静かに戻す
+		const [track] = stream.getVideoTracks();
+		try { await track.cropTo(await CropTarget.fromElement(frameEl)); } catch { /* Region Capture 非対応＝タブ全面のまま */ }
+		const mime = ["video/mp4;codecs=avc1.640028", "video/mp4", "video/webm;codecs=vp9", "video/webm"].find(m => MediaRecorder.isTypeSupported(m)) || "";
+		const rec = new MediaRecorder(stream, { mimeType: mime || undefined, videoBitsPerSecond: Math.max(12e6, Math.round(px[0] * px[1] * 30 * 0.2)) });   // ≈0.2bit/px/frame（1080p30≒12Mbps・編集の中間素材として十分な高品質）
+		const chunks = [];
+		rec.ondataavailable = e => { if (e.data.size) chunks.push(e.data); };
+		const recBtn = $("#sc-rec");
+		const finalize = () => {   // 保存＋原状復帰の一本道（停止・共有停止・エラーどの経路でもここ）
+			if (!recState) return;
+			clearTimeout(recState.timer); recState = null;
+			stream.getTracks().forEach(t2 => t2.stop());
+			map.pinRes?.(false); fit(); recBtn.textContent = "🎥 録画";
+			const blob = new Blob(chunks, { type: mime || "video/webm" });
+			if (!blob.size) return;
+			const a = document.createElement("a");
+			a.href = URL.createObjectURL(blob);
+			a.download = `${(doc.title || "untitled").replace(/[\\/:*?"<>|]/g, "_")}.${mime.startsWith("video/mp4") ? "mp4" : "webm"}`;
+			a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+		};
+		rec.onstop = finalize;
+		track.addEventListener("ended", () => { map.stopScenes(); if (rec.state !== "inactive") rec.stop(); else finalize(); });   // Chrome の「共有を停止」からも安全に閉じる
+		recState = { rec, stream, timer: 0 };
+		recBtn.textContent = "⏺ 録画中…";
+		// 上映の儀式で再生：終演(finished)＝終幕の黒が完成した頃に停止（黒 out）／中断(stopped)＝間を置かず停止（素材は保存）
+		const okd = play({ onEnd: r => { if (recState) recState.timer = setTimeout(() => { if (rec.state !== "inactive") rec.stop(); }, r === "finished" ? 1700 : 300); } });
+		if (okd !== true) { finalize(); return false; }
+		setTimeout(() => { if (recState && rec.state === "inactive") rec.start(1000); }, 150);   // 黒幕が乗った直後から＝頭は黒 in
+		return true;
+	};
 
 	// ── 出力／読み込み ──
 	const exportText = () => JSON.stringify(doc, null, 2);
@@ -218,6 +272,7 @@ export function mountSceneEditor({ map, stageEl, panelEl, storageKey = "oj.scene
 	$("#sc-via").addEventListener("click", addVia);
 	$("#sc-play-here").addEventListener("click", playFrom);   // 未選択＝先頭から（「最初から」は本番に統合＝ボタンは少なく）
 	$("#sc-dress").addEventListener("click", () => play({}));
+	$("#sc-rec").addEventListener("click", record);
 	$("#sc-stop").addEventListener("click", stop);
 	$("#sc-export").addEventListener("click", download);
 	$("#sc-clear").addEventListener("click", () => { if (doc.scenes.length && !confirm("全行を消しますか？")) return; doc.scenes = []; sel = -1; save(); paint(); });

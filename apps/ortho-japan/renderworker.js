@@ -237,6 +237,10 @@ const dispatch = e => {
 			else if (renderer) renderer.set(m.cmd, m.data, m.prop);              // view/overlay/elev…
 			dirty = true;                                        // 内容が変わった→描き直す
 			break;
+		case "pinRes":   // 録画（scene エディタ）＝動的解像度の固定/解除（on中は降段しない・即 res=1 へ）
+			resPinned = !!m.on;
+			if (resPinned && resIdx !== 0) { resIdx = 0; scheduleRes(); }
+			break;
 		case "pongD": pongD++; break;   // stay診断：main→worker 直結チャネルの配達実証
 		case "pongC": pongC++; break;   // stay診断：main→worker ctrlPort の配達実証
 		case "draw":                                             // main からは cam を記録するだけ（実描画は rAF）
@@ -324,6 +328,7 @@ function applyLabels() {
 // 復帰は「軽い状態が続いたら一段上げて様子見」のプローブ式。失敗（また重くなる）したら待ち時間を倍にする
 // ＝重い端末で上げ下げが振動しない。60Hz でも 120Hz でも閾値が成立する（重い=24ms超、軽い=17.5ms未満）。
 let baseW = 0, baseH = 0, resIdx = 0;
+let resPinned = false;   // 録画中（scene エディタ）＝動的解像度を res=1 に固定（映像に縮み絵を混ぜない・"pinRes" メッセージ）
 let gpuFast = false, gpuFastStreak = 0, gpuEma = 0;   // GPU格付け（tqPollの純GPU時間・res²正規化）＝静止時の手前詳細化の可否をmainへ通知
 let gpuEmaRaw = 0, gintEmaRaw = 0;   // 現解像度での素のGPU時間EMA（map/gint別）＝動的解像度の物差しは合計
 // （正規化しない＝「今の絵の実コスト」。gint を足すのが肝＝球ビューのデモ飛行は gint海岸線 ≫ map で、
@@ -427,7 +432,7 @@ function tuneRes(drew) {
 	// gint を足すのが肝：球ビュー（デモ飛行）は gint海岸線 ≫ map＝map単独では総GPU予算超過を見逃す。
 	// 非対応環境（Safari等）は従来の壁時計へフォールバック＝挙動不変。閾値は従来のまま（24/17.5）。
 	const busyMs = (tqExt || (renderer && renderer.hasTQ)) ? gpuEmaRaw + gintEmaRaw : emaMs;   // GPU実測が有る方（GL=tqExt／WebGPU=timestamp-query）を物差しに
-	if (busyMs > 24 && resIdx < RES_STEPS.length - 1) {
+	if (!resPinned && busyMs > 24 && resIdx < RES_STEPS.length - 1) {
 		pendingUp = false;   // また重くなった＝予約中の復帰は取り消し
 		const sOld = RES_STEPS[resIdx];
 		resIdx++; scheduleRes(); resHoldUntil = now + 350; upStreak = 0; upDelay = Math.min(upDelay * 2, 4800); emaMs = 0;

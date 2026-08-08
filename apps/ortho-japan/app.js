@@ -2650,7 +2650,9 @@ const map = { cam, flyTo, renderer, mapEl, destroy,
 	get view() { return { center: [...cam.center], zoom: cam.zoom, pitch: cam.pitch, bearing: cam.bearing, theme: themeName, layers: FREE_LAYER_KEYS.filter(k => layerState[k]).concat(constelVisible ? [SKY_LAYER] : []), sky: constelVisible, hash: viewHash() }; },
 	// ★scene-player API（v2整備 2026-08-09）＝台本オブジェクトの直接上映（第三の入口・エディタの土台）。要 demo ガジェット搭載。
 	//   playScenes(obj, {from, quick, onScene, onEnd})／stopScenes()＝停止（準備中でも安全）。正典＝demo/scene-format.md §7
-	playScenes: (obj, opts) => playScenes(obj, opts), stopScenes: () => stopScenes() };
+	playScenes: (obj, opts) => playScenes(obj, opts), stopScenes: () => stopScenes(),
+	// 録画用（scene エディタ）：動的解像度を固定（映像に縮み絵を混ぜない）。on=true で即 res=1・降段停止／false で通常運転へ
+	pinRes: on => renderWorker.postMessage({ type: "pinRes", on: !!on }) };
 // ガジェット注入用の座標ブリッジ（engine の project/unproject を今の cam/サイズで束ねた手綱）。
 // projectLL＝経緯度→画面CSS座標[x,y,front]（front<0＝裏半球・視界外）。unprojectAt＝画面座標→[lon,lat]（球外は null）。
 // DOMオーバーレイ（現在地マーカー/pop/計測）の標高乗せ：radius=1（標高0の球面）へ投影すると、
@@ -2816,7 +2818,7 @@ const playingNow = () => sceneBusy || !!mapEl.querySelector("#demo-bar.on");   /
 function playScenes(obj, { from = 0, quick = false, onScene, onEnd } = {}) {
 	if (playingNow()) { console.warn("[scene] 上映中＝受けない（stopScenes() で停止してから）"); return false; }
 	const lang = new URLSearchParams(location.search).get("lang");   // 言語選択は視聴者の ?lang= だけ（台本側の言語指定は無い＝既定は title の言語そのまま）
-	const { scenes, mobile, hold, slideHold, preload, waitLoading } = parseScenes(obj);
+	const { scenes, mobile, hold = 3, slideHold, preload, waitLoading } = parseScenes(obj);   // scene 再生の保持既定＝3秒（▶デモは5.5のまま＝発表の間合いは別物）
 	if (!scenes.length) { console.warn("[scene] scenes が空＝再生しない", obj?.title); return false; }
 	if (!demoHandle) { console.warn("[scene] demo 未搭載＝少し待って再度（起動直後）"); return false; }   // demo は起動時に index.html が搭載済み（通常は在る）＝ ▶ と同じ実体の再生ルーチンを借りる
 	sceneBusy = true;   // 解除＝終幕括弧の閉じ（returnToStart 完了）／endHook（中断・quick走破）／失敗 fallback＝どの経路でも必ず一箇所
