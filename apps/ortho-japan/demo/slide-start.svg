@@ -1,8 +1,57 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 540" font-family="system-ui, sans-serif">
-	<rect width="960" height="540" fill="#f6f6f4"/>
-	<circle cx="480" cy="1560" r="1200" fill="none" stroke="#2663a0" stroke-width="8"/>
-	<circle cx="480" cy="1560" r="1230" fill="none" stroke="#80b6eb" stroke-width="2"/>
-	<text x="480" y="216" text-anchor="middle" font-size="56" fill="#3f4757">Ortho Earth / Japan</text>
-	<text x="480" y="278" text-anchor="middle" font-size="32" fill="#86867f">~ only with Japanese public database ~</text>
-	<text x="480" y="490" text-anchor="middle" font-size="28" fill="#aab0b6">Kenji Yoshida @ Yokohama</text>
+	<!-- 夜の劇場カード：幕スクリム rgba(10,16,33) と同族の宇宙色。円弧＝地球の縁（limb）＋大気光。 -->
+	<defs>
+		<linearGradient id="space" x1="0" y1="0" x2="0" y2="1">
+			<stop offset="0" stop-color="#0c1326"/>
+			<stop offset="1" stop-color="#05070d"/>
+		</linearGradient>
+		<!-- 惑星面：縁（r=1200）に向かってわずかに明るく＝リムライト -->
+		<radialGradient id="planet" gradientUnits="userSpaceOnUse" cx="480" cy="1560" r="1200">
+			<stop offset=".85" stop-color="#0b1322"/>
+			<stop offset=".97" stop-color="#101a30"/>
+			<stop offset="1" stop-color="#182647"/>
+		</radialGradient>
+		<!-- 大気光：limb(offset≈.930)を挟んで内へ薄く・外へ溶ける -->
+		<radialGradient id="atm" gradientUnits="userSpaceOnUse" cx="480" cy="1560" r="1290">
+			<stop offset=".900" stop-color="rgba(90,160,255,0)"/>
+			<stop offset=".930" stop-color="rgba(125,185,255,.50)"/>
+			<stop offset=".958" stop-color="rgba(90,150,240,.18)"/>
+			<stop offset="1" stop-color="rgba(70,120,210,0)"/>
+		</radialGradient>
+		<filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+			<feGaussianBlur stdDeviation="7"/>
+		</filter>
+	</defs>
+	<rect width="960" height="540" fill="url(#space)"/>
+	<circle cx="480" cy="1560" r="1200" fill="url(#planet)"/>
+	<rect width="960" height="540" fill="url(#atm)"/>
+	<circle cx="480" cy="1560" r="1200" fill="none" stroke="rgba(120,180,255,.85)" stroke-width="7" filter="url(#glow)"/>
+	<circle cx="480" cy="1560" r="1200" fill="none" stroke="#9cc8ff" stroke-width="2.5" opacity=".95"/>
+	<!-- 天球：limbの少し外を回る点線の軌道 -->
+	<circle cx="480" cy="1560" r="1245" fill="none" stroke="#8fb2eb" stroke-width="1.5" opacity=".3" stroke-dasharray="2 8" stroke-linecap="round"/>
+	<!-- 星々（タイトル帯を避けて上辺と両袖に） -->
+	<g fill="#fff">
+		<circle cx="70" cy="60" r="1.3" opacity=".7"/>
+		<circle cx="150" cy="122" r=".9" opacity=".4"/>
+		<circle cx="240" cy="48" r="1.1" opacity=".55"/>
+		<circle cx="332" cy="140" r=".8" opacity=".35"/>
+		<circle cx="420" cy="82" r="1.4" opacity=".8"/>
+		<circle cx="540" cy="52" r="1" opacity=".5"/>
+		<circle cx="642" cy="128" r=".9" opacity=".4" fill="#cfe0ff"/>
+		<circle cx="736" cy="70" r="1.3" opacity=".65"/>
+		<circle cx="842" cy="138" r="1" opacity=".45" fill="#ffe9c9"/>
+		<circle cx="906" cy="58" r=".9" opacity=".5"/>
+		<circle cx="58" cy="242" r=".8" opacity=".3"/>
+		<circle cx="902" cy="248" r=".8" opacity=".3" fill="#cfe0ff"/>
+		<circle cx="168" cy="322" r=".9" opacity=".35"/>
+		<circle cx="794" cy="318" r=".9" opacity=".3"/>
+		<circle cx="490" cy="152" r=".7" opacity=".3"/>
+	</g>
+	<text x="480" y="212" text-anchor="middle" font-size="54" font-weight="600" letter-spacing="3" fill="#eef3fb">Ortho Earth / Japan</text>
+	<line x1="182" y1="266" x2="266" y2="266" stroke="rgba(140,165,210,.4)" stroke-width="1"/>
+	<line x1="694" y1="266" x2="778" y2="266" stroke="rgba(140,165,210,.4)" stroke-width="1"/>
+	<text x="480" y="276" text-anchor="middle" font-size="29" letter-spacing="1" fill="#8fa3c8">only with Japanese public database</text>
+	<text x="480" y="488" text-anchor="middle" font-size="25" letter-spacing="1" fill="#6f83ab">Kenji Yoshida @ Yokohama</text>
+	<!-- 薄い縁取り：暗幕の上でカードの輪郭を立てる -->
+	<rect x=".75" y=".75" width="958.5" height="538.5" rx="10" fill="none" stroke="rgba(148,178,226,.22)" stroke-width="1.5"/>
 </svg>
