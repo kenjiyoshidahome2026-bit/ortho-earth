@@ -1,0 +1,10 @@
+# apex（ortho-earth.com）→ www.ortho-earth.com への301リダイレクト専用Worker。
+# apexは旧landing（Pages: ortho-earth）が残っていたが、Workerルートが先に効くので全requestをwwwへ。
+name = "apex-redirect"
+main = "worker.js"
+compatibility_date = "2025-06-01"
+workers_dev = false
+
+routes = [
+	{ pattern = "ortho-earth.com/*", zone_name = "ortho-earth.com" }
+]
