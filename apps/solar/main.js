@@ -70,7 +70,10 @@ function updateCamera(date) {
 }
 function flyTo(id) {
 	const b = byId[id];
-	const near = Math.max(b.radiusAU * 5.5, b.radiusAU + 2e-7);   // 近景＝天体の見かけが画面に収まる距離（半径の5.5倍）
+	// 近景＝半径の9倍＝天体の直径が画面高の約27%。旧5.5倍は45%＝寄りすぎで、土星は環（半径2.33R）の
+	// 半角25°が視野半角22.5°を越えて上下が切れていた（9倍なら15°＝環まで余白ごと収まる）。
+	// 手でのドリー下限（focusMinDist＝半径1.1倍）はそのまま＝寄りたければ地表まで寄れる
+	const near = Math.max(b.radiusAU * 9, b.radiusAU + 2e-7);
 	// 太陽だけ二段：初手は太陽系の全景（＝この劇場のホーム）、全景で見ている時にもう一度押すと太陽そのものの近景へ。
 	// 近景でもう一度押せば全景へ戻る＝押すたび行き来する一つのボタン（チップ・ラベル・天体クリックの全入口で同じ）。
 	const atOverview = cam.focus === "sun" && (flight ? flight.toD : cam.dist) > near * 4;
@@ -114,13 +117,21 @@ const sphereP = prog(`
 		${LOGZ}
 		gl_Position = P;
 	}`, `
-	uniform sampler2D u_tex; uniform vec3 u_sun; uniform float u_emiss;
+	uniform sampler2D u_tex; uniform sampler2D u_night;
+	uniform vec3 u_sun; uniform float u_emiss; uniform float u_cloud; uniform float u_hasNight;
 	in vec2 v_uv; in vec3 v_n; out vec4 o;
 	void main() {
-		vec3 c = texture(u_tex, v_uv).rgb;
+		vec4 t = texture(u_tex, v_uv);
 		float dl = dot(normalize(v_n), u_sun);
 		float l = mix(clamp(dl * 1.1, 0.0, 1.0) * 0.94 + 0.05, 1.0, u_emiss);
-		o = vec4(c * l, 1.0);
+		vec3 c = t.rgb * l;
+		// 夜面の街明かり（地球のみ u_hasNight=1）：昼夜境界 dl=0 の外側で立ち上げて加算＝影に入った側に灯が点る。
+		// 加算なのは街明かり自体が光源だから（反射光の l を掛けない）。境界の幅 0.08→-0.10 は薄明の帯の見立て
+		c += texture(u_night, v_uv).rgb * (smoothstep(0.08, -0.10, dl) * u_hasNight);
+		// u_cloud=1（地球の雲殻）＝白黒の雲図の輝度をそのままアルファに＝薄い雲は薄く抜ける。
+		// 通常の球は u_cloud=0＝不透明（既定値0のまま＝他の天体は何も変わらない）
+		float a = mix(1.0, max(max(t.r, t.g), t.b), u_cloud);
+		o = vec4(c, a);
 	}`);
 // 土星の環（平板アニュラス・radial UV・両面）。透明部は discard＝深度も正しく抜く
 const ringP = prog(`
@@ -293,7 +304,22 @@ for (const b of BODIES) {
 		};
 		ri.src = "tex/" + b.ring.tex;
 	}
+	// 地球の追加2枚（雲殻・夜の街明かり）。届くまで殻は描かず・街明かりは消灯＝読み込み途中でも嘘にならない
+	for (const [key, slot] of [["clouds", "cloudTex"], ["night", "nightTex"]]) {
+		if (!b[key]) continue;
+		const im = new Image();
+		im.onload = () => {
+			b[slot] = gl.createTexture();
+			gl.bindTexture(gl.TEXTURE_2D, b[slot]);
+			gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, im);
+			gl.generateMipmap(gl.TEXTURE_2D);
+			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+			needsDraw = true;
+		};
+		im.src = "tex/" + b[key];
+	}
 }
+const blackTex = makeTex([0, 0, 0]);   // ユニット1の既定＝街明かりを持たない天体でも未バインドを踏まない
 
 // ---- 恒星：bucket の stars.6（RA/Dec・等級・B-V）→黄道系単位ベクトル＋色＋点径（ortho-japan と同式） ----
 let starVao = null, starN = 0;
@@ -463,7 +489,13 @@ const ORBIT_RATE = 0.005;      // rad/CSSpx（周回の手触り＝ortho-japan �
 const pts = new Map();         // pointerId → {x,y}（触れている指/ボタン）
 let pinch = null;              // 2本指状態 {d,cx,cy}（前フレーム）
 let tap = null;                // 単指タップ候補（2本目が触れた/6px以上動いた時点で捨てる）
-const focusMinDist = () => byId[cam.focus].radiusAU * 1.1 + 1e-8;
+// 手でのドリー下限＝天体が画面の95%を占めるところで止める（旧: 半径1.1倍＝地表すれすれまで寄れて
+// 2k テクスチャの粗が出た）。視野は縦(fovy)基準なので、縦画面では横幅が先に尽きる＝min(1,W/H)を掛ける。
+// tanθ=t の見かけ半角に対し d = R·√(1+t²)/t（球の接線から）。焦点天体ごと・画面比ごとに毎回引き直す
+const focusMinDist = () => {
+	const t = 0.95 * Math.tan(cam.fovy / 2) * Math.min(1, canvas.clientWidth / canvas.clientHeight);
+	return byId[cam.focus].radiusAU * Math.sqrt(1 + t * t) / t + 1e-8;
+};
 const setDist = d => { cam.dist = Math.max(focusMinDist(), Math.min(120, d)); if (flight) flight.toD = cam.dist; needsDraw = true; };
 const orbitBy = (dx, dy) => {
 	cam.yaw -= dx * ORBIT_RATE;
@@ -562,7 +594,10 @@ function frame() {
 	const screens = {};
 	gl.enable(gl.CULL_FACE); gl.cullFace(gl.BACK);
 	gl.useProgram(sphereP.p); setCommon(sphereP, view);
-	gl.uniform1i(sphereP.u.u_tex, 0); gl.activeTexture(gl.TEXTURE0);
+	// ユニット0＝地表テクスチャ（天体ごとに差し替え）、ユニット1＝夜の街明かり（地球の1枚を1フレーム1回だけ結ぶ）
+	gl.uniform1i(sphereP.u.u_tex, 0); gl.uniform1i(sphereP.u.u_night, 1);
+	gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, byId.earth.nightTex || blackTex);
+	gl.activeTexture(gl.TEXTURE0);
 	for (const b of BODIES) {
 		const p = bodyPos(b.id, date);
 		screens[b.id] = project(p);
@@ -581,8 +616,27 @@ function frame() {
 		const sd = b.id === "sun" ? [0, 0, 1] : [-p[0] / v3.len(p), -p[1] / v3.len(p), -p[2] / v3.len(p)];
 		gl.uniform3f(sphereP.u.u_sun, sd[0], sd[1], sd[2]);
 		gl.uniform1f(sphereP.u.u_emiss, b.emissive ? 1 : 0);
+		gl.uniform1f(sphereP.u.u_hasNight, b.nightTex ? 1 : 0);   // 街明かりを持つのは地球だけ
 		gl.bindTexture(gl.TEXTURE_2D, textures[b.id]);
 		gl.bindVertexArray(sphere.vao); gl.drawElements(gl.TRIANGLES, sphere.n, gl.UNSIGNED_SHORT, 0);
+		// 雲殻（地球のみ）＝地表の直後に、深度テストを切って重ねる。
+		// 深度で競わせない理由：対数深度は far=200AU に合わせて刻まれており、地球に寄った時(w≈2.5e-4 AU)の
+		// 1目盛(1.19e-7 NDC)に対し、殻の浮き 0.25%(16km) が生む差は 4e-8＝1/3目盛しかない＝z-fightingで
+        // ちらつく。殻を3%(190km)浮かせれば勝てるが、それは見た目が嘘になる。背面カリング済み＝見えている
+		// 殻の面は必ず地表より手前だと幾何学的に確定しているので、順序だけで正しい（深度も書かない）。
+		// 月が地球の手前に来る場合も BODIES 順で月が後＝月が雲の上に正しく描かれる。
+		if (b.cloudTex && !b.clamped) {
+			const cs = drawR * 1.0025;   // ≒16km上（実際の雲の高さ。見た目のためだけの浮きではない）
+			gl.uniformMatrix3fv(sphereP.u.u_model, false, new Float32Array([
+				M[0][0] * cs, M[1][0] * cs, M[2][0] * cs, M[0][1] * cs, M[1][1] * cs, M[2][1] * cs, M[0][2] * cs, M[1][2] * cs, M[2][2] * cs]));
+			gl.uniform1f(sphereP.u.u_hasNight, 0);   // 街明かりは地表の一枚だけ＝殻には乗せない（雲は明かりを遮る側）
+			gl.uniform1f(sphereP.u.u_cloud, 1);
+			gl.bindTexture(gl.TEXTURE_2D, b.cloudTex);
+			gl.disable(gl.DEPTH_TEST);
+			gl.drawElements(gl.TRIANGLES, sphere.n, gl.UNSIGNED_SHORT, 0);
+			gl.enable(gl.DEPTH_TEST);
+			gl.uniform1f(sphereP.u.u_cloud, 0);
+		}
 		b._rel = rel; b._drawR = drawR; b._sun = sd;
 	}
 	// 環は球の後（半透明・両面）。クランプ中も環ごと拡大＝土星の見た目を保つ

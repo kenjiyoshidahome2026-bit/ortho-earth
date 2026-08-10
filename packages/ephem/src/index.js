@@ -40,7 +40,11 @@ export const BODIES = [
 		rot: { ra: 281.0103, dec: 61.4155, W0: 329.5988, Wd: 6.1385108 } },
 	{ id: "venus", name: "Venus", tex: "2k_venus_atmosphere.jpg", radiusKm: 6051.8, color: [0.91, 0.86, 0.75],
 		rot: { ra: 272.76, dec: 67.16, W0: 160.20, Wd: -1.4813688 } },
-	{ id: "earth", name: "Earth", tex: "2k_earth_daymap.jpg", radiusKm: 6371.0, color: [0.42, 0.58, 0.84],
+	// 雲は焼き込まず別テクスチャ＝地表の少し上に張る半透明の殻（雲図は白黒＝輝度をアルファに使う）。
+	// 焼き込むと縁で雲が地表に潰れ、昼夜境界も雲だけ立体に見えない＝寄った時の嘘が大きい
+	// night＝夜面の街明かり（昼夜境界の外で加算）。地球だけが持つ2枚目・3枚目
+	{ id: "earth", name: "Earth", tex: "2k_earth_daymap.jpg", clouds: "2k_earth_clouds.jpg", night: "2k_earth_nightmap.jpg",
+		radiusKm: 6371.0, color: [0.42, 0.58, 0.84],
 		rot: { ra: 0.0, dec: 90.0, raT: -0.641, decT: -0.557, W0: 190.147, Wd: 360.9856235 } },
 	{ id: "moon", name: "Moon", tex: "2k_moon.jpg", radiusKm: 1737.4, color: [0.78, 0.78, 0.78],
 		rot: { ra: 266.86, dec: 65.64, W0: 38.3213, Wd: 13.17635815 } },
