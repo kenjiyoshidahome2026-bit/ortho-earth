@@ -13,7 +13,7 @@ const isVia = r => r?.via != null && !r.view && !r.glide && !r.fade;
 const hashOf = r => r.view ?? r.glide ?? r.fade ?? r.via;   // 行の視点（遷移キー3種＋via）
 
 const CSS = `
-	#sc-stage { padding-bottom:46px; box-sizing:border-box; }   /* 下端＝タイムライン・スクラブの帯（fit も同じ分を差し引く） */
+	#sc-stage { padding:38px 0 46px; box-sizing:border-box; }   /* 上端＝カメラ実位置チップの帯・下端＝タイムライン・スクラブの帯（fit も同じ分を差し引く） */
 	#sc-scrub { position:absolute; left:16px; right:16px; bottom:9px; display:flex; align-items:center; gap:10px; color:#cdd6e6; font:11px/1 system-ui,sans-serif; user-select:none; }
 	#sc-scrub .tk { position:relative; flex:1; height:22px; cursor:pointer; touch-action:none; }
 	#sc-scrub .tk::before { content:""; position:absolute; left:0; right:0; top:9px; height:4px; border-radius:2px; background:rgba(255,255,255,.12); }
@@ -22,6 +22,9 @@ const CSS = `
 	#sc-scrub .kn { position:absolute; top:6px; width:2px; height:10px; background:#e8b64c; }
 	#sc-scrub .ph { position:absolute; top:2px; width:2px; height:18px; background:#fff; box-shadow:0 0 4px rgba(0,0,0,.8); pointer-events:none; }
 	#sc-scrub .tm { min-width:92px; text-align:right; font-variant-numeric:tabular-nums; opacity:.85; }
+	#sc-cam { position:absolute; top:11px; right:16px; pointer-events:none; white-space:nowrap;
+		font:11.5px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace; font-variant-numeric:tabular-nums; letter-spacing:.02em;
+		color:#cdd6e6; opacity:.92; }
 	#sc-panel { display:flex; flex-direction:column; font:13px/1.5 system-ui,sans-serif; color:#cdd6e6; }
 	.sc-brand { display:flex; align-items:center; gap:9px; padding:12px 14px 2px; font-size:15px; font-weight:700; color:#e6edf3; letter-spacing:.02em; }
 	.sc-brand svg { width:22px; height:22px; color:#cdd6e6; flex:none; }
@@ -92,7 +95,7 @@ export function mountSceneEditor({ map, stageEl, panelEl, storageKey = "oj.scene
 	const fit = () => {
 		const f = FRAMES[doc.frame];
 		if (!f) { frameEl.style.width = "100%"; frameEl.style.height = "100%"; return; }
-		const pad = 18, W = stageEl.clientWidth - pad * 2, H = stageEl.clientHeight - 46 - pad * 2;   // 46＝下端スクラブ帯（#sc-stage の padding-bottom）
+		const pad = 18, W = stageEl.clientWidth - pad * 2, H = stageEl.clientHeight - 38 - 46 - pad * 2;   // 38/46＝上端カメラ帯・下端スクラブ帯（#sc-stage の padding）
 		const k = Math.max(1, Math.min(W / f[0], H / f[1]));
 		frameEl.style.width = Math.round(f[0] * k) + "px";
 		frameEl.style.height = Math.round(f[1] * k) + "px";
@@ -297,7 +300,7 @@ export function mountSceneEditor({ map, stageEl, panelEl, storageKey = "oj.scene
 		const t = REC_RES[doc.frame], dpr = devicePixelRatio || 1;
 		if (!t) return [Math.round(frameEl.clientWidth * dpr), Math.round(frameEl.clientHeight * dpr)];   // 自由枠＝今の実寸のまま
 		const pad = 18, cssW = t[0] / dpr, cssH = t[1] / dpr;
-		const k = Math.min(1, (stageEl.clientWidth - pad * 2) / cssW, (stageEl.clientHeight - 46 - pad * 2) / cssH);
+		const k = Math.min(1, (stageEl.clientWidth - pad * 2) / cssW, (stageEl.clientHeight - 38 - 46 - pad * 2) / cssH);
 		frameEl.style.width = Math.round(cssW * k) + "px"; frameEl.style.height = Math.round(cssH * k) + "px";
 		return [Math.round(cssW * k * dpr), Math.round(cssH * k * dpr)];
 	};
@@ -451,6 +454,34 @@ export function mountSceneEditor({ map, stageEl, panelEl, storageKey = "oj.scene
 		stageEl.append(start);
 	}
 
+	// ── カメラ実位置チップ（本人「参考値程度・上映/録画時の確認用」）＝画角フレームの外・上方の帯＝録画クロップには写らない ──
+	// 表示＝緯度・経度・高度・方位・チルト（map.view.eye＝透視カメラそのものの位置。中心でなくカメラ＝チルト時は注視点の後方上空）。
+	// 更新は rAF・DOM書込は文字が変わる時だけ。
+	const camChip = document.createElement("div");
+	camChip.id = "sc-cam";
+	stageEl.append(camChip);
+	const EN = new URLSearchParams(location.search).get("lang") === "en";   // 英語運用は ?lang=en でラベルも英語
+	const fmtAlt = m => m < 10000 ? `${Math.round(m)} m` : m < 100000 ? `${(m / 1000).toFixed(1)} km` : `${Math.round(m / 1000).toLocaleString("en")} km`;
+	let camTxt = "", camLive = true;
+	const camTick = () => {
+		if (!camLive) return;
+		const v = map.view, e = v.eye;
+		if (e) {
+			const brg = Math.round(((v.bearing * 180 / Math.PI) % 360 + 360) % 360) % 360;
+			// 視野の角度（本人指定・チルトは各行の permalink にある）＝水平×垂直。垂直=エンジンの fovy（既定50°）・
+			// 水平=画角フレームのアスペクトから 2·atan(tan(fovy/2)·W/H)＝16:9で79°・9:16で29°（レンズの素性が一目）
+			const asp = map.mapEl.clientHeight ? map.mapEl.clientWidth / map.mapEl.clientHeight : 1;
+			const hFov = Math.round(2 * Math.atan(Math.tan(e.fovy / 2) * asp) * 180 / Math.PI), vFov = Math.round(e.fovy * 180 / Math.PI);
+			const txt = (EN ? "Camera " : "カメラ ")
+				+ `${Math.abs(e.lat).toFixed(4)}°${e.lat < 0 ? "S" : "N"} ${Math.abs(e.lon).toFixed(4)}°${e.lon < 0 ? "W" : "E"}`
+				+ (EN ? `  Alt ${fmtAlt(e.altM)}  Hdg ${brg}°  FOV ${hFov}°×${vFov}°`
+					: `　高度 ${fmtAlt(e.altM)}　方位 ${brg}°　視野 ${hFov}°×${vFov}°`);
+			if (txt !== camTxt) { camTxt = txt; camChip.textContent = txt; }
+		}
+		requestAnimationFrame(camTick);
+	};
+	camTick();
+
 	// ── 出典（#attr）＝画角フレームの外へ＝パネル最下部（録画の絵を汚さない・クレジットは常時視認）。app が作った実体を養子縁組 ──
 	const adoptAttr = tries => {
 		const a = map.mapEl.querySelector("#attr") || document.getElementById("attr");
@@ -459,7 +490,7 @@ export function mountSceneEditor({ map, stageEl, panelEl, storageKey = "oj.scene
 	adoptAttr(0);
 
 	fit(); paint(); tlRefresh();
-	const destroy = () => { window.removeEventListener("resize", fit); clearTimeout(saveT); map.stopScenes?.(); headStop(); styleEl.remove(); scrub.remove(); };
+	const destroy = () => { window.removeEventListener("resize", fit); clearTimeout(saveT); map.stopScenes?.(); headStop(); camLive = false; camChip.remove(); styleEl.remove(); scrub.remove(); };
 	return { get doc() { return doc; }, load, exportText, shoot, addVia, play, playFrom, stop, fit, destroy,
 		select: i => { sel = i; paint(); } };
 }

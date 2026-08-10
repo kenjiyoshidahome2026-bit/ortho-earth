@@ -141,6 +141,18 @@ try {
 		ok("headStop", Math.abs(tmOf() - h3) < 0.05);   // 停止＝ヘッドも止まる
 	}
 
+	// カメラ実位置（map.view.eye＝透視カメラの経緯度・海抜・視野角）とフレーム上方チップ（緯度経度・高度・方位・視野H×V）
+	{
+		const v = map.view, e = v.eye;
+		ok("eyeApi", e && e.altM > 0 && e.distM > 0 && Math.abs(e.lat - map.cam.center[1]) < 2
+			&& Math.abs(e.altM - e.distM * Math.cos(v.pitch)) / e.altM < 0.1   // 高度≈距離×cos(チルト)（小距離近似）
+			&& Math.abs(e.fovy - 50 * Math.PI / 180) < 1e-9);                  // 垂直視野角＝エンジン既定50°
+		await new Promise(r => setTimeout(r, 60));
+		const chip = document.getElementById("sc-cam");
+		ok("camChip", !!chip && !map.mapEl.contains(chip)   // 画角フレームの外（録画クロップに写らない）
+			&& /°N /.test(chip.textContent) && /高度 /.test(chip.textContent) && /方位 \d+°/.test(chip.textContent) && /視野 \d+°×50°/.test(chip.textContent));
+	}
+
 	ed.destroy(); map.destroy();
 	ok("destroy", true);
 } catch (e) { ok("boot:" + (e && e.message || e), false); }
