@@ -5,6 +5,8 @@
 	<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 	<meta name="color-scheme" content="only light"><!-- 配色は劇場が自分で決める（ortho-japan と同じ宣言＝Android自動ダークの色反転を断る） -->
 	<link rel="icon" href="favicon.svg" type="image/svg+xml">
+	<link rel="apple-touch-icon" href="apple-touch-icon.png"><!-- ホーム画面に追加した時のアイコン（iOSはSVG不可＝180pxのPNG）。ortho-japan と同じ一枚＝球儀マーク -->
+	<meta name="apple-mobile-web-app-title" content="ortho-solar">
 	<title>ortho-solar — the Solar System, heliocentric</title>
 	<meta name="description" content="A real-scale 3D solar system. Planets, the Moon and Pluto on their true orbits — scrub time by year, day and hour, visit each world and spin it. No libraries, no server.">
 	<style>
@@ -52,30 +54,33 @@
 	</style>
 </head>
 <body>
+	<!-- 文言は英語が原本。日本語は data-ja / data-ja-title に併記＝原文と訳が同じ行に並ぶ（辞書ファイルを持たない）。
+	     切り替えは main.js 冒頭の LANG（?lang=ja 明示 or ブラウザ既定が日本語）。?lang=en で英語に固定できる。 -->
 	<canvas id="c"></canvas>
-	<div id="nogl">This page needs WebGL2.</div>
+	<div id="nogl" data-ja="このページには WebGL2 が必要です。">This page needs WebGL2.</div>
 	<div id="title">
 		<!-- ロゴ＝いつもの球儀マーク（favicon と同意匠）。ただし白固定＝favicon の light 用 media query（黒化）は持ち込まない -->
-		<h1><svg viewBox="0 0 100 100" width="21" height="21" aria-hidden="true"><g fill="none" stroke="#ffffff" stroke-width="6"><ellipse cx="50" cy="50" rx="45" ry="45"/><ellipse cx="50" cy="50" rx="25" ry="45"/><path d="M11 28H88 M11 72H88M50 5V95M5 50 H95"/></g></svg>The Solar System</h1>
-		<p>Heliocentric — real scale, real time</p>
+		<h1><svg viewBox="0 0 100 100" width="21" height="21" aria-hidden="true"><g fill="none" stroke="#ffffff" stroke-width="6"><ellipse cx="50" cy="50" rx="45" ry="45"/><ellipse cx="50" cy="50" rx="25" ry="45"/><path d="M11 28H88 M11 72H88M50 5V95M5 50 H95"/></g></svg><span data-ja="太陽系">The Solar System</span></h1>
+		<p data-ja="地動説 — 実スケール・実時刻">Heliocentric — real scale, real time</p>
 	</div>
-	<button id="exit" title="Exit to ortho-japan">← Earth</button>
+	<button id="exit" title="Exit to ortho-japan" data-ja="← 地球へ" data-ja-title="ortho-japan へ戻る">← Earth</button>
 	<div id="labels"></div>
 	<div id="info"></div>
 	<div id="bottom">
 		<div id="chips"></div>
 		<div id="timebar">
-			<button id="slower" title="Slower — keep pressing to run time backwards">◀◀</button>
-			<button id="play" title="Play / pause">⏸</button>
-			<button id="faster" title="Faster">▶▶</button>
-			<span id="speed">Real time</span>
-			<input id="dt" type="datetime-local" min="1800-01-01T00:00" max="2049-12-31T23:59" step="60" title="Set date & time (valid 1800–2050)">
-			<button id="now" title="Back to the present">Now</button>
+			<button id="slower" title="Slower — keep pressing to run time backwards" data-ja-title="遅く — 押し続けると時間が逆行します">◀◀</button>
+			<!-- ⏸(U+23F8) は Apple 系で絵文字表示になり字面が浮く＝図形の ❚❚(U+275A×2) へ。main.js の setSpeed と対 -->
+			<button id="play" title="Play / pause" data-ja-title="再生／一時停止">❚❚</button>
+			<button id="faster" title="Faster" data-ja-title="速く">▶▶</button>
+			<span id="speed" data-ja="実時間">Real time</span><!-- 初期表示＝setSpeed は URL に s= が無いと呼ばれない＝ここが起動時の唯一の出所 -->
+			<input id="dt" type="datetime-local" min="1800-01-01T00:00" max="2049-12-31T23:59" step="60" title="Set date & time (valid 1800–2050)" data-ja-title="日時を指定（1800〜2050年）">
+			<button id="now" title="Back to the present" data-ja="現在" data-ja-title="現在時刻へ戻す">Now</button>
 		</div>
 	</div>
-	<div id="hint">Drag to orbit · Scroll to zoom · Click a world to visit it</div>
-	<div id="attr">Textures: <a href="https://www.solarsystemscope.com/textures/" target="_blank" rel="noopener">Solar System Scope</a> (CC BY 4.0) · Pluto: NASA/JHUAPL/SwRI<br>
-		Stars: d3-celestial · Ephemeris: JPL approximate elements · © 2026 Kenji Yoshida</div>
+	<div id="hint" data-ja="ドラッグで周回・ホイールでズーム・天体をクリックで訪問">Drag to orbit · Scroll to zoom · Click a world to visit it</div>
+	<div id="attr"><span data-ja="テクスチャ">Textures</span>: <a href="https://www.solarsystemscope.com/textures/" target="_blank" rel="noopener">Solar System Scope</a> (CC BY 4.0) · <span data-ja="冥王星">Pluto</span>: NASA/JHUAPL/SwRI<br>
+		<span data-ja="星表">Stars</span>: d3-celestial · <span data-ja="暦">Ephemeris</span>: <span data-ja="JPL 近似軌道要素">JPL approximate elements</span> · © 2026 Kenji Yoshida</div>
 	<script type="module" src="./main.js"></script>
 </body>
 </html>

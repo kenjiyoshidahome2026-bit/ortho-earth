@@ -62,9 +62,38 @@ export function createInput({ canvas, cam, size, dpr, maxPitch, zoomMin = 2, zoo
 		cam.bearing = Math.atan2(dot(f2, east2), dot(f2, north2));    // 毎回ベクトルから再導出＝累積誤差なし
 	}
 
+	// 地球の見かけ半径（CSS px）＝1/radPerCssPx。z2で163px・z0で41px・z-1で20px・z-5以下は1px未満。
+	// レート方式の 360/(2^z·WORLD_PX) 度/px は「この半径の球を掴んだ時の角速度」そのもの＝球が大きい間は正しいが、
+	// 球が点に潰れる太陽系圏（z<0）では発散する（z-17で18万度/px＝指1pxでぐるぐる）。→ 掴めない大きさになったら周回へ。
+	const globePx = () => Math.pow(2, cam.zoom) * WORLD_PX / (2 * Math.PI);
+	const ORBIT_PX = 40;        // 地球の見かけ半径がこれ未満＝指より小さい＝もう「掴む」対象ではない
+	const ORBIT_RATE = 0.005;   // rad/CSSpx＝ortho-solar（別URLの太陽系劇場）の周回と同じ手触りに揃える
+
+	// 周回（太陽系圏のパン）：掴む球が無いので「地球を軸に視点を回す」へ役目が変わる＝画面px当たり一定角。
+	// 回転は versor と同じ道（rotateGrab に a=新中心・b=現中心を渡す＝その逆回転がカメラに乗る）＝
+	// 極越えも bearing の引き受けも既存と同一で、太陽系圏から戻った時に姿勢が壊れない。
+	function orbitBy(fx, fy, tx, ty) {
+		const dx = (tx - fx) * ORBIT_RATE, dy = (ty - fy) * ORBIT_RATE, th = Math.hypot(dx, dy);
+		if (th < 1e-9) return;
+		const lo = cam.center[0] * D2R, la = cam.center[1] * D2R;
+		const north = [-Math.sin(la) * Math.cos(lo), Math.cos(la), -Math.sin(la) * Math.sin(lo)];
+		const east = [-Math.sin(lo), 0, Math.cos(lo)];
+		const cb = Math.cos(cam.bearing), sb = Math.sin(cam.bearing);
+		const up = add(scale(north, cb), scale(east, sb));         // 画面上＝bearing方向の地表接線（cameraState と同式）
+		const right = add(scale(east, cb), scale(north, -sb));     // 画面右
+		// 指を右へ＝世界が右へ流れる＝注視点は左(-right)へ／指を下へ＝注視点は上(+up)へ（レート方式の符号を継承）
+		const t = scale(add(scale(right, -dx), scale(up, dy)), 1 / th);
+		const T = lonlatTo3D(cam.center[0], cam.center[1]);
+		const T2 = add(scale(T, Math.cos(th)), scale(t, Math.sin(th)));   // 厳密回転（近似の伸びなし）
+		const lat2 = Math.asin(Math.max(-1, Math.min(1, T2[1]))) * R2D, lon2 = Math.atan2(T2[2], T2[0]) * R2D;
+		rotateGrab([lon2, lat2], cam.center);
+		onMove();
+	}
+
 	// パン共通：画面上の移動 (fx,fy)→(tx,ty)。1本指・マウス・2本指重心、全て同じ所作＝versor回転。
 	// 球を外した時（空を掴んだ＝unproject null で凍る）だけレート方式で回す。消すと縁で再発する。
 	function panBy(fx, fy, tx, ty) {
+		if (globePx() < ORBIT_PX) return orbitBy(fx, fy, tx, ty);   // 太陽系圏＝掴む球が無い→周回（発散するレート方式には入れない）
 		const st = cameraState(cam, size.w, size.h);
 		const a = unproject(st, fx * dpr, fy * dpr), b = unproject(st, tx * dpr, ty * dpr);
 		if (a && b) rotateGrab(a, b);
@@ -97,6 +126,7 @@ export function createInput({ canvas, cam, size, dpr, maxPitch, zoomMin = 2, zoo
 				drag = { x: t.x, y: t.y, x0: NaN, y0: NaN, tilt: false };
 				return;
 			}
+			if (touches.size === 2) { pinch = startPinch(); drag = null; return; }   // 3本→2本＝残った2本で仕切り直し（旧: pinch=null のまま全指を離すまで無反応）
 			if (touches.size === 0) pinch = null;
 		}
 		const [x, y] = evXY(e);
@@ -142,7 +172,9 @@ export function createInput({ canvas, cam, size, dpr, maxPitch, zoomMin = 2, zoo
 			if (Math.max(lu, lv) > 12) {
 				const parallel = lu > 4 && lv > 4 && (ux * vx + uy * vy) > 0.7 * lu * lv;
 				const vertical = Math.abs(uy + vy) > 2 * Math.abs(ux + vx);
-				pinch.mode = parallel && vertical ? "tilt" : "free";
+				// 太陽系圏はチルト封印＝地面が無い深さで pitch を溜めると、戻った時に地球が傾いたままになる
+				// （この距離では pitch は実質「南北の周回」と同義＝二重の操作系になる）。2本指縦は素直に周回＋ズームへ。
+				pinch.mode = parallel && vertical && globePx() >= ORBIT_PX ? "tilt" : "free";
 			}
 		}
 		if (pinch.mode === "tilt") {
@@ -161,7 +193,9 @@ export function createInput({ canvas, cam, size, dpr, maxPitch, zoomMin = 2, zoo
 
 	function anchoredAt(px, py, mutate) {   // px/py＝canvasローカルCSS座標
 		const st0 = cameraState(cam, size.w, size.h);
-		const a = unproject(st0, px * dpr, py * dpr);
+		// 太陽系圏＝地球が数px以下＝アンカーが立っても「1pxの点を指の位置へ戻す」巨大回転になる（＝暴れる）。
+		// この深さの主役は画面中心の地球＝中心ズームが正しい（「暴れたら大人しい方」の原則をそのまま適用）。
+		const a = globePx() < ORBIT_PX ? null : unproject(st0, px * dpr, py * dpr);
 		mutate();
 		if (a) {
 			const st1 = cameraState(cam, size.w, size.h);

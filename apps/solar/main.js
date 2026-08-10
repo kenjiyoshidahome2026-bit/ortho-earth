@@ -12,15 +12,33 @@ const canvas = document.getElementById("c");
 const gl = canvas.getContext("webgl2", { antialias: true, alpha: false });
 if (!gl) { document.getElementById("nogl").style.display = "grid"; throw new Error("WebGL2 unavailable"); }
 
+// ---- 言語：?lang=ja で日本語・?lang=en で英語に固定。無指定はブラウザ既定に従う（ortho-japan からの導線は ?lang=ja つき） ----
+// 文言の原本は英語（index.html の本文と、このファイルの英語リテラル）。日本語は data-ja / data-ja-title と
+// 下の JA 分岐に併記＝辞書ファイルを持たない＝原文と訳が離れて片方だけ腐る事故が起きない。
+const LANG_Q = new URLSearchParams(location.search).get("lang");
+const JA = LANG_Q ? /^ja/i.test(LANG_Q) : /^ja/i.test(navigator.language || "");
+if (JA) {
+	document.documentElement.lang = "ja";
+	document.title = "ortho-solar — 太陽系、地動説で";
+	for (const el of document.querySelectorAll("[data-ja]")) el.textContent = el.dataset.ja;
+	for (const el of document.querySelectorAll("[data-ja-title]")) el.title = el.dataset.jaTitle;
+}
+const NAME_JA = { sun: "太陽", mercury: "水星", venus: "金星", earth: "地球", moon: "月", mars: "火星",
+	jupiter: "木星", saturn: "土星", uranus: "天王星", neptune: "海王星", pluto: "冥王星" };   // ortho-japan solarsky.js と同じ台帳
+const NOTE_JA = { "Dwarf planet": "準惑星" };
+const bName = b => JA ? (NAME_JA[b.id] || b.name) : b.name;
+
 // ---- 時刻機械：simTime(ms) と速度（実1秒あたりのシミュレート秒）。JPL 要素の有効期間でクランプ ----
 const T_MIN = Date.UTC(1800, 0, 1), T_MAX = Date.UTC(2049, 11, 31);
 // 速度は符号つき段位 speedL ∈ [-8, +8]：0=停止・正=順行・負=逆行。◀◀は停止を通り越して
 // そのまま逆再生へ＝「過去へ戻りたい→◀◀」の直感が一手で通る（初版の±反転ボタンは廃止）
 let simTime = Date.now(), speedL = 1, lastPlayL = 5;
 const SPEEDS = [
-	{ v: 0, label: "Paused" }, { v: 1, label: "Real time", neg: "1 sec/s" }, { v: 60, label: "1 min/s" },
-	{ v: 3600, label: "1 hour/s" }, { v: 21600, label: "6 hours/s" }, { v: 86400, label: "1 day/s" },
-	{ v: 864000, label: "10 days/s" }, { v: 2592000, label: "1 month/s" }, { v: 31557600, label: "1 year/s" },
+	{ v: 0, label: "Paused", ja: "停止中" }, { v: 1, label: "Real time", neg: "1 sec/s", ja: "実時間", jaNeg: "1秒/秒" },
+	{ v: 60, label: "1 min/s", ja: "1分/秒" }, { v: 3600, label: "1 hour/s", ja: "1時間/秒" },
+	{ v: 21600, label: "6 hours/s", ja: "6時間/秒" }, { v: 86400, label: "1 day/s", ja: "1日/秒" },
+	{ v: 864000, label: "10 days/s", ja: "10日/秒" }, { v: 2592000, label: "1 month/s", ja: "1か月/秒" },
+	{ v: 31557600, label: "1 year/s", ja: "1年/秒" },
 ];
 const simDate = () => new Date(simTime);
 
@@ -52,7 +70,11 @@ function updateCamera(date) {
 }
 function flyTo(id) {
 	const b = byId[id];
-	const toD = id === "sun" ? OVERVIEW_DIST : Math.max(b.radiusAU * 5.5, b.radiusAU + 2e-7);
+	const near = Math.max(b.radiusAU * 5.5, b.radiusAU + 2e-7);   // 近景＝天体の見かけが画面に収まる距離（半径の5.5倍）
+	// 太陽だけ二段：初手は太陽系の全景（＝この劇場のホーム）、全景で見ている時にもう一度押すと太陽そのものの近景へ。
+	// 近景でもう一度押せば全景へ戻る＝押すたび行き来する一つのボタン（チップ・ラベル・天体クリックの全入口で同じ）。
+	const atOverview = cam.focus === "sun" && (flight ? flight.toD : cam.dist) > near * 4;
+	const toD = id === "sun" ? (atOverview ? near : OVERVIEW_DIST) : near;
 	flight = { t0: performance.now(), dur: 900, fromFocus: cam.focus, toFocus: id, fromD: flight ? flight.toD : cam.dist, toD };
 	cam.focus = id; cam.dist = toD;
 	if (id !== "sun") {   // 昼面側に着地（真っ黒な夜面とにらめっこしない）：太陽方向+30°の斜光＝陰影が立つ
@@ -330,12 +352,13 @@ function project(pw) {
 		y: canvas.clientHeight / 2 - y / -z * pxPerRad / (Math.min(2, devicePixelRatio || 1)), dist: -z };
 }
 
-// ---- UI：下段チップ（Sun=全景ホーム）・時間バー・ラベル・情報パネル（文言は英語＝翻訳は後段） ----
+// ---- UI：下段チップ（Sun=全景ホーム／もう一度押すと太陽の近景）・時間バー・ラベル・情報パネル ----
 const chipsEl = document.getElementById("chips");
 for (const b of BODIES) {
 	const el = document.createElement("button");
-	el.textContent = b.name; el.dataset.id = b.id;
-	el.title = b.id === "sun" ? "Solar system view" : `Visit ${b.name}`;
+	el.textContent = bName(b); el.dataset.id = b.id;
+	el.title = b.id === "sun" ? (JA ? "太陽系の全景（もう一度で太陽の近景）" : "Solar system view (press again for a close-up)")
+		: (JA ? `${bName(b)}を訪ねる` : `Visit ${b.name}`);
 	if (b.id === "sun") el.classList.add("on");
 	el.onclick = () => flyTo(b.id);
 	chipsEl.appendChild(el);
@@ -344,7 +367,7 @@ const labels = {};
 const labelsEl = document.getElementById("labels");
 for (const b of BODIES) {
 	const el = document.createElement("div");
-	el.className = "bl"; el.textContent = b.name;
+	el.className = "bl"; el.textContent = bName(b);
 	el.style.color = `rgb(${b.color.map(c => Math.round(160 + c * 95)).join(",")})`;
 	el.onclick = () => flyTo(b.id);
 	labelsEl.appendChild(el); labels[b.id] = el;
@@ -362,8 +385,9 @@ const setSpeed = L => {
 	speedL = Math.max(-(SPEEDS.length - 1), Math.min(SPEEDS.length - 1, Math.round(L) || 0));
 	if (speedL !== 0) lastPlayL = speedL;
 	const m = SPEEDS[Math.abs(speedL)];
-	speedEl.textContent = speedL < 0 ? "−" + (m.neg || m.label) : m.label;
-	document.getElementById("play").textContent = speedL === 0 ? "▶" : "⏸";
+	const lab = JA ? (speedL < 0 ? (m.jaNeg || m.ja) : m.ja) : (speedL < 0 ? (m.neg || m.label) : m.label);
+	speedEl.textContent = speedL < 0 ? "−" + lab : lab;
+	document.getElementById("play").textContent = speedL === 0 ? "▶" : "❚❚";   // ⏸ は Apple 系で絵文字化して浮く＝図形の ❚❚（index.html と対）
 	writeHash();
 };
 document.getElementById("slower").onclick = () => setSpeed(speedL - 1);
@@ -379,19 +403,34 @@ document.getElementById("exit").onclick = () => {
 const infoEl = document.getElementById("info");
 function updateInfo(date) {
 	const b = byId[cam.focus];
-	if (b.id === "sun") { infoEl.innerHTML = `<b>Sun</b><span>Radius 695,700 km · Spectral type G2V</span><span>Rotation ≈ 25 days (equator)</span>`; return; }
+	if (b.id === "sun") {
+		infoEl.innerHTML = JA ? `<b>太陽</b><span>半径 695,700 km・スペクトル型 G2V</span><span>自転 約25日（赤道）</span>`
+			: `<b>Sun</b><span>Radius 695,700 km · Spectral type G2V</span><span>Rotation ≈ 25 days (equator)</span>`;
+		return;
+	}
 	const p = bodyPos(b.id, date), rSun = v3.len(p);
 	const e = bodyPos("earth", date), rE = v3.len(v3.sub(p, e));
 	const lm = rE * LIGHT_MIN_PER_AU;
-	const rows = [
+	// 単位の綴りだけ言語で切り替える（数値と桁区切りは共通）。距離の副表記は英語=百万km・日本語=億km＝それぞれの読み癖に合わせる
+	const light = lm < 1.5 ? (lm * 60).toFixed(0) + (JA ? " 秒" : " s") : lm.toFixed(1) + (JA ? " 分" : " min");
+	const rot = b.rotHours < 48 ? b.rotHours.toFixed(1) + (JA ? " 時間" : " h") : (b.rotHours / 24).toFixed(1) + (JA ? " 日" : " days");
+	const orb = b.periodDays < 1000 ? b.periodDays.toFixed(1) + (JA ? " 日" : " days") : (b.periodDays / 365.25).toFixed(1) + (JA ? " 年" : " years");
+	const rows = (JA ? [
+		b.note ? (NOTE_JA[b.note] || b.note) : "",
+		`半径 ${b.radiusKm.toLocaleString("ja")} km`,
+		`太陽から ${rSun.toFixed(3)} AU（${(rSun * AU_KM / 1e8).toFixed(2)} 億km）`,
+		b.id !== "earth" ? `地球から ${rE.toFixed(3)} AU・光で ${light}` : "",
+		`自転 ${rot}${b.rot.Wd < 0 ? "（逆行）" : ""}`,
+		b.periodDays ? `公転 ${orb}` : "",
+	] : [
 		b.note || "",
 		`Radius ${b.radiusKm.toLocaleString("en")} km`,
 		`From Sun ${rSun.toFixed(3)} AU (${Math.round(rSun * AU_KM / 1e6).toLocaleString("en")} M km)`,
-		b.id !== "earth" ? `From Earth ${rE.toFixed(3)} AU · light ${lm < 1.5 ? (lm * 60).toFixed(0) + " s" : lm.toFixed(1) + " min"}` : "",
-		`Rotation ${b.rotHours < 48 ? b.rotHours.toFixed(1) + " h" : (b.rotHours / 24).toFixed(1) + " days"}${b.rot.Wd < 0 ? " (retrograde)" : ""}`,
-		b.periodDays ? `Orbit ${b.periodDays < 1000 ? b.periodDays.toFixed(1) + " days" : (b.periodDays / 365.25).toFixed(1) + " years"}` : "",
-	].filter(Boolean);
-	infoEl.innerHTML = `<b>${b.name}</b>` + rows.map(r => `<span>${r}</span>`).join("");
+		b.id !== "earth" ? `From Earth ${rE.toFixed(3)} AU · light ${light}` : "",
+		`Rotation ${rot}${b.rot.Wd < 0 ? " (retrograde)" : ""}`,
+		b.periodDays ? `Orbit ${orb}` : "",
+	]).filter(Boolean);
+	infoEl.innerHTML = `<b>${bName(b)}</b>` + rows.map(r => `<span>${r}</span>`).join("");
 }
 
 // ---- URL ⇄ 状態（applyView 一本の流儀：読み＝起動時1回・書き＝操作後debounce） ----
@@ -415,43 +454,71 @@ function writeHash() {
 	document.querySelectorAll("#chips button").forEach(el => el.classList.toggle("on", el.dataset.id === cam.focus));
 })();
 
-// ---- 入力：ドラッグ=周回・ホイール=対数ドリー・ピンチ対応・クリック=天体訪問 ----
-let dragging = false, lastX = 0, lastY = 0, downX = 0, downY = 0, pinchD = 0;
-canvas.addEventListener("pointerdown", e => { dragging = true; lastX = downX = e.clientX; lastY = downY = e.clientY; canvas.setPointerCapture(e.pointerId); });
-canvas.addEventListener("pointermove", e => {
-	if (!dragging || pinchD) return;
-	cam.yaw -= (e.clientX - lastX) * 0.005; cam.pitch = Math.max(-88 * D2R, Math.min(88 * D2R, cam.pitch + (e.clientY - lastY) * 0.005));
-	lastX = e.clientX; lastY = e.clientY; needsDraw = true; writeHash();
+// ---- 入力：1本指/マウス=周回・ホイール=対数ドリー・2本指=ピンチ（重心で周回＋間隔でドリー）・タップ=天体訪問 ----
+// 指は Map で1本ずつ独立に追う（ortho-japan の input.js と同じ裁き）。旧実装は pointermove が届くたびに
+// 「別の指の座標」を lastX/lastY と引き算していた＝2本指で触れた瞬間に指の間隔ぶん yaw が跳ね、
+// タブレットではピンチのたびに視点がぐるぐる回った。pinchD ガードも touchmove 到着まで効かず素通りしていた。
+// 3本以上は関知しない＝iPadOS のシステムジェスチャに譲る。
+const ORBIT_RATE = 0.005;      // rad/CSSpx（周回の手触り＝ortho-japan 太陽系圏と共通）
+const pts = new Map();         // pointerId → {x,y}（触れている指/ボタン）
+let pinch = null;              // 2本指状態 {d,cx,cy}（前フレーム）
+let tap = null;                // 単指タップ候補（2本目が触れた/6px以上動いた時点で捨てる）
+const focusMinDist = () => byId[cam.focus].radiusAU * 1.1 + 1e-8;
+const setDist = d => { cam.dist = Math.max(focusMinDist(), Math.min(120, d)); if (flight) flight.toD = cam.dist; needsDraw = true; };
+const orbitBy = (dx, dy) => {
+	cam.yaw -= dx * ORBIT_RATE;
+	cam.pitch = Math.max(-88 * D2R, Math.min(88 * D2R, cam.pitch + dy * ORBIT_RATE));
+	needsDraw = true;
+};
+const pinchNow = () => {
+	const [a, b] = [...pts.values()];
+	return { d: Math.hypot(b.x - a.x, b.y - a.y) || 1, cx: (a.x + b.x) / 2, cy: (a.y + b.y) / 2 };
+};
+canvas.addEventListener("pointerdown", e => {
+	pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+	try { canvas.setPointerCapture(e.pointerId); } catch { /* 合成イベントはcapture不可＝無視 */ }
+	tap = pts.size === 1 ? { x: e.clientX, y: e.clientY } : null;
+	pinch = pts.size === 2 ? pinchNow() : null;
 });
-canvas.addEventListener("pointerup", e => {
-	dragging = false;
-	if (Math.hypot(e.clientX - downX, e.clientY - downY) < 6) {   // クリック＝一番近い天体ヒットで訪問
+canvas.addEventListener("pointermove", e => {
+	const p = pts.get(e.pointerId);
+	if (!p) return;
+	const px = p.x, py = p.y;
+	p.x = e.clientX; p.y = e.clientY;
+	if (tap && Math.hypot(e.clientX - tap.x, e.clientY - tap.y) > 6) tap = null;
+	if (pts.size === 1) { orbitBy(e.clientX - px, e.clientY - py); writeHash(); return; }
+	if (pts.size === 2 && pinch) {
+		const n = pinchNow();
+		orbitBy(n.cx - pinch.cx, n.cy - pinch.cy);   // 重心の移動＝周回（1本指と同じ所作）
+		setDist(cam.dist * pinch.d / n.d);           // 間隔＝ドリー（ひらく＝寄る）
+		pinch = n;
+		writeHash();
+	}
+});
+const liftPointer = e => {
+	pts.delete(e.pointerId);
+	pinch = pts.size === 2 ? pinchNow() : null;   // 3本→2本＝残った2本で仕切り直し／1本以下＝解除
+	if (pts.size) { tap = null; return; }         // まだ指が残っている＝タップではない
+	if (tap) {   // タップ／クリック＝一番近い天体ヒットで訪問
 		let best = null, bestD = 18;
 		for (const b of BODIES) {
 			const s = project(bodyPos(b.id, simDate())); if (!s) continue;
 			const rPx = b.radiusAU / s.dist * pxPerRad / (Math.min(2, devicePixelRatio || 1));
-			const d = Math.hypot(s.x - e.clientX, s.y - e.clientY) - Math.max(0, rPx);
+			const d = Math.hypot(s.x - tap.x, s.y - tap.y) - Math.max(0, rPx);
 			if (d < bestD) { bestD = d; best = b.id; }
 		}
-		if (best && best !== cam.focus) flyTo(best);
+		tap = null;
+		if (best && (best !== cam.focus || best === "sun")) flyTo(best);   // 太陽だけは注視中でも受ける＝全景⇄近景の行き来
 	}
-});
-const focusMinDist = () => byId[cam.focus].radiusAU * 1.1 + 1e-8;
+	writeHash();
+};
+canvas.addEventListener("pointerup", liftPointer);
+canvas.addEventListener("pointercancel", liftPointer);   // OSにジェスチャを取られた時に指が残り続けるのを防ぐ
 canvas.addEventListener("wheel", e => {
 	e.preventDefault();
-	cam.dist = Math.max(focusMinDist(), Math.min(120, cam.dist * Math.exp(e.deltaY * 0.0012)));
-	if (flight) flight.toD = cam.dist;
-	needsDraw = true; writeHash();
+	setDist(cam.dist * Math.exp(e.deltaY * 0.0012));
+	writeHash();
 }, { passive: false });
-canvas.addEventListener("touchmove", e => {   // ピンチズーム（2本指）
-	if (e.touches.length === 2) {
-		e.preventDefault();
-		const d = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
-		if (pinchD) { cam.dist = Math.max(focusMinDist(), Math.min(120, cam.dist * pinchD / d)); needsDraw = true; }
-		pinchD = d;
-	}
-}, { passive: false });
-canvas.addEventListener("touchend", () => { pinchD = 0; writeHash(); });
 
 // ---- 描画 ----
 let needsDraw = true, lastFrame = performance.now();

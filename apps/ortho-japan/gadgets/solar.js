@@ -7,7 +7,9 @@ export function solar({ url, showBelow = 5 } = {}) {
 	const mapEl = this.mapEl, cam = this.cam;
 	if (mapEl.querySelector("#solar")) return;   // 二重搭載は無害（搭載済みのまま）
 	// 行き先：本番＝同一オリジンの /solar/。開発＝solar の vite（別ポート）。opts.url で差し替え可
-	const href = url ?? (["localhost", "127.0.0.1"].includes(location.hostname) ? "http://localhost:5199/" : "/solar/");
+	// ?lang=ja＝日本語アプリからの導線は日本語で迎える（solar 側の既定はブラウザ言語・?lang=en で英語固定）
+	const dest = url ?? (["localhost", "127.0.0.1"].includes(location.hostname) ? "http://localhost:5199/" : "/solar/");
+	const href = dest + (dest.includes("?") ? "&" : "?") + "lang=ja";
 	// 見た目は紙のチップでなく星空家具の文字リンク（意匠は quiet-mono #solar＝sky-clock の血筋）。
 	// 並びは太陽系の文字が上・日本の扉（#japan-btn）がその下（order は quiet-mono の world 節）
 	const btn = document.createElement("button");
