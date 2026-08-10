@@ -626,7 +626,7 @@ export function createRenderer(canvas, rOpts = {}) {
 			const cg = Math.cos(gmst), sg = Math.sin(gmst);
 			// 遠近表現（v1移植）：天球倍率 ∝ (0.4+0.3z)＝ズームに線形（地球は2^z）。z4（フェード境界）で1に正規化
 			// ＝出現時のスケールが素の投影と連続（ポップしない）。ズームアウトで星空が密に寄る＝空が「遠くなる」。
-			const skyK = (0.4 + 0.3 * cam.zoom) / 1.6;
+			const skyK = (0.4 + 0.3 * Math.max(cam.zoom, 1)) / 1.6;   // z<1（太陽系圏）はz1で凍結＝無限遠の星空はズームアウトで縮まない（負zで係数が反転する事故も防ぐ）
 			const starUniforms = prog => {
 				gl.uniformMatrix4fv(loc(gl, prog, "u_mvp"), false, st.mvp32);
 				gl.uniform2f(loc(gl, prog, "u_gmst"), cg, sg);

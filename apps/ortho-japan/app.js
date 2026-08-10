@@ -20,6 +20,7 @@ import { mountGadgets } from "./gadgets/mount.js";
 import { search as searchGadget } from "./gadgets/searchbox.js";
 import { hint as hintGadget } from "./gadgets/hint.js";
 import { compass as compassGadget } from "./gadgets/compass.js";
+import { solar as solarGadget } from "./gadgets/solar.js";
 import { plateau as plateauGadget } from "./gadgets/plateau.js";
 import { palette as paletteGadget } from "./gadgets/palette-stub.js";   // 玄関スタブ＝ボタン常駐、本体(palette.js＝色域写像＋合成)は起動後アイドルで先読み（常用ゆえ押した時に即開く）
 import { zoom as zoomGadget } from "./gadgets/zoom.js";
@@ -1296,6 +1297,12 @@ window.__vtPool = () => requestMerge.stats();          // multi_draw 常駐プ�
 const MAXPITCH = 75 * D2R;   // 山岳ビュー(z<13)は地形が深度で自遮蔽・混成アトラスが地平線までカバー＝高チルトの根拠が揃ったので75°まで開放
 const ZOOM_MAX = 20;         // 上限20＝15cm/px（正射z＝緯度フリー。精度は原点相対RTEが担保）。21でも動くが余裕を持って1段残す
 const ZOOM_MIN = 1;          // 床1＝地球全体を余白つきで（z1=世界512px＝スマホ縦にも収まる。旧床2は縦画面で地球がはみ出し、モバイルΔ補正が床に潰される素だった 2026-08-02）
+// 太陽系圏（2026-08-10）：256pxの梯子を負へ延長＝ズームアウトの続きで太陽系へ（z≈-16.4で冥王星軌道が視野に収まる）。
+// 潜れるのは手動ズーム（ホイール/ピンチ/ボタン/URL）だけ＝飛行系（デモ・scene・flyTo）は従来床 ZOOM_MIN=1 のまま
+// ＝既存台本の挙動を一切変えない保守的な縫い目。?nosolar=1 で圏ごと停止（?nofar 等と同じ逃げ道の作法）。
+const SOLAR_ZOOM_MIN = -17;
+const solarOff = new URLSearchParams(location.search).has("nosolar");
+const CAM_ZOOM_MIN = solarOff ? ZOOM_MIN : SOLAR_ZOOM_MIN;   // カメラ実床（手動系はこちら）
 let atmo = theme.atmo;              // 大気色 rgb + 強さ（テーマ台帳のノブ＝palettes.js）※生き替えで差し替わる
 let bldColor = theme.bldColor;      // 建物色（テーマ台帳のノブ＝palettes.js）※生き替えで差し替わる
 // cam＝幾何のみ（center/zoom/pitch/bearing/dpr）＝毎フレームの draw payload（将来の worker 境界）。
@@ -1307,7 +1314,7 @@ const cam = { center: [JAPAN_VIEW[0], JAPAN_VIEW[1]], zoom: JAPAN_VIEW[2], pitch
 // 書き戻す＝アドレスバーが常に「今この視点の共有URL」（コピーするだけで人に渡る＝発表・拡散の生命線）。
 function applyCamView(v) {
 	cam.center = [wrapLon(v.lon), Math.max(-90, Math.min(90, v.lat))];
-	cam.zoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, v.zoom));
+	cam.zoom = Math.max(CAM_ZOOM_MIN, Math.min(ZOOM_MAX, v.zoom));   // URL/復元は太陽系圏の深度も受ける
 	cam.pitch = Math.max(0, Math.min(MAXPITCH, v.pitch || 0));
 	cam.bearing = Number.isFinite(v.bearing) ? v.bearing : 0;
 }
@@ -1791,8 +1798,18 @@ function ensureStars() { if (starsArmed && cam.zoom < BASEMAP_MINZOOM) { starsAr
 // 惑星（実位置・低精度ケプラー＝planets.js）：星と同じ点バッファ形式で常設。名前は注記トグル(skyLabels)側。
 // 位置は10分毎に再計算（最速の水星でも0.03°/10分＝表示上は静止と同じだが、開きっぱなしの夜に正直でいる）。
 let planetTimer = null, planetLabels = [];
+let solarSky = null, solarSkyLoad = null, inSolarPrev = false;   // 太陽系圏（z<1）＝solarsky.js の状態
 function updatePlanets() {
 	const now = new Date();
+	// 太陽系圏＝ドーム表現（天球方向のみ・距離なし）は世界表現（solarsky＝実位置3D）と矛盾する＝引っ込めて交代
+	if (!solarOff && cam.zoom < 1) {
+		renderer.set("planets", new Float32Array(0));
+		renderer.set("skyMoon", null);
+		planetLabels = [];
+		if (skyLabels) { skyLabels.planets = []; if (constelVisible) renderer.set("skyLabels", skyLabels); }
+		needsDraw = true;
+		return;
+	}
 	const ps = planetPositions(now), moon = moonPosition(now), sun = sunPosition(now);
 	const buf = new Float32Array(ps.length * 8);
 	ps.forEach((p, i) => {
@@ -1866,13 +1883,19 @@ async function loadStars() {
 // 星座線＋星座名＋メシエ天体：クリックでトグル（v1と同じ所作＝三点一組）。初回クリックでロード→表示、以降は表示反転のみ。
 // 線は GL（render worker）、名前と記号はラベルcanvas（skyLabels）＝どちらも同じ変換・同じタイミングで出入りする。
 let constelState = 0, constelVisible = false, skyLabels = null;   // 0=未読込 1=読込中 2=読込済
+// 表示の実務（点灯希望×圏の裁き→engine）。トグル・URL同期・太陽系圏の出入りの三者が共用＝経路一本。
+// 星座線・星座名・黄道/天の赤道＝「地球から見た空」の注記＝太陽系圏(z<1)では休演（点灯状態は保持）
+function constelApply() {
+	const show = constelState === 2 && constelVisible && !(!solarOff && cam.zoom < 1);
+	renderer.set("view", { showConst: show });
+	renderer.set("skyLabels", show ? skyLabels : null);
+	needsDraw = true;
+}
 async function toggleConstellations() {
 	if (constelState === 1) return;
 	if (constelState === 2) {
 		constelVisible = !constelVisible;
-		renderer.set("view", { showConst: constelVisible });
-		renderer.set("skyLabels", constelVisible ? skyLabels : null);
-		needsDraw = true;
+		constelApply();
 		return;
 	}
 	constelState = 1;
@@ -1906,9 +1929,7 @@ async function toggleConstellations() {
 	skyLabels = { constellations: consts, messier, planets: planetLabels };   // 惑星名も注記の一員（位置は updatePlanets が更新）
 	renderer.set("constellations", Float32Array.from(seg));
 	constelState = 2; constelVisible = true;
-	renderer.set("view", { showConst: true });
-	renderer.set("skyLabels", skyLabels);
-	needsDraw = true;
+	constelApply();
 	console.log(`[星座線] ${consts.length}星座＋メシエ${messier.length}天体 ロード完了（クリックでON/OFF）`);
 	if (!printHold) saveView();   // 初回ロード(2秒級)中に settle の saveView が sky 抜きで先行する＝完了後に l=sky を書き戻す（レース根治・モバイル実測）
 }
@@ -2068,13 +2089,17 @@ resize();
 // ここは日本アプリ固有の反応だけ注入：クリック→identify（基図overlay＋知性gint）、ホバー→gintの筆識別、
 // ジェスチャ開始→フライト中断（主導権は常に人）。z範囲＝1(宇宙の余白)〜19(z20はタイルの切れ目が目立つ)。
 let measureClick = null;   // 測距モード中だけ非null＝クリックを測距へ奪う（識別・星座トグルより先）
-const input = createInput({ zoomMin: ZOOM_MIN,
-	canvas, cam, size, dpr, maxPitch: MAXPITCH, zoomMin: 2, zoomMax: ZOOM_MAX, onMove, signal: ac.signal,
+// zoomMin の二重指定（前:ZOOM_MIN 後:2＝後勝ちで床2）を解消（2026-08-10）＝ホイール/ピンチも太陽系圏へ潜れる
+const input = createInput({
+	canvas, cam, size, dpr, maxPitch: MAXPITCH, zoomMin: CAM_ZOOM_MIN, zoomMax: ZOOM_MAX, onMove, signal: ac.signal,
 	blocked: () => modalOpen(mapEl),   // モーダル表示中は矢印キーで背後の地図を動かさない（文字入力中は input.js が自前で判定）
 	onGesture: () => flightCtl.cancel(),
 	onClick: (x, y) => {
 		if (measureClick) return measureClick(x, y);   // 測距モード＝クリックは頂点追加へ（識別/星座は止める）
-		if (cam.zoom < BASEMAP_MINZOOM) return void toggleConstellations().then(saveView);   // 全球ビュー＝クリックで星座線。表示状態は共有URL(l=sky)へ即書き戻す
+		if (cam.zoom < BASEMAP_MINZOOM) {
+			if (!solarOff && cam.zoom < 1) return;   // 太陽系圏＝星座注記は休演中（クリックで裏の状態だけ変えない）
+			return void toggleConstellations().then(saveView);   // 全球ビュー＝クリックで星座線。表示状態は共有URL(l=sky)へ即書き戻す
+		}
 		overlay.identifyAt(x, y); if (gintInteractive) wPost({ type: "gintClick", x, y });
 	},
 	onHover: (x, y) => { if (gintInteractive) wPost({ type: "gintMove", x, y }); },
@@ -2514,6 +2539,16 @@ function render() {
 	// これで pan 中も main の毎フレーム負荷（tiles.update/merge/terrain）が消える。
 	// 家具も全部フェード退場（attr含む＝quiet-mono #map.world）＝星空劇場の舞台。GSI非描画なので出典義務なし。
 	mapEl.classList.toggle("world", cam.zoom < BASEMAP_MINZOOM);
+	// 太陽系圏（z<1）：Canvas2D の薄いオーバーレイ（solarsky.js＝遅延ロード）が太陽・惑星・軌道線を実位置で重ねる。
+	// カメラは engine と同じ cameraState を共有＝星空・地球と厳密に整合。圏の出入りでドーム惑星（方向のみ表現）と交代。
+	const inSolar = !solarOff && cam.zoom < 1;
+	if (inSolar && !solarSkyLoad) solarSkyLoad = import("./solarsky.js").then(m => { solarSky = m.createSolarSky({ mapEl }); needsDraw = true; }).catch(e => console.warn("[solar] 圏ロード失敗", e));
+	solarSky?.frame(cam, size.w, size.h, inSolar);
+	if (inSolar !== inSolarPrev) {
+		inSolarPrev = inSolar;
+		if (planetTimer) updatePlanets();   // ドーム惑星/月の点灯切替を即時反映
+		if (constelState === 2) constelApply();   // 星座注記の休演/再点灯（裁きは constelApply に一本化）
+	}
 	if (cam.zoom < BASEMAP_MINZOOM) {
 		if (!basemapHidden) {
 			const o = [cam.center[0], cam.center[1]];
@@ -2743,6 +2778,10 @@ map.gadget("compass", function (opts) {   // コンパス兼リセット … 内
 	const update = compassGadget.call(this, { cancelFlight: () => flightCtl.cancel(), onMove, signal: ac.signal, ...opts });
 	if (update) { frameHooks.add(update); update(); }   // 針の追従を render のフックへ＝搭載した瞬間から現姿勢を指す
 });
+map.gadget("solar", function (opts) {   // 太陽系への口（ortho-solar） … 星空圏の境界(BASEMAP_MINZOOM)はここで注入
+	const update = solarGadget.call(this, { showBelow: BASEMAP_MINZOOM, ...opts });
+	if (update) { frameHooks.add(update); update(); }   // 圏の出入りで現れ/引っ込む＝毎フレ判定（コンパスと同じ）
+});
 map.gadget("plateau", function (opts) {   // 建物3D（PLATEAU）データ管理 … モーダルを開く手綱はここで注入
 	if (!plateauOn) { console.warn("[plateau] opts.plateau=false＝機能ごと停止中。ガジェットは搭載しない"); return; }
 	return plateauGadget.call(this, { onOpen: plateauDb.open, ...opts });
@@ -2752,7 +2791,8 @@ map.gadget("palette", function (opts) {   // 配色テーマ・ピッカー … 
 	return paletteGadget.call(this, { current: themeName, onPick: name => { switchTheme(name); saveView(); }, requestSnapshot, getZoom: () => cam.zoom, getCurrent: () => themeName, signal: ac.signal, ...opts });   // pick=テーマ生き替え→URL即書込（switchThemeはURLを書かない＝ここで saveView）
 });
 map.gadget("zoom", function (opts) {   // ズーム＋/− … フライト中断・onMove・z範囲はここで注入
-	return zoomGadget.call(this, { cancelFlight: () => flightCtl.cancel(), onMove, zoomMin: 2, zoomMax: ZOOM_MAX, signal: ac.signal, ...opts });
+	// zoomMin はカメラ実床（太陽系圏込み）＝ズームボタンでも太陽系の底まで降りられる（旧床2の取り残し解消 2026-08-10）
+	return zoomGadget.call(this, { cancelFlight: () => flightCtl.cancel(), onMove, zoomMin: CAM_ZOOM_MIN, zoomMax: ZOOM_MAX, signal: ac.signal, ...opts });
 });
 map.gadget("full", function (opts) {   // 全画面トグル … destroy用のsignalはここで注入
 	return fullGadget.call(this, { signal: ac.signal, ...opts });

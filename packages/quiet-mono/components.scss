@@ -732,15 +732,39 @@ body { visibility: visible; }   /* 開幕＝このスタイルシートの到着
    attrも含めて消す（全球はGSIタイル非描画＝出典表示義務の対象外。海岸線=Natural Earth=PD）。
    点火/消灯はアプリ側（ortho-japan render()＝z<BASEMAP_MINZOOM で .world 付与）。
    #japan-btn だけは残す＝迷子救済（宇宙で家具が全部消えると日本へ戻る扉が無い）。
+   #solar（太陽系への口・ortho-solar）も残す＝星空圏だけの扉（gadgets/solar.js が display で圏外を裁く）。
+   二枚の扉は対＝上が日本へ帰る扉・下が太陽系へ出る扉。
    親 #gadgets の opacity では子を救えない＝退場はスタックの子を個別に（席は保つ＝復帰時に並びが跳ねない）。 */
 #map :is(#chips, #gadgets, #gadgets > *, #search, #search-list, #hint, #log, #pos, #scale, #attr) {
 	transition: opacity .6s ease;
 }
 #map.world :is(#chips, #search-list, #hint, #log, #pos, #scale, #attr),
-#map.world #gadgets > :not(#japan-btn) {
+#map.world #gadgets > :not(#japan-btn, #solar) {
 	opacity: 0; pointer-events: none;
 }
-#map.world #japan-btn { order: -1; }   /* 独りになったら最上段へ＝迷子の扉は定位置（左上角）に */
+#map.world #solar { order: -2; }      /* 並び＝太陽系の文字リンクが最上段・日本の扉がその下 */
+#map.world #japan-btn { order: -1; }  /* 扉だけになったら最上段側へ＝定位置（左上角） */
+/* 日本の扉は星空では星明かり化：黒硝子のまま（bg≈rgba(15,20,30,.5)×島影#3f4757）だと闇に溶けて
+   迷子救済にならない（実測＝z1で事実上不可視）。宇宙には磨る対象も無い＝backdrop-filterを外し
+   明示の暗色パネル＋白縁＋白い島影＝どの合成器・強制配色でも確実に見える扉 */
+#map.world #japan-btn {
+	border: 1px solid rgba(255, 255, 255, .42);
+	background: rgba(16, 24, 44, .55);
+	-webkit-backdrop-filter: none; backdrop-filter: none;
+}
+#map.world #japan-btn svg { fill: rgba(230, 238, 250, .92); stroke: rgba(230, 238, 250, .92); }
+/* 太陽系の扉＝文字入りボタン（日本の扉と同材質＝暗色パネル+白縁・34px規格）。
+   初版の裸テキストは当たり判定も「押せる」気配も弱かった（本人指摘 2026-08-10）＝チップに昇格。
+   書体は sky-clock と同じ星空の等幅＝家具の血筋は保つ */
+#solar {
+	height: 34px; padding: 0 12px; border-radius: 5px;
+	display: flex; align-items: center;
+	border: 1px solid rgba(255, 255, 255, .42);
+	background: rgba(16, 24, 44, .55); cursor: pointer;
+	font: 13px var(--qm-font-mono); letter-spacing: .06em;
+	color: rgba(230, 238, 250, .92);
+}
+#solar:hover, #solar:focus-visible { border-color: rgba(255, 255, 255, .72); background: rgba(24, 34, 58, .65); }
 
 /* --- 映画館モード（狭画面のデモ上演）：#map.demo-live × 狭幅で家具が退場＝画面は映画と字幕だけ ---
    星空劇場と同じ .6s フェード退場（transition は上の共通指定を共有）。残すのは
@@ -757,7 +781,7 @@ body { visibility: visible; }   /* 開幕＝このスタイルシートの到着
 	/* 映画館モード×星空劇場(z小)の同居：world は #japan-btn を order:-1 で最上段へ上げるが、demo-live 下では
 	   その japan は非表示（opacity:0）のまま席だけ残り、同じ order:-1 の▶を DOM 順で2段目へ押し下げる。
 	   映画館モードの唯一の生存者は▶＝ここで japan の昇格を戻し、▶を最上段へ戻す。 */
-	#map.demo-live.world #japan-btn { order: 0; }
+	#map.demo-live.world :is(#japan-btn, #solar) { order: 0; }   /* #solar も同じ轍＝▶を押し下げない */
 }
 /* 星空劇場の家具（逆相＝worldでだけ点灯）：左下=日時計（1秒針）、右下=空データの出典。
    舞台は暗い宇宙＝文字は淡い星明かり色（紙用の --qm-text は使わない）。 */

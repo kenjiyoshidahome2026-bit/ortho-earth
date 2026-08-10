@@ -20,9 +20,9 @@ html, body { margin: 0; height: 100%; background: #0b1021; color: #cdd; font: 13
    :not(.world) ＝全球ビュー(.world)では従来どおり丸ごと退場が勝つ（二重指定で衝突させない）。 */
 #map.ui-idle:not(.world) :is(#gadgets, #chips) { opacity: 0; }
 #map.ui-idle:not(.world) :is(#gadgets, #chips, #gadgets *, #chips *) { pointer-events: none; }   /* 消えている間は下の地図を素通し（動かせば即復帰＝クリックを奪わない） */
-/* 全球ビュー(.world)で独り残る #japan-btn（迷子救済）もアイドルでは退場＝せっかくの星空を独り占めさせる。
-   マウスを動かせば戻る。タッチ端末はアイドル機構ごと対象外＝救済ボタンは常時見える */
-#map.ui-idle.world #japan-btn { opacity: 0; pointer-events: none; }
+/* 全球ビュー(.world)で残る二枚の扉（#japan-btn=迷子救済・#solar=太陽系への口）もアイドルでは退場＝
+   せっかくの星空を独り占めさせる。マウスを動かせば戻る。タッチ端末はアイドル機構ごと対象外＝扉は常時見える */
+#map.ui-idle.world :is(#japan-btn, #solar) { opacity: 0; pointer-events: none; }
 
 /* 建物3D（PLATEAU）データ管理モーダル＝日本固有の道具。佇まいはトークン参照 */
 #pdb {

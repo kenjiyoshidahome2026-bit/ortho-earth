@@ -839,7 +839,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 		if (worldFade > 0) {
 			const now = Date.now();
 			const gmst = (((18.697374 + 24.0657098 * (now / 864e5 + 2440587.5 - 2451545.0)) * 15) % 360) * Math.PI / 180;
-			const skyK = (0.4 + 0.3 * cam.zoom) / 1.6;   // 遠近表現（ズームに線形＝地球は 2^z）
+			const skyK = (0.4 + 0.3 * Math.max(cam.zoom, 1)) / 1.6;   // 遠近表現（ズームに線形＝地球は 2^z）。z<1（太陽系圏）はz1で凍結＝無限遠の星空は縮まない・負zの係数反転も防ぐ（gl/renderer.js と同式）
 			const dDay = now / 864e5;   // 夜面の太陽直下点（v1 nightJSON と同式）
 			const sunLat = 23.4 * Math.sin((dDay / 365.24 % 1 - 0.225) * 2 * Math.PI) * Math.PI / 180;
 			const sunLng = (((dDay % 1 * -360 + 360) % 360) - 180) * Math.PI / 180;
