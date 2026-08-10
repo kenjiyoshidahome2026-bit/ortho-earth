@@ -1,0 +1,19 @@
+{
+	"name": "solar",
+	"version": "0.0.1",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"dev": "vite",
+		"build": "vite build",
+		"preview": "vite preview",
+		"deploy": "vite build && wrangler deploy"
+	},
+	"dependencies": {
+		"geopbf": "*",
+		"ephem": "*"
+	},
+	"devDependencies": {
+		"vite": "^5.0.0"
+	}
+}

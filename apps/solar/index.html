@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+	<meta name="color-scheme" content="only light"><!-- 配色は劇場が自分で決める（ortho-japan と同じ宣言＝Android自動ダークの色反転を断る） -->
+	<link rel="icon" href="favicon.svg" type="image/svg+xml">
+	<title>ortho-solar — the Solar System, heliocentric</title>
+	<meta name="description" content="A real-scale 3D solar system. Planets, the Moon and Pluto on their true orbits — scrub time by year, day and hour, visit each world and spin it. No libraries, no server.">
+	<style>
+		/* 文言はすべて英語（翻訳は後段のかなピボットで）。見た目は ortho-japan の計器盤の血筋＝rgba(16,24,44,.4)の板と#cdd6e6の文字 */
+		* { margin: 0; box-sizing: border-box; }
+		html, body { height: 100%; overflow: hidden; background: #05070f; }
+		body { font: 13px/1.5 system-ui, "Helvetica Neue", sans-serif; color: #cdd6e6; }
+		#c { position: fixed; inset: 0; width: 100%; height: 100%; touch-action: none; cursor: grab; }
+		#c:active { cursor: grabbing; }
+		#nogl { display: none; position: fixed; inset: 0; place-items: center; color: #cdd6e6; }
+		#title { position: fixed; top: 10px; left: 14px; pointer-events: none; text-shadow: 0 1px 4px #000; }
+		/* ロゴ・題字は明示白＝継承色に頼らない（Android自動テーマ等の強制配色で黒字化させない） */
+		#title h1 { font-size: 17px; font-weight: 600; letter-spacing: .04em; color: #fff; display: flex; align-items: center; gap: 7px; }
+		#title h1 svg { flex: 0 0 auto; filter: drop-shadow(0 1px 2px #000); }
+		#title p { font-size: 11.5px; opacity: .72; color: #cdd6e6; }
+		#info { position: fixed; top: 10px; right: 12px; display: flex; flex-direction: column; gap: 1px; padding: 7px 11px;
+			background: rgba(16,24,44,.42); border: 1px solid rgba(255,255,255,.14); border-radius: 9px;
+			backdrop-filter: blur(4px); text-align: right; pointer-events: none; }
+		#info b { font-size: 14px; }
+		#info span { font-size: 11px; opacity: .82; }
+		#labels { position: fixed; inset: 0; pointer-events: none; }
+		.bl { position: absolute; top: 0; left: 0; font-size: 11px; letter-spacing: .05em; cursor: pointer;
+			pointer-events: auto; text-shadow: 0 1px 3px #000, 0 0 6px rgba(0,0,0,.8); will-change: transform; }
+		.bl:hover { text-decoration: underline; }
+		#bottom { position: fixed; left: 0; right: 0; bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+			display: flex; flex-direction: column; align-items: center; gap: 7px; pointer-events: none; }
+		#chips, #timebar { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; justify-content: center;
+			padding: 5px 8px; background: rgba(16,24,44,.42); border: 1px solid rgba(255,255,255,.14);
+			border-radius: 10px; backdrop-filter: blur(4px); pointer-events: auto; max-width: min(96vw, 780px); }
+		button { font: 11.5px/1 system-ui, sans-serif; color: #cdd6e6; background: rgba(255,255,255,.06);
+			border: 1px solid rgba(255,255,255,.14); border-radius: 7px; padding: 5px 9px; cursor: pointer; }
+		button:hover { background: rgba(255,255,255,.14); }
+		#chips button.on { background: rgba(120,160,255,.28); border-color: rgba(150,180,255,.55); }
+		#timebar input[type=datetime-local] { font: 12px/1 system-ui, sans-serif; color: #cdd6e6;
+			background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.14); border-radius: 7px; padding: 4px 6px;
+			color-scheme: dark; }
+		#speed { min-width: 74px; text-align: center; font-size: 11.5px; opacity: .9; }
+		#exit { position: fixed; top: 60px; left: 14px; }
+		#hint { position: fixed; left: 14px; bottom: calc(8px + env(safe-area-inset-bottom, 0px)); font-size: 10.5px;
+			opacity: .5; pointer-events: none; }
+		#attr { position: fixed; right: 12px; bottom: calc(8px + env(safe-area-inset-bottom, 0px)); font-size: 10px;
+			opacity: .55; text-align: right; }
+		#attr a { color: inherit; }
+		@media (max-width: 720px) { #hint { display: none; } #info { top: auto; bottom: 108px; } #attr { display: none; } }
+	</style>
+</head>
+<body>
+	<canvas id="c"></canvas>
+	<div id="nogl">This page needs WebGL2.</div>
+	<div id="title">
+		<!-- ロゴ＝いつもの球儀マーク（favicon と同意匠）。ただし白固定＝favicon の light 用 media query（黒化）は持ち込まない -->
+		<h1><svg viewBox="0 0 100 100" width="21" height="21" aria-hidden="true"><g fill="none" stroke="#ffffff" stroke-width="6"><ellipse cx="50" cy="50" rx="45" ry="45"/><ellipse cx="50" cy="50" rx="25" ry="45"/><path d="M11 28H88 M11 72H88M50 5V95M5 50 H95"/></g></svg>The Solar System</h1>
+		<p>Heliocentric — real scale, real time</p>
+	</div>
+	<button id="exit" title="Exit to ortho-japan">← Earth</button>
+	<div id="labels"></div>
+	<div id="info"></div>
+	<div id="bottom">
+		<div id="chips"></div>
+		<div id="timebar">
+			<button id="slower" title="Slower — keep pressing to run time backwards">◀◀</button>
+			<button id="play" title="Play / pause">⏸</button>
+			<button id="faster" title="Faster">▶▶</button>
+			<span id="speed">Real time</span>
+			<input id="dt" type="datetime-local" min="1800-01-01T00:00" max="2049-12-31T23:59" step="60" title="Set date & time (valid 1800–2050)">
+			<button id="now" title="Back to the present">Now</button>
+		</div>
+	</div>
+	<div id="hint">Drag to orbit · Scroll to zoom · Click a world to visit it</div>
+	<div id="attr">Textures: <a href="https://www.solarsystemscope.com/textures/" target="_blank" rel="noopener">Solar System Scope</a> (CC BY 4.0) · Pluto: NASA/JHUAPL/SwRI<br>
+		Stars: d3-celestial · Ephemeris: JPL approximate elements · © 2026 Kenji Yoshida</div>
+	<script type="module" src="./main.js"></script>
+</body>
+</html>
