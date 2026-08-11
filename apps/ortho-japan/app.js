@@ -600,13 +600,61 @@ function loadPoiManifest() {
 	if (poiManReq) return poiManReq;
 	poiManState = "loading";
 	return poiManReq = poiFetch(`${POI_BASE}poi/14/index.json?_=${POI_BUST}`).then(buf => {
-		if (buf) { const j = JSON.parse(new TextDecoder().decode(buf)); if (j?.tiles) { poiManifest = { v: j.v, tiles: new Set(j.tiles) }; poiManState = "loaded"; if (poiLog) console.log(`[poi] マニフェスト ${j.tiles.length}タイル v${j.v}`); } }
+		if (buf) { const j = JSON.parse(new TextDecoder().decode(buf)); if (j?.tiles) { poiManifest = { v: j.v, tiles: new Set(j.tiles), baked: new Set(j.baked || []) }; poiManState = "loaded"; if (poiLog) console.log(`[poi] マニフェスト ${j.tiles.length}タイル v${j.v}・焼き込み済み手差分${poiManifest.baked.size}件`); } }
 		if (poiManState !== "loaded") poiManState = "absent";   // 無し/壊れ＝フォールバック（bboxスキャン）
 		poiVer++; needsDraw = true;                            // 解決＝loadPOI を回して在庫ゲート/スキャン開始
 	}).catch(() => { poiManState = "absent"; poiVer++; needsDraw = true; });
 }
+// ── §12 手差分（サーバー正本 poi/overrides.json）＝ベクターファイル(タイル)と分離した bucket 管理（本人裁定2026-08-10）。
+// 表示は実行時パッチ＝タイル在庫の上へ即座に被せる（焼き直し待ちにしない・編集ガジェットの setPoiOvr でも即反映）。
+// 意味論の正典＝uploader/src/poi/schema.js applyOverrides（match=名前完全一致∧300m最近傍・id昇順fold・
+// moveは pos-src を手管理へ）。ここはその実行時版（表示形 {anchor,n,r,s}）＝tests/t-poioverrides.mjs が同値を機械検証。
+const POI_SRC_MANUAL = 3;                                      // 出典 pos-src=手管理（編集）＝権威位置（schema.SRC.MANUAL）
+const poiOvrDist = (a, b) => Math.hypot((a[0] - b[0]) * 111320 * Math.cos(b[1] * Math.PI / 180), (a[1] - b[1]) * 111320);
+function applyPoiOvr(list, ovrRecs, tileLoaded) {
+	const out = list.map(p => ({ ...p }));   // コピー＝poiTiles のキャッシュを壊さない
+	for (const o of [...(ovrRecs || [])].sort((a, b) => a.id - b.id)) {
+		if (o.op === "add") {   // 追加＝手管理の権威点。読み込んでいる z14 タイル圏だけ出す（全国の add を毎回積まない）
+			if (!tileLoaded || tileLoaded(o.ll)) out.push({ anchor: o.ll, n: o.n, r: o.r ?? 120, s: (POI_SRC_MANUAL << 4) | POI_SRC_MANUAL });
+			continue;
+		}
+		let bi = -1, bd = 300;
+		for (let i = 0; i < out.length; i++) {
+			if (out[i].n !== o.n) continue;
+			const d = poiOvrDist(out[i].anchor, o.ll);
+			if (d < bd) { bd = d; bi = i; }
+		}
+		if (bi < 0) continue;   // 対象なし（焼き込み済/未ロード地域）＝no-op＝冪等
+		if (o.op === "del") out.splice(bi, 1);
+		else if (o.op === "move") { out[bi].anchor = o.to; out[bi].s = (POI_SRC_MANUAL << 4) | (out[bi].s & 0x0F); }
+		else if (o.op === "rename") out[bi].n = o.to;
+	}
+	return out;
+}
+let poiOvr = null, poiOvrReq = null;   // {v,seq,recs}＝サーバー手差分（編集ガジェットが setPoiOvr で差し替え）
+function loadPoiOverrides() {
+	if (poiOvrReq) return poiOvrReq;
+	return poiOvrReq = poiFetch(`${POI_BASE}poi/overrides.json?_=${POI_BUST}`).then(buf => {   // 未作成(404)＝null＝静かに
+		if (!buf) return;
+		poiOvr = JSON.parse(new TextDecoder().decode(buf));
+		if (poiOvr?.recs?.length) { poiVer++; needsDraw = true; if (poiLog) console.log(`[poi] 手差分 ${poiOvr.recs.length}件 v${poiOvr.v}`); }
+	}).catch(() => {});
+}
+// ロード済み全タイルの地物＋手差分パッチ＝表示とガジェット（対象選択）の共通フィード。
+// 焼き込み済みレコード（manifest.baked）は適用しない＝del/move が同名近傍の別施設を最近傍matchで
+// 誤爆する「再発火」を封じる（schema.js の⚠・t-poioverrides.mjs が検証）。タイルとbakedは同じ
+// マニフェスト便で届く（タイルURLは ?v=版）＝新旧が食い違わない。
+function poiPatchedAll() {
+	const feats = [];
+	for (const fs of poiTiles.values()) if (Array.isArray(fs)) feats.push(...fs);
+	if (!poiOvr?.recs?.length) return feats;
+	const recs = poiManifest?.baked?.size ? poiOvr.recs.filter(r => !poiManifest.baked.has(r.id)) : poiOvr.recs;
+	if (!recs.length) return feats;
+	return applyPoiOvr(feats, recs, ll => poiTiles.has(lonLatToTile(ll[0], ll[1], 14).join("/")));
+}
 function loadPOI(cam) {
 	loadPoiManifest();
+	loadPoiOverrides();
 	if (poiManState === "loading") return;                    // マニフェスト解決待ち＝未存在タイルへの空振り404を防ぐ（race根治）
 	const [w, s, e, n] = approxViewBbox(cam);
 	const [x0, y0] = lonLatToTile(w, n, 14), [x1, y1] = lonLatToTile(e, s, 14);   // 北西→(minx,miny) 南東→(maxx,maxy)
@@ -2425,30 +2473,29 @@ function rebuildLabels(order) {
 		const color = parseRGBA(lp["text-color"] ?? "#333") || [0.2, 0.2, 0.2, 1];
 		const halo = parseRGBA(lp["text-halo-color"] ?? "#fff") || [1, 1, 1, 1];
 		const haloW = +(lp["text-halo-width"] ?? 1.1);
-		// 権威位置（注記由来 s>>4=ANNO＝寺社など）のPOI名を集め、基図の同名注記を先に消す＝POIが基図を上書き
-		//（§1 の三十三間堂 274mズレの解決＝基図の間違った位置を台帳の正しい位置で置換）。landmark/POI自身は消さない。
-		// 学校(KSJ位置)は非権威＝基図に譲る（基図もほぼ正確・§2＝壊れてるのは寺社系6%）。
+		// §12 実行時パッチ：サーバー手差分をタイル在庫の上へ被せてから注入（add/move/rename/del・冪等）
+		const patched = poiPatchedAll();
+		// 権威位置（注記由来 s>>4=ANNO＝寺社など・手管理 MANUAL＝編集で人が置いた点）のPOI名を集め、
+		// 基図の同名注記を先に消す＝POIが基図を上書き（§1 の三十三間堂 274mズレの解決＝基図の間違った位置を
+		// 台帳の正しい位置で置換）。landmark/POI自身は消さない。学校(KSJ位置)は非権威＝基図に譲る（基図もほぼ正確・§2）。
+		const poiAuth = s => { const p = s >> 4; return p === POI_SRC_ANNO || p === POI_SRC_MANUAL; };
 		const authNames = new Set();
-		for (const feats of poiTiles.values()) if (Array.isArray(feats)) for (const p of feats)
-			if ((p.s >> 4) === POI_SRC_ANNO && (poiAll || cam.zoom >= poiZAppear(p.r))) authNames.add(p.n);
+		for (const p of patched) if (poiAuth(p.s) && (poiAll || cam.zoom >= poiZAppear(p.r))) authNames.add(p.n);
 		if (authNames.size) for (let i = allLabels.length - 1; i >= 0; i--) {
 			const c = allLabels[i].code;
 			if (c !== POI_CODE && c !== LANDMARK_CODE && authNames.has(allLabels[i].text)) allLabels.splice(i, 1);
 		}
 		const have = new Set(allLabels.map(L => L.text));   // タイル注記(上書き済)＋landmark に既出の名前は出さない（案A）
 		let nAvail = 0, nShown = 0, nGated = 0, nDedup = 0;
-		for (const feats of poiTiles.values()) {
-			if (!Array.isArray(feats)) continue;            // "loading" は飛ばす
-			for (const p of feats) {
-				nAvail++;
-				if (!poiAll && cam.zoom < poiZAppear(p.r)) { nGated++; continue; }   // rank解禁（?poiall=1で無効）
-				const auth = (p.s >> 4) === POI_SRC_ANNO;   // 権威＝基図を消した側＝必ず出す。非権威は基図/landmarkに譲る
-				if (!poiAll && !auth && have.has(p.n)) { nDedup++; continue; }        // 案A dedup（?poiall=1で無効）
-				allLabels.push({ text: p.n, code: POI_CODE, anchor: p.anchor, size: 13, sort: 4 - p.r / 255, color, halo, haloW });
-				have.add(p.n); nShown++;   // 別タイルの同名（同じ名の学校）も1つに
-			}
+		for (const p of patched) {
+			nAvail++;
+			if (!poiAll && cam.zoom < poiZAppear(p.r)) { nGated++; continue; }   // rank解禁（?poiall=1で無効）
+			const auth = poiAuth(p.s);                  // 権威＝基図を消した側＝必ず出す。非権威は基図/landmarkに譲る
+			if (!poiAll && !auth && have.has(p.n)) { nDedup++; continue; }        // 案A dedup（?poiall=1で無効）
+			allLabels.push({ text: p.n, code: POI_CODE, anchor: p.anchor, size: 13, sort: 4 - p.r / 255, color, halo, haloW });
+			have.add(p.n); nShown++;   // 別タイルの同名（同じ名の学校）も1つに
 		}
-		if (poiLog) console.log(`[poi] z${cam.zoom.toFixed(1)} → 表示${nShown} / 在庫${nAvail}（rank待ち${nGated}・基図重複${nDedup}・上書き${authNames.size}）${poiAll ? " [poiall]" : ""}`);
+		if (poiLog) console.log(`[poi] z${cam.zoom.toFixed(1)} → 表示${nShown} / 在庫${nAvail}（rank待ち${nGated}・基図重複${nDedup}・上書き${authNames.size}・手差分${poiOvr?.recs?.length ?? 0}）${poiAll ? " [poiall]" : ""}`);
 	}
 	const merged = mergeChome(allLabels, cam.zoom);   // 町丁名の二系統(210/800)を（N）表記ひとつへ畳んでから allowlist へ
 	const filtered = themes.filterLabels(merged, layerState, cam.zoom, layerState.terrain);   // 地形ON＝測量点の標高数値も通す
@@ -2924,6 +2971,22 @@ map.gadget("print", function (opts) {   // 印刷（平面図）… 撮影ハイ
 map.gadget("close", function (opts) {   // 閉じる×（埋め込み用）… ortho:close を飛ばすだけ＝閉じる実務は埋め込み側
 	return closeGadget.call(this, { signal: ac.signal, ...opts });
 });
+// POI台帳の手差分編集（§12）＝?poiedit=1 のときだけ本体を import して搭載＝一般ビルドの死荷重ゼロ（作者用・
+// 書込は bucket API key 保持者のみ）。注入＝抽象アクセス：台帳フィード getPOI（パッチ適用済＝表示と同じ景色から
+// 対象を選ぶ）・手差分の読み書き getOvr/setOvr（保存成功→差し替え→poiVer++＝ラベルのみ再構築で即反映）・座標ブリッジ。
+if (/[?&]poiedit=1/.test(location.search)) import("./gadgets/poiedit.js").then(({ poiedit }) => {
+	// 編集の舞台＝施設層。OFFなら正規経路（チップclick＝styleSig更新・loadLandmarks・saveView込み）で自動点灯
+	if (!layerState.facility) mapEl.querySelector('.chip[data-k="facility"]')?.click();
+	map.gadget("poiedit", function (opts) {
+		return poiedit.call(this, {
+			unprojectAt, projectLL, base: POI_BASE, name: "poi/overrides.json",
+			getPOI: () => poiPatchedAll(), getOvr: () => poiOvr,
+			setOvr: o => { poiOvr = o; poiVer++; needsDraw = true; },
+			signal: ac.signal, ...opts,
+		});
+	});
+	map.gadget.poiedit();
+}).catch(e => console.error("[poiedit] 読み込み失敗", e));
 // ── 共有シーン台本(type:"scenes")の再生 ── 落とした .scenes（または ?scene=URL）を demo プレーヤーで自動上演する（demo/scene-format.md）。
 // demo は起動時に1度マウント済み（index.html）＝その1インスタンスに load() で台本を差し替える（下の demo ラッパが手綱 demoHandle を掴む）。
 let demoHandle = null;

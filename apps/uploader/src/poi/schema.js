@@ -111,6 +111,44 @@ export function resolvePoint(ksjPt, set, annoIndex, { radiusM = 250 } = {}) {
 	return { ll: ksjPt.ll, type, posSrc: SRC.KSJ, typeSrc: SRC.KSJ, matched: false, kana: "" };
 }
 
+// ── 手差分 overrides（§12・本人裁定2026-08-10「ベクターファイルとは分離して、サーバー管理が基本」）──
+// 器＝bucket の poi/overrides.json 1本（civic専用・OSMバケツは編集不可）：
+//   { v: 版(Date.now・保存ごと更新), seq: 次に振るid, recs: [{id, op, n, ll, to?, t?, r?, d}] }
+//   op: "add"(n,ll,t,r) / "move"(n,ll → to=[lon,lat]) / "rename"(n,ll → to=新名) / "del"(n,ll)。d=編集日。
+// z14タイルは焼き成果物＝直接編集しない。焼き込み後もレコードは消さない＝履歴・毎回再適用（下記の意味論で冪等）。
+// match＝名前の完全一致∧OVR_MATCH_M以内の最近傍1件（normは不要＝編集は表示中のタイル文字列を記録するため。
+// 300m＝plateau-names の同名クラスタ畳みと同じ距離感＝全国の同名別施設「本町郵便局」を拾わない）。
+// 適用＝id昇順の逐次fold＝編集は「その時見えていた状態」への操作（rename後の編集は新名でmatchして正しく繋がる）。
+// 表示側 app.js applyPoiOvr は同じ意味論の実行時版（表示形 {anchor,n,r,s}）＝tests/t-poioverrides.mjs が同値を機械検証。
+// ⚠再発火の封じ（t-poioverrides が突いた穴）：焼き込み後のタイルへ同じレコードを再適用すると、del/move が
+// 「本来の対象は焼きで消えた/動いた」まま同名近傍（≤300m）の別施設を最近傍matchして誤爆しうる。
+// → 焼きは applied（効いたrecのid）をマニフェスト baked に記録し、表示は未焼き分だけ適用する（§12.4）。
+export const OVR_NAME = "poi/overrides.json";
+export const OVR_MATCH_M = 300;
+export function applyOverrides(recs, ovrRecs, { withAdds = true, applied = null } = {}) {
+	const out = recs.map(r => ({ ...r }));
+	for (const o of [...(ovrRecs || [])].sort((a, b) => a.id - b.id)) {
+		if (o.op === "add") {
+			// 焼きは withAdds=false＝addを焼かない（点の無いz14タイルへ焼くと「1点だけのタイル」で既存タイルを
+			// 上書きする事故の柵。addは実行時フィードが常時適用＝見た目は常に正しい。タイル在庫と合流する焼きはv2）
+			if (withAdds) { out.push({ ll: o.ll, name: o.n, type: o.t ?? TYPE.その他, rank: o.r ?? 120, src: packSrc(SRC.MANUAL, SRC.MANUAL), kana: "" }); applied?.push(o.id); }
+			continue;
+		}
+		let bi = -1, bd = OVR_MATCH_M;
+		for (let i = 0; i < out.length; i++) {
+			if (out[i].name !== o.n) continue;
+			const d = distM(out[i].ll, o.ll);
+			if (d < bd) { bd = d; bi = i; }
+		}
+		if (bi < 0) continue;   // 対象なし＝対象外地域など＝no-op
+		applied?.push(o.id);
+		if (o.op === "del") out.splice(bi, 1);
+		else if (o.op === "move") { out[bi].ll = o.to; out[bi].src = packSrc(SRC.MANUAL, out[bi].src & 0x0F); }   // 人が置いた位置＝権威（typeSrcは維持）
+		else if (o.op === "rename") out[bi].name = o.to;
+	}
+	return out;
+}
+
 // タイル座標（z14）。バケツの poi/14/x/y 名に使う。
 export const Z14 = 14;
 export const tileXY = (lon, lat, z = Z14) => [

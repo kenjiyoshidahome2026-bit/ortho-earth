@@ -319,10 +319,22 @@ async function poi(q, { prefs = ["26"], sets = ["P29"], anno = [], withAnno = fa
 	// posSrc=ANNO で焼く＝表示側が「基図注記を上書き」する（§1 の三十三間堂 274mズレを直す本手）。
 	for (const a of anno) recs.push(...await sweepAnno(a, q));
 
+	// 3.5) §12 手差分（サーバー正本 poi/overrides.json）を最終合成＝del/move/rename をタイルへ焼き込む。
+	// add は焼かない（withAdds:false＝schema.applyOverrides の柵コメント参照・実行時フィードが常時適用）。
+	// レコードは合成後も消さない＝履歴。意味論は冪等＝毎回の焼きで再適用してよい。
+	const bkt = await Bucket("GIS/pbf");
+	const ovr = bkt && await bkt.get(POI.OVR_NAME, "json");   // bucket不達＝手差分なしで続行（saveで別途落ちる）
+	let baked = recs;
+	const appliedOvr = [];   // この焼きで効いたrec id → マニフェスト baked へ（表示が再適用しない＝再発火封じ）
+	if (ovr?.recs?.length) {
+		baked = POI.applyOverrides(recs, ovr.recs, { withAdds: false, applied: appliedOvr });
+		q.log(`手差分 ${ovr.recs.length}件 合成（${recs.length}→${baked.length}点・焼き込み${appliedOvr.length}件・add は実行時フィードのみ）`);
+	}
+
 	// 4) z14 タイルへ分配 → タイルごとに geopbf 化 → poi/14/x/y で save（§11.8）
 	const tiles = new Map();
-	for (const r of recs) { const [x, y] = POI.tileXY(r.ll[0], r.ll[1]); const k = `${x}/${y}`; (tiles.get(k) || tiles.set(k, []).get(k)).push(r); }
-	q.log(`合計 ${recs.length} POI → ${tiles.size} タイルを焼く…`);
+	for (const r of baked) { const [x, y] = POI.tileXY(r.ll[0], r.ll[1]); const k = `${x}/${y}`; (tiles.get(k) || tiles.set(k, []).get(k)).push(r); }
+	q.log(`合計 ${baked.length} POI → ${tiles.size} タイルを焼く…`);
 	let n = 0, bytes = 0;
 	for (const [k, rs] of tiles) {
 		const fc = { type: "FeatureCollection", features: rs.map(r => ({
@@ -339,13 +351,13 @@ async function poi(q, { prefs = ["26"], sets = ["P29"], anno = [], withAnno = fa
 	}
 	// タイル在庫マニフェスト：表示側が存在タイルだけ取りに行く＝404空振りゼロ＋版でキャッシュ制御。
 	// 既存に今回のタイルを合流＝他地域を別便で焼いても消えない。版(Date.now)で表示側キャッシュを失効させる。
-	const bkt = await Bucket("GIS/pbf");
-	let prev = [];
-	try { const m = await bkt.get("poi/14/index.json", "json"); if (m?.tiles) prev = m.tiles; } catch { }
-	const idx = { v: Date.now(), tiles: [...new Set([...prev, ...tiles.keys()])].sort() };
+	let prev = [], prevBaked = [];
+	try { const m = await bkt.get("poi/14/index.json", "json"); if (m?.tiles) prev = m.tiles; if (m?.baked) prevBaked = m.baked; } catch { }
+	// baked＝焼き込み済み手差分のid集合（既存と合流）。表示側はここに無いrecだけ実行時適用＝再発火封じ（schema.jsの⚠）
+	const idx = { v: Date.now(), tiles: [...new Set([...prev, ...tiles.keys()])].sort(), baked: [...new Set([...prevBaked, ...appliedOvr])].sort((a, b) => a - b) };
 	await bkt.put(new File([JSON.stringify(idx)], "poi/14/index.json", { type: "application/json" }));
-	q.log(`マニフェスト poi/14/index.json → ${idx.tiles.length}タイル（今回${tiles.size}・既存${prev.length}）`);
-	q.success(`POI civic: ${n} タイル・${recs.length}点・${(bytes / 1024).toFixed(0)}KB → GIS/pbf/poi/14/`);
+	q.log(`マニフェスト poi/14/index.json → ${idx.tiles.length}タイル（今回${tiles.size}・既存${prev.length}・焼き込み済み手差分${idx.baked.length}件）`);
+	q.success(`POI civic: ${n} タイル・${baked.length}点・${(bytes / 1024).toFixed(0)}KB → GIS/pbf/poi/14/`);
 }
 
 // experimental注記(z16 label層)を、点が要る分のタイルだけ取得し、正規化名 → [{ll,knj,kana}] の索引に。
