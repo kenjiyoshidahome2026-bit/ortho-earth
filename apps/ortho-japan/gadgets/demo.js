@@ -170,7 +170,8 @@ export function demo({ scenes, slide: slideOn = true, hold = 5.5, slideHold = 4,
 		// autoPlateau立ち上げ中は滞在計時を始めない＝テロップだけが絵より先に進まない（非力機は尺が伸びる側に倒す）。
 		// 字幕は点けたまま待つ（シーンには着いている＝街が立ち上がる過程も画のうち）。
 		// loadingActive()＝busyの進捗指紋（文字列・空=静か）：指紋が動く間は待ち続け（PLATEAUバッチ・標高枚数等）、
-		// 5秒不変なら打ち切り＝オフライン/タイル取得失敗の行を堰き止めない。20秒＝総上限（信号消し忘れの保険）。
+		// 3秒不変なら打ち切り＝オフライン/タイル取得失敗の行を堰き止めない。20秒＝総上限（信号消し忘れの保険）。
+		// 5→3秒（2026-08-12実機「特にPlateau以外で静止が長い」＝基図の合図は0/1で進捗が見えず猶予いっぱい待ちがち）。
 		const t0 = performance.now();
 		let loadSig = "", loadT = t0;
 		const arm = () => {
@@ -178,7 +179,7 @@ export function demo({ scenes, slide: slideOn = true, hold = 5.5, slideHold = 4,
 			const busy = loadingActive?.() || "";
 			if (busy && performance.now() - t0 < 20000) {
 				if (busy !== loadSig) { loadSig = busy; loadT = performance.now(); }
-				if (performance.now() - loadT < 5000) { caption(!slide.classList.contains("open")); timer = setTimeout(arm, 200); return; }
+				if (performance.now() - loadT < 3000) { caption(!slide.classList.contains("open")); timer = setTimeout(arm, 200); return; }
 			}
 			caption(!slide.classList.contains("open"));
 			timer = setTimeout(() => { if (on()) next(); }, ms);
