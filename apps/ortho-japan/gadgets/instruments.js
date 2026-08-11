@@ -34,7 +34,14 @@ export function mountInstruments(mapEl, keys = true) {
 		if (boot) boot.removeAttribute("data-boot"); else attr.id = "attr";
 		// 行割りは iPhone 幅（375px・11px 字）で折り返さないことを基準に3行固定：
 		//   1行目=長い正式名称を単独で／2行目=残りのデータ源3つ／3行目=加工注記+©。#attr の text-wrap:balance は超狭幅の保険
-		attr.innerHTML = `出典：<a href="https://maps.gsi.go.jp/development/ichiran.html#optbv" target="_blank" rel="noopener">国土地理院最適化ベクトルタイル（提供実験）</a><br>
+		// オランダの入口（/nl/）では出典もオランダのものに差し替える＝3DBAG は CC BY 4.0＝表示が義務。
+		// 日本のデータを出していない画面に地理院・PLATEAU を並べるのは、義務以前に嘘になる。
+		const nl = /^\/nl(\/|$)/.test(location.pathname) || /[?&]nl=1/.test(location.search);
+		attr.innerHTML = nl
+			? `出典：<a href="https://3dbag.nl/" target="_blank" rel="noopener">3DBAG（TU Delft）CC BY 4.0</a><br>
+			BAG（建物登記）・AHN（国土LiDAR）より自動生成<br>
+			（データを加工して作成）© 2026 <a href="https://www.ortho-earth.com/docs/introduction.html" target="_blank" rel="noopener">Kenji Yoshida</a>`
+			: `出典：<a href="https://maps.gsi.go.jp/development/ichiran.html#optbv" target="_blank" rel="noopener">国土地理院最適化ベクトルタイル（提供実験）</a><br>
 			<a href="https://maps.gsi.go.jp/development/ichiran.html#dem" target="_blank" rel="noopener">標高タイル（DEM10B）</a>・<a href="https://www.mlit.go.jp/plateau/" target="_blank" rel="noopener">国土交通省 PLATEAU</a>・<a href="https://www.eorc.jaxa.jp/ALOS/jp/dataset/aw3d30/aw3d30_j.htm" target="_blank" rel="noopener">JAXA AW3D30</a><br>
 			（各データを加工して作成）© 2026 <a href="https://www.ortho-earth.com/docs/introduction.html" target="_blank" rel="noopener">Kenji Yoshida</a>`;
 		els.push(attr);

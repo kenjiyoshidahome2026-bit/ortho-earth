@@ -516,8 +516,23 @@ let moving = false, settleT = null;
 const plateauOn = opts.plateau !== false && !/[?&]nopl=1/.test(location.search);   // ?nopl=1＝建物3D層別切り（iOS診断）
 let PLATEAU_SETS = [];
 // カタログ到着の合図＝デモの先読み（prefetchPlateauForViews）が待つ。到着時の自動ロードは従来どおり。
+// 実験：オランダ 3DBAG（?nl=1 で登録簿に追加）。TU Delft が BAG(建物登記)＋AHN(国土LiDAR)から自動生成した
+// 全国1000万棟の LoD2.2・CC BY 4.0。PLATEAU と違い「国土まるごと1枚のタイルセット」（外部tileset 474本）
+// なので、街ごとの矩形(clip)で走査を枝刈りして「区」相当の粒度に切る。
+// base は識別キー（worker振り分け・キャッシュ・OPFSのファイル名）＝同じ tileset を街ごとに別枠で持つため
+// 実URLは tilesetUrl で別に渡す。中身は 3D Tiles 1.1 の glb＝頂点が int16 量子化（plateauworker が解除）。
+const NL_TILESET = "https://data.3dbag.nl/v20250903/cesium3dtiles/lod22/tileset.json";
+const NL_SETS = [
+	{ key: "delft", name: "デルフト（3DBAG）", bbox: [4.336, 51.978, 4.393, 52.026] },
+	{ key: "rotterdam", name: "ロッテルダム（3DBAG）", bbox: [4.452, 51.905, 4.510, 51.935] },
+	{ key: "amsterdam", name: "アムステルダム（3DBAG）", bbox: [4.869, 52.360, 4.925, 52.386] },
+].map(s => ({ name: s.name, bbox: s.bbox, base: `nl-3dbag-${s.key}/`, tilesetUrl: NL_TILESET, clip: s.bbox }));
+// 入口は /nl/（本番＝deploy-worker が japan の資産をそのまま出す独立URL）と ?nl=1（開発・japanに重ねて確認する時）。
+// pathname 判定＝アドレス欄が /nl/ のまま＝共有URLとして日本と混ざらない。
+const nlOn = /[?&]nl=1/.test(location.search) || /^\/nl(\/|$)/.test(location.pathname);
 const plateauCatalogReady = !plateauOn ? Promise.resolve() :
 	fetch(import.meta.env.BASE_URL + "plateau-sets.json").then(r => r.json()).then(sets => {   // BASE_URL＝サブパス配信(/ortho-japan/)対応
+		if (nlOn) { sets = sets.concat(NL_SETS); console.log("[plateau] オランダ 3DBAG を登録簿へ追加（?nl=1）"); }
 		PLATEAU_SETS = sets; console.log(`[plateau] カタログ読込 → ${sets.length} 市区町村`);
 		autoPlateau(true);   // 復元ビューが z15+ の街なら起動直後に自動ロード（settled扱い＝起動時の視界は確定している。IDB命中なら即座に街が立つ）
 	}).catch(e => console.warn("[plateau] カタログ取得失敗", e));
@@ -752,11 +767,12 @@ function plateauSortAnchor() {
 	const foot = cam.pitch > 0.35 ? unprojectXY(size.w / dpr / 2, size.h / dpr * 0.98) : null;
 	return foot ? [wrapLon(foot[0]), foot[1]] : [cam.center[0], cam.center[1]];
 }
-function workerLoadPlateau(base, tiles, name, wardBbox, brid) {
+function workerLoadPlateau(base, tiles, name, wardBbox, brid, ex = {}) {
 	const id = ++plateauReqId, w = plateauWorkers[hashStr(base) % PLATEAU_NW];
 	// wardBbox＝区単位の被覆マスク座標系。camCenter＝バッチのカメラ近傍優先ソート（目の前から立ち始める）。
 	// brid＝橋梁モード：バッチ接地（桁が海面へ沈まない）＋両面描画（ケーブル等の開いた薄面が裏から消えない）。
-	w.postMessage({ id, base, tiles, name, wardBbox, brid: !!brid, camCenter: plateauSortAnchor() });
+	// clip/tilesetUrl＝登録簿の任意欄（オランダ3DBAG等の「国土1枚もの」を街の矩形で切って使うため。PLATEAUは共に undefined）
+	w.postMessage({ id, base, tiles, name, wardBbox, brid: !!brid, camCenter: plateauSortAnchor(), clip: ex.clip || null, tilesetUrl: ex.tilesetUrl || null });
 	return new Promise((resolve, reject) => plateauPending.set(id, { resolve, reject, name }));   // name＝進捗の消灯キー
 }
 // PLATEAU 読込進捗（左下）：地区別のバッチ進捗を1行に集計。ネットワーク経路（初回訪問）だけ表示され、
@@ -890,7 +906,7 @@ function plateauPreload(set) {   // プレロード＝IDBに貯めるだけ（�
 	// レーンは fast のまま（lowMem も）。slow（並行1本＋250ms間隔）を一度試したが、港区級（数百タイル）が
 	// デモ1周かかっても終わらない実測＝「故意に遅い」。lowMem の jetsam 余裕は BATCH_TILES=16・並行4・
 	// CACHE_MAX=0・クレジット送出で既に取ってある＝先読みは普通の速度で焼き、直列1区が帯域の上限を裁く。
-	w.postMessage({ id, base: set.base, name: set.name, wardBbox: set.noMask ? null : set.bbox, brid: !!set.noMask, camCenter: plateauSortAnchor(), preload: true });
+	w.postMessage({ id, base: set.base, name: set.name, wardBbox: set.noMask ? null : set.bbox, brid: !!set.noMask, camCenter: plateauSortAnchor(), preload: true, clip: set.clip || null, tilesetUrl: set.tilesetUrl || null });
 	return new Promise((resolve, reject) => plateauPending.set(id, { resolve, reject, name: set.name }))
 		.catch(() => false).finally(() => plateauLoading.delete(set.name));
 }
@@ -1115,7 +1131,7 @@ function autoPlateau(settled = false) {
 		plateauAutoLoading.set(h.name, h);   // 視界確定時の退避対象へ
 		if (!capFull) plateauFastT.set(h.name, performance.now());
 		console.log(capFull ? "[plateau] 自動ロード(slow在庫・fast枠待ち) →" : "[plateau] 自動ロード →", h.name);
-		loadPlateau(h.base, undefined, h.name, h.noMask ? null : h.bbox, h.noMask)   // noMask（橋梁等）＝マスク不参加＋橋梁モード（バッチ接地・両面）
+		loadPlateau(h.base, undefined, h.name, h.noMask ? null : h.bbox, h.noMask, h)   // noMask（橋梁等）＝マスク不参加＋橋梁モード（バッチ接地・両面）
 			.then(ok => {
 				if (ok === "cancelled") {   // 協調キャンセル＝failed 扱いにしない（戻れば再ロードできる）。部分バッチのGPU残骸を掃除
 					plateauEvict(h.name);
@@ -1318,7 +1334,7 @@ function applyCamView(v) {
 	cam.pitch = Math.max(0, Math.min(MAXPITCH, v.pitch || 0));
 	cam.bearing = Number.isFinite(v.bearing) ? v.bearing : 0;
 }
-const bootView = parseViewHash(opts.view || location.hash);
+const bootView = parseViewHash(opts.view || location.hash || (nlOn ? "#16/52.0116/4.3571/45t" : ""));   // /nl/ を裸で開いた時はデルフト上空へ（日本アプリの既定は日本のまま）
 // 前回ビューの復元（ortho-earth 本体と同じ流儀）：settle 毎に localStorage へ保存し、起動時にそこから立ち上がる。
 // IDBのPLATEAUキャッシュと合わさると「開いた瞬間に前回の街が数秒で立ち上がる」起動になる。
 const CAM_KEY = "ortho-japan.cam256";   // 256px世界のz移行(2026-07-26)でキー更新＝旧512世界の保存ビュー（zが1小さい）を読まない
@@ -2040,7 +2056,7 @@ function standUpWard(set, tiles) {
 		return Promise.resolve(true);
 	}
 	plateauLoading.add(set.name);
-	return loadPlateau(set.base, tiles, set.name, set.noMask ? null : set.bbox, set.noMask)
+	return loadPlateau(set.base, tiles, set.name, set.noMask ? null : set.bbox, set.noMask, set)
 		.then(ok => { if (ok === true) { plateauActive.set(set.name, set); plateauRetain(set.name, set); } return ok === true; })   // "cancelled"（自動ロード合流の端ケース）は活性化しない
 		.finally(() => plateauLoading.delete(set.name));
 }
@@ -2060,8 +2076,8 @@ window.__plateau = async (nameOrBase, tiles) => {
 // ロード本体（カメラは動かさない）：重い処理は plateauworker.js に丸投げ。メッシュはバッチ単位で worker→render worker
 // 直結ポートを流れ逐次表示される（main を通らない。ここに返るのは全バッチ完了の ack だけ）。
 // 成功可否 bool＝呼び出し側が plateauActive に加えるかの判断に使う。
-async function loadPlateau(base, tiles, name, wardBbox, brid) {
-	const ok = await workerLoadPlateau(base, tiles, name, wardBbox, brid);
+async function loadPlateau(base, tiles, name, wardBbox, brid, ex = {}) {
+	const ok = await workerLoadPlateau(base, tiles, name, wardBbox, brid, ex);
 	if (ok === "cancelled") return ok;   // 視野離脱の協調キャンセル＝呼び出し側（autoPlateau）が残骸掃除する
 	if (!ok) return false;
 	needsDraw = true;

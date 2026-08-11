@@ -37,9 +37,6 @@ function ecef2geo(x, y, z) {
 	return [lon, lat, h];
 }
 
-// tileset.json を辿って葉（=それ以上 children を持たないタイル）を { uri, center:[lon,lat]|null } で集める。
-// center は boundingVolume.region から＝カメラ近傍優先ソートに使う（無い形式なら null＝末尾に回る）。
-// 葉の content.uri 自体が別の tileset.json（外部委譲）のことがある地区があるため、拡張子で判定して再帰的に潜る。
 // タイムアウト付き fetch（PLATEAU API はハング接続が起きる＝タイムアウト無しだと worker 枠が数分死ぬ。
 // 実測 2026-08-02：API不調時に区の並行8本が全部無応答＝70秒で0タイル「極端に遅い」の実体）。
 // abort は body 読み（json/arrayBuffer）まで効かせる＝ヘッダ後の本文ストール（stalled mid-stream）も切る。
@@ -55,24 +52,91 @@ async function fetchBody(url, read, ms = 20000, retries = 1) {
 const fetchJSON = (url) => fetchBody(url, r => r.json(), 15000);
 const fetchAB = (url) => fetchBody(url, r => r.arrayBuffer(), 25000);
 
-async function collectLeafTiles(tilesetUrl, depth = 0, onScan = null, stop = null) {
+// GLB 修復（EXT_meshopt_compression を使う配信のみ・PLATEAU は非該当＝素通り）：
+// 3DBAG（オランダ）の glb は、インデックス用と頂点用の bufferView が どちらも byteOffset 省略(=0) のまま
+// 同じ fallback バッファ（長さは両者の合計ぴったり）を指す。CesiumJS/three.js は各 view を個別バッファへ
+// 展開するので平気だが、loaders.gl は fallback バッファの実体へ byteOffset で書き戻すため、後から展開された
+// 頂点データがインデックス領域を上書きする＝頂点は正しいのにインデックスだけ壊れる（実測：最大index 42.9億／
+// 頂点10.9万＝画面いっぱいの破片）。fallback バッファ内で積み上げオフセットを振り直せば衝突しない。
+function fixMeshoptGlb(ab) {
+	const dv = new DataView(ab);
+	if (ab.byteLength < 20 || dv.getUint32(0, true) !== 0x46546C67) return ab;   // "glTF" でなければ b3dm 等＝触らない
+	const jsonLen = dv.getUint32(12, true);
+	let json;
+	try { json = JSON.parse(new TextDecoder().decode(new Uint8Array(ab, 20, jsonLen))); } catch { return ab; }
+	if (!(json.extensionsUsed || []).includes("EXT_meshopt_compression")) return ab;
+	const next = new Map();
+	let patched = 0;
+	for (const bv of json.bufferViews || []) {
+		if (!bv.extensions?.EXT_meshopt_compression) continue;
+		const at = next.get(bv.buffer) || 0;
+		if ((bv.byteOffset || 0) !== at) { bv.byteOffset = at; patched++; }
+		next.set(bv.buffer, at + bv.byteLength);
+	}
+	if (!patched) return ab;
+	let s = JSON.stringify(json);
+	while (s.length % 4) s += " ";   // JSONチャンクは4B整列（末尾は空白詰めが仕様）
+	const jb = new TextEncoder().encode(s);
+	const rest = ab.byteLength - (20 + jsonLen);
+	const out = new ArrayBuffer(20 + jb.length + rest);
+	const o8 = new Uint8Array(out), odv = new DataView(out);
+	o8.set(new Uint8Array(ab, 0, 20));
+	odv.setUint32(8, out.byteLength, true); odv.setUint32(12, jb.length, true);
+	o8.set(jb, 20);
+	o8.set(new Uint8Array(ab, 20 + jsonLen, rest), 20 + jb.length);
+	return out;
+}
+
+// boundingVolume → [west,south,east,north]（rad）。3D Tiles の3形式に対応。取れなければ null。
+// PLATEAU は region（経緯度そのもの）だけだが、3DBAG（オランダ）は box（ECEF中心＋3半軸）＝
+// 8隅を測地変換して外接矩形にする。日付変更線跨ぎは考慮しない（日本・欧州とも無縁）。
+function volRect(bv) {
+	if (!bv) return null;
+	if (bv.region) return [bv.region[0], bv.region[1], bv.region[2], bv.region[3]];
+	if (bv.box) {
+		const b = bv.box;
+		let w = Infinity, s = Infinity, e = -Infinity, n = -Infinity;
+		for (let i = 0; i < 8; i++) {
+			const sx = (i & 1) ? 1 : -1, sy = (i & 2) ? 1 : -1, sz = (i & 4) ? 1 : -1;
+			const g = ecef2geo(b[0] + sx * b[3] + sy * b[6] + sz * b[9],
+				b[1] + sx * b[4] + sy * b[7] + sz * b[10],
+				b[2] + sx * b[5] + sy * b[8] + sz * b[11]);
+			w = Math.min(w, g[0]); e = Math.max(e, g[0]); s = Math.min(s, g[1]); n = Math.max(n, g[1]);
+		}
+		return [w, s, e, n];
+	}
+	if (bv.sphere) {
+		const g = ecef2geo(bv.sphere[0], bv.sphere[1], bv.sphere[2]);
+		const dLa = bv.sphere[3] / 6378137, dLo = dLa / Math.max(0.05, Math.cos(g[1]));
+		return [g[0] - dLo, g[1] - dLa, g[0] + dLo, g[1] + dLa];
+	}
+	return null;
+}
+
+// tileset.json を辿って葉（=それ以上 children を持たないタイル）を { uri, center:[lon,lat]|null } で集める。
+// center は boundingVolume から＝カメラ近傍優先ソートに使う（region も box も取れる。無い形式なら null＝末尾に回る）。
+// 葉の content.uri 自体が別の tileset.json（外部委譲）のことがある地区があるため、拡張子で判定して再帰的に潜る。
+// clip（[w,s,e,n]度・任意）＝この矩形と交わらない枝は丸ごと降りない。PLATEAU は区ごとに tileset が分かれて
+// いるので不要（既定 null＝従来どおり全走査）だが、3DBAG は国土まるごと1枚＝外部tileset 474本を全部開くと
+// 走査だけで数分かかる。街の矩形を渡せば数本で済む＝「区」相当の粒度に切って使える。
+async function collectLeafTiles(tilesetUrl, depth = 0, onScan = null, stop = null, clip = null) {
 	if (stop?.()) return [];   // 協調キャンセル：視野離脱した区のカタログ走査を tileset 単位で打ち切る
 	onScan && onScan();   // tileset.json 1枚fetchするたびに数える＝「準備中」の沈黙を進捗にする
 	const ts = await fetchJSON(tilesetUrl);
 	const tsBase = tilesetUrl.slice(0, tilesetUrl.lastIndexOf("/") + 1);
+	const clipR = clip && [clip[0] / R2D, clip[1] / R2D, clip[2] / R2D, clip[3] / R2D];
 	const out = [];
 	async function walk(t) {
 		if (!t) return;
+		const rect = volRect(t.boundingVolume);
+		if (clipR && rect && (rect[2] < clipR[0] || rect[0] > clipR[2] || rect[3] < clipR[1] || rect[1] > clipR[3])) return;   // 枝ごと落とす
 		const ch = t.children || [];
 		if (ch.length) { for (const c of ch) await walk(c); return; }
 		const uri = t.content?.uri;
 		if (!uri) return;
 		const abs = resolveUrl(tsBase, uri);
-		if (abs.endsWith(".json") && depth < 4) out.push(...await collectLeafTiles(abs, depth + 1, onScan, stop));
-		else {
-			const r = t.boundingVolume?.region;
-			out.push({ uri: abs, center: r ? [(r[0] + r[2]) / 2 * R2D, (r[1] + r[3]) / 2 * R2D] : null });
-		}
+		if (abs.endsWith(".json") && depth < 4) out.push(...await collectLeafTiles(abs, depth + 1, onScan, stop, clip));
+		else out.push({ uri: abs, center: rect ? [(rect[0] + rect[2]) / 2 * R2D, (rect[1] + rect[3]) / 2 * R2D] : null });
 	}
 	await walk(ts.root);
 	return out;
@@ -109,36 +173,75 @@ async function decodeBatch(base, leaves, wardMask, wardBbox, onTile = null, brid
 	function mergeTile(tile) {
 		const tileRtc = tile.rtcCenter || tile.gltf?.extensions?.CESIUM_RTC?.center;
 		// 新しめの地区(2025年生成・nusamai-gltf製)はCESIUM_RTC拡張を使わず、mesh参照ノードの translation/matrix に
-		// 平行移動を持たせる。node.translation は頂点POSITIONと同じY-upローカル系＝頂点と同じYup→Zup軸入替(x,-z,y)を
-		// 適用してから使う（生のまま使うと南半球の別地点へ飛ぶ）。mesh(オブジェクト参照)→translation のマップを1回だけ作る。
-		const nodeTranslationByMesh = new Map();
+		// 平行移動を持たせる。node.translation/matrix は頂点POSITIONと同じY-upローカル系＝頂点と一緒に最後に
+		// Yup→Zup軸入替(x,-z,y)を通す（生のまま使うと南半球の別地点へ飛ぶ）。
+		// 行列は平行移動だけ拾うのでなく丸ごと使う：3DBAG（オランダ）は node.matrix に「量子化された[-1,1]立方体
+		// →タイルbbox」の非等方スケール（実測 497×324×3267m）が入っており、平行移動だけだと66kmの塊になる。
+		// PLATEAU は線形部が単位行列＝同じ道を通って従来と1ビットも変わらない。mesh(オブジェクト参照)→変換のマップ。
+		const xfByMesh = new Map();
 		for (const nd of (tile.gltf?.nodes || [])) {
 			if (!nd.mesh) continue;
-			const t = nd.translation || (nd.matrix ? [nd.matrix[12], nd.matrix[13], nd.matrix[14]] : null);
-			if (t) nodeTranslationByMesh.set(nd.mesh, [t[0], -t[2], t[1]]);
+			const M = nd.matrix;
+			if (M) xfByMesh.set(nd.mesh, { m: [M[0], M[1], M[2], M[4], M[5], M[6], M[8], M[9], M[10]], t: [M[12], M[13], M[14]] });
+			else if (nd.translation) xfByMesh.set(nd.mesh, { m: null, t: nd.translation });
 		}
 		for (const m of (tile.gltf?.meshes || [])) {
-			const rtc = tileRtc || nodeTranslationByMesh.get(m) || [0, 0, 0];
-			// 保険：rtcが地表から明らかに外れていたら(=CESIUM_RTCもnode.translationも見つからなかった/壊れていた)
+			// 2つの原点は座標系が違う＝足す場所も違う（ここを取り違えると建物が世界中に散り、bboxが巨大化して
+			// フラスタムカリングが効かなくなる＝日本が丸ごと重くなる。2026-08-11 に一度やった）：
+			//   CESIUM_RTC（b3dm の RTC_CENTER）＝既に ECEF ＝ 軸入替の「後」に足す
+			//   node の matrix/translation ＝頂点と同じ Y-up ローカル系 ＝ 軸入替の「前」に掛けて足す
+			const xf = xfByMesh.get(m) || { m: null, t: [0, 0, 0] };
+			const lin = tileRtc ? null : xf.m, tr = tileRtc ? [0, 0, 0] : xf.t;
+			const rtcE = tileRtc || [0, 0, 0];
+			// 保険：実効原点が地表から明らかに外れていたら(=CESIUM_RTCもnodeの変換も見つからなかった/壊れていた)
 			// そのmeshは丸ごと捨てる。ローカル座標をECEF原点近くに置いたまま混ぜるとbbox・接地・マスクまで壊すため。
-			const rtcR = Math.hypot(rtc[0], rtc[1], rtc[2]);
-			if (rtcR < 6200000 || rtcR > 6500000) { console.warn("[plateau] mesh 破棄（rtc異常）", rtc); continue; }
+			const rtcR = Math.hypot(tr[0] + rtcE[0], -tr[2] + rtcE[1], tr[1] + rtcE[2]);
+			if (rtcR < 6200000 || rtcR > 6500000) { console.warn("[plateau] mesh 破棄（rtc異常）", tr, rtcE); continue; }
+			// 法線は行列の余因子（=逆転置の定数倍。列ごとに c1×c2, c2×c0, c0×c1）で送る＝非等方スケールでも
+			// 面の向きが狂わない。長さは後段で正規化するので定数倍は無害。線形部なし（PLATEAU）なら素通し。
+			const cof = lin && [
+				lin[4] * lin[8] - lin[5] * lin[7], lin[5] * lin[6] - lin[3] * lin[8], lin[3] * lin[7] - lin[4] * lin[6],
+				lin[7] * lin[2] - lin[8] * lin[1], lin[8] * lin[0] - lin[6] * lin[2], lin[6] * lin[1] - lin[7] * lin[0],
+				lin[1] * lin[5] - lin[2] * lin[4], lin[2] * lin[3] - lin[0] * lin[5], lin[0] * lin[4] - lin[1] * lin[3]];
 			for (const pr of (m.primitives || [])) {
-				const P = pr.attributes?.POSITION?.value; if (!P) continue;
+				const acc = pr.attributes?.POSITION; const P = acc?.value; if (!P) continue;
 				const NRM = pr.attributes?.NORMAL?.value;
+				// KHR_mesh_quantization：normalized な整数配列は [-1,1]（符号付き）/[0,1] へ戻してから行列へ。
+				// 3DBAG は int16 normalized。PLATEAU は float32 のメートル＝q=1 で素通し。
+				const q = acc.normalized ? (P instanceof Int8Array ? 1 / 127 : P instanceof Uint8Array ? 1 / 255
+					: P instanceof Int16Array ? 1 / 32767 : P instanceof Uint16Array ? 1 / 65535 : 1) : 1;
+				const qLo = (P instanceof Int8Array || P instanceof Int16Array) ? -1 : 0;   // 符号付き normalized の下限クランプ（仕様）
 				const I = pr.indices?.value, n = P.length / 3;
 				// 法線は int8 量子化（xyz+pad の4B/頂点＝float32×3 の 1/3）。FS が normalize するので精度 1/127 で十分。
 				const geoSeg = new Float64Array(n * 3), nrmSeg = new Int8Array(n * 4);
+				// 分岐はループの外で決める（頂点は1タイル10万個級＝ここに三項演算子を置くと素の日本経路まで重くなる）。
+				// simple＝PLATEAU 経路（メートルのfloat＋平行移動のみ）＝式は改修前と1文字も変わらない足し算3本。
+				// ox/oy/oz＝実効ECEFオフセット（node平行移動は軸入替を先に済ませ、CESIUM_RTC はそのまま足す）。
+				const simple = q === 1 && !lin;
+				const ox = tr[0] + rtcE[0], oy = -tr[2] + rtcE[1], oz = tr[1] + rtcE[2];
 				for (let i = 0; i < n; i++) {
-					// local(Y-up)→ECEF：Yup→Zup(x,-z,y)＋RTC → geodetic(lon,lat,h) を一旦保持
-					const ex = P[i*3] + rtc[0], ey = -P[i*3+2] + rtc[1], ez = P[i*3+1] + rtc[2];
+					// local(Y-up)→ECEF：量子化解除 → 変換行列（線形部＋平行移動）→ Yup→Zup(x,-z,y) → geodetic(lon,lat,h)
+					let ex, ey, ez;
+					if (simple) { ex = P[i*3] + ox; ey = -P[i*3+2] + oy; ez = P[i*3+1] + oz; }
+					else {
+						const px = q === 1 ? P[i*3] : Math.max(P[i*3] * q, qLo);
+						const py = q === 1 ? P[i*3+1] : Math.max(P[i*3+1] * q, qLo);
+						const pz = q === 1 ? P[i*3+2] : Math.max(P[i*3+2] * q, qLo);
+						const gx = lin ? lin[0] * px + lin[3] * py + lin[6] * pz + tr[0] : px + tr[0];
+						const gy = lin ? lin[1] * px + lin[4] * py + lin[7] * pz + tr[1] : py + tr[1];
+						const gz = lin ? lin[2] * px + lin[5] * py + lin[8] * pz + tr[2] : pz + tr[2];
+						ex = gx + rtcE[0]; ey = -gz + rtcE[1]; ez = gy + rtcE[2];
+					}
 					const g = ecef2geo(ex, ey, ez);
 					if (g[2] < minH) minH = g[2];
 					geoSeg[i*3] = g[0]; geoSeg[i*3+1] = g[1]; geoSeg[i*3+2] = g[2];
 					// 法線：glTF(Y-up local)→ortho は方向を (nx, ny, -nz)（Yup→Zup＋ECEF→ortho軸swap の合成）。符号は FS で視線側へ。
 					// 正規化してから量子化：非単位法線が混じると ×127 が ±127 を越え Int8 で符号が巻き戻る（壁が黒落ち/ちらつき）ため。
 					if (NRM) {
-						const nx = NRM[i*3], ny = NRM[i*3+1], nz = -NRM[i*3+2];
+						let ax = NRM[i*3], ay = NRM[i*3+1], az = NRM[i*3+2];
+						if (cof) { const a = ax, b = ay, c = az;   // 余因子行列で局所→世界（非等方スケール対応。PLATEAUは cof=null＝素通り）
+							ax = cof[0] * a + cof[3] * b + cof[6] * c; ay = cof[1] * a + cof[4] * b + cof[7] * c; az = cof[2] * a + cof[5] * b + cof[8] * c; }
+						const nx = ax, ny = ay, nz = -az;
 						const s = 127 / (Math.hypot(nx, ny, nz) || 1);
 						nrmSeg[i*4] = Math.round(nx * s); nrmSeg[i*4+1] = Math.round(ny * s); nrmSeg[i*4+2] = Math.round(nz * s);
 					} else { nrmSeg[i*4+1] = 127; }
@@ -171,7 +274,7 @@ async function decodeBatch(base, leaves, wardMask, wardBbox, onTile = null, brid
 				// EXT_texture_webp＝webpテクスチャ版アセット（2025 re-publish以降のbrid等）が extensionsRequired に
 				// 宣言するだけで preprocess が throw する（worker内はwebp判定不能）。テクスチャは不使用＝安全に除外。
 				// loadImages:false: テクスチャ版しか無い区(約35)でJPEGデコードを丸ごと省く（色は使わない）。
-				const tile = await loadParse(ab, Tiles3DLoader, { "3d-tiles": { loadGLTF: true }, gltf: { loadImages: false, excludeExtensions: { EXT_mesh_features: false, EXT_structural_metadata: false, EXT_texture_webp: false } } });
+				const tile = await loadParse(fixMeshoptGlb(ab), Tiles3DLoader, { "3d-tiles": { loadGLTF: true }, gltf: { loadImages: false, excludeExtensions: { EXT_mesh_features: false, EXT_structural_metadata: false, EXT_texture_webp: false } } });
 				mergeTile(tile);
 			} catch (e) { console.warn("[plateau] tile 失敗", t.uri, e.message); }
 			onTile && onTile();   // 成否に関わらず歩数は進む＝分母が縮まない
@@ -756,7 +859,7 @@ let latestCam = null;
 // ロード本体：葉タイル収集→カメラ近傍順ソート→バッチごとにデコード→完成次第 render worker へ直送（逐次表示）。
 // メモリ→IDB→ネットワークの3段。IDBヒット時もバッチ逐次送信＝プログレッシブ表示のまま。
 // 返り値: true=完了 / false=空データ / "cancelled"=視野離脱キャンセル（main は failed 扱いにしない）。
-async function loadPlateau(base, tiles, ward, wardBbox, camCenter, preload = false, brid = false) {
+async function loadPlateau(base, tiles, ward, wardBbox, camCenter, preload = false, brid = false, clip = null, tilesetUrl = null) {
 	if (cache.has(base)) {
 		const c = cache.get(base);
 		cache.delete(base); cache.set(base, c);   // LRU touch（最近使用へ）
@@ -874,7 +977,7 @@ async function loadPlateau(base, tiles, ward, wardBbox, camCenter, preload = fal
 	else {
 		// REPLACE refine：親(粗)と子(詳細)が同じ場所を覆う→両方読むと重なって z-fight(マダラ)。子を持たない「葉」だけ読む。
 		let scanned = 0;
-		leaves = await collectLeafTiles(base + "tileset.json", 0, () => prog({ scan: ++scanned }), stop);
+		leaves = await collectLeafTiles(tilesetUrl || base + "tileset.json", 0, () => prog({ scan: ++scanned }), stop, clip);
 		console.log("[plateau] 葉タイル:", leaves.length, "枚");
 	}
 	if (stop()) { console.log("[plateau] キャンセル（視野離脱・走査段階）", ward); return "cancelled"; }
@@ -1010,20 +1113,20 @@ self.onmessage = async (e) => {
 		self.postMessage({ type: "idbDeleted", base, n });
 		return;
 	}
-	const { id, base, tiles, name, wardBbox, camCenter, preload, brid } = e.data;
+	const { id, base, tiles, name, wardBbox, camCenter, preload, brid, clip, tilesetUrl } = e.data;
 	try {
 		cancelled.delete(base);   // 新規要求＝キャンセル旗を降ろす（再訪はゼロから正規に読み直す）
 		if (!preload) lane.set(base, "fast");   // 新規の表ロードは fast lane から
 
 		let ent = inflight.get(base);
 		if (!ent) {
-			ent = { p: loadPlateau(base, tiles, name, wardBbox, camCenter, !!preload, !!brid), preload: !!preload };
+			ent = { p: loadPlateau(base, tiles, name, wardBbox, camCenter, !!preload, !!brid, clip, tilesetUrl), preload: !!preload };
 			inflight.set(base, ent);
 			ent.p.finally(() => inflight.delete(base)).catch(() => {});   // 掃除専用の枝＝拒否はここで握り潰す（本流の reject は下の await が受ける）
 		}
 		let ok = await ent.p;
 		// プレロード進行中に表示要求が合流した場合、合流先は描画へ送っていない＝完了後に改めて（キャッシュ命中＝即）送る。
-		if (ok === true && ent.preload && !preload) ok = await loadPlateau(base, tiles, name, wardBbox, camCenter, false, !!brid);
+		if (ok === true && ent.preload && !preload) ok = await loadPlateau(base, tiles, name, wardBbox, camCenter, false, !!brid, clip, tilesetUrl);
 		// bytes＝この区のメッシュ実バイト＝main のGPU常駐バイト予算LRUの物差し。cache 命中時はその実体から、
 		// cache を持たない構成（lowMem/mid）は meshBytes の記録から返す（0を返すと main は 200MB の保守見積りに落ちる）。
 		self.postMessage({ id, ok, bytes: cache.has(base) ? batchBytes(cache.get(base).batches) : (meshBytes.get(base) || 0) });

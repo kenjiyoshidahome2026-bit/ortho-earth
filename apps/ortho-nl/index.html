@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="ja">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><!-- cover＝safe-area-inset を有効化（下辺UIの浮かせとセット）。maximum-scale=1/user-scalable=no は撤去（2026-08-04）＝Lighthouse a11y「ピンチ拡大を殺すな」を取りに行く。地図面のジェスチャは #c{touch-action:none}+app.jsのgesture抑止が本丸＝メタ無しでも堅い。UI上のピンチ＝ページ拡大は弱視配慮そのもの。ダブルタップ誤爆は #map{touch-action:manipulation}・入力フォーカス自動ズームは検索16pxで防御 -->
+	<style>html, body { touch-action: manipulation; overscroll-behavior: none; }</style><!-- ダブルタップ拡大とラバーバンド/引っ張り更新の抑止（canvas は quiet-mono が touch-action:none） -->
+	<!-- 配色は地図が自分で決める（テーマ c=）＝ブラウザの自動反転は要らない。Chrome Android の
+	     「ウェブコンテンツの自動ダークテーマ」は color-scheme 未宣言のページを機械的に色反転し、
+	     端末のダークテーマは**バッテリーセーバーで途中から入る**＝上映中に画面が白黒反転する
+	     （Android入門機での実測報告 2026-08-03）。only light＝この反転を明示的に断る宣言。
+	     地図の暗い配色（c=dark 等）はアプリ自身の描画＝この宣言とは無関係に従来どおり出る。 -->
+	<meta name="color-scheme" content="only light">
+	<!-- 起動の critical style：生HTMLの代わりに「設計された1枚」＝球儀マークの起動画面を即描画（FCPをJS完了(2.5s)から〜0.8sへ前倒し）。
+	     開幕（#boot のフェード）はmain.js立ち上がり後＝下の module script が担う。#boot は最前面の不透明カバーなのでbodyは隠さない。 -->
+	<style>
+		html{background:#0b1021}
+		/* フェードは短く（.2s）＝地図の初回フレームは既に描けている。長いと下のUI(出典#attr等)の露出が遅れLCPを押し下げる。 */
+		#boot{position:fixed;inset:0;z-index:2147483647;display:flex;align-items:center;justify-content:center;background:#0b1021;transition:opacity .2s ease}
+		#boot.gone{opacity:0;pointer-events:none}
+		#boot svg{width:72px;height:72px;animation:boot-breathe 1.6s ease-in-out infinite}
+		@keyframes boot-breathe{0%,100%{opacity:.35}50%{opacity:1}}
+		@media (prefers-reduced-motion:reduce){#boot svg{animation:none;opacity:.8}}
+		/* 静的出典（LCP前倒し・2026-08-04）：画面最大のテキスト塊＝出典を初回ペイントで幕の右下に描く（映画のクレジット風）。
+		   従来はJS起動後(~2.0s)の#attr生成がLCPの律速だった。app.jsのinstrumentsが養子縁組（data-bootを剥がして#map配下へ）＝入れ替わりゼロ */
+		#attr[data-boot]{position:fixed;bottom:calc(6px + env(safe-area-inset-bottom,0px));right:8px;z-index:2147483647;
+			font:11px/1.5 "Noto Sans JP","Hiragino Sans","Yu Gothic UI","Yu Gothic",sans-serif;text-align:right;
+			color:rgba(200,210,226,.82);background:rgba(16,24,44,.4);border:1px solid rgba(255,255,255,.14);
+			padding:4px 8px;border-radius:8px}
+		#attr[data-boot] a{color:rgba(200,210,226,.82);text-decoration:none}
+	</style>
+	<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+	<link rel="apple-touch-icon" href="/nl/apple-touch-icon.png"><!-- ホーム画面に追加した時のアイコン（iOSはSVG不可＝180pxのPNG）。ortho-solar と同じ一枚＝球儀マーク -->
+	<meta name="apple-mobile-web-app-title" content="ortho-nl">
+	<title>ortho-nl — オランダ 3DBAG（同じエンジン・別の国）</title>
+	<meta name="description" content="オランダ全土の3D建物モデル（3DBAG／TU Delft・CC BY 4.0）を、ortho-japan と同じ自作WebGLエンジンで球面に直描き。日本専用ではないことの実証。">
+	<!-- OGP：SNS共有カード。og:url / og:image は絶対URL必須＝デプロイ先確定時にこの2行を実URLへ。画像は public/ogp.png（1200×630） -->
+	<meta property="og:type" content="website">
+	<meta property="og:site_name" content="ortho-earth">
+	<meta property="og:title" content="ortho-nl — オランダ 3DBAG">
+	<meta property="og:description" content="オランダ全土のLoD2建物（3DBAG）を同じエンジンで。国が変わってもエンジンは変わらない。">
+	<meta property="og:url" content="https://www.ortho-earth.com/nl/">
+	<meta property="og:image" content="https://www.ortho-earth.com/nl/ogp.png">
+	<meta property="og:image:width" content="1200">
+	<meta property="og:image:height" content="630">
+	<meta name="twitter:card" content="summary_large_image">
+</head>
+<body>
+	<!-- 起動画面（球儀マーク）：外部CSS/JSに一切依存せずHTMLパース直後に描画＝FCPの実体。ready後に #boot.gone でフェード消去 -->
+	<div id="boot"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-label="ortho-earth 起動中"><g fill="none" stroke="#cdd6e6" stroke-width="6"><ellipse cx="50" cy="50" rx="45" ry="45"/><ellipse cx="50" cy="50" rx="25" ry="45"/><path d="M11 28H88 M11 72H88M50 5V95M5 50 H95"/></g></svg></div>
+	<!-- 静的出典＝LCP前倒し（幕の上・クレジット風）。文言は instruments.js と同文＝起動後に養子縁組される -->
+	<div id="attr" data-boot>出典：<a href="https://3dbag.nl/" target="_blank" rel="noopener">3DBAG（TU Delft・CC BY 4.0）</a><br>
+		BAG（建物登記）・AHN（国土LiDAR）より TU Delft が自動生成<br>
+		（各データを加工して作成）© 2026 <a href="https://www.ortho-earth.com/docs/introduction.html" target="_blank" rel="noopener">Kenji Yoshida</a></div>
+	<script type="module">
+		// 中身は ortho-japan と同じエンジン（app.js）＝1行で立ち上がる。違うのは入口URL(/nl/)と既定の視点だけ。
+		// 日本固有のガジェット（地名検索・日本ボタン・デモ台本・太陽系への口）は載せない＝この画面はオランダ一本。
+		import orthoJapan from "../ortho-japan/app.js";
+		const dismissBoot = () => {
+			requestAnimationFrame(() => requestAnimationFrame(() => {
+				const boot = document.getElementById("boot");
+				if (boot) { boot.classList.add("gone"); setTimeout(() => boot.remove(), 250); }
+			}));
+		};
+		orthoJapan().then(map => {
+			dismissBoot();
+			map.gadget.palette();     // 配色テーマ切替
+			map.gadget.zoom();        // ズーム＋/−
+			map.gadget.full();        // 全画面トグル
+			map.gadget.compass();     // コンパス兼リセット（3Dの時だけ現れる）
+			map.gadget.cpos();        // 現在地
+			map.gadget.measure();     // 距離・面積の計測
+			map.gadget.shot();        // 画面を画像で保存
+			map.gadget.qr();          // この視点をQRで共有
+			map.gadget.plateau();     // 建物3Dデータ管理（3DBAGの地区もここに並ぶ）
+			map.gadget.contextmenu(); // 右クリックメニュー
+			map.gadget.dropFile();    // GISファイルのD&D取り込み
+			map.gadget.hint();        // 操作説明カード
+		});
+		if (location.protocol === "https:" && "serviceWorker" in navigator)
+			addEventListener("load", () => navigator.serviceWorker.register("sw.js", { updateViaCache: "none" }).catch(e => console.warn("[sw] 登録失敗", e)));
+	</script>
+</body>
+</html>
