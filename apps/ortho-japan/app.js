@@ -118,20 +118,26 @@ const orDetached = el => el || document.createElement("div");
 const canvas = document.getElementById("c");
 const labelCanvas = document.getElementById("labels");
 const logEl = orDetached(document.getElementById("log"));
+// 低メモリ端末判定：deviceMemory は Chrome系のみ（≤4GB＝スマホ帯）。iOS/iPadOS Safari は非対応だが
+// タブ1枚あたり ~1-1.5GB でOSが強制終了（落ちて自動リロード）するため、タッチ端末は一律低メモリ扱い。
+// 誤検知側の被害は「同時2区・キャッシュ縮小」だけ＝安全側に倒す。renderWorker（R10キャッシュ縮小）と
+// plateau worker（キャッシュ0・バッチ縮小）の両方に配るため、worker生成より前＝ここで定義。
+const LOW_MEM = navigator.deviceMemory ? navigator.deviceMemory <= 4 : navigator.maxTouchPoints > 1;
 // 楕円体（段階B 2026-08-11）：世界＝WGS84 を「β（更成緯度）単位球×S」に分解して立てる（ortho-core
 // camera.js の setEllipsoid）。ELL 時は世界単位＝a=6378137m。
 // 【既定化 2026-08-11 本人裁定「見た目では全く区別つかない・ell=1をデフォルトに」】実験フラグ ?ell=1 から
 // 1日で既定へ（?gpu=1→既定化と同じ道）。?noell=1＝球へ戻す逃げ道（A/B・切り分け用。キャッシュは
 // meta.ell 印で世代分離＝モードを往復すると PLATEAU が焼き直しになるので常用しない）。
 // worker 文脈（render/plateau/tile）へは各 init メッセージで搬送＝全文脈で同値（モジュール状態のため必須）。
-const ELL_ON = !/[?&]noell=1/.test(location.search);
+// ⚠【LOW_MEM は球のまま＝2026-08-11 実機事故の応急処置】楕円体既定化＝meta.ell 世代替わりで焼き済み
+// PLATEAU キャッシュが全区無効→「再訪＝直読み」の堀を失い、全区の再DL+再デコード＋60秒ローテ先読みが
+// 重なって iPad Air3(3GB) が jetsam ループ（基図はマスクで伏せ済み×メッシュ未着＝「ビルが消えた」絵）。
+// タッチ/低メモリ端末は球世界に据え置き＝焼き済み資産・挙動とも改修前とビット同値（モバイル再検証不要）。
+// 個別実験は ?ell=1。モバイルへ広げる時はキャッシュ移行（球焼き→β座標の変換復元）とセットで。
+const ELL_ON = LOW_MEM ? /[?&]ell=1/.test(location.search) : !/[?&]noell=1/.test(location.search);
+console.log(`[geo] 世界＝${ELL_ON ? "WGS84楕円体（β球×S）" : "球6371km"}${LOW_MEM ? "・低メモリ端末（楕円体は?ell=1で実験可）" : ""}`);   // 実機切り分けの計器（スクショのコンソールで世界が判る）
 setEllipsoid(ELL_ON);
 const EARTH_M = ELL_ON ? 6378137 : 6371000, TERR_EXAG = 1.0;   // 標高は実スケール（誇張しない＝地形を歪めない）。ラベル・地形・建物で共有。ELL＝m→世界単位の換算が a 基準に
-// 低メモリ端末判定：deviceMemory は Chrome系のみ（≤4GB＝スマホ帯）。iOS/iPadOS Safari は非対応だが
-// タブ1枚あたり ~1-1.5GB でOSが強制終了（落ちて自動リロード）するため、タッチ端末は一律低メモリ扱い。
-// 誤検知側の被害は「同時2区・キャッシュ縮小」だけ＝安全側に倒す。renderWorker（R10キャッシュ縮小）と
-// plateau worker（キャッシュ0・バッチ縮小）の両方に配るため、worker生成より前＝ここで定義。
-const LOW_MEM = navigator.deviceMemory ? navigator.deviceMemory <= 4 : navigator.maxTouchPoints > 1;
 
 // --- 初見が死なない：起動できない環境・壊れた環境を白画面でなく言葉で受け止める ---
 // reload=true で「再読み込み」ボタン付き。fatal は紙色の全面＝地図の世界観のまま静かに伝える。
