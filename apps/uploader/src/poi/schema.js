@@ -149,6 +149,19 @@ export function applyOverrides(recs, ovrRecs, { withAdds = true, applied = null 
 	return out;
 }
 
+// ── タイル在庫マニフェスト poi/14/index.json＝{v, tiles:[], baked:[]} の正典（writer=uploader poi()・reader=ortho-japan）──
+// v＝版（Date.now＝表示側 ?v= のキャッシュ失効）／tiles＝存在タイル一覧（404空振りゼロ）／baked＝焼き込み済み手差分id
+//（表示は baked に無い rec だけ実行時適用＝上の⚠再発火封じの永続表現。タイルと同じ便で届く＝新旧が食い違わない）。
+// 焼き便ごとに既存へ合流＝他地域を別便で焼いても消えない。
+export const MANIFEST_NAME = "poi/14/index.json";
+export function mergeManifest(prev, tileKeys, appliedIds) {
+	return {
+		v: Date.now(),
+		tiles: [...new Set([...(prev?.tiles || []), ...tileKeys])].sort(),
+		baked: [...new Set([...(prev?.baked || []), ...(appliedIds || [])])].sort((a, b) => a - b),
+	};
+}
+
 // タイル座標（z14）。バケツの poi/14/x/y 名に使う。
 export const Z14 = 14;
 export const tileXY = (lon, lat, z = Z14) => [

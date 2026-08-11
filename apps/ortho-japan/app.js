@@ -6,7 +6,7 @@ import "./style.scss";
 import {
 	evalExpr, parseRGBA, cameraState, project, unproject, buildGeoJSONOverlay,
 	createFlight, shortBearingOf, parseViewHash, buildViewHash, wrapLon, createInput, WORLD_PX, lonLatToTile,
-	primeVerticalRadius, setEllipsoid,
+	primeVerticalRadius, setEllipsoid, worldRadiusM,
 } from "ortho-core";
 import { createGeopbf, geopbf } from "geopbf";
 import { createGetHeight, setApiUrl as setAltApiUrl } from "altpbf";
@@ -123,22 +123,23 @@ const logEl = orDetached(document.getElementById("log"));
 // 誤検知側の被害は「同時2区・キャッシュ縮小」だけ＝安全側に倒す。renderWorker（R10キャッシュ縮小）と
 // plateau worker（キャッシュ0・バッチ縮小）の両方に配るため、worker生成より前＝ここで定義。
 const LOW_MEM = navigator.deviceMemory ? navigator.deviceMemory <= 4 : navigator.maxTouchPoints > 1;
-// 楕円体（段階B 2026-08-11）：世界＝WGS84 を「β（更成緯度）単位球×S」に分解して立てる（ortho-core
-// camera.js の setEllipsoid）。ELL 時は世界単位＝a=6378137m。
-// 【既定化 2026-08-11 本人裁定「見た目では全く区別つかない・ell=1をデフォルトに」】実験フラグ ?ell=1 から
-// 1日で既定へ（?gpu=1→既定化と同じ道）。?noell=1＝球へ戻す逃げ道（A/B・切り分け用。キャッシュは
-// meta.ell 印で世代分離＝モードを往復すると PLATEAU が焼き直しになるので常用しない）。
-// worker 文脈（render/plateau/tile）へは各 init メッセージで搬送＝全文脈で同値（モジュール状態のため必須）。
-// ★【裁定 2026-08-11 本人「モバイルは現状維持。動く・落ちないが大前提」＝発表（8/24 LT）前は凍結。
-// 将来のモバイル楕円体は別途の裁定（その時はキャッシュ移行＝球焼き→β変換復元とセット）】
-// LOW_MEM（タッチ/低メモリ）端末は球世界に据え置き＝焼き済み資産・挙動とも改修前とビット同値。
-// 発端の実機事故：楕円体既定化＝meta.ell 世代替わりで焼き済み PLATEAU キャッシュが全区無効→「再訪＝直読み」
-// の堀を失い、全区の再DL+再デコード＋60秒ローテ先読みが重なって iPad Air3(3GB) が jetsam ループ
-//（基図はマスクで伏せ済み×メッシュ未着＝「ビルが消えた」絵）。?ell=1 は開発時の切り分け専用（常用しない）。
+// ── 世界の形（現在：非LOW_MEM＝WGS84楕円体が既定・?noell=1で球／LOW_MEM＝球固定・?ell=1で実験）──
+// 楕円体（段階B 2026-08-11）＝WGS84 を「β（更成緯度）単位球×S」に分解して立てる（ortho-core camera.js の
+// setEllipsoid・ELL 時は世界単位＝a）。決定はこの1点のみ＝worker 文脈（render/plateau/tile）へは各 init の
+// ell: で搬送（モジュール状態のため必須）。PLATEAU キャッシュは meta.ell 印で世代分離＝モードを往復すると
+// 全区焼き直しになるため、フラグ2本とも開発時の切り分け専用（常用しない）。
+// 裁定の歴史：
+//  ①既定化（2026-08-11 本人「見た目では全く区別つかない・ell=1をデフォルトに」＝?gpu=1→既定化と同じ道）。
+//  ②実機事故（同日）：①の世代分離が全端末で一斉発火＝焼き済み PLATEAU 全区無効→「再訪＝直読み」の堀を失い、
+//    全区の再DL+再デコード＋60秒ローテ先読みが重なって iPad Air3(3GB) が jetsam ループ
+//    （基図はマスクで伏せ済み×メッシュ未着＝「ビルが消えた」絵）。
+//  ③★凍結（同日 本人「モバイルは現状維持。動く・落ちないが大前提」＝発表 8/24 LT 前）：LOW_MEM は球に
+//    据え置き＝焼き済み資産・挙動とも改修前とビット同値。将来のモバイル楕円体は別途の裁定
+//    （その時はキャッシュ移行＝球焼き→β変換復元とセット）。
 const ELL_ON = LOW_MEM ? /[?&]ell=1/.test(location.search) : !/[?&]noell=1/.test(location.search);
 console.log(`[geo] 世界＝${ELL_ON ? "WGS84楕円体（β球×S）" : "球6371km"}${LOW_MEM ? "・低メモリ端末（楕円体は?ell=1で実験可）" : ""}`);   // 実機切り分けの計器（スクショのコンソールで世界が判る）
 setEllipsoid(ELL_ON);
-const EARTH_M = ELL_ON ? 6378137 : 6371000, TERR_EXAG = 1.0;   // 標高は実スケール（誇張しない＝地形を歪めない）。ラベル・地形・建物で共有。ELL＝m→世界単位の換算が a 基準に
+const EARTH_M = worldRadiusM(), TERR_EXAG = 1.0;   // m→世界単位の換算半径は camera.js が正本（球6371000/楕円体a）。標高は実スケール（誇張しない＝地形を歪めない）。ラベル・地形・建物で共有
 
 // --- 初見が死なない：起動できない環境・壊れた環境を白画面でなく言葉で受け止める ---
 // reload=true で「再読み込み」ボタン付き。fatal は紙色の全面＝地図の世界観のまま静かに伝える。
@@ -587,10 +588,12 @@ const POI_CODE = 9102;                                         // landmark(9101)
 const POI_SRC_ANNO = 1;                                        // 出典の pos-src=注記＝権威位置（基図を上書きしてよい）＝schema.SRC.ANNO
 const poiZAppear = rank => 14 + (255 - rank) * 3 / 255;        // rank 大＝早く出る（255→z14 / 中位→z15 / 小→z17）＝§11.5 の解禁段
 const poiTiles = new Map();                                    // "x/y" → 地物配列 ／ "loading" ／ []（POI 無しタイル）
-const POI_BASE = "https://api.ortho-earth.com/bucket/GIS/pbf/";   // POIタイル/マニフェストのバケツ基底（自前fetch＝geopbf名前解決を通さない）
+const POI_API = "https://api.ortho-earth.com";                     // bucket API 基底（poiedit の書込は native-bucket がこの面へ）
+const POI_BASE = POI_API + "/bucket/GIS/pbf/";                     // POIタイル/マニフェストのバケツ基底（自前fetch＝geopbf名前解決を通さない）
+const POI_OVR_NAME = "poi/overrides.json";                         // 手差分の器（正典名＝uploader schema.OVR_NAME と同値・境界規約で複製）
 const POI_BUST = Date.now();                                   // セッション毎の一意値＝マニフェストのHTTPキャッシュ回避／未整備時のフォールバック版
 let poiVer = 0;                                                // タイル到着ごとに ++＝labelGate が拾ってラベルのみ再構築（merge なし）
-let poiManifest = null, poiManReq = null, poiManState = "none";   // マニフェスト {v,tiles:Set}＋状態(none/loading/loaded/absent)。解決前はタイル要求しない（race404防止）
+let poiManifest = null, poiManReq = null, poiManState = "none";   // マニフェスト {v,tiles:Set,baked:Set}＋状態(none/loading/loaded/absent)。解決前はタイル要求しない（race404防止）
 const poiLog = /[?&]poilog=1/.test(location.search);           // ?poilog=1＝POI層の診断（在庫/表示/rank待ち/基図重複/上書き）
 const poiAll = /[?&]poiall=1/.test(location.search);           // ?poiall=1＝rank解禁と dedup を無効化＝全POIを z14+ で出す（評価用）
 // 自前fetch：404を例外でなく「空(null)」として静かに返す（geopbf(name) は PBFIO が404を毎回コンソールに吐く＝
@@ -641,7 +644,7 @@ function applyPoiOvr(list, ovrRecs, tileLoaded) {
 let poiOvr = null, poiOvrReq = null;   // {v,seq,recs}＝サーバー手差分（編集ガジェットが setPoiOvr で差し替え）
 function loadPoiOverrides() {
 	if (poiOvrReq) return poiOvrReq;
-	return poiOvrReq = poiFetch(`${POI_BASE}poi/overrides.json?_=${POI_BUST}`).then(buf => {   // 未作成(404)＝null＝静かに
+	return poiOvrReq = poiFetch(`${POI_BASE}${POI_OVR_NAME}?_=${POI_BUST}`).then(buf => {   // 未作成(404)＝null＝静かに
 		if (!buf) return;
 		poiOvr = JSON.parse(new TextDecoder().decode(buf));
 		if (poiOvr?.recs?.length) { poiVer++; needsDraw = true; if (poiLog) console.log(`[poi] 手差分 ${poiOvr.recs.length}件 v${poiOvr.v}`); }
@@ -2218,6 +2221,7 @@ resize();
 // ここは日本アプリ固有の反応だけ注入：クリック→identify（基図overlay＋知性gint）、ホバー→gintの筆識別、
 // ジェスチャ開始→フライト中断（主導権は常に人）。z範囲＝1(宇宙の余白)〜19(z20はタイルの切れ目が目立つ)。
 let measureClick = null;   // 測距モード中だけ非null＝クリックを測距へ奪う（識別・星座トグルより先）
+let poiClick = null;       // POI台帳編集のarmed中だけ非null＝同上（ガジェット毎に1スロット＝相互に潰さない）
 // zoomMin の二重指定（前:ZOOM_MIN 後:2＝後勝ちで床2）を解消（2026-08-10）＝ホイール/ピンチも太陽系圏へ潜れる
 const input = createInput({
 	canvas, cam, size, dpr, maxPitch: MAXPITCH, zoomMin: CAM_ZOOM_MIN, zoomMax: ZOOM_MAX, onMove, signal: ac.signal,
@@ -2225,6 +2229,7 @@ const input = createInput({
 	onGesture: () => flightCtl.cancel(),
 	onClick: (x, y) => {
 		if (measureClick) return measureClick(x, y);   // 測距モード＝クリックは頂点追加へ（識別/星座は止める）
+		if (poiClick) return poiClick(x, y);           // 台帳編集モード＝クリックは対象選択/置き先へ（同上）
 		if (cam.zoom < BASEMAP_MINZOOM) {
 			if (!solarOff && cam.zoom < 1) return;   // 太陽系圏＝星座注記は休演中（クリックで裏の状態だけ変えない）
 			return void toggleConstellations().then(saveView);   // 全球ビュー＝クリックで星座線。表示状態は共有URL(l=sky)へ即書き戻す
@@ -2456,15 +2461,18 @@ function rebuildLabels(order) {
 		const have = new Set(allLabels.filter(L => L.code === 441).map(L => L.text));
 		for (const a of airportMarks) if (!have.has(a.text)) allLabels.push(a);
 	}
-	// PLATEAU ランドマーク（施設チップON時のみ・高さの梯子で段階表示）。文字の色/ハローは現テーマの注記層から取る
-	// ＝テーマ生き替え(switchTheme)にそのまま追随する（読み込み時に焼くと夜テーマで紙色のハローが残る）。
+	// 施設名札（landmark/POI 共通）のインク＝現テーマの注記層から一度だけ取る＝テーマ生き替え(switchTheme)に
+	// そのまま追随する（読み込み時に焼くと夜テーマで紙色のハローが残る）。
+	const facInk = () => {
+		const lp = style.layers.find(l => l.id === "label")?.paint || {};
+		return { color: parseRGBA(lp["text-color"] ?? "#333") || [0.2, 0.2, 0.2, 1],
+			halo: parseRGBA(lp["text-halo-color"] ?? "#fff") || [1, 1, 1, 1], haloW: +(lp["text-halo-width"] ?? 1.1) };
+	};
+	// PLATEAU ランドマーク（施設チップON時のみ・高さの梯子で段階表示）
 	if (landmarks && layerState.facility) {
 		const minH = landmarkMinH(cam.zoom);
 		if (minH < Infinity) {
-			const lp = style.layers.find(l => l.id === "label")?.paint || {};
-			const color = parseRGBA(lp["text-color"] ?? "#333") || [0.2, 0.2, 0.2, 1];
-			const halo = parseRGBA(lp["text-halo-color"] ?? "#fff") || [1, 1, 1, 1];
-			const haloW = +(lp["text-halo-width"] ?? 1.1);
+			const { color, halo, haloW } = facInk();
 			const have = new Set(allLabels.map(L => L.text));   // タイル注記に同名があれば出さない（焼いた時の d2 除外に対する実行時の保険）
 			for (const m of landmarks) {
 				if (m.h < minH || have.has(m.text)) continue;
@@ -2474,12 +2482,9 @@ function rebuildLabels(order) {
 		}
 	}
 	// POI台帳（施設チップON・z14+）：焼いた点を rank で解禁。同名は既存注記＋landmark に譲る（§11.2 案A＝d2 の実行時版）。
-	// 色/ハローは landmark と同じく現テーマの注記層から（テーマ生き替えに追随）。sort=4−rank/255＝rank 大ほど衝突に強い（§11.5 の二役）。
+	// sort=4−rank/255＝rank 大ほど衝突に強い（§11.5 の二役）。
 	if (poiTiles.size && layerState.facility && cam.zoom >= 14) {
-		const lp = style.layers.find(l => l.id === "label")?.paint || {};
-		const color = parseRGBA(lp["text-color"] ?? "#333") || [0.2, 0.2, 0.2, 1];
-		const halo = parseRGBA(lp["text-halo-color"] ?? "#fff") || [1, 1, 1, 1];
-		const haloW = +(lp["text-halo-width"] ?? 1.1);
+		const { color, halo, haloW } = facInk();
 		// §12 実行時パッチ：サーバー手差分をタイル在庫の上へ被せてから注入（add/move/rename/del・冪等）
 		const patched = poiPatchedAll();
 		// 権威位置（注記由来 s>>4=ANNO＝寺社など・手管理 MANUAL＝編集で人が置いた点）のPOI名を集め、
@@ -2551,16 +2556,22 @@ function applyTerrain() {
 }
 // チップの見た目同期：点火クラスと aria-pressed（支援技術向けのトグル状態）を常に一緒に更新する。
 const syncChip = b => { const on = !!layerState[b.dataset.k]; b.classList.toggle("on", on); b.setAttribute("aria-pressed", String(on)); };
-// チップ操作：状態を反転し、styleSig を更新して即再結合（再取得なし・一瞬）。
-document.querySelectorAll(".chip").forEach(b => b.addEventListener("click", () => {
-	const k = b.dataset.k; if (!k) return;   // data-k 無し＝UIトグル（数字など）は別ハンドラ
-	layerState[k] = !layerState[k];
-	syncChip(b);
+// レイヤ点火/消灯の正規経路（チップclickの本体を関数化）：状態＋見た目＋styleSig再結合＋per-key副作用＋URL書き戻し
+// を一手に。チップ以外の搭載者（poiedit の施設自動点灯など）もここを呼ぶ＝DOMをAPIにしない・チップ不在でも動く。
+function setLayer(k, on) {
+	if (!!layerState[k] === !!on) return;   // 既にその状態＝no-op（副作用も焚かない）
+	layerState[k] = !!on;
+	const b = document.querySelector(`.chip[data-k="${k}"]`); if (b) syncChip(b);   // チップ不在（chips:false等）でも状態は成立
 	styleSig = JSON.stringify(layerState); readySig = ""; needsDraw = true;
 	if (k === "rail") { renderer.set("view", { showN02: layerState.rail }); if (layerState.rail) loadN02(); }   // 鉄道ON＝N02新幹線も表示＋初回fetch
 	if (k === "facility" && layerState.facility) loadLandmarks();   // 施設ON＝PLATEAUランドマーク台帳も初回fetch
 	if (k === "terrain") applyTerrain();   // 地形＝等高線・測量点標高・水系も一緒に点火
 	saveView();   // レイヤ状態も共有URLの一部＝即書き戻す
+}
+// チップ操作：状態を反転し、styleSig を更新して即再結合（再取得なし・一瞬）。
+document.querySelectorAll(".chip").forEach(b => b.addEventListener("click", () => {
+	const k = b.dataset.k; if (!k) return;   // data-k 無し＝UIトグル（数字など）は別ハンドラ
+	setLayer(k, !layerState[k]);
 }));
 // 起動時の初期同期（共有URL復元＋opts.layersの固定を含む）：チップの見た目と rail/terrain 副作用を layerState に合わせる（既定どおりなら実質 no-op）
 document.querySelectorAll(".chip[data-k]").forEach(syncChip);
@@ -2982,11 +2993,13 @@ map.gadget("close", function (opts) {   // 閉じる×（埋め込み用）… o
 // 書込は bucket API key 保持者のみ）。注入＝抽象アクセス：台帳フィード getPOI（パッチ適用済＝表示と同じ景色から
 // 対象を選ぶ）・手差分の読み書き getOvr/setOvr（保存成功→差し替え→poiVer++＝ラベルのみ再構築で即反映）・座標ブリッジ。
 if (/[?&]poiedit=1/.test(location.search)) import("./gadgets/poiedit.js").then(({ poiedit }) => {
-	// 編集の舞台＝施設層。OFFなら正規経路（チップclick＝styleSig更新・loadLandmarks・saveView込み）で自動点灯
-	if (!layerState.facility) mapEl.querySelector('.chip[data-k="facility"]')?.click();
+	setLayer("facility", true);   // 編集の舞台＝施設層を正規経路で自動点灯（チップ不在の埋め込みでも効く）
 	map.gadget("poiedit", function (opts) {
 		return poiedit.call(this, {
-			unprojectAt, projectLL, base: POI_BASE, name: "poi/overrides.json",
+			// クリックは createInput の onClick 横取り（measure と同型）＝ドラッグ弁別は input.js が正本・
+			// armed中の選択クリックが識別/星座へ素通りしない。座標は unprojectXY/makeProjector と同じ canvas CSS系。
+			setClick: fn => { poiClick = fn; }, unprojectXY, makeProjector, distM: poiOvrDist,
+			apiBase: POI_API, name: POI_OVR_NAME,
 			getPOI: () => poiPatchedAll(), getOvr: () => poiOvr,
 			setOvr: o => { poiOvr = o; poiVer++; needsDraw = true; },
 			signal: ac.signal, ...opts,

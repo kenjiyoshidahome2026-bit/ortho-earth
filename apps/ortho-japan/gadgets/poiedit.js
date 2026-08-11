@@ -1,10 +1,16 @@
 // ガジェット：POI台帳の手差分編集（docs/poi-ledger.md §12）。?poiedit=1 のときだけ app.js が import して搭載＝
 // 一般ビルドの死荷重ゼロ（作者専用・書込は bucket API key 保持者のみ＝§12.2）。
-// 手差分は「ベクターファイルと分離してサーバー管理」（本人裁定2026-08-10）＝bucket の poi/overrides.json が正本。
-// ここは「1操作＝1レコード追記 → 即PUT → setOvr で地図へ即反映」だけを担い、意味論（match/fold）は
-// 表示側 applyPoiOvr／焼き側 schema.applyOverrides に委ねる＝編集UIは器のschemaにだけ結合する。
-// ★ガジェット規約：独立モジュール・注入＝抽象アクセス（getPOI/getOvr/setOvr/unprojectAt/projectLL/base）・signal で退場。
+// 手差分はサーバー正本（bucket poi/overrides.json・ベクターファイルと分離＝本人裁定2026-08-10）。ここは
+// 「1操作＝1レコード追記→即PUT→setOvr で地図へ即反映」だけを担い、意味論（match/fold）は表示側 applyPoiOvr／
+// 焼き側 schema.applyOverrides に委ねる＝編集UIは器のschemaにだけ結合する。
+// ★ガジェット規約：独立モジュール・注入＝抽象アクセス・signal で退場。注入の束：
+//   getPOI/getOvr/setOvr＝台帳フィード（パッチ適用済＝表示と同じ景色）と手差分の読み書き
+//   setClick＝createInput の onClick 横取り（measure と同型＝ドラッグ弁別は input.js が正本・armed中は識別へ素通りしない）
+//   unprojectXY/makeProjector/distM＝座標ブリッジ（onClick と同じ canvas CSS px 系）
+//   apiBase/name＝bucket API 基底と器の名（書込プロトコルは native-bucket Bucket.put が正本＝ここで再実装しない）
 // デスクトップ専用（shot と同じ掟）＝モバイルは入口で return。
+import { nativeBucket } from "native-bucket";
+import { modalOpen } from "./keys.js";
 
 // 手で足す種別の小さな棚（値はタイルschema §11.4 の t バイト＝interface値・rankは RANK_BASE と同値の既定）。
 // KSJ系統（学校・郵便局・役場）は焼きが正＝手addの棚には載せない（直すなら rename/move/del で）。
@@ -17,13 +23,16 @@ const TYPES = [
 ];
 const OPS = { add: "追加", rename: "改名", move: "移動", del: "削除" };
 const PICK_PX = 20;   // クリック→対象選択の画面距離（CSS px）＝ラベル文字の当たり判定より少し緩め
+// パネル部品の様式（inline＝?poiedit=1でしか出ない作者道具＝style.scssを太らせない）。微差はテンプレートで足す。
+const S_INPUT = "width:100%;box-sizing:border-box;margin:2px 0;padding:3px 6px;border:1px solid #c9c2b4;border-radius:4px";
+const S_BTN = "width:100%;margin-top:2px";
 
-export function poiedit({ getPOI, getOvr, setOvr, unprojectAt, projectLL, base, name, signal } = {}) {
+export function poiedit({ getPOI, getOvr, setOvr, setClick, unprojectXY, makeProjector, distM, apiBase, name, signal } = {}) {
 	const mapEl = this.mapEl;
 	if (window.matchMedia("(pointer: coarse)").matches) { console.warn("[poiedit] デスクトップ専用（§12.2）"); return; }
 	if (mapEl.querySelector("#poiedit-panel")) return;   // 二重搭載は無害
 
-	// ── パネル（右上・意匠は自前inline＝?poiedit=1でしか出ない作者道具＝style.scssを太らせない）──
+	// ── パネル（右上）──
 	const panel = document.createElement("div");
 	panel.id = "poiedit-panel";
 	panel.style.cssText = "position:absolute;top:8px;right:8px;width:248px;background:#fffdf8;color:#333;" +
@@ -33,8 +42,7 @@ export function poiedit({ getPOI, getOvr, setOvr, unprojectAt, projectLL, base, 
 			<b style="flex:1">台帳編集（手差分）</b>
 			<button data-act="hide" title="畳む" style="border:none;background:none;cursor:pointer">—</button>
 		</div>
-		<input data-el="key" type="password" placeholder="bucket APIキー" autocomplete="off"
-			style="width:100%;box-sizing:border-box;margin-bottom:6px;padding:3px 6px;border:1px solid #c9c2b4;border-radius:4px">
+		<input data-el="key" type="password" placeholder="bucket APIキー" autocomplete="off" style="${S_INPUT};margin:0 0 6px">
 		<div data-el="modes" style="display:flex;gap:4px;margin-bottom:6px"></div>
 		<div data-el="form" style="min-height:2em"></div>
 		<div data-el="status" style="color:#6a3d9a;margin-top:4px"></div>
@@ -50,18 +58,16 @@ export function poiedit({ getPOI, getOvr, setOvr, unprojectAt, projectLL, base, 
 	const reset = (keepMode = true) => { st.sel = st.to = st.addLL = null; if (!keepMode) st.mode = null; render(); };
 	const today = () => new Date().toISOString().slice(0, 10);
 	const fmt = ll => `${ll[0].toFixed(5)},${ll[1].toFixed(5)}`;
-	const distM = (a, b) => Math.hypot((a[0] - b[0]) * 111320 * Math.cos(b[1] * Math.PI / 180), (a[1] - b[1]) * 111320);
 
-	// ── サーバーへ保存（読み側と同じ bucket 面へ POST put・gzip・§12.3 保存成功→setOvr＝地図即反映）──
+	// ── サーバーへ保存（§12.3 保存成功→setOvr＝地図即反映）。gzip/ヘッダ/エラー整形は Bucket.put の持ち物 ──
+	let bktKey = "", bktReq = null;   // キー毎に一度だけ接続検分（Bucket() は list で疎通確認する）
+	const bucketOf = key => (key === bktKey && bktReq) ? bktReq : (bktKey = key, bktReq = nativeBucket(apiBase, { apiKey: key }).Bucket("GIS/pbf"));
 	async function put(ovr) {
 		const key = keyEl.value.trim();
 		if (!key) throw new Error("APIキー未入力（uploader の .env.local と同じ値）");
-		const gz = await new Response(new Blob([JSON.stringify(ovr)]).stream().pipeThrough(new CompressionStream("gzip"))).blob();
-		const r = await fetch(base + name, {
-			method: "POST", body: gz,
-			headers: { "X-Action": "put", "X-API-Key": key, "X-Metadata-Type": "application/json", "X-Content-Encoding": "gzip" },
-		});
-		if (!r.ok) throw new Error(`保存失敗 HTTP ${r.status}${r.status === 403 ? "（キー違い？）" : ""}`);
+		const bkt = await bucketOf(key);
+		if (!bkt) { bktReq = null; throw new Error("bucket に接続できない（ネットワーク？）"); }
+		await bkt.put(new File([JSON.stringify(ovr)], name, { type: "application/json" }));   // 403等は put failed で throw
 	}
 	async function save(rec) {
 		const cur = getOvr() || { v: 0, seq: 1, recs: [] };
@@ -81,40 +87,31 @@ export function poiedit({ getPOI, getOvr, setOvr, unprojectAt, projectLL, base, 
 	}
 	const status = t => { el("status").textContent = t; };
 
-	// ── クリック→対象選択（画面px距離＝projectLL・表示と同じパッチ済みフィード getPOI から最近傍）──
-	const canvas = mapEl.querySelector("#c");
-	function pickAt(clientX, clientY) {
-		const r = canvas.getBoundingClientRect(), cx = clientX - r.left, cy = clientY - r.top;
+	// ── クリック（armed中だけ setClick で横取り・x/y＝canvas CSS px）──
+	function pickAt(x, y) {   // 表示と同じパッチ済みフィードから画面px最近傍（投影状態は1回だけ束ねる）
+		const proj = makeProjector();
 		let best = null, bd = PICK_PX;
 		for (const p of getPOI() || []) {
-			const [sx, sy, front] = projectLL(p.anchor[0], p.anchor[1]);
+			const [sx, sy, front] = proj(p.anchor[0], p.anchor[1]);
 			if (front < 0) continue;   // 裏半球
-			const d = Math.hypot(sx - cx, sy - cy);
+			const d = Math.hypot(sx - x, sy - y);
 			if (d < bd) { bd = d; best = p; }
 		}
 		return best;
 	}
-	// クリック＝ドラッグでない pointerdown→up（6px/600ms）。パン操作と衝突させない＝preventDefault しない。
-	let down = null;
-	mapEl.addEventListener("pointerdown", e => { if (!e.target.closest("#poiedit-panel")) down = { x: e.clientX, y: e.clientY, t: performance.now() }; }, { capture: true, signal });
-	mapEl.addEventListener("pointerup", e => {
-		const d0 = down; down = null;
-		if (!st.mode || !d0 || e.target.closest("#poiedit-panel")) return;
-		if (Math.hypot(e.clientX - d0.x, e.clientY - d0.y) > 6 || performance.now() - d0.t > 600) return;   // ドラッグ/長押し＝無視
-		onMapClick(e.clientX, e.clientY);
-	}, { capture: true, signal });
-	function onMapClick(clientX, clientY) {
-		const ll = unprojectAt(clientX, clientY);
+	function onMapClick(x, y) {
+		const ll = unprojectXY(x, y);
 		if (!ll) return;   // 球外
 		if (st.mode === "add") { st.addLL = [ll[0], ll[1]]; render(); return; }
 		if (st.mode === "move" && st.sel) { st.to = [ll[0], ll[1]]; render(); return; }   // 2打目＝置き先
-		const hit = pickAt(clientX, clientY);
+		const hit = pickAt(x, y);
 		if (!hit) { status("近くにPOIが無い（表示中の点を狙う）"); return; }
 		st.sel = hit; st.to = null; render();
 	}
 
-	// ── 描画（モード行・フォーム・履歴）──
+	// ── 描画（モード行・フォーム・履歴）。クリック横取りとカーソルもここで同期（armed⇄解除の一点）──
 	function render() {
+		setClick(st.mode ? onMapClick : null);
 		mapEl.style.cursor = st.mode ? "crosshair" : "";
 		el("modes").innerHTML = Object.entries(OPS).map(([m, label]) =>
 			`<button data-mode="${m}" style="flex:1;padding:3px 0;border:1px solid #c9c2b4;border-radius:4px;cursor:pointer;` +
@@ -127,12 +124,12 @@ export function poiedit({ getPOI, getOvr, setOvr, unprojectAt, projectLL, base, 
 			if (!st.addLL) F.innerHTML = `<span>追加する位置を地図でクリック</span>`;
 			else {
 				F.innerHTML = `<div>位置 ${fmt(st.addLL)}</div>
-					<input data-f="n" placeholder="名前" style="width:100%;box-sizing:border-box;margin:2px 0;padding:3px 6px;border:1px solid #c9c2b4;border-radius:4px">
+					<input data-f="n" placeholder="名前" style="${S_INPUT}">
 					<div style="display:flex;gap:4px;margin:2px 0">
 						<select data-f="t" style="flex:1">${TYPES.map(([l, c, r]) => `<option value="${c}" data-rank="${r}">${l}</option>`).join("")}</select>
 						<input data-f="r" type="number" min="1" max="255" value="${TYPES[0][2]}" title="rank（大＝早く出る）" style="width:52px">
 					</div>
-					<button data-f="go" style="width:100%;margin-top:2px">追加を保存</button>`;
+					<button data-f="go" style="${S_BTN}">追加を保存</button>`;
 				const sel = F.querySelector('[data-f="t"]');
 				sel.onchange = () => { F.querySelector('[data-f="r"]').value = sel.selectedOptions[0].dataset.rank; };
 				F.querySelector('[data-f="go"]').onclick = () => {
@@ -145,8 +142,8 @@ export function poiedit({ getPOI, getOvr, setOvr, unprojectAt, projectLL, base, 
 		} else if (!st.sel) F.innerHTML = `<span>${OPS[st.mode]}する点を地図でクリック</span>`;
 		else if (st.mode === "rename") {
 			F.innerHTML = `<div>対象「${st.sel.n}」(r${st.sel.r})</div>
-				<input data-f="to" value="${st.sel.n.replace(/"/g, "&quot;")}" style="width:100%;box-sizing:border-box;margin:2px 0;padding:3px 6px;border:1px solid #c9c2b4;border-radius:4px">
-				<button data-f="go" style="width:100%;margin-top:2px">改名を保存</button>`;
+				<input data-f="to" value="${st.sel.n.replace(/"/g, "&quot;")}" style="${S_INPUT}">
+				<button data-f="go" style="${S_BTN}">改名を保存</button>`;
 			F.querySelector('[data-f="go"]').onclick = () => {
 				const to = F.querySelector('[data-f="to"]').value.trim();
 				if (!to || to === st.sel.n) { status("名前が同じ/空"); return; }
@@ -155,20 +152,19 @@ export function poiedit({ getPOI, getOvr, setOvr, unprojectAt, projectLL, base, 
 			F.querySelector('[data-f="to"]').focus();
 		} else if (st.mode === "move") {
 			F.innerHTML = st.to
-				? `<div>対象「${st.sel.n}」→ ${Math.round(distM(st.sel.anchor, st.to))}m 先へ</div><button data-f="go" style="width:100%;margin-top:2px">移動を保存</button>`
+				? `<div>対象「${st.sel.n}」→ ${Math.round(distM(st.sel.anchor, st.to))}m 先へ</div><button data-f="go" style="${S_BTN}">移動を保存</button>`
 				: `<div>対象「${st.sel.n}」</div><span>新しい位置を地図でクリック</span>`;
 			const go = F.querySelector('[data-f="go"]');
 			if (go) go.onclick = () => save({ op: "move", n: st.sel.n, ll: st.sel.anchor, to: st.to });
 		} else if (st.mode === "del") {
 			F.innerHTML = `<div>対象「${st.sel.n}」(r${st.sel.r}) ${fmt(st.sel.anchor)}</div>
-				<button data-f="go" style="width:100%;margin-top:2px;color:#b3261e">削除を保存</button>`;
+				<button data-f="go" style="${S_BTN};color:#b3261e">削除を保存</button>`;
 			F.querySelector('[data-f="go"]').onclick = () => save({ op: "del", n: st.sel.n, ll: st.sel.anchor });
 		}
 		renderList();
 	}
 	function renderList() {
-		const cur = getOvr();
-		const recs = cur?.recs || [];
+		const recs = getOvr()?.recs || [];
 		el("recs").innerHTML = (recs.length ? recs.slice(-5).reverse().map(r =>
 			`<div>#${r.id} ${OPS[r.op] || r.op}「${r.n}」${r.op === "rename" ? "→" + r.to : ""} <small>${r.d || ""}</small></div>`).join("") :
 			`<div style="color:#888">手差分なし</div>`) +
@@ -177,14 +173,14 @@ export function poiedit({ getPOI, getOvr, setOvr, unprojectAt, projectLL, base, 
 		if (u) u.onclick = undoLast;
 	}
 	panel.addEventListener("pointerenter", renderList, { signal });   // 開いた後に届いた手差分もここで拾う（初回fetchは非同期）
-	panel.querySelector('[data-act="hide"]').onclick = () => { const b = el("modes"); const on = panel.dataset.min === "1";
+	panel.querySelector('[data-act="hide"]').onclick = () => { const on = panel.dataset.min === "1";
 		panel.dataset.min = on ? "" : "1"; for (const k of ["key", "modes", "form", "status", "recs"]) el(k).style.display = on ? "" : "none"; };
 	window.addEventListener("keydown", e => {
-		if (e.key !== "Escape") return;
-		if (st.sel || st.addLL || st.to) { e.preventDefault(); reset(); }        // 1回目＝選択解除
-		else if (st.mode) { e.preventDefault(); st.mode = null; render(); }      // 2回目＝モード解除
+		if (e.key !== "Escape" || modalOpen(mapEl)) return;   // 共有ガード＝印刷/PLATEAU等のモーダル中は譲る（keys.js の掟）
+		if (st.sel || st.addLL || st.to) { e.preventDefault(); reset(); }   // 1回目＝選択解除
+		else if (st.mode) { e.preventDefault(); reset(false); }             // 2回目＝モード解除
 	}, { signal });
-	signal?.addEventListener("abort", () => { mapEl.style.cursor = ""; panel.remove(); }, { once: true });
+	signal?.addEventListener("abort", () => { setClick(null); mapEl.style.cursor = ""; panel.remove(); }, { once: true });
 
 	render();
 	status("§12 手差分＝サーバー正本（保存で即反映・焼き直しで焼き込み）");

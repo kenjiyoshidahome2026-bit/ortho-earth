@@ -53,7 +53,9 @@ console.log("① 焼き側 applyOverrides（正典）の意味論");
 	const add = out.find(p => p.name === "新食堂");
 	eq("add＝手管理0x33・t/r搬送", [add.src, add.type, add.rank], [0x33, 0x57, 77]);
 	eq("withAdds:false＝addを焼かない（柵）", POI.applyOverrides(S(), OVR, { withAdds: false }).length, 2);
-	eq("元配列は不変（コピー適用）", S()[0].ll, [135.7000, 35.000]);
+	const input = S();   // 渡した実体そのものを掴んで検証（新品と比べると構造的に落ちない断言になる）
+	POI.applyOverrides(input, OVR);
+	eq("元配列は不変（コピー適用）", tup(input), tup(S()));
 }
 
 console.log("② 表示側 applyPoiOvr（実行時版）＝正典と同値");
@@ -79,6 +81,15 @@ console.log("③ 縁と冪等");
 	const addDel = [{ id: 1, op: "add", n: "X", ll: [135.7, 35.0], t: 0x0F, r: 60 }, { id: 2, op: "del", n: "X", ll: [135.7, 35.0] }];
 	eq("add→delは消える", applyPoiOvr([], addDel, null).length, 0);
 	eq("同 schema側", POI.applyOverrides([], addDel).length, 0);
+}
+
+console.log("④ マニフェスト合流（mergeManifest＝形の正典）");
+{
+	const m1 = POI.mergeManifest(null, ["1/2", "1/3"], [1, 2]);
+	const m2 = POI.mergeManifest(m1, new Map([["1/3", 0], ["2/2", 0]]).keys(), [4]);   // 実呼び出しと同じ Map#keys も受ける
+	eq("tiles＝既存と合流・重複なし・sort", m2.tiles, ["1/2", "1/3", "2/2"]);
+	eq("baked＝既存と合流・昇順", m2.baked, [1, 2, 4]);
+	eq("appliedIds省略＝bakedは既存維持", POI.mergeManifest(m1, [], undefined).baked, [1, 2]);
 }
 
 console.log(`\n${pass} passed / ${fail} failed`);

@@ -324,12 +324,9 @@ async function poi(q, { prefs = ["26"], sets = ["P29"], anno = [], withAnno = fa
 	// レコードは合成後も消さない＝履歴。意味論は冪等＝毎回の焼きで再適用してよい。
 	const bkt = await Bucket("GIS/pbf");
 	const ovr = bkt && await bkt.get(POI.OVR_NAME, "json");   // bucket不達＝手差分なしで続行（saveで別途落ちる）
-	let baked = recs;
 	const appliedOvr = [];   // この焼きで効いたrec id → マニフェスト baked へ（表示が再適用しない＝再発火封じ）
-	if (ovr?.recs?.length) {
-		baked = POI.applyOverrides(recs, ovr.recs, { withAdds: false, applied: appliedOvr });
-		q.log(`手差分 ${ovr.recs.length}件 合成（${recs.length}→${baked.length}点・焼き込み${appliedOvr.length}件・add は実行時フィードのみ）`);
-	}
+	const baked = POI.applyOverrides(recs, ovr?.recs, { withAdds: false, applied: appliedOvr });
+	if (ovr?.recs?.length) q.log(`手差分 ${ovr.recs.length}件 合成（${recs.length}→${baked.length}点・焼き込み${appliedOvr.length}件・add は実行時フィードのみ）`);
 
 	// 4) z14 タイルへ分配 → タイルごとに geopbf 化 → poi/14/x/y で save（§11.8）
 	const tiles = new Map();
@@ -349,14 +346,13 @@ async function poi(q, { prefs = ["26"], sets = ["P29"], anno = [], withAnno = fa
 		n++; bytes += pbf.size;
 		if (n % 50 === 0) q.log(`  ${n}/${tiles.size} タイル…`);
 	}
-	// タイル在庫マニフェスト：表示側が存在タイルだけ取りに行く＝404空振りゼロ＋版でキャッシュ制御。
-	// 既存に今回のタイルを合流＝他地域を別便で焼いても消えない。版(Date.now)で表示側キャッシュを失効させる。
-	let prev = [], prevBaked = [];
-	try { const m = await bkt.get("poi/14/index.json", "json"); if (m?.tiles) prev = m.tiles; if (m?.baked) prevBaked = m.baked; } catch { }
-	// baked＝焼き込み済み手差分のid集合（既存と合流）。表示側はここに無いrecだけ実行時適用＝再発火封じ（schema.jsの⚠）
-	const idx = { v: Date.now(), tiles: [...new Set([...prev, ...tiles.keys()])].sort(), baked: [...new Set([...prevBaked, ...appliedOvr])].sort((a, b) => a - b) };
-	await bkt.put(new File([JSON.stringify(idx)], "poi/14/index.json", { type: "application/json" }));
-	q.log(`マニフェスト poi/14/index.json → ${idx.tiles.length}タイル（今回${tiles.size}・既存${prev.length}・焼き込み済み手差分${idx.baked.length}件）`);
+	// タイル在庫マニフェスト（形と合流の正典＝schema.mergeManifest）：表示側が存在タイルだけ取りに行く＝404空振りゼロ＋
+	// 版でキャッシュ制御・baked＝焼き込み済み手差分id（表示はここに無いrecだけ実行時適用＝再発火封じ）。
+	let prev = null;
+	try { prev = await bkt.get(POI.MANIFEST_NAME, "json"); } catch { }
+	const idx = POI.mergeManifest(prev, tiles.keys(), appliedOvr);
+	await bkt.put(new File([JSON.stringify(idx)], POI.MANIFEST_NAME, { type: "application/json" }));
+	q.log(`マニフェスト ${POI.MANIFEST_NAME} → ${idx.tiles.length}タイル（今回${tiles.size}・既存${prev?.tiles?.length || 0}・焼き込み済み手差分${idx.baked.length}件）`);
 	q.success(`POI civic: ${n} タイル・${baked.length}点・${(bytes / 1024).toFixed(0)}KB → GIS/pbf/poi/14/`);
 }
 
