@@ -9,7 +9,8 @@ import * as mat from "../mat.js";
 const CORNERS = new Float32Array([0, -1, 0, 1, 1, -1, 1, -1, 0, 1, 1, 1]); // 6頂点×(end,side)
 
 export function createRenderer(canvas, rOpts = {}) {
-	const gl = canvas.getContext("webgl2", { antialias: true, premultipliedAlpha: true, stencil: true });
+	// antialias＝ブラウザ暗黙確保の MSAA（フルRetina面積で ~100MB級）。msaa1（LOW_MEM 既定・?msaa=0）＝1x 直描き。
+	const gl = canvas.getContext("webgl2", { antialias: !rOpts.msaa1, premultipliedAlpha: true, stencil: true });
 	if (!gl) throw new Error("WebGL2 unavailable");
 
 	const fillProg = program(gl, FILL_VS, FILL_FS);

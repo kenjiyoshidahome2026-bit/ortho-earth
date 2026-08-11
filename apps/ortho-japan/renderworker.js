@@ -94,7 +94,7 @@ function tqFeed(tag, ms) {
 // WebGL2 バックエンドの起動（従来経路そのまま）：renderer＋gint＋timer query＋標高(terrain)。
 // GL 初期化失敗（WebGL2不可・GPUブロックリスト等）は黙って死なず main へ通知＝案内を出させる。
 function bootWebGL(m) {
-	try { renderer = createRenderer(canvas, { noMD: !!m.noMultiDraw }); }
+	try { renderer = createRenderer(canvas, { noMD: !!m.noMultiDraw, msaa1: !!m.msaa1 }); }
 	catch (err) { postMessage({ type: "glfail", error: String(err && err.message || err) }); return; }
 	console.log(`[render] multi_draw ${renderer.md ? "有効（タイルGPU常駐）" : "なし（CPU mergeフォールバック）"}`);
 	glRef = canvas.getContext("webgl2");                 // 同一コンテキストが返る＝isContextLost() の監視用

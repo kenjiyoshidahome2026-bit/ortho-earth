@@ -256,6 +256,10 @@ const qNum = (re, def) => { const m = location.search.match(re); return m ? +m[1
 // 伸びる一方＝鉄道地図(z14.5都心)級の密度でjetsam（iPhone 16 Pro実機の?nomd=1 A/Bでデモ完走＝犯人確定）。
 // 従来のCPU mergeは常駐プール無し＋小画面はタイル数も少ない＝軽い。?md=1＝強制ON（将来の再検証ノブ）。
 const noMultiDraw = /[?&]nomd=1/.test(location.search) || (LOW_MEM && !/[?&]md=1/.test(location.search));
+// MSAA：LOW_MEM は既定 1x（裁定2026-08-12・Air3「時たま落ちる」対策）＝フルRetina面積の 4x カラー＋深度は
+// ~100MB級のGPU固定費（WebGPU実測概算・GL2はブラウザ暗黙確保で同格）。?msaa=1＝実機A/B用の復帰ノブ・
+// ?msaa=0＝どの端末でも 1x（従来からの診断ノブ）。線は SDF カプセル（シェーダAA）＝主に効くのは建物エッジ。
+const MSAA_OFF = /[?&]msaa=0/.test(location.search) || (LOW_MEM && !/[?&]msaa=1/.test(location.search));
 // ?nogint=1 ＝gint（海岸線/知性層）を丸ごと停止＝1canvas統合の負荷・メモリを A/B 比較する検証ノブ（?nomd=1 と同格）。
 const noGint = /[?&]nogint=1/.test(location.search);
 // ?perf=1 ＝render worker がフレーム内訳（map/gint の CPU ms・フレームEMA・JSヒープ）を2秒毎に console へ出す。
@@ -352,7 +356,7 @@ const wPost = (msg, transfer) => {
 	}
 	ctrlChan.port1.postMessage(msg, transfer || []);
 };
-renderWorker.postMessage({ type: "init", ctrlPort: ctrlChan.port2, canvas: offscreen, labelCanvas: labelOffscreen, elevBase: TERR_EXAG / EARTH_M, terrainExag: TERR_EXAG, earthM: EARTH_M, apiUrl: "https://api.ortho-earth.com", scenePort: sceneChan.port2, noMultiDraw, perf: perfLog, mem: hudOn, lowMem: LOW_MEM, noMixed: noMixedR01, noFarTerr, noBld: /[?&]nobld=1/.test(location.search), gpu: gpuBackend, noTQ: /[?&]notq=1/.test(location.search), noGint: /[?&]nogint=1/.test(location.search), noFade: /[?&]nofade=1/.test(location.search), msaa1: /[?&]msaa=0/.test(location.search), drawHud: drawHud, stay: /[?&]stay=1/.test(location.search), noTerr, ell: ELL_ON }, [ctrlChan.port2, offscreen, labelOffscreen, sceneChan.port2]);
+renderWorker.postMessage({ type: "init", ctrlPort: ctrlChan.port2, canvas: offscreen, labelCanvas: labelOffscreen, elevBase: TERR_EXAG / EARTH_M, terrainExag: TERR_EXAG, earthM: EARTH_M, apiUrl: "https://api.ortho-earth.com", scenePort: sceneChan.port2, noMultiDraw, perf: perfLog, mem: hudOn, lowMem: LOW_MEM, noMixed: noMixedR01, noFarTerr, noBld: /[?&]nobld=1/.test(location.search), gpu: gpuBackend, noTQ: /[?&]notq=1/.test(location.search), noGint: /[?&]nogint=1/.test(location.search), noFade: /[?&]nofade=1/.test(location.search), msaa1: MSAA_OFF, drawHud: drawHud, stay: /[?&]stay=1/.test(location.search), noTerr, ell: ELL_ON }, [ctrlChan.port2, offscreen, labelOffscreen, sceneChan.port2]);
 // 薄いプロキシ：有線(関数呼び)を無線(postMessage)に載せ替え。set/draw 統一済なので pipeline/overlay は無改造。
 // draw は worker 側で「cam を記録するだけ」に受け、実描画は worker 自前 rAF が最新 cam で回す（worker-driven）。
 // 標高アトラス(terrain)も worker 側に住む＝main はもう視野→セル計算・ダウンサンプルを一切やらない。読込インジケータだけ elevPending で受ける。
@@ -926,16 +930,20 @@ async function prefetchPlateauForViews(views, names, onProgress) {
 		plateauPinned = new Set(wanted.map(s => s.name));
 		return runPrefetch(wanted, "台本指定", onProgress);
 	}
+	return runPrefetch(deriveScriptSets(views), "台本から導出", onProgress);
+}
+// 台本の視点列→PLATEAU区集合の導出（2026-08-12 関数化＝先読みと静穏窓の大掃除で共用）。
+// 【順序＝一巡目に「各停止位置の中心区＋橋梁」】旧・台本順に停止位置ごと全区を流すと、序盤の停止位置の
+// 隣接区で時間を使い切り後半の停止位置は素通しになる（iPhone のデモ実測＝重要シーンほど出ない）。
+// 一巡目＝各停止位置の最寄り建物1区＋橋梁（サイズ一桁小さい割にシーンの主役＝レインボーブリッジ等。
+// Kenji 指定 2026-07-29）→二巡目＝「視線の先に居る」隣接建物区だけ。
+// 隣接区の要否は距離でなく構図＝チルト時は視界が bearing 方向へ伸びる。前方点（中心から視線方向へ
+// ~900m）への近さで裁く＝東京駅シーン(東向き)の中央区(八重洲)は入り、新宿シーン(北東向き)の南隣・
+// 渋谷区（大区＝読むのに時間がかかる割に構図外）は落ちる（Kenji 指摘 2026-07-29）。
+// 中断は plateauworker の部分再開が貯金に変える＝テーマ切替 reload で切れても続きから。
+function deriveScriptSets(views) {
 	const MARGIN = 0.012;   // 区bboxへの点距離ゲート（≈1.3km）＝着地視界＋隣接区まで拾う
-	// 【順序＝一巡目に「各停止位置の中心区＋橋梁」】旧・台本順に停止位置ごと全区を流すと、序盤の停止位置の
-	// 隣接区で時間を使い切り後半の停止位置は素通しになる（iPhone のデモ実測＝重要シーンほど出ない）。
-	// 一巡目＝各停止位置の最寄り建物1区＋橋梁（サイズ一桁小さい割にシーンの主役＝レインボーブリッジ等。
-	// Kenji 指定 2026-07-29）→二巡目＝「視線の先に居る」隣接建物区だけ。
-	// 隣接区の要否は距離でなく構図＝チルト時は視界が bearing 方向へ伸びる。前方点（中心から視線方向へ
-	// ~900m）への近さで裁く＝東京駅シーン(東向き)の中央区(八重洲)は入り、新宿シーン(北東向き)の南隣・
-	// 渋谷区（大区＝読むのに時間がかかる割に構図外）は落ちる（Kenji 指摘 2026-07-29）。
-	// 中断は plateauworker の部分再開が貯金に変える＝テーマ切替 reload で切れても続きから。
-	const NEIGH = 0.008;   // 隣接区の前方点ゲート（≈900m）。MARGIN より狭い＝構図に実際入る近さだけ
+	const NEIGH = 0.008;    // 隣接区の前方点ゲート（≈900m）。MARGIN より狭い＝構図に実際入る近さだけ
 	const perView = [];
 	for (const hash of views) {
 		const v = typeof hash === "string" ? parseViewHash(hash) : null;
@@ -965,7 +973,23 @@ async function prefetchPlateauForViews(views, names, onProgress) {
 	const pd2q = (s, q) => { const dx = Math.max(s.bbox[0] - q[0], 0, q[0] - s.bbox[2]), dy = Math.max(s.bbox[1] - q[1], 0, q[1] - s.bbox[3]); return dx * dx + dy * dy; };
 	for (const v of perView) { take(v.bld[0]); v.brid.forEach(take); }          // 一巡目＝各停止位置の中心区＋橋梁（軽くて主役）
 	for (const v of perView) v.bld.slice(1).filter(s => pd2q(s, v.fwd) < NEIGH * NEIGH).forEach(take);   // 二巡目＝視線の先の隣接区だけ
-	return runPrefetch(wanted, "台本から導出", onProgress);
+	return wanted;
+}
+// 静穏窓の大掃除（裁定2026-08-12「書き終わった後の静かな時間を活用」）＝自動上演の各行で書き終わりゲートが
+// 開いた瞬間（hold開始＝飛行も読み込みも静か）に demo が呼ぶ（onQuiet 注入・行ごと1回）。
+// 「残りの台本にもう出ない」非表示常駐区を GPU から降ろす＝台本知の特権（通常運転の LRU は未来を知らない）。
+// 表示中・読込中・現在視界と交差する区は触らない（構図と直後の回り込みを崩さない）。LOW_MEM は常駐ゼロ＝素通り。
+function plateauTrimForScript(views) {
+	if (!plateauResident.size) return;
+	const keep = new Set(deriveScriptSets(views).map(s => s.name));
+	let freed = 0;
+	for (const n of [...plateauResident.keys()]) {
+		if (keep.has(n) || plateauActive.has(n) || plateauLoading.has(n)) continue;
+		const s = plateauResident.get(n);
+		if (s?.bbox && bboxIntersects(s.bbox, approxViewBbox(cam))) continue;
+		freed += bytesOf(n, s); plateauEvict(n);
+	}
+	if (freed) console.log(`[plateau] 静穏窓の大掃除＝残り台本に出ない常駐を解放 ~${(freed / 1048576) | 0}MB（残 ${plateauResident.size}区 ~${(residentBytes() / 1048576) | 0}MB）`);
 }
 async function runPrefetch(wanted, how, onProgress) {   // 戻り値＝対象区リスト（scene 再生のリビール準備＝全区スタンドアップが使う）
 	if (!wanted.length) return wanted;
@@ -3280,6 +3304,8 @@ map.gadget("demo", function (opts) {   // デモ（発表の台本再生）… �
 			if (!plateauAutoLoading.size && !elevBusy && !base) return "";
 			return `A${[...plateauAutoLoading.keys()].join(".")}|P${[...plateauProg.values()].map(p => p.done ?? p.scan ?? 0).join(".")}|E${elevN}|B${base ? 1 : 0}`;
 		},
+		// 静穏窓フック（裁定2026-08-12）＝書き終わり直後の一拍で「残り台本に出ない」常駐区を降ろす（上の trim 参照）
+		onQuiet: views => plateauTrimForScript(views),
 		prefetchViews: prefetchPlateauForViews, finale: japanFit, signal: ac.signal, zoomMin: ZOOM_MIN, ...opts });   // 手綱を掴む＝ドロップ/?scene= は playScene→demoHandle.start(落とした台本, bare) で別入り口再生（▶=組み込みは壊さない）。glidePath＝via連続ドリー／fadeView＝黒挟み遷移（fadeBusy を着地待ちに乗せる）
 	return demoHandle;
 });

@@ -65,13 +65,15 @@ const isImg = s => /\.(svg|png|jpe?g|webp|gif|avif)([?#]|$)/i.test(s) || /^(data
 // opts.prefetchViews＝重いデータ（3D都市）の先読み（app が注入・任意）：▶の瞬間に台本の全 view を渡す＝寄るシーンの区が裏でIDBへ。
 //   序盤のシーン構成で時間を稼げば、深ズームのシーン到着時には初見のPCでも一発で街が立つ（データ重力の種まき兼用）。
 // opts.preload＝明示の先読みリスト（カタログ名・prefetchViews の第2引数へ）＝台本の持ち物（載せ替え時に台本の指定へ差し替わる）。
+// opts.onQuiet(残りの台本の視点列)＝静穏窓フック（app が注入・任意）：自動上演の各行で書き終わりゲートが開いた
+//   直後（hold開始＝全信号が静か）に行ごと1回。app 側は「残りの台本にもう出ない」重い物の大掃除等に使う。
 // opts.player=true＝素のプレーヤーとして搭載（組み込み台本なし可・▶を出さない）＝エディタ等が start({scenes}) で台本を持ち込む器。
 // opts/start.onScene(i, scene)＝行の上映開始（フライト開始前＝エディタの行ハイライト用）／onEnd(reason)＝どの終わり方でも1発
 //   （"finished"=走破・"stopped"=Esc/▶/exit()）。台本スコープ＝載せ替えでリセット（finale と同じ流儀）。
 // 戻り値＝{start, next, prev, exit, play, pause}（テスト・プログラム駆動用）。
 // opts.finale＝台本を最後まで走り切った時だけ呼ばれる終演フック（app が japan-fit を注入）。Esc/▶の途中終了では呼ばない。
 // opts.fadeView＝フェード遷移（app が注入・任意）：黒への溶暗→切替→溶明（fade: 行・尺=travel）。無ければ fade 行は普通の飛行に落ちる。
-export function demo({ scenes, slide: slideOn = true, hold = 5.5, slideHold = 4, mobile, zoomMin = 1, lang, flyView, fadeView, glidePath, flightActive, loadingActive, prefetchViews, finale, signal, preload, player: playerOnly = false } = {}) {
+export function demo({ scenes, slide: slideOn = true, hold = 5.5, slideHold = 4, mobile, zoomMin = 1, lang, flyView, fadeView, glidePath, flightActive, loadingActive, onQuiet, prefetchViews, finale, signal, preload, player: playerOnly = false } = {}) {
 	const mapEl = this.mapEl;
 	if (!slideOn && Array.isArray(scenes)) scenes = scenes.filter(s => s.view || !s.slide);   // スライドだけのシーン＝空の停留所になるので抜く
 	scenes = compileVias(scenes ?? []);   // via 行→着点の path へ（via の無い台本は恒等＝同じ配列のまま）
@@ -142,6 +144,7 @@ export function demo({ scenes, slide: slideOn = true, hold = 5.5, slideHold = 4,
 	};
 
 	let idx = -1, playing = false, timer = 0, preTimer = 0, slideShown = false;   // slideShown＝このシーン滞在中に幕を一度見せたか（三拍子の現在拍）
+	let quietIdx = -1;   // 静穏窓（onQuiet）を撃った行＝行ごと1回（幕の拍ごとに掃除を繰り返さない）
 	// 「デモの入り口(▶)」と「ドロップの入り口」は別で、同じ再生ルーチン(start)を呼ぶだけ＝台本を渡すのが違うだけ。
 	// ▶は常に組み込み設定を渡す＝ドロップで別台本を流しても壊れない（上書きも復帰もしない）。
 	const dflt = { lang, mobile, hold, slideHold };   // マウント時の既定＝台本載せ替え時のリセット先（前の台本の設定を持ち越さない）
@@ -180,6 +183,12 @@ export function demo({ scenes, slide: slideOn = true, hold = 5.5, slideHold = 4,
 			if (busy && performance.now() - t0 < 20000) {
 				if (busy !== loadSig) { loadSig = busy; loadT = performance.now(); }
 				if (performance.now() - loadT < 3000) { caption(!slide.classList.contains("open")); timer = setTimeout(arm, 200); return; }
+			}
+			// ★静穏窓（裁定2026-08-12「書き終わった後の静かな時間を活用」）＝ゲートが開いた直後の一拍（行ごと1回）：
+			// 残りの台本の視点列を渡し、app 側が「もう出ない」重い物の大掃除等を行う（掃除の失敗は演出を壊さない）。
+			if (onQuiet && quietIdx !== idx) {
+				quietIdx = idx;
+				try { onQuiet(scenes.slice(idx + 1).flatMap(s => s.path ? s.path.map(p => p.view) : [s.view ?? s.glide ?? s.fade]).filter(Boolean)); } catch { /* 掃除は上演の従＝黙って続行 */ }
 			}
 			caption(!slide.classList.contains("open"));
 			timer = setTimeout(() => { if (on()) next(); }, ms);
@@ -239,6 +248,7 @@ export function demo({ scenes, slide: slideOn = true, hold = 5.5, slideHold = 4,
 	// ▶（デモの入り口）は組み込み設定を、ドロップ（別の入り口）は落とした台本を渡すだけ＝ルーチンは共通・入り口だけ別。
 	// bare＝素モード：バーも操作も出さない（上映中ノーアクション）・自動再生。落としたら始まり、最後まで流れて終わり。
 	const start = (i = 0, fly = true, opts = {}) => {
+		quietIdx = -1;   // 静穏窓の行印は開演で巻き戻す（再演でも各行1回）
 		if ("finale" in opts) activeFinale = opts.finale;   // 終演フックの差し替え（ドロップ=null）
 		if (Array.isArray(opts.scenes) && opts.scenes.length) {   // 別台本を渡された＝載せ替え＋目次再構築（▶=組み込み／ドロップ=落とした台本）
 			// 表示設定は「この台本の指定 ?? マウント既定」へ毎回リセット＝前の台本の lang/hold 等を次の再生に持ち越さない。
