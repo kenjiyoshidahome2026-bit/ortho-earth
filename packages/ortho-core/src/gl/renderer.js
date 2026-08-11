@@ -563,8 +563,13 @@ export function createRenderer(canvas, rOpts = {}) {
 		const cT = mat.transform(st.mvp, [oPt[0], oPt[1], oPt[2], 1]);
 		gl.uniform4f(loc(gl, prog, "u_clipT"), cT[0], cT[1], cT[2], cT[3]);
 		gl.uniform3f(loc(gl, prog, "u_originPt"), oPt[0], oPt[1], oPt[2]);
-		const lr = origin[0] * Math.PI / 180, br = origin[1] * Math.PI / 180;
+		// 楕円体＝緯度側は β（更成緯度）の三角＝deltaToRel は純球面式のまま（球＝β=φ＝従来値）。
+		const lr = origin[0] * Math.PI / 180, br = betaOf(origin[1]) * Math.PI / 180;
 		gl.uniform4f(loc(gl, prog, "u_originTrig"), Math.cos(lr), Math.sin(lr), Math.cos(br), Math.sin(br));
+		// 楕円体 dβ 錨（原点の測地緯度の 2φ/4φ 三角・CPU double）＋変位方向ゲート。球＝全0＝シェーダ補正が厳密0
+		const _ell = ellipsoidOn(), _pr = origin[1] * Math.PI / 180;
+		gl.uniform4f(loc(gl, prog, "u_ellTrig"), ...(_ell ? [Math.cos(2 * _pr), Math.sin(2 * _pr), Math.cos(4 * _pr), Math.sin(4 * _pr)] : [0, 0, 0, 0]));
+		gl.uniform1f(loc(gl, prog, "u_ell"), _ell ? 1 : 0);
 		gl.uniform2f(loc(gl, prog, "u_viewport"), canvas.width, canvas.height);
 		gl.uniform1f(loc(gl, prog, "u_fogNear"), (st.fogDist || st.camDist) * 2.5);
 		gl.uniform1f(loc(gl, prog, "u_fogFar"), (st.fogDist || st.camDist) * 14.0);
@@ -762,6 +767,7 @@ export function createRenderer(canvas, rOpts = {}) {
 				gl.uniform4f(loc(gl, contourProg, "u_elevBounds"), elev.bounds[0], elev.bounds[1], elev.bounds[2], elev.bounds[3]);
 				gl.uniform1f(loc(gl, contourProg, "u_hasElev"), elev.has);
 				const iv = cam.zoom >= 15 ? 15 : cam.zoom >= 12 ? 30 : 60;   // 寄るほど細かい間隔(m)
+				gl.uniform1f(loc(gl, contourProg, "u_ell"), ellipsoidOn() ? 1 : 0);   // レイ交点 β→測地の復元ゲート
 				gl.uniform1f(loc(gl, contourProg, "u_interval"), iv);
 				gl.uniform1f(loc(gl, contourProg, "u_major"), iv * 5.0);
 				gl.uniform1f(loc(gl, contourProg, "u_alpha"), cAlpha * (view.contourAlpha || 1));

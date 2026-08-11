@@ -6,6 +6,7 @@ import "./style.scss";
 import {
 	evalExpr, parseRGBA, cameraState, project, unproject, buildGeoJSONOverlay,
 	createFlight, shortBearingOf, parseViewHash, buildViewHash, wrapLon, createInput, WORLD_PX, lonLatToTile,
+	primeVerticalRadius, setEllipsoid,
 } from "ortho-core";
 import { createGeopbf, geopbf } from "geopbf";
 import { createGetHeight, setApiUrl as setAltApiUrl } from "altpbf";
@@ -117,7 +118,15 @@ const orDetached = el => el || document.createElement("div");
 const canvas = document.getElementById("c");
 const labelCanvas = document.getElementById("labels");
 const logEl = orDetached(document.getElementById("log"));
-const EARTH_M = 6371000, TERR_EXAG = 1.0;   // 標高は実スケール（誇張しない＝地形を歪めない）。ラベル・地形・建物で共有
+// 楕円体（段階B 2026-08-11）：世界＝WGS84 を「β（更成緯度）単位球×S」に分解して立てる（ortho-core
+// camera.js の setEllipsoid）。ELL 時は世界単位＝a=6378137m。
+// 【既定化 2026-08-11 本人裁定「見た目では全く区別つかない・ell=1をデフォルトに」】実験フラグ ?ell=1 から
+// 1日で既定へ（?gpu=1→既定化と同じ道）。?noell=1＝球へ戻す逃げ道（A/B・切り分け用。キャッシュは
+// meta.ell 印で世代分離＝モードを往復すると PLATEAU が焼き直しになるので常用しない）。
+// worker 文脈（render/plateau/tile）へは各 init メッセージで搬送＝全文脈で同値（モジュール状態のため必須）。
+const ELL_ON = !/[?&]noell=1/.test(location.search);
+setEllipsoid(ELL_ON);
+const EARTH_M = ELL_ON ? 6378137 : 6371000, TERR_EXAG = 1.0;   // 標高は実スケール（誇張しない＝地形を歪めない）。ラベル・地形・建物で共有。ELL＝m→世界単位の換算が a 基準に
 // 低メモリ端末判定：deviceMemory は Chrome系のみ（≤4GB＝スマホ帯）。iOS/iPadOS Safari は非対応だが
 // タブ1枚あたり ~1-1.5GB でOSが強制終了（落ちて自動リロード）するため、タッチ端末は一律低メモリ扱い。
 // 誤検知側の被害は「同時2区・キャッシュ縮小」だけ＝安全側に倒す。renderWorker（R10キャッシュ縮小）と
@@ -335,7 +344,7 @@ const wPost = (msg, transfer) => {
 	}
 	ctrlChan.port1.postMessage(msg, transfer || []);
 };
-renderWorker.postMessage({ type: "init", ctrlPort: ctrlChan.port2, canvas: offscreen, labelCanvas: labelOffscreen, elevBase: TERR_EXAG / EARTH_M, terrainExag: TERR_EXAG, earthM: EARTH_M, apiUrl: "https://api.ortho-earth.com", scenePort: sceneChan.port2, noMultiDraw, perf: perfLog, mem: hudOn, lowMem: LOW_MEM, noMixed: noMixedR01, noFarTerr, noBld: /[?&]nobld=1/.test(location.search), gpu: gpuBackend, noTQ: /[?&]notq=1/.test(location.search), noGint: /[?&]nogint=1/.test(location.search), noFade: /[?&]nofade=1/.test(location.search), msaa1: /[?&]msaa=0/.test(location.search), drawHud: drawHud, stay: /[?&]stay=1/.test(location.search), noTerr }, [ctrlChan.port2, offscreen, labelOffscreen, sceneChan.port2]);
+renderWorker.postMessage({ type: "init", ctrlPort: ctrlChan.port2, canvas: offscreen, labelCanvas: labelOffscreen, elevBase: TERR_EXAG / EARTH_M, terrainExag: TERR_EXAG, earthM: EARTH_M, apiUrl: "https://api.ortho-earth.com", scenePort: sceneChan.port2, noMultiDraw, perf: perfLog, mem: hudOn, lowMem: LOW_MEM, noMixed: noMixedR01, noFarTerr, noBld: /[?&]nobld=1/.test(location.search), gpu: gpuBackend, noTQ: /[?&]notq=1/.test(location.search), noGint: /[?&]nogint=1/.test(location.search), noFade: /[?&]nofade=1/.test(location.search), msaa1: /[?&]msaa=0/.test(location.search), drawHud: drawHud, stay: /[?&]stay=1/.test(location.search), noTerr, ell: ELL_ON }, [ctrlChan.port2, offscreen, labelOffscreen, sceneChan.port2]);
 // 薄いプロキシ：有線(関数呼び)を無線(postMessage)に載せ替え。set/draw 統一済なので pipeline/overlay は無改造。
 // draw は worker 側で「cam を記録するだけ」に受け、実描画は worker 自前 rAF が最新 cam で回す（worker-driven）。
 // 標高アトラス(terrain)も worker 側に住む＝main はもう視野→セル計算・ダウンサンプルを一切やらない。読込インジケータだけ elevPending で受ける。
@@ -644,7 +653,25 @@ function farBakeNext() {
 	farBaking = farBakeQ.shift();
 	plateauWorkers[hashStr(farBaking.base) % PLATEAU_NW].postMessage({ type: "farBake", base: farBaking.base, ward: farBaking.name });
 }
-window.__farState = () => ({ shown: [...farShown], missed: [...farMissed], baking: farBaking?.name ?? null, q: farBakeQ.length, tried: [...farBakeTried] });   // デバッグ：遠景枠の現在地
+window.__farState = () => ({ shown: [...farShown], missed: [...farMissed], baking: farBaking?.name ?? null, q: farBakeQ.length, tried: [...farBakeTried],
+	active: [...plateauActive.keys()], loading: [...plateauLoading.keys()], resident: [...plateauResident.keys()],
+	failed: [...plateauFailed].map(([n, f]) => `${n}${f.perm ? "(恒久)" : `(あと${Math.max(0, PLATEAU_RETRY_MS - performance.now() + f.ts) / 1000 | 0}s)`}`),
+	zoom: +cam.zoom.toFixed(2), pitch: +((cam.pitch || 0) * 180 / Math.PI).toFixed(1), farLit,
+	// autoPlateau のゲートと選抜の「今この瞬間」：flying/moving が真のままなら本体は凍結（ロードも退場も走らない）。
+	// hits＝実ロード候補の順位（autoPlateau と同じ 足元(foot)主キー・中心第2キー）。ここが期待どおりなのに
+	// loading が空なら settle が来ていない＝ゲート側、が切り分けの読み方。
+	flying, moving, printHold,
+	hits: (() => {
+		try {
+			const view = approxViewBbox(cam);
+			const foot = cam.pitch > 0.35 ? unprojectXY(size.w / dpr / 2, size.h / dpr * 0.98) : null;
+			if (foot) { view[0] = Math.min(view[0], foot[0]); view[1] = Math.min(view[1], foot[1]); view[2] = Math.max(view[2], foot[0]); view[3] = Math.max(view[3], foot[1]); }
+			const pd2 = (s, p) => { const dx = Math.max(s.bbox[0] - p[0], 0, p[0] - s.bbox[2]), dy = Math.max(s.bbox[1] - p[1], 0, p[1] - s.bbox[3]); return dx * dx + dy * dy; };
+			return PLATEAU_SETS.filter(s => !s.noMask && bboxIntersects(s.bbox, view) && !plateauDead(s.name))
+				.map(s => ({ n: s.name, d: +Math.sqrt(pd2(s, foot || cam.center)).toFixed(4) }))
+				.sort((a, b) => a.d - b.d).slice(0, 8).map(h => `${h.n}:${h.d}`);
+		} catch (e) { return ["ERR:" + (e.message || e)]; }
+	})() });   // デバッグ：遠景枠の現在地＋本物側の状態機械＋カメラ＋ゲート＋選抜（箱残留の切り分けに一式）
 // LOW_MEM（低メモリ端末判定）はファイル冒頭で定義（renderWorker init にも渡すため）。
 if (LOW_MEM) console.log("[plateau] 低メモリ端末モード：同時2区・worker1本・キャッシュ無し");
 // 同時アクティブ地区数の上限＝GPUメモリを有界にする（密集地区(都心部)1件あたりGPUバッファ~100-140MB）。
@@ -681,7 +708,12 @@ const plateauDemoted = new Set();          // 近距離の視界外→slow lane�
 const plateauFastT = new Map();            // name → fast レーン入場時刻。fast枠ローテーション（下）の物差し
 const PLATEAU_ROTATE_MS = 60e3;            // fast枠の占有タイムスライス：これを超えて待ち区が居れば席を譲る（巨大区×低速APIの飢餓対策）
 let plateauPrefetchBusy = false;           // デモ先読みが直列デコード中＝autoPlateau の建物枠を1つ譲る（総同時2区の保証）
-const plateauFailed = new Set();           // 葉0枚/デコード失敗の地区名＝廃止区(浜松西区22133等)の残骸。二度と掴まない（毎onMoveの再挑戦スパムを断つ）
+// ロード失敗の台帳：perm=葉0枚（廃止区＝浜松西区22133等の残骸）＝恒久に掴まない／非perm=通信失敗（APIハング等の
+// 一時障害）＝60秒バックオフ後に再挑戦（旧・Set＝一時障害もセッション永久追放で、真上に立っても本物が二度と
+// 来ず遠景箱だけが残った＝渋谷/新宿 z15.9 実測 2026-08-11）。毎onMoveの再挑戦スパムはバックオフが断つ。
+const plateauFailed = new Map();           // 地区名 → { perm, ts }
+const PLATEAU_RETRY_MS = 60000;
+const plateauDead = name => { const f = plateauFailed.get(name); return !!f && (f.perm || performance.now() - f.ts < PLATEAU_RETRY_MS); };
 let plateauPinned = new Set();             // 台本 plateau: リスト記載の地区名＝視界内なら選抜キャップ無視で強制表示（デモ▶で設定・カタカタ根治）
 function plateauHide(name) {   // 視野外れ＝非表示（GPU常駐は維持）。常駐対象外（低メモリ端末）はそのまま削除
 	if (plateauResident.has(name)) renderer.set("plateauVis", false, name);
@@ -723,7 +755,7 @@ let plateauCamSent = 0;   // カメラ放送のスロットル（ロード中の
 for (let i = 0; plateauOn && i < PLATEAU_NW; i++) {   // plateau OFF＝workerを1本も起こさない
 	const w = new Worker(new URL("./plateauworker.js", import.meta.url), { type: "module" });
 	const meshChan = new MessageChannel();   // この worker → render worker のメッシュ直結パイプ
-	w.postMessage({ type: "init", meshPort: meshChan.port1, lowMem: LOW_MEM, mid: MID_TIER, mem: hudOn, noOpfs: /[?&]noopfs=1/.test(location.search), farH: FAR_H }, [meshChan.port1]);   // ?noopfs=1＝バッチ本体のOPFS置きを無効化（従来IDB）＝A/B・切り分け用。farH＝遠景far-DBの高さ閾値
+	w.postMessage({ type: "init", meshPort: meshChan.port1, lowMem: LOW_MEM, mid: MID_TIER, mem: hudOn, noOpfs: /[?&]noopfs=1/.test(location.search), farH: FAR_H, ell: ELL_ON }, [meshChan.port1]);   // ?noopfs=1＝バッチ本体のOPFS置きを無効化（従来IDB）＝A/B・切り分け用。farH＝遠景far-DBの高さ閾値
 	wPost({ type: "plateauPort", port: meshChan.port2 }, [meshChan.port2]);
 	w.onmessage = e => {
 		if (e.data.prog) { plateauProg.set(e.data.prog.name, e.data.prog); renderPlateauProg(); return; }   // タイル/走査進捗（ネットワーク経路のみ）
@@ -733,6 +765,17 @@ for (let i = 0; plateauOn && i < PLATEAU_NW; i++) {   // plateau OFF＝workerを
 			if (farBaking?.name === n) { farBaking = null; setTimeout(farBakeNext, 3000); }   // 育成失敗の返信＝間を置いて次の区へ（連打で churn の山を作らない）
 			const s = !e.data.farMiss.perm && !farBakeTried.has(n) && PLATEAU_SETS.find(x => x.name === n);
 			if (s) { farBakeTried.add(n); farBakeQ.push({ base: s.base, name: n }); farBakeNext(); }
+			return;
+		}
+		if (e.data.farSent) {   // 箱の実送達通知：退場と競争して負けた（遅着した）箱をここで検分して即退場させる。
+			// 正常系＝farShown に居て本物も来ていない→何もしない。競争系＝退場済み（farShown に無い）or
+			// 本物が立つ/来る区→空メッシュで即消し（autoFar の退場と同じ所作・冪等）。
+			const n = e.data.farSent.name;
+			if (!farShown.has(n) || plateauActive.has(n) || plateauLoading.has(n)) {
+				renderer.set("plateauMesh", { pos: new Float32Array(0), nrm: new Int8Array(0), idx: new Uint32Array(0) }, n + "#far");
+				farShown.delete(n);
+				needsDraw = true;
+			}
 			return;
 		}
 		if (e.data.farReady) {   // #farが育った（完走保存/育成どちらでも）＝点灯可
@@ -818,7 +861,7 @@ async function prefetchPlateauForViews(views, names, onProgress) {
 		const bad = [];
 		const wanted = names
 			.map(n => { const s = PLATEAU_SETS.find(x => x.name === n); if (!s) bad.push(n); return s; })
-			.filter(s => s && !plateauFailed.has(s.name));
+			.filter(s => s && !plateauDead(s.name));
 		if (bad.length) console.warn("[demo] plateau 指定名がカタログに無い（台本の誤記？）:", bad.join("・"));
 		// ピン留め＝リスト記載の区は autoPlateau の選抜キャップを無視して強制表示（デモ終了後もセッション中は有効）
 		plateauPinned = new Set(wanted.map(s => s.name));
@@ -849,7 +892,7 @@ async function prefetchPlateauForViews(views, names, onProgress) {
 		// 東京駅→港区／スカイツリー→荒川区／新宿→渋谷区 と「主役でない区」を先読みしていた
 		//（＝正しい区はシーン到着後にゼロから読む二重読み＝iPhone クラッシュ圧の正体。実カタログで再現確認済み）。
 		const c2 = s => { const cx = (s.bbox[0] + s.bbox[2]) / 2, cy = (s.bbox[1] + s.bbox[3]) / 2; return (cx - p[0]) ** 2 + (cy - p[1]) ** 2; };
-		const near = PLATEAU_SETS.filter(s => !plateauFailed.has(s.name) && pd2(s, p) < MARGIN * MARGIN)
+		const near = PLATEAU_SETS.filter(s => !plateauDead(s.name) && pd2(s, p) < MARGIN * MARGIN)
 			.sort((a, b) => (pd2(a, p) - pd2(b, p)) || (c2(a) - c2(b)));
 		// 建物枠＋橋梁(noMask)別枠＝autoPlateau の選抜と同じ構成＝着地時に立つ区を過不足なく仕込む
 		perView.push({
@@ -954,6 +997,12 @@ function autoFar() {
 	}
 	if (!farLit) { for (const n of farShown) renderer.set("plateauVis", true, n + "#far"); farLit = true; }
 	const view = approxViewBbox(cam);
+	// 近接抑制の物差し：区bboxへの点距離（autoPlateau の pd2 と同式）。箱は「数km先のスカイライン」用の遠景家具＝
+	// 実メッシュ帯（z≥AUTO_Z）で約2km圏の区は箱を出さない。本物の同時表示枠（PLATEAU_MAX_ACTIVE=4＝マスク
+	// スロットの物理上限）から溢れた隣接区（麻布台 z17.6 で渋谷区が hits5位・実測 2026-08-11）は実メッシュに
+	// 交代する日が来ない＝巨大箱が本物の隣に立ち続ける、の根治。遠景の箱は従来どおり。
+	const farNearD2 = 0.025 * 0.025;   // ~2.2km
+	const farPd2 = s => { const dx = Math.max(s.bbox[0] - cam.center[0], 0, cam.center[0] - s.bbox[2]), dy = Math.max(s.bbox[1] - cam.center[1], 0, cam.center[1] - s.bbox[3]); return dx * dx + dy * dy; };
 	for (const s of PLATEAU_SETS) {
 		if (s.noMask) continue;   // 橋梁等は遠景箱の対象外
 		if (plateauActive.has(s.name) || plateauLoading.has(s.name)) {
@@ -962,6 +1011,15 @@ function autoFar() {
 			if (farShown.has(s.name)) {
 				renderer.set("plateauMesh", { pos: new Float32Array(0), nrm: new Int8Array(0), idx: new Uint32Array(0) }, s.name + "#far");
 				farShown.delete(s.name);
+			}
+			continue;
+		}
+		if (plateauDead(s.name) || (cam.zoom >= PLATEAU_AUTO_Z && farPd2(s) < farNearD2)) {
+			// 死亡（廃止区）/バックオフ中＝本物が来ない区、または近接（実メッシュ帯で目の前の区＝選抜4区から
+			// 溢れても箱で誤魔化さない）＝箱を出さない・出ていれば退場（旧：failed も近接も知らず箱が出続けた）
+			if (farShown.has(s.name)) {
+				renderer.set("plateauMesh", { pos: new Float32Array(0), nrm: new Int8Array(0), idx: new Uint32Array(0) }, s.name + "#far");
+				farShown.delete(s.name); needsDraw = true;
 			}
 			continue;
 		}
@@ -1046,7 +1104,7 @@ function autoPlateau(settled = false) {
 		view[0] = Math.min(view[0], foot[0]); view[1] = Math.min(view[1], foot[1]);
 		view[2] = Math.max(view[2], foot[0]); view[3] = Math.max(view[3], foot[1]);
 	}
-	const hitsAll = PLATEAU_SETS.filter(s => bboxIntersects(s.bbox, view) && !plateauFailed.has(s.name));   // 死んだ地区は候補から除外＝再挑戦しない
+	const hitsAll = PLATEAU_SETS.filter(s => bboxIntersects(s.bbox, view) && !plateauDead(s.name));   // 死んだ/バックオフ中の地区は候補から除外（恒久＝廃止区・一時＝60秒後に再挑戦）
 	// 近さ＝「bboxまでの点距離」（bbox内なら0）。重心距離だと南北に長い区（江東=臨海部で重心が南へ~4km）が
 	// 足元に居ても落選し、チルト北向きの構図で手前だけ基図の間引き建物になる。
 	// 優先順位＝チルト時は「画面下方（足元）に近い区」が主キー（手前＝一番大きく見える建物が先）、
@@ -1153,7 +1211,7 @@ function autoPlateau(settled = false) {
 					}
 					return;
 				}
-				if (!ok) { plateauFailed.add(h.name); console.warn("[plateau] 読み込めないためスキップ（廃止区/空データ？）:", h.name); return; }   // 一回だけ警告→以後は候補から除外
+				if (!ok) { plateauFailed.set(h.name, { perm: true, ts: performance.now() }); console.warn("[plateau] 読み込めないためスキップ（廃止区/空データ？）:", h.name); return; }   // 恒久＝以後は候補から除外
 				plateauActive.set(h.name, h);
 				plateauRetain(h.name, h);
 				// ★完了時に既に低ズーム/視野外なら stale＝即非表示（ロード中にズームアウトすると3Dが居残る件を断つ。常駐には残る＝戻ればタダ）。
@@ -1162,7 +1220,7 @@ function autoPlateau(settled = false) {
 					console.log("[plateau] ロード完了時に視野外→即非表示", h.name);
 				}
 			})
-			.catch(e => { plateauFailed.add(h.name); console.warn("[plateau] 読み込み失敗のためスキップ:", h.name, e.message || e); })   // 一回だけ
+			.catch(e => { plateauFailed.set(h.name, { perm: false, ts: performance.now() }); console.warn("[plateau] 読み込み失敗のためスキップ（60秒後に再挑戦）:", h.name, e.message || e); })   // 一時＝バックオフ
 			.finally(() => {
 				plateauLoading.delete(h.name); plateauAutoLoading.delete(h.name); plateauCancelling.delete(h.name); plateauDemoted.delete(h.name); plateauFastT.delete(h.name);
 				// 枠が空いた瞬間に再選抜（静止シーン中はonMoveが来ない＝これが無いと3区目以降が
@@ -1272,7 +1330,7 @@ function onMove() {
 // 敷かないと圏外は紙色＝l=terrain の等高線が乗ると「白い偽の陸」に見える）。z≥8・sea.minzoom(z9) ゲート共有。
 style.emptySea = "water";
 const { relayCtl: pipelineRelay, tiles, requestMerge, setStyle: setPipelineStyle, destroy: destroyPipeline } = createPipeline({
-	style, tileUrl: TILE_URL, requestDraw: () => { needsDraw = true; }, scenePort: sceneChan.port1, onTile,
+	style, tileUrl: TILE_URL, requestDraw: () => { needsDraw = true; }, scenePort: sceneChan.port1, onTile, ell: ELL_ON,
 	coverage: /[?&]nocov=1/.test(location.search) ? null : JP_COVERAGE,   // 配信圏外タイルは fetch せず空タイル(海)扱い＝外洋・国外への無駄な 404 を断つ（縦長スマホの周縁 404 の根治）。?nocov=1 で無効化＝A/B 検証ノブ
 
 	// LOD下限＝タイルz8（sea gate と同じ閾値）：optbv は z8 から海が全面WA（沖合タイル=WA一枚50B級）、z7以下は
@@ -2155,14 +2213,16 @@ let posMouse = null, posElev = null, posElevId = 0, posElevAt = 0, posRaf = fals
 setAltApiUrl("https://api.ortho-earth.com");
 createGetHeight({ apiUrl: "https://api.ortho-earth.com", onend: () => { posElevAt = 0; schedulePos(); } })
 	.then(f => { getHeight = f; });
-// 距離スケール（真俯瞰=2Dのみ）：ortho-map Accessories draw_scale() と同じ数式・同じ1-2-5系列。
+// 距離スケール（真俯瞰=2Dのみ）：ortho-map Accessories draw_scale() と同じ1-2-5系列。
 // d256m＝256px当たりの実距離[m]。当アプリも256px世界(2026-07-26統一)＝本家と同じ zoom がそのまま使える。
-// 正射図法は画面中心のスケールが緯度に依らない＝cos(lat) 補正無しで本家と同じ（チルト時は不均一になるので消す）。
+// px↔角度 は正射図法ゆえ緯度非依存のまま。m換算だけ WGS84 の東西曲率半径 N(φ)（バーは横置き＝東西）で
+// 緯度依存に（2026-08-11・段階A）：旧・固定 6372000 は N(35°)=6385.2km 比 -0.2%、高緯度ほどずれた。
+// 南北は M(φ)＝N と最大0.5%違うが、バー1本に2値は出せない＝横置きの素直（正確な計測は M ガジェットの Vincenty）。
 const scaleEl = orDetached(document.getElementById("scale")), scaleTxt = orDetached(document.getElementById("scale-txt")), scaleBar = orDetached(document.getElementById("scale-bar"));
 const comma = s => String(s).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 function updateScale() {
 	if ((cam.pitch || 0) > 0.005) { scaleEl.style.display = "none"; return; }
-	const d256m = 2 * 6372000 * Math.PI / Math.pow(2, cam.zoom);
+	const d256m = 2 * primeVerticalRadius(cam.center[1]) * Math.PI / Math.pow(2, cam.zoom);
 	const r = Math.pow(10, Math.floor(Math.log10(d256m)));
 	const vm = (d256m / r) > 5 ? 5 : (d256m / r) > 2 ? 2 : 1;
 	const val = vm * r;
@@ -2925,12 +2985,12 @@ function playScenes(obj, { from = 0, quick = false, onScene, onEnd } = {}) {
 			// →プリロード済み区との積集合に絞る＝立ち上げ段は常に IDB→GPU だけ（wanted 空の縁だけ従来通り）。
 			const wantedNames = new Set(wanted.map(s => s.name));
 			const targets = ((gpuBackend && !LOW_MEM && wanted.length) ? wanted
-				: firstRevealSets(views).filter(s => !wanted.length || wantedNames.has(s.name))).filter(s => !plateauFailed.has(s.name));
+				: firstRevealSets(views).filter(s => !wanted.length || wantedNames.has(s.name))).filter(s => !plateauDead(s.name));
 			if (targets.length) {
 				const gpuHint = setTimeout(() => sceneLoading({ ...ward, show: true, phase: "gpu" }), 700);   // 一瞬で立ち切る時はパネルを出さない
 				await Promise.all(targets.map(s => standUpWard(s)));
 				// standUpWard は「既に可視ロードが走行中」の区を false 即決で素通しする＝活性化の完了を見届ける（安全弁120秒・failed も抜け口）
-				for (const t0 = performance.now(); !targets.every(s => plateauActive.has(s.name) || plateauFailed.has(s.name)) && performance.now() - t0 < 120000;) await new Promise(r => setTimeout(r, 250));
+				for (const t0 = performance.now(); !targets.every(s => plateauActive.has(s.name) || plateauDead(s.name)) && performance.now() - t0 < 120000;) await new Promise(r => setTimeout(r, 250));
 				clearTimeout(gpuHint);
 			}
 			sceneLoading(false);

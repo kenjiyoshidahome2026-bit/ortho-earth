@@ -8,19 +8,48 @@ const D2R = Math.PI / 180, R2D = 180 / Math.PI;
 // altpbf の DEM 段閾値と1段ズレていた（2026-07-26 に 256 へ統一）。zoom→幾何の変換は必ずこの定数を通す。
 export const WORLD_PX = 256;
 
-// 経緯度 → 単位球3D
+// ── 楕円体ノブ（?ell=1 実験・2026-08-11 段階B）────────────────────────────────
+// 世界＝WGS84楕円体を「β（更成緯度）単位球 × S=diag(1, b/a, 1)」に厳密分解して立てる：
+//   P_world = S · u(β),  tanβ = (b/a)·tanφ（φ=測地緯度）。世界単位 = a（長半径）。
+// 球面機械（versor回転・limb接線・レイ×球交差・RTE の相殺回避）は全て β 単位球上でそのまま厳密に生きる
+// （線形写像 S は接線性を保存）。S は cameraState が mvp へ一度だけ畳む＝下流の式は一切変わらない。
+// r=1（球・既定）で全式がビット同値に退化する＝フラグ1本で新旧を往復でき、回帰面がゼロ。
+// 各実行文脈（main・render worker・plateau worker）は起動時に setEllipsoid を同値で呼ぶこと（init で搬送）。
+let R_AX = 1;   // b/a（球=1）。シェーダ側の dβ 補正は u_ellTrig=(0,…)＝球で厳密0（renderer が配る）
+export function setEllipsoid(on) { R_AX = on ? 1 - 1 / 298.257223563 : 1; }
+export const ellipsoidOn = () => R_AX !== 1;
+export const worldRadiusM = () => R_AX === 1 ? 6371000 : 6378137;   // m→世界単位の換算半径（球＝従来値／楕円体＝a）
+// 測地緯度 φ ⇄ 更成緯度 β（deg）。閉形式（atan2＝極も厳密）。球では恒等。
+export const betaOf = latDeg => R_AX === 1 ? latDeg
+	: Math.atan2(R_AX * Math.sin(latDeg * D2R), Math.cos(latDeg * D2R)) * R2D;
+export const geodeticOf = betaDeg => R_AX === 1 ? betaDeg
+	: Math.atan2(Math.sin(betaDeg * D2R), R_AX * Math.cos(betaDeg * D2R)) * R2D;
+
+// 経緯度 → β単位球3D（球では従来の単位球そのまま＝ビット同値）。
+// 消費者（versor・LOD・ラベル・タイル被覆…）は「単位球上の点」として扱い続けてよい＝内部の主空間。
 export function lonlatTo3D(lon, lat) {
+	const a = lon * D2R, b = lat * D2R;
+	let sb = Math.sin(b), cb = Math.cos(b);
+	if (R_AX !== 1) { const w = Math.hypot(cb, R_AX * sb); sb = R_AX * sb / w; cb = cb / w; }
+	return [cb * Math.cos(a), sb, cb * Math.sin(a)];
+}
+
+// 測地法線（楕円体の「上」）の β空間像 m = S⁻¹·n_geo = (cosφcosλ, sinφ/r, cosφsinλ)。
+// 標高 h[m] の変位＝world で (h/a)·n_geo ＝ β空間で (h/a)·m（S を通すと単位法線に戻る）。球では m=u(φ)＝動径。
+export function ellNormal3D(lon, lat) {
 	const a = lon * D2R, b = lat * D2R, cb = Math.cos(b);
-	return [cb * Math.cos(a), Math.sin(b), cb * Math.sin(a)];
+	return [cb * Math.cos(a), Math.sin(b) / R_AX, cb * Math.sin(a)];
 }
 
 // カメラ状態を作る。cam: { center:[lon,lat], zoom, pitch(rad), bearing(rad), fovy(rad), dpr }
 export function cameraState(cam, W, H) {
 	const { center, zoom, pitch = 0, bearing = 0, fovy = 50 * D2R, dpr = 1 } = cam;
 	const [lon, lat] = center;
-	const T = lonlatTo3D(lon, lat);
-	const a = lon * D2R, b = lat * D2R;
-	const nrm = T;                                                  // 面法線（単位）
+	const Tb = lonlatTo3D(lon, lat);                                // β単位球上の注視点
+	const T = R_AX === 1 ? Tb : [Tb[0], R_AX * Tb[1], Tb[2]];       // world（楕円体面）＝S·u(β)。球では同一
+	const a = lon * D2R, b = lat * D2R, cb = Math.cos(b);
+	// 面法線＝測地法線（楕円体の「上」＝測地緯度の定義そのもの）。球では従来の動径と同式＝ビット同値。
+	const nrm = [cb * Math.cos(a), Math.sin(b), cb * Math.sin(a)];
 	const north = mat.norm([-Math.sin(b) * Math.cos(a), Math.cos(b), -Math.sin(b) * Math.sin(a)]);
 	const east = [-Math.sin(a), 0, Math.cos(a)];
 	const fwdH = mat.norm(mat.add(mat.scale(north, Math.cos(bearing)), mat.scale(east, Math.sin(bearing))));
@@ -38,7 +67,7 @@ export function cameraState(cam, W, H) {
 	// 埋まり、eye直下サンプルは下った斜面＝山頂を見ないため効かなかった（富士 z15/75° で裏面を見上げる絵）。
 	// 代替＝カメラは一切動かさず、地表より下に潜ったら app が全画面 DOM オーバーレイ(#underground)を暗くする。
 	// カメラ数学に触れない＝「妙なブレ」を作らない（cameraState は純関数のまま＝全消費者で整合）。
-	const eye = mat.add(T, mat.scale(back, camDist));
+	const eye = mat.add(T, mat.scale(back, camDist));               // world のカメラ位置（測地法線基底の軌道）
 	const view = mat.lookAt(eye, T, upCam);
 	const aspect = W / H;
 	// near/far を可視範囲（最近点camDist〜地平線limb）にタイトに。極端なオーバーズームでの精度崩壊を防ぐ。
@@ -50,6 +79,13 @@ export function cameraState(cam, W, H) {
 	const mvp = mat.multiply(proj, view);
 	// 上空から見ると座標系が鏡像になるため clip.x を反転（東=画面右）。行0を符号反転。
 	mvp[0] = -mvp[0]; mvp[4] = -mvp[4]; mvp[8] = -mvp[8]; mvp[12] = -mvp[12];
+	// S=diag(1,r,1) を mvp へ畳む（列1×r）＝以降の全消費（project・shader・unproject 逆行列）は
+	// β単位球の座標を入れるだけで楕円体に立つ。eye も S⁻¹ で β空間へ＝手前半球判定 dot(u,eye)-1 や
+	// limb 接線が球の式のまま厳密（線形写像は接線性を保存）。球（r=1）は無変換＝ビット同値。
+	if (R_AX !== 1) {
+		mvp[4] *= R_AX; mvp[5] *= R_AX; mvp[6] *= R_AX; mvp[7] *= R_AX;
+		eye[1] /= R_AX;
+	}
 	const focal = (H / 2) / Math.tan(fovy / 2);   // 距離ベースLOD用の焦点距離(device px)
 	return { mvp, invMvp: mat.invert(mvp), eye, W, H, dpr, camDist, focal };
 }
@@ -57,7 +93,11 @@ export function cameraState(cam, W, H) {
 // 経緯度 → [screenX, screenY(devicePx), front]。front>0 で手前半球かつカメラ前方。
 export function project(state, lon, lat, radius = 1) {
 	const u = lonlatTo3D(lon, lat);
-	const w = radius === 1 ? u : [u[0] * radius, u[1] * radius, u[2] * radius];   // 標高変位（ラベルを地形に乗せる）
+	// 標高変位（ラベルを地形に乗せる）：球＝動径倍。楕円体＝測地法線に沿って持ち上げる（動径だと富士級で
+	// 水平に十数mズレ＝シェーダの地形変位（同じ測地法線）とラベルの足が合わなくなる）。
+	const w = radius === 1 ? u
+		: R_AX === 1 ? [u[0] * radius, u[1] * radius, u[2] * radius]
+		: (m => [u[0] + (radius - 1) * m[0], u[1] + (radius - 1) * m[1], u[2] + (radius - 1) * m[2]])(ellNormal3D(lon, lat));
 	const c = mat.transform(state.mvp, [w[0], w[1], w[2], 1]);
 	const frontHemi = mat.dot(u, state.eye) - 1;                     // >0 手前半球（基準球方向で判定）
 	if (c[3] <= 1e-6 || frontHemi < 0) return [0, 0, -1];
@@ -91,7 +131,8 @@ export function unproject(state, sx, sy, R = 1) {
 	const P = t >= 0 ? mat.add(A, mat.scale(d, t))
 		: (R !== 1 && cc < 0) ? A : null;
 	if (!P) return null;
-	const lat = Math.asin(Math.max(-1, Math.min(1, P[1] / R))) * R2D;
+	// invMvp は S 込み＝P は β単位球上の点。asin が返すのは β＝測地緯度へ復元して返す（球では恒等）。
+	const lat = geodeticOf(Math.asin(Math.max(-1, Math.min(1, P[1] / R))) * R2D);
 	const lon = Math.atan2(P[2], P[0]) * R2D;
 	return [lon, lat];
 }

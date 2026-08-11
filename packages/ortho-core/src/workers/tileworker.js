@@ -8,13 +8,14 @@ import { buildTileDrawList, buildEmptySeaOps } from "../build.js";
 import { buildLabels } from "../labels.js";
 import { buildBuildings } from "../buildings.js";
 import { tileBounds, tileOutsideCoverage } from "../tile.js";
+import { setEllipsoid } from "../camera.js";
 
 let style = null, need = null, coverage = null;   // need＝styleが参照する source-layer 集合（未参照層は decode 省略）。coverage＝配信圏 bbox
 const aborts = new Map();   // id → AbortController（in-flight のみ保持）
 
 self.onmessage = async (e) => {
 	const m = e.data;
-	if (m.type === "init") { style = m.style; need = neededSourceLayers(style); coverage = m.coverage || null; return; }
+	if (m.type === "init") { style = m.style; need = neededSourceLayers(style); coverage = m.coverage || null; setEllipsoid(!!m.ell); return; }   // ell＝buildings の世界単位（m→単位）を a 基準へ
 	if (m.type === "setStyle") { style = m.style; need = neededSourceLayers(style); return; }   // 配色テーマ生き替え＝色を焼き直す新style。以降のビルドは新styleで（coverage は据置）
 	if (m.type === "abort") { const a = aborts.get(m.id); if (a) a.abort(); return; }
 	const { id, url, z, x, y } = m;

@@ -4,13 +4,15 @@
 //   仕様は ortho-map に合わせ込む＝辺の中点に区間距離・重心に L=総距離/S=面積・線色#880000・
 //   塗り rgba(136,0,0,.1)・頂点r=4/中点r=2 の白丸(#880000縁)・ラベルは白＋黒影。
 //   頂点は経緯度で持ち（球に貼り付く）、線は大圏弧を細分して球面追従、描画は専用canvas＋frameフック。
-// 距離＝haversine 測地線／面積＝球面過剰（3点以上で閉じて算出・antimeridian対策込み）。
+// 距離＝WGS84 Vincenty／面積＝WGS84 authalic 球面過剰（ortho-core geodesic.js・3点以上で閉じて算出・
+// antimeridian対策込み）。※描画の弧・中点・重心は表示球（単位球）のまま＝見た目の道具。数字だけ楕円体。
 // 操作：クリックで頂点／最終点＋カーソルで閉じプレビュー／ダブルクリック or Esc で確定／ボタンOFFで全消去。
 // 注入（登録側）：makeProjector・unprojectXY・setClick（クリック横取り）・requestDraw・signal。
 import { gadgetStack } from "./stack.js";
 import { keyBusy } from "./keys.js";
+import { geodesicDistance, geodesicArea } from "ortho-core";
 
-const R = 6371008.8, D2R = Math.PI / 180, R2D = 180 / Math.PI;
+const D2R = Math.PI / 180, R2D = 180 / Math.PI;
 const LINE = "#880000", FILL = "rgba(136,0,0,0.1)", DOT = "#fff", W = 2, R_VERT = 4;
 
 export function measure({ makeProjector, unprojectXY, setClick, requestDraw, signal, btn } = {}) {
@@ -83,22 +85,11 @@ export function measure({ makeProjector, unprojectXY, setClick, requestDraw, sig
 	return Object.assign(() => {}, { _update, start, stop, open: start, close: stop, stats: () => ({ total: lastTotal, area: lastArea, points: verts.length }) });
 
 	// ---- 幾何 ----
-	function dist(a, b) {
-		const φ1 = a[1] * D2R, φ2 = b[1] * D2R, dφ = (b[1] - a[1]) * D2R, dλ = (b[0] - a[0]) * D2R;
-		const s = Math.sin(dφ / 2) ** 2 + Math.cos(φ1) * Math.cos(φ2) * Math.sin(dλ / 2) ** 2;
-		return 2 * R * Math.asin(Math.min(1, Math.sqrt(s)));
-	}
-	function areaOf(v) {   // 球面多角形（閉じる）＝球面過剰。経度差は[-π,π]へ（antimeridian対策）
-		if (v.length < 3) return 0;
-		let sum = 0;
-		for (let i = 0; i < v.length; i++) {
-			const p1 = v[i], p2 = v[(i + 1) % v.length];
-			let dλ = (p2[0] - p1[0]) * D2R;
-			if (dλ > Math.PI) dλ -= 2 * Math.PI; else if (dλ < -Math.PI) dλ += 2 * Math.PI;
-			sum += dλ * (2 + Math.sin(p1[1] * D2R) + Math.sin(p2[1] * D2R));
-		}
-		return Math.abs(sum) * R * R / 2;
-	}
+	// 距離・面積は WGS84（geodesic.js）。旧・球（R=6371008.8）の haversine/球面過剰は 2026-08-11 に交代＝
+	// 東西/南北で最大0.5%あった系統誤差を解消（値だけの交代＝描画の弧は下の to3/gcPoints＝表示球のまま）。
+	// ※この区画は return 文の後ろ＝関数宣言（巻き上げ）でないと draw() から見えない（const は TDZ で死ぬ）。
+	function dist(a, b) { return geodesicDistance(a, b); }
+	function areaOf(v) { return geodesicArea(v); }
 	function to3(lon, lat) { const a = lon * D2R, b = lat * D2R, cb = Math.cos(b); return [cb * Math.cos(a), Math.sin(b), cb * Math.sin(a)]; }
 	function toLL(v) { return [Math.atan2(v[2], v[0]) * R2D, Math.asin(Math.max(-1, Math.min(1, v[1]))) * R2D]; }
 	function gcPoints(a, b) {   // 大圏弧を約0.5°刻みで細分（近ければ2点）

@@ -7,7 +7,8 @@ import { polygons } from "./decode.js";   // フラットgeom({coords,ends})→[
 
 // vt_code(建物種別) → 概略高さ(m)。3101普通/3102堅ろう/3103高層/3111無壁舎 など。
 const HEIGHT_M = { 3101: 9, 3102: 16, 3103: 34, 3104: 22, 3111: 5, 3112: 5 };
-const EARTH_M = 6371000, EXAG = 1.6;       // 単位球スケール換算＋見栄えの誇張
+import { worldRadiusM } from "./camera.js";
+const EARTH_M = () => worldRadiusM(), EXAG = 1.6;   // 単位球スケール換算（球6371000／楕円体a＝camera.js のノブに追随）＋見栄えの誇張
 const ROOF = 1.0, WALL = 0.76;             // 陰影（屋根明／壁暗）
 
 export function buildBuildings({ layers, z, x, y }, origin) {
@@ -19,7 +20,7 @@ export function buildBuildings({ layers, z, x, y }, origin) {
 
 	for (const f of src.features) {
 		if (f.props.vt_lvorder !== 0) continue;                       // 地上レベルのみ
-		const h = (HEIGHT_M[f.props.vt_code] || 10) * EXAG / EARTH_M;
+		const h = (HEIGHT_M[f.props.vt_code] || 10) * EXAG / EARTH_M();
 		for (const [flat, holes] of polygons(f.geom)) {
 			const nv = flat.length / 2;
 			const ll = new Array(nv);
@@ -51,7 +52,7 @@ const ringsOf = g => !g ? [] : g.type === "Polygon" ? [g.coordinates] : g.type =
 export function buildExtrudedParcels(features, origin, { heightM = 4, exag = EXAG } = {}) {
 	if (!features || !features.length) return null;
 	const [ox, oy] = origin;
-	const h = heightM * exag / EARTH_M;                          // 一律の高さ（単位球スケール）＝壁の頂点z・屋根のz
+	const h = heightM * exag / EARTH_M();                          // 一律の高さ（単位球スケール）＝壁の頂点z・屋根のz
 	const wPos = [], wSh = [], wAnc = [], rPos = [], rSh = [], rAnc = [];
 	for (const f of features) {
 		for (const poly of ringsOf(f && f.geometry)) {
@@ -86,7 +87,7 @@ const _pack = a => a.pos.length ? { pos: new Float32Array(a.pos), shade: new Flo
 export function buildDrapedGeometry(features, origin, { liftM = 1, exag = EXAG } = {}) {
 	if (!features || !features.length) return { lines: null, points: null };
 	const [ox, oy] = origin;
-	const lift = liftM * exag / EARTH_M;                         // 微リフト（単位球スケール）＝a_pos.z。base(=自標高)へ上乗せ
+	const lift = liftM * exag / EARTH_M();                         // 微リフト（単位球スケール）＝a_pos.z。base(=自標高)へ上乗せ
 	const L = { pos: [], shade: [], anchor: [] };               // GL_LINES
 	const P = { pos: [], shade: [], anchor: [] };               // GL_POINTS
 	const vtx = (t, x, y) => { const dx = x - ox, dy = y - oy; t.pos.push(dx, dy, lift); t.shade.push(1.0); t.anchor.push(dx, dy); };   // anchor=自分＝自標高に乗る

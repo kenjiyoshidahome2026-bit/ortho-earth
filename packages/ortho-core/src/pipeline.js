@@ -4,7 +4,7 @@
 // geometry は main を通らず scene worker → render worker へ直行（main は geometry を知らない）。
 import { createTileManager } from "./tilemanager.js";
 
-export function createPipeline({ style, tileUrl, requestDraw, scenePort, onMerged, onTile, lodFloor, memBudgetMB, coverage }) {
+export function createPipeline({ style, tileUrl, requestDraw, scenePort, onMerged, onTile, lodFloor, memBudgetMB, coverage, ell }) {
 	// scene worker：タイル geometry を保持し結合(merge)も担う。結合結果は main を経由せず
 	// render worker へ直結ポートで送る（下の connect）＝main は geometry を一切知らない。
 	const sceneWorker = new Worker(new URL("./workers/sceneworker.js", import.meta.url), { type: "module" });
@@ -46,7 +46,7 @@ export function createPipeline({ style, tileUrl, requestDraw, scenePort, onMerge
 			sceneWorker.postMessage({ type: "tile", key: p.key, ops: e.data.dl.ops, buildings: e.data.buildings }, collectTileBuffers(e.data.dl, e.data.buildings));
 			p.resolve({ origin: e.data.origin, labels: e.data.labels, z: e.data.z, bytes: e.data.bytes });   // メタ＋ラベル＋geometry実バイト（退避予算用）
 		};
-		w.postMessage({ type: "init", style, coverage });   // coverage＝配信圏 bbox（圏外タイルは worker が fetch せず空タイル扱い）
+		w.postMessage({ type: "init", style, coverage, ell });   // coverage＝配信圏 bbox（圏外タイルは worker が fetch せず空タイル扱い）。ell＝楕円体ノブ（buildings の世界単位）
 		tileWorkers.push(w);
 	}
 	function workerBuildTile(t) {

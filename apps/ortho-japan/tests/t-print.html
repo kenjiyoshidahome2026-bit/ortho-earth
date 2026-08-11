@@ -7,6 +7,7 @@
 <script type="module">
 import orthoJapan from "../app.js";
 import { layoutFor, zoomForScale, composePage, pdfFromCanvas, PAPERS } from "../gadgets/print.js";
+import { primeVerticalRadius } from "ortho-core";
 const t = [], ok = (n, c) => t.push((c ? "ok:" : "NG:") + n);
 try {
 	// レイアウト：A4横=297×210・内罫は外罫の内側・下帯が外罫の下
@@ -15,10 +16,12 @@ try {
 	const Lp = layoutFor("a3", "portrait");
 	ok("layoutA3", Lp.W === 297 && Lp.H === 420);
 
-	// 縮尺→z：m/csspx=2πR/(2^z·256) の往復で「紙の地図幅×縮尺＝切り出し地表幅」が成立（256px世界）
-	const S = 25000, crop = 1200, z = zoomForScale(S, L.inner.w, crop);
-	const mPerCss = 2 * Math.PI * 6371008.8 / (Math.pow(2, z) * 256);
-	ok("scale", Math.abs(mPerCss * crop - L.inner.w / 1000 * S) / (L.inner.w / 1000 * S) < 1e-6);
+	// 縮尺→z：m/csspx=2πN(φ)/(2^z·256) の往復で「紙の地図幅×縮尺＝切り出し地表幅」が成立（256px世界・
+	// R は WGS84 東西曲率半径 N(φ)＝2026-08-11 段階A。緯度を変えて評価点が効くことも見る）
+	const S = 25000, crop = 1200, z = zoomForScale(S, L.inner.w, crop, 35.68);
+	const mPerCss = 2 * Math.PI * primeVerticalRadius(35.68) / (Math.pow(2, z) * 256);
+	ok("scale", Math.abs(mPerCss * crop - L.inner.w / 1000 * S) / (L.inner.w / 1000 * S) < 1e-6
+		&& zoomForScale(S, L.inner.w, crop, 43) !== z);
 
 	// 紙面組版：合成スクリーン（赤塗り）→ 用紙px寸法・余白は白・外罫は暗い・地図部は赤
 	const scr = new OffscreenCanvas(400, 300); const sctx = scr.getContext("2d");

@@ -1,7 +1,10 @@
 // フルd3バレルは未使用の d3-zoom/brush/drag/transition 一式まで芋づるで初期バンドルに載る。
 // 実際に使うのは d3-geo の5関数と d3-selection の select のみ＝個別importに絞って重い連鎖を断つ。
 import { select } from "d3-selection";
-import { geoArea, geoCentroid, geoDistance, geoInterpolate, geoPath } from "d3-geo";
+import { geoArea, geoCentroid, geoInterpolate, geoPath } from "d3-geo";
+// 計測値は WGS84（Vincenty 距離＋authalic 面積）＝ortho-japan measure ガジェットと同じ台帳。
+// サブパス import＝geodesic.js は依存ゼロの純関数のみ（index.js 経由だと GL エンジン一式が芋づる）。
+import { geodesicDistance, geodesicArea } from "ortho-core/geodesic";
 import { comma } from "./utility.js";
 import { antimeridianCut } from "./antimeridianCut.js";
 
@@ -125,7 +128,6 @@ export function createPolygon(layer, opts = {}) {
 			return null;
 		}
 		function distance() {
-			const radius = 6371;
 			let sum = 0;
 			const fix = (m, n = 0) => comma(m.toFixed(n));
 			const FIX = d => d < 0.1 ? fix(d * 1000, 1) + " m" : d < 1 ? fix(d * 1000, 0) + " m" : d < 10 ? fix(d, 2) + " km" : d < 100 ? fix(d, 1) + " km" : fix(d, 0) + " km";
@@ -135,15 +137,14 @@ export function createPolygon(layer, opts = {}) {
 			ctx.textAlign = "center"; ctx.textBaseline = "middle";
 
 			for (let i = 0; i < p.length - 1; i++) {
-				var d = geoDistance(p[i], p[i + 1]) * radius; sum += d;
+				const d = geodesicDistance(p[i], p[i + 1]) / 1000; sum += d;   // WGS84（旧・球面 geoDistance×6371）
 				const mid = proj(geoInterpolate(p[i], p[i + 1])(0.5));
 				if (mid) ctx.fillText(FIX(d), ...mid);
 			}
 
 			if (p.length > 3) {
-				// The feature is always winding-corrected above, so area can be computed directly.
-				const areaRad = geoArea(f);
-				const areaSqMeters = areaRad * 6371000 * 6371000;
+				// WGS84 authalic（旧・geoArea×球6371000²）。p は閉リング（末尾=先頭）＝重複閉点は無害。
+				const areaSqMeters = geodesicArea(p);
 
 				let center = geoCentroid(f);
 				let projected = proj(center);

@@ -32,6 +32,8 @@ struct Frame {
 	mesh: vec4f,       // 地形メッシュの窓：xy=原点(lon,lat) zw=幅(deg)。頂点は単位格子 uv＝窓替えで作り直さない（terrain/terrainFar slot のみ非0）
 	farBounds: vec4f,  // 遠景層（far）アトラス被覆＝近窓の外を受け持つ粗い R10 第2アトラス（深ズーム×チルトで常設）
 	farP: vec4f,       // hasFar(0/1), farEdgeFade(deg), farPass(1=遠景メッシュパス・terrainFar slot のみ), 0
+	ellTrig: vec4f,    // 楕円体 dβ 錨 (cos2φ0, sin2φ0, cos4φ0, sin4φ0)（CPU double・原点の測地緯度）。球=vec4(0)＝補正が厳密0
+	ellP: vec4f,       // x=1:楕円体（変位方向・β→φ復元のゲート）0:球, yzw=0
 };
 @group(0) @binding(0) var<uniform> F: Frame;
 @group(0) @binding(1) var elevTex: texture_2d<f32>;
@@ -50,9 +52,33 @@ fn sinP(x: f32) -> f32 {
 	let x2 = x * x;
 	return select(sin(x), x * (1.0 - x2 * (1.0 / 6.0) * (1.0 - x2 * (1.0 / 20.0))), abs(x) < 0.1);
 }
+fn cosP(x: f32) -> f32 { let s = sinP(0.5 * x); return 1.0 - 2.0 * s * s; }
+// ── 楕円体（?ell=1・段階B）＝glsl.js と1:1：dlat（測地緯度差分）→dβ（更成緯度差分）の閉形式差分。
+// 球＝F.ellTrig=vec4(0) で補正が厳密0。F.trig は β の三角を運ぶ（renderer packFrame が配る）。
+const ELL_NU: f32 = 0.0016792203863837047;
+const ELL_NU2: f32 = 0.0000014098905530233192;
+const ELL_INV_R: f32 = 1.0033640898209764;
+fn dBeta(dp: f32) -> f32 {
+	if (F.ellP.x < 0.5) { return dp; }   // 球＝恒等を早期return（uniform分岐）＝補正の三角関数を毎頂点払わない
+	let sd = sinP(dp); let cd = cosP(dp); let s2d = sinP(2.0 * dp); let c2d = cosP(2.0 * dp);
+	return dp - 2.0 * ELL_NU  * (F.ellTrig.x * cd  - F.ellTrig.y * sd)  * sd
+	          + 2.0 * ELL_NU2 * (F.ellTrig.z * c2d - F.ellTrig.w * s2d) * s2d;
+}
+// 標高の変位方向：球＝β動径（従来の dir）・楕円体＝測地法線の β空間像（glsl.js liftDir と同式）
+fn liftDir(ll: vec2f, dir: vec3f) -> vec3f {
+	if (F.ellP.x < 0.5) { return dir; }
+	let p = ll.y * D2R; let l = ll.x * D2R; let cp = cos(p);
+	return vec3f(cp * cos(l), sin(p) * ELL_INV_R, cp * sin(l));
+}
+// β→φ 復元（deg）＝レイキャスト系（asin=β）から elev() を引く時に通す。球=恒等（glsl.js geoLat と同式）
+fn geoLat(betaDeg: f32) -> f32 {
+	let b = betaDeg * D2R;
+	return betaDeg + F.ellP.x * degrees(ELL_NU * sin(2.0 * b) + ELL_NU2 * sin(4.0 * b));
+}
 // 頂点3D − originPt を桁落ちなしで直接作る（cos(θ)-1=-2sin²(θ/2)）＝glsl.js deltaToRel と同式
+// dlat は dBeta で β差分へ（球では恒等）＝以降は純粋な球面幾何（β単位球）
 fn deltaToRel(dDeg: vec2f) -> vec3f {
-	let da = dDeg.x * D2R; let db = dDeg.y * D2R;
+	let da = dDeg.x * D2R; let db = dBeta(dDeg.y * D2R);
 	let sda = sinP(da); let sdb = sinP(db);
 	let sha = sinP(da * 0.5); let shb = sinP(db * 0.5);
 	let cdaM1 = -2.0 * sha * sha; let cdbM1 = -2.0 * shb * shb;
@@ -121,7 +147,7 @@ struct FillOut {
 	let df = 1.0 - smoothstep(F.params.y * 0.8, F.params.y * 2.0, distance(F.eye, dir));
 	// seaGate=1（図郭外フォールバック水域）は海抜0の球面に置く（隅が山に乗ると水面ごと傾く）
 	let h = select((elev(ll) + P.p0.y) * F.elevP.x * df, 0.0, P.p0.x > 0.5);
-	let relW = rel + h * dir;
+	let relW = rel + h * liftDir(ll, dir);   // 楕円体＝測地法線で変位（球＝従来の dir）
 	var p = F.clipT + F.mvp * vec4f(relW, 0.0);   // RTE：mvp*[w,1] を相殺なしで
 	p.z = logDepthZ(p.w);
 	o.pos = p;
@@ -189,7 +215,7 @@ fn toScreen(c: vec4f) -> vec2f {
 	let dfb = 1.0 - smoothstep(F.params.y * 0.8, F.params.y * 2.0, distance(F.eye, db));
 	let ha = (elev(la1) + P.p0.y) * F.elevP.x * dfa;
 	let hb = (elev(la2) + P.p0.y) * F.elevP.x * dfb;
-	let relWa = rela + ha * da; let relWb = relb + hb * db;
+	let relWa = rela + ha * liftDir(la1, da); let relWb = relb + hb * liftDir(la2, db);   // 楕円体＝測地法線
 	let wa = F.originPt + relWa; let wb = F.originPt + relWb;
 	let ca = F.clipT + F.mvp * vec4f(relWa, 0.0);
 	let cb = F.clipT + F.mvp * vec4f(relWb, 0.0);
@@ -253,7 +279,7 @@ struct TerrOut {
 	let h = elev(a_ll) * df;
 	o.h = h;
 	o.ll = a_ll;
-	let relW = rel + (h * F.elevP.x) * dir;
+	let relW = rel + (h * F.elevP.x) * liftDir(a_ll, dir);   // 楕円体＝測地法線
 	o.front = dot(dir, F.eye) - 1.0;
 	o.fog = fogOf(F.originPt + relW);
 	var p = F.clipT + F.mvp * vec4f(relW, 0.0);
@@ -314,7 +340,7 @@ struct BldOut {
 	let dir = F.originPt + rel;
 	let base = elev(F.origin + a_anchor) * F.elevP.x;   // 基準点の標高で足元を揃える
 	let h = base + a_pos.z;                              // 地形標高 + 建物高さ
-	let relW = rel + h * dir;
+	let relW = rel + h * liftDir(F.origin + a_pos.xy, dir);   // 楕円体＝測地法線
 	o.shade = a_shade;
 	o.front = dot(dir, F.eye) - 1.0;
 	o.fog = fogOf(F.originPt + relW);
@@ -377,13 +403,13 @@ struct PlOut {
 	o.front = dot(dir, F.eye) - 1.0;
 	o.fog = fogOf(wp);
 	// 接地リフト（DTM 保証域 P.p0=liftBounds 内だけ・境界 0.05° smoothstep）。域外/bounds無しは h=0（r=1 接地）
-	let lat = degrees(asin(clamp(dir.y, -1.0, 1.0)));
+	let lat = geoLat(degrees(asin(clamp(dir.y, -1.0, 1.0))));   // β球点→測地緯度（elev/リフト域は測地の台帳。球=恒等）
 	let lon = degrees(atan2(dir.z, dir.x));
 	let lb = P.p0;   // [lng0, lat0, spanLng, spanLat]
 	let inX = smoothstep(0.0, 0.05, min(lon - lb.x, lb.x + lb.z - lon));
 	let inY = smoothstep(0.0, 0.05, min(lat - lb.y, lb.y + lb.w - lat));
 	let h = elev(vec2f(lon, lat)) * F.elevP.x * inX * inY;
-	var p = B.clipMesh + F.mvp * vec4f(a_pos + h * dir, 0.0);
+	var p = B.clipMesh + F.mvp * vec4f(a_pos + h * liftDir(vec2f(lon, lat), dir), 0.0);   // 楕円体＝測地法線
 	p.z = logDepthZ(p.w);
 	o.pos = p;
 	return o;
@@ -547,7 +573,7 @@ fn band(g: f32) -> f32 {   // iso線：整数の g で 1（fwidth で画面一�
 	let t = (-bb - sqrt(disc)) / (2.0 * aa);
 	if (t < 0.0) { discard; }
 	let Pt = A + t * d;
-	let ll = vec2f(atan2(Pt.z, Pt.x) * R2D, asin(clamp(Pt.y, -1.0, 1.0)) * R2D);
+	let ll = vec2f(atan2(Pt.z, Pt.x) * R2D, geoLat(asin(clamp(Pt.y, -1.0, 1.0)) * R2D));   // β→測地（球=恒等）
 	let e = elevAt(ll);
 	let landMask = smoothstep(0.5, 4.0, e);   // 海/データ無し(≈0)は等高線を出さない
 	if (landMask <= 0.0) { discard; }

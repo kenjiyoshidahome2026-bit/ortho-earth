@@ -77,9 +77,40 @@ float sinP(float x) {
 	float x2 = x * x;
 	return (abs(x) < 0.1) ? x * (1.0 - x2 * (1.0 / 6.0) * (1.0 - x2 * (1.0 / 20.0))) : sin(x);
 }
+float cosP(float x) { float s = sinP(0.5 * x); return 1.0 - 2.0 * s * s; }   // 全域可・微小角も桁落ちなし
+// ── 楕円体（?ell=1・段階B 2026-08-11）──────────────────────────────────────
+// 世界＝β（更成緯度）単位球 × S=diag(1,b/a,1)。S は CPU が mvp へ畳み込み済み＝シェーダの球面式は不変。
+// 頂点が運ぶ dlat（測地緯度の差分）だけ dβ へ変換して deltaToRel に流す。β=φ−ν·sin2φ+(ν²/2)·sin4φ
+//（全球で誤差≤2cm）の差分を積形式 sinA−sinB=2cos((A+B)/2)sin((A−B)/2) で＝桁落ちなし・テイラー半径の
+// 制約なし（z0 の全球ビューも厳密収束）。球＝u_ellTrig=vec4(0) で補正が厳密に 0（GL の uniform 既定値も 0
+// ＝renderer が未設定でも球のまま）。原点の測地緯度三角は CPU double（u_originTrig は β の三角を運ぶ）。
+const float ELL_NU  = 0.0016792203863837047;    // ν = f/(2−f)（WGS84）
+const float ELL_NU2 = 0.0000014098905530233192; // ν²/2
+const float ELL_INV_R = 1.0033640898209764;     // a/b = 1/(1−f)（測地法線の β空間像の y 伸長）
+uniform vec4  u_ellTrig;   // (cos2φ0, sin2φ0, cos4φ0, sin4φ0)（CPU double・シーン原点の測地緯度）。球=vec4(0)
+uniform float u_ell;       // 1=楕円体（標高方向・β→φ復元のゲート）。球=0
+float dBeta(float dp) {    // 測地緯度の差分 dφ(rad) → 更成緯度の差分 dβ(rad)
+	if (u_ell < 0.5) return dp;   // 球＝恒等を早期return（uniform分岐＝コヒーレント）。補正の三角関数を毎頂点払わない
+	float sd = sinP(dp), cd = cosP(dp), s2d = sinP(2.0 * dp), c2d = cosP(2.0 * dp);
+	return dp - 2.0 * ELL_NU  * (u_ellTrig.x * cd  - u_ellTrig.y * sd)  * sd
+	          + 2.0 * ELL_NU2 * (u_ellTrig.z * c2d - u_ellTrig.w * s2d) * s2d;
+}
+// 標高の変位方向：球＝β動径（従来の dir）・楕円体＝測地法線の β空間像 m=(cosφcosλ, sinφ·(a/b), cosφsinλ)
+//（S を通すと単位測地法線＝地形/建物が正しく「上」へ立つ。方向のみ＝全角 f32 三角で十分・ll は絶対経緯度）。
+vec3 liftDir(vec2 ll, vec3 dir) {
+	if (u_ell < 0.5) return dir;
+	float p = ll.y * D2R, l = ll.x * D2R, cp = cos(p);
+	return vec3(cp * cos(l), sin(p) * ELL_INV_R, cp * sin(l));
+}
+// β→φ 復元（deg）：レイキャスト系（球上の点→asin=β）から elev() など測地緯度の台帳を引く時に通す。球=恒等。
+float geoLat(float betaDeg) {
+	float b = betaDeg * D2R;
+	return betaDeg + u_ell * degrees(ELL_NU * sin(2.0 * b) + ELL_NU2 * sin(4.0 * b));
+}
 // 頂点3D−u_originPt を桁落ちなしで直接作る（cos(θ)-1=-2sin²(θ/2) で全項に小因子）。dDeg=原点相対(dlon,dlat)deg。
+// dlat は測地緯度の差分＝dBeta で β の差分へ（球では恒等）＝以降は純粋な球面幾何。
 vec3 deltaToRel(vec2 dDeg) {
-	float da = dDeg.x * D2R, db = dDeg.y * D2R;
+	float da = dDeg.x * D2R, db = dBeta(dDeg.y * D2R);
 	float sda = sinP(da), sdb = sinP(db);
 	float sha = sinP(da * 0.5), shb = sinP(db * 0.5);
 	float cdaM1 = -2.0 * sha * sha, cdbM1 = -2.0 * shb * shb;
@@ -122,7 +153,7 @@ void main() {
 	vec3 dir = u_originPt + rel;              // 絶対単位球点（front/fog 用＝粗くて可）
 	float base = elev(u_origin + dAnchor) * u_elevScale;     // 基準点の標高で足元を揃える（屋根水平・壁垂直）
 	float h = base + a_pos.z;                  // 地形標高 + 建物高さ
-	vec3 relW = rel + h * dir;                 // (dir*(1+h)) − 原点3D を相殺なしで（地形の上に建物を積む）
+	vec3 relW = rel + h * liftDir(ll, dir);    // (dir*(1+h)) − 原点3D を相殺なしで（地形の上に建物を積む。楕円体＝測地法線）
 	v_shade = a_shade;
 	v_front = dot(dir, u_eye) - 1.0;
 	v_fog = fogOf(u_originPt + relW);
@@ -199,7 +230,7 @@ void main() {
 	// RTE：原点の clip 位置は CPU(double) 錨 u_clipMesh（旧 u_mvp*vec4(u_meshOrigin,1) はシェーダ float32＝
 	// ≈1 同士の相殺で錨自体が高ズームに揺らいだ）。delta は小さく float32 精度フルのまま u_mvp で回す。
 	// リフト項 h*dir も delta 側に足す＝RTE を壊さない（gint projectDrape と同形）。
-	float lat = degrees(asin(clamp(dir.y, -1.0, 1.0)));
+	float lat = geoLat(degrees(asin(clamp(dir.y, -1.0, 1.0))));   // β球点→β→測地緯度（elev/リフト域は測地の台帳。球=恒等）
 	float lon = degrees(atan(dir.z, dir.x));
 	// DTM保証域(u_liftBounds)の中でだけリフト：混成窓の遠方セル等＝ALOS DSM（ビル天端込み）でリフトすると
 	// 屋上が斜面に裂ける（東新橋/汐留 高チルトで実測＝旧「形状崩壊」の再現）。境界は 0.05° の smoothstep で
@@ -207,7 +238,7 @@ void main() {
 	float inX = smoothstep(0.0, 0.05, min(lon - u_liftBounds.x, u_liftBounds.x + u_liftBounds.z - lon));
 	float inY = smoothstep(0.0, 0.05, min(lat - u_liftBounds.y, u_liftBounds.y + u_liftBounds.w - lat));
 	float h = elev(vec2(lon, lat)) * u_elevScale * inX * inY;
-	gl_Position = u_clipMesh + u_mvp * vec4(a_pos + h * dir, 0.0);
+	gl_Position = u_clipMesh + u_mvp * vec4(a_pos + h * liftDir(vec2(lon, lat), dir), 0.0);   // 楕円体＝測地法線で接地リフト
 	applyLogDepth();
 }`;
 
@@ -265,7 +296,7 @@ void main() {
 	float h = elev(a_ll) * df;
 	v_h = h;
 	v_ll = a_ll;
-	vec3 relW = rel + (h * u_elevScale) * dir;   // (dir*(1+h*scale)) − 原点3D を相殺なしで
+	vec3 relW = rel + (h * u_elevScale) * liftDir(a_ll, dir);   // (dir*(1+h*scale)) − 原点3D を相殺なしで（楕円体＝測地法線）
 	v_front = dot(dir, u_eye) - 1.0;
 	v_fog = fogOf(u_originPt + relW);
 	gl_Position = u_clipT + u_mvp * vec4(relW, 0.0);
@@ -462,6 +493,7 @@ uniform float u_interval;    // 主曲線間隔(m)
 uniform float u_major;       // 計曲線間隔(m)
 uniform float u_alpha;       // 全体の濃さ（pitch で 0 へフェード）
 uniform vec3 u_cColor;       // 茶(セピア)
+uniform float u_ell;         // 1=楕円体（レイ交点の asin=β → 測地緯度へ復元して elev を引く。球=0＝恒等）
 in vec2 v_ndc;
 out vec4 fragColor;
 const float R2D = 57.29577951308232;
@@ -488,8 +520,10 @@ void main() {
 	if (disc < 0.0) discard;                            // 球ミス
 	float t = (-bb - sqrt(disc)) / (2.0 * aa);
 	if (t < 0.0) discard;
-	vec3 P = A + t * d;                                 // 単位球上の点
-	vec2 ll = vec2(atan(P.z, P.x) * R2D, asin(clamp(P.y, -1.0, 1.0)) * R2D);   // lon,lat(deg)
+	vec3 P = A + t * d;                                 // 単位球（β球）上の点
+	float bl = asin(clamp(P.y, -1.0, 1.0));            // β(rad)
+	float latD = bl * R2D + u_ell * (0.0016792203863837047 * sin(2.0 * bl) + 0.0000014098905530233192 * sin(4.0 * bl)) * R2D;   // β→測地（glsl geoLat と同式）
+	vec2 ll = vec2(atan(P.z, P.x) * R2D, latD);         // lon,lat(deg・測地)
 	float e = elevAt(ll);
 	float landMask = smoothstep(0.5, 4.0, e);           // 海/データ無し(≈0)は等高線を出さない
 	if (landMask <= 0.0) discard;
@@ -523,7 +557,7 @@ void main() {
 	// 塗りだけ山の高さに浮くのを防ぐ（浮くと地平線の上に塗りの切れ端が漂う）
 	float df = 1.0 - smoothstep(u_fogFar * 0.8, u_fogFar * 2.0, distance(u_eye, dir));
 	float h = u_seaGate > 0.5 ? 0.0 : (elev(ll) + u_lift) * u_elevScale * df;
-	vec3 relW = rel + h * dir;                // (dir*(1+h)) − 原点3D を相殺なしで（標高で地形に貼りつく）
+	vec3 relW = rel + h * liftDir(ll, dir);   // (dir*(1+h)) − 原点3D を相殺なしで（標高で地形に貼りつく。楕円体＝測地法線）
 	v_color = a_color;
 	v_front = dot(dir, u_eye) - 1.0;          // >0 で手前半球（cull＝粗くて可）
 	v_fog = fogOf(u_originPt + relW);
@@ -590,7 +624,7 @@ const LINE_MAIN = /* glsl */`
 	float dfa = 1.0 - smoothstep(u_fogFar * 0.8, u_fogFar * 2.0, distance(u_eye, da));
 	float dfb = 1.0 - smoothstep(u_fogFar * 0.8, u_fogFar * 2.0, distance(u_eye, db));
 	float ha = (elev(la1) + u_lift) * u_elevScale * dfa, hb = (elev(la2) + u_lift) * u_elevScale * dfb;
-	vec3 relWa = rela + ha * da, relWb = relb + hb * db;         // (dir*(1+h)) − 原点3D を相殺なしで
+	vec3 relWa = rela + ha * liftDir(la1, da), relWb = relb + hb * liftDir(la2, db);   // (dir*(1+h)) − 原点3D を相殺なしで（楕円体＝測地法線）
 	vec3 wa = u_originPt + relWa, wb = u_originPt + relWb;       // 絶対（fog 用＝粗くて可）
 	vec4 ca = u_clipT + u_mvp * vec4(relWa, 0.0), cb = u_clipT + u_mvp * vec4(relWb, 0.0);   // RTE：mvp*[w,1] を相殺なしで
 	float fa = dot(da, u_eye) - 1.0, fb = dot(db, u_eye) - 1.0;

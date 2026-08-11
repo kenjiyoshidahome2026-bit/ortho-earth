@@ -25,12 +25,12 @@ struct GF {
 	texw: vec2i,       // (u_arc_w, u_meta_w)
 	originZr: f32,     // dot(原点3D,eye)-1（CPU double）＝zr相殺回避の錨
 	lodRank: f32,      // GPU Dynamic LOD 閾値（VW rank 0-63）
-	_pad0: vec2f,
+	ellT2: vec2f,      // 楕円体 dβ 錨 (cos2φ0, sin2φ0)（旧 _pad0。球＝(0,0)＝補正が厳密0）
 	vbb: vec4u,        // 視野 bbox（e7整数・線幅マージン込み）
 	flags: vec4u,      // has_pivot, use_vbb, pivot_w, fidstyle_w(0=無効)
 	depthP: vec4f,     // logCoef, fogFar, elevScale, hasElev
 	elevBounds: vec4f,
-	elevP: vec4f,      // edgeFade, 0, 0, 0
+	elevP: vec4f,      // edgeFade, cos4φ0, sin4φ0, ell(1=楕円体)＝予備3枠に dβ 錨の残りとゲート（球＝0,0,0）
 };
 @group(0) @binding(0) var<uniform> F: GF;
 struct Styles { style: array<vec4f, 256>, dash: array<vec4f, 256> };   // dash は xy のみ使用（uniform 配列は 16B stride）
@@ -70,9 +70,18 @@ fn sinP(x: f32) -> f32 {
 	let x2 = x * x;
 	return select(sin(x), x * (1.0 - x2 * (1.0 / 6.0) * (1.0 - x2 * (1.0 / 20.0))), abs(x) < 0.1);
 }
+fn cosP(x: f32) -> f32 { let s = sinP(0.5 * x); return 1.0 - 2.0 * s * s; }
+// 楕円体 dβ（GLSL gint 版と同式・球＝ellT2/elevP.yz=0 で補正が厳密0。F.trig は β の三角）
+fn dBeta(dp: f32) -> f32 {
+	if (F.elevP.w < 0.5) { return dp; }   // 球＝恒等を早期return＝補正の三角関数を毎頂点払わない
+	let sd = sinP(dp); let cd = cosP(dp); let s2d = sinP(2.0 * dp); let c2d = cosP(2.0 * dp);
+	return dp - 2.0 * 0.0016792203863837047    * (F.ellT2.x * cd  - F.ellT2.y * sd)  * sd
+	          + 2.0 * 0.0000014098905530233192 * (F.elevP.y * c2d - F.elevP.z * s2d) * s2d;
+}
 // 原点相対 RTE：頂点3D − 原点3D を桁落ちなしで直接作る（cos(θ)-1=-2sin²(θ/2)）
+// dlat は dBeta で β差分へ（球では恒等）＝以降は純粋な球面幾何（β単位球）
 fn deltaToRel(dlonDeg: f32, dlatDeg: f32) -> vec3f {
-	let da = dlonDeg * D2R; let db = dlatDeg * D2R;
+	let da = dlonDeg * D2R; let db = dBeta(dlatDeg * D2R);
 	let sda = sinP(da); let sdb = sinP(db);
 	let sha = sinP(da * 0.5); let shb = sinP(db * 0.5);
 	let cdaM1 = -2.0 * sha * sha; let cdbM1 = -2.0 * shb * shb;
@@ -131,9 +140,14 @@ fn projectDrape(idx: u32) -> Proj {
 	let zr = F.originZr + dot(rel, F.eye);
 	var relW = rel;
 	if (F.depthP.z > 0.0 && F.depthP.w > 0.5) {
-		let dir = F.originPt + rel;
+		var dir = F.originPt + rel;
 		let df = 1.0 - smoothstep(F.depthP.y * 0.8, F.depthP.y * 2.0, distance(F.eye, dir));
-		let h = elevAt(F.origin + dLL) * F.depthP.z * df;
+		let ll = F.origin + dLL;
+		let h = elevAt(ll) * F.depthP.z * df;
+		if (F.elevP.w > 0.5) {   // 楕円体＝測地法線で変位（renderer liftDir と同式＝基図の線と同じ高さ）
+			let p = ll.y * D2R; let l = ll.x * D2R; let cp = cos(p);
+			dir = vec3f(cp * cos(l), sin(p) * 1.0033640898209764, cp * sin(l));
+		}
 		relW = rel + h * dir;
 	}
 	let clip = F.clipT + F.mvp * vec4f(relW, 0.0);
@@ -444,8 +458,14 @@ fn sinP(x: f32) -> f32 {
 	let x2 = x * x;
 	return select(sin(x), x * (1.0 - x2 * (1.0 / 6.0) * (1.0 - x2 * (1.0 / 20.0))), abs(x) < 0.1);
 }
+fn cosP(x: f32) -> f32 { let s = sinP(0.5 * x); return 1.0 - 2.0 * s * s; }
+fn dBeta(dp: f32) -> f32 {   // 楕円体 dβ（arc 側と同一・球＝錨全0で厳密0）
+	let sd = sinP(dp); let cd = cosP(dp); let s2d = sinP(2.0 * dp); let c2d = cosP(2.0 * dp);
+	return dp - 2.0 * 0.0016792203863837047    * (F.ellT2.x * cd  - F.ellT2.y * sd)  * sd
+	          + 2.0 * 0.0000014098905530233192 * (F.elevP.y * c2d - F.elevP.z * s2d) * s2d;
+}
 fn deltaToRel(dlonDeg: f32, dlatDeg: f32) -> vec3f {
-	let da = dlonDeg * D2R; let db = dlatDeg * D2R;
+	let da = dlonDeg * D2R; let db = dBeta(dlatDeg * D2R);
 	let sda = sinP(da); let sdb = sinP(db);
 	let sha = sinP(da * 0.5); let shb = sinP(db * 0.5);
 	let cdaM1 = -2.0 * sha * sha; let cdbM1 = -2.0 * shb * shb;

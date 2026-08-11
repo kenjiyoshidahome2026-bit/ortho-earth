@@ -2,6 +2,7 @@
 // bindSharedUniforms のみ node-dependent（site 2＝投影 uniform）。他は純データ構造＝逐語で携行。
 
 import { s } from './state.js';
+import { betaOf, ellipsoidOn } from '../../camera.js';
 
 // ── site 2：cam 由来の mvp/eye/origin を uniform へ（v1 の rotate/scale/rsincos/jac を建て替え）──
 // mvp/eye/origin は worker が cam から一度だけ生成し data に載せる（site 3）。ここは受けて set するだけ。
@@ -22,8 +23,12 @@ export function bindSharedUniforms(gl, u, data, arcTex, metaTex, arcW, metaW, wi
 	gl.uniform1ui(u.u_ix_center, (Math.round((lon             + 180) * 1e7)) >>> 0);
 	gl.uniform1ui(u.u_iy_center, (Math.round((data.origin[1] +  90) * 1e7)) >>> 0);
 	// RTE の錨＝原点の三角比を CPU(double) で算出（shader の float32 で origin+delta を組まない）。
-	const lr = lon * Math.PI / 180, br = data.origin[1] * Math.PI / 180;
+	// 楕円体＝緯度側は β（更成緯度）の三角＋dβ 錨 u_ell_trig（球＝β=φ・錨は全0＝補正が厳密0）。
+	const lr = lon * Math.PI / 180, br = betaOf(data.origin[1]) * Math.PI / 180;
 	gl.uniform4f(u.u_origin_trig, Math.cos(lr), Math.sin(lr), Math.cos(br), Math.sin(br));
+	const ell = ellipsoidOn(), pr = data.origin[1] * Math.PI / 180;
+	if (u.u_ell_trig) gl.uniform4f(u.u_ell_trig, ...(ell ? [Math.cos(2 * pr), Math.sin(2 * pr), Math.cos(4 * pr), Math.sin(4 * pr)] : [0, 0, 0, 0]));
+	if (u.u_ell) gl.uniform1f(u.u_ell, ell ? 1 : 0);
 	// MVP相殺回避の錨（worker が float64 で算出）。欠落時は 0 でなく等価挙動へ退避不能なので必ず渡す。
 	if (data.clipT) gl.uniform4f(u.u_clipT, data.clipT[0], data.clipT[1], data.clipT[2], data.clipT[3]);
 	gl.uniform1f(u.u_origin_zr, data.originZr ?? 0.0);

@@ -11,7 +11,7 @@
 //   3本指以上は関知しない＝iPadOS のシステムジェスチャ（コピー/取り消し）に譲る。
 // ・座標は常に canvas ローカル（evXY）＝#map がページのどこに置かれても幾何が狂わない（埋め込み対応）。
 // アプリ固有の反応（identify・ホバー・フライト中断）はコールバックで注入＝エンジンは地図の掴み方だけを知る。
-import { cameraState, unproject, lonlatTo3D, WORLD_PX } from "./camera.js";
+import { cameraState, unproject, lonlatTo3D, WORLD_PX, betaOf, geodeticOf } from "./camera.js";
 import { dot, cross, add, scale } from "./mat.js";
 const D2R = Math.PI / 180, R2D = 180 / Math.PI;
 
@@ -49,16 +49,18 @@ export function createInput({ canvas, cam, size, dpr, maxPitch, zoomMin = 2, zoo
 		const k = scale(x, 1 / s);
 		const cs = Math.cos(th), sn = -Math.sin(th), oc = 1 - cs;     // -th回転＝R⁻¹（世界がaをbへ回る時、カメラ基底は逆へ回る）
 		const rot = v => add(add(scale(v, cs), scale(cross(k, v), sn)), scale(k, dot(k, v) * oc));   // Rodrigues
-		const lo = cam.center[0] * D2R, la = cam.center[1] * D2R;
-		const north = [-Math.sin(la) * Math.cos(lo), Math.cos(la), -Math.sin(la) * Math.sin(lo)];    // camera.jsと同式
+		// この関数の内部は徹頭徹尾 β単位球の幾何（lonlatTo3D＝β球点・接基底も β で組む）。
+		// 出入口だけ測地緯度と変換（球では恒等＝従来とビット同値）。
+		const lo = cam.center[0] * D2R, la = betaOf(cam.center[1]) * D2R;
+		const north = [-Math.sin(la) * Math.cos(lo), Math.cos(la), -Math.sin(la) * Math.sin(lo)];    // β球の接基底（camera.jsの式のβ版）
 		const east = [-Math.sin(lo), 0, Math.cos(lo)];
 		const f = add(scale(north, Math.cos(cam.bearing)), scale(east, Math.sin(cam.bearing)));      // 画面上方向の地表向き
 		const T2 = rot(lonlatTo3D(cam.center[0], cam.center[1])), f2 = rot(f);
-		const lat2 = Math.asin(Math.max(-1, Math.min(1, T2[1]))) * R2D, lon2 = Math.atan2(T2[2], T2[0]) * R2D;
+		const lat2 = Math.asin(Math.max(-1, Math.min(1, T2[1]))) * R2D, lon2 = Math.atan2(T2[2], T2[0]) * R2D;   // lat2＝β
 		const lo2 = lon2 * D2R, la2 = lat2 * D2R;
 		const north2 = [-Math.sin(la2) * Math.cos(lo2), Math.cos(la2), -Math.sin(la2) * Math.sin(lo2)];
 		const east2 = [-Math.sin(lo2), 0, Math.cos(lo2)];
-		cam.center = [lon2, lat2];
+		cam.center = [lon2, geodeticOf(lat2)];
 		cam.bearing = Math.atan2(dot(f2, east2), dot(f2, north2));    // 毎回ベクトルから再導出＝累積誤差なし
 	}
 
@@ -75,7 +77,7 @@ export function createInput({ canvas, cam, size, dpr, maxPitch, zoomMin = 2, zoo
 	function orbitBy(fx, fy, tx, ty) {
 		const dx = (tx - fx) * ORBIT_RATE, dy = (ty - fy) * ORBIT_RATE, th = Math.hypot(dx, dy);
 		if (th < 1e-9) return;
-		const lo = cam.center[0] * D2R, la = cam.center[1] * D2R;
+		const lo = cam.center[0] * D2R, la = betaOf(cam.center[1]) * D2R;   // β球の接基底（rotateGrab と同じ流儀）
 		const north = [-Math.sin(la) * Math.cos(lo), Math.cos(la), -Math.sin(la) * Math.sin(lo)];
 		const east = [-Math.sin(lo), 0, Math.cos(lo)];
 		const cb = Math.cos(cam.bearing), sb = Math.sin(cam.bearing);
@@ -85,8 +87,8 @@ export function createInput({ canvas, cam, size, dpr, maxPitch, zoomMin = 2, zoo
 		const t = scale(add(scale(right, -dx), scale(up, dy)), 1 / th);
 		const T = lonlatTo3D(cam.center[0], cam.center[1]);
 		const T2 = add(scale(T, Math.cos(th)), scale(t, Math.sin(th)));   // 厳密回転（近似の伸びなし）
-		const lat2 = Math.asin(Math.max(-1, Math.min(1, T2[1]))) * R2D, lon2 = Math.atan2(T2[2], T2[0]) * R2D;
-		rotateGrab([lon2, lat2], cam.center);
+		const lat2 = Math.asin(Math.max(-1, Math.min(1, T2[1]))) * R2D, lon2 = Math.atan2(T2[2], T2[0]) * R2D;   // lat2＝β
+		rotateGrab([lon2, geodeticOf(lat2)], cam.center);   // rotateGrab の口は測地緯度（球では恒等）
 		onMove();
 	}
 

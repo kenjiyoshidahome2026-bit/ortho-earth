@@ -13,7 +13,7 @@ import { computeDrawData, zoomInRange } from "../gl/gint/drawdata.js";
 import { checkZoomRange } from "../gl/gint/utility.js";
 import { bakeBase, bakeTier, tierPlan } from "../gl/gint/bake.js";
 import { findPolygon } from "geopbf/identify";
-import { unproject } from "../camera.js";
+import { unproject, betaOf, ellipsoidOn } from "../camera.js";
 import { GINT_LINE_WGSL, GINT_STENCIL_WGSL, GINT_POINT_WGSL, GINT_IDRESOLVE_WGSL } from "./gintwgsl.js";
 
 const OUTLINE_ZOOM = 13;   // 既定の切替z（passes.js と同値）
@@ -468,7 +468,8 @@ export function createGintLayerGPU(host, { requestDraw } = {}) {
 		gfF.set(d.mvp, o);
 		gfF[o + 16] = d.clipT[0]; gfF[o + 17] = d.clipT[1]; gfF[o + 18] = d.clipT[2]; gfF[o + 19] = d.clipT[3];
 		const lon = ((d.origin[0] % 360) + 540) % 360 - 180;
-		const lr = lon * Math.PI / 180, br = d.origin[1] * Math.PI / 180;
+		// 楕円体＝緯度側は β（更成緯度）の三角＋dβ 錨（2φ/4φ 三角は GF の予備枠へ。球＝β=φ・錨は全0）
+		const lr = lon * Math.PI / 180, br = betaOf(d.origin[1]) * Math.PI / 180;
 		gfF[o + 20] = Math.cos(lr); gfF[o + 21] = Math.sin(lr); gfF[o + 22] = Math.cos(br); gfF[o + 23] = Math.sin(br);
 		gfF[o + 24] = d.eye[0]; gfF[o + 25] = d.eye[1]; gfF[o + 26] = d.eye[2]; gfF[o + 27] = 0;
 		gfF[o + 28] = d.originPt[0]; gfF[o + 29] = d.originPt[1]; gfF[o + 30] = d.originPt[2]; gfF[o + 31] = 0;
@@ -477,7 +478,9 @@ export function createGintLayerGPU(host, { requestDraw } = {}) {
 		gfU[o + 36] = (Math.round((lon + 180) * 1e7)) >>> 0;
 		gfU[o + 37] = (Math.round((d.origin[1] + 90) * 1e7)) >>> 0;
 		gfI[o + 38] = s.TEX_ARC_W; gfI[o + 39] = s.TEX_META_W;
-		gfF[o + 40] = d.originZr ?? 0; gfF[o + 41] = lodRank; gfF[o + 42] = 0; gfF[o + 43] = 0;
+		const ell = ellipsoidOn(), pr = d.origin[1] * Math.PI / 180;
+		gfF[o + 40] = d.originZr ?? 0; gfF[o + 41] = lodRank;
+		gfF[o + 42] = ell ? Math.cos(2 * pr) : 0; gfF[o + 43] = ell ? Math.sin(2 * pr) : 0;   // ellT2（旧 _pad0）
 		const vb = s.lastViewBbox;
 		if (vb) {
 			gfU[o + 44] = Math.max(0, vb[0] - 10000); gfU[o + 45] = Math.max(0, vb[1] - 10000);
@@ -490,7 +493,8 @@ export function createGintLayerGPU(host, { requestDraw } = {}) {
 		gfF[o + 52] = dep?.logCoef ?? 0; gfF[o + 53] = dep?.fogFar ?? 1e9; gfF[o + 54] = dep?.elevScale ?? 0; gfF[o + 55] = dep?.hasElev ?? 0;
 		const b = dep?.elevBounds;
 		gfF[o + 56] = b?.[0] ?? 0; gfF[o + 57] = b?.[1] ?? 0; gfF[o + 58] = b?.[2] ?? 1; gfF[o + 59] = b?.[3] ?? 1;
-		gfF[o + 60] = dep?.edgeFade ?? 0; gfF[o + 61] = 0; gfF[o + 62] = 0; gfF[o + 63] = 0;
+		gfF[o + 60] = dep?.edgeFade ?? 0;   // elevP = (edgeFade, cos4φ0, sin4φ0, ell)＝予備3枠へ dβ 錨の残りとゲート
+		gfF[o + 61] = ell ? Math.cos(4 * pr) : 0; gfF[o + 62] = ell ? Math.sin(4 * pr) : 0; gfF[o + 63] = ell ? 1 : 0;
 	}
 	const gpAB = new ArrayBuffer(GP_SLOT * 11);
 	const gpF = new Float32Array(gpAB), gpI = new Int32Array(gpAB);

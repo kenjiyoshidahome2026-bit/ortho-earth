@@ -9,6 +9,7 @@ localStorage.setItem("oj.hint", "closed");
 <script type="module">
 import orthoJapan from "../app.js";
 const t = [], ok = (n, c) => t.push((c ? "ok:" : "NG:") + n);
+window.addEventListener("error", e => t.push("ERR:" + String(e.message).replace(/\s+/g, "_")));
 const C = () => document.getElementById("c");
 const click = (x, y) => { const o = { bubbles: true, cancelable: true, clientX: x, clientY: y, pointerId: 1, button: 0 }; C().dispatchEvent(new PointerEvent("pointerdown", o)); C().dispatchEvent(new PointerEvent("pointerup", o)); };
 const rd = () => document.getElementById("measure-readout");

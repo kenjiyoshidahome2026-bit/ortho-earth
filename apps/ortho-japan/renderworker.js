@@ -2,7 +2,7 @@
 // worker-driven：自前 rAF で「最新の cam から mvp 生成 → 地図→ラベルを同じ frame で描画」。
 // main は cam を投げるだけ（往復待ちを排し、溜まった draw は最新一枚に畳む＝低レイテンシ）。
 // 描画フレームは軽い処理のみ（mvp生成+draw）。重い生成は main/他worker が停止後に行い set で渡す。
-import { createRenderer, createLabelLayer, createTerrain, createGintLayer } from "ortho-core";
+import { createRenderer, createLabelLayer, createTerrain, createGintLayer, setEllipsoid } from "ortho-core";
 import { shieldFor } from "./shields.js";   // 地図記号＝日本の語彙。この静的importがある限り renderworker は app の合成点
 
 let renderer = null, labelLayer = null, canvas = null, labelCanvas = null;
@@ -155,6 +155,7 @@ const dispatch = e => {
 	switch (m.type) {
 		case "init":
 			if (m.ctrlPort) m.ctrlPort.onmessage = ev => dispatch(ev);   // iOS轍：直結postMessageはinit以降消える＝制御は全部このポート経由（同じディスパッチャ＝initQueue順序保証も共通）
+			if (m.ell) setEllipsoid(true);   // 楕円体（?ell=1）＝renderer/terrain 生成より前に（camera.js のモジュール状態＝この worker 文脈でも main と同値に）
 			canvas = m.canvas;                                   // GL/GPU 用 OffscreenCanvas
 			labelCanvas = m.labelCanvas;                         // ラベル用 OffscreenCanvas（2D）＝バックエンド非依存
 			labelLayer = createLabelLayer(labelCanvas, { shieldFor, elevBase: m.elevBase });

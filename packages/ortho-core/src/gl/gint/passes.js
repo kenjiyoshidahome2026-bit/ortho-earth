@@ -6,6 +6,7 @@
 
 import { s, DEF_STYLE, DEF_DASH, DEF_FILL, DEF_MASK } from './state.js';
 import { bindSharedUniforms, bindPivot } from './utility.js';
+import { betaOf, ellipsoidOn } from '../../camera.js';
 import { canUseIdFill, renderIdFill } from './idfill.js';
 
 // 低ズームでアウトライン→ベタ塗りへ切替えるズーム閾値の既定（データ粒度から導出した s.outlineZoom を優先）。
@@ -132,9 +133,12 @@ function bindPointUniforms(u, data) {
 	gl.uniform1f(u.u_pt_radius, data.ptRadius ?? 1.5);
 	gl.uniform1ui(u.u_ix_center, (Math.round((lon            + 180) * 1e7)) >>> 0);
 	gl.uniform1ui(u.u_iy_center, (Math.round((data.origin[1] +  90) * 1e7)) >>> 0);
-	// RTE の錨＝原点の三角比＋MVP相殺回避の錨（arc 側 bindSharedUniforms と同一）。
-	const lr = lon * Math.PI / 180, br = data.origin[1] * Math.PI / 180;
+	// RTE の錨＝原点の三角比＋MVP相殺回避の錨（arc 側 bindSharedUniforms と同一）。楕円体＝β三角＋dβ錨。
+	const lr = lon * Math.PI / 180, br = betaOf(data.origin[1]) * Math.PI / 180;
 	gl.uniform4f(u.u_origin_trig, Math.cos(lr), Math.sin(lr), Math.cos(br), Math.sin(br));
+	const pr = data.origin[1] * Math.PI / 180, pell = ellipsoidOn();
+	if (u.u_ell_trig) gl.uniform4f(u.u_ell_trig, ...(pell ? [Math.cos(2 * pr), Math.sin(2 * pr), Math.cos(4 * pr), Math.sin(4 * pr)] : [0, 0, 0, 0]));
+	if (u.u_ell) gl.uniform1f(u.u_ell, pell ? 1 : 0);
 	if (data.clipT) gl.uniform4f(u.u_clipT, data.clipT[0], data.clipT[1], data.clipT[2], data.clipT[3]);
 	gl.uniform1f(u.u_origin_zr, data.originZr ?? 0.0);
 }

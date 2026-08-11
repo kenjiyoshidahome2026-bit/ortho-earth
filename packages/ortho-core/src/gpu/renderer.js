@@ -12,14 +12,14 @@
 // ・標高アトラスは r16float＝CPU で f32→f16 変換（GL は texImage2D がドライバ変換。WebGPU は生バイト渡し）。
 //   r16float はコアで filterable＝GL 版が R16F を選んだ理由（全デバイス線形補間）がそのまま活きる。
 // ・MSAA 4x 明示（GL の canvas antialias:true と同格）。リサイズは getCurrentTexture が canvas 寸法へ自動追随。
-import { cameraState, lonlatTo3D, project } from "../camera.js";
+import { cameraState, lonlatTo3D, project, betaOf, ellipsoidOn } from "../camera.js";
 import { seaFbReal } from "../scene.js";
 import * as mat from "../mat.js";
 import { FILL_WGSL, LINE_WGSL, GLOBE_WGSL, TERRAIN_WGSL, BUILDING_WGSL, CONTOUR_WGSL, PLATEAU_WGSL, SKY_WGSL, OVERLAY_WGSL } from "./wgsl.js";
 
 const CORNERS = new Float32Array([0, -1, 0, 1, 1, -1, 1, -1, 0, 1, 1, 1]); // 6頂点×(end,side)＝gl/renderer.js と同一
 const FRAME_SLOT = 512;    // frame UBO のスロット境界（実使用320B・minUniformBufferOffsetAlignment 上限256の倍数）
-const FRAME_F32 = 80;      // 320B/4（wgsl.js Frame と厳密対応。詰め順は packFrame 参照。末尾 mesh/farBounds/farP vec4f 含む）
+const FRAME_F32 = 88;      // 352B/4（wgsl.js Frame と厳密対応。詰め順は packFrame 参照。末尾 mesh/farBounds/farP/ellTrig/ellP vec4f 含む）
 const SLOT = { base: 0, main: 1, terrain: 2, bld: 3, terrainFar: 4 };   // terrain/bld は main と同 origin・fog だけ違うスロット。terrainFar＝遠景メッシュパス（mesh=遠窓・farPass=1）
 const PARAM_SLOT = 256;    // DrawP（3×vec4=48B）のスロット境界
 const ROLE = { normal: 0, water: 1, seaFb: 2, terrain: 3, bld: 4, contour: 5, plateau: 6, fadeNormal: 7, fadeWater: 8, fadeSeaFb: 9, fadeBld: 10 };   // fade*=クロスフェード中の新シーン用（p0.w=α）
@@ -706,7 +706,8 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 		const oPt = lonlatTo3D(origin[0], origin[1]);
 		const cT = mat.transform(st.mvp, [oPt[0], oPt[1], oPt[2], 1]);
 		f[32] = cT[0]; f[33] = cT[1]; f[34] = cT[2]; f[35] = cT[3];
-		const lr = origin[0] * Math.PI / 180, br = origin[1] * Math.PI / 180;
+		// 楕円体＝緯度側は β（更成緯度）の三角（球＝β=φ＝従来値。glsl 側 setCommonUniforms と同判断）
+		const lr = origin[0] * Math.PI / 180, br = betaOf(origin[1]) * Math.PI / 180;
 		f[36] = Math.cos(lr); f[37] = Math.sin(lr); f[38] = Math.cos(br); f[39] = Math.sin(br);
 		f[40] = oPt[0]; f[41] = oPt[1]; f[42] = oPt[2]; f[43] = 0;
 		f[44] = st.eye[0]; f[45] = st.eye[1]; f[46] = st.eye[2]; f[47] = 0;
@@ -721,6 +722,11 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 		// 遠景層（far）：bounds/has/edgeFade は全スロット共通（elev() のフォールバック参照）・farPass は terrainFar slot のみ 1
 		f[72] = far.bounds[0]; f[73] = far.bounds[1]; f[74] = far.bounds[2]; f[75] = far.bounds[3];
 		f[76] = far.has; f[77] = far.edgeFade || 0; f[78] = farPass ? 1 : 0; f[79] = 0;
+		// 楕円体 dβ 錨（原点の測地緯度 2φ/4φ 三角・CPU double）＋ゲート。球＝全0＝シェーダ補正が厳密0
+		const _ell = ellipsoidOn(), _pr = origin[1] * Math.PI / 180;
+		f[80] = _ell ? Math.cos(2 * _pr) : 0; f[81] = _ell ? Math.sin(2 * _pr) : 0;
+		f[82] = _ell ? Math.cos(4 * _pr) : 0; f[83] = _ell ? Math.sin(4 * _pr) : 0;
+		f[84] = _ell ? 1 : 0; f[85] = 0; f[86] = 0; f[87] = 0;
 		return f;
 	}
 	// DrawP N_ROLESスロットを一括で書く（256Bストライド・各48B使用）

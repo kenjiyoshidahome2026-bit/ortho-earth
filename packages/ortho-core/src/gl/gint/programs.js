@@ -67,6 +67,20 @@ float sinP(float x) {
 	float x2 = x * x;
 	return (abs(x) < 0.1) ? x * (1.0 - x2 * (1.0 / 6.0) * (1.0 - x2 * (1.0 / 20.0))) : sin(x);
 }
+float cosP(float x) { float s = sinP(0.5 * x); return 1.0 - 2.0 * s * s; }
+// 楕円体（?ell=1・段階B）＝renderer glsl.js と同式：dlat（測地緯度差分）→dβ（更成緯度差分）の閉形式差分。
+// 球＝u_ell_trig=vec4(0)（GL既定値も0）で補正が厳密0。u_origin_trig は β の三角を運ぶ（drawdata が配る）。
+const float ELL_NU  = 0.0016792203863837047;
+const float ELL_NU2 = 0.0000014098905530233192;
+const float ELL_INV_R = 1.0033640898209764;
+uniform vec4  u_ell_trig;   // (cos2φ0, sin2φ0, cos4φ0, sin4φ0)（CPU double・原点の測地緯度）。球=vec4(0)
+uniform float u_ell;        // 1=楕円体（ドレープの変位方向・dβ早期returnのゲート）。球=0
+float dBeta(float dp) {
+	if (u_ell < 0.5) return dp;   // 球＝恒等を早期return＝補正の三角関数を毎頂点払わない
+	float sd = sinP(dp), cd = cosP(dp), s2d = sinP(2.0 * dp), c2d = cosP(2.0 * dp);
+	return dp - 2.0 * ELL_NU  * (u_ell_trig.x * cd  - u_ell_trig.y * sd)  * sd
+	          + 2.0 * ELL_NU2 * (u_ell_trig.z * c2d - u_ell_trig.w * s2d) * s2d;
+}
 
 // 原点相対 RTE：絶対経緯度を float32 で組み立てない（u_origin.x≈140 の加算は ulp≈1.8m の格子スナップ＝
 // 原点がカメラ追従で毎フレーム動く→頂点が格子間を飛ぶ＝パンで這う揺らぎ）。原点の三角比（u_origin_trig＝
@@ -74,8 +88,9 @@ float sinP(float x) {
 // 頂点3D − 原点3D を「桁落ちなし」で直接作る（絶対 dir を組んで引くと ≈1 同士の相殺で高ズームに揺らぎ）。
 // cos(θ)-1 は -2sin²(θ/2) の恒等式で作り、全項に小因子を残す＝dlon/dlat→0 で rel=0 が厳密。
 // 原点三角比 u_origin_trig=(cosLon0,sinLon0,cosLat0,sinLat0)。原点3D=(cLat cLon, sLat, cLat sLon)。
+// dlat は dBeta で β差分へ（球では恒等）＝以降は純粋な球面幾何（β単位球）。
 vec3 deltaToRel(float dlon_deg, float dlat_deg) {
-	float da = dlon_deg * D2R, db = dlat_deg * D2R;
+	float da = dlon_deg * D2R, db = dBeta(dlat_deg * D2R);
 	float sda = sinP(da), sdb = sinP(db);
 	float sha = sinP(da * 0.5), shb = sinP(db * 0.5);
 	float cdaM1 = -2.0 * sha * sha, cdbM1 = -2.0 * shb * shb;   // cos(da)-1, cos(db)-1（相殺なし）
@@ -149,7 +164,12 @@ vec3 projectDrape(uint idx, out float clipW) {
 	if (u_elevScale > 0.0 && u_hasElev > 0.5) {
 		vec3 dir = u_origin_pt + rel;             // 絶対単位球点（elev/df 用＝粗くて可）
 		float df = 1.0 - smoothstep(u_fogFar * 0.8, u_fogFar * 2.0, distance(u_eye, dir));
-		float h = elevAt(u_origin + dLL) * u_elevScale * df;
+		vec2 ll = u_origin + dLL;
+		float h = elevAt(ll) * u_elevScale * df;
+		if (u_ell > 0.5) {                        // 楕円体＝測地法線で変位（renderer liftDir と同式＝基図の線と同じ高さ）
+			float p = ll.y * D2R, l = ll.x * D2R, cp = cos(p);
+			dir = vec3(cp * cos(l), sin(p) * ELL_INV_R, cp * sin(l));
+		}
 		relW = rel + h * dir;                     // (dir*(1+h)) − 原点3D を相殺なしで
 	}
 	vec4 clip = u_clipT + u_mvp * vec4(relW, 0.0);
@@ -261,9 +281,19 @@ float sinP(float x) {
 	float x2 = x * x;
 	return (abs(x) < 0.1) ? x * (1.0 - x2 * (1.0 / 6.0) * (1.0 - x2 * (1.0 / 20.0))) : sin(x);
 }
+float cosP(float x) { float s = sinP(0.5 * x); return 1.0 - 2.0 * s * s; }
+// 楕円体 dβ（arc 側と同一・球=u_ell=0 で早期return＝三角関数を払わない）
+uniform vec4 u_ell_trig;
+uniform float u_ell;
+float dBeta(float dp) {
+	if (u_ell < 0.5) return dp;
+	float sd = sinP(dp), cd = cosP(dp), s2d = sinP(2.0 * dp), c2d = cosP(2.0 * dp);
+	return dp - 2.0 * 0.0016792203863837047    * (u_ell_trig.x * cd  - u_ell_trig.y * sd)  * sd
+	          + 2.0 * 0.0000014098905530233192 * (u_ell_trig.z * c2d - u_ell_trig.w * s2d) * s2d;
+}
 // 原点相対 RTE（arc 側 deltaToRel と同一）：頂点3D−原点3D を桁落ちなしで直接作る（cos-1=-2sin²(θ/2)）。
 vec3 deltaToRel(float dlon_deg, float dlat_deg) {
-	float da = dlon_deg * D2R, db = dlat_deg * D2R;
+	float da = dlon_deg * D2R, db = dBeta(dlat_deg * D2R);
 	float sda = sinP(da), sdb = sinP(db);
 	float sha = sinP(da * 0.5), shb = sinP(db * 0.5);
 	float cdaM1 = -2.0 * sha * sha, cdbM1 = -2.0 * shb * shb;
@@ -623,11 +653,12 @@ const SHARED_UNIFORM_NAMES = [
 	'u_arc_tex','u_meta_tex','u_arc_w','u_meta_w',
 	'u_mvp','u_eye','u_origin','u_origin_trig','u_clipT','u_origin_zr','u_viewport',
 	'u_ix_center','u_iy_center','u_lod_rank',
+	'u_ell_trig','u_ell',   // 楕円体 dβ 錨＋変位方向ゲート（球=全0=GL既定値＝従来動作）
 ];
 const PT_UNIFORM_NAMES = [
 	'u_pt_tex','u_pt_meta_tex','u_pt_w',
 	'u_mvp','u_eye','u_origin','u_origin_trig','u_clipT','u_origin_zr','u_viewport','u_pt_radius',
-	'u_ix_center','u_iy_center',
+	'u_ix_center','u_iy_center','u_ell_trig','u_ell',
 ];
 
 export function createGintPrograms(gl) {

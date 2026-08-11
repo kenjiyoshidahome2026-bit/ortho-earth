@@ -9,14 +9,13 @@
 // 縮尺の正しさは「切り出す地表幅 ↔ 紙の地図幅(mm)」の対応で構成的に保証（解像度は精細度にだけ効く）。
 import { keyBusy } from "./keys.js";
 import { composeLayersToCanvas } from "./compose.js";
-import { WORLD_PX } from "ortho-core";
+import { WORLD_PX, primeVerticalRadius } from "ortho-core";
 
 // 印刷の出典＝地理院ベクトルタイルの一行のみ。真俯瞰(pitch0)は建物3D・地形サーフェスを描かない
 // （elevScaleEff=0）。標高(AW3D30)は等高線のベクタ線としてだけ写る＝地理院の等高線と同じ位置づけで
 // 出典は基図一行に集約（PLATEAU/AW3D30 の陰影・立体は紙面に出ないので表記不要）。
 const PRINT_ATTR = ["出典：国土地理院最適化ベクトルタイル（提供実験）を加工して作成"];
 
-const R = 6371008.8;
 export const PAPERS = { a4: [210, 297], a3: [297, 420] };            // [短辺, 長辺] mm
 const SCALES = [2500, 5000, 10000, 25000, 50000, 100000, 250000];    // 1:S
 const DPIS = [150, 240, 300];                                        // 紙面キャンバスの解像度（select）
@@ -32,10 +31,12 @@ export function layoutFor(paper = "a4", orient = "landscape") {
 	return { W, H, outer, inner, cap };
 }
 
-// 縮尺→カメラz：m/csspx = 2πR/(2^z·WORLD_PX)（正射z＝dpr非依存・256px世界）を「紙の地図幅(mm)×縮尺S＝切り出しCSS幅の地表幅」で解く。
-export function zoomForScale(S, mapWmm, cropCssW) {
+// 縮尺→カメラz：m/csspx = 2πN(φ)/(2^z·WORLD_PX)（正射z＝dpr非依存・256px世界）を「紙の地図幅(mm)×縮尺S＝
+// 切り出しCSS幅の地表幅」で解く。R は WGS84 の東西曲率半径 N(φ)＝図郭中心の緯度で評価（2026-08-11・段階A）：
+// 旧・固定球 6371008.8 は本州で約0.2%の縮尺誤差（1:25,000 の紙面25cmで約0.5mm）＝地形図を名乗る精度に整えた。
+export function zoomForScale(S, mapWmm, cropCssW, latDeg = 35) {
 	const groundW = mapWmm / 1000 * S;   // 地表幅[m]
-	return Math.log2(2 * Math.PI * R * cropCssW / (WORLD_PX * groundW));
+	return Math.log2(2 * Math.PI * primeVerticalRadius(latDeg) * cropCssW / (WORLD_PX * groundW));
 }
 
 // 度→度分秒（"北緯35°41′07″" 形式）。秒の繰り上がり処理つき。
@@ -219,7 +220,7 @@ export async function pdfFromCanvas(canvas, Wmm, Hmm) {
 }
 
 export function print({ capture, signal, btn } = {}) {
-	const mapEl = this.mapEl;
+	const mapEl = this.mapEl, cam = this.cam;   // cam＝縮尺の緯度評価（zoomForScale の N(φ)）に使う
 	const font = (getComputedStyle(document.documentElement).getPropertyValue("--qm-font") || "system-ui").trim();
 
 	// モーダル（プレビュー＋設定）。#map 直下の後置＝DOM順で上（z-index不使用の掟）。
@@ -260,7 +261,7 @@ export function print({ capture, signal, btn } = {}) {
 			const cw = mapEl.clientWidth, ch = mapEl.clientHeight;
 			let w = Math.min(cw * 0.96, ch * 0.96 * asp);
 			const cropCss = { w: Math.round(w), h: Math.round(w / asp) };
-			const zoom = zoomForScale(S, L.inner.w, cropCss.w);
+			const zoom = zoomForScale(S, L.inner.w, cropCss.w, cam.center[1]);
 			const mapDpi = Math.round(cropCss.w * (window.devicePixelRatio || 1) / (L.inner.w / 25.4));
 			note(`平面図を作成中…（カメラz ${zoom.toFixed(1)}・タイル読み込み待ち）`);
 			const cap = await capture({ zoom, cropCss });

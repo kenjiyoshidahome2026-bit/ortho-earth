@@ -9,6 +9,12 @@ import { Cache } from "native-bucket";
 import { opfsStore } from "./plateaufs.js";
 
 const EARTH_M = 6371000;   // main.js の EARTH_M と同値（建物の接地計算に使う単位球換算）
+// ── 楕円体（?ell=1・段階B 2026-08-11）：init(ell) で設定。世界＝β（更成緯度）単位球×S（camera.js の分解）＝
+// このworkerは「β単位球上の点＋測地法線リフト」を直接組む（旧・球への潰し直しが不要＝ECEF→測地の厳密解を
+// そのまま活かす）。キャッシュ（IDB/OPFS/#far）は post-transform 座標を焼くため ell 印で世代分離（下記 meta.ell）。
+let ELL = false, EARTH_W = EARTH_M;                    // EARTH_W＝m→世界単位の換算半径（球6371000／楕円体a=6378137）
+const ELL_RAX = 1 - 1 / 298.257223563;                 // b/a
+const geoLatOf = beta => Math.atan2(Math.sin(beta), ELL_RAX * Math.cos(beta));   // β→測地（rad）。ELL時のみ通す
 // バッチ/並行度は低メモリ端末で縮小（init lowMem で上書き）：デコードの過渡メモリ（Float64座標+BigInt dedup+
 // glTFバッファ）はバッチ規模にほぼ比例＝64タイル/並行8はデスクトップ実測~2.5GB/区で、iOSのタブ予算(~1.4GB)を
 // 超え jetsam（デモ上演中のタブ再読み込み＝iPhone 16 Pro 実機で確認）。16タイル/並行4＝ピーク~1/4。
@@ -434,9 +440,14 @@ async function decodeBatch(base, leaves, wardMask, wardBbox, onTile = null, brid
 	const wpos = new Float64Array(geo.length);
 	let ox = 0, oy = 0, oz = 0;
 	for (let i = 0; i < M; i++) {
-		const lon = geo[i*3], lat = geo[i*3+1], cb = Math.cos(lat);
-		const r = 1 + (geo[i*3+2] - (brid ? minH : minAlt[find(i)])) / EARTH_M;   // 基部からの相対高さ＝剛体接地（橋梁はバッチ最低点＝部材の相対高さ保存）
-		const x = cb*Math.cos(lon)*r, y = Math.sin(lat)*r, z = cb*Math.sin(lon)*r;
+		const lon = geo[i*3], lat = geo[i*3+1], cb = Math.cos(lat), sp = Math.sin(lat);
+		const hr = (geo[i*3+2] - (brid ? minH : minAlt[find(i)])) / EARTH_W;   // 基部からの相対高さ＝剛体接地（橋梁はバッチ最低点＝部材の相対高さ保存）
+		let x, y, z;
+		if (!ELL) { const r = 1 + hr; x = cb*Math.cos(lon)*r; y = sp*r; z = cb*Math.sin(lon)*r; }
+		else {   // β単位球の面点 u(β) ＋ 測地法線の β空間像 m=(cbcosλ, sinφ/r, cbsinλ) に沿うリフト（S は renderer の mvp が畳む）
+			const w = Math.hypot(cb, ELL_RAX * sp), horiz = cb / w + hr * cb;
+			x = horiz * Math.cos(lon); y = ELL_RAX * sp / w + hr * sp / ELL_RAX; z = horiz * Math.sin(lon);
+		}
 		wpos[i*3] = x; wpos[i*3+1] = y; wpos[i*3+2] = z; ox += x; oy += y; oz += z;
 	}
 	const origin = [ox / M, oy / M, oz / M];
@@ -504,7 +515,8 @@ function maskCellsOf(mesh, wardBbox) {
 	for (let i = 0; i < n; i++) {
 		const x = pos[i * 3] + o[0], y = pos[i * 3 + 1] + o[1], z = pos[i * 3 + 2] + o[2];
 		const r = Math.hypot(x, y, z) || 1;
-		lats[i] = Math.asin(Math.max(-1, Math.min(1, y / r))) * R2Dg;
+		const bl = Math.asin(Math.max(-1, Math.min(1, y / r)));
+		lats[i] = (ELL ? geoLatOf(bl) : bl) * R2Dg;   // ELL＝asin が返すのは β＝測地へ復元（マスクの台帳は測地経緯度）
 		lons[i] = Math.atan2(z, x) * R2Dg;
 	}
 	const bm = new Uint8Array(MASK_N * MASK_N);
@@ -564,12 +576,13 @@ function farBoxesOf(mesh) {
 		const a = find(weld[idx[t]]), b = find(weld[idx[t + 1]]), c = find(weld[idx[t + 2]]);
 		if (b !== a) par[b] = a; if (c !== find(a)) par[find(c)] = find(a);
 	}
-	const R2Dg = 180 / Math.PI, EARTH = 6371000;
+	const R2Dg = 180 / Math.PI, EARTH = EARTH_W;
 	const comp = new Map();   // root → [lonMin,latMin,lonMax,latMax,hMax, hMin]（hMinは先細り判定用・保存形式は先頭5要素のまま）
 	for (let i = 0; i < n; i++) {
 		const x = pos[i * 3] + o[0], y = pos[i * 3 + 1] + o[1], z = pos[i * 3 + 2] + o[2];
 		const r = Math.hypot(x, y, z) || 1;
-		const lat = Math.asin(Math.max(-1, Math.min(1, y / r))) * R2Dg, lon = Math.atan2(z, x) * R2Dg;
+		const bl = Math.asin(Math.max(-1, Math.min(1, y / r)));
+		const lat = (ELL ? geoLatOf(bl) : bl) * R2Dg, lon = Math.atan2(z, x) * R2Dg;   // ELL＝β→測地（h の r-1 は β球基準の近似＝far箱の高さ用途に十分）
 		const h = (r - 1) * EARTH;
 		const k = find(weld[i]);   // ⚠素の find(i) は溶接された重複頂点が孤児成分になり箱を量産（145k/区の轍）
 		const b = comp.get(k);
@@ -593,7 +606,8 @@ function farBoxesOf(mesh) {
 		const x = pos[i * 3] + o[0], y = pos[i * 3 + 1] + o[1], z = pos[i * 3 + 2] + o[2];
 		const r = Math.hypot(x, y, z) || 1;
 		if ((r - 1) * EARTH < c.slabH) continue;
-		const lat = Math.asin(Math.max(-1, Math.min(1, y / r))) * R2Dg, lon = Math.atan2(z, x) * R2Dg;
+		const bl = Math.asin(Math.max(-1, Math.min(1, y / r)));
+		const lat = (ELL ? geoLatOf(bl) : bl) * R2Dg, lon = Math.atan2(z, x) * R2Dg;
 		const t = c.top;
 		if (lon < t[0]) t[0] = lon; if (lat < t[1]) t[1] = lat;
 		if (lon > t[2]) t[2] = lon; if (lat > t[3]) t[3] = lat;
@@ -613,10 +627,16 @@ function farBoxesOf(mesh) {
 async function sendFar(base, ward) {
 	const idb = await idbReady; if (!idb) { self.postMessage({ farMiss: { name: ward } }); return; }
 	const far = await idb(base + "#far").catch(() => null);
-	if (!far?.boxes?.length || far.ver !== FAR_VER || far.h !== FAR_MIN_H) { self.postMessage({ farMiss: { name: ward } }); return; }   // 版違い・閾値違い＝miss扱い→farBakeが新版で再導出（旧閾値の箱を一瞬も点けない）
+	if (!far?.boxes?.length || far.ver !== FAR_VER || far.h !== FAR_MIN_H || !!far.ell !== ELL) { self.postMessage({ farMiss: { name: ward } }); return; }   // 版違い・閾値違い＝miss扱い→farBakeが新版で再導出（旧閾値の箱を一瞬も点けない）
 	const boxes = far.boxes, nb = boxes.length / 5;
-	const D2Rg = Math.PI / 180, EARTH = 6371000;
-	const toW = (lon, lat, h) => { const a = lon * D2Rg, b = lat * D2Rg, cb = Math.cos(b), r = 1 + h / EARTH; return [cb * Math.cos(a) * r, Math.sin(b) * r, cb * Math.sin(a) * r]; };
+	const D2Rg = Math.PI / 180, EARTH = EARTH_W;
+	// 球＝動径リフト／楕円体＝β単位球面点＋測地法線リフト（decodeBatch の配置と同式）
+	const toW = (lon, lat, h) => {
+		const a = lon * D2Rg, b = lat * D2Rg, cb = Math.cos(b), sp = Math.sin(b), hr = h / EARTH;
+		if (!ELL) { const r = 1 + hr; return [cb * Math.cos(a) * r, sp * r, cb * Math.sin(a) * r]; }
+		const w = Math.hypot(cb, ELL_RAX * sp), horiz = cb / w + hr * cb;
+		return [horiz * Math.cos(a), ELL_RAX * sp / w + hr * sp / ELL_RAX, horiz * Math.sin(a)];
+	};
 	// origin＝先頭箱の南西角（RTE-lite・f32精度の桁を戻す）
 	const org = toW(boxes[0], boxes[1], 0);
 	const pos = new Float32Array(nb * 20 * 3), nrm = new Int8Array(nb * 20 * 4), idxA = new Uint32Array(nb * 30);
@@ -656,6 +676,10 @@ async function sendFar(base, ward) {
 	meshPort.postMessage(
 		{ name: `${ward}#far`, meshData: { pos, nrm, idx: idxA, origin: org, bbox, lodH: null, lodCounts: null, twoSided: 1, ward: `${ward}#far`, maskCells: null, maskN: 0, maskBbox: null } },
 		[pos.buffer, nrm.buffer, idxA.buffer]);
+	// 実送達を main へ通知＝「退場（autoFar の空メッシュ）と送達の競争」の後始末用。箱は直結ポートで
+	// render worker へ行き main を通らない＝main はこの通知でしか遅着を知れない（takeCredit/IDB読みの
+	// 待ち中に区が active 化すると、退場が先・箱が後着＝farShown から消えた箱が永久に残る穴の栓）。
+	self.postMessage({ farSent: { name: ward } });
 	console.log(`[plateau] far点灯 ${ward} ${nb}棟`);
 }
 
@@ -665,7 +689,7 @@ async function sendFar(base, ward) {
 async function farBake(base, ward) {
 	const idb = await idbReady; if (!idb) { self.postMessage({ farMiss: { name: ward, perm: true } }); return; }
 	const stored = await idb(base + "#far").catch(() => null);
-	if (stored?.ver === FAR_VER && stored.h === FAR_MIN_H) { self.postMessage({ farReady: { name: ward } }); return; }
+	if (stored?.ver === FAR_VER && stored.h === FAR_MIN_H && !!stored.ell === ELL) { self.postMessage({ farReady: { name: ward } }); return; }
 	await fsReady;
 	const meta = await loadMeta(base, false);
 	if (!meta || meta.partial) { self.postMessage({ farMiss: { name: ward, perm: true } }); return; }
@@ -678,7 +702,7 @@ async function farBake(base, ward) {
 	const flat = new Float32Array(acc.length * 5);
 	acc.forEach((b, i) => flat.set(b, i * 5));
 	try {
-		await idb(base + "#far", { ver: FAR_VER, h: FAR_MIN_H, boxes: flat, ward, ts: Date.now() });
+		await idb(base + "#far", { ver: FAR_VER, h: FAR_MIN_H, ell: ELL, boxes: flat, ward, ts: Date.now() });
 		console.log(`[plateau] far育成 ${ward} ${acc.length}棟（焼きから導出）`);
 		self.postMessage({ farReady: { name: ward } });
 	} catch { self.postMessage({ farMiss: { name: ward, perm: true } }); }
@@ -740,7 +764,7 @@ function initFs(noOpfs) {
 async function loadMeta(base, brid) {
 	const idb = await idbReady; if (!idb) return null;
 	const meta = await idb(base + "#meta").catch(() => null);
-	if (!meta || meta.ver !== IDB_FMT_VER || !!meta.brid !== !!brid) return null;   // brid不一致＝接地方式が違う焼き＝無効
+	if (!meta || meta.ver !== IDB_FMT_VER || !!meta.brid !== !!brid || !!meta.ell !== ELL) return null;   // brid不一致＝接地方式が違う焼き／ell不一致＝座標系が違う焼き＝無効（モード切替で自然再焼き）
 	if (meta.fs === "opfs" && !ofs) return null;
 	return meta;
 }
@@ -879,7 +903,7 @@ async function loadPlateau(base, tiles, ward, wardBbox, camCenter, preload = fal
 		const flat = new Float32Array(farAcc.length * 5);
 		farAcc.forEach((b, i) => flat.set(b, i * 5));
 		try {
-			await idbF(base + "#far", { ver: FAR_VER, h: FAR_MIN_H, boxes: flat, ward, ts: Date.now() });
+			await idbF(base + "#far", { ver: FAR_VER, h: FAR_MIN_H, ell: ELL, boxes: flat, ward, ts: Date.now() });
 			console.log(`[plateau] far-DB保存 ${ward} ${farAcc.length}棟 (${label})`);
 			self.postMessage({ farReady: { name: ward } });   // main が farMissed を解除＝次の選抜で点灯
 		} catch { /* 保存失敗＝次のロードが再試行 */ }
@@ -1002,7 +1026,7 @@ async function loadPlateau(base, tiles, ward, wardBbox, camCenter, preload = fal
 		const write = async () => {
 			if (wardFs === "opfs") await ofs.put(base, i, { ...mesh, tiles: uris });   // 1ファイル=1バッチ・書いたら即close
 			else await idb(`${base}#${i}`, { ...mesh, tiles: uris });
-			await idb(base + "#meta", { ver: IDB_FMT_VER, partial: true, count: i + 1, mask: wardMask, wardBbox, brid: !!brid, ts: Date.now(), bytes: nb, fs: wardFs });
+			await idb(base + "#meta", { ver: IDB_FMT_VER, partial: true, count: i + 1, mask: wardMask, wardBbox, brid: !!brid, ell: ELL, ts: Date.now(), bytes: nb, fs: wardFs });
 		};
 		try { await write(); idbBytes = nb; }
 		catch (e) {
@@ -1054,7 +1078,7 @@ async function loadPlateau(base, tiles, ward, wardBbox, camCenter, preload = fal
 	const storing = (async () => {
 		const idb = await idbReady; if (!idb || idbFail) return;   // idbFail＝部分metaのまま残す（次回再開が続きを試す）
 		try {
-			await idb(base + "#meta", { ver: IDB_FMT_VER, count: batchCount, mask: wardMask, wardBbox, brid: !!brid, ts: Date.now(), bytes: idbBytes, fs: wardFs });
+			await idb(base + "#meta", { ver: IDB_FMT_VER, count: batchCount, mask: wardMask, wardBbox, brid: !!brid, ell: ELL, ts: Date.now(), bytes: idbBytes, fs: wardFs });
 			console.log("[plateau] 保存完了", base, `(${batchCount} batches)`);
 			await idbEvict(base);
 		} catch (e) { console.warn("[plateau] 保存失敗（表示には影響なし）", e); }
@@ -1076,6 +1100,7 @@ self.onmessage = async (e) => {
 			if (d.recycle) for (const b of d.recycle) poolPut(b);
 			if (d.drained) onDrained();
 		};
+		if (e.data.ell) { ELL = true; EARTH_W = 6378137; }   // 楕円体（?ell=1）＝β球配置＋世界単位a。キャッシュはmeta.ell印で世代分離
 		if (e.data.lowMem || e.data.mid) POOL_MAX = 16 << 20;
 		initFs(e.data.noOpfs);   // バッチ本体の置き場（OPFS可否の確定は fsReady。ロード側が await して待つ）
 		if (e.data.farH > 0) FAR_MIN_H = e.data.farH;   // 遠景far-DBの高さ閾値（?farh=N・既定200m）
