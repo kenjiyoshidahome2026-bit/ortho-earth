@@ -8,7 +8,8 @@
 //
 // ★時刻評価（プラン）＝振り付けの純関数化（2026-08-09・タイムラインスクラブの土台）：
 //   各振り付けは flyPlan/glidePlan/glidePathPlan が {dur, land, at(ms)→カメラ} を返し、
-//   ライブ再生（createFlight）は同じプランを rAF で実時間なぞるだけ＝数式は一箇所（プランが単一の真実）。
+//   ライブ再生（createFlight）は同じプランを rAF でなぞるだけ＝数式は一箇所（プランが単一の真実）。
+//   時計は刻み上限つき仮想時計（run の STEP_MAX_MS）＝非力端末では尺を伸ばして連続に滑る（跳ばない）。
 //   cam0＝出発カメラのスナップショット {lon,lat,zoom,pitch,bearing}（角はラジアン＝cam と同じ）、
 //   env＝{viewW(px・プラン構築時に固定), maxPitch, minZoom}。land＝着地時刻[ms]（onFlying(false)＝③の解禁点）。
 import { WORLD_PX } from "./camera.js";
@@ -169,7 +170,11 @@ export function createFlight({ cam, viewW, maxPitch, minZoom = 0, onMove, onFlyi
 	let flight = null;
 	const snap = () => ({ lon: cam.center[0], lat: cam.center[1], zoom: cam.zoom, pitch: cam.pitch, bearing: cam.bearing });
 	const env = () => ({ viewW: viewW(), maxPitch, minZoom });
-	// プランを実時間でなぞる唯一のループ。着地(land)は「その次の onMove から」重い自動ロード解禁＝旧 tween 連鎖と同じ拍。
+	// プランをなぞる唯一のループ。着地(land)は「その次の onMove から」重い自動ロード解禁＝旧 tween 連鎖と同じ拍。
+	// 時計＝刻み上限つき仮想時計（裁定 2026-08-12「非力端末は連続に滑るを優先」）：1フレームで STEP_MAX_MS までしか
+	// 時を進めない＝低fps（重い都市を描くドリー等）では「大股に飛ぶ」でなく「ゆっくり滑る」（尺は伸びる側に倒す）。
+	// 20fps以上なら dt<上限＝実時間と完全一致＝録画（desktop・pinRes）もエディタの再生ヘッド（行頭で再同期）も実尺のまま。
+	const STEP_MAX_MS = 50;
 	function run(plan) {
 		if (flight) flight.cancel();
 		let cancelled = false;
@@ -177,10 +182,11 @@ export function createFlight({ cam, viewW, maxPitch, minZoom = 0, onMove, onFlyi
 		onFlying(true);
 		if (!plan || !(plan.dur > 0)) { onFlying(false); flight = null; return; }   // 変化なし（glide の全チャンネル一致等）＝即着地扱い
 		let landed = false;
-		const t0 = performance.now();
+		let t = 0, last = performance.now();
 		const step = () => {
 			if (cancelled) return;
-			const t = Math.min(performance.now() - t0, plan.dur);
+			const now = performance.now();
+			t = Math.min(t + Math.min(now - last, STEP_MAX_MS), plan.dur); last = now;
 			const c = plan.at(t);
 			cam.center = [c.lon, c.lat]; cam.zoom = c.zoom; cam.pitch = c.pitch; cam.bearing = c.bearing;
 			onMove();
