@@ -23,7 +23,9 @@
 // 自動上演（▷）＝「動画」モード：シーンの「静止」hold 秒（既定 opts.hold=5.5・シーン毎 scene.hold 上書き）で自動送り。
 //   時間は台本もオプションも全部「秒」＝ms 化はこのファイルの内側だけ（v2 で統一・2026-08-08）。
 //   静止はフライト/滑走の着地後から数える（flightActive で待つ）＝遷移の長いシーン（via ドリー・大ジャンプ）でも
-//   見る時間は削られない。幕（スライド）＝slideHold 秒（既定 opts.slideHold=4・シーン毎 scene.slideHold 上書き）。
+//   見る時間は削られない。さらに「書き終わるまで」待つ（loadingActive で待つ・裁定2026-08-12）＝基図・標高・
+//   PLATEAUの立ち上げが済んでから滞在計時＝非力機でもテロップが絵より先に進まない（尺は伸びる側）。
+//   幕（スライド）＝slideHold 秒（既定 opts.slideHold=4・シーン毎 scene.slideHold 上書き）。
 //   幕前の地図は最大2秒（着いた画をひと目＝語りは幕で）・幕後の三拍目は最大1.5秒＝既に見た画は「間」だけで次へ。
 //   静止中は字幕＝scene.caption（無ければ title 代用）を画面上部にやや大きめに出す＝無言の動画でも文脈が付く。
 //   上映中は操縦バーごと退場（デスクトップ＝幅481px以上）＝画面は映画・停止は点灯した▶の一押し（＝一時停止でバー復帰）。
@@ -69,7 +71,7 @@ const isImg = s => /\.(svg|png|jpe?g|webp|gif|avif)([?#]|$)/i.test(s) || /^(data
 // 戻り値＝{start, next, prev, exit, play, pause}（テスト・プログラム駆動用）。
 // opts.finale＝台本を最後まで走り切った時だけ呼ばれる終演フック（app が japan-fit を注入）。Esc/▶の途中終了では呼ばない。
 // opts.fadeView＝フェード遷移（app が注入・任意）：黒への溶暗→切替→溶明（fade: 行・尺=travel）。無ければ fade 行は普通の飛行に落ちる。
-export function demo({ scenes, slide: slideOn = true, hold = 5.5, slideHold = 4, mobile, zoomMin = 1, lang, flyView, fadeView, glidePath, flightActive, prefetchViews, finale, signal, preload, player: playerOnly = false } = {}) {
+export function demo({ scenes, slide: slideOn = true, hold = 5.5, slideHold = 4, mobile, zoomMin = 1, lang, flyView, fadeView, glidePath, flightActive, loadingActive, prefetchViews, finale, signal, preload, player: playerOnly = false } = {}) {
 	const mapEl = this.mapEl;
 	if (!slideOn && Array.isArray(scenes)) scenes = scenes.filter(s => s.view || !s.slide);   // スライドだけのシーン＝空の停留所になるので抜く
 	scenes = compileVias(scenes ?? []);   // via 行→着点の path へ（via の無い台本は恒等＝同じ配列のまま）
@@ -164,8 +166,20 @@ export function demo({ scenes, slide: slideOn = true, hold = 5.5, slideHold = 4,
 			: h;
 		// 静止の計時はフライト/滑走の「着地後」から＝遷移の長いシーンでも見る時間が削られない（200ms刻みで着地を待つ）。
 		// 字幕も着地と同時に点く（飛行中・幕中は引っ込む＝地図とスライドが主役）
+		// ★書き終わり待ち（裁定2026-08-12「非力機は書き終わるまで待つ」）：着地しても基図sig未着・標高読込中・
+		// autoPlateau立ち上げ中は滞在計時を始めない＝テロップだけが絵より先に進まない（非力機は尺が伸びる側に倒す）。
+		// 字幕は点けたまま待つ（シーンには着いている＝街が立ち上がる過程も画のうち）。
+		// loadingActive()＝busyの進捗指紋（文字列・空=静か）：指紋が動く間は待ち続け（PLATEAUバッチ・標高枚数等）、
+		// 5秒不変なら打ち切り＝オフライン/タイル取得失敗の行を堰き止めない。20秒＝総上限（信号消し忘れの保険）。
+		const t0 = performance.now();
+		let loadSig = "", loadT = t0;
 		const arm = () => {
 			if (flightActive?.()) { caption(scenes[idx]?.path ? !slide.classList.contains("open") : false); timer = setTimeout(arm, 200); return; }   // path（連続ドリー）は移動中も字幕を出す＝川を遡る間ずっと見出しが乗る
+			const busy = loadingActive?.() || "";
+			if (busy && performance.now() - t0 < 20000) {
+				if (busy !== loadSig) { loadSig = busy; loadT = performance.now(); }
+				if (performance.now() - loadT < 5000) { caption(!slide.classList.contains("open")); timer = setTimeout(arm, 200); return; }
+			}
 			caption(!slide.classList.contains("open"));
 			timer = setTimeout(() => { if (on()) next(); }, ms);
 		};

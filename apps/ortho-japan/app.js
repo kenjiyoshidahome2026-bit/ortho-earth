@@ -364,6 +364,7 @@ const renderer = {
 	},
 };
 let elevBusy = false;   // 標高タイル（R01/R10/R90）読込中＝PLATEAU先読みの柵（デモの地形シーンで起伏が立たない事故の防止）
+let elevN = 0;          // 読込中の枚数＝デモ行送りゲートの進捗指紋（枚数が動いている間は「進んでいる」）
 const elevEl = document.createElement("div");
 elevEl.id = "elev-toast";   // スタイルは style.css
 mapEl.appendChild(elevEl);
@@ -481,7 +482,7 @@ renderWorker.onmessage = e => {
 	if (d.type === "drawhud") { showDrawHud(d); return; }                                   // ?drawhud=1：直近フレームの描画実績を画面へ（実機計器）
 	if (d.type !== "elevPending") return;
 	const { count, range, stat } = d;
-	elevBusy = count > 0;   // 標高タイル読込中＝PLATEAU先読みポンプの柵（地形シーンの起伏が先・下記 runPrefetch）
+	elevBusy = count > 0; elevN = count;   // 標高タイル読込中＝PLATEAU先読みポンプの柵（地形シーンの起伏が先・下記 runPrefetch）
 	// stat＝標高ローダの自己申告（初期化中/初期化失敗:理由）。旧・沈黙死は「山が平ら・トーストも出ない・
 	// 理由は誰にも見えない」＝借り物端末（インスペクタ不可）で追跡不能だった。地形チップに関係なく出す＝診断が主目的。
 	if (stat) { elevEl.style.display = "block"; elevEl.textContent = `⛰ 標高ローダ ${stat}`; return; }
@@ -3269,7 +3270,17 @@ map.gadget("demo", function (opts) {   // デモ（発表の台本再生）… �
 		const z = Math.min(Math.log2(360 * size.w / (WORLD_PX * wDeg)), Math.log2(360 * size.h / (WORLD_PX * hDeg)));
 		flyTo(137, 37, Math.max(ZOOM_MIN, Math.min(7, z)), 0, 0);
 	};
-	demoHandle = demoGadget.call(this, { flyView, fadeView: fadeViewRun, glidePath: glidePathView, flightActive: () => flightCtl.active || fadeBusy, prefetchViews: prefetchPlateauForViews, finale: japanFit, signal: ac.signal, zoomMin: ZOOM_MIN, ...opts });   // 手綱を掴む＝ドロップ/?scene= は playScene→demoHandle.start(落とした台本, bare) で別入り口再生（▶=組み込みは壊さない）。glidePath＝via連続ドリー／fadeView＝黒挟み遷移（fadeBusy を着地待ちに乗せる）
+	demoHandle = demoGadget.call(this, { flyView, fadeView: fadeViewRun, glidePath: glidePathView, flightActive: () => flightCtl.active || fadeBusy,
+		// 書き終わりの合図（自動上演の行送りゲート・裁定2026-08-12「非力機は書き終わるまで待つ」）＝可視の立ち上げ
+		// (autoPlateau発＝prefetchは含めない・ackはクレジット窓2で「ほぼ描き切り」)・標高タイル・基図sig（z<4は
+		// mainスロット空でsigが恒久不一致＝地球儀シーンを堰き止めないよう z≥4 限定）。裏仕込み(prefetch)は幕を止めない。
+		// 返り値＝進捗指紋の文字列（空=静か）：demo側は「指紋が動く間だけ」待つ＝止まった待ち（オフライン等）は打ち切れる。
+		loadingActive: () => {
+			const base = cam.zoom >= 4 && readySig !== mainDesired;
+			if (!plateauAutoLoading.size && !elevBusy && !base) return "";
+			return `A${[...plateauAutoLoading.keys()].join(".")}|P${[...plateauProg.values()].map(p => p.done ?? p.scan ?? 0).join(".")}|E${elevN}|B${base ? 1 : 0}`;
+		},
+		prefetchViews: prefetchPlateauForViews, finale: japanFit, signal: ac.signal, zoomMin: ZOOM_MIN, ...opts });   // 手綱を掴む＝ドロップ/?scene= は playScene→demoHandle.start(落とした台本, bare) で別入り口再生（▶=組み込みは壊さない）。glidePath＝via連続ドリー／fadeView＝黒挟み遷移（fadeBusy を着地待ちに乗せる）
 	return demoHandle;
 });
 map.gadget("ai", function (opts) {   // AIと会話して地図に描く（PC専用・画面2分割）… 描画受け口とbboxフィット・消去を注入

@@ -173,8 +173,9 @@ export function createFlight({ cam, viewW, maxPitch, minZoom = 0, onMove, onFlyi
 	// プランをなぞる唯一のループ。着地(land)は「その次の onMove から」重い自動ロード解禁＝旧 tween 連鎖と同じ拍。
 	// 時計＝刻み上限つき仮想時計（裁定 2026-08-12「非力端末は連続に滑るを優先」）：1フレームで STEP_MAX_MS までしか
 	// 時を進めない＝低fps（重い都市を描くドリー等）では「大股に飛ぶ」でなく「ゆっくり滑る」（尺は伸びる側に倒す）。
-	// 20fps以上なら dt<上限＝実時間と完全一致＝録画（desktop・pinRes）もエディタの再生ヘッド（行頭で再同期）も実尺のまま。
-	const STEP_MAX_MS = 50;
+	// ≈29fps以上なら dt<上限＝実時間と完全一致＝録画（desktop・pinRes）もエディタの再生ヘッド（行頭で再同期）も実尺のまま。
+	// 35ms＝30Hz外部モニタ（dt≈33ms・tuneRes実測の恒常値）を素通しする下限。50→35（2026-08-12 実機「あまり変わらない」を受け一段強く）
+	const STEP_MAX_MS = 35;
 	function run(plan) {
 		if (flight) flight.cancel();
 		let cancelled = false;

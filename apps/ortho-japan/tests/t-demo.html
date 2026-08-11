@@ -12,7 +12,7 @@ try {
 	const map = await orthoJapan({ view: "#7/36/138" });
 	map.gadget.demo();   // 台本なし＝警告して非搭載（無害）
 	let pfCalls = 0, pfViews = null;   // PLATEAU先読みのスパイ（実物は外部ネットワークへ出るため差し替え）
-	const h = map.gadget.demo({ hold: 0.15, slideHold: 0.15, prefetchViews: vs => { pfCalls++; pfViews = vs; }, scenes: [   // hold/slideHold=0.15秒＝自動上演の回帰を短時間で回す（v2＝時間は全部「秒」）
+	const h = map.gadget.demo({ hold: 0.15, slideHold: 0.15, loadingActive: () => "", prefetchViews: vs => { pfCalls++; pfViews = vs; }, scenes: [   // hold/slideHold=0.15秒＝自動上演の回帰を短時間で回す（v2＝時間は全部「秒」）。loadingActive スタブ＝虚時間ハーネスでは実ロードが収束しない（書き終わり待ちゲートの機構テストは下の gateWait/gateRelease）
 		{ title: "一", view: "#6/40/140" },
 		{ title: "二", view: "#7/39/141", slide: SLIDE },   // view+slide併記＝三拍子：(地図)→(幕)→(地図)→次
 		{ title: "三", view: "#13/35/139/45t/30r/l=place.rail/c=mono" },   // c=現テーマ＝幕替わり不要＝素通り（reloadしない）
@@ -178,7 +178,7 @@ try {
 	// via＝通過点の連続ドリー：view→via→view が1本のスプライン（glidePath）で流れ、via はシーンに数えない（歩数・目次から消える）
 	const map4 = await orthoJapan({ view: "#12/35.60/139.75" });
 	let pf4 = null;
-	const h4 = map4.gadget.demo({ hold: 0.15, prefetchViews: vs => { pf4 = vs; }, scenes: [
+	const h4 = map4.gadget.demo({ hold: 0.15, loadingActive: () => "", prefetchViews: vs => { pf4 = vs; }, scenes: [
 		{ title: "河口", view: "#13/35.60/139.78/30t" },
 		{ via: "#13/35.63/139.79", travel: 0.4 },
 		{ title: "遡上", view: "#13/35.66/139.80/30t/20r", travel: 0.4 },
@@ -197,7 +197,8 @@ try {
 	// scene-player API（map.playScenes / map.stopScenes・scene-format.md §7）＝エディタの土台：
 	// quick試写（黒幕なし）・観測イベント（onScene/onEnd）・停止でロックを残さない（旧「exit直叩きで再受付不能」の根治）
 	const map5 = await orthoJapan({ view: "#7/36/138" });
-	map5.gadget.demo({ scenes: [{ title: "組込", view: "#6/40/140" }] });   // 組み込み台本は別＝playScenes が壊さない
+	let gateBusy = "";   // 書き終わり待ちゲートの注入スタブ（空=静か・非空=busy指紋）＝機構を環境非依存で直接叩く
+	map5.gadget.demo({ scenes: [{ title: "組込", view: "#6/40/140" }], loadingActive: () => gateBusy });   // 組み込み台本は別＝playScenes が壊さない
 	await new Promise(r => setTimeout(r, 200));
 	const ev5 = [];
 	const acc = map5.playScenes({ type: "scenes", scenes: [
@@ -213,6 +214,20 @@ try {
 	ok("apiReaccept", map5.playScenes({ type: "scenes", scenes: [{ title: "丙", view: "#7.1/36.1/138.1", hold: 0.2 }] }, { quick: true, onScene: i => ev6.push(i), onEnd: r => ev6.push(r) }) === true);
 	await new Promise(r => setTimeout(r, 1500));   // 先頭は jump（定義したそのまま）＋hold 0.2s＝走破終演まで
 	ok("apiFinished", ev6[0] === 0 && ev6.includes("finished") && !bar5.classList.contains("on"));
+	// 書き終わり待ちゲート（裁定2026-08-12「非力機は書き終わるまで待つ」）＝busy指紋が立っている間は滞在計時を
+	// 始めない（行に留まる）→静かになったら計時開始で送る。指紋5秒不変の打ち切り・20秒上限は実機の掟＝ここでは
+	// 「待つ」「解放で進む」の機構だけを注入スタブで検証（1.5秒<5秒＝打ち切りに掛からない窓で見る）
+	gateBusy = "L1";
+	const ev7 = [];
+	ok("gateAccept", map5.playScenes({ type: "scenes", scenes: [
+		{ title: "丁", view: "#7.3/36.3/138.3", hold: 0.2 },
+		{ title: "戊", view: "#7.5/36.5/138.5", hold: 0.2 },
+	] }, { quick: true, onScene: i => ev7.push(i), onEnd: r => ev7.push(r) }) === true);
+	await new Promise(r => setTimeout(r, 1500));   // 先頭jump着後もbusy＝holdが始まらない＝行0に留まる
+	ok("gateWait", ev7.length === 1 && ev7[0] === 0);
+	gateBusy = "";   // 静かになった→計時開始→hold 0.2sで送り→走破
+	await new Promise(r => setTimeout(r, 2600));
+	ok("gateRelease", ev7.includes(1) && ev7.includes("finished") && !bar5.classList.contains("on"));
 	map5.destroy();
 
 	// player 搭載（組み込み台本なし・▶なし）＝エディタの器：start({scenes}) が台本を持ち込む
