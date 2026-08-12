@@ -1,0 +1,26 @@
+{
+	"name": "census2020",
+	"version": "0.0.1",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"dev": "vite",
+		"build": "vite build",
+		"deploy": "vite build && rm -rf dist/site/census2020/moj-local dist/site/census2020/ai && find dist/site -name .DS_Store -delete && wrangler deploy",
+		"preview:prod": "vite build && wrangler dev"
+	},
+	"dependencies": {
+		"ortho-core": "*",
+		"geopbf": "*",
+		"altpbf": "*",
+		"native-bucket": "*",
+		"@loaders.gl/core": "^4.3.0",
+		"@loaders.gl/3d-tiles": "^4.3.0",
+		"@loaders.gl/draco": "^4.3.0",
+		"quiet-mono": "*",
+		"ephem": "*"
+	},
+	"devDependencies": {
+		"vite": "^5.0.0"
+	}
+}

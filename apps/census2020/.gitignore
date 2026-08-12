@@ -1,0 +1,5 @@
+# 再生成可能な bake 中間生成物（再上げ用にローカル保持・commit しない）
+# out-a31-mesh は 7.4GB（A31 メッシュ切り出しの生成物）＝絶対に追跡しない
+scripts/out*/
+scripts/*.log
+scripts/*-progress.json

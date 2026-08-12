@@ -1,0 +1,359 @@
+@use 'vars' as *;
+
+// ============================================================
+// 国勢調査 サイドバー & 詳細パネル
+// ============================================================
+.census-city-item {
+	.pop-val { margin-left: auto; font-family: $mono; font-size: 11px; color: $text; }
+	.pop-chg { margin-left: 6px; font-family: $mono; font-size: 11px; font-weight: 600;
+		&.pos { color: #4c8; }
+		&.neg { color: #f64; }
+	}
+}
+
+.census-detail {
+	padding: 8px 12px 24px;
+	overflow-y: auto;
+
+	.cs-svg-wrap {
+		h3 { margin-bottom: 6px; }
+		// viewBox幅は約250。幅いっぱいだと巨大化するので自然サイズ付近に抑える
+		svg { width: 100%; max-width: 300px; height: auto; display: block; border-radius: 4px; }
+	}
+
+	.cs-pyramid-legend {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 6px 16px;
+		margin-top: 8px;
+		font-size: 10px;
+		color: $mid;
+		.cs-pl-item {
+			display: flex;
+			align-items: center;
+			gap: 3px;
+		}
+		.cs-pl-sw {
+			display: inline-block;
+			width: 10px;
+			height: 8px;
+			border-radius: 1px;
+		}
+		.cs-pl-ref { gap: 5px; }
+		.cs-pl-line {
+			display: inline-block;
+			width: 16px;
+			border-top: 2px solid #8f0;
+		}
+	}
+
+	.cs-section {
+		margin-bottom: 20px;
+		h3 {
+			font-size: 13px;
+			color: $accent;
+			border-bottom: 1px solid rgba(255,255,255,.12);
+			padding-bottom: 4px;
+			margin-bottom: 8px;
+			.cs-year { font-size: 11px; color: $mid; font-weight: 400; margin-left: 6px; }
+		}
+	}
+
+	.cs-kv-grid {
+		display: grid;
+		grid-template-columns: 1fr 1fr;
+		gap: 4px 12px;
+	}
+	.cs-kv {
+		display: flex;
+		justify-content: space-between;
+		font-size: 12px;
+		padding: 2px 0;
+		border-bottom: 1px solid rgba(255,255,255,.04);
+		.cs-k { color: $mid; }
+		.cs-v { color: $text; font-family: $mono; }
+	}
+
+	.cs-bar-chart { margin-top: 4px; }
+	.cs-bar-row {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		margin-bottom: 3px;
+		font-size: 11px;
+		.cs-bar-label { width: 120px; flex-shrink: 0; color: $mid; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+		.cs-bar-wrap  { flex: 1; background: rgba(255,255,255,.06); border-radius: 2px; height: 10px; overflow: hidden; }
+		.cs-bar       { height: 100%; border-radius: 2px; min-width: 2px; }
+		.cs-bar-val   { width: 60px; text-align: right; color: $text; font-family: $mono; }
+		.cs-bar-pct   { width: 40px; text-align: right; color: $mid; }
+	}
+	.cs-note { font-size: 11px; color: $mid; margin-top: 4px; }
+
+	// 沿革（市区町村の変遷）
+	.cs-hist .cs-hist-list {
+		list-style: none;
+		font-size: 12px;
+		line-height: 1.65;
+		color: #bcd;
+		max-width: 520px;
+		li { padding: 5px 0; border-bottom: 1px solid rgba(255,255,255,.05); }
+		.cs-hist-date { font-family: $mono; font-size: 11px; color: $accent; margin-right: 6px; }
+	}
+
+	// ---- ドリルダウンブラウザ ----
+	// census-detail と同一要素になる場合（&.cs-drill-wrap）と子要素の場合（.cs-drill-wrap）両方に適用
+	&.cs-drill-wrap, .cs-drill-wrap {
+		display: flex;
+		flex-direction: column;
+		min-height: 0;
+	}
+	&.cs-drill-wrap {
+		padding: 0;  // census-detail の padding を上書き
+	}
+	.cs-drill-head {
+		padding: 10px 14px 8px;
+		border-bottom: 1px solid rgba(255,255,255,.1);
+	}
+	// 表示セクション（統計・ピラミッド）: セレクタの下に主役として大きく中央表示
+	.cs-drill-display {
+		padding: 12px 14px 24px;
+		.cs-svg-wrap { max-width: 360px; margin: 10px 0 0; }
+		.cs-svg-wrap svg { max-width: 360px; }
+		// 統計テーブル: 左列(人口/男性/女性) 右列(世帯数/面積/密度) の 2×3
+		.cs-kv-grid {
+			grid-auto-flow: column;
+			grid-template-rows: repeat(3, auto);
+			column-gap: 28px;
+			max-width: 500px;
+			margin-bottom: 16px;
+		}
+	}
+	.cs-drill-title-row {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		margin-bottom: 8px;
+		h2 {
+			margin: 0;
+			rt { font-size: .42em; color: $mid; font-weight: 400; letter-spacing: .02em; }
+			.cs-gun { font-size: .62em; color: $mid; font-weight: 400; margin-right: 2px; }
+			.cs-shicho { font-size: .5em; color: $mid; font-weight: 400; }
+		}
+	}
+	// 最下位小地域: コード表示・秘匿説明・主役ピラミッド
+	.cs-sa-code {
+		font-family: $mono;
+		font-size: 12px;
+		color: $mid;
+		margin-bottom: 8px;
+	}
+	// 郵便番号バッジ（小地域）
+	.cs-zip {
+		font-family: $mono;
+		color: #e0b050;
+		white-space: nowrap;
+		.cs-zip-note {
+			margin-left: 4px;
+			padding: 0 4px;
+			border-radius: 6px;
+			background: rgba(255,255,255,.08);
+			color: $mid;
+			font-size: .82em;
+		}
+		&.cs-zip-approx { color: #b79a5a; }
+	}
+	// テーブル行内の〒（名称の下に小さく）
+	.cs-sa-ziprow {
+		display: block;
+		margin-top: 1px;
+		font-size: 10px;
+		.cs-zip { font-size: 10px; }
+	}
+	// 子（丁目/基本単位区）へドリル可能な行
+	.cs-sa-table tr.has-sub {
+		cursor: pointer;
+		.cs-sa-chev { color: $accent; font-size: 10px; margin-left: 2px; }
+		&:hover { background: rgba(100,140,200,.12); }
+	}
+	.cs-sa-suppressed {
+		font-size: 13px;
+		line-height: 1.7;
+		color: #bbb;
+		background: rgba(255,255,255,.04);
+		border-left: 3px solid rgba(200,150,90,.6);
+		border-radius: 3px;
+		padding: 12px 14px;
+		margin: 4px 0 8px;
+		b { color: #e0b070; }
+	}
+	// ---- パンくずリスト ----
+	.cs-crumbs {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 2px;
+		margin-bottom: 8px;
+		font-size: 14px;
+		line-height: 1.5;
+	}
+	.cs-crumb {
+		background: none;
+		border: none;
+		padding: 2px 7px;
+		border-radius: 4px;
+		font-size: 14px;
+		font-family: inherit;
+		color: $mid;
+		cursor: pointer;
+		white-space: nowrap;
+		max-width: 14em;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		&:hover { color: $text; background: rgba(255,255,255,.08); }
+	}
+	.cs-crumb-cur {
+		color: $text;
+		font-weight: 600;
+		cursor: default;
+		&:hover { background: none; }
+	}
+	.cs-crumb-sep {
+		color: #666;
+		font-size: 13px;
+		user-select: none;
+	}
+	.cs-drill-list {
+		padding: 8px 14px 24px;
+	}
+	.cs-notice {
+		font-size: 11px;
+		color: $mid;
+		background: rgba(255,200,0,.06);
+		border: 1px solid rgba(255,200,0,.25);
+		border-radius: 4px;
+		padding: 6px 10px;
+		margin-bottom: 10px;
+	}
+	.cs-drill-sec-h3 {
+		font-size: 13px;
+		color: $accent;
+		border-bottom: 1px solid rgba(255,255,255,.12);
+		padding-bottom: 4px;
+		margin: 12px 0 8px;
+		.cs-year { font-size: 11px; color: $mid; font-weight: 400; margin-left: 6px; }
+	}
+	.cs-drill-sub {
+		font-size: 10px;
+		color: #666;
+		margin-left: 6px;
+	}
+	.cs-drill-chips {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 4px;
+		padding: 4px 0;
+	}
+	.cs-drill-chip {
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+		background: rgba(255,255,255,.06);
+		border: 1px solid rgba(255,255,255,.1);
+		border-radius: 3px;
+		padding: 3px 8px;
+		font-size: 12px;
+		color: $text;
+		cursor: pointer;
+		white-space: nowrap;
+		&:hover { background: rgba(100,140,200,.15); border-color: rgba(100,140,200,.3); }
+		.pop-chg { font-size: 10px; font-family: $mono; }
+	}
+	.cs-chip-sub {
+		font-size: 10px;
+		color: $mid;
+		font-family: $mono;
+	}
+	// geo-preview 詳細パネル(.cs-sa-section) とドリルダウン(.cs-drill-list) の両方に適用
+	.cs-sa-section, .cs-drill-list {
+		.cs-sa-load {
+			background: #2a2a2a;
+			border: 1px solid rgba(255,255,255,.2);
+			color: $text;
+			padding: 5px 12px;
+			border-radius: 4px;
+			cursor: pointer;
+			font-size: 12px;
+			&:hover { background: #3a3a3a; }
+		}
+		.cs-sa-loading { font-size: 12px; color: $mid; }
+		.cs-sa-scroll {
+			max-height: 320px;
+			overflow-y: auto;
+			border: 1px solid rgba(255,255,255,.08);
+			border-radius: 4px;
+		}
+		// 年齢構成 見出しの凡例（年少|生産|老年、バー色に対応）
+		.cs-sa-hdleg {
+			font-size: 10px;
+			font-weight: 400;
+			.y { color: #5cae8c; }
+			.w { color: #7d9fd6; }
+			.o { color: #c98a5f; }
+		}
+		.cs-sa-table {
+			width: 100%;
+			border-collapse: collapse;
+			font-size: 12px;
+			thead tr th {
+				position: sticky;
+				top: 0;
+				background: #222;
+				color: $mid;
+				padding: 7px 18px;
+				text-align: left;
+				border-bottom: 1px solid rgba(255,255,255,.12);
+				font-weight: 500;
+				white-space: nowrap;
+				&.cs-sa-pop { text-align: right; }
+			}
+			tbody tr {
+				cursor: default;
+				&.has-pyr { cursor: pointer; }
+				&.active { background: rgba(100,140,200,.12); }
+				&:hover { background: rgba(255,255,255,.04); }
+				&.has-pyr:hover { background: rgba(100,140,200,.1); }
+				td {
+					padding: 6px 18px;
+					border-bottom: 1px solid rgba(255,255,255,.04);
+					color: $text;
+					vertical-align: middle;
+				}
+			}
+			// 名称: 残り幅を取り主役。コード: 等幅で控えめ。人口: 右揃え。年齢構成: バー幅で固定
+			.cs-sa-name    { width: 100%; }
+			.cs-sa-codecol { font-family: $mono; color: #7f9bc0; font-size: 10px; white-space: nowrap; }
+			.cs-sa-pop     { font-family: $mono; text-align: right; white-space: nowrap; }
+			.cs-sa-bar     { white-space: nowrap; width: 150px; }
+		}
+		.cs-sa-pyramid-wrap {
+			margin-top: 10px;
+			padding: 10px 12px;
+			background: rgba(255,255,255,.04);
+			border-radius: 6px;
+			border: 1px solid rgba(255,255,255,.08);
+			.cs-sa-py-name {
+				font-size: 12px;
+				color: $text;
+				margin-bottom: 6px;
+				font-weight: 500;
+				.cs-sa-py-pop {
+					display: block;
+					font-size: 11px;
+					color: $mid;
+					font-weight: 400;
+					font-family: $mono;
+				}
+			}
+		}
+	}
+}

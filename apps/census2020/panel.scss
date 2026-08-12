@@ -1,0 +1,62 @@
+/* census2020 パネル面 — 骨格（#shell の 6:4）は index.html の critical style が先に確定済み。
+   ここはパネルの内装と家具だけ。地図側UIの意匠は quiet-mono（#map スコープ）＝ここでは触らない。
+   z-index 不使用＝重なりは DOM 順（japan の掟）。 */
+@use "quiet-mono/tokens.scss" as *;
+@use "./styles/census";   // 移植した cs-* 一式（ドリルのチップ/テーブル/ピラミッド意匠。vars は styles/_vars.scss）
+
+#panel {
+	font: 13px/1.6 "Noto Sans JP", "Hiragino Sans", "Yu Gothic UI", "Yu Gothic", sans-serif;
+	border-left: 1px solid rgba(255, 255, 255, .10);
+}
+#panel-head {
+	flex: none;
+	padding: 8px 12px;
+	border-bottom: 1px solid rgba(255, 255, 255, .10);
+	display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
+	&:empty { display: none; }   /* チップ搭載前（起動直後）は帯ごと消す＝空箱を見せない */
+}
+#panel-body {
+	flex: 1; overflow-y: auto; overscroll-behavior: contain;
+	padding: 12px 14px calc(12px + env(safe-area-inset-bottom, 0px));
+	-webkit-overflow-scrolling: touch;
+}
+
+/* 指標チップ（コロプレス切替）・レイヤトグル（筆/防災）：quiet-mono のチップに寄せた小型ボタン */
+.c20-chip {
+	font: inherit; font-size: 12px; color: #cdd6e6;
+	background: rgba(255, 255, 255, .06); border: 1px solid rgba(255, 255, 255, .16);
+	border-radius: 999px; padding: 3px 10px; cursor: pointer; user-select: none;
+	&[aria-pressed="true"] { background: rgba(120, 170, 255, .25); border-color: rgba(120, 170, 255, .6); color: #fff; }
+	&:disabled { opacity: .35; cursor: default; }
+}
+
+/* 避難場所マーカー＋属性カード（#map 配下・DOM順で canvas の上・z-index 不使用） */
+#map .c20-hinan {
+	position: absolute; left: -6px; top: -6px; width: 12px; height: 12px; border-radius: 50%;
+	background: #2ecc71; border: 2px solid rgba(255, 255, 255, .85); box-shadow: 0 0 4px rgba(0, 0, 0, .5);
+	padding: 0; cursor: pointer; pointer-events: auto;
+}
+#map .c20-hinan-card {
+	position: absolute; max-width: 240px; background: rgba(16, 24, 44, .88); color: #cdd6e6;
+	border: 1px solid rgba(255, 255, 255, .2); border-radius: 8px; padding: 8px 26px 8px 10px;
+	font-size: 12px; line-height: 1.5;
+}
+#map .c20-card-x { position: absolute; top: 2px; right: 2px; width: 20px; height: 20px; border: none; background: none; color: #9ab; cursor: pointer; }
+
+/* Wikipedia カード（パネル内・ドリル面の末尾に後追い差し込み） */
+.c20-wiki img { float: right; max-width: 120px; border-radius: 6px; margin: 0 0 8px 10px; }
+.c20-wiki p { font-size: 12.5px; line-height: 1.75; margin: 0; }
+.c20-wiki .c20-wiki-link { font-size: 11px; }
+
+/* パネル出し入れトグル：#stage 右縁の小さな取っ手。map-full 中は「◀」でパネル復帰 */
+#panel-toggle {
+	position: absolute; top: 50%; right: 0; transform: translateY(-50%);
+	width: 18px; height: 56px; border: 1px solid rgba(255, 255, 255, .18); border-right: none;
+	border-radius: 8px 0 0 8px; background: rgba(16, 24, 44, .55); color: #cdd6e6;
+	font-size: 10px; line-height: 1; cursor: pointer; padding: 0;
+}
+#shell.map-full #panel-toggle { content: "◀"; }
+@media (max-width: 768px) {
+	#panel-toggle { display: none; }   /* モバイルは縦積み固定＝取っ手は出さない */
+	#panel { border-left: none; border-top: 1px solid rgba(255, 255, 255, .10); }
+}

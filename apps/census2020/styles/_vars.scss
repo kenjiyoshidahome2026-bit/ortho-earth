@@ -1,0 +1,52 @@
+// ============================================================
+// 変数 — gishub 共通パレット
+// ============================================================
+$bg:        #000;
+$dark:      #222;
+$mid:       #888;
+$text:      #ccc;
+$hi:        #fff;
+$accent:    #4b90ff;
+$remark:    #c40;
+$font:      'Verdana', 'Inter', 'Hiragino Kaku Gothic ProN', Arial, sans-serif;
+$mono:      'Courier New', Courier, monospace;
+$sidebar-w:  300px;
+$deep:    #111;
+$border:  #444;
+$divider: #1c1c1c;
+
+// ============================================================
+// ミックスイン
+// ============================================================
+@mixin scrollbar-thin {
+	scrollbar-width: thin; scrollbar-color: $dark $bg; // Firefox / Chrome Android
+	&::-webkit-scrollbar { width: 4px; }
+	&::-webkit-scrollbar-track { background: $bg; }
+	&::-webkit-scrollbar-thumb { background: $dark; border-radius: 2px; }
+}
+
+@mixin btn-ghost($color: $mid, $hover: $accent, $bg: none, $border-clr: $border) {
+	background: $bg;
+	border: 1px solid $border-clr;
+	color: $color;
+	cursor: pointer;
+	touch-action: manipulation; // Safari 300ms タップ遅延を除去
+	transition: all 0.15s;
+	&:hover { border-color: $hover; color: $hover; }
+}
+
+@mixin accordion-header-styles {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 10px 14px;
+	font-size: 12px;
+	font-weight: bold;
+	color: $text;
+	cursor: pointer;
+	user-select: none;
+	background: $dark;
+	border-bottom: 1px solid #333;
+	transition: background 120ms;
+	&:hover { background: #2a2a2a; }
+}

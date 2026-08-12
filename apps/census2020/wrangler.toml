@@ -1,0 +1,17 @@
+# census2020 本番配信：Cloudflare Workers + 静的アセット（www.ortho-earth.com/census2020/）。
+# ortho-japan とは別 Worker＝別デプロイ＝URLも資産も独立（中身のコードだけを共有する）。
+# ⚠ /japan* は ortho-japan Worker が前方一致で横取りする＝census2020 は必ずこの独立ルートに置く（裁定 2026-08-12）。
+# デプロイ手順は package.json の "deploy"（vite build → wrangler deploy）。
+name = "census2020"
+main = "deploy-worker.js"
+compatibility_date = "2025-06-01"
+workers_dev = true   # *.workers.dev の予備URL（検証用）。本番は下の route
+
+routes = [
+	{ pattern = "www.ortho-earth.com/census2020*", zone_name = "ortho-earth.com" }
+]
+
+[assets]
+directory = "dist/site"
+binding = "ASSETS"
+run_worker_first = true   # アセット直返しより先に必ず deploy-worker を通す＝COOP/COEP を全レスポンスに刻む

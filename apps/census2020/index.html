@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="ja">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><!-- cover＝safe-area-inset を有効化。ピンチ拡大は殺さない（japan と同判断） -->
+	<style>html, body { margin: 0; touch-action: manipulation; overscroll-behavior: none; }</style><!-- ダブルタップ拡大とラバーバンドの抑止（canvas は quiet-mono が touch-action:none） -->
+	<!-- 配色は地図とパネルが自分で決める＝Chrome Android の自動ダークテーマ反転を明示的に断る（japan と同判断） -->
+	<meta name="color-scheme" content="only light">
+	<!-- 起動の critical style：球儀マークの起動画面＋6:4分割の骨格を初回ペイントで確定（レイアウトのガタつきゼロ）。
+	     パネル内装は panel.scss（asyncMainCss で非ブロッキング化）が後から着せる。 -->
+	<style>
+		html{background:#0b1021}
+		#boot{position:fixed;inset:0;z-index:2147483647;display:flex;align-items:center;justify-content:center;background:#0b1021;transition:opacity .2s ease}
+		#boot.gone{opacity:0;pointer-events:none}
+		#boot svg{width:72px;height:72px;animation:boot-breathe 1.6s ease-in-out infinite}
+		@keyframes boot-breathe{0%,100%{opacity:.35}50%{opacity:1}}
+		@media (prefers-reduced-motion:reduce){#boot svg{animation:none;opacity:.8}}
+		/* 6:4 分割の骨格（詳細は panel.scss）。#shell.map-full でパネルが引っ込み地図が全幅＝canvas は ResizeObserver が追随 */
+		#shell{display:flex;height:100dvh}
+		#stage{flex:6;min-width:0;position:relative}
+		#stage #map{width:100%;height:100%}
+		#panel{flex:4;min-width:340px;max-width:560px;background:#0e1530;color:#cdd6e6;overflow:hidden;display:flex;flex-direction:column}
+		#shell.map-full #panel{display:none}
+		@media (max-width:768px){#shell{flex-direction:column}#stage{flex:none;height:55dvh}#panel{flex:1;min-width:0;max-width:none}}
+		/* 静的出典（LCP前倒し・japan と同じクレジット風）。起動後は instruments が養子縁組 */
+		#attr[data-boot]{position:fixed;bottom:calc(6px + env(safe-area-inset-bottom,0px));right:8px;z-index:2147483647;
+			font:11px/1.5 "Noto Sans JP","Hiragino Sans","Yu Gothic UI","Yu Gothic",sans-serif;text-align:right;
+			color:rgba(200,210,226,.82);background:rgba(16,24,44,.4);border:1px solid rgba(255,255,255,.14);
+			padding:4px 8px;border-radius:8px}
+		#attr[data-boot] a{color:rgba(200,210,226,.82);text-decoration:none}
+	</style>
+	<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+	<link rel="apple-touch-icon" href="/census2020/apple-touch-icon.png"><!-- 共有 public（japan の一枚）＝球儀マーク -->
+	<meta name="apple-mobile-web-app-title" content="census2020">
+	<title>census2020 — 国勢調査2020を球で読む</title>
+	<meta name="description" content="2020年国勢調査を丁目まで完全可視化。3D日本地図とドリルダウンで、人口・世帯・年齢構成から筆ポリゴン・防災（避難場所・土砂・洪水）まで。自作WebGL/WebGPUエンジン・ライブラリゼロ。">
+	<meta property="og:type" content="website">
+	<meta property="og:site_name" content="ortho-earth">
+	<meta property="og:title" content="census2020 — 国勢調査2020を球で読む">
+	<meta property="og:description" content="全国→都道府県→市区町村→丁目。国勢調査×防災×PLATEAU を3D球面で。">
+	<meta property="og:url" content="https://www.ortho-earth.com/census2020/">
+	<meta property="og:image" content="https://www.ortho-earth.com/census2020/ogp.png">
+	<meta property="og:image:width" content="1200">
+	<meta property="og:image:height" content="630">
+	<meta name="twitter:card" content="summary_large_image">
+</head>
+<body>
+	<!-- 起動画面（球儀マーク）：外部CSS/JSに依存せずパース直後に描画。ready後に #boot.gone でフェード消去 -->
+	<div id="boot"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-label="census2020 起動中"><g fill="none" stroke="#cdd6e6" stroke-width="6"><ellipse cx="50" cy="50" rx="45" ry="45"/><ellipse cx="50" cy="50" rx="25" ry="45"/><path d="M11 28H88 M11 72H88M50 5V95M5 50 H95"/></g></svg></div>
+	<div id="shell">
+		<div id="stage">
+			<div id="map"></div>
+			<button id="panel-toggle" type="button" title="パネルを隠す／出す" aria-label="パネルの表示切替">▶</button>
+		</div>
+		<aside id="panel">
+			<div id="panel-head"></div><!-- 指標チップ・レイヤトグルは choropleth.js / bousai.js が実装 -->
+			<div id="panel-body"></div><!-- census ドリルの注入先（ctx.setDetailHtml） -->
+		</aside>
+	</div>
+	<!-- 静的出典＝LCP前倒し。国勢調査アプリの一次データ源を明記（詳細な個別出典は各レイヤのUIにも出る） -->
+	<div id="attr" data-boot>出典：<a href="https://www.e-stat.go.jp/" target="_blank" rel="noopener">国勢調査（総務省統計局）・e-Stat</a>・<a href="https://www.gsi.go.jp/" target="_blank" rel="noopener">国土地理院</a><br>
+		法務省 登記所備付地図・国土交通省 国土数値情報／PLATEAU・Wikipedia (CC BY-SA)<br>
+		（各データを加工して作成）© 2026 <a href="https://www.ortho-earth.com/docs/introduction.html" target="_blank" rel="noopener">Kenji Yoshida</a></div>
+	<script type="module" src="./main.js"></script>
+</body>
+</html>
