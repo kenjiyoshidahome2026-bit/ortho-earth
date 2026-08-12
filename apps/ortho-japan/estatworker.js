@@ -25,8 +25,15 @@ function interiorMesh(feats) {
 			count.set(k, (count.get(k) || 0) + 1);
 		}
 	const coords = [];
-	for (const [k, n] of count) if (n >= 2) coords.push(k.split("|").map(p => p.split(",").map(Number)));
+	for (const [k, n] of count) coords.push(k.split("|").map(p => p.split(",").map(Number)));   // 全ユニーク辺（多重度1も描く）
 	return coords;
+}
+
+function bboxOf(feats) {
+	let lo0 = 180, la0 = 90, lo1 = -180, la1 = -90;
+	const walk = c => { if (typeof c[0] === "number") { if (c[0] < lo0) lo0 = c[0]; if (c[0] > lo1) lo1 = c[0]; if (c[1] < la0) la0 = c[1]; if (c[1] > la1) la1 = c[1]; } else c.forEach(walk); };
+	for (const f of feats) if (f.geometry?.coordinates) walk(f.geometry.coordinates);
+	return [lo0, la0, lo1, la1];
 }
 
 self.onmessage = async (e) => {
@@ -47,10 +54,8 @@ self.onmessage = async (e) => {
 		const feats = perCode.flat();
 		if (!feats.length) { self.postMessage({ type: "loaded", ok: false }); return; }
 		features = feats;
-		let lo0 = 180, la0 = 90, lo1 = -180, la1 = -90;
-		const walk = c => { if (typeof c[0] === "number") { if (c[0] < lo0) lo0 = c[0]; if (c[0] > lo1) lo1 = c[0]; if (c[1] < la0) la0 = c[1]; if (c[1] > la1) la1 = c[1]; } else c.forEach(walk); };
-		for (const f of feats) if (f.geometry?.coordinates) walk(f.geometry.coordinates);
-		origin = [(lo0 + lo1) / 2, (la0 + la1) / 2];
+		const bb = bboxOf(feats);
+		origin = [(bb[0] + bb[2]) / 2, (bb[1] + bb[3]) / 2];
 		// 表示は内側メッシュ（純線・fan ゼロ）。ポリゴンは identify とヒット強調（下の identify 分岐）にだけ使う
 		const mesh = perCode.map(fs => ({ geometry: { type: "MultiLineString", coordinates: interiorMesh(fs) } }));
 		const s = buildGeoJSONOverlay(mesh, origin, m.style || undefined);   // style＝AI経路の線色/線幅（無指定は従来既定）
@@ -60,5 +65,16 @@ self.onmessage = async (e) => {
 		if (hit < 0) { self.postMessage({ type: "identify", hit: -1 }); return; }
 		const s = buildGeoJSONOverlay([features[hit]], origin);   // ヒット地物だけの強調ジオメトリ（小さい）
 		self.postMessage({ type: "identify", hit, props: features[hit].properties || {}, overlay: s }, overlayBufs(s));
+	} else if (m.type === "highlight") {
+		// KEY_CODE 指名のハイライト（パネル行→地図）。完全一致＋9桁指名は prefix 一致（11桁の基本単位区を包含）。
+		// bbox は flyTo 用。ヒットゼロは bbox:null（秘匿・年度差で起こり得る＝呼び手は静かに諦める）。
+		const key = String(m.key ?? "");
+		const hits = features ? features.filter(f => {
+			const k = String(f.properties?.KEY_CODE ?? "");
+			return k === key || (key.length === 9 && k.slice(0, 9) === key);
+		}) : [];
+		if (!hits.length) { self.postMessage({ type: "highlighted", key, bbox: null, count: 0 }); return; }
+		const s = buildGeoJSONOverlay(hits, origin);
+		self.postMessage({ type: "highlighted", key, bbox: bboxOf(hits), count: hits.length, overlay: s }, overlayBufs(s));
 	}
 };

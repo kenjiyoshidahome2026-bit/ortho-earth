@@ -54,6 +54,7 @@ export function createRenderer(canvas, rOpts = {}) {
 	let sea = { li: -1, minzoom: Infinity };
 	let bldFill = { li: -1 };   // 建物フットプリント塗り（基図 fill）の layer index。3D（チルト）時は伏せる＝押し出しと二重表現になるため
 	let gintBld = null;   // gint ユーザー層（moj筆/ドロップ図形）の地形沿い境界線＝独自 origin・BUILDING_VS 再利用・GL_LINES（各頂点 anchor=自分＝自標高に乗る）
+	const OVERLAY_LIFT_M = 3;   // overlay（外部ベクタ線/面）を地形から浮かせる(m)＝地形メッシュとの z-fight（境界線の明滅・消失）を断つ。gint drape(2m)同族＝高ズームで浮きが見えない最小値（15mは上げすぎ・本人指摘）。WebGPU OVERLAY_LIFT と対
 	const WATER_LIFT_M = 30;   // 水面リフト(m)：DSM水面ノイズ瘤(±10m級)を沈める深度テスト用の嵩上げ（誇張前の実標高）
 	const CITY_WATER_LIFT_M = 10;   // 都市帯(z≥13・DTM)の水面リフト(m)：河道の彫り込み・中州へ疎頂点の水ポリ三角形が潜るのを沈める（豊平川実測。5mでは不足・30mは近接ズームで川が堤防より浮く）
 	// 星空（z<4）：stars＝点（[cel.xyz, rgb, alpha, size]×8f interleaved）、constel＝星座線（[cel.xyz]×3f、LINES端点列）、
@@ -533,6 +534,7 @@ export function createRenderer(canvas, rOpts = {}) {
 			gl.stencilOpSeparate(gl.FRONT, gl.KEEP, gl.KEEP, gl.INCR_WRAP);
 			gl.stencilOpSeparate(gl.BACK, gl.KEEP, gl.KEEP, gl.DECR_WRAP);
 			setCommonUniforms(stencilProg, st, o.origin, land);
+			gl.uniform1f(loc(gl, stencilProg, "u_lift"), OVERLAY_LIFT_M);   // 地形から浮かせて z-fight を断つ（面の stencil 位置）
 			gl.bindVertexArray(o.fanVao); gl.drawArrays(gl.TRIANGLES, 0, o.fanCount);
 			// cover パス：stencil≠0 の画素だけ塗り、通過画素は0へ戻して次に備える
 			gl.colorMask(true, true, true, true);
@@ -545,6 +547,7 @@ export function createRenderer(canvas, rOpts = {}) {
 		// 線（境界線 or N02 の鉄道線）
 		if (o.lineVao) {
 			setCommonUniforms(lineProg, st, o.origin, land);
+			gl.uniform1f(loc(gl, lineProg, "u_lift"), OVERLAY_LIFT_M);   // 地形から浮かせて z-fight を断つ（境界線が明滅・消失する件の根治）
 			gl.uniform1f(loc(gl, lineProg, "u_dpr"), dpr);
 			gl.bindVertexArray(o.lineVao); gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, o.lineCount);
 		}

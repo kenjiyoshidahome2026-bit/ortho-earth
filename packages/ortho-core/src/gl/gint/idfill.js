@@ -22,6 +22,9 @@ import { bindSharedUniforms, bindPivot } from './utility.js';
 
 // VS_STENCIL と同一の fan 幾何＋fid を flat varying で FS へ（facing は rasterizer が判定）。
 const VS_ID = `${GLSL_VS_HEADER}
+uniform usampler2D u_fid_style;   // fid スタイル表（unit5・RGBA32UI）。蓄積で不可視fidを弾くために参照
+uniform int        u_fidstyle_w;
+uniform int        u_has_fidstyle;
 flat out float v_fid1;
 void main() {
 	int edge_id = gl_VertexID / 3;
@@ -29,6 +32,10 @@ void main() {
 	uvec4 meta = fetchEdgeMeta(edge_id);
 	v_fid1 = float(meta.a + 1u);
 	if (!bboxVisible(meta.a)) { gl_Position = vec4(2.0, 0.0, 0.0, 1.0); return; }
+	// 不可視fid（filter で落とした feature）を winding 蓄積から除外＝重複被覆時に R/G が非整数化して
+	// 解決が discard＝下の feature まで塗りが消える事故を防ぐ（振興局が市区町村に重なる北海道で実証・WebGPU vsId と対）。
+	if (u_has_fidstyle == 1 &&
+		(texelFetch(u_fid_style, ivec2(int(meta.a) % u_fidstyle_w, int(meta.a) / u_fidstyle_w), 0).b & 1u) == 0u) { gl_Position = vec4(2.0, 0.0, 0.0, 1.0); return; }
 	uint lodA = meta.r, lodB = meta.g;
 	if (!lodSnap(lodA, lodB, edge_id)) { gl_Position = vec4(2.0, 0.0, 0.0, 1.0); return; }
 	if (sub == 0) { gl_Position = pivotClip(meta.a); return; }
@@ -159,7 +166,8 @@ function ensurePrograms(gl) {
 	s._idPrograms = {
 		idProgram, resolveProgram,
 		uId:      getUniforms(gl, idProgram, [...SHARED_UNIFORM_NAMES,
-					'u_pivot_tex', 'u_pivot_w', 'u_has_pivot', 'u_view_bbox', 'u_use_vbb']),
+					'u_pivot_tex', 'u_pivot_w', 'u_has_pivot', 'u_view_bbox', 'u_use_vbb',
+					'u_fid_style', 'u_fidstyle_w', 'u_has_fidstyle']),   // 蓄積で不可視fidを弾く（重複被覆汚染防止）
 		uResolve: getUniforms(gl, resolveProgram, ['u_id_tex', 'u_fid_style', 'u_fid_w', 'u_fid_count', 'u_overlap']),
 	};
 	return s._idPrograms;
@@ -213,6 +221,13 @@ export function renderIdFill(data, targetFBO) {
 	gl.useProgram(idProgram);
 	bindSharedUniforms(gl, uId, data, arcTex, metaTex, TEX_ARC_W, TEX_META_W, width, height);
 	bindPivot(gl, uId);
+	// fid スタイル表を蓄積VSへも結線＝不可視fid(filter)を winding から除外（bindFidStyle passes.js:111 と同処理）。
+	gl.uniform1i(uId.u_has_fidstyle, s.fidStyleTex ? 1 : 0);
+	if (s.fidStyleTex) {
+		gl.uniform1i(uId.u_fid_style, 5);
+		gl.uniform1i(uId.u_fidstyle_w, s.fidStyleW || 1);
+		gl.activeTexture(gl.TEXTURE5); gl.bindTexture(gl.TEXTURE_2D, s.fidStyleTex); gl.activeTexture(gl.TEXTURE0);
+	}
 	gl.uniform1f(uId.u_lod_rank, 0);
 	gl.drawArrays(gl.TRIANGLES, 0, s.polyEdges * 3);
 

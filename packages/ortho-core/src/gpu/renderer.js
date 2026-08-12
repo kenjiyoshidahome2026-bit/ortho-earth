@@ -22,6 +22,7 @@ const FRAME_SLOT = 512;    // frame UBO のスロット境界（実使用320B・
 const FRAME_F32 = 88;      // 352B/4（wgsl.js Frame と厳密対応。詰め順は packFrame 参照。末尾 mesh/farBounds/farP/ellTrig/ellP vec4f 含む）
 const SLOT = { base: 0, main: 1, terrain: 2, bld: 3, terrainFar: 4 };   // terrain/bld は main と同 origin・fog だけ違うスロット。terrainFar＝遠景メッシュパス（mesh=遠窓・farPass=1）
 const PARAM_SLOT = 256;    // DrawP（3×vec4=48B）のスロット境界
+const OVERLAY_LIFT = 3;   // overlay（外部ベクタ線/面）を地形から m 単位で浮かせる＝地形メッシュとの z-fight（境界線の明滅・消失）を断つ。gint drape(2m)と同族＝高ズームで浮きが見えない最小値（15mは上げすぎ・本人指摘2026-08-12）
 const ROLE = { normal: 0, water: 1, seaFb: 2, terrain: 3, bld: 4, contour: 5, plateau: 6, fadeNormal: 7, fadeWater: 8, fadeSeaFb: 9, fadeBld: 10 };   // fade*=クロスフェード中の新シーン用（p0.w=α）
 const N_ROLES = 11;
 const FADE_MS = 180;   // classic merge のシーン一括差し替えをフェードに（「ポンッ」→融ける。モバイルのパラパラ感対策）
@@ -56,7 +57,13 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 	const ai = adapter.info || {};
 	const gpuInfo = [ai.vendor, ai.architecture, ai.device, ai.description].filter(Boolean).join(" ") || "unknown";
 	const wantTQ = !rOpts.noTQ && !!(adapter.features && adapter.features.has && adapter.features.has("timestamp-query"));   // noTQ＝?notq=1 の切り分けフラグ（iOS Safari 診断 2026-08-02）
-	const device = await adapter.requestDevice(wantTQ ? { requiredFeatures: ["timestamp-query"] } : undefined);
+	// float32-blendable＝gint コロプレス塗り(idfill)の winding 和を rg32float へ加算する前提。
+	// 無いと rg16float(半精度・整数2048まで)へ落ち、市区町村1919個の fid(最大1920)×加算途中和が精度崩壊し
+	// 塗りに穴が出る（GL 経路は EXT_float_blend で RG32F を選ぶのと同義・2026-08-12 実機WebGPUで判明）。
+	const reqFeats = [];
+	if (wantTQ) reqFeats.push("timestamp-query");
+	if (adapter.features?.has?.("float32-blendable")) reqFeats.push("float32-blendable");
+	const device = await adapter.requestDevice(reqFeats.length ? { requiredFeatures: reqFeats } : undefined);
 	const ctx = canvas.getContext("webgpu");
 	if (!ctx) throw new Error("webgpu context unavailable");
 	const format = navigator.gpu.getPreferredCanvasFormat();
@@ -386,6 +393,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 			const o = scenes[i];
 			device.queue.writeBuffer(ovFrameBuf, i * FRAME_SLOT, packF(o.origin));   // scene origin の Frame
 			const po = i * (PARAM_SLOT / 4);
+			ovParamCPU[po + 1] = OVERLAY_LIFT;   // p0.y=地形からのリフト(m)＝境界線/面が地形メッシュと同一面で z-fight し明滅・消失する件の根治（小地域の町丁目境界で実証 2026-08-12）
 			ovParamCPU[po + 3] = 1;   // p0.w=グローバルα（LINE FS が乗算＝境界線の可視・fill(0)のままだと全消灯）
 			ovParamCPU[po + 4] = o.fill[0]; ovParamCPU[po + 5] = o.fill[1]; ovParamCPU[po + 6] = o.fill[2]; ovParamCPU[po + 7] = o.fill[3];   // p1=塗り色
 		}

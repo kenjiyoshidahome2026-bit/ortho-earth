@@ -351,8 +351,17 @@ export const STENCIL_VS = `#version 300 es
 precision highp float;
 in vec2 a_delta;
 ${PROJECT}
+uniform float u_lift;   // 地形からのリフト(m)。塗り(fan)を地形にドレープ＝海抜0平面でなく地形表面へ（境界線と一致）
 void main() {
-	gl_Position = u_clipT + u_mvp * vec4(deltaToRel(a_delta), 0.0);   // RTE：mvp*[dir,1] を相殺なしで。塗りは巻き数で決まるので fan の形は問わない
+	// 塗り(fan)を FILL_VS と同じ標高変位で地形にドレープ。elev 無しだと海抜0の平面に貼られ、
+	// 地形に沿う境界線と乖離して浮く（本人報告 2026-08-12・豊浦町ハイライト）。WebGPU vsStencil と対。
+	vec2 ll = u_origin + a_delta;
+	vec3 rel = deltaToRel(a_delta);
+	vec3 dir = u_originPt + rel;
+	float df = 1.0 - smoothstep(u_fogFar * 0.8, u_fogFar * 2.0, distance(u_eye, dir));
+	float h = (elev(ll) + u_lift) * u_elevScale * df;
+	vec3 relW = rel + h * liftDir(ll, dir);
+	gl_Position = u_clipT + u_mvp * vec4(relW, 0.0);   // RTE：塗りは巻き数で決まるので fan の形は問わない・地形にドレープ
 }`;
 export const STENCIL_FS = `#version 300 es
 precision highp float;

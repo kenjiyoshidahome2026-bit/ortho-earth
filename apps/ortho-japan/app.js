@@ -402,7 +402,10 @@ renderWorker.onmessage = e => {
 		gintHoverTip(p ? Object.entries(p).map(([k, v]) => `${k}: ${v}`) : null);   // 全属性そのまま（融通なし）／null で tip を消す
 		return;
 	}
-	if (d.action === "click") return void console.log("[gint] fid=%s  lng=%s lat=%s", d.featureId, d.lng?.toFixed?.(6), d.lat?.toFixed?.(6));
+	if (d.action === "click") {
+		gintClickHandler?.(d.featureId, (d.featureId != null && userGint?.pbf) ? userGint.pbf.getFeature(d.featureId)?.properties : null, [d.lng, d.lat]);
+		return void console.log("[gint] fid=%s  lng=%s lat=%s", d.featureId, d.lng?.toFixed?.(6), d.lat?.toFixed?.(6));
+	}
 	if (d.action === "tiers") return;   // gint LOD tier 構築完了の報告（ベンチ用メタ）＝アプリでは使わない
 	if (d.type === "snapshot") return snapPart(d.id, "render", d);   // shot 用：基図+ラベルの ImageBitmap
 	if (d.type === "dlApplied") return onSceneApplied(d.slot, d.sig);   // multi_draw の ack＝renderer が draw list を適用した瞬間（＝画面に載った）
@@ -1538,6 +1541,7 @@ renderer.set("bldFill", { li: style.layers.findIndex(L => L.id === "building") }
 let gintDrawOpts = null;
 // gint 識別の有効/無効。14条筆=true（ホバー/クリックで突合）、世界海岸線=false（装飾＝ホバー不要）。
 let gintInteractive = false;
+let gintHover = true;   // ホバー識別のゲート（interactive と別軸＝災害面はクリックは残しホバー処理だけ切る・本人裁定 2026-08-13）
 // gint 表示状態（旧 #gint canvas の display 相当）。render() が visibleGintNow() と突き合わせ変更時だけ post。
 let gintVisible = true;
 // 地形沿い境界線(gintBld)が出ている層か＝視覚は draped 一本に統一し、gint層の2D視覚は平面でも出さない（識別は裏で生存）。二重線の解消。
@@ -1545,6 +1549,7 @@ let drapedOn = false;
 // gint スタイルを render worker へ預ける（frame 末尾の gint パスが使う）。データ毎に差し替え。
 const sendGintStyle = () => renderer.set("gintStyle", gintDrawOpts);
 let gintHoverTip = null;   // ホバー tip 内容 setter（init末尾で map.gadget.tip() を一度だけ搭載＝全gint層で有効）
+let gintClickHandler = null;   // gintクリックの派生アプリ受け口（map.onGintClick）。未登録なら従来の console のみ
 canvas.addEventListener("pointerleave", () => wPost({ type: "gintLeave" }));
 // 14条地図（法務省 登記所備付地図）を球へ。デコード済み pbf を受けて球へ配線する共通処理。
 // 「座標値種別=図上測量」は測量手法のタグに過ぎず絶対位置の信頼性とは無相関と判明済み（系変換さえ合っていれば図上測量でも正確）
@@ -1565,7 +1570,9 @@ function applyGintData(pbf, label, moveCamera = true, opts = {}) {
 	if (!pbf?.unPackGint) { console.error("[gint] デコード失敗 (%s)", label, pbf); return null; }
 	// gint 単一スロットのユーザー層（14条筆/ドロップGISファイル/AI層）＝世界海岸線と相互切替。pbf 保持＝ホバーで getFeature(id).properties を引く。
 	// style/minZoom は層の属性としてここに預ける（スロット再適用(applyUserSlot)がズーム跨ぎの度に走るため、外に置くと切替で剥がれる）
-	userGint = { g: pbf.unPackGint, label, pbf, style: opts.style ?? null, minZoom: opts.minZoom ?? GINT_SWAP_Z, interactive: opts.interactive !== false };
+	// opts.fillMaxEdges＝この層だけ塗り上限を上げる（フル解像度の行政界コロプレス等・既定 2M の暴走止めを個別解除）。
+	if (opts.fillMaxEdges) pbf.unPackGint.fillMaxEdges = opts.fillMaxEdges;
+	userGint = { g: pbf.unPackGint, label, pbf, style: opts.style ?? null, minZoom: opts.minZoom ?? GINT_SWAP_Z, interactive: opts.interactive !== false, hover: opts.hover !== false, drapeFill: !!opts.drapeFill };
 	// bake-ahead：メタ/tier梯子を bake worker で焼き切ってから搭載（render worker はテクスチャ搭載のみ＝
 	// ロード時の同期ベイクで地図が固まらない）。焼き上がりの onDone で sent を立てて再調停＝そこで点火。
 	cancelBake("user");
@@ -1727,7 +1734,7 @@ window.__budget = (n) => {
 	sendGintStyle(); needsDraw = true;
 	console.log("[budget] moveBudget=%s", n ?? "既定(250k)");
 };
-window.__paint = async (paint, filter = null) => {
+async function paintGint(paint, filter = null) {
 	if (!paint) { sendGintPaint(null); needsDraw = true; return; }
 	const feats = gintFidFeatures();   // fid 整列（.geojson は詰めズレするため使わない）
 	if (!feats) { console.warn("[paint] ユーザー層(gint)が未ロード（__moj 等で先にロード）"); return; }
@@ -1736,7 +1743,8 @@ window.__paint = async (paint, filter = null) => {
 	sendGintPaint({ table: u32, count });
 	needsDraw = true;
 	console.log("[paint] %d features へ適用", count);
-};
+}
+window.__paint = paintGint;
 // 世界海岸線（Natural Earth 10m）を球へ。uploader で事前変換済みの GeoPBF を bucket 名慣習
 // （GIS/pbf/ne_10m_coastline）から load＝初回も zip レンジ取得→shp デコードを払わない（gunzip 直読み→GintBUF 焼き→IDB）。
 // 2回目以降は IDB 直行＝ネットワークを待たない（ETag 確認は裏で回し新版は次回反映＝激遅会場回線でも即表示）。
@@ -1816,7 +1824,7 @@ function bakeAndSend(key, raw, meta, onDone) {
 	bakePending.set(id, p);
 	w.postMessage({ id, data: {
 		arcBuffer: raw.arcBuffer, arcMeta: raw.arcMeta, polyStream: raw.polyStream, lineStream: raw.lineStream,
-		pointBuffer: raw.pointBuffer, point: raw.point, polyCompBbox: raw.polyCompBbox } });
+		pointBuffer: raw.pointBuffer, point: raw.point, polyCompBbox: raw.polyCompBbox, fillMaxEdges: raw.fillMaxEdges } });
 }
 // 海岸線のベイク発火（初回ロード後と、LOW_MEM で束を破棄した後の再入の両方から）。
 let coastBaking = false;
@@ -1872,6 +1880,8 @@ function applyUserSlot() {
 	renderer.set("gintSlot", "user");
 	gintDrawOpts = userGint.style;           // 層の持参スタイル（AI層=styleTable、null=既定＝14条筆のオレンジ/シアン。海岸線グレーは引きずらない）
 	gintInteractive = userGint.interactive;  // 筆/図形/AI層はホバー/クリックで突合
+	gintHover = userGint.hover !== false;    // 災害面は hover:false＝ホバー処理オフ（クリックは interactive で生存）
+	if (!gintHover) gintHoverTip?.(null);    // 前層の残り tip を消す
 	sendGintStyle(); gintSlot = "user"; needsDraw = true;
 }
 // gint ユーザー層（14条筆/ドロップ/AI層）を丸ごと撤去＝clearGint(dropFile)/clearPlan(ai) の重複6行を一本化。
@@ -2261,7 +2271,7 @@ const input = createInput({
 		}
 		overlay.identifyAt(x, y); if (gintInteractive) wPost({ type: "gintClick", x, y });
 	},
-	onHover: (x, y) => { if (gintInteractive) wPost({ type: "gintMove", x, y }); },
+	onHover: (x, y) => { if (gintInteractive && gintHover) wPost({ type: "gintMove", x, y }); },
 });
 
 // アイドル退場：マウスを止めると左上/右上のアイコンが静かに消え、動かす（or キー操作）と戻る。
@@ -2685,7 +2695,9 @@ function render() {
 	//   リムに残影として浮く）。チルトは表示のまま＝地形ドレープ＋隠線の見せ場。
 	// draped 層（moj筆）＝視覚はオレンジ draped 一本に統一し gint層の2D視覚は常に出さない（識別は裏で生存＝二重線解消）。
 	// 非draped層（ドロップ/AI）＝従来通り真俯瞰でのみ表示（平面=2D筆界／チルト=3D）。海岸線＝z8+で非表示。
-	const gv = gintSlot === "user" ? (drapedOn ? false : (cam.pitch || 0) < 0.02) : cam.zoom < 9;
+	// drapeFill 層（防災 A33/A31 面）＝チルトでも塗りを消さず描き続ける＝fetchClipDrape が斜面に乗せる（面ドレープ）。
+	// 通常層は従来どおり真俯瞰(pitch<0.02)限定＝チルトは gintBld ドレープ線へ譲る。
+	const gv = gintSlot === "user" ? (userGint?.drapeFill ? true : (drapedOn ? false : (cam.pitch || 0) < 0.02)) : cam.zoom < 9;
 	if (gv !== gintVisible) { gintVisible = gv; renderer.set("gintVis", gv); }
 	// パン/チルト中（ズーム不変）は詳細も再結合。ズーム中はLODポップ回避で停止まで待つ。
 	const zoomStable = Math.abs(cam.zoom - zoomAtBuild) < 0.12;
@@ -2940,6 +2952,20 @@ async function printCapture({ zoom, cropCss }) {
 		printHold = false;   // 元カメラの settle は保存してよい（印刷カメラの settle は抑止済み）
 	}
 }
+// ★派生アプリ公式口（census2020 等）＝ window.__* デバッグ手の正式化。additive・ortho-japan 単体の挙動は不変。
+// gint系＝ユーザー知性層（単一スロット）の正規口／overlay＝estat小地域・geopbfオーバーレイの手綱。
+map.overlay = overlay;
+map.applyGintData = applyGintData;
+map.standupGint = standupGint;         // liftM=null で解除
+map.gintFeatures = gintFidFeatures;    // fid 整列 properties（式評価・表直書きの入力）
+map.paint = paintGint;                 // Mapbox式 → buildFidStyle
+map.paintTable = (u32, count) => { sendGintPaint({ table: u32, count }); needsDraw = true; };   // fid→RGBA表の直書き（コロプレス切替＝これだけ）
+map.fitZoomForBbox = fitZoomForBbox;
+map.projectLL = projectLL;             // 経緯度→画面CSS座標[x,y,front]（DOMマーカー用・front<0=裏半球）
+map.onFrame = fn => { frameHooks.add(fn); return () => frameHooks.delete(fn); };
+map.onGintClick = fn => { gintClickHandler = fn; };
+map.getHeight = (lon, lat) => getHeight ? Promise.resolve(getHeight(lon, lat, cam.zoom)).then(h => +h || 0) : Promise.resolve(0);
+map.getZoom = () => cam.zoom;             // 現在ズーム（派生アプリのズーム連動 LOD＝集約⇄市区町村の層切替に）
 map.gadget = function (name, func) {
 	typeof name == "function" && name.name && (func = name, name = func.name);
 	map.gadget[name] = function () { return func.apply(map, arguments); };

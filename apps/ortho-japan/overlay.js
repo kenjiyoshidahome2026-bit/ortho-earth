@@ -35,24 +35,35 @@ export function createOverlay({ renderer, cam, size, dpr, requestDraw }) {
 	let estatActive = false;                                  // e-Stat 経路がアクティブ＝identify は worker へ
 
 	let planWait = null;   // loadPlan(estat経路)の完了待ち＝loaded 到着で解決（結果はAIの会話が報告する）
+	let estatOpts = {};        // 直近 loadEstat の opts（moveCamera/quiet/onLoaded）＝派生アプリ用。既定は従来挙動
+	let identifyHandler = null;   // identify結果の派生アプリ受け口（setIdentifyHandler）。未登録なら従来の say パネル
+	let highlightWait = null;     // highlightKey の完了待ち（worker 返信は直列＝最後の呼びが勝つで足りる）
 
 	const estatWorker = new Worker(new URL("./estatworker.js", import.meta.url), { type: "module" });
 	estatWorker.onmessage = e => {
 		const m = e.data;
 		if (m.type === "loaded") {
+			const o = estatOpts;
 			if (planWait) { planWait({ ok: !!m.ok, count: m.count ?? 0 }); planWait = null; }
-			if (!m.ok) { say("e-Stat 読込失敗"); return; }
+			if (!m.ok) { if (!o.quiet) say("e-Stat 読込失敗"); o.onLoaded?.({ ok: false, count: 0 }); return; }
 			estatActive = true; overlayFeatures = null;   // 単一スロット＝geopbf 経路の識別対象は置き換え
 			renderer.set("overlay", m.overlay);
 			renderer.set("overlayHi", null);
-			cam.center = [m.center[0], m.center[1]]; cam.zoom = 12; cam.pitch = 0; requestDraw();
-			say(`e-Stat 小地域: ${m.count} 地物 — クリックで identify（小地域コード＝突合の種）`);
+			if (o.moveCamera !== false) { cam.center = [m.center[0], m.center[1]]; cam.zoom = 12; cam.pitch = 0; }   // 派生アプリは自前で寄せる＝直書きジャンプを抑止できる
+			requestDraw();
+			if (!o.quiet) say(`e-Stat 小地域: ${m.count} 地物 — クリックで identify（小地域コード＝突合の種）`);
+			o.onLoaded?.({ ok: true, count: m.count, center: m.center });
 		} else if (m.type === "identify") {
 			renderer.set("overlayHi", m.overlay || null);
-			if (m.hit >= 0) {
+			if (identifyHandler) identifyHandler(m.hit >= 0 ? { hit: m.hit, props: m.props || {} } : null);
+			else if (m.hit >= 0) {
 				const kv = Object.entries(m.props).slice(0, 6).map(([k, v]) => `${k}: ${v}`).join("\n");
 				say(`identify ✔ #${m.hit}\n${kv || "(no props)"}`);
 			} else say("identify: ヒットなし");
+			requestDraw();
+		} else if (m.type === "highlighted") {
+			renderer.set("overlayHi", m.overlay || null);
+			if (highlightWait) { highlightWait(m.bbox ? { key: m.key, bbox: m.bbox, count: m.count } : null); highlightWait = null; }
 			requestDraw();
 		}
 	};
@@ -95,9 +106,16 @@ export function createOverlay({ renderer, cam, size, dpr, requestDraw }) {
 		requestDraw();
 	}
 	// e-Stat 小地域（estat/{調査年}/{code}.geojsonl・gzip）：worker が fetch→gunzip→parse→ジオメトリ生成→transfer。
-	async function loadEstat(codes, year = "2020", style = null) {
-		say(`e-Stat 小地域 読込中 (${codes.length}市区町村)…`);
+	// opts（派生アプリ用・省略時は従来挙動）: moveCamera:false=loaded時のカメラ直書きを抑止 / quiet=sayパネル抑止 / onLoaded(r)
+	async function loadEstat(codes, year = "2020", style = null, opts = {}) {
+		estatOpts = opts;
+		if (!opts.quiet) say(`e-Stat 小地域 読込中 (${codes.length}市区町村)…`);
 		estatWorker.postMessage({ type: "load", codes, year, style });
+	}
+	// 小地域 KEY_CODE（9/11桁）でハイライト → {key,bbox,count}｜ヒットなし・estat未ロードは null
+	function highlightKey(key) {
+		if (!estatActive) return Promise.resolve(null);
+		return new Promise(r => { highlightWait = r; estatWorker.postMessage({ type: "highlight", key: String(key) }); });
 	}
 	// AIガジェットの描画スペック(plan)受け口。overlay経路＝geopbf→属性フィルタ→スタイル付き描画（identify連動）、
 	// estat経路＝worker へ委譲（地名→市区町村コード解決は呼び出し側の領分＝plan.codes で受ける）。throw しない。
@@ -127,5 +145,6 @@ export function createOverlay({ renderer, cam, size, dpr, requestDraw }) {
 		renderer.set("overlay", null); renderer.set("overlayHi", null);
 		say(""); requestDraw();
 	}
-	return { identifyAt, loadOverlay, loadEstat, loadPlan, clearPlan, destroy: () => estatWorker.terminate() };   // destroy＝map.destroy() から（worker外し漏れゼロの掟）
+	const setIdentifyHandler = fn => { identifyHandler = fn; };   // 派生アプリの identify 受け口（null で従来 say へ復帰）
+	return { identifyAt, loadOverlay, loadEstat, loadPlan, clearPlan, highlightKey, setIdentifyHandler, destroy: () => estatWorker.terminate() };   // destroy＝map.destroy() から（worker外し漏れゼロの掟）
 }

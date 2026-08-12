@@ -521,8 +521,16 @@ ${FRAME}
 struct SOut { @builtin(position) pos: vec4f };
 @vertex fn vsStencil(@location(0) a_delta: vec2f) -> SOut {
 	var o: SOut;
+	// 塗り(fan)を地形にドレープ＝FILL_WGSL と同じ標高変位。elev 無しだと塗りが海抜0の平面に貼られ、
+	// 地形に沿う境界線と乖離して浮く（本人報告 2026-08-12・豊浦町ハイライト）。p0.y=線と同じリフト(3m)で一致。
+	let ll = F.origin + a_delta;
+	let rel = deltaToRel(a_delta);
+	let dir = F.originPt + rel;
+	let df = 1.0 - smoothstep(F.params.y * 0.8, F.params.y * 2.0, distance(F.eye, dir));
+	let h = (elev(ll) + P.p0.y) * F.elevP.x * df;
+	let relW = rel + h * liftDir(ll, dir);
 	// 巻き数で塗る＝fan の形は問わない。クリップ座標のまま（GL[-w,w]→WebGPU[0,w] へ z 写像・深度は off）
-	let c = F.clipT + F.mvp * vec4f(deltaToRel(a_delta), 0.0);
+	let c = F.clipT + F.mvp * vec4f(relW, 0.0);
 	o.pos = vec4f(c.xy, (c.z + c.w) * 0.5, c.w);
 	return o;
 }

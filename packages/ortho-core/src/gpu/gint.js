@@ -87,9 +87,15 @@ export function createGintLayerGPU(host, { requestDraw } = {}) {
 	const pointPipe = pipe(pointMod, "vsPoint", "fsPoint");
 	const pickLinePipe = pipe(lineMod, "vsPickLine", "fsPick", { ds: null, blend: undefined, samples: 1, fmt: "rgba8unorm" });
 	const pickPointPipe = pipe(pointMod, "vsPickPoint", "fsPickPoint", { ds: null, blend: undefined, samples: 1, fmt: "rgba8unorm" });
-	// コロプレス ID 塗り（idfill.js）：① winding 和を rg16float へ加算蓄積（fan 幾何・単一サンプル・深度なし）
-	// ② 解決＝ID 画素→fid→スタイル表→色を main パスへ。rg16float はコア blendable＝fidStyleCount≤2047(市区町村1919)で足りる。
-	const ID_MAX_FID = 2047, ID_FMT = "rg16float";
+	// コロプレス ID 塗り（idfill.js）：① winding 和を ID テクスチャへ加算蓄積（fan 幾何・単一サンプル・深度なし）
+	// ② 解決＝ID 画素→fid→スタイル表→色を main パスへ。
+	// ★蓄積は fid+1 の winding 和＝市区町村1919個では fid+1 最大1920＋加算途中和が半精度(rg16float)の整数正確域
+	//   (2048)を超えて精度崩壊し塗りに穴が出る（境界線は無傷なのに塗りだけ欠ける・2026-08-12実機で判明）。
+	//   float32-blendable があれば rg32float（整数1600万まで正確）で根治。無ければ rg16float へ縮退（穴リスク残・
+	//   ?gl2=1 で EXT_float_blend の RG32F 経路へ逃げられる）。GL 経路の RG32F/RG16F 選択と同じ判断。
+	const canIdF32 = !!device.features?.has?.("float32-blendable");
+	const ID_MAX_FID = canIdF32 ? (1 << 20) : 2047, ID_FMT = canIdF32 ? "rg32float" : "rg16float";
+	if (!canIdF32) console.warn("[gint] float32-blendable 無し＝idfill は rg16float（大fid市区町村コロプレスで塗り穴の恐れ）");
 	const idAccumPipe = device.createRenderPipeline({
 		layout, vertex: { module: stencilMod, entryPoint: "vsId" },
 		fragment: { module: stencilMod, entryPoint: "fsId", targets: [{ format: ID_FMT, blend: { color: { srcFactor: "one", dstFactor: "one", operation: "add" }, alpha: { srcFactor: "one", dstFactor: "one", operation: "add" } } }] },
@@ -762,8 +768,12 @@ export function createGintLayerGPU(host, { requestDraw } = {}) {
 		if (data.x === s.lastMX && data.y === s.lastMY) return;
 		s.lastMX = data.x; s.lastMY = data.y;
 		if (!pickTex) return;
-		const pickX = Math.max(0, Math.min(s.width - 1, Math.round(data.x * s.dpr)));
-		const pickY = Math.max(0, Math.min(s.height - 1, Math.round(data.y * s.dpr)));   // WebGPU は原点左上＝GL の上下反転は不要
+		// ★クランプは pickTex の実サイズ(fboW/fboH)で行う＝s.width/s.height（現canvas）ではない。
+		// canvasリサイズ（census2020の6:4パネル開閉等）直後は pickTex が旧サイズのまま（settleで作り直すまで）。
+		// 現サイズでクランプすると旧pickTexの範囲外を copyTextureToBuffer→コマンドバッファ無効→フレーム落ち＝
+		// 「スパッと切れた穴」の連鎖になる（2026-08-12 実機WebGPUで実証）。実サイズでクランプで根治。
+		const pickX = Math.max(0, Math.min(fboW - 1, Math.round(data.x * s.dpr)));
+		const pickY = Math.max(0, Math.min(fboH - 1, Math.round(data.y * s.dpr)));   // WebGPU は原点左上＝GL の上下反転は不要
 		if (prInFlight) { prInFlight.next = { data }; return; }
 		if (!pickBuf) pickBuf = device.createBuffer({ size: 256, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
 		const enc = device.createCommandEncoder();

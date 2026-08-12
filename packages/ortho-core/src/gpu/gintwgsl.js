@@ -160,6 +160,24 @@ fn fetchClip(idx: u32) -> vec4f {
 	let c = F.clipT + F.mvp * vec4f(decodeRel(idx), 0.0);
 	return vec4f(c.xy, (c.z + c.w) * 0.5, c.w);
 }
+// 塗り扇(stencil/idfill)を地形にドレープ＝projectDrape と同じ標高変位のクリップ座標版。elevScale=0(真俯瞰)なら fetchClip と同一
+//（既存挙動を壊さない）。町丁目 overlay の面ドレープ(wgsl.js OVERLAY_WGSL vsStencil・2026-08-13)を gint 塗り扇へ写す＝
+// 汚い土砂ポリゴン(自己交差/重なり)も winding で斜面に貼る。扇の pivot は非ドレープでよい（winding は screen で pivot 不変）。
+fn fetchClipDrape(idx: u32) -> vec4f {
+	let dLL = decodeDLL(idx);
+	let rel = deltaToRel(dLL.x, dLL.y);
+	var relW = rel;
+	if (F.depthP.z > 0.0 && F.depthP.w > 0.5) {
+		var dir = F.originPt + rel;
+		let df = 1.0 - smoothstep(F.depthP.y * 0.8, F.depthP.y * 2.0, distance(F.eye, dir));
+		let ll = F.origin + dLL;
+		let h = elevAt(ll) * F.depthP.z * df;
+		if (F.elevP.w > 0.5) { let p = ll.y * D2R; let l = ll.x * D2R; let cp = cos(p); dir = vec3f(cp * cos(l), sin(p) * 1.0033640898209764, cp * sin(l)); }
+		relW = rel + h * dir;
+	}
+	let c = F.clipT + F.mvp * vec4f(relW, 0.0);
+	return vec4f(c.xy, (c.z + c.w) * 0.5, c.w);
+}
 fn toNDC(p: vec2f) -> vec4f {
 	return vec4f(2.0 * p.x / F.viewport.x - 1.0, 1.0 - 2.0 * p.y / F.viewport.y, 0.0, 1.0);
 }
@@ -359,7 +377,7 @@ struct SOut { @builtin(position) pos: vec4f };
 	let sn = lodSnap(em.r, em.g, edgeId);   // 塗り stencil は lodRank=0（GF側）＝全密度
 	if (!sn.keep) { return o; }
 	if (sub == 0) { o.pos = pivotClip(em.a); return o; }
-	o.pos = fetchClip(select(sn.b, sn.a, sub == 1));
+	o.pos = fetchClipDrape(select(sn.b, sn.a, sub == 1));   // 塗り扇の辺端点を地形へドレープ（真俯瞰=無変化）
 	return o;
 }
 @fragment fn fsNull(in: SOut) -> @location(0) vec4f { return vec4f(0.0); }   // 色は writeMask=0 で殺す
@@ -399,10 +417,15 @@ struct IdOut { @builtin(position) pos: vec4f, @location(0) @interpolate(flat) fi
 	let em = fetchEdgeMeta(edgeId);
 	o.fid1 = f32(em.a + 1u);
 	if (!bboxVisible(em.a)) { return o; }
+	// 不可視fid（filter で落とした feature）は winding 蓄積から除外する。含めると重複被覆時に
+	// R/G が非整数化して解決パスが discard＝下の feature まで塗りが消える（振興局が市区町村に重なる
+	// 北海道で実証 2026-08-12）。単被覆前提の idfill を「除外した feature は無い物」として正す。
+	if (F.flags.w != 0u &&
+		(textureLoad(fidTex, vec2i(i32(em.a) % i32(F.flags.w), i32(em.a) / i32(F.flags.w)), 0).b & 1u) == 0u) { return o; }
 	let sn = lodSnap(em.r, em.g, edgeId);   // lodRank=0（GF側）＝全密度（自己交差斑点を出さない）
 	if (!sn.keep) { return o; }
 	if (sub == 0) { o.pos = pivotClip(em.a); return o; }
-	o.pos = fetchClip(select(sn.b, sn.a, sub == 1));
+	o.pos = fetchClipDrape(select(sn.b, sn.a, sub == 1));   // 塗り扇の辺端点を地形へドレープ（真俯瞰=無変化）
 	return o;
 }
 @fragment fn fsId(in: IdOut, @builtin(front_facing) ff: bool) -> @location(0) vec4f {
