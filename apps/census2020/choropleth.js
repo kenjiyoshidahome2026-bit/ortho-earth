@@ -217,6 +217,12 @@ export function initChoropleth(map, { legend } = {}) {
 	}
 	function setSelected(code) { selected = code || null; buildTable(); }
 
-	const api = { ready, applyAdmin, flyToCode, bboxForCode, setSelected, setIndicator, showLevel, setLevels, descendAgg, get activeLevel() { return activeLevel; }, get nationalLevel() { return nationalLevel; }, get pbf() { return pbf; } };
+	function geomForCode(code) {   // code→市区町村の境界幾何（admin_all 由来）。getGeometry で1featureだけ取る＝保持なし。bousai の A33 境界クリップ用。
+		if (!pbf || !feats) return null;
+		const i = feats.findIndex(f => f?.properties?.code === code);
+		if (i < 0) return null;
+		try { return pbf.getGeometry(i); } catch { return null; }
+	}
+	const api = { ready, applyAdmin, flyToCode, bboxForCode, geomForCode, setSelected, setIndicator, showLevel, setLevels, descendAgg, get activeLevel() { return activeLevel; }, get nationalLevel() { return nationalLevel; }, get pbf() { return pbf; } };
 	return api;
 }

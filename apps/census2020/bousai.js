@@ -43,7 +43,7 @@ const GINT_LAYERS = [
 	{ key: "a31", label: "洪水浸水" },
 ];
 
-export function initBousai(map, { bboxForCode, onStackApplied, onStackCleared } = {}) {
+export function initBousai(map, { bboxForCode, cityGeomForCode, onStackApplied, onStackCleared } = {}) {
 	let city = null;
 	const on = new Set();              // 点灯中の gint レイヤ key
 	let hinanOn = false;
@@ -79,7 +79,7 @@ export function initBousai(map, { bboxForCode, onStackApplied, onStackCleared } 
 		chips.forEach(b => { b.disabled = true; b.title = "確認中…"; });
 		const probes = {   // GET+即中断（bucket Worker は HEAD 405＝moj.js probeBucket の轍）
 			moj: mojSource(code).then(s => !!s),
-			a33: probeBucket(`${API}/bucket/bousai/a33/${code}.geopbf`),
+			a33: a33TargetForPref(code.slice(0, 2)).then(t => !!t).catch(() => false),   // browser-native＝県に A33 KSJ があれば有効（catalog確認）
 			a31: probeBucket(`${API}/bucket/bousai/a31/${code}.geopbf`),
 			hinan: probeBucket(`${API}/bucket/bousai/hinan/${code.slice(0, 2)}.json`),
 		};
@@ -103,15 +103,77 @@ export function initBousai(map, { bboxForCode, onStackApplied, onStackCleared } 
 		const pbf = await geopbf(raw, { gint: false, name: `bousai/${key}/${code}` });
 		return pbf?.geojson?.features ?? null;   // _src/rank/kbn は bake で埋め込み済み（rank/kbn=INTEGER で復元）
 	}
+	// ── A33 土砂＝browser-native オンデマンド（既定路線・裁定2026-08-13）。単被覆化なし・県別 KSJ を直読み。
+	// ★moj.js と同じ作法＝レガシー geopbf facade（engine が createGeopbf 済み）を使う。createGeopbf を再呼びしない
+	// （＝別インスタンスで engine の geopbf 状態を上書きする作法違反を避ける・legacy-geopbf-init-order の罠）。
+	// legacy geopbf(url) は CORS遮断の MLIT KSJ zip を api worker の proxy 経由で取り→zip内geojson抽出→ingest、
+	// かつ geopbf の URL キャッシュ規約で自動IDB＝2回目爆速（moj AIGID と同じ）。target は catalog（正典）から。
+	const A33_GENSHO = { 1: "急傾斜地の崩壊", 2: "土石流", 3: "地滑り" };   // A33_001＝現象の種類
+	// 境界クリップの素（外周リングの点in面・穴は無視＝十分）。旧a33-batch/ksj-common と同一。
+	const pointInRing = (x, y, ring) => { let hit = false; for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) { const a = ring[i], b = ring[j]; if (((a[1] > y) !== (b[1] > y)) && (x < (b[0] - a[0]) * (y - a[1]) / (b[1] - a[1]) + a[0])) hit = !hit; } return hit; };
+	const pointInGeom = (x, y, g) => g.type === "Polygon" ? pointInRing(x, y, g.coordinates[0]) : g.type === "MultiPolygon" ? g.coordinates.some(p => pointInRing(x, y, p[0])) : false;
+	let _a33Cat = null;
+	const catJson = async url => { const r = await fetch(url, { cache: "no-store" }); return r.ok ? JSON.parse(new TextDecoder().decode(await gunzipBuf(await r.arrayBuffer()))) : null; };
+	async function a33TargetForPref(pref) {   // 県コード→ A33 KSJ target（zipURL#zip内path）を catalog から
+		if (!_a33Cat) {
+			_a33Cat = new Map();
+			const idx = await catJson(`${API}/bucket/catalog/index.json`) || [];
+			const a33 = idx.find(d => /土砂災害警戒/.test(d.title || ""));   // 最新 A33（A33-2025 等）を自動選択
+			const ds = a33 && await catJson(`${API}/bucket/catalog/${a33.dataset_code}.json`);
+			for (const f of ds?.files || []) if (f.scope === "都道府県" && f.format === "geojson" && /Polygon/i.test(f.target)) _a33Cat.set(f.pref_code, f.target);   // 面(Polygon)を明示選択＝一部県(広島34)は線(Line)geojsonも持つ→線を拾うと面merge が空振りして出ない
+		}
+		return _a33Cat.get(pref) || null;
+	}
+	async function loadA33Pref(code) {
+		const target = await a33TargetForPref(code.slice(0, 2)).catch(() => null);
+		if (!target) return null;
+		say("土砂データ取得中…（初回のみ・proxy 経由）");   // moj 作法＝8秒級の初回読みに進捗を出す
+		const pbf = await geopbf(target, { gint: false, name: `a33/${code.slice(0, 2)}` }).catch(e => { console.warn("[a33]", e); return null; });   // legacy geopbf＝proxy経由＋自動IDBキャッシュ
+		const raw = pbf?.geojson?.features;
+		if (!raw) return null;
+		// ①境界クリップ＝表示中の市区町村ポリゴン（admin_all 由来・getGeometry で1featureだけ・保持なし）で絞る。
+		//   「少しでも市にかかっていれば、その区域を丸ごと出す」＝外周頂点が1つでも市内なら feature ごと採用。重心割当てと違い
+		//   境界の欠けを作らない＝ハザードで区域を隠さない（安全側＝またぐ区域は隣へはみ出た分も出る）。矩形クリップの隅の劣化も消える。
+		//   かつ県まるごと（広島14万ポリゴン）を gint に渡すと idfill 巻き数が溢れて塗りが消えるのも、市の数へ落として回避。
+		// ②生KSJ props(A33_002区分/A33_001現象)→{kbn,gensho} へ写像し kbn/gensho で束ねて fid を1桁に（gint idfill fid≤2047）。
+		const cityGeom = cityGeomForCode?.(code) ?? null;   // 市境界ポリゴン（無ければ bbox のみのフォールバック）
+		const bb = bboxForCode?.(code);   // 点in面の前置ふるい（市bbox外の頂点は即skip）
+		const inBB = c => !bb || (c[0] >= bb[0] && c[0] <= bb[2] && c[1] >= bb[1] && c[1] <= bb[3]);
+		const zoneHitsCity = comps => {   // 外周頂点が1つでも市内→採用（早期脱出）。少しでもかかれば出す＝欠け無し優先。
+			for (const poly of comps) for (const c of poly[0]) {
+				if (!inBB(c)) continue;
+				if (!cityGeom) return true;   // 市ポリゴン無→bbox内に頂点があれば出す（フォールバック）
+				if (pointInGeom(c[0], c[1], cityGeom)) return true;
+			}
+			return false;
+		};
+		const groups = new Map();
+		for (const f of raw) {
+			const g = f.geometry; if (!g) continue;
+			const comps = g.type === "Polygon" ? [g.coordinates] : g.type === "MultiPolygon" ? g.coordinates : [];
+			if (!comps.length) continue;
+			if (!zoneHitsCity(comps)) continue;   // 境界クリップ（少しでも市にかかる区域だけ・feature 単位で丸ごと）
+			const kbn = +f.properties?.A33_002 === 2 ? 2 : 1, gensho = A33_GENSHO[+f.properties?.A33_001] ?? "";
+			const k = `${kbn}/${gensho}`;
+			if (!groups.has(k)) groups.set(k, { props: { _src: "a33", kbn, gensho }, comps: [] });
+			groups.get(k).comps.push(...comps);
+		}
+		return [...groups.values()].map(({ props, comps }) => ({
+			type: "Feature", properties: props,
+			geometry: comps.length === 1 ? { type: "Polygon", coordinates: comps[0] } : { type: "MultiPolygon", coordinates: comps },
+		}));
+	}
 	async function sourceFC(code, key) {
-		const ck = `${code}/${key}`;
+		const ck = `${code}/${key}`;   // a33 は境界クリップ済の少数feature＝市単位で軽くセッション保持（県ファイル自体は geopbf の URL キャッシュで使い回し＝2回目爆速）
 		if (fcCache.has(ck)) return fcCache.get(ck);
 		let feats = null;
 		if (key === "moj") {
 			const pbf = await loadMoj(code, { onStatus: say });
 			feats = pbf?.geojson?.features?.map(f => ({ ...f, properties: { ...f.properties, _src: "moj" } })) ?? null;
+		} else if (key === "a33") {
+			feats = await loadA33Pref(code);   // browser-native オンデマンド（既定路線）
 		} else {
-			feats = await loadBousaiGeoPBF(code, key);
+			feats = await loadBousaiGeoPBF(code, key);   // a31＝当面 bucket geopbf 直読み（per-mesh の載せ替えは別途）
 		}
 		if (feats) fcCache.set(ck, feats);
 		return feats;
@@ -130,9 +192,13 @@ export function initBousai(map, { bboxForCode, onStackApplied, onStackCleared } 
 		if (keys.length === 1 && keys[0] === "moj") {
 			pbf = await loadMoj(code, { onStatus: say });   // 単一筆＝直載せの高速路（再焼きゼロ・moj.js が IDB 持ち）
 		} else {
-			const stackKey = `stack://v2/${code}/${sig}`;   // v2＝ハザードのランク/区分マージ後（旧・個別fid版と縁切り）
+			// a33 を含む合成は IDB に焼かない：県A33は geopbf の URL キャッシュ（県ごと1エントリ＝「IDB焼きは県ごと」）が正典で、
+			// 合成物を市ごとに焼くと肥大（広島20市×5MB=100MB）。県データ（URLキャッシュ命中で速い）から都度 境界クリップ再合成する。
+			// ＝残る stack キャッシュは非a33（洪水等）のみ＝内容は production と不変 → 版は v2 据置（IDBを一切変えない）。
+			const useStackCache = !keys.includes("a33");
+			const stackKey = `stack://v2/${code}/${sig}`;
 			const cache = await getCache();
-			const val = await cache(stackKey).catch(() => null);
+			const val = useStackCache ? await cache(stackKey).catch(() => null) : null;
 			if (val?.PBF) {   // 2回目＝合成済みを IDB から復元（焼きゼロ）
 				pbf = await geopbf(val.PBF, { gint: false, name: stackKey });
 				if (val.GINT) await pbf.setGintBUF(val.GINT).catch(() => null);
@@ -143,9 +209,9 @@ export function initBousai(map, { bboxForCode, onStackApplied, onStackCleared } 
 				if (mySeq !== seq) return;   // 合成中にトグルが変わった＝この結果は捨てる
 				const features = parts.flatMap(p => p || []);
 				if (!features.length) { say("データが空でした"); return; }
-				say(`重ね焼き中…（${features.length.toLocaleString()}地物・この組合せの初回のみ）`);
+				say(`重ね焼き中…（${features.length.toLocaleString()}地物）`);
 				pbf = await geopbf({ type: "FeatureCollection", features }, { gint: true, name: stackKey });
-				if (pbf?.unPackGint) {
+				if (useStackCache && pbf?.unPackGint) {
 					const GINT = new Uint8Array(pbf._gintBuffer).slice().buffer;
 					cache(stackKey, { PBF: pbf.arrayBuffer, GINT }).catch(() => {});
 				}

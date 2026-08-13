@@ -25,6 +25,7 @@ export function initBind(map, { choro }) {
 
 	const bousai = initBousai(map, {
 		bboxForCode: code => choro.bboxForCode(code),
+		cityGeomForCode: code => choro.geomForCode(code),   // A33 の境界クリップ（重心 点in面）用に市ポリゴンを渡す
 		onStackApplied: () => { slotOwner = "stack"; },
 		onStackCleared: () => { if (slotOwner === "stack") { slotOwner = "admin"; choro.applyAdmin(); } },
 	});
