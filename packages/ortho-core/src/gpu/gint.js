@@ -72,15 +72,21 @@ export function createGintLayerGPU(host, { requestDraw } = {}) {
 		});
 	const wind = { compare: "always", failOp: "keep", depthFailOp: "keep", passOp: "increment-wrap" };
 	const windB = { ...wind, passOp: "decrement-wrap" };
-	const stFan = { ...keepDS, stencilFront: wind, stencilBack: windB };
-	const stCoverNE = { ...keepDS, stencilFront: { compare: "not-equal", failOp: "keep", depthFailOp: "keep", passOp: "keep" }, stencilBack: { compare: "not-equal", failOp: "keep", depthFailOp: "keep", passOp: "keep" }, stencilWriteMask: 0 };
-	const stCoverEQ = { ...keepDS, stencilFront: { compare: "equal", failOp: "keep", depthFailOp: "keep", passOp: "keep" }, stencilBack: { compare: "equal", failOp: "keep", depthFailOp: "keep", passOp: "keep" }, stencilWriteMask: 0 };
-	const stZero = { ...keepDS, stencilFront: { compare: "always", failOp: "keep", depthFailOp: "keep", passOp: "replace" }, stencilBack: { compare: "always", failOp: "keep", depthFailOp: "keep", passOp: "replace" } };
+	// stencil bit7(0x80)＝renderer の建物マスク（bld/plateau が刻む・面ドレープの深度統合 2026-08-14）＝winding は
+	// ビット0-6（±63で十分）に閉じ込め、cover/mask の比較・書きも 0x7F に限定して bit7 を汚さない。
+	const stFan = { ...keepDS, stencilFront: wind, stencilBack: windB, stencilWriteMask: 0x7F };
+	const stCoverNE = { ...keepDS, stencilFront: { compare: "not-equal", failOp: "keep", depthFailOp: "keep", passOp: "keep" }, stencilBack: { compare: "not-equal", failOp: "keep", depthFailOp: "keep", passOp: "keep" }, stencilReadMask: 0x7F, stencilWriteMask: 0 };
+	const stCoverEQ = { ...keepDS, stencilFront: { compare: "equal", failOp: "keep", depthFailOp: "keep", passOp: "keep" }, stencilBack: { compare: "equal", failOp: "keep", depthFailOp: "keep", passOp: "keep" }, stencilReadMask: 0x7F, stencilWriteMask: 0 };
+	const stZero = { ...keepDS, stencilFront: { compare: "always", failOp: "keep", depthFailOp: "keep", passOp: "replace" }, stencilBack: { compare: "always", failOp: "keep", depthFailOp: "keep", passOp: "replace" }, stencilWriteMask: 0x7F };
+	// 遮蔽消し込み（ドレープ塗り時のみ）：建物 bit7 が立つ画素の winding を 0 へ（ref 0x80・replace は ref&0x7F=0 を書く）
+	//＝cover(≠0) が建物の陰を自然にスキップ。ドレープ面＝地形面そのものなので「建物が見えている画素」の判定だけで正しい。
+	const stOcc = { ...keepDS, stencilFront: { compare: "equal", failOp: "keep", depthFailOp: "keep", passOp: "replace" }, stencilBack: { compare: "equal", failOp: "keep", depthFailOp: "keep", passOp: "replace" }, stencilReadMask: 0x80, stencilWriteMask: 0x7F };
 	const stencilFanPipe = pipe(stencilMod, "vsStencil", "fsNull", { ds: stFan, blend: undefined, writeMask: 0 });
 	// VS_STENCIL_MASK 系は GL 側でも現行パスで未使用（drawHighlight の mask fan は stencilProgram＝レンジ描画）＝パイプライン化しない
 	const coverPipe = pipe(stencilMod, "vsFull", "fsFill", { ds: stCoverNE });
 	const coverEqPipe = pipe(stencilMod, "vsFull", "fsFill", { ds: stCoverEQ });
 	const zeroPipe = pipe(stencilMod, "vsFull", "fsNull", { ds: stZero, blend: undefined, writeMask: 0 });
+	const occludePipe = pipe(stencilMod, "vsFull", "fsNull", { ds: stOcc, blend: undefined, writeMask: 0 });   // 建物 bit7→winding 消し込み
 	const linePipe = pipe(lineMod, "vsRender", "fsRender");
 	const lineTestPipe = pipe(lineMod, "vsRender", "fsRender", { ds: { ...keepDS, depthCompare: "less-equal" } });
 	const lineHiddenPipe = pipe(lineMod, "vsRender", "fsRender", { ds: { ...keepDS, depthCompare: "greater" } });
@@ -107,12 +113,15 @@ export function createGintLayerGPU(host, { requestDraw } = {}) {
 		{ binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "uint" } },                 // fidTex RGBA32UI
 		{ binding: 2, visibility: GPUShaderStage.FRAGMENT, buffer: {} },                                      // R uniform
 	] });
-	const idResolvePipe = device.createRenderPipeline({
+	const mkIdResolve = ds => device.createRenderPipeline({
 		layout: device.createPipelineLayout({ bindGroupLayouts: [bglIdResolve] }),
 		vertex: { module: idResolveMod, entryPoint: "vs" },
 		fragment: { module: idResolveMod, entryPoint: "fs", targets: [{ format, blend: SBLEND }] },
-		primitive: { topology: "triangle-list" }, depthStencil: keepDS, multisample: { count: host.samples || 4 },   // main パスへ描く＝renderer の段数に追随（?msaa=0）
+		primitive: { topology: "triangle-list" }, depthStencil: ds, multisample: { count: host.samples || 4 },   // main パスへ描く＝renderer の段数に追随（?msaa=0）
 	});
+	const idResolvePipe = mkIdResolve(keepDS);
+	// ドレープ塗り時＝建物 bit7 が立つ画素をスキップ（ref 0・equal・readMask 0x80＝(v&0x80)==0 のみ塗る）
+	const idResolveOccPipe = mkIdResolve({ ...keepDS, stencilFront: { compare: "equal", failOp: "keep", depthFailOp: "keep", passOp: "keep" }, stencilBack: { compare: "equal", failOp: "keep", depthFailOp: "keep", passOp: "keep" }, stencilReadMask: 0x80, stencilWriteMask: 0 });
 
 	// ── UBO（GF 4スロット＝(rank, rank0)×(pivot有効, 境界メタ=単一要・カリング無効)・GP 役割別・style表）──
 	// 境界メタは「多数 fid の arc 寄せ集め」＝per-fid 扇要では閉ループが閉じず巻き数が漏れる＝GL 版
@@ -628,8 +637,8 @@ export function createGintLayerGPU(host, { requestDraw } = {}) {
 			colorAttachments: [{ view: fr.colorView, loadOp: "load", storeOp: "store" }],
 			depthStencilAttachment: {
 				view: fr.depthView,
-				depthLoadOp: "load", depthStoreOp: "store",       // 地形深度に参加（隠線）＝消さない
-				stencilLoadOp: "clear", stencilStoreOp: "discard", // stencil はこのパス専用（GL の冒頭 clear と同じ）
+				depthLoadOp: "load", depthStoreOp: "store",   // 地形深度に参加（隠線）＝消さない
+				stencilLoadOp: "load", stencilStoreOp: "store",   // bit7=renderer の建物マスクを持ち込む（winding は 0x7F 内で自前ゼロ管理）
 			},
 		});
 		pass.setStencilReference(0);
@@ -637,8 +646,10 @@ export function createGintLayerGPU(host, { requestDraw } = {}) {
 		pass.setBindGroup(3, aux);
 
 		// ② 塗り：コロプレス（idfill）＝解決パスを描画／それ以外＝stencil-then-cover 単色（境界メタ優先）
+		// occ＝面ドレープの深度統合：チルト（elevScale>0）でのみ建物 bit7 で塗りをスキップ＝真俯瞰は全塗り維持（裁定）
+		const occ = !!(dep && (dep.elevScale ?? 0) > 0 && dep.hasElev);
 		if (idFill) {   // ID 画素→fid→スタイル表→色（②の解決＝①で蓄積した idTex を読む）
-			pass.setPipeline(idResolvePipe);
+			pass.setPipeline(occ ? idResolveOccPipe : idResolvePipe);   // occ＝建物画素(bit7)を stencil equal(readMask 0x80) で除外
 			pass.setBindGroup(0, idResolveBG);
 			pass.draw(3);
 		} else if (doFill) {
@@ -646,8 +657,16 @@ export function createGintLayerGPU(host, { requestDraw } = {}) {
 			pass.setBindGroup(2, texBG(s.arcTex, stTex));
 			pass.setPipeline(stencilFanPipe);
 			pass.draw(stCount * 3);
+			if (occ) {   // 建物 bit7 の画素の winding を 0 へ（ref 0x80・equal・replace は 0x80&0x7F=0 を書く）→cover(≠0) が陰を跳ぶ
+				pass.setStencilReference(0x80);
+				pass.setPipeline(occludePipe);
+				pass.draw(3);
+				pass.setStencilReference(0);
+			}
 			pass.setPipeline(coverPipe);
 			pass.setBindGroup(1, paramBG[ROLE.fill]);
+			pass.draw(3);
+			pass.setPipeline(zeroPipe);   // winding を毎回自前でゼロ（pass の stencil clear を bit7 持ち込みの load に替えた代償）
 			pass.draw(3);
 		}
 		if (idFill) pass.setBindGroup(3, aux);   // idResolvePipe は別レイアウト＝bind group がリセットされる＝後続の線/点用に group3(aux) を張り直す
@@ -707,6 +726,8 @@ export function createGintLayerGPU(host, { requestDraw } = {}) {
 				pass.draw(eCount * 3, 1, eStart * 3);
 				pass.setPipeline(coverEqPipe);   // stencil==0＝地物の外を暗く
 				pass.setBindGroup(1, paramBG[ROLE.maskFill]);
+				pass.draw(3);
+				pass.setPipeline(zeroPipe);   // mask winding を後始末（stencil load 化＝後続レイヤへ持ち越さない）
 				pass.draw(3);
 			}
 		}

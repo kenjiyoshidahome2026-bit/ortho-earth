@@ -174,6 +174,11 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 	const dsTest = { format: DEPTH, depthWriteEnabled: false, depthCompare: "less-equal" };
 	const dsWrite = { format: DEPTH, depthWriteEnabled: true, depthCompare: "less-equal" };
 	const dsTerrain = { ...dsWrite, depthBias: 4, depthBiasSlopeScale: 1.0 };   // gl.polygonOffset(1.0, 4.0) 相当＝ドレープした基図が z-fight せず表に出る
+	// 建物マスク（面ドレープの深度統合・2026-08-14）：建物 FS が通った画素に stencil bit7(0x80) を刻む
+	//（reference は建物ドロー直前に 0x80）。gint の cover/idResolve が「建物の陰」を画素単位でスキップする根拠。
+	// 扇形状の深度テストは不可（fan は winding の便法＝内部 frag は地形面に乗っていない）＝この bit が唯一の正解。
+	const SBLD = { compare: "always", failOp: "keep", depthFailOp: "keep", passOp: "replace" };
+	const dsWriteBld = { ...dsWrite, stencilFront: SBLD, stencilBack: SBLD, stencilWriteMask: 0x80 };
 	const FILL_BUFS = [
 		{ arrayStride: 8, attributes: [{ shaderLocation: 0, offset: 0, format: "float32x2" }] },   // a_delta
 		{ arrayStride: 4, attributes: [{ shaderLocation: 1, offset: 0, format: "unorm8x4" }] },    // a_color
@@ -202,12 +207,12 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 		{ arrayStride: 12, attributes: [{ shaderLocation: 0, offset: 0, format: "float32x3" }] },   // a_pos (dlon,dlat,hWorld)
 		{ arrayStride: 4, attributes: [{ shaderLocation: 1, offset: 0, format: "float32" }] },      // a_shade
 		{ arrayStride: 8, attributes: [{ shaderLocation: 2, offset: 0, format: "float32x2" }] },    // a_anchor
-	], dsWrite, "fs", bldLayout);   // group(2)=PLATEAU 被覆マスク
+	], dsWriteBld, "fs", bldLayout);   // group(2)=PLATEAU 被覆マスク。stencil bit7=建物マスク（gint 面ドレープの深度統合）
 	// PLATEAU LOD2：頂点=重心相対 pos(f32x3)＋int8量子化法線(snorm8x4・stride4)。裏面カリングは FS（両面データ）＝cullMode none
 	const plateauPipe = pipe(plMod, [
 		{ arrayStride: 12, attributes: [{ shaderLocation: 0, offset: 0, format: "float32x3" }] },   // a_pos（重心相対 delta）
 		{ arrayStride: 4, attributes: [{ shaderLocation: 1, offset: 0, format: "snorm8x4" }] },     // a_normal（xyz+pad・FS で normalize）
-	], dsWrite, "fs", plLayout);
+	], dsWriteBld, "fs", plLayout);   // stencil bit7=建物マスク（bldPipe と同じ）
 	const contourPipe = pipe(contMod, undefined, dsOff);
 	const globePipe = device.createRenderPipeline({   // globe は Frame 非依存＝専用レイアウト(auto)
 		layout: "auto",
@@ -886,7 +891,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 			depthStencilAttachment: {
 				view: t.depthView,
 				depthLoadOp: "clear", depthClearValue: 1.0, depthStoreOp: "store",   // gint の隠線（地形深度テスト）が読む
-				stencilLoadOp: "clear", stencilStoreOp: "discard",                    // renderer 自身は stencil 不使用（gint パスが自前で clear）
+				stencilLoadOp: "clear", stencilStoreOp: "store",                      // bit7=建物マスク（bld/plateau が刻み gint パスが load で読む）
 			},
 		};
 		let pass;
@@ -989,6 +994,8 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 		}
 		// overlay（外部ベクタ=geopbf/e-Stat/N02）：基図の上・建物の下・深度off。per-scene origin の Frame を渡す
 		drawOverlay(pass, st, (origin) => packFrame(st, origin, st.fogDist * 2.5, st.fogDist * 14.0, land, logCoef, dpr), cam.zoom || 0);
+		// 建物マスクの reference＝bit7（★overlay の後＝overlay cover の not-equal 比較は ref 0 前提のまま守る）
+		pass.setStencilReference(0x80);
 		// 建物（3D押し出し）：深度で前後関係を解決（地形・尾根にも遮蔽される）。真俯瞰では描かない＝平面地図
 		const show3d = (cam.pitch || 0) >= 0.02;
 		// PLATEAU の実フットプリントが立つ区の被覆マスク（最大4・非表示区は除外）＝基図建物を伏せる

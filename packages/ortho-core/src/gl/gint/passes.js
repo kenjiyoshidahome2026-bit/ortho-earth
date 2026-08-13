@@ -5,7 +5,7 @@
 // 単位は device px 一本（u_dpr=1、線幅/半径は worker が ×dpr 済み、blit は width 直）。
 
 import { s, DEF_STYLE, DEF_DASH, DEF_FILL, DEF_MASK } from './state.js';
-import { bindSharedUniforms, bindPivot } from './utility.js';
+import { bindSharedUniforms, bindPivot, bindDepthUniforms } from './utility.js';
 import { betaOf, ellipsoidOn } from '../../camera.js';
 import { canUseIdFill, renderIdFill } from './idfill.js';
 
@@ -76,25 +76,7 @@ function visibleRuns(totalCount, chunks) {
 	return runs;
 }
 
-// 深度統合（1canvas 段階B）uniform：data.depth（renderer の frame コンテキスト＝terrainDepth 時のみ非null）
-// を renderProgram へ。無ければ全0＝従来動作（worker モード含む）。u_elevTex の unit 割当(7)だけは常に行う
-//（sampler2D の既定 unit0 は u_arc_tex(usampler2D) と同 unit になり draw が INVALID_OPERATION になるため）。
-function bindDepthUniforms(gl, u, data) {
-	const dep = data.depth;
-	gl.uniform1i(u.u_elevTex, 7);
-	gl.uniform1f(u.u_logCoef, dep?.logCoef ?? 0);
-	gl.uniform1f(u.u_fogFar,  dep?.fogFar ?? 1e9);
-	const op = data.originPt;
-	gl.uniform3f(u.u_origin_pt, op?.[0] ?? 0, op?.[1] ?? 0, op?.[2] ?? 0);
-	gl.uniform1f(u.u_elevScale, dep?.elevScale ?? 0);
-	gl.uniform1f(u.u_hasElev,   dep?.hasElev ?? 0);
-	gl.uniform1f(u.u_elevEdgeFade, dep?.edgeFade ?? 0);
-	const b = dep?.elevBounds;
-	gl.uniform4f(u.u_elevBounds, b?.[0] ?? 0, b?.[1] ?? 0, b?.[2] ?? 1, b?.[3] ?? 1);
-	gl.uniform1f(u.u_hidden, 0);
-	if (dep?.elevTex) { gl.activeTexture(gl.TEXTURE7); gl.bindTexture(gl.TEXTURE_2D, dep.elevTex); gl.activeTexture(gl.TEXTURE0); }
-	return dep;
-}
+// bindDepthUniforms は utility.js へ移設（2026-08-14＝面ドレープ化で uStencil/uId=idfill.js とも共用）。
 
 // 境界メタ描画用：扇要=クリップ原点（単一要）＋fid bbox カリング無効。
 // 境界メタのループは「多数 fid の arc の寄せ集め」＝per-fid 扇要（pivotClip）では1つの閉ループが
@@ -153,7 +135,8 @@ export function renderCleanScene(data, targetFBO = null) {
 	if (s.embedded && !targetFBO) {
 		// embedded＝地図が既に描かれた default framebuffer の上に blend で重ねる＝色は消さない。
 		// stencil だけ消す（塗りの winding 判定用。renderer 側の stencil 利用は都度 clear する規約＝衝突しない）。
-		gl.stencilMask(0xFF);
+		// ★bit7(0x80)＝renderer の建物マスク（面ドレープの深度統合 2026-08-14）＝消さない（0x7F＝winding 側だけ）
+		gl.stencilMask(0x7F);
 		gl.clear(gl.STENCIL_BUFFER_BIT);
 	} else {
 		gl.clearColor(0, 0, 0, 0);
@@ -195,24 +178,32 @@ export function renderCleanScene(data, targetFBO = null) {
 	const hasB = !!(s.metaTexB && s.polyEdgesB > 0);
 	const stTex = hasB ? s.metaTexB : metaTex, stCount = hasB ? s.polyEdgesB : s.polyEdges;
 	if (!idDone && fc[3] > 0 && stCount > 0) {
+		// occ＝面ドレープの深度統合：チルト（elevScale>0）でのみ建物 bit7 で塗りをスキップ＝真俯瞰は全塗り維持（裁定）
+		const occ = !targetFBO && !!(data.depth && (data.depth.elevScale ?? 0) > 0 && data.depth.hasElev);
 		gl.enable(gl.STENCIL_TEST);
-		gl.stencilMask(0xFF);
+		gl.stencilMask(0x7F);   // winding はビット0-6（bit7=renderer の建物マスク＝汚さない）
 		gl.clear(gl.STENCIL_BUFFER_BIT);
 		gl.colorMask(false, false, false, false);
-		gl.stencilFunc(gl.ALWAYS, 0, 0xFF);
+		gl.stencilFunc(gl.ALWAYS, 0, 0x7F);
 		gl.stencilOpSeparate(gl.FRONT, gl.KEEP, gl.KEEP, gl.INCR_WRAP);
 		gl.stencilOpSeparate(gl.BACK,  gl.KEEP, gl.KEEP, gl.DECR_WRAP);
 		gl.useProgram(stencilProgram);
 		bindSharedUniforms(gl, uStencil, data, arcTex, stTex, TEX_ARC_W, TEX_META_W, width, height);
+		bindDepthUniforms(gl, uStencil, data);   // 面ドレープ＝塗り扇の辺端点を地形高へ（fetchClipDrape・真俯瞰=全0=無変化）
 		if (hasB) bindPivotBoundary(gl, uStencil); else bindPivot(gl, uStencil);   // 境界メタ＝単一要・カリング無効（fid混成ループ）
 		gl.uniform1f(uStencil.u_lod_rank, 0);   // 塗りstencilは全密度＝LOD簡略化の自己交差による斑点(winding反転)を防ぐ
 		// ポリゴン辺（メタ先頭連続）のみ winding にファン＝折れ線辺を混ぜない（ortho-map と同規約）
 		gl.drawArrays(gl.TRIANGLES, 0, stCount * 3);
+		gl.useProgram(fillProgram);
+		if (occ) {   // 建物 bit7 の画素の winding を 0 へ（REPLACE は ref 0x80 を stencilMask 0x7F で書く＝0）→cover(≠0) が陰を跳ぶ
+			gl.stencilFunc(gl.EQUAL, 0x80, 0x80);
+			gl.stencilOp(gl.KEEP, gl.KEEP, gl.REPLACE);
+			gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+		}
 		gl.colorMask(true, true, true, true);
 		gl.stencilMask(0x00);
-		gl.stencilFunc(gl.NOTEQUAL, 0, 0xFF);
+		gl.stencilFunc(gl.NOTEQUAL, 0, 0x7F);   // 比較も winding ビットのみ（bit7 で「建物の上だけ塗る」誤爆を防ぐ）
 		gl.stencilOp(gl.KEEP, gl.KEEP, gl.KEEP);
-		gl.useProgram(fillProgram);
 		gl.uniform4fv(uFill.u_fill_color, fc);
 		gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 		gl.disable(gl.STENCIL_TEST);

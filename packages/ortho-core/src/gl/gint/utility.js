@@ -52,6 +52,27 @@ export function bindPivot(gl, u) {
 	gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, s.pivotTex || null); gl.activeTexture(gl.TEXTURE0);
 }
 
+// 深度統合（1canvas 段階B）uniform：data.depth（renderer の frame コンテキスト＝terrainDepth 時のみ非null）
+// を program へ。無ければ全0＝従来動作（worker モード含む）。u_elevTex の unit 割当(7)だけは常に行う
+//（sampler2D の既定 unit0 は u_arc_tex(usampler2D) と同 unit になり draw が INVALID_OPERATION になるため）。
+//（passes.js から移設 2026-08-14＝面ドレープ化で uStencil/uId とも共用）
+export function bindDepthUniforms(gl, u, data) {
+	const dep = data.depth;
+	gl.uniform1i(u.u_elevTex, 7);
+	gl.uniform1f(u.u_logCoef, dep?.logCoef ?? 0);
+	gl.uniform1f(u.u_fogFar,  dep?.fogFar ?? 1e9);
+	const op = data.originPt;
+	gl.uniform3f(u.u_origin_pt, op?.[0] ?? 0, op?.[1] ?? 0, op?.[2] ?? 0);
+	gl.uniform1f(u.u_elevScale, dep?.elevScale ?? 0);
+	gl.uniform1f(u.u_hasElev,   dep?.hasElev ?? 0);
+	gl.uniform1f(u.u_elevEdgeFade, dep?.edgeFade ?? 0);
+	const b = dep?.elevBounds;
+	gl.uniform4f(u.u_elevBounds, b?.[0] ?? 0, b?.[1] ?? 0, b?.[2] ?? 1, b?.[3] ?? 1);
+	if (u.u_hidden) gl.uniform1f(u.u_hidden, 0);
+	if (dep?.elevTex) { gl.activeTexture(gl.TEXTURE7); gl.bindTexture(gl.TEXTURE_2D, dep.elevTex); gl.activeTexture(gl.TEXTURE0); }
+	return dep;
+}
+
 // ── 以下 node-independent（投影に触れない純データ構造）＝v1 から逐語で携行 ──
 
 export function uploadTex2D(gl, u32, w, h, internalFmt, fmt) {

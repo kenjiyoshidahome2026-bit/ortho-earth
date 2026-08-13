@@ -17,8 +17,8 @@
 //   - 塗りのみ per-fid。線/点の per-fid スタイルは次段（fid 表自体は line 色/width も既に持つ）。
 
 import { s } from './state.js';
-import { GLSL_VS_HEADER, VS_FILL, SHARED_UNIFORM_NAMES, linkProgram, getUniforms } from './programs.js';
-import { bindSharedUniforms, bindPivot } from './utility.js';
+import { GLSL_VS_HEADER, VS_FILL, SHARED_UNIFORM_NAMES, DEPTH_UNIFORM_NAMES, linkProgram, getUniforms } from './programs.js';
+import { bindSharedUniforms, bindPivot, bindDepthUniforms } from './utility.js';
 
 // VS_STENCIL と同一の fan 幾何＋fid を flat varying で FS へ（facing は rasterizer が判定）。
 const VS_ID = `${GLSL_VS_HEADER}
@@ -39,7 +39,7 @@ void main() {
 	uint lodA = meta.r, lodB = meta.g;
 	if (!lodSnap(lodA, lodB, edge_id)) { gl_Position = vec4(2.0, 0.0, 0.0, 1.0); return; }
 	if (sub == 0) { gl_Position = pivotClip(meta.a); return; }
-	gl_Position = fetchClip(sub == 1 ? lodA : lodB);
+	gl_Position = fetchClipDrape(sub == 1 ? lodA : lodB);   // 塗り扇の辺端点を地形へドレープ（真俯瞰=無変化・WebGPU vsId と対）
 }`;
 
 // R = Σ±(fid+1)（fid 重み付き winding 和）、G = Σ±1（winding カウント＝被覆多重度）。
@@ -165,7 +165,7 @@ function ensurePrograms(gl) {
 	const resolveProgram = linkProgram(gl, VS_FILL, FS_RESOLVE);
 	s._idPrograms = {
 		idProgram, resolveProgram,
-		uId:      getUniforms(gl, idProgram, [...SHARED_UNIFORM_NAMES,
+		uId:      getUniforms(gl, idProgram, [...SHARED_UNIFORM_NAMES, ...DEPTH_UNIFORM_NAMES,   // 深度＝fetchClipDrape（面ドレープ）
 					'u_pivot_tex', 'u_pivot_w', 'u_has_pivot', 'u_view_bbox', 'u_use_vbb',
 					'u_fid_style', 'u_fidstyle_w', 'u_has_fidstyle']),   // 蓄積で不可視fidを弾く（重複被覆汚染防止）
 		uResolve: getUniforms(gl, resolveProgram, ['u_id_tex', 'u_fid_style', 'u_fid_w', 'u_fid_count', 'u_overlap']),
@@ -220,6 +220,7 @@ export function renderIdFill(data, targetFBO) {
 	gl.blendFunc(gl.ONE, gl.ONE);   // 加算（equation は既定 FUNC_ADD のまま）
 	gl.useProgram(idProgram);
 	bindSharedUniforms(gl, uId, data, arcTex, metaTex, TEX_ARC_W, TEX_META_W, width, height);
+	bindDepthUniforms(gl, uId, data);   // 面ドレープ＝蓄積扇の辺端点を地形高へ（fetchClipDrape・真俯瞰=全0=無変化）
 	bindPivot(gl, uId);
 	// fid スタイル表を蓄積VSへも結線＝不可視fid(filter)を winding から除外（bindFidStyle passes.js:111 と同処理）。
 	gl.uniform1i(uId.u_has_fidstyle, s.fidStyleTex ? 1 : 0);
@@ -234,6 +235,14 @@ export function renderIdFill(data, targetFBO) {
 	// ② 解決（fid→スタイル表→色）を本来のターゲットへ straight alpha で。
 	gl.bindFramebuffer(gl.FRAMEBUFFER, targetFBO);
 	gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+	// 面ドレープの深度統合（2026-08-14）：チルト時は建物 bit7(0x80・renderer が刻む)の画素をスキップ＝ビルが塗りから立ち上がる
+	const occ = !targetFBO && !!(data.depth && (data.depth.elevScale ?? 0) > 0 && data.depth.hasElev);
+	if (occ) {
+		gl.enable(gl.STENCIL_TEST);
+		gl.stencilMask(0x00);
+		gl.stencilFunc(gl.EQUAL, 0, 0x80);   // (v&0x80)==0＝建物でない画素のみ塗る
+		gl.stencilOp(gl.KEEP, gl.KEEP, gl.KEEP);
+	}
 	gl.useProgram(resolveProgram);
 	gl.activeTexture(gl.TEXTURE3); gl.bindTexture(gl.TEXTURE_2D, s._idTex);
 	gl.activeTexture(gl.TEXTURE4); gl.bindTexture(gl.TEXTURE_2D, s.fidStyleTex);
@@ -244,6 +253,7 @@ export function renderIdFill(data, targetFBO) {
 	gl.uniform1i(uResolve.u_fid_count, s.fidStyleCount);
 	gl.uniform1i(uResolve.u_overlap,   s.idOverlapMode ? 1 : 0);
 	gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+	if (occ) gl.disable(gl.STENCIL_TEST);
 	return true;
 }
 

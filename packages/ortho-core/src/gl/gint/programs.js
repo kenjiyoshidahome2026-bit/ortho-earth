@@ -217,6 +217,24 @@ vec4 fetchClip(uint idx) {
 	return u_clipT + u_mvp * vec4(decodeRel(idx), 0.0);
 }
 
+// 塗り扇(stencil/idfill)を地形にドレープ＝projectDrape と同じ標高変位のクリップ座標版（WebGPU fetchClipDrape と対・
+// 2026-08-14 GL 移植）。u_elevScale=0(真俯瞰)なら fetchClip と同一＝既存挙動を壊さない。汚い土砂ポリゴン
+//（自己交差/重なり）も winding で斜面に貼る。扇の pivot は非ドレープでよい（winding は screen で pivot 不変）。
+vec4 fetchClipDrape(uint idx) {
+	vec2 dLL = decodeDLL(idx);
+	vec3 rel = deltaToRel(dLL.x, dLL.y);
+	vec3 relW = rel;
+	if (u_elevScale > 0.0 && u_hasElev > 0.5) {
+		vec3 dir = u_origin_pt + rel;
+		float df = 1.0 - smoothstep(u_fogFar * 0.8, u_fogFar * 2.0, distance(u_eye, dir));
+		vec2 ll = u_origin + dLL;
+		float h = elevAt(ll) * u_elevScale * df;
+		if (u_ell > 0.5) { float p = ll.y * D2R, l = ll.x * D2R, cp = cos(p); dir = vec3(cp * cos(l), sin(p) * ELL_INV_R, cp * sin(l)); }
+		relW = rel + h * dir;
+	}
+	return u_clipT + u_mvp * vec4(relW, 0.0);
+}
+
 vec4 toNDC(vec2 p) {
 	return vec4(2.0 * p.x / u_viewport.x - 1.0,
 				1.0 - 2.0 * p.y / u_viewport.y,
@@ -344,7 +362,7 @@ void main() {
 	uint lodA = meta.r, lodB = meta.g;
 	if (!lodSnap(lodA, lodB, edge_id)) { gl_Position = vec4(2.0, 0.0, 0.0, 1.0); return; }
 	if (sub == 0) { gl_Position = pivotClip(meta.a); return; }   // 扇要＝feature局所（TBDRパラメータバッファ対策）
-	gl_Position = fetchClip(sub == 1 ? lodA : lodB);
+	gl_Position = fetchClipDrape(sub == 1 ? lodA : lodB);   // 塗り扇の辺端点を地形へドレープ（真俯瞰=無変化・WebGPU vsStencil と対）
 }`;
 
 // Mask stencil：アクティブ地物のリングだけ stencil を切り抜く。
@@ -655,6 +673,11 @@ const SHARED_UNIFORM_NAMES = [
 	'u_ix_center','u_iy_center','u_lod_rank',
 	'u_ell_trig','u_ell',   // 楕円体 dβ 錨＋変位方向ゲート（球=全0=GL既定値＝従来動作）
 ];
+// 深度統合（段階B）uniform 名（bindDepthUniforms が set。未設定なら全0=従来動作）。
+// 線(uRender)に加え、塗り扇(uStencil)・idfill蓄積(uId)もドレープ（fetchClipDrape）で参照する（2026-08-14）。
+export const DEPTH_UNIFORM_NAMES = [
+	'u_logCoef', 'u_fogFar', 'u_origin_pt', 'u_elevTex', 'u_elevBounds', 'u_elevScale', 'u_hasElev', 'u_elevEdgeFade', 'u_hidden',
+];
 const PT_UNIFORM_NAMES = [
 	'u_pt_tex','u_pt_meta_tex','u_pt_w',
 	'u_mvp','u_eye','u_origin','u_origin_trig','u_clipT','u_origin_zr','u_viewport','u_pt_radius',
@@ -671,10 +694,10 @@ export function createGintPrograms(gl) {
 	const pickPointProgram   = linkProgram(gl, VS_PICK_POINT,    FS_PICK_POINT);
 
 	const uRender      = getUniforms(gl, renderProgram,      [...SHARED_UNIFORM_NAMES, 'u_line_width', 'u_dpr', 'u_active_id', 'u_pass', 'u_style_table', 'u_dash_table',
-		'u_logCoef', 'u_fogFar', 'u_origin_pt', 'u_elevTex', 'u_elevBounds', 'u_elevScale', 'u_hasElev', 'u_elevEdgeFade', 'u_hidden',   // 深度統合（段階B）用＝未設定なら全0=従来動作
+		...DEPTH_UNIFORM_NAMES,   // 深度統合（段階B）用＝未設定なら全0=従来動作
 		'u_pivot_tex', 'u_pivot_w', 'u_has_pivot', 'u_view_bbox', 'u_use_vbb',   // feature bbox カリング
 		'u_fid_style', 'u_fidstyle_w', 'u_has_fidstyle', 'u_width_add']);        // per-fid スタイル（paint）
-	const uStencil     = getUniforms(gl, stencilProgram,     [...SHARED_UNIFORM_NAMES, 'u_pivot_tex', 'u_pivot_w', 'u_has_pivot', 'u_view_bbox', 'u_use_vbb']);
+	const uStencil     = getUniforms(gl, stencilProgram,     [...SHARED_UNIFORM_NAMES, ...DEPTH_UNIFORM_NAMES, 'u_pivot_tex', 'u_pivot_w', 'u_has_pivot', 'u_view_bbox', 'u_use_vbb']);   // 深度＝fetchClipDrape（面ドレープ）
 	const uFill        = getUniforms(gl, fillProgram,        ['u_fill_color']);
 	const uMaskStencil = getUniforms(gl, maskStencilProgram, [...SHARED_UNIFORM_NAMES, 'u_active_id']);
 	const uPoint       = getUniforms(gl, pointProgram,       [...PT_UNIFORM_NAMES, 'u_active_id']);

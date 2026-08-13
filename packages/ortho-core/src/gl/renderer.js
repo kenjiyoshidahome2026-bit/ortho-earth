@@ -886,9 +886,20 @@ export function createRenderer(canvas, rOpts = {}) {
 		// マスクは区単位（plateauMasks）＝最大 MAX_PLATEAU_MASKS 区まで（シェーダのスロット数固定）。
 		// 真俯瞰（チルト≈0）では基図/PLATEAU とも建物3Dを描かない＝平面地図（閾値は flat2d と同じ 0.02rad≈1.1°）。
 		const show3d = (cam.pitch || 0) >= 0.02;
+		// 建物マスク bit7(0x80)＝面ドレープの深度統合（2026-08-14・WebGPU dsWriteBld と同義）：建物の見えている画素に
+		// stencil bit7 を刻む→gint の cover/idResolve が「建物の陰」を画素単位でスキップ。毎フレーム bit7 だけ先に掃除
+		//（前フレームの残骸＝カメラ移動で建物が動いた分の staleを断つ）。winding(0x7F) は gint 側が自前 clear＝不干渉。
+		gl.stencilMask(0x80);
+		gl.clearStencil(0);
+		gl.clear(gl.STENCIL_BUFFER_BIT);
+		const bldStencil = on => {   // on＝建物ドロー中だけ REPLACE で bit7 を刻む（gintBld の線/点は対象外）
+			if (on) { gl.enable(gl.STENCIL_TEST); gl.stencilFunc(gl.ALWAYS, 0x80, 0xFF); gl.stencilOp(gl.KEEP, gl.KEEP, gl.REPLACE); gl.stencilMask(0x80); }
+			else { gl.disable(gl.STENCIL_TEST); gl.stencilMask(0xFF); }
+		};
 		const mdBld = scenes.main.md && scenes.main.md.bld;   // multi_draw シーンの建物＝プールレンジ列（チャンク配列）
 		const bld = show3d && !(opts && opts.skipMain) && !(opts && opts.noBld) ? (scenes.main.bld || mdBld) : null;   // 建物はmainシーンの一部＝一緒に退場。noBld=?nobld=1診断ノブ（二重壁の切り分け）
 		if (bld) {
+			bldStencil(true);
 			const prog = scenes.main.bld ? bldProg : md.bldProg;
 			const c = view.bldColor || [0.86, 0.86, 0.85];
 			setCommonUniforms(prog, st, scenes.main.origin, land);
@@ -925,6 +936,7 @@ export function createRenderer(canvas, rOpts = {}) {
 					md.ext.multiDrawArraysWEBGL(gl.TRIANGLES, e.firsts, 0, e.counts, 0, e.counts.length);
 				}
 			}
+			bldStencil(false);   // gintBld（筆ドレープ線/点）は建物でない＝bit7 を刻まない
 		}
 		// gint ユーザー層（moj筆/ドロップ図形）の地形沿い境界線：各頂点が自分の標高に乗る（anchor=自分）＝辺が地形に沿う。
 		// ★常時描画（show3d ゲートなし）＝平面との連続性：高さ=elev×elevScaleEff で、真俯瞰(elevScaleEff=0)は海面の平面、
@@ -948,6 +960,7 @@ export function createRenderer(canvas, rOpts = {}) {
 		//   z-fight の元＝重複面は worker 側の頂点3つ組 dedup で断つ。
 		// バッチ単位でフラスタムカリング＝区全体(数百万tris)のうち画面に掛かるバッチだけ頂点処理へ流す。
 		if (plateaux.size && show3d) {
+			bldStencil(true);   // PLATEAU も建物＝bit7 を刻む
 			gl.useProgram(plateauProg);
 			const c = view.bldColor || [0.86, 0.86, 0.85];   // 基図の押し出し建物と同色＝周辺と地続きに見せる
 			const pad = 0.5 * Math.max(st.W, st.H);          // 高層ビルの頭のはみ出し余白（半画面）
@@ -981,6 +994,7 @@ export function createRenderer(canvas, rOpts = {}) {
 				gl.bindVertexArray(p.vao);
 				gl.drawElements(gl.TRIANGLES, count, gl.UNSIGNED_INT, 0);
 			}
+			bldStencil(false);
 		}
 		gl.disable(gl.DEPTH_TEST);
 		// 夜面（星空劇場と同じ z<4 ゲート・同じフェード）：現在時刻の太陽直下点（v1 nightJSON と同式＝
