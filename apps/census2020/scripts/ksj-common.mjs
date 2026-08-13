@@ -121,24 +121,6 @@ export function clipGeomToBbox(g, bb) {
 	return kept.length === 1 ? { type: 'Polygon', coordinates: kept[0] } : { type: 'MultiPolygon', coordinates: kept };
 }
 
-// リングの冗長頂点間引き（実効三角形面積 < minArea の頂点を落とす一走査＝Visvalingam の非反復近似）。
-// A31 はラスタ起源の階段辺＝共線・微小頂点が大半（等ランク面の視覚は不変）。閉合・最少4点は保持。
-export function thinRings(g, minArea = 1.5e-9) {   // ~ (4m)² 相当（deg²）
-	const tri = (a, b, c) => Math.abs((b[0] - a[0]) * (c[1] - a[1]) - (c[0] - a[0]) * (b[1] - a[1])) / 2;
-	const thin = ring => {
-		if (ring.length <= 5) return ring;
-		const out = [ring[0]];
-		for (let i = 1; i < ring.length - 1; i++) {
-			const a = out[out.length - 1], b = ring[i], c = ring[i + 1];
-			if (tri(a, b, c) >= minArea) out.push(b);
-		}
-		out.push(ring[ring.length - 1]);
-		return out.length >= 4 ? out : ring;
-	};
-	const walk = c => typeof c[0][0] === 'number' ? thin(c) : c.map(walk);
-	return g?.coordinates ? { ...g, coordinates: walk(g.coordinates) } : g;
-}
-
 // shapefile zip → Feature 反復（.shp/.dbf の全ペア・shift_jis）。AdmZip/shapefile は呼び出し側が渡す。
 // opts.match＝対象 .shp の絞り込み（A31 は zip 内に 計画/想定最大/継続時間/家屋倒壊 の4層が同居＝要選別）
 export async function* zipFeatures(zip, shapefile, { match = null } = {}) {

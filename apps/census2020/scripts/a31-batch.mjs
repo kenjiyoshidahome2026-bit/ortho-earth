@@ -18,7 +18,7 @@ import { join } from 'path';
 import AdmZip from 'adm-zip';
 import * as shapefile from 'shapefile';
 import { Bucket } from 'native-bucket';
-import { loadCityIndex, bboxOfGeom, bboxHit, quantizeGeom, clipGeomToBbox, thinRings, zipFeatures, pickField } from './ksj-common.mjs';
+import { loadCityIndex, bboxOfGeom, bboxHit, quantizeGeom, clipGeomToBbox, zipFeatures, pickField } from './ksj-common.mjs';
 
 const ESTAT_MANIFEST = JSON.parse(readFileSync(new URL('../estat/manifest.json', import.meta.url)));
 const API_BASE = process.env.API_BASE ?? 'https://api.ortho-earth.com';
@@ -68,7 +68,7 @@ for (const zf of zips) {
 		const fRank = pickField(p, RANK_FIELD);
 		const rank = RANK_MAP[+p[fRank]] ?? null;
 		if (!rank) continue;   // ランク不明＝描けない（--inspect で RANK_MAP を直す）
-		const geom = thinRings(feature.geometry);   // ラスタ起源の階段頂点を先に間引く（等ランク面の視覚不変）
+		const geom = feature.geometry;   // 原典（ラスタ起源メッシュ）の階段辺をそのまま保持＝間引き禁止（本人裁定2026-08-14「thinRingsは完全に間違い」）
 		const fb = bboxOfGeom(geom);
 		let hits = 0;
 		for (const c of cityIdx.cities) if (bboxHit(fb, c.bbox)) {
