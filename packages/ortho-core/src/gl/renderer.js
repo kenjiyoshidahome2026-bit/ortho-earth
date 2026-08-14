@@ -497,7 +497,7 @@ export function createRenderer(canvas, rOpts = {}) {
 	}
 
 	// --- overlay（外部ベクタ=geopbf/e-Stat）：stencil-then-cover 塗り＋境界線 ---
-	let overlay = null, overlayHi = null, n02 = [];   // n02＝交通の常駐オーバーレイ群（新幹線/駅…各色）。showN02 で表示切替
+	let overlay = null, overlayHi = null, overlayHover = null, n02 = [];   // overlayHover＝ホバー境界の太線（選択マスク overlayHi と別スロット）。n02＝交通の常駐オーバーレイ群
 	function buildOverlaySlot(s, fillColor) {
 		if (!s || (!s.fanPos.length && !(s.lineHalf && s.lineHalf.length))) return null;   // 面も線も無い時だけ捨てる（純線＝N02新幹線は面ゼロで通す）
 		const fanVao = gl.createVertexArray(), bFan = buffer(gl, s.fanPos);
@@ -529,6 +529,7 @@ export function createRenderer(canvas, rOpts = {}) {
 		overlayHi = buildOverlaySlot(s, isMask ? (fillColor.color || [0, 0, 0, 0.15]) : (fillColor || [0.95, 0.55, 0.15, 0.6]));
 		if (overlayHi) overlayHi.mask = !!(isMask && fillColor.mask);
 	}
+	function setOverlayHover(s) { disposeOverlay(overlayHover); overlayHover = s ? buildOverlaySlot(s, [0, 0, 0, 0]) : null; }   // 塗り透明＝境界線のみ（太線はシーンの lineWidth）
 	function drawOne(o, st, dpr, land) {
 		if (!o) return;
 		if (o.fanCount) {   // 面がある時だけ stencil 塗り（純線オーバーレイ＝N02 は面ゼロでも線を描く）
@@ -566,7 +567,7 @@ export function createRenderer(canvas, rOpts = {}) {
 	}
 	function drawOverlay(st, dpr, land, zoom) {
 		if (view.showN02 !== false) for (const o of n02) { if (zoom >= o.minZoom) drawOne(o, st, dpr, land); }   // N02 交通（新幹線/駅）＝基図の上・identify overlay の下
-		drawOne(overlay, st, dpr, land); drawOne(overlayHi, st, dpr, land);
+		drawOne(overlay, st, dpr, land); drawOne(overlayHi, st, dpr, land); drawOne(overlayHover, st, dpr, land);   // ホバー境界は最前面
 	}
 
 	function setCommonUniforms(prog, st, origin, fog) {
@@ -1032,7 +1033,7 @@ export function createRenderer(canvas, rOpts = {}) {
 		if (scenes[slot].bld) { for (const b of scenes[slot].bld.bufs) gl.deleteBuffer(b); gl.deleteVertexArray(scenes[slot].bld.vao); }
 		scenes[slot] = { origin: scenes[slot].origin, draws: [], bld: null, md: null };   // md シーンは参照リストだけ＝GL資源なし（プールは常駐）
 	}
-	function dispose() { disposeSlot("base"); disposeSlot("main"); disposeOverlay(overlay); disposeOverlay(overlayHi); for (const o of n02) disposeOverlay(o); setGintBld(null); }
+	function dispose() { disposeSlot("base"); disposeSlot("main"); disposeOverlay(overlay); disposeOverlay(overlayHi); disposeOverlay(overlayHover); for (const o of n02) disposeOverlay(o); setGintBld(null); }
 
 	// 汎用 set(cmd, data, prop)：ortho-map createLayers の set プロトコルに整合。将来 worker では
 	// postMessage({ type:"set", cmd, data, prop }, transferables) にそのまま載る。prop は cmd ごとに融通。
@@ -1048,6 +1049,7 @@ export function createRenderer(canvas, rOpts = {}) {
 			case "mdScene":   mdScene(data); break;                                            // multi_draw: draw list 差し替え（転送ゼロ）
 			case "overlay":   setOverlay(data, prop); break;                                    // prop=fillColor(任意)
 			case "overlayHi": setOverlayHi(data, prop); break;
+			case "overlayHover": setOverlayHover(data); break;
 			case "n02":       setN02(data); break;                                               // data=[シーン…] 交通の常駐オーバーレイ群
 			case "elevAtlas": setElevationAtlas(data, prop); break;                             // prop=scale
 			case "elevCell":  setElevationCell(prop.cx, prop.cy, data, prop.cellRes); break;    // data=セルFloat32

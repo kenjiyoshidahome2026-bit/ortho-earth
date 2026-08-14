@@ -1549,8 +1549,14 @@ let drapedOn = false;
 // gint スタイルを render worker へ預ける（frame 末尾の gint パスが使う）。データ毎に差し替え。
 const sendGintStyle = () => renderer.set("gintStyle", gintDrawOpts);
 let gintHoverTip = null;   // ホバー tip 内容 setter（init末尾で map.gadget.tip() を一度だけ搭載＝全gint層で有効）
+let lastHoverXY = null;    // 直近ホバー座標（estat が町丁目ミス＝市区町村外の時に gint ホバーへフォールバックする用）
 let gintClickHandler = null;   // gintクリックの派生アプリ受け口（map.onGintClick）。未登録なら従来の console のみ
-canvas.addEventListener("pointerleave", () => wPost({ type: "gintLeave" }));
+canvas.addEventListener("pointerleave", () => {
+	wPost({ type: "gintLeave" });
+	// smallAreaHover（census2020限定）＝町丁目ホバーの太線/名前tipも掃除（ポインタが地図外へ出た時の残留防止）。
+	// デモ（フラグ無し）は従来どおり gintLeave のみ＝凍結挙動不変。
+	if (opts.smallAreaHover) { renderer.set("overlayHover", null); gintHoverTip?.(null); needsDraw = true; }
+});
 // 14条地図（法務省 登記所備付地図）を球へ。デコード済み pbf を受けて球へ配線する共通処理。
 // 「座標値種別=図上測量」は測量手法のタグに過ぎず絶対位置の信頼性とは無相関と判明済み（系変換さえ合っていれば図上測量でも正確）
 // →現状はバッジ判定に使わない。任意座標系の混入検知は変換パイプライン側（外れ値bbox比較）でやるべき課題として残す。
@@ -2271,7 +2277,13 @@ const input = createInput({
 		}
 		overlay.identifyAt(x, y); if (gintInteractive) wPost({ type: "gintClick", x, y });
 	},
-	onHover: (x, y) => { if (gintInteractive && gintHover) wPost({ type: "gintMove", x, y }); },
+	onHover: (x, y) => {
+		lastHoverXY = [x, y];
+		// smallAreaHover＝census2020限定＝estat中は町丁目を点in面で識別し名前tip＋境界太線（ミスは gint へフォールバック）。
+		// デモ（フラグ無し）は従来どおり gint ホバーのみ＝凍結挙動を一切変えない。
+		if (opts.smallAreaHover && overlay.isEstatActive?.() && overlay.hoverAt(x, y)) return;
+		if (gintInteractive && gintHover) wPost({ type: "gintMove", x, y });
+	},
 });
 
 // アイドル退場：マウスを止めると左上/右上のアイコンが静かに消え、動かす（or キー操作）と戻る。
@@ -2379,7 +2391,7 @@ if (bootView?.layers?.includes(SKY_LAYER)) applyConstellations(true);   // l=sky
 if (bootView?.contour && !("terrain" in fixedLayers)) layerState.terrain = true;   // 旧URLの c（等高線トグル時代）＝地形チップに読み替え（後方互換）
 Object.assign(layerState, fixedLayers);   // 固定は最後＝共有URLでも破れない（埋め込み主の意図が勝つ）
 let styleSig = JSON.stringify(layerState);
-const themes = createThemes(style);            // 分類（allowlist）は themes.js の純関数（layerState と zoom を引数で受ける）
+const themes = createThemes(style, { suppressAdmin: !!opts.hideAdminBoundary });   // 分類（allowlist）は themes.js の純関数。hideAdminBoundary＝基図の行政界(赤線)を常に隠す（派生アプリが自前境界を描く時）
 
 // LOD選択 or テーマ状態(styleSig)が変わった時だけシーンを再結合。原点は安定化（プルプル防止）。
 // readySig/baseSig は merge の ack（onMerged）で確定。要求中の sig は mergeReq が持ち、
@@ -2754,7 +2766,11 @@ function render() {
 }
 
 // --- 統合スパイク：geopbf/e-Stat を overlay に描き、クリックで identify（実装は overlay.js）---
-const overlay = createOverlay({ renderer, cam, size, dpr, requestDraw: () => { needsDraw = true; } });
+const overlay = createOverlay({ renderer, cam, size, dpr, requestDraw: () => { needsDraw = true; },
+	tip: name => {   // estat ホバー結果：町丁目ヒット＝町丁目名を tip へ／ミス(市区町村外)＝gint ホバーへフォールバック（他市区町村の tip/リンク）
+		if (name) { gintHoverTip?.([name]); return; }
+		if (gintInteractive && gintHover && lastHoverXY) wPost({ type: "gintMove", x: lastHoverXY[0], y: lastHoverXY[1] });
+	} });
 window.__loadOverlay = overlay.loadOverlay;   // geopbf 名から（全球等）
 // ?hud=1（旧mem=1）のメモリ台帳HUD 本体は下方の hudSnapshot＋gadgets/hud.js（右下・出典の上・計測器ボタンで開閉）。以下は別計器：
 // ?drawhud=1：直近フレームの描画実績を実機の画面へ。USB接続やコンソールが要らない＝端末だけで二分できる。

@@ -49,6 +49,8 @@ export function computeDrawData(data) {
 		styleTable: data.styleTable,
 		dashTable:  data.dashTable,
 		maskColor:  data.maskColor,
+		hiliteColor: data.hiliteColor,   // ホバー線の色（未指定＝素の線色を不透明）
+		hiliteWidth: data.hiliteWidth != null ? data.hiliteWidth * s.dpr : 0,   // ホバー線の全幅(CSS→device px)。0=未指定＝素の線幅+2px。overlay(町丁目)線と単位を揃える鍵
 		ptRadius:   (data.ptRadius ?? 1.5) * s.dpr,
 	};
 

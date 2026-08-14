@@ -369,7 +369,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 			{ binding: 1, resource: v }, { binding: 2, resource: elevSampler }, { binding: 3, resource: fv }] });
 	}
 	// overlay スロット：{ fanBuf, fanCount, lineBufs?, lineCount, origin, fill, minZoom }
-	let overlay = null, overlayHi = null, n02 = [];
+	let overlay = null, overlayHi = null, overlayHover = null, n02 = [];   // overlayHover＝ホバー中の地物境界を太線で（選択マスク overlayHi とは別スロット＝両立）
 	const u8colOv = col => { const u = new Uint8Array(col.length); for (let i = 0; i < col.length; i++) u[i] = Math.max(0, Math.min(255, Math.round(col[i] * 255))); return u; };
 	function buildOverlaySlot(s, fill) {
 		if (!s || (!s.fanPos.length && !(s.lineHalf && s.lineHalf.length))) return null;
@@ -392,6 +392,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 		overlayHi = buildOverlaySlot(s, isMask ? (fill.color || [0, 0, 0, 0.15]) : (fill || [0.95, 0.55, 0.15, 0.6]));
 		if (overlayHi) overlayHi.mask = !!(isMask && fill.mask);
 	}
+	function setOverlayHover(s) { disposeOverlay(overlayHover); overlayHover = s ? buildOverlaySlot(s, [0, 0, 0, 0]) : null; }   // 塗り透明＝境界線のみ（太線はシーン側の lineWidth）
 	function setN02(scenes) { for (const o of n02) disposeOverlay(o); n02 = (scenes || []).map(s => buildOverlaySlot(s, [0, 0, 0, 0])); }
 	// gintBld（gint ユーザー層の地形沿い境界線・点）＝独自 origin・BUILDING_WGSL 24B レイアウト・line/point 描画。null=解放。
 	let gintBld = null;   // { origin, color, line?:{bPos,bSh,bAnc,count}, point?:{...} }
@@ -413,6 +414,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 		if (view.showN02 !== false) for (const o of n02) if (o && zoom >= o.minZoom) scenes.push(o);
 		if (overlay) scenes.push(overlay);
 		if (overlayHi) scenes.push(overlayHi);
+		if (overlayHover) scenes.push(overlayHover);   // 最後＝ホバー境界を最前面に（マスクの上）
 		if (!scenes.length) return;
 		ensureOvFrameBG();
 		const n = Math.min(scenes.length, MAX_OV);
@@ -1222,6 +1224,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 		switch (cmd) {
 			case "overlay":   setOverlay(data, prop); break;    // prop=fillColor（任意）
 			case "overlayHi": setOverlayHi(data, prop); break;
+			case "overlayHover": setOverlayHover(data); break;
 			case "n02":       setN02(data); break;               // data=[シーン…] 交通の常駐オーバーレイ群
 			case "gintBld":   setGintBld(data); break;           // data={origin,lines,points,color}／null=解放
 			case "view":    view = { ...view, ...data }; break;
@@ -1255,7 +1258,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 		plBatchBuf.destroy(); maskParamBuf.destroy();
 		skyBuf.destroy(); skyLineBuf.destroy();
 		ovFrameBuf.destroy(); ovParamBuf.destroy(); emptyMaskParamBuf.destroy();
-		disposeOverlay(overlay); disposeOverlay(overlayHi); for (const o of n02) disposeOverlay(o); disposeGintBld();
+		disposeOverlay(overlay); disposeOverlay(overlayHi); disposeOverlay(overlayHover); for (const o of n02) disposeOverlay(o); disposeGintBld();
 		for (const b of [stars, planets, constel, ecliptic, celeq]) if (b) b.buf.destroy();
 		for (const p of plateaux.values()) { p.vbo.destroy(); p.nbo.destroy(); p.ibo.destroy(); }
 		plateaux.clear();

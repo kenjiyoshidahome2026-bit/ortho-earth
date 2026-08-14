@@ -613,7 +613,7 @@ export function createGintLayerGPU(host, { requestDraw } = {}) {
 		packGP(ROLE.fill, { color: fc });
 		packGP(ROLE.line, { width: lw, activeId: s.activeId, pass: 0 });
 		packGP(ROLE.lineHidden, { width: lw, activeId: s.activeId, pass: 0, hidden: 1 });
-		packGP(ROLE.hilite, { width: lw + 2.0, widthAdd: 2.0, activeId: s.activeId, pass: 1 });
+		packGP(ROLE.hilite, { width: lw + 2.0, widthAdd: 2.0, radius: data.hiliteWidth || 0, activeId: s.activeId, pass: 1, color: data.hiliteColor });   // radius欄でホバー全幅(device px)を運ぶ＝指定時は shader が lw を上書き（overlay 町丁目線と一致）。hiliteColor＝ホバー線色（未指定＝素の線色を不透明）
 		packGP(ROLE.maskStencil, { activeId: s.activeId });
 		packGP(ROLE.maskFill, { color: data.maskColor ?? DEF_MASK });
 		packGP(ROLE.point, { radius: data.ptRadius ?? 1.5, activeId: -1 });

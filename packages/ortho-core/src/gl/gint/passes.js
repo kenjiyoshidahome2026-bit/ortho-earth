@@ -318,6 +318,8 @@ export function drawHighlight(data) {
 	gl.uniform1i(uRender.u_active_id,    activeId);
 	gl.uniform4fv(uRender.u_style_table, data.styleTable ?? DEF_STYLE);
 	gl.uniform2fv(uRender.u_dash_table,  data.dashTable  ?? DEF_DASH);
+	if (uRender.u_hilite_color) gl.uniform4fv(uRender.u_hilite_color, data.hiliteColor ?? [0, 0, 0, 0]);   // ホバー線色（未指定=素の線色を不透明）
+	if (uRender.u_hilite_width) gl.uniform1f(uRender.u_hilite_width, data.hiliteWidth ?? 0.0);   // ホバー全幅(device px・0=未指定＝u_line_width)
 	gl.uniform1i(uRender.u_pass, 1);
 	if (hasRange) {
 		gl.drawArrays(gl.TRIANGLES, eStart * 6, eCount * 6);

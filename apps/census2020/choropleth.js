@@ -232,20 +232,25 @@ export function initChoropleth(map, { legend } = {}) {
 	function setIndicator(key) { indicator = key; syncChips(); buildTable(); }
 	// 層の持参スタイル：既定オレンジ線(1px)は全国ズームで市区町村(2〜3px)を覆い隠しコロプレスを潰す
 	// （実測 2026-08-12＝「塗れているのに見えない」）。基図に馴染む青灰の細線へ＝塗りが主役・境界は気配。
-	// maskColor＝ホバー/identify で活性地物の外を暗くするマスク。既定 DEF_MASK[0,0,0,0.4] は濃すぎてコロプレスの
-	// 塗り（データ）が読みにくい＝census2020 だけ薄く（0.15）。本人裁定2026-08-14「べた塗りはデータが見えにくい」。
-	const LIGHT_MASK = [0, 0, 0, 0.1];
+	// 統一ルール（本人裁定2026-08-14）＝ホバー=境界線の太化のみ／選択=周辺マスク。よって gint のホバーマスクは撤去
+	// （maskColor 透明＝ホバーは線だけ・DEF_MASK 0.4 も出さない）。選択マスクは overlay.setSelectionMask（overlayHi）が担う。
+	const NO_HOVER_MASK = [0, 0, 0, 0];
+	const HOVER_BLUE = [0.16, 0.40, 0.70, 1.0];   // ホバー線色＝町丁目ホバーと同じ青（gint hiliteColor）
+	// ★スロットの正：gint の styleTable は「style0＝ポリゴン辺の線色／style1＝折れ線(lineStream)」（state.js DEF_STYLE
+	// 「style 0: polygon #FF6B35」・海岸線=lineStream=style1 と同源）。admin_all はポリゴン＝境界線の色は【style0】。
+	// 旧実装は「style0 未使用」と誤解して透明を書き、線色を style1 に置いていた＝市区町村境界線が全ズームで不可視
+	// （気づかなかったのは基図の行政界(赤線)が身代わりに境界を描いていたため。hideAdminBoundary で赤線を消したら
+	// 境界が全滅し「チリチリ/点々/太さ違い」= 残った overlay 選択線の姿だった。実機CDPで確定 2026-08-14）。
+	// fillColor 透明の明示＝z<outlineZoom のベタ塗りカバー(style0色×α0.8)を抑止（塗りは idfill＝paintTable のみ）。
 	const ADMIN_STYLE = (() => {
 		const t = new Float32Array(256 * 4);
-		t.set([0, 0, 0, 0], 0);              // style0 polygon＝未使用（塗りは paint 表＝idfill が担う）
-		t.set([0.42, 0.5, 0.62, 0.45], 4);   // style1 line＝青灰・淡
-		return { styleTable: t, lineWidth: 0.7, maskColor: LIGHT_MASK };
+		t.set([0.45, 0.51, 0.62, 1.0], 0);   // style0＝市区町村境界線（青灰・不透明＝半透明の重なり点々も原理的に出ない。コロプレス塗りの上でも読める濃さ）
+		return { styleTable: t, lineWidth: 0.7, fillColor: [0, 0, 0, 0], maskColor: NO_HOVER_MASK, hiliteColor: HOVER_BLUE, hiliteWidth: 5.2 };   // hiliteWidth 全幅5.2 CSS＝町丁目ホバーと同太
 	})();
-	const AGG_STYLE = (() => {   // 集約境界＝本数が少ない＝やや濃く太く主張してよい（県境/振興局境/郡境）
+	const AGG_STYLE = (() => {   // 集約境界（県境/振興局境/郡境）＝本数が少ない＝市区町村よりやや濃く太く
 		const t = new Float32Array(256 * 4);
-		t.set([0, 0, 0, 0], 0);
-		t.set([0.42, 0.5, 0.62, 0.72], 4);
-		return { styleTable: t, lineWidth: 0.9, maskColor: LIGHT_MASK };
+		t.set([0.34, 0.41, 0.53, 1.0], 0);   // style0＝集約ポリゴン境界線（市区町村より濃く）
+		return { styleTable: t, lineWidth: 0.9, fillColor: [0, 0, 0, 0], maskColor: NO_HOVER_MASK, hiliteColor: HOVER_BLUE, hiliteWidth: 5.2 };
 	})();
 	function applyAdmin() {   // 市区町村(admin_all)を gint スロットへ＝レベル'mun'。防災/筆スタックから戻る時も呼ばれる。
 		if (!pbf) return;
@@ -290,7 +295,11 @@ export function initChoropleth(map, { legend } = {}) {
 		map.flyTo((b[0] + b[2]) / 2, (b[1] + b[3]) / 2, map.fitZoomForBbox(b), 0);   // tilt0＝真俯瞰維持（小市区町村でz≥15→自動45°チルト＋塗り消灯を防ぐ）
 		return true;
 	}
-	function setSelected(code) { selected = code || null; buildTable(); }
+	function setSelected(code) {
+		selected = code || null;
+		buildTable();
+		map.overlay?.setSelectionMask?.(selected ? geomForCode(selected) : null);   // 統一ルール：選択=周辺マスク（都道府県/市区町村の外を暗く）
+	}
 
 	function geomForCode(code) {   // code→境界幾何（admin_all 由来）。防災の市域クリップ用。
 		if (!pbf || !feats) return null;

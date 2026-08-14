@@ -37,7 +37,7 @@ const dismissBoot = () => requestAnimationFrame(() => requestAnimationFrame(() =
 
 // hash（共有ビュー）があればそれを優先、無ければ列島俯瞰＝コロプレスの見せ場から始める
 const JAPAN_VIEW = "#5.1/38.2/136.9";
-orthoJapan({ target: "#map", view: location.hash || JAPAN_VIEW }).then(map => {
+orthoJapan({ target: "#map", view: location.hash || JAPAN_VIEW, hideAdminBoundary: true, smallAreaHover: true }).then(map => {   // hideAdminBoundary=基図の行政界(赤線)抑止／smallAreaHover=町丁目ホバー(名前tip+境界太線)。共に census2020 限定（デモは無効）
 	dismissBoot();
 	window.__map = map;   // console 検証用（デバッグの手すり）
 	// 道具箱（census2020 に要る道具だけ・日本語のみ）

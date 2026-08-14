@@ -26,7 +26,7 @@ const STACK_STYLE = (() => {
 	const t = new Float32Array(256 * 4);
 	t.set([0, 0, 0, 0], 0);
 	t.set([1.0, 0.55, 0.15, 0.22], 4);
-	return { styleTable: t, lineWidth: 0.6, maskColor: [0, 0, 0, 0.1] };   // ホバーマスクを薄く（既定0.4はデータを潰す・census2020裁定）
+	return { styleTable: t, lineWidth: 0.6, maskColor: [0, 0, 0, 0], hiliteColor: [0.16, 0.40, 0.70, 1.0] };   // ホバー=線のみ（マスク撤去）＋ホバー線は町丁目と同じ青
 })();
 const hex2rgb = h => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
 const packRGBA = (h, a) => { const [r, g, b] = hex2rgb(h); return ((r << 24) | (g << 16) | (b << 8) | Math.round(a * 255)) >>> 0; };

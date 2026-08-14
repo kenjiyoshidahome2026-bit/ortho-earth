@@ -268,6 +268,7 @@ struct LineOut {
 			fidColor = vec4f(f32(lc >> 24u), f32((lc >> 16u) & 255u), f32((lc >> 8u) & 255u), f32(lc & 255u)) / 255.0;
 		}
 	}
+	if (P.b.y == 1 && P.a.z > 0.0) { lw = P.a.z; }   // ホバー(hilite)＝指定全幅(device px・radius欄で運搬)を最優先＝per-fid幅/コロプレスに左右されず overlay 町丁目線と一致
 	let useA = (sub == 0 || sub == 1 || sub == 3);
 	let side = select(-1.0, 1.0, sub == 1 || sub == 2 || sub == 4);
 	let si = select(sn.b, sn.a, useA);
@@ -290,7 +291,9 @@ struct LineOut {
 	o.pos = vec4f(nd.xy, zc, 1.0);
 	o.frag = qpos; o.ea = ps.xy; o.eb = oXY;
 	let styleIdx = i32(em.b & 0xFFu);
-	o.color = select(select(S.style[styleIdx], fidColor, fidColor.a > 0.0), vec4f(1.0, 0.9, 0.0, 1.0), P.b.y == 1);
+	let baseC = select(S.style[styleIdx], fidColor, fidColor.a > 0.0);
+	// ホバー(pass1)＝P.color(hiliteColor)指定ならそれ（census=青）／未指定は黄（凍結デモの既定ハイライトを維持）
+	o.color = select(baseC, select(vec4f(1.0, 0.9, 0.0, 1.0), P.color, P.color.a > 0.0), P.b.y == 1);
 	o.dash = S.dash[styleIdx].xy;
 	o.distBase = f32(em.b >> 8u) * 0.017453292;
 	o.dist = select(len, 0.0, useA);

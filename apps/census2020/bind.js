@@ -13,8 +13,10 @@ const ESTAT_CODES = ESTAT_MANIFEST.map(e => e.code);
 // 小地域(町丁目)の内側メッシュ線。淡すぎ＋地形とz-fightで時たま消える件（本人報告 2026-08-12）→
 // 濃く細く(alpha 0.55→0.88・width 1→0.6)。地形からのリフトは overlay 共通としてレンダラ側で付与
 // （OVERLAY_LIFT・p0.y＝z-fight 明滅の根治・N02/AI overlay にも効く一般改善）。
-const ESTAT_STYLE = { lineColor: [0.22, 0.44, 0.78, 0.88], lineWidth: 0.6 };
-const SA_MAX_ZOOM = 16.3;   // 丁目 bbox は極小＝寄り過ぎ防止の上限
+// 不透明(α1.0)＝辺ごとの丸キャップが重なっても濃くならない（半透明だと頂点が数珠状の点々になる・本人指摘2026-08-14）。
+// 色は旧 α0.88 の白地での見え（0.88合成）と同等になるよう明るめに補正。
+const ESTAT_STYLE = { lineColor: [0.31, 0.51, 0.81, 1.0], lineWidth: 0.6 };
+const SA_MAX_ZOOM = 16.3;   // 丁目 bbox は極小＝寄り過ぎ防止の上限（周りの区画が画面に残る＝「拡大」と「区画を残す」の両立点）
 
 export function initBind(map, { choro, legend }) {
 	const overlay = map.overlay;
@@ -45,6 +47,7 @@ export function initBind(map, { choro, legend }) {
 		return members.length ? members : (ESTAT_CODES.includes(code) ? [code] : []);
 	};
 
+	let estatReady = Promise.resolve(false);   // 現在の市の estat 読み込み完了（true=ok）。highlight/fly はこれを待つ＝ドリル直後のレース根治
 	function enterCity(code, { withBousai = true } = {}) {
 		// 政令市の集約コード(34100 広島市 等)は bousai/moj データが区単位(34101〜)にしか無い＝集約コードを
 		// probe すると 404 を撒く。防災/筆は区ドリル(terminal)でのみ有効化＝集約レベルではトグルを出さない。
@@ -53,19 +56,28 @@ export function initBind(map, { choro, legend }) {
 		if (cityCode === code) return;
 		cityCode = code;
 		const codes = estatCodesFor(code);   // 集約コードは区コード列へ展開（estat 小地域は区単位で読む）
-		if (codes.length) overlay.loadEstat(codes, "2020", ESTAT_STYLE, { moveCamera: false, quiet: true });
+		estatReady = codes.length
+			? new Promise(res => overlay.loadEstat(codes, "2020", ESTAT_STYLE, { moveCamera: false, quiet: true, interiorOnly: true, onLoaded: r => res(!!r?.ok) }))   // interiorOnly＝内側メッシュのみ（外周は admin_all=N03 一系統・二重線回避）
+			: Promise.resolve(false);
 	}
 	function leaveCity() {
 		if (cityCode == null) return;
 		cityCode = null;
+		estatReady = Promise.resolve(false);
 		bousai.leaveCity();     // スタック解除 → onStackCleared → admin 復帰
 		overlay.clearPlan();    // estat 境界とハイライトを消す
 	}
 	async function highlightAndFly(key) {
-		const r = await overlay.highlightKey(key);
-		if (r?.bbox && !suppressFly) {
+		const noFly = suppressFly;   // 呼び出し時点の値を捕まえる（onDrill 末尾の suppressFly=false が await より先に走るため）
+		// ★元々のバグの根治：市ドリル直後は estat が読込中＝highlightKey が即 null を返し「選択マスクもズームも
+		// 黙って不発」だった（overlay.highlightKey は !estatActive で Promise.resolve(null)）。読込完了を待ってから引く。
+		if (!(await estatReady)) return;
+		const r = await overlay.highlightKey(key);   // 選択町丁目のマスク（周りを薄く暗く）
+		if (r?.bbox && !noFly) {
 			const b = r.bbox;
-			map.flyTo((b[0] + b[2]) / 2, (b[1] + b[3]) / 2, Math.min(SA_MAX_ZOOM, map.fitZoomForBbox(b)), 0);   // tilt0＝真俯瞰維持（z≥15の自動45°チルト＋コロプレス消灯を防ぐ・本人裁定）
+			// 最終の町丁目まで来たら寄る（本人指摘2026-08-14「拡大されません」）。SA_MAX_ZOOM の上限＝寄り過ぎを防ぎ
+			// 周りの区画も画面に残る（「区画は残して」との両立＝上限つきズーム）。tilt0＝真俯瞰維持。
+			map.flyTo((b[0] + b[2]) / 2, (b[1] + b[3]) / 2, Math.min(SA_MAX_ZOOM, map.fitZoomForBbox(b)), 0);
 		}
 	}
 
@@ -79,7 +91,7 @@ export function initBind(map, { choro, legend }) {
 				if (!suppressFly) map.flyTo(136.9, 38.2, 5.1);
 				break;
 			case "pref":
-				writeArea(e.code); leaveCity(); choro.showLevel("mun"); choro.setLevels(e.code === "01" ? ["shicho", "mun"] : []); choro.setSelected(null); choro.setScope(e.code);   // 県へ降下（北海道は振興局選択可）＋島嶼県は主要部/全体トグル
+				writeArea(e.code); leaveCity(); choro.showLevel("mun"); choro.setLevels(e.code === "01" ? ["shicho", "mun"] : []); choro.setSelected(e.code); choro.setScope(e.code);   // 県へ降下＋選択マスク（県の外を暗く）＋島嶼県トグル
 				if (!suppressFly) choro.flyToCode(e.code);
 				break;
 			case "designated":   // 政令市＝区一覧＋政令市単位で防災も有効（A31=メッシュ・A33=県の直読み＝集約コードでも動く。
@@ -115,6 +127,9 @@ export function initBind(map, { choro, legend }) {
 	map.onGintClick((fid, props, lnglat) => {
 		if (slotOwner !== "admin") { bousai.onFeatureClick(fid, props, lnglat); return; }
 		const code = props?.code; if (!code) return;
+		// ドリル中の市の内側クリック＝町丁目選択(estat identify)に委ねる＝市の再選択で overlayHi マスクを奪わない
+		// （「町丁目選択後に隣の町丁目を選べない」不具合の根治・本人指摘2026-08-14）。市外クリックは通常どおりドリル。
+		if (cityCode && (String(code) === String(cityCode) || belongsTo(String(code), String(cityCode)))) return;
 		if (/^\d/.test(String(code))) drillTo(String(code));   // 数字始まり＝都道府県2桁/市区町村5桁＝ドリル（桁数で階層決定）
 		else choro.descendAgg(fid);                            // 合成コード(SH.../GN…)＝集約(振興局/郡)＝その領域の市区町村へ降下
 	});

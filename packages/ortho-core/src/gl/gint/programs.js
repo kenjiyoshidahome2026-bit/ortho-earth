@@ -396,6 +396,8 @@ uniform float u_dpr;
 uniform int   u_active_id;
 uniform int   u_pass;
 uniform vec4  u_style_table[256];
+uniform vec4  u_hilite_color;   // ホバー(pass1)の線色。a>0で有効・0で素の線色を不透明に
+uniform float u_hilite_width;   // ホバー(pass1)の指定全幅(device px)。0=未指定＝u_line_width のまま（per-fid/コロプレスに左右されず overlay 町丁目線と一致させる）
 uniform vec2  u_dash_table[256];   // [dash_len, gap_len] in px; gap=0 → solid
 uniform usampler2D u_fid_style;    // fid スタイル表（RGBA32UI・unit5。idfill と同一レイアウト）
 uniform int        u_fidstyle_w;
@@ -439,6 +441,7 @@ void main() {
 		if ((lc & 255u) != 0u)
 			fidColor = vec4(float(lc >> 24u), float((lc >> 16u) & 255u), float((lc >> 8u) & 255u), float(lc & 255u)) / 255.0;
 	}
+	if (u_pass == 1 && u_hilite_width > 0.0) lw = u_hilite_width;   // ホバー＝指定全幅を最優先（per-fid幅にもコロプレスにも左右されず overlay 町丁目線と一致）
 
 	bool  useA = (sub == 0 || sub == 1 || sub == 3);
 	float side = (sub == 1 || sub == 2 || sub == 4) ? 1.0 : -1.0;
@@ -470,9 +473,8 @@ void main() {
 	v_frag = qpos; v_ea = ps.xy; v_eb = oXY;
 
 	int style_idx = int(meta.b & 0xFFu);
-	v_color = (u_pass == 1)
-		? vec4(1.0, 0.9, 0.0, 1.0)
-		: (fidColor.a > 0.0 ? fidColor : u_style_table[style_idx]);   // fid線色（paint）＞style_table（既定）
+	vec4 baseC = (fidColor.a > 0.0 ? fidColor : u_style_table[style_idx]);   // fid線色（paint）＞style_table（既定）
+	v_color = (u_pass == 1) ? (u_hilite_color.a > 0.0 ? u_hilite_color : vec4(1.0, 0.9, 0.0, 1.0)) : baseC;   // ホバー(pass1)＝hiliteColor指定色（census=青）／未指定は黄（凍結デモの既定ハイライトを維持）
 	v_dash      = u_dash_table[style_idx];
 	v_dist_base = float(meta.b >> 8u) * 0.017453292;   // 累積px距離の基底（scale 非依存の相対）
 	v_dist = useA ? 0.0 : len;
@@ -693,7 +695,7 @@ export function createGintPrograms(gl) {
 	const pickLineProgram    = linkProgram(gl, VS_PICK_LINE,     FS_PICK);
 	const pickPointProgram   = linkProgram(gl, VS_PICK_POINT,    FS_PICK_POINT);
 
-	const uRender      = getUniforms(gl, renderProgram,      [...SHARED_UNIFORM_NAMES, 'u_line_width', 'u_dpr', 'u_active_id', 'u_pass', 'u_style_table', 'u_dash_table',
+	const uRender      = getUniforms(gl, renderProgram,      [...SHARED_UNIFORM_NAMES, 'u_line_width', 'u_dpr', 'u_active_id', 'u_pass', 'u_style_table', 'u_dash_table', 'u_hilite_color', 'u_hilite_width',
 		...DEPTH_UNIFORM_NAMES,   // 深度統合（段階B）用＝未設定なら全0=従来動作
 		'u_pivot_tex', 'u_pivot_w', 'u_has_pivot', 'u_view_bbox', 'u_use_vbb',   // feature bbox カリング
 		'u_fid_style', 'u_fidstyle_w', 'u_has_fidstyle', 'u_width_add']);        // per-fid スタイル（paint）
