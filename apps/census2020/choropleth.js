@@ -30,6 +30,28 @@ const DIV_BREAKS = [-0.10, -0.05, -0.02, 0, 0.02, 0.05];   // 増減率の級境
 const FILL_A = 0.62;   // 塗りの透明度＝基図の道路・地名が透けて読める濃さ
 const LEVEL_LABEL = { mun: "市区町村", pref: "都道府県", designated: "政令市", shicho: "振興局", gun: "郡" };
 
+// 市区町村bbox群を近接クラスタリング（bbox が margin 以内で交われば連結）し、最大クラスタ（=本土）のbboxを返す。
+// 島嶼部は海で隔たり別クラスタ＝除外される（座標ハードコード無しで主要部を自動導出）。全県1塊なら全体と一致。
+function largestClusterBbox(boxes, margin = 0.08) {
+	const n = boxes.length;
+	if (!n) return null;
+	const parent = Array.from({ length: n }, (_, i) => i);
+	const find = x => { while (parent[x] !== x) { parent[x] = parent[parent[x]]; x = parent[x]; } return x; };
+	const near = (p, q) => !(p[2] + margin < q[0] || q[2] + margin < p[0] || p[3] + margin < q[1] || q[3] + margin < p[1]);
+	for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) if (near(boxes[i], boxes[j])) parent[find(i)] = find(j);
+	const groups = new Map();
+	for (let i = 0; i < n; i++) { const r = find(i); if (!groups.has(r)) groups.set(r, []); groups.get(r).push(boxes[i]); }
+	let best = null, bestScore = -1;
+	for (const g of groups.values()) {
+		const area = g.reduce((s, b) => s + (b[2] - b[0]) * (b[3] - b[1]), 0);
+		const score = g.length * 1e6 + area;   // 市区町村数優先・面積タイブレーク＝本土クラスタが勝つ
+		if (score > bestScore) { bestScore = score; best = g; }
+	}
+	let lo0 = 180, la0 = 90, lo1 = -180, la1 = -90;
+	for (const b of best) { if (b[0] < lo0) lo0 = b[0]; if (b[1] < la0) la0 = b[1]; if (b[2] > lo1) lo1 = b[2]; if (b[3] > la1) la1 = b[3]; }
+	return [lo0, la0, lo1, la1];
+}
+
 const hex2rgb = h => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
 const packRGBA = (h, a) => { const [r, g, b] = hex2rgb(h); return ((r << 24) | (g << 16) | (b << 8) | Math.round(a * 255)) >>> 0; };
 
@@ -74,6 +96,44 @@ export function initChoropleth(map, { legend } = {}) {
 			levelWrap.appendChild(b); levelChips.set(key, b);
 		}
 		syncLevelChips();
+	}
+
+	// ── 主要部/全体トグル（島嶼部を持つ県の pref view でのみ・データ駆動で自動判定）──────────────
+	// 東京(小笠原/南鳥島)・沖縄(先島)・長崎(対馬/五島)・鹿児島(奄美/種子)・島根(隠岐)等は全県bboxが遠隔離島まで
+	// 含んで巨大化。主要部(本島/本土＝最大クラスタ)bboxを別持ちし、カメラ枠だけトグルで切替（クリップ/probe は
+	// 全体bboxのまま不変）。対象県はハードコードせず bbox クラスタリングで自動検出＝沖縄本島等も一律に効く。
+	const scopeWrap = document.createElement("span");
+	scopeWrap.id = "c20-scope"; scopeWrap.style.display = "contents";
+	head.appendChild(scopeWrap);
+	let bboxScope = "main";   // "main"(主要部) | "full"(全体)。pref を開くたび main に戻す
+	const _mainBbox = new Map();   // prefCode → 主要部bbox（島嶼あり）or null（島嶼なし＝全体と実質同一＝トグル不要）
+	function mainBboxForPref(prefCode) {
+		if (_mainBbox.has(prefCode)) return _mainBbox.get(prefCode);
+		const boxes = [];
+		for (const [k, b] of bboxByCode) if (k.length === 5 && belongsTo(k, prefCode)) boxes.push(b);
+		const main = largestClusterBbox(boxes), full = bboxForCode(prefCode);
+		const areaOf = b => b ? (b[2] - b[0]) * (b[3] - b[1]) : 0;
+		const val = (main && full && areaOf(main) < areaOf(full) * 0.6) ? main : null;   // 主要部が全体の6割未満＝島嶼ありと判定
+		_mainBbox.set(prefCode, val);
+		return val;
+	}
+	function frameBboxForCode(code) {   // カメラ枠用bbox（島嶼県は主要部/全体トグルに従う。非prefは常に全体）
+		const c = String(code);
+		if (c.length === 2 && bboxScope === "main") { const m = mainBboxForPref(c); if (m) return m; }
+		return bboxForCode(c);
+	}
+	function setScope(prefCode, reset = true) {   // bind が pref で prefCode・他レベルで null を渡す。reset=false はトグルクリック再描画
+		if (reset) bboxScope = "main";
+		scopeWrap.textContent = "";
+		const c = prefCode ? String(prefCode) : null;
+		if (!c || c.length !== 2 || !mainBboxForPref(c)) return;   // 島嶼なし県/非pref＝トグル出さず（既定=主要部＝全体と同一）
+		for (const [key, label] of [["main", "主要部"], ["full", "全体（離島含む）"]]) {
+			const b = document.createElement("button");
+			b.className = "c20-chip c20-lvlchip"; b.type = "button"; b.textContent = label;
+			b.setAttribute("aria-pressed", String(key === bboxScope));
+			b.addEventListener("click", () => { bboxScope = key; setScope(c, false); flyToCode(c); });
+			scopeWrap.appendChild(b);
+		}
 	}
 
 	const ready = (async () => {
@@ -211,7 +271,7 @@ export function initChoropleth(map, { legend } = {}) {
 		return hit ? [lo0, la0, lo1, la1] : null;
 	}
 	function flyToCode(code) {
-		const b = bboxForCode(code);
+		const b = frameBboxForCode(code);   // 島嶼県の pref は主要部/全体トグルに従う（クリップ用 bboxForCode は不変）
 		if (!b) return false;
 		map.flyTo((b[0] + b[2]) / 2, (b[1] + b[3]) / 2, map.fitZoomForBbox(b));
 		return true;
@@ -236,6 +296,6 @@ export function initChoropleth(map, { legend } = {}) {
 		}
 		return parts.length ? { type: "MultiPolygon", coordinates: parts } : null;
 	}
-	const api = { ready, applyAdmin, flyToCode, bboxForCode, geomForCode, setSelected, setIndicator, showLevel, setLevels, descendAgg, refreshLegend, get activeLevel() { return activeLevel; }, get nationalLevel() { return nationalLevel; }, get pbf() { return pbf; } };
+	const api = { ready, applyAdmin, flyToCode, bboxForCode, geomForCode, setSelected, setIndicator, showLevel, setLevels, setScope, descendAgg, refreshLegend, get activeLevel() { return activeLevel; }, get nationalLevel() { return nationalLevel; }, get pbf() { return pbf; } };
 	return api;
 }

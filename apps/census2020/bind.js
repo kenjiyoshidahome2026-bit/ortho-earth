@@ -75,26 +75,26 @@ export function initBind(map, { choro, legend }) {
 		console.log("[bind] drill %s %s", e.level, e.code ?? "");
 		switch (e.level) {
 			case "national":
-				writeArea(null); leaveCity(); choro.showLevel(choro.nationalLevel); choro.setLevels(["pref", "mun"]); choro.setSelected(null);   // 全国＝県/市区町村トグル復元
+				writeArea(null); leaveCity(); choro.showLevel(choro.nationalLevel); choro.setLevels(["pref", "mun"]); choro.setSelected(null); choro.setScope(null);   // 全国＝県/市区町村トグル復元
 				if (!suppressFly) map.flyTo(136.9, 38.2, 5.1);
 				break;
 			case "pref":
-				writeArea(e.code); leaveCity(); choro.showLevel("mun"); choro.setLevels(e.code === "01" ? ["shicho", "mun"] : []); choro.setSelected(null);   // 県へ降下（北海道は振興局選択可）
+				writeArea(e.code); leaveCity(); choro.showLevel("mun"); choro.setLevels(e.code === "01" ? ["shicho", "mun"] : []); choro.setSelected(null); choro.setScope(e.code);   // 県へ降下（北海道は振興局選択可）＋島嶼県は主要部/全体トグル
 				if (!suppressFly) choro.flyToCode(e.code);
 				break;
 			case "designated":   // 政令市＝区一覧＋政令市単位で防災も有効（A31=メッシュ・A33=県の直読み＝集約コードでも動く。
 				// moj筆のみ区単位＝probeで自動不活性。旧「404を断つ」根拠は焼きデータ依存＝直読み化で解消・本人裁定2026-08-14）。
-				writeArea(e.code); choro.setSelected(e.code); choro.setLevels([]);
+				writeArea(e.code); choro.setSelected(e.code); choro.setLevels([]); choro.setScope(null);
 				if (!suppressFly) choro.flyToCode(e.code);
 				enterCity(e.code);
 				break;
 			case "kubu":   // 東京都区部(13100)＝23区の集約単位。政令市と同様に区部単位で防災を有効化（区へドリルも可）
-				writeArea(e.code); choro.setSelected(e.code); choro.setLevels([]);
+				writeArea(e.code); choro.setSelected(e.code); choro.setLevels([]); choro.setScope(null);
 				if (!suppressFly) choro.flyToCode(e.code);
 				enterCity(e.code);
 				break;
 			case "city":
-				writeArea(e.code); choro.setSelected(e.code); choro.setLevels([]);
+				writeArea(e.code); choro.setSelected(e.code); choro.setLevels([]); choro.setScope(null);
 				if (!suppressFly) choro.flyToCode(e.code);
 				enterCity(e.code);
 				break;
