@@ -833,6 +833,11 @@ export function createGintLayerGPU(host, { requestDraw } = {}) {
 	}
 	function move(data) {
 		if (!s._inRange) { leave(); return; }
+		// 自己修復：pick 未構築のまま最初のホバーが来た＝settle(gintDrawn)が一度も来ていない
+		//（?area=＋hash 復元はカメラを一切動かさない＝onMove の settle タイマーが発火しない）。
+		// ここで一度だけ構築すれば以後は通常経路。従来は doIdentify が !pickTex で黙って無反応＝
+		// 「カメラを動かすまでホバー/クリック識別が死んでいる」元々のバグ（本人報告 2026-08-14）の根治。
+		if (!pickTex && s.lastDrawData && !s._isDrawing) drawn();
 		if (!s.cam || !s.gintData || s._isDrawing) {
 			if (s._isDrawing) s._pendingMove = data;
 			return;

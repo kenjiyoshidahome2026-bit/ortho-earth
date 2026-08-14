@@ -398,6 +398,7 @@ renderWorker.onmessage = e => {
 	// --- gint（知性の層＝render worker に同居）の返信面（action=旧 gint worker と同形） ---
 	if (d.action === "identify") {   // ホバー識別＝当たった feature の全 properties を指先 tip へ。外れ(featureId=null)は消す。
 		if (!gintHoverTip) return;
+		if (estatTipOwn) return;   // 町丁目tipが所有中＝gint側のackでtipを消したり上書きしない（正着は毎moveのhovertipが再設定）
 		const p = (d.featureId != null && userGint?.pbf) ? userGint.pbf.getFeature(d.featureId)?.properties : null;
 		gintHoverTip(p ? Object.entries(p).map(([k, v]) => `${k}: ${v}`) : null);   // 全属性そのまま（融通なし）／null で tip を消す
 		return;
@@ -1550,12 +1551,13 @@ let drapedOn = false;
 const sendGintStyle = () => renderer.set("gintStyle", gintDrawOpts);
 let gintHoverTip = null;   // ホバー tip 内容 setter（init末尾で map.gadget.tip() を一度だけ搭載＝全gint層で有効）
 let lastHoverXY = null;    // 直近ホバー座標（estat が町丁目ミス＝市区町村外の時に gint ホバーへフォールバックする用）
+let estatTipOwn = false;   // 町丁目tip表示中＝gint識別ackにtipを触らせない（gintLeaveのnull-ackで消える/古いmove-ackで上書きされるレース封じ）。census経路のみ立つ＝デモ不変
 let gintClickHandler = null;   // gintクリックの派生アプリ受け口（map.onGintClick）。未登録なら従来の console のみ
 canvas.addEventListener("pointerleave", () => {
 	wPost({ type: "gintLeave" });
 	// smallAreaHover（census2020限定）＝町丁目ホバーの太線/名前tipも掃除（ポインタが地図外へ出た時の残留防止）。
 	// デモ（フラグ無し）は従来どおり gintLeave のみ＝凍結挙動不変。
-	if (opts.smallAreaHover) { renderer.set("overlayHover", null); gintHoverTip?.(null); needsDraw = true; }
+	if (opts.smallAreaHover) { estatTipOwn = false; renderer.set("overlayHover", null); gintHoverTip?.(null); needsDraw = true; }
 });
 // 14条地図（法務省 登記所備付地図）を球へ。デコード済み pbf を受けて球へ配線する共通処理。
 // 「座標値種別=図上測量」は測量手法のタグに過ぎず絶対位置の信頼性とは無相関と判明済み（系変換さえ合っていれば図上測量でも正確）
@@ -2768,7 +2770,13 @@ function render() {
 // --- 統合スパイク：geopbf/e-Stat を overlay に描き、クリックで identify（実装は overlay.js）---
 const overlay = createOverlay({ renderer, cam, size, dpr, requestDraw: () => { needsDraw = true; },
 	tip: name => {   // estat ホバー結果：町丁目ヒット＝町丁目名を tip へ／ミス(市区町村外)＝gint ホバーへフォールバック（他市区町村の tip/リンク）
-		if (name) { gintHoverTip?.([name]); return; }
+		if (name) {
+			estatTipOwn = true;
+			gintHoverTip?.([name]);
+			wPost({ type: "gintLeave" });   // 隣の市区町村に残った gint ホバー(太線)を消す（B→A復帰でBが光ったまま、の根治・本人報告2026-08-14）。leave は idempotent＝毎ヒットでも安価
+			return;
+		}
+		estatTipOwn = false;
 		if (gintInteractive && gintHover && lastHoverXY) wPost({ type: "gintMove", x: lastHoverXY[0], y: lastHoverXY[1] });
 	} });
 window.__loadOverlay = overlay.loadOverlay;   // geopbf 名から（全球等）

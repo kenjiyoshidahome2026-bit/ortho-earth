@@ -276,7 +276,13 @@ export function createGintLayer(gl, { requestDraw } = {}) {
 		if (s._pendingMove) { const m = s._pendingMove; s._pendingMove = null; doIdentify(m); }
 	}
 
-	function move(data) { handleMove(data); }
+	function move(data) {
+		// 自己修復（gpu/gint.js move と同型）：pick FBO 未構築のまま最初のホバーが来た＝settle(gintDrawn)が
+		// 一度も来ていない（?area=＋hash 復元はカメラ無移動＝settle 不発）。一度だけ構築＝以後は通常経路。
+		// 従来は doIdentify が !s.pickFBO で黙って無反応＝「動かすまで識別が死ぬ」元々のバグの根治。
+		if (!s.pickFBO && s.lastDrawData && !s._isDrawing) drawn();
+		handleMove(data);
+	}
 	function leave()    { handleLeave(); }
 
 	function click() {
