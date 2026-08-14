@@ -55,7 +55,7 @@ orthoJapan({ target: "#map", view: location.hash || JAPAN_VIEW }).then(map => {
 	map.gadget.hint();        // 操作説明カード
 	const legend = map.gadget.legend();   // 左下の凡例＝コロプレス/防災の色の読み物
 	const choro = initChoropleth(map, { legend });
-	initBind(map, { choro });
+	initBind(map, { choro, legend });
 }).catch(e => { console.error("[census2020] エンジン起動失敗", e); dismissBoot(); });
 
 if (location.protocol === "https:" && "serviceWorker" in navigator)

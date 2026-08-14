@@ -3,7 +3,7 @@
 // 式評価（buildFidStyle）は使わない＝指標切替は「表の再計算＋テクスチャ更新1回」だけ（gint draw spec の restyle 哲学）。
 // 表示はエンジン仕様どおり真俯瞰（pitch<0.02）のみ＝チルトすると塗りは静かに消える（防災ドレープと住み分け）。
 import { geopbf } from "geopbf";
-import { wardParent } from "./jp/codes.js";
+import { belongsTo } from "./jp/codes.js";
 import { initAggregate, AGG_VALUE } from "./aggregate.js";
 import CENSUS_MANIFEST from "./census/manifest.json" with { type: "json" };
 import POP2020 from "./census/2020-pop.json" with { type: "json" };
@@ -36,7 +36,8 @@ const packRGBA = (h, a) => { const [r, g, b] = hex2rgb(h); return ((r << 24) | (
 export function initChoropleth(map, { legend } = {}) {
 	let pbf = null, feats = null;          // feats＝fid 整列の properties（表直書きの入力）
 	let bboxByCode = new Map();            // code → [lo0,la0,lo1,la1]（flyTo 用・geojson 由来）
-	let indicator = "density", selected = null, lastTable = null, lastCount = 0;
+	let indicator = "none", selected = null, lastTable = null, lastCount = 0;   // 既定＝塗りなし（起動時に人口密度コロプレスを出さない・本人裁定2026-08-14）
+	let lastLegend = null;   // 直近の凡例HTML（防災スタックから戻る時に refreshLegend で復元）
 	// レベル：全国級で 市区町村(admin_all) ⇄ 都道府県(集約) をトグル。既定=市区町村（絶賛された全密度コロプレスを保存）。
 	// nationalLevel=全国トグルの記憶／activeLevel=今スロットに載ってる層。県以下へドリル時は市区町村へ自動降下。
 	let activeLevel = "mun", nationalLevel = "mun", agg = null;
@@ -123,7 +124,7 @@ export function initChoropleth(map, { legend } = {}) {
 			codeOf = i => feats[i].properties?.code;
 			valueOf = i => def.value(feats[i].properties?.code);
 		}
-		if (!def) { lastTable = null; lastCount = 0; map.paint(null); legend?.(null); return; }   // legend＝gadgetの戻り値＝setter関数そのもの
+		if (!def) { lastTable = null; lastCount = 0; map.paint(null); legend?.(lastLegend = null); return; }   // legend＝gadgetの戻り値＝setter関数そのもの（塗りなし＝凡例も消す）
 		const u32 = new Uint32Array(n * 4);
 		const vals = [], vOf = new Array(n);
 		for (let i = 0; i < n; i++) { const v = valueOf(i); vOf[i] = v; if (v != null) vals.push(v); }
@@ -143,8 +144,9 @@ export function initChoropleth(map, { legend } = {}) {
 		}
 		lastTable = u32; lastCount = n;
 		map.paintTable(u32, n);
-		legend?.(legendHtml(def, breaks, colors, activeLevel));
+		legend?.(lastLegend = legendHtml(def, breaks, colors, activeLevel));
 	}
+	function refreshLegend() { legend?.(lastLegend); }   // 防災スタック解除時にコロプレス凡例を復元（塗りなし=null復元）
 	function legendHtml(def, breaks, colors, level = "mun") {
 		const row = (c, t) => `<div style="display:flex;align-items:center;gap:6px;font-size:11px;line-height:1.7"><span style="width:14px;height:10px;border-radius:2px;background:${c};display:inline-block"></span>${t}</div>`;
 		const f = def.fmt;
@@ -202,8 +204,7 @@ export function initChoropleth(map, { legend } = {}) {
 		// 政令市（例:14100）＝区 bbox の合併／2桁＝都道府県＝前方一致の合併
 		let lo0 = 180, la0 = 90, lo1 = -180, la1 = -90, hit = false;
 		for (const [k, b] of bboxByCode) {
-			const ok = c.length === 2 ? k.startsWith(c) : wardParent(k) === c;
-			if (!ok) continue;
+			if (!belongsTo(k, c)) continue;   // 政令市＝区合併／東京都区部13100＝23区合併／県＝前方一致
 			hit = true;
 			if (b[0] < lo0) lo0 = b[0]; if (b[1] < la0) la0 = b[1]; if (b[2] > lo1) lo1 = b[2]; if (b[3] > la1) la1 = b[3];
 		}
@@ -217,12 +218,24 @@ export function initChoropleth(map, { legend } = {}) {
 	}
 	function setSelected(code) { selected = code || null; buildTable(); }
 
-	function geomForCode(code) {   // code→市区町村の境界幾何（admin_all 由来）。getGeometry で1featureだけ取る＝保持なし。bousai の A33 境界クリップ用。
+	function geomForCode(code) {   // code→境界幾何（admin_all 由来）。防災の市域クリップ用。
 		if (!pbf || !feats) return null;
-		const i = feats.findIndex(f => f?.properties?.code === code);
-		if (i < 0) return null;
-		try { return pbf.getGeometry(i); } catch { return null; }
+		const c = String(code);
+		const i = feats.findIndex(f => f?.properties?.code === c);
+		if (i >= 0) { try { return pbf.getGeometry(i); } catch { return null; } }   // 市区町村・区＝単一 feature
+		// 集約コード（政令市14100・東京都区部13100・県2桁）＝子の幾何を MultiPolygon へ合併して返す。無いと
+		// makeCityClip が cityGeom=null→巨大bboxフォールバックで隣接市へ大はみ出しする（集約単位の防災クリップ根治）。
+		const parts = [];
+		for (let j = 0; j < feats.length; j++) {
+			const kc = feats[j]?.properties?.code;
+			if (!kc || !belongsTo(kc, c)) continue;
+			let g; try { g = pbf.getGeometry(j); } catch { continue; }
+			if (!g) continue;
+			if (g.type === "Polygon") parts.push(g.coordinates);
+			else if (g.type === "MultiPolygon") for (const p of g.coordinates) parts.push(p);
+		}
+		return parts.length ? { type: "MultiPolygon", coordinates: parts } : null;
 	}
-	const api = { ready, applyAdmin, flyToCode, bboxForCode, geomForCode, setSelected, setIndicator, showLevel, setLevels, descendAgg, get activeLevel() { return activeLevel; }, get nationalLevel() { return nationalLevel; }, get pbf() { return pbf; } };
+	const api = { ready, applyAdmin, flyToCode, bboxForCode, geomForCode, setSelected, setIndicator, showLevel, setLevels, descendAgg, refreshLegend, get activeLevel() { return activeLevel; }, get nationalLevel() { return nationalLevel; }, get pbf() { return pbf; } };
 	return api;
 }

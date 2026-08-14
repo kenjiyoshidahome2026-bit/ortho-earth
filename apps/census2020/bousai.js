@@ -44,7 +44,7 @@ const GINT_LAYERS = [
 	{ key: "a31", label: "洪水浸水" },
 ];
 
-export function initBousai(map, { bboxForCode, cityGeomForCode, onStackApplied, onStackCleared } = {}) {
+export function initBousai(map, { bboxForCode, cityGeomForCode, legend, onStackApplied, onStackCleared } = {}) {
 	let city = null;
 	const on = new Set();              // 点灯中の gint レイヤ key
 	let hinanOn = false;
@@ -70,6 +70,22 @@ export function initBousai(map, { bboxForCode, cityGeomForCode, onStackApplied, 
 	}
 	wrap.appendChild(sta);
 	const say = t => { sta.textContent = t || ""; };
+	const nextFrame = () => new Promise(r => setTimeout(r, 0));   // 重い await/同期ループの前に状況表示を描かせる譲り
+	// 防災層の凡例（コロプレスの legendHtml と同じ行様式）。洪水=浸水深6段（深い順）・土砂=警戒/特別警戒。
+	const legRow = (c, t) => `<div style="display:flex;align-items:center;gap:6px;font-size:11px;line-height:1.7"><span style="width:14px;height:10px;border-radius:2px;background:${c};display:inline-block"></span>${t}</div>`;
+	function hazardLegend(keys) {
+		const secs = [];
+		if (keys.includes("a31")) {
+			const rows = [6, 5, 4, 3, 2, 1].map(r => legRow(A31_COLORS[r - 1], A31_DEPTH[r])).join("");   // 深い順に上から
+			secs.push(`<div style="font-size:12px;font-weight:600;margin-bottom:4px">洪水浸水想定 <span style="font-weight:400;color:#89a">想定最大規模・浸水深</span></div>${rows}`);
+		}
+		if (keys.includes("a33")) {
+			const rows = legRow("#c0392b", "特別警戒区域（レッド）") + legRow("#d9a441", "警戒区域（イエロー）");   // paint と同色
+			secs.push(`<div style="font-size:12px;font-weight:600;margin:${secs.length ? "8px" : "0"} 0 4px">土砂災害警戒区域</div>${rows}`);
+		}
+		if (keys.includes("moj") && !secs.length) secs.push(`<div style="font-size:12px;font-weight:600">筆界（14条地図）</div><div style="font-size:11px;color:#89a">法務省 登記所備付地図</div>`);
+		return secs.length ? secs.join("") + `<div style="font-size:10px;color:#89a;margin-top:4px">出典: 国土数値情報（KSJ）</div>` : null;
+	}
 	const syncChips = () => {
 		chips.forEach((b, k) => b.setAttribute("aria-pressed", String(k === "hinan" ? hinanOn : on.has(k))));
 	};
@@ -203,22 +219,26 @@ export function initBousai(map, { bboxForCode, cityGeomForCode, onStackApplied, 
 		if (!bb || !cat) return null;
 		const targets = meshesForBbox(bb).filter(m => cat.has(m)).flatMap(m => cat.get(m));
 		if (!targets.length) return null;
-		say("洪水データ取得中…（初回のみ・proxy 経由）");
 		const zoneHitsCity = makeCityClip(code);
 		const groups = new Map();
-		for (const target of targets) {
-			const pbf = await geopbf(target, { gint: false, name: `a31/${target.split("#")[0].split("/").pop()}` }).catch(e => { console.warn("[a31]", e); return null; });   // legacy geopbf＝proxy＋自動IDB
+		const N = targets.length;
+		for (let mi = 0; mi < N; mi++) {
+			const of = N > 1 ? ` ${mi + 1}/${N}` : "";
+			say(`洪水データ取得中${of}…（初回は数十秒・proxy 経由）`);
+			await nextFrame();   // 状況表示を先に描いてから重い取得 await へ（24秒級・1メッシュ32MB）
+			const pbf = await geopbf(targets[mi], { gint: false, name: `a31/${targets[mi].split("#")[0].split("/").pop()}` }).catch(e => { console.warn("[a31]", e); return null; });   // legacy geopbf＝proxy＋自動IDB
 			const raw = pbf?.geojson?.features;
 			if (!raw) continue;
 			// A31b の1 feature は「rank ごとに数万メッシュセルを集約した巨大 MultiPolygon（80km四方・32MB級）」。
 			// A33 の「feature 丸ごと」だと 80km を丸取り＝構成ポリゴン（メッシュセル）へ分解し、セル単位で市クリップする。
 			// ＝境界外セルは捨て・市にかかるセルは丸ごと（欠け無し・階段=原典を保つ）・push はセル単位（スプレッド禁止＝
-			// 数万要素の push(...arr) は Maximum call stack size exceeded で落ちる）。
-			for (const f of raw) {
-				const g = f.geometry;
+			// 数万要素の push(...arr) は Maximum call stack size exceeded で落ちる）。数百万セル＝チャンク分割で UI を固めず進捗表示。
+			for (let i = 0; i < raw.length; i++) {
+				if ((i & 0x1FFFF) === 0) { say(`洪水域を市域でクリップ中${of}…（${Math.floor(i / raw.length * 100)}%）`); await nextFrame(); }
+				const g = raw[i].geometry;
 				const polys = g?.type === "Polygon" ? [g.coordinates] : g?.type === "MultiPolygon" ? g.coordinates : [];
 				if (!polys.length) continue;
-				const rank = Math.max(1, Math.min(6, +f.properties?.A31b_201 || +f.properties?.A31_201 || 1));   // 想定最大規模の浸水深ランク
+				const rank = Math.max(1, Math.min(6, +raw[i].properties?.A31b_201 || +raw[i].properties?.A31_201 || 1));   // 想定最大規模の浸水深ランク
 				const k = `r${rank}`;
 				let bkt = groups.get(k);
 				for (const poly of polys) {
@@ -293,6 +313,7 @@ export function initBousai(map, { bboxForCode, cityGeomForCode, onStackApplied, 
 		stackApplied = true; draped = false;
 		onStackApplied?.();
 		buildStackTable(pbf, keys.length === 1 && keys[0] === "moj");
+		legend?.(hazardLegend(keys));   // 防災層の凡例（浸水深ランク/警戒区分）。解除で bind が choro.refreshLegend 復元
 		say("");
 		watchPitch();   // 現姿勢がチルトなら即ドレープ
 	}

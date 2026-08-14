@@ -5,7 +5,7 @@
 // 取り合う＝占有者(slotOwner)をここで一元管理し、スタック解除で必ず admin へ戻す。
 import { onDrill, drillTo, drillToArea } from "./census/ui.js";
 import { prefetchSmallAreaIdb } from "./census/small-area.js";
-import { wardParent } from "./jp/codes.js";
+import { belongsTo } from "./jp/codes.js";
 import { initBousai } from "./bousai.js";
 import ESTAT_MANIFEST from "./estat/manifest.json" with { type: "json" };
 
@@ -16,7 +16,7 @@ const ESTAT_CODES = ESTAT_MANIFEST.map(e => e.code);
 const ESTAT_STYLE = { lineColor: [0.22, 0.44, 0.78, 0.88], lineWidth: 0.6 };
 const SA_MAX_ZOOM = 16.3;   // 丁目 bbox は極小＝寄り過ぎ防止の上限
 
-export function initBind(map, { choro }) {
+export function initBind(map, { choro, legend }) {
 	const overlay = map.overlay;
 	let cityCode = null;         // ドリル中の市区町村（estat 境界の単位）
 	let slotOwner = "admin";     // gint 単一スロットの占有者: 'admin' | 'stack'
@@ -26,8 +26,9 @@ export function initBind(map, { choro }) {
 	const bousai = initBousai(map, {
 		bboxForCode: code => choro.bboxForCode(code),
 		cityGeomForCode: code => choro.geomForCode(code),   // A33 の境界クリップ（重心 点in面）用に市ポリゴンを渡す
+		legend,   // 防災層＝自前の凡例（浸水深ランク/警戒区分）を出す。解除でコロプレス凡例へ復元
 		onStackApplied: () => { slotOwner = "stack"; },
-		onStackCleared: () => { if (slotOwner === "stack") { slotOwner = "admin"; choro.applyAdmin(); } },
+		onStackCleared: () => { if (slotOwner === "stack") { slotOwner = "admin"; choro.applyAdmin(); } choro.refreshLegend(); },
 	});
 
 	// --- URL ?area=（view hash・他クエリ（?gl2=1 等）は温存。書くのは area だけ） ---
@@ -40,8 +41,8 @@ export function initBind(map, { choro }) {
 
 	// 政令市＝区コード列（estat ファイルは区単位）／それ以外＝自コード
 	const estatCodesFor = code => {
-		const wards = ESTAT_CODES.filter(c => wardParent(c) === code);
-		return wards.length ? wards : (ESTAT_CODES.includes(code) ? [code] : []);
+		const members = ESTAT_CODES.filter(c => belongsTo(c, code));   // 政令市=区／東京都区部13100=23区／県=前方一致
+		return members.length ? members : (ESTAT_CODES.includes(code) ? [code] : []);
 	};
 
 	function enterCity(code, { withBousai = true } = {}) {
@@ -81,10 +82,11 @@ export function initBind(map, { choro }) {
 				writeArea(e.code); leaveCity(); choro.showLevel("mun"); choro.setLevels(e.code === "01" ? ["shicho", "mun"] : []); choro.setSelected(null);   // 県へ降下（北海道は振興局選択可）
 				if (!suppressFly) choro.flyToCode(e.code);
 				break;
-			case "designated":   // 政令市＝区一覧。防災/筆は出さない（区へドリルして有効化）＝集約コード probe の 404 を断つ
+			case "designated":   // 政令市＝区一覧＋政令市単位で防災も有効（A31=メッシュ・A33=県の直読み＝集約コードでも動く。
+				// moj筆のみ区単位＝probeで自動不活性。旧「404を断つ」根拠は焼きデータ依存＝直読み化で解消・本人裁定2026-08-14）。
 				writeArea(e.code); choro.setSelected(e.code); choro.setLevels([]);
 				if (!suppressFly) choro.flyToCode(e.code);
-				enterCity(e.code, { withBousai: false });
+				enterCity(e.code);
 				break;
 			case "city":
 				writeArea(e.code); choro.setSelected(e.code); choro.setLevels([]);
