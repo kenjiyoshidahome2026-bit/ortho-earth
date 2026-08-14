@@ -25,6 +25,18 @@ export const betaOf = latDeg => R_AX === 1 ? latDeg
 export const geodeticOf = betaDeg => R_AX === 1 ? betaDeg
 	: Math.atan2(Math.sin(betaDeg * D2R), R_AX * Math.cos(betaDeg * D2R)) * R2D;
 
+// world空間の3D点 → 測地経緯度 [lon,lat]（deg）。unproject の復元と同じ流儀＝S⁻¹（yだけ1/R_AX＝β空間へ戻す）
+// してから geodeticOf で β→測地緯度へ。球(R_AX=1)は恒等。updateUnderground/eyePose が「eyeの地上位置」を
+// 正しく引くための逆変換：world の y を直に asin すると【地心緯度】になり、楕円体では測地緯度と緯度36°で
+// 約0.09°ずれ、eye直下の地表サンプルが約10km飛ぶ（実測：加賀市の地中フェード誤発動の真因 2026-08-15）。
+export function worldToLonLat(p) {
+	const yb = p[1] / R_AX;                                       // world → β空間（S⁻¹＝y だけ 1/R_AX）
+	const len = Math.hypot(p[0], yb, p[2]) || 1;
+	const lat = geodeticOf(Math.asin(Math.max(-1, Math.min(1, yb / len))) * R2D);
+	const lon = Math.atan2(p[2], p[0]) * R2D;                     // 経度は S（y方向）に不変
+	return [lon, lat];
+}
+
 // 経緯度 → β単位球3D（球では従来の単位球そのまま＝ビット同値）。
 // 消費者（versor・LOD・ラベル・タイル被覆…）は「単位球上の点」として扱い続けてよい＝内部の主空間。
 export function lonlatTo3D(lon, lat) {

@@ -14,7 +14,7 @@ export { buildBuildings, buildExtrudedParcels, buildDrapedGeometry } from "./bui
 export { downsampleFlipped } from "./elevation.js";
 export { createLabelLayer } from "./labels2d.js";
 export { cameraState, project, unproject, lonlatTo3D, WORLD_PX,
-	setEllipsoid, ellipsoidOn, worldRadiusM, betaOf, geodeticOf, ellNormal3D } from "./camera.js";
+	setEllipsoid, ellipsoidOn, worldRadiusM, betaOf, geodeticOf, ellNormal3D, worldToLonLat } from "./camera.js";
 export { createFlight, shortBearingOf, flyPlan, glidePlan, glidePathPlan } from "./flight.js";
 export { createInput, isTypingTarget } from "./input.js";
 export { parseViewHash, buildViewHash, wrapLon } from "./viewurl.js";
