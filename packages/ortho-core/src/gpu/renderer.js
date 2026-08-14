@@ -271,6 +271,24 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 		fragment: { module: ovMod, entryPoint: "fsCover", targets: [target] },
 		primitive: { topology: "triangle-list" }, depthStencil: dsOvCover, multisample: ms,
 	});
+	// 周辺マスク用（overlayHi の o.mask）：stencil==0（地物の外側）を暗く塗る逆カバー＋内側stencilの後始末。
+	// 「地物を塗りつぶす」でなく「周辺を暗くして地物を浮かせる」＝データ（基図・境界）が読める（本人裁定2026-08-14）。
+	const dsOvMaskCover = { format: DEPTH, depthWriteEnabled: false, depthCompare: "always",
+		stencilFront: { compare: "equal", failOp: "keep", depthFailOp: "keep", passOp: "keep" },
+		stencilBack: { compare: "equal", failOp: "keep", depthFailOp: "keep", passOp: "keep" }, stencilWriteMask: 0 };
+	const dsOvZero = { format: DEPTH, depthWriteEnabled: false, depthCompare: "always",
+		stencilFront: { compare: "not-equal", failOp: "keep", depthFailOp: "keep", passOp: "zero" },
+		stencilBack: { compare: "not-equal", failOp: "keep", depthFailOp: "keep", passOp: "zero" }, stencilWriteMask: 0xFF };
+	const ovMaskCoverPipe = device.createRenderPipeline({
+		layout: ovLayout, vertex: { module: ovMod, entryPoint: "vsCover" },
+		fragment: { module: ovMod, entryPoint: "fsCover", targets: [target] },
+		primitive: { topology: "triangle-list" }, depthStencil: dsOvMaskCover, multisample: ms,
+	});
+	const ovZeroPipe = device.createRenderPipeline({
+		layout: ovLayout, vertex: { module: ovMod, entryPoint: "vsCover" },
+		fragment: { module: ovMod, entryPoint: "fsNull", targets: [{ format, writeMask: 0 }] },
+		primitive: { topology: "triangle-list" }, depthStencil: dsOvZero, multisample: ms,
+	});
 	const ovLinePipe = device.createRenderPipeline({   // 境界線/N02線＝LINE_WGSL 流用（dynamic frame レイアウト）
 		layout: ovLayout, vertex: { module: lineMod, entryPoint: "vs", buffers: LINE_BUFS },
 		fragment: { module: lineMod, entryPoint: "fs", targets: [target] },
@@ -367,7 +385,13 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 	}
 	function disposeOverlay(o) { if (o) for (const b of o.bufs) b.destroy(); }
 	function setOverlay(s, fill) { disposeOverlay(overlay); overlay = s ? buildOverlaySlot(s, fill || [0.20, 0.45, 0.85, 0.32]) : null; }
-	function setOverlayHi(s, fill) { disposeOverlay(overlayHi); overlayHi = s ? buildOverlaySlot(s, fill || [0.95, 0.55, 0.15, 0.6]) : null; }
+	function setOverlayHi(s, fill) {   // fill=配列は従来の面塗り／{mask,color}は周辺マスク（外側を暗く・地物は塗らない）
+		disposeOverlay(overlayHi);
+		if (!s) { overlayHi = null; return; }
+		const isMask = fill && !Array.isArray(fill);
+		overlayHi = buildOverlaySlot(s, isMask ? (fill.color || [0, 0, 0, 0.15]) : (fill || [0.95, 0.55, 0.15, 0.6]));
+		if (overlayHi) overlayHi.mask = !!(isMask && fill.mask);
+	}
 	function setN02(scenes) { for (const o of n02) disposeOverlay(o); n02 = (scenes || []).map(s => buildOverlaySlot(s, [0, 0, 0, 0])); }
 	// gintBld（gint ユーザー層の地形沿い境界線・点）＝独自 origin・BUILDING_WGSL 24B レイアウト・line/point 描画。null=解放。
 	let gintBld = null;   // { origin, color, line?:{bPos,bSh,bAnc,count}, point?:{...} }
@@ -406,13 +430,22 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 		pass.setStencilReference(0);
 		for (let i = 0; i < n; i++) {
 			const o = scenes[i], fOff = i * FRAME_SLOT, pOff = i * PARAM_SLOT;
-			if (o.fanCount) {   // 面：stencil fan → cover（stencil≠0 を塗り・0 へ戻す）
+			if (o.fanCount) {   // 面：stencil fan → cover（stencil≠0 を塗り・0 へ戻す）／o.mask は外側(stencil==0)を暗く塗る
 				pass.setPipeline(ovStencilPipe);
 				pass.setBindGroup(0, ovFrameBG, [fOff]); pass.setBindGroup(1, ovParamBG, [pOff]);
 				pass.setVertexBuffer(0, o.fanBuf); pass.draw(o.fanCount);
-				pass.setPipeline(ovCoverPipe);
-				pass.setBindGroup(0, ovFrameBG, [fOff]); pass.setBindGroup(1, ovParamBG, [pOff]);
-				pass.draw(3);
+				if (o.mask) {   // 周辺マスク＝外側を暗く塗り→内側stencilを0へ後始末（gint/次スロットのため）
+					pass.setPipeline(ovMaskCoverPipe);
+					pass.setBindGroup(0, ovFrameBG, [fOff]); pass.setBindGroup(1, ovParamBG, [pOff]);
+					pass.draw(3);
+					pass.setPipeline(ovZeroPipe);
+					pass.setBindGroup(0, ovFrameBG, [fOff]); pass.setBindGroup(1, ovParamBG, [pOff]);
+					pass.draw(3);
+				} else {
+					pass.setPipeline(ovCoverPipe);
+					pass.setBindGroup(0, ovFrameBG, [fOff]); pass.setBindGroup(1, ovParamBG, [pOff]);
+					pass.draw(3);
+				}
 			}
 			if (o.lineCount) {   // 線（境界線 / N02 の鉄道線）＝LINE_WGSL 流用
 				pass.setPipeline(ovLinePipe);

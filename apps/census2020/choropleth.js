@@ -232,17 +232,20 @@ export function initChoropleth(map, { legend } = {}) {
 	function setIndicator(key) { indicator = key; syncChips(); buildTable(); }
 	// 層の持参スタイル：既定オレンジ線(1px)は全国ズームで市区町村(2〜3px)を覆い隠しコロプレスを潰す
 	// （実測 2026-08-12＝「塗れているのに見えない」）。基図に馴染む青灰の細線へ＝塗りが主役・境界は気配。
+	// maskColor＝ホバー/identify で活性地物の外を暗くするマスク。既定 DEF_MASK[0,0,0,0.4] は濃すぎてコロプレスの
+	// 塗り（データ）が読みにくい＝census2020 だけ薄く（0.15）。本人裁定2026-08-14「べた塗りはデータが見えにくい」。
+	const LIGHT_MASK = [0, 0, 0, 0.1];
 	const ADMIN_STYLE = (() => {
 		const t = new Float32Array(256 * 4);
 		t.set([0, 0, 0, 0], 0);              // style0 polygon＝未使用（塗りは paint 表＝idfill が担う）
 		t.set([0.42, 0.5, 0.62, 0.45], 4);   // style1 line＝青灰・淡
-		return { styleTable: t, lineWidth: 0.7 };
+		return { styleTable: t, lineWidth: 0.7, maskColor: LIGHT_MASK };
 	})();
 	const AGG_STYLE = (() => {   // 集約境界＝本数が少ない＝やや濃く太く主張してよい（県境/振興局境/郡境）
 		const t = new Float32Array(256 * 4);
 		t.set([0, 0, 0, 0], 0);
 		t.set([0.42, 0.5, 0.62, 0.72], 4);
-		return { styleTable: t, lineWidth: 0.9 };
+		return { styleTable: t, lineWidth: 0.9, maskColor: LIGHT_MASK };
 	})();
 	function applyAdmin() {   // 市区町村(admin_all)を gint スロットへ＝レベル'mun'。防災/筆スタックから戻る時も呼ばれる。
 		if (!pbf) return;
@@ -267,7 +270,7 @@ export function initChoropleth(map, { legend } = {}) {
 	function descendAgg(fid) {
 		const g = layerCache.get(activeLevel)?.groups?.[fid];
 		showLevel("mun");
-		if (g?.bbox) map.flyTo((g.bbox[0] + g.bbox[2]) / 2, (g.bbox[1] + g.bbox[3]) / 2, map.fitZoomForBbox(g.bbox));
+		if (g?.bbox) map.flyTo((g.bbox[0] + g.bbox[2]) / 2, (g.bbox[1] + g.bbox[3]) / 2, map.fitZoomForBbox(g.bbox), 0);   // tilt0＝真俯瞰維持
 	}
 	function bboxForCode(code) {
 		const c = String(code);
@@ -284,7 +287,7 @@ export function initChoropleth(map, { legend } = {}) {
 	function flyToCode(code) {
 		const b = frameBboxForCode(code);   // 島嶼県の pref は主要部/全体トグルに従う（クリップ用 bboxForCode は不変）
 		if (!b) return false;
-		map.flyTo((b[0] + b[2]) / 2, (b[1] + b[3]) / 2, map.fitZoomForBbox(b));
+		map.flyTo((b[0] + b[2]) / 2, (b[1] + b[3]) / 2, map.fitZoomForBbox(b), 0);   // tilt0＝真俯瞰維持（小市区町村でz≥15→自動45°チルト＋塗り消灯を防ぐ）
 		return true;
 	}
 	function setSelected(code) { selected = code || null; buildTable(); }

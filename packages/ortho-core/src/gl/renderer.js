@@ -522,7 +522,13 @@ export function createRenderer(canvas, rOpts = {}) {
 	function setOverlay(s, fillColor) { disposeOverlay(overlay); overlay = s ? buildOverlaySlot(s, fillColor || [0.20, 0.45, 0.85, 0.32]) : null; }
 	// N02 交通の常駐オーバーレイ群を丸ごと差し替え。各要素は buildGeoJSONOverlay のシーン（線色は焼込済）。
 	function setN02(scenes) { for (const o of n02) disposeOverlay(o); n02 = (scenes || []).map(s => buildOverlaySlot(s, [0, 0, 0, 0])); }
-	function setOverlayHi(s, fillColor) { disposeOverlay(overlayHi); overlayHi = s ? buildOverlaySlot(s, fillColor || [0.95, 0.55, 0.15, 0.6]) : null; }
+	function setOverlayHi(s, fillColor) {   // fillColor=配列は従来の面塗り／{mask,color}は周辺マスク（外側を暗く・地物は塗らない）
+		disposeOverlay(overlayHi);
+		if (!s) { overlayHi = null; return; }
+		const isMask = fillColor && !Array.isArray(fillColor);
+		overlayHi = buildOverlaySlot(s, isMask ? (fillColor.color || [0, 0, 0, 0.15]) : (fillColor || [0.95, 0.55, 0.15, 0.6]));
+		if (overlayHi) overlayHi.mask = !!(isMask && fillColor.mask);
+	}
 	function drawOne(o, st, dpr, land) {
 		if (!o) return;
 		if (o.fanCount) {   // 面がある時だけ stencil 塗り（純線オーバーレイ＝N02 は面ゼロでも線を描く）
@@ -536,12 +542,18 @@ export function createRenderer(canvas, rOpts = {}) {
 			setCommonUniforms(stencilProg, st, o.origin, land);
 			gl.uniform1f(loc(gl, stencilProg, "u_lift"), OVERLAY_LIFT_M);   // 地形から浮かせて z-fight を断つ（面の stencil 位置）
 			gl.bindVertexArray(o.fanVao); gl.drawArrays(gl.TRIANGLES, 0, o.fanCount);
-			// cover パス：stencil≠0 の画素だけ塗り、通過画素は0へ戻して次に備える
+			// cover パス：通常＝stencil≠0(内側)を塗り0へ戻す／o.mask＝stencil==0(外側)を暗く塗り→内側stencilは後始末
 			gl.colorMask(true, true, true, true);
-			gl.stencilFunc(gl.NOTEQUAL, 0, 0xFF); gl.stencilOp(gl.KEEP, gl.KEEP, gl.ZERO);
 			gl.useProgram(coverProg);
 			gl.uniform4f(loc(gl, coverProg, "u_fill"), o.fillColor[0], o.fillColor[1], o.fillColor[2], o.fillColor[3]);
-			gl.bindVertexArray(emptyVAO); gl.drawArrays(gl.TRIANGLES, 0, 3);
+			if (o.mask) {
+				gl.stencilFunc(gl.EQUAL, 0, 0xFF); gl.stencilOp(gl.KEEP, gl.KEEP, gl.KEEP);   // 外側(stencil==0)を暗く
+				gl.bindVertexArray(emptyVAO); gl.drawArrays(gl.TRIANGLES, 0, 3);
+				gl.clearStencil(0); gl.clear(gl.STENCIL_BUFFER_BIT);   // 内側stencilを後始末（次スロット/gintのため）
+			} else {
+				gl.stencilFunc(gl.NOTEQUAL, 0, 0xFF); gl.stencilOp(gl.KEEP, gl.KEEP, gl.ZERO);   // 内側(stencil≠0)を塗り0へ
+				gl.bindVertexArray(emptyVAO); gl.drawArrays(gl.TRIANGLES, 0, 3);
+			}
 			gl.disable(gl.STENCIL_TEST);
 		}
 		// 線（境界線 or N02 の鉄道線）

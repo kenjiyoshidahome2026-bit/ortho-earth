@@ -65,7 +65,7 @@ export function initBind(map, { choro, legend }) {
 		const r = await overlay.highlightKey(key);
 		if (r?.bbox && !suppressFly) {
 			const b = r.bbox;
-			map.flyTo((b[0] + b[2]) / 2, (b[1] + b[3]) / 2, Math.min(SA_MAX_ZOOM, map.fitZoomForBbox(b)));
+			map.flyTo((b[0] + b[2]) / 2, (b[1] + b[3]) / 2, Math.min(SA_MAX_ZOOM, map.fitZoomForBbox(b)), 0);   // tilt0＝真俯瞰維持（z≥15の自動45°チルト＋コロプレス消灯を防ぐ・本人裁定）
 		}
 	}
 

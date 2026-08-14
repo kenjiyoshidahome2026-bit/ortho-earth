@@ -25,6 +25,10 @@ function matchesFilters(props, filters) {
 	});
 }
 
+// 町丁目(estat)ハイライトの表現＝地物をべた塗りせず「周辺を薄く暗くして地物を浮かせる」マスク（本人裁定2026-08-14
+// 「べた塗りはデータが見えにくい」）。setOverlayHi が {mask,color} を周辺マスクとして解釈する。
+const HI_MASK = { mask: true, color: [0, 0, 0, 0.1] };
+
 export function createOverlay({ renderer, cam, size, dpr, requestDraw }) {
 	const identEl = document.createElement("div");
 	identEl.id = "ident";   // スタイルは style.css（#map 配下に後置＝DOM順で上）
@@ -54,7 +58,7 @@ export function createOverlay({ renderer, cam, size, dpr, requestDraw }) {
 			if (!o.quiet) say(`e-Stat 小地域: ${m.count} 地物 — クリックで identify（小地域コード＝突合の種）`);
 			o.onLoaded?.({ ok: true, count: m.count, center: m.center });
 		} else if (m.type === "identify") {
-			renderer.set("overlayHi", m.overlay || null);
+			renderer.set("overlayHi", m.overlay || null, HI_MASK);   // 町丁目(estat)＝べた塗りでなく周辺マスク（本人裁定2026-08-14）
 			if (identifyHandler) identifyHandler(m.hit >= 0 ? { hit: m.hit, props: m.props || {} } : null);
 			else if (m.hit >= 0) {
 				const kv = Object.entries(m.props).slice(0, 6).map(([k, v]) => `${k}: ${v}`).join("\n");
@@ -62,7 +66,7 @@ export function createOverlay({ renderer, cam, size, dpr, requestDraw }) {
 			} else say("identify: ヒットなし");
 			requestDraw();
 		} else if (m.type === "highlighted") {
-			renderer.set("overlayHi", m.overlay || null);
+			renderer.set("overlayHi", m.overlay || null, HI_MASK);   // 町丁目(estat)選択＝周辺マスク（塗りつぶさない）
 			if (highlightWait) { highlightWait(m.bbox ? { key: m.key, bbox: m.bbox, count: m.count } : null); highlightWait = null; }
 			requestDraw();
 		}
