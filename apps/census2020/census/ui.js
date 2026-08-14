@@ -53,8 +53,10 @@ export function drillTo(code, year = '2020') {
     const c = String(code);
     if (c.length === 2) return _dPref(Y, c);
     const prefCode = c.slice(0, 2);
+    if (c === '13100') return _dKubu(Y, prefCode);   // 東京都区部＝23区一覧へ（?area=13100 復元・地図クリック）
     if (DESIGNATED_CITIES.has(c)) return _dDesignated(Y, c, prefCode);
-    return _dCity(Y, c, prefCode, _wardParent(c));
+    const parent = (+c >= 13101 && +c <= 13123) ? '13100' : _wardParent(c);   // 特別区は 13100 を親クラムに
+    return _dCity(Y, c, prefCode, parent);
 }
 // 小地域 KEY_CODE（9/11桁）へ直行（地図の小地域クリック・?area= 復元用）。
 // 全国CSV 未取得時は市区町村止まり＝取得ゲートを踏み越えない。
@@ -169,6 +171,7 @@ function _gunPrefix(code) {
 const _crumbNat   = Y => ({ label: '全国', go: () => _dNational(Y) });
 const _crumbPref  = (Y, prefCode) => ({ label: _prefFull(prefCode), go: () => _dPref(Y, prefCode) });
 const _crumbDesig = (Y, code, prefCode) => ({ label: _wardName(code), go: () => _dDesignated(Y, code, prefCode) });
+const _crumbKubu  = (Y, prefCode) => ({ label: '特別区部', go: () => _dKubu(Y, prefCode) });
 const _crumbCity  = (Y, code, prefCode, parentCode) => {
     const name   = _wardName(code);
     const parent = parentCode ? _wardName(parentCode) : '';
@@ -178,7 +181,7 @@ const _crumbCity  = (Y, code, prefCode, parentCode) => {
 // 全国 → 都道府県 → (政令市) → 市区町村 までのクラム列
 function _cityCrumbs(Y, cityCode, prefCode, parentCode) {
     const arr = [_crumbNat(Y), _crumbPref(Y, prefCode)];
-    if (parentCode) arr.push(_crumbDesig(Y, parentCode, prefCode));
+    if (parentCode) arr.push(parentCode === '13100' ? _crumbKubu(Y, prefCode) : _crumbDesig(Y, parentCode, prefCode));
     arr.push(_crumbCity(Y, cityCode, prefCode, parentCode));
     return arr;
 }
@@ -409,8 +412,10 @@ function _wardsForYear(cityCode, year) {
     const data = year === '2025' ? CENSUS_2025_POP
                : year === '2015' ? CENSUS_2015_STATS
                : CENSUS_2020_POP;
+    // 東京都区部(13100)は特別区13101..23（_wardParent は政令市専用で写さない）／政令市は区の親一致
+    const belong = cityCode === '13100' ? (k => +k >= 13101 && +k <= 13123) : (k => _wardParent(k) === cityCode);
     return Object.keys(data)
-        .filter(k => _wardParent(k) === cityCode)
+        .filter(belong)
         .sort()
         .map(code => ({ code, name: _wardName(code) }));
 }
@@ -615,15 +620,21 @@ function _dNational(Y) {
 
 // Level 1: 都道府県
 function _dPref(Y, prefCode) {
-    // 政令指定都市の区は除外（政令指定都市自体は残す）
-    const topCities = CENSUS_MANIFEST.filter(e =>
-        e.pref === prefCode && !e.code.endsWith('000') && !_wardParent(e.code) && Y.hasCity(e.code));
+    // 政令指定都市の区は除外（政令指定都市自体は残す）。東京23区(13101..23)も除外し、特別区部(13100)へ畳む。
+    let topCities = CENSUS_MANIFEST.filter(e =>
+        e.pref === prefCode && !e.code.endsWith('000') && !_wardParent(e.code)
+        && !(+e.code >= 13101 && +e.code <= 13123) && Y.hasCity(e.code));
+    // 東京都：特別区部(13100)を必ず集約チップとして出す（hasCity の年差に依らず・23区はドリルで展開）
+    if (prefCode === '13' && !topCities.some(e => e.code === '13100')) {
+        const ku = MANIFEST_BY_CODE.get('13100');
+        if (ku) topCities = [ku, ...topCities];
+    }
     _renderAggViewY(Y, {
         crumbs: [_crumbNat(Y), _crumbPref(Y, prefCode)],
         title: _rubyHtml(_prefFull(prefCode), CENSUS_KANA[prefCode]),
         pred: c => c.slice(0, 2) === prefCode, trendCode: prefCode + '000',
         listHtml: _chipsHtml(Y, '市区町村', `${topCities.length}件`, topCities),
-        onChip: code => DESIGNATED_CITIES.has(code) ? _dDesignated(Y, code, prefCode) : _dCity(Y, code, prefCode, null),
+        onChip: code => code === '13100' ? _dKubu(Y, prefCode) : DESIGNATED_CITIES.has(code) ? _dDesignated(Y, code, prefCode) : _dCity(Y, code, prefCode, null),
     });
     _emit({ level: 'pref', code: prefCode, year: Y.year });
 }
@@ -639,6 +650,19 @@ function _dDesignated(Y, cityCode, prefCode) {
         onChip: code => _dCity(Y, code, prefCode, cityCode),
     });
     _emit({ level: 'designated', code: cityCode, pref: prefCode, year: Y.year });
+}
+
+// Level 1.5: 東京都区部(13100) → 23区一覧（政令市 _dDesignated と同型・特別区を積み上げ）。
+function _dKubu(Y, prefCode) {
+    const wards = _wardsForYear('13100', Y.year);
+    _renderAggViewY(Y, {
+        crumbs: [_crumbNat(Y), _crumbPref(Y, prefCode), _crumbKubu(Y, prefCode)],
+        title: _rubyHtml('特別区部', CENSUS_KANA['13100'] || 'とくべつくぶ'),
+        pred: c => +c >= 13101 && +c <= 13123, trendCode: '13100', histCode: '13100',
+        listHtml: _chipsHtml(Y, '特別区', `${wards.length}区`, wards),
+        onChip: code => _dCity(Y, code, prefCode, '13100'),
+    });
+    _emit({ level: 'kubu', code: '13100', pref: prefCode, year: Y.year });   // bind: 政令市と同様に区部単位で防災を有効化
 }
 
 // Level 2: 市区町村（終端）

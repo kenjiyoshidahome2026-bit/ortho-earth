@@ -88,6 +88,11 @@ export function initBind(map, { choro, legend }) {
 				if (!suppressFly) choro.flyToCode(e.code);
 				enterCity(e.code);
 				break;
+			case "kubu":   // 東京都区部(13100)＝23区の集約単位。政令市と同様に区部単位で防災を有効化（区へドリルも可）
+				writeArea(e.code); choro.setSelected(e.code); choro.setLevels([]);
+				if (!suppressFly) choro.flyToCode(e.code);
+				enterCity(e.code);
+				break;
 			case "city":
 				writeArea(e.code); choro.setSelected(e.code); choro.setLevels([]);
 				if (!suppressFly) choro.flyToCode(e.code);
