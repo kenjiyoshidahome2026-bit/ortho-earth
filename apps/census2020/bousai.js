@@ -10,6 +10,7 @@ import { geopbf } from "geopbf";
 import { nativeBucket } from "native-bucket";
 import { loadMoj, mojSource, probeBucket } from "./moj.js";
 import { escHtml } from "./ui/shared.js";
+import { DESIGNATED_CITIES } from "./jp/codes.js";
 
 const API = "https://api.ortho-earth.com";
 const DRAPE_LIFT_M = 2;
@@ -94,8 +95,11 @@ export function initBousai(map, { bboxForCode, cityGeomForCode, legend, onStackA
 	async function probeAvailability(code) {
 		const mySeq = ++seq;
 		chips.forEach(b => { b.disabled = true; b.title = "確認中…"; });
+		// moj筆(14条地図)は末端の区/市単位のみ＝集約コード(政令市14100・特別区部13100)は持たない。
+		// 探ると geojsonl フォールバックまで落ちて 404 を撒く（本人報告2026-08-14 moj/13100.geojsonl）＝probeを省く。
+		const mojEligible = !(DESIGNATED_CITIES.has(code) || code === "13100");
 		const probes = {   // GET+即中断（bucket Worker は HEAD 405＝moj.js probeBucket の轍）
-			moj: mojSource(code).then(s => !!s),
+			moj: mojEligible ? mojSource(code).then(s => !!s) : Promise.resolve(false),
 			a33: a33TargetForPref(code.slice(0, 2)).then(t => !!t).catch(() => false),   // browser-native＝県に A33 KSJ があれば有効（catalog確認）
 			a31: a31CatIndex().then(cat => meshesForBbox(bboxForCode?.(code)).some(m => cat.has(m))).catch(() => false),   // browser-native＝市bboxを覆う1次メッシュが A31b catalog にあれば有効
 			hinan: probeBucket(`${API}/bucket/bousai/hinan/${code.slice(0, 2)}.json`),
