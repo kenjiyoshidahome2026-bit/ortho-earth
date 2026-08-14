@@ -68,19 +68,23 @@ export function initChoropleth(map, { legend } = {}) {
 	let activeLevel = "mun", nationalLevel = "mun", agg = null;
 	const layerCache = new Map();   // level → { pbf, features, groups }（"mun" は admin 直＝別扱い）
 
-	// 指標チップ（#panel-head 左端）。「塗りなし」も一級の選択肢
+	// 指標チップ（#panel-head 左端）＝連結セグメント。「塗りなし」ボタンは廃止し、選択中の指標を再クリックで
+	// 解除＝「1個選択 or 選択なし」のトグル（本人裁定2026-08-15）。選択なし＝indicator "none"（塗りクリア）。
 	const head = document.getElementById("panel-head");
 	const chipWrap = document.createElement("span");
 	chipWrap.id = "c20-ind";
 	chipWrap.style.display = "contents";
 	head.appendChild(chipWrap);
+	const seg = document.createElement("span");   // 連結の器（角丸ピル・子ボタンは境界線で仕切る＝panel.scss）
+	seg.className = "c20-seg";
 	const chips = new Map();
-	for (const [key, def] of [["none", { label: "塗りなし" }], ...Object.entries(INDICATORS)]) {
+	for (const [key, def] of Object.entries(INDICATORS)) {
 		const b = document.createElement("button");
 		b.className = "c20-chip"; b.type = "button"; b.textContent = def.label;
-		b.addEventListener("click", () => setIndicator(key));
-		chipWrap.appendChild(b); chips.set(key, b);
+		b.addEventListener("click", () => setIndicator(key === indicator ? "none" : key));   // 選択中を再クリック＝解除
+		seg.appendChild(b); chips.set(key, b);
 	}
+	chipWrap.appendChild(seg);
 	const syncChips = () => chips.forEach((b, k) => b.setAttribute("aria-pressed", String(k === indicator)));
 
 	// レベルチップ（文脈で変わる選択肢）＝指標とは別軸。全国=[都道府県,市区町村]／北海道=[振興局,市区町村] 等。
