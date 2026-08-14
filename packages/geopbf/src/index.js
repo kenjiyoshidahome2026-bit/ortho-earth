@@ -132,7 +132,7 @@ export function createGeopbf(apiBase, options = {}) {
                         const val = await server.cache(fileKey).catch(() => null);
                         if (val?.PBF) {
                             const pbf = await new GeoPBF(opts).set(val.PBF);
-                            val.GINT && await pbf.setGintBUF(val.GINT);
+                            opts.gint !== false && val.GINT && await pbf.setGintBUF(val.GINT);   // キャッシュ再読込も gint:false を尊重（空gintの誤復号→RangeError根治）
                             pbf._fileKey = fileKey;
                             return pbf;
                         }
@@ -162,7 +162,7 @@ export function createGeopbf(apiBase, options = {}) {
                         : (q.match(/\.zip$/) && opts.target) ? [q, opts.target].join("#") : q;
                     const val = opts.nocache == true? undefined: await server.cache(fetchUrl).catch(console.error);
                     if (val && val.PBF) { const pbf = (await new GeoPBF(opts).set(val.PBF));
-                        val.GINT && await pbf.setGintBUF(val.GINT);
+                        opts.gint !== false && val.GINT && await pbf.setGintBUF(val.GINT);   // キャッシュ再読込も gint:false を尊重（空gintの誤復号→RangeError根治）
                         pbf.originalURL = q;
                         return pbf;
                     }
