@@ -58,7 +58,7 @@ export function initBousai(map, { bboxForCode, cityGeomForCode, legend, onStackA
 	const head = document.getElementById("panel-head");
 	const wrap = document.createElement("span");
 	wrap.id = "c20-layers";
-	wrap.style.cssText = "display:none;gap:6px;align-items:center;flex-wrap:wrap;border-left:1px solid rgba(255,255,255,.14);padding-left:8px;margin-left:2px";
+	wrap.style.cssText = "display:none;gap:6px;align-items:center;flex-wrap:wrap";   // 置き場はドリル面（wikiカード直下）＝bind.js が再親付け。意匠は panel.scss
 	head.appendChild(wrap);
 	const sta = document.createElement("span");
 	sta.style.cssText = "font-size:11px;color:#89a";
@@ -372,8 +372,23 @@ export function initBousai(map, { bboxForCode, cityGeomForCode, legend, onStackA
 	card.className = "c20-hinan-card";
 	card.style.display = "none";
 	map.mapEl.appendChild(card);
+	const htip = document.createElement("div");   // ホバー tip（名称・住所・対応災害＝クリック前に読める・本人要望2026-08-14）
+	htip.className = "c20-hinan-tip";
+	htip.style.display = "none";
+	map.mapEl.appendChild(htip);
 	let markers = [];   // { el, lon, lat, row }
-	function clearMarkers() { layerEl.textContent = ""; markers = []; card.style.display = "none"; }
+	function clearMarkers() { layerEl.textContent = ""; markers = []; card.style.display = "none"; htip.style.display = "none"; }
+	function showTip(row) {
+		const [lon, lat, name, addr, flags] = row;
+		const [x, y, f] = map.projectLL(lon, lat);
+		if (f < 0) return;
+		const badges = HINAN_FLAGS.filter((_, i) => flags & (1 << i)).join("・");
+		htip.innerHTML = `<div style="font-weight:600">${escHtml(name)}</div>
+			${addr ? `<div style="color:#9ab;font-size:10.5px">${escHtml(addr)}</div>` : ""}
+			${badges ? `<div style="color:#8fd39a;font-size:10.5px;margin-top:2px">${escHtml(badges)}</div>` : ""}`;
+		htip.style.left = `${Math.round(x + 12)}px`; htip.style.top = `${Math.round(y - 8)}px`;
+		htip.style.display = "block";
+	}
 	async function loadHinan(code) {
 		const mySeq = ++seq;
 		say("避難場所を取得中…");
@@ -390,8 +405,10 @@ export function initBousai(map, { bboxForCode, cityGeomForCode, legend, onStackA
 		clearMarkers();
 		for (const row of inCity.slice(0, HINAN_MAX)) {
 			const el = document.createElement("button");
-			el.className = "c20-hinan"; el.type = "button"; el.title = row[2];
+			el.className = "c20-hinan"; el.type = "button";   // title 属性は廃止＝自前 tip と二重になる
 			el.addEventListener("click", ev => { ev.stopPropagation(); showCard(row); });
+			el.addEventListener("mouseenter", () => showTip(row));
+			el.addEventListener("mouseleave", () => { htip.style.display = "none"; });
 			layerEl.appendChild(el);
 			markers.push({ el, lon: row[0], lat: row[1], row });
 		}
@@ -475,5 +492,5 @@ export function initBousai(map, { bboxForCode, cityGeomForCode, legend, onStackA
 	// 曝露突合（浸水域内人口 等）の継ぎ目＝将来 worker/bake で実装。v1 は常に null（UI 非表示）
 	async function exposure(_cityCode) { return null; }
 
-	return { enterCity, leaveCity, onFeatureClick, exposure, isActive: () => stackApplied || hinanOn };
+	return { enterCity, leaveCity, onFeatureClick, exposure, isActive: () => stackApplied || hinanOn, layersEl: wrap };   // layersEl＝bind がドリル毎に wiki 直下へ再親付け（detach 後は getElementById で見つからない＝参照渡しが正）
 }

@@ -258,7 +258,7 @@ function _sectionHtml(sec, hasRef, year = '2020') {
     const YEAR  = { pyramid: hasRef ? `${year}年（参考：全国平均）` : `${year}年`, trend: '2015 – 2025', stats: `${year}年`, household: `${year}年` };
     const hd = TITLE[sec.id] ? `<h3 class="cs-drill-sec-h3">${TITLE[sec.id]} <span class="cs-year">${YEAR[sec.id]}</span></h3>` : '';
     const lg = sec.id === 'pyramid' ? _pyramidLegend(hasRef) : '';
-    return `<div class="cs-section cs-svg-wrap">${hd}${sec.svg}${lg}</div>`;
+    return `<div class="cs-section cs-svg-wrap${sec.id === 'pyramid' ? ' cs-sec-pyramid' : ''}">${hd}${sec.svg}${lg}</div>`;
 }
 function _chartSections({ ages = null, refAges, popTrend = null, stat = null, year = '2020' }) {
     return buildCensusChartSections(stat, year, {

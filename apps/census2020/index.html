@@ -53,6 +53,12 @@
 			<button id="panel-toggle" type="button" title="パネルを隠す／出す" aria-label="パネルの表示切替">▶</button>
 		</div>
 		<aside id="panel">
+			<!-- ブランド帯：ロゴ（球儀マーク＝boot と同紋）＋タイトル。パネルの顔＝最上部固定 -->
+			<div id="panel-brand">
+				<svg viewBox="0 0 100 100" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="6"><ellipse cx="50" cy="50" rx="45" ry="45"/><ellipse cx="50" cy="50" rx="25" ry="45"/><path d="M11 28H88 M11 72H88M50 5V95M5 50 H95"/></g></svg>
+				<h1>国勢調査<span>2020</span></h1>
+				<a class="pb-site" href="https://www.ortho-earth.com/" target="_blank" rel="noopener">ortho-earth</a>
+			</div>
 			<div id="panel-head"></div><!-- 指標チップ・レイヤトグルは choropleth.js / bousai.js が実装 -->
 			<div id="panel-body"></div><!-- census ドリルの注入先（ctx.setDetailHtml） -->
 		</aside>

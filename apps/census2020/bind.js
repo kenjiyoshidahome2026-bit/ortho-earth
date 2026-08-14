@@ -120,6 +120,12 @@ export function initBind(map, { choro, legend }) {
 				highlightAndFly(e.code);
 				break;
 		}
+		// レイヤ（防災・筆）チップは wiki カードの下（本人裁定2026-08-14）。ドリルの度に body が作り直される
+		// （setDetailHtml＝innerHTML 総入れ替え＝前回親付けした #c20-layers は DOM から切り離される）＝
+		// bousai が持つ要素「参照」(layersEl) を毎回 wiki カード（未挿入ならタイトル帯）の直後へ再親付け。
+		// wiki.js はタイトル帯の直後に差し込む＝実行順がどちらでも「タイトル → wiki → レイヤ → 国勢調査」に収束。
+		const dw = document.querySelector("#panel-body .cs-drill-wrap");
+		if (bousai.layersEl && dw) { const a = dw.querySelector(".c20-wiki") ?? dw.querySelector(".cs-drill-head"); a ? a.after(bousai.layersEl) : dw.prepend(bousai.layersEl); }
 		suppressFly = false;   // 抑止は復元の初回イベントだけ
 	});
 

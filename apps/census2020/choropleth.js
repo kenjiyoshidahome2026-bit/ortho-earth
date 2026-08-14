@@ -23,7 +23,11 @@ const INDICATORS = {
 			const t = g.reduce((s, x) => s + x, 0); if (!t) return null;
 			return (g[13] + g[14] + g[15] + g[29] + g[30] + g[31]) / t; } },   // 65+＝男女とも末尾3ビン（65-69/70-74/75+）
 	hh:      { label: "世帯数",   unit: "世帯",   fmt: v => v.toLocaleString(),              value: c => MB.get(c)?.hh || null },
+	region:  { label: "色分け",   categorical: true },   // Wikipediaの市区町村色分け地図風＝定性パレットで領域を識別（値なし）
 };
+// 色分け用の定性パレット（ColorBrewer Set3 系のパステル12色＝白地図でも塗り重ねでも読める）と安定ハッシュ
+const CAT_COLORS = ["#8dd3c7", "#ffddb3", "#bebada", "#fb8072", "#80b1d3", "#fdb462", "#b3de69", "#fccde5", "#bc80bd", "#ccebc5", "#ffed6f", "#a6cee3"];
+const catIdx = code => { let h = 0; const s = String(code); for (let i = 0; i < s.length; i++) h = (h * 131 + s.charCodeAt(i)) >>> 0; return h % CAT_COLORS.length; };
 const SEQ_COLORS = ["#eef5fc", "#cfe1f2", "#93c4e4", "#4f97cc", "#2166ac", "#0a3a67"];   // 明→深（分位6級）
 const DIV_COLORS = ["#2166ac", "#67a9cf", "#d1e5f0", "#f5f0eb", "#fddbc7", "#ef8a62", "#b2182b"];   // 減←→増（固定7級）
 const DIV_BREAKS = [-0.10, -0.05, -0.02, 0, 0.02, 0.05];   // 増減率の級境界（v ≤ 境界で左の級）
@@ -182,20 +186,38 @@ export function initChoropleth(map, { legend } = {}) {
 	function buildTable() {
 		const def = INDICATORS[indicator];
 		// 活性レベルの fid 列（数・コード・値）を用意＝市区町村は per-code、集約は「同じ指標をメンバ合算」（AGG_VALUE）。
-		let n, codeOf, valueOf;
+		let n, codeOf, valueOf, existsOf;
 		if (activeLevel !== "mun") {
 			const L = layerCache.get(activeLevel);
 			if (!L) return;                                   // 層まだ未焼き（初トグルの await 待ち）＝載った後に呼び直す
 			n = L.features.length;
 			codeOf = i => L.groups[i].code;
 			valueOf = i => AGG_VALUE[indicator]?.(L.groups[i].members) ?? null;
+			existsOf = i => (L.groups[i].members?.length ?? 0) > 0;
 		} else {
 			if (!feats) return;
 			n = feats.length;
 			codeOf = i => feats[i].properties?.code;
 			valueOf = i => def.value(feats[i].properties?.code);
+			existsOf = i => !!POP2020[feats[i].properties?.code]?.[0];   // 人口なし＝振興局集約/北方領土＝不可視（idfill winding を汚さない）
 		}
 		if (!def) { lastTable = null; lastCount = 0; map.paint(null); legend?.(lastLegend = null); return; }   // legend＝gadgetの戻り値＝setter関数そのもの（塗りなし＝凡例も消す）
+		if (def.categorical) {   // 色分け＝定性パレットで領域を識別（Wikipediaの市区町村色分け地図風・値の大小なし）
+			const u32 = new Uint32Array(n * 4);
+			for (let i = 0; i < n; i++) {
+				const code = codeOf(i);
+				if (!existsOf(i)) { u32[i * 4 + 2] = ((8 << 24) | (6 << 8) | 0) >>> 0; continue; }   // 不可視（上記★と同理由）
+				const isSel = selected && code === selected;
+				u32[i * 4] = packRGBA(CAT_COLORS[catIdx(code)], FILL_A);
+				u32[i * 4 + 1] = isSel ? packRGBA("#ffffff", 0.95) : 0;
+				u32[i * 4 + 2] = (((isSel ? 20 : 8) << 24) | (6 << 8) | 1) >>> 0;
+			}
+			lastTable = u32; lastCount = n;
+			map.paintTable(u32, n);
+			legend?.(lastLegend = `<div style="font-size:12px;font-weight:600;margin-bottom:2px">色分け <span style="font-weight:400;color:#89a">${LEVEL_LABEL[activeLevel] || "市区町村"}の識別</span></div>
+				<div style="font-size:10px;color:#89a">領域の見分け用（値の大小ではありません）・塗りは真俯瞰のみ</div>`);
+			return;
+		}
 		const u32 = new Uint32Array(n * 4);
 		const vals = [], vOf = new Array(n);
 		for (let i = 0; i < n; i++) { const v = valueOf(i); vOf[i] = v; if (v != null) vals.push(v); }
