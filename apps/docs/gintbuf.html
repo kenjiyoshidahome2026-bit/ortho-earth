@@ -120,7 +120,7 @@ Gint solves all four problems with <strong>one file, zero additional network, no
 				<div class="pipe-title">Encoding (one-time preprocessing, runs in browser)</div>
 				<div class="pipe-sub">GeoJSON → .gint binary</div>
 			</div>
-			<span class="pipe-demo tag-enc tag">GINT.html</span>
+			<span class="pipe-demo tag-enc tag">MO.html</span>
 		</div>
 		<div class="pipe-items">
 			<div class="pi"><b>Morton order</b> — sort features along the Z-curve for spatial clustering</div>
@@ -151,7 +151,7 @@ Gint solves all four problems with <strong>one file, zero additional network, no
 				<div class="pipe-title">GPU LOD + Stencil Tessellation (every frame, zero CPU work)</div>
 				<div class="pipe-sub">vertex shader LOD → WebGL stencil → fill</div>
 			</div>
-			<div style="display:flex;gap:4px;margin-left:auto;flex-shrink:0"><span class="pipe-demo tag-lod tag">LOD.html</span><span class="pipe-demo tag-gpu tag">ST.html</span></div>
+			<div style="display:flex;gap:4px;margin-left:auto;flex-shrink:0"><span class="pipe-demo tag-lod tag">GC.html</span><span class="pipe-demo tag-gpu tag">ST.html</span></div>
 		</div>
 		<div class="pipe-items">
 			<div class="pi"><b>VW threshold(z)</b> — vertex shader: discard vertices where vw_bits &gt; zoom (LOD, zero extra bytes)</div>
@@ -684,17 +684,17 @@ surprises that separate a flat map renderer from a true globe renderer.
 <table>
 	<tr><th>File</th><th>Content</th><th>Pipeline Stage</th></tr>
 	<tr>
-		<td><a href="gint.html"><span class="tag tag-file">GINT.html</span></a></td>
+		<td><a href="MO.html"><span class="tag tag-file">MO.html</span></a></td>
 		<td>Morton order animation, interactive VW weight visualization</td>
 		<td><span style="color:var(--accent)">Stage 1 — Encoding</span></td>
 	</tr>
 	<tr>
-		<td><a href="lod.html"><span class="tag tag-file">LOD.html</span></a></td>
+		<td><a href="GC.html"><span class="tag tag-file">GC.html</span></a></td>
 		<td>GPU Culling: vertex shader discards vertices by VW threshold every frame</td>
 		<td><span style="color:var(--purple)">Stage 3 — GPU Rendering</span></td>
 	</tr>
 	<tr>
-		<td><a href="st.html"><span class="tag tag-file">ST.html</span></a></td>
+		<td><a href="ST.html"><span class="tag tag-file">ST.html</span></a></td>
 		<td>Stencil Tessellation vs. CPU earcut comparison</td>
 		<td><span style="color:var(--purple)">Stage 3 — GPU Rendering</span></td>
 	</tr>

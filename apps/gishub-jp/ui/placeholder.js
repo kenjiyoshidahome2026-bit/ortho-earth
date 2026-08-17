@@ -116,9 +116,9 @@ export function placeholder(catalog) {
                 <div class="ph-doc-links">
                     <span class="ph-doc-label">技術ドキュメント</span>
                     <a href="/docs/geopbf-jp.html" target="_blank" rel="noopener">GeoPBF 仕様</a>
-                    <a href="/docs/gint.html"      target="_blank" rel="noopener">GINT レンダラー</a>
+                    <a href="/docs/MO.html"      target="_blank" rel="noopener">GINT レンダラー</a>
                     <a href="/docs/gintbuf-jp.html" target="_blank" rel="noopener">GINT バッファ構造</a>
-                    <a href="/docs/lod.html"       target="_blank" rel="noopener">LOD アルゴリズム</a>
+                    <a href="/docs/GC.html"       target="_blank" rel="noopener">LOD アルゴリズム</a>
                 </div>
             </section>
 

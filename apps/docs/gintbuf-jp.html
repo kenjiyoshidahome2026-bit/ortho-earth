@@ -120,7 +120,7 @@ Gint はこれら 4 つの問題を「1ファイル × ゼロ追加ネットワ�
 				<div class="pipe-title">エンコーディング（前処理・一度だけ）</div>
 				<div class="pipe-sub">GeoJSON → .gint binary（ブラウザ上で実行）</div>
 			</div>
-			<span class="pipe-demo tag-enc tag">GINT.html</span>
+			<span class="pipe-demo tag-enc tag">MO.html</span>
 		</div>
 		<div class="pipe-items">
 			<div class="pi"><b>Morton order</b> — フィーチャをZ曲線でソート（空間クラスタリング）</div>
@@ -151,7 +151,7 @@ Gint はこれら 4 つの問題を「1ファイル × ゼロ追加ネットワ�
 				<div class="pipe-title">GPU LOD + ステンシルテッセレーション（毎フレーム・CPU処理ゼロ）</div>
 				<div class="pipe-sub">vertex shader LOD → WebGL stencil → fill</div>
 			</div>
-			<div style="display:flex;gap:4px;margin-left:auto;flex-shrink:0"><span class="pipe-demo tag-lod tag">LOD.html</span><span class="pipe-demo tag-gpu tag">ST.html</span></div>
+			<div style="display:flex;gap:4px;margin-left:auto;flex-shrink:0"><span class="pipe-demo tag-lod tag">GC.html</span><span class="pipe-demo tag-gpu tag">ST.html</span></div>
 		</div>
 		<div class="pipe-items">
 			<div class="pi"><b>VW threshold(z)</b> — vertex shader: zoom に応じた VW 閾値で頂点を破棄（LOD・追加バイト転送ゼロ）</div>
@@ -680,17 +680,17 @@ VW ウェイトは「ある頂点を削除したとき形状が失う情報量�
 <table>
 	<tr><th>ファイル</th><th>内容</th><th>対応 Stage</th></tr>
 	<tr>
-		<td><a href="gint.html"><span class="tag tag-file">GINT.html</span></a></td>
+		<td><a href="MO.html"><span class="tag tag-file">MO.html</span></a></td>
 		<td>Morton オーダーのアニメーション、VW ウェイトの対話的可視化</td>
 		<td><span style="color:var(--accent)">Stage 1 エンコーディング</span></td>
 	</tr>
 	<tr>
-		<td><a href="lod.html"><span class="tag tag-file">LOD.html</span></a></td>
+		<td><a href="GC.html"><span class="tag tag-file">GC.html</span></a></td>
 		<td>動的 LOD：vertex shader が毎フレーム VW 閾値で頂点を破棄</td>
 		<td><span style="color:var(--purple)">Stage 3 GPU 描画</span></td>
 	</tr>
 	<tr>
-		<td><a href="st.html"><span class="tag tag-file">ST.html</span></a></td>
+		<td><a href="ST.html"><span class="tag tag-file">ST.html</span></a></td>
 		<td>ステンシルテッセレーション：CPU 三角分割との比較</td>
 		<td><span style="color:var(--purple)">Stage 3 GPU 描画</span></td>
 	</tr>
