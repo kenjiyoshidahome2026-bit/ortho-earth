@@ -67,7 +67,7 @@ h4{color:var(--dim);font-size:0.9rem;margin:16px 0 6px;font-weight:600}
 		<li><a href="#overview">パイプライン概観</a></li>
 		<li><a href="#encoding">Stage 1 — エンコーディング：Mortonオーダー × VWウェイト</a></li>
 		<li><a href="#lod">Stage 2 — GPU VB 書き込み（一度だけ）</a></li>
-		<li><a href="#gpu">Stage 3 — GPUステンシルテッセレーション</a></li>
+		<li><a href="#gpu">Stage 3 — ステンシルテッセレーション</a></li>
 		<li><a href="#comparison">性能比較</a></li>
 		<li><a href="#philosophy">設計思想</a></li>
 	</ol>
@@ -336,7 +336,7 @@ X のビットと Y のビットを <strong>インターリーブ（交互配置
 
 <p>
 クライアントはサーバから <code>GeoPBF</code> を受け取り、<strong>一度だけ</strong> gint 形式（Morton順ソート済み・VWビット付き）にデコードして GPU 頂点バッファへ転送する。
-以降のズーム・パン操作では追加ネットワークリクエストは発生しない。LOD（頂点の間引き）は Stage 3 の vertex shader が毎フレーム VW 閾値で処理する。
+以降のズーム・パン操作では追加ネットワークリクエストは発生しない。GPU Culling（頂点の間引き）は Stage 3 の vertex shader が毎フレーム VW 閾値で処理する。
 </p>
 
 <h3>4.1 Morton ビットシフトによるビューポートクエリ</h3>
@@ -404,7 +404,7 @@ X のビットと Y のビットを <strong>インターリーブ（交互配置
 </div>
 
 <!-- ──────────────────────────────────────────────────── -->
-<h2 id="gpu">5. Stage 3 — GPU ステンシルテッセレーション</h2>
+<h2 id="gpu">5. Stage 3 — ステンシルテッセレーション</h2>
 
 <p>
 WebGL でポリゴンを描画するには、通常 CPU で三角形分割（Earcut 等）を行ってから GPU に送る必要がある。
@@ -465,7 +465,7 @@ gl.<span class="fn">colorMask</span>(<span class="kw">true</span>, <span class="
 		</svg>
 	</div>
 	<div class="sd-panel">
-		<div class="sd-title">GPU ステンシル法（Stencil Fan）</div>
+		<div class="sd-title">ステンシルファン（Stencil Fan）</div>
 		<svg class="sd" viewBox="0 0 160 140">
 			<!-- Fan center (NDC origin) -->
 			<circle cx="80" cy="70" r="4" fill="var(--accent)" opacity="0.8"/>
@@ -638,7 +638,7 @@ gl.<span class="fn">colorMask</span>(<span class="kw">true</span>, <span class="
 	<tr>
 		<td><strong>CPU 三角分割</strong></td>
 		<td class="bad">フレームごとに earcut O(n²)</td>
-		<td class="good">不要（GPU ステンシル）</td>
+		<td class="good">不要（ステンシル）</td>
 	</tr>
 	<tr>
 		<td><strong>穴・凹形ポリゴン</strong></td>
@@ -691,7 +691,7 @@ VW ウェイトは「ある頂点を削除したとき形状が失う情報量�
 	</tr>
 	<tr>
 		<td><a href="st.html"><span class="tag tag-file">ST.html</span></a></td>
-		<td>GPU ステンシルテッセレーション：CPU 三角分割との比較</td>
+		<td>ステンシルテッセレーション：CPU 三角分割との比較</td>
 		<td><span style="color:var(--purple)">Stage 3 GPU 描画</span></td>
 	</tr>
 </table>

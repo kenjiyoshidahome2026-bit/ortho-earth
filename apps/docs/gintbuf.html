@@ -67,7 +67,7 @@ Spatial indexing × LOD encoding × GPU rendering — unified in a single pipeli
 		<li><a href="#overview">Pipeline Overview</a></li>
 		<li><a href="#encoding">Stage 1 — Encoding: Morton Order × VW Weight</a></li>
 		<li><a href="#lod">Stage 2 — GPU VB Write (one-time)</a></li>
-		<li><a href="#gpu">Stage 3 — GPU Stencil Tessellation</a></li>
+		<li><a href="#gpu">Stage 3 — Stencil Tessellation</a></li>
 		<li><a href="#comparison">Performance Comparison</a></li>
 		<li><a href="#philosophy">Design Philosophy</a></li>
 	</ol>
@@ -342,7 +342,7 @@ High-weight vertices are always included; low-weight vertices appear only at hig
 <p>
 The client receives a <code>GeoPBF</code> from the server and decodes it <strong>exactly once</strong>
 into the gint structure (Morton-sorted, VW bits unpacked), uploading all vertices to the GPU vertex buffer in a single call.
-No additional network requests are ever issued. LOD (vertex culling by VW threshold) is handled by the vertex shader every frame in Stage 3.
+No additional network requests are ever issued. GPU Culling (vertex culling by VW threshold) is handled by the vertex shader every frame in Stage 3.
 </p>
 
 <h3>4.1 Viewport Query via Morton Bit-Shift</h3>
@@ -410,7 +410,7 @@ No additional network requests are ever issued. LOD (vertex culling by VW thresh
 </div>
 
 <!-- ──────────────────────────────────────────────────── -->
-<h2 id="gpu">5. Stage 3 — GPU Stencil Tessellation</h2>
+<h2 id="gpu">5. Stage 3 — Stencil Tessellation</h2>
 
 <p>
 Rendering polygons in WebGL normally requires the CPU to triangulate them first (e.g., earcut),
@@ -471,7 +471,7 @@ gl.<span class="fn">colorMask</span>(<span class="kw">true</span>, <span class="
 		</svg>
 	</div>
 	<div class="sd-panel">
-		<div class="sd-title">GPU Stencil Fan</div>
+		<div class="sd-title">Stencil Fan</div>
 		<svg class="sd" viewBox="0 0 160 140">
 			<circle cx="80" cy="70" r="4" fill="var(--accent)" opacity="0.8"/>
 			<text x="80" y="82" text-anchor="middle" font-family="monospace" font-size="8" fill="var(--accent)">NDC(0,0)</text>
@@ -640,7 +640,7 @@ limb, radius <code>u_scale</code> px), preserving its screen-space direction fro
 	<tr>
 		<td><strong>CPU triangulation</strong></td>
 		<td class="bad">earcut O(n²) every frame</td>
-		<td class="good">Not required — GPU stencil</td>
+		<td class="good">Not required — stencil</td>
 	</tr>
 	<tr>
 		<td><strong>Holed / concave polygons</strong></td>
@@ -690,12 +690,12 @@ surprises that separate a flat map renderer from a true globe renderer.
 	</tr>
 	<tr>
 		<td><a href="lod.html"><span class="tag tag-file">LOD.html</span></a></td>
-		<td>Dynamic LOD: vertex shader discards vertices by VW threshold every frame</td>
+		<td>GPU Culling: vertex shader discards vertices by VW threshold every frame</td>
 		<td><span style="color:var(--purple)">Stage 3 — GPU Rendering</span></td>
 	</tr>
 	<tr>
 		<td><a href="st.html"><span class="tag tag-file">ST.html</span></a></td>
-		<td>GPU stencil tessellation vs. CPU earcut comparison</td>
+		<td>Stencil Tessellation vs. CPU earcut comparison</td>
 		<td><span style="color:var(--purple)">Stage 3 — GPU Rendering</span></td>
 	</tr>
 </table>

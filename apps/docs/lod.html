@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Gint: Dynamic LOD Pipeline</title>
+<title>GPU Culling — Gint</title>
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <style>
 * { box-sizing: border-box; }
@@ -117,19 +117,19 @@ input[type=range]::-moz-range-track { height: 8px; border-radius: 999px; backgro
 	<span class="sep">/</span>
 	<a href="gintbuf.html">Gint</a>
 	<span class="sep">/</span>
-	<span class="crumb-cur">Dynamic LOD</span>
+	<span class="crumb-cur">GPU Culling</span>
 	<div class="nav-links">
 		<a href="/#technologies" class="nav-top">top ⇧</a>
-		<a href="gint.html">Morton</a>
-		<span class="nav-cur">Dynamic LOD</span>
-		<a href="st.html">GPU Stencil</a>
+		<a href="gint.html">Morton Order</a>
+		<span class="nav-cur">GPU Culling</span>
+		<a href="st.html">Stencil Tessellation</a>
 	</div>
 </div>
 
-<h1>Gint Dynamic LOD</h1>
+<h1>Gint GPU Culling</h1>
 <div class="subtitle">
-	<span class="feat hot">GPU Vertex-Shader LOD</span>
-	<span class="feat hot">Sub-pixel auto-detection</span>
+	<span class="feat hot">Screen-space vertex culling</span>
+	<span class="feat hot">Sub-pixel discard · gap-free</span>
 	<span class="feat">Visvalingam–Whyatt rank</span>
 	<span class="brk"></span>
 	<span class="feat">64-bit Morton bit-mask</span>
