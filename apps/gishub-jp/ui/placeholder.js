@@ -117,7 +117,7 @@ export function placeholder(catalog) {
                     <span class="ph-doc-label">技術ドキュメント</span>
                     <a href="/docs/geopbf-jp.html" target="_blank" rel="noopener">GeoPBF 仕様</a>
                     <a href="/docs/MO.html"      target="_blank" rel="noopener">Morton Order</a>
-                    <a href="/docs/gintbuf-jp.html" target="_blank" rel="noopener">GINT バッファ構造</a>
+                    <a href="/docs/gint-jp.html" target="_blank" rel="noopener">GINT バッファ構造</a>
                     <a href="/docs/GC.html"       target="_blank" rel="noopener">GPU Culling</a>
                 </div>
             </section>
