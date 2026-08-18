@@ -400,7 +400,9 @@ renderWorker.onmessage = e => {
 		if (!gintHoverTip) return;
 		if (estatTipOwn) return;   // 町丁目tipが所有中＝gint側のackでtipを消したり上書きしない（正着は毎moveのhovertipが再設定）
 		const p = (d.featureId != null && userGint?.pbf) ? userGint.pbf.getFeature(d.featureId)?.properties : null;
-		gintHoverTip(p ? Object.entries(p).map(([k, v]) => `${k}: ${v}`) : null);   // 全属性そのまま（融通なし）／null で tip を消す
+		// 層持参の tip 整形（applyGintData opts.tip・census2020 筆層のみ＝フラグゲート）。無指定＝従来の全属性そのまま（融通なし）
+		const lines = p ? (userGint?.tip ? userGint.tip(p) : Object.entries(p).map(([k, v]) => `${k}: ${v}`)) : null;
+		gintHoverTip(lines?.length ? lines : null);   // null/空＝tip を消す
 		return;
 	}
 	if (d.action === "click") {
@@ -1579,7 +1581,7 @@ function applyGintData(pbf, label, moveCamera = true, opts = {}) {
 	// style/minZoom は層の属性としてここに預ける（スロット再適用(applyUserSlot)がズーム跨ぎの度に走るため、外に置くと切替で剥がれる）
 	// opts.fillMaxEdges＝この層だけ塗り上限を上げる（フル解像度の行政界コロプレス等・既定 2M の暴走止めを個別解除）。
 	if (opts.fillMaxEdges) pbf.unPackGint.fillMaxEdges = opts.fillMaxEdges;
-	userGint = { g: pbf.unPackGint, label, pbf, style: opts.style ?? null, minZoom: opts.minZoom ?? GINT_SWAP_Z, interactive: opts.interactive !== false, hover: opts.hover !== false, drapeFill: !!opts.drapeFill };
+	userGint = { g: pbf.unPackGint, label, pbf, style: opts.style ?? null, minZoom: opts.minZoom ?? GINT_SWAP_Z, interactive: opts.interactive !== false, hover: opts.hover !== false, drapeFill: !!opts.drapeFill, tip: opts.tip ?? null };   // tip＝ホバーtipの持参整形（筆層＝町丁目tipと排他の主導権も取る・census2020限定）
 	// bake-ahead：メタ/tier梯子を bake worker で焼き切ってから搭載（render worker はテクスチャ搭載のみ＝
 	// ロード時の同期ベイクで地図が固まらない）。焼き上がりの onDone で sent を立てて再調停＝そこで点火。
 	cancelBake("user");
@@ -1851,10 +1853,9 @@ function bakeUser() {
 		if (userGint?.g !== g) return;   // 焼いている間に別の層へ差し替わった＝結果は捨てられている（cancelBake）
 		userGint.baking = false; userGint.sent = true;
 		gintSlot = null; updateGintSlot(); needsDraw = true;
-		if (userGint.pendingPaint !== undefined) {   // ベイク中に預かった paint を、点火（gintSlot 適用）後に着色
-			renderer.set("gintPaint", userGint.pendingPaint);
-			delete userGint.pendingPaint;
-		}
+		// 預かり paint の着色はここでやらない＝applyUserSlot（user 束が実際に活性になる瞬間）で flush。
+		// ここで送ると z<GINT_SWAP_Z（ドリル飛行中の点灯等）は海岸線束が活性のまま＝paint が海岸線束へ
+		// 迷子になり、z 跨ぎで user 束に載った時は無着色＝既定オレンジ（maff 筆の緑が出ない実測 2026-08-18）。
 	});
 }
 // gint paint（fidスタイル表）の送達＝スロット事情の吸収。paint はエンジン側で「アクティブ束」に
@@ -1862,7 +1863,9 @@ function bakeUser() {
 // なる（AI層が paint をロード直後に適用するケース）。未 sent の間は預かり、bakeUser の onDone
 //（gintSlot 適用後＝user がアクティブ）で着色する。null（解除）も同じ経路＝順序が保たれる。
 function sendGintPaint(p) {
-	if (userGint && !userGint.sent) { userGint.pendingPaint = p; return; }
+	// 未ベイクに加え「user スロットが非活性（海岸線表示中＝z<GINT_SWAP_Z 等）」も預かる＝
+	// アクティブ束が user でない間に送ると海岸線束へ着地して失われる（applyUserSlot が flush）。
+	if (userGint && (!userGint.sent || gintSlot !== "user")) { userGint.pendingPaint = p; return; }
 	renderer.set("gintPaint", p);
 }
 function applyCoastSlot() {
@@ -1889,6 +1892,10 @@ function applyUserSlot() {
 	gintInteractive = userGint.interactive;  // 筆/図形/AI層はホバー/クリックで突合
 	gintHover = userGint.hover !== false;    // 災害面は hover:false＝ホバー処理オフ（クリックは interactive で生存）
 	if (!gintHover) gintHoverTip?.(null);    // 前層の残り tip を消す
+	if (userGint.pendingPaint !== undefined) {   // ベイク中/海岸線スロット中に預かった paint を、user 束が活性のこの瞬間に着色（迷子の根治）
+		renderer.set("gintPaint", userGint.pendingPaint);
+		delete userGint.pendingPaint;
+	}
 	sendGintStyle(); gintSlot = "user"; needsDraw = true;
 }
 // gint ユーザー層（14条筆/ドロップ/AI層）を丸ごと撤去＝clearGint(dropFile)/clearPlan(ai) の重複6行を一本化。
@@ -2282,7 +2289,10 @@ const input = createInput({
 		lastHoverXY = [x, y];
 		// smallAreaHover＝census2020限定＝estat中は町丁目を点in面で識別し名前tip＋境界太線（ミスは gint へフォールバック）。
 		// デモ（フラグ無し）は従来どおり gint ホバーのみ＝凍結挙動を一切変えない。
-		if (opts.smallAreaHover && overlay.isEstatActive?.() && overlay.hoverAt(x, y)) return;
+		// tip 持参層（筆＝moj/maff）がホバー可で載っている間は gint が主導＝町丁目tip/太線と排他（本人裁定2026-08-18）。
+		const fudeOwn = userGint?.tip && gintInteractive && gintHover;
+		if (fudeOwn && estatTipOwn) { estatTipOwn = false; renderer.set("overlayHover", null); needsDraw = true; }   // 跨ぎ瞬間＝残った町丁目tip/太線を掃除（tip本文は直後の識別ackが上書き）
+		if (!fudeOwn && opts.smallAreaHover && overlay.isEstatActive?.() && overlay.hoverAt(x, y)) return;
 		if (gintInteractive && gintHover) wPost({ type: "gintMove", x, y });
 	},
 });
