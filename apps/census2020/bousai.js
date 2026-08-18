@@ -1,5 +1,5 @@
-// 防災×3D＝census2020 の一級市民。市区町村レベルのトグル4種:
-//   筆(14条) / 土砂警戒(A33) / 洪水浸水(A31) … gint スタック（単一スロットに合成して載せる）
+// 防災×3D＝census2020 の一級市民。市区町村レベルのトグル5種:
+//   土砂災害(A33) / 洪水浸水(A31) / 14条地図(moj) / 筆ポリゴン(maff) … gint スタック（単一スロットに合成して載せる）
 //   避難場所（指定緊急避難場所） … DOMマーカー層（gint と独立・標高付き属性カード）
 // gint スタックの作法（gint draw spec の restyle 哲学）:
 //   ・データセット集合が変わった時だけ FC 合成→gint 焼き（IDB cache: stack://{code}/{sig}＝2回目爆速）
@@ -9,6 +9,7 @@
 import { geopbf } from "geopbf";
 import { nativeBucket } from "native-bucket";
 import { loadMoj, mojSource, probeBucket } from "./moj.js";
+import { loadMaff, maffCode } from "./maff.js";
 import { escHtml } from "./ui/shared.js";
 import { DESIGNATED_CITIES } from "./jp/codes.js";
 
@@ -39,17 +40,23 @@ const gunzipBuf = async buf => {
 		? await new Response(new Blob([buf]).stream().pipeThrough(new DecompressionStream("gzip"))).arrayBuffer()
 		: buf;
 };
+// 並びは配列順＝スタックの合成順（面のハザード→線の筆＝線が上に乗る）
 const GINT_LAYERS = [
-	{ key: "moj", label: "筆(14条)" },
-	{ key: "a33", label: "土砂警戒" },
+	{ key: "a33", label: "土砂災害" },
 	{ key: "a31", label: "洪水浸水" },
+	{ key: "moj", label: "14条地図" },
+	{ key: "maff", label: "筆ポリゴン" },
 ];
+// チップ並び＝土砂災害・洪水浸水・避難場所・14条地図・筆ポリゴン（本人裁定 2026-08-18）
+const CHIP_DEFS = [GINT_LAYERS[0], GINT_LAYERS[1], { key: "hinan", label: "避難場所" }, GINT_LAYERS[2], GINT_LAYERS[3]];
+const MAFF_LINE = { 100: "#2fae52", 200: "#9fb832" };   // 田=緑 / 畑=黄緑（農地筆の系統色・moj橙と同じく線のみ）
 
 export function initBousai(map, { bboxForCode, cityGeomForCode, legend, onStackApplied, onStackCleared } = {}) {
 	let city = null;
 	const on = new Set();              // 点灯中の gint レイヤ key
 	let hinanOn = false;
 	let stackApplied = false;          // gint スロットをスタックが占有中か
+	let soloSrc = null;                // 単独点灯中の層 key（筆の高速路は feature に _src が無い＝クリック種別判定用）
 	let draped = false, drapePending = false, stackDrapeFill = false;
 	let seq = 0;                       // 再入ガード（連打・都市切替中の非同期競合）
 	const fcCache = new Map();         // `${city}/${key}` → Feature[]（セッション内メモ）
@@ -63,7 +70,7 @@ export function initBousai(map, { bboxForCode, cityGeomForCode, legend, onStackA
 	const sta = document.createElement("span");
 	sta.style.cssText = "font-size:11px;color:#89a";
 	const chips = new Map();
-	for (const def of [...GINT_LAYERS, { key: "hinan", label: "避難場所" }]) {
+	for (const def of CHIP_DEFS) {
 		const b = document.createElement("button");
 		b.className = "c20-chip"; b.type = "button"; b.textContent = def.label; b.disabled = true;
 		b.addEventListener("click", () => toggle(def.key));
@@ -84,8 +91,13 @@ export function initBousai(map, { bboxForCode, cityGeomForCode, legend, onStackA
 			const rows = legRow("#c0392b", "特別警戒区域（レッド）") + legRow("#d9a441", "警戒区域（イエロー）");   // paint と同色
 			secs.push(`<div style="font-size:12px;font-weight:600;margin:${secs.length ? "8px" : "0"} 0 4px">土砂災害警戒区域</div>${rows}`);
 		}
+		if (secs.length) secs.push(`<div style="font-size:10px;color:#89a;margin-top:4px">出典: 国土数値情報（KSJ）</div>`);   // KSJ の出典はハザード節（a31/a33）だけに付ける
+		if (keys.includes("maff")) {
+			const rows = legRow(MAFF_LINE[100], "田") + legRow(MAFF_LINE[200], "畑");
+			secs.push(`<div style="font-size:12px;font-weight:600;margin:${secs.length ? "8px" : "0"} 0 4px">筆ポリゴン <span style="font-weight:400;color:#89a">農林水産省・農地の区画</span></div>${rows}`);
+		}
 		if (keys.includes("moj") && !secs.length) secs.push(`<div style="font-size:12px;font-weight:600">筆界（14条地図）</div><div style="font-size:11px;color:#89a">法務省 登記所備付地図</div>`);
-		return secs.length ? secs.join("") + `<div style="font-size:10px;color:#89a;margin-top:4px">出典: 国土数値情報（KSJ）</div>` : null;
+		return secs.length ? secs.join("") : null;
 	}
 	const syncChips = () => {
 		chips.forEach((b, k) => b.setAttribute("aria-pressed", String(k === "hinan" ? hinanOn : on.has(k))));
@@ -100,6 +112,7 @@ export function initBousai(map, { bboxForCode, cityGeomForCode, legend, onStackA
 		const mojEligible = !(DESIGNATED_CITIES.has(code) || code === "13100");
 		const probes = {   // GET+即中断（bucket Worker は HEAD 405＝moj.js probeBucket の轍）
 			moj: mojEligible ? mojSource(code).then(s => !!s) : Promise.resolve(false),
+			maff: Promise.resolve(!!maffCode(code)),   // 網羅表の in-memory 判定＝network 0（農地の無い市区町村は表に無い）
 			a33: a33TargetForPref(code.slice(0, 2)).then(t => !!t).catch(() => false),   // browser-native＝県に A33 KSJ があれば有効（catalog確認）
 			a31: a31CatIndex().then(cat => meshesForBbox(bboxForCode?.(code)).some(m => cat.has(m))).catch(() => false),   // browser-native＝市bboxを覆う1次メッシュが A31b catalog にあれば有効
 			hinan: probeBucket(`${API}/bucket/bousai/hinan/${code.slice(0, 2)}.json`),
@@ -261,6 +274,9 @@ export function initBousai(map, { bboxForCode, cityGeomForCode, legend, onStackA
 		if (key === "moj") {
 			const pbf = await loadMoj(code, { onStatus: say });
 			feats = pbf?.geojson?.features?.map(f => ({ ...f, properties: { ...f.properties, _src: "moj" } })) ?? null;
+		} else if (key === "maff") {
+			const pbf = await loadMaff(code, { onStatus: say });
+			feats = pbf?.geojson?.features?.map(f => ({ ...f, properties: { ...f.properties, _src: "maff" } })) ?? null;
 		} else if (key === "a33") {
 			feats = await loadA33Pref(code);   // browser-native オンデマンド（県別 KSJ 直読み）
 		} else if (key === "a31") {
@@ -269,6 +285,14 @@ export function initBousai(map, { bboxForCode, cityGeomForCode, legend, onStackA
 		if (feats) fcCache.set(ck, feats);
 		return feats;
 	}
+	// 筆層のホバーtip＝筆の情報（moj=大字・地番／maff=田畑）。点灯中は町丁目tipと排他（エンジン側で tip 持参層が主導）。
+	// ホバーの見た目は従来の線ハイライトのまま（本人裁定2026-08-18「ホバーは線太化でいい」）。
+	const FUDE_TIP = p => {
+		const src = p._src || soloSrc || "moj";
+		if (src === "moj") return [`${p["大字名"] || p.oaza || ""} ${p["地番"] || p.chiban || ""}`.trim() || "筆", "登記所備付地図（14条）"];
+		if (src === "maff") return [+p.land_type === 100 ? "田" : +p.land_type === 200 ? "畑" : "農地", "筆ポリゴン（農林水産省）"];
+		return null;   // ハザード面＝tipなし（凡例とクリックカードで読む）
+	};
 	async function rebuildStack() {
 		const mySeq = ++seq;
 		const code = city;
@@ -280,8 +304,8 @@ export function initBousai(map, { bboxForCode, cityGeomForCode, legend, onStackA
 		}
 		let pbf = null;
 		const sig = keys.slice().sort().join("+");
-		if (keys.length === 1 && keys[0] === "moj") {
-			pbf = await loadMoj(code, { onStatus: say });   // 単一筆＝直載せの高速路（再焼きゼロ・moj.js が IDB 持ち）
+		if (keys.length === 1 && (keys[0] === "moj" || keys[0] === "maff")) {
+			pbf = keys[0] === "moj" ? await loadMoj(code, { onStatus: say }) : await loadMaff(code, { onStatus: say });   // 単一筆＝直載せの高速路（再焼きゼロ・moj.js/maff.js が IDB 持ち）
 		} else {
 			// a33/a31 を含む合成は IDB に焼かない：原典KSJは geopbf の URL キャッシュ（県/メッシュ単位）が正典で、
 			// 合成物を市ごとに焼くと肥大＋原典との二重管理。原典（URLキャッシュ命中で速い）から都度 境界クリップ再合成する。
@@ -311,18 +335,21 @@ export function initBousai(map, { bboxForCode, cityGeomForCode, legend, onStackA
 		if (mySeq !== seq) return;
 		if (!pbf?.unPackGint) { say("読み込みに失敗しました"); return; }
 		// 持参スタイル＝線は気配に落とす（既定オレンジ1pxは小ポリゴンの塗りを覆い隠す＝admin_fill と同じ轍）。
-		// 筆のみの高速路は例外＝筆は線が主役なので既定のまま。style1 の rgb はドレープ線色にも使われる
+		// 筆のみ（moj/maff）の高速路は例外＝筆は線が主役なので既定のまま。style1 の rgb はドレープ線色にも使われる
 		//（standupGint 参照）＝防災の見せ場に合う暖色を残す。
-		map.applyGintData(pbf, `census2020/${code}/${sig}`, false, { minZoom: 10, style: sig === "moj" ? null : STACK_STYLE, drapeFill: (stackDrapeFill = keys.includes("a33") || keys.includes("a31")), hover: !stackDrapeFill });   // 防災の面=チルトで斜面ドレープ＋ホバー処理オフ（クリック属性カードは生存）
+		const hazard = keys.includes("a33") || keys.includes("a31");
+		soloSrc = keys.length === 1 ? keys[0] : null;
+		map.applyGintData(pbf, `census2020/${code}/${sig}`, false, { minZoom: 10, style: (sig === "moj" || sig === "maff") ? null : STACK_STYLE, drapeFill: (stackDrapeFill = hazard), hover: !hazard, tip: hazard ? null : FUDE_TIP });   // 防災の面=チルトで斜面ドレープ＋ホバー処理オフ（クリック属性カードは生存）。筆のみ＝筆tip持参（町丁目tipと排他）
 		stackApplied = true; draped = false;
 		onStackApplied?.();
-		buildStackTable(pbf, keys.length === 1 && keys[0] === "moj");
+		buildStackTable(pbf, soloSrc);
 		legend?.(hazardLegend(keys));   // 防災層の凡例（浸水深ランク/警戒区分）。解除で bind が choro.refreshLegend 復元
 		say("");
 		watchPitch();   // 現姿勢がチルトなら即ドレープ
 	}
 	// fid スタイル表＝_src とランクで塗り分け（トグルの見た目はこの表の再計算だけで変わる）
-	function buildStackTable(pbf, mojOnly) {
+	// solo＝単独点灯の層 key（筆の高速路は feature に _src が無い＝層 key で決め打ち）／null＝合成＝_src で判定
+	function buildStackTable(pbf, solo) {
 		const n = pbf.fmap?.length ?? 0;
 		if (!n) return;
 		const u32 = new Uint32Array(n * 4);
@@ -330,9 +357,10 @@ export function initBousai(map, { bboxForCode, cityGeomForCode, legend, onStackA
 		for (let i = 0; i < n; i++) {
 			let p = {};
 			try { p = pbf.getProperties(i) ?? {}; } catch { /* 壊れ feature */ }
-			const src = mojOnly ? "moj" : p._src;
+			const src = solo ?? p._src;
 			let fill = 0, line = 0, w8 = 8;
 			if (src === "moj") { line = lineMoj; }
+			else if (src === "maff") { line = packRGBA(MAFF_LINE[+p.land_type] ?? MAFF_LINE[200], 0.9); }   // 田/畑の二色（線のみ・moj と同格）
 			else if (src === "a33") {
 				const sp = +p.kbn === 2;   // 2=特別警戒（レッド）/ 1=警戒（イエロー）。GeoPBFはINTEGER復元
 				fill = packRGBA(sp ? "#c0392b" : "#d9a441", sp ? 0.5 : 0.42);   // 面のみ＝土砂は塗りが主役・斜面にドレープ（本人裁定 2026-08-13）
@@ -472,7 +500,7 @@ export function initBousai(map, { bboxForCode, cityGeomForCode, legend, onStackA
 	// スタック地物クリック（bind 経由）＝種別に応じた属性カード
 	function onFeatureClick(fid, props, lnglat) {
 		if (!props) return;
-		const src = props._src || "moj";
+		const src = props._src || soloSrc || "moj";   // 筆の高速路（moj/maff 単独）は _src 無し＝点灯中の層 key で判定
 		// click 応答に経緯度が無い個体がある（renderworker の返り実測）＝その時は画面中央へ置く
 		let x = map.mapEl.clientWidth / 2, y = map.mapEl.clientHeight / 2;
 		if (lnglat && Number.isFinite(+lnglat[0])) {
@@ -483,6 +511,7 @@ export function initBousai(map, { bboxForCode, cityGeomForCode, legend, onStackA
 		let html = "";
 		if (src === "a31") html = `<div style="font-weight:600">洪水浸水想定区域</div><div>浸水深ランク ${escHtml(String(props.rank ?? "—"))}${props.depth ? `（${escHtml(props.depth)}）` : ""}</div>`;
 		else if (src === "a33") html = `<div style="font-weight:600">土砂災害${+props.kbn === 2 ? "特別警戒" : "警戒"}区域</div><div>${escHtml(props.gensho || "")}${props.name ? `：${escHtml(props.name)}` : ""}</div><div style="color:#9ab;font-size:11px">${escHtml(props.addr || "")}</div>`;
+		else if (src === "maff") html = `<div style="font-weight:600">筆ポリゴン（農地）</div><div>${+props.land_type === 100 ? "田" : +props.land_type === 200 ? "畑" : "農地"}</div><div style="color:#9ab;font-size:11px">${Number.isFinite(+props.edit_year) ? `更新 ${escHtml(String(props.edit_year))}年度・` : ""}農林水産省</div>`;
 		else html = `<div style="font-weight:600">筆（登記所備付地図）</div><div>${escHtml(props["大字名"] || props.oaza || "")} ${escHtml(props["地番"] || props.chiban || "")}</div>`;
 		card.innerHTML = `<button class="c20-card-x" type="button" aria-label="閉じる">×</button>${html}`;
 		card.style.left = `${Math.round(x + 10)}px`; card.style.top = `${Math.round(y - 10)}px`;
