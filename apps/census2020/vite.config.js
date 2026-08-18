@@ -2,8 +2,8 @@ import { defineConfig } from "vite";
 import { resolve, join, normalize } from "node:path";
 import { existsSync, statSync, createReadStream, cpSync } from "node:fs";
 
-// census2020＝国勢調査2020の独立した入口（japan/census2020）。中身は ortho-japan と同じエンジン
-// （../ortho-japan/app.js を直接 import）で、違うのは base(/census2020/)・6:4分割レイアウト・右パネルの
+// census2020＝国勢調査2020の独立した入口（/japan/census2020/）。中身は ortho-japan と同じエンジン
+// （../ortho-japan/app.js を直接 import）で、違うのは base(/japan/census2020/)・6:4分割レイアウト・右パネルの
 // censusドリル・コロプレス/筆/防災の各モジュールだけ＝エンジンは二重化しない（ortho-nl と同型）。
 // publicDir は japan のものを共有（plateau-sets.json 等）。census 固有の重量データ（小地域CSV等）は
 // japan の public に混ぜず public-extra/ から extraPublic プラグインで合流させる。
@@ -42,24 +42,24 @@ const extraPublic = {
 	configureServer(server) {
 		server.middlewares.use((req, res, next) => {
 			const p = decodeURIComponent((req.url || "").split("?")[0]);
-			if (!p.startsWith("/census2020/")) return next();
-			const file = normalize(join(extraDir, p.slice("/census2020".length)));
+			if (!p.startsWith("/japan/census2020/")) return next();
+			const file = normalize(join(extraDir, p.slice("/japan/census2020".length)));
 			if (!file.startsWith(extraDir) || !existsSync(file) || !statSync(file).isFile()) return next();
 			res.setHeader("Content-Type", MIME[file.slice(file.lastIndexOf("."))] || "application/octet-stream");
 			createReadStream(file).pipe(res);
 		});
 	},
 	closeBundle() {
-		const out = resolve(import.meta.dirname, "dist/site/census2020");
+		const out = resolve(import.meta.dirname, "dist/site/japan/census2020");
 		if (existsSync(out)) cpSync(extraDir, out, { recursive: true });
 	},
 };
 
 export default defineConfig({
-	base: "/census2020/",
+	base: "/japan/census2020/",
 	publicDir: resolve(import.meta.dirname, "../ortho-japan/public"),
 	server: { port: 5189, fs: { allow: [resolve(import.meta.dirname, "..", "..")] } },   // root の外（../ortho-japan・../gishub-jp/jp・packages）を dev で読ませる
-	build: { outDir: "dist/site/census2020", emptyOutDir: true },
+	build: { outDir: "dist/site/japan/census2020", emptyOutDir: true },
 	worker: { format: "es" },
 	plugins: [crossOriginIsolation, asyncMainCss, extraPublic],
 });

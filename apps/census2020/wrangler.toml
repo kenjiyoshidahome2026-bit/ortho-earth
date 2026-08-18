@@ -1,6 +1,8 @@
-# census2020 本番配信：Cloudflare Workers + 静的アセット（www.ortho-earth.com/census2020/）。
-# ortho-japan とは別 Worker＝別デプロイ＝URLも資産も独立（中身のコードだけを共有する）。
-# ⚠ /japan* は ortho-japan Worker が前方一致で横取りする＝census2020 は必ずこの独立ルートに置く（裁定 2026-08-12）。
+# census2020 本番配信：Cloudflare Workers + 静的アセット（www.ortho-earth.com/japan/census2020/）。
+# ortho-japan とは別 Worker＝別デプロイ＝資産も独立（中身のコードだけを共有する）。
+# /japan* は ortho-japan Worker の前方一致ルートだが、Cloudflare のルートは最も specific なパターンが勝つ
+# ＝ /japan/census2020* は本 Worker が受ける（裁定 2026-08-19：/japan 下へ配置換え。独立ルート裁定 2026-08-12 を更新）。
+# 旧URL /census2020* も本 Worker が受けて /japan/census2020* へ 301（QR・ブックマーク・OGP互換）。
 # デプロイ手順は package.json の "deploy"（vite build → wrangler deploy）。
 name = "census2020"
 main = "deploy-worker.js"
@@ -8,7 +10,8 @@ compatibility_date = "2025-06-01"
 workers_dev = true   # *.workers.dev の予備URL（検証用）。本番は下の route
 
 routes = [
-	{ pattern = "www.ortho-earth.com/census2020*", zone_name = "ortho-earth.com" }
+	{ pattern = "www.ortho-earth.com/japan/census2020*", zone_name = "ortho-earth.com" },
+	{ pattern = "www.ortho-earth.com/census2020*", zone_name = "ortho-earth.com" }   # 旧URL→/japan/census2020/ へ301（deploy-worker）
 ]
 
 [assets]

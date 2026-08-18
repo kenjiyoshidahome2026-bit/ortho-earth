@@ -4,7 +4,10 @@
 export default {
 	async fetch(req, env) {
 		const url = new URL(req.url);
-		if (url.pathname === "/census2020") return Response.redirect(url.origin + "/census2020/", 301);   // 裸パス＝正規の末尾スラッシュへ
+		// 旧URL（/census2020…）→ 新居（/japan/census2020…）へ301。query温存・hashはブラウザが持ち越す（QR・ブックマーク・OGP互換）
+		if (url.pathname === "/census2020" || url.pathname.startsWith("/census2020/"))
+			return Response.redirect(url.origin + "/japan/census2020" + (url.pathname.slice("/census2020".length) || "/") + url.search, 301);
+		if (url.pathname === "/japan/census2020") return Response.redirect(url.origin + "/japan/census2020/" + url.search, 301);   // 裸パス＝正規の末尾スラッシュへ
 		const res = await env.ASSETS.fetch(req);
 		const h = new Headers(res.headers);
 		h.set("Cross-Origin-Opener-Policy", "same-origin");
