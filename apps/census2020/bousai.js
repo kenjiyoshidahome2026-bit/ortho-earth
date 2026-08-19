@@ -130,8 +130,9 @@ export function initBousai(map, { bboxForCode, cityGeomForCode, legend, onStackA
 	// 市境界クリップ＋ランク/区分で束ねて fid を1桁に（WebGPU idfill fid≤2047）。サーバー焼き（thinRingsで階段を潰す等の
 	// 加工）を廃し原典忠実へ（裁定2026-08-14）。gint は載せず受信後にWASMで焼く（スタック再マージで無駄になるため）。
 	// ── A33 土砂＝browser-native オンデマンド（既定路線・裁定2026-08-13）。単被覆化なし・県別 KSJ を直読み。
-	// ★moj.js と同じ作法＝レガシー geopbf facade（engine が createGeopbf 済み）を使う。createGeopbf を再呼びしない
-	// （＝別インスタンスで engine の geopbf 状態を上書きする作法違反を避ける・legacy-geopbf-init-order の罠）。
+	// ★moj.js と同じ作法＝レガシー geopbf facade を使う。初期化は main.js 冒頭の createGeopbf（8/20改定＝
+	// SDK分割後は census バンドルの geopbf が engine と別インスタンスのため、engine 任せは本番だけ死ぬ・
+	// legacy-geopbf-init-order の罠）。ここでは再呼びしない。
 	// legacy geopbf(url) は CORS遮断の MLIT KSJ zip を api worker の proxy 経由で取り→zip内geojson抽出→ingest、
 	// かつ geopbf の URL キャッシュ規約で自動IDB＝2回目爆速（moj AIGID と同じ）。target は catalog（正典）から。
 	const A33_GENSHO = { 1: "急傾斜地の崩壊", 2: "土石流", 3: "地滑り" };   // A33_001＝現象の種類
