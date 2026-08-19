@@ -59,7 +59,8 @@ export default defineConfig({
 	base: "/japan/census2020/",
 	publicDir: resolve(import.meta.dirname, "../ortho-japan/public"),
 	server: { port: 5189, fs: { allow: [resolve(import.meta.dirname, "..", "..")] } },   // root の外（../ortho-japan・../gishub-jp/jp・packages）を dev で読ませる
-	build: { outDir: "dist/site/japan/census2020", emptyOutDir: true },
+	// external＝SDK二重構成（main.js冒頭）の本番側import＝バンドルせず実行時URLのまま（実体は ortho-japan Worker が /japan/lib/ で配る）
+	build: { outDir: "dist/site/japan/census2020", emptyOutDir: true, rollupOptions: { external: ["/japan/lib/ortho-japan.js"] } },
 	worker: { format: "es" },
 	plugins: [crossOriginIsolation, asyncMainCss, extraPublic],
 });

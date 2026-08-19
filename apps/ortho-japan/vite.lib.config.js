@@ -42,7 +42,10 @@ export default defineConfig({
 	// 利用者へ渡すアセットは apps/ortho-japan/public/ からアプリ側で配る（README の assetBase 節）。
 	publicDir: false,
 	worker: { format: "es" },
-	// 実行時アセットの既定ベース。ライブラリ利用者は orthoJapan({ assetBase: "…" }) で必ず指し直す前提だが、
-	// 未指定でも "/" を向くように（相手のサイト直下に置いた場合の素直な既定）。
-	base: "/",
+	// ★base は必ず相対（"./"）＝worker・チャンクのURLが import.meta.url 起点になり、lib を**どこに置いても**動く。
+	//   base:"/" だと worker がドメイン直下 /assets/ を指す＝/japan/lib/ 配下に置いた本番で worker 全滅
+	//   （2026-08-20 本番事故の真因。www の SPA フォールバックが HTML を 200 で返し、module worker の
+	//    MIME 検査で静かに死ぬ＝DOMだけ見るスモークでは見逃す。検定は request 台帳で worker 取得まで見ること）。
+	//   assetBase 未指定の既定は "./"＝ページ相対（利用者は orthoJapan({ assetBase }) で指し直す前提は不変）。
+	base: "./",
 });

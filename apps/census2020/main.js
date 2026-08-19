@@ -2,7 +2,17 @@
 // パネルは地図を待たない（即描画・初回は9MB自動取得）／地図は hash 共有ビュー優先で立ち上がる。
 // 各機能は独立モジュール＝bind(双方向)・choropleth(コロプレス)・bousai(防災)・moj(筆)・wiki(Wikipedia)。
 import "./panel.scss";
-import orthoJapan from "../ortho-japan/app.js";
+// ★SDK二重構成（ortho-japan/site.js と同じ型・8/20）：dev=ソース直（編集即反映）・本番=/japan/lib/ のSDK配布物。
+//   本番は japan 本体と**同じURLのエンジン**を食う＝ブラウザキャッシュが両アプリで共有（エンジン1回DLで両方立つ）。
+//   URLは変数経由＝viteのimport解析（devでもリテラルは解決しにいく）を素通りさせる。CSSはlib抽出分をここで貼る。
+let engineP;
+if (import.meta.env.PROD) {
+	document.head.appendChild(Object.assign(document.createElement("link"), { rel: "stylesheet", href: "/japan/lib/ortho-japan.css" }));
+	const LIB = "/japan/lib/ortho-japan.js";
+	engineP = import(/* @vite-ignore */ LIB);
+} else {
+	engineP = import("../ortho-japan/app.js");
+}
 import { setup } from "./ui/ctx.js";
 import { renderCensusSmall2020, drillTo, drillToArea } from "./census/ui.js";
 import { prefetchSmallAreaIdb } from "./census/small-area.js";
@@ -17,11 +27,16 @@ setup({ setDetailHtml: html => { panelBody.innerHTML = html; panelBody.scrollTop
 // パネル初期描画（地図と並走）。?area= 共有URLは最初からその場所を描く＝全国ビューを経由しない
 // （renderCensusSmall2020 の非同期 national 描画が復元ドリルへ後勝ちする事故を構造的に断つ）。
 // 地図側の追随（flyTo/境界）は initBind が購読後に ?area= を再ドリルして受け持つ（再描画は冪等）。
+// ?verify=1＝検定ゲート（scripts/verify-prod.mjs）専用の静穏モード：自動プリフェッチ/wiki購読を止める。
+// headless+SwiftShaderではCSV→IDBの初回仕込みがmainスレッドを長時間食い、CDPのevaluateすら返らないため
+// （本番の実利用には無関係＝フラグ無しの挙動は従来どおり一字も変えない）。
+const VERIFY = /[?&]verify=1/.test(location.search);
 const area0 = new URLSearchParams(location.search).get("area");
-if (!area0) renderCensusSmall2020();   // 全国CSV→IDB の自動プリフェッチもここから始まる
+if (VERIFY) { /* 静穏＝パネルは殻のまま・エンジン起動だけを検定する */ }
+else if (!area0) renderCensusSmall2020();   // 全国CSV→IDB の自動プリフェッチもここから始まる
 else if (area0.length <= 5) drillTo(area0);
 else prefetchSmallAreaIdb().then(() => drillToArea(area0)).catch(() => drillTo(area0.slice(0, 5)));
-initWiki();                // onDrill 購読＝都道府県/市区町村ビューに Wikipedia カードを後追い差し込み
+if (!VERIFY) initWiki();   // onDrill 購読＝都道府県/市区町村ビューに Wikipedia カードを後追い差し込み
 
 // パネル出し入れ（6:4 ⇄ 地図全幅）。canvas はエンジンの ResizeObserver(#map) が自動追随
 const shell = document.getElementById("shell");
@@ -37,7 +52,8 @@ const dismissBoot = () => requestAnimationFrame(() => requestAnimationFrame(() =
 
 // hash（共有ビュー）があればそれを優先、無ければ列島俯瞰＝コロプレスの見せ場から始める
 const JAPAN_VIEW = "#5.1/38.2/136.9";
-orthoJapan({ target: "#map", view: location.hash || JAPAN_VIEW, hideAdminBoundary: true, smallAreaHover: true }).then(map => {   // hideAdminBoundary=基図の行政界(赤線)抑止／smallAreaHover=町丁目ホバー(名前tip+境界太線)。共に census2020 限定（デモは無効）
+// assetBase: 本番=/japan/（ortho-japan Workerの共有棚＝実行時アセットもキャッシュ共有）・dev=自分のbase（publicDir共有＝従来どおり）
+engineP.then(m => m.default({ target: "#map", view: location.hash || JAPAN_VIEW, hideAdminBoundary: true, smallAreaHover: true, assetBase: import.meta.env.PROD ? "/japan/" : import.meta.env.BASE_URL })).then(map => {   // hideAdminBoundary=基図の行政界(赤線)抑止／smallAreaHover=町丁目ホバー(名前tip+境界太線)。共に census2020 限定（デモは無効）
 	dismissBoot();
 	window.__map = map;   // console 検証用（デバッグの手すり）
 	// 道具箱（census2020 に要る道具だけ・日本語のみ）

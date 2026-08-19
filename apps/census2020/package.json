@@ -7,7 +7,8 @@
 	"scripts": {
 		"dev": "vite",
 		"build": "vite build",
-		"deploy": "vite build && rm -rf dist/site/census2020 dist/site/japan/census2020/moj-local dist/site/japan/census2020/ai && find dist/site -name .DS_Store -delete && wrangler deploy",
+		"verify:prod": "node scripts/verify-prod.mjs",
+		"deploy": "npm run verify:prod && rm -rf dist/site/census2020 dist/site/japan/census2020/moj-local dist/site/japan/census2020/ai && find dist/site -name .DS_Store -delete && wrangler deploy",
 		"preview:prod": "vite build && wrangler dev"
 	},
 	"dependencies": {

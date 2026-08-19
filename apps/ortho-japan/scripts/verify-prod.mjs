@@ -42,16 +42,20 @@ for (const f of ["japan/lib/ortho-japan.js", "japan/lib/ortho-japan.css"]) {
 console.log("ok:lib（ortho-japan.js/.css 同梱）");
 
 // ③ 実走：素の静的サーバ（COOP/COEP＝本番 deploy-worker と同じ頭・SAB経路も点火）
+//    request 台帳＝DOMに出ない故障（worker 404＝黒地図）を捕まえる。base:"/" 事故（2026-08-20）＝
+//    workerがドメイン直下/assets/を指して本番のSPAフォールバックHTMLを掴み静かに死んだ、の再発防止。
 const read = promisify(readFile);
+const requests = [];
 const server = createServer(async (req, res) => {
 	const p = new URL(req.url, "http://x").pathname;
 	const file = path.join(SITE, p.endsWith("/") ? p + "index.html" : p);
 	try {
 		const body = await read(file);
+		requests.push("200 " + p);
 		res.writeHead(200, { "Content-Type": MIME[path.extname(file)] || "application/octet-stream",
 			"Cross-Origin-Opener-Policy": "same-origin", "Cross-Origin-Embedder-Policy": "require-corp" });
 		res.end(body);
-	} catch { res.writeHead(404); res.end("not found"); }
+	} catch { requests.push("404 " + p); res.writeHead(404); res.end("not found"); }
 }).listen(PORT);
 
 const dom = await new Promise(resolve => {
@@ -66,5 +70,9 @@ server.close();
 if (!dom.includes("ortho-japan")) fail("実走: タイトル不在＝ページが立っていない");
 if (!/id="chips"/.test(dom) || !dom.includes("地名")) fail("実走: チップ列が出ていない＝エンジン起動失敗の疑い");
 if (!/<canvas id="c"/.test(dom)) fail("実走: 描画canvas不在");
-console.log("ok:boot（SDK経由で起動・チップ点灯・canvas生成）");
+const got = requests.join("\n");
+if (!got.includes("/japan/lib/assets/renderworker-")) { console.error("  台帳:\n  " + requests.join("\n  ")); fail("実走: render worker が /japan/lib/assets/ から取得されていない（base相対化の破れ＝黒地図）"); }
+const notFound = requests.filter(r => r.startsWith("404 ") && !r.includes("/favicon.svg"));   // ルートfaviconはwwwの持ち物＝検定対象外
+if (notFound.length) fail(`実走: 404が${notFound.length}件＝${[...new Set(notFound)].slice(0, 5).join(" / ")}`);
+console.log(`ok:boot（SDK経由で起動・チップ点灯・canvas生成・worker取得実観測・404ゼロ / 要求${requests.length}件）`);
 console.log("✓ 本番組立の検定PASS（入口=SDK・エンジン非再バンドル・実走OK）");
