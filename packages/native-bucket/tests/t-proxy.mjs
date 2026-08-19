@@ -62,6 +62,15 @@ await t("★似せた Origin（www.ortho-earth.com.evil.jp）は弾く", async (
 	eq((await call("https://example.com/x", { origin: "https://www.ortho-earth.com.evil.jp" })).status, 403, "status"));
 await t("誤った API キーは弾く", async () =>
 	eq((await call("https://example.com/x", { key: "wrong" })).status, 403, "status"));
+// ALLOWED_DOMAINS はポート付き項目（localhost:5173）を含む＝ホスト名だけで突き合わせると dev が死ぬ
+await t("★ポート付きの許可 Origin（dev サーバ）が通る", async () =>
+	eq((await call("https://example.com/x", { origin: "http://localhost:5173" })).status, 200, "status"));
+await t("★許可されていないポートの localhost は弾く", async () =>
+	eq((await call("https://example.com/x", { origin: "http://localhost:9999" })).status, 403, "status"));
+await t("Origin ヘッダ無しは信頼しない（許可ホスト以外）", async () =>
+	eq((await call("https://example.com/x")).status, 403, "status"));
+await t("壊れた Origin（null 等）で落ちない", async () =>
+	eq((await call("https://example.com/x", { origin: "null" })).status, 403, "status"));
 
 console.log("── 内向き転送・自己参照・スキーム");
 for (const h of ["http://127.0.0.1/x", "http://localhost/x", "http://169.254.169.254/latest/meta-data/",

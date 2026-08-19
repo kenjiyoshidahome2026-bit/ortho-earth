@@ -42,10 +42,12 @@ export async function proxy(req, env = {}) {
 	const allowedOrigins = (env.ALLOWED_DOMAINS || "").split(",").filter(Boolean);
 	const origin = req.headers.get("Origin") || "";
 	// 信頼された呼び出し元＝Origin 一致（ブラウザは Origin を偽装できない）または API キー一致（Node バッチ）。
-	// Origin はホスト部だけを見る（スキーム/ポート込みの文字列 includes だと "evil.com/www.ortho-earth.com" 型に緩い）
-	let originHost = "";
-	try { originHost = origin ? new URL(origin).hostname.toLowerCase() : ""; } catch { originHost = ""; }
-	const trusted = (originHost && hostMatches(originHost, allowedOrigins))
+	// Origin は URL として解いてから突き合わせる（生文字列の includes だと "https://evil.com/www.ortho-earth.com"
+	// 型のパスに書いただけの偽装が通る）。ALLOWED_DOMAINS には "localhost:5173" のようなポート付きの項目が
+	// 混ざるため、host（ポート込み）と hostname（ポート無し）の両方で見る＝どちらの書き方も効く。
+	let originHost = "", originHostPort = "";
+	try { if (origin) { const u = new URL(origin); originHost = u.hostname.toLowerCase(); originHostPort = u.host.toLowerCase(); } } catch { /* Origin: null 等 */ }
+	const trusted = (!!originHost && (hostMatches(originHost, allowedOrigins) || hostMatches(originHostPort, allowedOrigins)))
 		|| (!!env.API_KEY && req.headers.get("X-API-Key") === env.API_KEY);
 
 	// 転送先の検問（リダイレクト先にも同じものを掛ける）
