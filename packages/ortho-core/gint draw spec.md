@@ -3,6 +3,9 @@
 対象は gint v2（ortho-core）の**描画定義＝APIインターフェース**。ワイヤ書式（GeoPBF）には一切触れない。
 v1（ortho-map gint）は現状のまま仕様として存続し、本仕様とは混ざらない。
 
+**実装は次バージョンへ（裁定 2026-08-19）**。現行の単一スロット実装の都合がこの仕様へ逆流しないための
+線引きは **§10**（何を昇格させてはならないか・layer 単位にすべき属性・合成の位置づけ）。着手する時はそこから読む。
+
 ## 1. 目的と非目標
 
 **目的**
@@ -143,3 +146,66 @@ layer.remove();
 | 5 | API 動詞 | maplibre 同名（setPaint/setFilter/on/query）で確定して良いか |
 | 6 | 被覆の既定 | `overlap:'auto'`＝初回ロード時の winding プローブ実測（IDB メタへ焼く）で良いか |
 | 7 | 重複×連続式 | 仕様エラーで弾く（黙って壊れた色を出さない）で良いか |
+
+## 10. 単一スロット（現行実装）との境界 ── **v2 仕様を汚さないための線引き**
+
+裁定 2026-08-19：**本仕様の実装は次バージョンへ送る**。送る以上、現行の単一スロット実装の都合が
+この仕様へ逆流しないよう、何が「現行の都合」で何が「v2 の契約」かをここで固定する。
+
+### 10.1 構造的な壁（実装を送る理由）
+
+`src/gl/gint/state.js` の `s` は**モジュールシングルトン**であり、9臓器（programs / textures / passes /
+identify / idfill / drawdata / fbo / utility / embed ≒3,000行）が直接読み書きしている。
+＝エンジンは構造的に1層しか持てない。現行は `userGint`（ユーザー層）と `coastGint`（世界海岸線）が
+zoom（`GINT_SWAP_Z=7`）で1スロットを奪い合う。**§4 の API は複数レイヤ共存が前提**なので、
+実装には `s` の脱シングルトン（per-layer インスタンス化）が先行する。GPU リソース（テクスチャ・
+tier 梯子・FBO）が層ごとに増えるため、`fallback-ladder.md` のメモリ天井の再調律とセット。
+
+### 10.2 v2 の API に**昇格させてはならない**現行の口
+
+以下は単一スロット前提の v1 動詞であり、`map` 直下に生えている。派生アプリ（census2020 等）の
+現行の足場として残すが、**§4 の layer API と混ぜない・改名して再利用しない**。
+
+| 現行の口 | なぜ v2 に持ち込めないか |
+| :--- | :--- |
+| `map.applyGintData(pbf, label, moveCamera, opts)` | 「唯一のスロットを置き換える」動詞。v2 の `addGint` は**追加**であって置換ではない |
+| `map.paintTable(u32, count)` | fid 表の生バイト直書き＝スロットが1つだから成立する。v2 は layer 単位の `setPaint`（式）が正面口 |
+| `map.paint(paint, filter)` | 引数に layer の指定が無い＝暗黙の「今のスロット」。v2 は `layer.setPaint()` |
+| `map.gintFeatures()` | 同上。fid 空間が1つしか無い前提 |
+| `map.standupGint(liftM)` | ドレープ設定がスタック全体に掛かる。v2 は layer の属性 |
+| `map.onGintClick(fn)` | ハンドラが1本＝どの層のヒットか呼び側が `_src` で判る前提。v2 は `layer.on('click')` |
+
+**fid 空間の扱いが決定的な差**：現行は「fid＝唯一のスロットの添字」。v2 は「fid＝その layer 内の添字」で、
+layer をまたいで fid は衝突する。**v2 の pick は必ず (layer, fid) の対で返す**こと。
+`map.onGintClick` の fid だけを返す形をそのまま引き継ぐと、この対を作れなくなる。
+
+### 10.3 スタック全体でしか持てない属性 ＝ v2 では**必ず layer 単位**
+
+現行 `applyGintData` の opts は「載っている物すべて」に掛かる。census2020 の防災スタックに妥協の跡が残る：
+
+```js
+map.applyGintData(pbf, …, { minZoom: 10, drapeFill: hazard, hover: !hazard, tip: hazard ? null : FUDE_TIP });
+```
+
+`hover: !hazard` ＝**ハザード層が1つでも点いていると筆ポリゴンのホバーもまとめて死ぬ**。
+v2 では `minZoom` / `maxZoom` / `drape` / `hover` / `tip` / `interactive` を layer のプロパティとし、
+「スタック全体の設定」という概念を**作らない**。
+
+### 10.4 合成（FC マージ）は利用者の作法として残す・API にはしない
+
+census2020 は複数主題を「`properties._src` で出自を刻んだ1つの FeatureCollection へ合成 → 1回焼く →
+fid 表で塗り分ける」で捌いている（`apps/census2020/bousai.js`）。これは §3 の restyle 哲学の正しい応用で、
+**利用者の作法としては v2 でも有効**（トグルの見た目切替が再焼きゼロで済む）。
+ただし v2 の API がこれを要求してはならない：
+
+- 合成は**データセットの集合が変わるたびに再焼き**が要る（`stack://{code}/{sig}` の IDB キャッシュはその緩和策）。
+  layer の add/remove が再焼きを強いる API は §8-1 の受け入れ基準（restyle は O(features) の評価＋テクスチャ更新1回）に反する
+- 出自の刻印（`_src`）は**利用者がデータを加工する**ことを意味する。v2 は source を不変（§2 のワイヤ＝真実源）に保つ
+
+### 10.5 送る時に持ち越す前提の確認（次バージョンの入口）
+
+1. §5〜§7.1 は**実装済み**＝`src/gl/gint/style.js` の `buildFidStyle`（paint プロパティ・式サブセット・
+   fid 表パック・filter→visible ビット）。§7.2 の winding 和 ID バッファも `idfill.js`（GL）と
+   `gpu/gint.js`（WebGPU）で稼働中。**残りは API 面と複数レイヤの2つだけ**
+2. 式評価器 `src/expr.js` は MVT 基図と共用のプリコンパイル方式＝v2 で新規に書かない
+3. `map.on('move'|'click'|'load')`（レイヤ横断のイベント）は §4 に無い。実装時に §4 へ追記すること
