@@ -45,13 +45,46 @@ const layer = map.addGint(source, {
             'line-color': '#333', 'line-width': 0.8 },
   filter: ['==', ['get', 'pref'], '07'],   // 省略時=全表示
   overlap: 'auto',                          // 被覆宣言: true|false|'auto'（§7.2。既定'auto'=初回実測）
+  interactive: true,                        // 利用者の入力（click/hover）を拾うか（既定 true。§4.1）
+  minZoom, maxZoom, drape, tip,             // ★全て layer の属性（「スタック全体の設定」は作らない・§10.3）
 });
 layer.setPaint(partialPaint);   // 差分更新可。コスト=式再評価+texSubImage2D 1回
 layer.setFilter(expr | null);
 layer.on('click' | 'hover', ({ fid, feature, lngLat }) => {});
-layer.query(lngLat)  → feature | null      // queryRenderedFeatures 相当（点1つ）
+layer.query(lngLat)  → feature | null      // 明示照会（プログラム経路＝interactive に依らず常に効く）
+layer.activate();               // カーソル（hover/tip/ハイライト）を持つ＝常にただ1層（§4.1）
 layer.remove();
+
+map.activeLayer                 // 現在アクティブな layer（null 可）
+map.queryAll(lngLat) → [{ layer, fid, feature }]   // 層をまたぐ照会（手前の層から）
+map.on('click', ({ lngLat, hits }) => {});          // hits = queryAll と同型（手前の層から）
 ```
+
+### 4.1 アクティブ層 ── **カーソルは1層・照会は層をまたぐ**（裁定 2026-08-19）
+
+`interactive`（識別に参加するか）と **active**（カーソルを持つか）の二軸で決める。**active は常にただ1層**。
+
+| | `interactive:false` | `interactive:true`・非アクティブ | **アクティブ**（1層） |
+| :--- | :---: | :---: | :---: |
+| hover / tip / ハイライト | — | — | ○ |
+| click（`layer.on('click')`・`map.on('click')`） | — | ○ | ○ |
+| `layer.query(lngLat)` | ○ | ○ | ○ |
+
+**なぜ hover だけ絞るか＝コスト構造が違う**。hover は連続（`MOVE_THROTTLE_MS`＝32ms 毎）で、
+安さと曖昧さゼロが要る——そもそも tip は1つしか出せない。click は稀＝層数に比例した照会を払える。
+実装上これは大きい：**連続経路が常に1層なら pick バッファは1枚のまま**でよく、`activeId`（ハイライト）・
+`_moveTimer`・`lastMX/lastMY` も据え置ける（§10.1）。全層を識別に参加させると pick を層数ぶん焼くか
+ID バッファへ layer チャンネルを足すことになり、`renderPickingBuffer` と `idfill` の作り直しが要る。
+
+- **既定のアクティブ** = 最後に `addGint` した `interactive:true` の層（「今載せたデータを見たい」）。
+  `layer.activate()` で移す。アクティブ層を `remove()` したら、残る interactive な層のうち最後に足された物へ落ちる（無ければ null）
+- **戻り値の形**：hover はアクティブ層が確定しているので `fid` で足りる。**層をまたぐ経路
+  （`map.queryAll` / `map.on('click')`）は必ず `{ layer, fid }` の対で返す**——fid は layer 内の添字であり、
+  層をまたいで衝突する（§10.2）
+- **順序**：手前の層から（gint 層は追加順に重なる＝後の層が上）。同一層内で複数ヒットする場合の扱いは §7.2 の pick に従う
+- `interactive` は利用者の**入力**の話。`layer.query()` はプログラムからの明示照会なので `interactive:false` でも効く
+- maplibre は `queryRenderedFeatures` が全層から返す＝この規約は**意識的な逸脱**（§1「drop-in 互換は追わない」）。
+  GIS デスクトップ（QGIS/ArcGIS）の「アクティブレイヤ」＝利用者が既に持っている概念に寄せる
 
 ## 5. paint プロパティ（初期サブセット）
 
@@ -146,6 +179,7 @@ layer.remove();
 | 5 | API 動詞 | maplibre 同名（setPaint/setFilter/on/query）で確定して良いか |
 | 6 | 被覆の既定 | `overlap:'auto'`＝初回ロード時の winding プローブ実測（IDB メタへ焼く）で良いか |
 | 7 | 重複×連続式 | 仕様エラーで弾く（黙って壊れた色を出さない）で良いか |
+| 8 | 識別の層またぎ（**追加裁定 2026-08-19**） | **hover/tip/ハイライトはアクティブ1層・click/query は層をまたぐ**（§4.1）。根拠＝コスト構造（hover は連続・tip は1つ／click は稀）と、連続経路が1層なら pick 機構を据え置ける実装上の利得。「クリックもアクティブ1層へ寄せる」案は不採用＝『この筆は土砂かつ洪水』という重ね合わせ照会（census2020 の一級のユースケース）を落とすため |
 
 ## 10. 単一スロット（現行実装）との境界 ── **v2 仕様を汚さないための線引き**
 
@@ -158,8 +192,18 @@ layer.remove();
 identify / idfill / drawdata / fbo / utility / embed ≒3,000行）が直接読み書きしている。
 ＝エンジンは構造的に1層しか持てない。現行は `userGint`（ユーザー層）と `coastGint`（世界海岸線）が
 zoom（`GINT_SWAP_Z=7`）で1スロットを奪い合う。**§4 の API は複数レイヤ共存が前提**なので、
-実装には `s` の脱シングルトン（per-layer インスタンス化）が先行する。GPU リソース（テクスチャ・
-tier 梯子・FBO）が層ごとに増えるため、`fallback-ladder.md` のメモリ天井の再調律とセット。
+実装には `s` の脱シングルトン（per-layer インスタンス化）が先行する。
+
+**ただし割るのは3ブロックのうち1つだけでよい**（§4.1 の裁定＝カーソルは常に1層、の実装上の利得）：
+
+| ブロック | 扱い | 主なフィールド |
+| :--- | :--- | :--- |
+| データ・スタイル | **層ごとに割る** | `arcTex` `metaTex` `ptTex` `metaTexB` `totalEdges*` `polyEdges*` `fidStyleTex/W/Count` `pivotTex` `lodTiers` `metaChunks` `fillOff` `tiersDone` `polyEdgeByFid` `polyBboxByFid` `minZoom/maxZoom` `gintData` |
+| GL 基盤 | 据え置き | `canvas` `gl` `dpr` `width/height` `programs` `TEX_ARC_W` `baseFBO` 一式 `embedded` `requestDraw` |
+| 識別・カーソル | **据え置き**（§4.1） | `pickFBO` `pickColorTex` `pickDepthStencilRBO` `activeId` `lastMX/lastMY` `_moveTimer` `_pendingMove` `_inRange` `lastViewBbox` `cam` |
+
+第1ブロックの GPU リソース（テクスチャ・tier 梯子）は層ごとに増えるため、`fallback-ladder.md` の
+メモリ天井の再調律とセット。第3ブロックが据え置ける＝`renderPickingBuffer` と `idfill` は無改造で通る。
 
 ### 10.2 v2 の API に**昇格させてはならない**現行の口
 
@@ -176,8 +220,12 @@ tier 梯子・FBO）が層ごとに増えるため、`fallback-ladder.md` のメ
 | `map.onGintClick(fn)` | ハンドラが1本＝どの層のヒットか呼び側が `_src` で判る前提。v2 は `layer.on('click')` |
 
 **fid 空間の扱いが決定的な差**：現行は「fid＝唯一のスロットの添字」。v2 は「fid＝その layer 内の添字」で、
-layer をまたいで fid は衝突する。**v2 の pick は必ず (layer, fid) の対で返す**こと。
-`map.onGintClick` の fid だけを返す形をそのまま引き継ぐと、この対を作れなくなる。
+layer をまたいで fid は衝突する。§4.1 の裁定により経路で分かれる：
+
+- **hover / tip**＝アクティブ層が確定している ⇒ `fid` だけで足りる
+- **層をまたぐ経路**（`map.queryAll` / `map.on('click')`）⇒ **必ず `{ layer, fid }` の対で返す**
+
+`map.onGintClick` は「fid だけ・層の概念なし」＝後者を表現できない。そのまま引き継がないこと。
 
 ### 10.3 スタック全体でしか持てない属性 ＝ v2 では**必ず layer 単位**
 
@@ -188,8 +236,12 @@ map.applyGintData(pbf, …, { minZoom: 10, drapeFill: hazard, hover: !hazard, ti
 ```
 
 `hover: !hazard` ＝**ハザード層が1つでも点いていると筆ポリゴンのホバーもまとめて死ぬ**。
-v2 では `minZoom` / `maxZoom` / `drape` / `hover` / `tip` / `interactive` を layer のプロパティとし、
+v2 では `minZoom` / `maxZoom` / `drape` / `tip` / `interactive` を layer のプロパティとし、
 「スタック全体の設定」という概念を**作らない**。
+
+`hover` は layer のプロパティにすらしない——**§4.1 の active（カーソルを持つ層）がその役割を吸収する**。
+現行の `hover: !hazard` は「カーソルが誰のものか」を言う語彙が無いための場当たりであり、
+v2 では「ハザード層をアクティブにする（＝筆はホバーしない）」と**意図をそのまま書ける**。ハックが概念に置き換わる。
 
 ### 10.4 合成（FC マージ）は利用者の作法として残す・API にはしない
 
