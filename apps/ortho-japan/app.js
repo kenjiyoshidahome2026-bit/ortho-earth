@@ -159,7 +159,7 @@ const logEl = orDetached(document.getElementById("log"));
 // 誤検知側の被害は「同時2区・キャッシュ縮小」だけ＝安全側に倒す。renderWorker（R10キャッシュ縮小）と
 // plateau worker（キャッシュ0・バッチ縮小）の両方に配るため、worker生成より前＝ここで定義。
 const LOW_MEM = navigator.deviceMemory ? navigator.deviceMemory <= 4 : navigator.maxTouchPoints > 1;
-// ── 世界の形（現在：非LOW_MEM＝WGS84楕円体が既定・?noell=1で球／LOW_MEM＝球固定・?ell=1で実験）──
+// ── 世界の形（現在：全端末＝球6371kmが既定・?ell=1で表示もWGS84楕円体。計測は常時WGS84＝段階A無条件）──
 // 楕円体（段階B 2026-08-11）＝WGS84 を「β（更成緯度）単位球×S」に分解して立てる（ortho-core camera.js の
 // setEllipsoid・ELL 時は世界単位＝a）。決定はこの1点のみ＝worker 文脈（render/plateau/tile）へは各 init の
 // ell: で搬送（モジュール状態のため必須）。PLATEAU キャッシュは meta.ell 印で世代分離＝モードを往復すると
@@ -172,8 +172,13 @@ const LOW_MEM = navigator.deviceMemory ? navigator.deviceMemory <= 4 : navigator
 //  ③★凍結（同日 本人「モバイルは現状維持。動く・落ちないが大前提」＝発表 8/24 LT 前）：LOW_MEM は球に
 //    据え置き＝焼き済み資産・挙動とも改修前とビット同値。将来のモバイル楕円体は別途の裁定
 //    （その時はキャッシュ移行＝球焼き→β変換復元とセット）。
-const ELL_ON = LOW_MEM ? /[?&]ell=1/.test(location.search) : !/[?&]noell=1/.test(location.search);
-console.log(`[geo] 世界＝${ELL_ON ? "WGS84楕円体（β球×S）" : "球6371km"}${LOW_MEM ? "・低メモリ端末（楕円体は?ell=1で実験可）" : ""}`);   // 実機切り分けの計器（スクショのコンソールで世界が判る）
+//  ④★表示は球へ戻し（2026-08-19 本人「表示は球・計測はWGS84。ell=1で表示もWGS84」）：?perf=1 実測で
+//    楕円体表示が GPU 約1割の固定費（dβ 補正＝楕円体ONでは毎頂点の定価・wgsl.js dBeta）と判明。一方で
+//    視覚差は扁平率 0.34%・局所異方性 ≤0.5%＝知覚限界以下、層間は同一写像＝ズレ厳密ゼロ、計測の正しさは
+//    段階A（Vincenty/authalic・無条件）が担う＝表示の楕円体は絵に寄与しない。モバイル恒久球（③）とも
+//    世界の形が揃う。⚠この切替でデスクトップの焼き済み PLATEAU は世代交代（meta.ell 印）＝初回のみ再焼き。
+const ELL_ON = /[?&]ell=1/.test(location.search);
+console.log(`[geo] 世界＝${ELL_ON ? "WGS84楕円体（β球×S）" : "球6371km（?ell=1で表示もWGS84・計測は常時WGS84）"}`);   // 実機切り分けの計器（スクショのコンソールで世界が判る）
 setEllipsoid(ELL_ON);
 const EARTH_M = worldRadiusM(), TERR_EXAG = 1.0;   // m→世界単位の換算半径は camera.js が正本（球6371000/楕円体a）。標高は実スケール（誇張しない＝地形を歪めない）。ラベル・地形・建物で共有
 
