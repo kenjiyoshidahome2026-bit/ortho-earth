@@ -117,3 +117,7 @@ UIまわりを改修したら `npm run verify:ui`（要ローカルChrome）。�
 
 - **1ページ1地図**：家具規格（`#map` `#search` 等の id 契約）のため、複数インスタンスは非対応。
 - 動作要件：WebGL2 ＋ OffscreenCanvas（Chrome / Edge / Firefox / Safari 17+）。非対応環境では言葉で案内して止まる。
+
+## ライセンス
+
+GPL-3.0-or-later（[LICENSE](LICENSE)）。GPLの義務（埋め込み先ソースの開示等）を負わずに商用利用したい場合は、別途商用ライセンスを用意できます——kenji.yoshida.home.2026@gmail.com へご相談ください。

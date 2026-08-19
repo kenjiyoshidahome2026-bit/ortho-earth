@@ -1,6 +1,7 @@
 {
 	"name": "quiet-mono",
 	"version": "0.0.1",
+	"license": "GPL-3.0-or-later",
 	"private": true,
 	"type": "module",
 	"description": "Quiet Mono — ortho系地図アプリ共通の意匠キット（トークン＋UI部品の佇まい）。データは各アプリ固有、顔はここで揃える。",

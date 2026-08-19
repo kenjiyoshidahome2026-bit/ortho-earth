@@ -21,4 +21,7 @@ I also acknowledge the invaluable support of my AI collaborators:
 
 ## License
 
-MIT / GPL-3.0-or-later
+- Engine & apps (`ortho-core`, `ortho-map`, `ortho-japan`, `apps/*`): **GPL-3.0-or-later**
+- Data formats & utilities (`geopbf`, `altpbf`, `native-bucket`, `common`, `himekuri`): **MIT**
+
+For commercial use without GPL obligations, a separate commercial license is available — contact kenji.yoshida.home.2026@gmail.com.

@@ -1,9 +1,12 @@
 {
 	"name": "ephem",
 	"version": "0.0.1",
+	"license": "GPL-3.0-or-later",
 	"private": true,
 	"type": "module",
 	"description": "太陽系エフェメリス（JPL近似軌道要素1800-2050・Schlyter月理論・IAU自転）。ortho-solar と ortho-japan 太陽系圏の共用臓器",
 	"main": "src/index.js",
-	"exports": { ".": "./src/index.js" }
+	"exports": {
+		".": "./src/index.js"
+	}
 }

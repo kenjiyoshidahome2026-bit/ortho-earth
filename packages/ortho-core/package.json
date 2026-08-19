@@ -1,8 +1,8 @@
 {
 	"name": "ortho-core",
 	"version": "0.0.1",
+	"license": "GPL-3.0-or-later",
 	"private": true,
-	"license": "MIT",
 	"type": "module",
 	"main": "src/index.js",
 	"exports": {
