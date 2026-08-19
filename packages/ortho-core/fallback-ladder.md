@@ -18,6 +18,8 @@
 
 **封印は解決ではない（Android）**：再評価の入口＝`?gpu=1&msaa=0` の実機確認（マルチパス MSAA 根因説の白黒）→
 白なら「Android は MSAA off で WebGPU 復帰」という一律 GL2 より軽い選択肢。crbug 報告・Dawn の Android 成熟が合図。
+追記（2026-08-19）：デスクトップ `?perf=1` 実測でも MSAA の store/load/resolve が WebGPU フレーム最大の固定費と
+確定＝既定を**遷移時AA**（下記 §6）へ。Android 復帰の第一候補も「遷移時AA のまま」＝MSAA パスを踏むのは静止の一枚だけ。
 
 ## 2. WebGPU の落ち網（3枚）
 
@@ -105,6 +107,11 @@ GPU の素性で見る（Apple 以外の内蔵GPU は VRAM がシステム RAM �
 - R10 タイルキャッシュ 256MB LRU（LOW_MEM 64MB）・R90 先読みスキップ・pagehide→destroy（reload 二重居住半減）
 - 標高：R16F アトラス（GPU半減）・単位格子メッシュ（窓替え 75MB 再確保の根絶）・混成R01 全端末ON（`?nor01=1` 逃げ道）
 - 動的解像度＋GPU格付け＝gpuEmaRaw（30Hz モニタの壁時計の罠回避）。WebGPU も timestamp-query で同じ給餌口（tqFeed）
+- **遷移時AA（WebGPU 既定・2026-08-19）**：カメラ遷移・アニメ継続中は 1x 直描き（MSAA の store/load/resolve を
+  フレームから消す）、静止 500ms（RES_SETTLE_MS と同時計）で 4x 品質フレームを1枚。1x 遷移で busyMs が下がる＝
+  動的解像度の降段も実測で消える（ぼやけ対策を兼ねる）。パイプラインは sampleCount 焼き込み＝1x/4x セット取替
+  （renderer/gint とも遅延生成キャッシュ）。ノブ＝`?msaa=0` 常時1x／`?msaa=1` 常時4x固定（旧挙動・A/B用）。
+  GL2 は context 生成時 antialias 固定＝対象外。LOW_MEM は従来どおり既定 1x（変化なし）
 
 ## 7. 計器（全部 URL フラグ・本番搭載）
 
@@ -113,8 +120,8 @@ GPU の素性で見る（Apple 以外の内蔵GPU は VRAM がシステム RAM �
 | `?mem=1` | 常駐台帳＋**過渡行**（plateau worker の cache／読込中＝常駐台帳に乗らない実ピークの主役）＋peak＋4GB予算残 |
 | `?drawhud=1` | 描画実績（塗り枚数・退場フラグ・fade・PLバッチ）＝**USB 不要の実機計器**。塗り0=赤字＝CPU側、枚数ありで黒=GPU側の二分 |
 | `?stay=1` | 起動診断 HUD（frame1・配達カウンタ・boot 里程標。フォールバックせず留まる閲覧モード） |
-| `?perf=1` | フレーム内訳（ema・gpuMap/gpuGint）＋GPU 識別。⚠ema は 60fps 機で 16.7ms 飽和＝差が出ない |
-| 層別切り | `?nomd` `?nogint` `?noterr` `?nofade` `?msaa=0` `?notq` `?noopfs` `?nor01` `?relay` `?mid=0/1` `?maxact=N` `?tbudget=N` |
+| `?perf=1` | フレーム内訳（ema・gpuMap/gpuGint・aa=直近フレームの段数 1/4）＋GPU 識別。⚠ema は 60fps 機で 16.7ms 飽和＝差が出ない |
+| 層別切り | `?nomd` `?nogint` `?noterr` `?nofade` `?msaa=0/1` `?notq` `?noopfs` `?nor01` `?relay` `?mid=0/1` `?maxact=N` `?tbudget=N` |
 
 ## 8. 残リスク（監視項目）
 

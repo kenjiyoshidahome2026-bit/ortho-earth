@@ -1,0 +1,36 @@
+<!doctype html>
+<!-- UI回帰：遷移時AA（WebGPU・2026-08-19）。カメラ遷移フレーム＝1x直描き・静止500ms（RES_SETTLE_MS）で
+     4x品質フレームが1枚出て張り付く（fallback-ladder.md §6）。判定は ?drawhud=1 の生値（__drawHud.d.aa）。
+     WebGPU の無い環境（SwiftShader CI等）＝WebGL2 フォールバック＝遷移時AAの対象外として skip PASS
+     （そちらの起動健全性は t-webgpu が担保）。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html{background:#0b1021}</style><title>t-aatrans</title></head>
+<body>
+<script type="module">
+history.replaceState(null, "", "?gpu=1&drawhud=1");   // app.js は起動時に location.search を読む＝import 実行前に旗を立てる
+import("../app.js").then(async ({ default: orthoJapan }) => {
+	const t = [], ok = (n, c) => t.push((c ? "ok:" : "NG:") + n);
+	const m = await orthoJapan({ view: "#13/35.68/139.76", plateau: false });
+	const t0 = performance.now();
+	while (!window.__backend && performance.now() - t0 < 25000) await new Promise(r => setTimeout(r, 200));
+	if (window.__backend !== "webgpu") {
+		m.destroy();
+		document.title = "PASS skip(" + (window.__backend || "no-frame1") + "＝非webgpu環境)";
+		return;
+	}
+	const aa = () => window.__drawHud?.d?.aa ?? 0;
+	const waitAA = async (v, ms) => { const s = performance.now(); while (aa() !== v && performance.now() - s < ms) await new Promise(r => setTimeout(r, 100)); return aa() === v; };
+	ok("初期静止=4x", await waitAA(4, 6000));   // 初回 cam＝静止扱い＝最初から品質段
+	// カメラ遷移＝直後のフレームは 1x。drawhud は ~3Hz スロットル＝ジャンプを 120ms 間隔で連打して観測窓に乗せる
+	//（間隔 < RES_SETTLE_MS ＝品質フレームは割り込まない）。
+	let saw1 = false;
+	for (let i = 0; i < 30 && !saw1; i++) {
+		window.__cam(139.76 + 0.002 * (i + 1), 35.68, 13);
+		await new Promise(r => setTimeout(r, 120));
+		if (aa() === 1) saw1 = true;
+	}
+	ok("遷移=1x", saw1);
+	ok("静止復帰=4x", await waitAA(4, 6000));   // 動きが止まって RES_SETTLE_MS ＝4x 品質フレームが1枚
+	m.destroy();
+	document.title = (t.some(x => x.startsWith("NG")) ? "FAIL " : "PASS ") + t.join(" ");
+});
+</script></body></html>

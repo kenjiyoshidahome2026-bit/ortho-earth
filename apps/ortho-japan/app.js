@@ -293,9 +293,13 @@ const qNum = (re, def) => { const m = location.search.match(re); return m ? +m[1
 // 従来のCPU mergeは常駐プール無し＋小画面はタイル数も少ない＝軽い。?md=1＝強制ON（将来の再検証ノブ）。
 const noMultiDraw = /[?&]nomd=1/.test(location.search) || (LOW_MEM && !/[?&]md=1/.test(location.search));
 // MSAA：LOW_MEM は既定 1x（裁定2026-08-12・Air3「時たま落ちる」対策）＝フルRetina面積の 4x カラー＋深度は
-// ~100MB級のGPU固定費（WebGPU実測概算・GL2はブラウザ暗黙確保で同格）。?msaa=1＝実機A/B用の復帰ノブ・
-// ?msaa=0＝どの端末でも 1x（従来からの診断ノブ）。線は SDF カプセル（シェーダAA）＝主に効くのは建物エッジ。
+// ~100MB級のGPU固定費（WebGPU実測概算・GL2はブラウザ暗黙確保で同格）。?msaa=0＝どの端末でも常時 1x
+//（従来からの診断ノブ）。線は SDF カプセル（シェーダAA）＝主に効くのは建物エッジ。
+// WebGPU の既定＝遷移時AA（裁定2026-08-19）：カメラ遷移中は 1x 直描き・静止フレームだけ 4x（?perf=1 実測で
+// MSAA の store/load/resolve 帯域が最大の固定費＝1x なら動的解像度も落ちない）。?msaa=1＝常時 4x 固定
+//（旧挙動・実機A/B用。LOW_MEM の MSAA 復帰ノブも兼ねる）。GL2 は context 生成時固定＝遷移時AAの対象外。
 const MSAA_OFF = /[?&]msaa=0/.test(location.search) || (LOW_MEM && !/[?&]msaa=1/.test(location.search));
+const MSAA_PIN = /[?&]msaa=1/.test(location.search);   // 常時4x固定（遷移時AAを無効化）
 // ?nogint=1 ＝gint（海岸線/知性層）を丸ごと停止＝1canvas統合の負荷・メモリを A/B 比較する検証ノブ（?nomd=1 と同格）。
 const noGint = /[?&]nogint=1/.test(location.search);
 // ?perf=1 ＝render worker がフレーム内訳（map/gint の CPU ms・フレームEMA・JSヒープ）を2秒毎に console へ出す。
@@ -392,7 +396,7 @@ const wPost = (msg, transfer) => {
 	}
 	ctrlChan.port1.postMessage(msg, transfer || []);
 };
-renderWorker.postMessage({ type: "init", ctrlPort: ctrlChan.port2, canvas: offscreen, labelCanvas: labelOffscreen, elevBase: TERR_EXAG / EARTH_M, terrainExag: TERR_EXAG, earthM: EARTH_M, apiUrl: "https://api.ortho-earth.com", scenePort: sceneChan.port2, noMultiDraw, perf: perfLog, mem: hudOn, lowMem: LOW_MEM, noMixed: noMixedR01, noFarTerr, noBld: /[?&]nobld=1/.test(location.search), gpu: gpuBackend, noTQ: /[?&]notq=1/.test(location.search), noGint: /[?&]nogint=1/.test(location.search), noFade: /[?&]nofade=1/.test(location.search), msaa1: MSAA_OFF, drawHud: drawHud, stay: /[?&]stay=1/.test(location.search), noTerr, ell: ELL_ON }, [ctrlChan.port2, offscreen, labelOffscreen, sceneChan.port2]);
+renderWorker.postMessage({ type: "init", ctrlPort: ctrlChan.port2, canvas: offscreen, labelCanvas: labelOffscreen, elevBase: TERR_EXAG / EARTH_M, terrainExag: TERR_EXAG, earthM: EARTH_M, apiUrl: "https://api.ortho-earth.com", scenePort: sceneChan.port2, noMultiDraw, perf: perfLog, mem: hudOn, lowMem: LOW_MEM, noMixed: noMixedR01, noFarTerr, noBld: /[?&]nobld=1/.test(location.search), gpu: gpuBackend, noTQ: /[?&]notq=1/.test(location.search), noGint: /[?&]nogint=1/.test(location.search), noFade: /[?&]nofade=1/.test(location.search), msaa1: MSAA_OFF, msaa4: MSAA_PIN, drawHud: drawHud, stay: /[?&]stay=1/.test(location.search), noTerr, ell: ELL_ON }, [ctrlChan.port2, offscreen, labelOffscreen, sceneChan.port2]);
 // 薄いプロキシ：有線(関数呼び)を無線(postMessage)に載せ替え。set/draw 統一済なので pipeline/overlay は無改造。
 // draw は worker 側で「cam を記録するだけ」に受け、実描画は worker 自前 rAF が最新 cam で回す（worker-driven）。
 // 標高アトラス(terrain)も worker 側に住む＝main はもう視野→セル計算・ダウンサンプルを一切やらない。読込インジケータだけ elevPending で受ける。
@@ -2832,6 +2836,7 @@ dbgHost.__loadOverlay = overlay.loadOverlay;   // geopbf 名から（全球等�
 // hoisted 関数＝renderWorker.onmessage（上方）から呼ばれる。
 let drawHudEl = null;
 function showDrawHud(msg) {
+	dbgHost.__drawHud = msg;   // 検証用の生値（t-aatrans＝遷移時AAの回帰が d.aa を読む）
 	if (!drawHud) return;
 	if (!drawHudEl) {
 		drawHudEl = document.createElement("div");
@@ -2847,7 +2852,7 @@ function showDrawHud(msg) {
 		`塗り base ${d.baseFill} / main ${d.mainFill}\n` +
 		`線   base ${d.baseLine} / main ${d.mainLine}\n` +
 		`退場 skipMain=${d.skipMain ? 1 : 0} skipBase=${d.skipBase ? 1 : 0} fade=${(d.fadeK ?? 1).toFixed(2)}\n` +
-		`PLATEAU ${d.pl ?? 0}バッチ  深度=${d.terrainDepth ? "on" : "off"}`;
+		`PLATEAU ${d.pl ?? 0}バッチ  深度=${d.terrainDepth ? "on" : "off"}  AA=${d.aa ?? "-"}x`;
 }
 // ?hud=1（旧 mem=1）：状態盤HUD。plateau/tiles/terrain/GPU固定/過渡を合算する台帳＋描画実測（backend/FPS/frame/動的解像度）＋
 // device（navigator：RAM/コア/DPR/回線/UA）を gadgets/hud.js（計測器ボタンで開閉するガジェット）へ供給する。数値の出所は全て
@@ -2912,7 +2917,7 @@ function destroy() {
 	// デバッグ手はこのインスタンスの閉包を掴んだまま＝GCの錨になるので窓から下ろす
 	// 生やした名前は全て下ろす（従来は13名だけ＝取りこぼしが閉包を掴んだまま残っていた）。
 	// 埋め込み時は dbgHost が使い捨ての器＝この delete は空振りするが、閉包の錨は器ごと GC される。
-	for (const k of ["__arakawaFit", "__backend", "__budget", "__cam", "__coast", "__drawErr", "__drawSendErr", "__drawSendN", "__farState", "__fly", "__gload", "__lastOrder", "__loadEstat", "__loadOverlay", "__mergeFail", "__moj", "__mojFile", "__paint", "__paintFid", "__paintOverlap", "__paintParity", "__paintProps", "__plateau", "__plateauPurge", "__sapporo", "__standup", "__tileCache", "__tileStats", "__tokyo", "__vtPool"]) delete dbgHost[k];
+	for (const k of ["__arakawaFit", "__backend", "__budget", "__cam", "__coast", "__drawErr", "__drawHud", "__drawSendErr", "__drawSendN", "__farState", "__fly", "__gload", "__lastOrder", "__loadEstat", "__loadOverlay", "__mergeFail", "__moj", "__mojFile", "__paint", "__paintFid", "__paintOverlap", "__paintParity", "__paintProps", "__plateau", "__plateauPurge", "__sapporo", "__standup", "__tileCache", "__tileStats", "__tokyo", "__vtPool"]) delete dbgHost[k];
 	mapEl.classList.remove("world");             // 全球ビューの家具フェード状態を預かったdivに残さない
 	if (ownMapEl) {   // 自前ページを預かった時に入れた inline 寸法を元へ（再起動しても二重に残らない）
 		document.documentElement.style.cssText = pageStyle.html ?? "";

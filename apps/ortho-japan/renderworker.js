@@ -180,6 +180,7 @@ const dispatch = e => {
 				import("ortho-core/gpu")
 					.then(({ createRendererGPU, createGintLayerGPU }) => createRendererGPU(canvas, { noTQ: !!m.noTQ, noFade: !!m.noFade, msaa1: !!m.msaa1 }).then(r => {
 						renderer = r; backendName = "webgpu"; bootStage = "renderer済"; hudGpuName = String(r.gpuInfo || "");   // ?hud=1 状態盤のGPU名
+						aaDyn = !m.msaa1 && !m.msaa4;   // 遷移時AA（?msaa=0＝常時1x／?msaa=1＝常時4x のときは固定＝無効）
 						// iOS Safari 診断：gint のパイプライン生成も検証スコープで包み、frame1 後にまとめて main へ転写
 						r.device.pushErrorScope("validation");
 						setTimeout(() => {
@@ -246,6 +247,10 @@ const dispatch = e => {
 		case "pongC": pongC++; break;   // stay診断：main→worker ctrlPort の配達実証
 		case "draw":                                             // main からは cam を記録するだけ（実描画は rAF）
 			drawMsgN++;
+			// 遷移時AA：カメラ値が実際に変わった時だけ「動いた」と記録（タイル到着等の dirty は静止扱い＝4x のまま）。
+			// 初回 cam（prev 無し）は静止扱い＝初期表示は最初から品質段で描く。
+			if (cam && m.cam && (cam.center[0] !== m.cam.center[0] || cam.center[1] !== m.cam.center[1]
+				|| cam.zoom !== m.cam.zoom || (cam.pitch || 0) !== (m.cam.pitch || 0) || (cam.bearing || 0) !== (m.cam.bearing || 0))) lastCamMoveT = performance.now();
 			cam = m.cam; opts = m.opts; dirty = true;
 			if (pendingLabels) applyLabels();                    // cam が届いた時点で保留中のラベルへ標高を付与
 			break;
@@ -342,6 +347,15 @@ let uploadSkip = 0, pendingUp = false;   // uploadSkip＝PLATEAU転送直後の�
 // 予約の有無に関わらず段階を踏まず一気に res=1 へ戻す。少し余裕（500ms）を持たせて誤検出を避ける。
 const RES_SETTLE_MS = 500;
 let lastDrewT = 0;
+// 遷移時AA（WebGPU・2026-08-19）：MSAA テクスチャの store/load/resolve 帯域が遷移フレーム最大の固定費
+//（?perf=1 実測＝msaa が最も効き、msaa=0 なら動的解像度も落ちない）。カメラ遷移・アニメ継続中は 1x 直描き
+//（renderer.draw の opts.aa=false）、静止が RES_SETTLE_MS 続いたら 4x 品質フレームを1枚描く（静止時詳細化・
+// 解像度の静止復帰と同じ思想＝同じ時計）。動きの最中のエッジは見えない＝1x で busyMs が下がり解像度も保たれる。
+// GL2 は antialias が context 生成時固定＝対象外。?msaa=0＝常時1x／?msaa=1＝常時4x固定（旧挙動・A/B用）。
+let aaDyn = false;     // webgpu かつ固定ノブ（?msaa=0/?msaa=1）無し＝遷移時AA有効
+let lastCamMoveT = 0;  // カメラが実際に動いた最終時刻（draw メッセージで cam 値が変わった時だけ更新）
+let animCont = false;  // 直前フレームがフェード/フォグ等の自前継続（dirty 自炊）＝遷移扱い
+let lastAA = 0;        // 直近フレームの段数（1/4）＝静止時の品質フレーム発火判定
 
 // 重い GPU 転送の平準化（1フレーム1件）：同一フレームに bufferData が束で乗るとフレームが飛ぶ。
 // ・シーン（swapBase/swapScene のマージ結果＝丸ごと差し替え）は slot ごとに「最新だけ」保持＝
@@ -488,7 +502,12 @@ function frame() {
 			let fogAnim = false;
 			const pfT0 = perfOn ? performance.now() : 0;
 			tqPoll();   // 溜まった GPU タイマ結果を回収（数フレーム遅れで確定）。perf HUD専用→常時＝GPU格付けの給餌
-			tqSpan("map", () => { fogAnim = renderer.draw(glCam, noBld ? { ...opts, noBld: 1 } : opts); });   // cameraState=mvp生成 + GL描画（軽い）。true=フォグ追従が収束中
+			// 遷移時AA：カメラ移動から RES_SETTLE_MS 以内・またはアニメ自前継続中＝1x 直描き。resPinned（録画）＝
+			// 常時4x（映像に段数切替の瞬きを混ぜない）。aaOn の品質フレームは連続描画でない＝tuneRes の計測対象外。
+			const aaOn = !aaDyn || resPinned || (!animCont && lastFrameRun - lastCamMoveT > RES_SETTLE_MS);
+			let dOpts = noBld ? { ...opts, noBld: 1 } : opts;
+			if (aaDyn && !aaOn) dOpts = { ...dOpts, aa: false };
+			tqSpan("map", () => { fogAnim = renderer.draw(glCam, dOpts); });   // cameraState=mvp生成 + GL描画（軽い）。true=フォグ追従が収束中
 			const pfT1 = perfOn ? performance.now() : 0;
 			tqSpan("gint", () => { if (gint) gint.draw(glCam, renderer.gintCtx()); });   // 知性の層＝同フレーム同カメラで1パス（泳ぎ根治）。山岳ビューは地形深度に参加（隠線＝淡破線）
 			renderer.flush?.();   // webgpu＝gint パスまで積んだフレームを resolve→submit（WebGL は undefined＝無縁）
@@ -502,7 +521,7 @@ function frame() {
 					const gg = tqN.gint ? (tqSum.gint / tqN.gint).toFixed(2) : "-";
 					const gs = gint ? gint.stats() : { drawn: 0, fbo: 0, pickMs: 0, rank: -1, tierW: -1, edges: 0, tiers: 0, tiersDone: false, total: 0 };
 					// backend＋ema（壁時計＝両BE比較可）を先頭へ＝?perf=1 の A/B はこの ema を並べる。gpuMap/gpuGint は WebGL のみ（timer query）
-					console.log(`[perf] backend=${backendName} ema=${emaMs.toFixed(1)}ms f=${pfN} map=${(pfMap / pfN).toFixed(2)}ms gint=${(pfGint / pfN).toFixed(2)}ms gpuMap=${gm}ms gpuGint=${gg}ms res=${RES_STEPS[resIdx]} err=${glErr} drawn=${gs.drawn} fbo=${gs.fbo} pick=${gs.pickMs.toFixed(0)}ms rank=${gs.rank} tierW=${gs.tierW} edges=${gs.edges}/${gs.total} tiers=${gs.tiers}${gs.tiersDone ? "✓" : "…"} runs=${gs.runs}/${gs.chunks} vb=${gs.vb ? gs.vb.join(",") : "null"}`);
+					console.log(`[perf] backend=${backendName} ema=${emaMs.toFixed(1)}ms f=${pfN} map=${(pfMap / pfN).toFixed(2)}ms gint=${(pfGint / pfN).toFixed(2)}ms gpuMap=${gm}ms gpuGint=${gg}ms res=${RES_STEPS[resIdx]} aa=${aaDyn ? lastAA : "-"} err=${glErr} drawn=${gs.drawn} fbo=${gs.fbo} pick=${gs.pickMs.toFixed(0)}ms rank=${gs.rank} tierW=${gs.tierW} edges=${gs.edges}/${gs.total} tiers=${gs.tiers}${gs.tiersDone ? "✓" : "…"} runs=${gs.runs}/${gs.chunks} vb=${gs.vb ? gs.vb.join(",") : "null"}`);
 					pfLast = pfT2; pfN = 0; pfMap = 0; pfGint = 0;
 					tqSum.map = tqSum.gint = tqN.map = tqN.gint = 0;
 				}
@@ -511,6 +530,8 @@ function frame() {
 			// 新しい段の merge で戻る時はフェードインから始まる＝可逆な退場。
 			const animating = labelLayer && (opts?.skipMain ? (labelLayer.clear(), false) : labelLayer.draw(cam));    // ラベルも同じ cam で（＝完全同期）
 			if (animating || fogAnim) dirty = true;                  // フェード/フォグ追従の継続は自前で次フレーム（main関与なし）
+			animCont = !!(animating || fogAnim);                     // 遷移時AA：自前継続の連続フレームも遷移扱い（1x）
+			lastAA = aaOn ? 4 : 1;                                   // 静止時の品質フレーム発火判定（下の !drew 節）
 			if (!sentFrame1) { sentFrame1 = true; postMessage({ type: "frame1", backend: backendName }); }   // 初描画成功＝main の起動ウォッチドッグを解除（backend はスモークテスト用）
 			if (stayProbe === 1 && renderer.readback) {   // flush 直後の同一タスク＝present 前のテクスチャを読む（snapshot と同じ掟）
 				stayProbe = 2;
@@ -550,6 +571,9 @@ function frame() {
 			console.log(`[render] 動的解像度 ↑ ×${RES_STEPS[resIdx]}（静止時適用）`);
 		}
 	}
+	// 遷移時AA：静止が RES_SETTLE_MS 続き画面が 1x のまま＝4x 品質フレームを1枚（解像度の静止復帰と同じ時計。
+	// 上の静止復帰 res ブロックが dirty を立てた時も次フレームは cam 不動＝aaOn＝同じ1枚で 4x になる）。
+	if (!drew && aaDyn && lastAA === 1 && nowT - lastDrewT > RES_SETTLE_MS) dirty = true;
 	// ?hud=1（旧mem=1）：状態盤テレメトリを~2Hzで main へ。dirty 外＝静止中も送る。terrain LRU＋JSヒープ＋GPU固定＋
 	// 描画実測（fps＝窓内の実描画枚数／frameMs＝emaMs／res＝動的解像度）＋backend/GPU名。plateau/tiles/navigator は main 側が合算。
 	if (memOn && renderer && nowT - memLast > 500) {

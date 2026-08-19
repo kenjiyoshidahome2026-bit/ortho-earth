@@ -49,6 +49,11 @@ bake.js・checkZoomRange・findPolygon。terrain・plateau ワーカーも rende
 **B. 性能パスの差**
 - タイル描画は classic CPU merge 固定（md=false）＝multi_draw のタイル GPU 常駐を使わない。密タイル
   （z14+ 都心）で merge のアップロードが WebGL の multi_draw 経路より重い可能性（未計測）。
+- ~~MSAA 4x が全パスで store/load→終端 resolve~~ → **遷移時AA で解消（2026-08-19）**：本人 ?perf=1 実測で
+  「msaa が最も効き、msaa=0 なら動的解像度も落ちない」と確定＝カメラ遷移・アニメ継続中は 1x 直描き、
+  静止 500ms（RES_SETTLE_MS 同時計）で 4x 品質フレームを1枚（静止時詳細化と同じ思想）。パイプラインは
+  sampleCount 焼き込み＝renderer/gint とも 1x/4x セットを遅延生成キャッシュし frameInfo().samples で取替。
+  ノブ＝`?msaa=0` 常時1x／`?msaa=1` 常時4x固定（旧挙動・A/B用）。詳細は fallback-ladder.md §6。
 - ~~動的解像度/GPU格付け：timestamp-query 未配線~~ → **解消（2026-08-02・19e82b5）**：pass 単位の
   timestampWrites＋flush で resolve→mapAsync 非同期回収。renderworker の tqFeed（GL と共通の給餌口）へ
   流し、gpuMap/gpuGint 実測・動的解像度 busyMs・GPU格付け(gpuFast＝静止時の手前詳細化)が WebGPU でも回る。

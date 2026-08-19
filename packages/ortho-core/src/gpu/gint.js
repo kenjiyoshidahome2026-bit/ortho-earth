@@ -81,16 +81,6 @@ export function createGintLayerGPU(host, { requestDraw } = {}) {
 	// 遮蔽消し込み（ドレープ塗り時のみ）：建物 bit7 が立つ画素の winding を 0 へ（ref 0x80・replace は ref&0x7F=0 を書く）
 	//＝cover(≠0) が建物の陰を自然にスキップ。ドレープ面＝地形面そのものなので「建物が見えている画素」の判定だけで正しい。
 	const stOcc = { ...keepDS, stencilFront: { compare: "equal", failOp: "keep", depthFailOp: "keep", passOp: "replace" }, stencilBack: { compare: "equal", failOp: "keep", depthFailOp: "keep", passOp: "replace" }, stencilReadMask: 0x80, stencilWriteMask: 0x7F };
-	const stencilFanPipe = pipe(stencilMod, "vsStencil", "fsNull", { ds: stFan, blend: undefined, writeMask: 0 });
-	// VS_STENCIL_MASK 系は GL 側でも現行パスで未使用（drawHighlight の mask fan は stencilProgram＝レンジ描画）＝パイプライン化しない
-	const coverPipe = pipe(stencilMod, "vsFull", "fsFill", { ds: stCoverNE });
-	const coverEqPipe = pipe(stencilMod, "vsFull", "fsFill", { ds: stCoverEQ });
-	const zeroPipe = pipe(stencilMod, "vsFull", "fsNull", { ds: stZero, blend: undefined, writeMask: 0 });
-	const occludePipe = pipe(stencilMod, "vsFull", "fsNull", { ds: stOcc, blend: undefined, writeMask: 0 });   // 建物 bit7→winding 消し込み
-	const linePipe = pipe(lineMod, "vsRender", "fsRender");
-	const lineTestPipe = pipe(lineMod, "vsRender", "fsRender", { ds: { ...keepDS, depthCompare: "less-equal" } });
-	const lineHiddenPipe = pipe(lineMod, "vsRender", "fsRender", { ds: { ...keepDS, depthCompare: "greater" } });
-	const pointPipe = pipe(pointMod, "vsPoint", "fsPoint");
 	const pickLinePipe = pipe(lineMod, "vsPickLine", "fsPick", { ds: null, blend: undefined, samples: 1, fmt: "rgba8unorm" });
 	const pickPointPipe = pipe(pointMod, "vsPickPoint", "fsPickPoint", { ds: null, blend: undefined, samples: 1, fmt: "rgba8unorm" });
 	// コロプレス ID 塗り（idfill.js）：① winding 和を ID テクスチャへ加算蓄積（fan 幾何・単一サンプル・深度なし）
@@ -113,15 +103,35 @@ export function createGintLayerGPU(host, { requestDraw } = {}) {
 		{ binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "uint" } },                 // fidTex RGBA32UI
 		{ binding: 2, visibility: GPUShaderStage.FRAGMENT, buffer: {} },                                      // R uniform
 	] });
-	const mkIdResolve = ds => device.createRenderPipeline({
-		layout: device.createPipelineLayout({ bindGroupLayouts: [bglIdResolve] }),
+	const idResolveLayout = device.createPipelineLayout({ bindGroupLayouts: [bglIdResolve] });
+	const mkIdResolve = (ds, sc) => device.createRenderPipeline({
+		layout: idResolveLayout,
 		vertex: { module: idResolveMod, entryPoint: "vs" },
 		fragment: { module: idResolveMod, entryPoint: "fs", targets: [{ format, blend: SBLEND }] },
-		primitive: { topology: "triangle-list" }, depthStencil: ds, multisample: { count: host.samples || 4 },   // main パスへ描く＝renderer の段数に追随（?msaa=0）
+		primitive: { topology: "triangle-list" }, depthStencil: ds, multisample: { count: sc },   // main パスへ描く＝renderer のフレーム段数に追随
 	});
-	const idResolvePipe = mkIdResolve(keepDS);
-	// ドレープ塗り時＝建物 bit7 が立つ画素をスキップ（ref 0・equal・readMask 0x80＝(v&0x80)==0 のみ塗る）
-	const idResolveOccPipe = mkIdResolve({ ...keepDS, stencilFront: { compare: "equal", failOp: "keep", depthFailOp: "keep", passOp: "keep" }, stencilBack: { compare: "equal", failOp: "keep", depthFailOp: "keep", passOp: "keep" }, stencilReadMask: 0x80, stencilWriteMask: 0 });
+	// ドレープ塗り時（Occ）＝建物 bit7 が立つ画素をスキップ（ref 0・equal・readMask 0x80＝(v&0x80)==0 のみ塗る）
+	const stIdOcc = { ...keepDS, stencilFront: { compare: "equal", failOp: "keep", depthFailOp: "keep", passOp: "keep" }, stencilBack: { compare: "equal", failOp: "keep", depthFailOp: "keep", passOp: "keep" }, stencilReadMask: 0x80, stencilWriteMask: 0 };
+	// ── main パス行きパイプラインのセット（遷移時AA）：renderer のフレーム段数（frameInfo().samples＝遷移中1x／
+	// 静止4x）に multisample count を揃える＝焼き込みゆえセット取替。sampleCount 毎に遅延生成・恒久キャッシュ。
+	// pick 系（別パス・rgba8・非MSAA）と idAccum（rg16/32float 蓄積）は従来どおり 1x 固定＝セット外。
+	// VS_STENCIL_MASK 系は GL 側でも現行パスで未使用（drawHighlight の mask fan は stencilProgram＝レンジ描画）＝パイプライン化しない
+	const buildPipes = sc => ({
+		stencilFan: pipe(stencilMod, "vsStencil", "fsNull", { ds: stFan, blend: undefined, writeMask: 0, samples: sc }),
+		cover: pipe(stencilMod, "vsFull", "fsFill", { ds: stCoverNE, samples: sc }),
+		coverEq: pipe(stencilMod, "vsFull", "fsFill", { ds: stCoverEQ, samples: sc }),
+		zero: pipe(stencilMod, "vsFull", "fsNull", { ds: stZero, blend: undefined, writeMask: 0, samples: sc }),
+		occlude: pipe(stencilMod, "vsFull", "fsNull", { ds: stOcc, blend: undefined, writeMask: 0, samples: sc }),   // 建物 bit7→winding 消し込み
+		line: pipe(lineMod, "vsRender", "fsRender", { samples: sc }),
+		lineTest: pipe(lineMod, "vsRender", "fsRender", { ds: { ...keepDS, depthCompare: "less-equal" }, samples: sc }),
+		lineHidden: pipe(lineMod, "vsRender", "fsRender", { ds: { ...keepDS, depthCompare: "greater" }, samples: sc }),
+		point: pipe(pointMod, "vsPoint", "fsPoint", { samples: sc }),
+		idResolve: mkIdResolve(keepDS, sc),
+		idResolveOcc: mkIdResolve(stIdOcc, sc),
+	});
+	const pipeSets = new Map();
+	const pipesFor = sc => { let p = pipeSets.get(sc); if (!p) { p = buildPipes(sc); pipeSets.set(sc, p); } return p; };
+	pipesFor(host.samples || 4);   // 品質段は生成時に先行コンパイル（renderworker の gint init検証スコープで検札）。1x は初の遷移フレームで遅延生成
 
 	// ── UBO（GF 4スロット＝(rank, rank0)×(pivot有効, 境界メタ=単一要・カリング無効)・GP 役割別・style表）──
 	// 境界メタは「多数 fid の arc 寄せ集め」＝per-fid 扇要では閉ループが閉じず巻き数が漏れる＝GL 版
@@ -574,6 +584,7 @@ export function createGintLayerGPU(host, { requestDraw } = {}) {
 
 	function renderScene(data, fr, ctx) {
 		const dep = data.depth;
+		const P = pipesFor(fr.samples || host.samples || 4);   // 遷移時AA＝renderer のフレーム段数にセットごと追随
 		// UBO を先に確定（queue.writeBuffer は submit 前に順序どおり適用される）
 		packGF(GF_LINE * 256, data, data.lodRank ?? 0);
 		packGF(GF_FILL * 256, data, 0);                     // 塗り stencil＝全密度（rank0）
@@ -649,32 +660,32 @@ export function createGintLayerGPU(host, { requestDraw } = {}) {
 		// occ＝面ドレープの深度統合：チルト（elevScale>0）でのみ建物 bit7 で塗りをスキップ＝真俯瞰は全塗り維持（裁定）
 		const occ = !!(dep && (dep.elevScale ?? 0) > 0 && dep.hasElev);
 		if (idFill) {   // ID 画素→fid→スタイル表→色（②の解決＝①で蓄積した idTex を読む）
-			pass.setPipeline(occ ? idResolveOccPipe : idResolvePipe);   // occ＝建物画素(bit7)を stencil equal(readMask 0x80) で除外
+			pass.setPipeline(occ ? P.idResolveOcc : P.idResolve);   // occ＝建物画素(bit7)を stencil equal(readMask 0x80) で除外
 			pass.setBindGroup(0, idResolveBG);
 			pass.draw(3);
 		} else if (doFill) {
 			pass.setBindGroup(0, frameBG[hasB ? GF_FILL_B : GF_FILL]);   // rank0＝全密度（自己交差斑点の根治）。境界メタ＝単一要・カリング無効
 			pass.setBindGroup(2, texBG(s.arcTex, stTex));
-			pass.setPipeline(stencilFanPipe);
+			pass.setPipeline(P.stencilFan);
 			pass.draw(stCount * 3);
 			if (occ) {   // 建物 bit7 の画素の winding を 0 へ（ref 0x80・equal・replace は 0x80&0x7F=0 を書く）→cover(≠0) が陰を跳ぶ
 				pass.setStencilReference(0x80);
-				pass.setPipeline(occludePipe);
+				pass.setPipeline(P.occlude);
 				pass.draw(3);
 				pass.setStencilReference(0);
 			}
-			pass.setPipeline(coverPipe);
+			pass.setPipeline(P.cover);
 			pass.setBindGroup(1, paramBG[ROLE.fill]);
 			pass.draw(3);
-			pass.setPipeline(zeroPipe);   // winding を毎回自前でゼロ（pass の stencil clear を bit7 持ち込みの load に替えた代償）
+			pass.setPipeline(P.zero);   // winding を毎回自前でゼロ（pass の stencil clear を bit7 持ち込みの load に替えた代償）
 			pass.draw(3);
 		}
-		if (idFill) pass.setBindGroup(3, aux);   // idResolvePipe は別レイアウト＝bind group がリセットされる＝後続の線/点用に group3(aux) を張り直す
+		if (idFill) pass.setBindGroup(3, aux);   // idResolve は別レイアウト＝bind group がリセットされる＝後続の線/点用に group3(aux) を張り直す
 		// ── 線（tier＋可視 run。深度統合時はテストのみ→GREATER 隠線）──
 		if (lnSel) {
 			pass.setBindGroup(0, frameBG[lnSel.boundary ? GF_LINE_B : GF_LINE]);
 			pass.setBindGroup(2, texBG(s.arcTex, lnSel.tex));
-			pass.setPipeline(dep ? lineTestPipe : linePipe);
+			pass.setPipeline(dep ? P.lineTest : P.line);
 			pass.setBindGroup(1, paramBG[ROLE.line]);
 			let pfEdges = 0;
 			for (const [est, cnt] of (lnSel.runs ?? [[0, lnSel.count]])) {
@@ -683,14 +694,14 @@ export function createGintLayerGPU(host, { requestDraw } = {}) {
 			}
 			s._pfLineEdges = pfEdges; s._pfTierW = lnSel.minW ?? -1;
 			if (dep && !s._isDrawing && pfEdges < 100_000) {
-				pass.setPipeline(lineHiddenPipe);
+				pass.setPipeline(P.lineHidden);
 				pass.setBindGroup(1, paramBG[ROLE.lineHidden]);
 				for (const [est, cnt] of (lnSel.runs ?? [[0, lnSel.count]])) pass.draw(cnt * 6, 1, est * 6);
 			}
 		}
 		// ── 点 ──
 		if (s.totalPoints > 0 && s.ptTex && s.ptMetaTex) {
-			pass.setPipeline(pointPipe);
+			pass.setPipeline(P.point);
 			pass.setBindGroup(0, frameBG[GF_LINE]);
 			pass.setBindGroup(1, paramBG[ROLE.point]);
 			pass.setBindGroup(2, texBG(s.ptTex, s.ptMetaTex));
@@ -702,7 +713,7 @@ export function createGintLayerGPU(host, { requestDraw } = {}) {
 			const eStart = range?.[0] ?? null, eCount = range?.[1] ?? null;
 			const hasRange = eStart != null && eCount > 0;
 			if (s.totalEdges > 0 && s.metaTex) {
-				pass.setPipeline(linePipe);
+				pass.setPipeline(P.line);
 				pass.setBindGroup(0, frameBG[GF_LINE]);
 				pass.setBindGroup(1, paramBG[ROLE.hilite]);
 				pass.setBindGroup(2, texBG(s.arcTex, s.metaTex));
@@ -710,24 +721,24 @@ export function createGintLayerGPU(host, { requestDraw } = {}) {
 				else pass.draw(s.totalEdges * 6);
 			}
 			if (s.totalPoints > 0 && s.ptTex && s.ptMetaTex) {
-				pass.setPipeline(pointPipe);
+				pass.setPipeline(P.point);
 				pass.setBindGroup(1, paramBG[ROLE.pointHi]);
 				pass.setBindGroup(2, texBG(s.ptTex, s.ptMetaTex));
 				pass.draw(s.totalPoints * 6);
 			}
 			const mc = data.maskColor ?? DEF_MASK;
 			if (mc[3] > 0 && hasRange && s.metaTex) {
-				pass.setPipeline(zeroPipe);   // stencil を 0 へ（mid-pass clear の代替）
+				pass.setPipeline(P.zero);   // stencil を 0 へ（mid-pass clear の代替）
 				pass.setBindGroup(1, paramBG[ROLE.maskStencil]);
 				pass.draw(3);
-				pass.setPipeline(stencilFanPipe);
+				pass.setPipeline(P.stencilFan);
 				pass.setBindGroup(0, frameBG[GF_LINE]);   // GL は実 rank＋per-fid 扇要（bindPivot）＝lodSnap 込みの mask fan
 				pass.setBindGroup(2, texBG(s.arcTex, s.metaTex));
 				pass.draw(eCount * 3, 1, eStart * 3);
-				pass.setPipeline(coverEqPipe);   // stencil==0＝地物の外を暗く
+				pass.setPipeline(P.coverEq);   // stencil==0＝地物の外を暗く
 				pass.setBindGroup(1, paramBG[ROLE.maskFill]);
 				pass.draw(3);
-				pass.setPipeline(zeroPipe);   // mask winding を後始末（stencil load 化＝後続レイヤへ持ち越さない）
+				pass.setPipeline(P.zero);   // mask winding を後始末（stencil load 化＝後続レイヤへ持ち越さない）
 				pass.draw(3);
 			}
 		}
