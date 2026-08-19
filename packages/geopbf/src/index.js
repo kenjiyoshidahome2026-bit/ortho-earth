@@ -100,13 +100,16 @@ export function createGeopbf(apiBase, options = {}) {
         if (pbf) {
             await pbf.gint({gint: opts.gint});
             console.log(`[geopbf] 📥 ${pbf.name()} (${pbf.size.toLocaleString()} bytes) ${(performance.now()-dt).toFixed(2)} msec`);
-            if (isURL(data) && !pbf.originalURL) {
+            // _staleGint＝キャッシュのGINTが版検札で弾かれた印。上の gint() が再焼き済み＝ここで上書き保存して自己修復完了
+            //（これが無いと旧v1が居座り、毎回「Failed to unpack … 旧キャッシュ」＋全量再エンコードを払い続ける。2026-08-20実地）。
+            if (pbf._staleGint) console.warn(`[geopbf] ${pbf.name()}: 旧版GINTキャッシュを再焼きして上書き保存（次回からこの警告は消える）`);
+            if (isURL(data) && (!pbf.originalURL || pbf._staleGint)) {
                 const server = await getServer();
                 if (server) {
                     const GINT = new Uint8Array(pbf._gintBuffer).slice().buffer;
                     server.cache(data, { PBF: pbf.arrayBuffer, GINT }).catch(console.error);
                 }
-            } else if (isFile(data) && !pbf._fileKey) {
+            } else if (isFile(data) && (!pbf._fileKey || pbf._staleGint)) {
                 const server = await getServer().catch(() => null);
                 if (server && opts.nocache !== true) {
                     const fileKey = `FILE::${data.name}::${data.size}::${data.lastModified}`;
@@ -114,6 +117,7 @@ export function createGeopbf(apiBase, options = {}) {
                     server.cache(fileKey, { PBF: pbf.arrayBuffer, GINT }).catch(console.error);
                 }
             }
+            delete pbf._staleGint;
             await pbf.fileSize();
             return pbf;
         } else return new GeoPBF(opts);
@@ -133,6 +137,7 @@ export function createGeopbf(apiBase, options = {}) {
                         if (val?.PBF) {
                             const pbf = await new GeoPBF(opts).set(val.PBF);
                             opts.gint !== false && val.GINT && await pbf.setGintBUF(val.GINT);   // キャッシュ再読込も gint:false を尊重（空gintの誤復号→RangeError根治）
+                            if (opts.gint !== false && val.GINT && !pbf.unPackGint) pbf._staleGint = true;   // 旧版GINT→外側で再焼き＋上書き保存（自己修復）
                             pbf._fileKey = fileKey;
                             return pbf;
                         }
@@ -163,6 +168,9 @@ export function createGeopbf(apiBase, options = {}) {
                     const val = opts.nocache == true? undefined: await server.cache(fetchUrl).catch(console.error);
                     if (val && val.PBF) { const pbf = (await new GeoPBF(opts).set(val.PBF));
                         opts.gint !== false && val.GINT && await pbf.setGintBUF(val.GINT);   // キャッシュ再読込も gint:false を尊重（空gintの誤復号→RangeError根治）
+                        // 版検札落ち（unPackGint=null）＝旧フォーマットのGINTがIDBに残っている。印だけ立てて返す＝
+                        // 外側の gint() が再焼きし、外側のキャッシュ書き込みが上書き保存（自己修復・pbf-io.load と同じ流儀）。
+                        if (opts.gint !== false && val.GINT && !pbf.unPackGint) pbf._staleGint = true;
                         pbf.originalURL = q;
                         return pbf;
                     }
