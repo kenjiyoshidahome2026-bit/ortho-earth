@@ -9,6 +9,16 @@
 // テーマの語彙（並び・短名・見本色）はここが持つ（chips.js が主題の語彙を持つのと同じ流儀）。★テーマ追加時はここにも1行。
 import { gadgetStack } from "./stack.js";
 import { composeLayersToCanvas } from "./compose.js";
+import { tr } from "../i18n.js";
+const t = tr({
+	"白地図": "Blank map",
+	"ダーク": "Dark",
+	"地理院": "GSI",
+	"セピア": "Sepia",
+	"配色テーマ": "Color themes",
+	"配色テーマを選ぶ": "Choose a color theme",
+	"{0}に切替": "Switch to {0}",
+});
 
 // 見本色＝palettes.js / style-*.js の実色（paper=紙・ink=注記・water=海(WA一律)・water2=水系点火(WA面/河川)・
 // bldg=建物・roads=[幹線1, 幹線2, 一般]・contour=等高線・admin=界線）。地図に見える最小構成の色だけ持つ。
@@ -131,7 +141,7 @@ export function palette({ current, onPick, requestSnapshot, getZoom, getCurrent,
 	if (!btn) {   // 直搭載（palette-stub 非経由＝単体でも動く＝独立）＝自前でボタン生成。stub 経由は btn 持参で再利用
 		if (mapEl.querySelector("#palette-btn")) return;   // 二重搭載は無害
 		btn = document.createElement("button");
-		btn.id = "palette-btn"; btn.dataset.tip = "配色テーマ"; btn.setAttribute("aria-label", "配色テーマを選ぶ");
+		btn.id = "palette-btn"; btn.dataset.tip = t("配色テーマ"); btn.setAttribute("aria-label", t("配色テーマを選ぶ"));
 		btn.innerHTML = ICON;
 		gadgetStack(mapEl).append(btn);   // 置き場所はスタック（搭載順＝縦の並び）
 	}
@@ -139,7 +149,7 @@ export function palette({ current, onPick, requestSnapshot, getZoom, getCurrent,
 	const picker = document.createElement("div");
 	picker.id = "theme-picker";
 	let curr = current;   // 現在テーマ＝生き替え(reload無し)で変わる＝pick後に更新＝見本の「自分以外」を追従させる
-	const cardHTML = t => `<button class="tp-card" data-theme="${t.k}" aria-label="${t.name}に切替">${sampleSVG(t)}<canvas aria-hidden="true"></canvas><span class="tp-name">${t.name}</span></button>`;
+	const cardHTML = th => `<button class="tp-card" data-theme="${th.k}" aria-label="${t("{0}に切替", t(th.name))}">${sampleSVG(th)}<canvas aria-hidden="true"></canvas><span class="tp-name">${t(th.name)}</span></button>`;
 	const buildCards = () => { picker.querySelector(".tp-grid").innerHTML = THEMES.filter(t => t.k !== curr).map(cardHTML).join(""); };   // curr以外を3枚（生き替え後は reload しないので手で組み直す）
 	picker.innerHTML = `<div class="tp-grid"></div>`;
 	mapEl.append(picker);   // 末尾append＝DOM順で最上面（z-index全廃の裁き）
@@ -176,7 +186,7 @@ export function palette({ current, onPick, requestSnapshot, getZoom, getCurrent,
 				cv.getContext("2d").drawImage(tmp, 0, 0, sw, sh, 0, 0, cw, ch);   // 写像済み原寸→見本寸へ縮小（本物を縮めたのと同じ混色）
 				card.classList.add("live");   // 以降この開閉では実写見本（次の refresh で上書き）
 			}
-		} catch (e) { console.warn("[palette] 見本の実写化に失敗＝SVG見本のまま", e); }
+		} catch (e) { console.warn("[palette] live sample remap failed, keeping SVG sample", e); }
 		finally { shooting = false; }
 	}
 

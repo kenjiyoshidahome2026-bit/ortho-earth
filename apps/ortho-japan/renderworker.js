@@ -83,10 +83,10 @@ function tqFeed(tag, ms) {
 		gpuEmaRaw = gpuEmaRaw ? gpuEmaRaw + (ms - gpuEmaRaw) * (ms > gpuEmaRaw ? 0.3 : 0.1) : ms;
 		gpuEma = gpuEma ? gpuEma + (msFull - gpuEma) * 0.1 : msFull;
 		if (gpuEma < 17) {
-			if (++gpuFastStreak >= 60 && !gpuFast) { gpuFast = true; self.postMessage({ type: "gpuTier", fast: true }); console.log(`[render] GPU格付け fast（map換算 ${gpuEma.toFixed(1)}ms）＝静止時の手前詳細化を許可`); }
+			if (++gpuFastStreak >= 60 && !gpuFast) { gpuFast = true; self.postMessage({ type: "gpuTier", fast: true }); console.log(`[render] GPU tier fast (map-normalized ${gpuEma.toFixed(1)}ms) = idle near-detail allowed`); }
 		} else {
 			gpuFastStreak = 0;
-			if (gpuFast && gpuEma > 24) { gpuFast = false; self.postMessage({ type: "gpuTier", fast: false }); console.log(`[render] GPU格付け slow（map換算 ${gpuEma.toFixed(1)}ms）＝手前詳細化オフ`); }
+			if (gpuFast && gpuEma > 24) { gpuFast = false; self.postMessage({ type: "gpuTier", fast: false }); console.log(`[render] GPU tier slow (map-normalized ${gpuEma.toFixed(1)}ms) = near-detail off`); }
 		}
 	}
 }
@@ -96,7 +96,7 @@ function tqFeed(tag, ms) {
 function bootWebGL(m) {
 	try { renderer = createRenderer(canvas, { noMD: !!m.noMultiDraw, msaa1: !!m.msaa1 }); }
 	catch (err) { postMessage({ type: "glfail", error: String(err && err.message || err) }); return; }
-	console.log(`[render] multi_draw ${renderer.md ? "有効（タイルGPU常駐）" : "なし（CPU mergeフォールバック）"}`);
+	console.log(`[render] multi_draw ${renderer.md ? "enabled (tiles GPU-resident)" : "absent (CPU merge fallback)"}`);
 	glRef = canvas.getContext("webgl2");                 // 同一コンテキストが返る＝isContextLost() の監視用
 	// gint（知性の層）＝renderer と同一コンテキストに同居。描画は frame() が renderer.draw の直後に
 	// 同じ glCam で1パス＝地図と同フレーム同カメラ（別canvas時代の「1フレーム級遅れて泳ぐ」の根治）。
@@ -144,7 +144,7 @@ function finishInit(m) {
 }
 
 let initQueue = null;   // WebGPU 非同期init中に届いたメッセージの待避列（backend確定後に元の順で再投入＝取りこぼさない）
-let bootStage = "起動前";   // iOS診断：initチェーンの里程標（どこで止まったかを beat で可視化）
+let bootStage = "pre-boot";   // iOS診断：initチェーンの里程標（どこで止まったかを beat で可視化）
 let backendName = "webgl2";
 // ⚠iOS WebKit の轍（2026-08-02 実機確定）：module worker でグローバル onmessage を「読む」と関数が返らず、
 // onmessage({data}) の手動呼び出しが TypeError で silently 死ぬ（イベント経由の配達は正常・macOS は getter 正常）。
@@ -163,7 +163,7 @@ const dispatch = e => {
 			stayProbe = m.stay ? 1 : 0;
 			if (m.stay) {
 				setInterval(() => postMessage({ type: "beat", n: frameTicks, pump: pumpTicks, dirty, hasCam: !!cam, hasRenderer: !!renderer, drawMsgN, sentFrame1, pongD, pongC, loopN, sceneMsgN, relayRecvN, pongB, bootStage, iqLen: initQueue ? initQueue.length : -1 }), 1000);
-				setTimeout(() => { if (initQueue) { console.error("[render] initQueue が15秒解放されず＝強制解放（診断）"); const q = initQueue; initQueue = null; bootStage += "→強制解放(" + q.length + ")"; for (const qm of q) dispatch({ data: qm }); } }, 15000);
+				setTimeout(() => { if (initQueue) { console.error("[render] initQueue stuck for 15s = force-releasing (diagnostic)"); const q = initQueue; initQueue = null; bootStage += "→force-released(" + q.length + ")"; for (const qm of q) dispatch({ data: qm }); } }, 15000);
 				const lc = new MessageChannel();   // worker内ループバック＝message イベント配給そのものの生死
 				lc.port1.onmessage = () => { loopN++; };
 				setInterval(() => { lc.port2.postMessage(1); postMessage({ type: "pingReq" }); }, 500);
@@ -176,35 +176,35 @@ const dispatch = e => {
 				// 実験フラグ ?gpu=1＝WebGPU バックエンド（Phase 1: globe+基図 fill/line・classic merge）。
 				// init は非同期（adapter/device 取得）＝その間のメッセージは initQueue へ待避し順序ごと再投入。
 				// 失敗（非対応・adapter無し）は WebGL2 へフォールバック＝既定経路と同一挙動。
-				initQueue = []; bootStage = "import待ち";
+				initQueue = []; bootStage = "awaiting import";
 				import("ortho-core/gpu")
 					.then(({ createRendererGPU, createGintLayerGPU }) => createRendererGPU(canvas, { noTQ: !!m.noTQ, noFade: !!m.noFade, msaa1: !!m.msaa1 }).then(r => {
-						renderer = r; backendName = "webgpu"; bootStage = "renderer済"; hudGpuName = String(r.gpuInfo || "");   // ?hud=1 状態盤のGPU名
+						renderer = r; backendName = "webgpu"; bootStage = "renderer ready"; hudGpuName = String(r.gpuInfo || "");   // ?hud=1 状態盤のGPU名
 						aaDyn = !m.msaa1 && !m.msaa4;   // 遷移時AA（?msaa=0＝常時1x／?msaa=1＝常時4x のときは固定＝無効）
 						// iOS Safari 診断：gint のパイプライン生成も検証スコープで包み、frame1 後にまとめて main へ転写
 						r.device.pushErrorScope("validation");
 						setTimeout(() => {
-							r.device.popErrorScope().then(e => { if (e) { r.gpuErrors.push("gint init検証: " + e.message); console.error("[gpu] gint init検証:", e.message); } }).catch(() => {});
-							setTimeout(() => { if (r.gpuErrors.length) postMessage({ type: "drawErr", msg: "GPU診断 " + r.gpuErrors.length + "件: " + r.gpuErrors.slice(0, 4).join(" ｜ "), stack: r.gpuErrors.join("\n").slice(0, 800) }); }, 2500);
+							r.device.popErrorScope().then(e => { if (e) { r.gpuErrors.push("gint init validation: " + e.message); console.error("[gpu] gint init validation:", e.message); } }).catch(() => {});
+							setTimeout(() => { if (r.gpuErrors.length) postMessage({ type: "drawErr", msg: "GPU diagnostics " + r.gpuErrors.length + " issue(s): " + r.gpuErrors.slice(0, 4).join(" | "), stack: r.gpuErrors.join("\n").slice(0, 800) }); }, 2500);
 						}, 400);
 						// gint（知性の層）＝renderer の frame（開いたエンコーダ）へ自分の render pass を足す＝1canvas統合の WebGPU 形。
 						if (!m.noGint) gint = createGintLayerGPU(r, { requestDraw: () => { dirty = true; } });   // ?nogint=1＝gint 層別切り（iOS診断）
-						bootStage = "gint済";
-						console.log("[render] backend=webgpu（Phase 6: 主要描画スタック完走＝基図/標高/地形/深度/建物/等高線/gint/PLATEAU/星空/overlay/idfill/gintBld。md系のみ未搭載）");
+						bootStage = "gint ready";
+						console.log("[render] backend=webgpu (Phase 6: full main draw stack = basemap/elevation/terrain/depth/buildings/contours/gint/PLATEAU/stars/overlay/idfill/gintBld; only md family missing)");
 						// A/B 計測：?perf=1 で GPU 識別を1行（WebGL 経路の debug_renderer_info と対）。WebGPU は timestamp-query 未配線＝ema は壁時計で比較
-						if (perfOn) console.log(`[perf] backend=webgpu gpu="${r.gpuInfo}" timerQuery=${!!r.hasTQ}${r.hasTQ ? "（timestamp-query＝gpuMap/gpuGint 実測・GPU格付け有効）" : "（非対応＝ema 壁時計フォールバック）"}`);
+						if (perfOn) console.log(`[perf] backend=webgpu gpu="${r.gpuInfo}" timerQuery=${!!r.hasTQ}${r.hasTQ ? " (timestamp-query = measured gpuMap/gpuGint, GPU tiering on)" : " (unsupported = ema wall-clock fallback)"}`);
 					}))
 					.catch(err => {
-						console.warn("[render] WebGPU init失敗→WebGL2フォールバック:", err && (err.message || err));
+						console.warn("[render] WebGPU init failed → WebGL2 fallback:", err && (err.message || err));
 						bootWebGL(m);
 					})
 					.then(() => {
-						bootStage = "finishInit前";
+						bootStage = "pre-finishInit";
 						if (renderer) finishInit(m);
-						bootStage = "finishInit済";
+						bootStage = "finishInit done";
 						const q = initQueue; initQueue = null;
 						if (q) for (const qm of q) dispatch({ data: qm });   // 待避分を順序どおり再投入
-						bootStage = "queue解放済(" + (q ? q.length : 0) + "件)";
+						bootStage = "queue released(" + (q ? q.length : 0) + ")";
 					});
 				break;
 			}
@@ -299,7 +299,7 @@ function snapshot(id) {
 		const { labels, lw, lh } = readLabels();
 		const transfer = [base.buffer]; if (labels) transfer.push(labels.buffer);
 		postMessage({ type: "snapshot", id, base: base.buffer, w, h, labels: labels ? labels.buffer : null, lw, lh, flip: true }, transfer);
-	} catch (e) { console.error("[render] snapshot例外", e?.message, e?.stack); }
+	} catch (e) { console.error("[render] snapshot exception", e?.message, e?.stack); }
 }
 // WebGPU snapshot：draw→gint→flush→readback（copyTextureToBuffer+mapAsync）＝top-down（flip:false）。RGBA へ swizzle 済み。
 async function snapshotGPU(id) {
@@ -317,7 +317,7 @@ async function snapshotGPU(id) {
 			const transfer = []; if (rb?.base) transfer.push(rb.base); if (labels) transfer.push(labels.buffer);
 			postMessage({ type: "snapshot", id, base: rb?.base ?? null, w: rb?.w ?? 0, h: rb?.h ?? 0, labels: labels ? labels.buffer : null, lw, lh, flip: false }, transfer);
 		}
-	} catch (e) { console.error("[render] snapshotGPU例外", e?.message, e?.stack); }
+	} catch (e) { console.error("[render] snapshotGPU exception", e?.message, e?.stack); }
 }
 
 // ラベルに標高を付与（傾き時に地物と一致）。main.js が持っていた terrain.sampleElev(...) 呼び出しをそのままこちらへ移設。
@@ -382,7 +382,7 @@ function drainMD() {
 			// dl の適用＝この瞬間から画面に載る＝ここで初めて main に ack（sig確定）。scene worker の送信時 ack だと
 			// アップロード渋滞の数フレーム分「ackされたのにまだ旧シーン」の窓ができ、退場機構が先走って古い線が混ざる。
 			if (d.type === "dl" && d.sig) postMessage({ type: "dlApplied", slot: d.slot, sig: d.sig });
-		} catch (err) { console.error("[render] md適用失敗:", err && (err.message || err)); }   // 黙らせない＝ackも返さない（mainがタイムアウト再要求）
+		} catch (err) { console.error("[render] md apply failed:", err && (err.message || err)); }   // 黙らせない＝ackも返さない（mainがタイムアウト再要求）
 		dirty = true;
 	}
 	if (spent) uploadSkip = 2;   // 転送の山は「次フレームのdt」に出る＝動的解像度のEMA計測から除外
@@ -394,7 +394,7 @@ function drainUploads() {
 		const [slot, scene] = sceneInbox.entries().next().value;
 		sceneInbox.delete(slot);
 		try { renderer.set("scene", scene, slot); }
-		catch (err) { console.error("[render] scene適用失敗:", err && (err.message || err)); }   // 適用失敗も黙らせない（次の merge で回復）
+		catch (err) { console.error("[render] scene apply failed:", err && (err.message || err)); }   // 適用失敗も黙らせない（次の merge で回復）
 		dirty = true; uploadSkip = 2;
 		return;
 	}
@@ -455,7 +455,7 @@ function tuneRes(drew) {
 		//（ゼロ化だと再学習+ホールドで降段カスケードが数秒かかり、フル解像度のまま重ビューへ突っ込んだズームがガクつく）。
 		const k = (RES_STEPS[resIdx] * RES_STEPS[resIdx]) / (sOld * sOld);
 		gpuEmaRaw *= k; gintEmaRaw *= k;
-		console.log(`[render] 動的解像度 ↓ ×${RES_STEPS[resIdx]}`);
+		console.log(`[render] dynamic res ↓ ×${RES_STEPS[resIdx]}`);
 	} else if (resIdx > 0 && busyMs > 0 && busyMs < 17.5 && ++upStreak >= upDelay) {
 		pendingUp = true; upStreak = 0; emaMs = 0; gpuEmaRaw = 0; gintEmaRaw = 0;   // 即switchせず予約＝適用は静止フレーム（パン/ズーム中に切替の1重フレームを見せない）
 	}
@@ -552,7 +552,7 @@ function frame() {
 		}
 		if (glRef && !sentCtxLost && glRef.isContextLost()) { sentCtxLost = true; postMessage({ type: "contextlost" }); }   // GPU喪失＝mainが立て直す
 	} catch (e) {
-		console.error("[render] frame例外（このフレームは破棄して継続）", e?.message, e?.stack);
+		console.error("[render] frame exception (frame dropped, continuing)", e?.message, e?.stack);
 		// 初回だけ main へ通報＝モバイル等で worker コンソールが見づらい環境の一次診断（window.__drawErr に残る）。
 		// 毎フレーム失敗系（例：バックエンド固有の非対応）は frame1 が来ない＝この通報が唯一の手掛かりになる。
 		if (!sentDrawErr) { sentDrawErr = true; postMessage({ type: "drawErr", msg: String(e?.message || e), stack: String(e?.stack || "").slice(0, 400) }); }
@@ -563,12 +563,12 @@ function frame() {
 	if (!drew && resIdx > 0 && nowT - lastDrewT > RES_SETTLE_MS) {
 		// 静止が RES_SETTLE_MS 続いた＝止まれば画面が鮮明に戻る。段階を踏まず一気に res=1（静止フレームは全解像度でも軽い）。
 		pendingUp = false; resIdx = 0; scheduleRes(); resHoldUntil = nowT + 700;
-		console.log(`[render] 動的解像度 ↑ ×1（静止復帰）`);
+		console.log(`[render] dynamic res ↑ ×1 (idle restore)`);
 	} else if (!drew && pendingUp) {   // 軽い連続描画で予約された段階復帰（従来路）。切替の1重フレームが操作中に見えない
 		pendingUp = false;
 		if (resIdx > 0) {
 			resIdx--; scheduleRes(); resHoldUntil = nowT + 700;
-			console.log(`[render] 動的解像度 ↑ ×${RES_STEPS[resIdx]}（静止時適用）`);
+			console.log(`[render] dynamic res ↑ ×${RES_STEPS[resIdx]} (applied at idle)`);
 		}
 	}
 	// 遷移時AA：静止が RES_SETTLE_MS 続き画面が 1x のまま＝4x 品質フレームを1枚（解像度の静止復帰と同じ時計。

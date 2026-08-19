@@ -1,0 +1,39 @@
+<!doctype html>
+<!-- ortho-japan SDK — 最小の埋め込み例（配布zipでは example/index.html）。
+     このフォルダ一式を HTTP で配信して開く（例: unzip したルートで `npx serve .` → /example/）。
+     file:// では ES module と fetch の制約で動かない。 -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ortho-japan SDK example</title>
+<link rel="stylesheet" href="../lib/ortho-japan.css">
+<style>
+	body { margin: 24px; font-family: system-ui, sans-serif; }
+	.map-box { width: min(960px, 92vw); height: min(560px, 70vh); }
+	p { max-width: 60em; color: #445; }
+	code { background: #eef1f5; padding: 1px 5px; border-radius: 4px; }
+</style>
+</head>
+<body>
+<h1>ortho-japan SDK example</h1>
+<p>The globe below is embedded with the 5 lines you can see in this page's source.
+	／ 下の地球儀は、このページのソースにある5行だけで埋め込まれています。</p>
+
+<div id="here" class="map-box"></div>
+
+<script type="module">
+	import orthoJapan from "../lib/ortho-japan.js";
+	await orthoJapan({ target: "#here", assetBase: "../assets/" });
+	// more options / 他のオプション（README.md 参照）:
+	//   lang: "en" | "ja"      … UI language (default: browser language)
+	//   view: "#5/36.2/138.2"  … initial view (zoom/lat/lon)
+	//   plateau: false         … disable 3D buildings = lightweight embed
+	//   theme: "dark"          … color theme
+</script>
+
+<p>Serve this folder over HTTP (e.g. <code>npx serve .</code> at the unzipped root, then open <code>/example/</code>).
+	Opening via <code>file://</code> will not work.
+	／ このフォルダをHTTPで配信して開いてください（<code>file://</code> 直開きでは動きません）。</p>
+</body>
+</html>

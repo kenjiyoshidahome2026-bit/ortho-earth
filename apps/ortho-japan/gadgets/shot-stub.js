@@ -4,6 +4,8 @@
 // 本体到着後は同じボタンへ本体のリスナーが付き、スタブは abort で退場（二重発火なし）。搭載APIは従来どおり map.gadget.shot()。
 import { gadgetStack } from "./stack.js";
 import { keyBusy } from "./keys.js";
+import { tr } from "../i18n.js";
+const t = tr({ "画面を画像で保存 ({0})": "Save view as image ({0})", "画面を画像で保存": "Save view as image" });
 
 // カメラ（レンズ+本体）グリフ（本体 shot.js と同一＝スタブがボタンを作る担当）。線色は本線インク直書き＝夜節が自動反転。
 const ICON = `
@@ -17,7 +19,7 @@ export function shot(opts = {}) {
 	if (mapEl.querySelector("#shot-btn")) return;   // 二重搭載は無害
 	const mac = /Mac|iP(hone|ad|od)/.test(navigator.platform || "");
 	const btn = document.createElement("button");
-	btn.id = "shot-btn"; btn.dataset.tip = `画面を画像で保存 (${mac ? "⌘S" : "Ctrl+S"})`; btn.setAttribute("aria-label", "画面を画像で保存");
+	btn.id = "shot-btn"; btn.dataset.tip = t("画面を画像で保存 ({0})", mac ? "⌘S" : "Ctrl+S"); btn.setAttribute("aria-label", t("画面を画像で保存"));
 	btn.innerHTML = ICON;
 	gadgetStack(mapEl).append(btn);
 
@@ -26,7 +28,7 @@ export function shot(opts = {}) {
 	opts.signal && opts.signal.addEventListener("abort", () => stub.abort(), { once: true });   // destroy 時も退場
 	const boot = () => real ||= import("./shot.js")
 		.then(m => { const g = m.shot.call(map, { ...opts, btn }); stub.abort(); return g; })   // 本体は持参 btn を再利用
-		.catch(e => { real = null; console.error("[shot] 本体の読み込みに失敗", e); });
+		.catch(e => { real = null; console.error("[shot] failed to load module", e); });
 	let opening = false;   // 読み込み中の連打を一回に畳む（搭載後はスタブごと退場＝本体が受ける）
 	const activate = () => { if (opening) return; opening = true; boot().then(g => { opening = false; g && g.open?.(); }); };   // open＝capture（撮影）
 	btn.addEventListener("click", activate, { signal: stub.signal });

@@ -5,12 +5,14 @@
 // 未設定なら既定メニュー（この地点へ寄る／座標をコピー）＝搭載しただけで使える。
 // ctx＝{ lng, lat, x, y, map }。lng/lat は指した画面座標の逆投影（screen→world。裏半球や宇宙なら undefined）。
 // unprojectAt＝画面座標→経緯度（実装は engine の unproject／注入は登録側）。signal＝destroy 時のリスナー解除。
+import { tr } from "../i18n.js";
+const t = tr({ "この地点へ寄る": "Zoom to this point", "座標をコピー": "Copy coordinates" });
 export function contextmenu({ unprojectAt, signal, items } = {}) {
 	const mapEl = this.mapEl, cam = this.cam, flyTo = this.flyTo, map = this;
 	if (mapEl.querySelector("#ctxmenu")) return () => {};   // 二重搭載は無害
 	const DEFAULT = [
-		{ name: "この地点へ寄る", onClick: c => c.lng != null && flyTo(c.lng, c.lat, Math.max(cam.zoom, 15), cam.pitch * 180 / Math.PI) },
-		{ name: "座標をコピー", onClick: c => c.lng != null && navigator.clipboard?.writeText(`${c.lat.toFixed(6)}, ${c.lng.toFixed(6)}`) },
+		{ name: t("この地点へ寄る"), onClick: c => c.lng != null && flyTo(c.lng, c.lat, Math.max(cam.zoom, 15), cam.pitch * 180 / Math.PI) },
+		{ name: t("座標をコピー"), onClick: c => c.lng != null && navigator.clipboard?.writeText(`${c.lat.toFixed(6)}, ${c.lng.toFixed(6)}`) },
 	];
 	let list = items || DEFAULT;
 	const menu = document.createElement("div");

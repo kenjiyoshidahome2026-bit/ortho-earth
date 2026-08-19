@@ -6,13 +6,13 @@ export function ai(opts = {}) {
 	const map = this;
 	// PC専用ガード＝本体を読み込む前にモバイルで弾く（本体 ai.js の同ガードと二重だが、モバイルでの無駄DLを断つ）。
 	if (!opts.force && !matchMedia("(min-width: 900px) and (pointer: fine)").matches) {
-		console.warn("[ai] PC専用（画面2分割）＝この画面には搭載しない");
+		console.warn("[ai] desktop only (split-screen layout), not mounting on this screen");
 		return;
 	}
 	// 搭載＝即・本体を取りに行く（右列パネルの構築が「搭載」の実務そのもの＝クリック待ちの print とはここが違う）。
 	const ready = import("./ai.js")
 		.then(m => m.ai.call(map, opts))
-		.catch(e => { console.error("[ai] 本体の読み込みに失敗", e); return null; });
+		.catch(e => { console.error("[ai] failed to load module", e); return null; });
 	// 同期ファサード：ask/close は本体到着を待って委譲。panel は DOM から引く（本体到着後に #ai が立つ）。
 	return {
 		ready,   // 本体到着の Promise（テスト・プログラム制御用）

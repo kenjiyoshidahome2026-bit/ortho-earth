@@ -5,6 +5,14 @@
 // カードは常に白地＝スキャンの掟（白背景+黒モジュール+四周のクワイエットゾーン）。テーマ（夜等）に依らず白。
 import { gadgetStack } from "./stack.js";
 import { qrEncode } from "./qrcode.js";
+import { tr } from "../i18n.js";
+const t = tr({
+	"この視点をQRで共有": "Share this view via QR",
+	"現在の視点をQRコードで共有": "Share the current view as a QR code",
+	"共有URLのQRコード": "QR code of the share URL",
+	"スキャンで、この視点を開く": "Scan to open this view",
+	"QR化に失敗（URLが長すぎ？）": "QR encoding failed (URL too long?)"
+});
 
 // QRらしいグリフ（3隅ファインダ＋数個のモジュール）。線色は本線インク直書き＝quiet-mono の夜節が自動反転（palette と同流儀）。
 const ICON = `<svg viewBox="0 0 24 24" width="20" height="20" fill="#3f4757" aria-hidden="true">
@@ -25,14 +33,14 @@ export function qr({ getUrl, signal, btn } = {}) {
 	if (!btn) {   // 直搭載（qr-stub 非経由＝単体でも動く＝独立）＝自前でボタン生成。stub 経由は btn 持参で再利用
 		if (mapEl.querySelector("#qr-btn")) return;   // 二重搭載は無害
 		btn = document.createElement("button");
-		btn.id = "qr-btn"; btn.dataset.tip = "この視点をQRで共有"; btn.setAttribute("aria-label", "現在の視点をQRコードで共有");
+		btn.id = "qr-btn"; btn.dataset.tip = t("この視点をQRで共有"); btn.setAttribute("aria-label", t("現在の視点をQRコードで共有"));
 		btn.innerHTML = ICON;
 		gadgetStack(mapEl).append(btn);   // 置き場所はスタック（搭載順＝縦の並び）
 	}
 
 	const panel = document.createElement("div");
 	panel.id = "qr-panel";
-	panel.innerHTML = `<div class="qr-card"><div class="qr-wrap"><canvas aria-label="共有URLのQRコード"></canvas><img class="qr-mark" alt="" aria-hidden="true"></div><div class="qr-cap">スキャンで、この視点を開く</div><div class="qr-url"></div></div>`;
+	panel.innerHTML = `<div class="qr-card"><div class="qr-wrap"><canvas aria-label="${t("共有URLのQRコード")}"></canvas><img class="qr-mark" alt="" aria-hidden="true"></div><div class="qr-cap">${t("スキャンで、この視点を開く")}</div><div class="qr-url"></div></div>`;
 	mapEl.append(panel);   // 末尾append＝DOM順で最上面（z-index全廃の裁き）
 	const canvas = panel.querySelector("canvas"), urlEl = panel.querySelector(".qr-url"), markEl = panel.querySelector(".qr-mark");
 	markEl.src = MARK_URL;   // ベクトルの印（静的＝視点で変わらない）。寸法は render が白ヌキに合わせて設定
@@ -56,7 +64,7 @@ export function qr({ getUrl, signal, btn } = {}) {
 			// ベクトルの印を白ヌキに重ねる（内側1モジュールの白縁を残す）。%指定＝canvas表示サイズに追従・拡大/名刺印刷でも鮮鋭。
 			markEl.style.width = (100 * (k - 2) / (N + quiet * 2)) + "%";
 			urlEl.textContent = url;
-		} catch (e) { markEl.style.width = "0"; urlEl.textContent = "QR化に失敗（URLが長すぎ？）"; console.warn("[qr]", e); }
+		} catch (e) { markEl.style.width = "0"; urlEl.textContent = t("QR化に失敗（URLが長すぎ？）"); console.warn("[qr]", e); }
 	};
 	const close = () => panel.classList.remove("open");
 	btn.addEventListener("click", () => { if (panel.classList.toggle("open")) render(); });   // 開く度に「今の視点」で作り直す

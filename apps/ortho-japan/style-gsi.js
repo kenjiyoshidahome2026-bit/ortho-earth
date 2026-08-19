@@ -38,7 +38,7 @@ const MAP = {
 function swap(v) {
 	if (typeof v === "string") {
 		if (MAP[v]) return MAP[v];
-		if (/^#[0-9a-f]{3,8}$/i.test(v)) console.warn(`[style-gsi] 対応表に無い色 ${v}＝monoのまま`);
+		if (/^#[0-9a-f]{3,8}$/i.test(v)) console.warn(`[style-gsi] color not in mapping table ${v} = kept as mono`);
 		return v;
 	}
 	if (Array.isArray(v)) return v.map(swap);

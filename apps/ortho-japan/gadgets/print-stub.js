@@ -4,6 +4,11 @@
 // 本体が搭載されると同じボタンへ自前のリスナーを付け直し、スタブ側は abort で退場（二重発火なし）。
 import { gadgetStack } from "./stack.js";
 import { keyBusy } from "./keys.js";
+import { tr } from "../i18n.js";
+const t = tr({
+	"平面図を印刷 ({0})": "Print plan map ({0})",
+	"平面図を印刷": "Print plan map",
+});
 
 export function print(opts = {}) {
 	const map = this, mapEl = this.mapEl;
@@ -11,7 +16,7 @@ export function print(opts = {}) {
 	if (mapEl.querySelector("#print-btn")) return;   // 二重搭載は無害
 	const mac = /Mac|iP(hone|ad|od)/.test(navigator.platform || "");
 	const btn = document.createElement("button");
-	btn.id = "print-btn"; btn.dataset.tip = `平面図を印刷 (${mac ? "⌘P" : "Ctrl+P"})`; btn.setAttribute("aria-label", "平面図を印刷");
+	btn.id = "print-btn"; btn.dataset.tip = t("平面図を印刷 ({0})", mac ? "⌘P" : "Ctrl+P"); btn.setAttribute("aria-label", t("平面図を印刷"));
 	btn.innerHTML = `
 		<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#3f4757" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round" aria-hidden="true">
 			<path d="M6.5 9V3.5h11V9"/>
@@ -24,7 +29,7 @@ export function print(opts = {}) {
 	opts.signal && opts.signal.addEventListener("abort", () => stub.abort(), { once: true });   // destroy 時も退場
 	const boot = () => real ||= import("./print.js")
 		.then(m => { const g = m.print.call(map, { ...opts, btn }); stub.abort(); return g; })
-		.catch(e => { real = null; console.error("[print] 本体の読み込みに失敗", e); });
+		.catch(e => { real = null; console.error("[print] failed to load module", e); });
 	let opening = false;   // 読み込み中の連打を一回に畳む（搭載後はスタブごと退場済み＝本体が受ける）
 	const activate = () => { if (opening) return; opening = true; boot().then(g => { opening = false; g && g.open(); }); };
 	btn.addEventListener("click", activate, { signal: stub.signal });

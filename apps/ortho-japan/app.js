@@ -44,6 +44,49 @@ import { parseScenes } from "./demo/scene-adapter.js";   // 共有シーン台�
 import { buildSceneTimeline } from "./demo/scene-timeline.js";   // 台本→総タイムライン（時刻評価・純関数）＝スクラブの芯（map.sceneTimeline が env と画面適用を束ねる）
 import { ai as aiGadget } from "./gadgets/ai-stub.js";   // 玄関スタブ＝同期ファサードを即返し、本体(ai.js＋ai/一式＋将来LLM)は搭載時に import()＝初期バンドルから完全隔離
 import { modalOpen } from "./gadgets/keys.js";   // 矢印キーのモーダル抑止に使う共通判定（ショートカット群と共有）
+import { setLang, getLang, tr } from "./i18n.js";   // UI二言語化（ja正典・詳細はi18n.js）。地図の中身（地名等）は対象外
+
+// app.js 持参のUI辞書（ja文字列がキー・未訳はjaのまま出る）。ガジェット各自の辞書は各ファイル冒頭に。
+const t = tr({
+	"再読み込み": "Reload",
+	"この地図はお使いのブラウザでは表示できません": "This map cannot be displayed in your browser",
+	"3Dの地球儀を WebGL2 と OffscreenCanvas で描いています。最新の Chrome / Edge / Firefox、または Safari 17 以降でお試しください。":
+		"This 3D globe is drawn with WebGL2 and OffscreenCanvas. Please try the latest Chrome / Edge / Firefox, or Safari 17 or later.",
+	"GPU の応答を待っています…": "Waiting for the GPU to respond…",
+	"描画プロセスの再起動直後はこの表示が出ることがあります。数秒で自動的に始まります。":
+		"This can appear right after the graphics process restarts. It should start automatically in a few seconds.",
+	"3D描画を開始できません": "Cannot start 3D rendering",
+	"お使いのブラウザは対応していますが、GPU（WebGL2）が応答しません。ブラウザを完全に終了して開き直すか、設定で「ハードウェアアクセラレーション」が有効かご確認ください。":
+		"Your browser is supported, but the GPU (WebGL2) is not responding. Quit the browser completely and reopen it, or check that hardware acceleration is enabled in the settings.",
+	"地図データの取得に失敗しています（通信状態をご確認ください）": "Failed to load map data (please check your connection)",
+	"端末を縦向きにしてご覧ください（タップで閉じる）": "Please rotate your device to portrait (tap to dismiss)",
+	"起動に時間がかかっています": "Startup is taking longer than usual",
+	"回線が遅い場合、初回は読み込みに時間がかかることがあります（読み込みは続いています）。そのまま少しお待ちください。改善しない場合は再読み込みを。それでも駄目な場合は、ブラウザの設定で「ハードウェアアクセラレーション」が有効かご確認ください。":
+		"On a slow connection the first load can take a while (loading is still in progress). Please wait a moment. If it does not improve, reload the page — and if that fails, check that hardware acceleration is enabled in your browser settings.",
+	"互換描画(WebGL2)モード — タップで高速モード再試行": "Compatibility rendering (WebGL2) — tap to retry fast mode",
+	"互換描画(WebGL2)で起動 — 再読み込みで高速モード再試行": "Started in compatibility rendering (WebGL2) — reload to retry fast mode",
+	"3D描画を開始できませんでした": "Could not start 3D rendering",
+	"WebGL2 の初期化に失敗しました（{0}）。ブラウザの「ハードウェアアクセラレーション」が無効になっている可能性があります。":
+		"WebGL2 initialization failed ({0}). Hardware acceleration may be disabled in your browser.",
+	"GPU の描画が中断されました": "GPU rendering was interrupted",
+	"描画コンテキストが失われました（GPUメモリ不足などで起こります）。他のタブやアプリを閉じてから再読み込みしてください。":
+		"The rendering context was lost (this can happen when GPU memory runs low). Close other tabs or apps, then reload.",
+	"⛰ 標高ローダ {0}": "⛰ Elevation loader {0}",
+	"⛰ 地形読込中 {0} … ×{1}": "⛰ Loading terrain {0} … ×{1}",
+	"R01（秒単位）": "R01 (takes seconds)",
+	"🏙 建物3D 読込中 ": "🏙 Loading 3D buildings ",
+	"{0} {1}/{2}枚": "{0} {1}/{2} tiles",
+	"{0} カタログ走査 {1}…": "{0} scanning catalog {1}…",
+	"シーンを読み込み中…": "Loading the scene…",
+	"標高タイル": "terrain tiles",
+	"3D都市（PLATEAU）": "3D city (PLATEAU)",
+	"都市を立ち上げ中…": "standing up the city…",
+	"{0} / {1} 区": "{0} / {1} districts",
+	"準備中…": "preparing…",
+	"星図: d3-celestial ／ 海岸線: Natural Earth ／ 標高: GEBCO ／ © 2026 Kenji Yoshida":
+		"Star chart: d3-celestial / Coastlines: Natural Earth / Bathymetry: GEBCO / © 2026 Kenji Yoshida",
+	"経度": "Lon", "緯度": "Lat", "標高": "Elev", "z値": "z", "回転": "Rot", "傾度": "Tilt",
+});
 
 // ============================================================================================
 // ortho-japan：1行で日本が立ち上がる入口（v1 orthoMap の作法の継承）。
@@ -63,6 +106,8 @@ import { modalOpen } from "./gadgets/keys.js";   // 矢印キーのモーダル�
 //   検索・操作説明はオプトインガジェット＝ map.gadget.search() / map.gadget.hint() で画面ごとに追加（v1 ortho-map の作法）
 // ============================================================================================
 export default async function orthoJapan(opts = {}) {
+// UI言語を最初に確定（opts.lang > ?lang= > ブラウザ言語）。以降のfatal/トースト/ガジェットが全て従う。
+setLang(opts.lang);
 // 起動の容れ物：target指定（selector/要素）→ 無ければ既存#map → それも無ければbody直下に自作。
 // 意匠（quiet-mono）とガジェットは id="map" の家具規格で当たるため、容れ物のidはmapへ正規化する。
 // ※ id→クラス化（多重化/二本建）は quiet-mono の #map スコープ移設(→中立クラス)とセットでないと
@@ -90,9 +135,9 @@ const mapElPrevId = mapEl.id;   // 預かった div の元の id＝destroy で�
 //   その指定は改名の瞬間に外れる（寸法を id で与えていると #map{height:100%} が親無しで 0 になり地図が消える）。
 //   黙って0サイズにするのが最悪なので、借りる時に一度だけ言う。寸法はクラスか inline style で与えてもらう。
 if (mapElPrevId && mapElPrevId !== "map")
-	console.warn(`[ortho-japan] 容れ物の id を "${mapElPrevId}" → "map" に借ります（家具規格）。`
-		+ `#${mapElPrevId} を使ったCSSは効かなくなります＝寸法はクラスか inline style で指定してください。`
-		+ `destroy() で id は返します。`);
+	console.warn(`[ortho-japan] borrowing container id "${mapElPrevId}" -> "map" (furniture standard). `
+		+ `CSS targeting #${mapElPrevId} will no longer apply = give dimensions via class or inline style. `
+		+ `destroy() restores the id.`);
 mapEl.id = "map";
 // 舞台のcanvas 2層（基図GL＝知性gintも同居/ラベル）も自給＝index.htmlは空のdivだけでよい
 // （旧・#gint 別canvas は 1canvas統合で撤去＝gint は render worker の GL パスとして #c に描かれる）
@@ -131,7 +176,7 @@ const normLayerKey = k => LEGACY_LAYER_KEYS[k] || k;
 const fixedLayers = {};
 if (opts.layers) for (const [k0, v] of Object.entries(opts.layers)) {
 	const k = normLayerKey(k0);
-	if (!(k in defaultLayerState)) { console.warn(`[layers] 未知のキー "${k0}"（有効: ${Object.keys(defaultLayerState).join(", ")}）`); continue; }
+	if (!(k in defaultLayerState)) { console.warn(`[layers] unknown key "${k0}" (valid: ${Object.keys(defaultLayerState).join(", ")})`); continue; }
 	if (typeof v === "boolean") fixedLayers[k] = v;   // boolean だけが固定。それ以外は「記述無し」と同じ＝既定＋チップ
 }
 const FREE_LAYER_KEYS = Object.keys(defaultLayerState).filter(k => !(k in fixedLayers));   // 客が触れる＝URLに載る集合
@@ -144,7 +189,7 @@ const themeFixed = !!opts.theme;   // 埋め込みの焼き付け＝URLに書か
 const themeBootV = parseViewHash(opts.view || location.hash);
 let themeName = typeof opts.theme === "string" ? opts.theme
 	: themeBootV?.theme || (themeBootV?.layers?.includes("dark") ? "dark" : "mono");   // l=dark＝c=移行前の互換読み
-if (typeof opts.theme !== "object" && !MAP_THEMES[themeName]) console.warn(`[theme] 未知のテーマ "${themeName}"＝mono で起動（有効: ${Object.keys(MAP_THEMES).join(", ")}）`);
+if (typeof opts.theme !== "object" && !MAP_THEMES[themeName]) console.warn(`[theme] unknown theme "${themeName}" = starting as mono (valid: ${Object.keys(MAP_THEMES).join(", ")})`);
 let theme = typeof opts.theme === "object" ? { ...MAP_THEMES.mono, ...opts.theme }   // カスタム＝mono を土台に部分上書き
 	: (MAP_THEMES[themeName] || MAP_THEMES.mono);
 let style = theme.style;
@@ -178,7 +223,7 @@ const LOW_MEM = navigator.deviceMemory ? navigator.deviceMemory <= 4 : navigator
 //    段階A（Vincenty/authalic・無条件）が担う＝表示の楕円体は絵に寄与しない。モバイル恒久球（③）とも
 //    世界の形が揃う。⚠この切替でデスクトップの焼き済み PLATEAU は世代交代（meta.ell 印）＝初回のみ再焼き。
 const ELL_ON = /[?&]ell=1/.test(location.search);
-console.log(`[geo] 世界＝${ELL_ON ? "WGS84楕円体（β球×S）" : "球6371km（?ell=1で表示もWGS84・計測は常時WGS84）"}`);   // 実機切り分けの計器（スクショのコンソールで世界が判る）
+console.log(`[geo] world=${ELL_ON ? "WGS84 ellipsoid (beta-sphere x S)" : "sphere 6371km (?ell=1 renders WGS84 too; measurement always WGS84)"}`);   // 実機切り分けの計器（スクショのコンソールで世界が判る）
 setEllipsoid(ELL_ON);
 const EARTH_M = worldRadiusM(), TERR_EXAG = 1.0;   // m→世界単位の換算半径は camera.js が正本（球6371000/楕円体a）。標高は実スケール（誇張しない＝地形を歪めない）。ラベル・地形・建物で共有
 
@@ -190,7 +235,7 @@ function fatalOverlay(title, detail, reload) {
 	d.innerHTML = `<div class="fatal-box">
 		<div class="fatal-title">${title}</div>
 		<div class="fatal-detail">${detail}</div>
-		${reload ? '<button class="fatal-reload" onclick="location.reload()">再読み込み</button>' : ""}</div>`;
+		${reload ? `<button class="fatal-reload" onclick="location.reload()">${t("再読み込み")}</button>` : ""}</div>`;
 	mapEl.appendChild(d);
 	return d;
 }
@@ -209,19 +254,19 @@ let gpuRenderer = "";   // GPU 素性の文字列（下の MID_TIER 判定用）
 		return !!g;
 	};
 	if (!HTMLCanvasElement.prototype.transferControlToOffscreen) {
-		fatalOverlay("この地図はお使いのブラウザでは表示できません",
-			"3Dの地球儀を WebGL2 と OffscreenCanvas で描いています。最新の Chrome / Edge / Firefox、または Safari 17 以降でお試しください。");
+		fatalOverlay(t("この地図はお使いのブラウザでは表示できません"),
+			t("3Dの地球儀を WebGL2 と OffscreenCanvas で描いています。最新の Chrome / Edge / Firefox、または Safari 17 以降でお試しください。"));
 		throw new Error("unsupported: offscreencanvas");
 	}
 	if (!probeGL()) {
-		const waiting = fatalOverlay("GPU の応答を待っています…",
-			"描画プロセスの再起動直後はこの表示が出ることがあります。数秒で自動的に始まります。");
+		const waiting = fatalOverlay(t("GPU の応答を待っています…"),
+			t("描画プロセスの再起動直後はこの表示が出ることがあります。数秒で自動的に始まります。"));
 		let ok = false;
 		for (let i = 0; i < 10 && !ok; i++) { await new Promise(r => setTimeout(r, 1000)); ok = probeGL(); }
 		waiting.remove();
 		if (!ok) {
-			fatalOverlay("3D描画を開始できません",
-				"お使いのブラウザは対応していますが、GPU（WebGL2）が応答しません。ブラウザを完全に終了して開き直すか、設定で「ハードウェアアクセラレーション」が有効かご確認ください。", true);
+			fatalOverlay(t("3D描画を開始できません"),
+				t("お使いのブラウザは対応していますが、GPU（WebGL2）が応答しません。ブラウザを完全に終了して開き直すか、設定で「ハードウェアアクセラレーション」が有効かご確認ください。"), true);
 			throw new Error("unsupported: webgl2 unavailable (after 10s retry)");
 		}
 	}
@@ -246,17 +291,17 @@ const MID_TIER = /[?&]mid=1/.test(location.search) || (!/[?&]mid=0/.test(locatio
 	(/\bintel\b/i.test(gpuRenderer) && !/\barc\b/i.test(gpuRenderer)) ||    // Intel HD/UHD/Iris/Xe＝内蔵（Arc は独立GPU＝対象外）
 	/\bvega\b|radeon\(tm\) graphics/i.test(gpuRenderer) ||                  // AMD APU の内蔵GPU
 	/swiftshader|llvmpipe|basic render/i.test(gpuRenderer)));               // ソフトウェアラスタ＝論外に非力
-if (MID_TIER) console.log(`[boot] 非力機ティア＝PLATEAU を安全側へ（gpu="${gpuRenderer || "不明"}" cores=${navigator.hardwareConcurrency || "?"}）`);
+if (MID_TIER) console.log(`[boot] mid-tier device = PLATEAU to safe side (gpu="${gpuRenderer || "unknown"}" cores=${navigator.hardwareConcurrency || "?"})`);
 // 通信断トースト：offline イベント＋タイル連続失敗で表示、回復（online/タイル成功）で消える。地図は粗い下地で生き続ける。
 const netEl = document.createElement("div");
 netEl.id = "net-toast";   // スタイルは style.css
-netEl.textContent = "地図データの取得に失敗しています（通信状態をご確認ください）";
+netEl.textContent = t("地図データの取得に失敗しています（通信状態をご確認ください）");
 mapEl.appendChild(netEl);
 // 縦向き案内：スマホ横向き（coarseポインタ＋低い横長ビューポート）で縦向きを促す。表示制御は CSS メディアクエリのみ
 // ＝JSは要素を置くだけ（回転すれば自然に消える）。タップで閉じたら inline display:none がメディアクエリに勝つ＝再表示しない。
 const rotEl = document.createElement("div");
 rotEl.id = "rotate-toast";   // スタイルと表示条件は components.scss（#rotate-toast）
-rotEl.textContent = "端末を縦向きにしてご覧ください（タップで閉じる）";
+rotEl.textContent = t("端末を縦向きにしてご覧ください（タップで閉じる）");
 rotEl.onclick = () => { rotEl.style.display = "none"; };
 mapEl.appendChild(rotEl);
 let tileFails = 0;
@@ -363,25 +408,25 @@ const gpuBackend = !forceGl2 && "gpu" in navigator && (/[?&]gpu=1/.test(location
 // フォールバック起因の GL2（＝WebGPU が使えるはずの環境で印により落ちている）だけチップを出す。
 // Android 既定 GL2・?gl2=1・navigator.gpu 無しの「設計どおり GL2」には出さない（ノイズにしない）。
 const gl2Fallback = !forceGl2 && "gpu" in navigator && !IS_ANDROID && !gpuBackend;
-if (IS_ANDROID && "gpu" in navigator && !gpuBackend && !forceGl2) console.log("[boot] Android＝WebGL2 既定（WebGPUはドライバ黒画面族のため封印・?gpu=1で再試行可）");
+if (IS_ANDROID && "gpu" in navigator && !gpuBackend && !forceGl2) console.log("[boot] Android = WebGL2 by default (WebGPU sealed due to driver black-screen family; retry with ?gpu=1)");
 // stay=1 の診断HUD：コンソールを見なくても分かるよう、判定を画面へ大書（iOS 実機診断 2026-08-02）
 const diagHud = /[?&]stay=1/.test(location.search) ? (() => {
 	const d = document.createElement("div");
 	d.style.cssText = "position:fixed;left:8px;top:8px;z-index:99999;background:rgba(0,0,0,.82);color:#7f7;font:13px/1.5 monospace;padding:8px 10px;border-radius:8px;max-width:86vw;word-break:break-all;white-space:pre-wrap";
-	d.textContent = "診断HUD 起動…";
+	d.textContent = "diag HUD starting…";
 	addEventListener("DOMContentLoaded", () => document.body.appendChild(d));
 	if (document.body) document.body.appendChild(d);
 	const t0 = performance.now();
 	const lines = new Map();
 	const put = (k, v) => { lines.set(k, v); d.textContent = [...lines.entries()].map(([a, b]) => a + ": " + b).join("\n"); };
 	put("build", "v-fade1");
-	put("経過", "0s"); setInterval(() => put("経過", ((performance.now() - t0) / 1000).toFixed(0) + "s"), 1000);
-	setInterval(() => put("main送信", `draw ${dbgHost.__drawSendN || 0}回${dbgHost.__drawSendErr ? " 送信エラー:" + dbgHost.__drawSendErr : ""}`), 1000);
-	put("frame1", "未着 ✗");
+	put("elapsed", "0s"); setInterval(() => put("elapsed", ((performance.now() - t0) / 1000).toFixed(0) + "s"), 1000);
+	setInterval(() => put("main tx", `draw x${dbgHost.__drawSendN || 0}${dbgHost.__drawSendErr ? " send error:" + dbgHost.__drawSendErr : ""}`), 1000);
+	put("frame1", "not received ✗");
 	return put;
 })() : null;
-if (/[?&]gpu=1/.test(location.search) && !gpuBackend) console.warn("[boot] gpu=1 指定だが WebGPU 不可（navigator.gpu なし or gl2=1 併記）＝WebGL2 で起動");
-if (gl2Fallback) console.warn(`[boot] WebGPU フォールバック中＝WebGL2（理由=${nogpuMark || "累積" }・累積${nogpuN}回${nogpuN >= 2 ? "＝このタブは固定" : "＝次のリロードで再試行"}）`);
+if (/[?&]gpu=1/.test(location.search) && !gpuBackend) console.warn("[boot] gpu=1 requested but WebGPU unavailable (no navigator.gpu, or gl2=1 also set) = starting as WebGL2");
+if (gl2Fallback) console.warn(`[boot] WebGPU fallback active = WebGL2 (reason=${nogpuMark || "accumulated" }, count ${nogpuN}${nogpuN >= 2 ? " = pinned for this tab" : " = retry on next reload"})`);
 // ?noterr=1 ＝標高（アトラス・地形メッシュ・タイルLRU）を丸ごと停止する A/B 計測ノブ（?nogint=1 と同格）。
 const noTerr = /[?&]noterr=1/.test(location.search);
 // ?farterr=0 ＝遠景地形層（深ズーム×チルトの R10 第2アトラス＝ズームインしても遠方の山が消えない一般則）を
@@ -409,7 +454,7 @@ const renderer = {
 	set: (cmd, data, prop) => wPost({ type: "set", cmd, data, prop }),
 	draw: (cam, opts) => {
 		try { wPost({ type: "draw", cam, opts }); dbgHost.__drawSendN = (dbgHost.__drawSendN || 0) + 1; }
-		catch (e) { dbgHost.__drawSendErr = String(e && e.message); console.error("[boot] draw送信失敗:", e); }
+		catch (e) { dbgHost.__drawSendErr = String(e && e.message); console.error("[boot] draw send failed:", e); }
 	},
 };
 let elevBusy = false;   // 標高タイル（R01/R10/R90）読込中＝PLATEAU先読みの柵（デモの地形シーンで起伏が立たない事故の防止）
@@ -423,13 +468,13 @@ logEl.style.display = "none";
 // 起動ウォッチドッグ：最初のフレーム(frame1)が10秒来なければ原因不明でも案内を出す（健全なら1秒未満で来る）。
 // glfail=worker内のWebGL2初期化失敗、contextlost=GPUコンテキスト喪失（1回だけ自動リロード→再発なら案内）。
 let bootT = setTimeout(() => {
-	fatalOverlay("起動に時間がかかっています", "回線が遅い場合、初回は読み込みに時間がかかることがあります（読み込みは続いています）。そのまま少しお待ちください。改善しない場合は再読み込みを。それでも駄目な場合は、ブラウザの設定で「ハードウェアアクセラレーション」が有効かご確認ください。", true);
+	fatalOverlay(t("起動に時間がかかっています"), t("回線が遅い場合、初回は読み込みに時間がかかることがあります（読み込みは続いています）。そのまま少しお待ちください。改善しない場合は再読み込みを。それでも駄目な場合は、ブラウザの設定で「ハードウェアアクセラレーション」が有効かご確認ください。"), true);
 }, 10000);
 // gpu=1 の frame1 不達（20秒）＝WebGPU 経路が固まっている疑い＝WebGL2 で仕切り直し（遅い回線のコールドブート実測
 // 16秒@400kbps を考慮した余裕。present 沈黙故障と対で、実験フラグがどう転んでも WebGL2 の絵に必ず着地させる）。
 if (gpuBackend) setTimeout(() => {
 	if (!dbgHost.__backend && !/[?&]stay=1/.test(location.search)) {
-		console.error("[boot] gpu=1 で 20秒 frame1 なし → WebGL2 で再起動");
+		console.error("[boot] gpu=1: no frame1 in 20s -> restarting as WebGL2");
 		markNoGpu("frame1-20s");
 		location.reload();
 	}
@@ -460,15 +505,15 @@ renderWorker.onmessage = e => {
 	if (d.type === "frame1") {
 		clearTimeout(bootT); bootT = null; dbgHost.__backend = d.backend || "webgl2"; sessionStorage.removeItem("oj.ctxlost");   // 初描画成功＝自動リロード回数もリセット。__backend＝スモークテスト用（webgl2/webgpu）
 		document.getElementById("fatal")?.remove();   // 遅い回線でウォッチドッグ(10s)が先に出た後の遅着 frame1＝案内を畳む（地図は生きているのに被さったまま＝「何も出ない」の正体・モバイル実測 2026-08-02）
-		console.log(`[boot] frame1 受信 backend=${dbgHost.__backend}`);
-		diagHud && diagHud("frame1", `受信 ✓ backend=${dbgHost.__backend}`);
+		console.log(`[boot] frame1 received backend=${dbgHost.__backend}`);
+		diagHud && diagHud("frame1", `received ✓ backend=${dbgHost.__backend}`);
 		// フォールバック GL2 の画面表示（柔らか鍵の③）：黙って重いモードで走らない。タップ＝印を全消しして
 		// WebGPU 再試行（CNG フリートで端末を覗いた瞬間に状態が分かる・観客の端末でも1タップで復帰を試せる）。
 		if (dbgHost.__backend !== "webgpu" && gl2Fallback) {
 			const chip = document.createElement("div");
 			chip.id = "gl2-chip";
 			chip.style.cssText = "position:fixed;left:8px;bottom:calc(8px + env(safe-area-inset-bottom,0px));z-index:9000;background:rgba(20,24,34,.78);color:#ffd479;font:11px/1.4 system-ui,sans-serif;padding:5px 9px;border-radius:14px;cursor:pointer;user-select:none;-webkit-user-select:none";
-			chip.textContent = nogpuN >= 2 ? "互換描画(WebGL2)モード — タップで高速モード再試行" : "互換描画(WebGL2)で起動 — 再読み込みで高速モード再試行";
+			chip.textContent = nogpuN >= 2 ? t("互換描画(WebGL2)モード — タップで高速モード再試行") : t("互換描画(WebGL2)で起動 — 再読み込みで高速モード再試行");
 			chip.onclick = () => { sessionStorage.removeItem("oj.nogpu"); sessionStorage.removeItem("oj.nogpuN"); location.reload(); };
 			document.body.appendChild(chip);
 		}
@@ -478,8 +523,8 @@ renderWorker.onmessage = e => {
 		if (dbgHost.__backend === "webgpu") setTimeout(() => {
 			const stay = /[?&]stay=1/.test(location.search);   // 診断閲覧モード＝フォールバックせず留まる（白画面のままエラー行を読む）
 			const bail = why => {
-				if (stay) { console.error(`[boot] WebGPU present 検証失敗（${why}）。stay=1＝フォールバック抑止＝このまま診断行を確認してください`); diagHud && diagHud("present", `失敗 ✗（${why}）`); return; }
-				console.error(`[boot] WebGPU present 検証失敗（${why}）→ 3秒後に WebGL2 で再起動（GPU診断の到着待ち）`);
+				if (stay) { console.error(`[boot] WebGPU present verification failed (${why}). stay=1 = fallback suppressed; inspect the diag lines`); diagHud && diagHud("present", `failed ✗ (${why})`); return; }
+				console.error(`[boot] WebGPU present verification failed (${why}) -> restarting as WebGL2 in 3s (waiting for GPU diagnostics)`);
 				markNoGpu("present:" + why);
 				setTimeout(() => location.reload(), 3000);
 			};
@@ -489,9 +534,9 @@ renderWorker.onmessage = e => {
 				g.drawImage(canvas, 0, 0, 16, 16);
 				const px = g.getImageData(0, 0, 16, 16).data;
 				let nz = 0; for (let i = 0; i < px.length; i += 4) if (px[i] | px[i + 1] | px[i + 2] | px[i + 3]) nz++;
-				if (nz === 0) bail("画素が canvas に届いていない");
-				else { console.log(`[boot] WebGPU present 検証OK（画素 ${nz}/256）`); diagHud && diagHud("present", `OK ✓ 画素${nz}/256`); sessionStorage.removeItem("oj.nogpuN"); }   // 検証通過＝この環境の WebGPU は本物＝過去の躓きの累積を消す
-			} catch (e) { bail("検証中の例外: " + (e && e.message)); }
+				if (nz === 0) bail("no pixels reached the canvas");
+				else { console.log(`[boot] WebGPU present verified (pixels ${nz}/256)`); diagHud && diagHud("present", `OK ✓ pixels ${nz}/256`); sessionStorage.removeItem("oj.nogpuN"); }   // 検証通過＝この環境の WebGPU は本物＝過去の躓きの累積を消す
+			} catch (e) { bail("exception during verification: " + (e && e.message)); }
 		}, 1500);
 		return;
 	}
@@ -501,27 +546,27 @@ renderWorker.onmessage = e => {
 		return;
 	}
 	if (d.type === "beat") {   // stay診断：ループ実行数＋描画ゲートの生死（dirty/cam/draw受信）
-		diagHud && diagHud("frameループ", `${d.n}回（ポンプ${d.pump}）`);
-		diagHud && diagHud("ゲート", `draw受信${d.drawMsgN}回 cam=${d.hasCam ? "✓" : "✗"} dirty=${d.dirty ? "✓" : "✗"} renderer=${d.hasRenderer ? "✓" : "✗"} frame1送信=${d.sentFrame1 ? "✓" : "✗"}`);
-		diagHud && diagHud("配達", `pong直結${d.pongD} ポート${d.pongC} BC${d.pongB} 自己${d.loopN}`);
-		diagHud && diagHud("経路", `scenePort着${d.sceneMsgN} relay最終着${d.relayRecvN} hop1受${globalThis.__relayCtlN || 0}`);
-		diagHud && diagHud("boot", `${d.bootStage} 待避列=${d.iqLen}`);
+		diagHud && diagHud("frame loop", `${d.n}x (pump ${d.pump})`);
+		diagHud && diagHud("gate", `draw recv ${d.drawMsgN}x cam=${d.hasCam ? "✓" : "✗"} dirty=${d.dirty ? "✓" : "✗"} renderer=${d.hasRenderer ? "✓" : "✗"} frame1 sent=${d.sentFrame1 ? "✓" : "✗"}`);
+		diagHud && diagHud("delivery", `pong direct ${d.pongD} port ${d.pongC} BC ${d.pongB} self ${d.loopN}`);
+		diagHud && diagHud("route", `scenePort recv ${d.sceneMsgN} relay final ${d.relayRecvN} hop1 recv ${globalThis.__relayCtlN || 0}`);
+		diagHud && diagHud("boot", `${d.bootStage} queued=${d.iqLen}`);
 		return;
 	}
 	if (d.type === "gpuPix") {   // stay診断：present 前の GPU テクスチャ実画素（rendering と present の切り分け）
-		console.log(`[boot] GPU内画素 ${d.nz}/${d.total}（present前読み戻し）`);
-		diagHud && diagHud("GPU内画素", `${d.nz}/${d.total} ${d.nz > 0 ? "→描画は生きている＝present側の問題" : "→クリアすら不在＝submit側の問題"}`);
+		console.log(`[boot] GPU-side pixels ${d.nz}/${d.total} (readback before present)`);
+		diagHud && diagHud("GPU pixels", `${d.nz}/${d.total} ${d.nz > 0 ? "-> rendering alive = present-side issue" : "-> not even a clear = submit-side issue"}`);
 		return;
 	}
 	if (d.type === "drawErr") {   // worker の draw 例外（初回のみ）＝毎フレーム失敗系の一次診断。モバイルは worker コンソールが見づらい＝main 側へ転写
-		console.error("[render] draw失敗（worker報告・一度だけ）:", d.msg, d.stack);
+		console.error("[render] draw failed (worker report, once):", d.msg, d.stack);
 		dbgHost.__drawErr = d.msg;
-		diagHud && diagHud("GPUエラー", d.msg.slice(0, 300));
+		diagHud && diagHud("GPU error", d.msg.slice(0, 300));
 		return;
 	}
 	if (d.type === "glfail") {
 		clearTimeout(bootT);
-		fatalOverlay("3D描画を開始できませんでした", `WebGL2 の初期化に失敗しました（${d.error}）。ブラウザの「ハードウェアアクセラレーション」が無効になっている可能性があります。`, true);
+		fatalOverlay(t("3D描画を開始できませんでした"), t("WebGL2 の初期化に失敗しました（{0}）。ブラウザの「ハードウェアアクセラレーション」が無効になっている可能性があります。", d.error), true);
 		return;
 	}
 	if (d.type === "gpuTier") { gpuFast = d.fast; return; }   // GPU格付け（renderworker tuneRes）＝静止時の手前詳細化の可否
@@ -530,7 +575,7 @@ renderWorker.onmessage = e => {
 		// まず黙って1回だけ立て直す。1秒待ってから＝GPUプロセスの再起動を待つ（即リロードだと復帰前の
 		// getContext が null＝旧・probe が「ブラウザ非対応」と誤診した。probe側のリトライと二段の保険）。
 		if (n < 1) { sessionStorage.setItem("oj.ctxlost", String(n + 1)); setTimeout(() => location.reload(), 1000); }
-		else fatalOverlay("GPU の描画が中断されました", "描画コンテキストが失われました（GPUメモリ不足などで起こります）。他のタブやアプリを閉じてから再読み込みしてください。", true);
+		else fatalOverlay(t("GPU の描画が中断されました"), t("描画コンテキストが失われました（GPUメモリ不足などで起こります）。他のタブやアプリを閉じてから再読み込みしてください。"), true);
 		return;
 	}
 	if (d.type === "mem") { memTerrain = d.terrain || 0; memHeap = d.heap || 0; memGpu = d.gpu || null; memFps = d.fps ?? memFps; memFrameMs = d.frameMs ?? memFrameMs; memRes = d.res ?? memRes; memBackend = d.backend || memBackend; memGpuName = d.gpuName || memGpuName; return; }   // ?hud=1：render worker からのメモリ台帳＋描画実測（HUD が合算・表示）
@@ -540,8 +585,8 @@ renderWorker.onmessage = e => {
 	elevBusy = count > 0; elevN = count;   // 標高タイル読込中＝PLATEAU先読みポンプの柵（地形シーンの起伏が先・下記 runPrefetch）
 	// stat＝標高ローダの自己申告（初期化中/初期化失敗:理由）。旧・沈黙死は「山が平ら・トーストも出ない・
 	// 理由は誰にも見えない」＝借り物端末（インスペクタ不可）で追跡不能だった。地形チップに関係なく出す＝診断が主目的。
-	if (stat) { elevEl.style.display = "block"; elevEl.textContent = `⛰ 標高ローダ ${stat}`; return; }
-	if (count > 0 && layerState.terrain) { elevEl.style.display = "block"; elevEl.textContent = `⛰ 地形読込中 ${range === 1 ? "R01（秒単位）" : range === 10 ? "R10" : "R90"} … ×${count}`; }
+	if (stat) { elevEl.style.display = "block"; elevEl.textContent = t("⛰ 標高ローダ {0}", stat); return; }
+	if (count > 0 && layerState.terrain) { elevEl.style.display = "block"; elevEl.textContent = t("⛰ 地形読込中 {0} … ×{1}", range === 1 ? t("R01（秒単位）") : range === 10 ? "R10" : "R90", count); }
 	else elevEl.style.display = "none";
 };
 
@@ -605,10 +650,10 @@ const NL_SETS = [
 const nlOn = /[?&]nl=1/.test(location.search) || /^\/nl(\/|$)/.test(location.pathname);
 const plateauCatalogReady = !plateauOn ? Promise.resolve() :
 	fetch(ASSET_BASE + "plateau-sets.json").then(r => r.json()).then(sets => {   // BASE_URL＝サブパス配信(/ortho-japan/)対応
-		if (nlOn) { sets = sets.concat(NL_SETS); console.log("[plateau] オランダ 3DBAG を登録簿へ追加（?nl=1）"); }
-		PLATEAU_SETS = sets; console.log(`[plateau] カタログ読込 → ${sets.length} 市区町村`);
+		if (nlOn) { sets = sets.concat(NL_SETS); console.log("[plateau] added Netherlands 3DBAG to catalog (?nl=1)"); }
+		PLATEAU_SETS = sets; console.log(`[plateau] catalog loaded -> ${sets.length} municipalities`);
 		autoPlateau(true);   // 復元ビューが z15+ の街なら起動直後に自動ロード（settled扱い＝起動時の視界は確定している。IDB命中なら即座に街が立つ）
-	}).catch(e => console.warn("[plateau] カタログ取得失敗", e));
+	}).catch(e => console.warn("[plateau] catalog fetch failed", e));
 // 空港マーク台帳：optbv の空港名注記(441)は z11 以上のタイルにしか無い＝低ズームでは
 // scripts/airports-build.mjs で全国収穫した静的リスト(86空港)から「マークだけ」を注入する（本家地理院地図Vectorの見え方に合わせる）。
 // z11+ はタイル注記が✈＋名称を描くので、静的分は同名をスキップ＝二重表示なし。鉄道チップのON/OFFは filterLabels(441) がそのまま効く。
@@ -633,9 +678,9 @@ function loadLandmarks() {
 	if (landmarkReq) return landmarkReq;   // 一度だけ（失敗しても再試行しない＝名札は無くても地図は成立する）
 	return landmarkReq = fetch(ASSET_BASE + "plateau-landmarks.json").then(r => r.json()).then(j => {
 		landmarks = j.f.map(([text, lon, lat, h, pair]) => ({ text, anchor: [lon, lat], h, pair }));
-		console.log(`[landmark] 台帳読込 → ${landmarks.length}棟（h>=${j.h}m）`);
+		console.log(`[landmark] ledger loaded -> ${landmarks.length} buildings (h>=${j.h}m)`);
 		readySig = ""; mergeReq.main.sig = ""; needsDraw = true;   // 到着＝ラベル再結合（空港台帳と同じ作法）
-	}).catch(e => console.warn("[landmark] 台帳取得失敗", e));
+	}).catch(e => console.warn("[landmark] ledger fetch failed", e));
 }
 // ── POI台帳（施設の点・z14+）＝uploader で焼いた poi/14/x/y を「寄った時だけ」読み、rank で解禁（docs/poi-ledger.md §11）。
 // landmark 名札と同じ経路に相乗り：施設チップの傘（9xxx 合成コード＝isFacility 真）・現テーマ色・案A で同名 dedup。
@@ -666,7 +711,7 @@ function loadPoiManifest() {
 	if (poiManReq) return poiManReq;
 	poiManState = "loading";
 	return poiManReq = poiFetch(`${POI_BASE}poi/14/index.json?_=${POI_BUST}`).then(buf => {
-		if (buf) { const j = JSON.parse(new TextDecoder().decode(buf)); if (j?.tiles) { poiManifest = { v: j.v, tiles: new Set(j.tiles), baked: new Set(j.baked || []) }; poiManState = "loaded"; if (poiLog) console.log(`[poi] マニフェスト ${j.tiles.length}タイル v${j.v}・焼き込み済み手差分${poiManifest.baked.size}件`); } }
+		if (buf) { const j = JSON.parse(new TextDecoder().decode(buf)); if (j?.tiles) { poiManifest = { v: j.v, tiles: new Set(j.tiles), baked: new Set(j.baked || []) }; poiManState = "loaded"; if (poiLog) console.log(`[poi] manifest ${j.tiles.length} tiles v${j.v}, baked-in overrides ${poiManifest.baked.size}`); } }
 		if (poiManState !== "loaded") poiManState = "absent";   // 無し/壊れ＝フォールバック（bboxスキャン）
 		poiVer++; needsDraw = true;                            // 解決＝loadPOI を回して在庫ゲート/スキャン開始
 	}).catch(() => { poiManState = "absent"; poiVer++; needsDraw = true; });
@@ -703,7 +748,7 @@ function loadPoiOverrides() {
 	return poiOvrReq = poiFetch(`${POI_BASE}${POI_OVR_NAME}?_=${POI_BUST}`).then(buf => {   // 未作成(404)＝null＝静かに
 		if (!buf) return;
 		poiOvr = JSON.parse(new TextDecoder().decode(buf));
-		if (poiOvr?.recs?.length) { poiVer++; needsDraw = true; if (poiLog) console.log(`[poi] 手差分 ${poiOvr.recs.length}件 v${poiOvr.v}`); }
+		if (poiOvr?.recs?.length) { poiVer++; needsDraw = true; if (poiLog) console.log(`[poi] overrides ${poiOvr.recs.length} recs v${poiOvr.v}`); }
 	}).catch(() => {});
 }
 // ロード済み全タイルの地物＋手差分パッチ＝表示とガジェット（対象選択）の共通フィード。
@@ -736,7 +781,7 @@ function loadPOI(cam) {
 				const pbf = await geopbf(buf, { gint: false });   // バッファ直デコード（名前解決/fetch/IDBを通さない）
 				const feats = pbf?.geojson?.features || [];
 				poiTiles.set(key, feats.map(f => ({ anchor: f.geometry.coordinates, n: f.properties.n, r: f.properties.r, s: f.properties.s ?? 0 })));
-				if (feats.length) { poiVer++; needsDraw = true; if (poiLog) console.log(`[poi] tile ${key} ロード ${feats.length}件`); }
+				if (feats.length) { poiVer++; needsDraw = true; if (poiLog) console.log(`[poi] tile ${key} loaded ${feats.length} features`); }
 			}).catch(() => poiTiles.set(key, []));
 		}
 }
@@ -769,7 +814,7 @@ function farBakeNext() {
 }
 dbgHost.__farState = () => ({ shown: [...farShown], missed: [...farMissed], baking: farBaking?.name ?? null, q: farBakeQ.length, tried: [...farBakeTried],
 	active: [...plateauActive.keys()], loading: [...plateauLoading.keys()], resident: [...plateauResident.keys()],
-	failed: [...plateauFailed].map(([n, f]) => `${n}${f.perm ? "(恒久)" : `(あと${Math.max(0, PLATEAU_RETRY_MS - performance.now() + f.ts) / 1000 | 0}s)`}`),
+	failed: [...plateauFailed].map(([n, f]) => `${n}${f.perm ? "(perm)" : `(${Math.max(0, PLATEAU_RETRY_MS - performance.now() + f.ts) / 1000 | 0}s left)`}`),
 	zoom: +cam.zoom.toFixed(2), pitch: +((cam.pitch || 0) * 180 / Math.PI).toFixed(1), farLit,
 	// autoPlateau のゲートと選抜の「今この瞬間」：flying/moving が真のままなら本体は凍結（ロードも退場も走らない）。
 	// hits＝実ロード候補の順位（autoPlateau と同じ 足元(foot)主キー・中心第2キー）。ここが期待どおりなのに
@@ -787,7 +832,7 @@ dbgHost.__farState = () => ({ shown: [...farShown], missed: [...farMissed], baki
 		} catch (e) { return ["ERR:" + (e.message || e)]; }
 	})() });   // デバッグ：遠景枠の現在地＋本物側の状態機械＋カメラ＋ゲート＋選抜（箱残留の切り分けに一式）
 // LOW_MEM（低メモリ端末判定）はファイル冒頭で定義（renderWorker init にも渡すため）。
-if (LOW_MEM) console.log("[plateau] 低メモリ端末モード：同時2区・worker1本・キャッシュ無し");
+if (LOW_MEM) console.log("[plateau] low-memory device mode: 2 concurrent wards, 1 worker, no cache");
 // 同時アクティブ地区数の上限＝GPUメモリを有界にする（密集地区(都心部)1件あたりGPUバッファ~100-140MB）。
 // デスクトップは4区（計~0.5GB＝余裕内）＝高チルトで「手前の区＋正面の区」を同時に立てる。
 // 4はシェーダの被覆マスクスロット上限（glsl u_plateauMask0..3・renderer MAX_PLATEAU_MASKS）＝これ以上は基図建物を伏せられず二重に立つ。
@@ -847,7 +892,7 @@ function plateauRetain(name, set) {   // 常駐登録＋LRU touch。予算超過
 		const oldest = [...plateauResident.keys()].find(n => n !== name && !plateauActive.has(n) && !plateauLoading.has(n));
 		if (!oldest) break;   // 退避できるのは非表示だけ＝表示中だけで予算超過なら何もしない（構図は崩さない）
 		plateauEvict(oldest);
-		console.log(`[plateau] 常駐予算→解放 ${oldest}（残 ${plateauResident.size}区 ~${(residentBytes() / 1048576) | 0}MB / 予算 ${(PLATEAU_RESIDENT_BYTES / 1048576) | 0}MB）`);
+		console.log(`[plateau] resident budget -> evicted ${oldest} (left ${plateauResident.size} wards ~${(residentBytes() / 1048576) | 0}MB / budget ${(PLATEAU_RESIDENT_BYTES / 1048576) | 0}MB)`);
 	}
 }
 
@@ -942,8 +987,8 @@ let sceneProgTap = null;   // シーン再生(waitLoading)の進捗パネルへ�
 function renderPlateauProg() {
 	if (!plateauProg.size) plateauEl.style.display = "none";
 	else {
-		plateauEl.textContent = "🏙 建物3D 読込中 " + [...plateauProg.values()]
-			.map(p => p.total ? `${p.name} ${p.done}/${p.total}枚` : `${p.name} カタログ走査 ${p.scan ?? 0}…`).join("・");
+		plateauEl.textContent = t("🏙 建物3D 読込中 ") + [...plateauProg.values()]
+			.map(p => p.total ? t("{0} {1}/{2}枚", p.name, p.done, p.total) : t("{0} カタログ走査 {1}…", p.name, p.scan ?? 0)).join("・");
 		plateauEl.style.display = "block";
 	}
 	plateauDb.onProg(plateauProg);   // データ管理モーダルにも同じ進捗を流す（開いていなければ即return）
@@ -976,12 +1021,12 @@ async function prefetchPlateauForViews(views, names, onProgress) {
 		const wanted = names
 			.map(n => { const s = PLATEAU_SETS.find(x => x.name === n); if (!s) bad.push(n); return s; })
 			.filter(s => s && !plateauDead(s.name));
-		if (bad.length) console.warn("[demo] plateau 指定名がカタログに無い（台本の誤記？）:", bad.join("・"));
+		if (bad.length) console.warn("[demo] plateau names not in catalog (script typo?):", bad.join("・"));
 		// ピン留め＝リスト記載の区は autoPlateau の選抜キャップを無視して強制表示（デモ終了後もセッション中は有効）
 		plateauPinned = new Set(wanted.map(s => s.name));
-		return runPrefetch(wanted, "台本指定", onProgress);
+		return runPrefetch(wanted, "scripted", onProgress);
 	}
-	return runPrefetch(deriveScriptSets(views), "台本から導出", onProgress);
+	return runPrefetch(deriveScriptSets(views), "derived from views", onProgress);
 }
 // 台本の視点列→PLATEAU区集合の導出（2026-08-12 関数化＝先読みと静穏窓の大掃除で共用）。
 // 【順序＝一巡目に「各停止位置の中心区＋橋梁」】旧・台本順に停止位置ごと全区を流すと、序盤の停止位置の
@@ -1040,11 +1085,11 @@ function plateauTrimForScript(views) {
 		if (s?.bbox && bboxIntersects(s.bbox, approxViewBbox(cam))) continue;
 		freed += bytesOf(n, s); plateauEvict(n);
 	}
-	if (freed) console.log(`[plateau] 静穏窓の大掃除＝残り台本に出ない常駐を解放 ~${(freed / 1048576) | 0}MB（残 ${plateauResident.size}区 ~${(residentBytes() / 1048576) | 0}MB）`);
+	if (freed) console.log(`[plateau] quiet-window cleanup = evicted residents absent from remaining script ~${(freed / 1048576) | 0}MB (left ${plateauResident.size} wards ~${(residentBytes() / 1048576) | 0}MB)`);
 }
 async function runPrefetch(wanted, how, onProgress) {   // 戻り値＝対象区リスト（scene 再生のリビール準備＝全区スタンドアップが使う）
 	if (!wanted.length) return wanted;
-	console.log(`[demo] PLATEAU先読み ${wanted.length}区（${how}）: ${wanted.map(s => s.name).join("・")}`);
+	console.log(`[demo] PLATEAU prefetch ${wanted.length} wards (${how}): ${wanted.map(s => s.name).join("・")}`);
 	plateauPrefetchBusy = true;   // 先読み中＝autoPlateau の建物枠を1つ譲る（デコード同時数の総枠を保つ）
 	let done = 0; onProgress?.(0, wanted.length, null);   // 進捗＝総区数を先に伝える（waitLoading の中央表示用）
 	try {
@@ -1095,7 +1140,7 @@ const plateauDb = createPlateauDb({
 // モーダルを開くボタンはオプトインガジェット（gadgets/plateau.js）＝末尾の map.gadget("plateau", …) で open を注入。
 // ストレージの永続化を要求＝ディスク逼迫時にブラウザ都合でオリジンごと退避されるのを防ぐ（デモ機の仕込み保護）。
 // persist() は window 限定 API。Chrome はエンゲージメント次第で無言許可、拒否でも動作は変わらない。
-if (plateauOn) navigator.storage?.persist?.().then(ok => console.log(`[plateau] storage persist: ${ok ? "許可" : "不許可"}`)).catch(() => {});
+if (plateauOn) navigator.storage?.persist?.().then(ok => console.log(`[plateau] storage persist: ${ok ? "granted" : "denied"}`)).catch(() => {});
 
 // 現在の画面に映る範囲をラフに見積もる（フラスタム厳密解ではなく自動ロードのゲート用）。z14+の寄った状態でしか呼ばれない＝視野は元々狭く、この近似で十分。
 function approxViewBbox(cam) {
@@ -1185,7 +1230,7 @@ function autoPlateau(settled = false) {
 		if (plateauActive.has(name) || plateauLoading.has(name)) continue;
 		const dx = Math.max(s.bbox[0] - cam.center[0], 0, cam.center[0] - s.bbox[2]);
 		const dy = Math.max(s.bbox[1] - cam.center[1], 0, cam.center[1] - s.bbox[3]);
-		if (dx * dx + dy * dy > PLATEAU_FAR_DEG * PLATEAU_FAR_DEG) { plateauEvict(name); console.log("[plateau] 遠方→常駐解除", name); }
+		if (dx * dx + dy * dy > PLATEAU_FAR_DEG * PLATEAU_FAR_DEG) { plateauEvict(name); console.log("[plateau] far away -> evicted resident", name); }
 	}
 	// 視界確定時の退避＝距離で二段構え（Kenji 体感フィードバック 2026-08-01「読み込みが極端に遅い」で全キャンセルから戻した）：
 	// ・近距離（PLATEAU_FAR_DEG 内＝同じ街・チルト往復・ズームバウンス）→ demote＝slow lane 在庫化。完走して
@@ -1202,7 +1247,7 @@ function autoPlateau(settled = false) {
 			const far = dx * dx + dy * dy > PLATEAU_FAR_DEG * PLATEAU_FAR_DEG;   // 本削除（遠方→常駐解除）と同じ物差し
 			plateauWorkers[hashStr(s.base) % PLATEAU_NW].postMessage({ type: far ? "cancel" : "demote", base: s.base });
 			(far ? plateauCancelling : plateauDemoted).add(name);
-			console.log(far ? "[plateau] 遠方離脱→ロード中止（部分IDB保持・再訪で続きから）" : "[plateau] 視界外→在庫化(slow・完走してIDBへ)", name);
+			console.log(far ? "[plateau] left far -> load cancelled (partial IDB kept; resumes on revisit)" : "[plateau] out of view -> stocked (slow; completes into IDB)", name);
 		}
 	};
 	// ロード中があれば最新カメラを worker 群へ放送（~4Hz）＝バッチ境界の残タイル再ソートで「今見ている側」から立つ。
@@ -1219,11 +1264,11 @@ function autoPlateau(settled = false) {
 			for (const [name, s] of plateauActive) {   // 保持中でも「完全に離れた」区だけは手放す（evictと同じ物差し）＝active が遠方evictを永久に塞ぐ漏れの防止
 				const dx = Math.max(s.bbox[0] - cam.center[0], 0, cam.center[0] - s.bbox[2]);
 				const dy = Math.max(s.bbox[1] - cam.center[1], 0, cam.center[1] - s.bbox[3]);
-				if (dx * dx + dy * dy > PLATEAU_FAR_DEG * PLATEAU_FAR_DEG) { plateauActive.delete(name); plateauHide(name); needsDraw = true; console.log("[plateau] 保持帯で遠方離脱→非表示", name); }
+				if (dx * dx + dy * dy > PLATEAU_FAR_DEG * PLATEAU_FAR_DEG) { plateauActive.delete(name); plateauHide(name); needsDraw = true; console.log("[plateau] left far in hold band -> hidden", name); }
 			}
 			return;
 		}
-		for (const name of plateauActive.keys()) { plateauHide(name); console.log("[plateau] 範囲外→非表示", name); }
+		for (const name of plateauActive.keys()) { plateauHide(name); console.log("[plateau] out of range -> hidden", name); }
 		if (plateauActive.size) needsDraw = true;
 		plateauActive.clear();
 		return;
@@ -1265,7 +1310,7 @@ function autoPlateau(settled = false) {
 	for (const name of [...plateauActive.keys()]) {
 		if (hitNames.has(name)) continue;
 		plateauActive.delete(name); plateauHide(name); needsDraw = true;
-		console.log("[plateau] 範囲外→非表示", name);
+		console.log("[plateau] out of range -> hidden", name);
 	}
 	// fast枠の台帳：建物(bldg)ロードで fast レーンに居るもの＝デコード過渡メモリの実占有（退避中は除外）。
 	const fastBldg = () => [...plateauAutoLoading.values()].filter(s => !s.noMask && !plateauCancelling.has(s.name) && !plateauDemoted.has(s.name));
@@ -1289,7 +1334,7 @@ function autoPlateau(settled = false) {
 					if (v) {
 						plateauWorkers[hashStr(v.base) % PLATEAU_NW].postMessage({ type: "demote", base: v.base });
 						plateauDemoted.add(v.name);
-						console.log("[plateau] fast枠ローテーション→在庫化(slow)", v.name);
+						console.log("[plateau] fast-slot rotation -> stocked (slow)", v.name);
 						seat = true;
 					}
 				}
@@ -1297,7 +1342,7 @@ function autoPlateau(settled = false) {
 					plateauCancelling.delete(h.name); plateauDemoted.delete(h.name);
 					plateauFastT.set(h.name, performance.now());
 					plateauWorkers[hashStr(h.base) % PLATEAU_NW].postMessage({ type: "promote", base: h.base });
-					console.log("[plateau] 再訪→ロード再開", h.name);
+					console.log("[plateau] revisit -> load resumed", h.name);
 				}
 			}
 			continue;
@@ -1307,7 +1352,7 @@ function autoPlateau(settled = false) {
 			renderer.set("plateauVis", true, h.name);
 			plateauActive.set(h.name, h);
 			needsDraw = true;
-			console.log("[plateau] 常駐ヒット（再アップロードなし）→", h.name);
+			console.log("[plateau] resident hit (no re-upload) ->", h.name);
 			continue;
 		}
 		if (!settled) continue;   // 新規ネットワークロードは「視界が落ち着いた」時だけ発火＝パンで通過した区は読み始めない
@@ -1322,12 +1367,12 @@ function autoPlateau(settled = false) {
 		plateauLoading.add(h.name);
 		plateauAutoLoading.set(h.name, h);   // 視界確定時の退避対象へ
 		if (!capFull) plateauFastT.set(h.name, performance.now());
-		console.log(capFull ? "[plateau] 自動ロード(slow在庫・fast枠待ち) →" : "[plateau] 自動ロード →", h.name);
+		console.log(capFull ? "[plateau] auto-load (slow stock; waiting for fast slot) ->" : "[plateau] auto-load ->", h.name);
 		loadPlateau(h.base, undefined, h.name, h.noMask ? null : h.bbox, h.noMask, h)   // noMask（橋梁等）＝マスク不参加＋橋梁モード（バッチ接地・両面）
 			.then(ok => {
 				if (ok === "cancelled") {   // 協調キャンセル＝failed 扱いにしない（戻れば再ロードできる）。部分バッチのGPU残骸を掃除
 					plateauEvict(h.name);
-					console.log("[plateau] キャンセル完了（部分バッチ解放）", h.name);
+					console.log("[plateau] cancel complete (partial batches freed)", h.name);
 					return;
 				}
 				if (ok === "demoted") {   // slow のまま完走（GPU全量済み＝送出は完走時に必ず流し切る・IDB済み）
@@ -1338,23 +1383,23 @@ function autoPlateau(settled = false) {
 						renderer.set("plateauVis", true, h.name);
 						plateauActive.set(h.name, h);
 						needsDraw = true;
-						console.log("[plateau] 在庫完了→視界内＝即表示", h.name);
+						console.log("[plateau] stock complete -> in view = shown", h.name);
 					} else {
 						plateauHide(h.name);   // 低メモリ端末（常駐なし）はここでメッシュ削除＝IDBだけが残る
-						console.log("[plateau] 在庫完了→非表示常駐", h.name);
+						console.log("[plateau] stock complete -> hidden resident", h.name);
 					}
 					return;
 				}
-				if (!ok) { plateauFailed.set(h.name, { perm: true, ts: performance.now() }); console.warn("[plateau] 読み込めないためスキップ（廃止区/空データ？）:", h.name); return; }   // 恒久＝以後は候補から除外
+				if (!ok) { plateauFailed.set(h.name, { perm: true, ts: performance.now() }); console.warn("[plateau] unreadable, skipping (abolished ward / empty data?):", h.name); return; }   // 恒久＝以後は候補から除外
 				plateauActive.set(h.name, h);
 				plateauRetain(h.name, h);
 				// ★完了時に既に低ズーム/視野外なら stale＝即非表示（ロード中にズームアウトすると3Dが居残る件を断つ。常駐には残る＝戻ればタダ）。
 				if (cam.zoom < PLATEAU_HIDE_Z || !bboxIntersects(h.bbox, approxViewBbox(cam))) {
 					plateauActive.delete(h.name); plateauHide(h.name); needsDraw = true;
-					console.log("[plateau] ロード完了時に視野外→即非表示", h.name);
+					console.log("[plateau] out of view at load completion -> hidden", h.name);
 				}
 			})
-			.catch(e => { plateauFailed.set(h.name, { perm: false, ts: performance.now() }); console.warn("[plateau] 読み込み失敗のためスキップ（60秒後に再挑戦）:", h.name, e.message || e); })   // 一時＝バックオフ
+			.catch(e => { plateauFailed.set(h.name, { perm: false, ts: performance.now() }); console.warn("[plateau] load failed, skipping (retry in 60s):", h.name, e.message || e); })   // 一時＝バックオフ
 			.finally(() => {
 				plateauLoading.delete(h.name); plateauAutoLoading.delete(h.name); plateauCancelling.delete(h.name); plateauDemoted.delete(h.name); plateauFastT.delete(h.name);
 				// 枠が空いた瞬間に再選抜（静止シーン中はonMoveが来ない＝これが無いと3区目以降が
@@ -1477,7 +1522,7 @@ const { relayCtl: pipelineRelay, tiles, requestMerge, setStyle: setPipelineStyle
 	// merge の ack（fallback＝CPU merge 経路のみ。multi_draw では renderer 適用時の dlApplied が同じ関数を呼ぶ）
 	onMerged: (slot, sig) => onSceneApplied(slot, sig),
 });
-if (IOS_RELAY && gpuBackend) { relayCtl = pipelineRelay; const pend = relayPending.splice(0); for (const [m2, t2] of pend) relayCtl(m2, t2); console.log("[boot] iOSリレー経路有効（page→scene worker→render worker）＝待機分", pend.length, "件流し込み済"); }
+if (IOS_RELAY && gpuBackend) { relayCtl = pipelineRelay; const pend = relayPending.splice(0); for (const [m2, t2] of pend) relayCtl(m2, t2); console.log("[boot] iOS relay path active (page -> scene worker -> render worker); flushed", pend.length, "queued messages"); }
 // ack＝「このシーンが画面に載った（fallback は次フレーム、multi_draw は適用の瞬間）」。sig はここで初めて確定する
 // （要求時の楽観確定をやめた＝失敗が永続穴にならない）。hoisted 関数＝renderWorker.onmessage（上方）からも呼ばれる。
 function onSceneApplied(slot, sig) {
@@ -1493,8 +1538,8 @@ function onSceneApplied(slot, sig) {
 		readySig = sig;
 		const z = mergePendingZoom.get(sig);
 		if (z != null) { mainSceneZoom = z; mergePendingZoom.delete(sig); }
-		slog("main merge 画面に載った（ここが見える瞬間）");
-	} else if (slot === "base") { baseSig = sig; slog("base 差し替え載った"); }
+		slog("main merge applied on screen (visible from here)");
+	} else if (slot === "base") { baseSig = sig; slog("base swap applied"); }
 	needsDraw = true;
 }
 dbgHost.__mergeFail = () => requestMerge.debugFail();   // 次の merge を故意に失敗させ ack 自己修復を実地検証
@@ -1621,7 +1666,7 @@ function fitZoomForBbox(b) {
 	return Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, Math.log2(scale / (WORLD_PX / (2 * Math.PI)))));
 }
 function applyGintData(pbf, label, moveCamera = true, opts = {}) {
-	if (!pbf?.unPackGint) { console.error("[gint] デコード失敗 (%s)", label, pbf); return null; }
+	if (!pbf?.unPackGint) { console.error("[gint] decode failed (%s)", label, pbf); return null; }
 	// gint 単一スロットのユーザー層（14条筆/ドロップGISファイル/AI層）＝世界海岸線と相互切替。pbf 保持＝ホバーで getFeature(id).properties を引く。
 	// style/minZoom は層の属性としてここに預ける（スロット再適用(applyUserSlot)がズーム跨ぎの度に走るため、外に置くと切替で剥がれる）
 	// opts.fillMaxEdges＝この層だけ塗り上限を上げる（フル解像度の行政界コロプレス等・既定 2M の暴走止めを個別解除）。
@@ -1638,7 +1683,7 @@ function applyGintData(pbf, label, moveCamera = true, opts = {}) {
 	onMove();
 	// moj筆(opts.drape)＝地形沿い境界線を自動発火（0=実標高ぴったり）。非drape層へ切替時は前の draped を消す（層と一蓮托生）。
 	if (opts.drape) standupGint(DRAPE_LIFT_M, { auto: true }); else { renderer.set("gintBld", null); drapedOn = false; needsDraw = true; }
-	console.log("[gint] %s ロード完了。z≥%d で表示・z<%d は世界海岸線", label, GINT_SWAP_Z, GINT_SWAP_Z);
+	console.log("[gint] %s loaded. shown at z>=%d; z<%d shows world coastline", label, GINT_SWAP_Z, GINT_SWAP_Z);
 	return pbf;
 }
 
@@ -1647,7 +1692,7 @@ function applyGintData(pbf, label, moveCamera = true, opts = {}) {
 dbgHost.__moj = async (code = "13118") => {
 	const url = `https://api.ortho-earth.com/bucket/moj/${code}.pbf`;
 	const res = await fetch(url);
-	if (!res.ok) { console.error("[14条] fetch 失敗 %s → HTTP %s", url, res.status); return; }
+	if (!res.ok) { console.error("[moj14] fetch failed %s -> HTTP %s", url, res.status); return; }
 	let buf = await res.arrayBuffer();
 	const head = new Uint8Array(buf, 0, 2);   // bucket は gzip 圧縮で置かれる。name 慣習の load は自動 gunzip するが直叩きは生バイト＝手動で解凍。
 	if (head[0] === 0x1f && head[1] === 0x8b) buf = await new Response(new Blob([buf]).stream().pipeThrough(new DecompressionStream("gzip"))).arrayBuffer();
@@ -1692,14 +1737,14 @@ const gintFidFeatures = () => {
 		out[i] = { properties: p, geometry: null };
 	}
 	const skipped = n - (pbf.geojson?.features?.length ?? n);
-	if (skipped > 0) console.info("[paint] fid=%d件中 %d件は .geojson から欠落（fid整列読みで補正済み）", n, skipped);
+	if (skipped > 0) console.info("[paint] %d of %d fids missing from .geojson (corrected via fid-aligned read)", skipped, n);
 	return out;
 };
 // fid ズレ診断用：指定 fid だけ赤・他は薄灰でテーブル直書き（式評価を迂回＝純粋に fid 空間を見る）。
 // 使い方: __paintFid(100) → 赤い筆をクリック → console の [gint] fid=… が 100 なら一致、±k ならズレ量 k。
 dbgHost.__paintFid = (...fids) => {
 	const feats = gintFidFeatures();
-	if (!feats) { console.warn("[paintFid] ユーザー層(gint)が未ロード"); return; }
+	if (!feats) { console.warn("[paintFid] user gint layer not loaded"); return; }
 	const n = feats.length, u32 = new Uint32Array(n * 4);
 	for (let i = 0; i < n; i++) { u32[i * 4] = 0x88888830; u32[i * 4 + 2] = (8 << 24) | (6 << 8) | 1; }
 	for (const f of fids) if (f >= 0 && f < n) u32[f * 4] = 0xcc0000cc;
@@ -1716,9 +1761,9 @@ const DRAPE_MAX_EDGES = 4000000;   // 地形沿い線化の辺数上限。moj一
 // チルト時に深度で地形に負けて消える（真俯瞰は地形メッシュ無効で0でも見えていた）。数mで膨らみを越えて安定。
 const DRAPE_LIFT_M = 2;
 async function standupGint(liftM = 0, { auto = false } = {}) {
-	if (liftM == null) { renderer.set("gintBld", null); drapedOn = false; needsDraw = true; if (!auto) console.log("[standup] 解除"); return; }
+	if (liftM == null) { renderer.set("gintBld", null); drapedOn = false; needsDraw = true; if (!auto) console.log("[standup] cleared"); return; }
 	const feats = userGint?.pbf?.geojson?.features;
-	if (!feats?.length) { renderer.set("gintBld", null); drapedOn = false; needsDraw = true; if (!auto) console.warn("[standup] gintユーザー層が未ロード＝先に await __sapporo() 等"); return; }
+	if (!feats?.length) { renderer.set("gintBld", null); drapedOn = false; needsDraw = true; if (!auto) console.warn("[standup] gint user layer not loaded = run await __sapporo() etc. first"); return; }
 	let edges = 0;
 	for (const f of feats) {
 		const g = f?.geometry;
@@ -1728,14 +1773,14 @@ async function standupGint(liftM = 0, { auto = false } = {}) {
 		else if (g?.type === "MultiLineString") for (const l of g.coordinates) edges += l.length;
 		if (edges > DRAPE_MAX_EDGES) break;
 	}
-	if (edges > DRAPE_MAX_EDGES) { renderer.set("gintBld", null); drapedOn = false; needsDraw = true; console.warn("[standup] ⚠ 辺数%d>上限%d＝地形沿い線化スキップ（巨大層）。DRAPE_MAX_EDGES を上げれば通る", edges, DRAPE_MAX_EDGES); return; }
+	if (edges > DRAPE_MAX_EDGES) { renderer.set("gintBld", null); drapedOn = false; needsDraw = true; console.warn("[standup] ⚠ edges %d > limit %d = skipping terrain drape (huge layer). raise DRAPE_MAX_EDGES to allow", edges, DRAPE_MAX_EDGES); return; }
 	const { buildDrapedGeometry } = await import("ortho-core");
 	const b = userGint.pbf.unPackGint.bbox;                       // 表示CRS(経緯度)の bbox＝RTE の origin に使う
 	const origin = [(b[0] + b[2]) / 2, (b[1] + b[3]) / 2];
 	// CRS サニティ：geojson の座標が bbox(経緯度)から大きく外れていたら局所座標系＝線だけズレる（gint表示は変換済で正しい）
 	const s = feats.find(f => f?.geometry?.coordinates)?.geometry?.coordinates?.flat(Infinity);
 	if (s && (s[0] < b[0] - 1 || s[0] > b[2] + 1 || s[1] < b[1] - 1 || s[1] > b[3] + 1))
-		console.warn("[standup] ⚠ geojson座標(%o,%o)が bbox[%o..%o] 外＝局所座標系かも。線がズレたらCRS要変換", s[0].toFixed?.(3), s[1].toFixed?.(3), b[0].toFixed?.(2), b[2].toFixed?.(2));
+		console.warn("[standup] ⚠ geojson coords (%o,%o) outside bbox [%o..%o] = possibly local CRS. convert CRS if lines misalign", s[0].toFixed?.(3), s[1].toFixed?.(3), b[0].toFixed?.(2), b[2].toFixed?.(2));
 	const geo = buildDrapedGeometry(feats, origin, { liftM });   // { lines, points }（ポリゴン境界＋線＋点）
 	const has = !!(geo.lines || geo.points);
 	// 色は層の持参色（style1=線色 rgb）から。moj/ドロップは style 無し＝既定オレンジ（14条筆の系統色）、AI層は plan の色。
@@ -1744,7 +1789,7 @@ async function standupGint(liftM = 0, { auto = false } = {}) {
 	renderer.set("gintBld", has ? { origin, lines: geo.lines, points: geo.points, color: col } : null);
 	drapedOn = has;   // draped が出た層＝gint層の2D視覚は消す（二重線解消・識別は裏で生存）
 	needsDraw = true;
-	console.log("[standup] %s：feature%d → 線%d本・点%d（リフト%dm）%s", auto ? "自動" : "手動", feats.length, geo.lines ? geo.lines.pos.length / 6 : 0, geo.points ? geo.points.pos.length / 3 : 0, liftM, has ? "" : "＝生成ゼロ");
+	console.log("[standup] %s: features %d -> lines %d, points %d (lift %dm)%s", auto ? "auto" : "manual", feats.length, geo.lines ? geo.lines.pos.length / 6 : 0, geo.points ? geo.points.pos.length / 3 : 0, liftM, has ? "" : " = zero generated");
 }
 dbgHost.__standup = (liftM = DRAPE_LIFT_M) => standupGint(liftM);   // 手動ノブ（実験）。既定=DRAPE_LIFT_M。null で解除・大きくすると浮く
 // 重複可視化＝登記データの品質監査プローブ。通常塗りをせず winding 和の異常画素だけを色分け：
@@ -1753,18 +1798,18 @@ dbgHost.__standup = (liftM = DRAPE_LIFT_M) => standupGint(liftM);   // 手動ノ
 dbgHost.__paintOverlap = (on = true) => {
 	if (!on) { sendGintPaint(null); needsDraw = true; return; }
 	const feats = gintFidFeatures();
-	if (!feats) { console.warn("[paintOverlap] ユーザー層(gint)が未ロード"); return; }
+	if (!feats) { console.warn("[paintOverlap] user gint layer not loaded"); return; }
 	const n = feats.length, u32 = new Uint32Array(n * 4);
 	for (let i = 0; i < n; i++) u32[i * 4 + 2] = (8 << 24) | (6 << 8) | 1;   // 塗り透明・visible（ID経路の起動条件として表は必要）
 	sendGintPaint({ table: u32, count: n, overlap: true });
 	needsDraw = true;
-	console.log("[paintOverlap] %d筆を監査: マゼンタ=別筆の重なり / 橙=同一筆の多重登記 / シアン=向き矛盾", n);
+	console.log("[paintOverlap] auditing %d parcels: magenta=overlap of distinct parcels / orange=duplicate registration of same parcel / cyan=winding contradiction", n);
 };
 // fid ズレ診断の決定版：偶数fid=赤／奇数fid=青の市松塗り（場所に依らず全面に出る＝見逃し不能）。
 // どの筆でもクリック → console の [gint] fid=… の偶奇と色が一致するか：赤=偶数/青=奇数なら一致、逆なら±1ズレ。
 dbgHost.__paintParity = () => {
 	const n = userGint?.pbf?.fmap?.length ?? 0;
-	if (!n) { console.warn("[paintParity] ユーザー層(gint)が未ロード＝先に await __sapporo() 等"); return; }
+	if (!n) { console.warn("[paintParity] user gint layer not loaded = run await __sapporo() etc. first"); return; }
 	const u32 = new Uint32Array(n * 4);
 	for (let i = 0; i < n; i++) {
 		u32[i * 4] = (i & 1) ? 0x0044cc90 : 0xcc000090;   // 奇数=青 / 偶数=赤
@@ -1772,7 +1817,7 @@ dbgHost.__paintParity = () => {
 	}
 	sendGintPaint({ table: u32, count: n });
 	needsDraw = true;
-	console.log("[paintParity] %d筆へ市松（偶数=赤/奇数=青）を適用。何も色が出ない場合は console の [gint] idFill caps 行を確認", n);
+	console.log("[paintParity] checkerboard applied to %d parcels (even=red/odd=blue). if no color shows, check the [gint] idFill caps console line", n);
 };
 // 任意の bucket GeoPBF を gint ユーザー層としてロード（例: __gload('admin_all')＝行政界コロプレスの土台。
 // 全国級なので minZoom=3＝ズームアウトしても海岸線に切り替わらない）。
@@ -1786,17 +1831,17 @@ dbgHost.__gload = async (name, opts = {}) => {
 dbgHost.__budget = (n) => {
 	gintDrawOpts = { ...(gintDrawOpts || {}), moveBudget: n ?? undefined };
 	sendGintStyle(); needsDraw = true;
-	console.log("[budget] moveBudget=%s", n ?? "既定(250k)");
+	console.log("[budget] moveBudget=%s", n ?? "default(250k)");
 };
 async function paintGint(paint, filter = null) {
 	if (!paint) { sendGintPaint(null); needsDraw = true; return; }
 	const feats = gintFidFeatures();   // fid 整列（.geojson は詰めズレするため使わない）
-	if (!feats) { console.warn("[paint] ユーザー層(gint)が未ロード（__moj 等で先にロード）"); return; }
+	if (!feats) { console.warn("[paint] user gint layer not loaded (load via __moj etc. first)"); return; }
 	const { buildFidStyle } = await import("ortho-core");
 	const { u32, count } = buildFidStyle(paint, feats, { filter, zoom: cam.zoom });
 	sendGintPaint({ table: u32, count });
 	needsDraw = true;
-	console.log("[paint] %d features へ適用", count);
+	console.log("[paint] applied to %d features", count);
 }
 dbgHost.__paint = paintGint;
 // 世界海岸線（Natural Earth 10m）を球へ。uploader で事前変換済みの GeoPBF を bucket 名慣習
@@ -1841,13 +1886,13 @@ const legacyGintSend = p => { renderer.set("gint", p.raw, p.key); p.onDone?.(); 
 function ensureBakeWorker() {
 	if (bakeWorker !== null) return bakeWorker;
 	try { bakeWorker = new Worker(new URL("./gintbakeworker.js", import.meta.url), { type: "module" }); }
-	catch (e) { console.warn("[gint] bake worker 起動失敗＝同期経路へ", e); return (bakeWorker = false); }
+	catch (e) { console.warn("[gint] bake worker start failed = using sync path", e); return (bakeWorker = false); }
 	bakeWorker.onmessage = e => {
 		const d = e.data, p = bakePending.get(d.id);
 		if (!p) return;
 		bakePending.delete(d.id);
 		if (p.cancelled) return;   // 焼いている間に層が差し替え/撤去された＝結果を捨てる
-		if (d.kind === "error") { console.warn("[gint] bake 失敗＝同期経路へ:", d.message); legacyGintSend(p); return; }
+		if (d.kind === "error") { console.warn("[gint] bake failed = using sync path:", d.message); legacyGintSend(p); return; }
 		if (d.kind !== "done") return;
 		// 完成品をゼロコピー中継（TypedArray の underlying buffer を transfer。共有 buffer は Set で重複除去）
 		const bufs = new Set();
@@ -1860,7 +1905,7 @@ function ensureBakeWorker() {
 		p.onDone?.();
 	};
 	bakeWorker.onerror = err => {   // worker 自体が死んだ＝保留全件を同期経路で救済し、以後は使わない
-		console.warn("[gint] bake worker error＝以後同期経路", err?.message ?? err);
+		console.warn("[gint] bake worker error = sync path from now on", err?.message ?? err);
 		for (const p of bakePending.values()) if (!p.cancelled) legacyGintSend(p);
 		bakePending.clear();
 		bakeWorker.terminate(); bakeWorker = false;
@@ -1980,15 +2025,15 @@ async function loadWorldCoast() {
 	// 50m は bucket 未収録＝毎回 zip フォールバック（S3→shpデコード）だが geopbf が URL キーで IDB
 	// キャッシュする＝初回のみ。デスクトップは従来どおり 10m 全密度。
 	const RES = LOW_MEM ? "50m" : "10m";
-	console.log(`[coast] Natural Earth ${RES} coastline を読込中（bucket GeoPBF→GintBUF）…`);
-	let pbf = await geopbf(`ne_${RES}_coastline`).catch(e => { console.warn("[coast] bucket load 失敗", e); return null; });
+	console.log(`[coast] loading Natural Earth ${RES} coastline (bucket GeoPBF -> GintBUF)…`);
+	let pbf = await geopbf(`ne_${RES}_coastline`).catch(e => { console.warn("[coast] bucket load failed", e); return null; });
 	if (!pbf?.unPackGint) {
-		console.warn("[coast] bucket に geopbf 無し → 生 zip へフォールバック（S3→shp デコード）");
+		console.warn("[coast] no geopbf in bucket -> falling back to raw zip (S3 -> shp decode)");
 		pbf = await geopbf(`https://naturalearth.s3.amazonaws.com/${RES}_physical/ne_${RES}_coastline.zip`, { name: `ne_${RES}_coastline` }).catch(e => { console.error("[coast] geopbf", e); return null; });
 	}
 	const g = pbf?.unPackGint;
 	coastLoading = false;
-	if (!g) { console.error("[coast] GintBUF デコード失敗", pbf); return; }
+	if (!g) { console.error("[coast] GintBUF decode failed", pbf); return; }
 	coastGint = {   // maxZoom:9＝z≤9 で点火＝低ズームの世界図専用（worker が範囲外をカリング）
 		arcBuffer: g.arcBuffer, arcMeta: g.arcMeta,
 		polyStream: g.polyStream, lineStream: g.lineStream,
@@ -1997,7 +2042,7 @@ async function loadWorldCoast() {
 	};
 	// bake-ahead：メタ/tier梯子を焼き切ってから搭載（焼き上がりの onDone で再調停＝そこで表示）
 	bakeCoast();
-	console.log("[coast] ロード完了。z<%d で自動表示（ユーザー層が無い/低ズーム時）", GINT_SWAP_Z);
+	console.log("[coast] loaded. auto-shown at z<%d (no user layer / low zoom)", GINT_SWAP_Z);
 }
 dbgHost.__coast = loadWorldCoast;   // 手動リロード用
 // 遅延ロードの門番は updateGintSlot（z<9 で海岸線 未取得なら一度だけ取得）＝高ズーム固定の埋め込みは一生読まない
@@ -2062,9 +2107,9 @@ skyClockEl.id = "sky-clock";
 mapEl.appendChild(skyClockEl);
 const skyAttrEl = document.createElement("div");
 skyAttrEl.id = "sky-attr";
-skyAttrEl.textContent = "星図: d3-celestial ／ 海岸線: Natural Earth ／ 標高: GEBCO ／ © 2026 Kenji Yoshida";   // z<4はR90(GEBCO)のみ＝JAXA(R01)は使わない
+skyAttrEl.textContent = t("星図: d3-celestial ／ 海岸線: Natural Earth ／ 標高: GEBCO ／ © 2026 Kenji Yoshida");   // z<4はR90(GEBCO)のみ＝JAXA(R01)は使わない
 mapEl.appendChild(skyAttrEl);
-const SKY_WD = ["日", "月", "火", "水", "木", "金", "土"];
+const SKY_WD = getLang() === "ja" ? ["日", "月", "火", "水", "木", "金", "土"] : ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const skyClockTimer = setInterval(() => {
 	if (cam.zoom >= BASEMAP_MINZOOM) return;   // 見えていない間はDOMに触れない
 	const d = new Date(), L2 = n => String(n).padStart(2, "0");
@@ -2088,7 +2133,7 @@ function startPlanets() {
 	renderer.set("celequator", Float32Array.from(qs));
 }
 async function loadStars() {
-	const pbf = await geopbf("stars.6", { gint: false }).catch(e => { console.warn("[stars] 読込失敗", e); return null; });
+	const pbf = await geopbf("stars.6", { gint: false }).catch(e => { console.warn("[stars] load failed", e); return null; });
 	const g = pbf && pbf.geojson;
 	if (!g) { starsArmed = true; return; }   // 一過性失敗は次の機会に再試行
 	const fs = g.features;
@@ -2104,7 +2149,7 @@ async function loadStars() {
 	}
 	renderer.set("stars", buf);
 	needsDraw = true;
-	console.log(`[stars] ${fs.length}星 ロード完了（z<4で描画・クリックで星座線）`);
+	console.log(`[stars] ${fs.length} stars loaded (drawn at z<4; click for constellation lines)`);
 }
 // 星座線＋星座名＋メシエ天体：クリックでトグル（v1と同じ所作＝三点一組）。初回クリックでロード→表示、以降は表示反転のみ。
 // 線は GL（render worker）、名前と記号はラベルcanvas（skyLabels）＝どちらも同じ変換・同じタイミングで出入りする。
@@ -2127,7 +2172,7 @@ async function toggleConstellations() {
 	constelState = 1;
 	await ensureSkyMod();   // 星座名の日本語化(skynames)を使う前に星空モジュールの読込を保証（初回z<4で通常は既済）
 	const [cl, ms] = await Promise.all([
-		geopbf("constellation_lines", { gint: false }).catch(e => { console.warn("[星座線] 読込失敗", e); return null; }),
+		geopbf("constellation_lines", { gint: false }).catch(e => { console.warn("[constellation] load failed", e); return null; }),
 		geopbf("messier", { gint: false }).catch(() => null),   // 任意（v1と同じ＝無ければ星座線と名前だけ）
 	]);
 	const g = cl && cl.geojson;
@@ -2156,7 +2201,7 @@ async function toggleConstellations() {
 	renderer.set("constellations", Float32Array.from(seg));
 	constelState = 2; constelVisible = true;
 	constelApply();
-	console.log(`[星座線] ${consts.length}星座＋メシエ${messier.length}天体 ロード完了（クリックでON/OFF）`);
+	console.log(`[constellation] ${consts.length} constellations + ${messier.length} Messier objects loaded (click to toggle)`);
 	if (!printHold) saveView();   // 初回ロード(2秒級)中に settle の saveView が sky 抜きで先行する＝完了後に l=sky を書き戻す（レース根治・モバイル実測）
 }
 // URL(l=sky)⇄星座表示の冪等同期：望む状態と違う時だけ toggle を叩く（未読込なら読込→表示、読込済なら反転）。
@@ -2174,15 +2219,15 @@ let n02Loaded = false;
 async function loadN02() {
 	if (n02Loaded) return;
 	n02Loaded = true;
-	console.log("[N02] 鉄道 geojson 読込中（新幹線抽出）…");
-	let rail = await geopbf("N02-25_RailroadSection").catch(e => { console.warn("[N02] bucket load 失敗", e); return null; });
+	console.log("[N02] loading rail geojson (extracting shinkansen)…");
+	let rail = await geopbf("N02-25_RailroadSection").catch(e => { console.warn("[N02] bucket load failed", e); return null; });
 	if (!rail?.geojson?.features?.length) {
-		console.warn("[N02] bucket に geopbf 無し → 生 zip へフォールバック");
-		rail = await geopbf(`${N02_ZIP}#N02-25_RailroadSection.geojson`).catch(e => { console.warn("[N02] rail 失敗", e); return null; });
+		console.warn("[N02] no geopbf in bucket -> falling back to raw zip");
+		rail = await geopbf(`${N02_ZIP}#N02-25_RailroadSection.geojson`).catch(e => { console.warn("[N02] rail failed", e); return null; });
 	}
 	const fc = rail?.geojson;   // GeoPBF の境界は FeatureCollection。.geojson getter＝{type:"FeatureCollection",features,name}
 	const feats = fc?.features;
-	if (!feats?.length) { console.warn("[N02] 鉄道読込失敗", rail && Object.keys(rail)); n02Loaded = false; return; }
+	if (!feats?.length) { console.warn("[N02] rail load failed", rail && Object.keys(rail)); n02Loaded = false; return; }
 	// フル新幹線＝N02_002(事業者種別)=1。ミニ新幹線（秋田・山形）は法規上在来線＝N02には田沢湖線・奥羽線として
 	// 収録されているので、該当区間を緯度帯クリップで切り出して仲間に入れる（奥羽線は福島→青森へ緯度ほぼ単調）。
 	const sn = feats.filter(f => { const p = f.properties || {}; return p.N02_002 == 1 || /新幹線/.test(String(p.N02_003)); });
@@ -2210,7 +2255,7 @@ async function loadN02() {
 			if (ak) { sn.push(ak); miniN++; }
 		}
 	}
-	console.log("[N02] 鉄道", feats.length, "→ 新幹線", sn.length, `(ミニ${miniN})`, "| 路線:", [...new Set(sn.map(f => f.properties?.N02_003 || "(ミニ区間)"))].join("、"));
+	console.log("[N02] rail", feats.length, "-> shinkansen", sn.length, `(mini ${miniN})`, "| lines:", [...new Set(sn.map(f => f.properties?.N02_003 || "(mini section)"))].join("、"));
 	// 濃緑の実線（鉄道点火#4b9e6aより暗く、高速の青#2f6cadと衝突しない）。半幅0.9＝計1.8px＝高速(低ズーム)と同太
 	const SN_GREEN = [0.04, 0.42, 0.25, 0.95];
 	const scenes = sn.length ? [buildGeoJSONOverlay(sn, N02_ORIGIN, { lineColor: SN_GREEN, lineWidth: 0.9 })] : [];
@@ -2220,7 +2265,7 @@ async function loadN02() {
 	// 駅（Station.geojson＝線路沿いの短いポリライン）：新幹線駅だけをビーズ○で。濃緑の玉に紙色の芯を重ねる＝
 	// 線シェーダは capsule（丸端）なので、極小セグメント×太い半幅がそのまま駅の玉になる。ミニ新幹線の停車駅は
 	// 在来線駅として収録＝路線×駅名の許可リストで拾う（フル新幹線駅は N02_002=1 で正確に取れる）。
-	const stn = await geopbf(`${N02_ZIP}#N02-25_Station.geojson`).catch(e => { console.warn("[N02] station 失敗", e); return null; });
+	const stn = await geopbf(`${N02_ZIP}#N02-25_Station.geojson`).catch(e => { console.warn("[N02] station failed", e); return null; });
 	const stFeats = stn?.geojson?.features || [];
 	const MINI_STOPS = new Set(["米沢", "高畠", "赤湯", "かみのやま温泉", "山形", "天童", "さくらんぼ東根", "村山", "大石田", "新庄",   // 山形新幹線
 		"雫石", "田沢湖", "角館", "大曲", "秋田"]);                                                                                  // 秋田新幹線
@@ -2228,7 +2273,7 @@ async function loadN02() {
 		const p = f.properties || {};
 		return p.N02_002 == 1 || (/^(田沢湖線|奥羽(本)?線)$/.test(String(p.N02_003)) && MINI_STOPS.has(String(p.N02_005)));
 	});
-	console.log("[N02] 駅", stFeats.length, "→ 新幹線駅", stSn.length, "／通常駅", stFeats.length - stSn.length);
+	console.log("[N02] stations", stFeats.length, "-> shinkansen stations", stSn.length, "/ regular stations", stFeats.length - stSn.length);
 	// 通常駅（新幹線駅以外の全駅）：駅名注記(422)が出るズームから点灯（minZoom）。鉄道点火と同じ緑の小ぶりビーズ。
 	const snStnSet = new Set(stSn);
 	const stReg = stFeats.filter(f => !snStnSet.has(f));
@@ -2246,7 +2291,7 @@ async function loadN02() {
 	}
 	renderer.set("n02", scenes);
 	needsDraw = true;
-	console.log("[N02] 新幹線 描画完了");
+	console.log("[N02] shinkansen drawn");
 }
 // デバッグ用カメラジャンプ：__cam(lon, lat, zoom, pitchDeg, bearingDeg)。検証スクリプトやコンソールから任意視点へ。
 dbgHost.__cam = (lon, lat, zoom = cam.zoom, pitchDeg = cam.pitch * R2D, bearingDeg = cam.bearing * R2D) => {
@@ -2272,15 +2317,15 @@ function standUpWard(set, tiles) {
 }
 // 手打ちデモ：地区名(部分一致)かbase URLを指定して読み込み、カメラもそこへ寄せる（自動と違いカメラを動かす）。省略時は登録簿の先頭。
 dbgHost.__plateau = async (nameOrBase, tiles) => {
-	if (!plateauOn) { console.warn("[plateau] opts.plateau=false＝建物3Dは機能ごと停止中"); return; }
+	if (!plateauOn) { console.warn("[plateau] opts.plateau=false = 3D buildings feature disabled"); return; }
 	const set = !nameOrBase ? PLATEAU_SETS[0]
 		: PLATEAU_SETS.find(s => s.base === nameOrBase || s.name === nameOrBase || s.name.includes(nameOrBase));
-	if (!set) { console.error("[plateau] 地区が見つかりません:", nameOrBase, `（登録簿 ${PLATEAU_SETS.length} 件）`); return; }
+	if (!set) { console.error("[plateau] ward not found:", nameOrBase, `(catalog ${PLATEAU_SETS.length} entries)`); return; }
 	await standUpWard(set, tiles);   // 立ち上げ（常駐ヒット＝vis戻し／未常駐＝ロード）。二重ロードは standUpWard 内の plateauLoading ガードで防ぐ
 	const [w, s, e, n] = set.bbox;
 	cam.center = [(w + e) / 2, (s + n) / 2]; cam.zoom = 16; cam.pitch = 45 * D2R; cam.bearing = 0;   // 地区中心・傾けて建物を見る
 	onMove();
-	console.log(`[plateau] 完了 → ${set.name} z16 tilt45°。右ドラッグで傾け調整`);
+	console.log(`[plateau] done -> ${set.name} z16 tilt45°. right-drag to adjust tilt`);
 };
 
 // ロード本体（カメラは動かさない）：重い処理は plateauworker.js に丸投げ。メッシュはバッチ単位で worker→render worker
@@ -2291,7 +2336,7 @@ async function loadPlateau(base, tiles, name, wardBbox, brid, ex = {}) {
 	if (ok === "cancelled") return ok;   // 視野離脱の協調キャンセル＝呼び出し側（autoPlateau）が残骸掃除する
 	if (!ok) return false;
 	needsDraw = true;
-	console.log("[plateau] 完了", base);
+	console.log("[plateau] done", base);
 	return true;
 }
 
@@ -2370,7 +2415,7 @@ const hasPos = posEl.isConnected;   // 座標表示なし（instrumentsで"pos"�
 // 狭画面＝座標テーブルなし（境界はCSSの掟と同値）。回転や窓リサイズで跨ぐため毎回評価＝posOn が表示と標高fetchの両方を裁く。
 const narrowMq = window.matchMedia("(max-width: 480px)");
 const posOn = () => hasPos && !narrowMq.matches;
-posEl.innerHTML = "<table><thead><tr><th>経度</th><th>緯度</th><th>標高</th><th>z値</th><th>回転</th><th>傾度</th></tr></thead><tbody><tr><td></td><td></td><td></td><td></td><td></td><td></td></tr></tbody></table>";
+posEl.innerHTML = `<table><thead><tr><th>${t("経度")}</th><th>${t("緯度")}</th><th>${t("標高")}</th><th>${t("z値")}</th><th>${t("回転")}</th><th>${t("傾度")}</th></tr></thead><tbody><tr><td></td><td></td><td></td><td></td><td></td><td></td></tr></tbody></table>`;
 const posCells = [...posEl.querySelectorAll("td")];   // [経度, 緯度, 標高, z値, 回転, 傾度]（毎フレームはtextContent更新のみ＝DOM再構築しない）
 let posMouse = null, posElev = null, posElevId = 0, posElevAt = 0, posRaf = false, getHeight = null;
 setAltApiUrl("https://api.ortho-earth.com");
@@ -2508,7 +2553,7 @@ function swapScene(order) {
 			const prev = new Set((readySig.split("#")[0] || "").split("|").filter(Boolean));
 			const cur = new Set(order.map(o => o.key));
 			const zHist = {}; for (const o of order) zHist[o.z] = (zHist[o.z] || 0) + 1;
-			slog(`main merge 要求: +${[...cur].filter(k => !prev.has(k)).length} -${[...prev].filter(k => !cur.has(k)).length} / ${cur.size}枚`, "z分布", zHist);
+			slog(`main merge request: +${[...cur].filter(k => !prev.has(k)).length} -${[...prev].filter(k => !cur.has(k)).length} / ${cur.size} tiles`, "z dist", zHist);
 		}
 		requestMerge("main", order, sceneOrigin, themes.hiddenLi(layerState, cam.zoom), sig);
 	})) return;   // 結合は scene worker（非同期）→ render worker へ直行
@@ -2558,7 +2603,7 @@ function mergeChome(all, zoom) {
 }
 function rebuildLabels(order) {
 	lastLabelGate = labelGate();
-	slog("labels 再構築（mergeなし）");
+	slog("labels rebuilt (no merge)");
 	const allLabels = tiles.labels(order);
 	if (airportMarks.length && cam.zoom < AIRPORT_MARK_MAXZ) {   // 低ズーム＝静的台帳から空港マークのみ注入（タイル注記441と同名は二重にしない）
 		const have = new Set(allLabels.filter(L => L.code === 441).map(L => L.text));
@@ -2610,7 +2655,7 @@ function rebuildLabels(order) {
 			allLabels.push({ text: p.n, code: POI_CODE, anchor: p.anchor, size: 13, sort: 4 - p.r / 255, color, halo, haloW });
 			have.add(p.n); nShown++;   // 別タイルの同名（同じ名の学校）も1つに
 		}
-		if (poiLog) console.log(`[poi] z${cam.zoom.toFixed(1)} → 表示${nShown} / 在庫${nAvail}（rank待ち${nGated}・基図重複${nDedup}・上書き${authNames.size}・手差分${poiOvr?.recs?.length ?? 0}）${poiAll ? " [poiall]" : ""}`);
+		if (poiLog) console.log(`[poi] z${cam.zoom.toFixed(1)} -> shown ${nShown} / stock ${nAvail} (rank-gated ${nGated}, basemap-dup ${nDedup}, overriding ${authNames.size}, manual ${poiOvr?.recs?.length ?? 0})${poiAll ? " [poiall]" : ""}`);
 	}
 	const merged = mergeChome(allLabels, cam.zoom);   // 町丁名の二系統(210/800)を（N）表記ひとつへ畳んでから allowlist へ
 	const filtered = themes.filterLabels(merged, layerState, cam.zoom, layerState.terrain);   // 地形ON＝測量点の標高数値も通す
@@ -2731,7 +2776,7 @@ function applyView(v, { fly = false, glide = false, jump = false } = {}) {
 // デモ台本／内部から共有ビューへ「飛ぶ」薄いラッパ（applyView に委譲＝順序と URL 書込を一本化）。glide=滑走・jump=即時。
 function flyView(hash, opts = {}) {
 	const v = typeof hash === "string" ? parseViewHash(hash) : hash;
-	if (!v) { console.warn(`[flyView] 解釈できないビュー "${hash}"`); return false; }
+	if (!v) { console.warn(`[flyView] unparsable view "${hash}"`); return false; }
 	return applyView(v, { fly: true, glide: opts.glide, jump: opts.jump });
 }
 // シーン台本の連続ドリー（glidePath）＝{view,travel} の列を parseViewHash → flightCtl.glidePath へ（via 連続を1本の centripetal Catmull-Rom で貫く＝隅田川ドリー）。
@@ -2788,7 +2833,7 @@ function render() {
 	// 太陽系圏（z<1）：Canvas2D の薄いオーバーレイ（solarsky.js＝遅延ロード）が太陽・惑星・軌道線を実位置で重ねる。
 	// カメラは engine と同じ cameraState を共有＝星空・地球と厳密に整合。圏の出入りでドーム惑星（方向のみ表現）と交代。
 	const inSolar = !solarOff && cam.zoom < 1;
-	if (inSolar && !solarSkyLoad) solarSkyLoad = import("./solarsky.js").then(m => { solarSky = m.createSolarSky({ mapEl }); needsDraw = true; }).catch(e => console.warn("[solar] 圏ロード失敗", e));
+	if (inSolar && !solarSkyLoad) solarSkyLoad = import("./solarsky.js").then(m => { solarSky = m.createSolarSky({ mapEl }); needsDraw = true; }).catch(e => console.warn("[solar] zone load failed", e));
 	solarSky?.frame(cam, size.w, size.h, inSolar);
 	if (inSolar !== inSolarPrev) {
 		inSolarPrev = inSolar;
@@ -2804,7 +2849,7 @@ function render() {
 			readySig = ""; baseSig = ""; mergeReq.main.sig = ""; mergeReq.base.sig = ""; lastLabels = []; mainSceneZoom = -1; basemapHidden = true;   // 復帰時に再結合させる
 		}
 		runFrameHooks();
-		logEl.textContent = `world  zoom=${cam.zoom.toFixed(1)}  基図オフ・海岸線＋標高の塗り`;
+		logEl.textContent = `world  zoom=${cam.zoom.toFixed(1)}  basemap off / coastline + elevation fill`;
 		return;
 	}
 	basemapHidden = false;
@@ -2812,7 +2857,7 @@ function render() {
 	const { order, coarseOrder, total } = tiles.update(cam, size.w, size.h, { tilePx: (moving || !gpuFast || !idleCalm) ? undefined : IDLE_TILE_PX, groundR: groundRNow(), keepFine: keepFineNow() });   // tilePx＝「本当の静止」（settle+550ms）だけ主層を一段細かく（手前の詳細化・GPU格付け fast 限定・undefined=既定560）。groundR＝地形リフト球（チルト×高標高地の手前くさび欠け根治）。keepFine＝ズームアウトの子孫代打（3D限定）。calm が needsDraw を立て、細タイルの ready は requestDraw で連鎖再描画
 	if (layerState.facility && cam.zoom >= 14) loadPOI(cam);   // z14+×施設ON＝POI台帳タイル(poi/14/x/y)を可視ぶん先読み（既取得は素通り）
 	dbgHost.__lastOrder = order;   // デバッグ：現在の選択タイル（コンソール/検証スクリプトから確認）
-	dbgHost.__tileStats = () => { const s = tiles.stats(); console.log(`[tiles] 常駐 ${s.tiles}枚 / ${(s.bytes/1048576).toFixed(1)}MB（予算 ${(s.budgetBytes/1048576).toFixed(0)}MB, deviceMemory≈${s.deviceMemoryGB}GB, cacheEntries ${s.cacheEntries}）`); return s; };   // コンソールから常駐メモリ確認
+	dbgHost.__tileStats = () => { const s = tiles.stats(); console.log(`[tiles] resident ${s.tiles} tiles / ${(s.bytes/1048576).toFixed(1)}MB (budget ${(s.budgetBytes/1048576).toFixed(0)}MB, deviceMemory≈${s.deviceMemoryGB}GB, cacheEntries ${s.cacheEntries})`); return s; };   // コンソールから常駐メモリ確認
 	dbgHost.__tileCache = tiles.cache;   // デバッグ：タイル台帳の生参照（status/tries/seen を界隈キーで覗く＝矩形再描画の切り分け用）
 	swapBase(coarseOrder);                          // 粗い下地は常に敷く（移動中も）＝先端の空白を無くす
 	if (!moving) swapScene(order);   // 静止フレームは毎回＝mainDesired 更新と settle 後の穴埋め merge を最速で
@@ -2849,15 +2894,15 @@ function showDrawHud(msg) {
 		document.body.appendChild(drawHudEl);
 	}
 	const d = msg.d;
-	if (!d) { drawHudEl.textContent = `${msg.backend || "?"}：描画実績なし（このバックエンドは未計装）`; return; }
+	if (!d) { drawHudEl.textContent = `${msg.backend || "?"}: no draw stats (backend not instrumented)`; return; }
 	const fills = (d.baseFill || 0) + (d.mainFill || 0);
 	drawHudEl.style.color = fills ? "#7ee787" : "#ff7b72";   // 塗り0＝赤＝「背景が黒」の犯人が CPU 側である証拠
 	drawHudEl.textContent =
-		`${msg.backend}  z${d.zoom}  ${fills ? "" : "⚠ 塗り0枚"}\n` +
-		`塗り base ${d.baseFill} / main ${d.mainFill}\n` +
-		`線   base ${d.baseLine} / main ${d.mainLine}\n` +
-		`退場 skipMain=${d.skipMain ? 1 : 0} skipBase=${d.skipBase ? 1 : 0} fade=${(d.fadeK ?? 1).toFixed(2)}\n` +
-		`PLATEAU ${d.pl ?? 0}バッチ  深度=${d.terrainDepth ? "on" : "off"}  AA=${d.aa ?? "-"}x`;
+		`${msg.backend}  z${d.zoom}  ${fills ? "" : "⚠ fill 0"}\n` +
+		`fill base ${d.baseFill} / main ${d.mainFill}\n` +
+		`line base ${d.baseLine} / main ${d.mainLine}\n` +
+		`skip skipMain=${d.skipMain ? 1 : 0} skipBase=${d.skipBase ? 1 : 0} fade=${(d.fadeK ?? 1).toFixed(2)}\n` +
+		`PLATEAU ${d.pl ?? 0} batches  depth=${d.terrainDepth ? "on" : "off"}  AA=${d.aa ?? "-"}x`;
 }
 // ?hud=1（旧 mem=1）：状態盤HUD。plateau/tiles/terrain/GPU固定/過渡を合算する台帳＋描画実測（backend/FPS/frame/動的解像度）＋
 // device（navigator：RAM/コア/DPR/回線/UA）を gadgets/hud.js（計測器ボタンで開閉するガジェット）へ供給する。数値の出所は全て
@@ -2892,7 +2937,7 @@ function hudSnapshot() {
 if (hudOn) import("./gadgets/hud.js").then(({ hud }) => {
 	map.gadget("hud", function (opts) { return hud.call(this, { snapshot: hudSnapshot, open: hudOpenInit, signal: ac.signal, ...opts }); });
 	map.gadget.hud();
-}).catch(e => console.error("[hud] 本体の読み込みに失敗", e));
+}).catch(e => console.error("[hud] failed to load module", e));
 dbgHost.__loadEstat = overlay.loadEstat;
 dbgHost.__tokyo = () => overlay.loadEstat(Array.from({ length: 23 }, (_, i) => 13101 + i));   // 東京23区の小地域
 // 初期 overlay なし（全球 land は検証用。__tokyo() や __loadOverlay(name) で任意に）
@@ -3071,11 +3116,11 @@ map.gadget("solar", function (opts) {   // 太陽系への口（ortho-solar） �
 	if (update) { frameHooks.add(update); update(); }   // 圏の出入りで現れ/引っ込む＝毎フレ判定（コンパスと同じ）
 });
 map.gadget("plateau", function (opts) {   // 建物3D（PLATEAU）データ管理 … モーダルを開く手綱はここで注入
-	if (!plateauOn) { console.warn("[plateau] opts.plateau=false＝機能ごと停止中。ガジェットは搭載しない"); return; }
+	if (!plateauOn) { console.warn("[plateau] opts.plateau=false = feature disabled; gadget not mounted"); return; }
 	return plateauGadget.call(this, { onOpen: plateauDb.open, ...opts });
 });
 map.gadget("palette", function (opts) {   // 配色テーマ・ピッカー … 現在テーマ(見本から除く)と切替(switchTheme=c=差替+reload)と撮影(見本=今の視点の実写)を注入
-	if (themeFixed) { console.warn("[palette] opts.theme 焼き付け中＝c= は破れない。ガジェットは搭載しない"); return; }
+	if (themeFixed) { console.warn("[palette] opts.theme is baked in = c= cannot override; gadget not mounted"); return; }
 	return paletteGadget.call(this, { current: themeName, onPick: name => { switchTheme(name); saveView(); }, requestSnapshot, getZoom: () => cam.zoom, getCurrent: () => themeName, signal: ac.signal, ...opts });   // pick=テーマ生き替え→URL即書込（switchThemeはURLを書かない＝ここで saveView）
 });
 map.gadget("zoom", function (opts) {   // ズーム＋/− … フライト中断・onMove・z範囲はここで注入
@@ -3143,7 +3188,7 @@ if (/[?&]poiedit=1/.test(location.search)) import("./gadgets/poiedit.js").then((
 		});
 	});
 	map.gadget.poiedit();
-}).catch(e => console.error("[poiedit] 読み込み失敗", e));
+}).catch(e => console.error("[poiedit] load failed", e));
 // ── 共有シーン台本(type:"scenes")の再生 ── 落とした .scenes（または ?scene=URL）を demo プレーヤーで自動上演する（demo/scene-format.md）。
 // demo は起動時に1度マウント済み（index.html）＝その1インスタンスに load() で台本を差し替える（下の demo ラッパが手綱 demoHandle を掴む）。
 let demoHandle = null;
@@ -3165,11 +3210,11 @@ const playingNow = () => sceneBusy || !!mapEl.querySelector("#demo-bar.on");   /
 //   opts.onScene(i, scene)＝行の上映開始（フライト開始前＝行ハイライト用）／opts.onEnd(reason)＝どの終わり方でも1発（"finished"=走破・"stopped"=中断）。
 //   戻り値＝受けたら true・上映中で受けなければ false（先に map.stopScenes()）。終演/中断/失敗のどの経路でも黒幕と上映ロックを残さない（手仕舞い一本化）。
 function playScenes(obj, { from = 0, quick = false, onScene, onEnd } = {}) {
-	if (playingNow()) { console.warn("[scene] 上映中＝受けない（stopScenes() で停止してから）"); return false; }
+	if (playingNow()) { console.warn("[scene] already playing = rejected (call stopScenes() first)"); return false; }
 	const lang = new URLSearchParams(location.search).get("lang");   // 言語選択は視聴者の ?lang= だけ（台本側の言語指定は無い＝既定は title の言語そのまま）
 	const { scenes, mobile, hold = 3, slideHold, preload, waitLoading } = parseScenes(obj);   // scene 再生の保持既定＝3秒（▶デモは5.5のまま＝発表の間合いは別物）
-	if (!scenes.length) { console.warn("[scene] scenes が空＝再生しない", obj?.title); return false; }
-	if (!demoHandle) { console.warn("[scene] demo 未搭載＝少し待って再度（起動直後）"); return false; }   // demo は起動時に index.html が搭載済み（通常は在る）＝ ▶ と同じ実体の再生ルーチンを借りる
+	if (!scenes.length) { console.warn("[scene] scenes empty = not playing", obj?.title); return false; }
+	if (!demoHandle) { console.warn("[scene] demo not mounted = retry shortly (just after boot)"); return false; }   // demo は起動時に index.html が搭載済み（通常は在る）＝ ▶ と同じ実体の再生ルーチンを借りる
 	sceneBusy = true;   // 解除＝終幕括弧の閉じ（returnToStart 完了）／endHook（中断・quick走破）／失敗 fallback＝どの経路でも必ず一箇所
 	const run = ++sceneRun;
 	const views = scenes.flatMap(s => s.via != null ? [s.via] : [s.view ?? s.glide ?? s.fade]).filter(Boolean);   // 全視点（via 通過点も込み）＝先読み対象
@@ -3223,7 +3268,7 @@ function playScenes(obj, { from = 0, quick = false, onScene, onEnd } = {}) {
 		if (!quick) sceneCover(false);   // ★開始と同時に黒幕を fade-out＝最初の画面へ fade-in（約1.2秒）
 	}).catch(e => {   // ★fallback＝どの失敗でも「黒幕を残さず、上映前の画面へ帰る」＝終幕と同じ着地（上映ロックも解除）
 		sceneLoading(false); sceneProgTap = null; sceneBusy = false;
-		console.warn("[scene] 再生準備で失敗＝上映前の画面へ戻す", e);
+		console.warn("[scene] playback prep failed = returning to pre-show view", e);
 		if (!quick) { flyView(returnView, { jump: true }); sceneCover(false); }
 	});
 	return true;
@@ -3285,10 +3330,10 @@ function scrubCover(a) {
 		const buf = new Uint8Array(await r.arrayBuffer());
 		return JSON.parse((buf[0] === 0x1f && buf[1] === 0x8b) ? await gunzipText(buf) : new TextDecoder().decode(buf));
 	}).then(obj => {
-		if (obj?.type !== "scenes") { console.warn(`[scene] type:"scenes" でない＝再生しない`, sceneUrl); return; }
-		const arm = tries => demoHandle ? playScene(obj) : (tries < 100 ? setTimeout(() => arm(tries + 1), 100) : console.warn("[scene] demo 未搭載のまま＝?scene= を諦めた"));
+		if (obj?.type !== "scenes") { console.warn(`[scene] type is not "scenes" = not playing`, sceneUrl); return; }
+		const arm = tries => demoHandle ? playScene(obj) : (tries < 100 ? setTimeout(() => arm(tries + 1), 100) : console.warn("[scene] demo never mounted = gave up on ?scene="));
 		arm(0);
-	}).catch(err => console.warn("[scene] ?scene= の取得に失敗", sceneUrl, err));
+	}).catch(err => console.warn("[scene] failed to fetch ?scene=", sceneUrl, err));
 }
 // ★開幕の黒幕（fade-in）：ドロップ/?scene= の再生は必ず黒から立ち上がる＝jump・読み込み・基図タイルの立ち上がりを
 // 隠し、開始と同時に約1.2秒で溶明。DOMオーバーレイ＝#underground（地中フェード）と同じ流儀。パネル(#scene-loading)は
@@ -3335,7 +3380,6 @@ async function fadeViewRun(hash, secs) {
 // elevBusy（標高タイル）をここで直接読んで一行に組む。触れない・待ち終わりに退場。
 let slEl = null, slFill = null, slSub = null, slCount = null;
 function sceneLoading(state) {
-	const en = new URLSearchParams(location.search).get("lang") === "en";
 	if (state === false) { if (slEl) slEl.style.display = "none"; return; }
 	if (!state.show && !(slEl && slEl.style.display !== "none")) return;   // 兆候(show)が来るまで出さない＝区tickだけではパネルを開かない
 	if (!slEl) {
@@ -3345,7 +3389,7 @@ function sceneLoading(state) {
 		const card = document.createElement("div");
 		Object.assign(card.style, { minWidth: "min(320px, 78vw)", maxWidth: "82vw", padding: "28px 36px", borderRadius: "18px", background: "rgba(16,24,36,.92)", color: "#fff", textAlign: "center", fontFamily: "system-ui, sans-serif", boxShadow: "0 8px 40px rgba(0,0,0,.45)" });
 		const title = document.createElement("div");
-		title.textContent = en ? "Loading the scene…" : "シーンを読み込み中…";
+		title.textContent = t("シーンを読み込み中…");
 		Object.assign(title.style, { fontSize: "23px", fontWeight: "700", letterSpacing: ".01em", marginBottom: "6px" });
 		slSub = document.createElement("div");
 		Object.assign(slSub.style, { fontSize: "13px", opacity: ".7", marginBottom: "18px", minHeight: "1.4em" });
@@ -3363,21 +3407,21 @@ function sceneLoading(state) {
 	slEl.style.display = "flex";
 	// 今まさに読んでいる物＝建物（区名 done/total枚・カタログ走査）＋標高。網経路のみ＝IDB命中は現れない（それが正しい）
 	const parts = [...plateauProg.values()].map(p =>
-		p.total ? `${p.name} ${p.done}/${p.total}${en ? "" : "枚"}` : `${p.name} ${en ? "scanning" : "カタログ走査"} ${p.scan ?? 0}…`);
-	if (elevBusy) parts.push(en ? "terrain tiles" : "標高タイル");
-	slSub.textContent = parts.join("・") || (en ? "3D city (PLATEAU)" : "3D都市（PLATEAU）");
+		p.total ? t("{0} {1}/{2}枚", p.name, p.done, p.total) : t("{0} カタログ走査 {1}…", p.name, p.scan ?? 0));
+	if (elevBusy) parts.push(t("標高タイル"));
+	slSub.textContent = parts.join("・") || t("3D都市（PLATEAU）");
 	const { done = 0, total = 0 } = state;
 	if (state.phase === "gpu") {   // 読み切った後の最終段＝IDB→GPU 常駐へ立ち切る待ち（開幕の直前）
 		slFill.style.width = "100%";
-		slCount.textContent = en ? "standing up the city…" : "都市を立ち上げ中…";
+		slCount.textContent = t("都市を立ち上げ中…");
 	} else if (total) {
 		// バーは区の歩み＋読みかけ区のタイル進捗（なめらか担当・並行読みの分は全部加算＝残り区数でクランプ）
 		const frac = Math.min(Math.max(0, total - done), [...plateauProg.values()].reduce((a, p) => a + (p.total ? Math.min(1, p.done / p.total) : 0), 0));
 		slFill.style.width = Math.max(6, Math.round(Math.min(1, (done + frac) / total) * 100)) + "%";
-		slCount.textContent = en ? `${done} / ${total} districts` : `${done} / ${total} 区`;
+		slCount.textContent = t("{0} / {1} 区", done, total);
 	} else {
 		slFill.style.width = "6%";
-		slCount.textContent = en ? "preparing…" : "準備中…";
+		slCount.textContent = t("準備中…");
 	}
 }
 map.gadget("dropFile", function (opts) {   // GISファイルのD&D取り込み … geopbf(File,{gint:true})→applyGintData を loadFile として束ね注入（gint単一スロット＝置き換え）

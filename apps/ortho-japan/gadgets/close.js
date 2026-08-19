@@ -4,12 +4,14 @@
 // destroy を呼ぶ等）は埋め込み側の領分。単体ページでは載せない＝モーダル/ライトボックスに地図を出す画面のための×。
 // 置き場所は右上（チップ列のさらに上ではなく #map 直下の後置＝スタック不参加。×は家具でなく「額縁の金具」）。
 import { modalOpen, isTypingTarget } from "./keys.js";
+import { tr } from "../i18n.js";
+const t = tr({ "閉じる (Esc)": "Close (Esc)", "地図を閉じる": "Close map" });
 
 export function close({ signal } = {}) {
 	const mapEl = this.mapEl;
 	if (mapEl.querySelector("#close-btn")) return;   // 二重搭載は無害（搭載済みのまま）
 	const btn = document.createElement("button");
-	btn.id = "close-btn"; btn.dataset.tip = "閉じる (Esc)"; btn.setAttribute("aria-label", "地図を閉じる");
+	btn.id = "close-btn"; btn.dataset.tip = t("閉じる (Esc)"); btn.setAttribute("aria-label", t("地図を閉じる"));
 	btn.innerHTML = `
 		<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="#3f4757" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
 			<path d="M6 6l12 12M6 18L18 6"/></svg>`;

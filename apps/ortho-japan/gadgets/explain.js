@@ -2,6 +2,8 @@
 // map.gadget.explain() で搭載する（v1 ortho-map の gadget 作法＝this が map）。戻り値＝内容の setter。
 // 主題の解説・お知らせなど、地図の上辺に静かに出す読み物の枠。set(html) で表示／set(null) で消す。
 // opts.permanent＝×ボタンを出さない（消せない常設）。opts.width＝最大幅(px)。
+import { tr } from "../i18n.js";
+const t = tr({ "閉じる": "Close" });
 export function explain({ permanent, width } = {}) {
 	const mapEl = this.mapEl;
 	if (mapEl.querySelector("#explain")) return () => {};   // 二重搭載は無害
@@ -12,7 +14,7 @@ export function explain({ permanent, width } = {}) {
 	div.append(body);
 	if (!permanent) {
 		const close = document.createElement("button");
-		close.className = "panel-close"; close.textContent = "×"; close.title = "閉じる"; close.setAttribute("aria-label", "閉じる");
+		close.className = "panel-close"; close.textContent = "×"; close.title = t("閉じる"); close.setAttribute("aria-label", t("閉じる"));
 		close.addEventListener("click", () => set(null));
 		div.append(close);
 	}

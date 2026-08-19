@@ -20,6 +20,7 @@
 | `chips` | `true` | テーマ・チップ帯（右上）そのものの表示。`true`=搭載（`layers` で固定したキーのボタンは出ない）／`false`=出さない。旧配列形式=選択的も後方互換で動作（非推奨） |
 | `instruments` | `true` | 下部の計器盤。`true`=全部／配列=選択的／`false`=出さない。キー: `pos`(座標) `scale`(距離) `attr`(出典) `log`(デバッグ) |
 | `plateau` | `true` | 建物3D（PLATEAU）の**機能スイッチ**。`false`=カタログ取得・worker・z14+の自動ロード・データ管理ガジェットを丸ごと停止（1地区数十〜百MB級の通信が一切発生しない） |
+| `lang` | 自動 | UIの言語。`"ja"` / `"en"`（歴史的別名 `"jp"` も可）。未指定＝`?lang=` → ブラウザ言語（ja系→日本語・それ以外→英語）。対象はUIの衣（ボタン・トースト・案内）のみ＝**地図の中の地名は対象外**。デモ台本は別系統（.scenes の `jp:`/`en:` フィールド） |
 
 ```js
 const map = await orthoJapan({
@@ -74,6 +75,8 @@ map.gadget("myGadget", function () { /* this = map */ });   // 自作ガジェ�
 
 `npm run build:lib` が `dist/lib/` に出荷形を吐く（`ortho-japan.js` ＋ `ortho-japan.css` ＋ worker/動的importのチャンク）。
 
+**配布物一式は `npm run pack:sdk`** ＝ `dist/sdk/ortho-japan-sdk-<version>.zip`。中身は `lib/`（上記出荷形・sourcemapは非同梱＝実行に不要）・`assets/`（実行時アセット4点・約150KB）・`example/`（動くサンプル＝unzip→HTTP配信→`/example/` で即・地球が回る）・`README.md`・`LICENSE`。これ一つ渡せば埋め込みが完結する：`lib/` と `assets/` をサイトへ置き、`assetBase` に `assets/` の場所を指すだけ。sw.js・開発専用データ・台帳類は混入したら pack が fail する（scripts/pack-sdk.mjs の掟）。
+
 ```html
 <link rel="stylesheet" href="/ortho-japan/ortho-japan.css">
 <div id="here" class="map-box"></div>
@@ -89,7 +92,7 @@ map.gadget("myGadget", function () { /* this = map */ });   // 自作ガジェ�
 | | |
 |---|---|
 | **寸法はクラスか inline style で** | アプリは容れ物の `id` を `map` へ借りる（家具規格）。`#here { … }` のような **id セレクタで書いた指定は改名の瞬間に外れる**。借りる時に console.warn で伝え、`destroy()` で id は返す |
-| **`assetBase`** | `plateau-sets.json` / `airports.json` / `plateau-landmarks.json` / `ai/citycodes.json` はライブラリに同梱していない（数MB を全員に配らないため）。`apps/ortho-japan/public/` の中身を任意の場所へ置き、そこを指す。未指定＝`/` 直下を見る。`plateau: false` なら PLATEAU 系の取得自体が起きない |
+| **`assetBase`** | `plateau-sets.json` / `airports.json` / `plateau-landmarks.json` / `ai/citycodes.json` は JS に焼き込まない（フォーマット独立・差し替え自由のため）。配布物 zip の `assets/` をサイトの任意の場所へ置き、そこを指す。未指定＝`/` 直下を見る。`plateau: false` なら PLATEAU 系の取得自体が起きない |
 | **COOP/COEP は要らない** | `crossOriginIsolated` は SharedArrayBuffer（gint バッファのゼロコピー）の点火条件であって動作要件ではない。無ければコピー1回に落ちて同じ結果を出す（`npm run verify:nocoi` で実測・`packages/ortho-core/fallback-ladder.md` §3.5） |
 | **出典表記の義務は消えない** | 下の「出典表記」を参照。`instruments` から `attr` を外すなら埋め込みページ側に同等の記述が要る |
 

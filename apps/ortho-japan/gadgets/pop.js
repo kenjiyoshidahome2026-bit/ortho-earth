@@ -4,6 +4,8 @@
 // 箱はドラッグで移動・📌で固定・×で消す。裏半球へ回った錨は自動で隠れる。
 // projectLL＝経緯度→画面CSS座標[x,y,front]（実装は engine の project／注入は登録側）。
 // マーカー追随は本体 render のフック＝返す pop 関数の _update を登録側が frameHooks へ入れて毎フレ呼ぶ。
+import { tr } from "../i18n.js";
+const t = tr({ "閉じる": "Close", "固定": "Pin" });
 export function pop({ projectLL, signal } = {}) {
 	const mapEl = this.mapEl;
 	if (mapEl.querySelector("#pop-lines")) return () => {};   // 二重搭載は無害
@@ -22,10 +24,10 @@ export function pop({ projectLL, signal } = {}) {
 		const div = document.createElement("div");
 		div.className = "pop"; div.innerHTML = toHTML(content);
 		const close = document.createElement("button");
-		close.className = "panel-close"; close.textContent = "×"; close.title = "閉じる"; close.setAttribute("aria-label", "閉じる");
+		close.className = "panel-close"; close.textContent = "×"; close.title = t("閉じる"); close.setAttribute("aria-label", t("閉じる"));
 		close.addEventListener("click", e => { e.stopPropagation(); pops = pops.filter(p => p !== rec); div.remove(); draw(); });
 		const pin = document.createElement("button");
-		pin.className = "pop-pin"; pin.textContent = "📌"; pin.title = "固定"; pin.setAttribute("aria-label", "固定");
+		pin.className = "pop-pin"; pin.textContent = "📌"; pin.title = t("固定"); pin.setAttribute("aria-label", t("固定"));
 		pin.addEventListener("click", e => {
 			e.stopPropagation(); rec.locked = pin.classList.toggle("on");
 			close.style.display = rec.locked ? "none" : ""; div.style.cursor = rec.locked ? "default" : "grab";

@@ -4,6 +4,8 @@
 // ★frame hook（毎フレ再投影で球に追従）は core 側の frameHooks に触れる＝抽象アクセス opts.onBody(本体) 経由で本体到着後に配線。
 import { gadgetStack } from "./stack.js";
 import { keyBusy } from "./keys.js";
+import { tr } from "../i18n.js";
+const t = tr({ "距離・面積を測る（M）": "Measure distance and area (M)", "距離・面積を測る": "Measure distance and area" });
 
 // 巻尺グリフ（本体 measure.js と同一＝スタブがボタンを作る担当）。線色は本線インク直書き＝quiet-mono の夜節が自動反転。
 const ICON = `
@@ -15,7 +17,7 @@ export function measure(opts = {}) {
 	const map = this, mapEl = this.mapEl;
 	if (mapEl.querySelector("#measure-btn")) return () => {};   // 二重搭載は無害（作法の対称＝no-op を返す）
 	const btn = document.createElement("button");
-	btn.id = "measure-btn"; btn.dataset.tip = "距離・面積を測る（M）"; btn.setAttribute("aria-label", "距離・面積を測る");
+	btn.id = "measure-btn"; btn.dataset.tip = t("距離・面積を測る（M）"); btn.setAttribute("aria-label", t("距離・面積を測る"));
 	btn.innerHTML = ICON;
 	gadgetStack(mapEl).append(btn);
 
@@ -24,7 +26,7 @@ export function measure(opts = {}) {
 	opts.signal && opts.signal.addEventListener("abort", () => stub.abort(), { once: true });   // destroy 時も退場
 	const boot = () => real ||= import("./measure.js")
 		.then(m => { const g = m.measure.call(map, { ...opts, btn }); stub.abort(); opts.onBody?.(g); return g; })   // 本体は持参 btn を再利用／onBody＝frame hook 配線を core へ委ねる
-		.catch(e => { real = null; console.error("[measure] 本体の読み込みに失敗", e); });
+		.catch(e => { real = null; console.error("[measure] failed to load module", e); });
 	let opening = false;   // 読み込み中の連打を一回に畳む（搭載後はスタブごと退場＝本体トグルが受ける）
 	const activate = () => { if (opening) return; opening = true; boot().then(g => { opening = false; g && g.open?.(); }); };   // open＝計測モードON（start）
 	btn.addEventListener("click", activate, { signal: stub.signal });

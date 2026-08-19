@@ -26,6 +26,6 @@ export function demo(opts = {}) {
 			if (g) for (const k of keys) facade[k] = (...a) => (g[k] ? g[k](...a) : undefined);   // 到着後は同期直接委譲へ
 			return g;
 		})
-		.catch(e => { console.error("[demo] 本体の読み込みに失敗", e); return null; });
+		.catch(e => { console.error("[demo] failed to load module", e); return null; });
 	return facade;
 }

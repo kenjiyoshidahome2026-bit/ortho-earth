@@ -3,15 +3,27 @@
 // 出典の文言＝日本のデータ源の名乗り。DOM順は最後尾群＝下辺の静かな層。
 // ★"attr"（出典）を出さない場合でも、地理院タイル・PLATEAU・AW3D30 の出典明記義務は消えない＝
 //   埋め込み側が自分のページのどこかに同等の出典を記述すること（README「出典表記」参照）。
+import { tr } from "../i18n.js";
+const t = tr({   // 出典（attr）＝正確性が義務＝機関名は公式英名（GSI / MLIT PLATEAU / JAXA）
+	"起動中…": "Starting…",
+	"出典：": "Sources: ",
+	"国土地理院最適化ベクトルタイル（提供実験）": "Optimized Vector Tiles (experimental), Geospatial Information Authority of Japan (GSI)",
+	"標高タイル（DEM10B）": "Elevation Tiles (DEM10B)",
+	"国土交通省 PLATEAU": "MLIT PLATEAU",
+	"（各データを加工して作成）": "(Created by processing these data sources)",
+	"3DBAG（TU Delft）CC BY 4.0": "3DBAG (TU Delft), CC BY 4.0",
+	"BAG（建物登記）・AHN（国土LiDAR）より自動生成": "Auto-generated from BAG (building registry) and AHN (national LiDAR)",
+	"（データを加工して作成）": "(Created by processing the data)",
+});
 const KEYS = ["log", "pos", "scale", "attr"];
 export function mountInstruments(mapEl, keys = true) {
 	if (Array.isArray(keys))   // typo は黙って0個になる＝開発時の迷子防止に一声
-		for (const k of keys) if (!KEYS.includes(k)) console.warn(`[instruments] 未知のキー "${k}"（有効: ${KEYS.join(", ")}）`);
+		for (const k of keys) if (!KEYS.includes(k)) console.warn(`[instruments] unknown key "${k}" (valid: ${KEYS.join(", ")})`);
 	const want = k => keys === true || (Array.isArray(keys) && keys.includes(k));
 	const els = [];
 	if (want("log")) {   // デバッグログ（常時非表示＝devtoolsで#logを出す人向け）
 		const log = document.createElement("div");
-		log.id = "log"; log.textContent = "起動中…";
+		log.id = "log"; log.textContent = t("起動中…");
 		els.push(log);
 	}
 	if (want("pos")) {   // 座標読み取り（左下）。非搭載なら標高照会も止まる（main側 hasPos ゲート）
@@ -38,12 +50,12 @@ export function mountInstruments(mapEl, keys = true) {
 		// 日本のデータを出していない画面に地理院・PLATEAU を並べるのは、義務以前に嘘になる。
 		const nl = /^\/nl(\/|$)/.test(location.pathname) || /[?&]nl=1/.test(location.search);
 		attr.innerHTML = nl
-			? `出典：<a href="https://3dbag.nl/" target="_blank" rel="noopener">3DBAG（TU Delft）CC BY 4.0</a><br>
-			BAG（建物登記）・AHN（国土LiDAR）より自動生成<br>
-			（データを加工して作成）© 2026 <a href="https://www.ortho-earth.com/docs/introduction.html" target="_blank" rel="noopener">Kenji Yoshida</a>`
-			: `出典：<a href="https://maps.gsi.go.jp/development/ichiran.html#optbv" target="_blank" rel="noopener">国土地理院最適化ベクトルタイル（提供実験）</a><br>
-			<a href="https://maps.gsi.go.jp/development/ichiran.html#dem" target="_blank" rel="noopener">標高タイル（DEM10B）</a>・<a href="https://www.mlit.go.jp/plateau/" target="_blank" rel="noopener">国土交通省 PLATEAU</a>・<a href="https://www.eorc.jaxa.jp/ALOS/jp/dataset/aw3d30/aw3d30_j.htm" target="_blank" rel="noopener">JAXA AW3D30</a><br>
-			（各データを加工して作成）© 2026 <a href="https://www.ortho-earth.com/docs/introduction.html" target="_blank" rel="noopener">Kenji Yoshida</a>`;
+			? `${t("出典：")}<a href="https://3dbag.nl/" target="_blank" rel="noopener">${t("3DBAG（TU Delft）CC BY 4.0")}</a><br>
+			${t("BAG（建物登記）・AHN（国土LiDAR）より自動生成")}<br>
+			${t("（データを加工して作成）")}© 2026 <a href="https://www.ortho-earth.com/docs/introduction.html" target="_blank" rel="noopener">Kenji Yoshida</a>`
+			: `${t("出典：")}<a href="https://maps.gsi.go.jp/development/ichiran.html#optbv" target="_blank" rel="noopener">${t("国土地理院最適化ベクトルタイル（提供実験）")}</a><br>
+			<a href="https://maps.gsi.go.jp/development/ichiran.html#dem" target="_blank" rel="noopener">${t("標高タイル（DEM10B）")}</a>・<a href="https://www.mlit.go.jp/plateau/" target="_blank" rel="noopener">${t("国土交通省 PLATEAU")}</a>・<a href="https://www.eorc.jaxa.jp/ALOS/jp/dataset/aw3d30/aw3d30_j.htm" target="_blank" rel="noopener">JAXA AW3D30</a><br>
+			${t("（各データを加工して作成）")}© 2026 <a href="https://www.ortho-earth.com/docs/introduction.html" target="_blank" rel="noopener">Kenji Yoshida</a>`;
 		els.push(attr);
 	} else document.querySelector("#attr[data-boot]")?.remove();   // 出典を出さない構成＝静的版も残さない（埋め込み側の出典明記義務は README どおり）
 	mapEl.append(...els);

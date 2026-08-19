@@ -3,17 +3,22 @@
 // ＝履歴が残るので、あちらの「← Earth」出口（history.back）でこの視点そのままに帰ってこられる。
 // 地図(天動説の劇場)と太陽系(地動説の劇場)の縫い目は URL＝アプリは疎のまま（プラットフォーム＝プロトコルの流儀）。
 import { gadgetStack } from "./stack.js";
+import { tr, getLang } from "../i18n.js";
+const t = tr({
+	"太陽系へ（ortho-solar）": "To the Solar System (ortho-solar)",
+	"太陽系へ": "To the Solar System",
+});
 export function solar({ url, showBelow = 5 } = {}) {
 	const mapEl = this.mapEl, cam = this.cam;
 	if (mapEl.querySelector("#solar")) return;   // 二重搭載は無害（搭載済みのまま）
 	// 行き先：本番＝同一オリジンの /solar/。開発＝solar の vite（別ポート）。opts.url で差し替え可
-	// ?lang=ja＝日本語アプリからの導線は日本語で迎える（solar 側の既定はブラウザ言語・?lang=en で英語固定）
+	// ?lang=＝今のUI言語をそのまま持たせる（solar 側の既定はブラウザ言語・?lang= で固定）
 	const dest = url ?? (["localhost", "127.0.0.1"].includes(location.hostname) ? "http://localhost:5199/" : "/solar/");
-	const href = dest + (dest.includes("?") ? "&" : "?") + "lang=ja";
+	const href = dest + (dest.includes("?") ? "&" : "?") + "lang=" + getLang();
 	// 見た目は紙のチップでなく星空家具の文字リンク（意匠は quiet-mono #solar＝sky-clock の血筋）。
 	// 並びは太陽系の文字が上・日本の扉（#japan-btn）がその下（order は quiet-mono の world 節）
 	const btn = document.createElement("button");
-	btn.id = "solar"; btn.dataset.tip = "太陽系へ（ortho-solar）"; btn.setAttribute("aria-label", "太陽系へ");
+	btn.id = "solar"; btn.dataset.tip = t("太陽系へ（ortho-solar）"); btn.setAttribute("aria-label", t("太陽系へ"));
 	btn.textContent = "The Solar System";
 	gadgetStack(mapEl).append(btn);
 	btn.addEventListener("click", () => { location.href = href; });

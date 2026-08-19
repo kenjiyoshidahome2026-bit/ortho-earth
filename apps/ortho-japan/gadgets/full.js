@@ -4,6 +4,8 @@
 // 非対応（iOS Safari 等）はボタンごと出さない＝出ない機能のボタンを見せない。signal＝destroy 時のリスナー解除。
 import { gadgetStack } from "./stack.js";
 import { keyBusy } from "./keys.js";
+import { tr } from "../i18n.js";
+const t = tr({ "全画面表示 ({0})": "Full screen ({0})", "全画面表示": "Full screen", "全画面を終了": "Exit full screen" });
 const EXPAND = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#3f4757" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>`;
 const COMPRESS = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#3f4757" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/></svg>`;
 export function full({ signal } = {}) {
@@ -14,7 +16,7 @@ export function full({ signal } = {}) {
 	if (mapEl.querySelector("#full")) return;   // 二重搭載は無害（搭載済みのまま）
 	const mac = /Mac|iP(hone|ad|od)/.test(navigator.platform || "");
 	const btn = document.createElement("button");
-	btn.id = "full"; btn.dataset.tip = `全画面表示 (${mac ? "⌘Z" : "Ctrl+Z"})`; btn.setAttribute("aria-label", "全画面表示");
+	btn.id = "full"; btn.dataset.tip = t("全画面表示 ({0})", mac ? "⌘Z" : "Ctrl+Z"); btn.setAttribute("aria-label", t("全画面表示"));
 	btn.innerHTML = EXPAND;
 	// 置き場所はスタック（搭載順＝縦の並び）。
 	gadgetStack(mapEl).append(btn);
@@ -33,7 +35,7 @@ export function full({ signal } = {}) {
 	const sync = () => {   // 全画面状態はブラウザ主導（Escでも抜ける）＝イベントで絵柄を合わせる
 		const on = fsEl() === mapEl;
 		btn.innerHTML = on ? COMPRESS : EXPAND;
-		btn.dataset.tip = on ? "全画面を終了" : "全画面表示";
+		btn.dataset.tip = on ? t("全画面を終了") : t("全画面表示");
 		btn.setAttribute("aria-label", btn.dataset.tip);
 	};
 	document.addEventListener("fullscreenchange", sync, { signal });

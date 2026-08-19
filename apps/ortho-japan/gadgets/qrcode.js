@@ -51,7 +51,7 @@ const bestLevel = len => { for (const lv of ["H", "Q", "M", "L"]) if (pickVersio
 function encode(text, level) {
 	const bytes = new TextEncoder().encode(text);   // UTF-8（共有URLは基本ASCII）
 	const ver = pickVersion(bytes.length, level);
-	if (!ver) throw new Error(`QR: データが長すぎます（${bytes.length}byte > v6-${level} 上限）`);
+	if (!ver) throw new Error(`QR: data too long (${bytes.length} bytes > v6-${level} limit)`);
 	const t = TABLES[level][ver];
 	// ビット列を作る
 	const bits = [];
@@ -251,6 +251,6 @@ export function qrSelfTest() {
 	const okTiming = m[6][8] === true && m[6][9] === false;   // 行6は 8=黒,9=白,…
 	if (!okFinder) fails.push("finder/size");
 	if (!okTiming) fails.push("timing");
-	if (fails.length) console.error("[qrcode] 自己テスト失敗:", fails.join(" / "));
+	if (fails.length) console.error("[qrcode] self-test failed:", fails.join(" / "));
 	return fails.length === 0;
 }

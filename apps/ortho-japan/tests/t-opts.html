@@ -33,7 +33,7 @@ ok("layersFixed", f.chips === "place.terrain.road");
 const fl = await probe({ layers: { chikei: true } });   // 旧romajiキーでも固定できる（読み替え）
 ok("layersLegacy", fl.chips === "place.rail.road.facility");
 await probe({ chips: ["chimie"], instruments: ["poss"], layers: { raill: true } });   // typo＝警告3件のはず
-ok("warn", __warns.filter(x => x.includes("未知のキー")).length === 3);
+ok("warn", __warns.filter(x => x.includes("unknown key")).length === 3);   // console英語統一(2026-08-19)に追随
 ok("destroyClean", !document.getElementById("map") && !window.__cam);   // probe後は毎回まっさら
 // plateau:false＝カタログfetchが一切発生していない（全probe共通）
 ok("plateauOff", !performance.getEntriesByType("resource").some(e => e.name.includes("plateau-sets.json")));

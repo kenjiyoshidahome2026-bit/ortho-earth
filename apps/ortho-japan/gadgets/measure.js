@@ -11,6 +11,14 @@
 import { gadgetStack } from "./stack.js";
 import { keyBusy } from "./keys.js";
 import { geodesicDistance, geodesicArea } from "ortho-core";
+import { tr } from "../i18n.js";
+const t = tr({
+	"距離・面積を測る（M）": "Measure distance and area (M)",
+	"距離・面積を測る": "Measure distance and area",
+	"クリックで計測を開始": "Click to start measuring",
+	"Escで消去・ボタンで終了": "Esc to clear, button to exit",
+	"クリックで頂点・ダブルクリックで確定": "Click to add a vertex, double-click to finish"
+});
 
 const D2R = Math.PI / 180, R2D = 180 / Math.PI;
 const LINE = "#880000", FILL = "rgba(136,0,0,0.1)", DOT = "#fff", W = 2, R_VERT = 4;
@@ -23,7 +31,7 @@ export function measure({ makeProjector, unprojectXY, setClick, requestDraw, sig
 
 	if (!btn) {   // 直搭載（measure-stub 非経由＝単体でも動く＝独立）＝自前でボタン生成。stub 経由は btn 持参で再利用
 		btn = document.createElement("button");
-		btn.id = "measure-btn"; btn.dataset.tip = "距離・面積を測る（M）"; btn.setAttribute("aria-label", "距離・面積を測る");
+		btn.id = "measure-btn"; btn.dataset.tip = t("距離・面積を測る（M）"); btn.setAttribute("aria-label", t("距離・面積を測る"));
 		btn.innerHTML = `
 			<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#3f4757" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true">
 				<rect x="2.5" y="7" width="19" height="10" rx="1.5" transform="rotate(-20 12 12)"/>
@@ -201,8 +209,8 @@ export function measure({ makeProjector, unprojectXY, setClick, requestDraw, sig
 		return len < 1e-9 ? ring[0] : toLL([x / len, y / len, z / len]);   // 対蹠相殺で原点化した時は先頭頂点へ
 	}
 	function hint() {
-		if (!verts.length) return `<span class="mr-hint">クリックで計測を開始</span>`;
-		return finished ? `<span class="mr-hint">Escで消去・ボタンで終了</span>` : `<span class="mr-hint">クリックで頂点・ダブルクリックで確定</span>`;
+		if (!verts.length) return `<span class="mr-hint">${t("クリックで計測を開始")}</span>`;
+		return finished ? `<span class="mr-hint">${t("Escで消去・ボタンで終了")}</span>` : `<span class="mr-hint">${t("クリックで頂点・ダブルクリックで確定")}</span>`;
 	}
 	function readout(html) { out.innerHTML = html; out.style.display = html ? "block" : "none"; }
 }

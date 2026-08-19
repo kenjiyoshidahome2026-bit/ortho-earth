@@ -3,6 +3,11 @@
 // ★起動後アイドルに本体を先読み（requestIdleCallback）＝初期表示は軽いまま・押した時にはもう載っている、の両取り。
 // アイドル前に押されても boot は冪等（real ||=）＝そのクリックが本体を呼び、開く。搭載APIは従来どおり map.gadget.palette()。
 import { gadgetStack } from "./stack.js";
+import { tr } from "../i18n.js";
+const t = tr({
+	"配色テーマ": "Color themes",
+	"配色テーマを選ぶ": "Choose a color theme",
+});
 
 // パレット（3円の重なり）グリフ（本体 palette.js と同一＝スタブがボタンを作る担当）。線色は本線インク直書き＝夜節が自動反転。
 const ICON = `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#3f4757" stroke-width="1.6" aria-hidden="true">
@@ -14,7 +19,7 @@ export function palette(opts = {}) {
 	const map = this, mapEl = this.mapEl;
 	if (mapEl.querySelector("#palette-btn")) return;   // 二重搭載は無害
 	const btn = document.createElement("button");
-	btn.id = "palette-btn"; btn.dataset.tip = "配色テーマ"; btn.setAttribute("aria-label", "配色テーマを選ぶ");
+	btn.id = "palette-btn"; btn.dataset.tip = t("配色テーマ"); btn.setAttribute("aria-label", t("配色テーマを選ぶ"));
 	btn.innerHTML = ICON;
 	gadgetStack(mapEl).append(btn);
 
@@ -23,7 +28,7 @@ export function palette(opts = {}) {
 	opts.signal && opts.signal.addEventListener("abort", () => stub.abort(), { once: true });   // destroy 時も退場
 	const boot = () => real ||= import("./palette.js")
 		.then(m => { const g = m.palette.call(map, { ...opts, btn }); stub.abort(); return g; })   // 本体は持参 btn を再利用
-		.catch(e => { real = null; console.error("[palette] 本体の読み込みに失敗", e); });
+		.catch(e => { real = null; console.error("[palette] failed to load module", e); });
 	let opening = false;   // 読み込み中の連打を一回に畳む（搭載後はスタブごと退場＝本体が受ける）
 	const activate = () => { if (opening) return; opening = true; boot().then(g => { opening = false; g && g.open?.(); }); };
 	btn.addEventListener("click", activate, { signal: stub.signal });

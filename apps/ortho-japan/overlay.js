@@ -5,6 +5,17 @@
 // geopbf 経路（loadOverlay）は従来通り main＝identify は findPolygon 相当（pointInFeature）のJSレイキャスト。
 import { unproject, cameraState, buildGeoJSONOverlay, pointInFeature } from "ortho-core";
 import { geopbf } from "geopbf";
+import { tr } from "./i18n.js";
+
+const t = tr({
+	"e-Stat 読込失敗": "e-Stat load failed",
+	"e-Stat 小地域: {0} 地物 — クリックで identify（小地域コード＝突合の種）": "e-Stat small areas: {0} features — click to identify (small-area code = the join key)",
+	"identify: ヒットなし": "identify: no hit",
+	"geopbf 読込中: {0} …": "Loading geopbf: {0} …",
+	"geopbf 読込失敗: {0}": "geopbf load failed: {0}",
+	"geopbf: {0}\n{1} features — クリックで identify": "geopbf: {0}\n{1} features — click to identify",
+	"e-Stat 小地域 読込中 ({0}市区町村)…": "Loading e-Stat small areas ({0} municipalities)…",
+});
 
 // 属性フィルタ照合＝自己完結の純関数（旧 ai/interpret.js から移設）。overlay が ai/ ツリーを
 // import しない＝AI本体(ai.js/backend/catalog/interpret＋将来LLM)を初期バンドルから完全に隔離するため。
@@ -49,13 +60,13 @@ export function createOverlay({ renderer, cam, size, dpr, requestDraw, tip }) {
 		if (m.type === "loaded") {
 			const o = estatOpts;
 			if (planWait) { planWait({ ok: !!m.ok, count: m.count ?? 0 }); planWait = null; }
-			if (!m.ok) { if (!o.quiet) say("e-Stat 読込失敗"); o.onLoaded?.({ ok: false, count: 0 }); return; }
+			if (!m.ok) { if (!o.quiet) say(t("e-Stat 読込失敗")); o.onLoaded?.({ ok: false, count: 0 }); return; }
 			estatActive = true; overlayFeatures = null;   // 単一スロット＝geopbf 経路の識別対象は置き換え
 			renderer.set("overlay", m.overlay);
 			renderer.set("overlayHover", null);   // ホバー境界は消す（overlayHi＝選択マスクは setSelected/highlightKey 管理＝ここで消すと市区町村選択マスクが即消える不具合）
 			if (o.moveCamera !== false) { cam.center = [m.center[0], m.center[1]]; cam.zoom = 12; cam.pitch = 0; }   // 派生アプリは自前で寄せる＝直書きジャンプを抑止できる
 			requestDraw();
-			if (!o.quiet) say(`e-Stat 小地域: ${m.count} 地物 — クリックで identify（小地域コード＝突合の種）`);
+			if (!o.quiet) say(t("e-Stat 小地域: {0} 地物 — クリックで identify（小地域コード＝突合の種）", m.count));
 			o.onLoaded?.({ ok: true, count: m.count, center: m.center });
 		} else if (m.type === "identify") {
 			// 生 identify は「当たり報告」だけ＝マスク(overlayHi)には触れない。選択マスクは選択フロー
@@ -66,7 +77,7 @@ export function createOverlay({ renderer, cam, size, dpr, requestDraw, tip }) {
 			if (m.hit >= 0) {
 				const kv = Object.entries(m.props).slice(0, 6).map(([k, v]) => `${k}: ${v}`).join("\n");
 				say(`identify ✔ #${m.hit}\n${kv || "(no props)"}`);
-			} else say("identify: ヒットなし");
+			} else say(t("identify: ヒットなし"));
 			requestDraw();
 		} else if (m.type === "highlighted") {
 			renderer.set("overlayHi", m.overlay || null, HI_MASK);   // 町丁目(estat)選択＝周辺マスク（塗りつぶさない）
@@ -90,15 +101,15 @@ export function createOverlay({ renderer, cam, size, dpr, requestDraw, tip }) {
 		return { lo0, la0, lo1, la1, center: [(lo0 + lo1) / 2, (la0 + la1) / 2] };
 	}
 	async function loadOverlay(name) {
-		say(`geopbf 読込中: ${name} …`);
+		say(t("geopbf 読込中: {0} …", name));
 		const pbf = await geopbf(name, { gint: false }).catch(err => { console.warn("geopbf", err); return null; });
-		if (!pbf || !pbf.features || !pbf.features.length) { say(`geopbf 読込失敗: ${name}`); return; }
+		if (!pbf || !pbf.features || !pbf.features.length) { say(t("geopbf 読込失敗: {0}", name)); return; }
 		estatActive = false;   // 識別対象を geopbf 経路（main側）へ切り替え
 		overlayFeatures = pbf.features;
 		overlayOrigin = bboxCenter(overlayFeatures).center;
 		renderer.set("overlay", buildGeoJSONOverlay(overlayFeatures, overlayOrigin));
 		renderer.set("overlayHi", null);
-		say(`geopbf: ${name}\n${overlayFeatures.length} features — クリックで identify`);
+		say(t("geopbf: {0}\n{1} features — クリックで identify", name, overlayFeatures.length));
 		requestDraw();
 	}
 	// ホバー tip：estat 経路の時だけ、指先の町丁目名を worker から取り tip へ（gint 市区町村 tip の代わり）。
@@ -126,14 +137,14 @@ export function createOverlay({ renderer, cam, size, dpr, requestDraw, tip }) {
 			const p = overlayFeatures[hit].properties || {};
 			const kv = Object.entries(p).slice(0, 6).map(([k, v]) => `${k}: ${v}`).join("\n");
 			say(`identify ✔ #${hit}\n${kv || "(no props)"}`);
-		} else say("identify: ヒットなし");
+		} else say(t("identify: ヒットなし"));
 		requestDraw();
 	}
 	// e-Stat 小地域（estat/{調査年}/{code}.geojsonl・gzip）：worker が fetch→gunzip→parse→ジオメトリ生成→transfer。
 	// opts（派生アプリ用・省略時は従来挙動）: moveCamera:false=loaded時のカメラ直書きを抑止 / quiet=sayパネル抑止 / onLoaded(r)
 	async function loadEstat(codes, year = "2020", style = null, opts = {}) {
 		estatOpts = opts;
-		if (!opts.quiet) say(`e-Stat 小地域 読込中 (${codes.length}市区町村)…`);
+		if (!opts.quiet) say(t("e-Stat 小地域 読込中 ({0}市区町村)…", codes.length));
 		estatWorker.postMessage({ type: "load", codes, year, style, interiorOnly: !!opts.interiorOnly });   // interiorOnly＝census2020限定で内側メッシュのみ（既定=全ユニーク辺＝凍結デモ AI 経路）
 	}
 	// 小地域 KEY_CODE（9/11桁）でハイライト → {key,bbox,count}｜ヒットなし・estat未ロードは null

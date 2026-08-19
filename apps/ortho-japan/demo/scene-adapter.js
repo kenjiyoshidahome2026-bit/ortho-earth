@@ -19,11 +19,11 @@ export function compileVias(rows, issues) {
 	rows.forEach((r, i) => {
 		if (r.via != null && !r.view && !r.glide && !r.fade) { vias.push({ r, i }); return; }
 		const tgt = r.view ?? r.glide ?? r.fade;
-		if (vias.length && !tgt) vias.forEach(v => say(v.i, "orphan-via", `${v.i + 1}行目: via の着点(view/glide)が無い＝捨てる`));
+		if (vias.length && !tgt) vias.forEach(v => say(v.i, "orphan-via", `row ${v.i + 1}: via has no destination (view/glide); dropped`));
 		out.push(vias.length && tgt ? { ...r, path: [...vias.map(v => ({ view: v.r.via, travel: v.r.travel })), { view: tgt, travel: r.travel }] } : r);
 		vias = [];
 	});
-	if (vias.length) vias.forEach(v => say(v.i, "orphan-via", `${v.i + 1}行目: 末尾の via は着点が無い＝捨てる`));
+	if (vias.length) vias.forEach(v => say(v.i, "orphan-via", `row ${v.i + 1}: trailing via has no destination; dropped`));
 	return out;
 }
 
@@ -35,11 +35,11 @@ export function compileVias(rows, issues) {
 export function parseScenes(obj, issues) {
 	const say = (row, code, msg) => issues ? issues.push({ row, code, msg }) : console.warn(`[scene] ${msg}`);
 	const all = Array.isArray(obj?.scenes) ? obj.scenes : [];
-	let rows = all.filter((r, i) => (r && (r.view || r.glide || r.fade || r.via != null || r.slide)) || (say(i, "empty-row", `${i + 1}行目: view/glide/fade/via/slide の無い行＝捨てる`), false));
+	let rows = all.filter((r, i) => (r && (r.view || r.glide || r.fade || r.via != null || r.slide)) || (say(i, "empty-row", `row ${i + 1}: no view/glide/fade/via/slide; dropped`), false));
 	const firstView = rows.findIndex(r => r.view || r.glide || r.fade);
 	const leading = rows.slice(0, Math.max(firstView, 0)).find(r => r.via != null);
 	if (leading) {
-		say(all.indexOf(leading), "leading-via", "先頭の via は出発点が無い＝捨てる（台本は視点行から）");
+		say(all.indexOf(leading), "leading-via", "leading via has no starting point; dropped (script must start with a view row)");
 		rows = rows.filter((r, i) => i >= firstView || r.via == null);
 	}
 	if (rows[0] && (rows[0].view || rows[0].glide || rows[0].fade)) rows[0] = { ...rows[0], jump: true };

@@ -3,6 +3,29 @@
 // 自宅で仕込み、ストレージが気になれば返す道具。DOM は open 初回に自前で組む＝main は worker 配線
 // （idbList/idbDelete/preload）とカタログの getter を渡すだけ。進捗は main の renderPlateauProg から onProg で中継される。
 import { PREF } from "./search.js";
+import { tr } from "./i18n.js";
+
+const t = tr({
+	"建物3D（PLATEAU）データ管理": "3D buildings (PLATEAU) — data manager",
+	"閉じる": "Close",
+	"読込中…": "Loading…",
+	"全削除": "Delete all",
+	"市区町村名で絞り込み": "Filter by municipality name",
+	"キャッシュ済みの {0} 地区をすべて削除しますか？": "Delete all {0} cached districts?",
+	"その他": "Other",
+	"描画": "Draw",
+	"この地区へ飛んで建物3Dを表示": "Fly to this district and show its 3D buildings",
+	"待機中…": "Waiting…",
+	"済 {0}": "Done {0}",
+	"削除": "Delete",
+	"途中 {0}": "Partial {0}",
+	"続きから": "Resume",
+	"プレロード": "Preload",
+	"キャッシュ済み {0} 地区 ・ 約{1}": "Cached: {0} districts, about {1}",
+	"（端末割当 {0}・使用 {1}）": "(device quota {0}, in use {1})",
+	"{0}/{1}枚": "{0}/{1} tiles",
+	"カタログ走査 {0}…": "scanning catalog {0}…",
+});
 
 export function createPlateauDb({ getSets, idbList, idbDelete, preload, show }) {
 	let root = null, listEl = null, sumEl = null, filterEl = null;
@@ -17,9 +40,9 @@ export function createPlateauDb({ getSets, idbList, idbDelete, preload, show }) 
 		root = document.createElement("div"); root.id = "pdb";
 		root.innerHTML = `
 			<div id="pdb-panel">
-				<div id="pdb-head">建物3D（PLATEAU）データ管理<button id="pdb-close" title="閉じる">×</button></div>
-				<div id="pdb-sub"><span id="pdb-sum">読込中…</span><button id="pdb-purge">全削除</button></div>
-				<input id="pdb-filter" type="search" placeholder="市区町村名で絞り込み" autocomplete="off" spellcheck="false">
+				<div id="pdb-head">${t("建物3D（PLATEAU）データ管理")}<button id="pdb-close" title="${t("閉じる")}">×</button></div>
+				<div id="pdb-sub"><span id="pdb-sum">${t("読込中…")}</span><button id="pdb-purge">${t("全削除")}</button></div>
+				<input id="pdb-filter" type="search" placeholder="${t("市区町村名で絞り込み")}" autocomplete="off" spellcheck="false">
 				<div id="pdb-list"></div>
 			</div>`;
 		(document.getElementById("map") || document.body).appendChild(root);   // #map 配下＝埋め込み時もモーダルが地図領域に収まる
@@ -28,7 +51,7 @@ export function createPlateauDb({ getSets, idbList, idbDelete, preload, show }) 
 		root.querySelector("#pdb-close").addEventListener("click", close);
 		filterEl.addEventListener("input", applyFilter);
 		root.querySelector("#pdb-purge").addEventListener("click", async () => {
-			if (!cached.size || !confirm(`キャッシュ済みの ${cached.size} 地区をすべて削除しますか？`)) return;
+			if (!cached.size || !confirm(t("キャッシュ済みの {0} 地区をすべて削除しますか？", cached.size))) return;
 			for (const base of [...cached.keys()]) await idbDelete(base);
 			refresh();
 		});
@@ -50,15 +73,15 @@ export function createPlateauDb({ getSets, idbList, idbDelete, preload, show }) 
 			if (pn !== curPref) {
 				curPref = pn;
 				const headerEl = document.createElement("div"); headerEl.className = "pdb-pref";
-				headerEl.textContent = PREF[pn] || "その他";
+				headerEl.textContent = PREF[pn] || t("その他");
 				listEl.appendChild(headerEl);
 				blocks.push(block = { headerEl, rows: [] });
 			}
 			const rowEl = document.createElement("div"); rowEl.className = "pdb-row";
 			const nameEl = document.createElement("span"); nameEl.className = "pdb-name"; nameEl.textContent = set.name;
 			const statusEl = document.createElement("span"); statusEl.className = "pdb-status";
-			const drawEl = document.createElement("button"); drawEl.className = "pdb-act draw"; drawEl.textContent = "描画";
-			drawEl.title = "この地区へ飛んで建物3Dを表示";
+			const drawEl = document.createElement("button"); drawEl.className = "pdb-act draw"; drawEl.textContent = t("描画");
+			drawEl.title = t("この地区へ飛んで建物3Dを表示");
 			drawEl.addEventListener("click", () => show(set));   // モーダルを閉じて球面フライト→autoPlateau がキャッシュ命中で即表示
 			const actEl = document.createElement("button"); actEl.className = "pdb-act";
 			actEl.addEventListener("click", () => onAct(set));
@@ -74,7 +97,7 @@ export function createPlateauDb({ getSets, idbList, idbDelete, preload, show }) 
 		try {
 			const c = cached.get(set.base);
 			if (c && !c.partial) await idbDelete(set.base);
-			else { renderRow(rows.get(set.name), "待機中…"); await preload(set); }   // 途中＝続きから（部分再開）。進捗は onProg が上書きする
+			else { renderRow(rows.get(set.name), t("待機中…")); await preload(set); }   // 途中＝続きから（部分再開）。進捗は onProg が上書きする
 		} finally { busy.delete(set.name); }
 		refresh();
 	}
@@ -82,16 +105,16 @@ export function createPlateauDb({ getSets, idbList, idbDelete, preload, show }) 
 		if (progText != null) { r.statusEl.textContent = progText; r.actEl.style.display = "none"; r.drawEl.style.display = "none"; return; }
 		const c = cached.get(r.set.base);
 		if (c && !c.partial) {
-			r.statusEl.textContent = `済 ${fmtMB(c.bytes) || c.count + " batch"}`;
+			r.statusEl.textContent = t("済 {0}", fmtMB(c.bytes) || c.count + " batch");
 			r.drawEl.style.display = "";   // 読み込み済み＝明示的な「描画」ボタン
-			r.actEl.textContent = "削除"; r.actEl.className = "pdb-act del";
+			r.actEl.textContent = t("削除"); r.actEl.className = "pdb-act del";
 		} else if (c) {   // 中断の貯金（partial）＝続きからプレロードできる
-			r.statusEl.textContent = `途中 ${fmtMB(c.bytes) || c.count + " batch"}`;
+			r.statusEl.textContent = t("途中 {0}", fmtMB(c.bytes) || c.count + " batch");
 			r.drawEl.style.display = "none";
-			r.actEl.textContent = "続きから"; r.actEl.className = "pdb-act";
+			r.actEl.textContent = t("続きから"); r.actEl.className = "pdb-act";
 		} else {
 			r.statusEl.textContent = ""; r.drawEl.style.display = "none";
-			r.actEl.textContent = "プレロード"; r.actEl.className = "pdb-act";
+			r.actEl.textContent = t("プレロード"); r.actEl.className = "pdb-act";
 		}
 		r.actEl.style.display = "";
 	}
@@ -102,8 +125,8 @@ export function createPlateauDb({ getSets, idbList, idbDelete, preload, show }) 
 		// 端末のオリジン割当（クォータ）を添える＝デモ前の仕込みで残り容量を見ながら判断できる。取れない環境は地区合計のみ。
 		const est = await navigator.storage?.estimate?.().catch(() => null);
 		const fmtGB = b => b >= 1073741824 ? (b / 1073741824).toFixed(b >= 10737418240 ? 0 : 1) + "GB" : fmtMB(b) || "0MB";
-		sumEl.innerHTML = `キャッシュ済み ${cached.size} 地区 ・ 約${fmtGB(total)}`   // 挿入値は全て数値生成＝innerHTML可（<br>で2行に）
-			+ (est?.quota ? `<br>（端末割当 ${fmtGB(est.quota)}・使用 ${fmtGB(est.usage || 0)}）` : "");
+		sumEl.innerHTML = t("キャッシュ済み {0} 地区 ・ 約{1}", cached.size, fmtGB(total))   // 挿入値は全て数値生成＝innerHTML可（<br>で2行に）
+			+ (est?.quota ? "<br>" + t("（端末割当 {0}・使用 {1}）", fmtGB(est.quota), fmtGB(est.usage || 0)) : "");
 		for (const r of rows.values()) renderRow(r);
 		onProg(lastProg);   // 進行中の行は進捗表示を優先で上書き
 	}
@@ -116,7 +139,7 @@ export function createPlateauDb({ getSets, idbList, idbDelete, preload, show }) 
 		for (const [name, p] of progMap) {
 			nowLoading.add(name);
 			const r = rows.get(name); if (!r) continue;
-			renderRow(r, p.total ? `${p.done}/${p.total}枚` : `カタログ走査 ${p.scan ?? 0}…`);
+			renderRow(r, p.total ? t("{0}/{1}枚", p.done, p.total) : t("カタログ走査 {0}…", p.scan ?? 0));
 		}
 		let vanished = false;
 		for (const n of wasLoading) if (!nowLoading.has(n)) vanished = true;

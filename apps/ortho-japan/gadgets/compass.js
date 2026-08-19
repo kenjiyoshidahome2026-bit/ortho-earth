@@ -5,11 +5,16 @@
 import { shortBearingOf } from "ortho-core";
 import { gadgetStack } from "./stack.js";
 import { keyBusy } from "./keys.js";
+import { tr } from "../i18n.js";
+const t = tr({
+	"北向き・水平に戻す（N）": "Reset to north, level view (N)",
+	"北向き・水平に戻す": "Reset to north, level view",
+});
 export function compass({ cancelFlight, onMove, signal } = {}) {
 	const mapEl = this.mapEl, cam = this.cam;
 	if (mapEl.querySelector("#reset")) return;   // 二重搭載は無害（搭載済みのまま）
 	const btn = document.createElement("button");
-	btn.id = "reset"; btn.dataset.tip = "北向き・水平に戻す（N）"; btn.setAttribute("aria-label", "北向き・水平に戻す");
+	btn.id = "reset"; btn.dataset.tip = t("北向き・水平に戻す（N）"); btn.setAttribute("aria-label", t("北向き・水平に戻す"));
 	btn.innerHTML = `
 		<svg viewBox="0 0 40 40" width="26" height="26" aria-hidden="true">
 			<polygon points="20,4 26,20 20,16.5 14,20" fill="#2b3b57"/>

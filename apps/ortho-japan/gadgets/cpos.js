@@ -5,11 +5,13 @@
 // projectLL＝経緯度→画面CSS座標（world→screen。実装は engine の project／注入は登録側）。
 import { gadgetStack } from "./stack.js";
 import { keyBusy } from "./keys.js";
+import { tr } from "../i18n.js";
+const t = tr({ "現在地（GPS）へ移動（@）": "Go to current location (GPS) (@)", "現在地（GPS）へ移動": "Go to current location (GPS)" });
 export function cpos({ projectLL, signal } = {}) {
 	const mapEl = this.mapEl, cam = this.cam, flyTo = this.flyTo;
 	if (mapEl.querySelector("#cpos-btn")) return;   // 二重搭載は無害（搭載済みのまま）
 	const btn = document.createElement("button");
-	btn.id = "cpos-btn"; btn.dataset.tip = "現在地（GPS）へ移動（@）"; btn.setAttribute("aria-label", "現在地（GPS）へ移動");
+	btn.id = "cpos-btn"; btn.dataset.tip = t("現在地（GPS）へ移動（@）"); btn.setAttribute("aria-label", t("現在地（GPS）へ移動"));
 	btn.innerHTML = `
 		<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#3f4757" stroke-width="2" aria-hidden="true">
 			<circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="1.6" fill="#3f4757" stroke="none"/>
@@ -35,7 +37,7 @@ export function cpos({ projectLL, signal } = {}) {
 		on = true; btn.classList.add("on");
 		const p = await getPosition();
 		if (!on) return;   // 取得待ちの間にもう一度押して消していた＝結果は捨てる
-		if (!p) { console.warn("[cpos] 現在地を取得できませんでした（許可なし/失敗）"); return off(); }
+		if (!p) { console.warn("[cpos] could not get current location (permission denied or failed)"); return off(); }
 		pos = p; mark.style.display = "";
 		flyTo(pos[0], pos[1], Math.max(cam.zoom, 15), cam.pitch * 180 / Math.PI);   // 傾きは今のまま・最低 z15 まで寄る
 	};

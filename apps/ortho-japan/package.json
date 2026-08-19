@@ -12,7 +12,8 @@
 		"preview:prod": "vite build && rm -rf dist/site/japan/moj-local && wrangler dev",
 		"verify:nocoi": "node scripts/verify-nocoi.mjs",
 		"build:lib": "vite build --config vite.lib.config.js",
-		"verify:lib": "node scripts/verify-lib.mjs"
+		"verify:lib": "node scripts/verify-lib.mjs",
+		"pack:sdk": "node scripts/pack-sdk.mjs"
 	},
 	"dependencies": {
 		"ortho-core": "*",

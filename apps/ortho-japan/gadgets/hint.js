@@ -2,6 +2,23 @@
 // map.gadget.hint() で搭載する（v1 ortho-map の gadget 作法＝this が map）。DOMと挙動をここで完結。
 import { gadgetStack } from "./stack.js";
 import { keyBusy } from "./keys.js";
+import { tr } from "../i18n.js";
+const t = tr({
+	"閉じる": "Close",
+	"操作方法": "Controls",
+	"操作方法（?）": "Controls (?)",
+	"1本指": "1 finger",
+	"2本指": "2 fingers",
+	"ドラッグ＝<b>移動</b>": "drag = <b>pan</b>",
+	"ひらく・とじる＝<b>ズーム</b>": "spread / pinch = <b>zoom</b>",
+	"ひねる＝<b>回転</b>": "twist = <b>rotate</b>",
+	"上下に引っ張る＝<b>3D表示</b>（傾き）": "pull up / down = <b>3D view</b> (tilt)",
+	"ホイール＝<b>ズーム</b>": "wheel = <b>zoom</b>",
+	"＝<b>回転</b>": "= <b>rotate</b>",
+	"右ドラッグ": "right drag",
+	"引っ張る＝<b>3D表示</b>（傾き・回転）": "drag = <b>3D view</b> (tilt / rotate)",
+	"街に寄ると建物が3Dで現れます<br>（初回は読み込みに少し時間がかかります）": "Zoom in to a city and buildings appear in 3D<br>(the first load takes a moment)"
+});
 export function hint({ signal } = {}) {
 	const mapEl = this.mapEl;
 	if (mapEl.querySelector("#hint")) return;   // 二重搭載は無害（搭載済みのまま）
@@ -17,22 +34,22 @@ export function hint({ signal } = {}) {
 	const MI_R = mi(`<path d="M12 2 a10 10 0 0 1 10 10 v2 h-10 Z" fill="#2b3b57"/>${CROSS}`);   // 右ボタン
 	const MI_W = cls => mi(`<line x1="2" y1="14" x2="22" y2="14" stroke="#9aa0ac" stroke-width="1.2"/><rect x="9.5" y="5.5" width="5" height="10" rx="2.5" fill="#2b3b57"/>`, cls);   // ホイール
 	card.innerHTML = coarse ? `
-		<button id="hint-close" title="閉じる" aria-label="閉じる">×</button>
-		<div class="hint-title">操作方法</div>
-		<div class="hint-row"><span class="key">1本指</span><span>ドラッグ＝<b>移動</b></span></div>
-		<div class="hint-row"><span class="key">2本指</span><span>ひらく・とじる＝<b>ズーム</b></span></div>
-		<div class="hint-row"><span class="key">2本指</span><span>ひねる＝<b>回転</b></span></div>
-		<div class="hint-row"><span class="key">2本指</span><span>上下に引っ張る＝<b>3D表示</b>（傾き）</span></div>
-		<div class="hint-note">街に寄ると建物が3Dで現れます<br>（初回は読み込みに少し時間がかかります）</div>` : `
-		<button id="hint-close" title="閉じる" aria-label="閉じる">×</button>
-		<div class="hint-title">操作方法</div>
-		<div class="hint-row">${MI_L}<span>ドラッグ＝<b>移動</b></span>${MI_W(" gap")}<span>ホイール＝<b>ズーム</b></span></div>
-		<div class="hint-row"><span class="key">⌘/Ctrl</span><span class="hint-plus">＋</span>${MI_W("")}<span>＝<b>回転</b></span></div>
-		<div class="hint-row"><span class="key">⇧/Shift</span><span class="hint-plus">＋</span>${MI_L}<span class="hint-plus">／</span>${MI_R}<span>右ドラッグ</span></div>
-		<div class="hint-row"><span>引っ張る＝<b>3D表示</b>（傾き・回転）</span></div>
-		<div class="hint-note">街に寄ると建物が3Dで現れます<br>（初回は読み込みに少し時間がかかります）</div>`;
+		<button id="hint-close" title="${t("閉じる")}" aria-label="${t("閉じる")}">×</button>
+		<div class="hint-title">${t("操作方法")}</div>
+		<div class="hint-row"><span class="key">${t("1本指")}</span><span>${t("ドラッグ＝<b>移動</b>")}</span></div>
+		<div class="hint-row"><span class="key">${t("2本指")}</span><span>${t("ひらく・とじる＝<b>ズーム</b>")}</span></div>
+		<div class="hint-row"><span class="key">${t("2本指")}</span><span>${t("ひねる＝<b>回転</b>")}</span></div>
+		<div class="hint-row"><span class="key">${t("2本指")}</span><span>${t("上下に引っ張る＝<b>3D表示</b>（傾き）")}</span></div>
+		<div class="hint-note">${t("街に寄ると建物が3Dで現れます<br>（初回は読み込みに少し時間がかかります）")}</div>` : `
+		<button id="hint-close" title="${t("閉じる")}" aria-label="${t("閉じる")}">×</button>
+		<div class="hint-title">${t("操作方法")}</div>
+		<div class="hint-row">${MI_L}<span>${t("ドラッグ＝<b>移動</b>")}</span>${MI_W(" gap")}<span>${t("ホイール＝<b>ズーム</b>")}</span></div>
+		<div class="hint-row"><span class="key">⌘/Ctrl</span><span class="hint-plus">＋</span>${MI_W("")}<span>${t("＝<b>回転</b>")}</span></div>
+		<div class="hint-row"><span class="key">⇧/Shift</span><span class="hint-plus">＋</span>${MI_L}<span class="hint-plus">／</span>${MI_R}<span>${t("右ドラッグ")}</span></div>
+		<div class="hint-row"><span>${t("引っ張る＝<b>3D表示</b>（傾き・回転）")}</span></div>
+		<div class="hint-note">${t("街に寄ると建物が3Dで現れます<br>（初回は読み込みに少し時間がかかります）")}</div>`;
 	const btn = document.createElement("button");
-	btn.id = "hint-btn"; btn.dataset.tip = "操作方法（?）"; btn.textContent = "?"; btn.setAttribute("aria-label", "操作方法");
+	btn.id = "hint-btn"; btn.dataset.tip = t("操作方法（?）"); btn.textContent = "?"; btn.setAttribute("aria-label", t("操作方法"));
 	// 置き場所はスタック（搭載順＝縦の並び）。カードと「?」は常にどちらか一方だけ表示＝同じ枠を分け合う。
 	gadgetStack(mapEl).append(card, btn);
 

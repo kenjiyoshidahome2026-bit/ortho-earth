@@ -10,6 +10,30 @@
 import { keyBusy } from "./keys.js";
 import { composeLayersToCanvas } from "./compose.js";
 import { WORLD_PX, primeVerticalRadius } from "ortho-core";
+import { tr } from "../i18n.js";
+const t = tr({
+	"出典：国土地理院最適化ベクトルタイル（提供実験）を加工して作成": "Source: adapted from GSI optimized vector tiles (experimental)",
+	"平面図（上が北）": "Plan map (north up)",
+	"北緯": "N", "南緯": "S", "東経": "E", "西経": "W",
+	"出力日 {0}": "Printed {0}",
+	"平面図の印刷（中心＝表示中の画面・上が北）": "Print plan map (centered on current view, north up)",
+	"閉じる": "Close",
+	"用紙": "Paper",
+	"向き": "Orientation",
+	"縮尺": "Scale",
+	"横": "Landscape",
+	"縦": "Portrait",
+	"題": "Title",
+	"印刷プレビュー": "Print preview",
+	"PDF保存": "Save PDF",
+	"印刷": "Print",
+	"平面図を作成中…（カメラz {0}・タイル読み込み待ち）": "Rendering plan map… (camera z {0}, waiting for tiles)",
+	"カメラz {0}・地図部 約{1}dpi（紙面 {2}dpi）": "Camera z {0}, map area approx. {1} dpi (page {2} dpi)",
+	"／この縮尺は広域すぎるため基図が写りません": " — this scale is too wide for the base map to render",
+	"／画面が小さいため地図の精細度は控えめです": " — map detail is limited by the small screen",
+	"プレビューの作成に失敗しました": "Failed to build the preview",
+	"平面図_1-{0}_{1}_{2}.pdf": "plan-map_1-{0}_{1}_{2}.pdf",
+});
 
 // 印刷の出典＝地理院ベクトルタイルの一行のみ。真俯瞰(pitch0)は建物3D・地形サーフェスを描かない
 // （elevScaleEff=0）。標高(AW3D30)は等高線のベクタ線としてだけ写る＝地理院の等高線と同じ位置づけで
@@ -71,7 +95,7 @@ function niceBar(S, maxMM = 60) {
 }
 
 // 紙面の組版：白紙→地図→経緯線→二重罫→北マーク→度分ラベル→四隅経緯度→下帯（題・縮尺バー・出典・出力日）。
-export function composePage({ screen, rectDev, layout, S, corners, font, attr, dpi = 240, title = "平面図（上が北）" }) {
+export function composePage({ screen, rectDev, layout, S, corners, font, attr, dpi = 240, title = t("平面図（上が北）") }) {
 	const MM = dpi / 25.4, mm = v => v * MM;
 	const page = new OffscreenCanvas(Math.round(layout.W * MM), Math.round(layout.H * MM));
 	const ctx = page.getContext("2d");
@@ -147,7 +171,7 @@ export function composePage({ screen, rectDev, layout, S, corners, font, attr, d
 
 	// 四隅の経緯度（度分秒・枠外）
 	if (corners) {
-		const fmt = c => c ? `${dms(c[1], "北緯", "南緯")} ${dms(c[0], "東経", "西経")}` : "";
+		const fmt = c => c ? `${dms(c[1], t("北緯"), t("南緯"))} ${dms(c[0], t("東経"), t("西経"))}` : "";
 		ctx.fillStyle = "#222"; ctx.font = `${mm(2.3)}px ${font}`;
 		ctx.textBaseline = "bottom";
 		ctx.textAlign = "left"; corners.nw && ctx.fillText(fmt(corners.nw), mm(O.x), mm(O.y - 0.8));
@@ -161,9 +185,9 @@ export function composePage({ screen, rectDev, layout, S, corners, font, attr, d
 	ctx.fillStyle = "#222";
 	ctx.textAlign = "left"; ctx.textBaseline = "alphabetic";
 	ctx.font = `600 ${mm(2.7)}px ${font}`;
-	ctx.fillText(title || "平面図（上が北）", mm(C.x), mm(C.y + 5.4), mm(C.w * 0.34));   // 長い題は左1/3幅に詰める
+	ctx.fillText(title || t("平面図（上が北）"), mm(C.x), mm(C.y + 5.4), mm(C.w * 0.34));   // 長い題は左1/3幅に詰める
 	ctx.font = `${mm(2.1)}px ${font}`; ctx.fillStyle = "#555";
-	ctx.fillText(`出力日 ${new Date().toLocaleDateString("sv-SE")}`, mm(C.x), mm(C.y + 9.4));   // sv-SE＝ローカル日付のYYYY-MM-DD表記
+	ctx.fillText(t("出力日 {0}", new Date().toLocaleDateString("sv-SE")), mm(C.x), mm(C.y + 9.4));   // sv-SE＝ローカル日付のYYYY-MM-DD表記
 	// 縮尺（中央）＋バー
 	ctx.fillStyle = "#222"; ctx.textAlign = "center";
 	ctx.font = `600 ${mm(3.2)}px ${font}`;
@@ -228,19 +252,19 @@ export function print({ capture, signal, btn } = {}) {
 	modal.id = "print";
 	modal.innerHTML = `
 		<div class="print-box">
-			<div class="print-head">平面図の印刷（中心＝表示中の画面・上が北）<button class="panel-close" title="閉じる" aria-label="閉じる">×</button></div>
+			<div class="print-head">${t("平面図の印刷（中心＝表示中の画面・上が北）")}<button class="panel-close" title="${t("閉じる")}" aria-label="${t("閉じる")}">×</button></div>
 			<div class="print-row">
-				<label>用紙</label><select id="print-paper"><option value="a4" selected>A4</option><option value="a3">A3</option></select>
-				<label>向き</label><select id="print-orient"><option value="landscape" selected>横</option><option value="portrait">縦</option></select>
-				<label>縮尺</label><select id="print-scale">${SCALES.map(s => `<option value="${s}"${s === 25000 ? " selected" : ""}>1:${s.toLocaleString()}</option>`).join("")}</select>
+				<label>${t("用紙")}</label><select id="print-paper"><option value="a4" selected>A4</option><option value="a3">A3</option></select>
+				<label>${t("向き")}</label><select id="print-orient"><option value="landscape" selected>${t("横")}</option><option value="portrait">${t("縦")}</option></select>
+				<label>${t("縮尺")}</label><select id="print-scale">${SCALES.map(s => `<option value="${s}"${s === 25000 ? " selected" : ""}>1:${s.toLocaleString()}</option>`).join("")}</select>
 				<label>dpi</label><select id="print-dpi">${DPIS.map(d => `<option value="${d}"${d === 240 ? " selected" : ""}>${d}</option>`).join("")}</select>
 			</div>
 			<div class="print-row">
-				<label>題</label><input type="text" id="print-title" value="平面図（上が北）" maxlength="40">
+				<label>${t("題")}</label><input type="text" id="print-title" value="${t("平面図（上が北）")}" maxlength="40">
 			</div>
-			<img id="print-preview" alt="印刷プレビュー">
+			<img id="print-preview" alt="${t("印刷プレビュー")}">
 			<div id="print-note"></div>
-			<div class="print-actions"><button id="print-pdf">PDF保存</button><button id="print-go">印刷</button></div>
+			<div class="print-actions"><button id="print-pdf">${t("PDF保存")}</button><button id="print-go">${t("印刷")}</button></div>
 		</div>`;
 	mapEl.append(modal);
 	const $ = s => modal.querySelector(s);
@@ -263,7 +287,7 @@ export function print({ capture, signal, btn } = {}) {
 			const cropCss = { w: Math.round(w), h: Math.round(w / asp) };
 			const zoom = zoomForScale(S, L.inner.w, cropCss.w, cam.center[1]);
 			const mapDpi = Math.round(cropCss.w * (window.devicePixelRatio || 1) / (L.inner.w / 25.4));
-			note(`平面図を作成中…（カメラz ${zoom.toFixed(1)}・タイル読み込み待ち）`);
+			note(t("平面図を作成中…（カメラz {0}・タイル読み込み待ち）", zoom.toFixed(1)));
 			const cap = await capture({ zoom, cropCss });
 			const screen = composeLayersToCanvas(cap.snap, mapEl.querySelector("#measure-lines"));
 			const k = cap.dpr;
@@ -272,11 +296,11 @@ export function print({ capture, signal, btn } = {}) {
 			lastPaperCss = `${paper.toUpperCase()} ${orient === "portrait" ? "portrait" : "landscape"}`;
 			lastMeta = { Wmm: L.W, Hmm: L.H, S, paper };
 			await recompose();
-			note(`カメラz ${zoom.toFixed(1)}・地図部 約${mapDpi}dpi（紙面 ${dpi}dpi）` +
-				(zoom < 5.5 ? "／この縮尺は広域すぎるため基図が写りません" : mapDpi < 110 ? "／画面が小さいため地図の精細度は控えめです" : ""), zoom < 5.5);
+			note(t("カメラz {0}・地図部 約{1}dpi（紙面 {2}dpi）", zoom.toFixed(1), mapDpi, dpi) +
+				(zoom < 5.5 ? t("／この縮尺は広域すぎるため基図が写りません") : mapDpi < 110 ? t("／画面が小さいため地図の精細度は控えめです") : ""), zoom < 5.5);
 		} catch (e) {
-			console.error("[print] プレビュー作成に失敗", e);
-			note("プレビューの作成に失敗しました", true);
+			console.error("[print] preview generation failed", e);
+			note(t("プレビューの作成に失敗しました"), true);
 		} finally {
 			busy = false; setBusy(false);
 			if (pending) { pending = false; regen(); }
@@ -299,7 +323,7 @@ export function print({ capture, signal, btn } = {}) {
 	// 紙面の組み直し（撮影済みの切り出しから）：題の打ち直し・出典はここで反映＝再撮影なしで速い
 	async function recompose() {
 		if (!lastShot) return;
-		lastPage = composePage({ ...lastShot, font, attr: PRINT_ATTR, title: titleIn.value.trim() });
+		lastPage = composePage({ ...lastShot, font, attr: PRINT_ATTR.map(a => t(a)), title: titleIn.value.trim() });
 		const blob = await lastPage.convertToBlob({ type: "image/png" });
 		if (prevUrl) URL.revokeObjectURL(prevUrl);
 		prevUrl = URL.createObjectURL(blob); img.src = prevUrl;
@@ -310,7 +334,7 @@ export function print({ capture, signal, btn } = {}) {
 		const blob = await pdfFromCanvas(lastPage, lastMeta.Wmm, lastMeta.Hmm);
 		const url = URL.createObjectURL(blob);
 		const a = document.createElement("a");
-		a.href = url; a.download = `平面図_1-${lastMeta.S}_${lastMeta.paper.toUpperCase()}_${new Date().toISOString().slice(0, 10)}.pdf`;
+		a.href = url; a.download = t("平面図_1-{0}_{1}_{2}.pdf", lastMeta.S, lastMeta.paper.toUpperCase(), new Date().toISOString().slice(0, 10));
 		document.body.appendChild(a); a.click(); a.remove();
 		setTimeout(() => URL.revokeObjectURL(url), 4000);
 	}

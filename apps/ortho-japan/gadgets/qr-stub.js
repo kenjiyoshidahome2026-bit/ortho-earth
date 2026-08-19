@@ -3,6 +3,8 @@
 // 搭載APIは従来どおり map.gadget.qr()。本体到着後は同じボタンへ自前リスナーを付け直し、スタブは abort で退場（二重発火なし）。
 // ★ガジェット規約：独立モジュール＋（重ければ）小さな常駐スタブ＋本体は import()＝print/demo/ai と同じ型。
 import { gadgetStack } from "./stack.js";
+import { tr } from "../i18n.js";
+const t = tr({ "この視点をQRで共有": "Share this view via QR", "現在の視点をQRコードで共有": "Share the current view as a QR code" });
 
 // QRらしいグリフ（本体 qr.js と同一＝スタブがボタンを作る担当）。線色は本線インク直書き＝quiet-mono の夜節が自動反転。
 const ICON = `<svg viewBox="0 0 24 24" width="20" height="20" fill="#3f4757" aria-hidden="true">
@@ -13,7 +15,7 @@ export function qr(opts = {}) {
 	const map = this, mapEl = this.mapEl;
 	if (mapEl.querySelector("#qr-btn")) return;   // 二重搭載は無害
 	const btn = document.createElement("button");
-	btn.id = "qr-btn"; btn.dataset.tip = "この視点をQRで共有"; btn.setAttribute("aria-label", "現在の視点をQRコードで共有");
+	btn.id = "qr-btn"; btn.dataset.tip = t("この視点をQRで共有"); btn.setAttribute("aria-label", t("現在の視点をQRコードで共有"));
 	btn.innerHTML = ICON;
 	gadgetStack(mapEl).append(btn);
 
@@ -22,7 +24,7 @@ export function qr(opts = {}) {
 	opts.signal && opts.signal.addEventListener("abort", () => stub.abort(), { once: true });   // destroy 時も退場
 	const boot = () => real ||= import("./qr.js")
 		.then(m => { const g = m.qr.call(map, { ...opts, btn }); stub.abort(); return g; })   // 本体は持参 btn を再利用
-		.catch(e => { real = null; console.error("[qr] 本体の読み込みに失敗", e); });
+		.catch(e => { real = null; console.error("[qr] failed to load module", e); });
 	let opening = false;   // 読み込み中の連打を一回に畳む（搭載後はスタブごと退場＝本体が受ける）
 	const activate = () => { if (opening) return; opening = true; boot().then(g => { opening = false; g && g.open(); }); };
 	btn.addEventListener("click", activate, { signal: stub.signal });

@@ -5,11 +5,13 @@
 // ショートカット＝⌘/Ctrl+J（球体まで回した所からワンキーで日本へ戻す狙い）。signal＝destroy時の解除。
 import { gadgetStack } from "./stack.js";
 import { keyBusy } from "./keys.js";
+import { tr } from "../i18n.js";
+const t = tr({ "日本全体を表示（J）": "Show all of Japan (J)", "日本全体を表示": "Show all of Japan" });
 export function japan({ view, signal } = {}) {
 	const mapEl = this.mapEl, flyTo = this.flyTo;
 	if (mapEl.querySelector("#japan-btn")) return;   // 二重搭載は無害（搭載済みのまま）
 	const btn = document.createElement("button");
-	btn.id = "japan-btn"; btn.dataset.tip = "日本全体を表示（J）"; btn.setAttribute("aria-label", "日本全体を表示");
+	btn.id = "japan-btn"; btn.dataset.tip = t("日本全体を表示（J）"); btn.setAttribute("aria-label", t("日本全体を表示"));
 	// 手描きの列島ブロック図（画素トレース）の塗り潰し版＝シルエットで面として読ませる（形は本人・塗りは機械）。
 	// 北海道=右上／本州=右柱＋南の足＋房の切り欠き＋左へ中国地方の帯／九州=左下／四国=中央下。
 	// 各島は原図より一回り小さく＝海峡（白い隙間）を確保。細いstroke同色＝角の丸み用。旧案（輪郭線・筆致4画・矩形のみ）はgit履歴に。
