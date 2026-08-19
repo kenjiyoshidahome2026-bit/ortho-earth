@@ -38,7 +38,7 @@ import { qr as qrGadget } from "./gadgets/qr-stub.js";   // 玄関スタブ＝�
 import { japan as japanGadget } from "./gadgets/japan.js";
 import { print as printGadget } from "./gadgets/print-stub.js";   // 本体(print.js)は初回起動時にimport()＝初期バンドルから隔離
 import { close as closeGadget } from "./gadgets/close.js";
-import { dropFile as dropFileGadget } from "./gadgets/dropfile.js";
+import { dropFile as dropFileGadget, gunzipText } from "./gadgets/dropfile.js";   // dropfileは起動時常駐（ドロップ受付）＝静的一本。gunzipTextもここから（動的importと混ぜるとチャンク分割が死ぬ）
 import { demo as demoGadget } from "./gadgets/demo-stub.js";   // 玄関スタブ＝同期ファサードを即返し、本体(demo.js＝再生エンジン)は搭載時に import()＝初期バンドルから隔離
 import { parseScenes } from "./demo/scene-adapter.js";   // 共有シーン台本(type:"scenes")→ demo プレーヤー受け渡しの純関数（ドロップ/?scene= 再生／将来のエディタで共有）
 import { buildSceneTimeline } from "./demo/scene-timeline.js";   // 台本→総タイムライン（時刻評価・純関数）＝スクラブの芯（map.sceneTimeline が env と画面適用を束ねる）
@@ -3283,7 +3283,6 @@ function scrubCover(a) {
 	if (sceneUrl) fetch(sceneUrl).then(async r => {
 		if (!r.ok) throw new Error(`HTTP ${r.status}`);
 		const buf = new Uint8Array(await r.arrayBuffer());
-		const { gunzipText } = await import("./gadgets/dropfile.js");
 		return JSON.parse((buf[0] === 0x1f && buf[1] === 0x8b) ? await gunzipText(buf) : new TextDecoder().decode(buf));
 	}).then(obj => {
 		if (obj?.type !== "scenes") { console.warn(`[scene] type:"scenes" でない＝再生しない`, sceneUrl); return; }
