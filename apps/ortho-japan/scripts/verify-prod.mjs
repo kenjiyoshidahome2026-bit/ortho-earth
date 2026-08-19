@@ -13,7 +13,7 @@
 import { spawn, execFileSync } from "node:child_process";
 import { createServer } from "node:http";
 import { fileURLToPath } from "node:url";
-import { readFile, readFileSync, existsSync, statSync } from "node:fs";
+import { readFile, readFileSync, readdirSync, existsSync, statSync } from "node:fs";
 import { promisify } from "node:util";
 import { setTimeout as sleep } from "node:timers/promises";
 import path from "node:path";
@@ -37,6 +37,13 @@ if (!entrySrc.includes("/japan/lib/ortho-japan.js")) fail(`入口チャンク ${
 const entryKB = statSync(entryPath).size / 1024;
 if (entryKB > 100) fail(`入口チャンクが ${entryKB.toFixed(0)}KB＝エンジンが再バンドルされている疑い（DCE失敗）`);
 console.log(`ok:entry（${entry} ${entryKB.toFixed(1)}KB・lib参照）`);
+// 全サイトチャンク＝エンジン指紋なし（scene.html含むどのページもエンジンをソース直で再バンドルしていない証明。
+// 指紋＝エンジン辞書のUI文字列＝minifyでも生き残る）
+for (const f of readdirSync(path.join(SITE, "japan/assets")).filter(f => f.endsWith(".js"))) {
+	if (readFileSync(path.join(SITE, "japan/assets", f), "utf8").includes("互換描画(WebGL2)"))
+		fail(`assets/${f} にエンジンが再バンドルされている（index/sceneのどちらかがソース直参照に戻った疑い）`);
+}
+console.log("ok:fingerprint（全サイトチャンクにエンジン指紋なし）");
 
 // ② SDK実体
 for (const f of ["japan/lib/ortho-japan.js", "japan/lib/ortho-japan.css"]) {
@@ -75,6 +82,17 @@ if (!/<canvas id="c"/.test(dom)) fail("実走: 描画canvas不在");
 const got = requests.join("\n");
 if (!got.includes("/japan/lib/assets/renderworker-")) { console.error("  台帳:\n  " + requests.join("\n  ")); fail("実走: render worker が /japan/lib/assets/ から取得されていない（base相対化の破れ＝黒地図）"); }
 console.log(`ok:boot（SDK経由で起動・チップ点灯・canvas生成・worker取得実観測 / 要求${requests.length}件）`);
+
+// ③b scene.html＝エディタページも同じSDK二重構成（editor本体はサイト側チャンク・地図はlib）
+const domScene = await new Promise(resolve => {
+	const c = spawn(CHROME, ["--headless=new", `--user-data-dir=/tmp/oj-vprod-scene-${process.pid}`, "--disable-gpu",
+		"--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--virtual-time-budget=30000", "--dump-dom",
+		`http://localhost:${PORT}/japan/scene.html?gl2=1&lang=ja`], { timeout: 90000 });
+	let out = ""; c.stdout.on("data", d => out += d); c.on("close", () => resolve(out));
+});
+if (!/<canvas id="c"/.test(domScene)) fail("scene実走: 描画canvas不在（SDK経由の起動失敗）");
+if (!domScene.includes('id="sc-shoot"')) fail("scene実走: エディタUI不在（editor.jsチャンク疎通の疑い）");
+console.log("ok:scene（エディタページもSDK経由で起動・editor UI点灯）");
 
 // ④ ガジェット実クリック（生CDP・実時間）：遅延ロード系＝押した瞬間に動的importが走るボタンを実際に押す。
 //    合否＝例外/console.errorゼロ＋QR/printのDOM証拠＋（この間の404も後段の台帳検査が拾う）。

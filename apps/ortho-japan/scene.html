@@ -23,10 +23,21 @@
 	<div id="sc-stage"><div id="sc-frame"><div id="map"></div></div></div>
 	<aside id="sc-panel"></aside>
 	<script type="module">
-		import orthoJapan from "./app.js";
+		// ★SDK二重構成（site.js と同じ型・8/20）：dev=./app.js ソース直・本番=/japan/lib/ のSDK配布物。
+		//   エディタ本体(demo/editor.js)はサイト側チャンクのまま＝作業台はソース・舞台の地図は出荷物。
+		//   libのURLは変数経由（devのimport解析がリテラルを解決しにいく罠）・CSSはlib抽出分を本番だけ貼る。
 		import { mountSceneEditor } from "./demo/editor.js";
 		(async () => {   // TLA はビルドターゲット外＝async IIFE で包む
-			const map = await orthoJapan({ target: "#map" });   // フル機能の japan（PLATEAU・waitLoading の実物の上で編集する）
+			let engineP;
+			if (import.meta.env.PROD) {
+				document.head.appendChild(Object.assign(document.createElement("link"), { rel: "stylesheet", href: "lib/ortho-japan.css" }));
+				const LIB = "/japan/lib/ortho-japan.js";
+				engineP = import(/* @vite-ignore */ LIB);
+			} else {
+				engineP = import("./app.js");
+			}
+			const orthoJapan = (await engineP).default;
+			const map = await orthoJapan({ target: "#map", assetBase: import.meta.env.BASE_URL });   // フル機能の japan（PLATEAU・waitLoading の実物の上で編集する）
 			map.gadget.demo({ player: true });   // 素のプレーヤー（▶なし）＝map.playScenes の器（scene-format.md §7）
 			mountSceneEditor({ map, stageEl: document.getElementById("sc-stage"), panelEl: document.getElementById("sc-panel") });
 		})();
