@@ -75,6 +75,21 @@ try {
 	// map.view＝表示状態を常時参照（theme=c／layers=l／hash=共有URL）。生き替え後 theme=dark・hash に c=dark が載る。
 	ok("mapView", map.view.theme === "dark" && Array.isArray(map.view.layers) && /c=dark/.test(map.view.hash) && Number.isFinite(map.view.zoom));
 
+	// ★切替直後の窓の回帰（2026-08-19「切替でボタンの絵が変になる」）：基図の再ビルドが済むまで画面は旧テーマの
+	// 絵のまま＝スタブ snapshot は依然 mono 色（curr は dark へ切替済み）＝バグの再現条件そのもの。写像元を curr で
+	// 決める旧実装は mono紙が dark語彙で未分類（ink からも距離>TH）＝原色素通し＝カードが旧テーマの絵のまま化ける。
+	// detectTheme（画面の実色から写像元を推定）なら mono→各テーマへ正しく写る。
+	await h.open();
+	await new Promise(r => setTimeout(r, 300));
+	const gsi2 = picker.querySelector('.tp-card[data-theme="gsi"] canvas');
+	if (gsi2) {
+		const c2 = gsi2.getContext("2d", { willReadFrequently: true });
+		const at2 = fx => [...c2.getImageData(Math.round((gsi2.width - 1) * fx), gsi2.height >> 1, 1, 1).data].slice(0, 3);
+		ok("切替窓:紙→地理院紙", near(at2(0.2), [254, 254, 255]));    // mono紙 #f6f6f4 →（mono と推定して写像）→ gsi紙 #fefeff
+		ok("切替窓:幹線→地理院緑", near(at2(0.5), [61, 151, 56]));    // mono幹線 #2f6cad → gsi緑 #3d9738
+	} else ok("切替窓:gsiカード", false);
+	window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+
 	map.destroy();
 	ok("destroy", true);
 } catch (e) { ok("boot:" + (e && e.message || e), false); }

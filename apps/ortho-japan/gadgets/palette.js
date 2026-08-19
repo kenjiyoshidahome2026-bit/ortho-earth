@@ -96,6 +96,34 @@ function remapTheme(img, from, to) {
 	return out;
 }
 
+// 実写の「写像元」判定：curr（論理テーマ名）でなく画面の実色から推定する。switchTheme（生き替え）は基図タイルの
+// 全捨て→非同期再ビルド＝適用まで旧テーマの絵が画面に残る窓があり（ちらつき防止の退場機構が旧シーンを保持）、
+// その間に開くと「新テーマの語彙で旧テーマの絵を分類」して見本が化ける（実害「切替でボタンの絵が変になる事がある」
+// 2026-08-19。例: ダーク紙#191d24 は地理院語彙で ink 階級へ誤分類＝カード全面が黒ずむ／mono紙は dark語彙でどの
+// クラスからも遠く原色素通し＝旧テーマの絵のまま）。デモの幕替わり・ハッシュ手編集の外部切替も同根。
+// 判定＝画素を等間引きで~4千点採取し、各テーマの色クラス集合への最近傍距離（未知色は TH でクリップ＝大気リム等が
+// 全テーマへ等しく乗り順位を狂わせない）の合計が最小のテーマ＝画面に実際に写っているテーマ。
+function detectTheme(img) {
+	const s = img.data, n = s.length;
+	const step = Math.max(1, Math.floor(n / 4 / 4096)) * 4;   // ~4096画素の等間引き（byte stride＝4の倍数）
+	let best = THEMES[0], bd = Infinity;
+	for (const t of THEMES) {
+		const A = classesOf(t);
+		let sum = 0;
+		for (let i = 0; i < n; i += step) {
+			let m = 10000;   // remapTheme の TH と同じ「分類を諦める」上限
+			for (let k = 0; k < A.length; k++) {
+				const dr = s[i] - A[k][0], dg = s[i + 1] - A[k][1], db = s[i + 2] - A[k][2];
+				const d = dr * dr + dg * dg + db * db;
+				if (d < m) m = d;
+			}
+			sum += m;
+		}
+		if (sum < bd) { bd = sum; best = t; }
+	}
+	return best;
+}
+
 // opts.current＝いま焼き付いているテーマ名（見本から除く＝「自分以外」を出す）。opts.onPick(name)＝切替（app 側が生き替え＝reload無し）。
 // opts.requestSnapshot＝shot と同じスナップショット（app が注入）＝見本を「今の視点の実写」にする。無ければ SVG 見本のまま。
 export function palette({ current, onPick, requestSnapshot, getZoom, getCurrent, signal, btn } = {}) {
@@ -136,7 +164,7 @@ export function palette({ current, onPick, requestSnapshot, getZoom, getCurrent,
 			const sw = snap.W, sh = snap.H, ar = sw / sh;
 			picker.style.setProperty("--tp-ar", String(ar));   // canvas も SVG もこの比で（CSS aspect-ratio）
 			const src = full.getContext("2d").getImageData(0, 0, sw, sh);   // 原寸のまま写像へ（縮小は写像の後＝remapTheme の★を参照）
-			const from = THEMES.find(t => t.k === curr) || THEMES[0];
+			const from = detectTheme(src);   // 写像元＝画面の実テーマ（curr でなく画素から推定＝切替直後の再ビルド窓でも化けない）
 			const cw = ar >= 1 ? CAP : Math.max(1, Math.round(CAP * ar));   // 長辺CAP・短辺は画面比（縦画面＝縦長カード）
 			const ch = ar >= 1 ? Math.max(1, Math.round(CAP / ar)) : CAP;
 			const tmp = new OffscreenCanvas(sw, sh), tctx = tmp.getContext("2d");
