@@ -34,6 +34,13 @@ export default defineConfig({
 			},
 		},
 	},
+	// public/ を出荷物へ混ぜない。vite は lib モードでも publicDir を既定でコピーするため、放っておくと
+	// plateau-names.json(2.9MB)・開発専用の moj-local/・OGP画像、そして **sw.js** まで dist/lib へ入る。
+	// 実行時アセットは assetBase で指す設計（同梱すると数MBを全利用者に配ることになる）＝ここで断つ。
+	// ★sw.js の混入は特に不可：SDK がホストのオリジンへ Service Worker を持ち込む口になる
+	//   （本体は index.html が登録する＝スタンドアロン専用の作法。ライブラリ経路は一切登録しない）。
+	// 利用者へ渡すアセットは apps/ortho-japan/public/ からアプリ側で配る（README の assetBase 節）。
+	publicDir: false,
 	worker: { format: "es" },
 	// 実行時アセットの既定ベース。ライブラリ利用者は orthoJapan({ assetBase: "…" }) で必ず指し直す前提だが、
 	// 未指定でも "/" を向くように（相手のサイト直下に置いた場合の素直な既定）。
