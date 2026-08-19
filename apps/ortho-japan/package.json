@@ -9,7 +9,8 @@
 		"verify:ui": "node scripts/verify-ui.mjs",
 		"verify:webgpu": "node scripts/verify-webgpu.mjs",
 		"deploy": "vite build && rm -rf dist/site/japan/moj-local && find dist/site -name .DS_Store -delete && wrangler deploy",
-		"preview:prod": "vite build && rm -rf dist/site/japan/moj-local && wrangler dev"
+		"preview:prod": "vite build && rm -rf dist/site/japan/moj-local && wrangler dev",
+		"verify:nocoi": "node scripts/verify-nocoi.mjs"
 	},
 	"dependencies": {
 		"ortho-core": "*",

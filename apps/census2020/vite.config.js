@@ -7,7 +7,7 @@ import { existsSync, statSync, createReadStream, cpSync } from "node:fs";
 // censusドリル・コロプレス/筆/防災の各モジュールだけ＝エンジンは二重化しない（ortho-nl と同型）。
 // publicDir は japan のものを共有（plateau-sets.json 等）。census 固有の重量データ（小地域CSV等）は
 // japan の public に混ぜず public-extra/ から extraPublic プラグインで合流させる。
-// COOP/COEP は japan と同条件（gint の SharedArrayBuffer に必須）。worker は ES module 形式。
+// COOP/COEP は japan と同条件（gint の SharedArrayBuffer＝ゼロコピーの点火条件。無くてもコピー経路で動く）。worker は ES module 形式。
 const coiHeaders = (server) => {
 	server.middlewares.use((_req, res, next) => {
 		res.setHeader("Cross-Origin-Opener-Policy", "same-origin");

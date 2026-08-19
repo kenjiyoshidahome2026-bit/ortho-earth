@@ -15,3 +15,11 @@ bucket_name = "my-native-bucket"
 ALLOWED_DOMAINS = "www.ortho-earth.com,ortho-earth.com,kenjiyoshidahome2026-bit.github.io,localhost:5173,localhost:4173,localhost:5174,localhost:5175"
 # API_KEY は Cloudflare の secret（2026-07-19 移設・`wrangler secret list` で確認可）。
 # ここに書き戻すと次の deploy で secret と衝突する。ローカル開発は .dev.vars、値の控えはパスワードアプリ。
+
+# /proxy の転送先ホワイトリスト（2026-08-19 追加）。ここに載る先だけが「誰でも GET/HEAD」で通る。
+# ドット境界のサフィックス一致＝"gsi.go.jp" は maps/cyberjapandata/msearch.gsi.go.jp に当たる。
+# ★載せていない先へ転送したい時は、許可された Origin（ALLOWED_DOMAINS）から呼ぶか X-API-Key を添える
+#   ＝GIS-HUB の「任意URLを貼って開く」と Node のバッチスクリプトはそちらの門を通る。
+# ⚠ユーザー投稿型のホスト（raw.githubusercontent.com 等）は意図的に載せない＝載せると任意ファイルの
+#   ロンダリング経路になる。それらを使う uploader は API キー持ちなので第二の門で通る。
+PROXY_ALLOWED_HOSTS = "e-stat.go.jp,mlit.go.jp,gsi.go.jp,maff.go.jp,geospatial.jp,env.go.jp,jma.go.jp,jishin.go.jp,japanpost.jp,jaxa.jp,naturalearthdata.com,naturalearth.s3.amazonaws.com,census.gov,wikipedia.org,wikidata.org,wikimedia.org,dap.ceda.ac.uk,gebco.net"

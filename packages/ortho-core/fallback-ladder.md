@@ -1,7 +1,7 @@
 # fallback ladder — バックエンド選択・端末ティア・jetsam 防衛の台帳
 
 「どの環境で・何が・どう落ちて・どこへ着地するか」の正典。**ノブの値や判定を変えたらこの台帳も更新する**。
-姉妹編：`webgpu port.md`（WebGPU 移植の設計・轍）。最終更新 2026-08-03。
+姉妹編：`webgpu port.md`（WebGPU 移植の設計・轍）。最終更新 2026-08-19（§3.5 追加）。
 
 ## 1. バックエンド選択（app.js `gpuBackend`）
 
@@ -39,6 +39,32 @@ GL2 フォールバック×LOW_MEM は maxact=1 の安全モード（旧 iOS XR�
 
 iOS 特有：WebGPU 構成の worker への直結 postMessage が死ぬ轍 → 制御は ctrlPort（MessageChannel）常用＋
 iOS 判定（iPadOS の Mac 偽装込み）×gpu 時は生存経路リレー（page→scene worker→scenePort→render worker）。`?relay=1`＝他環境検証用。
+
+## 3.5 crossOriginIsolated（COOP/COEP）— **必須ではない**
+
+`Cross-Origin-Opener-Policy: same-origin` ＋ `Cross-Origin-Embedder-Policy: credentialless` は
+**SharedArrayBuffer の点火条件**であって、動作要件ではない。SAB の用途はただ一つ＝GintBUF を
+render/gint worker へ**ゼロコピー**で渡すこと（`SharedArrayBuffer` の参照は全リポジトリで
+`geopbf/src/pbf.js` の1箇所のみ）。
+
+| | COI あり（自前配信） | COI なし（第三者ページへの埋め込み） |
+|---|---|---|
+| `SharedArrayBuffer` | 有 | 無（Chrome は未定義になる＝実測） |
+| GintBUF の受け渡し | ゼロコピー | `buf.slice(0)`＋structured clone のコピー1回 |
+| 機能 | — | **差は無い**（描画・LOD・識別・tier・swap・深度・ドレープ すべて同値） |
+
+**実測**（2026-08-19・`apps/ortho-japan` で `npm run verify:nocoi`）：`NOCOI=1` で vite の COI ミドルウェアを
+外し、CDP 実時間で 7 ページ。`coi=false SAB=false` を自分で検定した上で
+t-nocoi（GeoJSON→GeoPBF→gint 復号→点in面）／t-gintembed／t-gintlod／t-gintswap／t-gintdepth／t-opts／t-gadgets が全て PASS。
+器は `ArrayBuffer`（フォールバック側）であることも検定に含む＝「SAB が生きていて経路を踏んでいない」偽の緑を弾く。
+
+裏付けは実測より前からある：**Safari は COEP:credentialless を認識せず crossOriginIsolated が立たない**＝
+iPhone/Mac Safari は最初からこの世界で動いている（フォールバックはその事故対応で入った＝コミット 2697ac7）。
+
+**なぜ台帳に載せるか**＝SDK 化（開発者向け埋め込み）の可否を決める一点だから。埋め込み先のページに COEP を
+要求することは実質できない（COEP はホスト側の他の埋め込み——広告・動画・解析——を軒並み壊す）。
+「COI があれば速い、無くても動く」が正しい言い方で、**自前配信では引き続き2ヘッダを刻む**（コピー1回が消える）。
+旧コメント「この2ヘッダが無いと worker 全滅→黒画面」は誤り＝2026-08-19 に各 deploy-worker.js / vite.config.js を訂正済み。
 
 ## 4. 端末ティア（3段）
 

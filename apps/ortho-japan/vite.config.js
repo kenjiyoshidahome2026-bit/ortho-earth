@@ -4,7 +4,8 @@ import { resolve } from "node:path";
 // worker は全て new Worker(..., { type: "module" }) で生成している＝ES module worker。
 // vite 既定の worker.format="iife" は code-splitting（worker 内で worker を割る/動的 import）を弾くため、
 // gint worker が geopbf の worker 連鎖に触れた瞬間ビルドが落ちる。生成形式に合わせ "es" にして解く。
-// gint の SharedArrayBuffer には crossOriginIsolated（COOP/COEP）が必須。
+// gint の SharedArrayBuffer（worker へのゼロコピー）は crossOriginIsolated（COOP/COEP）で点く。
+// 無くても動く＝SAB 不在なら通常 ArrayBuffer のコピー1回に落ちる（下の NOCOI と verify:nocoi を参照）。
 // server.headers だと worker のサブ import 転送レスポンスに届かず worker 全滅→黒画面。
 // middleware で「全リクエスト」に刻めば worker の import graph 隅々まで COEP が乗る＝標準解。
 // COEP=credentialless：SAB を有効化しつつ cross-origin(GSI/bucket)は CORS で通す（require-corp のように CORP 必須にしない）。
@@ -16,10 +17,16 @@ const coiHeaders = (server) => {
 		next();
 	});
 };
+// NOCOI=1 ＝COOP/COEP を刻まずに起動する（crossOriginIsolated が立たない＝SAB 不在の世界を再現）。
+// 目的は SDK 化の前提確認：埋め込み先のページに COEP を要求できるとは限らない（COEP はホスト側の
+// 他の埋め込みを軒並み壊す）ため、「COI 無しでも全機能が動く」ことを実測で押さえる。
+// 根拠となる逃げ道は geopbf setGintBUF の SAB フォールバック（Safari は COEP:credentialless 非対応＝
+// 元から COI 無しで動いている）。検証は scripts/verify-nocoi.mjs（`npm run verify:nocoi`）。
+const NOCOI = process.env.NOCOI === "1";
 const crossOriginIsolation = {
 	name: "cross-origin-isolation",
-	configureServer: coiHeaders,
-	configurePreviewServer: coiHeaders,   // vite preview（ビルド後のローカル確認）にも同条件を刻む
+	configureServer: NOCOI ? undefined : coiHeaders,
+	configurePreviewServer: NOCOI ? undefined : coiHeaders,   // vite preview（ビルド後のローカル確認）にも同条件を刻む
 };
 
 // 本番CSS（quiet-mono＋app＝37KB）を render-blocking から外す＝起動画面(#boot・head内インラインCSSで自足)を

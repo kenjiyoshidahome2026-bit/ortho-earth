@@ -90,6 +90,33 @@ Register your Worker endpoint to unlock the three core modules.
 const { Fetch, Bucket, Cache } = nativeBucket("https://your-worker.workers.dev/");
 ```
 
+### 🔒 Proxy access control
+
+`/proxy` is a public endpoint, so forwarding is gated. A request passes if **either** gate opens:
+
+1. **Target host is on the list** — `PROXY_ALLOWED_HOSTS` in `wrangler.toml` (dot-boundary suffix match: `gsi.go.jp` matches `maps.gsi.go.jp` but not `evilgsi.go.jp`). Open to anyone, `GET`/`HEAD` only.
+2. **Caller is trusted** — request `Origin` is in `ALLOWED_DOMAINS`, or `X-API-Key` matches `API_KEY`. Any target host, any method.
+
+Otherwise `403`. **If `PROXY_ALLOWED_HOSTS` is unset, only gate 2 opens** — a deployment with no configuration forwards nothing to anonymous callers.
+
+```toml
+[vars]
+PROXY_ALLOWED_HOSTS = "e-stat.go.jp,nlftp.mlit.go.jp,naturalearth.s3.amazonaws.com"
+```
+
+Always enforced, even for trusted callers:
+
+* `http:` / `https:` only — no `file:`, `data:`, etc.
+* Loopback, private, link-local and cloud-metadata addresses are refused (SSRF).
+* Self-reference is refused (amplification loop).
+* Redirects are followed manually, **re-checked at every hop** (max 5), so an allow-listed host cannot bounce you to an arbitrary one.
+
+Do not list user-content hosts (`raw.githubusercontent.com`, generic S3 domains) — that turns the proxy into an arbitrary-file laundering path. Reach those through gate 2 instead.
+
+Run `npm run test:proxy` to verify the gate (29 cases, no deploy needed).
+
+---
+
 ### 🌐 `Fetch(url, options)`
 
 A smart proxy that bypasses CORS and can surgically extract specific files from remote ZIP archives.

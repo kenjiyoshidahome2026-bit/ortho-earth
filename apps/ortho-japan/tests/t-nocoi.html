@@ -1,0 +1,55 @@
+<!doctype html>
+<!-- 回帰：crossOriginIsolated（COOP/COEP）が無い世界でも gint が復号できることの検定。
+     なぜ要るか＝SDK 化の前提。埋め込み先のページに COEP を要求することは実質できない（COEP は
+     ホスト側の他の埋め込みを軒並み壊す）。逃げ道は geopbf setGintBUF の SAB フォールバック
+     （SAB 不在なら通常 ArrayBuffer＝structured clone のコピー1回を払う）＝Safari が元からこの世界で動いている。
+     ①素性の申告（crossOriginIsolated / SAB の有無 / 実際に確保された器の型）
+     ②GeoJSON→GeoPBF→gint 復号（setGintBUF を実際に通す＝SAB 経路そのもの）
+     ③復号したデータで点in面が正しく答える（器が壊れていない＝コピー経路でも中身が同値）
+     を検定。?nocoi=1 を付けると「COI が立っていないこと」自体も検定に含める（harness 用）。 -->
+<html lang="ja"><head><meta charset="utf-8"><title>t-nocoi</title></head>
+<body>
+<script type="module">
+const t = [], ok = (n, c) => t.push((c ? "ok:" : "NG:") + n);
+const fin = () => document.title = t.some(s => s.startsWith("NG")) ? "FAIL " + t.join(" ") : "PASS " + t.join(" ");
+
+try {
+	const expectNoCoi = /[?&]nocoi=1/.test(location.search);
+	const coi = !!globalThis.crossOriginIsolated;
+	const hasSAB = typeof SharedArrayBuffer !== "undefined";
+
+	// ── ① 素性の申告 ──
+	ok(`coi=${coi} SAB=${hasSAB}`, true);
+	if (expectNoCoi) {
+		ok("COI非成立", coi === false);
+		// COI 無しで SAB が生きている環境（ブラウザの緩和策）ではフォールバック経路を踏まない＝
+		// 実測として無意味になるので、そのことを明示的に失敗させて気づけるようにする。
+		ok("SAB不在（フォールバック経路を実際に踏む）", hasSAB === false);
+	}
+
+	const { createGeopbf, geopbf } = await import("../../../packages/geopbf/src/index.js");
+	createGeopbf(location.origin + "/nope");   // Object 入力は網を使わない＝疎通しないURLでよい
+
+	// ── ② GeoJSON → GeoPBF → gint 復号（setGintBUF＝SAB/AB の分岐点を実際に通す）──
+	const sq = (cx, cy, d) => [[[cx - d, cy - d], [cx + d, cy - d], [cx + d, cy + d], [cx - d, cy + d], [cx - d, cy - d]]];
+	const fc = { type: "FeatureCollection", features: [
+		{ type: "Feature", properties: { name: "A", id: 1 }, geometry: { type: "Polygon", coordinates: sq(139.70, 35.70, 0.04) } },
+		{ type: "Feature", properties: { name: "B", id: 2 }, geometry: { type: "Polygon", coordinates: sq(139.90, 35.70, 0.04) } },
+	] };
+	const pbf = await geopbf(fc, { name: "t-nocoi" });
+	ok(`geopbf生成(features=${pbf?.length})`, pbf?.length === 2);
+	ok("gint復号(unPackGint)", !!pbf?.unPackGint);
+
+	// 実際に確保された器の型＝SAB があれば SharedArrayBuffer、無ければ ArrayBuffer（フォールバック）
+	const kind = pbf?._gintBuffer?.constructor?.name || "none";
+	ok(`器=${kind}`, hasSAB ? kind === "SharedArrayBuffer" : kind === "ArrayBuffer");
+
+	// ── ③ 復号した gint で点in面（器の中身が同値＝コピー経路でも壊れていない）──
+	const inA = pbf.contain([139.70, 35.70], true);
+	const inB = pbf.contain([139.90, 35.70], true);
+	const outside = pbf.contain([139.80, 35.70]);   // 2つの正方形の谷間
+	ok(`識別(A=${inA} B=${inB} 外=${JSON.stringify(outside)})`,
+		inA === 0 && inB === 1 && (outside == null || outside.length === 0));
+} catch (e) { ok("boot:" + (e && e.message || e), false); }
+fin();
+</script></body></html>

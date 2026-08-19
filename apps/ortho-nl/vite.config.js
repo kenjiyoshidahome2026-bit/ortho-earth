@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 // ortho-nl＝オランダ（3DBAG）の独立した入口。中身は ortho-japan と同じエンジン（../ortho-japan/app.js を直接 import）で、
 // 違うのは base(/nl/)・既定の視点・題字・出典・載せるガジェットだけ＝コードは二重化しない。
 // publicDir も japan のものを共有（plateau-sets.json 等の実行時 fetch は import.meta.env.BASE_URL 前置＝/nl/ から引ける）。
-// COOP/COEP は japan と同条件（gint の SharedArrayBuffer に必須）。worker は ES module 形式。
+// COOP/COEP は japan と同条件（gint の SharedArrayBuffer＝ゼロコピーの点火条件。無くてもコピー経路で動く）。worker は ES module 形式。
 const coiHeaders = (server) => {
 	server.middlewares.use((_req, res, next) => {
 		res.setHeader("Cross-Origin-Opener-Policy", "same-origin");
