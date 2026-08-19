@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- UI回帰：共有QRガジェット。エンコーダ自己テスト（GF/RS既知ベクトル/フォーマットBCH/構造）＋搭載＋開いてQR描画＋Escで閉じる。
      ★実スキャン検証はオフライン不可＝ここは「エンコーダの検証可能部＋ガジェットがQRを canvas に描く」までを固める。 -->
-<html lang="ja"><head><meta charset="utf-8"><style>html{background:#0b1021}body{visibility:hidden}</style><title>t-qr</title></head>
+<html lang="ja"><head><meta charset="utf-8"><style>html{background:#0b1021}</style><title>t-qr</title></head>
 <body>
 <script>window.requestAnimationFrame = cb => setTimeout(() => cb(performance.now()), 16); localStorage.setItem("oj.hint", "closed");</script>
 <script type="module">

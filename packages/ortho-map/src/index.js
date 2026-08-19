@@ -5,7 +5,7 @@ import { createLayers } from "./createLayers.js";
 import { createGadgets } from "./createGadgets.js";
 import "./index.scss";
 export default async function orthoMap(opts = {}) {
-	const dt = performance.now(); console.clear();
+	const dt = performance.now();   // console.clear() は撤去（2026-08-19）＝部品がホストのコンソールを消さない
 	console.log(`%c ✨ ortho-earth ✨ `, 'background: #2c3e50; color: #ecf0f1; padding: 2px 10px; border-radius: 5px; font-size: 1.5em;');
 	////------------------------------------------------------------------------------------------------
 	const base = (opts.target || d3.select("body")).empty();

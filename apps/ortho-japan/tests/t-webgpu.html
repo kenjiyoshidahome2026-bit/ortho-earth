@@ -2,7 +2,7 @@
 <!-- UI回帰：WebGPUバックエンド（?gpu=1）の起動スモーク。実GPU環境＝backend "webgpu" で frame1 が来る／
      WebGPU の無い環境（SwiftShader CI等）＝WebGL2 へ自動フォールバックして frame1 が来る。どちらも PASS
      （このテストの主眼は「gpu フラグでどの環境でも起動が壊れない」＝フォールバック網羅。描画同一性は将来のgolden比較）。 -->
-<html lang="ja"><head><meta charset="utf-8"><style>html{background:#0b1021}body{visibility:hidden}</style><title>t-webgpu</title></head>
+<html lang="ja"><head><meta charset="utf-8"><style>html{background:#0b1021}</style><title>t-webgpu</title></head>
 <body>
 <script type="module">
 history.replaceState(null, "", "?gpu=1");   // app.js は起動時に location.search を読む＝import 実行前に旗を立てる

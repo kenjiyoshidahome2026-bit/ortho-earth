@@ -8,7 +8,7 @@ export class Logger {
 	error(msg) { this.log(`%c❌ [ERROR]%c ${msg}`, 'color: #e74c3c; font-weight: bold;','color: inherit;') }
 	data(label, count) { this.log(`%c⚓️ [DATA] %c${label}: %c${count.toLocaleString()}%c`, 'color: #e67e22; font-weight: bold;', 'color: inherit;', 'font-weight: bold;', 'font-weight: 400;');}
 	title(message) { this.time = performance.now();
-		console.clear();
+		// console.clear() は撤去（2026-08-19）＝ライブラリが呼び出し元のコンソール履歴を消さない
 		this.log(`%c ✨ ${message.toUpperCase()} ✨ `, 'background: #2c3e50; color: #ecf0f1; padding: 2px 10px; border-radius: 5px; font-size: 1.2em;');
 	}
 	success(msg) { const meas = (performance.now() - this.time).toFixed(2); this.time = performance.now();

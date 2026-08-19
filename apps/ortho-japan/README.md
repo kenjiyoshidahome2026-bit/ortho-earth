@@ -70,9 +70,48 @@ map.gadget("myGadget", function () { /* this = map */ });   // 自作ガジェ�
 
 > 出典：国土地理院最適化ベクトルタイル（提供実験）・国土交通省 PLATEAU・JAXA AW3D30（各データを加工して作成）
 
+## SDK として埋め込む（ライブラリビルド）
+
+`npm run build:lib` が `dist/lib/` に出荷形を吐く（`ortho-japan.js` ＋ `ortho-japan.css` ＋ worker/動的importのチャンク）。
+
+```html
+<link rel="stylesheet" href="/ortho-japan/ortho-japan.css">
+<div id="here" class="map-box"></div>
+<style>.map-box { width: 480px; height: 320px; }</style>
+<script type="module">
+  import orthoJapan from "/ortho-japan/ortho-japan.js";
+  const map = await orthoJapan({ target: "#here", assetBase: "/ortho-japan-assets/" });
+</script>
+```
+
+埋め込む側が知っておくべきことは4つだけ。
+
+| | |
+|---|---|
+| **寸法はクラスか inline style で** | アプリは容れ物の `id` を `map` へ借りる（家具規格）。`#here { … }` のような **id セレクタで書いた指定は改名の瞬間に外れる**。借りる時に console.warn で伝え、`destroy()` で id は返す |
+| **`assetBase`** | `plateau-sets.json` / `airports.json` / `plateau-landmarks.json` / `ai/citycodes.json` はライブラリに同梱していない（数MB を全員に配らないため）。`apps/ortho-japan/public/` の中身を任意の場所へ置き、そこを指す。未指定＝`/` 直下を見る。`plateau: false` なら PLATEAU 系の取得自体が起きない |
+| **COOP/COEP は要らない** | `crossOriginIsolated` は SharedArrayBuffer（gint バッファのゼロコピー）の点火条件であって動作要件ではない。無ければコピー1回に落ちて同じ結果を出す（`npm run verify:nocoi` で実測・`packages/ortho-core/fallback-ladder.md` §3.5） |
+| **出典表記の義務は消えない** | 下の「出典表記」を参照。`instruments` から `attr` を外すなら埋め込みページ側に同等の記述が要る |
+
+**ホストページに対する約束**（`npm run verify:lib` が毎回検定する）：
+
+- `html` / `body` に一切書かない（背景・余白・overflow・文字色・書体・visibility・スクロール量が埋め込み前後で同一）
+- 描画は預かった div の中だけ（全画面を乗っ取らない）
+- `window` を汚さない（`__cam` 等のデバッグ手は `target` 指定時は生えない。欲しければ `debugGlobals: true`）
+- `destroy()` でホストは元通り（子要素は空・id は返却・ページの体裁は不変）
+
+制約は下の「制約」節のとおり **1ページ1地図**（id 家具規格）。複数インスタンスは非対応。
+
 ## 開発
 
 UIまわりを改修したら `npm run verify:ui`（要ローカルChrome）。ガジェットスタック・起動opts・destroy・タッチ操作・狭画面の掟を headless で一括検証します（tests/*.html＝判定はページ内、scripts/verify-ui.mjs＝巡回）。
+
+| コマンド | 何を守るか |
+|---|---|
+| `npm run verify:ui` | UI回帰（18ページ・仮想時間） |
+| `npm run verify:webgpu` | WebGPU バックエンドの起動（実時間） |
+| `npm run verify:nocoi` | **COI 無しでも動く**（COOP/COEP を外して7ページ・実時間）＝SDK の前提 |
+| `npm run verify:lib` | **SDK 契約**（ライブラリビルドを第三者ページへ埋め、ホスト無汚染・箱内描画・window 無汚染・剥がせる） |
 
 ## 制約
 

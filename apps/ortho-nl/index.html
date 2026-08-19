@@ -13,6 +13,9 @@
 	<!-- 起動の critical style：生HTMLの代わりに「設計された1枚」＝球儀マークの起動画面を即描画（FCPをJS完了(2.5s)から〜0.8sへ前倒し）。
 	     開幕（#boot のフェード）はmain.js立ち上がり後＝下の module script が担う。#boot は最前面の不透明カバーなのでbodyは隠さない。 -->
 	<style>
+		/* ページそのものの体裁（スタンドアロン時のみ）。style.scss から移設 2026-08-19＝
+		   意匠側は #map の外へ書かない＝任意の div へ埋め込んでもホストを壊さない、の掟。 */
+		html,body{margin:0;height:100%;overflow:hidden}
 		html{background:#0b1021}
 		/* フェードは短く（.2s）＝地図の初回フレームは既に描けている。長いと下のUI(出典#attr等)の露出が遅れLCPを押し下げる。 */
 		#boot{position:fixed;inset:0;z-index:2147483647;display:flex;align-items:center;justify-content:center;background:#0b1021;transition:opacity .2s ease}

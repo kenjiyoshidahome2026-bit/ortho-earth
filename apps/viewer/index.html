@@ -13,6 +13,11 @@
 	<link rel="preconnect" href="https://api.ortho-earth.com">
 	<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
 	<link rel="apple-touch-icon" href="/favicon-96x96.webp" />
+	<!-- ページそのものの体裁。packages/ortho-map/src/index.scss から移設 2026-08-19＝
+	     ライブラリ（ortho-map）は html/body へ書かない＝任意のページへ埋め込んでもホストを壊さない、の掟。
+	     内容は移設前と同一＝このアプリの見た目・操作感は不変。 -->
+	<style>html, body { position:absolute; inset:0; background:#000; margin:0; padding:0; overscroll-behavior:none;
+		touch-action:none; -webkit-touch-callout:none; -webkit-user-select:none; user-select:none; }</style>
 </head>
 <body>
 	<script type="module" src="/src/main.js"></script>

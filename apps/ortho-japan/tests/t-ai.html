@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- 使い捨て：AI会話ガジェット（2分割搭載・会話→スペック→描画呼び出し・問い返し・消去・閉じる）。判定は<title>のPASS/FAIL。
      描画(runPlan)はスタブ注入＝ネットワーク非依存（citycodes.json だけは public 配信の実fetch）。 -->
-<html lang="ja"><head><meta charset="utf-8"><style>html{background:#0b1021}body{visibility:hidden}</style><title>t-ai</title></head>
+<html lang="ja"><head><meta charset="utf-8"><style>html{background:#0b1021}</style><title>t-ai</title></head>
 <body>
 <script>
 window.requestAnimationFrame = cb => setTimeout(() => cb(performance.now()), 16);

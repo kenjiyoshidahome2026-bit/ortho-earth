@@ -70,7 +70,29 @@ export default async function orthoJapan(opts = {}) {
 let mapEl = (typeof opts.target === "string" ? document.querySelector(opts.target) : opts.target)
 	|| document.getElementById("map");
 const ownMapEl = !mapEl;   // 容れ物を自作した＝destroy で丸ごと消してよい（預かった div は中身だけ空にして返す）
-if (ownMapEl) mapEl = document.body.appendChild(document.createElement("div"));
+// 容れ物を自作した＝このページを預かった＝ビューポート全面を取りに行く。寸法は html/body へ
+// **inline で**入れる（スタイルシートからは一切書かない＝埋め込み時は発火しようがない・destroy で元に戻す）。
+// ★これが無いと「body に height の無いページ」で #map(height:100%) が 0 になり射影が退化する
+//   ＝スタンドアロンの tests/*.html が全滅する（2026-08-19 の意匠移設で実際に踏んだ轍）。
+// ★mapEl 自身を position:fixed で浮かせる手もあるが不可：流れから外れると AI ガジェットの画面2分割
+//   （親を flex 化して mapEl.flex を効かせる）が死ぬ（同日 t-ai mapNarrow で踏んだ轍）。容れ物は流れの中に置く。
+// 預かった div（target 指定）とホストの html/body には指一本触れない＝寸法はホストの領分。
+const pageStyle = { html: null, body: null };
+if (ownMapEl) {
+	mapEl = document.body.appendChild(document.createElement("div"));
+	const root = document.documentElement;
+	pageStyle.html = root.style.cssText; pageStyle.body = document.body.style.cssText;
+	root.style.height = "100%";
+	Object.assign(document.body.style, { height: "100%", margin: "0", overflow: "hidden" });
+}
+const mapElPrevId = mapEl.id;   // 預かった div の元の id＝destroy で返す（#here が消えたままにしない）
+// ★家具規格の代償：預かった div の id を map へ改名する＝ホストが「その id」でCSSを書いていた場合、
+//   その指定は改名の瞬間に外れる（寸法を id で与えていると #map{height:100%} が親無しで 0 になり地図が消える）。
+//   黙って0サイズにするのが最悪なので、借りる時に一度だけ言う。寸法はクラスか inline style で与えてもらう。
+if (mapElPrevId && mapElPrevId !== "map")
+	console.warn(`[ortho-japan] 容れ物の id を "${mapElPrevId}" → "map" に借ります（家具規格）。`
+		+ `#${mapElPrevId} を使ったCSSは効かなくなります＝寸法はクラスか inline style で指定してください。`
+		+ `destroy() で id は返します。`);
 mapEl.id = "map";
 // 舞台のcanvas 2層（基図GL＝知性gintも同居/ラベル）も自給＝index.htmlは空のdivだけでよい
 // （旧・#gint 別canvas は 1canvas統合で撤去＝gint は render worker の GL パスとして #c に描かれる）
@@ -80,6 +102,20 @@ for (const cid of ["c", "labels"]) { const cv = document.createElement("canvas")
 const undergroundEl = mapEl.appendChild(document.createElement("div"));
 undergroundEl.id = "underground";
 
+// 実行時アセット（plateau-sets.json / airports.json / plateau-landmarks.json / ai/citycodes.json）の置き場。
+// 既定＝自分の配信ベース（vite の BASE_URL＝"/japan/"）。★SDK として第三者のビルドへ取り込まれると
+// import.meta.env.BASE_URL は「相手のベース」に置換される＝これらのファイルは相手のサイトに存在しない。
+// opts.assetBase で指し直せる口を開けておく（相対でも絶対URLでもよい・末尾スラッシュは自動で整える）。
+// 例: orthoJapan({ assetBase: "https://cdn.example.com/ortho-japan/" })
+const ASSET_BASE = String(opts.assetBase ?? import.meta.env.BASE_URL).replace(/\/*$/, "/");
+// デバッグ手（__cam / __coast / __plateau …）の宿主。自前ページのコンソールから叩く道具を窓に生やすが、
+// SDK として第三者ページへ埋め込まれた時にホストの window を汚すのは筋が悪い（2026-08-19）。
+// 既定＝容れ物を預かっていない時（target 未指定＝自前ページ）だけ本物の window、埋め込み時は使い捨ての器。
+// 器に変えても内部の読み書き（__backend の frame1 判定・__drawSendN の起動HUD）はそのまま通る＝挙動は不変。
+// opts.debugGlobals で明示上書き可（埋め込みでも道具が欲しい時は true）。テスト（t-opts/t-webgpu 等）は
+// target を渡さない起動なので従来どおり窓に生える。
+const DEBUG_GLOBALS = opts.debugGlobals ?? !opts.target;
+const dbgHost = DEBUG_GLOBALS ? window : {};
 const TILE_URL = (z, x, y) => `https://cyberjapandata.gsi.go.jp/xyz/optimal_bvmap-v1/${z}/${x}/${y}.pbf`;
 // optimal_bvmap の配信圏（日本域）の外接矩形 [west,south,east,north]。これと全く重ならないタイルは GSI が
 // 常に 404 を返す提供圏外＝pipeline が fetch を省いて空タイル(標高ゲート付き全面水域)扱いにする（無駄な 404 を断つ）。
@@ -331,7 +367,7 @@ const diagHud = /[?&]stay=1/.test(location.search) ? (() => {
 	const put = (k, v) => { lines.set(k, v); d.textContent = [...lines.entries()].map(([a, b]) => a + ": " + b).join("\n"); };
 	put("build", "v-fade1");
 	put("経過", "0s"); setInterval(() => put("経過", ((performance.now() - t0) / 1000).toFixed(0) + "s"), 1000);
-	setInterval(() => put("main送信", `draw ${window.__drawSendN || 0}回${window.__drawSendErr ? " 送信エラー:" + window.__drawSendErr : ""}`), 1000);
+	setInterval(() => put("main送信", `draw ${dbgHost.__drawSendN || 0}回${dbgHost.__drawSendErr ? " 送信エラー:" + dbgHost.__drawSendErr : ""}`), 1000);
 	put("frame1", "未着 ✗");
 	return put;
 })() : null;
@@ -363,8 +399,8 @@ renderWorker.postMessage({ type: "init", ctrlPort: ctrlChan.port2, canvas: offsc
 const renderer = {
 	set: (cmd, data, prop) => wPost({ type: "set", cmd, data, prop }),
 	draw: (cam, opts) => {
-		try { wPost({ type: "draw", cam, opts }); window.__drawSendN = (window.__drawSendN || 0) + 1; }
-		catch (e) { window.__drawSendErr = String(e && e.message); console.error("[boot] draw送信失敗:", e); }
+		try { wPost({ type: "draw", cam, opts }); dbgHost.__drawSendN = (dbgHost.__drawSendN || 0) + 1; }
+		catch (e) { dbgHost.__drawSendErr = String(e && e.message); console.error("[boot] draw送信失敗:", e); }
 	},
 };
 let elevBusy = false;   // 標高タイル（R01/R10/R90）読込中＝PLATEAU先読みの柵（デモの地形シーンで起伏が立たない事故の防止）
@@ -383,7 +419,7 @@ let bootT = setTimeout(() => {
 // gpu=1 の frame1 不達（20秒）＝WebGPU 経路が固まっている疑い＝WebGL2 で仕切り直し（遅い回線のコールドブート実測
 // 16秒@400kbps を考慮した余裕。present 沈黙故障と対で、実験フラグがどう転んでも WebGL2 の絵に必ず着地させる）。
 if (gpuBackend) setTimeout(() => {
-	if (!window.__backend && !/[?&]stay=1/.test(location.search)) {
+	if (!dbgHost.__backend && !/[?&]stay=1/.test(location.search)) {
 		console.error("[boot] gpu=1 で 20秒 frame1 なし → WebGL2 で再起動");
 		markNoGpu("frame1-20s");
 		location.reload();
@@ -413,13 +449,13 @@ renderWorker.onmessage = e => {
 	if (d.type === "snapshot") return snapPart(d.id, "render", d);   // shot 用：基図+ラベルの ImageBitmap
 	if (d.type === "dlApplied") return onSceneApplied(d.slot, d.sig);   // multi_draw の ack＝renderer が draw list を適用した瞬間（＝画面に載った）
 	if (d.type === "frame1") {
-		clearTimeout(bootT); bootT = null; window.__backend = d.backend || "webgl2"; sessionStorage.removeItem("oj.ctxlost");   // 初描画成功＝自動リロード回数もリセット。__backend＝スモークテスト用（webgl2/webgpu）
+		clearTimeout(bootT); bootT = null; dbgHost.__backend = d.backend || "webgl2"; sessionStorage.removeItem("oj.ctxlost");   // 初描画成功＝自動リロード回数もリセット。__backend＝スモークテスト用（webgl2/webgpu）
 		document.getElementById("fatal")?.remove();   // 遅い回線でウォッチドッグ(10s)が先に出た後の遅着 frame1＝案内を畳む（地図は生きているのに被さったまま＝「何も出ない」の正体・モバイル実測 2026-08-02）
-		console.log(`[boot] frame1 受信 backend=${window.__backend}`);
-		diagHud && diagHud("frame1", `受信 ✓ backend=${window.__backend}`);
+		console.log(`[boot] frame1 受信 backend=${dbgHost.__backend}`);
+		diagHud && diagHud("frame1", `受信 ✓ backend=${dbgHost.__backend}`);
 		// フォールバック GL2 の画面表示（柔らか鍵の③）：黙って重いモードで走らない。タップ＝印を全消しして
 		// WebGPU 再試行（CNG フリートで端末を覗いた瞬間に状態が分かる・観客の端末でも1タップで復帰を試せる）。
-		if (window.__backend !== "webgpu" && gl2Fallback) {
+		if (dbgHost.__backend !== "webgpu" && gl2Fallback) {
 			const chip = document.createElement("div");
 			chip.id = "gl2-chip";
 			chip.style.cssText = "position:fixed;left:8px;bottom:calc(8px + env(safe-area-inset-bottom,0px));z-index:9000;background:rgba(20,24,34,.78);color:#ffd479;font:11px/1.4 system-ui,sans-serif;padding:5px 9px;border-radius:14px;cursor:pointer;user-select:none;-webkit-user-select:none";
@@ -430,7 +466,7 @@ renderWorker.onmessage = e => {
 		// WebGPU の present 検証：worker 側は例外ゼロで描けている「つもり」でも、環境によっては canvas に画素が
 		// 届かない（iOS Safari 実測＝worker×OffscreenCanvas×WebGPU の present 未接続）。placeholder canvas を
 		// drawImage→getImageData し、全画素ゼロなら WebGL2 で自動再起動（Chrome は正常時 全画素非ゼロを実測確認済）。
-		if (window.__backend === "webgpu") setTimeout(() => {
+		if (dbgHost.__backend === "webgpu") setTimeout(() => {
 			const stay = /[?&]stay=1/.test(location.search);   // 診断閲覧モード＝フォールバックせず留まる（白画面のままエラー行を読む）
 			const bail = why => {
 				if (stay) { console.error(`[boot] WebGPU present 検証失敗（${why}）。stay=1＝フォールバック抑止＝このまま診断行を確認してください`); diagHud && diagHud("present", `失敗 ✗（${why}）`); return; }
@@ -470,7 +506,7 @@ renderWorker.onmessage = e => {
 	}
 	if (d.type === "drawErr") {   // worker の draw 例外（初回のみ）＝毎フレーム失敗系の一次診断。モバイルは worker コンソールが見づらい＝main 側へ転写
 		console.error("[render] draw失敗（worker報告・一度だけ）:", d.msg, d.stack);
-		window.__drawErr = d.msg;
+		dbgHost.__drawErr = d.msg;
 		diagHud && diagHud("GPUエラー", d.msg.slice(0, 300));
 		return;
 	}
@@ -559,7 +595,7 @@ const NL_SETS = [
 // pathname 判定＝アドレス欄が /nl/ のまま＝共有URLとして日本と混ざらない。
 const nlOn = /[?&]nl=1/.test(location.search) || /^\/nl(\/|$)/.test(location.pathname);
 const plateauCatalogReady = !plateauOn ? Promise.resolve() :
-	fetch(import.meta.env.BASE_URL + "plateau-sets.json").then(r => r.json()).then(sets => {   // BASE_URL＝サブパス配信(/ortho-japan/)対応
+	fetch(ASSET_BASE + "plateau-sets.json").then(r => r.json()).then(sets => {   // BASE_URL＝サブパス配信(/ortho-japan/)対応
 		if (nlOn) { sets = sets.concat(NL_SETS); console.log("[plateau] オランダ 3DBAG を登録簿へ追加（?nl=1）"); }
 		PLATEAU_SETS = sets; console.log(`[plateau] カタログ読込 → ${sets.length} 市区町村`);
 		autoPlateau(true);   // 復元ビューが z15+ の街なら起動直後に自動ロード（settled扱い＝起動時の視界は確定している。IDB命中なら即座に街が立つ）
@@ -569,7 +605,7 @@ const plateauCatalogReady = !plateauOn ? Promise.resolve() :
 // z11+ はタイル注記が✈＋名称を描くので、静的分は同名をスキップ＝二重表示なし。鉄道チップのON/OFFは filterLabels(441) がそのまま効く。
 const AIRPORT_MARK_MAXZ = 13;              // これ未満のズームで静的マークを注入
 let airportMarks = [];
-fetch(import.meta.env.BASE_URL + "airports.json").then(r => r.json()).then(list => {
+fetch(ASSET_BASE + "airports.json").then(r => r.json()).then(list => {
 	airportMarks = list.map(a => ({ text: a.name, code: 441, anchor: [a.lon, a.lat], size: 10, sort: 2, color: [0.53, 0.53, 0.5, 1], halo: [0.965, 0.965, 0.957, 1], haloW: 1.1, markOnly: true }));
 	readySig = ""; mergeReq.main.sig = "";   // 読み込めた時点でラベル再結合（要求記憶も消す＝即出し直し）
 }).catch(() => {});
@@ -586,7 +622,7 @@ const landmarkMinH = z => { let h = Infinity; for (const [lz, lh] of LANDMARK_LA
 let landmarks = null, landmarkReq = null;
 function loadLandmarks() {
 	if (landmarkReq) return landmarkReq;   // 一度だけ（失敗しても再試行しない＝名札は無くても地図は成立する）
-	return landmarkReq = fetch(import.meta.env.BASE_URL + "plateau-landmarks.json").then(r => r.json()).then(j => {
+	return landmarkReq = fetch(ASSET_BASE + "plateau-landmarks.json").then(r => r.json()).then(j => {
 		landmarks = j.f.map(([text, lon, lat, h, pair]) => ({ text, anchor: [lon, lat], h, pair }));
 		console.log(`[landmark] 台帳読込 → ${landmarks.length}棟（h>=${j.h}m）`);
 		readySig = ""; mergeReq.main.sig = ""; needsDraw = true;   // 到着＝ラベル再結合（空港台帳と同じ作法）
@@ -722,7 +758,7 @@ function farBakeNext() {
 	farBaking = farBakeQ.shift();
 	plateauWorkers[hashStr(farBaking.base) % PLATEAU_NW].postMessage({ type: "farBake", base: farBaking.base, ward: farBaking.name });
 }
-window.__farState = () => ({ shown: [...farShown], missed: [...farMissed], baking: farBaking?.name ?? null, q: farBakeQ.length, tried: [...farBakeTried],
+dbgHost.__farState = () => ({ shown: [...farShown], missed: [...farMissed], baking: farBaking?.name ?? null, q: farBakeQ.length, tried: [...farBakeTried],
 	active: [...plateauActive.keys()], loading: [...plateauLoading.keys()], resident: [...plateauResident.keys()],
 	failed: [...plateauFailed].map(([n, f]) => `${n}${f.perm ? "(恒久)" : `(あと${Math.max(0, PLATEAU_RETRY_MS - performance.now() + f.ts) / 1000 | 0}s)`}`),
 	zoom: +cam.zoom.toFixed(2), pitch: +((cam.pitch || 0) * 180 / Math.PI).toFixed(1), farLit,
@@ -867,7 +903,7 @@ for (let i = 0; plateauOn && i < PLATEAU_NW; i++) {   // plateau OFF＝workerを
 // base URL のハッシュで固定の worker へルーティング＝同じ地区は毎回同じ worker が受ける→worker内蔵cacheが再訪で効く。
 function hashStr(s) { let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0; return h >>> 0; }
 // デバッグ用：PLATEAUのメモリ/IDBキャッシュ全消去（デコード形式が壊れた疑いがある時に）。通常はFMT_VERが自動無効化する。
-window.__plateauPurge = () => {
+dbgHost.__plateauPurge = () => {
 	plateauWorkers.forEach(w => w.postMessage({ type: "purge" }));
 	for (const n of [...plateauResident.keys()]) if (!plateauActive.has(n)) plateauEvict(n);   // GPU常駐も非表示分は解放（表示中は残す）
 };
@@ -1452,8 +1488,8 @@ function onSceneApplied(slot, sig) {
 	} else if (slot === "base") { baseSig = sig; slog("base 差し替え載った"); }
 	needsDraw = true;
 }
-window.__mergeFail = () => requestMerge.debugFail();   // 次の merge を故意に失敗させ ack 自己修復を実地検証
-window.__vtPool = () => requestMerge.stats();          // multi_draw 常駐プールの占有を scene worker の console に出す
+dbgHost.__mergeFail = () => requestMerge.debugFail();   // 次の merge を故意に失敗させ ack 自己修復を実地検証
+dbgHost.__vtPool = () => requestMerge.stats();          // multi_draw 常駐プールの占有を scene worker の console に出す
 
 // 透視カメラ：center(注視点lon/lat), zoom(web-mercator float), pitch/bearing(rad)
 const MAXPITCH = 75 * D2R;   // 山岳ビュー(z<13)は地形が深度で自遮蔽・混成アトラスが地平線までカバー＝高チルトの根拠が揃ったので75°まで開放
@@ -1599,7 +1635,7 @@ function applyGintData(pbf, label, moveCamera = true, opts = {}) {
 
 // moj は geopbf の name 慣習(bucket/GIS/pbf/…)でなく bucket/moj/{code}.pbf に置かれた別棚なので、
 // URL を直叩きして buffer を geopbf に食わせる（gint:true で unPackGint 生成）。
-window.__moj = async (code = "13118") => {
+dbgHost.__moj = async (code = "13118") => {
 	const url = `https://api.ortho-earth.com/bucket/moj/${code}.pbf`;
 	const res = await fetch(url);
 	if (!res.ok) { console.error("[14条] fetch 失敗 %s → HTTP %s", url, res.status); return; }
@@ -1611,22 +1647,22 @@ window.__moj = async (code = "13118") => {
 };
 // 任意の File/URL（例: aigidなど第三者が公共座標系→WGS84まで変換済みのGeoJSON）を直接デコードして球へ。
 // bucket 変換パイプラインを経由せず動作検証したい時用。
-window.__mojFile = async (fileOrUrl, name = "moj/local") => {
+dbgHost.__mojFile = async (fileOrUrl, name = "moj/local") => {
 	const pbf = await geopbf(fileOrUrl, { gint: true, name });
 	return applyGintData(pbf, name, true, { drape: true });   // 14条筆＝地形沿い境界線を自動発火
 };
 // 動作確認用ショートカット：public/moj-local/ に置いた aigid変換済みGeoJSONをワンコマンドでロード。
-window.__sapporo = async () => {
-	const res = await fetch(import.meta.env.BASE_URL + "moj-local/01101-aigid.geojson");   // moj-localはデプロイ除外＝開発専用
+dbgHost.__sapporo = async () => {
+	const res = await fetch(ASSET_BASE + "moj-local/01101-aigid.geojson");   // moj-localはデプロイ除外＝開発専用
 	const file = new File([await res.blob()], "01101_aigid.geojson");
-	return window.__mojFile(file, "moj/01101_aigid");
+	return dbgHost.__mojFile(file, "moj/01101_aigid");
 };
 // 荒川区（任意座標系のみ）を、大字/丁目名でe-Stat小地域に位置合わせしたラバーシート結果でロード。
 // 回転はシェイプ推定せず地名の対応だけで平行移動+等方スケール（現地調査の代替ではなく表示用近似）。
-window.__arakawaFit = async () => {
-	const res = await fetch(import.meta.env.BASE_URL + "moj-local/13118-rubbersheet.geojson");
+dbgHost.__arakawaFit = async () => {
+	const res = await fetch(ASSET_BASE + "moj-local/13118-rubbersheet.geojson");
 	const file = new File([await res.blob()], "13118_rubbersheet.geojson");
-	return window.__mojFile(file, "moj/13118_rubbersheet");
+	return dbgHost.__mojFile(file, "moj/13118_rubbersheet");
 };
 // コロプレス塗り（gint draw spec.md）動作確認用：現在のユーザー層(gint)へ paint/filter を適用。
 // 式は main で一度だけ評価（buildFidStyle）→ fid スタイル表を worker へ＝restyle はテクスチャ更新1回。
@@ -1652,7 +1688,7 @@ const gintFidFeatures = () => {
 };
 // fid ズレ診断用：指定 fid だけ赤・他は薄灰でテーブル直書き（式評価を迂回＝純粋に fid 空間を見る）。
 // 使い方: __paintFid(100) → 赤い筆をクリック → console の [gint] fid=… が 100 なら一致、±k ならズレ量 k。
-window.__paintFid = (...fids) => {
+dbgHost.__paintFid = (...fids) => {
 	const feats = gintFidFeatures();
 	if (!feats) { console.warn("[paintFid] ユーザー層(gint)が未ロード"); return; }
 	const n = feats.length, u32 = new Uint32Array(n * 4);
@@ -1663,7 +1699,7 @@ window.__paintFid = (...fids) => {
 	for (const f of fids) console.log("[paintFid] fid=%d props=%o", f, feats[f]?.properties);
 };
 // fid → properties（クリックで出た fid の中身を確認する。identify と同じ getFeature 直読み）
-window.__paintProps = (fid) => userGint?.pbf?.getFeature(fid)?.properties;
+dbgHost.__paintProps = (fid) => userGint?.pbf?.getFeature(fid)?.properties;
 // gint ユーザー層（moj筆/ドロップ図形）を地形に沿わせる＝各頂点が自分の標高に乗る（buildDrapedGeometry・ポリゴン/線/点）。
 // liftM=null で解除。auto=読み込み時の自動発火（moj）＝静かめ。平面↔地形は elevScaleEff で連続モーフ（renderer 側・show3dゲートなし）。
 const DRAPE_MAX_EDGES = 4000000;   // 地形沿い線化の辺数上限。moj一区は数十万〜百万級＝通す。全国級(admin_all)の暴走だけ止める安全弁
@@ -1701,11 +1737,11 @@ async function standupGint(liftM = 0, { auto = false } = {}) {
 	needsDraw = true;
 	console.log("[standup] %s：feature%d → 線%d本・点%d（リフト%dm）%s", auto ? "自動" : "手動", feats.length, geo.lines ? geo.lines.pos.length / 6 : 0, geo.points ? geo.points.pos.length / 3 : 0, liftM, has ? "" : "＝生成ゼロ");
 }
-window.__standup = (liftM = DRAPE_LIFT_M) => standupGint(liftM);   // 手動ノブ（実験）。既定=DRAPE_LIFT_M。null で解除・大きくすると浮く
+dbgHost.__standup = (liftM = DRAPE_LIFT_M) => standupGint(liftM);   // 手動ノブ（実験）。既定=DRAPE_LIFT_M。null で解除・大きくすると浮く
 // 重複可視化＝登記データの品質監査プローブ。通常塗りをせず winding 和の異常画素だけを色分け：
 //   マゼンタ＝別筆同士の重なり（fid不定） / 橙＝同一筆の多重登記 / シアン＝向き矛盾の重なり（正味0）
 // __paintOverlap() で点灯・__paintOverlap(false) か __paint(null) で解除。
-window.__paintOverlap = (on = true) => {
+dbgHost.__paintOverlap = (on = true) => {
 	if (!on) { sendGintPaint(null); needsDraw = true; return; }
 	const feats = gintFidFeatures();
 	if (!feats) { console.warn("[paintOverlap] ユーザー層(gint)が未ロード"); return; }
@@ -1717,7 +1753,7 @@ window.__paintOverlap = (on = true) => {
 };
 // fid ズレ診断の決定版：偶数fid=赤／奇数fid=青の市松塗り（場所に依らず全面に出る＝見逃し不能）。
 // どの筆でもクリック → console の [gint] fid=… の偶奇と色が一致するか：赤=偶数/青=奇数なら一致、逆なら±1ズレ。
-window.__paintParity = () => {
+dbgHost.__paintParity = () => {
 	const n = userGint?.pbf?.fmap?.length ?? 0;
 	if (!n) { console.warn("[paintParity] ユーザー層(gint)が未ロード＝先に await __sapporo() 等"); return; }
 	const u32 = new Uint32Array(n * 4);
@@ -1731,14 +1767,14 @@ window.__paintParity = () => {
 };
 // 任意の bucket GeoPBF を gint ユーザー層としてロード（例: __gload('admin_all')＝行政界コロプレスの土台。
 // 全国級なので minZoom=3＝ズームアウトしても海岸線に切り替わらない）。
-window.__gload = async (name, opts = {}) => {
+dbgHost.__gload = async (name, opts = {}) => {
 	const pbf = await geopbf(name, { gint: true }).catch(e => { console.error("[gload]", e); return null; });
 	if (!pbf) return null;
 	return applyGintData(pbf, name, true, { minZoom: 3, ...opts });
 };
 // 移動中描画予算のノブ（実測用）。__budget(Infinity)=移動中も常時描画 / __budget()=既定250kへ戻す。
 // ?perf=1 の [perf] 行の gpuGint ms を見ながらズーム操作で実測 → 既定値の再裁定に使う。
-window.__budget = (n) => {
+dbgHost.__budget = (n) => {
 	gintDrawOpts = { ...(gintDrawOpts || {}), moveBudget: n ?? undefined };
 	sendGintStyle(); needsDraw = true;
 	console.log("[budget] moveBudget=%s", n ?? "既定(250k)");
@@ -1753,7 +1789,7 @@ async function paintGint(paint, filter = null) {
 	needsDraw = true;
 	console.log("[paint] %d features へ適用", count);
 }
-window.__paint = paintGint;
+dbgHost.__paint = paintGint;
 // 世界海岸線（Natural Earth 10m）を球へ。uploader で事前変換済みの GeoPBF を bucket 名慣習
 // （GIS/pbf/ne_10m_coastline）から load＝初回も zip レンジ取得→shp デコードを払わない（gunzip 直読み→GintBUF 焼き→IDB）。
 // 2回目以降は IDB 直行＝ネットワークを待たない（ETag 確認は裏で回し新版は次回反映＝激遅会場回線でも即表示）。
@@ -1954,7 +1990,7 @@ async function loadWorldCoast() {
 	bakeCoast();
 	console.log("[coast] ロード完了。z<%d で自動表示（ユーザー層が無い/低ズーム時）", GINT_SWAP_Z);
 }
-window.__coast = loadWorldCoast;   // 手動リロード用
+dbgHost.__coast = loadWorldCoast;   // 手動リロード用
 // 遅延ロードの門番は updateGintSlot（z<9 で海岸線 未取得なら一度だけ取得）＝高ズーム固定の埋め込みは一生読まない
 //（PLATEAUスイッチと同じ思想＝見えない機能のための通信をしない。既定の世界ビュー起動時に updateGintSlot が即発火＝体験は不変）。
 
@@ -2204,7 +2240,7 @@ async function loadN02() {
 	console.log("[N02] 新幹線 描画完了");
 }
 // デバッグ用カメラジャンプ：__cam(lon, lat, zoom, pitchDeg, bearingDeg)。検証スクリプトやコンソールから任意視点へ。
-window.__cam = (lon, lat, zoom = cam.zoom, pitchDeg = cam.pitch * R2D, bearingDeg = cam.bearing * R2D) => {
+dbgHost.__cam = (lon, lat, zoom = cam.zoom, pitchDeg = cam.pitch * R2D, bearingDeg = cam.bearing * R2D) => {
 	cam.center = [lon, lat]; cam.zoom = zoom; cam.pitch = pitchDeg * D2R; cam.bearing = bearingDeg * D2R;
 	onMove();
 };
@@ -2226,7 +2262,7 @@ function standUpWard(set, tiles) {
 		.finally(() => plateauLoading.delete(set.name));
 }
 // 手打ちデモ：地区名(部分一致)かbase URLを指定して読み込み、カメラもそこへ寄せる（自動と違いカメラを動かす）。省略時は登録簿の先頭。
-window.__plateau = async (nameOrBase, tiles) => {
+dbgHost.__plateau = async (nameOrBase, tiles) => {
 	if (!plateauOn) { console.warn("[plateau] opts.plateau=false＝建物3Dは機能ごと停止中"); return; }
 	const set = !nameOrBase ? PLATEAU_SETS[0]
 		: PLATEAU_SETS.find(s => s.base === nameOrBase || s.name === nameOrBase || s.name.includes(nameOrBase));
@@ -2389,7 +2425,7 @@ const flyTo = (lon, lat, zoom, tiltDeg, bearingDeg) => {
 	if (suppressCoast) updateGintSlot();   // 既に coast がスロットに載っていれば離陸前に降ろす
 	return flightCtl.flyTo(lon, lat, zoom, tiltDeg, bearingDeg);
 };
-window.__fly = flyTo;   // デバッグ/検証用（__cam の飛行版）
+dbgHost.__fly = flyTo;   // デバッグ/検証用（__cam の飛行版）
 
 // テーマ・チップ状態：静かな白黒の土台は常に全部見えている。チップは主題の「文字の表示」
 // または「色の点火」を切り替えるだけ。すべて既取得データの再スタイル＝再取得・再デコードなし。
@@ -2766,9 +2802,9 @@ function render() {
 	sampleGroundElev();   // 中心の地面標高を追随（非同期・~100m格子メモ）＝groundR の材料
 	const { order, coarseOrder, total } = tiles.update(cam, size.w, size.h, { tilePx: (moving || !gpuFast || !idleCalm) ? undefined : IDLE_TILE_PX, groundR: groundRNow(), keepFine: keepFineNow() });   // tilePx＝「本当の静止」（settle+550ms）だけ主層を一段細かく（手前の詳細化・GPU格付け fast 限定・undefined=既定560）。groundR＝地形リフト球（チルト×高標高地の手前くさび欠け根治）。keepFine＝ズームアウトの子孫代打（3D限定）。calm が needsDraw を立て、細タイルの ready は requestDraw で連鎖再描画
 	if (layerState.facility && cam.zoom >= 14) loadPOI(cam);   // z14+×施設ON＝POI台帳タイル(poi/14/x/y)を可視ぶん先読み（既取得は素通り）
-	window.__lastOrder = order;   // デバッグ：現在の選択タイル（コンソール/検証スクリプトから確認）
-	window.__tileStats = () => { const s = tiles.stats(); console.log(`[tiles] 常駐 ${s.tiles}枚 / ${(s.bytes/1048576).toFixed(1)}MB（予算 ${(s.budgetBytes/1048576).toFixed(0)}MB, deviceMemory≈${s.deviceMemoryGB}GB, cacheEntries ${s.cacheEntries}）`); return s; };   // コンソールから常駐メモリ確認
-	window.__tileCache = tiles.cache;   // デバッグ：タイル台帳の生参照（status/tries/seen を界隈キーで覗く＝矩形再描画の切り分け用）
+	dbgHost.__lastOrder = order;   // デバッグ：現在の選択タイル（コンソール/検証スクリプトから確認）
+	dbgHost.__tileStats = () => { const s = tiles.stats(); console.log(`[tiles] 常駐 ${s.tiles}枚 / ${(s.bytes/1048576).toFixed(1)}MB（予算 ${(s.budgetBytes/1048576).toFixed(0)}MB, deviceMemory≈${s.deviceMemoryGB}GB, cacheEntries ${s.cacheEntries}）`); return s; };   // コンソールから常駐メモリ確認
+	dbgHost.__tileCache = tiles.cache;   // デバッグ：タイル台帳の生参照（status/tries/seen を界隈キーで覗く＝矩形再描画の切り分け用）
 	swapBase(coarseOrder);                          // 粗い下地は常に敷く（移動中も）＝先端の空白を無くす
 	if (!moving) swapScene(order);   // 静止フレームは毎回＝mainDesired 更新と settle 後の穴埋め merge を最速で
 	else if (zoomStable && performance.now() - lastMoveSwapT >= MOVE_SWAP_MS) { lastMoveSwapT = performance.now(); swapScene(order); }
@@ -2788,7 +2824,7 @@ const overlay = createOverlay({ renderer, cam, size, dpr, requestDraw: () => { n
 		estatTipOwn = false;
 		if (gintInteractive && gintHover && lastHoverXY) wPost({ type: "gintMove", x: lastHoverXY[0], y: lastHoverXY[1] });
 	} });
-window.__loadOverlay = overlay.loadOverlay;   // geopbf 名から（全球等）
+dbgHost.__loadOverlay = overlay.loadOverlay;   // geopbf 名から（全球等）
 // ?hud=1（旧mem=1）のメモリ台帳HUD 本体は下方の hudSnapshot＋gadgets/hud.js（右下・出典の上・計測器ボタンで開閉）。以下は別計器：
 // ?drawhud=1：直近フレームの描画実績を実機の画面へ。USB接続やコンソールが要らない＝端末だけで二分できる。
 // 読み方：「背景が黒」の瞬間に **塗り(main/base)が 0 枚**なら CPU/状態側（シーンが空・退場フラグ）、
@@ -2828,7 +2864,7 @@ function hudSnapshot() {
 	if (total > hudPeak) hudPeak = total;
 	const nc = navigator.connection || {};
 	return {
-		backend: window.__backend || memBackend, gpuName: memGpuName, fps: memFps, frameMs: memFrameMs, res: memRes,
+		backend: dbgHost.__backend || memBackend, gpuName: memGpuName, fps: memFps, frameMs: memFrameMs, res: memRes,
 		zoom: cam?.zoom ?? 0, pitch: cam?.pitch ?? 0, bearing: cam?.bearing ?? 0,
 		device: {   // navigator/画面＝どの端末が落ちたかの特定（RAMは4GB級/8GB級の判別、DPR×viewport＝フレームバッファのGPU圧）
 			ram: navigator.deviceMemory || null, cores: navigator.hardwareConcurrency || null,
@@ -2847,8 +2883,8 @@ if (hudOn) import("./gadgets/hud.js").then(({ hud }) => {
 	map.gadget("hud", function (opts) { return hud.call(this, { snapshot: hudSnapshot, open: hudOpenInit, signal: ac.signal, ...opts }); });
 	map.gadget.hud();
 }).catch(e => console.error("[hud] 本体の読み込みに失敗", e));
-window.__loadEstat = overlay.loadEstat;
-window.__tokyo = () => overlay.loadEstat(Array.from({ length: 23 }, (_, i) => 13101 + i));   // 東京23区の小地域
+dbgHost.__loadEstat = overlay.loadEstat;
+dbgHost.__tokyo = () => overlay.loadEstat(Array.from({ length: 23 }, (_, i) => 13101 + i));   // 東京23区の小地域
 // 初期 overlay なし（全球 land は検証用。__tokyo() や __loadOverlay(name) で任意に）
 
 function frame() {
@@ -2874,8 +2910,14 @@ function destroy() {
 	plateauWorkers.forEach(w => w.terminate());
 	overlay.destroy();                           // e-Stat worker（createOverlay内で常時起動しているため忘れずに）
 	// デバッグ手はこのインスタンスの閉包を掴んだまま＝GCの錨になるので窓から下ろす
-	for (const k of ["__plateauPurge", "__moj", "__mojFile", "__sapporo", "__arakawaFit", "__coast", "__cam", "__plateau", "__fly", "__loadOverlay", "__loadEstat", "__tokyo", "__lastOrder"]) delete window[k];
+	// 生やした名前は全て下ろす（従来は13名だけ＝取りこぼしが閉包を掴んだまま残っていた）。
+	// 埋め込み時は dbgHost が使い捨ての器＝この delete は空振りするが、閉包の錨は器ごと GC される。
+	for (const k of ["__arakawaFit", "__backend", "__budget", "__cam", "__coast", "__drawErr", "__drawSendErr", "__drawSendN", "__farState", "__fly", "__gload", "__lastOrder", "__loadEstat", "__loadOverlay", "__mergeFail", "__moj", "__mojFile", "__paint", "__paintFid", "__paintOverlap", "__paintParity", "__paintProps", "__plateau", "__plateauPurge", "__sapporo", "__standup", "__tileCache", "__tileStats", "__tokyo", "__vtPool"]) delete dbgHost[k];
 	mapEl.classList.remove("world");             // 全球ビューの家具フェード状態を預かったdivに残さない
+	if (ownMapEl) {   // 自前ページを預かった時に入れた inline 寸法を元へ（再起動しても二重に残らない）
+		document.documentElement.style.cssText = pageStyle.html ?? "";
+		document.body.style.cssText = pageStyle.body ?? "";
+	} else mapEl.id = mapElPrevId;   // 預かった div の id は返す（家具規格で map へ改名していた分の後始末）
 	ownMapEl ? mapEl.remove() : mapEl.replaceChildren();
 }
 // reload/離脱の瞬間に即 destroy＝worker群（renderworker のGL含む）を同期的に畳む。iOSは遷移中
@@ -3369,7 +3411,7 @@ map.gadget("demo", function (opts) {   // デモ（発表の台本再生）… �
 		prefetchViews: prefetchPlateauForViews, finale: japanFit, signal: ac.signal, zoomMin: ZOOM_MIN, ...opts });   // 手綱を掴む＝ドロップ/?scene= は playScene→demoHandle.start(落とした台本, bare) で別入り口再生（▶=組み込みは壊さない）。glidePath＝via連続ドリー／fadeView＝黒挟み遷移（fadeBusy を着地待ちに乗せる）
 	return demoHandle;
 });
-map.gadget("ai", function (opts) {   // AIと会話して地図に描く（PC専用・画面2分割）… 描画受け口とbboxフィット・消去を注入
+map.gadget("ai", function (opts) {   // AIと会話して地図に描く（PC専用・画面2分割）… 描画受け口とbboxフィット・消去・アセット置き場を注入
 	const fitBbox = bb => {   // dropFile と同じ視野幅の逆解き＝fit へ球面フライト（真俯瞰・北向き）
 		const cx = (bb[0] + bb[2]) / 2, cy = (bb[1] + bb[3]) / 2;
 		const wDeg = Math.max(1e-6, (bb[2] - bb[0]) * 1.3), hDeg = Math.max(1e-6, (bb[3] - bb[1]) * 1.3);
@@ -3394,7 +3436,7 @@ map.gadget("ai", function (opts) {   // AIと会話して地図に描く（PC専
 		overlay.clearPlan();
 		if (String(userGint?.label).startsWith("ai/")) clearUserGint();
 	};
-	return aiGadget.call(this, { runPlan, clearPlan, fitBbox, signal: ac.signal, ...opts });
+	return aiGadget.call(this, { runPlan, clearPlan, fitBbox, assetBase: ASSET_BASE, signal: ac.signal, ...opts });
 });
 // tip（カーソル追従の吹き出し）を既定搭載＝gint 層のホバー識別を指先へ。搭載はここ一箇所（dropFile/AI/14条どの経路でも効く）。
 // 見えない div＝gint interactive 層をホバーした時だけ内容が出る＝非gintの埋め込みでは無害。

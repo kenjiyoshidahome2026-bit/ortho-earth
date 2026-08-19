@@ -20,8 +20,9 @@
 	--backpanel-filter: -2px 0px 2px inset rgba(255,255,255,0.1);
 }
 //// =================================================================================================
-html, body { position:absolute; inset:0; background:#000; margin:0; padding:0; overscroll-behavior: none;
-	   touch-action: none; -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+// ★html/body への指定はここに置かない（2026-08-19）。ortho-map は任意のページへ埋め込まれる部品であり、
+// ページそのものの体裁を乗っ取るのは筋が悪い。移設先＝各アプリ（www/gishub/viewer/uploader）の index.html
+// の critical style。舞台の中の体裁は下の .orthoEarthBase が持つ。
 //// =================================================================================================
 .overlap-tooltip { font-size: var(--font-size);
 	background: var(--bg-color); color: var(--fg-color);

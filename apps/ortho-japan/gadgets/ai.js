@@ -6,7 +6,7 @@ import { interpret } from "../ai/interpret.js";
 import { composeBackends, jsonBackend, ruleBackend, httpBackend } from "../ai/backend.js";
 import { readyDatasets } from "../ai/catalog.js";
 
-export function ai({ runPlan, clearPlan, fitBbox, llmUrl, llmModel, force, signal } = {}) {
+export function ai({ runPlan, clearPlan, fitBbox, assetBase = "/", llmUrl, llmModel, force, signal } = {}) {
 	const mapEl = this.mapEl;
 	if (document.getElementById("ai")) return;   // 二重搭載は無害
 	if (!force && !matchMedia("(min-width: 900px) and (pointer: fine)").matches) { console.warn("[ai] PC専用（画面2分割）＝この画面には搭載しない"); return; }
@@ -53,7 +53,7 @@ export function ai({ runPlan, clearPlan, fitBbox, llmUrl, llmModel, force, signa
 	// 地名→市区町村コード（e-Stat配信単位）。辞書は public/ai/citycodes.json＝[code, name] の配列、初回だけ取得
 	let cityCodes = null;
 	async function resolveCodes(area) {
-		if (!cityCodes) cityCodes = await fetch(`${import.meta.env.BASE_URL}ai/citycodes.json`).then(r => r.json()).catch(() => []);
+		if (!cityCodes) cityCodes = await fetch(`${assetBase}ai/citycodes.json`).then(r => r.json()).catch(() => []);   // 置き場は app.js の ASSET_BASE（opts.assetBase）から注入
 		const q = area.replace(/[のを ]/g, "");
 		return cityCodes.filter(([, name]) => name.startsWith(q)).map(([code]) => code).slice(0, 40);
 	}

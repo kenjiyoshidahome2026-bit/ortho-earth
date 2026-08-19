@@ -3,7 +3,7 @@
      ★worker越しのGL readPixels 往復は headless で検証不可（t-shot と同じ理由）＝requestSnapshot を
        合成ピクセルで差し替え、開く→撮影→写像→カード実写化（.live）と写像色の正しさを確かめる。
      配色の期待値は palette.js の THEMES 見本色と palettes.js の実色に従う（mono→dark：紙・幹線・宇宙）。 -->
-<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021;width:640px;height:420px}body{visibility:hidden}</style><title>t-palette-live</title></head>
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021;width:640px;height:420px}</style><title>t-palette-live</title></head>
 <body>
 <script>window.requestAnimationFrame = cb => setTimeout(() => cb(performance.now()), 16); localStorage.setItem("oj.hint", "closed");</script>
 <script type="module">

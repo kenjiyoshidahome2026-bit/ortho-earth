@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- UI回帰：ガジェットスタック（搭載順・上詰め・二重搭載・候補リスト追随・aria・検索の透明帯素通し）。
      判定はページ内で行い、結果を <title> に PASS/FAIL で書く＝scripts/verify-ui.mjs が拾う。 -->
-<html lang="ja"><head><meta charset="utf-8"><style>html{background:#0b1021}body{visibility:hidden}</style><title>t-gadgets</title></head>
+<html lang="ja"><head><meta charset="utf-8"><style>html{background:#0b1021}</style><title>t-gadgets</title></head>
 <body>
 <script>
 window.requestAnimationFrame = cb => setTimeout(() => cb(performance.now()), 30);   /* headless dump-dom は rAF が止まるため代用 */

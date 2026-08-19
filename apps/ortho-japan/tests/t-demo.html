@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- UI回帰：デモ（発表の台本再生）。台本＝共有URLハッシュ。開始→タイトル/歩数→スライド→進む/戻る/キー/Esc→終演。
      flyView は app 注入の実物（フライトは仮想時間で流れるだけ＝着地は検証しない。カメラが動き出す事だけ見る）。 -->
-<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021;width:640px;height:420px}body{visibility:hidden}</style><title>t-demo</title></head>
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021;width:640px;height:420px}</style><title>t-demo</title></head>
 <body>
 <script>window.requestAnimationFrame = cb => setTimeout(() => cb(performance.now()), 16); localStorage.setItem("oj.hint", "closed");</script>
 <script type="module">

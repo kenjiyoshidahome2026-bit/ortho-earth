@@ -1,0 +1,82 @@
+<!doctype html>
+<!-- SDK 契約の検定台＝「第三者のページ」を演じるホスト。scripts/verify-lib.mjs が dist/lib と一緒に配って開く。
+     わざとホスト側の体裁を作り込む（背景色・縦スクロール・自前の body 余白・自前の文字色）＝
+     地図を埋め込んだ後もこれらが一切変わらないことが SDK の約束。 -->
+<html lang="en"><head><meta charset="utf-8"><title>embed-host</title>
+<link rel="stylesheet" href="./lib/ortho-japan.css">
+<style>
+	html { background: #ffeedd; }
+	body { margin: 24px; color: #223344; font: 16px/1.6 Georgia, serif; }   /* ← 地図に触られたら負け */
+	#tall { height: 2000px; }                                              /* ← ページはスクロールできるべき */
+	/* ★寸法は id でなくクラスで与える：アプリは容れ物の id を "map" へ借りる＝#here 指定は外れる。
+	   これが SDK 利用者の作法（README にも書く）。 */
+	.map-box { width: 480px; height: 320px; border: 2px solid #223344; }   /* ← 地図はこの箱の中だけ */
+</style></head>
+<body>
+<h1>host page</h1>
+<div id="here" class="map-box"></div>
+<div id="tall">host content below the map</div>
+<script type="module">
+const t = [], ok = (n, c, extra = "") => t.push((c ? "ok:" : "NG:") + n + (extra ? `(${extra})` : ""));
+const fin = () => document.title = t.some(s => s.startsWith("NG")) ? "FAIL " + t.join(" ") : "PASS " + t.join(" ");
+const cs = (el, p) => getComputedStyle(el).getPropertyValue(p);
+
+// 預かってもらう箱は参照で握る：アプリは家具規格で id を "map" へ改名するので getElementById("here") は消える
+const hostEl = document.getElementById("here");
+// 埋め込み前のホストの体裁を控える
+const before = {
+	htmlBg: cs(document.documentElement, "background-color"),
+	bodyMargin: cs(document.body, "margin-top"),
+	bodyOverflow: cs(document.body, "overflow"),
+	bodyColor: cs(document.body, "color"),
+	bodyFont: cs(document.body, "font-family"),
+	bodyVis: cs(document.body, "visibility"),
+	scrollH: document.documentElement.scrollHeight,
+};
+
+try {
+	const orthoJapan = (await import("./lib/ortho-japan.js")).default;
+	const map = await orthoJapan({
+		target: "#here",
+		view: "#13/35.68/139.76",
+		plateau: false,          // 通信を増やさない（機能スイッチの検定は t-opts の領分）
+		assetBase: "./assets-none/",   // 実行時アセットは同梱しない設計＝404 でも地図は立つ、の確認も兼ねる
+	});
+	await new Promise(r => setTimeout(r, 1200));
+
+	// ── ① ホストの体裁が一切変わっていない（CSS を #map の外へ書かない掟）──
+	const after = {
+		htmlBg: cs(document.documentElement, "background-color"),
+		bodyMargin: cs(document.body, "margin-top"),
+		bodyOverflow: cs(document.body, "overflow"),
+		bodyColor: cs(document.body, "color"),
+		bodyFont: cs(document.body, "font-family"),
+		bodyVis: cs(document.body, "visibility"),
+	};
+	for (const k of Object.keys(after))
+		ok(`host.${k}`, before[k] === after[k], `${before[k]}→${after[k]}`);
+	const scrollH = document.documentElement.scrollHeight;
+	ok("hostScrollable", Math.abs(scrollH - before.scrollH) < 8, `${before.scrollH}→${scrollH}`);
+
+	// ── ② 地図は預かった箱の中だけ（はみ出さない・全画面を乗っ取らない）──
+	const box = hostEl.getBoundingClientRect();
+	const mp = document.getElementById("map").getBoundingClientRect();
+	ok("sameEl", document.getElementById("map") === hostEl);   // 預かった div がそのまま舞台（差し込みでも複製でもない）
+	ok("boxed", Math.abs(mp.width - box.width) < 5 && Math.abs(mp.height - box.height) < 5, `${Math.round(mp.width)}x${Math.round(mp.height)}`);
+	ok("notFixed", cs(document.getElementById("map"), "position") !== "fixed");
+	const cv = document.getElementById("c");
+	ok("canvas", cv && cv.width > 0 && cv.height > 0, cv ? `${cv.width}x${cv.height}` : "none");
+
+	// ── ③ ホストの window を汚さない（debugGlobals は target 指定で既定オフ）──
+	const leaked = Object.keys(window).filter(k => k.startsWith("__"));
+	ok("noGlobals", leaked.length === 0, leaked.join(",") || "none");
+
+	// ── ④ 剥がせる（destroy＝預かった div は中身だけ空にして返す）──
+	map.destroy();
+	await new Promise(r => setTimeout(r, 200));
+	ok("destroy", hostEl.children.length === 0, `children=${hostEl.children.length}`);
+	ok("idReturned", hostEl.id === "here", hostEl.id);   // 家具規格で借りた id を返している
+	ok("hostIntact", cs(document.body, "margin-top") === before.bodyMargin && cs(document.documentElement, "background-color") === before.htmlBg);
+} catch (e) { ok("boot:" + (e && e.message || e), false); }
+fin();
+</script></body></html>

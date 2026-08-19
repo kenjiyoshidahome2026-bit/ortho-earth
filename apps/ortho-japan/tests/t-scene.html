@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- UI回帰：scenes エディタ（demo/editor.js＝scene.html の芯）。定義（フレーム）→撮影（撮る/通過点）→編集（診断・並べ替え）→
      出力（.scenes）→試写（scene-player API）→読み込み（gzip 込み）。判定はページ内・結果は<title>のPASS/FAIL。 -->
-<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021;width:960px;height:540px}body{visibility:hidden}</style><title>t-scene</title></head>
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021;width:960px;height:540px}</style><title>t-scene</title></head>
 <body>
 <script>window.requestAnimationFrame = cb => setTimeout(() => cb(performance.now()), 16); localStorage.setItem("oj.hint", "closed"); localStorage.removeItem("t.sceneDraft");</script>
 <script type="module">

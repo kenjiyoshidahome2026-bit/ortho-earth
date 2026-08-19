@@ -2,7 +2,7 @@
 <!-- UI回帰：画面保存(shot)。合成器 composite を合成ピクセルで叩き webp 生成を検証。
      ★worker越しのGL層 readPixels 往復は headless(virtual-time)で render worker の rAF が
        メッセージを枯渇させ検証不可＝実ブラウザ専用。ここでは合成ロジック（層重ね・反転・出典・webp化）を確かめる。 -->
-<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021;width:640px;height:420px}body{visibility:hidden}</style><title>t-shot</title></head>
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021;width:640px;height:420px}</style><title>t-shot</title></head>
 <body>
 <script>window.requestAnimationFrame = cb => setTimeout(() => cb(performance.now()), 16); localStorage.setItem("oj.hint", "closed");</script>
 <script type="module">

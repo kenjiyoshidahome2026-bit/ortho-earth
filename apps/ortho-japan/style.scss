@@ -2,7 +2,11 @@
    quiet-mono/tokens.scss → components.scss → 本ファイル の順で import する。
    ここに残るのは日本固有の道具（PLATEAUモーダル・デバッグ）だけ。 */
 
-html, body { margin: 0; height: 100%; background: #0b1021; color: #cdd; font: 13px/1.5 system-ui, sans-serif; overflow: hidden; }
+/* 舞台の中の既定（文字色・書体）＝#map スコープ。ホストページへは一切漏らさない（2026-08-19・SDK 化の掟）。
+   ページそのものの体裁（margin/height/overflow/背景）は各 index.html の critical style が持つ＝
+   スタンドアロンの時だけ効き、任意の div へ埋め込んだ時はホストのレイアウトを壊さない。
+   ここを html,body へ戻すと「div に埋め込める」という README の約束がその瞬間に嘘になる（轍）。 */
+#map { color: #cdd; font: 13px/1.5 system-ui, sans-serif; }
 
 /* 地中フェード：カメラが地表(DTM)より下に潜った時、地図(#c)・ラベル(#labels)・gint を一枚のダークグレーで覆う
    （山頂×高チルトで山体の裏を見上げる不正な絵の代替＝旧・カメラ地形クランプ廃止の相方）。app.js の

@@ -4,9 +4,17 @@
    z-index は使わない＝重なりは DOM 順（静的UIは記述順・動的要素は起きた順に #map へ後置）。 */
 
 /* --- 舞台 --- */
-body { visibility: visible; }   /* 開幕＝このスタイルシートの到着そのもの（index.htmlのcritical styleのhiddenを上書き）。
-                                   JSのinlineに頼らない＝後から body.style を書き換えられても幕は開いたまま */
-#map { position: relative; width: 100%; height: 100%; overflow: hidden;
+/* ★この意匠キットは #map の外へ一切書かない（2026-08-19・SDK 化の掟）。任意のページへ埋め込まれる以上、
+   html/body への指定はホストのレイアウトを乗っ取る。かつて開幕用に body{visibility:visible} を置いていたが、
+   かつて開幕用に body{visibility:visible} を置いていた（index.html が body を隠して待つ作法の相方）が、
+   本体は #boot オーバーレイ方式へ移って body を隠さなくなったので撤去した。
+   ⚠tests/*.html 15枚がこの節に開けてもらう前提で body{visibility:hidden} を残しており、撤去と同時に
+   そちらも落としている（visibility:hidden の body は input.focus() が効かない＝t-gadgets の候補リストが死ぬ）。 */
+/* 寸法だけは :where() で特異度ゼロに落とす（2026-08-19）。既定は「親いっぱい」＝これまで通りだが、
+   埋め込み側が .map-box 等のクラスで大きさを指定したらそちらが勝つ。id セレクタ(0,1,0,0)のままだと
+   利用者のクラス指定(0,0,1,0)を必ず握り潰し、容れ物が親の高さ（＝多くのページで 0）に化ける。 */
+:where(#map) { width: 100%; height: 100%; }
+#map { position: relative; overflow: hidden;
 	-webkit-text-size-adjust: 100%; text-size-adjust: 100%;   /* iOS横向きの文字自動拡大を全家具で禁止（出典が横回転で太る件・2026-08-02）。文字サイズは自分で決める */
 	touch-action: manipulation;   /* UI家具のダブルタップ拡大だけ禁止（パン/ピンチは許可＝viewportメタのuser-scalable=no撤去とセット・Lighthouse a11y対応 2026-08-04）。地図面は #c の none が交差で勝つ */
 }   /* 地図一式の容れ物＝任意サイズのdivに埋め込める */
