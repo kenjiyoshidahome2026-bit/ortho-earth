@@ -8,11 +8,14 @@
 //   ②静的: dist/site/japan/lib/ に SDK 実体（ortho-japan.js/.css）が居る
 //   ③実走: dist/site を素の静的サーバ（COOP/COEP付き＝本番Workerと同じ頭）で配り、headless Chrome で
 //          起動→チップ点灯まで確認（ja）。vite を挟まない＝出荷物そのものを食う
+//   ④実クリック: 遅延ロードのガジェット（qr/print/measure/shot/palette/hint/plateau）を生CDPで実際に押し、
+//          動的importチャンクの疎通と console エラーゼロを確認（QR/print が押した瞬間に死ぬ事故クラス・2026-08-20）
 import { spawn, execFileSync } from "node:child_process";
 import { createServer } from "node:http";
 import { fileURLToPath } from "node:url";
 import { readFile, readFileSync, existsSync, statSync } from "node:fs";
 import { promisify } from "node:util";
+import { setTimeout as sleep } from "node:timers/promises";
 import path from "node:path";
 
 const APP = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
@@ -66,13 +69,73 @@ const dom = await new Promise(resolve => {
 	c.stdout.on("data", d => out += d);
 	c.on("close", () => resolve(out));
 });
-server.close();
 if (!dom.includes("ortho-japan")) fail("実走: タイトル不在＝ページが立っていない");
 if (!/id="chips"/.test(dom) || !dom.includes("地名")) fail("実走: チップ列が出ていない＝エンジン起動失敗の疑い");
 if (!/<canvas id="c"/.test(dom)) fail("実走: 描画canvas不在");
 const got = requests.join("\n");
 if (!got.includes("/japan/lib/assets/renderworker-")) { console.error("  台帳:\n  " + requests.join("\n  ")); fail("実走: render worker が /japan/lib/assets/ から取得されていない（base相対化の破れ＝黒地図）"); }
+console.log(`ok:boot（SDK経由で起動・チップ点灯・canvas生成・worker取得実観測 / 要求${requests.length}件）`);
+
+// ④ ガジェット実クリック（生CDP・実時間）：遅延ロード系＝押した瞬間に動的importが走るボタンを実際に押す。
+//    合否＝例外/console.errorゼロ＋QR/printのDOM証拠＋（この間の404も後段の台帳検査が拾う）。
+{
+	const CDP = 9353;
+	const chrome = spawn(CHROME, ["--headless=new", `--remote-debugging-port=${CDP}`, "--disable-gpu",
+		"--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--no-first-run",
+		`--user-data-dir=/tmp/oj-vprod-click-${process.pid}`, "about:blank"], { stdio: "ignore" });
+	process.on("exit", () => chrome.kill());
+	for (let i = 0; ; i++) {
+		try { await (await fetch(`http://127.0.0.1:${CDP}/json/version`)).json(); break; } catch { /* まだ */ }
+		if (i > 60) fail("実クリック: chrome devtools が起動しない");
+		await sleep(250);
+	}
+	const target = await (await fetch(`http://127.0.0.1:${CDP}/json/new?${encodeURIComponent(`http://localhost:${PORT}/japan/?gl2=1&lang=ja`)}`, { method: "PUT" })).json();
+	const ws = new WebSocket(target.webSocketDebuggerUrl);
+	await new Promise((res, rej) => { ws.onopen = res; ws.onerror = rej; });
+	let id = 0; const pending = new Map(), errs = [];
+	const send = (m, p = {}) => new Promise(res => { const i = ++id; pending.set(i, res); ws.send(JSON.stringify({ id: i, method: m, params: p }));
+		setTimeout(() => { if (pending.has(i)) { pending.delete(i); res(null); } }, 5000); });
+	ws.onmessage = ev => { const m = JSON.parse(ev.data);
+		if (m.id && pending.has(m.id)) { pending.get(m.id)(m.result); pending.delete(m.id); return; }
+		if (m.method === "Runtime.exceptionThrown") errs.push("EXC " + (m.params?.exceptionDetails?.exception?.description || m.params?.exceptionDetails?.text || "?").slice(0, 200));
+		if (m.method === "Runtime.consoleAPICalled" && m.params?.type === "error")
+			errs.push("ERR " + (m.params.args || []).map(a => a.value ?? a.description ?? "").join(" ").slice(0, 200));
+	};
+	await send("Runtime.enable");
+	// 起動待ち＝ボタン列が出るまで（実時間・最大60秒）
+	let up = false;
+	for (let i = 0; i < 60 && !up; i++) {
+		await sleep(1000);
+		up = (await send("Runtime.evaluate", { expression: `!!document.querySelector("#qr-btn") && !!document.querySelector("#print-btn")`, returnByValue: true }))?.result?.value === true;
+	}
+	if (!up) { chrome.kill(); server.close(); fail("実クリック: ガジェットボタンが60秒で出ない"); }
+	const CLICKS = [
+		["#measure-btn", null],
+		["#shot-btn", null],
+		["#palette-btn", null],
+		["#hint-btn", null],
+		["#plateau-btn", `!!document.getElementById("pdb")`],
+		["#qr-btn", `!!document.querySelector("#qr-pop, [id^=qr] canvas")`],
+		["#print-btn", `!!document.getElementById("print")`],
+	];
+	for (const [sel, evidence] of CLICKS) {
+		await send("Runtime.evaluate", { expression: `document.querySelector("${sel}")?.click()` });
+		await sleep(5000);
+		if (evidence) {
+			const okDom = (await send("Runtime.evaluate", { expression: evidence, returnByValue: true }))?.result?.value === true;
+			if (!okDom) { errs.forEach(e => console.error("      " + e)); chrome.kill(); server.close(); fail(`実クリック: ${sel} のDOM証拠が出ない（動的importチャンク疎通の疑い）`); }
+		}
+		await send("Runtime.evaluate", { expression: `document.dispatchEvent(new KeyboardEvent("keydown",{key:"Escape"}))` });
+		await sleep(500);
+	}
+	try { ws.close(); } catch { /* 終了時 */ }
+	chrome.kill();
+	if (errs.length) { errs.slice(0, 8).forEach(e => console.error("      " + e)); fail(`実クリック: 例外/console.error ${errs.length}件`); }
+	console.log(`ok:click（${CLICKS.length}ガジェット実クリック・例外/エラーゼロ・QR/print/plateau DOM証拠）`);
+}
+
+server.close();
 const notFound = requests.filter(r => r.startsWith("404 ") && !r.includes("/favicon.svg"));   // ルートfaviconはwwwの持ち物＝検定対象外
 if (notFound.length) fail(`実走: 404が${notFound.length}件＝${[...new Set(notFound)].slice(0, 5).join(" / ")}`);
-console.log(`ok:boot（SDK経由で起動・チップ点灯・canvas生成・worker取得実観測・404ゼロ / 要求${requests.length}件）`);
-console.log("✓ 本番組立の検定PASS（入口=SDK・エンジン非再バンドル・実走OK）");
+console.log(`ok:ledger（クリック中の動的importチャンク含め404ゼロ / 総要求${requests.length}件）`);
+console.log("✓ 本番組立の検定PASS（入口=SDK・エンジン非再バンドル・実走OK・ガジェット実クリックOK）");
