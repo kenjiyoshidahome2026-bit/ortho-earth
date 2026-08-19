@@ -7,8 +7,14 @@
 //   非ハッシュの同一オリジン資産(json/png)も素通し＝版ズレの罠を避け、ブラウザのHTTPキャッシュに委ねる。
 // 依存ゼロ（[[軽さの訴求]] の掟＝出荷コードに npm を足さない）。★ロジックを変えたら CACHE の版番号を上げる＝activate で旧キャッシュを一掃。
 // 前提：登録は本番httpsの index.html だけ（[[gadget-development-principle]] と同じくアプリ本体 app.js には副作用を入れない＝埋め込みを汚さない）。
-const CACHE = "oj-assets-v1";
-const ASSETS = "/japan/assets/";   // content-hash 名の不変資産だけを cache-first で握る（このプレフィックス配下）
+const CACHE = "oj-assets-v2";      // v2＝SDK二重構成（2026-08-20）：/japan/lib/ を導入した版
+// content-hash 名の不変資産＝cache-first で握るプレフィックス。
+//   /japan/assets/     … サイト殻（site.js・scenes台本・scene.html エディタ）のチャンク
+//   /japan/lib/assets/ … SDK（本番の index が食うエンジン実体）のチャンク＝配布 zip と同一物
+const ASSETS = ["/japan/assets/", "/japan/lib/assets/"];
+// lib の入口2枚（ortho-japan.js / .css）はハッシュ無し＝不変と扱えない。navigate と同じ
+// network-first＋キャッシュ退避＝新デプロイを常に拾いつつオフライン起動も守る。
+const LIB_ENTRY = ["/japan/lib/ortho-japan.js", "/japan/lib/ortho-japan.css"];
 
 // 即・次バージョンへ（precache はしない＝遅延ロードの精神を守り、資産は「使う時に一度だけ」掴む）。
 self.addEventListener("install", () => self.skipWaiting());
@@ -27,7 +33,7 @@ self.addEventListener("fetch", e => {
 	if (url.origin !== location.origin) return;              // クロスオリジン（タイル/API）は素通し
 
 	// ① ハッシュ名の不変資産＝cache-first（掴んでいれば無通信、無ければ取って保存）。worker/wasm/css/lazyチャンクが全部ここ。
-	if (url.pathname.startsWith(ASSETS)) {
+	if (ASSETS.some(p => url.pathname.startsWith(p))) {
 		e.respondWith((async () => {
 			const cache = await caches.open(CACHE);
 			const hit = await cache.match(req);
@@ -39,8 +45,9 @@ self.addEventListener("fetch", e => {
 		return;
 	}
 
-	// ② ナビゲーション（index.html）＝network-first・失敗時はキャッシュ（新デプロイの新ハッシュを常に拾いつつ、オフライン起動の保険）。
-	if (req.mode === "navigate") {
+	// ② ナビゲーション（index.html）と lib 入口（ハッシュ無しの ortho-japan.js/.css）＝network-first・
+	//    失敗時はキャッシュ（新デプロイを常に拾いつつ、オフライン起動の保険）。
+	if (req.mode === "navigate" || LIB_ENTRY.includes(url.pathname)) {
 		e.respondWith((async () => {
 			try {
 				const res = await fetch(req);

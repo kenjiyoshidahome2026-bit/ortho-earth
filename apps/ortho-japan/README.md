@@ -111,10 +111,20 @@ UIまわりを改修したら `npm run verify:ui`（要ローカルChrome）。�
 
 | コマンド | 何を守るか |
 |---|---|
-| `npm run verify:ui` | UI回帰（18ページ・仮想時間） |
+| `npm run verify:ui` | UI回帰（18ページ・仮想時間・`lang=ja`固定） |
 | `npm run verify:webgpu` | WebGPU バックエンドの起動（実時間） |
 | `npm run verify:nocoi` | **COI 無しでも動く**（COOP/COEP を外して7ページ・実時間）＝SDK の前提 |
 | `npm run verify:lib` | **SDK 契約**（ライブラリビルドを第三者ページへ埋め、ホスト無汚染・箱内描画・window 無汚染・剥がせる） |
+| `npm run verify:prod` | **本番組立**（下記の二重構成＝入口がSDKを参照・エンジン非再バンドル・組み上がりの実走）。`deploy` の必須ゲート |
+
+### 二重構成（dev=ソース直・本番=SDK）
+
+本番の `/japan/` は **SDK配布物そのもの**（`/japan/lib/ortho-japan.js`＝pack:sdk が配る物と同一）を食う。分岐は [site.js](site.js) 冒頭の1か所＝`import.meta.env.PROD`。
+
+- `npm run dev` … `./app.js` ソース直（HMR・編集即反映＝従来どおり）
+- `npm run build:prod` … `build:lib` → サイト殻の vite build → `dist/lib` を `dist/site/japan/lib/` へ複写
+- 旗艦サイトが毎日SDKを実戦検証する＝配布zipが腐る事故を構造的に封じる。dev/本番の乖離バグは `verify:prod` が deploy 前に捕まえる
+- scene.html（エディタ）は工場内の作業台＝ソース直のまま
 
 ## 制約
 

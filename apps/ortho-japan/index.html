@@ -54,41 +54,7 @@
 	<div id="attr" data-boot>出典：<a href="https://maps.gsi.go.jp/development/ichiran.html#optbv" target="_blank" rel="noopener">国土地理院最適化ベクトルタイル（提供実験）</a><br>
 		<a href="https://maps.gsi.go.jp/development/ichiran.html#dem" target="_blank" rel="noopener">標高タイル（DEM10B）</a>・<a href="https://www.mlit.go.jp/plateau/" target="_blank" rel="noopener">国土交通省 PLATEAU</a>・<a href="https://www.eorc.jaxa.jp/ALOS/jp/dataset/aw3d30/aw3d30_j.htm" target="_blank" rel="noopener">JAXA AW3D30</a><br>
 		（各データを加工して作成）© 2026 <a href="https://www.ortho-earth.com/docs/introduction.html" target="_blank" rel="noopener">Kenji Yoshida</a></div>
-	<script type="module">
-		import orthoJapan from "./app.js";
-		// 台本（demo/scenes.js）は起動バンドルに載せない＝下で動的 import()。編集はあのファイル1枚・index.htmlは触らない。
-		const dismissBoot = () => {   // 地図の初回フレームが描かれてから起動画面を退場（空canvasのちらつきを避ける＝2フレーム待ち）
-			requestAnimationFrame(() => requestAnimationFrame(() => {
-				const boot = document.getElementById("boot");
-				if (boot) { boot.classList.add("gone"); setTimeout(() => boot.remove(), 250); }
-			}));
-		};
-		orthoJapan().then(map => {   // 1行＝日本が立ち上がる（divも自作。埋め込みは orthoJapan({ target: "#…" })）
-			dismissBoot();
-			map.gadget.search();      // 地名・住所検索（オプトインガジェット＝欲しい画面だけが載せる。搭載順＝左上からの並び）
-			map.gadget.palette();     // 配色テーマ切替（押すと中央に他テーマの地図見本＝色で選ぶ。未搭載でも c= には従う）
-			map.gadget.zoom();        // ズーム＋/−（縦2連の一体ボタン）
-			map.gadget.full();        // 全画面トグル（非対応端末では出ない）
-			map.gadget.japan();       // 日本全体へ（真俯瞰・北向きに戻る）
-			map.gadget.solar();       // 太陽系へ（ortho-solar。星空圏＝ズームアウトの底でだけ現れる）
-			map.gadget.compass();     // コンパス兼リセット（3Dの時だけ現れる）
-			map.gadget.cpos();        // 現在地（GPS。押すと寄って点滅マーカー）
-			map.gadget.measure();     // 距離・面積の計測（クリックで頂点・ダブルクリックで確定）
-			map.gadget.shot();        // 画面を画像で保存（3層+計測を合成・出典焼き込み）
-			map.gadget.qr();          // この視点をQRで共有（押すと中央に現在の共有URLのQR＝スクリーン投影→スキャンで拡散）
-			map.gadget.print();       // 平面図を印刷（縮尺・A4/A3・経緯線・外枠＝紙仕様。プレビュー→印刷/PDF）
-			map.gadget.plateau();     // 建物3D（PLATEAU）データ管理（公式ロゴマークのボタン）
-			map.gadget.contextmenu(); // 右クリックメニュー（既定＝この地点へ寄る／座標をコピー）
-			map.gadget.dropFile();    // GISファイルのD&D取り込み（geopbfが食う全形式→GeoPBF化→gintへ描画・識別）
-			import("./demo/scenes.js").then(m => map.gadget.demo({ ...m.default, lang: new URLSearchParams(location.search).get("lang") }));   // デモ上演（▶→Space=次・BS=戻る・クリッカー(PageUp/Down)対応・Esc終了）。台本もエンジンも起動バンドル外＝▶は僅かに遅れて出るが起動を汚さない。作法は demo/scenes.js 冒頭。?lang=jp＝タイトル日本語（既定＝title英語・en基準）
-			// map.gadget.ai();       // AIと会話して地図に描く（PC専用＝画面2分割）。1canvas化を優先するため一時休止＝実装・テストは残置（t-ai.html は自前搭載で緑のまま）
-			map.gadget.hint();        // 操作説明カード（最下段＝カードが開いても上の段を動かさない）
-		});
-		// サービスワーカー登録（public/sw.js＝ビルド資産を Cache API で版管理＝再訪の無通信起動/オフライン）。
-		// 本番httpsのみ＝localhost/headless(http)は掛けない（計測とテストを汚さない）。app.js でなくページ側に置く＝埋め込みを汚さない。
-		// updateViaCache:none＝SWスクリプト自体は毎回検証（版番号を上げたら確実に更新される）。load 後＝起動描画を邪魔しない。
-		if (location.protocol === "https:" && "serviceWorker" in navigator)
-			addEventListener("load", () => navigator.serviceWorker.register("sw.js", { updateViaCache: "none" }).catch(e => console.warn("[sw] 登録失敗", e)));
-	</script>
+	<!-- 配線は site.js（dev=app.jsソース直／本番=SDK配布物 /japan/lib/ の二重構成＝分岐は site.js 冒頭の1か所） -->
+	<script type="module" src="./site.js"></script>
 </body>
 </html>
