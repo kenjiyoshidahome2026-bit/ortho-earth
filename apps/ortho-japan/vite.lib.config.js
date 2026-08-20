@@ -5,7 +5,7 @@ import { resolve } from "node:path";
 // サイトビルド（vite.config.js）とは別物：あちらは index.html を持つ「作品」、こちらは import される「部品」。
 //
 // 出荷物（dist/lib/）：
-//   ortho-japan.js   … ESM 本体（`import orthoJapan from "ortho-japan"`）。worker チャンクは同ディレクトリへ分割出力
+//   ortho-japan.js   … ESM 本体（npm名=@ortho-earth/japan）。worker チャンクは同ディレクトリへ分割出力
 //   ortho-japan.css  … 意匠（quiet-mono トークン＋部品＋app 固有）。maplibre-gl と同じ作法で利用者が明示 import する
 //   assets/…         … worker と動的 import（measure/print/qr/shot/demo/ai 等）のチャンク
 //

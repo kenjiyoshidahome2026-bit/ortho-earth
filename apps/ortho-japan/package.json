@@ -1,8 +1,29 @@
 {
-	"name": "ortho-japan",
-	"version": "1.0.0",
+	"name": "@ortho-earth/japan",
+	"version": "1.0.1",
+	"publishConfig": { "access": "public" },
+	"description": "Serverless, dependency-free 3D globe of Japan for any web page — GSI vector tiles and MLIT PLATEAU buildings drawn on a true sphere with WebGPU/WebGL2. No API keys, no billing, no servers.",
+	"keywords": ["japan", "map", "3d", "globe", "gis", "webgpu", "webgl", "plateau", "gsi", "vector-tiles", "geospatial", "serverless"],
+	"homepage": "https://www.ortho-earth.com/japan/",
+	"repository": { "type": "git", "url": "git+https://github.com/kenjiyoshidahome2026-bit/ortho-earth.git", "directory": "apps/ortho-japan" },
+	"author": "Kenji Yoshida <kenji.yoshida.home.2026@gmail.com>",
 	"license": "GPL-3.0-or-later",
 	"type": "module",
+	"main": "./dist/lib/ortho-japan.js",
+	"types": "./dist/lib/ortho-japan.d.ts",
+	"exports": {
+		".": { "types": "./dist/lib/ortho-japan.d.ts", "default": "./dist/lib/ortho-japan.js" },
+		"./ortho-japan.css": "./dist/lib/ortho-japan.css",
+		"./assets/*": "./assets/*",
+		"./package.json": "./package.json"
+	},
+	"files": [
+		"dist/lib",
+		"!dist/lib/**/*.map",
+		"assets",
+		"sdk/example.html",
+		"sdk/skill"
+	],
 	"scripts": {
 		"dev": "vite",
 		"build": "vite build",
@@ -15,9 +36,11 @@
 		"verify:nocoi": "node scripts/verify-nocoi.mjs",
 		"build:lib": "vite build --config vite.lib.config.js",
 		"verify:lib": "node scripts/verify-lib.mjs",
-		"pack:sdk": "node scripts/pack-sdk.mjs"
+		"pack:sdk": "node scripts/pack-sdk.mjs",
+		"prepack": "npm run build:lib && cp sdk/ortho-japan.d.ts dist/lib/ && node scripts/stage-npm-assets.mjs",
+		"verify:npm": "node scripts/verify-npm.mjs"
 	},
-	"dependencies": {
+	"devDependencies": {
 		"ortho-core": "*",
 		"geopbf": "*",
 		"altpbf": "*",
@@ -25,9 +48,7 @@
 		"@loaders.gl/3d-tiles": "^4.3.0",
 		"@loaders.gl/draco": "^4.3.0",
 		"quiet-mono": "*",
-		"ephem": "*"
-	},
-	"devDependencies": {
+		"ephem": "*",
 		"vite": "^5.0.0"
 	}
 }
