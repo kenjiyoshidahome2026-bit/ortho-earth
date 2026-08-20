@@ -10,7 +10,7 @@
 		"test": "node tests/t-model.mjs && node tests/t-snap.mjs && node tests/t-roundtrip.mjs && node tests/t-history.mjs",
 		"verify:ui": "node scripts/verify-ui.mjs",
 		"verify:prod": "node scripts/verify-prod.mjs",
-		"deploy": "npm run verify:prod && find dist/site -name .DS_Store -delete && wrangler deploy",
+		"deploy": "npm run verify:prod && rm -rf dist/site/geoedit/moj-local dist/site/geoedit/ai dist/site/geoedit/demo && find dist/site -name .DS_Store -delete && wrangler deploy",
 		"preview:prod": "vite build && wrangler dev"
 	},
 	"dependencies": {
