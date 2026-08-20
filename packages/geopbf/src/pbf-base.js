@@ -451,4 +451,4 @@ function _setViaWorker(self, buf) {
 	});
 }
 
-export { GeoPBF };
+export { GeoPBF, makeKeys };   // makeKeys＝ストリームエンコード（set() を自前でなぞる呼び出し側＝geoedit）用に公開 2026-08-20

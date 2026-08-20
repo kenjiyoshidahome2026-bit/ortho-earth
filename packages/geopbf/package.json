@@ -6,7 +6,8 @@
 	"main": "src/index.js",
 	"exports": {
 		".": "./src/index.js",
-		"./identify": "./src/extension/identify.js"
+		"./identify": "./src/extension/identify.js",
+		"./pbf-base": "./src/pbf-base.js"
 	},
 	"scripts": {
 		"summary": "repomix --style markdown --output project_summary.md"

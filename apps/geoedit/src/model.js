@@ -15,8 +15,8 @@
 // メモリ注：スナップ索引は頂点1個=1エントリobject（{x,y,arcId,idx}）＝100万頂点で数十MB。
 // v0はこれで進め、M8の実測で苦しければ TypedArray 化（arc毎の並行配列）に置換する。
 
-import { buildTopology, quantize, quantizeLine } from "./topo-extract.js";
-import { createSnapIndex, normLon } from "./snap.js";
+import { buildTopology, createExtractor, quantize, quantizeLine } from "./topo-extract.js";
+import { createSnapIndex, buildBase, normLon } from "./snap.js";
 
 const sidOf = s => (s < 0 ? ~s : s);
 
@@ -27,6 +27,24 @@ export function listsOf(f) {
 	if (f.type === "Polygon") return f.arcs.map((r, i) => ({ path: [i], list: r, ring: true }));
 	if (f.type === "MultiPolygon") return f.arcs.flatMap((p, i) => p.map((r, j) => ({ path: [i, j], list: r, ring: true })));
 	return [];
+}
+// arc表と feats エントリから GeoJSON geometry を1個だけ縫合（モデル・Worker・エンコーダ共用＝FC全体は作らない）
+export function stitchGeometry(arcs, f) {
+	if (f.type === "Point") return { type: "Point", coordinates: f.coords[0] };
+	if (f.type === "MultiPoint") return { type: "MultiPoint", coordinates: f.coords };
+	const coordsOf = s => {
+		const arc = arcs.get(s < 0 ? ~s : s), pts = arc.pts, n = pts.length / 2, out = new Array(n);
+		for (let i = 0; i < n; i++) { const k = s < 0 ? n - 1 - i : i; out[i] = [pts[k * 2], pts[k * 2 + 1]]; }
+		return out;
+	};
+	const st = list => {
+		const out = coordsOf(list[0]);
+		for (let k = 1; k < list.length; k++) { const c = coordsOf(list[k]); for (let i = 1; i < c.length; i++) out.push(c[i]); }
+		return out;
+	};
+	if (f.type === "LineString") return { type: f.type, coordinates: st(f.arcs) };
+	if (f.type === "MultiLineString" || f.type === "Polygon") return { type: f.type, coordinates: f.arcs.map(st) };
+	return { type: f.type, coordinates: f.arcs.map(pt => pt.map(st)) };
 }
 const listAtPath = (f, path) => {
 	if (f.type === "LineString") return f.arcs;
@@ -60,23 +78,27 @@ export function createModel(topo) {
 		}
 	}
 
-	// ---- スナップ索引（全頂点）。entry は arc毎/フィーチャ毎の並行配列で持ち、idxずれを一括補正する ----
-	const snap = createSnapIndex(m.gridExp);
-	const arcEntries = new Map();    // arcId → [entry aligned to idx]（閉arcの末尾重複頂点は索引に入れない）
-	const ptEntries = new Map();     // eid → [entry aligned to ptIdx]
+	// ---- スナップ索引 v2（snap.js）：基底=Morton typed配列（Worker構築ならゼロコスト搭載）＋追記ジャーナル。
+	//      座標は持たない＝deref がモデルの現在値を引く（削除/短縮は null で自動失効・墓標なし）----
 	const uniqCount = arc => arc.pts.length / 2 - (arc.closed ? 1 : 0);
-	const indexArc = (aid, arc) => {
-		const n = uniqCount(arc), list = new Array(n);
-		for (let i = 0; i < n; i++) { const en = { x: arc.pts[i * 2], y: arc.pts[i * 2 + 1], arcId: aid, idx: i }; list[i] = en; snap.add(en); }
-		arcEntries.set(aid, list);
+	const deref = (a, b) => {
+		if (a >= 0) {
+			const arc = m.arcs.get(a);
+			if (!arc || b >= uniqCount(arc)) return null;
+			return [arc.pts[b * 2], arc.pts[b * 2 + 1]];
+		}
+		const c = m.feats.get(-1 - a)?.coords?.[b];
+		return c ? [c[0], c[1]] : null;
 	};
-	const unindexArc = aid => { const l = arcEntries.get(aid); if (l) for (const en of l) snap.remove(en); arcEntries.delete(aid); };
-	const indexPoints = (eid, f) => {
-		const list = f.coords.map((c, i) => { const en = { x: c[0], y: c[1], eid, ptIdx: i }; snap.add(en); return en; });
-		ptEntries.set(eid, list);
-	};
-	for (const [aid, arc] of m.arcs) indexArc(aid, arc);
-	for (const [eid, f] of m.feats) if (f.coords) indexPoints(eid, f);
+	function* allRefs() {
+		for (const [aid, arc] of m.arcs) { const u = uniqCount(arc); for (let i = 0; i < u; i++) yield [aid, i, arc.pts[i * 2], arc.pts[i * 2 + 1]]; }
+		for (const [eid, f] of m.feats) if (f.coords) for (let i = 0; i < f.coords.length; i++) yield [-1 - eid, i, f.coords[i][0], f.coords[i][1]];
+	}
+	const snap = createSnapIndex(m.gridExp, deref);
+	snap.setRefSource(allRefs);
+	if (topo.snapBase) snap.setBase(topo.snapBase);   // Worker がソート済み基底を持参＝main コストゼロ
+	else snap.rebuild();
+	let indexing = true;   // translate ドラッグ中は追記を止め、drag終端で reindexFeature 一括（ジャーナル爆発の抑止）
 
 	// ---- 縫合（toGeoJSON と addressing の共通規約）----
 	const arcCoords = s => {
@@ -123,9 +145,7 @@ export function createModel(topo) {
 		const arc = m.arcs.get(aid), n = arc.pts.length / 2;
 		arc.pts[idx * 2] = x; arc.pts[idx * 2 + 1] = y;
 		if (arc.closed && (idx === 0 || idx === n - 1)) { const j = idx === 0 ? n - 1 : 0; arc.pts[j * 2] = x; arc.pts[j * 2 + 1] = y; }
-		const u = uniqCount(arc);
-		const en = arcEntries.get(aid)[idx >= u ? 0 : idx];   // 閉arcの末尾重複頂点→索引エントリは0番が代表
-		if (en) snap.move(en, x, y);
+		if (indexing) snap.addRef(aid, idx >= uniqCount(arc) ? 0 : idx, x, y);   // 新セルへ追記（旧掲載は実座標derefで自然失効）
 		dirty.add(aid);
 	};
 	function moveVertex(arcId, idx, lon, lat) {
@@ -151,11 +171,8 @@ export function createModel(topo) {
 		return { from, to: [x, y], dirty };
 	}
 
-	// ---- 頂点挿入/削除（対象arcのみ・索引のidxずれは尾側を一括補正）----
-	const shiftEntries = (aid, fromIdx, delta) => {
-		const list = arcEntries.get(aid);
-		for (let i = fromIdx; i < list.length; i++) list[i].idx += delta;
-	};
+	// ---- 頂点挿入/削除。索引は「挿入点＋末尾一意頂点」の追記だけ（中間のidxずれは基底参照が
+	//      「別の実在頂点」を指すだけ＝スナップ先として依然正しい）。削除は追記すら不要（derefが自動失効）----
 	function insertVertex(arcId, afterIdx, lon, lat) {
 		const e = Math.pow(10, m.gridExp);
 		const x = quantize(normLon(lon), e), y = quantize(lat, e);
@@ -165,11 +182,9 @@ export function createModel(topo) {
 		pts[(afterIdx + 1) * 2] = x; pts[(afterIdx + 1) * 2 + 1] = y;
 		pts.set(arc.pts.subarray((afterIdx + 1) * 2), (afterIdx + 2) * 2);
 		arc.pts = pts;
-		const en = { x, y, arcId, idx: afterIdx + 1 };
-		const list = arcEntries.get(arcId);
-		list.splice(afterIdx + 1, 0, en);
-		shiftEntries(arcId, afterIdx + 2, +1);
-		snap.add(en);
+		snap.addRef(arcId, afterIdx + 1, x, y);
+		const u = uniqCount(arc);
+		snap.addRef(arcId, u - 1, arc.pts[(u - 1) * 2], arc.pts[(u - 1) * 2 + 1]);   // 伸びた分＝末尾一意頂点も索引到達可能に
 		return { arcId, idx: afterIdx + 1 };
 	}
 	function deleteVertex(arcId, idx) {
@@ -181,21 +196,33 @@ export function createModel(topo) {
 		pts.set(arc.pts.subarray(0, idx * 2), 0);
 		pts.set(arc.pts.subarray((idx + 1) * 2), idx * 2);
 		arc.pts = pts;
-		const list = arcEntries.get(arcId);
-		snap.remove(list[idx]);
-		list.splice(idx, 1);
-		shiftEntries(arcId, idx, -1);
 		return { removed };
 	}
 
 	// ---- フィーチャ平行移動（移動ツール✥）：自分のarc全頂点＋端点は「ノード単位」で動かす＝
 	//      共有端の一貫性維持（隣のarcの端も一緒に動く＝境界が切れない）。共有arcは両者が変形（トポロジの掟）----
-	function translateFeature(eid, dx, dy) {
+	function reindexFeature(eid) {   // translateドラッグ終端の一括追記（ドラッグ中は indexing=false）
+		const f = m.feats.get(eid);
+		if (!f) return;
+		if (f.coords) { f.coords.forEach((c, i) => snap.addRef(-1 - eid, i, c[0], c[1])); return; }
+		const seen = new Set();
+		for (const { list } of listsOf(f)) for (const s of list) {
+			const aid = sidOf(s);
+			if (seen.has(aid)) continue;
+			seen.add(aid);
+			const arc = m.arcs.get(aid);
+			for (let i = 0, u = uniqCount(arc); i < u; i++) snap.addRef(aid, i, arc.pts[i * 2], arc.pts[i * 2 + 1]);
+		}
+	}
+	function translateFeature(eid, dx, dy, { index = true } = {}) {
 		const e = Math.pow(10, m.gridExp);
 		dx = Math.round(dx * e) / e; dy = Math.round(dy * e) / e;   // 格子上を保つ（デルタも格子倍数へ）
 		if (!dx && !dy) return { d: [0, 0] };
 		const f = m.feats.get(eid);
 		if (!f) return null;
+		const wasIndexing = indexing;
+		indexing = index;
+		try {
 		if (f.coords) { f.coords.forEach((c, i) => movePoint(eid, i, c[0] + dx, c[1] + dy)); return { d: [dx, dy] }; }
 		const dirty = new Set(), seenArc = new Set(), seenNode = new Set();
 		for (const { list } of listsOf(f)) for (const s of list) {
@@ -220,6 +247,7 @@ export function createModel(topo) {
 			for (let i = 1; i < n - 1; i++) setArcVertex(aid, i, quantize(normLon(arc.pts[i * 2] + dx), e), quantize(arc.pts[i * 2 + 1] + dy, e), dirty);
 		}
 		return { d: [dx, dy] };
+		} finally { indexing = wasIndexing; }
 	}
 
 	// ---- ポイント移動 ----
@@ -229,7 +257,7 @@ export function createModel(topo) {
 		const f = m.feats.get(eid);
 		const from = [...f.coords[ptIdx]];
 		f.coords[ptIdx] = [x, y];
-		snap.move(ptEntries.get(eid)[ptIdx], x, y);
+		if (indexing) snap.addRef(-1 - eid, ptIdx, x, y);
 		return { from, to: [x, y] };
 	}
 
@@ -267,7 +295,7 @@ export function createModel(topo) {
 		const aid = nextArcId++;
 		const arc = { pts, closed: true, refs: new Set([eid]) };
 		m.arcs.set(aid, arc);
-		indexArc(aid, arc);
+		for (let i = 0, u = uniqCount(arc); i < u; i++) snap.addRef(aid, i, pts[i * 2], pts[i * 2 + 1]);
 		// ノード接続（閉arc＝両端が同一ノード。既存ノード座標に一致すれば合流）
 		const x = pts[0], y = pts[1];
 		let nid = nodeAt.get(nkey(x, y));
@@ -285,8 +313,7 @@ export function createModel(topo) {
 		const arc = m.arcs.get(aid);
 		if (!arc) return;
 		arc.refs.delete(eid);
-		if (arc.refs.size) return;
-		unindexArc(aid);
+		if (arc.refs.size) return;   // 索引掃除は不要＝arcs から消えれば deref が null（自動失効）
 		for (const end of [0, 1]) {
 			const nid = endNode.get(aid)?.[end];
 			if (nid == null) continue;
@@ -321,14 +348,14 @@ export function createModel(topo) {
 			remap.set(aid, nid);
 			arc.refs = new Set([eid]);
 			m.arcs.set(nid, arc);
-			indexArc(nid, arc);
+			for (let i = 0, u = uniqCount(arc); i < u; i++) snap.addRef(nid, i, arc.pts[i * 2], arc.pts[i * 2 + 1]);
 		}
 		const f = sub.feats.values().next().value;
 		const remapSid = s => (s < 0 ? ~remap.get(~s) : remap.get(s));
 		const walk = a => Array.isArray(a) ? a.map(walk) : remapSid(a);
 		if (f.arcs) f.arcs = walk(f.arcs);
 		m.feats.set(eid, f);
-		if (f.coords) indexPoints(eid, f);
+		if (f.coords) f.coords.forEach((c, i) => snap.addRef(-1 - eid, i, c[0], c[1]));
 		// 端点接続：既存ノード座標に一致＝そのノードへ合流（境界の同時可動が即日効く）。無ければ新ノード
 		for (const [said, arc] of sub.arcs) {
 			const aid = remap.get(said), n = arc.pts.length / 2;
@@ -354,8 +381,7 @@ export function createModel(topo) {
 			const aid = sidOf(s), arc = m.arcs.get(aid);
 			if (!arc) continue;
 			arc.refs.delete(eid);
-			if (!arc.refs.size) {
-				unindexArc(aid);
+			if (!arc.refs.size) {   // 索引は deref 自動失効＝掃除不要
 				for (const end of [0, 1]) {
 					const nid = endNode.get(aid)?.[end];
 					if (nid === undefined || nid === null) continue;
@@ -368,23 +394,15 @@ export function createModel(topo) {
 				m.arcs.delete(aid);
 			}
 		}
-		if (f.coords) { for (const en of ptEntries.get(eid) || []) snap.remove(en); ptEntries.delete(eid); }
-		m.feats.delete(eid);
+		m.feats.delete(eid);   // ポイント索引も deref 自動失効
 		return snapshot;
 	}
 
 	// ---- GeoJSON 出力 ----
 	function featureGeoJSON(eid, withEid) {
 		const f = m.feats.get(eid);
-		let coordinates;
-		if (f.type === "Point") coordinates = f.coords[0];
-		else if (f.type === "MultiPoint") coordinates = f.coords;
-		else if (f.type === "LineString") coordinates = stitch(f.arcs);
-		else if (f.type === "MultiLineString") coordinates = f.arcs.map(stitch);
-		else if (f.type === "Polygon") coordinates = f.arcs.map(stitch);
-		else coordinates = f.arcs.map(p => p.map(stitch));
 		const properties = withEid ? { ...f.properties, __eid: eid } : { ...f.properties };
-		return { type: "Feature", properties, geometry: { type: f.type, coordinates } };
+		return { type: "Feature", properties, geometry: stitchGeometry(m.arcs, f) };
 	}
 	const toGeoJSON = ({ eid = false } = {}) =>
 		({ type: "FeatureCollection", features: [...m.feats.keys()].sort((a, b) => a - b).map(id => featureGeoJSON(id, eid)) });   // eid昇順＝削除undo（末尾再挿入）でも出力順が揺れない
@@ -451,15 +469,14 @@ export function createModel(topo) {
 	// ---- 格子切替：以後の配置/移動にのみ効く（既存座標は再量子化しない＝v1裁定）----
 	function setGrid(gridExp) {
 		m.gridExp = gridExp;
-		const all = function* () { for (const l of arcEntries.values()) yield* l; for (const l of ptEntries.values()) yield* l; };
-		snap.setGrid(gridExp, all());
+		snap.setGrid(gridExp);   // セル寸変更＝基底を allRefs から焼き直し
 	}
 
 	let vcount = 0;
 	for (const arc of m.arcs.values()) vcount += arc.pts.length / 2;
 
 	return Object.assign(m, {
-		snap, moveVertex, insertVertex, deleteVertex, movePoint, translateFeature, addFeature, deleteFeature, addHole, removeRing, pointInRing,
+		snap, moveVertex, insertVertex, deleteVertex, movePoint, translateFeature, reindexFeature, addFeature, deleteFeature, addHole, removeRing, pointInRing,
 		toGeoJSON, featureGeoJSON, addrOf, resolveAddr, applyCmd, invertCmd, setGrid, stitch, arcCoords, listsOf,
 		endNodeOf: (aid, end) => endNode.get(aid)?.[end],
 		stats: () => ({ features: m.feats.size, arcs: m.arcs.size, vertices: vcount }),
@@ -470,30 +487,42 @@ export function createModel(topo) {
 //      素朴追加で入った複製arcが junction 検出＋arc照合で共有arcへ統合される。安定アドレス
 //      {eid,path,vi} は縫合後頂点番号＝再抽出で不変（これが undo/redo を跨げる根拠）。
 //      小〜中規模は main で直接、大規模は controller が model-worker 経由で同じことをする。 ----
-export function adoptRebuilt(topo, old) {   // topo＝__eid入り fc から構築されたもの（main直・Worker転送後どちらでも）
-	const remap = new Map();   // 仮eid（fc順） → 本来のeid（__eid）
-	const feats = new Map();
-	for (const [tmp, f] of topo.feats) {
-		const eid = f.properties.__eid;
-		remap.set(tmp, eid);
-		const props = { ...f.properties };
-		delete props.__eid;
-		f.properties = props;
-		feats.set(eid, f);
+// 再抽出（構造操作後の共有回復）＝GeoJSON中間を作らない：モデルのフィーチャを1個ずつ縫合して
+// extractor へ流す。eid は「投入順」の並行配列で保存（__eid プロパティは全廃 8/20＝propTub対策は
+// コミット側の一意 __eid 注入だけに残る）。main同期（小規模）と Worker（retopoモード）で同じ規約。
+export function retopoTopo(model) {   // → { topo, eids }
+	const ex = createExtractor(model.gridExp);
+	const eids = [...model.feats.keys()].sort((a, b) => a - b);
+	for (const eid of eids) {
+		const f = model.feats.get(eid);
+		ex.add(stitchGeometry(model.arcs, f), f.properties);
 	}
+	return { topo: ex.finish(), eids };
+}
+export function adoptRebuilt(topo, eids, old) {   // topo.feats の仮id（投入順）→ eids[i] へ付け替え
+	const remap = new Map();
+	const feats = new Map();
+	for (const [tmp, f] of topo.feats) { const eid = eids[tmp]; remap.set(tmp, eid); feats.set(eid, f); }
 	for (const arc of topo.arcs.values()) arc.refs = new Set([...arc.refs].map(t => remap.get(t)));
 	topo.feats = feats;
 	topo.nextEid = old.nextEid;
 	return createModel(topo);
 }
 export function rebuildModel(old) {
-	return adoptRebuilt(buildTopology(old.toGeoJSON({ eid: true }), old.gridExp), old);
+	const { topo, eids } = retopoTopo(old);
+	return adoptRebuilt(topo, eids, old);
 }
 
 // ---- Worker 転送（構築は Worker・編集は main）----
 // arcs を flat Float64Array＋meta(Int32Array: offset,count,closed×n)へ、feats は JSON 化。
 // refs/nodes は main 側で再構成（O(arcs)＝安い）。pts は big buffer 上の view＝コピーゼロ。
-export function topoToTransfer(topo) {
+function* topoRefs(topo) {   // snap基底の材料（allRefs と同じ規約＝topo構造の上で）
+	const uniq = arc => arc.pts.length / 2 - (arc.closed ? 1 : 0);
+	for (const [aid, arc] of topo.arcs) { const u = uniq(arc); for (let i = 0; i < u; i++) yield [aid, i, arc.pts[i * 2], arc.pts[i * 2 + 1]]; }
+	for (const [eid, f] of topo.feats) if (f.coords) for (let i = 0; i < f.coords.length; i++) yield [-1 - eid, i, f.coords[i][0], f.coords[i][1]];
+}
+export function topoToTransfer(topo, { snap: withSnap = true } = {}) {
+	const snap = withSnap ? buildBase(topoRefs(topo), topo.gridExp) : null;   // Worker側でソート＝mainゼロコスト（送り便は省略可）
 	let total = 0;
 	for (const arc of topo.arcs.values()) total += arc.pts.length;
 	const flat = new Float64Array(total);
@@ -507,8 +536,8 @@ export function topoToTransfer(topo) {
 	}
 	const feats = [...topo.feats].map(([eid, f]) => [eid, { type: f.type, arcs: f.arcs, coords: f.coords, properties: f.properties }]);
 	return {
-		payload: { flat, meta, order, feats, gridExp: topo.gridExp, nextEid: topo.nextEid, warnings: topo.warnings },
-		transfer: [flat.buffer],
+		payload: { flat, meta, order, feats, snap, gridExp: topo.gridExp, nextEid: topo.nextEid, warnings: topo.warnings },
+		transfer: snap ? [flat.buffer, snap.codes.buffer, snap.refA.buffer, snap.refB.buffer] : [flat.buffer],
 	};
 }
 export function topoFromTransfer(p) {
@@ -535,5 +564,5 @@ export function topoFromTransfer(p) {
 			else nodes.get(nid).ends.push([aid, end]);
 		}
 	}
-	return { gridExp: p.gridExp, arcs, feats, nodes, nextEid: p.nextEid, warnings: p.warnings || [] };
+	return { gridExp: p.gridExp, arcs, feats, nodes, snapBase: p.snap ?? null, nextEid: p.nextEid, warnings: p.warnings || [] };
 }

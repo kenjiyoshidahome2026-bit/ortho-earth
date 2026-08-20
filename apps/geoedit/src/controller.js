@@ -4,7 +4,7 @@
 // コミット頻度＝頂点数で二段（<10万: drag-end 300ms デバウンス / ≥10万: アイドル2s or 明示操作）。
 // 構造操作（add/del）→ Worker/同期のトポロジ再抽出（デバウンス）＝頂点吸着の共有化・arc分割を回復。
 import { buildTopology } from "./topo-extract.js";
-import { createModel, adoptRebuilt, rebuildModel, topoFromTransfer } from "./model.js";
+import { createModel, adoptRebuilt, rebuildModel, topoFromTransfer, topoToTransfer } from "./model.js";
 import { createHistory } from "./history.js";
 import { createGintLayer } from "./gint-layer.js";
 import { createOverlay } from "./overlay.js";
@@ -45,7 +45,7 @@ export function initEditor(map) {
 	// ---- Worker（構築/再抽出）----
 	let worker = null, reqId = 0;
 	const pending = new Map();
-	const buildInWorker = (fc, exp) => new Promise((res, rej) => {
+	const callWorker = (msg, transfer = []) => new Promise((res, rej) => {
 		if (!worker) {
 			worker = new Worker(new URL("./model-worker.js", import.meta.url), { type: "module" });
 			worker.onmessage = e => {
@@ -57,7 +57,7 @@ export function initEditor(map) {
 		}
 		const id = ++reqId;
 		pending.set(id, { res, rej });
-		worker.postMessage({ id, fc, gridExp: exp });
+		worker.postMessage({ id, ...msg }, transfer);
 	});
 
 	// ---- コミット（確定層＋自動保存）----
@@ -83,8 +83,9 @@ export function initEditor(map) {
 			if (st.model.stats().vertices < SYNC_REBUILD) st.model = rebuildModel(st.model);
 			else {
 				st.busy = true; toast("トポロジ再抽出中…");
-				const payload = await buildInWorker(st.model.toGeoJSON({ eid: true }), st.model.gridExp);
-				st.model = adoptRebuilt(topoFromTransfer(payload), st.model);
+				const { payload: out, transfer } = topoToTransfer(st.model, { snap: false });   // 送り便＝基底ソート不要
+				const res = await callWorker({ mode: "retopo", payload: out, gridExp: st.model.gridExp }, transfer);
+				st.model = adoptRebuilt(topoFromTransfer(res), res.eids, st.model);
 				st.busy = false;
 			}
 		} catch (e) { console.error("[geoedit] rebuild failed", e); st.busy = false; }
@@ -94,31 +95,46 @@ export function initEditor(map) {
 	}
 
 	// ---- 読み込み（fc → モデル → コミット）----
-	async function loadFC(fc, { fly = true } = {}) {
+	async function finishLoad(model, { fly = true, stripEid = false } = {}) {
+		if (stripEid) for (const f of model.feats.values()) if (f.properties && "__eid" in f.properties) { const p2 = { ...f.properties }; delete p2.__eid; f.properties = p2; }   // 復元＝コミット時に注入した__eidを剥がす
+		st.model = model;
+		for (const w of model.warnings) console.warn("[geoedit]", w);
+		hist.clear();
+		st.selection = null; st.sketch = null;
+		await commit(fly && model.feats.size > 0);
+		const stat = model.stats();
+		if (stat.features) toast(`読込完了：${stat.features}フィーチャ・${stat.arcs}arc・${stat.vertices}頂点`);
+		bar.syncHist(hist.canUndo, hist.canRedo);
+	}
+	async function loadFC(fc, { fly = true } = {}) {   // GeoJSON入口（試験・API互換。大規模の正規経路は loadBuffer）
 		try {
 			st.busy = true;
 			const n = fc.features.length;
 			if (n) toast(`トポロジ抽出中…（${n}フィーチャ）`);
 			const model = n >= 2000
-				? createModel(topoFromTransfer(await buildInWorker(fc, gridExp)))
+				? createModel(topoFromTransfer(await callWorker({ mode: "fc", fc, gridExp })))
 				: createModel(buildTopology(fc, gridExp));
-			st.model = model;
-			for (const w of model.warnings) console.warn("[geoedit]", w);
-			hist.clear();
-			st.selection = null; st.sketch = null;
-			await commit(fly && n > 0);
-			const s = model.stats();
-			if (n) toast(`読込完了：${s.features}フィーチャ・${s.arcs}arc・${s.vertices}頂点`);
-			bar.syncHist(hist.canUndo, hist.canRedo);
+			await finishLoad(model, { fly });
+		} catch (e) { console.error("[geoedit] load failed", e); toast("読み込みに失敗しました"); }
+		finally { st.busy = false; overlay.redraw(); }
+	}
+	async function loadBuffer(buffer, { fly = true, stripEid = false } = {}) {   // geopbfバイト列＝正規経路（GeoJSON中間なし）
+		try {
+			st.busy = true;
+			toast("トポロジ抽出中…");
+			const model = createModel(topoFromTransfer(await callWorker({ mode: "pbf", buffer, gridExp }, [buffer])));
+			await finishLoad(model, { fly, stripEid });
 		} catch (e) { console.error("[geoedit] load failed", e); toast("読み込みに失敗しました"); }
 		finally { st.busy = false; overlay.redraw(); }
 	}
 	async function importFile(file) {
 		try {
 			toast(`変換中… ${file.name}`);
-			const pbf = await geopbf(file, { name: "drop/" + file.name });
+			const pbf = await geopbf(file, { name: "drop/" + file.name });   // 任意形式→geopbfバイト列（デコードworker）。.geojson は呼ばない
 			if (!pbf) return toast("対応していない形式です");
-			await loadFC(pbf.geojson ?? { type: "FeatureCollection", features: [] });
+			const buffer = pbf.arrayBuffer;
+			pbf.destroy?.();   // デコード器の即時解放（旧世代を残さない）
+			await loadBuffer(buffer);
 		} catch (e) { console.error("[geoedit] import failed", e); toast(`取込失敗: ${file.name}`); }
 	}
 
@@ -326,7 +342,7 @@ export function initEditor(map) {
 			const ll = map.unprojectXY(x, y);
 			if (!ll) return;
 			if (drag.kind === "f") {   // フィーチャ平行移動（適用できた分だけ total へ＝格子量子化と整合）
-				const res = st.model.translateFeature(drag.eid, ll[0] - drag.lastLL[0], ll[1] - drag.lastLL[1]);
+				const res = st.model.translateFeature(drag.eid, ll[0] - drag.lastLL[0], ll[1] - drag.lastLL[1], { index: false });   // ドラッグ中は索引追記オフ（終端で一括reindex）
 				if (res) {
 					drag.total[0] += res.d[0]; drag.total[1] += res.d[1];
 					drag.lastLL = [drag.lastLL[0] + res.d[0], drag.lastLL[1] + res.d[1]];
@@ -380,6 +396,7 @@ export function initEditor(map) {
 		mapEl.style.cursor = "";
 		layer.unhide();
 		if (d.moved) {
+			if (d.kind === "f") st.model.reindexFeature(d.eid);   // translate終端＝スナップ索引へ一括追記
 			const cmd = d.kind === "f"
 				? { op: "tr", eid: d.eid, d: d.total }
 				: d.kind === "p"
@@ -466,11 +483,8 @@ export function initEditor(map) {
 		const rec = await idbLoad();
 		if (rec?.buf && confirm("前回の編集セッションを復元しますか？")) {
 			gridExp = rec.gridExp ?? 6;
-			const pbf = await geopbf(rec.buf, { name: "geoedit/restore" });
-			const fc = pbf?.geojson ?? { type: "FeatureCollection", features: [] };
-			for (const f of fc.features) delete f.properties?.__eid;   // コミット時の注入を剥がす
 			if (rec.view) location.hash = rec.view;
-			await loadFC(fc, { fly: !rec.view });
+			await loadBuffer(rec.buf, { fly: !rec.view, stripEid: true });   // コミット由来の__eidは剥がす
 		} else {
 			await loadFC({ type: "FeatureCollection", features: [] });
 			toast("GISファイルをドロップ、またはツールで作図を始めてください");
@@ -484,6 +498,6 @@ export function initEditor(map) {
 		commitNow: () => { clearTimeout(commitTimer); return commit(false); },   // 明示フラッシュ（試験・保存前）
 		layer,   // デバッグの手すり（identify/pbf の検分用。公式口ではない）
 		decode: file => geopbf(file, { name: "decode/" + file.name }),   // 同じく手すり＝自バンドルのgeopbfで任意ファイルを解く（計測・検分用）
-		loadFC, importFile, toast,
+		loadFC, loadBuffer, importFile, toast,
 	};
 }

@@ -133,72 +133,84 @@ function cutLine(line, isJ, reg) {
 	return ids;
 }
 
-// ---- 本体 ----
-export function buildTopology(fc, gridExp) {
+// ---- 本体（ストリーム版）＝フィーチャを1個ずつ add して finish でトポロジ確定。
+// GeoJSON FC を丸ごと持たない呼び出し（pbfバイト列直・モデル再抽出）のための形（8/20 GeoJSON追放）。
+// add の呼び出し順＝仮id（skip でも採番は進む）＝呼び出し側の eids 並行配列と位置対応。
+export function createExtractor(gridExp) {
 	const e = Math.pow(10, gridExp);
 	const feats = new Map();
 	const warnings = [];
 	const items = [];   // junction走査用の全ライン/リング
-	const preps = [];   // [eid, type, prepared geometry, properties]
+	const preps = [];   // [id, type, prepared geometry, properties]
 	let eid = 0;
-	for (const f of fc.features || []) {
-		const g = f.geometry;
+
+	function add(g, props = {}) {
 		const id = eid++;
-		if (!g) { warnings.push(`feature ${id}: geometry無し＝skip`); continue; }
-		const props = f.properties || {};
+		if (!g || !Array.isArray(g.coordinates)) { warnings.push(`feature ${id}: geometry無し/不正＝skip`); return id; }   // moj実データに壊れfeatureあり（fid整列メモの族）
 		const t = g.type;
 		if (t === "Point" || t === "MultiPoint") {
 			const cs = (t === "Point" ? [g.coordinates] : g.coordinates).map(c => [quantize(c[0], e), quantize(c[1], e)]);
 			preps.push([id, t, cs, props]);
-			continue;
+			return id;
 		}
 		if (t === "LineString" || t === "MultiLineString") {
 			const lines = (t === "LineString" ? [g.coordinates] : g.coordinates).map(l => quantizeLine(l, e, false)).filter(Boolean);
-			if (!lines.length) { warnings.push(`feature ${id}: 量子化で退化＝skip`); continue; }
+			if (!lines.length) { warnings.push(`feature ${id}: 量子化で退化＝skip`); return id; }
 			for (const line of lines) items.push({ line, ring: false });
 			preps.push([id, t, lines, props]);
-			continue;
+			return id;
 		}
 		if (t === "Polygon" || t === "MultiPolygon") {
 			const polys = (t === "Polygon" ? [g.coordinates] : g.coordinates)
-				.map(rings => rings.map(r => quantizeLine(r, e, true)).filter(Boolean)).filter(p => p.length);
-			if (!polys.length) { warnings.push(`feature ${id}: 量子化で退化＝skip`); continue; }
-			for (const p of polys) for (const r of p) items.push({ line: r, ring: true });
+				.map(rings => rings.map(r => quantizeLine(r, e, true)).filter(Boolean)).filter(pl => pl.length);
+			if (!polys.length) { warnings.push(`feature ${id}: 量子化で退化＝skip`); return id; }
+			for (const pl of polys) for (const r of pl) items.push({ line: r, ring: true });
 			preps.push([id, t, polys, props]);
-			continue;
+			return id;
 		}
 		warnings.push(`feature ${id}: ${t} は v1 非対応＝skip`);
+		return id;
 	}
 
-	const isJ = findJunctions(items, e);
-	const reg = makeArcRegistry();
+	function finish() {
+		const isJ = findJunctions(items, e);
+		const reg = makeArcRegistry();
 
-	for (const [id, t, prep, props] of preps) {
-		if (t === "Point" || t === "MultiPoint") { feats.set(id, { type: t, coords: prep, properties: props }); continue; }
-		if (t === "LineString") feats.set(id, { type: t, arcs: cutLine(prep[0], isJ, reg), properties: props });
-		else if (t === "MultiLineString") feats.set(id, { type: t, arcs: prep.map(l => cutLine(l, isJ, reg)), properties: props });
-		else if (t === "Polygon") feats.set(id, { type: t, arcs: prep[0].map(r => cutRing(r, isJ, reg)), properties: props });
-		else feats.set(id, { type: t, arcs: prep.map(p => p.map(r => cutRing(r, isJ, reg))), properties: props });
-		// refs 逆引き（符号を剥がして本体arcへ）
-		const walk = a => Array.isArray(a) ? a.forEach(walk) : reg.arcs.get(a < 0 ? ~a : a).refs.add(id);
-		walk(feats.get(id).arcs);
-	}
-
-	// ---- ノード表（arc端点の接続）：端点座標キー → node。閉arcは両端=同一点＝1エントリで両端を代表 ----
-	const nodes = new Map();
-	const nodeAt = new Map();   // qx → qy → nodeId
-	let nextNode = 0;
-	for (const [id, arc] of reg.arcs) {
-		const n = arc.pts.length / 2;
-		for (const end of arc.closed ? [0] : [0, 1]) {
-			const i = end ? n - 1 : 0;
-			const x = arc.pts[i * 2], y = arc.pts[i * 2 + 1];
-			let nid = key2(nodeAt, x, y);
-			if (nid === undefined) { nid = nextNode++; set2(nodeAt, x, y, nid); nodes.set(nid, { x, y, ends: [] }); }
-			if (arc.closed) nodes.get(nid).ends.push([id, 0], [id, 1]);
-			else nodes.get(nid).ends.push([id, end]);
+		for (const [id, t, prep, props] of preps) {
+			if (t === "Point" || t === "MultiPoint") { feats.set(id, { type: t, coords: prep, properties: props }); continue; }
+			if (t === "LineString") feats.set(id, { type: t, arcs: cutLine(prep[0], isJ, reg), properties: props });
+			else if (t === "MultiLineString") feats.set(id, { type: t, arcs: prep.map(l => cutLine(l, isJ, reg)), properties: props });
+			else if (t === "Polygon") feats.set(id, { type: t, arcs: prep[0].map(r => cutRing(r, isJ, reg)), properties: props });
+			else feats.set(id, { type: t, arcs: prep.map(pl => pl.map(r => cutRing(r, isJ, reg))), properties: props });
+			// refs 逆引き（符号を剥がして本体arcへ）
+			const walk = a => Array.isArray(a) ? a.forEach(walk) : reg.arcs.get(a < 0 ? ~a : a).refs.add(id);
+			walk(feats.get(id).arcs);
 		}
+
+		// ---- ノード表（arc端点の接続）：端点座標キー → node。閉arcは両端=同一点＝1エントリで両端を代表 ----
+		const nodes = new Map();
+		const nodeAt = new Map();   // qx → qy → nodeId
+		let nextNode = 0;
+		for (const [id, arc] of reg.arcs) {
+			const n = arc.pts.length / 2;
+			for (const end of arc.closed ? [0] : [0, 1]) {
+				const i = end ? n - 1 : 0;
+				const x = arc.pts[i * 2], y = arc.pts[i * 2 + 1];
+				let nid = key2(nodeAt, x, y);
+				if (nid === undefined) { nid = nextNode++; set2(nodeAt, x, y, nid); nodes.set(nid, { x, y, ends: [] }); }
+				if (arc.closed) nodes.get(nid).ends.push([id, 0], [id, 1]);
+				else nodes.get(nid).ends.push([id, end]);
+			}
+		}
+
+		return { gridExp, arcs: reg.arcs, feats, nodes, nextEid: eid, warnings };
 	}
 
-	return { gridExp, arcs: reg.arcs, feats, nodes, nextEid: eid, warnings };
+	return { add, finish };
+}
+
+export function buildTopology(fc, gridExp) {
+	const ex = createExtractor(gridExp);
+	for (const f of fc.features || []) ex.add(f?.geometry, f?.properties || {});
+	return ex.finish();
 }

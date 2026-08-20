@@ -5,7 +5,9 @@
 // 一意＝topology() の propTub 併合が起きない＝fid はコミットfcの並び（eid昇順）と1:1。
 // スタイル＝@fill/@stroke/@width をコミット時に fid→RGBA32UI 表へ焼く（前処理で吸収＝エンジン改修ゼロ）。
 // 表レコード（ortho-core style.js §7.1）: R=fill RGBA8 / G=line・circle色 / B=width(1/8px)<<24|dash<<16|radius(1/4px)<<8|flags / flags bit0=visible
-import { geopbf } from "geopbf";
+import { geopbf } from "geopbf";                      // side-effect込み＝GeoPBF.prototype に gint()/identifyAt/*File が載る
+import { GeoPBF, makeKeys } from "geopbf/pbf-base";   // ストリームエンコード用（set() を自前でなぞる）
+import { stitchGeometry } from "./model.js";
 
 // #rgb / #rrggbb / #rrggbbaa → u32(r<<24|g<<16|b<<8|a)。それ以外は null（既定色へ）
 export function hexColor(s) {
@@ -43,10 +45,10 @@ export const DEF = {   // styleform（素人向けUI）が初期値表示に使�
 	radiusPx: 5,         // gint circle はシンボルオーバレイのフォールバック
 };
 
-export function buildStyleTable(features) {   // features＝コミットfcの並び（=fid順）
-	const n = features.length, u32 = new Uint32Array(n * 4);
+export function buildStyleTable(propsArr) {   // propsArr＝fid順の properties 参照列（FCは作らない）
+	const n = propsArr.length, u32 = new Uint32Array(n * 4);
 	for (let i = 0; i < n; i++) {
-		const p = features[i].properties || {};
+		const p = propsArr[i] || {};
 		const fill = cssColor(p["@fill"]) ?? DEF.fill;
 		const stroke = cssColor(p["@stroke"]) ?? DEF.stroke;
 		const w = Math.max(1, Math.min(255, Math.round((+p["@width"] > 0 ? +p["@width"] : DEF.widthPx) * 8)));
@@ -56,6 +58,23 @@ export function buildStyleTable(features) {   // features＝コミットfcの並
 		u32[i * 4 + 2] = (w << 24) | (r << 8) | 1;
 	}
 	return u32;
+}
+
+// モデル→GeoPBF の直列エンコード（GeoJSON FC を一度も作らない＝8/20「根性で全部」）。
+// set() と同じ手順（makeKeys→setHead→setBody→close→getPosition）を、setBody の**関数渡し**で
+// 1フィーチャずつ縫合→書き込み→即GC。setFeature は q.geometry へ書き戻す（strictでgetter即死）ため
+// 遅延オブジェクトではなく都度生成の素のオブジェクトを渡す。
+export async function encodeModel(model, { withEid = false, name = "geoedit", precision } = {}) {
+	const eids = [...model.feats.keys()].sort((a, b) => a - b);
+	const propsArr = eids.map(e => withEid ? { ...model.feats.get(e).properties, __eid: e } : model.feats.get(e).properties);
+	const pbf = new GeoPBF({ name, precision: precision ?? model.gridExp });
+	const [keys, bufs] = await makeKeys(propsArr);
+	pbf.setHead(keys, bufs).setBody(() => {
+		for (let i = 0; i < eids.length; i++)
+			pbf.setFeature({ type: "Feature", geometry: stitchGeometry(model.arcs, model.feats.get(eids[i])), properties: propsArr[i] });
+	}).close();
+	await pbf.getPosition();
+	return { pbf, eids };
 }
 
 export function createGintLayer(map) {
@@ -81,17 +100,15 @@ export function createGintLayer(map) {
 		eidOf: fid => fidEid[fid],
 		async commit(model, { moveCamera = false } = {}) {
 			const g = ++gen;
-			const fc = model.toGeoJSON({ eid: true });
-			if (!fc.features.length) { pbf = null; baseTable = null; fidEid = []; eidFid = new Map(); return null; }
-			const built = await geopbf(fc, { name: "geoedit/session" });
-			if (!built) return null;
-			await built.gint();           // オブジェクト入力は gint 自動ベイクされない＝明示（worker/WASM、なければJS）
+			if (!model.feats.size) { pbf = null; baseTable = null; fidEid = []; eidFid = new Map(); return null; }
+			const { pbf: built, eids } = await encodeModel(model, { withEid: true, name: "geoedit/session" });   // __eid一意＝propTub併合の無害化（fid=並び順）
+			await built.gint();           // gint は明示ベイク（worker/WASM、なければJS）
 			if (g !== gen) return null;   // 後発コミットに追い抜かれた＝破棄
 			pbf = built;
-			fidEid = fc.features.map(f => f.properties.__eid);
-			eidFid = new Map(fidEid.map((e, i) => [e, i]));
+			fidEid = eids;
+			eidFid = new Map(eids.map((e, i) => [e, i]));
 			map.applyGintData(pbf, "geoedit", moveCamera, { interactive: true, hover: false, minZoom: 2 });
-			baseTable = buildStyleTable(fc.features);
+			baseTable = buildStyleTable(eids.map(e => model.feats.get(e).properties));
 			push();
 			return pbf;
 		},
@@ -106,8 +123,9 @@ export function createGintLayer(map) {
 		hide(eids) { hidden = new Set(eids); push(); },
 		unhide() { if (hidden.size) { hidden = new Set(); push(); } },
 		restyle() { push(); },   // 表の再送（スロット切替で剥がれた疑いがある時の再点火にも）
-		exportPbf(model) {   // エクスポート用＝__eid 無しの素の fc から新規エンコード（precision=格子段）
-			return geopbf(model.toGeoJSON(), { name: "geoedit-export", precision: model.gridExp, gint: false });
+		async exportPbf(model) {   // エクスポート用＝__eid 無しの直列エンコード（precision=格子段・FCなし）
+			const { pbf: out } = await encodeModel(model, { withEid: false, name: "geoedit-export", precision: model.gridExp });
+			return out;
 		},
 	};
 }
