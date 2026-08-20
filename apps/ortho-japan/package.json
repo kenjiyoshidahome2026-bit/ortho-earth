@@ -1,6 +1,6 @@
 {
 	"name": "@ortho-earth/japan",
-	"version": "1.0.1",
+	"version": "1.0.2",
 	"publishConfig": { "access": "public" },
 	"description": "Serverless, dependency-free 3D globe of Japan for any web page — GSI vector tiles and MLIT PLATEAU buildings drawn on a true sphere with WebGPU/WebGL2. No API keys, no billing, no servers.",
 	"keywords": ["japan", "map", "3d", "globe", "gis", "webgpu", "webgl", "plateau", "gsi", "vector-tiles", "geospatial", "serverless"],
@@ -22,7 +22,8 @@
 		"!dist/lib/**/*.map",
 		"assets",
 		"sdk/example.html",
-		"sdk/skill"
+		"sdk/skill",
+		"README-ja.md"
 	],
 	"scripts": {
 		"dev": "vite",

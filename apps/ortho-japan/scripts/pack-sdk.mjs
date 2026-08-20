@@ -53,7 +53,8 @@ for (const f of WHITELIST) {
 	if (!existsSync(src)) { console.error(`✗ 実行時アセットが無い: public/${f}（WHITELIST と public/ がズレた）`); process.exit(1); }
 	cpSync(src, path.join(OUT, "assets", f), { recursive: true });
 }
-cpSync(path.join(APP, "README.md"), path.join(OUT, "README.md"));
+cpSync(path.join(APP, "README.md"), path.join(OUT, "README.md"));         // 英語主体（npm/配布物の正面・2026-08-20裁定）
+cpSync(path.join(APP, "README-ja.md"), path.join(OUT, "README-ja.md"));   // 日本語版（開発節含む完全版）
 cpSync(path.join(APP, "LICENSE"), path.join(OUT, "LICENSE"));
 // AI開発者向けの三点セット（2026-08-20）：llms.txt（1枚正典・配信版は /japan/llms.txt）＋
 // 型定義（lib/ に同居＝エディタ/AIの補完が効く）＋ Claude Code スキル（.claude/skills/ へ置くだけで発動）

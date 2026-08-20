@@ -1,143 +1,100 @@
-# ortho-japan — 埋め込み・設定ガイド
+# ortho-japan
 
-国土地理院の最適化ベクトルタイルを球のまま直描きする日本地図。1行で立ち上がります。
+> 日本語版ドキュメント: [README-ja.md](README-ja.md)
 
-```html
-<script type="module">
-  import orthoJapan from "./app.js";
-  orthoJapan();   // body直下に #map を自作して起動
-</script>
-```
-
-## AIエージェントで開発する場合
-
-AIコーディングエージェント（Claude Code 等）に読ませる1枚正典＝ **https://www.ortho-earth.com/japan/llms.txt**
-（API面・罠台帳・検証作法。SDK zip にも同梱）。zip 同梱の `skill/ortho-earth-sdk/` を `.claude/skills/` に
-置けば Claude Code が SDK の作法を踏まえて書く。型定義は `lib/ortho-japan.d.ts`。
-
-## orthoJapan(opts)
-
-| オプション | 既定 | 説明 |
-|---|---|---|
-| `target` | 自作 | 埋め込み先（セレクタ or 要素）。id は `map` に正規化される（家具規格） |
-| `view` | 前回ビュー | 初期視点 `"#zoom/lat/lon/45t/30r/l=place.rail/c=dark"`（t=チルト°・r=回転°・l=点火レイヤ・c=配色テーマ） |
-| `theme` | `"mono"` | 配色テーマの固定（台帳＝palettes.js）。`"mono"`=白地図（既定）／`"dark"`=黒地図（夜家具付き）／`"gsi"`=地理院地図（標準地図）配色・道路は格ごとの色帯／`"sepia"`=暖色・古地図。焼き付け＝共有URLにも書かれず `c=` でも破れない。台帳と同形のオブジェクト=カスタムテーマ（styleと色ノブの部分上書き）。未記述=共有URLの `c=<name>` で選択 |
-| `layers` | — | 表示項目の固定。キー: `place`(地名) `terrain`(地形) `rail`(鉄道) `road`(道路) `facility`(施設)。`true`=常時表示・`false`=常時非表示（どちらもチップ非搭載＝利用者は触れない）、未記述=既定値から開始しチップで選択。固定キーは共有URL（`l=`）でも上書きされない |
-| `chips` | `true` | テーマ・チップ帯（右上）そのものの表示。`true`=搭載（`layers` で固定したキーのボタンは出ない）／`false`=出さない。旧配列形式=選択的も後方互換で動作（非推奨） |
-| `instruments` | `true` | 下部の計器盤。`true`=全部／配列=選択的／`false`=出さない。キー: `pos`(座標) `scale`(距離) `attr`(出典) `log`(デバッグ) |
-| `plateau` | `true` | 建物3D（PLATEAU）の**機能スイッチ**。`false`=カタログ取得・worker・z14+の自動ロード・データ管理ガジェットを丸ごと停止（1地区数十〜百MB級の通信が一切発生しない） |
-| `maxPitch` | `75°` | チルト上限（**ラジアン**）。`0`=俯瞰固定（編集系アプリ向け＝geoedit）。共有URLの `t=` もこの上限でクランプ |
-| `lang` | 自動 | UIの言語。`"ja"` / `"en"`（歴史的別名 `"jp"` も可）。未指定＝`?lang=` → ブラウザ言語（ja系→日本語・それ以外→英語）。対象はUIの衣（ボタン・トースト・案内）のみ＝**地図の中の地名は対象外**。デモ台本は別系統（.scenes の `jp:`/`en:` フィールド） |
-
-```js
-const map = await orthoJapan({
-  target: "#here",
-  layers: { rail: true, facility: false },   // 鉄道は焼き付け・施設は封印（両方チップ非搭載）
-                                             // → 残る地名・地形・道路だけが利用者のトグル
-  instruments: ["scale", "attr"],   // 座標表示なし（標高照会も止まる＝通信ゼロ）
-  plateau: false,                   // 建物3Dを機能ごと切る＝軽量埋め込み
-});
-```
-
-旧キー（`chimei`/`chikei`/`shisetsu`）と旧共有URLの `l=` トークンは自動で読み替えられます（書き出しは常に新キー）。
-
-戻り値 `map` ＝ `{ cam, flyTo, renderer, mapEl, gadget, destroy }`。
-
-### map.destroy() — 剥がす
-
-SPA のタブ切替等で地図を撤去する時に呼ぶ。worker群・イベントリスナー・描画ループ・タイマーを全て止め、DOM を撤去する（`target` に預かった div は中身だけ空にして返す）。IndexedDB のキャッシュ（PLATEAU・標高）はオリジン資産として残す＝再訪は速いまま。
-
-```js
-const map = await orthoJapan({ target: "#here" });
-// …
-map.destroy();   // 完全撤収（この後もう一度 orthoJapan() で再起動できる）
-```
-
-## オプトインガジェット（map.gadget.*）
-
-呼んだものだけが左上に生える。**呼んだ順＝上からの並び**、非表示のガジェットは上詰め。
-
-```js
-map.gadget.search();    // 地名・住所検索（地理院API・キー不要）。{ onGo } で飛び方を差し替え可
-map.gadget.compass();   // コンパス兼リセット（3Dの時だけ現れる）
-map.gadget.plateau();   // 建物3D（PLATEAU）データ管理（公式ロゴマーク）
-map.gadget.palette();   // 配色テーマ切替（中央に他テーマの地図見本＝色で選ぶ）→ { open, close }。未搭載でも c= には従う
-map.gadget.hint();      // 操作説明カード（6秒迷った人にだけ自動表示）→ { open, close }
-map.gadget("myGadget", function () { /* this = map */ });   // 自作ガジェットの登録も同じ作法
-```
-
-## 出典表記（重要）
-
-この地図のデータは以下の利用規約に基づきます。**出典明記は表示側の義務です。**
-
-- [国土地理院 最適化ベクトルタイル（提供実験）](https://maps.gsi.go.jp/development/ichiran.html#optbv)
-- [国土交通省 Project PLATEAU](https://www.mlit.go.jp/plateau/)
-- [JAXA AW3D30](https://www.eorc.jaxa.jp/ALOS/jp/dataset/aw3d30/aw3d30_j.htm)
-
-既定では右下の `attr`（出典）がこれを名乗ります。**`instruments` から `"attr"` を外す（または `false` にする）場合、義務が消えるわけではありません**——埋め込みページの見える場所（フッター等）に、同等の出典を必ず記述してください：
-
-> 出典：国土地理院最適化ベクトルタイル（提供実験）・国土交通省 PLATEAU・JAXA AW3D30（各データを加工して作成）
-
-## SDK として埋め込む（ライブラリビルド）
-
-`npm run build:lib` が `dist/lib/` に出荷形を吐く（`ortho-japan.js` ＋ `ortho-japan.css` ＋ worker/動的importのチャンク）。
-
-**配布物一式は `npm run pack:sdk`** ＝ `dist/sdk/ortho-japan-sdk-<version>.zip`。中身は `lib/`（上記出荷形・sourcemapは非同梱＝実行に不要）・`assets/`（実行時アセット4点・約150KB）・`example/`（動くサンプル＝unzip→HTTP配信→`/example/` で即・地球が回る）・`README.md`・`LICENSE`。これ一つ渡せば埋め込みが完結する：`lib/` と `assets/` をサイトへ置き、`assetBase` に `assets/` の場所を指すだけ。sw.js・開発専用データ・台帳類は混入したら pack が fail する（scripts/pack-sdk.mjs の掟）。
+A serverless, dependency-free 3D globe of Japan for any web page. GSI optimized vector tiles and MLIT PLATEAU city models, drawn on a true sphere with WebGPU/WebGL2 — zoom out to a globe, zoom in and the buildings stand up. No API keys, no billing, no servers: public data is fetched directly by the visitor's browser and cached locally.
 
 ```html
 <link rel="stylesheet" href="/ortho-japan/ortho-japan.css">
-<div id="here" class="map-box"></div>
-<style>.map-box { width: 480px; height: 320px; }</style>
+<div id="here" style="width:640px;height:420px"></div>
 <script type="module">
   import orthoJapan from "/ortho-japan/ortho-japan.js";
-  const map = await orthoJapan({ target: "#here", assetBase: "/ortho-japan-assets/" });
+  await orthoJapan({ target: "#here", assetBase: "/ortho-japan-assets/" });
 </script>
 ```
 
-埋め込む側が知っておくべきことは4つだけ。
+## Install
 
-| | |
-|---|---|
-| **寸法はクラスか inline style で** | アプリは容れ物の `id` を `map` へ借りる（家具規格）。`#here { … }` のような **id セレクタで書いた指定は改名の瞬間に外れる**。借りる時に console.warn で伝え、`destroy()` で id は返す |
-| **`assetBase`** | `plateau-sets.json` / `airports.json` / `plateau-landmarks.json` / `ai/citycodes.json` は JS に焼き込まない（フォーマット独立・差し替え自由のため）。配布物 zip の `assets/` をサイトの任意の場所へ置き、そこを指す。未指定＝`/` 直下を見る。`plateau: false` なら PLATEAU 系の取得自体が起きない |
-| **COOP/COEP は要らない** | `crossOriginIsolated` は SharedArrayBuffer（gint バッファのゼロコピー）の点火条件であって動作要件ではない。無ければコピー1回に落ちて同じ結果を出す（`npm run verify:nocoi` で実測・`packages/ortho-core/fallback-ladder.md` §3.5） |
-| **出典表記の義務は消えない** | 下の「出典表記」を参照。`instruments` から `attr` を外すなら埋め込みページ側に同等の記述が要る |
+**npm** — `npm install @ortho-earth/japan`. The package ships a prebuilt, self-contained ESM bundle (`dist/lib/`) and its runtime assets (`assets/`, ~150 KB). It declares **zero runtime dependencies** — check `package.json`, it's empty.
 
-**ホストページに対する約束**（`npm run verify:lib` が毎回検定する）：
+**zip** — grab `ortho-japan-sdk-<version>.zip` from [GitHub Releases](https://github.com/kenjiyoshidahome2026-bit/ortho-earth/releases). Same artifact, plus a runnable `example/`.
 
-- `html` / `body` に一切書かない（背景・余白・overflow・文字色・書体・visibility・スクロール量が埋め込み前後で同一）
-- 描画は預かった div の中だけ（全画面を乗っ取らない）
-- `window` を汚さない（`__cam` 等のデバッグ手は `target` 指定時は生えない。欲しければ `debugGlobals: true`）
-- `destroy()` でホストは元通り（子要素は空・id は返却・ページの体裁は不変）
+Either way, deployment is the same: **serve `dist/lib/` (or the zip's `lib/`) and `assets/` as static files** on your site, import the entry by URL, and point `assetBase` at wherever you put the assets. There is no bundler step — workers and lazy chunks resolve relative to the module, so the SDK works at any path. (From npm, copy `node_modules/@ortho-earth/japan/dist/lib` and `assets` into your public directory, or wire up your bundler's static-copy plugin.)
 
-制約は下の「制約」節のとおり **1ページ1地図**（id 家具規格）。複数インスタンスは非対応。
+A working sample ships in the zip (`example/index.html`): serve the unzipped folder over HTTP and open `/example/`. `file://` will not work — ES modules.
 
-## 開発
+## orthoJapan(opts)
 
-UIまわりを改修したら `npm run verify:ui`（要ローカルChrome）。ガジェットスタック・起動opts・destroy・タッチ操作・狭画面の掟を headless で一括検証します（tests/*.html＝判定はページ内、scripts/verify-ui.mjs＝巡回）。
+| option | default | description |
+|---|---|---|
+| `target` | auto | Where to embed (selector or element). The container's id is normalized to `map` while the map lives there and returned on `destroy()` |
+| `view` | last view | Initial view `"#zoom/lat/lon/45t/30r/l=place.rail/c=dark"` (t = tilt°, r = rotation°, l = layers, c = theme) |
+| `theme` | `"mono"` | Fixed color theme: `"mono"` (blank map), `"dark"`, `"gsi"` (official GSI map colors), `"sepia"`, or a custom theme object. Unset = selectable via the shared-URL `c=` token |
+| `layers` | — | Pin layers on/off: `place`, `terrain`, `rail`, `road`, `facility`. `true` = always on, `false` = always off (both hide the toggle chip); unset = user-toggleable |
+| `chips` | `true` | The layer/theme chip bar (top right) |
+| `instruments` | `true` | Bottom instrument bar. `true` = all, array = selective, `false` = none. Keys: `pos`, `scale`, `attr` (attribution), `log` |
+| `plateau` | `true` | 3D buildings (PLATEAU) master switch. `false` disables the catalog, workers, and auto-loading entirely — no multi-MB transfers ever start |
+| `maxPitch` | `75°` | Tilt limit in **radians**. `0` = locked top-down |
+| `lang` | auto | UI language `"ja"` / `"en"`. Unset = `?lang=` → browser language. Applies to UI chrome only — map labels are part of the map data |
+| `assetBase` | `"./"` | Where the runtime assets live (see Install). Relative or absolute URL |
 
-| コマンド | 何を守るか |
-|---|---|
-| `npm run verify:ui` | UI回帰（18ページ・仮想時間・`lang=ja`固定） |
-| `npm run verify:webgpu` | WebGPU バックエンドの起動（実時間） |
-| `npm run verify:nocoi` | **COI 無しでも動く**（COOP/COEP を外して7ページ・実時間）＝SDK の前提 |
-| `npm run verify:lib` | **SDK 契約**（ライブラリビルドを第三者ページへ埋め、ホスト無汚染・箱内描画・window 無汚染・剥がせる） |
-| `npm run verify:prod` | **本番組立**（下記の二重構成＝入口がSDKを参照・エンジン非再バンドル・組み上がりの実走・request台帳404ゼロ・**遅延ガジェット7種の実クリック**＝動的importチャンク疎通と例外ゼロ）。`deploy` の必須ゲート |
+Returns `map` = `{ cam, flyTo, renderer, mapEl, gadget, destroy }`.
 
-### 二重構成（dev=ソース直・本番=SDK）
+`map.destroy()` tears everything down — workers, listeners, render loop, DOM — and returns the container as it was. IndexedDB caches (PLATEAU, elevation) survive as origin assets, so revisits stay fast.
 
-本番の `/japan/` は **SDK配布物そのもの**（`/japan/lib/ortho-japan.js`＝pack:sdk が配る物と同一）を食う。分岐は [site.js](site.js) 冒頭の1か所＝`import.meta.env.PROD`。
+## Opt-in gadgets (map.gadget.*)
 
-- `npm run dev` … `./app.js` ソース直（HMR・編集即反映＝従来どおり）
-- `npm run build:prod` … `build:lib` → サイト殻の vite build → `dist/lib` を `dist/site/japan/lib/` へ複写
-- 旗艦サイトが毎日SDKを実戦検証する＝配布zipが腐る事故を構造的に封じる。dev/本番の乖離バグは `verify:prod` が deploy 前に捕まえる
-- scene.html（エディタ）は工場内の作業台＝ソース直のまま
+Only what you call gets mounted; call order = top-to-bottom placement.
 
-## 制約
+```js
+map.gadget.search();    // place/address search (GSI API, no key)
+map.gadget.compass();   // compass + reset (appears only in 3D)
+map.gadget.zoom();      // zoom +/- buttons
+map.gadget.palette();   // theme switcher with live previews
+map.gadget.measure();   // geodesic distance / area measurement
+map.gadget.shot();      // save the view as an image (attribution baked in)
+map.gadget.print();     // paper-spec plan printing (true scale, A4/A3, graticule) → PDF
+map.gadget.qr();        // share the current view as a QR code
+map.gadget.plateau();   // 3D building data manager (preload / delete)
+map.gadget.contextmenu();
+map.gadget.dropFile();  // drag & drop GIS files (GeoJSON/Shapefile/KML/GPX/FGB/GML…)
+map.gadget.hint();      // gesture help card
+map.gadget("myGadget", function () { /* this = map */ });   // your own
+```
 
-- **1ページ1地図**：家具規格（`#map` `#search` 等の id 契約）のため、複数インスタンスは非対応。
-- 動作要件：WebGL2 ＋ OffscreenCanvas（Chrome / Edge / Firefox / Safari 17+）。非対応環境では言葉で案内して止まる。
+## Promises to the host page
 
-## ライセンス
+Verified mechanically on every build (`verify:lib`):
 
-GPL-3.0-or-later（[LICENSE](LICENSE)）。GPLの義務（埋め込み先ソースの開示等）を負わずに商用利用したい場合は、別途商用ライセンスを用意できます——kenji.yoshida.home.2026@gmail.com へご相談ください。
+- Never touches your `html`/`body` — background, margins, overflow, fonts and scroll are identical before and after embedding
+- Renders only inside the div you provide (no full-screen takeover)
+- No `window` globals (debug handles appear only without `target`, or with `debugGlobals: true`)
+- `destroy()` restores the host completely
+
+**COOP/COEP not required.** `crossOriginIsolated` only enables a SharedArrayBuffer fast path; without it the engine falls back to one extra copy and produces identical results.
+
+**One map per page** (fixed element-id contract). Requirements: WebGL2 + OffscreenCanvas (Chrome / Edge / Firefox / Safari 17+). Unsupported browsers get a polite text explanation instead of a blank page.
+
+## Attribution (required)
+
+The map data comes with attribution obligations. **Displaying attribution is the embedder's duty.**
+
+- [GSI Optimized Vector Tiles (experimental)](https://maps.gsi.go.jp/development/ichiran.html#optbv)
+- [MLIT Project PLATEAU](https://www.mlit.go.jp/plateau/)
+- [JAXA AW3D30](https://www.eorc.jaxa.jp/ALOS/en/dataset/aw3d30/aw3d30_e.htm)
+
+The built-in `attr` instrument (bottom right) covers this by default. **If you remove it, the obligation does not disappear** — put an equivalent credit somewhere visible on your page:
+
+> Source: GSI Optimized Vector Tiles (experimental), GSI elevation tiles (DEM10B), MLIT PLATEAU, JAXA AW3D30 (created by processing these data sources)
+
+## Developing with AI agents
+
+A one-page canon for AI coding agents (API surface, pitfall ledger, verification recipes) is served at **https://www.ortho-earth.com/japan/llms.txt** and bundled in the package. Drop the bundled `sdk/skill/ortho-earth-sdk/` into your `.claude/skills/` and Claude Code writes against the SDK idiomatically. TypeScript definitions: `dist/lib/ortho-japan.d.ts`.
+
+## License
+
+GPL-3.0-or-later ([LICENSE](LICENSE)). A commercial license — without GPL obligations such as disclosing your site's source — is available: contact kenji.yoshida.home.2026@gmail.com.
+
+---
+
+Development guide (build, verification harnesses, dev/prod dual structure): see [README-ja.md](README-ja.md). Live flagship: **https://www.ortho-earth.com/japan/**
