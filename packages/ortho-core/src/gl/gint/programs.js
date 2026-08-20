@@ -443,34 +443,37 @@ void main() {
 	}
 	if (u_pass == 1 && u_hilite_width > 0.0) lw = u_hilite_width;   // ホバー＝指定全幅を最優先（per-fid幅にもコロプレスにも左右されず overlay 町丁目線と一致）
 
+	// クアッドは「辺の正準方向（lodA→lodB）」で tang/perp を共有する。
+	// 旧実装は各頂点が「自端→相手端」で dir を取っていた＝A側とB側で perp が反転し、
+	// クアッドがボウタイ（ねじれリボン）化：細線ではAAに紛れ、太線（per-fid @width）で
+	// 「片側欠け＋交差部だけ二重描画の濃い芯」として露呈（geoedit 8/20・本人「ねじれ」報告の根治）。
 	bool  useA = (sub == 0 || sub == 1 || sub == 3);
 	float side = (sub == 1 || sub == 2 || sub == 4) ? 1.0 : -1.0;
-	uint  si   = useA ? lodA : lodB;
-	uint  oi   = useA ? lodB : lodA;
 
-	float wS, wO;                       // 端点の clip.w（対数深度用。深度オフ時は未使用）
-	vec3 ps = projectDrape(si, wS);     // ドレープ込み投影（u_elevScale=0 なら fetchProject と同一）
-	v_zr = ps.z;
-
-	vec3  po  = projectDrape(oi, wO);
-	vec2 oXY  = (po.z < 0.0 && ps.z > 0.0)
-		? ps.xy + (ps.z / (ps.z - po.z)) * (po.xy - ps.xy)
-		: po.xy;
+	float wA, wB;                        // 端点の clip.w（対数深度用。深度オフ時は未使用）
+	vec3 pa3 = projectDrape(lodA, wA);   // ドレープ込み投影（u_elevScale=0 なら fetchProject と同一）
+	vec3 pb3 = projectDrape(lodB, wB);
+	v_zr = useA ? pa3.z : pb3.z;
+	// 相手端が視点の裏へ回る場合の端点クリップ（旧＝自端基準の片側のみ→両対称へ）
+	vec2 axy = pa3.xy, bxy = pb3.xy;
+	if (pb3.z < 0.0 && pa3.z > 0.0) bxy = pa3.xy + (pa3.z / (pa3.z - pb3.z)) * (pb3.xy - pa3.xy);
+	if (pa3.z < 0.0 && pb3.z > 0.0) axy = pb3.xy + (pb3.z / (pb3.z - pa3.z)) * (pa3.xy - pb3.xy);
 
 	// 対数深度（renderer applyLogDepth/LINE_MAIN の zc と同式・同係数）＝地形/基図線と同じ深度空間。
 	// u_logCoef=0（深度オフ）は z=0＝従来動作（深度テストも off なので値は無関係だが分岐で保証）。
+	float wS = useA ? wA : wB;
 	float zc = (u_logCoef > 0.0) ? (log2(max(1.0 + wS, 1e-6)) * u_logCoef - 1.0) : 0.0;
 
-	vec2 dir = oXY - ps.xy;
+	vec2 dir = bxy - axy;
 	float len = length(dir);
-	if (len < 1e-4) { vec4 nd0 = toNDC(ps.xy); gl_Position = vec4(nd0.xy, zc, 1.0); return; }
+	if (len < 1e-4) { vec4 nd0 = toNDC(axy); gl_Position = vec4(nd0.xy, zc, 1.0); return; }
 	vec2 tang = dir / len;
 	vec2 perp = vec2(-tang.y, tang.x);
 	float halfCss = lw * 0.5 + 1.0 / u_dpr;
-	vec2 qpos = ps.xy + side * halfCss * perp - tang * halfCss;   // AA余白込みのクアッド（端は FS のカプセルSDFで丸める）
+	vec2 qpos = (useA ? axy : bxy) + side * halfCss * perp + (useA ? -halfCss : halfCss) * tang;   // AA余白込み・端は FS のカプセルSDFが丸める
 	vec4 nd = toNDC(qpos);
 	gl_Position = vec4(nd.xy, zc, 1.0);
-	v_frag = qpos; v_ea = ps.xy; v_eb = oXY;
+	v_frag = qpos; v_ea = axy; v_eb = bxy;
 
 	int style_idx = int(meta.b & 0xFFu);
 	vec4 baseC = (fidColor.a > 0.0 ? fidColor : u_style_table[style_idx]);   // fid線色（paint）＞style_table（既定）
@@ -485,6 +488,7 @@ void main() {
 const FS_RENDER = `#version 300 es
 precision mediump float;
 uniform float u_hidden;   // 1＝隠線パス（深度不合格側＝depthFunc GREATER で再描画）：淡く＋固定破線（CAD流）。既定0＝通常
+uniform highp vec3 u_eye; // 視点位置＝地平線フェード窓のスケール。VS(highp)と同一プログラム＝precision一致必須（mediumpだとリンク失敗＝gint全消え）
 in  vec4  v_color;
 in  float v_zr;
 in  float v_dist;
@@ -499,7 +503,11 @@ out vec4  fragColor;
 void main() {
 	if (v_zr < -0.05)     discard;
 	if (v_color.a == 0.0) discard;
-	float alpha = v_color.a * smoothstep(-0.01, 0.02, v_zr);
+	// 地平線フェード窓＝カメラ高さ(length(u_eye)-1)に比例（上限0.02＝低ズームは従来どおりの柔らかさ）。
+	// 旧・固定窓(-0.01..0.02)は、高ズームでは zr の最大値(=カメラ距離-1≈1e-3級)ごと窓の内側＝
+	// 画面全体の gint 線が常時半透明(α≈0.35)だった（geoedit の太線で発覚 8/20。海岸線は z<7 専用で無傷だった理由）
+	float win = clamp((length(u_eye) - 1.0) * 0.5, 2e-4, 0.02);
+	float alpha = v_color.a * smoothstep(-win * 0.5, win, v_zr);
 	if (u_hidden > 0.5) {
 		// 隠線（尾根の向こう）＝淡い固定破線：消し去らず「向こう側に在る」ことだけ静かに残す（CAD の隠線表現）。
 		float t = mod(v_dist_base + v_dist, 10.0);
@@ -552,23 +560,22 @@ void main() {
 
 	bool  useA = (sub == 0 || sub == 1 || sub == 3);
 	float side = (sub == 1 || sub == 2 || sub == 4) ? 1.0 : -1.0;
-	uint  si   = useA ? lodA : lodB;
-	uint  oi   = useA ? lodB : lodA;
 
-	vec3 ps = fetchProject(si);
-	v_zr = ps.z;
-	vec3 po  = fetchProject(oi);
-	vec2 oXY = (po.z < 0.0 && ps.z > 0.0)
-		? ps.xy + (ps.z / (ps.z - po.z)) * (po.xy - ps.xy)
-		: po.xy;
+	// 描画VSと同じ「辺の正準方向」でクアッドを張る（旧＝自端基準で perp が反転＝ボウタイ。同時修正 8/20）
+	vec3 pa3 = fetchProject(lodA);
+	vec3 pb3 = fetchProject(lodB);
+	v_zr = useA ? pa3.z : pb3.z;
+	vec2 axy = pa3.xy, bxy = pb3.xy;
+	if (pb3.z < 0.0 && pa3.z > 0.0) bxy = pa3.xy + (pa3.z / (pa3.z - pb3.z)) * (pb3.xy - pa3.xy);
+	if (pa3.z < 0.0 && pb3.z > 0.0) axy = pb3.xy + (pb3.z / (pb3.z - pa3.z)) * (pa3.xy - pb3.xy);
 
-	vec2 dir = oXY - ps.xy;
+	vec2 dir = bxy - axy;
 	float len = length(dir);
-	if (len < 1e-4) { gl_Position = toNDC(ps.xy); return; }
+	if (len < 1e-4) { gl_Position = toNDC(axy); return; }
 	vec2 tang = dir / len;
 	vec2 perp = vec2(-tang.y, tang.x);
-	gl_Position = toNDC(ps.xy + side * (u_line_width * 0.5) * perp
-	                          - tang * (u_line_width * 0.5));
+	gl_Position = toNDC((useA ? axy : bxy) + side * (u_line_width * 0.5) * perp
+	                          + (useA ? -1.0 : 1.0) * tang * (u_line_width * 0.5));
 
 	uint fid1 = meta.a + 1u;
 	v_color = vec4(float(fid1 & 255u)/255.0, float((fid1>>8u)&255u)/255.0, float((fid1>>16u)&255u)/255.0, 1.0);

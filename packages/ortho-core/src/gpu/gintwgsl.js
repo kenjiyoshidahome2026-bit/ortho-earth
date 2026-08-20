@@ -269,27 +269,29 @@ struct LineOut {
 		}
 	}
 	if (P.b.y == 1 && P.a.z > 0.0) { lw = P.a.z; }   // ホバー(hilite)＝指定全幅(device px・radius欄で運搬)を最優先＝per-fid幅/コロプレスに左右されず overlay 町丁目線と一致
+	// クアッドは「辺の正準方向（a→b）」で tang/perp を共有（GL版 programs.js と同時修正 8/20）。
+	// 旧＝各頂点が自端基準で dir を取り A/B で perp が反転＝ボウタイ（太線のねじれ・片側欠けの根治）
 	let useA = (sub == 0 || sub == 1 || sub == 3);
 	let side = select(-1.0, 1.0, sub == 1 || sub == 2 || sub == 4);
-	let si = select(sn.b, sn.a, useA);
-	let oi = select(sn.a, sn.b, useA);
-	let ps = projectDrape(si);
-	o.zr = ps.zr;
-	let po = projectDrape(oi);
-	var oXY = po.xy;
-	if (po.zr < 0.0 && ps.zr > 0.0) { oXY = ps.xy + (ps.zr / (ps.zr - po.zr)) * (po.xy - ps.xy); }
+	let pa3 = projectDrape(sn.a);
+	let pb3 = projectDrape(sn.b);
+	o.zr = select(pb3.zr, pa3.zr, useA);
+	var axy = pa3.xy; var bxy = pb3.xy;
+	if (pb3.zr < 0.0 && pa3.zr > 0.0) { bxy = pa3.xy + (pa3.zr / (pa3.zr - pb3.zr)) * (pb3.xy - pa3.xy); }
+	if (pa3.zr < 0.0 && pb3.zr > 0.0) { axy = pb3.xy + (pb3.zr / (pb3.zr - pa3.zr)) * (pa3.xy - pb3.xy); }
 	// 対数深度（renderer と同式・同係数の z01）。logCoef=0（深度オフ）は z=0
-	let zc = select(0.0, log2(max(1.0 + ps.w, 1e-6)) * F.depthP.x * 0.5, F.depthP.x > 0.0);
-	let dir = oXY - ps.xy;
+	let wS = select(pb3.w, pa3.w, useA);
+	let zc = select(0.0, log2(max(1.0 + wS, 1e-6)) * F.depthP.x * 0.5, F.depthP.x > 0.0);
+	let dir = bxy - axy;
 	let len = length(dir);
-	if (len < 1e-4) { let nd0 = toNDC(ps.xy); o.pos = vec4f(nd0.xy, zc, 1.0); return o; }
+	if (len < 1e-4) { let nd0 = toNDC(axy); o.pos = vec4f(nd0.xy, zc, 1.0); return o; }
 	let tang = dir / len;
 	let perp = vec2f(-tang.y, tang.x);
 	let halfPx = lw * 0.5 + 1.0;   // AA余白込み（device px 一本＝GL の u_dpr=1 と同じ）
-	let qpos = ps.xy + side * halfPx * perp - tang * halfPx;
+	let qpos = select(bxy, axy, useA) + side * halfPx * perp + select(halfPx, -halfPx, useA) * tang;
 	let nd = toNDC(qpos);
 	o.pos = vec4f(nd.xy, zc, 1.0);
-	o.frag = qpos; o.ea = ps.xy; o.eb = oXY;
+	o.frag = qpos; o.ea = axy; o.eb = bxy;
 	let styleIdx = i32(em.b & 0xFFu);
 	let baseC = select(S.style[styleIdx], fidColor, fidColor.a > 0.0);
 	// ホバー(pass1)＝P.color(hiliteColor)指定ならそれ（census=青）／未指定は黄（凍結デモの既定ハイライトを維持）
@@ -309,7 +311,9 @@ struct LineOut {
 	let aaW = max(fwidth(dcap), 1e-3);
 	if (in.zr < -0.05) { discard; }
 	if (in.color.a == 0.0) { discard; }
-	var alpha = in.color.a * smoothstep(-0.01, 0.02, in.zr);
+	// 地平線フェード窓＝カメラ高さ比例（GL版 FS_RENDER と同時修正 8/20：固定窓は高ズームで全面半透明化）
+	let win = clamp((length(F.eye) - 1.0) * 0.5, 2e-4, 0.02);
+	var alpha = in.color.a * smoothstep(-win * 0.5, win, in.zr);
 	if (P.a.w > 0.5) {   // 隠線（尾根の向こう）＝淡い固定破線（CAD流）
 		let t = fmod(in.distBase + in.dist, 10.0);
 		alpha *= (1.0 - smoothstep(6.0 - aaD, 6.0 + aaD, t)) * 0.35;
@@ -343,19 +347,19 @@ struct PickOut {
 	if (!sn.keep) { return o; }
 	let useA = (sub == 0 || sub == 1 || sub == 3);
 	let side = select(-1.0, 1.0, sub == 1 || sub == 2 || sub == 4);
-	let si = select(sn.b, sn.a, useA);
-	let oi = select(sn.a, sn.b, useA);
-	let ps = fetchProject(si);
-	o.zr = ps.zr;
-	let po = fetchProject(oi);
-	var oXY = po.xy;
-	if (po.zr < 0.0 && ps.zr > 0.0) { oXY = ps.xy + (ps.zr / (ps.zr - po.zr)) * (po.xy - ps.xy); }
-	let dir = oXY - ps.xy;
+	// 描画VSと同じ「辺の正準方向」でクアッドを張る（ボウタイ根治・同時修正 8/20）
+	let pa3 = fetchProject(sn.a);
+	let pb3 = fetchProject(sn.b);
+	o.zr = select(pb3.zr, pa3.zr, useA);
+	var axy = pa3.xy; var bxy = pb3.xy;
+	if (pb3.zr < 0.0 && pa3.zr > 0.0) { bxy = pa3.xy + (pa3.zr / (pa3.zr - pb3.zr)) * (pb3.xy - pa3.xy); }
+	if (pa3.zr < 0.0 && pb3.zr > 0.0) { axy = pb3.xy + (pb3.zr / (pb3.zr - pa3.zr)) * (pa3.xy - pb3.xy); }
+	let dir = bxy - axy;
 	let len = length(dir);
-	if (len < 1e-4) { o.pos = toNDC(ps.xy); return o; }
+	if (len < 1e-4) { o.pos = toNDC(axy); return o; }
 	let tang = dir / len;
 	let perp = vec2f(-tang.y, tang.x);
-	o.pos = toNDC(ps.xy + side * (P.a.x * 0.5) * perp - tang * (P.a.x * 0.5));
+	o.pos = toNDC(select(bxy, axy, useA) + side * (P.a.x * 0.5) * perp + select(1.0, -1.0, useA) * tang * (P.a.x * 0.5));
 	let fid1 = em.a + 1u;
 	o.color = vec4f(f32(fid1 & 255u) / 255.0, f32((fid1 >> 8u) & 255u) / 255.0, f32((fid1 >> 16u) & 255u) / 255.0, 1.0);
 	return o;
