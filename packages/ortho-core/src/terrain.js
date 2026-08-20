@@ -4,7 +4,7 @@
 // onPending コールバックで外へ通知し、DOM を持つ側（main）が表示する。
 import { unproject, cameraState, lonlatTo3D, WORLD_PX } from "./camera.js";
 import { downsampleFlipped } from "./elevation.js";
-import { createTileLoader } from "altpbf";
+import { createTileLoader } from "altpbf/loader";
 
 export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onPending, lowMem = false, noMixed = false, noFar = false }) {
 	let atlasKey = "", loadedCells = new Set();

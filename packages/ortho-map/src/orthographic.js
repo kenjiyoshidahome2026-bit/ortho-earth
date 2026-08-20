@@ -5,7 +5,7 @@ import { isString, isFunction } from "common";
 import { cleanup } from "common/d3/tip-pop.js";
 import { Cache } from "native-bucket";
 import versor from "versor";
-import { createGetHeight, setApiUrl as setAltApiUrl } from "altpbf";
+import { createGetHeight, setApiUrl as setAltApiUrl } from "altpbf/loader";
 
 export async function orthographic(map, opts = {}) {
 	map.isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
