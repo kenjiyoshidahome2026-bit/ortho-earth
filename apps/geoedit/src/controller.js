@@ -24,6 +24,7 @@ export function initEditor(map) {
 	const layer = createGintLayer(map);
 	const overlay = createOverlay(map, mapEl, () => st);
 	let tool = "select", gridExp = 6;
+	let editGen = 0;   // 編集世代＝「このコミットは最新の編集を含むか」の判定（含むなら隠し/オーバレイを引き継ぐ）
 	// 作図ツールの既定スタイル（=「次に描くもの」の@プロパティ。styleform が toolbar 経由で書く）
 	const drawDefaults = { point: {}, text: { "@text": "テキスト" }, line: {}, polygon: {} };
 	const mergeProps = (cur, partial) => {
@@ -69,7 +70,15 @@ export function initEditor(map) {
 	};
 	async function commit(moveCamera = false) {
 		if (!st.model) return;
-		await layer.commit(st.model, { moveCamera });
+		const genAt = editGen;
+		const done = await layer.commit(st.model, { moveCamera });
+		// 新gintが「この時点までの編集」を含んで着地＝隠し/オーバレイの役目をここで初めて引き継ぐ
+		//（旧実装はドラッグ終端で即解除＝コミット着地までの間「前のデータ」が顔を出していた＝本人指摘 8/20）
+		if (done && editGen === genAt && !drag) {
+			layer.unhide();
+			st.dragEids = null; st.hidden = null;
+			overlay.redraw();
+		}
 		if (layer.pbf?.arrayBuffer) idbSave({ buf: layer.pbf.arrayBuffer, gridExp, view: map.view?.hash, t: Date.now() });
 	}
 
@@ -147,8 +156,23 @@ export function initEditor(map) {
 	};
 
 	// ---- 履歴経由の適用（undo/redo・構造操作共通）----
+	const affectedEids = (cmd, res) => {   // このコマンドで gint 表示が古くなるフィーチャ群
+		const out = new Set();
+		const arcRefs = aid => { const a = st.model.arcs.get(aid); if (a) for (const e of a.refs) out.add(e); };
+		if (cmd.op === "move" && res?.dirty) for (const aid of res.dirty) arcRefs(aid);
+		else if (cmd.op === "movePt" || cmd.op === "del" || cmd.op === "add" || cmd.op === "hole" || cmd.op === "unhole") out.add(cmd.eid);
+		else if (cmd.op === "tr") for (const e of moveTargets(cmd.eid)) out.add(e);
+		else if (cmd.op === "insert" || cmd.op === "delete") { const r = st.model.resolveAddr(cmd.addr); if (r) arcRefs(r.arcId); }
+		return out;
+	};
 	const applyR = cmd => {
-		st.model.applyCmd(cmd);
+		const res = st.model.applyCmd(cmd);
+		editGen++;
+		if (cmd.op === "props") layer.restyleProps(st.model);   // スタイルは表の即時再焼き＝コミットを待たない
+		else {
+			const aff = affectedEids(cmd, res);
+			if (aff.size) { st.dragEids = new Set([...(st.dragEids || []), ...aff]); st.hidden = st.dragEids; layer.hide(st.dragEids); }
+		}
 		if (cmd.op === "add" || cmd.op === "del" || cmd.op === "hole" || cmd.op === "unhole") { if (st.selection === cmd.eid && cmd.op === "del") { st.selection = null; props.close(); } rebuild(); }
 		if (cmd.op === "props" && props.eid === cmd.eid) props.render(cmd.eid);   // undo/redo でもパネルを追随
 		scheduleCommit();
@@ -163,7 +187,7 @@ export function initEditor(map) {
 		getFeature: eid => st.model?.feats.get(eid),
 		applyProps: (eid, next, { history = true, from = null } = {}) => {
 			if (history) doCmd({ op: "props", eid, from: from ?? st.model.feats.get(eid).properties, to: next });
-			else { st.model.feats.get(eid).properties = next; scheduleCommit(); overlay.redraw(); }   // input中の即プレビュー
+			else { st.model.feats.get(eid).properties = next; editGen++; layer.restyleProps(st.model); scheduleCommit(); overlay.redraw(); }   // input中の即プレビュー（表の即時再焼き）
 		},
 		toast,
 	}, signal);
@@ -296,7 +320,7 @@ export function initEditor(map) {
 			e.stopPropagation(); e.preventDefault();
 			try { mapEl.setPointerCapture(e.pointerId); } catch { /* 合成イベントは capture 不可＝無害 */ }
 			drag = { kind: "f", eid: target, lastLL: ll0, total: [0, 0], pointerId: e.pointerId, moved: false };
-			st.dragEids = moveTargets(target); st.hidden = st.dragEids;
+			st.dragEids = new Set([...(st.dragEids || []), ...moveTargets(target)]); st.hidden = st.dragEids;   // 未コミットの前回分と合流
 			hideTip();
 			mapEl.style.cursor = "grabbing";
 			layer.hide(st.dragEids);
@@ -328,7 +352,7 @@ export function initEditor(map) {
 			: [st.model.arcs.get(h.arcId).pts[h.idx * 2], st.model.arcs.get(h.arcId).pts[h.idx * 2 + 1]];
 		const { eids } = dragTargets(h);
 		drag = { ...h, start, last: start, pointerId: e.pointerId, moved: false };
-		st.dragEids = eids; st.hidden = eids;
+		st.dragEids = new Set([...(st.dragEids || []), ...eids]); st.hidden = st.dragEids;   // 未コミットの前回分と合流
 		hideTip();
 		mapEl.style.cursor = "grabbing";
 		layer.hide(eids);
@@ -346,7 +370,7 @@ export function initEditor(map) {
 				if (res) {
 					drag.total[0] += res.d[0]; drag.total[1] += res.d[1];
 					drag.lastLL = [drag.lastLL[0] + res.d[0], drag.lastLL[1] + res.d[1]];
-					if (res.d[0] || res.d[1]) drag.moved = true;
+					if (res.d[0] || res.d[1]) { drag.moved = true; editGen++; }
 				}
 				overlay.redraw();
 				return;
@@ -355,6 +379,7 @@ export function initEditor(map) {
 			const snapped = snapLL(ll, self);
 			if (drag.kind === "p") st.model.movePoint(drag.eid, drag.ptIdx, snapped[0], snapped[1]);
 			else st.model.moveVertex(drag.arcId, drag.idx, snapped[0], snapped[1]);
+			editGen++;
 			drag.last = snapped; drag.moved = true;
 			overlay.redraw();
 			return;
@@ -392,9 +417,10 @@ export function initEditor(map) {
 		if (!drag || e.pointerId !== drag.pointerId) return;
 		e.stopPropagation();
 		const d = drag; drag = null;
-		st.dragEids = null; st.hidden = null; st.snapMark = null;
+		st.snapMark = null;
 		mapEl.style.cursor = "";
-		layer.unhide();
+		// dragEids/hidden はここで解除しない＝この編集を含むコミットが着地するまで
+		// オーバレイが現在形を描き続け、gint の「前のデータ」は隠したまま（本人指摘 8/20 の根治）
 		if (d.moved) {
 			if (d.kind === "f") st.model.reindexFeature(d.eid);   // translate終端＝スナップ索引へ一括追記
 			const cmd = d.kind === "f"

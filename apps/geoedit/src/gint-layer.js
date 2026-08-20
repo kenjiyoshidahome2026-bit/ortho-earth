@@ -122,6 +122,11 @@ export function createGintLayer(map) {
 		},
 		hide(eids) { hidden = new Set(eids); push(); },
 		unhide() { if (hidden.size) { hidden = new Set(); push(); } },
+		restyleProps(model) {   // @スタイルだけ即時再焼き（再コミット不要＝色変更のワンテンポ遅れの根治）
+			if (!fidEid.length) return;
+			baseTable = buildStyleTable(fidEid.map(e => model.feats.get(e)?.properties ?? {}));
+			push();
+		},
 		restyle() { push(); },   // 表の再送（スロット切替で剥がれた疑いがある時の再点火にも）
 		async exportPbf(model) {   // エクスポート用＝__eid 無しの直列エンコード（precision=格子段・FCなし）
 			const { pbf: out } = await encodeModel(model, { withEid: false, name: "geoedit-export", precision: model.gridExp });
