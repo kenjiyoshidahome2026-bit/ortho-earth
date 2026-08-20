@@ -14,9 +14,8 @@ export function full({ signal } = {}) {
 	const exit = document.exitFullscreen || document.webkitExitFullscreen;
 	if (!enter) return;   // 非対応はボタンごと出さない
 	if (mapEl.querySelector("#full")) return;   // 二重搭載は無害（搭載済みのまま）
-	const mac = /Mac|iP(hone|ad|od)/.test(navigator.platform || "");
 	const btn = document.createElement("button");
-	btn.id = "full"; btn.dataset.tip = t("全画面表示 ({0})", mac ? "⌘Z" : "Ctrl+Z"); btn.setAttribute("aria-label", t("全画面表示"));
+	btn.id = "full"; btn.dataset.tip = t("全画面表示 ({0})", "Z"); btn.setAttribute("aria-label", t("全画面表示"));
 	btn.innerHTML = EXPAND;
 	// 置き場所はスタック（搭載順＝縦の並び）。
 	gadgetStack(mapEl).append(btn);
@@ -26,9 +25,10 @@ export function full({ signal } = {}) {
 		else enter.call(mapEl).catch(() => {});   // ユーザー拒否等は黙って無視（ボタンは元のまま）
 	};
 	btn.addEventListener("click", toggle);
-	// ⌘/Ctrl+Z＝全画面トグル（このアプリに取り消し概念は無い＝Zを転用）。入力欄フォーカス中は無効。
+	// Z単キー＝全画面トグル（旧⌘/Ctrl+Z転用は geoedit の undo と衝突＝修飾なしへ移した・本人裁定 2026-08-20）。
+	// 文字入力中は keyBusy が止める。修飾付きは素通し＝⌘Z(undo)/⌘⇧Z(redo)は編集系アプリのもの。
 	window.addEventListener("keydown", e => {
-		if (!((e.ctrlKey || e.metaKey) && !e.shiftKey && (e.key === "z" || e.key === "Z"))) return;
+		if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey || (e.key !== "z" && e.key !== "Z")) return;
 		if (keyBusy(mapEl)) return;
 		e.preventDefault(); toggle();
 	}, { signal });

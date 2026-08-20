@@ -101,6 +101,7 @@ const t = tr({
 //   opts.instruments＝下部の計器盤の表示（true=全部[既定]／["pos","scale","attr","log"]から選択的／false=出さない）
 //   ★"attr"（出典）を消す場合は埋め込みページ側で出典明記が必要（README「出典表記」）
 //   opts.plateau＝建物3D（PLATEAU）機能スイッチ（true=[既定]／false=カタログ・worker・自動ロード・ガジェットごと停止）
+//   opts.maxPitch＝チルト上限rad（0=俯瞰固定。geoedit等の編集アプリ用。未記述=既定MAXPITCH＝従来どおり）
 //   opts.theme＝配色テーマの固定（"dark"等の台帳名＝焼き付け・URLに書かない／台帳と同形のオブジェクト＝カスタムテーマ）。
 //     未記述＝共有URLの c=<name> で選択（既定 mono＝白地図。台帳は palettes.js）
 //   検索・操作説明はオプトインガジェット＝ map.gadget.search() / map.gadget.hint() で画面ごとに追加（v1 ortho-map の作法）
@@ -1567,7 +1568,7 @@ const cam = { center: [JAPAN_VIEW[0], JAPAN_VIEW[1]], zoom: JAPAN_VIEW[2], pitch
 function applyCamView(v) {
 	cam.center = [wrapLon(v.lon), Math.max(-90, Math.min(90, v.lat))];
 	cam.zoom = Math.max(CAM_ZOOM_MIN, Math.min(ZOOM_MAX, v.zoom));   // URL/復元は太陽系圏の深度も受ける
-	cam.pitch = Math.max(0, Math.min(MAXPITCH, v.pitch || 0));
+	cam.pitch = Math.max(0, Math.min(opts.maxPitch ?? MAXPITCH, v.pitch || 0));   // 共有hashのtiltも派生アプリの上限に従う（geoedit=0）
 	cam.bearing = Number.isFinite(v.bearing) ? v.bearing : 0;
 }
 const bootView = parseViewHash(opts.view || location.hash || (nlOn ? "#16/52.0116/4.3571/45t" : ""));   // /nl/ を裸で開いた時はデルフト上空へ（日本アプリの既定は日本のまま）
@@ -2361,14 +2362,16 @@ resize();
 // ジェスチャ開始→フライト中断（主導権は常に人）。z範囲＝1(宇宙の余白)〜19(z20はタイルの切れ目が目立つ)。
 let measureClick = null;   // 測距モード中だけ非null＝クリックを測距へ奪う（識別・星座トグルより先）
 let poiClick = null;       // POI台帳編集のarmed中だけ非null＝同上（ガジェット毎に1スロット＝相互に潰さない）
+let editClick = null;      // 派生アプリ編集モード（geoedit）中だけ非null＝同上（map.setEditClick で装着/解除）
 // zoomMin の二重指定（前:ZOOM_MIN 後:2＝後勝ちで床2）を解消（2026-08-10）＝ホイール/ピンチも太陽系圏へ潜れる
 const input = createInput({
-	canvas, cam, size, dpr, maxPitch: MAXPITCH, zoomMin: CAM_ZOOM_MIN, zoomMax: ZOOM_MAX, onMove, signal: ac.signal,
+	canvas, cam, size, dpr, maxPitch: opts.maxPitch ?? MAXPITCH, zoomMin: CAM_ZOOM_MIN, zoomMax: ZOOM_MAX, onMove, signal: ac.signal,   // opts.maxPitch＝派生アプリのチルト上限（0=俯瞰固定＝geoedit）。??＝0を殺さない
 	blocked: () => modalOpen(mapEl),   // モーダル表示中は矢印キーで背後の地図を動かさない（文字入力中は input.js が自前で判定）
 	onGesture: () => flightCtl.cancel(),
 	onClick: (x, y) => {
 		if (measureClick) return measureClick(x, y);   // 測距モード＝クリックは頂点追加へ（識別/星座は止める）
 		if (poiClick) return poiClick(x, y);           // 台帳編集モード＝クリックは対象選択/置き先へ（同上）
+		if (editClick) return editClick(x, y);         // 派生アプリ編集モード＝同上（geoedit の選択/作図）
 		if (cam.zoom < BASEMAP_MINZOOM) {
 			if (!solarOff && cam.zoom < 1) return;   // 太陽系圏＝星座注記は休演中（クリックで裏の状態だけ変えない）
 			return void toggleConstellations().then(saveView);   // 全球ビュー＝クリックで星座線。表示状態は共有URL(l=sky)へ即書き戻す
@@ -3093,6 +3096,10 @@ map.paint = paintGint;                 // Mapbox式 → buildFidStyle
 map.paintTable = (u32, count) => { sendGintPaint({ table: u32, count }); needsDraw = true; };   // fid→RGBA表の直書き（コロプレス切替＝これだけ）
 map.fitZoomForBbox = fitZoomForBbox;
 map.projectLL = projectLL;             // 経緯度→画面CSS座標[x,y,front]（DOMマーカー用・front<0=裏半球）
+map.unprojectXY = unprojectXY;         // canvasローカルCSS座標→[lon,lat]|null（onClick の x,y と同座標系。球外=null）
+map.makeProjector = makeProjector;     // カメラ状態を1回束ねた投影関数（多点を1フレームで投影＝編集ハンドル用）
+map.setEditClick = fn => { editClick = fn; };   // 派生アプリのクリック横取りスロット（null で解除＝measure/poi と同型）
+map.requestDraw = () => { needsDraw = true; };  // オーバレイ更新後の1フレーム点火（派生アプリの編集描画用）
 map.onFrame = fn => { frameHooks.add(fn); return () => frameHooks.delete(fn); };
 map.onGintClick = fn => { gintClickHandler = fn; };
 map.getHeight = (lon, lat) => getHeight ? Promise.resolve(getHeight(lon, lat, cam.zoom)).then(h => +h || 0) : Promise.resolve(0);
