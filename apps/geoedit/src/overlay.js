@@ -37,12 +37,15 @@ export function createOverlay(map, mapEl, getState) {
 		canvas.width = w * d; canvas.height = h * d;
 	};
 
-	const images = new Map();   // @icon 値 → Image（内蔵名・data:URI 共通のキャッシュ）
+	const images = new Map();   // @icon 値 → Image（内蔵名・data:URI・Blob/File 共通のキャッシュ。Blobはインスタンスがキー＝
+	// geopbf復元は同一参照を共有(readValueのbinキャッシュ)＋Worker→mainのstructured cloneもエイリアシング保存＝1画像1Image）
 	const iconImg = v => {
 		let im = images.get(v);
 		if (im) return im.complete ? im : null;
 		im = new Image();
-		im.src = v.startsWith("data:") ? v : ICON_SVG[v] ? iconURI(v) : "";
+		if (typeof v === "string") im.src = v.startsWith("data:") ? v : ICON_SVG[v] ? iconURI(v) : "";
+		else if (v instanceof Blob) im.src = URL.createObjectURL(v);
+		else return null;
 		im.onload = () => map.requestDraw();
 		images.set(v, im);
 		return im.complete ? im : null;

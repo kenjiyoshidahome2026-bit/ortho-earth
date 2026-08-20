@@ -56,27 +56,29 @@ export function createPropsPanel(container, api, signal) {   // api={getFeature(
 			attr = document.createElement("div");
 			const table = document.createElement("table");
 			const rows = [];
-			const addRow = (k, v) => {
+			const addRow = (k, v, orig) => {
 				const tr = document.createElement("tr");
 				const tdK = document.createElement("td"), tdV = document.createElement("td");
 				const ik = Object.assign(document.createElement("input"), { value: k, placeholder: "属性名" });
 				const iv = Object.assign(document.createElement("input"), { value: v, placeholder: "値" });
+				if (orig instanceof Blob) { ik.disabled = iv.disabled = true; }   // 画像バイナリ＝表からは触らせない（適用で原本維持）
 				tdK.append(ik); tdV.append(iv);
 				tr.append(tdK, tdV);
 				table.append(tr);
-				rows.push([ik, iv]);
+				rows.push([ik, iv, orig]);
 			};
 			const entries = Object.entries(api.getFeature(eid)?.properties || {});
 			entries.sort(([a], [b]) => (b.startsWith("@")) - (a.startsWith("@")) || a.localeCompare(b));
-			for (const [k, v] of entries) addRow(k, typeof v === "string" ? v : JSON.stringify(v));
+			for (const [k, v] of entries) addRow(k, v instanceof Blob ? `（画像 ${(v.size / 1024).toFixed(1)}KB＝BUFS一個書き）` : typeof v === "string" ? v : JSON.stringify(v), v);
 			addRow("", "");
 			attr.append(table);
 			const applyB = Object.assign(document.createElement("button"), { textContent: "適用" });
 			applyB.onclick = () => {
 				const next = {};
-				for (const [ik, iv] of rows) {
+				for (const [ik, iv, orig] of rows) {
 					const k = ik.value.trim();
 					if (!k) continue;
+					if (orig instanceof Blob) { next[k] = orig; continue; }   // 画像は原本のまま
 					let v = iv.value;
 					if (v !== "" && !isNaN(+v) && k !== "@icon") v = +v;
 					next[k] = v;

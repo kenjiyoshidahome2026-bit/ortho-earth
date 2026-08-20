@@ -108,9 +108,11 @@ export function styleForm(host, { geomType, variant, get, set }, signal) {
 			e.preventDefault(); e.stopPropagation();
 			const f = e.dataTransfer.files?.[0];
 			if (!f || !/^image\//.test(f.type)) return;
-			const rd = new FileReader();
-			rd.onload = () => { set({ "@icon": rd.result, "@shape": "" }, true); zone.textContent = `✓ ${f.name}`; mark(di, null); mark(ds, null); };
-			rd.readAsDataURL(f);
+			// File をそのまま @icon へ＝geopbf の BUFS プールに一個書き（バイナリ等価は abcomp が同一idへ）。
+			// data-URI 方式（base64+33%・多点で重複）は先代zip形式の悪癖の再演＝廃止（本人裁定 8/20）
+			set({ "@icon": f, "@shape": "" }, true);
+			zone.textContent = `✓ ${f.name}`;
+			mark(di, null); mark(ds, null);
 		}, { signal });
 		dz.append(zone);
 	};
