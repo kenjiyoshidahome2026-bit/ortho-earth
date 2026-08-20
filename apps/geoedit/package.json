@@ -1,0 +1,24 @@
+{
+	"name": "geoedit",
+	"version": "0.0.1",
+	"license": "GPL-3.0-or-later",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"dev": "vite",
+		"build": "vite build",
+		"test": "node tests/t-model.mjs && node tests/t-snap.mjs && node tests/t-roundtrip.mjs && node tests/t-history.mjs",
+		"verify:ui": "node scripts/verify-ui.mjs",
+		"verify:prod": "node scripts/verify-prod.mjs",
+		"deploy": "npm run verify:prod && find dist/site -name .DS_Store -delete && wrangler deploy",
+		"preview:prod": "vite build && wrangler dev"
+	},
+	"dependencies": {
+		"ortho-core": "*",
+		"geopbf": "*",
+		"quiet-mono": "*"
+	},
+	"devDependencies": {
+		"vite": "^5.0.0"
+	}
+}

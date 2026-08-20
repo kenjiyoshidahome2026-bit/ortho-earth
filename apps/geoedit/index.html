@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="ja">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+	<style>html, body { margin: 0; touch-action: manipulation; overscroll-behavior: none; }</style>
+	<meta name="color-scheme" content="only light">
+	<!-- 起動の critical style：球儀マークの起動画面＋全幅地図の骨格（census2020 と同じ定石、パネルなし） -->
+	<style>
+		html,body{margin:0;height:100%;overflow:hidden}
+		html{background:#0b1021}
+		#boot{position:fixed;inset:0;z-index:2147483647;display:flex;align-items:center;justify-content:center;background:#0b1021;transition:opacity .2s ease}
+		#boot.gone{opacity:0;pointer-events:none}
+		#boot svg{width:72px;height:72px;animation:boot-breathe 1.6s ease-in-out infinite}
+		@keyframes boot-breathe{0%,100%{opacity:.35}50%{opacity:1}}
+		@media (prefers-reduced-motion:reduce){#boot svg{animation:none;opacity:.8}}
+		#stage{position:relative;height:100dvh}
+		#stage #map{width:100%;height:100%}
+		/* 静的出典（LCP前倒し）。起動後は instruments が養子縁組 */
+		#attr[data-boot]{position:fixed;bottom:calc(6px + env(safe-area-inset-bottom,0px));right:8px;z-index:2147483647;
+			font:11px/1.5 "Noto Sans JP","Hiragino Sans","Yu Gothic UI","Yu Gothic",sans-serif;text-align:right;
+			color:rgba(200,210,226,.82);background:rgba(16,24,44,.4);border:1px solid rgba(255,255,255,.14);
+			padding:4px 8px;border-radius:8px}
+		#attr[data-boot] a{color:rgba(200,210,226,.82);text-decoration:none}
+	</style>
+	<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+	<meta name="apple-mobile-web-app-title" content="geoedit">
+	<title>geoedit — GeoPBFエディタ</title>
+	<meta name="description" content="点・線・ポリゴンを地球儀の上で作成・編集。共有境界（ARC）は同時に動くトポロジカル編集、スナップ格子切替、GeoPBF/GeoJSON/TopoJSON/FlatGeobuf/Shapefile ほか読み書き対応。">
+	<meta property="og:type" content="website">
+	<meta property="og:site_name" content="ortho-earth">
+	<meta property="og:title" content="geoedit — GeoPBFエディタ">
+	<meta property="og:description" content="共有境界が同時に動くトポロジカルGIS編集を、ブラウザだけで。">
+	<meta property="og:url" content="https://www.ortho-earth.com/geoedit/">
+</head>
+<body>
+	<!-- 起動画面（球儀マーク）：外部CSS/JSに依存せずパース直後に描画。ready後に #boot.gone でフェード消去 -->
+	<div id="boot"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-label="geoedit 起動中"><g fill="none" stroke="#cdd6e6" stroke-width="6"><ellipse cx="50" cy="50" rx="45" ry="45"/><ellipse cx="50" cy="50" rx="25" ry="45"/><path d="M11 28H88 M11 72H88M50 5V95M5 50 H95"/></g></svg></div>
+	<div id="stage">
+		<div id="map"></div>
+		<!-- 編集ツールバー：中身は src/toolbar.js が実装（DOM順=重なり・z-index不使用の掟） -->
+		<div id="toolbar" hidden></div>
+	</div>
+	<div id="attr" data-boot>出典：<a href="https://www.gsi.go.jp/" target="_blank" rel="noopener">国土地理院</a>ほか（各データを加工して作成）<br>
+		© 2026 <a href="https://www.ortho-earth.com/docs/introduction.html" target="_blank" rel="noopener">Kenji Yoshida</a></div>
+	<script type="module" src="./main.js"></script>
+</body>
+</html>

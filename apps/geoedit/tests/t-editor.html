@@ -1,0 +1,198 @@
+<!doctype html>
+<!-- 対話回帰：クリック選択→頂点ドラッグ（共有arc＝隣接同時変形）→undo→作図（頂点吸着＝共有化）→削除。
+     合成ポインタで実経路（input.js→onClick→editClick／mapEl capture→drag）を叩く。判定は<title>（verify-ui流儀）。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021;width:900px;height:650px}#stage{position:relative;width:900px;height:650px}#stage #map{width:100%;height:100%}</style><title>t-editor</title></head>
+<body>
+<div id="stage"><div id="map"></div><div id="toolbar" hidden></div></div>
+<script>
+window.requestAnimationFrame = cb => setTimeout(() => cb(performance.now()), 16);
+localStorage.setItem("oj.hint", "closed");
+window.confirm = () => false;   // セッション復元ダイアログ＝試験では常に「新規」
+</script>
+<script type="module">
+import { createGeopbf } from "geopbf";
+createGeopbf("https://api.ortho-earth.com");
+import orthoJapan from "../../ortho-japan/app.js";
+import { initEditor } from "../src/controller.js";
+
+const t = [], ok = (n, c) => t.push((c ? "ok:" : "NG:") + n);
+window.addEventListener("error", e => t.push("ERR:" + String(e.message).replace(/\s+/g, "_")));
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const C = () => document.getElementById("c");
+const M = () => document.getElementById("map");
+const ev = (x, y, id = 7) => ({ bubbles: true, cancelable: true, clientX: x, clientY: y, pointerId: id, button: 0, pointerType: "mouse" });
+const click = (x, y) => { C().dispatchEvent(new PointerEvent("pointerdown", ev(x, y, 1))); C().dispatchEvent(new PointerEvent("pointerup", ev(x, y, 1))); };
+const key = (k, o = {}) => window.dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true, ...o }));
+
+// 隣接する2つの正方形（x=139.76 の辺を共有）
+const sq = (x0, y0, x1, y1) => [[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]];
+const FC = { type: "FeatureCollection", features: [
+	{ type: "Feature", properties: { n: "A", "@tip": "首都のA" }, geometry: { type: "Polygon", coordinates: [sq(139.75, 35.68, 139.76, 35.69)] } },
+	{ type: "Feature", properties: { n: "B" }, geometry: { type: "Polygon", coordinates: [sq(139.76, 35.68, 139.77, 35.69)] } },
+] };
+const gj = m => JSON.stringify(m.toGeoJSON());
+const has = (m, i, x, y) => JSON.stringify(m.toGeoJSON().features[i].geometry.coordinates).includes(`[${x},${y}]`);
+
+try {
+	const map = await orthoJapan({ view: "#14/35.683/139.76", maxPitch: 0 });
+	const editor = initEditor(map);
+	for (let i = 0; i < 200 && !editor.model; i++) await sleep(100);   // 復元IIFE（confirm=false→空loadFC）の完了を待つ
+	ok("boot", !!editor.model);
+	await editor.loadFC(FC, { fly: false });
+	await sleep(200);
+	const m = () => editor.model;
+	const s = m().stats();
+	ok("load(2f,3arc)", s.features === 2 && s.arcs === 3);
+
+	// ---- クリック選択（engine onClick→editClickスロット→gint識別）----
+	const pA = map.projectLL(139.755, 35.685);
+	click(pA[0], pA[1]);
+	await sleep(150);
+	ok("selectA", editor.state.selection === 0);
+	ok("stylePanel", !!document.querySelector(".ge-panel input[type=color]"));   // 選択＝日本語スタイルUI（色picker）が開く
+
+	// ---- 頂点ドラッグ：共有辺の角（139.76,35.69）＝ノード＝A/B両方が動く。パンが起きないことも確認 ----
+	const cen0 = JSON.stringify(map.view.center);
+	const h = map.projectLL(139.76, 35.69);
+	C().dispatchEvent(new PointerEvent("pointerdown", ev(h[0], h[1])));   // canvasへ＝mapEl capture が命中時だけ奪う経路を実走
+	M().dispatchEvent(new PointerEvent("pointermove", ev(h[0] + 30, h[1] - 20)));
+	M().dispatchEvent(new PointerEvent("pointerup", ev(h[0] + 30, h[1] - 20)));
+	await sleep(150);
+	const base = gj(m());
+	ok("dragBoth", !has(m(), 0, 139.76, 35.69) && !has(m(), 1, 139.76, 35.69)
+		&& JSON.stringify(m().toGeoJSON().features[0]) !== JSON.stringify(FC.features[0]));
+	ok("noPan", JSON.stringify(map.view.center) === cen0);
+
+	// ---- undo（⌘Z）＝両ポリゴンが元に戻る ----
+	key("z", { metaKey: true });
+	await sleep(100);
+	ok("undo", has(m(), 0, 139.76, 35.69) && has(m(), 1, 139.76, 35.69));
+	key("z", { metaKey: true, shiftKey: true });   // redo で dragBoth 後の姿へ
+	await sleep(100);
+	ok("redo", gj(m()) === base);
+	key("z", { metaKey: true });   // 以降の作図試験は元の形で
+	await sleep(100);
+
+	// ---- @tip ホバー（デバウンス識別→ツールチップ表示、外へ出ると消える）----
+	const pA2 = map.projectLL(139.755, 35.685);
+	M().dispatchEvent(new PointerEvent("pointermove", ev(pA2[0], pA2[1], 9)));
+	await sleep(350);
+	ok("tipShow", document.querySelector(".ge-tip")?.textContent === "首都のA");
+	const pOut = map.projectLL(139.755, 35.66);   // ポリゴンの外
+	M().dispatchEvent(new PointerEvent("pointermove", ev(pOut[0], pOut[1], 9)));
+	await sleep(350);
+	ok("tipGone", !document.querySelector(".ge-tip"));
+
+	// ---- 作図：Aの下辺に吸着する三角形（頂点2つがA/Bの既存角へスナップ→再抽出で共有arc化）----
+	// 格子を1e-3へ（2pxずれ≈19m＝1e-6の吸着半径0.11mでは届かない。粗格子で「近くを叩けば繋がる」を検証）
+	const snapSel = document.querySelector("#toolbar select.ge-snap");
+	snapSel.value = "3"; snapSel.dispatchEvent(new Event("change"));
+	document.querySelector('#toolbar button[title^="面"]').click();
+	const q1 = map.projectLL(139.75, 35.68), q2 = map.projectLL(139.76, 35.68), q3 = map.projectLL(139.755, 35.674);
+	click(q1[0] + 2, q1[1] + 2);   // 2pxずらし＝スナップ（1e-6格子の吸着半径はセル1個＝ここでは既存頂点そのもの狙い）
+	click(q2[0] - 2, q2[1] + 2);
+	click(q3[0], q3[1]);
+	key("Enter");
+	await sleep(300);   // add→同期rebuild
+	ok("draw3rd", m().stats().features === 3);
+	const sharedAC = [...m().arcs.values()].some(a => a.refs.size === 2 && a.refs.has(0) && a.refs.has(2));
+	ok("sharedNew", sharedAC);
+	ok("toolAuto", document.querySelector('#toolbar button[title^="選択"]').classList.contains("on"));   // 作図完了＝選択ツールへ自動復帰（「描いた直後に頂点が動かせない」罠の回帰）
+
+	// ---- 選択解除→Cを選択→Delで削除 ----
+	key("Escape");
+	await editor.commitNow();   // 確定層を最新化してから識別（デバウンス／gintベイクの完了を明示待ち）
+	const pC = map.projectLL(139.755, 35.6785);
+	click(pC[0], pC[1]);
+	await sleep(200);
+	ok("selectC", editor.state.selection === 2);
+	key("Delete");
+	await sleep(300);
+	ok("delC", m().stats().features === 2);
+
+	// ---- 点：配置（点ツール＝即選択）→解除→クリック選択（シンボル矩形＝ポリゴンAの上でも点が勝つ）----
+	document.querySelector('#toolbar button[title^="点"]').click();
+	const pp = map.projectLL(139.754, 35.6835);   // Aの内側＝優先順位（シンボル＞面）も同時に検証
+	click(pp[0], pp[1]);
+	await sleep(150);
+	const ptEid = editor.state.selection;
+	ok("placePoint", ptEid != null && m().feats.get(ptEid)?.type === "Point");
+	key("Escape");
+	document.querySelector('#toolbar button[title^="選択"]').click();
+	await editor.commitNow();
+	const ps = map.projectLL(...m().feats.get(ptEid).coords[0]);
+	click(ps[0] + 3, ps[1] - 3);
+	await sleep(150);
+	ok("selectPoint", editor.state.selection === ptEid);
+
+	// ---- 線：作図→解除→クリック選択（gint識別＝ズーム換算のピクセル許容）----
+	document.querySelector('#toolbar button[title^="線"]').click();
+	const l1 = map.projectLL(139.765, 35.677), l2 = map.projectLL(139.772, 35.6745);
+	click(l1[0], l1[1]); click(l2[0], l2[1]);
+	key("Enter");
+	await sleep(200);
+	const lnEid = editor.state.selection;
+	ok("drawLine", lnEid != null && m().feats.get(lnEid)?.type === "LineString");
+	key("Escape");
+	await editor.commitNow();
+	const lc = m().toGeoJSON().features.at(-1).geometry.coordinates;
+	const mid = map.projectLL((lc[0][0] + lc[1][0]) / 2, (lc[0][1] + lc[1][1]) / 2);
+	click(mid[0] + 2, mid[1]);
+	await sleep(150);
+	ok("selectLine", editor.state.selection === lnEid);
+
+	// ---- 穴あけツール：Aの内側に三角リング→リング2本→undoで1本 ----
+	document.querySelector('#toolbar button[title^="穴"]').click();
+	const g1 = map.projectLL(139.7525, 35.6825), g2 = map.projectLL(139.7565, 35.6825), g3 = map.projectLL(139.7545, 35.6862);
+	click(g1[0], g1[1]); click(g2[0], g2[1]); click(g3[0], g3[1]);
+	key("Enter");
+	await sleep(300);
+	ok("hole", m().toGeoJSON().features[0].geometry.coordinates.length === 2);
+	key("z", { metaKey: true });
+	await sleep(200);
+	ok("holeUndo", m().toGeoJSON().features[0].geometry.coordinates.length === 1);
+
+	// ---- テキストツール：既定文字で置ける（テキスト系ラベル＝図形なし） ----
+	document.querySelector('#toolbar button[title^="テキスト"]').click();
+	const tp = map.projectLL(139.768, 35.6865);
+	click(tp[0], tp[1]);
+	await sleep(150);
+	const txEid = editor.state.selection;
+	ok("textPlace", txEid != null && m().feats.get(txEid)?.properties["@text"] === "テキスト");
+
+	// ---- 矩形・円（2点作図）と移動ツール ----
+	snapSel.value = "6"; snapSel.dispatchEvent(new Event("change"));   // 細かい形状のため格子を戻す
+	document.querySelector('#toolbar button[title^="矩形"]').click();
+	const r1 = map.projectLL(139.744, 35.677), r2 = map.projectLL(139.747, 35.679);
+	click(r1[0], r1[1]); click(r2[0], r2[1]);
+	await sleep(250);
+	const rEid = editor.state.selection;
+	ok("rect", rEid != null && m().featureGeoJSON(rEid, false).geometry.coordinates[0].length === 5);
+	document.querySelector('#toolbar button[title^="円"]').click();
+	const c1 = map.projectLL(139.7455, 35.6715), c2 = map.projectLL(139.7485, 35.6715);
+	click(c1[0], c1[1]); click(c2[0], c2[1]);
+	await sleep(250);
+	const cEid = editor.state.selection;
+	ok("circle", cEid != null && m().featureGeoJSON(cEid, false).geometry.coordinates[0].length >= 20);
+	await editor.commitNow();   // 識別（クリック選択）の真実源を最新化
+	document.querySelector('#toolbar button[title^="要素を移動"]').click();
+	const rc = map.projectLL(139.7455, 35.678);
+	click(rc[0], rc[1]);
+	await sleep(120);
+	ok("moveSelect", editor.state.selection === rEid);
+	const beforeMv = JSON.stringify(m().featureGeoJSON(rEid, false));
+	C().dispatchEvent(new PointerEvent("pointerdown", ev(rc[0], rc[1], 8)));
+	M().dispatchEvent(new PointerEvent("pointermove", ev(rc[0] + 30, rc[1] + 10, 8)));
+	M().dispatchEvent(new PointerEvent("pointerup", ev(rc[0] + 30, rc[1] + 10, 8)));
+	await sleep(150);
+	ok("moveDrag", JSON.stringify(m().featureGeoJSON(rEid, false)) !== beforeMv && m().featureGeoJSON(rEid, false).geometry.coordinates[0].length === 5);
+	key("z", { metaKey: true });
+	await sleep(150);
+	ok("moveUndo", JSON.stringify(m().featureGeoJSON(rEid, false)) === beforeMv);
+
+	editor.destroy();
+	map.destroy();
+	ok("destroy", true);
+} catch (e) { ok("boot:" + (e && e.message || e), false); }
+document.title = t.some(s => s.startsWith("NG") || s.startsWith("ERR")) ? "FAIL " + t.join(" ") : "PASS " + t.join(" ");
+</script></body></html>

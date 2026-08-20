@@ -1,0 +1,16 @@
+# geoedit 本番配信：Cloudflare Workers + 静的アセット（www.ortho-earth.com/geoedit/）。
+# ortho-japan とは別 Worker＝別デプロイ＝資産も独立（エンジンは /japan/lib/ の配布物を実行時に食う）。
+# デプロイ手順は package.json の "deploy"（verify:prod → wrangler deploy）。
+name = "geoedit"
+main = "deploy-worker.js"
+compatibility_date = "2025-06-01"
+workers_dev = true   # *.workers.dev の予備URL（検証用）。本番は下の route
+
+routes = [
+	{ pattern = "www.ortho-earth.com/geoedit*", zone_name = "ortho-earth.com" }
+]
+
+[assets]
+directory = "dist/site"
+binding = "ASSETS"
+run_worker_first = true   # アセット直返しより先に必ず deploy-worker を通す＝COOP/COEP を全レスポンスに刻む
