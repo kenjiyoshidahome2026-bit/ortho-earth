@@ -1,7 +1,7 @@
-import { fname2mime } from "./fname2mime.js";
-import { decodeZIP } from "./decodeZIP.js";
-import { encodeZIP } from "./encodeZIP.js";
-import { gzip, gunzip, isGzip } from "./gzip.js";
+import { fname2mime } from "geopbf/fname2mime";
+import { decodeZIP } from "geopbf/decodeZIP";
+import { encodeZIP } from "geopbf/encodeZIP";
+import { gzip, gunzip, isGzip } from "geopbf/gzip";
 
 class _Bucket {
 	constructor(directory, opts = {}) {

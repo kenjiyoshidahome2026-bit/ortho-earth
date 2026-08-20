@@ -1,5 +1,5 @@
 import { GeoPBF } from "../pbf.js";
-import { comma } from "common";
+import { comma } from "../modules/utility.js";
 onmessage = async (e) => {
 	try {
 		const { buf, gintbuf } = e.data;

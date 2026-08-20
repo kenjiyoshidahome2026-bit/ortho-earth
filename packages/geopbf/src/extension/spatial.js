@@ -1,4 +1,4 @@
-import { isNumber, isBbox } from "common";
+import { isNumber, isBbox } from "../modules/utility.js";
 const {PI, round, sin, cos, atan2, sqrt, abs} = Math, r2d = PI / 180, R = 6378137;
 
 export const centroid = (self, i) => {

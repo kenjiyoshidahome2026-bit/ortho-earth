@@ -1,5 +1,5 @@
 import { GeoPBF } from "../pbf.js";
-import { gzip } from "native-bucket";
+import { gzip } from "../modules/gzip.js";
 import { topojson } from "../extension/topojson.js";
 
 onmessage = async (e) => {

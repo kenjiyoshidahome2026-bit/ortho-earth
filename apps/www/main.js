@@ -2,10 +2,11 @@ import * as d3 from "d3";
 import './main.scss';
 import orthoMap from 'ortho-map';
 import { createGeopbf } from "geopbf";
+import { nativeBucket } from "native-bucket";
 //------------------------------------------------------
 const API_BASE = "https://api.ortho-earth.com";
 const TILER_BASE = "https://tiler.ortho-earth.com";
-createGeopbf(API_BASE);
+createGeopbf(API_BASE, { bucket: nativeBucket });
 // Section tabs (Demos / Technologies) — client-side; swaps the card panels over the ambient globe.
 // Wired early so they respond before the globe finishes loading. #technologies deep-links the Tech tab.
 function selectTab(name) {

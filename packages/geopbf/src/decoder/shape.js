@@ -1,7 +1,7 @@
-import { thenMap } from "common";
+import { thenMap } from "../modules/utility.js";
 import { GeoPBF } from "../pbf-base.js";
 import { dissolve } from "../extension/dissolve.js";
-import { decodeZIP } from "native-bucket";
+import { decodeZIP } from "../modules/decodeZIP.js";
 
 const view = a => new DataView(a.buffer, a.byteOffset, a.byteLength);
 const R = 20037508.342789244;

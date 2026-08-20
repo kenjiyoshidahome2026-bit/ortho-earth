@@ -1,5 +1,5 @@
 import { GeoPBF } from "../pbf-base.js";
-import { isNull, isUndefined, isBoolean, isNumber, isString, isFunction, isObject, isArray, isDate, isBlob, isImageData, saveTo, thenMap, sum, comma } from "common";
+import { isNull, isUndefined, isBoolean, isNumber, isString, isFunction, isObject, isArray, isDate, isBlob, isImageData, saveTo, thenMap, sum, comma } from "../modules/utility.js";
 
 export async function clone(self) { return new GeoPBF().set(self.arrayBuffer); }
 export async function cloneHead(self) {

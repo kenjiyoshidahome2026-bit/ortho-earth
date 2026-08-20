@@ -1,7 +1,7 @@
 import { GeoPBF } from "../pbf-base.js";
 import { dissolve } from "../extension/dissolve.js";
 import { geojson } from "../modules/geojson.js";
-import { isObject } from "common";
+import { isObject } from "../modules/utility.js";
 
 // Upper bound for a single JSON.parse (V8 native) pass.
 // The bottleneck is memory, not parse speed: a 100 MB JSON file → ~300–500 MB heap.

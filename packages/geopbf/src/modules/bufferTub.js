@@ -1,4 +1,4 @@
-import { thenMap } from "common";
+import { thenMap } from "./utility.js";
 
 const pipe = async(q, filter) => new Response(new Blob([q]).stream().pipeThrough(filter)).arrayBuffer();
 const enc = q => pipe(q, new CompressionStream("deflate-raw"));

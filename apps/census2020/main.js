@@ -3,11 +3,12 @@
 // 各機能は独立モジュール＝bind(双方向)・choropleth(コロプレス)・bousai(防災)・moj(筆)・wiki(Wikipedia)。
 import "./panel.scss";
 import { createGeopbf } from "geopbf";
+import { nativeBucket } from "native-bucket";
 // ★census自前バンドルの geopbf を必ずここで初期化する。SDK分割後、lib(/japan/lib/)の中の geopbf と
 //   census がバンドルする geopbf は**別モジュールインスタンス**＝エンジン(app.js)の createGeopbf は
 //   lib側コピーにしか効かない（本番だけ choro.ready 失敗の罠・8/20実地）。devはソース直＝同一インスタンスの
 //   二重呼びになるが createGeopbf は冪等（同apiBase）＝無害。
-createGeopbf("https://api.ortho-earth.com");
+createGeopbf("https://api.ortho-earth.com", { bucket: nativeBucket });
 // ★SDK二重構成（ortho-japan/site.js と同じ型・8/20）：dev=ソース直（編集即反映）・本番=/japan/lib/ のSDK配布物。
 //   本番は japan 本体と**同じURLのエンジン**を食う＝ブラウザキャッシュが両アプリで共有（エンジン1回DLで両方立つ）。
 //   URLは変数経由＝viteのimport解析（devでもリテラルは解決しにいく）を素通りさせる。CSSはlib抽出分をここで貼る。

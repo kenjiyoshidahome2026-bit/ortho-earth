@@ -1,6 +1,6 @@
 import Pbf from 'pbf';
 import { bufferTub, readBufs } from "./modules/bufferTub.js";
-import { isString, isSimpleObject, isNumber, isFloat, isBbox } from "common";
+import { isString, isSimpleObject, isNumber, isFloat, isBbox } from "./modules/utility.js";
 import { antimeridianFeature } from "./modules/antimeridianFeature.js";
 import { cleanCoords, } from "./modules/cleanCoords.js";
 

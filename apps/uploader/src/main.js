@@ -15,7 +15,7 @@ const API_BASE = import.meta.env.DEV ? `${location.origin}/api` : "https://api.o
 // .env.local の VITE_API_KEY から注入。無ければ起動時に警告＝気づけるように。
 const API_KEY = import.meta.env.VITE_API_KEY ?? "";
 if (!API_KEY) console.warn("uploader: VITE_API_KEY が未設定（.env.local）＝アップロードは 403 で失敗します");
-createGeopbf(API_BASE, { apiKey: API_KEY });
+createGeopbf(API_BASE, { apiKey: API_KEY, bucket: nativeBucket });
 const { Fetch, Bucket, Cache } = nativeBucket(API_BASE, { apiKey: API_KEY });
 import { GEBCO, createGetHeight } from "altpbf";
 

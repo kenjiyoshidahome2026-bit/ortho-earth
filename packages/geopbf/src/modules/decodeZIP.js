@@ -1,4 +1,4 @@
-import { isBlob, isObject } from "../../common/src/utility.js";
+import { isBlob, isObject } from "./utility.js";
 import { fname2mime } from "./fname2mime.js";
 
 export async function decodeZIP(source, target = null, encoding = null) {

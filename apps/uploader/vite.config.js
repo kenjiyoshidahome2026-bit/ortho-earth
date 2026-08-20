@@ -8,14 +8,14 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export default defineConfig({
 //    plugins: [wasm()],
 	resolve: {
-		// オブジェクトの配列にすることで、「単体で呼ばれた時」と「サブファイルが呼ばれた時」を完璧に振り分けます
+		// 旧パスエイリアス（src直指し）。geopbf だけは撤去（2026-08-21）＝exports のサブパス
+		// （geopbf/encodeZIP 等）を迂回して解決不能になるため、workspace 解決に委ねる。
 		alias: {
 			'common': path.resolve(__dirname, '../../packages/common/src'),
 			'native-bucket': path.resolve(__dirname, '../../packages/native-bucket/src'),
 			'altpbf': path.resolve(__dirname, '../../packages/altpbf/src'),
-			'geopbf': path.resolve(__dirname, '../../packages/geopbf/src'),
-			'ortho-map': path.resolve(__dirname, '../../packages/ortho-map/src'),       
-		   'calender': path.resolve(__dirname, '../../packages/calender/src')        
+			'ortho-map': path.resolve(__dirname, '../../packages/ortho-map/src'),
+		   'calender': path.resolve(__dirname, '../../packages/calender/src')
 		}
 	},
 	optimizeDeps: {

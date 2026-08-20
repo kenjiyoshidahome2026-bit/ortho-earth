@@ -1,20 +1,34 @@
 {
 	"name": "geopbf",
 	"version": "1.0.0",
+	"description": "Carry geometry as geometry. GeoPBF is a compact binary container for geospatial features, with Gint — a GPU-readable topology layer for instant point-in-polygon identify, shared-edge topology and choropleth painting. Converts GeoJSON / Shapefile / KML / KMZ / GPX / GML / FlatGeobuf / TopoJSON in the browser via workers + WASM. Zero servers.",
+	"keywords": ["geospatial", "gis", "geojson", "shapefile", "topojson", "kml", "gpx", "flatgeobuf", "vector", "topology", "point-in-polygon", "identify", "wasm", "browser", "format"],
+	"homepage": "https://www.ortho-earth.com/docs/geopbf.html",
+	"repository": { "type": "git", "url": "git+https://github.com/kenjiyoshidahome2026-bit/ortho-earth.git", "directory": "packages/geopbf" },
+	"author": "Kenji Yoshida <kenji.yoshida.home.2026@gmail.com>",
 	"license": "MIT",
 	"type": "module",
+	"files": [
+		"src",
+		"wasm/pkg"
+	],
 	"main": "src/index.js",
 	"exports": {
 		".": "./src/index.js",
 		"./identify": "./src/extension/identify.js",
-		"./pbf-base": "./src/pbf-base.js"
+		"./pbf-base": "./src/pbf-base.js",
+		"./gzip": "./src/modules/gzip.js",
+		"./encodeZIP": "./src/modules/encodeZIP.js",
+		"./decodeZIP": "./src/modules/decodeZIP.js",
+		"./fname2mime": "./src/modules/fname2mime.js"
 	},
 	"scripts": {
-		"summary": "repomix --style markdown --output project_summary.md"
+		"summary": "repomix --style markdown --output project_summary.md",
+		"verify:npm": "node scripts/verify-npm.mjs"
 	},
 	"dependencies": {
-		"native-bucket": "*",
-		"pbf": "^4.0.1"
+		"pbf": "^4.0.1",
+		"pako": "^2.1.0"
 	},
 	"devDependencies": {
 		"repomix": "^1.14.0"

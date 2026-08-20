@@ -1,5 +1,5 @@
 import {GeoPBF} from "../pbf-base.js";
-import {encodeZIP} from "native-bucket";
+import { encodeZIP } from "../modules/encodeZIP.js";
 const getEncoder = async (encoding) => {
 	if (encoding === "sjis") {
 		const Encoding = (await import('https://esm.sh/encoding-japanese@2.1.0')).default;

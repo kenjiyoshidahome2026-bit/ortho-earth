@@ -1,5 +1,5 @@
 import { GeoPBF } from "../pbf-base.js";
-import { encodeZIP } from "native-bucket";
+import { encodeZIP } from "../modules/encodeZIP.js";
 
 const escXML = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 

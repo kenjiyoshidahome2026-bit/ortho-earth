@@ -1,5 +1,27 @@
 import { GeoPBF } from "./pbf-base.js";
-import { nativeBucket, gzip, gunzip, isGzip } from "native-bucket";
+import { gunzip } from "./modules/gzip.js";
+import { decodeZIP } from "./modules/decodeZIP.js";
+import { fname2mime } from "./modules/fname2mime.js";
+
+// bucket provider が注入されない時の素の代役（npm 単体利用の既定）：
+//  - Fetch＝直 fetch（proxy 無し）。zip#target は同梱 decodeZIP で展開＝URL/File/GeoJSON 変換と gint は全部動く
+//  - Cache＝無効（毎回変換＝動くが再訪は速くならない）・Bucket 名前引き＝不可（明確なエラーで案内）
+// フル機能（IDBキャッシュ・proxy fetch・バケツ名前引き）は createGeopbf(apiBase, { bucket: nativeBucket }) で注入する。
+const plainProvider = () => ({
+	Bucket: async () => ({ url: null, list: async () => [],
+		put: () => { throw new Error("geopbf: bucket provider not injected — pass { bucket } to createGeopbf()"); },
+		del: () => { throw new Error("geopbf: bucket provider not injected — pass { bucket } to createGeopbf()"); },
+		etag: async () => null }),
+	Cache: async () => (async () => null),   // 呼び出し3形（list/get/set）全てを null/no-op で受ける
+	Fetch: async (url, { target, encoding } = {}) => {
+		if (target) return decodeZIP(url, { target, encoding });
+		const res = await fetch(url);
+		if (!res.ok) throw new Error(`fetch failed: ${url} (HTTP ${res.status})`);
+		const blob = await res.blob();
+		const name = decodeURIComponent(url.split("/").pop().split("?")[0] || "download");
+		return new File([blob], name, { type: fname2mime(name) });
+	},
+});
 
 class PBFIO {
     constructor(nb, dire) { this.nb = nb; this.dire = dire || "GIS"; }
@@ -32,6 +54,10 @@ class PBFIO {
         console.log(" ✅ Sync complete.");
     }
     async load(name, opts = {}) {
+        if (!this.bucket?.url) {   // plain provider＝バケツ名前引きは対象外（URL/File/GeoJSON 変換は index.js 側の経路で全て動く）
+            console.error(`[geopbf] ${name}: bucket provider not injected — named bucket loads need createGeopbf(apiBase, { bucket })`);
+            return null;
+        }
         const val = await this.cache(name).catch(console.error);
         // キャッシュの GINT（派生物）は ETag 一致でも信用しきらない：GintBUF のフォーマットが変わると
         // ETag（ソース PBF の版）は同じまま unpack が失敗する。失敗したら下の「取得→再焼き→put」へ
@@ -66,6 +92,7 @@ class PBFIO {
     }
     // 裏の版確認：ETag が変わっていたら取得し直して IDB を更新（今の描画は触らない＝次回反映）。
     async revalidate(name, oldETag, opts = {}) {
+        if (!this.bucket?.url) return;
         const res = await fetch(`${this.bucket.url}${name}`, { cache: 'default' });
         if (!res.ok) return;
         const ETag = res.headers.get("etag");
@@ -105,6 +132,10 @@ class PBFIO {
 }
 
 export function createPbfio(apiBase, options = {}) {
-    const nb = nativeBucket(apiBase, options);
+    // options.bucket＝bucket provider ファクトリの注入口（例: native-bucket の nativeBucket）。
+    // 形＝(apiBase, options) → { Bucket, Cache, Fetch }。未注入＝plainProvider（上記の素の縮退）。
+    // これにより geopbf(npm/MIT) は私有インフラ（native-bucket）への依存ゼロで自己完結する（依存の向き反転 2026-08-21）。
+    const provider = options.bucket || plainProvider;
+    const nb = provider(apiBase, options);
     return (dire) => new PBFIO(nb, dire).open();
 }

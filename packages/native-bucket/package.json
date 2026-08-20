@@ -8,7 +8,8 @@
 		".": "./src/index.js"
 	},
 	"dependencies": {
-		"common": "*"
+		"common": "*",
+		"geopbf": "*"
 	},
 	"devDependencies": {
 		"wrangler": "^4.84.1"

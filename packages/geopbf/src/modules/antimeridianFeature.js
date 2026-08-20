@@ -1,4 +1,4 @@
-import { antimeridianCut } from "common/antimeridianCut.js";
+import { antimeridianCut } from "./antimeridianCut.js";
 
 // toClockwise 警告のスパム抑制：空リング多発データ（NE海岸線等）で数十万件出て console を潰すのを数件に絞る。
 let _tcWarnCount = 0;

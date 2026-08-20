@@ -3,11 +3,12 @@
 // gint-layer(確定層)・io(入出力)。エンジンの gint 6ハンドルは gint-layer.js の中にだけ触らせる（v2移行の触り所を1点に）。
 import "./editor.scss";
 import { createGeopbf } from "geopbf";
+import { nativeBucket } from "native-bucket";
 // ★geoedit 自前バンドルの geopbf を必ずここで初期化する。SDK分割後、lib(/japan/lib/)の中の geopbf と
 //   geoedit がバンドルする geopbf は**別モジュールインスタンス**＝エンジン(app.js)の createGeopbf は
 //   lib側コピーにしか効かない（census2020 本番事故 8/20 の教訓）。devはソース直＝同一インスタンスの
 //   二重呼びになるが createGeopbf は冪等（同apiBase）＝無害。
-createGeopbf("https://api.ortho-earth.com");
+createGeopbf("https://api.ortho-earth.com", { bucket: nativeBucket });
 // ★SDK二重構成（census2020 と同じ型）：dev=ソース直（編集即反映）・本番=/japan/lib/ のSDK配布物。
 //   本番は japan 本体と同じURLのエンジンを食う＝ブラウザキャッシュが両アプリで共有。
 //   URLは変数経由＝viteのimport解析（devでもリテラルは解決しにいく）を素通りさせる。CSSはlib抽出分をここで貼る。

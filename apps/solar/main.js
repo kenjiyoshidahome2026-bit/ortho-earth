@@ -6,6 +6,7 @@
 //  - 依存ゼロ WebGL2 直書き・恒星は bucket の stars.6（ortho-japan と同じ星表）
 //  - 対数深度バッファ：惑星表面(1e-7AU)〜海王星軌道(60AU)を1パスで
 import { createGeopbf, geopbf } from "geopbf";
+import { nativeBucket } from "native-bucket";
 import { BODIES, byId, bodyPos, orientation, orbitPoints, moonOrbitPoints, jcT, eqToEcl, AU_KM, LIGHT_MIN_PER_AU, D2R } from "ephem";   // packages/ephem へ昇格（japan太陽系圏と共用）
 
 const canvas = document.getElementById("c");
@@ -327,7 +328,7 @@ const bvColor = v => v < -0.3 ? [0.70, 0.78, 1] : v < 0.0 ? [0.85, 0.89, 1] : v 
 	v < 0.8 ? [1, 0.95, 0.78] : v < 1.1 ? [1, 0.88, 0.71] : v < 1.4 ? [1, 0.80, 0.60] : [1, 0.67, 0.57];
 (async () => {
 	try {
-		createGeopbf("https://api.ortho-earth.com");   // ortho-japan と同じ bucket 基盤（読み出しキー不要）
+		createGeopbf("https://api.ortho-earth.com", { bucket: nativeBucket });   // ortho-japan と同じ bucket 基盤（読み出しキー不要）
 		const pbf = await geopbf("stars.6", { gint: false });
 		const fs = pbf?.geojson?.features; if (!fs) return;
 		const dpr = Math.min(2, devicePixelRatio || 1);

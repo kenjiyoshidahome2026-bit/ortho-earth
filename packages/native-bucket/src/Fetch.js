@@ -1,5 +1,5 @@
-import { fname2mime } from "./fname2mime.js";
-import { decodeZIP } from "./decodeZIP.js";
+import { fname2mime } from "geopbf/fname2mime";
+import { decodeZIP } from "geopbf/decodeZIP";
 
 export async function Fetch(url, opts = {}) {
 	const type = ((typeof opts == "string")? opts: opts.type || "file").toLowerCase();

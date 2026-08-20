@@ -31,8 +31,8 @@ const encoderWorkers = {
 import { topology } from "./extension/topology.js";
 import { gint } from "./extension/gint.js";
 import { topo2geo } from "./modules/topo2geo.js";
-import { gunzip, isGzip } from "native-bucket";
-import { isString, isURL, isFile, isObject, isBuffer } from "common"
+import { gunzip, isGzip } from "./modules/gzip.js";
+import { isString, isURL, isFile, isObject, isBuffer } from "./modules/utility.js"
 
 // prototype メソッドとレガシー geopbf が使うアクティブインスタンス
 let _activeGetServer = null;

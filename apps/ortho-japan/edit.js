@@ -6,7 +6,8 @@
 // 出力: 図郭ID＋4パラメータの JSON＝「解けた集合」への1コミット。法的境界確定の代替ではない。
 
 import { createGeopbf, geopbf } from "geopbf";
-createGeopbf("https://api.ortho-earth.com");   // bucket 基盤（読み出しはキー不要・IDBキャッシュ込み）
+import { nativeBucket } from "native-bucket";
+createGeopbf("https://api.ortho-earth.com", { bucket: nativeBucket });   // bucket 基盤（読み出しはキー不要・IDBキャッシュ込み・bucket=フル機能注入）
 
 const D2R = Math.PI / 180, R2D = 180 / Math.PI;
 const TILE_URL = (z, x, y) => `https://cyberjapandata.gsi.go.jp/xyz/pale/${z}/${x}/${y}.png`;   // 淡色地図
