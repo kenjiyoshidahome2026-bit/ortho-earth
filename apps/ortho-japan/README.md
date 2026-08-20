@@ -9,6 +9,12 @@
 </script>
 ```
 
+## AIエージェントで開発する場合
+
+AIコーディングエージェント（Claude Code 等）に読ませる1枚正典＝ **https://www.ortho-earth.com/japan/llms.txt**
+（API面・罠台帳・検証作法。SDK zip にも同梱）。zip 同梱の `skill/ortho-earth-sdk/` を `.claude/skills/` に
+置けば Claude Code が SDK の作法を踏まえて書く。型定義は `lib/ortho-japan.d.ts`。
+
 ## orthoJapan(opts)
 
 | オプション | 既定 | 説明 |

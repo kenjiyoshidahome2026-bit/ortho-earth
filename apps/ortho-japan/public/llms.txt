@@ -1,0 +1,103 @@
+# ortho-earth SDK (ortho-japan) — LLM向け正典 / canonical guide for AI agents
+# This file is for AI coding agents building apps on the ortho-earth 3D globe SDK.
+# Content is in Japanese (the project's working language). Latest copy: https://www.ortho-earth.com/japan/llms.txt
+
+## これは何か
+ortho-japan＝日本地図の3D地球儀エンジン（自作WebGL2/WebGPU・ライブラリゼロ・タイルからGPU描画まで自前）を、
+1関数で任意のWebページに埋め込めるSDK。GISデータの読み書き（GeoPBF形式・変換各種）と、
+トポロジ知性層（gint）による大規模ベクタの描画・識別を持つ。
+実例＝ https://www.ortho-earth.com/japan/ （本体）・/japan/census2020/（統計）・/geoedit/（トポロジカルGISエディタ）。
+
+## 最小の使い方（ビルド不要・1枚のHTML）
+www.ortho-earth.com 配下に置くページなら、CDNのESモジュールを直接importするだけ：
+
+    <link rel="stylesheet" href="https://www.ortho-earth.com/japan/lib/ortho-japan.css">
+    <div id="map" style="width:100%;height:100vh"></div>
+    <script type="module">
+      import orthoJapan from "https://www.ortho-earth.com/japan/lib/ortho-japan.js";
+      const map = await orthoJapan({ target: "#map", view: "#13/35.68/139.76",
+                                     assetBase: "https://www.ortho-earth.com/japan/" });
+      map.gadget.search(); map.gadget.zoom(); map.gadget.compass();
+    </script>
+
+- 他ドメインのページ＝SDK zip（下記）を自サイトに展開して相対パスで読む（CDNのlibはCORS未開放）。
+- file:// では動かない（ES module/fetch制約）。`npx serve .` 等でHTTP配信して開く。
+- 動作床＝WebGL2＋OffscreenCanvas。COOP/COEP（crossOriginIsolated）は不要（SABはあれば速いだけ）。
+
+## SDK zip（self-host）
+`ortho-japan-sdk-<version>.zip` ＝ lib/（本体）＋ assets/（実行時アセット）＋ example/ ＋ 型定義 ＋ このファイル。
+展開して `lib/ortho-japan.js` をimport、`assetBase` に assets/ の配信URLを渡す。example/index.html が動く最小形。
+
+## orthoJapan(opts) — 主要オプション
+| opts | 既定 | 意味 |
+|---|---|---|
+| target | 自作 | 埋め込み先（セレクタ/要素）。idは"map"に正規化される（家具規格）。容れ物のサイズ指定は#idでなくclass/inlineで |
+| view | 前回 | 初期視点 "#zoom/lat/lon/45t/30r/l=…/c=…"（t=チルト°・r=回転°） |
+| theme | "mono" | 配色固定（mono/dark/gsi/sepia、またはカスタムオブジェクト） |
+| layers | — | {place,terrain,rail,road,facility} を true/false で焼き付け/封印。未記述=チップで利用者が選ぶ |
+| chips / instruments | true | 右上チップ帯／下部計器盤の表示制御 |
+| plateau | true | 建物3D機能スイッチ。false=関連通信・workerごと停止（軽量埋め込み） |
+| lang | 自動 | "ja"/"en"（UIの衣のみ。地図中の地名は対象外） |
+| maxPitch | 75° | チルト上限（**ラジアン**）。0=俯瞰固定（編集系アプリ向け） |
+| assetBase | — | 実行時アセット（plateau-sets.json等）の配信ベースURL |
+
+## map（戻り値）の公式面
+- flyTo(lon, lat, zoom, tiltDeg?, bearingDeg?) / getZoom() / view（{center,zoom,pitch,bearing,hash,…}）/ destroy()
+- projectLL(lon,lat)→[xCss,yCss,front]（front<0=裏半球）/ unprojectXY(x,y)→[lon,lat]|null（onClickと同座標系）
+- makeProjector()＝カメラ状態を1回束ねた投影関数（多点描画用）/ onFrame(fn)→解除fn / requestDraw()
+- setEditClick(fn|null)＝クリック横取りスロット（編集アプリ用。クリックvsドラッグの4px弁別はエンジンが済ませる）
+- getHeight(lon,lat)→Promise<標高m> / fitZoomForBbox([w,s,e,n])
+- gadget＝オプトインUI部品。map.gadget.search()/zoom()/compass()/full()/shot()/measure()/contextmenu({items})/
+  legend()/palette()/hint()/qr()/print()/cpos()/tip()/pop() など。contextmenuのitems=[{name,onClick(c)}]、
+  c={lng,lat,x,y,map}。全画面のショートカット=Z単キー（⌘Z/⌘⇧Zは編集アプリのundo/redoに空けてある）
+- 出典表記の義務：instrumentsの"attr"を消す場合はページ側で出典明記（README「出典表記」参照）
+
+## データ知性層（geopbf ＋ gint）
+GeoPBF＝座標svarint差分圧縮のバイナリGIS形式（仕様 /docs/geopbf.html）。パッケージ"geopbf"：
+- createGeopbf(apiBase) を**自分のバンドル内で必ず1回**呼ぶ（罠台帳①参照）
+- geopbf(File|URL|ArrayBuffer|GeoJSONオブジェクト, opts) → pbf。読める形式:
+  geopbf/.pbf/geojson/topojson/fgb/shape(zip)/kmz/gpx/gml/moj(zip)/gz
+- 書き出し: pbf.geopbfFile()/geojsonFile()/topojsonFile()/fgbFile()/shapeFile()/kmzFile()/gmlFile()/gpxFile() → File
+- pbf.identifyAt(lng,lat,{point:m,polyline:m})→fid（描画レス識別・点→線→面優先・面はsmallest-wins）
+- オブジェクト入力から作ったpbfは gint が自動ベイクされない → `await pbf.gint()` を明示
+- **Blob/Fileをプロパティ値にそのまま入れられる**：エンコード時にBUFSプールへ一個書き
+  （バイナリ等価は自動dedup＋deflate圧縮）、読み戻しはFile復元＋同一参照共有。アイコン等の正道
+
+現行のgint口（単一スロット・v2のmap.addGint()で置換予定＝**必ず薄いモジュール1枚に封じて使う**）:
+- map.applyGintData(pbf, label, moveCamera, {style,minZoom,interactive,hover,drape,tip,fillMaxEdges})
+  ＝ユーザー層の搭載（呼ぶたび置換）。z<7は世界海岸線と交替（minZoomで下げられる）
+- map.onGintClick((fid, props, [lng,lat])=>{}) / map.gintFeatures()＝fid整列properties
+- map.paint(Mapbox風式|null) / map.paintTable(u32, count)＝fid→スタイル表の直書き。レコード=4×u32/fid：
+  [0]=fill RGBA8(r<<24|g<<16|b<<8|a) [1]=line/circle色 [2]=(width*8)<<24|dash<<16|(radius*4)<<8|flags [3]=0。
+  flags bit0=visible（フィーチャ単位の表示/非表示はここ）
+- fid⇄自分のid管理：全フィーチャのpropertiesに一意キー（例 __eid）を入れてエンコードすれば
+  fid=フィーチャ並び順が保証される（同一プロパティ行は併合される仕様への対策）
+
+## @プロパティ規約（スタイルをデータに乗せる・geoedit発）
+properties に `@fill @stroke @width @icon @shape @text @size @tip @pop` を書くと、対応ビューア（geoedit）が
+描画に反映する。@fill/@stroke=CSS色、@width=px、@icon=内蔵名かFile(Blob)、@shape=pin/circle/square/
+triangle/diamond/star/flag、@tip=ホバー一言、@pop=常時吹き出し（\nで改行）。ただのプロパティ＝全形式を往復。
+
+## 罠台帳（実事故由来・順不同）
+1. **createGeopbfの二重インスタンス**：バンドラ使用時、SDK(lib)内のgeopbfと自分のバンドルのgeopbfは別モジュール。
+   自分のバンドル側でも createGeopbf(apiBase) を呼ぶ（本番だけデータ読込が死ぬ）
+2. viteでCDN libを外部参照する時は rollupOptions.external=["…/ortho-japan.js"] ＋ importはURL変数経由で
+   `import(/* @vite-ignore */ LIB)`（リテラルだとdevで解決に行って404）
+3. CSSは自動注入されない＝ ortho-japan.css の<link>をページが貼る
+4. gintは単一スロット＝applyGintDataは常に置換。複数層が要るならv2待ち（またはfid空間で合成）
+5. 容れ物のサイズをCSSの#idセレクタで当てない（idは"map"へ正規化される）。1ページ1マップ
+6. maxPitchはラジアン（0=俯瞰固定）。共有URLのt=も同じ上限でクランプされる
+7. COOP/COEPは不要（あればSABゼロコピーで速いだけ）。Service Workerは持ち込まない
+8. 大量フィーチャの識別は identifyAt/GPU pickを使う（自前JS全走査を書かない）
+9. ズーム換算：画面px→mは `40075016.686*cos(lat)/(256*2^zoom)` 近似が実用十分（クリック許容量など）
+
+## 検証の作法（このリポジトリの流儀）
+- 自己判定テストページ：判定結果を<title>にPASS/FAIL+詳細で書く → headless Chromeで--dump-domして読む
+- エンジン起動込みの対話テストは仮想時間(--virtual-time-budget)がworker並走と相性が悪い＝実時間+CDPでtitleを監視
+- 本番組立の検定＝静的（エンジン再同梱がないか指紋文字列で）＋実走（サーバ側で取得台帳を観測・404ゼロ）
+
+## 参照
+- README（オプション正典・埋め込み契約・出典義務）: SDK zip同梱 / リポジトリ apps/ortho-japan/README.md
+- 形式仕様: /docs/geopbf.html /docs/gint.html
+- 消費実例: apps/census2020（統計・コロプレス）/ apps/geoedit（編集・@プロパティ・BUFSアイコン）
+- 型定義: lib/ortho-japan.d.ts（SDK zip同梱）

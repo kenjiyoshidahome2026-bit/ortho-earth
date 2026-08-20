@@ -55,6 +55,11 @@ for (const f of WHITELIST) {
 }
 cpSync(path.join(APP, "README.md"), path.join(OUT, "README.md"));
 cpSync(path.join(APP, "LICENSE"), path.join(OUT, "LICENSE"));
+// AI開発者向けの三点セット（2026-08-20）：llms.txt（1枚正典・配信版は /japan/llms.txt）＋
+// 型定義（lib/ に同居＝エディタ/AIの補完が効く）＋ Claude Code スキル（.claude/skills/ へ置くだけで発動）
+cpSync(path.join(APP, "public/llms.txt"), path.join(OUT, "llms.txt"));
+cpSync(path.join(APP, "sdk/ortho-japan.d.ts"), path.join(OUT, "lib/ortho-japan.d.ts"));
+cpSync(path.join(APP, "sdk/skill"), path.join(OUT, "skill"), { recursive: true });
 
 for (const f of FORBIDDEN) if (existsSync(path.join(OUT, f))) { console.error(`✗ 混入禁止物が入っている: ${f}`); process.exit(1); }
 if (!existsSync(path.join(OUT, "lib/ortho-japan.js")) || !existsSync(path.join(OUT, "lib/ortho-japan.css"))) {
