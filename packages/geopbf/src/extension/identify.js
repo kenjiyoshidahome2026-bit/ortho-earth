@@ -78,8 +78,14 @@ function findPoint(buffer, pointMeta, mix, miy, error) {
 	const xMin = Math.max(0, mix - error), xMax = mix + error;
 	const yMin = Math.max(0, miy - error), yMax = miy + error;
 
-	const xMid = ((xMin ^ xMax) & (1 << 31)) ? (xMax & ~((1 << (31 - Math.clz32(xMin ^ xMax))) - 1)) : null;
-	const yMid = ((yMin ^ yMax) & (1 << 31)) ? (yMax & ~((1 << (31 - Math.clz32(yMin ^ yMax))) - 1)) : null;
+	// 最上位ビット跨ぎの分割判定：座標は最大3.6e9＝32bit幅で、JSビット演算は int32 に潰れる。
+	// XORパターンは >>>0 で読み、マスクは 2^b の算術で計算（旧 (1<<31) 直書きは経度34.748°E跨ぎの窓で壊れていた）
+	const split = (min, max) => {
+		const xor = (min ^ max) >>> 0;
+		if (xor < 2 ** 31) return null;   // 最上位ビットが同じ＝分割不要（発火条件は旧実装と同一）
+		return Math.floor(max / 2 ** 31) * 2 ** 31;
+	};
+	const xMid = split(xMin, xMax), yMid = split(yMin, yMax);
 
 	const subQuads = [
 		[xMin, xMid !== null ? xMid - 1 : xMax, yMin, yMid !== null ? yMid - 1 : yMax],
@@ -120,65 +126,25 @@ function findPoint(buffer, pointMeta, mix, miy, error) {
 	return null;
 }
 
+// 線の描画レス識別＝lineStream の各arcを bbox 早期棄却→**線分距離**で照合（頂点だけでなく辺の途中もヒット）。
+// 旧実装（2026-08-20 撤去）は arcBuffer を Morton 整列前提で二分探索していたが、
+//   ①arcBuffer は arc 毎の頂点列＝Morton 非整列で二分探索が成立しない
+//   ②探索窓が _pureMortonFromInt（bit63なし）なのに端点は L1＝TERMINAL_BIT 付きで窓に入らない
+//   ③頂点近傍のみ＝2頂点ラインの中間クリックが原理的に外れる
+// ＝呼び出し元ゼロのまま一度も機能していなかった（geoedit の線選択で発覚）。
+// 距離は 1e-7 整数単位の平面近似（identifyAt が許容半径をこの単位へ換算して渡す）。遠い線分は
+// 座標差が 2^53 を超えて精度が落ちるが、判定は errSq との比較＝近傍でのみ効く値なので実害はない。
+function segDistSq(px, py, ax, ay, bx, by) {
+	const vx = bx - ax, vy = by - ay, wx = px - ax, wy = py - ay;
+	const c1 = vx * wx + vy * wy;
+	if (c1 <= 0) return wx * wx + wy * wy;
+	const c2 = vx * vx + vy * vy;
+	if (c2 <= c1) { const dx = px - bx, dy = py - by; return dx * dx + dy * dy; }
+	const t = c1 / c2, dx = wx - t * vx, dy = wy - t * vy;
+	return dx * dx + dy * dy;
+}
 function findMortonNear(buffer, meta, lineStream, mix, miy, error) {
 	const errSq = error * error;
-	const hitArcs = new Set();
-
-	const xMin = Math.max(0, mix - error), xMax = mix + error;
-	const yMin = Math.max(0, miy - error), yMax = miy + error;
-
-	const xMid = ((xMin ^ xMax) & (1 << 31)) ? (xMax & ~((1 << (31 - Math.clz32(xMin ^ xMax))) - 1)) : null;
-	const yMid = ((yMin ^ yMax) & (1 << 31)) ? (yMax & ~((1 << (31 - Math.clz32(yMin ^ yMax))) - 1)) : null;
-
-	const subQuads = [
-		[xMin, xMid !== null ? xMid - 1 : xMax, yMin, yMid !== null ? yMid - 1 : yMax],
-		xMid !== null ? [xMid, xMax, yMin, yMid !== null ? yMid - 1 : yMax] : null,
-		yMid !== null ? [xMin, xMid !== null ? xMid - 1 : xMax, yMid, yMax] : null,
-		(xMid !== null && yMid !== null) ? [xMid, xMax, yMid, yMax] : null
-	];
-
-	for (const q of subQuads) {
-		if (!q) continue;
-		const qMin = gint._pureMortonFromInt(q[0], q[2]) & ~gint.WEIGHT_MASK;
-		const qMax = gint._pureMortonFromInt(q[1], q[3]) | gint.WEIGHT_MASK;
-
-		let low = 0, high = buffer.length - 1, startIdx = -1;
-		while (low <= high) {
-			let mid = (low + high) >>> 1;
-			if ((buffer[mid] & ~gint.WEIGHT_MASK) >= qMin) {
-				startIdx = mid;
-				high = mid - 1;
-			} else {
-				low = mid + 1;
-			}
-		}
-
-		if (startIdx === -1) continue;
-
-		for (let i = startIdx; i < buffer.length; i++) {
-			const m = buffer[i] & ~gint.WEIGHT_MASK;
-			if (m > qMax) break;
-
-			const [ix, iy] = gint.unpackToInt(buffer[i]);
-			if (ix >= xMin && ix <= xMax && iy >= yMin && iy <= yMax) {
-				const dx = ix - mix, dy = iy - miy;
-				if (dx * dx + dy * dy <= errSq) {
-					let lowA = 0, highA = (meta.length / 8) - 1, aid = -1;
-					while (lowA <= highA) {
-						let midA = (lowA + highA) >>> 1;
-						const off = meta[midA * 8], len = meta[midA * 8 + 1];
-						if (i >= off && i < off + len) { aid = midA; break; }
-						if (off > i) highA = midA - 1;
-						else lowA = midA + 1;
-					}
-					if (aid !== -1) hitArcs.add(aid);
-				}
-			}
-		}
-	}
-
-	if (hitArcs.size === 0) return null;
-
 	let p = 0;
 	while (p < lineStream.length) {
 		const fid = lineStream[p++], numSets = lineStream[p++];
@@ -186,7 +152,15 @@ function findMortonNear(buffer, meta, lineStream, mix, miy, error) {
 			const arcCount = lineStream[p++];
 			for (let a = 0; a < arcCount; a++) {
 				const arcIdx = lineStream[p++], aid = arcIdx < 0 ? ~arcIdx : arcIdx;
-				if (hitArcs.has(aid)) return fid;
+				if (mix < meta[aid * 8 + 4] - error || miy < meta[aid * 8 + 5] - error ||
+					mix > meta[aid * 8 + 6] + error || miy > meta[aid * 8 + 7] + error) continue;   // arc bbox 早期棄却
+				const off = meta[aid * 8], len = meta[aid * 8 + 1];
+				let px = 0, py = 0;
+				for (let i = 0; i < len; i++) {
+					const [ix, iy] = gint.unpackToInt(buffer[off + i]);
+					if (i && segDistSq(mix, miy, px, py, ix, iy) <= errSq) return fid;
+					px = ix; py = iy;
+				}
 			}
 		}
 	}
