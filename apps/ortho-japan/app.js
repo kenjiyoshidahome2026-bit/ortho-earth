@@ -876,6 +876,8 @@ const plateauFailed = new Map();           // 地区名 → { perm, ts }
 const PLATEAU_RETRY_MS = 60000;
 const plateauDead = name => { const f = plateauFailed.get(name); return !!f && (f.perm || performance.now() - f.ts < PLATEAU_RETRY_MS); };
 let plateauPinned = new Set();             // 台本 plateau: リスト記載の地区名＝視界内なら選抜キャップ無視で強制表示（デモ▶で設定・カタカタ根治）
+let plateauScriptOnly = null;              // 台本 preload 明示時の関所＝上映中（playingNow）はこの集合外の区の新規自動ロードを始めない
+                                           //（Kenji裁定 2026-08-21：デモ観客の自機で経由地の無関係区＝世田谷等を拾い急に重くなる件。preload 無し＝視点導出の台本は絞らない）
 function plateauHide(name) {   // 視野外れ＝非表示（GPU常駐は維持）。常駐対象外（低メモリ端末）はそのまま削除
 	if (plateauResident.has(name)) renderer.set("plateauVis", false, name);
 	else renderer.set("plateauMesh", null, name);
@@ -1026,8 +1028,10 @@ async function prefetchPlateauForViews(views, names, onProgress) {
 		if (bad.length) console.warn("[demo] plateau names not in catalog (script typo?):", bad.join("・"));
 		// ピン留め＝リスト記載の区は autoPlateau の選抜キャップを無視して強制表示（デモ終了後もセッション中は有効）
 		plateauPinned = new Set(wanted.map(s => s.name));
+		plateauScriptOnly = plateauPinned;   // preload 明示＝上映中はこの集合が自動ロードの全て（関所は playingNow 中だけ効く＝終演で自然解除）
 		return runPrefetch(wanted, "scripted", onProgress);
 	}
+	plateauScriptOnly = null;   // preload 無指定＝関所なし（前の台本の集合を持ち越さない＝台本の持ち物の掟）
 	return runPrefetch(deriveScriptSets(views), "derived from views", onProgress);
 }
 // 台本の視点列→PLATEAU区集合の導出（2026-08-12 関数化＝先読みと静穏窓の大掃除で共用）。
@@ -1324,6 +1328,7 @@ function autoPlateau(settled = false) {
 		if (plateauActive.has(h.name)) continue;
 		if (plateauLoading.has(h.name)) {
 			if (plateauCancelling.has(h.name) || plateauDemoted.has(h.name)) {
+				if (plateauScriptOnly && playingNow() && !plateauScriptOnly.has(h.name)) continue;   // 上映中の関所＝リスト外は fast 復帰もさせない（slow在庫のまま完走→IDB）
 				// 退避中の区が視界に居る：fast 枠が空いていれば即復帰。塞がっていれば「ローテーション」＝
 				// PLATEAU_ROTATE_MS 以上 fast を占有した区を slow（在庫）へ回して席を譲る。巨大区×低速APIで
 				// 枠が空かず「目の前の区が永遠に始まらない」飢餓の対策（杉並 z16 実測：中野+新宿(510枚)が
@@ -1358,6 +1363,9 @@ function autoPlateau(settled = false) {
 			continue;
 		}
 		if (!settled) continue;   // 新規ネットワークロードは「視界が落ち着いた」時だけ発火＝パンで通過した区は読み始めない
+		// 上映中の関所：台本が preload を明示していれば、リスト外の区は読み始めない（経由地・画面端の無関係区で
+		// 観客の自機が急に重くなる件＝Kenji裁定 2026-08-21）。表示系（常駐ヒット点灯・退避復帰）は上で素通し済み＝触らない。
+		if (plateauScriptOnly && playingNow() && !plateauScriptOnly.has(h.name)) { console.log("[plateau] not in script preload -> skipped during show", h.name); continue; }
 		// fast枠が塞がっていても可視区は「slow在庫」で即開始（非LOW_MEM）＝進捗と部分IDBが貯まり始め、
 		// ローテーション/枠空きの promote で即 8並行へ（枠待ちで開始すらしない飢餓を断つ）。
 		// LOW_MEM は従来どおり順番待ち＝同時in-flightのRAM在庫（区あたり~100MB級）を増やさない。
@@ -1552,8 +1560,9 @@ const MAXPITCH = 75 * D2R;   // 山岳ビュー(z<13)は地形が深度で自遮
 const ZOOM_MAX = 20;         // 上限20＝15cm/px（正射z＝緯度フリー。精度は原点相対RTEが担保）。21でも動くが余裕を持って1段残す
 const ZOOM_MIN = 1;          // 床1＝地球全体を余白つきで（z1=世界512px＝スマホ縦にも収まる。旧床2は縦画面で地球がはみ出し、モバイルΔ補正が床に潰される素だった 2026-08-02）
 // 太陽系圏（2026-08-10）：256pxの梯子を負へ延長＝ズームアウトの続きで太陽系へ（z≈-16.4で冥王星軌道が視野に収まる）。
-// 潜れるのは手動ズーム（ホイール/ピンチ/ボタン/URL）だけ＝飛行系（デモ・scene・flyTo）は従来床 ZOOM_MIN=1 のまま
-// ＝既存台本の挙動を一切変えない保守的な縫い目。?nosolar=1 で圏ごと停止（?nofar 等と同じ逃げ道の作法）。
+// 飛行系（デモ・scene・flyTo）も CAM_ZOOM_MIN 床＝台本から太陽系へ飛べる（2026-08-21・LT台本の z=-17 行が動機。
+// 旧・飛行系だけ床1の保守的縫い目は撤去＝呼び出し側は皆 z≥3 か Math.max 済みで、床1に頼る呼び出しは無いのを検分済み）。
+// ?nosolar=1 で圏ごと停止（?nofar 等と同じ逃げ道の作法）＝その時は飛行床も従来の1へ戻る。
 const SOLAR_ZOOM_MIN = -17;
 const solarOff = new URLSearchParams(location.search).has("nosolar");
 const CAM_ZOOM_MIN = solarOff ? ZOOM_MIN : SOLAR_ZOOM_MIN;   // カメラ実床（手動系はこちら）
@@ -2472,7 +2481,7 @@ schedulePos();   // 起動直後からスケールを出す（真俯瞰復元時
 
 // --- 球面フライト：実装は engine（flight.js＝三段振り付け＋van Wijk厳密解）。ここは配線だけ。
 // onFlying＝autoPlateau のゲート（飛行中はPLATEAU完全停止・着地の瞬間に解禁＝立ち上がりが着陸の演出）。
-const flightCtl = createFlight({ cam, viewW: () => size.w, maxPitch: MAXPITCH, minZoom: ZOOM_MIN, onMove, onFlying: f => {
+const flightCtl = createFlight({ cam, viewW: () => size.w, maxPitch: MAXPITCH, minZoom: CAM_ZOOM_MIN, onMove, onFlying: f => {   // 飛行床＝カメラ実床（太陽系圏へ台本から飛べる・?nosolar時は1）
 	flying = f;
 	if (!f && suppressCoast) { suppressCoast = false; updateGintSlot(); }   // 着地＝抑制解除→再評価（着地が低ズームなら海岸線が戻る）
 } });
@@ -3296,7 +3305,7 @@ function stopScenes() {
 // seek(秒)＝l=/c= はその行までの累積（l= は絶対指定＝手前の最後に書いた行が勝つ・無ければ現状維持＝プレーヤーの離陸時点火と同じ意味論・逆走も決定的）
 // ＋カメラ直書き＋fade の黒(cover)。URL は書かない＝end() で1回（スクラブ終了＝確定視点の掟・saveView）。上映中は受けない（先に stopScenes）。
 function sceneTimeline(obj) {
-	const tl = buildSceneTimeline(obj, { plan: flightCtl.plan, parseView: parseViewHash, portrait: mapEl.clientHeight > mapEl.clientWidth, zoomMin: ZOOM_MIN });
+	const tl = buildSceneTimeline(obj, { plan: flightCtl.plan, parseView: parseViewHash, portrait: mapEl.clientHeight > mapEl.clientWidth, zoomMin: CAM_ZOOM_MIN });
 	if (!tl) return null;
 	const rowV = tl.rows.map(r => r.hash ? parseViewHash(r.hash) : null);   // 行ごとの l=/c=（累積適用の材料）
 	let lastI = -1;
@@ -3469,7 +3478,7 @@ map.gadget("demo", function (opts) {   // デモ（発表の台本再生）… �
 		},
 		// 静穏窓フック（裁定2026-08-12）＝書き終わり直後の一拍で「残り台本に出ない」常駐区を降ろす（上の trim 参照）
 		onQuiet: views => plateauTrimForScript(views),
-		prefetchViews: prefetchPlateauForViews, finale: japanFit, signal: ac.signal, zoomMin: ZOOM_MIN, ...opts });   // 手綱を掴む＝ドロップ/?scene= は playScene→demoHandle.start(落とした台本, bare) で別入り口再生（▶=組み込みは壊さない）。glidePath＝via連続ドリー／fadeView＝黒挟み遷移（fadeBusy を着地待ちに乗せる）
+		prefetchViews: prefetchPlateauForViews, finale: japanFit, signal: ac.signal, zoomMin: CAM_ZOOM_MIN, ...opts });   // 手綱を掴む＝ドロップ/?scene= は playScene→demoHandle.start(落とした台本, bare) で別入り口再生（▶=組み込みは壊さない）。glidePath＝via連続ドリー／fadeView＝黒挟み遷移（fadeBusy を着地待ちに乗せる）
 	return demoHandle;
 });
 map.gadget("ai", function (opts) {   // AIと会話して地図に描く（PC専用・画面2分割）… 描画受け口とbboxフィット・消去・アセット置き場を注入

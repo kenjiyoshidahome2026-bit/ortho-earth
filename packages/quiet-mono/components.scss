@@ -373,18 +373,20 @@
 /* 自動上演の字幕：静止中だけ画面上部にやや大きめ（scene.caption・無ければ title 代用）。
    触れない（pointer-events:none）＝地図の主役を邪魔しない。出入りはフェード（幕 #demo-slide と同じ呼吸） */
 #demo-caption {
-	position: absolute; top: calc(14px + env(safe-area-inset-top, 0px)); left: 50%; transform: translateX(-50%);
-	max-width: min(86vw, 720px); padding: 9px 22px;
+	position: absolute; top: calc(48px + env(safe-area-inset-top, 0px)); left: 50%; transform: translateX(-50%);   /* 倍化字幕は上端密着だと窮屈＝一段下げ（旧14px・2026-08-21） */
+	max-width: min(92vw, 1200px); padding: 9px 22px;
 	/* 背景透明＝地図の上に文字だけ浮かせる。可読性は映画字幕式の黒縁白抜き＝どのテーマ・どの地図でも同じで効く
 	   （ピル(パネル/縁/ぼかし)は置かない・夜節の上書きも不要） */
-	text-shadow: 0 0 2px rgba(0,0,0,.95), 0 0 6px rgba(0,0,0,.85), 0 1px 14px rgba(0,0,0,.6);
-	font: 600 clamp(15px, 2.4vw, 21px)/1.4 var(--qm-font); color: #fff; letter-spacing: .04em;
+	text-shadow: 0 0 3px rgba(0,0,0,.95), 0 0 9px rgba(0,0,0,.85), 0 2px 20px rgba(0,0,0,.6);
+	/* 倍化（2026-08-21 Kenji指定・LT=幕を減らし字幕が見出しを兼ねる）：旧 clamp(15px,2.4vw,21px)。縁と最大幅も字に追随 */
+	font: 600 clamp(30px, 4.8vw, 42px)/1.4 var(--qm-font); color: #fff; letter-spacing: .04em;
 	white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center;
 	pointer-events: none;
 	opacity: 0; visibility: hidden; transition: opacity .35s ease, visibility 0s linear .35s;
 	&.show { opacity: 1; visibility: visible; transition: opacity .35s ease; }
-	/* 狭画面＝字幕が86vw幅で中央に広がり、右上の劇場時計(#sky-clock=日付・時刻)と重なる→時計の下へ一段降ろす */
-	@media (max-width: 480px) { top: calc(42px + env(safe-area-inset-top, 0px)); }
+	/* 狭画面＝字幕が広がると右上の劇場時計(#sky-clock=日付・時刻)と重なる→時計の下へ一段降ろす。
+	   倍化はデスクトップ/発表画面だけ＝モバイルは従来サイズ・従来位置のまま（Kenji指定 2026-08-21） */
+	@media (max-width: 480px) { top: calc(42px + env(safe-area-inset-top, 0px)); font-size: clamp(15px, 2.4vw, 21px); max-width: 86vw; }
 }
 #demo-slide {
 	position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;

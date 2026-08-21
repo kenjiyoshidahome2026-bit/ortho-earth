@@ -55,7 +55,10 @@ export function flyPlan(cam0, env, lon, lat, zoom, tiltDeg, bearingDeg) {
 	const riseMs = (p1 < 0.01 && Math.abs(b1) < 0.01) ? 0 : 700;        // ③起こしながら向ける（省略時は北のまま＝無し）
 	// 巡航中のズーム下限＝経路の行き過ぎ防止（van Wijkの弧が地球を米粒にしない）。ただし目標がz2未満
 	// （星空劇場の深部等）の時はそこまで降りる＝下限は min(2, 目標z)。従来の一律2は着地も2で頭打ちだった。
-	const zFloor = Math.min(2, zoom);
+	// 出発zも下限に加える（2026-08-21）：太陽系圏(z<2)からの帰り＝目標z≥2だと旧式は床2＝巡航全区間が
+	// クランプされ「初手でz2へテレポート→着地でスナップ」の壊れたズームインになっていた（z-17→z6実測）。
+	// 出発z≥2の通常飛行では min(2,z0,z1)=min(2,z1)＝従来と同値＝挙動不変。
+	const zFloor = Math.min(2, z0, zoom);
 	const land = flatMs + cruiseMs, dur = land + riseMs;
 	const at = t => {
 		t = Math.max(0, Math.min(t, dur));
