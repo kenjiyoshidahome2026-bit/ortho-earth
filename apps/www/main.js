@@ -7,6 +7,16 @@ import { nativeBucket } from "native-bucket";
 const API_BASE = "https://api.ortho-earth.com";
 const TILER_BASE = "https://tiler.ortho-earth.com";
 createGeopbf(API_BASE, { bucket: nativeBucket });
+// ?lang=xx でトップへ来たら、アプリ行きリンク（/japan・/nl）へ伝搬＝www→デモの導線でも字幕言語が保てる
+//（LT 2026-08-24：www を先に出し ?lang=en → featured カードから英語字幕のデモへ）。globe の await より前＝リンクは即使える。
+{
+	const lang = new URLSearchParams(location.search).get("lang");
+	if (lang) document.querySelectorAll('a[href^="/japan"], a[href^="/nl"]').forEach(a => {
+		const u = new URL(a.getAttribute("href"), location.origin);
+		u.searchParams.set("lang", lang);
+		a.setAttribute("href", u.pathname + u.search + u.hash);
+	});
+}
 // Section tabs (Demos / Technologies) — client-side; swaps the card panels over the ambient globe.
 // Wired early so they respond before the globe finishes loading. #technologies deep-links the Tech tab.
 function selectTab(name) {
