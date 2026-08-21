@@ -59,7 +59,12 @@
 			<div class="apps" id="panel-demos" role="tabpanel" aria-labelledby="tab-demos">
 				<a class="card featured" href="/japan/">
 					<span class="card-badge v2">V2 · WebGPU · OPFS</span>
-					<img class="card-poster" src="/hero-japan.webp" width="1600" height="1000" loading="lazy" decoding="async" alt="PLATEAU 3D buildings of central Tokyo with the Rainbow Bridge, rendered from GSI vector tiles" />
+					<!-- LCP要素＝lazy禁止・優先取得（loading="lazy"はLoad Delay 2.1s/LCP4.1sの主犯だった 2026-08-21 Lighthouse mobile実測）。
+				     srcset＝カード実寸（デスクトップ≈378px・モバイル≈92vw）に合わせ 800/1200/1600w を配る -->
+				<img class="card-poster" src="/hero-japan.webp"
+					srcset="/hero-japan-800.webp 800w, /hero-japan-1200.webp 1200w, /hero-japan.webp 1600w"
+					sizes="(max-width: 640px) 92vw, 378px"
+					width="1600" height="1000" fetchpriority="high" decoding="async" alt="PLATEAU 3D buildings of central Tokyo with the Rainbow Bridge, rendered from GSI vector tiles" />
 					<span class="card-body">
 						<span class="card-eyebrow">Flagship</span>
 						<span class="card-title" translate="no">ortho-japan</span>
