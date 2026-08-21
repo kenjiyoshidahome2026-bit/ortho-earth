@@ -1,0 +1,106 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 540" font-family="system-ui, sans-serif">
+	<!-- 技術スライド①改「One camera, one zoom axis」＝デモ直後に「いま見たもの」へ名前を付ける頁（本人裁定8/21・no-server図は退場）。
+	     主役=zの数直線（−17〜+20・37段）。WebGPU/WASM/OPFSは脇役の一行。様式は夜の劇場カード同族。 -->
+	<defs>
+		<linearGradient id="space" x1="0" y1="0" x2="0" y2="1">
+			<stop offset="0" stop-color="#0c1326"/>
+			<stop offset="1" stop-color="#05070d"/>
+		</linearGradient>
+		<radialGradient id="planet" gradientUnits="userSpaceOnUse" cx="480" cy="1560" r="1200">
+			<stop offset=".85" stop-color="#0b1322"/>
+			<stop offset=".97" stop-color="#101a30"/>
+			<stop offset="1" stop-color="#182647"/>
+		</radialGradient>
+		<radialGradient id="atm" gradientUnits="userSpaceOnUse" cx="480" cy="1560" r="1290">
+			<stop offset=".900" stop-color="rgba(90,160,255,0)"/>
+			<stop offset=".930" stop-color="rgba(125,185,255,.50)"/>
+			<stop offset=".958" stop-color="rgba(90,150,240,.18)"/>
+			<stop offset="1" stop-color="rgba(70,120,210,0)"/>
+		</radialGradient>
+		<filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+			<feGaussianBlur stdDeviation="7"/>
+		</filter>
+	</defs>
+	<rect width="960" height="540" fill="url(#space)"/>
+	<circle cx="480" cy="1560" r="1200" fill="url(#planet)"/>
+	<rect width="960" height="540" fill="url(#atm)"/>
+	<circle cx="480" cy="1560" r="1200" fill="none" stroke="rgba(120,180,255,.85)" stroke-width="7" filter="url(#glow)"/>
+	<circle cx="480" cy="1560" r="1200" fill="none" stroke="#9cc8ff" stroke-width="2.5" opacity=".95"/>
+	<g fill="#fff">
+		<circle cx="70" cy="60" r="1.3" opacity=".7"/>
+		<circle cx="240" cy="48" r="1.1" opacity=".55"/>
+		<circle cx="420" cy="82" r="1.4" opacity=".8"/>
+		<circle cx="642" cy="128" r=".9" opacity=".4" fill="#cfe0ff"/>
+		<circle cx="736" cy="70" r="1.3" opacity=".65"/>
+		<circle cx="906" cy="58" r=".9" opacity=".5"/>
+		<circle cx="58" cy="242" r=".8" opacity=".3"/>
+		<circle cx="902" cy="248" r=".8" opacity=".3" fill="#cfe0ff"/>
+	</g>
+
+	<text x="480" y="92" text-anchor="middle" font-size="21" letter-spacing="2" fill="#6f83ab">— what you just saw —</text>
+	<text x="480" y="152" text-anchor="middle" font-size="48" font-weight="600" letter-spacing="2" fill="#eef3fb">One camera, one zoom axis</text>
+
+	<!-- zの数直線：x=120(z=−17)〜x=840(z=+20)＝19.46px/z。細目盛=毎z・太点=途中下車4駅 -->
+	<g stroke="rgba(140,165,210,.35)" stroke-width="1">
+		<line x1="120" y1="268" x2="840" y2="268"/>
+		<line x1="139.5" y1="263" x2="139.5" y2="273"/><line x1="159" y1="263" x2="159" y2="273"/>
+		<line x1="178.4" y1="263" x2="178.4" y2="273"/><line x1="197.9" y1="263" x2="197.9" y2="273"/>
+		<line x1="217.3" y1="263" x2="217.3" y2="273"/><line x1="236.8" y1="263" x2="236.8" y2="273"/>
+		<line x1="256.2" y1="263" x2="256.2" y2="273"/><line x1="275.7" y1="263" x2="275.7" y2="273"/>
+		<line x1="295.1" y1="263" x2="295.1" y2="273"/><line x1="314.6" y1="263" x2="314.6" y2="273"/>
+		<line x1="334.1" y1="263" x2="334.1" y2="273"/><line x1="353.5" y1="263" x2="353.5" y2="273"/>
+		<line x1="373" y1="263" x2="373" y2="273"/><line x1="392.4" y1="263" x2="392.4" y2="273"/>
+		<line x1="411.9" y1="263" x2="411.9" y2="273"/><line x1="431.4" y1="263" x2="431.4" y2="273"/>
+		<line x1="470.3" y1="263" x2="470.3" y2="273"/><line x1="489.7" y1="263" x2="489.7" y2="273"/>
+		<line x1="509.2" y1="263" x2="509.2" y2="273"/><line x1="528.6" y1="263" x2="528.6" y2="273"/>
+		<line x1="548.1" y1="263" x2="548.1" y2="273"/><line x1="587" y1="263" x2="587" y2="273"/>
+		<line x1="606.5" y1="263" x2="606.5" y2="273"/><line x1="625.9" y1="263" x2="625.9" y2="273"/>
+		<line x1="645.4" y1="263" x2="645.4" y2="273"/><line x1="664.9" y1="263" x2="664.9" y2="273"/>
+		<line x1="684.3" y1="263" x2="684.3" y2="273"/><line x1="703.8" y1="263" x2="703.8" y2="273"/>
+		<line x1="723.2" y1="263" x2="723.2" y2="273"/><line x1="742.7" y1="263" x2="742.7" y2="273"/>
+		<line x1="762.2" y1="263" x2="762.2" y2="273"/><line x1="781.6" y1="263" x2="781.6" y2="273"/>
+		<line x1="801.1" y1="263" x2="801.1" y2="273"/><line x1="820.5" y1="263" x2="820.5" y2="273"/>
+	</g>
+	<!-- 途中下車の4駅（光る点）：z=−17太陽系 / z=0地球 / z=6列島 / z=+20街角 -->
+	<g>
+		<circle cx="120" cy="268" r="6" fill="#9cc8ff"/>
+		<circle cx="120" cy="268" r="11" fill="none" stroke="rgba(120,180,255,.85)" stroke-width="5" filter="url(#glow)"/>
+		<circle cx="450.8" cy="268" r="6" fill="#9cc8ff"/>
+		<circle cx="450.8" cy="268" r="11" fill="none" stroke="rgba(120,180,255,.85)" stroke-width="5" filter="url(#glow)"/>
+		<circle cx="567.5" cy="268" r="6" fill="#9cc8ff"/>
+		<circle cx="567.5" cy="268" r="11" fill="none" stroke="rgba(120,180,255,.85)" stroke-width="5" filter="url(#glow)"/>
+		<circle cx="840" cy="268" r="6" fill="#9cc8ff"/>
+		<circle cx="840" cy="268" r="11" fill="none" stroke="rgba(120,180,255,.85)" stroke-width="5" filter="url(#glow)"/>
+	</g>
+	<g font-family="ui-monospace, Menlo, monospace" fill="#eef3fb" font-size="20" font-weight="600">
+		<text x="120" y="238" text-anchor="middle">z −17</text>
+		<text x="450.8" y="238" text-anchor="middle">z 0</text>
+		<text x="567.5" y="238" text-anchor="middle">z 6</text>
+		<text x="840" y="238" text-anchor="middle">z +20</text>
+	</g>
+	<g fill="#8fa3c8" font-size="18">
+		<text x="120" y="304" text-anchor="middle">the solar system</text>
+		<text x="450.8" y="304" text-anchor="middle">the globe</text>
+		<text x="567.5" y="304" text-anchor="middle">Japan</text>
+		<text x="840" y="304" text-anchor="middle">a street corner</text>
+	</g>
+
+	<!-- 錨の数字＝2^37 を実桁で -->
+	<text x="480" y="374" text-anchor="middle" font-size="40" font-weight="600" font-family="ui-monospace, Menlo, monospace" fill="#eef3fb">2³⁷ = ×137,438,953,472</text>
+	<text x="480" y="410" text-anchor="middle" font-size="22" fill="#8fa3c8">37 doublings — no seams, no mode switch</text>
+	<text x="480" y="444" text-anchor="middle" font-size="18" fill="#6f83ab">flat ⇄ 3D is the same matrix — projection is a slider, not a wall</text>
+
+	<text x="480" y="496" text-anchor="middle" font-size="20" fill="#8fa3c8">WebGPU sphere · WASM decoders · OPFS/IDB cache — nothing outside your browser</text>
+
+	<!-- クレジット（3枚共通・右下）: © 2026 [地球儀ロゴ=favicon.svgの血筋] Ortho Earth -->
+	<g font-size="15" fill="#6f83ab">
+		<text x="804" y="524" text-anchor="end">© 2026</text>
+		<text x="920" y="524" text-anchor="end">Ortho Earth</text>
+	</g>
+	<g transform="translate(812 510) scale(.17)" fill="none" stroke="#6f83ab" stroke-width="7">
+		<ellipse cx="50" cy="50" rx="45" ry="45"/>
+		<ellipse cx="50" cy="50" rx="25" ry="45"/>
+		<path d="M11 28H88 M11 72H88M50 5V95M5 50 H95"/>
+	</g>
+	<rect x=".75" y=".75" width="958.5" height="538.5" rx="10" fill="none" stroke="rgba(148,178,226,.22)" stroke-width="1.5"/>
+</svg>
