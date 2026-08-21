@@ -316,11 +316,7 @@
 	svg { display: block; }
 	&[aria-pressed="true"] { border-color: var(--qm-border-strong); background-color: var(--qm-panel-solid); }   /* 上演中＝点灯（照りはガラス節の点火リストが担う） */
 }
-/* 上演中の▶を星空劇場（.world＝家具退場）でも残すのは狭画面だけ＝Escも操縦バー(.playingで退場)も無く、これが唯一の停止口だから。
-   デスクトップは z<4 でも▶を退場＝球/星だけの締めを綺麗に（停止は Esc＝demo.js keydown、休止中は操縦バーが担う・本人裁定 2026-08-05）。 */
-@media (max-width: 480px) {
-	#map.world #gadgets > #demo-btn[aria-pressed="true"] { opacity: 1; pointer-events: auto; }
-}
+/* ▶と星空劇場（.world）の同居則は星空劇場セクション（#map.world 群の直後）にある＝退場則より後置で勝つ必要（詳細度同格）。 */
 #demo-bar {
 	/* 二丸薬構成：左＝送り（.db-main）・右＝モード（.db-aux ▤▷）を間で分離＝押し間違い対策。バー自体は透明な入れ物 */
 	position: absolute; bottom: calc(46px + var(--qm-safe-b)); left: 50%; transform: translateX(-50%);
@@ -763,6 +759,21 @@
 	-webkit-backdrop-filter: none; backdrop-filter: none;
 }
 #map.world #japan-btn svg { fill: rgba(230, 238, 250, .92); stroke: rgba(230, 238, 250, .92); }
+/* 星空劇場でも▶を残すのは狭画面だけ。上演中＝唯一の停止口（Escも操縦バー(.playingで退場)も無い）。
+   待機中も残す（2026-08-21拡張）＝QR着地の観客がズームアウトで宇宙へ出る→localStorage復元で次回も宇宙、の筋で
+   上演の入口を失わないため（発表QRの迷子防止）。扉の作法＝solar/japan の下の三段目へ昇格し、japan-btn と同じ
+   星明かり材質（黒硝子・暗線は闇に溶ける＝実測）。デスクトップは従来どおり退場＝球/星だけの締めを綺麗に（本人裁定 2026-08-05）。
+   ★置き場所の掟：上の退場則(#gadgets > :not(...))と詳細度同格＝後置でだけ勝つ。前方（#demo-btn 本則の隣）へ移すと負けて消える。 */
+@media (max-width: 480px) {
+	#map.world #gadgets > #demo-btn {
+		opacity: 1; pointer-events: auto;
+		order: -1;   /* japan-btn(-1) と同order・DOM後勝ち＝扉列の三段目（solar/japan/▶）。demo-live.world の既存則(order:-1)とも同値で衝突しない */
+		border: 1px solid rgba(255, 255, 255, .42);
+		background: rgba(16, 24, 44, .55);
+		-webkit-backdrop-filter: none; backdrop-filter: none;
+	}
+	#map.world #gadgets > #demo-btn svg { stroke: rgba(230, 238, 250, .92); }
+}
 /* 太陽系の扉＝文字入りボタン（日本の扉と同材質＝暗色パネル+白縁・34px規格）。
    初版の裸テキストは当たり判定も「押せる」気配も弱かった（本人指摘 2026-08-10）＝チップに昇格。
    書体は sky-clock と同じ星空の等幅＝家具の血筋は保つ */

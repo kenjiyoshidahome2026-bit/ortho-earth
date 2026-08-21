@@ -1,0 +1,79 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 540" font-family="system-ui, sans-serif">
+	<!-- 技術スライド②「Numbers」：錨の数字だけの台帳。説明はしない＝この客層(STAC/COG実務者)は数字を自分で読む。 -->
+	<defs>
+		<linearGradient id="space" x1="0" y1="0" x2="0" y2="1">
+			<stop offset="0" stop-color="#0c1326"/>
+			<stop offset="1" stop-color="#05070d"/>
+		</linearGradient>
+		<radialGradient id="planet" gradientUnits="userSpaceOnUse" cx="480" cy="1560" r="1200">
+			<stop offset=".85" stop-color="#0b1322"/>
+			<stop offset=".97" stop-color="#101a30"/>
+			<stop offset="1" stop-color="#182647"/>
+		</radialGradient>
+		<radialGradient id="atm" gradientUnits="userSpaceOnUse" cx="480" cy="1560" r="1290">
+			<stop offset=".900" stop-color="rgba(90,160,255,0)"/>
+			<stop offset=".930" stop-color="rgba(125,185,255,.50)"/>
+			<stop offset=".958" stop-color="rgba(90,150,240,.18)"/>
+			<stop offset="1" stop-color="rgba(70,120,210,0)"/>
+		</radialGradient>
+		<filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+			<feGaussianBlur stdDeviation="7"/>
+		</filter>
+	</defs>
+	<rect width="960" height="540" fill="url(#space)"/>
+	<circle cx="480" cy="1560" r="1200" fill="url(#planet)"/>
+	<rect width="960" height="540" fill="url(#atm)"/>
+	<circle cx="480" cy="1560" r="1200" fill="none" stroke="rgba(120,180,255,.85)" stroke-width="7" filter="url(#glow)"/>
+	<circle cx="480" cy="1560" r="1200" fill="none" stroke="#9cc8ff" stroke-width="2.5" opacity=".95"/>
+	<g fill="#fff">
+		<circle cx="70" cy="60" r="1.3" opacity=".7"/>
+		<circle cx="332" cy="140" r=".8" opacity=".35"/>
+		<circle cx="540" cy="52" r="1" opacity=".5"/>
+		<circle cx="642" cy="128" r=".9" opacity=".4" fill="#cfe0ff"/>
+		<circle cx="906" cy="58" r=".9" opacity=".5"/>
+		<circle cx="58" cy="242" r=".8" opacity=".3"/>
+		<circle cx="902" cy="428" r=".8" opacity=".3" fill="#cfe0ff"/>
+	</g>
+
+	<!-- npm 1行＝この頁の見出しを兼ねる -->
+	<rect x="220" y="72" width="520" height="62" rx="8" fill="rgba(16,24,44,.55)" stroke="rgba(255,255,255,.42)" stroke-width="1.5"/>
+	<text x="480" y="112" text-anchor="middle" font-size="30" font-family="ui-monospace, Menlo, monospace" fill="#eef3fb">npm i @ortho-earth/japan</text>
+
+	<!-- 台帳：左=項目(淡)・右=数字(明)。罫線は最小限 -->
+	<g font-size="24">
+		<g fill="#8fa3c8">
+			<text x="180" y="204">runtime dependencies</text>
+			<text x="180" y="256">API keys · billing · servers</text>
+			<text x="180" y="308">whole-planet elevation</text>
+			<text x="180" y="360">open formats</text>
+			<text x="180" y="412">zoom convention</text>
+		</g>
+		<g fill="#eef3fb" font-weight="600" text-anchor="end" font-family="ui-monospace, Menlo, monospace">
+			<text x="800" y="204">0</text>
+			<text x="800" y="256">0</text>
+			<text x="800" y="308">55 MB</text>
+			<text x="800" y="360">GeoPBF · ALTPBF (MIT)</text>
+			<text x="800" y="412">GSI-compatible z</text>
+		</g>
+	</g>
+	<g stroke="rgba(140,165,210,.22)" stroke-width="1">
+		<line x1="180" y1="222" x2="800" y2="222"/>
+		<line x1="180" y1="274" x2="800" y2="274"/>
+		<line x1="180" y1="326" x2="800" y2="326"/>
+		<line x1="180" y1="378" x2="800" y2="378"/>
+	</g>
+
+	<text x="480" y="484" text-anchor="middle" font-size="22" fill="#8fa3c8">the engine is small on purpose — the data stays public</text>
+
+	<!-- クレジット（3枚共通・右下）: © 2026 [地球儀ロゴ=favicon.svgの血筋] Ortho Earth -->
+	<g font-size="15" fill="#6f83ab">
+		<text x="804" y="514" text-anchor="end">© 2026</text>
+		<text x="920" y="514" text-anchor="end">Ortho Earth</text>
+	</g>
+	<g transform="translate(812 500) scale(.17)" fill="none" stroke="#6f83ab" stroke-width="7">
+		<ellipse cx="50" cy="50" rx="45" ry="45"/>
+		<ellipse cx="50" cy="50" rx="25" ry="45"/>
+		<path d="M11 28H88 M11 72H88M50 5V95M5 50 H95"/>
+	</g>
+	<rect x=".75" y=".75" width="958.5" height="538.5" rx="10" fill="none" stroke="rgba(148,178,226,.22)" stroke-width="1.5"/>
+</svg>
