@@ -1,5 +1,18 @@
 import { defineConfig } from "vite";
 import { resolve } from "node:path";
+import { transform } from "esbuild";
+
+// lib×ES では vite が esbuild/terser とも whitespace minify を強制スキップする（v5.4 実装確認・下流バンドラ向け
+// PURE 注釈保持の思想）。本ライブラリは事前ビルド一枚岩＝下流の木刈り効果は無く、本番 /japan/lib の app が
+// 627KB raw で配られるパース代の方が高い（Lighthouse mobile 実測 2026-08-21）。renderChunk(post) で空白だけ
+// 追い minify＝識別子/構文は vite の esbuild が済ませた後・rollup が sourcemap を合成＝map の正しさは保たれる。
+const forceMinifyWhitespace = {
+	name: "force-minify-whitespace",
+	renderChunk: {
+		order: "post",
+		handler: (code) => transform(code, { minifyWhitespace: true, sourcemap: true, charset: "utf8" }),
+	},
+};
 
 // SDK ビルド（ライブラリ形式）＝第三者のページへ埋め込むための出荷形。
 // サイトビルド（vite.config.js）とは別物：あちらは index.html を持つ「作品」、こちらは import される「部品」。
@@ -16,6 +29,7 @@ import { resolve } from "node:path";
 //  - worker は ES module 形式固定（vite 既定の iife は worker 内 code-splitting を弾く＝サイトビルドと同じ理由）
 //  - COOP/COEP は要求しない：SAB が無ければ geopbf がコピー経路へ落ちる（fallback-ladder.md §3.5・verify:nocoi で実測）
 export default defineConfig({
+	plugins: [forceMinifyWhitespace],
 	build: {
 		outDir: "dist/lib",
 		emptyOutDir: true,
