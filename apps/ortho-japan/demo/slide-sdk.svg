@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 540" font-family="system-ui, sans-serif">
+	<!-- 2枚目・剥ぎ版（本人裁定8/22「喋ることまで字にしている」）＝スライドは声の仕事を奪わない。
+	     残すのは骨だけ：問い(Why Japan first?)＋thesis(data was there)＋配り物(npm＋日付)。
+	     声が運ぶ＝笑い(No server/couldn't afford)・take it・your country stands up・仲間の招集。 -->
+	<defs>
+		<linearGradient id="space" x1="0" y1="0" x2="0" y2="1">
+			<stop offset="0" stop-color="#0c1326"/>
+			<stop offset="1" stop-color="#05070d"/>
+		</linearGradient>
+		<radialGradient id="planet" gradientUnits="userSpaceOnUse" cx="480" cy="1560" r="1200">
+			<stop offset=".85" stop-color="#0b1322"/>
+			<stop offset=".97" stop-color="#101a30"/>
+			<stop offset="1" stop-color="#182647"/>
+		</radialGradient>
+		<radialGradient id="atm" gradientUnits="userSpaceOnUse" cx="480" cy="1560" r="1290">
+			<stop offset=".900" stop-color="rgba(90,160,255,0)"/>
+			<stop offset=".930" stop-color="rgba(125,185,255,.50)"/>
+			<stop offset=".958" stop-color="rgba(90,150,240,.18)"/>
+			<stop offset="1" stop-color="rgba(70,120,210,0)"/>
+		</radialGradient>
+		<filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+			<feGaussianBlur stdDeviation="7"/>
+		</filter>
+	</defs>
+	<rect width="960" height="540" fill="url(#space)"/>
+	<circle cx="480" cy="1560" r="1200" fill="url(#planet)"/>
+	<rect width="960" height="540" fill="url(#atm)"/>
+	<circle cx="480" cy="1560" r="1200" fill="none" stroke="rgba(120,180,255,.85)" stroke-width="7" filter="url(#glow)"/>
+	<circle cx="480" cy="1560" r="1200" fill="none" stroke="#9cc8ff" stroke-width="2.5" opacity=".95"/>
+	<g fill="#fff">
+		<circle cx="70" cy="60" r="1.3" opacity=".7"/>
+		<circle cx="240" cy="48" r="1.1" opacity=".55"/>
+		<circle cx="420" cy="82" r="1.4" opacity=".8"/>
+		<circle cx="736" cy="70" r="1.3" opacity=".65"/>
+		<circle cx="906" cy="58" r=".9" opacity=".5"/>
+		<circle cx="58" cy="252" r=".8" opacity=".3" fill="#cfe0ff"/>
+		<circle cx="902" cy="238" r=".8" opacity=".3"/>
+	</g>
+
+	<!-- 問い＝見出し（世界展開の種＝"first"を一語だけ植える） -->
+	<text x="480" y="190" text-anchor="middle" font-size="60" font-weight="600" letter-spacing="1" fill="#eef3fb">Why Japan first?</text>
+	<!-- thesis＝data-firstの芯（声が「not because I am Japanese」の捻りを足す＝重複しない） -->
+	<text x="480" y="262" text-anchor="middle" font-size="32" fill="#8fa3c8">The data was already there.</text>
+
+	<!-- 配り物＝SDK（npm行＋日付。声が take it / your country stands up を運ぶ） -->
+	<text x="480" y="352" text-anchor="middle" font-size="18" letter-spacing="4" fill="#6f83ab">SDK</text>
+	<rect x="250" y="372" width="460" height="58" rx="8" fill="rgba(16,24,44,.55)" stroke="rgba(255,255,255,.42)" stroke-width="1.5"/>
+	<text x="480" y="410" text-anchor="middle" font-size="28" font-family="ui-monospace, Menlo, monospace" fill="#eef3fb">npm i @ortho-earth/japan</text>
+	<text x="480" y="456" text-anchor="middle" font-size="16" font-family="ui-monospace, Menlo, monospace" fill="#6f83ab">2026.08.24</text>
+
+	<!-- クレジット（3枚共通・右下） -->
+	<g font-size="15" fill="#6f83ab">
+		<text x="804" y="514" text-anchor="end">© 2026</text>
+		<text x="920" y="514" text-anchor="end">Ortho Earth</text>
+	</g>
+	<g transform="translate(812 500) scale(.17)" fill="none" stroke="#6f83ab" stroke-width="7">
+		<ellipse cx="50" cy="50" rx="45" ry="45"/>
+		<ellipse cx="50" cy="50" rx="25" ry="45"/>
+		<path d="M11 28H88 M11 72H88M50 5V95M5 50 H95"/>
+	</g>
+	<rect x=".75" y=".75" width="958.5" height="538.5" rx="10" fill="none" stroke="rgba(148,178,226,.22)" stroke-width="1.5"/>
+</svg>

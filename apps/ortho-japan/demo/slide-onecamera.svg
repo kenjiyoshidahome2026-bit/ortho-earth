@@ -38,7 +38,7 @@
 	</g>
 
 	<text x="480" y="92" text-anchor="middle" font-size="21" letter-spacing="2" fill="#6f83ab">— what you just saw —</text>
-	<text x="480" y="152" text-anchor="middle" font-size="48" font-weight="600" letter-spacing="2" fill="#eef3fb">One camera, one zoom axis</text>
+	<text x="480" y="152" text-anchor="middle" font-size="52" font-weight="600" letter-spacing="2" fill="#eef3fb">One Matrix / One Camera</text>
 
 	<!-- zの数直線：x=120(z=−17)〜x=840(z=+20)＝19.46px/z。細目盛=毎z・太点=途中下車4駅 -->
 	<g stroke="rgba(140,165,210,.35)" stroke-width="1">
@@ -87,10 +87,9 @@
 
 	<!-- 錨の数字＝2^37 を実桁で -->
 	<text x="480" y="374" text-anchor="middle" font-size="40" font-weight="600" font-family="ui-monospace, Menlo, monospace" fill="#eef3fb">2³⁷ = ×137,438,953,472</text>
-	<text x="480" y="410" text-anchor="middle" font-size="22" fill="#8fa3c8">37 doublings — no seams, no mode switch</text>
-	<text x="480" y="444" text-anchor="middle" font-size="18" fill="#6f83ab">flat ⇄ 3D is the same matrix — projection is a slider, not a wall</text>
+	<text x="480" y="412" text-anchor="middle" font-size="22" fill="#8fa3c8">37 doublings · flat map ⇄ 3D — no seams, no discontinuity</text>
 
-	<text x="480" y="496" text-anchor="middle" font-size="20" fill="#8fa3c8">WebGPU sphere · WASM decoders · OPFS/IDB cache — nothing outside your browser</text>
+	<text x="480" y="474" text-anchor="middle" font-size="20" fill="#8fa3c8">WebGPU sphere · WASM decoders · OPFS cache — nothing outside your browser</text>
 
 	<!-- クレジット（3枚共通・右下）: © 2026 [地球儀ロゴ=favicon.svgの血筋] Ortho Earth -->
 	<g font-size="15" fill="#6f83ab">
