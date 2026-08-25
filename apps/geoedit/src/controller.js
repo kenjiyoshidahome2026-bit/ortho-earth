@@ -12,15 +12,19 @@ import { createPopLayer } from "./pop-layer.js";
 import { initToolbar } from "./toolbar.js";
 import { initDrop, exportPanel, idbSave, idbLoad, idbClear } from "./io.js";
 import { createPropsPanel } from "./properties.js";
+import { createLargeModel } from "./large-model.js";
 import { geopbf } from "geopbf";
+import { GeoPBF } from "geopbf/pbf-base";
 
 const BIG = 100_000;          // これ以上の頂点数＝コミットをアイドル寄せ
 const SYNC_REBUILD = 200_000; // これ未満＝再抽出は main 同期（Worker往復より速い）
+// 大規模モード閾値＝既定64MB（全量位相抽出＝JS Map網は数千万頂点でOOM）。?th=n（MB）で上書き可＝本人裁定 8/25
+const LARGE_BYTES = (() => { const n = +new URLSearchParams(location.search).get("th"); return Math.round((n > 0 ? n : 64) * 1048576); })();
 
 export function initEditor(map) {
 	const mapEl = map.mapEl;
 	const ac = new AbortController(), signal = ac.signal;
-	const st = { model: null, selection: null, dragEids: null, hidden: null, sketch: null, snapMark: null, busy: false, bundle: null };
+	const st = { model: null, selection: null, dragEids: null, hidden: null, sketch: null, snapMark: null, busy: false, bundle: null, focus: null };
 	const hist = createHistory();
 	const layer = createGintLayer(map);
 	const overlay = createOverlay(map, mapEl, () => st);
@@ -88,6 +92,19 @@ export function initEditor(map) {
 	};
 	async function commit(moveCamera = false) {
 		if (!st.model) return;
+		if (st.model.large) {   // 大規模モード＝スタイルは restyleProps 直送・自動保存なし（Phase4）。幾何編集だけ g再送（rebake）
+			if (!st.model.geomDirty) return;
+			const genAt = editGen;
+			const done = await layer.resendLarge(st.model);
+			if (done && editGen === genAt && !drag) {   // 新しい焼きが「この時点までの編集」を含んで着地＝隠しを解く（小規模コミットと同じ引き継ぎ規約）
+				st.model.clearGeomDirty();
+				layer.unhide();
+				st.dragEids = null; st.hidden = null;
+				overlay.redraw();
+			}
+			popLayer.sync();
+			return;
+		}
 		const genAt = editGen;
 		const done = await layer.commit(st.model, { moveCamera });
 		// 新gintが「この時点までの編集」を含んで着地＝隠し/オーバレイの役目をここで初めて引き継ぐ
@@ -147,6 +164,8 @@ export function initEditor(map) {
 		finally { st.busy = false; overlay.redraw(); }
 	}
 	async function loadBuffer(buffer, { fly = true, stripEid = false } = {}) {   // geopbfバイト列＝正規経路（GeoJSON中間なし）
+		if (buffer.byteLength >= LARGE_BYTES)   // 取込ルーター：閾値超え＝位相抽出せず大規模モードへ（解析はdecoder worker＝createGeopbf配線済み）
+			return loadLarge(await new GeoPBF({}).set(buffer), { fly });
 		try {
 			st.busy = true;
 			toast("トポロジ抽出中…");
@@ -155,11 +174,33 @@ export function initEditor(map) {
 		} catch (e) { console.error("[geoedit] load failed", e); toast("読み込みに失敗しました"); }
 		finally { st.busy = false; overlay.redraw(); }
 	}
+	// 大規模モード（Phase1＝8/25設計）：gint直表示・identifyAt選択・属性/スタイル/tip/pop編集のみ。
+	// ジオメトリ編集はPhase2（GintBUF部分lift）・書き出しはストリーム置換複写（model.toPbf）・自動保存はPhase4。
+	async function loadLarge(built, { fly = true } = {}) {
+		try {
+			st.busy = true;
+			toast(`大規模モード：GPUデータを焼いています…（${built.length.toLocaleString()}フィーチャ）`);
+			await built.gint();   // GintBUF＝表示と編集背骨の真実源（facade が polygon/polyline 位相を読む＝model 生成より先）
+			const model = createLargeModel(built);
+			for (const w of model.warnings) console.warn("[geoedit]", w);
+			hist.clear();
+			st.selection = null; st.sketch = null; st.bundle = null; st.dragEids = null; st.hidden = null; st.focus = null;
+			props.close();
+			popLayer.clear();
+			st.model = model;
+			setTool("select");
+			await layer.applyLarge(built, model.featsArr, { moveCamera: fly });
+			toast(`大規模モード：${model.feats.size.toLocaleString()}フィーチャ（属性・スタイル・頂点移動／追加削除と自動保存はまだ）`);
+			bar.syncHist(false, false);
+		} catch (e) { console.error("[geoedit] large load failed", e); toast("読み込みに失敗しました"); }
+		finally { st.busy = false; overlay.redraw(); }
+	}
 	async function importFile(file) {
 		try {
 			toast(`変換中… ${file.name}`);
 			const pbf = await geopbf(file, { name: "drop/" + file.name });   // 任意形式→geopbfバイト列（デコードworker）。.geojson は呼ばない
 			if (!pbf) return toast("対応していない形式です");
+			if (pbf.size >= LARGE_BYTES) return loadLarge(pbf);   // 大規模＝この解析済みインスタンスをそのまま真実源に（arrayBufferコピーもしない）
 			const buffer = pbf.arrayBuffer;
 			pbf.destroy?.();   // デコード器の即時解放（旧世代を残さない）
 			await loadBuffer(buffer);
@@ -202,7 +243,10 @@ export function initEditor(map) {
 		overlay.redraw();
 		popLayer.sync();   // @pop の生成/文言変化/除去・構造操作(add/del)を箱へ即反映
 	};
-	const doCmd = cmd => { applyR(cmd); hist.push(cmd); bar.syncHist(hist.canUndo, hist.canRedo); };
+	const doCmd = cmd => {
+		if (st.model?.large && cmd.op !== "props" && cmd.op !== "move") return toast("大規模モードでは属性・スタイルと頂点移動ができます（追加/削除はまだ）");   // 構造操作（arc数が変わる）はPhase3
+		applyR(cmd); hist.push(cmd); bar.syncHist(hist.canUndo, hist.canRedo);
+	};
 	const undo = () => { hist.undo(applyR, c => st.model.invertCmd(c)); bar.syncHist(hist.canUndo, hist.canRedo); };
 	const redo = () => { hist.redo(applyR); bar.syncHist(hist.canUndo, hist.canRedo); };
 
@@ -225,9 +269,21 @@ export function initEditor(map) {
 	};
 
 	// ---- 選択・作図（クリックは editClick スロット＝エンジンの4px裁定済み）----
+	// 大規模モードの編集近傍＝選択＋arc共有する隣接（暴走ガード64件）。gintを消灯しオーバレイが正確に描く＝
+	// LODキャップ（ZCTA=minWeight27焼き付け）や間引きの簡略線が編集ズームで「余計な線」に見える問題の根治（本人特定 8/26）。
+	const focusHood = eid => {
+		if (eid == null || !st.model?.large) return null;
+		const f = st.model.feats.get(eid);
+		if (!f || f.coords) return new Set([eid]);
+		const hood = new Set([eid]);
+		for (const { list } of st.model.listsOf(f)) for (const sref of list)
+			for (const nb of (st.model.arcs.get(sref < 0 ? ~sref : sref)?.refs ?? [])) { hood.add(nb); if (hood.size > 64) return new Set([eid]); }
+		return hood;
+	};
 	const select = eid => {
 		st.selection = eid; st.sketch = null;
-		eid != null && tool === "select" ? props.render(eid) : props.close();   // パネルは選択ツール時のみ（作図中は既定スタイルパネルが主役）
+		if (st.model?.large) { st.focus = focusHood(eid); layer.focus(st.focus); }   // 編集近傍＝gint消灯・オーバレイ描画へ
+		eid != null && tool === "select" ? props.render(eid) : props.close();   // パネルは選択ツール時のみ（作図中は既定スタイルパネルが主役）。選択表示はオーバレイ一本（大規模も同じ＝gint橙強調は撤去 8/26）
 		overlay.redraw();
 	};
 
@@ -404,6 +460,7 @@ export function initEditor(map) {
 		if (!h) return;
 		e.stopPropagation(); e.preventDefault();
 		if (e.altKey && h.kind === "v") {   // Alt+クリック＝頂点削除
+			if (st.model.large) return toast("大規模モードでは頂点の追加/削除はできません（移動のみ）");
 			const addr = st.model.addrOf(h.arcId, h.idx);
 			const cmd = { op: "delete", addr };
 			const res = st.model.applyCmd(cmd);
@@ -538,6 +595,7 @@ export function initEditor(map) {
 
 	// ---- ツールバー結線 ----
 	const setTool = t => {
+		if (st.model?.large && t !== "select") { toast("大規模モード＝選択と属性・スタイル編集のみ（作図・頂点編集は不可）"); t = "select"; }
 		const wasBundle = tool === "bundle";
 		tool = t;
 		cancelSketch();
@@ -555,7 +613,7 @@ export function initEditor(map) {
 		getDefaults: t => drawDefaults[t === "rect" || t === "circle" ? "polygon" : t],   // 矩形/円＝面の既定スタイルを共有
 		setDefaults: (t, partial) => { const k = t === "rect" || t === "circle" ? "polygon" : t; drawDefaults[k] = mergeProps(drawDefaults[k], partial); },
 		importFile,
-		exportOpen: () => exportPanel(document.getElementById("stage"), () => st.model && layer.exportPbf(st.model), toast),
+		exportOpen: () => exportPanel(document.getElementById("stage"), () => st.model && (st.model.large ? st.model.toPbf() : layer.exportPbf(st.model)), toast),   // 大規模＝ストリーム置換複写（幾何はバイト複写・属性だけ再エンコード）
 		clearAll: async () => { if (confirm("編集内容を全て消去して新規セッションを始めますか？")) { await idbClear(); loadFC({ type: "FeatureCollection", features: [] }); } },
 	}, signal);
 	bar.syncHist(false, false);
@@ -567,6 +625,13 @@ export function initEditor(map) {
 		items: ctx => {
 			const under = ctx.lng != null ? (overlay.symbolAt(ctx.x, ctx.y) ?? layer.identify(ctx.lng, ctx.lat, map.getZoom())) : null;
 			const out = [];
+			if (st.model?.large) {   // 大規模モード＝選択/表示系だけ（作図・構造操作はPhase2まで出さない）
+				if (under != null && under !== st.selection) out.push({ name: "この要素を選択", onClick: () => { setTool("select"); select(under); } });
+				const lp = under != null ? st.model.feats.get(under)?.properties?.["@pop"] : null;
+				if (lp != null && lp !== "") out.push({ name: "吹き出し(pop)を表示", onClick: () => popLayer.open(under, { x: ctx.x, y: ctx.y, ll: ctx.lng != null ? [ctx.lng, ctx.lat] : undefined }) });
+				out.push({ name: "座標をコピー", onClick: c => c.lng != null && navigator.clipboard?.writeText(`${c.lat.toFixed(6)}, ${c.lng.toFixed(6)}`) });
+				return out;
+			}
 			if (tool === "bundle") {   // 束ね中＝確定/取消を最上段
 				out.push({ name: `合成を確定（${st.bundle?.size || 0}件・Enter）`, onClick: () => confirmBundle() });
 				out.push({ name: "合成を取消（Esc）", onClick: () => setTool("select") });

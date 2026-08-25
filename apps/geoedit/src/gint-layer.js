@@ -45,7 +45,7 @@ export const DEF = {   // styleform（素人向けUI）が初期値表示に使�
 	radiusPx: 5,         // gint circle はシンボルオーバレイのフォールバック
 };
 
-export function buildStyleTable(featsArr) {   // featsArr＝fid順の feature 参照列（type と properties を見る）
+export function buildStyleTable(featsArr, { forceVisible = false } = {}) {   // featsArr＝fid順の feature 参照列（type と properties を見る）
 	const n = featsArr.length, u32 = new Uint32Array(n * 4);
 	for (let i = 0; i < n; i++) {
 		const f = featsArr[i], p = f?.properties || {};
@@ -56,12 +56,13 @@ export function buildStyleTable(featsArr) {   // featsArr＝fid順の feature �
 		// 点＝overlayのシンボルが唯一の描画。@blur＝overlay(canvas2D)のぼかし塗り（stroke無し）。
 		// @poly＝ポリゴン化した線（帯＝塗り+輪郭+端形状）＝overlay(canvas2D)が描く。
 		// いずれも gint は描かない（visible bit を落とす）。識別は幾何ベースで生きる。
+		// forceVisible＝大規模モード（オーバレイ無し＝gint が唯一の描画）は全て点灯。
 		const isPoint = f?.type === "Point" || f?.type === "MultiPoint";
 		const blurred = +p["@blur"] > 0;
 		const banded = !!p["@poly"] && (f?.type === "LineString" || f?.type === "MultiLineString");   // 端形状=@start/@end（旧@cap0/1）
 		u32[i * 4] = fill;
 		u32[i * 4 + 1] = stroke;
-		u32[i * 4 + 2] = (w << 24) | (r << 8) | ((isPoint || blurred || banded) ? 0 : 1);
+		u32[i * 4 + 2] = (w << 24) | (r << 8) | ((!forceVisible && (isPoint || blurred || banded)) ? 0 : 1);
 	}
 	return u32;
 }
@@ -95,25 +96,44 @@ export function createGintLayer(map) {
 	let baseTable = null;        // @スタイル込みの素の表
 	let hidden = new Set();      // 編集中に隠す eid 群
 	let gen = 0;                 // コミット世代（後勝ち）
+	let large = false;           // 大規模モード（点/blur/帯も gint が描く＝styleTable 全点灯）
+	let focusEids = null;        // 大規模モードの編集近傍（選択+arc共有隣接）＝gint消灯・オーバレイが正確に描く
 
 	const push = () => {
 		if (!baseTable) return;
 		let t = baseTable;
+		const mut = () => (t === baseTable ? (t = baseTable.slice()) : t);
 		if (hidden.size) {
-			t = baseTable.slice();
+			mut();
 			for (const eid of hidden) { const f = eidFid.get(eid); if (f !== undefined) t[f * 4 + 2] &= ~1; }   // visible bit を落とす
+		}
+		if (focusEids?.size) {   // 編集近傍＝gint（LODキャップ/間引きの簡略線）を消してオーバレイの正確な線に一本化
+			mut();
+			for (const eid of focusEids) { const f = eidFid.get(eid); if (f !== undefined) t[f * 4 + 2] &= ~1; }
 		}
 		map.paintTable(t, fidEid.length);
 	};
 
 	let saveBuf = null;          // セッション保存用バッファ＝常に制御点のまま（@spline は表示焼きだけ細分＝再読込の多重細分を封じる）
+	const largeOpts = () => {
+		const st = new Float32Array(256 * 4);
+		st.set([0x78 / 255, 0xaa / 255, 0xdd / 255, 0.30]);        // style0: ポリゴン（低ズーム単色塗り＝DEF.fill 系）
+		st.set([0x2b / 255, 0x5f / 255, 0x8f / 255, 0.88], 4);     // style1: 線（per-fid paint が主役＝これは保険）
+		return { interactive: true, hover: false, minZoom: 2, lowFill: true, style: { styleTable: st } };
+	};
 	return {
 		get pbf() { return pbf; },
 		get saveBuffer() { return saveBuf; },
 		eidOf: fid => fidEid[fid],
 		async commit(model, { moveCamera = false } = {}) {
 			const g = ++gen;
-			if (!model.feats.size) { pbf = null; saveBuf = null; baseTable = null; fidEid = []; eidFid = new Map(); return null; }
+			large = false; focusEids = null;   // 通常コミット＝大規模モードの終了（全消去→新規セッション等）
+			if (!model.feats.size) {
+				// 空＝前の表示を消灯してから手放す（applyGintData は空データを受けない＝可視bitを落として封じる）
+				if (baseTable && fidEid.length) { const t = baseTable.slice(); for (let i = 0; i < fidEid.length; i++) t[i * 4 + 2] &= ~1; map.paintTable(t, fidEid.length); }
+				pbf = null; saveBuf = null; baseTable = null; fidEid = []; eidFid = new Map(); hidden = new Set();
+				return null;
+			}
 			const hasSpline = [...model.feats.values()].some(f => f.properties?.["@spline"]);
 			const { pbf: built, eids } = await encodeModel(model, { withEid: true, name: "geoedit/session", smooth: true });   // __eid一意＝propTub併合の無害化（fid=並び順）。表示用＝@splineは細分
 			await built.gint();           // gint は明示ベイク（worker/WASM、なければJS）
@@ -129,6 +149,38 @@ export function createGintLayer(map) {
 			push();
 			return pbf;
 		},
+		// 大規模モードの点火（Phase1取込ルーター 8/25）：位相抽出せず geopbf を真実源のまま
+		// gint(WASM) 焼き→GPU直行＝ビューアと同じ経路。fid=eid 恒等・スタイルは表で全点灯。
+		// lowFill＝fillOff級でも低ズーム帯（z<outlineZoom）の単色ベタ塗りは生かす（間引き表示にfill＝本人裁定 8/25）。
+		// style0＝その単色塗りの色（無指定はエンジン既定のオレンジ＝14条筆系統）＝geoedit の青灰 DEF.fill に合わせる。
+		async applyLarge(built, featsArr, { moveCamera = true } = {}) {
+			const g = ++gen;
+			await built.gint();   // WASM worker焼き（topology_full＝ZCTA級実証済）。焼き済みなら即返る
+			if (g !== gen) return null;
+			pbf = built; saveBuf = null;   // 自動保存なし（セッションはPhase4＝base丸ごとIDB＋ジャーナル）
+			large = true; hidden = new Set();
+			fidEid = featsArr.map(f => f.fid);
+			eidFid = new Map(fidEid.map((e, i) => [e, i]));
+			map.applyGintData(pbf, "geoedit", moveCamera, largeOpts());
+			baseTable = buildStyleTable(featsArr, { forceVisible: true });
+			push();
+			return pbf;
+		},
+		// g再送（Phase2 ジオメトリ編集のコミット）：in-place 変異済みの unPackGint typed array を
+		// そのまま bake worker へ再送＝GPU束の再焼き。onReady＝焼き上がって表示束が差し替わった瞬間
+		//（それまで旧座標の絵が出ている＝隠し解除はこの後＝小規模コミットの「着地で引き継ぐ」と同じ規約）。
+		async resendLarge(model) {
+			if (!large || !pbf) return null;
+			const g = ++gen;
+			model.refreshDirty();   // arcMeta/fid別bbox の部分再計算（identifyAt の正気）
+			await new Promise(res => {
+				const t = setTimeout(res, 15000);   // 焼きが差し替えで捨てられた等＝保険（genガードが後始末）
+				map.applyGintData(pbf, "geoedit", false, { ...largeOpts(), onReady: () => { clearTimeout(t); res(); } });
+			});
+			if (g !== gen) return null;
+			push();   // paintTable 再送（applyUserSlot 後の着色を確実に）
+			return pbf;
+		},
 		// クリック座標（経緯度）→ eid。gint識別（点→線→面優先・smallest-wins）。
 		// 許容量はメートル固定でなく**画面ピクセル基準**（点12px・線8px）をズームからmへ換算＝
 		// 浅いズームで「見えているのにクリックできない」を防ぐ（identifyAt既定の50m/30mは深ズーム前提）。
@@ -138,10 +190,11 @@ export function createGintLayer(map) {
 			return fid == null || fid < 0 ? null : fidEid[fid] ?? null;
 		},
 		hide(eids) { hidden = new Set(eids); push(); },
+		focus(eids) { focusEids = eids && eids.size ? new Set(eids) : null; if (large) push(); },   // 大規模モードの編集近傍消灯（null=解除）
 		unhide() { if (hidden.size) { hidden = new Set(); push(); } },
 		restyleProps(model) {   // @スタイルだけ即時再焼き（再コミット不要＝色変更のワンテンポ遅れの根治）
 			if (!fidEid.length) return;
-			baseTable = buildStyleTable(fidEid.map(e => model.feats.get(e)));
+			baseTable = buildStyleTable(fidEid.map(e => model.feats.get(e)), { forceVisible: large });
 			push();
 		},
 		restyle() { push(); },   // 表の再送（スロット切替で剥がれた疑いがある時の再点火にも）

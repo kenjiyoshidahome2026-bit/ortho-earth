@@ -7,7 +7,7 @@
 	"scripts": {
 		"dev": "vite",
 		"build": "vite build",
-		"test": "node tests/t-model.mjs && node tests/t-snap.mjs && node tests/t-roundtrip.mjs && node tests/t-history.mjs && node tests/t-combine.mjs",
+		"test": "node tests/t-model.mjs && node tests/t-snap.mjs && node tests/t-roundtrip.mjs && node tests/t-history.mjs && node tests/t-combine.mjs && node tests/t-large.mjs && node tests/t-large-edit.mjs",
 		"verify:ui": "node scripts/verify-ui.mjs",
 		"verify:prod": "node scripts/verify-prod.mjs",
 		"deploy": "npm run verify:prod && rm -rf dist/site/geoedit/moj-local dist/site/geoedit/ai dist/site/geoedit/demo && find dist/site -name .DS_Store -delete && wrangler deploy",

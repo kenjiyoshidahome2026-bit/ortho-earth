@@ -16,6 +16,8 @@
 	"exports": {
 		".": "./src/index.js",
 		"./identify": "./src/extension/identify.js",
+		"./gint": "./src/extension/gint.js",
+		"./topology": "./src/extension/topology.js",
 		"./pbf-base": "./src/pbf-base.js",
 		"./gzip": "./src/modules/gzip.js",
 		"./encodeZIP": "./src/modules/encodeZIP.js",

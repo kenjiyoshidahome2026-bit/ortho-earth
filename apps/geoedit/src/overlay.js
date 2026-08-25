@@ -239,6 +239,7 @@ export function createOverlay(map, mapEl, getState) {
 				dot(sc[0], sc[1], 5, COL.handle, COL.handleRing);
 				handles.push({ x: sc[0], y: sc[1], kind: "v", arcId: aid, idx: i });
 			}
+			if (st.model.large) continue;   // 大規模モード＝中点（挿入）ハンドル無し（arc数を変える操作はPhase2対象外）
 			for (let i = 0; i < n - 1; i++) {   // 中点＝挿入ハンドル
 				const mx = (arc.pts[i * 2] + arc.pts[i * 2 + 2]) / 2, my = (arc.pts[i * 2 + 1] + arc.pts[i * 2 + 3]) / 2;
 				const sc = pr(mx, my);
@@ -257,9 +258,18 @@ export function createOverlay(map, mapEl, getState) {
 		const st = getState();
 		if (!st.model) return;
 		const pr = map.makeProjector();
-		drawBlurs(pr, st);   // 不確定エリアのぼかし塗り（面の下地）
-		drawPolyLines(pr, st);   // ポリゴン化した線＝帯（@poly＝canvas2D 経路）
-		drawSymbols(pr, st);
+		// 大規模モード＝環境系パス（シンボル/blur/帯＝全feats走査）は描かない。選択・ドラッグ中の
+		// フィーチャとハンドルだけ描く（Phase2 頂点編集＝GintBUF lift 済みの arcs を model と同規約で読む）
+		if (!st.model.large) {
+			drawBlurs(pr, st);   // 不確定エリアのぼかし塗り（面の下地）
+			drawPolyLines(pr, st);   // ポリゴン化した線＝帯（@poly＝canvas2D 経路）
+			drawSymbols(pr, st);
+		}
+		// 大規模モードの編集近傍（focus）＝gint消灯中の代役描画（選択とドラッグ分は下の各パスが描く＝重複除外）
+		if (st.model.large && st.focus) for (const eid of st.focus) {
+			if (eid === st.selection || st.dragEids?.has(eid)) continue;
+			drawFeature(pr, st, eid, { fill: false });
+		}
 		if (st.dragEids) for (const eid of st.dragEids) drawFeature(pr, st, eid, { fill: true });
 		if (st.bundle && st.bundle.size) for (const eid of st.bundle) drawBundleHi(pr, st, eid);   // 束ね選集合＝紫のハイライト
 		if (st.selection != null && st.model.feats.has(st.selection)) {
