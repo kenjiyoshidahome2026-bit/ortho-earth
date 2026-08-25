@@ -159,25 +159,29 @@ export function renderCleanScene(data, targetFBO = null) {
 	// 「移動中」は静止4フレームまで含む＝wheel の tick 間の1-2フレーム静止で表現が明滅しない
 	//（MOVE_EDGE_BUDGET の _staticN<4 と同じデバウンス。embedded 以外は _staticN 無し＝_isDrawing のみ）。
 	const moving = s._isDrawing || (s._staticN ?? 99) < 4;
-	const lowZoomEff = lowZoom || (moving && zoomV < oz + 1.5);
+	const lowZoomEff = lowZoom || (moving && zoomV < oz + 1.5) || !!data._forceLow;   // _forceLow＝予算超え巨大層の移動中安表現（embed.js/gpu 同型）
 	// ヒステリシス帯で静止カウント中はフレームを自前で継続要求＝地図が即 idle 化しても正表現へ必ず収束
 	//（予算スキップの settle 復帰と同じ「他人のフレームに相乗りしない」原則）。
 	if (!s._isDrawing && moving && !lowZoom && lowZoomEff) s.requestDraw?.();
-	const hasPoly = (s.polyBboxByFid?.size ?? 0) > 0 && !s.fillOff;   // fillOff＝巨大ポリゴンの自動塗り停止（uploadGintTextures 判定）
+	// fillOff＝巨大ポリゴンの自動塗り停止（uploadGintTextures 判定）。lowFill＝その層だけ低ズーム帯の単色塗りを
+	// 生かす（fillA のフェードが z<oz+1.2 に自然に閉じ込める＝高ズームは従来どおりアウトラインのみ）。
+	// 単色 stencil は常時境界メタ＝隣接データ（ZCTA/筆級）では正味winding≠0のみで桁減＝v1が滑らかに描けていた帯。
+	const hasPoly = (s.polyBboxByFid?.size ?? 0) > 0 && (!s.fillOff || s.lowFill);
 	// 既定塗り＝α0.8（v1 と同値。0.5 も試したが 0.8 へ戻す＝2026-07-26 目視裁定）。
 	// oz 跨ぎで即消しせず oz〜oz+1.2z で 0.8→0 へ線形フェード＝切替を「ポン」でなくグラデーションに溶かす
 	//（z≤oz は clamp で常に 0.8。塗りは境界メタ stencil＝帯の延長コストは実質ゼロ）。移動中は lowZoomEff が
 	// さらに帯を持ち上げるが、フェード式は zoom 連続なので明滅しない。
-	const fillA = st[3] * 0.8 * Math.max(0, Math.min(1, ((oz + 1.2) - zoomV) / 1.2));
+	const fillA = data._forceLow ? st[3] * 0.8   // 安表現中＝フェード無効（内陸ビューでも面のシルエットを残す）
+		: st[3] * 0.8 * Math.max(0, Math.min(1, ((oz + 1.2) - zoomV) / 1.2));
 	const fc = data.fillColor ?? (hasPoly && (lowZoomEff || fillA > 0.004) ? [st[0], st[1], st[2], fillA] : DEF_FILL);
 	// paint（fid スタイル表）が預けられていれば ID バッファ塗り＝per-fid コロプレス（gint draw spec.md §7.2）。
 	// 明示 paint は全ズーム尊重（明示 fillColor と同じ原則）。能力なし/fid 超過/FBO 不成立は従来 stencil へ。
-	const idDone = canUseIdFill() && renderIdFill(data, targetFBO);
+	const idDone = !data._forceLow && canUseIdFill() && renderIdFill(data, targetFBO);   // 安い表現中は idfill（全密度扇）を止める
 	// 単色 stencil 塗りは常時境界メタ（共有 arc は winding 寄与が正味 0＝落としても数学的に同一で桁違いに軽い）。
 	// ID バッファ塗りは fid 重みのため境界メタ不可＝基準メタ固定（renderIdFill 側）。
 	const hasB = !!(s.metaTexB && s.polyEdgesB > 0);
 	const stTex = hasB ? s.metaTexB : metaTex, stCount = hasB ? s.polyEdgesB : s.polyEdges;
-	if (!idDone && fc[3] > 0 && stCount > 0) {
+	if (!idDone && fc[3] > 0 && stCount > 0 && !(data._forceLow && stCount > (data.moveBudget ?? 250_000) * 8)) {   // 安表現中の塗り予算（embed.js sync の canFill と同じ物差し）
 		// occ＝面ドレープの深度統合：チルト（elevScale>0）でのみ建物 bit7 で塗りをスキップ＝真俯瞰は全塗り維持（裁定）
 		const occ = !targetFBO && !!(data.depth && (data.depth.elevScale ?? 0) > 0 && data.depth.hasElev);
 		gl.enable(gl.STENCIL_TEST);
@@ -212,14 +216,17 @@ export function renderCleanScene(data, targetFBO = null) {
 	// ── Fat-line edges ──（低ズーム＝境界メタ＝アウトラインのみ / 中〜高ズーム＝tier＋可視チャンク run）
 	// lowZoom(z<outlineZoom) では筆内部の線は視認不能（ベタ潰れ）＝境界メタで街区外郭だけ描く。
 	// anchor支配で tier が組めない筆系（札幌37万辺=tiers0）の中ズームを桁で軽くする＝ズーム中描画の生命線。
-	if (totalEdges > 0) {
+	const lineOK = !(data._forceLow && !(s.metaTexB && s.totalEdgesB > 0 && s.totalEdgesB <= (data.moveBudget ?? 250_000)));   // 安表現中に境界が予算超＝線パスごと出さない（フル tier へ落とさない＝塗りシルエットのみ）
+	if (!lineOK) { s._pfLineEdges = 0; s._pfTierW = -4; }   // perf印: -4＝安表現で線パス抑止
+	if (totalEdges > 0 && lineOK) {
 		// 境界メタ線パスの安全弁：離散データ（nps_all級）は netting が効かず境界メタ≈全辺（実測120万辺）に
 		// 退化するが、この経路は runs=null＝カリング/tier/ハードキャップの全てをすり抜ける唯一の線パスだった。
 		// 最細 tier（台帳先頭＝minW最小＝辺数最大）の1.5倍を超える境界メタは tier 経路へ（pickLineTier の
 		// 安全弁と同じ物差し）。梯子不在の窓では絶対予算600kと比較＝pickLineTier 側のハードキャップに任せる。
 		// tier が組めない筆系（anchor支配・境界メタが桁減する本来の受益者）は従来どおり境界メタ＝視覚不変。
 		const finestT = s.lodTiers?.length ? s.lodTiers[0] : null;   // minW 昇順台帳＝先頭が最細（辺数最大）
-		const lnB = lowZoomEff && s.metaTexB && s.polyEdgesB > 0
+		const lnB = data._forceLow ? !!(s.metaTexB && s.totalEdgesB > 0 && s.totalEdgesB <= (data.moveBudget ?? 250_000))   // 強制安表現＝境界一択・予算超は線なし（塗りシルエットのみ）
+			: lowZoomEff && s.metaTexB && s.polyEdgesB > 0
 			&& (finestT ? s.totalEdgesB <= finestT.edgeCount * 1.5 : s.totalEdgesB <= 600_000);
 		const lnSel = lnB
 			? { tex: s.metaTexB, count: s.totalEdgesB, runs: null, minW: -2 }   // minW=-2＝perf行で境界パスと分かる印

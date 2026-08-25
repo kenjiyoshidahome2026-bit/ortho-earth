@@ -84,7 +84,10 @@ export function bakeBase(gintData) {
 		}
 	}
 
-	return { base, boundary, polyBboxByFid, outlineZoom, fillOff, capMinW, weightHist, pivot };
+	// lowFill＝fillOff でも低ズーム帯（z<outlineZoom）の単色ベタ塗りだけは生かす層別フラグ（geoedit 大規模モード）。
+	// 低ズーム塗りは境界メタ stencil（正味winding≠0のみ＝隣接データなら桁減）＝v1(ortho-map) が全密度で滑らかに
+	// 描けていた帯であり、fillOff の本来の標的（per-fid idfill・全ズーム常時の全密度扇）とはコスト構造が別。
+	return { base, boundary, polyBboxByFid, outlineZoom, fillOff, lowFill: !!gintData.lowFill, capMinW, weightHist, pivot };
 }
 
 // tier 採否（0.7 ガード）＝構築せずに hist の先読み件数で判定（edgeCount(w)=hist[w]-nUsages、ハーネスで一致証明済）。

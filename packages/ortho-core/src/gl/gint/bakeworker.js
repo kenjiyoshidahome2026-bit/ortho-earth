@@ -25,6 +25,7 @@ onmessage = e => {
 			point:        data.point ?? null,
 			polyCompBbox: data.polyCompBbox ?? null,
 			fillMaxEdges: data.fillMaxEdges ?? null,   // 層ごとの塗り上限上書き（コロプレス土台＝全密度塗りを通す）
+			lowFill:      data.lowFill      ?? false,  // fillOff でも低ズーム単色塗りは生かす（geoedit 大規模モード）
 		};
 		const art = bakeBase(gintData);
 		const plan = tierPlan(gintData, art.base.edgeCount, art.weightHist);

@@ -19,6 +19,7 @@ export const s = {
 	totalEdges: 0, totalPoints: 0,
 	polyEdges: 0,                  // メタ先頭のポリゴン辺数（stencil 塗りはこの範囲だけ＝折れ線をファンさせない）
 	fillOff: false,                // 巨大ポリゴンデータの自動ベタ塗り停止（塗り stencil は LOD/カリング非対応＝辺数がそのまま毎フレーム コスト。uploadGintTextures が判定）
+	lowFill: false,                // fillOff でも低ズーム帯（z<outlineZoom）の単色塗りだけは生かす層別フラグ（geoedit 大規模モード）
 	tiersDone: false,              // tier梯子の遅延構築が完了したか（未完の間だけ pickLineTier が「最細の既存tier」で代用描画）
 
 	// FBOs

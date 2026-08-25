@@ -226,6 +226,7 @@ export function createGintLayerGPU(host, { requestDraw } = {}) {
 		s.polyBboxByFid = art.polyBboxByFid;
 		s.outlineZoom = art.outlineZoom;
 		s.fillOff = art.fillOff;
+		s.lowFill = !!art.lowFill;   // fillOff でも低ズーム帯の単色塗りだけ生かす層別フラグ（geoedit 大規模モード）
 		console.debug("[gint/gpu] edges=%d chunks=%d", s.totalEdges, s.metaChunks?.length ?? 0);
 		if (s.totalEdges > 0) s.metaTex = uploadMetaTex(art.base.metaU32, s.totalEdges);
 		if (s.pivotTex) { s.pivotTex.destroy(); s.pivotTex = null; }
@@ -323,13 +324,13 @@ export function createGintLayerGPU(host, { requestDraw } = {}) {
 	const SLOT_FIELDS = [
 		"gintData", "arcTex", "metaTex", "metaTexB", "ptTex", "ptMetaTex", "pivotTex", "pivotW",
 		"totalEdges", "totalPoints", "polyEdges", "totalEdgesB", "polyEdgesB",
-		"fillOff", "tiersDone", "lodTiers", "metaChunks",
+		"fillOff", "lowFill", "tiersDone", "lodTiers", "metaChunks",
 		"polyEdgeByFid", "polyBboxByFid", "outlineZoom", "minZoom", "maxZoom",
 		"fidStyleTex", "fidStyleW", "_fidStyleH", "fidStyleCount", "_fidStyleData",
 	];
 	const emptySlot = () => ({ gintData: null, arcTex: null, metaTex: null, metaTexB: null, ptTex: null, ptMetaTex: null,
 		pivotTex: null, pivotW: 0, totalEdges: 0, totalPoints: 0, polyEdges: 0, totalEdgesB: 0, polyEdgesB: 0,
-		fillOff: false, tiersDone: false, lodTiers: [], metaChunks: null,
+		fillOff: false, lowFill: false, tiersDone: false, lodTiers: [], metaChunks: null,
 		polyEdgeByFid: null, polyBboxByFid: null, outlineZoom: null, minZoom: null, maxZoom: null,
 		fidStyleTex: null, fidStyleW: 0, _fidStyleH: 0, fidStyleCount: 0, _fidStyleData: null });
 	const slots = new Map();
@@ -379,6 +380,8 @@ export function createGintLayerGPU(host, { requestDraw } = {}) {
 				pointBuffer: data.pointBuffer?.length ? data.pointBuffer : null,
 				point: data.point ?? null,
 				polyCompBbox: data.polyCompBbox ?? null,
+				fillMaxEdges: data.fillMaxEdges ?? null,   // 同期経路でも層別の塗り上限/低ズーム塗りを落とさない（gl/worker.js と同修理）
+				lowFill:      data.lowFill      ?? false,
 			};
 			const art = bakeBase(s.gintData);
 			applyArtifacts(art);
@@ -564,12 +567,25 @@ export function createGintLayerGPU(host, { requestDraw } = {}) {
 		}
 		s.lastMX = NaN; s.lastMY = NaN;
 		const MOVE_EDGE_BUDGET = drawStyle?.moveBudget ?? 250_000;
-		if ((s._pfLineEdges ?? 0) > MOVE_EDGE_BUDGET && s._staticN < 4) {
-			s.lastDrawData = null;
-			s._budgetSkipped = true;
-			return;
+		// 移動中の予算超え＝従来は丸ごとスキップ（層が消える）。境界メタ（共有arc正味0排除＝外郭のみ）が
+		// 予算内ならば「安い表現」（境界線＋低ズーム帯なら単色塗り）へ落として描き続ける＝動いても消えない。
+		// 判定は _forceLowMove でラッチ（安い表現の実測辺数で予算判定が翻ると全/安が明滅するため）＝静止4フレームで解除。
+		if (s._staticN >= 4) s._forceLowMove = false;
+		else if ((s._pfLineEdges ?? 0) > MOVE_EDGE_BUDGET) s._forceLowMove = true;
+		if (s._forceLowMove) {
+			// 安い表現の成立条件：境界線が予算内 or 境界stencil塗り（頂点扇のみ＝線パスより軽い）が予算×4内。
+			// ZCTA型（共有arc相殺＝境界は海岸線だけ）は内陸ビューで境界線が視界に無い＝塗りのシルエットが本体。
+			const canLines = s.metaTexB && s.totalEdgesB > 0 && s.totalEdgesB <= MOVE_EDGE_BUDGET;
+			const canFill = (s.polyBboxByFid?.size ?? 0) > 0 && (!s.fillOff || s.lowFill) && s.polyEdgesB > 0 && s.polyEdgesB <= MOVE_EDGE_BUDGET * 8;   // ×8＝stencil扇は頂点のみ＝線パスより桁軽い。実ZCTA境界=1.03Mを通す実測裁定
+			if (!canLines && !canFill) {   // 境界も塗りも重い（孤立ポリ系）＝従来どおりスキップ
+				s.lastDrawData = null;
+				s._budgetSkipped = true;
+				return;
+			}
+			if (!s._isDrawing) s.requestDraw?.();   // 静止後も自前でフレーム継続＝staticN を進めて正表現へ必ず収束（相乗りしない原則）
 		}
 		const data = { cam, ...(drawStyle || {}) };
+		if (s._forceLowMove) data._forceLow = true;
 		if (!zoomInRange(data)) { s._inRange = false; s.lastDrawData = null; s._pfLineEdges = 0; s._pfTierW = -1; return; }
 		s._inRange = true;
 		if (s.totalEdges === 0 && s.totalPoints === 0) { s.lastDrawData = null; s._pfLineEdges = 0; s._pfTierW = -1; return; }
@@ -598,26 +614,31 @@ export function createGintLayerGPU(host, { requestDraw } = {}) {
 		const zoomV = data.zoom ?? 99, oz = s.outlineZoom ?? OUTLINE_ZOOM;
 		const lowZoom = zoomV < oz;
 		const moving = s._isDrawing || (s._staticN ?? 99) < 4;
-		const lowZoomEff = lowZoom || (moving && zoomV < oz + 1.5);
+		const lowZoomEff = lowZoom || (moving && zoomV < oz + 1.5) || !!data._forceLow;
 		if (!s._isDrawing && moving && !lowZoom && lowZoomEff) s.requestDraw?.();
-		const hasPoly = (s.polyBboxByFid?.size ?? 0) > 0 && !s.fillOff;
-		const fillA = st[3] * 0.8 * Math.max(0, Math.min(1, ((oz + 1.2) - zoomV) / 1.2));
+		const hasPoly = (s.polyBboxByFid?.size ?? 0) > 0 && (!s.fillOff || s.lowFill);   // lowFill＝低ズーム帯の単色塗りは生かす（fillA フェードが z<oz+1.2 に閉じ込める）
+		const fillA = data._forceLow ? st[3] * 0.8   // 安表現中＝フェード無効（内陸ビューでも面のシルエットを残す）
+			: st[3] * 0.8 * Math.max(0, Math.min(1, ((oz + 1.2) - zoomV) / 1.2));
 		const fc = data.fillColor ?? (hasPoly && (lowZoomEff || fillA > 0.004) ? [st[0], st[1], st[2], fillA] : DEF_FILL);
 		const hasB = !!(s.metaTexB && s.polyEdgesB > 0);
 		const stTex = hasB ? s.metaTexB : s.metaTex, stCount = hasB ? s.polyEdgesB : s.polyEdges;
-		const doFill = fc[3] > 0 && stCount > 0 && s.arcTex;
+		const doFill = fc[3] > 0 && stCount > 0 && s.arcTex
+			&& !(data._forceLow && stCount > (data.moveBudget ?? 250_000) * 8);   // 安表現中の塗り予算（sync の canFill と同じ物差し）
 		// コロプレス（paint 時）＝ID バッファ塗り。能力あり＝単色 stencil でなく idfill（優先）。基準メタ固定（fid 重み）
-		const idFill = canUseIdFill() && ensureIdTex();
+		const idFill = !data._forceLow && canUseIdFill() && ensureIdTex();   // 安い表現中は idfill（全密度扇）を止める
 		// 線 tier 選択（passes.js と同判断）
 		let lnSel = null;
 		if (s.totalEdges > 0 && s.arcTex) {
 			const finestT = s.lodTiers?.length ? s.lodTiers[0] : null;
-			const lnB = lowZoomEff && s.metaTexB && s.polyEdgesB > 0
+			const lnB = data._forceLow ? !!(s.metaTexB && s.totalEdgesB > 0 && s.totalEdgesB <= (data.moveBudget ?? 250_000))   // 強制安表現＝境界一択・予算超は線なし（塗りシルエットのみ）
+				: lowZoomEff && s.metaTexB && s.polyEdgesB > 0
 				&& (finestT ? s.totalEdgesB <= finestT.edgeCount * 1.5 : s.totalEdgesB <= 600_000);
 			lnSel = lnB
 				? { tex: s.metaTexB, count: s.totalEdgesB, runs: null, minW: -2, boundary: true }
+				: data._forceLow ? null   // 安表現中に境界が予算超＝線パスは出さない（フル tier へ落とさない）
 				: { ...pickLineTier(data.lodRank ?? 0, s.metaTex, s.totalEdges), boundary: false };
 		}
+		if (!lnSel && data._forceLow) { s._pfLineEdges = 0; s._pfTierW = -4; }   // perf印: -4＝安表現で線パス抑止（塗りシルエットのみ）
 		// GP スロット確定
 		const lw = data.lineWidth ?? 1.0;
 		packGP(ROLE.stencil, {});
@@ -885,7 +906,7 @@ export function createGintLayerGPU(host, { requestDraw } = {}) {
 		gfBuf.destroy(); gpBuf.destroy(); styleBuf.destroy(); idRBuf.destroy();
 		dummyU32.destroy(); dummyF32.destroy();
 		s.gintData = null;
-		s.polyEdgeByFid = null; s.polyBboxByFid = null; s.fillOff = false;
+		s.polyEdgeByFid = null; s.polyBboxByFid = null; s.fillOff = false; s.lowFill = false;
 		s.totalEdges = s.totalPoints = s.polyEdges = 0;
 		s.activeId = -1; s.lastDrawData = null;
 	}

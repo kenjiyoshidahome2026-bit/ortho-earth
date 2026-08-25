@@ -112,6 +112,8 @@ function set(data) {
 			pointBuffer:  pointBuffer?.length ? pointBuffer : null,
 			point:        point ?? null,
 			polyCompBbox: polyCompBbox ?? null,
+			fillMaxEdges: data.data.fillMaxEdges ?? null,   // 同期フォールバックでも層別の塗り上限/低ズーム塗りを落とさない（bakeworker と同じ台帳）
+			lowFill:      data.data.lowFill      ?? false,
 		};
 		uploadGintTextures();
 		({ minZoom: s.minZoom, maxZoom: s.maxZoom } = checkZoomRange({
@@ -124,7 +126,7 @@ function set(data) {
 	} else if (data.cmd === "gint") {   // data 無し＝gint スロットを空に（ドロップ図形のクリア）。
 		// totalEdges===0 の drawNow はキャンバスを消さず早期 return する＝残像が残るので、ここで明示的に1枚消す。
 		deleteTextures();
-		s.gintData = null; s.polyEdgeByFid = null; s.polyBboxByFid = null; s.outlineZoom = null; s.fillOff = false;
+		s.gintData = null; s.polyEdgeByFid = null; s.polyBboxByFid = null; s.outlineZoom = null; s.fillOff = false; s.lowFill = false;
 		s.totalEdges = s.totalPoints = s.polyEdges = 0;
 		s.activeId = -1; s.lastDrawData = null;
 		if (s.gl) { s.gl.bindFramebuffer(s.gl.FRAMEBUFFER, null); s.gl.clearColor(0, 0, 0, 0); s.gl.stencilMask(0xFF); s.gl.clear(s.gl.COLOR_BUFFER_BIT); }
@@ -226,7 +228,7 @@ function destroy() {
 		if (pickPointProgram)   s.gl.deleteProgram(pickPointProgram);
 	}
 	s.programs = null; s.gintData = null;
-	s.polyEdgeByFid = null; s.polyBboxByFid = null; s.fillOff = false;
+	s.polyEdgeByFid = null; s.polyBboxByFid = null; s.fillOff = false; s.lowFill = false;
 	s.totalEdges = s.totalPoints = s.polyEdges = 0;
 	s.activeId = -1; s.lastDrawData = null;
 	postMessage({ action: "done", type: "destroy" });

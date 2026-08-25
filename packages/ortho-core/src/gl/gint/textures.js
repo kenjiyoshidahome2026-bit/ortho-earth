@@ -44,6 +44,7 @@ function applyArtifacts(art) {
 	s.polyBboxByFid = art.polyBboxByFid;
 	s.outlineZoom   = art.outlineZoom;   // 低ズームのベタ塗り切替閾値（ポリゴン無し=null=既定へ）
 	s.fillOff       = art.fillOff;       // 巨大ポリゴンの自動ベタ塗り停止（明示 fillColor は従来どおり尊重）
+	s.lowFill       = !!art.lowFill;     // fillOff でも低ズーム帯の単色塗りだけ生かす層別フラグ（geoedit 大規模モード）
 	console.debug('[gint] edges=%d chunks=%d ck0=%s', s.totalEdges, s.metaChunks?.length ?? 0,
 		JSON.stringify(s.metaChunks?.[0]?.bbox ?? null));   // ck0＝bbox欠落データ（全ゼロ）の検出用
 	if (s.totalEdges > 0) s.metaTex = uploadMetaTex(gl, art.base.metaU32, s.totalEdges);

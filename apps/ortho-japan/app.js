@@ -1668,6 +1668,36 @@ canvas.addEventListener("pointerleave", () => {
 // zの定義は camera.js の radPerDevPx＝2π/(2^z·WORLD_PX·dpr)＝256px世界 → CSS px/rad = 2^z·256/(2π)。
 // v1 gint の 40.74(=256/(2π)) 規約と同目盛り（2026-07-26 の256統一でズレ解消）。
 // 経度側だけ cos(lat) で実角へ。15% マージン。
+// fit用bbox＝経度幅>300°は±180跨ぎ（ZCTAのアリューシャン等）とみなし、素朴min/max（全球幅＝中心0°
+// ＝アフリカ沖へ飛ぶ誤り）を捨てて再計測する。v1の処方（gishub main.js）の移植＝fid別bbox中心の
+// 球面平均で真の重心経度を取り、重心基準の周期正規化で幅を測り直す。フィーチャは encode 時に
+// antimeridianFeature で±180分割済み＝fid別bbox自体は跨がない（半幅拡張が正しく効く根拠）。
+// 返る経度は±180を超え得る＝flyTo/wrapLon が周期を受ける。fid別bbox不在（点のみ等）は素のまま。
+function fitBboxOf(g) {
+	const b = g?.bbox;
+	if (!b || b.length !== 4) return null;
+	if (b[2] - b[0] <= 300) return b;
+	let sx = 0, sy = 0, n = 0;
+	const cs = [];
+	for (const m of [g.polyBboxByFid, g.lineBboxByFid]) {
+		if (!m) continue;
+		for (const bb of m.values()) {   // gint整数単位＝(lon+180)*1e7 / (lat+90)*1e7
+			const lng = (bb[0] + bb[2]) / 2e7 - 180, lat = (bb[1] + bb[3]) / 2e7 - 90;
+			cs.push([lng, lat, (bb[2] - bb[0]) / 2e7, (bb[3] - bb[1]) / 2e7]);   // 中心＋半幅
+			sx += Math.cos(lng * D2R); sy += Math.sin(lng * D2R);
+			n++;
+		}
+	}
+	if (!n) return b;
+	const cl = Math.atan2(sy, sx) / D2R;   // 重心経度（緯度は素のmin/maxが正しいので触らない）
+	let w = Infinity, e = -Infinity, s = Infinity, nn = -Infinity;
+	for (const [lng, lat, hw, hh] of cs) {
+		let dl = lng - cl; dl -= Math.round(dl / 360) * 360;   // 重心基準 [-180,180)
+		if (dl - hw < w) w = dl - hw; if (dl + hw > e) e = dl + hw;
+		if (lat - hh < s) s = lat - hh; if (lat + hh > nn) nn = lat + hh;
+	}
+	return [cl + w, s, cl + e, nn];
+}
 function fitZoomForBbox(b) {
 	const latC = (b[1] + b[3]) / 2;
 	const thX = Math.max(1e-9, (b[2] - b[0]) * Math.cos(latC * D2R) * D2R);
@@ -1681,14 +1711,18 @@ function applyGintData(pbf, label, moveCamera = true, opts = {}) {
 	// gint 単一スロットのユーザー層（14条筆/ドロップGISファイル/AI層）＝世界海岸線と相互切替。pbf 保持＝ホバーで getFeature(id).properties を引く。
 	// style/minZoom は層の属性としてここに預ける（スロット再適用(applyUserSlot)がズーム跨ぎの度に走るため、外に置くと切替で剥がれる）
 	// opts.fillMaxEdges＝この層だけ塗り上限を上げる（フル解像度の行政界コロプレス等・既定 2M の暴走止めを個別解除）。
+	// opts.lowFill＝fillOff のままでも低ズーム帯（z<outlineZoom）の単色ベタ塗りだけ生かす（geoedit 大規模モード）。
 	if (opts.fillMaxEdges) pbf.unPackGint.fillMaxEdges = opts.fillMaxEdges;
-	userGint = { g: pbf.unPackGint, label, pbf, style: opts.style ?? null, minZoom: opts.minZoom ?? GINT_SWAP_Z, interactive: opts.interactive !== false, hover: opts.hover !== false, drapeFill: !!opts.drapeFill, tip: opts.tip ?? null };   // tip＝ホバーtipの持参整形（筆層＝町丁目tipと排他の主導権も取る・census2020限定）
+	if (opts.lowFill) pbf.unPackGint.lowFill = true;
+	// opts.onReady＝この層の焼きが表示束に着地した瞬間の通知（geoedit 大規模モードの g再送＝編集コミットが
+	// 「旧座標の絵が消えた」タイミングを知るための口）。層差し替えで焼きが捨てられた時は呼ばれない＝呼び出し側がタイムアウトで保険。
+	userGint = { g: pbf.unPackGint, label, pbf, style: opts.style ?? null, minZoom: opts.minZoom ?? GINT_SWAP_Z, interactive: opts.interactive !== false, hover: opts.hover !== false, drapeFill: !!opts.drapeFill, tip: opts.tip ?? null, onReady: opts.onReady ?? null };   // tip＝ホバーtipの持参整形（筆層＝町丁目tipと排他の主導権も取る・census2020限定）
 	// bake-ahead：メタ/tier梯子を bake worker で焼き切ってから搭載（render worker はテクスチャ搭載のみ＝
 	// ロード時の同期ベイクで地図が固まらない）。焼き上がりの onDone で sent を立てて再調停＝そこで点火。
 	cancelBake("user");
 	bakeUser();
 	// moj 等はデータ全体へ fit（初期は東京駅、moj のデータは離れた区にある）。ドロップは呼び出し側が flyTo で寄る＝moveCamera=false。
-	if (moveCamera) { const b = pbf.unPackGint.bbox; if (b && b.length === 4) flyTo((b[0] + b[2]) / 2, (b[1] + b[3]) / 2, fitZoomForBbox(b)); }
+	if (moveCamera) { const b = fitBboxOf(pbf.unPackGint); if (b) flyTo((b[0] + b[2]) / 2, (b[1] + b[3]) / 2, fitZoomForBbox(b)); }   // ±180跨ぎ耐性（fitBboxOf＝v1アフリカ飛びバグの根治移植）
 	gintSlot = null;           // 内容が変わった＝再適用を強制
 	updateGintSlot();          // z≥GINT_SWAP_Z ならユーザー層を表示（z<GINT_SWAP_Z は世界海岸線のまま＝世界図の文脈）
 	onMove();
@@ -1934,7 +1968,7 @@ function bakeAndSend(key, raw, meta, onDone) {
 	bakePending.set(id, p);
 	w.postMessage({ id, data: {
 		arcBuffer: raw.arcBuffer, arcMeta: raw.arcMeta, polyStream: raw.polyStream, lineStream: raw.lineStream,
-		pointBuffer: raw.pointBuffer, point: raw.point, polyCompBbox: raw.polyCompBbox, fillMaxEdges: raw.fillMaxEdges } });
+		pointBuffer: raw.pointBuffer, point: raw.point, polyCompBbox: raw.polyCompBbox, fillMaxEdges: raw.fillMaxEdges, lowFill: raw.lowFill } });
 }
 // 海岸線のベイク発火（初回ロード後と、LOW_MEM で束を破棄した後の再入の両方から）。
 let coastBaking = false;
@@ -1954,6 +1988,7 @@ function bakeUser() {
 		if (userGint?.g !== g) return;   // 焼いている間に別の層へ差し替わった＝結果は捨てられている（cancelBake）
 		userGint.baking = false; userGint.sent = true;
 		gintSlot = null; updateGintSlot(); needsDraw = true;
+		userGint.onReady?.();   // 焼き着地の通知（geoedit 大規模編集コミット＝隠し解除の合図）
 		// 預かり paint の着色はここでやらない＝applyUserSlot（user 束が実際に活性になる瞬間）で flush。
 		// ここで送ると z<GINT_SWAP_Z（ドリル飛行中の点灯等）は海岸線束が活性のまま＝paint が海岸線束へ
 		// 迷子になり、z 跨ぎで user 束に載った時は無着色＝既定オレンジ（maff 筆の緑が出ない実測 2026-08-18）。

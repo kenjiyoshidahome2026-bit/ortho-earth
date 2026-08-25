@@ -43,14 +43,14 @@ export function createGintLayer(gl, { requestDraw } = {}) {
 	const SLOT_FIELDS = [
 		'gintData', 'arcTex', 'metaTex', 'metaTexB', 'ptTex', 'ptMetaTex', 'pivotTex', 'pivotW',
 		'totalEdges', 'totalPoints', 'polyEdges', 'totalEdgesB', 'polyEdgesB',
-		'fillOff', 'tiersDone', 'lodTiers', 'metaChunks',
+		'fillOff', 'lowFill', 'tiersDone', 'lodTiers', 'metaChunks',
 		'polyEdgeByFid', 'polyBboxByFid', 'outlineZoom', 'minZoom', 'maxZoom',
 		'fidStyleTex', 'fidStyleW', '_fidStyleH', 'fidStyleCount', '_fidStyleData',   // paint（コロプレス表）も層の属性
 	];
 	// 空束は毎回新品（lodTiers 等の配列参照を共有すると空スロット中の構築が全スロットを汚す）
 	const emptySlot = () => ({ gintData: null, arcTex: null, metaTex: null, metaTexB: null, ptTex: null, ptMetaTex: null,
 		pivotTex: null, pivotW: 0, totalEdges: 0, totalPoints: 0, polyEdges: 0, totalEdgesB: 0, polyEdgesB: 0,
-		fillOff: false, tiersDone: false, lodTiers: [], metaChunks: null,
+		fillOff: false, lowFill: false, tiersDone: false, lodTiers: [], metaChunks: null,
 		polyEdgeByFid: null, polyBboxByFid: null, outlineZoom: null, minZoom: null, maxZoom: null,
 		fidStyleTex: null, fidStyleW: 0, _fidStyleH: 0, fidStyleCount: 0, _fidStyleData: null });
 	const slots = new Map();   // key → bundle（s と同名フィールドの入れ物）
@@ -213,13 +213,26 @@ export function createGintLayer(gl, { requestDraw } = {}) {
 		// 予算は drawStyle.moveBudget で可変（既定 250k）。根拠だった「GPU 100ms級」実測は pivotClip/隠線ガード
 		// 導入前のもの＝実機で測り直して閾値を決め直すためのノブ（Infinity=移動中も常時描画）。
 		const MOVE_EDGE_BUDGET = drawStyle?.moveBudget ?? 250_000;
-		if ((s._pfLineEdges ?? 0) > MOVE_EDGE_BUDGET && s._staticN < 4) {
-			s.lastDrawData = null;   // この間の identify/picking は抑止（古い cam の pick を残さない）
-			s._budgetSkipped = true; // settle(drawn) の復帰フック用＝「スキップ中に地図が idle 化」を検出
-			return;
+		// 予算超え＝従来は移動中丸ごとスキップ（層が消える）。境界メタ（共有arc正味0排除＝外郭のみ）が予算内なら
+		// 「安い表現」（境界線＋低ズーム帯なら単色塗り）へ落として描き続ける＝動いても消えない（gpu/gint.js と同型）。
+		// 判定は _forceLowMove でラッチ（安い表現の実測辺数で予算判定が翻ると全/安が明滅するため）＝静止4フレームで解除。
+		if (s._staticN >= 4) s._forceLowMove = false;
+		else if ((s._pfLineEdges ?? 0) > MOVE_EDGE_BUDGET) s._forceLowMove = true;
+		if (s._forceLowMove) {
+			// 安い表現の成立条件：境界線が予算内 or 境界stencil塗り（頂点扇のみ＝線パスより軽い）が予算×4内。
+			// ZCTA型（共有arc相殺＝境界は海岸線だけ）は内陸ビューで境界線が視界に無い＝塗りのシルエットが本体。
+			const canLines = s.metaTexB && s.totalEdgesB > 0 && s.totalEdgesB <= MOVE_EDGE_BUDGET;
+			const canFill = (s.polyBboxByFid?.size ?? 0) > 0 && (!s.fillOff || s.lowFill) && s.polyEdgesB > 0 && s.polyEdgesB <= MOVE_EDGE_BUDGET * 8;   // ×8＝stencil扇は頂点のみ＝線パスより桁軽い。実ZCTA境界=1.03Mを通す実測裁定
+			if (!canLines && !canFill) {   // 境界も塗りも重い（孤立ポリ系）＝従来どおりスキップ
+				s.lastDrawData = null;   // この間の identify/picking は抑止（古い cam の pick を残さない）
+				s._budgetSkipped = true; // settle(drawn) の復帰フック用＝「スキップ中に地図が idle 化」を検出
+				return;
+			}
+			if (!s._isDrawing) s.requestDraw?.();   // 静止後も自前でフレーム継続＝staticN を進めて正表現へ必ず収束（相乗りしない原則）
 		}
 
 		const data = { cam, ...(drawStyle || {}) };
+		if (s._forceLowMove) data._forceLow = true;
 		if (!zoomInRange(data)) { s._inRange = false; s.lastDrawData = null; s._pfLineEdges = 0; s._pfTierW = -1; return; }   // 範囲外＝描かない（identify も抑止）
 		s._inRange = true;
 		if (s.totalEdges === 0 && s.totalPoints === 0) { s.lastDrawData = null; s._pfLineEdges = 0; s._pfTierW = -1; return; }
@@ -308,7 +321,7 @@ export function createGintLayer(gl, { requestDraw } = {}) {
 							 pointProgram, pickLineProgram, pickPointProgram]) if (p) gl.deleteProgram(p);
 		}
 		s.programs = null; s.gintData = null;
-		s.polyEdgeByFid = null; s.polyBboxByFid = null; s.fillOff = false;
+		s.polyEdgeByFid = null; s.polyBboxByFid = null; s.fillOff = false; s.lowFill = false;
 		s.totalEdges = s.totalPoints = s.polyEdges = 0;
 		s.activeId = -1; s.lastDrawData = null;
 	}
