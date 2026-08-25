@@ -46,6 +46,9 @@ export function stitchGeometry(arcs, f) {
 	if (f.type === "MultiLineString" || f.type === "Polygon") return { type: f.type, coordinates: f.arcs.map(st) };
 	return { type: f.type, coordinates: f.arcs.map(pt => pt.map(st)) };
 }
+
+// ---- @spline（滑らか曲線）＝正本はエンジンの anno ガジェット（ビューア再生と単一実装）。ここは再輸出のみ ----
+export { smoothRing, smoothGeom } from "../../ortho-japan/gadgets/anno.js";
 const listAtPath = (f, path) => {
 	if (f.type === "LineString") return f.arcs;
 	if (f.type === "Polygon" || f.type === "MultiLineString") return f.arcs[path[0]];
@@ -261,6 +264,63 @@ export function createModel(topo) {
 		return { from, to: [x, y] };
 	}
 
+	// ---- 束ね（multi化）：同族の面/線を1フィーチャへ。ジオメトリ（arc）は無傷＝arc.refs を代表eidへ寄せ替えるだけ。
+	//      snap索引/安定アドレスは arc を触らないので不変（＝再抽出不要・可逆）。点は snap 調整が要るため対象外。----
+	const familyOf = t => (t === "Polygon" || t === "MultiPolygon") ? "poly" : (t === "LineString" || t === "MultiLineString") ? "line" : "point";
+	function combineFeatures(eids) {
+		if (!eids || eids.length < 2) return null;
+		const feats = eids.map(e => m.feats.get(e));
+		if (feats.some(f => !f)) return null;
+		const fam = familyOf(feats[0].type);
+		if (fam === "point" || feats.some(f => familyOf(f.type) !== fam)) return null;   // 同族の面/線のみ
+		const parts = eids.map((e, i) => ({ eid: e, type: feats[i].type, arcs: JSON.parse(JSON.stringify(feats[i].arcs)), properties: { ...feats[i].properties } }));   // undo用スナップショット（arcは数値入れ子＝JSON複製で安全）
+		const primary = eids[0], pf = feats[0];
+		const units = [];   // Multi の単位列（面=[ring…]／線=[signed…]）を連結
+		for (let i = 0; i < eids.length; i++) {
+			const f = feats[i];
+			if (f.type === "Polygon" || f.type === "LineString") units.push(f.arcs);   // 単一＝その入れ子が1単位
+			else for (const u of f.arcs) units.push(u);                                 // Multi＝各単位を展開
+			if (i > 0) for (const { list } of listsOf(f)) for (const s of list) m.arcs.get(sidOf(s))?.refs.delete(eids[i]);   // 非代表の参照を外す（共有境界はここで1本へ）
+		}
+		pf.type = fam === "poly" ? "MultiPolygon" : "MultiLineString";
+		pf.arcs = units;
+		for (const { list } of listsOf(pf)) for (const s of list) m.arcs.get(sidOf(s))?.refs.add(primary);   // 束ねた全arcを代表が所有
+		for (let i = 1; i < eids.length; i++) m.feats.delete(eids[i]);
+		return { eid: primary, parts };
+	}
+	function uncombineFeatures(parts) {   // combine の逆＝各パートを保存eidで元の型/arcsへ復元し refs を戻す
+		if (!parts || !parts.length) return null;
+		const pf = m.feats.get(parts[0].eid);   // 代表は今 Multi＝一旦 refs を剥がしてから各パートで貼り直す
+		if (pf) for (const { list } of listsOf(pf)) for (const s of list) m.arcs.get(sidOf(s))?.refs.delete(parts[0].eid);
+		for (const p of parts) {
+			const f = { type: p.type, arcs: JSON.parse(JSON.stringify(p.arcs)), properties: { ...p.properties } };
+			m.feats.set(p.eid, f);
+			for (const { list } of listsOf(f)) for (const s of list) m.arcs.get(sidOf(s))?.refs.add(p.eid);   // 共有境界は各パートが自eidを足す＝元の集合に戻る
+			if (p.eid >= m.nextEid) m.nextEid = p.eid + 1;
+		}
+		return true;
+	}
+
+	function splitFeature(eid, forcedEids) {   // 束ねの逆＝Multi を単位ごとに別フィーチャへ。先頭は eid を再利用・残りは新eid。
+		const f = m.feats.get(eid);
+		if (!f || (f.type !== "MultiPolygon" && f.type !== "MultiLineString")) return null;
+		const units = f.arcs;   // 面=[poly…]／線=[line…]
+		if (units.length < 2) return null;
+		const childType = f.type === "MultiPolygon" ? "Polygon" : "LineString";
+		const props = { ...f.properties };
+		for (const { list } of listsOf(f)) for (const s of list) m.arcs.get(sidOf(s))?.refs.delete(eid);   // 一旦 refs を剥がす
+		const made = [];
+		units.forEach((unit, i) => {
+			const e = i === 0 ? eid : (forcedEids?.[i - 1] ?? m.nextEid++);   // redo は保存eidを再利用（決定的）
+			if (e >= m.nextEid) m.nextEid = e + 1;
+			const nf = { type: childType, arcs: JSON.parse(JSON.stringify(unit)), properties: { ...props } };
+			m.feats.set(e, nf);
+			for (const { list } of listsOf(nf)) for (const s of list) m.arcs.get(sidOf(s))?.refs.add(e);   // 共有境界は各パートが自eidを足す
+			if (i > 0) made.push(e);
+		});
+		return { eids: made };
+	}
+
 	// ---- 穴（内環）：選択ポリゴンへ 1 リング追加/除去。向きは外環と逆へ正規化（winding-sum塗りで穴になる条件）----
 	const shoelace = coords => {   // 符号付き面積（開リング前提）
 		let a = 0;
@@ -447,6 +507,9 @@ export function createModel(topo) {
 			return res;
 		}
 		if (cmd.op === "unhole") return removeRing(cmd.eid, cmd.path);
+		if (cmd.op === "combine") { const r = combineFeatures(cmd.eids); if (r) cmd.parts = r.parts; return r ? r.eid : null; }   // parts＝undo用スナップショットを書き戻す
+		if (cmd.op === "uncombine") return uncombineFeatures(cmd.parts);
+		if (cmd.op === "split") { const r = splitFeature(cmd.eid, cmd.newEids); if (r) cmd.newEids = r.eids; return r ? true : null; }   // newEids＝redo決定化のため書き戻す
 		if (cmd.op === "add") { cmd.eid = addFeature(cmd.feature, cmd.eid); return cmd.eid; }
 		if (cmd.op === "del") {
 			if (!cmd.feature) cmd.feature = featureGeoJSON(cmd.eid, false);
@@ -460,6 +523,9 @@ export function createModel(topo) {
 		if (cmd.op === "insert") return { op: "delete", addr: cmd.addrNew, ll: cmd.ll };
 		if (cmd.op === "hole") return { op: "unhole", eid: cmd.eid, path: cmd.path, ring: cmd.ring };
 		if (cmd.op === "unhole") return { op: "hole", eid: cmd.eid, ring: cmd.ring };
+		if (cmd.op === "combine") return { op: "uncombine", parts: cmd.parts };
+		if (cmd.op === "uncombine") return { op: "combine", eids: cmd.parts.map(p => p.eid) };
+		if (cmd.op === "split") return { op: "combine", eids: [cmd.eid, ...(cmd.newEids || [])] };
 		// 削除の逆＝「1つ前の頂点の後ろへ」挿入。v1は内部頂点しか消せない＝vi≥1 が保証される
 		if (cmd.op === "delete") return { op: "insert", addr: { ...cmd.addr, vi: cmd.addr.vi - 1 }, ll: cmd.ll };
 		if (cmd.op === "add") return { op: "del", eid: cmd.eid, feature: cmd.feature };
@@ -477,7 +543,7 @@ export function createModel(topo) {
 
 	return Object.assign(m, {
 		snap, moveVertex, insertVertex, deleteVertex, movePoint, translateFeature, reindexFeature, addFeature, deleteFeature, addHole, removeRing, pointInRing,
-		toGeoJSON, featureGeoJSON, addrOf, resolveAddr, applyCmd, invertCmd, setGrid, stitch, arcCoords, listsOf,
+		toGeoJSON, featureGeoJSON, addrOf, resolveAddr, applyCmd, invertCmd, setGrid, stitch, arcCoords, listsOf, familyOf,
 		endNodeOf: (aid, end) => endNode.get(aid)?.[end],
 		stats: () => ({ features: m.feats.size, arcs: m.arcs.size, vertices: vcount }),
 	});

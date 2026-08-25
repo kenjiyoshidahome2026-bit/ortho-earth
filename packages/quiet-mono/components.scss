@@ -547,17 +547,24 @@
 }
 /* 引出線の層：地点紐づけ吹き出しの線を描くcanvas（#map一杯・pointerは素通し・pop箱の下） */
 #pop-lines { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
-/* 地点に紐づく吹き出し：箱は画面に留まり線が世界の地点へ。relative は×/📌の錨 */
+/* 地点に紐づく吹き出し：黒系（#tip と同材質＝黒0.75・白文字・細い白枠）＝箱は画面に留まり線が世界の地点へ。
+   relative は×/📌の錨。×/📌はホバー時だけ現れる（📌は白抜き・固定中 .on だけ実色で残す＝錠前表示）。 */
 .pop {
 	position: absolute; max-width: 280px; cursor: grab;
-	font: 12px/1.5 var(--qm-font); color: var(--qm-text);
-	background: var(--qm-panel-solid); border: 1px solid var(--qm-border-soft); border-radius: 5px;
-	padding: 8px 34px 8px 12px; box-shadow: var(--qm-shadow-pop);
+	font: 12px/1.5 var(--qm-font); color: #fff;
+	background: rgba(0, 0, 0, .75); border: 1px solid rgba(255, 255, 255, .2); border-radius: 5px;
+	padding: 8px 34px 8px 12px;
+	.panel-close, .pop-pin { opacity: 0; color: #fff; transition: opacity .12s ease; }   /* 既定は隠す */
+	&:hover .panel-close, &:hover .pop-pin { opacity: 1; }                                 /* ホバーで現れる */
+	.panel-close:hover { background: rgba(255, 255, 255, .15); color: #fff; }              /* 黒地用に上書き（既定の淡色hoverを打ち消す） */
 	.pop-pin {
 		position: absolute; top: 3px; right: 22px; width: 20px; height: 20px; border: none; background: none;
-		font-size: 12px; line-height: 1; cursor: pointer; border-radius: 5px; padding: 0; opacity: .5;
-		&:hover { background: #eef0f3; } &.on { opacity: 1; }
+		cursor: pointer; border-radius: 5px; padding: 3px;   /* 中身は SVG（白抜きは color:#fff→currentColor） */
+		&:hover { background: rgba(255, 255, 255, .15); }
+		&.on { opacity: 1; right: 4px; }   /* 固定中＝ホバー外でも見える（刺さっている印）＋×が消えた右端の席へ */
+		svg { display: block; width: 100%; height: 100%; }
 	}
+	img { max-width: 240px; max-height: 180px; display: block; border-radius: 3px; }   /* @pop は HTML/画像可 */
 }
 
 /* --- 距離・面積の計測：📏ボタン（スタック）＋引き回す線の canvas ＋上辺の読み取り。 --- */

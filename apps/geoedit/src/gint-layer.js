@@ -7,7 +7,7 @@
 // 表レコード（ortho-core style.js §7.1）: R=fill RGBA8 / G=line・circle色 / B=width(1/8px)<<24|dash<<16|radius(1/4px)<<8|flags / flags bit0=visible
 import { geopbf } from "geopbf";                      // side-effect込み＝GeoPBF.prototype に gint()/identifyAt/*File が載る
 import { GeoPBF, makeKeys } from "geopbf/pbf-base";   // ストリームエンコード用（set() を自前でなぞる）
-import { stitchGeometry } from "./model.js";
+import { stitchGeometry, smoothGeom } from "./model.js";
 
 // #rgb / #rrggbb / #rrggbbaa → u32(r<<24|g<<16|b<<8|a)。それ以外は null（既定色へ）
 export function hexColor(s) {
@@ -45,17 +45,23 @@ export const DEF = {   // styleform（素人向けUI）が初期値表示に使�
 	radiusPx: 5,         // gint circle はシンボルオーバレイのフォールバック
 };
 
-export function buildStyleTable(propsArr) {   // propsArr＝fid順の properties 参照列（FCは作らない）
-	const n = propsArr.length, u32 = new Uint32Array(n * 4);
+export function buildStyleTable(featsArr) {   // featsArr＝fid順の feature 参照列（type と properties を見る）
+	const n = featsArr.length, u32 = new Uint32Array(n * 4);
 	for (let i = 0; i < n; i++) {
-		const p = propsArr[i] || {};
+		const f = featsArr[i], p = f?.properties || {};
 		const fill = cssColor(p["@fill"]) ?? DEF.fill;
 		const stroke = cssColor(p["@stroke"]) ?? DEF.stroke;
 		const w = Math.max(1, Math.min(255, Math.round((+p["@width"] > 0 ? +p["@width"] : DEF.widthPx) * 8)));
 		const r = Math.max(1, Math.min(255, Math.round(DEF.radiusPx * 4)));
+		// 点＝overlayのシンボルが唯一の描画。@blur＝overlay(canvas2D)のぼかし塗り（stroke無し）。
+		// @poly＝ポリゴン化した線（帯＝塗り+輪郭+端形状）＝overlay(canvas2D)が描く。
+		// いずれも gint は描かない（visible bit を落とす）。識別は幾何ベースで生きる。
+		const isPoint = f?.type === "Point" || f?.type === "MultiPoint";
+		const blurred = +p["@blur"] > 0;
+		const banded = !!p["@poly"] && (f?.type === "LineString" || f?.type === "MultiLineString");   // 端形状=@start/@end（旧@cap0/1）
 		u32[i * 4] = fill;
 		u32[i * 4 + 1] = stroke;
-		u32[i * 4 + 2] = (w << 24) | (r << 8) | 1;
+		u32[i * 4 + 2] = (w << 24) | (r << 8) | ((isPoint || blurred || banded) ? 0 : 1);
 	}
 	return u32;
 }
@@ -64,14 +70,19 @@ export function buildStyleTable(propsArr) {   // propsArr＝fid順の properties
 // set() と同じ手順（makeKeys→setHead→setBody→close→getPosition）を、setBody の**関数渡し**で
 // 1フィーチャずつ縫合→書き込み→即GC。setFeature は q.geometry へ書き戻す（strictでgetter即死）ため
 // 遅延オブジェクトではなく都度生成の素のオブジェクトを渡す。
-export async function encodeModel(model, { withEid = false, name = "geoedit", precision } = {}) {
+// smooth＝表示用の焼き（gint）だけ true＝@spline を密点に細分。保存/書き出しは false＝制御点のまま（＋@splineフラグ）
+// ＝再読込のたびに再細分する多重化を防ぐ（曲線は制御点からの描画時解釈に一本化）。
+export async function encodeModel(model, { withEid = false, name = "geoedit", precision, smooth = false } = {}) {
 	const eids = [...model.feats.keys()].sort((a, b) => a - b);
 	const propsArr = eids.map(e => withEid ? { ...model.feats.get(e).properties, __eid: e } : model.feats.get(e).properties);
 	const pbf = new GeoPBF({ name, precision: precision ?? model.gridExp });
 	const [keys, bufs] = await makeKeys(propsArr);
 	pbf.setHead(keys, bufs).setBody(() => {
-		for (let i = 0; i < eids.length; i++)
-			pbf.setFeature({ type: "Feature", geometry: stitchGeometry(model.arcs, model.feats.get(eids[i])), properties: propsArr[i] });
+		for (let i = 0; i < eids.length; i++) {
+			let geometry = stitchGeometry(model.arcs, model.feats.get(eids[i]));
+			if (smooth && propsArr[i] && propsArr[i]["@spline"]) geometry = smoothGeom(geometry);   // 表示用のみ曲線化（保存は制御点維持）
+			pbf.setFeature({ type: "Feature", geometry, properties: propsArr[i] });
+		}
 	}).close();
 	await pbf.getPosition();
 	return { pbf, eids };
@@ -95,20 +106,26 @@ export function createGintLayer(map) {
 		map.paintTable(t, fidEid.length);
 	};
 
+	let saveBuf = null;          // セッション保存用バッファ＝常に制御点のまま（@spline は表示焼きだけ細分＝再読込の多重細分を封じる）
 	return {
 		get pbf() { return pbf; },
+		get saveBuffer() { return saveBuf; },
 		eidOf: fid => fidEid[fid],
 		async commit(model, { moveCamera = false } = {}) {
 			const g = ++gen;
-			if (!model.feats.size) { pbf = null; baseTable = null; fidEid = []; eidFid = new Map(); return null; }
-			const { pbf: built, eids } = await encodeModel(model, { withEid: true, name: "geoedit/session" });   // __eid一意＝propTub併合の無害化（fid=並び順）
+			if (!model.feats.size) { pbf = null; saveBuf = null; baseTable = null; fidEid = []; eidFid = new Map(); return null; }
+			const hasSpline = [...model.feats.values()].some(f => f.properties?.["@spline"]);
+			const { pbf: built, eids } = await encodeModel(model, { withEid: true, name: "geoedit/session", smooth: true });   // __eid一意＝propTub併合の無害化（fid=並び順）。表示用＝@splineは細分
 			await built.gint();           // gint は明示ベイク（worker/WASM、なければJS）
 			if (g !== gen) return null;   // 後発コミットに追い抜かれた＝破棄
 			pbf = built;
+			// 保存用＝制御点のまま。@spline が無ければ表示用と同一＝再エンコードしない
+			saveBuf = hasSpline ? (await encodeModel(model, { withEid: true, name: "geoedit/session" })).pbf.arrayBuffer : built.arrayBuffer;
+			if (g !== gen) return null;
 			fidEid = eids;
 			eidFid = new Map(eids.map((e, i) => [e, i]));
 			map.applyGintData(pbf, "geoedit", moveCamera, { interactive: true, hover: false, minZoom: 2 });
-			baseTable = buildStyleTable(eids.map(e => model.feats.get(e).properties));
+			baseTable = buildStyleTable(eids.map(e => model.feats.get(e)));
 			push();
 			return pbf;
 		},
@@ -124,7 +141,7 @@ export function createGintLayer(map) {
 		unhide() { if (hidden.size) { hidden = new Set(); push(); } },
 		restyleProps(model) {   // @スタイルだけ即時再焼き（再コミット不要＝色変更のワンテンポ遅れの根治）
 			if (!fidEid.length) return;
-			baseTable = buildStyleTable(fidEid.map(e => model.feats.get(e)?.properties ?? {}));
+			baseTable = buildStyleTable(fidEid.map(e => model.feats.get(e)));
 			push();
 		},
 		restyle() { push(); },   // 表の再送（スロット切替で剥がれた疑いがある時の再点火にも）

@@ -17,6 +17,8 @@ const ICONS = {
 	move: S('<path d="M12 2v20M2 12h20"/><path d="M12 2l-2.5 3M12 2l2.5 3M12 22l-2.5-3M12 22l2.5-3M2 12l3-2.5M2 12l3 2.5M22 12l-3-2.5M22 12l-3 2.5"/>'),
 	polygon: S('<path d="M12 3.5l8.5 6.2-3.2 10H6.7l-3.2-10z"/><circle cx="12" cy="3.5" r="1.5"/><circle cx="20.5" cy="9.7" r="1.5"/><circle cx="17.3" cy="19.7" r="1.5"/><circle cx="6.7" cy="19.7" r="1.5"/><circle cx="3.5" cy="9.7" r="1.5"/>'),
 	hole: S('<circle cx="6" cy="6" r="2.8"/><circle cx="6" cy="18" r="2.8"/><path d="M20 4L8.2 15.9M8.2 8.1L20 20"/>'),   // 鋏＝旧ツールバー準拠（本人裁定 8/20）
+	bundle: S('<rect x="3" y="5" width="8.5" height="8.5" rx="1"/><rect x="12" y="10.5" width="8.5" height="8.5" rx="1"/>'),   // 束ねる＝2つを1つへ（重なる矩形）
+	explode: S('<rect x="8.5" y="8.5" width="7" height="7" rx="1"/><path d="M5 5l2.6 2.6M19 5l-2.6 2.6M5 19l2.6-2.6M19 19l-2.6-2.6"/>'),   // ばらす＝1つが四方へ
 	imp: S('<path d="M3 7h6l2 2h10v11H3z"/><path d="M12 11v6m0 0l-2.5-2.5M12 17l2.5-2.5"/>'),
 	exp: S('<path d="M12 14V3m0 0L8.5 6.5M12 3l3.5 3.5"/><path d="M4 15v5h16v-5"/>'),
 	trash: S('<path d="M4 7h16M9 7V4h6v3M6.5 7l1 13h9l1-13"/><path d="M10 11v6M14 11v6"/>'),
@@ -51,7 +53,9 @@ export function initToolbar(el, api, signal) {
 		circle: btn("circle", "円を描く（中心→半径の2クリック） (C)", () => api.setTool("circle")),
 		hole: btn("hole", "穴を開ける（ポリゴンの内側に描いてEnter） (H)", () => api.setTool("hole")),
 		move: btn("move", "要素を移動（クリックで選択→ドラッグ） (M)", () => api.setTool("move")),
+		bundle: btn("bundle", "束ねる（同族の面/線をクリックで選び Enter で multi 化・Esc取消） (G)", () => api.setTool("bundle")),
 	};
+	btn("explode", "ばらす（選択中の multi を単体へ分解）", () => api.explode());   // ツールでなく即時アクション
 	const syncTool = t => { for (const [k, b] of Object.entries(tools)) b.classList.toggle("on", k === t); symPanel(t); };
 
 	sep();

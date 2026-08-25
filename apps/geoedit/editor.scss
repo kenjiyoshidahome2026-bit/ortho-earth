@@ -63,10 +63,11 @@
 	position: absolute;
 	top: 54px;
 	right: 10px;
-	width: 260px;
+	width: 280px;
+	max-width: calc(100vw - 20px);
 	max-height: calc(100% - 70px);
 	overflow: auto;
-	padding: 10px 12px;
+	padding: 8px 12px 12px;
 	border-radius: 10px;
 	background: rgba(16, 24, 44, .55);
 	border: 1px solid rgba(255, 255, 255, .14);
@@ -75,7 +76,38 @@
 	font: 12px/1.6 "Noto Sans JP", "Hiragino Sans", "Yu Gothic UI", "Yu Gothic", sans-serif;
 	color: #cdd6e6;
 }
-.ge-panel h3 { margin: 0 0 6px; font-size: 12px; font-weight: 600; opacity: .8; }
+/* タイトル行＝見出し＋削除＋×（左端は本体ラベルと揃え、×は右上の角へ） */
+.ge-panel .ge-head {
+	display: flex; align-items: center; gap: 2px;
+	margin: 0 0 8px; padding-bottom: 6px;
+	border-bottom: 1px solid rgba(255, 255, 255, .12);
+	position: sticky; top: -8px; z-index: 1;
+	background: rgba(16, 24, 44, .85);
+}
+.ge-panel .ge-head h3 { margin: 0; flex: 1; font-size: 12px; font-weight: 600; opacity: .85; }
+.ge-panel .ge-icon-btn {
+	all: unset; cursor: pointer; width: 24px; height: 24px; border-radius: 6px;
+	display: flex; align-items: center; justify-content: center; opacity: .65;
+}
+.ge-panel .ge-icon-btn:last-child { margin-right: -5px; }   /* × を右上の角（本体の右端）へ寄せる */
+.ge-panel .ge-icon-btn:hover { background: rgba(255, 255, 255, .16); opacity: 1; }
+/* 区切り線（見出しの言葉は置かない＝「見た目」削除・本人裁定） */
+.ge-panel .ge-hr { margin: 10px 0 6px; border-top: 1px solid rgba(255, 255, 255, .12); }
+/* 従属行の箱（ポリゴン化ONの塗り色/始点/終点＝左の薄い罫でぶら下がりを見せる） */
+.ge-panel .ge-sub { margin-left: 4px; padding-left: 8px; border-left: 2px solid rgba(255, 255, 255, .1); }
+/* 現在スタイルの見本 */
+.ge-panel .ge-preview {
+	display: flex; align-items: center; justify-content: center;
+	height: 44px; margin: 2px 0 8px; border-radius: 7px;   /* 「見た目」見出し撤去の分＝下に一呼吸 */
+	background:
+		linear-gradient(45deg, rgba(255,255,255,.06) 25%, transparent 25%, transparent 75%, rgba(255,255,255,.06) 75%) 0 0/12px 12px,
+		linear-gradient(45deg, rgba(255,255,255,.06) 25%, transparent 25%, transparent 75%, rgba(255,255,255,.06) 75%) 6px 6px/12px 12px,
+		rgba(0, 0, 0, .18);
+	border: 1px solid rgba(255, 255, 255, .1);
+}
+.ge-panel .ge-preview canvas { display: block; }
+/* 属性バー（＝属性を表示トグル） */
+.ge-panel .ge-attrbar { margin-top: 10px; padding-top: 8px; border-top: 1px solid rgba(255, 255, 255, .12); }
 .ge-panel table { width: 100%; border-collapse: collapse; }
 .ge-panel td { padding: 2px 0; vertical-align: top; }
 .ge-panel td:first-child { opacity: .7; padding-right: 8px; white-space: nowrap; }
@@ -108,16 +140,59 @@
 	gap: 6px;
 	margin: 4px 0;
 }
-.ge-panel .ge-row > label { flex: none; width: 5.5em; opacity: .75; }
-.ge-panel .ge-row input[type="color"] {
+.ge-panel .ge-row > label { flex: none; width: 6.2em; white-space: nowrap; opacity: .75; }   /* 「ツールチップ」等が2行に折り返さない幅 */
+/* 色スウォッチ（定番色の小さなチップ＋末尾に「その他」のネイティブ入力） */
+.ge-panel .ge-swatches { display: flex; flex-wrap: wrap; gap: 4px; flex: 1; min-width: 0; }
+.ge-panel .ge-swatch {
 	all: unset;
-	width: 34px;
-	height: 22px;
+	box-sizing: border-box;
+	width: 18px;
+	height: 18px;
 	border-radius: 5px;
-	overflow: hidden;
 	cursor: pointer;
-	border: 1px solid rgba(255, 255, 255, .2);
+	box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .25);
 }
+.ge-panel .ge-swatch:hover { box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .6); }
+.ge-panel .ge-swatch.on { box-shadow: 0 0 0 2px #fff, inset 0 0 0 1px rgba(0, 0, 0, .35); }
+.ge-panel .ge-swatch-custom { padding: 0; border: 1px dashed rgba(255, 255, 255, .5); }   /* 「その他の色」＝破線で区別（値の色を表示） */
+.ge-panel .ge-swatch-custom::-webkit-color-swatch-wrapper { padding: 0; }
+.ge-panel .ge-swatch-custom::-webkit-color-swatch { border: none; border-radius: 4px; }
+/* 色トリガー＝横長の現色バー＋▾（押すと下のパレットが開く。パレットはそのまま） */
+.ge-panel .ge-color-trigger {
+	all: unset; cursor: pointer; flex: 1; box-sizing: border-box; display: flex; align-items: center; gap: 6px;
+	padding: 3px 8px; border-radius: 6px; background: rgba(255, 255, 255, .08);
+}
+.ge-panel .ge-color-trigger:hover, .ge-panel .ge-color-trigger.open { background: rgba(255, 255, 255, .18); }
+.ge-panel .ge-color-chip { flex: 1; height: 15px; border-radius: 4px; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .3); }
+.ge-panel .ge-color-caret { flex: none; font-size: 9px; opacity: .7; transition: transform .12s; }
+.ge-panel .ge-color-trigger.open .ge-color-caret { transform: rotate(180deg); }
+/* 基本図形パレット（canvas 単色・面積そろえ）のボタン */
+.ge-panel .ge-shape-btn {
+	all: unset; cursor: pointer; position: relative; padding: 3px; margin: 2px 3px 2px 0; border-radius: 6px;
+	background: rgba(255, 255, 255, .08); display: inline-flex; vertical-align: middle;
+}
+.ge-panel .ge-shape-btn:hover { background: rgba(255, 255, 255, .16); }
+.ge-panel .ge-shape-btn.on { background: rgba(120, 170, 255, .28); }
+.ge-panel .ge-shape-btn canvas { display: block; }
+/* pin（3D）を circle と区別する小バッジ */
+.ge-panel .ge-3d-badge {
+	position: absolute; right: -1px; bottom: -1px; padding: 0 2px; border-radius: 4px;
+	font-size: 7px; line-height: 1.3; font-weight: 700; letter-spacing: .02em;
+	background: #4263eb; color: #fff; pointer-events: none;
+}
+/* パレット（行の下にインライン展開）＝12列の整列グリッドで2行を埋める */
+.ge-panel .ge-color-pop {
+	margin: 4px 0 6px; padding: 8px; border-radius: 8px;
+	background: rgba(0, 0, 0, .28); border: 1px solid rgba(255, 255, 255, .12);
+}
+.ge-panel .ge-color-pop .ge-swatches { display: grid; grid-template-columns: repeat(12, 1fr); gap: 5px; }
+.ge-panel .ge-color-pop .ge-swatch { width: 100%; height: auto; aspect-ratio: 1; border-radius: 4px; }
+/* 吹き出しに「↓コピー（上のツールチップをコピー）」小ボタン */
+.ge-panel .ge-copytip {
+	all: unset; cursor: pointer; padding: 1px 8px; border-radius: 5px;
+	font-size: 11px; line-height: 1.5; background: rgba(255, 255, 255, .1); opacity: .85;
+}
+.ge-panel .ge-copytip:hover { background: rgba(255, 255, 255, .2); opacity: 1; }
 .ge-panel .ge-row input[type="range"] { flex: 1; min-width: 70px; accent-color: #78aadd; }
 .ge-panel .ge-row .ge-val { min-width: 3.2em; text-align: right; opacity: .8; }
 .ge-panel .ge-drop {
@@ -129,19 +204,22 @@
 	opacity: .8;
 }
 
-/* @tip ホバーツールチップ（一言＝データのプロパティがそのまま出る） */
+/* @tip ホバーツールチップ（一言＝データのプロパティがそのまま出る）。
+   クリックで同内容が pop になる運用が多い＝pop（.pop）と箱の形・位置を揃える（黒0.75・白文字・角丸5px・
+   左右上下パディングは pop と同じ。ただし pop の右端はアイコン分だけ広い＝ここは合わせない）。 */
 .ge-tip {
 	position: absolute;
-	max-width: 260px;
-	padding: 3px 9px;
-	border-radius: 7px;
-	background: rgba(16, 24, 44, .78);
-	border: 1px solid rgba(255, 255, 255, .14);
-	color: #e8eef8;
+	max-width: 280px;
+	padding: 8px 12px;
+	border-radius: 5px;
+	background: rgba(0, 0, 0, .75);
+	border: 1px solid rgba(255, 255, 255, .2);
+	color: #fff;
 	font: 12px/1.5 "Noto Sans JP", "Hiragino Sans", sans-serif;
 	pointer-events: none;
 	white-space: pre-line;   /* @tip の改行を活かす */
 }
+.ge-tip img { max-width: 200px; max-height: 150px; display: block; border-radius: 3px; }   /* @tip は HTML/画像可 */
 
 /* トースト（「編集はz≥7で」等の一言） */
 .ge-toast {

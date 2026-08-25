@@ -3047,6 +3047,9 @@ const unprojectAt = (clientX, clientY) => { const r = canvas.getBoundingClientRe
 // makeProjector＝カメラ状態を1回だけ束ねた投影関数を返す（多点を1描画で投影＝測距の大圏分割で状態計算を積まない）。
 // unprojectXY＝canvasローカルCSS座標→経緯度（input.onClick が渡す x,y と同座標系）。
 const makeProjector = () => { const st = cameraState(cam, size.w, size.h); return (lon, lat) => { const [sx, sy, f] = project(st, lon, lat, dispRadius(lon, lat)); return [sx / dpr, sy / dpr, f]; }; };
+// makeProjectorH＝高度付き投影（注釈の3Dピン用）：地表（地形持ち上げ込み）から hメートル 上の点を画面へ。
+// 真俯瞰では鉛直変位が画面上ほぼ消える＝ピンは自然に「円」へ縮退・チルトで立つ（annoガジェットが使用）。
+const makeProjectorH = () => { const st = cameraState(cam, size.w, size.h); return (lon, lat, hM) => { const [sx, sy, f] = project(st, lon, lat, dispRadius(lon, lat) + (hM || 0) * (TERR_EXAG / EARTH_M)); return [sx / dpr, sy / dpr, f]; }; };
 const unprojectXY = (x, y) => unproject(cameraState(cam, size.w, size.h), x * dpr, y * dpr);
 // shot（画面保存）用スナップショット：render worker（GLは別スレッド＝mainから読めない）に「今の1枚」を
 // 出させる。gint は 1canvas統合で基図と同じ1枚に写り込む＝旧・別撮り合成（wantGint）は消滅。
@@ -3108,6 +3111,7 @@ map.fitZoomForBbox = fitZoomForBbox;
 map.projectLL = projectLL;             // 経緯度→画面CSS座標[x,y,front]（DOMマーカー用・front<0=裏半球）
 map.unprojectXY = unprojectXY;         // canvasローカルCSS座標→[lon,lat]|null（onClick の x,y と同座標系。球外=null）
 map.makeProjector = makeProjector;     // カメラ状態を1回束ねた投影関数（多点を1フレームで投影＝編集ハンドル用）
+map.makeProjectorH = makeProjectorH;   // 高度付き投影（注釈の3Dピン＝チルトで立つ。annoガジェット用）
 map.setEditClick = fn => { editClick = fn; };   // 派生アプリのクリック横取りスロット（null で解除＝measure/poi と同型）
 map.requestDraw = () => { needsDraw = true; };  // オーバレイ更新後の1フレーム点火（派生アプリの編集描画用）
 map.onFrame = fn => { frameHooks.add(fn); return () => frameHooks.delete(fn); };
@@ -3441,13 +3445,29 @@ function sceneLoading(state) {
 		slCount.textContent = t("準備中…");
 	}
 }
+// 注釈レイヤ（geoedit の @スタイル付き geopbf を canvas2D で再生・単一スロット）＝本体は遅延chunk（起動を重くしない）
+let annoCtl = null;
+map.gadget("anno", async function (pbf) {
+	const m = await import("./gadgets/anno.js");
+	annoCtl ??= m.createAnno(map, { signal: ac.signal });
+	annoCtl.set(pbf);
+	return annoCtl;
+});
+// @スタイルの見分け＝geopbf のキー表に @属性 があるか（描画系の @キーだけ見る＝他レイヤの誤検知を避ける）
+const ANNO_KEYS = new Set(["@shape", "@icon", "@text", "@size", "@fill", "@stroke", "@width", "@tip", "@pop", "@spline", "@blur", "@poly", "@start", "@end", "@cap0", "@cap1", "@cap"]);
 map.gadget("dropFile", function (opts) {   // GISファイルのD&D取り込み … geopbf(File,{gint:true})→applyGintData を loadFile として束ね注入（gint単一スロット＝置き換え）
 	const loadFile = async file => {
 		const pbf = await geopbf(file, { gint: true, name: `drop/${file.name}` }).catch(err => { console.error("[dropFile] geopbf", file.name, err); return null; });
 		if (!pbf?.unPackGint) return null;
 		// 低ズーム描画が速くなった＝先に現在ビューへ図形を描き（カメラは動かさない）、その後 flyTo で寄る。
 		// 瞬間ジャンプ(ポップイン)でなく「図形が現れて→近づく」。着地は真俯瞰(tilt/bearing=0)・北向き＝fit の north-up 前提。
-		applyGintData(pbf, file.name, false, { drape: true });   // 先に描画（gint スロットへ set・識別点火・カメラ据え置き）＋ポリゴンは地形沿い境界線を自動発火
+		if (pbf.keys?.some(k => ANNO_KEYS.has(k))) {   // @スタイル付き＝注釈レイヤ（geoedit 作）＝canvas2D 再生（gint スロットは触らない→前の層は消す）
+			clearUserGint();
+			await map.gadget.anno(pbf);
+		} else {
+			annoCtl?.clear();
+			applyGintData(pbf, file.name, false, { drape: true });   // 先に描画（gint スロットへ set・識別点火・カメラ据え置き）＋ポリゴンは地形沿い境界線を自動発火
+		}
 		const bb = pbf.unPackGint.bbox;
 		if (bb && bb.length === 4) {
 			const cx = (bb[0] + bb[2]) / 2, cy = (bb[1] + bb[3]) / 2;
@@ -3458,7 +3478,7 @@ map.gadget("dropFile", function (opts) {   // GISファイルのD&D取り込み 
 		}
 		return pbf;   // gadget が pbf.length（地物数）をトーストに使う
 	};
-	return dropFileGadget.call(this, { loadFile, clearGint: clearUserGint, playScene, busy: playingNow, signal: ac.signal, ...opts });   // busy＝上映中はドロップ無視（デモ中はドロップ禁止）
+	return dropFileGadget.call(this, { loadFile, clearGint: () => { annoCtl?.clear(); clearUserGint(); }, playScene, busy: playingNow, signal: ac.signal, ...opts });   // busy＝上映中はドロップ無視（デモ中はドロップ禁止）。消去は注釈レイヤも一緒に
 });
 map.gadget("demo", function (opts) {   // デモ（発表の台本再生）… 台本の一行=共有URLハッシュ。flyView（球面フライト）・フライト中判定・PLATEAU先読み・現テーマ名（幕替わり判定）を注入
 	const japanFit = () => {   // 終演の定位置＝日本列島が画面に収まる真俯瞰・北向き（fitBbox と同じ視野幅の逆解き＝縦横どちらの画面でも収まる）

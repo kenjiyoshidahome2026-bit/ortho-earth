@@ -25,7 +25,18 @@ export function createPropsPanel(container, api, signal) {   // api={getFeature(
 		panel = document.createElement("div");
 		panel.className = "ge-panel";
 		const kindLabel = f.type.includes("Poly") ? "面" : f.type.includes("Line") ? "線" : "点";
-		panel.innerHTML = `<h3>スタイル #${eid}（${kindLabel}）</h3>`;
+		// タイトル行＝見出し＋削除＋閉じる（本人裁定：閉じる/削除はここに集約）
+		const head = document.createElement("div");
+		head.className = "ge-head";
+		const h3 = document.createElement("h3"); h3.textContent = `#${eid}（${kindLabel}）`;
+		// 削除／閉じるは同じ太さ・サイズの単色ラインアイコンで揃える（絵文字🗑は色付きで浮くため）
+		const svg = d => `<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
+		const delB = Object.assign(document.createElement("button"), { className: "ge-icon-btn", innerHTML: svg('<path d="M4 7h16M9 7V4h6v3M6.5 7l1 13h9l1-13M10 11v6M14 11v6"/>'), title: "この要素を削除" });
+		const closeH = Object.assign(document.createElement("button"), { className: "ge-icon-btn", innerHTML: svg('<path d="M6 6l12 12M18 6L6 18"/>'), title: "閉じる" });
+		delB.onclick = () => { const e = curEid; close(); api.onDelete?.(e); };
+		closeH.onclick = close;
+		head.append(h3, delB, closeH);
+		panel.append(head);
 
 		// input中のプレビューを跨いで undo の戻り先を守る：最初のプレビューで元propsを控える
 		let pendingFrom = null;
@@ -44,10 +55,9 @@ export function createPropsPanel(container, api, signal) {   // api={getFeature(
 
 		// ---- 属性を表示（生の key/value テーブル＝上級者向け・開いた時だけ）----
 		const togBar = document.createElement("div");
+		togBar.className = "ge-attrbar";
 		const tog = Object.assign(document.createElement("button"), { textContent: "属性を表示 ▸" });
-		const closeB = Object.assign(document.createElement("button"), { textContent: "閉じる" });
-		closeB.onclick = close;
-		togBar.append(tog, closeB);
+		togBar.append(tog);
 		panel.append(togBar);
 		let attr = null;
 		tog.onclick = () => {

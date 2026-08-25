@@ -3,26 +3,19 @@
 // 描くもの＝①@シンボル（点の @icon/@shape/@text/@pop） ②選択中フィーチャの輪郭＋頂点/中点ハンドル
 // ③ドラッグ中ジオメトリ（gint側は paintTable で非表示） ④作図ラバーバンド ⑤スナップ吸着マーク。
 // ハンドルの画面座標は描画時にキャッシュ＝controller の pointerdown ヒットテストと同じ真実源。
+// ★図形/帯/曲線のプリミティブ（PICTO/SHAPE_SCALE/smoothRing/buildLinePath）の正本は
+//   エンジンの anno ガジェット（apps/ortho-japan/gadgets/anno.js）＝ビューア再生と単一実装（pop/tip 共有と同じ型）。
+//   ここは import して再輸出するだけ（styleform 等の既存 import 先を維持）。
+import { SHAPE_NAMES, SHAPE_SCALE, PICTO, buildLinePath, smoothRing } from "../../ortho-japan/gadgets/anno.js";
+export { SHAPE_NAMES, SHAPE_SCALE, PICTO, buildLinePath };
 
 const COL = {
 	edge: "#2b5f8f", edgeShared: "#cc5533", fill: "rgba(120,170,221,.25)",
 	handle: "#ffffff", handleRing: "#2b5f8f", mid: "#ffffff", midRing: "#7f9fbf",
-	sketch: "#d08833", snap: "#33bb77", popBg: "rgba(16,24,44,.78)", popFg: "#e8eef8",
+	sketch: "#d08833", snap: "#33bb77",
+	bundleHi: "#a855f7", bundleFill: "rgba(168,85,247,.18)",   // 束ね選集合のハイライト（選択の青と別色）
 };
-const FONT = '12px "Noto Sans JP","Hiragino Sans",sans-serif';
 
-// 内蔵アイコン（SVG→dataURI・固定配色のピクトグラム）。@icon にはこの名前 か data:URI（画像ドロップ）。
-// マーカー・旗・星は「基本図形」（@fill/@stroke で色が変えられる canvas パス）へ移設＝本人裁定 8/20。
-const ICON_SVG = {
-	home: '<path d="M4 11l8-7 8 7v9h-6v-6h-4v6H4z" fill="#7f9f6f" stroke="#54704a"/>',
-	camera: '<rect x="3" y="7" width="18" height="13" rx="2" fill="#667" stroke="#445"/><circle cx="12" cy="13.5" r="4" fill="#223" stroke="#889"/><rect x="8" y="4" width="8" height="4" rx="1" fill="#667"/>',
-	warn: '<path d="M12 3L22 20H2z" fill="#e0a030" stroke="#986c1c"/><rect x="11" y="9" width="2" height="6" fill="#fff"/><rect x="11" y="16.5" width="2" height="2" fill="#fff"/>',
-	drop: '<path d="M12 3s6 7.4 6 11.5a6 6 0 0 1-12 0C6 10.4 12 3 12 3z" fill="#4a90d9" stroke="#2f5f95"/>',
-	train: '<rect x="5" y="3" width="14" height="14" rx="3" fill="#b05555" stroke="#7c3a3a"/><rect x="7" y="6" width="10" height="5" fill="#e8eef8"/><circle cx="9" cy="14" r="1.5" fill="#fff"/><circle cx="15" cy="14" r="1.5" fill="#fff"/><path d="M7 21l2-3M17 21l-2-3" stroke="#7c3a3a" stroke-width="2"/>',
-};
-export const ICON_NAMES = Object.keys(ICON_SVG);
-export const SHAPE_NAMES = ["pin", "circle", "square", "triangle", "diamond", "star", "flag"];   // pin/flag は足元アンカー
-export const iconURI = name => "data:image/svg+xml," + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">${ICON_SVG[name]}</svg>`);
 
 export function createOverlay(map, mapEl, getState) {
 	const canvas = document.createElement("canvas");
@@ -37,13 +30,15 @@ export function createOverlay(map, mapEl, getState) {
 		canvas.width = w * d; canvas.height = h * d;
 	};
 
+	const pictoCache = new Map();   // シルエット図形の Path2D キャッシュ（毎フレの再パースを避ける）
+	const getPicto = n => pictoCache.get(n) || (pictoCache.set(n, new Path2D(PICTO[n])), pictoCache.get(n));
 	const images = new Map();   // @icon 値 → Image（内蔵名・data:URI・Blob/File 共通のキャッシュ。Blobはインスタンスがキー＝
 	// geopbf復元は同一参照を共有(readValueのbinキャッシュ)＋Worker→mainのstructured cloneもエイリアシング保存＝1画像1Image）
 	const iconImg = v => {
 		let im = images.get(v);
 		if (im) return im.complete ? im : null;
 		im = new Image();
-		if (typeof v === "string") im.src = v.startsWith("data:") ? v : ICON_SVG[v] ? iconURI(v) : "";
+		if (typeof v === "string") im.src = v.startsWith("data:") ? v : "";   // 内蔵アイコン名は廃止＝data:URI か画像のみ
 		else if (v instanceof Blob) im.src = URL.createObjectURL(v);
 		else return null;
 		im.onload = () => map.requestDraw();
@@ -78,16 +73,14 @@ export function createOverlay(map, mapEl, getState) {
 		ctx.fillStyle = fill; ctx.fill();
 		ctx.lineWidth = 1.5; ctx.strokeStyle = ring; ctx.stroke();
 	};
-	const BOTTOM_ANCHOR = new Set(["pin", "flag"]);   // 足元＝座標にアンカー（他は中心）
+	const BOTTOM_ANCHOR = new Set(["marker", "flag"]);   // 足元＝座標にアンカー（pin=3Dピンは球=中心／他も中心）
 	const shapePath = (kind, x, y, r) => {
 		ctx.beginPath();
 		if (kind === "square") ctx.rect(x - r, y - r, r * 2, r * 2);
 		else if (kind === "triangle") { ctx.moveTo(x, y - r); ctx.lineTo(x + r * 0.87, y + r * 0.5); ctx.lineTo(x - r * 0.87, y + r * 0.5); ctx.closePath(); }
 		else if (kind === "diamond") { ctx.moveTo(x, y - r); ctx.lineTo(x + r, y); ctx.lineTo(x, y + r); ctx.lineTo(x - r, y); ctx.closePath(); }
 		else if (kind === "star") { for (let i = 0; i < 10; i++) { const a = -Math.PI / 2 + i * Math.PI / 5, rr = i % 2 ? r * 0.45 : r; ctx[i ? "lineTo" : "moveTo"](x + rr * Math.cos(a), y + rr * Math.sin(a)); } ctx.closePath(); }
-		else if (kind === "pin") { ctx.moveTo(x, y); ctx.arc(x, y - r * 1.15, r * 0.7, Math.PI * 0.75, Math.PI * 2.25); ctx.closePath(); }   // 涙滴＝先端が座標
-		else if (kind === "flag") { ctx.moveTo(x, y); ctx.lineTo(x, y - r * 2); ctx.lineTo(x + r * 1.4, y - r * 1.55); ctx.lineTo(x, y - r * 1.1); ctx.closePath(); }   // ポール＋旗布
-		else ctx.arc(x, y, r, 0, Math.PI * 2);   // circle
+		else ctx.arc(x, y, r, 0, Math.PI * 2);   // circle（pin/flag はシルエット図形 PICTO へ移設）
 	};
 
 	function drawSymbols(pr, st) {
@@ -101,14 +94,24 @@ export function createOverlay(map, mapEl, getState) {
 				const icon = p["@icon"] && iconImg(p["@icon"]);
 				const shape = p["@shape"], text = p["@text"];
 				const textOnly = !icon && !shape && text != null && text !== "";   // テキスト系ラベル＝図形なし・文字が本体
-				const bottom = icon || BOTTOM_ANCHOR.has(shape);
+				const bottom = BOTTOM_ANCHOR.has(shape);   // 画像は中央アンカー（本人裁定）。pin/flag のみ足元
 				// 当たり矩形＝実際に描く範囲（足元アンカーは座標の上に絵が乗る。クリックは絵に対して行われる）
 				if (!textOnly) symHits.push(bottom
 					? { x0: s[0] - size / 2, y0: s[1] - size * 1.1, x1: s[0] + size * (shape === "flag" ? 0.75 : 0.5), y1: s[1], eid }
 					: { x0: s[0] - size / 2, y0: s[1] - size / 2, x1: s[0] + size / 2, y1: s[1] + size / 2, eid });
-				if (icon) ctx.drawImage(icon, s[0] - size / 2, s[1] - size, size, size);   // 底辺アンカー（ピン風）
-				else if (shape) {
-					shapePath(shape, s[0], s[1], size / 2);
+				if (icon) {   // 中央アンカー＋アスペクト比維持：非正方は中央正方形にクロップ（cover＝長辺を上下/左右で削る）
+					const iw = icon.naturalWidth || icon.width, ih = icon.naturalHeight || icon.height, sd = Math.min(iw, ih);
+					ctx.drawImage(icon, (iw - sd) / 2, (ih - sd) / 2, sd, sd, s[0] - size / 2, s[1] - size / 2, size, size);
+				}
+				else if (shape && PICTO[shape]) {   // 単色シルエット図形（pin/flag/家/カメラ等）＝@fillで塗る・穴はevenodd
+					const path = getPicto(shape), bs = size * (SHAPE_SCALE[shape] || 1);   // 面積そろえのスケール
+					ctx.save();
+					ctx.translate(s[0] - bs / 2, bottom ? s[1] - bs : s[1] - bs / 2); ctx.scale(bs / 24, bs / 24);   // 足元アンカーは先端を座標へ
+					ctx.fillStyle = p["@fill"] || "#cc4444"; ctx.fill(path, "evenodd");
+					ctx.lineWidth = 1.4; ctx.strokeStyle = p["@stroke"] || "rgba(0,0,0,.35)"; ctx.stroke(path);
+					ctx.restore();
+				} else if (shape) {
+					shapePath(shape, s[0], s[1], (size / 2) * (SHAPE_SCALE[shape] || 1));   // 塗り面積を大体そろえる
 					ctx.fillStyle = p["@fill"] || "#cc4444"; ctx.fill();
 					ctx.lineWidth = 1.5; ctx.strokeStyle = p["@stroke"] || "rgba(0,0,0,.45)"; ctx.stroke();
 				} else if (!text) dot(s[0], s[1], 4, p["@fill"] || "#cc4444", "rgba(0,0,0,.4)");
@@ -135,41 +138,47 @@ export function createOverlay(map, mapEl, getState) {
 		}
 	}
 
-	// @pop＝引き出し線つき吹き出し。点だけでなく線・面にも出す（アンカー：点=座標・線=中間頂点・面=外環の重心）。
-	// 改行対応＝\n で複数行（tip/pop は改行できる方がわかりやすい＝本人裁定 8/20）。
-	const popAnchor = (st, f) => {
-		if (f.coords) return f.coords[0];
-		const first = st.model.listsOf(f)[0];
-		if (!first) return null;
-		const cs = st.model.stitch(first.list);
-		if (!first.ring) return cs[Math.floor(cs.length / 2)];
-		let sx = 0, sy = 0;
-		const n = cs.length - 1;   // 閉じ重複を除いた平均＝十分な重心近似
-		for (let i = 0; i < n; i++) { sx += cs[i][0]; sy += cs[i][1]; }
-		return [sx / n, sy / n];
-	};
-	function drawPops(pr, st) {
-		const LH = 16;
+	// @pop（引き出し線つき吹き出し）は pop-layer.js が DOM 箱＝エンジンの pop ガジェットで再生（v2 と同一実装）。
+	// canvas 直描きは廃止＝ここでは扱わない。
+
+	// @blur＝不確定エリア＝canvas2D の blur で soft な塗りを描く（stroke なし・面のみ・@spline と併用可）。gint は非描画。
+	function drawBlurs(pr, st) {
 		for (const [eid, f] of st.model.feats) {
-			const pop = f.properties?.["@pop"];
-			if (pop == null || pop === "" || (st.hidden && st.hidden.has(eid))) continue;
-			const a = popAnchor(st, f);
-			if (!a) continue;
-			const s = pr(a[0], a[1]);
-			if (s[2] < 0 || s[0] < -80 || s[0] > W + 80 || s[1] < -80 || s[1] > H + 80) continue;
-			const off = f.coords ? (+f.properties["@size"] > 0 ? +f.properties["@size"] : 24) : 6;
-			ctx.font = FONT;
-			const lines = String(pop).split("\n");
-			let tw = 0;
-			for (const l of lines) tw = Math.max(tw, ctx.measureText(l).width);
-			const bh = lines.length * LH + 8;
-			const bx = s[0] + 14, by = s[1] - off - 12 - bh;
-			ctx.strokeStyle = "rgba(200,210,226,.8)"; ctx.lineWidth = 1;
-			ctx.beginPath(); ctx.moveTo(s[0], s[1] - off * 0.5); ctx.lineTo(bx, by + bh); ctx.stroke();
-			ctx.fillStyle = COL.popBg;
-			ctx.beginPath(); ctx.roundRect(bx, by, tw + 14, bh, 6); ctx.fill();
-			ctx.fillStyle = COL.popFg;
-			lines.forEach((l, i) => ctx.fillText(l, bx + 7, by + 15 + i * LH));
+			if (f.coords || (st.hidden && st.hidden.has(eid))) continue;   // 点／ドラッグ中は対象外
+			const blur = +f.properties?.["@blur"];
+			if (!(blur > 0)) continue;
+			const rings = st.model.listsOf(f).filter(l => l.ring);
+			if (!rings.length) continue;
+			const spline = !!f.properties["@spline"];
+			ctx.save();
+			ctx.filter = `blur(${blur}px)`;
+			ctx.beginPath();
+			for (const { list } of rings) { tracePts(pr, spline ? smoothRing(st.model.stitch(list), true) : st.model.stitch(list)); ctx.closePath(); }
+			ctx.fillStyle = f.properties["@fill"] || "rgba(120,170,221,.5)";
+			ctx.fill("evenodd");
+			ctx.restore();
+		}
+	}
+
+	function drawPolyLines(pr, st) {   // @poly＝ポリゴン化した線（帯）。gint 非描画・blur と同型の canvas2D 経路
+		for (const [eid, f] of st.model.feats) {
+			if (f.coords || (st.hidden && st.hidden.has(eid))) continue;
+			const p = f.properties || {};
+			if (!p["@poly"]) continue;
+			const lists = st.model.listsOf(f).filter(l => !l.ring);   // 線のみ
+			if (!lists.length) continue;
+			const w = +p["@width"] > 0 ? +p["@width"] : 1.5;
+			const capS = p["@start"] || p["@cap0"] || "", capE = p["@end"] || p["@cap1"] || "";   // @cap0/1＝旧名の後方互換（正名=@start/@end・本人裁定）
+			for (const { list } of lists) {
+				const cs = p["@spline"] ? smoothRing(st.model.stitch(list), false) : st.model.stitch(list);
+				const q = [];   // 画面座標の折れ線（大圏分割込み・裏半球は落とす）
+				for (let i = 0; i < cs.length - 1; i++) for (const s of seg(pr, cs[i], cs[i + 1])) if (s[2] >= 0) q.push(s);
+				if (q.length < 2) continue;
+				ctx.beginPath();
+				buildLinePath(ctx, q, w, capS, capE);
+				ctx.fillStyle = p["@fill"] || "rgba(120,170,221,.25)"; ctx.fill();
+				ctx.lineWidth = 1.5; ctx.lineJoin = "round"; ctx.strokeStyle = p["@stroke"] || "#2b5f8f"; ctx.stroke();
+			}
 		}
 	}
 
@@ -185,12 +194,18 @@ export function createOverlay(map, mapEl, getState) {
 			});
 			return;
 		}
-		for (const { list, ring } of st.model.listsOf(f)) {
-			const coords = st.model.stitch(list);
-			if (fill && ring) {
-				ctx.beginPath(); tracePts(pr, coords);
-				ctx.closePath(); ctx.fillStyle = COL.fill; ctx.fill("evenodd");
-			}
+		const lists = st.model.listsOf(f);
+		const spline = !!f.properties?.["@spline"];   // 不確定エリア＝制御点を Catmull-Rom で曲線化して見せる
+		const coordsOf = (list, ring) => spline ? smoothRing(st.model.stitch(list), ring) : st.model.stitch(list);
+		if (fill) {   // 塗りは外環＋穴を一本のパスに入れて一度だけ＝evenoddで穴(内環)は塗られない
+			ctx.beginPath();
+			let any = false;
+			for (const { list, ring } of lists) if (ring) { tracePts(pr, coordsOf(list, ring)); ctx.closePath(); any = true; }
+			if (any) { ctx.fillStyle = COL.fill; ctx.fill("evenodd"); }
+		}
+		if (spline) {   // 曲線＝環/線ごとに一本のストローク（共有arcのアクセントは省く）
+			for (const { list, ring } of lists) { ctx.beginPath(); tracePts(pr, coordsOf(list, ring)); ctx.lineWidth = 2; ctx.strokeStyle = COL.edge; ctx.stroke(); }
+		} else for (const { list } of lists) {
 			// 辺：共有arc（refs>1）はアクセント色＝「ここを動かすと隣も動く」の可視化
 			for (const s of list) {
 				const aid = s < 0 ? ~s : s, arc = st.model.arcs.get(aid);
@@ -198,6 +213,16 @@ export function createOverlay(map, mapEl, getState) {
 				ctx.lineWidth = 2; ctx.strokeStyle = arc.refs.size > 1 ? COL.edgeShared : COL.edge; ctx.stroke();
 			}
 		}
+	}
+	function drawBundleHi(pr, st, eid) {   // 束ね候補の強調：面=薄紫塗り(穴抜き)＋太紫線／線=太紫線／点=紫丸
+		const f = st.model.feats.get(eid);
+		if (!f) return;
+		if (f.coords) { for (const c of f.coords) { const s = pr(c[0], c[1]); if (s[2] >= 0) dot(s[0], s[1], 7, COL.bundleHi, "#fff"); } return; }
+		const lists = st.model.listsOf(f);
+		ctx.beginPath(); let any = false;
+		for (const { list, ring } of lists) if (ring) { tracePts(pr, st.model.stitch(list)); ctx.closePath(); any = true; }
+		if (any) { ctx.fillStyle = COL.bundleFill; ctx.fill("evenodd"); }
+		for (const { list } of lists) { ctx.beginPath(); tracePts(pr, st.model.stitch(list)); ctx.lineWidth = 3.5; ctx.strokeStyle = COL.bundleHi; ctx.stroke(); }
 	}
 	function drawHandles(pr, st, eid) {
 		const f = st.model.feats.get(eid);
@@ -232,9 +257,11 @@ export function createOverlay(map, mapEl, getState) {
 		const st = getState();
 		if (!st.model) return;
 		const pr = map.makeProjector();
+		drawBlurs(pr, st);   // 不確定エリアのぼかし塗り（面の下地）
+		drawPolyLines(pr, st);   // ポリゴン化した線＝帯（@poly＝canvas2D 経路）
 		drawSymbols(pr, st);
-		drawPops(pr, st);
 		if (st.dragEids) for (const eid of st.dragEids) drawFeature(pr, st, eid, { fill: true });
+		if (st.bundle && st.bundle.size) for (const eid of st.bundle) drawBundleHi(pr, st, eid);   // 束ね選集合＝紫のハイライト
 		if (st.selection != null && st.model.feats.has(st.selection)) {
 			drawFeature(pr, st, st.selection, { fill: st.dragEids == null });
 			drawHandles(pr, st, st.selection);
