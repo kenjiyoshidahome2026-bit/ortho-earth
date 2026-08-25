@@ -74,28 +74,54 @@ async function load_gepco(name) {
 	return decode(blob);
 }
 
-async function tiff2data(file) {
+export async function tiff2data(file) {   // export＝実タイル検定用（tests/t-tiff.mjs・workspace専用モジュールにつき公開面への影響なし）
 	try {
 		const buffer = await file.arrayBuffer();
 		const view = new DataView(buffer);
 		const isLittle = view.getUint16(0) === 0x4949;
 		let ifdOffset = view.getUint32(4, isLittle);
 		const numEntries = view.getUint16(ifdOffset, isLittle);
-		let width, height, dataOffset;
+		let width, height, strips = null, counts = null;
+		// タグ値の配列読み：count×サイズが4バイト以内＝値そのものがインライン、超えたら値欄は「配列へのポインタ」。
+		// 旧実装は tag273 を常にインライン単値として読んでいた＝複数ストリップTIFF（米国域ALOSは行毎分割）で
+		// ポインタをデータ先頭と誤読→範囲外 Int16Array で RangeError（12,960,000＝3600×3600 の実障害 8/26）。
+		const readArr = (entryOffset, type, count) => {
+			const size = type === 3 ? 2 : 4;
+			const at = off => (type === 3) ? view.getUint16(off, isLittle) : view.getUint32(off, isLittle);
+			const base = (count * size <= 4) ? entryOffset + 8 : view.getUint32(entryOffset + 8, isLittle);
+			const out = new Array(count);
+			for (let k = 0; k < count; k++) out[k] = at(base + k * size);
+			return out;
+		};
 		for (let i = 0; i < numEntries; i++) {
 			const entryOffset = ifdOffset + 2 + (i * 12);
 			const tag = view.getUint16(entryOffset, isLittle);
 			const type = view.getUint16(entryOffset + 2, isLittle);
-			const getVal = () => (type === 3)
-				? view.getUint16(entryOffset + 8, isLittle)
-				: view.getUint32(entryOffset + 8, isLittle);
-
-			if (tag === 256) width = getVal();      // ImageWidth
-			if (tag === 257) height = getVal();     // ImageLength (Height)
-			if (tag === 273) dataOffset = getVal(); // StripOffsets
+			const count = view.getUint32(entryOffset + 4, isLittle);
+			if (tag === 256) width = readArr(entryOffset, type, 1)[0];        // ImageWidth
+			if (tag === 257) height = readArr(entryOffset, type, 1)[0];       // ImageLength (Height)
+			if (tag === 273) strips = readArr(entryOffset, type, count);      // StripOffsets（複数可）
+			if (tag === 279) counts = readArr(entryOffset, type, count);      // StripByteCounts
+			if (tag === 322) return null;                                     // TileWidth＝タイル型TIFFは非対応（呼び元が null 処理）
 		}
-		if (!width || !height || !dataOffset) return null;
-		const data = new Int16Array(buffer, dataOffset, width * height);
+		if (!width || !height || !strips?.length) return null;
+		const need = width * height;
+		// 単一ストリップ＋偶数オフセット＋範囲内＝従来どおりゼロコピー
+		if (strips.length === 1 && strips[0] % 2 === 0 && strips[0] + need * 2 <= buffer.byteLength)
+			return { width, height, data: new Int16Array(buffer, strips[0], need) };
+		// 複数ストリップ（or 奇数オフセット）＝コピー1回で集約。各ストリップ長は StripByteCounts、無ければ残量で推定
+		const data = new Int16Array(need);
+		let pos = 0;
+		for (let si = 0; si < strips.length && pos < need; si++) {
+			const off = strips[si];
+			if (off == null || off >= buffer.byteLength) return null;
+			const bytes = Math.min(counts?.[si] ?? (need - pos) * 2, buffer.byteLength - off, (need - pos) * 2);
+			const n = bytes >> 1;
+			if (n <= 0) return null;
+			data.set(off % 2 === 0 ? new Int16Array(buffer, off, n) : new Int16Array(buffer.slice(off, off + n * 2)), pos);
+			pos += n;
+		}
+		if (pos < need) return null;   // 足りない＝切詰め/壊れ＝呼び元が「無し」として平地継続
 		return { width, height, data }
 	} catch (e) {
 		console.error("TIFF parse error:", e);

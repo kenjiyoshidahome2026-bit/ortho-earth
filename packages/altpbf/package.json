@@ -17,6 +17,7 @@
 		"./loader": "./src/loader.js"
 	},
 	"scripts": {
+		"test": "node tests/t-tiff.mjs",
 		"verify:npm": "node scripts/verify-npm.mjs"
 	},
 	"dependencies": {
