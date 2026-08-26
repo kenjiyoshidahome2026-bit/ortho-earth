@@ -368,7 +368,9 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 	}
 	// overlay：per-scene の Frame（FRAME_SLOT）＋DrawP（PARAM_SLOT）を dynamic offset で切替。最大 MAX_OV シーン/フレーム。
 	// 末尾スロット GB_SLOT は gintBld（moj筆ドレープ線・独自 origin）が間借り＝同じ dynamic frame 機構を再利用。
-	const MAX_OV = 32, GB_SLOT = MAX_OV, OV_SLOTS = MAX_OV + 1;
+	// gintBld は色別バッチ最大 GB_BATCH_MAX 本（田/畑等の fid 色をドレープへ運ぶ）＝Frame は GB_SLOT を共有し
+	// DrawP（色）だけ GB_SLOT+i の別スロット＝queue.writeBuffer が描画前に全着地しても互いに潰さない。
+	const MAX_OV = 32, GB_SLOT = MAX_OV, GB_BATCH_MAX = 8, OV_SLOTS = MAX_OV + GB_BATCH_MAX;
 	const ovFrameBuf = device.createBuffer({ size: FRAME_SLOT * OV_SLOTS, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
 	const ovParamBuf = device.createBuffer({ size: PARAM_SLOT * OV_SLOTS, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
 	const ovParamCPU = new Float32Array(PARAM_SLOT / 4 * OV_SLOTS);
@@ -410,17 +412,20 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 	function setOverlayHover(s) { disposeOverlay(overlayHover); overlayHover = s ? buildOverlaySlot(s, [0, 0, 0, 0]) : null; }   // 塗り透明＝境界線のみ（太線はシーン側の lineWidth）
 	function setN02(scenes) { for (const o of n02) disposeOverlay(o); n02 = (scenes || []).map(s => buildOverlaySlot(s, [0, 0, 0, 0])); }
 	// gintBld（gint ユーザー層の地形沿い境界線・点）＝独自 origin・BUILDING_WGSL 24B レイアウト・line/point 描画。null=解放。
-	let gintBld = null;   // { origin, color, line?:{bPos,bSh,bAnc,count}, point?:{...} }
+	// data＝{origin, batches:[{lines,points,color}...]}（色別バッチ＝fid色のドレープ）または旧形 {origin,lines,points,color}。
+	let gintBld = null;   // { origin, batches:[{ color, line?:{bPos,bSh,bAnc,count}, point?:{...} }] }
 	function gbMesh(g) {
 		if (!g || !g.pos?.length) return null;
 		return { bPos: makeBuf(g.pos, GPUBufferUsage.VERTEX), bSh: makeBuf(g.shade, GPUBufferUsage.VERTEX), bAnc: makeBuf(g.anchor, GPUBufferUsage.VERTEX), count: g.pos.length / 3 };
 	}
-	function disposeGintBld() { if (gintBld) { for (const m of [gintBld.line, gintBld.point]) if (m) for (const b of [m.bPos, m.bSh, m.bAnc]) b.destroy(); gintBld = null; } }
+	function disposeGintBld() { if (gintBld) { for (const bt of gintBld.batches) for (const m of [bt.line, bt.point]) if (m) for (const b of [m.bPos, m.bSh, m.bAnc]) b.destroy(); gintBld = null; } }
 	function setGintBld(data) {
 		disposeGintBld();
-		const line = gbMesh(data && data.lines), point = gbMesh(data && data.points);
-		if (!line && !point) return;
-		gintBld = { origin: data.origin, color: data.color || null, line, point };
+		if (!data) return;
+		const src = (data.batches || [data]).slice(0, GB_BATCH_MAX);
+		const batches = src.map(b => ({ line: gbMesh(b.lines), point: gbMesh(b.points), color: b.color || null })).filter(b => b.line || b.point);
+		if (!batches.length) return;
+		gintBld = { origin: data.origin, batches };
 	}
 	// overlay 群を描く（基図の上・建物の下・深度off）。per-scene Frame＋DrawP を dynamic offset で切替。
 	// 呼び出し側 draw() が Frame を書く（packFrame の scene origin 版）＝ここは stencil-then-cover＋線の発行だけ。
@@ -1088,18 +1093,21 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 		}
 		// gintBld（gint ユーザー層の地形沿い境界線/点＝moj筆ドレープ）：独自 origin・深度で地形/尾根に遮蔽・マスク無し。
 		// ★常時描画（show3d/skipMain ゲート無し＝GL 同等）＝真俯瞰(elevScaleEff=0)は海面の平面、チルトで地形へ立ち上がる（GL と同じモーフ）。
-		if (gintBld && (gintBld.line || gintBld.point)) {
+		if (gintBld) {
 			ensureOvFrameBG();
-			const gc = gintBld.color || view.bldColor || [0.86, 0.86, 0.85];
 			device.queue.writeBuffer(ovFrameBuf, GB_SLOT * FRAME_SLOT, packFrame(st, gintBld.origin, st.fogDist * 2.5, st.fogDist * 14.0, land, logCoef, dpr));
-			const gpo = GB_SLOT * (PARAM_SLOT / 4);
-			ovParamCPU[gpo] = gc[0]; ovParamCPU[gpo + 1] = gc[1]; ovParamCPU[gpo + 2] = gc[2]; ovParamCPU[gpo + 3] = 1;   // p0=bldColor＋w=グローバルα（BUILDING FS が乗算）
-			device.queue.writeBuffer(ovParamBuf, GB_SLOT * PARAM_SLOT, ovParamCPU.buffer, GB_SLOT * PARAM_SLOT, PARAM_SLOT);
-			pass.setBindGroup(0, ovFrameBG, [GB_SLOT * FRAME_SLOT]);
-			pass.setBindGroup(1, ovParamBG, [GB_SLOT * PARAM_SLOT]);
+			pass.setBindGroup(0, ovFrameBG, [GB_SLOT * FRAME_SLOT]);   // Frame＝origin 共有＝バッチ間で同一
 			pass.setBindGroup(2, emptyMaskBG);   // マスク無し（count=0＝footprint 伏せ無し・固定BGで thrashing 回避）
-			if (gintBld.line) { pass.setPipeline(P.gbLine); pass.setVertexBuffer(0, gintBld.line.bPos); pass.setVertexBuffer(1, gintBld.line.bSh); pass.setVertexBuffer(2, gintBld.line.bAnc); pass.draw(gintBld.line.count); }
-			if (gintBld.point) { pass.setPipeline(P.gbPoint); pass.setVertexBuffer(0, gintBld.point.bPos); pass.setVertexBuffer(1, gintBld.point.bSh); pass.setVertexBuffer(2, gintBld.point.bAnc); pass.draw(gintBld.point.count); }
+			for (let bi = 0; bi < gintBld.batches.length; bi++) {
+				const bt = gintBld.batches[bi];
+				const gc = bt.color || view.bldColor || [0.86, 0.86, 0.85];
+				const gpo = (GB_SLOT + bi) * (PARAM_SLOT / 4);
+				ovParamCPU[gpo] = gc[0]; ovParamCPU[gpo + 1] = gc[1]; ovParamCPU[gpo + 2] = gc[2]; ovParamCPU[gpo + 3] = 1;   // p0=bldColor＋w=グローバルα（BUILDING FS が乗算）
+				device.queue.writeBuffer(ovParamBuf, (GB_SLOT + bi) * PARAM_SLOT, ovParamCPU.buffer, (GB_SLOT + bi) * PARAM_SLOT, PARAM_SLOT);
+				pass.setBindGroup(1, ovParamBG, [(GB_SLOT + bi) * PARAM_SLOT]);
+				if (bt.line) { pass.setPipeline(P.gbLine); pass.setVertexBuffer(0, bt.line.bPos); pass.setVertexBuffer(1, bt.line.bSh); pass.setVertexBuffer(2, bt.line.bAnc); pass.draw(bt.line.count); }
+				if (bt.point) { pass.setPipeline(P.gbPoint); pass.setVertexBuffer(0, bt.point.bPos); pass.setVertexBuffer(1, bt.point.bSh); pass.setVertexBuffer(2, bt.point.bAnc); pass.draw(bt.point.count); }
+			}
 		}
 		// PLATEAU LOD2 建物メッシュ（任意三角形・面法線陰影）。バッチ単位フラスタムカリング＋高さLOD打ち切り。
 		// per-batch uniform（meshOrigin/clipMesh/cullBack）は dynamic offset UBO で1バッチ1スロット。

@@ -1827,15 +1827,41 @@ async function standupGint(liftM = 0, { auto = false } = {}) {
 	const s = feats.find(f => f?.geometry?.coordinates)?.geometry?.coordinates?.flat(Infinity);
 	if (s && (s[0] < b[0] - 1 || s[0] > b[2] + 1 || s[1] < b[1] - 1 || s[1] > b[3] + 1))
 		console.warn("[standup] ⚠ geojson coords (%o,%o) outside bbox [%o..%o] = possibly local CRS. convert CRS if lines misalign", s[0].toFixed?.(3), s[1].toFixed?.(3), b[0].toFixed?.(2), b[2].toFixed?.(2));
-	const geo = buildDrapedGeometry(feats, origin, { liftM });   // { lines, points }（ポリゴン境界＋線＋点）
-	const has = !!(geo.lines || geo.points);
-	// 色は層の持参色（style1=線色 rgb）から。moj/ドロップは style 無し＝既定オレンジ（14条筆の系統色）、AI層は plan の色。
+	// 色は fid 塗り表（paintTable）があれば線色でグループ化＝田/畑等の色分けをドレープへ運ぶ（census筆・2026-08-27）。
+	// 表が無い/数が合わない/色数過多（>8＝rendererのバッチ上限）は従来どおり単色＝層の持参色（style1=線色 rgb）。
+	// moj/ドロップは style 無し＝既定オレンジ（14条筆の系統色）、AI層は plan の色。
 	const st = userGint?.style?.styleTable;
-	const col = st && st.length >= 8 ? [st[4], st[5], st[6]] : [1.0, 0.55, 0.15];
-	renderer.set("gintBld", has ? { origin, lines: geo.lines, points: geo.points, color: col } : null);
+	const defCol = st && st.length >= 8 ? [st[4], st[5], st[6]] : [1.0, 0.55, 0.15];
+	const u2rgb = u => [(u >>> 24) / 255, ((u >>> 16) & 255) / 255, ((u >>> 8) & 255) / 255];   // packRGBA＝R<<24|G<<16|B<<8|A
+	let batches = null;
+	const tbl = gintPaintLast?.table;
+	if (tbl && gintPaintLast.count === feats.length) {
+		const groups = new Map();   // 線色u32（無ければ塗り色）→ feature配列
+		for (let i = 0; i < feats.length; i++) {
+			const u = (tbl[i * 4 + 1] || tbl[i * 4] || 0) >>> 0;
+			let g = groups.get(u); if (!g) groups.set(u, g = []);
+			g.push(feats[i]);
+		}
+		if (groups.size > 1 && groups.size <= 8) {
+			batches = [];
+			for (const [u, sub] of groups) {
+				const geo = buildDrapedGeometry(sub, origin, { liftM });
+				if (geo.lines || geo.points) batches.push({ lines: geo.lines, points: geo.points, color: u ? u2rgb(u) : defCol });
+			}
+			if (!batches.length) batches = null;
+		}
+	}
+	if (!batches) {
+		const geo = buildDrapedGeometry(feats, origin, { liftM });
+		if (geo.lines || geo.points) batches = [{ lines: geo.lines, points: geo.points, color: defCol }];
+	}
+	const has = !!batches;
+	renderer.set("gintBld", has ? { origin, batches } : null);
 	drapedOn = has;   // draped が出た層＝gint層の2D視覚は消す（二重線解消・識別は裏で生存）
 	needsDraw = true;
-	console.log("[standup] %s: features %d -> lines %d, points %d (lift %dm)%s", auto ? "auto" : "manual", feats.length, geo.lines ? geo.lines.pos.length / 6 : 0, geo.points ? geo.points.pos.length / 3 : 0, liftM, has ? "" : " = zero generated");
+	const nl = (batches ?? []).reduce((a, b) => a + (b.lines ? b.lines.pos.length / 6 : 0), 0);
+	const np = (batches ?? []).reduce((a, b) => a + (b.points ? b.points.pos.length / 3 : 0), 0);
+	console.log("[standup] %s: features %d -> lines %d, points %d, batches %d (lift %dm)%s", auto ? "auto" : "manual", feats.length, nl, np, batches?.length ?? 0, liftM, has ? "" : " = zero generated");
 }
 dbgHost.__standup = (liftM = DRAPE_LIFT_M) => standupGint(liftM);   // 手動ノブ（実験）。既定=DRAPE_LIFT_M。null で解除・大きくすると浮く
 // 重複可視化＝登記データの品質監査プローブ。通常塗りをせず winding 和の異常画素だけを色分け：
@@ -2000,11 +2026,13 @@ function bakeUser() {
 // なる（AI層が paint をロード直後に適用するケース）。未 sent の間は預かり、bakeUser の onDone
 //（gintSlot 適用後＝user がアクティブ）で着色する。null（解除）も同じ経路＝順序が保たれる。
 function sendGintPaint(p) {
+	gintPaintLast = p;   // standupGint（地形ドレープ）が fid 色でバッチを組むための最新表（null=解除も記録）
 	// 未ベイクに加え「user スロットが非活性（海岸線表示中＝z<GINT_SWAP_Z 等）」も預かる＝
 	// アクティブ束が user でない間に送ると海岸線束へ着地して失われる（applyUserSlot が flush）。
 	if (userGint && (!userGint.sent || gintSlot !== "user")) { userGint.pendingPaint = p; return; }
 	renderer.set("gintPaint", p);
 }
+let gintPaintLast = null;   // 最後に要求された fid→RGBA 表（層差し替えで features 数が合わなくなれば standupGint 側が無視）
 function applyCoastSlot() {
 	if (!coastGint) return;
 	if (!coastSent) { bakeCoast(); return; }   // ベイク中/未ベイク＝焼き上がりの onDone が再調停する

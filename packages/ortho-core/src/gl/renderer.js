@@ -277,10 +277,12 @@ export function createRenderer(canvas, rOpts = {}) {
 		scenes[slot] = { origin: s.origin, draws, bld };
 	}
 
-	// gint ユーザー層の地形沿いジオメトリを差し替え。data={ origin:[lon,lat], lines:{pos,shade,anchor}?, points:{…}?, color? }。
+	// gint ユーザー層の地形沿いジオメトリを差し替え。data＝{origin, batches:[{lines,points,color}...]}（色別バッチ＝
+	// 田/畑等の fid 色をドレープへ運ぶ）または旧形 { origin, lines:{pos,shade,anchor}?, points:{…}?, color? }。
 	// 全て BUILDING_VS の 24B レイアウト（a_pos xyz / a_shade / a_anchor）＝bldProg で line=GL_LINES / point=GL_POINTS 描画。null=解放。
 	function setGintBld(data) {
-		if (gintBld) { for (const b of gintBld.bufs) gl.deleteBuffer(b); if (gintBld.lineVAO) gl.deleteVertexArray(gintBld.lineVAO); if (gintBld.pointVAO) gl.deleteVertexArray(gintBld.pointVAO); gintBld = null; }
+		if (gintBld) { for (const bt of gintBld.batches) { for (const b of bt.bufs) gl.deleteBuffer(b); if (bt.lineVAO) gl.deleteVertexArray(bt.lineVAO); if (bt.pointVAO) gl.deleteVertexArray(bt.pointVAO); } gintBld = null; }
+		if (!data) return;
 		const mk = g => {
 			if (!g || !g.pos.length) return null;
 			const vao = gl.createVertexArray();
@@ -290,13 +292,17 @@ export function createRenderer(canvas, rOpts = {}) {
 			gl.bindVertexArray(null);
 			return { vao, count: g.pos.length / 3, bufs: [bP, bS, bA] };
 		};
-		const L = mk(data && data.lines), P = mk(data && data.points);
-		if (!L && !P) return;
-		gintBld = {
-			lineVAO: L?.vao || null, lineCount: L?.count || 0,
-			pointVAO: P?.vao || null, pointCount: P?.count || 0,
-			bufs: [...(L?.bufs || []), ...(P?.bufs || [])], origin: data.origin, color: data.color || null,
-		};
+		const batches = (data.batches || [data]).map(b => {
+			const L = mk(b.lines), P = mk(b.points);
+			if (!L && !P) return null;
+			return {
+				lineVAO: L?.vao || null, lineCount: L?.count || 0,
+				pointVAO: P?.vao || null, pointCount: P?.count || 0,
+				bufs: [...(L?.bufs || []), ...(P?.bufs || [])], color: b.color || null,
+			};
+		}).filter(Boolean);
+		if (!batches.length) return;
+		gintBld = { origin: data.origin, batches };
 	}
 
 	// 標高アトラス：セル群を1枚のテクスチャに敷く。a:{originLng,originLat,cellsX,cellsY,cellRes,cellSpan}
@@ -956,17 +962,19 @@ export function createRenderer(canvas, rOpts = {}) {
 		//   チルトで滑らかに地形へ立ち上がる（同じ線が elevScale でモーフ＝ポップしない）。独自 origin・深度で地形/尾根に遮蔽。
 		// fillなし＝GL_LINES。PLATEAUマスク不要(count0)。
 		if (gintBld) {
-			const c = gintBld.color || view.bldColor || [0.86, 0.86, 0.85];
 			setCommonUniforms(bldProg, st, gintBld.origin, land);
-			gl.uniform3f(loc(gl, bldProg, "u_bldColor"), c[0], c[1], c[2]);
 			gl.uniform1i(loc(gl, bldProg, "u_plateauCount"), 0);
 			for (let i = 0; i < MAX_PLATEAU_MASKS; i++) {   // 空きスロットも null バインド＝残留整数texをfloat samplerが掴む事故を防ぐ（main bld と同病対策）
 				gl.uniform4f(loc(gl, bldProg, `u_plateauBbox${i}`), 1e9, 1e9, -1e9, -1e9);
 				gl.activeTexture(gl.TEXTURE2 + i); gl.bindTexture(gl.TEXTURE_2D, null); gl.activeTexture(gl.TEXTURE0);
 				gl.uniform1i(loc(gl, bldProg, `u_plateauMask${i}`), 2 + i);
 			}
-			if (gintBld.lineCount) { gl.bindVertexArray(gintBld.lineVAO); gl.drawArrays(gl.LINES, 0, gintBld.lineCount); }
-			if (gintBld.pointCount) { gl.bindVertexArray(gintBld.pointVAO); gl.drawArrays(gl.POINTS, 0, gintBld.pointCount); }
+			for (const bt of gintBld.batches) {
+				const c = bt.color || view.bldColor || [0.86, 0.86, 0.85];
+				gl.uniform3f(loc(gl, bldProg, "u_bldColor"), c[0], c[1], c[2]);
+				if (bt.lineCount) { gl.bindVertexArray(bt.lineVAO); gl.drawArrays(gl.LINES, 0, bt.lineCount); }
+				if (bt.pointCount) { gl.bindVertexArray(bt.pointVAO); gl.drawArrays(gl.POINTS, 0, bt.pointCount); }
+			}
 		}
 		// PLATEAU LOD2 建物メッシュ（任意三角形・面法線陰影）。深度で地形・自身の前後を解決。
 		// ※巻き順が不揃いなデータなので back-face カリングは使わない（屋根を誤って捨てる）＝両面描画。
