@@ -10,7 +10,7 @@
 
 import { buildEdgeMeta, buildWeightHist, buildBoundaryEdgeMeta,
          normalizeRingOrientation, buildPolyBboxByFid, deriveOutlineZoom } from '../src/gl/gint/utility.js';
-import { TIER_RANKS, CHUNK_EDGES } from '../src/gl/gint/bake.js';   // 本番と同じ梯子/チャンク粒度＝drift しない
+import { tierPlan, CHUNK_EDGES } from '../src/gl/gint/bake.js';   // 本番と同じ梯子/チャンク粒度＝drift しない
 import { readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
@@ -52,17 +52,9 @@ console.log(`  outlineZoom(v2 derive) = ${outlineZoom?.toFixed(2) ?? 'null'} →
 console.log(`  ベイク時間(このマシン): 正規化 ${(tNorm - t0).toFixed(0)}ms / bbox+基準メタ ${(tBase - tNorm).toFixed(0)}ms` +
 	` / 境界メタ ${(tBnd - tBase).toFixed(0)}ms / hist ${(tHist - tBnd).toFixed(0)}ms`);
 
-// ── tier 採否（textures.js buildPlan の 0.7 ガードを同式で）＋実構築 ──
-const plan = [];
-{
-	let prevEdges = base.edgeCount;
-	for (const w of TIER_RANKS) {
-		const cnt = hist[w] - nUsages;
-		const takes = cnt > 0 && cnt < prevEdges * 0.7;
-		console.log(`  tier w${w}: hist予測 ${Math.max(0, cnt).toLocaleString()}辺 → ${takes ? '構築' : `スキップ(0.7ガード: ≥ ${Math.round(prevEdges * 0.7).toLocaleString()})`}`);
-		if (takes) { plan.push(w); prevEdges = cnt; }
-	}
-}
+// ── tier 採否（本番 tierPlan＝weightHist 分位点の適応梯子・単一真実源）＋実構築 ──
+const plan = tierPlan({ arcBuffer, arcMeta, polyStream, lineStream }, base.edgeCount, { hist, nUsages });
+for (const w of plan) console.log(`  tier w${w}: hist予測 ${Math.max(0, hist[w] - nUsages).toLocaleString()}辺`);
 const tTier0 = performance.now();
 const tiers = plan.map(w => {
 	const r = buildEdgeMeta(arcMeta, polyStream, lineStream, arcBuffer, w, metaOpts);

@@ -17,9 +17,16 @@ import { buildEdgeMeta, buildBoundaryEdgeMeta, normalizeRingOrientation,
 export const MAX_SAFE_EDGES = 10_000_000;
 // 巨大ポリゴンデータは自動ベタ塗りを止める（塗り stencil は tier/カリング非対応の全密度＝斑点根治の設計判断）。
 export const FILL_MAX_EDGES = 2_000_000;
-// 段階別 LOD メタの固定 rank 梯子（r ↔ z=(63-r)/3）。細い側 26/30/34 は「視界が巨大データそのもの＝
-// 可視チャンクカリングが効かない」帯の穴埋め（国立公園451万辺の実測）。
-export const TIER_RANKS = [26, 30, 34, 38, 42, 46, 50, 54, 58];
+// 段階別 LOD メタの梯子は固定 rank 表でなく weightHist の分位点から層ごとに適応生成する（tierPlan）。
+// 旧固定表 [26,30,…,58] は海岸線/行政界級（重みが高域まで分布）が前提で、筆ポリゴン級＝重みが 9〜25 に
+// 集中する層では w26 の1段しか立たず、pickLineTier の過負荷フォールバックが常時 w26 を描いて
+// 孤立筆が三角形化した（観音寺市 2026-08-26・v1 ortho-map はフォールバック無し＝基準メタ直描きで無事）。
+export const TIER_COUNT = 9;   // 梯子の最大段数（旧固定表と同数＝構築コスト/テクスチャ総量を旧来の枠に保つ）
+// tier 1段の辺数上限。これより細い（＝辺数の多い）段は作らない：その帯は視界がデータの一部＝可視チャンク
+// カリングが基準メタを十分絞る（国立公園4.5Mで w14=306万辺≈49MBテクスチャの無駄を防ぐ・Air3 jetsam圏）。
+// pickLineTier の過負荷フォールバックは finest×1.5 を閾に基準メタへ倒れる＝finest がこの上限近くにあれば
+// 近接ズームは自然に基準メタ＋カリングで正しく描かれる。
+export const TIER_MAX_EDGES = 600_000;
 // 空間カリング用チャンク粒度（旧65536は筆層でカリングがほぼ効かなかった＝16384で可視1-3チャンクへ）。
 export const CHUNK_EDGES = 16384;
 
@@ -90,25 +97,35 @@ export function bakeBase(gintData) {
 	return { base, boundary, polyBboxByFid, outlineZoom, fillOff, lowFill: !!gintData.lowFill, capMinW, weightHist, pivot };
 }
 
-// tier 採否（0.7 ガード）＝構築せずに hist の先読み件数で判定（edgeCount(w)=hist[w]-nUsages、ハーネスで一致証明済）。
-// have＝既に構築済みの段（スロット swap-in の途中再開で除外）。返り値は「粗い側から」の素の昇順ではなく
-// 呼び出し側で並べ替える（scheduleTierBuild は関連度優先、bakeworker は粗い側から）。
+// tier の適応梯子＝構築せずに hist の先読み件数で選定（edgeCount(w)=hist[w]-nUsages、ハーネスで一致証明済）。
+// 最細段＝基準辺の 0.7 未満になる最小 w（これより細い段は効果薄＝旧 0.7 ガードと同じ基準）。以降は件数比
+// ρ=min(0.7, 全レンジ^(1/(K-1))) の等比で粗い端まで＝どの重み分布でも「実在する重み帯」に最大 K 段が立ち、
+// 各段は前段から3割以上の削減を保証する（筆層は終端(rank63)床で自然に打ち止め＝段数は K 未満で収束）。
+// have＝既に構築済みの段（スロット swap-in の途中再開で除外）。plan は同一データ・同一コードで決定的＝
+// 再開時も同じ梯子を再計算して差分だけ積む。返り値は昇順、並べ替えは呼び出し側
+//（scheduleTierBuild は関連度優先、bakeworker は粗い側から）。
 export function tierPlan(gintData, totalEdges, weightHist = null, have = null) {
 	const { arcBuffer: ab, arcMeta: am, polyStream: ps, lineStream: ls } = gintData;
 	if (!ab?.length || totalEdges <= 200_000) return [];
 	const arcU32 = new Uint32Array(ab.buffer, ab.byteOffset, ab.byteLength / 4);
 	const { hist, nUsages } = weightHist ?? buildWeightHist(am, ps, ls, arcU32);
 	const cap = gintData._capMinW ?? 0;
-	const plan = [];
-	let prevEdges = totalEdges;
-	for (const w of TIER_RANKS) {
-		if (w <= cap) continue;
-		const cnt = hist[w] - nUsages;
-		if (!(cnt > 0) || cnt >= prevEdges * 0.7) continue;   // weight無しデータ等＝空/効果薄はスキップ
-		if (!have?.has(w)) plan.push(w);
-		prevEdges = cnt;   // ガードの基準は既存段も含めた梯子全体で判定（採否は構築有無と独立）
+	const cnt = w => hist[w] - nUsages;
+	const fineCap = Math.min(totalEdges * 0.7, TIER_MAX_EDGES);
+	let wLo = -1;
+	for (let w = cap + 1; w < 63; w++) if (cnt(w) > 0 && cnt(w) <= fineCap) { wLo = w; break; }
+	if (wLo < 0) return [];   // weight無しデータ等＝どの段も効果薄
+	let wHi = wLo;
+	for (let w = 62; w > wLo; w--) if (cnt(w) > 0) { wHi = w; break; }
+	const rho = Math.min(0.7, Math.pow(cnt(wHi) / cnt(wLo), 1 / Math.max(1, TIER_COUNT - 1)));
+	const plan = [wLo];
+	let prev = cnt(wLo);
+	for (let w = wLo + 1; w <= wHi && plan.length < TIER_COUNT; w++) {
+		const c = cnt(w);
+		if (!(c > 0)) break;
+		if (c <= prev * rho) { plan.push(w); prev = c; }
 	}
-	return plan;
+	return have ? plan.filter(w => !have.has(w)) : plan;
 }
 
 // tier 1段のベイク（metaU32/chunks 付き）。orderBbox は bakeBase の polyBboxByFid を渡す。

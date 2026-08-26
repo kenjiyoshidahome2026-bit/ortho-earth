@@ -49,7 +49,8 @@ const GINT_LAYERS = [
 ];
 // チップ並び＝土砂災害・洪水浸水・避難場所・14条地図・筆ポリゴン（本人裁定 2026-08-18）
 const CHIP_DEFS = [GINT_LAYERS[0], GINT_LAYERS[1], { key: "hinan", label: "避難場所" }, GINT_LAYERS[2], GINT_LAYERS[3]];
-const MAFF_LINE = { 100: "#2fae52", 200: "#9fb832" };   // 田=緑 / 畑=黄緑（農地筆の系統色・moj橙と同じく線のみ）
+const MAFF_LINE = { 100: "#2fae52", 200: "#b0731f" };   // 田=緑 / 畑=黄土（黄緑は緑と1px線で判別不能＝色相を離す・moj橙#ff8c26とも別系統）
+const MAFF_FILL_ALPHA = 0.18;                           // 田畑の塗り＝線と同色相の淡面（真俯瞰の読図用・ハザード面0.5より控えめ＝基図を殺さない）
 
 export function initBousai(map, { bboxForCode, cityGeomForCode, legend, onStackApplied, onStackCleared } = {}) {
 	let city = null;
@@ -361,7 +362,11 @@ export function initBousai(map, { bboxForCode, cityGeomForCode, legend, onStackA
 			const src = solo ?? p._src;
 			let fill = 0, line = 0, w8 = 8;
 			if (src === "moj") { line = lineMoj; }
-			else if (src === "maff") { line = packRGBA(MAFF_LINE[+p.land_type] ?? MAFF_LINE[200], 0.9); }   // 田/畑の二色（線のみ・moj と同格）
+			else if (src === "maff") {
+				const c = MAFF_LINE[+p.land_type] ?? MAFF_LINE[200];   // 田/畑の二色
+				line = packRGBA(c, 0.9);
+				fill = packRGBA(c, MAFF_FILL_ALPHA);   // 同色相の淡塗り（moj は線のみのまま）
+			}
 			else if (src === "a33") {
 				const sp = +p.kbn === 2;   // 2=特別警戒（レッド）/ 1=警戒（イエロー）。GeoPBFはINTEGER復元
 				fill = packRGBA(sp ? "#c0392b" : "#d9a441", sp ? 0.5 : 0.42);   // 面のみ＝土砂は塗りが主役・斜面にドレープ（本人裁定 2026-08-13）
