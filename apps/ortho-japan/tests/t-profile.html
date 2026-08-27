@@ -1,0 +1,68 @@
+<!doctype html>
+<!-- UI回帰：断面図ガジェット。合成ポインタで実クリック経路(input→onClick→addVertex)を叩き、
+     標高はスタブ注入（sampleHeight＝ネット非依存・決定的）＝サンプル完走とグラフパネルの開閉を判定。判定は<title>。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021;width:900px;height:650px}</style><title>t-profile</title></head>
+<body>
+<script>
+window.requestAnimationFrame = cb => setTimeout(() => cb(performance.now()), 16);
+localStorage.setItem("oj.hint", "closed");
+</script>
+<script type="module">
+import orthoJapan from "../app.js";
+const t = [], ok = (n, c) => t.push((c ? "ok:" : "NG:") + n);
+window.addEventListener("error", e => t.push("ERR:" + String(e.message).replace(/\s+/g, "_")));
+const C = () => document.getElementById("c");
+const click = (x, y) => { const o = { bubbles: true, cancelable: true, clientX: x, clientY: y, pointerId: 1, button: 0 }; C().dispatchEvent(new PointerEvent("pointerdown", o)); C().dispatchEvent(new PointerEvent("pointerup", o)); };
+const rd = () => document.getElementById("profile-readout");
+const panel = () => document.getElementById("profile-panel");
+try {
+	const map = await orthoJapan({ view: "#15/35.681/139.767" });
+	let k = 0;   // 標高スタブ＝決定的な起伏（100〜149m）。ネット・altpbf 非依存
+	const h = map.gadget.profile({ sampleHeight: () => Promise.resolve(100 + (k++ % 50)) });
+	map.gadget.profile();   // 二重搭載＝無害
+	// 搭載直後＝スタブ（ボタンだけ常駐・本体はまだ import しない＝遅延）。profile-lines/panel は本体が作る＝まだ無い。
+	ok("stub", document.querySelectorAll("#profile-btn").length === 1 && !document.getElementById("profile-lines"));
+
+	// 開始：h.open()＝本体(profile.js)を import()→搭載→経路指定モードON。open は本体handleを解決＝stats() を読める。
+	const g = await h.open();
+	await new Promise(r => setTimeout(r, 60));   // frame hook 配線 / 初回 draw の一拍
+	ok("mount", ["profile-btn", "profile-lines", "profile-readout", "profile-panel"].every(id => document.querySelectorAll("#" + id).length === 1));
+	ok("start", document.getElementById("map").classList.contains("profiling") && document.getElementById("profile-btn").classList.contains("on")
+		&& rd().style.display !== "none");
+
+	// 頂点3つ→ダブルクリックで確定（二打目の重複頂点はfinishが落とす＝2点の経路）→標高サンプル開始
+	click(430, 320); click(500, 300); click(480, 380);
+	document.getElementById("map").dispatchEvent(new MouseEvent("dblclick", { bubbles: true, cancelable: true, clientX: 480, clientY: 380 }));
+	// サンプル完走を待つ（スタブ即答＝速い。上限2秒）
+	for (let i = 0; i < 40 && (!g.stats().samples || g.stats().sampled < g.stats().samples); i++) await new Promise(r => setTimeout(r, 50));
+	const st = g.stats();
+	ok("sampled", st.samples > 0 && st.sampled === st.samples && st.total > 0);
+	ok("elev", st.min >= 100 && st.max <= 149 && st.max > st.min);
+	ok("panel", panel().classList.contains("open") && panel().querySelector(".pf-chart").width > 0);
+	ok("stats-text", /縦横比|V-exag/.test(panel().querySelector(".pf-stats").textContent));
+
+	// 縦軸基準の切替（0m）＝グラフ再描画（例外なく通ればOK＝ERRハンドラが拾う）
+	const zeroRadio = panel().querySelector('.pf-base input[value="zero"]');
+	zeroRadio.checked = true; zeroRadio.dispatchEvent(new Event("change"));
+
+	// ×＝グラフだけ閉じる（経路指定モードは維持）
+	panel().querySelector(".panel-close").click();
+	ok("close-panel", !panel().classList.contains("open") && document.getElementById("map").classList.contains("profiling"));
+
+	// 計測⇄断面図の排他（後から点けた方が勝ち）：計測ON→断面図OFF／断面図ON→計測OFF
+	const hm = map.gadget.measure();
+	await hm.open(); await new Promise(r => setTimeout(r, 60));
+	const mapCl = document.getElementById("map").classList;
+	ok("excl-measure", mapCl.contains("measuring") && !mapCl.contains("profiling"));
+	await h.open(); await new Promise(r => setTimeout(r, 60));
+	ok("excl-profile", mapCl.contains("profiling") && !mapCl.contains("measuring"));
+
+	// 終了：ボタンOFFで全消去（読み取り非表示・モード解除）
+	document.getElementById("profile-btn").click();
+	ok("stop", rd().style.display === "none" && !document.getElementById("map").classList.contains("profiling"));
+
+	map.destroy();
+	ok("destroy", true);
+} catch (e) { ok("boot:" + (e && e.message || e), false); }
+document.title = t.some(s => s.startsWith("NG")) ? "FAIL " + t.join(" ") : "PASS " + t.join(" ");
+</script></body></html>

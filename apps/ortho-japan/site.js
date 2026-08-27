@@ -36,6 +36,7 @@ engineP.then(m => m.default({ assetBase: import.meta.env.BASE_URL })).then(map =
 	map.gadget.compass();     // コンパス兼リセット（3Dの時だけ現れる）
 	map.gadget.cpos();        // 現在地（GPS。押すと寄って点滅マーカー）
 	map.gadget.measure();     // 距離・面積の計測（クリックで頂点・ダブルクリックで確定）
+	map.gadget.profile();     // 断面図（クリックで経路指定→標高プロファイルをグラフ表示）
 	map.gadget.shot();        // 画面を画像で保存（3層+計測を合成・出典焼き込み）
 	map.gadget.qr();          // この視点をQRで共有（押すと中央に現在の共有URLのQR＝スクリーン投影→スキャンで拡散）
 	map.gadget.print();       // 平面図を印刷（縮尺・A4/A3・経緯線・外枠＝紙仕様。プレビュー→印刷/PDF）

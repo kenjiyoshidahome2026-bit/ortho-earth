@@ -47,8 +47,8 @@ www.ortho-earth.com 配下に置くページなら、CDNのESモジュールを�
 - makeProjector()＝カメラ状態を1回束ねた投影関数（多点描画用）/ onFrame(fn)→解除fn / requestDraw()
 - setEditClick(fn|null)＝クリック横取りスロット（編集アプリ用。クリックvsドラッグの4px弁別はエンジンが済ませる）
 - getHeight(lon,lat)→Promise<標高m> / fitZoomForBbox([w,s,e,n])
-- gadget＝オプトインUI部品。map.gadget.search()/zoom()/compass()/full()/shot()/measure()/contextmenu({items})/
-  legend()/palette()/hint()/qr()/print()/cpos()/tip()/pop() など。contextmenuのitems=[{name,onClick(c)}]、
+- gadget＝オプトインUI部品。map.gadget.search()/zoom()/compass()/full()/shot()/measure()/profile()/contextmenu({items})/
+  legend()/palette()/hint()/qr()/print()/cpos()/tip()/pop() など。profile()=断面図（クリックで経路指定→標高グラフ）。contextmenuのitems=[{name,onClick(c)}]、
   c={lng,lat,x,y,map}。全画面のショートカット=Z単キー（⌘Z/⌘⇧Zは編集アプリのundo/redoに空けてある）
 - 出典表記の義務：instrumentsの"attr"を消す場合はページ側で出典明記（README「出典表記」参照）
 

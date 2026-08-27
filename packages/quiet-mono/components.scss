@@ -579,6 +579,43 @@
 		svg { stroke: #fff; } }   /* 計測中＝インクの色ガラス（チップと同材質） */
 }
 #measure-lines { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+
+/* --- 断面図：⛰ボタン（スタック）＋経路線 canvas（計測と同じ素通しの膜）＋下辺のグラフパネル --- */
+#profile-btn {
+	width: 34px; height: 34px; border-radius: 5px;
+	border: 1px solid var(--qm-border); background: var(--qm-panel); cursor: pointer; padding: 0;
+	display: flex; align-items: center; justify-content: center;
+	-webkit-backdrop-filter: blur(var(--qm-blur)); backdrop-filter: blur(var(--qm-blur));
+	&:hover { border-color: var(--qm-border-strong); }
+	svg { display: block; }
+	&.on { background-color: color-mix(in srgb, var(--qm-ink) 82%, transparent); border-color: rgba(255,255,255,.45);
+		svg { stroke: #fff; } }   /* 経路指定中＝インクの色ガラス（計測と同材質） */
+}
+#profile-lines { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+#profile-panel {
+	position: absolute; left: 50%; transform: translateX(-50%);
+	bottom: calc(64px + var(--qm-safe-b));   /* 左下計器(#pos)の背丈の上＝グラフと地図の経路が同時に見える */
+	width: min(760px, calc(100% - 24px)); padding: 8px 11px 10px;
+	background: var(--qm-panel-solid); border: 1px solid var(--qm-border-soft); border-radius: 8px;
+	box-shadow: var(--qm-shadow-pop); font: 12px var(--qm-font); color: var(--qm-text);
+	display: none;
+	&.open { display: block; }
+	.pf-head {
+		display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+		padding-right: 22px; margin-bottom: 4px;   /* 右端＝.panel-close の席 */
+		.pf-title { font-weight: 600; color: var(--qm-ink); }
+		.pf-stats { color: var(--qm-text-dim); }
+		.pf-base { margin-left: auto; display: inline-flex; gap: 8px;
+			label { display: inline-flex; align-items: center; gap: 3px; color: var(--qm-text-dim); cursor: pointer;
+				input { margin: 0; accent-color: var(--qm-ink); } } }
+		.pf-act {
+			font: 12px var(--qm-font); padding: 3px 10px; border: 1px solid var(--qm-border); border-radius: 5px;
+			background: var(--qm-panel); color: var(--qm-text); cursor: pointer;
+			&:hover { border-color: var(--qm-border-strong); }
+		}
+	}
+	canvas { display: block; width: 100%; }
+}
 /* 日本全体へ戻るボタン（スタック・34px規格） */
 #japan-btn {
 	width: 34px; height: 34px; border-radius: 5px;
@@ -598,8 +635,8 @@
 	&.busy { opacity: .5; cursor: default; }
 	svg { display: block; }
 }
-#map.measuring #c { cursor: crosshair; }   /* 計測中は照準カーソル（掴み手をやめる） */
-#measure-readout {
+#map.measuring #c, #map.profiling #c { cursor: crosshair; }   /* 計測・断面図の経路指定中は照準カーソル（掴み手をやめる） */
+#measure-readout, #profile-readout {
 	position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
 	font: 13px var(--qm-font); color: var(--qm-text); white-space: nowrap;
 	background: var(--qm-panel); border: 1px solid var(--qm-border-soft); border-radius: 5px;
@@ -721,7 +758,7 @@
        点火(.on)や検索の開閉(#search.open)は各所の高詳細度セレクタが勝つ＝壊さない。
        上辺グラデ＋inset上ハイライト＝光を受けた凸面、押すと1px沈む＝指応え。 --- */
 #hint-btn, #search #search-btn, #plateau-btn, #palette-btn, #reset, #zoom button, #full,
-#cpos-btn, #measure-btn, #japan-btn, #shot-btn, #print-btn, #legend-btn, #close-btn, #demo-btn, #qr-btn, #hud-btn,
+#cpos-btn, #measure-btn, #profile-btn, #japan-btn, #shot-btn, #print-btn, #legend-btn, #close-btn, #demo-btn, #qr-btn, #hud-btn,
 #chips .chip {
 	background-color: var(--qm-glass-bg);
 	background-image: var(--qm-glass-sheen);
@@ -735,7 +772,7 @@
 }
 #search.open #search-btn { box-shadow: none; transform: none; }   /* 虫めがねが検索箱へ溶けた後＝影と沈みだけ残さない */
 /* 点火（.on）＝色ガラス仕上げ：地色は各所（インク/アクセントの color-mix 透過）、ここは暗地用に照りと inset を半減 */
-#chips .chip.on, #cpos-btn.on, #measure-btn.on, #hud-btn.on, #demo-btn[aria-pressed="true"] {
+#chips .chip.on, #cpos-btn.on, #measure-btn.on, #profile-btn.on, #hud-btn.on, #demo-btn[aria-pressed="true"] {
 	background-image: var(--qm-glass-sheen-dim);
 	box-shadow: var(--qm-shadow-btn-on);
 	&:hover { box-shadow: var(--qm-shadow-btn-on-hover); }   /* 浮きの所作は同じ・insetだけ暗地用 */

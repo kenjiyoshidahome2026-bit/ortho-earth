@@ -34,6 +34,7 @@ import { pop as popGadget } from "./gadgets/pop.js";
 import { explain as explainGadget } from "./gadgets/explain.js";
 import { legend as legendGadget } from "./gadgets/legend.js";
 import { measure as measureGadget } from "./gadgets/measure-stub.js";   // 玄関スタブ＝ボタン+Mキー常駐、本体(measure.js＝球面測地/専用canvas)は初回クリック/Mで import()
+import { profile as profileGadget } from "./gadgets/profile-stub.js";   // 玄関スタブ＝ボタン常駐、本体(profile.js＝断面図：経路指定+標高サンプル+グラフ)は初回クリックで import()
 import { shot as shotGadget } from "./gadgets/shot-stub.js";   // 玄関スタブ＝デスクトップのみボタン常駐、本体(shot.js＝層合成/webp/出典焼込)は初回クリック/⌘Sで import()。モバイルは stub が即return＝本体も fetch されない
 import { qr as qrGadget } from "./gadgets/qr-stub.js";   // 玄関スタブ＝ボタンだけ常駐、本体(qr.js＋自作QRエンコーダ qrcode.js 14KB)は初回クリックで import()＝初期バンドルから隔離
 import { japan as japanGadget } from "./gadgets/japan.js";
@@ -2406,7 +2407,12 @@ resize();
 // ここは日本アプリ固有の反応だけ注入：クリック→identify（基図overlay＋知性gint）、ホバー→gintの筆識別、
 // ジェスチャ開始→フライト中断（主導権は常に人）。z範囲＝1(宇宙の余白)〜19(z20はタイルの切れ目が目立つ)。
 let measureClick = null;   // 測距モード中だけ非null＝クリックを測距へ奪う（識別・星座トグルより先）
-let poiClick = null;       // POI台帳編集のarmed中だけ非null＝同上（ガジェット毎に1スロット＝相互に潰さない）
+let profileClick = null;   // 断面図の経路指定中だけ非null＝同上（ガジェット毎に1スロット＝相互に潰さない）
+let poiClick = null;       // POI台帳編集のarmed中だけ非null＝同上
+// 計測⇄断面図は排他（後から点けた方が勝ち＝クリックの行き先が常に一意・本人裁定2026-08-27）。
+// 配線は登録側＝ここ（ガジェット同士は独立の掟＝相互を知らない）：setClick(非null)＝モードON の瞬間に相方の stop() を呼ぶ。
+// 本体ハンドルは onBody で到着（スタブ経由の遅延 import 後）＝未ロードの相方は必然的にOFF＝何もしなくてよい。
+let measureBody = null, profileBody = null;
 let editClick = null;      // 派生アプリ編集モード（geoedit）中だけ非null＝同上（map.setEditClick で装着/解除）
 // zoomMin の二重指定（前:ZOOM_MIN 後:2＝後勝ちで床2）を解消（2026-08-10）＝ホイール/ピンチも太陽系圏へ潜れる
 const input = createInput({
@@ -2415,6 +2421,7 @@ const input = createInput({
 	onGesture: () => flightCtl.cancel(),
 	onClick: (x, y) => {
 		if (measureClick) return measureClick(x, y);   // 測距モード＝クリックは頂点追加へ（識別/星座は止める）
+		if (profileClick) return profileClick(x, y);   // 断面図モード＝クリックは経路の頂点追加へ（同上）
 		if (poiClick) return poiClick(x, y);           // 台帳編集モード＝クリックは対象選択/置き先へ（同上）
 		if (editClick) return editClick(x, y);         // 派生アプリ編集モード＝同上（geoedit の選択/作図）
 		if (cam.zoom < BASEMAP_MINZOOM) {
@@ -2467,8 +2474,8 @@ posEl.innerHTML = `<table><thead><tr><th>${t("経度")}</th><th>${t("緯度")}</
 const posCells = [...posEl.querySelectorAll("td")];   // [経度, 緯度, 標高, z値, 回転, 傾度]（毎フレームはtextContent更新のみ＝DOM再構築しない）
 let posMouse = null, posElev = null, posElevId = 0, posElevAt = 0, posRaf = false, getHeight = null;
 setAltApiUrl("https://api.ortho-earth.com");
-createGetHeight({ apiUrl: "https://api.ortho-earth.com", onend: () => { posElevAt = 0; schedulePos(); } })
-	.then(f => { getHeight = f; });
+const getHeightP = createGetHeight({ apiUrl: "https://api.ortho-earth.com", onend: () => { posElevAt = 0; schedulePos(); } });   // Promiseも保持＝断面図はローダ到着を待って照会（起動直後でも0mに化けない）
+getHeightP.then(f => { getHeight = f; });
 // 距離スケール（真俯瞰=2Dのみ）：ortho-map Accessories draw_scale() と同じ1-2-5系列。
 // d256m＝256px当たりの実距離[m]。当アプリも256px世界(2026-07-26統一)＝本家と同じ zoom がそのまま使える。
 // px↔角度 は正射図法ゆえ緯度非依存のまま。m換算だけ WGS84 の東西曲率半径 N(φ)（バーは横置き＝東西）で
@@ -3206,8 +3213,20 @@ map.gadget("legend", function (opts) { return legendGadget.call(this, opts); });
 map.gadget("measure", function (opts) {   // 距離・面積の計測 … 投影/逆投影とクリック横取りの手綱を注入。本体は初回クリック/Mで import()＝frame hook は onBody で本体到着後に配線
 	return measureGadget.call(this, {
 		makeProjector, unprojectXY, signal: ac.signal,
-		setClick: fn => { measureClick = fn; }, requestDraw: () => { needsDraw = true; },
-		onBody: m => { if (m && m._update) { frameHooks.add(m._update); m._update(); } },   // 抽象アクセス：本体(measure.js)到着後に _update を毎フレ描画へ（frameHooks は core 側）
+		setClick: fn => { measureClick = fn; fn && profileBody?.stop?.(); },   // 計測ON＝断面図OFF（排他）
+		requestDraw: () => { needsDraw = true; },
+		onBody: m => { measureBody = m; if (m && m._update) { frameHooks.add(m._update); m._update(); } },   // 抽象アクセス：本体(measure.js)到着後に _update を毎フレ描画へ（frameHooks は core 側）
+		...opts,
+	});
+});
+map.gadget("profile", function (opts) {   // 断面図 … 投影/逆投影・クリック横取り・標高サンプラを注入。本体は初回クリックで import()
+	return profileGadget.call(this, {
+		makeProjector, unprojectXY, signal: ac.signal,
+		setClick: fn => { profileClick = fn; fn && measureBody?.stop?.(); },   // 断面図ON＝計測OFF（排他）
+		// 標高サンプラ＝zoom=99 固定で最良解像度（日本=R01 DEM10B 10m・海外=ALOS/GEBCOへ自動フォールバック）。
+		// getHeightP 経由＝ローダ未着でも待って照会（map.getHeight の「未着=0m」縮退はグラフには不適）。
+		sampleHeight: (lon, lat) => getHeightP.then(f => (f ? f(lon, lat, 99) : 0)).then(h => +h || 0),
+		onBody: p => { profileBody = p; if (p && p._update) { frameHooks.add(p._update); p._update(); } },   // 抽象アクセス：本体到着後に _update を毎フレ描画へ（measure と同型）
 		...opts,
 	});
 });

@@ -42,6 +42,7 @@ export interface Gadgets {
 	full(): unknown;              // 全画面（ショートカット=Z単キー）
 	shot(): unknown;              // 画面保存
 	measure(): unknown;
+	profile(): unknown;           // 断面図（クリックで経路指定→標高プロファイルのグラフ）
 	contextmenu(opts?: { items?: ContextMenuItem[] }): unknown;
 	legend(): unknown;
 	palette(): unknown;
