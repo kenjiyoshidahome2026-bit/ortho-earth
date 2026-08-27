@@ -295,6 +295,11 @@ const MID_TIER = /[?&]mid=1/.test(location.search) || (!/[?&]mid=0/.test(locatio
 	/\bvega\b|radeon\(tm\) graphics/i.test(gpuRenderer) ||                  // AMD APU の内蔵GPU
 	/swiftshader|llvmpipe|basic render/i.test(gpuRenderer)));               // ソフトウェアラスタ＝論外に非力
 if (MID_TIER) console.log(`[boot] mid-tier device = PLATEAU to safe side (gpu="${gpuRenderer || "unknown"}" cores=${navigator.hardwareConcurrency || "?"})`);
+// ハイスペック判定（初の「上へ伸ばす」側のtier）：deviceMemory は 8 が上限＝16GB機も64GB機も同じ顔（上のコメント）
+// なので、コア数≥12 を物差しにする。効くのは PLATEAU のロード並行度だけ（fast枠3区・タイル並行16）＝描画系は不変。
+// 過渡メモリの根拠は bldCap のコメント参照。?hi=0 が逃げ道・?hi=1 で強制（弱い機でのA/B用）。
+const HI_TIER = /[?&]hi=1/.test(location.search) || (!/[?&]hi=0/.test(location.search) && !LOW_MEM && !MID_TIER && (navigator.hardwareConcurrency || 0) >= 12);
+if (HI_TIER) console.log(`[boot] hi-tier device = PLATEAU wide lanes (cores=${navigator.hardwareConcurrency}, bldCap=3, tileConc=16, decPool)`);
 // 通信断トースト：offline イベント＋タイル連続失敗で表示、回復（online/タイル成功）で消える。地図は粗い下地で生き続ける。
 const netEl = document.createElement("div");
 netEl.id = "net-toast";   // スタイルは style.css
@@ -841,6 +846,7 @@ if (LOW_MEM) console.log("[plateau] low-memory device mode: 2 concurrent wards, 
 // 4はシェーダの被覆マスクスロット上限（glsl u_plateauMask0..3・renderer MAX_PLATEAU_MASKS）＝これ以上は基図建物を伏せられず二重に立つ。
 const PLATEAU_MAX_ACTIVE = qNum(/[?&]maxact=(\d+)/, LOW_MEM ? (gpuBackend ? 2 : 1) : (MID_TIER ? 2 : 4));   // LOW_MEM=2区（千代田⇄中央カタカタ根治）。worker切離し済＝増えるのは常駐のみ(+1区~100-140MB)・過渡はbldCap据置で不変。
                             // MID_TIER=2区＝内蔵GPU機はVRAMがシステムRAMの取り分＝4区(~0.5GB)が同じ財布から出る（Windows 16GB+HD の落ち・2026-08-03）
+const PLATEAU_DEC = Math.min(4, qNum(/[?&]dec=(\d+)/, HI_TIER ? ((navigator.hardwareConcurrency || 0) >= 16 ? 3 : 2) : 0));   // ②区内デコード並列プール本数（plateauworker が同数の plateaudecoder を lazy 起動）。HI_TIER限定＝バッチ過渡×本数の勘定が許せる機だけ。?dec=NでA/B・0=従来直列
                             // GL2フォールバック時のLOW_MEMは1区＝WebGPUの無い旧iOS(XR級3GB)の②常駐天井を守る安全モード（XS=4GBは2でも実証済みだが端末RAMはiOSから検出不能＝低い方に合わせる。?maxact=2 が戻し口）
 // マスク無しセット（橋梁等 noMask:true）の同時数＝別枠。被覆マスクのシェーダスロット(4)を使わないので
 // 建物4区の構図を奪わずに載る。橋梁データは区あたり数MB〜数十MB＝建物より一桁軽い。
@@ -919,7 +925,7 @@ let plateauCamSent = 0;   // カメラ放送のスロットル（ロード中の
 for (let i = 0; plateauOn && i < PLATEAU_NW; i++) {   // plateau OFF＝workerを1本も起こさない
 	const w = new Worker(new URL("./plateauworker.js", import.meta.url), { type: "module" });
 	const meshChan = new MessageChannel();   // この worker → render worker のメッシュ直結パイプ
-	w.postMessage({ type: "init", meshPort: meshChan.port1, lowMem: LOW_MEM, mid: MID_TIER, mem: hudOn, noOpfs: /[?&]noopfs=1/.test(location.search), farH: FAR_H, ell: ELL_ON }, [meshChan.port1]);   // ?noopfs=1＝バッチ本体のOPFS置きを無効化（従来IDB）＝A/B・切り分け用。farH＝遠景far-DBの高さ閾値
+	w.postMessage({ type: "init", meshPort: meshChan.port1, lowMem: LOW_MEM, mid: MID_TIER, hi: HI_TIER, dec: PLATEAU_DEC, mem: hudOn, noOpfs: /[?&]noopfs=1/.test(location.search), farH: FAR_H, ell: ELL_ON }, [meshChan.port1]);   // ?noopfs=1＝バッチ本体のOPFS置きを無効化（従来IDB）＝A/B・切り分け用。farH＝遠景far-DBの高さ閾値
 	wPost({ type: "plateauPort", port: meshChan.port2 }, [meshChan.port2]);
 	w.onmessage = e => {
 		if (e.data.prog) { plateauProg.set(e.data.prog.name, e.data.prog); renderPlateauProg(); return; }   // タイル/走査進捗（ネットワーク経路のみ）
@@ -1324,7 +1330,7 @@ function autoPlateau(settled = false) {
 	// 建物(bldg)の同時 fast は2区まで＝4worker同時デコードの過渡メモリスパイク対策（実測：コールドIDBの
 	// デモPLATEAUシーンで renderer 12.3GB・計14.9GB＝16GB機のスワップ/GPU OOMの引き金。2区制限で山を半減）。
 	// 橋梁(noMask)は一桁軽いので素通し。デモ先読み中は枠を1つ譲る（先読み+auto2区=3区同時が「14G級」の残犯）。
-	const bldCap = Math.max(1, (LOW_MEM || MID_TIER ? 1 : 2) - (plateauPrefetchBusy ? 1 : 0));   // MID_TIER=1区＝過渡の山（デコード中の全量保持）を非力機では重ねない
+	const bldCap = Math.max(1, (LOW_MEM || MID_TIER ? 1 : HI_TIER ? 3 : 2) - (plateauPrefetchBusy ? 1 : 0));   // MID_TIER=1区＝過渡の山（デコード中の全量保持）を非力機では重ねない。HI_TIER=3区＝過渡はBATCH_TILES 64→32の半減（2026-07-27）で~1.2GB/区＝3区でも旧2区分に収まり、12コア+機なら3本目のデコードコアが遊んでいる
 	for (const h of hits) {
 		if (plateauActive.has(h.name)) continue;
 		if (plateauLoading.has(h.name)) {
