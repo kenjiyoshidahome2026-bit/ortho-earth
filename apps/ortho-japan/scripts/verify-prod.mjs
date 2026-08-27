@@ -8,7 +8,7 @@
 //   ②静的: dist/site/japan/lib/ に SDK 実体（ortho-japan.js/.css）が居る
 //   ③実走: dist/site を素の静的サーバ（COOP/COEP付き＝本番Workerと同じ頭）で配り、headless Chrome で
 //          起動→チップ点灯まで確認（ja）。vite を挟まない＝出荷物そのものを食う
-//   ④実クリック: 遅延ロードのガジェット（qr/print/measure/shot/palette/hint/plateau）を生CDPで実際に押し、
+//   ④実クリック: 遅延ロードのガジェット（qr/print/measure/profile/shot/palette/hint/plateau）を生CDPで実際に押し、
 //          動的importチャンクの疎通と console エラーゼロを確認（QR/print が押した瞬間に死ぬ事故クラス・2026-08-20）
 import { spawn, execFileSync } from "node:child_process";
 import { createServer } from "node:http";
@@ -129,6 +129,7 @@ console.log("ok:scene（エディタページもSDK経由で起動・editor UI�
 	if (!up) { chrome.kill(); server.close(); fail("実クリック: ガジェットボタンが60秒で出ない"); }
 	const CLICKS = [
 		["#measure-btn", null],
+		["#profile-btn", `!!document.getElementById("profile-lines")`],   // 断面図＝本体チャンク到着の証拠（経路線canvasは本体が作る）
 		["#shot-btn", null],
 		["#palette-btn", null],
 		["#hint-btn", null],
