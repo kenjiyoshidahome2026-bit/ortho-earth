@@ -3142,6 +3142,7 @@ const requestSnapshot = () => new Promise(resolve => {
 	snapPending.set(id, { need: new Set(["render"]), parts: { W: size.w, H: size.h }, resolve });
 	wPost({ type: "snapshot", id });
 });
+map.requestSnapshot = requestSnapshot;   // ★プラットフォーム公開面（map.playScenes と同格）：生スナップ {W,H,render}。合成は gadgets/compose.js＝geoedit の公開サムネ等が使う
 // --- 印刷（平面図）用の撮影：ライブパイプラインを一時的に「印刷カメラ」（同中心・真俯瞰・北向き・指定z・
 // noTerrain＝紙仕様）へ振り、タイル/注記の読み込みが落ち着いてから readPixels スナップショットを取り、
 // 元のカメラへ戻す。printHold が autoPlateau と settle保存を抑止（印刷カメラを自動ロードや保存に漏らさない）。
@@ -3444,6 +3445,39 @@ function scrubCover(a) {
 		arm(0);
 	}).catch(err => console.warn("[scene] failed to fetch ?scene=", sceneUrl, err));
 }
+// ?g=<URL>＝GeoPBF の URL ロード（ドロップと同じ一本道＝取得→loadUserFile）。gh:user/repo[@ref]/path 短縮形は
+// GitHub raw へ展開（ref 省略=HEAD・コミットSHA固定も可）。https 限定（開発時のみ localhost の http 可）・
+// credentials 無し＝他人の置き場を読むだけの姿勢。読めたら出所（ホスト名）を出典 #attr へ常時表示＝
+// 他人の作品を当ドメインで再生する時の看板（docs/geopbf §11 の作法とセット）。
+{
+	const gSpec = new URLSearchParams(location.search).get("g");
+	if (gSpec) (async () => {
+		const gh = /^gh:([\w.-]+)\/([\w.-]+)(?:@([\w.-]+))?\/(.+)$/.exec(gSpec);   // ref に / は不可（path との曖昧を避ける）
+		if (gh && [gh[1], gh[2], gh[3] || "", ...gh[4].split("/")].some(x => x === "." || x === ".."))
+			return console.warn("[g] bad gh: path", gSpec);   // ".."の正規化で別リポジトリへ滑るのを封じる（hostは元々不変）
+		let u;
+		try { u = new URL(gh ? `https://raw.githubusercontent.com/${gh[1]}/${gh[2]}/${gh[3] || "HEAD"}/${gh[4]}` : gSpec, location.href); }
+		catch { return console.warn("[g] bad URL", gSpec); }
+		const isLocal = u.hostname === "localhost" || u.hostname === "127.0.0.1";
+		if (u.protocol !== "https:" && !(u.protocol === "http:" && isLocal)) return console.warn("[g] https only", u.href);
+		try {
+			const r = await fetch(u, { credentials: "omit" });
+			if (!r.ok) throw new Error(`HTTP ${r.status}`);
+			if (+r.headers.get("content-length") > 256e6) throw new Error("too large");   // 正気上限（敵入力の巨大確保よけ・GitHub raw は 100MB 上限）
+			const name = decodeURIComponent(u.pathname.split("/").pop() || "") || "map.geopbf";
+			const pbf = await loadUserFile(new File([await r.blob()], name));
+			if (!pbf) return console.warn("[g] decode failed", u.href);
+			const attr = document.querySelector("#attr");   // 出所の常時表示（instruments 非搭載ページは console のみ）
+			if (attr && !attr.querySelector(".g-src")) {
+				const line = document.createElement("div");
+				line.className = "g-src";
+				line.textContent = tr({ "地図データ: {0}": "Map data: {0}" })("地図データ: {0}", u.host);
+				attr.append(line);
+			}
+			console.info("[g] loaded", u.href, `${pbf.length ?? "?"} features`);
+		} catch (err) { console.warn("[g] failed to fetch ?g=", u.href, err); }
+	})();
+}
 // ★開幕の黒幕（fade-in）：ドロップ/?scene= の再生は必ず黒から立ち上がる＝jump・読み込み・基図タイルの立ち上がりを
 // 隠し、開始と同時に約1.2秒で溶明。DOMオーバーレイ＝#underground（地中フェード）と同じ流儀。パネル(#scene-loading)は
 // zIndex 7＝黒幕(6)より上。触れない（pointerEvents:none）＝掴んで中断する主導権は奪わない。
@@ -3543,30 +3577,31 @@ map.gadget("anno", async function (pbf) {
 });
 // @スタイルの見分け＝geopbf のキー表に @属性 があるか（描画系の @キーだけ見る＝他レイヤの誤検知を避ける）
 const ANNO_KEYS = new Set(["@shape", "@icon", "@text", "@size", "@fill", "@stroke", "@width", "@tip", "@pop", "@spline", "@blur", "@poly", "@start", "@end", "@cap0", "@cap1", "@cap"]);
-map.gadget("dropFile", function (opts) {   // GISファイルのD&D取り込み … geopbf(File,{gint:true})→applyGintData を loadFile として束ね注入（gint単一スロット＝置き換え）
-	const loadFile = async file => {
-		const pbf = await geopbf(file, { gint: true, name: `drop/${file.name}` }).catch(err => { console.error("[dropFile] geopbf", file.name, err); return null; });
-		if (!pbf?.unPackGint) return null;
-		// 低ズーム描画が速くなった＝先に現在ビューへ図形を描き（カメラは動かさない）、その後 flyTo で寄る。
-		// 瞬間ジャンプ(ポップイン)でなく「図形が現れて→近づく」。着地は真俯瞰(tilt/bearing=0)・北向き＝fit の north-up 前提。
-		if (pbf.keys?.some(k => ANNO_KEYS.has(k))) {   // @スタイル付き＝注釈レイヤ（geoedit 作）＝canvas2D 再生（gint スロットは触らない→前の層は消す）
-			clearUserGint();
-			await map.gadget.anno(pbf);
-		} else {
-			annoCtl?.clear();
-			applyGintData(pbf, file.name, false, { drape: true });   // 先に描画（gint スロットへ set・識別点火・カメラ据え置き）＋ポリゴンは地形沿い境界線を自動発火
-		}
-		const bb = pbf.unPackGint.bbox;
-		if (bb && bb.length === 4) {
-			const cx = (bb[0] + bb[2]) / 2, cy = (bb[1] + bb[3]) / 2;
-			const wDeg = Math.max(1e-6, (bb[2] - bb[0]) * 1.3), hDeg = Math.max(1e-6, (bb[3] - bb[1]) * 1.3);   // 30%余白（縁ぴったりを避ける）
-			// 視野幅[deg]=360*size.w/(WORLD_PX*2^z)（flight の van Wijk 尺と同一）を逆解き＝横/縦の狭い側に合わせる。
-			const z = Math.min(Math.log2(360 * size.w / (WORLD_PX * wDeg)), Math.log2(360 * size.h / (WORLD_PX * hDeg)));
-			flyTo(cx, cy, Math.max(3, Math.min(17, z)), 0);   // 描画後に寄る＝fit へ球面フライト（tilt/bearing=0）
-		}
-		return pbf;   // gadget が pbf.length（地物数）をトーストに使う
-	};
-	return dropFileGadget.call(this, { loadFile, clearGint: () => { annoCtl?.clear(); clearUserGint(); }, playScene, busy: playingNow, signal: ac.signal, ...opts });   // busy＝上映中はドロップ無視（デモ中はドロップ禁止）。消去は注釈レイヤも一緒に
+// ファイル取り込みの一本道（D&D と ?g= の共用）＝geopbf(File,{gint:true})→ @検知で anno 再生 or applyGintData→bboxへ球面フライト
+const loadUserFile = async file => {
+	const pbf = await geopbf(file, { gint: true, name: `drop/${file.name}` }).catch(err => { console.error("[dropFile] geopbf", file.name, err); return null; });
+	if (!pbf?.unPackGint) return null;
+	// 低ズーム描画が速くなった＝先に現在ビューへ図形を描き（カメラは動かさない）、その後 flyTo で寄る。
+	// 瞬間ジャンプ(ポップイン)でなく「図形が現れて→近づく」。着地は真俯瞰(tilt/bearing=0)・北向き＝fit の north-up 前提。
+	if (pbf.keys?.some(k => ANNO_KEYS.has(k))) {   // @スタイル付き＝注釈レイヤ（geoedit 作）＝canvas2D 再生（gint スロットは触らない→前の層は消す）
+		clearUserGint();
+		await map.gadget.anno(pbf);
+	} else {
+		annoCtl?.clear();
+		applyGintData(pbf, file.name, false, { drape: true });   // 先に描画（gint スロットへ set・識別点火・カメラ据え置き）＋ポリゴンは地形沿い境界線を自動発火
+	}
+	const bb = pbf.unPackGint.bbox;
+	if (bb && bb.length === 4) {
+		const cx = (bb[0] + bb[2]) / 2, cy = (bb[1] + bb[3]) / 2;
+		const wDeg = Math.max(1e-6, (bb[2] - bb[0]) * 1.3), hDeg = Math.max(1e-6, (bb[3] - bb[1]) * 1.3);   // 30%余白（縁ぴったりを避ける）
+		// 視野幅[deg]=360*size.w/(WORLD_PX*2^z)（flight の van Wijk 尺と同一）を逆解き＝横/縦の狭い側に合わせる。
+		const z = Math.min(Math.log2(360 * size.w / (WORLD_PX * wDeg)), Math.log2(360 * size.h / (WORLD_PX * hDeg)));
+		flyTo(cx, cy, Math.max(3, Math.min(17, z)), 0);   // 描画後に寄る＝fit へ球面フライト（tilt/bearing=0）
+	}
+	return pbf;   // gadget が pbf.length（地物数）をトーストに使う
+};
+map.gadget("dropFile", function (opts) {   // GISファイルのD&D取り込み … loadUserFile（上）を束ね注入（gint単一スロット＝置き換え）
+	return dropFileGadget.call(this, { loadFile: loadUserFile, clearGint: () => { annoCtl?.clear(); clearUserGint(); }, playScene, busy: playingNow, signal: ac.signal, ...opts });   // busy＝上映中はドロップ無視（デモ中はドロップ禁止）。消去は注釈レイヤも一緒に
 });
 map.gadget("demo", function (opts) {   // デモ（発表の台本再生）… 台本の一行=共有URLハッシュ。flyView（球面フライト）・フライト中判定・PLATEAU先読み・現テーマ名（幕替わり判定）を注入
 	const japanFit = () => {   // 終演の定位置＝日本列島が画面に収まる真俯瞰・北向き（fitBbox と同じ視野幅の逆解き＝縦横どちらの画面でも収まる）

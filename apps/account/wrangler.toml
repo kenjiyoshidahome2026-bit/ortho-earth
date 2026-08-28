@@ -1,6 +1,7 @@
 # account Worker：OAuth ログイン（github/google/x）＋ユーザー別クラウド保存（R2）。
 # www.ortho-earth.com の /auth* と /me* を握る＝全アプリと同一オリジン（CORS もクロスサイト Cookie も不要）。
-# 注意：www 配下に /auth…・/me… で始まる「ページ」を将来作らないこと（未知パスはこの Worker が 404 JSON を返す）。
+# 注意：www 配下に /auth…・/me…・/works… で始まる「ページ」を将来作らないこと（未知パスはこの Worker が 404 JSON を返す）。
+# /works* は公開台帳の公開面（catalog.json・サムネ）＝ログイン不要 GET。台帳の思想は workers/works.js 冒頭。
 # シークレット（wrangler secret put）：GITHUB_CLIENT_ID/SECRET・GOOGLE_CLIENT_ID/SECRET・X_CLIENT_ID/SECRET。
 # ローカルは .dev.vars（.dev.vars.example を複製・コミット禁止）。値を toml に書き戻さないこと（native-bucket と同じ規律）。
 name = "account"
@@ -10,7 +11,8 @@ workers_dev = false
 
 routes = [
 	{ pattern = "www.ortho-earth.com/auth*", zone_name = "ortho-earth.com" },
-	{ pattern = "www.ortho-earth.com/me*", zone_name = "ortho-earth.com" }
+	{ pattern = "www.ortho-earth.com/me*", zone_name = "ortho-earth.com" },
+	{ pattern = "www.ortho-earth.com/works*", zone_name = "ortho-earth.com" }
 ]
 
 [[d1_databases]]

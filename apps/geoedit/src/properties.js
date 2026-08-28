@@ -2,6 +2,7 @@
 // 「属性を表示」を開いた時だけ出す（GIS素人が最初にkey/value表と対面しない＝本人裁定 8/20）。
 // スタイル変更は input中=即プレビュー（履歴なし）・確定=props コマンド1件（undo可）。
 import { styleForm } from "./styleform.js";
+import { sanitizeHTML } from "./overlay.js";
 
 export function createPropsPanel(container, api, signal) {   // api={getFeature(eid), applyProps(eid,next,{history,from}), toast}
 	let panel = null, curEid = null;
@@ -91,6 +92,7 @@ export function createPropsPanel(container, api, signal) {   // api={getFeature(
 					if (orig instanceof Blob) { next[k] = orig; continue; }   // 画像は原本のまま
 					let v = iv.value;
 					if (v !== "" && !isNaN(+v) && k !== "@icon") v = +v;
+					if ((k === "@tip" || k === "@pop") && typeof v === "string" && v.includes("<")) v = sanitizeHTML(v);   // 表示用HTMLは生表経由でも消毒
 					next[k] = v;
 				}
 				api.applyProps(eid, next, { history: true });

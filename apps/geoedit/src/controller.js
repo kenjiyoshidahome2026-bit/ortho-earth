@@ -7,7 +7,7 @@ import { buildTopology } from "./topo-extract.js";
 import { createModel, adoptRebuilt, rebuildModel, topoFromTransfer, topoToTransfer } from "./model.js";
 import { createHistory } from "./history.js";
 import { createGintLayer } from "./gint-layer.js";
-import { createOverlay } from "./overlay.js";
+import { createOverlay, sanitizeHTML } from "./overlay.js";
 import { createPopLayer } from "./pop-layer.js";
 import { initToolbar } from "./toolbar.js";
 import { initDrop, exportPanel, idbSave, idbLoad, idbClear } from "./io.js";
@@ -537,7 +537,7 @@ export function initEditor(map) {
 		const tip = teid != null ? st.model.feats.get(teid)?.properties?.["@tip"] : null;
 		if (tip == null || tip === "") return hideTip();
 		if (!tipEl) { tipEl = document.createElement("div"); tipEl.className = "ge-tip"; mapEl.append(tipEl); }
-		if (tipEl._raw !== String(tip)) { tipEl._raw = String(tip); tipEl.innerHTML = String(tip); tipW = tipEl.offsetWidth; tipH = tipEl.offsetHeight; }   // @tip は HTML/画像可。内容変化時だけ器寸を測る
+		if (tipEl._raw !== String(tip)) { tipEl._raw = String(tip); tipEl.innerHTML = sanitizeHTML(tip); tipW = tipEl.offsetWidth; tipH = tipEl.offsetHeight; }   // @tip は HTML/画像可（消毒済）。内容変化時だけ器寸を測る
 		placeTip(x, y);
 	}, { capture: true, signal });
 	mapEl.addEventListener("pointerleave", () => hideTip(), { signal });   // 地図の外へ離れたら即消す（v1 tip.js の pointerleave 作法）
@@ -618,6 +618,7 @@ export function initEditor(map) {
 		cloudOpen: () => cloudPanel(document.getElementById("stage"), {
 			getPbf: () => st.model && (st.model.large ? st.model.toPbf() : layer.exportPbf(st.model)),   // 書き出しと同じ口（model が真実源＝flush 不要）
 			loadBuffer: buf => loadBuffer(buf),   // ドロップ取込と同経路＝新セッション扱い
+			map,   // 公開サムネの撮影用（map.requestSnapshot・mapEl）
 		}, toast),
 		clearAll: async () => { if (confirm("編集内容を全て消去して新規セッションを始めますか？")) { await idbClear(); loadFC({ type: "FeatureCollection", features: [] }); } },
 	}, signal);

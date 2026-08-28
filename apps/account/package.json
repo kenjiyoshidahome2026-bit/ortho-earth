@@ -3,7 +3,7 @@
 	"private": true,
 	"type": "module",
 	"scripts": {
-		"test": "node tests/t-auth.mjs && node tests/t-files.mjs",
+		"test": "node tests/t-auth.mjs && node tests/t-files.mjs && node tests/t-works.mjs",
 		"dev": "wrangler d1 migrations apply account --local && wrangler dev --port 8787",
 		"migrate": "wrangler d1 migrations apply account --remote",
 		"deploy": "npm test && wrangler deploy"

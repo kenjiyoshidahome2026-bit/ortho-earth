@@ -66,6 +66,7 @@
 		<li><a href="#comparison">他フォーマットとの比較</a></li>
 		<li><a href="#api">API リファレンス</a></li>
 		<li><a href="#integrations">地図ライブラリ統合</a></li>
+		<li><a href="#security">非信頼HTMLと消毒</a></li>
 	</ol>
 </div>
 
@@ -623,10 +624,37 @@ viewer.dataSources.<span class="fn">add</span>(<span class="kw">await</span> Ces
 <code>new URL()</code> で正規化するため、相対形は壊れます。
 </p>
 
+<h2 id="security">11. 非信頼HTMLと消毒（v1.2）</h2>
+
+<p>
+GeoPBF は開いたフォーマットです。ファイルは誰でも作れて、URL ひとつで届きます。したがって表示用
+プロパティ — <code>@tip</code>・<code>@pop</code>、あるいはビューアが HTML として描画するあらゆる
+プロパティ — は<strong>非信頼入力</strong>として扱わなければなりません。さもなければ、細工された
+ファイルがツールチップや吹き出しの開いた瞬間にページ内で script を実行できます（XSS）。守り方は
+定石どおり: 文字列が <code>innerHTML</code> に入る直前、<em>出力側の境界</em>で消毒すること。
+「保存側で消毒済みのはず」は信用しない — ファイルはエディタを経由せずビューアへ届くからです。
+</p>
+
+<pre><code><span class="cm">// 出力側の境界＝innerHTML の直前で消毒する</span>
+<span class="kw">import</span> { sanitizeHTML } <span class="kw">from</span> <span class="st">"geopbf/sanitize"</span>;
+el.innerHTML = <span class="fn">sanitizeHTML</span>(feature.properties[<span class="st">"@pop"</span>]);</code></pre>
+
+<p>
+<code>sanitizeHTML</code> は依存ゼロの許可リスト式フィルタです。整形タグ・リスト・表・画像・リンクは
+通り、<code>script</code>・<code>iframe</code>・<code>svg</code> 等は中身ごと廃棄、未知タグは殻だけ
+剥いで中身を残します。イベント属性と <code>style</code> は決して生き残りません。<code>href</code> は
+<code>http(s)</code>/<code>mailto</code>、<code>img src</code> は
+<code>http(s)</code>/<code>data:image</code> のみ。リンクには
+<code>target="_blank" rel="noopener noreferrer"</code> が強制されます。DOM に触るのは呼び出し時
+だけなので worker からの import も安全です。§10 との役割分担に注意:
+<code>sanitizeProperties</code> は値を <em>JSON安全</em>に（型）、<code>sanitizeHTML</code> は
+<em>表示安全</em>に（マークアップ）。両方使ってください。
+</p>
+
 <hr class="rule">
 
 <div style="font-size:0.72rem;color:var(--dim);font-family:var(--mono);text-align:center">
-	geopbf v1.1.0 · Kenji Yoshida · MIT License · 2026
+	geopbf v1.2.0 · Kenji Yoshida · MIT License · 2026
 </div>
 
 </div>

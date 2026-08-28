@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+	<meta charset="UTF-8" />
+	<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+	<title>Maps — Ortho Earth 公開台帳</title>
+	<meta name="description" content="Community maps published on their authors' own storage (GitHub etc.) — this page is only a ledger of pointers. Ortho Earth 公開台帳。" />
+	<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+	<!-- 公開台帳のブラウズ面。データ源＝/works/catalog.json（account Worker・誰でも読める公開JSON）。
+	     ★契約（workers/works.js 冒頭が正本）：台帳メタ（題名/作者/説明）は非信頼文字列＝**必ず textContent で描く**。
+	     innerHTML 禁止。リンクは encodeURIComponent で組み立て、view 断片は許可文字の検査を通った時だけ付ける。
+	     ビルド不要の自己完結ページ（public/ 直置き＝vite がそのまま配る）。/works* は Worker の領分なのでページは /maps/。 -->
+	<style>
+		:root { color-scheme: dark; }
+		* { box-sizing: border-box; }
+		body { margin: 0; background: #0a0c10; color: #e8eef8; font-family: system-ui, -apple-system, "Hiragino Sans", sans-serif; }
+		header { padding: 28px 20px 10px; max-width: 1080px; margin: 0 auto; }
+		header a.home { color: #7fa8d9; text-decoration: none; font-size: .85rem; }
+		h1 { margin: .35em 0 .15em; font-size: 1.6rem; letter-spacing: .02em; }
+		.sub { margin: 0; color: #9aa7b8; font-size: .85rem; line-height: 1.6; }
+		main { max-width: 1080px; margin: 18px auto 60px; padding: 0 20px; display: grid; gap: 16px;
+			grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); }
+		a.card { display: flex; flex-direction: column; background: #12161d; border: 1px solid #1e2530; border-radius: 14px;
+			overflow: hidden; text-decoration: none; color: inherit; transition: transform .15s ease, border-color .15s ease; }
+		a.card:hover { transform: translateY(-2px); border-color: #35507a; }
+		.thumb { aspect-ratio: 480/300; background: #0e1320; display: grid; place-items: center; overflow: hidden; }
+		.thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+		.thumb .ph { font-size: 2.2rem; color: #35507a; font-weight: 700; }
+		.meta { padding: 10px 12px 12px; display: grid; gap: 4px; }
+		.title { font-weight: 600; font-size: .98rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+		.byline { color: #8b98a9; font-size: .74rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+		.summary { color: #aab6c6; font-size: .8rem; line-height: 1.5; margin: 0; display: -webkit-box;
+			-webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; min-height: 0; }
+		.state { max-width: 1080px; margin: 40px auto; padding: 0 20px; color: #9aa7b8; font-size: .9rem; }
+		footer { max-width: 1080px; margin: 0 auto 40px; padding: 0 20px; color: #66727f; font-size: .74rem; line-height: 1.7; }
+		footer a { color: #7fa8d9; }
+	</style>
+</head>
+<body>
+	<header>
+		<a class="home" href="/">← Ortho Earth</a>
+		<h1>Community Maps <span style="font-weight:400;color:#9aa7b8">公開台帳</span></h1>
+		<p class="sub">地図データは作者自身の置き場（GitHub など）にあります。このページはその URL を指す台帳だけ。<br>
+			Maps live in their authors' own storage — this page is only a ledger of pointers.</p>
+	</header>
+	<main id="grid" hidden></main>
+	<p class="state" id="state">読み込み中…</p>
+	<footer>
+		公開は <a href="/geoedit/">geoedit</a> のクラウドパネルから（GitHub に置いた GeoPBF の URL を登録）。
+		台帳そのものも <a href="/works/catalog.json">catalog.json</a> として開かれています。
+		各地図のデータは作者の管理下にあり、当サイトは保存していません。
+	</footer>
+	<script>
+	(async () => {
+		const state = document.getElementById("state"), grid = document.getElementById("grid");
+		let cat;
+		try {
+			const r = await fetch("/works/catalog.json");
+			if (!r.ok) throw new Error("HTTP " + r.status);
+			cat = await r.json();
+		} catch (e) { state.textContent = "台帳を読み込めませんでした（" + e.message + "）"; return; }
+		if (!cat.works?.length) { state.textContent = "まだ作品がありません。最初の一枚をどうぞ。"; return; }
+		state.hidden = true; grid.hidden = false;
+		const SAFE_VIEW = /^#[\w&=.,:%+~-]*$/;   // 共有ハッシュ断片＝許可文字のみ（それ以外は黙って捨てる）
+		const hostOf = u => { const gh = /^gh:([\w.-]+)\/([\w.-]+)/.exec(u); if (gh) return "github.com/" + gh[1] + "/" + gh[2];
+			try { return new URL(u).host; } catch { return ""; } };
+		const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls;
+			if (text != null) e.textContent = text; return e; };   // ★台帳メタは textContent 一択（works.js の契約）
+		for (const w of cat.works) {
+			const a = el("a", "card");
+			a.href = "/japan/?g=" + encodeURIComponent(w.url) + (SAFE_VIEW.test(w.view || "") ? w.view : "");
+			const th = el("div", "thumb");
+			if (w.thumb) { const img = new Image(); img.loading = "lazy"; img.alt = "";
+				img.src = "/works/thumb/" + encodeURIComponent(w.id); th.append(img); }
+			else th.append(el("span", "ph", (w.title || "?").slice(0, 1)));
+			const meta = el("div", "meta");
+			meta.append(el("div", "title", w.title || "無題"));
+			const when = w.updated_at ? new Date(w.updated_at * 1000).toLocaleDateString() : "";
+			meta.append(el("div", "byline", [w.author, hostOf(w.url), when].filter(Boolean).join(" · ")));
+			if (w.summary) meta.append(el("p", "summary", w.summary));
+			a.append(th, meta);
+			grid.append(a);
+		}
+	})();
+	</script>
+</body>
+</html>

@@ -7,7 +7,7 @@
 //   共通: ツールチップ(@tip)・吹き出し(@pop)＝改行できる textarea
 // set(partial, final)：input中= final:false（即プレビュー・履歴なし）、確定（change）= final:true（undo1件）。
 // 値 "" は「そのキーを消す」の意（呼び出し側で delete）。
-import { SHAPE_NAMES, PICTO, SHAPE_SCALE, buildLinePath } from "./overlay.js";
+import { SHAPE_NAMES, PICTO, SHAPE_SCALE, buildLinePath, sanitizeHTML } from "./overlay.js";
 import { cssColor, DEF } from "./gint-layer.js";
 
 const u32rgb = u => "#" + (u >>> 8).toString(16).padStart(6, "0");
@@ -319,7 +319,11 @@ export function styleForm(host, { geomType, variant, get, set: setRaw }, signal)
 	const ta = (label, key, ph, rows, extra) => {
 		const d = row(label);
 		const t = Object.assign(document.createElement("textarea"), { rows, placeholder: ph, value: props()[key] ?? "" });
-		t.addEventListener("change", () => set({ [key]: t.value }, true), { signal });
+		t.addEventListener("change", () => {   // HTMLらしき入力は保存前に消毒（コピペ事故を出荷前に落とす・平文は素通し）
+			const v = t.value.includes("<") ? sanitizeHTML(t.value) : t.value;
+			if (v !== t.value) t.value = v;
+			set({ [key]: v }, true);
+		}, { signal });
 		if (extra) d.append(extra);   // ラベルの隣（テキストエリアの上）に小ボタン
 		d.append(t);
 		return t;

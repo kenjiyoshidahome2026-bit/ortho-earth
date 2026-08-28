@@ -6,7 +6,7 @@
 // fid⇄feature の propTub 併合問題も styleTable も無縁。識別は pbf.identifyAt（JS幾何・描画レス）。
 // 対応 @属性：@shape(@fill/@stroke/@size・pin=3Dピン)/@icon(画像・中央クロップ)/@text/@width/
 //             @spline(曲線)/@blur(ぼかし面・線なし)/@poly+@start/@end(帯+端形状)/@tip(ホバー)/@pop(クリック吹き出し)
-// 依存ゼロ（i18n も不使用）＝worker からの import も安全（トップレベルに DOM なし）。
+// 依存は geopbf/sanitize のみ（i18n 不使用）＝worker からの import も安全（トップレベルに DOM なし）。
 
 // ---- 基本図形（正典）----
 // marker=涙滴マーカー。pin=3Dピン（棒＋球）＝チルトで立つ／真俯瞰は円。他はスプライト。
@@ -27,6 +27,12 @@ export const PICTO = {
 	drop: "M12 3s6.2 7.6 6.2 11.6a6.2 6.2 0 0 1-12.4 0C5.8 10.6 12 3 12 3z",
 };
 export const BOTTOM_ANCHOR = new Set(["marker", "flag"]);   // 足元＝座標にアンカー（他は中心）
+
+// ---- @tip/@pop の HTML 消毒（正典は geopbf/sanitize へ昇格 8/29）----
+// 「表示側は必ず消毒」はフォーマットの作法＝実装はパッケージが正本（docs §11）。ここは
+// 再輸出（プリミティブ共有と同じ型）＝geoedit は overlay.js 経由で同じ一本を使う。
+import { sanitizeHTML } from "geopbf/sanitize";
+export { sanitizeHTML };
 
 // ---- @spline（不確定エリア等の滑らか曲線）＝制御点列→Catmull-Rom 細分（正典）----
 export function smoothRing(coords, closed, steps = 12) {
@@ -152,6 +158,7 @@ export function createAnno(map, { signal } = {}) {
 
 	let pbf = null, items = [];   // items[fid]＝前処理済み（@spline は set 時に一度だけ細分）
 	let tipSet = null, popFn = null, symHits = [];
+	let tipRaw = null, tipClean = null;   // 消毒キャッシュ（毎 move の DOMParser を避ける）
 	const openedPops = new Map();   // fid → pop div
 
 	// 大圏分割つき投影（geoedit overlay と同じ規約）
@@ -387,8 +394,10 @@ export function createAnno(map, { signal } = {}) {
 		const ll = map.unprojectXY(x, y);
 		const fid = symbolAt(x, y) ?? (ll ? identify(ll[0], ll[1]) : null);
 		const tip = fid != null ? items[fid]?.p["@tip"] : null;
+		const raw = tip != null && tip !== "" ? String(tip) : null;
+		if (raw !== tipRaw) { tipRaw = raw; tipClean = raw == null ? null : sanitizeHTML(raw); }   // 内容変化時だけ消毒
 		tipSet ??= map.gadget.tip();
-		tipSet(tip != null && tip !== "" ? String(tip) : null);
+		tipSet(tipClean);
 	}, { signal, passive: true });
 	let downXY = null;
 	mapEl.addEventListener("pointerdown", e => { downXY = localXY(e); }, { signal, passive: true });
@@ -405,7 +414,7 @@ export function createAnno(map, { signal } = {}) {
 		// 参照点＝点:座標・線:クリック点に最寄りの線分上・面:クリック点そのもの（geoedit と同じ規約）
 		const a = it.pts ? it.pts[0] : it.lines ? (nearestOnLine(it.lines, ll) || ll) : ll;
 		popFn ??= map.gadget.pop();
-		const div = popFn(String(pop), { lng: a[0], lat: a[1], x, y, hideOffscreen: true, onClose: () => { openedPops.delete(fid); div._remove?.(); } });
+		const div = popFn(sanitizeHTML(pop), { lng: a[0], lat: a[1], x, y, hideOffscreen: true, onClose: () => { openedPops.delete(fid); div._remove?.(); } });
 		if (div) openedPops.set(fid, div);
 	}, { signal });
 

@@ -2,14 +2,14 @@
 //  - makeD1: Node 組み込み node:sqlite（in-memory）を D1 の形（prepare/bind/first/all/run・batch）に包み、実 migration を食わせる
 //  - makeR2: Map ベースの R2 もどき（put/get/delete・If-None-Match → body 無し返し）
 import { DatabaseSync } from "node:sqlite";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
-const MIGRATION = fileURLToPath(new URL("../migrations/0001_init.sql", import.meta.url));
+const MIG_DIR = fileURLToPath(new URL("../migrations/", import.meta.url));
 
 export function makeD1() {
 	const db = new DatabaseSync(":memory:");
-	db.exec(readFileSync(MIGRATION, "utf8"));
+	for (const f of readdirSync(MIG_DIR).filter(f => f.endsWith(".sql")).sort()) db.exec(readFileSync(MIG_DIR + f, "utf8"));
 	const wrap = (sql, args = []) => ({
 		bind: (...a) => wrap(sql, a),
 		first: async () => db.prepare(sql).get(...args) ?? null,

@@ -6,6 +6,7 @@
 // 参照点（引出線の錨）は open した瞬間のクリック基準で確定＝点:座標／線:クリック点に最寄りの線分上／面:クリック点そのもの。
 // 以後は固定（重心/中央頂点には戻さない）。× は箱を閉じるだけ（@pop データは消さない）。
 import { listsOf } from "./model.js";
+import { sanitizeHTML } from "./overlay.js";
 
 // 線分 a-b への点 p の最近点（経度は cos(lat) 補正で画面的な近さに合わせる）。返すのは経緯度。
 function projectOnSeg(p, a, b, k) {
@@ -86,7 +87,7 @@ export function createPopLayer(map, getState) {
 			if (hidden && hidden.has(eid)) { close(eid); continue; }         // 移動/編集が始まった要素＝pop は消す（本人裁定：着地で復活させない）
 			const ent = opened.get(eid), a = ent.anchor;
 			popFn ??= map.gadget.pop();
-			const text = String(raw);
+			const text = sanitizeHTML(raw);   // 開いたファイルは他人作かもしれない＝ビューア再生と同じ消毒（WYSIWYG）
 			const cur = boxes.get(eid);
 			if (!cur) {
 				const s = ent.pos || map.projectLL(a[0], a[1]);   // 初期位置＝クリック点（無ければ錨の脇）

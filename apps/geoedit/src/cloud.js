@@ -14,9 +14,29 @@ const ERRMSG = {   // サーバーの error コード → 人向けの言葉（�
 	too_many_files: "100 ファイルまでです",
 	bad_request: "ファイル名が使えません",
 	unauthorized: "ログインが切れました（開き直してください）",
+	bad_url: "URL が使えません（https:// か gh:user/repo/path 形式）",
+	too_many_works: "台帳は 50 件までです",
+	rate_limited: "公開は 1 日 20 件までです（明日どうぞ）",
 };
 
-// hooks = { getPbf: async()=>pbf|null（書き出しと同じ口）, loadBuffer: async(ArrayBuffer)=>void }
+import { composeLayersToCanvas } from "../../ortho-japan/gadgets/compose.js";   // 層合成の核（shot/print と同じ）
+
+// 公開サムネ＝現在の画面（エンジン生スナップ+編集オーバレイ）を1枚に合成し 480×300 cover へ縮めて webp。
+// 撮れない環境（旧lib・スナップ非対応）は null＝サムネ無しのまま公開は通す（best-effort・公開を人質にしない）。
+async function makeThumb(map) {
+	try {
+		if (!map?.requestSnapshot) return null;
+		const full = composeLayersToCanvas(await map.requestSnapshot(), null);
+		const ov = map.mapEl?.querySelector(".ge-overlay");   // @シンボル・帯・blur＝作品の見た目はここに乗っている
+		if (ov?.width) full.getContext("2d").drawImage(ov, 0, 0, full.width, full.height);
+		const W = 480, H = 300, out = new OffscreenCanvas(W, H), ctx = out.getContext("2d");
+		const s = Math.max(W / full.width, H / full.height);
+		ctx.drawImage(full, (W - full.width * s) / 2, (H - full.height * s) / 2, full.width * s, full.height * s);
+		return await out.convertToBlob({ type: "image/webp", quality: 0.8 });
+	} catch (e) { console.warn("[geoedit] thumb capture failed", e); return null; }
+}
+
+// hooks = { getPbf: async()=>pbf|null（書き出しと同じ口）, loadBuffer: async(ArrayBuffer)=>void, map（サムネ撮影用） }
 export function cloudPanel(container, hooks, toast) {
 	container.querySelector(".ge-cloud")?.remove();   // 二重開き防止＝開き直し
 	const panel = document.createElement("div");
@@ -95,6 +115,62 @@ export function cloudPanel(container, hooks, toast) {
 			panel.append(r);
 		}
 		panel.append(el("p", `使用量: ${me.usage.files} ファイル・${fmtSize(me.usage.bytes)} / ${fmtSize(me.usage.maxBytes)}`));
+
+		// ---- 公開台帳 ---- データ本体は預からない＝GitHub 等の公開 URL を登録して台帳に載せる（workers/works.js が正本）。
+		// 台帳の行＝共有 URL（/japan/?g=…）そのもの。題名クリック＝共有 URL をコピー＝名刺・SNS へそのまま。
+		panel.append(document.createElement("hr"));
+		panel.append(el("h3", "公開台帳"));
+		const urlRow = el("div", null, "ge-row");
+		const urlIn = el("input");
+		urlIn.placeholder = "公開URL（gh:user/repo/map.geopbf か https://…）";
+		urlIn.style.flex = "1";
+		urlRow.append(urlIn);
+		const tiRow = el("div", null, "ge-row");
+		const titleIn = el("input");
+		titleIn.placeholder = "題名";
+		titleIn.style.flex = "1";
+		const pubB = el("button", "公開");
+		pubB.onclick = async () => {
+			const url = urlIn.value.trim(), title = titleIn.value.trim();
+			if (!url || !title) return toast("公開URL と題名を入れてください");
+			try {
+				pubB.disabled = true;
+				const res = await fetch("/me/works", {
+					method: "POST", credentials: "same-origin",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({ title, url }),
+				});
+				if (!res.ok) return fail(res);
+				const { id, updated } = await res.json();
+				const blob = await makeThumb(hooks.map);   // 今見えている画面がサムネ＝再公開のたびに撮り直し
+				if (blob) await fetch(`/me/works/${id}/thumb`, {
+					method: "PUT", credentials: "same-origin", body: blob,
+					headers: { "Content-Type": "image/webp" },
+				}).catch(() => {});
+				toast(updated ? "台帳を更新しました" : "台帳に公開しました");
+				render();
+			} finally { pubB.disabled = false; }
+		};
+		tiRow.append(titleIn, pubB);
+		panel.append(urlRow, tiRow);
+		const shareUrl = w => `${location.origin}/japan/?g=${encodeURIComponent(w.url)}${w.view || ""}`;
+		const wRes = await fetch("/me/works", { credentials: "same-origin" });
+		if (wRes.ok) for (const w of (await wRes.json()).works) {
+			const r = el("div", null, "ge-row");
+			const copyB = el("button", w.title);
+			copyB.title = "共有URLをコピー";
+			copyB.style.cssText = "flex:1;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap";
+			copyB.onclick = async () => { await navigator.clipboard?.writeText(shareUrl(w)); toast("共有URLをコピーしました"); };
+			const delB = el("button", "✕");
+			delB.title = "台帳から下ろす（データ本体は消えません＝あなたの置き場のまま）";
+			delB.onclick = async () => {
+				if (!confirm(`「${w.title}」を台帳から下ろしますか？`)) return;
+				const res = await fetch(`/me/works/${w.id}`, { method: "DELETE", credentials: "same-origin" });
+				res.ok ? render() : fail(res);
+			};
+			r.append(copyB, delB);
+			panel.append(r);
+		}
 		addClose();
 	}
 

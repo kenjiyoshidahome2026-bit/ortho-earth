@@ -6,8 +6,8 @@
 // ★図形/帯/曲線のプリミティブ（PICTO/SHAPE_SCALE/smoothRing/buildLinePath）の正本は
 //   エンジンの anno ガジェット（apps/ortho-japan/gadgets/anno.js）＝ビューア再生と単一実装（pop/tip 共有と同じ型）。
 //   ここは import して再輸出するだけ（styleform 等の既存 import 先を維持）。
-import { SHAPE_NAMES, SHAPE_SCALE, PICTO, buildLinePath, smoothRing } from "../../ortho-japan/gadgets/anno.js";
-export { SHAPE_NAMES, SHAPE_SCALE, PICTO, buildLinePath };
+import { SHAPE_NAMES, SHAPE_SCALE, PICTO, buildLinePath, smoothRing, sanitizeHTML } from "../../ortho-japan/gadgets/anno.js";
+export { SHAPE_NAMES, SHAPE_SCALE, PICTO, buildLinePath, sanitizeHTML };
 
 const COL = {
 	edge: "#2b5f8f", edgeShared: "#cc5533", fill: "rgba(120,170,221,.25)",

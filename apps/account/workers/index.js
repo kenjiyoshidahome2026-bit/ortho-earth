@@ -1,8 +1,9 @@
-// account Worker のルーター。/auth*（OAuth ログイン）と /me*（ユーザー別ファイル）を握る。
+// account Worker のルーター。/auth*（OAuth ログイン）・/me*（ユーザー別ファイル/自分の台帳）・/works*（公開台帳の公開面）を握る。
 // 全アプリと同一オリジン（www.ortho-earth.com）＝CORS 無し。CSRF は「非GETは Origin 完全一致必須」＋ SameSite=Lax の二重防御。
 // Origin 照合に includes() を使わないこと（evil.com/www.ortho-earth.com が通る＝native-bucket proxy.js の教訓）。
 import { login, callback, logout } from "./oauth.js";
 import { me, filesList, fileGet, filePut, fileDel } from "./files.js";
+import { worksList, workPost, workPut, workDel, thumbPut, catalog, thumbGet } from "./works.js";
 import { err } from "./http.js";
 
 const originOk = (req, env) => {
@@ -27,6 +28,15 @@ export default {
 				if (req.method === "PUT") return await filePut(req, env, m[1]);
 				if (req.method === "DELETE") return await fileDel(req, env, m[1]);
 			}
+			if (p === "/works/catalog.json" && req.method === "GET") return await catalog(req, env);
+			if ((m = p.match(/^\/works\/thumb\/([\w-]+)$/)) && req.method === "GET") return await thumbGet(req, env, m[1]);
+			if (p === "/me/works" && req.method === "GET") return await worksList(req, env);
+			if (p === "/me/works" && req.method === "POST") return await workPost(req, env);
+			if ((m = p.match(/^\/me\/works\/([\w-]+)$/))) {
+				if (req.method === "PUT") return await workPut(req, env, m[1]);
+				if (req.method === "DELETE") return await workDel(req, env, m[1]);
+			}
+			if ((m = p.match(/^\/me\/works\/([\w-]+)\/thumb$/)) && req.method === "PUT") return await thumbPut(req, env, m[1]);
 			return err(404, "not_found", `no route: ${req.method} ${p}`);
 		} catch (e) {
 			return err(500, "internal", e.message);

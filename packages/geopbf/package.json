@@ -1,6 +1,6 @@
 {
 	"name": "geopbf",
-	"version": "1.1.0",
+	"version": "1.2.0",
 	"description": "Carry geometry as geometry. GeoPBF is a compact binary container for geospatial features, with Gint — a GPU-readable topology layer for instant point-in-polygon identify, shared-edge topology and choropleth painting. Converts GeoJSON / Shapefile / KML / KMZ / GPX / GML / FlatGeobuf / TopoJSON in the browser via workers + WASM. Zero servers.",
 	"keywords": ["geospatial", "gis", "geojson", "shapefile", "topojson", "kml", "gpx", "flatgeobuf", "vector", "topology", "point-in-polygon", "identify", "wasm", "browser", "format"],
 	"homepage": "https://www.ortho-earth.com/docs/geopbf.html",
@@ -19,6 +19,7 @@
 		"./gint": "./src/extension/gint.js",
 		"./topology": "./src/extension/topology.js",
 		"./pbf-base": "./src/pbf-base.js",
+		"./sanitize": "./src/sanitize.js",
 		"./maplibre": "./src/maplibre.js",
 		"./leaflet": "./src/leaflet.js",
 		"./openlayers": "./src/openlayers.js",

@@ -58,6 +58,7 @@ Lightweight · Universal converter · ArrayBuffer-native — the wire format for
 		<li><a href="#comparison">Comparison with Other Formats</a></li>
 		<li><a href="#api">API Reference</a></li>
 		<li><a href="#integrations">Map Library Integrations</a></li>
+		<li><a href="#security">Untrusted HTML &amp; Sanitizing</a></li>
 	</ol>
 </div>
 
@@ -614,10 +615,38 @@ One contract to know: with MapLibre, write the inner URL <strong>absolute</stron
 <code>new URL()</code>, which corrupts relative forms.
 </p>
 
+<h2 id="security">11. Untrusted HTML &amp; Sanitizing (v1.2)</h2>
+
+<p>
+GeoPBF is an open format: anyone can produce a file and hand you a URL. Display properties —
+<code>@tip</code>, <code>@pop</code>, or any property your viewer renders as HTML — must therefore
+be treated as <strong>untrusted input</strong>. A crafted file could otherwise run script in your
+page (XSS) the moment a tooltip or popup opens. The rule is the classic one: sanitize at the
+<em>output</em> boundary, right before the string reaches <code>innerHTML</code> — never assume a
+file was cleaned upstream, because files reach viewers without passing through any editor.
+</p>
+
+<pre><code><span class="cm">// Sanitize at the output boundary — right before innerHTML</span>
+<span class="kw">import</span> { sanitizeHTML } <span class="kw">from</span> <span class="st">"geopbf/sanitize"</span>;
+el.innerHTML = <span class="fn">sanitizeHTML</span>(feature.properties[<span class="st">"@pop"</span>]);</code></pre>
+
+<p>
+<code>sanitizeHTML</code> is a dependency-free allowlist filter: formatting tags, lists, tables,
+images and links pass through; <code>script</code>, <code>iframe</code>, <code>svg</code> and the
+like are dropped with their content; unknown tags are unwrapped, keeping their children; event
+handlers and <code>style</code> never survive. <code>href</code> accepts
+<code>http(s)</code>/<code>mailto</code>, <code>img src</code> accepts
+<code>http(s)</code>/<code>data:image</code>, and every link gets
+<code>target="_blank" rel="noopener noreferrer"</code>. It touches the DOM only when called, so
+importing it in a worker is safe. Note the division of labor with §10:
+<code>sanitizeProperties</code> makes values <em>JSON-safe</em> (types), <code>sanitizeHTML</code>
+makes them <em>display-safe</em> (markup). Use both.
+</p>
+
 <hr class="rule">
 
 <div style="font-size:0.72rem;color:var(--dim);font-family:var(--mono);text-align:center">
-	geopbf v1.1.0 · Kenji Yoshida · MIT License · 2026
+	geopbf v1.2.0 · Kenji Yoshida · MIT License · 2026
 </div>
 
 </div>
