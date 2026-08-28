@@ -65,6 +65,7 @@
 		<li><a href="#gint">Gint 拡張 — 64bit 座標パッキング</a></li>
 		<li><a href="#comparison">他フォーマットとの比較</a></li>
 		<li><a href="#api">API リファレンス</a></li>
+		<li><a href="#integrations">地図ライブラリ統合</a></li>
 	</ol>
 </div>
 
@@ -545,10 +546,87 @@ pbf.<span class="fn">header</span>({ name: <span class="st">'New Name'</span>, d
 <span class="cm">// ── 描画 ───────────────────────────────────────────────────</span>
 pbf.<span class="fn">draw</span>(canvasCtx, { fill: <span class="st">'#5a8050'</span>, stroke: <span class="st">'#a8d47e'</span> });</code></pre>
 
+<!-- ──────────────────────────────────────────────────── -->
+<h2 id="integrations">10. 地図ライブラリ統合（v1.1）</h2>
+
+<p>
+v1.1.0 から、npm パッケージに主要 Web 地図ライブラリ向けのアダプタを同梱しています。
+いずれもホスト側ライブラリを import しない<strong>依存ゼロのサブパス export</strong> で、
+共通ローダの上に載っています: ファイル全体 gzip はマジックバイトで透過、デコードは
+<code>new Function</code> を使わない CSP セーフの <code>noeval</code> モード、properties は
+JSON-safe に写像（<code>Date</code> → ISO 文字列、bbox → 素の配列、バイナリ値は除去）されるため、
+各ライブラリの worker 受け渡しを壊しません。
+</p>
+
+<table>
+	<tr>
+		<th>import</th>
+		<th>形</th>
+		<th>対象</th>
+	</tr>
+	<tr>
+		<td><code>geopbf/maplibre</code></td>
+		<td class="dim">addProtocol ハンドラ</td>
+		<td>MapLibre GL JS (v4+)</td>
+	</tr>
+	<tr>
+		<td><code>geopbf/leaflet</code></td>
+		<td class="dim">L.GeoJSON サブクラス</td>
+		<td>Leaflet (1.x)</td>
+	</tr>
+	<tr>
+		<td><code>geopbf/openlayers</code></td>
+		<td class="dim">VectorSource loader ファクトリ</td>
+		<td>OpenLayers (6+)</td>
+	</tr>
+	<tr>
+		<td><code>geopbf/loaders</code></td>
+		<td class="dim">loaders.gl Loader オブジェクト</td>
+		<td>deck.gl · kepler.gl</td>
+	</tr>
+	<tr>
+		<td><code>geopbf/load</code></td>
+		<td class="dim">素の <code>loadGeopbf(url)</code></td>
+		<td>Cesium · D3 など GeoJSON を食べる全て</td>
+	</tr>
+</table>
+
+<pre><code><span class="cm">// ── MapLibre — プロトコルソース ────────────────────────────</span>
+<span class="kw">import</span> { geopbfProtocol } <span class="kw">from</span> <span class="st">"geopbf/maplibre"</span>;
+maplibregl.<span class="fn">addProtocol</span>(<span class="st">"geopbf"</span>, geopbfProtocol);
+map.<span class="fn">addSource</span>(<span class="st">"rail"</span>, { type: <span class="st">"geojson"</span>, data: <span class="st">"geopbf://https://…/N02-25_RailroadSection"</span> });
+
+<span class="cm">// ── Leaflet — レイヤープラグイン ───────────────────────────</span>
+<span class="kw">import</span> { extendLeaflet } <span class="kw">from</span> <span class="st">"geopbf/leaflet"</span>;
+<span class="fn">extendLeaflet</span>(L);
+L.<span class="fn">geoPBF</span>(<span class="st">"geopbf://https://…"</span>).<span class="fn">on</span>(<span class="st">"load"</span>, e =&gt; console.<span class="fn">log</span>(e.meta)).<span class="fn">addTo</span>(map);
+
+<span class="cm">// ── OpenLayers — ソース loader ────────────────────────────</span>
+<span class="kw">import</span> { makeGeopbfLoader } <span class="kw">from</span> <span class="st">"geopbf/openlayers"</span>;
+<span class="kw">const</span> source = <span class="kw">new</span> <span class="fn">VectorSource</span>({ loader: <span class="fn">makeGeopbfLoader</span>(url, <span class="kw">new</span> <span class="fn">GeoJSON</span>()) });
+
+<span class="cm">// ── deck.gl — loaders.gl ──────────────────────────────────</span>
+<span class="kw">import</span> { GeoPBFLoader } <span class="kw">from</span> <span class="st">"geopbf/loaders"</span>;
+<span class="kw">new</span> <span class="fn">GeoJsonLayer</span>({ data: url, loaders: [GeoPBFLoader] });
+
+<span class="cm">// ── それ以外 — 汎用ローダ ─────────────────────────────────</span>
+<span class="kw">import</span> { loadGeopbf } <span class="kw">from</span> <span class="st">"geopbf/load"</span>;
+<span class="kw">const</span> r = <span class="kw">await</span> <span class="fn">loadGeopbf</span>(url);   <span class="cm">// { geojson, name, license, attribution, minZoom, maxZoom, … }</span>
+viewer.dataSources.<span class="fn">add</span>(<span class="kw">await</span> Cesium.GeoJsonDataSource.<span class="fn">load</span>(r.geojson));</code></pre>
+
+<p>
+出典表記はファイルの中を旅します（§2）。アダプタはそれを尊重し、Leaflet と OpenLayers は
+ヘッダの <code>attribution</code> を地図のクレジット表示へ自動配線（明示指定が優先）、
+<code>loadGeopbf</code> はヘッダメタデータ一式を返すので手動配線もできます。
+契約が1つだけ: MapLibre では内側 URL を<strong>絶対で</strong>書くこと
+（<code>geopbf://https://…</code>、pmtiles と同じ流儀）。MapLibre はソース URL を
+<code>new URL()</code> で正規化するため、相対形は壊れます。
+</p>
+
 <hr class="rule">
 
 <div style="font-size:0.72rem;color:var(--dim);font-family:var(--mono);text-align:center">
-	geopbf v1.0.0 · Kenji Yoshida · MIT License · 2026
+	geopbf v1.1.0 · Kenji Yoshida · MIT License · 2026
 </div>
 
 </div>

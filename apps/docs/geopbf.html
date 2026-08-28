@@ -57,6 +57,7 @@ Lightweight · Universal converter · ArrayBuffer-native — the wire format for
 		<li><a href="#gint">Gint Extension — 64-bit Coordinate Packing</a></li>
 		<li><a href="#comparison">Comparison with Other Formats</a></li>
 		<li><a href="#api">API Reference</a></li>
+		<li><a href="#integrations">Map Library Integrations</a></li>
 	</ol>
 </div>
 
@@ -536,10 +537,87 @@ pbf.<span class="fn">header</span>({ name: <span class="st">'New Name'</span>, d
 <span class="cm">// ── Render ─────────────────────────────────────────────</span>
 pbf.<span class="fn">draw</span>(canvasCtx, { fill: <span class="st">'#5a8050'</span>, stroke: <span class="st">'#a8d47e'</span> });</code></pre>
 
+<!-- ──────────────────────────────────────────────────── -->
+<h2 id="integrations">10. Map Library Integrations (v1.1)</h2>
+
+<p>
+Since v1.1.0 the npm package ships ready-made adapters for the major web map libraries.
+None of them import the host library — each is a <strong>zero-dependency subpath export</strong>
+built on one shared loader: whole-file gzip is detected by magic bytes, decoding avoids
+<code>new Function</code> (CSP-safe <code>noeval</code> mode), and properties are mapped to be
+JSON-safe (<code>Date</code> → ISO string, bbox → plain array, binary values dropped) so they
+survive each library's worker handoff.
+</p>
+
+<table>
+	<tr>
+		<th>Import</th>
+		<th>Shape</th>
+		<th>For</th>
+	</tr>
+	<tr>
+		<td><code>geopbf/maplibre</code></td>
+		<td class="dim">addProtocol handler</td>
+		<td>MapLibre GL JS (v4+)</td>
+	</tr>
+	<tr>
+		<td><code>geopbf/leaflet</code></td>
+		<td class="dim">L.GeoJSON subclass</td>
+		<td>Leaflet (1.x)</td>
+	</tr>
+	<tr>
+		<td><code>geopbf/openlayers</code></td>
+		<td class="dim">VectorSource loader factory</td>
+		<td>OpenLayers (6+)</td>
+	</tr>
+	<tr>
+		<td><code>geopbf/loaders</code></td>
+		<td class="dim">loaders.gl Loader object</td>
+		<td>deck.gl · kepler.gl</td>
+	</tr>
+	<tr>
+		<td><code>geopbf/load</code></td>
+		<td class="dim">plain <code>loadGeopbf(url)</code></td>
+		<td>Cesium · D3 · anything that eats GeoJSON</td>
+	</tr>
+</table>
+
+<pre><code><span class="cm">// ── MapLibre — protocol source ─────────────────────────</span>
+<span class="kw">import</span> { geopbfProtocol } <span class="kw">from</span> <span class="st">"geopbf/maplibre"</span>;
+maplibregl.<span class="fn">addProtocol</span>(<span class="st">"geopbf"</span>, geopbfProtocol);
+map.<span class="fn">addSource</span>(<span class="st">"rail"</span>, { type: <span class="st">"geojson"</span>, data: <span class="st">"geopbf://https://…/N02-25_RailroadSection"</span> });
+
+<span class="cm">// ── Leaflet — layer plugin ─────────────────────────────</span>
+<span class="kw">import</span> { extendLeaflet } <span class="kw">from</span> <span class="st">"geopbf/leaflet"</span>;
+<span class="fn">extendLeaflet</span>(L);
+L.<span class="fn">geoPBF</span>(<span class="st">"geopbf://https://…"</span>).<span class="fn">on</span>(<span class="st">"load"</span>, e =&gt; console.<span class="fn">log</span>(e.meta)).<span class="fn">addTo</span>(map);
+
+<span class="cm">// ── OpenLayers — source loader ─────────────────────────</span>
+<span class="kw">import</span> { makeGeopbfLoader } <span class="kw">from</span> <span class="st">"geopbf/openlayers"</span>;
+<span class="kw">const</span> source = <span class="kw">new</span> <span class="fn">VectorSource</span>({ loader: <span class="fn">makeGeopbfLoader</span>(url, <span class="kw">new</span> <span class="fn">GeoJSON</span>()) });
+
+<span class="cm">// ── deck.gl — loaders.gl ───────────────────────────────</span>
+<span class="kw">import</span> { GeoPBFLoader } <span class="kw">from</span> <span class="st">"geopbf/loaders"</span>;
+<span class="kw">new</span> <span class="fn">GeoJsonLayer</span>({ data: url, loaders: [GeoPBFLoader] });
+
+<span class="cm">// ── Everything else — plain loader ─────────────────────</span>
+<span class="kw">import</span> { loadGeopbf } <span class="kw">from</span> <span class="st">"geopbf/load"</span>;
+<span class="kw">const</span> r = <span class="kw">await</span> <span class="fn">loadGeopbf</span>(url);   <span class="cm">// { geojson, name, license, attribution, minZoom, maxZoom, … }</span>
+viewer.dataSources.<span class="fn">add</span>(<span class="kw">await</span> Cesium.GeoJsonDataSource.<span class="fn">load</span>(r.geojson));</code></pre>
+
+<p>
+Attribution travels inside the file (§2), and the adapters honor it: Leaflet and OpenLayers wire the
+header's <code>attribution</code> into the map credit automatically (an explicit option wins), and
+<code>loadGeopbf</code> hands back all header metadata for manual wiring.
+One contract to know: with MapLibre, write the inner URL <strong>absolute</strong>
+(<code>geopbf://https://…</code>, pmtiles-style) — MapLibre normalizes source URLs through
+<code>new URL()</code>, which corrupts relative forms.
+</p>
+
 <hr class="rule">
 
 <div style="font-size:0.72rem;color:var(--dim);font-family:var(--mono);text-align:center">
-	geopbf v1.0.0 · Kenji Yoshida · MIT License · 2026
+	geopbf v1.1.0 · Kenji Yoshida · MIT License · 2026
 </div>
 
 </div>
