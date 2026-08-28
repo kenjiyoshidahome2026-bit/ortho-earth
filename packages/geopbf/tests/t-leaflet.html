@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<!-- t-leaflet: 実 Leaflet との結合検定（自己判定式・判定は <title> に PASS/FAIL）。
+     実行: リポジトリルートで `npx vite --port 5199` を起こし、CDPランナーで title をポーリングする
+     （maplibre 同様、--dump-dom / virtual-time は実計算を待てない）。 -->
+<html>
+<head>
+	<meta charset="utf-8">
+	<title>RUNNING</title>
+	<style>#map { width: 640px; height: 480px; }</style>
+</head>
+<body>
+<div id="map"></div>
+<script>
+	addEventListener("error", e => { if (document.title === "RUNNING") document.title = `FAIL uncaught: ${e.message}`; });
+	addEventListener("unhandledrejection", e => { if (document.title === "RUNNING") document.title = `FAIL rejection: ${e.reason?.message || e.reason}`; });
+</script>
+<script type="module">
+	import L from "leaflet";
+	import "leaflet/dist/leaflet.css";
+	import { extendLeaflet } from "../src/leaflet.js";
+
+	const done = s => document.title = s;
+	setTimeout(() => document.title === "RUNNING" && done("FAIL timeout 30s"), 30000);
+	try {
+		extendLeaflet(L);
+		const map = L.map("map").setView([35.68, 139.75], 5);
+		L.geoPBF("geopbf://../../../apps/gishub-jp/public/jma/amedas.geopbf", {
+			pointToLayer: (f, ll) => L.circleMarker(ll, { radius: 3 }),
+		})
+			.on("load", function (e) {
+				const n = this.getLayers().length;
+				const meta = this.getMeta();
+				done(n > 0 && meta.name === "amedas"
+					? `PASS layers=${n} name=${meta.name} attribution=${JSON.stringify(this.options.attribution ?? null)}`
+					: `FAIL layers=${n} name=${meta.name}`);
+			})
+			.on("error", e => done(`FAIL load error: ${e.error?.message}`))
+			.addTo(map);
+	} catch (e) { done(`FAIL ${e.message}`); }
+</script>
+</body>
+</html>

@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<!-- geopbf × Leaflet の最小デモ（単独HTML・ビルド不要）。
+     Leaflet は CDN の global L、プラグインは npm 公開版を esm.sh 経由で読む。
+     モノレポ内で未公開版を試す場合はリポジトリルートで `npx vite` を起こし、
+     import を "../src/leaflet.js" に替える。
+     データは実配信の国土数値情報 N02（鉄道）。attribution はファイルヘッダから自動配線される。 -->
+<html>
+<head>
+	<meta charset="utf-8">
+	<title>geopbf × Leaflet demo</title>
+	<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+	<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+	<style>html, body, #map { margin: 0; height: 100%; }</style>
+</head>
+<body>
+<div id="map"></div>
+<script type="module">
+	import { extendLeaflet } from "https://esm.sh/geopbf@1.1.0/leaflet";
+
+	extendLeaflet(L);
+	const map = L.map("map").setView([35.68, 139.75], 9);
+	L.tileLayer("https://cyberjapandata.gsi.go.jp/xyz/pale/{z}/{x}/{y}.png", { attribution: "国土地理院" }).addTo(map);
+
+	L.geoPBF("geopbf://https://api.ortho-earth.com/bucket/GIS/pbf/N02-25_RailroadSection", {
+		style: { color: "#3564c0", weight: 1.5 },
+		onEachFeature: (f, layer) => layer.bindPopup(`<pre>${JSON.stringify(f.properties, null, 1)}</pre>`),
+	})
+		.on("load", e => console.log("loaded:", e.meta))
+		.addTo(map);
+
+	L.geoPBF("geopbf://https://api.ortho-earth.com/bucket/GIS/pbf/N02-25_Station", {
+		style: { color: "#c03535", weight: 5, opacity: 0.8 },
+	}).addTo(map);
+</script>
+</body>
+</html>

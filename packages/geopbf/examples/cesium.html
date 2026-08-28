@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<!-- geopbf × Cesium の最小デモ（単独HTML・ビルド不要）。
+     Cesium にはプラグインは不要: GeoJsonDataSource.load() が GeoJSON オブジェクトを直接受けるので、
+     汎用ローダ loadGeopbf(url) の返り値を渡すだけでよい（gzip透過・noeval・サニタイズ込み）。
+     Cesium ion のトークンは使わない（baseLayer を明示指定）。データは実配信の国土数値情報 N02（鉄道）。 -->
+<html>
+<head>
+	<meta charset="utf-8">
+	<title>geopbf × Cesium demo</title>
+	<script>window.CESIUM_BASE_URL = "https://cdn.jsdelivr.net/npm/cesium@1.131/Build/Cesium/";</script>
+	<script src="https://cdn.jsdelivr.net/npm/cesium@1.131/Build/Cesium/Cesium.js"></script>
+	<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/cesium@1.131/Build/Cesium/Widgets/widgets.css">
+	<style>html, body, #cesiumContainer { margin: 0; height: 100%; }</style>
+</head>
+<body>
+<div id="cesiumContainer"></div>
+<script type="module">
+	import { loadGeopbf } from "https://esm.sh/geopbf@1.1.0/load";
+
+	const viewer = new Cesium.Viewer("cesiumContainer", {
+		baseLayer: new Cesium.ImageryLayer(new Cesium.UrlTemplateImageryProvider({
+			url: "https://cyberjapandata.gsi.go.jp/xyz/pale/{z}/{x}/{y}.png",
+			credit: "国土地理院", maximumLevel: 18,
+		})),
+		baseLayerPicker: false, geocoder: false, animation: false, timeline: false,
+		sceneModePicker: false, navigationHelpButton: false, infoBox: true,
+	});
+
+	const rail = await loadGeopbf("geopbf://https://api.ortho-earth.com/bucket/GIS/pbf/N02-25_RailroadSection");
+	const ds = await Cesium.GeoJsonDataSource.load(rail.geojson, {
+		stroke: Cesium.Color.fromCssColorString("#3564c0"), strokeWidth: 2, clampToGround: false,
+	});
+	viewer.dataSources.add(ds);
+
+	// ヘッダの attribution はクレジット表示へ
+	if (rail.attribution) viewer.creditDisplay.addStaticCredit(new Cesium.Credit(rail.attribution));
+	console.log("loaded:", { name: rail.name, features: rail.geojson.features.length });
+
+	viewer.camera.setView({ destination: Cesium.Cartesian3.fromDegrees(139.75, 35.68, 300000) });
+</script>
+</body>
+</html>

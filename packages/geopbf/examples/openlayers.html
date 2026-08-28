@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<!-- geopbf × OpenLayers の最小デモ（単独HTML・ビルド不要）。
+     ol とプラグインを esm.sh 経由で読むので、静的サーバに置くだけで動く。
+     モノレポ内で未公開版を試す場合はリポジトリルートで `npx vite` を起こし、
+     import を "../src/openlayers.js" と bare "ol/…" に替える。
+     データは実配信の国土数値情報 N02（鉄道）。attribution はファイルヘッダから自動配線される。 -->
+<html>
+<head>
+	<meta charset="utf-8">
+	<title>geopbf × OpenLayers demo</title>
+	<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ol@10/ol.css">
+	<style>html, body, #map { margin: 0; height: 100%; }</style>
+</head>
+<body>
+<div id="map"></div>
+<script type="module">
+	import Map from "https://esm.sh/ol@10/Map.js";
+	import View from "https://esm.sh/ol@10/View.js";
+	import TileLayer from "https://esm.sh/ol@10/layer/Tile.js";
+	import VectorLayer from "https://esm.sh/ol@10/layer/Vector.js";
+	import XYZ from "https://esm.sh/ol@10/source/XYZ.js";
+	import VectorSource from "https://esm.sh/ol@10/source/Vector.js";
+	import GeoJSON from "https://esm.sh/ol@10/format/GeoJSON.js";
+	import { fromLonLat } from "https://esm.sh/ol@10/proj.js";
+	import { Stroke, Style } from "https://esm.sh/ol@10/style.js";
+	import { makeGeopbfLoader } from "https://esm.sh/geopbf@1.1.0/openlayers";
+
+	const rail = new VectorSource({
+		loader: makeGeopbfLoader("geopbf://https://api.ortho-earth.com/bucket/GIS/pbf/N02-25_RailroadSection", new GeoJSON(), {
+			onMeta: meta => console.log("loaded:", meta),
+		}),
+	});
+	const map = new Map({
+		target: "map",
+		layers: [
+			new TileLayer({ source: new XYZ({ url: "https://cyberjapandata.gsi.go.jp/xyz/pale/{z}/{x}/{y}.png", attributions: "国土地理院" }) }),
+			new VectorLayer({ source: rail, style: new Style({ stroke: new Stroke({ color: "#3564c0", width: 1.5 }) }) }),
+		],
+		view: new View({ center: fromLonLat([139.75, 35.68]), zoom: 9 }),
+	});
+	map.on("click", e => {
+		const f = map.getFeaturesAtPixel(e.pixel)[0];
+		if (f) console.log(f.getProperties());
+	});
+</script>
+</body>
+</html>

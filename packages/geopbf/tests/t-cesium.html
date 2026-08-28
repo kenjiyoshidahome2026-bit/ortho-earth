@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<!-- t-cesium: 実 Cesium との結合検定（自己判定式・判定は <title> に PASS/FAIL）。
+     Cesium 側にプラグインは無く、loadGeopbf → GeoJsonDataSource.load(geojson) のレシピが
+     そのまま動くことの関門。Cesium 本体は CDN 依存（オフラインではこのテストは走らない）。
+     実行: リポジトリルートで `npx vite --port 5199` を起こし、CDPランナーで title をポーリングする。 -->
+<html>
+<head>
+	<meta charset="utf-8">
+	<title>RUNNING</title>
+	<script>window.CESIUM_BASE_URL = "https://cdn.jsdelivr.net/npm/cesium@1.131/Build/Cesium/";</script>
+	<script src="https://cdn.jsdelivr.net/npm/cesium@1.131/Build/Cesium/Cesium.js"></script>
+	<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/cesium@1.131/Build/Cesium/Widgets/widgets.css">
+	<style>#cesiumContainer { width: 640px; height: 480px; }</style>
+</head>
+<body>
+<div id="cesiumContainer"></div>
+<script>
+	addEventListener("error", e => { if (document.title === "RUNNING") document.title = `FAIL uncaught: ${e.message}`; });
+	addEventListener("unhandledrejection", e => { if (document.title === "RUNNING") document.title = `FAIL rejection: ${e.reason?.message || e.reason}`; });
+</script>
+<script type="module">
+	import { loadGeopbf } from "../src/modules/geojson-load.js";
+
+	const done = s => document.title = s;
+	setTimeout(() => document.title === "RUNNING" && done("FAIL timeout 45s"), 45000);
+	try {
+		const viewer = new Cesium.Viewer("cesiumContainer", {
+			baseLayer: false, // 検定では下地タイル不要（外部依存を減らす）
+			baseLayerPicker: false, geocoder: false, animation: false, timeline: false,
+			sceneModePicker: false, navigationHelpButton: false,
+		});
+		const r = await loadGeopbf("geopbf://../../../apps/gishub-jp/public/jma/amedas.geopbf");
+		const ds = await Cesium.GeoJsonDataSource.load(r.geojson, { markerSize: 12 });
+		await viewer.dataSources.add(ds);
+		if (r.attribution) viewer.creditDisplay.addStaticCredit(new Cesium.Credit(r.attribution));
+		const n = ds.entities.values.length;
+		done(n > 0 && r.name === "amedas"
+			? `PASS entities=${n} name=${r.name} attribution=${JSON.stringify(r.attribution ?? null)}`
+			: `FAIL entities=${n} name=${r.name}`);
+	} catch (e) { done(`FAIL ${e.message}`); }
+</script>
+</body>
+</html>

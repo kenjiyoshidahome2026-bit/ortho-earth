@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<!-- geopbf × deck.gl の最小デモ（単独HTML・ビルド不要）。
+     deck.gl は standalone バンドル（global deck）、GeoPBFLoader は npm 公開版を esm.sh 経由で読む。
+     GeoJsonLayer の data に .geopbf の URL を渡し、loaders に GeoPBFLoader を挿すだけ。
+     データは実配信の国土数値情報 N02（鉄道）。 -->
+<html>
+<head>
+	<meta charset="utf-8">
+	<title>geopbf × deck.gl demo</title>
+	<script src="https://unpkg.com/deck.gl@9/dist.min.js"></script>
+	<style>html, body { margin: 0; height: 100%; }</style>
+</head>
+<body>
+<script type="module">
+	import { GeoPBFLoader } from "https://esm.sh/geopbf@1.1.0/loaders";
+
+	new deck.DeckGL({
+		container: document.body,
+		initialViewState: { longitude: 139.75, latitude: 35.68, zoom: 8 },
+		controller: true,
+		layers: [
+			new deck.GeoJsonLayer({
+				id: "rail",
+				data: "https://api.ortho-earth.com/bucket/GIS/pbf/N02-25_RailroadSection",
+				loaders: [GeoPBFLoader],
+				loadOptions: { geopbf: { sanitize: true } },
+				stroked: true, filled: false,
+				getLineColor: [53, 100, 192], getLineWidth: 2, lineWidthUnits: "pixels",
+				pickable: true,
+				onDataLoad: fc => console.log("loaded:", fc.geopbfMeta),
+			}),
+		],
+		getTooltip: ({ object }) => object && (object.properties.N02_003 || ""),
+	});
+</script>
+</body>
+</html>

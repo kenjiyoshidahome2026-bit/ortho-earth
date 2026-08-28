@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<!-- t-openlayers: 実 OpenLayers との結合検定（自己判定式・判定は <title> に PASS/FAIL）。
+     実行: リポジトリルートで `npx vite --port 5199` を起こし、CDPランナーで title をポーリングする。
+     ol は canvas 2D 描画なので headless でも描画完走まで見る（rendercomplete）。 -->
+<html>
+<head>
+	<meta charset="utf-8">
+	<title>RUNNING</title>
+	<style>#map { width: 640px; height: 480px; }</style>
+</head>
+<body>
+<div id="map"></div>
+<script>
+	addEventListener("error", e => { if (document.title === "RUNNING") document.title = `FAIL uncaught: ${e.message}`; });
+	addEventListener("unhandledrejection", e => { if (document.title === "RUNNING") document.title = `FAIL rejection: ${e.reason?.message || e.reason}`; });
+</script>
+<script type="module">
+	import Map from "ol/Map.js";
+	import View from "ol/View.js";
+	import VectorLayer from "ol/layer/Vector.js";
+	import VectorSource from "ol/source/Vector.js";
+	import GeoJSON from "ol/format/GeoJSON.js";
+	import { fromLonLat } from "ol/proj.js";
+	import "ol/ol.css";
+	import { makeGeopbfLoader } from "../src/openlayers.js";
+
+	const done = s => document.title = s;
+	setTimeout(() => document.title === "RUNNING" && done("FAIL timeout 30s"), 30000);
+	try {
+		let meta = null;
+		const source = new VectorSource({
+			loader: makeGeopbfLoader("geopbf://../../../apps/gishub-jp/public/jma/amedas.geopbf", new GeoJSON(), {
+				onMeta: m => meta = m,
+				onError: e => done(`FAIL load error: ${e.message}`),
+			}),
+		});
+		const map = new Map({
+			target: "map",
+			layers: [new VectorLayer({ source })],
+			view: new View({ center: fromLonLat([139.75, 35.68]), zoom: 5 }),
+		});
+		map.on("rendercomplete", () => {
+			if (document.title !== "RUNNING") return;
+			const n = source.getFeatures().length;
+			if (n === 0) return; // ロード完了後の rendercomplete を待つ（timeout ガードあり）
+			done(meta?.name === "amedas"
+				? `PASS features=${n} name=${meta.name} attribution=${JSON.stringify(source.getAttributions()?.()?.[0] ?? null)}`
+				: `FAIL features=${n} meta=${JSON.stringify(meta)}`);
+		});
+	} catch (e) { done(`FAIL ${e.message}`); }
+</script>
+</body>
+</html>

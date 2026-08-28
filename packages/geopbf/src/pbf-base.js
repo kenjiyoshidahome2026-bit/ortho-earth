@@ -22,6 +22,7 @@ class GeoPBF {
 		this._maxZoom = options.maxZoom ?? null;
 		this.e = Math.pow(10, this._precision = options.precision || 6);
 		this.noprop = !!options.noprop;
+		this.noeval = !!options.noeval; // FUNC値をnew Functionせず関数ソース文字列のまま返す（CSP unsafe-eval なし環境向け）
 		this.keys = [], this.bufs = [], this.fmap = [], this.bin = {}; this.props = [];
 	}
 	static setProperty(name, value) {
@@ -304,7 +305,7 @@ function readValue(self) {
 		case DATATYPE.BOOL: return pbf.readBoolean();
 		case DATATYPE.JSON: return JSON.parse(pbf.readString());
 		case DATATYPE.BLOB: return blob(pbf.readString());
-		case DATATYPE.FUNC: return new Function(`return ${pbf.readString()}`);
+		case DATATYPE.FUNC: { const s = pbf.readString(); return self.noeval ? s : new Function(`return ${s}`); }
 		case DATATYPE.IMAGE: return image(pbf.readString());
 		case DATATYPE.DATE: return new Date(pbf.readSVarint() * 1000);
 		case DATATYPE.BBOX: return new Float64Array(pbf.readPackedDouble());

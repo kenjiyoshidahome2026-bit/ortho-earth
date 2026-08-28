@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<!-- t-maplibre: 実 MapLibre との結合検定（自己判定式・判定は <title> に PASS/FAIL）。
+     実行: リポジトリルートで `npx vite --port 5199` を起こし、headless Chrome で
+       chrome --headless=new --dump-dom http://localhost:5199/packages/geopbf/tests/t-maplibre.html
+     の <title> を読む（bare import "maplibre-gl"/"pbf" の解決に vite dev が必要）。 -->
+<html>
+<head>
+	<meta charset="utf-8">
+	<title>RUNNING</title>
+	<style>#map { width: 640px; height: 480px; }</style>
+</head>
+<body>
+<div id="map"></div>
+<script>
+	// module スクリプトの読込失敗や未捕捉例外も title に出す（自己判定の取りこぼし防止）
+	addEventListener("error", e => { if (document.title === "RUNNING") document.title = `FAIL uncaught: ${e.message}`; });
+	addEventListener("unhandledrejection", e => { if (document.title === "RUNNING") document.title = `FAIL rejection: ${e.reason?.message || e.reason}`; });
+</script>
+<script type="module">
+	import maplibregl from "maplibre-gl";
+	import "maplibre-gl/dist/maplibre-gl.css";
+	import { geopbfProtocol, loadGeopbf } from "../src/maplibre.js";
+
+	const done = s => document.title = s;
+	setTimeout(() => document.title === "RUNNING" && done("FAIL timeout 30s"), 30000);
+	try {
+		maplibregl.addProtocol("geopbf", geopbfProtocol);
+		const map = new maplibregl.Map({
+			container: "map",
+			style: { version: 8, sources: {}, layers: [] },
+			center: [138, 37], zoom: 4, attributionControl: false,
+		});
+		map.on("error", e => done(`FAIL map error: ${e.error?.message || e}`));
+		// 注意: "geopbf://../x" の形は URL の authority 解釈で ../ が食われるため、内側は絶対URLで渡す（pmtiles と同じ契約）
+		const dataUrl = "geopbf://" + new URL("../../../apps/gishub-jp/public/jma/amedas.geopbf", location.href).href;
+		map.on("load", () => {
+			map.addSource("amedas", { type: "geojson", data: dataUrl });
+			map.addLayer({ id: "amedas", type: "circle", source: "amedas",
+				paint: { "circle-radius": 3, "circle-color": "#c33" } });
+		});
+		// 最初の idle は addSource 直後に早撃ちすることがあるため、描画されるまで idle 毎に再判定
+		map.on("idle", async () => {
+			if (document.title !== "RUNNING") return;
+			const n = map.getLayer("amedas") ? map.queryRenderedFeatures({ layers: ["amedas"] }).length : 0;
+			if (n === 0) return; // 30s の timeout ガードが FAIL を出す
+			// loadGeopbf は MapLibre を経ないので相対URL（location 基準解決）も検定
+			const meta = await loadGeopbf("geopbf://../../../apps/gishub-jp/public/jma/amedas.geopbf");
+			const m = meta.geojson.features.length;
+			done(m > 0 ? `PASS rendered=${n} loaded=${m} name=${meta.name}` : `FAIL rendered=${n} loaded=${m}`);
+		});
+	} catch (e) { done(`FAIL ${e.message}`); }
+</script>
+</body>
+</html>

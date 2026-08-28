@@ -43,8 +43,27 @@ const sq = x => ({ type: "Feature", properties: { n: x }, geometry: { type: "Pol
 		const g = pbf.unPackGint;
 		const hit = pbf.contain([0.5, 0.5]);
 		const rt = pbf.geojson.features.length;
-		const ok = !!g && g.polygonCount === 2 && hit != null && rt === 2;
-		document.title = ok ? "PASS geopbf-npm" : \`FAIL polygons=\${g?.polygonCount} hit=\${hit} rt=\${rt}\`;
+		// maplibre サブパス（exports "./maplibre"）がバンドラ通過後も解決・実行できるか
+		const ml = await import("geopbf/maplibre");
+		const mlOk = typeof ml.geopbfProtocol === "function" && typeof ml.loadGeopbf === "function"
+			&& ml.sanitizeProperties({ d: new Date(0) }).d === "1970-01-01T00:00:00.000Z";
+		// leaflet サブパス（exports "./leaflet"）: leaflet 非依存なのでフェイク L で登録まで実走
+		const lf = await import("geopbf/leaflet");
+		class FakeGJ { initialize() {} }
+		FakeGJ.extend = function (p) { class S extends this { constructor(...a) { super(); this.initialize(...a); } } Object.assign(S.prototype, p); return S; };
+		const fakeL = { GeoJSON: FakeGJ };
+		const lfOk = typeof lf.extendLeaflet === "function" && lf.extendLeaflet(fakeL) === fakeL && typeof fakeL.geoPBF === "function";
+		// openlayers / loaders サブパス: 依存ゼロなので解決＋入口の型まで
+		const olm = await import("geopbf/openlayers");
+		const olOk = typeof olm.makeGeopbfLoader === "function"
+			&& typeof olm.makeGeopbfLoader("geopbf://x", { readFeatures: () => [] }) === "function";
+		const ld = await import("geopbf/loaders");
+		const ldOk = ld.GeoPBFLoader?.id === "geopbf" && typeof ld.GeoPBFLoader.parse === "function";
+		// 汎用ローダ（Cesium/D3 レシピの入口）
+		const gl = await import("geopbf/load");
+		const glOk = typeof gl.loadGeopbf === "function" && typeof gl.decodeToGeojson === "function";
+		const ok = !!g && g.polygonCount === 2 && hit != null && rt === 2 && mlOk && lfOk && olOk && ldOk && glOk;
+		document.title = ok ? "PASS geopbf-npm" : \`FAIL polygons=\${g?.polygonCount} hit=\${hit} rt=\${rt} ml=\${mlOk} lf=\${lfOk} ol=\${olOk} ld=\${ldOk} gl=\${glOk}\`;
 	} catch (e) { document.title = "FAIL " + (e?.message || e); }
 	fetch("/__result?t=" + encodeURIComponent(document.title)).catch(() => {});   // 検定サーバへ自己申告（実時間ビーコン）
 })();
