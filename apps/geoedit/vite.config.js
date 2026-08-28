@@ -34,7 +34,12 @@ const asyncMainCss = {
 export default defineConfig({
 	base: "/geoedit/",
 	publicDir: resolve(import.meta.dirname, "../ortho-japan/public"),
-	server: { port: 5190, fs: { allow: [resolve(import.meta.dirname, "..", "..")] } },   // root の外（../ortho-japan・packages）を dev で読ませる
+	server: {
+		port: 5190,
+		fs: { allow: [resolve(import.meta.dirname, "..", "..")] },   // root の外（../ortho-japan・packages）を dev で読ませる
+		// クラウド保存（apps/account の wrangler dev :8787）＝dev も同一オリジン化＝CORS 不要（本番は route が同居）
+		proxy: { "/auth": "http://localhost:8787", "/me": "http://localhost:8787" },
+	},
 	// external＝SDK二重構成（main.js冒頭）の本番側import＝バンドルせず実行時URLのまま（実体は ortho-japan Worker が /japan/lib/ で配る）
 	build: { outDir: "dist/site/geoedit", emptyOutDir: true, rollupOptions: { external: ["/japan/lib/ortho-japan.js"] } },
 	worker: { format: "es" },

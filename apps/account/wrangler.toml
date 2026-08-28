@@ -1,0 +1,27 @@
+# account Worker：OAuth ログイン（github/google/x）＋ユーザー別クラウド保存（R2）。
+# www.ortho-earth.com の /auth* と /me* を握る＝全アプリと同一オリジン（CORS もクロスサイト Cookie も不要）。
+# 注意：www 配下に /auth…・/me… で始まる「ページ」を将来作らないこと（未知パスはこの Worker が 404 JSON を返す）。
+# シークレット（wrangler secret put）：GITHUB_CLIENT_ID/SECRET・GOOGLE_CLIENT_ID/SECRET・X_CLIENT_ID/SECRET。
+# ローカルは .dev.vars（.dev.vars.example を複製・コミット禁止）。値を toml に書き戻さないこと（native-bucket と同じ規律）。
+name = "account"
+main = "workers/index.js"
+compatibility_date = "2025-06-01"
+workers_dev = false
+
+routes = [
+	{ pattern = "www.ortho-earth.com/auth*", zone_name = "ortho-earth.com" },
+	{ pattern = "www.ortho-earth.com/me*", zone_name = "ortho-earth.com" }
+]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "account"
+database_id = "5b3cb339-655f-4f7c-9877-9417807fa4b0"
+
+[[r2_buckets]]
+binding = "USER_BUCKET"
+bucket_name = "user-files"   # `npx wrangler r2 bucket create user-files`
+
+[vars]
+BASE_URL = "https://www.ortho-earth.com"
+ALLOWED_ORIGINS = "https://www.ortho-earth.com"   # 非GETのCSRF門番＝Origin の完全一致リスト（includes() は使わない）

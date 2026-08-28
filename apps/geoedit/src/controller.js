@@ -11,6 +11,7 @@ import { createOverlay } from "./overlay.js";
 import { createPopLayer } from "./pop-layer.js";
 import { initToolbar } from "./toolbar.js";
 import { initDrop, exportPanel, idbSave, idbLoad, idbClear } from "./io.js";
+import { cloudPanel } from "./cloud.js";
 import { createPropsPanel } from "./properties.js";
 import { createLargeModel } from "./large-model.js";
 import { geopbf } from "geopbf";
@@ -614,6 +615,10 @@ export function initEditor(map) {
 		setDefaults: (t, partial) => { const k = t === "rect" || t === "circle" ? "polygon" : t; drawDefaults[k] = mergeProps(drawDefaults[k], partial); },
 		importFile,
 		exportOpen: () => exportPanel(document.getElementById("stage"), () => st.model && (st.model.large ? st.model.toPbf() : layer.exportPbf(st.model)), toast),   // 大規模＝ストリーム置換複写（幾何はバイト複写・属性だけ再エンコード）
+		cloudOpen: () => cloudPanel(document.getElementById("stage"), {
+			getPbf: () => st.model && (st.model.large ? st.model.toPbf() : layer.exportPbf(st.model)),   // 書き出しと同じ口（model が真実源＝flush 不要）
+			loadBuffer: buf => loadBuffer(buf),   // ドロップ取込と同経路＝新セッション扱い
+		}, toast),
 		clearAll: async () => { if (confirm("編集内容を全て消去して新規セッションを始めますか？")) { await idbClear(); loadFC({ type: "FeatureCollection", features: [] }); } },
 	}, signal);
 	bar.syncHist(false, false);

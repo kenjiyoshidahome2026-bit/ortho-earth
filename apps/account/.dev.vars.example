@@ -1,0 +1,12 @@
+# .dev.vars にコピーして値を埋める（.dev.vars はコミット禁止＝.gitignore 済み）。
+# dev 用 OAuth アプリの callback は http://localhost:5190/auth/callback/{provider}
+#（geoedit の vite dev が :5190、/auth・/me は vite proxy で :8787 のこの Worker へ転送＝dev も同一オリジン）。
+DEV=1
+BASE_URL=http://localhost:5190
+ALLOWED_ORIGINS=http://localhost:5190,http://localhost:8787
+GITHUB_CLIENT_ID=
+GITHUB_CLIENT_SECRET=
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
+X_CLIENT_ID=
+X_CLIENT_SECRET=

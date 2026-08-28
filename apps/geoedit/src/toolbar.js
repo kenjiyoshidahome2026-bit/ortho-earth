@@ -21,6 +21,7 @@ const ICONS = {
 	explode: S('<rect x="8.5" y="8.5" width="7" height="7" rx="1"/><path d="M5 5l2.6 2.6M19 5l-2.6 2.6M5 19l2.6-2.6M19 19l-2.6-2.6"/>'),   // ばらす＝1つが四方へ
 	imp: S('<path d="M3 7h6l2 2h10v11H3z"/><path d="M12 11v6m0 0l-2.5-2.5M12 17l2.5-2.5"/>'),
 	exp: S('<path d="M12 14V3m0 0L8.5 6.5M12 3l3.5 3.5"/><path d="M4 15v5h16v-5"/>'),
+	cloud: S('<path d="M7 17a4 4 0 1 1 .7-7.95A5.5 5.5 0 0 1 18.5 10 3.5 3.5 0 0 1 18 17z"/><path d="M12 21v-7m0 0l-2.5 2.5M12 14l2.5 2.5"/>'),
 	trash: S('<path d="M4 7h16M9 7V4h6v3M6.5 7l1 13h9l1-13"/><path d="M10 11v6M14 11v6"/>'),
 };
 
@@ -80,6 +81,7 @@ export function initToolbar(el, api, signal) {
 	file.addEventListener("change", () => { if (file.files[0]) api.importFile(file.files[0]); file.value = ""; }, { signal });
 	el.append(file);
 	btn("exp", "書き出し（8形式）", () => api.exportOpen());
+	btn("cloud", "クラウドに保存 / 読み込み（要ログイン）", () => api.cloudOpen());
 	btn("trash", "全消去（新規セッション）", () => api.clearAll());
 
 	// ---- 作図ツールの既定スタイルパネル（点/線/面それぞれ＝「次に描くもの」に効く）----
