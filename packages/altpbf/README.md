@@ -1,5 +1,7 @@
 # altpbf
 
+[![npm](https://img.shields.io/npm/v/altpbf)](https://www.npmjs.com/package/altpbf) [![license: MIT](https://img.shields.io/badge/license-MIT-blue)](./LICENSE)
+
 > **Repo layout note** — development happens in the [ortho-earth monorepo](https://github.com/kenjiyoshidahome2026-bit/ortho-earth) (`packages/altpbf`); this standalone repo is a read-only mirror synced on each release. Issues are welcome here; patches land in the monorepo. / 開発はモノレポ側で行い、ここはリリースごとに同期される公開ミラーです（Issue歓迎・変更はモノレポへ）。
 
 **A tiny binary format for elevation tiles.** Heights are stored as delta-coded SVarint grids compressed with deflate-raw, and decoded straight into an `Int16Array` — no intermediate JS arrays (a 5.7M-point tile decodes in ~21 ms / +12 MB instead of ~99 ms / +230 MB).
