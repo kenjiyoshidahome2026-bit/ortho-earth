@@ -4,7 +4,7 @@
 	"description": "ALTPBF — a tiny binary format for elevation tiles: delta-coded SVarint grids with deflate-raw, decoded straight into Int16Array (no intermediate JS arrays). The elevation backbone of ortho-earth: 8 tiles / 55 MB cover the whole planet at R90. Encode, decode, name-scheme helpers and PNG preview, all in the browser. MIT.",
 	"keywords": ["elevation", "dem", "terrain", "heightmap", "tiles", "geospatial", "gis", "binary", "format", "varint", "browser"],
 	"homepage": "https://www.ortho-earth.com/docs/altpbf.html",
-	"repository": { "type": "git", "url": "git+https://github.com/kenjiyoshidahome2026-bit/ortho-earth.git", "directory": "packages/altpbf" },
+	"repository": { "type": "git", "url": "git+https://github.com/kenjiyoshidahome2026-bit/altpbf.git" },
 	"author": "Kenji Yoshida <kenji.yoshida.home.2026@gmail.com>",
 	"license": "MIT",
 	"type": "module",
@@ -18,7 +18,8 @@
 	},
 	"scripts": {
 		"test": "node tests/t-tiff.mjs",
-		"verify:npm": "node scripts/verify-npm.mjs"
+		"verify:npm": "node scripts/verify-npm.mjs",
+		"mirror": "git -C ../.. subtree split --prefix=packages/altpbf -b altpbf-mirror && git -C ../.. push https://github.com/kenjiyoshidahome2026-bit/altpbf.git altpbf-mirror:main --force && git -C ../.. branch -D altpbf-mirror"
 	},
 	"dependencies": {
 		"pbf": "^4.0.1",
