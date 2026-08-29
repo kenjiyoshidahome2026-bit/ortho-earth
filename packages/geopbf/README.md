@@ -126,6 +126,30 @@ if (r.attribution) viewer.creditDisplay.addStaticCredit(new Cesium.Credit(r.attr
 
 Same deal for D3 (`d3.geoPath` over `r.geojson`), Observable notebooks, or anything else that eats GeoJSON. `loadGeopbf` returns `{ geojson, name, description, license, attribution, minZoom, maxZoom }` and handles gzip, `noeval`, and property sanitizing. See `examples/cesium.html`.
 
+## Editing (`geopbf/edit`, v1.3)
+
+The editing core battle-tested in [geoedit](https://www.ortho-earth.com/geoedit/) — pure data modules (no DOM, worker-safe, Node-testable):
+
+```js
+import { buildTopology, createModel } from "geopbf/edit";
+
+const topo = buildTopology(featureCollection, 6);   // grid 10^-6 deg; shared borders become single arcs
+const model = createModel(topo);
+const addr = model.addrOf(eid, pathIdx, vertIdx);   // stable address {eid, path, vi}
+const { arcId, idx } = model.resolveAddr(addr);
+model.moveVertex(arcId, idx, lng, lat);             // one arc, N features: neighbors move together
+model.toGeoJSON();                                  // → FeatureCollection (round-trip)
+model.stats();                                      // → { features, arcs, vertices }
+```
+
+- **`buildTopology(fc, gridExp)`** — extract shared-edge topology; a border edit moves both features at once.
+- **`createModel(topo)`** — vertex move/insert/delete, feature add/delete, holes, translate; command objects (`applyCmd`/`invertCmd`) with re-extraction-stable addresses make undo/redo survive topology rebuilds.
+- **`createLargeModel(pbf)`** — edit tens of millions of vertices in place on the GeoPBF bytes + Gint buffer (no full extraction, no OOM).
+- **`createSnapIndex(gridExp, deref)`** — grid-linked snapping. **`createHistory()`** — undo/redo stack.
+- **`smoothRing / smoothGeom`** — Catmull-Rom subdivision used by both the editor and `@spline` playback (same curve everywhere).
+
+Granular imports: `geopbf/edit/model`, `geopbf/edit/large-model`, `geopbf/edit/topo-extract`, `geopbf/edit/snap`, `geopbf/edit/history`, `geopbf/edit/spline`.
+
 ## Bundler notes
 
 Workers are declared as `new Worker(new URL("./…", import.meta.url), { type: "module" })` and the WASM ships as a regular asset — Vite and other modern bundlers handle both natively, no plugins. One setting is required in the consumer's Vite config (the workers use dynamic imports internally, which Vite's default `iife` worker format rejects):
