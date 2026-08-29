@@ -21,7 +21,9 @@ export async function Fetch(url, opts = {}) {
 	try {
 		let cors = false, range = true, knownSize = 0, targetURL = "";
 		const checkRes = await fetch(`${proxy(url)}&mode=check`);
-		const info = await checkRes.json();
+		// check が JSON を返さない（proxy 検問 403 の素通し・CF 障害ページ等）＝存在不明でなく「取れない」扱い
+		const info = await checkRes.json().catch(() => null);
+		if (!info) { console.warn(`proxy check failed (${checkRes.status}): ${url}`); return null; }
 		if (!info.exists && !info.url) {
 			 console.warn(`file is not exist: ${url}`); return null; 
 		} else {

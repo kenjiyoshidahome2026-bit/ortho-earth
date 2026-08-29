@@ -29,8 +29,9 @@ const isInternalHost = host =>
 	/^172\.(1[6-9]|2\d|3[01])\./.test(host) || /^169\.254\./.test(host) ||
 	/^0\./.test(host) || host === "metadata.google.internal";
 
+// X-Proxy-Deny＝この Worker 自身の検問で止めた印。上流由来の 403 と区別する（check モードが見る）。
 const deny = (msg, status = 403) =>
-	new Response(JSON.stringify({ error: msg }), { status, headers: { "Content-Type": "application/json" } });
+	new Response(JSON.stringify({ error: msg }), { status, headers: { "Content-Type": "application/json", "X-Proxy-Deny": "1" } });
 
 export async function proxy(req, env = {}) {
 	const url = new URL(req.url);
@@ -87,15 +88,26 @@ export async function proxy(req, env = {}) {
 
 	try {
 		if (mode === 'check') {
-			const r = await followed(first.url.toString(), { method: 'HEAD' });
-			if (r.status === 403 || r.status === 508) return r;   // 検問で止めた応答はそのまま返す
+			// 探りは HEAD でなく GET+Range 1バイト。HEAD は二重に嘘をつく：
+			//  ・S3 の署名付き URL（CKAN 等の 302 先）は GET に署名されており HEAD だと署名不一致 403
+			//  ・UA 無しの素朴なリクエストを WAF が 403 で落とす先がある（geospatial.jp 実測 2026-08-29）
+			const r = await followed(first.url.toString(), {
+				method: 'GET',
+				headers: { 'User-Agent': 'nativeBucket-Proxy/1.2', 'Range': 'bytes=0-0' }
+			});
+			if (r.headers.get('X-Proxy-Deny')) return r;   // 検問で止めた応答はそのまま返す（上流 403 は下の JSON に包む）
+			try { await r.body?.cancel(); } catch { /* 既読み・切断は無視 */ }
 			const hasCors = r.headers.has('access-control-allow-origin');
+			// Range を無視する鯖は 200 で全長を返す。206 なら Content-Range "bytes 0-0/全長" から長さを拾う。
+			const total = r.status === 206
+				? (r.headers.get('content-range') || '').split('/')[1] || null
+				: r.headers.get('content-length');
 			return new Response(JSON.stringify({
 				exists: r.ok, corsSafe: hasCors,
-				supportsRange: r.headers.get('accept-ranges') === 'bytes',
+				supportsRange: r.status === 206 || r.headers.get('accept-ranges') === 'bytes',
 				status: r.status,
 				contentType: r.headers.get('content-type'),
-				contentLength: r.headers.get('content-length'),
+				contentLength: total,
 				mustUseProxy: !hasCors, url: target
 			}), { headers: { 'Content-Type': 'application/json' } });
 		}
