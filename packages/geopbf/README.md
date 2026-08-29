@@ -1,5 +1,7 @@
 # geopbf
 
+> **Repo layout note** — development happens in the [ortho-earth monorepo](https://github.com/kenjiyoshidahome2026-bit/ortho-earth) (`packages/geopbf`); this standalone repo is a read-only mirror synced on each release. Issues are welcome here; patches land in the monorepo. / 開発はモノレポ側で行い、ここはリリースごとに同期される公開ミラーです（Issue歓迎・変更はモノレポへ）。
+
 **Carry geometry as geometry.** GeoPBF is a compact binary container for geospatial features that keeps shapes as shapes — instead of flattening them into draw-only tiles — plus **Gint**, a GPU-readable topology layer that makes the data *answerable*: instant point-in-polygon identify, shared-edge topology, choropleth painting by feature id.
 
 Everything runs in the browser: format conversion in workers, topology baking in WASM, no servers, no API keys. This is the data layer under [ortho-earth](https://www.ortho-earth.com/) — 1,900+ Japanese municipal polygons identify in 0.5–4 ms on an ordinary laptop.

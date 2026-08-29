@@ -4,7 +4,7 @@
 	"description": "Carry geometry as geometry. GeoPBF is a compact binary container for geospatial features, with Gint — a GPU-readable topology layer for instant point-in-polygon identify, shared-edge topology and choropleth painting. Converts GeoJSON / Shapefile / KML / KMZ / GPX / GML / FlatGeobuf / TopoJSON in the browser via workers + WASM. Zero servers.",
 	"keywords": ["geospatial", "gis", "geojson", "shapefile", "topojson", "kml", "gpx", "flatgeobuf", "vector", "topology", "point-in-polygon", "identify", "wasm", "browser", "format"],
 	"homepage": "https://www.ortho-earth.com/docs/geopbf.html",
-	"repository": { "type": "git", "url": "git+https://github.com/kenjiyoshidahome2026-bit/ortho-earth.git", "directory": "packages/geopbf" },
+	"repository": { "type": "git", "url": "git+https://github.com/kenjiyoshidahome2026-bit/geopbf.git" },
 	"author": "Kenji Yoshida <kenji.yoshida.home.2026@gmail.com>",
 	"license": "MIT",
 	"type": "module",
@@ -33,7 +33,8 @@
 	"scripts": {
 		"test": "node tests/t-maplibre.mjs && node tests/t-leaflet.mjs && node tests/t-openlayers.mjs && node tests/t-loaders.mjs",
 		"summary": "repomix --style markdown --output project_summary.md",
-		"verify:npm": "node scripts/verify-npm.mjs"
+		"verify:npm": "node scripts/verify-npm.mjs",
+		"mirror": "git -C ../.. subtree split --prefix=packages/geopbf -b geopbf-mirror && git -C ../.. push https://github.com/kenjiyoshidahome2026-bit/geopbf.git geopbf-mirror:main --force && git -C ../.. branch -D geopbf-mirror"
 	},
 	"dependencies": {
 		"pbf": "^4.0.1",
