@@ -20,7 +20,7 @@ const HINAN_MAX = 1500;                        // 市区町村 bbox 内マーカ
 const HINAN_FLAGS = ["洪水", "土砂", "高潮", "地震", "津波", "大火", "内水", "火山"];   // bake の flags ビット順
 
 const A31_COLORS = ["#c6dbef", "#9ecae1", "#6baed6", "#4292c6", "#2171b5", "#08519c"];   // 浸水深ランク1..6
-const A31_DEPTH = { 1: "〜0.5m", 2: "0.5〜3.0m", 3: "3.0〜5.0m", 4: "5.0〜10.0m", 5: "10.0〜20.0m", 6: "20.0m〜" };   // A31b_201 浸水深ランク→ラベル
+const A31_DEPTH = { 1: "〜0.5m", 2: "0.5〜3.0m", 3: "3.0〜5.0m", 4: "5.0〜10.0m", 5: "10.0〜20.0m", 6: "20.0m〜" };   // A31b_101/201 浸水深ランク→ラベル（計画/最大 共通尺）
 // スタック層の持参スタイル（style0=塗り未使用・style1=線）。線は淡く＝ランク塗りが主役。
 // rgb はドレープ線色（standupGint が styleTable[4..6] を読む）＝チルトの見せ場用に暖色。
 const STACK_STYLE = (() => {
@@ -58,6 +58,7 @@ export function initBousai(map, { bboxForCode, cityGeomForCode, legend, onStackA
 	let hinanOn = false;
 	let stackApplied = false;          // gint スロットをスタックが占有中か
 	let soloSrc = null;                // 単独点灯中の層 key（筆の高速路は feature に _src が無い＝クリック種別判定用）
+	let a31Mode = "max", a31PlanOk = false;   // 洪水の規模＝max:想定最大(-20-)⇄plan:計画(-10-)。状態1本＝排他が構造（本人裁定2026-08-29）
 	let draped = false, drapePending = false, stackDrapeFill = false;
 	let seq = 0;                       // 再入ガード（連打・都市切替中の非同期競合）
 	const fcCache = new Map();         // `${city}/${key}` → Feature[]（セッション内メモ）
@@ -77,6 +78,22 @@ export function initBousai(map, { bboxForCode, cityGeomForCode, legend, onStackA
 		b.addEventListener("click", () => toggle(def.key));
 		wrap.appendChild(b); chips.set(def.key, b);
 	}
+	// 洪水の規模切替（最大⇄計画）＝a31 点灯中のみ現れる従属チップ。片方だけ点く＝排他は a31Mode 1本が保証。
+	const a31Seg = document.createElement("span");
+	a31Seg.style.cssText = "display:none;gap:2px;align-items:center";
+	const segBtns = new Map();
+	for (const [m, label] of [["max", "最大"], ["plan", "計画"]]) {
+		const b = document.createElement("button");
+		b.className = "c20-chip"; b.type = "button"; b.textContent = label;
+		b.style.cssText = "font-size:10px;padding:1px 6px";
+		b.addEventListener("click", () => {
+			if (a31Mode === m || b.disabled) return;
+			a31Mode = m; syncChips();
+			if (on.has("a31")) rebuildStack();   // 点灯中の切替＝即差し替え（モード別 fcCache で往復は爆速）
+		});
+		a31Seg.appendChild(b); segBtns.set(m, b);
+	}
+	wrap.insertBefore(a31Seg, chips.get("a31").nextSibling);
 	wrap.appendChild(sta);
 	const say = t => { sta.textContent = t || ""; };
 	const nextFrame = () => new Promise(r => setTimeout(r, 0));   // 重い await/同期ループの前に状況表示を描かせる譲り
@@ -86,7 +103,7 @@ export function initBousai(map, { bboxForCode, cityGeomForCode, legend, onStackA
 		const secs = [];
 		if (keys.includes("a31")) {
 			const rows = [6, 5, 4, 3, 2, 1].map(r => legRow(A31_COLORS[r - 1], A31_DEPTH[r])).join("");   // 深い順に上から
-			secs.push(`<div style="font-size:12px;font-weight:600;margin-bottom:4px">洪水浸水想定 <span style="font-weight:400;color:#89a">想定最大規模・浸水深</span></div>${rows}`);
+			secs.push(`<div style="font-size:12px;font-weight:600;margin-bottom:4px">洪水浸水想定 <span style="font-weight:400;color:#89a">${a31Mode === "plan" ? "計画規模" : "想定最大規模"}・浸水深</span></div>${rows}`);
 		}
 		if (keys.includes("a33")) {
 			const rows = legRow("#c0392b", "特別警戒区域（レッド）") + legRow("#d9a441", "警戒区域（イエロー）");   // paint と同色
@@ -102,6 +119,10 @@ export function initBousai(map, { bboxForCode, cityGeomForCode, legend, onStackA
 	}
 	const syncChips = () => {
 		chips.forEach((b, k) => b.setAttribute("aria-pressed", String(k === "hinan" ? hinanOn : on.has(k))));
+		a31Seg.style.display = on.has("a31") ? "inline-flex" : "none";   // 従属チップは親点灯中だけ
+		segBtns.forEach((b, m) => b.setAttribute("aria-pressed", String(a31Mode === m)));
+		const pb = segBtns.get("plan");
+		pb.disabled = !a31PlanOk; pb.title = a31PlanOk ? "" : "計画規模データ未整備";
 	};
 
 	// --- 在庫 probe（市区町村ごと・並列）。無い層は非活性＝「未整備」を正直に見せる ---
@@ -115,7 +136,16 @@ export function initBousai(map, { bboxForCode, cityGeomForCode, legend, onStackA
 			moj: mojEligible ? mojSource(code).then(s => !!s) : Promise.resolve(false),
 			maff: Promise.resolve(!!maffCode(code)),   // 網羅表の in-memory 判定＝network 0（農地の無い市区町村は表に無い）
 			a33: a33TargetForPref(code.slice(0, 2)).then(t => !!t).catch(() => false),   // browser-native＝県に A33 KSJ があれば有効（catalog確認）
-			a31: a31CatIndex().then(cat => meshesForBbox(bboxForCode?.(code)).some(m => cat.has(m))).catch(() => false),   // browser-native＝市bboxを覆う1次メッシュが A31b catalog にあれば有効
+			a31: a31CatIndex().then(cat => {   // browser-native＝市bboxを覆う1次メッシュが A31b catalog にあれば有効（最大∪計画）
+				const meshes = meshesForBbox(bboxForCode?.(code));
+				const planOk = meshes.some(m => cat.plan.has(m));
+				if (mySeq === seq && city === code) {
+					a31PlanOk = planOk;
+					if (!planOk && a31Mode === "plan") a31Mode = "max";   // 計画の無い市へ移った＝黙って最大へ戻す
+					syncChips();
+				}
+				return meshes.some(m => cat.max.has(m)) || planOk;
+			}).catch(() => false),
 			hinan: probeBucket(`${API}/bucket/bousai/hinan/${code.slice(0, 2)}.json`),
 		};
 		for (const [k, p] of Object.entries(probes)) p.then(ok => {
@@ -193,32 +223,33 @@ export function initBousai(map, { bboxForCode, cityGeomForCode, legend, onStackA
 		}
 		return groupsToFeats(groups);
 	}
-	// ── A31 洪水浸水（想定最大規模）＝A33 と同じ browser-native 直読み（裁定2026-08-14「元データ直読み・IDB保存・A33参考」）。
+	// ── A31 洪水浸水（想定最大規模⇄計画規模＝a31Mode 排他）＝A33 と同じ browser-native 直読み（裁定2026-08-14「元データ直読み・IDB保存・A33参考」）。
 	// 旧・サーバー焼き geopbf（thinRingsで階段を潰した）を廃し、catalog A31b（1次メッシュ単位 geojson・原典メッシュ忠実）を
 	// メッシュ毎に legacy geopbf 直読み（proxy＋自動IDBキャッシュ＝2回目爆速）→市境界クリップ→浸水深ランクで束ねる。
 	// A33 が県単位なのに対し A31 は1次メッシュ単位配布＝索引を location_code（メッシュ）で持ち、市bboxを覆うメッシュだけ引く。
 	let _a31Cat = null;
-	async function a31CatIndex() {   // 1次メッシュコード → [想定最大規模 geojson target, …]（河川区分ごとに複数あり得る）
+	async function a31CatIndex() {   // { max, plan } 各＝1次メッシュコード → [geojson target, …]（河川区分ごとに複数あり得る）
 		if (!_a31Cat) {
-			_a31Cat = new Map();
+			_a31Cat = { max: new Map(), plan: new Map() };   // max=想定最大規模(-20-)／plan=計画規模(-10-)
 			const idx = await catJson(`${API}/bucket/catalog/index.json`) || [];
 			const a31 = idx.find(d => /^A31b/.test(d.dataset_code || "") || /洪水浸水想定区域（1次メッシュ/.test(d.title || ""));   // 最新 A31b（メッシュ単位）
 			const ds = a31 && await catJson(`${API}/bucket/catalog/${a31.dataset_code}.json`);
-			// 想定最大規模(-20-)レイヤのみ採用（計画規模/継続時間/危険区域は捨てる）。catalog は旧 A31(2022) と A31b(2025) を
-			// 同居させており両方読むと同一区域を二重取得する＝target 名から年度を解析し (メッシュ×河川区分) ごとに最新年度だけ
-			// 採る（本人裁定2026-08-14「最新年度のみ」）。製品名(A31/A31b)に依らず年度で採択＝将来カタログが年度を混ぜても堅牢。
-			const best = new Map();   // `${mesh}/${rc}` → { year, target }
+			// 想定最大規模(-20-)と計画規模(-10-)を採用（継続時間/家屋倒壊系は捨てる）。catalog は旧 A31(2022) と A31b(2025) を
+			// 同居させており両方読むと同一区域を二重取得する＝target 名から年度を解析し (規模×メッシュ×河川区分) ごとに
+			// 最新年度だけ採る（本人裁定2026-08-14「最新年度のみ」）。製品名(A31/A31b)に依らず年度で採択＝将来カタログが年度を混ぜても堅牢。
+			const best = new Map();   // `${layer}/${mesh}/${rc}` → { year, layer, mesh, target }
 			for (const f of ds?.files || []) {
 				if (f.format !== "geojson") continue;
-				const m = (f.target.split("#")[1] || "").match(/A31b?-20-(\d+)_(\d+)_(\d+)/);   // 想定最大(-20-)・(year, 河川区分, メッシュ)
+				const m = (f.target.split("#")[1] || "").match(/A31b?-(10|20)-(\d+)_(\d+)_(\d+)/);   // (規模層, year, 河川区分, メッシュ)
 				if (!m) continue;
-				const [year, rc, mesh] = [+m[1], m[2], m[3]];
-				const key = `${mesh}/${rc}`, cur = best.get(key);
-				if (!cur || year > cur.year) best.set(key, { year, mesh, target: f.target });
+				const [layer, year, rc, mesh] = [m[1], +m[2], m[3], m[4]];
+				const key = `${layer}/${mesh}/${rc}`, cur = best.get(key);
+				if (!cur || year > cur.year) best.set(key, { year, layer, mesh, target: f.target });
 			}
-			for (const { mesh, target } of best.values()) {
-				if (!_a31Cat.has(mesh)) _a31Cat.set(mesh, []);
-				_a31Cat.get(mesh).push(target);
+			for (const { layer, mesh, target } of best.values()) {
+				const cat = layer === "10" ? _a31Cat.plan : _a31Cat.max;
+				if (!cat.has(mesh)) cat.set(mesh, []);
+				cat.get(mesh).push(target);
 			}
 		}
 		return _a31Cat;
@@ -232,12 +263,13 @@ export function initBousai(map, { bboxForCode, cityGeomForCode, legend, onStackA
 				out.push(`${p}${String(q).padStart(2, "0")}`);
 		return out;
 	};
-	async function loadA31Meshes(code) {
+	async function loadA31Meshes(code, mode = a31Mode) {
 		const bb = bboxForCode?.(code);
-		const cat = await a31CatIndex().catch(e => { console.warn("[a31]", e); return null; });
+		const all = await a31CatIndex().catch(e => { console.warn("[a31]", e); return null; });
+		const cat = all?.[mode];
 		if (!bb || !cat) return null;
 		const targets = meshesForBbox(bb).filter(m => cat.has(m)).flatMap(m => cat.get(m));
-		if (!targets.length) return null;
+		if (!targets.length) { if (mode === "plan") say("この市区町村の計画規模データは未整備です"); return null; }
 		const zoneHitsCity = makeCityClip(code);
 		const groups = new Map();
 		const N = targets.length;
@@ -257,12 +289,13 @@ export function initBousai(map, { bboxForCode, cityGeomForCode, legend, onStackA
 				const g = raw[i].geometry;
 				const polys = g?.type === "Polygon" ? [g.coordinates] : g?.type === "MultiPolygon" ? g.coordinates : [];
 				if (!polys.length) continue;
-				const rank = Math.max(1, Math.min(6, +raw[i].properties?.A31b_201 || +raw[i].properties?.A31_201 || 1));   // 想定最大規模の浸水深ランク
+				const pr = raw[i].properties || {};   // 浸水深ランク＝計画規模は *_101・想定最大は *_201（A31b/旧A31 両対応）
+				const rank = Math.max(1, Math.min(6, (mode === "plan" ? (+pr.A31b_101 || +pr.A31_101) : (+pr.A31b_201 || +pr.A31_201)) || 1));
 				const k = `r${rank}`;
 				let bkt = groups.get(k);
 				for (const poly of polys) {
 					if (!zoneHitsCity([poly])) continue;   // セル単位の市クリップ（外周頂点が1つでも市内→採用）
-					if (!bkt) { bkt = { props: { _src: "a31", rank, depth: A31_DEPTH[rank] ?? "" }, comps: [] }; groups.set(k, bkt); }
+					if (!bkt) { bkt = { props: { _src: "a31", mode, rank, depth: A31_DEPTH[rank] ?? "" }, comps: [] }; groups.set(k, bkt); }
 					bkt.comps.push(poly);   // 単一push＝スプレッド無し
 				}
 			}
@@ -270,7 +303,7 @@ export function initBousai(map, { bboxForCode, cityGeomForCode, legend, onStackA
 		return groupsToFeats(groups);
 	}
 	async function sourceFC(code, key) {
-		const ck = `${code}/${key}`;   // a33 は境界クリップ済の少数feature＝市単位で軽くセッション保持（県ファイル自体は geopbf の URL キャッシュで使い回し＝2回目爆速）
+		const ck = `${code}/${key === "a31" ? `a31:${a31Mode}` : key}`;   // a31 は規模別に保持＝最大⇄計画の往復が爆速。a33 は境界クリップ済の少数feature＝市単位で軽くセッション保持（県ファイル自体は geopbf の URL キャッシュで使い回し＝2回目爆速）
 		if (fcCache.has(ck)) return fcCache.get(ck);
 		let feats = null;
 		if (key === "moj") {
@@ -282,7 +315,7 @@ export function initBousai(map, { bboxForCode, cityGeomForCode, legend, onStackA
 		} else if (key === "a33") {
 			feats = await loadA33Pref(code);   // browser-native オンデマンド（県別 KSJ 直読み）
 		} else if (key === "a31") {
-			feats = await loadA31Meshes(code);   // browser-native オンデマンド（1次メッシュ別 KSJ 直読み・原典メッシュ忠実）
+			feats = await loadA31Meshes(code, a31Mode);   // browser-native オンデマンド（1次メッシュ別 KSJ 直読み・原典メッシュ忠実・規模は a31Mode）
 		}
 		if (feats) fcCache.set(ck, feats);
 		return feats;
@@ -515,7 +548,7 @@ export function initBousai(map, { bboxForCode, cityGeomForCode, legend, onStackA
 			[x, y] = p;
 		}
 		let html = "";
-		if (src === "a31") html = `<div style="font-weight:600">洪水浸水想定区域</div><div>浸水深ランク ${escHtml(String(props.rank ?? "—"))}${props.depth ? `（${escHtml(props.depth)}）` : ""}</div>`;
+		if (src === "a31") html = `<div style="font-weight:600">洪水浸水想定区域 <span style="font-weight:400;color:#89a">${props.mode === "plan" ? "計画規模" : "想定最大規模"}</span></div><div>浸水深ランク ${escHtml(String(props.rank ?? "—"))}${props.depth ? `（${escHtml(props.depth)}）` : ""}</div>`;
 		else if (src === "a33") html = `<div style="font-weight:600">土砂災害${+props.kbn === 2 ? "特別警戒" : "警戒"}区域</div><div>${escHtml(props.gensho || "")}${props.name ? `：${escHtml(props.name)}` : ""}</div><div style="color:#9ab;font-size:11px">${escHtml(props.addr || "")}</div>`;
 		else if (src === "maff") html = `<div style="font-weight:600">筆ポリゴン（農地）</div><div>${+props.land_type === 100 ? "田" : +props.land_type === 200 ? "畑" : "農地"}</div><div style="color:#9ab;font-size:11px">${Number.isFinite(+props.edit_year) ? `更新 ${escHtml(String(props.edit_year))}年度・` : ""}農林水産省</div>`;
 		else html = `<div style="font-weight:600">筆（登記所備付地図）</div><div>${escHtml(props["大字名"] || props.oaza || "")} ${escHtml(props["地番"] || props.chiban || "")}</div>`;
