@@ -37,6 +37,7 @@ CMD.append("button").text("borders and stars").on("click", () => borders(q));
 CMD.append("button").text("constellation lines").on("click", () => constellations(q));
 CMD.append("button").text("messier").on("click", () => messier(q));
 CMD.append("button").text("coastline (10m+50m)").on("click", () => coastline(q));
+CMD.append("button").text("admin0 countries (10m+50m)").on("click", () => admin0(q));
 CMD.append("button").text("KSJ 鉄道/高速道路 (N02/N06)").on("click", () => ksj(q));
 CMD.append("button").text("国立公園 (環境省 nps_all)").on("click", () => nps(q));
 CMD.append("button").text("行政区域 (N03 admin_all)").on("click", () => admin(q));
@@ -131,6 +132,29 @@ async function messier(q) {
 // 両解像度とも bucket に置くのが要点：50m を bucket 未収録のままにすると、モバイルは毎回 S3 生zip
 // フォールバック（shape デコード）に落ちる＝(a) 提供圏外と同じく 404 がコンソールに出る、(b) WebKit で
 // props.join TypeError の既知バグ経路（＝iOS で海岸線が出ない恐れ）。bucket 収録で両方を根から断つ。
+// 世界の国ポリゴン（Natural Earth admin_0_countries）→ GIS/pbf。ortho-japan 世界ビュー（?world=1）の
+// gint 束＝海岸線+国境線+国名identify(NAME_JA) の一本データ（旧 coastline スロットの後継・2026-08-31）。
+// 50m=LOW_MEM（モバイル）用。焼けるまでアプリは S3 zip フォールバックで動く（毎初回3.2MB＝焼けば無通信）。
+async function admin0(q) {
+	q.clear();
+	q.title("admin_0_countries (50m + 10m)");
+	for (const res of ["50m", "10m"]) {
+		const name = `ne_${res}_admin_0_countries`;
+		const url = `https://naturalearth.s3.amazonaws.com/${res}_cultural/${name}.zip`;
+		try {
+			const pbf = await geopbf(url, { name, nocache: true });
+			if (!pbf.length) throw new Error(`0 features — check source URL or decoder`);
+			pbf.updateHeader({ description: `世界の国ポリゴン（Natural Earth ${res} admin_0_countries）＝国境線・海岸線・国名`, license: "Natural Earth (public domain)", attribution: "Natural Earth" });
+			q.log(`${name}: ${pbf.length} features, keys: [${pbf.keys.join(', ')}]`);
+			await pbf.save();   // ← VITE_API_KEY 未設定だとここで 403（起動時の警告が出ていたら鍵を設定して dev server 再起動）
+			q.success(`${name}: saved (<= ${url})`);
+			q.log(await pbf.profile());
+		} catch (e) {
+			q.error(`${name}: 失敗 — ${e.message}`);
+		}
+	}
+}
+
 async function coastline(q) {
 	q.clear();
 	q.title("coastline (50m + 10m)");

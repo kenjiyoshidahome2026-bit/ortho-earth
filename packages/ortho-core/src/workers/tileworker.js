@@ -4,6 +4,7 @@
 // index.js（全部入り）でなく実装ファイル直参照：index は pipeline（worker生成）を含むため、
 // worker から index を引くと vite が「循環worker」と誤認してビルドが落ちる
 import { fetchMVT, neededSourceLayers } from "../decode.js";
+import { isPMTiles, fetchPMTiles } from "../pmtiles-src.js";
 import { buildTileDrawList, buildEmptySeaOps } from "../build.js";
 import { buildLabels } from "../labels.js";
 import { buildBuildings } from "../buildings.js";
@@ -24,7 +25,8 @@ self.onmessage = async (e) => {
 	try {
 		// 配信圏外（日本域外の外洋・国外）は fetch を省いて空タイル扱い＝提供側の 404 への無駄打ちを断つ。
 		// 描画は 404 と同一（fetchMVT が 404 で返すのと同じ {__empty:true}）＝下の buildEmptySeaOps が全面水域を敷く。
-		const layers = tileOutsideCoverage(x, y, z, coverage) ? { __empty: true } : await fetchMVT(url, ac.signal, need);
+		const layers = isPMTiles(url) ? await fetchPMTiles(url, z, x, y, ac.signal, need)   // 全球ソース（PMTiles）＝配信圏(coverage)の外でも正当
+			: tileOutsideCoverage(x, y, z, coverage) ? { __empty: true } : await fetchMVT(url, ac.signal, need);
 		const [w, , , n] = tileBounds(x, y, z);
 		const origin = [w, n];
 		const dl = buildTileDrawList({ layers, z, x, y }, style, origin);

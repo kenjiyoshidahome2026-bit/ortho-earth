@@ -259,8 +259,49 @@ fn toScreen(c: vec4f) -> vec2f {
 
 // 地形サーフェス（TERRAIN_VS/FS の移植）：標高変位した格子メッシュ・hillshade は FS per-pixel（前方差分・
 // texel歩幅）・海〜低地は透明化・遠景は距離フェードで平ら化・標高ティント（hypso）。深度は書く（尾根の遮蔽）。
+// 全球ハイプソ（gl/glsl.js WORLD_HYPSO の1:1移植・純関数＝バインド無し）：標高×気候の cross-blend。
+// clim＝気候場テクスチャの (乾燥度, 極地) サンプル値（呼び出し側が自前バインドで引く）。hasClim=0 は
+// 緯度近似フォールバック（気候場未着の1-2フレーム用）。逆順 smoothstep は 1-smoothstep(正順) へ書換済（WGSL未定義）。
+const WORLD_HYPSO_WGSL = /* wgsl */`
+fn wetBox(ll: vec2f, b: vec4f) -> f32 {   // b=(lon0,lon1,lat0,lat1)・縁3°ソフト
+	return smoothstep(b.x - 3.0, b.x + 3.0, ll.x) * (1.0 - smoothstep(b.y - 3.0, b.y + 3.0, ll.x))
+	     * smoothstep(b.z - 3.0, b.z + 3.0, ll.y) * (1.0 - smoothstep(b.w - 3.0, b.w + 3.0, ll.y));
+}
+fn worldHypsoColor(e: f32, ll: vec2f, clim: vec2f, hasClim: f32) -> vec3f {
+	let latD = ll.y;
+	var arid: f32; var pol: f32;
+	if (hasClim > 0.5) {
+		arid = clim.x; pol = clim.y;
+	} else {
+		let al = abs(latD);
+		arid = smoothstep(10.0, 17.0, al) * (1.0 - smoothstep(32.0, 45.0, al));
+		var wet = wetBox(ll, vec4f(95.0, 148.0, 17.0, 40.0));
+		wet = max(wet, wetBox(ll, vec4f(118.0, 150.0, 40.0, 55.0)));
+		wet = max(wet, wetBox(ll, vec4f(-100.0, -70.0, 24.0, 40.0)));
+		wet = max(wet, wetBox(ll, vec4f(-63.0, -35.0, -35.0, -15.0)));
+		wet = max(wet, wetBox(ll, vec4f(74.0, 95.0, 8.0, 30.0)));
+		arid = arid * (1.0 - wet);
+		pol = 1.0 - smoothstep(-64.0, -58.0, latD);
+	}
+	let lowc = mix(vec3f(0.582, 0.716, 0.531), vec3f(0.839, 0.796, 0.639), arid);
+	let midc = mix(vec3f(0.752, 0.790, 0.578), vec3f(0.855, 0.788, 0.612), arid);
+	var c = mix(lowc, midc, smoothstep(0.0, 400.0, e));
+	c = mix(c, vec3f(0.871, 0.831, 0.659), smoothstep(400.0, 1300.0, e));
+	c = mix(c, vec3f(0.788, 0.718, 0.635), smoothstep(1300.0, 2800.0, e));
+	c = mix(c, vec3f(0.925, 0.925, 0.937), smoothstep(2800.0, 4800.0, e));
+	let snow = pol + smoothstep(56.0, 62.0, latD) * smoothstep(1100.0, 1900.0, e);
+	c = mix(c, vec3f(0.945, 0.953, 0.962), clamp(snow, 0.0, 1.0));
+	return mix(c, vec3f(dot(c, vec3f(0.299, 0.587, 0.114))), 0.10);
+}
+fn climUV(ll: vec2f) -> vec2f { return vec2f(ll.x / 360.0 + 0.5, 0.5 - ll.y / 180.0); }
+`;
+
 export const TERRAIN_WGSL = /* wgsl */`
 ${FRAME}
+${WORLD_HYPSO_WGSL}
+// 気候場（全球ハイプソの cross-blend）＝terrain 専用 group(2)。未着は dummy（hasClim=P.p2.z=0 で不使用）
+@group(2) @binding(0) var climTex: texture_2d<f32>;
+@group(2) @binding(1) var climSamp: sampler;
 struct TerrOut {
 	@builtin(position) pos: vec4f,
 	@location(0) ll: vec2f,
@@ -304,7 +345,12 @@ struct TerrOut {
 	let hy = elev(in.ll + vec2f(0.0, d)) - h0;
 	let shade = clamp(0.82 + (-hx + hy) * 0.0007, 0.45, 1.15);
 	// 標高ティント：land を高所ほど hypso 色へ寄せる（テーマのノブ・未指定は量0で恒等）。陰影の前
-	let landC = mix(P.p0.rgb, P.p1.rgb, clamp(h0 * P.p2.x, 0.0, 1.0) * P.p1.w);
+	var landC = mix(P.p0.rgb, P.p1.rgb, clamp(h0 * P.p2.x, 0.0, 1.0) * P.p1.w);
+	// 全球ハイプソ（低ズーム帯・p2.y=出現度/p2.z=hasClim）＝globe パスと同色でピッチ不変（gl 側と同式）
+	if (P.p2.y > 0.001) {
+		let clim = textureSampleLevel(climTex, climSamp, climUV(in.ll), 0.0).rg;
+		landC = mix(landC, worldHypsoColor(h0, in.ll, clim, P.p2.z), P.p2.y);
+	}
 	let col = mix(landC * shade, F.fogColor, in.fog);
 	return vec4f(col * t, t);   // premultiplied（globe基色→地形へ滑らかに）
 }
@@ -599,8 +645,22 @@ struct Globe {
 	invMvp: mat4x4f,
 	land: vec4f,
 	atmo: vec4f,   // 大気色 rgb + 強さ(a)
+	elevBounds: vec4f,   // 全球ハイプソ用（R90 全球窓の被覆）
+	whP: vec4f,          // (出現度whK, hasElev, ell, hasClim)
+	seaC: vec4f,         // 海の平色（NE流の淡青）
 };
 @group(0) @binding(0) var<uniform> G: Globe;
+// 全球ハイプソ：標高（R90全球窓）＋気候場。未着/K=0 は dummy（whP が使用をゲート）
+@group(0) @binding(1) var gElevTex: texture_2d<f32>;
+@group(0) @binding(2) var gSamp: sampler;
+@group(0) @binding(3) var gClimTex: texture_2d<f32>;
+${WORLD_HYPSO_WGSL}
+const R2Dg: f32 = 57.29577951308232;
+fn gElevAt(ll: vec2f) -> f32 {
+	let uv = (ll - G.elevBounds.xy) / G.elevBounds.zw;
+	if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) { return 0.0; }
+	return textureSampleLevel(gElevTex, gSamp, uv, 0.0).r;
+}
 struct GOut { @builtin(position) pos: vec4f, @location(0) ndc: vec2f };
 @vertex fn vs(@builtin(vertex_index) vi: u32) -> GOut {
 	var o: GOut;
@@ -630,10 +690,26 @@ struct GOut { @builtin(position) pos: vec4f, @location(0) ndc: vec2f };
 		return vec4f(mix(G.atmo.rgb, limbCol, g) * a, a);   // premultiplied
 	}
 	let Pt = A + t * d;
+	var base = G.land.rgb;
+	if (G.whP.x > 0.001 && G.whP.y > 0.5) {   // 全球ハイプソ：標高×気候→配色＋陰影（gl/glsl.js GLOBE_FS と同式）
+		let bl = asin(clamp(Pt.y, -1.0, 1.0));   // β(rad)
+		let latD = bl * R2Dg + G.whP.z * (0.0016792203863837047 * sin(2.0 * bl) + 0.0000014098905530233192 * sin(4.0 * bl)) * R2Dg;   // β→測地
+		let ll = vec2f(atan2(Pt.z, Pt.x) * R2Dg, latD);
+		let e = gElevAt(ll);
+		let tsz = vec2f(textureDimensions(gElevTex, 0));
+		let dstep = G.elevBounds.w / tsz.y;
+		let hx = gElevAt(ll + vec2f(dstep, 0.0)) - e;
+		let hy = gElevAt(ll + vec2f(0.0, dstep)) - e;
+		let shade = clamp(0.86 + (-hx + hy) * 0.00013, 0.62, 1.08);
+		let landK = smoothstep(0.2, 4.0, e);   // 海(=0クランプ)↔陸の境（低平地を海に沈めない・干拓地級のみ海側）
+		let clim = textureSampleLevel(gClimTex, gSamp, climUV(ll), 0.0).rg;
+		let hyp = mix(G.seaC.rgb, worldHypsoColor(e, ll, clim, G.whP.w) * shade, landK);
+		base = mix(base, hyp, G.whP.x);
+	}
 	let viewDir = normalize(A - Pt);
 	let ndv = clamp(dot(Pt, viewDir), 0.0, 1.0);
 	let haze = pow(1.0 - ndv, 3.0);
-	let col = mix(G.land.rgb, G.atmo.rgb, haze * G.atmo.a * 0.9);
+	let col = mix(base, G.atmo.rgb, haze * G.atmo.a * 0.9);
 	return vec4f(col, 1.0);
 }
 `;

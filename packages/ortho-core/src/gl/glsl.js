@@ -303,6 +303,55 @@ void main() {
 	applyLogDepth();
 }`;
 
+// 全球ハイプソ（NEラスタの美しさを標高から計算で作る）共通チャンク：GLOBE_FS（真俯瞰の球面＝海と全球の陸）と
+// TERRAIN_FS（チルト時の地形面）で同一式＝ピッチを変えても陸の色が変わらない。u_whK=出現度（CPU側で
+// knob(view.worldHypso)×ズームフェード。0=恒等＝従来の紙/単色陰影）。
+// ・5段ランプ：低地の緑→黄緑→砂→茶灰→高峰の白
+// ・arid＝乾燥帯補正：標高だけの古典ハイプソはサハラ(300m)が緑になる。NE の cross-blend（気候）を
+//   「砂漠は回帰線帯（馬緯度）に並ぶ」という緯度近似で代用＝低地の緑を砂色へ寄せる
+// ・snow＝氷床の白：南極（南緯60°以南は無条件）＋グリーンランド氷床（高緯度×氷床標高。低標高の
+//   スカンジナビアは緑のまま）
+// ・末尾のわずかな脱彩度＝NE1系の落ち着いた色域へ
+const WORLD_HYPSO = /* glsl */`
+uniform float u_whK;
+uniform sampler2D u_climTex;   // 気候場 720x360（Köppen-Geiger/Beck et al. CC-BY を焼き縮め）R=乾燥度 G=極地/氷床
+uniform float u_hasClim;       // 0=未着（緯度近似フォールバック） 1=気候場で本物の cross-blend
+float wetBox(vec2 ll, vec4 b) {   // b=(lon0,lon1,lat0,lat1)・縁3°ソフト（気候場未着時のフォールバック用）
+	return smoothstep(b.x - 3.0, b.x + 3.0, ll.x) * (1.0 - smoothstep(b.y - 3.0, b.y + 3.0, ll.x))
+	     * smoothstep(b.z - 3.0, b.z + 3.0, ll.y) * (1.0 - smoothstep(b.w - 3.0, b.w + 3.0, ll.y));
+}
+vec3 worldHypso(float e, vec2 ll) {
+	float latD = ll.y;
+	float al = abs(latD);
+	float arid, pol;
+	if (u_hasClim > 0.5) {
+		// 本物の cross-blend：気候場テクスチャ（海は焼き時に最寄り陸の値で充填済＝海岸で値が落ちない）
+		vec2 c2 = texture(u_climTex, vec2(ll.x / 360.0 + 0.5, 0.5 - latD / 180.0)).rg;
+		arid = c2.r; pol = c2.g;
+	} else {
+		// フォールバック＝緯度近似（馬緯度の乾燥帯×湿潤東岸の打ち消し箱）。気候場が届くまでの1-2フレーム用
+		arid = smoothstep(10.0, 17.0, al) * (1.0 - smoothstep(32.0, 45.0, al));
+		float wet = wetBox(ll, vec4(95.0, 148.0, 17.0, 40.0));
+		wet = max(wet, wetBox(ll, vec4(118.0, 150.0, 40.0, 55.0)));
+		wet = max(wet, wetBox(ll, vec4(-100.0, -70.0, 24.0, 40.0)));
+		wet = max(wet, wetBox(ll, vec4(-63.0, -35.0, -35.0, -15.0)));
+		wet = max(wet, wetBox(ll, vec4(74.0, 95.0, 8.0, 30.0)));
+		arid *= 1.0 - wet;
+		pol = 1.0 - smoothstep(-64.0, -58.0, latD);   // 逆順smoothstepはGLSL仕様未定義＝正順で等価書換（WGSL移植と同式）
+	}
+	vec3 low = mix(vec3(0.582, 0.716, 0.531), vec3(0.839, 0.796, 0.639), arid);
+	vec3 mid = mix(vec3(0.752, 0.790, 0.578), vec3(0.855, 0.788, 0.612), arid);
+	vec3 c = mix(low, mid, smoothstep(0.0, 400.0, e));
+	c = mix(c, vec3(0.871, 0.831, 0.659), smoothstep(400.0, 1300.0, e));
+	c = mix(c, vec3(0.788, 0.718, 0.635), smoothstep(1300.0, 2800.0, e));
+	c = mix(c, vec3(0.925, 0.925, 0.937), smoothstep(2800.0, 4800.0, e));
+	// 雪/氷：気候場の極地チャンネル（EF=1・ET≈0.55）＋高緯度×氷床標高（グリーンランド内陸の保険）
+	float snow = pol + smoothstep(56.0, 62.0, latD) * smoothstep(1100.0, 1900.0, e);
+	c = mix(c, vec3(0.945, 0.953, 0.962), clamp(snow, 0.0, 1.0));
+	return mix(c, vec3(dot(c, vec3(0.299, 0.587, 0.114))), 0.10);
+}
+`;
+
 export const TERRAIN_FS = `#version 300 es
 precision highp float;
 uniform vec3 u_fogColor;
@@ -311,6 +360,7 @@ uniform vec3 u_hypso;    // 標高ティント色（高所を land からこの�
 uniform vec2 u_hypsoP;   // x=1/最大標高(m)（この高さで寄せ切る） y=寄せ量(0=無効…1=全置換)
 uniform float u_farPass;   // 1=遠景メッシュパス：近窓の内側は近メッシュの担当＝discard（二重描画・z-fight回避）
 ${ELEV}
+${WORLD_HYPSO}
 in vec2 v_ll;
 in float v_front;
 in float v_fog;
@@ -339,6 +389,7 @@ void main() {
 	float shade = clamp(0.82 + (-hx + hy) * 0.0007, 0.45, 1.15);
 	// 標高ティント：land を高所ほど u_hypso へ寄せる（テーマのノブ＝未指定は y=0 で恒等）。陰影の前＝shade が上に乗る
 	vec3 landC = mix(u_land, u_hypso, clamp(h0 * u_hypsoP.x, 0.0, 1.0) * u_hypsoP.y);
+	landC = mix(landC, worldHypso(h0, v_ll), u_whK);   // 全球ハイプソ（低ズーム帯）＝globe パスと同色でピッチ不変
 	// 深度は VS の applyLogDepth() が焼き済み（plateau/building と一貫。FSで書くと early-Z が死ぬ）
 	vec3 col = mix(landC * shade, u_fogColor, v_fog);
 	fragColor = vec4(col * t, t);           // premultiplied（globe基色→地形へ滑らかに）
@@ -389,8 +440,23 @@ precision highp float;
 uniform mat4 u_invMvp;
 uniform vec4 u_land;
 uniform vec4 u_atmo;   // 大気色 rgb + 強さ(a)
+// 全球ハイプソ（NEラスタの美しさを標高から計算で作る＝ラスタタイル配布ゼロ）：
+// レイ→球→測地緯度→elev() は CONTOUR_FS と同式。R90 全球窓（z<6.5 は bounds=[-180,-90,360,180]）を引く。
+// 配色本体は WORLD_HYPSO（TERRAIN_FS と共有＝ピッチで色が変わらない）。
+uniform sampler2D u_elevTex;
+uniform vec4 u_elevBounds;
+uniform float u_hasElev;
+uniform float u_ell;      // 1=楕円体（β→測地復元。球=0＝恒等）
+uniform vec3 u_seaC;      // 海の平色（NE流の淡青）
 in vec2 v_ndc;
 out vec4 fragColor;
+const float R2D = 57.29577951308232;
+float elevAt(vec2 ll) {
+	vec2 uv = (ll - u_elevBounds.xy) / u_elevBounds.zw;
+	if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) return 0.0;
+	return texture(u_elevTex, uv).r;
+}
+${WORLD_HYPSO}
 void main() {
 	vec4 np = u_invMvp * vec4(v_ndc, -1.0, 1.0);
 	vec4 fp = u_invMvp * vec4(v_ndc, 1.0, 1.0);
@@ -418,10 +484,28 @@ void main() {
 		return;
 	}
 	vec3 P = A + t * d;                            // 面上の点（単位球＝法線）
+	vec3 base = u_land.rgb;
+	if (u_whK > 0.001 && u_hasElev > 0.5) {        // 全球ハイプソ：標高→配色＋陰影（NEラスタの計算版）
+		float bl = asin(clamp(P.y, -1.0, 1.0));    // β(rad)
+		float latD = bl * R2D + u_ell * (0.0016792203863837047 * sin(2.0 * bl) + 0.0000014098905530233192 * sin(4.0 * bl)) * R2D;   // β→測地（CONTOUR_FS と同式）
+		vec2 ll = vec2(atan(P.z, P.x) * R2D, latD);
+		float e = elevAt(ll);
+		// hillshade：1テクセル差分・NW光（TERRAIN_FS と同族）。R90 テクセル≈20km なので係数は桁で弱める
+		float dstep = u_elevBounds.w / float(textureSize(u_elevTex, 0).y);
+		float hx = elevAt(ll + vec2(dstep, 0.0)) - e;
+		float hy = elevAt(ll + vec2(0.0, dstep)) - e;
+		float shade = clamp(0.86 + (-hx + hy) * 0.00013, 0.62, 1.08);
+		// 陸海の境：R90/GEBCO の海はクランプで厳密に 0＝閾は低く攻められる（0.5-30m だと華北平原・
+		// 長江デルタ級の低平地が海色に沈む＝本人指摘 2026-08-30）。0.2→4m＝干拓地級だけ海側に残る
+		// （蘭ポルダー等の 0m 以下はクランプで 0＝負値解禁（海の深度ランプ）とセットの将来課題）
+		float landK = smoothstep(0.2, 4.0, e);
+		vec3 hyp = mix(u_seaC, worldHypso(e, ll) * shade, landK);
+		base = mix(base, hyp, u_whK);
+	}
 	vec3 viewDir = normalize(A - P);              // 面→カメラ
 	float ndv = clamp(dot(P, viewDir), 0.0, 1.0);
 	float haze = pow(1.0 - ndv, 3.0);             // 縁ほど強い内側リムの霞
-	vec3 col = mix(u_land.rgb, u_atmo.rgb, haze * u_atmo.a * 0.9);
+	vec3 col = mix(base, u_atmo.rgb, haze * u_atmo.a * 0.9);
 	fragColor = vec4(col, 1.0);
 }`;
 

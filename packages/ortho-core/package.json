@@ -14,8 +14,9 @@
 	"description": "球面ベクタタイル描画エンジン（ortho系アプリ共通の核）",
 	"dependencies": {
 		"@mapbox/vector-tile": "^2.0.3",
+		"altpbf": "*",
 		"earcut": "^3.0.1",
 		"pbf": "^4.0.1",
-		"altpbf": "*"
+		"pmtiles": "^4.5.0"
 	}
 }

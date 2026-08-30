@@ -35,6 +35,31 @@ export function createRenderer(canvas, rOpts = {}) {
 	let elevTex = null, elev = { bounds: [0, 0, 1, 0], scale: 0, has: 0 }, terrain = null;
 	// 遠景層（far）＝近窓の外を受け持つ粗い R10 第2アトラス（terrain.js が深ズーム×チルトで常設）。unit8（2-5=PLATEAUマスク・6=md線・7=gint elev と不干渉）
 	let farTex = null, far = { bounds: [0, 0, 1, 0], has: 0, edgeFade: 0 };
+	// 気候場テクスチャ（全球ハイプソの cross-blend 用・view.worldHypso.clim の URL から一度だけ取得）。
+	// 未着の間はシェーダが緯度近似へフォールバック（u_hasClim=0）＝1-2フレームの色ズレのみ。
+	let climTex = null, climLoading = false;
+	function ensureClimTex(url) {
+		if (climTex || climLoading || !url) return;
+		climLoading = true;
+		fetch(url).then(r => r.blob()).then(b => createImageBitmap(b, { premultiplyAlpha: "none" })).then(bm => {
+			climTex = gl.createTexture();
+			gl.activeTexture(gl.TEXTURE12); gl.bindTexture(gl.TEXTURE_2D, climTex);
+			gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, bm);
+			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);          // 経度ラップ（±180の継ぎ目）
+			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+			gl.activeTexture(gl.TEXTURE0);
+			bm.close(); rOpts.requestDraw?.();   // 到着フレームを一枚要求（静止中でも気候色へ差し替わる）
+		}).catch(e => { console.warn("[hypso] climate texture load failed (緯度近似で継続)", e); });
+	}
+	// 気候場のサンプラ結線（globe/terrain 両プログラム共用）。⚠サンプラは常に有効unitへ向ける
+	// （未設定＝unit0の整数テクスチャを掴んでドロー全体が死ぬ轍と同族）。unit12＝空き（他パス未使用）。
+	function bindClim(prog) {
+		gl.uniform1i(loc(gl, prog, "u_climTex"), 12);
+		gl.uniform1f(loc(gl, prog, "u_hasClim"), climTex ? 1 : 0);
+		gl.activeTexture(gl.TEXTURE12); gl.bindTexture(gl.TEXTURE_2D, climTex); gl.activeTexture(gl.TEXTURE0);
+	}
 	// ?mem=1 台帳のGPU固定常駐（自前確保分の概算）：標高アトラス（近/舞台裏/遠）＋地形メッシュ。
 	// canvas antialias:true の MSAA はブラウザ暗黙確保＝ここでは数えない（HUD 側注記）。
 	let memAtlas = 0, memStage = 0, memFar = 0, memMesh = 0;
@@ -636,6 +661,9 @@ export function createRenderer(canvas, rOpts = {}) {
 		// 真俯瞰(pitch≈0)＋十分な寄り＝画面全面が陸。地球の縁/大気のレイキャストは映らず無駄なので、
 		// 陸色で塗りつぶす clear だけの2D高速パスへ（フルスクリーンの球シェーダを丸ごと省略）。
 		const land = view.land || [0.96, 0.96, 0.95, 1], atmo = view.atmo || [0.45, 0.62, 0.95, 0.6];
+		// 全球ハイプソの出現度（globe パスと terrain パスが共有＝ピッチで色が変わらない）。z5.7→6.5 でフェードアウト
+		// ＝R90 全球窓の限界（z6.5 でアトラスがビュー窓へ切替）に着地し、そこで基図（BASEMAP_MINZOOM=6.5）と交代
+		const worldHypsoK = view.worldHypso && elev.has ? Math.max(0, Math.min(1, (6.5 - cam.zoom) / 0.8)) : 0;
 		const flat2d = (cam.pitch || 0) < 0.02 && cam.zoom >= 9;
 		const c = flat2d ? [land[0], land[1], land[2], 1] : (view.clear || [1, 1, 1, 1]);
 		gl.clearColor(c[0] * c[3], c[1] * c[3], c[2] * c[3], c[3]);
@@ -691,6 +719,25 @@ export function createRenderer(canvas, rOpts = {}) {
 			gl.uniformMatrix4fv(loc(gl, globeProg, "u_invMvp"), false, Float32Array.from(st.invMvp));
 			gl.uniform4f(loc(gl, globeProg, "u_land"), land[0], land[1], land[2], land[3]);
 			gl.uniform4f(loc(gl, globeProg, "u_atmo"), atmo[0], atmo[1], atmo[2], atmo[3]);
+			// 全球ハイプソ（view.worldHypso＝テーマ/アプリのknob）：z5.5 まで全開→z6.3 で消灯。
+			// 終端 6.3＝R90 全球窓の終わり（z6.5 でアトラスがビュー窓へ切替＝窓の外の陸が「標高0＝海」に化ける）
+			// より手前。地形面（TERRAIN_FS u_whK）と同じ係数＝チルトでも色が連続。
+			// ⚠サンプラは K=0 でも毎フレーム unit1 へ向ける：未設定だと既定 unit0＝同居 gint の整数テクスチャを
+			// float sampler が掴み、globe ドロー全体が GL_INVALID_OPERATION で死ぬ（＝海が宇宙の黒に抜ける。
+			// 下方の共通バインドと同じ轍。z>5.2 で実際に被弾 2026-08-30）。unit1 は elevTex か null（incomplete=黒で無害）。
+			gl.uniform1f(loc(gl, globeProg, "u_whK"), worldHypsoK);
+			gl.uniform1i(loc(gl, globeProg, "u_elevTex"), 1);
+			gl.uniform1i(loc(gl, globeProg, "u_climTex"), 12);   // 気候場サンプラも常時 unit12（K=0でも。unit0整数テクスチャの轍）
+			gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, (elev.has && elevTex) ? elevTex : null); gl.activeTexture(gl.TEXTURE0);
+			if (worldHypsoK > 0) {
+				gl.uniform4f(loc(gl, globeProg, "u_elevBounds"), elev.bounds[0], elev.bounds[1], elev.bounds[2], elev.bounds[3]);
+				gl.uniform1f(loc(gl, globeProg, "u_hasElev"), 1);
+				gl.uniform1f(loc(gl, globeProg, "u_ell"), ellipsoidOn() ? 1 : 0);
+				const sc = view.worldHypso.sea || [0.757, 0.847, 0.891];   // NE流の淡青（knobで差し替え可）
+				gl.uniform3f(loc(gl, globeProg, "u_seaC"), sc[0], sc[1], sc[2]);
+				ensureClimTex(view.worldHypso.clim);   // 気候場（cross-blend）＝初回だけ取得。未着は緯度近似
+				bindClim(globeProg);
+			}
 			gl.bindVertexArray(emptyVAO);
 			gl.drawArrays(gl.TRIANGLES, 0, 3);
 		}
@@ -759,6 +806,9 @@ export function createRenderer(canvas, rOpts = {}) {
 			const hy = view.hypso;
 			gl.uniform3f(loc(gl, terrainProg, "u_hypso"), hy ? hy.color[0] : 0, hy ? hy.color[1] : 0, hy ? hy.color[2] : 0);
 			gl.uniform2f(loc(gl, terrainProg, "u_hypsoP"), hy ? 1 / (hy.max || 3000) : 0, hy ? (hy.amount ?? 0.5) : 0);
+			gl.uniform1f(loc(gl, terrainProg, "u_whK"), worldHypsoK);   // 全球ハイプソ（低ズーム帯）＝globe パスと同色
+			if (worldHypsoK > 0) { ensureClimTex(view.worldHypso.clim); bindClim(terrainProg); }
+			else { gl.uniform1i(loc(gl, terrainProg, "u_climTex"), 12); gl.uniform1f(loc(gl, terrainProg, "u_hasClim"), 0); }   // サンプラは常時unit12へ（未設定=unit0整数テクスチャの轍）
 			const mh = terrain.mesh;   // 窓の原点/幅＝単位格子メッシュを実座標へ伸ばす（メッシュ自体は使い回し）
 			gl.uniform1f(loc(gl, terrainProg, "u_farPass"), 0);
 			gl.uniform4f(loc(gl, terrainProg, "u_mesh"), mh[0], mh[1], mh[2], mh[3]);

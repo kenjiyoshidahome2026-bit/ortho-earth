@@ -4,7 +4,7 @@
 // geometry は main を通らず scene worker → render worker へ直行（main は geometry を知らない）。
 import { createTileManager } from "./tilemanager.js";
 
-export function createPipeline({ style, tileUrl, requestDraw, scenePort, onMerged, onTile, lodFloor, memBudgetMB, coverage, ell }) {
+export function createPipeline({ style, tileUrl, requestDraw, scenePort, onMerged, onTile, lodFloor, memBudgetMB, coverage, ell, minZ }) {
 	// scene worker：タイル geometry を保持し結合(merge)も担う。結合結果は main を経由せず
 	// render worker へ直結ポートで送る（下の connect）＝main は geometry を一切知らない。
 	const sceneWorker = new Worker(new URL("./workers/sceneworker.js", import.meta.url), { type: "module" });
@@ -70,7 +70,7 @@ export function createPipeline({ style, tileUrl, requestDraw, scenePort, onMerge
 	// onEvict：main のタイルキャッシュから消えたら scene worker の geometry も同時に消す＝両者は常に鏡。
 	// scene worker 側に独自の上限退避を持たせない（mainがreadyのタイルを勝手に捨てると merge で黙って穴になる）。
 	const tiles = createTileManager({
-		style, tileUrl, onChange: requestDraw, buildTile: workerBuildTile, lodFloor, memBudgetMB, coverage,
+		style, tileUrl, onChange: requestDraw, buildTile: workerBuildTile, lodFloor, memBudgetMB, coverage, minZ,
 		onEvict: keys => sceneWorker.postMessage({ type: "evict", keys }),
 	});
 	// 配色テーマの生き替え（reload無し restyle）：tile worker 群へ新styleを配り、既存タイルを全て捨てる。

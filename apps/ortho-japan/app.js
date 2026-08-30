@@ -15,6 +15,8 @@ createGeopbf("https://api.ortho-earth.com", { bucket: nativeBucket });   // buck
 import { MAP_THEMES } from "./palettes.js";
 import { createThemes, defaultLayerState, isFacility, isTerrain, CHOME_MINZOOM, CHOME800_MINZOOM, RAILTR_MINZOOM } from "./themes.js";
 import { createOverlay } from "./overlay.js";
+import { worldLayers } from "./style-world.js";   // 全球ベクタ基図（?world=1）＝Protomaps 層の style 前置
+
 // planets.js / skynames.js は z<4（星空）でしか使わない＝初期バンドルから外し、下の ensureSkyMod で動的読込。
 import { createPipeline } from "ortho-core";   // tile/scene worker のスポーンごとエンジン側
 import { createPlateauDb } from "./plateaudb.js";
@@ -164,7 +166,15 @@ const ASSET_BASE = String(opts.assetBase ?? import.meta.env.BASE_URL).replace(/\
 // target を渡さない起動なので従来どおり窓に生える。
 const DEBUG_GLOBALS = opts.debugGlobals ?? !opts.target;
 const dbgHost = DEBUG_GLOBALS ? window : {};
-const TILE_URL = (z, x, y) => `https://cyberjapandata.gsi.go.jp/xyz/optimal_bvmap-v1/${z}/${x}/${y}.pbf`;
+// 全球ベクタ基図（試作・?world=1）：タイル z≤WORLD_TILE_MAXZ を Protomaps PMTiles（OSM/ODbL）から引く。
+// z4+ は従来どおり optbv（日本域）＝BASEMAP_MINZOOM(ビューz5)未満の「基図オフの真空」を世界タイルが埋める。
+// URL は開発用のデイリービルド直読（build.protomaps.com の CORS は localhost のみ許可＝本番は低ズーム
+// extract を R2 へ置いて差し替える。Range 直読なので R2 でもコードはこの1行のまま）。
+const WORLD_VT = /[&?]world=1/.test(location.search);
+const WORLD_TILE_MAXZ = 3;
+const WORLD_PMTILES = "pmtiles://https://build.protomaps.com/20260829.pmtiles";
+const TILE_URL = (z, x, y) => WORLD_VT && z <= WORLD_TILE_MAXZ ? WORLD_PMTILES
+	: `https://cyberjapandata.gsi.go.jp/xyz/optimal_bvmap-v1/${z}/${x}/${y}.pbf`;
 // optimal_bvmap の配信圏（日本域）の外接矩形 [west,south,east,north]。これと全く重ならないタイルは GSI が
 // 常に 404 を返す提供圏外＝pipeline が fetch を省いて空タイル(標高ゲート付き全面水域)扱いにする（無駄な 404 を断つ）。
 // 症状＝縦長のスマホ画面が北海道以北の外洋(z8 y=87/88≈50°N)まで写して 404 を量産（横長のデスクトップでは出にくい）。
@@ -196,6 +206,9 @@ if (typeof opts.theme !== "object" && !MAP_THEMES[themeName]) console.warn(`[the
 let theme = typeof opts.theme === "object" ? { ...MAP_THEMES.mono, ...opts.theme }   // カスタム＝mono を土台に部分上書き
 	: (MAP_THEMES[themeName] || MAP_THEMES.mono);
 let style = theme.style;
+// 全球ベクタ（?world=1）：世界層を先頭へ前置＝li（層番号）は全経路が style から動的に引くので順送りで無害。
+// 前置＝painter順で最下層（国境線は基図の下）。層名が bvmap と重ならないので decode/merge は素通しで混在。
+if (WORLD_VT) style = { ...style, layers: [...worldLayers(), ...style.layers] };
 mountGadgets(mapEl, { chips: opts.chips, instruments: opts.instruments, fixedLayers });   // UI を #map に生やす＝以降の getElementById が実体を掴めるよう、全lookupの前で
 // 非搭載（chips:false / instruments:false）でも配線コードは無改造＝繋ぎ先が無ければ宙のdiv（どこにも描画されない）へ。
 const orDetached = el => el || document.createElement("div");
@@ -621,7 +634,12 @@ const STALE_ZOOMOUT = 0.5;            // これ以上ズームアウトしたら
 // ack で原子的に差し替え＝連続した絵を保つ。従来動作（GL2/LOW_MEM）は据置。
 const mainStale = () => !keepFineNow() && mainSceneZoom > cam.zoom + STALE_ZOOMOUT;
 let basemapHidden = false;                 // z<BASEMAP_MINZOOM で基図(GSI)を止めてるか（全球ビュー＝海岸線のみ）
-const BASEMAP_MINZOOM = 5;                 // これ未満は基図の詳細を描かない（海岸線 gint で十分／main負荷を断つ）
+let attrWorldBand = false, attrJPHTML = null;   // 世界帯の出典差し替え状態（world時のみ・render() が z6.5 跨ぎで切替）
+// 日本固有（GSI基図）の出番：従来5。世界下地（ハイプソ＋admin0国線）がある ?world=1 は 6.5 から
+// （本人裁定 2026-08-31「下地ができたので日本固有はz>6.5でいい」）。6.5＝R90全球窓の限界とも一致＝
+// ハイプソが退場する所で GSI が入場する。星空・星座・太陽系の門は別（STARSKY_Z＝従来の5のまま）。
+const BASEMAP_MINZOOM = WORLD_VT ? 6.5 : 5;
+const STARSKY_Z = 5;                       // 星空劇場（星・星座クリック・惑星）の圏＝renderer の worldFade(z<5) と同期
 // 静止時の詳細化＝主層の分割閾を下げる（既定560→この値）。近景ほど画面上のタイルが大きい＝真っ先に
 // 閾を越えて割れる＝チルトで「手前だけズームが上がる」（遠景は小さく閾に届かず据置＝奥のPLATEAUと詳細が拮抗）。
 // 移動中は渡さない＝560のまま重くしない。値を下げるほど手前が細かくなる（=負荷↑）＝ここが唯一の調律つまみ。
@@ -1526,6 +1544,7 @@ function onMove() {
 style.emptySea = "water";
 const { relayCtl: pipelineRelay, tiles, requestMerge, setStyle: setPipelineStyle, destroy: destroyPipeline } = createPipeline({
 	style, tileUrl: TILE_URL, requestDraw: () => { needsDraw = true; }, scenePort: sceneChan.port1, onTile, ell: ELL_ON,
+	minZ: WORLD_VT ? 0 : undefined,   // 全球ベクタ＝タイルzの床を0へ（選抜・下地・毛布が世界タイルまで降りる）。既定4＝従来挙動
 	coverage: /[?&]nocov=1/.test(location.search) ? null : JP_COVERAGE,   // 配信圏外タイルは fetch せず空タイル(海)扱い＝外洋・国外への無駄な 404 を断つ（縦長スマホの周縁 404 の根治）。?nocov=1 で無効化＝A/B 検証ノブ
 
 	// LOD下限＝タイルz8（sea gate と同じ閾値）：optbv は z8 から海が全面WA（沖合タイル=WA一枚50B級）、z7以下は
@@ -1546,7 +1565,8 @@ function onSceneApplied(slot, sig) {
 	// 全球ビュー(z<4)移行後に着地した投げっぱなしmerge：結合結果は scene worker→render worker 直行＝
 	// main では止められないため、render() が空にした後から道路/鉄道が復活する（ズームアウト中の要求が遅れて届く）。
 	// ack＝着地の合図なので、ここで検知して即座に空へ戻す（sig は確定させない＝z4復帰時に再結合させる）。
-	if (cam.zoom < BASEMAP_MINZOOM) {
+	// ?world=1 は例外＝全球ビューも世界タイル（国境線）を通常フローで merge し続ける。
+	if (cam.zoom < BASEMAP_MINZOOM && !WORLD_VT) {
 		renderer.set("scene", { origin: [cam.center[0], cam.center[1]], layers: [] }, slot);
 		needsDraw = true;
 		return;
@@ -1638,7 +1658,11 @@ function switchTheme(name) {
 renderer.set("view", { clear, land, atmo, bldColor, showN02: false,
 	...(theme.contourColor && { contourColor: theme.contourColor }),
 	...(theme.distColor && { distColor: theme.distColor }),
-	...(theme.hypso && { hypso: theme.hypso }) });   // showN02＝N02交通(新幹線等)の表示。鉄道チップで切替
+	...(theme.hypso && { hypso: theme.hypso }),
+	// 全球ハイプソ（?world=1）＝球/地形シェーダの標高×気候 cross-blend。clim＝気候場テクスチャ
+	// （Köppen-Geiger/Beck et al. CC-BY を 720x360 に焼き縮め・public 資産）。theme.worldHypso で色ノブ上書き可。
+	// null 明示＝居座り防止の流儀。showN02＝N02交通(新幹線等)の表示。鉄道チップで切替
+	worldHypso: WORLD_VT ? { clim: new URL("koppen-clim.png", new URL(import.meta.env?.BASE_URL || "/", location.href)).href, ...(theme.worldHypso || {}) } : null });
 // 海：水レイヤ(WA)をビュー一律にゲート＝cam.zoom<9 では描かない（＝紙の海・まだら無し）、z9+で一律点火。
 renderer.set("sea", { li: style.layers.findIndex(L => L.id === "water"), li2: style.layers.findIndex(L => L.id === "water-hi"), minzoom: 9 });   // li2＝水系点火面も同じ海ゲート
 renderer.set("bldFill", { li: style.layers.findIndex(L => L.id === "building") });   // 建物フットプリント塗り＝3D（チルト）時は伏せる（押し出しと二重表現のため）
@@ -1938,7 +1962,8 @@ dbgHost.__paint = paintGint;
 //   海岸線は z<6 まで見せ、そこから先はユーザー層 minZoom まで基図に委ねる（豆粒の筆を全球に出さない）。
 const GINT_SWAP_Z = 7;
 const COAST_Z = 9;         // 世界海岸線の表示・ロード上限＝これ未満で出す（maxZoom9 と対）
-let coastGint = null;      // 海岸線の gint ペイロード（初回ロードでキャッシュ＝再取得しない）
+let coastGint = null;      // 世界の国ポリゴン(admin_0_countries)の gint ペイロード（初回ロードでキャッシュ＝再取得しない）
+let coastPbf = null;       // 同・GeoPBF 原本（properties 参照＝国名 identify 用に生存）
 let userGint = null;       // ユーザー層 { g, label }（14条/ドロップ）
 let gintSlot = null;       // 現在スロットの占有者 "coast" | "user"（null=未確定＝次の update で必ず post）
 let coastLoading = false;
@@ -2046,10 +2071,11 @@ function applyCoastSlot() {
 	// 再入（z≥minZoom）は bakeUser が非ブロッキング再ベイク＝海岸線を描いたまま焼き上がりで点火。
 	if (LOW_MEM && userGint?.sent) { renderer.set("gint", null, "user"); userGint.sent = false; }
 	renderer.set("gintSlot", "coast");
-	// 海岸線＝lineStream＝styleId=1。紙＋淡青の色調に「薄い青灰グレー・細く」。
+	// admin_0_countries＝ポリゴン辺（styleId=0）＝海岸線+国境線が同色で出る（共有arcは境界メタが一本化）。
+	// 色はテーマ台帳の coastLine（紙＋淡青に「薄い青灰グレー・細く」）。style1=折れ線は旧海岸線互換で同色。
 	const coastStyle = new Float32Array(256 * 4);
-	coastStyle.set([1.0, 0.42, 0.208, 1.0]);   // style0 polygon（未使用）
-	coastStyle.set(theme.coastLine, 4);        // style1 = 海岸線（テーマ台帳のノブ）
+	coastStyle.set(theme.coastLine);           // style0 = ポリゴン辺（admin0 の海岸線+国境線）
+	coastStyle.set(theme.coastLine, 4);        // style1 = 折れ線（admin0 では未使用）
 	gintDrawOpts = { styleTable: coastStyle, lineWidth: 0.75 };
 	gintInteractive = false;   // 海岸線は装飾＝ホバー/クリック識別なし
 	if (gintHoverTip) gintHoverTip(null);   // ユーザー層→海岸線＝残ったホバー tip を消す
@@ -2098,20 +2124,23 @@ function updateGintSlot() {
 	if (coastGint) { if (gintSlot !== "coast") applyCoastSlot(); return; }
 	if (cam.zoom < COAST_Z && !coastLoading) loadWorldCoast();   // 海岸線 未取得＝取得後に updateGintSlot が表示
 }
-// 世界海岸線（Natural Earth 10m）を取得しキャッシュ（表示可否は updateGintSlot が決める）。
+// 世界の国ポリゴン（Natural Earth admin_0_countries）を取得しキャッシュ（表示可否は updateGintSlot が決める）。
+// 旧・海岸線(ne_coastline 線)から置換（本人裁定 2026-08-30「admin0_countriesの方が国の認識ができる」）：
+// 国ポリゴンの辺＝海岸線＋国境線が1データで出る（隣国の共有arcは gint 境界メタが一本化）うえ、
+// 「国」という実体を gint が持つ＝国名 identify・国別 fid 彩色への口が開く（MVT=描画/Gint=知性の分担）。
 async function loadWorldCoast() {
 	if (coastLoading || coastGint) return; coastLoading = true;
-	// モバイル（LOW_MEM）は 50m 版＝頂点数が一桁小さい（10m=41万頂点→50m=数万）＝GintBUF焼き・GPU・
-	// スロット束の常駐とも軽量化（Kenji指定 2026-07-29）。z≤9 の世界図用途では見た目の差は僅か。
-	// 50m は bucket 未収録＝毎回 zip フォールバック（S3→shpデコード）だが geopbf が URL キーで IDB
-	// キャッシュする＝初回のみ。デスクトップは従来どおり 10m 全密度。
+	// モバイル（LOW_MEM）は 50m 版＝頂点数が一桁小さい＝GintBUF焼き・GPU・スロット束の常駐とも軽量化。
+	// bucket 未収録の間は zip フォールバック（S3→shpデコード）だが geopbf が URL キーで IDB キャッシュする＝初回のみ。
 	const RES = LOW_MEM ? "50m" : "10m";
-	console.log(`[coast] loading Natural Earth ${RES} coastline (bucket GeoPBF -> GintBUF)…`);
-	let pbf = await geopbf(`ne_${RES}_coastline`).catch(e => { console.warn("[coast] bucket load failed", e); return null; });
+	const NAME = `ne_${RES}_admin_0_countries`;
+	console.log(`[coast] loading Natural Earth ${RES} admin_0_countries (bucket GeoPBF -> GintBUF)…`);
+	let pbf = await geopbf(NAME).catch(e => { console.warn("[coast] bucket load failed", e); return null; });
 	if (!pbf?.unPackGint) {
 		console.warn("[coast] no geopbf in bucket -> falling back to raw zip (S3 -> shp decode)");
-		pbf = await geopbf(`https://naturalearth.s3.amazonaws.com/${RES}_physical/ne_${RES}_coastline.zip`, { name: `ne_${RES}_coastline` }).catch(e => { console.error("[coast] geopbf", e); return null; });
+		pbf = await geopbf(`https://naturalearth.s3.amazonaws.com/${RES}_cultural/${NAME}.zip`, { name: NAME }).catch(e => { console.error("[coast] geopbf", e); return null; });
 	}
+	coastPbf = pbf || null;   // 原本を identify 用に生存（国名 NAME_JA ホバー/クリック＝次の一歩の口）
 	const g = pbf?.unPackGint;
 	coastLoading = false;
 	if (!g) { console.error("[coast] GintBUF decode failed", pbf); return; }
@@ -2120,6 +2149,7 @@ async function loadWorldCoast() {
 		polyStream: g.polyStream, lineStream: g.lineStream,
 		pointBuffer: g.pointBuffer, point: g.point, polyCompBbox: g.polyCompBbox,
 		maxZoom: 9,
+		fillMaxEdges: 0,   // fillOff 強制＝国ポリゴンはアウトライン専用（低ズームのベタ塗り切替に入れない。塗りはハイプソの領分）
 	};
 	// bake-ahead：メタ/tier梯子を焼き切ってから搭載（焼き上がりの onDone で再調停＝そこで表示）
 	bakeCoast();
@@ -2146,7 +2176,7 @@ const ensureSkyMod = () => (_skyLoad ??= Promise.all([import("./planets.js"), im
 	({ planetPositions, moonPosition, sunPosition } = p); ({ constellationJa } = s);
 }));
 let starsArmed = true;
-function ensureStars() { if (starsArmed && cam.zoom < BASEMAP_MINZOOM) { starsArmed = false; loadStars(); ensureSkyMod().then(startPlanets); } }
+function ensureStars() { if (starsArmed && cam.zoom < STARSKY_Z) { starsArmed = false; loadStars(); ensureSkyMod().then(startPlanets); } }
 // 惑星（実位置・低精度ケプラー＝planets.js）：星と同じ点バッファ形式で常設。名前は注記トグル(skyLabels)側。
 // 位置は10分毎に再計算（最速の水星でも0.03°/10分＝表示上は静止と同じだが、開きっぱなしの夜に正直でいる）。
 let planetTimer = null, planetLabels = [];
@@ -2188,11 +2218,14 @@ skyClockEl.id = "sky-clock";
 mapEl.appendChild(skyClockEl);
 const skyAttrEl = document.createElement("div");
 skyAttrEl.id = "sky-attr";
-skyAttrEl.textContent = t("星図: d3-celestial ／ 海岸線: Natural Earth ／ 標高: GEBCO ／ © 2026 Kenji Yoshida");   // z<4はR90(GEBCO)のみ＝JAXA(R01)は使わない
+// world時は帰属が増える：admin0国界=Natural Earth(既載)・気候場=Beck et al.(CC-BY)・湖=OSM/Protomaps(ODbL)
+skyAttrEl.textContent = WORLD_VT
+	? t("星図: d3-celestial ／ 国界: Natural Earth ／ 標高: GEBCO ／ 気候: Beck et al. ／ 湖: © OpenStreetMap ／ © 2026 Kenji Yoshida")
+	: t("星図: d3-celestial ／ 海岸線: Natural Earth ／ 標高: GEBCO ／ © 2026 Kenji Yoshida");   // z<4はR90(GEBCO)のみ＝JAXA(R01)は使わない
 mapEl.appendChild(skyAttrEl);
 const SKY_WD = getLang() === "ja" ? ["日", "月", "火", "水", "木", "金", "土"] : ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const skyClockTimer = setInterval(() => {
-	if (cam.zoom >= BASEMAP_MINZOOM) return;   // 見えていない間はDOMに触れない
+	if (cam.zoom >= STARSKY_Z) return;   // 見えていない間はDOMに触れない（星空圏の外）
 	const d = new Date(), L2 = n => String(n).padStart(2, "0");
 	skyClockEl.textContent = `${d.getFullYear()}/${L2(d.getMonth() + 1)}/${L2(d.getDate())} (${SKY_WD[d.getDay()]}) ${L2(d.getHours())}:${L2(d.getMinutes())}:${L2(d.getSeconds())}`;
 }, 1000);
@@ -2458,7 +2491,7 @@ const input = createInput({
 		if (profileClick) return profileClick(x, y);   // 断面図モード＝クリックは経路の頂点追加へ（同上）
 		if (poiClick) return poiClick(x, y);           // 台帳編集モード＝クリックは対象選択/置き先へ（同上）
 		if (editClick) return editClick(x, y);         // 派生アプリ編集モード＝同上（geoedit の選択/作図）
-		if (cam.zoom < BASEMAP_MINZOOM) {
+		if (cam.zoom < STARSKY_Z) {
 			if (!solarOff && cam.zoom < 1) return;   // 太陽系圏＝星座注記は休演中（クリックで裏の状態だけ変えない）
 			return void toggleConstellations().then(saveView);   // 全球ビュー＝クリックで星座線。表示状態は共有URL(l=sky)へ即書き戻す
 		}
@@ -2473,6 +2506,15 @@ const input = createInput({
 		if (fudeOwn && estatTipOwn) { estatTipOwn = false; renderer.set("overlayHover", null); needsDraw = true; }   // 跨ぎ瞬間＝残った町丁目tip/太線を掃除（tip本文は直後の識別ackが上書き）
 		if (!fudeOwn && opts.smallAreaHover && overlay.isEstatActive?.() && overlay.hoverAt(x, y)) return;
 		if (gintInteractive && gintHover) wPost({ type: "gintMove", x, y });
+		// 世界ビュー＝admin0 国ポリゴンの国名 tip（本人裁定 2026-08-30「国の認識」）。識別は main 同期
+		// （coastPbf.identifyAt＝findPolygon smallest-wins・エンジン往復なし）。面のみ探索＝点/線半径は0。
+		if (gintSlot === "coast" && coastPbf && gintHoverTip && !fudeOwn) {
+			const ll = unprojectXY(x, y);
+			const fid = ll ? coastPbf.identifyAt(ll[0], ll[1], { point: 0, polyline: 0 }) : null;
+			let name = null;
+			if (fid != null) { try { const p = coastPbf.getProperties(fid) || {}; name = p.NAME_JA || p.NAME || null; } catch (e) { /* 壊れfeature＝tipなし */ } }
+			gintHoverTip(name ? [name] : null);
+		}
 	},
 });
 
@@ -2614,7 +2656,7 @@ const MOVE_SWAP_MS = 125;
 //（hiddenLi）なので merge 側に残す（railチップON時のみ効く）。
 let lastLabelGate = "";
 const labelGate = () => "" + (cam.zoom >= CHOME_MINZOOM ? 1 : 0) + (cam.zoom >= CHOME800_MINZOOM ? 1 : 0)
-	+ (cam.zoom < AIRPORT_MARK_MAXZ && airportMarks.length ? "A" : "")
+	+ (cam.zoom < AIRPORT_MARK_MAXZ && cam.zoom >= BASEMAP_MINZOOM && airportMarks.length ? "A" : "")
 	+ (landmarks && layerState.facility ? "L" + landmarkMinH(cam.zoom) : "")   // 高さ梯子の段を跨いだらラベルだけ作り直す
 	+ (layerState.facility && cam.zoom >= 14 ? "P" + poiVer + "z" + Math.floor(cam.zoom * 2) : "");   // POI台帳＝タイル到着(poiVer)・半ズーム(rank解禁)で作り直す
 // ?swaplog=1＝「書き直し」イベントの計器：main merge（タイル集合の増減つき）・ラベル再構築・base差し替えを
@@ -2694,7 +2736,7 @@ function rebuildLabels(order) {
 	lastLabelGate = labelGate();
 	slog("labels rebuilt (no merge)");
 	const allLabels = tiles.labels(order);
-	if (airportMarks.length && cam.zoom < AIRPORT_MARK_MAXZ) {   // 低ズーム＝静的台帳から空港マークのみ注入（タイル注記441と同名は二重にしない）
+	if (airportMarks.length && cam.zoom < AIRPORT_MARK_MAXZ && cam.zoom >= BASEMAP_MINZOOM) {   // 低ズーム＝静的台帳から空港マークのみ注入（タイル注記441と同名は二重にしない）。下限＝基図の門（world帯(z<6.5)に日本固有の✈を漏らさない）
 		const have = new Set(allLabels.filter(L => L.code === 441).map(L => L.text));
 		for (const a of airportMarks) if (!have.has(a.text)) allLabels.push(a);
 	}
@@ -2918,7 +2960,25 @@ function render() {
 	// 全球ビュー（z<4）：基図(GSI)の詳細は不要＝タイル/結合/地形を止め、基図シーンを空に＝海岸線(gint)だけの軽い地球。
 	// これで pan 中も main の毎フレーム負荷（tiles.update/merge/terrain）が消える。
 	// 家具も全部フェード退場（attr含む＝quiet-mono #map.world）＝星空劇場の舞台。GSI非描画なので出典義務なし。
-	mapEl.classList.toggle("world", cam.zoom < BASEMAP_MINZOOM);
+	// 家具フェード（.world＝星空劇場の演出）は星空圏(z<5)据え置き：基図の門(BASEMAP_MINZOOM=world時6.5)に
+	// 連動させると z5-6.5 の世界帯で座標テーブル(#pos)ごと退場してしまう（本人指摘 2026-08-31）。
+	mapEl.classList.toggle("world", cam.zoom < STARSKY_Z);
+	// 世界帯（world時 z<6.5＝GSI非描画）は出典を世界版へ差し替え：日本のデータを出していない画面に
+	// 地理院・PLATEAU を並べるのは義務以前に嘘になる（nl 入口と同じ流儀・instruments.js の先例）。
+	if (WORLD_VT) {
+		const wband = cam.zoom < BASEMAP_MINZOOM;
+		if (wband !== attrWorldBand) {
+			attrWorldBand = wband;
+			const attr = document.querySelector("#attr");
+			if (attr) {
+				if (attrJPHTML == null) attrJPHTML = attr.innerHTML;   // 日本版を初回に退避（復帰用）
+				attr.innerHTML = wband
+					? `${t("出典：")}<a href="https://www.naturalearthdata.com/" target="_blank" rel="noopener">Natural Earth</a>・<a href="https://www.gebco.net/" target="_blank" rel="noopener">GEBCO</a>・<a href="https://www.gloh2o.org/koppen/" target="_blank" rel="noopener">Beck et al. (CC BY)</a>・<a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">© OpenStreetMap contributors</a><br>
+					${t("（各データを加工して作成）")}© 2026 <a href="https://www.ortho-earth.com/docs/introduction.html" target="_blank" rel="noopener">Kenji Yoshida</a>`
+					: attrJPHTML;
+			}
+		}
+	}
 	// 太陽系圏（z<1）：Canvas2D の薄いオーバーレイ（solarsky.js＝遅延ロード）が太陽・惑星・軌道線を実位置で重ねる。
 	// カメラは engine と同じ cameraState を共有＝星空・地球と厳密に整合。圏の出入りでドーム惑星（方向のみ表現）と交代。
 	const inSolar = !solarOff && cam.zoom < 1;
@@ -2929,7 +2989,7 @@ function render() {
 		if (planetTimer) updatePlanets();   // ドーム惑星/月の点灯切替を即時反映
 		if (constelState === 2) constelApply();   // 星座注記の休演/再点灯（裁きは constelApply に一本化）
 	}
-	if (cam.zoom < BASEMAP_MINZOOM) {
+	if (cam.zoom < BASEMAP_MINZOOM && !WORLD_VT) {   // ?world=1 は止めない＝世界タイル（国境線）を通常フローで流す
 		if (!basemapHidden) {
 			const o = [cam.center[0], cam.center[1]];
 			renderer.set("scene", { origin: o, layers: [] }, "main");
@@ -2943,7 +3003,12 @@ function render() {
 	}
 	basemapHidden = false;
 	sampleGroundElev();   // 中心の地面標高を追随（非同期・~100m格子メモ）＝groundR の材料
-	const { order, coarseOrder, total } = tiles.update(cam, size.w, size.h, { tilePx: (moving || !gpuFast || !idleCalm) ? undefined : IDLE_TILE_PX, groundR: groundRNow(), keepFine: keepFineNow() });   // tilePx＝「本当の静止」（settle+550ms）だけ主層を一段細かく（手前の詳細化・GPU格付け fast 限定・undefined=既定560）。groundR＝地形リフト球（チルト×高標高地の手前くさび欠け根治）。keepFine＝ズームアウトの子孫代打（3D限定）。calm が needsDraw を立て、細タイルの ready は requestDraw で連鎖再描画
+	// 世界帯（world時 z<6.5）＝選抜を世界ソースの領分(z≤3)に cap（z4+=optbv の混入を防ぐ）。
+	// keepFine（ズームアウトの子孫代打・3D限定）も同帯では切る：日本で常駐した GSI 細タイル(z6+)が
+	// 「子孫」として枠を覆い続け、cap を素通りして鉄道/道路が世界帯に残る（本人報告 2026-08-31・チルトで発現）。
+	const worldBand = WORLD_VT && cam.zoom < BASEMAP_MINZOOM;
+	const { order, coarseOrder, total } = tiles.update(cam, size.w, size.h, { tilePx: (moving || !gpuFast || !idleCalm) ? undefined : IDLE_TILE_PX, groundR: groundRNow(), keepFine: worldBand ? 0 : keepFineNow(),
+		maxZ: worldBand ? WORLD_TILE_MAXZ : undefined });   // tilePx＝「本当の静止」（settle+550ms）だけ主層を一段細かく（手前の詳細化・GPU格付け fast 限定・undefined=既定560）。groundR＝地形リフト球（チルト×高標高地の手前くさび欠け根治）。keepFine＝ズームアウトの子孫代打（3D限定）。calm が needsDraw を立て、細タイルの ready は requestDraw で連鎖再描画
 	if (layerState.facility && cam.zoom >= 14) loadPOI(cam);   // z14+×施設ON＝POI台帳タイル(poi/14/x/y)を可視ぶん先読み（既取得は素通り）
 	dbgHost.__lastOrder = order;   // デバッグ：現在の選択タイル（コンソール/検証スクリプトから確認）
 	dbgHost.__tileStats = () => { const s = tiles.stats(); console.log(`[tiles] resident ${s.tiles} tiles / ${(s.bytes/1048576).toFixed(1)}MB (budget ${(s.budgetBytes/1048576).toFixed(0)}MB, deviceMemory≈${s.deviceMemoryGB}GB, cacheEntries ${s.cacheEntries})`); return s; };   // コンソールから常駐メモリ確認
@@ -3210,7 +3275,7 @@ map.gadget("compass", function (opts) {   // コンパス兼リセット … 内
 	if (update) { frameHooks.add(update); update(); }   // 針の追従を render のフックへ＝搭載した瞬間から現姿勢を指す
 });
 map.gadget("solar", function (opts) {   // 太陽系への口（ortho-solar） … 星空圏の境界(BASEMAP_MINZOOM)はここで注入
-	const update = solarGadget.call(this, { showBelow: BASEMAP_MINZOOM, ...opts });
+	const update = solarGadget.call(this, { showBelow: STARSKY_Z, ...opts });
 	if (update) { frameHooks.add(update); update(); }   // 圏の出入りで現れ/引っ込む＝毎フレ判定（コンパスと同じ）
 });
 map.gadget("plateau", function (opts) {   // 建物3D（PLATEAU）データ管理 … モーダルを開く手綱はここで注入

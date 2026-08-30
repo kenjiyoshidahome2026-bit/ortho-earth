@@ -2,6 +2,7 @@
 // buildScene で全選択タイルを style層ごとに1バッファへ結合（mixed-z, 共通原点に再ベース）。
 // ラベルは近景（高z）タイルのみ＝遠方はテキスト無し。
 import { fetchMVT, neededSourceLayers } from "./decode.js";
+import { isPMTiles, fetchPMTiles } from "./pmtiles-src.js";
 import { tileBounds, tileOutsideCoverage } from "./tile.js";
 import { buildTileDrawList, buildEmptySeaOps } from "./build.js";
 import { buildLabels } from "./labels.js";
@@ -14,7 +15,9 @@ const EMPTY = new Set();
 // lodFloor＝{ minViewZoom, z }：ビューが minViewZoom 以上のとき詳細シーンの LOD 下限を z に強制。
 // optbv の海（WA）は z8 タイルから全面収録＝z7 以下が混ざる遠景は海が紙色に抜ける。下限 z8 で敷けば
 // 海の色がズーム段間で揃う（沖合の z8 タイルは全面WA一枚=50B級なので枚数が増えても実質タダ）。
-export function createTileManager({ style, tileUrl, onChange, cap = 256, buildTile, onEvict, lodFloor, memBudgetMB, coverage }) {
+// minZ＝タイルzの床（既定4＝bvmap の配信下限）。全球ソース（PMTiles等・z0から配信）を混ぜるアプリは 0 を渡す
+// ＝ズームアウトで選抜・下地・毛布・祖先フォールバックが z0 まで降りる（既定4なら従来挙動と完全同一）。
+export function createTileManager({ style, tileUrl, onChange, cap = 256, buildTile, onEvict, lodFloor, memBudgetMB, coverage, minZ = 4 }) {
 	const cache = new Map();   // key → { status, origin, dl, labels, z, bytes, seen }
 
 	// tess済み geometry の常駐量を「枚数」でなく「実バイト」で束ねる：z16密都市(~100KB級)と沖合z8(数十B)を
@@ -31,7 +34,9 @@ export function createTileManager({ style, tileUrl, onChange, cap = 256, buildTi
 	const need = neededSourceLayers(style);
 	async function defaultBuildTile(t) {
 		// 配信圏外は fetch を省き空タイル(=404と同じ全面水域)扱い＝外洋・国外への無駄な 404 を断つ（worker 経路 tileworker.js と同処置）
-		const layers = tileOutsideCoverage(t.x, t.y, t.z, coverage) ? { __empty: true } : await fetchMVT(tileUrl(t.z, t.x, t.y), undefined, need);
+		const url = tileUrl(t.z, t.x, t.y);
+		const layers = isPMTiles(url) ? await fetchPMTiles(url, t.z, t.x, t.y, undefined, need)   // 全球ソース（PMTiles）＝coverage 対象外
+			: tileOutsideCoverage(t.x, t.y, t.z, coverage) ? { __empty: true } : await fetchMVT(url, undefined, need);
 		const [w, s, e, n] = tileBounds(t.x, t.y, t.z);
 		const origin = [w, n];
 		const dl = buildTileDrawList({ layers, z: t.z, x: t.x, y: t.y }, style, origin);
@@ -102,12 +107,12 @@ export function createTileManager({ style, tileUrl, onChange, cap = 256, buildTi
 		// groundR＝地形リフト球の半径（app が表示中の地形変位と同式で計算）。主層・下地・毛布の3経路とも
 		// 同じ球で選抜する＝チルト×高標高地の「手前くさび欠け」をどの層にも作らない（草津1200m根治）。
 		const groundR = opts?.groundR ?? 1;
-		const selected = selectLOD(cam, W, H, { sticky: stickySplit, floorZ, tilePx: opts?.tilePx ?? undefined, groundR });   // null/未指定→undefined＝selectLOD既定560（destructuring既定はundefinedでのみ発火・nullだと閾0で全分割の罠）
+		const selected = selectLOD(cam, W, H, { sticky: stickySplit, floorZ, tilePx: opts?.tilePx ?? undefined, groundR, minZ, maxZ: opts?.maxZ ?? undefined });   // null/未指定→undefined＝selectLOD既定560（destructuring既定はundefinedでのみ発火・nullだと閾0で全分割の罠）。maxZ＝呼び出し側の上限（全球ビュー＝世界ソースの領分に留める）
 		// 「分割されたノード」＝選択タイルの祖先チェーンそのもの。次回のヒステリシス判定に持ち越す。
 		stickySplit = new Set();
 		for (const t of selected) {
 			let z = t.z, x = t.x, y = t.y;
-			while (z > 4) { z--; x >>= 1; y >>= 1; const k = `${z}/${x}/${y}`; if (stickySplit.has(k)) break; stickySplit.add(k); }
+			while (z > minZ) { z--; x >>= 1; y >>= 1; const k = `${z}/${x}/${y}`; if (stickySplit.has(k)) break; stickySplit.add(k); }
 		}
 		selMaxZ = selected.length ? Math.max(...selected.map(t => t.z)) : 0;
 		// keepFine＝ズームアウトの書き直し回避：常駐子孫（keepFine 段まで）で隙間なく覆える枠は親に差し替えず
@@ -125,11 +130,17 @@ export function createTileManager({ style, tileUrl, onChange, cap = 256, buildTi
 		// 粗い下地：3段低いズームで広く覆う。移動中の先端の空白を常に埋める underlay。
 		// lodFloor 有効時は下地も z8 で敷く（floorZ が強制分割・maxZ が上限開放）：z5-7 の下地は海（WA）を
 		// 持たないため、移動中に下地が顔を出す瞬間だけ海が紙色に白転してちらつく（実害はまさに下地側だった）。
-		const coarse = selectLOD(cam, W, H, { maxZ: Math.max(floorZ || 4, Math.round(cam.zoom) - 4), floorZ, groundR });   // -4＝主層(タイルz≈zoom-1)の3段下（256px世界の z はタイルzより1大きい）
+		// opts.maxZ＝呼び出し側の上限（全球ビュー＝世界ソースの領分 z≤3 に留める）は下地・毛布にも掛ける：
+		// 主層だけ縛っても下地(z4)に optbv が混ざれば「日本固有はまだ出さない」ゲートが破れる。
+		const capZ = z => opts?.maxZ != null ? Math.min(z, opts.maxZ) : z;
+		const coarse = selectLOD(cam, W, H, { maxZ: capZ(Math.max(floorZ || 4, minZ, Math.round(cam.zoom) - 4)), floorZ, groundR, minZ });   // -4＝主層(タイルz≈zoom-1)の3段下（256px世界の z はタイルzより1大きい）
 		// 毛布：固定 z4 の床タイル＝フォールバックの終点保証。「zoom-6」の動く目標だと高速ズームアウト中に
 		// 毎段コールドフェッチで間に合わず白が出る。z4 固定なら1枚で22.5°＝数枚で日本全体、初回以降キャッシュ常駐
 		// ＝どんな引き方をしても床が必ず先に居る。W/H×3＝視野の3倍を先回り（外周の白露出も防ぐ）。
-		const blanket = selectLOD(cam, W * 3, H * 3, { maxZ: 4, groundR });
+		// minZ<4（全球ソース混在）だけ低ズームで毛布の段も下げる：全球ビューで固定 z4 だと視野3倍が
+		// 世界全体＝256枚 ensure の爆発。世界タイル（低z・軽量）は段が動いてもコールドフェッチ負けしない。
+		const blanketZ = capZ(minZ < 4 ? Math.max(minZ, Math.min(4, Math.round(cam.zoom) - 2)) : 4);
+		const blanket = selectLOD(cam, W * 3, H * 3, { maxZ: blanketZ, groundR, minZ });
 		const keep = new Set([...selected, ...drawSel, ...coarse, ...blanket].map(keyOf));   // drawSel（keepFine の子孫代打）も keep＝描画中の子孫を LRU に食わせない
 		for (const t of blanket) ensure(t);
 		for (const t of coarse) ensure(t);
@@ -160,11 +171,15 @@ export function createTileManager({ style, tileUrl, onChange, cap = 256, buildTi
 		const ready = arr => { const o = []; for (const t of arr) { const c = cache.get(keyOf(t)); if (c && c.status === "ready") o.push({ key: keyOf(t), origin: c.origin, z: t.z }); } return o; };
 		// 下地は祖先フォールバック付き：ズームで下地の段(round(zoom)-4)が切り替わる度に新段が未着で
 		// 紙色の空白がチラつくのを、キャッシュ済みの粗い親で埋めて防ぐ。粗い順＝下に描かれる。
+		// フォールバックの床：opts.maxZ（全球ソースの領分に cap 中＝世界帯）は minZ まで降ろすが、
+		// cap 無し（基図の領分 z≥6.5）は従来どおり z4 で止める＝世界タイル(z≤3・湖入り)が移動中だけ
+		// 下地に顔を出し、静止で消える明滅を断つ（湖 drawing⇄drawn 明滅の根治 2026-08-31）。
+		const fbFloor = opts?.maxZ != null ? minZ : Math.max(minZ, 4);
 		const readyWithFallback = arr => {
 			const o = [], seen = new Set();
 			for (const t of arr) {
 				let z = t.z, x = t.x, y = t.y;
-				while (z >= 4) {
+				while (z >= fbFloor) {
 					const k = `${z}/${x}/${y}`, c = cache.get(k);
 					if (c && c.status === "ready") {
 						if (!seen.has(k)) { seen.add(k); o.push({ key: k, origin: c.origin, z }); }

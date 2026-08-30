@@ -193,8 +193,20 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 		{ arrayStride: 4, stepMode: "instance", attributes: [{ shaderLocation: 4, offset: 0, format: "float32" }] },     // half(CSS px)
 	];
 	// globe は Frame 非依存＝専用レイアウト。旧 "auto" は遷移時AAのセット複製で bind group を共有できない＝明示化
-	const bglGlobe = device.createBindGroupLayout({ entries: [{ binding: 0, visibility: VF, buffer: {} }] });
+	// binding1-3＝全球ハイプソ（標高R90全球窓＋気候場）。未使用時も dummy を張る（レイアウトは常に完全充足）
+	const bglGlobe = device.createBindGroupLayout({ entries: [
+		{ binding: 0, visibility: VF, buffer: {} },
+		{ binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
+		{ binding: 2, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "filtering" } },
+		{ binding: 3, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
+	] });
 	const globeLayout = device.createPipelineLayout({ bindGroupLayouts: [bglGlobe] });
+	// terrain group(2)＝気候場（全球ハイプソの cross-blend）。未着は dummy（DrawP p2.z=0 で不使用）
+	const bglClim = device.createBindGroupLayout({ entries: [
+		{ binding: 0, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
+		{ binding: 1, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "filtering" } },
+	] });
+	const terrLayout = device.createPipelineLayout({ bindGroupLayouts: [bgl0, bgl1, bglClim] });
 	// 星空劇場（z<4）：Sky UBO（group0）＋星座線の色 UBO（group1）。深度無関係の背景（dsOff）
 	const skyMod = mkMod(SKY_WGSL, "sky");
 	const bglSky = device.createBindGroupLayout({ entries: [{ binding: 0, visibility: VF, buffer: {} }] });
@@ -253,7 +265,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 			fillTestExact: pipe(fillMod, FILL_BUFS, dsTest, "fsExact"),   // 水域の厳密対数深度（琵琶湖の偽島対策）
 			lineOff: pipe(lineMod, LINE_BUFS, dsOff),
 			lineTest: pipe(lineMod, LINE_BUFS, dsTest),
-			terrain: pipe(terrMod, [{ arrayStride: 8, attributes: [{ shaderLocation: 0, offset: 0, format: "float32x2" }] }], dsTerrain),
+			terrain: pipe(terrMod, [{ arrayStride: 8, attributes: [{ shaderLocation: 0, offset: 0, format: "float32x2" }] }], dsTerrain, "fs", terrLayout),   // group(2)=気候場（全球ハイプソ）
 			bld: pipe(bldMod, [
 				{ arrayStride: 12, attributes: [{ shaderLocation: 0, offset: 0, format: "float32x3" }] },   // a_pos (dlon,dlat,hWorld)
 				{ arrayStride: 4, attributes: [{ shaderLocation: 1, offset: 0, format: "float32" }] },      // a_shade
@@ -331,11 +343,8 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 	// UBO：Frame 4スロット / DrawP N_ROLESスロット / globe 専用 / PLATEAU per-batch（dynamic offset）
 	const frameBuf = device.createBuffer({ size: FRAME_SLOT * 5, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });   // 5スロット目=terrainFar（遠景メッシュパス）
 	const paramBuf = device.createBuffer({ size: PARAM_SLOT * N_ROLES, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
-	const globeBuf = device.createBuffer({ size: 96, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
-	const globeBG = device.createBindGroup({
-		layout: bglGlobe,   // 明示レイアウト＝1x/4x どちらのセットの globe パイプラインとも互換
-		entries: [{ binding: 0, resource: { buffer: globeBuf } }],
-	});
+	const globeBuf = device.createBuffer({ size: 144, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });   // mat4+land+atmo+elevBounds+whP+seaC
+	let globeBG = null;   // rebuildGlobeBG() が生成（elev/clim テクスチャ差し替えで作り直し。明示レイアウト＝1x/4x 両セット互換）
 	const paramBG = [];   // 役割別（静的オフセット＝dynamic offset 不要）
 	for (let r = 0; r < N_ROLES; r++) paramBG.push(device.createBindGroup({
 		layout: bgl1, entries: [{ binding: 0, resource: { buffer: paramBuf, offset: r * PARAM_SLOT, size: 48 } }],
@@ -492,6 +501,21 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 	const elevSampler = device.createSampler({ magFilter: "linear", minFilter: "linear", addressModeU: "clamp-to-edge", addressModeV: "clamp-to-edge" });
 	const dummyTex = device.createTexture({ size: [1, 1], format: "r16float", usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST });
 	const dummyView = dummyTex.createView();
+	// 気候場テクスチャ（全球ハイプソ cross-blend・view.worldHypso.clim の URL から一度だけ取得）。
+	// 未着の間はシェーダが緯度近似へフォールバック（hasClim=0）＝1-2フレームの色ズレのみ。
+	let climTexView = null, climLoading = false, climBG = null;
+	function ensureClimTex(url) {
+		if (climTexView || climLoading || !url) return;
+		climLoading = true;
+		fetch(url).then(r => r.blob()).then(b => createImageBitmap(b, { premultiplyAlpha: "none" })).then(bm => {
+			const tex = device.createTexture({ size: [bm.width, bm.height], format: "rgba8unorm",
+				usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT });
+			device.queue.copyExternalImageToTexture({ source: bm }, { texture: tex }, [bm.width, bm.height]);
+			climTexView = tex.createView(); bm.close();
+			rebuildBG0();   // globeBG/climBG が気候テクスチャを掴み直す
+			rOpts.requestDraw?.();   // 到着フレームを一枚要求（静止中でも気候色へ差し替わる）
+		}).catch(e => console.warn("[hypso] climate texture load failed (緯度近似で継続)", e));
+	}
 	let elevTexObj = null, elevTexView = null, elev = { bounds: [0, 0, 1, 0], scale: 0, has: 0 }, terrain = null, elevStage = null;
 	// 遠景層（far）＝近窓の外を受け持つ粗い R10 第2アトラス（terrain.js が深ズーム×チルトで常設）
 	let farTexObj = null, farTexView = null, far = { bounds: [0, 0, 1, 0], has: 0, edgeFade: 0 };
@@ -512,6 +536,17 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 				{ binding: 3, resource: farView },
 			],
 		});
+		// globe（全球ハイプソ＝標高+気候）と terrain group(2)（気候）も同じ素材に依存＝一緒に作り直す
+		globeBG = device.createBindGroup({ layout: bglGlobe, entries: [
+			{ binding: 0, resource: { buffer: globeBuf } },
+			{ binding: 1, resource: view },
+			{ binding: 2, resource: elevSampler },
+			{ binding: 3, resource: climTexView || dummyView },
+		] });
+		climBG = device.createBindGroup({ layout: bglClim, entries: [
+			{ binding: 0, resource: climTexView || dummyView },
+			{ binding: 1, resource: elevSampler },
+		] });
 	}
 	rebuildBG0();
 	const mkAtlasTex = (W, H) => device.createTexture({ size: [W, H], format: "r16float", usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST });   // 生成時ゼロ初期化＝海
@@ -799,7 +834,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 	}
 	// DrawP N_ROLESスロットを一括で書く（256Bストライド・各48B使用）
 	const paramF32 = new Float32Array(PARAM_SLOT / 4 * N_ROLES);
-	function packParams({ cityLift, waterLift, exact, land, bldColor, contour, liftBounds, fadeK = 1 }) {
+	function packParams({ cityLift, waterLift, exact, land, bldColor, contour, liftBounds, fadeK = 1, worldHypsoK = 0, hasClim = 0 }) {
 		const f = paramF32; f.fill(0);
 		const at = (role, vals) => { const o = role * (PARAM_SLOT / 4); for (let i = 0; i < vals.length; i++) f[o + i] = vals[i]; };
 		at(ROLE.normal, [0, cityLift, 0, 1]);
@@ -808,7 +843,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 		const hy = view.hypso;
 		at(ROLE.terrain, [land[0], land[1], land[2], 0,
 			hy ? hy.color[0] : 0, hy ? hy.color[1] : 0, hy ? hy.color[2] : 0, hy ? (hy.amount ?? 0.5) : 0,
-			hy ? 1 / (hy.max || 3000) : 0, 0, 0, 0]);
+			hy ? 1 / (hy.max || 3000) : 0, worldHypsoK, hasClim, 0]);   // p2.y=全球ハイプソ出現度 p2.z=気候場到着（gl 側 u_whK/u_hasClim と同義）
 		at(ROLE.bld, [bldColor[0], bldColor[1], bldColor[2], 1]);
 		at(ROLE.contour, [contour.color[0], contour.color[1], contour.color[2], contour.interval,
 			contour.major, contour.alpha, 0, 0]);
@@ -900,18 +935,27 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 			if (fa >= FADE_MS) disposeFadePrev("main");
 			else { fadeK = fa / FADE_MS; fading = true; }
 		}
+		// 全球ハイプソの出現度（globe/terrain 共有＝ピッチで色が変わらない）。z5.7→6.5 フェードアウト
+		// ＝R90 全球窓の限界に着地（gl/renderer.js と同式）。気候場テクスチャも必要時に一度だけ取得
+		const worldHypsoK = view.worldHypso && elev.has ? Math.max(0, Math.min(1, (6.5 - cam.zoom) / 0.8)) : 0;
+		if (worldHypsoK > 0) ensureClimTex(view.worldHypso.clim);
 		device.queue.writeBuffer(paramBuf, 0, packParams({
 			fadeK,
 			cityLift, waterLift: waterLiftM, exact: terrainDepth ? 1 : 0,
 			land, bldColor: view.bldColor || [0.86, 0.86, 0.85],
 			contour: { color: view.contourColor || [0.42, 0.30, 0.18], interval: iv, major: iv * 5.0, alpha: cAlpha * (view.contourAlpha || 1) },
 			liftBounds: elev.liftBounds,   // PLATEAU 接地リフトの DTM 保証域
+			worldHypsoK, hasClim: climTexView ? 1 : 0,
 		}));
 		if (!flat2d) {
-			const g = new Float32Array(24);
+			const g = new Float32Array(36);
 			g.set(st.invMvp, 0);
 			g[16] = land[0]; g[17] = land[1]; g[18] = land[2]; g[19] = land[3];
 			g[20] = atmo[0]; g[21] = atmo[1]; g[22] = atmo[2]; g[23] = atmo[3];
+			g[24] = elev.bounds[0]; g[25] = elev.bounds[1]; g[26] = elev.bounds[2]; g[27] = elev.bounds[3];   // 全球ハイプソ（R90全球窓）
+			g[28] = worldHypsoK; g[29] = elev.has ? 1 : 0; g[30] = ellipsoidOn() ? 1 : 0; g[31] = climTexView ? 1 : 0;
+			const sc = (view.worldHypso && view.worldHypso.sea) || [0.757, 0.847, 0.891];
+			g[32] = sc[0]; g[33] = sc[1]; g[34] = sc[2]; g[35] = 1;
 			device.queue.writeBuffer(globeBuf, 0, g);
 		}
 		// 星空劇場（z<5）：星/夜面共通の出現フェード（gl/renderer.js と同式）。恒星時 GMST の天球回転・太陽方位も。
@@ -990,6 +1034,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 			pass.setPipeline(P.terrain);
 			pass.setBindGroup(0, bg0.terrain);
 			pass.setBindGroup(1, paramBG[ROLE.terrain]);
+			pass.setBindGroup(2, climBG);   // 気候場（全球ハイプソ）。未着は dummy（p2.z=0 で不使用）
 			pass.setVertexBuffer(0, terrain.vbo);
 			pass.setIndexBuffer(terrain.ibo, "uint32");
 			pass.drawIndexed(terrain.count);
