@@ -166,13 +166,15 @@ const ASSET_BASE = String(opts.assetBase ?? import.meta.env.BASE_URL).replace(/\
 // target を渡さない起動なので従来どおり窓に生える。
 const DEBUG_GLOBALS = opts.debugGlobals ?? !opts.target;
 const dbgHost = DEBUG_GLOBALS ? window : {};
-// 全球ベクタ基図（試作・?world=1）：タイル z≤WORLD_TILE_MAXZ を Protomaps PMTiles（OSM/ODbL）から引く。
-// z4+ は従来どおり optbv（日本域）＝BASEMAP_MINZOOM(ビューz5)未満の「基図オフの真空」を世界タイルが埋める。
-// URL は開発用のデイリービルド直読（build.protomaps.com の CORS は localhost のみ許可＝本番は低ズーム
-// extract を R2 へ置いて差し替える。Range 直読なので R2 でもコードはこの1行のまま）。
-const WORLD_VT = /[&?]world=1/.test(location.search);
+// 全球ベクタ基図（既定＝2026-09-01 本人裁定「world=1をデフォルトに」・?world=0 が逃げ道）：
+// タイル z≤WORLD_TILE_MAXZ を Protomaps PMTiles（OSM/ODbL）から引く。
+// z4+ は従来どおり optbv（日本域）＝BASEMAP_MINZOOM(ビューz6.5)未満の「基図オフの真空」を世界タイルが埋める。
+// アーカイブは低ズーム extract（z0-3・湖しか使わないが層はフル＝2.4MB）を public 同梱＝同一オリジン配信：
+// build.protomaps.com 直読は CORS が localhost:5173 のみ許可＝本番ホットリンク不可（8/30実測）の根治。
+// 再抽出＝go-pmtiles: `pmtiles extract https://build.protomaps.com/<date>.pmtiles world-z3.pmtiles --maxzoom=3`
+const WORLD_VT = !/[&?]world=0/.test(location.search);
 const WORLD_TILE_MAXZ = 3;
-const WORLD_PMTILES = "pmtiles://https://build.protomaps.com/20260829.pmtiles";
+const WORLD_PMTILES = "pmtiles://" + new URL("world-z3.pmtiles", new URL(import.meta.env?.BASE_URL || "/", location.href)).href;
 const TILE_URL = (z, x, y) => WORLD_VT && z <= WORLD_TILE_MAXZ ? WORLD_PMTILES
 	: `https://cyberjapandata.gsi.go.jp/xyz/optimal_bvmap-v1/${z}/${x}/${y}.pbf`;
 // optimal_bvmap の配信圏（日本域）の外接矩形 [west,south,east,north]。これと全く重ならないタイルは GSI が
@@ -2078,7 +2080,14 @@ function applyCoastSlot() {
 	const coastStyle = new Float32Array(256 * 4);
 	coastStyle.set(theme.coastLine);           // style0 = ポリゴン辺（admin0 の海岸線+国境線）
 	coastStyle.set(theme.coastLine, 4);        // style1 = 折れ線（admin0 では未使用）
-	gintDrawOpts = { styleTable: coastStyle, lineWidth: 0.75 };
+	// moveBudget=Infinity＋outlineZoom=0＝移動中もズーム帯でも常に正表現（本人裁定 2026-09-01「リソースは余裕・
+	// gintの見せ場」）。既定のままだと admin0（国境込み）は2つの柵で縮退した：①移動中の描画予算（25万辺超→
+	// 安表現）②outlineZoom ヒステリシス（moving 中 z<oz+1.5≈5 で境界メタへ）。どちらも縮退先が
+	// 境界メタ＝共有arc正味0排除で、admin0 の共有arc＝国境そのもの＝ドラッグ中だけ国境線が消えて見えた。
+	// admin0 は tier 梯子が効く長arc層＝移動中の実コストは軽い。モバイルは 50m 版（一桁小さい）＝挙動実質不変。
+	// noDepth＝地形深度に参加しない（常に最前面）：チルト中は国境（内陸の長arc＝端点しか標高を見ない）が
+	// 地形に潜り、隠線パスは静止時のみ＝ドラッグで国境だけ消えた（海岸線は海抜0で無事＝症状の非対称の正体）。
+	gintDrawOpts = { styleTable: coastStyle, lineWidth: 0.75, moveBudget: Infinity, outlineZoom: 0, noDepth: true };
 	gintInteractive = false;   // 海岸線は装飾＝ホバー/クリック識別なし
 	if (gintHoverTip) gintHoverTip(null);   // ユーザー層→海岸線＝残ったホバー tip を消す
 	sendGintStyle(); gintSlot = "coast"; needsDraw = true;
@@ -2163,6 +2172,7 @@ async function loadWorldCoast() {
 	console.log("[coast] loaded. auto-shown at z<%d (no user layer / low zoom)", GINT_SWAP_Z);
 }
 dbgHost.__coast = loadWorldCoast;   // 手動リロード用
+dbgHost.__gintFix = "3knobs+grat 2026-09-01c";   // ビルド世代の目印（コンソールで __gintFix ＝ undefined なら古いコードが動いている）
 // 遅延ロードの門番は updateGintSlot（z<9 で海岸線 未取得なら一度だけ取得）＝高ズーム固定の埋め込みは一生読まない
 //（PLATEAUスイッチと同じ思想＝見えない機能のための通信をしない。既定の世界ビュー起動時に updateGintSlot が即発火＝体験は不変）。
 

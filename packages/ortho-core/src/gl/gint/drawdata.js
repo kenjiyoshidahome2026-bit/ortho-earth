@@ -52,6 +52,13 @@ export function computeDrawData(data) {
 		hiliteColor: data.hiliteColor,   // ホバー線の色（未指定＝素の線色を不透明）
 		hiliteWidth: data.hiliteWidth != null ? data.hiliteWidth * s.dpr : 0,   // ホバー線の全幅(CSS→device px)。0=未指定＝素の線幅+2px。overlay(町丁目)線と単位を揃える鍵
 		ptRadius:   (data.ptRadius ?? 1.5) * s.dpr,
+		// ⚠ここは選別リスト＝drawStyle のノブを renderScene に運ぶには明示的に足す（2026-09-01 の轍：
+		// outlineZoom/moveBudget のスタイル上書きを passes/renderScene 側で読ませたのに、この選別で落ちて
+		// 「移動中の境界メタ縮退（admin0 の国境消え）」が直らないまま3周した。noDepth は選別前の data を
+		// 読む場所（embed/gpu の depth 付与）だけで使うため運搬不要）。
+		outlineZoom: data.outlineZoom,   // 低ズーム塗り/境界メタ切替のスタイル上書き（0=常に正表現）
+		moveBudget:  data.moveBudget,    // 移動中の描画予算のスタイル上書き（renderScene 側の lnB/lineOK/doFill が読む）
+		_forceLow:   data._forceLow,     // 予算超えラッチの「安い表現」指示（同・選別落ちで renderScene に届かず眠っていた）
 	};
 
 	// ── GPU Dynamic LOD 閾値：現ビューの 1px が覆う地表面積(sq-deg, cos-lat 補正) を rust get_phys_rank と

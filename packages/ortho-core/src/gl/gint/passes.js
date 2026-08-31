@@ -151,7 +151,10 @@ export function renderCleanScene(data, targetFBO = null) {
 	// 明示 fillColor は全ズームで尊重（透明を渡せば従来のアウトラインのみ）。polyBboxByFid が空＝線/点のみ
 	// （海岸線等）＝塗らない（線を winding にファンさせる誤塗り防止）。
 	const st = data.styleTable ?? DEF_STYLE;
-	const zoomV = data.zoom ?? 99, oz = s.outlineZoom ?? OUTLINE_ZOOM;
+	// outlineZoom はスタイル側で上書き可（drawStyle 経由・gpu/gint.js と同型）：admin0 世界図のように
+	// 「共有arc＝国境そのもの」の層は、lowZoom/移動ヒステリシスの境界メタ縮退（共有arc正味0排除）が
+	// 国境線を消してしまう＝0 を渡せば全ズーム・移動中とも正表現（tier梯子のLODが本来の見せ場・2026-09-01）。
+	const zoomV = data.zoom ?? 99, oz = data.outlineZoom ?? s.outlineZoom ?? OUTLINE_ZOOM;
 	const lowZoom = zoomV < oz;
 	// 切替ズーム（outlineZoom）跨ぎのもたつき対策＝ヒステリシス：移動中は安い表現（境界メタ＋ベタ塗り）を
 	// +1.5z 延長し、崖（境界3万辺→基準20万辺級のコスト跳ね）を操作中に跨がない。静止(settle)で必ず正表現へ

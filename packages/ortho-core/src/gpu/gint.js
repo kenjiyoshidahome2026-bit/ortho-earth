@@ -546,9 +546,14 @@ export function createGintLayerGPU(host, { requestDraw } = {}) {
 	// ── 描画（embed.js draw ＋ passes.js renderCleanScene/drawHighlight の統合）──────
 	let fboW = 0, fboH = 0, pickTex = null;
 	function draw(cam, ctx) {
+		const mark = path => {   // 計器（stats.dbg）＋直近フレームのリング（操作中に何が起きたかを事後に読む）
+			s._dbg = { path, vis: visible, z: +(cam.zoom ?? 0).toFixed(2), t: Date.now() % 100000 };
+			(s._dbgRing ??= []).push(`${path[0]}${visible ? "" : "!"}z${(cam.zoom ?? 0).toFixed(1)}w${s._pfTierW ?? "?"}e${((s._pfLineEdges ?? 0) / 1000) | 0}k`);
+			if (s._dbgRing.length > 90) s._dbgRing.shift();
+		};
 		const fr = host.frameInfo();
-		if (!fr) return;
-		if (!visible && !s.polyBboxByFid && s.totalPoints === 0) { s._inRange = false; s.lastDrawData = null; return; }
+		if (!fr) { mark("noFrame"); return; }
+		if (!visible && !s.polyBboxByFid && s.totalPoints === 0) { mark("hidden"); s._inRange = false; s.lastDrawData = null; return; }
 		s.width = fr.w;
 		s.height = fr.h;
 		s.dpr = cam.dpr || 1;
@@ -578,6 +583,7 @@ export function createGintLayerGPU(host, { requestDraw } = {}) {
 			const canLines = s.metaTexB && s.totalEdgesB > 0 && s.totalEdgesB <= MOVE_EDGE_BUDGET;
 			const canFill = (s.polyBboxByFid?.size ?? 0) > 0 && (!s.fillOff || s.lowFill) && s.polyEdgesB > 0 && s.polyEdgesB <= MOVE_EDGE_BUDGET * 8;   // ×8＝stencil扇は頂点のみ＝線パスより桁軽い。実ZCTA境界=1.03Mを通す実測裁定
 			if (!canLines && !canFill) {   // 境界も塗りも重い（孤立ポリ系）＝従来どおりスキップ
+				mark("budget");
 				s.lastDrawData = null;
 				s._budgetSkipped = true;
 				return;
@@ -586,14 +592,15 @@ export function createGintLayerGPU(host, { requestDraw } = {}) {
 		}
 		const data = { cam, ...(drawStyle || {}) };
 		if (s._forceLowMove) data._forceLow = true;
-		if (!zoomInRange(data)) { s._inRange = false; s.lastDrawData = null; s._pfLineEdges = 0; s._pfTierW = -1; return; }
+		if (!zoomInRange(data)) { mark("range"); s._inRange = false; s.lastDrawData = null; s._pfLineEdges = 0; s._pfTierW = -1; return; }
 		s._inRange = true;
 		if (s.totalEdges === 0 && s.totalPoints === 0) { s.lastDrawData = null; s._pfLineEdges = 0; s._pfTierW = -1; return; }
 		s._budgetSkipped = false;
 		const drawData = computeDrawData(data);
-		if (ctx && ctx.terrainDepth) drawData.depth = ctx;
+		if (ctx && ctx.terrainDepth && !data.noDepth) drawData.depth = ctx;   // noDepth＝地形深度に参加しない（admin0 世界図＝gl/embed.js と同型）
 
 		if (visible) renderScene(drawData, fr, ctx);
+		mark(visible ? "drew" : "invisible");
 		s.lastDrawData = drawData;
 		if (s._pickPending) { s._pickPending = false; drawn(); }
 	}
@@ -611,7 +618,7 @@ export function createGintLayerGPU(host, { requestDraw } = {}) {
 
 		// renderCleanScene の判定（逐語）
 		const st = data.styleTable ?? DEF_STYLE;
-		const zoomV = data.zoom ?? 99, oz = s.outlineZoom ?? OUTLINE_ZOOM;
+		const zoomV = data.zoom ?? 99, oz = data.outlineZoom ?? s.outlineZoom ?? OUTLINE_ZOOM;   // スタイル側上書き（gl/passes.js と同型＝admin0 の境界メタ縮退切り）
 		const lowZoom = zoomV < oz;
 		const moving = s._isDrawing || (s._staticN ?? 99) < 4;
 		const lowZoomEff = lowZoom || (moving && zoomV < oz + 1.5) || !!data._forceLow;
@@ -912,7 +919,8 @@ export function createGintLayerGPU(host, { requestDraw } = {}) {
 	}
 	function stats() {
 		return { drawn: s._pfDrawn ?? 0, fbo: s._pfFbo ?? 0, pickMs: s._pfPickMs ?? 0,
-			rank: s.lastDrawData?.lodRank ?? -1, tierW: s._pfTierW ?? -1, edges: s._pfLineEdges ?? 0,
+			rank: s.lastDrawData?.lodRank ?? -1, tierW: s._pfTierW ?? -1, edges: s._pfLineEdges ?? 0, dbg: s._dbg ?? null, ring: (s._dbgRing ?? []).slice(-40).join(" "),
+			style: drawStyle ? { oz: drawStyle.outlineZoom, mb: drawStyle.moveBudget, nd: drawStyle.noDepth, lw: drawStyle.lineWidth } : null,
 			tiers: s.lodTiers?.length ?? 0, tiersDone: !!s.tiersDone, total: s.totalEdges,
 			runs: s._pfRuns ?? -1, chunks: s._pfChunks ?? -1, vb: s.lastViewBbox };
 	}

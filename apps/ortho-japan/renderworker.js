@@ -9,6 +9,7 @@ let renderer = null, labelLayer = null, canvas = null, labelCanvas = null;
 let cam = null, opts = null, dirty = false;   // 最新の描画状態。dirty の時だけ rAF で描く。
 let glRef = null, sentFrame1 = false, sentCtxLost = false, sentDrawErr = false;   // 起動ウォッチドッグ(frame1)・コンテキストロスト・draw例外の一次診断（main へ各1回だけ通知）
 let gint = null;   // gint（知性の層＝海岸線/14条筆/AI層）＝同一GLコンテキストの1パス（1canvas統合。旧・別worker+従属駆動）
+self.__gintStats = () => gint?.stats?.() ?? null;   // 計器の覗き穴（CDP から worker に attach して評価＝tier/rank/edges の実測）
 let terrain = null, pendingLabels = null;   // pendingLabels: cam 未着で標高付与を保留した最新ラベル集合
 // ?perf=1（init.perf）＝2秒毎にフレーム内訳を console へ：map/gint の CPU 発行時間・フレームEMA・JSヒープ・解像度段。
 let perfOn = false, pfN = 0, pfMap = 0, pfGint = 0, pfLast = 0;

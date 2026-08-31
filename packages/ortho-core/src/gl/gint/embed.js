@@ -240,7 +240,10 @@ export function createGintLayer(gl, { requestDraw } = {}) {
 		s._budgetSkipped = false;   // ここから先は必ず描く＝スキップ状態を解除（settle 復帰フックは drawn 側）
 
 		const drawData = computeDrawData(data);
-		if (ctx && ctx.terrainDepth) drawData.depth = ctx;   // passes.js が線パスだけ深度テスト＋隠線2パスに切替
+		// noDepth（スタイルノブ）＝この層は地形深度に参加しない＝常に最前面。admin0 世界図用（2026-09-01）：
+		// tier 間引き後の国境は長いarc＝端点しか標高を見ず地形に潜り、隠線パスは静止時のみ＝チルト中のドラッグで
+		// 国境だけ消えた（海岸線は海抜0＝terrain が海を discard するため無事）。装飾層は最前面が正しい。
+		if (ctx && ctx.terrainDepth && !data.noDepth) drawData.depth = ctx;   // passes.js が線パスだけ深度テスト＋隠線2パスに切替
 
 		// ── GL 状態の切替と退避復元 ──
 		// renderer は premultiplied（ONE, ONE_MINUS_SRC_ALPHA）・gint シェーダは straight alpha 出力。
