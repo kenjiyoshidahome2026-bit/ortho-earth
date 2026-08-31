@@ -6,6 +6,9 @@ export async function Fetch(url, opts = {}) {
 	const PROXY_URL = opts.proxy;
 	if (!PROXY_URL) throw new Error("native-bucket: opts.proxy is required");
 	const proxy = s => `${PROXY_URL}?url=${encodeURIComponent(s)}`;
+	// proxy の第二の門（X-API-Key）用。キーは proxy 宛のリクエストにだけ付け、転送先ホストへは絶対に送らない。
+	// これが無いと allowlist 外ホスト（sekai-hub 等）が「キー持ちの uploader」からも 403 になる（2026-08-31 実測）。
+	const keyHeaders = opts.apiKey ? { 'X-API-Key': opts.apiKey } : undefined;
 	const encoding = (opts.encoding||"utf8").toLowerCase().replace(/[\-\_]/g,"").replace(/shiftjis/,"sjis");
 	const silent = !!opts.silent || console === undefined;
 
@@ -20,12 +23,12 @@ export async function Fetch(url, opts = {}) {
 
 	try {
 		let cors = false, range = true, knownSize = 0, targetURL = "";
-		const checkRes = await fetch(`${proxy(url)}&mode=check`);
+		const checkRes = await fetch(`${proxy(url)}&mode=check`, { headers: keyHeaders });
 		// check が JSON を返さない（proxy 検問 403 の素通し・CF 障害ページ等）＝存在不明でなく「取れない」扱い
 		const info = await checkRes.json().catch(() => null);
-		if (!info) { console.warn(`proxy check failed (${checkRes.status}): ${url}`); return null; }
+		if (!info) { silent || console.warn(`proxy check failed (${checkRes.status}): ${url}`); return null; }
 		if (!info.exists && !info.url) {
-			 console.warn(`file is not exist: ${url}`); return null; 
+			 silent || console.warn(`file is not exist: ${url}`); return null;
 		} else {
 			cors = opts.cors !== undefined ? !!opts.cors : info.mustUseProxy;
 			targetURL = cors ? proxy(url) : url;
@@ -44,7 +47,8 @@ export async function Fetch(url, opts = {}) {
 
 		// 2. Fetch the full resource.
 		const finalURL = `${targetURL}${targetURL.includes('?') ? '&' : '?'}_t=${Date.now()}`;
-		const res = await fetch(finalURL, { cache: 'no-store' }); 
+		// キーは proxy 経由（cors=true）のときだけ。直接取得（cors=false）で転送先へ漏らさない
+		const res = await fetch(finalURL, { cache: 'no-store', headers: cors ? keyHeaders : undefined });
 		
 		if (!res.ok) throw new Error(res.status);
 

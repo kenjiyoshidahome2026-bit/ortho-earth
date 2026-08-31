@@ -22,4 +22,6 @@ ALLOWED_DOMAINS = "www.ortho-earth.com,ortho-earth.com,kenjiyoshidahome2026-bit.
 #   ＝GIS-HUB の「任意URLを貼って開く」と Node のバッチスクリプトはそちらの門を通る。
 # ⚠ユーザー投稿型のホスト（raw.githubusercontent.com 等）は意図的に載せない＝載せると任意ファイルの
 #   ロンダリング経路になる。それらを使う uploader は API キー持ちなので第二の門で通る。
-PROXY_ALLOWED_HOSTS = "e-stat.go.jp,mlit.go.jp,gsi.go.jp,maff.go.jp,geospatial.jp,env.go.jp,jma.go.jp,jishin.go.jp,japanpost.jp,jaxa.jp,naturalearthdata.com,naturalearth.s3.amazonaws.com,census.gov,wikipedia.org,wikidata.org,wikimedia.org,dap.ceda.ac.uk,gebco.net"
+# sekai-hub.com / hdr.undp.org＝国別DB（uploader world 節）の統計ソース（2026-08-31 追加。
+#   dev の uploader は同一オリジン経由で Origin が付かず、Fetch のキー配線が無い旧クライアントも居るため①に載せる）
+PROXY_ALLOWED_HOSTS = "e-stat.go.jp,mlit.go.jp,gsi.go.jp,maff.go.jp,geospatial.jp,env.go.jp,jma.go.jp,jishin.go.jp,japanpost.jp,jaxa.jp,naturalearthdata.com,naturalearth.s3.amazonaws.com,census.gov,wikipedia.org,wikidata.org,wikimedia.org,dap.ceda.ac.uk,gebco.net,sekai-hub.com,hdr.undp.org"

@@ -6,9 +6,10 @@ export function nativeBucket(apiUrl, options = {}) {
 	if (!apiUrl) throw new Error("native-bucket: apiUrl is required");
 	const API_BASE = apiUrl;
 	const { apiKey = "" } = typeof options === "string" ? { apiKey: options } : options;
+	// apiKey も渡す＝proxy の第二の門（allowlist 外ホストをキー持ちクライアントに開ける）。Fetch は proxy 宛にだけキーを付ける
 	const proxyOption = opts => typeof opts === "string"
-		? { type: opts, proxy: `${API_BASE}/proxy/` }
-		: { proxy: `${API_BASE}/proxy/`, ...opts };
+		? { type: opts, proxy: `${API_BASE}/proxy/`, apiKey }
+		: { proxy: `${API_BASE}/proxy/`, apiKey, ...opts };
 	const bucketOption = opts => ({ baseUrl: `${API_BASE}/bucket/`, apiKey, ...opts });
 	return {
 		Fetch: (url, opt = {}) => _Fetch(url, proxyOption(opt)),

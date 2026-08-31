@@ -9,7 +9,7 @@ const fetchHTML = url => fetch(url).then(r => r.text()).then(t => parser.parseFr
 const tohtml = str => new DOMParser().parseFromString(str, 'text/html');
 const logo = 'https://upload.wikimedia.org/wikipedia/commons/8/80/Wikipedia-logo-v2.svg';
 const clean = str => str.replace(/（[^）]*）/g, "").replace(/\s?\([^\)]*\)\s?/g, "").replace(/\[[^\]]*\]/g, "").replace(/\&nbsp\;/g, " ");
-const wiki = { title2id, id2title, id2langlink, langLinksById, langLinksByTitle, getContent, id2qid, title2qid, title2coords, openWikipediaByQID, qid2titles, id2coords, extract, logo, clean };
+export const wiki = { title2id, id2title, id2langlink, langLinksById, langLinksByTitle, getContent, id2qid, title2qid, title2coords, openWikipediaByQID, qid2titles, id2coords, extract, logo, clean };
 async function title2id(title, lang = "ja") {
 	return isArray(title) ?
 		(await thenMap(slice(title, divide_length), t => conv(t))).flat() :

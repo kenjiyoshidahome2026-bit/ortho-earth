@@ -9,8 +9,8 @@ Object.assign(d3.selection.prototype, {
 
 async function dropFiles(self, func) {
 	return self.on("drop", drop)
-		.on("dragover", e => { e.preventDefault(); self.Classed("drag-over", true) })
-		.on("dragleave", e => { e.preventDefault(); self.Classed("drag-over", false) });
+		.on("dragover", e => { e.preventDefault(); self.classed("drag-over", true) })
+		.on("dragleave", e => { e.preventDefault(); self.classed("drag-over", false) });
 	async function drop(e) {
 		e.preventDefault(); self.classed("drag-over", false);
 		if (self.property("disabled") || self.attr("disabled")) return;

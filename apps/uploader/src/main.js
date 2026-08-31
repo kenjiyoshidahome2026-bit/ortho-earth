@@ -9,6 +9,7 @@ import { nativeBucket } from "native-bucket";
 import { tiff2canvas, exr2canvas, tile2canvas } from './file2canvas';
 import { geopbf, createGeopbf } from "geopbf";
 import * as POI from "./poi/schema.js";
+import { worldUI } from "./world/index.js";
 
 const API_BASE = import.meta.env.DEV ? `${location.origin}/api` : "https://api.ortho-earth.com";
 // 書込キーはソースに置かない（過去に履歴掃除で "***REMOVED***" 化＝無効キーで PUT が黙って死ぬ事故）。
@@ -47,6 +48,10 @@ CMD.append("button").text("POI civic (P29+注記突合)").on("click", () => poi(
 CMD.append("button").text("POI civic 京都 (P29+P30+P34+寺院)").on("click", () => poi(q, {
 	sets: ["P29", "P30", "P34"], anno: [{ code: 662, label: "寺院", bbox: [135.70, 34.95, 135.83, 35.06] }],
 }));
+
+// 国別DB（NationDB/CityDB/国旗/音源…）＝旧システムからの移植・データ移送はドロップ（./world/index.js）
+// await しない＝Bucket の疎通確認（ネットワーク往復）で他ボタンの起動を塞がない
+worldUI({ CMD, q, Bucket, Fetch }).catch(e => console.error("worldUI:", e));
 
 // var getHeight = await createGetHeight({onstart:s=>console.log("start: "+s),onend:s=>console.log("end: "+s)});
 // console.log(await getHeight(135.2,35.2,10));
