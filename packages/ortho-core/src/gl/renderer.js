@@ -1,7 +1,7 @@
 // WebGL2 レンダラ：可視タイルを跨いで同一 style層を1バッファに結合した「シーン」を描く。
 // draw call は「タイル数×層数」から「層数」へ激減し、uniform も1フレーム1回。共通のシーン原点で投影。
 // fill = earcut三角形、line = capsule(SDF)。scene.layers は style層順（painter's algorithm）。
-import { FILL_VS, FILL_FS, LINE_VS, LINE_FS, GLOBE_VS, GLOBE_FS, BUILDING_VS, BUILDING_FS, TERRAIN_VS, TERRAIN_FS, STENCIL_VS, STENCIL_FS, COVER_FS, PLATEAU_VS, PLATEAU_FS, CONTOUR_FS, STARS_VS, STARS_FS, STARLINE_FS, NIGHT_FS, FILL_MD_VS, LINE_MD_VS, BUILDING_MD_VS, MD_MAX_DRAWS } from "./glsl.js";
+import { FILL_VS, FILL_FS, LINE_VS, LINE_FS, GLOBE_VS, GLOBE_FS, WDEPR_FS, GRAT_FS, BUILDING_VS, BUILDING_FS, TERRAIN_VS, TERRAIN_FS, STENCIL_VS, STENCIL_FS, COVER_FS, PLATEAU_VS, PLATEAU_FS, CONTOUR_FS, STARS_VS, STARS_FS, STARLINE_FS, NIGHT_FS, FILL_MD_VS, LINE_MD_VS, BUILDING_MD_VS, MD_MAX_DRAWS } from "./glsl.js";
 import { cameraState, project, lonlatTo3D, betaOf, ellipsoidOn } from "../camera.js";   // betaOf/ellipsoidOn＝setCommonUniforms の楕円体錨（WGS84化でGL2側だけimport漏れ＝GL2全描画が毎フレームReferenceErrorの実バグを2026-08-12修正）
 import { seaFbReal } from "../scene.js";   // 図郭外フォールバック水域の擬似li帯判定（build.js buildEmptySeaOps と対）
 import * as mat from "../mat.js";
@@ -16,6 +16,8 @@ export function createRenderer(canvas, rOpts = {}) {
 	const fillProg = program(gl, FILL_VS, FILL_FS);
 	const lineProg = program(gl, LINE_VS, LINE_FS);
 	const globeProg = program(gl, GLOBE_VS, GLOBE_FS);
+	const wdCoverProg = program(gl, GLOBE_VS, WDEPR_FS);   // 海面下の陸地の cover＝landK=1 強制のハイプソ本体（フルスクリーン・stencil≠0 のみ）
+	const gratProg = program(gl, GLOBE_VS, GRAT_FS);       // 10度レチクル（v1 geoGraticule10 移植・フルスクリーン計算）
 	const bldProg = program(gl, BUILDING_VS, BUILDING_FS);
 	const terrainProg = program(gl, TERRAIN_VS, TERRAIN_FS);
 	const plateauProg = program(gl, PLATEAU_VS, PLATEAU_FS);   // PLATEAU LOD2 建物メッシュ
@@ -529,6 +531,7 @@ export function createRenderer(canvas, rOpts = {}) {
 
 	// --- overlay（外部ベクタ=geopbf/e-Stat）：stencil-then-cover 塗り＋境界線 ---
 	let overlay = null, overlayHi = null, overlayHover = null, n02 = [];   // overlayHover＝ホバー境界の太線（選択マスク overlayHi と別スロット）。n02＝交通の常駐オーバーレイ群
+	let wdepr = null;   // 海面下の陸地（?world=1・全球ハイプソの一部）＝タイル(湖)より先に描く専用スロット。whK フェードに連動
 	function buildOverlaySlot(s, fillColor) {
 		if (!s || (!s.fanPos.length && !(s.lineHalf && s.lineHalf.length))) return null;   // 面も線も無い時だけ捨てる（純線＝N02新幹線は面ゼロで通す）
 		const fanVao = gl.createVertexArray(), bFan = buffer(gl, s.fanPos);
@@ -599,6 +602,40 @@ export function createRenderer(canvas, rOpts = {}) {
 	function drawOverlay(st, dpr, land, zoom) {
 		if (view.showN02 !== false) for (const o of n02) { if (zoom >= o.minZoom) drawOne(o, st, dpr, land); }   // N02 交通（新幹線/駅）＝基図の上・identify overlay の下
 		drawOne(overlay, st, dpr, land); drawOne(overlayHi, st, dpr, land); drawOne(overlayHover, st, dpr, land);   // ホバー境界は最前面
+	}
+	// 海面下の陸地（wdepr）＝stencil は drawOne と同一・cover だけ WDEPR_FS（landK=1 強制のハイプソ本体）。
+	// フラット色でなく画素単位で標高ランプ×気候×hillshade を計算＝ポリゴンは「ここは海でなく陸」の粗い印
+	// （海→海面下→陸の描画順・2026-09-01 本人設計）。呼び出しは draw() の globe/terrain 後・タイル(湖)前。
+	function drawWdepr(st, land, whK) {
+		const o = wdepr;
+		if (!o || !o.fanCount) return;
+		gl.enable(gl.STENCIL_TEST);
+		gl.clearStencil(0); gl.clear(gl.STENCIL_BUFFER_BIT);
+		gl.colorMask(false, false, false, false);
+		gl.stencilMask(0xFF); gl.stencilFunc(gl.ALWAYS, 0, 0xFF);
+		gl.stencilOpSeparate(gl.FRONT, gl.KEEP, gl.KEEP, gl.INCR_WRAP);
+		gl.stencilOpSeparate(gl.BACK, gl.KEEP, gl.KEEP, gl.DECR_WRAP);
+		setCommonUniforms(stencilProg, st, o.origin, land);
+		gl.uniform1f(loc(gl, stencilProg, "u_lift"), OVERLAY_LIFT_M);
+		gl.bindVertexArray(o.fanVao); gl.drawArrays(gl.TRIANGLES, 0, o.fanCount);
+		gl.colorMask(true, true, true, true);
+		gl.useProgram(wdCoverProg);
+		gl.uniformMatrix4fv(loc(gl, wdCoverProg, "u_invMvp"), false, Float32Array.from(st.invMvp));
+		const atmo = view.atmo || [0.45, 0.62, 0.95, 0.6];   // draw() の既定と同値＝globe と同じ紙/大気で厳密同色
+		gl.uniform4f(loc(gl, wdCoverProg, "u_land"), land[0], land[1], land[2], land[3]);
+		gl.uniform4f(loc(gl, wdCoverProg, "u_atmo"), atmo[0], atmo[1], atmo[2], atmo[3]);
+		gl.uniform1i(loc(gl, wdCoverProg, "u_elevTex"), 1);   // unit1＝直前に elevTex を必ずバインド済み（globe パスと同じ轍対策の共通バインド）
+		gl.uniform4f(loc(gl, wdCoverProg, "u_elevBounds"), elev.bounds[0], elev.bounds[1], elev.bounds[2], elev.bounds[3]);
+		gl.uniform1f(loc(gl, wdCoverProg, "u_ell"), ellipsoidOn() ? 1 : 0);
+		gl.uniform1f(loc(gl, wdCoverProg, "u_whK"), whK);
+		bindClim(wdCoverProg);   // 気候場 unit12（未着は u_hasClim=0＝緯度近似フォールバック・globe と同じ）
+		// 球体カリング＝巻き数の符号で裏半球を落とす（本人指摘 2026-09-01）：裏側のポリゴンは投影で向きが
+		// 反転し巻き数が -1(=255) になる＝NOTEQUAL 0 だと表に透けて塗られる（大西洋にデスバレーの幻影）。
+		// wdepr は焼きの向きが既知（d3-contour＝外周CCW）なので「+1 だけ」塗れば表半球限定になる。
+		gl.stencilFunc(gl.EQUAL, 1, 0xFF); gl.stencilOp(gl.KEEP, gl.KEEP, gl.ZERO);   // 表半球(+1)だけ塗り 0 へ後始末
+		gl.bindVertexArray(emptyVAO); gl.drawArrays(gl.TRIANGLES, 0, 3);
+		gl.clearStencil(0); gl.clear(gl.STENCIL_BUFFER_BIT);   // 裏半球の -1 残渣を掃除（後段 overlay/gint の NOTEQUAL を汚さない）
+		gl.disable(gl.STENCIL_TEST);
 	}
 
 	function setCommonUniforms(prog, st, origin, fog) {
@@ -828,6 +865,11 @@ export function createRenderer(canvas, rOpts = {}) {
 		// ベクタ(塗り/線)は常にペインタ順で地形の上に描く＝深度で地形と争わせない。傾き時も平面時も、
 		// 陸・海・道路が地形サーフェスと z-fight して揺れる/寸断するのを根絶（地形の起伏は先に深度で解決済）。
 		gl.disable(gl.DEPTH_TEST);
+		// 海面下の陸地（?world=1・bucket below_sea_land）＝全球ハイプソの一部として「タイル(湖)より先」に敷く。
+		// 描画順が精度を代替する設計（2026-09-01 本人指摘）：海側の境界だけ焼きが正確（admin0海岸線でクリップ）なら
+		// よく、湖側（死海・カスピ沿岸）は上に乗る湖の塗りが、陸側は cover（landK=1 のハイプソ本体）が外側と同色に
+		// 溶けるので広く荒くてよい。フェードは whK 連動＝ハイプソと同時に現れ同時に消える（z≥6.5 は自動不可視）。
+		if (wdepr && worldHypsoK > 0) drawWdepr(st, land, worldHypsoK);
 		// 等高線：真俯瞰(チルト≈0)でだけ茶の等高線を敷く（3Dが立ち上がる前＝ちょうど入れ替わりでフェード）。ベクタの下＝道路/区界は上に乗る。
 		{
 			const ps = Math.max(0, Math.min(1, ((cam.pitch || 0) - 0.01) / 0.05));   // pitch 0.01→0.06rad で 3D と入れ替わり
@@ -948,6 +990,18 @@ export function createRenderer(canvas, rOpts = {}) {
 		if (terrainDepth) { gl.disable(gl.DEPTH_TEST); gl.depthMask(true); }   // 基図の深度テストを解除（overlayは従来通り最前面）
 		// overlay（外部ベクタ=geopbf/e-Stat）：stencil-then-cover で塗り（earcut不要・扇なし）＋境界線。深度off・最前面。
 		drawOverlay(st, cam.dpr || 1, land, cam.zoom || 0);
+		// 10度レチクル（view.graticule・v1「地図の上に Canvas2D で重ねる」と同じ最前面・ラベルの下）：
+		// z1.7→2.2 で出現（v1 borders minZoom2）・z6.0→6.5 で退場（基図=日本帯へ委ねる）。白の細線＝v1と同じ。
+		if (view.graticule && !flat2d) {
+			const gratA = Math.max(0, Math.min(1, ((cam.zoom || 0) - 1.7) / 0.5)) * Math.max(0, Math.min(1, (6.5 - (cam.zoom || 0)) / 0.5)) * 0.5;
+			if (gratA > 0.003) {
+				gl.useProgram(gratProg);
+				gl.uniformMatrix4fv(loc(gl, gratProg, "u_invMvp"), false, Float32Array.from(st.invMvp));
+				gl.uniform1f(loc(gl, gratProg, "u_ell"), ellipsoidOn() ? 1 : 0);
+				gl.uniform1f(loc(gl, gratProg, "u_alpha"), gratA);
+				gl.bindVertexArray(emptyVAO); gl.drawArrays(gl.TRIANGLES, 0, 3);
+			}
+		}
 		gl.enable(gl.DEPTH_TEST);   // 建物は常に深度で前後関係を解決（地形・尾根に遮蔽される）
 
 		// 建物（3D押し出し）：深度で前後関係を解決（地形・尾根にも遮蔽される）。
@@ -1091,7 +1145,7 @@ export function createRenderer(canvas, rOpts = {}) {
 		if (scenes[slot].bld) { for (const b of scenes[slot].bld.bufs) gl.deleteBuffer(b); gl.deleteVertexArray(scenes[slot].bld.vao); }
 		scenes[slot] = { origin: scenes[slot].origin, draws: [], bld: null, md: null };   // md シーンは参照リストだけ＝GL資源なし（プールは常駐）
 	}
-	function dispose() { disposeSlot("base"); disposeSlot("main"); disposeOverlay(overlay); disposeOverlay(overlayHi); disposeOverlay(overlayHover); for (const o of n02) disposeOverlay(o); setGintBld(null); }
+	function dispose() { disposeSlot("base"); disposeSlot("main"); disposeOverlay(overlay); disposeOverlay(overlayHi); disposeOverlay(overlayHover); disposeOverlay(wdepr); for (const o of n02) disposeOverlay(o); setGintBld(null); }
 
 	// 汎用 set(cmd, data, prop)：ortho-map createLayers の set プロトコルに整合。将来 worker では
 	// postMessage({ type:"set", cmd, data, prop }, transferables) にそのまま載る。prop は cmd ごとに融通。
@@ -1109,6 +1163,7 @@ export function createRenderer(canvas, rOpts = {}) {
 			case "overlayHi": setOverlayHi(data, prop); break;
 			case "overlayHover": setOverlayHover(data); break;
 			case "n02":       setN02(data); break;                                               // data=[シーン…] 交通の常駐オーバーレイ群
+			case "wdepr":     disposeOverlay(wdepr); wdepr = data ? buildOverlaySlot(data, [0, 0, 0, 0]) : null; break;   // 海面下の陸地（?world=1）＝タイル前に描く塗り専用シーン（色は drawWdepr の cover が画素単位で計算＝fill 不使用）
 			case "elevAtlas": setElevationAtlas(data, prop); break;                             // prop=scale
 			case "elevCell":  setElevationCell(prop.cx, prop.cy, data, prop.cellRes); break;    // data=セルFloat32
 			case "elevAtlasStage": setElevationAtlasStage(data, prop); break;                   // 舞台裏アトラス（ダブルバッファ）

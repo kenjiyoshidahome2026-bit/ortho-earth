@@ -712,4 +712,68 @@ struct GOut { @builtin(position) pos: vec4f, @location(0) ndc: vec2f };
 	let col = mix(base, G.atmo.rgb, haze * G.atmo.a * 0.9);
 	return vec4f(col, 1.0);
 }
+// 海面下の陸地（wdepr）カバー：stencil-then-cover の cover 側を「landK=1 強制のハイプソ本体」で塗る＝
+// 海→海面下→陸の描画順（2026-09-01 本人設計・gl/glsl.js WDEPR_FS と対）。同モジュール＝globe と同一バインド
+//（G/gElevTex/gSamp/gClimTex）を共有し、色は globe パスの陸側と画素単位で厳密一致＝ポリゴン境界が
+// e≳4m（landK≈1）の土地に落ちれば継ぎ目が消える。α＝whP.x（whK フェード）。
+@fragment fn fsWdepr(in: GOut) -> @location(0) vec4f {
+	let np = G.invMvp * vec4f(in.ndc, -1.0, 1.0);
+	let fp = G.invMvp * vec4f(in.ndc, 1.0, 1.0);
+	let A = np.xyz / np.w; let d = fp.xyz / fp.w - A;
+	let aa = dot(d, d); let bb = 2.0 * dot(A, d); let cc = dot(A, A) - 1.0;
+	let disc = bb * bb - 4.0 * aa * cc;
+	if (disc < 0.0) { discard; }
+	let t = (-bb - sqrt(disc)) / (2.0 * aa);
+	if (t < 0.0) { discard; }
+	let Pt = A + t * d;
+	let bl = asin(clamp(Pt.y, -1.0, 1.0));
+	let latD = bl * R2Dg + G.whP.z * (0.0016792203863837047 * sin(2.0 * bl) + 0.0000014098905530233192 * sin(4.0 * bl)) * R2Dg;
+	let ll = vec2f(atan2(Pt.z, Pt.x) * R2Dg, latD);
+	let e = gElevAt(ll);
+	let tsz = vec2f(textureDimensions(gElevTex, 0));
+	let dstep = G.elevBounds.w / tsz.y;
+	let hx = gElevAt(ll + vec2f(dstep, 0.0)) - e;
+	let hy = gElevAt(ll + vec2f(0.0, dstep)) - e;
+	let shade = clamp(0.86 + (-hx + hy) * 0.00013, 0.62, 1.08);
+	let clim = textureSampleLevel(gClimTex, gSamp, climUV(ll), 0.0).rg;
+	// 以降は fs（globe）の末尾と厳密同式（landK=1 だけが違い）：紙とのwhK混合も大気ヘイズも同じに通し、
+	// α=1 の不透明で置く＝ポリゴン境界の e≳4m では画素値が globe と bit 一致し縁が完全に消える。
+	var hyp = worldHypsoColor(e, ll, clim, G.whP.w) * shade;   // landK=1 強制＝「陸」の上塗り
+	// 海面下の締め（NE流「最深帯」）：0→-60m で僅かに暗く・緑側へ＝乾燥帯でも読める（gl WDEPR_FS と同式）
+	hyp = mix(hyp, hyp * vec3f(0.84, 0.92, 0.82), clamp(-e / 60.0, 0.0, 1.0));
+	let base = mix(G.land.rgb, hyp, G.whP.x);
+	let viewDir = normalize(A - Pt);
+	let ndv = clamp(dot(Pt, viewDir), 0.0, 1.0);
+	let haze = pow(1.0 - ndv, 3.0);
+	return vec4f(mix(base, G.atmo.rgb, haze * G.atmo.a * 0.9), 1.0);
+}
+// 10度レチクル（v1 ortho-map geoGraticule10/Canvas2D の移植・gl GRAT_FS と対）：レイ→球→測地経緯度→
+// 10°格子への画素距離を fwidth で解析AA（≈0.7px 白細線）。度距離の上限ゲート＝極（経線収束）と atan 継ぎ目で
+// fwidth が爆発して線が面に化けるのを防ぐ。d3.geoGraticule10 と同じ約束＝±80°打切り・90°毎の経線だけ極まで。
+// 出現度＝G.seaC.w（レンダラが z帯フェード×基礎αを書く）。
+@fragment fn fsGrat(in: GOut) -> @location(0) vec4f {
+	let np = G.invMvp * vec4f(in.ndc, -1.0, 1.0);
+	let fp = G.invMvp * vec4f(in.ndc, 1.0, 1.0);
+	let A = np.xyz / np.w; let d = fp.xyz / fp.w - A;
+	let aa = dot(d, d); let bb = 2.0 * dot(A, d); let cc = dot(A, A) - 1.0;
+	let disc = bb * bb - 4.0 * aa * cc;
+	if (disc < 0.0) { discard; }
+	let t = (-bb - sqrt(disc)) / (2.0 * aa);
+	if (t < 0.0) { discard; }
+	let Pt = A + t * d;
+	let bl = asin(clamp(Pt.y, -1.0, 1.0));
+	let latD = bl * R2Dg + G.whP.z * (0.0016792203863837047 * sin(2.0 * bl) + 0.0000014098905530233192 * sin(4.0 * bl)) * R2Dg;
+	let ll = vec2f(atan2(Pt.z, Pt.x) * R2Dg, latD);
+	let fw = max(fwidth(ll), vec2f(1e-6));
+	let g10 = abs(fract(ll / 10.0 + 0.5) - 0.5) * 10.0;
+	var mer = (1.0 - smoothstep(0.25, 0.75, g10.x / fw.x)) * (1.0 - smoothstep(0.8, 1.6, g10.x));
+	let par = (1.0 - smoothstep(0.25, 0.75, g10.y / fw.y)) * (1.0 - smoothstep(0.8, 1.6, g10.y)) * step(abs(latD), 80.0);
+	let in80 = step(abs(latD), 80.0);
+	let g90 = abs(fract(ll.x / 90.0 + 0.5) - 0.5) * 90.0;
+	let mer90 = (1.0 - smoothstep(0.25, 0.75, g90 / fw.x)) * (1.0 - smoothstep(0.8, 1.6, g90));
+	mer = mer * in80 + mer90 * (1.0 - in80);
+	let a = max(mer, par) * G.seaC.w;
+	if (a <= 0.003) { discard; }
+	return vec4f(vec3f(a), a);   // 白・premultiplied
+}
 `;

@@ -24,6 +24,7 @@ export function buildGeoJSONOverlay(features, origin, opts = {}) {
 	const half = opts.lineWidth != null ? opts.lineWidth : 1.2;
 	const fan = [], P1 = [], P2 = [], lcol = [], lhalf = [];
 	const pushRingLines = ring => {
+		if (opts.lines === false) return;   // 塗り専用シーン（海面下の陸地等）＝境界線バッファを作らない（辺数分の無駄なインスタンス描画を出さない）
 		for (let i = 0; i + 1 < ring.length; i++) {
 			P1.push(ring[i][0] - ox, ring[i][1] - oy); P2.push(ring[i + 1][0] - ox, ring[i + 1][1] - oy);
 			lcol.push(lc[0], lc[1], lc[2], lc[3]); lhalf.push(half);

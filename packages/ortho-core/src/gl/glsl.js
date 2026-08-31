@@ -509,6 +509,100 @@ void main() {
 	fragColor = vec4(col, 1.0);
 }`;
 
+// 海面下の陸地（wdepr）カバー：stencil-then-cover の cover 側をフラット色でなく「landK=1 強制のハイプソ本体」で
+// 塗る＝海→海面下→陸の描画順（2026-09-01 本人設計）。ポリゴン内は画素単位で worldHypso（標高ランプ×気候
+// cross-blend×hillshade）＝ポルダーは湿潤の緑・カッタラ/デスバレーは乾燥帯の砂系に自動で分かれ、
+// ポリゴン境界が e≳4m（landK≈1）の土地に落ちれば globe パスの通常塗りと同色＝継ぎ目が消える。
+// レイ→球→測地緯度→elevAt→shade は GLOBE_FS と同式（色が画素単位で厳密に一致することが本体）。
+export const WDEPR_FS = `#version 300 es
+precision highp float;
+uniform mat4 u_invMvp;
+uniform vec4 u_land;
+uniform vec4 u_atmo;
+uniform sampler2D u_elevTex;
+uniform vec4 u_elevBounds;
+uniform float u_ell;
+in vec2 v_ndc;
+out vec4 fragColor;
+const float R2D = 57.29577951308232;
+float elevAt(vec2 ll) {
+	vec2 uv = (ll - u_elevBounds.xy) / u_elevBounds.zw;
+	if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) return 0.0;
+	return texture(u_elevTex, uv).r;
+}
+${WORLD_HYPSO}
+void main() {
+	vec4 np = u_invMvp * vec4(v_ndc, -1.0, 1.0);
+	vec4 fp = u_invMvp * vec4(v_ndc, 1.0, 1.0);
+	vec3 A = np.xyz / np.w, d = fp.xyz / fp.w - A;
+	float aa = dot(d, d), bb = 2.0 * dot(A, d), cc = dot(A, A) - 1.0;
+	float disc = bb * bb - 4.0 * aa * cc;
+	if (disc < 0.0) discard;
+	float t = (-bb - sqrt(disc)) / (2.0 * aa);
+	if (t < 0.0) discard;
+	vec3 P = A + t * d;
+	float bl = asin(clamp(P.y, -1.0, 1.0));
+	float latD = bl * R2D + u_ell * (0.0016792203863837047 * sin(2.0 * bl) + 0.0000014098905530233192 * sin(4.0 * bl)) * R2D;
+	vec2 ll = vec2(atan(P.z, P.x) * R2D, latD);
+	float e = elevAt(ll);
+	float dstep = u_elevBounds.w / float(textureSize(u_elevTex, 0).y);
+	float hx = elevAt(ll + vec2(dstep, 0.0)) - e;
+	float hy = elevAt(ll + vec2(0.0, dstep)) - e;
+	float shade = clamp(0.86 + (-hx + hy) * 0.00013, 0.62, 1.08);
+	// 以降は GLOBE_FS の末尾と厳密同式（landK=1 だけが違い）：紙とのwhK混合も大気ヘイズも同じに通し、
+	// α=1 の不透明で置く＝ポリゴン境界の e≳4m では画素値が globe と bit 一致し縁が完全に消える。
+	vec3 hyp = worldHypso(e, ll) * shade;   // landK=1 強制＝「陸」の上塗り（海色ゲート・虫食いの根治）
+	// 海面下の締め（NE流「最深帯」）：0→-60m で僅かに暗く・緑側へ。気候によらず効く＝湿潤は深緑・乾燥はオリーブ
+	//（landK=1 だけだと乾燥帯の海面下がランプ差僅少でほぼ消える＝カッタラ/デスバレーが読めなくなる対策）
+	hyp = mix(hyp, hyp * vec3(0.84, 0.92, 0.82), clamp(-e / 60.0, 0.0, 1.0));
+	vec3 base = mix(u_land.rgb, hyp, u_whK);
+	vec3 viewDir = normalize(A - P);
+	float ndv = clamp(dot(P, viewDir), 0.0, 1.0);
+	float haze = pow(1.0 - ndv, 3.0);
+	fragColor = vec4(mix(base, u_atmo.rgb, haze * u_atmo.a * 0.9), 1.0);
+}`;
+
+// 10度レチクル（v1 ortho-map の geoGraticule10/Canvas2D 移植・2026-09-01 本人指名「v1と同じ」）：
+// フルスクリーンでレイ→球→測地経緯度（GLOBE_FS と同式）→10°格子への距離を fwidth で解析AA＝
+// v1 の geoPath と同じなめらかな細線・データゼロ・全レイヤの上（v1 も Canvas2D で地図の上に重ねていた）。
+// d3.geoGraticule10 と同じ約束：経線/緯線とも ±80° で打ち切り・90° 毎の経線だけ極まで届く。
+export const GRAT_FS = `#version 300 es
+precision highp float;
+uniform mat4 u_invMvp;
+uniform float u_ell;
+uniform float u_alpha;   // 出現度（ズーム帯フェード×基礎アルファ）。0=不可視（呼び側でドロー自体を省略）
+in vec2 v_ndc;
+out vec4 fragColor;
+const float R2D = 57.29577951308232;
+void main() {
+	vec4 np = u_invMvp * vec4(v_ndc, -1.0, 1.0);
+	vec4 fp = u_invMvp * vec4(v_ndc, 1.0, 1.0);
+	vec3 A = np.xyz / np.w, d = fp.xyz / fp.w - A;
+	float aa = dot(d, d), bb = 2.0 * dot(A, d), cc = dot(A, A) - 1.0;
+	float disc = bb * bb - 4.0 * aa * cc;
+	if (disc < 0.0) discard;
+	float t = (-bb - sqrt(disc)) / (2.0 * aa);
+	if (t < 0.0) discard;
+	vec3 P = A + t * d;
+	float bl = asin(clamp(P.y, -1.0, 1.0));
+	float latD = bl * R2D + u_ell * (0.0016792203863837047 * sin(2.0 * bl) + 0.0000014098905530233192 * sin(4.0 * bl)) * R2D;
+	vec2 ll = vec2(atan(P.z, P.x) * R2D, latD);
+	// 10°格子への距離(度)：±180 の折返しは 180 が格子線そのもの＝fract パターンは連続で無害。
+	// 線＝画素距離 g/fwidth のスムーズステップ（≈0.7px・0.5px AA＝v1 geoPath の細線）。
+	// ×度距離の上限ゲート＝極（経線収束）と atan 継ぎ目で fwidth が爆発して線が面に化けるのを防ぐ。
+	vec2 fw = max(fwidth(ll), vec2(1e-6));
+	vec2 g10 = abs(fract(ll / 10.0 + 0.5) - 0.5) * 10.0;
+	float mer = (1.0 - smoothstep(0.25, 0.75, g10.x / fw.x)) * (1.0 - smoothstep(0.8, 1.6, g10.x));
+	float par = (1.0 - smoothstep(0.25, 0.75, g10.y / fw.y)) * (1.0 - smoothstep(0.8, 1.6, g10.y)) * step(abs(latD), 80.0);   // 緯線は ±80 まで
+	float in80 = step(abs(latD), 80.0);
+	float g90 = abs(fract(ll.x / 90.0 + 0.5) - 0.5) * 90.0;
+	float mer90 = (1.0 - smoothstep(0.25, 0.75, g90 / fw.x)) * (1.0 - smoothstep(0.8, 1.6, g90));
+	mer = mer * in80 + mer90 * (1.0 - in80);   // 経線＝±80 までは10°毎・その先(極冠)は90°毎だけ極まで
+	float a = max(mer, par) * u_alpha;
+	if (a <= 0.003) discard;
+	fragColor = vec4(vec3(a), a);   // 白・premultiplied（v1 の rgba(255,255,255,α) と同族）
+}`;
+
 // 星空（z<4の世界ビュー・v1 ortho-map の星空アクセサリー移植）：
 // ・星は無限遠の方向＝mvp×vec4(dir, 0)（w=0で平行移動が消える＝視差ゼロの天球）。
 // ・無限遠は必ず far 平面の外＝clip.z をそのまま使うと全滅するので z=0 に固定（深度無関係の背景。globeパスより先に描く）。

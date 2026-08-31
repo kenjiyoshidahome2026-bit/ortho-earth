@@ -1662,6 +1662,7 @@ renderer.set("view", { clear, land, atmo, bldColor, showN02: false,
 	// 全球ハイプソ（?world=1）＝球/地形シェーダの標高×気候 cross-blend。clim＝気候場テクスチャ
 	// （Köppen-Geiger/Beck et al. CC-BY を 720x360 に焼き縮め・public 資産）。theme.worldHypso で色ノブ上書き可。
 	// null 明示＝居座り防止の流儀。showN02＝N02交通(新幹線等)の表示。鉄道チップで切替
+	graticule: WORLD_VT,   // 10度レチクル（v1 geoGraticule10 の移植・本人指名 2026-09-01）＝シェーダ計算（z帯はレンダラ側）
 	worldHypso: WORLD_VT ? { clim: new URL("koppen-clim.png", new URL(import.meta.env?.BASE_URL || "/", location.href)).href, ...(theme.worldHypso || {}) } : null });
 // 海：水レイヤ(WA)をビュー一律にゲート＝cam.zoom<9 では描かない（＝紙の海・まだら無し）、z9+で一律点火。
 renderer.set("sea", { li: style.layers.findIndex(L => L.id === "water"), li2: style.layers.findIndex(L => L.id === "water-hi"), minzoom: 9 });   // li2＝水系点火面も同じ海ゲート
@@ -1962,6 +1963,7 @@ dbgHost.__paint = paintGint;
 //   海岸線は z<6 まで見せ、そこから先はユーザー層 minZoom まで基図に委ねる（豆粒の筆を全球に出さない）。
 const GINT_SWAP_Z = 7;
 const COAST_Z = 9;         // 世界海岸線の表示・ロード上限＝これ未満で出す（maxZoom9 と対）
+const WORLD_COAST_MINZ = 2.5;   // world 時の coast 下限＝これ未満は線なしの純粋な地球（本人裁定 2026-09-01）
 let coastGint = null;      // 世界の国ポリゴン(admin_0_countries)の gint ペイロード（初回ロードでキャッシュ＝再取得しない）
 let coastPbf = null;       // 同・GeoPBF 原本（properties 参照＝国名 identify 用に生存）
 let userGint = null;       // ユーザー層 { g, label }（14条/ドロップ）
@@ -2118,9 +2120,14 @@ function clearGintSlot() {
 }
 // ズームでスロットの中身を選ぶ。onMove から毎回呼ばれるが post は変更時だけ＝安い。海岸線は初回のみ遅延取得。
 function updateGintSlot() {
+	if (WORLD_VT && cam.zoom < COAST_Z) loadBelowSea();   // 海面下の陸地も世界図の文脈で一度だけ遅延取得（wdepr＝overlay 系スロット＝gint と独立・自己ガード）
 	if (noGint) return;   // ?nogint=1＝海岸線ロードもスロット適用もしない（gint パスは空データ＝実質ゼロコスト）
 	if (userGint && cam.zoom >= userGint.minZoom) { if (gintSlot !== "user") applyUserSlot(); return; }   // minZoom は層の属性（全国級AI層=2・筆/ドロップ=GINT_SWAP_Z）
 	if (suppressCoast) { if (gintSlot === "coast") clearGintSlot(); return; }   // 飛行中の抑制：既に載っていれば降ろし、ロードもしない（loadWorldCoast へ落とさない）
+	// world 時の低ズーム＝coast（admin0 の海岸線+国境線）を伏せる（本人裁定 2026-09-01「ないほうが自然」・
+	// 「国境線は z=2.5 ぐらいまで出してもいい」）：ハイプソ+海面下+湖が揃った全球ビューの遠景は純粋な地球、
+	// z2.5+ は国境が方位の手掛かりになるので出す。伏せ帯はロードもしない＝純全球の滞在は軽いまま。
+	if (WORLD_VT && cam.zoom < WORLD_COAST_MINZ) { if (gintSlot === "coast") clearGintSlot(); return; }
 	if (coastGint) { if (gintSlot !== "coast") applyCoastSlot(); return; }
 	if (cam.zoom < COAST_Z && !coastLoading) loadWorldCoast();   // 海岸線 未取得＝取得後に updateGintSlot が表示
 }
@@ -2158,6 +2165,27 @@ async function loadWorldCoast() {
 dbgHost.__coast = loadWorldCoast;   // 手動リロード用
 // 遅延ロードの門番は updateGintSlot（z<9 で海岸線 未取得なら一度だけ取得）＝高ズーム固定の埋め込みは一生読まない
 //（PLATEAUスイッチと同じ思想＝見えない機能のための通信をしない。既定の世界ビュー起動時に updateGintSlot が即発火＝体験は不変）。
+
+// --- 海面下の陸地（?world=1・全球ハイプソの一部）--------------------------------------------
+// bucket の below_sea_land（uploader「below-sea land」ボタンで焼成＝admin0 陸マスク∧GEBCO≤-1m のシードを
+// e≤3m の低平地へ成長させたポリゴン）を塗り専用シーンとしてエンジンの wdepr スロットへ。
+// 描画順＝globe/地形の後・タイル(湖)の前＝「海→海面下→陸」（2026-09-01 本人設計）：海側の境界だけ焼きが正確
+//（admin0 海岸線でクリップ＝描かれる海岸線 gint と自己整合）ならよく、湖側は上に乗る湖の塗りが誤差を隠し、
+// 陸側は cover シェーダ（landK=1 強制のハイプソ本体）が外側の陸色と画素単位で一致＝広く荒くてよい。
+// 色はエンジンが画素単位で計算（標高ランプ×Köppen cross-blend×hillshade）＝ポルダーは湿潤の緑・
+// カッタラ/デスバレーは乾燥帯の砂系に自動で分かれる（「砂漠の中の海面下も同じ緑」への本人疑義の答え）。
+let deprState = 0;   // 0=未 1=着手済（bucket 未収録も1＝毎 onMove で再試行しない）
+async function loadBelowSea() {
+	if (deprState) return; deprState = 1;
+	const pbf = await geopbf("below_sea_land", { gint: false }).catch(() => null);   // gint 不要（identify なし・塗りだけ）＝GintBUF 復号を払わない
+	if (!pbf?.length) { console.warn("[wdepr] below_sea_land が bucket に無い（uploader で焼くまで海面下の塗りは出ない）"); return; }
+	const scene = buildGeoJSONOverlay(pbf.geojson.features, [0, 0], { lines: false });   // 塗り専用＝境界線バッファなし（焼きの90°タイル継ぎ目も塗りだけなら見えない）
+	renderer.set("wdepr", scene);
+	needsDraw = true;
+	console.log("[wdepr] below_sea_land loaded: %d features", pbf.length);
+}
+// デバッグ手：任意 FC を wdepr へ直載せ（焼き差し替え前の見た目確認。null で解除）
+dbgHost.__wdepr = fc => { renderer.set("wdepr", fc ? buildGeoJSONOverlay(fc.features || fc, [0, 0], { lines: false }) : null); needsDraw = true; };
 
 // --- 星空劇場（z<4・v1 ortho-map の星空アクセサリー移植）---
 // stars.6（実在星表：RA/Dec・等級・B-V色指数）を天球単位ベクトル＋色＋点径に焼いて render worker へ。

@@ -23,6 +23,9 @@ const plainProvider = () => ({
 	},
 });
 
+// ETag の表記ゆれ吸収：レスポンスヘッダ＝W/"16進"・?meta=1 の JSON＝素の16進。比較は正規形で
+const normETag = s => String(s || "").replace(/^W\//, "").replace(/"/g, "");
+
 class PBFIO {
     constructor(nb, dire) { this.nb = nb; this.dire = dire || "GIS"; }
     async open() {
@@ -69,8 +72,11 @@ class PBFIO {
         // IDB ファースト：GintBUF まで揃っていれば即返す＝表示をネットワーク往復で待たせない
         //（激遅回線はタイムアウトまで海岸線が出ない、が旧構図）。ETag 確認は裏で回し、
         // 新版は IDB だけ更新＝次回起動から反映（stale-while-revalidate）。
-        if (val && val.PBF && val.GINT) {
-            const cached = await fromCache(val);
+        // gint:false の層（below_sea_land 等＝塗りだけ・GINT を焼かない）は PBF だけで即返す：
+        // 従来は GINT 必須の条件からこぼれて毎回ネットワーク＝ブラウザ HTTP キャッシュの古い実体を
+        // 掴み続け、焼き直しが何度リロードしても届かなかった（2026-09-01 実測の片翼）。
+        if (val && val.PBF && (val.GINT || opts.gint === false)) {
+            const cached = opts.gint === false ? await new GeoPBF().set(val.PBF).catch(() => null) : await fromCache(val);
             if (cached) {
                 this.revalidate(name, val.ETag, opts).catch(() => {});
                 return cached;
@@ -78,7 +84,12 @@ class PBFIO {
             console.warn(`[geopbf] ${name}: キャッシュの GintBUF が読めない（旧フォーマット）→ 再焼き`);
         }
         try {
-            const res = await fetch(`${this.bucket.url}${name}`, { cache: 'default' });
+            // 取得も HTTP キャッシュの古い実体を掴まない：版を ?meta=1（キャッシュバスト）で照会し、
+            // 本体は ?v=<ETag>（内容アドレス＝どの層にキャッシュされても常に正しい）で引く。
+            // meta 不達は素の GET（縮退＝従来挙動・オフライン等）。revalidate と同じ理屈（CDN s-maxage=1h/ブラウザ max-age=4h 対策）。
+            const meta = await fetch(`${this.bucket.url}${name}?meta=1&v=${Date.now()}`).then(r => r.ok ? r.json() : null).catch(() => null);
+            const cur = normETag(meta?.data?.ETag);
+            const res = await fetch(`${this.bucket.url}${name}${cur ? `?v=${encodeURIComponent(cur)}` : ""}`, { cache: 'default' });
             if (!res.ok) throw new Error(`Failed to fetch: ${name} (HTTP ${res.status})`);
             const blob = await gunzip(await res.blob());
             const pbf = await new GeoPBF().set(await blob.arrayBuffer());
@@ -91,12 +102,18 @@ class PBFIO {
         }
     }
     // 裏の版確認：ETag が変わっていたら取得し直して IDB を更新（今の描画は触らない＝次回反映）。
+    // ⚠素の GET は CDN(s-maxage=1h)+ブラウザ(max-age=4h) の HTTP キャッシュが「古い実体＋旧 ETag」を返すため、
+    // 焼き直し後もここが「新版なし」に見えて永遠に更新されない（below_sea_land 再焼きが何度リロードしても
+    // 届かない実測 2026-09-01）。版の照会は ?meta=1 をクエリでキャッシュバスト（応答は百数十B）し、
+    // 版が違う時だけ本体を ?v=<ETag>（内容アドレス＝どの層にキャッシュされても常に正しい）で取得する。
     async revalidate(name, oldETag, opts = {}) {
         if (!this.bucket?.url) return;
-        const res = await fetch(`${this.bucket.url}${name}`, { cache: 'default' });
+        const meta = await fetch(`${this.bucket.url}${name}?meta=1&v=${Date.now()}`).then(r => r.ok ? r.json() : null).catch(() => null);
+        const cur = meta?.data?.ETag;
+        if (!cur || normETag(cur) === normETag(oldETag)) return;
+        const res = await fetch(`${this.bucket.url}${name}?v=${encodeURIComponent(normETag(cur))}`, { cache: 'default' });
         if (!res.ok) return;
         const ETag = res.headers.get("etag");
-        if (ETag === oldETag) { res.body?.cancel?.().catch(() => {}); return; }
         const blob = await gunzip(await res.blob());
         const pbf = await new GeoPBF().set(await blob.arrayBuffer());
         pbf._etag = ETag;

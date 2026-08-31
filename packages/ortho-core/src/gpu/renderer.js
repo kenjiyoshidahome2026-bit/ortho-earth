@@ -240,6 +240,10 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 	const dsOvZero = { format: DEPTH, depthWriteEnabled: false, depthCompare: "always",
 		stencilFront: { compare: "not-equal", failOp: "keep", depthFailOp: "keep", passOp: "zero" },
 		stencilBack: { compare: "not-equal", failOp: "keep", depthFailOp: "keep", passOp: "zero" }, stencilWriteMask: 0xFF };
+	// wdepr の cover＝「巻き数 ref のみ」塗る（球体カリング＝裏半球は投影で向きが反転し巻き数の符号が逆＝ref 不一致で落ちる）
+	const dsWdCover = { format: DEPTH, depthWriteEnabled: false, depthCompare: "always",
+		stencilFront: { compare: "equal", failOp: "keep", depthFailOp: "keep", passOp: "zero" },
+		stencilBack: { compare: "equal", failOp: "keep", depthFailOp: "keep", passOp: "zero" }, stencilWriteMask: 0xFF };
 	// gintBld（moj筆ドレープ線/点）＝BUILDING_WGSL 流用・独自 origin（dynamic frame）＋DrawP(dynamic)＋mask(count0)。
 	// GL_LINES/GL_POINTS → topology line-list/point-list。深度で地形/尾根に遮蔽（建物と同じ dsWrite）。
 	const gbLayout = device.createPipelineLayout({ bindGroupLayouts: [bglOvFrame, bglOvParam, bglMask] });
@@ -281,6 +285,20 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 				layout: globeLayout,
 				vertex: { module: globeMod, entryPoint: "vs" },
 				fragment: { module: globeMod, entryPoint: "fs", targets: [target] },
+				primitive: { topology: "triangle-list" },
+				depthStencil: dsOff, multisample: ms,
+			}),
+			wdCover: device.createRenderPipeline({   // 海面下の陸地の cover＝landK=1 強制のハイプソ本体（globe と同一バインド・巻き数 ref のみ塗り＝球体カリング）
+				layout: globeLayout,
+				vertex: { module: globeMod, entryPoint: "vs" },
+				fragment: { module: globeMod, entryPoint: "fsWdepr", targets: [target] },
+				primitive: { topology: "triangle-list" },
+				depthStencil: dsWdCover, multisample: ms,
+			}),
+			grat: device.createRenderPipeline({   // 10度レチクル（v1 geoGraticule10 移植・globe と同一バインド・出現度=G.seaC.w）
+				layout: globeLayout,
+				vertex: { module: globeMod, entryPoint: "vs" },
+				fragment: { module: globeMod, entryPoint: "fsGrat", targets: [target] },
 				primitive: { topology: "triangle-list" },
 				depthStencil: dsOff, multisample: ms,
 			}),
@@ -379,7 +397,9 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 	// 末尾スロット GB_SLOT は gintBld（moj筆ドレープ線・独自 origin）が間借り＝同じ dynamic frame 機構を再利用。
 	// gintBld は色別バッチ最大 GB_BATCH_MAX 本（田/畑等の fid 色をドレープへ運ぶ）＝Frame は GB_SLOT を共有し
 	// DrawP（色）だけ GB_SLOT+i の別スロット＝queue.writeBuffer が描画前に全着地しても互いに潰さない。
-	const MAX_OV = 32, GB_SLOT = MAX_OV, GB_BATCH_MAX = 8, OV_SLOTS = MAX_OV + GB_BATCH_MAX;
+	// 末尾+1 の WD_SLOT は wdepr（海面下の陸地・?world=1）専用＝drawOverlay より前（タイル前）に別途描くため、
+	// writeBuffer が pass 実行前に全着地しても drawOverlay の 0..n-1 スロットと互いに潰さない固定席。
+	const MAX_OV = 32, GB_SLOT = MAX_OV, GB_BATCH_MAX = 8, WD_SLOT = MAX_OV + GB_BATCH_MAX, OV_SLOTS = MAX_OV + GB_BATCH_MAX + 1;
 	const ovFrameBuf = device.createBuffer({ size: FRAME_SLOT * OV_SLOTS, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
 	const ovParamBuf = device.createBuffer({ size: PARAM_SLOT * OV_SLOTS, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
 	const ovParamCPU = new Float32Array(PARAM_SLOT / 4 * OV_SLOTS);
@@ -396,6 +416,8 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 	}
 	// overlay スロット：{ fanBuf, fanCount, lineBufs?, lineCount, origin, fill, minZoom }
 	let overlay = null, overlayHi = null, overlayHover = null, n02 = [];   // overlayHover＝ホバー中の地物境界を太線で（選択マスク overlayHi とは別スロット＝両立）
+	let wdepr = null;   // 海面下の陸地（?world=1・全球ハイプソの一部）＝タイル(湖)より先に描く塗り専用スロット。whK フェード連動
+	const wdParamCPU = new Float32Array(PARAM_SLOT / 4);
 	const u8colOv = col => { const u = new Uint8Array(col.length); for (let i = 0; i < col.length; i++) u[i] = Math.max(0, Math.min(255, Math.round(col[i] * 255))); return u; };
 	function buildOverlaySlot(s, fill) {
 		if (!s || (!s.fanPos.length && !(s.lineHalf && s.lineHalf.length))) return null;
@@ -420,6 +442,34 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 	}
 	function setOverlayHover(s) { disposeOverlay(overlayHover); overlayHover = s ? buildOverlaySlot(s, [0, 0, 0, 0]) : null; }   // 塗り透明＝境界線のみ（太線はシーン側の lineWidth）
 	function setN02(scenes) { for (const o of n02) disposeOverlay(o); n02 = (scenes || []).map(s => buildOverlaySlot(s, [0, 0, 0, 0])); }
+	function setWdepr(s) { disposeOverlay(wdepr); wdepr = s ? buildOverlaySlot(s, [0, 0, 0, 0]) : null; }   // 海面下の陸地（?world=1）＝タイル前に描く塗り専用シーン（色は cover が画素単位で計算＝fill 不使用）
+	// wdepr の発行（draw() がタイル前・whK>0 の時だけ呼ぶ）：stencil fan（WD_SLOT の Frame/DrawP）→
+	// cover＝P.wdCover（globe と同一バインド＝landK=1 強制のハイプソ本体・α=G.whP.x の whK フェード）。
+	// 線は作らない前提（buildGeoJSONOverlay {lines:false}）＝塗りのみ。
+	function drawWdepr(pass, packF) {
+		if (!wdepr || !wdepr.fanCount || !globeBG) return;
+		ensureOvFrameBG();
+		device.queue.writeBuffer(ovFrameBuf, WD_SLOT * FRAME_SLOT, packF(wdepr.origin));
+		wdParamCPU.fill(0);
+		wdParamCPU[1] = OVERLAY_LIFT; wdParamCPU[3] = 1;   // p0.y=リフト p0.w=グローバルα（stencil パスの VS 用）
+		device.queue.writeBuffer(ovParamBuf, WD_SLOT * PARAM_SLOT, wdParamCPU.buffer, 0, PARAM_SLOT);
+		const fOff = WD_SLOT * FRAME_SLOT, pOff = WD_SLOT * PARAM_SLOT;
+		pass.setStencilReference(0);
+		pass.setPipeline(P.ovStencil);
+		pass.setBindGroup(0, ovFrameBG, [fOff]); pass.setBindGroup(1, ovParamBG, [pOff]);
+		pass.setVertexBuffer(0, wdepr.fanBuf); pass.draw(wdepr.fanCount);
+		// 球体カリング＝巻き数の符号で裏半球を落とす（gl/renderer.js drawWdepr と対）。焼きの外周は lon/lat CCW＝
+		// GL(窓座標y上)では表半球が +1 だが、WebGPU はフレームバッファ座標が y下＝向き判定が反転し表半球は -1(=255)。
+		pass.setStencilReference(255);
+		pass.setPipeline(P.wdCover);
+		pass.setBindGroup(0, globeBG);
+		pass.draw(3);
+		// 裏半球の残渣(+1)を掃除（後段 overlay の NOTEQUAL 0 を汚さない）＝ovZero（stencil≠0→0・色は書かない）
+		pass.setStencilReference(0);
+		pass.setPipeline(P.ovZero);
+		pass.setBindGroup(0, ovFrameBG, [fOff]); pass.setBindGroup(1, ovParamBG, [pOff]);
+		pass.draw(3);
+	}
 	// gintBld（gint ユーザー層の地形沿い境界線・点）＝独自 origin・BUILDING_WGSL 24B レイアウト・line/point 描画。null=解放。
 	// data＝{origin, batches:[{lines,points,color}...]}（色別バッチ＝fid色のドレープ）または旧形 {origin,lines,points,color}。
 	let gintBld = null;   // { origin, batches:[{ color, line?:{bPos,bSh,bAnc,count}, point?:{...} }] }
@@ -955,7 +1005,9 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 			g[24] = elev.bounds[0]; g[25] = elev.bounds[1]; g[26] = elev.bounds[2]; g[27] = elev.bounds[3];   // 全球ハイプソ（R90全球窓）
 			g[28] = worldHypsoK; g[29] = elev.has ? 1 : 0; g[30] = ellipsoidOn() ? 1 : 0; g[31] = climTexView ? 1 : 0;
 			const sc = (view.worldHypso && view.worldHypso.sea) || [0.757, 0.847, 0.891];
-			g[32] = sc[0]; g[33] = sc[1]; g[34] = sc[2]; g[35] = 1;
+			// seaC.w の空き＝10度レチクルの出現度（fsGrat・v1 geoGraticule10 移植）：z1.7→2.2 出現・z6.0→6.5 退場×基礎α0.5
+			g[32] = sc[0]; g[33] = sc[1]; g[34] = sc[2];
+			g[35] = view.graticule ? Math.max(0, Math.min(1, (cam.zoom - 1.7) / 0.5)) * Math.max(0, Math.min(1, (6.5 - cam.zoom) / 0.5)) * 0.5 : 0;
 			device.queue.writeBuffer(globeBuf, 0, g);
 		}
 		// 星空劇場（z<5）：星/夜面共通の出現フェード（gl/renderer.js と同式）。恒星時 GMST の天球回転・太陽方位も。
@@ -1052,6 +1104,10 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 			pass.setBindGroup(1, paramBG[ROLE.contour]);
 			pass.draw(3);
 		}
+		// 海面下の陸地（?world=1・below_sea_land）＝全球ハイプソの一部として「タイル(湖)より先」に敷く。
+		// 描画順が精度を代替（2026-09-01 本人指摘）：海側だけ焼きが正確（admin0海岸線でクリップ）ならよく、
+		// 湖側は上に乗る湖の塗り・陸側は cover（landK=1 のハイプソ本体）が外側と同色に溶ける。gl/renderer.js と対。
+		if (worldHypsoK > 0) drawWdepr(pass, (origin) => packFrame(st, origin, st.fogDist * 2.5, st.fogDist * 14.0, land, logCoef, dpr));
 		// 基図（塗り/線）：ペインタ順。山岳ビュー＝地形深度でテストだけ（書かない）＝尾根の向こうが透けない
 		// dbg＝?drawhud=1 の実機計器（描いた枚数と状態）。「背景が黒＝塗りが一枚も出ていない」時に、
 		// 犯人が CPU 側（シーンが空・スロット退場）か GPU 側（描いたのに出ない）かを画面で名指しするための物差し
@@ -1102,6 +1158,12 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 		}
 		// overlay（外部ベクタ=geopbf/e-Stat/N02）：基図の上・建物の下・深度off。per-scene origin の Frame を渡す
 		drawOverlay(pass, st, (origin) => packFrame(st, origin, st.fogDist * 2.5, st.fogDist * 14.0, land, logCoef, dpr), cam.zoom || 0);
+		// 10度レチクル（v1「地図の上に重ねる」と同じ最前面・ラベルの下）。出現度は globe UBO の seaC.w に書き込み済み
+		if (!flat2d && view.graticule && globeBG && cam.zoom > 1.7 && cam.zoom < 6.5) {
+			pass.setPipeline(P.grat);
+			pass.setBindGroup(0, globeBG);
+			pass.draw(3);
+		}
 		// 建物マスクの reference＝bit7（★overlay の後＝overlay cover の not-equal 比較は ref 0 前提のまま守る）
 		pass.setStencilReference(0x80);
 		// 建物（3D押し出し）：深度で前後関係を解決（地形・尾根にも遮蔽される）。真俯瞰では描かない＝平面地図
@@ -1302,6 +1364,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 			case "overlayHi": setOverlayHi(data, prop); break;
 			case "overlayHover": setOverlayHover(data); break;
 			case "n02":       setN02(data); break;               // data=[シーン…] 交通の常駐オーバーレイ群
+			case "wdepr":     setWdepr(data); break;             // 海面下の陸地（?world=1）＝タイル前に描く塗り専用シーン（色は cover が画素単位で計算）
 			case "gintBld":   setGintBld(data); break;           // data={origin,lines,points,color}／null=解放
 			case "view":    view = { ...view, ...data }; break;
 			case "sea":     sea = { ...sea, ...data }; break;
@@ -1334,7 +1397,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 		plBatchBuf.destroy(); maskParamBuf.destroy();
 		skyBuf.destroy(); skyLineBuf.destroy();
 		ovFrameBuf.destroy(); ovParamBuf.destroy(); emptyMaskParamBuf.destroy();
-		disposeOverlay(overlay); disposeOverlay(overlayHi); disposeOverlay(overlayHover); for (const o of n02) disposeOverlay(o); disposeGintBld();
+		disposeOverlay(overlay); disposeOverlay(overlayHi); disposeOverlay(overlayHover); disposeOverlay(wdepr); for (const o of n02) disposeOverlay(o); disposeGintBld();
 		for (const b of [stars, planets, constel, ecliptic, celeq]) if (b) b.buf.destroy();
 		for (const p of plateaux.values()) { p.vbo.destroy(); p.nbo.destroy(); p.ibo.destroy(); }
 		plateaux.clear();
