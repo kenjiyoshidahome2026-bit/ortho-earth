@@ -28,7 +28,8 @@ const dismissBoot = () => {   // 地図の初回フレームが描かれてか�
 engineP.then(m => m.default({ assetBase: import.meta.env.BASE_URL })).then(map => {   // 1行＝日本が立ち上がる（divも自作。埋め込みは orthoJapan({ target: "#…" })）
 	dismissBoot();
 	map.gadget.search();      // 地名・住所検索（オプトインガジェット＝欲しい画面だけが載せる。搭載順＝左上からの並び）
-	map.gadget.palette();     // 配色テーマ切替（押すと中央に他テーマの地図見本＝色で選ぶ。未搭載でも c= には従う）
+	// palette ガジェットは非搭載へ（2026-09-02 本人裁定「アイコン煩雑＝表示系を一つに」）：テーマ切替は
+	// 右上の表示パネル（chips のテーマ列）に集約。ライブ見本つきのガジェット自体は健在＝map.gadget.palette() で復帰可
 	map.gadget.zoom();        // ズーム＋/−（縦2連の一体ボタン）
 	map.gadget.full();        // 全画面トグル（非対応端末では出ない）
 	map.gadget.japan();       // 日本全体へ（真俯瞰・北向きに戻る）

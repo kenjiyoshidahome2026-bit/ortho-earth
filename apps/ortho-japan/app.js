@@ -1660,6 +1660,7 @@ const saveView = () => { saveCam(); try { history.replaceState(null, "", viewHas
 // 再ビルド必須（setPipelineStyle が evict→新styleビルド＝GPU入れ替え＝ピーク約1倍）。一瞬の貼り直しは許容（fade不要）。
 function switchTheme(name) {
 	if (name === themeName || !MAP_THEMES[name]) return;
+	queueMicrotask(() => document.querySelectorAll("#theme-row .lp-theme").forEach(b => b.classList.toggle("on", b.dataset.theme === themeName)));   // 表示パネルのテーマ列同期（themeName確定後＝microtask）
 	themeName = name; theme = MAP_THEMES[name]; style = withWorld(theme.style);   // withWorld＝世界層(湖)の再前置。素の theme.style だとライブ切替で湖が消える
 	bg = style.layers.find(L => L.type === "background");
 	land = bg ? parseRGBA(evalExpr(bg.paint?.["background-color"] ?? "#fff", { zoom: 10, props: {}, geom: null, vars: {} })) : [0.96, 0.96, 0.95, 1];
@@ -2347,6 +2348,8 @@ function constelApply() {
 	const solar = !solarOff && cam.zoom < 1;
 	renderer.set("view", { showConst: show, skySolar: solar });
 	renderer.set("skyLabels", show && !solar ? skyLabels : null);
+	const sc = document.getElementById("chip-sky");   // 表示パネルの星空チップ＝点火の一本道でだけ見た目同期
+	if (sc) { sc.classList.toggle("on", constelVisible); sc.setAttribute("aria-pressed", String(constelVisible)); }
 	needsDraw = true;
 }
 async function toggleConstellations() {
@@ -2564,10 +2567,8 @@ const input = createInput({
 		if (profileClick) return profileClick(x, y);   // 断面図モード＝クリックは経路の頂点追加へ（同上）
 		if (poiClick) return poiClick(x, y);           // 台帳編集モード＝クリックは対象選択/置き先へ（同上）
 		if (editClick) return editClick(x, y);         // 派生アプリ編集モード＝同上（geoedit の選択/作図）
-		if (cam.zoom < STARSKY_Z) {
-			if (!solarOff && cam.zoom < 1) return;   // 太陽系圏＝星座注記は休演中（クリックで裏の状態だけ変えない）
-			return void toggleConstellations().then(saveView);   // 全球ビュー＝クリックで星座線。表示状態は共有URL(l=sky)へ即書き戻す
-		}
+		// 旧・全球ビューの画面クリック＝星座線トグルは表示パネルの「星空」チップへ移設（本人裁定 2026-09-02
+		// 「画面クリックの切り替えはいずれ何かとぶつかる」）＝クリックは全ズームで識別に一本化。
 		overlay.identifyAt(x, y); if (gintInteractive) wPost({ type: "gintClick", x, y });
 	},
 	onHover: (x, y) => {
@@ -2602,7 +2603,8 @@ if (!window.matchMedia("(pointer: coarse)").matches) {
 	let idleT = 0;
 	const overUI = () => { const h = mapEl.querySelector(":hover"); return !!(h && (h.closest("#gadgets") || h.closest("#chips"))); };
 	const searchOpen = () => !!mapEl.querySelector("#search.open");
-	const hideUI = () => { if (overUI() || searchOpen()) { idleT = setTimeout(hideUI, IDLE_MS); return; } mapEl.classList.add("ui-idle"); };   // 操作中は消さず再武装
+	const panelOpen = () => { const p = document.getElementById("layers-panel"); return !!(p && !p.hidden); };   // 表示パネル展開中＝選んでいる最中に足元が消えない
+	const hideUI = () => { if (overUI() || searchOpen() || panelOpen()) { idleT = setTimeout(hideUI, IDLE_MS); return; } mapEl.classList.add("ui-idle"); };   // 操作中は消さず再武装
 	const wakeUI = () => { mapEl.classList.remove("ui-idle"); clearTimeout(idleT); idleT = setTimeout(hideUI, IDLE_MS); };
 	mapEl.addEventListener("mousemove", wakeUI, { signal: ac.signal, passive: true });
 	mapEl.addEventListener("pointerdown", wakeUI, { signal: ac.signal, passive: true });
@@ -2928,6 +2930,26 @@ document.querySelectorAll(".chip").forEach(b => b.addEventListener("click", () =
 	const k = b.dataset.k; if (!k) return;   // data-k 無し＝UIトグル（数字など）は別ハンドラ
 	setLayer(k, !layerState[k]);
 }));
+// 星空チップ（表示パネル内）＝旧・全球ビューの画面クリックから移設。見た目同期は constelApply 側（点火の一本道）
+document.getElementById("chip-sky")?.addEventListener("click", () => toggleConstellations().then(saveView));
+// テーマ列（表示パネル内）＝palette ガジェットの即決版（ライブ見本はガジェットの領分・こちらは名前+紙色スウォッチ）。
+// themeFixed（opts.theme 焼き付け）は列ごと出さない。現在テーマの点火同期は switchTheme 側。
+{
+	const row = document.getElementById("theme-row");
+	if (row && themeFixed) row.remove();
+	else if (row) {
+		const THEME_META = { mono: ["白地図", "#f7f7f6"], dark: ["黒地図", "#171b23"], gsi: ["地理院", "#fdfdf9"], sepia: ["セピア", "#efe6d4"] };   // スウォッチ＝各テーマの紙色近似
+		for (const name of Object.keys(MAP_THEMES)) {
+			const [label, sw] = THEME_META[name] || [name, "#ccc"];
+			const b = document.createElement("button");
+			b.className = "lp-theme"; b.dataset.theme = name; b.type = "button";
+			b.innerHTML = `<span class="sw" style="background:${sw}"></span>${t(label)}`;
+			b.classList.toggle("on", name === themeName);
+			b.addEventListener("click", () => { switchTheme(name); saveView(); });
+			row.appendChild(b);
+		}
+	}
+}
 // 起動時の初期同期（共有URL復元＋opts.layersの固定を含む）：チップの見た目と rail/terrain 副作用を layerState に合わせる（既定どおりなら実質 no-op）
 document.querySelectorAll(".chip[data-k]").forEach(syncChip);
 if (layerState.rail) { renderer.set("view", { showN02: true }); loadN02(); }

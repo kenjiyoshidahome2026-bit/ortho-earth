@@ -14,7 +14,7 @@ const probe = async opts => {   // 起動→観測→destroy＝毎回まっさ�
 	const holder = document.createElement("div"); holder.style.cssText = "position:fixed;inset:0";
 	document.body.appendChild(holder);
 	const m = await orthoJapan({ target: holder, view: "#13/35.68/139.76", plateau: false, ...opts });
-	const chips = [...document.querySelectorAll("#chips .chip")].map(b => b.dataset.k).join(".") || "none";
+	const chips = [...document.querySelectorAll("#chips .chip[data-k]")].map(b => b.dataset.k).join(".") || "none";   // data-k＝レイヤチップのみ（パネル化で星空チップ等のUIトグルが同居＝2026-09-02）
 	const inst = ["log", "pos", "scale", "attr"].filter(id => document.getElementById(id)).join(".") || "none";
 	m.destroy(); holder.remove();
 	return { chips, inst };
