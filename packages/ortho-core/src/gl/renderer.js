@@ -758,7 +758,11 @@ export function createRenderer(canvas, rOpts = {}) {
 			const cg = Math.cos(gmst), sg = Math.sin(gmst);
 			// 遠近表現（v1移植）：天球倍率 ∝ (0.4+0.3z)＝ズームに線形（地球は2^z）。z4（フェード境界）で1に正規化
 			// ＝出現時のスケールが素の投影と連続（ポップしない）。ズームアウトで星空が密に寄る＝空が「遠くなる」。
-			const skyK = (0.4 + 0.3 * Math.max(cam.zoom, 1)) / 1.6;   // z<1（太陽系圏）はz1で凍結＝無限遠の星空はズームアウトで縮まない（負zで係数が反転する事故も防ぐ）
+			// z1 の硬クランプ（max）は天球スケールの変化が z1 で急停止＝太陽系圏の出入りで星の動きが不連続に
+			// 見えた（本人指摘 2026-09-02「上手に繋げて」）→ softplus の軟クランプ＝C∞接続：z≫1 は従来の線形・
+			// z≪1 は z1 相当へ漸近凍結（無限遠の星空はズームアウトで縮まない・負zの係数反転も防ぐ＝旧仕様を保存）。
+			const zx = cam.zoom - 1, zs = 1 + (zx > 0 ? zx + 0.25 * Math.log(1 + Math.exp(-zx / 0.25)) : 0.25 * Math.log(1 + Math.exp(zx / 0.25)));   // 数値安定形 softplus（幅0.25z）
+			const skyK = (0.4 + 0.3 * zs) / 1.6;
 			const starUniforms = prog => {
 				gl.uniformMatrix4fv(loc(gl, prog, "u_mvp"), false, st.mvp32);
 				gl.uniform2f(loc(gl, prog, "u_gmst"), cg, sg);
