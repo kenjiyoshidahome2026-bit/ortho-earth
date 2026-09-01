@@ -1,0 +1,56 @@
+<!doctype html>
+<!-- 回帰：注釈レイヤ（geoedit の @スタイル付き geopbf を canvas2D で再生）。
+     ★このページが生まれた理由＝@spline が ReferenceError で落ちていた（2026-09-01）。
+     anno.js が `export { smoothRing } from "geopbf/edit/spline"` と書いており、再輸出は
+     **そのモジュールにローカル束縛を作らない**。輸入側（geoedit）は解決できるので
+     「エディタでは曲線が出るのにビューアだけ落ちる」＝WYSIWYG の担保が壊れる非対称バグだった。
+     ＝再輸出だけに戻すと必ずここが落ちる、という形で釘を打つ。
+     判定は .anno-overlay の実画素（透明背景＝getImageData は素の描画色）。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html{background:#0b1021}</style><title>t-anno</title></head>
+<body>
+<script>
+window.requestAnimationFrame = cb => setTimeout(() => cb(performance.now()), 30);   /* headless dump-dom は rAF が止まるため代用（t-gadgets と同じ） */
+</script>
+<script type="module">
+const t = [], ok = (n, c, x = "") => t.push((c ? "ok:" : "NG:") + n + (x ? `(${x})` : ""));
+const fin = () => document.title = t.some(s => s.startsWith("NG")) ? "FAIL " + t.join(" ") : "PASS " + t.join(" ");
+try {
+	const orthoJapan = (await import("../app.js")).default;
+	const { geopbf } = await import("geopbf");
+	const map = await orthoJapan({ view: "#6/35.5/138.5", plateau: false });
+	await new Promise(r => setTimeout(r, 700));
+
+	// ── @spline+@poly+@end:arrow の帯（暖色）／素の線（寒色）／@text ラベル ──
+	const fc = { type: "FeatureCollection", features: [
+		{ type: "Feature", properties: { "@poly": 1, "@spline": 1, "@end": "arrow", "@width": 10,
+			"@fill": "rgba(206,74,58,.9)", "@stroke": "rgba(178,54,40,1)" },
+		  geometry: { type: "LineString", coordinates: [[136.0,34.0],[137.0,35.4],[138.5,34.6],[140.0,35.8]] } },
+		{ type: "Feature", properties: { "@width": 6, "@stroke": "rgba(52,110,178,1)" },
+		  geometry: { type: "LineString", coordinates: [[136.5,36.6],[138.0,36.2],[139.5,36.8]] } },
+		{ type: "Feature", properties: { "@text": "海流", "@size": 24, "@fill": "rgba(178,54,40,1)" },
+		  geometry: { type: "Point", coordinates: [138.5, 33.2] } },
+	] };
+	const pbf = await geopbf(fc, { gint: true, name: "test/anno" });
+	ok("decode", !!pbf?.unPackGint && pbf.length === 3, pbf?.length);
+
+	await map.gadget.anno(pbf);            // ← 修正前はここで ReferenceError: smoothRing is not defined
+	await new Promise(r => setTimeout(r, 500));
+
+	const cv = document.querySelector(".anno-overlay");
+	ok("canvas", !!cv && cv.width > 0, cv ? `${cv.width}x${cv.height}` : "none");
+	const d = cv.getContext("2d").getImageData(0, 0, cv.width, cv.height).data;
+	let warm = 0, cold = 0, halo = 0;
+	for (let i = 0; i < d.length; i += 4) {
+		const r = d[i], g = d[i+1], b = d[i+2], a = d[i+3];
+		if (a < 20) continue;
+		if (r > 150 && r - g > 60 && r - b > 60) warm++;
+		else if (b > 130 && b - r > 60 && b - g > 30) cold++;
+		else if (r > 230 && g > 230 && b > 230) halo++;
+	}
+	ok("帯(@poly+@spline+矢じり)", warm > 400, warm);
+	ok("素の線", cold > 100, cold);
+	ok("ラベル白フチ", halo > 50, halo);
+	map.destroy();
+} catch (e) { ok("boot:" + (e && e.message || e), false); }
+fin();
+</script></body></html>

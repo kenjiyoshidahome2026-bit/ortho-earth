@@ -35,7 +35,12 @@ import { sanitizeHTML } from "geopbf/sanitize";
 export { sanitizeHTML };
 
 // ---- @spline（滑らか曲線）：正典は geopbf/edit/spline へ昇格 8/29（ここは再輸出＝sanitize と同じ型）----
-export { smoothRing, smoothGeom } from "geopbf/edit/spline";
+// ★import してから export する（sanitize と同じ二段の形）。`export … from` は再輸出だけで
+//   このモジュールにローカル束縛を作らない＝下の set() が smoothRing を呼んだ瞬間 ReferenceError。
+//   輸入側（geoedit）は再輸出でも解決できるため、エディタでは曲線が出るのにビューアだけ落ちる
+//   ＝WYSIWYG の担保が壊れる形の非対称バグだった（2026-09-01 発見・8/29 の正典昇格からの潜伏）。
+import { smoothRing, smoothGeom } from "geopbf/edit/spline";
+export { smoothRing, smoothGeom };
 
 // ---- @poly（ポリゴン化した線＝帯）＝折れ線を「幅 w の帯＋端形状」の単一閉路として ctx へパス構築（正典）。
 // 塗り(+alpha)が矢じり込みで均一・輪郭が端形状まで一周。capS/capE ∈ ""(butt)/"square"/"round"/"arrow"。
