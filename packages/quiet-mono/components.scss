@@ -203,6 +203,7 @@
 	:is(svg, svg *):is([fill="#3f4757"], [fill="#2b3b57"]) { fill: rgba(222, 230, 242, .95); }
 	:is(svg, svg *)[stroke="#9aa0ac"] { stroke: rgba(150, 162, 180, .88); }
 	#cpos-btn.on svg { stroke: #fff; }   /* 点火＝白反転は夜も維持（上の明インクより詳細度で勝たせる再掲） */
+	#layers-btn.on svg path { stroke: #fff; }   /* 表示パネルの重ね菱形も同じ掟 */
 	/* 住所入力：入力欄も黒硝子＝開いた虫めがね（明インク）がそのまま生きる。読む物ではあるが地図の上に
 	   浮く一行の道具＝夜の額装に合わせる（候補リストは白ソリッドのまま＝腰を据えて読む物） */
 	#search #search-in {
@@ -255,8 +256,9 @@
 		display: flex; align-items: center; justify-content: center;
 		-webkit-backdrop-filter: blur(var(--qm-blur)); backdrop-filter: blur(var(--qm-blur));
 		&:hover { border-color: var(--qm-border-strong); }
-		&.on { border-color: var(--qm-border-strong); background: var(--qm-panel-2); }
 		svg { display: block; }
+		&.on { background-color: color-mix(in srgb, var(--qm-ink) 82%, transparent); border-color: rgba(255,255,255,.45);   /* 点灯＝インクの色ガラス（cpos と同型・2026-09-02 本人「白抜き→オンでフリップ」） */
+			svg path { stroke: #fff; } }   /* 点灯＝反転（重ね菱形が白） */
 	}
 	#layers-panel { position: absolute; left: calc(100% + 8px); top: 0; display: flex; flex-direction: column; align-items: stretch; min-width: 96px; }
 	#layers-panel[hidden] { display: none; }
@@ -788,7 +790,7 @@
        ここは質感だけを後勝ちで上書きする（同格の宣言はファイル順＝この節が勝つ）。
        点火(.on)や検索の開閉(#search.open)は各所の高詳細度セレクタが勝つ＝壊さない。
        上辺グラデ＋inset上ハイライト＝光を受けた凸面、押すと1px沈む＝指応え。 --- */
-#hint-btn, #search #search-btn, #plateau-btn, #palette-btn, #reset, #zoom button, #full,
+#hint-btn, #search #search-btn, #plateau-btn, #palette-btn, #reset, #zoom button, #full, #layers-btn,
 #cpos-btn, #measure-btn, #profile-btn, #japan-btn, #shot-btn, #print-btn, #legend-btn, #close-btn, #demo-btn, #qr-btn, #hud-btn,
 #chips .chip {
 	background-color: var(--qm-glass-bg);
@@ -803,7 +805,7 @@
 }
 #search.open #search-btn { box-shadow: none; transform: none; }   /* 虫めがねが検索箱へ溶けた後＝影と沈みだけ残さない */
 /* 点火（.on）＝色ガラス仕上げ：地色は各所（インク/アクセントの color-mix 透過）、ここは暗地用に照りと inset を半減 */
-#chips .chip.on, #cpos-btn.on, #measure-btn.on, #profile-btn.on, #hud-btn.on, #demo-btn[aria-pressed="true"] {
+#chips .chip.on, #layers-btn.on, #cpos-btn.on, #measure-btn.on, #profile-btn.on, #hud-btn.on, #demo-btn[aria-pressed="true"] {
 	background-image: var(--qm-glass-sheen-dim);
 	box-shadow: var(--qm-shadow-btn-on);
 	&:hover { box-shadow: var(--qm-shadow-btn-on-hover); }   /* 浮きの所作は同じ・insetだけ暗地用 */

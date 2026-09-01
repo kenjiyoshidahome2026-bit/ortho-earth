@@ -60,7 +60,15 @@ export function mountChips(mapEl, keys = true, fixed = {}) {
 	gadgetStack(mapEl).prepend(chips);   // 左上スタックの最上段へ（2026-09-02 本人裁定「右上は開ける＝アイコンは左・パネルは右へ開く」）
 	// 開閉はここで自給（DOMだけの所作）。中身の点火配線は従来どおり main.js（独立の掟＝相互を知らない）
 	const btn = chips.querySelector("#layers-btn"), panel = chips.querySelector("#layers-panel");
-	const setOpen = open => { panel.hidden = !open; btn.setAttribute("aria-expanded", String(open)); btn.classList.toggle("on", open); };
+	const setOpen = open => {
+		panel.hidden = !open; btn.setAttribute("aria-expanded", String(open)); btn.classList.toggle("on", open);
+		// 検索とは排他（本人裁定 2026-09-02）：どちらも「右へ開く」同士＝重なる。畳むのは相手自身の所作
+		//（#search-btn click＝searchのトグル）＝内部状態を直接触らない（ガジェット独立の掟の範囲内＝家具契約のidのみ）
+		if (open) mapEl.querySelector("#search.open #search-btn")?.click();
+	};
 	btn.addEventListener("click", () => setOpen(panel.hidden));
+	mapEl.addEventListener("click", e => {   // 逆方向＝検索を押したらパネルを閉じる（capture＝検索側の処理順に依存しない）
+		if (!panel.hidden && e.target.closest?.("#search-btn")) setOpen(false);
+	}, true);
 	document.addEventListener("keydown", e => { if (e.key === "Escape" && !panel.hidden) setOpen(false); });
 }
