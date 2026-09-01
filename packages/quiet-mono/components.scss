@@ -837,6 +837,20 @@
 	background: rgba(16, 24, 44, .55);
 	-webkit-backdrop-filter: none; backdrop-filter: none;
 }
+/* 表示パネルの扉も星空では星明かり化＝#japan-btn と同相（本人指摘 2026-09-02「フリップが逆」＝舞台の基本形が
+   暗パネル+白アイコンなのに明ガラス+墨で立っていた）。開（.on）は反転＝明パネル+墨菱形＝点火が一目 */
+#map.world #layers-btn {
+	border: 1px solid rgba(255, 255, 255, .42);
+	background: rgba(16, 24, 44, .55);
+	-webkit-backdrop-filter: none; backdrop-filter: none;
+	svg path { stroke: rgba(230, 238, 250, .92); }
+}
+#map.world #layers-btn.on {
+	background: rgba(235, 240, 248, .92);
+	border-color: rgba(255, 255, 255, .6);
+	svg path { stroke: #3f4757; }
+	svg path[stroke="#9aa0ac"] { stroke: #9aa0ac; }
+}
 #map.world #japan-btn svg { fill: rgba(230, 238, 250, .92); stroke: rgba(230, 238, 250, .92); }
 /* 星空劇場でも▶を残すのは狭画面だけ。上演中＝唯一の停止口（Escも操縦バー(.playingで退場)も無い）。
    待機中も残す（2026-08-21拡張）＝QR着地の観客がズームアウトで宇宙へ出る→localStorage復元で次回も宇宙、の筋で
