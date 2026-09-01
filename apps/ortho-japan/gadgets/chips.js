@@ -4,7 +4,9 @@
 // keys＝orthoJapan({chips}) の起動パラメータ：true=全部（既定）／配列=選択的（並びは定義順で固定・非推奨）。
 // fixed＝opts.layers で true/false 固定されたキー集合＝ボタンを出さない（状態は焼き付け済み＝客に触らせない）。
 // 空になったらパネルごと出さない（点火状態 layerState 自体は生きる＝UIが無いだけ）。
+// 置き場＝左上 #gadgets スタックの最上段（検索と同じ「押すと右へ開く」Netflix式＝右上は完全に空ける）。
 import { tr } from "../i18n.js";
+import { gadgetStack } from "./stack.js";
 const t = tr({
 	"表示・テーマ": "Layers & themes",
 	"地名": "Places",
@@ -55,7 +57,7 @@ export function mountChips(mapEl, keys = true, fixed = {}) {
 		<button class="chip" id="chip-sky" aria-pressed="false" data-tip="${t("星座線・星座名（引いた全球ビューで）")}">${t("星空")}</button>
 		<div id="theme-row"></div>
 	</div>`;
-	mapEl.append(chips);
+	gadgetStack(mapEl).prepend(chips);   // 左上スタックの最上段へ（2026-09-02 本人裁定「右上は開ける＝アイコンは左・パネルは右へ開く」）
 	// 開閉はここで自給（DOMだけの所作）。中身の点火配線は従来どおり main.js（独立の掟＝相互を知らない）
 	const btn = chips.querySelector("#layers-btn"), panel = chips.querySelector("#layers-panel");
 	const setOpen = open => { panel.hidden = !open; btn.setAttribute("aria-expanded", String(open)); btn.classList.toggle("on", open); };

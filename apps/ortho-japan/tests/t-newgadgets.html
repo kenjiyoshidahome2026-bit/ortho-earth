@@ -94,7 +94,7 @@ try {
 	window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
 	ok("closeGuard", closed === 2); inp2.remove();
 	// ×が居る画面＝チップ列が一段下がる（:hasの裁き）
-	ok("closeChips", Math.round(document.getElementById("chips").getBoundingClientRect().y) === 54);
+	ok("closeChips", Math.round(document.getElementById("chips").getBoundingClientRect().y) === 10);   // chips＝左上スタック最上段へ移設（2026-09-02）＝右上×ボタンと無関係にy=10
 
 	// destroy：後片付けが走る（例外なく）
 	map.destroy();

@@ -229,7 +229,7 @@
 /* --- テーマ・チップ：静かな土台に主題だけ"点火"する最小トグル（右上縦一列＝繋げて一本のカプセル。
        角丸は列の外周＝上端・下端だけ、間の境界線は隣と共有） --- */
 #chips {
-	position: absolute; top: 10px; right: 10px; display: flex; flex-direction: column; align-items: flex-end;
+	position: relative;   /* 左上 #gadgets スタックの子（2026-09-02 パネル左移設）。パネルは右へ開く＝検索と同じ Netflix式 */
 	.chip {
 		font: 13px/1 var(--qm-font); padding: 9px 16px; border: 1px solid var(--qm-border);
 		background: var(--qm-panel-2); color: #5a5f6a; cursor: pointer;
@@ -258,7 +258,7 @@
 		&.on { border-color: var(--qm-border-strong); background: var(--qm-panel-2); }
 		svg { display: block; }
 	}
-	#layers-panel { display: flex; flex-direction: column; align-items: stretch; margin-top: 6px; min-width: 96px; }
+	#layers-panel { position: absolute; left: calc(100% + 8px); top: 0; display: flex; flex-direction: column; align-items: stretch; min-width: 96px; }
 	#layers-panel[hidden] { display: none; }
 	#layers-panel .chip { text-align: center; }
 	/* テーマ列＝紙色スウォッチ＋名前の小ボタン（本命のライブ見本は palette ガジェットの領分＝ここは即決の入口） */
@@ -528,7 +528,7 @@
 	opacity: 0; transition: opacity .14s ease;   /* ポンと出さない＝フェード（家具の所作と揃える） */
 }
 #gadgets [data-tip]::after { left: calc(100% + 8px); }    /* 左上スタック→ボタンの右へ */
-#chips [data-tip]::after, #close-btn[data-tip]::after { right: calc(100% + 8px); }     /* 右上（チップ・×）→ボタンの左へ */
+#close-btn[data-tip]::after { right: calc(100% + 8px); }     /* 右上（×）→ボタンの左へ。chips は左スタック＝#gadgets 規則（右へ）が効く */
 #gadgets [data-tip]:hover::after, #gadgets [data-tip]:focus-visible::after,
 #chips [data-tip]:hover::after, #chips [data-tip]:focus-visible::after,
 #close-btn[data-tip]:hover::after, #close-btn[data-tip]:focus-visible::after { opacity: 1; }
@@ -688,7 +688,7 @@
 	&:hover { border-color: var(--qm-border-strong); }
 	svg { display: block; }
 }
-#map:has(#close-btn) #chips { top: 54px; }   /* ×が居る画面＝チップは×の下から */
+/* 旧・×併存時のチップ退避（top:54）は廃止＝chips は左上スタックへ移設（2026-09-02）＝右上の×と干渉しない */
 
 /* --- 印刷（平面図）：📄ボタン（スタック・34px規格）＋モーダル（プレビュー・設定・印刷/PDF） --- */
 #print-btn {
@@ -819,12 +819,10 @@
 #map :is(#chips, #gadgets, #gadgets > *, #search, #search-list, #hint, #log, #pos, #scale, #attr) {
 	transition: opacity .6s ease;
 }
-/* #chips は退場させない（2026-09-02 パネル化）：表示パネルは星空トグルの家＝星空劇場でこそ要る
-   （旧・画面クリックの星座トグル廃止の代替）。1枚の静かな硝子アイコン＝舞台を壊さない。
-   劇場では時計（#sky-clock＝右上）と重なるため一段下げる */
-#map.world #chips { top: 44px; }
+/* #chips（表示パネル）は退場させない（2026-09-02 パネル化）：星空トグルの家＝星空劇場でこそ要る
+   （旧・画面クリックの星座トグル廃止の代替）。1枚の静かな硝子アイコン＝舞台を壊さない */
 #map.world :is(#search-list, #hint, #log, #pos, #scale, #attr),
-#map.world #gadgets > :not(#japan-btn, #solar) {
+#map.world #gadgets > :not(#japan-btn, #solar, #chips) {
 	opacity: 0; pointer-events: none;
 }
 #map.world #solar { order: -2; }      /* 並び＝太陽系の文字リンクが最上段・日本の扉がその下 */

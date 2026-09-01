@@ -16,9 +16,9 @@ map.gadget.search(); map.gadget.compass(); map.gadget.plateau(); map.gadget.hint
 map.gadget.search(); map.gadget.compass();   // 二重搭載＝無害のはず
 await new Promise(r => setTimeout(r, 400));
 const R = id => document.getElementById(id).getBoundingClientRect();
-ok("order", [...document.getElementById("gadgets").children].map(e => e.id).join() === "search,reset,plateau-btn,hint,hint-btn");
+ok("order", [...document.getElementById("gadgets").children].map(e => e.id).join() === "chips,search,reset,plateau-btn,hint,hint-btn");   // chips＝表示パネル（2026-09-02 左スタック最上段へ移設）
 ok("dup", document.querySelectorAll("#search").length === 1 && document.querySelectorAll("#reset").length === 1);
-ok("collapse", Math.round(R("plateau-btn").y) === 54);   // 2D＝コンパス非表示→PLATEAUが検索の直下(10+34+10)へ上詰め
+ok("collapse", Math.round(R("plateau-btn").y) === 98);   // 2D＝コンパス非表示→PLATEAUが chips+検索の直下(10+44+44)へ上詰め（chips=表示パネル最上段 2026-09-02）
 // 検索の透明帯は素通し：帯の右側(x=200)のヒットは #search でなく地図(canvas)が受ける
 const hit = document.elementFromPoint(200, 27);
 ok("strip", hit && hit.id !== "search" && !document.getElementById("search").contains(hit));
@@ -36,6 +36,6 @@ ok("aria1", chip.getAttribute("aria-pressed") === "true" && chip.classList.conta
 // 3D＝コンパスが検索の下（2段目・y=10+34+10）に現れ、PLATEAUが繰り下がる（y=54+34+10＝コンパスも34px規格）
 window.__cam(139.76, 35.68, 12, 45, 30);
 await new Promise(r => setTimeout(r, 300));
-ok("compass3d", getComputedStyle(document.getElementById("reset")).display !== "none" && Math.round(R("reset").y) === 54 && Math.round(R("plateau-btn").y) === 98);
+ok("compass3d", getComputedStyle(document.getElementById("reset")).display !== "none" && Math.round(R("reset").y) === 98 && Math.round(R("plateau-btn").y) === 142);   // +44＝chips最上段分
 document.title = t.some(s => s.startsWith("NG")) ? "FAIL " + t.join(" ") : "PASS " + t.length;
 </script></body></html>
