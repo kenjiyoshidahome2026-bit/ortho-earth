@@ -215,10 +215,16 @@ const dispatch = e => {
 		case "plateauPort":                                      // plateau worker → ここ のメッシュ直結パイプ（workerプール1本につき1ポート）
 			m.port.onmessage = ev => { plateauInbox.push({ ...ev.data, port: m.port }); dirty = true; };   // 受信は貯めるだけ＝GPU転送は frame() が1件/フレームで平準化（下の drainUploads）。port＝消化ack（クレジット）の返送先
 			break;
-		case "resize":                                           // 両キャンバスを同じ寸法に（main は transfer 後触れない）
-			baseW = m.width; baseH = m.height;
+		case "resize": {                                         // 両キャンバスを同じ寸法に（main は transfer 後触れない）
+			// 端末上限クランプ＝縦長ウィンドウ×高dpr（ブラウザ拡大率・特殊ディスプレイ）でスワップチェイン/
+			// 画面サイズ従属テクスチャが上限超えで即死しない柵（実測 2026-09-02: h=9677→2^25 の過渡値）。
+			// 超過時は device px を切り詰め＝CSS側で引き伸ばされ僅かにボケるだけ（落ちるより百倍まし）。
+			const mt = renderer?.maxTex || 8192;
+			if (m.width > mt || m.height > mt) console.warn(`[render] resize ${m.width}x${m.height} exceeds device max ${mt} = clamped`);
+			baseW = Math.min(m.width, mt); baseH = Math.min(m.height, mt);
 			scheduleRes();                                       // 適用は次の描画フレーム先頭（リサイズ＝バッファクリアを描画と同一タスクに束ねる＝白フラッシュを見せない）
 			break;
+		}
 		case "set":
 			if (m.cmd === "gint") { if (gint) gint.set(m.data, m.prop); }        // 知性の層のペイロード差し替え（prop=スロットキー "coast"/"user"、null=そのスロットを空化）
 			else if (m.cmd === "gintSlot") { if (gint) gint.setSlot(m.data); }   // スロット交替（ベイク済み束の差し替えのみ＝z7跨ぎをゼロコスト化。null=何も載せない）

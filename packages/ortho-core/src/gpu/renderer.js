@@ -64,7 +64,13 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 	const reqFeats = [];
 	if (wantTQ) reqFeats.push("timestamp-query");
 	if (adapter.features?.has?.("float32-blendable")) reqFeats.push("float32-blendable");
-	const device = await adapter.requestDevice(reqFeats.length ? { requiredFeatures: reqFeats } : undefined);
+	// maxTextureDimension2D＝既定8192のままだと、縦長ウィンドウ×高dpr（ブラウザ拡大率等）でスワップチェイン/
+	// 画面サイズ従属テクスチャ（gint idTex 等）が上限超えで即死する（実測 2026-09-02: 2042x9677）。アダプタの
+	// 実力値（Apple系=16384）をそのまま要求＝タダで倍の頭上空間。適用失敗の互換性リスクはアダプタ自己申告値ゆえ無い
+	const device = await adapter.requestDevice({
+		...(reqFeats.length ? { requiredFeatures: reqFeats } : {}),
+		requiredLimits: { maxTextureDimension2D: adapter.limits?.maxTextureDimension2D || 8192 },
+	});
 	const ctx = canvas.getContext("webgpu");
 	if (!ctx) throw new Error("webgpu context unavailable");
 	const format = navigator.gpu.getPreferredCanvasFormat();
@@ -1453,7 +1459,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 	device.popErrorScope().then(e => { if (e) gpuErr("init検証", e.message); }).catch(() => {});
 	// device/format/frameInfo/flush＝gint（createGintLayerGPU）のホスト面：開いたフレームに render pass を足す口。
 	// passTS("gint")＝gint が自分のパスに GPU タイマを打つ口。tqTake/hasTQ＝renderworker の計測回収。
-	return { set, draw, flush, readback, dispose, md: false, mdMax: 0, gintCtx: () => gctx, backend: "webgpu", lost: device.lost,
+	return { set, draw, flush, readback, dispose, md: false, mdMax: 0, gintCtx: () => gctx, backend: "webgpu", lost: device.lost, maxTex: device.limits.maxTextureDimension2D,
 		device, format, gpuInfo, frameInfo: () => frame, passTS, tqTake, gpuErrors, get hasTQ() { return !!tq; },
 		samples: SAMPLES,   // 品質段（静止フレームの段数）。フレーム毎の実段数は frameInfo().samples（遷移時AA＝遷移中1x）
 		// ?mem=1 台帳のGPU固定常駐（自前確保分の概算バイト）：標高アトラス（近/舞台裏/遠）＋地形メッシュ＋MSAAターゲット
