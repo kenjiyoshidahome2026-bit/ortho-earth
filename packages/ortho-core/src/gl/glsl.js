@@ -407,6 +407,10 @@ precision highp float;
 in vec2 a_delta;
 ${PROJECT}
 uniform float u_lift;   // 地形からのリフト(m)。塗り(fan)を地形にドレープ＝海抜0平面でなく地形表面へ（境界線と一致）
+uniform float u_sphereClip;   // 1＝裏半球の頂点を地平円（可視半球の縁）へ射影クランプ（wdepr＝全球スケールのポリゴン用）。
+                              // 裏側ポリゴンは円周上に縮退＝巻き数0で消え、地平線を跨ぐポリゴンは可視部だけを正しく囲む
+                              // ＝投影の折返しが円盤内に作る±1の巻き数斑（GL/WebGPUで符号が逆＝ref方式では殺しきれない
+                              // 裏半球の幻影・2026-09-02 実測）を根絶。既定0＝従来のoverlay（局所ポリゴン）は完全不変。
 void main() {
 	// 塗り(fan)を FILL_VS と同じ標高変位で地形にドレープ。elev 無しだと海抜0の平面に貼られ、
 	// 地形に沿う境界線と乖離して浮く（本人報告 2026-08-12・豊浦町ハイライト）。WebGPU vsStencil と対。
@@ -416,6 +420,17 @@ void main() {
 	float df = 1.0 - smoothstep(u_fogFar * 0.8, u_fogFar * 2.0, distance(u_eye, dir));
 	float h = (elev(ll) + u_lift) * u_elevScale * df;
 	vec3 relW = rel + h * liftDir(ll, dir);
+	if (u_sphereClip > 0.5) {
+		vec3 P = u_originPt + relW;                  // 絶対位置（単位球近傍）
+		float e2 = dot(u_eye, u_eye);
+		if (dot(P, u_eye) < 1.0) {                   // 裏半球（可視条件は dot(P,E)>1＝接円）
+			vec3 Pp = P - u_eye * (dot(P, u_eye) / e2);   // E 直交成分＝地平円の向き
+			float lp = length(Pp);
+			vec3 t = lp > 1e-6 ? Pp / lp : normalize(vec3(-u_eye.z, 0.0, u_eye.x));
+			P = u_eye / e2 + sqrt(max(1.0 - 1.0 / e2, 0.0)) * t;   // 地平円（中心 E/|E|²・半径 √(1-1/|E|²)）上へ
+			relW = P - u_originPt;
+		}
+	}
 	gl_Position = u_clipT + u_mvp * vec4(relW, 0.0);   // RTE：塗りは巻き数で決まるので fan の形は問わない・地形にドレープ
 }`;
 export const STENCIL_FS = `#version 300 es

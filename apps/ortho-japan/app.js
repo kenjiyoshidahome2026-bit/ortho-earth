@@ -263,6 +263,18 @@ function fatalOverlay(title, detail, reload) {
 	mapEl.appendChild(d);
 	return d;
 }
+// 起動不能時の静かな退場：案内オーバーレイを出した後、呼び側（site.js / SDK 埋め込み）には「何もしない地図」を
+// 返す。旧・throw は未捕捉例外＝呼び側の then 連鎖ごと死に、site の boot カバーも畳まれない（Chrome の
+// ハードウェアアクセラレーション off で「エラーを吐いて落ちる」実測 2026-09-02）。Proxy＝map.gadget.search() の
+// ようなどんな連鎖・呼び出しも無害に自分を返して空転する（then だけ undefined＝await が即解決する約束）。
+const deadMap = () => {
+	const stub = new Proxy(function () {}, {
+		get: (_, k) => k === "then" ? undefined : (k === Symbol.toPrimitive || k === "toString") ? () => "" : stub,
+		apply: () => stub,
+		set: () => true,
+	});
+	return stub;
+};
 // 対応判定：このアプリの土台は WebGL2 ＋ OffscreenCanvas（GL を worker に置く設計）。無い環境では静かに案内して止まる。
 // 「非対応」の確実な判別器は transferControlToOffscreen の欠落だけ（これを持つ世代のブラウザは全て WebGL2 対応）。
 // webgl2=null 単独は非対応と断定できない：GPUプロセスのクラッシュ直後（OOM→contextlost の自動リロード直後）は
@@ -280,7 +292,8 @@ let gpuRenderer = "";   // GPU 素性の文字列（下の MID_TIER 判定用）
 	if (!HTMLCanvasElement.prototype.transferControlToOffscreen) {
 		fatalOverlay(t("この地図はお使いのブラウザでは表示できません"),
 			t("3Dの地球儀を WebGL2 と OffscreenCanvas で描いています。最新の Chrome / Edge / Firefox、または Safari 17 以降でお試しください。"));
-		throw new Error("unsupported: offscreencanvas");
+		console.warn("[boot] unsupported: offscreencanvas = quiet exit (guidance overlay shown)");
+		return deadMap();
 	}
 	if (!probeGL()) {
 		const waiting = fatalOverlay(t("GPU の応答を待っています…"),
@@ -291,7 +304,8 @@ let gpuRenderer = "";   // GPU 素性の文字列（下の MID_TIER 判定用）
 		if (!ok) {
 			fatalOverlay(t("3D描画を開始できません"),
 				t("お使いのブラウザは対応していますが、GPU（WebGL2）が応答しません。ブラウザを完全に終了して開き直すか、設定で「ハードウェアアクセラレーション」が有効かご確認ください。"), true);
-			throw new Error("unsupported: webgl2 unavailable (after 10s retry)");
+			console.warn("[boot] webgl2 unavailable after 10s retry (hardware acceleration off?) = quiet exit (guidance overlay shown)");
+			return deadMap();
 		}
 	}
 }
@@ -1977,6 +1991,8 @@ dbgHost.__paint = paintGint;
 const GINT_SWAP_Z = 7;
 const COAST_Z = 9;         // 世界海岸線の表示・ロード上限＝これ未満で出す（maxZoom9 と対）
 const WORLD_COAST_MINZ = 2.5;   // world 時の coast 下限＝これ未満は線なしの純粋な地球（本人裁定 2026-09-01）
+const WORLD_TIP_MAXZ = 5.5;     // 国名ホバー tip の上限＝これ以上は出さない・跨いだら消す（本人裁定 2026-09-02「z>5.5で消して」＝基図接近帯は注記の領分）
+let worldTipOn = false;         // 国名 tip 表示中ラッチ＝ズームだけで跨いだ時（ホバーイベントが来ない）に消すため
 let coastGint = null;      // 世界の国ポリゴン(admin_0_countries)の gint ペイロード（初回ロードでキャッシュ＝再取得しない）
 let coastPbf = null;       // 同・GeoPBF 原本（properties 参照＝国名 identify 用に生存）
 let userGint = null;       // ユーザー層 { g, label }（14条/ドロップ）
@@ -2141,6 +2157,8 @@ function clearGintSlot() {
 // ズームでスロットの中身を選ぶ。onMove から毎回呼ばれるが post は変更時だけ＝安い。海岸線は初回のみ遅延取得。
 function updateGintSlot() {
 	if (WORLD_VT && cam.zoom < COAST_Z) loadBelowSea();   // 海面下の陸地も世界図の文脈で一度だけ遅延取得（wdepr＝overlay 系スロット＝gint と独立・自己ガード）
+	// 国名 tip はズームだけで z5.5 を跨いでも消す（ホバーイベントが来ない＝出しっぱなしになる件の根治 2026-09-02）
+	if (worldTipOn && cam.zoom >= WORLD_TIP_MAXZ) { gintHoverTip?.(null); worldTipOn = false; }
 	if (noGint) return;   // ?nogint=1＝海岸線ロードもスロット適用もしない（gint パスは空データ＝実質ゼロコスト）
 	if (userGint && cam.zoom >= userGint.minZoom) { if (gintSlot !== "user") applyUserSlot(); return; }   // minZoom は層の属性（全国級AI層=2・筆/ドロップ=GINT_SWAP_Z）
 	if (suppressCoast) { if (gintSlot === "coast") clearGintSlot(); return; }   // 飛行中の抑制：既に載っていれば降ろし、ロードもしない（loadWorldCoast へ落とさない）
@@ -2183,7 +2201,7 @@ async function loadWorldCoast() {
 	console.log("[coast] loaded. auto-shown at z<%d (no user layer / low zoom)", GINT_SWAP_Z);
 }
 dbgHost.__coast = loadWorldCoast;   // 手動リロード用
-dbgHost.__gintFix = "3knobs+grat 2026-09-01c";   // ビルド世代の目印（コンソールで __gintFix ＝ undefined なら古いコードが動いている）
+dbgHost.__gintFix = "cullv2+skysolar 2026-09-02b";   // ビルド世代の目印（コンソールで __gintFix ＝ undefined なら古いコードが動いている）
 // 遅延ロードの門番は updateGintSlot（z<9 で海岸線 未取得なら一度だけ取得）＝高ズーム固定の埋め込みは一生読まない
 //（PLATEAUスイッチと同じ思想＝見えない機能のための通信をしない。既定の世界ビュー起動時に updateGintSlot が即発火＝体験は不変）。
 
@@ -2200,13 +2218,13 @@ async function loadBelowSea() {
 	if (deprState) return; deprState = 1;
 	const pbf = await geopbf("below_sea_land", { gint: false }).catch(() => null);   // gint 不要（identify なし・塗りだけ）＝GintBUF 復号を払わない
 	if (!pbf?.length) { console.warn("[wdepr] below_sea_land が bucket に無い（uploader で焼くまで海面下の塗りは出ない）"); return; }
-	const scene = buildGeoJSONOverlay(pbf.geojson.features, [0, 0], { lines: false });   // 塗り専用＝境界線バッファなし（焼きの90°タイル継ぎ目も塗りだけなら見えない）
+	const scene = buildGeoJSONOverlay(pbf.geojson.features, [0, 0], { lines: false, ranges: true });   // 塗り専用＝境界線バッファなし（焼きの90°タイル継ぎ目も塗りだけなら見えない）
 	renderer.set("wdepr", scene);
 	needsDraw = true;
 	console.log("[wdepr] below_sea_land loaded: %d features", pbf.length);
 }
 // デバッグ手：任意 FC を wdepr へ直載せ（焼き差し替え前の見た目確認。null で解除）
-dbgHost.__wdepr = fc => { renderer.set("wdepr", fc ? buildGeoJSONOverlay(fc.features || fc, [0, 0], { lines: false }) : null); needsDraw = true; };
+dbgHost.__wdepr = fc => { renderer.set("wdepr", fc ? buildGeoJSONOverlay(fc.features || fc, [0, 0], { lines: false, ranges: true }) : null); needsDraw = true; };
 
 // --- 星空劇場（z<4・v1 ortho-map の星空アクセサリー移植）---
 // stars.6（実在星表：RA/Dec・等級・B-V色指数）を天球単位ベクトル＋色＋点径に焼いて render worker へ。
@@ -2318,11 +2336,17 @@ async function loadStars() {
 // 線は GL（render worker）、名前と記号はラベルcanvas（skyLabels）＝どちらも同じ変換・同じタイミングで出入りする。
 let constelState = 0, constelVisible = false, skyLabels = null;   // 0=未読込 1=読込中 2=読込済
 // 表示の実務（点灯希望×圏の裁き→engine）。トグル・URL同期・太陽系圏の出入りの三者が共用＝経路一本。
-// 星座線・星座名・黄道/天の赤道＝「地球から見た空」の注記＝太陽系圏(z<1)では休演（点灯状態は保持）
+// 旧・太陽系圏(z<1)は休演だったが、点灯（l=sky）していれば太陽系圏でも出す（本人裁定 2026-09-02
+// 「z<1以下でも、l=sky があれば星座線を出していい」）＝星座は無限遠の天球＝実位置3Dの惑星と矛盾しない。
+// 惑星ドーム（updatePlanets）だけは従来どおり z<1 で引っ込める（距離を持つ天体は solarsky の実位置3Dと二重になる）。
 function constelApply() {
-	const show = constelState === 2 && constelVisible && !(!solarOff && cam.zoom < 1);
-	renderer.set("view", { showConst: show });
-	renderer.set("skyLabels", show ? skyLabels : null);
+	const show = constelState === 2 && constelVisible;
+	// skySolar＝太陽系圏(z<1)の空モード（本人裁定 2026-09-02）：星座線だけ薄く残し、黄道/天の赤道は消灯
+	//（レンダラ側が裁く・両バックエンド）、星座名・メシエ等のテキスト注記も全消し（ラベル投影が太陽系圏の
+	// カメラと合わず表示が乱れる＝線のみが正）。呼び出しは圏の出入りで必ず来る（休演/再点灯の一本化と同じ口）。
+	const solar = !solarOff && cam.zoom < 1;
+	renderer.set("view", { showConst: show, skySolar: solar });
+	renderer.set("skyLabels", show && !solar ? skyLabels : null);
 	needsDraw = true;
 }
 async function toggleConstellations() {
@@ -2558,11 +2582,14 @@ const input = createInput({
 		// 世界ビュー＝admin0 国ポリゴンの国名 tip（本人裁定 2026-08-30「国の認識」）。識別は main 同期
 		// （coastPbf.identifyAt＝findPolygon smallest-wins・エンジン往復なし）。面のみ探索＝点/線半径は0。
 		if (gintSlot === "coast" && coastPbf && gintHoverTip && !fudeOwn) {
+			// z≥5.5＝国名 tip の圏外（本人裁定 2026-09-02）：基図接近帯は注記が主役＝国名の板は出さない
+			if (cam.zoom >= WORLD_TIP_MAXZ) { if (worldTipOn) { gintHoverTip(null); worldTipOn = false; } return; }
 			const ll = unprojectXY(x, y);
 			const fid = ll ? coastPbf.identifyAt(ll[0], ll[1], { point: 0, polyline: 0 }) : null;
 			let name = null;
 			if (fid != null) { try { const p = coastPbf.getProperties(fid) || {}; name = p.NAME_JA || p.NAME || null; } catch (e) { /* 壊れfeature＝tipなし */ } }
 			gintHoverTip(name ? [name] : null);
+			worldTipOn = !!name;
 		}
 	},
 });

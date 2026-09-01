@@ -569,7 +569,7 @@ export function createRenderer(canvas, rOpts = {}) {
 			gl.bindVertexArray(null);
 			lineCount = s.lineHalf.length; bufs.push(bP1, bP2, bCol, bHalf);
 		}
-		return { fanVao, fanCount: s.fanPos.length / 2, lineVao, lineCount, origin: s.origin, fillColor, bufs, minZoom: s.minZoom || 0 };   // minZoom＝シーン単位のズームゲート（N02通常駅は駅名の出るズームから）
+		return { fanVao, fanCount: s.fanPos.length / 2, lineVao, lineCount, origin: s.origin, fillColor, bufs, minZoom: s.minZoom || 0, feats: s.feats || null };   // minZoom＝シーン単位のズームゲート。feats＝feature毎レンジ+外接円（wdepr の球体カリング用）
 	}
 	function disposeOverlay(o) { if (o) { for (const b of o.bufs) gl.deleteBuffer(b); gl.deleteVertexArray(o.fanVao); if (o.lineVao) gl.deleteVertexArray(o.lineVao); } }
 	function setOverlay(s, fillColor) { disposeOverlay(overlay); overlay = s ? buildOverlaySlot(s, fillColor || [0.20, 0.45, 0.85, 0.32]) : null; }
@@ -636,7 +636,25 @@ export function createRenderer(canvas, rOpts = {}) {
 		gl.stencilOpSeparate(gl.BACK, gl.KEEP, gl.KEEP, gl.DECR_WRAP);
 		setCommonUniforms(stencilProg, st, o.origin, land);
 		gl.uniform1f(loc(gl, stencilProg, "u_lift"), OVERLAY_LIFT_M);
-		gl.bindVertexArray(o.fanVao); gl.drawArrays(gl.TRIANGLES, 0, o.fanCount);
+		gl.uniform1f(loc(gl, stencilProg, "u_sphereClip"), 1);   // 跨ぎ feature の裏側頂点を地平円へクランプ（可視部だけを囲む）
+		gl.bindVertexArray(o.fanVao);
+		// 球体カリング二段構え：①完全裏側 feature は CPU でレンジごと描かない（対蹠点付近は VS クランプが
+		// リング一周巻き＝全面+1 化する実測 2026-09-02＝クランプだけでは守れない）②地平線跨ぎは VS クランプ。
+		// 可視判定＝中心方向と視線の角 − 角半径 < 地平角 ⇔ dot(C,Ê) > cos(hor+rad)（cos加法・全て事前計算値）。
+		if (o.feats) {
+			const E = st.eye, eLen = Math.hypot(E[0], E[1], E[2]) || 1;
+			const cosH = Math.min(1, 1 / eLen), sinH = Math.sqrt(Math.max(0, 1 - cosH * cosH));
+			const ex = E[0] / eLen, ey = E[1] / eLen, ez = E[2] / eLen;
+			let run0 = -1, runN = 0;
+			for (const f of o.feats) {
+				const vis = f.C[0] * ex + f.C[1] * ey + f.C[2] * ez > f.cosR * cosH - f.sinR * sinH;
+				if (vis && run0 >= 0 && f.start === run0 + runN) { runN += f.count; continue; }   // 連続レンジは結合
+				if (runN) gl.drawArrays(gl.TRIANGLES, run0, runN);
+				run0 = vis ? f.start : -1; runN = vis ? f.count : 0;
+			}
+			if (runN) gl.drawArrays(gl.TRIANGLES, run0, runN);
+		} else gl.drawArrays(gl.TRIANGLES, 0, o.fanCount);
+		gl.uniform1f(loc(gl, stencilProg, "u_sphereClip"), 0);   // 共有プログラム＝通常 overlay（局所ポリゴン）へ持ち越さない
 		gl.colorMask(true, true, true, true);
 		gl.useProgram(wdCoverProg);
 		gl.uniformMatrix4fv(loc(gl, wdCoverProg, "u_invMvp"), false, Float32Array.from(st.invMvp));
@@ -650,12 +668,12 @@ export function createRenderer(canvas, rOpts = {}) {
 		bindClim(wdCoverProg);   // 気候場 unit12（未着は u_hasClim=0＝緯度近似フォールバック・globe と同じ）
 		bindWorldPal(wdCoverProg);   // globe と同一フレーム・同一パレット＝縫い目の色 bit 一致
 		gl.uniform3f(loc(gl, wdCoverProg, "u_whDeep"), ...worldPal().belowSea);
-		// 球体カリング＝巻き数の符号で裏半球を落とす（本人指摘 2026-09-01）：裏側のポリゴンは投影で向きが
-		// 反転し巻き数が -1(=255) になる＝NOTEQUAL 0 だと表に透けて塗られる（大西洋にデスバレーの幻影）。
-		// wdepr は焼きの向きが既知（d3-contour＝外周CCW）なので「+1 だけ」塗れば表半球限定になる。
-		gl.stencilFunc(gl.EQUAL, 1, 0xFF); gl.stencilOp(gl.KEEP, gl.KEEP, gl.ZERO);   // 表半球(+1)だけ塗り 0 へ後始末
+		// 球体カリングは VS の地平円クランプ（u_sphereClip）が担う＝裏側ポリゴンは円周に縮退（巻き数0）・
+		// 地平線跨ぎは可視部だけを囲む。旧・ref=±1 方式は「跨ぎポリゴンの投影折返し」が円盤内に作る
+		// ±1 斑を殺しきれなかった（GL/WebGPU で符号逆＝GL だけ幻影が残った実測 2026-09-02）。
+		gl.stencilFunc(gl.NOTEQUAL, 0, 0xFF); gl.stencilOp(gl.KEEP, gl.KEEP, gl.ZERO);   // 内側を塗り 0 へ後始末
 		gl.bindVertexArray(emptyVAO); gl.drawArrays(gl.TRIANGLES, 0, 3);
-		gl.clearStencil(0); gl.clear(gl.STENCIL_BUFFER_BIT);   // 裏半球の -1 残渣を掃除（後段 overlay/gint の NOTEQUAL を汚さない）
+		gl.clearStencil(0); gl.clear(gl.STENCIL_BUFFER_BIT);   // 地平円上の縮退スライバー残渣を掃除（後段 overlay/gint を汚さない）
 		gl.disable(gl.STENCIL_TEST);
 	}
 
@@ -756,10 +774,13 @@ export function createRenderer(canvas, rOpts = {}) {
 			if (view.showConst && (constel || ecliptic || celeq)) {
 				gl.useProgram(starLineProg);
 				starUniforms(starLineProg);
+				// view.skySolar（太陽系圏 z<1・l=sky 点灯時）：黄道/天の赤道は消灯（「地球から見た空」の注記＝
+				// 実位置3Dの太陽系と矛盾）・星座線は減光（本人裁定 2026-09-02「少し薄くした方が見栄えがいい」）
+				const dimC = view.skySolar ? 0.55 : 1;
 				const lines = [   // [バッファ, 色（定数attrib＝VAO外の文脈状態）]
-					[constel, [0.47, 0.63, 1.0, 0.4]],    // 星座線＝v1と同じ青（rgba(120,160,255)）
-					[ecliptic, [1.0, 0.8, 0.45, 0.35]],   // 黄道＝淡い黄（太陽・月・惑星の通り道）
-					[celeq, [1.0, 0.55, 0.5, 0.32]],      // 天の赤道＝淡い紅（「赤道」の名の通り。地球の赤道の空への投影）
+					[constel, [0.47, 0.63, 1.0, 0.4 * dimC]],   // 星座線＝v1と同じ青（rgba(120,160,255)）
+					[view.skySolar ? null : ecliptic, [1.0, 0.8, 0.45, 0.35]],   // 黄道＝淡い黄（太陽・月・惑星の通り道）
+					[view.skySolar ? null : celeq, [1.0, 0.55, 0.5, 0.32]],      // 天の赤道＝淡い紅（地球の赤道の空への投影）
 				];
 				for (const [b, c] of lines) {
 					if (!b) continue;

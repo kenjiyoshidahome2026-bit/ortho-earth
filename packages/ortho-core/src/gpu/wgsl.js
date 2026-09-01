@@ -585,7 +585,22 @@ struct SOut { @builtin(position) pos: vec4f };
 	let dir = F.originPt + rel;
 	let df = 1.0 - smoothstep(F.params.y * 0.8, F.params.y * 2.0, distance(F.eye, dir));
 	let h = (elev(ll) + P.p0.y) * F.elevP.x * df;
-	let relW = rel + h * liftDir(ll, dir);
+	var relW = rel + h * liftDir(ll, dir);
+	// p0.z=1（wdepr＝全球スケールのポリゴン）＝裏半球の頂点を地平円へ射影クランプ＝球体カリング
+	// （gl/glsl.js STENCIL_VS u_sphereClip と対＝裏側は円周に縮退・地平線跨ぎは可視部だけを囲む＝
+	// 投影折返しの±1巻き数斑を根絶）。通常 overlay は p0.z=0＝完全不変。
+	if (P.p0.z > 0.5) {
+		var Pt = F.originPt + relW;
+		let e2 = dot(F.eye, F.eye);
+		if (dot(Pt, F.eye) < 1.0) {
+			let Pp = Pt - F.eye * (dot(Pt, F.eye) / e2);
+			let lp = length(Pp);
+			var t = normalize(vec3f(-F.eye.z, 0.0, F.eye.x));
+			if (lp > 1e-6) { t = Pp / lp; }
+			Pt = F.eye / e2 + sqrt(max(1.0 - 1.0 / e2, 0.0)) * t;
+			relW = Pt - F.originPt;
+		}
+	}
 	// 巻き数で塗る＝fan の形は問わない。クリップ座標のまま（GL[-w,w]→WebGPU[0,w] へ z 写像・深度は off）
 	let c = F.clipT + F.mvp * vec4f(relW, 0.0);
 	o.pos = vec4f(c.xy, (c.z + c.w) * 0.5, c.w);

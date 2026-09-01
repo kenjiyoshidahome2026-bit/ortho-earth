@@ -243,10 +243,6 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 	const dsOvZero = { format: DEPTH, depthWriteEnabled: false, depthCompare: "always",
 		stencilFront: { compare: "not-equal", failOp: "keep", depthFailOp: "keep", passOp: "zero" },
 		stencilBack: { compare: "not-equal", failOp: "keep", depthFailOp: "keep", passOp: "zero" }, stencilWriteMask: 0xFF };
-	// wdepr の cover＝「巻き数 ref のみ」塗る（球体カリング＝裏半球は投影で向きが反転し巻き数の符号が逆＝ref 不一致で落ちる）
-	const dsWdCover = { format: DEPTH, depthWriteEnabled: false, depthCompare: "always",
-		stencilFront: { compare: "equal", failOp: "keep", depthFailOp: "keep", passOp: "zero" },
-		stencilBack: { compare: "equal", failOp: "keep", depthFailOp: "keep", passOp: "zero" }, stencilWriteMask: 0xFF };
 	// gintBld（moj筆ドレープ線/点）＝BUILDING_WGSL 流用・独自 origin（dynamic frame）＋DrawP(dynamic)＋mask(count0)。
 	// GL_LINES/GL_POINTS → topology line-list/point-list。深度で地形/尾根に遮蔽（建物と同じ dsWrite）。
 	const gbLayout = device.createPipelineLayout({ bindGroupLayouts: [bglOvFrame, bglOvParam, bglMask] });
@@ -296,7 +292,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 				vertex: { module: globeMod, entryPoint: "vs" },
 				fragment: { module: globeMod, entryPoint: "fsWdepr", targets: [target] },
 				primitive: { topology: "triangle-list" },
-				depthStencil: dsWdCover, multisample: ms,
+				depthStencil: dsOvCover, multisample: ms,
 			}),
 			grat: device.createRenderPipeline({   // 10度レチクル（v1 geoGraticule10 移植・globe と同一バインド・出現度=G.seaC.w）
 				layout: globeLayout,
@@ -383,6 +379,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 	const skyLineBuf = device.createBuffer({ size: LINE_SLOT * 3, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
 	const skyLineCPU = new Float32Array(LINE_SLOT / 4 * 3);
 	const skyLineBG = [0, 1, 2].map(i => device.createBindGroup({ layout: bglSkyLine, entries: [{ binding: 0, resource: { buffer: skyLineBuf, offset: i * LINE_SLOT, size: 16 } }] }));
+	let skySolarPrev = null;   // 太陽系圏モードの前回値＝constel 色 UBO の書き直しを跨ぎの瞬間だけに
 	// 星座線の色（GL renderer と同値）：星座=青 / 黄道=淡黄 / 天の赤道=淡紅。fadeSky.x（出現α）は VS で掛ける
 	skyLineCPU.set([0.47, 0.63, 1.0, 0.4], LINE_ROLE.constel * (LINE_SLOT / 4));
 	skyLineCPU.set([1.0, 0.8, 0.45, 0.35], LINE_ROLE.ecliptic * (LINE_SLOT / 4));
@@ -425,7 +422,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 	const u8colOv = col => { const u = new Uint8Array(col.length); for (let i = 0; i < col.length; i++) u[i] = Math.max(0, Math.min(255, Math.round(col[i] * 255))); return u; };
 	function buildOverlaySlot(s, fill) {
 		if (!s || (!s.fanPos.length && !(s.lineHalf && s.lineHalf.length))) return null;
-		const o = { origin: s.origin, fill, minZoom: s.minZoom || 0, fanCount: s.fanPos.length / 2, lineCount: 0, bufs: [] };
+		const o = { origin: s.origin, fill, minZoom: s.minZoom || 0, fanCount: s.fanPos.length / 2, lineCount: 0, bufs: [], feats: s.feats || null };   // feats＝feature毎レンジ+外接円（wdepr の球体カリング用）
 		if (s.fanPos.length) { o.fanBuf = makeBuf(s.fanPos, GPUBufferUsage.VERTEX); o.bufs.push(o.fanBuf); }
 		if (s.lineHalf && s.lineHalf.length) {
 			o.lineCount = s.lineHalf.length;
@@ -450,28 +447,37 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 	// wdepr の発行（draw() がタイル前・whK>0 の時だけ呼ぶ）：stencil fan（WD_SLOT の Frame/DrawP）→
 	// cover＝P.wdCover（globe と同一バインド＝landK=1 強制のハイプソ本体・α=G.whP.x の whK フェード）。
 	// 線は作らない前提（buildGeoJSONOverlay {lines:false}）＝塗りのみ。
-	function drawWdepr(pass, packF) {
+	function drawWdepr(pass, packF, st) {
 		if (!wdepr || !wdepr.fanCount || !globeBG) return;
 		ensureOvFrameBG();
 		device.queue.writeBuffer(ovFrameBuf, WD_SLOT * FRAME_SLOT, packF(wdepr.origin));
 		wdParamCPU.fill(0);
-		wdParamCPU[1] = OVERLAY_LIFT; wdParamCPU[3] = 1;   // p0.y=リフト p0.w=グローバルα（stencil パスの VS 用）
+		wdParamCPU[1] = OVERLAY_LIFT; wdParamCPU[2] = 1; wdParamCPU[3] = 1;   // p0.y=リフト p0.z=地平円クランプ（球体カリング＝vsStencil） p0.w=グローバルα
 		device.queue.writeBuffer(ovParamBuf, WD_SLOT * PARAM_SLOT, wdParamCPU.buffer, 0, PARAM_SLOT);
 		const fOff = WD_SLOT * FRAME_SLOT, pOff = WD_SLOT * PARAM_SLOT;
 		pass.setStencilReference(0);
 		pass.setPipeline(P.ovStencil);
 		pass.setBindGroup(0, ovFrameBG, [fOff]); pass.setBindGroup(1, ovParamBG, [pOff]);
-		pass.setVertexBuffer(0, wdepr.fanBuf); pass.draw(wdepr.fanCount);
-		// 球体カリング＝巻き数の符号で裏半球を落とす（gl/renderer.js drawWdepr と対）。焼きの外周は lon/lat CCW＝
-		// GL(窓座標y上)では表半球が +1 だが、WebGPU はフレームバッファ座標が y下＝向き判定が反転し表半球は -1(=255)。
-		pass.setStencilReference(255);
-		pass.setPipeline(P.wdCover);
+		pass.setVertexBuffer(0, wdepr.fanBuf);
+		// 球体カリング二段構え（gl/renderer.js drawWdepr と対）：①完全裏側 feature は CPU でレンジごと
+		// 描かない（対蹠点付近は VS クランプがリング一周巻き＝全面+1化）②跨ぎは vsStencil の地平円クランプ。
+		if (wdepr.feats) {
+			const E = st.eye, eLen = Math.hypot(E[0], E[1], E[2]) || 1;
+			const cosH = Math.min(1, 1 / eLen), sinH = Math.sqrt(Math.max(0, 1 - cosH * cosH));
+			const ex = E[0] / eLen, ey = E[1] / eLen, ez = E[2] / eLen;
+			let run0 = -1, runN = 0;
+			for (const f of wdepr.feats) {
+				const vis = f.C[0] * ex + f.C[1] * ey + f.C[2] * ez > f.cosR * cosH - f.sinR * sinH;
+				if (vis && run0 >= 0 && f.start === run0 + runN) { runN += f.count; continue; }
+				if (runN) pass.draw(runN, 1, run0);
+				run0 = vis ? f.start : -1; runN = vis ? f.count : 0;
+			}
+			if (runN) pass.draw(runN, 1, run0);
+		} else pass.draw(wdepr.fanCount);
+		// 球体カリングは VS の地平円クランプ（p0.z=1）が担う＝裏側は円周に縮退（巻き数0）・跨ぎは可視部のみ。
+		// 旧・ref=±1 方式は跨ぎポリゴンの投影折返しが作る±1斑を殺しきれなかった（GL だけ幻影の実測 2026-09-02）。
+		pass.setPipeline(P.wdCover);   // NOTEQUAL 0 → 塗って 0 へ後始末（dsOvCover と同じ）
 		pass.setBindGroup(0, globeBG);
-		pass.draw(3);
-		// 裏半球の残渣(+1)を掃除（後段 overlay の NOTEQUAL 0 を汚さない）＝ovZero（stencil≠0→0・色は書かない）
-		pass.setStencilReference(0);
-		pass.setPipeline(P.ovZero);
-		pass.setBindGroup(0, ovFrameBG, [fOff]); pass.setBindGroup(1, ovParamBG, [pOff]);
 		pass.draw(3);
 	}
 	// gintBld（gint ユーザー層の地形沿い境界線・点）＝独自 origin・BUILDING_WGSL 24B レイアウト・line/point 描画。null=解放。
@@ -1087,8 +1093,14 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 			if (stars) { pass.setPipeline(P.stars); pass.setVertexBuffer(0, stars.buf); pass.draw(6, stars.count); }
 			if (planets) { pass.setPipeline(P.stars); pass.setVertexBuffer(0, planets.buf); pass.draw(6, planets.count); }
 			if (showConst) {   // 星座線・黄道・天の赤道（view.showConst のみ・色は per-buffer UBO）
+				// view.skySolar（太陽系圏 z<1）：黄道/天の赤道は消灯・星座線は減光（gl/renderer.js と対）。
+				// 色 UBO の constel α だけモード替わりで書き直す（16B・跨ぎの瞬間のみ）
+				if (skySolarPrev !== !!view.skySolar) {
+					skySolarPrev = !!view.skySolar;
+					device.queue.writeBuffer(skyLineBuf, LINE_ROLE.constel * LINE_SLOT, new Float32Array([0.47, 0.63, 1.0, 0.4 * (skySolarPrev ? 0.55 : 1)]));
+				}
 				pass.setPipeline(P.starLine);
-				for (const [b, role] of [[constel, LINE_ROLE.constel], [ecliptic, LINE_ROLE.ecliptic], [celeq, LINE_ROLE.celeq]]) {
+				for (const [b, role] of [[constel, LINE_ROLE.constel], [view.skySolar ? null : ecliptic, LINE_ROLE.ecliptic], [view.skySolar ? null : celeq, LINE_ROLE.celeq]]) {
 					if (!b) continue;
 					pass.setBindGroup(1, skyLineBG[role]);
 					pass.setVertexBuffer(0, b.buf);
@@ -1127,7 +1139,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 		// 海面下の陸地（?world=1・below_sea_land）＝全球ハイプソの一部として「タイル(湖)より先」に敷く。
 		// 描画順が精度を代替（2026-09-01 本人指摘）：海側だけ焼きが正確（admin0海岸線でクリップ）ならよく、
 		// 湖側は上に乗る湖の塗り・陸側は cover（landK=1 のハイプソ本体）が外側と同色に溶ける。gl/renderer.js と対。
-		if (worldHypsoK > 0) drawWdepr(pass, (origin) => packFrame(st, origin, st.fogDist * 2.5, st.fogDist * 14.0, land, logCoef, dpr));
+		if (worldHypsoK > 0) drawWdepr(pass, (origin) => packFrame(st, origin, st.fogDist * 2.5, st.fogDist * 14.0, land, logCoef, dpr), st);
 		// 基図（塗り/線）：ペインタ順。山岳ビュー＝地形深度でテストだけ（書かない）＝尾根の向こうが透けない
 		// dbg＝?drawhud=1 の実機計器（描いた枚数と状態）。「背景が黒＝塗りが一枚も出ていない」時に、
 		// 犯人が CPU 側（シーンが空・スロット退場）か GPU 側（描いたのに出ない）かを画面で名指しするための物差し

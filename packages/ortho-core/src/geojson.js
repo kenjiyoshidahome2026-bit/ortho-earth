@@ -38,14 +38,31 @@ export function buildGeoJSONOverlay(features, origin, opts = {}) {
 		}
 		uw.forEach(pushRingLines);
 	};
+	// opts.ranges＝feature 毎の fan 頂点レンジ＋外接円（単位球3D中心と角半径の cos/sin）を同梱＝
+	// 全球スケールの層（wdepr）の球体カリング用：完全裏側の feature は CPU 側でレンジごと描かない
+	//（対蹠点付近はVSの地平円クランプがリング一周巻きになり全面+1化する＝クランプだけでは守れない）。
+	const feats = opts.ranges ? [] : null;
+	const D2R = Math.PI / 180;
 	features.forEach(f => {
 		const g = f && f.geometry; if (!g) return;
+		const vStart = fan.length / 2;
 		if (g.type === "Polygon") fanPolygon(g.coordinates);
 		else if (g.type === "MultiPolygon") g.coordinates.forEach(fanPolygon);
 		else if (g.type === "LineString") pushRingLines(unwrapRing(g.coordinates));
 		else if (g.type === "MultiLineString") g.coordinates.forEach(r => pushRingLines(unwrapRing(r)));
+		if (!feats) return;
+		const count = fan.length / 2 - vStart;
+		if (!count) return;
+		let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;   // fan デルタの bbox（origin相対・unwrap済）
+		for (let i = vStart * 2; i < fan.length; i += 2) { const x = fan[i], y = fan[i + 1]; if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+		const cl = (x0 + x1) / 2 + ox, ct = (y0 + y1) / 2 + oy;   // 中心（絶対 lon/lat）
+		const cLat = Math.cos(ct * D2R);
+		const C = [cLat * Math.cos(cl * D2R), Math.sin(ct * D2R), cLat * Math.sin(cl * D2R)];   // lonlatTo3D と同じ Y-up 規約
+		// 角半径＝bbox 対角の半分（度）を球面角へ（高緯度の経度縮みは cos 補正＝過大側に安全倒し）
+		const rad = Math.hypot((x1 - x0) / 2, (y1 - y0) / 2) * D2R;
+		feats.push({ start: vStart, count, C, cosR: Math.cos(Math.min(rad, Math.PI)), sinR: Math.sin(Math.min(rad, Math.PI)) });
 	});
-	return { origin: [ox, oy], fanPos: new Float32Array(fan), P1: new Float32Array(P1), P2: new Float32Array(P2), lineCol: new Float32Array(lcol), lineHalf: new Float32Array(lhalf) };
+	return { origin: [ox, oy], fanPos: new Float32Array(fan), P1: new Float32Array(P1), P2: new Float32Array(P2), lineCol: new Float32Array(lcol), lineHalf: new Float32Array(lhalf), feats };
 }
 
 // 点-in-ポリゴン（GeoJSON Polygon/MultiPolygon, 経緯度）。identify の JS 経路。穴も考慮。
