@@ -10,7 +10,7 @@ import path from "node:path";
 const APP = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const PORT = 5237;
 const CHROME = process.env.CHROME || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
-const PAGES = ["t-gadgets", "t-newgadgets", "t-providers", "t-measure", "t-profile", "t-shot", "t-palette-live", "t-demo", "t-scene", "t-print", "t-qr", "t-opts", "t-input", "t-narrow", "t-gintlod", "t-gintembed", "t-gintswap", "t-gintdepth", "t-ai"];
+const PAGES = ["t-gadgets", "t-newgadgets", "t-providers", "t-measure", "t-profile", "t-shot", "t-palette-live", "t-demo", "t-scene", "t-print", "t-qr", "t-opts", "t-input", "t-narrow", "t-gintlod", "t-gintembed", "t-gintswap", "t-anno", "t-gintdepth", "t-ai"];
 // t-plateaufs は verify:webgpu（実時間）側：OPFS の実 I/O は virtual-time と両立しない（t-webgpu と同じ轍）。
 
 const vite = spawn("npx", ["vite", "--port", String(PORT), "--strictPort"], { cwd: APP, stdio: "ignore" });

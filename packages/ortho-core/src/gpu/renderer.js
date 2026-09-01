@@ -14,6 +14,7 @@
 // ・MSAA 4x 明示（GL の canvas antialias:true と同格）。リサイズは getCurrentTexture が canvas 寸法へ自動追随。
 import { cameraState, lonlatTo3D, project, betaOf, ellipsoidOn } from "../camera.js";
 import { seaFbReal } from "../scene.js";
+import { resolveWorldPal } from "../worldpal.js";   // 全球ハイプソの正準パレット（テーマ＝view.worldHypso の部分上書き）
 import * as mat from "../mat.js";
 import { FILL_WGSL, LINE_WGSL, GLOBE_WGSL, TERRAIN_WGSL, BUILDING_WGSL, CONTOUR_WGSL, PLATEAU_WGSL, SKY_WGSL, OVERLAY_WGSL } from "./wgsl.js";
 
@@ -199,12 +200,14 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 		{ binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
 		{ binding: 2, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "filtering" } },
 		{ binding: 3, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
+		{ binding: 4, visibility: GPUShaderStage.FRAGMENT, buffer: {} },   // WorldPal（世界パレット＝terrain 側と同一バッファ）
 	] });
 	const globeLayout = device.createPipelineLayout({ bindGroupLayouts: [bglGlobe] });
 	// terrain group(2)＝気候場（全球ハイプソの cross-blend）。未着は dummy（DrawP p2.z=0 で不使用）
 	const bglClim = device.createBindGroupLayout({ entries: [
 		{ binding: 0, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
 		{ binding: 1, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "filtering" } },
+		{ binding: 2, visibility: GPUShaderStage.FRAGMENT, buffer: {} },   // WorldPal（globe 側 binding(4) と同一バッファ＝同色契約）
 	] });
 	const terrLayout = device.createPipelineLayout({ bindGroupLayouts: [bgl0, bgl1, bglClim] });
 	// 星空劇場（z<4）：Sky UBO（group0）＋星座線の色 UBO（group1）。深度無関係の背景（dsOff）
@@ -362,6 +365,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 	const frameBuf = device.createBuffer({ size: FRAME_SLOT * 5, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });   // 5スロット目=terrainFar（遠景メッシュパス）
 	const paramBuf = device.createBuffer({ size: PARAM_SLOT * N_ROLES, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
 	const globeBuf = device.createBuffer({ size: 144, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });   // mat4+land+atmo+elevBounds+whP+seaC
+	const worldPalBuf = device.createBuffer({ size: 160, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });   // WorldPal（10×vec4f・globe/terrain 両パイプラインで共有＝knob 変化時のみ書込）
 	let globeBG = null;   // rebuildGlobeBG() が生成（elev/clim テクスチャ差し替えで作り直し。明示レイアウト＝1x/4x 両セット互換）
 	const paramBG = [];   // 役割別（静的オフセット＝dynamic offset 不要）
 	for (let r = 0; r < N_ROLES; r++) paramBG.push(device.createBindGroup({
@@ -541,6 +545,19 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 
 	// 静的 view（色・見た目）と海ゲート＝gl/renderer.js と同じ意味論
 	let view = { clear: null, land: null, atmo: null, bldColor: null };
+	// 世界パレット（view.worldHypso の参照変化でだけ再解決＋worldPalBuf へ書込）。globe/terrain/wdepr は
+	// 同一バッファを読む＝wdepr⇄globe の縫い目（色の bit 一致契約）が構造的に保たれる。gl/renderer.js worldPal() と対。
+	let wpalSrc = false, wpal = null;   // 初期 false＝worldHypso が null でも初回は必ず書く
+	const wpalCPU = new Float32Array(40);
+	const worldPal = () => {
+		if (view.worldHypso !== wpalSrc) {
+			wpalSrc = view.worldHypso; wpal = resolveWorldPal(wpalSrc);
+			[wpal.lowHumid, wpal.lowArid, wpal.midHumid, wpal.midArid, wpal.ramp1, wpal.ramp2, wpal.peak, wpal.snow, wpal.belowSea, wpal.grat]
+				.forEach((c, i) => wpalCPU.set(c, i * 4));   // 各色 vec4f スロット（grat のみ w=α係数・他の w は 0 のまま）
+			device.queue.writeBuffer(worldPalBuf, 0, wpalCPU);
+		}
+		return wpal;
+	};
 	let sea = { li: -1, minzoom: Infinity };
 	let bldFill = { li: -1 };   // 建物フットプリント塗りの li。3D（チルト）時は伏せる＝押し出しと二重表現になるため
 	let fogDist = 0;            // フォグ距離の臨界減衰追従（gl/renderer.js と同じ）
@@ -592,10 +609,12 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 			{ binding: 1, resource: view },
 			{ binding: 2, resource: elevSampler },
 			{ binding: 3, resource: climTexView || dummyView },
+			{ binding: 4, resource: { buffer: worldPalBuf } },
 		] });
 		climBG = device.createBindGroup({ layout: bglClim, entries: [
 			{ binding: 0, resource: climTexView || dummyView },
 			{ binding: 1, resource: elevSampler },
+			{ binding: 2, resource: { buffer: worldPalBuf } },
 		] });
 	}
 	rebuildBG0();
@@ -989,6 +1008,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 		// ＝R90 全球窓の限界に着地（gl/renderer.js と同式）。気候場テクスチャも必要時に一度だけ取得
 		const worldHypsoK = view.worldHypso && elev.has ? Math.max(0, Math.min(1, (6.5 - cam.zoom) / 0.8)) : 0;
 		if (worldHypsoK > 0) ensureClimTex(view.worldHypso.clim);
+		worldPal();   // 世界パレット＝knob 参照変化時のみ worldPalBuf へ書込（バインドは常設）
 		device.queue.writeBuffer(paramBuf, 0, packParams({
 			fadeK,
 			cityLift, waterLift: waterLiftM, exact: terrainDepth ? 1 : 0,
@@ -1004,7 +1024,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 			g[20] = atmo[0]; g[21] = atmo[1]; g[22] = atmo[2]; g[23] = atmo[3];
 			g[24] = elev.bounds[0]; g[25] = elev.bounds[1]; g[26] = elev.bounds[2]; g[27] = elev.bounds[3];   // 全球ハイプソ（R90全球窓）
 			g[28] = worldHypsoK; g[29] = elev.has ? 1 : 0; g[30] = ellipsoidOn() ? 1 : 0; g[31] = climTexView ? 1 : 0;
-			const sc = (view.worldHypso && view.worldHypso.sea) || [0.757, 0.847, 0.891];
+			const sc = worldPal().sea;   // 正準パレット（worldpal.js 既定＝NE流の淡青・knobで差し替え可）
 			// seaC.w の空き＝10度レチクルの出現度（fsGrat・v1 geoGraticule10 移植）：z1.7→2.2 出現・z6.0→6.5 退場×基礎α0.5
 			g[32] = sc[0]; g[33] = sc[1]; g[34] = sc[2];
 			g[35] = view.graticule ? Math.max(0, Math.min(1, (cam.zoom - 1.7) / 0.5)) * Math.max(0, Math.min(1, (6.5 - cam.zoom) / 0.5)) * 0.5 : 0;

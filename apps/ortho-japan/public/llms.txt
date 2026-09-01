@@ -33,7 +33,7 @@ www.ortho-earth.com 配下に置くページなら、CDNのESモジュールを�
 |---|---|---|
 | target | 自作 | 埋め込み先（セレクタ/要素）。idは"map"に正規化される（家具規格）。容れ物のサイズ指定は#idでなくclass/inlineで |
 | view | 前回 | 初期視点 "#zoom/lat/lon/45t/30r/l=…/c=…"（t=チルト°・r=回転°） |
-| theme | "mono" | 配色固定（mono/dark/gsi/sepia、またはカスタムオブジェクト） |
+| theme | "mono" | 配色固定（mono/dark/gsi/sepia、またはカスタムオブジェクト）。worldHypso={sea,lowHumid,…,grat}で全球配色も差し替え可（未指定キー=自然色既定） |
 | layers | — | {place,terrain,rail,road,facility} を true/false で焼き付け/封印。未記述=チップで利用者が選ぶ |
 | chips / instruments | true | 右上チップ帯／下部計器盤の表示制御 |
 | plateau | true | 建物3D機能スイッチ。false=関連通信・workerごと停止（軽量埋め込み） |

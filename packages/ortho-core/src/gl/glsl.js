@@ -316,6 +316,10 @@ const WORLD_HYPSO = /* glsl */`
 uniform float u_whK;
 uniform sampler2D u_climTex;   // 気候場 720x360（Köppen-Geiger/Beck et al. CC-BY を焼き縮め）R=乾燥度 G=極地/氷床
 uniform float u_hasClim;       // 0=未着（緯度近似フォールバック） 1=気候場で本物の cross-blend
+// テーマパレット（正準既定＝worldpal.js・view.worldHypso で部分上書き）。式・標高帯はテーマ不変＝色だけ差し替え
+uniform vec3 u_whLowH, u_whLowA;   // 低地 湿潤/乾燥
+uniform vec3 u_whMidH, u_whMidA;   // 〜400m 湿潤/乾燥
+uniform vec3 u_whR1, u_whR2, u_whPeak, u_whSnow;   // 400-1300 / 1300-2800 / 2800-4800 / 氷床
 float wetBox(vec2 ll, vec4 b) {   // b=(lon0,lon1,lat0,lat1)・縁3°ソフト（気候場未着時のフォールバック用）
 	return smoothstep(b.x - 3.0, b.x + 3.0, ll.x) * (1.0 - smoothstep(b.y - 3.0, b.y + 3.0, ll.x))
 	     * smoothstep(b.z - 3.0, b.z + 3.0, ll.y) * (1.0 - smoothstep(b.w - 3.0, b.w + 3.0, ll.y));
@@ -339,15 +343,15 @@ vec3 worldHypso(float e, vec2 ll) {
 		arid *= 1.0 - wet;
 		pol = 1.0 - smoothstep(-64.0, -58.0, latD);   // 逆順smoothstepはGLSL仕様未定義＝正順で等価書換（WGSL移植と同式）
 	}
-	vec3 low = mix(vec3(0.582, 0.716, 0.531), vec3(0.839, 0.796, 0.639), arid);
-	vec3 mid = mix(vec3(0.752, 0.790, 0.578), vec3(0.855, 0.788, 0.612), arid);
+	vec3 low = mix(u_whLowH, u_whLowA, arid);
+	vec3 mid = mix(u_whMidH, u_whMidA, arid);
 	vec3 c = mix(low, mid, smoothstep(0.0, 400.0, e));
-	c = mix(c, vec3(0.871, 0.831, 0.659), smoothstep(400.0, 1300.0, e));
-	c = mix(c, vec3(0.788, 0.718, 0.635), smoothstep(1300.0, 2800.0, e));
-	c = mix(c, vec3(0.925, 0.925, 0.937), smoothstep(2800.0, 4800.0, e));
+	c = mix(c, u_whR1, smoothstep(400.0, 1300.0, e));
+	c = mix(c, u_whR2, smoothstep(1300.0, 2800.0, e));
+	c = mix(c, u_whPeak, smoothstep(2800.0, 4800.0, e));
 	// 雪/氷：気候場の極地チャンネル（EF=1・ET≈0.55）＋高緯度×氷床標高（グリーンランド内陸の保険）
 	float snow = pol + smoothstep(56.0, 62.0, latD) * smoothstep(1100.0, 1900.0, e);
-	c = mix(c, vec3(0.945, 0.953, 0.962), clamp(snow, 0.0, 1.0));
+	c = mix(c, u_whSnow, clamp(snow, 0.0, 1.0));
 	return mix(c, vec3(dot(c, vec3(0.299, 0.587, 0.114))), 0.10);
 }
 `;
@@ -519,6 +523,7 @@ precision highp float;
 uniform mat4 u_invMvp;
 uniform vec4 u_land;
 uniform vec4 u_atmo;
+uniform vec3 u_whDeep;   // 海面下の締め（乗算ティント既定 [0.84,0.92,0.82]＝worldpal.js）。globe側の式には非関与
 uniform sampler2D u_elevTex;
 uniform vec4 u_elevBounds;
 uniform float u_ell;
@@ -554,7 +559,7 @@ void main() {
 	vec3 hyp = worldHypso(e, ll) * shade;   // landK=1 強制＝「陸」の上塗り（海色ゲート・虫食いの根治）
 	// 海面下の締め（NE流「最深帯」）：0→-60m で僅かに暗く・緑側へ。気候によらず効く＝湿潤は深緑・乾燥はオリーブ
 	//（landK=1 だけだと乾燥帯の海面下がランプ差僅少でほぼ消える＝カッタラ/デスバレーが読めなくなる対策）
-	hyp = mix(hyp, hyp * vec3(0.84, 0.92, 0.82), clamp(-e / 60.0, 0.0, 1.0));
+	hyp = mix(hyp, hyp * u_whDeep, clamp(-e / 60.0, 0.0, 1.0));
 	vec3 base = mix(u_land.rgb, hyp, u_whK);
 	vec3 viewDir = normalize(A - P);
 	float ndv = clamp(dot(P, viewDir), 0.0, 1.0);
@@ -571,6 +576,7 @@ precision highp float;
 uniform mat4 u_invMvp;
 uniform float u_ell;
 uniform float u_alpha;   // 出現度（ズーム帯フェード×基礎アルファ）。0=不可視（呼び側でドロー自体を省略）
+uniform vec4 u_gratC;    // レチクル色 rgb＋α係数（テーマノブ grat。既定 [1,1,1,1]＝従来の白）
 in vec2 v_ndc;
 out vec4 fragColor;
 const float R2D = 57.29577951308232;
@@ -598,9 +604,9 @@ void main() {
 	float g90 = abs(fract(ll.x / 90.0 + 0.5) - 0.5) * 90.0;
 	float mer90 = (1.0 - smoothstep(0.25, 0.75, g90 / fw.x)) * (1.0 - smoothstep(0.8, 1.6, g90));
 	mer = mer * in80 + mer90 * (1.0 - in80);   // 経線＝±80 までは10°毎・その先(極冠)は90°毎だけ極まで
-	float a = max(mer, par) * u_alpha;
+	float a = max(mer, par) * u_alpha * u_gratC.a;
 	if (a <= 0.003) discard;
-	fragColor = vec4(vec3(a), a);   // 白・premultiplied（v1 の rgba(255,255,255,α) と同族）
+	fragColor = vec4(u_gratC.rgb * a, a);   // premultiplied（既定=白＝v1 の rgba(255,255,255,α) と同族）
 }`;
 
 // 星空（z<4の世界ビュー・v1 ortho-map の星空アクセサリー移植）：

@@ -175,6 +175,9 @@ const dbgHost = DEBUG_GLOBALS ? window : {};
 const WORLD_VT = !/[&?]world=0/.test(location.search);
 const WORLD_TILE_MAXZ = 3;
 const WORLD_PMTILES = "pmtiles://" + new URL("world-z3.pmtiles", new URL(import.meta.env?.BASE_URL || "/", location.href)).href;
+// 気候場テクスチャ（全球ハイプソ cross-blend・Köppen-Geiger/Beck et al. CC-BY 720x360 焼き縮め・public 資産）。
+// boot と switchTheme の両方が worldHypso.clim に積む（再送は両レンダラとも取得済みキャッシュで no-op）
+const CLIM_URL = new URL("koppen-clim.png", new URL(import.meta.env?.BASE_URL || "/", location.href)).href;
 const TILE_URL = (z, x, y) => WORLD_VT && z <= WORLD_TILE_MAXZ ? WORLD_PMTILES
 	: `https://cyberjapandata.gsi.go.jp/xyz/optimal_bvmap-v1/${z}/${x}/${y}.pbf`;
 // optimal_bvmap の配信圏（日本域）の外接矩形 [west,south,east,north]。これと全く重ならないタイルは GSI が
@@ -210,7 +213,10 @@ let theme = typeof opts.theme === "object" ? { ...MAP_THEMES.mono, ...opts.theme
 let style = theme.style;
 // 全球ベクタ（?world=1）：世界層を先頭へ前置＝li（層番号）は全経路が style から動的に引くので順送りで無害。
 // 前置＝painter順で最下層（国境線は基図の下）。層名が bvmap と重ならないので decode/merge は素通しで混在。
-if (WORLD_VT) style = { ...style, layers: [...worldLayers(), ...style.layers] };
+// 湖の色＝現テーマの worldHypso.sea（未指定＝正準既定）＝u_seaC と単一の出所。boot と switchTheme が共用
+//（switchTheme が theme.style を素で使うと世界層が落ちて湖が消える＝ライブ切替バグの根治もこのヘルパ経由）。
+const withWorld = s => WORLD_VT ? { ...s, layers: [...worldLayers(theme.worldHypso?.sea), ...s.layers] } : s;
+style = withWorld(style);
 mountGadgets(mapEl, { chips: opts.chips, instruments: opts.instruments, fixedLayers });   // UI を #map に生やす＝以降の getElementById が実体を掴めるよう、全lookupの前で
 // 非搭載（chips:false / instruments:false）でも配線コードは無改造＝繋ぎ先が無ければ宙のdiv（どこにも描画されない）へ。
 const orDetached = el => el || document.createElement("div");
@@ -1583,6 +1589,7 @@ function onSceneApplied(slot, sig) {
 }
 dbgHost.__mergeFail = () => requestMerge.debugFail();   // 次の merge を故意に失敗させ ack 自己修復を実地検証
 dbgHost.__vtPool = () => requestMerge.stats();          // multi_draw 常駐プールの占有を scene worker の console に出す
+dbgHost.__style = () => style;   // 現在の合成style（world層前置込み）＝検証フック（t-world：テーマ切替で world-water 層が生存し湖色がテーマの sea に追随すること）
 
 // 透視カメラ：center(注視点lon/lat), zoom(web-mercator float), pitch/bearing(rad)
 const MAXPITCH = 75 * D2R;   // 山岳ビュー(z<13)は地形が深度で自遮蔽・混成アトラスが地平線までカバー＝高チルトの根拠が揃ったので75°まで開放
@@ -1639,7 +1646,7 @@ const saveView = () => { saveCam(); try { history.replaceState(null, "", viewHas
 // 再ビルド必須（setPipelineStyle が evict→新styleビルド＝GPU入れ替え＝ピーク約1倍）。一瞬の貼り直しは許容（fade不要）。
 function switchTheme(name) {
 	if (name === themeName || !MAP_THEMES[name]) return;
-	themeName = name; theme = MAP_THEMES[name]; style = theme.style;
+	themeName = name; theme = MAP_THEMES[name]; style = withWorld(theme.style);   // withWorld＝世界層(湖)の再前置。素の theme.style だとライブ切替で湖が消える
 	bg = style.layers.find(L => L.type === "background");
 	land = bg ? parseRGBA(evalExpr(bg.paint?.["background-color"] ?? "#fff", { zoom: 10, props: {}, geom: null, vars: {} })) : [0.96, 0.96, 0.95, 1];
 	atmo = theme.atmo; bldColor = theme.bldColor;
@@ -1649,7 +1656,11 @@ function switchTheme(name) {
 	renderer.set("view", { clear, land, atmo, bldColor,
 		contourColor: theme.contourColor || null,
 		distColor: theme.distColor || null,
-		hypso: theme.hypso || null });
+		hypso: theme.hypso || null,
+		// 世界パレット＝オブジェクト丸ごと再送（前テーマのキー居座りなし・レンダラは参照変化で再解決）。
+		// clim 再送は無害（両レンダラとも取得済みキャッシュで no-op）。boot（下方の初期 set("view")）と同形
+		graticule: WORLD_VT,
+		worldHypso: WORLD_VT ? { clim: CLIM_URL, ...(theme.worldHypso || {}) } : null });
 	renderer.set("sea", { li: style.layers.findIndex(L => L.id === "water"), li2: style.layers.findIndex(L => L.id === "water-hi"), minzoom: 9 });
 	mapEl.classList.add("ui-dark");   // 白抜き家具＝常時ON（本人裁定2026-08-05）＝テーマ生き替えでも外さない（旧＝land輝度で付け外し）
 	if (gintSlot === "coast") applyCoastSlot();   // 海岸線色(theme.coastLine)を新テーマで塗り直す＝gint別層＝基図タイル再ビルドでは直らない（色の居座り根治）
@@ -1665,7 +1676,7 @@ renderer.set("view", { clear, land, atmo, bldColor, showN02: false,
 	// （Köppen-Geiger/Beck et al. CC-BY を 720x360 に焼き縮め・public 資産）。theme.worldHypso で色ノブ上書き可。
 	// null 明示＝居座り防止の流儀。showN02＝N02交通(新幹線等)の表示。鉄道チップで切替
 	graticule: WORLD_VT,   // 10度レチクル（v1 geoGraticule10 の移植・本人指名 2026-09-01）＝シェーダ計算（z帯はレンダラ側）
-	worldHypso: WORLD_VT ? { clim: new URL("koppen-clim.png", new URL(import.meta.env?.BASE_URL || "/", location.href)).href, ...(theme.worldHypso || {}) } : null });
+	worldHypso: WORLD_VT ? { clim: CLIM_URL, ...(theme.worldHypso || {}) } : null });
 // 海：水レイヤ(WA)をビュー一律にゲート＝cam.zoom<9 では描かない（＝紙の海・まだら無し）、z9+で一律点火。
 renderer.set("sea", { li: style.layers.findIndex(L => L.id === "water"), li2: style.layers.findIndex(L => L.id === "water-hi"), minzoom: 9 });   // li2＝水系点火面も同じ海ゲート
 renderer.set("bldFill", { li: style.layers.findIndex(L => L.id === "building") });   // 建物フットプリント塗り＝3D（チルト）時は伏せる（押し出しと二重表現のため）
@@ -3159,7 +3170,7 @@ function destroy() {
 	// デバッグ手はこのインスタンスの閉包を掴んだまま＝GCの錨になるので窓から下ろす
 	// 生やした名前は全て下ろす（従来は13名だけ＝取りこぼしが閉包を掴んだまま残っていた）。
 	// 埋め込み時は dbgHost が使い捨ての器＝この delete は空振りするが、閉包の錨は器ごと GC される。
-	for (const k of ["__arakawaFit", "__backend", "__budget", "__cam", "__coast", "__drawErr", "__drawHud", "__drawSendErr", "__drawSendN", "__farState", "__fly", "__gload", "__lastOrder", "__loadEstat", "__loadOverlay", "__mergeFail", "__moj", "__mojFile", "__paint", "__paintFid", "__paintOverlap", "__paintParity", "__paintProps", "__plateau", "__plateauPurge", "__sapporo", "__standup", "__tileCache", "__tileStats", "__tokyo", "__vtPool"]) delete dbgHost[k];
+	for (const k of ["__arakawaFit", "__backend", "__budget", "__cam", "__coast", "__drawErr", "__drawHud", "__drawSendErr", "__drawSendN", "__farState", "__fly", "__gload", "__lastOrder", "__loadEstat", "__loadOverlay", "__mergeFail", "__moj", "__mojFile", "__paint", "__paintFid", "__paintOverlap", "__paintParity", "__paintProps", "__plateau", "__plateauPurge", "__sapporo", "__standup", "__style", "__tileCache", "__tileStats", "__tokyo", "__vtPool"]) delete dbgHost[k];
 	mapEl.classList.remove("world");             // 全球ビューの家具フェード状態を預かったdivに残さない
 	if (ownMapEl) {   // 自前ページを預かった時に入れた inline 寸法を元へ（再起動しても二重に残らない）
 		document.documentElement.style.cssText = pageStyle.html ?? "";

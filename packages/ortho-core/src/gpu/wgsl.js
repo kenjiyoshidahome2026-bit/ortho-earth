@@ -263,6 +263,16 @@ fn toScreen(c: vec4f) -> vec2f {
 // clim＝気候場テクスチャの (乾燥度, 極地) サンプル値（呼び出し側が自前バインドで引く）。hasClim=0 は
 // 緯度近似フォールバック（気候場未着の1-2フレーム用）。逆順 smoothstep は 1-smoothstep(正順) へ書換済（WGSL未定義）。
 const WORLD_HYPSO_WGSL = /* wgsl */`
+// テーマパレット（正準既定＝worldpal.js・view.worldHypso で部分上書き）。struct はここ・var<uniform> WP は
+// 注入先モジュールが自分の group/binding で宣言（globe=group(0)binding(4)・terrain=group(2)binding(2)＝同一バッファ）。
+// vec3 は align16 の踏み抜き防止で全部 vec4f（rgb のみ使用・grat だけ w=α係数）＝10×vec4f=160B
+struct WorldPal {
+	lowHumid: vec4f, lowArid: vec4f,   // 低地 湿潤/乾燥
+	midHumid: vec4f, midArid: vec4f,   // 〜400m 湿潤/乾燥
+	ramp1: vec4f, ramp2: vec4f, peak: vec4f, snow: vec4f,   // 400-1300 / 1300-2800 / 2800-4800 / 氷床
+	belowSea: vec4f,   // wdepr 専用＝海面下の締め（乗算ティント）
+	grat: vec4f,       // レチクル rgb＋α係数
+};
 fn wetBox(ll: vec2f, b: vec4f) -> f32 {   // b=(lon0,lon1,lat0,lat1)・縁3°ソフト
 	return smoothstep(b.x - 3.0, b.x + 3.0, ll.x) * (1.0 - smoothstep(b.y - 3.0, b.y + 3.0, ll.x))
 	     * smoothstep(b.z - 3.0, b.z + 3.0, ll.y) * (1.0 - smoothstep(b.w - 3.0, b.w + 3.0, ll.y));
@@ -283,14 +293,14 @@ fn worldHypsoColor(e: f32, ll: vec2f, clim: vec2f, hasClim: f32) -> vec3f {
 		arid = arid * (1.0 - wet);
 		pol = 1.0 - smoothstep(-64.0, -58.0, latD);
 	}
-	let lowc = mix(vec3f(0.582, 0.716, 0.531), vec3f(0.839, 0.796, 0.639), arid);
-	let midc = mix(vec3f(0.752, 0.790, 0.578), vec3f(0.855, 0.788, 0.612), arid);
+	let lowc = mix(WP.lowHumid.rgb, WP.lowArid.rgb, arid);
+	let midc = mix(WP.midHumid.rgb, WP.midArid.rgb, arid);
 	var c = mix(lowc, midc, smoothstep(0.0, 400.0, e));
-	c = mix(c, vec3f(0.871, 0.831, 0.659), smoothstep(400.0, 1300.0, e));
-	c = mix(c, vec3f(0.788, 0.718, 0.635), smoothstep(1300.0, 2800.0, e));
-	c = mix(c, vec3f(0.925, 0.925, 0.937), smoothstep(2800.0, 4800.0, e));
+	c = mix(c, WP.ramp1.rgb, smoothstep(400.0, 1300.0, e));
+	c = mix(c, WP.ramp2.rgb, smoothstep(1300.0, 2800.0, e));
+	c = mix(c, WP.peak.rgb, smoothstep(2800.0, 4800.0, e));
 	let snow = pol + smoothstep(56.0, 62.0, latD) * smoothstep(1100.0, 1900.0, e);
-	c = mix(c, vec3f(0.945, 0.953, 0.962), clamp(snow, 0.0, 1.0));
+	c = mix(c, WP.snow.rgb, clamp(snow, 0.0, 1.0));
 	return mix(c, vec3f(dot(c, vec3f(0.299, 0.587, 0.114))), 0.10);
 }
 fn climUV(ll: vec2f) -> vec2f { return vec2f(ll.x / 360.0 + 0.5, 0.5 - ll.y / 180.0); }
@@ -302,6 +312,7 @@ ${WORLD_HYPSO_WGSL}
 // 気候場（全球ハイプソの cross-blend）＝terrain 専用 group(2)。未着は dummy（hasClim=P.p2.z=0 で不使用）
 @group(2) @binding(0) var climTex: texture_2d<f32>;
 @group(2) @binding(1) var climSamp: sampler;
+@group(2) @binding(2) var<uniform> WP: WorldPal;   // 世界パレット＝globe 側 binding(4) と同一バッファ（同色契約）
 struct TerrOut {
 	@builtin(position) pos: vec4f,
 	@location(0) ll: vec2f,
@@ -654,6 +665,7 @@ struct Globe {
 @group(0) @binding(1) var gElevTex: texture_2d<f32>;
 @group(0) @binding(2) var gSamp: sampler;
 @group(0) @binding(3) var gClimTex: texture_2d<f32>;
+@group(0) @binding(4) var<uniform> WP: WorldPal;   // 世界パレット＝terrain 側 binding(2) と同一バッファ（同色契約）
 ${WORLD_HYPSO_WGSL}
 const R2Dg: f32 = 57.29577951308232;
 fn gElevAt(ll: vec2f) -> f32 {
@@ -740,7 +752,7 @@ struct GOut { @builtin(position) pos: vec4f, @location(0) ndc: vec2f };
 	// α=1 の不透明で置く＝ポリゴン境界の e≳4m では画素値が globe と bit 一致し縁が完全に消える。
 	var hyp = worldHypsoColor(e, ll, clim, G.whP.w) * shade;   // landK=1 強制＝「陸」の上塗り
 	// 海面下の締め（NE流「最深帯」）：0→-60m で僅かに暗く・緑側へ＝乾燥帯でも読める（gl WDEPR_FS と同式）
-	hyp = mix(hyp, hyp * vec3f(0.84, 0.92, 0.82), clamp(-e / 60.0, 0.0, 1.0));
+	hyp = mix(hyp, hyp * WP.belowSea.rgb, clamp(-e / 60.0, 0.0, 1.0));
 	let base = mix(G.land.rgb, hyp, G.whP.x);
 	let viewDir = normalize(A - Pt);
 	let ndv = clamp(dot(Pt, viewDir), 0.0, 1.0);
@@ -772,8 +784,8 @@ struct GOut { @builtin(position) pos: vec4f, @location(0) ndc: vec2f };
 	let g90 = abs(fract(ll.x / 90.0 + 0.5) - 0.5) * 90.0;
 	let mer90 = (1.0 - smoothstep(0.25, 0.75, g90 / fw.x)) * (1.0 - smoothstep(0.8, 1.6, g90));
 	mer = mer * in80 + mer90 * (1.0 - in80);
-	let a = max(mer, par) * G.seaC.w;
+	let a = max(mer, par) * G.seaC.w * WP.grat.w;
 	if (a <= 0.003) { discard; }
-	return vec4f(vec3f(a), a);   // 白・premultiplied
+	return vec4f(WP.grat.rgb * a, a);   // premultiplied（既定=白）
 }
 `;

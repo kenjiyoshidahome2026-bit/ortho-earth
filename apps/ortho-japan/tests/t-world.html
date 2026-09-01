@@ -1,0 +1,61 @@
+<!doctype html>
+<!-- UI回帰：world（?world=1 既定）×配色テーマ。世界ズームで起動し、パレット経由のライブテーマ切替
+     （switchTheme）で ①world-water（湖）層が生存すること＝「switchTheme が theme.style を素で使い
+     世界層が落ちる」バグの回帰封じ ②湖の fill-color がテーマの worldHypso.sea に追随（単一の出所＝
+     worldpal.js/palettes.js）③gsi＝sea だけの部分上書き（per-key マージ）も届くこと、を状態レベルで検める。
+     ★ピクセル断言はしない（headless×worker GL は t-shot と同じ理由で不可）＝実描画は CDP 手動検証の領分。
+     style の観察は dbgHost.__style（検証フック・app.js）。撮影は t-palette-live と同じ合成スタブで差し替え。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021;width:640px;height:420px}</style><title>t-world</title></head>
+<body>
+<script>window.requestAnimationFrame = cb => setTimeout(() => cb(performance.now()), 16); localStorage.setItem("oj.hint", "closed");</script>
+<script type="module">
+import orthoJapan from "../app.js";
+const t = [], ok = (n, c) => t.push((c ? "ok:" : "NG:") + n);
+const mkSnap = () => {   // 合成スナップショット（palette の撮影スタブ＝t-palette-live と同じ骨格・内容は不問）
+	const W = 20, H = 14, a = new Uint8Array(W * H * 4).fill(255);
+	return { W, H, render: { base: a.buffer, w: W, h: H, labels: null, lw: 0, lh: 0 } };
+};
+const lakeOf = () => {   // 現在の合成 style から world-water（湖）層を引く
+	const L = (window.__style?.() || { layers: [] }).layers.find(l => l.id === "world-water");
+	return L ? String(L.paint?.["fill-color"] || "") : null;
+};
+const switchVia = async (h, picker, name) => {   // パレットカードのクリック＝ライブ切替の実経路（applyView と同じ switchTheme）
+	await h.open();
+	await new Promise(r => setTimeout(r, 250));
+	picker.querySelector(`.tp-card[data-theme="${name}"]`)?.click();
+	await new Promise(r => setTimeout(r, 200));   // setPipelineStyle→set("view") の同期部が済むのを待つ（断言は状態のみ）
+};
+try {
+	const map = await orthoJapan({ view: "#2.5/20/135" });   // 世界ズーム（z2.5＝全球＋レチクル帯・BASEMAP_MINZOOM 未満）
+	ok("boot@world", map.view.theme === "mono" && map.view.zoom < 5);
+	await new Promise(r => setTimeout(r, 150));   // .world はdrawループが付与（update内 classList.toggle）＝boot直後は1フレーム早い
+	ok("worldClass", document.getElementById("map").classList.contains("world"));   // z<STARSKY_Z＝星空劇場の家具フェード
+	ok("lake:mono", lakeOf() === "#c1d8e3");   // 湖＝正準既定（worldpal.js の sea）＝u_seaC と同色
+	const h = map.gadget.palette({ requestSnapshot: async () => mkSnap() });
+	await h.open();
+	await new Promise(r => setTimeout(r, 300));
+	const picker = document.getElementById("theme-picker");
+	ok("picker", !!picker && picker.classList.contains("open"));
+	window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+
+	// mono→dark：world-water 生存（層落ちバグの回帰）＋湖色が dark の worldHypso.sea へ
+	await switchVia(h, picker, "dark");
+	ok("theme:dark", map.view.theme === "dark" && /c=dark/.test(map.view.hash));
+	ok("lake:dark生存", lakeOf() !== null);
+	ok("lake:dark色", lakeOf() === "#090c12");   // palettes.js dark.worldHypso.sea [0.035,0.047,0.071]
+
+	// dark→gsi：sea だけの部分上書き（per-key マージ）が湖へ届く
+	await switchVia(h, picker, "gsi");
+	ok("theme:gsi", map.view.theme === "gsi");
+	ok("lake:gsi色", lakeOf() === "#bed2ff");   // gsi.worldHypso = { sea } のみ＝陸は既定のまま海だけ差し替え
+
+	// gsi→mono：knob 無し＝正準既定へ復帰（居座りなしの round-trip）
+	await switchVia(h, picker, "mono");
+	ok("theme:mono復帰", map.view.theme === "mono");
+	ok("lake:mono復帰", lakeOf() === "#c1d8e3");
+
+	map.destroy();
+	ok("destroy", true);
+} catch (e) { ok("boot:" + (e && e.message || e), false); }
+document.title = t.some(s => s.startsWith("NG")) ? "FAIL " + t.join(" ") : "PASS " + t.join(" ");
+</script></body></html>

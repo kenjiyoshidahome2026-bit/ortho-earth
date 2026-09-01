@@ -4,6 +4,7 @@
 import { FILL_VS, FILL_FS, LINE_VS, LINE_FS, GLOBE_VS, GLOBE_FS, WDEPR_FS, GRAT_FS, BUILDING_VS, BUILDING_FS, TERRAIN_VS, TERRAIN_FS, STENCIL_VS, STENCIL_FS, COVER_FS, PLATEAU_VS, PLATEAU_FS, CONTOUR_FS, STARS_VS, STARS_FS, STARLINE_FS, NIGHT_FS, FILL_MD_VS, LINE_MD_VS, BUILDING_MD_VS, MD_MAX_DRAWS } from "./glsl.js";
 import { cameraState, project, lonlatTo3D, betaOf, ellipsoidOn } from "../camera.js";   // betaOf/ellipsoidOn＝setCommonUniforms の楕円体錨（WGS84化でGL2側だけimport漏れ＝GL2全描画が毎フレームReferenceErrorの実バグを2026-08-12修正）
 import { seaFbReal } from "../scene.js";   // 図郭外フォールバック水域の擬似li帯判定（build.js buildEmptySeaOps と対）
+import { resolveWorldPal } from "../worldpal.js";   // 全球ハイプソの正準パレット（テーマ＝view.worldHypso の部分上書き）
 import * as mat from "../mat.js";
 
 const CORNERS = new Float32Array([0, -1, 0, 1, 1, -1, 1, -1, 0, 1, 1, 1]); // 6頂点×(end,side)
@@ -61,6 +62,24 @@ export function createRenderer(canvas, rOpts = {}) {
 		gl.uniform1i(loc(gl, prog, "u_climTex"), 12);
 		gl.uniform1f(loc(gl, prog, "u_hasClim"), climTex ? 1 : 0);
 		gl.activeTexture(gl.TEXTURE12); gl.bindTexture(gl.TEXTURE_2D, climTex); gl.activeTexture(gl.TEXTURE0);
+	}
+	// 世界パレット（view.worldHypso の参照変化でだけ再解決＝setView は浅マージでオブジェクト丸ごと差し替わる）。
+	// globe/terrain/wdepr は同一フレームの同一戻り値を使う＝wdepr⇄globe の縫い目（色の bit 一致契約）が構造的に保たれる。
+	let wpal = resolveWorldPal(null), wpalSrc = null;
+	const worldPal = () => {
+		if (view.worldHypso !== wpalSrc) { wpalSrc = view.worldHypso; wpal = resolveWorldPal(wpalSrc); }
+		return wpal;
+	};
+	function bindWorldPal(prog) {   // 要 useProgram 済み。8色＝WORLD_HYPSO チャンクの uniform
+		const p = worldPal();
+		gl.uniform3f(loc(gl, prog, "u_whLowH"), ...p.lowHumid);
+		gl.uniform3f(loc(gl, prog, "u_whLowA"), ...p.lowArid);
+		gl.uniform3f(loc(gl, prog, "u_whMidH"), ...p.midHumid);
+		gl.uniform3f(loc(gl, prog, "u_whMidA"), ...p.midArid);
+		gl.uniform3f(loc(gl, prog, "u_whR1"), ...p.ramp1);
+		gl.uniform3f(loc(gl, prog, "u_whR2"), ...p.ramp2);
+		gl.uniform3f(loc(gl, prog, "u_whPeak"), ...p.peak);
+		gl.uniform3f(loc(gl, prog, "u_whSnow"), ...p.snow);
 	}
 	// ?mem=1 台帳のGPU固定常駐（自前確保分の概算）：標高アトラス（近/舞台裏/遠）＋地形メッシュ。
 	// canvas antialias:true の MSAA はブラウザ暗黙確保＝ここでは数えない（HUD 側注記）。
@@ -629,6 +648,8 @@ export function createRenderer(canvas, rOpts = {}) {
 		gl.uniform1f(loc(gl, wdCoverProg, "u_ell"), ellipsoidOn() ? 1 : 0);
 		gl.uniform1f(loc(gl, wdCoverProg, "u_whK"), whK);
 		bindClim(wdCoverProg);   // 気候場 unit12（未着は u_hasClim=0＝緯度近似フォールバック・globe と同じ）
+		bindWorldPal(wdCoverProg);   // globe と同一フレーム・同一パレット＝縫い目の色 bit 一致
+		gl.uniform3f(loc(gl, wdCoverProg, "u_whDeep"), ...worldPal().belowSea);
 		// 球体カリング＝巻き数の符号で裏半球を落とす（本人指摘 2026-09-01）：裏側のポリゴンは投影で向きが
 		// 反転し巻き数が -1(=255) になる＝NOTEQUAL 0 だと表に透けて塗られる（大西洋にデスバレーの幻影）。
 		// wdepr は焼きの向きが既知（d3-contour＝外周CCW）なので「+1 だけ」塗れば表半球限定になる。
@@ -770,8 +791,9 @@ export function createRenderer(canvas, rOpts = {}) {
 				gl.uniform4f(loc(gl, globeProg, "u_elevBounds"), elev.bounds[0], elev.bounds[1], elev.bounds[2], elev.bounds[3]);
 				gl.uniform1f(loc(gl, globeProg, "u_hasElev"), 1);
 				gl.uniform1f(loc(gl, globeProg, "u_ell"), ellipsoidOn() ? 1 : 0);
-				const sc = view.worldHypso.sea || [0.757, 0.847, 0.891];   // NE流の淡青（knobで差し替え可）
+				const sc = worldPal().sea;   // 正準パレット（worldpal.js 既定＝NE流の淡青・knobで差し替え可）
 				gl.uniform3f(loc(gl, globeProg, "u_seaC"), sc[0], sc[1], sc[2]);
+				bindWorldPal(globeProg);
 				ensureClimTex(view.worldHypso.clim);   // 気候場（cross-blend）＝初回だけ取得。未着は緯度近似
 				bindClim(globeProg);
 			}
@@ -844,7 +866,7 @@ export function createRenderer(canvas, rOpts = {}) {
 			gl.uniform3f(loc(gl, terrainProg, "u_hypso"), hy ? hy.color[0] : 0, hy ? hy.color[1] : 0, hy ? hy.color[2] : 0);
 			gl.uniform2f(loc(gl, terrainProg, "u_hypsoP"), hy ? 1 / (hy.max || 3000) : 0, hy ? (hy.amount ?? 0.5) : 0);
 			gl.uniform1f(loc(gl, terrainProg, "u_whK"), worldHypsoK);   // 全球ハイプソ（低ズーム帯）＝globe パスと同色
-			if (worldHypsoK > 0) { ensureClimTex(view.worldHypso.clim); bindClim(terrainProg); }
+			if (worldHypsoK > 0) { ensureClimTex(view.worldHypso.clim); bindClim(terrainProg); bindWorldPal(terrainProg); }
 			else { gl.uniform1i(loc(gl, terrainProg, "u_climTex"), 12); gl.uniform1f(loc(gl, terrainProg, "u_hasClim"), 0); }   // サンプラは常時unit12へ（未設定=unit0整数テクスチャの轍）
 			const mh = terrain.mesh;   // 窓の原点/幅＝単位格子メッシュを実座標へ伸ばす（メッシュ自体は使い回し）
 			gl.uniform1f(loc(gl, terrainProg, "u_farPass"), 0);
@@ -999,6 +1021,7 @@ export function createRenderer(canvas, rOpts = {}) {
 				gl.uniformMatrix4fv(loc(gl, gratProg, "u_invMvp"), false, Float32Array.from(st.invMvp));
 				gl.uniform1f(loc(gl, gratProg, "u_ell"), ellipsoidOn() ? 1 : 0);
 				gl.uniform1f(loc(gl, gratProg, "u_alpha"), gratA);
+				gl.uniform4f(loc(gl, gratProg, "u_gratC"), ...worldPal().grat);   // テーマのレチクル色（既定=白）
 				gl.bindVertexArray(emptyVAO); gl.drawArrays(gl.TRIANGLES, 0, 3);
 			}
 		}

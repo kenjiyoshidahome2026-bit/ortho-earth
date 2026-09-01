@@ -24,3 +24,4 @@ export { createPipeline } from "./pipeline.js";
 export { createTerrain } from "./terrain.js";
 export { mergeTiles } from "./scene.js";
 export { geodesicDistance, geodesicArea, primeVerticalRadius, meridionalRadius, AUTHALIC_R, WGS84 } from "./geodesic.js";
+export { WORLD_PAL_DEFAULT } from "./worldpal.js";
