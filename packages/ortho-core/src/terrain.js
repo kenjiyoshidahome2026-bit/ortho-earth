@@ -364,23 +364,29 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 				});
 			}
 		}
-		// ── 遠景層（far）＝R10 第2アトラス ──────────────────────────────────
-		// 発動は「近窓が R01 級」×チルト時のみ：真俯瞰は近窓(4°)が視界を覆う＝遠層は見えないのに
-		// 10-16MB のアトラスと遠景メッシュ2度描きを払わない。閾値は混成モードと同じ pitch>0.9。
-		// 窓選定は近窓と同じ viewCellRange（票×フォグ切り）＝画面が実際に見る R10 セルだけを持つ。
-		const farOn = !noFar && range === 1 && (cam.pitch || 0) > 0.9;
-		if (farOn) {
-			const fr = viewCellRange(cam, size, 10, false);
-			// 低メモリ端末＝遠層は 256/セル（926m/texel）へクランプ：遠層の仕事はフォグ越しの山のシルエット＝
+		// ── 遠景層（far）＝第2アトラス。二形態（elev()は近窓外→far参照＝カバーの床）──────
+		//   A) 深ズーム（近窓がR01級×チルト>0.9）＝R10視界窓（従来）：真俯瞰は近窓(4°)が視界を覆う＝
+		//      遠層は見えないのに 10-16MB のアトラスと遠景メッシュ2度描きを払わない。
+		//   B) 世界帯（近窓がR10・z<8）＝R90全球固定窓(4×2)：R10窓はcap=8(80°角)＝広域・高緯度・回転で
+		//      視界を覆い切れず、窓外の陸が標高0＝ハイプソが海色に落ちて国境だけ海に浮く
+		//      （ウクライナ #5.71/48/29/-17r 実測 9/2＝R90/R10境界を5.5へ下げて顕在化。旧6.5の隠れた
+		//      安全根拠がこれ＝R90全球固定窓はカバー欠けの原理が無い）。R90をfarの床に敷けば根治。
+		//      R90一式はworld下地用に先読み/IDB常備＝追加はGPU 16MB(lowMem 4MB)のみ。z≥8は近窓80°で十分。
+		const farSpan = noFar ? 0 : range === 1 && (cam.pitch || 0) > 0.9 ? 10 : range === 10 && cam.zoom < 8 ? 90 : 0;
+		if (farSpan) {
+			const fr = farSpan === 90
+				? { originCX: -2, originCY: -1, cellsX: 4, cellsY: 2, cellRes: lowMem ? 512 : 1024, wanted: null }
+				: viewCellRange(cam, size, 10, false);
+			// 低メモリ端末＝R10遠層は 256/セル（926m/texel）へクランプ：遠層の仕事はフォグ越しの山のシルエット＝
 			// 精細は近窓の領分。8セル窓は 512 下限で edgeBudget が効かないため、ここで直接絞る
 			//（例 8×4 窓 16.8MB→4.2MB。3GB 機の飛行中 jetsam 対策の一部）。
-			if (lowMem) fr.cellRes = Math.min(fr.cellRes, 256);
-			const fkey = ["F", fr.originCX, fr.originCY, fr.cellsX, fr.cellsY, fr.cellRes].join(",");
+			if (farSpan === 10 && lowMem) fr.cellRes = Math.min(fr.cellRes, 256);
+			const fkey = ["F", farSpan, fr.originCX, fr.originCY, fr.cellsX, fr.cellsY, fr.cellRes].join(",");
 			if (fkey !== farKey) {
 				farKey = fkey; farLoaded = new Set(); farWritten = new Set(); farFails = new Map();
-				// ダブルバッファ無し（近窓の staging と違い）：R10 は直前の窓/混成遠方で LRU に居ることが多く、
+				// ダブルバッファ無し（近窓の staging と違い）：R10/R90 は LRU・IDB に居ることが多く、
 				// ゼロ初期化→同フレーム内のキャッシュヒット書込で埋まる。コールドはセル到着順にせり上がる（許容）。
-				renderer.set("elevAtlasFar", { originLng: fr.originCX * 10, originLat: fr.originCY * 10, cellsX: fr.cellsX, cellsY: fr.cellsY, cellRes: fr.cellRes, cellSpan: 10, edgeFade: EDGE_FADE(10) });
+				renderer.set("elevAtlasFar", { originLng: fr.originCX * farSpan, originLat: fr.originCY * farSpan, cellsX: fr.cellsX, cellsY: fr.cellsY, cellRes: fr.cellRes, cellSpan: farSpan, edgeFade: EDGE_FADE(farSpan) });
 				requestDraw();
 			}
 			for (let cy = 0; cy < fr.cellsY; cy++) for (let cx = 0; cx < fr.cellsX; cx++) {
@@ -388,10 +394,10 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 				if (farLoaded.has(ck)) continue;
 				if (fr.wanted && !fr.wanted.has(ck)) continue;   // 票ゼロ（画面に映らない）セルは取りに行かない（近窓と同じ規約＝映り込めば次の ensure で拾う）
 				farLoaded.add(ck);
-				const cellLng = (fr.originCX + cx) * 10, cellLat = (fr.originCY + cy) * 10;
-				pendingElev++; notifyPending(10);
-				getCell(cellLng, cellLat, 10).then(tile => {
-					pendingElev--; notifyPending(10);
+				const cellLng = (fr.originCX + cx) * farSpan, cellLat = (fr.originCY + cy) * farSpan;
+				pendingElev++; notifyPending(farSpan);
+				getCell(cellLng, cellLat, farSpan).then(tile => {
+					pendingElev--; notifyPending(farSpan);
 					if (tile && farKey === fkey) { renderer.set("elevCellFar", downsampleFlipped(tile, fr.cellRes), { cx, cy, cellRes: fr.cellRes }); farWritten.add(ck); }
 					if (!tile && farKey === fkey) {   // 取得失敗は未読込へ戻す（上限3回）＝近窓と同じ再挑戦則
 						const n = (farFails.get(ck) || 0) + 1; farFails.set(ck, n);
@@ -400,7 +406,7 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 					requestDraw();
 				});
 			}
-		} else if (farKey) {   // 深ズーム離脱／真俯瞰へ＝遠層を畳んで GPU メモリを返す
+		} else if (farKey) {   // 深ズーム離脱／真俯瞰・世界帯離脱へ＝遠層を畳んで GPU メモリを返す
 			farKey = ""; farLoaded = new Set(); farWritten = new Set(); farFails = new Map();
 			renderer.set("elevAtlasFarOff");
 			requestDraw();
