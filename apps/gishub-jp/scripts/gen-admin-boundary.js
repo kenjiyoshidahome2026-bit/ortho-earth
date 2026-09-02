@@ -32,7 +32,7 @@
  * ─────────────────────────────────────────────────────────────────
  */
 
-import xlsx from 'xlsx';
+import xlsx from 'xlsx';   // 読み込み専用・root の devDependencies（手動実行の整備道具＝出荷物ではない）
 import { writeFileSync, existsSync, readFileSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';

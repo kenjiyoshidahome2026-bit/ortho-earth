@@ -21,7 +21,8 @@
 	"devDependencies": {
 		"rollup-plugin-visualizer": "^7.0.1",
 		"sass-embedded": "^1.99.0",
-		"vite-plugin-wasm": "^3.6.0"
+		"vite-plugin-wasm": "^3.6.0",
+		"xlsx": "^0.18.5"
 	},
 	"allowScripts": {
 		"esbuild@0.21.5": true,

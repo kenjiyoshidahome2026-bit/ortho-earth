@@ -10,7 +10,7 @@
  *
  * node scripts/build-pop-history.mjs
  */
-import * as XLSX from 'xlsx';
+import * as XLSX from 'xlsx';   // 読み込み専用・root の devDependencies（手動実行の整備道具＝出荷物ではない）
 import { writeFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';

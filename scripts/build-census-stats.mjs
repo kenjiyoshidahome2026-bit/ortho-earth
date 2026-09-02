@@ -20,7 +20,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import AdmZip from 'adm-zip';
 import iconv from 'iconv-lite';
-import * as XLSX from 'xlsx';
+import * as XLSX from 'xlsx';   // 読み込み専用・root の devDependencies（手動実行の整備道具＝出荷物ではない）
 
 const __dir = path.dirname(fileURLToPath(import.meta.url));
 const CATALOG = path.join(__dir, '../apps/catalog');

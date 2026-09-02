@@ -105,12 +105,12 @@ export function showPropTable(pbf, logEl, tablesEl, actionEl) {
     btnRow.append('button').text('📥 CSV').on('click', () =>
         saveProp(new File([pbf.getCSV()], (pbf._name || 'data') + '.csv', { type: 'text/csv' })));
     btnRow.append('button').text('📥 Excel').on('click', async () => {
-        // ローカル依存の遅延チャンク（旧: 実行時CDN import＝オフライン死・SRI不能・0.18.5系CVEの供給網リスク）
+        // 依存ゼロの遅延チャンク（旧: xlsx@0.18.5＝225KB gz の読み書き一式・修正版が npm に無いCVE 2件を出荷。
+        // ここは CSV→xlsx の一方向変換だけなので、encodeZIP と同じ CompressionStream 流儀で自前書き出し）
         try {
-            const XLSX = await import('xlsx');
-            const wb  = XLSX.read(pbf.getCSV(), { type: 'string', raw: true });
-            const buf = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
-            saveProp(new File([buf], (pbf._name || 'data') + '.xlsx', { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+            const { encodeXLSX } = await import('geopbf/encodeXLSX');
+            const nm = pbf._name || 'data';
+            saveProp(await encodeXLSX(pbf.getCSV(), nm + '.xlsx', { sheetName: nm }));
         } catch (e) { console.error('[excel]', e); showToast('Excel 変換に失敗しました'); }
     });
     btnRow.append('button').text('✕ 閉じる').on('click', () => { tablesEl.hide().html(''); logEl.show(); actionEl.show(); });

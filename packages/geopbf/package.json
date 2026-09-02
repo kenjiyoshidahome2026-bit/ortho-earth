@@ -29,6 +29,7 @@
 		"./load": "./src/modules/geojson-load.js",
 		"./gzip": "./src/modules/gzip.js",
 		"./encodeZIP": "./src/modules/encodeZIP.js",
+		"./encodeXLSX": "./src/modules/encodeXLSX.js",
 		"./decodeZIP": "./src/modules/decodeZIP.js",
 		"./fname2mime": "./src/modules/fname2mime.js"
 	},
