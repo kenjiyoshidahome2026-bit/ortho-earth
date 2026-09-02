@@ -252,13 +252,14 @@
 	/* パネル化（2026-09-02）：常時チップ帯 → 1アイコンで開閉。#layers-btn＝#palette-btn と同格の34px角ガラス。
 	   パネルの中身は従来の .chip 意匠そのまま（縦積み・隣接ボーダー重ね）＝家具の語彙を増やさない */
 	#layers-btn {
-		width: 34px; height: 34px; border-radius: 5px;
-		border: 1px solid var(--qm-border); background: var(--qm-panel); cursor: pointer; padding: 0;
+		/* 塗り（地色・照り・縁・hover）はここに書かない：#chips 入れ子＝id2つの特異度が共通ガラス規格
+		   （末尾のボタン一覧＝id1つ）に勝ってしまい、オフ地だけ白パネルになった実測 2026-09-02（本人指摘
+		   「z>5のオフの色がおかしい」）。寸法と .on 反転だけ持ち、待機の見た目は隣のボタン群と同じ出所に委ねる */
+		width: 34px; height: 34px; border-radius: 5px; border: 1px solid var(--qm-border); cursor: pointer; padding: 0;
 		display: flex; align-items: center; justify-content: center;
-		-webkit-backdrop-filter: blur(var(--qm-blur)); backdrop-filter: blur(var(--qm-blur));
-		&:hover { border-color: var(--qm-border-strong); }
 		svg { display: block; }
-		&.on { background-color: rgba(235, 240, 248, .92); border-color: rgba(255, 255, 255, .6);   /* 開＝明パネル反転。家具の地は常に黒硝子＝閉:暗+白菱形/開:明+墨菱形が全帯の正しい極性（本人指摘9/2「z>5でまだ逆」） */
+		&.on { background-color: rgba(235, 240, 248, .92); border-color: rgba(255, 255, 255, .6);   /* 開＝明パネル反転（全帯共通の極性） */
+			background-image: none;   /* 共通規格の硝子照りも消す＝明パネルを濁らせない */
 			svg path { stroke: #3f4757; }
 			svg path[stroke="#9aa0ac"] { stroke: #9aa0ac; } }
 	}
