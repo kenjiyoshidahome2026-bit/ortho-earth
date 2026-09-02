@@ -658,8 +658,9 @@ const mainStale = () => !keepFineNow() && mainSceneZoom > cam.zoom + STALE_ZOOMO
 let basemapHidden = false;                 // z<BASEMAP_MINZOOM で基図(GSI)を止めてるか（全球ビュー＝海岸線のみ）
 let attrWorldBand = false, attrJPHTML = null;   // 世界帯の出典差し替え状態（world時のみ・render() が z6.5 跨ぎで切替）
 // 日本固有（GSI基図）の出番：従来5。世界下地（ハイプソ＋admin0国線）がある ?world=1 は 6.5 から
-// （本人裁定 2026-08-31「下地ができたので日本固有はz>6.5でいい」）。6.5＝R90全球窓の限界とも一致＝
-// ハイプソが退場する所で GSI が入場する。星空・星座・太陽系の門は別（STARSKY_Z＝従来の5のまま）。
+// （本人裁定 2026-08-31「下地ができたので日本固有はz>6.5でいい」）。標高はz5.5からR10（terrain.js・
+// 旧6.5＝9/2裁定でハイプソ帯の海岸ギザ根治）＝GSI入場前にハイプソが精細化して受け渡す。
+// 星空・星座・太陽系の門は別（STARSKY_Z＝従来の5のまま）。
 const BASEMAP_MINZOOM = WORLD_VT ? 6.5 : 5;
 const STARSKY_Z = 5;                       // 星空劇場（星・星座クリック・惑星）の圏＝renderer の worldFade(z<5) と同期
 // 静止時の詳細化＝主層の分割閾を下げる（既定560→この値）。近景ほど画面上のタイルが大きい＝真っ先に

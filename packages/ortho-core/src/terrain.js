@@ -57,14 +57,15 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 	function notifyPending(range) { onPending && onPending(pendingElev, range); }
 
 	// R90=全球〜大陸眺め / R10=中 / R01=城下。
-	// R90/R10境界=z6.5：R90(3.7km格子)は~z6.3まで画素以下＝十分。R10は1枚3.5-4.5MBで
-	// 広域だと6-8枚=25-35MBを一瞥の大陸に払う浪費（本人裁定「この倍率ならR90で十分」）。
-	// R90は90°角1-2枚=一度きり＝全球ぐるぐるの巡航コストがほぼゼロになる。
+	// R90/R10境界=z5.5（旧6.5→9/2本人裁定「遅くはなるが海岸のギザギザが消えて綺麗」）：
+	// R90(3.7km格子)はz5.5+で海岸縁に格子量子化の階段が見える（日本z5.7実測）＋陰影が磨りガラス化。
+	// 代償=帯5.5-6.5はカメラ追従R10窓（z5.7で~12枚45-55MB・初回のみ、IDB再訪はタダ）。
+	// z<5.5はR90固定窓のまま＝全球ぐるぐるの巡航コストゼロ設計は無傷（星空劇場z<5も内側）。
 	// 高チルト(>0.9rad)の山岳帯は R10 へ落とす：R01 は cap4=4° で地平線(z13で~4°先)まで届かず、
 	// 覆いの切れ目が「遠方の青い帯」になる（R10 なら広域を一括カバー＝地平線までフォグ内で連続）。
 	function selectRange(cam) {
 		const z = cam.zoom;
-		if (z < 6.5) return 90;
+		if (z < 5.5) return 90;
 		if (z < 13 || ((cam.pitch || 0) > 0.9 && z < 14)) return 10;
 		return 1;
 	}
