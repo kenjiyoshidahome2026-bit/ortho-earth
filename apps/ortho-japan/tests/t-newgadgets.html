@@ -79,8 +79,8 @@ try {
 	window.dispatchEvent(jk);
 	ok("japanKey", jk.defaultPrevented);
 	await new Promise(r => setTimeout(r, 3500));   // フライト完了待ち
-	ok("japanFit", Math.abs(map.cam.pitch) < 0.02 && map.cam.zoom > 4 && map.cam.zoom < 6
-		&& Math.abs(map.cam.center[0] - 137.628) < 1.2 && Math.abs(map.cam.center[1] - 37.783) < 1.2);
+	ok("japanFit", Math.abs(map.cam.pitch) < 0.02 && map.cam.zoom > 6 && map.cam.zoom < 7
+		&& Math.abs(map.cam.center[0] - 137) < 1.2 && Math.abs(map.cam.center[1] - 37) < 1.2);
 
 	// close：×クリック/Escで ortho:close が飛ぶ（閉じる実務は埋め込み側）。入力中のEscは譲る
 	map.gadget.close();

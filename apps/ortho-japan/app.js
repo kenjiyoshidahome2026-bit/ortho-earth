@@ -1620,7 +1620,7 @@ let atmo = theme.atmo;              // 大気色 rgb + 強さ（テーマ台帳�
 let bldColor = theme.bldColor;      // 建物色（テーマ台帳のノブ＝palettes.js）※生き替えで差し替わる
 // cam＝幾何のみ（center/zoom/pitch/bearing/dpr）＝毎フレームの draw payload（将来の worker 境界）。
 // 色（clear/land/atmo/bldColor）は静的なので setView で一度きりアップロード＝hot path から追い出す。
-const JAPAN_VIEW = [137.628, 37.783, 5.86];   // 列島ビュー（本土四島が一枚・真俯瞰）＝既定起動＆「日本全体」ガジェットの着地点
+const JAPAN_VIEW = [137, 37, 6.6];   // 列島ビュー（真俯瞰）＝既定起動＆「日本全体」ガジェットの着地点。z6.6＝デモ初景と同値（world既定化後、z<6.5は全球ハイプソ＝白地図で始まらない。9/2本人裁定「デモの初期値に合わせる」）
 const cam = { center: [JAPAN_VIEW[0], JAPAN_VIEW[1]], zoom: JAPAN_VIEW[2], pitch: 0, bearing: 0, dpr };   // 既定＝列島ビュー（沖縄・小笠原には悪いが初手の構図優先。初訪問時のみ＝共有URL→前回ビューの順で下で復元）
 // --- 共有URL（パーマリンク）：codec は engine（viewurl.js）。ここは起動の優先度と app 固有クランプだけ ---
 // 起動の優先度：URLハッシュ > localStorage(前回ビュー) > 既定の世界ビュー。settle 毎に replaceState で
