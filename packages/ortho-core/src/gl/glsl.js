@@ -470,10 +470,28 @@ uniform vec3 u_seaC;      // 海の平色（NE流の淡青）
 in vec2 v_ndc;
 out vec4 fragColor;
 const float R2D = 57.29577951308232;
+// far床＝近窓の外を受ける第2アトラス（世界帯z<8はR90全球固定窓＝terrain.jsのB形態）。
+// R90/R10境界5.5化で「近窓=全球」の前提が崩れ、窓外の陸が標高0＝海色に抜けた（スカンジナビア/シベリア
+// 実測 9/2＝本人発見「タイラーのバグ」）。terrain elev() と同じフォールバック＝カバーの床。
+uniform sampler2D u_farElevTex;
+uniform vec4 u_farBounds;
+uniform float u_hasFar;
+uniform float u_elevEdgeFade;   // 近窓縁＝far値へ溶かす幅(deg)。R90全球窓=0（縁は極/±180のみ）
+float elevFar(vec2 ll) {
+	if (u_hasFar < 0.5) return 0.0;
+	vec2 uv = (ll - u_farBounds.xy) / u_farBounds.zw;
+	if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) return 0.0;
+	return texture(u_farElevTex, uv).r;
+}
 float elevAt(vec2 ll) {
 	vec2 uv = (ll - u_elevBounds.xy) / u_elevBounds.zw;
-	if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) return 0.0;
-	return texture(u_elevTex, uv).r;
+	if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) return elevFar(ll);
+	float fade = 1.0;
+	if (u_elevEdgeFade > 0.0) {
+		vec2 w = vec2(u_elevEdgeFade) / u_elevBounds.zw;
+		fade = min(smoothstep(0.0, w.x, min(uv.x, 1.0 - uv.x)), smoothstep(0.0, w.y, min(uv.y, 1.0 - uv.y)));
+	}
+	return mix(elevFar(ll), texture(u_elevTex, uv).r, fade);
 }
 ${WORLD_HYPSO}
 void main() {
@@ -545,10 +563,28 @@ uniform float u_ell;
 in vec2 v_ndc;
 out vec4 fragColor;
 const float R2D = 57.29577951308232;
+// far床＝近窓の外を受ける第2アトラス（世界帯z<8はR90全球固定窓＝terrain.jsのB形態）。
+// R90/R10境界5.5化で「近窓=全球」の前提が崩れ、窓外の陸が標高0＝海色に抜けた（スカンジナビア/シベリア
+// 実測 9/2＝本人発見「タイラーのバグ」）。terrain elev() と同じフォールバック＝カバーの床。
+uniform sampler2D u_farElevTex;
+uniform vec4 u_farBounds;
+uniform float u_hasFar;
+uniform float u_elevEdgeFade;   // 近窓縁＝far値へ溶かす幅(deg)。R90全球窓=0（縁は極/±180のみ）
+float elevFar(vec2 ll) {
+	if (u_hasFar < 0.5) return 0.0;
+	vec2 uv = (ll - u_farBounds.xy) / u_farBounds.zw;
+	if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) return 0.0;
+	return texture(u_farElevTex, uv).r;
+}
 float elevAt(vec2 ll) {
 	vec2 uv = (ll - u_elevBounds.xy) / u_elevBounds.zw;
-	if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) return 0.0;
-	return texture(u_elevTex, uv).r;
+	if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) return elevFar(ll);
+	float fade = 1.0;
+	if (u_elevEdgeFade > 0.0) {
+		vec2 w = vec2(u_elevEdgeFade) / u_elevBounds.zw;
+		fade = min(smoothstep(0.0, w.x, min(uv.x, 1.0 - uv.x)), smoothstep(0.0, w.y, min(uv.y, 1.0 - uv.y)));
+	}
+	return mix(elevFar(ll), texture(u_elevTex, uv).r, fade);
 }
 ${WORLD_HYPSO}
 void main() {

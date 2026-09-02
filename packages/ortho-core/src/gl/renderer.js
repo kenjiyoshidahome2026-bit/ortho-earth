@@ -663,6 +663,10 @@ export function createRenderer(canvas, rOpts = {}) {
 		gl.uniform4f(loc(gl, wdCoverProg, "u_atmo"), atmo[0], atmo[1], atmo[2], atmo[3]);
 		gl.uniform1i(loc(gl, wdCoverProg, "u_elevTex"), 1);   // unit1＝直前に elevTex を必ずバインド済み（globe パスと同じ轍対策の共通バインド）
 		gl.uniform4f(loc(gl, wdCoverProg, "u_elevBounds"), elev.bounds[0], elev.bounds[1], elev.bounds[2], elev.bounds[3]);
+		gl.uniform1f(loc(gl, wdCoverProg, "u_elevEdgeFade"), elev.edgeFade || 0);
+		gl.uniform1i(loc(gl, wdCoverProg, "u_farElevTex"), 8);   // far床＝globe と同式（bit一致の掟）
+		gl.uniform4f(loc(gl, wdCoverProg, "u_farBounds"), far.bounds[0], far.bounds[1], far.bounds[2], far.bounds[3]);
+		gl.uniform1f(loc(gl, wdCoverProg, "u_hasFar"), far.has);
 		gl.uniform1f(loc(gl, wdCoverProg, "u_ell"), ellipsoidOn() ? 1 : 0);
 		gl.uniform1f(loc(gl, wdCoverProg, "u_whK"), whK);
 		bindClim(wdCoverProg);   // 気候場 unit12（未着は u_hasClim=0＝緯度近似フォールバック・globe と同じ）
@@ -814,6 +818,10 @@ export function createRenderer(canvas, rOpts = {}) {
 			gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, (elev.has && elevTex) ? elevTex : null); gl.activeTexture(gl.TEXTURE0);
 			if (worldHypsoK > 0) {
 				gl.uniform4f(loc(gl, globeProg, "u_elevBounds"), elev.bounds[0], elev.bounds[1], elev.bounds[2], elev.bounds[3]);
+				gl.uniform1f(loc(gl, globeProg, "u_elevEdgeFade"), elev.edgeFade || 0);
+				gl.uniform1i(loc(gl, globeProg, "u_farElevTex"), 8);   // unit8＝共通バインド済（far床。u_hasFar=0なら不使用）
+				gl.uniform4f(loc(gl, globeProg, "u_farBounds"), far.bounds[0], far.bounds[1], far.bounds[2], far.bounds[3]);
+				gl.uniform1f(loc(gl, globeProg, "u_hasFar"), far.has);
 				gl.uniform1f(loc(gl, globeProg, "u_hasElev"), 1);
 				gl.uniform1f(loc(gl, globeProg, "u_ell"), ellipsoidOn() ? 1 : 0);
 				const sc = worldPal().sea;   // 正準パレット（worldpal.js 既定＝NE流の淡青・knobで差し替え可）

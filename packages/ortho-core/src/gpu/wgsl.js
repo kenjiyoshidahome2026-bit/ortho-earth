@@ -674,6 +674,8 @@ struct Globe {
 	elevBounds: vec4f,   // 全球ハイプソ用（R90 全球窓の被覆）
 	whP: vec4f,          // (出現度whK, hasElev, ell, hasClim)
 	seaC: vec4f,         // 海の平色（NE流の淡青）
+	farBounds: vec4f,    // far床（世界帯z<8=R90全球固定窓）の被覆＝近窓の外を受ける（タイラーのバグ根治 9/2）
+	farP: vec4f,         // (hasFar, 近窓縁フェード幅deg, 0, 0)
 };
 @group(0) @binding(0) var<uniform> G: Globe;
 // 全球ハイプソ：標高（R90全球窓）＋気候場。未着/K=0 は dummy（whP が使用をゲート）
@@ -681,12 +683,24 @@ struct Globe {
 @group(0) @binding(2) var gSamp: sampler;
 @group(0) @binding(3) var gClimTex: texture_2d<f32>;
 @group(0) @binding(4) var<uniform> WP: WorldPal;   // 世界パレット＝terrain 側 binding(2) と同一バッファ（同色契約）
+@group(0) @binding(5) var gFarTex: texture_2d<f32>;   // far床（未使用時は dummy。farP.x=0 ガード）
 ${WORLD_HYPSO_WGSL}
 const R2Dg: f32 = 57.29577951308232;
+fn gElevFar(ll: vec2f) -> f32 {   // far床＝近窓の外の受け（GL elevFar と同式）
+	if (G.farP.x < 0.5) { return 0.0; }
+	let uv = (ll - G.farBounds.xy) / G.farBounds.zw;
+	if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) { return 0.0; }
+	return textureSampleLevel(gFarTex, gSamp, uv, 0.0).r;
+}
 fn gElevAt(ll: vec2f) -> f32 {
 	let uv = (ll - G.elevBounds.xy) / G.elevBounds.zw;
-	if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) { return 0.0; }
-	return textureSampleLevel(gElevTex, gSamp, uv, 0.0).r;
+	if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) { return gElevFar(ll); }
+	var fade = 1.0;
+	if (G.farP.y > 0.0) {   // 近窓縁＝far値へ溶かす（R90全球窓=0＝従来どおり）
+		let w = vec2f(G.farP.y) / G.elevBounds.zw;
+		fade = min(smoothstep(0.0, w.x, min(uv.x, 1.0 - uv.x)), smoothstep(0.0, w.y, min(uv.y, 1.0 - uv.y)));
+	}
+	return mix(gElevFar(ll), textureSampleLevel(gElevTex, gSamp, uv, 0.0).r, fade);
 }
 struct GOut { @builtin(position) pos: vec4f, @location(0) ndc: vec2f };
 @vertex fn vs(@builtin(vertex_index) vi: u32) -> GOut {
