@@ -13,6 +13,7 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 	// 特定の山の特別扱いはしない一般則：ズームインで近窓の外へ出た遠方の山（富士・アルプス・筑波…）は
 	// 全てこの層が受け持ち、シェーダ elev() が近窓の縁フェードで遠層の値へ溶ける（0 へ落とさない）。
 	let farKey = "", farLoaded = new Set(), farWritten = new Set(), farFails = new Map();
+	console.log("[terrain] gen=far2-20260902c (R90床=世界帯z<8・R90/R10境界=5.5)");   // 版印＝タブが古い世代を掴んだままの切り分け用（HMR跨ぎ事故の実績 9/2）
 	let writtenCells = new Set();   // 実際にアトラスへ書き込めたセル（検札の突合対象。世代ごとにリセット）
 	let lastEnsureCam = null, lastEnsureSize = null, auditT = 0, auditTries = 0;   // 検札＝静止中の自己修復用
 	let hasAtlas = false, staging = false, stagePending = new Set();   // ダブルバッファ状態（山影がパッと消えるのを防ぐ）
