@@ -621,6 +621,7 @@ renderWorker.onmessage = e => {
 		else fatalOverlay(t("GPU の描画が中断されました"), t("描画コンテキストが失われました（GPUメモリ不足などで起こります）。他のタブやアプリを閉じてから再読み込みしてください。"), true);
 		return;
 	}
+	if (d.type === "terrStats") { console.log("[terr]", JSON.stringify(d.data)); return; }   // __terr()の返答＝コンソールに1行
 	if (d.type === "mem") { memTerrain = d.terrain || 0; memHeap = d.heap || 0; memGpu = d.gpu || null; memFps = d.fps ?? memFps; memFrameMs = d.frameMs ?? memFrameMs; memRes = d.res ?? memRes; memBackend = d.backend || memBackend; memGpuName = d.gpuName || memGpuName; return; }   // ?hud=1：render worker からのメモリ台帳＋描画実測（HUD が合算・表示）
 	if (d.type === "drawhud") { showDrawHud(d); return; }                                   // ?drawhud=1：直近フレームの描画実績を画面へ（実機計器）
 	if (d.type !== "elevPending") return;
@@ -2226,6 +2227,7 @@ async function loadBelowSea() {
 	console.log("[wdepr] below_sea_land loaded: %d features", pbf.length);
 }
 // デバッグ手：任意 FC を wdepr へ直載せ（焼き差し替え前の見た目確認。null で解除）
+dbgHost.__terr = () => wPost({ type: "terrStats" });   // 標高アトラスの内部状態を worker から吸い出してコンソールへ（dev診断）
 dbgHost.__wdepr = fc => { renderer.set("wdepr", fc ? buildGeoJSONOverlay(fc.features || fc, [0, 0], { lines: false, ranges: true }) : null); needsDraw = true; };
 
 // --- 星空劇場（z<4・v1 ortho-map の星空アクセサリー移植）---

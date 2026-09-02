@@ -416,5 +416,14 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 		return true;
 	}
 	// prefetch＝視野に関係なくセルをRAM/IDBへ温める（例: 全球R90の先読み＝地球ぐるぐるが最初から途切れない）
-	return { ensure, sampleElev, prefetch: getCell, bytes: () => tileBytes };   // bytes: 標高LRU の常駐実バイト（?mem=1 HUD が render worker 経由で吸い上げる）
+	// debug()＝内部状態の覗き穴（__terr()＝dev実地の遠隔診断用 2026-09-02。雫形残留の追跡で必要になった）
+	const debug = () => ({
+		gen: "far2-20260902c", loader: loadTile ? "ready" : loaderStat,
+		atlasKey, staging, stagePending: stagePending.size, pendingElev,
+		loaded: loadedCells.size, written: writtenCells.size, fails: [...cellFails.entries()],
+		farKey, farLoaded: farLoaded.size, farWritten: farWritten.size, farFails: [...farFails.entries()],
+		lru: r10Tiles.size, bytes: tileBytes,
+		lastCam: lastEnsureCam ? { z: +lastEnsureCam.zoom.toFixed(2), c: [+lastEnsureCam.center[0].toFixed(2), +lastEnsureCam.center[1].toFixed(2)], p: +(lastEnsureCam.pitch || 0).toFixed(2) } : null,
+		lastSize: lastEnsureSize });
+	return { ensure, sampleElev, prefetch: getCell, bytes: () => tileBytes, debug };   // bytes: 標高LRU の常駐実バイト（?mem=1 HUD が render worker 経由で吸い上げる）
 }

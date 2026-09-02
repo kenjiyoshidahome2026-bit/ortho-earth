@@ -252,6 +252,7 @@ const dispatch = e => {
 			break;
 		case "pongD": pongD++; break;   // stay診断：main→worker 直結チャネルの配達実証
 		case "pongC": pongC++; break;   // stay診断：main→worker ctrlPort の配達実証
+		case "terrStats": postMessage({ type: "terrStats", data: terrain?.debug?.() ?? null }); break;   // __terr()＝標高アトラス内部状態の遠隔診断（dev実地用）
 		case "draw":                                             // main からは cam を記録するだけ（実描画は rAF）
 			drawMsgN++;
 			// 遷移時AA：カメラ値が実際に変わった時だけ「動いた」と記録（タイル到着等の dirty は静止扱い＝4x のまま）。
