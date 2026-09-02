@@ -204,7 +204,6 @@
 	:is(svg, svg *)[stroke="#9aa0ac"] { stroke: rgba(150, 162, 180, .88); }
 	#cpos-btn.on svg { stroke: #fff; }   /* 点火＝白反転は夜も維持（上の明インクより詳細度で勝たせる再掲） */
 	#layers-btn.on svg path { stroke: #3f4757; }   /* 表示パネルは開=明パネル+墨菱形＝夜の明インク化より詳細度で勝たせる再掲 */
-	#layers-btn.on svg path[stroke="#9aa0ac"] { stroke: #9aa0ac; }
 	/* 住所入力：入力欄も黒硝子＝開いた虫めがね（明インク）がそのまま生きる。読む物ではあるが地図の上に
 	   浮く一行の道具＝夜の額装に合わせる（候補リストは白ソリッドのまま＝腰を据えて読む物） */
 	#search #search-in {
@@ -260,8 +259,7 @@
 		svg { display: block; }
 		&.on { background-color: rgba(235, 240, 248, .92); border-color: rgba(255, 255, 255, .6);   /* 開＝明パネル反転（全帯共通の極性） */
 			background-image: none;   /* 共通規格の硝子照りも消す＝明パネルを濁らせない */
-			svg path { stroke: #3f4757; }
-			svg path[stroke="#9aa0ac"] { stroke: #9aa0ac; } }
+			svg path { stroke: #3f4757; } }
 	}
 	#layers-panel { position: absolute; left: calc(100% + 8px); top: 0; display: flex; flex-direction: column; align-items: stretch; min-width: 96px; }
 	#layers-panel[hidden] { display: none; }
@@ -824,10 +822,8 @@
 #map :is(#chips, #gadgets, #gadgets > *, #search, #search-list, #hint, #log, #pos, #scale, #attr) {
 	transition: opacity .6s ease;
 }
-/* #chips（表示パネル）は退場させない（2026-09-02 パネル化）：星空トグルの家＝星空劇場でこそ要る
-   （旧・画面クリックの星座トグル廃止の代替）。1枚の静かな硝子アイコン＝舞台を壊さない */
 #map.world :is(#search-list, #hint, #log, #pos, #scale, #attr),
-#map.world #gadgets > :not(#japan-btn, #solar, #chips) {
+#map.world #gadgets > :not(#japan-btn, #solar) {
 	opacity: 0; pointer-events: none;
 }
 #map.world #solar { order: -2; }      /* 並び＝太陽系の文字リンクが最上段・日本の扉がその下 */
@@ -840,15 +836,6 @@
 	background: rgba(16, 24, 44, .55);
 	-webkit-backdrop-filter: none; backdrop-filter: none;
 }
-/* 表示パネルの扉も星空では星明かり化＝#japan-btn と同相（本人指摘 2026-09-02「フリップが逆」＝舞台の基本形が
-   暗パネル+白アイコンなのに明ガラス+墨で立っていた）。開（.on）は反転＝明パネル+墨菱形＝点火が一目 */
-#map.world #layers-btn {
-	border: 1px solid rgba(255, 255, 255, .42);
-	background: rgba(16, 24, 44, .55);
-	-webkit-backdrop-filter: none; backdrop-filter: none;
-	svg path { stroke: rgba(230, 238, 250, .92); }
-}
-/* 開（.on）の明パネル反転は全帯共通（#chips 節）＝world 専用の重複は撤去（2026-09-02） */
 #map.world #japan-btn svg { fill: rgba(230, 238, 250, .92); stroke: rgba(230, 238, 250, .92); }
 /* 星空劇場でも▶を残すのは狭画面だけ。上演中＝唯一の停止口（Escも操縦バー(.playingで退場)も無い）。
    待機中も残す（2026-08-21拡張）＝QR着地の観客がズームアウトで宇宙へ出る→localStorage復元で次回も宇宙、の筋で

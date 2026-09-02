@@ -3060,7 +3060,10 @@ function render() {
 	// 家具も全部フェード退場（attr含む＝quiet-mono #map.world）＝星空劇場の舞台。GSI非描画なので出典義務なし。
 	// 家具フェード（.world＝星空劇場の演出）は星空圏(z<5)据え置き：基図の門(BASEMAP_MINZOOM=world時6.5)に
 	// 連動させると z5-6.5 の世界帯で座標テーブル(#pos)ごと退場してしまう（本人指摘 2026-08-31）。
-	mapEl.classList.toggle("world", cam.zoom < STARSKY_Z);
+	const inWorld = cam.zoom < STARSKY_Z;
+	if (inWorld && !mapEl.classList.contains("world"))   // 劇場入場＝表示パネルは畳んで退場（開いたままだと不可視の開状態が ui-idle を塞ぐ）
+		mapEl.querySelector("#layers-btn.on")?.click();
+	mapEl.classList.toggle("world", inWorld);
 	// 世界帯（world時 z<6.5＝GSI非描画）は出典を世界版へ差し替え：日本のデータを出していない画面に
 	// 地理院・PLATEAU を並べるのは義務以前に嘘になる（nl 入口と同じ流儀・instruments.js の先例）。
 	if (WORLD_VT) {

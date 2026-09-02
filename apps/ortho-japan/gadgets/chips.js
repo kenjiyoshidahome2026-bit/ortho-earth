@@ -42,13 +42,14 @@ export function mountChips(mapEl, keys = true, fixed = {}) {
 	if (!list.length) return;
 	const chips = document.createElement("div");
 	chips.id = "chips";
-	// 重ね菱形＝「層」のアイコン。ink 色 #3f4757/#9aa0ac は components.scss の夜反転規則が拾う既存の語彙
+	// 重ね菱形＝「層」のアイコン。線は全部 本線ink #3f4757 の単色（夜反転・.on明パネル反転が1色で済む＝
+	// 二階調(#9aa0ac)は反転規則と喧嘩して下線だけ色が浮いた 2026-09-02 本人指摘）
 	chips.innerHTML = `
 	<button id="layers-btn" aria-expanded="false" aria-controls="layers-panel" data-tip="${t("表示・テーマ")}">
 		<svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true">
 			<path d="M10 2 L18 6.5 10 11 2 6.5 Z" fill="none" stroke="#3f4757" stroke-width="1.4" stroke-linejoin="round"/>
 			<path d="M2 10.5 L10 15 18 10.5" fill="none" stroke="#3f4757" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
-			<path d="M2 14 L10 18.5 18 14" fill="none" stroke="#9aa0ac" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+			<path d="M2 14 L10 18.5 18 14" fill="none" stroke="#3f4757" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
 		</svg>
 	</button>
 	<div id="layers-panel" hidden>
