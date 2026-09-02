@@ -550,7 +550,8 @@ export function createRenderer(canvas, rOpts = {}) {
 
 	// --- overlay（外部ベクタ=geopbf/e-Stat）：stencil-then-cover 塗り＋境界線 ---
 	let overlay = null, overlayHi = null, overlayHover = null, n02 = [];   // overlayHover＝ホバー境界の太線（選択マスク overlayHi と別スロット）。n02＝交通の常駐オーバーレイ群
-	let wdepr = null;   // 海面下の陸地（?world=1・全球ハイプソの一部）＝タイル(湖)より先に描く専用スロット。whK フェードに連動
+	let wdepr = null;   // 海面下の陸地（?world=1・全球ハイプソの一部）＝湖より先に描く専用スロット。whK フェードに連動
+	let lakes = null;   // 湖（NE lakes・?world=1）＝wdepr の直後・タイルより先に描く塗り専用スロット（色は worldPal.sea 平色）
 	function buildOverlaySlot(s, fillColor) {
 		if (!s || (!s.fanPos.length && !(s.lineHalf && s.lineHalf.length))) return null;   // 面も線も無い時だけ捨てる（純線＝N02新幹線は面ゼロで通す）
 		const fanVao = gl.createVertexArray(), bFan = buffer(gl, s.fanPos);
@@ -622,12 +623,9 @@ export function createRenderer(canvas, rOpts = {}) {
 		if (view.showN02 !== false) for (const o of n02) { if (zoom >= o.minZoom) drawOne(o, st, dpr, land); }   // N02 交通（新幹線/駅）＝基図の上・identify overlay の下
 		drawOne(overlay, st, dpr, land); drawOne(overlayHi, st, dpr, land); drawOne(overlayHover, st, dpr, land);   // ホバー境界は最前面
 	}
-	// 海面下の陸地（wdepr）＝stencil は drawOne と同一・cover だけ WDEPR_FS（landK=1 強制のハイプソ本体）。
-	// フラット色でなく画素単位で標高ランプ×気候×hillshade を計算＝ポリゴンは「ここは海でなく陸」の粗い印
-	// （海→海面下→陸の描画順・2026-09-01 本人設計）。呼び出しは draw() の globe/terrain 後・タイル(湖)前。
-	function drawWdepr(st, land, whK) {
-		const o = wdepr;
-		if (!o || !o.fanCount) return;
+	// 全球面ポリゴンの stencil 段（wdepr/lakes 共用）：fan を巻き数へ・球体カリング二段構え。
+	// cover（塗り方）は呼び出し側の領分＝wdepr はハイプソ本体（WDEPR_FS）・lakes は worldPal.sea の平色。
+	function stencilWorldFan(o, st, land) {
 		gl.enable(gl.STENCIL_TEST);
 		gl.clearStencil(0); gl.clear(gl.STENCIL_BUFFER_BIT);
 		gl.colorMask(false, false, false, false);
@@ -656,6 +654,14 @@ export function createRenderer(canvas, rOpts = {}) {
 		} else gl.drawArrays(gl.TRIANGLES, 0, o.fanCount);
 		gl.uniform1f(loc(gl, stencilProg, "u_sphereClip"), 0);   // 共有プログラム＝通常 overlay（局所ポリゴン）へ持ち越さない
 		gl.colorMask(true, true, true, true);
+	}
+	// 海面下の陸地（wdepr）＝stencil は drawOne と同一・cover だけ WDEPR_FS（landK=1 強制のハイプソ本体）。
+	// フラット色でなく画素単位で標高ランプ×気候×hillshade を計算＝ポリゴンは「ここは海でなく陸」の粗い印
+	// （海→海面下→湖→陸の描画順・2026-09-01 本人設計）。呼び出しは draw() の globe/terrain 後・lakes 前。
+	function drawWdepr(st, land, whK) {
+		const o = wdepr;
+		if (!o || !o.fanCount) return;
+		stencilWorldFan(o, st, land);
 		gl.useProgram(wdCoverProg);
 		gl.uniformMatrix4fv(loc(gl, wdCoverProg, "u_invMvp"), false, Float32Array.from(st.invMvp));
 		const atmo = view.atmo || [0.45, 0.62, 0.95, 0.6];   // draw() の既定と同値＝globe と同じ紙/大気で厳密同色
@@ -678,6 +684,22 @@ export function createRenderer(canvas, rOpts = {}) {
 		gl.stencilFunc(gl.NOTEQUAL, 0, 0xFF); gl.stencilOp(gl.KEEP, gl.KEEP, gl.ZERO);   // 内側を塗り 0 へ後始末
 		gl.bindVertexArray(emptyVAO); gl.drawArrays(gl.TRIANGLES, 0, 3);
 		gl.clearStencil(0); gl.clear(gl.STENCIL_BUFFER_BIT);   // 地平円上の縮退スライバー残渣を掃除（後段 overlay/gint を汚さない）
+		gl.disable(gl.STENCIL_TEST);
+	}
+	// 湖（NE lakes・?world=1）＝wdepr の兄弟スロット（stencil 共用）・cover は worldPal.sea の平色一枚
+	// （globe の u_seaC と単一の出所＝湖と海が同じ顔・テーマの worldHypso.sea が両方へ届く）。
+	// 旧 world-water タイル層（Protomaps/OSM）の置き換え（2026-09-03 本人裁定「湖はNE経由＝B案」）＝
+	// α=whK＝全球ハイプソと同時に現れ同時に消える（z≥6.5 は自動不可視・日本の湖は GSI 基図の領分）。
+	function drawLakes(st, land, whK) {
+		const o = lakes;
+		if (!o || !o.fanCount) return;
+		stencilWorldFan(o, st, land);
+		gl.useProgram(coverProg);
+		const sc = worldPal().sea;
+		gl.uniform4f(loc(gl, coverProg, "u_fill"), sc[0], sc[1], sc[2], whK);
+		gl.stencilFunc(gl.NOTEQUAL, 0, 0xFF); gl.stencilOp(gl.KEEP, gl.KEEP, gl.ZERO);   // 内側を塗り 0 へ後始末
+		gl.bindVertexArray(emptyVAO); gl.drawArrays(gl.TRIANGLES, 0, 3);
+		gl.clearStencil(0); gl.clear(gl.STENCIL_BUFFER_BIT);   // 縮退スライバー残渣の掃除（wdepr と同じ）
 		gl.disable(gl.STENCIL_TEST);
 	}
 
@@ -925,6 +947,8 @@ export function createRenderer(canvas, rOpts = {}) {
 		// よく、湖側（死海・カスピ沿岸）は上に乗る湖の塗りが、陸側は cover（landK=1 のハイプソ本体）が外側と同色に
 		// 溶けるので広く荒くてよい。フェードは whK 連動＝ハイプソと同時に現れ同時に消える（z≥6.5 は自動不可視）。
 		if (wdepr && worldHypsoK > 0) drawWdepr(st, land, worldHypsoK);
+		// 湖（NE lakes）＝wdepr の上・タイルの下（海→海面下→湖→陸の順のまま供給源だけ NE へ 2026-09-03）
+		if (lakes && worldHypsoK > 0) drawLakes(st, land, worldHypsoK);
 		// 等高線：真俯瞰(チルト≈0)でだけ茶の等高線を敷く（3Dが立ち上がる前＝ちょうど入れ替わりでフェード）。ベクタの下＝道路/区界は上に乗る。
 		{
 			const ps = Math.max(0, Math.min(1, ((cam.pitch || 0) - 0.01) / 0.05));   // pitch 0.01→0.06rad で 3D と入れ替わり
@@ -1201,7 +1225,7 @@ export function createRenderer(canvas, rOpts = {}) {
 		if (scenes[slot].bld) { for (const b of scenes[slot].bld.bufs) gl.deleteBuffer(b); gl.deleteVertexArray(scenes[slot].bld.vao); }
 		scenes[slot] = { origin: scenes[slot].origin, draws: [], bld: null, md: null };   // md シーンは参照リストだけ＝GL資源なし（プールは常駐）
 	}
-	function dispose() { disposeSlot("base"); disposeSlot("main"); disposeOverlay(overlay); disposeOverlay(overlayHi); disposeOverlay(overlayHover); disposeOverlay(wdepr); for (const o of n02) disposeOverlay(o); setGintBld(null); }
+	function dispose() { disposeSlot("base"); disposeSlot("main"); disposeOverlay(overlay); disposeOverlay(overlayHi); disposeOverlay(overlayHover); disposeOverlay(wdepr); disposeOverlay(lakes); for (const o of n02) disposeOverlay(o); setGintBld(null); }
 
 	// 汎用 set(cmd, data, prop)：ortho-map createLayers の set プロトコルに整合。将来 worker では
 	// postMessage({ type:"set", cmd, data, prop }, transferables) にそのまま載る。prop は cmd ごとに融通。
@@ -1220,6 +1244,7 @@ export function createRenderer(canvas, rOpts = {}) {
 			case "overlayHover": setOverlayHover(data); break;
 			case "n02":       setN02(data); break;                                               // data=[シーン…] 交通の常駐オーバーレイ群
 			case "wdepr":     disposeOverlay(wdepr); wdepr = data ? buildOverlaySlot(data, [0, 0, 0, 0]) : null; break;   // 海面下の陸地（?world=1）＝タイル前に描く塗り専用シーン（色は drawWdepr の cover が画素単位で計算＝fill 不使用）
+			case "lakes":     disposeOverlay(lakes); lakes = data ? buildOverlaySlot(data, [0, 0, 0, 0]) : null; break;   // 湖（NE lakes・?world=1）＝wdepr 直後に描く塗り専用シーン（色は worldPal.sea 平色）
 			case "elevAtlas": setElevationAtlas(data, prop); break;                             // prop=scale
 			case "elevCell":  setElevationCell(prop.cx, prop.cy, data, prop.cellRes); break;    // data=セルFloat32
 			case "elevAtlasStage": setElevationAtlasStage(data, prop); break;                   // 舞台裏アトラス（ダブルバッファ）

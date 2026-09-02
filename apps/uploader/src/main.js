@@ -40,6 +40,7 @@ CMD.append("button").text("constellation lines").on("click", () => constellation
 CMD.append("button").text("messier").on("click", () => messier(q));
 CMD.append("button").text("coastline (10m+50m)").on("click", () => coastline(q));
 CMD.append("button").text("admin0 countries (10m+50m)").on("click", () => admin0(q));
+CMD.append("button").text("NE lakes (10m+50m)").on("click", () => lakes(q));
 CMD.append("button").text("below-sea land (GEBCO×admin0)").on("click", () => belowSeaLand(q, { apiUrl: API_BASE }));
 CMD.append("button").text("KSJ 鉄道/高速道路 (N02/N06)").on("click", () => ksj(q));
 CMD.append("button").text("国立公園 (環境省 nps_all)").on("click", () => nps(q));
@@ -152,6 +153,31 @@ async function admin0(q) {
 			const pbf = await geopbf(url, { name, nocache: true });
 			if (!pbf.length) throw new Error(`0 features — check source URL or decoder`);
 			pbf.updateHeader({ description: `世界の国ポリゴン（Natural Earth ${res} admin_0_countries）＝国境線・海岸線・国名`, license: "Natural Earth (public domain)", attribution: "Natural Earth" });
+			q.log(`${name}: ${pbf.length} features, keys: [${pbf.keys.join(', ')}]`);
+			await pbf.save();   // ← VITE_API_KEY 未設定だとここで 403（起動時の警告が出ていたら鍵を設定して dev server 再起動）
+			q.success(`${name}: saved (<= ${url})`);
+			q.log(await pbf.profile());
+		} catch (e) {
+			q.error(`${name}: 失敗 — ${e.message}`);
+		}
+	}
+}
+
+// 湖（Natural Earth lakes）→ GIS/pbf。ortho-japan 世界ビュー（world 既定）のエンジン lakes スロット
+// （wdepr の兄弟＝worldPal.sea の平色塗り・app.js loadLakes）用。旧・Protomaps 世界タイル world-water 層の
+// 後継（2026-09-03 本人裁定「湖はNE経由＝B案」＝© OpenStreetMap/ODbL 出典義務の撤去）。
+// 10m=デスクトップ／50m=LOW_MEM（モバイル）。両解像度とも bucket に置く理由は admin0 と同じ＝
+// S3 生zip フォールバック（毎初回 404 ログ+shp デコード・WebKit props.join 轍）を根から断つ。
+async function lakes(q) {
+	q.clear();
+	q.title("ne_lakes (50m + 10m)");
+	for (const res of ["50m", "10m"]) {
+		const name = `ne_${res}_lakes`;
+		const url = `https://naturalearth.s3.amazonaws.com/${res}_physical/${name}.zip`;
+		try {
+			const pbf = await geopbf(url, { name, nocache: true });
+			if (!pbf.length) throw new Error(`0 features — check source URL or decoder`);
+			pbf.updateHeader({ description: `世界の湖（Natural Earth ${res} lakes）＝全球ビューの湖面塗り`, license: "Natural Earth (public domain)", attribution: "Natural Earth" });
 			q.log(`${name}: ${pbf.length} features, keys: [${pbf.keys.join(', ')}]`);
 			await pbf.save();   // ← VITE_API_KEY 未設定だとここで 403（起動時の警告が出ていたら鍵を設定して dev server 再起動）
 			q.success(`${name}: saved (<= ${url})`);

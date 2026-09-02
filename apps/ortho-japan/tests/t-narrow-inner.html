@@ -10,6 +10,11 @@ await new Promise(r => setTimeout(r, 300));
 ok("width", innerWidth <= 480);
 ok("posHidden", getComputedStyle(document.getElementById("pos")).display === "none");
 ok("scaleUp", getComputedStyle(document.getElementById("scale")).bottom === "72px");   // safe-area=0 の環境では 72px ちょうど
+// narrow:false 宣言＝狭画面ではプラットフォームが非表示に裁く（左上溢れ対策・#pos と同じ480px境界）
+map.gadget.zoom({ narrow: false });
+ok("narrowGate", getComputedStyle(document.getElementById("zoom")).display === "none");
+map.gadget.cpos();   // 宣言なし＝狭画面でも出る（対照）
+ok("narrowFree", getComputedStyle(document.getElementById("cpos-btn")).display !== "none");
 // デモ mobile:Δz＝縦長画面（このiframe=375×667が実機縦の代役）ではシーンの z にだけ差分＝flyView が補正済みハッシュを受ける。
 // 優先順＝シーン毎 > 台本既定（最上位 mobile）> 無し。mobile: 0＝そのシーンだけ明示無効
 let flown = null;

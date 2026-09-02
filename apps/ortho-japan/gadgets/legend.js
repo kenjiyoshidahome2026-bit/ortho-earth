@@ -3,7 +3,7 @@
 // 色・記号の対応表を左下に置く読み物の枠。set(html) で表示／set(null) で消す。
 // ×で畳むと小さな「凡例」ボタン（スタック）に化ける＝地図面を広く（hint と同じ所作）。
 // opts.permanent＝×ボタンを出さない（畳めない常設）。opts.width＝最大幅(px)。
-import { gadgetStack } from "./stack.js";
+import { gadgetStack, dockStack } from "./stack.js";
 import { tr } from "../i18n.js";
 const t = tr({ "閉じる": "Close", "凡例を閉じる": "Close legend", "凡例": "Legend", "凡例を開く": "Open legend" });
 export function legend({ permanent, width } = {}) {
@@ -15,7 +15,7 @@ export function legend({ permanent, width } = {}) {
 	const body = document.createElement("div");
 	div.append(body);
 	div.addEventListener("pointerdown", e => e.stopPropagation());
-	mapEl.append(div);
+	dockStack(mapEl).append(div);   // 左下ドック＝座標計器(#pos)やトーストの上へ積まれる（旧・絶対配置は #pos と真被りだった）
 	let reopen = null, hasContent = false;
 	if (!permanent) {
 		const close = document.createElement("button");

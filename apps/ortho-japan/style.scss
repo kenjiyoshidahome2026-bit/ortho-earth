@@ -15,18 +15,15 @@
    canvas 直後・UI より前に append＝基図を覆い計器/検索は上に残る。★将来 LOD4+ の屋内シーンが出来たら差し替える口。 */
 #underground { position: absolute; inset: 0; background: #666; opacity: 0; pointer-events: none; transition: opacity .1s ease-out; }
 
-/* デバッグログ（常時非表示・devtoolsから出す） */
-#log { position: absolute; bottom: 10px; left: 10px; font-family: var(--qm-font-mono); font-size: 12px; color: #9ab; background: rgba(10,16,33,.7); padding: 6px 8px; border-radius: var(--qm-r-s); }
+/* デバッグログ（常時非表示・devtoolsから出す。左下ドックの縁＝表示すると計器の下に座る） */
+#log { font-family: var(--qm-font-mono); font-size: 12px; color: #9ab; background: rgba(10,16,33,.7); padding: 6px 8px; border-radius: var(--qm-r-s); }
 
 /* アイドル退場：マウスを止めると左上(#gadgets)・右上(#chips)のアイコンが静かに消え、動かすと戻る。
    点火/消灯は app.js が #map へ .ui-idle を付与/除去（触れている間・検索を開いている間・タッチ端末では消えない）。
-   トランジション(.6s)は components.scss の #gadgets/#chips 既定に相乗り＝.world の退場と同じ手触り。
-   :not(.world) ＝全球ビュー(.world)では従来どおり丸ごと退場が勝つ（二重指定で衝突させない）。 */
-#map.ui-idle:not(.world) :is(#gadgets, #chips) { opacity: 0; }
-#map.ui-idle:not(.world) :is(#gadgets, #chips, #gadgets *, #chips *) { pointer-events: none; }   /* 消えている間は下の地図を素通し（動かせば即復帰＝クリックを奪わない） */
-/* 全球ビュー(.world)で残る二枚の扉（#japan-btn=迷子救済・#solar=太陽系への口）もアイドルでは退場＝
-   せっかくの星空を独り占めさせる。マウスを動かせば戻る。タッチ端末はアイドル機構ごと対象外＝扉は常時見える */
-#map.ui-idle.world :is(#japan-btn, #solar) { opacity: 0; pointer-events: none; }
+   トランジション(.6s)は components.scss の #gadgets/#chips 既定に相乗り。
+   アイコン配列は全z共通（2026-09-03 シンプル化）＝星空圏(.world)も同じ一則＝星空はアイドルで独り占めできる。 */
+#map.ui-idle :is(#gadgets, #chips) { opacity: 0; }
+#map.ui-idle :is(#gadgets, #chips, #gadgets *, #chips *) { pointer-events: none; }   /* 消えている間は下の地図を素通し（動かせば即復帰＝クリックを奪わない） */
 
 /* 建物3D（PLATEAU）データ管理モーダル＝日本固有の道具。佇まいはトークン参照 */
 #pdb {

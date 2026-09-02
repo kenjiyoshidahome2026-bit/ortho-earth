@@ -27,21 +27,27 @@ const dismissBoot = () => {   // 地図の初回フレームが描かれてか�
 // top-level await は使わない＝既定ビルドターゲット(es2020)の掟。then連鎖で同じ流れ。
 engineP.then(m => m.default({ assetBase: import.meta.env.BASE_URL })).then(map => {   // 1行＝日本が立ち上がる（divも自作。埋め込みは orthoJapan({ target: "#…" })）
 	dismissBoot();
+	// ガジェット搭載＝この並びが左上からのアイコン配列（全zで一本＝2026-09-03 シンプル化）。
+	// 表示宣言はガジェット毎に搭載時 opts で：zoom:[zmin,zmax)＝ズーム域・narrow:false＝狭画面(480px)では
+	// 出さない（左上溢れ対策）。プラットフォームが裁き、圏外は display:none で上詰め（並び順不変）。
+	// ズーム域の物差しは2つ（2026-09-03 本人裁定「太陽系=低ズームのみ・現在地/測定系/PLATEAU/印刷=高ズームのみ」）：
+	//   5   ＝星空圏の境界（STARSKY_Z＝星・星座・太陽系の劇場はここから下）
+	//   6.5 ＝基図の門（BASEMAP_MINZOOM＝GSI基図・日本の道具はここから上。z5-6.5は全球ハイプソの世界帯）
 	map.gadget.search();      // 地名・住所検索（オプトインガジェット＝欲しい画面だけが載せる。搭載順＝左上からの並び）
 	// palette ガジェットは非搭載へ（2026-09-02 本人裁定「アイコン煩雑＝表示系を一つに」）：テーマ切替は
 	// 右上の表示パネル（chips のテーマ列）に集約。ライブ見本つきのガジェット自体は健在＝map.gadget.palette() で復帰可
-	map.gadget.zoom();        // ズーム＋/−（縦2連の一体ボタン）
-	map.gadget.full();        // 全画面トグル（非対応端末では出ない）
+	map.gadget.zoom({ narrow: false });   // ズーム＋/−（縦2連の一体ボタン）。狭画面＝出さない（ピンチが担う・左上溢れ対策）
+	map.gadget.full({ narrow: false });   // 全画面トグル（非対応端末では出ない）。狭画面＝出さない（同上）
 	map.gadget.japan();       // 日本全体へ（真俯瞰・北向きに戻る）
-	map.gadget.solar();       // 太陽系へ（ortho-solar。星空圏＝ズームアウトの底でだけ現れる）
-	map.gadget.compass();     // コンパス兼リセット（3Dの時だけ現れる）
-	map.gadget.cpos();        // 現在地（GPS。押すと寄って点滅マーカー）
-	map.gadget.measure();     // 距離・面積の計測（クリックで頂点・ダブルクリックで確定）
-	map.gadget.profile();     // 断面図（クリックで経路指定→標高プロファイルをグラフ表示）
+	map.gadget.solar({ zoom: [-99, 5] });      // 太陽系へ＝星空圏(z<5)のみ（低ズームの扉。34px土星アイコン）
+	map.gadget.compass();     // コンパス兼リセット（3Dの時だけ現れる＝自前の display 裁き）
+	map.gadget.cpos({ zoom: [6.5, 99] });      // 現在地（GPS。押すと寄って点滅マーカー）＝基図の門から
+	map.gadget.measure({ zoom: [6.5, 99] });   // 距離・面積の計測（クリックで頂点・ダブルクリックで確定）＝同上
+	map.gadget.profile({ zoom: [6.5, 99] });   // 断面図（クリックで経路指定→標高プロファイル）＝同上（日本のDEMが前提）
 	map.gadget.shot();        // 画面を画像で保存（3層+計測を合成・出典焼き込み）
 	map.gadget.qr();          // この視点をQRで共有（押すと中央に現在の共有URLのQR＝スクリーン投影→スキャンで拡散）
-	map.gadget.print();       // 平面図を印刷（縮尺・A4/A3・経緯線・外枠＝紙仕様。プレビュー→印刷/PDF）
-	map.gadget.plateau();     // 建物3D（PLATEAU）データ管理（公式ロゴマークのボタン）
+	map.gadget.print({ zoom: [6.5, 99] });     // 平面図を印刷（縮尺・A4/A3・経緯線・外枠＝紙仕様）＝GSI基図が前提
+	map.gadget.plateau({ zoom: [6.5, 99] });   // 建物3D（PLATEAU）データ管理（公式ロゴマークのボタン）＝日本の道具
 	map.gadget.contextmenu(); // 右クリックメニュー（既定＝この地点へ寄る／座標をコピー）
 	map.gadget.dropFile();    // GISファイルのD&D取り込み（geopbfが食う全形式→GeoPBF化→gintへ描画・識別）
 	import("./demo/scenes.js").then(m => map.gadget.demo({ ...m.default, lang: new URLSearchParams(location.search).get("lang") }));   // デモ上演（▶→Space=次・BS=戻る・クリッカー(PageUp/Down)対応・Esc終了）。台本もエンジンも起動バンドル外＝▶は僅かに遅れて出るが起動を汚さない。作法は demo/scenes.js 冒頭。?lang=jp＝タイトル日本語（既定＝title英語・en基準）

@@ -407,7 +407,8 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 	// DrawP（色）だけ GB_SLOT+i の別スロット＝queue.writeBuffer が描画前に全着地しても互いに潰さない。
 	// 末尾+1 の WD_SLOT は wdepr（海面下の陸地・?world=1）専用＝drawOverlay より前（タイル前）に別途描くため、
 	// writeBuffer が pass 実行前に全着地しても drawOverlay の 0..n-1 スロットと互いに潰さない固定席。
-	const MAX_OV = 32, GB_SLOT = MAX_OV, GB_BATCH_MAX = 8, WD_SLOT = MAX_OV + GB_BATCH_MAX, OV_SLOTS = MAX_OV + GB_BATCH_MAX + 1;
+	// 末尾+2 の LK_SLOT は lakes（NE湖・?world=1）＝wdepr 直後に描く固定席（WD_SLOT と同じ理由の独立スロット）。
+	const MAX_OV = 32, GB_SLOT = MAX_OV, GB_BATCH_MAX = 8, WD_SLOT = MAX_OV + GB_BATCH_MAX, LK_SLOT = WD_SLOT + 1, OV_SLOTS = MAX_OV + GB_BATCH_MAX + 2;
 	const ovFrameBuf = device.createBuffer({ size: FRAME_SLOT * OV_SLOTS, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
 	const ovParamBuf = device.createBuffer({ size: PARAM_SLOT * OV_SLOTS, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
 	const ovParamCPU = new Float32Array(PARAM_SLOT / 4 * OV_SLOTS);
@@ -424,7 +425,8 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 	}
 	// overlay スロット：{ fanBuf, fanCount, lineBufs?, lineCount, origin, fill, minZoom }
 	let overlay = null, overlayHi = null, overlayHover = null, n02 = [];   // overlayHover＝ホバー中の地物境界を太線で（選択マスク overlayHi とは別スロット＝両立）
-	let wdepr = null;   // 海面下の陸地（?world=1・全球ハイプソの一部）＝タイル(湖)より先に描く塗り専用スロット。whK フェード連動
+	let wdepr = null;   // 海面下の陸地（?world=1・全球ハイプソの一部）＝湖より先に描く塗り専用スロット。whK フェード連動
+	let lakes = null;   // 湖（NE lakes・?world=1）＝wdepr 直後・タイルより先に描く塗り専用スロット（色は worldPal.sea 平色）
 	const wdParamCPU = new Float32Array(PARAM_SLOT / 4);
 	const u8colOv = col => { const u = new Uint8Array(col.length); for (let i = 0; i < col.length; i++) u[i] = Math.max(0, Math.min(255, Math.round(col[i] * 255))); return u; };
 	function buildOverlaySlot(s, fill) {
@@ -451,40 +453,59 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 	function setOverlayHover(s) { disposeOverlay(overlayHover); overlayHover = s ? buildOverlaySlot(s, [0, 0, 0, 0]) : null; }   // 塗り透明＝境界線のみ（太線はシーン側の lineWidth）
 	function setN02(scenes) { for (const o of n02) disposeOverlay(o); n02 = (scenes || []).map(s => buildOverlaySlot(s, [0, 0, 0, 0])); }
 	function setWdepr(s) { disposeOverlay(wdepr); wdepr = s ? buildOverlaySlot(s, [0, 0, 0, 0]) : null; }   // 海面下の陸地（?world=1）＝タイル前に描く塗り専用シーン（色は cover が画素単位で計算＝fill 不使用）
+	function setLakes(s) { disposeOverlay(lakes); lakes = s ? buildOverlaySlot(s, [0, 0, 0, 0]) : null; }   // 湖（NE lakes・?world=1）＝wdepr 直後に描く塗り専用シーン（色は worldPal.sea 平色＝drawLakes が毎フレ書く）
 	// wdepr の発行（draw() がタイル前・whK>0 の時だけ呼ぶ）：stencil fan（WD_SLOT の Frame/DrawP）→
 	// cover＝P.wdCover（globe と同一バインド＝landK=1 強制のハイプソ本体・α=G.whP.x の whK フェード）。
 	// 線は作らない前提（buildGeoJSONOverlay {lines:false}）＝塗りのみ。
-	function drawWdepr(pass, packF, st) {
-		if (!wdepr || !wdepr.fanCount || !globeBG) return;
+	// 全球面ポリゴンの stencil 段（wdepr/lakes 共用）：slot の Frame/DrawP を書き fan を巻き数へ。
+	// fill＝DrawP p1（lakes の ovCover 用の平色。wdepr は cover が画素単位で計算＝null）。
+	function stencilWorldFan(pass, packF, st, o, slot, fill) {
 		ensureOvFrameBG();
-		device.queue.writeBuffer(ovFrameBuf, WD_SLOT * FRAME_SLOT, packF(wdepr.origin));
+		device.queue.writeBuffer(ovFrameBuf, slot * FRAME_SLOT, packF(o.origin));
 		wdParamCPU.fill(0);
 		wdParamCPU[1] = OVERLAY_LIFT; wdParamCPU[2] = 1; wdParamCPU[3] = 1;   // p0.y=リフト p0.z=地平円クランプ（球体カリング＝vsStencil） p0.w=グローバルα
-		device.queue.writeBuffer(ovParamBuf, WD_SLOT * PARAM_SLOT, wdParamCPU.buffer, 0, PARAM_SLOT);
-		const fOff = WD_SLOT * FRAME_SLOT, pOff = WD_SLOT * PARAM_SLOT;
+		if (fill) { wdParamCPU[4] = fill[0]; wdParamCPU[5] = fill[1]; wdParamCPU[6] = fill[2]; wdParamCPU[7] = fill[3]; }   // p1=塗り色
+		device.queue.writeBuffer(ovParamBuf, slot * PARAM_SLOT, wdParamCPU.buffer, 0, PARAM_SLOT);
+		const fOff = slot * FRAME_SLOT, pOff = slot * PARAM_SLOT;
 		pass.setStencilReference(0);
 		pass.setPipeline(P.ovStencil);
 		pass.setBindGroup(0, ovFrameBG, [fOff]); pass.setBindGroup(1, ovParamBG, [pOff]);
-		pass.setVertexBuffer(0, wdepr.fanBuf);
-		// 球体カリング二段構え（gl/renderer.js drawWdepr と対）：①完全裏側 feature は CPU でレンジごと
+		pass.setVertexBuffer(0, o.fanBuf);
+		// 球体カリング二段構え（gl/renderer.js stencilWorldFan と対）：①完全裏側 feature は CPU でレンジごと
 		// 描かない（対蹠点付近は VS クランプがリング一周巻き＝全面+1化）②跨ぎは vsStencil の地平円クランプ。
-		if (wdepr.feats) {
+		if (o.feats) {
 			const E = st.eye, eLen = Math.hypot(E[0], E[1], E[2]) || 1;
 			const cosH = Math.min(1, 1 / eLen), sinH = Math.sqrt(Math.max(0, 1 - cosH * cosH));
 			const ex = E[0] / eLen, ey = E[1] / eLen, ez = E[2] / eLen;
 			let run0 = -1, runN = 0;
-			for (const f of wdepr.feats) {
+			for (const f of o.feats) {
 				const vis = f.C[0] * ex + f.C[1] * ey + f.C[2] * ez > f.cosR * cosH - f.sinR * sinH;
 				if (vis && run0 >= 0 && f.start === run0 + runN) { runN += f.count; continue; }
 				if (runN) pass.draw(runN, 1, run0);
 				run0 = vis ? f.start : -1; runN = vis ? f.count : 0;
 			}
 			if (runN) pass.draw(runN, 1, run0);
-		} else pass.draw(wdepr.fanCount);
+		} else pass.draw(o.fanCount);
 		// 球体カリングは VS の地平円クランプ（p0.z=1）が担う＝裏側は円周に縮退（巻き数0）・跨ぎは可視部のみ。
 		// 旧・ref=±1 方式は跨ぎポリゴンの投影折返しが作る±1斑を殺しきれなかった（GL だけ幻影の実測 2026-09-02）。
+		return [fOff, pOff];
+	}
+	function drawWdepr(pass, packF, st) {
+		if (!wdepr || !wdepr.fanCount || !globeBG) return;
+		stencilWorldFan(pass, packF, st, wdepr, WD_SLOT, null);
 		pass.setPipeline(P.wdCover);   // NOTEQUAL 0 → 塗って 0 へ後始末（dsOvCover と同じ）
 		pass.setBindGroup(0, globeBG);
+		pass.draw(3);
+	}
+	// 湖（NE lakes・?world=1）＝wdepr の兄弟：stencil 共用・cover は ovCover（DrawP p1 の平色＝worldPal.sea）。
+	// 旧 world-water タイル層（Protomaps/OSM）の置き換え（2026-09-03 本人裁定「湖はNE経由＝B案」）＝
+	// α=whK＝全球ハイプソと同時に現れ同時に消える（z≥6.5 は自動不可視・日本の湖は GSI 基図の領分）。
+	function drawLakes(pass, packF, st, whK) {
+		if (!lakes || !lakes.fanCount) return;
+		const sc = worldPal().sea;   // globe u_seaC と単一の出所（テーマの worldHypso.sea が両方へ届く）
+		const [fOff, pOff] = stencilWorldFan(pass, packF, st, lakes, LK_SLOT, [sc[0], sc[1], sc[2], whK]);
+		pass.setPipeline(P.ovCover);
+		pass.setBindGroup(0, ovFrameBG, [fOff]); pass.setBindGroup(1, ovParamBG, [pOff]);
 		pass.draw(3);
 	}
 	// gintBld（gint ユーザー層の地形沿い境界線・点）＝独自 origin・BUILDING_WGSL 24B レイアウト・line/point 描画。null=解放。
@@ -1153,7 +1174,12 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 		// 海面下の陸地（?world=1・below_sea_land）＝全球ハイプソの一部として「タイル(湖)より先」に敷く。
 		// 描画順が精度を代替（2026-09-01 本人指摘）：海側だけ焼きが正確（admin0海岸線でクリップ）ならよく、
 		// 湖側は上に乗る湖の塗り・陸側は cover（landK=1 のハイプソ本体）が外側と同色に溶ける。gl/renderer.js と対。
-		if (worldHypsoK > 0) drawWdepr(pass, (origin) => packFrame(st, origin, st.fogDist * 2.5, st.fogDist * 14.0, land, logCoef, dpr), st);
+		if (worldHypsoK > 0) {
+			const packOv = (origin) => packFrame(st, origin, st.fogDist * 2.5, st.fogDist * 14.0, land, logCoef, dpr);
+			drawWdepr(pass, packOv, st);
+			// 湖（NE lakes）＝wdepr の上・タイルの下（海→海面下→湖→陸の順のまま供給源だけ NE へ 2026-09-03）
+			drawLakes(pass, packOv, st, worldHypsoK);
+		}
 		// 基図（塗り/線）：ペインタ順。山岳ビュー＝地形深度でテストだけ（書かない）＝尾根の向こうが透けない
 		// dbg＝?drawhud=1 の実機計器（描いた枚数と状態）。「背景が黒＝塗りが一枚も出ていない」時に、
 		// 犯人が CPU 側（シーンが空・スロット退場）か GPU 側（描いたのに出ない）かを画面で名指しするための物差し
@@ -1411,6 +1437,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 			case "overlayHover": setOverlayHover(data); break;
 			case "n02":       setN02(data); break;               // data=[シーン…] 交通の常駐オーバーレイ群
 			case "wdepr":     setWdepr(data); break;             // 海面下の陸地（?world=1）＝タイル前に描く塗り専用シーン（色は cover が画素単位で計算）
+			case "lakes":     setLakes(data); break;             // 湖（NE lakes・?world=1）＝wdepr 直後に描く塗り専用シーン（色は worldPal.sea 平色）
 			case "gintBld":   setGintBld(data); break;           // data={origin,lines,points,color}／null=解放
 			case "view":    view = { ...view, ...data }; break;
 			case "sea":     sea = { ...sea, ...data }; break;
@@ -1443,7 +1470,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 		plBatchBuf.destroy(); maskParamBuf.destroy();
 		skyBuf.destroy(); skyLineBuf.destroy();
 		ovFrameBuf.destroy(); ovParamBuf.destroy(); emptyMaskParamBuf.destroy();
-		disposeOverlay(overlay); disposeOverlay(overlayHi); disposeOverlay(overlayHover); disposeOverlay(wdepr); for (const o of n02) disposeOverlay(o); disposeGintBld();
+		disposeOverlay(overlay); disposeOverlay(overlayHi); disposeOverlay(overlayHover); disposeOverlay(wdepr); disposeOverlay(lakes); for (const o of n02) disposeOverlay(o); disposeGintBld();
 		for (const b of [stars, planets, constel, ecliptic, celeq]) if (b) b.buf.destroy();
 		for (const p of plateaux.values()) { p.vbo.destroy(); p.nbo.destroy(); p.ibo.destroy(); }
 		plateaux.clear();

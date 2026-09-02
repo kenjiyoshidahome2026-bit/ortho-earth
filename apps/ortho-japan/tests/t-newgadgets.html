@@ -82,6 +82,15 @@ try {
 	ok("japanFit", Math.abs(map.cam.pitch) < 0.02 && map.cam.zoom > 6 && map.cam.zoom < 7
 		&& Math.abs(map.cam.center[0] - 137) < 1.2 && Math.abs(map.cam.center[1] - 37) < 1.2);
 
+	// zoomゲート：搭載時 zoom=[zmin,zmax) 宣言＝プラットフォームが裁く（アイコン配列は全z一本・圏外は display:none で上詰め）
+	map.gadget.solar({ zoom: [10, 99] });   // 現在 z≈6.6（japanFit 直後）＜ zmin=10 ＝搭載直後から隠れる
+	const sb = document.getElementById("solar");
+	ok("gateMount", !!sb);
+	ok("gateHide", getComputedStyle(sb).display === "none");
+	window.__cam(139.76, 35.68, 13, 0, 0);   // 圏内へ＝render のフックで現れる
+	await new Promise(r => setTimeout(r, 300));
+	ok("gateShow", getComputedStyle(sb).display !== "none");
+
 	// close：×クリック/Escで ortho:close が飛ぶ（閉じる実務は埋め込み側）。入力中のEscは譲る
 	map.gadget.close();
 	let closed = 0;

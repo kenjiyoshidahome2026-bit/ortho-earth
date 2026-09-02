@@ -4,6 +4,7 @@
 // ★"attr"（出典）を出さない場合でも、地理院タイル・PLATEAU・AW3D30 の出典明記義務は消えない＝
 //   埋め込み側が自分のページのどこかに同等の出典を記述すること（README「出典表記」参照）。
 import { tr } from "../i18n.js";
+import { dockStack } from "./stack.js";
 const t = tr({   // 出典（attr）＝正確性が義務＝機関名は公式英名（GSI / MLIT PLATEAU / JAXA）
 	"起動中…": "Starting…",
 	"出典：": "Sources: ",
@@ -21,15 +22,16 @@ export function mountInstruments(mapEl, keys = true) {
 		for (const k of keys) if (!KEYS.includes(k)) console.warn(`[instruments] unknown key "${k}" (valid: ${KEYS.join(", ")})`);
 	const want = k => keys === true || (Array.isArray(keys) && keys.includes(k));
 	const els = [];
-	if (want("log")) {   // デバッグログ（常時非表示＝devtoolsで#logを出す人向け）
+	// 左下の読み物（log・pos）は #dock へ＝下から積む（重なりの構造的排除）。scale/attr は従来どおり #map 直下（下辺中央/右）。
+	if (want("log")) {   // デバッグログ（常時非表示＝devtoolsで#logを出す人向け。表示時＝ドックの縁）
 		const log = document.createElement("div");
 		log.id = "log"; log.textContent = t("起動中…");
-		els.push(log);
+		dockStack(mapEl).append(log);
 	}
-	if (want("pos")) {   // 座標読み取り（左下）。非搭載なら標高照会も止まる（main側 hasPos ゲート）
+	if (want("pos")) {   // 座標読み取り（左下＝ドックの定位置）。非搭載なら標高照会も止まる（main側 hasPos ゲート）
 		const pos = document.createElement("div");
 		pos.id = "pos";
-		els.push(pos);
+		dockStack(mapEl).append(pos);
 	}
 	if (want("scale")) {   // 距離スケール（下辺中央・真俯瞰のみ）
 		const scale = document.createElement("div");

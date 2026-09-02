@@ -15,12 +15,12 @@ createGeopbf("https://api.ortho-earth.com", { bucket: nativeBucket });   // buck
 import { MAP_THEMES } from "./palettes.js";
 import { createThemes, defaultLayerState, isFacility, isTerrain, CHOME_MINZOOM, CHOME800_MINZOOM, RAILTR_MINZOOM } from "./themes.js";
 import { createOverlay } from "./overlay.js";
-import { worldLayers } from "./style-world.js";   // 全球ベクタ基図（?world=1）＝Protomaps 層の style 前置
 
 // planets.js / skynames.js は z<4（星空）でしか使わない＝初期バンドルから外し、下の ensureSkyMod で動的読込。
 import { createPipeline } from "ortho-core";   // tile/scene worker のスポーンごとエンジン側
 import { createPlateauDb } from "./plateaudb.js";
 import { mountGadgets } from "./gadgets/mount.js";
+import { dockStack } from "./gadgets/stack.js";   // 左下ドック（座標計器・読込トーストの容れ物＝重なりの構造的排除）
 import { search as searchGadget } from "./gadgets/searchbox.js";
 import { hint as hintGadget } from "./gadgets/hint.js";
 import { compass as compassGadget } from "./gadgets/compass.js";
@@ -87,8 +87,6 @@ const t = tr({
 	"都市を立ち上げ中…": "standing up the city…",
 	"{0} / {1} 区": "{0} / {1} districts",
 	"準備中…": "preparing…",
-	"星図: d3-celestial ／ 海岸線: Natural Earth ／ 標高: GEBCO ／ © 2026 Kenji Yoshida":
-		"Star chart: d3-celestial / Coastlines: Natural Earth / Bathymetry: GEBCO / © 2026 Kenji Yoshida",
 	"経度": "Lon", "緯度": "Lat", "標高": "Elev", "z値": "z", "回転": "Rot", "傾度": "Tilt",
 });
 
@@ -166,20 +164,16 @@ const ASSET_BASE = String(opts.assetBase ?? import.meta.env.BASE_URL).replace(/\
 // target を渡さない起動なので従来どおり窓に生える。
 const DEBUG_GLOBALS = opts.debugGlobals ?? !opts.target;
 const dbgHost = DEBUG_GLOBALS ? window : {};
-// 全球ベクタ基図（既定＝2026-09-01 本人裁定「world=1をデフォルトに」・?world=0 が逃げ道）：
-// タイル z≤WORLD_TILE_MAXZ を Protomaps PMTiles（OSM/ODbL）から引く。
-// z4+ は従来どおり optbv（日本域）＝BASEMAP_MINZOOM(ビューz6.5)未満の「基図オフの真空」を世界タイルが埋める。
-// アーカイブは低ズーム extract（z0-3・湖しか使わないが層はフル＝2.4MB）を public 同梱＝同一オリジン配信：
-// build.protomaps.com 直読は CORS が localhost:5173 のみ許可＝本番ホットリンク不可（8/30実測）の根治。
-// 再抽出＝go-pmtiles: `pmtiles extract https://build.protomaps.com/<date>.pmtiles world-z3.pmtiles --maxzoom=3`
+// 全球ビュー（既定＝2026-09-01 本人裁定「world=1をデフォルトに」・?world=0 が逃げ道）：
+// z<BASEMAP_MINZOOM(6.5) はタイルなし＝全球ハイプソ（GEBCO×気候・シェーダ計算）＋NE admin0 の gint 線＋
+// NE lakes のエンジン湖スロット（下記 loadLakes）。旧・Protomaps PMTiles（OSM/ODbL・world-water 湖のみ消費）は
+// 2026-09-03 本人裁定「湖はNE経由＝B案」で撤去＝出典から © OpenStreetMap が消えた（pmtiles 配管と
+// public/world-z3.pmtiles 資産の始末は別途）。タイルは全z で optbv（日本域）のみ。
 const WORLD_VT = !/[&?]world=0/.test(location.search);
-const WORLD_TILE_MAXZ = 3;
-const WORLD_PMTILES = "pmtiles://" + new URL("world-z3.pmtiles", new URL(import.meta.env?.BASE_URL || "/", location.href)).href;
 // 気候場テクスチャ（全球ハイプソ cross-blend・Köppen-Geiger/Beck et al. CC-BY 720x360 焼き縮め・public 資産）。
 // boot と switchTheme の両方が worldHypso.clim に積む（再送は両レンダラとも取得済みキャッシュで no-op）
 const CLIM_URL = new URL("koppen-clim.png", new URL(import.meta.env?.BASE_URL || "/", location.href)).href;
-const TILE_URL = (z, x, y) => WORLD_VT && z <= WORLD_TILE_MAXZ ? WORLD_PMTILES
-	: `https://cyberjapandata.gsi.go.jp/xyz/optimal_bvmap-v1/${z}/${x}/${y}.pbf`;
+const TILE_URL = (z, x, y) => `https://cyberjapandata.gsi.go.jp/xyz/optimal_bvmap-v1/${z}/${x}/${y}.pbf`;
 // optimal_bvmap の配信圏（日本域）の外接矩形 [west,south,east,north]。これと全く重ならないタイルは GSI が
 // 常に 404 を返す提供圏外＝pipeline が fetch を省いて空タイル(標高ゲート付き全面水域)扱いにする（無駄な 404 を断つ）。
 // 症状＝縦長のスマホ画面が北海道以北の外洋(z8 y=87/88≈50°N)まで写して 404 を量産（横長のデスクトップでは出にくい）。
@@ -211,12 +205,8 @@ if (typeof opts.theme !== "object" && !MAP_THEMES[themeName]) console.warn(`[the
 let theme = typeof opts.theme === "object" ? { ...MAP_THEMES.mono, ...opts.theme }   // カスタム＝mono を土台に部分上書き
 	: (MAP_THEMES[themeName] || MAP_THEMES.mono);
 let style = theme.style;
-// 全球ベクタ（?world=1）：世界層を先頭へ前置＝li（層番号）は全経路が style から動的に引くので順送りで無害。
-// 前置＝painter順で最下層（国境線は基図の下）。層名が bvmap と重ならないので decode/merge は素通しで混在。
-// 湖の色＝現テーマの worldHypso.sea（未指定＝正準既定）＝u_seaC と単一の出所。boot と switchTheme が共用
-//（switchTheme が theme.style を素で使うと世界層が落ちて湖が消える＝ライブ切替バグの根治もこのヘルパ経由）。
-const withWorld = s => WORLD_VT ? { ...s, layers: [...worldLayers(theme.worldHypso?.sea), ...s.layers] } : s;
-style = withWorld(style);
+// 旧・世界層前置（withWorld＝world-water 湖タイル層）は撤去（2026-09-03 湖のNE化）＝style はテーマの素のまま。
+// 湖の色は worldPal.sea をレンダラが直接読む（u_seaC と単一の出所＝テーマの worldHypso.sea が両方へ届く）。
 mountGadgets(mapEl, { chips: opts.chips, instruments: opts.instruments, fixedLayers });   // UI を #map に生やす＝以降の getElementById が実体を掴めるよう、全lookupの前で
 // 非搭載（chips:false / instruments:false）でも配線コードは無改造＝繋ぎ先が無ければ宙のdiv（どこにも描画されない）へ。
 const orDetached = el => el || document.createElement("div");
@@ -503,8 +493,8 @@ const renderer = {
 let elevBusy = false;   // 標高タイル（R01/R10/R90）読込中＝PLATEAU先読みの柵（デモの地形シーンで起伏が立たない事故の防止）
 let elevN = 0;          // 読込中の枚数＝デモ行送りゲートの進捗指紋（枚数が動いている間は「進んでいる」）
 const elevEl = document.createElement("div");
-elevEl.id = "elev-toast";   // スタイルは style.css
-mapEl.appendChild(elevEl);
+elevEl.id = "elev-toast";   // スタイルは quiet-mono。左下ドック＝#pos の上へ積まれる（bottom手打ち廃止 2026-09-03）
+dockStack(mapEl).append(elevEl);
 // 等高線(真俯瞰の茶線)・測量点標高・地形読込表示は「地形」チップ(layerState.terrain)に統合＝独立トグル無し。
 // zoom/tileのデバッグログ(#log)はユーザー向けチップから切り離し常時非表示（必要なら devtools で #log を出す）。
 logEl.style.display = "none";
@@ -553,12 +543,14 @@ renderWorker.onmessage = e => {
 		// フォールバック GL2 の画面表示（柔らか鍵の③）：黙って重いモードで走らない。タップ＝印を全消しして
 		// WebGPU 再試行（CNG フリートで端末を覗いた瞬間に状態が分かる・観客の端末でも1タップで復帰を試せる）。
 		if (dbgHost.__backend !== "webgpu" && gl2Fallback) {
+			// 左下ドックへ搭載（2026-09-03 被り総括）：旧・body直下の position:fixed は #pos（座標計器）と真被り＝
+			// ドックなら座標計器やトーストの上へ積まれる。destroy の replaceChildren でも一緒に畳まれる（旧はbodyに残った）
 			const chip = document.createElement("div");
 			chip.id = "gl2-chip";
-			chip.style.cssText = "position:fixed;left:8px;bottom:calc(8px + env(safe-area-inset-bottom,0px));z-index:9000;background:rgba(20,24,34,.78);color:#ffd479;font:11px/1.4 system-ui,sans-serif;padding:5px 9px;border-radius:14px;cursor:pointer;user-select:none;-webkit-user-select:none";
+			chip.style.cssText = "background:rgba(20,24,34,.78);color:#ffd479;font:11px/1.4 system-ui,sans-serif;padding:5px 9px;border-radius:14px;cursor:pointer;user-select:none;-webkit-user-select:none";
 			chip.textContent = nogpuN >= 2 ? t("互換描画(WebGL2)モード — タップで高速モード再試行") : t("互換描画(WebGL2)で起動 — 再読み込みで高速モード再試行");
 			chip.onclick = () => { sessionStorage.removeItem("oj.nogpu"); sessionStorage.removeItem("oj.nogpuN"); location.reload(); };
-			document.body.appendChild(chip);
+			dockStack(mapEl).append(chip);
 		}
 		// WebGPU の present 検証：worker 側は例外ゼロで描けている「つもり」でも、環境によっては canvas に画素が
 		// 届かない（iOS Safari 実測＝worker×OffscreenCanvas×WebGPU の present 未接続）。placeholder canvas を
@@ -657,7 +649,7 @@ const STALE_ZOOMOUT = 0.5;            // これ以上ズームアウトしたら
 // ack で原子的に差し替え＝連続した絵を保つ。従来動作（GL2/LOW_MEM）は据置。
 const mainStale = () => !keepFineNow() && mainSceneZoom > cam.zoom + STALE_ZOOMOUT;
 let basemapHidden = false;                 // z<BASEMAP_MINZOOM で基図(GSI)を止めてるか（全球ビュー＝海岸線のみ）
-let attrWorldBand = false, attrJPHTML = null;   // 世界帯の出典差し替え状態（world時のみ・render() が z6.5 跨ぎで切替）
+let attrZone = null, attrJPHTML = null;   // 出典（#attr）の圏＝"jp"|"world"|"sky"（render() が z 跨ぎで一枚を差し替え＝各ズーム統合 2026-09-03）
 // 日本固有（GSI基図）の出番：従来5。世界下地（ハイプソ＋admin0国線）がある ?world=1 は 6.5 から
 // （本人裁定 2026-08-31「下地ができたので日本固有はz>6.5でいい」）。標高はz5.5からR10（terrain.js・
 // 旧6.5＝9/2裁定でハイプソ帯の海岸ギザ根治）＝GSI入場前にハイプソが精細化して受け渡す。
@@ -1033,8 +1025,8 @@ function workerLoadPlateau(base, tiles, name, wardBbox, brid, ex = {}) {
 // PLATEAU 読込進捗（左下）：地区別のバッチ進捗を1行に集計。ネットワーク経路（初回訪問）だけ表示され、
 // メモリ/IDBキャッシュ命中時は一瞬で終わるので出ない。消灯は ack（完了/失敗）で行う。
 const plateauEl = document.createElement("div");
-plateauEl.id = "plateau-toast";   // スタイルは style.css
-mapEl.appendChild(plateauEl);
+plateauEl.id = "plateau-toast";   // スタイルは quiet-mono。左下ドック＝elev-toast の上へ積まれる
+dockStack(mapEl).append(plateauEl);
 const plateauProg = new Map();   // name → { scan } | { done, total }（scan＝カタログ走査中の枚数）
 let sceneProgTap = null;   // シーン再生(waitLoading)の進捗パネルへの中継口＝待機中だけ playScene が配線（宣言は使用点 renderPlateauProg より先＝初期化中の worker 便で TDZ を踏まない）
 function renderPlateauProg() {
@@ -1568,7 +1560,6 @@ function onMove() {
 style.emptySea = "water";
 const { relayCtl: pipelineRelay, tiles, requestMerge, setStyle: setPipelineStyle, destroy: destroyPipeline } = createPipeline({
 	style, tileUrl: TILE_URL, requestDraw: () => { needsDraw = true; }, scenePort: sceneChan.port1, onTile, ell: ELL_ON,
-	minZ: WORLD_VT ? 0 : undefined,   // 全球ベクタ＝タイルzの床を0へ（選抜・下地・毛布が世界タイルまで降りる）。既定4＝従来挙動
 	coverage: /[?&]nocov=1/.test(location.search) ? null : JP_COVERAGE,   // 配信圏外タイルは fetch せず空タイル(海)扱い＝外洋・国外への無駄な 404 を断つ（縦長スマホの周縁 404 の根治）。?nocov=1 で無効化＝A/B 検証ノブ
 
 	// LOD下限＝タイルz8（sea gate と同じ閾値）：optbv は z8 から海が全面WA（沖合タイル=WA一枚50B級）、z7以下は
@@ -1586,11 +1577,11 @@ if (IOS_RELAY && gpuBackend) { relayCtl = pipelineRelay; const pend = relayPendi
 // ack＝「このシーンが画面に載った（fallback は次フレーム、multi_draw は適用の瞬間）」。sig はここで初めて確定する
 // （要求時の楽観確定をやめた＝失敗が永続穴にならない）。hoisted 関数＝renderWorker.onmessage（上方）からも呼ばれる。
 function onSceneApplied(slot, sig) {
-	// 全球ビュー(z<4)移行後に着地した投げっぱなしmerge：結合結果は scene worker→render worker 直行＝
+	// 基図の門(z<BASEMAP_MINZOOM)より下へ移行後に着地した投げっぱなしmerge：結合結果は scene worker→render worker 直行＝
 	// main では止められないため、render() が空にした後から道路/鉄道が復活する（ズームアウト中の要求が遅れて届く）。
-	// ack＝着地の合図なので、ここで検知して即座に空へ戻す（sig は確定させない＝z4復帰時に再結合させる）。
-	// ?world=1 は例外＝全球ビューも世界タイル（国境線）を通常フローで merge し続ける。
-	if (cam.zoom < BASEMAP_MINZOOM && !WORLD_VT) {
+	// ack＝着地の合図なので、ここで検知して即座に空へ戻す（sig は確定させない＝復帰時に再結合させる）。
+	// 世界タイル(Protomaps)撤去（2026-09-03 湖のNE化）＝world でも基図の門の下はタイルなし＝例外撤廃。
+	if (cam.zoom < BASEMAP_MINZOOM) {
 		renderer.set("scene", { origin: [cam.center[0], cam.center[1]], layers: [] }, slot);
 		needsDraw = true;
 		return;
@@ -1605,7 +1596,7 @@ function onSceneApplied(slot, sig) {
 }
 dbgHost.__mergeFail = () => requestMerge.debugFail();   // 次の merge を故意に失敗させ ack 自己修復を実地検証
 dbgHost.__vtPool = () => requestMerge.stats();          // multi_draw 常駐プールの占有を scene worker の console に出す
-dbgHost.__style = () => style;   // 現在の合成style（world層前置込み）＝検証フック（t-world：テーマ切替で world-water 層が生存し湖色がテーマの sea に追随すること）
+dbgHost.__style = () => style;   // 現在の style＝検証フック（t-world：world-water 層が「無い」こと＝湖はエンジン lakes スロットへ移行済 2026-09-03）
 
 // 透視カメラ：center(注視点lon/lat), zoom(web-mercator float), pitch/bearing(rad)
 const MAXPITCH = 75 * D2R;   // 山岳ビュー(z<13)は地形が深度で自遮蔽・混成アトラスが地平線までカバー＝高チルトの根拠が揃ったので75°まで開放
@@ -1663,7 +1654,7 @@ const saveView = () => { saveCam(); try { history.replaceState(null, "", viewHas
 function switchTheme(name) {
 	if (name === themeName || !MAP_THEMES[name]) return;
 	queueMicrotask(() => document.querySelectorAll("#theme-row .lp-theme").forEach(b => b.classList.toggle("on", b.dataset.theme === themeName)));   // 表示パネルのテーマ列同期（themeName確定後＝microtask）
-	themeName = name; theme = MAP_THEMES[name]; style = withWorld(theme.style);   // withWorld＝世界層(湖)の再前置。素の theme.style だとライブ切替で湖が消える
+	themeName = name; theme = MAP_THEMES[name]; style = theme.style;   // 湖はエンジンの lakes スロット（worldPal.sea 直読）＝style 側の世界層前置は廃止（2026-09-03）
 	bg = style.layers.find(L => L.type === "background");
 	land = bg ? parseRGBA(evalExpr(bg.paint?.["background-color"] ?? "#fff", { zoom: 10, props: {}, geom: null, vars: {} })) : [0.96, 0.96, 0.95, 1];
 	atmo = theme.atmo; bldColor = theme.bldColor;
@@ -2159,7 +2150,7 @@ function clearGintSlot() {
 }
 // ズームでスロットの中身を選ぶ。onMove から毎回呼ばれるが post は変更時だけ＝安い。海岸線は初回のみ遅延取得。
 function updateGintSlot() {
-	if (WORLD_VT && cam.zoom < COAST_Z) loadBelowSea();   // 海面下の陸地も世界図の文脈で一度だけ遅延取得（wdepr＝overlay 系スロット＝gint と独立・自己ガード）
+	if (WORLD_VT && cam.zoom < COAST_Z) { loadBelowSea(); loadLakes(); }   // 海面下の陸地・湖も世界図の文脈で一度だけ遅延取得（wdepr/lakes＝overlay 系スロット＝gint と独立・自己ガード）
 	// 国名 tip はズームだけで z5.5 を跨いでも消す（ホバーイベントが来ない＝出しっぱなしになる件の根治 2026-09-02）
 	if (worldTipOn && cam.zoom >= WORLD_TIP_MAXZ) { gintHoverTip?.(null); worldTipOn = false; }
 	if (noGint) return;   // ?nogint=1＝海岸線ロードもスロット適用もしない（gint パスは空データ＝実質ゼロコスト）
@@ -2230,6 +2221,30 @@ async function loadBelowSea() {
 dbgHost.__terr = () => wPost({ type: "terrStats" });   // 標高アトラスの内部状態を worker から吸い出してコンソールへ（dev診断）
 dbgHost.__wdepr = fc => { renderer.set("wdepr", fc ? buildGeoJSONOverlay(fc.features || fc, [0, 0], { lines: false, ranges: true }) : null); needsDraw = true; };
 
+// --- 湖（?world=1・Natural Earth lakes）-----------------------------------------------------
+// 旧・Protomaps 世界タイルの world-water 層（OSM/ODbL・湖だけ消費）の置き換え（2026-09-03 本人裁定「B案」）：
+// NE lakes → buildGeoJSONOverlay（塗り専用）→ エンジンの lakes スロット（wdepr の兄弟＝stencil fan 共用・
+// cover は worldPal.sea の平色一枚＝海と同じ顔・テーマ追随はレンダラが毎フレ直読み）。出自も海岸線・国境
+//（NE admin0）と揃い、© OpenStreetMap の出典義務が消えた。表示は whK 連動＝z≥6.5 は自動不可視（日本の湖=GSI基図）。
+// bucket 未収録の間は NE S3 の生 zip へフォールバック（coast と同じ作法＝geopbf が shp を食い IDB キャッシュ）。
+let lakesState = 0;   // 0=未 1=着手済（失敗も1＝毎 onMove で再試行しない）
+async function loadLakes() {
+	if (lakesState) return; lakesState = 1;
+	const RES = LOW_MEM ? "50m" : "10m";   // モバイルは 50m 版＝頂点数一桁小（coast と同じ裁き）
+	const NAME = `ne_${RES}_lakes`;
+	let pbf = await geopbf(NAME, { gint: false }).catch(() => null);   // gint 不要（identify なし・塗りだけ）
+	if (!pbf?.length) {
+		console.warn(`[lakes] no geopbf in bucket -> falling back to raw zip (NE S3 -> shp decode)`);
+		pbf = await geopbf(`https://naturalearth.s3.amazonaws.com/${RES}_physical/${NAME}.zip`, { name: NAME, gint: false }).catch(e => { console.warn("[lakes] load failed", e); return null; });
+	}
+	if (!pbf?.length) return;
+	renderer.set("lakes", buildGeoJSONOverlay(pbf.geojson.features, [0, 0], { lines: false, ranges: true }));   // ranges＝feature毎レンジ+外接円（球体カリング）
+	needsDraw = true;
+	console.log(`[lakes] NE ${RES} lakes loaded: ${pbf.length} features (fill = worldPal sea)`);
+	lakesState = 2;   // 2=搭載済（renderer へ送達）＝検証フック用
+}
+dbgHost.__lakes = () => lakesState;   // 検証フック（t-world）：0=未 1=着手 2=搭載済
+
 // --- 星空劇場（z<4・v1 ortho-map の星空アクセサリー移植）---
 // stars.6（実在星表：RA/Dec・等級・B-V色指数）を天球単位ベクトル＋色＋点径に焼いて render worker へ。
 // 向きは恒星時(GMST)＝engine が毎描画で回す（実時刻の空）。クリックで星座線（constellation_lines）をトグル。
@@ -2287,13 +2302,8 @@ function updatePlanets() {
 const skyClockEl = document.createElement("div");
 skyClockEl.id = "sky-clock";
 mapEl.appendChild(skyClockEl);
-const skyAttrEl = document.createElement("div");
-skyAttrEl.id = "sky-attr";
-// world時は帰属が増える：admin0国界=Natural Earth(既載)・気候場=Beck et al.(CC-BY)・湖=OSM/Protomaps(ODbL)
-skyAttrEl.textContent = WORLD_VT
-	? t("星図: d3-celestial ／ 国界: Natural Earth ／ 標高: GEBCO ／ 気候: Beck et al. ／ 湖: © OpenStreetMap ／ © 2026 Kenji Yoshida")
-	: t("星図: d3-celestial ／ 海岸線: Natural Earth ／ 標高: GEBCO ／ © 2026 Kenji Yoshida");   // z<4はR90(GEBCO)のみ＝JAXA(R01)は使わない
-mapEl.appendChild(skyAttrEl);
+// （旧 #sky-attr＝星空専用の出典別要素は廃止 2026-09-03「attr表示を各ズームで綺麗に統合」＝
+//   #attr 一枚が圏で差し替わる。星空圏の文面は render() の attrZone="sky" 節）
 const SKY_WD = getLang() === "ja" ? ["日", "月", "火", "水", "木", "金", "土"] : ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const skyClockTimer = setInterval(() => {
 	if (cam.zoom >= STARSKY_Z) return;   // 見えていない間はDOMに触れない（星空圏の外）
@@ -3060,26 +3070,31 @@ function render() {
 	renderer.draw(cam, { skipBase: !moving && mainFresh, skipMain: mainStale(), noTerrain: false, terrainGate: !moving });     // 先に最新camをworkerへ（全球でも標高の塗りは生かす）。印刷撮影中も標高アトラスは生かす＝真俯瞰(pitch0)で地形サーフェスは自然に平ら(elevScaleEff=0)なまま等高線だけ敷ける。海岸線は render worker が従属で追随
 	// 全球ビュー（z<4）：基図(GSI)の詳細は不要＝タイル/結合/地形を止め、基図シーンを空に＝海岸線(gint)だけの軽い地球。
 	// これで pan 中も main の毎フレーム負荷（tiles.update/merge/terrain）が消える。
-	// 家具も全部フェード退場（attr含む＝quiet-mono #map.world）＝星空劇場の舞台。GSI非描画なので出典義務なし。
-	// 家具フェード（.world＝星空劇場の演出）は星空圏(z<5)据え置き：基図の門(BASEMAP_MINZOOM=world時6.5)に
-	// 連動させると z5-6.5 の世界帯で座標テーブル(#pos)ごと退場してしまう（本人指摘 2026-08-31）。
+	// 星空劇場（.world＝z<5）：逆相家具（日時計）の点灯と、紙の計器（#scale/#hint）の退場だけ。
+	// アイコン配列は全z共通（2026-09-03 シンプル化＝旧・扉2枚残しの一括退場を廃止。表示域はガジェット毎の
+	// zoom=[zmin,zmax) 宣言）。#pos（座標テーブル）も全z表示。表示パネルも生きたまま＝テーマ切替は宇宙でも効く（世界パレット）。
 	const inWorld = cam.zoom < STARSKY_Z;
-	if (inWorld && !mapEl.classList.contains("world"))   // 劇場入場＝表示パネルは畳んで退場（開いたままだと不可視の開状態が ui-idle を塞ぐ）
-		mapEl.querySelector("#layers-btn.on")?.click();
 	mapEl.classList.toggle("world", inWorld);
-	// 世界帯（world時 z<6.5＝GSI非描画）は出典を世界版へ差し替え：日本のデータを出していない画面に
-	// 地理院・PLATEAU を並べるのは義務以前に嘘になる（nl 入口と同じ流儀・instruments.js の先例）。
-	if (WORLD_VT) {
-		const wband = cam.zoom < BASEMAP_MINZOOM;
-		if (wband !== attrWorldBand) {
-			attrWorldBand = wband;
+	// 出典（#attr）の各ズーム統合（2026-09-03 本人号令「綺麗に統合」）：一枚の #attr を3圏で差し替え＝
+	//   jp（z≥6.5 基図圏）＝GSI/PLATEAU/JAXA（instruments の静的版を初回退避・nl 入口はその nl 版）
+	//   world（5≤z<6.5 世界帯・world時）＝NE・GEBCO・Beck＝日本のデータを出していない画面に地理院を並べない（義務以前に嘘）
+	//   sky（z<5 星空圏）＝星図 d3-celestial を加えた世界版（旧 #sky-attr 別要素＋CSS隠しの二重機構を廃止）
+	// shot の焼き込み（attrLines＝#attr の文面共用）も自動で圏に追随＝宇宙のスクショに正しい出典が焼かれる。
+	{
+		const zone = cam.zoom < STARSKY_Z ? "sky" : (WORLD_VT && cam.zoom < BASEMAP_MINZOOM) ? "world" : "jp";
+		if (zone !== attrZone) {
+			attrZone = zone;
 			const attr = document.querySelector("#attr");
 			if (attr) {
 				if (attrJPHTML == null) attrJPHTML = attr.innerHTML;   // 日本版を初回に退避（復帰用）
-				attr.innerHTML = wband
-					? `${t("出典：")}<a href="https://www.naturalearthdata.com/" target="_blank" rel="noopener">Natural Earth</a>・<a href="https://www.gebco.net/" target="_blank" rel="noopener">GEBCO</a>・<a href="https://www.gloh2o.org/koppen/" target="_blank" rel="noopener">Beck et al. (CC BY)</a>・<a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">© OpenStreetMap contributors</a><br>
-					${t("（各データを加工して作成）")}© 2026 <a href="https://www.ortho-earth.com/docs/introduction.html" target="_blank" rel="noopener">Kenji Yoshida</a>`
-					: attrJPHTML;
+				const A = (url, label) => `<a href="${url}" target="_blank" rel="noopener">${label}</a>`;
+				// 世界の出典束：world=NE(国界・湖)+GEBCO+気候Beck／?world=0=NE海岸線+GEBCO（気候場なし）
+				const worldSrc = A("https://www.naturalearthdata.com/", "Natural Earth") + "・" + A("https://www.gebco.net/", "GEBCO")
+					+ (WORLD_VT ? "・" + A("https://www.gloh2o.org/koppen/", "Beck et al. (CC BY)") : "");
+				const tail = `<br>${t("（各データを加工して作成）")}© 2026 ` + A("https://www.ortho-earth.com/docs/introduction.html", "Kenji Yoshida");
+				attr.innerHTML = zone === "jp" ? attrJPHTML
+					: zone === "world" ? t("出典：") + worldSrc + tail
+					: t("出典：") + A("https://github.com/ofrohn/d3-celestial", "d3-celestial") + "・" + worldSrc + tail;   // sky＝星図が先頭（星空劇場の主役）
 			}
 		}
 	}
@@ -3093,7 +3108,7 @@ function render() {
 		if (planetTimer) updatePlanets();   // ドーム惑星/月の点灯切替を即時反映
 		if (constelState === 2) constelApply();   // 星座注記の休演/再点灯（裁きは constelApply に一本化）
 	}
-	if (cam.zoom < BASEMAP_MINZOOM && !WORLD_VT) {   // ?world=1 は止めない＝世界タイル（国境線）を通常フローで流す
+	if (cam.zoom < BASEMAP_MINZOOM) {   // 基図の門の下＝タイルなし（全球ハイプソ＋gint線＋湖スロットの領分。世界タイル撤去 2026-09-03）
 		if (!basemapHidden) {
 			const o = [cam.center[0], cam.center[1]];
 			renderer.set("scene", { origin: o, layers: [] }, "main");
@@ -3107,12 +3122,9 @@ function render() {
 	}
 	basemapHidden = false;
 	sampleGroundElev();   // 中心の地面標高を追随（非同期・~100m格子メモ）＝groundR の材料
-	// 世界帯（world時 z<6.5）＝選抜を世界ソースの領分(z≤3)に cap（z4+=optbv の混入を防ぐ）。
-	// keepFine（ズームアウトの子孫代打・3D限定）も同帯では切る：日本で常駐した GSI 細タイル(z6+)が
-	// 「子孫」として枠を覆い続け、cap を素通りして鉄道/道路が世界帯に残る（本人報告 2026-08-31・チルトで発現）。
-	const worldBand = WORLD_VT && cam.zoom < BASEMAP_MINZOOM;
-	const { order, coarseOrder, total } = tiles.update(cam, size.w, size.h, { tilePx: (moving || !gpuFast || !idleCalm) ? undefined : IDLE_TILE_PX, groundR: groundRNow(), keepFine: worldBand ? 0 : keepFineNow(),
-		maxZ: worldBand ? WORLD_TILE_MAXZ : undefined });   // tilePx＝「本当の静止」（settle+550ms）だけ主層を一段細かく（手前の詳細化・GPU格付け fast 限定・undefined=既定560）。groundR＝地形リフト球（チルト×高標高地の手前くさび欠け根治）。keepFine＝ズームアウトの子孫代打（3D限定）。calm が needsDraw を立て、細タイルの ready は requestDraw で連鎖再描画
+	// 旧・世界帯の選抜cap（maxZ=世界タイルz3・keepFine切り）は世界タイル撤去（2026-09-03）で不要＝
+	// ここへ来るのは z≥BASEMAP_MINZOOM だけ（基図の門の下は上の早期returnでタイルなし）。
+	const { order, coarseOrder, total } = tiles.update(cam, size.w, size.h, { tilePx: (moving || !gpuFast || !idleCalm) ? undefined : IDLE_TILE_PX, groundR: groundRNow(), keepFine: keepFineNow() });   // tilePx＝「本当の静止」（settle+550ms）だけ主層を一段細かく（手前の詳細化・GPU格付け fast 限定・undefined=既定560）。groundR＝地形リフト球（チルト×高標高地の手前くさび欠け根治）。keepFine＝ズームアウトの子孫代打（3D限定）。calm が needsDraw を立て、細タイルの ready は requestDraw で連鎖再描画
 	if (layerState.facility && cam.zoom >= 14) loadPOI(cam);   // z14+×施設ON＝POI台帳タイル(poi/14/x/y)を可視ぶん先読み（既取得は素通り）
 	dbgHost.__lastOrder = order;   // デバッグ：現在の選択タイル（コンソール/検証スクリプトから確認）
 	dbgHost.__tileStats = () => { const s = tiles.stats(); console.log(`[tiles] resident ${s.tiles} tiles / ${(s.bytes/1048576).toFixed(1)}MB (budget ${(s.budgetBytes/1048576).toFixed(0)}MB, deviceMemory≈${s.deviceMemoryGB}GB, cacheEntries ${s.cacheEntries})`); return s; };   // コンソールから常駐メモリ確認
@@ -3364,9 +3376,33 @@ map.onFrame = fn => { frameHooks.add(fn); return () => frameHooks.delete(fn); };
 map.onGintClick = fn => { gintClickHandler = fn; };
 map.getHeight = (lon, lat) => getHeight ? Promise.resolve(getHeight(lon, lat, cam.zoom)).then(h => +h || 0) : Promise.resolve(0);
 map.getZoom = () => cam.zoom;             // 現在ズーム（派生アプリのズーム連動 LOD＝集約⇄市区町村の層切替に）
+// ガジェットの表示宣言（プラットフォームの掟 2026-09-03「アイコン配列は全zで一本」）：搭載時 opts に
+//   zoom: [zmin, zmax)  … このズーム域でだけ表示（旧・solar の showBelow 内蔵と z5 一括退場CSSの置き換え）
+//   narrow: false       … 狭画面（narrowMq=480px＝#pos の狭画面掟と同じ境界）では出さない（左上溢れ対策）
+// を添えると、その搭載でスタック(#gadgets)へ生えた要素をプラットフォームが裁く（圏外は display:none＝
+// スタックは上詰め・並び順不変）。ガジェット自身は zoom も画面幅も知らない＝定義がシンプルに保たれる。
+// 契約：同期でスタックへ生やすガジェットに効く。自前で display を裁くガジェット（compass の3D限定等）に併用しない。
+const gadgetGates = [];
+const applyGadgetGate = g => {
+	const on = cam.zoom >= g.min && cam.zoom < g.max && !(g.hideNarrow && narrowMq.matches);
+	if (on !== g.on) { g.on = on; g.el.style.display = on ? "" : "none"; }
+};
+frameHooks.add(() => gadgetGates.forEach(applyGadgetGate));   // 圏の出入りは動いた時にしか起きない＝render のフックで足りる
+narrowMq.addEventListener("change", () => { gadgetGates.forEach(applyGadgetGate); needsDraw = true; }, { signal: ac.signal });   // 回転・窓リサイズの跨ぎは即応（静止中でも）
 map.gadget = function (name, func) {
 	typeof name == "function" && name.name && (func = name, name = func.name);
-	map.gadget[name] = function () { return func.apply(map, arguments); };
+	map.gadget[name] = function (opts) {
+		const st = mapEl.querySelector("#gadgets"), before = st && new Set(st.children);
+		const ret = func.apply(map, arguments);
+		const zr = opts?.zoom, hideNarrow = opts?.narrow === false;
+		if (zr || hideNarrow) {
+			const now = mapEl.querySelector("#gadgets");
+			const added = now ? [...now.children].filter(el => !before?.has(el)) : [];
+			if (!added.length) console.warn(`[gadget] ${name}: display declaration (zoom/narrow) but no stack element appeared synchronously (gate not bound)`);
+			for (const el of added) { const g = { el, min: zr?.[0] ?? -Infinity, max: zr?.[1] ?? Infinity, hideNarrow, on: null }; gadgetGates.push(g); applyGadgetGate(g); }   // 搭載した瞬間から現状態で裁く（コンパスの update() 即呼びと同じ作法）
+		}
+		return ret;
+	};
 };
 map.gadget("search", function (opts) {   // 地名・住所検索 … map.gadget.search({ onGo? })。destroy用のsignalはここで注入
 	return searchGadget.call(this, { signal: ac.signal, ...opts });
@@ -3378,9 +3414,8 @@ map.gadget("compass", function (opts) {   // コンパス兼リセット … 内
 	const update = compassGadget.call(this, { cancelFlight: () => flightCtl.cancel(), onMove, signal: ac.signal, ...opts });
 	if (update) { frameHooks.add(update); update(); }   // 針の追従を render のフックへ＝搭載した瞬間から現姿勢を指す
 });
-map.gadget("solar", function (opts) {   // 太陽系への口（ortho-solar） … 星空圏の境界(BASEMAP_MINZOOM)はここで注入
-	const update = solarGadget.call(this, { showBelow: STARSKY_Z, ...opts });
-	if (update) { frameHooks.add(update); update(); }   // 圏の出入りで現れ/引っ込む＝毎フレ判定（コンパスと同じ）
+map.gadget("solar", function (opts) {   // 太陽系への口（ortho-solar）＝34px規格アイコン。表示域を絞るなら搭載側で opts.zoom
+	return solarGadget.call(this, opts);
 });
 map.gadget("plateau", function (opts) {   // 建物3D（PLATEAU）データ管理 … モーダルを開く手綱はここで注入
 	if (!plateauOn) { console.warn("[plateau] opts.plateau=false = feature disabled; gadget not mounted"); return; }
