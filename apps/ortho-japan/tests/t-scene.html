@@ -122,7 +122,7 @@ try {
 		// エディタのスクラブバー：区間（遷移+保持）と◇目盛りが敷かれ、pointerdown でその時刻の絵へ（総尺は常時表示）
 		await new Promise(r => setTimeout(r, 400));   // save の300msデバウンス→tlRefresh
 		const sb = document.getElementById("sc-scrub"), tk = sb?.querySelector(".tk");
-		ok("scrubBar", !!tk && tk.querySelectorAll(".sg").length === 5 && tk.querySelectorAll(".kn").length === 1 && /13\.3s/.test(sb.textContent));
+		ok("scrubBar", !!tk && tk.querySelectorAll(".sg").length === 5 && tk.querySelectorAll(".kn:not(.hd)").length === 1 && /13\.3s/.test(sb.textContent));
 		const rc = tk.getBoundingClientRect();
 		tk.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, clientX: rc.left + rc.width * 0.42, pointerId: 1 }));
 		tk.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, pointerId: 1 }));
@@ -201,6 +201,72 @@ try {
 		await new Promise(r => setTimeout(r, 150));
 		ok("traceLive", JSON.stringify(live()) === "[false,false,true,false,true]");   // 試写 index 1 ＝ 行2(via)+行4(着点)
 		ed.stop();
+	}
+
+	// 編集しやすさ一式：サムネ枠／詳細（caption・en・slide・pre・mobile）／レイヤーチップの3操作／permalink 貼り付け／行の時刻
+	{
+		ed.load({ type: "scenes", scenes: [
+			{ title: "a", view: "#8/35/139/l=terrain.rail/c=night", hold: 2 },
+			{ via: "#8/35.2/139.2", travel: 3 },
+			{ title: "b", view: "#8/35.5/139.5", travel: 2 },
+		] });
+		await new Promise(r => setTimeout(r, 400));   // save→tlRefresh（時刻の差し込み）
+		const row = i => panelEl.querySelector(`.sc-row[data-i="${i}"]`);
+		ok("thumbSlots", panelEl.querySelectorAll(".sc-row .sc-thumb[data-thumb]").length === 3 && row(0).querySelector(".sc-thumb").dataset.thumb === "8/35/139");   // キー＝カメラ部（l=/c= 抜き）
+		const chips = [...row(0).querySelectorAll(".sc-chip")].map(c => c.textContent);
+		ok("layerChips", chips.join(",") === "terrain,rail,c=night" && row(2).querySelector(".sc-chip.dim") && !row(1).querySelector(".sc-chip"));
+		ok("rowTimes", /0:00\.0/.test(row(0).querySelector(".sc-time").textContent) && /通過/.test(row(1).querySelector(".sc-time").textContent) && /着/.test(row(2).querySelector(".sc-time").textContent));
+		// 詳細＝文字キーは空欄で削除・mobile は数値
+		const cap = row(0).querySelector('input[data-k="caption"]');
+		cap.value = "字幕"; cap.dispatchEvent(new Event("input", { bubbles: true }));
+		const mob = row(0).querySelector('input[data-k="mobile"]');
+		mob.value = "-1.2"; mob.dispatchEvent(new Event("input", { bubbles: true }));
+		ok("moreFields", ed.doc.scenes[0].caption === "字幕" && ed.doc.scenes[0].mobile === -1.2 && row(0).querySelector('input[data-k="en"]') && row(0).querySelector('input[data-k="slide"]') && row(0).querySelector('input[data-k="pre"]'));
+		cap.value = ""; cap.dispatchEvent(new Event("input", { bubbles: true }));
+		ok("moreClear", !("caption" in ed.doc.scenes[0]));
+		// レイヤーチップの3操作（カメラ部は不変）
+		row(0).querySelector('button[data-op="layersKeep"]').click();
+		ok("layersKeep", ed.doc.scenes[0].view === "#8/35/139" && row(0).querySelector(".sc-chip.dim"));
+		row(0).querySelector('button[data-op="layersNone"]').click();
+		ok("layersNone", ed.doc.scenes[0].view === "#8/35/139/l=" && /なし/.test(row(0).querySelector(".sc-chip.dim").textContent));
+		row(0).querySelector('button[data-op="layersNow"]').click();
+		const nowL = map.view.hash.split("/").filter(x => /^[lc]=/.test(x)).join("/");
+		ok("layersNow", ed.doc.scenes[0].view === "#8/35/139" + (nowL ? "/" + nowL : ""));
+		ok("layersUndo", (ed.undo(), ed.undo(), ed.undo(), ed.doc.scenes[0].view === "#8/35/139/l=terrain.rail/c=night"));
+		// 貼り付け＝入力欄以外で permalink を貼ると行になる（複数可・選択行の後ろ）
+		ed.select(0);
+		const n = ed.pasteHashes("see https://www.ortho-earth.com/japan/#12/35.68/139.76/60t/30r/l=terrain and #9/36/140");
+		ok("pasteRows", n === 2 && ed.doc.scenes.length === 5 && ed.doc.scenes[1].view === "#12/35.68/139.76/60t/30r/l=terrain" && ed.doc.scenes[2].view === "#9/36/140" && /2 行/.test(panelEl.querySelector("#sc-note").textContent));
+		ok("pasteIgnoresText", ed.pasteHashes("no hash here") === 0);
+	}
+
+	// スクラブバーのつまみ＝ドラッグで hold/travel を書く（保持の終端＝hold・到着＝travel・◇＝通過点の travel）・undo に乗る
+	{
+		ed.load({ type: "scenes", scenes: [
+			{ title: "a", view: "#10/35/135", hold: 2 },
+			{ via: "#10/35.5/135.5", travel: 2 },
+			{ title: "b", view: "#10/36/136", travel: 3, hold: 2 },
+			{ title: "c", glide: "#10/36.5/136.5", travel: 2, hold: 1 },
+		] });
+		await new Promise(r => setTimeout(r, 400));
+		const tk = document.querySelector("#sc-scrub .tk"), tl0 = map.sceneTimeline(ed.doc);
+		const hdl = (i, k) => tk.querySelector(`.hd[data-i="${i}"][data-k="${k}"]`);
+		ok("handles", !!hdl(0, "hold") && !hdl(0, "travel") && !!hdl(1, "via") && !!hdl(2, "travel") && !!hdl(3, "travel") && !!hdl(3, "hold"));   // 先頭 view 行の到着は自動＝つまみ無し
+		const rc = tk.getBoundingClientRect(), xAt = sec => rc.left + rc.width * (sec / tl0.dur);
+		const drag = (el, sec) => { el.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, clientX: xAt(0), pointerId: 3 })); tk.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, clientX: xAt(sec), pointerId: 3 })); tk.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, pointerId: 3 })); };
+		// 行0の保持終端を 3.5 秒へ＝hold 1.5（到着 0 → 保持 = 3.5）
+		drag(hdl(0, "hold"), 3.5);
+		ok("dragHold", ed.doc.scenes[0].hold === 3.5 && panelEl.querySelector('.sc-row[data-i="0"] input[data-k="hold"]').value === "3.5");
+		await new Promise(r => setTimeout(r, 400));
+		const tl1 = map.sceneTimeline(ed.doc), r1 = tl1.rows[1];
+		// 行1（◇）の実到達を +1 秒＝travel 3（区間＝t0→◇）
+		const rc2 = tk.getBoundingClientRect(), x2 = sec => rc2.left + rc2.width * (sec / tl1.dur);
+		const kn = tk.querySelector('.hd[data-i="1"][data-k="via"]');
+		kn.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, clientX: x2(r1.t0 + 2), pointerId: 4 }));
+		tk.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, clientX: x2(r1.t0 + 3), pointerId: 4 }));
+		tk.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, pointerId: 4 }));
+		ok("dragVia", ed.doc.scenes[1].travel === 3);
+		ok("dragUndo", (ed.undo(), ed.undo(), ed.doc.scenes[1].travel === 2 && ed.doc.scenes[0].hold === 2));
 	}
 
 	// クラウド保存（共通の器）：ボタン→パネルがパネル流れ内に開く（サーバー無し＝接続不可/準備中の文言で閉じられる）

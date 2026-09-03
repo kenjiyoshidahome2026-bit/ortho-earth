@@ -8,6 +8,8 @@
 import { parseScenes, compileVias } from "./scene-adapter.js";
 import { sniffScene } from "../gadgets/dropfile.js";
 import { cloudPanel } from "../gadgets/cloud.js";   // クラウド保存（共通の器＝geoedit と同じ account Worker /me/files）
+import { composeLayersToCanvas } from "../gadgets/compose.js";   // 行サムネ（生スナップの合成＝shot/cloud と同じ核）
+import { parseViewHash } from "ortho-core";   // 行のレイヤー(l=)・配色(c=) チップ＝共有URLの正典パーサ
 import { tr } from "../i18n.js";   // UI二言語化（ja正典・en辞書引き＝エンジンと同じ ?lang= / ブラウザ言語の解決）。台本の中身は訳さない
 const t = tr({
 	"Scene エディタ": "Scene editor", "作品タイトル": "Title", "画角": "Frame", "自由": "Free",
@@ -36,6 +38,14 @@ const t = tr({
 	"画面の定義": "Define the frame", "z と画面サイズは独立＝この枠が作品の画角になります（後から変更可）": "z is independent of screen size — this frame is the work's aspect (changeable later)",
 	"16:9 横": "16:9 landscape", "9:16 縦": "9:16 portrait",
 	"カメラ {0}　高度 {1}　方位 {2}°　視野 {3}°×{4}°": "Camera {0}  Alt {1}  Hdg {2}°  FOV {3}°×{4}°",
+	"詳細": "More", "字幕（title と別にする時）": "Caption (if different from the title)", "英語 (en:)": "English (en:)",
+	"スライド（生テキスト か 画像URL）": "Slide (plain text or image URL)", "見せ玉 (pre) の視点ハッシュ": "Lead-in view hash (pre)",
+	"縦画面 Δz": "Portrait Δz",
+	"レイヤー現状維持": "layers: keep current", "レイヤーなし": "layers: none",
+	"今のレイヤーを写す": "Copy current layers", "この行に今の l=/c= を写す（カメラは動かさない）": "Write the current l=/c= into this row (camera unchanged)",
+	"現状維持へ": "Keep current", "l=/c= を外す＝直前の状態を引き継ぐ": "Remove l=/c= = inherit whatever is on",
+	"なし": "None", "l= を空で書く＝全レイヤーを消す": "Write an empty l= = turn every layer off",
+	"{0} 行を貼り付けました": "Pasted {0} row(s)", "着": "at", "保持 {0}": "hold {0}", "遷移 {0}": "move {0}", "通過 {0}": "via {0}",
 });
 // 台本由来の文字列（title・視点ハッシュ）を innerHTML に入れる前の消毒＝読み込んだファイルは他人作かもしれない
 const esc = v => String(v ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -53,6 +63,10 @@ const CSS = `
 	#sc-scrub .sg.tr { background:rgba(125,180,255,.6); }
 	#sc-scrub .kn { position:absolute; top:6px; width:2px; height:10px; background:#e8b64c; }
 	#sc-scrub .ph { position:absolute; top:2px; width:2px; height:18px; background:#fff; box-shadow:0 0 4px rgba(0,0,0,.8); pointer-events:none; }
+	#sc-scrub .hd { position:absolute; top:4px; width:8px; height:14px; margin-left:-4px; border-radius:3px; background:rgba(255,255,255,.55); cursor:ew-resize; opacity:0; transition:opacity .12s; }
+	#sc-scrub .hd.tr { background:rgba(125,180,255,.9); }
+	#sc-scrub .hd.kn { background:#e8b64c; }
+	#sc-scrub .tk:hover .hd, #sc-scrub .hd.drag { opacity:1; }
 	#sc-scrub .tm { min-width:92px; text-align:right; font-variant-numeric:tabular-nums; opacity:.85; }
 	#sc-cam { position:absolute; top:11px; right:16px; pointer-events:none; white-space:nowrap;
 		font:11.5px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace; font-variant-numeric:tabular-nums; letter-spacing:.02em;
@@ -78,6 +92,21 @@ const CSS = `
 	.sc-row.via { background:#131820; border-style:dashed; margin-left:22px; }
 	.sc-row.err { border-color:#c0564f; }
 	.sc-n { opacity:.5; font-variant-numeric:tabular-nums; min-width:1.4em; text-align:right; padding-top:4px; }
+	.sc-thumb { flex:none; width:64px; height:36px; border-radius:5px; background:#0d1117 center/cover no-repeat; border:1px solid rgba(255,255,255,.1); margin-top:2px; }
+	.sc-row.via .sc-thumb { width:44px; height:25px; }
+	.sc-chip { display:inline-block; padding:0 6px; border-radius:9px; font-size:10.5px; line-height:1.6; background:rgba(125,180,255,.18); color:#cfe0ff; white-space:nowrap; }
+	.sc-chip.c { background:rgba(232,182,76,.2); color:#f3d89a; }
+	.sc-chip.dim { background:rgba(255,255,255,.07); color:#9aa7bd; }
+	.sc-time { opacity:.6; font-size:10.5px; font-variant-numeric:tabular-nums; white-space:nowrap; margin-left:auto; }
+	.sc-more { margin-top:5px; font-size:11.5px; }
+	.sc-more summary { cursor:pointer; opacity:.6; user-select:none; }
+	.sc-more summary:hover { opacity:1; }
+	.sc-more .sc-f { display:flex; gap:6px; align-items:center; margin-top:4px; }
+	.sc-more .sc-f label { flex:none; width:7.5em; opacity:.75; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+	.sc-more .sc-f input { flex:1; min-width:0; background:#0d1117; color:#e6edf3; border:1px solid rgba(255,255,255,.14); border-radius:6px; padding:2px 5px; font-size:11.5px; }
+	.sc-more .sc-f input[type=number] { flex:none; width:52px; }
+	.sc-more .sc-f button { background:#1b2330; color:#e6edf3; border:1px solid rgba(255,255,255,.14); border-radius:6px; padding:2px 7px; cursor:pointer; font-size:11px; }
+	.sc-more .sc-slide-img { max-height:40px; border-radius:4px; }
 	.sc-main { flex:1; min-width:0; }
 	.sc-main input.sc-t { width:100%; box-sizing:border-box; background:transparent; color:#e6edf3; border:none; border-bottom:1px dashed rgba(255,255,255,.15); padding:2px 0 3px; font-size:13.5px; }
 	.sc-sub { display:flex; gap:10px; align-items:center; margin-top:5px; font-size:11.5px; opacity:.85; flex-wrap:wrap; }
@@ -188,6 +217,52 @@ export function mountSceneEditor({ map, stageEl, panelEl, storageKey = "oj.scene
 		save(); fit(); paint();
 	};
 
+	// ── 行サムネ（撮影/通過点/再撮影の瞬間に生スナップを 64×36 へ）：.scenes には入れない（共有ファイルを太らせない）＝
+	//    カメラ部分のハッシュをキーに IndexedDB へ。描画は data URL のメモリ表→無ければ IDB から遅延で埋める ──
+	const camKey = h => (h || "").replace(/^#/, "").split("/").filter(x => x && !/^[lc]=/.test(x)).join("/");   // l=/c= を除いたカメラ部＝同じ構図は同じ絵
+	const thumbs = new Map();
+	const thumbDb = () => new Promise((res, rej) => { const rq = indexedDB.open("oj-scene-editor", 1); rq.onupgradeneeded = () => rq.result.createObjectStore("thumbs"); rq.onsuccess = () => res(rq.result); rq.onerror = () => rej(rq.error); });
+	const thumbGet = async key => { try { const db = await thumbDb(); return await new Promise(r => { const q = db.transaction("thumbs").objectStore("thumbs").get(key); q.onsuccess = () => r(q.result || null); q.onerror = () => r(null); }); } catch { return null; } };
+	const thumbPut = async (key, url) => { try { const db = await thumbDb(); db.transaction("thumbs", "readwrite").objectStore("thumbs").put(url, key); } catch { /* 無くても編集は成立 */ } };
+	const showThumb = (key, url) => rowsEl.querySelectorAll(`.sc-thumb[data-thumb="${CSS.escape(key)}"]`).forEach(el => { el.style.backgroundImage = `url("${url}")`; });
+	const captureThumb = async (key, retry = 1) => {   // 今の画面を撮って key の絵にする（失敗は1回だけ撮り直し・それでも駄目なら無視＝サムネは補助）
+		if (!key || !map.requestSnapshot) return;
+		try {
+			const full = composeLayersToCanvas(await map.requestSnapshot(), null);
+			const W = 128, H = 72, out = new OffscreenCanvas(W, H), ctx = out.getContext("2d");
+			const k = Math.max(W / full.width, H / full.height);
+			ctx.drawImage(full, (W - full.width * k) / 2, (H - full.height * k) / 2, full.width * k, full.height * k);
+			const blob = await out.convertToBlob({ type: "image/webp", quality: 0.7 });
+			const url = await new Promise(r => { const fr = new FileReader(); fr.onload = () => r(fr.result); fr.readAsDataURL(blob); });
+			thumbs.set(key, url); showThumb(key, url); thumbPut(key, url);
+		} catch { if (retry > 0) setTimeout(() => captureThumb(key, retry - 1), 1500); /* 配色切替中等＝一呼吸置いて撮り直し */ }
+	};
+	const fillThumbs = () => rowsEl.querySelectorAll(".sc-thumb[data-thumb]").forEach(async el => {   // 描画後：メモリ表→IDB の順で埋める
+		const key = el.dataset.thumb; if (!key) return;
+		let url = thumbs.get(key);
+		if (url === undefined) { url = await thumbGet(key); thumbs.set(key, url); }
+		if (url) el.style.backgroundImage = `url("${url}")`;
+	});
+	// ── ハッシュの道具：カメラ部と l=/c= トークンの分解・合成（レイヤーチップの3操作） ──
+	const splitHash = h => { const tk = (h || "").replace(/^#/, "").split("/").filter(Boolean); return { cam: tk.filter(x => !/^[lc]=/.test(x)), l: tk.find(x => x.startsWith("l=")) ?? null, c: tk.find(x => x.startsWith("c=")) ?? null }; };
+	const joinHash = ({ cam, l, c }) => "#" + [...cam, ...(l != null ? [l] : []), ...(c != null ? [c] : [])].join("/");
+	const setHash = (r, h) => { if (r.view) r.view = h; else if (r.glide) r.glide = h; else if (r.fade) r.fade = h; else r.via = h; };
+	// ── 行の時刻（タイムラインから）：到着時刻・保持・遷移／通過点は実到達時刻。tlRefresh 後に差し込む（再描画しない＝フォーカス保持） ──
+	const clock = s => { const m = Math.floor(s / 60), r = s - m * 60; return `${m}:${r < 10 ? "0" : ""}${r.toFixed(1)}`; };
+	const paintTimes = () => {
+		if (!tl) { rowsEl.querySelectorAll(".sc-time").forEach(el => { el.textContent = ""; }); return; }
+		const g = groupsOf(doc.scenes), viaK = new Map();
+		doc.scenes.forEach((r, i) => {
+			const el = rowsEl.querySelector(`.sc-time[data-i="${i}"]`); if (!el) return;
+			const rec = g[i] >= 0 ? tl.rows[g[i]] : null;
+			if (!rec) { el.textContent = ""; return; }
+			if (isVia(r)) { const k = viaK.get(g[i]) ?? 0; viaK.set(g[i], k + 1); const kt = rec.knots?.[k]; el.textContent = kt != null ? t("通過 {0}", clock(rec.t0 + kt)) : ""; return; }
+			const trans = rec.tArrive - rec.t0, hold = rec.t1 - rec.tArrive;
+			el.textContent = `${clock(rec.tArrive)} ${t("着")} · ${t("保持 {0}", hold.toFixed(1) + "s")}` + (trans > 0.05 ? ` · ${t("遷移 {0}", trans.toFixed(1) + "s")}` : "");
+		});
+	};
+	const openMore = new Set();   // 「詳細」を開いている行（再描画をまたいで保つ）
+
 	// ── compiled index（プレーヤーの scenes[] 位置）への写像＝ここから試写・行ハイライト用。
 	//    compileVias/parseScenes と同じ裁き：via は次の view/glide 行（着点）に属す・出発点前/着点無しの via は -1（捨てられる）
 	//    規則の正本は adapter（parseScenes/compileVias の trace）＝ここで同じ裁きを書き直さない
@@ -218,15 +293,31 @@ export function mountSceneEditor({ map, stageEl, panelEl, storageKey = "oj.scene
 			const afterVia = i > 0 && isVia(doc.scenes[i - 1]);   // via の着点＝地図遷移でも travel（最終区間の尺）が効く
 			const num = v => (Number.isFinite(v) ? v : "");   // 数値欄＝数値以外は空（台本由来の値も属性へ素で入れない）
 			const travelInput = dis => `<input type="number" data-k="travel" step="0.5" min="0" value="${num(r.travel)}" placeholder="${t("自動")}"${dis ? ` disabled title="${t("地図遷移の尺は自動（通過点の着点なら有効）")}"` : ""}>`;
+			const pv = via ? null : parseViewHash(hashOf(r) ?? "");
+			const chips = via ? "" : (pv?.layers == null ? `<span class="sc-chip dim">${t("レイヤー現状維持")}</span>`
+				: pv.layers.length ? pv.layers.map(l => `<span class="sc-chip">${esc(l)}</span>`).join(" ") : `<span class="sc-chip dim">${t("レイヤーなし")}</span>`)
+				+ (pv?.theme ? ` <span class="sc-chip c">c=${esc(pv.theme)}</span>` : "");
+			const strField = (k, label, ph = "") => `<div class="sc-f"><label title="${esc(label)}">${esc(label)}</label><input type="text" data-k="${k}" value="${esc(r[k])}" placeholder="${esc(ph)}"></div>`;
+			const slideImg = r.slide && /\.(svg|png|jpe?g|webp|gif|avif)([?#]|$)|^(data:|https?:)/i.test(r.slide) ? `<img class="sc-slide-img" src="${esc(r.slide)}" alt="">` : "";
+			const more = via ? "" : `<details class="sc-more"${openMore.has(i) ? " open" : ""}><summary>${t("詳細")}</summary>
+					${strField("caption", t("字幕（title と別にする時）"))}
+					${strField("en", t("英語 (en:)"))}
+					${strField("slide", t("スライド（生テキスト か 画像URL）"))}${slideImg}
+					${strField("pre", t("見せ玉 (pre) の視点ハッシュ"), "#…")}
+					<div class="sc-f"><label>${t("縦画面 Δz")}</label><input type="number" data-k="mobile" step="0.1" value="${num(r.mobile)}" placeholder="0"></div>
+					<div class="sc-f"><button data-op="layersNow" title="${t("この行に今の l=/c= を写す（カメラは動かさない）")}">${t("今のレイヤーを写す")}</button><button data-op="layersKeep" title="${t("l=/c= を外す＝直前の状態を引き継ぐ")}">${t("現状維持へ")}</button><button data-op="layersNone" title="${t("l= を空で書く＝全レイヤーを消す")}">${t("なし")}</button></div>
+				</details>`;
 			return `<li class="sc-row${via ? " via" : ""}${i === sel ? " sel" : ""}${groups[i] >= 0 && groups[i] === liveGroup ? " live" : ""}${err ? " err" : ""}" data-i="${i}">
 				<span class="sc-n">${i + 1}</span>
+				<span class="sc-thumb" data-thumb="${esc(camKey(hashOf(r)))}"></span>
 				<div class="sc-main">
 					${via
 		? `<div class="sc-sub sc-via-head">${t("◇ 通過点")} <label title="${t("この点に到達するまでの秒（ドリーの緩急・省略=自動）")}">${t("遷移")} ${travelInput(false)}${t("秒")}</label></div>`
 		: `<input class="sc-t" data-k="title" value="${esc(r.title)}" placeholder="${t("キャプション")}">`}
 					<div class="sc-sub">
 						<button data-op="reshoot" title="${t("この行の視点を今のカメラで撮り直す")}">${t("📷再撮影")}</button>
-						<span class="sc-hash">${hash}</span>
+						<span class="sc-hash">${hash}</span>${chips ? ` ${chips}` : ""}
+						<span class="sc-time" data-i="${i}"></span>
 					</div>
 					${via ? "" : `<div class="sc-sub sc-ctl">
 						<label>${t("保持")} <input type="number" data-k="hold" step="0.5" min="0" value="${num(r.hold)}" placeholder="3">${t("秒")}</label>
@@ -237,6 +328,7 @@ export function mountSceneEditor({ map, stageEl, panelEl, storageKey = "oj.scene
 						</select></label>
 						<label title="${t("遷移の秒（直線移動/フェード・通過点の着点。省略=自動）")}">${travelInput(trans === "view" && !afterVia)}${t("秒")}</label>
 					</div>`}
+					${more}
 					${err ? `<div class="sc-err-msg">⚠ ${esc(err)}</div>` : ""}
 				</div>
 				<div class="sc-ops">
@@ -245,12 +337,25 @@ export function mountSceneEditor({ map, stageEl, panelEl, storageKey = "oj.scene
 				</div>
 			</li>`;
 		}).join("") : `<li class="sc-empty">${t("地図を構図して「📷 撮影」＝permalink がそのまま行になる。<br>view の間に「◇ 通過点」を挟むと1本のドリーで貫く。<br><br>行クリック＝その視点へ・⠿＝並べ替え・ファイルはここへドロップ")}</li>`;
+		fillThumbs();
+		if (!tlDirty && tl) paintTimes();   // 鮮度があれば即・無ければ tlRefresh が差し込む
 	};
 
 	// ── 撮影 ──
 	const insertAt = () => (sel >= 0 && sel < doc.scenes.length ? sel + 1 : doc.scenes.length);
-	const shoot = () => { mark(); const r = { title: "", view: map.view.hash }; doc.scenes.splice(insertAt(), 0, r); sel = doc.scenes.indexOf(r); save(); paint(); return r; };
-	const addVia = () => { mark(); const r = { via: map.view.hash }; doc.scenes.splice(insertAt(), 0, r); sel = doc.scenes.indexOf(r); save(); paint(); return r; };
+	const shoot = () => { mark(); const r = { title: "", view: map.view.hash }; doc.scenes.splice(insertAt(), 0, r); sel = doc.scenes.indexOf(r); save(); paint(); captureThumb(camKey(r.view)); return r; };
+	const addVia = () => { mark(); const r = { via: map.view.hash }; doc.scenes.splice(insertAt(), 0, r); sel = doc.scenes.indexOf(r); save(); paint(); captureThumb(camKey(r.via)); return r; };
+	// permalink の貼り付け＝行に（書式の前提「URL を貼るだけでシーン」）：入力欄以外で ⌘V → ハッシュを全部拾って選択行の後ろへ
+	const HASH_RE = /#-?\d+(?:\.\d+)?\/-?\d+(?:\.\d+)?\/-?\d+(?:\.\d+)?(?:\/[^\s"'<>#]+)*/g;
+	const pasteHashes = text => {
+		const hs = [...String(text || "").matchAll(HASH_RE)].map(m => m[0]);
+		if (!hs.length) return 0;
+		mark();
+		let at = insertAt();
+		for (const h of hs) { doc.scenes.splice(at++, 0, { title: "", view: h }); }
+		sel = at - 1; save(); paint(); note(t("{0} 行を貼り付けました", hs.length));
+		return hs.length;
+	};
 
 	// ── 試写（scene-player API）：quick＝黒幕・ゲート・括弧なし／dress＝本番同等。onScene で行ハイライト＋上映ヘッド再同期・onEnd で解除 ──
 	const play = opts => {
@@ -280,14 +385,25 @@ export function mountSceneEditor({ map, stageEl, panelEl, storageKey = "oj.scene
 		tlDirty = false;
 		try { tl = doc.scenes.length ? (map.sceneTimeline?.(doc) ?? null) : null; } catch { tl = null; }   // 診断エラー中の台本でも落とさない（バーを引っ込めるだけ）
 		scrub.style.display = tl ? "" : "none";
-		if (!tl) return;
+		if (!tl) { paintTimes(); return; }
 		scrubSec = Math.min(scrubSec, tl.dur);
 		const W = 100 / tl.dur;
-		scrubTk.innerHTML = tl.rows.map(r => (r.tArrive > r.t0 ? `<div class="sg tr" style="left:${(r.t0 * W).toFixed(3)}%;width:${((r.tArrive - r.t0) * W).toFixed(3)}%"></div>` : "")
-			+ `<div class="sg" style="left:${(r.tArrive * W).toFixed(3)}%;width:${((r.t1 - r.tArrive) * W).toFixed(3)}%"></div>`
-			+ (r.knots || []).slice(0, -1).map(k => `<div class="kn" style="left:${((r.t0 + k) * W).toFixed(3)}%"></div>`).join("")).join("")
+		// つまみ（ドラッグで尺を書く）：保持の終端＝hold／到着＝travel（尺指定できる行＝glide・fade・通過点の着点）／◇＝その通過点の travel
+		const g = groupsOf(doc.scenes), rowOfGroup = new Map(), viasOfGroup = new Map();
+		doc.scenes.forEach((r, i) => { if (g[i] < 0) return; if (isVia(r)) (viasOfGroup.get(g[i]) ?? viasOfGroup.set(g[i], []).get(g[i])).push(i); else rowOfGroup.set(g[i], i); });
+		scrubTk.innerHTML = tl.rows.map((r, gi) => {
+			const ri = rowOfGroup.get(gi), row = doc.scenes[ri], vias = viasOfGroup.get(gi) || [];
+			const arrivalEditable = row && (row.glide != null || row.fade != null || vias.length > 0);
+			return (r.tArrive > r.t0 ? `<div class="sg tr" style="left:${(r.t0 * W).toFixed(3)}%;width:${((r.tArrive - r.t0) * W).toFixed(3)}%"></div>` : "")
+				+ `<div class="sg" style="left:${(r.tArrive * W).toFixed(3)}%;width:${((r.t1 - r.tArrive) * W).toFixed(3)}%"></div>`
+				+ (r.knots || []).slice(0, -1).map((k, ki) => `<div class="kn" style="left:${((r.t0 + k) * W).toFixed(3)}%"></div>`
+					+ (vias[ki] != null ? `<div class="hd kn" data-i="${vias[ki]}" data-k="via" data-g="${gi}" data-ki="${ki}" style="left:${((r.t0 + k) * W).toFixed(3)}%"></div>` : "")).join("")
+				+ (arrivalEditable && ri != null ? `<div class="hd tr" data-i="${ri}" data-k="travel" data-g="${gi}" style="left:${(r.tArrive * W).toFixed(3)}%"></div>` : "")
+				+ (ri != null ? `<div class="hd" data-i="${ri}" data-k="hold" data-g="${gi}" style="left:${(r.t1 * W).toFixed(3)}%"></div>` : "");
+		}).join("")
 			+ `<div class="ph" style="left:${(scrubSec * W).toFixed(3)}%"></div>`;
 		scrubTm.textContent = `${fmtSec(scrubSec)} / ${fmtSec(tl.dur)}`;
+		paintTimes();
 	};
 	const headPaint = sec => {   // ヘッドと時刻の表示だけ（seek しない）＝スクラブと上映追随の共用
 		const ph = scrubTk.querySelector(".ph");
@@ -327,8 +443,51 @@ export function mountSceneEditor({ map, stageEl, panelEl, storageKey = "oj.scene
 		step();
 	};
 	const headStop = () => { headRun++; };
+	// つまみのドラッグ＝hold/travel をモデルへ直接書く（数値欄と同じキー＝undo にも乗る）。ドラッグ中は開始時の目盛り（総尺）で
+	// 画素→秒を固定＝値が変わって総尺が伸縮しても掴んでいる点が逃げない。離した時に通常の再構築（目盛りが新しい総尺へ）。
+	let hdDrag = null;
+	const round1 = v => Math.round(v * 10) / 10;
+	const applyHandle = (h, sec) => {
+		const r = doc.scenes[h.i], rec = tl.rows[h.g]; if (!r || !rec) return;
+		let key = "hold", v;
+		if (h.k === "hold") v = sec - rec.tArrive;
+		else if (h.k === "via") { const prev = h.ki > 0 ? rec.knots[h.ki - 1] : 0; key = "travel"; v = sec - (rec.t0 + prev); }
+		else {   // 到着＝travel：通過点の着点＝最終区間／glide＝1区間／fade＝(遷移−切替0.3)/2（溶暗と溶明が同じ尺）
+			key = "travel";
+			const lastKnot = rec.knots?.length > 1 ? rec.knots[rec.knots.length - 2] : 0;
+			v = r.fade != null ? (sec - rec.t0 - 0.3) / 2 : sec - (rec.t0 + lastKnot);
+		}
+		v = round1(Math.max(key === "hold" ? 0 : 0.1, Math.min(120, v)));
+		if (r[key] === v) return;
+		r[key] = v;
+		const inp = rowsEl.querySelector(`.sc-row[data-i="${h.i}"] input[data-k="${key}"]`); if (inp) inp.value = String(v);   // 数値欄も追随（再描画しない）
+	};
+	scrubTk.addEventListener("pointerdown", e => {
+		const hd = e.target.closest?.(".hd"); if (!hd) return;
+		e.stopPropagation(); e.preventDefault();
+		map.stopScenes();
+		if (tlDirty || !tl) tlRefresh();
+		if (!tl) return;
+		mark();
+		hdDrag = { i: +hd.dataset.i, k: hd.dataset.k, g: +hd.dataset.g, ki: +(hd.dataset.ki || 0), dur: tl.dur, rc: scrubTk.getBoundingClientRect(), el: hd };
+		hd.classList.add("drag");
+		try { scrubTk.setPointerCapture(e.pointerId); } catch { /* 合成イベント */ }
+	}, true);
+	scrubTk.addEventListener("pointermove", e => {
+		if (!hdDrag) return;
+		const sec = Math.max(0, Math.min(1, (e.clientX - hdDrag.rc.left) / hdDrag.rc.width)) * hdDrag.dur;
+		applyHandle(hdDrag, sec);
+		try { tl = map.sceneTimeline?.(doc) ?? tl; } catch { /* 途中の不整合は無視 */ }   // 尺の再計算（目盛りは固定のまま＝つまみだけ動く）
+		const W = 100 / hdDrag.dur, rec = tl.rows[hdDrag.g];
+		if (rec) hdDrag.el.style.left = ((hdDrag.k === "hold" ? rec.t1 : hdDrag.k === "via" ? rec.t0 + (rec.knots?.[hdDrag.ki] ?? 0) : rec.tArrive) * W).toFixed(3) + "%";
+		scrubTm.textContent = `${fmtSec(sec)} / ${fmtSec(tl.dur)}`;
+	});
+	const hdEnd = () => { if (!hdDrag) return; hdDrag.el.classList.remove("drag"); hdDrag = null; save(); tlDirty = true; tlRefresh(); };
+	scrubTk.addEventListener("pointerup", hdEnd);
+	scrubTk.addEventListener("pointercancel", hdEnd);
 	let scrubbing = false;
 	scrubTk.addEventListener("pointerdown", e => {
+		if (e.target.closest?.(".hd")) return;   // つまみは上の（capture）ハンドラが受ける
 		map.stopScenes();   // スクラブは上映と排他（掴んだら止める＝主導権は人）
 		if (tlDirty || !tl) tlRefresh();
 		if (!tl) return;
@@ -336,7 +495,7 @@ export function mountSceneEditor({ map, stageEl, panelEl, storageKey = "oj.scene
 		try { scrubTk.setPointerCapture(e.pointerId); } catch { /* 合成イベント（テスト）等 */ }
 		seekAt(e.clientX);
 	});
-	scrubTk.addEventListener("pointermove", e => { if (scrubbing) seekAt(e.clientX); });
+	scrubTk.addEventListener("pointermove", e => { if (scrubbing && !hdDrag) seekAt(e.clientX); });
 	const scrubEnd = () => { if (scrubbing) { scrubbing = false; tl?.end(); } };   // 離す＝URL確定（saveView は1回）
 	scrubTk.addEventListener("pointerup", scrubEnd);
 	scrubTk.addEventListener("pointercancel", scrubEnd);
@@ -453,12 +612,14 @@ export function mountSceneEditor({ map, stageEl, panelEl, storageKey = "oj.scene
 		if (e.key === " " && !document.getElementById("demo-bar")?.classList.contains("on")) { e.preventDefault(); playFrom(); }   // 上映中の Space はプレーヤー側（bare モードでは無視）
 	};
 	window.addEventListener("keydown", onKey);
+	const onPaste = e => { if (typing()) return; const n = pasteHashes(e.clipboardData?.getData("text")); if (n) e.preventDefault(); };
+	window.addEventListener("paste", onPaste);
 	rowsEl.addEventListener("input", e => {   // 行の入力＝モデル直結（再描画しない＝フォーカスを保つ）
 		const li = e.target.closest(".sc-row"); if (!li) return;
 		const r = doc.scenes[+li.dataset.i], k = e.target.dataset.k;
 		if (!r || !k || k === "glide") return;
-		if (k === "title") r.title = e.target.value;
-		else { const v = parseFloat(e.target.value); if (Number.isFinite(v)) r[k] = v; else delete r[k]; }   // 空欄＝キー削除（既定へ）
+		if (k === "title" || k === "caption" || k === "en" || k === "slide" || k === "pre") { const v = e.target.value; if (v === "") delete r[k]; else r[k] = v; }   // 文字キー＝空欄でキー削除
+		else { const v = parseFloat(e.target.value); if (Number.isFinite(v)) r[k] = v; else delete r[k]; }   // 数値キー（hold/travel/mobile）＝空欄＝キー削除（既定へ）
 		save();
 	});
 	rowsEl.addEventListener("change", e => {   // 遷移セレクタだけ change（キー名が変わる＝再描画）。v2 の掟＝キー名が遷移
@@ -473,7 +634,14 @@ export function mountSceneEditor({ map, stageEl, panelEl, storageKey = "oj.scene
 		const li = e.target.closest(".sc-row"); if (!li) return;
 		const i = +li.dataset.i, r = doc.scenes[i], op = e.target.dataset.op;
 		if (op === "del") { mark(); doc.scenes.splice(i, 1); if (sel >= doc.scenes.length) sel = doc.scenes.length - 1; save(); paint(); return; }
-		if (op === "reshoot") { mark(); const h = map.view.hash; if (r.view) r.view = h; else if (r.glide) r.glide = h; else if (r.fade) r.fade = h; else r.via = h; save(); paint(); return; }
+		if (op === "reshoot") { mark(); setHash(r, map.view.hash); save(); paint(); captureThumb(camKey(hashOf(r))); return; }
+		if (op === "layersNow" || op === "layersKeep" || op === "layersNone") {   // レイヤーチップの3操作＝カメラは動かさず l=/c= だけ書き換える
+			mark();
+			const cur = splitHash(hashOf(r)), now = splitHash(map.view.hash);
+			setHash(r, joinHash(op === "layersNow" ? { cam: cur.cam, l: now.l, c: now.c } : op === "layersKeep" ? { cam: cur.cam, l: null, c: null } : { cam: cur.cam, l: "l=", c: null }));
+			openMore.add(i); save(); paint(); return;
+		}
+		if (e.target.closest("summary")) { const d = e.target.closest("details"); setTimeout(() => { d.open ? openMore.add(i) : openMore.delete(i); }); sel = i; li.classList.add("sel"); return; }   // 詳細の開閉＝状態を控える（toggle 後の値）
 		if (e.target.closest("input, label, select")) { sel = i; li.classList.add("sel"); return; }   // 入力操作＝選択だけ（再描画もしない＝フォーカス保持）
 		sel = i; paint();
 		if (!playing) location.hash = hashOf(r) ?? location.hash;   // 行クリック＝その視点へ（シーン切替が編集の主動線・URL一元化の道＝flyView が飛ぶ）
@@ -571,11 +739,11 @@ export function mountSceneEditor({ map, stageEl, panelEl, storageKey = "oj.scene
 
 	fit(); paint(); tlRefresh();
 	const destroy = () => {
-		window.removeEventListener("resize", fit); window.removeEventListener("keydown", onKey); clearTimeout(saveT); clearTimeout(noteT);
+		window.removeEventListener("resize", fit); window.removeEventListener("keydown", onKey); window.removeEventListener("paste", onPaste); clearTimeout(saveT); clearTimeout(noteT);
 		for (const el of dropTargets) { el.removeEventListener("dragenter", onDragEnter); el.removeEventListener("dragover", onDragOver); el.removeEventListener("dragleave", onDragLeave); el.removeEventListener("drop", onDrop); }
 		map.stopScenes?.(); headStop(); unsubCam(); camChip.remove(); styleEl.remove(); scrub.remove();
 	};
-	return { get doc() { return doc; }, load, exportText, shoot, addVia, play, playFrom, stop, fit, destroy, undo, openFile,
+	return { get doc() { return doc; }, load, exportText, shoot, addVia, play, playFrom, stop, fit, destroy, undo, openFile, pasteHashes,
 		get canUndo() { return undoStack.length > 0; },
 		select: i => { sel = i; paint(); } };
 }
