@@ -52,22 +52,12 @@
 #ge-toolbar button:disabled { opacity: .35; cursor: default; }
 #ge-toolbar .ge-sep { width: 1px; align-self: stretch; margin: 2px 3px; background: rgba(255, 255, 255, .14); }
 
-/* ボタンの吹き出し説明（data-tip）＝quiet-mono #gadgets と同じ所作（hover/focus でフェード・z-index 不使用＝::after は自ボタンの子・
-   タッチ端末は出さない）。ツールバーは上辺中央＝ボタンの下へ／パネルの頭のアイコンは右上＝左下へ出す。意匠は .ge-tip と同じ黒硝子 */
+/* ボタンの吹き出し説明（data-tip）：見た目（黒地・白字・フェード・タッチ非表示）は quiet-mono の #map [data-tip] 一本＝ここは置き場所だけ。
+   ツールバーは上辺中央＝ボタンの下へ／パネルの頭のアイコンは右上＝左下へ出す */
 #ge-toolbar [data-tip], .ge-panel [data-tip] { position: relative; }
-#ge-toolbar [data-tip]::after, .ge-panel [data-tip]::after {
-	content: attr(data-tip); position: absolute; top: calc(100% + 8px);
-	white-space: nowrap; pointer-events: none;
-	font: 12px/1.4 "Noto Sans JP", "Hiragino Sans", "Yu Gothic UI", "Yu Gothic", sans-serif; color: #fff;
-	background: rgba(16, 24, 44, .92); border: 1px solid rgba(255, 255, 255, .18);
-	border-radius: 5px; padding: 5px 9px; box-shadow: 0 3px 10px rgba(20, 30, 50, .25);
-	opacity: 0; transition: opacity .14s ease;
-}
+#ge-toolbar [data-tip]::after, .ge-panel [data-tip]::after { top: calc(100% + 8px); }
 #ge-toolbar [data-tip]::after { left: 50%; transform: translateX(-50%); }
 .ge-panel [data-tip]::after { right: 0; }
-#ge-toolbar [data-tip]:hover::after, #ge-toolbar [data-tip]:focus-visible::after,
-.ge-panel [data-tip]:hover::after, .ge-panel [data-tip]:focus-visible::after { opacity: 1; }
-@media (pointer: coarse) { #ge-toolbar [data-tip]::after, .ge-panel [data-tip]::after { display: none; } }
 
 /* スナップ格子の段選択（1e-3〜1e-7） */
 #ge-toolbar .ge-snapwrap { display: inline-flex; }   /* select の包み＝data-tip の錨（::after はここに付く） */

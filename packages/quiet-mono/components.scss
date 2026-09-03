@@ -487,26 +487,24 @@
 }
 
 /* --- ボタンの吹き出し説明（data-tip）：hover/focus で静かに出す。OS既定の title ツールチップは廃し意匠統一。
-       z-index は使わない＝::after は自ボタンの子（DOM順で親の上に乗る）。左上スタックは右へ、右上チップは左へ出す。
-       aria-label は各ボタンに別途残す（読み上げ用）＝data-tip は目で読む層だけ。 --- */
-/* ::after の錨は「出す時だけ」relative＝隣接ボーダー共有（チップ/ズームの capsule）の重なり順を平時は崩さない。
-   #search-btn は元の absolute が高詳細度で勝ち、常時そのまま錨になる。 */
-#gadgets [data-tip]:hover, #gadgets [data-tip]:focus-visible,
-#chips [data-tip]:hover, #chips [data-tip]:focus-visible { position: relative; }
-#gadgets [data-tip]::after, #chips [data-tip]::after, #close-btn[data-tip]::after {
-	content: attr(data-tip); position: absolute; top: 50%; transform: translateY(-50%);
-	white-space: nowrap; pointer-events: none;
-	font: 12px var(--qm-font); color: var(--qm-text);
-	background: var(--qm-panel-solid); border: 1px solid var(--qm-border-soft);
-	border-radius: 5px; padding: 5px 9px; box-shadow: var(--qm-shadow-pop);
+       ★見た目は #map 配下の全 data-tip で一本＝黒地・白字（本人裁定 2026-09-04「japan と geoedit で色が違う→全て黒背景・白字」）。
+       容れ物ごとに持つのは置き場所だけ（左上スタック/右上チップ→右へ・×→左へ・geoedit のツールバー/パネル→下へ＝そちらの CSS）。
+       z-index は使わない＝::after は自ボタンの子（DOM順で親の上に乗る）。aria-label は各ボタンに別途残す（読み上げ用）＝data-tip は目で読む層だけ。
+       ::after の錨は「出す時だけ」relative＝隣接ボーダー共有（チップ/ズームの capsule）の重なり順を平時は崩さない。
+       #search-btn は元の absolute が高詳細度で勝ち、常時そのまま錨になる。 --- */
+#map [data-tip]:hover, #map [data-tip]:focus-visible { position: relative; }
+#map [data-tip]::after {
+	content: attr(data-tip); position: absolute; white-space: nowrap; pointer-events: none;
+	font: 12px var(--qm-font); color: #fff;
+	background: rgba(0, 0, 0, .88); border: 1px solid rgba(255, 255, 255, .18);
+	border-radius: 5px; padding: 5px 9px; box-shadow: 0 3px 10px rgba(0, 0, 0, .35);
 	opacity: 0; transition: opacity .14s ease;   /* ポンと出さない＝フェード（家具の所作と揃える） */
 }
-#gadgets [data-tip]::after { left: calc(100% + 8px); }    /* 左上スタック→ボタンの右へ */
-#close-btn[data-tip]::after { right: calc(100% + 8px); }     /* 右上（×）→ボタンの左へ。chips は左スタック＝#gadgets 規則（右へ）が効く */
-#gadgets [data-tip]:hover::after, #gadgets [data-tip]:focus-visible::after,
-#chips [data-tip]:hover::after, #chips [data-tip]:focus-visible::after,
-#close-btn[data-tip]:hover::after, #close-btn[data-tip]:focus-visible::after { opacity: 1; }
-@media (pointer: coarse) { #gadgets [data-tip]::after, #chips [data-tip]::after, #close-btn[data-tip]::after { display: none; } }   /* タッチは操作方法カード(?)が説明役＝hover吹き出しは出さない */
+#map [data-tip]:hover::after, #map [data-tip]:focus-visible::after { opacity: 1; }
+@media (pointer: coarse) { #map [data-tip]::after { display: none; } }   /* タッチは操作方法カード(?)が説明役＝hover吹き出しは出さない */
+/* 置き場所：左上スタック・右上チップ＝ボタンの右／右上の×＝ボタンの左（chips は左スタック＝#gadgets 規則（右へ）が効く） */
+#gadgets [data-tip]::after, #chips [data-tip]::after { top: 50%; transform: translateY(-50%); left: calc(100% + 8px); }
+#close-btn[data-tip]::after { top: 50%; transform: translateY(-50%); right: calc(100% + 8px); }
 
 /* --- 汎用プロバイダ（tip=カーソル追従／explain=上辺／legend=左下／pop=地点紐づけ）。
        いずれも内容を持つ時だけ現れる読み物の枠＝意匠は quiet-mono のパネル語彙で統一。 --- */
