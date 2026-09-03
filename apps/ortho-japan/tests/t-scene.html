@@ -269,6 +269,61 @@ try {
 		ok("dragUndo", (ed.undo(), ed.undo(), ed.doc.scenes[1].travel === 2 && ed.doc.scenes[0].hold === 2));
 	}
 
+	// 操作の速さ：redo／↑↓ で行選択＋飛ぶ／⌥↑↓ 並べ替え／⌘D 複製／選択行と現在カメラの一致（緑・橙）
+	{
+		ed.load({ type: "scenes", scenes: [{ title: "a", view: "#8/35/139" }, { title: "b", view: "#8/36/140" }, { title: "c", view: "#8/37/141" }] });
+		const rows = () => ed.doc.scenes.map(r => r.title).join("");
+		ed.select(0); panelEl.querySelector("#sc-rows").focus();
+		const key = (k, o = {}) => panelEl.querySelector("#sc-rows").dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true, cancelable: true, ...o }));
+		key("ArrowDown");
+		ok("arrowSelect", panelEl.querySelector('.sc-row[data-i="1"]').classList.contains("sel") && location.hash === "#8/36/140");
+		key("ArrowUp", { altKey: true });
+		ok("altMove", rows() === "bac" && panelEl.querySelector('.sc-row[data-i="0"]').classList.contains("sel"));
+		key("d", { metaKey: true });
+		ok("dupRow", rows() === "bbac" && ed.doc.scenes[1] !== ed.doc.scenes[0] && panelEl.querySelector('.sc-row[data-i="1"]').classList.contains("sel"));
+		ed.undo(); ed.undo();
+		ok("undoBoth", rows() === "abc");
+		ed.redo();
+		ok("redo", rows() === "bac" && !panelEl.querySelector("#sc-redo").disabled);
+		ed.redo(); ok("redo2", rows() === "bbac" && panelEl.querySelector("#sc-redo").disabled);
+		// 一致表示：行の視点へ移動＝緑（here）・動かす＝橙（away）
+		await new Promise(r => setTimeout(r, 4000));   // ↑↓ で始まった飛行を着地させる（カメラ直置きが飛行に上書きされない）
+		ed.select(2);
+		map.cam.center = [139, 35]; map.cam.zoom = 8;   // 行2 (#8/35/139) のカメラへ直置き
+		map.requestDraw?.(); await new Promise(r => setTimeout(r, 60));
+		const sel2 = () => panelEl.querySelector('.sc-row[data-i="2"]');
+		ok("hereDot", sel2().classList.contains("here") && !sel2().classList.contains("away"));
+		map.cam.center = [139.5, 35.5]; map.requestDraw?.(); await new Promise(r => setTimeout(r, 60));
+		ok("awayDot", sel2().classList.contains("away") && !sel2().classList.contains("here"));
+	}
+	// 経路記録（◉）：動かして止まるたびに通過点＝1回の記録は undo 1回で丸ごと戻る
+	{
+		ed.load({ type: "scenes", scenes: [{ title: "a", view: "#10/35/135" }] });
+		ed.select(0);
+		await new Promise(r => setTimeout(r, 1000));   // 飛行の残りを着地させる
+		ed.pathRecord();
+		ok("recOn", panelEl.querySelector("#sc-rec-path").classList.contains("on"));
+		map.cam.center = [135.2, 35.2]; await new Promise(r => setTimeout(r, 1100));   // 250ms×3拍＝静止と判定
+		map.cam.center = [135.4, 35.4]; await new Promise(r => setTimeout(r, 1100));
+		ed.pathRecord();
+		ok("recVias", ed.doc.scenes.length === 3 && ed.doc.scenes[1].via?.startsWith("#") && ed.doc.scenes[2].via?.startsWith("#") && /2/.test(panelEl.querySelector("#sc-note").textContent) && !panelEl.querySelector("#sc-rec-path").classList.contains("on"));
+		ed.undo();
+		ok("recUndoOnce", ed.doc.scenes.length === 1);
+	}
+	// 字幕言語のプレビュー：字幕セレクタ＝playScenes の lang（en を選ぶと title の代わりに en: が出る）
+	{
+		ed.load({ type: "scenes", scenes: [{ title: "東京", en: "Tokyo", view: "#8/35/139", hold: 0.2 }] });
+		panelEl.querySelector("#sc-lang").value = "en";
+		ok("langPlay", ed.play({ quick: true }) === true);
+		await new Promise(r => setTimeout(r, 200));
+		ok("langPreview", document.getElementById("demo-title").textContent === "Tokyo");
+		ed.stop();
+		panelEl.querySelector("#sc-lang").value = "";
+		ed.play({ quick: true }); await new Promise(r => setTimeout(r, 200));
+		ok("langDefault", document.getElementById("demo-title").textContent === "東京");
+		ed.stop();
+	}
+
 	// クラウド保存（共通の器）：ボタン→パネルがパネル流れ内に開く（サーバー無し＝接続不可/準備中の文言で閉じられる）
 	{
 		panelEl.querySelector("#sc-cloud").click();

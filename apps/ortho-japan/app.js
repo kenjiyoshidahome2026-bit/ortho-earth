@@ -3538,9 +3538,9 @@ const playingNow = () => sceneBusy || !!mapEl.querySelector("#demo-bar.on");   /
 //   opts.from＝開始行／opts.quick=true＝軽い試写（黒幕・waitLoadingゲート・終幕括弧なし＝エディタの行プレビュー用）／
 //   opts.onScene(i, scene)＝行の上映開始（フライト開始前＝行ハイライト用）／opts.onEnd(reason)＝どの終わり方でも1発（"finished"=走破・"stopped"=中断）。
 //   戻り値＝受けたら true・上映中で受けなければ false（先に map.stopScenes()）。終演/中断/失敗のどの経路でも黒幕と上映ロックを残さない（手仕舞い一本化）。
-function playScenes(obj, { from = 0, quick = false, onScene, onEnd } = {}) {
+function playScenes(obj, { from = 0, quick = false, onScene, onEnd, lang: langOpt } = {}) {
 	if (playingNow()) { console.warn("[scene] already playing = rejected (call stopScenes() first)"); return false; }
-	const lang = new URLSearchParams(location.search).get("lang");   // 言語選択は視聴者の ?lang= だけ（台本側の言語指定は無い＝既定は title の言語そのまま）
+	const lang = langOpt ?? new URLSearchParams(location.search).get("lang");   // 言語選択は視聴者の ?lang=（opts.lang＝エディタの字幕プレビュー用の上書き）。台本側に言語指定は無い＝既定は title の言語そのまま
 	const { scenes, mobile, hold = 3, slideHold, preload, waitLoading } = parseScenes(obj);   // scene 再生の保持既定＝3秒（▶デモは5.5のまま＝発表の間合いは別物）
 	if (!scenes.length) { console.warn("[scene] scenes empty = not playing", obj?.title); return false; }
 	if (!demoHandle) { console.warn("[scene] demo not mounted = retry shortly (just after boot)"); return false; }   // demo は起動時に index.html が搭載済み（通常は在る）＝ ▶ と同じ実体の再生ルーチンを借りる

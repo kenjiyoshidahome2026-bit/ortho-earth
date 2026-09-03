@@ -45,7 +45,11 @@ const t = tr({
 	"今のレイヤーを写す": "Copy current layers", "この行に今の l=/c= を写す（カメラは動かさない）": "Write the current l=/c= into this row (camera unchanged)",
 	"現状維持へ": "Keep current", "l=/c= を外す＝直前の状態を引き継ぐ": "Remove l=/c= = inherit whatever is on",
 	"なし": "None", "l= を空で書く＝全レイヤーを消す": "Write an empty l= = turn every layer off",
-	"{0} 行を貼り付けました": "Pasted {0} row(s)", "着": "at", "保持 {0}": "hold {0}", "遷移 {0}": "move {0}", "通過 {0}": "via {0}",
+	"{0} 行を貼り付けました": "Pasted {0} row(s)", "↷ やり直す": "↷ Redo", "取り消した操作をやり直す（⇧⌘Z）": "Redo the undone action (⇧⌘Z)",
+	"◉ 経路記録": "◉ Record path", "地図を動かして止まるたびに通過点を積む（もう一度押して終了・最後は 📷 撮影で着点を）": "Adds a waypoint each time the map comes to rest (press again to stop; finish with 📷 Shoot for the destination)",
+	"◉ 記録中…": "◉ Recording…", "経路記録: 通過点 {0} 件": "Path recorded: {0} waypoint(s)",
+	"字幕": "Captions", "既定": "default", "この行の視点にいる": "At this row's view", "この行の視点から動いている（📷再撮影で更新）": "Moved away from this row's view (📷 Reshoot to update)",
+	"↑↓ 行を選ぶ・⌥↑↓ 並べ替え・⌘D 複製": "↑↓ select row, ⌥↑↓ reorder, ⌘D duplicate", "着": "at", "保持 {0}": "hold {0}", "遷移 {0}": "move {0}", "通過 {0}": "via {0}",
 });
 // 台本由来の文字列（title・視点ハッシュ）を innerHTML に入れる前の消毒＝読み込んだファイルは他人作かもしれない
 const esc = v => String(v ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -79,7 +83,8 @@ const CSS = `
 	.sc-head { padding:8px 14px 8px; border-bottom:1px solid rgba(255,255,255,.08); }
 	.sc-head input[type=text], #sc-title { width:100%; box-sizing:border-box; background:#0d1117; color:#e6edf3; border:1px solid rgba(255,255,255,.14); border-radius:8px; padding:7px 10px; font-size:14px; }
 	.sc-defrow { display:flex; gap:10px; align-items:center; margin-top:8px; font-size:12px; }
-	.sc-defrow select { background:#0d1117; color:#e6edf3; border:1px solid rgba(255,255,255,.14); border-radius:6px; padding:4px 6px; }
+	.sc-defrow select, .sc-tools select { background:#0d1117; color:#e6edf3; border:1px solid rgba(255,255,255,.14); border-radius:6px; padding:4px 6px; }
+	.sc-tools label { display:flex; align-items:center; gap:4px; font-size:12px; }
 	.sc-tools { display:flex; gap:6px; margin-top:8px; flex-wrap:wrap; }
 	.sc-tools button { background:#1b2330; color:#e6edf3; border:1px solid rgba(255,255,255,.14); border-radius:8px; padding:6px 10px; cursor:pointer; font-size:12.5px; }
 	.sc-tools button:hover { background:#243044; }
@@ -91,6 +96,13 @@ const CSS = `
 	.sc-row.live { border-color:#7db4ff; box-shadow:0 0 0 1px #7db4ff inset; }
 	.sc-row.via { background:#131820; border-style:dashed; margin-left:22px; }
 	.sc-row.err { border-color:#c0564f; }
+	.sc-row .sc-here { display:none; width:8px; height:8px; border-radius:50%; margin:9px 0 0 -2px; flex:none; }
+	.sc-row.sel .sc-here { display:block; }
+	.sc-row.sel.here .sc-here { background:#51cf66; box-shadow:0 0 6px rgba(81,207,102,.6); }
+	.sc-row.sel.away .sc-here { background:transparent; border:2px solid #e8b64c; box-sizing:border-box; }
+	#sc-rows:focus { outline:none; }
+	#sc-rows:focus-visible .sc-row.sel { box-shadow:0 0 0 2px rgba(75,144,255,.5); }
+	#sc-rec-path.on { background:#7a2b2b; border-color:rgba(255,140,140,.5); }
 	.sc-n { opacity:.5; font-variant-numeric:tabular-nums; min-width:1.4em; text-align:right; padding-top:4px; }
 	.sc-thumb { flex:none; width:64px; height:36px; border-radius:5px; background:#0d1117 center/cover no-repeat; border:1px solid rgba(255,255,255,.1); margin-top:2px; }
 	.sc-row.via .sc-thumb { width:44px; height:25px; }
@@ -184,15 +196,18 @@ export function mountSceneEditor({ map, stageEl, panelEl, storageKey = "oj.scene
 				<button id="sc-shoot" title="${t("今の視点を行として追加（選択行の後ろへ）")}">${t("📷 撮影")}</button>
 				<button id="sc-via" title="${t("今の視点を通過点（ドリーの中継）として追加")}">${t("◇ 通過点")}</button>
 				<button id="sc-undo" title="${t("直前の操作を取り消す（⌘Z）")}" disabled>${t("↶ 元に戻す")}</button>
+				<button id="sc-redo" title="${t("取り消した操作をやり直す（⇧⌘Z）")}" disabled>${t("↷ やり直す")}</button>
+				<button id="sc-rec-path" title="${t("地図を動かして止まるたびに通過点を積む（もう一度押して終了・最後は 📷 撮影で着点を）")}">${t("◉ 経路記録")}</button>
 			</div>
 			<div class="sc-tools">
 				<button id="sc-play-here" title="${t("軽い試写（選択行から・未選択なら先頭から。黒幕・読み込み待ちなし）")}">${t("▶ ここから")}</button>
 				<button id="sc-dress" title="${t("本番同等＝最初から（黒幕・読み込み待ち・終幕の括弧つき）")}">${t("🎬 上映")}</button>
 				<button id="sc-rec" title="${t("上映を録画して動画ファイル（MP4）に＝iMovie 等へそのまま。最初に「このタブを共有」を1回許可")}">${t("🎥 録画")}</button>
 				<button id="sc-stop">${t("■ 停止")}</button>
+				<label title="${t("字幕")}">${t("字幕")} <select id="sc-lang"><option value="">${t("既定")}</option><option value="en">en</option><option value="jp">jp</option><option value="ja">ja</option></select></label>
 			</div>
 		</div>
-		<ol id="sc-rows"></ol>
+		<ol id="sc-rows" tabindex="0" title="${t("↑↓ 行を選ぶ・⌥↑↓ 並べ替え・⌘D 複製")}"></ol>
 		<div class="sc-note" id="sc-note"></div>
 		<div id="sc-cloud-host"></div>
 		<div class="sc-foot">
@@ -202,20 +217,17 @@ export function mountSceneEditor({ map, stageEl, panelEl, storageKey = "oj.scene
 			<button id="sc-clear" title="${t("全行を消して最初から（⌘Z で戻せる）")}">${t("全消去")}</button>
 		</div>`;
 	const $ = id => panelEl.querySelector(id);
-	const rowsEl = $("#sc-rows"), titleEl = $("#sc-title"), waitEl = $("#sc-wait"), frameSel = $("#sc-frame-sel"), noteEl = $("#sc-note"), undoBtn = $("#sc-undo");
+	const rowsEl = $("#sc-rows"), titleEl = $("#sc-title"), waitEl = $("#sc-wait"), frameSel = $("#sc-frame-sel"), noteEl = $("#sc-note"), undoBtn = $("#sc-undo"), redoBtn = $("#sc-redo");
 	// ── 一言の告知（alert/confirm の代わり・4秒で消える）──
 	let noteT = 0;
 	const note = msg => { noteEl.textContent = msg; clearTimeout(noteT); noteT = setTimeout(() => { noteEl.textContent = ""; }, 4000); };
 	// ── undo（スナップショット式＝台本は小さな JSON・構造操作の前に控える。読込/削除/全消去/並べ替え/撮影/遷移切替が ⌘Z で戻る）──
-	const undoStack = [];
-	const mark = () => { undoStack.push(JSON.stringify({ doc, sel })); if (undoStack.length > 100) undoStack.shift(); undoBtn.disabled = false; };
-	const undo = () => {
-		const snap = undoStack.pop();
-		undoBtn.disabled = !undoStack.length;
-		if (!snap) return;
-		({ doc, sel } = JSON.parse(snap));
-		save(); fit(); paint();
-	};
+	const undoStack = [], redoStack = [];
+	const syncUndo = () => { undoBtn.disabled = !undoStack.length; redoBtn.disabled = !redoStack.length; };
+	const mark = () => { undoStack.push(JSON.stringify({ doc, sel })); if (undoStack.length > 100) undoStack.shift(); redoStack.length = 0; syncUndo(); };
+	const restore = snap => { ({ doc, sel } = JSON.parse(snap)); save(); fit(); paint(); };
+	const undo = () => { const snap = undoStack.pop(); if (!snap) return; redoStack.push(JSON.stringify({ doc, sel })); syncUndo(); restore(snap); };
+	const redo = () => { const snap = redoStack.pop(); if (!snap) return; undoStack.push(JSON.stringify({ doc, sel })); syncUndo(); restore(snap); };
 
 	// ── 行サムネ（撮影/通過点/再撮影の瞬間に生スナップを 64×36 へ）：.scenes には入れない（共有ファイルを太らせない）＝
 	//    カメラ部分のハッシュをキーに IndexedDB へ。描画は data URL のメモリ表→無ければ IDB から遅延で埋める ──
@@ -308,7 +320,7 @@ export function mountSceneEditor({ map, stageEl, panelEl, storageKey = "oj.scene
 					<div class="sc-f"><button data-op="layersNow" title="${t("この行に今の l=/c= を写す（カメラは動かさない）")}">${t("今のレイヤーを写す")}</button><button data-op="layersKeep" title="${t("l=/c= を外す＝直前の状態を引き継ぐ")}">${t("現状維持へ")}</button><button data-op="layersNone" title="${t("l= を空で書く＝全レイヤーを消す")}">${t("なし")}</button></div>
 				</details>`;
 			return `<li class="sc-row${via ? " via" : ""}${i === sel ? " sel" : ""}${groups[i] >= 0 && groups[i] === liveGroup ? " live" : ""}${err ? " err" : ""}" data-i="${i}">
-				<span class="sc-n">${i + 1}</span>
+				<span class="sc-n">${i + 1}</span><span class="sc-here"></span>
 				<span class="sc-thumb" data-thumb="${esc(camKey(hashOf(r)))}"></span>
 				<div class="sc-main">
 					${via
@@ -339,12 +351,30 @@ export function mountSceneEditor({ map, stageEl, panelEl, storageKey = "oj.scene
 		}).join("") : `<li class="sc-empty">${t("地図を構図して「📷 撮影」＝permalink がそのまま行になる。<br>view の間に「◇ 通過点」を挟むと1本のドリーで貫く。<br><br>行クリック＝その視点へ・⠿＝並べ替え・ファイルはここへドロップ")}</li>`;
 		fillThumbs();
 		if (!tlDirty && tl) paintTimes();   // 鮮度があれば即・無ければ tlRefresh が差し込む
+		hereState = ""; hereSync();
 	};
 
 	// ── 撮影 ──
 	const insertAt = () => (sel >= 0 && sel < doc.scenes.length ? sel + 1 : doc.scenes.length);
 	const shoot = () => { mark(); const r = { title: "", view: map.view.hash }; doc.scenes.splice(insertAt(), 0, r); sel = doc.scenes.indexOf(r); save(); paint(); captureThumb(camKey(r.view)); return r; };
 	const addVia = () => { mark(); const r = { via: map.view.hash }; doc.scenes.splice(insertAt(), 0, r); sel = doc.scenes.indexOf(r); save(); paint(); captureThumb(camKey(r.via)); return r; };
+	// 経路記録（◉）：地図を動かして止まるたび（600ms 静止）に通過点を積む＝隅田川ドリーを手で打たずに作る。
+	// 一度の記録は undo 1回で丸ごと戻る（開始時に mark・各点は mark しない）。終了＝再押下。着点は 📷 撮影で。
+	let recPath = null;
+	const recBtn = () => $("#sc-rec-path");
+	const pathRecord = () => {
+		if (recPath) { clearInterval(recPath.timer); const n = recPath.n; recPath = null; recBtn().classList.remove("on"); recBtn().textContent = t("◉ 経路記録"); note(t("経路記録: 通過点 {0} 件", n)); return; }
+		mark();
+		recPath = { last: camKey(map.view.hash), recorded: camKey(map.view.hash), still: 0, n: 0, timer: 0 };
+		recPath.timer = setInterval(() => {   // 250ms 刻み＝3拍（≈600ms）同じ構図なら「止まった」（拍で数える＝虚時間ハーネスでも同じ）
+			const k = camKey(map.view.hash);
+			if (k !== recPath.last) { recPath.last = k; recPath.still = 0; return; }   // 動いている
+			if (++recPath.still < 3 || k === recPath.recorded) return;                 // まだ止まっていない／同じ所
+			recPath.recorded = k; recPath.n++;
+			const r = { via: map.view.hash }; doc.scenes.splice(insertAt(), 0, r); sel = doc.scenes.indexOf(r); save(); paint(); captureThumb(k);
+		}, 250);
+		recBtn().classList.add("on"); recBtn().textContent = t("◉ 記録中…");
+	};
 	// permalink の貼り付け＝行に（書式の前提「URL を貼るだけでシーン」）：入力欄以外で ⌘V → ハッシュを全部拾って選択行の後ろへ
 	const HASH_RE = /#-?\d+(?:\.\d+)?\/-?\d+(?:\.\d+)?\/-?\d+(?:\.\d+)?(?:\/[^\s"'<>#]+)*/g;
 	const pasteHashes = text => {
@@ -361,6 +391,7 @@ export function mountSceneEditor({ map, stageEl, panelEl, storageKey = "oj.scene
 	const play = opts => {
 		map.stopScenes();
 		const okd = map.playScenes(doc, {
+			lang: $("#sc-lang").value || undefined,   // 字幕言語のプレビュー（空＝視聴者の ?lang= と同じ既定）
 			...opts,
 			onScene: ci => { liveGroup = ci; paint(); headSync(ci); },
 			onEnd: r => { playing = false; liveGroup = -1; headStop(); paint(); opts?.onEnd?.(r); },   // 呼び出し側の onEnd も連鎖（録画の停止フック等）
@@ -576,6 +607,26 @@ export function mountSceneEditor({ map, stageEl, panelEl, storageKey = "oj.scene
 	$("#sc-export").addEventListener("click", download);
 	$("#sc-clear").addEventListener("click", () => { if (!doc.scenes.length) return; mark(); doc.scenes = []; sel = -1; save(); paint(); note(t("全行を消しました（⌘Z で戻せる）")); });   // 確認ダイアログなし＝undo が安全網
 	$("#sc-undo").addEventListener("click", undo);
+	$("#sc-redo").addEventListener("click", redo);
+	$("#sc-rec-path").addEventListener("click", pathRecord);
+	// 行リストのキー（フォーカスがリストにある時＝行クリックで移る）：↑↓ 選択して飛ぶ・⌥↑↓ 並べ替え・⌘D 複製。地図のキー操作へは流さない
+	const moveRow = (from, to) => { if (to < 0 || to >= doc.scenes.length) return; mark(); const [row] = doc.scenes.splice(from, 1); doc.scenes.splice(to, 0, row); sel = to; save(); paint(); };
+	const duplicateRow = i => { const r = doc.scenes[i]; if (!r) return; mark(); doc.scenes.splice(i + 1, 0, JSON.parse(JSON.stringify(r))); sel = i + 1; save(); paint(); };
+	rowsEl.addEventListener("keydown", e => {
+		if (typing()) return;
+		const meta = e.metaKey || e.ctrlKey;
+		if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+			e.preventDefault(); e.stopPropagation();
+			const d = e.key === "ArrowUp" ? -1 : 1;
+			if (e.altKey) { if (sel >= 0) moveRow(sel, sel + d); return; }
+			const to = Math.max(0, Math.min(doc.scenes.length - 1, (sel < 0 ? (d < 0 ? doc.scenes.length : -1) : sel) + d));
+			if (!doc.scenes.length) return;
+			sel = to; paint(); rowsEl.querySelector(".sc-row.sel")?.scrollIntoView({ block: "nearest" });
+			if (!playing) location.hash = hashOf(doc.scenes[to]) ?? location.hash;
+			return;
+		}
+		if (meta && e.key.toLowerCase() === "d") { e.preventDefault(); e.stopPropagation(); if (sel >= 0) duplicateRow(sel); }
+	});
 	const openFile = async f => {   // ファイル入力・ドロップ共通（.scenes / .scenes.gz / .json＝gzip も中身判定で解凍）
 		const obj = await sniffScene(f);
 		if (load(obj)) note(t("読み込みました: {0}", f.name)); else note(t("scenes 台本として読めませんでした（type:\"scenes\" が必要）"));
@@ -606,7 +657,7 @@ export function mountSceneEditor({ map, stageEl, panelEl, storageKey = "oj.scene
 	const typing = () => { const a = document.activeElement; return a && (a.tagName === "INPUT" || a.tagName === "TEXTAREA" || a.tagName === "SELECT" || a.isContentEditable); };
 	const onKey = e => {
 		if (typing()) return;
-		if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "z") { e.preventDefault(); if (!e.shiftKey) undo(); return; }
+		if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "z") { e.preventDefault(); e.shiftKey ? redo() : undo(); return; }
 		if (e.metaKey || e.ctrlKey || e.altKey) return;
 		if ((e.key === "Delete" || e.key === "Backspace") && sel >= 0 && sel < doc.scenes.length && !playing) { e.preventDefault(); mark(); doc.scenes.splice(sel, 1); if (sel >= doc.scenes.length) sel = doc.scenes.length - 1; save(); paint(); return; }
 		if (e.key === " " && !document.getElementById("demo-bar")?.classList.contains("on")) { e.preventDefault(); playFrom(); }   // 上映中の Space はプレーヤー側（bare モードでは無視）
@@ -643,7 +694,7 @@ export function mountSceneEditor({ map, stageEl, panelEl, storageKey = "oj.scene
 		}
 		if (e.target.closest("summary")) { const d = e.target.closest("details"); setTimeout(() => { d.open ? openMore.add(i) : openMore.delete(i); }); sel = i; li.classList.add("sel"); return; }   // 詳細の開閉＝状態を控える（toggle 後の値）
 		if (e.target.closest("input, label, select")) { sel = i; li.classList.add("sel"); return; }   // 入力操作＝選択だけ（再描画もしない＝フォーカス保持）
-		sel = i; paint();
+		sel = i; paint(); rowsEl.focus({ preventScroll: true });   // 以降 ↑↓ が効く
 		if (!playing) location.hash = hashOf(r) ?? location.hash;   // 行クリック＝その視点へ（シーン切替が編集の主動線・URL一元化の道＝flyView が飛ぶ）
 	});
 	// number 入力へのホイール誤爆を断つ：フォーカス中の hold/travel にカーソルが乗ったままパネルをスクロールすると
@@ -726,6 +777,23 @@ export function mountSceneEditor({ map, stageEl, panelEl, storageKey = "oj.scene
 		const pos = `${Math.abs(e.lat).toFixed(4)}°${e.lat < 0 ? "S" : "N"} ${Math.abs(e.lon).toFixed(4)}°${e.lon < 0 ? "W" : "E"}`;
 		const txt = t("カメラ {0}　高度 {1}　方位 {2}°　視野 {3}°×{4}°", pos, fmtAlt(e.altM), brg, hFov, vFov);
 		if (txt !== camTxt) { camTxt = txt; camChip.textContent = txt; }
+		hereSync();
+	};
+	// 選択行と現在カメラの一致（緑＝この行の視点にいる／橙輪＝動いている＝再撮影の押し忘れ防止）。比較はカメラ部のハッシュ
+	let hereState = "";
+	const sameCam = (a, b) => {   // 数値で比較（書式の桁数差＝#8 と #8.00 を同じと見る）。z 0.01・経緯度 1e-5・チルト/方位 0.5° まで同一
+		const A = parseViewHash(a), B = parseViewHash(b);
+		if (!A || !B) return false;
+		return Math.abs(A.zoom - B.zoom) < 0.011 && Math.abs(A.lat - B.lat) < 1.1e-5 && Math.abs(A.lon - B.lon) < 1.1e-5
+			&& Math.abs((A.pitch || 0) - (B.pitch || 0)) < 0.01 && Math.abs((A.bearing || 0) - (B.bearing || 0)) < 0.01;
+	};
+	const hereSync = () => {
+		const li = rowsEl.querySelector(".sc-row.sel"); if (!li) { hereState = ""; return; }
+		const r = doc.scenes[+li.dataset.i]; if (!r) return;
+		const st = sameCam(hashOf(r), map.view.hash) ? "here" : "away";
+		if (st === hereState && li.classList.contains(st)) return;
+		hereState = st; li.classList.toggle("here", st === "here"); li.classList.toggle("away", st === "away");
+		li.querySelector(".sc-here").title = st === "here" ? t("この行の視点にいる") : t("この行の視点から動いている（📷再撮影で更新）");
 	};
 	const unsubCam = map.onFrame ? map.onFrame(camTick) : (requestAnimationFrame(camTick), () => {});
 	camTick();
@@ -741,9 +809,10 @@ export function mountSceneEditor({ map, stageEl, panelEl, storageKey = "oj.scene
 	const destroy = () => {
 		window.removeEventListener("resize", fit); window.removeEventListener("keydown", onKey); window.removeEventListener("paste", onPaste); clearTimeout(saveT); clearTimeout(noteT);
 		for (const el of dropTargets) { el.removeEventListener("dragenter", onDragEnter); el.removeEventListener("dragover", onDragOver); el.removeEventListener("dragleave", onDragLeave); el.removeEventListener("drop", onDrop); }
+		if (recPath) clearInterval(recPath.timer);
 		map.stopScenes?.(); headStop(); unsubCam(); camChip.remove(); styleEl.remove(); scrub.remove();
 	};
-	return { get doc() { return doc; }, load, exportText, shoot, addVia, play, playFrom, stop, fit, destroy, undo, openFile, pasteHashes,
+	return { get doc() { return doc; }, load, exportText, shoot, addVia, play, playFrom, stop, fit, destroy, undo, redo, openFile, pasteHashes, pathRecord, duplicateRow, moveRow,
 		get canUndo() { return undoStack.length > 0; },
 		select: i => { sel = i; paint(); } };
 }
