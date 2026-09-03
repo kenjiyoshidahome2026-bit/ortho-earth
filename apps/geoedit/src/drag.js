@@ -1,3 +1,8 @@
+import { tr } from "../../ortho-japan/i18n.js";   // UI二言語化（ja正典・en辞書引き＝エンジン i18n.js の流儀。辞書は各モジュール持参）
+const t = tr({
+	"大規模モードでは頂点の追加/削除はできません（移動のみ）": "Large mode cannot add/delete vertices (move only)",
+	"この頂点は消せません（端点/最小構成）": "This vertex cannot be deleted (endpoint / minimum shape)",
+});
 // ドラッグ：頂点（v）／点フィーチャの点（p）／中点挿入（m→v）／移動ツールのフィーチャ平行移動（f）。
 // capture-phase pointerdown で命中時だけエンジンから奪う（パンは発火しない）。Alt+クリック＝頂点削除もここ。
 // ドラッグ中はモデルを直接動かし（履歴なし）、終端で1コマンドを push＝「適用済み・pushのみ」の規約。
@@ -65,8 +70,8 @@ export function installDrag(ed) {
 		if (!h) return;
 		e.stopPropagation(); e.preventDefault();
 		if (e.altKey && h.kind === "v") {   // Alt+クリック＝頂点削除（doCmd 経由＝隠し/世代/pop の規約を他の構造操作と揃える）
-			if (st.model.large) return toast("大規模モードでは頂点の追加/削除はできません（移動のみ）");
-			if (ed.doCmd({ op: "delete", addr: st.model.addrOf(h.arcId, h.idx) }) === false) toast("この頂点は消せません（端点/最小構成）");
+			if (st.model.large) return toast(t("大規模モードでは頂点の追加/削除はできません（移動のみ）"));
+			if (ed.doCmd({ op: "delete", addr: st.model.addrOf(h.arcId, h.idx) }) === false) toast(t("この頂点は消せません（端点/最小構成）"));
 			return;
 		}
 		if (h.kind === "m") {   // 中点＝挿入してそのまま掴む

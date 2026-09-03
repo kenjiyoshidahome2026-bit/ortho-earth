@@ -1,3 +1,9 @@
+import { tr } from "../../ortho-japan/i18n.js";   // UI二言語化（ja正典・en辞書引き＝エンジン i18n.js の流儀。辞書は各モジュール持参）
+const t = tr({
+	"大きさがありません": "No size",
+	"頂点が足りません": "Not enough vertices",
+	"穴はポリゴンの内側に描いてください": "Draw the hole inside a polygon",
+});
 // 作図（スケッチ）：線/面/穴＝クリックで頂点を積んで Enter/ダブルクリックで確定、矩形/円＝2クリック。
 // 状態は st.sketch = { kind, coords, cursor, preview? }（描くのは overlay）。確定は doCmd("add"/"hole") → 選択ツールへ復帰。
 // クリック自体は editClick スロット（エンジンの4px裁定済み）から click(tool, ll) で入る。
@@ -32,7 +38,7 @@ export function createSketch(ed) {
 	function finishTwoPoint(a, b) {
 		const ring = twoPointRing(st.sketch.kind, a, b);
 		st.sketch = null; st.snapMark = null;
-		if (!ring || (ring[0][0] === ring[2][0] && ring[0][1] === ring[2][1]) || ring[0][0] === ring[1][0] || ring[0][1] === ring[3][1]) { overlay.redraw(); return toast("大きさがありません"); }   // 縮退（幅/高さゼロも）
+		if (!ring || (ring[0][0] === ring[2][0] && ring[0][1] === ring[2][1]) || ring[0][0] === ring[1][0] || ring[0][1] === ring[3][1]) { overlay.redraw(); return toast(t("大きさがありません")); }   // 縮退（幅/高さゼロも）
 		const cmd = { op: "add", feature: { type: "Feature", properties: { ...drawDefaults.polygon }, geometry: { type: "Polygon", coordinates: [ring] } } };
 		ed.doCmd(cmd);
 		ed.setTool("select");
@@ -42,11 +48,11 @@ export function createSketch(ed) {
 		const sk = st.sketch;
 		if (!sk) return;
 		st.sketch = null; st.snapMark = null;
-		if (sk.kind === "line" ? sk.coords.length < 2 : sk.coords.length < 3) { overlay.redraw(); return toast("頂点が足りません"); }
+		if (sk.kind === "line" ? sk.coords.length < 2 : sk.coords.length < 3) { overlay.redraw(); return toast(t("頂点が足りません")); }
 		if (sk.kind === "hole") {   // 穴＝描いたリングを「その1点目を含むポリゴン」の内環として追加（gint識別で対象決定）
 			const eid = layer.identify(sk.coords[0][0], sk.coords[0][1], map.getZoom());
 			const f = eid != null ? st.model.feats.get(eid) : null;
-			if (!f || !f.type.includes("Poly")) { overlay.redraw(); return toast("穴はポリゴンの内側に描いてください"); }
+			if (!f || !f.type.includes("Poly")) { overlay.redraw(); return toast(t("穴はポリゴンの内側に描いてください")); }
 			ed.doCmd({ op: "hole", eid, ring: sk.coords });
 			ed.setTool("select");
 			ed.select(eid);

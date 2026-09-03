@@ -2,6 +2,33 @@
 // 作図ツール選択中は「次に描くもの」の既定スタイルパネル（styleform＝点/線/面それぞれ）を出す。
 // 全部 DOM 直組み＝依存ゼロ。重なりは DOM 順（z-index 禁止の掟）。
 import { styleForm } from "./styleform.js";
+import { tr } from "../../ortho-japan/i18n.js";   // UI二言語化（ja正典・en辞書引き＝エンジン i18n.js の流儀。辞書は各モジュール持参）
+const t = tr({
+	"元に戻す (⌘Z)": "Undo (⌘Z)",
+	"やり直す (⇧⌘Z)": "Redo (⇧⌘Z)",
+	"選択・頂点編集 (V)": "Select / edit vertices (V)",
+	"点を置く（アイコン/図形） (A)": "Place a point (icon / shape) (A)",
+	"テキストを置く (T)": "Place text (T)",
+	"線を描く (L)": "Draw a line (L)",
+	"面を描く (P)": "Draw a polygon (P)",
+	"矩形を描く（2クリック） (R)": "Draw a rectangle (2 clicks) (R)",
+	"円を描く（中心→半径の2クリック） (C)": "Draw a circle (center → radius, 2 clicks) (C)",
+	"穴を開ける（ポリゴンの内側に描いてEnter） (H)": "Cut a hole (draw inside a polygon, then Enter) (H)",
+	"要素を移動（クリックで選択→ドラッグ） (M)": "Move a feature (click to select → drag) (M)",
+	"束ねる（同族の面/線をクリックで選び Enter で multi 化・Esc取消） (G)": "Combine (click polygons/lines of the same kind, Enter → multi, Esc cancels) (G)",
+	"ばらす（選択中の multi を単体へ分解）": "Split (break the selected multi into parts)",
+	"スナップ格子（度）": "Snap grid (degrees)",
+	"GISファイルを取り込む（ドロップも可）": "Import a GIS file (or drop it)",
+	"書き出し（8形式）": "Export (8 formats)",
+	"クラウドに保存 / 読み込み（要ログイン）": "Cloud save / open (login required)",
+	"全消去（新規セッション）": "Clear all (new session)",
+	"点のスタイル（次に置く点）": "Point style (next point)",
+	"テキスト（次に置く文字）": "Text (next label)",
+	"線のスタイル（次に描く線）": "Line style (next line)",
+	"面のスタイル（次に描く面）": "Polygon style (next polygon)",
+	"面のスタイル（矩形）": "Polygon style (rectangle)",
+	"面のスタイル（円）": "Polygon style (circle)",
+});
 
 // モノクロ線画アイコン（currentColor）＝Kenji旧ツールバーの流儀（8/20 参考画像）。絵文字混在をやめて統一
 const S = d => `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
@@ -39,31 +66,31 @@ export function initToolbar(el, api, signal) {
 	const sep = () => { const s = document.createElement("span"); s.className = "ge-sep"; el.append(s); };
 
 	// ---- undo/redo（旧ツールバー準拠＝左端）----
-	const undoB = btn("undo", "元に戻す (⌘Z)", () => api.undo());
-	const redoB = btn("redo", "やり直す (⇧⌘Z)", () => api.redo());
+	const undoB = btn("undo", t("元に戻す (⌘Z)"), () => api.undo());
+	const redoB = btn("redo", t("やり直す (⇧⌘Z)"), () => api.redo());
 	const syncHist = (canU, canR) => { undoB.disabled = !canU; redoB.disabled = !canR; };
 	sep();
 
 	// ---- ツール ----
 	const tools = {
-		select: btn("select", "選択・頂点編集 (V)", () => api.setTool("select")),
-		point: btn("point", "点を置く（アイコン/図形） (A)", () => api.setTool("point")),
-		text: btn("text", "テキストを置く (T)", () => api.setTool("text")),
-		line: btn("line", "線を描く (L)", () => api.setTool("line")),
-		polygon: btn("polygon", "面を描く (P)", () => api.setTool("polygon")),
-		rect: btn("rect", "矩形を描く（2クリック） (R)", () => api.setTool("rect")),
-		circle: btn("circle", "円を描く（中心→半径の2クリック） (C)", () => api.setTool("circle")),
-		hole: btn("hole", "穴を開ける（ポリゴンの内側に描いてEnter） (H)", () => api.setTool("hole")),
-		move: btn("move", "要素を移動（クリックで選択→ドラッグ） (M)", () => api.setTool("move")),
-		bundle: btn("bundle", "束ねる（同族の面/線をクリックで選び Enter で multi 化・Esc取消） (G)", () => api.setTool("bundle")),
+		select: btn("select", t("選択・頂点編集 (V)"), () => api.setTool("select")),
+		point: btn("point", t("点を置く（アイコン/図形） (A)"), () => api.setTool("point")),
+		text: btn("text", t("テキストを置く (T)"), () => api.setTool("text")),
+		line: btn("line", t("線を描く (L)"), () => api.setTool("line")),
+		polygon: btn("polygon", t("面を描く (P)"), () => api.setTool("polygon")),
+		rect: btn("rect", t("矩形を描く（2クリック） (R)"), () => api.setTool("rect")),
+		circle: btn("circle", t("円を描く（中心→半径の2クリック） (C)"), () => api.setTool("circle")),
+		hole: btn("hole", t("穴を開ける（ポリゴンの内側に描いてEnter） (H)"), () => api.setTool("hole")),
+		move: btn("move", t("要素を移動（クリックで選択→ドラッグ） (M)"), () => api.setTool("move")),
+		bundle: btn("bundle", t("束ねる（同族の面/線をクリックで選び Enter で multi 化・Esc取消） (G)"), () => api.setTool("bundle")),
 	};
-	btn("explode", "ばらす（選択中の multi を単体へ分解）", () => api.explode());   // ツールでなく即時アクション
+	btn("explode", t("ばらす（選択中の multi を単体へ分解）"), () => api.explode());   // ツールでなく即時アクション
 	const syncTool = t => { for (const [k, b] of Object.entries(tools)) b.classList.toggle("on", k === t); symPanel(t); };
 
 	sep();
 	// ---- スナップ格子 ----
 	const snap = document.createElement("select");
-	snap.className = "ge-snap"; snap.title = "スナップ格子（度）"; snap.setAttribute("aria-label", "スナップ格子（度）");   // <select> は ::after を描けない＝title のまま
+	snap.className = "ge-snap"; snap.title = t("スナップ格子（度）"); snap.setAttribute("aria-label", t("スナップ格子（度）"));   // <select> は ::after を描けない＝title のまま
 	for (const e of [3, 4, 5, 6, 7]) {
 		const o = document.createElement("option");
 		o.value = e; o.textContent = `1e-${e}`;
@@ -74,21 +101,21 @@ export function initToolbar(el, api, signal) {
 	el.append(snap);
 
 	sep();
-	btn("imp", "GISファイルを取り込む（ドロップも可）", () => file.click());
+	btn("imp", t("GISファイルを取り込む（ドロップも可）"), () => file.click());
 	const file = document.createElement("input");
 	file.type = "file";
 	file.accept = ".geopbf,.pbf,.geojson,.json,.topojson,.fgb,.zip,.kmz,.gpx,.gml,.xml,.gz";
 	file.hidden = true;
 	file.addEventListener("change", () => { if (file.files[0]) api.importFile(file.files[0]); file.value = ""; }, { signal });
 	el.append(file);
-	btn("exp", "書き出し（8形式）", () => api.exportOpen());
-	btn("cloud", "クラウドに保存 / 読み込み（要ログイン）", () => api.cloudOpen());
-	btn("trash", "全消去（新規セッション）", () => api.clearAll());
+	btn("exp", t("書き出し（8形式）"), () => api.exportOpen());
+	btn("cloud", t("クラウドに保存 / 読み込み（要ログイン）"), () => api.cloudOpen());
+	btn("trash", t("全消去（新規セッション）"), () => api.clearAll());
 
 	// ---- 作図ツールの既定スタイルパネル（点/線/面それぞれ＝「次に描くもの」に効く）----
 	let panel = null;
 	const GEOM = { point: "Point", text: "Point", line: "LineString", polygon: "Polygon", rect: "Polygon", circle: "Polygon" };
-	const TITLE = { point: "点のスタイル（次に置く点）", text: "テキスト（次に置く文字）", line: "線のスタイル（次に描く線）", polygon: "面のスタイル（次に描く面）", rect: "面のスタイル（矩形）", circle: "面のスタイル（円）" };
+	const TITLE = { point: t("点のスタイル（次に置く点）"), text: t("テキスト（次に置く文字）"), line: t("線のスタイル（次に描く線）"), polygon: t("面のスタイル（次に描く面）"), rect: t("面のスタイル（矩形）"), circle: t("面のスタイル（円）") };
 	const symPanel = t => {
 		panel?.remove(); panel = null;
 		if (!GEOM[t]) return;

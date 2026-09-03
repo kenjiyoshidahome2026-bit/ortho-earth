@@ -1,3 +1,11 @@
+import { tr } from "../../ortho-japan/i18n.js";   // UI二言語化（ja正典・en辞書引き＝エンジン i18n.js の流儀。辞書は各モジュール持参）
+const t = tr({
+	"書き出し": "Export",
+	"書き出すデータがありません": "Nothing to export",
+	"保存: {0}": "Saved: {0}",
+	"書き出し失敗: {0}": "Export failed: {0}",
+	"閉じる": "Close",
+});
 // 入出力：ドロップ取込（dropfile.js の depth-counter 作法）・8形式エクスポート（gishub と同じ *File() 群）・
 // IndexedDB セッション自動保存（コミット済み geopbf の ArrayBuffer を保存＝JSON化しない＝大規模対応）。
 
@@ -29,7 +37,7 @@ export function exportPanel(container, getPbf, toast) {
 	container.querySelector(".ge-dialog")?.remove();   // 二重開き防止＝開き直し（クラウドと同じ一枠）
 	const panel = document.createElement("div");
 	panel.className = "ge-panel ge-dialog";
-	panel.innerHTML = "<h3>書き出し</h3>";
+	panel.innerHTML = `<h3>${t("書き出し")}</h3>`;
 	const funcs = [
 		["GeoPBF", p => p.geopbfFile()],
 		["GeoJSON", p => p.geojsonFile({ gz: false })],
@@ -47,16 +55,16 @@ export function exportPanel(container, getPbf, toast) {
 			try {
 				b.disabled = true;
 				const pbf = await getPbf();
-				if (!pbf) { toast("書き出すデータがありません"); return; }
+				if (!pbf) { toast(t("書き出すデータがありません")); return; }
 				const file = await fn(pbf);
-				if (file) { download(file); toast(`保存: ${file.name}`); }
-			} catch (e) { console.error("[geoedit] export failed", e); toast(`書き出し失敗: ${name}`); }
+				if (file) { download(file); toast(t("保存: {0}", file.name)); }
+			} catch (e) { console.error("[geoedit] export failed", e); toast(t("書き出し失敗: {0}", name)); }
 			finally { b.disabled = false; }
 		};
 		panel.append(b);
 	}
 	const close = document.createElement("button");
-	close.textContent = "閉じる";
+	close.textContent = t("閉じる");
 	close.onclick = () => panel.remove();
 	panel.append(document.createElement("hr"), close);
 	container.append(panel);

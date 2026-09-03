@@ -4,6 +4,7 @@
 import "./editor.scss";
 import { createGeopbf } from "geopbf";
 import { nativeBucket } from "native-bucket";
+import { getLang } from "../ortho-japan/i18n.js";   // UI言語（?lang= / ブラウザ言語）＝エディタ本体の辞書引きと同じ解決
 // ★geoedit 自前バンドルの geopbf を必ずここで初期化する。SDK分割後、lib(/japan/lib/)の中の geopbf と
 //   geoedit がバンドルする geopbf は**別モジュールインスタンス**＝エンジン(app.js)の createGeopbf は
 //   lib側コピーにしか効かない（census2020 本番事故 8/20 の教訓）。devはソース直＝同一インスタンスの
@@ -21,6 +22,7 @@ if (import.meta.env.PROD) {
 	engineP = import("../ortho-japan/app.js");
 }
 
+if (getLang() === "en") { document.documentElement.lang = "en"; document.title = "geoedit — GeoPBF editor"; }   // index.html は ja 正典＝en は起動時に衣替え
 const dismissBoot = () => requestAnimationFrame(() => requestAnimationFrame(() => {
 	const boot = document.getElementById("boot");
 	if (boot) { boot.classList.add("gone"); setTimeout(() => boot.remove(), 250); }

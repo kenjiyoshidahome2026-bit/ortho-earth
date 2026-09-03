@@ -9,6 +9,47 @@
 // 値 "" は「そのキーを消す」の意（呼び出し側で delete）。
 import { SHAPE_NAMES, PICTO, SHAPE_SCALE, buildLinePath, sanitizeHTML } from "./overlay.js";
 import { cssColor, DEF } from "./gint-layer.js";
+import { tr } from "../../ortho-japan/i18n.js";   // UI二言語化（ja正典・en辞書引き＝エンジン i18n.js の流儀。辞書は各モジュール持参）
+const t = tr({
+	"色を選ぶ": "Pick a color",
+	"その他の色": "Other color",
+	"濃さ": "Opacity",
+	"塗りの濃さ": "Fill opacity",
+	"線幅": "Width",
+	"ぼかし": "Blur",
+	"不確定エリア（線なしのぼかし塗り）": "Fuzzy area (blurred fill, no outline)",
+	"なし": "None",
+	"角": "Square",
+	"丸": "Round",
+	"矢印": "Arrow",
+	"大きさ": "Size",
+	"小": "S",
+	"中": "M",
+	"大": "L",
+	"基本図形": "Shape",
+	"pin（3D・チルトで立つ）": "pin (3D, stands up when tilted)",
+	"画像": "Image",
+	"PNG/SVG をここへドロップ": "Drop a PNG/SVG here",
+	"文字": "Text",
+	"地図に置く文字（改行可）": "Text to place on the map (multi-line OK)",
+	"面の色": "Fill color",
+	"線の色": "Line color",
+	"なめらか": "Smooth",
+	"曲線（不確定）": "Curve (fuzzy)",
+	"ポリゴン化": "As band",
+	"帯（塗り＋輪郭）": "Band (fill + outline)",
+	"塗り色": "Fill color",
+	"始点": "Start",
+	"終点": "End",
+	"文字の色": "Text color",
+	"色": "Color",
+	"ツールチップ": "Tooltip",
+	"マウスを乗せた時の一言（HTML/画像可）": "Shown on hover (HTML / images OK)",
+	"↓コピー": "↓ copy",
+	"上のツールチップをコピー（同じ文にする）": "Copy the tooltip above (use the same text)",
+	"吹き出し": "Popup",
+	"常時表示の吹き出し（HTML/画像可）": "Popup balloon (HTML / images OK)",
+});
 
 const u32rgb = u => "#" + (u >>> 8).toString(16).padStart(6, "0");
 const u32alpha = u => (u & 255) / 255;
@@ -53,7 +94,7 @@ export function styleForm(host, { geomType, variant, get, set: setRaw }, signal)
 		const emit = final => set({ [key]: withAlpha ? hex8(hex, alpha) : hex }, final);
 
 		const trigger = document.createElement("button");
-		trigger.type = "button"; trigger.className = "ge-color-trigger"; trigger.title = "色を選ぶ";
+		trigger.type = "button"; trigger.className = "ge-color-trigger"; trigger.title = t("色を選ぶ");
 		const chip = document.createElement("span"); chip.className = "ge-color-chip"; chip.style.background = hex;
 		const caret = document.createElement("span"); caret.className = "ge-color-caret"; caret.textContent = "▾";
 		trigger.append(chip, caret);
@@ -70,7 +111,7 @@ export function styleForm(host, { geomType, variant, get, set: setRaw }, signal)
 			b.addEventListener("click", () => pick(sw, true, true), { signal });
 			chips.push({ el: b, val: sw.toLowerCase() }); wrap.append(b);
 		}
-		const custom = Object.assign(document.createElement("input"), { type: "color", value: hex, title: "その他の色" });
+		const custom = Object.assign(document.createElement("input"), { type: "color", value: hex, title: t("その他の色") });
 		custom.className = "ge-swatch ge-swatch-custom";
 		custom.addEventListener("input", () => pick(custom.value, false, false), { signal });   // ドラッグ中はプレビュー・開いたまま
 		custom.addEventListener("change", () => pick(custom.value, true, false), { signal });
@@ -83,8 +124,8 @@ export function styleForm(host, { geomType, variant, get, set: setRaw }, signal)
 		trigger.addEventListener("click", () => { if (pop.hidden) { closeAllPops(); pop.hidden = false; trigger.classList.add("open"); } else closePop(); }, { signal });
 
 		if (withAlpha) {
-			const da = row("濃さ");
-			const a = Object.assign(document.createElement("input"), { type: "range", min: 5, max: 100, value: Math.round(alpha * 100), title: "塗りの濃さ" });
+			const da = row(t("濃さ"));
+			const a = Object.assign(document.createElement("input"), { type: "range", min: 5, max: 100, value: Math.round(alpha * 100), title: t("塗りの濃さ") });
 			const av = document.createElement("span");
 			av.className = "ge-val"; av.textContent = Math.round(alpha * 100) + "%";
 			a.addEventListener("input", () => { alpha = +a.value / 100; av.textContent = a.value + "%"; emit(false); }, { signal });
@@ -96,7 +137,7 @@ export function styleForm(host, { geomType, variant, get, set: setRaw }, signal)
 
 	// ---- 線幅（1–10px スライダー）----
 	const widthRow = () => {
-		const d = row("線幅");
+		const d = row(t("線幅"));
 		const cur = +props()["@width"] > 0 ? +props()["@width"] : DEF.widthPx;
 		const w = Object.assign(document.createElement("input"), { type: "range", min: 1, max: 10, step: 0.5, value: cur });
 		const v = document.createElement("span");
@@ -110,13 +151,13 @@ export function styleForm(host, { geomType, variant, get, set: setRaw }, signal)
 
 	// ---- ぼかし（@blur・不確定エリア＝soft塗り・線なし。0=オフ）。ONの間は線コントロールを隠す ----
 	const blurRow = (hideWhenOn = []) => {
-		const d = row("ぼかし");
+		const d = row(t("ぼかし"));
 		const cur = +props()["@blur"] > 0 ? +props()["@blur"] : 0;
-		const w = Object.assign(document.createElement("input"), { type: "range", min: 0, max: 20, step: 1, value: cur, title: "不確定エリア（線なしのぼかし塗り）" });
+		const w = Object.assign(document.createElement("input"), { type: "range", min: 0, max: 20, step: 1, value: cur, title: t("不確定エリア（線なしのぼかし塗り）") });
 		const v = document.createElement("span");
-		v.className = "ge-val"; v.textContent = cur ? cur + "px" : "なし";
+		v.className = "ge-val"; v.textContent = cur ? cur + "px" : t("なし");
 		const syncHide = () => { const on = +w.value > 0; if (on) closeAllPops(); for (const el of hideWhenOn) el.style.display = on ? "none" : ""; };   // 行を隠す時は開きっぱなしのパレットも畳む
-		w.addEventListener("input", () => { v.textContent = +w.value ? w.value + "px" : "なし"; set({ "@blur": +w.value || "" }, false); syncHide(); }, { signal });
+		w.addEventListener("input", () => { v.textContent = +w.value ? w.value + "px" : t("なし"); set({ "@blur": +w.value || "" }, false); syncHide(); }, { signal });
 		w.addEventListener("change", () => set({ "@blur": +w.value || "" }, true), { signal });
 		d.append(w, v);
 		syncHide();   // 初期表示（既に blur ならこの時点で線を隠す）
@@ -146,7 +187,7 @@ export function styleForm(host, { geomType, variant, get, set: setRaw }, signal)
 	const capRow = (label, key) => {
 		const d = row(label);
 		const atStart = key === "@start";
-		for (const [val, title] of [["", "なし"], ["square", "角"], ["round", "丸"], ["arrow", "矢印"]]) {
+		for (const [val, title] of [["", t("なし")], ["square", t("角")], ["round", t("丸")], ["arrow", t("矢印")]]) {
 			const b = document.createElement("button");
 			b.className = "ge-shape-btn"; b.title = title;
 			b.append(capIcon(val, atStart));
@@ -170,9 +211,9 @@ export function styleForm(host, { geomType, variant, get, set: setRaw }, signal)
 	// ---- 大きさ（大中小）----
 	const mark = (container, b) => container.querySelectorAll("button").forEach(x => x.classList.toggle("on", x === b));
 	const sizeRow = () => {
-		const dsz = row("大きさ");
+		const dsz = row(t("大きさ"));
 		const curSize = +props()["@size"] > 0 ? +props()["@size"] : 24;
-		for (const [label, px] of [["小", 16], ["中", 24], ["大", 36]]) {
+		for (const [label, px] of [[t("小"), 16], [t("中"), 24], [t("大"), 36]]) {
 			const b = document.createElement("button");
 			b.textContent = label;
 			if (px === curSize) b.classList.add("on");
@@ -186,7 +227,7 @@ export function styleForm(host, { geomType, variant, get, set: setRaw }, signal)
 	// パレットは全図形を canvas で単色描画＝塗り面積を大体そろえ、絵文字/SVG混在の不揃いを解消（drawShape 共用）。
 	const PALETTE_INK = "#cdd6e6";
 	const symbolRow = () => {
-		const ds = row("基本図形");
+		const ds = row(t("基本図形"));
 		for (const s of SHAPE_NAMES) {
 			const b = document.createElement("button");
 			b.className = "ge-shape-btn"; b.title = s;
@@ -196,17 +237,17 @@ export function styleForm(host, { geomType, variant, get, set: setRaw }, signal)
 			const g = c.getContext("2d"); g.scale(dpr, dpr);
 			drawShape(g, s, S / 2, S / 2, 6, PALETTE_INK, "transparent");
 			b.append(c);
-			if (s === "pin") { const bd = document.createElement("span"); bd.className = "ge-3d-badge"; bd.textContent = "3D"; b.append(bd); b.title = "pin（3D・チルトで立つ）"; }   // circle と区別
+			if (s === "pin") { const bd = document.createElement("span"); bd.className = "ge-3d-badge"; bd.textContent = "3D"; b.append(bd); b.title = t("pin（3D・チルトで立つ）"); }   // circle と区別
 			if (props()["@shape"] === s) b.classList.add("on");
 			b.addEventListener("click", () => { set({ "@shape": s, "@icon": "" }, true); mark(ds, b); }, { signal });
 			ds.append(b);
 		}
 	};
 	const imageRow = () => {
-		const dz = row("画像");
+		const dz = row(t("画像"));
 		const zone = document.createElement("div");
 		zone.className = "ge-drop";
-		zone.textContent = "PNG/SVG をここへドロップ";
+		zone.textContent = t("PNG/SVG をここへドロップ");
 		zone.addEventListener("dragover", e => e.preventDefault(), { signal });
 		zone.addEventListener("drop", e => {
 			e.preventDefault(); e.stopPropagation();
@@ -223,8 +264,8 @@ export function styleForm(host, { geomType, variant, get, set: setRaw }, signal)
 
 	// ---- 点（テキスト系）＝文字が本体（改行可・@sizeがフォント寸）----
 	const textRows = () => {
-		const dt = row("文字");
-		const tx = Object.assign(document.createElement("textarea"), { rows: 2, placeholder: "地図に置く文字（改行可）", value: props()["@text"] ?? "" });
+		const dt = row(t("文字"));
+		const tx = Object.assign(document.createElement("textarea"), { rows: 2, placeholder: t("地図に置く文字（改行可）"), value: props()["@text"] ?? "" });
 		tx.addEventListener("change", () => set({ "@text": tx.value }, true), { signal });
 		dt.append(tx);
 	};
@@ -287,30 +328,30 @@ export function styleForm(host, { geomType, variant, get, set: setRaw }, signal)
 	// ---- 型ごとの構成 ----
 	preview = makePreview(); host.append(preview.el);
 	if (kind === "polygon") {
-		colorRow("面の色", "@fill", DEF.fill, true);
-		const strokeRow = colorRow("線の色", "@stroke", DEF.stroke, false), widthEl = widthRow();
-		boolRow("なめらか", "@spline", "曲線（不確定）");
+		colorRow(t("面の色"), "@fill", DEF.fill, true);
+		const strokeRow = colorRow(t("線の色"), "@stroke", DEF.stroke, false), widthEl = widthRow();
+		boolRow(t("なめらか"), "@spline", t("曲線（不確定）"));
 		blurRow([strokeRow, widthEl]);   // blur ON の間は線の色/線幅を隠す（stroke 無し）
 	}
 	else if (kind === "line") {
-		colorRow("線の色", "@stroke", DEF.stroke, false);
+		colorRow(t("線の色"), "@stroke", DEF.stroke, false);
 		widthRow();
 		// ポリゴン化＝帯（塗り+輪郭+端形状）。ON の時だけ塗り色・始点/終点が現れる（本人裁定＝旧自作実装の型）
 		const polyBox = document.createElement("div");
 		polyBox.className = "ge-sub";   // 従属行＝左に薄い罫でぶら下がりを見せる
-		boolRow("ポリゴン化", "@poly", "帯（塗り＋輪郭）", on => { polyBox.style.display = on ? "" : "none"; });
+		boolRow(t("ポリゴン化"), "@poly", t("帯（塗り＋輪郭）"), on => { polyBox.style.display = on ? "" : "none"; });
 		mount = polyBox;
-		colorRow("塗り色", "@fill", DEF.fill, true);
-		capRow("始点", "@start"); capRow("終点", "@end");
+		colorRow(t("塗り色"), "@fill", DEF.fill, true);
+		capRow(t("始点"), "@start"); capRow(t("終点"), "@end");
 		mount = host;
 		host.append(polyBox);
 		polyBox.style.display = props()["@poly"] ? "" : "none";
-		boolRow("なめらか", "@spline", "曲線（不確定）");
+		boolRow(t("なめらか"), "@spline", t("曲線（不確定）"));
 	}
 	else {
 		const v = variant ?? (props()["@text"] && !props()["@icon"] && !props()["@shape"] ? "text" : "symbol");
-		if (v === "text") { textRows(); sizeRow(); colorRow("文字の色", "@fill", 0x223344ff, false); }
-		else { symbolRow(); colorRow("色", "@fill", 0xcc4444ff, false); sizeRow(); imageRow(); }   // 図形→色→大きさ→画像
+		if (v === "text") { textRows(); sizeRow(); colorRow(t("文字の色"), "@fill", 0x223344ff, false); }
+		else { symbolRow(); colorRow(t("色"), "@fill", 0xcc4444ff, false); sizeRow(); imageRow(); }   // 図形→色→大きさ→画像
 	}
 	preview.draw();
 
@@ -318,18 +359,18 @@ export function styleForm(host, { geomType, variant, get, set: setRaw }, signal)
 	divider();   // 見た目 と 注記(tip/pop) の間＝薄い区切り線だけ（見出しは置かない）
 	const ta = (label, key, ph, rows, extra) => {
 		const d = row(label);
-		const t = Object.assign(document.createElement("textarea"), { rows, placeholder: ph, value: props()[key] ?? "" });
-		t.addEventListener("change", () => {   // HTMLらしき入力は保存前に消毒（コピペ事故を出荷前に落とす・平文は素通し）
-			const v = t.value.includes("<") ? sanitizeHTML(t.value) : t.value;
-			if (v !== t.value) t.value = v;
+		const area = Object.assign(document.createElement("textarea"), { rows, placeholder: ph, value: props()[key] ?? "" });
+		area.addEventListener("change", () => {   // HTMLらしき入力は保存前に消毒（コピペ事故を出荷前に落とす・平文は素通し）
+			const v = area.value.includes("<") ? sanitizeHTML(area.value) : area.value;
+			if (v !== area.value) area.value = v;
 			set({ [key]: v }, true);
 		}, { signal });
 		if (extra) d.append(extra);   // ラベルの隣（テキストエリアの上）に小ボタン
-		d.append(t);
-		return t;
+		d.append(area);
+		return area;
 	};
-	const tipTA = ta("ツールチップ", "@tip", "マウスを乗せた時の一言（HTML/画像可）", 2);
-	const copyTip = Object.assign(document.createElement("button"), { type: "button", className: "ge-copytip", textContent: "↓コピー", title: "上のツールチップをコピー（同じ文にする）" });
+	const tipTA = ta(t("ツールチップ"), "@tip", t("マウスを乗せた時の一言（HTML/画像可）"), 2);
+	const copyTip = Object.assign(document.createElement("button"), { type: "button", className: "ge-copytip", textContent: t("↓コピー"), title: t("上のツールチップをコピー（同じ文にする）") });
 	copyTip.addEventListener("click", () => { const v = tipTA.value; popTA.value = v; set({ "@pop": v }, true); }, { signal });
-	const popTA = ta("吹き出し", "@pop", "常時表示の吹き出し（HTML/画像可）", 2, copyTip);
+	const popTA = ta(t("吹き出し"), "@pop", t("常時表示の吹き出し（HTML/画像可）"), 2, copyTip);
 }
