@@ -192,7 +192,11 @@ export function createTileManager({ style, tileUrl, onChange, cap = 256, buildTi
 		};
 		// 毛布は祖先フォールバックの「保険」でなく下地mergeに直接混ぜる（z昇順ソートで一番下に敷かれる）
 		// ＝ズームを引いた瞬間も画面全域に必ず一番粗い絵がある。真っ白は出ない。
-		return { order: ready(drawSel), coarseOrder: readyWithFallback([...blanket, ...coarse]), total: selected.length };
+		// covered＝「この視野を覆うために描くべき枠（keepFine の子孫代打後）」が全部 ready＝主層に穴が無いことが
+		// 構造的に確定。app の render は これと merge 済み集合の一致で下地(base)の要否を厳密に判定する
+		// （「移動中かどうか」という代理指標に頼らない）。sel＝その枠数（診断用）。total は従来どおり素の選抜数。
+		const draw = ready(drawSel);
+		return { order: draw, coarseOrder: readyWithFallback([...blanket, ...coarse]), total: selected.length, sel: drawSel.length, covered: draw.length === drawSel.length };
 	}
 
 	// order の全タイルの op を style層(li)ごとに結合。origin(=cam.center)へ再ベースして精度確保。

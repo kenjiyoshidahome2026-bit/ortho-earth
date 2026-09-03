@@ -34,7 +34,7 @@ try {
 		await sleep(250);
 	}
 	fail = 0;
-	for (const page of ["t-webgpu", "t-aatrans", "t-gintgpu", "t-plateaufs"]) {   // t-aatrans＝遷移時AA（実GPUの実時間必須）。t-plateaufs＝OPFS 実I/O（同期ハンドル）＝実時間必須（仮想時間はタイマー先燃えで偽陽性）
+	for (const page of ["t-webgpu", "t-aatrans", "t-gintgpu", "t-plateaufs", "t-baselane"]) {   // t-aatrans＝遷移時AA（実GPUの実時間必須）。t-plateaufs＝OPFS 実I/O（同期ハンドル）＝実時間必須（仮想時間はタイマー先燃えで偽陽性）
 		const url = `http://localhost:${PORT}/japan/tests/${page}.html`;
 		const target = await (await fetch(`http://127.0.0.1:${CDP}/json/new?${encodeURIComponent(url)}`, { method: "PUT" })).json();
 		ws = new WebSocket(target.webSocketDebuggerUrl);
@@ -43,9 +43,24 @@ try {
 		const send = (method, params = {}) => new Promise(res => { const i = ++id; pending.set(i, res); ws.send(JSON.stringify({ id: i, method, params })); });
 		ws.onmessage = ev => { const m = JSON.parse(ev.data); if (m.id && pending.has(m.id)) { pending.get(m.id)(m.result); pending.delete(m.id); } };
 		await send("Runtime.enable");
-		const t0 = Date.now();
 		let title = "";
-		while (Date.now() - t0 < 40000) {   // 健全なら数秒
+		// 実マウスでのドラッグ駆動：ページが window.__dragGo を立てている間だけ pointermove を流す（t-baselane）。
+		// setTimeout から __cam() を叩く方式では「入力→rAF」というブラウザのフレーム内順序を再現できず、
+		// render() より後に描画要求が飛んで opts が後勝ちする＝実機と違う結果になる（実測で判明 2026-09-03）。
+		(async () => {
+			const at = (type, x, y, extra = {}) => send("Input.dispatchMouseEvent", { type, x, y, button: "left", clickCount: 1, ...extra });
+			let down = false, i = 0;
+			while (!/^(PASS|FAIL)/.test(title)) {
+				const go = (await send("Runtime.evaluate", { expression: "!!window.__dragGo", returnByValue: true }))?.result?.value;
+				if (go && !down) { await at("mousePressed", 400, 300, { buttons: 1 }); down = true; }
+				if (go && down) { await at("mouseMoved", 400 + (i % 8) - 4, 300 + ((i >> 1) % 6) - 3, { buttons: 1 }); i++; await sleep(16); continue; }
+				if (!go && down) { await at("mouseReleased", 400, 300, { buttons: 0 }); down = false; }
+				await sleep(100);
+			}
+			if (down) await at("mouseReleased", 400, 300, { buttons: 0 });
+		})().catch(() => { /* ページ終了で evaluate が失敗するのは正常 */ });
+		const t0 = Date.now();
+		while (Date.now() - t0 < 90000) {   // 健全なら数秒（t-baselane だけは実ドラッグ観測で数十秒）
 			await sleep(1000);
 			const r = await send("Runtime.evaluate", { expression: "document.title", returnByValue: true });
 			title = r?.result?.value || "";

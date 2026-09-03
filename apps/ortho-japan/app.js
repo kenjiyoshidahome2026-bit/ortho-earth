@@ -630,6 +630,7 @@ let needsDraw = true, readySig = "", lastLabels = [], sceneOrigin = null;
 // mainDesired＝「今この視点で載っているべき main の sig」（swapScene が毎回更新。request の dedupe とは独立）。
 // base(粗い下地)の退場判定に使う：readySig がこれに追いつく＝穴なしが確定するまで下地を敷いたままにする。
 let mainDesired = "";
+let readyKeys = null, readyTail = "";   // readySig 確定時に一度だけ作る Set＋署名末尾（styleSig/鉄道帯）＝render の下地退場判定（毎フレーム文字列を作らない）
 // ズームアウト時は「古い詳細シーンを縮めて見せ続ける」をしない＝写真タイルなら拡縮で誤魔化せるが、
 // ベクタはズーム専用の線幅・密度を焼いているので縮めると質感が浮く。下地(base)に揃えて退場させる。
 // keepFine＝ズームアウトで常駐子孫を親に差し替えない深さ（tilemanager の子孫代打・0=従来）。細かい絵のまま
@@ -1588,6 +1589,7 @@ function onSceneApplied(slot, sig) {
 	}
 	if (slot === "main") {
 		readySig = sig;
+		readyKeys = new Set(sig.split("#")[0].split("|").filter(Boolean)); readyTail = sig.slice(sig.indexOf("#"));   // render の Set 照合用（ここが readySig 確定の唯一の点）
 		const z = mergePendingZoom.get(sig);
 		if (z != null) { mainSceneZoom = z; mergePendingZoom.delete(sig); }
 		slog("main merge applied on screen (visible from here)");
@@ -3059,15 +3061,29 @@ function render() {
 	// 地形アトラスもズーム中は再構築しない：cellRes/セル数が連続変化して全再ロード＆勾配密度の跳びで
 	// 陰影がチラつくため（terrainGate＝render worker 側の terrain.ensure() 呼び出しを止める合図）。
 	// ズーム中は現アトラスを再投影（球面メッシュなので拡縮は追従）、停止後に再構築。
-	// base の退場は「静止」だけでなく「main の鮮度確定」まで待つ：settle の瞬間は新しい merge がまだ届いて
-	// いない（ズーム中は swapScene 自体を止めている＝main は古いズームの集合）。ここで即消しすると main が
-	// 覆っていない領域が紙色で露出し、海(#e2e6ea)との差で白フラッシュ＝ちらつきになる（チルト75°で顕著）。
-	// zoomStable も条件に含める＝settle 直後の1フレーム（swapScene が mainDesired を更新する前）を弾く。
-	const mainFresh = !!readySig && readySig === mainDesired && zoomStable;
+	// 下地(base)の要否＝「主層がこの視野を隙間なく覆っているか」の厳密判定（2026-09-03）：
+	//   covered＝tiles.update の選抜枠（keepFine 子孫代打後）が全部 ready（tilemanager が返す）
+	//   merged ＝その枠集合がそのまま merge 済みで載っている（ack 時に作った readyKeys の Set 照合＝文字列を作らない）
+	// 両立すれば base は1画素も見えない＝落として安全（白フラッシュ＝「覆っていない領域の紙色露出」は起こり得ない）。
+	// 旧 !moving && readySig===mainDesired は、mainDesired が移動中 MOVE_SWAP_MS 毎にしか更新されない古い署名
+	// なので !moving と zoomStable で二重に保険を掛けていた＝移動中は必ず base+main の2枚重ね＝全画面の塗りが2度。
+	// ⚠ 描画命令（下の renderer.draw）の位置は動かさない：この下に基図の門（z<BASEMAP_MINZOOM）の早期 return が
+	// あり、命令をその後ろへ動かすと世界帯で描画要求が一度も出ず frame1 が来ない（前回の t-anno 不安定の正体）。
+	// 判定材料の方を先に作る＝基図圏でだけ tiles.update をここで回す（出典/家具の DOM 処理より僅かに早いだけ）。
+	const basemap = cam.zoom >= BASEMAP_MINZOOM;
+	let tu = null, skipBase = false;
+	if (basemap) {
+		sampleGroundElev();   // 中心の地面標高を追随（非同期・~100m格子メモ）＝groundR の材料
+		tu = tiles.update(cam, size.w, size.h, { tilePx: (moving || !gpuFast || !idleCalm) ? undefined : IDLE_TILE_PX, groundR: groundRNow(), keepFine: keepFineNow() });   // tilePx＝「本当の静止」（settle+550ms）だけ主層を一段細かく（手前の詳細化・GPU格付け fast 限定・undefined=既定560）。groundR＝地形リフト球（チルト×高標高地の手前くさび欠け根治）。keepFine＝ズームアウトの子孫代打（3D限定）。calm が needsDraw を立て、細タイルの ready は requestDraw で連鎖再描画
+		const o = tu.order, tailNow = "#" + styleSig + "#z" + (cam.zoom >= RAILTR_MINZOOM ? 1 : 0);   // tailNow＝swapScene の署名末尾と同式
+		const merged = !!readySig && readyKeys !== null && readyTail === tailNow && readyKeys.size === o.length && o.every(t => readyKeys.has(t.key));
+		skipBase = tu.covered && merged;
+		dbgHost.__cover = { covered: tu.covered, merged, ready: o.length, sel: tu.sel, moving };   // 検証/切り分け用：なぜ base が落ちた/落ちないか
+	}
 	// terrainGate: 標高アトラスの再構築（窓選定108unproject＋staging＋セルfetch）は重い＝移動中は一切行わず、
 	// 停止時に一回だけ綺麗に作り直す（staging が旧アトラスを見せたまま静かに差し替える）。移動中の遅れは
 	// 縁フェードと R90/旧窓の残像が受け持つ＝「無理せず、描画終了時に綺麗に描く」方針。
-	renderer.draw(cam, { skipBase: !moving && mainFresh, skipMain: mainStale(), noTerrain: false, terrainGate: !moving });     // 先に最新camをworkerへ（全球でも標高の塗りは生かす）。印刷撮影中も標高アトラスは生かす＝真俯瞰(pitch0)で地形サーフェスは自然に平ら(elevScaleEff=0)なまま等高線だけ敷ける。海岸線は render worker が従属で追随
+	renderer.draw(cam, { skipBase, skipMain: mainStale(), noTerrain: false, terrainGate: !moving });     // 先に最新camをworkerへ（全球でも標高の塗りは生かす）。印刷撮影中も標高アトラスは生かす＝真俯瞰(pitch0)で地形サーフェスは自然に平ら(elevScaleEff=0)なまま等高線だけ敷ける。海岸線は render worker が従属で追随
 	// 全球ビュー（z<4）：基図(GSI)の詳細は不要＝タイル/結合/地形を止め、基図シーンを空に＝海岸線(gint)だけの軽い地球。
 	// これで pan 中も main の毎フレーム負荷（tiles.update/merge/terrain）が消える。
 	// 星空劇場（.world＝z<5）：逆相家具（日時計）の点灯と、紙の計器（#scale/#hint）の退場だけ。
@@ -3121,10 +3137,9 @@ function render() {
 		return;
 	}
 	basemapHidden = false;
-	sampleGroundElev();   // 中心の地面標高を追随（非同期・~100m格子メモ）＝groundR の材料
 	// 旧・世界帯の選抜cap（maxZ=世界タイルz3・keepFine切り）は世界タイル撤去（2026-09-03）で不要＝
 	// ここへ来るのは z≥BASEMAP_MINZOOM だけ（基図の門の下は上の早期returnでタイルなし）。
-	const { order, coarseOrder, total } = tiles.update(cam, size.w, size.h, { tilePx: (moving || !gpuFast || !idleCalm) ? undefined : IDLE_TILE_PX, groundR: groundRNow(), keepFine: keepFineNow() });   // tilePx＝「本当の静止」（settle+550ms）だけ主層を一段細かく（手前の詳細化・GPU格付け fast 限定・undefined=既定560）。groundR＝地形リフト球（チルト×高標高地の手前くさび欠け根治）。keepFine＝ズームアウトの子孫代打（3D限定）。calm が needsDraw を立て、細タイルの ready は requestDraw で連鎖再描画
+	const { order, coarseOrder, total } = tu;   // 選抜は上（描画命令の前・基図圏のみ）で実施済み
 	if (layerState.facility && cam.zoom >= 14) loadPOI(cam);   // z14+×施設ON＝POI台帳タイル(poi/14/x/y)を可視ぶん先読み（既取得は素通り）
 	dbgHost.__lastOrder = order;   // デバッグ：現在の選択タイル（コンソール/検証スクリプトから確認）
 	dbgHost.__tileStats = () => { const s = tiles.stats(); console.log(`[tiles] resident ${s.tiles} tiles / ${(s.bytes/1048576).toFixed(1)}MB (budget ${(s.budgetBytes/1048576).toFixed(0)}MB, deviceMemory≈${s.deviceMemoryGB}GB, cacheEntries ${s.cacheEntries})`); return s; };   // コンソールから常駐メモリ確認

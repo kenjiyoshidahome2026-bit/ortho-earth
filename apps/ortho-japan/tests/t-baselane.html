@@ -1,0 +1,48 @@
+<!doctype html>
+<!-- UI回帰：下地(base)レーンの退場条件（2026-09-03）。base は「主層に穴がある間の代役」であって、主層が視野を
+     隙間なく覆っているなら1画素も見えない＝描く必要がない。旧実装は !moving（移動中か）という代理指標で判定して
+     いたため、移動中は必ず base+main の2枚重ね＝全画面の塗りが2度走っていた（実測 0/25）。現在は tiles.update の
+     covered（選抜枠が全部ready）＋ merge 済み集合との Set 一致で厳密判定（実測 25/25）。
+     判定は ?drawhud=1 の生値（__drawHud.d.skipBase / baseFill）。WebGPU 限定（GL2 は dbg 未実装）＝非webgpu は skip PASS。
+     ②は verify-webgpu.mjs の CDP 実マウスドラッグ（__dragGo）で駆動＝入力→rAF のフレーム内順序を実機どおりに。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html{background:#0b1021}</style><title>t-baselane</title></head>
+<body>
+<script type="module">
+history.replaceState(null, "", "?gpu=1&drawhud=1");
+import("../app.js").then(async ({ default: orthoJapan }) => {
+	const t = [], ok = (n, c) => t.push((c ? "ok:" : "NG:") + n);
+	const m = await orthoJapan({ view: "#13/35.68/139.76", plateau: false });
+	const sleep = ms => new Promise(r => setTimeout(r, ms));
+	const t0 = performance.now();
+	while (!window.__backend && performance.now() - t0 < 25000) await sleep(200);
+	if (window.__backend !== "webgpu") { m.destroy(); document.title = "PASS skip(" + (window.__backend || "no-frame1") + "＝非webgpu環境)"; return; }
+	const d = () => window.__drawHud?.d || null;
+	const until = async (pred, ms) => { const s = performance.now(); while (performance.now() - s < ms) { if (pred(d())) return true; await sleep(100); } return false; };
+
+	// 主層が載るまで（タイル取得＋merge）。載らない環境（網なし）では以降の判定が無意味なので skip PASS。
+	if (!await until(x => x && x.mainFill > 0, 30000)) { m.destroy(); document.title = "PASS skip(main未着＝オフライン環境)"; return; }
+	// ① 静止＋被覆確定＝下地は落ちる（旧実装でも成立する土台）
+	ok("静止で base 退場", await until(x => x.skipBase === true && x.baseFill === 0, 20000));
+
+	// ② 移動中でも、主層が覆っていれば下地は落ちる（本題）。
+	//    ⚠ __drawHud は ~3Hz のスロットル配信＝オブジェクト同一性で「ドラッグ中に届いた新着」だけを採る（陳腐化した
+	//    静止時の値を数えると旧実装でも通る）。さらに aa===1（遷移フレーム＝直近にカメラが動いた証拠）を要求。
+	window.__dragGo = true;
+	await sleep(2500);   // ドラッグ開始（runner のポーリング100ms）＋移動中の集合で merge が一巡するまで
+	let seen = window.__drawHud, moved = 0, skipped = 0;
+	for (let i = 0; i < 150; i++) {
+		const msg = window.__drawHud;
+		if (msg && msg !== seen) { seen = msg; const x = msg.d; if (x && x.aa === 1) { moved++; if (x.skipBase === true && x.baseFill === 0) skipped++; } }
+		await sleep(60);
+	}
+	window.__dragGo = false;
+	ok(`移動中でも覆っていれば base 退場 (${skipped}/${moved} 遷移フレーム)`, moved >= 4 && skipped >= moved / 2);
+
+	// ③ 主層が覆えない瞬間（未取得のタイルへ大ジャンプ）は下地が戻る＝穴を紙色で晒さない安全側は健在
+	window.__cam(141.35, 43.06, 13);   // 札幌＝未取得
+	ok("未着へ跳べば base 復帰", await until(x => x.skipBase === false, 15000));
+
+	m.destroy();
+	document.title = (t.some(x => x.startsWith("NG")) ? "FAIL " : "PASS ") + t.join(" ");
+});
+</script></body></html>
