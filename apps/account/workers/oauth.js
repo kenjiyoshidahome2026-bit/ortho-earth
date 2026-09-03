@@ -5,7 +5,7 @@ import { PROVIDERS } from "./providers.js";
 import { b64url, randB64, setCookie, getCookie, createSession, destroySession, now, SESSION_DAYS } from "./session.js";
 import { err } from "./http.js";
 
-const RETURN_FALLBACK = "/japan/geoedit.html";
+const RETURN_FALLBACK = "/japan/geoedit";
 // open redirect 封じ：同一オリジンの相対パスのみ（"/" 始まり・"//" と "\" と制御文字は不可）
 const validReturn = r => (r && /^\/(?!\/)/.test(r) && !/[\\\x00-\x1f]/.test(r)) ? r : RETURN_FALLBACK;
 

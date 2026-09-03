@@ -1,4 +1,4 @@
-# geoedit 旧URL転送 Worker：www.ortho-earth.com/geoedit* → /japan/geoedit.html（本体は ortho-japan のガジェット・9/4）。
+# geoedit 旧URL転送 Worker：www.ortho-earth.com/geoedit* → /japan/geoedit（本体は ortho-japan のガジェット・9/4）。
 # 静的アセットは持たない（deploy-worker.js の転送だけ）。デプロイ＝ npm run deploy（wrangler deploy）。
 name = "geoedit"
 main = "deploy-worker.js"

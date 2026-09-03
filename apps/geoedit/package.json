@@ -4,7 +4,7 @@
 	"license": "GPL-3.0-or-later",
 	"private": true,
 	"type": "module",
-	"description": "旧 /geoedit/ の転送 Worker。エディタ本体は apps/ortho-japan/gadgets/geoedit（map.gadget.geoedit）・ページは /japan/geoedit.html",
+	"description": "旧 /geoedit/ の転送 Worker。エディタ本体は apps/ortho-japan/gadgets/geoedit（map.gadget.geoedit）・ページは /japan/geoedit",
 	"scripts": {
 		"deploy": "wrangler deploy"
 	}
