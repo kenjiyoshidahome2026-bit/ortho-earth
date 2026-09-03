@@ -1,5 +1,5 @@
 /* geoedit 編集UI — 地図側UIの意匠は quiet-mono（#map スコープ）＝ここでは触らない。
-   z-index 不使用＝重なりは DOM 順（japan の掟）。骨格（#stage 全幅）は index.html の critical style が先に確定済み。 */
+   z-index 不使用＝重なりは DOM 順（japan の掟）。ガジェット搭載時に controller が <style> として注入（CSS自給）。 */
 @use "quiet-mono/tokens.scss" as *;
 
 /* ── 編集オーバレイ（ハンドル・ラバーバンド）：GLキャンバスの後段＝上に重なる。
@@ -13,8 +13,8 @@
 	pointer-events: none;
 }
 
-/* ── ツールバー（#stage 直下・#map の後＝上に重なる）── */
-#toolbar {
+/* ── ツールバー（#map 直下・エンジン家具の後に append＝上に重なる）── */
+#ge-toolbar {
 	position: absolute;
 	top: 10px;
 	/* 中央寄せは left/right:0 + margin:auto + fit-content＝絶対配置の shrink-to-fit を親の全幅で計算させる。
@@ -37,8 +37,8 @@
 	color: #cdd6e6;
 	user-select: none;
 }
-#toolbar[hidden] { display: none; }
-#toolbar button {
+#ge-toolbar[hidden] { display: none; }
+#ge-toolbar button {
 	all: unset;
 	cursor: pointer;
 	padding: 5px 9px;
@@ -47,15 +47,15 @@
 	font-size: 14px;
 	color: #cdd6e6;
 }
-#toolbar button:hover { background: rgba(255, 255, 255, .10); }
-#toolbar button.on { background: rgba(120, 170, 255, .28); color: #fff; }
-#toolbar button:disabled { opacity: .35; cursor: default; }
-#toolbar .ge-sep { width: 1px; align-self: stretch; margin: 2px 3px; background: rgba(255, 255, 255, .14); }
+#ge-toolbar button:hover { background: rgba(255, 255, 255, .10); }
+#ge-toolbar button.on { background: rgba(120, 170, 255, .28); color: #fff; }
+#ge-toolbar button:disabled { opacity: .35; cursor: default; }
+#ge-toolbar .ge-sep { width: 1px; align-self: stretch; margin: 2px 3px; background: rgba(255, 255, 255, .14); }
 
 /* ボタンの吹き出し説明（data-tip）＝quiet-mono #gadgets と同じ所作（hover/focus でフェード・z-index 不使用＝::after は自ボタンの子・
    タッチ端末は出さない）。ツールバーは上辺中央＝ボタンの下へ／パネルの頭のアイコンは右上＝左下へ出す。意匠は .ge-tip と同じ黒硝子 */
-#toolbar [data-tip], .ge-panel [data-tip] { position: relative; }
-#toolbar [data-tip]::after, .ge-panel [data-tip]::after {
+#ge-toolbar [data-tip], .ge-panel [data-tip] { position: relative; }
+#ge-toolbar [data-tip]::after, .ge-panel [data-tip]::after {
 	content: attr(data-tip); position: absolute; top: calc(100% + 8px);
 	white-space: nowrap; pointer-events: none;
 	font: 12px/1.4 "Noto Sans JP", "Hiragino Sans", "Yu Gothic UI", "Yu Gothic", sans-serif; color: #fff;
@@ -63,14 +63,15 @@
 	border-radius: 5px; padding: 5px 9px; box-shadow: 0 3px 10px rgba(20, 30, 50, .25);
 	opacity: 0; transition: opacity .14s ease;
 }
-#toolbar [data-tip]::after { left: 50%; transform: translateX(-50%); }
+#ge-toolbar [data-tip]::after { left: 50%; transform: translateX(-50%); }
 .ge-panel [data-tip]::after { right: 0; }
-#toolbar [data-tip]:hover::after, #toolbar [data-tip]:focus-visible::after,
+#ge-toolbar [data-tip]:hover::after, #ge-toolbar [data-tip]:focus-visible::after,
 .ge-panel [data-tip]:hover::after, .ge-panel [data-tip]:focus-visible::after { opacity: 1; }
-@media (pointer: coarse) { #toolbar [data-tip]::after, .ge-panel [data-tip]::after { display: none; } }
+@media (pointer: coarse) { #ge-toolbar [data-tip]::after, .ge-panel [data-tip]::after { display: none; } }
 
 /* スナップ格子の段選択（1e-3〜1e-7） */
-#toolbar select.ge-snap {
+#ge-toolbar .ge-snapwrap { display: inline-flex; }   /* select の包み＝data-tip の錨（::after はここに付く） */
+#ge-toolbar select.ge-snap {
 	all: unset;
 	cursor: pointer;
 	padding: 5px 6px;

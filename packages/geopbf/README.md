@@ -128,7 +128,7 @@ Same deal for D3 (`d3.geoPath` over `r.geojson`), Observable notebooks, or anyth
 
 ## Editing (`geopbf/edit`, v1.3)
 
-The editing core battle-tested in [geoedit](https://www.ortho-earth.com/geoedit/) — pure data modules (no DOM, worker-safe, Node-testable):
+The editing core battle-tested in [geoedit](https://www.ortho-earth.com/japan/geoedit.html) — pure data modules (no DOM, worker-safe, Node-testable):
 
 ```js
 import { buildTopology, createModel } from "geopbf/edit";

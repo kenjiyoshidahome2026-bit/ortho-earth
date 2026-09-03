@@ -1,7 +1,7 @@
 // t-roundtrip: fc → buildTopology → createModel → toGeoJSON がサイクリック一致（リングは回転の自由度あり）
 // ＋ Worker転送（topoToTransfer/topoFromTransfer）を挟んでも同一
-import { buildTopology } from "../src/topo-extract.js";
-import { createModel, topoToTransfer, topoFromTransfer } from "../src/model.js";
+import { buildTopology } from "../../src/edit/topo-extract.js";
+import { createModel, topoToTransfer, topoFromTransfer } from "../../src/edit/model.js";
 
 let fails = 0;
 const ok = (cond, msg) => { if (!cond) { console.error("✗", msg); fails++; } else console.log("✓", msg); };

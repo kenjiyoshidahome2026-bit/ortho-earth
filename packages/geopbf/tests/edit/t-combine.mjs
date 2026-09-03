@@ -1,6 +1,6 @@
 // t-combine: 束ね(combine)/戻し(uncombine)/ばらす(split) の往復と refs 整合（node tests/t-combine.mjs）
-import { buildTopology } from "../src/topo-extract.js";
-import { createModel } from "../src/model.js";
+import { buildTopology } from "../../src/edit/topo-extract.js";
+import { createModel } from "../../src/edit/model.js";
 
 let fails = 0;
 const ok = (cond, msg) => { if (!cond) { console.error("✗", msg); fails++; } else console.log("✓", msg); };

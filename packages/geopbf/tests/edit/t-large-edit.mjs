@@ -20,7 +20,7 @@ import { createRequire } from "node:module";
 	await _g.initialize();
 }
 import { identifyAt } from "geopbf/identify";
-import { createLargeModel, listsOf } from "../src/large-model.js";
+import { createLargeModel, listsOf } from "../../src/edit/large-model.js";
 
 let fails = 0;
 const ok = (cond, msg) => { if (!cond) { console.error("✗", msg); fails++; } else console.log("✓", msg); };

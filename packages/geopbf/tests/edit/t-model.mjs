@@ -1,6 +1,6 @@
 // t-model: 隣接2ポリゴンの共有arc・ノード同時移動・アドレス往復（node tests/t-model.mjs）
-import { buildTopology } from "../src/topo-extract.js";
-import { createModel } from "../src/model.js";
+import { buildTopology } from "../../src/edit/topo-extract.js";
+import { createModel } from "../../src/edit/model.js";
 
 let fails = 0;
 const ok = (cond, msg) => { if (!cond) { console.error("✗", msg); fails++; } else console.log("✓", msg); };

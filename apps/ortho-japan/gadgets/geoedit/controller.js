@@ -6,9 +6,9 @@
 //   point/line/polygon → editClick スロット経由の作図（クリックvs.ドラッグ弁別は input.js の4px裁定に任せる）
 // コミット頻度＝頂点数で二段（<10万: drag-end 300ms デバウンス / ≥10万: アイドル2s or 明示操作）。
 // 構造操作（add/del）→ Worker/同期のトポロジ再抽出（デバウンス）＝頂点吸着の共有化・arc分割を回復。
-import { buildTopology } from "./topo-extract.js";
-import { createModel, adoptRebuilt, rebuildModel, topoFromTransfer, topoToTransfer } from "./model.js";
-import { createHistory } from "./history.js";
+import { buildTopology } from "geopbf/edit/topo-extract";
+import { createModel, adoptRebuilt, rebuildModel, topoFromTransfer, topoToTransfer } from "geopbf/edit/model";
+import { createHistory } from "geopbf/edit/history";
 import { createGintLayer } from "./gint-layer.js";
 import { createOverlay } from "./overlay.js";
 import { createPopLayer } from "./pop-layer.js";
@@ -16,7 +16,7 @@ import { initToolbar } from "./toolbar.js";
 import { initDrop, exportPanel, idbSave, idbLoad, idbClear } from "./io.js";
 import { cloudPanel } from "./cloud.js";
 import { createPropsPanel, mergeProps } from "./properties.js";
-import { createLargeModel } from "./large-model.js";
+import { createLargeModel } from "geopbf/edit/large-model";
 import { createWorkerRpc } from "./worker-rpc.js";
 import { createSketch } from "./sketch.js";
 import { installDrag, moveTargets } from "./drag.js";
@@ -24,8 +24,9 @@ import { createTip } from "./tip.js";
 import { installContextMenu } from "./contextmenu.js";
 import { geopbf } from "geopbf";
 import { GeoPBF } from "geopbf/pbf-base";
-import { dockStack } from "../../ortho-japan/gadgets/stack.js";   // 左下ドック（#log/#pos と同じ容れ物＝重なりを構造で排除）
-import { tr } from "../../ortho-japan/i18n.js";   // UI二言語化（ja正典・en辞書引き＝エンジン i18n.js の流儀。辞書は各モジュール持参）
+import { dockStack } from "../stack.js";   // 左下ドック（#log/#pos と同じ容れ物＝重なりを構造で排除）
+import css from "./editor.scss?inline";    // CSS自給（ガジェット三戒）＝遅延chunkに同乗・初回搭載で <style> を1枚
+import { tr } from "../../i18n.js";   // UI二言語化（ja正典・en辞書引き＝エンジン i18n.js の流儀。辞書は各モジュール持参）
 const t = tr({
 	"テキスト": "Text",
 	"閉じる": "Close",
@@ -61,6 +62,7 @@ const t = tr({
 	"GISファイルをドロップ、またはツールで作図を始めてください": "Drop a GIS file, or start drawing with the tools",
 	"前回の編集を復元しました": "Previous session restored",
 	"新規で始める": "Start fresh",
+	"表示中のデータを編集に取り込みました": "Opened the data shown in the viewer for editing",
 });
 
 const BIG = 100_000;          // これ以上の頂点数＝コミットをアイドル寄せ
@@ -72,9 +74,17 @@ const Q = new URLSearchParams(location.search);
 const LARGE_BYTES = (() => { const n = +Q.get("th"); return Math.round((n > 0 ? n : 64) * 1048576); })();
 const LARGE_VERTS = (() => { const n = +Q.get("tv"); return n > 0 ? Math.round(n) : 2_000_000; })();
 
-export function initEditor(map) {
+export function initEditor(map, { adopt = true } = {}) {   // adopt＝表示中のユーザーデータ（ドロップ/?g=）があればそれを編集へ取り込む
 	const mapEl = map.mapEl;
 	const ac = new AbortController(), signal = ac.signal;
+	if (!document.getElementById("ge-css")) { const st = document.createElement("style"); st.id = "ge-css"; st.textContent = css; document.head.append(st); }
+	// 真上固定＝編集中はチルト上限 0（オーバレイは地形リフト・裏半球を考えない設計）。destroy で搭載前の上限へ戻す
+	const prevMaxPitch = map.maxPitch?.();
+	map.setMaxPitch?.(0);
+	// ツールバー＝mapEl 直下（DOM順＝エンジン家具の後＝上に重なる。z-index 不使用の掟）
+	const toolbarEl = document.createElement("div");
+	toolbarEl.id = "ge-toolbar"; toolbarEl.hidden = true;
+	mapEl.append(toolbarEl);
 	// 可変状態は全部ここ（各入力モジュールと共有）
 	const st = {
 		model: null, selection: null, dragEids: null, hidden: null, sketch: null, snapMark: null, busy: false, bundle: null, focus: null,
@@ -328,7 +338,7 @@ export function initEditor(map) {
 	const redo = () => { hist.redo(applyR); bar.syncHist(hist.canUndo, hist.canRedo); };
 
 	// ---- 選択パネル（styleform＝日本語UI・生の属性は「属性を表示」でだけ）----
-	const props = createPropsPanel(document.getElementById("stage"), {
+	const props = createPropsPanel(mapEl, {
 		getFeature: eid => st.model?.feats.get(eid),
 		applyProps: (eid, next, { history = true, from = null } = {}) => {
 			if (history) doCmd({ op: "props", eid, from: from ?? st.model.feats.get(eid).properties, to: next });
@@ -460,15 +470,15 @@ export function initEditor(map) {
 	};
 	ed.setTool = setTool;
 	const getPbf = () => st.model && (st.model.large ? st.model.toPbf() : layer.exportPbf(st.model));   // 書き出し/クラウド共通の口（大規模＝ストリーム置換複写：幾何はバイト複写・属性だけ再エンコード）
-	const bar = initToolbar(document.getElementById("toolbar"), {
+	const bar = initToolbar(toolbarEl, {
 		setTool, undo, redo, explode,
 		gridExp: () => gridExp,
 		setGrid: exp => { gridExp = exp; st.model?.setGrid(exp); toast(t("スナップ格子: 1e-{0} 度", exp)); },
 		getDefaults: t => drawDefaults[t === "rect" || t === "circle" ? "polygon" : t],   // 矩形/円＝面の既定スタイルを共有
 		setDefaults: (t, partial) => { const k = t === "rect" || t === "circle" ? "polygon" : t; drawDefaults[k] = mergeProps(drawDefaults[k], partial); },
 		importFile,
-		exportOpen: () => exportPanel(document.getElementById("stage"), getPbf, toast),
-		cloudOpen: () => cloudPanel(document.getElementById("stage"), {
+		exportOpen: () => exportPanel(mapEl, getPbf, toast),
+		cloudOpen: () => cloudPanel(mapEl, {
 			getPbf,
 			loadBuffer: buf => loadBuffer(buf),   // ドロップ取込と同経路＝新セッション扱い
 			map,   // 公開サムネの撮影用（map.requestSnapshot・mapEl）
@@ -497,7 +507,7 @@ export function initEditor(map) {
 	const okB = document.createElement("button"), ngB = document.createElement("button");
 	okB.className = "ge-ok"; ngB.className = "ge-cancel";
 	confirmBar.append(okB, ngB);
-	document.getElementById("stage").append(confirmBar);
+	mapEl.append(confirmBar);
 	okB.addEventListener("click", () => { if (st.sketch) sketch.finish(); else if (st.tool === "bundle") confirmBundle(); }, { signal });
 	ngB.addEventListener("click", () => { if (st.sketch) sketch.cancel(); else if (st.tool === "bundle") setTool("select"); }, { signal });
 	let confirmSig = "";
@@ -519,6 +529,12 @@ export function initEditor(map) {
 	// 前回分があれば黙って復元し、左下バナーで告知＋「新規で始める」を添える（起動のたびに confirm() で答えを迫らない＝本人裁定 9/4）。
 	const startEmpty = async () => { await loadFC({ type: "FeatureCollection", features: [] }); toast(t("GISファイルをドロップ、またはツールで作図を始めてください")); };
 	(async () => {
+		const viewer = adopt ? map.userPbf?.() : null;   // ビューアで開いているデータ（ドロップ/?g=）＝そのまま編集へ（自動保存より優先＝「見ている物を編む」）
+		if (viewer) {
+			if (viewer.size >= LARGE_BYTES) await loadLarge(viewer); else await loadBuffer(viewer.arrayBuffer.slice(0), { stripEid: true });   // 自分の焼き（__eid 入り）を拾い直す場合もある＝剥がす（他人のデータには無害）
+			banner(t("表示中のデータを編集に取り込みました"), null, null);
+			return;
+		}
 		const rec = await idbLoad();
 		if (!rec?.buf) return startEmpty();
 		gridExp = rec.gridExp ?? 6;
@@ -529,7 +545,11 @@ export function initEditor(map) {
 	})();
 
 	return {
-		destroy() { ac.abort(); map.setEditClick(null); overlay.destroy(); popLayer.destroy(); clearTimeout(commitTimer); tip.hide(); rpc.terminate(); unsubConfirm(); confirmBar.remove(); },
+		destroy() {
+			ac.abort(); map.setEditClick(null); overlay.destroy(); popLayer.destroy(); clearTimeout(commitTimer); tip.hide(); rpc.terminate(); unsubConfirm();
+			confirmBar.remove(); toolbarEl.remove(); props.close(); mapEl.querySelectorAll(".ge-panel, .ge-toast, .ge-banner").forEach(el => el.remove());
+			map.setMaxPitch?.(prevMaxPitch ?? null);
+		},
 		get state() { return st; },
 		get model() { return st.model; },
 		commitNow: flushCommit,

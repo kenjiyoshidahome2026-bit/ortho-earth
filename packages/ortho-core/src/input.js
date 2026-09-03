@@ -34,7 +34,8 @@ export function createInput({ canvas, cam, size, dpr, maxPitch, zoomMin = 2, zoo
 	const touches = new Map();    // アクティブなタッチポインタ pointerId → {x,y}
 	let pinch = null;             // 2本指状態 { d,a,cx,cy（前フレーム）, sd,sa,sx,sy（開始）, mode: null|"tilt"|"free" }
 	const evXY = e => { const r = canvas.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
-	const clampPitch = v => Math.max(0, Math.min(maxPitch, v));
+	let maxPitchCur = maxPitch;   // 実行時に変えられる（編集ガジェット＝真上固定 setMaxPitch(0)・解除で戻す）
+	const clampPitch = v => Math.max(0, Math.min(maxPitchCur, v));
 	const clampZoom = v => Math.max(zoomMin, Math.min(zoomMax, v));
 	const wrapAngle = a => Math.atan2(Math.sin(a), Math.cos(a));   // 角度差を(-π,π]へ（atan2跨ぎの跳び防止）
 
@@ -252,5 +253,5 @@ export function createInput({ canvas, cam, size, dpr, maxPitch, zoomMin = 2, zoo
 	window.addEventListener("keyup", e => { mod = { shift: e.shiftKey, ctrl: e.ctrlKey, meta: e.metaKey }; if (ARROWS[e.key]) held.delete(e.key); }, { signal });
 	window.addEventListener("blur", () => held.clear(), { signal });    // フォーカスを失ったら押下状態を捨てる（キー詰まり防止）
 
-	return { evXY, anchoredAt };
+	return { evXY, anchoredAt, setMaxPitch: v => { maxPitchCur = v; } };
 }

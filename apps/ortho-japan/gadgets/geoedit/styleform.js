@@ -9,7 +9,7 @@
 // 値 "" は「そのキーを消す」の意（呼び出し側で delete）。
 import { SHAPE_NAMES, PICTO, SHAPE_SCALE, buildLinePath, sanitizeHTML } from "./overlay.js";
 import { cssColor, DEF } from "./gint-layer.js";
-import { tr } from "../../ortho-japan/i18n.js";   // UI二言語化（ja正典・en辞書引き＝エンジン i18n.js の流儀。辞書は各モジュール持参）
+import { tr } from "../../i18n.js";   // UI二言語化（ja正典・en辞書引き＝エンジン i18n.js の流儀。辞書は各モジュール持参）
 const t = tr({
 	"色を選ぶ": "Pick a color",
 	"その他の色": "Other color",

@@ -1601,7 +1601,8 @@ dbgHost.__vtPool = () => requestMerge.stats();          // multi_draw 常駐プ�
 dbgHost.__style = () => style;   // 現在の style＝検証フック（t-world：world-water 層が「無い」こと＝湖はエンジン lakes スロットへ移行済 2026-09-03）
 
 // 透視カメラ：center(注視点lon/lat), zoom(web-mercator float), pitch/bearing(rad)
-const MAXPITCH = 75 * D2R;   // 山岳ビュー(z<13)は地形が深度で自遮蔽・混成アトラスが地平線までカバー＝高チルトの根拠が揃ったので75°まで開放
+const MAXPITCH = 75 * D2R;
+let maxPitchCur = opts.maxPitch ?? MAXPITCH;   // 現在のチルト上限＝起動オプション（geoedit.html=0）を実行時に map.setMaxPitch で上書きできる（編集ガジェットの真上固定）   // 山岳ビュー(z<13)は地形が深度で自遮蔽・混成アトラスが地平線までカバー＝高チルトの根拠が揃ったので75°まで開放
 const ZOOM_MAX = 20;         // 上限20＝15cm/px（正射z＝緯度フリー。精度は原点相対RTEが担保）。21でも動くが余裕を持って1段残す
 const ZOOM_MIN = 1;          // 床1＝地球全体を余白つきで（z1=世界512px＝スマホ縦にも収まる。旧床2は縦画面で地球がはみ出し、モバイルΔ補正が床に潰される素だった 2026-08-02）
 // 太陽系圏（2026-08-10）：256pxの梯子を負へ延長＝ズームアウトの続きで太陽系へ（z≈-16.4で冥王星軌道が視野に収まる）。
@@ -1623,7 +1624,7 @@ const cam = { center: [JAPAN_VIEW[0], JAPAN_VIEW[1]], zoom: JAPAN_VIEW[2], pitch
 function applyCamView(v) {
 	cam.center = [wrapLon(v.lon), Math.max(-90, Math.min(90, v.lat))];
 	cam.zoom = Math.max(CAM_ZOOM_MIN, Math.min(ZOOM_MAX, v.zoom));   // URL/復元は太陽系圏の深度も受ける
-	cam.pitch = Math.max(0, Math.min(opts.maxPitch ?? MAXPITCH, v.pitch || 0));   // 共有hashのtiltも派生アプリの上限に従う（geoedit=0）
+	cam.pitch = Math.max(0, Math.min(maxPitchCur, v.pitch || 0));   // 共有hashのtiltも派生アプリの上限に従う（geoedit=0）
 	cam.bearing = Number.isFinite(v.bearing) ? v.bearing : 0;
 }
 const bootView = parseViewHash(opts.view || location.hash || (nlOn ? "#16/52.0116/4.3571/45t" : ""));   // /nl/ を裸で開いた時はデルフト上空へ（日本アプリの既定は日本のまま）
@@ -2574,7 +2575,7 @@ let measureBody = null, profileBody = null;
 let editClick = null;      // 派生アプリ編集モード（geoedit）中だけ非null＝同上（map.setEditClick で装着/解除）
 // zoomMin の二重指定（前:ZOOM_MIN 後:2＝後勝ちで床2）を解消（2026-08-10）＝ホイール/ピンチも太陽系圏へ潜れる
 const input = createInput({
-	canvas, cam, size, dpr, maxPitch: opts.maxPitch ?? MAXPITCH, zoomMin: CAM_ZOOM_MIN, zoomMax: ZOOM_MAX, onMove, signal: ac.signal,   // opts.maxPitch＝派生アプリのチルト上限（0=俯瞰固定＝geoedit）。??＝0を殺さない
+	canvas, cam, size, dpr, maxPitch: maxPitchCur, zoomMin: CAM_ZOOM_MIN, zoomMax: ZOOM_MAX, onMove, signal: ac.signal,   // opts.maxPitch＝派生アプリのチルト上限（0=俯瞰固定＝geoedit）。??＝0を殺さない
 	blocked: () => modalOpen(mapEl),   // モーダル表示中は矢印キーで背後の地図を動かさない（文字入力中は input.js が自前で判定）
 	onGesture: () => flightCtl.cancel(),
 	onClick: (x, y) => {
@@ -2692,7 +2693,7 @@ schedulePos();   // 起動直後からスケールを出す（真俯瞰復元時
 
 // --- 球面フライト：実装は engine（flight.js＝三段振り付け＋van Wijk厳密解）。ここは配線だけ。
 // onFlying＝autoPlateau のゲート（飛行中はPLATEAU完全停止・着地の瞬間に解禁＝立ち上がりが着陸の演出）。
-const flightCtl = createFlight({ cam, viewW: () => size.w, maxPitch: MAXPITCH, minZoom: CAM_ZOOM_MIN, onMove, onFlying: f => {   // 飛行床＝カメラ実床（太陽系圏へ台本から飛べる・?nosolar時は1）
+const flightCtl = createFlight({ cam, viewW: () => size.w, maxPitch: maxPitchCur, minZoom: CAM_ZOOM_MIN, onMove, onFlying: f => {   // 飛行床＝カメラ実床（太陽系圏へ台本から飛べる・?nosolar時は1）
 	flying = f;
 	if (!f && suppressCoast) { suppressCoast = false; updateGintSlot(); }   // 着地＝抑制解除→再評価（着地が低ズームなら海岸線が戻る）
 } });
@@ -3387,6 +3388,15 @@ map.makeProjector = makeProjector;     // カメラ状態を1回束ねた投影�
 map.makeProjectorH = makeProjectorH;   // 高度付き投影（注釈の3Dピン＝チルトで立つ。annoガジェット用）
 map.setEditClick = fn => { editClick = fn; };   // 派生アプリのクリック横取りスロット（null で解除＝measure/poi と同型）
 map.requestDraw = () => { needsDraw = true; };  // オーバレイ更新後の1フレーム点火（派生アプリの編集描画用）
+// チルト上限の実行時変更（編集ガジェット＝真上固定 setMaxPitch(0)・null=起動時の上限へ戻す）。入力・飛行・共有hashの3経路が同じ値に従う
+map.setMaxPitch = rad => {
+	maxPitchCur = rad ?? (opts.maxPitch ?? MAXPITCH);
+	input.setMaxPitch(maxPitchCur); flightCtl.setMaxPitch(maxPitchCur);
+	if (cam.pitch > maxPitchCur) { flightCtl.cancel(); cam.pitch = maxPitchCur; onMove(); }
+	needsDraw = true;
+};
+map.maxPitch = () => maxPitchCur;
+map.userPbf = () => userGint?.pbf ?? null;   // 表示中のユーザー gint（ドロップ/?g=）の geopbf＝編集ガジェットへの受け渡し口（同じデータを一手で編集へ）
 map.onFrame = fn => { frameHooks.add(fn); return () => frameHooks.delete(fn); };
 map.onGintClick = fn => { gintClickHandler = fn; };
 map.getHeight = (lon, lat) => getHeight ? Promise.resolve(getHeight(lon, lat, cam.zoom)).then(h => +h || 0) : Promise.resolve(0);
@@ -3828,6 +3838,9 @@ const loadUserFile = async file => {
 };
 map.gadget("dropFile", function (opts) {   // GISファイルのD&D取り込み … loadUserFile（上）を束ね注入（gint単一スロット＝置き換え）
 	return dropFileGadget.call(this, { loadFile: loadUserFile, clearGint: () => { annoCtl?.clear(); clearUserGint(); }, playScene, busy: playingNow, signal: ac.signal, ...opts });   // busy＝上映中はドロップ無視（デモ中はドロップ禁止）。消去は注釈レイヤも一緒に
+});
+map.gadget("geoedit", function (opts) {   // GeoPBF トポロジカル編集（旧 apps/geoedit → gadgets/geoedit・遅延chunk）… 公開面だけで動く＝ここは import と結線だけ。戻り値＝Promise<editor>
+	return import("./gadgets/geoedit/controller.js").then(m => m.initEditor(this, opts));
 });
 map.gadget("demo", function (opts) {   // デモ（発表の台本再生）… 台本の一行=共有URLハッシュ。flyView（球面フライト）・フライト中判定・PLATEAU先読み・現テーマ名（幕替わり判定）を注入
 	const japanFit = () => {   // 終演の定位置＝日本列島が画面に収まる真俯瞰・北向き（fitBbox と同じ視野幅の逆解き＝縦横どちらの画面でも収まる）

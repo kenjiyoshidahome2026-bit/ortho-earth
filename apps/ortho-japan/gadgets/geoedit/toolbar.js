@@ -2,7 +2,7 @@
 // 作図ツール選択中は「次に描くもの」の既定スタイルパネル（styleform＝点/線/面それぞれ）を出す。
 // 全部 DOM 直組み＝依存ゼロ。重なりは DOM 順（z-index 禁止の掟）。
 import { styleForm } from "./styleform.js";
-import { tr } from "../../ortho-japan/i18n.js";   // UI二言語化（ja正典・en辞書引き＝エンジン i18n.js の流儀。辞書は各モジュール持参）
+import { tr } from "../../i18n.js";   // UI二言語化（ja正典・en辞書引き＝エンジン i18n.js の流儀。辞書は各モジュール持参）
 const t = tr({
 	"元に戻す (⌘Z)": "Undo (⌘Z)",
 	"やり直す (⇧⌘Z)": "Redo (⇧⌘Z)",
@@ -89,8 +89,11 @@ export function initToolbar(el, api, signal) {
 
 	sep();
 	// ---- スナップ格子 ----
+	// <select> は ::after を描けない＝包みの span に data-tip を持たせて吹き出しを出す（他ボタンと同じ流儀・OS title は使わない）
+	const snapWrap = document.createElement("span");
+	snapWrap.className = "ge-snapwrap"; snapWrap.dataset.tip = t("スナップ格子（度）");
 	const snap = document.createElement("select");
-	snap.className = "ge-snap"; snap.title = t("スナップ格子（度）"); snap.setAttribute("aria-label", t("スナップ格子（度）"));   // <select> は ::after を描けない＝title のまま
+	snap.className = "ge-snap"; snap.setAttribute("aria-label", t("スナップ格子（度）"));
 	for (const e of [3, 4, 5, 6, 7]) {
 		const o = document.createElement("option");
 		o.value = e; o.textContent = `1e-${e}`;
@@ -98,7 +101,7 @@ export function initToolbar(el, api, signal) {
 	}
 	snap.value = String(api.gridExp());
 	snap.addEventListener("change", () => api.setGrid(+snap.value), { signal });
-	el.append(snap);
+	snapWrap.append(snap); el.append(snapWrap);
 
 	sep();
 	btn("imp", t("GISファイルを取り込む（ドロップも可）"), () => file.click());

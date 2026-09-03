@@ -5,7 +5,7 @@
 // 表示は「常時」でなく「開いた時だけ」＝クリック(通常)/shift+click(編集中)で open(eid,{x,y,ll}) を呼んで初めて出す。
 // 参照点（引出線の錨）は open した瞬間のクリック基準で確定＝点:座標／線:クリック点に最寄りの線分上／面:クリック点そのもの。
 // 以後は固定（重心/中央頂点には戻さない）。× は箱を閉じるだけ（@pop データは消さない）。
-import { listsOf } from "./model.js";
+import { listsOf } from "geopbf/edit/model";
 import { sanitizeHTML } from "./overlay.js";
 
 // 線分 a-b への点 p の最近点（経度は cos(lat) 補正で画面的な近さに合わせる）。返すのは経緯度。

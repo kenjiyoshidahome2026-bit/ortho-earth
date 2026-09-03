@@ -1,4 +1,4 @@
-import { tr } from "../../ortho-japan/i18n.js";   // UI二言語化（ja正典・en辞書引き＝エンジン i18n.js の流儀。辞書は各モジュール持参）
+import { tr } from "../../i18n.js";   // UI二言語化（ja正典・en辞書引き＝エンジン i18n.js の流儀。辞書は各モジュール持参）
 const t = tr({
 	"大規模モードでは頂点の追加/削除はできません（移動のみ）": "Large mode cannot add/delete vertices (move only)",
 	"この頂点は消せません（端点/最小構成）": "This vertex cannot be deleted (endpoint / minimum shape)",

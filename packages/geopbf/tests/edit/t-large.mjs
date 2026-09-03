@@ -16,7 +16,7 @@ import { createRequire } from "node:module";
 	await mod.default({ module_or_path: readFileSync(wasmJs.replace(/\.js$/, "_bg.wasm")) });
 	await _g.initialize();
 }
-import { createLargeModel, listsOf } from "../src/large-model.js";
+import { createLargeModel, listsOf } from "../../src/edit/large-model.js";
 
 let fails = 0;
 const ok = (cond, msg) => { if (!cond) { console.error("✗", msg); fails++; } else console.log("✓", msg); };

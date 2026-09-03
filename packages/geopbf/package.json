@@ -34,7 +34,8 @@
 		"./fname2mime": "./src/modules/fname2mime.js"
 	},
 	"scripts": {
-		"test": "node tests/t-maplibre.mjs && node tests/t-leaflet.mjs && node tests/t-openlayers.mjs && node tests/t-loaders.mjs",
+		"test": "node tests/t-maplibre.mjs && node tests/t-leaflet.mjs && node tests/t-openlayers.mjs && node tests/t-loaders.mjs && npm run test:edit",
+		"test:edit": "node tests/edit/t-model.mjs && node tests/edit/t-snap.mjs && node tests/edit/t-roundtrip.mjs && node tests/edit/t-history.mjs && node tests/edit/t-combine.mjs && node tests/edit/t-large.mjs && node tests/edit/t-large-edit.mjs",
 		"summary": "repomix --style markdown --output project_summary.md",
 		"verify:npm": "node scripts/verify-npm.mjs",
 		"mirror": "git -C ../.. subtree split --prefix=packages/geopbf -b geopbf-mirror && git -C ../.. push https://github.com/kenjiyoshidahome2026-bit/geopbf.git geopbf-mirror:main --force && git -C ../.. branch -D geopbf-mirror"

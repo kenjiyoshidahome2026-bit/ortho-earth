@@ -1,7 +1,7 @@
 // t-history: 逆デルタ undo/redo（move/insert/props/add/del）が完全に巻き戻る・進み直せる
-import { buildTopology } from "../src/topo-extract.js";
-import { createModel, rebuildModel } from "../src/model.js";
-import { createHistory } from "../src/history.js";
+import { buildTopology } from "../../src/edit/topo-extract.js";
+import { createModel, rebuildModel } from "../../src/edit/model.js";
+import { createHistory } from "../../src/edit/history.js";
 
 let fails = 0;
 const ok = (cond, msg) => { if (!cond) { console.error("✗", msg); fails++; } else console.log("✓", msg); };

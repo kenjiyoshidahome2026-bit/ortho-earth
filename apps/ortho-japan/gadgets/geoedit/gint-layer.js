@@ -7,7 +7,7 @@
 // 表レコード（ortho-core style.js §7.1）: R=fill RGBA8 / G=line・circle色 / B=width(1/8px)<<24|dash<<16|radius(1/4px)<<8|flags / flags bit0=visible
 import { geopbf } from "geopbf";                      // side-effect込み＝GeoPBF.prototype に gint()/identifyAt/*File が載る
 import { GeoPBF, makeKeys } from "geopbf/pbf-base";   // ストリームエンコード用（set() を自前でなぞる）
-import { stitchGeometry, smoothGeom } from "./model.js";
+import { stitchGeometry, smoothGeom } from "geopbf/edit/model";
 
 // #rgb / #rgba / #rrggbb / #rrggbbaa → u32(r<<24|g<<16|b<<8|a)。それ以外は null（既定色へ）
 export function hexColor(s) {

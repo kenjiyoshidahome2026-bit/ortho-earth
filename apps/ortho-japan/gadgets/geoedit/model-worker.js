@@ -7,8 +7,8 @@
 //   mode "fc"    : { fc }＝GeoJSON FC（後方互換＝小規模・試験・loadFC API）
 // 返り便は常に topoToTransfer 形（snap基底込み）＋ retopo は eids。
 import { GeoPBF } from "geopbf/pbf-base";
-import { buildTopology, createExtractor } from "./topo-extract.js";
-import { topoToTransfer, topoFromTransfer, stitchGeometry } from "./model.js";
+import { buildTopology, createExtractor } from "geopbf/edit/topo-extract";
+import { topoToTransfer, topoFromTransfer, stitchGeometry } from "geopbf/edit/model";
 
 const countVerts = g => {   // GeoJSON 幾何の座標数（環の閉点込み）
 	if (!g) return 0;

@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-// 対話回帰の常設ハーネス：tests/t-editor.html（クリック選択・共有arc頂点ドラッグ・undo/redo・吸着作図・削除）。
+// geoedit ガジェットの対話回帰（実時間＋CDP）：tests/t-editor.html（クリック選択・共有arc頂点ドラッグ・undo/redo・吸着作図・削除・ダイアログ・自動復元…）。
+// verify-ui（虚時間）に載せない理由＝gint の bake worker が実時間で並走し、仮想時計だけ先に燃え尽きる偽FAILが出る（旧 apps/geoedit の verify:ui と同じ）。
 // virtual-time でなく**実時間＋CDP**で title を見張る（verify-webgpu.mjs と同型）。理由＝エンジン起動は
 // render/bake/model の worker 群が実時間で並走し、仮想時計だけ先に燃え尽きる偽FAILが出る（t-gintswap と同族）。
 import { spawn } from "node:child_process";
@@ -15,14 +16,14 @@ const vite = spawn("npx", ["vite", "--port", String(PORT), "--strictPort"], { cw
 const chrome = spawn(CHROME, [
 	"--headless=new", `--remote-debugging-port=${CDP}`,
 	"--disable-gpu", "--use-angle=swiftshader", "--enable-unsafe-swiftshader",
-	"--no-first-run", `--user-data-dir=/tmp/geoedit-vui-${process.pid}`, "about:blank",
+	"--no-first-run", `--user-data-dir=/tmp/oj-veditor-${process.pid}`, "about:blank",
 ], { stdio: "ignore" });
 process.on("exit", () => { vite.kill(); chrome.kill(); });
 
 let fail = 1;
 try {
 	for (let i = 0; ; i++) {
-		try { if ((await fetch(`http://localhost:${PORT}/geoedit/`)).ok) break; } catch { /* まだ */ }
+		try { if ((await fetch(`http://localhost:${PORT}/japan/`)).ok) break; } catch { /* まだ */ }
 		if (i > 60) throw new Error(`vite が起動しない（port ${PORT} が塞がっている？）`);
 		await sleep(250);
 	}
@@ -31,7 +32,7 @@ try {
 		if (i > 60) throw new Error("chrome devtools が起動しない");
 		await sleep(250);
 	}
-	const url = `http://localhost:${PORT}/geoedit/tests/t-editor.html?gl2=1&lang=ja`;
+	const url = `http://localhost:${PORT}/japan/tests/t-editor.html?gl2=1&lang=ja`;
 	const target = await (await fetch(`http://127.0.0.1:${CDP}/json/new?${encodeURIComponent(url)}`, { method: "PUT" })).json();
 	const ws = new WebSocket(target.webSocketDebuggerUrl);
 	await new Promise((res, rej) => { ws.onopen = res; ws.onerror = rej; });

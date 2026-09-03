@@ -2,7 +2,7 @@
 //   保存＝書き出しと同じ口（getPbf → geopbfFile）／開く＝ドロップ取込と同経路（loadBuffer＝新セッション扱い）／
 //   一覧＝.scenes（scenes エディタの持ち物）以外＝地図データだけ見せる／公開台帳＝地図作品用に有効（サムネ＝生スナップ＋編集オーバレイ）。
 // 器の位置決め＝geoedit の .ge-panel.ge-dialog（ツールバー直下の中央・一枠）。見た目は器（.oj-cloud）が自給＝同じ黒硝子。
-import { cloudPanel as sharedCloudPanel } from "../../ortho-japan/gadgets/cloud.js";
+import { cloudPanel as sharedCloudPanel } from "../cloud.js";
 
 const isScenes = name => /\.scenes(\.gz)?$/i.test(name);
 

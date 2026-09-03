@@ -6,7 +6,7 @@
 ortho-japan＝日本地図の3D地球儀エンジン（自作WebGL2/WebGPU・ライブラリゼロ・タイルからGPU描画まで自前）を、
 1関数で任意のWebページに埋め込めるSDK。GISデータの読み書き（GeoPBF形式・変換各種）と、
 トポロジ知性層（gint）による大規模ベクタの描画・識別を持つ。
-実例＝ https://www.ortho-earth.com/japan/ （本体）・/japan/census2020/（統計）・/geoedit/（トポロジカルGISエディタ）。
+実例＝ https://www.ortho-earth.com/japan/ （本体）・/japan/census2020/（統計）・/japan/geoedit.html（トポロジカルGISエディタ＝ortho-japan のガジェット）。
 
 ## 最小の使い方（ビルド不要・1枚のHTML）
 www.ortho-earth.com 配下に置くページなら、CDNのESモジュールを直接importするだけ：

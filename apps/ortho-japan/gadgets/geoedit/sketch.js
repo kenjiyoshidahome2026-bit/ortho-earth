@@ -1,4 +1,4 @@
-import { tr } from "../../ortho-japan/i18n.js";   // UI二言語化（ja正典・en辞書引き＝エンジン i18n.js の流儀。辞書は各モジュール持参）
+import { tr } from "../../i18n.js";   // UI二言語化（ja正典・en辞書引き＝エンジン i18n.js の流儀。辞書は各モジュール持参）
 const t = tr({
 	"大きさがありません": "No size",
 	"頂点が足りません": "Not enough vertices",

@@ -56,7 +56,7 @@ export default defineConfig({
 	// マルチページ：scene.html＝scenes エディタ（/japan/scene.html・最初のアプリ）。edit.html（任意座標系）は dev 専用のまま。
 	// external＝SDK二重構成（site.js 冒頭）の本番側 import はバンドルせず実行時URLのまま残す（build:prod が dist/lib を複写する）。
 	build: { outDir: "dist/site/japan", emptyOutDir: true, rollupOptions: {
-		input: { main: resolve(import.meta.dirname, "index.html"), scene: resolve(import.meta.dirname, "scene.html") },
+		input: { main: resolve(import.meta.dirname, "index.html"), scene: resolve(import.meta.dirname, "scene.html"), geoedit: resolve(import.meta.dirname, "geoedit.html") },
 		external: ["/japan/lib/ortho-japan.js"],
 	} },
 	worker: { format: "es" },

@@ -93,6 +93,16 @@ const domScene = await new Promise(resolve => {
 if (!/<canvas id="c"/.test(domScene)) fail("scene実走: 描画canvas不在（SDK経由の起動失敗）");
 if (!domScene.includes('id="sc-shoot"')) fail("scene実走: エディタUI不在（editor.jsチャンク疎通の疑い）");
 console.log("ok:scene（エディタページもSDK経由で起動・editor UI点灯）");
+// ③c geoedit.html＝GeoPBF エディタページ（gadget geoedit＝lib 側の遅延chunk・器はサイト側）
+const domGeoedit = await new Promise(resolve => {
+	const c = spawn(CHROME, ["--headless=new", `--user-data-dir=/tmp/oj-vprod-geoedit-${process.pid}`, "--disable-gpu",
+		"--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--virtual-time-budget=30000", "--dump-dom",
+		`http://localhost:${PORT}/japan/geoedit.html?gl2=1&lang=ja`], { timeout: 90000 });
+	let out = ""; c.stdout.on("data", d => out += d); c.on("close", () => resolve(out));
+});
+if (!/<canvas id="c"/.test(domGeoedit)) fail("geoedit実走: 描画canvas不在（SDK経由の起動失敗）");
+if (!domGeoedit.includes('id="ge-toolbar"')) fail("geoedit実走: エディタUI不在（gadget geoedit の遅延chunk疎通の疑い）");
+console.log("ok:geoedit（GeoPBF エディタページも SDK 経由で起動・ツールバー点灯）");
 
 // ④ ガジェット実クリック（生CDP・実時間）：遅延ロード系＝押した瞬間に動的importが走るボタンを実際に押す。
 //    合否＝例外/console.errorゼロ＋QR/printのDOM証拠＋（この間の404も後段の台帳検査が拾う）。

@@ -1,8 +1,8 @@
 // t-snap v2: 格子量子化による共有化（e-3/e-7）＋ Morton基底/追記ジャーナル索引の意味論
 //   ・座標は deref（モデル現在値）＝移動は追記1件で旧掲載が自然失効・削除は何もしなくても失効
 //   ・基底（buildBase→setBase）とジャーナル（addRef）の両経路・±180継ぎ目・setGrid再構築
-import { buildTopology } from "../src/topo-extract.js";
-import { createSnapIndex, buildBase, normLon } from "../src/snap.js";
+import { buildTopology } from "../../src/edit/topo-extract.js";
+import { createSnapIndex, buildBase, normLon } from "../../src/edit/snap.js";
 
 let fails = 0;
 const ok = (cond, msg) => { if (!cond) { console.error("✗", msg); fails++; } else console.log("✓", msg); };

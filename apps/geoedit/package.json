@@ -1,24 +1,11 @@
 {
 	"name": "geoedit",
-	"version": "0.0.1",
+	"version": "0.1.0",
 	"license": "GPL-3.0-or-later",
 	"private": true,
 	"type": "module",
+	"description": "旧 /geoedit/ の転送 Worker。エディタ本体は apps/ortho-japan/gadgets/geoedit（map.gadget.geoedit）・ページは /japan/geoedit.html",
 	"scripts": {
-		"dev": "vite",
-		"build": "vite build",
-		"test": "node tests/t-model.mjs && node tests/t-snap.mjs && node tests/t-roundtrip.mjs && node tests/t-history.mjs && node tests/t-combine.mjs && node tests/t-large.mjs && node tests/t-large-edit.mjs",
-		"verify:ui": "node scripts/verify-ui.mjs",
-		"verify:prod": "node scripts/verify-prod.mjs",
-		"deploy": "npm test && npm run verify:ui && npm run verify:prod && find dist/site -name .DS_Store -delete && wrangler deploy",
-		"preview:prod": "vite build && wrangler dev"
-	},
-	"dependencies": {
-		"ortho-core": "*",
-		"geopbf": "*",
-		"quiet-mono": "*"
-	},
-	"devDependencies": {
-		"vite": "^5.0.0"
+		"deploy": "wrangler deploy"
 	}
 }
