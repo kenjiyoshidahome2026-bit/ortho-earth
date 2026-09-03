@@ -7,6 +7,7 @@
 // フレームは .scenes の top-level `frame:"16:9"`（任意・プレーヤーは無視＝エディタ用メタ）として保存・復元。
 import { parseScenes, compileVias } from "./scene-adapter.js";
 import { sniffScene } from "../gadgets/dropfile.js";
+import { cloudPanel } from "../gadgets/cloud.js";   // クラウド保存（共通の器＝geoedit と同じ account Worker /me/files）
 import { tr } from "../i18n.js";   // UI二言語化（ja正典・en辞書引き＝エンジンと同じ ?lang= / ブラウザ言語の解決）。台本の中身は訳さない
 const t = tr({
 	"Scene エディタ": "Scene editor", "作品タイトル": "Title", "画角": "Frame", "自由": "Free",
@@ -19,7 +20,8 @@ const t = tr({
 	"🎥 録画": "🎥 Record", "上映を録画して動画ファイル（MP4）に＝iMovie 等へそのまま。最初に「このタブを共有」を1回許可": "Record the show to a video file (MP4) for iMovie etc. Allow “share this tab” once",
 	"⏺ 録画中…": "⏺ Recording…", "■ 停止": "■ Stop",
 	"書き出し .scenes": "Export .scenes", "読み込み": "Open", "全消去": "Clear all", "全行を消して最初から（⌘Z で戻せる）": "Remove every row (⌘Z undoes)",
-	"↶ 元に戻す": "↶ Undo", "直前の操作を取り消す（⌘Z）": "Undo the last action (⌘Z)",
+	"↶ 元に戻す": "↶ Undo", "☁ クラウド": "☁ Cloud", "クラウドに保存 / 読み込み（要ログイン）": "Cloud save / open (login required)",
+	"クラウドから開きました: {0}": "Opened from the cloud: {0}", "直前の操作を取り消す（⌘Z）": "Undo the last action (⌘Z)",
 	"自動": "auto", "地図遷移の尺は自動（通過点の着点なら有効）": "Map-transition duration is automatic (editable when this row ends a dolly)",
 	"この点に到達するまでの秒（ドリーの緩急・省略=自動）": "Seconds to reach this point (dolly pacing; blank = auto)",
 	"遷移": "Transition", "秒": "s", "キャプション": "Caption",
@@ -97,6 +99,7 @@ const CSS = `
 	.sc-row.dragging { opacity:.45; }
 	.sc-foot { display:flex; gap:6px; padding:10px 14px; border-top:1px solid rgba(255,255,255,.08); flex-wrap:wrap; }
 	.sc-note { padding:0 14px 8px; font-size:12px; color:#9ec5ff; min-height:1.2em; }
+	#sc-cloud-host .oj-cloud { margin:0 10px 8px; }   /* パネルの流れの中（浮かせない）＝位置決めはここ・見た目は器が自給 */
 	#sc-stage.sc-drop::after { content:""; position:absolute; inset:10px; border:2px dashed rgba(125,180,255,.8); border-radius:12px; pointer-events:none; }
 	.sc-foot button, .sc-foot label { background:#1b2330; color:#e6edf3; border:1px solid rgba(255,255,255,.14); border-radius:8px; padding:6px 10px; cursor:pointer; font-size:12.5px; }
 	#sc-export { background:#2b4a7a; border-color:rgba(140,180,255,.4); }
@@ -162,9 +165,11 @@ export function mountSceneEditor({ map, stageEl, panelEl, storageKey = "oj.scene
 		</div>
 		<ol id="sc-rows"></ol>
 		<div class="sc-note" id="sc-note"></div>
+		<div id="sc-cloud-host"></div>
 		<div class="sc-foot">
 			<button id="sc-export">${t("書き出し .scenes")}</button>
 			<label>${t("読み込み")}<input id="sc-load" type="file" accept=".scenes,.gz,.json" hidden></label>
+			<button id="sc-cloud" title="${t("クラウドに保存 / 読み込み（要ログイン）")}">${t("☁ クラウド")}</button>
 			<button id="sc-clear" title="${t("全行を消して最初から（⌘Z で戻せる）")}">${t("全消去")}</button>
 		</div>`;
 	const $ = id => panelEl.querySelector(id);
@@ -417,6 +422,18 @@ export function mountSceneEditor({ map, stageEl, panelEl, storageKey = "oj.scene
 		if (load(obj)) note(t("読み込みました: {0}", f.name)); else note(t("scenes 台本として読めませんでした（type:\"scenes\" が必要）"));
 	};
 	$("#sc-load").addEventListener("change", e => { const f = e.target.files?.[0]; e.target.value = ""; if (f) openFile(f); });
+	// クラウド（共通の器）：保存＝書き出しと同じ JSON を .scenes として／開く＝ファイル読込と同じ道（sniff→load＝undo に乗る）／一覧＝.scenes だけ
+	const safeName = () => (doc.title || "untitled").replace(/[\\/:*?"<>|]/g, "_");
+	const openCloud = () => cloudPanel($("#sc-cloud-host"), {
+		getFile: async () => new File([exportText()], `${safeName()}.scenes`, { type: "application/json" }),
+		open: async (buf, name) => { const okd = load(await sniffScene(new File([buf], name))); if (okd) note(t("クラウドから開きました: {0}", name)); return okd; },
+		accept: name => /\.scenes(\.gz)?$/i.test(name),
+		defaultName: () => `${safeName()}.scenes`,
+		ext: ".scenes",
+		contentType: "application/json",
+		works: false,   // 公開台帳は地図作品用（共有URLが ?g=）＝台本の台帳は別途
+	}, note);
+	$("#sc-cloud").addEventListener("click", openCloud);
 	// ドロップ受付（舞台・パネルとも）：dropFile ガジェットはこのページに載せない＝落とした台本は再生でなく編集へ
 	let dropDepth = 0;
 	const hasFiles = e => [...(e.dataTransfer?.types || [])].includes("Files");

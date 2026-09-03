@@ -49,6 +49,8 @@ export default defineConfig({
 	// 配信先＝ www.ortho-earth.com/japan/ （サブパス。将来 /globe/ が並ぶ）。ルート相対の import/asset は base が面倒を見る。
 	// 実行時 fetch は main.js 側で import.meta.env.BASE_URL を前置（vite は文字列リテラルの fetch を書き換えない）。
 	base: "/japan/",
+	// クラウド保存（apps/account の wrangler dev :8787）＝dev も同一オリジン化＝CORS 不要（本番は route が同居）。scene.html のクラウド保存が使う
+	server: { proxy: { "/auth": "http://localhost:8787", "/me": "http://localhost:8787" } },
 	// Workers assets は「リクエストのパス名＝assets ディレクトリ内の相対パス」で引くため、
 	// dist/site/ をルートに japan/ サブフォルダへ出力（wrangler.toml の directory = dist/site）。
 	// マルチページ：scene.html＝scenes エディタ（/japan/scene.html・最初のアプリ）。edit.html（任意座標系）は dev 専用のまま。

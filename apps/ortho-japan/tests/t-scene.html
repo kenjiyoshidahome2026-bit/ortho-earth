@@ -203,6 +203,16 @@ try {
 		ed.stop();
 	}
 
+	// クラウド保存（共通の器）：ボタン→パネルがパネル流れ内に開く（サーバー無し＝接続不可/準備中の文言で閉じられる）
+	{
+		panelEl.querySelector("#sc-cloud").click();
+		const cp = panelEl.querySelector("#sc-cloud-host .oj-cloud");
+		ok("cloudPanel", !!cp && /クラウド保存/.test(cp.textContent) && panelEl.contains(cp));   // 器がパネル流れの中に開く（接続状態は虚時間ハーネスでは待てない＝見ない）
+		panelEl.querySelector("#sc-cloud").click();
+		ok("cloudDedupe", panelEl.querySelectorAll("#sc-cloud-host .oj-cloud").length === 1);
+		cp.remove();
+	}
+
 	ed.destroy(); map.destroy();
 	ok("destroy", true);
 } catch (e) { ok("boot:" + (e && e.message || e), false); }
