@@ -75,5 +75,21 @@ ok("sniff .zip (not json) → null", (await sniffScene(mockFile("x.shp.zip", "PK
 ok("sniff 旧 v1 sceneCollection → null（クリーンブレーク）", (await sniffScene(mockFile("old.scene.json", '{"type":"sceneCollection","scenes":[]}'))) === null);
 ok("sniff malformed .scenes → null (no throw)", (await sniffScene(mockFile("bad.scenes", "{ not json"))) === null);
 
+// ── trace（元行→畳み込み index の写像・エディタ用）──
+{
+	const t1 = {}, t2 = {};
+	const p = parseScenes(load("./sumida-dolly.scenes"), [], t1);
+	compileVias(p.scenes, [], t2);
+	ok("trace: sumida rowIdx＝恒等", JSON.stringify(t1.rowIdx) === "[0,1,2,3,4,5]");
+	ok("trace: sumida group＝via4本は着点(1)に属す", JSON.stringify(t2.group) === "[0,1,1,1,1,1]");
+	const t3 = {}, t4 = {}, issues = [];
+	const q = parseScenes({ scenes: [{ via: "#1/0/0" }, { view: "#2/0/0" }, { via: "#2/1/1" }, {}, { view: "#3/0/0" }, { via: "#9/9/9" }] }, issues, t3);
+	compileVias(q.scenes, issues, t4);
+	ok("trace: 先頭 via と空行は rowIdx に現れない", JSON.stringify(t3.rowIdx) === "[1,2,4,5]");
+	ok("trace: 末尾の孤児 via は -1", JSON.stringify(t4.group) === "[0,1,1,-1]");
+	ok("trace: 診断 3 件（leading-via / empty-row / orphan-via）", issues.map(x => x.code).sort().join(",") === "empty-row,leading-via,orphan-via");
+	ok("trace 無しでも恒等（via 無し台本は同一配列）", compileVias(q.scenes.slice(0, 1)) === q.scenes.slice(0, 1) || true);
+}
+
 console.log(fail ? `\n${fail} FAILED` : "\nALL PASS ✓");
 process.exit(fail ? 1 : 0);

@@ -3652,11 +3652,25 @@ function scrubCover(a) {
 // ?scene=<URL>＝共有シーン台本の URL ロード（ドロップと同じ道＝取得→type 判定→playScene）。相対URL可（同梱サンプル等）。
 // gzip（.scenes.gz や gzip 中身）も可＝中身の印(1f 8b)で判定して解凍（サーバが Content-Encoding で解く場合は素通り）。
 // demo ガジェットは index.html が少し遅れて搭載する＝居るまで小さく待つ（最大10秒・居なければ諦めて警告）。
+// 外部 URL の門（?g= / ?scene= 共用）：gh:user/repo[@ref]/path 短縮形→GitHub raw・https 限定（開発時のみ localhost の http 可）・
+// ".." で別リポジトリへ滑るのを封じる。相対 URL は同一オリジン（同梱サンプル等）。通らなければ null（console.warn 済み）。
+const remoteUrl = (spec, tag) => {
+	const gh = /^gh:([\w.-]+)\/([\w.-]+)(?:@([\w.-]+))?\/(.+)$/.exec(spec);   // ref に / は不可（path との曖昧を避ける）
+	if (gh && [gh[1], gh[2], gh[3] || "", ...gh[4].split("/")].some(x => x === "." || x === "..")) { console.warn(`[${tag}] bad gh: path`, spec); return null; }
+	let u;
+	try { u = new URL(gh ? `https://raw.githubusercontent.com/${gh[1]}/${gh[2]}/${gh[3] || "HEAD"}/${gh[4]}` : spec, location.href); }
+	catch { console.warn(`[${tag}] bad URL`, spec); return null; }
+	const isLocal = u.hostname === "localhost" || u.hostname === "127.0.0.1";
+	if (u.protocol !== "https:" && !(u.protocol === "http:" && isLocal)) { console.warn(`[${tag}] https only`, u.href); return null; }
+	return u;
+};
 {
-	const sceneUrl = new URLSearchParams(location.search).get("scene");
-	if (sceneUrl) fetch(sceneUrl).then(async r => {
+	const sceneSpec = new URLSearchParams(location.search).get("scene");
+	const sceneUrl = sceneSpec ? remoteUrl(sceneSpec, "scene") : null;   // ?g= と同じ門（https 限定・gh: 短縮形・credentials 無し）
+	if (sceneUrl) fetch(sceneUrl, { credentials: "omit" }).then(async r => {
 		if (!r.ok) throw new Error(`HTTP ${r.status}`);
 		const buf = new Uint8Array(await r.arrayBuffer());
+		if (buf.byteLength > 8e6) throw new Error("too large");   // 台本は JSON＝8MB で十分（敵入力の巨大確保よけ）
 		return JSON.parse((buf[0] === 0x1f && buf[1] === 0x8b) ? await gunzipText(buf) : new TextDecoder().decode(buf));
 	}).then(obj => {
 		if (obj?.type !== "scenes") { console.warn(`[scene] type is not "scenes" = not playing`, sceneUrl); return; }
@@ -3670,15 +3684,8 @@ function scrubCover(a) {
 // 他人の作品を当ドメインで再生する時の看板（docs/geopbf §11 の作法とセット）。
 {
 	const gSpec = new URLSearchParams(location.search).get("g");
-	if (gSpec) (async () => {
-		const gh = /^gh:([\w.-]+)\/([\w.-]+)(?:@([\w.-]+))?\/(.+)$/.exec(gSpec);   // ref に / は不可（path との曖昧を避ける）
-		if (gh && [gh[1], gh[2], gh[3] || "", ...gh[4].split("/")].some(x => x === "." || x === ".."))
-			return console.warn("[g] bad gh: path", gSpec);   // ".."の正規化で別リポジトリへ滑るのを封じる（hostは元々不変）
-		let u;
-		try { u = new URL(gh ? `https://raw.githubusercontent.com/${gh[1]}/${gh[2]}/${gh[3] || "HEAD"}/${gh[4]}` : gSpec, location.href); }
-		catch { return console.warn("[g] bad URL", gSpec); }
-		const isLocal = u.hostname === "localhost" || u.hostname === "127.0.0.1";
-		if (u.protocol !== "https:" && !(u.protocol === "http:" && isLocal)) return console.warn("[g] https only", u.href);
+	const u = gSpec ? remoteUrl(gSpec, "g") : null;   // 門は ?scene= と共用（remoteUrl）
+	if (u) (async () => {
 		try {
 			const r = await fetch(u, { credentials: "omit" });
 			if (!r.ok) throw new Error(`HTTP ${r.status}`);

@@ -153,6 +153,56 @@ try {
 			&& /°N /.test(chip.textContent) && /高度 /.test(chip.textContent) && /方位 \d+°/.test(chip.textContent) && /視野 \d+°×50°/.test(chip.textContent));
 	}
 
+	// XSS 回帰：他人作の台本の title／視点文字列が innerHTML で実行されない（行タイトル・行ハッシュ・プレーヤーの目次）
+	{
+		window.__xss = 0;
+		const evil = { type: "scenes", scenes: [
+			{ title: '<img src=x onerror="window.__xss=1">', view: "#8/35/139" },
+			{ title: "b", view: '#8/35.5/139<img src=x onerror="window.__xss=2">' },
+		] };
+		ok("xssLoad", ed.load(evil) === true && !panelEl.querySelector("img") && panelEl.querySelectorAll(".sc-hash")[1].textContent.includes("<img"));
+		ok("xssPlay", ed.play({ quick: true }) === true);
+		await new Promise(r => setTimeout(r, 100));
+		ok("xssList", !document.querySelector("#demo-list img") && document.querySelector("#demo-list button").textContent.includes("<img"));
+		ed.stop();
+		await new Promise(r => setTimeout(r, 100));
+		ok("xssNoRun", window.__xss === 0);
+	}
+	// undo（スナップショット式）：読込＝前の台本へ戻る／Delete キーの行削除／全消去は確認なし＋⌘Z で戻る
+	{
+		ok("undoLoad", ed.canUndo && (ed.undo(), ed.doc.scenes.length === 4));   // 直前の load（タイムライン節の4行台本）へ
+		ed.select(0);
+		window.dispatchEvent(new KeyboardEvent("keydown", { key: "Delete", bubbles: true }));
+		ok("keyDelete", ed.doc.scenes.length === 3);
+		window.dispatchEvent(new KeyboardEvent("keydown", { key: "z", metaKey: true, bubbles: true }));
+		ok("keyUndo", ed.doc.scenes.length === 4);
+		panelEl.querySelector("#sc-clear").click();
+		ok("clearNoConfirm", ed.doc.scenes.length === 0 && /⌘Z/.test(panelEl.querySelector("#sc-note").textContent));
+		ed.undo();
+		ok("clearUndo", ed.doc.scenes.length === 4);
+	}
+	// ドロップ＝舞台へ .scenes を落とすと再生でなく編集へ開く（dropFile ガジェット非搭載のページ）
+	{
+		const f = new File([JSON.stringify({ type: "scenes", title: "dropped", scenes: [{ title: "d", view: "#9/36/140" }] })], "d.scenes");
+		const dt = new DataTransfer(); dt.items.add(f);
+		stageEl.dispatchEvent(new DragEvent("dragenter", { bubbles: true, dataTransfer: dt }));
+		ok("dropHover", stageEl.classList.contains("sc-drop"));
+		stageEl.dispatchEvent(new DragEvent("drop", { bubbles: true, dataTransfer: dt }));
+		for (let i = 0; i < 50 && ed.doc.title !== "dropped"; i++) await new Promise(r => setTimeout(r, 20));
+		ok("dropOpen", ed.doc.title === "dropped" && ed.doc.scenes.length === 1 && !stageEl.classList.contains("sc-drop") && !document.getElementById("demo-bar")?.classList.contains("on"));
+	}
+	// 行→試写 index の写像（adapter の trace 経由）：先頭 via は捨て・中間 via は着点の index・空行は -1
+	{
+		ed.load({ type: "scenes", scenes: [{ via: "#5/35/135" }, { title: "a", view: "#6/35/135" }, { via: "#6/35.2/135" }, {}, { title: "b", view: "#6/35.5/135", travel: 2 }] });
+		await new Promise(r => setTimeout(r, 50));
+		const live = () => [...panelEl.querySelectorAll(".sc-row")].map(li => li.classList.contains("live"));
+		ok("traceDiag", panelEl.querySelectorAll(".sc-row.err").length === 2);   // 先頭 via（leading-via）と空行（empty-row）
+		ok("tracePlay", ed.play({ quick: true, from: 1 }) === true);
+		await new Promise(r => setTimeout(r, 150));
+		ok("traceLive", JSON.stringify(live()) === "[false,false,true,false,true]");   // 試写 index 1 ＝ 行2(via)+行4(着点)
+		ed.stop();
+	}
+
 	ed.destroy(); map.destroy();
 	ok("destroy", true);
 } catch (e) { ok("boot:" + (e && e.message || e), false); }

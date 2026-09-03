@@ -27,6 +27,7 @@
 	],
 	"scripts": {
 		"dev": "vite",
+		"test": "node demo/samples/test-scene-adapter.mjs",
 		"build": "vite build",
 		"build:prod": "npm run build:lib && vite build && cp -R dist/lib dist/site/japan/lib",
 		"verify:ui": "node scripts/verify-ui.mjs",

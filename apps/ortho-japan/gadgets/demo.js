@@ -61,6 +61,8 @@ const t = tr({   // UIの衣だけ＝台本コンテンツの言語解決は T()
 const ICON = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#3f4757" stroke-width="1.6" stroke-linejoin="round" aria-hidden="true">
 	<circle cx="12" cy="12" r="9"/><path d="M10 8.2 L16 12 L10 15.8 Z"/></svg>`;
 
+// 台本由来の文字列を innerHTML に入れる前の消毒（?scene= は任意オリジンの JSON＝title/en/視点文字列は敵入力になり得る）
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 // slide の中身が画像か生テキストか：画像拡張子・data:/blob:/http(s): だけを画像と見る（それ以外は全部テキスト＝安全側）
 const isImg = s => /\.(svg|png|jpe?g|webp|gif|avif)([?#]|$)/i.test(s) || /^(data:|blob:|https?:)/.test(s);
 // 配色テーマ（c=）の幕替わりは flyView 側の「生き替え」（reload無し）で反映＝ここでのトークン判定/進行預け(RESUME_KEY)は不要になった。
@@ -138,7 +140,7 @@ export function demo({ scenes, slide: slideOn = true, hold = 5.5, slideHold = 4,
 	// 言語解決：scene[lang]（jp:/en:… の言語フィールド）→ 無ければ title（en基準）。タイトル・字幕・一覧の3か所共通
 	const T = s => s?.[lang] ?? s?.title ?? "";
 	const sceneLabel = s => T(s) || (s.slide && !s.view && !s.glide && !s.fade ? t("（スライド）") : (s.view ?? s.glide ?? s.fade ?? t("（無題）")));
-	list.innerHTML = scenes.map((s, i) => `<button data-i="${i}">${i + 1}. ${sceneLabel(s)}</button>`).join("");
+	list.innerHTML = scenes.map((s, i) => `<button data-i="${i}">${i + 1}. ${esc(sceneLabel(s))}</button>`).join("");
 	bar.append(list);
 	titleEl.title = t("シーン一覧"); titleEl.setAttribute("role", "button"); titleEl.setAttribute("aria-haspopup", "listbox");
 	const listOpen = () => list.classList.contains("open");
@@ -276,7 +278,7 @@ export function demo({ scenes, slide: slideOn = true, hold = 5.5, slideHold = 4,
 			// 同じ区の二重読み（iPhone のクラッシュ圧の正体だった型）が戻ってくる。同一台本の再生は撃ち直さない。
 			if (next.length !== scenes.length || next.some((s, k) => s !== scenes[k])) prefetched = false;
 			scenes = next;
-			list.innerHTML = scenes.map((s, k) => `<button data-i="${k}">${k + 1}. ${sceneLabel(s)}</button>`).join("");
+			list.innerHTML = scenes.map((s, k) => `<button data-i="${k}">${k + 1}. ${esc(sceneLabel(s))}</button>`).join("");
 		} else {   // 台本なしの再開（テスト・プログラム駆動）＝今の台本のまま個別上書きだけ
 			if (opts.lang !== undefined) lang = opts.lang;
 			if (opts.mobile !== undefined) mobile = opts.mobile;
