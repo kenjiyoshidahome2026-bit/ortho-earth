@@ -190,10 +190,15 @@ export function createModel(topo) {
 		snap.addRef(arcId, u - 1, arc.pts[(u - 1) * 2], arc.pts[(u - 1) * 2 + 1]);   // 伸びた分＝末尾一意頂点も索引到達可能に
 		return { arcId, idx: afterIdx + 1 };
 	}
+	// 環の固有頂点数（閉arc1本=n-1・開arcの連なり=Σ(n_i-1)）＝退化ガードは arc 単位でなく**環単位**で見る。
+	// 共有辺を持つ三角形＝「共有arc(2点)＋自前の開arc(3点)」で、開arc単独の n<=2 判定は通ってしまい 2頂点の環に潰れた（9/4）。
+	const ringUniq = list => { let u = 0; for (const s of list) u += m.arcs.get(sidOf(s)).pts.length / 2 - 1; return u; };
 	function deleteVertex(arcId, idx) {
 		const arc = m.arcs.get(arcId), n = arc.pts.length / 2;
 		if (idx === 0 || idx === n - 1) return null;                    // 端点削除＝ノード併合はv1でやらない
 		if (arc.closed ? n - 1 <= 3 : n <= 2) return null;              // 退化ガード（閉=3頂点/開=2頂点を下回らない）
+		for (const eid of arc.refs) for (const { list, ring } of listsOf(m.feats.get(eid)))   // この arc を含む全ての環＝削除後も3頂点を保つ
+			if (ring && list.some(s => sidOf(s) === arcId) && ringUniq(list) - 1 < 3) return null;
 		const removed = [arc.pts[idx * 2], arc.pts[idx * 2 + 1]];
 		const pts = new Float64Array((n - 1) * 2);
 		pts.set(arc.pts.subarray(0, idx * 2), 0);

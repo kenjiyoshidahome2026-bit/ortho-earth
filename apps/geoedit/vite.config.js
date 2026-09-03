@@ -3,7 +3,9 @@ import { resolve } from "node:path";
 
 // geoedit＝GeoPBFトポロジカルエディタの独立した入口（/geoedit/）。中身は ortho-japan と同じエンジン
 // （SDK二重構成＝dev はソース直 import・本番は /japan/lib/ の配布物）で、違うのは base と編集UIだけ
-// ＝エンジンは二重化しない（census2020 と同型）。publicDir は japan のものを共有（favicon 等）。
+// ＝エンジンは二重化しない（census2020 と同型）。publicDir は **dev だけ** japan のものを共有（assetBase=/geoedit/ で
+// エンジンが plateau-sets.json 等の共有棚を読む）。本番は assetBase=/japan/（japan Worker の棚）・favicon も絶対パス /favicon.svg
+// ＝/geoedit/ 配下の複製は1バイトも参照されない＝build では publicDir:false（130MB の複製が dist に乗る事故の根治 9/4）。
 // COOP/COEP は japan と同条件（gint の SharedArrayBuffer＝ゼロコピーの点火条件。無くてもコピー経路で動く）。
 const coiHeaders = (server) => {
 	server.middlewares.use((_req, res, next) => {
@@ -31,9 +33,9 @@ const asyncMainCss = {
 	},
 };
 
-export default defineConfig({
+export default defineConfig(({ command }) => ({
 	base: "/geoedit/",
-	publicDir: resolve(import.meta.dirname, "../ortho-japan/public"),
+	publicDir: command === "build" ? false : resolve(import.meta.dirname, "../ortho-japan/public"),
 	server: {
 		port: 5190,
 		fs: { allow: [resolve(import.meta.dirname, "..", "..")] },   // root の外（../ortho-japan・packages）を dev で読ませる
@@ -44,4 +46,4 @@ export default defineConfig({
 	build: { outDir: "dist/site/geoedit", emptyOutDir: true, rollupOptions: { external: ["/japan/lib/ortho-japan.js"] } },
 	worker: { format: "es" },
 	plugins: [crossOriginIsolation, asyncMainCss],
-});
+}));

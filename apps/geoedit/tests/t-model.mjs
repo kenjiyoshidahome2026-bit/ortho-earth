@@ -81,4 +81,25 @@ ok(mh.toGeoJSON().features[0].geometry.coordinates.length === 1, "unhole で外�
 mh.applyCmd(holeCmd);   // redo 相当
 ok(mh.toGeoJSON().features[0].geometry.coordinates.length === 2, "hole の再適用（redo）も通る");
 
+
+// ---- 退化ガードは環単位：正方形と辺を共有する三角形（＝共有arc2点＋自前の開arc3点）の頂点は消せない ----
+{
+	const fc2 = { type: "FeatureCollection", features: [
+		{ type: "Feature", properties: { n: "A" }, geometry: { type: "Polygon", coordinates: [sq(0, 0, 1, 1)] } },
+		{ type: "Feature", properties: { n: "T" }, geometry: { type: "Polygon", coordinates: [[[0, 0], [1, 0], [0.5, -1], [0, 0]]] } },
+	] };
+	const mdl = createModel(buildTopology(fc2, 6));
+	const tri = mdl.feats.get(1);
+	const own = [...mdl.arcs.entries()].find(([, a]) => a.refs.size === 1 && a.refs.has(1));   // 三角形だけの開arc（3点）
+	ok(own && own[1].pts.length / 2 === 3 && !own[1].closed, "三角形の自前arc＝開3点（共有辺は別arc）");
+	const res = mdl.applyCmd({ op: "delete", addr: mdl.addrOf(own[0], 1) });
+	ok(res == null, "3頂点の環の頂点削除は拒否（環単位の退化ガード）");
+	ok(mdl.featureGeoJSON(1, false).geometry.coordinates[0].length === 4, "三角形は無傷（3頂点＋閉）");
+	// 4頂点にしてからなら消せる
+	const ins = { op: "insert", addr: mdl.addrOf(own[0], 0), ll: [0.9, -0.4] };
+	ok(!!mdl.applyCmd(ins), "頂点挿入");
+	ok(!!mdl.applyCmd({ op: "delete", addr: ins.addrNew }), "4頂点の環なら削除できる");
+	ok(mdl.featureGeoJSON(1, false).geometry.coordinates[0].length === 4 && tri, "削除後も3頂点で閉じている");
+}
+
 process.exit(fails ? 1 : 0);

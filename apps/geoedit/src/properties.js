@@ -4,18 +4,20 @@
 import { styleForm } from "./styleform.js";
 import { sanitizeHTML } from "./overlay.js";
 
+// 部分更新の合成：値 "" / null は「そのキーを消す」（styleform の規約）。controller の既定スタイル更新とも共用
+export const mergeProps = (cur, partial) => {
+	const next = { ...cur };
+	for (const [k, v] of Object.entries(partial)) { if (v === "" || v == null) delete next[k]; else next[k] = v; }
+	return next;
+};
+
 export function createPropsPanel(container, api, signal) {   // api={getFeature(eid), applyProps(eid,next,{history,from}), toast}
-	let panel = null, curEid = null;
+	let panel = null, curEid = null, flushPreview = null;   // flushPreview＝input中（履歴なし）の値を閉じる時に履歴1件へ確定する
 
-	const close = () => { panel?.remove(); panel = null; curEid = null; };
-
-	const merge = (cur, partial) => {
-		const next = { ...cur };
-		for (const [k, v] of Object.entries(partial)) {
-			if (v === "" || v == null) delete next[k];
-			else next[k] = v;
-		}
-		return next;
+	const close = () => {   // 状態を先に畳んでから flush＝applyR の「props.eid === cmd.eid なら再描画」が再入しない
+		const flush = flushPreview, p = panel;
+		flushPreview = null; panel = null; curEid = null;
+		flush?.(); p?.remove();
 	};
 
 	const render = eid => {
@@ -41,13 +43,19 @@ export function createPropsPanel(container, api, signal) {   // api={getFeature(
 
 		// input中のプレビューを跨いで undo の戻り先を守る：最初のプレビューで元propsを控える
 		let pendingFrom = null;
+		flushPreview = () => {   // change 前に Esc/別選択で閉じた＝プレビュー値が履歴に無いまま残る穴＝ここで1件に確定（undo 可）
+			if (pendingFrom == null) return;
+			const cur = api.getFeature(eid)?.properties, from = pendingFrom;
+			pendingFrom = null;
+			if (cur) api.applyProps(eid, cur, { history: true, from });
+		};
 		styleForm(panel, {
 			geomType: f.type,
 			get: () => api.getFeature(eid)?.properties,
 			set: (partial, final) => {
 				const cur = api.getFeature(eid)?.properties;
 				if (!cur) return;
-				const next = merge(cur, partial);
+				const next = mergeProps(cur, partial);
 				if (!final) { pendingFrom ??= { ...cur }; api.applyProps(eid, next, { history: false }); return; }
 				api.applyProps(eid, next, { history: true, from: pendingFrom ?? { ...cur } });
 				pendingFrom = null;

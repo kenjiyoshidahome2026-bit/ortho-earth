@@ -1,6 +1,6 @@
 // geoedit 起動指揮者：エンジン（ortho-japan SDK）と編集コントローラを結線する。
-// エディタ本体は src/ の独立モジュール群＝controller(状態機械)・model(編集モデル)・overlay(ハンドル描画)・
-// gint-layer(確定層)・io(入出力)。エンジンの gint 6ハンドルは gint-layer.js の中にだけ触らせる（v2移行の触り所を1点に）。
+// エディタ本体は src/ の独立モジュール群＝controller(パイプライン/コマンド/選択/ツール)・drag/sketch/tip/contextmenu(入力の各面)・
+// model(編集モデル=geopbf/edit の再輸出)・overlay(ハンドル描画)・gint-layer(確定層)・io(入出力)。エンジンの gint 6ハンドルは gint-layer.js の中にだけ触らせる（v2移行の触り所を1点に）。
 import "./editor.scss";
 import { createGeopbf } from "geopbf";
 import { nativeBucket } from "native-bucket";

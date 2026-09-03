@@ -26,8 +26,9 @@ export function download(file) {
 
 // エクスポートパネル：getPbf() ＝素の fc から新規エンコードした geopbf（precision=格子段）
 export function exportPanel(container, getPbf, toast) {
+	container.querySelector(".ge-dialog")?.remove();   // 二重開き防止＝開き直し（クラウドと同じ一枠）
 	const panel = document.createElement("div");
-	panel.className = "ge-panel";
+	panel.className = "ge-panel ge-dialog";
 	panel.innerHTML = "<h3>書き出し</h3>";
 	const funcs = [
 		["GeoPBF", p => p.geopbfFile()],

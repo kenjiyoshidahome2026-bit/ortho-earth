@@ -38,9 +38,9 @@ async function makeThumb(map) {
 
 // hooks = { getPbf: async()=>pbf|null（書き出しと同じ口）, loadBuffer: async(ArrayBuffer)=>void, map（サムネ撮影用） }
 export function cloudPanel(container, hooks, toast) {
-	container.querySelector(".ge-cloud")?.remove();   // 二重開き防止＝開き直し
+	container.querySelector(".ge-dialog")?.remove();   // 二重開き防止＝開き直し（書き出しと同じ一枠）
 	const panel = document.createElement("div");
-	panel.className = "ge-panel ge-cloud";
+	panel.className = "ge-panel ge-cloud ge-dialog";
 	container.append(panel);
 	const el = (tag, text, cls) => { const e = document.createElement(tag); if (text) e.textContent = text; if (cls) e.className = cls; return e; };
 	const fail = async res => toast(ERRMSG[(await res.json().catch(() => ({}))).error] || `失敗しました (HTTP ${res.status})`);

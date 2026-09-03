@@ -1,4 +1,7 @@
-// 編集コントローラ＝状態機械と結線の中枢。
+// 編集コントローラ＝状態機械と結線の中枢（読込/コミット/再抽出のパイプライン・コマンド適用と履歴・選択/束ね・ツール・鍵盤）。
+// 入力の各面は独立モジュールへ分割（9/4）＝ drag.js（頂点/フィーチャのドラッグ）・sketch.js（作図）・tip.js（ホバー）・
+// contextmenu.js（右クリック）・worker-rpc.js（Worker 往復）。各モジュールは共有文脈 ed（下の initEditor 冒頭）を受け取り、
+// 可変状態は全て st に置く（tool/drag/editGen も）＝モジュール間で閉包変数を共有しない。
 //   idle/selected → dragVertex（capture-phase pointerdown でハンドルを掴む＝エンジンのパンは発火しない）
 //   point/line/polygon → editClick スロット経由の作図（クリックvs.ドラッグ弁別は input.js の4px裁定に任せる）
 // コミット頻度＝頂点数で二段（<10万: drag-end 300ms デバウンス / ≥10万: アイドル2s or 明示操作）。
@@ -7,54 +10,53 @@ import { buildTopology } from "./topo-extract.js";
 import { createModel, adoptRebuilt, rebuildModel, topoFromTransfer, topoToTransfer } from "./model.js";
 import { createHistory } from "./history.js";
 import { createGintLayer } from "./gint-layer.js";
-import { createOverlay, sanitizeHTML } from "./overlay.js";
+import { createOverlay } from "./overlay.js";
 import { createPopLayer } from "./pop-layer.js";
 import { initToolbar } from "./toolbar.js";
 import { initDrop, exportPanel, idbSave, idbLoad, idbClear } from "./io.js";
 import { cloudPanel } from "./cloud.js";
-import { createPropsPanel } from "./properties.js";
+import { createPropsPanel, mergeProps } from "./properties.js";
 import { createLargeModel } from "./large-model.js";
+import { createWorkerRpc } from "./worker-rpc.js";
+import { createSketch } from "./sketch.js";
+import { installDrag, moveTargets } from "./drag.js";
+import { createTip } from "./tip.js";
+import { installContextMenu } from "./contextmenu.js";
 import { geopbf } from "geopbf";
 import { GeoPBF } from "geopbf/pbf-base";
+import { dockStack } from "../../ortho-japan/gadgets/stack.js";   // 左下ドック（#log/#pos と同じ容れ物＝重なりを構造で排除）
 
 const BIG = 100_000;          // これ以上の頂点数＝コミットをアイドル寄せ
 const SYNC_REBUILD = 200_000; // これ未満＝再抽出は main 同期（Worker往復より速い）
-// 大規模モード閾値＝既定64MB（全量位相抽出＝JS Map網は数千万頂点でOOM）。?th=n（MB）で上書き可＝本人裁定 8/25
-const LARGE_BYTES = (() => { const n = +new URLSearchParams(location.search).get("th"); return Math.round((n > 0 ? n : 64) * 1048576); })();
+// 大規模モードの門＝2段：①バイト数（既定64MB＝解析すら main で持たない・?th=n MB）②頂点数（既定200万＝
+// 全量位相抽出の JS Map 網は 1.36M頂点で ~550MB（7a8b331 実測）＝これを超える密なファイルはバイト数が小さくても OOM 圏・?tv=n 個）。
+// ②は Worker がデコードついでに数え、超えた時点で打ち切って大規模経路へ回す（main の費用ゼロ）。
+const Q = new URLSearchParams(location.search);
+const LARGE_BYTES = (() => { const n = +Q.get("th"); return Math.round((n > 0 ? n : 64) * 1048576); })();
+const LARGE_VERTS = (() => { const n = +Q.get("tv"); return n > 0 ? Math.round(n) : 2_000_000; })();
 
 export function initEditor(map) {
 	const mapEl = map.mapEl;
 	const ac = new AbortController(), signal = ac.signal;
-	const st = { model: null, selection: null, dragEids: null, hidden: null, sketch: null, snapMark: null, busy: false, bundle: null, focus: null };
+	// 可変状態は全部ここ（各入力モジュールと共有）
+	const st = {
+		model: null, selection: null, dragEids: null, hidden: null, sketch: null, snapMark: null, busy: false, bundle: null, focus: null,
+		tool: "select",
+		drag: null,        // ドラッグ中の記述（drag.js）
+		editGen: 0,        // 編集世代＝「このコミットは最新の編集を含むか」の判定（含むなら隠し/オーバレイを引き継ぐ）
+		envGen: 0,         // 環境層世代＝点/blur/帯の**顔ぶれ**が変わった時だけ進む（overlay の描画リスト再構築の鍵。頂点移動では進めない）
+		largeDirty: false, // 大規模モード＝自動保存が無い（Phase4）＝未保存編集の有無を beforeunload の警告に使う
+	};
+	let gridExp = 6;
+	let loadGen = 0;   // 直近の読込時点の editGen＝「読込後に編集があったか」（空コミットで自動保存を消してよいかの判定）
 	const hist = createHistory();
 	const layer = createGintLayer(map);
 	const overlay = createOverlay(map, mapEl, () => st);
 	// @pop の再生＝エンジンの pop ガジェットへ委譲（v2 ビューアと同一実装＝動きが一致）。
-	// 常時表示でなくクリックで開く（編集は選択とかぶるので shift+click＝下の editClick）。× は箱を閉じるだけ。
+	// 常時表示でなくクリックで開く（編集は選択とかぶるので shift+click）。× は箱を閉じるだけ。
 	const popLayer = createPopLayer(map, () => st);
-	// Shift+クリック＝その要素の @pop を開く。エンジンは shift を tilt/回転扱いにして onClick を出さない（input.js）ため、
-	// editClick 経由でなく mapEl で直接拾う。動いた時（shift+ドラッグ＝回転）はエンジンに委ねる（pop にしない）。
-	let shiftDown = null;   // shift 押下の開始点 [x,y]／非shift は null
-	mapEl.addEventListener("pointerdown", e => { shiftDown = e.shiftKey ? localXY(e) : null; }, { capture: true, signal });
-	mapEl.addEventListener("pointerup", e => {
-		const d = shiftDown; shiftDown = null;
-		if (!d || st.busy || !st.model) return;
-		const [x, y] = localXY(e);
-		if (Math.hypot(x - d[0], y - d[1]) >= 4) return;   // shift+ドラッグ＝回転はエンジンへ（pop にしない）
-		const ll = map.unprojectXY(x, y);
-		if (!ll) return;
-		const eid = overlay.symbolAt(x, y) ?? layer.identify(ll[0], ll[1], map.getZoom());
-		if (eid != null) popLayer.open(eid, { x, y, ll });   // クリック点＝tip の場所に開く／ll＝参照点（面=クリック点・線=最寄り線分上）
-	}, { capture: true, signal });
-	let tool = "select", gridExp = 6;
-	let editGen = 0;   // 編集世代＝「このコミットは最新の編集を含むか」の判定（含むなら隠し/オーバレイを引き継ぐ）
 	// 作図ツールの既定スタイル（=「次に描くもの」の@プロパティ。styleform が toolbar 経由で書く）
 	const drawDefaults = { point: {}, text: { "@text": "テキスト" }, line: {}, polygon: {} };
-	const mergeProps = (cur, partial) => {
-		const next = { ...cur };
-		for (const [k, v] of Object.entries(partial)) { if (v === "" || v == null) delete next[k]; else next[k] = v; }
-		return next;
-	};
 
 	// ---- トースト ----
 	let toastEl = null, toastT = 0;
@@ -66,38 +68,61 @@ export function initEditor(map) {
 		toastT = setTimeout(() => toastEl.classList.add("gone"), 2600);
 	};
 
+	// ---- 左下バナー（ドックに積む・行動ボタン付き・自動で消える）：起動時の復元通知など「答えを迫らない」告知用（confirm() 廃止 9/4）----
+	const banner = (text, action, onAction, ttl = 15000) => {
+		const el = document.createElement("div");
+		el.className = "ge-banner";
+		el.append(Object.assign(document.createElement("span"), { textContent: text }));
+		if (action) { const b = document.createElement("button"); b.textContent = action; b.onclick = () => { el.remove(); onAction(); }; el.append(b); }
+		const x = document.createElement("button"); x.className = "ge-x"; x.textContent = "×"; x.title = "閉じる"; x.onclick = () => el.remove(); el.append(x);
+		dockStack(mapEl).append(el);   // display:none は詰むのでドックの掟＝出す/消すは append/remove
+		if (ttl) setTimeout(() => el.remove(), ttl);
+		return el;
+	};
+
+	// ---- 共有文脈（入力モジュールへ渡す。関数は後で足す＝呼ばれる時点で揃っていればよい）----
+	const localXY = e => { const r = mapEl.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
+	// 画面座標→eid：①シンボルの見た目（アイコンは足元アンカー＝絵の位置と実座標がずれるため画面矩形で）②gint識別
+	const pick = (x, y, ll = map.unprojectXY(x, y)) => ll ? (overlay.symbolAt(x, y) ?? layer.identify(ll[0], ll[1], map.getZoom())) : null;
+	const ed = { map, mapEl, signal, st, hist, layer, overlay, popLayer, toast, drawDefaults, localXY, pick };
+
+	// Shift+クリック＝その要素の @pop を開く。エンジンは shift を tilt/回転扱いにして onClick を出さない（input.js）ため、
+	// editClick 経由でなく mapEl で直接拾う。動いた時（shift+ドラッグ＝回転）はエンジンに委ねる（pop にしない）。
+	let shiftDown = null;   // shift 押下の開始点 [x,y]／非shift は null
+	mapEl.addEventListener("pointerdown", e => { shiftDown = e.shiftKey ? localXY(e) : null; }, { capture: true, signal });
+	mapEl.addEventListener("pointerup", e => {
+		const d = shiftDown; shiftDown = null;
+		if (!d || st.busy || !st.model) return;
+		const [x, y] = localXY(e);
+		if (Math.hypot(x - d[0], y - d[1]) >= 4) return;   // shift+ドラッグ＝回転はエンジンへ（pop にしない）
+		const ll = map.unprojectXY(x, y);
+		const eid = pick(x, y, ll);
+		if (eid != null) popLayer.open(eid, { x, y, ll });   // クリック点＝tip の場所に開く／ll＝参照点（面=クリック点・線=最寄り線分上）
+	}, { capture: true, signal });
+
 	// ---- Worker（構築/再抽出）----
-	let worker = null, reqId = 0;
-	const pending = new Map();
-	const callWorker = (msg, transfer = []) => new Promise((res, rej) => {
-		if (!worker) {
-			worker = new Worker(new URL("./model-worker.js", import.meta.url), { type: "module" });
-			worker.onmessage = e => {
-				const p = pending.get(e.data.id);
-				if (!p) return;
-				pending.delete(e.data.id);
-				e.data.ok ? p.res(e.data.payload) : p.rej(new Error(e.data.error));
-			};
-		}
-		const id = ++reqId;
-		pending.set(id, { res, rej });
-		worker.postMessage({ id, ...msg }, transfer);
-	});
+	const rpc = createWorkerRpc();
 
 	// ---- コミット（確定層＋自動保存）----
 	let commitTimer = 0;
 	const scheduleCommit = force => {
 		clearTimeout(commitTimer);
 		const big = st.model && st.model.stats().vertices >= BIG;
-		commitTimer = setTimeout(commit, force ? 0 : big ? 2000 : 300);
+		commitTimer = setTimeout(() => { commitTimer = 0; commit(); }, force ? 0 : big ? 2000 : 300);
 	};
+	ed.scheduleCommit = scheduleCommit;
+	const flushCommit = () => { clearTimeout(commitTimer); commitTimer = 0; return commit(false); };   // 明示フラッシュ（試験・保存前・全消去前）
+	// タブを隠した時（モバイルのアプリ切替・タブ切替）＝デバウンス待ちのコミットを即流す（pagehide では bake が間に合わない）
+	document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden" && commitTimer) { clearTimeout(commitTimer); commitTimer = 0; commit(); } }, { signal });
+	// 閉じる直前＝未着地のコミット or 大規模モードの未保存編集があれば確認（自動保存は着地後にしか書けない）
+	addEventListener("beforeunload", e => { if (commitTimer || (st.model?.large && st.largeDirty)) { e.preventDefault(); e.returnValue = ""; } }, { signal });
 	async function commit(moveCamera = false) {
 		if (!st.model) return;
 		if (st.model.large) {   // 大規模モード＝スタイルは restyleProps 直送・自動保存なし（Phase4）。幾何編集だけ g再送（rebake）
 			if (!st.model.geomDirty) return;
-			const genAt = editGen;
+			const genAt = st.editGen;
 			const done = await layer.resendLarge(st.model);
-			if (done && editGen === genAt && !drag) {   // 新しい焼きが「この時点までの編集」を含んで着地＝隠しを解く（小規模コミットと同じ引き継ぎ規約）
+			if (done && st.editGen === genAt && !st.drag) {   // 新しい焼きが「この時点までの編集」を含んで着地＝隠しを解く（小規模コミットと同じ引き継ぎ規約）
 				st.model.clearGeomDirty();
 				layer.unhide();
 				st.dragEids = null; st.hidden = null;
@@ -106,17 +131,18 @@ export function initEditor(map) {
 			popLayer.sync();
 			return;
 		}
-		const genAt = editGen;
+		const genAt = st.editGen;
 		const done = await layer.commit(st.model, { moveCamera });
 		// 新gintが「この時点までの編集」を含んで着地＝隠し/オーバレイの役目をここで初めて引き継ぐ
 		//（旧実装はドラッグ終端で即解除＝コミット着地までの間「前のデータ」が顔を出していた＝本人指摘 8/20）
-		if (done && editGen === genAt && !drag) {
+		if (done && st.editGen === genAt && !st.drag) {
 			layer.unhide();
 			st.dragEids = null; st.hidden = null;
 			overlay.redraw();
 		}
 		popLayer.sync();   // 確定後のアンカーで @pop 箱を再生（ドラッグで隠していた箱を新位置に戻す・削除分を掃く）
 		if (layer.saveBuffer) idbSave({ buf: layer.saveBuffer, gridExp, view: map.view?.hash, t: Date.now() });   // 保存＝制御点のまま（@splineの表示細分を保存しない＝再読込の多重細分封じ）
+		else if (!st.model.feats.size && st.editGen !== loadGen) idbClear();   // 編集で空になった＝空も「今の姿」＝前回分を残さない（再読込で削除前が復活する穴）。起動時の空セッション（復元を断った直後）は前回分を温存
 	}
 
 	// ---- 再抽出（構造操作の後始末＝共有回復）----
@@ -130,7 +156,7 @@ export function initEditor(map) {
 			else {
 				st.busy = true; toast("トポロジ再抽出中…");
 				const { payload: out, transfer } = topoToTransfer(st.model, { snap: false });   // 送り便＝基底ソート不要
-				const res = await callWorker({ mode: "retopo", payload: out, gridExp: st.model.gridExp }, transfer);
+				const res = await rpc.call({ mode: "retopo", payload: out, gridExp: st.model.gridExp }, transfer);
 				st.model = adoptRebuilt(topoFromTransfer(res), res.eids, st.model);
 				st.busy = false;
 			}
@@ -143,7 +169,7 @@ export function initEditor(map) {
 	// ---- 読み込み（fc → モデル → コミット）----
 	async function finishLoad(model, { fly = true, stripEid = false } = {}) {
 		if (stripEid) for (const f of model.feats.values()) if (f.properties && "__eid" in f.properties) { const p2 = { ...f.properties }; delete p2.__eid; f.properties = p2; }   // 復元＝コミット時に注入した__eidを剥がす
-		st.model = model;
+		st.model = model; loadGen = st.editGen; st.envGen++;
 		for (const w of model.warnings) console.warn("[geoedit]", w);
 		hist.clear();
 		st.selection = null; st.sketch = null;
@@ -158,20 +184,24 @@ export function initEditor(map) {
 			const n = fc.features.length;
 			if (n) toast(`トポロジ抽出中…（${n}フィーチャ）`);
 			const model = n >= 2000
-				? createModel(topoFromTransfer(await callWorker({ mode: "fc", fc, gridExp })))
+				? createModel(topoFromTransfer(await rpc.call({ mode: "fc", fc, gridExp })))
 				: createModel(buildTopology(fc, gridExp));
 			await finishLoad(model, { fly });
 		} catch (e) { console.error("[geoedit] load failed", e); toast("読み込みに失敗しました"); }
 		finally { st.busy = false; overlay.redraw(); }
 	}
 	async function loadBuffer(buffer, { fly = true, stripEid = false } = {}) {   // geopbfバイト列＝正規経路（GeoJSON中間なし）
-		if (buffer.byteLength >= LARGE_BYTES)   // 取込ルーター：閾値超え＝位相抽出せず大規模モードへ（解析はdecoder worker＝createGeopbf配線済み）
+		if (buffer.byteLength >= LARGE_BYTES)   // 取込ルーター①バイト数：閾値超え＝位相抽出せず大規模モードへ（解析はdecoder worker＝createGeopbf配線済み）
 			return loadLarge(await new GeoPBF({}).set(buffer), { fly });
 		try {
 			st.busy = true;
 			toast("トポロジ抽出中…");
-			const model = createModel(topoFromTransfer(await callWorker({ mode: "pbf", buffer, gridExp }, [buffer])));
-			await finishLoad(model, { fly, stripEid });
+			const res = await rpc.call({ mode: "pbf", buffer, gridExp, maxVerts: LARGE_VERTS }, [buffer]);
+			if (res.large) {   // 取込ルーター②頂点数：Worker が数えて打ち切った＝バッファは返却便で戻る
+				toast(`頂点数が ${LARGE_VERTS.toLocaleString()} を超えるため大規模モードで開きます`);
+				return await loadLarge(await new GeoPBF({}).set(res.buffer), { fly });
+			}
+			await finishLoad(createModel(topoFromTransfer(res)), { fly, stripEid });
 		} catch (e) { console.error("[geoedit] load failed", e); toast("読み込みに失敗しました"); }
 		finally { st.busy = false; overlay.redraw(); }
 	}
@@ -188,7 +218,7 @@ export function initEditor(map) {
 			st.selection = null; st.sketch = null; st.bundle = null; st.dragEids = null; st.hidden = null; st.focus = null;
 			props.close();
 			popLayer.clear();
-			st.model = model;
+			st.model = model; st.largeDirty = false; st.envGen++;
 			setTool("select");
 			await layer.applyLarge(built, model.featsArr, { moveCamera: fly });
 			toast(`大規模モード：${model.feats.size.toLocaleString()}フィーチャ（属性・スタイル・頂点移動／追加削除と自動保存はまだ）`);
@@ -215,14 +245,16 @@ export function initEditor(map) {
 		st.snapMark = null;
 		return ll;
 	};
+	ed.snapLL = snapLL;
 
 	// ---- 履歴経由の適用（undo/redo・構造操作共通）----
+	const GEOM_ONLY = new Set(["move", "movePt", "tr", "insert", "delete"]);   // 顔ぶれ（点/blur/帯の集合）を変えない操作
 	const affectedEids = (cmd, res) => {   // このコマンドで gint 表示が古くなるフィーチャ群
 		const out = new Set();
 		const arcRefs = aid => { const a = st.model.arcs.get(aid); if (a) for (const e of a.refs) out.add(e); };
 		if (cmd.op === "move" && res?.dirty) for (const aid of res.dirty) arcRefs(aid);
 		else if (cmd.op === "movePt" || cmd.op === "del" || cmd.op === "add" || cmd.op === "hole" || cmd.op === "unhole") out.add(cmd.eid);
-		else if (cmd.op === "tr") for (const e of moveTargets(cmd.eid)) out.add(e);
+		else if (cmd.op === "tr") for (const e of moveTargets(st.model, cmd.eid)) out.add(e);
 		else if (cmd.op === "insert" || cmd.op === "delete") { const r = st.model.resolveAddr(cmd.addr); if (r) arcRefs(r.arcId); }
 		else if (cmd.op === "combine") for (const e of cmd.eids) out.add(e);
 		else if (cmd.op === "uncombine") for (const p of cmd.parts) out.add(p.eid);
@@ -231,7 +263,9 @@ export function initEditor(map) {
 	};
 	const applyR = cmd => {
 		const res = st.model.applyCmd(cmd);
-		editGen++;
+		if (cmd.op === "delete" && !res) return false;   // 消せない頂点（端点/最小構成）＝何も起きていない＝隠しも履歴も付けない
+		st.editGen++;
+		if (!GEOM_ONLY.has(cmd.op)) st.envGen++;
 		if (cmd.op === "props") layer.restyleProps(st.model);   // スタイルは表の即時再焼き＝コミットを待たない
 		else {
 			const aff = affectedEids(cmd, res);
@@ -243,11 +277,16 @@ export function initEditor(map) {
 		scheduleCommit();
 		overlay.redraw();
 		popLayer.sync();   // @pop の生成/文言変化/除去・構造操作(add/del)を箱へ即反映
+		return res;
 	};
 	const doCmd = cmd => {
-		if (st.model?.large && cmd.op !== "props" && cmd.op !== "move") return toast("大規模モードでは属性・スタイルと頂点移動ができます（追加/削除はまだ）");   // 構造操作（arc数が変わる）はPhase3
-		applyR(cmd); hist.push(cmd); bar.syncHist(hist.canUndo, hist.canRedo);
+		if (st.model?.large && cmd.op !== "props" && cmd.op !== "move") { toast("大規模モードでは属性・スタイルと頂点移動ができます（追加/削除はまだ）"); return false; }   // 構造操作（arc数が変わる）はPhase3
+		if (applyR(cmd) === false) return false;
+		if (st.model.large) st.largeDirty = true;
+		hist.push(cmd); bar.syncHist(hist.canUndo, hist.canRedo);
+		return true;
 	};
+	ed.doCmd = doCmd;
 	const undo = () => { hist.undo(applyR, c => st.model.invertCmd(c)); bar.syncHist(hist.canUndo, hist.canRedo); };
 	const redo = () => { hist.redo(applyR); bar.syncHist(hist.canUndo, hist.canRedo); };
 
@@ -256,11 +295,12 @@ export function initEditor(map) {
 		getFeature: eid => st.model?.feats.get(eid),
 		applyProps: (eid, next, { history = true, from = null } = {}) => {
 			if (history) doCmd({ op: "props", eid, from: from ?? st.model.feats.get(eid).properties, to: next });
-			else { st.model.feats.get(eid).properties = next; editGen++; layer.restyleProps(st.model); scheduleCommit(); overlay.redraw(); popLayer.sync(); }   // input中の即プレビュー（表の即時再焼き＋@pop箱の追随）
+			else { st.model.feats.get(eid).properties = next; st.editGen++; st.envGen++; layer.restyleProps(st.model); scheduleCommit(); overlay.redraw(); popLayer.sync(); }   // input中の即プレビュー（表の即時再焼き＋@pop箱の追随）
 		},
 		onDelete: eid => { if (eid != null) doCmd({ op: "del", eid }); },   // パネルの🗑
 		toast,
 	}, signal);
+	ed.props = props;
 
 	// ---- 点の配置（クリック・右クリックメニュー共通）----
 	const placePointAt = (ll, defs) => {
@@ -268,8 +308,9 @@ export function initEditor(map) {
 		doCmd(cmd);
 		select(cmd.eid);
 	};
+	ed.placePointAt = placePointAt;
 
-	// ---- 選択・作図（クリックは editClick スロット＝エンジンの4px裁定済み）----
+	// ---- 選択 ----
 	// 大規模モードの編集近傍＝選択＋arc共有する隣接（暴走ガード64件）。gintを消灯しオーバレイが正確に描く＝
 	// LODキャップ（ZCTA=minWeight27焼き付け）や間引きの簡略線が編集ズームで「余計な線」に見える問題の根治（本人特定 8/26）。
 	const focusHood = eid => {
@@ -284,9 +325,10 @@ export function initEditor(map) {
 	const select = eid => {
 		st.selection = eid; st.sketch = null;
 		if (st.model?.large) { st.focus = focusHood(eid); layer.focus(st.focus); }   // 編集近傍＝gint消灯・オーバレイ描画へ
-		eid != null && tool === "select" ? props.render(eid) : props.close();   // パネルは選択ツール時のみ（作図中は既定スタイルパネルが主役）。選択表示はオーバレイ一本（大規模も同じ＝gint橙強調は撤去 8/26）
+		eid != null && st.tool === "select" ? props.render(eid) : props.close();   // パネルは選択ツール時のみ（作図中は既定スタイルパネルが主役）。選択表示はオーバレイ一本（大規模も同じ＝gint橙強調は撤去 8/26）
 		overlay.redraw();
 	};
+	ed.select = select;
 
 	// ---- 束ね（multi化）：束ねツールでクリック累積→Enterで確定。同族（面同士/線同士）のみ。----
 	const toggleBundle = eid => {
@@ -319,287 +361,59 @@ export function initEditor(map) {
 	};
 	const explode = () => { st.selection == null ? toast("分解する要素を選択してください") : explodeEid(st.selection); };
 	const startBundleWith = eid => { setTool("bundle"); if (eid != null) toggleBundle(eid); };   // 合成開始＝束ねモードに入り、指定要素を最初の仲間に
+	Object.assign(ed, { confirmBundle, isMulti, explodeEid, startBundleWith });
+
+	// ---- 入力モジュール（作図・ドラッグ・ホバー・右クリック）----
+	const sketch = createSketch(ed);
+	ed.sketch = sketch;
+	const tip = createTip(ed);
+	ed.hideTip = tip.hide;
+	installDrag(ed);
+
+	// ---- クリック（editClick スロット＝エンジンの4px裁定済み）：ツール別の振り分け ----
 	map.setEditClick((x, y) => {
 		if (st.busy || !st.model) return;
 		const ll = map.unprojectXY(x, y);
 		if (!ll) return;
+		const tool = st.tool;
 		if (tool === "bundle") {   // 束ね＝クリックで対象を選集合へ足す/外す（Enterで確定）
-			const eid = overlay.symbolAt(x, y) ?? layer.identify(ll[0], ll[1], map.getZoom());
+			const eid = pick(x, y, ll);
 			if (eid != null) toggleBundle(eid);
 			return;
 		}
-		if (tool === "select") {
-			// 選択の優先順：①シンボルの見た目（アイコンは足元アンカー＝絵の位置と実座標がずれるため画面矩形で）②gint識別
-			const symEid = overlay.symbolAt(x, y);
-			return select(symEid ?? layer.identify(ll[0], ll[1], map.getZoom()));
-		}
+		if (tool === "select" || tool === "move") return select(pick(x, y, ll));   // 移動ツール＝クリックで対象選択（ドラッグは drag.js）
 		if (tool === "point" || tool === "text") {
 			if (tool === "text" && !drawDefaults.text["@text"]) return toast("パネルに文字を入れてから置いてください");
 			return placePointAt(ll, drawDefaults[tool]);
 		}
-		if (tool === "move") return select(overlay.symbolAt(x, y) ?? layer.identify(ll[0], ll[1], map.getZoom()));   // 移動ツール＝クリックで対象選択（ドラッグは pointerdown 側）
-		if (tool === "rect" || tool === "circle") {   // 2点作図：1打目=基点、2打目=確定
-			if (!st.sketch) { st.sketch = { kind: tool, coords: [snapLL(ll)], cursor: null }; overlay.redraw(); return; }
-			return finishTwoPoint(st.sketch.coords[0], snapLL(ll));
-		}
-		// line / polygon / hole＝スケッチへ頂点追加
-		if (!st.sketch) st.sketch = { kind: tool, coords: [], cursor: null };
-		st.sketch.coords.push(snapLL(ll));
-		overlay.redraw();
+		sketch.click(tool, ll);   // line / polygon / hole / rect / circle
 	});
-	// 矩形/円のリング生成（円＝36角形・経度は cos(lat) 補正＝画面上で円に見える）
-	const twoPointRing = (kind, a, b) => {
-		if (kind === "rect") return [a, [b[0], a[1]], b, [a[0], b[1]], a];
-		const k = Math.max(0.2, Math.cos(a[1] * Math.PI / 180));
-		const r = Math.hypot((b[0] - a[0]) * k, b[1] - a[1]);
-		if (r <= 0) return null;
-		const ring = [];
-		for (let i = 0; i <= 36; i++) { const t = i / 36 * Math.PI * 2; ring.push([a[0] + r * Math.cos(t) / k, a[1] + r * Math.sin(t)]); }
-		return ring;
-	};
-	function finishTwoPoint(a, b) {
-		const ring = twoPointRing(st.sketch.kind, a, b);
-		st.sketch = null; st.snapMark = null;
-		if (!ring || (ring[0][0] === ring[2][0] && ring[0][1] === ring[2][1])) { overlay.redraw(); return toast("大きさがありません"); }
-		const cmd = { op: "add", feature: { type: "Feature", properties: { ...drawDefaults.polygon }, geometry: { type: "Polygon", coordinates: [ring] } } };
-		doCmd(cmd);
-		setTool("select");
-		select(cmd.eid);
-	}
-	function finishSketch() {
-		const sk = st.sketch;
-		if (!sk) return;
-		st.sketch = null; st.snapMark = null;
-		if (sk.kind === "line" ? sk.coords.length < 2 : sk.coords.length < 3) { overlay.redraw(); return toast("頂点が足りません"); }
-		if (sk.kind === "hole") {   // 穴＝描いたリングを「その1点目を含むポリゴン」の内環として追加（gint識別で対象決定）
-			const eid = layer.identify(sk.coords[0][0], sk.coords[0][1], map.getZoom());
-			const f = eid != null ? st.model.feats.get(eid) : null;
-			if (!f || !f.type.includes("Poly")) { overlay.redraw(); return toast("穴はポリゴンの内側に描いてください"); }
-			const cmd = { op: "hole", eid, ring: sk.coords };
-			doCmd(cmd);
-			setTool("select");
-			select(eid);
-			return;
-		}
-		const geometry = sk.kind === "line"
-			? { type: "LineString", coordinates: sk.coords }
-			: { type: "Polygon", coordinates: [[...sk.coords, sk.coords[0]]] };
-		const cmd = { op: "add", feature: { type: "Feature", properties: { ...drawDefaults[sk.kind] }, geometry } };
-		doCmd(cmd);
-		setTool("select");   // 描いたら即整える＝選択ツールへ自動復帰（点ツールは連続配置のため残す）
-		select(cmd.eid);     // setTool の後＝選択パネルが開く
-	}
-	const cancelSketch = () => { if (st.sketch) { st.sketch = null; st.snapMark = null; overlay.redraw(); } };
-
-	// ---- @tip ツールチップの器 ----
-	// 位置はカーソルへ毎move即追従・内容の識別だけデバウンス（v1 tip.js の作法）＝
-	// 「追従が120ms遅れて引きずる」を根治（識別コストは払う頻度を落としたまま）。
-	let tipEl = null, tipW = 0, tipH = 0;   // tipW/H＝内容確定時に測る器寸（毎moveのレイアウト読みを避ける）
-	const hideTip = () => { tipEl?.remove(); tipEl = null; };
-	const placeTip = (x, y) => {   // pop の初期配置に合わせる（右＋12・縦中央）。画面端では内側へ寄せる。
-		if (!tipEl) return;
-		const W = mapEl.clientWidth, H = mapEl.clientHeight;
-		const left = (x + 12 + tipW > W) ? (x - tipW - 12) : (x + 12);   // 右端では左側へ出す（見切れ防止）
-		let top = y - tipH / 2; if (top < 0) top = 0; else if (top + tipH > H) top = H - tipH;
-		tipEl.style.left = left + "px"; tipEl.style.top = top + "px";
-	};
-
-	// ---- 頂点ドラッグ（capture-phase＝命中時だけエンジンから奪う）----
-	let drag = null;   // {kind:"v"|"p", arcId,idx | eid,ptIdx, start:[x,y], last:[x,y], pointerId, moved}
-	const localXY = e => { const r = mapEl.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
-	const dragTargets = h => {   // 動かす対象と、gint側で隠す eid 集合
-		if (h.kind === "p") return { eids: new Set([h.eid]) };
-		const arc = st.model.arcs.get(h.arcId);
-		const eids = new Set(arc.refs);
-		const n = arc.pts.length / 2;
-		if (h.idx === 0 || h.idx === n - 1) {   // 端点＝ノード接続の全arcの参照フィーチャも動く
-			const nid = st.model.endNodeOf(h.arcId, h.idx === 0 ? 0 : 1);
-			const nd = st.model.nodes.get(nid);
-			if (nd) for (const [aid] of nd.ends) for (const e of st.model.arcs.get(aid).refs) eids.add(e);
-		}
-		return { eids };
-	};
-	// 移動ツール＝一緒に動く/隠すフィーチャ集合（自分＋共有arc・共有ノードでつながる隣）
-	const moveTargets = eid => {
-		const f = st.model.feats.get(eid), eids = new Set([eid]);
-		if (!f || f.coords) return eids;
-		for (const { list } of st.model.listsOf(f)) for (const s of list) {
-			const aid = s < 0 ? ~s : s;
-			for (const e2 of st.model.arcs.get(aid).refs) eids.add(e2);
-			for (const end of [0, 1]) {
-				const nid = st.model.endNodeOf(aid, end);
-				const nd = nid != null ? st.model.nodes.get(nid) : null;
-				if (nd) for (const [a2] of nd.ends) for (const e2 of st.model.arcs.get(a2).refs) eids.add(e2);
-			}
-		}
-		return eids;
-	};
-	mapEl.addEventListener("pointerdown", e => {
-		// ツール不問＝選択中フィーチャのハンドル命中なら常にドラッグ（「作図ツールのまま頂点が動かせない」罠の根治 8/20）。
-		// スケッチ中だけは除外（クリック＝頂点追加が主導）。Shift 押下は @pop 開き専用＝ここでは掴まない。
-		if (st.busy || !st.model || st.sketch || e.shiftKey) return;
-		const [x, y] = localXY(e);
-		if (tool === "move") {   // 移動モード＝「押した場所の要素」を掴んで平行移動（自動選択）。何も無い場所は素通し＝パン
-			const ll0 = map.unprojectXY(x, y);
-			if (!ll0) return;
-			const target = overlay.symbolAt(x, y) ?? layer.identify(ll0[0], ll0[1], map.getZoom());
-			if (target == null) return;
-			if (st.selection !== target) select(target);
-			e.stopPropagation(); e.preventDefault();
-			try { mapEl.setPointerCapture(e.pointerId); } catch { /* 合成イベントは capture 不可＝無害 */ }
-			drag = { kind: "f", eid: target, lastLL: ll0, total: [0, 0], pointerId: e.pointerId, moved: false };
-			st.dragEids = new Set([...(st.dragEids || []), ...moveTargets(target)]); st.hidden = st.dragEids;   // 未コミットの前回分と合流
-			hideTip();
-			mapEl.style.cursor = "grabbing";
-			layer.hide(st.dragEids);
-			overlay.redraw();
-			popLayer.sync();   // 掴んだフィーチャの @pop 箱は隠す（着地=commit で新位置に戻す）
-			return;
-		}
-		if (st.selection == null) return;
-		let h = overlay.handleAt(x, y, e.pointerType === "touch");
-		if (!h) return;
-		e.stopPropagation(); e.preventDefault();
-		if (e.altKey && h.kind === "v") {   // Alt+クリック＝頂点削除
-			if (st.model.large) return toast("大規模モードでは頂点の追加/削除はできません（移動のみ）");
-			const addr = st.model.addrOf(h.arcId, h.idx);
-			const cmd = { op: "delete", addr };
-			const res = st.model.applyCmd(cmd);
-			if (!res) return toast("この頂点は消せません（端点/最小構成）");
-			hist.push(cmd); bar.syncHist(hist.canUndo, hist.canRedo);
-			scheduleCommit(); overlay.redraw();
-			return;
-		}
-		if (h.kind === "m") {   // 中点＝挿入してそのまま掴む
-			const cmd = { op: "insert", addr: st.model.addrOf(h.arcId, h.idx), ll: h.ll };
-			doCmd(cmd);
-			const r = st.model.resolveAddr(cmd.addrNew);
-			h = { kind: "v", arcId: r.arcId, idx: r.idx };
-		}
-		try { mapEl.setPointerCapture(e.pointerId); } catch { /* 合成イベント（試験）はcapture不可＝move/upはmapElで拾えるので無害 */ }
-		const start = h.kind === "p"
-			? [...st.model.feats.get(h.eid).coords[h.ptIdx]]
-			: [st.model.arcs.get(h.arcId).pts[h.idx * 2], st.model.arcs.get(h.arcId).pts[h.idx * 2 + 1]];
-		const { eids } = dragTargets(h);
-		drag = { ...h, start, last: start, pointerId: e.pointerId, moved: false };
-		st.dragEids = new Set([...(st.dragEids || []), ...eids]); st.hidden = st.dragEids;   // 未コミットの前回分と合流
-		hideTip();
-		mapEl.style.cursor = "grabbing";
-		layer.hide(eids);
-		overlay.redraw();
-		popLayer.sync();   // 掴んだ頂点が属するフィーチャの @pop 箱は隠す（着地=commit で戻す）
-	}, { capture: true, signal });
-	mapEl.addEventListener("pointermove", e => {
-		if (drag) {
-			if (e.pointerId !== drag.pointerId) return;
-			e.stopPropagation();
-			const [x, y] = localXY(e);
-			const ll = map.unprojectXY(x, y);
-			if (!ll) return;
-			if (drag.kind === "f") {   // フィーチャ平行移動（適用できた分だけ total へ＝格子量子化と整合）
-				const res = st.model.translateFeature(drag.eid, ll[0] - drag.lastLL[0], ll[1] - drag.lastLL[1], { index: false });   // ドラッグ中は索引追記オフ（終端で一括reindex）
-				if (res) {
-					drag.total[0] += res.d[0]; drag.total[1] += res.d[1];
-					drag.lastLL = [drag.lastLL[0] + res.d[0], drag.lastLL[1] + res.d[1]];
-					if (res.d[0] || res.d[1]) { drag.moved = true; editGen++; }
-				}
-				overlay.redraw();
-				return;
-			}
-			const self = en => drag.kind === "p" ? en.eid === drag.eid && en.ptIdx === drag.ptIdx : en.arcId === drag.arcId && en.idx === drag.idx;
-			const snapped = snapLL(ll, self);
-			if (drag.kind === "p") st.model.movePoint(drag.eid, drag.ptIdx, snapped[0], snapped[1]);
-			else st.model.moveVertex(drag.arcId, drag.idx, snapped[0], snapped[1]);
-			editGen++;
-			drag.last = snapped; drag.moved = true;
-			overlay.redraw();
-			return;
-		}
-		if (st.sketch) {   // ラバーバンドのカーソル頂点＋吸着マーク（矩形/円は確定形をプレビュー）
-			const [x, y] = localXY(e);
-			const ll = map.unprojectXY(x, y);
-			if (ll) {
-				st.sketch.cursor = snapLL(ll);
-				if (st.sketch.kind === "rect" || st.sketch.kind === "circle")
-					st.sketch.preview = twoPointRing(st.sketch.kind, st.sketch.coords[0], st.sketch.cursor);
-				overlay.redraw();
-			}
-			return;
-		}
-		const [x, y] = localXY(e);
-		if (st.selection != null && !st.busy)   // ハンドルにホバー＝掴めることをカーソルで示す
-			mapEl.style.cursor = overlay.handleAt(x, y, e.pointerType === "touch") ? "grab" : "";
-		// @tip ホバー＝一言ツールチップ。位置も内容も毎moveで即時（識別対象は自セッションの小さなpbf＝
-		// 全走査でも軽い）。カーソルへ即追従し、@tip の無い所へ離れたら即消す＝デバウンスの追従遅れ・消え残りを無くす。
-		if (st.busy || !st.model) return hideTip();
-		const tll = map.unprojectXY(x, y);
-		const teid = tll ? (overlay.symbolAt(x, y) ?? layer.identify(tll[0], tll[1], map.getZoom())) : null;
-		const tip = teid != null ? st.model.feats.get(teid)?.properties?.["@tip"] : null;
-		if (tip == null || tip === "") return hideTip();
-		if (!tipEl) { tipEl = document.createElement("div"); tipEl.className = "ge-tip"; mapEl.append(tipEl); }
-		if (tipEl._raw !== String(tip)) { tipEl._raw = String(tip); tipEl.innerHTML = sanitizeHTML(tip); tipW = tipEl.offsetWidth; tipH = tipEl.offsetHeight; }   // @tip は HTML/画像可（消毒済）。内容変化時だけ器寸を測る
-		placeTip(x, y);
-	}, { capture: true, signal });
-	mapEl.addEventListener("pointerleave", () => hideTip(), { signal });   // 地図の外へ離れたら即消す（v1 tip.js の pointerleave 作法）
-	const endDrag = e => {
-		if (!drag || e.pointerId !== drag.pointerId) return;
-		e.stopPropagation();
-		const d = drag; drag = null;
-		st.snapMark = null;
-		mapEl.style.cursor = "";
-		// dragEids/hidden はここで解除しない＝この編集を含むコミットが着地するまで
-		// オーバレイが現在形を描き続け、gint の「前のデータ」は隠したまま（本人指摘 8/20 の根治）
-		if (d.moved) {
-			if (d.kind === "f") st.model.reindexFeature(d.eid);   // translate終端＝スナップ索引へ一括追記
-			const cmd = d.kind === "f"
-				? { op: "tr", eid: d.eid, d: d.total }
-				: d.kind === "p"
-					? { op: "movePt", eid: d.eid, ptIdx: d.ptIdx, from: d.start, to: d.last }
-					: { op: "move", addr: st.model.addrOf(d.arcId, d.idx), from: d.start, to: d.last };
-			hist.push(cmd);   // 適用済み＝pushのみ（ドラッグ中に直接適用済み）
-			bar.syncHist(hist.canUndo, hist.canRedo);
-		}
-		scheduleCommit();
-		overlay.redraw();
-	};
-	mapEl.addEventListener("pointerup", endDrag, { capture: true, signal });
-	mapEl.addEventListener("pointercancel", endDrag, { capture: true, signal });
-	mapEl.addEventListener("dblclick", e => {
-		if (st.sketch) { e.stopPropagation(); e.preventDefault(); finishSketch(); }
-	}, { capture: true, signal });
 
 	// ---- キーボード ----
 	const typing = () => { const t = document.activeElement?.tagName; return t === "INPUT" || t === "TEXTAREA" || document.activeElement?.isContentEditable; };
+	const KEY_TOOL = { v: "select", a: "point", t: "text", l: "line", p: "polygon", r: "rect", c: "circle", h: "hole", m: "move", g: "bundle" };
 	addEventListener("keydown", e => {
 		if (typing() || st.busy) return;
 		const mod = e.metaKey || e.ctrlKey;
 		if (mod && e.key.toLowerCase() === "z") { e.preventDefault(); e.shiftKey ? redo() : undo(); return; }
-		if (e.key === "Escape") { cancelSketch(); if (st.bundle) { st.bundle = null; overlay.redraw(); toast("束ね取消"); } select(null); return; }
-		if (e.key === "Enter") { if (st.sketch) { e.preventDefault(); finishSketch(); } else if (tool === "bundle") { e.preventDefault(); confirmBundle(); } return; }
+		if (e.key === "Escape") { sketch.cancel(); if (st.bundle) { st.bundle = null; overlay.redraw(); toast("束ね取消"); } select(null); return; }
+		if (e.key === "Enter") { if (st.sketch) { e.preventDefault(); sketch.finish(); } else if (st.tool === "bundle") { e.preventDefault(); confirmBundle(); } return; }
 		if ((e.key === "Delete" || e.key === "Backspace") && st.selection != null) {
 			e.preventDefault();
 			doCmd({ op: "del", eid: st.selection });
 			return;
 		}
-		const k = e.key.toLowerCase();
-		if (k === "v") setTool("select");
-		else if (k === "a") setTool("point");
-		else if (k === "t") setTool("text");
-		else if (k === "l") setTool("line");
-		else if (k === "p") setTool("polygon");
-		else if (k === "r") setTool("rect");
-		else if (k === "c") setTool("circle");
-		else if (k === "h") setTool("hole");
-		else if (k === "m") setTool("move");
-		else if (k === "g") setTool("bundle");
+		if (mod || e.altKey) return;   // ⌘C/⌘V/⌘A/⌘L/⌘P/⌘G 等のブラウザ操作をツール切替に化けさせない
+		const t = KEY_TOOL[e.key.toLowerCase()];
+		if (t) setTool(t);
 	}, { signal });
 
 	// ---- ツールバー結線 ----
 	const setTool = t => {
 		if (st.model?.large && t !== "select") { toast("大規模モード＝選択と属性・スタイル編集のみ（作図・頂点編集は不可）"); t = "select"; }
-		const wasBundle = tool === "bundle";
-		tool = t;
-		cancelSketch();
+		const wasBundle = st.tool === "bundle";
+		st.tool = t;
+		sketch.cancel();
 		if (wasBundle && t !== "bundle" && st.bundle) { st.bundle = null; overlay.redraw(); }   // 束ねツールを抜けたら選集合を捨てる
 		if (t === "bundle") { select(null); st.bundle = new Set(); toast("束ねる要素をクリック→Enterで確定（Escで取消）"); overlay.redraw(); }
 		else if (t === "line" || t === "polygon" || t === "hole" || t === "rect" || t === "circle") select(null);   // 作図モードに選択は残さない（最初の一打がハンドルドラッグに化ける競合の根治）
@@ -607,6 +421,8 @@ export function initEditor(map) {
 		else props.close();               // 点/テキスト/移動ツール＝パネルは出さない or 既定スタイルが主役
 		bar.syncTool(t);
 	};
+	ed.setTool = setTool;
+	const getPbf = () => st.model && (st.model.large ? st.model.toPbf() : layer.exportPbf(st.model));   // 書き出し/クラウド共通の口（大規模＝ストリーム置換複写：幾何はバイト複写・属性だけ再エンコード）
 	const bar = initToolbar(document.getElementById("toolbar"), {
 		setTool, undo, redo, explode,
 		gridExp: () => gridExp,
@@ -614,79 +430,72 @@ export function initEditor(map) {
 		getDefaults: t => drawDefaults[t === "rect" || t === "circle" ? "polygon" : t],   // 矩形/円＝面の既定スタイルを共有
 		setDefaults: (t, partial) => { const k = t === "rect" || t === "circle" ? "polygon" : t; drawDefaults[k] = mergeProps(drawDefaults[k], partial); },
 		importFile,
-		exportOpen: () => exportPanel(document.getElementById("stage"), () => st.model && (st.model.large ? st.model.toPbf() : layer.exportPbf(st.model)), toast),   // 大規模＝ストリーム置換複写（幾何はバイト複写・属性だけ再エンコード）
+		exportOpen: () => exportPanel(document.getElementById("stage"), getPbf, toast),
 		cloudOpen: () => cloudPanel(document.getElementById("stage"), {
-			getPbf: () => st.model && (st.model.large ? st.model.toPbf() : layer.exportPbf(st.model)),   // 書き出しと同じ口（model が真実源＝flush 不要）
+			getPbf,
 			loadBuffer: buf => loadBuffer(buf),   // ドロップ取込と同経路＝新セッション扱い
 			map,   // 公開サムネの撮影用（map.requestSnapshot・mapEl）
 		}, toast),
-		clearAll: async () => { if (confirm("編集内容を全て消去して新規セッションを始めますか？")) { await idbClear(); loadFC({ type: "FeatureCollection", features: [] }); } },
+		// 全消去＝確認ダイアログなし（本人裁定 9/4）。代わりに直前の姿を控え、左下バナー「元に戻す」で15秒間だけ復帰できる
+		clearAll: async () => {
+			if (!st.model?.feats.size) return toast("消すものがありません");
+			await flushCommit();   // デバウンス待ちの編集も控えに含める
+			const keep = layer.saveBuffer ? layer.saveBuffer.slice(0) : (await getPbf())?.arrayBuffer?.slice(0);   // 大規模モード＝自動保存が無いので書き出しの口から
+			const grid = gridExp;
+			await idbClear();
+			await loadFC({ type: "FeatureCollection", features: [] });
+			banner("全て消去しました", "元に戻す", () => { gridExp = grid; if (keep) loadBuffer(keep, { fly: false, stripEid: true }); });
+		},
 	}, signal);
+	ed.bar = bar;
 	bar.syncHist(false, false);
 
-	// ---- 右クリックメニュー＝文脈連動（開くたびに「指した要素／選択／束ね中」で項目を組む）。
-	//      上段＝要素への操作（選択/削除/合成/ばらす）を文脈で出し分け、下段＝「ここに〜」の作図＋座標コピー。----
-	const startSketchAt = c => { if (c.lng == null) return; st.sketch = { kind: tool, coords: [snapLL([c.lng, c.lat])], cursor: null }; overlay.redraw(); };
-	map.gadget.contextmenu({
-		items: ctx => {
-			const under = ctx.lng != null ? (overlay.symbolAt(ctx.x, ctx.y) ?? layer.identify(ctx.lng, ctx.lat, map.getZoom())) : null;
-			const out = [];
-			if (st.model?.large) {   // 大規模モード＝選択/表示系だけ（作図・構造操作はPhase2まで出さない）
-				if (under != null && under !== st.selection) out.push({ name: "この要素を選択", onClick: () => { setTool("select"); select(under); } });
-				const lp = under != null ? st.model.feats.get(under)?.properties?.["@pop"] : null;
-				if (lp != null && lp !== "") out.push({ name: "吹き出し(pop)を表示", onClick: () => popLayer.open(under, { x: ctx.x, y: ctx.y, ll: ctx.lng != null ? [ctx.lng, ctx.lat] : undefined }) });
-				out.push({ name: "座標をコピー", onClick: c => c.lng != null && navigator.clipboard?.writeText(`${c.lat.toFixed(6)}, ${c.lng.toFixed(6)}`) });
-				return out;
-			}
-			if (tool === "bundle") {   // 束ね中＝確定/取消を最上段
-				out.push({ name: `合成を確定（${st.bundle?.size || 0}件・Enter）`, onClick: () => confirmBundle() });
-				out.push({ name: "合成を取消（Esc）", onClick: () => setTool("select") });
-			} else {
-				const start = st.selection != null ? st.selection : under;   // 選択優先・無ければ指した要素
-				const fam = start != null ? st.model?.familyOf(st.model.feats.get(start)?.type || "") : null;
-				if (fam === "poly" || fam === "line") out.push({ name: "合成（束ねる）を始める", onClick: () => startBundleWith(start) });
-				const mEid = isMulti(under) ? under : isMulti(st.selection) ? st.selection : null;
-				if (mEid != null) out.push({ name: "ばらす（multiを解除）", onClick: () => explodeEid(mEid) });
-			}
-			if (under != null && under !== st.selection) out.push({ name: "この要素を選択", onClick: () => { setTool("select"); select(under); } });   // 指した要素があれば
-			const uc = under != null ? st.model?.feats.get(under)?.coords?.[0] : null;   // 点なら要素そのものの座標
-			if (uc) out.push({ name: "要素座標をコピー", onClick: () => navigator.clipboard?.writeText(`${uc[1].toFixed(6)}, ${uc[0].toFixed(6)}`) });
-			const pop = under != null ? st.model?.feats.get(under)?.properties?.["@pop"] : null;
-			if (pop != null && pop !== "") out.push({ name: "吹き出し(pop)を表示", onClick: () => popLayer.open(under, { x: ctx.x, y: ctx.y, ll: ctx.lng != null ? [ctx.lng, ctx.lat] : undefined }) });   // @pop があれば（右クリック点を参照点に）
-			if (st.selection != null) out.push({ name: "選択中の要素を削除", onClick: () => doCmd({ op: "del", eid: st.selection }) });                 // 選択があれば
-			out.push(
-				{ name: "ここに点を置く", onClick: c => c.lng != null && placePointAt([c.lng, c.lat], drawDefaults.point) },
-				{ name: "ここにテキストを置く", onClick: c => c.lng != null && placePointAt([c.lng, c.lat], drawDefaults.text) },
-				{ name: "ここから線を描く", onClick: c => { setTool("line"); startSketchAt(c); } },
-				{ name: "ここから面を描く", onClick: c => { setTool("polygon"); startSketchAt(c); } },
-			);
-			if (st.model?.familyOf(st.model.feats.get(under)?.type || "") === "poly") out.push({ name: "ここに穴を開ける", onClick: c => { setTool("hole"); startSketchAt(c); } });   // 穴はポリゴンの内側だけ
-			out.push({ name: "座標をコピー", onClick: c => c.lng != null && navigator.clipboard?.writeText(`${c.lat.toFixed(6)}, ${c.lng.toFixed(6)}`) });
-			return out;
-		},
-	});
+	installContextMenu(ed);
+	initDrop(mapEl, importFile, signal);   // 取り込み（ドロップ）
 
-	// ---- 取り込み（ドロップ）----
-	initDrop(mapEl, importFile, signal);
+	// ---- 画面上の「確定／取消」バー（タッチ端末＝Enter/Esc が無い）：作図中（頂点1つ以上）と束ね中だけ出す。
+	//      状態変化は全て overlay.redraw()→frame を通るので、frame フックで差分だけ DOM に反映（gadget の _update と同型）----
+	const confirmBar = document.createElement("div");
+	confirmBar.className = "ge-confirm"; confirmBar.hidden = true;
+	const okB = document.createElement("button"), ngB = document.createElement("button");
+	okB.className = "ge-ok"; ngB.className = "ge-cancel";
+	confirmBar.append(okB, ngB);
+	document.getElementById("stage").append(confirmBar);
+	okB.addEventListener("click", () => { if (st.sketch) sketch.finish(); else if (st.tool === "bundle") confirmBundle(); }, { signal });
+	ngB.addEventListener("click", () => { if (st.sketch) sketch.cancel(); else if (st.tool === "bundle") setTool("select"); }, { signal });
+	let confirmSig = "";
+	const syncConfirm = () => {
+		let sig = "";
+		if (st.sketch && st.sketch.coords.length) sig = st.sketch.kind === "rect" || st.sketch.kind === "circle" ? "two" : `draw:${st.sketch.coords.length}`;
+		else if (st.tool === "bundle") sig = `bundle:${st.bundle?.size || 0}`;
+		if (sig === confirmSig) return;
+		confirmSig = sig;
+		confirmBar.hidden = !sig;
+		if (!sig) return;
+		okB.hidden = sig === "two";   // 2点作図＝2打目が確定＝「確定」は出さない
+		okB.textContent = sig.startsWith("bundle") ? `合成を確定（${st.bundle?.size || 0}件）` : "確定";
+		ngB.textContent = "取消";
+	};
+	const unsubConfirm = map.onFrame(syncConfirm);
 
 	// ---- セッション復元 or 空モデルで開始 ----
+	// 前回分があれば黙って復元し、左下バナーで告知＋「新規で始める」を添える（起動のたびに confirm() で答えを迫らない＝本人裁定 9/4）。
+	const startEmpty = async () => { await loadFC({ type: "FeatureCollection", features: [] }); toast("GISファイルをドロップ、またはツールで作図を始めてください"); };
 	(async () => {
 		const rec = await idbLoad();
-		if (rec?.buf && confirm("前回の編集セッションを復元しますか？")) {
-			gridExp = rec.gridExp ?? 6;
-			if (rec.view) location.hash = rec.view;
-			await loadBuffer(rec.buf, { fly: !rec.view, stripEid: true });   // コミット由来の__eidは剥がす
-		} else {
-			await loadFC({ type: "FeatureCollection", features: [] });
-			toast("GISファイルをドロップ、またはツールで作図を始めてください");
-		}
+		if (!rec?.buf) return startEmpty();
+		gridExp = rec.gridExp ?? 6;
+		if (rec.view) location.hash = rec.view;
+		await loadBuffer(rec.buf, { fly: !rec.view, stripEid: true });   // コミット由来の__eidは剥がす
+		const when = rec.t ? new Date(rec.t).toLocaleString(undefined, { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "";
+		banner(`前回の編集を復元しました${when ? `（${when}）` : ""}`, "新規で始める", async () => { await idbClear(); startEmpty(); });
 	})();
 
 	return {
-		destroy() { ac.abort(); map.setEditClick(null); overlay.destroy(); popLayer.destroy(); clearTimeout(commitTimer); hideTip(); worker?.terminate(); },
+		destroy() { ac.abort(); map.setEditClick(null); overlay.destroy(); popLayer.destroy(); clearTimeout(commitTimer); tip.hide(); rpc.terminate(); unsubConfirm(); confirmBar.remove(); },
 		get state() { return st; },
 		get model() { return st.model; },
-		commitNow: () => { clearTimeout(commitTimer); return commit(false); },   // 明示フラッシュ（試験・保存前）
+		commitNow: flushCommit,
 		layer,   // デバッグの手すり（identify/pbf の検分用。公式口ではない）
 		decode: file => geopbf(file, { name: "decode/" + file.name }),   // 同じく手すり＝自バンドルのgeopbfで任意ファイルを解く（計測・検分用）
 		loadFC, loadBuffer, importFile, toast,

@@ -34,16 +34,47 @@ export function createOverlay(map, mapEl, getState) {
 	const getPicto = n => pictoCache.get(n) || (pictoCache.set(n, new Path2D(PICTO[n])), pictoCache.get(n));
 	const images = new Map();   // @icon 値 → Image（内蔵名・data:URI・Blob/File 共通のキャッシュ。Blobはインスタンスがキー＝
 	// geopbf復元は同一参照を共有(readValueのbinキャッシュ)＋Worker→mainのstructured cloneもエイリアシング保存＝1画像1Image）
+	// ★描けるのは「読み込み済みで壊れていない」画像だけ（naturalWidth>0）。broken 画像は complete=true のまま
+	//   drawImage が InvalidStateError を投げ、エンジンの frame() は render() の例外で rAF を再予約しない＝
+	//   地図全体が止まる。旧式の内蔵アイコン名（"marker" 等の非 data: 文字列）は不明値＝null（既定の点で描く）。
+	const usable = im => im.complete && im.naturalWidth > 0 ? im : null;
 	const iconImg = v => {
 		let im = images.get(v);
-		if (im) return im.complete ? im : null;
+		if (im) return usable(im);
+		if (typeof v === "string" ? !v.startsWith("data:") : !(v instanceof Blob)) return null;   // 内蔵アイコン名は廃止＝data:URI か画像のみ
 		im = new Image();
-		if (typeof v === "string") im.src = v.startsWith("data:") ? v : "";   // 内蔵アイコン名は廃止＝data:URI か画像のみ
-		else if (v instanceof Blob) im.src = URL.createObjectURL(v);
-		else return null;
+		im.src = typeof v === "string" ? v : URL.createObjectURL(v);
 		im.onload = () => map.requestDraw();
 		images.set(v, im);
-		return im.complete ? im : null;
+		return usable(im);
+	};
+
+	// 環境層（点シンボル/blur面/帯線）の描画リスト＝モデルと st.envGen（顔ぶれの世代）ごとに一度だけ全走査して作る。
+	// 毎フレーム全 feats を3周（旧実装）は 10万点級でパン中の主コストだった。頂点移動では envGen は進まない（座標は
+	// f.coords / arcs を直読みするので索引は古びない）。
+	let env = { model: null, gen: -1, points: [], blurs: [], bands: [] };
+	const envOf = st => {
+		if (env.model === st.model && env.gen === st.envGen) return env;
+		const points = [], blurs = [], bands = [];
+		for (const [eid, f] of st.model.feats) {
+			if (f.coords) { points.push(eid); continue; }
+			const p = f.properties;
+			if (!p) continue;
+			if (+p["@blur"] > 0) blurs.push(eid);
+			if (p["@poly"]) bands.push(eid);
+		}
+		env = { model: st.model, gen: st.envGen, points, blurs, bands };
+		return env;
+	};
+	// 視野の経緯度箱（点の投影前カリング用）：四隅を逆投影。球外（低ズームで縁が見える）や日付変更線跨ぎは null＝間引かない
+	const viewBox = () => {
+		const c = [map.unprojectXY(0, 0), map.unprojectXY(W, 0), map.unprojectXY(0, H), map.unprojectXY(W, H)];
+		if (c.some(q => !q)) return null;
+		let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+		for (const [lng, lat] of c) { if (lng < x0) x0 = lng; if (lng > x1) x1 = lng; if (lat < y0) y0 = lat; if (lat > y1) y1 = lat; }
+		if (x1 - x0 > 180) return null;
+		const mx = (x1 - x0) / W * 80, my = (y1 - y0) / H * 80;   // 余白＝80px 相当（シンボル寸＋足元アンカー分）
+		return { x0: x0 - mx, x1: x1 + mx, y0: y0 - my, y1: y1 + my };
 	};
 
 	let handles = [];   // 描画時キャッシュ：{x,y,kind:"v"|"m"|"p", arcId?,idx?, eid?,ptIdx?}
@@ -84,11 +115,14 @@ export function createOverlay(map, mapEl, getState) {
 	};
 
 	function drawSymbols(pr, st) {
-		for (const [eid, f] of st.model.feats) {
-			if (!f.coords || (st.hidden && st.hidden.has(eid))) continue;
+		const feats = st.model.feats, vb = viewBox();
+		for (const eid of envOf(st).points) {
+			const f = feats.get(eid);
+			if (!f?.coords || (st.hidden && st.hidden.has(eid))) continue;
 			const p = f.properties || {};
 			const size = +p["@size"] > 0 ? +p["@size"] : 24;
 			for (const c of f.coords) {
+				if (vb && (c[0] < vb.x0 || c[0] > vb.x1 || c[1] < vb.y0 || c[1] > vb.y1)) continue;   // 視野外＝投影すらしない
 				const s = pr(c[0], c[1]);
 				if (s[2] < 0 || s[0] < -60 || s[0] > W + 60 || s[1] < -60 || s[1] > H + 60) continue;
 				const icon = p["@icon"] && iconImg(p["@icon"]);
@@ -143,8 +177,10 @@ export function createOverlay(map, mapEl, getState) {
 
 	// @blur＝不確定エリア＝canvas2D の blur で soft な塗りを描く（stroke なし・面のみ・@spline と併用可）。gint は非描画。
 	function drawBlurs(pr, st) {
-		for (const [eid, f] of st.model.feats) {
-			if (f.coords || (st.hidden && st.hidden.has(eid))) continue;   // 点／ドラッグ中は対象外
+		const feats = st.model.feats;
+		for (const eid of envOf(st).blurs) {
+			const f = feats.get(eid);
+			if (!f || f.coords || (st.hidden && st.hidden.has(eid))) continue;   // 点／ドラッグ中は対象外
 			const blur = +f.properties?.["@blur"];
 			if (!(blur > 0)) continue;
 			const rings = st.model.listsOf(f).filter(l => l.ring);
@@ -161,8 +197,10 @@ export function createOverlay(map, mapEl, getState) {
 	}
 
 	function drawPolyLines(pr, st) {   // @poly＝ポリゴン化した線（帯）。gint 非描画・blur と同型の canvas2D 経路
-		for (const [eid, f] of st.model.feats) {
-			if (f.coords || (st.hidden && st.hidden.has(eid))) continue;
+		const feats = st.model.feats;
+		for (const eid of envOf(st).bands) {
+			const f = feats.get(eid);
+			if (!f || f.coords || (st.hidden && st.hidden.has(eid))) continue;
 			const p = f.properties || {};
 			if (!p["@poly"]) continue;
 			const lists = st.model.listsOf(f).filter(l => !l.ring);   // 線のみ
@@ -294,7 +332,8 @@ export function createOverlay(map, mapEl, getState) {
 		}
 	}
 
-	const unsub = map.onFrame(draw);
+	// frameHooks は render() の中＝ここで投げるとエンジンの描画ループごと止まる。オーバレイ1枚の不具合を地図の死に昇格させない
+	const unsub = map.onFrame(() => { try { draw(); } catch (e) { console.error("[geoedit] overlay draw failed", e); } });
 	return {
 		canvas,
 		redraw: () => map.requestDraw(),
@@ -318,6 +357,6 @@ export function createOverlay(map, mapEl, getState) {
 			}
 			return null;
 		},
-		destroy() { unsub(); canvas.remove(); },
+		destroy() { unsub(); canvas.remove(); for (const [v, im] of images) if (v instanceof Blob) URL.revokeObjectURL(im.src); images.clear(); },
 	};
 }

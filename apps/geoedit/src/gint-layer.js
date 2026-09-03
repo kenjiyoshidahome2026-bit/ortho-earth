@@ -9,13 +9,13 @@ import { geopbf } from "geopbf";                      // side-effect込み＝Geo
 import { GeoPBF, makeKeys } from "geopbf/pbf-base";   // ストリームエンコード用（set() を自前でなぞる）
 import { stitchGeometry, smoothGeom } from "./model.js";
 
-// #rgb / #rrggbb / #rrggbbaa → u32(r<<24|g<<16|b<<8|a)。それ以外は null（既定色へ）
+// #rgb / #rgba / #rrggbb / #rrggbbaa → u32(r<<24|g<<16|b<<8|a)。それ以外は null（既定色へ）
 export function hexColor(s) {
 	if (typeof s !== "string") return null;
-	const m = s.trim().match(/^#([0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i);
+	const m = s.trim().match(/^#([0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i);
 	if (!m) return null;
 	let h = m[1];
-	if (h.length === 3) h = [...h].map(c => c + c).join("") + "ff";
+	if (h.length <= 4) h = [...h].map(c => c + c).join("");   // 短縮形＝各桁を倍に（#rgb→rrggbb・#rgba→rrggbbaa）
 	if (h.length === 6) h += "ff";
 	return parseInt(h, 16) >>> 0;
 }

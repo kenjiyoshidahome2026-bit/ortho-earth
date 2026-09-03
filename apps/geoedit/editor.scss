@@ -20,6 +20,9 @@
 	left: 50%;
 	transform: translateX(-50%);
 	display: flex;
+	flex-wrap: wrap;               /* 狭画面＝16個のボタンを折り返す（はみ出して押せない列を作らない） */
+	justify-content: center;
+	max-width: calc(100vw - 20px);
 	align-items: center;
 	gap: 4px;
 	padding: 4px 6px;
@@ -76,6 +79,9 @@
 	font: 12px/1.6 "Noto Sans JP", "Hiragino Sans", "Yu Gothic UI", "Yu Gothic", sans-serif;
 	color: #cdd6e6;
 }
+/* 書き出し／クラウド＝一時のダイアログ：右のスタイル/選択パネルと同じ座標に積まない＝ツールバー直下の中央へ。
+   同時に開くのは1枚（.ge-dialog を開く側が前の1枚を外す） */
+.ge-panel.ge-dialog { right: auto; left: 50%; transform: translateX(-50%); }
 /* タイトル行＝見出し＋削除＋×（左端は本体ラベルと揃え、×は右上の角へ） */
 .ge-panel .ge-head {
 	display: flex; align-items: center; gap: 2px;
@@ -220,6 +226,45 @@
 	white-space: pre-line;   /* @tip の改行を活かす */
 }
 .ge-tip img { max-width: 200px; max-height: 150px; display: block; border-radius: 3px; }   /* @tip は HTML/画像可 */
+
+/* 左下バナー（ドックの中＝#log/#pos と同じ積み方・薄硝子）：復元通知など。行動ボタン＋× */
+#map .ge-banner {
+	display: flex; align-items: center; gap: 8px;
+	padding: 5px 6px 5px 10px; border-radius: 8px;
+	background: rgba(16, 24, 44, .55);
+	border: 1px solid rgba(255, 255, 255, .14);
+	backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+	font: 12px/1.4 "Noto Sans JP", "Hiragino Sans", "Yu Gothic UI", "Yu Gothic", sans-serif;
+	color: #e8eef8;
+	max-width: min(360px, calc(100vw - 20px));
+}
+#map .ge-banner button { all: unset; cursor: pointer; padding: 3px 9px; border-radius: 6px; background: rgba(120, 170, 255, .28); color: #fff; white-space: nowrap; }
+#map .ge-banner button:hover { background: rgba(120, 170, 255, .42); }
+#map .ge-banner button.ge-x { background: none; opacity: .65; padding: 2px 4px; font-size: 14px; }
+#map .ge-banner button.ge-x:hover { opacity: 1; background: rgba(255, 255, 255, .12); }
+
+/* 画面上の「確定／取消」バー（作図中・束ね中だけ。タッチ端末＝Enter/Esc の代役）＝トーストの上 */
+.ge-confirm {
+	position: absolute;
+	bottom: 88px;
+	left: 50%;
+	transform: translateX(-50%);
+	display: flex;
+	gap: 6px;
+	padding: 4px 6px;
+	border-radius: 10px;
+	background: rgba(16, 24, 44, .55);
+	border: 1px solid rgba(255, 255, 255, .14);
+	backdrop-filter: blur(6px);
+	-webkit-backdrop-filter: blur(6px);
+	font: 13px/1.4 "Noto Sans JP", "Hiragino Sans", "Yu Gothic UI", "Yu Gothic", sans-serif;
+	user-select: none;
+}
+.ge-confirm[hidden] { display: none; }
+.ge-confirm button { all: unset; cursor: pointer; padding: 7px 14px; border-radius: 7px; color: #cdd6e6; background: rgba(255, 255, 255, .08); }
+.ge-confirm button:hover { background: rgba(255, 255, 255, .16); }
+.ge-confirm button.ge-ok { background: rgba(120, 170, 255, .28); color: #fff; }
+.ge-confirm button[hidden] { display: none; }
 
 /* トースト（「編集はz≥7で」等の一言） */
 .ge-toast {

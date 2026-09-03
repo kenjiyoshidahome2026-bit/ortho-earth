@@ -7,7 +7,7 @@
 <script>
 window.requestAnimationFrame = cb => setTimeout(() => cb(performance.now()), 16);
 localStorage.setItem("oj.hint", "closed");
-window.confirm = () => false;   // セッション復元ダイアログ＝試験では常に「新規」
+window.confirm = () => false;   // クラウド削除等の確認＝試験では常に「いいえ」（起動時の復元・全消去は confirm 廃止＝バナー）
 </script>
 <script type="module">
 import { createGeopbf } from "geopbf";
@@ -98,6 +98,37 @@ try {
 	const sharedAC = [...m().arcs.values()].some(a => a.refs.size === 2 && a.refs.has(0) && a.refs.has(2));
 	ok("sharedNew", sharedAC);
 	ok("toolAuto", document.querySelector('#toolbar button[title^="選択"]').classList.contains("on"));   // 作図完了＝選択ツールへ自動復帰（「描いた直後に頂点が動かせない」罠の回帰）
+	// ---- 修飾キー付きの単キー（⌘C/⌘L…）はブラウザ操作＝ツール切替に化けない ----
+	key("c", { metaKey: true }); key("l", { ctrlKey: true });
+	ok("modKeyIgnored", document.querySelector('#toolbar button[title^="選択"]').classList.contains("on"));
+	// ---- Alt+クリック＝頂点削除（doCmd 経由＝隠し集合に入り・undo で戻る）----
+	{
+		await editor.commitNow();   // 識別の真実源（gint）を作図後の姿へ
+		const pT = map.projectLL(139.755, 35.6785);   // 三角形C（eid 2）の内側（辺の中点＝挿入ハンドルを避ける）
+		click(pT[0], pT[1]);
+		await sleep(150);
+		const nBefore = m().featureGeoJSON(2, false).geometry.coordinates[0].length;
+		const v = map.projectLL(139.755, 35.674);   // Cの下頂点
+		C().dispatchEvent(new PointerEvent("pointerdown", { ...ev(v[0], v[1], 5), altKey: true }));   // 3頂点＝最小構成＝消せない
+		M().dispatchEvent(new PointerEvent("pointerup", ev(v[0], v[1], 5)));
+		ok("altDelMinKeep", editor.state.selection === 2 && m().featureGeoJSON(2, false).geometry.coordinates[0].length === nBefore);
+		// 中点を掴んで頂点を1つ挿入してから、その頂点を Alt+クリックで消す
+		const e1 = map.projectLL(139.75, 35.68), e2 = map.projectLL(139.755, 35.674);
+		const mid = [(e1[0] + e2[0]) / 2, (e1[1] + e2[1]) / 2];
+		C().dispatchEvent(new PointerEvent("pointerdown", ev(mid[0], mid[1], 6)));
+		M().dispatchEvent(new PointerEvent("pointermove", ev(mid[0] - 25, mid[1], 6)));
+		M().dispatchEvent(new PointerEvent("pointerup", ev(mid[0] - 25, mid[1], 6)));
+		await sleep(150);
+		ok("insertVertex", m().featureGeoJSON(2, false).geometry.coordinates[0].length === nBefore + 1);
+		C().dispatchEvent(new PointerEvent("pointerdown", { ...ev(mid[0] - 25, mid[1], 5), altKey: true }));
+		M().dispatchEvent(new PointerEvent("pointerup", ev(mid[0] - 25, mid[1], 5)));
+		await sleep(50);
+		ok("altDelete", m().featureGeoJSON(2, false).geometry.coordinates[0].length === nBefore && editor.state.hidden?.has(2));
+		key("z", { metaKey: true }); await sleep(50);
+		ok("altDeleteUndo", m().featureGeoJSON(2, false).geometry.coordinates[0].length === nBefore + 1);
+		key("z", { metaKey: true }); key("z", { metaKey: true }); await sleep(150);   // 移動と挿入も戻す＝以降の試験は元の三角形
+		ok("altDeleteUndoAll", m().featureGeoJSON(2, false).geometry.coordinates[0].length === nBefore);
+	}
 
 	// ---- 選択解除→Cを選択→Delで削除 ----
 	key("Escape");
@@ -145,9 +176,13 @@ try {
 	document.querySelector('#toolbar button[title^="穴"]').click();
 	const g1 = map.projectLL(139.7525, 35.6825), g2 = map.projectLL(139.7565, 35.6825), g3 = map.projectLL(139.7545, 35.6862);
 	click(g1[0], g1[1]); click(g2[0], g2[1]); click(g3[0], g3[1]);
-	key("Enter");
+	await sleep(50);   // frame フック（確定バーの表示）
+	ok("confirmBarShown", !document.querySelector(".ge-confirm").hidden && !document.querySelector(".ge-confirm .ge-ok").hidden);
+	document.querySelector(".ge-confirm .ge-ok").click();   // Enter の代役（タッチ端末）
 	await sleep(300);
 	ok("hole", m().toGeoJSON().features[0].geometry.coordinates.length === 2);
+	await sleep(50);
+	ok("confirmBarGone", document.querySelector(".ge-confirm").hidden);
 	key("z", { metaKey: true });
 	await sleep(200);
 	ok("holeUndo", m().toGeoJSON().features[0].geometry.coordinates.length === 1);
@@ -190,9 +225,77 @@ try {
 	await sleep(150);
 	ok("moveUndo", JSON.stringify(m().featureGeoJSON(rEid, false)) === beforeMv);
 
-	editor.destroy();
+	// ---- 束ね（bundle）：A と B をクリック→画面上の「合成を確定」→ MultiPolygon 1件・undo で戻る ----
+	{
+		key("Escape");
+		await editor.commitNow();
+		const n0 = m().stats().features;
+		document.querySelector('#toolbar button[title^="束ねる"]').click();
+		const a = map.projectLL(139.7515, 35.688), b = map.projectLL(139.7635, 35.6825);   // 点シンボル（139.754,35.6835）とテキスト（139.768,35.6865）の当たり矩形を避けた位置
+		click(a[0], a[1]); click(b[0], b[1]);
+		await sleep(80);
+		const bar = document.querySelector(".ge-confirm");
+		ok("bundleBar", !bar.hidden && bar.querySelector(".ge-ok").textContent.includes("2件"));
+		if (bar.hidden || !bar.querySelector(".ge-ok").textContent.includes("2件")) t.push("DBG:bundle=" + (editor.state.bundle ? [...editor.state.bundle].join("/") : "null") + ":identB=" + editor.layer.identify(139.7635, 35.6825, map.getZoom()) + ":identA=" + editor.layer.identify(139.7515, 35.688, map.getZoom()));
+		bar.querySelector(".ge-ok").click();
+		await sleep(300);
+		ok("bundleCombine", m().stats().features === n0 - 1 && m().feats.get(editor.state.selection)?.type === "MultiPolygon");
+		key("z", { metaKey: true });
+		await sleep(300);
+		ok("bundleUndo", m().stats().features === n0);
+	}
+
+	// ---- 頂点数の門（model-worker "pbf" + maxVerts）：超えたら抽出せず { large, buffer } を返す・下回れば通常の位相 ----
+	{
+		await editor.commitNow();
+		const src = editor.layer.pbf.arrayBuffer;   // 今のセッション（数フィーチャ・数十頂点）
+		const w = new Worker(new URL("../src/model-worker.js", import.meta.url), { type: "module" });
+		const ask = (msg, buf) => new Promise(r => { const id = Math.random(); const h = e => { if (e.data.id === id) { w.removeEventListener("message", h); r(e.data); } }; w.addEventListener("message", h); w.postMessage({ id, ...msg, buffer: buf }, [buf]); });
+		const big = await ask({ mode: "pbf", gridExp: 6, maxVerts: 3 }, src.slice(0));
+		ok("vertGateLarge", big.ok && big.payload.large === true && big.payload.buffer?.byteLength === src.byteLength && big.payload.verts > 3);
+		const small = await ask({ mode: "pbf", gridExp: 6, maxVerts: 1e9 }, src.slice(0));
+		ok("vertGatePass", small.ok && !small.payload.large && small.payload.flat != null);
+		w.terminate();
+	}
+
+	// ---- 書き出し／クラウドのダイアログ＝同時に1枚（二重開き・積み重なりなし）----
+	document.querySelector('#toolbar button[title^="書き出し"]').click();
+	document.querySelector('#toolbar button[title^="書き出し"]').click();
+	ok("dialogDedupe", document.querySelectorAll(".ge-dialog").length === 1);
+	document.querySelector(".ge-dialog")?.remove();
+
+	// ---- 全消去＝確認なしで即消去、左下バナー「元に戻す」で復帰 ----
+	{
+		const nf = m().stats().features;
+		document.querySelector('#toolbar button[title^="全消去"]').click();
+		for (let i = 0; i < 50 && m()?.feats.size; i++) await sleep(100);
+		const bn = document.querySelector("#map #dock .ge-banner");
+		ok("clearAll", m().feats.size === 0 && !!bn && bn.textContent.includes("消去"));
+		bn.querySelector("button").click();   // 元に戻す
+		for (let i = 0; i < 100 && !(m()?.feats.size); i++) await sleep(100);
+		await sleep(200);
+		ok("clearUndo", m().stats().features === nf && !document.querySelector(".ge-banner"));
+	}
+
+	// ---- 起動時の復元＝confirm() なしで自動復元し、左下バナー「新規で始める」で破棄できる ----
+	{
+		const { idbSave } = await import("../src/io.js");
+		await editor.commitNow();
+		const buf = editor.layer.pbf.arrayBuffer.slice(0), nf = m().stats().features;
+		editor.destroy();
+		await idbSave({ buf, gridExp: 6, t: Date.now() });
+		const ed2 = initEditor(map);
+		for (let i = 0; i < 200 && !(ed2.model && ed2.model.feats.size); i++) await sleep(100);
+		ok("autoRestore", ed2.model?.stats().features === nf);
+		const bn = document.querySelector("#map #dock .ge-banner");
+		ok("restoreBanner", !!bn && bn.textContent.includes("復元"));
+		bn?.querySelector("button")?.click();   // 新規で始める
+		for (let i = 0; i < 50 && ed2.model?.feats.size; i++) await sleep(100);
+		ok("restoreDiscard", ed2.model?.feats.size === 0 && !document.querySelector(".ge-banner"));
+		ed2.destroy();
+	}
 	map.destroy();
 	ok("destroy", true);
-} catch (e) { ok("boot:" + (e && e.message || e), false); }
+} catch (e) { ok("boot:" + String(e && e.stack || e).replace(/\s+/g, "_"), false); }
 document.title = t.some(s => s.startsWith("NG") || s.startsWith("ERR")) ? "FAIL " + t.join(" ") : "PASS " + t.join(" ");
 </script></body></html>
