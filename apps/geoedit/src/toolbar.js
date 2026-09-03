@@ -28,9 +28,10 @@ const ICONS = {
 export function initToolbar(el, api, signal) {
 	el.hidden = false;
 	el.innerHTML = "";
-	const btn = (icon, title, fn) => {
+	// 吹き出し説明＝quiet-mono の data-tip 流儀（OS既定の title は廃止＝遅い/意匠が揃わない）。aria-label は読み上げ用に別途
+	const btn = (icon, tip, fn) => {
 		const b = document.createElement("button");
-		b.innerHTML = ICONS[icon] ?? icon; b.title = title;
+		b.innerHTML = ICONS[icon] ?? icon; b.dataset.tip = tip; b.setAttribute("aria-label", tip);
 		b.addEventListener("click", fn, { signal });
 		el.append(b);
 		return b;
@@ -62,7 +63,7 @@ export function initToolbar(el, api, signal) {
 	sep();
 	// ---- スナップ格子 ----
 	const snap = document.createElement("select");
-	snap.className = "ge-snap"; snap.title = "スナップ格子（度）";
+	snap.className = "ge-snap"; snap.title = "スナップ格子（度）"; snap.setAttribute("aria-label", "スナップ格子（度）");   // <select> は ::after を描けない＝title のまま
 	for (const e of [3, 4, 5, 6, 7]) {
 		const o = document.createElement("option");
 		o.value = e; o.textContent = `1e-${e}`;

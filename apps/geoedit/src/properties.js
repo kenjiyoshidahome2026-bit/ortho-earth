@@ -34,8 +34,9 @@ export function createPropsPanel(container, api, signal) {   // api={getFeature(
 		const h3 = document.createElement("h3"); h3.textContent = `#${eid}（${kindLabel}）`;
 		// 削除／閉じるは同じ太さ・サイズの単色ラインアイコンで揃える（絵文字🗑は色付きで浮くため）
 		const svg = d => `<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
-		const delB = Object.assign(document.createElement("button"), { className: "ge-icon-btn", innerHTML: svg('<path d="M4 7h16M9 7V4h6v3M6.5 7l1 13h9l1-13M10 11v6M14 11v6"/>'), title: "この要素を削除" });
-		const closeH = Object.assign(document.createElement("button"), { className: "ge-icon-btn", innerHTML: svg('<path d="M6 6l12 12M18 6L6 18"/>'), title: "閉じる" });
+		const iconBtn = (d, tip) => { const b = Object.assign(document.createElement("button"), { className: "ge-icon-btn", innerHTML: svg(d) }); b.dataset.tip = tip; b.setAttribute("aria-label", tip); return b; };   // 吹き出し＝data-tip（ツールバーと同じ流儀）
+		const delB = iconBtn('<path d="M4 7h16M9 7V4h6v3M6.5 7l1 13h9l1-13M10 11v6M14 11v6"/>', "この要素を削除（Delete）");
+		const closeH = iconBtn('<path d="M6 6l12 12M18 6L6 18"/>', "閉じる（Esc）");
 		delB.onclick = () => { const e = curEid; close(); api.onDelete?.(e); };
 		closeH.onclick = close;
 		head.append(h3, delB, closeH);

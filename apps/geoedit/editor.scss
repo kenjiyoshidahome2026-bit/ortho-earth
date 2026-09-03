@@ -17,8 +17,10 @@
 #toolbar {
 	position: absolute;
 	top: 10px;
-	left: 50%;
-	transform: translateX(-50%);
+	/* 中央寄せは left/right:0 + margin:auto + fit-content＝絶対配置の shrink-to-fit を親の全幅で計算させる。
+	   left:50%+translateX(-50%) だと利用可能幅が「50%から右端まで」＝画面の半分で折り返してしまう（flex-wrap 併用の罠・9/4実測） */
+	left: 0; right: 0; margin: 0 auto;
+	width: fit-content;
 	display: flex;
 	flex-wrap: wrap;               /* 狭画面＝16個のボタンを折り返す（はみ出して押せない列を作らない） */
 	justify-content: center;
@@ -49,6 +51,23 @@
 #toolbar button.on { background: rgba(120, 170, 255, .28); color: #fff; }
 #toolbar button:disabled { opacity: .35; cursor: default; }
 #toolbar .ge-sep { width: 1px; align-self: stretch; margin: 2px 3px; background: rgba(255, 255, 255, .14); }
+
+/* ボタンの吹き出し説明（data-tip）＝quiet-mono #gadgets と同じ所作（hover/focus でフェード・z-index 不使用＝::after は自ボタンの子・
+   タッチ端末は出さない）。ツールバーは上辺中央＝ボタンの下へ／パネルの頭のアイコンは右上＝左下へ出す。意匠は .ge-tip と同じ黒硝子 */
+#toolbar [data-tip], .ge-panel [data-tip] { position: relative; }
+#toolbar [data-tip]::after, .ge-panel [data-tip]::after {
+	content: attr(data-tip); position: absolute; top: calc(100% + 8px);
+	white-space: nowrap; pointer-events: none;
+	font: 12px/1.4 "Noto Sans JP", "Hiragino Sans", "Yu Gothic UI", "Yu Gothic", sans-serif; color: #fff;
+	background: rgba(16, 24, 44, .92); border: 1px solid rgba(255, 255, 255, .18);
+	border-radius: 5px; padding: 5px 9px; box-shadow: 0 3px 10px rgba(20, 30, 50, .25);
+	opacity: 0; transition: opacity .14s ease;
+}
+#toolbar [data-tip]::after { left: 50%; transform: translateX(-50%); }
+.ge-panel [data-tip]::after { right: 0; }
+#toolbar [data-tip]:hover::after, #toolbar [data-tip]:focus-visible::after,
+.ge-panel [data-tip]:hover::after, .ge-panel [data-tip]:focus-visible::after { opacity: 1; }
+@media (pointer: coarse) { #toolbar [data-tip]::after, .ge-panel [data-tip]::after { display: none; } }
 
 /* スナップ格子の段選択（1e-3〜1e-7） */
 #toolbar select.ge-snap {

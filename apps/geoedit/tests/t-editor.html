@@ -50,6 +50,7 @@ try {
 	await sleep(150);
 	ok("selectA", editor.state.selection === 0);
 	ok("stylePanel", !!document.querySelector(".ge-panel input[type=color]"));   // 選択＝日本語スタイルUI（色picker）が開く
+	ok("tooltips", document.querySelectorAll("#toolbar button[data-tip]").length >= 16 && !document.querySelector("#toolbar button[title]") && !!document.querySelector(".ge-panel .ge-icon-btn[data-tip]"));   // 吹き出し＝data-tip（OS title は無し）
 
 	// ---- 頂点ドラッグ：共有辺の角（139.76,35.69）＝ノード＝A/B両方が動く。パンが起きないことも確認 ----
 	const cen0 = JSON.stringify(map.view.center);
@@ -87,7 +88,7 @@ try {
 	// 格子を1e-3へ（2pxずれ≈19m＝1e-6の吸着半径0.11mでは届かない。粗格子で「近くを叩けば繋がる」を検証）
 	const snapSel = document.querySelector("#toolbar select.ge-snap");
 	snapSel.value = "3"; snapSel.dispatchEvent(new Event("change"));
-	document.querySelector('#toolbar button[title^="面"]').click();
+	document.querySelector('#toolbar button[data-tip^="面"]').click();
 	const q1 = map.projectLL(139.75, 35.68), q2 = map.projectLL(139.76, 35.68), q3 = map.projectLL(139.755, 35.674);
 	click(q1[0] + 2, q1[1] + 2);   // 2pxずらし＝スナップ（1e-6格子の吸着半径はセル1個＝ここでは既存頂点そのもの狙い）
 	click(q2[0] - 2, q2[1] + 2);
@@ -97,10 +98,10 @@ try {
 	ok("draw3rd", m().stats().features === 3);
 	const sharedAC = [...m().arcs.values()].some(a => a.refs.size === 2 && a.refs.has(0) && a.refs.has(2));
 	ok("sharedNew", sharedAC);
-	ok("toolAuto", document.querySelector('#toolbar button[title^="選択"]').classList.contains("on"));   // 作図完了＝選択ツールへ自動復帰（「描いた直後に頂点が動かせない」罠の回帰）
+	ok("toolAuto", document.querySelector('#toolbar button[data-tip^="選択"]').classList.contains("on"));   // 作図完了＝選択ツールへ自動復帰（「描いた直後に頂点が動かせない」罠の回帰）
 	// ---- 修飾キー付きの単キー（⌘C/⌘L…）はブラウザ操作＝ツール切替に化けない ----
 	key("c", { metaKey: true }); key("l", { ctrlKey: true });
-	ok("modKeyIgnored", document.querySelector('#toolbar button[title^="選択"]').classList.contains("on"));
+	ok("modKeyIgnored", document.querySelector('#toolbar button[data-tip^="選択"]').classList.contains("on"));
 	// ---- Alt+クリック＝頂点削除（doCmd 経由＝隠し集合に入り・undo で戻る）----
 	{
 		await editor.commitNow();   // 識別の真実源（gint）を作図後の姿へ
@@ -142,14 +143,14 @@ try {
 	ok("delC", m().stats().features === 2);
 
 	// ---- 点：配置（点ツール＝即選択）→解除→クリック選択（シンボル矩形＝ポリゴンAの上でも点が勝つ）----
-	document.querySelector('#toolbar button[title^="点"]').click();
+	document.querySelector('#toolbar button[data-tip^="点"]').click();
 	const pp = map.projectLL(139.754, 35.6835);   // Aの内側＝優先順位（シンボル＞面）も同時に検証
 	click(pp[0], pp[1]);
 	await sleep(150);
 	const ptEid = editor.state.selection;
 	ok("placePoint", ptEid != null && m().feats.get(ptEid)?.type === "Point");
 	key("Escape");
-	document.querySelector('#toolbar button[title^="選択"]').click();
+	document.querySelector('#toolbar button[data-tip^="選択"]').click();
 	await editor.commitNow();
 	const ps = map.projectLL(...m().feats.get(ptEid).coords[0]);
 	click(ps[0] + 3, ps[1] - 3);
@@ -157,7 +158,7 @@ try {
 	ok("selectPoint", editor.state.selection === ptEid);
 
 	// ---- 線：作図→解除→クリック選択（gint識別＝ズーム換算のピクセル許容）----
-	document.querySelector('#toolbar button[title^="線"]').click();
+	document.querySelector('#toolbar button[data-tip^="線"]').click();
 	const l1 = map.projectLL(139.765, 35.677), l2 = map.projectLL(139.772, 35.6745);
 	click(l1[0], l1[1]); click(l2[0], l2[1]);
 	key("Enter");
@@ -173,7 +174,7 @@ try {
 	ok("selectLine", editor.state.selection === lnEid);
 
 	// ---- 穴あけツール：Aの内側に三角リング→リング2本→undoで1本 ----
-	document.querySelector('#toolbar button[title^="穴"]').click();
+	document.querySelector('#toolbar button[data-tip^="穴"]').click();
 	const g1 = map.projectLL(139.7525, 35.6825), g2 = map.projectLL(139.7565, 35.6825), g3 = map.projectLL(139.7545, 35.6862);
 	click(g1[0], g1[1]); click(g2[0], g2[1]); click(g3[0], g3[1]);
 	await sleep(50);   // frame フック（確定バーの表示）
@@ -188,7 +189,7 @@ try {
 	ok("holeUndo", m().toGeoJSON().features[0].geometry.coordinates.length === 1);
 
 	// ---- テキストツール：既定文字で置ける（テキスト系ラベル＝図形なし） ----
-	document.querySelector('#toolbar button[title^="テキスト"]').click();
+	document.querySelector('#toolbar button[data-tip^="テキスト"]').click();
 	const tp = map.projectLL(139.768, 35.6865);
 	click(tp[0], tp[1]);
 	await sleep(150);
@@ -197,20 +198,20 @@ try {
 
 	// ---- 矩形・円（2点作図）と移動ツール ----
 	snapSel.value = "6"; snapSel.dispatchEvent(new Event("change"));   // 細かい形状のため格子を戻す
-	document.querySelector('#toolbar button[title^="矩形"]').click();
+	document.querySelector('#toolbar button[data-tip^="矩形"]').click();
 	const r1 = map.projectLL(139.744, 35.677), r2 = map.projectLL(139.747, 35.679);
 	click(r1[0], r1[1]); click(r2[0], r2[1]);
 	await sleep(250);
 	const rEid = editor.state.selection;
 	ok("rect", rEid != null && m().featureGeoJSON(rEid, false).geometry.coordinates[0].length === 5);
-	document.querySelector('#toolbar button[title^="円"]').click();
+	document.querySelector('#toolbar button[data-tip^="円"]').click();
 	const c1 = map.projectLL(139.7455, 35.6715), c2 = map.projectLL(139.7485, 35.6715);
 	click(c1[0], c1[1]); click(c2[0], c2[1]);
 	await sleep(250);
 	const cEid = editor.state.selection;
 	ok("circle", cEid != null && m().featureGeoJSON(cEid, false).geometry.coordinates[0].length >= 20);
 	await editor.commitNow();   // 識別（クリック選択）の真実源を最新化
-	document.querySelector('#toolbar button[title^="要素を移動"]').click();
+	document.querySelector('#toolbar button[data-tip^="要素を移動"]').click();
 	const rc = map.projectLL(139.7455, 35.678);
 	click(rc[0], rc[1]);
 	await sleep(120);
@@ -230,7 +231,7 @@ try {
 		key("Escape");
 		await editor.commitNow();
 		const n0 = m().stats().features;
-		document.querySelector('#toolbar button[title^="束ねる"]').click();
+		document.querySelector('#toolbar button[data-tip^="束ねる"]').click();
 		const a = map.projectLL(139.7515, 35.688), b = map.projectLL(139.7635, 35.6825);   // 点シンボル（139.754,35.6835）とテキスト（139.768,35.6865）の当たり矩形を避けた位置
 		click(a[0], a[1]); click(b[0], b[1]);
 		await sleep(80);
@@ -259,15 +260,15 @@ try {
 	}
 
 	// ---- 書き出し／クラウドのダイアログ＝同時に1枚（二重開き・積み重なりなし）----
-	document.querySelector('#toolbar button[title^="書き出し"]').click();
-	document.querySelector('#toolbar button[title^="書き出し"]').click();
+	document.querySelector('#toolbar button[data-tip^="書き出し"]').click();
+	document.querySelector('#toolbar button[data-tip^="書き出し"]').click();
 	ok("dialogDedupe", document.querySelectorAll(".ge-dialog").length === 1);
 	document.querySelector(".ge-dialog")?.remove();
 
 	// ---- 全消去＝確認なしで即消去、左下バナー「元に戻す」で復帰 ----
 	{
 		const nf = m().stats().features;
-		document.querySelector('#toolbar button[title^="全消去"]').click();
+		document.querySelector('#toolbar button[data-tip^="全消去"]').click();
 		for (let i = 0; i < 50 && m()?.feats.size; i++) await sleep(100);
 		const bn = document.querySelector("#map #dock .ge-banner");
 		ok("clearAll", m().feats.size === 0 && !!bn && bn.textContent.includes("消去"));
