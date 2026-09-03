@@ -74,13 +74,15 @@ const Q = new URLSearchParams(location.search);
 const LARGE_BYTES = (() => { const n = +Q.get("th"); return Math.round((n > 0 ? n : 64) * 1048576); })();
 const LARGE_VERTS = (() => { const n = +Q.get("tv"); return n > 0 ? Math.round(n) : 2_000_000; })();
 
-export function initEditor(map, { adopt = true } = {}) {   // adopt＝表示中のユーザーデータ（ドロップ/?g=）があればそれを編集へ取り込む
+export function initEditor(map, { adopt = true, setDropOwner = null } = {}) {   // adopt＝表示中のユーザーデータ（ドロップ/?g=）があればそれを編集へ取り込む／setDropOwner＝本体地図の dropFile を譲らせる手綱（app が注入）
 	const mapEl = map.mapEl;
 	const ac = new AbortController(), signal = ac.signal;
 	if (!document.getElementById("ge-css")) { const st = document.createElement("style"); st.id = "ge-css"; st.textContent = css; document.head.append(st); }
 	// 真上固定＝編集中はチルト上限 0（オーバレイは地形リフト・裏半球を考えない設計）。destroy で搭載前の上限へ戻す
-	const prevMaxPitch = map.maxPitch?.();
+	const prevMaxPitch = map.maxPitch?.(), prevZoomMin = map.zoomMin?.();
 	map.setMaxPitch?.(0);
+	map.setZoomMin?.(2.5);   // 編集の縮尺は z>2.5（本人裁定 9/4）＝編集ボタンの出現域（z>2.5）から下へ落ちない
+	setDropOwner?.(true);
 	// ツールバー＝mapEl 直下（DOM順＝エンジン家具の後＝上に重なる。z-index 不使用の掟）
 	const toolbarEl = document.createElement("div");
 	toolbarEl.id = "ge-toolbar"; toolbarEl.hidden = true;
@@ -497,7 +499,7 @@ export function initEditor(map, { adopt = true } = {}) {   // adopt＝表示中�
 	ed.bar = bar;
 	bar.syncHist(false, false);
 
-	installContextMenu(ed);
+	const ctxRestore = installContextMenu(ed);   // 本体地図＝既定メニューの項目を差し替え（destroy で戻す）
 	initDrop(mapEl, importFile, signal);   // 取り込み（ドロップ）
 
 	// ---- 画面上の「確定／取消」バー（タッチ端末＝Enter/Esc が無い）：作図中（頂点1つ以上）と束ね中だけ出す。
@@ -548,7 +550,7 @@ export function initEditor(map, { adopt = true } = {}) {   // adopt＝表示中�
 		destroy() {
 			ac.abort(); map.setEditClick(null); overlay.destroy(); popLayer.destroy(); clearTimeout(commitTimer); tip.hide(); rpc.terminate(); unsubConfirm();
 			confirmBar.remove(); toolbarEl.remove(); props.close(); mapEl.querySelectorAll(".ge-panel, .ge-toast, .ge-banner").forEach(el => el.remove());
-			map.setMaxPitch?.(prevMaxPitch ?? null);
+			map.setMaxPitch?.(prevMaxPitch ?? null); map.setZoomMin?.(prevZoomMin ?? null); setDropOwner?.(false); ctxRestore?.();
 		},
 		get state() { return st; },
 		get model() { return st.model; },

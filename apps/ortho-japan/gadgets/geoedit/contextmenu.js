@@ -19,9 +19,9 @@ const t = tr({
 // 上段＝要素への操作（選択/削除/合成/ばらす）を文脈で出し分け、下段＝「ここに〜」の作図＋座標コピー。
 const copyLL = c => c.lng != null && navigator.clipboard?.writeText(`${c.lat.toFixed(6)}, ${c.lng.toFixed(6)}`);
 
-export function installContextMenu(ed) {
+export function installContextMenu(ed) {   // 戻り値＝項目を搭載前（既定）へ戻す関数（本体地図に載った時の後片付け）
 	const { st, map, popLayer, drawDefaults } = ed;
-	map.gadget.contextmenu({
+	const cm = map.gadget.contextmenu({
 		items: ctx => {
 			const m = st.model;
 			const under = ctx.lng != null ? ed.pick(ctx.x, ctx.y, [ctx.lng, ctx.lat]) : null;
@@ -61,4 +61,5 @@ export function installContextMenu(ed) {
 			return out;
 		},
 	});
+	return () => cm?.setItems?.(null);
 }

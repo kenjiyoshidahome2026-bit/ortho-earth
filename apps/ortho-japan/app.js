@@ -42,7 +42,8 @@ import { qr as qrGadget } from "./gadgets/qr-stub.js";   // 玄関スタブ＝�
 import { japan as japanGadget } from "./gadgets/japan.js";
 import { print as printGadget } from "./gadgets/print-stub.js";   // 本体(print.js)は初回起動時にimport()＝初期バンドルから隔離
 import { close as closeGadget } from "./gadgets/close.js";
-import { dropFile as dropFileGadget, gunzipText } from "./gadgets/dropfile.js";   // dropfileは起動時常駐（ドロップ受付）＝静的一本。gunzipTextもここから（動的importと混ぜるとチャンク分割が死ぬ）
+import { dropFile as dropFileGadget, gunzipText } from "./gadgets/dropfile.js";
+import { edit as editGadget } from "./gadgets/edit.js";   // 編集ボタン（本体は gadgets/geoedit の遅延chunk＝これは入口だけ）   // dropfileは起動時常駐（ドロップ受付）＝静的一本。gunzipTextもここから（動的importと混ぜるとチャンク分割が死ぬ）
 import { demo as demoGadget } from "./gadgets/demo-stub.js";   // 玄関スタブ＝同期ファサードを即返し、本体(demo.js＝再生エンジン)は搭載時に import()＝初期バンドルから隔離
 import { parseScenes } from "./demo/scene-adapter.js";   // 共有シーン台本(type:"scenes")→ demo プレーヤー受け渡しの純関数（ドロップ/?scene= 再生／将来のエディタで共有）
 import { buildSceneTimeline } from "./demo/scene-timeline.js";   // 台本→総タイムライン（時刻評価・純関数）＝スクラブの芯（map.sceneTimeline が env と画面適用を束ねる）
@@ -1612,6 +1613,8 @@ const ZOOM_MIN = 1;          // 床1＝地球全体を余白つきで（z1=世�
 const SOLAR_ZOOM_MIN = -17;
 const solarOff = new URLSearchParams(location.search).has("nosolar");
 const CAM_ZOOM_MIN = solarOff ? ZOOM_MIN : SOLAR_ZOOM_MIN;   // カメラ実床（手動系はこちら）
+let zoomMinCur = CAM_ZOOM_MIN;   // 現在のズーム床＝map.setZoomMin で実行時に上げられる（編集ガジェット＝z2.5・解除で CAM_ZOOM_MIN へ）
+let editDropOwner = false;       // 編集ガジェットがドロップを所有中＝dropFile ガジェットは譲る
 let atmo = theme.atmo;              // 大気色 rgb + 強さ（テーマ台帳のノブ＝palettes.js）※生き替えで差し替わる
 let bldColor = theme.bldColor;      // 建物色（テーマ台帳のノブ＝palettes.js）※生き替えで差し替わる
 // cam＝幾何のみ（center/zoom/pitch/bearing/dpr）＝毎フレームの draw payload（将来の worker 境界）。
@@ -1623,7 +1626,7 @@ const cam = { center: [JAPAN_VIEW[0], JAPAN_VIEW[1]], zoom: JAPAN_VIEW[2], pitch
 // 書き戻す＝アドレスバーが常に「今この視点の共有URL」（コピーするだけで人に渡る＝発表・拡散の生命線）。
 function applyCamView(v) {
 	cam.center = [wrapLon(v.lon), Math.max(-90, Math.min(90, v.lat))];
-	cam.zoom = Math.max(CAM_ZOOM_MIN, Math.min(ZOOM_MAX, v.zoom));   // URL/復元は太陽系圏の深度も受ける
+	cam.zoom = Math.max(zoomMinCur, Math.min(ZOOM_MAX, v.zoom));   // URL/復元は太陽系圏の深度も受ける（編集中は z2.5 床）
 	cam.pitch = Math.max(0, Math.min(maxPitchCur, v.pitch || 0));   // 共有hashのtiltも派生アプリの上限に従う（geoedit=0）
 	cam.bearing = Number.isFinite(v.bearing) ? v.bearing : 0;
 }
@@ -2575,7 +2578,7 @@ let measureBody = null, profileBody = null;
 let editClick = null;      // 派生アプリ編集モード（geoedit）中だけ非null＝同上（map.setEditClick で装着/解除）
 // zoomMin の二重指定（前:ZOOM_MIN 後:2＝後勝ちで床2）を解消（2026-08-10）＝ホイール/ピンチも太陽系圏へ潜れる
 const input = createInput({
-	canvas, cam, size, dpr, maxPitch: maxPitchCur, zoomMin: CAM_ZOOM_MIN, zoomMax: ZOOM_MAX, onMove, signal: ac.signal,   // opts.maxPitch＝派生アプリのチルト上限（0=俯瞰固定＝geoedit）。??＝0を殺さない
+	canvas, cam, size, dpr, maxPitch: maxPitchCur, zoomMin: zoomMinCur, zoomMax: ZOOM_MAX, onMove, signal: ac.signal,   // opts.maxPitch＝派生アプリのチルト上限（0=俯瞰固定＝geoedit）。??＝0を殺さない
 	blocked: () => modalOpen(mapEl),   // モーダル表示中は矢印キーで背後の地図を動かさない（文字入力中は input.js が自前で判定）
 	onGesture: () => flightCtl.cancel(),
 	onClick: (x, y) => {
@@ -2693,7 +2696,7 @@ schedulePos();   // 起動直後からスケールを出す（真俯瞰復元時
 
 // --- 球面フライト：実装は engine（flight.js＝三段振り付け＋van Wijk厳密解）。ここは配線だけ。
 // onFlying＝autoPlateau のゲート（飛行中はPLATEAU完全停止・着地の瞬間に解禁＝立ち上がりが着陸の演出）。
-const flightCtl = createFlight({ cam, viewW: () => size.w, maxPitch: maxPitchCur, minZoom: CAM_ZOOM_MIN, onMove, onFlying: f => {   // 飛行床＝カメラ実床（太陽系圏へ台本から飛べる・?nosolar時は1）
+const flightCtl = createFlight({ cam, viewW: () => size.w, maxPitch: maxPitchCur, minZoom: zoomMinCur, onMove, onFlying: f => {   // 飛行床＝カメラ実床（太陽系圏へ台本から飛べる・?nosolar時は1）
 	flying = f;
 	if (!f && suppressCoast) { suppressCoast = false; updateGintSlot(); }   // 着地＝抑制解除→再評価（着地が低ズームなら海岸線が戻る）
 } });
@@ -3396,6 +3399,14 @@ map.setMaxPitch = rad => {
 	needsDraw = true;
 };
 map.maxPitch = () => maxPitchCur;
+// ズーム床の実行時変更（編集ガジェット＝z2.5・null=カメラ実床へ戻す）。入力・飛行・共有hash・ズームボタンの4経路が従う
+map.setZoomMin = z => {
+	zoomMinCur = z ?? CAM_ZOOM_MIN;
+	input.setZoomMin(zoomMinCur); flightCtl.setMinZoom(zoomMinCur);
+	if (cam.zoom < zoomMinCur) { flightCtl.cancel(); cam.zoom = zoomMinCur; onMove(); }
+	needsDraw = true;
+};
+map.zoomMin = () => zoomMinCur;
 map.userPbf = () => userGint?.pbf ?? null;   // 表示中のユーザー gint（ドロップ/?g=）の geopbf＝編集ガジェットへの受け渡し口（同じデータを一手で編集へ）
 map.onFrame = fn => { frameHooks.add(fn); return () => frameHooks.delete(fn); };
 map.onGintClick = fn => { gintClickHandler = fn; };
@@ -3452,7 +3463,7 @@ map.gadget("palette", function (opts) {   // 配色テーマ・ピッカー … 
 });
 map.gadget("zoom", function (opts) {   // ズーム＋/− … フライト中断・onMove・z範囲はここで注入
 	// zoomMin はカメラ実床（太陽系圏込み）＝ズームボタンでも太陽系の底まで降りられる（旧床2の取り残し解消 2026-08-10）
-	return zoomGadget.call(this, { cancelFlight: () => flightCtl.cancel(), onMove, zoomMin: CAM_ZOOM_MIN, zoomMax: ZOOM_MAX, signal: ac.signal, ...opts });
+	return zoomGadget.call(this, { cancelFlight: () => flightCtl.cancel(), onMove, zoomMin: () => zoomMinCur, zoomMax: ZOOM_MAX, signal: ac.signal, ...opts });   // 床は関数＝編集中の z2.5 に追随
 });
 map.gadget("full", function (opts) {   // 全画面トグル … destroy用のsignalはここで注入
 	return fullGadget.call(this, { signal: ac.signal, ...opts });
@@ -3837,10 +3848,13 @@ const loadUserFile = async file => {
 	return pbf;   // gadget が pbf.length（地物数）をトーストに使う
 };
 map.gadget("dropFile", function (opts) {   // GISファイルのD&D取り込み … loadUserFile（上）を束ね注入（gint単一スロット＝置き換え）
-	return dropFileGadget.call(this, { loadFile: loadUserFile, clearGint: () => { annoCtl?.clear(); clearUserGint(); }, playScene, busy: playingNow, signal: ac.signal, ...opts });   // busy＝上映中はドロップ無視（デモ中はドロップ禁止）。消去は注釈レイヤも一緒に
+	return dropFileGadget.call(this, { loadFile: loadUserFile, clearGint: () => { annoCtl?.clear(); clearUserGint(); }, playScene, busy: playingNow, yieldTo: () => editDropOwner, signal: ac.signal, ...opts });   // busy＝上映中はドロップ無視（デモ中はドロップ禁止）。消去は注釈レイヤも一緒に
 });
 map.gadget("geoedit", function (opts) {   // GeoPBF トポロジカル編集（旧 apps/geoedit → gadgets/geoedit・遅延chunk）… 公開面だけで動く＝ここは import と結線だけ。戻り値＝Promise<editor>
-	return import("./gadgets/geoedit/controller.js").then(m => m.initEditor(this, opts));
+	return import("./gadgets/geoedit/controller.js").then(m => m.initEditor(this, { setDropOwner: on => { editDropOwner = !!on; }, ...opts }));   // 搭載中はドロップをエディタが所有（dropFile は譲る）
+});
+map.gadget("edit", function (opts) {   // 編集ボタン（左上スタック）… 押すと map.gadget.geoedit() を搭載/解除。出現域は搭載側の zoom 宣言（site.js＝[2.5,99]）
+	return editGadget.call(this, { mount: () => map.gadget.geoedit(), signal: ac.signal, ...opts });
 });
 map.gadget("demo", function (opts) {   // デモ（発表の台本再生）… 台本の一行=共有URLハッシュ。flyView（球面フライト）・フライト中判定・PLATEAU先読み・現テーマ名（幕替わり判定）を注入
 	const japanFit = () => {   // 終演の定位置＝日本列島が画面に収まる真俯瞰・北向き（fitBbox と同じ視野幅の逆解き＝縦横どちらの画面でも収まる）

@@ -22,7 +22,8 @@ export function zoom({ cancelFlight, onMove, zoomMin = 2, zoomMax = 21, signal }
 		if (raf) cancelAnimationFrame(raf);   // 連打は今の到達点から次段へ（アニメを積まない）
 		const z0 = cam.zoom;
 		// v1 と同じ段取り＝端数があっても必ず「次の整数」へ寄る（in=floor(z+1) / out=ceil(z-1)）
-		const z1 = Math.max(zoomMin, Math.min(zoomMax, delta > 0 ? Math.floor(z0 + 1) : Math.ceil(z0 - 1)));
+		const zmin = typeof zoomMin === "function" ? zoomMin() : zoomMin;   // 関数＝実行時の床（編集中の z2.5 等）に追随
+		const z1 = Math.max(zmin, Math.min(zoomMax, delta > 0 ? Math.floor(z0 + 1) : Math.ceil(z0 - 1)));
 		if (z1 === z0) return;
 		const t0 = performance.now(), dur = 260;
 		const step = () => {

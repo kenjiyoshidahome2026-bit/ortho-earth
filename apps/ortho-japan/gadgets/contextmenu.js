@@ -9,12 +9,13 @@ import { tr } from "../i18n.js";
 const t = tr({ "この地点へ寄る": "Zoom to this point", "座標をコピー": "Copy coordinates" });
 export function contextmenu({ unprojectAt, signal, items } = {}) {
 	const mapEl = this.mapEl, cam = this.cam, flyTo = this.flyTo, map = this;
-	if (mapEl.querySelector("#ctxmenu")) return () => {};   // 二重搭載は無害
+	if (mapEl.querySelector("#ctxmenu")) { if (items !== undefined) mapEl._ctxSetItems?.(items); return { setItems: fn => mapEl._ctxSetItems?.(fn) }; }   // 二重搭載＝項目の差し替えだけ受ける（編集ガジェットが本体地図に載る時＝既定へ戻すのは setItems(null)）
 	const DEFAULT = [
 		{ name: t("この地点へ寄る"), onClick: c => c.lng != null && flyTo(c.lng, c.lat, Math.max(cam.zoom, 15), cam.pitch * 180 / Math.PI) },
 		{ name: t("座標をコピー"), onClick: c => c.lng != null && navigator.clipboard?.writeText(`${c.lat.toFixed(6)}, ${c.lng.toFixed(6)}`) },
 	];
 	let list = items || DEFAULT;
+	mapEl._ctxSetItems = fn => { list = fn || DEFAULT; };
 	const menu = document.createElement("div");
 	menu.id = "ctxmenu"; menu.style.display = "none";
 	// 後置＝#map 直下（DOM順で上に描く。z-index不使用の掟）。

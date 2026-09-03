@@ -299,8 +299,22 @@ try {
 		const ed3 = initEditor(map);
 		for (let i = 0; i < 200 && !(ed3.model && ed3.model.feats.size); i++) await sleep(100);
 		ok("adoptViewer", !!map.userPbf?.() && ed3.model?.stats().features === nf && /取り込み/.test(document.querySelector("#map #dock .ge-banner")?.textContent || "") && ![...ed3.model.feats.values()].some(f => f.properties && "__eid" in f.properties));
+		ok("zoomFloor", map.zoomMin() === 2.5);   // 編集中＝縮尺は z>2.5（本人裁定）
 		ed3.destroy();
 		ok("pitchRestore", map.maxPitch() === 0);   // このページは maxPitch:0 で起動＝destroy で搭載前の値（0）へ戻る
+		ok("zoomRestore", map.zoomMin() < 2.5);    // ズーム床も搭載前（カメラ実床）へ
+	}
+	// 編集ボタン（gadget edit）＝押すと geoedit を搭載（adopt）・もう一度で解除。右クリックの項目は搭載中だけ編集用（destroy で既定へ）
+	{
+		map.gadget.contextmenu();   // 本体地図と同じ順＝既定メニューが先に居る → エディタは項目を差し替えるだけ
+		const eg = map.gadget.edit();
+		const btn = document.getElementById("edit-btn");
+		ok("editBtn", !!btn && btn.getAttribute("aria-pressed") === "false" && !document.getElementById("ge-toolbar"));
+		const ed4 = await eg.toggle();
+		for (let i = 0; i < 100 && !(ed4?.model); i++) await sleep(100);
+		ok("editOn", !!ed4 && !!document.getElementById("ge-toolbar") && btn.classList.contains("on") && map.zoomMin() === 2.5 && map.maxPitch() === 0);
+		await eg.toggle();
+		ok("editOff", !eg.editor && !document.getElementById("ge-toolbar") && !btn.classList.contains("on") && map.zoomMin() < 2.5 && !document.querySelector(".ge-panel"));
 	}
 	map.destroy();
 	ok("destroy", true);

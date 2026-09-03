@@ -48,7 +48,7 @@ export async function sniffScene(file) {
 }
 
 // busy＝上映中判定（app が注入・任意）：デモ/シーン再生の上映中はドロップを無視する（上映と積み込み・flyTo が喧嘩しない）。
-export function dropFile({ loadFile, clearGint, playScene, busy, signal } = {}) {
+export function dropFile({ yieldTo, loadFile, clearGint, playScene, busy, signal } = {}) {
 	const mapEl = this.mapEl;
 	if (mapEl.querySelector("#dropzone")) return () => {};   // 二重搭載は無害
 
@@ -117,6 +117,7 @@ export function dropFile({ loadFile, clearGint, playScene, busy, signal } = {}) 
 		e.preventDefault(); depth = 0; arm(false);
 		const files = Array.from(e.dataTransfer.files || []);
 		if (!files.length) return;
+		if (yieldTo?.()) return;   // 編集ガジェットが載っている＝ドロップはエディタの取込へ（ビューアは黙って譲る）
 		if (busy?.()) { say(t("🎬 上映中はドロップ無効")); return; }   // デモ中はドロップ禁止（無視）＝台本もGISファイルも受けない
 		for (const file of files) {   // 単一スロット置き換え＝順に読み最後の1枚が残る
 			const scene = playScene ? await sniffScene(file) : null;   // シーン台本(.scenes / type:"scenes")＝プレーヤーへ回す（geopbf に渡さない）

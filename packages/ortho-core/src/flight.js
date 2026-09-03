@@ -172,8 +172,8 @@ export function glidePathPlan(cam0, env, pts) {
 export function createFlight({ cam, viewW, maxPitch, minZoom = 0, onMove, onFlying = () => {} }) {
 	let flight = null;
 	const snap = () => ({ lon: cam.center[0], lat: cam.center[1], zoom: cam.zoom, pitch: cam.pitch, bearing: cam.bearing });
-	let maxPitchCur = maxPitch;   // 実行時に変えられる（app の setMaxPitch＝飛行の着地チルトも上限に従う）
-	const env = () => ({ viewW: viewW(), maxPitch: maxPitchCur, minZoom });
+	let maxPitchCur = maxPitch, minZoomCur = minZoom;   // 実行時に変えられる（app の setMaxPitch/setZoomMin＝飛行の着地も上限/床に従う）
+	const env = () => ({ viewW: viewW(), maxPitch: maxPitchCur, minZoom: minZoomCur });
 	// プランをなぞる唯一のループ。着地(land)は「その次の onMove から」重い自動ロード解禁＝旧 tween 連鎖と同じ拍。
 	// 時計＝刻み上限つき仮想時計（裁定 2026-08-12「非力端末は連続に滑るを優先」）：1フレームで STEP_MAX_MS までしか
 	// 時を進めない＝低fps（重い都市を描くドリー等）では「大股に飛ぶ」でなく「ゆっくり滑る」（尺は伸びる側に倒す）。
@@ -205,7 +205,7 @@ export function createFlight({ cam, viewW, maxPitch, minZoom = 0, onMove, onFlyi
 	function flyTo(lon, lat, zoom, tiltDeg, bearingDeg) { run(flyPlan(snap(), env(), lon, lat, zoom, tiltDeg, bearingDeg)); }
 	function glideTo(lon, lat, zoom, tiltDeg, bearingDeg) { run(glidePlan(snap(), env(), lon, lat, zoom, tiltDeg, bearingDeg)); }
 	function glidePath(pts) { if (Array.isArray(pts) && pts.length >= 1) run(glidePathPlan(snap(), env(), pts)); }
-	return { flyTo, glideTo, glidePath, cancel: () => { if (flight) flight.cancel(); }, get active() { return !!flight; }, setMaxPitch: v => { maxPitchCur = v; },
+	return { flyTo, glideTo, glidePath, cancel: () => { if (flight) flight.cancel(); }, get active() { return !!flight; }, setMaxPitch: v => { maxPitchCur = v; }, setMinZoom: v => { minZoomCur = v; },
 		plan: {
 			fly: (cam0, lon, lat, zoom, tiltDeg, bearingDeg) => flyPlan(cam0 ?? snap(), env(), lon, lat, zoom, tiltDeg, bearingDeg),
 			glide: (cam0, lon, lat, zoom, tiltDeg, bearingDeg) => glidePlan(cam0 ?? snap(), env(), lon, lat, zoom, tiltDeg, bearingDeg),
