@@ -59,7 +59,8 @@ export function antimeridianFeature(feature) {
             }
             return s;
         };
-        const rw = t => (t.type === "Polygon" ? [t.coordinates] : t.coordinates || []).forEach(p => (p || []).forEach((r, i) => {
+        // 巻き方向の正規化は面だけ。線（LineString/MultiLineString）に走ると点や数値を「空リング」と誤認して警告が出ていた。
+        const rw = t => (!t.type || !t.type.includes("Polygon")) ? void 0 : (t.type === "Polygon" ? [t.coordinates] : t.coordinates || []).forEach(p => (p || []).forEach((r, i) => {
             if (!r || !r.length) { _tcWarn("toClockwise: undefined/empty ring at", i, p); return; }
             const s = fix(r); if ((!i && s < 0) || (i && s > 0)) r.reverse();
         }));

@@ -39,6 +39,8 @@ class GeoPBF {
 	attribution(s) { return (s === undefined) ? this._attribution : this.updateHeader({ attribution: this._attribution = s }); }
 	minZoom(v) { return (v === undefined) ? this._minZoom : this.updateHeader({ minZoom: this._minZoom = v }); }
 	maxZoom(v) { return (v === undefined) ? this._maxZoom : this.updateHeader({ maxZoom: this._maxZoom = v }); }
+	// 座標の小数桁（ヘッダ PRECISION）の公開アクセサ＝読み取り専用。変更（再エンコード）は extension/precision.js が pbf.js で precision(n) として被せる。
+	precision() { return this._precision; }
 	init() { this.keys = [], this.bufs = [], this.fmap = [], this.bin = {}; this.props = []; delete this.end; delete this.ctx; delete this.proj; return this; }
 	empty() { this.pbf = new Pbf(); this.init(); this.name(""); return this; }
 	destroy() {
