@@ -30,6 +30,35 @@ pbf.contain(lng, lat)   // → which feature contains this point (smallest-wins)
 - **Feature ops**: `centroid`, `area`, `lineLength`, `getBbox`, `classify`, `map`/`filter` clones, CSV/property tables
 - **Attribution fields**: `description`, `license`, `attribution` travel inside the file — data provenance is part of the format
 
+## Command line (`npx geopbf`)
+
+The library is browser-first, but the core encoder/decoder runs on plain Node — so the package also ships a
+small CLI for the things you would otherwise open a browser for. No build step, no GDAL, no extra dependencies.
+
+```bash
+npx geopbf enc ne_10m_admin_0_countries.geojson countries.geopbf   # 13.3 MB -> 3.3 MB  (257 ms)
+npx geopbf enc in.geojson out.geopbf --precision 7 --gzip          # 1 cm grid, gzipped (the distribution form)
+npx geopbf info countries.geopbf                                   # features, vertices, precision, header fields
+npx geopbf dec countries.geopbf back.geojson                       # round trip
+npx geopbf lod countries.geopbf                                    # what Gint would actually draw, per zoom
+```
+
+`lod` assigns the Visvalingam-Whyatt ranks that Gint packs into the low 6 bits of each vertex and prints how many
+vertices survive the `3 * (21 - z)` threshold at each zoom — the number that explains why no level of detail has to
+be baked on a server:
+
+```
+  z  threshold      描画頂点   残存率
+   0   63         9,742     1.8%  #
+   4   51        38,330     7.0%  ###
+   8   39       395,448    72.1%  #############################
+  21    0       548,469   100.0%  ########################################
+```
+
+Gzip input is detected by signature, not by extension. For formats other than GeoJSON — Shapefile, GPKG, PostGIS,
+FlatGeobuf and everything else GDAL reads — use the [GDAL/OGR driver](https://github.com/kenjiyoshidahome2026-bit/gdal-geopbf)
+(`ogr2ogr -f GeoPBF`, needs GDAL ≥ 3.12), or the browser workers in `src/index.js`.
+
 ## Storage / caching (optional injection)
 
 Out of the box, `createGeopbf()` fetches plainly and re-converts on every load — correct, dependency-free, cache-less. If you have your own storage layer (IndexedDB cache, remote bucket, proxied fetch), inject it:

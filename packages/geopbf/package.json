@@ -9,9 +9,11 @@
 	"license": "MIT",
 	"type": "module",
 	"files": [
+		"bin",
 		"src",
 		"wasm/pkg"
 	],
+	"bin": { "geopbf": "./bin/geopbf.mjs" },
 	"main": "src/index.js",
 	"exports": {
 		".": "./src/index.js",
@@ -34,7 +36,7 @@
 		"./fname2mime": "./src/modules/fname2mime.js"
 	},
 	"scripts": {
-		"test": "node tests/t-maplibre.mjs && node tests/t-leaflet.mjs && node tests/t-openlayers.mjs && node tests/t-loaders.mjs && npm run test:edit",
+		"test": "node tests/t-maplibre.mjs && node tests/t-leaflet.mjs && node tests/t-openlayers.mjs && node tests/t-loaders.mjs && node tests/t-cli.mjs && npm run test:edit",
 		"test:edit": "node tests/edit/t-model.mjs && node tests/edit/t-snap.mjs && node tests/edit/t-roundtrip.mjs && node tests/edit/t-history.mjs && node tests/edit/t-combine.mjs && node tests/edit/t-large.mjs && node tests/edit/t-large-edit.mjs",
 		"summary": "repomix --style markdown --output project_summary.md",
 		"verify:npm": "node scripts/verify-npm.mjs",
