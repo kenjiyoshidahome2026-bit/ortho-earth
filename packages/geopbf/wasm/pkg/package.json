@@ -2,6 +2,7 @@
   "name": "gint-wasm",
   "type": "module",
   "version": "0.1.0",
+  "license": "MIT",
   "files": [
     "gint_wasm_bg.wasm",
     "gint_wasm.js",

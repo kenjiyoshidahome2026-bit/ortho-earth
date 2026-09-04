@@ -2,6 +2,7 @@
 name = "gint-wasm"
 version = "0.1.0"
 edition = "2021"
+license = "MIT"          # geopbf 同梱（MIT）＝wasm-pack 生成の pkg/package.json にも license が乗る
 
 # 🌟 1. WASMライブラリ（cdylib）としてコンパイルするための必須設定
 [lib]
