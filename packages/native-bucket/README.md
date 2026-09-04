@@ -7,6 +7,8 @@ A high-performance bridge between **Cloudflare Edge (R2/Workers)** and **Browser
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 ![Size](https://img.shields.io/badge/Size-6.6KB-brightgreen.svg)
 
+> **Repo layout note** — development happens in the [ortho-earth monorepo](https://github.com/kenjiyoshidahome2026-bit/ortho-earth) (`packages/native-bucket`); this standalone repo is a read-only mirror synced on each release. Issues are welcome here; patches land in the monorepo. / 開発はモノレポ側で行い、ここはリリースごとに同期される公開ミラーです（Issue歓迎・変更はモノレポへ）。
+
 ---
 
 ## 🏗 System Architecture

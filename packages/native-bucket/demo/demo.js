@@ -68,7 +68,7 @@ startBtn.addEventListener('click', exec);
 async function exec(event) { if (event) event.preventDefault();
 	startBtn.disabled = true;
 	output.innerHTML = '';
-	const { Fetch, Bucket, Cache } = nativeBucket();
+	const { Fetch, Bucket, Cache } = nativeBucket("https://api.ortho-earth.com");
 	try {
 		step("Data Resource Definition");
 		const targetURL = `https://nlftp.mlit.go.jp/ksj/gml/data/N03/N03-2025/N03-20250101_GML.zip`;
@@ -83,7 +83,7 @@ async function exec(event) { if (event) event.preventDefault();
 		await delay(1000);
 	////-------------------------------------------------------------------------------------------  
 		step("Full Archive Ingestion via Proxy");
-		cmd(`const { Fetch, Bucket, Cache } = nativeBucket();\nconst zipFile = await Fetch(targetURL);`);
+		cmd(`const { Fetch, Bucket, Cache } = nativeBucket("https://api.ortho-earth.com");\nconst zipFile = await Fetch(targetURL);`);
 		currentPhase = "Downloading ZIP";
 		progressElement = log("📡 Progress:", "warn");
 		const t1 = performance.now();
