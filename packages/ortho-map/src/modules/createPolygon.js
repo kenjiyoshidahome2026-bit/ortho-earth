@@ -5,8 +5,8 @@ import { geoArea, geoCentroid, geoInterpolate, geoPath } from "d3-geo";
 // 計測値は WGS84（Vincenty 距離＋authalic 面積）＝ortho-japan measure ガジェットと同じ台帳。
 // サブパス import＝geodesic.js は依存ゼロの純関数のみ（index.js 経由だと GL エンジン一式が芋づる）。
 import { geodesicDistance, geodesicArea } from "ortho-core/geodesic";
-import { comma } from "./utility.js";
-import { antimeridianCut } from "./antimeridianCut.js";
+// common（MIT）は ortho-core（GPL）を取り込めない＝この道具は GPL の ortho-map 側に置く（gadget1 の measure 専用）。
+import { comma, antimeridianCut } from "common";
 
 export function createPolygon(layer, opts = {}) {
 	const map = layer.base, { dispatcher, proj, layers, cursor, isTouchDevice, isEditable } = map;

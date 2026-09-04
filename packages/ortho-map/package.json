@@ -16,6 +16,7 @@
 	},
 	"dependencies": {
 		"common": "*",
+		"ortho-core": "*",
 		"native-bucket": "*",
 		"geopbf": "*",
 		"altpbf": "*"

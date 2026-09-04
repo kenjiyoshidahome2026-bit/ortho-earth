@@ -1,5 +1,6 @@
 import * as d3 from 'd3';
-import { datimArray, download, createPolygon } from "common";
+import { datimArray, download } from "common";
+import { createPolygon } from "./createPolygon.js";
 import "common/d3/selection.js";
 import { cleanup } from "common/d3/tip-pop.js";
 import { gadgetIcons, tooltips } from "../modules/icons.js";
