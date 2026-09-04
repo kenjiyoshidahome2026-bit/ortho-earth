@@ -4,7 +4,7 @@
 //   2. 近対蹠フォールバック: 有限・連続（±1% 以内）
 //   3. 面積: 八分円（球論値と厳密一致）・経緯線矩形を「楕円体面素 M·N·cosφ の数値積分」と突合（独立式）
 //   4. 曲率半径: N(0)=a・N/M の緯度依存の向き
-// 使い方: node packages/ortho-core/tests/geodesic.mjs
+// 使い方: node packages/common/tests/geodesic.mjs
 import { geodesicDistance, geodesicArea, primeVerticalRadius, meridionalRadius,
          AUTHALIC_R, WGS84 } from '../src/geodesic.js';
 

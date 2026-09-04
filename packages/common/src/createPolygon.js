@@ -3,8 +3,8 @@
 import { select } from "d3-selection";
 import { geoArea, geoCentroid, geoInterpolate, geoPath } from "d3-geo";
 // 計測値は WGS84（Vincenty 距離＋authalic 面積）＝ortho-japan measure ガジェットと同じ台帳。
-// サブパス import＝geodesic.js は依存ゼロの純関数のみ（index.js 経由だと GL エンジン一式が芋づる）。
-import { geodesicDistance, geodesicArea } from "ortho-core/geodesic";
+// geodesic.js は依存ゼロの純関数のみ＝同一パッケージ内に置く（GL エンジン一式が芋づるにならない）。
+import { geodesicDistance, geodesicArea } from "./geodesic.js";
 import { comma } from "./utility.js";
 import { antimeridianCut } from "./antimeridianCut.js";
 

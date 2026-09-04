@@ -8,7 +8,7 @@
 // 使い方: node packages/ortho-core/tests/ellipsoid.mjs
 import { cameraState, project, unproject, lonlatTo3D, setEllipsoid, betaOf, geodeticOf, ellNormal3D }
 	from '../src/camera.js';
-import { meridionalRadius, primeVerticalRadius } from '../src/geodesic.js';
+import { meridionalRadius, primeVerticalRadius } from 'common/geodesic';
 
 let fails = 0;
 const ok = (cond, label) => { if (cond) { console.log(`  ✓ ${label}`); return; } fails++; console.error(`  ✗ ${label}`); };

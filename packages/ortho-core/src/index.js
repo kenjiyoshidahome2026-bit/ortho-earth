@@ -23,5 +23,5 @@ export { createTileManager } from "./tilemanager.js";
 export { createPipeline } from "./pipeline.js";
 export { createTerrain } from "./terrain.js";
 export { mergeTiles } from "./scene.js";
-export { geodesicDistance, geodesicArea, primeVerticalRadius, meridionalRadius, AUTHALIC_R, WGS84 } from "./geodesic.js";
+export { geodesicDistance, geodesicArea, primeVerticalRadius, meridionalRadius, AUTHALIC_R, WGS84 } from "common/geodesic";
 export { WORLD_PAL_DEFAULT } from "./worldpal.js";

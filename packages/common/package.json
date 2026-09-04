@@ -8,10 +8,13 @@
 		".": "./src/index.js",
 		"./screenLogger": "./src/screenLogger.js",
 		"./geoExec": "./src/geoExec.js",
+		"./geodesic": "./src/geodesic.js",
 		"./*": "./src/*"
 	},
+	"scripts": {
+		"test": "node tests/geodesic.mjs"
+	},
 	"dependencies": {
-		"d3": "^7.9.0",
-		"ortho-core": "*"
+		"d3": "^7.9.0"
 	}
 }
