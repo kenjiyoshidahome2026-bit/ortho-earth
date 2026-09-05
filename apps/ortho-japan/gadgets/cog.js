@@ -8,7 +8,7 @@ import { openCog } from "geopbf/cog";
 
 export function createCog(map, { setCogTex, fit, lowMem, signal } = {}) {
 	const ATLAS_W = lowMem ? 1024 : 2048;
-	let cog = null, unsub = null, busy = false, cur = null;   // cur＝現アトラスが覆う bbox
+	let cog = null, timer = null, busy = false, cur = null;   // cur＝現アトラスが覆う bbox
 	let last = null, still = 0, rc = null;                    // rc＝進行中レンダの AbortController
 
 	const renderWindow = async (bb) => {
@@ -56,6 +56,10 @@ export function createCog(map, { setCogTex, fit, lowMem, signal } = {}) {
 		return null;
 	};
 
+	// ⚠静定検出は壁時計タイマー（200ms 刻み）で行う＝map.onFrame（描画フレーム）で数えない。
+	// このエンジンは静止すると描画を止める＝カメラ停止後に描かれるフレーム数は AA/動的解像度の
+	// 都合次第（バックエンド依存）で、フレーム数勘定だと「発火したりしなかったり」の不追従になる
+	//（WebGPU=zoomout・GL2=zoomin で方向違いに出た実測 2026-09-06）。
 	const tick = () => {
 		if (!cog) return;
 		const el = map.mapEl;
@@ -63,11 +67,11 @@ export function createCog(map, { setCogTex, fit, lowMem, signal } = {}) {
 		const key = c ? `${map.getZoom().toFixed(2)}/${c[0].toFixed(4)}/${c[1].toFixed(4)}` : `out/${map.getZoom().toFixed(2)}`;
 		if (key !== last) {   // 動いている＝発火しない（飛行中抑制）。ただし窓が明後日になった読み込みは今すぐ中断
 			last = key; still = 0;
-			if (busy && rc && wantWindow()) rc.abort();   // 古い窓のタイル取得を捨てる＝ズームアウト即応（回線が細いほど効く）
+			if (busy && rc && wantWindow()) rc.abort();   // 古い窓のタイル取得を捨てる＝引き/寄り直し即応（回線が細いほど効く）
 			return;
 		}
-		if (++still < 30) return;    // 静定 ≈0.5s から
-		if (busy) return;            // 前のレンダ中＝次フレーム再試行（⚠一発発火にしない: busy に飲まれると引き戻しが永久に来ない）
+		if (++still < 2) return;     // 静定 ≈0.4s（200ms×2）から
+		if (busy) return;            // 前のレンダ中＝次タイマーで再試行（⚠一発発火にしない: busy に飲まれると引き戻しが永久に来ない）
 		const bb = wantWindow();
 		if (bb) renderWindow(bb);    // 実行後は cur が変わり wantWindow()=null＝静かになる
 	};
@@ -78,12 +82,12 @@ export function createCog(map, { setCogTex, fit, lowMem, signal } = {}) {
 			cog = await openCog(src, { signal });
 			await renderWindow(cog.bboxLL.slice());   // 全域＝最粗 overview（ヘッダ直後に連続＝実質 range 1-2 本）
 			fit?.(cog.bboxLL);
-			unsub = map.onFrame(tick);
+			timer = setInterval(tick, 200);
 			console.info("[cog] loaded", cog.width + "x" + cog.height, "EPSG:" + cog.epsg, cog.metrics());
 			return cog;
 		},
 		clear() {
-			unsub?.(); unsub = null;
+			if (timer) { clearInterval(timer); timer = null; }
 			cog?.close(); cog = null; cur = null; last = null; still = 0;
 			setCogTex(null); map.requestDraw?.();
 		},
