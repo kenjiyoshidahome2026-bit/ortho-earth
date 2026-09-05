@@ -31,6 +31,8 @@ struct GF {
 	depthP: vec4f,     // logCoef, fogFar, elevScale, hasElev
 	elevBounds: vec4f,
 	elevP: vec4f,      // edgeFade, cos4φ0, sin4φ0, ell(1=楕円体)＝予備3枠に dβ 錨の残りとゲート（球＝0,0,0）
+	meshQ: vec4f,      // 案A: 地形メッシュ窓（xy=原点・zw=span deg）＝ドレープ標高の量子化先
+	meshP: vec4f,      // 案A: (格子の頂点数 G, 0, 0, 0)。G=0＝量子化オフ（⚠GF スロットは 512B へ拡張済み）
 };
 @group(0) @binding(0) var<uniform> F: GF;
 struct Styles { style: array<vec4f, 256>, dash: array<vec4f, 256> };   // dash は xy のみ使用（uniform 配列は 16B stride）
@@ -64,6 +66,25 @@ fn elevAt(ll: vec2f) -> f32 {
 		fade = min(smoothstep(0.0, w.x, min(uv.x, 1.0 - uv.x)), smoothstep(0.0, w.y, min(uv.y, 1.0 - uv.y)));
 	}
 	return textureSampleLevel(elevTex, elevSamp, uv, 0.0).r * fade;
+}
+// 案A（gl/gint/programs.js elevQAt と 1:1）: 描画メッシュと同じ折れ線面へ量子化
+fn elevQAt(ll: vec2f) -> f32 {
+	let G = F.meshP.x;
+	if (G < 1.5) { return elevAt(ll); }
+	let g = (ll - F.meshQ.xy) / F.meshQ.zw;
+	if (g.x < 0.0 || g.x > 1.0 || g.y < 0.0 || g.y > 1.0) { return elevAt(ll); }
+	let N = G - 1.0;
+	let gc = min(g * N, vec2f(N - 1e-4));
+	let gi = floor(gc);
+	let gf = gc - gi;
+	let st = F.meshQ.zw / N;
+	let b0 = F.meshQ.xy + gi * st;
+	let h00 = elevAt(b0);
+	let h10 = elevAt(b0 + vec2f(st.x, 0.0));
+	let h01 = elevAt(b0 + vec2f(0.0, st.y));
+	let h11 = elevAt(b0 + st);
+	if (gf.x + gf.y < 1.0) { return h00 + gf.x * (h10 - h00) + gf.y * (h01 - h00); }
+	return h11 + (1.0 - gf.x) * (h01 - h11) + (1.0 - gf.y) * (h10 - h11);
 }
 // GPU sin の微小角誤差回避（テイラー切替＝GLSL 版と同一）
 fn sinP(x: f32) -> f32 {
@@ -143,7 +164,7 @@ fn projectDrape(idx: u32) -> Proj {
 		var dir = F.originPt + rel;
 		let df = 1.0 - smoothstep(F.depthP.y * 0.8, F.depthP.y * 2.0, distance(F.eye, dir));
 		let ll = F.origin + dLL;
-		let h = elevAt(ll) * F.depthP.z * df;
+		let h = elevQAt(ll) * F.depthP.z * df;   // 案A
 		if (F.elevP.w > 0.5) {   // 楕円体＝測地法線で変位（renderer liftDir と同式＝基図の線と同じ高さ）
 			let p = ll.y * D2R; let l = ll.x * D2R; let cp = cos(p);
 			dir = vec3f(cp * cos(l), sin(p) * 1.0033640898209764, cp * sin(l));
@@ -171,7 +192,7 @@ fn fetchClipDrape(idx: u32) -> vec4f {
 		var dir = F.originPt + rel;
 		let df = 1.0 - smoothstep(F.depthP.y * 0.8, F.depthP.y * 2.0, distance(F.eye, dir));
 		let ll = F.origin + dLL;
-		let h = elevAt(ll) * F.depthP.z * df;
+		let h = elevQAt(ll) * F.depthP.z * df;   // 案A
 		if (F.elevP.w > 0.5) { let p = ll.y * D2R; let l = ll.x * D2R; let cp = cos(p); dir = vec3f(cp * cos(l), sin(p) * 1.0033640898209764, cp * sin(l)); }
 		relW = rel + h * dir;
 	}

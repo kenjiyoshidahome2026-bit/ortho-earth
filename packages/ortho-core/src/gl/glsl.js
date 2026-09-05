@@ -132,12 +132,40 @@ vec2 toScreen(vec4 c) {
 `;
 
 // 建物：フットプリントを高さ方向に押し出した3Dメッシュ。深度テストで前後関係を解決。
+// 案A（2026-09-06 本人指名）: 線・塗りのドレープ標高を「地形メッシュと同じ折れ線面」に量子化する。
+// 地形面はメッシュ格子（G×G 頂点・セル G-1・三角形の対角は b-c）の頂点でだけ elev() を取り間は直線補間＝
+// 折れ線近似。線・塗りが「その場の真の標高」を取ると凸斜面で面より高く浮く（COG で画像内の道路との視差が
+// 見えて顕在化）。elevQ は同じ格子頂点で elev() を取り同じ三角形分割で補間＝描画されている面に厳密に乗る。
+// 窓外（遠景メッシュ域）・地形なし（u_meshG=0）は素の elev() へフォールバック（遠景は霞の中＝ズレ不可視）。
+const QELEV = /* glsl */`
+uniform vec4 u_meshQ;    // 地形メッシュ窓（xy=原点 lon/lat・zw=span deg）
+uniform float u_meshG;   // 格子の頂点数 G（0=量子化オフ＝真俯瞰など地形なし）
+float elevQ(vec2 ll) {
+	if (u_meshG < 1.5) return elev(ll);
+	vec2 g = (ll - u_meshQ.xy) / u_meshQ.zw;
+	if (g.x < 0.0 || g.x > 1.0 || g.y < 0.0 || g.y > 1.0) return elev(ll);
+	float N = u_meshG - 1.0;                        // セル数
+	vec2 gc = min(g * N, vec2(N - 1e-4));
+	vec2 gi = floor(gc);
+	vec2 gf = gc - gi;
+	vec2 st = u_meshQ.zw / N;
+	vec2 b0 = u_meshQ.xy + gi * st;
+	float h00 = elev(b0);
+	float h10 = elev(b0 + vec2(st.x, 0.0));
+	float h01 = elev(b0 + vec2(0.0, st.y));
+	float h11 = elev(b0 + st);
+	return (gf.x + gf.y < 1.0)                       // メッシュと同じ対角（a-c-b / b-c-d）で厳密一致
+		? h00 + gf.x * (h10 - h00) + gf.y * (h01 - h00)
+		: h11 + (1.0 - gf.x) * (h01 - h11) + (1.0 - gf.y) * (h10 - h11);
+}`;
+
 export const BUILDING_VS = `#version 300 es
 precision highp float;
 in vec3 a_pos;      // dlon, dlat, hWorld（原点からの経緯度差分＋高さ・単位球スケール）
 in float a_shade;   // 陰影（屋根1/壁0.76）
 in vec2 a_anchor;   // 建物の基準点（原点からの経緯度差分）。一棟の全頂点で単一標高＝垂直プリズム
 ${PROJECT}
+${QELEV}
 out float v_shade;
 out float v_front;
 out float v_fog;
@@ -151,7 +179,7 @@ void main() {
 	v_ll = dLL;
 	vec3 rel = deltaToRel(dLL);               // 頂点3D − 原点3D（小・正確）
 	vec3 dir = u_originPt + rel;              // 絶対単位球点（front/fog 用＝粗くて可）
-	float base = elev(u_origin + dAnchor) * u_elevScale;     // 基準点の標高で足元を揃える（屋根水平・壁垂直）
+	float base = elevQ(u_origin + dAnchor) * u_elevScale;     // 基準点の標高で足元を揃える（屋根水平・壁垂直）。案A＝描画メッシュ面
 	float h = base + a_pos.z;                  // 地形標高 + 建物高さ
 	vec3 relW = rel + h * liftDir(ll, dir);    // (dir*(1+h)) − 原点3D を相殺なしで（地形の上に建物を積む。楕円体＝測地法線）
 	v_shade = a_shade;
@@ -425,6 +453,7 @@ export const STENCIL_VS = `#version 300 es
 precision highp float;
 in vec2 a_delta;
 ${PROJECT}
+${QELEV}
 uniform float u_lift;   // 地形からのリフト(m)。塗り(fan)を地形にドレープ＝海抜0平面でなく地形表面へ（境界線と一致）
 uniform float u_sphereClip;   // 1＝裏半球の頂点を地平円（可視半球の縁）へ射影クランプ（wdepr＝全球スケールのポリゴン用）。
                               // 裏側ポリゴンは円周上に縮退＝巻き数0で消え、地平線を跨ぐポリゴンは可視部だけを正しく囲む
@@ -437,7 +466,7 @@ void main() {
 	vec3 rel = deltaToRel(a_delta);
 	vec3 dir = u_originPt + rel;
 	float df = 1.0 - smoothstep(u_fogFar * 0.8, u_fogFar * 2.0, distance(u_eye, dir));
-	float h = (elev(ll) + u_lift) * u_elevScale * df;
+	float h = (elevQ(ll) + u_lift) * u_elevScale * df;   // 案A＝overlay 塗りも描画メッシュ面に乗せる
 	vec3 relW = rel + h * liftDir(ll, dir);
 	if (u_sphereClip > 0.5) {
 		vec3 P = u_originPt + relW;                  // 絶対位置（単位球近傍）
@@ -812,6 +841,7 @@ precision highp float;
 in vec2 a_delta;
 in vec4 a_color;
 ${PROJECT}
+${QELEV}
 uniform float u_lift;   // 水面リフト(m)：水域(fill)だけ山岳レジームで+30m＝DSMの水面ノイズ瘤を沈めつつ
                         // 尾根(数百m級)の遮蔽は保つ（深度テスト免除=後書きの廃止）。通常塗りは 0。
 uniform float u_seaGate;   // 1＝図郭外フォールバック水域（empty-sea op）：頂点は海抜0の球面に置き
@@ -833,7 +863,7 @@ void main() {
 	// 標高変位は地形と同じ距離フェード（TERRAIN_VS の df と同式）＝遠景で地形が平ら化された時に
 	// 塗りだけ山の高さに浮くのを防ぐ（浮くと地平線の上に塗りの切れ端が漂う）
 	float df = 1.0 - smoothstep(u_fogFar * 0.8, u_fogFar * 2.0, distance(u_eye, dir));
-	float h = u_seaGate > 0.5 ? 0.0 : (elev(ll) + u_lift) * u_elevScale * df;
+	float h = u_seaGate > 0.5 ? 0.0 : (elevQ(ll) + u_lift) * u_elevScale * df;   // 案A＝描画メッシュの折れ線面に乗せる
 	vec3 relW = rel + h * liftDir(ll, dir);   // (dir*(1+h)) − 原点3D を相殺なしで（標高で地形に貼りつく。楕円体＝測地法線）
 	v_color = a_color;
 	v_front = dot(dir, u_eye) - 1.0;          // >0 で手前半球（cull＝粗くて可）
@@ -902,7 +932,7 @@ const LINE_MAIN = /* glsl */`
 	// これが無いと平ら化された山脈の上に線だけがフル標高で浮き、「地平線に漂う点線の鎖」になる
 	float dfa = 1.0 - smoothstep(u_fogFar * 0.8, u_fogFar * 2.0, distance(u_eye, da));
 	float dfb = 1.0 - smoothstep(u_fogFar * 0.8, u_fogFar * 2.0, distance(u_eye, db));
-	float ha = (elev(la1) + u_lift) * u_elevScale * dfa, hb = (elev(la2) + u_lift) * u_elevScale * dfb;
+	float ha = (elevQ(la1) + u_lift) * u_elevScale * dfa, hb = (elevQ(la2) + u_lift) * u_elevScale * dfb;   // 案A
 	vec3 relWa = rela + ha * liftDir(la1, da), relWb = relb + hb * liftDir(la2, db);   // (dir*(1+h)) − 原点3D を相殺なしで（楕円体＝測地法線）
 	vec3 wa = u_originPt + relWa, wb = u_originPt + relWb;       // 絶対（fog 用＝粗くて可）
 	vec4 ca = u_clipT + u_mvp * vec4(relWa, 0.0), cb = u_clipT + u_mvp * vec4(relWb, 0.0);   // RTE：mvp*[w,1] を相殺なしで
@@ -934,6 +964,7 @@ in float a_half;    // CSS px
 in vec4 a_color;
 uniform float u_dpr;
 ${PROJECT}
+${QELEV}
 ${LINE_VARY}
 void main() {
 	vec2 o = u_origin;
@@ -979,6 +1010,7 @@ uniform usampler2D u_segTex;
 uniform vec2 u_tileOff[${MD_MAX_DRAWS}];
 uniform float u_dpr;
 ${PROJECT}
+${QELEV}
 ${LINE_VARY}
 const vec2 CORN[6] = vec2[6](vec2(0., -1.), vec2(0., 1.), vec2(1., -1.), vec2(1., -1.), vec2(0., 1.), vec2(1., 1.));   // renderer の CORNERS と同一
 void main() {

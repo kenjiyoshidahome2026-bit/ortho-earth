@@ -52,6 +52,28 @@ float elevAt(vec2 ll) {
 	}
 	return texture(u_elevTex, uv).r * fade;   // アトラスは南上げ格納＝v直接
 }
+// 案A（renderer glsl.js QELEV と同式）: ドレープ標高を「地形メッシュと同じ折れ線面」に量子化＝
+// 同じ格子頂点で elevAt を取り同じ三角形分割（対角 a-c-b / b-c-d）で補間＝描画されている面に厳密に乗る。
+uniform vec4  u_meshQ;   // 地形メッシュ窓（xy=原点・zw=span deg）
+uniform float u_meshG;   // 格子の頂点数 G（0=量子化オフ）
+float elevQAt(vec2 ll) {
+	if (u_meshG < 1.5) return elevAt(ll);
+	vec2 g = (ll - u_meshQ.xy) / u_meshQ.zw;
+	if (g.x < 0.0 || g.x > 1.0 || g.y < 0.0 || g.y > 1.0) return elevAt(ll);
+	float N = u_meshG - 1.0;
+	vec2 gc = min(g * N, vec2(N - 1e-4));
+	vec2 gi = floor(gc);
+	vec2 gf = gc - gi;
+	vec2 st = u_meshQ.zw / N;
+	vec2 b0 = u_meshQ.xy + gi * st;
+	float h00 = elevAt(b0);
+	float h10 = elevAt(b0 + vec2(st.x, 0.0));
+	float h01 = elevAt(b0 + vec2(0.0, st.y));
+	float h11 = elevAt(b0 + st);
+	return (gf.x + gf.y < 1.0)
+		? h00 + gf.x * (h10 - h00) + gf.y * (h01 - h00)
+		: h11 + (1.0 - gf.x) * (h01 - h11) + (1.0 - gf.y) * (h10 - h11);
+}
 
 vec3 lonlatTo3D(vec2 ll) {
 	float a = ll.x * D2R, b = ll.y * D2R, cb = cos(b);
@@ -165,7 +187,7 @@ vec3 projectDrape(uint idx, out float clipW) {
 		vec3 dir = u_origin_pt + rel;             // 絶対単位球点（elev/df 用＝粗くて可）
 		float df = 1.0 - smoothstep(u_fogFar * 0.8, u_fogFar * 2.0, distance(u_eye, dir));
 		vec2 ll = u_origin + dLL;
-		float h = elevAt(ll) * u_elevScale * df;
+		float h = elevQAt(ll) * u_elevScale * df;   // 案A
 		if (u_ell > 0.5) {                        // 楕円体＝測地法線で変位（renderer liftDir と同式＝基図の線と同じ高さ）
 			float p = ll.y * D2R, l = ll.x * D2R, cp = cos(p);
 			dir = vec3(cp * cos(l), sin(p) * ELL_INV_R, cp * sin(l));
@@ -228,7 +250,7 @@ vec4 fetchClipDrape(uint idx) {
 		vec3 dir = u_origin_pt + rel;
 		float df = 1.0 - smoothstep(u_fogFar * 0.8, u_fogFar * 2.0, distance(u_eye, dir));
 		vec2 ll = u_origin + dLL;
-		float h = elevAt(ll) * u_elevScale * df;
+		float h = elevQAt(ll) * u_elevScale * df;   // 案A
 		if (u_ell > 0.5) { float p = ll.y * D2R, l = ll.x * D2R, cp = cos(p); dir = vec3(cp * cos(l), sin(p) * ELL_INV_R, cp * sin(l)); }
 		relW = rel + h * dir;
 	}
@@ -685,7 +707,7 @@ const SHARED_UNIFORM_NAMES = [
 // 深度統合（段階B）uniform 名（bindDepthUniforms が set。未設定なら全0=従来動作）。
 // 線(uRender)に加え、塗り扇(uStencil)・idfill蓄積(uId)もドレープ（fetchClipDrape）で参照する（2026-08-14）。
 export const DEPTH_UNIFORM_NAMES = [
-	'u_logCoef', 'u_fogFar', 'u_origin_pt', 'u_elevTex', 'u_elevBounds', 'u_elevScale', 'u_hasElev', 'u_elevEdgeFade', 'u_hidden',
+	'u_logCoef', 'u_fogFar', 'u_origin_pt', 'u_elevTex', 'u_elevBounds', 'u_elevScale', 'u_hasElev', 'u_elevEdgeFade', 'u_meshQ', 'u_meshG', 'u_hidden',
 ];
 const PT_UNIFORM_NAMES = [
 	'u_pt_tex','u_pt_meta_tex','u_pt_w',

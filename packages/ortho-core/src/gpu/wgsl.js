@@ -135,6 +135,27 @@ fn elev(ll: vec2f) -> f32 {
 	if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) { return elevFar(ll); }
 	return mix(elevFar(ll), textureSampleLevel(elevTex, elevSamp, uv, 0.0).r, elevFadeAt(uv));
 }
+// 案A（gl/glsl.js QELEV と 1:1）: 線・塗りのドレープ標高を「地形メッシュと同じ折れ線面」に量子化＝
+// 同じ格子頂点で elev() を取り同じ三角形分割（対角 a-c-b / b-c-d）で補間＝描画されている面に厳密に乗る。
+// fill系 slot は packFrame が F.mesh=近メッシュ窓・F.ellP.y=G を配る（地形なしは G=0＝素の elev()）。
+fn elevQ(ll: vec2f) -> f32 {
+	let G = F.ellP.y;
+	if (G < 1.5) { return elev(ll); }
+	let g = (ll - F.mesh.xy) / F.mesh.zw;
+	if (g.x < 0.0 || g.x > 1.0 || g.y < 0.0 || g.y > 1.0) { return elev(ll); }
+	let N = G - 1.0;
+	let gc = min(g * N, vec2f(N - 1e-4));
+	let gi = floor(gc);
+	let gf = gc - gi;
+	let st = F.mesh.zw / N;
+	let b0 = F.mesh.xy + gi * st;
+	let h00 = elev(b0);
+	let h10 = elev(b0 + vec2f(st.x, 0.0));
+	let h01 = elev(b0 + vec2f(0.0, st.y));
+	let h11 = elev(b0 + st);
+	if (gf.x + gf.y < 1.0) { return h00 + gf.x * (h10 - h00) + gf.y * (h01 - h00); }
+	return h11 + (1.0 - gf.x) * (h01 - h11) + (1.0 - gf.y) * (h10 - h11);
+}
 `;
 
 // 塗り（earcut 三角形・premultiplied）。FILL_VS/FILL_FS の移植：
@@ -159,7 +180,7 @@ struct FillOut {
 	// 標高変位は地形と同じ距離フェード＝遠景で地形が平ら化された時に塗りだけ浮かない（glsl.js と同式）
 	let df = 1.0 - smoothstep(F.params.y * 0.8, F.params.y * 2.0, distance(F.eye, dir));
 	// seaGate=1（図郭外フォールバック水域）は海抜0の球面に置く（隅が山に乗ると水面ごと傾く）
-	let h = select((elev(ll) + P.p0.y) * F.elevP.x * df, 0.0, P.p0.x > 0.5);
+	let h = select((elevQ(ll) + P.p0.y) * F.elevP.x * df, 0.0, P.p0.x > 0.5);   // 案A＝描画メッシュの折れ線面に乗せる
 	let relW = rel + h * liftDir(ll, dir);   // 楕円体＝測地法線で変位（球＝従来の dir）
 	var p = F.clipT + F.mvp * vec4f(relW, 0.0);   // RTE：mvp*[w,1] を相殺なしで
 	p.z = logDepthZ(p.w);
@@ -227,8 +248,8 @@ fn toScreen(c: vec4f) -> vec2f {
 	// 標高変位は地形と同じ距離フェード＝遠景の平ら化に追随（無いと地平線に「漂う点線の鎖」）
 	let dfa = 1.0 - smoothstep(F.params.y * 0.8, F.params.y * 2.0, distance(F.eye, da));
 	let dfb = 1.0 - smoothstep(F.params.y * 0.8, F.params.y * 2.0, distance(F.eye, db));
-	let ha = (elev(la1) + P.p0.y) * F.elevP.x * dfa;
-	let hb = (elev(la2) + P.p0.y) * F.elevP.x * dfb;
+	let ha = (elevQ(la1) + P.p0.y) * F.elevP.x * dfa;   // 案A
+	let hb = (elevQ(la2) + P.p0.y) * F.elevP.x * dfb;
 	let relWa = rela + ha * liftDir(la1, da); let relWb = relb + hb * liftDir(la2, db);   // 楕円体＝測地法線
 	let wa = F.originPt + relWa; let wb = F.originPt + relWb;
 	let ca = F.clipT + F.mvp * vec4f(relWa, 0.0);
@@ -412,7 +433,7 @@ struct BldOut {
 	var o: BldOut;
 	let rel = deltaToRel(a_pos.xy);
 	let dir = F.originPt + rel;
-	let base = elev(F.origin + a_anchor) * F.elevP.x;   // 基準点の標高で足元を揃える
+	let base = elevQ(F.origin + a_anchor) * F.elevP.x;   // 基準点の標高で足元を揃える（案A＝描画メッシュ面）
 	let h = base + a_pos.z;                              // 地形標高 + 建物高さ
 	let relW = rel + h * liftDir(F.origin + a_pos.xy, dir);   // 楕円体＝測地法線
 	o.shade = a_shade;
@@ -601,7 +622,7 @@ struct SOut { @builtin(position) pos: vec4f };
 	let rel = deltaToRel(a_delta);
 	let dir = F.originPt + rel;
 	let df = 1.0 - smoothstep(F.params.y * 0.8, F.params.y * 2.0, distance(F.eye, dir));
-	let h = (elev(ll) + P.p0.y) * F.elevP.x * df;
+	let h = (elevQ(ll) + P.p0.y) * F.elevP.x * df;   // 案A＝overlay 塗りも描画メッシュ面に乗せる
 	var relW = rel + h * liftDir(ll, dir);
 	// p0.z=1（wdepr＝全球スケールのポリゴン）＝裏半球の頂点を地平円へ射影クランプ＝球体カリング
 	// （gl/glsl.js STENCIL_VS u_sphereClip と対＝裏側は円周に縮退・地平線跨ぎは可視部だけを囲む＝

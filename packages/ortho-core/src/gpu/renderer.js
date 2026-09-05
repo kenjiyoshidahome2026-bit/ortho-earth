@@ -941,6 +941,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 
 	// frame UBO の詰め物（wgsl.js Frame と厳密対応）。RTE 錨（clipT/originPt/trig）は CPU double で。
 	const frameF32 = new Float32Array(FRAME_F32);
+	let qMesh = null, qG = 0;   // 案A: fill/line slot へ配る近メッシュ窓と格子 G（draw が terrainActive で毎フレーム更新）
 	function packFrame(st, origin, fogNear, fogFar, fogColor, logCoef, dpr, mesh, farPass) {
 		const f = frameF32;
 		f.set(st.mvp, 0);
@@ -969,6 +970,8 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 		f[80] = _ell ? Math.cos(2 * _pr) : 0; f[81] = _ell ? Math.sin(2 * _pr) : 0;
 		f[82] = _ell ? Math.cos(4 * _pr) : 0; f[83] = _ell ? Math.sin(4 * _pr) : 0;
 		f[84] = _ell ? 1 : 0; f[85] = 0; f[86] = 0; f[87] = 0;
+		// 案A: terrain系 slot（mesh 引数あり）は自前の窓＝elevQ 不使用（ellP.y=0）。fill/line 系は近窓+G を配る
+		if (!mesh && qMesh) { f[68] = qMesh[0]; f[69] = qMesh[1]; f[70] = qMesh[2]; f[71] = qMesh[3]; f[85] = qG; }
 		// ユーザ COG uv 係数（f64 前計算＝f32 絶対経緯度ジッタ根治）：terrain系 slot（mesh 有）＝a_uv 変換・fill系＝dLL 変換
 		if (cogGeo) {
 			const [W, S, sLon, sLat] = cogGeo;
@@ -1050,6 +1053,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 		const logCoef = 2.0 / Math.log2(_limb * 1.15 + st.camDist + 1.0);
 		const fogFarCap = Math.max(st.fogDist * 5.0, 0.026 * pfFog);   // fill/line/terrain 共通の終端＝線が地形に厳密追随
 		const terrainActive = !!(terrain && elev.has && elevScaleEff > 1e-9) && !(opts && opts.noTerrain);
+		qMesh = terrainActive ? terrain.mesh : null; qG = terrainActive ? terrain.G : 0;   // 案A: fill/line slot の QELEV 配布
 		const terrainDepth = terrainActive;   // 地形の深度書き＝尾根の遮蔽（gl/renderer.js と同じ全ズーム）
 		// z14切替のランプ化：DSM帯⇄都市帯のリフト（川面30⇄10m・接地0⇄5m）を z13.5→14 の0.5幅で連続モーフ＝
 		// keepFine保持のズームアウトで露出した「跨いだ瞬間の段差ポップ」対策。両端値は実測チューニングのまま
@@ -1389,6 +1393,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 			terrainDepth: true, logCoef, fogFar: fogFarCap,
 			elevView: (elev.has && elevTexView) ? elevTexView : null, elevSampler,
 			elevBounds: elev.bounds, elevScale: elevScaleEff, hasElev: elev.has, edgeFade: elev.edgeFade || 0,
+			meshQ: qMesh, meshG: qG,   // 案A: gint も描画メッシュ面へ量子化
 		} : null;
 		return fogAnimating || fading;   // fading＝クロスフェード進行中も連続フレーム
 	}
