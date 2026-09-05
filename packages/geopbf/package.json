@@ -1,8 +1,8 @@
 {
 	"name": "geopbf",
-	"version": "1.3.0",
+	"version": "1.4.0",
 	"description": "Carry geometry as geometry. GeoPBF is a compact binary container for geospatial features, with Gint — a GPU-readable topology layer for instant point-in-polygon identify, shared-edge topology and choropleth painting. Converts GeoJSON / Shapefile / KML / KMZ / GPX / GML / FlatGeobuf / TopoJSON in the browser via workers + WASM. Zero servers.",
-	"keywords": ["geospatial", "gis", "geojson", "shapefile", "topojson", "kml", "gpx", "flatgeobuf", "vector", "topology", "point-in-polygon", "identify", "wasm", "browser", "format"],
+	"keywords": ["geospatial", "gis", "geojson", "shapefile", "topojson", "kml", "gpx", "flatgeobuf", "cog", "geotiff", "raster", "vector", "topology", "point-in-polygon", "identify", "wasm", "browser", "format"],
 	"homepage": "https://www.ortho-earth.com/docs/geopbf.html",
 	"repository": { "type": "git", "url": "git+https://github.com/kenjiyoshidahome2026-bit/geopbf.git" },
 	"author": "Kenji Yoshida <kenji.yoshida.home.2026@gmail.com>",
@@ -21,6 +21,10 @@
 		"./gint": "./src/extension/gint.js",
 		"./topology": "./src/extension/topology.js",
 		"./pbf-base": "./src/pbf-base.js",
+		"./cog": "./src/cog/index.js",
+		"./cog/core": "./src/cog/core.js",
+		"./maplibre-cog": "./src/maplibre-cog.js",
+		"./leaflet-cog": "./src/leaflet-cog.js",
 		"./sanitize": "./src/sanitize.js",
 		"./edit": "./src/edit/index.js",
 		"./edit/*": "./src/edit/*.js",
@@ -36,7 +40,7 @@
 		"./fname2mime": "./src/modules/fname2mime.js"
 	},
 	"scripts": {
-		"test": "node tests/t-maplibre.mjs && node tests/t-leaflet.mjs && node tests/t-openlayers.mjs && node tests/t-loaders.mjs && node tests/t-cli.mjs && npm run test:edit",
+		"test": "node tests/t-maplibre.mjs && node tests/t-leaflet.mjs && node tests/t-openlayers.mjs && node tests/t-loaders.mjs && node tests/t-cli.mjs && node tests/t-cog.mjs && node tests/t-cog-proj.mjs && node tests/t-cog-cli.mjs && npm run test:edit",
 		"test:edit": "node tests/edit/t-model.mjs && node tests/edit/t-snap.mjs && node tests/edit/t-roundtrip.mjs && node tests/edit/t-history.mjs && node tests/edit/t-combine.mjs && node tests/edit/t-large.mjs && node tests/edit/t-large-edit.mjs",
 		"summary": "repomix --style markdown --output project_summary.md",
 		"verify:npm": "node scripts/verify-npm.mjs",

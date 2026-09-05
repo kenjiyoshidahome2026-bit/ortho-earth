@@ -67,6 +67,7 @@
 		<li><a href="#api">API リファレンス</a></li>
 		<li><a href="#integrations">地図ライブラリ統合</a></li>
 		<li><a href="#security">非信頼HTMLと消毒</a></li>
+		<li><a href="#cog">COG — ラスタも同じ流儀で</a></li>
 	</ol>
 </div>
 
@@ -658,5 +659,31 @@ el.innerHTML = <span class="fn">sanitizeHTML</span>(feature.properties[<span cla
 </div>
 
 </div>
+
+<h2 id="cog">12. COG — ラスタも同じ流儀で（v1.4）</h2>
+
+<p>
+COG（Cloud Optimized GeoTIFF）は「HTTP Range で部分読みできる静的ファイル」＝GeoPBF と同じ
+サーバー不要の思想をラスタでやる形式です。v1.4 の <code>geopbf/cog</code> は依存追加ゼロの
+自前リーダ: ヘッダは <strong>16KB の range 一発</strong>で読み、タイル要求はオフセット順に
+整列して隣接 range を<strong>1リクエストへ合体</strong>（coalesce）、解凍と再投影は worker
+プール、JPEG/WebP はブラウザのネイティブデコーダに直行します。数字は
+<code>cog.metrics()</code> がいつでも出します（range 本数・coalesce 圧縮率・デコード時間）。
+</p>
+
+<pre><code><span class="kw">import</span> { openCog } <span class="kw">from</span> <span class="st">"geopbf/cog"</span>;
+<span class="kw">const</span> cog = <span class="kw">await</span> <span class="fn">openCog</span>(<span class="st">"https://…/TCI.tif"</span>);   <span class="cm">// range 1本でヘッダ完読</span>
+<span class="kw">const</span> bm  = <span class="kw">await</span> cog.<span class="fn">renderXYZ</span>(14, x, y);          <span class="cm">// Web メルカトルへ warp 済み ImageBitmap</span></code></pre>
+
+<p>
+対応サブセットは公共 COG 配信の実勢に合わせています: タイル/ストリップ両レイアウト・BigTIFF・
+圧縮 none/deflate/LZW/JPEG/WebP・predictor 2・uint8 RGB(A)/パレット/単バンド uint16/int16/float32
+（自動パーセンタイル・ストレッチ、<code>GDAL_NODATA</code>→透明）・CRS は EPSG:4326/3857/UTM
+（Krüger n 級数 6 次＝nm 精度の自前実装）。これを外れるファイルは黙って壊れず明示エラーで断り、
+<code>gdal_translate -of COG</code> を案内します。MapLibre へは <code>geopbf/maplibre-cog</code> の
+<code>cog://</code> プロトコル、Leaflet へは <code>geopbf/leaflet-cog</code> の GridLayer を一行で。
+CLI は <code>npx geopbf cog info &lt;url&gt; --bench</code> が構造と実測数字を出します。
+</p>
+
 </body>
 </html>
