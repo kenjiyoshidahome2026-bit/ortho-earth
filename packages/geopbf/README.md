@@ -60,6 +60,48 @@ Output is gzipped by default (matching the GDAL driver's `COMPRESS=GZIP` and the
 FlatGeobuf and everything else GDAL reads — use the [GDAL/OGR driver](https://github.com/kenjiyoshidahome2026-bit/gdal-geopbf)
 (`ogr2ogr -f GeoPBF`, needs GDAL ≥ 3.12), or the browser workers in `src/index.js`.
 
+## COG — Cloud Optimized GeoTIFF (`geopbf/cog`)
+
+Rasters, the same way: a COG is a static file read by HTTP Range requests — no tile server,
+no preprocessing. The reader is hand-written pure JS (zero new dependencies): one 16 KB range
+request fetches the whole header, tile requests are sorted and coalesced (adjacent ranges merge
+into one request), decode + reprojection run in a worker pool, and decoded tiles sit in a
+byte-budgeted LRU. JPEG/WebP tiles go through the browser's native (hardware) decoder.
+
+```js
+import { openCog } from "geopbf/cog";
+const cog = await openCog("https://…/TCI.tif");     // 1 range request, header parsed
+cog.bboxLL;                                          // [w,s,e,n] in WGS84
+const bm = await cog.renderXYZ(14, x, y);            // ImageBitmap, warped to Web Mercator
+cog.metrics();                                       // {ttfhMs, rangeRequests, coalescedFrom, …}
+```
+
+MapLibre / Leaflet, one line each (host libraries are not imported by geopbf):
+
+```js
+import { cogProtocol } from "geopbf/maplibre-cog";
+maplibregl.addProtocol("cog", cogProtocol);
+map.addSource("x", { type: "raster", tiles: ["cog://https://…/TCI.tif/{z}/{x}/{y}"], tileSize: 256 });
+
+import { cogGridLayer } from "geopbf/leaflet-cog";
+(await cogGridLayer(L, "https://…/TCI.tif")).addTo(map);
+```
+
+CLI (`npx geopbf cog info <url>` works on remote COGs via Node's fetch + Range):
+
+```bash
+npx geopbf cog info https://…/TCI.tif --bench   # structure + measured numbers
+npx geopbf cog png  https://…/TCI.tif out.png   # quick-look render
+```
+
+Supported subset (public-COG mainstream; everything else fails with an explicit error):
+tiled + stripped TIFF and BigTIFF · compression none / deflate / LZW / JPEG / WebP (JPEG/WebP
+decode in browser only) · predictor 2 · uint8 RGB(A), palette, single-band uint8/16, int16,
+float32 (auto percentile stretch, `GDAL_NODATA` → transparent) · CRS EPSG:4326 / 3857 /
+UTM 326xx–327xx (Krüger n-series, nm-accurate). For anything beyond that, `gdal_translate -of COG`
+first. Sources without CORS: inject a proxy via `openCog(url, { fetch })`. Node reads the same
+core via `geopbf/cog/core` (DOM-free).
+
 ## Storage / caching (optional injection)
 
 Out of the box, `createGeopbf()` fetches plainly and re-converts on every load — correct, dependency-free, cache-less. If you have your own storage layer (IndexedDB cache, remote bucket, proxied fetch), inject it:

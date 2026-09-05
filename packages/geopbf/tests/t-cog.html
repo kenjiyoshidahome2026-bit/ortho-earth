@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<!-- t-cog: COG ブラウザゲート＝実 URL の表示確認と metrics（数字で語る）。
+     実行: リポジトリルートで `npx vite --port 5199` →
+       http://localhost:5199/packages/geopbf/tests/t-cog.html
+     左タブ=単体レンダ（renderTo で canvas 直描き＋metrics オーバーレイ）
+     右タブ=MapLibre（cog:// raster source・パン/ズーム追従・abort 確認はネットワークタブ）
+     実 URL ボタン: Sentinel-2 L2A（AWS sentinel-cogs・CORS 開放）と入力欄。JPEG/WebP/LZW は
+     ここが唯一の実描画ゲート（Node は raster 経路のみ）。 -->
+<html>
+<head>
+	<meta charset="utf-8">
+	<title>t-cog</title>
+	<style>
+		body { font: 13px/1.5 system-ui; margin: 12px; }
+		#tabs button { margin-right: 8px; }
+		#panel, #map { width: 800px; height: 520px; border: 1px solid #ccc; position: relative; margin-top: 8px; }
+		#map { display: none; }
+		canvas#out { image-rendering: pixelated; max-width: 100%; max-height: 100%; }
+		#hud { position: absolute; top: 6px; left: 6px; background: #000c; color: #9f9; padding: 6px 8px; font: 11px/1.6 monospace; white-space: pre; pointer-events: none; }
+		input#url { width: 560px; }
+	</style>
+</head>
+<body>
+<div>
+	<input id="url" placeholder="https://…/xxx.tif（COG の URL）">
+	<button id="go">open</button>
+	<button id="s2">Sentinel-2 TCI 実URL</button>
+</div>
+<div id="tabs"><button id="tab1">単体レンダ</button><button id="tab2">MapLibre</button></div>
+<div id="panel"><canvas id="out"></canvas><div id="hud">idle</div></div>
+<div id="map"></div>
+<script type="module">
+	import { openCog } from "../src/cog/index.js";
+	import maplibregl from "maplibre-gl";
+	import "maplibre-gl/dist/maplibre-gl.css";
+	import { makeCogProtocol } from "../src/maplibre-cog.js";
+
+	const $ = (id) => document.getElementById(id);
+	// Sentinel-2 L2A COG（AWS Open Data・CORS 開放・TCI=RGB）。シーンは適宜差し替え可。
+	$("s2").onclick = () => { $("url").value =
+		"https://sentinel-cogs.s3.us-west-2.amazonaws.com/sentinel-s2-l2a-cogs/54/S/UE/2024/5/S2A_54SUE_20240511_0_L2A/TCI.tif"; $("go").click(); };
+	$("tab1").onclick = () => { $("panel").style.display = "block"; $("map").style.display = "none"; };
+	$("tab2").onclick = () => { $("panel").style.display = "none"; $("map").style.display = "block"; };
+
+	let map = null;
+	const hud = (s) => $("hud").textContent = s;
+	const fmt = (m, extra) => [
+		`TTFH  ${m.ttfhMs.toFixed(0)} ms（ヘッダ一発読み）`,
+		extra,
+		`range ${m.rangeRequests} 本 / タイル要求 ${m.coalescedFrom}（coalesce 圧縮率 ${(m.coalescedFrom / Math.max(m.rangeRequests, 1)).toFixed(1)}x）`,
+		`受信 ${(m.bytesFetched / 1e6).toFixed(2)} MB・デコード ${m.tilesDecoded} タイル ${m.decodeMs.toFixed(0)} ms・LRU ${(m.lruBytes / 1e6).toFixed(1)} MB`,
+	].filter(Boolean).join("\n");
+
+	// ?u=<COG URL> で自動実行（headless 検証・共有用）
+	const qs = new URLSearchParams(location.search).get("u");
+	if (qs) addEventListener("load", () => { $("url").value = qs; $("go").click(); });
+
+	$("go").onclick = async () => {
+		const url = $("url").value.trim();
+		if (!url) return;
+		hud("opening…");
+		const t0 = performance.now();
+		try {
+			const cog = await openCog(url);
+			const [w, s, e, n] = cog.bboxLL;
+			hud(`open OK ${cog.width}×${cog.height} EPSG:${cog.epsg} comp=${cog.compression} ov=${cog.overviews.length}`);
+			// --- 単体レンダ: bboxLL 全景を 768px 幅で（粗 overview → TTFP、そのまま精細化はパンで） ---
+			const W = 768, H = Math.max(64, Math.round(W * (n - s) / (e - w)));
+			const cv = $("out"); cv.width = W; cv.height = H;
+			const rgba = await cog.renderTo({ bbox: [w, s, e, n], w: W, h: H });
+			const ttfp = performance.now() - t0;
+			cv.getContext("2d").putImageData(new ImageData(rgba, W, H), 0, 0);
+			hud(fmt(cog.metrics(), `TTFP  ${ttfp.toFixed(0)} ms（全景 ${W}×${H}）`));
+			// --- MapLibre タブ（WebGL 不可環境でも単体レンダの HUD を汚さない＝独立 try）---
+			try {
+				map?.remove();
+				map = new maplibregl.Map({ container: "map", style: { version: 8, sources: {}, layers: [] },
+					center: [(w + e) / 2, (s + n) / 2], zoom: 8, attributionControl: false });
+				maplibregl.addProtocol("cog", makeCogProtocol({ onOpen: (u, c) => console.log("cog open", u, c.metrics()) }));
+				map.on("load", () => {
+					map.addSource("cog", { type: "raster", tiles: [`cog://${url}/{z}/{x}/{y}`], tileSize: 256,
+						bounds: [w, s, e, n] });
+					map.addLayer({ id: "cog", type: "raster", source: "cog" });
+				});
+			} catch (err) { console.warn("MapLibre 初期化不可（WebGL なし？）:", err.message); }
+		} catch (err) { hud(`FAIL: ${err.message}`); console.error(err); }
+	};
+</script>
+</body>
+</html>

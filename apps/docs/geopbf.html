@@ -59,6 +59,7 @@ Lightweight · Universal converter · ArrayBuffer-native — the wire format for
 		<li><a href="#api">API Reference</a></li>
 		<li><a href="#integrations">Map Library Integrations</a></li>
 		<li><a href="#security">Untrusted HTML &amp; Sanitizing</a></li>
+		<li><a href="#cog">COG — Rasters, the Same Way</a></li>
 	</ol>
 </div>
 
@@ -650,5 +651,33 @@ makes them <em>display-safe</em> (markup). Use both.
 </div>
 
 </div>
+
+<h2 id="cog">12. COG — Rasters, the Same Way (v1.4)</h2>
+
+<p>
+A COG (Cloud Optimized GeoTIFF) is a static file read by HTTP Range requests — the same
+no-server philosophy as GeoPBF, applied to rasters. v1.4's <code>geopbf/cog</code> is a
+hand-written reader with zero new dependencies: the header is fetched in <strong>one 16 KB
+range request</strong>, tile requests are sorted and adjacent ranges <strong>coalesced into a
+single request</strong>, decode and reprojection run in a worker pool, and JPEG/WebP tiles go
+straight to the browser's native decoder. <code>cog.metrics()</code> reports the numbers at any
+time (range requests, coalesce ratio, decode time).
+</p>
+
+<pre><code><span class="kw">import</span> { openCog } <span class="kw">from</span> <span class="st">"geopbf/cog"</span>;
+<span class="kw">const</span> cog = <span class="kw">await</span> <span class="fn">openCog</span>(<span class="st">"https://…/TCI.tif"</span>);   <span class="cm">// header in one range request</span>
+<span class="kw">const</span> bm  = <span class="kw">await</span> cog.<span class="fn">renderXYZ</span>(14, x, y);          <span class="cm">// ImageBitmap, warped to Web Mercator</span></code></pre>
+
+<p>
+The supported subset follows what public COG feeds actually serve: tiled and stripped layouts,
+BigTIFF, compression none/deflate/LZW/JPEG/WebP, predictor 2, uint8 RGB(A)/palette/single-band
+uint16/int16/float32 (auto percentile stretch, <code>GDAL_NODATA</code> → transparent), CRS
+EPSG:4326/3857/UTM (hand-written Krüger n-series, nm accuracy). Anything outside fails with an
+explicit error pointing to <code>gdal_translate -of COG</code>. One line each for MapLibre
+(<code>cog://</code> protocol via <code>geopbf/maplibre-cog</code>) and Leaflet
+(<code>geopbf/leaflet-cog</code>). The CLI prints structure and measured numbers:
+<code>npx geopbf cog info &lt;url&gt; --bench</code>.
+</p>
+
 </body>
 </html>
