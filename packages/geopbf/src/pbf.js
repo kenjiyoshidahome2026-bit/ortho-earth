@@ -41,7 +41,8 @@ GeoPBF.setPrototype("contain", function ([lng, lat]) { return contain(this, lng,
 
 GeoPBF.setPrototype("simplified", function (minRank) { return simplified(this, minRank); });   // VWランク間引きFC（描画でなく専用データ焼き用）
 GeoPBF.setPrototype("cleanTopology", function(options) { cleanTopology(this.unPackGint, options); return this; });
-GeoPBF.setPrototype("precision", async function (s) { return precision(this, s); });
+// 引数なし＝同期の読み取り（pbf-base の precision() と同じ・CLI/Node からも素直に読める）。引数あり＝再エンコードして新インスタンスを返す（Promise）。
+GeoPBF.setPrototype("precision", function (s) { return s === undefined ? this._precision : precision(this, s); });
 
 GeoPBF.setPrototype("setGintBUF", async function(buf) {
 	if (!buf) throw new Error("setGintBUF: buf is null — gint encoding failed");
