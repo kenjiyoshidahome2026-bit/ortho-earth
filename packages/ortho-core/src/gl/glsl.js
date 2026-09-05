@@ -284,8 +284,11 @@ out vec2 v_ll;
 out float v_front;
 out float v_fog;
 out float v_h;
+uniform vec4 u_cogMesh;   // COG uv＝off+a_uv×scale（メッシュ窓→COG bbox の変換を JS f64 前計算）
+out vec2 v_cuv;
 void main() {
 	vec2 a_ll = u_mesh.xy + u_mesh.zw * a_uv;   // 絶対 lon/lat（旧・頂点属性を単位格子＋uniform へ）
+	v_cuv = u_cogMesh.xy + a_uv * u_cogMesh.zw;
 	vec2 dDeg = a_ll - u_origin;              // 原点相対 (deg)。renderer は terrain に scenes.main.origin を渡す
 	vec3 rel = deltaToRel(dDeg);              // 頂点3D − 原点3D（小・正確）
 	vec3 dir = u_originPt + rel;              // 絶対単位球点（df/front/fog は粗くて可）
@@ -312,6 +315,19 @@ void main() {
 // ・snow＝氷床の白：南極（南緯60°以南は無条件）＋グリーンランド氷床（高緯度×氷床標高。低標高の
 //   スカンジナビアは緑のまま）
 // ・末尾のわずかな脱彩度＝NE1系の落ち着いた色域へ
+// ユーザ COG（geopbf/cog が等経緯度整列 RGBA へ warp 済み）。uv は呼び出し側が「原点相対の小値 × f64 前計算係数」で
+// VS にて組む（u_cogOffInv/u_cogMesh）＝絶対経緯度を f32 で引かない（サブメートル COG の位置ジッタ根治＝
+// plateauBbox の off+rel×inv 方式と同族）。アトラスは行0=北＝v 反転。α合成＝下色の上に被せる（nodata/圏外は素通し）。
+const COG = /* glsl */`
+uniform sampler2D u_cogTex;
+uniform float u_hasCog;
+vec3 cogTexMix(vec3 col, vec2 uv) {
+	if (u_hasCog < 0.5) return col;
+	if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) return col;
+	vec4 c = texture(u_cogTex, vec2(uv.x, 1.0 - uv.y));
+	return mix(col, c.rgb, c.a);
+}`;
+
 const WORLD_HYPSO = /* glsl */`
 uniform float u_whK;
 uniform sampler2D u_climTex;   // 気候場 720x360（Köppen-Geiger/Beck et al. CC-BY を焼き縮め）R=乾燥度 G=極地/氷床
@@ -365,6 +381,8 @@ uniform vec2 u_hypsoP;   // x=1/最大標高(m)（この高さで寄せ切る）
 uniform float u_farPass;   // 1=遠景メッシュパス：近窓の内側は近メッシュの担当＝discard（二重描画・z-fight回避）
 ${ELEV}
 ${WORLD_HYPSO}
+${COG}
+in vec2 v_cuv;
 in vec2 v_ll;
 in float v_front;
 in float v_fog;
@@ -395,7 +413,8 @@ void main() {
 	vec3 landC = mix(u_land, u_hypso, clamp(h0 * u_hypsoP.x, 0.0, 1.0) * u_hypsoP.y);
 	landC = mix(landC, worldHypso(h0, v_ll), u_whK);   // 全球ハイプソ（低ズーム帯）＝globe パスと同色でピッチ不変
 	// 深度は VS の applyLogDepth() が焼き済み（plateau/building と一貫。FSで書くと early-Z が死ぬ）
-	vec3 col = mix(landC * shade, u_fogColor, v_fog);
+	vec3 colBase = cogTexMix(landC * shade, v_cuv);   // ユーザ COG＝陰影の上・フォグの下（画像は自前の陰影を持つ）
+	vec3 col = mix(colBase, u_fogColor, v_fog);
 	fragColor = vec4(col * t, t);           // premultiplied（globe基色→地形へ滑らかに）
 }`;
 
@@ -494,6 +513,8 @@ float elevAt(vec2 ll) {
 	return mix(elevFar(ll), texture(u_elevTex, uv).r, fade);
 }
 ${WORLD_HYPSO}
+${COG}
+uniform vec4 u_cogBbox;   // [west,south,spanLon,spanLat] 絶対deg（globe の低ズーム床専用）
 void main() {
 	vec4 np = u_invMvp * vec4(v_ndc, -1.0, 1.0);
 	vec4 fp = u_invMvp * vec4(v_ndc, 1.0, 1.0);
@@ -538,6 +559,13 @@ void main() {
 		float landK = smoothstep(0.2, 4.0, e);
 		vec3 hyp = mix(u_seaC, worldHypso(e, ll) * shade, landK);
 		base = mix(base, hyp, u_whK);
+	}
+	if (u_hasCog > 0.5) {   // ユーザ COG＝基球でも羽織る（地形パスは低地 t フェードで穴が開くためここが床）。
+		// ここだけ絶対経緯度→uv（u_cogBbox）＝低ズーム専用の床で m 級ノイズは尺度的に不可視・深ズームは塗り(v_cuv)が覆う
+		float cb = asin(clamp(P.y, -1.0, 1.0));
+		float clat = cb * R2D + u_ell * (0.0016792203863837047 * sin(2.0 * cb) + 0.0000014098905530233192 * sin(4.0 * cb)) * R2D;
+		vec2 cll = vec2(atan(P.z, P.x) * R2D, clat);
+		base = cogTexMix(base, (cll - u_cogBbox.xy) / u_cogBbox.zw);
 	}
 	vec3 viewDir = normalize(A - P);              // 面→カメラ
 	float ndv = clamp(dot(P, viewDir), 0.0, 1.0);
@@ -587,6 +615,8 @@ float elevAt(vec2 ll) {
 	return mix(elevFar(ll), texture(u_elevTex, uv).r, fade);
 }
 ${WORLD_HYPSO}
+${COG}
+uniform vec4 u_cogBbox;   // [west,south,spanLon,spanLat] 絶対deg（globe の低ズーム床専用）
 void main() {
 	vec4 np = u_invMvp * vec4(v_ndc, -1.0, 1.0);
 	vec4 fp = u_invMvp * vec4(v_ndc, 1.0, 1.0);
@@ -791,10 +821,13 @@ out float v_front;
 out float v_fog;
 out float v_w;    // clip w（perspective-correct 補間＝フラグメントで真の視距離。水域の厳密深度用）
 out vec2 v_ll;    // 絶対 lon/lat(deg)＝FS 標高ゲート（u_seaGate）用
+uniform vec4 u_cogOffInv;   // COG uv＝off+dLL×inv（off=(origin−west)/span を JS f64 前計算＝f32 ジッタ回避）
+out vec2 v_cuv;
 void main() {
 	vec2 dLL = a_delta;                       // 原点相対 (deg)。multidraw は mdize が u_tileOff を足す
 	vec2 ll = u_origin + dLL;                  // elev 参照用の絶対（粗くて可）
 	v_ll = ll;
+	v_cuv = u_cogOffInv.xy + dLL * u_cogOffInv.zw;
 	vec3 rel = deltaToRel(dLL);               // 頂点3D − 原点3D（小・正確）
 	vec3 dir = u_originPt + rel;              // 絶対単位球点（front/fog/df 用＝粗くて可）
 	// 標高変位は地形と同じ距離フェード（TERRAIN_VS の df と同式）＝遠景で地形が平ら化された時に
@@ -818,6 +851,8 @@ uniform float u_exactDepth;   // 1＝フラグメント厳密対数深度（terr
 uniform float u_seaGate;      // 1＝図郭外フォールバック水域：標高が陸(h>0)の画素は塗らない
                               // ＝「水域は地理院・陸は標高(GEBCO/R10)」の管轄裁定を画素単位で行う
 ${ELEV}
+${COG}
+in vec2 v_cuv;
 in vec4 v_color;
 in float v_front;
 in float v_fog;
@@ -831,7 +866,7 @@ void main() {
 	// 1.2倍＝霧83%で完全消滅：地形の霞（fog=1で紙色の帯）より一歩先に消え、暗い空に尻尾が残らない
 	float af = v_color.a * clamp(1.0 - 1.2 * v_fog, 0.0, 1.0);
 	if (af <= 0.003) discard;
-	fragColor = vec4(mix(v_color.rgb, u_fogColor, v_fog) * af, af);  // premultiplied
+	fragColor = vec4(mix(cogTexMix(v_color.rgb, v_cuv), u_fogColor, v_fog) * af, af);  // premultiplied・ユーザCOG＝塗りの上・線/建物/ラベルの下
 	// 水域の厳密深度：applyLogDepth（VS焼き）は「三角形が小さい」前提の頂点線形補間＝湖全体を跨ぐ
 	// 水ポリの巨大三角形では真の対数曲線から数百m相当外れ、掠め視線で地形が偽って手前勝ちする
 	// ＝湖中の偽島（琵琶湖 75° 実測・真俯瞰で消える・R01/R10 とも発症＝データ非依存の深度補間誤差）。
