@@ -91,13 +91,30 @@ export function buildDrapedGeometry(features, origin, { liftM = 1, exag = EXAG }
 	const L = { pos: [], shade: [], anchor: [] };               // GL_LINES
 	const P = { pos: [], shade: [], anchor: [] };               // GL_POINTS
 	const vtx = (t, x, y) => { const dx = x - ox, dy = y - oy; t.pos.push(dx, dy, lift); t.shade.push(1.0); t.anchor.push(dx, dy); };   // anchor=自分＝自標高に乗る
+	// 案B（長辺の適応細分・2026-09-06 本人指名）: ドレープは頂点でしか標高を取らない＝長い直線は途中の地形を無視して
+	// 山を貫く/浮く（米加国境状態）。目標区間 ≈0.001°（≈100m）＝地形メッシュのセル級で中間点を挿し、各点が
+	// elevQ（案A＝描画メッシュの折れ線面）に乗る＝線が面の折れ目どおりに折れる。1辺上限 256 分割（500km 級でも
+	// 2km 刻み＝主要な起伏は拾う）・全体予算 60万頂点（≈14MB・超過後は端点のみ＝従来動作へ静かに縮退）。
+	const SUB_STEP = 0.001, SUB_EDGE_MAX = 256;
+	let subBudget = 600000;
+	const edge = (a, b) => {
+		const cs = Math.cos((a[1] + b[1]) * 0.5 * Math.PI / 180);
+		const len = Math.hypot((b[0] - a[0]) * cs, b[1] - a[1]);
+		const n = (len > SUB_STEP && subBudget > 0) ? Math.min(Math.ceil(len / SUB_STEP), SUB_EDGE_MAX) : 1;
+		if (n > 1) subBudget -= (n - 1) * 2;
+		for (let k = 0; k < n; k++) {
+			const t0 = k / n, t1 = (k + 1) / n;
+			vtx(L, a[0] + (b[0] - a[0]) * t0, a[1] + (b[1] - a[1]) * t0);
+			vtx(L, a[0] + (b[0] - a[0]) * t1, a[1] + (b[1] - a[1]) * t1);
+		}
+	};
 	const polyline = (pts, closeLoop) => {   // closeLoop=true＝ポリゴン環（末尾→先頭も結ぶ）、false＝LineString（開いた線）
 		const n = pts?.length | 0; if (n < 2) return;
 		let m = n;
 		if (closeLoop && pts[0][0] === pts[n - 1][0] && pts[0][1] === pts[n - 1][1]) m = n - 1;   // 閉環の末尾重複を落とす
 		if (m < 2) return;
 		const edges = closeLoop ? m : m - 1;
-		for (let i = 0; i < edges; i++) { const a = pts[i], b = pts[(i + 1) % m]; vtx(L, a[0], a[1]); vtx(L, b[0], b[1]); }
+		for (let i = 0; i < edges; i++) edge(pts[i], pts[(i + 1) % m]);
 	};
 	const geom = g => {
 		if (!g) return;
