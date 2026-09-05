@@ -34,11 +34,23 @@ struct Frame {
 	farP: vec4f,       // hasFar(0/1), farEdgeFade(deg), farPass(1=遠景メッシュパス・terrainFar slot のみ), 0
 	ellTrig: vec4f,    // 楕円体 dβ 錨 (cos2φ0, sin2φ0, cos4φ0, sin4φ0)（CPU double・原点の測地緯度）。球=vec4(0)＝補正が厳密0
 	ellP: vec4f,       // x=1:楕円体（変位方向・β→φ復元のゲート）0:球, yzw=0
+	cogP: vec4f,       // ユーザ COG uv 係数（f64 前計算＝f32 絶対経緯度ジッタ根治）: fill系 slot=(off.xy, 1/span)・terrain系 slot=(off.xy, mesh.zw/span)
 };
 @group(0) @binding(0) var<uniform> F: Frame;
 @group(0) @binding(1) var elevTex: texture_2d<f32>;
 @group(0) @binding(2) var elevSamp: sampler;
 @group(0) @binding(3) var farElevTex: texture_2d<f32>;
+// ユーザ COG（等経緯度整列 RGBA・geopbf/cog が warp 済み）。FRAME を含む全モジュールが宣言＝bgl0 が常に充足
+// （未使用モジュールでは宣言だけ＝コスト無し）。bbox=[west,south,spanLon,spanLat] 絶対deg・p.x=has・行0=北＝v反転。
+@group(0) @binding(4) var cogTex0: texture_2d<f32>;
+@group(0) @binding(5) var<uniform> CG0: Cog0P;
+struct Cog0P { bbox: vec4f, p: vec4f };
+fn cogTexMix0(col: vec3f, uv: vec2f) -> vec3f {
+	if (CG0.p.x < 0.5) { return col; }
+	if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) { return col; }
+	let c = textureSampleLevel(cogTex0, elevSamp, vec2f(uv.x, 1.0 - uv.y), 0.0);
+	return mix(col, c.rgb, c.a);
+}
 // 描画役割毎の小物（renderer.js が役割別スロットに詰める）：
 //   fill/line … p0 = (seaGate, lift(m), exactDepth, 0)
 //   terrain  … p0 = (land.rgb, 0)  p1 = (hypso.rgb, hypso量)  p2 = (1/hypso最大標高, 0, 0, 0)
@@ -137,6 +149,7 @@ struct FillOut {
 	@location(2) fog: f32,
 	@location(3) ll: vec2f,
 	@location(4) w: f32,   // clip w（perspective-correct 補間＝水域の厳密深度用）
+	@location(5) cuv: vec2f,   // COG uv（F.cogP＝f64 前計算係数×原点相対 dLL）
 };
 @vertex fn vs(@location(0) a_delta: vec2f, @location(1) a_color: vec4f) -> FillOut {
 	var o: FillOut;
@@ -156,6 +169,7 @@ struct FillOut {
 	o.fog = fogOf(F.originPt + relW);
 	o.ll = ll;
 	o.w = p.w;
+	o.cuv = F.cogP.xy + a_delta * F.cogP.zw;
 	return o;
 }
 fn fillColor(in: FillOut) -> vec4f {
@@ -163,7 +177,7 @@ fn fillColor(in: FillOut) -> vec4f {
 	// ×P.p0.w＝グローバルα（シーン差し替えクロスフェード用。通常は1）
 	let af = in.color.a * clamp(1.0 - 1.2 * in.fog, 0.0, 1.0) * P.p0.w;
 	if (af <= 0.003) { discard; }
-	return vec4f(mix(in.color.rgb, F.fogColor, in.fog) * af, af);
+	return vec4f(mix(cogTexMix0(in.color.rgb, in.cuv), F.fogColor, in.fog) * af, af);   // ユーザ COG＝塗りの上・線/建物/ラベルの下
 }
 @fragment fn fs(in: FillOut) -> @location(0) vec4f {
 	if (in.front < -0.0015) { discard; }
@@ -319,6 +333,7 @@ struct TerrOut {
 	@location(1) front: f32,
 	@location(2) fog: f32,
 	@location(3) h: f32,
+	@location(4) cuv: vec2f,   // COG uv（terrain slot の F.cogP＝メッシュ窓→bbox の f64 前計算係数×a_uv）
 };
 @vertex fn vs(@location(0) a_uv: vec2f) -> TerrOut {
 	var o: TerrOut;
@@ -331,6 +346,7 @@ struct TerrOut {
 	let h = elev(a_ll) * df;
 	o.h = h;
 	o.ll = a_ll;
+	o.cuv = F.cogP.xy + a_uv * F.cogP.zw;
 	let relW = rel + (h * F.elevP.x) * liftDir(a_ll, dir);   // 楕円体＝測地法線
 	o.front = dot(dir, F.eye) - 1.0;
 	o.fog = fogOf(F.originPt + relW);
@@ -362,7 +378,8 @@ struct TerrOut {
 		let clim = textureSampleLevel(climTex, climSamp, climUV(in.ll), 0.0).rg;
 		landC = mix(landC, worldHypsoColor(h0, in.ll, clim, P.p2.z), P.p2.y);
 	}
-	let col = mix(landC * shade, F.fogColor, in.fog);
+	let colBase = cogTexMix0(landC * shade, in.cuv);   // ユーザ COG＝陰影の上・フォグの下（画像は自前の陰影を持つ）
+	let col = mix(colBase, F.fogColor, in.fog);
 	return vec4f(col * t, t);   // premultiplied（globe基色→地形へ滑らかに）
 }
 `;
@@ -684,6 +701,10 @@ struct Globe {
 @group(0) @binding(3) var gClimTex: texture_2d<f32>;
 @group(0) @binding(4) var<uniform> WP: WorldPal;   // 世界パレット＝terrain 側 binding(2) と同一バッファ（同色契約）
 @group(0) @binding(5) var gFarTex: texture_2d<f32>;   // far床（未使用時は dummy。farP.x=0 ガード）
+// ユーザ COG（terrain 側 group(2) binding(3-4) と同じ素材・低地は terrain の t フェードで抜けるためここが床）
+@group(0) @binding(6) var gCogTex: texture_2d<f32>;
+@group(0) @binding(7) var<uniform> GCG: GCogP;
+struct GCogP { bbox: vec4f, p: vec4f };
 ${WORLD_HYPSO_WGSL}
 const R2Dg: f32 = 57.29577951308232;
 fn gElevFar(ll: vec2f) -> f32 {   // far床＝近窓の外の受け（GL elevFar と同式）
@@ -746,6 +767,16 @@ struct GOut { @builtin(position) pos: vec4f, @location(0) ndc: vec2f };
 		let clim = textureSampleLevel(gClimTex, gSamp, climUV(ll), 0.0).rg;
 		let hyp = mix(G.seaC.rgb, worldHypsoColor(e, ll, clim, G.whP.w) * shade, landK);
 		base = mix(base, hyp, G.whP.x);
+	}
+	if (GCG.p.x > 0.5) {   // ユーザ COG（低ズーム床＝m級ノイズは尺度的に不可視・深ズームは塗り(cuv)が覆う）
+		let cb = asin(clamp(Pt.y, -1.0, 1.0));
+		let clat = cb * R2Dg + G.whP.z * (0.0016792203863837047 * sin(2.0 * cb) + 0.0000014098905530233192 * sin(4.0 * cb)) * R2Dg;
+		let cll = vec2f(atan2(Pt.z, Pt.x) * R2Dg, clat);
+		let cuv = (cll - GCG.bbox.xy) / GCG.bbox.zw;
+		if (cuv.x >= 0.0 && cuv.x <= 1.0 && cuv.y >= 0.0 && cuv.y <= 1.0) {
+			let cc = textureSampleLevel(gCogTex, gSamp, vec2f(cuv.x, 1.0 - cuv.y), 0.0);
+			base = mix(base, cc.rgb, cc.a);
+		}
 	}
 	let viewDir = normalize(A - Pt);
 	let ndv = clamp(dot(Pt, viewDir), 0.0, 1.0);

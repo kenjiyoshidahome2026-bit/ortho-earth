@@ -3343,6 +3343,7 @@ const requestSnapshot = () => new Promise(resolve => {
 	wPost({ type: "snapshot", id });
 });
 map.requestSnapshot = requestSnapshot;   // ★プラットフォーム公開面（map.playScenes と同格）：生スナップ {W,H,render}。合成は gadgets/compose.js＝geoedit の公開サムネ等が使う
+dbgHost.__map = map;   // デバッグ手（__cam 等と同族）＝コンソール/CDP 検証から公開面を叩く取っ手（埋め込み時は器止まり＝窓を汚さない）
 // --- 印刷（平面図）用の撮影：ライブパイプラインを一時的に「印刷カメラ」（同中心・真俯瞰・北向き・指定z・
 // noTerrain＝紙仕様）へ振り、タイル/注記の読み込みが落ち着いてから readPixels スナップショットを取り、
 // 元のカメラへ戻す。printHold が autoPlateau と settle保存を抑止（印刷カメラを自動ロードや保存に漏らさない）。
@@ -3822,10 +3823,39 @@ map.gadget("anno", async function (pbf) {
 	annoCtl.set(pbf);
 	return annoCtl;
 });
+// COG（Cloud Optimized GeoTIFF）＝geopbf/cog リーダ→cogTex スロット（GLOBE/TERRAIN FS がドレープ）。本体は遅延chunk。
+// setCogTex は wPost 直（transfer 付き＝2048²RGBA 16MB の structured clone コピーを回避）
+let cogCtl = null;
+map.gadget("cog", async function (src) {
+	const m = await import("./gadgets/cog.js");
+	cogCtl ??= m.createCog(map, {
+		setCogTex: d => wPost({ type: "set", cmd: "cogTex", data: d, prop: null }, d?.rgba?.buffer ? [d.rgba.buffer] : []),
+		fit: bb => {   // loadUserFile の fit と同じ視野幅逆解き（30%余白・真俯瞰・北向き）
+			const cx = (bb[0] + bb[2]) / 2, cy = (bb[1] + bb[3]) / 2;
+			const wDeg = Math.max(1e-6, (bb[2] - bb[0]) * 1.3), hDeg = Math.max(1e-6, (bb[3] - bb[1]) * 1.3);
+			const z = Math.min(Math.log2(360 * size.w / (WORLD_PX * wDeg)), Math.log2(360 * size.h / (WORLD_PX * hDeg)));
+			flyTo(cx, cy, Math.max(3, Math.min(17, z)), 0);
+		},
+		lowMem: LOW_MEM, signal: ac.signal,
+	});
+	await cogCtl.load(src);
+	return cogCtl;
+});
+// ?cog=<URL>＝COG の URL ロード（門は ?g=/?scene= と共用＝https 限定・gh: 短縮形）。Range 直読み＝全量 fetch はしない
+{
+	const cogSpec = new URLSearchParams(location.search).get("cog");
+	const u = cogSpec ? remoteUrl(cogSpec, "cog") : null;
+	// 初フレーム後に発火＝renderworker 初期化前の set は黙って捨てられる（renderworker:246 の if(renderer) ガード）
+	if (u) { const off = map.onFrame(() => { off(); map.gadget.cog(u.href).catch(err => console.warn("[cog] failed", u.href, err)); }); }
+}
 // @スタイルの見分け＝geopbf のキー表に @属性 があるか（描画系の @キーだけ見る＝他レイヤの誤検知を避ける）
 const ANNO_KEYS = new Set(["@shape", "@icon", "@text", "@size", "@fill", "@stroke", "@width", "@tip", "@pop", "@spline", "@blur", "@poly", "@start", "@end", "@cap0", "@cap1", "@cap"]);
 // ファイル取り込みの一本道（D&D と ?g= の共用）＝geopbf(File,{gint:true})→ @検知で anno 再生 or applyGintData→bboxへ球面フライト
 const loadUserFile = async file => {
+	if (/\.tiff?$/i.test(file.name)) {   // COG/GeoTIFF＝cog ガジェットへ（gint 経路の geopbf() は TIFF 非対応で null 死する）
+		annoCtl?.clear(); clearUserGint();
+		return map.gadget.cog(file).then(c => ({ length: `${c.width}×${c.height}px` })).catch(err => { console.error("[dropFile] cog", file.name, err); return null; });
+	}
 	const pbf = await geopbf(file, { gint: true, name: `drop/${file.name}` }).catch(err => { console.error("[dropFile] geopbf", file.name, err); return null; });
 	if (!pbf?.unPackGint) return null;
 	// 低ズーム描画が速くなった＝先に現在ビューへ図形を描き（カメラは動かさない）、その後 flyTo で寄る。
@@ -3848,7 +3878,7 @@ const loadUserFile = async file => {
 	return pbf;   // gadget が pbf.length（地物数）をトーストに使う
 };
 map.gadget("dropFile", function (opts) {   // GISファイルのD&D取り込み … loadUserFile（上）を束ね注入（gint単一スロット＝置き換え）
-	return dropFileGadget.call(this, { loadFile: loadUserFile, clearGint: () => { annoCtl?.clear(); clearUserGint(); }, playScene, busy: playingNow, yieldTo: () => editDropOwner, signal: ac.signal, ...opts });   // busy＝上映中はドロップ無視（デモ中はドロップ禁止）。消去は注釈レイヤも一緒に
+	return dropFileGadget.call(this, { loadFile: loadUserFile, clearGint: () => { annoCtl?.clear(); cogCtl?.clear(); clearUserGint(); }, playScene, busy: playingNow, yieldTo: () => editDropOwner, signal: ac.signal, ...opts });   // busy＝上映中はドロップ無視（デモ中はドロップ禁止）。消去は注釈レイヤも一緒に
 });
 map.gadget("geoedit", function (opts) {   // GeoPBF トポロジカル編集（旧 apps/geoedit → gadgets/geoedit・遅延chunk）… 公開面だけで動く＝ここは import と結線だけ。戻り値＝Promise<editor>
 	return import("./gadgets/geoedit/controller.js").then(m => m.initEditor(this, { setDropOwner: on => { editDropOwner = !!on; }, ...opts }));   // 搭載中はドロップをエディタが所有（dropFile は譲る）

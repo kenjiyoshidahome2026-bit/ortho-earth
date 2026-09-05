@@ -56,6 +56,44 @@ export function createRenderer(canvas, rOpts = {}) {
 			bm.close(); rOpts.requestDraw?.();   // 到着フレームを一枚要求（静止中でも気候色へ差し替わる）
 		}).catch(e => { console.warn("[hypso] climate texture load failed (緯度近似で継続)", e); });
 	}
+	// ユーザ COG アトラス（gadgets/cog.js が geopbf/cog の renderTo で等経緯度 RGBA に warp 済みを渡す）。
+	// unit9＝空き（1=elev・2-5=PLATEAUマスク・6=md線・7=gint elev・8=far・12=clim と不干渉）。
+	let cogTex = null, cogSt = { bbox: [0, 0, 1, 1], has: 0, bytes: 0 };
+	function setCogTex(data) {
+		if (!data) {   // 解放
+			if (cogTex) gl.deleteTexture(cogTex);
+			cogTex = null; cogSt = { bbox: [0, 0, 1, 1], has: 0, bytes: 0 };
+			return;
+		}
+		const { rgba, w, h, bboxLL } = data;   // bboxLL=[west,south,east,north]
+		if (!cogTex) cogTex = gl.createTexture();
+		gl.activeTexture(gl.TEXTURE9); gl.bindTexture(gl.TEXTURE_2D, cogTex);
+		gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(rgba.buffer || rgba, rgba.byteOffset || 0, rgba.byteLength ?? rgba.length));
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+		gl.activeTexture(gl.TEXTURE0);
+		cogSt = { bbox: [bboxLL[0], bboxLL[1], bboxLL[2] - bboxLL[0], bboxLL[3] - bboxLL[1]], has: 1, bytes: w * h * 4 };
+	}
+	// ⚠サンプラは has=0 でも毎フレーム unit9 へ向ける（未設定＝unit0 整数テクスチャの轍＝elev/clim と同族）
+	function bindCog(prog) {
+		gl.uniform1i(loc(gl, prog, "u_cogTex"), 9);
+		gl.uniform1f(loc(gl, prog, "u_hasCog"), cogSt.has);
+		gl.activeTexture(gl.TEXTURE9); gl.bindTexture(gl.TEXTURE_2D, cogSt.has ? cogTex : null); gl.activeTexture(gl.TEXTURE0);
+	}
+	// fill 系: COG uv＝off+dLL×inv の係数を JS の f64 で前計算（シーン原点ごと）＝f32 絶対経緯度のジッタ根治
+	function setCogScene(prog, origin) {
+		if (!cogSt.has) return;
+		const [W, S, sLon, sLat] = cogSt.bbox, o = origin || [0, 0];
+		gl.uniform4f(loc(gl, prog, "u_cogOffInv"), (o[0] - W) / sLon, (o[1] - S) / sLat, 1 / sLon, 1 / sLat);
+	}
+	// terrain: メッシュ窓（u_mesh と同値）→COG uv の変換係数（f64 前計算）
+	function setCogMesh(mh) {
+		if (!cogSt.has) return;
+		const [W, S, sLon, sLat] = cogSt.bbox;
+		gl.uniform4f(loc(gl, terrainProg, "u_cogMesh"), (mh[0] - W) / sLon, (mh[1] - S) / sLat, mh[2] / sLon, mh[3] / sLat);
+	}
 	// 気候場のサンプラ結線（globe/terrain 両プログラム共用）。⚠サンプラは常に有効unitへ向ける
 	// （未設定＝unit0の整数テクスチャを掴んでドロー全体が死ぬ轍と同族）。unit12＝空き（他パス未使用）。
 	function bindClim(prog) {
@@ -766,7 +804,7 @@ export function createRenderer(canvas, rOpts = {}) {
 		// 全球ハイプソの出現度（globe パスと terrain パスが共有＝ピッチで色が変わらない）。z5.7→6.5 でフェードアウト
 		// ＝R90 全球窓の限界（z6.5 でアトラスがビュー窓へ切替）に着地し、そこで基図（BASEMAP_MINZOOM=6.5）と交代
 		const worldHypsoK = view.worldHypso && elev.has ? Math.max(0, Math.min(1, (6.5 - cam.zoom) / 0.8)) : 0;
-		const flat2d = (cam.pitch || 0) < 0.02 && cam.zoom >= 9;
+		const flat2d = (cam.pitch || 0) < 0.02 && cam.zoom >= 9 && !cogSt.has;   // COG 搭載中は真俯瞰でも globe パスを通す（陸の下地に画像を敷く唯一の層）
 		const c = flat2d ? [land[0], land[1], land[2], 1] : (view.clear || [1, 1, 1, 1]);
 		gl.clearColor(c[0] * c[3], c[1] * c[3], c[2] * c[3], c[3]);
 		gl.clear(gl.COLOR_BUFFER_BIT);
@@ -837,11 +875,12 @@ export function createRenderer(canvas, rOpts = {}) {
 			gl.uniform1f(loc(gl, globeProg, "u_whK"), worldHypsoK);
 			gl.uniform1i(loc(gl, globeProg, "u_elevTex"), 1);
 			gl.uniform1i(loc(gl, globeProg, "u_climTex"), 12);   // 気候場サンプラも常時 unit12（K=0でも。unit0整数テクスチャの轍）
+			gl.uniform1i(loc(gl, globeProg, "u_farElevTex"), 8);   // far床サンプラも常時 unit8（K=0でも）。従来は flat2d(z≥9真俯瞰)で globe 自体が
+			// 走らず潜伏していたが、COG 搭載で flat2d を解除すると未設定＝unit0（gint整数）を掴み Metal で draw 全滅（2026-09-06 実測）
 			gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, (elev.has && elevTex) ? elevTex : null); gl.activeTexture(gl.TEXTURE0);
 			if (worldHypsoK > 0) {
 				gl.uniform4f(loc(gl, globeProg, "u_elevBounds"), elev.bounds[0], elev.bounds[1], elev.bounds[2], elev.bounds[3]);
 				gl.uniform1f(loc(gl, globeProg, "u_elevEdgeFade"), elev.edgeFade || 0);
-				gl.uniform1i(loc(gl, globeProg, "u_farElevTex"), 8);   // unit8＝共通バインド済（far床。u_hasFar=0なら不使用）
 				gl.uniform4f(loc(gl, globeProg, "u_farBounds"), far.bounds[0], far.bounds[1], far.bounds[2], far.bounds[3]);
 				gl.uniform1f(loc(gl, globeProg, "u_hasFar"), far.has);
 				gl.uniform1f(loc(gl, globeProg, "u_hasElev"), 1);
@@ -852,6 +891,8 @@ export function createRenderer(canvas, rOpts = {}) {
 				ensureClimTex(view.worldHypso.clim);   // 気候場（cross-blend）＝初回だけ取得。未着は緯度近似
 				bindClim(globeProg);
 			}
+			bindCog(globeProg);   // ユーザ COG（has=0 でもサンプラは unit9 へ＝轍対策）
+			gl.uniform4f(loc(gl, globeProg, "u_cogBbox"), cogSt.bbox[0], cogSt.bbox[1], cogSt.bbox[2], cogSt.bbox[3]);
 			gl.bindVertexArray(emptyVAO);
 			gl.drawArrays(gl.TRIANGLES, 0, 3);
 		}
@@ -923,9 +964,11 @@ export function createRenderer(canvas, rOpts = {}) {
 			gl.uniform1f(loc(gl, terrainProg, "u_whK"), worldHypsoK);   // 全球ハイプソ（低ズーム帯）＝globe パスと同色
 			if (worldHypsoK > 0) { ensureClimTex(view.worldHypso.clim); bindClim(terrainProg); bindWorldPal(terrainProg); }
 			else { gl.uniform1i(loc(gl, terrainProg, "u_climTex"), 12); gl.uniform1f(loc(gl, terrainProg, "u_hasClim"), 0); }   // サンプラは常時unit12へ（未設定=unit0整数テクスチャの轍）
+			bindCog(terrainProg);   // ユーザ COG（陰影の上・フォグの下＝TERRAIN_FS 側で合成）
 			const mh = terrain.mesh;   // 窓の原点/幅＝単位格子メッシュを実座標へ伸ばす（メッシュ自体は使い回し）
 			gl.uniform1f(loc(gl, terrainProg, "u_farPass"), 0);
 			gl.uniform4f(loc(gl, terrainProg, "u_mesh"), mh[0], mh[1], mh[2], mh[3]);
+			setCogMesh(mh);
 			gl.bindVertexArray(terrain.vao);
 			gl.drawElements(gl.TRIANGLES, terrain.count, gl.UNSIGNED_INT, 0);
 			if (far.has && farTex) {
@@ -933,6 +976,7 @@ export function createRenderer(canvas, rOpts = {}) {
 				// 近を先に描く＝遠の被り分は深度で早期棄却。頂点コストは近と同額＝チルト×深ズーム時のみ発生。
 				gl.uniform1f(loc(gl, terrainProg, "u_farPass"), 1);
 				gl.uniform4f(loc(gl, terrainProg, "u_mesh"), far.bounds[0], far.bounds[1], far.bounds[2], far.bounds[3]);
+				setCogMesh(far.bounds);
 				gl.drawElements(gl.TRIANGLES, terrain.count, gl.UNSIGNED_INT, 0);
 				gl.uniform1f(loc(gl, terrainProg, "u_farPass"), 0);
 			}
@@ -972,6 +1016,9 @@ export function createRenderer(canvas, rOpts = {}) {
 			}
 		}
 		gl.useProgram(lineProg); gl.uniform1f(loc(gl, lineProg, "u_dpr"), cam.dpr || 1);
+		// ユーザ COG＝基図の塗りに合成（ドレープは塗りの v_ll が担う）。fill 系プログラムへ毎フレーム結線（has=0 でも轍対策）
+		gl.useProgram(fillProg); bindCog(fillProg);
+		if (md && md.fillProg) { gl.useProgram(md.fillProg); bindCog(md.fillProg); }
 
 		// 山岳ビュー＝基図(塗り/線)は地形深度でテストだけする（書かない）：尾根の向こうの道路・塗りが透けない。
 		// fill/line の VS は applyLogDepth と同式の対数深度を焼いており地形と直接比較できる。
@@ -1001,6 +1048,7 @@ export function createRenderer(canvas, rOpts = {}) {
 			const scene = scenes[slot];
 			if (scene.md) {   // multi_draw シーン＝常駐プールのレンジ列を li 順に流す（分岐ロジックは classic と同一）
 				setCommonUniforms(md.fillProg, st, scene.origin, land);
+				gl.useProgram(md.fillProg); setCogScene(md.fillProg, scene.origin);
 				setCommonUniforms(md.lineProg, st, scene.origin, land);
 				gl.useProgram(md.fillProg); gl.uniform1f(loc(gl, md.fillProg, "u_fogFar"), fogFarCap);
 				gl.useProgram(md.lineProg); gl.uniform1f(loc(gl, md.lineProg, "u_fogFar"), fogFarCap);
@@ -1037,7 +1085,7 @@ export function createRenderer(canvas, rOpts = {}) {
 			if (!scene.draws.length) continue;
 			setCommonUniforms(fillProg, st, scene.origin, land);
 			setCommonUniforms(lineProg, st, scene.origin, land);
-			gl.useProgram(fillProg); gl.uniform1f(loc(gl, fillProg, "u_fogFar"), fogFarCap);
+			gl.useProgram(fillProg); gl.uniform1f(loc(gl, fillProg, "u_fogFar"), fogFarCap); setCogScene(fillProg, scene.origin);
 			gl.useProgram(lineProg); gl.uniform1f(loc(gl, lineProg, "u_fogFar"), fogFarCap);
 			gl.uniform1f(loc(gl, lineProg, "u_lift"), cityLift);
 			let curProg = null;
@@ -1260,6 +1308,7 @@ export function createRenderer(canvas, rOpts = {}) {
 			case "planets":   setPlanets(data); break;                                         // data=Float32Array（starsと同8fレイアウト・惑星5点＋月）
 			case "ecliptic":  setEcliptic(data); break;                                        // data=Float32Array [cel.xyz]×2n（黄道の大円・LINES）表示は view.showConst
 			case "celequator": setCelEquator(data); break;                                     // data=同上（天の赤道の大円）
+			case "cogTex":    setCogTex(data); break;                                          // data={rgba,w,h,bboxLL}|null ユーザ COG（等経緯度整列 RGBA）
 			default: console.warn("renderer.set: unknown cmd", cmd);
 		}
 	}

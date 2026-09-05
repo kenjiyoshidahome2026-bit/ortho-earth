@@ -20,7 +20,7 @@ import { FILL_WGSL, LINE_WGSL, GLOBE_WGSL, TERRAIN_WGSL, BUILDING_WGSL, CONTOUR_
 
 const CORNERS = new Float32Array([0, -1, 0, 1, 1, -1, 1, -1, 0, 1, 1, 1]); // 6頂点×(end,side)＝gl/renderer.js と同一
 const FRAME_SLOT = 512;    // frame UBO のスロット境界（実使用320B・minUniformBufferOffsetAlignment 上限256の倍数）
-const FRAME_F32 = 88;      // 352B/4（wgsl.js Frame と厳密対応。詰め順は packFrame 参照。末尾 mesh/farBounds/farP/ellTrig/ellP vec4f 含む）
+const FRAME_F32 = 92;      // 368B/4（wgsl.js Frame と厳密対応。詰め順は packFrame 参照。末尾 mesh/farBounds/farP/ellTrig/ellP/cogP vec4f 含む）
 const SLOT = { base: 0, main: 1, terrain: 2, bld: 3, terrainFar: 4 };   // terrain/bld は main と同 origin・fog だけ違うスロット。terrainFar＝遠景メッシュパス（mesh=遠窓・farPass=1）
 const PARAM_SLOT = 256;    // DrawP（3×vec4=48B）のスロット境界
 const OVERLAY_LIFT = 3;   // overlay（外部ベクタ線/面）を地形から m 単位で浮かせる＝地形メッシュとの z-fight（境界線の明滅・消失）を断つ。gint drape(2m)と同族＝高ズームで浮きが見えない最小値（15mは上げすぎ・本人指摘2026-08-12）
@@ -153,6 +153,8 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 		{ binding: 1, visibility: VF, texture: { sampleType: "float" } },
 		{ binding: 2, visibility: VF, sampler: { type: "filtering" } },
 		{ binding: 3, visibility: VF, texture: { sampleType: "float" } },   // 遠景層（far）アトラス。elev() が静的参照＝FRAME を含む全モジュールのレイアウトに必須
+		{ binding: 4, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },   // ユーザ COG（FRAME 全モジュール宣言＝未使用は dummy）
+		{ binding: 5, visibility: GPUShaderStage.FRAGMENT, buffer: {} },                          // Cog0P（bbox+has）
 	] });
 	const bgl1 = device.createBindGroupLayout({ entries: [{ binding: 0, visibility: VF, buffer: {} }] });
 	const layout = device.createPipelineLayout({ bindGroupLayouts: [bgl0, bgl1] });
@@ -208,6 +210,8 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 		{ binding: 3, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
 		{ binding: 4, visibility: GPUShaderStage.FRAGMENT, buffer: {} },   // WorldPal（世界パレット＝terrain 側と同一バッファ）
 		{ binding: 5, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },   // far床（未使用は dummy）
+		{ binding: 6, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },   // ユーザ COG（未使用は dummy）
+		{ binding: 7, visibility: GPUShaderStage.FRAGMENT, buffer: {} },                          // CogP（bbox+has）
 	] });
 	const globeLayout = device.createPipelineLayout({ bindGroupLayouts: [bglGlobe] });
 	// terrain group(2)＝気候場（全球ハイプソの cross-blend）。未着は dummy（DrawP p2.z=0 で不使用）
@@ -617,6 +621,33 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 			rOpts.requestDraw?.();   // 到着フレームを一枚要求（静止中でも気候色へ差し替わる）
 		}).catch(e => console.warn("[hypso] climate texture load failed (緯度近似で継続)", e));
 	}
+	// ユーザ COG アトラス（rgba8unorm・gadgets/cog.js が等経緯度 RGBA を渡す）。globe binding(6-7)/terrain group(2) binding(3-4)
+	const cogBuf = device.createBuffer({ size: 32, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });   // CogP: bbox(vec4f)+p(vec4f)
+	let cogTexObj = null, cogTexView = null, memCog = 0, cogHas = 0, cogGeo = null;   // cogGeo=[west,south,spanLon,spanLat]（f64 のまま＝packFrame の前計算用）
+	function setCogTex(data) {
+		if (cogTexObj) { cogTexObj.destroy(); cogTexObj = null; cogTexView = null; memCog = 0; }
+		cogHas = data ? 1 : 0;
+		cogGeo = data ? [data.bboxLL[0], data.bboxLL[1], data.bboxLL[2] - data.bboxLL[0], data.bboxLL[3] - data.bboxLL[1]] : null;
+		if (data) {
+			const { rgba, w, h, bboxLL } = data;
+			cogTexObj = device.createTexture({ size: [w, h], format: "rgba8unorm", usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST });
+			// writeTexture の bytesPerRow は 256 の倍数が必須＝端数幅はパディングして書く（アトラスは通常 1024/2048 幅で無縁）
+			const row = w * 4, pad = Math.ceil(row / 256) * 256;
+			let src = new Uint8Array(rgba.buffer || rgba, rgba.byteOffset || 0, rgba.byteLength ?? rgba.length);
+			if (pad !== row) {
+				const padded = new Uint8Array(pad * h);
+				for (let j = 0; j < h; j++) padded.set(src.subarray(j * row, (j + 1) * row), j * pad);
+				src = padded;
+			}
+			device.queue.writeTexture({ texture: cogTexObj }, src, { bytesPerRow: pad }, { width: w, height: h });
+			cogTexView = cogTexObj.createView();
+			memCog = w * h * 4;
+			device.queue.writeBuffer(cogBuf, 0, new Float32Array([bboxLL[0], bboxLL[1], bboxLL[2] - bboxLL[0], bboxLL[3] - bboxLL[1], 1, 0, 0, 0]));
+		} else {
+			device.queue.writeBuffer(cogBuf, 0, new Float32Array(8));   // has=0
+		}
+		rebuildBG0();   // globeBG/climBG が COG テクスチャを掴み直す
+	}
 	let elevTexObj = null, elevTexView = null, elev = { bounds: [0, 0, 1, 0], scale: 0, has: 0 }, terrain = null, elevStage = null;
 	// 遠景層（far）＝近窓の外を受け持つ粗い R10 第2アトラス（terrain.js が深ズーム×チルトで常設）
 	let farTexObj = null, farTexView = null, far = { bounds: [0, 0, 1, 0], has: 0, edgeFade: 0 };
@@ -635,6 +666,8 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 				{ binding: 1, resource: view },
 				{ binding: 2, resource: elevSampler },
 				{ binding: 3, resource: farView },
+				{ binding: 4, resource: cogTexView || dummyView },   // ユーザ COG（無ければ dummy＝Cog0P.p.x=0 ガード）
+				{ binding: 5, resource: { buffer: cogBuf } },
 			],
 		});
 		// globe（全球ハイプソ＝標高+気候）と terrain group(2)（気候）も同じ素材に依存＝一緒に作り直す
@@ -645,6 +678,8 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 			{ binding: 3, resource: climTexView || dummyView },
 			{ binding: 4, resource: { buffer: worldPalBuf } },
 			{ binding: 5, resource: farView },   // far床（farViewはbg0のbinding3と同じ実体＝無ければdummy）
+			{ binding: 6, resource: cogTexView || dummyView },   // ユーザ COG（無ければ dummy＝CogP.p.x=0 ガード）
+			{ binding: 7, resource: { buffer: cogBuf } },
 		] });
 		climBG = device.createBindGroup({ layout: bglClim, entries: [
 			{ binding: 0, resource: climTexView || dummyView },
@@ -934,6 +969,12 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 		f[80] = _ell ? Math.cos(2 * _pr) : 0; f[81] = _ell ? Math.sin(2 * _pr) : 0;
 		f[82] = _ell ? Math.cos(4 * _pr) : 0; f[83] = _ell ? Math.sin(4 * _pr) : 0;
 		f[84] = _ell ? 1 : 0; f[85] = 0; f[86] = 0; f[87] = 0;
+		// ユーザ COG uv 係数（f64 前計算＝f32 絶対経緯度ジッタ根治）：terrain系 slot（mesh 有）＝a_uv 変換・fill系＝dLL 変換
+		if (cogGeo) {
+			const [W, S, sLon, sLat] = cogGeo;
+			if (mesh) { f[88] = (mesh[0] - W) / sLon; f[89] = (mesh[1] - S) / sLat; f[90] = mesh[2] / sLon; f[91] = mesh[3] / sLat; }
+			else { f[88] = (origin[0] - W) / sLon; f[89] = (origin[1] - S) / sLat; f[90] = 1 / sLon; f[91] = 1 / sLat; }
+		} else { f[88] = 0; f[89] = 0; f[90] = 0; f[91] = 0; }
 		return f;
 	}
 	// DrawP N_ROLESスロットを一括で書く（256Bストライド・各48B使用）
@@ -1003,7 +1044,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 		const pf = pt * pt * (3 - 2 * pt);
 		elevScaleEff = elev.scale * pf;
 		const land = view.land || [0.96, 0.96, 0.95, 1], atmo = view.atmo || [0.45, 0.62, 0.95, 0.6];
-		const flat2d = (cam.pitch || 0) < 0.02 && cam.zoom >= 9;
+		const flat2d = (cam.pitch || 0) < 0.02 && cam.zoom >= 9 && !cogHas;   // COG 搭載中は真俯瞰でも globe パスを通す（陸の下地に画像を敷く唯一の層）
 		const c = flat2d ? [land[0], land[1], land[2], 1] : (view.clear || [1, 1, 1, 1]);
 		const _limb = Math.sqrt(Math.max((1 + st.camDist) * (1 + st.camDist) - 1, 1e-12));
 		const logCoef = 2.0 / Math.log2(_limb * 1.15 + st.camDist + 1.0);
@@ -1458,6 +1499,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 			case "constellations": constel = setStarBuf(constel, data, 3); break;  // [cel.xyz]×2n（LINES端点列）表示は view.showConst
 			case "ecliptic":    ecliptic = setStarBuf(ecliptic, data, 3); break;   // 黄道の大円
 			case "celequator":  celeq = setStarBuf(celeq, data, 3); break;         // 天の赤道の大円
+			case "cogTex":      setCogTex(data); break;                             // data={rgba,w,h,bboxLL}|null ユーザ COG（等経緯度整列 RGBA）
 			default:
 				if (IGNORE.has(cmd)) { if (!ignored.has(cmd)) { ignored.add(cmd); console.log(`[gpu] set("${cmd}") は未搭載＝無視（WebGPU移植の次フェーズ）`); } }
 				else console.warn("[gpu] renderer.set: unknown cmd", cmd);
