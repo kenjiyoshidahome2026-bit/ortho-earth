@@ -1016,9 +1016,21 @@ export function createRenderer(canvas, rOpts = {}) {
 			}
 		}
 		gl.useProgram(lineProg); gl.uniform1f(loc(gl, lineProg, "u_dpr"), cam.dpr || 1);
+		// 案A: 線・塗りのドレープ標高を地形メッシュの折れ線面に量子化（QELEV）。窓と格子 G を fill/line 系へ毎フレーム配布。
+		// 地形なし（真俯瞰等）は G=0＝素の elev() へ（量子化する面が存在しない）。
+		const mq = (terrainActive && terrain) ? terrain.mesh : null;
+		const setMeshQ = (prog) => {
+			gl.uniform4f(loc(gl, prog, "u_meshQ"), mq ? mq[0] : 0, mq ? mq[1] : 0, mq ? mq[2] : 1, mq ? mq[3] : 1);
+			gl.uniform1f(loc(gl, prog, "u_meshG"), mq ? terrain.G : 0);
+		};
+		setMeshQ(lineProg);   // lineProg は直前で useProgram 済み
+		if (md && md.lineProg) { gl.useProgram(md.lineProg); setMeshQ(md.lineProg); }
+		gl.useProgram(stencilProg); setMeshQ(stencilProg);   // overlay 塗り（uniform はプログラム状態＝ここで年1回/フレーム）
+		gl.useProgram(bldProg); setMeshQ(bldProg);           // 基図建物の足元＋gintBld ドレープ線
+		if (md && md.bldProg) { gl.useProgram(md.bldProg); setMeshQ(md.bldProg); }
 		// ユーザ COG＝基図の塗りに合成（ドレープは塗りの v_ll が担う）。fill 系プログラムへ毎フレーム結線（has=0 でも轍対策）
-		gl.useProgram(fillProg); bindCog(fillProg);
-		if (md && md.fillProg) { gl.useProgram(md.fillProg); bindCog(md.fillProg); }
+		gl.useProgram(fillProg); bindCog(fillProg); setMeshQ(fillProg);
+		if (md && md.fillProg) { gl.useProgram(md.fillProg); bindCog(md.fillProg); setMeshQ(md.fillProg); }
 
 		// 山岳ビュー＝基図(塗り/線)は地形深度でテストだけする（書かない）：尾根の向こうの道路・塗りが透けない。
 		// fill/line の VS は applyLogDepth と同式の対数深度を焼いており地形と直接比較できる。
@@ -1038,7 +1050,8 @@ export function createRenderer(canvas, rOpts = {}) {
 			gintCtx = { terrainDepth: true,
 				logCoef: 2.0 / Math.log2(_lb * 1.15 + st.camDist + 1.0),
 				fogFar: fogFarCap, elevTex, elevBounds: elev.bounds,
-				elevScale: elevScaleEff, hasElev: elev.has, edgeFade: elev.edgeFade || 0 };
+				elevScale: elevScaleEff, hasElev: elev.has, edgeFade: elev.edgeFade || 0,
+				meshQ: mq, meshG: mq ? terrain.G : 0 };   // 案A: gint も描画メッシュ面へ量子化
 		} else gintCtx = null;
 		// 下地の線は「本命(main)の線と同時に出る時だけ」伏せる＝ズーム中に太さ・形状のズレた「LODの荒い線」が
 		// 透けるのを防ぐ（従来はmerge時に間引いていたがdraw時判断へ移設）。下地が主役の間（skipMain=ズームアウト

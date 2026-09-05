@@ -138,11 +138,12 @@ export function createGintLayerGPU(host, { requestDraw } = {}) {
 	// bindPivotBoundary（has_pivot=0/use_vbb=0）の写し。スロット：0=線(rank,pivot) 1=塗り(rank0,pivot)
 	// 2=線境界(rank,無効) 3=塗り境界(rank0,無効)。
 	const GF_LINE = 0, GF_FILL = 1, GF_LINE_B = 2, GF_FILL_B = 3;
-	const gfBuf = device.createBuffer({ size: 1024, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+	const GF_SLOT = 512;   // 案A: meshQ/meshP 追加で 64f 超過＝512B ストライド（dynamic offset は 256 倍数制約）
+	const gfBuf = device.createBuffer({ size: GF_SLOT * 4, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
 	const gpBuf = device.createBuffer({ size: GP_SLOT * 11, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
 	const styleBuf = device.createBuffer({ size: 8192, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
-	const frameBG = [0, 256, 512, 768].map(off => device.createBindGroup({ layout: bglFrame, entries: [
-		{ binding: 0, resource: { buffer: gfBuf, offset: off, size: 256 } },
+	const frameBG = [0, GF_SLOT, GF_SLOT * 2, GF_SLOT * 3].map(off => device.createBindGroup({ layout: bglFrame, entries: [
+		{ binding: 0, resource: { buffer: gfBuf, offset: off, size: GF_SLOT } },
 		{ binding: 1, resource: { buffer: styleBuf } },
 	] }));
 	const paramBG = [];
@@ -489,7 +490,7 @@ export function createGintLayerGPU(host, { requestDraw } = {}) {
 	}
 
 	// ── UBO 詰め物 ─────────────────────────────────────────
-	const gfAB = new ArrayBuffer(1024);
+	const gfAB = new ArrayBuffer(GF_SLOT * 4);
 	const gfF = new Float32Array(gfAB), gfU = new Uint32Array(gfAB), gfI = new Int32Array(gfAB);
 	function packGF(off, d, lodRank, noPivot = false) {
 		const o = off >> 2, dep = d.depth;
@@ -523,6 +524,9 @@ export function createGintLayerGPU(host, { requestDraw } = {}) {
 		gfF[o + 56] = b?.[0] ?? 0; gfF[o + 57] = b?.[1] ?? 0; gfF[o + 58] = b?.[2] ?? 1; gfF[o + 59] = b?.[3] ?? 1;
 		gfF[o + 60] = dep?.edgeFade ?? 0;   // elevP = (edgeFade, cos4φ0, sin4φ0, ell)＝予備3枠へ dβ 錨の残りとゲート
 		gfF[o + 61] = ell ? Math.cos(4 * pr) : 0; gfF[o + 62] = ell ? Math.sin(4 * pr) : 0; gfF[o + 63] = ell ? 1 : 0;
+		const mq = dep?.meshQ;   // 案A: 描画メッシュ面への量子化（無ければ G=0＝素の elevAt）
+		gfF[o + 64] = mq?.[0] ?? 0; gfF[o + 65] = mq?.[1] ?? 0; gfF[o + 66] = mq?.[2] ?? 1; gfF[o + 67] = mq?.[3] ?? 1;
+		gfF[o + 68] = dep?.meshG ?? 0; gfF[o + 69] = 0; gfF[o + 70] = 0; gfF[o + 71] = 0;
 	}
 	const gpAB = new ArrayBuffer(GP_SLOT * 11);
 	const gpF = new Float32Array(gpAB), gpI = new Int32Array(gpAB);
@@ -609,10 +613,10 @@ export function createGintLayerGPU(host, { requestDraw } = {}) {
 		const dep = data.depth;
 		const P = pipesFor(fr.samples || host.samples || 4);   // 遷移時AA＝renderer のフレーム段数にセットごと追随
 		// UBO を先に確定（queue.writeBuffer は submit 前に順序どおり適用される）
-		packGF(GF_LINE * 256, data, data.lodRank ?? 0);
-		packGF(GF_FILL * 256, data, 0);                     // 塗り stencil＝全密度（rank0）
-		packGF(GF_LINE_B * 256, data, data.lodRank ?? 0, true);   // 境界メタ線＝単一要・カリング無効
-		packGF(GF_FILL_B * 256, data, 0, true);                   // 境界メタ塗り＝同上
+		packGF(GF_LINE * GF_SLOT, data, data.lodRank ?? 0);
+		packGF(GF_FILL * GF_SLOT, data, 0);                     // 塗り stencil＝全密度（rank0）
+		packGF(GF_LINE_B * GF_SLOT, data, data.lodRank ?? 0, true);   // 境界メタ線＝単一要・カリング無効
+		packGF(GF_FILL_B * GF_SLOT, data, 0, true);                   // 境界メタ塗り＝同上
 		device.queue.writeBuffer(gfBuf, 0, gfAB);
 		if (stylesDirty) uploadStyles(data);
 
@@ -792,7 +796,7 @@ export function createGintLayerGPU(host, { requestDraw } = {}) {
 		const data = s.lastDrawData;
 		const pickMargin = 12 * (s.dpr ?? 1);
 		packGF(0, data, data.lodRank ?? 0);   // 非表示層（識別だけ生存）は renderScene が GF を書いていない＝ここで確定
-		device.queue.writeBuffer(gfBuf, 0, gfAB, 0, 256);
+		device.queue.writeBuffer(gfBuf, 0, gfAB, 0, GF_SLOT);
 		packGP(ROLE.pickLine, { width: (data.lineWidth ?? 1.0) + pickMargin });
 		packGP(ROLE.pickPoint, { radius: Math.max(data.ptRadius ?? 1.5, pickMargin * 0.5) });
 		device.queue.writeBuffer(gpBuf, ROLE.pickLine * GP_SLOT, gpAB, ROLE.pickLine * GP_SLOT, GP_SLOT * 2);

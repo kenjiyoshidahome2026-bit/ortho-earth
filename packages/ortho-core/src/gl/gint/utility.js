@@ -68,6 +68,9 @@ export function bindDepthUniforms(gl, u, data) {
 	gl.uniform1f(u.u_elevEdgeFade, dep?.edgeFade ?? 0);
 	const b = dep?.elevBounds;
 	gl.uniform4f(u.u_elevBounds, b?.[0] ?? 0, b?.[1] ?? 0, b?.[2] ?? 1, b?.[3] ?? 1);
+	const mq = dep?.meshQ;   // 案A: 描画メッシュ面への量子化（無ければ G=0＝素の elevAt）
+	gl.uniform4f(u.u_meshQ, mq?.[0] ?? 0, mq?.[1] ?? 0, mq?.[2] ?? 1, mq?.[3] ?? 1);
+	gl.uniform1f(u.u_meshG, dep?.meshG ?? 0);
 	if (u.u_hidden) gl.uniform1f(u.u_hidden, 0);
 	if (dep?.elevTex) { gl.activeTexture(gl.TEXTURE7); gl.bindTexture(gl.TEXTURE_2D, dep.elevTex); gl.activeTexture(gl.TEXTURE0); }
 	return dep;
