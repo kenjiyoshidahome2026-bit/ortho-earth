@@ -4,6 +4,7 @@
 // 使い方: node packages/geopbf/tests/t-cli.mjs
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, readFileSync, writeFileSync, existsSync } from "node:fs";
+import { gzipSync } from "node:zlib";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -68,13 +69,23 @@ ok(Math.abs(c3 - 139.767125) < 1e-3 && c3 !== 139.767125, `precision=3 で桁が
 let threw = false;
 try { run("enc", geojson, join(dir, "bad.geopbf"), "--precision", "12"); } catch { threw = true; }
 ok(threw, "範囲外の --precision は失敗する");
+threw = false;
+try { run("enc", geojson, join(dir, "bad0.geopbf"), "--precision", "0"); } catch { threw = true; }
+ok(threw, "--precision 0 も範囲外（pbf-base が黙って 6 に落とすため 1-9 のみ）");
 
 // ---- gzip -----------------------------------------------------------------------
-const gzPath = join(dir, "out.gz.geopbf");
-run("enc", geojson, gzPath, "--gzip");
-const head = readFileSync(gzPath);
-ok(head[0] === 0x1f && head[1] === 0x8b, "--gzip が gzip 署名で始まるファイルを書く");
-ok(/features\s+4/.test(run("info", gzPath)), "gzip 入力を拡張子によらず透過的に読む");
+const head = readFileSync(pbfPath);
+ok(head[0] === 0x1f && head[1] === 0x8b, "enc の既定は gzip（署名で始まる）");
+ok(/features\s+4/.test(run("info", pbfPath)), "gzip 入力を拡張子によらず透過的に読む");
+const rawPath = join(dir, "out.raw.geopbf");
+run("enc", geojson, rawPath, "--no-gzip");
+const rawHead = readFileSync(rawPath);
+ok(!(rawHead[0] === 0x1f && rawHead[1] === 0x8b), "--no-gzip は生の GeoPBF を書く");
+ok(/features\s+4/.test(run("info", rawPath)), "生の GeoPBF も読める");
+const gzJson = join(dir, "in.geojson.gz");
+writeFileSync(gzJson, gzipSync(readFileSync(geojson)));
+run("enc", gzJson, join(dir, "fromgz.geopbf"));
+ok(/features\s+4/.test(run("info", join(dir, "fromgz.geopbf"))), "gzip された GeoJSON も enc が署名で判別して読む");
 
 // ---- lod ------------------------------------------------------------------------
 const lodOut = run("lod", pbfPath);

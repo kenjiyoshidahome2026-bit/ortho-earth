@@ -14,9 +14,9 @@ globalThis.ImageData ??= class ImageData {
 
 const USAGE = `geopbf <command>
 
-  enc  <in.geojson> <out.geopbf>   GeoJSON を GeoPBF へ
-       [--precision N]             座標に残す小数桁（0-9・既定 6 ≒ 0.1m）
-       [--gzip]                    書き出しを gzip する（配布形の通例）
+  enc  <in.geojson> <out.geopbf>   GeoJSON を GeoPBF へ（書き出しは gzip が既定＝配布形の通例）
+       [--precision N]             座標に残す小数桁（1-9・既定 6 ≒ 0.1m）
+       [--no-gzip]                 gzip せず生の GeoPBF を書く
   dec  <in.geopbf>  <out.geojson>  GeoPBF を GeoJSON へ
   info <in.geopbf>                 中身の要約（地物数・頂点数・精度・大きさ）
   lod  <in.geopbf>                 gint のランクを付け、ズーム別に描かれる頂点数を出す
@@ -76,19 +76,20 @@ async function enc(argv) {
 	if (!inPath || !outPath) throw new Error("enc <in.geojson> <out.geopbf>");
 
 	const precision = opts.precision === undefined ? undefined : Number(opts.precision);
-	if (precision !== undefined && !(Number.isInteger(precision) && precision >= 0 && precision <= 9))
-		throw new Error("--precision は 0 から 9 の整数");
+	if (precision !== undefined && !(Number.isInteger(precision) && precision >= 1 && precision <= 9))
+		throw new Error("--precision は 1 から 9 の整数");   // 0 は pbf-base の `precision || 6` が黙って 6 に落とすので範囲外
 
-	const src = await readFile(inPath);
-	const gj = JSON.parse(src.toString("utf8"));
+	const src = await readMaybeGzip(inPath);
+	const gj = JSON.parse(Buffer.from(src).toString("utf8"));
 	const t = Date.now();
 	const pbf = await new GeoPBF({ name: gj.name || "layer", precision }).set(gj);
+	const gzip = !opts["no-gzip"];   // GDAL ドライバの COMPRESS=GZIP 既定・配布形に合わせる
 	let out = Buffer.from(pbf.arrayBuffer);
-	if (opts.gzip) out = gzipSync(out, { level: 9 });
+	if (gzip) out = gzipSync(out, { level: 9 });
 	await writeFile(outPath, out);
 
 	console.log(`${inPath}  ${mb(src.length)}`);
-	console.log(`${outPath}  ${mb(out.length)}${opts.gzip ? " (gzip)" : ""}  ${(src.length / out.length).toFixed(1)} 分の 1  ${Date.now() - t} ms`);
+	console.log(`${outPath}  ${mb(out.length)}${gzip ? " (gzip)" : ""}  ${(src.length / out.length).toFixed(1)} 分の 1  ${Date.now() - t} ms`);
 }
 
 // ── dec ───────────────────────────────────────────────────────────────────────
@@ -118,8 +119,7 @@ async function info(argv) {
 	console.log(`features    ${num(gj.features.length)}`);
 	console.log(`頂点        ${num(countVertices(gj.features))}`);
 	console.log(`geometry    ${[...types].map(([t, n]) => `${t} ${num(n)}`).join("  ")}`);
-	// PRECISION は公開アクセサが無いので内部フィールドを読む（用意されれば差し替える）
-	console.log(`precision   ${pbf._precision}  （${(1 / Math.pow(10, pbf._precision) * 111320).toFixed(2)} m 相当）`);
+	console.log(`precision   ${pbf.precision()}  （${(1 / Math.pow(10, pbf.precision()) * 111320).toFixed(2)} m 相当）`);
 	for (const [label, v] of [["name", pbf.name()], ["description", pbf.description()],
 		["license", pbf.license()], ["attribution", pbf.attribution()],
 		["minZoom", pbf.minZoom()], ["maxZoom", pbf.maxZoom()]])

@@ -36,8 +36,8 @@ The library is browser-first, but the core encoder/decoder runs on plain Node �
 small CLI for the things you would otherwise open a browser for. No build step, no GDAL, no extra dependencies.
 
 ```bash
-npx geopbf enc ne_10m_admin_0_countries.geojson countries.geopbf   # 13.3 MB -> 3.3 MB  (257 ms)
-npx geopbf enc in.geojson out.geopbf --precision 7 --gzip          # 1 cm grid, gzipped (the distribution form)
+npx geopbf enc ne_10m_admin_0_countries.geojson countries.geopbf   # 13.3 MB -> 2.7 MB, gzipped by default
+npx geopbf enc in.geojson out.geopbf --precision 7 --no-gzip       # 1 cm grid, raw (un-gzipped) GeoPBF
 npx geopbf info countries.geopbf                                   # features, vertices, precision, header fields
 npx geopbf dec countries.geopbf back.geojson                       # round trip
 npx geopbf lod countries.geopbf                                    # what Gint would actually draw, per zoom
@@ -55,7 +55,8 @@ be baked on a server:
   21    0       548,469   100.0%  ########################################
 ```
 
-Gzip input is detected by signature, not by extension. For formats other than GeoJSON — Shapefile, GPKG, PostGIS,
+Output is gzipped by default (matching the GDAL driver's `COMPRESS=GZIP` and the usual distribution form) — pass
+`--no-gzip` for a raw file. Gzip input is detected by signature, not by extension, for every command including `enc`. For formats other than GeoJSON — Shapefile, GPKG, PostGIS,
 FlatGeobuf and everything else GDAL reads — use the [GDAL/OGR driver](https://github.com/kenjiyoshidahome2026-bit/gdal-geopbf)
 (`ogr2ogr -f GeoPBF`, needs GDAL ≥ 3.12), or the browser workers in `src/index.js`.
 
