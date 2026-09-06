@@ -882,6 +882,7 @@ uniform float u_seaGate;      // 1＝図郭外フォールバック水域：標�
                               // ＝「水域は地理院・陸は標高(GEBCO/R10)」の管轄裁定を画素単位で行う
 ${ELEV}
 ${COG}
+uniform float u_baseAlpha;   // 基図の濃さ（表示パネルのスライダー）。COG は下層（globe/terrain）にも合成済み＝紙と線だけが引く
 in vec2 v_cuv;
 in vec4 v_color;
 in float v_front;
@@ -894,7 +895,7 @@ void main() {
 	if (u_seaGate > 0.5 && elev(v_ll) > 0.0) discard;   // 図郭外＝陸は塗り残す（紙色+等高線に委ねる）
 	// 霧はフェードアウト（透明化）：紙色で塗り潰すと、地平線の先＝球に隠れるべき塗りが空に不透明で浮く。
 	// 1.2倍＝霧83%で完全消滅：地形の霞（fog=1で紙色の帯）より一歩先に消え、暗い空に尻尾が残らない
-	float af = v_color.a * clamp(1.0 - 1.2 * v_fog, 0.0, 1.0);
+	float af = v_color.a * clamp(1.0 - 1.2 * v_fog, 0.0, 1.0) * u_baseAlpha;
 	if (af <= 0.003) discard;
 	fragColor = vec4(mix(cogTexMix(v_color.rgb, v_cuv), u_fogColor, v_fog) * af, af);  // premultiplied・ユーザCOG＝塗りの上・線/建物/ラベルの下
 	// 水域の厳密深度：applyLogDepth（VS焼き）は「三角形が小さい」前提の頂点線形補間＝湖全体を跨ぐ
@@ -1032,6 +1033,7 @@ ${LINE_MAIN}
 
 export const LINE_FS = `#version 300 es
 precision highp float;
+uniform float u_baseAlpha;   // 基図の濃さ（fill と同じスライダー）
 uniform vec3 u_fogColor;
 flat in vec2 v_a;
 flat in vec2 v_b;
@@ -1055,7 +1057,7 @@ void main() {
 	if (alpha <= 0.0) discard;
 	// 霧はフェードアウト（透明化）：塗り潰し式だと地平線の先の線が「空に浮く白線」になる（球の自遮蔽の代役）。
 	// 1.2倍＝霧83%で完全消滅：地形の霞の帯より先に消え、暗い空に線の尻尾（残影）が残らない
-	float a = v_color.a * alpha * clamp(1.0 - 1.2 * v_fog, 0.0, 1.0);
+	float a = v_color.a * alpha * clamp(1.0 - 1.2 * v_fog, 0.0, 1.0) * u_baseAlpha;
 	if (a <= 0.003) discard;
 	vec3 rgb = mix(v_color.rgb, u_fogColor, v_fog);
 	fragColor = vec4(rgb * a, a);

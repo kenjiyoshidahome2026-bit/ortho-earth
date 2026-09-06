@@ -35,7 +35,8 @@ import { tip as tipGadget } from "./gadgets/tip.js";
 import { pop as popGadget } from "./gadgets/pop.js";
 import { explain as explainGadget } from "./gadgets/explain.js";
 import { legend as legendGadget } from "./gadgets/legend.js";
-import { measure as measureGadget } from "./gadgets/measure-stub.js";   // 玄関スタブ＝ボタン+Mキー常駐、本体(measure.js＝球面測地/専用canvas)は初回クリック/Mで import()
+import { measure as measureGadget } from "./gadgets/measure-stub.js";
+import { stac as stacGadget } from "./gadgets/stac-stub.js";   // 衛星シーン検索の玄関スタブ（本体 stac.js は初回クリックで遅延）   // 玄関スタブ＝ボタン+Mキー常駐、本体(measure.js＝球面測地/専用canvas)は初回クリック/Mで import()
 import { profile as profileGadget } from "./gadgets/profile-stub.js";   // 玄関スタブ＝ボタン常駐、本体(profile.js＝断面図：経路指定+標高サンプル+グラフ)は初回クリックで import()
 import { shot as shotGadget } from "./gadgets/shot-stub.js";   // 玄関スタブ＝デスクトップのみボタン常駐、本体(shot.js＝層合成/webp/出典焼込)は初回クリック/⌘Sで import()。モバイルは stub が即return＝本体も fetch されない
 import { qr as qrGadget } from "./gadgets/qr-stub.js";   // 玄関スタブ＝ボタンだけ常駐、本体(qr.js＋自作QRエンコーダ qrcode.js 14KB)は初回クリックで import()＝初期バンドルから隔離
@@ -2951,6 +2952,8 @@ document.querySelectorAll(".chip").forEach(b => b.addEventListener("click", () =
 }));
 // 星空チップ（表示パネル内）＝旧・全球ビューの画面クリックから移設。見た目同期は constelApply 側（点火の一本道）
 document.getElementById("chip-sky")?.addEventListener("click", () => toggleConstellations().then(saveView));
+// 基図の濃さスライダー（表示パネル）＝fill/line の α を両バックエンド一括で（COG/オーバーレイを主役にする時に引く）
+document.getElementById("base-alpha")?.addEventListener("input", e => renderer.set("view", { baseAlpha: (+e.target.value) / 100 }));
 // テーマ列（表示パネル内）＝palette ガジェットの即決版（ライブ見本はガジェットの領分・こちらは名前+紙色スウォッチ）。
 // themeFixed（opts.theme 焼き付け）は列ごと出さない。現在テーマの点火同期は switchTheme 側。
 {
@@ -3826,7 +3829,7 @@ map.gadget("anno", async function (pbf) {
 // COG（Cloud Optimized GeoTIFF）＝geopbf/cog リーダ→cogTex スロット（GLOBE/TERRAIN FS がドレープ）。本体は遅延chunk。
 // setCogTex は wPost 直（transfer 付き＝2048²RGBA 16MB の structured clone コピーを回避）
 let cogCtl = null;
-map.gadget("cog", async function (src) {
+map.gadget("cog", async function (src, opts) {
 	const m = await import("./gadgets/cog.js");
 	cogCtl ??= m.createCog(map, {
 		setCogTex: d => wPost({ type: "set", cmd: "cogTex", data: d, prop: null }, d?.rgba?.buffer ? [d.rgba.buffer] : []),
@@ -3838,8 +3841,12 @@ map.gadget("cog", async function (src) {
 		},
 		lowMem: LOW_MEM, signal: ac.signal,
 	});
-	await cogCtl.load(src);
+	await cogCtl.load(src, opts);
 	return cogCtl;
+});
+// 衛星シーン検索（STAC＝Earth Search→選んだシーンの COG を球へ）。スタブ＝ボタンのみ常駐・本体は初回クリック
+map.gadget("stac", function (opts) {
+	return stacGadget.call(this, { loadCog: (src, o) => map.gadget.cog(src, o), clearCog: () => cogCtl?.clear(), signal: ac.signal, ...opts });
 });
 // ?cog=<URL>＝COG の URL ロード（門は ?g=/?scene= と共用＝https 限定・gh: 短縮形）。Range 直読み＝全量 fetch はしない
 {

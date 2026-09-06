@@ -31,7 +31,7 @@
        各ボタンのブロックは固有の状態（.on/.busy/初期display等）だけを書く。
        この節は全ブロックより前置＝固有の上書きが同格後勝ちで自然に効く。 --- */
 #hint-btn, #plateau-btn, #palette-btn, #qr-btn, #demo-btn, #reset, #full, #cpos-btn,
-#measure-btn, #profile-btn, #japan-btn, #solar, #shot-btn, #print-btn, #hud-btn, #close-btn, #edit-btn {
+#measure-btn, #profile-btn, #japan-btn, #solar, #shot-btn, #print-btn, #hud-btn, #close-btn, #edit-btn, #stac-btn {
 	width: 34px; height: 34px; border-radius: 5px;
 	border: 1px solid var(--qm-border); background: var(--qm-panel); cursor: pointer; padding: 0;
 	display: flex; align-items: center; justify-content: center;
@@ -590,6 +590,10 @@
 		svg { stroke: #fff; } }
 	&.busy { opacity: .55; cursor: progress; }
 }
+#stac-btn {   // on＝edit と同じ反転ガラス（インク地に白アイコン）＝開閉が一目で分かるフリップ
+	&.on { background-color: color-mix(in srgb, var(--qm-ink) 82%, transparent); border-color: rgba(255,255,255,.45);
+		svg { stroke: #fff; } }
+}
 #profile-panel {
 	position: absolute; left: 50%; transform: translateX(-50%);
 	bottom: calc(64px + var(--qm-safe-b));   /* 左下計器(#pos)の背丈の上＝グラフと地図の経路が同時に見える */
@@ -718,7 +722,7 @@
        点火(.on)や検索の開閉(#search.open)は各所の高詳細度セレクタが勝つ＝壊さない。
        上辺グラデ＋inset上ハイライト＝光を受けた凸面、押すと1px沈む＝指応え。 --- */
 #hint-btn, #search #search-btn, #plateau-btn, #palette-btn, #reset, #zoom button, #full, #layers-btn,
-#cpos-btn, #measure-btn, #profile-btn, #japan-btn, #solar, #shot-btn, #print-btn, #legend-btn, #close-btn, #demo-btn, #qr-btn, #hud-btn, #edit-btn,
+#cpos-btn, #measure-btn, #profile-btn, #japan-btn, #solar, #shot-btn, #print-btn, #legend-btn, #close-btn, #demo-btn, #qr-btn, #hud-btn, #edit-btn, #stac-btn,
 #chips .chip {
 	background-color: var(--qm-glass-bg);
 	background-image: var(--qm-glass-sheen);
@@ -732,7 +736,7 @@
 }
 #search.open #search-btn { box-shadow: none; transform: none; }   /* 虫めがねが検索箱へ溶けた後＝影と沈みだけ残さない */
 /* 点火（.on）＝色ガラス仕上げ：地色は各所（インク/アクセントの color-mix 透過）、ここは暗地用に照りと inset を半減 */
-#chips .chip.on, #cpos-btn.on, #measure-btn.on, #profile-btn.on, #hud-btn.on, #edit-btn.on, #demo-btn[aria-pressed="true"] {
+#chips .chip.on, #cpos-btn.on, #measure-btn.on, #profile-btn.on, #hud-btn.on, #edit-btn.on, #stac-btn.on, #demo-btn[aria-pressed="true"] {
 	background-image: var(--qm-glass-sheen-dim);
 	box-shadow: var(--qm-shadow-btn-on);
 	&:hover { box-shadow: var(--qm-shadow-btn-on-hover); }   /* 浮きの所作は同じ・insetだけ暗地用 */

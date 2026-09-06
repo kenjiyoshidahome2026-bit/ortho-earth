@@ -1019,7 +1019,9 @@ export function createRenderer(canvas, rOpts = {}) {
 		// 案A: 線・塗りのドレープ標高を地形メッシュの折れ線面に量子化（QELEV）。窓と格子 G を fill/line 系へ毎フレーム配布。
 		// 地形なし（真俯瞰等）は G=0＝素の elev() へ（量子化する面が存在しない）。
 		const mq = (terrainActive && terrain) ? terrain.mesh : null;
+		const baseA = view.baseAlpha ?? 1;   // 基図の濃さ（表示パネル）＝fill/line の α に一括
 		const setMeshQ = (prog) => {
+			gl.uniform1f(loc(gl, prog, "u_baseAlpha"), baseA);
 			gl.uniform4f(loc(gl, prog, "u_meshQ"), mq ? mq[0] : 0, mq ? mq[1] : 0, mq ? mq[2] : 1, mq ? mq[3] : 1);
 			gl.uniform1f(loc(gl, prog, "u_meshG"), mq ? terrain.G : 0);
 		};

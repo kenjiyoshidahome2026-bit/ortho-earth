@@ -20,6 +20,8 @@ const t = tr({
 	"施設": "Facilities",
 	"各種施設・ランドマーク名": "Facility and landmark names",
 	"星空": "Sky",
+	"基図": "Base map",
+	"基図の濃さ（衛星画像の上で線・塗りを薄める）": "Base map opacity (fade lines/fills over imagery)",
 	"星座線・星座名（引いた全球ビューで）": "Constellation lines and names (in the zoomed-out globe view)",
 });
 const LEGACY = { chimei: "place", chikei: "terrain", shisetsu: "facility" };   // 旧romajiキーの読み替え（後方互換）
@@ -56,6 +58,9 @@ export function mountChips(mapEl, keys = true, fixed = {}) {
 		${list.map(c =>
 			`<button class="chip${c.on ? " on" : ""}" data-k="${c.k}" aria-pressed="${!!c.on}"${c.title ? ` data-tip="${t(c.title)}"` : ""}>${t(c.label)}</button>`).join("\n")}
 		<button class="chip" id="chip-sky" aria-pressed="false" data-tip="${t("星座線・星座名（引いた全球ビューで）")}">${t("星空")}</button>
+		<div id="alpha-row" style="display:flex;gap:6px;align-items:center;font-size:11px;padding:2px 4px;" data-tip="${t("基図の濃さ（衛星画像の上で線・塗りを薄める）")}">
+			<span>${t("基図")}</span><input type="range" id="base-alpha" min="15" max="100" value="100" style="flex:1;min-width:0;accent-color:#3f4757;">
+		</div>
 		<div id="theme-row"></div>
 	</div>`;
 	gadgetStack(mapEl).prepend(chips);   // 左上スタックの最上段へ（2026-09-02 本人裁定「右上は開ける＝アイコンは左・パネルは右へ開く」）

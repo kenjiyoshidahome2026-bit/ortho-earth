@@ -983,11 +983,12 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 	// DrawP N_ROLESスロットを一括で書く（256Bストライド・各48B使用）
 	const paramF32 = new Float32Array(PARAM_SLOT / 4 * N_ROLES);
 	function packParams({ cityLift, waterLift, exact, land, bldColor, contour, liftBounds, fadeK = 1, worldHypsoK = 0, hasClim = 0 }) {
+		const baseA = view.baseAlpha ?? 1;   // 基図の濃さ（表示パネル）＝fill/line の p0.w に一括（COG は下層にも合成済み＝紙と線だけが引く）
 		const f = paramF32; f.fill(0);
 		const at = (role, vals) => { const o = role * (PARAM_SLOT / 4); for (let i = 0; i < vals.length; i++) f[o + i] = vals[i]; };
-		at(ROLE.normal, [0, cityLift, 0, 1]);
-		at(ROLE.water, [0, waterLift, exact, 1]);
-		at(ROLE.seaFb, [1, waterLift, exact, 1]);
+		at(ROLE.normal, [0, cityLift, 0, baseA]);
+		at(ROLE.water, [0, waterLift, exact, baseA]);
+		at(ROLE.seaFb, [1, waterLift, exact, baseA]);
 		const hy = view.hypso;
 		at(ROLE.terrain, [land[0], land[1], land[2], 0,
 			hy ? hy.color[0] : 0, hy ? hy.color[1] : 0, hy ? hy.color[2] : 0, hy ? (hy.amount ?? 0.5) : 0,
@@ -999,9 +1000,9 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 		const lb = liftBounds || [0, 0, 0, 0];
 		at(ROLE.plateau, [lb[0], lb[1], lb[2], lb[3], bldColor[0], bldColor[1], bldColor[2], 0]);
 		// クロスフェード中の新シーン用＝通常ロールの複製＋p0.w=α（旧シーンは通常ロールでα1のまま下に描く）
-		at(ROLE.fadeNormal, [0, cityLift, 0, fadeK]);
-		at(ROLE.fadeWater, [0, waterLift, exact, fadeK]);
-		at(ROLE.fadeSeaFb, [1, waterLift, exact, fadeK]);
+		at(ROLE.fadeNormal, [0, cityLift, 0, fadeK * baseA]);
+		at(ROLE.fadeWater, [0, waterLift, exact, fadeK * baseA]);
+		at(ROLE.fadeSeaFb, [1, waterLift, exact, fadeK * baseA]);
 		at(ROLE.fadeBld, [bldColor[0], bldColor[1], bldColor[2], fadeK]);
 		return f;
 	}

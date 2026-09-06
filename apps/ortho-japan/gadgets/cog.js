@@ -29,18 +29,26 @@ export function createCog(map, { setCogTex, fit, lowMem, signal } = {}) {
 		finally { busy = false; rc = null; signal?.removeEventListener("abort", onOuter); }
 	};
 
-	// ビュー窓＝画面四隅+中心の unproject ∩ COG bbox（20% 余白）。
+	// ビュー窓＝画面四隅+中心の unproject ∩ COG bbox（20% 余白）∩ ズーム由来の視野幅キャップ。
 	// 隅が球外（unproject=null）＝視野が球の縁を越えている＝COG 全域より広い ⇒ 全域を返す（ズームアウト追従の要）
+	// ⚠チルト時は上端が地平線近くまで届き素の bbox が膨張＝アトラス 2048px が広域に薄く伸びて精細化が甘くなる
+	//（stac の「この範囲」ズレと同根・9/6）。視野幅 deg＝360×W/(256×2^z) で中心の周りにキャップ＝手前の見えている
+	// 範囲へ解像度を集中（遠景は霞の中＝粗くて良い）。真俯瞰はキャップ≒素の bbox＝挙動不変。
 	const viewWindow = () => {
 		if (!cog) return null;
 		const el = map.mapEl, W = el.clientWidth, H = el.clientHeight;
 		const pts = [[W / 2, H / 2], [0, 0], [W, 0], [0, H], [W, H]].map(p => map.unprojectXY(p[0], p[1]));
 		if (pts.some(p => !p)) return cog.bboxLL.slice();
+		const c = pts[0];
+		const capW = 360 * W / (256 * Math.pow(2, map.getZoom())) * 0.9;   // 中心±＝計1.8画面ぶん（精細化は少し広めに持つ）
+		const capH = capW * H / W;
 		let w = 1e9, s = 1e9, e = -1e9, n = -1e9;
 		for (const [lo, la] of pts) { w = Math.min(w, lo); e = Math.max(e, lo); s = Math.min(s, la); n = Math.max(n, la); }
 		const mx = (e - w) * 0.2, my = (n - s) * 0.2;
+		w = Math.max(w - mx, c[0] - capW); e = Math.min(e + mx, c[0] + capW);
+		s = Math.max(s - my, c[1] - capH); n = Math.min(n + my, c[1] + capH);
 		const [cw, cs, ce, cn] = cog.bboxLL;
-		const bb = [Math.max(w - mx, cw), Math.max(s - my, cs), Math.min(e + mx, ce), Math.min(n + my, cn)];
+		const bb = [Math.max(w, cw), Math.max(s, cs), Math.min(e, ce), Math.min(n, cn)];
 		return (bb[2] > bb[0] && bb[3] > bb[1]) ? bb : null;
 	};
 
@@ -77,11 +85,11 @@ export function createCog(map, { setCogTex, fit, lowMem, signal } = {}) {
 	};
 
 	return {
-		async load(src) {
+		async load(src, { fit: doFit = true } = {}) {   // fit=false＝カメラ据え置き（stac のシーン切替＝同じ場所の別日を見比べる用）
 			this.clear();
 			cog = await openCog(src, { signal });
 			await renderWindow(cog.bboxLL.slice());   // 全域＝最粗 overview（ヘッダ直後に連続＝実質 range 1-2 本）
-			fit?.(cog.bboxLL);
+			if (doFit) fit?.(cog.bboxLL);
 			timer = setInterval(tick, 200);
 			console.info("[cog] loaded", cog.width + "x" + cog.height, "EPSG:" + cog.epsg, cog.metrics());
 			return cog;

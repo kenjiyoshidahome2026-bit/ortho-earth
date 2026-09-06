@@ -49,6 +49,7 @@ engineP.then(m => m.default({ assetBase: import.meta.env.BASE_URL })).then(map =
 	map.gadget.qr();          // この視点をQRで共有（押すと中央に現在の共有URLのQR＝スクリーン投影→スキャンで拡散）
 	map.gadget.print({ zoom: [6.5, 99] });     // 平面図を印刷（縮尺・A4/A3・経緯線・外枠＝紙仕様）＝GSI基図が前提
 	map.gadget.plateau({ zoom: [6.5, 99] });   // 建物3D（PLATEAU）データ管理（公式ロゴマークのボタン）＝日本の道具
+	map.gadget.stac({ zoom: [5, 99] });        // 衛星画像を探す（STAC/Earth Search→日付・雲量で選んで COG を球へ）＝世界帯から使える
 	map.gadget.contextmenu(); // 右クリックメニュー（既定＝この地点へ寄る／座標をコピー）
 	map.gadget.dropFile();    // GISファイルのD&D取り込み（geopbfが食う全形式→GeoPBF化→gintへ描画・識別）
 	import("./demo/scenes.js").then(m => map.gadget.demo({ ...m.default, lang: new URLSearchParams(location.search).get("lang") }));   // デモ上演（▶→Space=次・BS=戻る・クリッカー(PageUp/Down)対応・Esc終了）。台本もエンジンも起動バンドル外＝▶は僅かに遅れて出るが起動を汚さない。作法は demo/scenes.js 冒頭。?lang=jp＝タイトル日本語（既定＝title英語・en基準）
