@@ -175,7 +175,21 @@ const reqCount = (path) => log.filter(l => l.path === path).length;
 	cog.close();
 }
 
-// ---- 12) 非対応 CRS の明示エラー --------------------------------------------------------------
+// ---- 12) 回転アフィン COG（SAR GEC の型・tag 34264）------------------------------------------
+{
+	const th = Math.PI / 6, sc = 0.001;   // 30°回転・4326
+	const T = [sc * Math.cos(th), sc * Math.sin(th), 0, 139.5, sc * Math.sin(th), -sc * Math.cos(th), 0, 35.8, 0, 0, 0, 0, 0, 0, 0, 1];
+	files.set("/rot.tif", { body: buildCog({ width: 40, height: 40, epsg: 4326, transform: T, compression: "deflate", pixel: (x, y) => [x < 20 ? 200 : 40, 120, y < 20 ? 200 : 40] }) });
+	const cog = await openCog(`${base}/rot.tif`);
+	ok(Math.abs(cog.bbox[2] - cog.bbox[0] - sc * 40 * (Math.cos(th) + Math.sin(th))) < 1e-9, "回転 bbox＝四隅外接（cos+sin 幅）");
+	const img = await cog.render(lonlatTarget(cog.bboxLL, 40, 40));
+	const at = (i, j) => img[(j * 40 + i) * 4 + 3];
+	ok(at(20, 20) === 255, "回転 render: 中心はデータ内（不透明）");
+	ok(at(1, 1) === 0 && at(38, 38) === 0, "回転 render: 外接 bbox の角は回転の外＝透明");
+	cog.close();
+}
+
+// ---- 13) 非対応 CRS の明示エラー --------------------------------------------------------------
 {
 	files.set("/bad.tif", { body: buildCog({ epsg: 6677 }) });
 	let msg = "";
