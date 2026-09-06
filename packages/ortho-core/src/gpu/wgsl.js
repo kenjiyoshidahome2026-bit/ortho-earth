@@ -285,7 +285,7 @@ fn toScreen(c: vec4f) -> vec2f {
 	let hw = max(in.halfw, 0.5);
 	let alpha = clamp((hw - dist) * 2.0 + 0.5, 0.0, 1.0) * min(in.halfw * 2.0, 1.0);
 	if (alpha <= 0.0) { discard; }
-	let a = in.color.a * alpha * clamp(1.0 - 1.2 * in.fog, 0.0, 1.0);
+	let a = in.color.a * alpha * clamp(1.0 - 1.2 * in.fog, 0.0, 1.0) * P.p0.w;   // p0.w＝クロスフェード×基図の濃さ
 	if (a <= 0.003) { discard; }
 	let ga = a * P.p0.w;   // ×グローバルα（クロスフェード用・通常1）
 	return vec4f(mix(in.color.rgb, F.fogColor, in.fog) * ga, ga);
