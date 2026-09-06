@@ -32,7 +32,7 @@ const TYPE_SIZE = { 2: 1, 3: 2, 4: 4, 7: 1, 12: 8, 16: 8 };
 export function buildCog(o = {}) {
 	const {
 		width = 64, height = 48, tileW = 16, tileH = 16,
-		epsg = 32654, origin = [300000, 4000000], scale = [10, 10],
+		epsg = 32654, origin = [300000, 4000000], scale = [10, 10], transform = null,   // transform=16要素＝tag34264（回転アフィン・origin/scale の代わり）
 		bands = 3, dtype = "u8", compression = "none", predictor = false,
 		overviews = [], pixel = (x, y) => [x & 255, y & 255, (x + y) & 255],
 		palette = null, nodata = null, strip = false, bigtiff = false, sparse = null,
@@ -94,8 +94,8 @@ export function buildCog(o = {}) {
 		if (strip) entries.push([278, 3, [lv.th]]);
 		else entries.push([322, 3, [lv.tw]], [323, 3, [lv.th]]);
 		if (li === 0) {
-			entries.push([33550, 12, [scale[0], scale[1], 0]]);
-			entries.push([33922, 12, [0, 0, 0, origin[0], origin[1], 0]]);
+			if (transform) entries.push([34264, 12, transform]);
+			else { entries.push([33550, 12, [scale[0], scale[1], 0]]); entries.push([33922, 12, [0, 0, 0, origin[0], origin[1], 0]]); }
 			entries.push([34735, 3, geoKeys]);
 			if (nodata !== null) entries.push([42113, 2, [...`${nodata}\0`].map(c => c.charCodeAt(0))]);
 			if (palette) entries.push([320, 3, [...Array(256 * 3)].map((_, i) => (palette[(i % 256) * 4 + ((i / 256) | 0)] << 8) | 0)]);

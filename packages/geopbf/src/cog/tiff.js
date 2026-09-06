@@ -133,16 +133,22 @@ export async function parseTiff(getBytes) {
 	const main = out.reduce((a, b) => (b.width > a.width ? b : a));
 	const mt = await values(main.tags, 33550);   // ModelPixelScale
 	const tp = await values(main.tags, 33922);   // ModelTiepoint
-	const xf = await values(main.tags, 34264);   // ModelTransformation（軸平行のみ）
+	const xf = await values(main.tags, 34264);   // ModelTransformation（回転込みフルアフィン＝SAR GEC の実勢 9/6 対応）
+	// geo＝フルアフィン統一: X = ox + ax·px + ay·py / Y = oy + bx·px + by·py（軸平行は ay=bx=0 の特殊形）
 	let geo = null;
-	if (mt && tp) geo = { scaleX: mt[0], scaleY: mt[1], originX: tp[3] - tp[0] * mt[0], originY: tp[4] + tp[1] * mt[1] };
-	else if (xf) {
-		if (xf[1] !== 0 || xf[4] !== 0) throw new Error("cog: rotated ModelTransformation not supported");
-		geo = { scaleX: xf[0], scaleY: -xf[5], originX: xf[3], originY: xf[7] };
-	}
+	if (mt && tp) geo = { ox: tp[3] - tp[0] * mt[0], oy: tp[4] + tp[1] * mt[1], ax: mt[0], ay: 0, bx: 0, by: -mt[1] };
+	else if (xf) geo = { ox: xf[3], oy: xf[7], ax: xf[0], ay: xf[1], bx: xf[4], by: xf[5] };
 	if (!geo) throw new Error("cog: no georeference (ModelPixelScale/Tiepoint)");
-	// bbox（源 CRS）: originY は北端（scaleY 正で南下）
-	const bbox = [geo.originX, geo.originY - main.height * geo.scaleY, geo.originX + main.width * geo.scaleX, geo.originY];
+	if (Math.abs(geo.ax * geo.by - geo.ay * geo.bx) < 1e-30) throw new Error("cog: degenerate geotransform");
+	geo.rotated = !(geo.ay === 0 && geo.bx === 0);
+	// bbox（源 CRS）＝画像四隅のアフィン像の外接（回転でも正しい）
+	const cx = (px, py) => geo.ox + geo.ax * px + geo.ay * py, cy = (px, py) => geo.oy + geo.bx * px + geo.by * py;
+	let bx0 = 1e30, by0 = 1e30, bx1 = -1e30, by1 = -1e30;
+	for (const [px, py] of [[0, 0], [main.width, 0], [0, main.height], [main.width, main.height]]) {
+		bx0 = Math.min(bx0, cx(px, py)); bx1 = Math.max(bx1, cx(px, py));
+		by0 = Math.min(by0, cy(px, py)); by1 = Math.max(by1, cy(px, py));
+	}
+	const bbox = [bx0, by0, bx1, by1];
 
 	// ---- GeoKeyDirectory → EPSG --------------------------------------------------
 	const gk = await values(main.tags, 34735);

@@ -59,7 +59,7 @@ const ok = (cond, msg) => { if (!cond) { console.error("✗", msg); fails++; } e
 		rgba[o] = i < 16 ? 255 : 0; rgba[o + 2] = i < 16 ? 0 : 255; rgba[o + 3] = 255;
 	}
 	const lv = { width: 32, height: 32, tileW, tileH, tilesX: 1, tilesY: 1 };
-	const geo = { originX: 139, originY: 36, scaleX: 0.01, scaleY: 0.01 };   // 139..139.32E / 35.68..36N
+	const geo = { ox: 139, oy: 36, ax: 0.01, ay: 0, bx: 0, by: -0.01 };   // 139..139.32E / 35.68..36N（アフィン統一形）
 	const geoL = geoAtLevel(geo, lv, lv);
 	const p = projFor(4326);
 	const out = warpRGBA({ lv, geoL, getTileRGBA: () => rgba, forward: p.forward }, lonlatTarget([139, 35.68, 139.32, 36], 32, 32));
@@ -69,6 +69,13 @@ const ok = (cond, msg) => { if (!cond) { console.error("✗", msg); fails++; } e
 	// 範囲外ターゲット＝透明
 	const out2 = warpRGBA({ lv, geoL, getTileRGBA: () => rgba, forward: p.forward }, lonlatTarget([150, 10, 151, 11], 8, 8));
 	ok(out2.every((v, i) => i % 4 !== 3 || v === 0), "warp: 範囲外は透明");
+	// 回転アフィン（SAR GEC の型）: 45°回転した 32×32 を経緯度グリッドへ＝中心は必ずデータ内・角は外＝透明
+	const th = Math.PI / 4, sc = 0.01;
+	const geoR = { ox: 139.16, oy: 35.84, ax: sc * Math.cos(th), ay: sc * Math.sin(th), bx: sc * Math.sin(th), by: -sc * Math.cos(th) };
+	const geoRL = geoAtLevel(geoR, lv, lv);
+	const outR = warpRGBA({ lv, geoL: geoRL, getTileRGBA: () => rgba, forward: p.forward }, lonlatTarget([139.0, 35.6, 139.6, 36.1], 40, 40));
+	const cA = outR[(20 * 40 + 20) * 4 + 3], corner = outR[(1 * 40 + 1) * 4 + 3];
+	ok(cA === 255 && corner === 0, `warp: 回転アフィン＝中心データ内(α${cA})・角は外(α${corner})`);
 }
 
 console.log(fails ? `\n${fails} 件失敗` : "\n全件通過");

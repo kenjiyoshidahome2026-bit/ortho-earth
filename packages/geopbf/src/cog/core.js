@@ -6,7 +6,7 @@ import { openSource } from "./source.js";
 import { parseTiff } from "./tiff.js";
 import { projFor } from "./proj.js";
 import { decodeTile, toRGBA8 } from "./decode.js";
-import { warpRGBA, geoAtLevel, xyzTarget, lonlatTarget } from "./warp.js";
+import { warpRGBA, geoAtLevel, geoPx, xyzTarget, lonlatTarget } from "./warp.js";
 import { makeLRU, noopCache } from "./cache.js";
 
 export { xyzTarget, lonlatTarget };
@@ -31,9 +31,10 @@ export async function openCog(src, opts = {}) {
 	if (!proj) throw new Error(`cog: unsupported CRS EPSG:${t.epsg} (supported: 4326 / 3857 / UTM 326xx-327xx)`);
 
 	const full = t.ifds[0];
+	const gsd = Math.sqrt(Math.abs(t.geo.ax * t.geo.by - t.geo.ay * t.geo.bx));   // 画素サイズ（CRS単位・回転でも面積ベースで正）
 	const overviews = t.ifds.map((lv, i) => ({
 		level: i, width: lv.width, height: lv.height, tilesX: lv.tilesX, tilesY: lv.tilesY,
-		resX: t.geo.scaleX * full.width / lv.width,
+		resX: gsd * full.width / lv.width,
 	}));
 
 	// bbox → 経緯度（辺を8分割で密化＝UTM 等の曲がった辺でも外接を外さない）
@@ -47,9 +48,10 @@ export async function openCog(src, opts = {}) {
 		}
 	}
 
-	// stretch（u16/i16/f32 単バンド）: 明示 [lo,hi] か "auto"＝最粗 overview の 2–98 percentile を f32 で
+	// stretch（単バンド全般＝u8 も含む）: 明示 [lo,hi] か auto＝最粗 overview の 2–98 percentile を f32 で。
+	// u8 も既定 auto＝SAR 振幅（低域偏重）や淡いグレー画がそのまま見える（恒等が欲しければ stretch:[0,255]）
 	let stretchP = null;
-	const needStretch = full.samples < 3 && !full.palette && full.bits[0] > 8;
+	const needStretch = full.samples < 3 && !full.palette;
 	const ensureStretch = () => stretchP ??= (async () => {
 		if (Array.isArray(opts.stretch)) return opts.stretch;
 		const lv = t.ifds[t.ifds.length - 1];
@@ -143,10 +145,10 @@ export async function openCog(src, opts = {}) {
 		const level = o.level ?? levelFor(Math.hypot(XB - XA, YB - YA) / (tgt.w - 1));
 		const lv = t.ifds[level];
 		const geoL = geoAtLevel(t.geo, full, lv);
-		let px0 = 1e15, py0 = 1e15, px1 = -1e15, py1 = -1e15;   // 四隅+辺中点を源ピクセルへ
+		let px0 = 1e15, py0 = 1e15, px1 = -1e15, py1 = -1e15;   // 四隅+辺中点を源ピクセルへ（逆アフィン＝回転対応）
 		for (const [i, j] of [[0, 0], [tgt.w - 1, 0], [0, tgt.h - 1], [tgt.w - 1, tgt.h - 1], [tgt.w >> 1, 0], [tgt.w >> 1, tgt.h - 1], [0, tgt.h >> 1], [tgt.w - 1, tgt.h >> 1]]) {
 			const [X, Y] = proj.forward(tgt.mapLL(i, j));
-			const px = (X - geoL.originX) / geoL.scaleX, py = (geoL.originY - Y) / geoL.scaleY;
+			const [px, py] = geoPx(geoL, X, Y);
 			px0 = Math.min(px0, px); px1 = Math.max(px1, px); py0 = Math.min(py0, py); py1 = Math.max(py1, py);
 		}
 		const tx0 = Math.max(0, (px0 / lv.tileW) | 0), tx1 = Math.min(lv.tilesX - 1, (px1 / lv.tileW) | 0);

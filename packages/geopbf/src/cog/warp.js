@@ -5,14 +5,18 @@
 
 const D2R = Math.PI / 180, R2D = 180 / Math.PI, RM = 6378137;
 
-// 源 CRS ピクセル系（overview 段に合わせて縮尺補正した geo）を作る
+// 源 CRS ピクセル系（overview 段に合わせて縮尺補正した geo・フルアフィン）。逆変換係数も前計算して持つ。
 export function geoAtLevel(geo, full, lv) {
-	return {
-		originX: geo.originX, originY: geo.originY,
-		scaleX: geo.scaleX * full.width / lv.width,
-		scaleY: geo.scaleY * full.height / lv.height,
-	};
+	const kx = full.width / lv.width, ky = full.height / lv.height;
+	const g = { ox: geo.ox, oy: geo.oy, ax: geo.ax * kx, ay: geo.ay * ky, bx: geo.bx * kx, by: geo.by * ky };
+	const det = g.ax * g.by - g.ay * g.bx;
+	g.ix = g.by / det; g.iy = -g.ay / det; g.jx = -g.bx / det; g.jy = g.ax / det;   // CRS→px: px=ix·dX+iy·dY / py=jx·dX+jy·dY
+	return g;
 }
+export const geoPx = (g, X, Y) => {   // CRS → 源ピクセル（逆アフィン）
+	const dX = X - g.ox, dY = Y - g.oy;
+	return [g.ix * dX + g.iy * dY, g.jx * dX + g.jy * dY];
+};
 
 // 目標: XYZ(3857) タイル。mapPx(i,j) → [lon,lat]
 export function xyzTarget(z, x, y, size = 256) {
@@ -54,8 +58,8 @@ export function warpRGBA({ lv, geoL, getTileRGBA, forward }, tgt, { nearest = fa
 	for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) {
 		const [lon, lat] = mapLL(i, j);
 		const [X, Y] = forward([lon, lat]);
-		const fx = (X - geoL.originX) / geoL.scaleX - 0.5;   // ピクセル中心基準
-		const fy = (geoL.originY - Y) / geoL.scaleY - 0.5;
+		const [px, py] = geoPx(geoL, X, Y);
+		const fx = px - 0.5, fy = py - 0.5;   // ピクセル中心基準
 		const o = (j * w + i) * 4;
 		if (nearest) {
 			const p = px4(Math.round(fx), Math.round(fy));
