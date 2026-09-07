@@ -2,7 +2,8 @@
 // （ネットワーク・Draco＝draco3d 注入）を焼いて量子化誤差・index/LOD/mask の不変・gzip 後サイズを数字で見る。
 //   node tests/t-plateauq.mjs          合成のみ（数十ms）
 //   node tests/t-plateauq.mjs --real   実バッチ込み（数秒・要ネット）
-import { packPLQ, unpackPLQ, weldMesh, bakeSlug, PLQ_VER } from "../plateauq.js";
+import { packPLQ, unpackPLQ, headPLQ, weldMesh, extrudePrisms, enuBasis, PRISM_Q, bakeSlug, PLQ_VER } from "../plateauq.js";
+import { existsSync, readFileSync } from "node:fs";
 import { gzipSync } from "node:zlib";
 
 let fail = 0;
@@ -31,10 +32,26 @@ function synth(nt, shared, seed = 1) {
 // 三角形 t の3頂点座標（idx 経由）＝レイアウトが変わっても幾何は同じでなければならない
 const triPos = (m, t) => [0, 1, 2].flatMap(k => { const v = m.idx[t * 3 + k] * 3; return [m.pos[v], m.pos[v + 1], m.pos[v + 2]]; });
 const triNrm = (m, t) => [0, 1, 2].flatMap(k => { const v = m.idx[t * 3 + k] * 4; return [m.nrm[v], m.nrm[v + 1], m.nrm[v + 2]]; });
+const triArea = (m, t) => { const p = triPos(m, t); const ux = p[3] - p[0], uy = p[4] - p[1], uz = p[5] - p[2], vx = p[6] - p[0], vy = p[7] - p[1], vz = p[8] - p[2]; return 0.5 * Math.hypot(uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx); };
+const totalArea = m => { let s = 0; for (let t = 0; t < m.idx.length / 3; t++) s += triArea(m, t); return s; };
+const bboxOf = m => { const b = [Infinity, Infinity, Infinity, -Infinity, -Infinity, -Infinity]; for (let i = 0; i < m.pos.length; i += 3) for (let a = 0; a < 3; a++) { b[a] = Math.min(b[a], m.pos[i + a]); b[a + 3] = Math.max(b[a + 3], m.pos[i + a]); } return b; };
+// 角柱を含む出力＝三角形の順序が変わる（段ごとにメッシュ→角柱）＝順序非依存の不変量で見る
+function checkGeom(label, m, r, u8) {
+	const h = headPLQ(u8);
+	ok(`${label}: tri count`, r.idx.length === m.idx.length, `${r.idx.length / 3} vs ${m.idx.length / 3}`);
+	ok(`${label}: lodCounts equal`, same(r.lodCounts, m.lodCounts), `${r.lodCounts} vs ${m.lodCounts}`);
+	const a0 = totalArea(m), a1 = totalArea(r);
+	ok(`${label}: total area ±0.5%`, Math.abs(a1 - a0) <= a0 * 0.005, `${(a1 / a0 * 100).toFixed(2)}%`);
+	const b0 = bboxOf(m), b1 = bboxOf(r), tolB = 0.05 / 6371000;
+	ok(`${label}: bbox ±5cm`, b0.every((v, i) => Math.abs(v - b1[i]) <= tolB));
+	ok(`${label}: verts ≤ +1%`, r.pos.length / 3 <= m.pos.length / 3 * 1.01, `${m.pos.length / 3} → ${r.pos.length / 3} (prisms ${h.prisms?.n ?? 0})`);
+	console.log(`     ${label}: prisms=${h.prisms?.n ?? 0} meshTris=${h.nt} plq ${(u8.length / 1e6).toFixed(2)}MB gzip ${(gzipSync(u8).length / 1e6).toFixed(2)}MB`);
+}
 function check(label, m, opts) {
 	const u8 = packPLQ(m, opts), r = unpackPLQ(u8);
 	ok(`${label}: unpack`, !!r);
 	if (!r) return;
+	if (headPLQ(u8)?.prisms) { checkGeom(label, m, r, u8); return r; }
 	const nt = m.idx.length / 3;
 	ok(`${label}: tri count`, r.idx.length === m.idx.length);
 	// 量子化誤差＝各軸の範囲/65535 の半分以内（頂点の対応は三角形順で取る＝レイアウト非依存）
@@ -74,6 +91,41 @@ check("iota(synthetic 20k tris, weld off)", synth(20000, false), { weld: false }
 	ok("weld: packed box round-trips with 24 verts", u.pos.length / 3 === 24 && u.idx.length === 36);
 }
 check("explicit(synthetic shared 20k tris)", synth(20000, true));
+{   // 角柱（底面＋高さ）：ENU 整列の箱・L 字（6角・底なし）・穴付き（外周+穴）→ 抽出→押し出しで三角形数/面積/bbox 不変・サイズ縮小。斜め屋根はメッシュのまま
+	const origin = [0.6, 0.5, 0.6];
+	const mkPrismMesh = (prisms) => { const ex = extrudePrisms(prisms, origin); const nt = ex.idx.length / 3; return { ...ex, origin, bbox: [139, 35, 140, 36], lodH: [0, 3, 6, 12, 24, 48], lodCounts: [nt * 3, nt * 3, nt * 3, 0, 0, 0], twoSided: 0, maskCells: null }; };
+	const cm = 1;   // PRISM_Q 単位（1cm）
+	const box = { tier: 2, base: 500 * cm, h: 1000 * cm, rings: [[[0, 0], [1000, 0], [1000, 800], [0, 800]]], top: [0, 1, 2, 0, 2, 3], bottom: true };
+	const L = { tier: 2, base: 0, h: 650, rings: [[[3000, 0], [4000, 0], [4000, 1000], [3500, 1000], [3500, 500], [3000, 500]]], top: [0, 1, 2, 0, 2, 3, 0, 3, 4, 0, 4, 5], bottom: false };
+	const ring = { tier: 2, base: 100, h: 400, rings: [[[6000, 0], [7000, 0], [7000, 1000], [6000, 1000]], [[6300, 300], [6300, 700], [6700, 700], [6700, 300]]], top: [0, 1, 4, 4, 7, 1, 1, 2, 7, 7, 6, 2, 2, 3, 6, 6, 5, 3, 3, 0, 5, 5, 4, 0], bottom: true };
+	const m = mkPrismMesh([box, L, ring]);
+	const u8 = packPLQ(m), h = headPLQ(u8), r = unpackPLQ(u8);
+	ok("prism: 3 prisms detected", h.prisms?.n === 3 && h.nt === 0, `n=${h.prisms?.n} meshTris=${h.nt}`);
+	ok("prism: unpack", !!r);
+	if (r) { ok("prism: tri count", r.idx.length === m.idx.length); ok("prism: verts 24+30+48", r.pos.length / 3 === m.pos.length / 3, `${r.pos.length / 3}`); ok("prism: area", Math.abs(totalArea(r) - totalArea(m)) < totalArea(m) * 1e-6); ok("prism: lodCounts", same(r.lodCounts, m.lodCounts)); ok("prism: positions exact (1cm grid)", (() => { const b0 = bboxOf(m), b1 = bboxOf(r); return b0.every((v, i) => Math.abs(v - b1[i]) < 1e-12); })()); }
+	const u8m = packPLQ(m, { prism: false });
+	console.log(`     prism: mesh-only ${u8m.length}B → prism ${u8.length}B (${(u8.length / u8m.length * 100).toFixed(0)}%)`);
+	ok("prism: smaller than mesh", u8.length < u8m.length * 0.5);
+	// 斜め屋根（切妻）＝角柱にならない
+	const { E, N, U } = enuBasis(origin);
+	const P = (e, n, u) => [e * PRISM_Q * E[0] + n * PRISM_Q * N[0] + u * PRISM_Q * U[0], e * PRISM_Q * E[1] + n * PRISM_Q * N[1] + u * PRISM_Q * U[1], e * PRISM_Q * E[2] + n * PRISM_Q * N[2] + u * PRISM_Q * U[2]];
+	const gv = [P(0, 0, 0), P(1000, 0, 0), P(1000, 800, 0), P(0, 800, 0), P(0, 400, 600), P(1000, 400, 600)];   // 切妻＝棟線
+	const gtri = [[0, 1, 5], [0, 5, 4], [3, 2, 5], [3, 5, 4], [0, 4, 3], [1, 2, 5], [0, 1, 2], [0, 2, 3]];
+	const gpos = new Float32Array(gtri.length * 9), gnrm = new Int8Array(gtri.length * 12), gidx = new Uint32Array(gtri.length * 3);
+	gtri.forEach((tr, i) => tr.forEach((v, k) => { gpos.set(gv[v], (i * 3 + k) * 3); gnrm[(i * 3 + k) * 4 + 1] = 127; gidx[i * 3 + k] = i * 3 + k; }));
+	const gable = { pos: gpos, nrm: gnrm, idx: gidx, origin, bbox: [139, 35, 140, 36], lodH: [0, 3, 6, 12, 24, 48], lodCounts: [24, 24, 24, 0, 0, 0], twoSided: 0, maskCells: null };
+	ok("prism: gable roof stays mesh", !headPLQ(packPLQ(gable)).prisms);
+	// 焼き済み実データ（あれば）：箱の区（大田区）と屋根付き（狛江）
+	for (const [name, f] of [["大田区 b0", "plateau-bake-out/v5/api.plateauview.mlit.go.jp_datacatalog_3dtiles_13111-bldg-lod2-notexture-latest/b0.plq"], ["狛江市 b0", "plateau-bake-out/v5/api.plateauview.mlit.go.jp_datacatalog_3dtiles_13219-bldg-lod2-notexture-latest/b0.plq"]]) {
+		if (!existsSync(f)) continue;
+		const src = unpackPLQ(new Uint8Array(readFileSync(f)));
+		if (!src) continue;
+		const t0 = performance.now(); const out = packPLQ(src); const t1 = performance.now(); const back = unpackPLQ(out); const t2 = performance.now();
+		console.log(`     real ${name}: pack ${(t1 - t0).toFixed(0)}ms unpack ${(t2 - t1).toFixed(0)}ms; file ${(readFileSync(f).length / 1e6).toFixed(2)}MB → ${(out.length / 1e6).toFixed(2)}MB`);
+		ok(`real ${name}: unpack`, !!back);
+		if (back) checkGeom(`real ${name}`, src, back, out);
+	}
+}
 ok("empty/garbage → null", unpackPLQ(new Uint8Array([1, 2, 3])) === null && unpackPLQ(new Uint8Array(0)) === null);
 {   // 切り詰め＝null（例外を漏らさない）
 	const u8 = packPLQ(synth(100, false));
@@ -81,7 +133,7 @@ ok("empty/garbage → null", unpackPLQ(new Uint8Array([1, 2, 3])) === null && un
 }
 ok("slug", bakeSlug("https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/13103-bldg-lod2-notexture-latest/") === "api.plateauview.mlit.go.jp_datacatalog_3dtiles_13103-bldg-lod2-notexture-latest");
 ok("slug(reearth)", bakeSlug("https://assets.cms.plateau.reearth.io/assets/55/babf04-f2a8/11100_saitama-shi_city_2025_citygml_1_op_brid_3dtiles_lod2/") === "assets.cms.plateau.reearth.io_assets_55_babf04-f2a8_11100_saitama-shi_city_2025_citygml_1_op_brid_3dtiles_lod2");
-ok("ver", PLQ_VER === 1);
+ok("ver", PLQ_VER === 2);
 
 if (process.argv.includes("--real")) {
 	const { setLoaderOptions } = await import("@loaders.gl/core");
