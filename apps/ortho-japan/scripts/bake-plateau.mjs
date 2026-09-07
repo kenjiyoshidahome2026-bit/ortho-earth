@@ -6,7 +6,7 @@
 // 無い/古い/壊れ＝生経路へ静かに落ちる（タイル粒度）。
 //
 //   node scripts/bake-plateau.mjs [--only=名前や base の部分文字列] [--out=DIR] [--batch=32] [--shard=i/n]
-//                                 [--force] [--redo-unbaked] [--reverse] [--limit=N] [--sphere-only|--ell-only] [--upload] [--upload-only]
+//                                 [--force] [--redo-unbaked] [--reverse] [--reweld] [--limit=N] [--sphere-only|--ell-only] [--upload] [--upload-only]
 //   --out       既定 plateau-bake-out/（gitignore 済）。セットごとに {slug}/manifest.json + b{k}.plq（球）と {slug}/ell/…（楕円体）
 //   --shard=i/n カタログを n 分割して i 番目だけ（Threadripper で並列に走らせる用。実測は回線律速＝hpc で計 10MB/s）
 //   再実行は完了済み（manifest あり）をスキップ＝走査失敗（✗）のセットだけ拾い直す。--redo-unbaked＝unbaked（取れなかった
@@ -19,12 +19,12 @@ import { fileURLToPath } from "node:url";
 import { setLoaderOptions } from "@loaders.gl/core";
 import draco3d from "draco3d";
 import { decodeBatch, setDecodeEnv, collectLeafTiles, DECODE_VER } from "../plateaudecode.js";
-import { packPLQ, bakeDir, PLQ_VER } from "../plateauq.js";
+import { packPLQ, unpackPLQ, bakeDir, PLQ_VER } from "../plateauq.js";
 
 const APP = dirname(dirname(fileURLToPath(import.meta.url)));
 const arg = (k, d = null) => { const a = process.argv.find(s => s.startsWith(`--${k}=`)); return a ? a.slice(k.length + 3) : (process.argv.includes(`--${k}`) ? true : d); };
 const ONLY = arg("only"), OUT = arg("out", join(APP, "plateau-bake-out")), BATCH = +arg("batch", 32) || 32;
-const FORCE = !!arg("force"), REDO_UNBAKED = !!arg("redo-unbaked"), REVERSE = !!arg("reverse"), LIMIT = +arg("limit", 0), UPLOAD = !!arg("upload") || !!arg("upload-only"), UPLOAD_ONLY = !!arg("upload-only");
+const FORCE = !!arg("force"), REDO_UNBAKED = !!arg("redo-unbaked"), REVERSE = !!arg("reverse"), REWELD = !!arg("reweld"), LIMIT = +arg("limit", 0), UPLOAD = !!arg("upload") || !!arg("upload-only"), UPLOAD_ONLY = !!arg("upload-only");
 const MODES = arg("sphere-only") ? [false] : arg("ell-only") ? [true] : [false, true];
 const [SHARD_I, SHARD_N] = String(arg("shard", "0/1")).split("/").map(Number);
 const API = process.env.API_BASE ?? "https://api.ortho-earth.com";
@@ -97,7 +97,7 @@ async function bakeSet(set) {
 	leaves.sort((a, b) => d2(a) - d2(b));
 	const prefix = commonPrefix(leaves.map(t => t.uri));
 	const tiles = leaves.map(t => t.uri.slice(prefix.length));
-	const man = MODES.map(ell => ({ ver: DECODE_VER, plq: PLQ_VER, base, ward: set.name, brid, ell, wardBbox, prefix, tiles, batch: BATCH, batches: [], unbaked: [], ts: 0 }));
+	const man = MODES.map(ell => ({ ver: DECODE_VER, plq: PLQ_VER, base, ward: set.name, brid, ell, wardBbox, prefix, tiles, batch: BATCH, batches: [], unbaked: [], weld: true, ts: 0 }));
 	for (const d of dirs) mkdirSync(d, { recursive: true });
 	let bytesRaw = 0, bytesPlq = 0, k = 0;
 	let failedTiles = 0;
@@ -161,10 +161,31 @@ async function uploadSet(set) {
 	console.log(`  ↑ ${set.name}: ${n} files ${fmt(bytes)} → gzip ${fmt(gzBytes)}`);
 }
 
+// --reweld＝焼き済み出力の詰め直し（再デコード無し）：溶接（weldMesh）導入前の焼きを unpack→pack（溶接）→上書き。
+// manifest.weld=true を印にして冪等（済みはスキップ）。バイト数も更新。
+function reweldSet(set) {
+	let n = 0, before = 0, after = 0;
+	for (const ell of MODES) {
+		const dir = join(OUT, bakeDir(set.base, DECODE_VER, ell)), mf = join(dir, "manifest.json");
+		if (!existsSync(mf)) continue;
+		const m = JSON.parse(readFileSync(mf, "utf8"));
+		if (m.weld) continue;
+		for (const bt of m.batches) {
+			const f = join(dir, bt.f), u8 = readFileSync(f), mesh = unpackPLQ(new Uint8Array(u8));
+			if (!mesh) { console.warn(`  ${set.name}: ${bt.f} unreadable（skip）`); continue; }
+			const out = packPLQ(mesh);
+			writeFileSync(f, out); before += u8.length; after += out.length; bt.bytes = out.length; n++;
+		}
+		m.weld = true; writeFileSync(mf, JSON.stringify(m));
+	}
+	if (n) console.log(`  ⟳ ${set.name}: ${n} batches ${fmt(before)} → ${fmt(after)} (${(after / before * 100).toFixed(0)}%)`);
+	return n ? "ok" : "skip";
+}
+
 let ok = 0, skip = 0, err = 0;
 for (const set of targets) {
 	try {
-		const r = UPLOAD_ONLY ? "ok" : await bakeSet(set);
+		const r = REWELD ? reweldSet(set) : UPLOAD_ONLY ? "ok" : await bakeSet(set);
 		if (r === "skip") { skip++; if (!UPLOAD_ONLY) continue; }
 		else if (r === "ok") ok++;
 		if (UPLOAD && r !== "empty") await uploadSet(set);
