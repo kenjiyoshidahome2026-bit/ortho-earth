@@ -6,7 +6,7 @@
 // 無い/古い/壊れ＝生経路へ静かに落ちる（タイル粒度）。
 //
 //   node scripts/bake-plateau.mjs [--only=名前や base の部分文字列] [--out=DIR] [--batch=32] [--shard=i/n]
-//                                 [--force] [--redo-unbaked] [--limit=N] [--sphere-only|--ell-only] [--upload] [--upload-only]
+//                                 [--force] [--redo-unbaked] [--reverse] [--limit=N] [--sphere-only|--ell-only] [--upload] [--upload-only]
 //   --out       既定 plateau-bake-out/（gitignore 済）。セットごとに {slug}/manifest.json + b{k}.plq（球）と {slug}/ell/…（楕円体）
 //   --shard=i/n カタログを n 分割して i 番目だけ（Threadripper で並列に走らせる用。実測は回線律速＝hpc で計 10MB/s）
 //   再実行は完了済み（manifest あり）をスキップ＝走査失敗（✗）のセットだけ拾い直す。--redo-unbaked＝unbaked（取れなかった
@@ -24,7 +24,7 @@ import { packPLQ, bakeDir, PLQ_VER } from "../plateauq.js";
 const APP = dirname(dirname(fileURLToPath(import.meta.url)));
 const arg = (k, d = null) => { const a = process.argv.find(s => s.startsWith(`--${k}=`)); return a ? a.slice(k.length + 3) : (process.argv.includes(`--${k}`) ? true : d); };
 const ONLY = arg("only"), OUT = arg("out", join(APP, "plateau-bake-out")), BATCH = +arg("batch", 32) || 32;
-const FORCE = !!arg("force"), REDO_UNBAKED = !!arg("redo-unbaked"), LIMIT = +arg("limit", 0), UPLOAD = !!arg("upload") || !!arg("upload-only"), UPLOAD_ONLY = !!arg("upload-only");
+const FORCE = !!arg("force"), REDO_UNBAKED = !!arg("redo-unbaked"), REVERSE = !!arg("reverse"), LIMIT = +arg("limit", 0), UPLOAD = !!arg("upload") || !!arg("upload-only"), UPLOAD_ONLY = !!arg("upload-only");
 const MODES = arg("sphere-only") ? [false] : arg("ell-only") ? [true] : [false, true];
 const [SHARD_I, SHARD_N] = String(arg("shard", "0/1")).split("/").map(Number);
 const API = process.env.API_BASE ?? "https://api.ortho-earth.com";
@@ -70,6 +70,7 @@ async function prefetchTiles(uris) {   // 成功した URI を cache に積み�
 const sets = JSON.parse(readFileSync(join(APP, "public/plateau-sets.json"), "utf8"));
 let targets = sets.filter((s, i) => i % SHARD_N === SHARD_I);
 if (ONLY) targets = targets.filter(s => s.name.includes(ONLY) || s.base.includes(ONLY));
+if (REVERSE) targets.reverse();   // 別マシンと両端から挟む用（完了済みは manifest でスキップ＝出会った所で自然に終わる）
 if (LIMIT) targets = targets.slice(0, LIMIT);
 console.log(`対象 ${targets.length} セット（shard ${SHARD_I}/${SHARD_N}${ONLY ? `・only=${ONLY}` : ""}）→ ${OUT}${UPLOAD ? " → R2" : ""}`);
 
