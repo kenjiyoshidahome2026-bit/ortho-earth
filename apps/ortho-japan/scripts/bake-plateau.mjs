@@ -117,23 +117,38 @@ async function bakeSet(set) {
 	return "ok";
 }
 
-let bucketMod = null;
+// アップロード＝bucket Worker の put プロトコルを直接叩く（X-Action: put・X-API-Key・gzip 済み本体に X-Content-Encoding）。
+// native-bucket の Bucket.put と同じ結果になるが、workspace 依存（geopbf 等）を持たない＝焼いた場所（hpc の最小バンドル）から
+// そのまま押せる。ファイルは 50MB 未満（PLQ バッチ最大 ~25MB・gzip 後 ~10MB）＝単発 POST で足りる。
+const gz = (await import("node:zlib")).gzipSync;
+async function putObject(key, body, type) {
+	const url = `${API}/bucket/${key}`;
+	const gzBody = gz(body, { level: 6 });
+	for (let a = 0; a < 3; a++) {
+		try {
+			const r = await fetch(url, { method: "POST", headers: { "X-Action": "put", "X-API-Key": API_KEY, "X-Metadata-Type": type, "X-Content-Encoding": "gzip" }, body: gzBody });
+			if (r.ok) return gzBody.length;
+			if (r.status === 401) throw new Error("401 Unauthorized（API_KEY が違う）");
+			console.warn(`  put ${key}: HTTP ${r.status}（再試行 ${a + 1}）`);
+		} catch (e) { if (/401/.test(e.message)) throw e; console.warn(`  put ${key}: ${e.message}（再試行 ${a + 1}）`); }
+		await new Promise(r => setTimeout(r, 2000 * (a + 1)));
+	}
+	throw new Error(`put failed: ${key}`);
+}
 async function uploadSet(set) {
-	bucketMod ??= (await import("native-bucket")).Bucket;
-	let n = 0, bytes = 0;
+	let n = 0, bytes = 0, gzBytes = 0;
 	for (const ell of MODES) {
 		const rel = bakeDir(set.base, DECODE_VER, ell), dir = join(OUT, rel);
 		if (!existsSync(join(dir, "manifest.json"))) continue;
-		const b = await bucketMod("GIS/plateau/" + rel, { baseUrl: `${API}/bucket/`, apiKey: API_KEY, silent: true });
 		const files = readdirSync(dir).filter(f => f.endsWith(".plq"));
 		files.push("manifest.json");   // 最後＝マニフェストが見えた時には本体が揃っている（クライアントの 404 → 生経路の判定に矛盾を作らない）
 		for (const f of files) {
 			const u8 = readFileSync(join(dir, f));
-			await b.put(f, new File([u8], f, { type: f.endsWith(".json") ? "application/json" : "application/octet-stream" }));   // put が gzip＋Content-Encoding を付ける
+			gzBytes += await putObject("GIS/plateau/" + rel + f, u8, f.endsWith(".json") ? "application/json" : "application/octet-stream");
 			n++; bytes += u8.length;
 		}
 	}
-	console.log(`  ↑ ${set.name}: ${n} files ${fmt(bytes)} (pre-gzip)`);
+	console.log(`  ↑ ${set.name}: ${n} files ${fmt(bytes)} → gzip ${fmt(gzBytes)}`);
 }
 
 let ok = 0, skip = 0, err = 0;
