@@ -8,6 +8,9 @@ import { parse as loadParse } from "@loaders.gl/core";
 import { Tiles3DLoader } from "@loaders.gl/3d-tiles";
 
 const R2D = 180 / Math.PI;
+// デコードパイプライン（接地・dedup・LOD・軸変換）の版＝焼きの互換単位。変えたら上げる＝ブラウザの IDB/OPFS 焼き（plateauworker の
+// IDB_FMT_VER）も R2 の焼き（scripts/bake-plateau.mjs の置き場 v{n}/）も同じ番号で世代分離される。
+export const DECODE_VER = 5;   // v5: 空中部材の借り接地（詳細は plateauworker.js IDB_FMT_VER の注記）
 export const MASK_N = 256;           // 区単位の被覆マスク解像度（基図建物を伏せるセル）
 const LOD_H = [0, 3, 6, 12, 24, 48];   // LOD段の高さ閾値(m)。renderer が「画面上1px未満の建物」を先頭countの打ち切りで捨てる
 let TILE_CONCURRENCY = 8;   // バッチ内のタイル並行fetch/デコード数。直列だと往復レイテンシが積み上がり支配的になる。
@@ -45,6 +48,77 @@ async function fetchBody(url, read, ms = 20000, retries = 1) {
 }
 export const fetchJSON = (url) => fetchBody(url, r => r.json(), 15000);
 export const fetchAB = (url) => fetchBody(url, r => r.arrayBuffer(), 25000);
+
+// ── 葉タイル走査（2026-09-07 に plateauworker.js から移設＝scripts/bake-plateau.mjs と共有）──
+const SCAN_CONCURRENCY = 8;   // ネストtileset走査の並行fetch数（fetchJSONの15sタイムアウトが順番待ちで誤発火しない程度に絞る）
+// content.uri は絶対URL（別ホストへの委譲）と相対（同ディレクトリ）の両方があり得る。
+export const resolveUrl = (base, uri) => /^https?:\/\//.test(uri) ? uri : base + uri;
+// boundingVolume → [west,south,east,north]（rad）。3D Tiles の3形式に対応。取れなければ null。
+// PLATEAU は region（経緯度そのもの）だけだが、3DBAG（オランダ）は box（ECEF中心＋3半軸）＝
+// 8隅を測地変換して外接矩形にする。日付変更線跨ぎは考慮しない（日本・欧州とも無縁）。
+function volRect(bv) {
+	if (!bv) return null;
+	if (bv.region) return [bv.region[0], bv.region[1], bv.region[2], bv.region[3]];
+	if (bv.box) {
+		const b = bv.box;
+		let w = Infinity, s = Infinity, e = -Infinity, n = -Infinity;
+		for (let i = 0; i < 8; i++) {
+			const sx = (i & 1) ? 1 : -1, sy = (i & 2) ? 1 : -1, sz = (i & 4) ? 1 : -1;
+			const g = ecef2geo(b[0] + sx * b[3] + sy * b[6] + sz * b[9],
+				b[1] + sx * b[4] + sy * b[7] + sz * b[10],
+				b[2] + sx * b[5] + sy * b[8] + sz * b[11]);
+			w = Math.min(w, g[0]); e = Math.max(e, g[0]); s = Math.min(s, g[1]); n = Math.max(n, g[1]);
+		}
+		return [w, s, e, n];
+	}
+	if (bv.sphere) {
+		const g = ecef2geo(bv.sphere[0], bv.sphere[1], bv.sphere[2]);
+		const dLa = bv.sphere[3] / 6378137, dLo = dLa / Math.max(0.05, Math.cos(g[1]));
+		return [g[0] - dLo, g[1] - dLa, g[0] + dLo, g[1] + dLa];
+	}
+	return null;
+}
+
+
+// tileset.json を辿って葉（=それ以上 children を持たないタイル）を { uri, center:[lon,lat]|null } で集める。
+// center は boundingVolume から＝カメラ近傍優先ソートに使う（region も box も取れる。無い形式なら null＝末尾に回る）。
+// 葉の content.uri 自体が別の tileset.json（外部委譲）のことがある地区があるため、拡張子で判定して再帰的に潜る。
+// clip（[w,s,e,n]度・任意）＝この矩形と交わらない枝は丸ごと降りない。PLATEAU は区ごとに tileset が分かれて
+// いるので不要（既定 null＝従来どおり全走査）だが、3DBAG は国土まるごと1枚＝外部tileset 474本を全部開くと
+// 走査だけで数分かかる。街の矩形を渡せば数本で済む＝「区」相当の粒度に切って使える。
+export async function collectLeafTiles(tilesetUrl, depth = 0, onScan = null, stop = null, clip = null) {
+	if (stop?.()) return [];   // 協調キャンセル：視野離脱した区のカタログ走査を tileset 単位で打ち切る
+	onScan && onScan();   // tileset.json 1枚fetchするたびに数える＝「準備中」の沈黙を進捗にする
+	const ts = await fetchJSON(tilesetUrl);
+	const tsBase = tilesetUrl.slice(0, tilesetUrl.lastIndexOf("/") + 1);
+	const clipR = clip && [clip[0] / R2D, clip[1] / R2D, clip[2] / R2D, clip[3] / R2D];
+	const out = [], nested = [];
+	function walk(t) {
+		if (!t) return;
+		const rect = volRect(t.boundingVolume);
+		if (clipR && rect && (rect[2] < clipR[0] || rect[0] > clipR[2] || rect[3] < clipR[1] || rect[1] > clipR[3])) return;   // 枝ごと落とす
+		const ch = t.children || [];
+		if (ch.length) { for (const c of ch) walk(c); return; }
+		const uri = t.content?.uri;
+		if (!uri) return;
+		const abs = resolveUrl(tsBase, uri);
+		if (abs.endsWith(".json") && depth < 4) nested.push(abs);
+		else out.push({ uri: abs, center: rect ? [(rect[0] + rect[2]) / 2 * R2D, (rect[1] + rect[3]) / 2 * R2D] : null });
+	}
+	walk(ts.root);
+	// ネストtilesetは並行プールで潜る（旧・await直列＝1枚ごとに往復レイテンシが足し算。外部委譲が数百本の
+	// カタログ＝3DBAG級では走査だけで数分の実体）。葉の並びは後段のカメラ近傍ソートが決める＝順序不問。
+	// 1枚でも失敗したら従来どおり全体を投げる＝部分カタログを「完全」として下流（焼き・差分再開）に流さない。
+	if (nested.length) {
+		const subs = new Array(nested.length);
+		let ni = 0;
+		await Promise.all(Array.from({ length: Math.min(SCAN_CONCURRENCY, nested.length) }, async () => {
+			while (ni < nested.length) { const i = ni++; subs[i] = await collectLeafTiles(nested[i], depth + 1, onScan, stop, clip); }
+		}));
+		for (const sub of subs) out.push(...sub);
+	}
+	return out;
+}
 
 // GLB 修復（EXT_meshopt_compression を使う配信のみ・PLATEAU は非該当＝素通り）：
 // 3DBAG（オランダ）の glb は、インデックス用と頂点用の bufferView が どちらも byteOffset 省略(=0) のまま
