@@ -38,7 +38,7 @@ setDecodeEnv({ tileConcurrency: 8 });
 // b3dm はバッチ単位で「先に全部取ってから」デコードする（プロセス内キャッシュ・バッチ完了で捨てる）：
 // ①球/楕円体の 2 回目デコードで取り直さない ②取れなかったタイルは両モードから同じように外して unbaked に記す
 //（decodeBatch は失敗タイルを黙って落として残りで煮る＝焼きに任せると「欠けたまま完成」になり、クライアントはそれを
-//   正として二度と取りに行かない。ブラウザの一過性 skip とは重みが違う）。再試行 4 回・180s＝CDN（reearth）の
+//   正として二度と取りに行かない。ブラウザの一過性 skip とは重みが違う）。再試行 4 回・600s＝CDN（reearth）の
 //   遅延/瞬断（hpc 実測: "fetch failed"/abort が数%）を吸う。
 const bodyCache = new Map();
 const rawFetch = globalThis.fetch;
@@ -55,7 +55,7 @@ async function prefetchTiles(uris) {   // 成功した URI を cache に積み�
 			const u = uris[i++];
 			let ok = false;
 			for (let a = 0; a < 4 && !ok; a++) {
-				const ac = new AbortController(), tm = setTimeout(() => ac.abort(), 180000);   // 180s＝回線を分け合う並列走行で 5MB 級タイルが 60s を越えた実測（hpc 24 シャード）
+				const ac = new AbortController(), tm = setTimeout(() => ac.abort(), 600000);   // 600s＝回線を分け合う並列走行でテクスチャ付きセットの 2〜4MB タイルが 180s を越えた実測（hpc・curl 単独なら 5〜17s）
 				try { const r = await rawFetch(u, { signal: ac.signal }); if (r.ok) { bodyCache.set(u, await r.arrayBuffer()); ok = true; } else if (r.status === 404 || r.status === 403) break; }
 				catch { /* 再試行 */ }
 				finally { clearTimeout(tm); }
