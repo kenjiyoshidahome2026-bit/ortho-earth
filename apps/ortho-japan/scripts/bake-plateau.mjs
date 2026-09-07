@@ -97,7 +97,7 @@ async function bakeSet(set) {
 	leaves.sort((a, b) => d2(a) - d2(b));
 	const prefix = commonPrefix(leaves.map(t => t.uri));
 	const tiles = leaves.map(t => t.uri.slice(prefix.length));
-	const man = MODES.map(ell => ({ ver: DECODE_VER, plq: PLQ_VER, base, ward: set.name, brid, ell, wardBbox, prefix, tiles, batch: BATCH, batches: [], unbaked: [], pack: PLQ_VER, ts: 0 }));
+	const man = MODES.map(ell => ({ ver: DECODE_VER, plq: PLQ_VER, base, ward: set.name, brid, ell, wardBbox, prefix, tiles, batch: BATCH, batches: [], unbaked: [], pack: PACK_GEN, ts: 0 }));
 	for (const d of dirs) mkdirSync(d, { recursive: true });
 	let bytesRaw = 0, bytesPlq = 0, k = 0;
 	let failedTiles = 0;
@@ -164,6 +164,7 @@ async function uploadSet(set) {
 // --repack＝焼き済み出力の詰め直し（再デコード無し）：旧形式（PLQ1／溶接前／角柱前）を unpack→pack（溶接＋角柱抽出）→上書き。
 // manifest.plq===PLQ_VER かつ pack 印で冪等（済みはスキップ）。バイト数も更新。統計（角柱本数・三角形の内訳）を集計に載せる。
 // --stats＝書き換えず統計だけ（ヘッダ読み＝速い。PLQ2 済みのセットのみ有効）
+const PACK_GEN = 3;   // 詰め直しの世代（抽出器の改良で上げる＝manifest.pack と突合して再詰め直し。形式版 PLQ_VER とは別）: 3=壁ループ段
 const agg = { sets: 0, batches: 0, prisms: 0, prismTris: 0, meshTris: 0, before: 0, after: 0, rows: [] };
 function repackSet(set) {
 	let n = 0, before = 0, after = 0, prisms = 0, prismTris = 0, meshTris = 0;
@@ -176,15 +177,15 @@ function repackSet(set) {
 			for (const bt of m.batches) { const h = headPLQ(new Uint8Array(readFileSync(join(dir, bt.f)))); if (!h) continue; prisms += h.prisms?.n || 0; meshTris += h.nt || 0; prismTris += bt.tris - (h.nt || 0); n++; after += bt.bytes; }
 			continue;
 		}
-		if (m.plq === PLQ_VER && m.pack === PLQ_VER) continue;
+		if (m.plq === PLQ_VER && m.pack === PACK_GEN) continue;
 		for (const bt of m.batches) {
 			const f = join(dir, bt.f), u8 = readFileSync(f), mesh = unpackPLQ(new Uint8Array(u8));
 			if (!mesh) { console.warn(`  ${set.name}: ${bt.f} unreadable（skip）`); continue; }
 			const st = {}, out = packPLQ(mesh, { stats: st });
-			writeFileSync(f, out); before += u8.length; after += out.length; bt.bytes = out.length; n++;
+			writeFileSync(f, out); before += u8.length; after += out.length; bt.bytes = out.length; bt.tris = st.prismTris + st.meshTris; n++;   // tris＝復元後の三角形数（角柱化で底が落ちる分を反映）
 			if (!ell) { prisms += st.prisms; prismTris += st.prismTris; meshTris += st.meshTris; }
 		}
-		m.plq = PLQ_VER; m.pack = PLQ_VER; delete m.weld; writeFileSync(mf, JSON.stringify(m));
+		m.plq = PLQ_VER; m.pack = PACK_GEN; delete m.weld; writeFileSync(mf, JSON.stringify(m));
 	}
 	if (!n) return "skip";
 	const tot = prismTris + meshTris;
