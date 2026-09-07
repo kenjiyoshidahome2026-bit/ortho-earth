@@ -6,7 +6,7 @@
 // 無い/古い/壊れ＝生経路へ静かに落ちる（タイル粒度）。
 //
 //   node scripts/bake-plateau.mjs [--only=名前や base の部分文字列] [--out=DIR] [--batch=32] [--shard=i/n]
-//                                 [--force] [--redo-unbaked] [--reverse] [--reweld] [--limit=N] [--sphere-only|--ell-only] [--upload] [--upload-only]
+//                                 [--force] [--redo-unbaked] [--reverse] [--repack] [--stats] [--limit=N] [--sphere-only|--ell-only] [--upload] [--upload-only]
 //   --out       既定 plateau-bake-out/（gitignore 済）。セットごとに {slug}/manifest.json + b{k}.plq（球）と {slug}/ell/…（楕円体）
 //   --shard=i/n カタログを n 分割して i 番目だけ（Threadripper で並列に走らせる用。実測は回線律速＝hpc で計 10MB/s）
 //   再実行は完了済み（manifest あり）をスキップ＝走査失敗（✗）のセットだけ拾い直す。--redo-unbaked＝unbaked（取れなかった
@@ -19,12 +19,12 @@ import { fileURLToPath } from "node:url";
 import { setLoaderOptions } from "@loaders.gl/core";
 import draco3d from "draco3d";
 import { decodeBatch, setDecodeEnv, collectLeafTiles, DECODE_VER } from "../plateaudecode.js";
-import { packPLQ, unpackPLQ, bakeDir, PLQ_VER } from "../plateauq.js";
+import { packPLQ, unpackPLQ, headPLQ, bakeDir, PLQ_VER } from "../plateauq.js";
 
 const APP = dirname(dirname(fileURLToPath(import.meta.url)));
 const arg = (k, d = null) => { const a = process.argv.find(s => s.startsWith(`--${k}=`)); return a ? a.slice(k.length + 3) : (process.argv.includes(`--${k}`) ? true : d); };
 const ONLY = arg("only"), OUT = arg("out", join(APP, "plateau-bake-out")), BATCH = +arg("batch", 32) || 32;
-const FORCE = !!arg("force"), REDO_UNBAKED = !!arg("redo-unbaked"), REVERSE = !!arg("reverse"), REWELD = !!arg("reweld"), LIMIT = +arg("limit", 0), UPLOAD = !!arg("upload") || !!arg("upload-only"), UPLOAD_ONLY = !!arg("upload-only");
+const FORCE = !!arg("force"), REDO_UNBAKED = !!arg("redo-unbaked"), REVERSE = !!arg("reverse"), REPACK = !!arg("repack") || !!arg("reweld"), STATS = !!arg("stats"), LIMIT = +arg("limit", 0), UPLOAD = !!arg("upload") || !!arg("upload-only"), UPLOAD_ONLY = !!arg("upload-only");
 const MODES = arg("sphere-only") ? [false] : arg("ell-only") ? [true] : [false, true];
 const [SHARD_I, SHARD_N] = String(arg("shard", "0/1")).split("/").map(Number);
 const API = process.env.API_BASE ?? "https://api.ortho-earth.com";
@@ -97,7 +97,7 @@ async function bakeSet(set) {
 	leaves.sort((a, b) => d2(a) - d2(b));
 	const prefix = commonPrefix(leaves.map(t => t.uri));
 	const tiles = leaves.map(t => t.uri.slice(prefix.length));
-	const man = MODES.map(ell => ({ ver: DECODE_VER, plq: PLQ_VER, base, ward: set.name, brid, ell, wardBbox, prefix, tiles, batch: BATCH, batches: [], unbaked: [], weld: true, ts: 0 }));
+	const man = MODES.map(ell => ({ ver: DECODE_VER, plq: PLQ_VER, base, ward: set.name, brid, ell, wardBbox, prefix, tiles, batch: BATCH, batches: [], unbaked: [], pack: PLQ_VER, ts: 0 }));
 	for (const d of dirs) mkdirSync(d, { recursive: true });
 	let bytesRaw = 0, bytesPlq = 0, k = 0;
 	let failedTiles = 0;
@@ -161,35 +161,59 @@ async function uploadSet(set) {
 	console.log(`  ↑ ${set.name}: ${n} files ${fmt(bytes)} → gzip ${fmt(gzBytes)}`);
 }
 
-// --reweld＝焼き済み出力の詰め直し（再デコード無し）：溶接（weldMesh）導入前の焼きを unpack→pack（溶接）→上書き。
-// manifest.weld=true を印にして冪等（済みはスキップ）。バイト数も更新。
-function reweldSet(set) {
-	let n = 0, before = 0, after = 0;
+// --repack＝焼き済み出力の詰め直し（再デコード無し）：旧形式（PLQ1／溶接前／角柱前）を unpack→pack（溶接＋角柱抽出）→上書き。
+// manifest.plq===PLQ_VER かつ pack 印で冪等（済みはスキップ）。バイト数も更新。統計（角柱本数・三角形の内訳）を集計に載せる。
+// --stats＝書き換えず統計だけ（ヘッダ読み＝速い。PLQ2 済みのセットのみ有効）
+const agg = { sets: 0, batches: 0, prisms: 0, prismTris: 0, meshTris: 0, before: 0, after: 0, rows: [] };
+function repackSet(set) {
+	let n = 0, before = 0, after = 0, prisms = 0, prismTris = 0, meshTris = 0;
 	for (const ell of MODES) {
 		const dir = join(OUT, bakeDir(set.base, DECODE_VER, ell)), mf = join(dir, "manifest.json");
 		if (!existsSync(mf)) continue;
 		const m = JSON.parse(readFileSync(mf, "utf8"));
-		if (m.weld) continue;
+		if (STATS) {
+			if (ell) continue;   // 統計は球だけ（楕円体は同じ建物）
+			for (const bt of m.batches) { const h = headPLQ(new Uint8Array(readFileSync(join(dir, bt.f)))); if (!h) continue; prisms += h.prisms?.n || 0; meshTris += h.nt || 0; prismTris += bt.tris - (h.nt || 0); n++; after += bt.bytes; }
+			continue;
+		}
+		if (m.plq === PLQ_VER && m.pack === PLQ_VER) continue;
 		for (const bt of m.batches) {
 			const f = join(dir, bt.f), u8 = readFileSync(f), mesh = unpackPLQ(new Uint8Array(u8));
 			if (!mesh) { console.warn(`  ${set.name}: ${bt.f} unreadable（skip）`); continue; }
-			const out = packPLQ(mesh);
+			const st = {}, out = packPLQ(mesh, { stats: st });
 			writeFileSync(f, out); before += u8.length; after += out.length; bt.bytes = out.length; n++;
+			if (!ell) { prisms += st.prisms; prismTris += st.prismTris; meshTris += st.meshTris; }
 		}
-		m.weld = true; writeFileSync(mf, JSON.stringify(m));
+		m.plq = PLQ_VER; m.pack = PLQ_VER; delete m.weld; writeFileSync(mf, JSON.stringify(m));
 	}
-	if (n) console.log(`  ⟳ ${set.name}: ${n} batches ${fmt(before)} → ${fmt(after)} (${(after / before * 100).toFixed(0)}%)`);
-	return n ? "ok" : "skip";
+	if (!n) return "skip";
+	const tot = prismTris + meshTris;
+	agg.sets++; agg.batches += n; agg.prisms += prisms; agg.prismTris += prismTris; agg.meshTris += meshTris; agg.before += before; agg.after += after;
+	agg.rows.push({ ward: set.name, brid: !!set.noMask, prisms, prismTris, meshTris, boxShare: tot ? prismTris / tot : 0, bytes: after });
+	console.log(`  ${STATS ? "≡" : "⟳"} ${set.name}: ${n} batches${STATS ? "" : ` ${fmt(before)} → ${fmt(after)} (${(after / before * 100).toFixed(0)}%)`} 角柱 ${prisms} 棟＝三角形 ${tot ? (prismTris / tot * 100).toFixed(0) : 0}%`);
+	return "ok";
 }
 
 let ok = 0, skip = 0, err = 0;
 for (const set of targets) {
 	try {
-		const r = REWELD ? reweldSet(set) : UPLOAD_ONLY ? "ok" : await bakeSet(set);
+		const r = (REPACK || STATS) ? repackSet(set) : UPLOAD_ONLY ? "ok" : await bakeSet(set);
 		if (r === "skip") { skip++; if (!UPLOAD_ONLY) continue; }
 		else if (r === "ok") ok++;
 		if (UPLOAD && r !== "empty") await uploadSet(set);
 	} catch (e) { err++; console.error(`  ✗ ${set.name}:`, e?.message ?? e); }
+}
+if (agg.sets) {
+	const tot = agg.prismTris + agg.meshTris;
+	console.log(`\n統計: ${agg.sets} セット ${agg.batches} バッチ 角柱 ${agg.prisms.toLocaleString()} 棟＝三角形の ${(agg.prismTris / tot * 100).toFixed(1)}%（角柱 ${agg.prismTris.toLocaleString()} / メッシュ ${agg.meshTris.toLocaleString()}）${agg.before ? ` サイズ ${fmt(agg.before)} → ${fmt(agg.after)} (${(agg.after / agg.before * 100).toFixed(0)}%)` : ""}`);
+	const bld = agg.rows.filter(r => !r.brid).sort((a, b) => a.boxShare - b.boxShare);
+	if (bld.length) {
+		const bins = [0, 0.5, 0.9, 0.99, 1.01].map((lo, i, arr) => i < arr.length - 1 ? [lo, arr[i + 1]] : null).filter(Boolean);
+		console.log("  建物セットの角柱率（三角形ベース）分布: " + bins.map(([lo, hi]) => `${(lo * 100).toFixed(0)}〜${Math.min(100, hi * 100).toFixed(0)}%: ${bld.filter(r => r.boxShare >= lo && r.boxShare < hi).length}`).join(" / "));
+		console.log("  角柱率が低い（屋根形状あり）順: " + bld.slice(0, 8).map(r => `${r.ward} ${(r.boxShare * 100).toFixed(0)}%`).join("・"));
+	}
+	writeFileSync(join(OUT, "stats.json"), JSON.stringify({ ts: Date.now(), ...agg }, null, 1));
+	console.log(`  → ${join(OUT, "stats.json")}`);
 }
 console.log(`\n完了: ok=${ok} skip=${skip} err=${err}`);
 process.exit(err ? 1 : 0);
