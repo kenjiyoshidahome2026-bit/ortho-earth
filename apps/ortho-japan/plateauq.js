@@ -443,7 +443,7 @@ export function headPLQ(u8) {
 
 // 復元＝decodeBatch と同じ形のメッシュ（pos f32・nrm i8×4・idx u32・lodCounts）。壊れ/形式違いは null（呼び出し側が生経路へ）。
 // PLQ1（角柱部なし）も読む。
-export function unpackPLQ(u8) {
+export function unpackPLQ(u8, opts = {}) {
 	if (!(u8 instanceof Uint8Array)) u8 = new Uint8Array(u8);
 	if (u8.length < 8) return null;
 	const dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
@@ -503,5 +503,5 @@ export function unpackPLQ(u8) {
 			lodCounts[k] = io;
 		}
 		return { pos: opos, nrm: onrm, idx: oidx, lodCounts, ...base };
-	} catch { return null; }
+	} catch (e) { if (opts.throw) throw e; return null; }   // opts.throw＝診断用（既定は null＝呼び出し側が生経路へ）
 }
