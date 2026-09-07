@@ -84,7 +84,11 @@ async function bakeSet(set) {
 		if (!holes) return "skip";
 	}
 	const t0 = performance.now();
-	const leaves = await collectLeafTiles(base + "tileset.json");
+	let leaves = null;   // 走査（tileset の直列往復）は回線飽和時に "fetch failed" で丸ごと落ちる（hpc 実測 24 件/バースト）＝3 回まで待って再試行
+	for (let a = 0; a < 3 && !leaves; a++) {
+		try { leaves = await collectLeafTiles(base + "tileset.json"); }
+		catch (e) { if (a === 2) throw e; console.warn(`  ${set.name}: 走査失敗（${e?.message ?? e}）→ ${15 * (a + 1)}s 後に再試行`); await new Promise(r => setTimeout(r, 15000 * (a + 1))); }
+	}
 	if (!leaves.length) { console.warn(`  ${set.name}: 葉 0 枚＝空（廃止区の残骸？）`); return "empty"; }
 	// 区中心からの距離順＝ブラウザの「近いバッチから」に対応する固定の並び（クライアントはバッチ bbox でさらにカメラ順に並べ替える）
 	const cx = (set.bbox[0] + set.bbox[2]) / 2, cy = (set.bbox[1] + set.bbox[3]) / 2;
