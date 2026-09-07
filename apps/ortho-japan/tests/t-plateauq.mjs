@@ -36,14 +36,17 @@ const triArea = (m, t) => { const p = triPos(m, t); const ux = p[3] - p[0], uy =
 const totalArea = m => { let s = 0; for (let t = 0; t < m.idx.length / 3; t++) s += triArea(m, t); return s; };
 const bboxOf = m => { const b = [Infinity, Infinity, Infinity, -Infinity, -Infinity, -Infinity]; for (let i = 0; i < m.pos.length; i += 3) for (let a = 0; a < 3; a++) { b[a] = Math.min(b[a], m.pos[i + a]); b[a + 3] = Math.max(b[a + 3], m.pos[i + a]); } return b; };
 // 角柱を含む出力＝三角形の順序が変わる（段ごとにメッシュ→角柱）＝順序非依存の不変量で見る
+// 底（下向き水平＝上空から決して見えない）は角柱化で落ちる＝底を除いた三角形数/面積で比べる
+const isBottom = (m, t, U) => { const v = m.idx[t * 3] * 4; const n = m.nrm; const l = Math.hypot(n[v], n[v + 1], n[v + 2]) || 1; return (n[v] * U[0] + n[v + 1] * U[1] + n[v + 2] * U[2]) / l < -0.95 && (() => { const p = triPos(m, t); const ux = p[3] - p[0], uy = p[4] - p[1], uz = p[5] - p[2], vx = p[6] - p[0], vy = p[7] - p[1], vz = p[8] - p[2]; const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx, L = Math.hypot(nx, ny, nz) || 1; return Math.abs((nx * U[0] + ny * U[1] + nz * U[2]) / L) > 0.999; })(); };
+const upArea = (m, U) => { let s = 0, nb = 0; for (let t = 0; t < m.idx.length / 3; t++) { if (isBottom(m, t, U)) { nb++; continue; } s += triArea(m, t); } return [s, nb]; };
 function checkGeom(label, m, r, u8) {
-	const h = headPLQ(u8);
-	ok(`${label}: tri count`, r.idx.length === m.idx.length, `${r.idx.length / 3} vs ${m.idx.length / 3}`);
-	ok(`${label}: lodCounts equal`, same(r.lodCounts, m.lodCounts), `${r.lodCounts} vs ${m.lodCounts}`);
-	const a0 = totalArea(m), a1 = totalArea(r);
-	ok(`${label}: total area ±0.5%`, Math.abs(a1 - a0) <= a0 * 0.005, `${(a1 / a0 * 100).toFixed(2)}%`);
-	const b0 = bboxOf(m), b1 = bboxOf(r), tolB = 0.05 / 6371000;
-	ok(`${label}: bbox ±5cm`, b0.every((v, i) => Math.abs(v - b1[i]) <= tolB));
+	const h = headPLQ(u8), { U } = enuBasis(m.origin);
+	const [a0, b0] = upArea(m, U), [a1, b1] = upArea(r, U);
+	ok(`${label}: tri count (minus dropped bottoms)`, r.idx.length <= m.idx.length && r.idx.length >= m.idx.length - b0 * 3, `${r.idx.length / 3} vs ${m.idx.length / 3} (bottoms ${b0}→${b1})`);
+	ok(`${label}: lodCounts consistent`, r.lodCounts[0] === r.idx.length && r.lodCounts.every((c, k) => c <= m.lodCounts[k] && (k === 0 || c <= r.lodCounts[k - 1])), `${r.lodCounts} vs ${m.lodCounts}`);
+	ok(`${label}: non-bottom area ±0.5%`, Math.abs(a1 - a0) <= a0 * 0.005, `${(a1 / a0 * 100).toFixed(2)}%`);
+	const bb0 = bboxOf(m), bb1 = bboxOf(r), tolB = 0.05 / 6371000;
+	ok(`${label}: bbox ±5cm`, bb0.every((v, i) => Math.abs(v - bb1[i]) <= tolB));
 	ok(`${label}: verts ≤ +1%`, r.pos.length / 3 <= m.pos.length / 3 * 1.01, `${m.pos.length / 3} → ${r.pos.length / 3} (prisms ${h.prisms?.n ?? 0})`);
 	console.log(`     ${label}: prisms=${h.prisms?.n ?? 0} meshTris=${h.nt} plq ${(u8.length / 1e6).toFixed(2)}MB gzip ${(gzipSync(u8).length / 1e6).toFixed(2)}MB`);
 }
@@ -95,14 +98,19 @@ check("explicit(synthetic shared 20k tris)", synth(20000, true));
 	const origin = [0.6, 0.5, 0.6];
 	const mkPrismMesh = (prisms) => { const ex = extrudePrisms(prisms, origin); const nt = ex.idx.length / 3; return { ...ex, origin, bbox: [139, 35, 140, 36], lodH: [0, 3, 6, 12, 24, 48], lodCounts: [nt * 3, nt * 3, nt * 3, 0, 0, 0], twoSided: 0, maskCells: null }; };
 	const cm = 1;   // PRISM_Q 単位（1cm）
-	const box = { tier: 2, base: 500 * cm, h: 1000 * cm, rings: [[[0, 0], [1000, 0], [1000, 800], [0, 800]]], top: [0, 1, 2, 0, 2, 3], bottom: true };
+	const box = { tier: 2, base: 500 * cm, h: 1000 * cm, rings: [[[0, 0], [1000, 0], [1000, 800], [0, 800]]], top: [0, 1, 2, 0, 2, 3], bottom: false };
 	const L = { tier: 2, base: 0, h: 650, rings: [[[3000, 0], [4000, 0], [4000, 1000], [3500, 1000], [3500, 500], [3000, 500]]], top: [0, 1, 2, 0, 2, 3, 0, 3, 4, 0, 4, 5], bottom: false };
-	const ring = { tier: 2, base: 100, h: 400, rings: [[[6000, 0], [7000, 0], [7000, 1000], [6000, 1000]], [[6300, 300], [6300, 700], [6700, 700], [6700, 300]]], top: [0, 1, 4, 4, 7, 1, 1, 2, 7, 7, 6, 2, 2, 3, 6, 6, 5, 3, 3, 0, 5, 5, 4, 0], bottom: true };
+	const ring = { tier: 2, base: 100, h: 400, rings: [[[6000, 0], [7000, 0], [7000, 1000], [6000, 1000]], [[6300, 300], [6300, 700], [6700, 700], [6700, 300]]], top: [0, 1, 4, 4, 7, 1, 1, 2, 7, 7, 6, 2, 2, 3, 6, 6, 5, 3, 3, 0, 5, 5, 4, 0], bottom: false };
+	// 底付きの箱（押し出しに底あり）→ 抽出で底は落ち、天/壁は角柱に（隣接 2 棟が壁を共有して 1 成分になっても別々に拾う）
+	const boxB = { tier: 1, base: 0, h: 300, rings: [[[9000, 0], [9500, 0], [9500, 500], [9000, 500]]], top: [0, 1, 2, 0, 2, 3], bottom: true };
+	const boxC = { tier: 1, base: 0, h: 500, rings: [[[9500, 0], [10000, 0], [10000, 500], [9500, 500]]], top: [0, 1, 2, 0, 2, 3], bottom: true };
+	{ const mb = mkPrismMesh([boxB, boxC]); const ub = packPLQ(mb), hb = headPLQ(ub), rb = unpackPLQ(ub);
+	  ok("prism: two boxes sharing a wall → 2 prisms, bottoms dropped", hb.prisms?.n === 2 && rb.idx.length === mb.idx.length - 12, `n=${hb.prisms?.n} tris ${rb?.idx.length / 3} vs ${mb.idx.length / 3}`); }
 	const m = mkPrismMesh([box, L, ring]);
 	const u8 = packPLQ(m), h = headPLQ(u8), r = unpackPLQ(u8);
 	ok("prism: 3 prisms detected", h.prisms?.n === 3 && h.nt === 0, `n=${h.prisms?.n} meshTris=${h.nt}`);
 	ok("prism: unpack", !!r);
-	if (r) { ok("prism: tri count", r.idx.length === m.idx.length); ok("prism: verts 24+30+48", r.pos.length / 3 === m.pos.length / 3, `${r.pos.length / 3}`); ok("prism: area", Math.abs(totalArea(r) - totalArea(m)) < totalArea(m) * 1e-6); ok("prism: lodCounts", same(r.lodCounts, m.lodCounts)); ok("prism: positions exact (1cm grid)", (() => { const b0 = bboxOf(m), b1 = bboxOf(r); return b0.every((v, i) => Math.abs(v - b1[i]) < 1e-12); })()); }
+	if (r) { ok("prism: tri count", r.idx.length === m.idx.length); ok("prism: verts 20+30+40", r.pos.length / 3 === m.pos.length / 3, `${r.pos.length / 3}`); ok("prism: area", Math.abs(totalArea(r) - totalArea(m)) < totalArea(m) * 1e-6); ok("prism: lodCounts", same(r.lodCounts, m.lodCounts)); ok("prism: positions exact (1cm grid)", (() => { const b0 = bboxOf(m), b1 = bboxOf(r); return b0.every((v, i) => Math.abs(v - b1[i]) < 1e-12); })()); }
 	const u8m = packPLQ(m, { prism: false });
 	console.log(`     prism: mesh-only ${u8m.length}B → prism ${u8.length}B (${(u8.length / u8m.length * 100).toFixed(0)}%)`);
 	ok("prism: smaller than mesh", u8.length < u8m.length * 0.5);

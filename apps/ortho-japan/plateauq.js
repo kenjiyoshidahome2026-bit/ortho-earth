@@ -11,7 +11,7 @@
 //   4〜5 割減）済みの共有頂点＝差分 varint（explicit）。溶接の効かないメッシュは三角形順に並べて idx=0,1,2,…（iota）。
 // ・角柱部（本人号令 2026-09-07「底面＋高さ」）: LOD2 と名乗る 188 セット中 162 は勾配屋根ゼロ＝箱。箱 1 棟はメッシュだと
 //   溶接後でも 24 頂点+36 index ≈ 250B だが、底面リング（1cm 量子化 ENU・差分 varint）＋底面高さ＋高さ＋天面の三角形分割
-//   （リング頂点の添字）なら 30B 級。復元側が押し出して面ごとの法線付き溶接済みメッシュ（箱 24 頂点）を作る＝描画側は無改修。
+//   （リング頂点の添字）なら 30B 級。リング頂点は [e, n, du]（du＝天の参照高さからの差・DSM 由来の 1〜2% 勾配の屋根も厳密）。復元側が押し出して面ごとの法線付き溶接済みメッシュ（箱 24 頂点）を作る＝描画側は無改修。
 //   判定は成分（位置共有の連結）単位：全頂点が 2 高度（底/天）に乗る・側面三角形の射影が退化（鉛直）・底面辺が閉路・
 //   三角形数が 2Σm+天面（+底面）に一致。外れたら従来メッシュ＝失敗は常に「元のまま」側。
 // ・LOD: lodCounts（index 数・高さ降順の先頭打ち切り）は、メッシュ側＝残った三角形の段ごと累積、角柱側＝段ごとの本数
@@ -22,7 +22,8 @@ export const PLQ_VER = 2;
 const MAGIC1 = 0x31514c50;   // "PLQ1"
 const MAGIC2 = 0x32514c50;   // "PLQ2"
 export const PRISM_Q = 0.01 / 6371000;   // 角柱の量子化＝1cm（単位球座標。楕円体でも 1.001cm＝どうでもよい差）
-const PRISM_TOL = 0.04 / 6371000;   // 平面/鉛直の許容＝4cm（PLQ 量子化誤差 ≤1.5cm＋f32）
+const PRISM_TOL = 0.06 / 6371000;   // 平面/鉛直の許容＝6cm（PLQ1 から詰め直す時：軸ごと ±1.5cm の量子化誤差が u に √3 倍で乗る＝天面の hi−lo が 5cm に届く実測）
+const UP_FLAT = 0.98, UP_WALL = 0.08;   // 幾何法線の U 成分：|up|>0.98（11°以内）＝水平、|up|<0.08（4.6°以内）＝鉛直。量子化ジッタで 3m の壁が 0.01 傾く＝0.003 では壁の大半が「他」に落ちた（大田区 b5 実測 37%）
 const PRISM_MIN_H = 0.3 / 6371000;  // 底/天の最小差＝30cm（それ未満は板＝メッシュのまま）
 
 // 焼きの置き場（R2 キー）＝base URL から機械的に導く＝索引ファイル不要（1往復節約）。
@@ -127,84 +128,112 @@ export function enuBasis(origin) {
 // tier（LOD 段）: 三角形 t（index 位置 3t）が属する最上位段＝lodCounts[k] > 3t を満たす最大 k（lodCounts は段ごとの累積 index 数・降順に入れ子）
 function tierOf(t3, lodCounts) { let k = 0; for (let i = 1; i < lodCounts.length; i++) if (t3 < lodCounts[i]) k = i; return k; }
 
-// mesh（溶接済みでも未溶接でも可）→ { prisms:[{tier, base, h, rings:[[[e,n],…]], top:[i,j,k,…], bottom}], keep:Uint32Array(残す三角形番号) }
-// 座標は PRISM_Q 単位の整数（e,n）・base/h も同じ単位。失敗は常に「その成分をメッシュのまま残す」側。
+// mesh（溶接済みでも未溶接でも可）→ { prisms:[{tier, base, h, rings:[[[e,n],…]], top:[i,j,k,…], bottom:false}], keep:Uint32Array(残す三角形番号) }
+// 判定は「天面パッチ」単位（2026-09-07 二代目）：初代の「連結成分＝1 棟・2 高度」は、都心で隣接建物が壁を共有して 1 成分に
+// 融合する／段状建物が 3 高度以上になる、で大田区の箱の街を 0〜26% しか拾えなかった（実測）。二代目は
+//   ①三角形を幾何法線で 天（上向き水平）/底（下向き水平）/壁（鉛直）/他 に分類
+//   ②天を辺共有で束ねたパッチ（同一高度）ごとに、境界辺→閉路（リング）を取り、各リング辺から下りる壁 2 三角形（同じ底高度 b）を探す
+//   ③全辺が同じ b に落ちれば角柱 {rings, t, b}。天面三角形分割はリング頂点の添字（内部頂点があれば不採用）
+//   ④底（下向き水平）は、成分が丸ごと角柱＋壁＋底で説明できた時だけ落とす（上空からは決して見えない面＝片面描画の裏面）
+// 段状建物は上段だけが角柱（下段の天の辺は上段の壁と接し自分の壁を持たない）＝下段はメッシュのまま。失敗は常に「元のまま」側。
+export const prismDebug = { on: false, counts: {} };
+const fail = why => { if (prismDebug.on) prismDebug.counts[why] = (prismDebug.counts[why] || 0) + 1; return null; };
 export function extractPrisms(mesh) {
-	const { pos, idx, origin } = mesh;
+	const { pos, nrm, idx, origin } = mesh;
 	const nt = idx.length / 3, nv = pos.length / 3;
 	const lodCounts = mesh.lodCounts || [idx.length];
 	const empty = { prisms: [], keep: Uint32Array.from({ length: nt }, (_, t) => t) };
 	if (!nt || !origin) return empty;
 	const { E, N, U } = enuBasis(origin);
-	// ENU（f64）
 	const en = new Float64Array(nv * 2), uu = new Float64Array(nv);
 	for (let i = 0; i < nv; i++) { const x = pos[i * 3], y = pos[i * 3 + 1], z = pos[i * 3 + 2]; en[i * 2] = x * E[0] + y * E[1] + z * E[2]; en[i * 2 + 1] = x * N[0] + y * N[1] + z * N[2]; uu[i] = x * U[0] + y * U[1] + z * U[2]; }
-	// 連結成分＝位置共有（2cm 格子・法線無視）で頂点を束ね、三角形を union-find
-	const pq = quantizeGrid(pos, PRISM_Q * 2);
-	const { remap: pid, out: np } = uniqueVerts(pq, null, idx);
-	const par = new Int32Array(np); for (let i = 0; i < np; i++) par[i] = i;
-	const find = i => { while (par[i] !== i) { par[i] = par[par[i]]; i = par[i]; } return i; };
-	for (let t = 0; t < nt; t++) { const a = pid[idx[t * 3]], b = pid[idx[t * 3 + 1]], c = pid[idx[t * 3 + 2]]; const ra = find(a); const rb = find(b); if (rb !== ra) par[rb] = ra; const rc = find(c); if (rc !== find(a)) par[rc] = find(a); }
-	const compTris = new Map();   // root → [t…]（三角形順＝LOD 順を保つ）
-	for (let t = 0; t < nt; t++) { const r = find(pid[idx[t * 3]]); let a = compTris.get(r); if (!a) compTris.set(r, a = []); a.push(t); }
-	const prisms = [], keepFlag = new Uint8Array(nt).fill(1);
-	const tol = PRISM_TOL, cell = PRISM_TOL * 2;
-	for (const tris of compTris.values()) {
-		const p = tryPrism(tris);
-		if (p) { prisms.push(p); for (const t of tris) keepFlag[t] = 0; }
+	const tol = PRISM_TOL;
+	// 位置 id（2cm 格子・法線無視）＝辺共有と連結の単位
+	const { remap: pid, out: np } = uniqueVerts(quantizeGrid(pos, PRISM_Q * 2), null, idx);
+	// 三角形分類（幾何法線の U 成分。天/底の向きは頂点法線属性の符号で）
+	const TOP = 1, BOT = 2, WALL = 3, OTHER = 0, DEGEN = 4;
+	const cls = new Uint8Array(nt);
+	const parT = new Int32Array(nt); for (let t = 0; t < nt; t++) parT[t] = t;
+	const findT = i => { while (parT[i] !== i) { parT[i] = parT[parT[i]]; i = parT[i]; } return i; };
+	const pidTris = new Map();   // pid → [t…]（壁探索用・全三角形）
+	for (let t = 0; t < nt; t++) {
+		const a = idx[t * 3], b = idx[t * 3 + 1], c = idx[t * 3 + 2];
+		const ux = en[b * 2] - en[a * 2], uy = en[b * 2 + 1] - en[a * 2 + 1], uz = uu[b] - uu[a], vx = en[c * 2] - en[a * 2], vy = en[c * 2 + 1] - en[a * 2 + 1], vz = uu[c] - uu[a];
+		const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx, L = Math.hypot(nx, ny, nz);
+		if (L < 1e-24) { cls[t] = DEGEN; }
+		else {
+			const up = nz / L;
+			if (Math.abs(up) > UP_FLAT) { const s = nrm[a * 4] * U[0] + nrm[a * 4 + 1] * U[1] + nrm[a * 4 + 2] * U[2]; cls[t] = s >= 0 ? TOP : BOT; }
+			else if (Math.abs(up) < UP_WALL) cls[t] = WALL;
+			else cls[t] = OTHER;
+		}
+		for (const v of [a, b, c]) { const p = pid[v]; let l = pidTris.get(p); if (!l) pidTris.set(p, l = []); l.push(t); }
+		// 成分（位置共有）
+		const ra = findT(t); void ra;
 	}
-	const keep = []; for (let t = 0; t < nt; t++) if (keepFlag[t]) keep.push(t);
+	// 成分＝頂点位置共有で三角形を union（底の落とし判定用）
+	const firstTriOfPid = new Int32Array(np).fill(-1);
+	for (let t = 0; t < nt; t++) for (let k = 0; k < 3; k++) { const p = pid[idx[t * 3 + k]]; if (firstTriOfPid[p] < 0) firstTriOfPid[p] = t; else { const ra = findT(firstTriOfPid[p]), rb = findT(t); if (ra !== rb) parT[rb] = ra; } }
+	// 天パッチ＝天三角形を辺共有で union
+	const parP = new Int32Array(nt); for (let t = 0; t < nt; t++) parP[t] = t;
+	const findP = i => { while (parP[i] !== i) { parP[i] = parP[parP[i]]; i = parP[i]; } return i; };
+	{
+		const edgeOwner = new Map();   // "p,q" → 天三角形
+		for (let t = 0; t < nt; t++) {
+			if (cls[t] !== TOP) continue;
+			for (let k = 0; k < 3; k++) {
+				const p = pid[idx[t * 3 + k]], q = pid[idx[t * 3 + (k + 1) % 3]];
+				const key = p < q ? p * 4294967296 + q : q * 4294967296 + p;
+				const o = edgeOwner.get(key);
+				if (o === undefined) edgeOwner.set(key, t); else { const ra = findP(o), rb = findP(t); if (ra !== rb) parP[rb] = ra; }
+			}
+		}
+	}
+	const patches = new Map();   // root → [t…]
+	for (let t = 0; t < nt; t++) if (cls[t] === TOP) { const r = findP(t); let a = patches.get(r); if (!a) patches.set(r, a = []); a.push(t); }
+	const consumed = new Uint8Array(nt);
+	const prisms = [];
+	const near2 = (a, b) => Math.abs(en[a * 2] - en[b * 2]) <= tol && Math.abs(en[a * 2 + 1] - en[b * 2 + 1]) <= tol;
+	for (const tris of patches.values()) {
+		const p = tryPatch(tris);
+		if (!p) continue;
+		prisms.push(p.prism);
+		for (const t of tris) consumed[t] = 1;
+		for (const t of p.walls) consumed[t] = 1;
+	}
+	if (!prisms.length) return empty;
+	// 底の落とし：成分の未消費が底（と退化）だけなら落とす。それ以外の成分の底は残す（部分変換＝メッシュ側に底が要る訳ではないが安全側）
+	const compRest = new Map();   // root → 未消費に底以外があるか
+	for (let t = 0; t < nt; t++) { if (consumed[t]) continue; const r = findT(t); if (cls[t] !== BOT && cls[t] !== DEGEN) compRest.set(r, true); else if (!compRest.has(r)) compRest.set(r, false); }
+	const compHasPrism = new Set();
+	for (let t = 0; t < nt; t++) if (consumed[t]) compHasPrism.add(findT(t));
+	const keep = [];
+	for (let t = 0; t < nt; t++) {
+		if (consumed[t]) continue;
+		const r = findT(t);
+		if ((cls[t] === BOT || cls[t] === DEGEN) && compHasPrism.has(r) && compRest.get(r) === false) continue;   // 丸ごと角柱で説明できた成分の底＝落とす
+		keep.push(t);
+	}
 	return { prisms, keep: Uint32Array.from(keep) };
 
-	function tryPrism(tris) {
-		// 成分の頂点と高度
-		const vids = new Set(); for (const t of tris) { vids.add(idx[t * 3]); vids.add(idx[t * 3 + 1]); vids.add(idx[t * 3 + 2]); }
-		let lo = Infinity, hi = -Infinity;
-		for (const v of vids) { const u = uu[v]; if (u < lo) lo = u; if (u > hi) hi = u; }
-		if (hi - lo < PRISM_MIN_H) return null;
-		const mid = (lo + hi) / 2;
-		const level = new Map();   // 頂点 → 0(底)/1(天)。どちらの面からも tol 超＝失敗
-		let baseSum = 0, baseN = 0, topSum = 0, topN = 0;
-		for (const v of vids) {
-			const u = uu[v];
-			if (u < mid) { if (u - lo > tol) return null; level.set(v, 0); baseSum += u; baseN++; }
-			else { if (hi - u > tol) return null; level.set(v, 1); topSum += u; topN++; }
+	function tryPatch(tris) {
+		// 天面＝ほぼ水平（分類済み）だが完全な平面とは限らない（DSM 由来の 1〜2% 勾配＝10m で 10cm）＝頂点ごとの高さを持つ
+		let hi = -Infinity;
+		for (const t of tris) for (let k = 0; k < 3; k++) { const u = uu[idx[t * 3 + k]]; if (u > hi) hi = u; }
+		const tLevel = hi;   // 参照＝最高点（du ≤ 0）
+		// 境界辺（パッチ内で 1 回だけ現れる辺）→ 隣接（deg 2）→ 閉路
+		const cnt = new Map(), adj = new Map(), rep = new Map();   // rep: pid → 代表頂点
+		for (const t of tris) for (let k = 0; k < 3; k++) {
+			const v = idx[t * 3 + k], w = idx[t * 3 + (k + 1) % 3], p = pid[v], q = pid[w];
+			if (!rep.has(p)) rep.set(p, v); if (!rep.has(q)) rep.set(q, w);
+			if (p === q) return fail("degenerate-edge");
+			const key = p < q ? `${p},${q}` : `${q},${p}`;
+			cnt.set(key, (cnt.get(key) || 0) + 1);
 		}
-		if (!baseN || !topN) return null;
-		// 2D で底/天の対応（tol セル＋近傍 3×3）。底面点＝「底頂点の代表」（同じ 2D 位置の底頂点は 1 つに）
-		const baseBy = new Map();   // key → 代表底頂点
-		const canon = new Map();    // 頂点 → 代表底頂点（天頂点は真下の底頂点へ）
-		const nearBase = v => {
-			const cx = Math.round(en[v * 2] / cell), cy = Math.round(en[v * 2 + 1] / cell);
-			for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
-				const b = baseBy.get(`${cx + dx},${cy + dy}`);
-				if (b !== undefined && Math.abs(en[b * 2] - en[v * 2]) <= tol && Math.abs(en[b * 2 + 1] - en[v * 2 + 1]) <= tol) return b;
-			}
-			return undefined;
-		};
-		for (const v of vids) if (level.get(v) === 0) { const b = nearBase(v); if (b === undefined) { baseBy.set(`${Math.round(en[v * 2] / cell)},${Math.round(en[v * 2 + 1] / cell)}`, v); canon.set(v, v); } else canon.set(v, b); }
-		for (const v of vids) if (level.get(v) === 1) { const b = nearBase(v); if (b === undefined) return null; canon.set(v, b); }   // 天に真下の無い点＝勾配/張り出し
-		const topOver = new Set(); for (const v of vids) if (level.get(v) === 1) topOver.add(canon.get(v));
-		for (const b of baseBy.values()) if (!topOver.has(b)) return null;   // 底だけの張り出し
-		// 三角形の分類：壁（2:1・退化射影）／天（3 天）／底（3 底）
-		const edgeCnt = new Map(), adj = new Map();
-		const topTris = []; let bottomTris = 0;
-		const addEdge = (a, b) => { if (a === b) return false; const k = a < b ? `${a},${b}` : `${b},${a}`; edgeCnt.set(k, (edgeCnt.get(k) || 0) + 1); let s = adj.get(a); if (!s) adj.set(a, s = new Set()); s.add(b); s = adj.get(b); if (!s) adj.set(b, s = new Set()); s.add(a); return true; };
-		for (const t of tris) {
-			const a = idx[t * 3], b = idx[t * 3 + 1], c = idx[t * 3 + 2];
-			const la = level.get(a), lb = level.get(b), lc = level.get(c), s = la + lb + lc;
-			const ca = canon.get(a), cb = canon.get(b), cc = canon.get(c);
-			if (s === 3) { if (ca === cb || cb === cc || ca === cc) return null; topTris.push(ca, cb, cc); continue; }
-			if (s === 0) { bottomTris++; continue; }
-			let p, q, r;   // p,q＝同レベルの 2 点・r＝残り
-			if (la === lb) { p = a; q = b; r = c; } else if (la === lc) { p = a; q = c; r = b; } else { p = b; q = c; r = a; }
-			const cp = canon.get(p), cq = canon.get(q), cr = canon.get(r);
-			if (cr !== cp && cr !== cq) return null;   // 斜めの壁
-			if (!addEdge(cp, cq)) return null;
-		}
-		if (bottomTris && bottomTris !== topTris.length / 3) return null;   // 底があるなら天と同じ三角形数（同じ多角形の三角形分割）
-		for (const c of edgeCnt.values()) if (c !== 2) return null;   // 底面辺は壁 2 三角形から必ず 2 回
-		for (const s of adj.values()) if (s.size !== 2) return null;   // 各点の隣は 2 つ＝閉路
+		for (const [key, c] of cnt) { if (c !== 1) continue; const [p, q] = key.split(",").map(Number); let s = adj.get(p); if (!s) adj.set(p, s = new Set()); s.add(q); s = adj.get(q); if (!s) adj.set(q, s = new Set()); s.add(p); }
+		if (!adj.size) return fail("no-boundary");
+		for (const s of adj.values()) if (s.size !== 2) return fail("boundary-deg");
+		if (adj.size !== rep.size) return fail("interior-vertex");   // 境界に乗らない頂点（内部の Steiner 点）＝リング添字で表せない
 		const seen = new Set(), rings = [];
 		for (const start of adj.keys()) {
 			if (seen.has(start)) continue;
@@ -214,26 +243,48 @@ export function extractPrisms(mesh) {
 				const [x, y] = [...adj.get(cur)];
 				const nxt = x !== prev ? x : y;
 				if (nxt === start) break;
-				if (seen.has(nxt) || ring.length > adj.size) return null;
+				if (seen.has(nxt) || ring.length > adj.size) return fail("ring-walk");
 				ring.push(nxt); seen.add(nxt); prev = cur; cur = nxt;
 			}
-			if (ring.length < 3) return null;
+			if (ring.length < 3) return fail("ring-short");
 			rings.push(ring);
 		}
-		if (seen.size !== adj.size) return null;
-		let m = 0; for (const r of rings) m += r.length;
-		if (tris.length !== 2 * m + topTris.length / 3 + bottomTris) return null;   // 三角形数の突合＝壁 2Σm＋天＋底
-		// 外周を CCW（正の符号付き面積）に、穴は CW に＝押し出しの壁法線が外向きになる（片面描画は法線で裏面 discard＝向きが要る）
-		const area = ring => { let s = 0; for (let i = 0; i < ring.length; i++) { const a = ring[i], b = ring[(i + 1) % ring.length]; s += en[a * 2] * en[b * 2 + 1] - en[b * 2] * en[a * 2 + 1]; } return s / 2; };
+		// 各リング辺の壁 2 三角形（頂点の 2D 位置が辺の両端のどちらかに一致・最高が tLevel・最低が共通の b）
+		const walls = [];
+		let bLevel = null;
+		for (const ring of rings) for (let i = 0; i < ring.length; i++) {
+			const P = ring[i], Q = ring[(i + 1) % ring.length], vp = rep.get(P), vq = rep.get(Q);
+			const cand = new Set();
+			for (const t of (pidTris.get(P) || [])) if (cls[t] === WALL && !consumed[t]) cand.add(t);
+			for (const t of (pidTris.get(Q) || [])) if (cls[t] === WALL && !consumed[t]) cand.add(t);
+			const found = [], uP = uu[vp], uQ = uu[vq];
+			for (const t of cand) {
+				// 壁三角形の各頂点＝P か Q の真上/真下、かつ高さは「その柱の天（uP/uQ）」か「底 b」のどちらか
+				let ok = true, mn = Infinity;
+				for (let k = 0; k < 3 && ok; k++) { const v = idx[t * 3 + k], u = uu[v]; const atP = near2(v, vp), atQ = near2(v, vq); if (!atP && !atQ) { ok = false; break; } const ut = atP ? uP : uQ; if (Math.abs(u - ut) > tol) { if (u > ut - tol) { ok = false; break; } if (u < mn) mn = u; } }
+				if (!ok || mn === Infinity) continue;
+				found.push([t, mn]);
+			}
+			if (found.length < 2 || found.length % 2) return fail(found.length === 0 ? "wall-none" : found.length === 1 ? "wall-one" : "wall-odd");
+			found.sort((x, y) => x[1] - y[1]);   // 同じ辺に別建物の壁が重なる（共有壁）＝底が同じ 2 枚が組。底の近い順に並べて先頭 2 枚
+			if (Math.abs(found[0][1] - found[1][1]) > tol) return fail("wall-base-mismatch");
+			const b = (found[0][1] + found[1][1]) / 2;
+			if (bLevel === null) bLevel = b; else if (Math.abs(b - bLevel) > tol) return fail("base-varies");
+			walls.push(found[0][0], found[1][0]);
+		}
+		if (bLevel === null || tLevel - bLevel < PRISM_MIN_H) return fail("too-flat");
+		// 向き：外周 CCW・穴 CW
+		const area = ring => { let s = 0; for (let i = 0; i < ring.length; i++) { const a = rep.get(ring[i]), b = rep.get(ring[(i + 1) % ring.length]); s += en[a * 2] * en[b * 2 + 1] - en[b * 2] * en[a * 2 + 1]; } return s / 2; };
 		let outer = 0, best = -Infinity;
 		rings.forEach((r, i) => { const A = Math.abs(area(r)); if (A > best) { best = A; outer = i; } });
 		rings.forEach((r, i) => { const A = area(r); if ((i === outer && A < 0) || (i !== outer && A > 0)) r.reverse(); });
 		const local = new Map(); let li = 0;
-		const ringQ = rings.map(r => r.map(b => { local.set(b, li++); return [Math.round(en[b * 2] / PRISM_Q), Math.round(en[b * 2 + 1] / PRISM_Q)]; }));
-		const top = topTris.map(b => local.get(b));
-		const baseQ = Math.round((baseSum / baseN) / PRISM_Q), hQ = Math.round((topSum / topN - baseSum / baseN) / PRISM_Q);
-		if (hQ <= 0) return null;
-		return { tier: tierOf(tris[0] * 3, lodCounts), base: baseQ, h: hQ, rings: ringQ, top, bottom: bottomTris > 0 };
+		const ringQ = rings.map(r => r.map(p => { local.set(p, li++); const v = rep.get(p); return [Math.round(en[v * 2] / PRISM_Q), Math.round(en[v * 2 + 1] / PRISM_Q), Math.min(0, Math.round((uu[v] - tLevel) / PRISM_Q))]; }));   // [e, n, du]（du＝天の参照からの差・≤0）
+		const top = [];
+		for (const t of tris) for (let k = 0; k < 3; k++) top.push(local.get(pid[idx[t * 3 + k]]));
+		const baseQ = Math.round(bLevel / PRISM_Q), hQ = Math.round((tLevel - bLevel) / PRISM_Q);
+		if (hQ <= 0) return fail("h0");
+		return { prism: { tier: tierOf(tris[0] * 3, lodCounts), base: baseQ, h: hQ, rings: ringQ, top, bottom: false }, walls };
 	}
 }
 
@@ -258,20 +309,20 @@ export function extrudePrisms(prisms, origin) {
 		for (const ring of p.rings) {   // 壁
 			const m = ring.length;
 			for (let i = 0; i < m; i++) {
-				const [e0, n0] = ring[i], [e1, n1] = ring[(i + 1) % m];
+				const [e0, n0, d0 = 0] = ring[i], [e1, n1, d1 = 0] = ring[(i + 1) % m];
 				const de = e1 - e0, dn = n1 - n0, L = Math.hypot(de, dn) || 1;
 				const wx = dn / L, wy = -de / L;   // CCW 外周の外向き（穴は CW＝穴側から見て外向き）
 				const nx = q8(wx * E[0] + wy * N[0]), ny = q8(wx * E[1] + wy * N[1]), nz = q8(wx * E[2] + wy * N[2]);
-				const a = put(e0, n0, b, nx, ny, nz), c = put(e1, n1, b, nx, ny, nz), d = put(e1, n1, t, nx, ny, nz), f = put(e0, n0, t, nx, ny, nz);
+				const a = put(e0, n0, b, nx, ny, nz), c = put(e1, n1, b, nx, ny, nz), d = put(e1, n1, t + d1, nx, ny, nz), f = put(e0, n0, t + d0, nx, ny, nz);
 				idx[io++] = a; idx[io++] = c; idx[io++] = d; idx[io++] = a; idx[io++] = d; idx[io++] = f;
 			}
 		}
 		const topBase = vo;   // 天
-		for (const ring of p.rings) for (const [e, n] of ring) put(e, n, t, upN[0], upN[1], upN[2]);
+		for (const ring of p.rings) for (const [e, n, du = 0] of ring) put(e, n, t + du, upN[0], upN[1], upN[2]);   // 天＝頂点ごとの高さ（法線は U＝勾配 11° 以内の陰影差は 2% 未満）
 		for (let k = 0; k < p.top.length; k++) idx[io++] = topBase + p.top[k];
 		if (p.bottom) {   // 底（天の鏡像＝同じ三角形分割・巻きを反転）
 			const botBase = vo;
-			for (const ring of p.rings) for (const [e, n] of ring) put(e, n, b, dnN[0], dnN[1], dnN[2]);
+			for (const ring of p.rings) for (const [e, n] of ring) put(e, n, b, dnN[0], dnN[1], dnN[2]);   // 底（抽出は出さない・押し出し API の互換）
 			for (let k = 0; k < p.top.length; k += 3) { idx[io++] = botBase + p.top[k]; idx[io++] = botBase + p.top[k + 2]; idx[io++] = botBase + p.top[k + 1]; }
 		}
 	}
@@ -353,7 +404,7 @@ export function packPLQ(mesh, opts = {}) {
 		po.varint(p.bottom ? 1 : 0); po.zig(p.base); po.varint(p.h);
 		po.varint(p.rings.length);
 		let pe = 0, pn = 0;
-		for (const r of p.rings) { po.varint(r.length); for (const [e, n] of r) { po.zig(e - pe); po.zig(n - pn); pe = e; pn = n; } }
+		for (const r of p.rings) { po.varint(r.length); for (const [e, n, du] of r) { po.zig(e - pe); po.zig(n - pn); po.zig(du || 0); pe = e; pn = n; } }
 		po.varint(p.top.length / 3);
 		for (const i of p.top) po.varint(i);
 	}
@@ -432,7 +483,7 @@ export function unpackPLQ(u8) {
 			const flags = rd.varint(), b = rd.zig(), hh = rd.varint();
 			const nr = rd.varint(), rings = [];
 			let pe = 0, pn = 0;
-			for (let r = 0; r < nr; r++) { const m = rd.varint(), ring = new Array(m); for (let j = 0; j < m; j++) { pe += rd.zig(); pn += rd.zig(); ring[j] = [pe, pn]; } rings.push(ring); }
+			for (let r = 0; r < nr; r++) { const m = rd.varint(), ring = new Array(m); for (let j = 0; j < m; j++) { pe += rd.zig(); pn += rd.zig(); const du = rd.zig(); ring[j] = [pe, pn, du]; } rings.push(ring); }
 			const ntp = rd.varint(), top = new Array(ntp * 3);
 			for (let j = 0; j < ntp * 3; j++) top[j] = rd.varint();
 			prisms.push({ tier: k, base: b, h: hh, rings, top, bottom: !!(flags & 1) });
