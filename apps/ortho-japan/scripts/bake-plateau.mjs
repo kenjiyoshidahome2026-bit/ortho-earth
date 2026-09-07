@@ -33,20 +33,37 @@ if (UPLOAD && !API_KEY) { console.error("--upload には API_KEY 環境変数（
 setLoaderOptions({ modules: { draco3d } });
 setDecodeEnv({ tileConcurrency: 8 });
 
-// b3dm のプロセス内キャッシュ＝球/楕円体の 2 回目デコードで同じタイルを取り直さない（バッチ完了で捨てる）
+// b3dm はバッチ単位で「先に全部取ってから」デコードする（プロセス内キャッシュ・バッチ完了で捨てる）：
+// ①球/楕円体の 2 回目デコードで取り直さない ②取れなかったタイルは両モードから同じように外して unbaked に記す
+//（decodeBatch は失敗タイルを黙って落として残りで煮る＝焼きに任せると「欠けたまま完成」になり、クライアントはそれを
+//   正として二度と取りに行かない。ブラウザの一過性 skip とは重みが違う）。再試行 4 回・60s＝CDN（reearth）の
+//   遅延/瞬断（hpc 実測: "fetch failed"/abort が数%）を吸う。
 const bodyCache = new Map();
 const rawFetch = globalThis.fetch;
 globalThis.fetch = async (url, init) => {
 	const key = typeof url === "string" ? url : url?.url;
 	if (key && bodyCache.has(key)) return new Response(bodyCache.get(key).slice(0), { status: 200 });
-	const r = await rawFetch(url, init);
-	if (key && r.ok && /\.(b3dm|glb|gltf)(\?|$)/.test(key)) {
-		const ab = await r.arrayBuffer();
-		bodyCache.set(key, ab);
-		return new Response(ab.slice(0), { status: 200, headers: r.headers });
-	}
-	return r;
+	return rawFetch(url, init);
 };
+async function prefetchTiles(uris) {   // 成功した URI を cache に積み、失敗した URI の Set を返す
+	const failed = new Set();
+	let i = 0;
+	await Promise.all(Array.from({ length: 8 }, async () => {
+		while (i < uris.length) {
+			const u = uris[i++];
+			let ok = false;
+			for (let a = 0; a < 4 && !ok; a++) {
+				const ac = new AbortController(), tm = setTimeout(() => ac.abort(), 60000);
+				try { const r = await rawFetch(u, { signal: ac.signal }); if (r.ok) { bodyCache.set(u, await r.arrayBuffer()); ok = true; } else if (r.status === 404 || r.status === 403) break; }
+				catch { /* 再試行 */ }
+				finally { clearTimeout(tm); }
+				if (!ok) await new Promise(r => setTimeout(r, 1000 * (a + 1)));
+			}
+			if (!ok) failed.add(u);
+		}
+	}));
+	return failed;
+}
 
 const sets = JSON.parse(readFileSync(join(APP, "public/plateau-sets.json"), "utf8"));
 let targets = sets.filter((s, i) => i % SHARD_N === SHARD_I);
@@ -73,8 +90,13 @@ async function bakeSet(set) {
 	const man = MODES.map(ell => ({ ver: DECODE_VER, plq: PLQ_VER, base, ward: set.name, brid, ell, wardBbox, prefix, tiles, batch: BATCH, batches: [], unbaked: [], ts: 0 }));
 	for (const d of dirs) mkdirSync(d, { recursive: true });
 	let bytesRaw = 0, bytesPlq = 0, k = 0;
+	let failedTiles = 0;
 	for (let i = 0; i < leaves.length; i += BATCH) {
-		const slice = leaves.slice(i, i + BATCH), ti = slice.map((_, j) => i + j);
+		const all = leaves.slice(i, i + BATCH);
+		const failed = await prefetchTiles(all.map(t => t.uri));
+		const slice = all.filter(t => !failed.has(t.uri)), ti = [];
+		all.forEach((t, j) => { if (failed.has(t.uri)) { for (const mm of man) mm.unbaked.push(i + j); failedTiles++; } else ti.push(i + j); });
+		if (!slice.length) { bodyCache.clear(); k++; continue; }
 		for (let m = 0; m < MODES.length; m++) {
 			setDecodeEnv({ ell: MODES[m] });
 			let mesh = null;
@@ -91,7 +113,7 @@ async function bakeSet(set) {
 	}
 	for (let m = 0; m < MODES.length; m++) { man[m].ts = Date.now(); writeFileSync(join(dirs[m], "manifest.json"), JSON.stringify(man[m])); }
 	const dt = (performance.now() - t0) / 1000;
-	console.log(`  ${set.name}: ${leaves.length} 枚 ${k} バッチ ×${MODES.length} raw ${fmt(bytesRaw)} → plq ${fmt(bytesPlq)} (${(bytesPlq / bytesRaw * 100).toFixed(0)}%) ${dt.toFixed(0)}s${man.some(x => x.unbaked.length) ? ` ⚠unbaked ${man.map(x => x.unbaked.length).join("/")}` : ""}`);
+	console.log(`  ${set.name}: ${leaves.length} 枚 ${k} バッチ ×${MODES.length} raw ${fmt(bytesRaw)} → plq ${fmt(bytesPlq)} (${(bytesPlq / bytesRaw * 100).toFixed(0)}%) ${dt.toFixed(0)}s${man.some(x => x.unbaked.length) ? ` ⚠unbaked ${man.map(x => x.unbaked.length).join("/")} (fetch失敗 ${failedTiles})` : ""}`);
 	return "ok";
 }
 
