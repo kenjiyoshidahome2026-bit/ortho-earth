@@ -106,6 +106,7 @@ GPU の素性で見る（Apple 以外の内蔵GPU は VRAM がシステム RAM �
 ノブ：`?nobake=1`（封印・A/B）・`?bake=URL`（置き場差し替え＝ローカル焼きの検証）。ティア別の値は無い（全ティア共通）。
 保存キーは球＝`{base}`・楕円体＝`{base}#ell`＝両モードの焼きが並存（?ell 切替で焼き直さない・LRU 予算は共通台帳）。
 **頂点溶接**（`plateauq.weldMesh`・2026-09-07）＝位置+法線一致の頂点を束ねる（箱 36→24・実測 4〜5 割減）。焼き（packPLQ）と生経路（decodeBatch 末尾・1mm 格子）の両方＝GPU 常駐バイト・IDB/OPFS・PLQ（gzip 後 3 割減）が一緒に減る。描画結果は同一。
+**PLQ2 角柱（底面＋高さ）**＝箱の建物を底面リング（1cm・頂点ごとの天高さ）＋高さで持ち復元時に押し出す（GPU 上は溶接メッシュと同じ・転送と OPFS/IDB が箱の区で 1/3〜1/4）。`bake-plateau --repack`（詰め直し）・`--stats`（角柱率＝plateau-bake-out/stats.json）。
 
 ## 6. PLATEAU 以外の jetsam 装備（iOS 三部作の現在形）
 

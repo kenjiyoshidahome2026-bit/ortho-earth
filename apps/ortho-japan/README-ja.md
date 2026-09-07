@@ -124,7 +124,7 @@ UIまわりを改修したら `npm run verify:ui`（要ローカルChrome）。�
 | `npm run verify:webgpu` | WebGPU バックエンドの起動（実時間） |
 | `npm run verify:nocoi` | **COI 無しでも動く**（COOP/COEP を外して7ページ・実時間）＝SDK の前提 |
 | `npm run verify:lib` | **SDK 契約**（ライブラリビルドを第三者ページへ埋め、ホスト無汚染・箱内描画・window 無汚染・剥がせる） |
-| `node scripts/bake-plateau.mjs` | **PLATEAU の R2 焼き**（全セットを Node で焼いて量子化 PLQ を `plateau-bake-out/` へ。`--upload`＝R2 へ put・要 `API_KEY`。`--shard=i/n` で並列・`--only=名前` で絞り込み・球/楕円体を同時に焼く・`--reverse` で別マシンと両端から挟む・`--redo-unbaked` で取れなかったタイルの仕上げ・`--reweld` で焼き済みを頂点溶接で詰め直す）。ブラウザは OPFS→R2 焼き→MLIT 生経路の順で引き、`?nobake=1` で封印・`?bake=URL` で置き場差し替え。`node tests/t-plateauq.mjs --real` が形式の往復検定 |
+| `node scripts/bake-plateau.mjs` | **PLATEAU の R2 焼き**（全セットを Node で焼いて量子化 PLQ を `plateau-bake-out/` へ。`--upload`＝R2 へ put・要 `API_KEY`。`--shard=i/n` で並列・`--only=名前` で絞り込み・球/楕円体を同時に焼く・`--reverse` で別マシンと両端から挟む・`--redo-unbaked` で取れなかったタイルの仕上げ・`--repack` で焼き済みを PLQ2（溶接＋角柱）に詰め直す・`--stats` で角柱率の統計）。ブラウザは OPFS→R2 焼き→MLIT 生経路の順で引き、`?nobake=1` で封印・`?bake=URL` で置き場差し替え。`node tests/t-plateauq.mjs --real` が形式の往復検定 |
 | `npm run verify:prod` | **本番組立**（下記の二重構成＝入口がSDKを参照・エンジン非再バンドル・組み上がりの実走・request台帳404ゼロ・**遅延ガジェット7種の実クリック**＝動的importチャンク疎通と例外ゼロ）。`deploy` の必須ゲート |
 
 ### 二重構成（dev=ソース直・本番=SDK）
