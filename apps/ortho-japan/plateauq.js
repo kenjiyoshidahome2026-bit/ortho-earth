@@ -6,8 +6,9 @@
 // レイアウト（リトルエンディアン）: [u32 MAGIC][u32 jsonLen][json utf8][pad→4B][pos varint 列][nrm i8×3×nv][idx varint 列(explicit時)]
 // ・pos: 頂点ごとにバッチ bbox で u16 量子化（qmin+q·scale）＝1バッチ（32タイル≈1〜2km）で 2〜3cm 刻み。
 //   前頂点との差分を zigzag varint で書く＝同一建物の頂点は近接＝1〜2B/成分。gzip（配信の Content-Encoding）がさらに効く。
-// ・idx: PLATEAU（Draco 出力）は頂点が三角形ごとに非共有（実測 nv≈3·nt）＝三角形順に頂点を並べ直せば idx=0,1,2,…（iota）
-//   ＝ファイルに index を持たない。共有頂点が多いメッシュ（3DBAG 等）は元順のまま idx を差分 varint で持つ（explicit）。
+// ・idx: 既定は溶接（weldMesh＝位置+法線一致の頂点を束ねる・頂点 4〜5 割減）→ 共有頂点＝idx を差分 varint で持つ（explicit）。
+//   溶接の効かないメッシュ（頂点が三角形ごとに非共有のまま・PLATEAU の Draco 出力は本来 nv≈3·nt）は三角形順に並べ直して
+//   idx=0,1,2,…（iota＝index を持たない）。復元側は両レイアウトを読む。
 // ・nrm: i8×3（pad 無し）。復元時に 4B ストライドへ戻す（renderer の入力形は不変）。
 // ・lodCounts は index 数＝三角形の並びを変えないので iota 化しても不変。maskCells は json 同乗。
 // 形式版 PLQ_VER＝レイアウトを変えたら上げる（マニフェストと突合＝旧焼きは黙って無視→生経路）。
@@ -39,6 +40,50 @@ class Out {
 	bytes() { return this.b.subarray(0, this.n); }
 }
 
+// ── 頂点溶接（2026-09-07・本人号令「頂点を減らすのは変換にも描画にも効く」）──
+// 位置（格子量子化）と法線（i8×3）が完全に一致する頂点を 1 つに束ねる＝描画結果は同一（フラットシェーディングの法線は
+// 頂点に載っているので、面ごとの法線が違う角はそのまま別頂点＝箱 1 棟 36→24 頂点、屋根付きは実測 48% 減）。
+// 効き：GPU の pos/nrm バイト・PLQ サイズ（gzip 後 3 割減）・頂点シェーダ回数。焼き（packPLQ）と生経路（decodeBatch 末尾）で共用。
+// 探索は Int32Array の開番地ハッシュ（Map の百万エントリはヒープを数百MB食う＝iOS/lowMem の轍）＝一時 ~30B/頂点。
+// 三角形順に初出頂点を採番＝局所性が良く index の差分 varint が小さい。未参照頂点（dedup で消えた三角形の分）はここで落ちる。
+// grid＝格子刻み（単位球座標）。null＝bbox/65535（PLQ の量子化と同じ＝焼きでは保存精度そのもの）。効きが 15% 未満なら元を返す。
+export function weldMesh(mesh, grid = null) {
+	const { pos, nrm, idx } = mesh;
+	const nv = pos.length / 3;
+	if (!nv || !idx.length) return mesh;
+	const mn = [Infinity, Infinity, Infinity], mx = [-Infinity, -Infinity, -Infinity];
+	for (let i = 0; i < pos.length; i += 3) for (let a = 0; a < 3; a++) { const p = pos[i + a]; if (p < mn[a]) mn[a] = p; if (p > mx[a]) mx[a] = p; }
+	const inv = grid ? [1 / grid, 1 / grid, 1 / grid] : [0, 1, 2].map(a => 65535 / ((mx[a] - mn[a]) || 1e-12));
+	const q = new Int32Array(nv * 3);
+	for (let i = 0; i < nv; i++) for (let a = 0; a < 3; a++) q[i * 3 + a] = Math.round((pos[i * 3 + a] - mn[a]) * inv[a]);
+	let cap = 1; while (cap < nv * 2) cap <<= 1;
+	const table = new Int32Array(cap).fill(-1), hm = cap - 1;
+	const remap = new Int32Array(nv).fill(-1), first = new Int32Array(nv);   // first[j]＝出力頂点 j の元頂点
+	let out = 0;
+	const nidx = new Uint32Array(idx.length);
+	for (let k = 0; k < idx.length; k++) {
+		const v = idx[k];
+		let j = remap[v];
+		if (j < 0) {
+			const x = q[v * 3], y = q[v * 3 + 1], z = q[v * 3 + 2], n = ((nrm[v * 4] & 255) << 16) | ((nrm[v * 4 + 1] & 255) << 8) | (nrm[v * 4 + 2] & 255);
+			let h = (Math.imul(x, 73856093) ^ Math.imul(y, 19349663) ^ Math.imul(z, 83492791) ^ Math.imul(n, 0x9e3779b1)) & hm;
+			for (;;) {
+				const c = table[h];
+				if (c < 0) { table[h] = out; first[out] = v; j = out++; break; }
+				const s = first[c];
+				if (q[s * 3] === x && q[s * 3 + 1] === y && q[s * 3 + 2] === z && nrm[s * 4] === nrm[v * 4] && nrm[s * 4 + 1] === nrm[v * 4 + 1] && nrm[s * 4 + 2] === nrm[v * 4 + 2]) { j = c; break; }
+				h = (h + 1) & hm;
+			}
+			remap[v] = j;
+		}
+		nidx[k] = j;
+	}
+	if (out > nv * 0.85) return mesh;   // 効きが薄い＝コピーもしない（既に溶接済み・共有頂点メッシュ等）
+	const npos = new Float32Array(out * 3), nnrm = new Int8Array(out * 4);
+	for (let j = 0; j < out; j++) { const v = first[j]; npos[j * 3] = pos[v * 3]; npos[j * 3 + 1] = pos[v * 3 + 1]; npos[j * 3 + 2] = pos[v * 3 + 2]; nnrm[j * 4] = nrm[v * 4]; nnrm[j * 4 + 1] = nrm[v * 4 + 1]; nnrm[j * 4 + 2] = nrm[v * 4 + 2]; }
+	return { ...mesh, pos: npos, nrm: nnrm, idx: nidx };
+}
+
 // 三角形順に頂点を並べ直せるか＝参照頂点の重複が少ないか（並べ直しは共有頂点を複製する＝増える分が 20% 超なら explicit）
 function planLayout(idx, nv) {
 	const seen = new Uint8Array(nv);
@@ -47,7 +92,8 @@ function planLayout(idx, nv) {
 	return { iota: idx.length <= distinct * 1.2, distinct, seen };
 }
 
-export function packPLQ(mesh) {
+export function packPLQ(mesh, opts = {}) {
+	if (opts.weld !== false) mesh = weldMesh(mesh);   // 既定＝溶接（保存精度の格子で束ねる＝最大の効き）
 	const { pos, nrm, idx } = mesh;
 	const nvSrc = pos.length / 3, nt = idx.length / 3;
 	const plan = planLayout(idx, nvSrc);

@@ -6,6 +6,7 @@
 // レーン）は一切持たない。環境（楕円体・タイル並行数）は setDecodeEnv で注入＝各workerのinitが責任を持つ。
 import { parse as loadParse } from "@loaders.gl/core";
 import { Tiles3DLoader } from "@loaders.gl/3d-tiles";
+import { weldMesh } from "./plateauq.js";   // 頂点溶接（焼きと共用）
 
 const R2D = 180 / Math.PI;
 // デコードパイプライン（接地・dedup・LOD・軸変換）の版＝焼きの互換単位。変えたら上げる＝ブラウザの IDB/OPFS 焼き（plateauworker の
@@ -483,5 +484,8 @@ export async function decodeBatch(base, leaves, wardMask, wardBbox, onTile = nul
 		for (let i = 0; i < bm.length; i++) if (bm[i]) cells.push(i);
 		maskCells = Uint32Array.from(cells);   // バッチは空間的に密＝典型数十〜数百セル（数百B）。永続化にも同乗する
 	}
-	return { pos: outPos, nrm: outNrm, idx: outIdx, origin, bbox, lodH: LOD_H, lodCounts, twoSided: brid ? 1 : 0, maskCells };
+	// 頂点溶接（2026-09-07）：位置（1mm 格子）＋法線が一致する頂点を束ねる＝Draco 出力の三角形ごと非共有（nv≈3·nt）を
+	// 4〜5 割減へ（GPU バイト・IDB/OPFS・頂点シェーダ回数）。三角形の並びは不変＝lodCounts はそのまま。maskCells は上で導出済み。
+	const welded = weldMesh({ pos: outPos, nrm: outNrm, idx: outIdx }, 0.001 / EARTH_W);
+	return { pos: welded.pos, nrm: welded.nrm, idx: welded.idx, origin, bbox, lodH: LOD_H, lodCounts, twoSided: brid ? 1 : 0, maskCells };
 }
