@@ -99,6 +99,13 @@ GPU の素性で見る（Apple 以外の内蔵GPU は VRAM がシステム RAM �
 - fast枠 60秒ローテーション（巨大区×低速APIの飢餓対策・LOW_MEM は無し＝in-flight 在庫を増やさない）
 - 遠方離脱 0.5deg で本削除・視界外は非表示常駐（LOW_MEM は常駐なし）
 
+**R2 焼き＝第三の入口（2026-09-07）**：`scripts/bake-plateau.mjs` が全セットを Node で同じ decodeBatch に通し、量子化形式 PLQ1
+（`plateauq.js`＝pos u16 差分 varint・nrm i8×3・idx 暗黙＝typed array の約 19%、gzip 後）を R2 `GIS/plateau/v{DECODE_VER}/{slug}/`
+（球）と `…/ell/`（楕円体）へ置く。plateauworker は OPFS/IDB → **R2 焼き** → MLIT 生経路の順＝焼きがある区は **Draco もデコード過渡
+（数百MB〜GB級）も無い**（港区級のコールド 40〜50秒→数秒）。無い/版違い/壊れ＝タイル粒度で生経路へ（焼きは加速器・生経路が正）。
+ノブ：`?nobake=1`（封印・A/B）・`?bake=URL`（置き場差し替え＝ローカル焼きの検証）。ティア別の値は無い（全ティア共通）。
+保存キーは球＝`{base}`・楕円体＝`{base}#ell`＝両モードの焼きが並存（?ell 切替で焼き直さない・LRU 予算は共通台帳）。
+
 ## 6. PLATEAU 以外の jetsam 装備（iOS 三部作の現在形）
 
 - **md（multi_draw タイル常駐プール）＝LOW_MEM 既定 OFF**（`?md=1` 戻し口）。iOS は WebGL バッファが

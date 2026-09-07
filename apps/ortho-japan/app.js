@@ -956,13 +956,14 @@ function plateauRetain(name, set) {   // 常駐登録＋LRU touch。予算超過
 // コールドの山にそのまま人数分加算されるため（8GB実機では 1→2 本でも 2D 段階で落ちた実測＝上のコメント）。
 const PLATEAU_NW = LOW_MEM ? 1 : (Math.min(MID_TIER ? 2 : PLATEAU_MAX_ACTIVE, (navigator.hardwareConcurrency || 4) - 1) || 1);
 const plateauWorkers = [], plateauPending = new Map();
+const PLATEAU_BAKE_URL = (location.search.match(/[?&]bake=([^&]+)/) || [])[1] ? decodeURIComponent(location.search.match(/[?&]bake=([^&]+)/)[1]) : null;   // ?bake=URL＝R2 焼きの置き場差し替え（ローカル検証）・既定は worker 側の api.ortho-earth.com
 const plateauMemW = [];   // ?hud=1（旧mem=1）：worker index → {cache, live}＝HUD の「過渡」行（常駐台帳に乗らないRAM）
 let plateauReqId = 0;
 let plateauCamSent = 0;   // カメラ放送のスロットル（ロード中のみ~4Hz）
 for (let i = 0; plateauOn && i < PLATEAU_NW; i++) {   // plateau OFF＝workerを1本も起こさない
 	const w = new Worker(new URL("./plateauworker.js", import.meta.url), { type: "module" });
 	const meshChan = new MessageChannel();   // この worker → render worker のメッシュ直結パイプ
-	w.postMessage({ type: "init", meshPort: meshChan.port1, lowMem: LOW_MEM, mid: MID_TIER, hi: HI_TIER, dec: PLATEAU_DEC, mem: hudOn, noOpfs: /[?&]noopfs=1/.test(location.search), farH: FAR_H, ell: ELL_ON }, [meshChan.port1]);   // ?noopfs=1＝バッチ本体のOPFS置きを無効化（従来IDB）＝A/B・切り分け用。farH＝遠景far-DBの高さ閾値
+	w.postMessage({ type: "init", meshPort: meshChan.port1, lowMem: LOW_MEM, mid: MID_TIER, hi: HI_TIER, dec: PLATEAU_DEC, mem: hudOn, noOpfs: /[?&]noopfs=1/.test(location.search), farH: FAR_H, ell: ELL_ON, noBake: /[?&]nobake=1/.test(location.search), bakeUrl: PLATEAU_BAKE_URL }, [meshChan.port1]);   // noBake/bakeUrl＝R2 焼き（第三の入口）の封印/置き場差し替え   // ?noopfs=1＝バッチ本体のOPFS置きを無効化（従来IDB）＝A/B・切り分け用。farH＝遠景far-DBの高さ閾値
 	wPost({ type: "plateauPort", port: meshChan.port2 }, [meshChan.port2]);
 	w.onmessage = e => {
 		if (e.data.prog) { plateauProg.set(e.data.prog.name, e.data.prog); renderPlateauProg(); return; }   // タイル/走査進捗（ネットワーク経路のみ）

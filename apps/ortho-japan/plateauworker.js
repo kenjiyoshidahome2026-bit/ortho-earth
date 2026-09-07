@@ -3,14 +3,15 @@
 // 重複面dedup→RTE delta を行い、完成したバッチから順に render worker へ直結ポートで transfer 送信＝逐次表示。
 // 区全体を待たず「目の前のビルが数秒で立ち始める」。被覆マスクは区単位で累積（シェーダのマスクスロットを消費しない）。
 // main.js 側は複数のこの worker をプールし、base URL のハッシュで固定ルーティング（同じ地区は常に同じ worker＝内部cacheが効く）。
-import { decodeBatch, setDecodeEnv, fetchJSON, ecef2geo, MASK_N } from "./plateaudecode.js";
+import { decodeBatch, setDecodeEnv, fetchJSON, fetchAB, resolveUrl, collectLeafTiles, MASK_N, DECODE_VER } from "./plateaudecode.js";   // 葉走査（collectLeafTiles/volRect/resolveUrl）は焼きスクリプトと共有＝plateaudecode 側へ（2026-09-07）
+import { PLQ_VER, bakeDir, unpackPLQ } from "./plateauq.js";
 import { Cache } from "native-bucket";
 import { opfsStore } from "./plateaufs.js";
 
 const EARTH_M = 6371000;   // main.js の EARTH_M と同値（建物の接地計算に使う単位球換算）
 // ── 楕円体（?ell=1・段階B 2026-08-11）：init(ell) で設定。世界＝β（更成緯度）単位球×S（camera.js の分解）＝
 // このworkerは「β単位球上の点＋測地法線リフト」を直接組む（旧・球への潰し直しが不要＝ECEF→測地の厳密解を
-// そのまま活かす）。キャッシュ（IDB/OPFS/#far）は post-transform 座標を焼くため ell 印で世代分離（下記 meta.ell）。
+// そのまま活かす）。キャッシュ（IDB/OPFS/#far）は post-transform 座標を焼くため保存キーを分ける（storeKey＝`${base}#ell`）＝両モード並存。
 let ELL = false, EARTH_W = EARTH_M;                    // EARTH_W＝m→世界単位の換算半径（球6371000／楕円体a=6378137）
 const ELL_RAX = 1 - 1 / 298.257223563;                 // b/a
 const geoLatOf = beta => Math.atan2(Math.sin(beta), ELL_RAX * Math.cos(beta));   // β→測地（rad）。ELL時のみ通す
@@ -19,84 +20,9 @@ const geoLatOf = beta => Math.atan2(Math.sin(beta), ELL_RAX * Math.cos(beta));  
 // 超え jetsam（デモ上演中のタブ再読み込み＝iPhone 16 Pro 実機で確認）。16タイル/並行4＝ピーク~1/4。
 let BATCH_TILES = 32;       // 1バッチのタイル数。小さいほど初表示が速く（＋デコード過渡メモリも比例減）、大きいほどdraw call/RTE origin数が減る。
                             // 64→32（2026-07-27）：デモ中「メモリ14G級」の実害＝過渡~2.5GB/区の半減を優先（バッチ数は倍＝描画影響は軽微）。
-const SCAN_CONCURRENCY = 8;   // ネストtileset走査の並行fetch数（fetchJSONの15sタイムアウトが順番待ちで誤発火しない程度に絞る）
 const FAR_VER = 3;            // 遠景far-DB（#far）の形式版。抽出方法を変えたら上げる＝次のロードで自然再導出。v2=頂点溶接（v1は三角形単位に退化＝83k箱/区の轍）・v3=先細り塔の除外（スカイツリー箱化対策）
 let FAR_MIN_H = 200;          // far-DBの高さ閾値(m)＝200m級＝真の超高層だけの星座（本人裁定2026-08-04夜「z14から+200m以上で少し綺麗にかつ軽く」・15m/50m/100mは実機比較で却下）。init(farH)/?farh=Nで上書き
 const R2D = 180 / Math.PI;
-
-// content.uri は絶対URL（別ホストへの委譲）と相対（同ディレクトリ）の両方があり得る。
-const resolveUrl = (base, uri) => /^https?:\/\//.test(uri) ? uri : base + uri;
-
-
-
-
-// boundingVolume → [west,south,east,north]（rad）。3D Tiles の3形式に対応。取れなければ null。
-// PLATEAU は region（経緯度そのもの）だけだが、3DBAG（オランダ）は box（ECEF中心＋3半軸）＝
-// 8隅を測地変換して外接矩形にする。日付変更線跨ぎは考慮しない（日本・欧州とも無縁）。
-function volRect(bv) {
-	if (!bv) return null;
-	if (bv.region) return [bv.region[0], bv.region[1], bv.region[2], bv.region[3]];
-	if (bv.box) {
-		const b = bv.box;
-		let w = Infinity, s = Infinity, e = -Infinity, n = -Infinity;
-		for (let i = 0; i < 8; i++) {
-			const sx = (i & 1) ? 1 : -1, sy = (i & 2) ? 1 : -1, sz = (i & 4) ? 1 : -1;
-			const g = ecef2geo(b[0] + sx * b[3] + sy * b[6] + sz * b[9],
-				b[1] + sx * b[4] + sy * b[7] + sz * b[10],
-				b[2] + sx * b[5] + sy * b[8] + sz * b[11]);
-			w = Math.min(w, g[0]); e = Math.max(e, g[0]); s = Math.min(s, g[1]); n = Math.max(n, g[1]);
-		}
-		return [w, s, e, n];
-	}
-	if (bv.sphere) {
-		const g = ecef2geo(bv.sphere[0], bv.sphere[1], bv.sphere[2]);
-		const dLa = bv.sphere[3] / 6378137, dLo = dLa / Math.max(0.05, Math.cos(g[1]));
-		return [g[0] - dLo, g[1] - dLa, g[0] + dLo, g[1] + dLa];
-	}
-	return null;
-}
-
-// tileset.json を辿って葉（=それ以上 children を持たないタイル）を { uri, center:[lon,lat]|null } で集める。
-// center は boundingVolume から＝カメラ近傍優先ソートに使う（region も box も取れる。無い形式なら null＝末尾に回る）。
-// 葉の content.uri 自体が別の tileset.json（外部委譲）のことがある地区があるため、拡張子で判定して再帰的に潜る。
-// clip（[w,s,e,n]度・任意）＝この矩形と交わらない枝は丸ごと降りない。PLATEAU は区ごとに tileset が分かれて
-// いるので不要（既定 null＝従来どおり全走査）だが、3DBAG は国土まるごと1枚＝外部tileset 474本を全部開くと
-// 走査だけで数分かかる。街の矩形を渡せば数本で済む＝「区」相当の粒度に切って使える。
-async function collectLeafTiles(tilesetUrl, depth = 0, onScan = null, stop = null, clip = null) {
-	if (stop?.()) return [];   // 協調キャンセル：視野離脱した区のカタログ走査を tileset 単位で打ち切る
-	onScan && onScan();   // tileset.json 1枚fetchするたびに数える＝「準備中」の沈黙を進捗にする
-	const ts = await fetchJSON(tilesetUrl);
-	const tsBase = tilesetUrl.slice(0, tilesetUrl.lastIndexOf("/") + 1);
-	const clipR = clip && [clip[0] / R2D, clip[1] / R2D, clip[2] / R2D, clip[3] / R2D];
-	const out = [], nested = [];
-	function walk(t) {
-		if (!t) return;
-		const rect = volRect(t.boundingVolume);
-		if (clipR && rect && (rect[2] < clipR[0] || rect[0] > clipR[2] || rect[3] < clipR[1] || rect[1] > clipR[3])) return;   // 枝ごと落とす
-		const ch = t.children || [];
-		if (ch.length) { for (const c of ch) walk(c); return; }
-		const uri = t.content?.uri;
-		if (!uri) return;
-		const abs = resolveUrl(tsBase, uri);
-		if (abs.endsWith(".json") && depth < 4) nested.push(abs);
-		else out.push({ uri: abs, center: rect ? [(rect[0] + rect[2]) / 2 * R2D, (rect[1] + rect[3]) / 2 * R2D] : null });
-	}
-	walk(ts.root);
-	// ネストtilesetは並行プールで潜る（旧・await直列＝1枚ごとに往復レイテンシが足し算。外部委譲が数百本の
-	// カタログ＝3DBAG級では走査だけで数分の実体）。葉の並びは後段のカメラ近傍ソートが決める＝順序不問。
-	// 1枚でも失敗したら従来どおり全体を投げる＝部分カタログを「完全」として下流（焼き・差分再開）に流さない。
-	if (nested.length) {
-		const subs = new Array(nested.length);
-		let ni = 0;
-		await Promise.all(Array.from({ length: Math.min(SCAN_CONCURRENCY, nested.length) }, async () => {
-			while (ni < nested.length) { const i = ni++; subs[i] = await collectLeafTiles(nested[i], depth + 1, onScan, stop, clip); }
-		}));
-		for (const sub of subs) out.push(...sub);
-	}
-	return out;
-}
-
-
 
 // メッシュの出口＝render worker への直結ポート（main.js が MessageChannel で配線）。
 // main へ返すのは ok/失敗の ack だけ＝~160MB の typed array がメインスレッドで構造化クローンされるのを断つ。
@@ -245,7 +171,7 @@ function farBoxesOf(mesh) {
 // twoSided=1＝巻き向き不問の両面描画（brid と同じパイプ変種）＝生成コードを単純に保つ。
 async function sendFar(base, ward) {
 	const idb = await idbReady; if (!idb) { self.postMessage({ farMiss: { name: ward } }); return; }
-	const far = await idb(base + "#far").catch(() => null);
+	const far = await idb(storeKey(base) + "#far").catch(() => null);
 	if (!far?.boxes?.length || far.ver !== FAR_VER || far.h !== FAR_MIN_H || !!far.ell !== ELL) { self.postMessage({ farMiss: { name: ward } }); return; }   // 版違い・閾値違い＝miss扱い→farBakeが新版で再導出（旧閾値の箱を一瞬も点けない）
 	const boxes = far.boxes, nb = boxes.length / 5;
 	const D2Rg = Math.PI / 180, EARTH = EARTH_W;
@@ -307,21 +233,21 @@ async function sendFar(base, ward) {
 // 完走焼きが無い区は perm:true＝育てられない（ネットワークからは読まない＝帯域を奪わない。次の実ロード完走が育てる）。
 async function farBake(base, ward) {
 	const idb = await idbReady; if (!idb) { self.postMessage({ farMiss: { name: ward, perm: true } }); return; }
-	const stored = await idb(base + "#far").catch(() => null);
+	const stored = await idb(storeKey(base) + "#far").catch(() => null);
 	if (stored?.ver === FAR_VER && stored.h === FAR_MIN_H && !!stored.ell === ELL) { self.postMessage({ farReady: { name: ward } }); return; }
 	await fsReady;
-	const meta = await loadMeta(base, false);
+	const meta = await loadMeta(storeKey(base), false);
 	if (!meta || meta.partial) { self.postMessage({ farMiss: { name: ward, perm: true } }); return; }
 	const acc = [];
 	for (let i = 0; i < meta.count; i++) {
-		const mesh = await readStored(base, meta.fs, i);   // 1バッチずつ 読む→導出→手放す（滞留させない）
+		const mesh = await readStored(storeKey(base), meta.fs, i);   // 1バッチずつ 読む→導出→手放す（滞留させない）
 		if (!mesh?.pos) { self.postMessage({ farMiss: { name: ward, perm: true } }); return; }
 		acc.push(...farBoxesOf(mesh));
 	}
 	const flat = new Float32Array(acc.length * 5);
 	acc.forEach((b, i) => flat.set(b, i * 5));
 	try {
-		await idb(base + "#far", { ver: FAR_VER, h: FAR_MIN_H, ell: ELL, boxes: flat, ward, ts: Date.now() });
+		await idb(storeKey(base) + "#far", { ver: FAR_VER, h: FAR_MIN_H, ell: ELL, boxes: flat, ward, ts: Date.now() });
 		console.log(`[plateau] far grown ${ward} ${acc.length} bldgs (derived from bake)`);
 		self.postMessage({ farReady: { name: ward } });
 	} catch { self.postMessage({ farMiss: { name: ward, perm: true } }); }
@@ -353,7 +279,7 @@ let CACHE_MAX = 1;         // 1区あたり~100-160MB（typed array一式）＝�
 // バッチ単位（各10〜20MB。本体の置き場は下の OPFS 二層を参照）＋メタ（IDB `${base}#meta`）。メタが揃って初めて有効＝書き途中の中断は無視される。
 // FMT_VER: デコードパイプライン（接地・dedup・軸変換等）を変えたら上げる＝古い形式のキャッシュを自然無効化。
 // （置き場の別は ver でなく meta.fs＝形式が同じままなら旧焼きは読める）。
-const IDB_FMT_VER = 5;   // v5: 空中部材の借り接地＝非連結の冠・段状屋根・塔屋が海抜0へ落ちる問題の根治（西新宿の「二重」）
+const IDB_FMT_VER = DECODE_VER;   // ＝plateaudecode.DECODE_VER（R2 焼きの置き場 v{n}/ と同じ番号）。v5: 空中部材の借り接地＝非連結の冠・段状屋根・塔屋が海抜0へ落ちる問題の根治（西新宿の「二重」）
 const LEAVES_TTL_MS = 7 * 864e5;   // 葉カタログ(#leaves)の鮮度窓。葉URLはcontent-addressed＝失効源は-latestエイリアスの張り替え（年次更新）だけ→7日で安全側
                          // v4: 法線int8量子化(4B/頂点＝1/3)＋建物高さ降順のindex並べ替え+LOD表（サブピクセル建物の打ち切り描画）
                          // v3: 接地を建物（連結成分）単位の剛体方式へ＝グリッド場の過小評価による浮き（京都嵯峨野+19〜40m）を根治
@@ -380,6 +306,12 @@ function initFs(noOpfs) {
 	fsReady = opfsStore().then(s => { ofs = s; console.log(s ? "[plateau] OPFS enabled (batch bodies=files, ledger=IDB)" : "[plateau] OPFS unavailable (bodies fall back to IDB)"); })
 		.catch(e => console.warn("[plateau] OPFS init failed (bodies fall back to IDB)", e?.message ?? e));   // 沈黙失敗禁止＝フォールバックした事実は必ず見える化
 }
+// 保存キー＝球/楕円体で別（2026-09-07・本人指定「再読み込みにならないよう」）：旧は同じ `${base}#meta` を共有し
+// meta.ell の不一致で無効化＝?ell を切り替えるたび焼き直しだった。楕円体は `${base}#ell` を保存上の base とする（IDB の
+// #meta/#i/#far・OPFS のファイル名とも）＝両モードの焼きが並存し、LRU 予算・孤児掃除・purge は同じ台帳で両方を見る。
+// #leaves（葉カタログ）は座標系に依らない＝素の base で共有。RAM cache/lane/cancel/meshBytes は素の base（モードはセッション固定）。
+const ELL_KEY = "#ell";
+const storeKey = base => ELL ? base + ELL_KEY : base;
 // meta を引いて検分（complete/partial 両用）。fs="opfs" 焼きなのに OPFS が使えない環境＝読めない→null（焼き直し）。
 async function loadMeta(base, brid) {
 	const idb = await idbReady; if (!idb) return null;
@@ -538,6 +470,31 @@ const lane = new Map();   // base → "fast" | "slow"
 // 大きい区の中でも「今見ている側」から立つ。
 let latestCam = null;
 
+// ── R2 焼き（第三の入口・2026-09-07）：scripts/bake-plateau.mjs が置いた PLQ（plateauq.js）を MLIT 生経路の前に引く ──
+// 置き場＝{bakeUrl}v{IDB_FMT_VER}/{slug}/（球）・…/ell/（楕円体）。無い（404）/版違い/brid・ell・wardBbox 不一致/壊れ＝黙って
+// 生経路（タイル粒度＝焼けなかったタイル(unbaked)も生経路が拾う）。マニフェストは base ごとに1時間だけ記憶（否定も）＝再訪・
+// ローテで 404 を撒かない。?nobake=1 で封印・?bake=URL で置き場差し替え（ローカル検証）。
+const BAKE_URL_DEFAULT = "https://api.ortho-earth.com/bucket/GIS/plateau/";
+let bakeUrl = BAKE_URL_DEFAULT;
+const bakeManifests = new Map();   // base → { m, ts }（m=null は否定キャッシュ）
+const BAKE_TTL_MS = 3600e3;
+async function bakeManifest(base, brid, wardBbox) {
+	if (!bakeUrl) return null;
+	const c = bakeManifests.get(base);
+	if (c && Date.now() - c.ts < BAKE_TTL_MS) return c.m;
+	let m = null;
+	try {
+		m = await fetchJSON(bakeUrl + bakeDir(base, IDB_FMT_VER, ELL) + "manifest.json");   // bucket Worker の 404 は {data:null}＝下の検分で落ちる
+		const sameBox = (a, b) => (!a && !b) || (!!a && !!b && a.length === 4 && a.every((v, i) => Math.abs(v - b[i]) < 1e-9));
+		if (!m || m.ver !== IDB_FMT_VER || m.plq !== PLQ_VER || !!m.brid !== !!brid || !!m.ell !== ELL || !sameBox(m.wardBbox, wardBbox) || !Array.isArray(m.batches) || !Array.isArray(m.tiles)) {
+			if (m && m.ver) console.warn("[plateau] bake manifest ignored (version/mode mismatch)", base, { ver: m.ver, plq: m.plq, brid: m.brid, ell: m.ell });
+			m = null;
+		}
+	} catch { m = null; }
+	bakeManifests.set(base, { m, ts: Date.now() });
+	return m;
+}
+
 // ロード本体：葉タイル収集→カメラ近傍順ソート→バッチごとにデコード→完成次第 render worker へ直送（逐次表示）。
 // メモリ→IDB→ネットワークの3段。IDBヒット時もバッチ逐次送信＝プログレッシブ表示のまま。
 // 返り値: true=完了 / false=空データ / "cancelled"=視野離脱キャンセル（main は failed 扱いにしない）。
@@ -549,11 +506,12 @@ async function loadPlateau(base, tiles, ward, wardBbox, camCenter, preload = fal
 		if (!preload) for (let bi = 0; bi < c.batches.length; bi++) await sendBatch(ward, bi, c.batches[bi], c.mask, c.wardBbox);   // クレジット待ち＝滞留を頭打ちに
 		return true;
 	}
+	const sk = storeKey(base);   // 保存キー（球/楕円体で別）＝IDB/OPFS を触る所は全て sk・RAM/lane/ネットワークは base
 	await fsReady;   // OPFS の可否が確定してから台帳を検分（init 直後の初回ロードとの競争を断つ）
 	// ── far-DB導出の要否（裁定2026-08-04＝復元時にも導出・再焼き不要）：#far が無い/形式・閾値が変わった時だけ、
 	// このロードのついでに各バッチへ farBoxesOf を掛けて累積し、全バッチを本体込みで見られた場合のみ保存 ──
 	const idbF = await idbReady;
-	const farStored = (!brid && wardBbox && idbF) ? await idbF(base + "#far").catch(() => null) : null;
+	const farStored = (!brid && wardBbox && idbF) ? await idbF(sk + "#far").catch(() => null) : null;
 	let farAcc = (!brid && wardBbox && idbF && (!farStored || farStored.ver !== FAR_VER || farStored.h !== FAR_MIN_H)) ? [] : null;
 	let farOk = true;   // headerOnly読み等で本体を見ていないバッチがあれば false＝保存しない（次の完全パスが受ける）
 	const farSave = async (label) => {
@@ -561,7 +519,7 @@ async function loadPlateau(base, tiles, ward, wardBbox, camCenter, preload = fal
 		const flat = new Float32Array(farAcc.length * 5);
 		farAcc.forEach((b, i) => flat.set(b, i * 5));
 		try {
-			await idbF(base + "#far", { ver: FAR_VER, h: FAR_MIN_H, ell: ELL, boxes: flat, ward, ts: Date.now() });
+			await idbF(sk + "#far", { ver: FAR_VER, h: FAR_MIN_H, ell: ELL, boxes: flat, ward, ts: Date.now() });
 			console.log(`[plateau] far-DB saved ${ward} ${farAcc.length} bldgs (${label})`);
 			self.postMessage({ farReady: { name: ward } });   // main が farMissed を解除＝次の選抜で点灯
 		} catch { /* 保存失敗＝次のロードが再試行 */ }
@@ -569,10 +527,10 @@ async function loadPlateau(base, tiles, ward, wardBbox, camCenter, preload = fal
 	};
 	// ── 完全焼きのストリーミング復元：1バッチ 読む→送る→手放す（区全量をRAMに積まない＝温読了時ピークの根治）──
 	// 滞留はクレジット（CREDIT_MAX×バッチ）で頭打ち。欠け（並行退避等）はそこで打ち切り→下の部分再開が差分で受ける。
-	const whole = await loadMeta(base, brid);
+	const whole = await loadMeta(sk, brid);
 	if (whole && !whole.partial) {
 		if (preload) {
-			if (await storedComplete(base, whole)) { touchMeta(base, whole); return true; }   // 本体は読まない（存在確認のみ）
+			if (await storedComplete(sk, whole)) { touchMeta(sk, whole); return true; }   // 本体は読まない（存在確認のみ）
 		} else {
 			// 復元の「ついで導出」は数値キー溶接とセットで維持（2026-08-04夜の二転）：一度farBakeキューへ全面移管
 			// したが、それは同じ区を後から全量読み直す＝flyToのたび二度読みのchurn（+1GB/飛行の一因）。メッシュが
@@ -580,7 +538,7 @@ async function loadPlateau(base, tiles, ward, wardBbox, camCenter, preload = fal
 			const keep = CACHE_MAX ? [] : null;   // desktop＝worker内cache用に保持／低メモリ＝送ったら手放す
 			let bi = 0;
 			for (; bi < whole.count; bi++) {
-				const mesh = await readStored(base, whole.fs, bi);
+				const mesh = await readStored(sk, whole.fs, bi);
 				if (!mesh) break;
 				if (farAcc) farAcc.push(...farBoxesOf(mesh));   // transferで手放す前に導出（旧焼き→#far の育成・追加I/Oゼロ）
 				if (keep) { keep.push(mesh); memAdd(base, batchBytes([mesh])); }
@@ -589,7 +547,7 @@ async function loadPlateau(base, tiles, ward, wardBbox, camCenter, preload = fal
 			if (bi === whole.count) {
 				console.log("[plateau] bake hit (streaming restore; fetch/decode/transform skipped)", base, `(${whole.count} batches)`);
 				farSave("restore");   // 待たない＝表示経路を塞がない
-				touchMeta(base, whole);
+				touchMeta(sk, whole);
 				meshBytes.set(base, whole.bytes || batchBytes(keep || []));   // 常駐LRUの物差し（cache 不在構成でも実測を返す）
 				if (keep) {
 					cache.set(base, { batches: keep, mask: whole.mask ?? null, wardBbox: whole.wardBbox ?? null });
@@ -613,7 +571,7 @@ async function loadPlateau(base, tiles, ward, wardBbox, camCenter, preload = fal
 	// 旧・全バッチ完走後の一括保存は「中断＝全損」＝iPhone では区が一生貯まらなかった。
 	// 保存済みバッチはストリーミングで即座に描画へ（読む→送る→手放す）、残りタイルだけをネットワークから。
 	// 上の streaming 復元が欠けで落ちた complete も、ここで tiles 差分の再開に化ける（meta は partial/complete 両用）。
-	const part = await loadMeta(base, brid);
+	const part = await loadMeta(sk, brid);
 	const wardFs = part ? part.fs : (ofs ? "opfs" : undefined);   // 焼き途中の区は置き場を変えない（混在させない）。新規区はOPFS
 	const wardMask = wardBbox
 		? (part?.mask?.length === MASK_N * MASK_N ? part.mask : new Uint8Array(MASK_N * MASK_N))
@@ -630,7 +588,7 @@ async function loadPlateau(base, tiles, ward, wardBbox, camCenter, preload = fal
 		while (sentCount < batchCount) {
 			let m = keep ? keep[sentCount] : pending.get(sentCount);
 			if (!m && sentCount === justIdx) m = justMesh;
-			if (!m) m = await readStored(base, wardFs, sentCount);
+			if (!m) m = await readStored(sk, wardFs, sentCount);
 			if (!m) { console.warn("[plateau] send gap (save-failed range)", ward, sentCount); break; }
 			if (keep && keep[sentCount] !== m) { keep[sentCount] = m; memAdd(base, batchBytes([m])); }   // 再読ぶんの穴埋め＝完走時の cache 一式を揃える（!==＝既に居る物の再代入は台帳に二重計上しない）
 			if (pending.delete(sentCount)) memAdd(base, -batchBytes([m]));   // RAM在庫を送り切った＝過渡から降りる（transfer前に数える＝送った後は detached で 0）
@@ -642,7 +600,7 @@ async function loadPlateau(base, tiles, ward, wardBbox, camCenter, preload = fal
 		for (let bi = 0; bi < part.count; bi++) {
 			// 差分計算に要るのは tiles だけ。fast は本体ごと読んで即送り、slow/preload はヘッダだけ＝読みの山を作らない
 			const headerOnly = preload || laneOf() !== "fast";
-			const mesh = await readStored(base, wardFs, bi, headerOnly);
+			const mesh = await readStored(sk, wardFs, bi, headerOnly);
 			if (!mesh?.tiles) break;   // 欠け/旧形式＝ここまでを土台に（以降のタイルは差分fetch）
 			if (farAcc) { if (mesh.pos) farAcc.push(...farBoxesOf(mesh)); else farOk = false; }   // ヘッダ読み＝本体未見＝このパスでは#far保存しない
 			for (const u of mesh.tiles) doneTiles.add(u);
@@ -654,8 +612,13 @@ async function loadPlateau(base, tiles, ward, wardBbox, camCenter, preload = fal
 		if (batchCount) console.log("[plateau] partial resume", base, `(${batchCount} batches, ${doneTiles.size} tiles done)`);
 	}
 
-	let leaves;
+	let leaves, bake = null;
 	if (tiles) leaves = tiles.map(u => ({ uri: resolveUrl(base, u), center: null }));
+	else if ((bake = (!clip && !tilesetUrl) ? await bakeManifest(base, brid, wardBbox) : null)) {
+		// R2 焼きの葉一覧＝tileset 走査（スタブ→実体の直列往復）を丸ごと省く。焼けなかったタイル（unbaked）も葉に含める＝生経路が拾う
+		leaves = bake.tiles.map(s => ({ uri: bake.prefix + s, center: null }));
+		console.log("[plateau] bake manifest:", leaves.length, "tiles", bake.batches.length, "batches ←", base);
+	}
 	else {
 		// REPLACE refine：親(粗)と子(詳細)が同じ場所を覆う→両方読むと重なって z-fight(マダラ)。子を持たない「葉」だけ読む。
 		// ── 葉カタログのIDBキャッシュ（#leaves）：走査＝スタブ→実体tilesetの直列往復で、初弾タイルより前の純粋な待ち。
@@ -694,14 +657,14 @@ async function loadPlateau(base, tiles, ward, wardBbox, camCenter, preload = fal
 		const idb = await idbReady; if (!idb || idbFail) return;
 		const nb = idbBytes + batchBytes([mesh]);
 		const write = async () => {
-			if (wardFs === "opfs") await ofs.put(base, i, { ...mesh, tiles: uris });   // 1ファイル=1バッチ・書いたら即close
-			else await idb(`${base}#${i}`, { ...mesh, tiles: uris });
-			await idb(base + "#meta", { ver: IDB_FMT_VER, partial: true, count: i + 1, mask: wardMask, wardBbox, brid: !!brid, ell: ELL, ts: Date.now(), bytes: nb, fs: wardFs });
+			if (wardFs === "opfs") await ofs.put(sk, i, { ...mesh, tiles: uris });   // 1ファイル=1バッチ・書いたら即close
+			else await idb(`${sk}#${i}`, { ...mesh, tiles: uris });
+			await idb(sk + "#meta", { ver: IDB_FMT_VER, partial: true, count: i + 1, mask: wardMask, wardBbox, brid: !!brid, ell: ELL, ts: Date.now(), bytes: nb, fs: wardFs });
 		};
 		try { await write(); idbBytes = nb; }
 		catch (e) {
 			if (e?.name === "QuotaExceededError") {
-				await idbEvict(base, true).catch(() => {});
+				await idbEvict(sk, true).catch(() => {});
 				try { await write(); idbBytes = nb; return; } catch (e2) { e = e2; }
 			}
 			idbFail = true;
@@ -773,6 +736,37 @@ async function loadPlateau(base, tiles, ward, wardBbox, camCenter, preload = fal
 			await new Promise(r => { wake = r; });   // 次の完成まで待つ
 		}
 	};
+	// ── R2 焼きのバッチ取り込み：未着手（保存済みタイルを1枚も含まない）バッチだけ、カメラ近傍順に fetch→unpack→finishBatch。
+	// 部分的に保存済み（生経路で一部タイルが焼かれた区）は生経路へ＝二重立ち（同じ建物を二度置く）を作らない。
+	// 取得/復元に失敗したバッチのタイルは remaining に残る＝生経路が拾う（焼きは加速器・生経路が正）。
+	// Draco も座標変換も無い＝デコード過渡（数百MB〜GB級）が消える。1 つ先読み＝転送と復元/保存/送出を重ねる。slow は間隔を空ける。
+	if (bake && remaining.length) {
+		const need = new Set(remaining.map(t => t.uri));
+		const uriOf = i => bake.prefix + bake.tiles[i];
+		const todo = bake.batches.filter(b => Array.isArray(b.t) && b.t.length && b.t.every(i => need.has(uriOf(i))));
+		const cam = latestCam || camCenter;
+		if (cam) {
+			const c2 = b => b.bbox ? ((b.bbox[0] + b.bbox[2]) / 2 - cam[0]) ** 2 + ((b.bbox[1] + b.bbox[3]) / 2 - cam[1]) ** 2 : Infinity;
+			todo.sort((a, b) => c2(a) - c2(b));
+		}
+		const dir = bakeUrl + bakeDir(base, IDB_FMT_VER, ELL);
+		const fetchOne = b => fetchAB(dir + b.f).then(ab => unpackPLQ(new Uint8Array(ab))).catch(e => { console.warn("[plateau] bake batch failed → live path", b.f, e?.message ?? e); return null; });
+		const used = new Set();
+		let next = todo.length ? fetchOne(todo[0]) : null;
+		for (let i = 0; i < todo.length; i++) {
+			if (stop()) { console.log("[plateau] cancelled (left view, bake stage)", ward); return "cancelled"; }
+			const b = todo[i];
+			const mesh = await next;
+			if (i + 1 < todo.length) { if (laneOf() !== "fast") await new Promise(r => setTimeout(r, 250)); next = fetchOne(todo[i + 1]); } else next = null;
+			if (!mesh) { console.warn("[plateau] bake batch unreadable → live path", b.f); continue; }
+			const slice = b.t.map(i => ({ uri: uriOf(i) }));
+			tilesDone += slice.length; prog({ done: tilesDone, total: totalTiles });
+			await finishBatch(mesh, slice);
+			for (const t of slice) used.add(t.uri);
+		}
+		if (used.size) remaining = remaining.filter(t => !used.has(t.uri));
+		console.log(`[plateau] bake covered ${used.size} tiles${remaining.length ? ` (live path for ${remaining.length})` : ""}`, base);
+	}
 	while (remaining.length) {
 		if (stop()) { console.log("[plateau] cancelled (left view)", ward, `stopped at ${tilesDone}/${totalTiles} tiles`); return "cancelled"; }
 		// ②区内デコード並列：fastレーン×プールありなら並行発注（preload/slow/lowMemは従来どおり直列＝静かに）
@@ -804,9 +798,9 @@ async function loadPlateau(base, tiles, ward, wardBbox, camCenter, preload = fal
 	const storing = (async () => {
 		const idb = await idbReady; if (!idb || idbFail) return;   // idbFail＝部分metaのまま残す（次回再開が続きを試す）
 		try {
-			await idb(base + "#meta", { ver: IDB_FMT_VER, count: batchCount, mask: wardMask, wardBbox, brid: !!brid, ell: ELL, ts: Date.now(), bytes: idbBytes, fs: wardFs });
+			await idb(sk + "#meta", { ver: IDB_FMT_VER, count: batchCount, mask: wardMask, wardBbox, brid: !!brid, ell: ELL, ts: Date.now(), bytes: idbBytes, fs: wardFs });
 			console.log("[plateau] save complete", base, `(${batchCount} batches)`);
-			await idbEvict(base);
+			await idbEvict(sk);
 		} catch (e) { console.warn("[plateau] save failed (display unaffected)", e); }
 	})();
 	if (preload) await storing;   // プレロードの本旨はIDB永続化＝書き終わるまで ack しない（ackより先にモーダルが一覧を引くと「済」にならない）
@@ -826,10 +820,12 @@ self.onmessage = async (e) => {
 			if (d.recycle) for (const b of d.recycle) poolPut(b);
 			if (d.drained) onDrained();
 		};
-		if (e.data.ell) { ELL = true; EARTH_W = 6378137; setDecodeEnv({ ell: true }); }   // 楕円体（?ell=1）＝β球配置＋世界単位a。キャッシュはmeta.ell印で世代分離（デコードモジュール側も同じ世界へ注入）
+		if (e.data.ell) { ELL = true; EARTH_W = 6378137; setDecodeEnv({ ell: true }); }   // 楕円体（?ell=1）＝β球配置＋世界単位a。キャッシュは保存キー #ell で球と並存（デコードモジュール側も同じ世界へ注入）
 		if (e.data.lowMem || e.data.mid) POOL_MAX = 16 << 20;
 		initFs(e.data.noOpfs);   // バッチ本体の置き場（OPFS可否の確定は fsReady。ロード側が await して待つ）
 		if (e.data.farH > 0) FAR_MIN_H = e.data.farH;   // 遠景far-DBの高さ閾値（?farh=N・既定200m）
+		if (e.data.noBake) bakeUrl = null;                // ?nobake=1＝R2 焼きを引かない（生経路のみ・A/B と切り分け用）
+		else if (e.data.bakeUrl) bakeUrl = e.data.bakeUrl;   // ?bake=URL＝置き場差し替え（ローカル焼きの検証）
 		memOn = !!e.data.mem;   // ?hud=1（旧mem=1）＝過渡バイトの報告を有効化（既定は完全無音＝計測コストゼロ）
 		if (e.data.mid) CACHE_MAX = 0;   // 非力機（内蔵GPU/低コア）＝worker内キャッシュなし＝ロード中の全量保持(keep)も同時に消える（送ったら手放す）。再訪はOPFS
 		if (e.data.lowMem) { CACHE_MAX = 0; BATCH_TILES = 8; setDecodeEnv({ tileConcurrency: 4 }); }   // 低メモリ端末＝worker内キャッシュなし（区一式の常駐がタブ落ちの下駄になる。再訪はIDB）＋バッチ8タイル＝デコード過渡・IDBレコード（1書込のcommitバースト）・送信ペイロードの粒度を半減（Kenji指定 2026-07-29「IDB書き込みの粒度を下げる」。draw call 増は LOW_MEM=同時1区で相殺）
@@ -849,7 +845,8 @@ self.onmessage = async (e) => {
 		const keys = idb ? (await idb()) || [] : [];
 		for (const k of keys) if (typeof k === "string" && k.endsWith("#meta")) {
 			const m = await idb(k).catch(() => null);
-			if (m) items.push({ base: k.slice(0, -"#meta".length), count: m.count || 0, bytes: m.bytes || 0, ts: m.ts || 0, partial: !!m.partial });
+			const b = k.slice(0, -"#meta".length), isEll = b.endsWith(ELL_KEY);
+			if (m && isEll === ELL) items.push({ base: isEll ? b.slice(0, -ELL_KEY.length) : b, count: m.count || 0, bytes: m.bytes || 0, ts: m.ts || 0, partial: !!m.partial });   // 現モードの焼きだけ（球/楕円体は別台帳に見せる）
 		}
 		self.postMessage({ type: "idbList", items });
 		return;
@@ -861,7 +858,7 @@ self.onmessage = async (e) => {
 		let n = 0;
 		if (idb) for (const k of (await idb()) || []) if (typeof k === "string" && k.startsWith(base + "#")) { await idb(k, null); n++; }
 		await fsReady;
-		if (ofs) n += await ofs.delBase(base).catch(() => 0);
+		if (ofs) { n += await ofs.delBase(base).catch(() => 0); n += await ofs.delBase(base + ELL_KEY).catch(() => 0); }   // 球/楕円体の両焼き（IDB 側は base# 前方一致で既に両方消えている）
 		console.log("[plateau] IDB deleted", base, n, "records");
 		self.postMessage({ type: "idbDeleted", base, n });
 		return;
