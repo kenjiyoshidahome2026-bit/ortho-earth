@@ -6,9 +6,11 @@
 // 無い/古い/壊れ＝生経路へ静かに落ちる（タイル粒度）。
 //
 //   node scripts/bake-plateau.mjs [--only=名前や base の部分文字列] [--out=DIR] [--batch=32] [--shard=i/n]
-//                                 [--force] [--limit=N] [--sphere-only|--ell-only] [--upload] [--upload-only]
+//                                 [--force] [--redo-unbaked] [--limit=N] [--sphere-only|--ell-only] [--upload] [--upload-only]
 //   --out       既定 plateau-bake-out/（gitignore 済）。セットごとに {slug}/manifest.json + b{k}.plq（球）と {slug}/ell/…（楕円体）
-//   --shard=i/n カタログを n 分割して i 番目だけ（Threadripper で並列に走らせる用。CPU 律速＝1プロセス1コア）
+//   --shard=i/n カタログを n 分割して i 番目だけ（Threadripper で並列に走らせる用。実測は回線律速＝hpc で計 10MB/s）
+//   再実行は完了済み（manifest あり）をスキップ＝走査失敗（✗）のセットだけ拾い直す。--redo-unbaked＝unbaked（取れなかった
+//   タイル）を持つセットも焼き直し対象にする（回線が空いた後の仕上げ用）
 //   --upload    焼いたセットを直後に R2 へ put（要 API_KEY 環境変数＝native-bucket の書込キー）。--upload-only＝焼かず既存出力を押す
 //   球（既定 ?ell 無し）と楕円体（?ell=1）は座標が違う＝別焼き。同じバッチの b3dm はプロセス内キャッシュで 1 回しか取らない。
 import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync } from "node:fs";
@@ -22,7 +24,7 @@ import { packPLQ, bakeDir, PLQ_VER } from "../plateauq.js";
 const APP = dirname(dirname(fileURLToPath(import.meta.url)));
 const arg = (k, d = null) => { const a = process.argv.find(s => s.startsWith(`--${k}=`)); return a ? a.slice(k.length + 3) : (process.argv.includes(`--${k}`) ? true : d); };
 const ONLY = arg("only"), OUT = arg("out", join(APP, "plateau-bake-out")), BATCH = +arg("batch", 32) || 32;
-const FORCE = !!arg("force"), LIMIT = +arg("limit", 0), UPLOAD = !!arg("upload") || !!arg("upload-only"), UPLOAD_ONLY = !!arg("upload-only");
+const FORCE = !!arg("force"), REDO_UNBAKED = !!arg("redo-unbaked"), LIMIT = +arg("limit", 0), UPLOAD = !!arg("upload") || !!arg("upload-only"), UPLOAD_ONLY = !!arg("upload-only");
 const MODES = arg("sphere-only") ? [false] : arg("ell-only") ? [true] : [false, true];
 const [SHARD_I, SHARD_N] = String(arg("shard", "0/1")).split("/").map(Number);
 const API = process.env.API_BASE ?? "https://api.ortho-earth.com";
@@ -77,7 +79,10 @@ const commonPrefix = arr => { if (!arr.length) return ""; let p = arr[0]; for (c
 async function bakeSet(set) {
 	const base = set.base, brid = !!set.noMask, wardBbox = brid ? null : set.bbox;
 	const dirs = MODES.map(ell => join(OUT, bakeDir(base, DECODE_VER, ell)));
-	if (!FORCE && dirs.every(d => existsSync(join(d, "manifest.json")))) return "skip";
+	if (!FORCE && dirs.every(d => existsSync(join(d, "manifest.json")))) {
+		const holes = REDO_UNBAKED && dirs.some(d => { try { return JSON.parse(readFileSync(join(d, "manifest.json"), "utf8")).unbaked?.length > 0; } catch { return true; } });
+		if (!holes) return "skip";
+	}
 	const t0 = performance.now();
 	const leaves = await collectLeafTiles(base + "tileset.json");
 	if (!leaves.length) { console.warn(`  ${set.name}: 葉 0 枚＝空（廃止区の残骸？）`); return "empty"; }
