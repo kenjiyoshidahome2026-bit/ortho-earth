@@ -6,7 +6,7 @@
 // 無い/古い/壊れ＝生経路へ静かに落ちる（タイル粒度）。
 //
 //   node scripts/bake-plateau.mjs [--only=名前や base の部分文字列] [--out=DIR] [--batch=32] [--shard=i/n]
-//                                 [--force] [--redo-unbaked] [--reverse] [--repack] [--stats] [--limit=N] [--sphere-only|--ell-only] [--upload] [--upload-only]
+//                                 [--force] [--redo-unbaked] [--reverse] [--repack] [--stats] [--verify-upload] [--limit=N] [--sphere-only|--ell-only] [--upload] [--upload-only]
 //   --out       既定 plateau-bake-out/（gitignore 済）。セットごとに {slug}/manifest.json + b{k}.plq（球）と {slug}/ell/…（楕円体）
 //   --shard=i/n カタログを n 分割して i 番目だけ（Threadripper で並列に走らせる用。実測は回線律速＝hpc で計 10MB/s）
 //   再実行は完了済み（manifest あり）をスキップ＝走査失敗（✗）のセットだけ拾い直す。--redo-unbaked＝unbaked（取れなかった
@@ -24,12 +24,12 @@ import { packPLQ, unpackPLQ, headPLQ, bakeDir, PLQ_VER } from "../plateauq.js";
 const APP = dirname(dirname(fileURLToPath(import.meta.url)));
 const arg = (k, d = null) => { const a = process.argv.find(s => s.startsWith(`--${k}=`)); return a ? a.slice(k.length + 3) : (process.argv.includes(`--${k}`) ? true : d); };
 const ONLY = arg("only"), OUT = arg("out", join(APP, "plateau-bake-out")), BATCH = +arg("batch", 32) || 32;
-const FORCE = !!arg("force"), REDO_UNBAKED = !!arg("redo-unbaked"), REVERSE = !!arg("reverse"), REPACK = !!arg("repack") || !!arg("reweld"), STATS = !!arg("stats"), LIMIT = +arg("limit", 0), UPLOAD = !!arg("upload") || !!arg("upload-only"), UPLOAD_ONLY = !!arg("upload-only");
+const FORCE = !!arg("force"), REDO_UNBAKED = !!arg("redo-unbaked"), REVERSE = !!arg("reverse"), REPACK = !!arg("repack") || !!arg("reweld"), STATS = !!arg("stats"), VERIFY_UPLOAD = !!arg("verify-upload"), LIMIT = +arg("limit", 0), UPLOAD = !!arg("upload") || !!arg("upload-only"), UPLOAD_ONLY = !!arg("upload-only");
 const MODES = arg("sphere-only") ? [false] : arg("ell-only") ? [true] : [false, true];
 const [SHARD_I, SHARD_N] = String(arg("shard", "0/1")).split("/").map(Number);
 const API = process.env.API_BASE ?? "https://api.ortho-earth.com";
 const API_KEY = process.env.API_KEY;
-if (UPLOAD && !API_KEY) { console.error("--upload には API_KEY 環境変数（native-bucket の書込キー）が要ります"); process.exit(2); }
+if (UPLOAD && !VERIFY_UPLOAD && !API_KEY) { console.error("--upload には API_KEY 環境変数（native-bucket の書込キー）が要ります"); process.exit(2); }
 
 // Draco＝draco3d（npm）を loaders.gl に注入（Node は CDN/ローカル lib の自動解決が効かない＝これが唯一の道）
 setLoaderOptions({ modules: { draco3d } });
@@ -200,10 +200,36 @@ function repackSet(set) {
 	return "ok";
 }
 
+// --verify-upload＝R2 の検札（書かない・キー不要）：マニフェストの有無、各バッチの存在とサイズ（ローカルの gzip と一致＝gzip は決定的）
+const gzLen = (await import("node:zlib")).gzipSync;
+async function verifySet(set) {
+	const miss = [];
+	for (const ell of MODES) {
+		const rel = bakeDir(set.base, DECODE_VER, ell), dir = join(OUT, rel), mf = join(dir, "manifest.json");
+		if (!existsSync(mf)) continue;
+		const m = JSON.parse(readFileSync(mf, "utf8"));
+		const files = m.batches.map(x => x.f).concat(["manifest.json"]);
+		let i = 0;
+		await Promise.all(Array.from({ length: 12 }, async () => {
+			while (i < files.length) {
+				const f = files[i++];
+				let meta = null;
+				for (let a = 0; a < 3; a++) { try { const r = await fetch(`${API}/bucket/GIS/plateau/${rel}${f}?meta=1`); if (r.ok) { meta = (await r.json()).data; break; } } catch { } }
+				const want = gzLen(readFileSync(join(dir, f)), { level: 6 }).length;
+				if (!meta) miss.push(`${ell ? "ell/" : ""}${f} missing`);
+				else if (meta.Size !== want) miss.push(`${ell ? "ell/" : ""}${f} size ${meta.Size}≠${want}`);
+			}
+		}));
+	}
+	if (miss.length) { console.log(`  ✗ ${set.name}: ${miss.length} 件 ${miss.slice(0, 3).join(", ")}${miss.length > 3 ? " …" : ""}`); return "err"; }
+	return "ok";
+}
+
 let ok = 0, skip = 0, err = 0;
 for (const set of targets) {
 	try {
-		const r = (REPACK || STATS) ? repackSet(set) : UPLOAD_ONLY ? "ok" : await bakeSet(set);
+		const r = VERIFY_UPLOAD ? await verifySet(set) : (REPACK || STATS) ? repackSet(set) : UPLOAD_ONLY ? "ok" : await bakeSet(set);
+		if (VERIFY_UPLOAD) { if (r === "ok") ok++; else err++; continue; }
 		if (r === "skip") { skip++; if (!UPLOAD_ONLY) continue; }
 		else if (r === "ok") ok++;
 		if (UPLOAD && r !== "empty") await uploadSet(set);
