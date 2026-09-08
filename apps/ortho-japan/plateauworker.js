@@ -477,6 +477,13 @@ let latestCam = null;
 const BAKE_URL_DEFAULT = "https://api.ortho-earth.com/bucket/GIS/plateau/";
 let bakeUrl = BAKE_URL_DEFAULT;
 const bakeManifests = new Map();   // base → { m, ts }（m=null は否定キャッシュ）
+// bucket Worker は gzip 済み本体を Content-Encoding 無しで返す（cache.put で剥がれる＝estatworker と同じ轍）＝magic を見て自前で伸長。
+// ローカル検証（?bake=）の素のファイルはそのまま通る。
+async function bakeBytes(url) {
+	const u8 = new Uint8Array(await fetchAB(url));
+	if (u8.length > 2 && u8[0] === 0x1f && u8[1] === 0x8b) return new Uint8Array(await new Response(new Blob([u8]).stream().pipeThrough(new DecompressionStream("gzip"))).arrayBuffer());
+	return u8;
+}
 const BAKE_TTL_MS = 3600e3;
 async function bakeManifest(base, brid, wardBbox) {
 	if (!bakeUrl) return null;
@@ -484,7 +491,7 @@ async function bakeManifest(base, brid, wardBbox) {
 	if (c && Date.now() - c.ts < BAKE_TTL_MS) return c.m;
 	let m = null;
 	try {
-		m = await fetchJSON(bakeUrl + bakeDir(base, IDB_FMT_VER, ELL) + "manifest.json");   // bucket Worker の 404 は {data:null}＝下の検分で落ちる
+		m = JSON.parse(new TextDecoder().decode(await bakeBytes(bakeUrl + bakeDir(base, IDB_FMT_VER, ELL) + "manifest.json")));   // bucket Worker の 404 は {data:null}＝下の検分で落ちる
 		const sameBox = (a, b) => (!a && !b) || (!!a && !!b && a.length === 4 && a.every((v, i) => Math.abs(v - b[i]) < 1e-9));
 		if (!m || m.ver !== IDB_FMT_VER || m.plq !== PLQ_VER || !!m.brid !== !!brid || !!m.ell !== ELL || !sameBox(m.wardBbox, wardBbox) || !Array.isArray(m.batches) || !Array.isArray(m.tiles)) {
 			if (m && m.ver) console.warn("[plateau] bake manifest ignored (version/mode mismatch)", base, { ver: m.ver, plq: m.plq, brid: m.brid, ell: m.ell });
@@ -750,7 +757,7 @@ async function loadPlateau(base, tiles, ward, wardBbox, camCenter, preload = fal
 			todo.sort((a, b) => c2(a) - c2(b));
 		}
 		const dir = bakeUrl + bakeDir(base, IDB_FMT_VER, ELL);
-		const fetchOne = b => fetchAB(dir + b.f).then(ab => unpackPLQ(new Uint8Array(ab))).catch(e => { console.warn("[plateau] bake batch failed → live path", b.f, e?.message ?? e); return null; });
+		const fetchOne = b => bakeBytes(dir + b.f).then(u8 => unpackPLQ(u8)).catch(e => { console.warn("[plateau] bake batch failed → live path", b.f, e?.message ?? e); return null; });
 		const used = new Set();
 		let next = todo.length ? fetchOne(todo[0]) : null;
 		for (let i = 0; i < todo.length; i++) {
