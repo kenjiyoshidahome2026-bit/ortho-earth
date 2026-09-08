@@ -39,8 +39,27 @@ const takeCredit = () => {
 	if (credits > 0) { credits--; return Promise.resolve(); }
 	const t0 = performance.now();   // 計器（2026-09-08 停滞調査）：クレジット待ちが 3s を超えたら知らせる＝render worker の消化 ack が来ない疑い
 	const tm = setTimeout(() => console.warn(`[plateau] credit wait >3s (credits=${credits} waiters=${creditWaiters.length})`), 3000);
-	return new Promise(r => creditWaiters.push(() => { clearTimeout(tm); if (performance.now() - t0 > 3000) console.warn(`[plateau] credit granted after ${((performance.now() - t0) / 1000).toFixed(1)}s`); r(); }));
+	return new Promise(r => {
+		const w = () => { clearTimeout(tm); clearTimeout(heal); if (performance.now() - t0 > 3000) console.warn(`[plateau] credit granted after ${((performance.now() - t0) / 1000).toFixed(1)}s`); r(); };
+		// 自己回復（2026-09-08 停滞調査）：20s 待っても ack が来ない＝紛失と見なして進む（render worker の消化は 1 件/フレーム＝正常なら数百ms）
+		const heal = setTimeout(() => { const i = creditWaiters.indexOf(w); if (i >= 0) creditWaiters.splice(i, 1); console.warn("[plateau] credit self-heal (ack lost?) after 20s"); stallNote("credit-selfheal"); w(); }, 20000);
+		creditWaiters.push(w);
+	});
 };
+// 停滞の見張り（2026-09-08）：ロード中の区ごとに「最後に進んだ時刻」と「今の段階」を持ち、30s 進まなければ main へ知らせる（トーストに ⚠）。
+const stallWatch = new Map();   // ward → { t, stage, extra }
+let stallLast = "";
+const stallNote = s => { stallLast = s; };
+function stallTouch(ward, stage, extra = "") { const e = stallWatch.get(ward); if (e) { e.t = performance.now(); e.stage = stage; e.extra = extra; } }
+setInterval(() => {
+	const now = performance.now();
+	for (const [ward, e] of stallWatch) if (now - e.t > 30000) {
+		const info = `${e.stage}${e.extra ? " " + e.extra : ""} ${((now - e.t) / 1000) | 0}s credits=${credits} waiters=${creditWaiters.length}${stallLast ? " " + stallLast : ""}`;
+		console.warn("[plateau] STALL?", ward, info);
+		self.postMessage({ type: "stall", name: ward, info });
+		e.t = now;   // 30s ごとに再報告
+	}
+}, 10000);
 const onDrained = () => { const w = creditWaiters.shift(); if (w) w(); else if (credits < CREDIT_MAX) credits++; };
 
 // バッチ1個を render worker へ送出（クレジットが空くまで待つ）。cache の原本は守りたいので transfer 分はコピー。
@@ -485,7 +504,14 @@ const bakeManifests = new Map();   // base → { m, ts }（m=null は否定キ�
 // bucket Worker は gzip 済み本体を Content-Encoding 無しで返す（cache.put で剥がれる＝estatworker と同じ轍）＝magic を見て自前で伸長。
 // ローカル検証（?bake=）の素のファイルはそのまま通る。
 async function bakeBytes(url) {
-	const u8 = new Uint8Array(await fetchAB(url));
+	let ab = null;
+	for (let a = 0; a < 3 && !ab; a++) {   // 12s×3（旧 fetchAB＝25s×2）＝遅い往復（実測 5〜20s）から早く逃げる
+		const ac = new AbortController(), tm = setTimeout(() => ac.abort(), 12000);
+		try { const r = await fetch(url, { signal: ac.signal }); if (!r.ok) throw new Error("HTTP " + r.status); ab = await r.arrayBuffer(); }
+		catch (e) { if (a === 2) throw e; }
+		finally { clearTimeout(tm); }
+	}
+	const u8 = new Uint8Array(ab);
 	if (u8.length > 2 && u8[0] === 0x1f && u8[1] === 0x8b) return new Uint8Array(await new Response(new Blob([u8]).stream().pipeThrough(new DecompressionStream("gzip"))).arrayBuffer());
 	return u8;
 }
@@ -598,6 +624,7 @@ async function loadPlateau(base, tiles, ward, wardBbox, camCenter, preload = fal
 	const flush = async (force = false, justIdx = -1, justMesh = null) => {
 		if (!force && laneOf() !== "fast") return;
 		while (sentCount < batchCount) {
+			stallTouch(ward, "send(credit)", `#${sentCount}`);
 			let m = keep ? keep[sentCount] : pending.get(sentCount);
 			if (!m && sentCount === justIdx) m = justMesh;
 			if (!m) m = await readStored(sk, wardFs, sentCount);
@@ -762,7 +789,7 @@ async function loadPlateau(base, tiles, ward, wardBbox, camCenter, preload = fal
 			todo.sort((a, b) => c2(a) - c2(b));
 		}
 		const dir = bakeUrl + bakeDir(base, IDB_FMT_VER, ELL);
-		const fetchOne = b => { const t0 = performance.now(); const tm = setTimeout(() => console.warn(`[plateau] bake fetch >5s ${ward} ${b.f}`), 5000); return bakeBytes(dir + b.f).then(u8 => unpackPLQ(u8)).catch(e => { console.warn("[plateau] bake batch failed → live path", b.f, e?.message ?? e); return null; }).finally(() => { clearTimeout(tm); if (performance.now() - t0 > 5000) console.warn(`[plateau] bake fetch done after ${((performance.now() - t0) / 1000).toFixed(1)}s ${ward} ${b.f}`); }); };
+		const fetchOne = b => { stallTouch(ward, "bake-fetch", b.f); const t0 = performance.now(); const tm = setTimeout(() => console.warn(`[plateau] bake fetch >5s ${ward} ${b.f}`), 5000); return bakeBytes(dir + b.f).then(u8 => unpackPLQ(u8)).catch(e => { console.warn("[plateau] bake batch failed → live path", b.f, e?.message ?? e); return null; }).finally(() => { clearTimeout(tm); if (performance.now() - t0 > 5000) console.warn(`[plateau] bake fetch done after ${((performance.now() - t0) / 1000).toFixed(1)}s ${ward} ${b.f}`); }); };
 		const used = new Set();
 		// 先読み 3 本（fast）＝bucket Worker の 1 往復 ~1s（エッジ未キャッシュ時）を重ねる：港区 16 バッチが直列 1 本先読みで 20s、
 		// エッジ温まり後 7s の本番実測（9/8）＝往復待ちが支配的。slow は 1 本ずつ＋間隔（帯域を現役区へ）
@@ -778,7 +805,9 @@ async function loadPlateau(base, tiles, ward, wardBbox, camCenter, preload = fal
 			if (!mesh) { console.warn("[plateau] bake batch unreadable → live path", b.f); continue; }
 			const slice = b.t.map(i => ({ uri: uriOf(i) }));
 			tilesDone += slice.length; prog({ done: tilesDone, total: totalTiles });
+			stallTouch(ward, "bake-finish", b.f);
 			await finishBatch(mesh, slice);
+			stallTouch(ward, "bake-next", b.f);
 			for (const t of slice) used.add(t.uri);
 		}
 		if (used.size) remaining = remaining.filter(t => !used.has(t.uri));
@@ -795,7 +824,9 @@ async function loadPlateau(base, tiles, ward, wardBbox, camCenter, preload = fal
 		resort();
 		const slice = remaining.slice(0, BATCH_TILES);
 		remaining = remaining.slice(BATCH_TILES);
-		const mesh = await decodeBatch(base, slice, wardMask, wardBbox, () => prog({ done: ++tilesDone, total: totalTiles }), brid, stop, laneOf);
+		stallTouch(ward, "live-decode", `${slice.length} tiles`);
+		const mesh = await decodeBatch(base, slice, wardMask, wardBbox, () => { stallTouch(ward, "live-decode"); prog({ done: ++tilesDone, total: totalTiles }); }, brid, stop, laneOf);
+		stallTouch(ward, "live-finish");
 		if (stop()) { console.log("[plateau] cancelled (left view, partial batch discarded)", ward); return "cancelled"; }   // 中断バッチは歯抜け＝送らない
 		if (!mesh) continue;
 		await finishBatch(mesh, slice);
@@ -887,9 +918,10 @@ self.onmessage = async (e) => {
 
 		let ent = inflight.get(base);
 		if (!ent) {
+			stallWatch.set(name, { t: performance.now(), stage: "start", extra: "" });
 			ent = { p: loadPlateau(base, tiles, name, wardBbox, camCenter, !!preload, !!brid, clip, tilesetUrl), preload: !!preload };
 			inflight.set(base, ent);
-			ent.p.finally(() => inflight.delete(base)).catch(() => {});   // 掃除専用の枝＝拒否はここで握り潰す（本流の reject は下の await が受ける）
+			ent.p.finally(() => { inflight.delete(base); stallWatch.delete(name); }).catch(() => {});   // 掃除専用の枝＝拒否はここで握り潰す（本流の reject は下の await が受ける）
 		}
 		let ok = await ent.p;
 		// プレロード進行中に表示要求が合流した場合、合流先は描画へ送っていない＝完了後に改めて（キャッシュ命中＝即）送る。
