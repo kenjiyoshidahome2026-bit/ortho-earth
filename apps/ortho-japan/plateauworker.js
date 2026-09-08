@@ -339,10 +339,14 @@ function initFs(noOpfs) {
 // #leaves（葉カタログ）は座標系に依らない＝素の base で共有。RAM cache/lane/cancel/meshBytes は素の base（モードはセッション固定）。
 const ELL_KEY = "#ell";
 const storeKey = base => ELL ? base + ELL_KEY : base;
+// 保存系の期限（2026-09-08 停滞調査）：本人環境で「bake-finish … credits=2」＝復元も送出も正常なのに finishBatch から
+// 出てこない＝putBatch（OPFS 書き＋IDB meta）が返らない。ディスク満杯を踏んだ Chrome のストレージ層が固まる型。
+// 期限超過＝その区は保存を諦めて表示だけ続ける（idbFail）＝地図は止まらない。読み（meta/復元）も期限＝無い扱いで生経路へ
+const withTimeout = (p, ms, label) => new Promise((res, rej) => { const tm = setTimeout(() => rej(new Error(`${label} timeout ${ms}ms`)), ms); Promise.resolve(p).then(v => { clearTimeout(tm); res(v); }, e => { clearTimeout(tm); rej(e); }); });
 // meta を引いて検分（complete/partial 両用）。fs="opfs" 焼きなのに OPFS が使えない環境＝読めない→null（焼き直し）。
 async function loadMeta(base, brid) {
 	const idb = await idbReady; if (!idb) return null;
-	const meta = await idb(base + "#meta").catch(() => null);
+	const meta = await withTimeout(idb(base + "#meta"), 8000, "IDB meta read").catch(e => { console.warn("[plateau]", e?.message ?? e); return null; });
 	if (!meta || meta.ver !== IDB_FMT_VER || !!meta.brid !== !!brid || !!meta.ell !== ELL) return null;   // brid不一致＝接地方式が違う焼き／ell不一致＝座標系が違う焼き＝無効（モード切替で自然再焼き）
 	if (meta.fs === "opfs" && !ofs) return null;
 	return meta;
@@ -368,9 +372,9 @@ function poolPut(buf) {
 	bufPool.push(buf); poolBytes += buf.byteLength;
 }
 async function readStored(base, fs, i, headerOnly = false) {
-	if (fs === "opfs") return ofs ? ofs.read(base, i, headerOnly, headerOnly ? null : poolTake) : null;
+	if (fs === "opfs") return ofs ? withTimeout(ofs.read(base, i, headerOnly, headerOnly ? null : poolTake), 10000, "OPFS read").catch(e => { console.warn("[plateau]", e?.message ?? e); return null; }) : null;
 	const idb = await idbReady; if (!idb) return null;
-	return idb(`${base}#${i}`).catch(() => null);
+	return withTimeout(idb(`${base}#${i}`), 10000, "IDB read").catch(() => null);
 }
 // プレロード時の完全性確認＝本体を読まず存在だけ見る（旧・全バッチをRAMへ読んで確認していた無駄と山を消す）。
 async function storedComplete(base, meta) {
@@ -703,11 +707,11 @@ async function loadPlateau(base, tiles, ward, wardBbox, camCenter, preload = fal
 			else await idb(`${sk}#${i}`, { ...mesh, tiles: uris });
 			await idb(sk + "#meta", { ver: IDB_FMT_VER, partial: true, count: i + 1, mask: wardMask, wardBbox, brid: !!brid, ell: ELL, ts: Date.now(), bytes: nb, fs: wardFs });
 		};
-		try { await write(); idbBytes = nb; }
+		try { await withTimeout(write(), 10000, "store batch"); idbBytes = nb; }
 		catch (e) {
 			if (e?.name === "QuotaExceededError") {
-				await idbEvict(sk, true).catch(() => {});
-				try { await write(); idbBytes = nb; return; } catch (e2) { e = e2; }
+				await withTimeout(idbEvict(sk, true), 15000, "IDB evict").catch(() => {});
+				try { await withTimeout(write(), 10000, "store batch"); idbBytes = nb; return; } catch (e2) { e = e2; }
 			}
 			idbFail = true;
 			console.warn("[plateau] IDB writes stopped (this ward continues display-only)", e?.message ?? e);
@@ -849,9 +853,9 @@ async function loadPlateau(base, tiles, ward, wardBbox, camCenter, preload = fal
 	const storing = (async () => {
 		const idb = await idbReady; if (!idb || idbFail) return;   // idbFail＝部分metaのまま残す（次回再開が続きを試す）
 		try {
-			await idb(sk + "#meta", { ver: IDB_FMT_VER, count: batchCount, mask: wardMask, wardBbox, brid: !!brid, ell: ELL, ts: Date.now(), bytes: idbBytes, fs: wardFs });
+			await withTimeout(idb(sk + "#meta", { ver: IDB_FMT_VER, count: batchCount, mask: wardMask, wardBbox, brid: !!brid, ell: ELL, ts: Date.now(), bytes: idbBytes, fs: wardFs }), 10000, "IDB meta write");
 			console.log("[plateau] save complete", base, `(${batchCount} batches)`);
-			await idbEvict(sk);
+			await withTimeout(idbEvict(sk), 20000, "IDB evict");
 		} catch (e) { console.warn("[plateau] save failed (display unaffected)", e); }
 	})();
 	if (preload) await storing;   // プレロードの本旨はIDB永続化＝書き終わるまで ack しない（ackより先にモーダルが一覧を引くと「済」にならない）
