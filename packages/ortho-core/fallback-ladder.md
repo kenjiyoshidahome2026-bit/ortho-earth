@@ -91,6 +91,7 @@ GPU の素性で見る（Apple 以外の内蔵GPU は VRAM がシステム RAM �
 | worker内RAMキャッシュ `CACHE_MAX` | 0 | 0 | **1区**（8/3 に 2→1） | OPFS 二層化以前の遺物＝三重化（RAM cache×GPU常駐×OPFS）の解消。⚠cache を持つ構成はロード中 `keep[]` が区全量を積む＝コールドピークの主因 |
 | バッチ/並行fetch | 8枚/4本 | 32/8 | 32/8 | lowMem＝IDB commit バースト・送信粒度も半減 |
 | タイル予算 `?tbudget` | 24MB | auto | auto | |
+| 消灯線 `PLATEAU_OFF_Z` | 15（=AUTO_Z） | 14 | 14 | **z≤14 は実メッシュも遠景箱も出さない**（本人裁定 9/8「潔く」）。`?pazoff=N`。保持のヒステリシスは 14〜15 の 1 段だけ・常駐（VRAM）は触らない |
 
 過渡の防波堤（ティア共通）：
 - **クレジット制**（`CREDIT_MAX=2`）＝render worker の消化 ack 待ち＝mesh 送出の滞留を数十MBで頭打ち
