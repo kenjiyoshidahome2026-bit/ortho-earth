@@ -463,6 +463,7 @@ async function idbPurge() {
 // ・過渡メモリ勘定：1バッチ(32タイル)の変換過渡 ×プール本数が新たに乗る＝HI_TIER（16GB+級を想定）限定にする理由。
 // ・入れ子Worker不能環境（古いSafari等）：起動失敗を一度だけwarnして DEC_POOL=0＝従来の直列へ縮退（沈黙失敗禁止）。
 let DEC_POOL = 0;           // init で受領（0=プール無し）
+let excludeMap = null;      // 捨てる地物（base → gml_id[]）＝デコーダ起動時にも配る
 let decWorkers = null;      // [{w, busy}]（この区worker専属。同worker同時2区＝hashルーティング衝突時は busy で分け合う）
 let decJobSeq = 0;
 const decJobs = new Map();  // job → { tick, done }
@@ -472,7 +473,7 @@ function ensureDecoders() {
 	try {
 		decWorkers = Array.from({ length: DEC_POOL }, () => {
 			const w = new Worker(new URL("./plateaudecoder.js", import.meta.url), { type: "module" });
-			w.postMessage({ init: { ell: ELL } });
+			w.postMessage({ init: { ell: ELL, exclude: excludeMap } });
 			w.onmessage = e => {
 				const d = e.data;
 				if (d.tick) { decJobs.get(d.tick)?.tick(); return; }   // タイル1枚の歩数（進捗の分母は発注元が持つ）
@@ -888,6 +889,7 @@ self.onmessage = async (e) => {
 		DEC_POOL = Math.min(4, e.data.dec | 0);   // ②区内デコード並列プール本数（app.jsが裁定：HI_TIER=2〜3・?dec=N上書き・0=従来直列）
 		return;
 	}
+	if (e.data.type === "exclude") { excludeMap = e.data.map || null; setDecodeEnv({ exclude: excludeMap }); if (decWorkers) for (const h of decWorkers) h.w.postMessage({ exclude: excludeMap }); return; }   // 捨てる地物（public/plateau-exclude.json）＝生経路も焼きと同じ地物を捨てる
 	if (e.data.type === "cancel")  { cancelled.add(e.data.base); return; }             // 協調キャンセル（旗を立てるだけ＝各ループが自分で降りる）
 	if (e.data.type === "demote")  { lane.set(e.data.base, "slow"); return; }          // 視界外の在庫化＝slow lane（並行1・送信保留）
 	if (e.data.type === "promote") { lane.set(e.data.base, "fast"); cancelled.delete(e.data.base); return; }   // 再訪＝キャンセル旗を降ろして即再開（メモリ上のバッチから続行）＋fast 復帰。既に降りた後なら無害（main が改めて読み直す）

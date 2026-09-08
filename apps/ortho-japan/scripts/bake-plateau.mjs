@@ -33,7 +33,7 @@ if (UPLOAD && !VERIFY_UPLOAD && !API_KEY) { console.error("--upload には API_K
 
 // Draco＝draco3d（npm）を loaders.gl に注入（Node は CDN/ローカル lib の自動解決が効かない＝これが唯一の道）
 setLoaderOptions({ modules: { draco3d } });
-setDecodeEnv({ tileConcurrency: 8 });
+setDecodeEnv({ tileConcurrency: 8, exclude: existsSync(join(APP, "public/plateau-exclude.json")) ? JSON.parse(readFileSync(join(APP, "public/plateau-exclude.json"), "utf8")) : null });   // 捨てる地物（精査裁定）
 
 // b3dm はバッチ単位で「先に全部取ってから」デコードする（プロセス内キャッシュ・バッチ完了で捨てる）：
 // ①球/楕円体の 2 回目デコードで取り直さない ②取れなかったタイルは両モードから同じように外して unbaked に記す
