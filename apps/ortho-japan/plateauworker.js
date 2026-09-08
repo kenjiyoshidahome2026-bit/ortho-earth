@@ -280,13 +280,16 @@ async function farBake(base, ward) {
 // wardMask 引数は未使用（旧・全量スナップショット送出の名残＝呼び出し側の引数順を保つため残置）。
 // マスクは maskCells（このバッチの断片）だけを送る＝renderer 側が届いた分だけOR合成（隙間根治の本体）。
 async function sendBatch(ward, bi, mesh, wardMask, wardBbox, own = false) {
-	await takeCredit();
+	// クレジットは「送れた時だけ」消費する：取得後に例外（マスク導出・DataCloneError＝重複/切離しバッファ等）で送れないと
+	// クレジットが戻らず、この worker に載る全区が 2 バッチ目以降で永久に止まる（2026-09-08 停滞調査：止まった区が
+	// 同じ worker に集中＝港区/横浜中区/墨田区/新宿橋梁は全て worker 2）。送出前の準備は取得の外・postMessage 失敗は返却
 	const pos = own ? mesh.pos : mesh.pos.slice(), nrm = own ? mesh.nrm : mesh.nrm.slice(), idx = own ? mesh.idx : mesh.idx.slice();
 	const maskCells = maskCellsOf(mesh, wardBbox);
 	const payload = { name: `${ward}#${bi}`, meshData: { pos, nrm, idx, origin: mesh.origin, bbox: mesh.bbox, lodH: mesh.lodH, lodCounts: mesh.lodCounts, twoSided: mesh.twoSided || 0, ward, maskCells, maskN: MASK_N, maskBbox: wardBbox } };
-	const transfers = [pos.buffer, nrm.buffer, idx.buffer];
-	if (maskCells) transfers.push(maskCells.buffer);
-	meshPort.postMessage(payload, transfers);
+	const transfers = [...new Set([pos.buffer, nrm.buffer, idx.buffer, maskCells?.buffer].filter(b => b && b.byteLength))];   // 重複・切離し（byteLength 0）は転送リストに載せない
+	await takeCredit();
+	try { meshPort.postMessage(payload, transfers); }
+	catch (e) { onDrained(); console.warn("[plateau] send failed (credit returned)", ward, bi, e?.message ?? e); throw e; }   // 返却＝待ち手があれば起こす・無ければ +1
 }
 
 const cache = new Map();   // base URL → { batches, mask, wardBbox }（このworker内のみ有効。再訪はfetch/Draco解凍を丸ごと省略）
