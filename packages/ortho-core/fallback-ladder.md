@@ -87,7 +87,7 @@ GPU の素性で見る（Apple 以外の内蔵GPU は VRAM がシステム RAM �
 | 橋梁枠 `PLATEAU_EXTRA_ACTIVE` | 1 | 2 | 4 | noMask＝マスクスロット不使用の別勘定 |
 | GPU常駐予算 `PLATEAU_RESIDENT_BYTES` | 0（即削除） | 0.5GB | 1.2GB | バイト LRU・ack 実測（`meshBytes`）で数える。表示中は守る |
 | worker 本数 `PLATEAU_NW` | 1 | 2 | min(4, コア−1) | loaders.gl の起動ベースライン×人数分がコールドの山に直乗り |
-| 同時デコード `bldCap` | 1 | 1 | 2 | デモ先読み中は−1。16GB 機 renderer 12.3GB 実測の半減策 |
+| 同時ロード `PLATEAU_LOAD_MAX`（9/8・旧 bldCap） | 2 | 3 | 3 | 待ち行列制（本人指定「最大 3・後は待ち行列」）。視界離脱＝即キャンセル（部分は保存済＝再訪で続きから）・slow 在庫/fast ローテーション廃止。デモ先読み中は−1。`?loadmax=N` |
 | worker内RAMキャッシュ `CACHE_MAX` | 0 | 0 | **1区**（8/3 に 2→1） | OPFS 二層化以前の遺物＝三重化（RAM cache×GPU常駐×OPFS）の解消。⚠cache を持つ構成はロード中 `keep[]` が区全量を積む＝コールドピークの主因 |
 | バッチ/並行fetch | 8枚/4本 | 32/8 | 32/8 | lowMem＝IDB commit バースト・送信粒度も半減 |
 | タイル予算 `?tbudget` | 24MB | auto | auto | |
