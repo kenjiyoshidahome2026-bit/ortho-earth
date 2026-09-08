@@ -975,7 +975,20 @@ for (let i = 0; plateauOn && i < PLATEAU_NW; i++) {   // plateau OFF＝workerを
 	w.postMessage({ type: "init", meshPort: meshChan.port1, lowMem: LOW_MEM, mid: MID_TIER, hi: HI_TIER, dec: PLATEAU_DEC, mem: hudOn, noOpfs: /[?&]noopfs=1/.test(location.search), farH: FAR_H, ell: ELL_ON, noBake: /[?&]nobake=1/.test(location.search), bakeUrl: PLATEAU_BAKE_URL }, [meshChan.port1]);   // noBake/bakeUrl＝R2 焼き（第三の入口）の封印/置き場差し替え   // ?noopfs=1＝バッチ本体のOPFS置きを無効化（従来IDB）＝A/B・切り分け用。farH＝遠景far-DBの高さ閾値
 	wPost({ type: "plateauPort", port: meshChan.port2 }, [meshChan.port2]);
 	w.onmessage = e => {
-		if (e.data.prog) { plateauProg.set(e.data.prog.name, e.data.prog); renderPlateauProg(); return; }   // タイル/走査進捗（ネットワーク経路のみ）
+		if (e.data.prog) { const p = e.data.prog; const old = plateauProg.get(p.name); if (old?.stall && (old.done ?? -1) === (p.done ?? -2)) p.stall = old.stall; plateauProg.set(p.name, p); renderPlateauProg(); return; }   // タイル/走査進捗（ネットワーク経路のみ）。停滞印は進捗が動くまで残す
+		if (e.data.type === "stall") {   // worker の見張り（30s 無進捗）＝トーストに ⚠ 理由を出し、60s 超で一度だけ打ち切り→再要求（partial から続き）
+			const n = e.data.name, p = plateauProg.get(n) || { name: n };
+			p.stall = e.data.info; plateauProg.set(n, p); renderPlateauProg();
+			console.warn("[plateau] stall reported", n, e.data.info);
+			const s = plateauAutoLoading.get(n);
+			if (s && !plateauCancelling.has(n) && !plateauRestarted.has(n) && /\b(6\d|[7-9]\d|\d{3,})s\b/.test(e.data.info)) {
+				plateauRestarted.add(n);
+				plateauWorkers[hashStr(s.base) % PLATEAU_NW].postMessage({ type: "cancel", base: s.base });
+				plateauCancelling.add(n);
+				console.warn("[plateau] watchdog: cancel & re-request (partial resume)", n);
+			}
+			return;
+		}
 		if (e.data.farMiss) {   // #far無し：焼きがあるかもしれない＝一度だけ育成を試す（perm=完走焼き無し＝実ロード完走待ち）
 			const n = e.data.farMiss.name;
 			farShown.delete(n); farMissed.add(n);   // 育成中/不能の間は再要求を止める（解除は farReady）
@@ -1048,7 +1061,7 @@ function renderPlateauProg() {
 	const rows = [];
 	for (const p of plateauProg.values()) {
 		const pct = p.total ? Math.min(100, Math.round(p.done / p.total * 100)) : 0;
-		rows.push(`<div class="pl-row"><span class="pl-name">${escHtml(p.name)}</span><span class="pl-bar"><i style="width:${pct}%"></i></span><span class="pl-n">${p.total ? `${p.done}/${p.total}` : t("走査中")}</span></div>`);
+		rows.push(`<div class="pl-row${p.stall ? " pl-stall" : ""}"><span class="pl-name">${escHtml(p.name)}</span><span class="pl-bar"><i style="width:${pct}%"></i></span><span class="pl-n">${p.total ? `${p.done}/${p.total}` : t("走査中")}</span></div>${p.stall ? `<div class="pl-why">⚠ ${escHtml(p.stall)}</div>` : ""}`);
 	}
 	for (const n of plateauQueued) if (!plateauProg.has(n)) rows.push(`<div class="pl-row pl-wait"><span class="pl-name">${escHtml(n)}</span><span class="pl-bar"></span><span class="pl-n">${t("待機")}</span></div>`);
 	if (!rows.length) plateauEl.style.display = "none";
@@ -1377,13 +1390,16 @@ function autoPlateau(settled = false) {
 		console.log("[plateau] out of range -> hidden", name);
 	}
 	// 枠＝同時ロード数（キャンセル中は数えない＝すぐ空く。デモ先読み中は 1 枠譲る）
-	const slotsFree = () => PLATEAU_LOAD_MAX - (plateauPrefetchBusy ? 1 : 0) - [...plateauAutoLoading.keys()].filter(n => !plateauCancelling.has(n)).length;
+	// 橋梁等（noMask）は一桁軽い＝建物の枠に並ばせず +1 枠（本人報告 9/8「新宿の橋梁が出なくなった」＝建物 3 区の後ろに並んで
+	// 始まらない）。建物は PLATEAU_LOAD_MAX。数えるのは cancel 中を除くロード中の全区
+	const loadingN = () => [...plateauAutoLoading.keys()].filter(n => !plateauCancelling.has(n)).length;
+	const slotsFree = (noMask = false) => PLATEAU_LOAD_MAX + (noMask ? 1 : 0) - (plateauPrefetchBusy ? 1 : 0) - loadingN();
 	const queued = [];
 	for (const h of hits) {
 		if (plateauActive.has(h.name)) continue;
 		if (plateauLoading.has(h.name)) {
 			// キャンセル中に戻ってきた（worker がまだ降りていない）＝枠が空いていれば旗を降ろして続行。塞がっていれば降りて待ち行列へ
-			if (plateauCancelling.has(h.name) && slotsFree() > 0 && !(plateauScriptOnly && playingNow() && !plateauScriptOnly.has(h.name))) {
+			if (plateauCancelling.has(h.name) && slotsFree(h.noMask) > 0 && !(plateauScriptOnly && playingNow() && !plateauScriptOnly.has(h.name))) {
 				plateauCancelling.delete(h.name);
 				plateauWorkers[hashStr(h.base) % PLATEAU_NW].postMessage({ type: "promote", base: h.base });
 				console.log("[plateau] revisit -> load resumed", h.name);
@@ -1402,7 +1418,7 @@ function autoPlateau(settled = false) {
 		// 上映中の関所：台本が preload を明示していれば、リスト外の区は読み始めない（経由地・画面端の無関係区で
 		// 観客の自機が急に重くなる件＝Kenji裁定 2026-08-21）。表示系（常駐ヒット点灯・退避復帰）は上で素通し済み＝触らない。
 		if (plateauScriptOnly && playingNow() && !plateauScriptOnly.has(h.name)) { console.log("[plateau] not in script preload -> skipped during show", h.name); continue; }
-		if (slotsFree() <= 0) { queued.push(h.name); continue; }   // 待ち行列＝枠が空いた瞬間（完了/中止の finally → autoPlateau(true)）に先頭から
+		if (slotsFree(h.noMask) <= 0) { queued.push(h.name); continue; }   // 待ち行列＝枠が空いた瞬間（完了/中止の finally → autoPlateau(true)）に先頭から
 		plateauLoading.add(h.name);
 		plateauAutoLoading.set(h.name, h);   // 視界確定時の退避対象へ
 		console.log("[plateau] auto-load ->", h.name);
@@ -1439,7 +1455,7 @@ function autoPlateau(settled = false) {
 			})
 			.catch(e => { plateauFailed.set(h.name, { perm: false, ts: performance.now() }); console.warn("[plateau] load failed, skipping (retry in 60s):", h.name, e.message || e); })   // 一時＝バックオフ
 			.finally(() => {
-				plateauLoading.delete(h.name); plateauAutoLoading.delete(h.name); plateauCancelling.delete(h.name); plateauDemoted.delete(h.name); plateauFastT.delete(h.name);
+				plateauLoading.delete(h.name); plateauAutoLoading.delete(h.name); plateauCancelling.delete(h.name); plateauDemoted.delete(h.name); plateauFastT.delete(h.name); plateauRestarted.delete(h.name);
 				// 枠が空いた瞬間に再選抜（静止シーン中はonMoveが来ない＝これが無いと3区目以降が
 				// 次のカメラ操作まで立たない）。failed/cancelled はそれぞれのガードが再発火を止める。
 				if (!moving) autoPlateau(true);
@@ -1463,6 +1479,7 @@ function autoPlateau(settled = false) {
 		}
 	}
 }
+const plateauRestarted = new Set();        // 見張りで一度打ち切った区（同じロードで二度はしない＝ループ防止。finally で解除）
 const plateauNeighborPre = new Set();      // 隣接区の先読み中（枠に数える）
 const plateauPreDone = new Set();          // このセッションで先読み済（同じ区を何度も IDB 確認しない＝存在確認は worker 側で即返るが往復は省く）
 // 静止中の見張り：ロード中が居る間は10秒毎に再選抜＝fast枠ローテーション・枠空き補充・退避復帰を
