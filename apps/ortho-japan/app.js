@@ -693,6 +693,7 @@ const NL_SETS = [
 // 入口は /nl/（本番＝deploy-worker が japan の資産をそのまま出す独立URL）と ?nl=1（開発・japanに重ねて確認する時）。
 // pathname 判定＝アドレス欄が /nl/ のまま＝共有URLとして日本と混ざらない。
 const nlOn = /[?&]nl=1/.test(location.search) || /^\/nl(\/|$)/.test(location.pathname);
+if (plateauOn) fetch(ASSET_BASE + "plateau-exclude.json").then(r => r.ok ? r.json() : null).then(map => { if (map) plateauWorkers.forEach(w => w.postMessage({ type: "exclude", map })); }).catch(() => {});   // 捨てる地物（精査で不要と裁定した gml_id）＝生経路も焼きと同じ
 const plateauCatalogReady = !plateauOn ? Promise.resolve() :
 	fetch(ASSET_BASE + "plateau-sets.json").then(r => r.json()).then(sets => {   // BASE_URL＝サブパス配信(/ortho-japan/)対応
 		if (nlOn) { sets = sets.concat(NL_SETS); console.log("[plateau] added Netherlands 3DBAG to catalog (?nl=1)"); }

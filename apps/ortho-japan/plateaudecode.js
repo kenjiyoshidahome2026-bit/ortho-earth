@@ -17,9 +17,11 @@ const LOD_H = [0, 3, 6, 12, 24, 48];   // LOD段の高さ閾値(m)。renderer �
 let TILE_CONCURRENCY = 8;   // バッチ内のタイル並行fetch/デコード数。直列だと往復レイテンシが積み上がり支配的になる。
 let ELL = false, EARTH_W = 6371000;   // 楕円体モード（?ell=1）＝β単位球×a（plateauworker と同じ分解）。既定は球
 const ELL_RAX = 1 - 1 / 298.257223563;   // b/a
-export function setDecodeEnv({ ell, tileConcurrency } = {}) {
+let EXCLUDE = null;   // base URL → Set(gml_id)＝捨てる地物（public/plateau-exclude.json・焼きと生経路で共用）
+export function setDecodeEnv({ ell, tileConcurrency, exclude } = {}) {
 	if (ell !== undefined) { ELL = !!ell; EARTH_W = ELL ? 6378137 : 6371000; }
 	if (tileConcurrency) TILE_CONCURRENCY = tileConcurrency;
+	if (exclude !== undefined) { EXCLUDE = exclude ? new Map(Object.entries(exclude).filter(([k]) => !k.startsWith("_")).map(([k, v]) => [k, new Set(v)])) : null; }
 }
 
 // ECEF(WGS84)→geodetic(lon,lat[rad],h[m])。
@@ -184,8 +186,11 @@ export async function decodeBatch(base, leaves, wardMask, wardBbox, onTile = nul
 	// geo(lon/lat rad)は float64 必須：float32 の相対精度~1e-7 は rad で~0.6m＝dedup の丸め(1e-8rad≈6cm)を壊す。
 	const segs = [];   // { geo:Float64Array, nrm:Int8Array(xyz+pad 4B), idx:Uint32Array }（idx はバッチ通し番号で焼き込み済み）
 	let totalV = 0, totalI = 0, minH = Infinity;
+	const exSet = EXCLUDE?.get(base) || null;   // この base で捨てる gml_id（無ければ従来どおり）
+	let excludedTris = 0;
 	function mergeTile(tile) {
 		const tileRtc = tile.rtcCenter || tile.gltf?.extensions?.CESIUM_RTC?.center;
+		const gmlIds = exSet ? tile.batchTableJson?.gml_id : null;   // b3dm の batch table（loaders.gl が JSON で持つ）
 		// 新しめの地区(2025年生成・nusamai-gltf製)はCESIUM_RTC拡張を使わず、mesh参照ノードの translation/matrix に
 		// 平行移動を持たせる。node.translation/matrix は頂点POSITIONと同じY-upローカル系＝頂点と一緒に最後に
 		// Yup→Zup軸入替(x,-z,y)を通す（生のまま使うと南半球の別地点へ飛ぶ）。
@@ -260,9 +265,20 @@ export async function decodeBatch(base, leaves, wardMask, wardBbox, onTile = nul
 						nrmSeg[i*4] = Math.round(nx * s); nrmSeg[i*4+1] = Math.round(ny * s); nrmSeg[i*4+2] = Math.round(nz * s);
 					} else { nrmSeg[i*4+1] = 127; }
 				}
-				const idxSeg = new Uint32Array(I ? I.length : n);
+				let idxSeg = new Uint32Array(I ? I.length : n);
 				if (I) for (let k = 0; k < I.length; k++) idxSeg[k] = I[k] + totalV;
 				else for (let k = 0; k < n; k++) idxSeg[k] = totalV + k;
+				// 除外地物（plateau-exclude.json）：頂点の batch id（Draco は CUSTOM_ATTRIBUTE_3・素の glTF は _BATCHID）→ gml_id で三角形ごと捨てる
+				const BID = exSet && gmlIds ? (pr.attributes.CUSTOM_ATTRIBUTE_3?.value || pr.attributes._BATCHID?.value) : null;
+				if (BID) {
+					const keep = new Uint32Array(idxSeg.length); let ki = 0;
+					for (let k = 0; k + 2 < idxSeg.length; k += 3) {
+						const v = idxSeg[k] - totalV;   // このプリミティブ内の頂点番号
+						if (exSet.has(gmlIds[Math.round(BID[v])])) { excludedTris++; continue; }
+						keep[ki++] = idxSeg[k]; keep[ki++] = idxSeg[k + 1]; keep[ki++] = idxSeg[k + 2];
+					}
+					idxSeg = keep.subarray(0, ki);
+				}
 				segs.push({ geo: geoSeg, nrm: nrmSeg, idx: idxSeg });
 				totalV += n; totalI += idxSeg.length;
 			}
@@ -295,6 +311,7 @@ export async function decodeBatch(base, leaves, wardMask, wardBbox, onTile = nul
 		}
 	}
 	await Promise.all(Array.from({ length: Math.min(TILE_CONCURRENCY, leaves.length) }, (_, wi) => tileWorker(wi)));
+	if (excludedTris) console.log(`[plateau] excluded ${excludedTris} tris (plateau-exclude.json)`, base);
 	if (!totalI) return null;
 	// セグメントを一括結合（memcpy）。idx はセグメント生成時にバッチ通し番号で焼き込み済み＝コピーだけで整合。
 	const geo = new Float64Array(totalV * 3), outNrm = new Int8Array(totalV * 4), rawIdx = new Uint32Array(totalI);

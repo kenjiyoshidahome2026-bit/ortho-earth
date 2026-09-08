@@ -9,7 +9,8 @@ import { decodeBatch, setDecodeEnv } from "./plateaudecode.js";
 const stopped = new Set();
 self.onmessage = async e => {
 	const d = e.data;
-	if (d.init) { setDecodeEnv({ ell: !!d.init.ell }); return; }   // タイル並行は既定8/デコーダ＝プール本数×8が区の実効並行
+	if (d.init) { setDecodeEnv({ ell: !!d.init.ell, exclude: d.init.exclude ?? undefined }); return; }
+	if ("exclude" in d && !d.init) { setDecodeEnv({ exclude: d.exclude }); return; }   // タイル並行は既定8/デコーダ＝プール本数×8が区の実効並行
 	if (d.stopJobs) { for (const j of d.stopJobs) stopped.add(j); return; }
 	const stop = () => stopped.has(d.job);
 	let mesh = null;
