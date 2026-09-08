@@ -836,13 +836,16 @@ const PLATEAU_AUTO_Z = qNum(/[?&]paz=(\d+(?:\.\d+)?)/, 15);   // これ以上寄
 // 非表示は元々メモリを返さない（解放は遠方evictのみ＝常駐保持）ので保持のコストは頂点処理時間だけ
 // → WebGPU×非LOW_MEM 限定（GL2/低メモリ端末は従来どおりズームアウトで即非表示）。新規ロード発火は従来どおり AUTO_Z 以上のみ。
 // ?pazh=N＝保持を浅く戻す口（AUTO_Z−N で非表示・低ズームの頂点代が問題になった時の後退線。例 pazh=2）。
-const PLATEAU_HIDE_Z = (gpuBackend && !LOW_MEM) ? PLATEAU_AUTO_Z - qNum(/[?&]pazh=(\d+(?:\.\d+)?)/, Infinity) : PLATEAU_AUTO_Z;
+// ── 消灯線（本人裁定 2026-09-08「z 値が 14 以下になったら、潔く PLATEAU は出力しない」）：実メッシュの保持も遠景箱も z≤14 で消す。
+// 保持（ヒステリシス）は AUTO_Z(15) との間の 1 段だけ＝ズームアウトで一度消えたら基図建物に任せる。?pazoff=N で線を動かせる（既定 14）。
+const PLATEAU_OFF_Z = qNum(/[?&]pazoff=(\d+(?:\.\d+)?)/, 14);
+const PLATEAU_HIDE_Z = (gpuBackend && !LOW_MEM) ? Math.max(PLATEAU_OFF_Z + 1e-6, PLATEAU_AUTO_Z - qNum(/[?&]pazh=(\d+(?:\.\d+)?)/, Infinity)) : PLATEAU_AUTO_Z;   // +1e-6＝「14 以下」を < で表す
 // ── 遠景far-DB＝「いつも描くDB」（本人裁定2026-08-04・閾値15m）：z15帯の建物の崖をPLATEAU抽出の軽量箱で埋める。
 // 実体は plateauworker（#far導出・プリズム生成）→ 既存plateauパイプに `${ward}#far` バッチで相乗り（マスク不参加）。
 // 可用性＝一度でも完走焼きした区だけ＝訪れるほど遠景が育つ（ambient/データ重力と同思想）。WebGPU×非LOW_MEM限定。
 const FAR_H = qNum(/[&?]farh=(\d+)/, 200);  // 高さ閾値(m)＝200m級＝真の超高層だけの星座（本人裁定2026-08-04夜「z14から+200m以上で少し綺麗にかつ軽く」・100m=都内~600棟から更に絞る）。
                                             // 15m案は都心区でほぼ全建物が通り数万箱＝メモリ爆上がりの轍→50m→実機比較で100に着地。?farh=Nで実験可
-const FAR_Z = 14;                           // 遠景箱の点灯下限ズーム（本人裁定2026-08-04夜=13→14へ・出現を遅らせて遠すぎる箱を見せない）
+const FAR_Z = PLATEAU_OFF_Z + 1e-6;         // 遠景箱の点灯下限ズーム＝消灯線と同じ（旧 14 固定＝本人裁定2026-08-04夜 13→14。9/8 に「z≤14 は PLATEAU 無し」へ統一）
 const noFar = /[?&]nofar=1/.test(location.search);   // ?nofar=1＝遠景far-DB箱を完全に切る（刺さり/めり込みの切り分け用）
 const farShown = new Set();                 // 要求済み/表示中の区（active化で退場→再要求可に戻す）
 const farMissed = new Set();                // #far整備不能（完走焼き無し）＝farReadyが来るまで再要求しない
