@@ -35,7 +35,12 @@ let meshPort = null;
 const CREDIT_MAX = 2;
 let credits = CREDIT_MAX;
 const creditWaiters = [];
-const takeCredit = () => credits > 0 ? (credits--, Promise.resolve()) : new Promise(r => creditWaiters.push(r));
+const takeCredit = () => {
+	if (credits > 0) { credits--; return Promise.resolve(); }
+	const t0 = performance.now();   // 計器（2026-09-08 停滞調査）：クレジット待ちが 3s を超えたら知らせる＝render worker の消化 ack が来ない疑い
+	const tm = setTimeout(() => console.warn(`[plateau] credit wait >3s (credits=${credits} waiters=${creditWaiters.length})`), 3000);
+	return new Promise(r => creditWaiters.push(() => { clearTimeout(tm); if (performance.now() - t0 > 3000) console.warn(`[plateau] credit granted after ${((performance.now() - t0) / 1000).toFixed(1)}s`); r(); }));
+};
 const onDrained = () => { const w = creditWaiters.shift(); if (w) w(); else if (credits < CREDIT_MAX) credits++; };
 
 // バッチ1個を render worker へ送出（クレジットが空くまで待つ）。cache の原本は守りたいので transfer 分はコピー。
@@ -757,7 +762,7 @@ async function loadPlateau(base, tiles, ward, wardBbox, camCenter, preload = fal
 			todo.sort((a, b) => c2(a) - c2(b));
 		}
 		const dir = bakeUrl + bakeDir(base, IDB_FMT_VER, ELL);
-		const fetchOne = b => bakeBytes(dir + b.f).then(u8 => unpackPLQ(u8)).catch(e => { console.warn("[plateau] bake batch failed → live path", b.f, e?.message ?? e); return null; });
+		const fetchOne = b => { const t0 = performance.now(); const tm = setTimeout(() => console.warn(`[plateau] bake fetch >5s ${ward} ${b.f}`), 5000); return bakeBytes(dir + b.f).then(u8 => unpackPLQ(u8)).catch(e => { console.warn("[plateau] bake batch failed → live path", b.f, e?.message ?? e); return null; }).finally(() => { clearTimeout(tm); if (performance.now() - t0 > 5000) console.warn(`[plateau] bake fetch done after ${((performance.now() - t0) / 1000).toFixed(1)}s ${ward} ${b.f}`); }); };
 		const used = new Set();
 		// 先読み 3 本（fast）＝bucket Worker の 1 往復 ~1s（エッジ未キャッシュ時）を重ねる：港区 16 バッチが直列 1 本先読みで 20s、
 		// エッジ温まり後 7s の本番実測（9/8）＝往復待ちが支配的。slow は 1 本ずつ＋間隔（帯域を現役区へ）
