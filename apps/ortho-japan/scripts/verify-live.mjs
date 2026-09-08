@@ -23,8 +23,15 @@ const CONC = 12;
 async function probe(rel) {
 	const url = `${BASE}/${rel.split(path.sep).join("/")}`;
 	try {
-		const res = await fetch(url, { headers: { Range: "bytes=0-0" }, cache: "no-store" });   // 1バイト＝転送費ほぼゼロ（Range無視の200全量でも即中断）
-		res.body?.cancel?.().catch?.(() => {});
+		// 非200は 15s 空けて 3 回まで再試行：deploy 直後はアセットの伝播が遅れ、毎回違う数本が一時的に 404 になる（9/8 実測＝1 分後に全 200）
+		let res;
+		for (let a = 0; a < 3; a++) {
+			if (a) await new Promise(r => setTimeout(r, 15000));
+			res = await fetch(url, { headers: { Range: "bytes=0-0" }, cache: "no-store" });   // 1バイト＝転送費ほぼゼロ（Range無視の200全量でも即中断）
+			res.body?.cancel?.().catch?.(() => {});
+			if (res.ok) break;
+			console.error(`  … ${res.status} ${rel}（${a + 1}/3・伝播待ち）`);
+		}
 		if (!res.ok) { bad++; console.error(`✗ ${res.status} ${rel}`); }
 	} catch (e) { bad++; console.error(`✗ fetch失敗 ${rel}: ${e.message}`); }
 	done++;
