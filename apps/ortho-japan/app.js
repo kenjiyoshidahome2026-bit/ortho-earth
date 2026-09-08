@@ -1169,7 +1169,10 @@ async function runPrefetch(wanted, how, onProgress) {   // 戻り値＝対象区
 		// ＝旧柵では「飛行中こそ先読みが全力で回る」だった。着地の瞬間は R01 近傍9枚（生Int16 26MB級×並列）＋
 		// R10 窓のデコードバーストが来る＝そこへ Draco デコードが重なるのが 3GB 機（iPad Air3）の飛行中 jetsam の型。
 		// 飛行は数秒＝先読みの遅れは誤差（走行中の先読みは中断しない＝止めるのは「次の区の開始」だけ）。
-		const visibleBusy = () => flying || moving || elevBusy || [...plateauAutoLoading.keys()].some(n => !plateauCancelling.has(n) && !plateauDemoted.has(n));
+		// 【9/8 緩和】R2 焼きで先読みは Draco 無し・数 MB＝飛行/移動/標高読込を柵にしない（行送りゲート 6s 化でデモはほぼ常に
+		// 飛行か標高読込＝旧柵では先読みが一度も回らず「先読みが全く無くなった」本人報告）。譲るのは可視区のロード中だけ。
+		// LOW_MEM は標高タイル（R01 近傍 9 枚のデコードバースト）との帯域/IDB 取り合いを避けて elevBusy も待つ。
+		const visibleBusy = () => (LOW_MEM && elevBusy) || [...plateauAutoLoading.keys()].some(n => !plateauCancelling.has(n) && !plateauDemoted.has(n));
 		let wi = 0;
 		const pump = async () => {
 			for (;;) {
@@ -1443,7 +1446,25 @@ function autoPlateau(settled = false) {
 			});
 	}
 	if (settled) { plateauQueued = queued; renderPlateauProg(); }   // 待ち行列の表示（読込トーストの「待機」行）
+	// ── 隣接区の先読み（9/8・本人「先読みが全く無くなった」）＝可視区が全て着手済みで枠が余っていれば、視界の外周 NEAR_PRE 内の
+	// 未焼き区を IDB へだけ先読み（plateauPreload＝描画へ送らない・GPU 常駐しない）。旧・slow 在庫化の代わり。視界に入れば OPFS 復元＝1 秒
+	if (settled && !queued.length && !LOW_MEM && !(plateauScriptOnly && playingNow())) {
+		const NEAR_PRE = 0.012;   // ≈1.3km（デモ先読みの MARGIN と同じ物差し）
+		let free = slotsFree() - plateauNeighborPre.size;
+		if (free > 0) {
+			const pd = s => { const dx = Math.max(s.bbox[0] - view[2], 0, view[0] - s.bbox[2]), dy = Math.max(s.bbox[1] - view[3], 0, view[1] - s.bbox[3]); return dx * dx + dy * dy; };
+			const cand = PLATEAU_SETS.filter(s => !hitNames.has(s.name) && !plateauLoading.has(s.name) && !plateauActive.has(s.name) && !plateauResident.has(s.name) && !plateauDead(s.name) && !plateauPreDone.has(s.name) && pd(s) < NEAR_PRE * NEAR_PRE)
+				.sort((x, y) => pd(x) - pd(y));
+			for (const s of cand.slice(0, free)) {
+				plateauNeighborPre.add(s.name);
+				console.log("[plateau] neighbor prefetch (IDB only) ->", s.name);
+				plateauPreload(s).then(ok => { if (ok) plateauPreDone.add(s.name); }).finally(() => { plateauNeighborPre.delete(s.name); if (!moving && !flying) autoPlateau(true); });
+			}
+		}
+	}
 }
+const plateauNeighborPre = new Set();      // 隣接区の先読み中（枠に数える）
+const plateauPreDone = new Set();          // このセッションで先読み済（同じ区を何度も IDB 確認しない＝存在確認は worker 側で即返るが往復は省く）
 // 静止中の見張り：ロード中が居る間は10秒毎に再選抜＝fast枠ローテーション・枠空き補充・退避復帰を
 // カメラ操作なしでも回す（onMove/settle が来ない「静止して待つ」シーンでの飢餓/取りこぼし対策）。
 setInterval(() => { if (plateauLoading.size && !moving && !flying) autoPlateau(true); }, 10e3);
