@@ -145,20 +145,25 @@ async function putObject(key, body, type) {
 	}
 	throw new Error(`put failed: ${key}`);
 }
+// 再開可能＝R2 にマニフェストが既にある（＝本体まで揃っている）モードは丸ごとスキップ。本体は並行 6 本で put、マニフェストは最後。
+const UPLOAD_PAR = 6;
+async function remoteHas(key) { try { const r = await fetch(`${API}/bucket/${key}?meta=1`); return r.ok && !!(await r.json()).data; } catch { return false; } }
 async function uploadSet(set) {
-	let n = 0, bytes = 0, gzBytes = 0;
+	let n = 0, bytes = 0, gzBytes = 0, skipped = 0;
 	for (const ell of MODES) {
 		const rel = bakeDir(set.base, DECODE_VER, ell), dir = join(OUT, rel);
 		if (!existsSync(join(dir, "manifest.json"))) continue;
+		if (await remoteHas("GIS/plateau/" + rel + "manifest.json")) { skipped++; continue; }
 		const files = readdirSync(dir).filter(f => f.endsWith(".plq"));
-		files.push("manifest.json");   // 最後＝マニフェストが見えた時には本体が揃っている（クライアントの 404 → 生経路の判定に矛盾を作らない）
-		for (const f of files) {
-			const u8 = readFileSync(join(dir, f));
-			gzBytes += await putObject("GIS/plateau/" + rel + f, u8, f.endsWith(".json") ? "application/json" : "application/octet-stream");
-			n++; bytes += u8.length;
-		}
+		let i = 0;
+		await Promise.all(Array.from({ length: UPLOAD_PAR }, async () => {
+			while (i < files.length) { const f = files[i++]; const u8 = readFileSync(join(dir, f)); gzBytes += await putObject("GIS/plateau/" + rel + f, u8, "application/octet-stream"); n++; bytes += u8.length; }
+		}));
+		const mf = readFileSync(join(dir, "manifest.json"));   // 最後＝マニフェストが見えた時には本体が揃っている（クライアントの 404 → 生経路の判定に矛盾を作らない）
+		gzBytes += await putObject("GIS/plateau/" + rel + "manifest.json", mf, "application/json"); n++; bytes += mf.length;
 	}
-	console.log(`  ↑ ${set.name}: ${n} files ${fmt(bytes)} → gzip ${fmt(gzBytes)}`);
+	if (n) console.log(`  ↑ ${set.name}: ${n} files ${fmt(bytes)} → gzip ${fmt(gzBytes)}${skipped ? ` (${skipped} mode skipped: already on R2)` : ""}`);
+	else console.log(`  = ${set.name}: already on R2`);
 }
 
 // --repack＝焼き済み出力の詰め直し（再デコード無し）：旧形式（PLQ1／溶接前／角柱前）を unpack→pack（溶接＋角柱抽出）→上書き。
