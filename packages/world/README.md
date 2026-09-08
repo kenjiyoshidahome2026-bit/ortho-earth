@@ -133,3 +133,21 @@ db.js の `NATION_KEYS` を唯一の正本にし、ビルド時に焼き込む�
   ヘッダ行なし 267 行・key 列（8列目）は大半空で稀に NE 名（"W. Sahara" 等）＝読み飛ばしで正解。
   Conflicts.json は 99 件の完成形（wiki id・4言語名付き）。音源.zip はクイズ用 UI 効果音 11 本（出題/成功/達成…）
 - 長期課題: wikidata QID の併記（`wiki.id2qid` 移植済み・NE admin1 に wikidataid あり）
+
+## 精査ログ（2026-09-09・bucket 実データ 262か国を機械検札）
+
+直したもの: ①面積0の6か国（アルゼンチン/キプロス/セルビア/モロッコ/ジョージア/沿ドニエストル＝infobox 脚注の km² が
+混ざり「1件だけなら採用」で落ちていた→「統計」行優先+先頭ヒット）②CityDB.csv 逆変換で首都共有国の nation 配列が壊れていた
+（JSON 配列文字列をカンマ分割）→ JSON.parse・bucket の現物も修復済 ③ドネツク/ルガンスクの wiki.en/zh/ko 全欠（ja 記事に
+言語間リンク無し）→ wikiPatch 表 ④首都記事名の改名（ヌクノノ→ヌクノノ島）→ 島/市 接尾辞で再試行 ⑤wikiName 上書きは
+seed 名を含まない別名のときだけ（マニラ→マニラ首都圏 は seed 採用）+warn ⑥言語キー未定義 ha/mwl 追加・マレーシア英語→英語
+⑦GDP 系は WB 主・IMF(DBnomics) は穴埋め（8/31 実走は DBnomics 停止で全て WB だった・DBnomics latest は WEO 2025-04 で1年遅れ）
++ISO3 別名（コソボ KSV→XKX/UVK）⑧国歌 62 か国欠＝ja 記事に音源無し→ Wikidata P85→P51 で部分補完 ⑨トケラウの人口/面積既定表
+⑩bucket GET のキャッシュ（edge 1h/ブラウザ 4h）で保存直後の再読込が旧版＝loadJSON に ?_t=
+
+**Kenji 裁定で反映済（2026-09-09）**: 赤道ギニアの首都を シウダ・デ・ラ・パス へ更新（seed・CityDB.csv・bucket とも。マラボは
+capital=false で残置・標高 0 は未取得）＋ **`capitalNote` フィールド新設**＝旧消費側 draw.js の capitalComment 表をデータ側へ
+移設（defacto/changed/multi/text・赤道ギニア={defacto: マラボ}）・SADR の currency=MAD|DZD（通貨 def 表）・LanguageDB の
+zh/ko 欠け4語は名前補完（記事が無いものは wiki id 0）。据え置き＝Conflicts に無い擬似キー "AF"（アフガニスタン二政権用・
+geoPNG は admin1 の AF で描ける）。国旗は全 262 か国カバー（直接 253・領有国代替 8・SADR→西サハラ別名 1・余剰 13 は UI/旧例外用）。
+検札の手口＝scratchpad の audit.py（bucket から JSON を落として鍵/参照/欠測/統計/紛争を機械検札）

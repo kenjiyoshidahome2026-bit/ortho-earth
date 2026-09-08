@@ -4,7 +4,7 @@
 import { thenMap, thenEach, thread, unique, trim, L2 } from "common";
 import { Cache } from "native-bucket";
 import { wiki } from "common/wiki.js";
-import { renames, rename, addLanguage, fixLanguage, finalizeNationDB } from "./db.js";
+import { renames, rename, addLanguage, fixLanguage, finalizeNationDB, ISO3_ALIAS } from "./db.js";
 
 const THIS_YEAR = new Date().getFullYear();   // 旧実装は 2025 固定＝翌年から今年のデータを全部弾く罠だった
 // 年次更新はここ（HDR の版が上がったら URL と下の slice コメントを合わせて見直す）
@@ -29,6 +29,7 @@ export async function createNationDB(ctx, toLangs) {
 	const ename = nations.map(t => t.name.en);
 	await addLanguage(nations, toLangs, "ja");
 	nations.map((t, i) => t.name.en = ename[i]);
+	await wikiPatch(nations);
 	{   // 国ごとの wiki ページ読み（~260件・初回が最重量）＝並列4本。IDB キャッシュ後の再実行は数秒
 		// ⚠ thread は a.shift() で配列を破壊する＝必ずコピーを渡す（nations 本体を空にすると後段が全滅）
 		let done = 0;
@@ -37,8 +38,10 @@ export async function createNationDB(ctx, toLangs) {
 			(++done % 25) || console.log(`wikiInfos: ${done}/${nations.length}`);
 		}, 4);
 	}
+	await anthemFromWikidata(nations.filter(t => !t.anthem));
 	await capital(nations, toLangs);
 	await setConflicts(nations);
+	setCapitalNotes(nations);
 	await saveNationDB(nations);   // saveNationDB 内で finalizeNationDB（例外除去+クリッパートン追補）＝保存形が完成形
 	return finalizeNationDB(nations);
 	////==================================================================================================================
@@ -65,11 +68,34 @@ export async function createNationDB(ctx, toLangs) {
 		});
 	}
 	////==================================================================================================================
+	// ja 記事に言語間リンクが無い国（2026-09-09 精査: ドネツク/ルガンスク＝wiki.en/zh/ko 全欠）は記事名から直接 id を引く。
+	// name は欠けている言語だけ補う（name.en は seed の "_ People's Republic" 拡張流儀を壊さない）
+	async function wikiPatch(nations) {
+		const table = {
+			"ドネツク人民共和国": { en: "Donetsk People's Republic", zh: "頓涅茨克人民共和國", ko: "도네츠크 인민공화국" },
+			"ルガンスク人民共和国": { en: "Luhansk People's Republic", zh: "卢甘斯克人民共和国", ko: "루간스크 인민공화국" },
+		};
+		for (const t of nations) {
+			const fix = table[t.name.ja]; if (!fix) continue;
+			for (const [lang, title] of Object.entries(fix)) {
+				if (t.wiki[lang]) continue;
+				const id = await wiki.title2id(title, lang);
+				if (!id) { console.warn(`wikiPatch: 記事なし ${lang}:${title}`); continue; }
+				t.wiki[lang] = id; t.name[lang] = t.name[lang] || wiki.clean(title);
+			}
+		}
+	}
 	async function capital(nations, toLangs) {
 		const tub = nations.map(t => t.capital).filter(t => t);
 		const names = tub.map(t => t.wikiName || t.name.ja);
 		const ids = await wiki.title2id(names);
-		tub.forEach((t, i) => { t.wiki = { ja: ids[i] }; delete t.wikiName; });
+		// 記事名の揺れ（ヌクノノ→ヌクノノ島 等・2026-09-09 精査）＝接尾辞付きで再試行してから諦める
+		for (const suf of ["島", "市"]) {
+			const idx = ids.map((v, i) => v ? -1 : i).filter(i => i >= 0); if (!idx.length) break;
+			const r = await wiki.title2id(idx.map(i => names[i] + suf));
+			idx.forEach((i, j) => { if (r[j]) { ids[i] = r[j]; console.log(`capital: 記事名 ${names[i]} → ${names[i]}${suf}`); } });
+		}
+		tub.forEach((t, i) => { ids[i] || console.warn("capital: wiki 記事未解決:", t.name.ja); t.wiki = { ja: ids[i] }; delete t.wikiName; });
 		await addLanguage(tub, toLangs, "ja");
 		tub.map(t => t.name).forEach(t => {
 			if (t.zh && t.ko) {
@@ -102,7 +128,9 @@ export async function createNationDB(ctx, toLangs) {
 		var cap = 首都(info, name); if (cap == "" && capital) console.warn("no_capital: ", name);
 		// seed に首都が無い国（nation.capital 未定義）で wiki 側に首都行がある場合は書き込み先が無い＝warn に留める（旧実装は TypeError の地雷）
 		if (capital != cap && !["香港", "マカオ", "パラオ", "パレスチナ"].includes(name)) {
-			if (nation.capital) nation.capital.wikiName = cap;
+			// seed 名を含む広域名（マニラ→マニラ首都圏）は seed を採用。含まない別名は wiki を採用しつつ検札へ
+			//（2026-09-09 精査: 赤道ギニアの首都が マラボ→シウダ・デ・ラ・パス に実際に変わっていた＝seed/CityDB 更新のシグナル）
+			if (nation.capital) { if (cap && !cap.includes(capital)) { console.warn("capital_differs(seed≠wiki):", name, capital, "→", cap); nation.capital.wikiName = cap; } }
 			else if (cap) console.warn("capital_without_seed: ", name, cap);
 		}
 		if (capital.replace(/(島)$/, "") != wiki.clean(cap).replace(/(島|市|地区|特別市|都)$/, "")) console.log(name, capital, "<=>", cap);
@@ -138,6 +166,7 @@ export async function createNationDB(ctx, toLangs) {
 		function 人口(html, name) {
 			var def = {
 				"クリッパートン島": [-1, 0],
+				"トケラウ": [2016, 1499],
 				"イギリス領インド洋地域": [-1, 3500],
 				"スヴァールバル諸島およびヤンマイエン島": [-1, 2630],
 				"ダルフール": [-1, 6000000],
@@ -169,7 +198,7 @@ export async function createNationDB(ctx, toLangs) {
 		}
 		function 面積(html, name) {
 			const rep = {
-				クリッパートン島: 6,
+				クリッパートン島: 6, トケラウ: 10,
 				アルツァフ共和国: 3170, ドネツク人民共和国: 8539, チベット: 2500000,
 				フランス領南方・南極地域: 7781, 米領バージン諸島: 347, 西サハラ: 266000,
 				オランダ: 37354, デンマーク: 43094, ノルウェー: 323802
@@ -182,8 +211,12 @@ export async function createNationDB(ctx, toLangs) {
 				s = s.split(/万/).map(t => +t); s = s.length == 2 ? s[0] * 10000 + s[1] : s[0];
 				return (s > 10) ? Math.round(s) : s;
 			};
-			const area = v.join("|").match(reg) || html.innerText.match(reg) || [];
-			return area.length == 1 ? conv(area[0]) : 0;
+			// 新テンプレでは面積グループの「統計」行（th=統計・td=2,780,400km2）が本命。脚注（南極領有権主張・北キプロス実効支配域…）の
+			// km² が同じ infobox に混ざるため「1件だけなら採用」では大国が 0 になっていた（2026-09-09 精査で6か国）→ 統計行→先頭ヒットの順
+			const statRow = [...html.querySelectorAll("tr")].filter(tr => { const th = tr.querySelector("th"); return th && /^統計/.test(th.innerText.trim()) && /km(2|²)/.test(tr.innerText); })
+				.map(tr => wiki.clean(tr.innerText).match(reg)).filter(r => r)[0];
+			const area = statRow || v.join("|").match(reg) || html.innerText.match(reg) || [];
+			return area.length ? conv(area[0]) : 0;
 		}
 		function 言語(html, name) {
 			if (name == "西サハラ") return ["アラビア語", "ベルベル語", "スペイン語"]
@@ -192,7 +225,7 @@ export async function createNationDB(ctx, toLangs) {
 				[...v[0].querySelectorAll("td a")].filter(t => t.getAttribute("title") && t.getAttribute("title").match(/^.+語$/))
 					.map(t => {
 						t = wiki.clean(t.innerText);
-						t = ({ 韓国語: "朝鮮語", シャンガーン語: "ツォンガ語" })[t] || t;
+						t = ({ 韓国語: "朝鮮語", シャンガーン語: "ツォンガ語", マレーシア英語: "英語" })[t] || t;
 						let r = t.match(/.*(フランス|スペイン|ポルトガル|ヒンディー|マレー|タタール|中国)語$/); if (r) return r[1] + "語";
 						return (t.match(/(公用語|共通語|.+の言語)/) || t == "国語") ? "" : t;
 					}).filter(t => t) : [])
@@ -201,7 +234,8 @@ export async function createNationDB(ctx, toLangs) {
 			const def = {
 				アフガニスタン・イスラム共和国: "AFN",
 				ドネツク人民共和国: "RUB", ルガンスク人民共和国: "RUB", クリミア共和国: "RUB",
-				アルツァフ共和国: "AMD", チェチェン共和国: "RUB", ダルフール: "SDG"
+				アルツァフ共和国: "AMD", チェチェン共和国: "RUB", ダルフール: "SDG",
+				"サハラ・アラブ民主共和国": "MAD|DZD",   // 事実上の流通通貨（Kenji 裁定 2026-09-09）
 			};
 			var c = html.querySelector("a[title='ISO 4217']"); if (!c) return def[nation.name.ja] || "";
 			c = c.innerText || ""; return c.match(/^[A-Z]{3,4}$/) ? c : ""
@@ -211,6 +245,23 @@ export async function createNationDB(ctx, toLangs) {
 				.filter(s => s.match(/\.mp3$/))[0];
 			return anthem ? "https:" + anthem : "";
 		}
+	}
+	////-----------------------------------------------------------------------
+	// 国歌の補完＝ja 記事の infobox に音源が無い国（2026-09-09 精査で 62 か国）を Wikidata（P85 国歌→P51 音源）で埋める。
+	// 取れるのは Wikidata 側に音源が登録された国だけ（部分補完）。URL は commons の Special:FilePath（原本 ogg 等）。
+	async function anthemFromWikidata(list) {
+		if (!list.length) return;
+		const qids = await wiki.id2qid(list.map(t => t.wiki.ja), "ja");
+		const claims = (q, p) => fetch(`https://www.wikidata.org/w/api.php?action=wbgetclaims&entity=${q}&property=${p}&format=json&origin=*`)
+			.then(r => r.json()).then(v => ((v.claims || {})[p] || []).map(c => c.mainsnak.datavalue && c.mainsnak.datavalue.value).filter(x => x)).catch(() => []);
+		let hit = 0;
+		for (const [i, t] of list.entries()) {
+			const q = qids[i]; if (!q) continue;
+			const anthem = (await claims(q, "P85"))[0]; if (!anthem || !anthem.id) continue;
+			const file = (await claims(anthem.id, "P51"))[0]; if (typeof file != "string") continue;
+			t.anthem = "https://commons.wikimedia.org/wiki/Special:FilePath/" + encodeURIComponent(file); hit++;
+		}
+		console.log(`anthem(wikidata): ${hit}/${list.length} 補完`);
 	}
 	////-------------------------------------------------------------------------------------------------------
 	////	UN(国際連合)
@@ -305,14 +356,19 @@ export async function createNationDB(ctx, toLangs) {
 	// どちらも ISO3 で直結＝日本語名の名寄せ（renames 突合）が統計から消える。単位は旧形式に合わせる（金額=百万USD）。
 	// GPI/PSI（IEP）だけ API が無いので sekai-hub の template を継続。
 	function population(nations) { return worldbank(nations, "population", "SP.POP.TOTL", 2010); }        // 出所は UN WPP
-	// imf() の第6引数＝World Bank フォールバック [indicator, scale]。DBnomics 全停止（2026-08-31 実測 25秒無応答）でも
-	// 実績値で完走する劣化運転（IMF 予測年は落ちる）。次回 DBnomics 復帰時の実行で上書きされる。
-	function gdp(nations) { return imf(nations, "gdp", "NGDPD", 2013, 1000, ["NY.GDP.MKTP.CD", 1e-6]); }  // 10億USD→百万USD
-	function gdppc(nations) { return imf(nations, "gdppc", "NGDPDPC", 2017, 1, ["NY.GDP.PCAP.CD", 1]); }
+	// GDP 系＝World Bank を主（実績値・2025年まで・CORS直・頑丈）→ IMF WEO(DBnomics) は WB に無い国（台湾等）の穴埋め。
+	// 2026-09-09 精査: 8/31 の実走は DBnomics 停止で全て WB 側に落ちており、DBnomics の "latest" は WEO 2025-04（1年遅れ）と判明
+	// ＝主従を逆にした（2025 は IMF の1年前予測より WB 実績が良い）。ISO3 の別名（コソボ KSV→XKX/UVK）は ISO3_ALIAS
+	function gdp(nations) { return wbThenImf(nations, "gdp", ["NY.GDP.MKTP.CD", 1e-6], ["NGDPD", 1000], 2013); }   // →百万USD
+	function gdppc(nations) { return wbThenImf(nations, "gdppc", ["NY.GDP.PCAP.CD", 1], ["NGDPDPC", 1], 2017); }
 	function gni(nations) { return worldbank(nations, "gni", "NY.GNP.MKTP.CD", 2021, 1e-6); }             // USD→百万USD
 	function gnipc(nations) { return worldbank(nations, "gnipc", "NY.GNP.PCAP.CD", 2021); }
-	function ppp(nations) { return imf(nations, "ppp", "PPPGDP", 2022, 1000, ["NY.GDP.MKTP.PP.CD", 1e-6]); }
-	function ppppc(nations) { return imf(nations, "ppppc", "PPPPC", 2022, 1, ["NY.GDP.PCAP.PP.CD", 1]); }
+	function ppp(nations) { return wbThenImf(nations, "ppp", ["NY.GDP.MKTP.PP.CD", 1e-6], ["PPPGDP", 1000], 2022); }
+	function ppppc(nations) { return wbThenImf(nations, "ppppc", ["NY.GDP.PCAP.PP.CD", 1], ["PPPPC", 1], 2022); }
+	async function wbThenImf(nations, title, [wbInd, wbScale], [subject, imfScale], end) {
+		await worldbank(nations, title, wbInd, end, wbScale);
+		await imf(nations, title, subject, end, imfScale, { fillOnly: true });
+	}
 	function gpi(nations) { return template(nations, 2024, 2021, "gpi", "global-peace-index-ranking", 3); }
 	function psi(nations) { return template(nations, 2024, 2021, "psi", "security-ranking", 3); }
 	////-------------------------------------------------------------------------------------------------------
@@ -336,40 +392,38 @@ export async function createNationDB(ctx, toLangs) {
 		if (!v || !v[1]) return console.warn(`${title}: World Bank(${indicator}) 取得失敗`);
 		const tub = {};
 		(v[1] || []).forEach(r => { if (r.value != null && r.countryiso3code) (tub[r.countryiso3code] = tub[r.countryiso3code] || {})[+r.date] = r.value * scale; });
-		assign(nations, title, tub, end);
+		assign(nations, title, tub, end, "wb");
 	}
-	async function imf(nations, title, subject, end, scale = 1, wbFallback) {
+	async function imf(nations, title, subject, end, scale = 1, opts = {}) {
 		// IMF 直（datamapper API）は Akamai が非ブラウザ指紋を 403 で弾く（2026-08-31 実測・UA偽装でも不可）
 		// ＝IMF WEO の公式ミラー DBnomics から引く。CORS 開放（Origin エコー）＝ブラウザ直・proxy 不要。
 		// series_code は "AFG.NGDPD.us_dollars" 形式＝ISO3 接頭・予測年込み・欠測は "NA"。
 		const url = `https://api.db.nomics.world/v22/series/IMF/WEO:latest?dimensions=${encodeURIComponent(JSON.stringify({ "weo-subject": [subject] }))}&observations=1&limit=1000`;
 		const v = await statJSON(title, "weo:" + subject, url);
 		const docs = v && v.series && v.series.docs || [];
-		if (!docs.length) {
-			if (wbFallback) { console.warn(`${title}: DBnomics 不達＝World Bank 実績値で代替（IMF 予測年なし・次回復帰時に上書き）`); return worldbank(nations, title, wbFallback[0], end, wbFallback[1]); }
-			return console.warn(`${title}: DBnomics(WEO/${subject}) 取得失敗`);
-		}
+		if (!docs.length) return console.warn(`${title}: DBnomics(WEO/${subject}) 取得失敗${opts.fillOnly ? "（WB 主データは済・穴埋めのみ不可）" : ""}`);
 		const tub = {};
 		docs.forEach(sr => {
 			const iso3 = sr.series_code.split(".")[0], years = {};
 			sr.period.forEach((y, i) => { const val = sr.value[i]; if (typeof val == "number") years[+y] = val * scale; });
 			tub[iso3] = years;
 		});
-		assign(nations, title, tub, end);
+		assign(nations, title, tub, end, "imf", opts.fillOnly);
 	}
 	// 旧形式のまま格納: t[title] = [最新年, 最新年値, 前年値, ...]（欠測は undefined→JSONではnull）。結合キーは ISO3（iso[1]）
-	function assign(nations, title, tub, end) {
+	function assign(nations, title, tub, end, src, fillOnly = false) {
 		let latest = 0;
 		Object.values(tub).forEach(years => Object.keys(years).forEach(y => { y = +y; if (y <= THIS_YEAR && y > latest) latest = y; }));
 		if (!latest) return console.warn(`${title}: データなし`);
 		let hit = 0;
 		nations.forEach(t => {
-			const d = t.iso && tub[t.iso[1]]; if (!d) return;
+			if (fillOnly && t[title]) return;   // 穴埋めモード＝主データが無い国だけ
+			const d = t.iso && (tub[t.iso[1]] || tub[(ISO3_ALIAS[t.iso[1]] || {})[src]]); if (!d) return;
 			const a = []; for (let y = latest; y >= end; y--) a.push(d[y] == null ? undefined : Math.round(d[y]));
 			if (a.every(v => v === undefined)) return;
 			t[title] = [latest].concat(a); hit++;
 		});
-		console.log(`${title}: ${latest}..${end}（${hit}か国）`);
+		console.log(`${title}[${src}${fillOnly ? "/穴埋め" : ""}]: ${latest}..${end}（${hit}か国）`);
 	}
 	////-------------------------------------------------------------------------------------------------------
 	// start＝「この年までは存在すると分かっている年」（旧実装のハードコード起点）。実際の起点は
@@ -453,6 +507,24 @@ export async function createNationDB(ctx, toLangs) {
 		}
 	}
 	////-----------------------------------------------------------------------
+	// 首都の注記（旧消費側 draw.js の capitalComment 表をデータ側へ移設 2026-09-09）。名前は name.ja の内部参照＝多言語化は消費側。
+	//   defacto=事実上の首都 / changed=[年, 旧首都] / multi={機能: 都市} / text=補足（国名参照はそのまま name.ja）
+	function setCapitalNotes(nations) {
+		const notes = {
+			"赤道ギニア": { defacto: "マラボ" },   // 2026-09-09: 正式首都は シウダ・デ・ラ・パス へ移転（wiki 準拠）・実質的な首都はマラボ
+			"ベナン": { defacto: "コトヌー" },
+			"ボリビア": { defacto: "ラパス" },
+			"コートジボアール": { defacto: "アビジャン" },
+			"南アフリカ": { multi: { 立法: "ケープタウン", 司法: "ブルームフォンテーン", 行政: "プレトリア" } },
+			"スリランカ": { changed: [1985, "コロンボ"] },
+			"ブルンジ": { changed: [2019, "ブジュンブラ"] },
+			"タンザニア": { changed: [1996, "ダルエスサラーム"] },
+			"ミャンマー": { changed: [2006, "ヤンゴン"] },
+			"スヴァールバル諸島およびヤンマイエン島": { text: "スヴァールバル諸島" },
+			"イギリス領インド洋地域": { text: "セーシェル" },
+		};
+		nations.forEach(t => { const n = notes[t.name.ja]; if (n) t.capitalNote = n; });
+	}
 	async function setConflicts(nations) {
 		const sovereignt = {}, claim = {};
 		conflictsDB.forEach(t => {   // 冒頭で検札済み（未収蔵なら開始前に止まる）

@@ -114,7 +114,8 @@ export async function worldUI({ CMD, q, Bucket, Fetch }) {
 			const rows = (await blob2rows(file)).slice(1);
 			const cities = rows.filter(t => t[0]).map(t => {
 				const c = { name: { ja: t[0], en: t[1], zh: t[2], ko: t[3] } };
-				c.nation = (typeof t[4] == "string" && t[4].includes(",")) ? t[4].split(",") : t[4];   // 首都共有国は配列
+				// 首都共有国は旧書き出しで JSON 配列文字列 '["a","b"]'（2026-09-09 精査: カンマ分割では '["a"' に壊れていた）
+				c.nation = (typeof t[4] == "string" && /^\[/.test(t[4])) ? JSON.parse(t[4]) : (typeof t[4] == "string" && t[4].includes(",")) ? t[4].split(",") : t[4];
 				if (t[5] === true) c.capital = true;
 				if (t[6] !== "" && t[7] !== "") c.coords = [t[6], t[7], t[8] === "" ? 0 : t[8]];
 				c.population = [t[9] === "" ? -1 : t[9], t[10] === "" ? 0 : t[10]];

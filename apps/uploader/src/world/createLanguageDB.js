@@ -14,6 +14,13 @@ export async function createLanguageDB(ctx, toLangs) {
 	const langDB = LANG_KEYS.map(t => ({ key: t[0], name: { ja: t[1] } }));
 	await createWiki(langDB, "ja");
 	await addLanguage(langDB, toLangs, "ja");
+	// zh/ko 記事が無い小言語の名前補完（2026-09-09 精査・Kenji「可能ならば追加」）。ラロトンガ語 zh は記事あり
+	await fixLanguage(langDB, [
+		[["ja", "ラロトンガ語"], [["ko", "쿡 제도 마오리어"]]],
+		[["ja", "セナ語"], [["zh", "塞纳语"], ["ko", "세나어"]]],
+		[["ja", "ソンソロール語"], [["zh", "松索罗尔语"], ["ko", "손소롤어"]]],
+		[["ja", "トビ語"], [["zh", "托比语"], ["ko", "토비어"]]],
+	], true);
 	await saveLanguageDB(langDB);
 	return langDB;
 }

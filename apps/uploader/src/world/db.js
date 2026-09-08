@@ -120,6 +120,8 @@ export const NATION_KEYS = {
 	"クリッパートン島": "FR-CP",
 };
 export const nationKey = t => (t.iso ? t.iso[0] : NATION_KEYS[t.name.ja]);
+// 統計 API 側の ISO3 別名（ISO 3166 と符号が違う国）。wb=World Bank / imf=IMF WEO(DBnomics)
+export const ISO3_ALIAS = { KSV: { wb: "XKX", imf: "UVK" } };   // コソボ
 
 // 言語のキー台帳（ISO 639 風・"hi/ur" や "zh'" 等の擬似キーを含む独自体系）。
 // 原典は createLanguageDB 内の langDefinition＝LanguageDB 作成と NationDB.languages の正規化の両方が使うためここへ移設。
@@ -154,6 +156,7 @@ export const LANG_KEYS = [
 	["tr", "トルコ語"], ["ts", "ツォンガ語"], ["tt", "タタール語"], ["tvl", "ツバル語"], ["ty", "タヒチ語"],
 	["uk", "ウクライナ語"], ["ur", "ウルドゥー語"], ["uz", "ウズベク語"], ["ve", "ヴェンダ語"], ["vi", "ベトナム語"],
 	["xh", "コサ語"], ["zh'", "広東語"], ["zdj", "コモロ語"], ["zh", "中国語"],
+	["ha", "ハウサ語"], ["mwl", "ミランダ語"],   // 2026-09-09 精査で未定義だった（ニジェール/ポルトガル）
 ];
 export const langKey = {};  LANG_KEYS.forEach(t => langKey[t[1]] = t[0]);   // 日本語名 → キー
 export const langName = {}; LANG_KEYS.forEach(t => langName[t[0]] = t[1]);  // キー → 日本語名
@@ -190,7 +193,9 @@ export function finalizeNationDB(nations) {
 // 保存形式＝{ updated, count, items } の版スタンプ包み。旧システム書き出しの素の配列もそのまま読める。
 export function makeDB(bucket) {
 	const unwrap = v => (v && v.items !== undefined) ? v.items : v;
-	const loadJSON = async name => unwrap(await bucket.get(`${name}.json`, "json"));
+	// ?_t= キャッシュバスター必須＝bucket GET は edge(s-maxage 1h)+ブラウザ(max-age 4h)でキャッシュされ、
+	// 「保存→次工程で読込」が旧版を掴む（2026-09-09 精査: CityDB 修復直後の再読込が 8/31 版を返した実測）。worker は _t を無視する
+	const loadJSON = async name => unwrap(await bucket.get(`${name}.json?_t=${Date.now()}`, "json"));
 	const saveJSON = (name, a) => {
 		const wrapped = { updated: new Date().toISOString().slice(0, 10), count: Array.isArray(a) ? a.length : undefined, items: a };
 		return bucket.put(new File([JSON.stringify(wrapped)], `${name}.json`, { type: "application/json" }));
