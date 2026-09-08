@@ -759,12 +759,17 @@ async function loadPlateau(base, tiles, ward, wardBbox, camCenter, preload = fal
 		const dir = bakeUrl + bakeDir(base, IDB_FMT_VER, ELL);
 		const fetchOne = b => bakeBytes(dir + b.f).then(u8 => unpackPLQ(u8)).catch(e => { console.warn("[plateau] bake batch failed → live path", b.f, e?.message ?? e); return null; });
 		const used = new Set();
-		let next = todo.length ? fetchOne(todo[0]) : null;
+		// 先読み 3 本（fast）＝bucket Worker の 1 往復 ~1s（エッジ未キャッシュ時）を重ねる：港区 16 バッチが直列 1 本先読みで 20s、
+		// エッジ温まり後 7s の本番実測（9/8）＝往復待ちが支配的。slow は 1 本ずつ＋間隔（帯域を現役区へ）
+		const DEPTH = 3, inflight = []; let nextIdx = 0;
+		const fill = () => { while (nextIdx < todo.length && inflight.length < (laneOf() === "fast" ? DEPTH : 1)) inflight.push(fetchOne(todo[nextIdx++])); };
+		fill();
 		for (let i = 0; i < todo.length; i++) {
 			if (stop()) { console.log("[plateau] cancelled (left view, bake stage)", ward); return "cancelled"; }
 			const b = todo[i];
-			const mesh = await next;
-			if (i + 1 < todo.length) { if (laneOf() !== "fast") await new Promise(r => setTimeout(r, 250)); next = fetchOne(todo[i + 1]); } else next = null;
+			const mesh = await inflight.shift();
+			if (laneOf() !== "fast") await new Promise(r => setTimeout(r, 250));
+			fill();
 			if (!mesh) { console.warn("[plateau] bake batch unreadable → live path", b.f); continue; }
 			const slice = b.t.map(i => ({ uri: uriOf(i) }));
 			tilesDone += slice.length; prog({ done: tilesDone, total: totalTiles });
