@@ -1,7 +1,9 @@
 # 国別DB（world）移植台帳
 
 旧システム（bucket プロジェクト `b1qEpPlw`）の国別データベース作成ツールを ortho-earth へ移植する記録。
-このディレクトリの [create.js](create.js) は**旧システムの原典**（`#inline` スニペット参照付き・そのままでは動かない）＝読み取り専用の設計図。
+このディレクトリの [legacy/create.js](legacy/create.js) は**旧システムの原典**（`#inline` スニペット参照付き・そのままでは動かない）＝読み取り専用の設計図。
+**移植済みの原典は `legacy/` へ退避（2026-09-09）**＝実行には不要だが、Wikipedia 側の変化を追うとき原典との差分が要る（面積0・infobox クラス消滅の調査で実際に読み返した）。
+`draw.js` だけは据え置き＝消費側（ガジェット）は未移植で、次の移植対象の原典。
 
 ## 新しい住まい
 
@@ -32,7 +34,7 @@
 | #inline ID | 内容 | 状態 |
 |---|---|---|
 | `UEVbTZC1` | wiki API（d3.wiki） | ✅ 済み＝common/wiki.js |
-| `qjpQx44Y` | createNationDB | ✅ 済み＝uploader/src/world/createNationDB.js（原典 createNationalDB.js） |
+| `qjpQx44Y` | createNationDB | ✅ 済み＝uploader/src/world/createNationDB.js（原典 legacy/createNationalDB.js） |
 | `RVkHIUhP` | createCityDB | ✅ 済み＝uploader/src/world/createCityDB.js |
 | `r14WZUyG` | createLanguageDB / createCurrencyDB | ✅ 済み＝uploader/src/world/createLanguageDB.js |
 | `7SzWe6GP` | geometryISO（createGeometryPNG） | ✅ 済み＝uploader/src/world/createGeometryPNG.js（**現代化**＝下記） |
