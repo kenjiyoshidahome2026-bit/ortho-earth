@@ -157,7 +157,7 @@ async function uploadSet(set) {
 		const files = readdirSync(dir).filter(f => f.endsWith(".plq"));
 		let i = 0;
 		await Promise.all(Array.from({ length: UPLOAD_PAR }, async () => {
-			while (i < files.length) { const f = files[i++]; const u8 = readFileSync(join(dir, f)); gzBytes += await putObject("GIS/plateau/" + rel + f, u8, "application/octet-stream"); n++; bytes += u8.length; }
+			while (i < files.length) { const f = files[i++]; const u8 = readFileSync(join(dir, f)); const g = await putObject("GIS/plateau/" + rel + f, u8, "application/octet-stream"); gzBytes += g; n++; bytes += u8.length; }   // `x += await …` は await 前に x を読む＝並行で加算が消える（横浜中区 23.8MB→"gzip 1.8MB" の実測）
 		}));
 		const mf = readFileSync(join(dir, "manifest.json"));   // 最後＝マニフェストが見えた時には本体が揃っている（クライアントの 404 → 生経路の判定に矛盾を作らない）
 		gzBytes += await putObject("GIS/plateau/" + rel + "manifest.json", mf, "application/json"); n++; bytes += mf.length;
