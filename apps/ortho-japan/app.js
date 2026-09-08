@@ -3910,8 +3910,12 @@ map.gadget("demo", function (opts) {   // デモ（発表の台本再生）… �
 		// 返り値＝進捗指紋の文字列（空=静か）：demo側は「指紋が動く間だけ」待つ＝止まった待ち（オフライン等）は打ち切れる。
 		loadingActive: () => {
 			const base = cam.zoom >= 4 && readySig !== mainDesired;
-			if (!plateauAutoLoading.size && !elevBusy && !base) return "";
-			return `A${[...plateauAutoLoading.keys()].join(".")}|P${[...plateauProg.values()].map(p => p.done ?? p.scan ?? 0).join(".")}|E${elevN}|B${base ? 1 : 0}`;
+			// 待つのは「これから見える区」だけ＝demote（視界外の在庫化）・cancel 中の区は指紋に載せない。旧・全ロード中区の
+			// 進捗を載せていたため、目の前の区が読み終わっても隣の在庫区のバッチ進捗が動き続けて上限（20s）まで幕が進まなかった
+			//（本人報告 2026-09-08「途中で Plateau の読みが終わると再開しない」＝R2 焼きで本命が数秒で終わるようになり顕在化）
+			const shown = [...plateauAutoLoading.keys()].filter(n => !plateauDemoted.has(n) && !plateauCancelling.has(n));
+			if (!shown.length && !elevBusy && !base) return "";
+			return `A${shown.join(".")}|P${shown.map(n => { const p = plateauProg.get(n); return p ? (p.done ?? p.scan ?? 0) : "-"; }).join(".")}|E${elevN}|B${base ? 1 : 0}`;
 		},
 		// 静穏窓フック（裁定2026-08-12）＝書き終わり直後の一拍で「残り台本に出ない」常駐区を降ろす（上の trim 参照）
 		onQuiet: views => plateauTrimForScript(views),

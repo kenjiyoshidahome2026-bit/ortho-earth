@@ -190,16 +190,17 @@ export function demo({ scenes, slide: slideOn = true, hold = 5.5, slideHold = 4,
 		// autoPlateau立ち上げ中は滞在計時を始めない＝テロップだけが絵より先に進まない（非力機は尺が伸びる側に倒す）。
 		// 字幕は点けたまま待つ（シーンには着いている＝街が立ち上がる過程も画のうち）。
 		// loadingActive()＝busyの進捗指紋（文字列・空=静か）：指紋が動く間は待ち続け（PLATEAUバッチ・標高枚数等）、
-		// 3秒不変なら打ち切り＝オフライン/タイル取得失敗の行を堰き止めない。20秒＝総上限（信号消し忘れの保険）。
-		// 5→3秒（2026-08-12実機「特にPlateau以外で静止が長い」＝基図の合図は0/1で進捗が見えず猶予いっぱい待ちがち）。
+		// 1.5秒不変なら打ち切り＝オフライン/タイル取得失敗の行を堰き止めない。6秒＝総上限（信号消し忘れの保険）。
+		// 5→3秒（2026-08-12実機「特にPlateau以外で静止が長い」＝基図の合図は0/1で進捗が見えず猶予いっぱい待ちがち）
+		// →3→1.5秒・20→6秒（2026-09-08 本人「読み込みが早くなったので 20 秒待ちは要らない」＝R2 焼きで区が数秒・バッチ進捗は 0.4s 刻み）。
 		const t0 = performance.now();
 		let loadSig = "", loadT = t0;
 		const arm = () => {
 			if (flightActive?.()) { caption(scenes[idx]?.path ? !slide.classList.contains("open") : false); timer = setTimeout(arm, 200); return; }   // path（連続ドリー）は移動中も字幕を出す＝川を遡る間ずっと見出しが乗る
 			const busy = loadingActive?.() || "";
-			if (busy && performance.now() - t0 < 20000) {
+			if (busy && performance.now() - t0 < 6000) {
 				if (busy !== loadSig) { loadSig = busy; loadT = performance.now(); }
-				if (performance.now() - loadT < 3000) { caption(!slide.classList.contains("open")); timer = setTimeout(arm, 200); return; }
+				if (performance.now() - loadT < 1500) { caption(!slide.classList.contains("open")); timer = setTimeout(arm, 200); return; }
 			}
 			// ★静穏窓（裁定2026-08-12「書き終わった後の静かな時間を活用」）＝ゲートが開いた直後の一拍（行ごと1回）：
 			// 残りの台本の視点列を渡し、app 側が「もう出ない」重い物の大掃除等を行う（掃除の失敗は演出を壊さない）。
