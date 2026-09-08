@@ -153,7 +153,7 @@ async function uploadSet(set) {
 	for (const ell of MODES) {
 		const rel = bakeDir(set.base, DECODE_VER, ell), dir = join(OUT, rel);
 		if (!existsSync(join(dir, "manifest.json"))) continue;
-		if (await remoteHas("GIS/plateau/" + rel + "manifest.json")) { skipped++; continue; }
+		if (!FORCE && await remoteHas("GIS/plateau/" + rel + "manifest.json")) { skipped++; continue; }   // --force＝R2 にあっても押し直す（再焼き後の差し替え）
 		const files = readdirSync(dir).filter(f => f.endsWith(".plq"));
 		let i = 0;
 		await Promise.all(Array.from({ length: UPLOAD_PAR }, async () => {
