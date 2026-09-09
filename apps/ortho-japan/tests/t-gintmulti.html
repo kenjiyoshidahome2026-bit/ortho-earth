@@ -139,7 +139,24 @@ try {
 	ok(`pick B層折れ線(fid=${fidB})`, fidB === 8);
 	gint.leave();
 
-	// ── ⑤ remove は層別 ──
+	// ── ⑤ z-order：order 指定＝トグル順に依らない重ね順（後から足しても order が小さければ下）──
+	gint.style({ fillColor: [1, 0, 0, 1] });   // A を不透明に＝下の緑が透けない事の検定
+	const LC = gint.addLayer({ order: 0 });    // 既定層（自動 order=1）より下
+	{
+		const { arcBuffer, arcMeta } = buildArcs([
+			[[Ca[0] - d, Ca[1] - d, 1, 0], [Ca[0], Ca[1] - d * 0.9, 0, 30], [Ca[0] + d, Ca[1] - d, 1, 0]],
+			[[Ca[0] - d, Ca[1] - d, 1, 0], [Ca[0], Ca[1] + d, 0, 30], [Ca[0] + d, Ca[1] - d, 1, 0]],
+		]);
+		LC.set({ arcBuffer, arcMeta, polyStream: Int32Array.from([3, 1, 2, 0, ~1]), minZoom: 2 });
+		LC.style({ fillColor: [0, 1, 0, 1] });   // A と同一幾何の緑＝order 0 なら完全に隠れる
+	}
+	a8 = await shot(cam);
+	let grn = 0;
+	for (let i = 0; i < a8.length; i += 4) if (a8[i + 1] > 150 && a8[i] < 130 && a8[i + 2] < 130) grn++;
+	ok(`z-order(緑=${grn} 赤=${count(a8, "red")})`, grn < 20 && count(a8, "red") > 800);
+	LC.remove();
+
+	// ── ⑥ remove は層別 ──
 	LB.remove();
 	a8 = await shot(cam);
 	ok(`B除去(シアン=${count(a8, "cyan")} 赤=${count(a8, "red")})`, count(a8, "cyan") < 20 && count(a8, "red") > 800);

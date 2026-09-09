@@ -230,7 +230,7 @@ const dispatch = e => {
 		case "set":
 			// gint 系＝m.layer で層を指名（gint draw spec §4 の多層プロトコル・2026-09-09）。layer 無し＝既定層（従来と同形）。
 			// 追加層は WebGPU 限定（addLayer は gpu/gint.js のみ・GL2 は後追い方針）＝GL2 では gintAdd が ack にエラーを載せ、以後の層指名は黙って無視。
-			if (m.cmd === "gintAdd") { const okA = !!gint?.addLayer; if (okA) gintLs.set(m.layer, gint.addLayer({ id: m.layer })); postMessage({ action: "gintAck", cmd: "gintAdd", layer: m.layer, error: okA ? null : "no-multilayer" }); }
+			if (m.cmd === "gintAdd") { const okA = !!gint?.addLayer; if (okA) gintLs.set(m.layer, gint.addLayer({ id: m.layer, order: m.data?.order ?? null })); postMessage({ action: "gintAck", cmd: "gintAdd", layer: m.layer, error: okA ? null : "no-multilayer" }); }
 			else if (m.cmd === "gintRemove") { const h = gintLs.get(m.layer); if (h) { h.remove(); gintLs.delete(m.layer); } }
 			else if (m.cmd === "gintActivate") { (m.layer != null ? gintLs.get(m.layer) : gint)?.activate?.(); }
 			else if (m.cmd === "gint") { const g = gTgt(m); if (g) { g.set(m.data, m.prop); if (m.layer != null) postMessage({ action: "gintAck", cmd: "gint", layer: m.layer, error: null }); } }   // 知性の層のペイロード差し替え（prop=スロットキー "coast"/"user"、null=そのスロットを空化）。層指名はロード完了 ack（bakeBase 同期ゆえこの時点で搭載済み）
