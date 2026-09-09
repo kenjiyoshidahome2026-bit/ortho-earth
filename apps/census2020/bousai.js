@@ -4,36 +4,21 @@
 // gint スタックの作法（gint draw spec の restyle 哲学）:
 //   ・データセット集合が変わった時だけ FC 合成→gint 焼き（IDB cache: stack://{code}/{sig}＝2回目爆速）
 //   ・トグルの見た目切替は fid スタイル表の再計算のみ（ジオメトリ再構築ゼロ）…単一ソース時は直載せの高速路
-// 3Dの絵作り: 真俯瞰=ランク色の2D塗り（ハザードマップ見せ切り）⇄ チルト=pitch-watcher が standupGint(2)
-//   ＝実スケール地形のドレープ境界線＋PLATEAU 突き刺し（エンジン既存ゲートの転用・改造なし）。
+// 3Dの絵作り: 層別ドレープ（エンジンが面も線も depth ctx で地形に乗せる）＋PLATEAU 突き刺し。
+//   旧・pitch-watcher（standupGint の gintBld 舞踏）は多層化で不要＝2026-09-09 退場（git 履歴が正）。
 import { geopbf } from "geopbf";
-import { nativeBucket } from "native-bucket";
 import { loadMoj, mojSource, probeBucket } from "./moj.js";
 import { loadMaff, maffCode } from "./maff.js";
 import { escHtml } from "./ui/shared.js";
 import { DESIGNATED_CITIES } from "./jp/codes.js";
 
 const API = "https://api.ortho-earth.com";
-const DRAPE_LIFT_M = 2;
-const PITCH_UP = 0.025, PITCH_DOWN = 0.015;   // 真俯瞰⇄チルトのヒステリシス（rad）
 const HINAN_MAX = 1500;                        // 市区町村 bbox 内マーカー上限（DOM 予算）
 const HINAN_FLAGS = ["洪水", "土砂", "高潮", "地震", "津波", "大火", "内水", "火山"];   // bake の flags ビット順
 
 const A31_COLORS = ["#c6dbef", "#9ecae1", "#6baed6", "#4292c6", "#2171b5", "#08519c"];   // 浸水深ランク1..6
 const A31_DEPTH = { 1: "〜0.5m", 2: "0.5〜3.0m", 3: "3.0〜5.0m", 4: "5.0〜10.0m", 5: "10.0〜20.0m", 6: "20.0m〜" };   // A31b_101/201 浸水深ランク→ラベル（計画/最大 共通尺）
-// スタック層の持参スタイル（style0=塗り未使用・style1=線）。線は淡く＝ランク塗りが主役。
-// rgb はドレープ線色（standupGint が styleTable[4..6] を読む）＝チルトの見せ場用に暖色。
-const STACK_STYLE = (() => {
-	const t = new Float32Array(256 * 4);
-	t.set([0, 0, 0, 0], 0);
-	t.set([1.0, 0.55, 0.15, 0.22], 4);
-	return { styleTable: t, lineWidth: 0.6, maskColor: [0, 0, 0, 0], hiliteColor: [0.16, 0.40, 0.70, 1.0] };   // ホバー=線のみ（マスク撤去）＋ホバー線は町丁目と同じ青
-})();
-const hex2rgb = h => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
-const packRGBA = (h, a) => { const [r, g, b] = hex2rgb(h); return ((r << 24) | (g << 16) | (b << 8) | Math.round(a * 255)) >>> 0; };
 
-let _cacheP = null;
-const getCache = () => (_cacheP ||= nativeBucket(API).Cache("GIS/pbf"));
 const gunzipBuf = async buf => {
 	const h = new Uint8Array(buf, 0, 2);
 	return (h[0] === 0x1f && h[1] === 0x8b)
@@ -57,9 +42,7 @@ export function initBousai(map, { bboxForCode, cityGeomForCode, legend, onStackA
 	const on = new Set();              // 点灯中の gint レイヤ key
 	let hinanOn = false;
 	let stackApplied = false;          // gint スロットをスタックが占有中か
-	let soloSrc = null;                // 単独点灯中の層 key（筆の高速路は feature に _src が無い＝クリック種別判定用）
 	let a31Mode = "max", a31PlanOk = false;   // 洪水の規模＝max:想定最大(-20-)⇄plan:計画(-10-)。状態1本＝排他が構造（本人裁定2026-08-29）
-	let draped = false, drapePending = false, stackDrapeFill = false;
 	let seq = 0;                       // 再入ガード（連打・都市切替中の非同期競合）
 	const fcCache = new Map();         // `${city}/${key}` → Feature[]（セッション内メモ）
 
@@ -89,7 +72,7 @@ export function initBousai(map, { bboxForCode, cityGeomForCode, legend, onStackA
 		b.addEventListener("click", () => {
 			if (a31Mode === m || b.disabled) return;
 			a31Mode = m; syncChips();
-			if (on.has("a31")) (useML() ? syncML() : rebuildStack());   // 点灯中の切替＝即差し替え（ML=規模別レイヤの表示切替・従来=モード別 fcCache）
+			if (on.has("a31")) syncML();   // 点灯中の切替＝規模別レイヤの表示切替（モード別キャッシュで往復爆速）
 		});
 		a31Seg.appendChild(b); segBtns.set(m, b);
 	}
@@ -323,7 +306,7 @@ export function initBousai(map, { bboxForCode, cityGeomForCode, legend, onStackA
 	// 筆層のホバーtip＝筆の情報（moj=大字・地番／maff=田畑）。点灯中は町丁目tipと排他（エンジン側で tip 持参層が主導）。
 	// ホバーの見た目は従来の線ハイライトのまま（本人裁定2026-08-18「ホバーは線太化でいい」）。
 	const FUDE_TIP = p => {
-		const src = p._src || soloSrc || "moj";
+		const src = p._src || "moj";
 		if (src === "moj") return [`${p["大字名"] || p.oaza || ""} ${p["地番"] || p.chiban || ""}`.trim() || "筆", "登記所備付地図（14条）"];
 		if (src === "maff") return [+p.land_type === 100 ? "田" : +p.land_type === 200 ? "畑" : "農地", "筆ポリゴン（農林水産省）"];
 		return null;   // ハザード面＝tipなし（凡例とクリックカードで読む）
@@ -337,9 +320,8 @@ export function initBousai(map, { bboxForCode, cityGeomForCode, legend, onStackA
 	//   ・チルト＝エンジンの層別ドレープ（面も線も depth ctx で地形に乗る）＝standupGint(gintBld) 舞踏は不使用
 	// 両バックエンド対応（2026-09-09 GL2 addLayer 整合）。admin コロプレスは点灯時に clearUserGint で
 	// スロットから退避（合成経路の「置換」と同じ見た目）・全消灯で onStackCleared→applyAdmin 復帰（既存の分業）。
-	const useML = () => !/[?&]ml=0/.test(location.search) && !!window.__backend && typeof map.addGint === "function";
 	const ML_ORDER = { a33: 10, a31: 20, moj: 30, maff: 40 };   // 面のハザードが下・線の筆が上（GINT_LAYERS の合成順と同義）
-	const ML_PAINT = {   // buildStackTable と同色（alpha は hex8: 0.5=80/0.42=6b/0.9=e6/0.18=2e）
+	const ML_PAINT = {   // 旧・合成スタックの塗り表と同色（alpha は hex8: 0.5=80/0.42=6b/0.9=e6/0.18=2e）
 		a33: { "fill-color": ["match", ["get", "kbn"], 2, "#c0392b80", "#d9a4416b"], "line-width": 0 },
 		a31: { "fill-color": ["match", ["get", "rank"], 6, "#08519c80", 5, "#2171b580", 4, "#4292c680", 3, "#6baed680", 2, "#9ecae180", "#c6dbef80"], "line-width": 0 },
 		moj: { "line-color": "#ff8c26e6", "line-width": 1 },
@@ -397,14 +379,14 @@ export function initBousai(map, { bboxForCode, cityGeomForCode, legend, onStackA
 		const fude = (on.has("maff") && mlLayers.get("maff")) || (on.has("moj") && mlLayers.get("moj")) || null;
 		fude?.h.activate();
 		const any = lit.length > 0;
-		if (any && !stackApplied) { stackApplied = true; soloSrc = null; map.clearUserGint?.(); onStackApplied?.(); }   // admin コロプレスをスロットから退避（合成経路の「置換」と同じ見た目）
+		if (any && !stackApplied) { stackApplied = true; map.clearUserGint?.(); onStackApplied?.(); }   // admin コロプレスをスロットから退避
 		if (!any && stackApplied) { stackApplied = false; onStackCleared?.(); }   // 全消灯＝onStackCleared が admin/凡例を復元＝ここで legend(null) を重ねない（復元凡例を消す事故）
 		if (any) legend?.(hazardLegend(lit));
 		say("");
 	}
 	// ML クリック＝層をまたぐ照会（手前の層から・点灯中の層だけ）→ 種別カード。admin ドリルは slotOwner の分業のまま
 	map.on?.("click", ({ lngLat, hits }) => {
-		if (!useML() || !stackApplied) return;
+		if (!stackApplied) return;
 		for (const t of hits) {
 			const ent = [...mlLayers.entries()].find(([, e]) => e.h === t.layer);
 			if (!ent) continue;   // ML 外の層（既定スロット等）は bind 側の分業
@@ -414,107 +396,6 @@ export function initBousai(map, { bboxForCode, cityGeomForCode, legend, onStackA
 			return;
 		}
 	});
-	async function rebuildStack() {
-		const mySeq = ++seq;
-		const code = city;
-		const keys = GINT_LAYERS.map(l => l.key).filter(k => on.has(k));
-		if (!code || !keys.length) {   // 全消灯＝スタック解除 → admin コロプレスへ返す
-			if (stackApplied) { stackApplied = false; draped = false; map.standupGint(null); onStackCleared?.(); }
-			say("");
-			return;
-		}
-		let pbf = null;
-		const sig = keys.slice().sort().join("+");
-		if (keys.length === 1 && (keys[0] === "moj" || keys[0] === "maff")) {
-			pbf = keys[0] === "moj" ? await loadMoj(code, { onStatus: say }) : await loadMaff(code, { onStatus: say });   // 単一筆＝直載せの高速路（再焼きゼロ・moj.js/maff.js が IDB 持ち）
-		} else {
-			// a33/a31 を含む合成は IDB に焼かない：原典KSJは geopbf の URL キャッシュ（県/メッシュ単位）が正典で、
-			// 合成物を市ごとに焼くと肥大＋原典との二重管理。原典（URLキャッシュ命中で速い）から都度 境界クリップ再合成する。
-			// ＝残る stack キャッシュは非a33/非a31（筆のみ 等）＝内容は production と不変 → 版は v2 据置（IDBを一切変えない）。
-			const useStackCache = !keys.includes("a33") && !keys.includes("a31");
-			const stackKey = `stack://v2/${code}/${sig}`;
-			const cache = await getCache();
-			const val = useStackCache ? await cache(stackKey).catch(() => null) : null;
-			if (val?.PBF) {   // 2回目＝合成済みを IDB から復元（焼きゼロ）
-				pbf = await geopbf(val.PBF, { gint: false, name: stackKey });
-				if (val.GINT) await pbf.setGintBUF(val.GINT).catch(() => null);
-				if (!pbf?.unPackGint) pbf = null;
-			}
-			if (!pbf) {
-				const parts = await Promise.all(keys.map(k => sourceFC(code, k)));
-				if (mySeq !== seq) return;   // 合成中にトグルが変わった＝この結果は捨てる
-				const features = parts.flatMap(p => p || []);
-				if (!features.length) { say("データが空でした"); return; }
-				say(`重ね焼き中…（${features.length.toLocaleString()}地物）`);
-				pbf = await geopbf({ type: "FeatureCollection", features }, { gint: true, name: stackKey });
-				if (useStackCache && pbf?.unPackGint) {
-					const GINT = new Uint8Array(pbf._gintBuffer).slice().buffer;
-					cache(stackKey, { PBF: pbf.arrayBuffer, GINT }).catch(() => {});
-				}
-			}
-		}
-		if (mySeq !== seq) return;
-		if (!pbf?.unPackGint) { say("読み込みに失敗しました"); return; }
-		// 持参スタイル＝線は気配に落とす（既定オレンジ1pxは小ポリゴンの塗りを覆い隠す＝admin_fill と同じ轍）。
-		// 筆のみ（moj/maff）の高速路は例外＝筆は線が主役なので既定のまま。style1 の rgb はドレープ線色にも使われる
-		//（standupGint 参照）＝防災の見せ場に合う暖色を残す。
-		const hazard = keys.includes("a33") || keys.includes("a31");
-		soloSrc = keys.length === 1 ? keys[0] : null;
-		map.applyGintData(pbf, `census2020/${code}/${sig}`, false, { minZoom: 10, style: (sig === "moj" || sig === "maff") ? null : STACK_STYLE, drapeFill: (stackDrapeFill = hazard), hover: !hazard, tip: hazard ? null : FUDE_TIP });   // 防災の面=チルトで斜面ドレープ＋ホバー処理オフ（クリック属性カードは生存）。筆のみ＝筆tip持参（町丁目tipと排他）
-		stackApplied = true; draped = false;
-		onStackApplied?.();
-		buildStackTable(pbf, soloSrc);
-		legend?.(hazardLegend(keys));   // 防災層の凡例（浸水深ランク/警戒区分）。解除で bind が choro.refreshLegend 復元
-		say("");
-		watchPitch();   // 現姿勢がチルトなら即ドレープ
-	}
-	// fid スタイル表＝_src とランクで塗り分け（トグルの見た目はこの表の再計算だけで変わる）
-	// solo＝単独点灯の層 key（筆の高速路は feature に _src が無い＝層 key で決め打ち）／null＝合成＝_src で判定
-	function buildStackTable(pbf, solo) {
-		const n = pbf.fmap?.length ?? 0;
-		if (!n) return;
-		const u32 = new Uint32Array(n * 4);
-		const lineMoj = packRGBA("#ff8c26", 0.9);   // 14条筆の系統色（塗りなし・線だけ）
-		for (let i = 0; i < n; i++) {
-			let p = {};
-			try { p = pbf.getProperties(i) ?? {}; } catch { /* 壊れ feature */ }
-			const src = solo ?? p._src;
-			let fill = 0, line = 0, w8 = 8;
-			if (src === "moj") { line = lineMoj; }
-			else if (src === "maff") {
-				const c = MAFF_LINE[+p.land_type] ?? MAFF_LINE[200];   // 田/畑の二色
-				line = packRGBA(c, 0.9);
-				fill = packRGBA(c, MAFF_FILL_ALPHA);   // 同色相の淡塗り（moj は線のみのまま）
-			}
-			else if (src === "a33") {
-				const sp = +p.kbn === 2;   // 2=特別警戒（レッド）/ 1=警戒（イエロー）。GeoPBFはINTEGER復元
-				fill = packRGBA(sp ? "#c0392b" : "#d9a441", sp ? 0.5 : 0.42);   // 面のみ＝土砂は塗りが主役・斜面にドレープ（本人裁定 2026-08-13）
-				line = 0;   // 線を捨てる（本人裁定：土砂は線でなく面でのみ見せる）
-			} else if (src === "a31") {
-				const r = Math.max(1, Math.min(6, +p.rank || 1));
-				fill = packRGBA(A31_COLORS[r - 1], 0.5);
-			}
-			u32[i * 4] = fill; u32[i * 4 + 1] = line;
-			u32[i * 4 + 2] = ((w8 << 24) | (6 << 8) | 1) >>> 0;
-		}
-		map.paintTable(u32, n);
-	}
-	// pitch-watcher：真俯瞰=2D塗り ⇄ チルト=地形ドレープ線（standupGint は重い＝跨ぎ時だけ・再入ガード）
-	async function watchPitch() {
-		if (!stackApplied || drapePending || useML()) return;   // ML＝エンジンの層別ドレープに委ねる（gintBld 舞踏なし）
-		if (stackDrapeFill) return;   // 面ドレープ層＝塗りが gv=true で斜面に乗る＝standupGint(線ドレープ)は使わない
-		const p = map.cam.pitch || 0;
-		if (!draped && p > PITCH_UP) {
-			drapePending = true; draped = true;
-			await map.standupGint(DRAPE_LIFT_M).catch(() => { draped = false; });
-			drapePending = false;
-		} else if (draped && p < PITCH_DOWN) {
-			drapePending = true; draped = false;
-			await map.standupGint(null).catch(() => {});
-			drapePending = false;
-		}
-	}
-	map.onFrame(() => { if (stackApplied) watchPitch(); });
 
 	// --- 避難場所マーカー層（DOM・gint と独立） ---
 	const layerEl = document.createElement("div");
@@ -602,7 +483,7 @@ export function initBousai(map, { bboxForCode, cityGeomForCode, legend, onStackA
 			if (hinanOn) loadHinan(city); else { clearMarkers(); say(""); }
 		} else {
 			on.has(key) ? on.delete(key) : on.add(key);
-			useML() ? syncML() : rebuildStack();   // ML＝トグルは setVisible（再焼きゼロ）／従来＝合成再焼き
+			syncML();   // トグル＝setVisible（層は保持＝再焼きゼロ）
 		}
 		syncChips();
 	}
@@ -610,7 +491,7 @@ export function initBousai(map, { bboxForCode, cityGeomForCode, legend, onStackA
 		if (city !== code) {   // 都市替え＝前の都市の点灯を引き継がない（データが別物）
 			city = code;
 			on.clear(); hinanOn = false; clearMarkers(); mlClearLayers();
-			if (stackApplied) { stackApplied = false; draped = false; map.standupGint(null); onStackCleared?.(); }
+			if (stackApplied) { stackApplied = false; onStackCleared?.(); }
 		}
 		wrap.style.display = "inline-flex";
 		syncChips();
@@ -620,12 +501,12 @@ export function initBousai(map, { bboxForCode, cityGeomForCode, legend, onStackA
 		city = null; seq++;
 		on.clear(); hinanOn = false; clearMarkers(); mlClearLayers(); say("");
 		wrap.style.display = "none";
-		if (stackApplied) { stackApplied = false; draped = false; map.standupGint(null); onStackCleared?.(); }
+		if (stackApplied) { stackApplied = false; onStackCleared?.(); }
 	}
 	// スタック地物クリック（bind 経由）＝種別に応じた属性カード
 	function onFeatureClick(fid, props, lnglat) {
 		if (!props) return;
-		const src = props._src || soloSrc || "moj";   // 筆の高速路（moj/maff 単独）は _src 無し＝点灯中の層 key で判定
+		const src = props._src || "moj";   // ML の click 経路は _src を必ず刻印済み（map.on('click') ルート）
 		// click 応答に経緯度が無い個体がある（renderworker の返り実測）＝その時は画面中央へ置く
 		let x = map.mapEl.clientWidth / 2, y = map.mapEl.clientHeight / 2;
 		if (lnglat && Number.isFinite(+lnglat[0])) {

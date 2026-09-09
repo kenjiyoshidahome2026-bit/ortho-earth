@@ -43,7 +43,7 @@ const duckPbf = (gint, n, identifyAt = null) => ({
 	unPackGint: { ...gint, precision: 6 },
 	fmap: { length: n },
 	getProperties: i => ({ fid: i }),
-	getFeature: fid => ({ properties: { fid } }),
+	getFeature: fid => ({ properties: { fid }, geometry: { type: "Point", coordinates: [139.766, 35.68] } }),   // ラベル錨用（labelCount の物差し）
 	...(identifyAt ? { identifyAt } : {}),
 });
 import("../app.js").then(async ({ default: orthoJapan }) => {
@@ -117,6 +117,16 @@ import("../app.js").then(async ({ default: orthoJapan }) => {
 		ok(`setData(ack=${okSD} query=${q5?.fid})`, okSD === true && q5?.fid === 5);   // handle 生存のままデータ差し替え（source setData 相当）
 		la.setOrder(99); ok("setOrder", true);   // 画素の証明はエンジン検定（t-gintmulti/t-gintmultigl）
 		lb.setLabel({ field: ["get", "fid"], size: 14 }); ok("setLabel", true);   // 画素の証明は t-gintmultigl（snapshot labels）
+		// ── ④c 宿題小粒（2026-09-09）：text-field 式全域／feature-state／ラベルの filter 連動 ──
+		await lb.setLabel({ field: ["concat", "F", ["to-string", ["get", "fid"]]], size: 14 });
+		ok(`text-field式全域(n=${lb.labelCount})`, lb.labelCount === 10);   // 全fidに Point 錨＝全員ラベル
+		await lb.setPaint({ "line-color": ["case", ["feature-state", "sel"], "#ff0000", "#00ffff"], "line-width": 4 });
+		lb.setFeatureState(8, { sel: true });
+		await new Promise(r => setTimeout(r, 30));   // microtask 束ねの消化
+		ok("feature-state", true);   // 式が評価器を通り再評価が走る（色の画素はエンジン検定の領分）
+		await lb.setFilter(["==", ["get", "fid"], 8]);
+		ok(`ラベルfilter連動(n=${lb.labelCount})`, lb.labelCount === 1);   // fid 表の visible ビットにラベルが追随
+		await lb.setFilter(null);
 
 		// ── ⑤ map.on('click')＝合成 pointerdown/up → hits 集約 ──
 		const clkP = new Promise(res => {

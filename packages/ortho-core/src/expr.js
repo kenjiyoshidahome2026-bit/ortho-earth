@@ -109,6 +109,9 @@ function build(e) {
 		case "max": { const xs = e.slice(1).map(compile); return ctx => { let m = -Infinity; for (const f of xs) { const v = f(ctx); if (v > m) m = v; } return m; }; }
 		case "to-number": { const a = compile(e[1]); return ctx => Number(a(ctx)); }
 		case "coalesce": { const xs = e.slice(1).map(compile); return ctx => { for (const f of xs) { const v = f(ctx); if (v != null) return v; } return null; }; }
+		case "feature-state": { const k = compile(e[1]); return ctx => ctx.state?.[k(ctx)]; }   // 層の一時状態（hover/選択…）＝gint layer.setFeatureState。基図 ctx は state 無し＝undefined（無害）
+		case "concat": { const xs = e.slice(1).map(compile); return ctx => xs.map(f => f(ctx) ?? "").join(""); }   // text-field 用（maplibre 同名）
+		case "to-string": { const a = compile(e[1]); return ctx => { const v = a(ctx); return v == null ? "" : String(v); }; }
 		default: (globalThis.__orthovtUnknownOps ||= new Set()).add(op); return () => undefined;
 	}
 }
