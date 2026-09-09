@@ -557,7 +557,8 @@ let printHold = false;
 let gintLayerSeq = 0;
 const extGint = new Map();   // layer id → handle（identify/click/ack ルーティング先）
 let extActive = null;        // カーソルを持つ追加層の id（null＝既定層＝従来ゲート）
-const mapOn = { click: [] };   // map.on('click') の登録簿（§4＝hits は queryAll と同型・手前の層から）
+const mapOn = { click: [], move: [], load: [] };   // map.on の登録簿（§4: click=hits 同型／move=カメラ更新／load=frame1）
+let mapLoaded = false;   // 'load' 後の登録は即発火（maplibre 同様の耳）
 renderWorker.onmessage = e => {
 	const d = e.data;
 	// --- gint（知性の層＝render worker に同居）の返信面（action=旧 gint worker と同形） ---
@@ -588,6 +589,7 @@ renderWorker.onmessage = e => {
 		clearTimeout(bootT); bootT = null; dbgHost.__backend = d.backend || "webgl2"; sessionStorage.removeItem("oj.ctxlost");   // 初描画成功＝自動リロード回数もリセット。__backend＝スモークテスト用（webgl2/webgpu）
 		document.getElementById("fatal")?.remove();   // 遅い回線でウォッチドッグ(10s)が先に出た後の遅着 frame1＝案内を畳む（地図は生きているのに被さったまま＝「何も出ない」の正体・モバイル実測 2026-08-02）
 		console.log(`[boot] frame1 received backend=${dbgHost.__backend}`);
+		if (!mapLoaded) { mapLoaded = true; for (const cb of mapOn.load) { try { cb({}); } catch (e) { console.error("[map.on load]", e); } } }
 		diagHud && diagHud("frame1", `received ✓ backend=${dbgHost.__backend}`);
 		// フォールバック GL2 の画面表示（柔らか鍵の③）：黙って重いモードで走らない。タップ＝印を全消しして
 		// WebGPU 再試行（CNG フリートで端末を覗いた瞬間に状態が分かる・観客の端末でも1タップで復帰を試せる）。
@@ -1605,6 +1607,7 @@ const groundRNow = () => {
 };
 
 function onMove() {
+	for (const cb of mapOn.move) { try { cb({ center: [cam.center[0], cam.center[1]], zoom: cam.zoom, pitch: cam.pitch, bearing: cam.bearing }); } catch (e) { console.error("[map.on move]", e); } }
 	cam.center[0] = wrapLon(cam.center[0]);   // パン/回転/フライトの累積を毎移動で正規化＝float32原点相対の前提を守る（階段バグ根治）
 	moving = true; needsDraw = true;
 	idleCalm = false; clearTimeout(calmT);     // 動いた瞬間に「本当の静止」を取り下げ（詳細化は許可待ちに戻る）
@@ -1616,7 +1619,7 @@ function onMove() {
 	// 知性の層(gint)は render worker が frame 末尾に同フレーム同カメラで描く（1canvas統合＝泳ぎ・チルト opacity 手当てとも消滅）。
 	clearTimeout(settleT);
 	settleT = setTimeout(() => {
-		moving = false; needsDraw = true; commitUnderground(); wPost({ type: "gintDrawn" }); autoPlateau(true); if (!printHold) saveView();   // 停止後に identify(picking)＋PLATEAU確定（settled＝ロード発火/レーン切替はこの瞬間だけ）＋ビュー保存＋地中フェード確定（止まったら地中=全黒）
+		moving = false; needsDraw = true; commitUnderground(); wPost({ type: "gintDrawn" }); for (const hh of extGint.values()) hh._zoomReeval?.(cam.zoom); autoPlateau(true); if (!printHold) saveView();   // 停止後に identify(picking)＋PLATEAU確定（settled＝ロード発火/レーン切替はこの瞬間だけ）＋ビュー保存＋地中フェード確定（止まったら地中=全黒）
 		calmT = setTimeout(() => { idleCalm = true; needsDraw = true; }, 550);   // さらに550ms（停止から計700ms）＝ホイール刻みを跨いだ「本当の静止」でだけ手前詳細化
 	}, 150);
 	schedulePos();   // 座標読み取りもカメラに追随（rAF畳み込み＝タダ同然）
@@ -2073,21 +2076,61 @@ dbgHost.__paint = paintGint;
 function addGint(pbf, opts = {}) {
 	if (!pbf?.unPackGint) { console.error("[addGint] invalid source (unPackGint missing) = pass geopbf(…, {gint:true})"); return null; }
 	const id = "gl" + (++gintLayerSeq);
-	const g = pbf.unPackGint;
+	let g = pbf.unPackGint;
 	if (opts.fillMaxEdges) g.fillMaxEdges = opts.fillMaxEdges;
 	if (opts.lowFill) g.lowFill = true;
-	let ackRes; const ready = new Promise(res => { ackRes = res; });
-	const handlers = { hover: [], click: [] };
+	// ack は待ち行列（初回 ready ＋ setData の再ロード完了を同じ経路で受ける）
+	const ackQ = [];
+	const nextAck = () => new Promise(res => ackQ.push(res));
+	const ready = nextAck();
+	const handlers = { hover: [], click: [], mouseenter: [], mouseleave: [] };   // mouseenter/leave＝MapLibre 同名の糖衣（hover の縁で発火）
+	let lastHovFid = null;
+	let lastPaint = null, lastFilter = null, zoomDriven = false, lastEvalZoom = null;   // ③ zoom×data-driven 合成＝settle 再評価（式は snapshot 評価・§6-3 の逃げ道を自動化）
+	let labelOpt = opts.label ?? null;   // ② ラベル（text-field 相当）＝{ field, size?, color?, halo?, haloW?, sort?, minZoom?, maxZoom? }
+	// text-field の v1 サブセット：文字列リテラル／['get', key]／関数(props→string)。式全域は §6 の評価器に future 統合
+	const evalText = (fld, pr) => typeof fld === "function" ? fld(pr)
+		: Array.isArray(fld) && fld[0] === "get" ? pr?.[fld[1]]
+		: typeof fld === "string" ? fld : null;
+	const anchorOf = fid => {   // ラベル錨＝面/線は bbox 中心（gint整数→経緯度）・点は geometry 直参照
+		const bb = g.polyBboxByFid?.get(fid) ?? g.lineBboxByFid?.get(fid);
+		if (bb) return [(bb[0] + bb[2]) / 2e7 - 180, (bb[1] + bb[3]) / 2e7 - 90];
+		try { const gm = pbf.getFeature(fid)?.geometry; if (gm?.type === "Point") return gm.coordinates.slice(0, 2); } catch { /* 壊れfeature */ }
+		return null;
+	};
+	const refreshLabels = () => {
+		if (!labelOpt?.field) { renderer.set("gintLabels", { list: null }, undefined, id); return; }
+		const lb = labelOpt, n = pbf.fmap?.length ?? 0, list = [];
+		for (let i = 0; i < n; i++) {
+			let pr = {}; try { pr = pbf.getProperties(i) ?? {}; } catch { /* 壊れfeature */ }
+			const txt = evalText(lb.field, pr);
+			if (txt == null || txt === "") continue;
+			const a = anchorOf(i);
+			if (!a) continue;
+			list.push({ anchor: a, text: String(txt), ...(lb.size ? { size: lb.size } : {}), ...(lb.color ? { color: lb.color } : {}),
+				...(lb.halo ? { halo: lb.halo } : {}), ...(lb.haloW != null ? { haloW: lb.haloW } : {}), ...(lb.sort != null ? { sort: lb.sort } : {}) });
+		}
+		renderer.set("gintLabels", { list, minZoom: lb.minZoom ?? opts.minZoom ?? null, maxZoom: lb.maxZoom ?? opts.maxZoom ?? null }, undefined, id);
+		needsDraw = true;
+	};
 	const props = fid => { try { return (fid != null ? pbf.getFeature(fid)?.properties : null) ?? null; } catch { return null; } };
 	// tip＝層の属性（§10.3）: true＝全属性の既定整形／fn＝持参整形（props→行配列）／無指定＝出さない（on('hover') でアプリが描く）
 	const tipFmt = opts.tip === true ? pr => Object.entries(pr).map(([k, v]) => `${k}: ${v}`) : (typeof opts.tip === "function" ? opts.tip : null);
 	const h = {
 		id, ready, order: opts.order ?? null, _seq: gintLayerSeq,
-		_ack: d => { if (d.error) { console.warn("[addGint] %s: %s (multi-layer requires WebGPU backend)", id, d.error); ackRes(false); } else if (d.cmd === "gint" || d.cmd === "gintBaked") ackRes(true); },
+		_ack: d => { if (d.error) { console.warn("[addGint] %s: %s (addLayer 不在の旧構成)", id, d.error); ackQ.shift()?.(false); } else if (d.cmd === "gint" || d.cmd === "gintBaked") ackQ.shift()?.(true); },   // gintAdd の ack は消費しない（ロード ack だけが待ち行列を進める）
 		_hover: d => {
 			const f = d.featureId != null ? { fid: d.featureId, properties: props(d.featureId) } : null;
 			for (const cb of handlers.hover) cb(f);
+			const nf = f?.fid ?? null;   // mouseenter/leave＝当たりの縁だけ発火（MapLibre 移住者の耳に馴染む形）
+			if (nf !== lastHovFid) {
+				if (lastHovFid != null) for (const cb of handlers.mouseleave) cb({ fid: lastHovFid });
+				if (nf != null) for (const cb of handlers.mouseenter) cb(f);
+				lastHovFid = nf;
+			}
 			if (tipFmt && gintHoverTip && !estatTipOwn) { const lines = f?.properties ? tipFmt(f.properties) : null; gintHoverTip(lines?.length ? lines : null); }
+		},
+		_zoomReeval: z => {   // settle 毎に呼ばれる（③）：['zoom'] を含む paint は 0.5z 動いたら再評価（restyle は安い＝§8.1）
+			if (zoomDriven && lastPaint && Math.abs(z - (lastEvalZoom ?? z)) >= 0.5) h.setPaint(lastPaint, lastFilter);
 		},
 		_click: d => { for (const cb of handlers.click) cb({ fid: d.featureId, properties: props(d.featureId), lngLat: [d.lng, d.lat] }); },
 		on: (ev, cb) => { handlers[ev]?.push(cb); return h; },
@@ -2095,15 +2138,39 @@ function addGint(pbf, opts = {}) {
 			const fid = pbf.identifyAt?.(ll[0], ll[1]);
 			return fid == null ? null : { fid, properties: props(fid) };
 		},
-		setPaint: async (paint, filter = null) => {   // 式は main で一度だけ評価→fid 表（§3 restyle 哲学＝再構築ゼロ）
+		setPaint: async (paint, filter = lastFilter) => {   // 式は main で一度だけ評価→fid 表（§3 restyle 哲学＝再構築ゼロ）。filter 省略＝現 filter 維持
+			lastPaint = paint ?? null; lastFilter = filter ?? null;
+			zoomDriven = !!paint && JSON.stringify(paint).includes('["zoom"'); lastEvalZoom = cam.zoom;
 			if (!paint) { renderer.set("gintPaint", null, undefined, id); needsDraw = true; return; }
 			const feats = fidFeaturesOf(pbf);
 			if (!feats) { console.warn("[addGint] %s: no features for paint", id); return; }
 			const { buildFidStyle } = await import("ortho-core");
-			const { u32, count } = buildFidStyle(paint, feats, { filter, zoom: cam.zoom });
+			const { u32, count } = buildFidStyle(paint, feats, { filter: lastFilter, zoom: cam.zoom });
 			renderer.set("gintPaint", { table: u32, count }, undefined, id);
 			needsDraw = true;
 		},
+		setFilter: f => {   // ③ 単独動詞（maplibre 同名）＝visibility ビットの再評価（paint 未設定は預かり＝次の setPaint で効く）
+			lastFilter = f ?? null;
+			if (lastPaint) return h.setPaint(lastPaint, lastFilter);
+			console.warn("[addGint] %s: setFilter は paint 設定後に効きます（filter は預かり済み）", id);
+			return Promise.resolve();
+		},
+		setData: (newPbf, o2 = {}) => {   // ④ データ差し替え（handle/イベント/paint は生存＝MapLibre の source setData 相当）
+			if (!newPbf?.unPackGint) { console.error("[addGint] setData: invalid source"); return Promise.resolve(false); }
+			pbf = newPbf; g = pbf.unPackGint;
+			if (opts.fillMaxEdges) g.fillMaxEdges = opts.fillMaxEdges;
+			if (opts.lowFill) g.lowFill = true;
+			if (o2.minZoom !== undefined) opts.minZoom = o2.minZoom;
+			if (o2.maxZoom !== undefined) opts.maxZoom = o2.maxZoom;
+			const p = nextAck();
+			cancelBake(id);
+			bakeAndSend(id, g, { minZoom: opts.minZoom ?? null, maxZoom: opts.maxZoom ?? null, precision: g.precision ?? null }, null, id);
+			if (lastPaint) p.then(ok2 => { if (ok2) h.setPaint(lastPaint, lastFilter); });
+			refreshLabels();
+			return p;
+		},
+		setOrder: n => { h.order = n; renderer.set("gintOrder", n, undefined, id); needsDraw = true; },   // ④ moveLayer 相当（実行時の重ね順）
+		setLabel: o => { labelOpt = o ?? null; refreshLabels(); },   // ② text-field の付け替え（null=消す）
 		style: o => { renderer.set("gintStyle", o, undefined, id); needsDraw = true; },   // 描画スタイル（fillColor/lineWidth/styleTable 等＝層の drawStyle）
 		setVisible: v => { renderer.set("gintVis", !!v, undefined, id); needsDraw = true; },
 		activate: () => { extActive = id; renderer.set("gintActivate", null, undefined, id); },
@@ -2116,6 +2183,7 @@ function addGint(pbf, opts = {}) {
 	//（legacyGintSend が layer と meta を運ぶ）。ready はどちらの ack でも解決。
 	bakeAndSend(id, g, { minZoom: opts.minZoom ?? null, maxZoom: opts.maxZoom ?? null, precision: g.precision ?? null }, null, id);
 	if (opts.style) h.style(opts.style);
+	if (labelOpt?.field) refreshLabels();   // ② ラベル（text-field）＝基図注記と同じ衝突/フェード/標高投影
 	extActive = id;   // エンジンは addLayer で自動アクティブ（§4.1）＝main のゲートも同期
 	if (opts.interactive === false) { extActive = null; renderer.set("gintActivate", null, undefined, null); }   // 明示不干渉＝カーソルを既定層へ返す
 	needsDraw = true;
@@ -3603,7 +3671,7 @@ map.applyGintData = applyGintData;
 map.clearUserGint = clearUserGint;    // 単一スロットのユーザー層を丸ごと撤去（applyGintData の対＝派生アプリのスロット調停用）
 map.addGint = addGint;              // gint 多層（v2 spec §4 の顔・両バックエンド）＝追加であって置換ではない
 map.queryAll = queryAllGint;        // 層をまたぐ照会＝{layer, fid} の対（手前の層から・§10.2）
-map.on = (ev, cb) => { mapOn[ev]?.push(cb); return map; };   // §4＝'click' のみ（hits=queryAll と同型）
+map.on = (ev, cb) => { if (ev === "load" && mapLoaded) queueMicrotask(() => cb({})); mapOn[ev]?.push(cb); return map; };   // §4: 'click'（hits=queryAll 同型）/'move'/'load'
 map.standupGint = standupGint;         // liftM=null で解除
 map.gintFeatures = gintFidFeatures;    // fid 整列 properties（式評価・表直書きの入力）
 map.paint = paintGint;                 // Mapbox式 → buildFidStyle

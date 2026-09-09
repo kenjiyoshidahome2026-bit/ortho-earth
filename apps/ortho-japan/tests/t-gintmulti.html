@@ -154,6 +154,11 @@ try {
 	let grn = 0;
 	for (let i = 0; i < a8.length; i += 4) if (a8[i + 1] > 150 && a8[i] < 130 && a8[i + 2] < 130) grn++;
 	ok(`z-order(緑=${grn} 赤=${count(a8, "red")})`, grn < 20 && count(a8, "red") > 800);
+	LC.setOrder(99);   // 実行時の重ね順変更（moveLayer 相当）＝同一幾何の緑が最上へ＝赤が隠れる
+	a8 = await shot(cam);
+	let grn2 = 0;
+	for (let i = 0; i < a8.length; i += 4) if (a8[i + 1] > 150 && a8[i] < 130 && a8[i + 2] < 130) grn2++;
+	ok(`setOrder(緑=${grn2} 赤=${count(a8, "red")})`, grn2 > 700 && count(a8, "red") < 150);   // AA フリンジ許容（同一幾何の縁）
 	LC.remove();
 
 	// ── ⑥ remove は層別 ──

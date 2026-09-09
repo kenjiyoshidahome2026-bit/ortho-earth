@@ -50,7 +50,11 @@ const layer = map.addGint(source, {
 });
 layer.setPaint(partialPaint);   // 差分更新可。コスト=式再評価+texSubImage2D 1回
 layer.setFilter(expr | null);
+layer.setData(source);          // データ差し替え（handle/イベント/paint は生存＝maplibre の source setData 相当）
+layer.setOrder(n);              // 実行時の重ね順変更（moveLayer 相当。addGint の opts.order＝生成時指定）
+layer.setLabel({ field, size?, color?, halo?, haloW?, minZoom?, maxZoom? });  // text-field 相当（下記 4.2）
 layer.on('click' | 'hover', ({ fid, feature, lngLat }) => {});
+layer.on('mouseenter' | 'mouseleave', ...);   // hover の縁で発火（maplibre 同名の糖衣）
 layer.query(lngLat)  → feature | null      // 明示照会（プログラム経路＝interactive に依らず常に効く）
 layer.activate();               // カーソル（hover/tip/ハイライト）を持つ＝常にただ1層（§4.1）
 layer.remove();
@@ -58,7 +62,19 @@ layer.remove();
 map.activeLayer                 // 現在アクティブな layer（null 可）
 map.queryAll(lngLat) → [{ layer, fid, feature }]   // 層をまたぐ照会（手前の層から）
 map.on('click', ({ lngLat, hits }) => {});          // hits = queryAll と同型（手前の層から）
+map.on('move' | 'load', cb);    // §10.5-3 の約束どおり実装時に追記（2026-09-09）。load は登録が遅くても即発火
 ```
+
+### 4.2 実装追記（2026-09-09 §4残②〜⑤・maplibre 移住者対応）
+
+- **重ね順**は `order`（小さいほど下・未指定=追加順）＝トグル順に依らない決定的 z。実行時変更は `setOrder`
+- **ラベル（symbol 相当）**は `opts.label` / `setLabel`。field の v1 サブセット＝文字列リテラル／`['get', key]`／
+  関数(props→string)。錨＝面/線は bbox 中心・点は geometry。描画は基図注記と同じ衝突/フェード/標高投影へ相乗り
+  （エンジン labels2d の利用者チャンネル）。layer の setVisible/remove/zoom 域と連動。filter 連動は未対応（宿題）
+- **zoom×data-driven 合成**（§6-3）＝settle 毎の自動再評価で成立：`['zoom']` を含む paint は、ズームが
+  0.5z 動いて静止する度に `setPaint` が自動で呼び直される（式は snapshot 評価・restyle は §8.1 のとおり安い）。
+  連続補間（毎フレーム）が要る時だけ将来の fid 列＋シェーダ lerp へ
+- **filter だけの更新**は `setFilter`（paint 設定前は預かり）。feature-state は未対応（宿題）
 
 ### 4.1 アクティブ層 ── **カーソルは1層・照会は層をまたぐ**（裁定 2026-08-19）
 
