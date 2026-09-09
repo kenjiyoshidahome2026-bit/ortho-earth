@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<!-- t-convert-gpu: 変換カーネル（project / lod / wkb / bbox）の CPU/GPU bit 一致ゲート。
+     実行: scripts/verify-convert-gpu.mjs（Playwright＋Chromium・SwiftShader でも走る）か、
+     静的サーバでこのページを開く（vite 不要＝convert/* は依存ゼロ）。結果は #out と window.__result。 -->
+<html><head><meta charset="utf-8"><title>t-convert-gpu</title></head>
+<body><pre id="out">running…</pre>
+<script type="module">
+	import { getDevice } from "../src/convert/gpu.js";
+	import { createEngine, cpuEngine } from "../src/convert/engine.js";
+	import { LON_FULL, LAT_FULL } from "../src/convert/merc.js";
+
+	const out = [], ok = (c, m) => out.push((c ? "✓ " : "✗ ") + m);
+	const same = (a, b) => { if (a.length !== b.length) return false; for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false; return true; };
+	const firstDiff = (a, b) => { for (let i = 0; i < Math.min(a.length, b.length); i++) if (a[i] !== b[i]) return `i=${i} cpu=${a[i]} gpu=${b[i]}`; return "len " + a.length + "/" + b.length; };
+	// gint 詰め（extension/gint.js packFromInt と同式・wasm 不要）
+	const spread16 = x => { x = (x | (x << 8)) & 0x00FF00FF; x = (x | (x << 4)) & 0x0F0F0F0F; x = (x | (x << 2)) & 0x33333333; x = (x | (x << 1)) & 0x55555555; return x >>> 0; };
+	const pack = (ix, iy, rank, l1) => {
+		const lo = (spread16(ix & 0xFFFF) | (spread16(iy & 0xFFFF) << 1)) >>> 0;
+		const hi = (spread16((ix >>> 16) & 0xFFFF) | (spread16((iy >>> 16) & 0xFFFF) << 1)) >>> 0;
+		return l1 ? [lo, (hi | 0x80000000) >>> 0] : [(lo & 0xFFFFFFC0) | (rank & 63), hi & 0x7FFFFFFF];
+	};
+	let seed = 12345; const rnd = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+
+	const res = { gpu: false };
+	try {
+		const t0 = performance.now();
+		const device = await getDevice();
+		res.gpu = !!device; res.info = device?.__info;
+		ok(device, `WebGPU device ${JSON.stringify(device?.__info || null)}`);
+		if (device) {
+			const gpu = createEngine(device), cpu = cpuEngine();
+			// ── ① project: 端の値＋乱数（極・日付変更線・赤道・L1/L2 混在）
+			const N = 200000, arcU32 = new Uint32Array(N * 2);
+			const edge = [[0, 0], [LON_FULL, LAT_FULL], [LON_FULL - 1, LAT_FULL - 1], [1800000000, 900000000], [0, 900000000], [3599999999, 1750511288], [1, 49488712], [3599999999, 1750511289 + 8000]];
+			for (let i = 0; i < N; i++) {
+				const [ix, iy] = i < edge.length ? edge[i] : [Math.floor(rnd() * (LON_FULL + 1)), Math.floor(rnd() * (LAT_FULL + 1))];
+				const [lo, hi] = pack(ix, iy, Math.floor(rnd() * 64), rnd() < 0.2);
+				arcU32[i * 2] = lo; arcU32[i * 2 + 1] = hi;
+			}
+			const pg = gpu.project(arcU32), pc = cpu.project(arcU32);
+			const rg = await pg.read();
+			ok(same(pc.xy, rg.xy), `project xy 一致（${N} 頂点）` + (same(pc.xy, rg.xy) ? "" : " " + firstDiff(pc.xy, rg.xy)));
+			ok(same(pc.rk, rg.rk), "project rank 一致");
+			// ── ② lod: 乱数 arc 台帳（長さ 1..300）・ズーム 0..20・閾値 51-3z
+			const A = 3000, arcs = new Uint32Array(A * 2); let off = 0;
+			for (let a = 0; a < A; a++) { const len = 1 + Math.floor(rnd() * 300); if (off + len > N) break; arcs[a * 2] = off; arcs[a * 2 + 1] = len; off += len; }
+			const zoomCount = 21, thresholds = Array.from({ length: zoomCount }, (_, k) => Math.max(0, 51 - 3 * k));
+			const params = { arcCount: A, zoomCount, minZoom: 0, extentShift: 12, thresholds };
+			const cc = await cpu.lodCount(pc, arcs, params), cg = await gpu.lodCount(pg, arcs, params);
+			ok(same(cc.counts, cg.counts), "lod counts 一致（" + A + " arc × " + zoomCount + " zoom）" + (same(cc.counts, cg.counts) ? "" : " " + firstDiff(cc.counts, cg.counts)));
+			ok(same(cc.bbox, cg.bbox), "lod bbox 一致");
+			const offsets = new Uint32Array(cc.counts.length); let total = 0;
+			for (let i = 0; i < cc.counts.length; i++) { offsets[i] = total; total += cc.counts[i]; }
+			const wc = await cpu.lodWrite(pc, arcs, params, offsets, total), wg = await gpu.lodWrite(pg, arcs, params, offsets, total);
+			ok(same(wc, wg), `lod write 一致（${total} 頂点・全ズーム）` + (same(wc, wg) ? "" : " " + firstDiff(wc, wg)));
+			// 部分ズーム書き出し（z 5..9）＝呼び出し側 slice との整合
+			const zf = 5, zt = 10, sub = offsets.slice(zf * A, zt * A), base0 = sub[0]; for (let i = 0; i < sub.length; i++) sub[i] -= base0;
+			const subTotal = (zt * A < offsets.length ? offsets[zt * A] : total) - base0;
+			const ws = await gpu.lodWrite(pg, arcs, params, sub, subTotal, zf, zt);
+			ok(same(ws, wc.subarray(base0 * 2, (base0 + subTotal) * 2)), "lod write 部分ズーム一致");
+			// ── ③ wkb: precision 1..9・端の値・乱数（負値含む）
+			for (const p of [1, 3, 6, 7, 9]) {
+				const d = 10 ** p, M = 100000, iv = new Int32Array(M);
+				const ed = [0, 1, -1, d, -d, d - 1, d + 1, 2147483647, -2147483648, 1800000000, -1800000000, 900000000, 123456789, -987654321, 5, 3 * d + Math.floor(d / 2)];
+				for (let i = 0; i < M; i++) iv[i] = i < ed.length ? ed[i] : Math.floor((rnd() * 2 - 1) * 2147483647);
+				const a = await cpu.wkb(iv, d), b = await gpu.wkb(iv, d);
+				ok(same(a, b), `wkb double 一致 precision ${p}（${M} 値）` + (same(a, b) ? "" : " " + firstDiff(a, b)));
+			}
+			// ── ④ bbox
+			const V = 50000, iv2 = new Int32Array(V * 2); for (let i = 0; i < V * 2; i++) iv2[i] = Math.floor((rnd() * 2 - 1) * 1.8e9);
+			const P = 700, parts = new Uint32Array(P * 2); let o2 = 0; for (let p = 0; p < P; p++) { const len = 1 + Math.floor(rnd() * 140); if (o2 + len > V) break; parts[p * 2] = o2; parts[p * 2 + 1] = len; o2 += len; }
+			ok(same(await cpu.bbox(iv2, parts), await gpu.bbox(iv2, parts)), "bbox 一致");
+			pg.destroy(); gpu.destroy();
+		}
+		res.ms = performance.now() - t0;
+	} catch (e) { out.push("✗ 例外 " + (e.stack || e)); res.error = String(e); }
+	res.fails = out.filter(l => l.startsWith("✗")).length;
+	res.lines = out;
+	document.getElementById("out").textContent = out.join("\n") + `\n${res.fails ? res.fails + " 件失敗" : "全件通過"}`;
+	window.__result = res;
+</script></body></html>

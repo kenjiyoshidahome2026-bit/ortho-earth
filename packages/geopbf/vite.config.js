@@ -22,7 +22,7 @@ export default defineConfig({
 		sourcemap: true,
 		minify: false,
 		lib: {
-			entry: resolve(__dirname, 'src/geopbf.js'),
+			entry: resolve(__dirname, 'src/index.js'),
 			name: 'geopbf',
 			fileName: 'geopbf',
 			formats: ['es']

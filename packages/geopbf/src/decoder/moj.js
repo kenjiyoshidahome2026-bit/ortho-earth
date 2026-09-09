@@ -1,5 +1,6 @@
 import { GeoPBF } from "../pbf-base.js";
-import { inflateRaw } from 'pako';
+import Pbf from "pbf";
+import { inflate } from "../modules/inflate.js";
 
 // JGD2011 Japan plane rectangular coordinate system → WGS84 (module-level constants)
 const DEG = Math.PI / 180;
@@ -180,9 +181,10 @@ function zipData(bytes, { lhOff, cSiz }) {
 	return bytes.subarray(dataOff, dataOff + cSiz);
 }
 
-// method=0: stored (no decompression); method=8: deflate (pako sync).
+// method=0: stored (no decompression); method=8: deflate（modules/inflate.js＝Node は zlib・ブラウザは DecompressionStream。
+// 非同期なので entry ループも非同期＝pako 不使用）。
 function unzip(bytes, method) {
-	return method === 0 ? bytes : inflateRaw(bytes);
+	return method === 0 ? Promise.resolve(bytes) : inflate(bytes, "deflate-raw");
 }
 
 // ---- Manual GML parser (no regex; converts coordinates to [lon,lat] in-place) ----
@@ -199,6 +201,7 @@ function* parseXml(text, defaultSysNum) {
 	const curveMap   = new Map();
 	const surfaceMap = new Map();
 	let seenSurface  = false, seenFeature = false;
+	const pending = [];   // surface 未読のまま現れた 筆 の seg
 
 	// Curve points are already converted to [lon,lat]; buildRing uses them directly.
 	const buildRing = (cids) => {
@@ -325,17 +328,31 @@ function* parseXml(text, defaultSysNum) {
 
 	} else {
 	  // <筆 ...> feature element.
-	  if (!seenFeature) { seenFeature = true; curveMap.clear(); }
+	  // ⚠ ここで curveMap.clear() してはいけない：環は 筆 を読む時に curve から組む（buildRing）ので、最初の 筆 で
+	  //   curve を捨てると全ての環が空になり 1 筆も出ない（tests/t-moj.mjs の合成 zip で露見・2026-09-08）。
+	  //   点は surface 以降不要（curve に解決済み）なので pointMap の clear は正しい。
+	  if (!seenFeature) seenFeature = true;
 	  const fid = attrVal(seg, 'idref');
 	  if (!fid) continue;
 	  const s = surfaceMap.get(fid);
+	  // 主題属性（筆）が空間属性より先に来る並びでは surface が未読＝seg を控えて走査後に処理（並び順に依存しない）
+	  if (!s) { pending.push(seg); continue; }
+	  const feat = emit(seg, fid, s);
+	  if (feat) yield feat;
+	}
+	}
+	for (const seg of pending) {
+	  const fid = attrVal(seg, 'idref'), s = fid && surfaceMap.get(fid);
 	  if (!s) continue;
+	  const feat = emit(seg, fid, s);
+	  if (feat) yield feat;
+	}
 
+	function emit(seg, fid, s) {
 	  const ext = buildRing(s.ext);
-	  if (ext.length < 4) { surfaceMap.delete(fid); continue; }
 	  surfaceMap.delete(fid);
-
-	  yield {
+	  if (ext.length < 4) return null;
+	  return {
 		type: 'Feature',
 		geometry: { type: 'Polygon', coordinates: [ext, ...s.ints.map(buildRing)] },
 		properties: {
@@ -350,7 +367,6 @@ function* parseXml(text, defaultSysNum) {
 		  座標値種別:     strBetween(seg, '<座標値種別>', '</座標値種別>'),
 		},
 	  };
-	}
 	}
 }
 
@@ -376,15 +392,16 @@ onmessage = async (e) => {
 	const pbf = new GeoPBF({ name, precision, description, license, attribution });
 	pbf.setHead(KEYS);
 
-	// setBody callback executes synchronously inside writeMessage.
-	// The Worker runs in a separate OS thread, so postMessage delivers progress to the main thread in real time.
-	// This means no features[] array is needed, and pako's sync inflate avoids context switches.
+	// entry ごとに「伸長（非同期）→解析→feature をその場で符号化」。feature の JS オブジェクト配列は持たず、符号化済みの
+	// バイト列（＝最終ファイルと同じ大きさ）だけを溜めて最後に FARRAY へ連結する。writeMessage のコールバックは同期なので、
+	// 符号化は GeoPBF の書き先を entry 用の Pbf に付け替えて行う（出力バイトは同期版と同一）。
+	// Worker は別 OS スレッドなので progress の postMessage は逐次 main へ届く。
 	let hasFeature = false;
-	pbf.setBody(() => {
-	  for (let i = 0; i < total; i++) {
+	const chunks = [], main = pbf.pbf;
+	for (let i = 0; i < total; i++) {
 		const entry = innerZipEntries[i];
 		try {
-		  const izBytes   = unzip(zipData(fileBytes, entry), entry.method);
+		  const izBytes   = await unzip(zipData(fileBytes, entry), entry.method);
 		  const izEntries = zipCD(izBytes);
 		  if (!izEntries) { postMessage({ type: 'progress', loaded: i + 1, total, name }); continue; }
 
@@ -394,19 +411,26 @@ onmessage = async (e) => {
 		  });
 		  if (!xmlEntry) { postMessage({ type: 'progress', loaded: i + 1, total, name }); continue; }
 
-		  const xmlBytes = unzip(zipData(izBytes, xmlEntry), xmlEntry.method);
+		  const xmlBytes = await unzip(zipData(izBytes, xmlEntry), xmlEntry.method);
 		  const xmlText  = _td.decode(xmlBytes);
 
-		  for (const feat of parseXml(xmlText, defaultSys)) {
-			pbf.setFeature(feat);
-			hasFeature = true;
-		  }
+		  const scratch = new Pbf();
+		  pbf.pbf = scratch;
+		  try {
+			for (const feat of parseXml(xmlText, defaultSys)) {
+			  pbf.setFeature(feat);
+			  hasFeature = true;
+			}
+		  } finally { pbf.pbf = main; }
+		  if (scratch.pos) chunks.push(scratch.finish());
 		} catch (err) {
 		  console.warn('[moj] skip:', entry.name, err?.message);
 		}
 		postMessage({ type: 'progress', loaded: i + 1, total, name });
-	  }
-	});
+	}
+	let bodyLen = 0; for (const c of chunks) bodyLen += c.length;
+	pbf.setBody(() => { main.realloc(bodyLen); for (const c of chunks) { main.buf.set(c, main.pos); main.pos += c.length; } });
+	chunks.length = 0;
 
 	pbf.close();
 	await pbf.getPosition();

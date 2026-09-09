@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<!-- t-convert-bench: 実データで GPU/CPU の変換時間と出力の一致を見る（?data=<name> で /data/<name>.geopbf と .gint を読む）。
+     実行: node scripts/verify-convert-gpu.mjs --bench <dir> <name> [--maxzoom N]（dir を /data/ として配信する）
+     出力: window.__result = { gpu:{stats}, cpu:{stats}, same:bool, parquet:{gpu,cpu,same} } -->
+<html><head><meta charset="utf-8"><title>t-convert-bench</title>
+<!-- バンドラ無しで pbf-base.js（bare import "pbf"）を読むための import map（runner がリポジトリ根を配信） -->
+<script type="importmap">{ "imports": { "pbf": "/node_modules/pbf/index.js" } }</script>
+</head>
+<body><pre id="out">running…</pre>
+<script type="module">
+	import { GeoPBF } from "../src/pbf-base.js";
+	import { toPMTiles } from "../src/convert/tiler.js";
+	import { toGeoParquet } from "../src/convert/geoparquet.js";
+	import { getDevice } from "../src/convert/gpu.js";
+	const q = new URLSearchParams(location.search), name = q.get("data") || "ne10m_countries", maxZoom = +(q.get("maxzoom") || 8);
+	const tileCompression = q.get("nogzip") ? "none" : "gzip", workers = q.get("workers") !== null ? +q.get("workers") : undefined;
+	const lines = [], log = (s) => { lines.push(s); console.log("[bench] " + s); document.getElementById("out").textContent = lines.join("\n"); };
+	const same = (a, b) => { if (a.length !== b.length) return false; for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false; return true; };
+	const res = {};
+	try {
+		const [pb, gb] = await Promise.all([fetch(`/data/${name}.geopbf`).then(r => r.arrayBuffer()), fetch(`/data/${name}.gint`).then(r => r.arrayBuffer())]);
+		const pbf = await new GeoPBF().set(pb);
+		const dev = await getDevice(); res.gpuInfo = dev?.__info || null;
+		log(`data ${name}: features ${pbf.length}, gint ${gb.byteLength} B, GPU ${JSON.stringify(res.gpuInfo)}`);
+		// 先に 1 回ずつ暖機（シェーダコンパイル・JIT）を小さいズームで
+		await toPMTiles(pbf, { gint: gb, gpu: false, maxZoom: 2 }); if (dev) await toPMTiles(pbf, { gint: gb, maxZoom: 2 });
+		const cpu = await toPMTiles(pbf, { gint: gb, gpu: false, maxZoom, tileCompression, workers }); log("workers " + cpu.stats.workers + " gzip " + tileCompression); res.cpu = cpu.stats; log("cpu  " + JSON.stringify(cpu.stats.ms));
+		if (dev) { const gpu = await toPMTiles(pbf, { gint: gb, maxZoom, tileCompression, workers }); res.gpu = gpu.stats; log("gpu  " + JSON.stringify(gpu.stats.ms)); res.same = same(cpu.buffer, gpu.buffer); log("pmtiles bytes identical: " + res.same); }
+		const pc = await toGeoParquet(pbf, { gpu: false, codec: "none" }); res.parquetCpu = pc.stats; log("parquet cpu " + JSON.stringify(pc.stats.ms));
+		if (dev) { const pg = await toGeoParquet(pbf, { codec: "none" }); res.parquetGpu = pg.stats; res.parquetSame = same(pc.buffer, pg.buffer); log("parquet gpu " + JSON.stringify(pg.stats.ms) + " identical: " + res.parquetSame); }
+	} catch (e) { res.error = String(e.stack || e); log("✗ " + res.error); }
+	res.lines = lines;
+	window.__result = res;
+</script></body></html>

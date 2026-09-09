@@ -10,7 +10,7 @@ import { makeLRU } from "./cache.js";
 const lru = makeLRU(32 << 20);
 
 const decodeOne = async (buf, ifd, le, stretch, nodata) => {
-	const dec = decodeTile(buf, ifd, le);
+	const dec = await decodeTile(buf, ifd, le);
 	if (dec.kind === "raster") return toRGBA8(dec.data, ifd, { stretch, nodata });
 	// JPEG/WebP → ブラウザネイティブ（worker 内 createImageBitmap＝ハードウェアデコード）
 	const bm = await createImageBitmap(new Blob([dec.bytes], { type: dec.mime }));
