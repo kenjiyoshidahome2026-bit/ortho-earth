@@ -331,7 +331,7 @@ export function createGintLayerGPU(host, { requestDraw, noSB } = {}) {
 			const w = plan.shift();
 			if (w == null) {
 				L.tiersDone = true;
-				postMessage({ action: "tiers", tiers: L.lodTiers.map(t => ({ minW: t.minW, edgeCount: t.edgeCount })) });
+				postMessage({ action: "tiers", layer: L.id, tiers: L.lodTiers.map(t => ({ minW: t.minW, edgeCount: t.edgeCount })) });
 				requestDraw?.();
 				return;
 			}
@@ -390,6 +390,7 @@ export function createGintLayerGPU(host, { requestDraw, noSB } = {}) {
 	function makeLayer() {
 		const L = {
 			...emptySlot(),
+			id: null,   // 層の名（worker プロトコルの layer キー。既定層＝null＝従来メッセージと同形）
 			// スロット束・スタイル・表示（層ごと）
 			slots: new Map(), activeKey: null, drawStyle: null, visible: true, stylesDirty: true,
 			idOverlapMode: false, tierGen: 0, sbOn: false,
@@ -501,7 +502,7 @@ export function createGintLayerGPU(host, { requestDraw, noSB } = {}) {
 		}
 		L.lodTiers.sort((a, b) => a.minW - b.minW);
 		L.tiersDone = true;
-		postMessage({ action: "tiers", tiers: L.lodTiers.map(t => ({ minW: t.minW, edgeCount: t.edgeCount })) });
+		postMessage({ action: "tiers", layer: L.id, tiers: L.lodTiers.map(t => ({ minW: t.minW, edgeCount: t.edgeCount })) });
 		({ minZoom: L.minZoom, maxZoom: L.maxZoom } = checkZoomRange({
 			arcMeta: L.gintData.arcMeta, minZoom: p.minZoom ?? null, maxZoom: p.maxZoom ?? null, precision: p.precision ?? 6,
 		}));
@@ -643,7 +644,7 @@ export function createGintLayerGPU(host, { requestDraw, noSB } = {}) {
 			isDrawing = true;
 			clearTimeout(moveTimer); moveTimer = null; pendingMove = null;
 			staticN = 0;
-			if (activeId !== -1) { activeId = -1; postMessage({ action: "identify", featureId: null }); }
+			if (activeId !== -1) { activeId = -1; postMessage({ action: "identify", featureId: null, layer: act?.id ?? null }); }
 		} else {
 			isDrawing = false;
 			staticN = (staticN ?? 0) + 1;
@@ -962,7 +963,7 @@ export function createGintLayerGPU(host, { requestDraw, noSB } = {}) {
 		const newId = featureId ?? -1;
 		if (newId === activeId) return;
 		activeId = newId;
-		postMessage({ action: "identify", featureId: featureId ?? null, x: data.x, y: data.y });
+		postMessage({ action: "identify", featureId: featureId ?? null, x: data.x, y: data.y, layer: L.id });
 		requestDraw?.();
 	}
 	function move(data) {
@@ -990,13 +991,13 @@ export function createGintLayerGPU(host, { requestDraw, noSB } = {}) {
 		pendingMove = null;
 		if (activeId === -1) return;
 		activeId = -1;
-		postMessage({ action: "identify", featureId: null });
+		postMessage({ action: "identify", featureId: null, layer: act?.id ?? null });
 		requestDraw?.();
 	}
 	function click() {
 		if (activeId === -1) return;
 		const geo = V.cam ? unproject(V.cam, lastMX * V.dpr, lastMY * V.dpr) : null;
-		postMessage({ action: "click", featureId: activeId, x: lastMX, y: lastMY, lng: geo?.[0] ?? null, lat: geo?.[1] ?? null });
+		postMessage({ action: "click", featureId: activeId, x: lastMX, y: lastMY, lng: geo?.[0] ?? null, lat: geo?.[1] ?? null, layer: act?.id ?? null });
 	}
 	function disposeLayer(L) {
 		saveActive(L);
@@ -1042,8 +1043,9 @@ export function createGintLayerGPU(host, { requestDraw, noSB } = {}) {
 			},
 		};
 	}
-	function addLayer() {
+	function addLayer({ id = null } = {}) {
 		const L = makeLayer();
+		L.id = id;
 		layers.push(L);
 		act = L; activeId = -1;   // 既定のアクティブ＝最後に足した層（§4.1「今載せたデータを見たい」）
 		return layerHandle(L);

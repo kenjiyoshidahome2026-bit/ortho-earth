@@ -9,6 +9,8 @@ let renderer = null, labelLayer = null, canvas = null, labelCanvas = null;
 let cam = null, opts = null, dirty = false;   // 最新の描画状態。dirty の時だけ rAF で描く。
 let glRef = null, sentFrame1 = false, sentCtxLost = false, sentDrawErr = false;   // 起動ウォッチドッグ(frame1)・コンテキストロスト・draw例外の一次診断（main へ各1回だけ通知）
 let gint = null;   // gint（知性の層＝海岸線/14条筆/AI層）＝同一GLコンテキストの1パス（1canvas統合。旧・別worker+従属駆動）
+const gintLs = new Map();   // 追加層のレジストリ（layer id → addLayer ハンドル）。既定層＝gint（facade）
+const gTgt = m => m.layer != null ? gintLs.get(m.layer) : gint;   // gint 系 cmd の層解決（未知 id＝undefined＝黙って無視）
 self.__gintStats = () => gint?.stats?.() ?? null;   // 計器の覗き穴（CDP から worker に attach して評価＝tier/rank/edges の実測）
 let terrain = null, pendingLabels = null;   // pendingLabels: cam 未着で標高付与を保留した最新ラベル集合
 // ?perf=1（init.perf）＝2秒毎にフレーム内訳を console へ：map/gint の CPU 発行時間・フレームEMA・JSヒープ・解像度段。
@@ -226,12 +228,17 @@ const dispatch = e => {
 			break;
 		}
 		case "set":
-			if (m.cmd === "gint") { if (gint) gint.set(m.data, m.prop); }        // 知性の層のペイロード差し替え（prop=スロットキー "coast"/"user"、null=そのスロットを空化）
-			else if (m.cmd === "gintSlot") { if (gint) gint.setSlot(m.data); }   // スロット交替（ベイク済み束の差し替えのみ＝z7跨ぎをゼロコスト化。null=何も載せない）
-			else if (m.cmd === "gintBaked") { if (gint) gint.setBaked(m.data, m.prop); }   // bake worker 完成品の搭載（CPU ベイク無し＝テクスチャのみ・表示は変えない）
-			else if (m.cmd === "gintStyle") { if (gint) gint.style(m.data); }    // 描画スタイル（styleTable/lineWidth 等）
-			else if (m.cmd === "gintPaint") { if (gint) gint.paint(m.data); }    // fidスタイル表（コロプレス。main が buildFidStyle 評価済み・null=解除）
-			else if (m.cmd === "gintVis") { if (gint) gint.setVisible(m.data); } // 表示切替（旧 #gint canvas の display 相当）
+			// gint 系＝m.layer で層を指名（gint draw spec §4 の多層プロトコル・2026-09-09）。layer 無し＝既定層（従来と同形）。
+			// 追加層は WebGPU 限定（addLayer は gpu/gint.js のみ・GL2 は後追い方針）＝GL2 では gintAdd が ack にエラーを載せ、以後の層指名は黙って無視。
+			if (m.cmd === "gintAdd") { const okA = !!gint?.addLayer; if (okA) gintLs.set(m.layer, gint.addLayer({ id: m.layer })); postMessage({ action: "gintAck", cmd: "gintAdd", layer: m.layer, error: okA ? null : "no-multilayer" }); }
+			else if (m.cmd === "gintRemove") { const h = gintLs.get(m.layer); if (h) { h.remove(); gintLs.delete(m.layer); } }
+			else if (m.cmd === "gintActivate") { (m.layer != null ? gintLs.get(m.layer) : gint)?.activate?.(); }
+			else if (m.cmd === "gint") { const g = gTgt(m); if (g) { g.set(m.data, m.prop); if (m.layer != null) postMessage({ action: "gintAck", cmd: "gint", layer: m.layer, error: null }); } }   // 知性の層のペイロード差し替え（prop=スロットキー "coast"/"user"、null=そのスロットを空化）。層指名はロード完了 ack（bakeBase 同期ゆえこの時点で搭載済み）
+			else if (m.cmd === "gintSlot") { gTgt(m)?.setSlot(m.data); }   // スロット交替（ベイク済み束の差し替えのみ＝z7跨ぎをゼロコスト化。null=何も載せない）
+			else if (m.cmd === "gintBaked") { gTgt(m)?.setBaked(m.data, m.prop); }   // bake worker 完成品の搭載（CPU ベイク無し＝テクスチャのみ・表示は変えない）
+			else if (m.cmd === "gintStyle") { gTgt(m)?.style(m.data); }    // 描画スタイル（styleTable/lineWidth 等）
+			else if (m.cmd === "gintPaint") { gTgt(m)?.paint(m.data); }    // fidスタイル表（コロプレス。main が buildFidStyle 評価済み・null=解除）
+			else if (m.cmd === "gintVis") { gTgt(m)?.setVisible(m.data); } // 表示切替（旧 #gint canvas の display 相当）
 			else if (m.cmd === "labels") { pendingLabels = m.data; applyLabels(); }   // ラベル集合の更新（標高は cam が揃ってから付与）
 			else if (m.cmd === "skyLabels") { if (labelLayer) labelLayer.setSky(m.data); }   // 星空劇場の注記（星座名・メシエ）＝ラベルcanvasへ
 			else if (m.cmd === "skyMoon") { if (labelLayer) labelLayer.setMoon(m.data); }    // 月の満ち欠け円盤＝ラベルcanvasへ（常設）
@@ -270,7 +277,7 @@ const dispatch = e => {
 		case "gintLeave": if (gint) gint.leave();  break;
 		case "gintClick": if (gint) gint.click();  break;
 		case "destroy":
-			if (gint) { gint.dispose(); gint = null; }
+			if (gint) { gint.dispose(); gint = null; gintLs.clear(); }
 			if (renderer && renderer.dispose) renderer.dispose();
 			renderer = null;
 			break;

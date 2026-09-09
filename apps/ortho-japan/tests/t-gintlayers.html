@@ -1,0 +1,98 @@
+<!doctype html>
+<!-- E2E回帰：gint 多層プロトコル（map.addGint＝spec §4 の顔）。実アプリを ?gpu=1 で起動し、
+     ①addGint×2 の ack（ready） ②setPaint（buildFidStyle 経路） ③合成 pointermove での hover 往復
+     （app ゲート→gintMove→エンジン識別→layer 付き identify→handle.on('hover')） ④remove を検める。
+     エンジン内部の多層描画は t-gintmulti が画素で担保済み＝ここはプロトコルと main 側配線の検定。
+     WebGPU の無い環境＝GL2 フォールバック＝多層は後追い方針ゆえスキップ扱い PASS。実時間専用（verify-webgpu が回す）。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html{background:#0b1021}</style><title>t-gintlayers</title></head>
+<body>
+<script type="module">
+history.replaceState(null, "", "?gpu=1");   // app.js は起動時に location.search を読む＝import 実行前に旗を立てる
+const t = [], ok = (n, c) => { t.push((c ? "ok:" : "NG:") + n); console.log("[t]", t[t.length - 1]); };
+window.__t = t;
+const fin = () => document.title = t.some(s => s.startsWith("NG")) ? "FAIL " + t.join(" ") : "PASS " + t.join(" ");
+const spread16 = v => { v &= 0xFFFF; v = (v | (v << 8)) & 0xFF00FF; v = (v | (v << 4)) & 0xF0F0F0F; v = (v | (v << 2)) & 0x33333333; v = (v | (v << 1)) & 0x55555555; return v >>> 0; };
+const pack = (lon, lat, terminal, weight = 0) => {
+	const ix = Math.round((lon + 180) * 1e7) >>> 0, iy = Math.round((lat + 90) * 1e7) >>> 0;
+	const lo = (spread16(ix & 0xFFFF) | (spread16(iy & 0xFFFF) << 1)) >>> 0;
+	const hi = (spread16(ix >>> 16) | (spread16(iy >>> 16) << 1)) >>> 0;
+	let v = (BigInt(hi) << 32n) | BigInt(lo);
+	return terminal ? (v | (1n << 63n)) : ((v & ~0x3Fn) | BigInt(weight & 63));
+};
+const e7 = d => Math.round(d * 1e7) >>> 0;
+const buildArcs = (arcs) => {
+	const verts = arcs.flat();
+	const arcBuffer = BigUint64Array.from(verts.map(([lon, lat, term, w]) => pack(lon, lat, !!term, w)));
+	const arcMeta = new Uint32Array(arcs.length * 8);
+	let off = 0;
+	arcs.forEach((a, aid) => {
+		arcMeta[aid * 8] = off; arcMeta[aid * 8 + 1] = a.length;
+		let xm = 4e9, ym = 4e9, xM = 0, yM = 0;
+		for (const [lon, lat] of a) {
+			xm = Math.min(xm, e7(lon + 180)); xM = Math.max(xM, e7(lon + 180));
+			ym = Math.min(ym, e7(lat + 90)); yM = Math.max(yM, e7(lat + 90));
+		}
+		arcMeta[aid * 8 + 4] = xm; arcMeta[aid * 8 + 5] = ym; arcMeta[aid * 8 + 6] = xM; arcMeta[aid * 8 + 7] = yM;
+		off += a.length;
+	});
+	return { arcBuffer, arcMeta };
+};
+// addGint の source 契約は geopbf（unPackGint＋fid整列の getProperties/getFeature）＝ここは同形のダック
+const duckPbf = (gint, n) => ({
+	unPackGint: { ...gint, precision: 6 },
+	fmap: { length: n },
+	getProperties: i => ({ fid: i }),
+	getFeature: fid => ({ properties: { fid } }),
+});
+import("../app.js").then(async ({ default: orthoJapan }) => {
+	try {
+		const m = await orthoJapan({ view: "#13/35.68/139.76", plateau: false });
+		const t0 = performance.now();
+		while (!window.__backend && performance.now() - t0 < 25000) await new Promise(r => setTimeout(r, 200));
+		ok("boot", !!window.__backend);
+		if (window.__backend !== "webgpu") { ok("webgl2-fallback→多層スキップ扱いPASS", true); m.destroy(); fin(); return; }
+
+		const C = [139.76, 35.68], dx = 0.006, d = 0.004;
+		const Ca = [C[0] - dx, C[1]], Cb = [C[0] + dx, C[1]], yN = Cb[1] + 0.05;
+		const A = buildArcs([
+			[[Ca[0] - d, Ca[1] - d, 1, 0], [Ca[0], Ca[1] - d * 0.9, 0, 30], [Ca[0] + d, Ca[1] - d, 1, 0]],
+			[[Ca[0] - d, Ca[1] - d, 1, 0], [Ca[0], Ca[1] + d, 0, 30], [Ca[0] + d, Ca[1] - d, 1, 0]],
+		]);
+		const B = buildArcs([
+			[[Cb[0] - d, Cb[1] - d, 1, 0], [Cb[0], Cb[1] + d, 0, 30], [Cb[0] + d, Cb[1] - d, 1, 0]],
+			[[Cb[0] - d, yN, 1, 0], [Cb[0], yN + d, 0, 30], [Cb[0] + d, yN, 1, 0], [Cb[0] - d, yN, 1, 0]],   // 画面外ダミー面＝pick 構築ガード通し（t-gintmulti と同じ理由）
+		]);
+		// ── ① addGint×2＝ack で搭載確認 ──
+		const la = m.addGint(duckPbf({ arcBuffer: A.arcBuffer, arcMeta: A.arcMeta, polyStream: Int32Array.from([7, 1, 2, 0, ~1]) }, 8),
+			{ style: { fillColor: [1, 0, 0, 0.6] }, minZoom: 2 });
+		ok("addGint A", !!la && await la.ready === true);
+		const lb = m.addGint(duckPbf({ arcBuffer: B.arcBuffer, arcMeta: B.arcMeta, lineStream: Int32Array.from([8, 1, 1, 0]), polyStream: Int32Array.from([9, 1, 1, 1]) }, 10),
+			{ style: { lineWidth: 4 }, minZoom: 2 });
+		ok("addGint B", !!lb && await lb.ready === true && lb.id !== la.id);
+		// ── ② setPaint（式評価→fid 表→worker への層指名 post）──
+		await lb.setPaint({ "line-color": "#ff00ff", "line-width": 4 });
+		ok("setPaint B", true);
+		// ── ③ hover 往復（B が最後に追加＝アクティブ §4.1）──
+		await new Promise(r => setTimeout(r, 700));   // 追加層の初描画フレームを待つ（needsDraw→rAF）
+		const hovP = new Promise(res => {
+			const tm = setTimeout(() => res("timeout"), 5000);
+			lb.on("hover", f => { if (f) { clearTimeout(tm); res(f.fid); } });
+		});
+		const pt = m.projectLL(Cb[0] - d, Cb[1] - d);   // B折れ線の左端点（丸キャップ中心）
+		const cv = document.querySelector("canvas");
+		const rc = cv.getBoundingClientRect();
+		const cx = rc.left + pt[0], cy = rc.top + pt[1];
+		const tgt = document.elementFromPoint(cx, cy) || cv;
+		for (const [ex, ey] of [[cx + 3, cy + 3], [cx, cy]])   // 2発＝スロットリング/同座標スキップの轍避け
+			tgt.dispatchEvent(new PointerEvent("pointermove", { clientX: ex, clientY: ey, bubbles: true, pointerId: 1, pointerType: "mouse", isPrimary: true }));
+		const fidB = await hovP;
+		ok(`hover往復 B層(fid=${fidB})`, fidB === 8);
+		// ── ④ remove（プロトコル往復後もアプリが生存）──
+		lb.remove(); la.remove();
+		await new Promise(r => setTimeout(r, 300));
+		ok("remove", !document.getElementById("fatal"));
+		m.destroy();
+	} catch (e) { ok("err:" + (e && e.message || e), false); }
+	fin();
+});
+</script></body></html>
