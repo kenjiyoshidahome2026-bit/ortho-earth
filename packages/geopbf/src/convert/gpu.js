@@ -1,8 +1,11 @@
 // convert/gpu.js ── WebGPU の「計算だけ」の薄い器。描画は一切持たない（ortho-core gpu/gint.js の compute 版の最小形）。
 //
 // 供給源の優先順: opts.gpu（明示注入） > setGPU() で登録した GPU > globalThis.navigator.gpu（ブラウザ・Deno）。
-// Node 22 には navigator.gpu が無い＝CLI は `webgpu`（Dawn の npm パッケージ・任意依存）を dynamic import で試し、
-// 無ければ null を返して呼び出し側が CPU 経路へ落ちる。「GPU が無い」は失敗ではなく通常の分岐＝例外にしない。
+// Node 22 には navigator.gpu が無い＝Dawn（任意依存の `webgpu` パッケージ）は **bin/geopbf.mjs が読んで setGPU() で
+// 注入する**。ここに `import("webgpu")` を置くと、ブラウザ向けバンドラ（vite/rollup/rolldown）が裸の指定子を
+// 静的に解決しようとして消費者の dev が 500 で割れる＝1.5.0 の轍。指定子を "web"+"gpu" と割っても vite 8 の
+// 事前バンドルが定数畳み込みで元に戻すため小技では塞げない（1.5.1 の轍）＝供給源は外から入れるのが唯一の正解。
+// 「GPU が無い」は失敗ではなく通常の分岐＝例外にしない（null を返して呼び出し側が CPU 経路へ落ちる）。
 //
 // ⚠ 数値規律: 本パッケージのカーネルは全て整数演算（u32/i32）だけで書く＝CPU 参照実装と bit 一致が検定できる。
 //   f32 の超越関数は GPU 毎に丸めが違い「ほぼ同じ」しか言えない。ここでは「同じ」を言うために f32 を使わない。
@@ -12,22 +15,12 @@ const STORAGE = 0x80, COPY_SRC = 0x04, COPY_DST = 0x08, UNIFORM = 0x40, MAP_READ
 let _gpu = null;
 export function setGPU(gpu) { _gpu = gpu; }
 
-// Node: `webgpu`（Dawn）が入っていれば使う。無ければ null。ブラウザ/Deno: navigator.gpu。
+// ブラウザ/Deno: navigator.gpu。Node: setGPU() で注入された Dawn（無ければ null＝CPU 経路）。
 export async function findGPU(opts = {}) {
 	if (opts.gpu) return opts.gpu;
 	if (_gpu) return _gpu;
 	if (globalThis.navigator?.gpu) return globalThis.navigator.gpu;
-	if (typeof process !== "undefined" && process.versions?.node) {
-		try {
-			// 指定子は変数経由＝裸の literal だとバンドラ（vite/rollup）が静的に解決を試み、`webgpu` 未導入の
-			// 消費者では dev で 500・build で解決不能になる（@vite-ignore は literal には効かない）。Node 専用の
-			// 任意依存はこの形で「バンドラから見えない」ようにするのが定石＝ブラウザ側はそもそもここへ来ない。
-			const spec = "web" + "gpu";
-			const m = await import(/* @vite-ignore */ spec);
-			if (m?.create) { if (m.globals) for (const k of Object.keys(m.globals)) globalThis[k] ??= m.globals[k]; return m.create([]); }
-		} catch { /* 未導入＝CPU */ }
-	}
-	return null;
+	return null;   // Node の Dawn（任意依存 `webgpu`）は CLI が読んで setGPU() で注入する（下の注記）
 }
 
 export async function getDevice(opts = {}) {

@@ -271,6 +271,20 @@ function encodePNG(rgba, w, h) {
 // Node 単体では CPU 経路（同じ契約・同じ出力）で動く。どちらで走ったかは必ず数字と一緒に出す。
 
 const gpuOpt = (opts) => opts["no-gpu"] ? false : opts.gpu ? true : undefined;
+// Node で Dawn（任意依存の `webgpu` パッケージ）が入っていれば読んで setGPU() で注入する。
+// ここに置く理由: CLI は Node 専用で exports にも載らない＝消費者のバンドラが辿らない唯一の場所。
+// ライブラリ側（src/convert/gpu.js）に裸の `import("webgpu")` を置くと vite/rolldown が静的解決を試みて
+// 消費者の dev が 500 で割れる（1.5.0 の轍・"web"+"gpu" の細工も vite 8 の定数畳み込みで戻される＝1.5.1 の轍）。
+const injectDawn = async () => {
+	try {
+		const m = await import("webgpu");
+		if (!m?.create) return false;
+		if (m.globals) for (const k of Object.keys(m.globals)) globalThis[k] ??= m.globals[k];
+		const { setGPU } = await import("../src/convert/gpu.js");
+		setGPU(m.create([]));
+		return true;
+	} catch { return false; }   // 未導入＝CPU 経路（失敗ではなく通常の分岐）
+};
 const attrOpts = (opts) => ({ include: opts.include ? opts.include.split(",") : undefined, exclude: opts.exclude ? opts.exclude.split(",") : undefined, excludeAll: !!opts["exclude-all"] });
 const engineNote = (st) => st.engine === "gpu" ? `GPU ${[st.gpu?.vendor, st.gpu?.architecture].filter(Boolean).join(" ") || "webgpu"}` : "CPU";
 
@@ -285,7 +299,7 @@ async function pmtiles(argv) {
 	else { const { bakeGint } = await import("../src/convert/node-gint.js"); gint = await bakeGint(pbf); }
 	const t1 = Date.now();
 	const wantGpu = gpuOpt(opts);
-	if (wantGpu === true) { const { findGPU } = await import("../src/convert/gpu.js"); if (!(await findGPU())) console.error("--gpu: WebGPU が見つからない（Node は `npm i webgpu`）＝CPU 経路で続行"); }
+	if (wantGpu === true) { await injectDawn(); const { findGPU } = await import("../src/convert/gpu.js"); if (!(await findGPU())) console.error("--gpu: WebGPU が見つからない（Node は `npm i webgpu`）＝CPU 経路で続行"); }
 	const r = await toPMTiles(pbf, { gint, gpu: wantGpu,
 		minZoom: opts.minzoom !== undefined ? +opts.minzoom : 0, maxZoom: opts.maxzoom !== undefined ? +opts.maxzoom : 14,
 		extent: opts.extent ? +opts.extent : undefined, buffer: opts.buffer !== undefined ? +opts.buffer : undefined,
@@ -305,7 +319,7 @@ async function parquet(argv) {
 	if (!inPath || !outPath) throw new Error("parquet <in.geopbf> <out.parquet>");
 	const pbf = await openPbf(inPath);
 	const wantGpu = gpuOpt(opts);
-	if (wantGpu === true) { const { findGPU } = await import("../src/convert/gpu.js"); if (!(await findGPU())) console.error("--gpu: WebGPU が見つからない（Node は `npm i webgpu`）＝CPU 経路で続行"); }
+	if (wantGpu === true) { await injectDawn(); const { findGPU } = await import("../src/convert/gpu.js"); if (!(await findGPU())) console.error("--gpu: WebGPU が見つからない（Node は `npm i webgpu`）＝CPU 経路で続行"); }
 	const r = await toGeoParquet(pbf, { gpu: wantGpu, codec: opts.compression || undefined, rowGroupSize: opts["row-group"] ? +opts["row-group"] : undefined, order: opts.order, bboxColumn: opts["no-bbox"] ? false : undefined, ...attrOpts(opts) });
 	await writeFile(outPath, r.buffer);
 	const s = r.stats;
