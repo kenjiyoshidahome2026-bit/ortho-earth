@@ -1,0 +1,93 @@
+<!doctype html>
+<!-- gint WebGPU storage buffer 経路の実シェーダ A/B ベンチ（bench-gintsb.mjs が回す・回帰検定ではない）。
+     大量合成折れ線（~2M辺・全チャンク可視）を静止カメラで N フレーム連続 submit し、最後に GPU 完了を
+     mapAsync で強制同期して壁時計/N を取る。gint 単体の効き＝「可視」－「非可視（基盤のみ）」の差分。
+     ?gintsb=0 でテクスチャ経路。⚠計測の轍: onSubmittedWorkDone は投入済みで解決＝完了待ちは mapAsync 一択。
+     rAF を挟むと vsync に量子化され差が見えない＝フレームは同一タスクで連続 submit する。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;width:320px;height:320px}</style><title>t-gintsbperf</title></head>
+<body><canvas id="g" width="256" height="256"></canvas>
+<script type="module">
+const spread16 = v => { v &= 0xFFFF; v = (v | (v << 8)) & 0xFF00FF; v = (v | (v << 4)) & 0xF0F0F0F; v = (v | (v << 2)) & 0x33333333; v = (v | (v << 1)) & 0x55555555; return v >>> 0; };
+const pack = (lon, lat, terminal, weight = 0) => {
+	const ix = Math.round((lon + 180) * 1e7) >>> 0, iy = Math.round((lat + 90) * 1e7) >>> 0;
+	const lo = (spread16(ix & 0xFFFF) | (spread16(iy & 0xFFFF) << 1)) >>> 0;
+	const hi = (spread16(ix >>> 16) | (spread16(iy >>> 16) << 1)) >>> 0;
+	let v = (BigInt(hi) << 32n) | BigInt(lo);
+	return terminal ? (v | (1n << 63n)) : ((v & ~0x3Fn) | BigInt(weight & 63));
+};
+const e7 = d => Math.round(d * 1e7) >>> 0;
+try {
+	if (!navigator.gpu) { document.title = "DONE webgpu-unavailable"; throw new Error("no webgpu"); }
+	const { createRendererGPU, createGintLayerGPU } = await import("../../../packages/ortho-core/src/gpu/backend.js");
+	const canvas = document.getElementById("g");
+	const r = await createRendererGPU(canvas);
+	const noSB = /[?&]gintsb=0/.test(location.search);
+	const gint = createGintLayerGPU(r, { requestDraw: () => {}, noSB });
+	const device = r.device;
+	// GPU 完了の強制同期（queue は in-order＝最後に積んだ copy の mapAsync 完了＝先行 submit 全完了）
+	const syncSrc = device.createBuffer({ size: 4, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC });
+	const syncDst = device.createBuffer({ size: 4, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
+	const gpuSync = async () => { const e = device.createCommandEncoder(); e.copyBufferToBuffer(syncSrc, 0, syncDst, 0, 4); device.queue.submit([e.finish()]); await syncDst.mapAsync(GPUMapMode.READ); syncDst.unmap(); };
+
+	// ── 合成データ：3000 arcs × 700 点 = 2.1M 辺・全域散布（チャンク bbox が全て視界に掛かる形）──
+	const nArcs = 3000, len = 700, total = nArcs * len;
+	const arcBuffer = new BigUint64Array(total);
+	const arcMeta = new Uint32Array(nArcs * 8);
+	let rng = 12345; const rnd = () => (rng = (rng * 48271) % 2147483647) / 2147483647;
+	for (let a = 0; a < nArcs; a++) {
+		const lon0 = 120 + rnd() * 40, lat0 = 20 + rnd() * 30, ang = rnd() * 6.28;
+		let xm = 4e9, ym = 4e9, xM = 0, yM = 0;
+		for (let i = 0; i < len; i++) {
+			const lon = lon0 + Math.cos(ang) * i * 2e-4, lat = lat0 + Math.sin(ang) * i * 2e-4;
+			const term = (i === 0 || i === len - 1);
+			arcBuffer[a * len + i] = pack(lon, lat, term, 62);   // 全点 weight=62＝LOD で落とさない（シェーダ最内側を測る）
+			xm = Math.min(xm, e7(lon + 180)); xM = Math.max(xM, e7(lon + 180));
+			ym = Math.min(ym, e7(lat + 90)); yM = Math.max(yM, e7(lat + 90));
+		}
+		arcMeta[a * 8] = a * len; arcMeta[a * 8 + 1] = len;
+		arcMeta[a * 8 + 4] = xm; arcMeta[a * 8 + 5] = ym; arcMeta[a * 8 + 6] = xM; arcMeta[a * 8 + 7] = yM;
+	}
+	const lineStream = new Int32Array(nArcs * 4);
+	for (let a = 0; a < nArcs; a++) lineStream.set([50000 + a, 1, 1, a], a * 4);
+	gint.set({ arcBuffer, arcMeta, lineStream, minZoom: 1 });
+	gint.style({ moveBudget: 1e9 });   // 予算スキップ・安表現を無効＝常にフル経路
+
+	const frame = cam => { r.draw(cam, {}); gint.draw(cam, r.gintCtx()); r.flush(); };
+	const settle = async cam => {   // 同一カメラを rAF 跨ぎで描き静止扱いへ（_staticN>=4）
+		for (let i = 0; i < 6; i++) { frame(cam); await new Promise(res => requestAnimationFrame(res)); }
+	};
+	const bench = async (cam, N) => {
+		for (let i = 0; i < 5; i++) frame(cam);   // ウォームアップ（パイプライン遅延生成の吸収）
+		await gpuSync();
+		const t0 = performance.now();
+		for (let i = 0; i < N; i++) frame(cam);
+		await gpuSync();
+		return (performance.now() - t0) / N;
+	};
+	// tier 構築完了を待つ（macrotask 逐次＝静止フレームを流しながら）
+	for (let i = 0; i < 400 && !gint.stats().tiersDone; i++) await new Promise(res => setTimeout(res, 50));
+
+	const out = {};
+	// ランク別に3つの的：z14=rank0（基準メタ/最細 tier・最重）・z8=中間 tier・z3=粗 tier
+	for (const [name, cam] of [["z14", { center: [140, 35], zoom: 14, pitch: 0, bearing: 0, dpr: 1 }],
+	                            ["z8", { center: [140, 35], zoom: 8, pitch: 0, bearing: 0, dpr: 1 }],
+	                            ["z3", { center: [140, 35], zoom: 3, pitch: 0, bearing: 0, dpr: 1 }]]) {
+		await settle(cam);
+		const N = name === "z3" ? 20 : 100, REP = 5, w = [], b = [];   // 交互に反復＝熱・順序の偏りを均して中央値
+		let st = null;
+		for (let k = 0; k < REP; k++) {
+			gint.setVisible(true); await settle(cam);
+			w.push(await bench(cam, N));
+			st = gint.stats();
+			gint.setVisible(false); frame(cam);
+			b.push(await bench(cam, N));
+		}
+		gint.setVisible(true);
+		const med = a => a.slice().sort((x, y) => x - y)[a.length >> 1];
+		out[name] = { gint: +(med(w) - med(b)).toFixed(3), with: +med(w).toFixed(3), base: +med(b).toFixed(3), edges: st.edges, tierW: st.tierW, sb: st.sb };
+		console.log("[bench]", name, JSON.stringify(out[name]));
+	}
+	window.__bench = out;
+	document.title = "DONE " + JSON.stringify(out);
+} catch (e) { if (!document.title.startsWith("DONE")) document.title = "DONE ERROR " + (e && e.message || e); }
+</script></body></html>

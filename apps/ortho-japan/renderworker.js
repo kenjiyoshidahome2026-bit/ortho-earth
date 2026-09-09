@@ -189,7 +189,7 @@ const dispatch = e => {
 							setTimeout(() => { if (r.gpuErrors.length) postMessage({ type: "drawErr", msg: "GPU diagnostics " + r.gpuErrors.length + " issue(s): " + r.gpuErrors.slice(0, 4).join(" | "), stack: r.gpuErrors.join("\n").slice(0, 800) }); }, 2500);
 						}, 400);
 						// gint（知性の層）＝renderer の frame（開いたエンコーダ）へ自分の render pass を足す＝1canvas統合の WebGPU 形。
-						if (!m.noGint) gint = createGintLayerGPU(r, { requestDraw: () => { dirty = true; } });   // ?nogint=1＝gint 層別切り（iOS診断）
+						if (!m.noGint) gint = createGintLayerGPU(r, { requestDraw: () => { dirty = true; }, noSB: !!m.noGintSB });   // ?nogint=1＝gint 層別切り（iOS診断）・?gintsb=0＝storage buffer 経路切り
 						bootStage = "gint ready";
 						console.log("[render] backend=webgpu (Phase 6: full main draw stack = basemap/elevation/terrain/depth/buildings/contours/gint/PLATEAU/stars/overlay/idfill/gintBld; only md family missing)");
 						// A/B 計測：?perf=1 で GPU 識別を1行（WebGL 経路の debug_renderer_info と対）。WebGPU は timestamp-query 未配線＝ema は壁時計で比較
