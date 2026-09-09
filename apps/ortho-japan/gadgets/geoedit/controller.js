@@ -430,6 +430,7 @@ export function initEditor(map, { adopt = true, setDropOwner = null } = {}) {   
 			if (eid != null) toggleBundle(eid);
 			return;
 		}
+		if (tool === "free") return;   // フリーハンド＝ドラッグ作図（sketch.js が pointer 直取り）。クリックでは何も置かない
 		if (tool === "select" || tool === "move") return select(pick(x, y, ll));   // 移動ツール＝クリックで対象選択（ドラッグは drag.js）
 		if (tool === "point" || tool === "text") {
 			if (tool === "text" && !drawDefaults.text["@text"]) return toast(t("パネルに文字を入れてから置いてください"));
@@ -440,7 +441,7 @@ export function initEditor(map, { adopt = true, setDropOwner = null } = {}) {   
 
 	// ---- キーボード ----
 	const typing = () => { const t = document.activeElement?.tagName; return t === "INPUT" || t === "TEXTAREA" || document.activeElement?.isContentEditable; };
-	const KEY_TOOL = { v: "select", a: "point", t: "text", l: "line", p: "polygon", r: "rect", c: "circle", h: "hole", m: "move", g: "bundle" };
+	const KEY_TOOL = { v: "select", a: "point", t: "text", l: "line", p: "polygon", f: "free", r: "rect", c: "circle", h: "hole", m: "move", g: "bundle" };
 	addEventListener("keydown", e => {
 		if (typing() || st.busy) return;
 		const mod = e.metaKey || e.ctrlKey;
@@ -465,7 +466,7 @@ export function initEditor(map, { adopt = true, setDropOwner = null } = {}) {   
 		sketch.cancel();
 		if (wasBundle && next !== "bundle" && st.bundle) { st.bundle = null; overlay.redraw(); }   // 束ねツールを抜けたら選集合を捨てる
 		if (next === "bundle") { select(null); st.bundle = new Set(); toast(t("束ねる要素をクリック→Enterで確定（Escで取消）")); overlay.redraw(); }
-		else if (next === "line" || next === "polygon" || next === "hole" || next === "rect" || next === "circle") select(null);   // 作図モードに選択は残さない（最初の一打がハンドルドラッグに化ける競合の根治）
+		else if (next === "line" || next === "polygon" || next === "free" || next === "hole" || next === "rect" || next === "circle") select(null);   // 作図モードに選択は残さない（最初の一打がハンドルドラッグに化ける競合の根治）
 		else if (next === "select" && st.selection != null) props.render(st.selection);
 		else props.close();               // 点/テキスト/移動ツール＝パネルは出さない or 既定スタイルが主役
 		bar.syncTool(next);
@@ -476,8 +477,8 @@ export function initEditor(map, { adopt = true, setDropOwner = null } = {}) {   
 		setTool, undo, redo, explode,
 		gridExp: () => gridExp,
 		setGrid: exp => { gridExp = exp; st.model?.setGrid(exp); toast(t("スナップ格子: 1e-{0} 度", exp)); },
-		getDefaults: t => drawDefaults[t === "rect" || t === "circle" ? "polygon" : t],   // 矩形/円＝面の既定スタイルを共有
-		setDefaults: (t, partial) => { const k = t === "rect" || t === "circle" ? "polygon" : t; drawDefaults[k] = mergeProps(drawDefaults[k], partial); },
+		getDefaults: t => drawDefaults[t === "rect" || t === "circle" ? "polygon" : t === "free" ? "line" : t],   // 矩形/円＝面・フリーハンド＝線の既定スタイルを共有
+		setDefaults: (t, partial) => { const k = t === "rect" || t === "circle" ? "polygon" : t === "free" ? "line" : t; drawDefaults[k] = mergeProps(drawDefaults[k], partial); },
 		importFile,
 		exportOpen: () => exportPanel(mapEl, getPbf, toast),
 		cloudOpen: () => cloudPanel(mapEl, {
@@ -515,7 +516,7 @@ export function initEditor(map, { adopt = true, setDropOwner = null } = {}) {   
 	let confirmSig = "";
 	const syncConfirm = () => {
 		let sig = "";
-		if (st.sketch && st.sketch.coords.length) sig = st.sketch.kind === "rect" || st.sketch.kind === "circle" ? "two" : `draw:${st.sketch.coords.length}`;
+		if (st.sketch && st.sketch.coords.length && st.sketch.kind !== "free") sig = st.sketch.kind === "rect" || st.sketch.kind === "circle" ? "two" : `draw:${st.sketch.coords.length}`;   // free＝pointerup が確定＝バー不要
 		else if (st.tool === "bundle") sig = `bundle:${st.bundle?.size || 0}`;
 		if (sig === confirmSig) return;
 		confirmSig = sig;

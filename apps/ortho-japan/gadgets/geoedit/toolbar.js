@@ -11,6 +11,7 @@ const t = tr({
 	"テキストを置く (T)": "Place text (T)",
 	"線を描く (L)": "Draw a line (L)",
 	"面を描く (P)": "Draw a polygon (P)",
+	"フリーハンドで描く（ドラッグ＝線・始点に戻して離すと面） (F)": "Draw freehand (drag = line; release near the start to close a polygon) (F)",
 	"矩形を描く（2クリック） (R)": "Draw a rectangle (2 clicks) (R)",
 	"円を描く（中心→半径の2クリック） (C)": "Draw a circle (center → radius, 2 clicks) (C)",
 	"穴を開ける（ポリゴンの内側に描いてEnter） (H)": "Cut a hole (draw inside a polygon, then Enter) (H)",
@@ -28,6 +29,7 @@ const t = tr({
 	"面のスタイル（次に描く面）": "Polygon style (next polygon)",
 	"面のスタイル（矩形）": "Polygon style (rectangle)",
 	"面のスタイル（円）": "Polygon style (circle)",
+	"線のスタイル（フリーハンド）": "Line style (freehand)",
 });
 
 // モノクロ線画アイコン（currentColor）＝Kenji旧ツールバーの流儀（8/20 参考画像）。絵文字混在をやめて統一
@@ -43,6 +45,7 @@ const ICONS = {
 	circle: S('<circle cx="12" cy="12" r="8"/><circle cx="20" cy="12" r="1.6"/><path d="M12 12h6.5"/>'),
 	move: S('<path d="M12 2v20M2 12h20"/><path d="M12 2l-2.5 3M12 2l2.5 3M12 22l-2.5-3M12 22l2.5-3M2 12l3-2.5M2 12l3 2.5M22 12l-3-2.5M22 12l-3 2.5"/>'),
 	polygon: S('<path d="M12 3.5l8.5 6.2-3.2 10H6.7l-3.2-10z"/><circle cx="12" cy="3.5" r="1.5"/><circle cx="20.5" cy="9.7" r="1.5"/><circle cx="17.3" cy="19.7" r="1.5"/><circle cx="6.7" cy="19.7" r="1.5"/><circle cx="3.5" cy="9.7" r="1.5"/>'),
+	free: S('<path d="M3 17c2.5-7 4.5-9.5 5.5-6.5s.8 8 3 5.5 3.5-9.5 5.5-8 2 6.5 4 8.5"/>'),   // フリーハンド＝一筆書きの波
 	hole: S('<circle cx="6" cy="6" r="2.8"/><circle cx="6" cy="18" r="2.8"/><path d="M20 4L8.2 15.9M8.2 8.1L20 20"/>'),   // 鋏＝旧ツールバー準拠（本人裁定 8/20）
 	bundle: S('<rect x="3" y="5" width="8.5" height="8.5" rx="1"/><rect x="12" y="10.5" width="8.5" height="8.5" rx="1"/>'),   // 束ねる＝2つを1つへ（重なる矩形）
 	explode: S('<rect x="8.5" y="8.5" width="7" height="7" rx="1"/><path d="M5 5l2.6 2.6M19 5l-2.6 2.6M5 19l2.6-2.6M19 19l-2.6-2.6"/>'),   // ばらす＝1つが四方へ
@@ -78,6 +81,7 @@ export function initToolbar(el, api, signal) {
 		text: btn("text", t("テキストを置く (T)"), () => api.setTool("text")),
 		line: btn("line", t("線を描く (L)"), () => api.setTool("line")),
 		polygon: btn("polygon", t("面を描く (P)"), () => api.setTool("polygon")),
+		free: btn("free", t("フリーハンドで描く（ドラッグ＝線・始点に戻して離すと面） (F)"), () => api.setTool("free")),
 		rect: btn("rect", t("矩形を描く（2クリック） (R)"), () => api.setTool("rect")),
 		circle: btn("circle", t("円を描く（中心→半径の2クリック） (C)"), () => api.setTool("circle")),
 		hole: btn("hole", t("穴を開ける（ポリゴンの内側に描いてEnter） (H)"), () => api.setTool("hole")),
@@ -117,8 +121,8 @@ export function initToolbar(el, api, signal) {
 
 	// ---- 作図ツールの既定スタイルパネル（点/線/面それぞれ＝「次に描くもの」に効く）----
 	let panel = null;
-	const GEOM = { point: "Point", text: "Point", line: "LineString", polygon: "Polygon", rect: "Polygon", circle: "Polygon" };
-	const TITLE = { point: t("点のスタイル（次に置く点）"), text: t("テキスト（次に置く文字）"), line: t("線のスタイル（次に描く線）"), polygon: t("面のスタイル（次に描く面）"), rect: t("面のスタイル（矩形）"), circle: t("面のスタイル（円）") };
+	const GEOM = { point: "Point", text: "Point", line: "LineString", polygon: "Polygon", free: "LineString", rect: "Polygon", circle: "Polygon" };
+	const TITLE = { point: t("点のスタイル（次に置く点）"), text: t("テキスト（次に置く文字）"), line: t("線のスタイル（次に描く線）"), polygon: t("面のスタイル（次に描く面）"), free: t("線のスタイル（フリーハンド）"), rect: t("面のスタイル（矩形）"), circle: t("面のスタイル（円）") };
 	const symPanel = t => {
 		panel?.remove(); panel = null;
 		if (!GEOM[t]) return;
