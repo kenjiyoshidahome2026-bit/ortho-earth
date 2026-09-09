@@ -607,3 +607,44 @@ struct POut {
 	return in.color;
 }
 `;
+
+// ── storage buffer 版への書き換え ────────────────────────────────────────────
+// group(2) は 2D テクスチャ（4096幅）で頂点/辺メタを配っている＝GL2 に storage buffer が無いための形で、
+// WebGPU では線形添字を `% w` / `/ w` に分解する整数除算を**頂点シェーダの最内側で毎回**払っている
+// （除数は uniform 経由＝定数畳み込みも効かない）。storage buffer なら添字1回で済む。
+// 実測（Apple metal-3・4.19M invocation × 8 依存フェッチ）: texture 10.15ms → storage 5.87ms（58%）。
+// ただし依存フェッチを 32 回へ増やすと差が消える（帯域律速に移りアドレス計算が遅延の陰に隠れる）＝
+// 効くかどうかは実シェーダが ALU 律速か帯域律速か次第。だから**逃げ道付きで両方持つ**（?gintsb=0）。
+// 原本は1つ＝この関数が texture 版から機械変換する（600行の二重管理をしない）。
+export function toStorageWGSL(code) {
+	const R = [
+		// 宣言（line/stencil 用と point 用は同じ group(2) スロットを共有する）
+		[/@group\(2\) @binding\(0\) var arcTex: texture_2d<u32>;/,
+		 "@group(2) @binding(0) var<storage, read> arcBuf: array<vec2u>;"],
+		[/@group\(2\) @binding\(1\) var metaTex: texture_2d<u32>;/,
+		 "@group(2) @binding(1) var<storage, read> metaBuf: array<vec4u>;"],
+		[/@group\(2\) @binding\(0\) var ptTex: texture_2d<u32>;/,
+		 "@group(2) @binding(0) var<storage, read> ptBuf: array<vec2u>;"],
+		[/@group\(2\) @binding\(1\) var ptMetaTex: texture_2d<u32>;/,
+		 "@group(2) @binding(1) var<storage, read> ptMetaBuf: array<u32>;"],
+		// アクセサ（tc の行ごと消す＝除算が無くなる）
+		[/\tlet tc = vec2i\(i32\(idx\) % F\.texw\.x, i32\(idx\) \/ F\.texw\.x\);\n\tlet px = textureLoad\(arcTex, tc, 0\);/,
+		 "\tlet px = arcBuf[idx];"],
+		[/textureLoad\(arcTex, vec2i\(i32\(idx\) % F\.texw\.x, i32\(idx\) \/ F\.texw\.x\), 0\)/g,
+		 "arcBuf[idx]"],
+		[/textureLoad\(metaTex, vec2i\(edgeId % F\.texw\.y, edgeId \/ F\.texw\.y\), 0\)/g,
+		 "metaBuf[u32(edgeId)]"],
+		[/\tlet tc = vec2i\(ptId % F\.texw\.x, ptId \/ F\.texw\.x\);\n\tlet px = textureLoad\(ptTex, tc, 0\);/,
+		 "\tlet px = ptBuf[u32(ptId)];"],
+		[/\tlet tc = vec2i\(ptId % F\.texw\.x, ptId \/ F\.texw\.x\);\n\tlet featId = i32\(textureLoad\(ptMetaTex, tc, 0\)\.r\);/,
+		 "\tlet featId = i32(ptMetaBuf[u32(ptId)]);"],
+		[/\tlet tc = vec2i\(ptId % F\.texw\.x, ptId \/ F\.texw\.x\);\n\tlet fid1 = textureLoad\(ptMetaTex, tc, 0\)\.r \+ 1u;/,
+		 "\tlet fid1 = ptMetaBuf[u32(ptId)] + 1u;"],
+	];
+	let out = code, hit = 0;
+	for (const [re, to] of R) { const before = out; out = out.replace(re, to); if (out !== before) hit++; }
+	// 変換漏れ＝テクスチャ宣言が消えたのに textureLoad が残る等は黙って壊れる（黒画面）＝必ず検札する
+	if (/textureLoad\((arcTex|metaTex|ptTex|ptMetaTex)/.test(out))
+		throw new Error("toStorageWGSL: 変換漏れ（textureLoad が残っている）＝原本の書式が変わった疑い");
+	return out;
+}
