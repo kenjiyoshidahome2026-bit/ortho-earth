@@ -74,6 +74,15 @@ try {
 	ok("liveSwitch", !picker.classList.contains("open") && !picker.querySelector('.tp-card[data-theme="dark"]') && !!picker.querySelector('.tp-card[data-theme="mono"]'));
 	// map.view＝表示状態を常時参照（theme=c／layers=l／hash=共有URL）。生き替え後 theme=dark・hash に c=dark が載る。
 	ok("mapView", map.view.theme === "dark" && Array.isArray(map.view.layers) && /c=dark/.test(map.view.hash) && Number.isFinite(map.view.zoom));
+	// 点火ゲートの添字追随（2026-09-09 の実バグ回帰封じ）：ライブ切替後の hidden(li) が「新styleの -hi 層」を
+	// 指していること。旧＝themes が boot style の添字を握り続け、切替でズレて「チップOFFなのに rail-hi/road-hi/
+	// 航路が点き、土台の道路網が消える」（本人報告・両バックエンド・本番でも再現）。
+	{
+		const st2 = window.__style();
+		const hidIds = (window.__hiddenLi?.() ?? []).map(li => st2.layers[li]?.id);
+		ok(`hidden追随(${hidIds.join(",")})`, hidIds.includes("rail-hi") && hidIds.includes("road-hi")
+			&& hidIds.every(id => /-hi\b|kouro|river/.test(id ?? "")));   // -hi\b＝road-hi-face/-tn も拾う
+	}
 
 	// ★切替直後の窓の回帰（2026-08-19「切替でボタンの絵が変になる」）：基図の再ビルドが済むまで画面は旧テーマの
 	// 絵のまま＝スタブ snapshot は依然 mono 色（curr は dark へ切替済み）＝バグの再現条件そのもの。写像元を curr で
