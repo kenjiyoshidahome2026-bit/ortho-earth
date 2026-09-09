@@ -13,6 +13,7 @@ window.confirm = () => false;   // クラウド削除等の確認＝試験では
 import { createGeopbf } from "geopbf";
 createGeopbf("https://api.ortho-earth.com");
 import orthoJapan from "../app.js";
+import { GeoPBF } from "geopbf/pbf-base";
 import { initEditor } from "../gadgets/geoedit/controller.js";
 
 const t = [], ok = (n, c) => t.push((c ? "ok:" : "NG:") + n);
@@ -173,6 +174,35 @@ try {
 	await sleep(150);
 	ok("selectLine", editor.state.selection === lnEid);
 
+	// ---- フリーハンド：ドラッグ＝軌跡→間引いて線・始点近くで離すと面。ストローク中は確定バー無し・ツールは残る（連続ストローク）----
+	{
+		key("Escape");
+		const cenF = JSON.stringify(map.view.center);
+		document.querySelector('#ge-toolbar button[data-tip^="フリーハンド"]').click();
+		const f0 = map.projectLL(139.735, 35.690);
+		C().dispatchEvent(new PointerEvent("pointerdown", ev(f0[0], f0[1], 11)));
+		for (const [dx, dy] of [[8, 3], [16, -2], [24, 4], [32, -3], [40, 2], [48, 0]]) M().dispatchEvent(new PointerEvent("pointermove", ev(f0[0] + dx, f0[1] + dy, 11)));
+		await sleep(60);   // frame フック＝確定バーが出ないことの検分（free は pointerup が確定＝バー不要）
+		ok("freeNoBar", document.querySelector(".ge-confirm").hidden);
+		M().dispatchEvent(new PointerEvent("pointerup", ev(f0[0] + 48, f0[1], 11)));
+		await sleep(200);
+		const flEid = editor.state.selection;
+		ok("freeLine", flEid != null && m().feats.get(flEid)?.type === "LineString" && m().featureGeoJSON(flEid, false).geometry.coordinates.length >= 3);
+		ok("freeNoPan", JSON.stringify(map.view.center) === cenF);
+		ok("freeToolStays", document.querySelector('#ge-toolbar button[data-tip^="フリーハンド"]').classList.contains("on"));
+		const g0 = map.projectLL(139.735, 35.6755);   // 閉じストローク＝始点の16px以内で離す→面
+		C().dispatchEvent(new PointerEvent("pointerdown", ev(g0[0], g0[1], 12)));
+		for (const [dx, dy] of [[20, 0], [40, 0], [40, 20], [40, 40], [20, 40], [0, 40], [0, 20], [2, 4]]) M().dispatchEvent(new PointerEvent("pointermove", ev(g0[0] + dx, g0[1] + dy, 12)));
+		M().dispatchEvent(new PointerEvent("pointerup", ev(g0[0] + 2, g0[1] + 4, 12)));
+		await sleep(200);
+		const fpEid = editor.state.selection;
+		ok("freePolygon", fpEid != null && fpEid !== flEid && m().feats.get(fpEid)?.type === "Polygon");
+		key("Escape");   // 後続の試験へ影響を残さない＝2ストロークとも undo
+		key("z", { metaKey: true }); key("z", { metaKey: true });
+		await sleep(300);
+		ok("freeUndo", !m().feats.has(flEid) && !m().feats.has(fpEid));
+	}
+
 	// ---- 穴あけツール：Aの内側に三角リング→リング2本→undoで1本 ----
 	document.querySelector('#ge-toolbar button[data-tip^="穴"]').click();
 	const g1 = map.projectLL(139.7525, 35.6825), g2 = map.projectLL(139.7565, 35.6825), g3 = map.projectLL(139.7545, 35.6862);
@@ -257,6 +287,17 @@ try {
 		const small = await ask({ mode: "pbf", gridExp: 6, maxVerts: 1e9 }, src.slice(0));
 		ok("vertGatePass", small.ok && !small.payload.large && small.payload.flat != null);
 		w.terminate();
+	}
+
+	// ---- 長辺の球面追従＝gint 焼きの度アンカー（1°ごとの L1）。pbf/モデル/保存は制御点のまま（二重線の根治）----
+	{
+		await editor.loadFC({ type: "FeatureCollection", features: [{ type: "Feature", properties: { n: "tri" }, geometry: { type: "Polygon", coordinates: [[[10, 10], [30, 10], [20, 25], [10, 10]]] } }] }, { fly: false });
+		await editor.commitNow();
+		ok("anchorModelRaw", m().toGeoJSON().features[0].geometry.coordinates[0].length === 4);   // モデル＝制御点3+閉じ
+		ok("anchorPbfRaw", editor.layer.pbf.features[0].geometry.coordinates[0].length === 4);    // pbf も制御点のまま（識別/取り込みを汚さない）
+		ok("anchorBaked", editor.layer.pbf.unPackGint.arcBuffer.length > 50);   // GintBUF＝20°/15°級の3辺に度アンカー挿入（gint とオーバレイの折れ線が一致）
+		const saved = (await new GeoPBF({}).set(editor.layer.saveBuffer.slice(0))).features[0].geometry.coordinates[0];
+		ok("anchorSaveRaw", saved.length === 4);   // 自動保存＝制御点のまま
 	}
 
 	// ---- 書き出し／クラウドのダイアログ＝同時に1枚（二重開き・積み重なりなし）----

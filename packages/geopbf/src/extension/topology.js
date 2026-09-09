@@ -4,7 +4,7 @@ import { gint } from "./gint.js";
 // GintBUF のフォーマット版。レイアウトを変えたら必ず上げる：unPackGintBuffer が版不一致を拒否し、
 // pbf-io.load が「キャッシュのPBFから再焼き」で自己修復する（版なし時代、polyStream/lineStream 導入(v2レイアウト)を
 // 旧版キャッシュが新リーダで読まれて海岸線が全端末で黙って消えた——ETag はソース PBF の版であって派生物の版ではない）。
-topology.FORMAT_VERSION = 3;   // v3: 接合点判定を出現回数→neighbor-pair方式に（共有arcの切り出しが増える＝旧キャッシュは再焼き）
+topology.FORMAT_VERSION = 4;   // v4: 度アンカー（1°ごとの L1）挿入＝内容が変わる＝旧キャッシュは再焼き。v3: 接合点判定を出現回数→neighbor-pair方式に
 
 // V8 Map limit (~16M entries) workaround: distribute keys across multiple bucket Maps.
 class BigMap {
@@ -30,7 +30,7 @@ export function topology(self) {
 	// 全量 wasm 経路：PBF 生バイト＋feature 台帳を1回渡して GintBUF 完成品を受け取る
 	//（デルタ復号→fit→densify→位相→組立まで Rust）。不在なら従来の JS 経路へ。
 	const full = gint.topologyFullWasm(self, topology.FORMAT_VERSION);
-	if (full) return full;
+	if (full) return anchorFullGintBuf(full);   // 全wasm直行便にも度アンカー（JS後処理＝Rust改修なし）
 	const structures = [[], [], []];
 	const elemCount = [0, 0, 0, 0];
 	const factor = gint.SCALE_E < e? gint.SCALE_E / e: Math.round(gint.SCALE_E / e);
@@ -122,7 +122,10 @@ export function topology(self) {
 	// ポリゴン経路：wasm 一括版（cutPolygon→meta→buildArcs→stream を1往復）が使えれば使う。
 	// wasm 不在（フォールバック）は従来の JS 経路＝structures[0] に .arcs が生える。
 	const polygon = gint.buildPolygonsWasm(structures[0]) ?? buildPolygons(structures[0]);
+	if (polygon) gint.insertDegreeAnchors(polygon);   // 度アンカー＝1°ごとの L1（buffer 伸長＝polyline の頂点オフセット計算より先）
+	// （polyline は下の buildPolylines 直後。全wasm経路は anchorFullGintBuf が同じ後処理を GintBUF 丸ごとに掛ける）
 	const polyline = buildPolylines(structures[1], polygon? polygon.count: 0, polygon?.buffer.length ?? 0);
+	if (polyline) gint.insertDegreeAnchors(polyline);
 	const point = buildPoints(structures[2]);
 	const pointCount = point? point.count: 0; if(pointCount) elemCount[2] = pointCount;
 	// Build flat binary topology streams (v2: no JSON)
@@ -193,6 +196,28 @@ export function topology(self) {
 	neighborStream.length && (view.set(new Uint8Array(neighborStream.buffer), ptr), ptr += neighborStream.byteLength);
 	if (totalLength !== ptr) throw new Error(`GintBUF length mismatch: expected ${totalLength}, got ${ptr}`);
 	return GintBUF;
+}
+
+// 全wasm直行便（topologyFullWasm）の GintBUF へ度アンカーを掛ける後処理。
+// プリスキャン＝arcMeta の bbox だけを生バッファのビューで見る（コピーゼロ）＝1°箱超の arc が無ければ無傷で返す
+// （筆/census級の密データは常にこちら）。必要時のみ unpack→insertDegreeAnchors→repack。
+function anchorFullGintBuf(full) {
+	const header = new Uint32Array(full, 0, 16);
+	const arcLength = header[6], arcCount = header[7], mlen = 8, LIMIT = 10000000;
+	if (!arcCount) return full;
+	const meta = new Uint32Array(full, 64 + arcLength * 8, arcCount * mlen);
+	let hit = false;
+	for (let a = 0; a < arcCount && !hit; a++) {
+		const r = a * mlen;
+		if (meta[r + 1] >= 2 && (meta[r + 6] - meta[r + 4] > LIMIT || meta[r + 7] - meta[r + 5] > LIMIT)) hit = true;
+	}
+	if (!hit) return full;
+	const d = unPackGintBuffer(full);
+	if (!d) return full;
+	const set = { count: d.arcCount, buffer: d.arcBuffer, meta: d.arcMeta, mlen };
+	gint.insertDegreeAnchors(set);
+	d.arcBuffer = set.buffer;
+	return repackGintBuffer(d);
 }
 
 export function unPackGintBuffer(GintBUF) {

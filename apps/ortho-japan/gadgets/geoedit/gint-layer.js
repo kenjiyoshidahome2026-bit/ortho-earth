@@ -67,6 +67,9 @@ export function buildStyleTable(featsArr, { forceVisible = false } = {}) {   // 
 	return u32;
 }
 
+// 長辺の球面追従＝エンジン側の度アンカー（geopbf gint 焼き topology.js の insertDegreeAnchors・1°ごとの L1）が正典。
+// ここ（pbf エンコード）では細分しない＝pbf は常に制御点のまま（識別/保存/取り込みが密点で汚れない）。
+
 // モデル→GeoPBF の直列エンコード（GeoJSON FC を一度も作らない＝8/20「根性で全部」）。
 // set() と同じ手順（makeKeys→setHead→setBody→close→getPosition）を、setBody の**関数渡し**で
 // 1フィーチャずつ縫合→書き込み→即GC。setFeature は q.geometry へ書き戻す（strictでgetter即死）ため
@@ -78,15 +81,16 @@ export async function encodeModel(model, { withEid = false, name = "geoedit", pr
 	const propsArr = eids.map(e => withEid ? { ...model.feats.get(e).properties, __eid: e } : model.feats.get(e).properties);
 	const pbf = new GeoPBF({ name, precision: precision ?? model.gridExp });
 	const [keys, bufs] = await makeKeys(propsArr);
+	let reshaped = false;   // 表示焼きで形を変えたか（@spline細分）＝保存バッファは制御点で焼き直しが要る
 	pbf.setHead(keys, bufs).setBody(() => {
 		for (let i = 0; i < eids.length; i++) {
 			let geometry = stitchGeometry(model.arcs, model.feats.get(eids[i]));
-			if (smooth && propsArr[i] && propsArr[i]["@spline"]) geometry = smoothGeom(geometry);   // 表示用のみ曲線化（保存は制御点維持）
+			if (smooth && propsArr[i] && propsArr[i]["@spline"]) { geometry = smoothGeom(geometry); reshaped = true; }   // 表示用のみ曲線化（保存は制御点維持）
 			pbf.setFeature({ type: "Feature", geometry, properties: propsArr[i] });
 		}
 	}).close();
 	await pbf.getPosition();
-	return { pbf, eids };
+	return { pbf, eids, reshaped };
 }
 
 export function createGintLayer(map) {
@@ -134,13 +138,12 @@ export function createGintLayer(map) {
 				pbf = null; saveBuf = null; baseTable = null; fidEid = []; eidFid = new Map(); hidden = new Set();
 				return null;
 			}
-			const hasSpline = [...model.feats.values()].some(f => f.properties?.["@spline"]);
-			const { pbf: built, eids } = await encodeModel(model, { withEid: true, name: "geoedit/session", smooth: true });   // __eid一意＝propTub併合の無害化（fid=並び順）。表示用＝@splineは細分
+			const { pbf: built, eids, reshaped } = await encodeModel(model, { withEid: true, name: "geoedit/session", smooth: true });   // __eid一意＝propTub併合の無害化（fid=並び順）。表示用＝@splineは細分
 			await built.gint();           // gint は明示ベイク（worker/WASM、なければJS）
 			if (g !== gen) return null;   // 後発コミットに追い抜かれた＝破棄
 			pbf = built;
-			// 保存用＝制御点のまま。@spline が無ければ表示用と同一＝再エンコードしない
-			saveBuf = hasSpline ? (await encodeModel(model, { withEid: true, name: "geoedit/session" })).pbf.arrayBuffer : built.arrayBuffer;
+			// 保存用＝制御点のまま。表示焼きで形を変えていなければ表示用と同一＝再エンコードしない
+			saveBuf = reshaped ? (await encodeModel(model, { withEid: true, name: "geoedit/session" })).pbf.arrayBuffer : built.arrayBuffer;
 			if (g !== gen) return null;
 			fidEid = eids;
 			eidFid = new Map(eids.map((e, i) => [e, i]));
