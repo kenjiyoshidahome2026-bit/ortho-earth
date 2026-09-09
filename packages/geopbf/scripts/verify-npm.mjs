@@ -3,16 +3,19 @@
 // 「npm pack の tarball → 使い捨て vite 消費アプリに install → 実ビルド → GeoJSON→gint 実変換」まで通す。
 // worker（動的import持ち）と WASM が**消費者のバンドラ通過後**に生きているか＝ここでしか分からない
 // （devは動くが本番だけ死ぬ族・base:"/"事故と同クラスの最後の砦）。
+// **build と dev の両方**で同じ main.js を実走させる。dev は本番ビルドと解決経路が別物で、片方だけ割れる型が
+// 実在する＝1.5.0 は「ライブラリ内の裸の `import("webgpu")` を vite の dev だけが静的解決しに行って 500」で
+// この関門（当時 build のみ）を素通りして世に出た。以後 dev 段が門番。
 import { spawn, execFileSync } from "node:child_process";
 import { createServer } from "node:http";
 import { fileURLToPath } from "node:url";
-import { readFile, writeFileSync, rmSync, mkdirSync } from "node:fs";
+import { readFile, writeFileSync, rmSync, mkdirSync, readFileSync, existsSync } from "node:fs";
 import { promisify } from "node:util";
 import path from "node:path";
 import os from "node:os";
 
 const PKG = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
-const PORT = 5247;
+const PORT = 5247, DEVPORT = 5248;
 // Chromium: $CHROME → Playwright の Chromium（devDependency・CI は `npx playwright install chromium`）→ Mac の Chrome
 const CHROME = process.env.CHROME || await (async () => {
 	try { const { chromium } = await import("playwright"); const p = chromium.executablePath(); if (p && (await import("node:fs")).existsSync(p)) return p; } catch {}
@@ -22,6 +25,7 @@ const CHROME = process.env.CHROME || await (async () => {
 	for (const p of ["/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"]) if (fs.existsSync(p)) return p;
 	return "google-chrome";
 })();
+const { setTimeout: sleep } = await import("node:timers/promises");
 const MIME = { ".js": "text/javascript", ".css": "text/css", ".html": "text/html", ".wasm": "application/wasm", ".json": "application/json" };
 const fail = msg => { console.error(`✗ ${msg}`); process.exit(1); };
 
@@ -36,7 +40,23 @@ const WORK = path.join(os.tmpdir(), `geopbf-npm-verify-${process.pid}`);
 rmSync(WORK, { recursive: true, force: true });
 mkdirSync(WORK, { recursive: true });
 writeFileSync(path.join(WORK, "package.json"), JSON.stringify({ name: "consumer", private: true, type: "module" }));
-writeFileSync(path.join(WORK, "vite.config.js"), `export default { worker: { format: "es" } };\n`);
+writeFileSync(path.join(WORK, "vite.config.js"), `
+import { writeFileSync } from "node:fs";
+// dev 段のビーコン受け＝ページは同一オリジンの /__result へ自己申告する（build 段は検定側の静的サーバが受ける）。
+// 結果はファイルへ落とす＝vite は別プロセスで、検定スクリプトへ直接返せないため。
+const beacon = {
+	name: "result-beacon",
+	configureServer(server) {
+		server.middlewares.use((req, res, next) => {
+			if (!req.url || !req.url.startsWith("/__result")) return next();
+			const t = new URL(req.url, "http://x").searchParams.get("t") || "(空)";
+			try { writeFileSync(process.env.GEOPBF_RESULT_FILE, t); } catch { /* 検定側が拾えなければタイムアウトで落ちる */ }
+			res.statusCode = 204; res.end();
+		});
+	},
+};
+export default { worker: { format: "es" }, plugins: [beacon] };
+`);
 writeFileSync(path.join(WORK, "index.html"), `<!doctype html><meta charset="utf-8"><title>booting</title><script type="module" src="/main.js"></script>`);
 writeFileSync(path.join(WORK, "main.js"), `
 // エラーは全てタイトルへ露出（headless dump-dom はタイトルしか読めない）
@@ -88,6 +108,29 @@ setTimeout(() => fetch("/__result?t=" + encodeURIComponent(document.title)).catc
 `);
 console.log("… npm install（tarball＋vite）");
 execFileSync("npm", ["install", tarball, "vite@^8", "--no-audit", "--no-fund", "--silent"], { cwd: WORK, stdio: "inherit" });
+console.log("… vite dev（消費者 dev サーバ実通し）");
+{
+	const RESULT = path.join(WORK, "__result.txt");
+	const dev = spawn("npx", ["vite", "--port", String(DEVPORT), "--strictPort", "--logLevel", "warn"],
+		{ cwd: WORK, stdio: ["ignore", "ignore", "inherit"], env: { ...process.env, GEOPBF_RESULT_FILE: RESULT } });
+	let chrome = null;
+	const stop = () => { try { chrome?.kill(); } catch {} try { dev.kill(); } catch {} };
+	process.on("exit", stop);
+	try {
+		for (let i = 0; ; i++) {   // dev サーバの起動待ち（先に Chrome を出すと空振りする）
+			try { if ((await fetch(`http://localhost:${DEVPORT}/`)).ok) break; } catch { /* まだ */ }
+			if (i > 160) throw new Error("vite dev が起動しない（port が塞がっている？）");
+			await sleep(250);
+		}
+		chrome = spawn(CHROME, ["--headless=new", "--no-sandbox", `--user-data-dir=/tmp/geopbf-npm-dev-${process.pid}`,
+			"--disable-gpu", "--use-angle=swiftshader", "--enable-unsafe-swiftshader", `http://localhost:${DEVPORT}/`], { stdio: "ignore" });
+		const t0 = Date.now();   // 事前バンドル（optimizeDeps）が走る分だけ build 段より気長に待つ
+		while (!existsSync(RESULT) && Date.now() - t0 < 90000) await sleep(500);
+		const got = existsSync(RESULT) ? readFileSync(RESULT, "utf8") : null;
+		if (got !== "PASS geopbf-npm") { console.error(`  現場保存: ${WORK}`); fail(`消費者 dev 実走: ${got || "90秒ビーコン無し（dev で解決に失敗している疑い＝上の vite ログを見る）"}`); }
+	} finally { stop(); }
+	console.log("ok:dev（vite dev サーバでの解決＝subpath 全口・worker・WASM）");
+}
 console.log("… vite build（消費者バンドラ実通し）");
 execFileSync("npx", ["vite", "build", "--logLevel", "warn"], { cwd: WORK, stdio: "inherit" });
 
@@ -109,11 +152,10 @@ const server = createServer(async (req, res) => {
 const chrome = spawn(CHROME, ["--headless=new", "--no-sandbox", `--user-data-dir=/tmp/geopbf-npm-${process.pid}`, "--remote-debugging-port=0",
 	"--disable-gpu", "--use-angle=swiftshader", "--enable-unsafe-swiftshader", `http://localhost:${PORT}/`], { stdio: "ignore" });
 process.on("exit", () => { chrome.kill(); server.close(); });
-const { setTimeout: sleep } = await import("node:timers/promises");
 const t0 = Date.now();
 while (!result && Date.now() - t0 < 60000) await sleep(500);
 chrome.kill(); server.close();
 if (result !== "PASS geopbf-npm") { console.error(`  現場保存: ${WORK}`); fail(`消費者実走: ${result || "60秒ビーコン無し（ページが起動していない疑い）"}`); }
 rmSync(WORK, { recursive: true, force: true });
-console.log(`ok:consumer（tarball→vite build→FC変換→gint焼き(worker+WASM)→identify→PMTiles(tile-worker)→GeoParquet 実通し）`);
+console.log(`ok:build（tarball→vite build→FC変換→gint焼き(worker+WASM)→identify→PMTiles(tile-worker)→GeoParquet 実通し）`);
 console.log("✓ geopbf npm 配布物の検定PASS");
