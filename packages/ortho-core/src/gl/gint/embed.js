@@ -233,13 +233,13 @@ export function createGintLayer(gl, { requestDraw } = {}) {
 
 		const data = { cam, ...(drawStyle || {}) };
 		if (s._forceLowMove) data._forceLow = true;
-		if (!zoomInRange(data)) { s._inRange = false; s.lastDrawData = null; s._pfLineEdges = 0; s._pfTierW = -1; return; }   // 範囲外＝描かない（identify も抑止）
+		if (!zoomInRange(s, data)) { s._inRange = false; s.lastDrawData = null; s._pfLineEdges = 0; s._pfTierW = -1; return; }   // 範囲外＝描かない（identify も抑止）
 		s._inRange = true;
 		if (s.totalEdges === 0 && s.totalPoints === 0) { s.lastDrawData = null; s._pfLineEdges = 0; s._pfTierW = -1; return; }
 
 		s._budgetSkipped = false;   // ここから先は必ず描く＝スキップ状態を解除（settle 復帰フックは drawn 側）
 
-		const drawData = computeDrawData(data);
+		const drawData = computeDrawData(s, data);
 		// noDepth（スタイルノブ）＝この層は地形深度に参加しない＝常に最前面。admin0 世界図用（2026-09-01）：
 		// tier 間引き後の国境は長いarc＝端点しか標高を見ず地形に潜り、隠線パスは静止時のみ＝チルト中のドラッグで
 		// 国境だけ消えた（海岸線は海抜0＝terrain が海を discard するため無事）。装飾層は最前面が正しい。

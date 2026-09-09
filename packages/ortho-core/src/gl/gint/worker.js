@@ -165,7 +165,7 @@ function drawNow(data) {
 	}
 	s.lastMX = NaN; s.lastMY = NaN;
 
-	if (!zoomInRange(data)) {
+	if (!zoomInRange(s, data)) {
 		// 範囲外は常にクリア（panning中も）。ズームインで z>maxZoom を跨いだ瞬間に消す＝「消し忘れ」防止。
 		// ※v1 は zoomToFeature が範囲外を一瞬通る対策で panning中は前フレーム保持していたが、
 		//   ortho-japan には zoomToFeature が無いので保持不要。将来 fly-to を足すなら要再考。
@@ -181,7 +181,7 @@ function drawNow(data) {
 	if (s.totalEdges === 0 && s.totalPoints === 0) return;
 
 	// site 3（cam→mvp/eye/origin/RTE錨/LODランク/視野bbox）は drawdata.js（embedded モードと共用）。
-	const drawData = computeDrawData(data);
+	const drawData = computeDrawData(s, data);
 	renderCleanScene(drawData, null);
 	s.lastDrawData = drawData;
 }
