@@ -110,7 +110,12 @@ import("../app.js").then(async ({ default: orthoJapan }) => {
 		ctgt.dispatchEvent(new PointerEvent("pointerup", { clientX: ccx, clientY: ccy, bubbles: true, pointerId: 2, pointerType: "mouse", isPrimary: true, button: 0, buttons: 0 }));
 		const clk = await clkP;
 		ok(`map.on click(hits=${clk?.hs?.length} fid=${clk?.hs?.[0]?.fid})`, clk !== "timeout" && clk.hs.length === 1 && clk.hs[0].fid === 7);
-		// ── ⑥ remove（プロトコル往復後もアプリが生存）──
+		// ── ⑥ admin0 独立層（coast/user 二層化）＝ズームアウトで層が立つ（スロットは admin0 を持たない）──
+		m.flyTo(139.76, 35.68, 5, 0);
+		let a0 = null;
+		for (let i = 0; i < 100 && !(a0 = window.__a0?.())?.layer; i++) await new Promise(r => setTimeout(r, 250));
+		ok(`admin0層(layer=${a0?.layer} slot=${a0?.slot ?? "null"} vis=${a0?.vis})`, a0?.layer === true && a0?.slot !== "admin0" && a0?.vis === true);
+		// ── ⑦ remove（プロトコル往復後もアプリが生存）──
 		lb.remove(); la.remove();
 		await new Promise(r => setTimeout(r, 300));
 		ok("remove", !document.getElementById("fatal"));
