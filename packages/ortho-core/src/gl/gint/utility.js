@@ -1,7 +1,6 @@
 // gint 共有ユーティリティ（v2）。v1(ortho-map) の gintUtility を移植。
 // bindSharedUniforms のみ node-dependent（site 2＝投影 uniform）。他は純データ構造＝逐語で携行。
 
-import { s } from './state.js';
 import { betaOf, ellipsoidOn } from '../../camera.js';
 
 // ── site 2：cam 由来の mvp/eye/origin を uniform へ（v1 の rotate/scale/rsincos/jac を建て替え）──
@@ -38,7 +37,7 @@ export function bindSharedUniforms(gl, u, data, arcTex, metaTex, arcW, metaW, wi
 // feature bbox テクスチャ（扇要＋GPU bbox カリング）を unit2 へ。無いデータ（線のみ/疎fid）は
 // 従来のクリップ原点＆カリング無効。視野bbox は visibleRuns と同じ線幅マージン（e7 で 10000≈0.001°）。
 // （passes.js から移設＝idfill.js の ID 塗りパスと共用）
-export function bindPivot(gl, u) {
+export function bindPivot(s, gl, u) {
 	gl.uniform1i(u.u_pivot_tex, 2);
 	gl.uniform1i(u.u_pivot_w, s.pivotW || 1);
 	gl.uniform1i(u.u_has_pivot, s.pivotTex ? 1 : 0);

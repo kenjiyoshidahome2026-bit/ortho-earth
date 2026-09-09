@@ -4,12 +4,11 @@
 //   uploadBaked        = bake worker が別スレッドで焼いた artifacts を受けてアップロードのみ（bake-ahead）
 // どちらも s への台帳反映とテクスチャ搭載はここで一元化（applyArtifacts）。
 
-import { s } from './state.js';
 import { uploadTex2D } from './utility.js';
 import { bakeBase, bakeTier, tierPlan } from './bake.js';
 
 // RGBA32UI メタ（基準/境界/tier 共通）を TEX_META_W 幅にパディングして搭載。
-function uploadMetaTex(gl, metaU32, edgeCount) {
+function uploadMetaTex(s, gl, metaU32, edgeCount) {
 	const h   = Math.ceil(edgeCount / s.TEX_META_W);
 	const pad = new Uint32Array(s.TEX_META_W * h * 4);
 	pad.set(metaU32);
@@ -18,7 +17,7 @@ function uploadMetaTex(gl, metaU32, edgeCount) {
 
 // artifacts（bake.js の出力）を s に反映しテクスチャを搭載する共通部。
 // 事前条件: s.gintData がベイク元（正規化済み polyStream/arcBuffer）を指していること。
-function applyArtifacts(art) {
+function applyArtifacts(s, art) {
 	const { gl, gintData } = s;
 	const { arcBuffer: ab, pointBuffer: pb } = gintData;
 
@@ -47,7 +46,7 @@ function applyArtifacts(art) {
 	s.lowFill       = !!art.lowFill;     // fillOff でも低ズーム帯の単色塗りだけ生かす層別フラグ（geoedit 大規模モード）
 	console.debug('[gint] edges=%d chunks=%d ck0=%s', s.totalEdges, s.metaChunks?.length ?? 0,
 		JSON.stringify(s.metaChunks?.[0]?.bbox ?? null));   // ck0＝bbox欠落データ（全ゼロ）の検出用
-	if (s.totalEdges > 0) s.metaTex = uploadMetaTex(gl, art.base.metaU32, s.totalEdges);
+	if (s.totalEdges > 0) s.metaTex = uploadMetaTex(s, gl, art.base.metaU32, s.totalEdges);
 
 	// pivotTex: per-feature bbox（RGBA32UI）。①stencil 塗りの扇要（bbox中心）＝TBDR パラメータバッファ
 	// 爆発の根治 ②feature 単位 GPU bbox カリング。疎 fid データは bake が null＝従来のクリップ原点要へ。
@@ -67,7 +66,7 @@ function applyArtifacts(art) {
 	if (art.boundary) {
 		s.totalEdgesB = art.boundary.edgeCount;
 		s.polyEdgesB  = art.boundary.polyEdgeCount;
-		s.metaTexB    = uploadMetaTex(gl, art.boundary.metaU32, art.boundary.edgeCount);
+		s.metaTexB    = uploadMetaTex(s, gl, art.boundary.metaU32, art.boundary.edgeCount);
 		console.debug('[gint] boundary edges=%d (%.1f%%)', s.totalEdgesB, s.totalEdges ? 100 * s.totalEdgesB / s.totalEdges : 0);
 	}
 
@@ -95,40 +94,40 @@ function applyArtifacts(art) {
 }
 
 // 従来経路（同期ベイク）：worker モード（gishub 検証/t-gintlod）と、bake worker 不在時のフォールバック。
-export function uploadGintTextures() {
+export function uploadGintTextures(s) {
 	const { gl, gintData } = s;
 	if (!gl || !gintData) return;
 	const art = bakeBase(gintData);
-	applyArtifacts(art);
+	applyArtifacts(s, art);
 	// tier は 1 段ずつ macrotask に刻んで遅延構築（set() 内同期構築は数百k〜数M辺で worker を秒級ブロック）
-	scheduleTierBuild({ weightHist: art.weightHist });
+	scheduleTierBuild(s, { weightHist: art.weightHist });
 }
 
 // bake-ahead 経路：bake worker が焼いた artifacts（base/boundary/pivot 等）を受けてアップロードのみ。
 // tier は addBakedTier で1段ずつ届き、finishBakedTiers で梯子完成（過渡期は pickLineTier の代用/キャップが受ける）。
-export function uploadBaked(art) {
+export function uploadBaked(s, art) {
 	const { gl, gintData } = s;
 	if (!gl || !gintData) return;
-	applyArtifacts(art);
+	applyArtifacts(s, art);
 }
 
 // bake worker から届いた tier 1段を搭載（bundle 指定時は「眠っているスロット」へ＝s を経由しない）。
-export function addBakedTier(tier, bundle = null) {
+export function addBakedTier(s, tier, bundle = null) {
 	const { gl } = s;
 	if (!gl || !tier?.edgeCount) return;
-	const tex = uploadMetaTex(gl, tier.metaU32, tier.edgeCount);
+	const tex = uploadMetaTex(s, gl, tier.metaU32, tier.edgeCount);
 	const list = bundle ? bundle.lodTiers : s.lodTiers;
 	list.push({ minW: tier.minW, edgeCount: tier.edgeCount, chunks: tier.chunks, tex });
 	list.sort((a, b) => a.minW - b.minW);   // minW 昇順の台帳規約
 }
 
-export function finishBakedTiers(bundle = null) {
+export function finishBakedTiers(s, bundle = null) {
 	if (bundle) { bundle.tiersDone = true; return; }
 	s.tiersDone = true;
 	const tiers = s.lodTiers ?? [];
 	if (tiers.length) console.debug('[gint] LOD tiers(baked): %s',
 		tiers.map(t => `w${t.minW}=${t.edgeCount}辺(ck${t.chunks?.length ?? 0})`).join(' / '));
-	postMessage({ action: 'tiers', tiers: tiers.map(t => ({ minW: t.minW, edgeCount: t.edgeCount })) });
+	postMessage({ action: 'tiers', layer: s.layerId ?? null, tiers: tiers.map(t => ({ minW: t.minW, edgeCount: t.edgeCount })) });
 	s.requestDraw?.();   // ハードキャップ(-3)や代用 tier で描いていたフレームを完全な絵へ
 }
 
@@ -136,7 +135,7 @@ export function finishBakedTiers(bundle = null) {
 // uploadGintTextures（新規データ）と embed.js の swap-in（スロット復帰で梯子が未完のまま眠っていた層）
 // の両方から呼ばれる＝s.lodTiers に既にある段は plan から除外して途中再開する。
 // 採否（0.7 ガード）は bake.js tierPlan（hist 先読み）＝作らない tier は走査もしない。
-export function scheduleTierBuild({ weightHist = null } = {}) {
+export function scheduleTierBuild(s, { weightHist = null } = {}) {
 	const { gl, gintData } = s;
 	const ab = gintData?.arcBuffer;
 	const gen = s.tierGen = (s.tierGen ?? 0) + 1;   // 差し替え/クリア/context復元/再スケジュールで旧スケジュールを無効化
@@ -164,14 +163,14 @@ export function scheduleTierBuild({ weightHist = null } = {}) {
 			if (s.lodTiers.length) console.debug('[gint] LOD tiers: %s tcks=%s',
 				s.lodTiers.map(t => `w${t.minW}=${t.edgeCount}辺(ck${t.chunks?.length ?? 0})`).join(' / '),
 				JSON.stringify(s.lodTiers[0]?.chunks?.map(c => c.bbox) ?? null));   // tier チャンク bbox の健全性検査用
-			postMessage({ action: 'tiers', tiers: s.lodTiers.map(t => ({ minW: t.minW, edgeCount: t.edgeCount })) });
+			postMessage({ action: 'tiers', layer: s.layerId ?? null, tiers: s.lodTiers.map(t => ({ minW: t.minW, edgeCount: t.edgeCount })) });
 			s.requestDraw?.();   // 梯子完成＝ハードキャップ(-3)で部分描画していたフレームを完全な絵へ描き直す（embedded のみ非null）
 			return;
 		}
 		const r = bakeTier(gintData, w, s.polyBboxByFid);
 		if (r.edgeCount) {
 			s.lodTiers.push({ minW: r.minW, edgeCount: r.edgeCount, chunks: r.chunks,
-				tex: uploadMetaTex(gl, r.metaU32, r.edgeCount) });
+				tex: uploadMetaTex(s, gl, r.metaU32, r.edgeCount) });
 			s.lodTiers.sort((a, b) => a.minW - b.minW);   // minW 昇順の台帳規約を再開挿入でも維持
 		}
 		setTimeout(buildNext, 0);
@@ -179,7 +178,7 @@ export function scheduleTierBuild({ weightHist = null } = {}) {
 	setTimeout(buildNext, 0);
 }
 
-export function deleteTextures() {
+export function deleteTextures(s) {
 	const { gl } = s;
 	if (!gl) return;
 	if (s.arcTex)    gl.deleteTexture(s.arcTex);

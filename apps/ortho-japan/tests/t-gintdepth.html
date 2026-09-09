@@ -44,7 +44,7 @@ try {
 	arcMeta[0] = 0; arcMeta[1] = 2;
 	arcMeta[4] = e7(C[0] + 180 - D); arcMeta[5] = e7(C[1] + 90); arcMeta[6] = e7(C[0] + 180 + D); arcMeta[7] = e7(C[1] + 90);
 	s.gintData = { arcBuffer, arcMeta, polyStream: null, lineStream: Int32Array.from([1, 1, 1, 0]), pointBuffer: null, point: null };
-	uploadGintTextures();
+	uploadGintTextures(s);
 	s.minZoom = 0; s.maxZoom = 22;
 
 	// ── LOD rank フォールバック回帰：チルトで画面中心が地球を外れる（unproject不能）ビューでは
@@ -74,12 +74,12 @@ try {
 			const data = computeDrawData(s, { cam, lineWidth: 4 });
 			gl.clearDepth(d); gl.clear(gl.DEPTH_BUFFER_BIT); gl.clearDepth(1);
 			data.depth = { logCoef: logCoefOf(), fogFar: 1e9, elevTex: null, elevBounds: [0, 0, 1, 1], elevScale: 0, hasElev: 0, edgeFade: 0 };
-			renderCleanScene(data, null);   // worker モード＝色/stencil はクリアするが深度は触らない＝仕込みが生きる
+			renderCleanScene(s, data, null);   // worker モード＝色/stencil はクリアするが深度は触らない＝仕込みが生きる
 			return stats(readAll());
 		};
 		// コントロール：深度なし（段階A経路）＝実線が必ず出る
 		const data0 = computeDrawData(s, { cam, lineWidth: 4 });
-		renderCleanScene(data0, null);
+		renderCleanScene(s, data0, null);
 		const ctl = stats(readAll());
 		const win = drawWithDepth(1);   // 深度に勝つ＝実線
 		const hid = drawWithDepth(0);   // 深度に敗ける＝隠線（淡破線）のみ
@@ -101,7 +101,7 @@ try {
 			const data = computeDrawData(s, { cam, lineWidth: 4 });
 			gl.clear(gl.DEPTH_BUFFER_BIT);   // 全面 depth=1＝深度は常に勝つ（ドレープの幾何だけ見る）
 			data.depth = { logCoef: logCoefOf(), fogFar: 1e9, elevTex, elevBounds: [C[0] - 2, C[1] - 2, 4, 4], elevScale: scale, hasElev: 1, edgeFade: 0 };
-			renderCleanScene(data, null);
+			renderCleanScene(s, data, null);
 			return stats(readAll()).yc;
 		};
 		const y0 = draw1(0);                      // ドレープなし

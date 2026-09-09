@@ -335,9 +335,9 @@ export function initBousai(map, { bboxForCode, cityGeomForCode, legend, onStackA
 	//   ・クリック＝map.on('click')＝main 同期レイキャストの {layer, fid} 集約（手前の層から・§10.2）
 	//   ・重ね順＝order 固定（a33<a31<moj<maff）＝トグル順に依らない決定的 z
 	//   ・チルト＝エンジンの層別ドレープ（面も線も depth ctx で地形に乗る）＝standupGint(gintBld) 舞踏は不使用
-	// GL2 は従来経路のまま（addGint は WebGPU 限定＝後追い方針）。admin コロプレスは点灯時に clearUserGint で
+	// 両バックエンド対応（2026-09-09 GL2 addLayer 整合）。admin コロプレスは点灯時に clearUserGint で
 	// スロットから退避（合成経路の「置換」と同じ見た目）・全消灯で onStackCleared→applyAdmin 復帰（既存の分業）。
-	const useML = () => !/[?&]ml=0/.test(location.search) && window.__backend === "webgpu" && typeof map.addGint === "function";
+	const useML = () => !/[?&]ml=0/.test(location.search) && !!window.__backend && typeof map.addGint === "function";
 	const ML_ORDER = { a33: 10, a31: 20, moj: 30, maff: 40 };   // 面のハザードが下・線の筆が上（GINT_LAYERS の合成順と同義）
 	const ML_PAINT = {   // buildStackTable と同色（alpha は hex8: 0.5=80/0.42=6b/0.9=e6/0.18=2e）
 		a33: { "fill-color": ["match", ["get", "kbn"], 2, "#c0392b80", "#d9a4416b"], "line-width": 0 },

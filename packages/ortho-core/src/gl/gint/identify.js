@@ -4,12 +4,12 @@
 // japan の unproject(cam) へ建て替え。他（readPixels・findPolygon・throttle）は node-free。
 // 単位：mouse は CSS px で受け、GPU/unproject へは ×dpr で device px に。s.width/height は device px。
 
-import { s, MOVE_THROTTLE_MS } from './state.js';
+import { MOVE_THROTTLE_MS } from './state.js';
 import { findPolygon } from 'geopbf/identify';
 import { drawOverlay } from './passes.js';
 import { unproject } from '../../camera.js';
 
-export function doIdentify(data) {
+export function doIdentify(s, data) {
 	if (data.x === s.lastMX && data.y === s.lastMY) return;
 	s.lastMX = data.x; s.lastMY = data.y;
 	if (!s.pickFBO) return;
@@ -19,19 +19,19 @@ export function doIdentify(data) {
 	// embedded＝render worker 同居：同期 readPixels は GPU パイプラインを止め、hover のたびに地図フレームを
 	// 塞ぐ（旧・別worker時代は並列で無害だった＝統合で生まれた唯一の新規ストール）。PBO+fence で非同期化
 	//（識別は 1-2 フレーム遅れるが hover tip には無関係の遅さ）。worker モードは従来の同期読みのまま。
-	if (s.embedded) { readPickAsync(pickX, pickY, data); return; }
+	if (s.embedded) { readPickAsync(s, pickX, pickY, data); return; }
 	const px = new Uint8Array(4);
 	s.gl.bindFramebuffer(s.gl.READ_FRAMEBUFFER, s.pickFBO);
 	s.gl.readPixels(pickX, pickY, 1, 1, s.gl.RGBA, s.gl.UNSIGNED_BYTE, px);
 	s.gl.bindFramebuffer(s.gl.READ_FRAMEBUFFER, null);
-	finishIdentify(px, data);
+	finishIdentify(s, px, data);
 }
 
 // 非同期 pick 読み（embedded 専用）：readPixels を PIXEL_PACK_BUFFER へ発行 → fence を置き、
 // clientWaitSync(0) のポーリングで GPU 完了後にだけ getBufferSubData（＝ブロックしない）。
 // 進行中に新しい move が来たら座標だけ差し替え（発行は1本＝解決後に最新座標で読み直す）。
 let _pr = null;   // { fence, data } 進行中の読み
-export function readPickAsync(pickX, pickY, data) {
+export function readPickAsync(s, pickX, pickY, data) {
 	const gl = s.gl;
 	if (_pr) { _pr.next = { pickX, pickY, data }; return; }   // 解決後に最新で再発行
 	if (!s._pickPBO) s._pickPBO = gl.createBuffer();
@@ -43,13 +43,13 @@ export function readPickAsync(pickX, pickY, data) {
 	gl.bindFramebuffer(gl.READ_FRAMEBUFFER, null);
 	const fence = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0);
 	gl.flush();   // fence をドライバへ押し出す（これが無いと idle 中に永久 TIMEOUT）
-	_pr = { fence, data };
-	pollPick();
+	_pr = { fence, data, s };
+	pollPick(s);
 }
-function pollPick() {
+function pollPick(s) {
 	const gl = s.gl, pr = _pr;
 	if (!pr || !gl) return;
-	if (gl.clientWaitSync(pr.fence, 0, 0) === gl.TIMEOUT_EXPIRED) { setTimeout(pollPick, 16); return; }
+	if (gl.clientWaitSync(pr.fence, 0, 0) === gl.TIMEOUT_EXPIRED) { setTimeout(() => pollPick(s), 16); return; }
 	gl.deleteSync(pr.fence);
 	const px = new Uint8Array(4);
 	gl.bindBuffer(gl.PIXEL_PACK_BUFFER, s._pickPBO);
@@ -57,11 +57,11 @@ function pollPick() {
 	gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
 	const next = pr.next;
 	_pr = null;
-	finishIdentify(px, pr.data);
-	if (next) { s.lastMX = NaN; doIdentify(next.data); }   // 進行中に届いた最新座標で読み直し（dedupe/クランプは doIdentify が再適用）
+	finishIdentify(s, px, pr.data);
+	if (next) { s.lastMX = NaN; doIdentify(s, next.data); }   // 進行中に届いた最新座標で読み直し（dedupe/クランプは doIdentify が再適用）
 }
 
-function finishIdentify(px, data) {
+function finishIdentify(s, px, data) {
 	const fid1 = px[0] | (px[1] << 8) | (px[2] << 16);
 	let featureId = fid1 === 0 ? null : fid1 - 1;
 
@@ -83,34 +83,34 @@ function finishIdentify(px, data) {
 	const newId = featureId ?? -1;
 	if (newId === s.activeId) return;
 	s.activeId = newId;
-	postMessage({ action: "identify", featureId: featureId ?? null, x: data.x, y: data.y });
+	postMessage({ action: "identify", featureId: featureId ?? null, x: data.x, y: data.y, layer: s.layerId ?? null });
 	// embedded＝ハイライトは毎フレームの gint パスが inline で描く＝地図ごと1枚描き直させる。
 	if (s.embedded) s.requestDraw?.();
-	else drawOverlay();
+	else drawOverlay(s);
 }
 
-export function handleMove(data) {
+export function handleMove(s, data) {
 	// ズーム範囲外＝地物が描画されていない → 識別しない（見えない地物に tip を出さない）。
 	// 直前まで in-range で activeId が残っていれば handleLeave が tip を消す。
-	if (!s._inRange) { handleLeave(); return; }
+	if (!s._inRange) { handleLeave(s); return; }
 	if (!s.cam || !s.gintData || s._isDrawing) {
 		if (s._isDrawing) s._pendingMove = data;
 		return;
 	}
 	if (s._moveTimer !== null) { s._pendingMove = data; return; }
-	doIdentify(data);
+	doIdentify(s, data);
 	s._moveTimer = setTimeout(() => {
 		s._moveTimer = null;
-		if (s._pendingMove) { doIdentify(s._pendingMove); s._pendingMove = null; }
+		if (s._pendingMove) { doIdentify(s, s._pendingMove); s._pendingMove = null; }
 	}, MOVE_THROTTLE_MS);
 }
 
-export function handleLeave() {
+export function handleLeave(s) {
 	clearTimeout(s._moveTimer); s._moveTimer = null;
 	s._pendingMove = null;
 	if (s.activeId === -1) return;
 	s.activeId = -1;
-	postMessage({ action: "identify", featureId: null });
+	postMessage({ action: "identify", featureId: null, layer: s.layerId ?? null });
 	if (s.embedded) { s.requestDraw?.(); return; }   // embedded＝blit で消さず地図ごと描き直し
 	if (s.baseFBO && s.lastDrawData) {
 		const w = s.width, h = s.height;   // v2：device px

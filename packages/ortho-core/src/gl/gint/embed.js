@@ -56,6 +56,113 @@ export function createGintLayer(gl, { requestDraw } = {}) {
 	const slots = new Map();   // key → bundle（s と同名フィールドの入れ物）
 	let activeKey = null;      // いま s に住んでいる束のキー（null=空スロット表示中）
 
+	// ── 多層（addLayer）＝§10.1 の GL 版（2026-09-09・バックエンド間の API 整合）────────────
+	// 層状態＝Object.create(s)：GL 基盤・ビュー・運動（width/gl/programs/_isDrawing…）はプロトタイプで
+	// シングルトンへ委譲し、第1ブロック（データ・スタイル・perf ラッチ）だけ自前に持つ。臓器は全て
+	// 状態第一引数化済み＝層状態を渡すだけで per-layer 描画/識別/梯子が成立（tier 構築の closure が
+	// 層状態を捕まえる＝別層の表示中も正しい層へ着地）。既定層＝従来のスロット面（s 直住まい）＝挙動不変。
+	// カーソル（§4.1 常に1層）：act=null は既定層。identify/pick は actSt() の状態で行う。
+	const layers = [];        // 描画順（order 昇順・同値は追加順）。既定層は order=0 相当の位置に固定
+	let orderSeq = 0;
+	let act = null;           // カーソルを持つ追加層（null=既定層）
+	const actSt = () => act ? act.st : s;
+	function addLayer({ id = null, order = null } = {}) {
+		const st = Object.create(s);
+		Object.assign(st, emptySlot());
+		st.layerId = id;
+		st.activeId = -1; st.lastDrawData = null; st._inRange = false;
+		st._pfLineEdges = 0; st._pfTierW = -1; st._pfRuns = -1; st._pfChunks = -1;
+		st._forceLowMove = false; st._budgetSkipped = false; st._pickPending = false;
+		st._moveTimer = null; st._pendingMove = null; st.tierGen = 0; st.idOverlapMode = false;
+		const L = { id, st, order: order ?? ++orderSeq, drawStyle: null, visible: true };
+		const at = layers.findIndex(x => x.order > L.order);
+		layers.splice(at < 0 ? layers.length : at, 0, L);
+		act = L;   // 既定のアクティブ＝最後に足した層（§4.1「今載せたデータを見たい」）
+		return layerHandle(L);
+	}
+	function layerHandle(L) {
+		const st = L.st;
+		return {
+			set: (data) => {
+				deleteTextures(st); clearFidStyle(st);
+				Object.assign(st, emptySlot());
+				if (data) {
+					st.gintData = {
+						arcBuffer: data.arcBuffer ?? null, arcMeta: data.arcMeta ?? null,
+						polyStream: data.polyStream?.length ? data.polyStream : null,
+						lineStream: data.lineStream?.length ? data.lineStream : null,
+						pointBuffer: data.pointBuffer?.length ? data.pointBuffer : null,
+						point: data.point ?? null, polyCompBbox: data.polyCompBbox ?? null,
+						fillMaxEdges: data.fillMaxEdges ?? null, lowFill: data.lowFill ?? false,
+					};
+					uploadGintTextures(st);
+					({ minZoom: st.minZoom, maxZoom: st.maxZoom } = checkZoomRange({
+						arcMeta: st.gintData.arcMeta, minZoom: data.minZoom ?? null, maxZoom: data.maxZoom ?? null, precision: data.precision ?? 6 }));
+				}
+				st.activeId = -1; st.lastDrawData = null;
+				s.requestDraw?.();
+			},
+			setSlot: () => {},   // 追加層にスロット舞踏は無い（renderworker の層指名 gintBaked が「点火」に呼ぶ＝可視は既定で真）
+			setBaked: (p) => {
+				if (!p) return layerHandle(L).set(null);
+				deleteTextures(st); clearFidStyle(st);
+				Object.assign(st, emptySlot());
+				st.gintData = p.gint;
+				uploadBaked(st, p.artifacts);
+				for (const t of p.tiers ?? []) addBakedTier(st, t);
+				finishBakedTiers(st);
+				({ minZoom: st.minZoom, maxZoom: st.maxZoom } = checkZoomRange({
+					arcMeta: st.gintData.arcMeta, minZoom: p.minZoom ?? null, maxZoom: p.maxZoom ?? null, precision: p.precision ?? 6 }));
+				st.activeId = -1; st.lastDrawData = null;
+				s.requestDraw?.();
+			},
+			style: d => { L.drawStyle = d ?? null; s.requestDraw?.(); },
+			setVisible: v => { L.visible = !!v; s.requestDraw?.(); },
+			paint: d => {
+				if (d?.table && d.count > 0) uploadFidStyle(st, d.table, d.count);
+				else clearFidStyle(st);
+				st.idOverlapMode = !!d?.overlap;
+				s.requestDraw?.();
+			},
+			activate: () => { if (act !== L) { handleLeave(actSt()); act = L; } },
+			remove: () => {
+				const i = layers.indexOf(L);
+				if (i < 0) return;
+				layers.splice(i, 1);
+				clearTimeout(st._moveTimer);
+				deleteTextures(st); clearFidStyle(st);
+				if (act === L) { act = layers.length ? layers[layers.length - 1] : null; }
+				s.requestDraw?.();
+			},
+			stats: () => ({ tiers: st.lodTiers?.length ?? 0, tiersDone: !!st.tiersDone, total: st.totalEdges,
+				edges: st._pfLineEdges ?? 0, tierW: st._pfTierW ?? -1 }),
+		};
+	}
+	// 追加層1枚の描画（draw() の層別本文＝既定層の予算/範囲判定と同型を層状態で）
+	function drawLayerGL(L, cam, ctx) {
+		const st = L.st;
+		if (!L.visible && !st.polyBboxByFid && st.totalPoints === 0) { st._inRange = false; st.lastDrawData = null; return; }
+		const MOVE_EDGE_BUDGET = L.drawStyle?.moveBudget ?? 250_000;
+		if ((s._staticN ?? 0) >= 4) st._forceLowMove = false;
+		else if ((st._pfLineEdges ?? 0) > MOVE_EDGE_BUDGET) st._forceLowMove = true;
+		if (st._forceLowMove) {
+			const canLines = st.metaTexB && st.totalEdgesB > 0 && st.totalEdgesB <= MOVE_EDGE_BUDGET;
+			const canFill = (st.polyBboxByFid?.size ?? 0) > 0 && (!st.fillOff || st.lowFill) && st.polyEdgesB > 0 && st.polyEdgesB <= MOVE_EDGE_BUDGET * 8;
+			if (!canLines && !canFill) { st.lastDrawData = null; st._budgetSkipped = true; return; }
+			if (!s._isDrawing) s.requestDraw?.();
+		}
+		const data = { cam, ...(L.drawStyle || {}) };
+		if (st._forceLowMove) data._forceLow = true;
+		if (!zoomInRange(st, data)) { st._inRange = false; st.lastDrawData = null; st._pfLineEdges = 0; st._pfTierW = -1; return; }
+		st._inRange = true;
+		if (st.totalEdges === 0 && st.totalPoints === 0) { st.lastDrawData = null; st._pfLineEdges = 0; st._pfTierW = -1; return; }
+		st._budgetSkipped = false;
+		const drawData = computeDrawData(s, data);   // ビュー（cam/lastViewBbox）はシングルトン＝共有
+		if (ctx && ctx.terrainDepth && !data.noDepth) drawData.depth = ctx;
+		if (L.visible) { renderCleanScene(st, drawData, null); drawHighlight(st, drawData); }
+		st.lastDrawData = drawData;
+	}
+
 	const saveActive = () => {
 		if (activeKey == null) return;
 		const b = slots.get(activeKey) ?? {};
@@ -83,7 +190,7 @@ export function createGintLayer(gl, { requestDraw } = {}) {
 		loadBundle(slots.get(key) ?? emptySlot());
 		activeKey = slots.has(key) ? key : null;
 		// 交替で眠っていた層の梯子が未完なら途中再開（構築済みの段は plan から除外される）
-		if (activeKey != null && !s.tiersDone && s.totalEdges > 0) scheduleTierBuild();
+		if (activeKey != null && !s.tiersDone && s.totalEdges > 0) scheduleTierBuild(s);
 		s.requestDraw?.();
 	}
 
@@ -97,7 +204,7 @@ export function createGintLayer(gl, { requestDraw } = {}) {
 			saveActive();
 			const old = slots.get(key);
 			if (old && key !== activeKey) deleteBundleTextures(old);   // 同キー差し替え＝旧資産を解放（active は下の deleteTextures が s 経由で解放）
-			if (key === activeKey) deleteTextures();                   // s に載っている旧資産（束と同一ハンドル）を解放
+			if (key === activeKey) deleteTextures(s);                   // s に載っている旧資産（束と同一ハンドル）を解放
 			loadBundle(emptySlot());
 			activeKey = key;
 			s.gintData = {
@@ -109,7 +216,7 @@ export function createGintLayer(gl, { requestDraw } = {}) {
 				point:        data.point ?? null,
 				polyCompBbox: data.polyCompBbox ?? null,
 			};
-			uploadGintTextures();
+			uploadGintTextures(s);
 			({ minZoom: s.minZoom, maxZoom: s.maxZoom } = checkZoomRange({
 				arcMeta:   s.gintData.arcMeta,
 				minZoom:   data.minZoom   ?? null,
@@ -118,7 +225,7 @@ export function createGintLayer(gl, { requestDraw } = {}) {
 			}));
 			slots.set(key, {});   // 実体は saveActive が次の交替時に写す（それまで s が真実源）
 		} else if (key === activeKey) {          // 表示中の層を消す＝s 経由で解放し空スロットへ
-			deleteTextures();
+			deleteTextures(s);
 			loadBundle(emptySlot());
 			slots.delete(key);
 			activeKey = null;
@@ -141,13 +248,13 @@ export function createGintLayer(gl, { requestDraw } = {}) {
 		saveActive();
 		const old = slots.get(key);
 		if (old && key !== activeKey) deleteBundleTextures(old);
-		if (key === activeKey) deleteTextures();
+		if (key === activeKey) deleteTextures(s);
 		loadBundle(emptySlot());
 		activeKey = key;
 		s.gintData = p.gint;                       // bake worker が正規化済み（_ringsNormalized/_capMinW 同梱）
-		uploadBaked(p.artifacts);
-		for (const t of p.tiers ?? []) addBakedTier(t);
-		finishBakedTiers();                        // 梯子完成＝以後の交替で scheduleTierBuild は走らない
+		uploadBaked(s, p.artifacts);
+		for (const t of p.tiers ?? []) addBakedTier(s, t);
+		finishBakedTiers(s);                        // 梯子完成＝以後の交替で scheduleTierBuild は走らない
 		({ minZoom: s.minZoom, maxZoom: s.maxZoom } = checkZoomRange({
 			arcMeta:   s.gintData.arcMeta,
 			minZoom:   p.minZoom   ?? null,
@@ -166,8 +273,8 @@ export function createGintLayer(gl, { requestDraw } = {}) {
 	// paint（fid スタイル表）の差し替え（gint draw spec.md §7.1）。main が style.js の buildFidStyle で
 	// 式を評価済み＝ここは Uint32Array を受けてテクスチャ更新1回のみ（restyle 契約）。null=解除（従来塗りへ）。
 	function paint(data) {
-		if (data?.table && data.count > 0) uploadFidStyle(data.table, data.count);
-		else clearFidStyle();
+		if (data?.table && data.count > 0) uploadFidStyle(s, data.table, data.count);
+		else clearFidStyle(s);
 		s.idOverlapMode = !!data?.overlap;   // 重複可視化モード（品質監査プローブ。通常 paint では false に戻る）
 		s.requestDraw?.();
 	}
@@ -180,7 +287,15 @@ export function createGintLayer(gl, { requestDraw } = {}) {
 		if (!s.programs) return;
 		// 非表示でも識別ジオメトリ(polyBbox/点)を持つ層は下へ進み lastDrawData/pick を建てる＝視覚を消しても hover 識別は生かす
 		// （筆界はチルトで視覚を消す設計だが、draped 線を hover して tip を出すために identify は生存させる）。純装飾(線のみ=海岸線)は従来通り bail。
-		if (!visible && !s.polyBboxByFid && s.totalPoints === 0) { s._inRange = false; s.lastDrawData = null; return; }
+		const drawExtOnly = () => {   // 既定層が描けない/描かないフレームでも追加層は独立に描く
+			gl.disable(gl.DEPTH_TEST);
+			gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+			for (const L of layers) drawLayerGL(L, cam, ctx);
+			gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+			gl.disable(gl.STENCIL_TEST); gl.stencilMask(0xFF);
+			gl.bindVertexArray(null); gl.activeTexture(gl.TEXTURE0);
+		};
+		if (!visible && !s.polyBboxByFid && s.totalPoints === 0) { s._inRange = false; s.lastDrawData = null; drawExtOnly(); return; }
 		s.width  = gl.canvas.width;    // 毎フレーム実寸へ追随（resize/動的解像度）。FBO は drawn() で追随
 		s.height = gl.canvas.height;
 		s.dpr    = cam.dpr || 1;       // 線幅・identify の CSS→device 変換も同じ実効 dpr を共有
@@ -194,16 +309,17 @@ export function createGintLayer(gl, { requestDraw } = {}) {
 		s._lastSyncCam = { center: [cam.center[0], cam.center[1]], zoom: cam.zoom, pitch: cam.pitch, bearing: cam.bearing };
 		if (moved) {
 			s._isDrawing = true;
-			clearTimeout(s._moveTimer); s._moveTimer = null; s._pendingMove = null;
+			const a = actSt();   // カーソル資産（timer/pending/activeId）はアクティブ層の状態に住む（§4.1）
+			clearTimeout(a._moveTimer); a._moveTimer = null; a._pendingMove = null;
 			s._staticN = 0;
 			// カメラ操作（zoom/pan）に入った瞬間に tip とハイライトを即消す（handleLeave と同形の通知）。
 			// activeId ガード＝遷移の1回だけ発火（移動中の毎フレーム postMessage はしない）。
-			if (s.activeId !== -1) { s.activeId = -1; postMessage({ action: "identify", featureId: null }); }
+			if (a.activeId !== -1) { a.activeId = -1; postMessage({ action: "identify", featureId: null, layer: act?.id ?? null }); }
 		} else {
 			s._isDrawing = false;
 			s._staticN = (s._staticN ?? 0) + 1;
 		}
-		s.lastMX = NaN; s.lastMY = NaN;
+		{ const aM = actSt(); aM.lastMX = NaN; aM.lastMY = NaN; }   // 識別 dedupe の物差しもカーソル所有層で
 
 		// 移動中の描画予算：可視辺数（前フレーム実測 _pfLineEdges）が予算超の巨大層は、動いている間は描かず
 		// 静止（数フレーム連続＝ためらいパンで点滅しない）で描く。VW-LOD も tier も効かない筆系巨大層
@@ -226,16 +342,16 @@ export function createGintLayer(gl, { requestDraw } = {}) {
 			if (!canLines && !canFill) {   // 境界も塗りも重い（孤立ポリ系）＝従来どおりスキップ
 				s.lastDrawData = null;   // この間の identify/picking は抑止（古い cam の pick を残さない）
 				s._budgetSkipped = true; // settle(drawn) の復帰フック用＝「スキップ中に地図が idle 化」を検出
-				return;
+				drawExtOnly(); return;
 			}
 			if (!s._isDrawing) s.requestDraw?.();   // 静止後も自前でフレーム継続＝staticN を進めて正表現へ必ず収束（相乗りしない原則）
 		}
 
 		const data = { cam, ...(drawStyle || {}) };
 		if (s._forceLowMove) data._forceLow = true;
-		if (!zoomInRange(s, data)) { s._inRange = false; s.lastDrawData = null; s._pfLineEdges = 0; s._pfTierW = -1; return; }   // 範囲外＝描かない（identify も抑止）
+		if (!zoomInRange(s, data)) { s._inRange = false; s.lastDrawData = null; s._pfLineEdges = 0; s._pfTierW = -1; drawExtOnly(); return; }   // 範囲外＝描かない（identify も抑止）
 		s._inRange = true;
-		if (s.totalEdges === 0 && s.totalPoints === 0) { s.lastDrawData = null; s._pfLineEdges = 0; s._pfTierW = -1; return; }
+		if (s.totalEdges === 0 && s.totalPoints === 0) { s.lastDrawData = null; s._pfLineEdges = 0; s._pfTierW = -1; drawExtOnly(); return; }
 
 		s._budgetSkipped = false;   // ここから先は必ず描く＝スキップ状態を解除（settle 復帰フックは drawn 側）
 
@@ -248,14 +364,17 @@ export function createGintLayer(gl, { requestDraw } = {}) {
 		// ── GL 状態の切替と退避復元 ──
 		// renderer は premultiplied（ONE, ONE_MINUS_SRC_ALPHA）・gint シェーダは straight alpha 出力。
 		// 深度は段階A＝最前面（renderer は夜面の後で DEPTH_TEST off のまま渡してくるが、明示 off で自衛）。
+		gl.disable(gl.DEPTH_TEST);
+		gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+		for (const L of layers) if (L.order < 0) drawLayerGL(L, cam, ctx);   // 既定層より下の追加層（admin0 等）
 		if (visible) {   // 実描画は表示中だけ。非表示層（チルトで消した筆界など）はここを飛ばし、下の lastDrawData/pick だけ建てて hover 識別を生かす
-			gl.disable(gl.DEPTH_TEST);
-			gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
-			renderCleanScene(drawData, null);   // embedded＝色を消さず上書き blend（passes.js の分岐）
-			drawHighlight(drawData);            // ホバー中の地物（activeId≥0）＝blit 復元でなく毎フレーム inline
+			renderCleanScene(s, drawData, null);   // embedded＝色を消さず上書き blend（passes.js の分岐）
+			drawHighlight(s, drawData);            // ホバー中の地物（activeId≥0）＝blit 復元でなく毎フレーム inline
 		}
 		s.lastDrawData = drawData;
-		if (s._pickPending) { s._pickPending = false; drawn(); }   // settle 復帰フレーム＝picking もここで建てる（下記 drawn の復帰フック）
+		for (const L of layers) if (L.order >= 0) drawLayerGL(L, cam, ctx);   // 既定層より上の追加層
+		const aP = actSt();
+		if (aP._pickPending) { aP._pickPending = false; drawn(); }   // settle 復帰フレーム＝picking もここで建てる（下記 drawn の復帰フック）
 		// 復元：renderer は次フレーム冒頭で blend を張り直すが、同一タスク内の後続描画（snapshot 経路）と
 		// フレーム間規約のため明示的に戻す。stencil/VAO/テクスチャユニットも中立へ。
 		gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
@@ -269,53 +388,58 @@ export function createGintLayer(gl, { requestDraw } = {}) {
 	// 非interactive（識別ジオメトリ無し＝海岸線 lineStream のみ）は丸ごと省略（worker 版 drawn と同判断）。
 	function drawn() {
 		s._isDrawing = false;
+		const st = actSt();   // pick は1枚＝アクティブ層のみ（§4.1）
 		s._pfDrawn = (s._pfDrawn ?? 0) + 1;   // perf 計測用（settle 到達数。?perf=1 の行に出る）
 		// 移動中予算スキップ（MOVE_EDGE_BUDGET）の復帰は「静止フレーム4枚」を待つが、フレームは地図が
 		// dirty の間しか回らない＝タイル/ラベルが全てキャッシュ済みだと静止直後に idle 化して4枚に届かず、
 		// レイヤが次の操作まで消えたままになる（実症状）。settle は静止の確定合図＝ここで予算ゲートを
 		// 通過扱いにし、自前でフレームを要求して復帰させる。picking はその復帰フレームの直後に建てる（上記フック）。
-		if (!s.lastDrawData) {
-			if (s._budgetSkipped) { s._budgetSkipped = false; s._staticN = 4; s._pickPending = true; s.requestDraw?.(); }
+		if (!st.lastDrawData) {
+			if (st._budgetSkipped) { st._budgetSkipped = false; s._staticN = 4; st._pickPending = true; s.requestDraw?.(); }
 			return;
 		}
-		if (!s.polyBboxByFid && s.totalPoints === 0) return;
+		if (!st.polyBboxByFid && st.totalPoints === 0) return;
 		if (!s.pickFBO || fboW !== s.width || fboH !== s.height) {
 			const keep = s.lastDrawData;   // createFBOs は lastDrawData を無効化する（worker 規約）＝ここでは維持
-			createFBOs();                  // embedded＝pick FBO のみ生成（fbo.js の分岐）
+			createFBOs();                  // embedded＝pick FBO のみ生成（fbo.js の分岐・シングルトン所有＝1枚）
 			s.lastDrawData = keep;
 			fboW = s.width; fboH = s.height;
 			s._pfFbo = (s._pfFbo ?? 0) + 1;   // perf 計測用（pick FBO 再生成数＝解像度フリップ毎に起きていないか）
 		}
 		const t0 = performance.now();
-		renderPickingBuffer(s.lastDrawData);
+		renderPickingBuffer(st, st.lastDrawData);
 		s._pfPickMs = (s._pfPickMs ?? 0) + (performance.now() - t0);   // perf 計測用（pick 描画の CPU 発行累計）
-		if (s._pendingMove) { const m = s._pendingMove; s._pendingMove = null; doIdentify(m); }
+		if (st._pendingMove) { const m = st._pendingMove; st._pendingMove = null; doIdentify(st, m); }
 	}
 
 	function move(data) {
 		// 自己修復（gpu/gint.js move と同型）：pick FBO 未構築のまま最初のホバーが来た＝settle(gintDrawn)が
 		// 一度も来ていない（?area=＋hash 復元はカメラ無移動＝settle 不発）。一度だけ構築＝以後は通常経路。
 		// 従来は doIdentify が !s.pickFBO で黙って無反応＝「動かすまで識別が死ぬ」元々のバグの根治。
-		if (!s.pickFBO && s.lastDrawData && !s._isDrawing) drawn();
-		handleMove(data);
+		const st = actSt();
+		if (!s.pickFBO && st.lastDrawData && !s._isDrawing) drawn();
+		handleMove(st, data);
 	}
-	function leave()    { handleLeave(); }
+	function leave()    { handleLeave(actSt()); }
 
 	function click() {
-		if (s.activeId === -1) return;
-		const geo = s.cam ? unproject(s.cam, s.lastMX * s.dpr, s.lastMY * s.dpr) : null;
-		postMessage({ action: "click", featureId: s.activeId,
-					  x: s.lastMX, y: s.lastMY,
-					  lng: geo?.[0] ?? null, lat: geo?.[1] ?? null });
+		const st = actSt();
+		if (st.activeId === -1) return;
+		const geo = s.cam ? unproject(s.cam, st.lastMX * s.dpr, st.lastMY * s.dpr) : null;
+		postMessage({ action: "click", featureId: st.activeId,
+					  x: st.lastMX, y: st.lastMY,
+					  lng: geo?.[0] ?? null, lat: geo?.[1] ?? null, layer: act?.id ?? null });
 	}
 
 	function dispose() {
+		for (const L of layers.slice()) { clearTimeout(L.st._moveTimer); deleteTextures(L.st); clearFidStyle(L.st); }
+		layers.length = 0; act = null;
 		saveActive();                                    // s 上の資産も束に写してから全束一括解放（漏れ防止）
 		for (const b of slots.values()) deleteBundleTextures(b);
 		slots.clear(); activeKey = null;
-		deleteTextures();
+		deleteTextures(s);
 		deleteFBOs();
-		disposeIdFill();
+		disposeIdFill(s);
 		if (s.gl && s.programs) {
 			const { renderProgram, stencilProgram, fillProgram, maskStencilProgram,
 					pointProgram, pickLineProgram, pickPointProgram, emptyVAO } = s.programs;
@@ -337,5 +461,5 @@ export function createGintLayer(gl, { requestDraw } = {}) {
 			runs: s._pfRuns ?? -1, chunks: s._pfChunks ?? -1, vb: s.lastViewBbox };
 	}
 
-	return { set, setSlot, setBaked, style, setVisible, paint, draw, drawn, move, leave, click, dispose, stats };
+	return { set, setSlot, setBaked, style, setVisible, paint, draw, drawn, move, leave, click, dispose, stats, addLayer };
 }

@@ -229,7 +229,7 @@ const dispatch = e => {
 		}
 		case "set":
 			// gint 系＝m.layer で層を指名（gint draw spec §4 の多層プロトコル・2026-09-09）。layer 無し＝既定層（従来と同形）。
-			// 追加層は WebGPU 限定（addLayer は gpu/gint.js のみ・GL2 は後追い方針）＝GL2 では gintAdd が ack にエラーを載せ、以後の層指名は黙って無視。
+			// 追加層は両バックエンド対応（gpu/gint.js＋gl/gint/embed.js・2026-09-09 整合）。addLayer 不在の旧構成だけ ack にエラー。
 			if (m.cmd === "gintAdd") { const okA = !!gint?.addLayer; if (okA) gintLs.set(m.layer, gint.addLayer({ id: m.layer, order: m.data?.order ?? null })); postMessage({ action: "gintAck", cmd: "gintAdd", layer: m.layer, error: okA ? null : "no-multilayer" }); }
 			else if (m.cmd === "gintRemove") { const h = gintLs.get(m.layer); if (h) { h.remove(); gintLs.delete(m.layer); } }
 			else if (m.cmd === "gintActivate") { (m.layer != null ? gintLs.get(m.layer) : gint)?.activate?.(); }
