@@ -11,7 +11,7 @@
 
 import { tr } from "../i18n.js";
 const t = tr({
-	"GISファイル / シーンをここにドロップ\nGeoJSON / Shapefile(zip) / KML / GPX / FlatGeobuf / .scenes": "Drop GIS files / scenes here\nGeoJSON / Shapefile(zip) / KML / GPX / FlatGeobuf / .scenes",
+	"GISファイル / シーンをここにドロップ\nGeoJSON / Shapefile(zip) / KML / GPX / FlatGeobuf / GeoParquet / COG(GeoTIFF) / .scenes": "Drop GIS files / scenes here\nGeoJSON / Shapefile(zip) / KML / GPX / FlatGeobuf / GeoParquet / COG(GeoTIFF) / .scenes",
 	"✕ 図形を消去": "✕ Clear shapes",
 	"図形を消去しました": "Shapes cleared",
 	"🎬 上映中はドロップ無効": "🎬 Drop disabled during playback",
@@ -68,7 +68,7 @@ export function dropFile({ yieldTo, loadFile, clearGint, playScene, busy, signal
 		textAlign: "center", whiteSpace: "pre-line",
 		font: "600 15px/1.6 system-ui, sans-serif", color: "#fff",
 	});
-	card.textContent = t("GISファイル / シーンをここにドロップ\nGeoJSON / Shapefile(zip) / KML / GPX / FlatGeobuf / .scenes");
+	card.textContent = t("GISファイル / シーンをここにドロップ\nGeoJSON / Shapefile(zip) / KML / GPX / FlatGeobuf / GeoParquet / COG(GeoTIFF) / .scenes");
 	zone.append(card);
 	mapEl.append(zone);
 
