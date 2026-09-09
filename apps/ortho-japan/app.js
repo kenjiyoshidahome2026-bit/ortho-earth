@@ -2402,10 +2402,14 @@ function updateGintSlot() {
 	syncAdmin0Vis();
 	// LOW_MEM＝user 層が非表示帯（z<minZoom）の間は束を眠らせない＝破棄（iOS jetsam 対策・旧 admin0 スロット
 	// 活性時の退避の後継）。再入は applyUserSlot→bakeUser の非ブロッキング再ベイク＝焼き上がりで点火。
-	if (LOW_MEM && userGint?.sent && cam.zoom < userGint.minZoom) { renderer.set("gint", null, "user"); userGint.sent = false; }
-	// 単一スロット＝user 専用
-	if (userGint) { if (gintSlot !== "user") applyUserSlot(); }
-	else if (gintSlot != null) { renderer.set("gintSlot", null); gintSlot = null; needsDraw = true; }   // user 撤去後の掃除
+	if (LOW_MEM && userGint?.sent && cam.zoom < userGint.minZoom) {
+		renderer.set("gint", null, "user"); userGint.sent = false;
+		if (gintSlot === "user") { renderer.set("gintSlot", null); gintSlot = null; needsDraw = true; }   // 台帳もエンジンと同期＝再入時に applyUserSlot が必ず発火（ここを怠ると「一度ズームアウトすると user 層が戻らない」）
+	}
+	// 単一スロット＝user 専用。LOW_MEM は表示帯（z≥minZoom）でだけ適用＝スリープと対（範囲外で適用すると
+	// applyUserSlot→bakeUser が焼き直し、直後のスリープが落とす「焼いては捨てる」空回りになる）
+	if (userGint && (!LOW_MEM || cam.zoom >= userGint.minZoom)) { if (gintSlot !== "user") applyUserSlot(); }
+	else if (!userGint && gintSlot != null) { renderer.set("gintSlot", null); gintSlot = null; needsDraw = true; }   // user 撤去後の掃除
 }
 // 世界の国ポリゴン（Natural Earth admin_0_countries）を取得しキャッシュ（表示可否は updateGintSlot が決める）。
 // 旧・海岸線(ne_coastline 線)から置換（本人裁定 2026-08-30「admin0_countriesの方が国の認識ができる」）：
