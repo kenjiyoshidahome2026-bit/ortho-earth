@@ -25,3 +25,5 @@ export { createTerrain } from "./terrain.js";
 export { mergeTiles } from "./scene.js";
 export { geodesicDistance, geodesicArea, primeVerticalRadius, meridionalRadius, AUTHALIC_R, WGS84 } from "./geodesic.js";
 export { WORLD_PAL_DEFAULT } from "./worldpal.js";
+export { pmtilesInfo, isPMTiles } from "./pmtiles-src.js";   // PMTiles アーカイブの自己申告（bbox/ズーム域/層名）＝範囲制御の正本。消費者が bbox を手で持たないための口
+

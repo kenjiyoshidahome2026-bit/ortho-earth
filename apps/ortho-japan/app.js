@@ -17,7 +17,8 @@ import { createThemes, defaultLayerState, isFacility, isTerrain, CHOME_MINZOOM, 
 import { createOverlay } from "./overlay.js";
 
 // planets.js / skynames.js は z<4（星空）でしか使わない＝初期バンドルから外し、下の ensureSkyMod で動的読込。
-import { createPipeline } from "ortho-core";   // tile/scene worker のスポーンごとエンジン側
+import { createPipeline, pmtilesInfo } from "ortho-core";
+import { sanitizeHTML } from "geopbf/sanitize";   // ?pm= のアーカイブが宣言する出典 HTML は非信頼入力＝出力境界で消毒   // tile/scene worker のスポーンごとエンジン側
 import { createPlateauDb } from "./plateaudb.js";
 import { mountGadgets } from "./gadgets/mount.js";
 import { dockStack } from "./gadgets/stack.js";   // 左下ドック（座標計器・読込トーストの容れ物＝重なりの構造的排除）
@@ -175,7 +176,21 @@ const WORLD_VT = !/[&?]world=0/.test(location.search);
 // 気候場テクスチャ（全球ハイプソ cross-blend・Köppen-Geiger/Beck et al. CC-BY 720x360 焼き縮め・public 資産）。
 // boot と switchTheme の両方が worldHypso.clim に積む（再送は両レンダラとも取得済みキャッシュで no-op）
 const CLIM_URL = new URL("koppen-clim.png", new URL(import.meta.env?.BASE_URL || "/", location.href)).href;
-const TILE_URL = (z, x, y) => `https://cyberjapandata.gsi.go.jp/xyz/optimal_bvmap-v1/${z}/${x}/${y}.pbf`;
+const GSI_TILE_URL = (z, x, y) => `https://cyberjapandata.gsi.go.jp/xyz/optimal_bvmap-v1/${z}/${x}/${y}.pbf`;
+// 汎用 PMTiles 基図（?pm=<URL>）＝任意の PMTiles アーカイブを基図ソースにする口。2026-09-03 に湖の NE 化で
+// 撤去した pmtiles 配管（世界固定・world-z3.pmtiles 専用）を、ソース非依存の形で戻したもの。
+// **範囲の制御はアーカイブの自己申告に任せる**：bbox もズーム域も層名も PMTiles のヘッダ/metadata が持って
+// いる（エンジン pmtilesInfo）。GSI の JP_COVERAGE は「配信元が黙って 404 を返す」HTTP タイルに外から与える
+// 知識だが、PMTiles は自分がどこを持つか知っている＝手で bbox を書かない（初めにデータありき）。
+//   ・範囲外/ズーム域外のタイル … エンジン側の門が索引を歩く前に空タイルで返す（追加リクエスト 0）
+//   ・maxZ … LOD の分割上限をアーカイブの maxZoom で止める＝そもそも要求を作らない（門は保険）
+//   ・層名 … metadata の vector_layers から面/線の素の規則を自動生成＝どのアーカイブでも「とりあえず出る」
+// 作り込んだ配色が要るなら style を書く（bvmap 用 style-gsi.js が前例）。
+const PM_SPEC = new URLSearchParams(location.search).get("pm");
+const PM_URL = PM_SPEC ? "pmtiles://" + new URL(PM_SPEC, new URL(import.meta.env?.BASE_URL || "/", location.href)).href : null;
+let pmInfo = null;   // アーカイブの自己申告（非同期に届く＝届くまでは素通しで、エンジンの門が守る）
+let pmAttrHTML = null;   // アーカイブ宣言の出典（消毒済み）
+const TILE_URL = PM_URL ? (() => PM_URL) : GSI_TILE_URL;
 // optimal_bvmap の配信圏（日本域）の外接矩形 [west,south,east,north]。これと全く重ならないタイルは GSI が
 // 常に 404 を返す提供圏外＝pipeline が fetch を省いて空タイル(標高ゲート付き全面水域)扱いにする（無駄な 404 を断つ）。
 // 症状＝縦長のスマホ画面が北海道以北の外洋(z8 y=87/88≈50°N)まで写して 404 を量産（横長のデスクトップでは出にくい）。
@@ -1579,12 +1594,16 @@ function onMove() {
 style.emptySea = "water";
 const { relayCtl: pipelineRelay, tiles, requestMerge, setStyle: setPipelineStyle, destroy: destroyPipeline } = createPipeline({
 	style, tileUrl: TILE_URL, requestDraw: () => { needsDraw = true; }, scenePort: sceneChan.port1, onTile, ell: ELL_ON,
-	coverage: /[?&]nocov=1/.test(location.search) ? null : JP_COVERAGE,   // 配信圏外タイルは fetch せず空タイル(海)扱い＝外洋・国外への無駄な 404 を断つ（縦長スマホの周縁 404 の根治）。?nocov=1 で無効化＝A/B 検証ノブ
+	coverage: (PM_URL || /[?&]nocov=1/.test(location.search)) ? null : JP_COVERAGE,   // PMTiles 基図＝範囲はアーカイブの自己申告（エンジンの門）に任せる＝日本域の外付け知識を掛けない   // 配信圏外タイルは fetch せず空タイル(海)扱い＝外洋・国外への無駄な 404 を断つ（縦長スマホの周縁 404 の根治）。?nocov=1 で無効化＝A/B 検証ノブ
 
 	// LOD下限＝タイルz8（sea gate と同じ閾値）：optbv は z8 から海が全面WA（沖合タイル=WA一枚50B級）、z7以下は
 	// 「陸=AdmArea・海=背景」モデルでWA無し＝チルトの遠景（z5-7混在）だけ海が紙色に抜けてまだらになる。
 	// 遠景もタイルz8 以上で敷けば海色がズーム段間で揃う（根治）。ビューz<9 は従来どおり紙の海＋gint海岸線。
-	lodFloor: { minViewZoom: 9, z: 8 },
+	// PMTiles 基図では床を外す＝この床は「optbv は z8 から海が全面 WA」という bvmap 固有の事情のための装置で、
+	// 他人のアーカイブには当てはまらない。加えて床(z8) と maxZ(アーカイブの maxZoom・例 z3) が矛盾すると
+	// 選抜が空になり高ズームで真っ白になる（実測）。minZ も 0 へ＝低ズームまで選抜・下地・毛布を降ろす。
+	lodFloor: PM_URL ? null : { minViewZoom: 9, z: 8 },
+	minZ: PM_URL ? 0 : undefined,
 	// 低メモリ端末はタイル予算を絞る：multi_draw の常駐プールは tess 予算の約2倍（idx u32化・線分32B化）を
 	// GPU に占める＝既定の自動予算(48MB)だと従来比で実質メモリが膨らみ、PLATEAU の百MB級が乗った時に
 	// タブごと落ちる（スマホ実機で発生）。24MB でも可視タイル(keep)は余裕で収まり、削るのはパン戻り履歴だけ。
@@ -1616,6 +1635,27 @@ function onSceneApplied(slot, sig) {
 }
 dbgHost.__mergeFail = () => requestMerge.debugFail();   // 次の merge を故意に失敗させ ack 自己修復を実地検証
 dbgHost.__vtPool = () => requestMerge.stats();          // multi_draw 常駐プールの占有を scene worker の console に出す
+// ?pm= のアーカイブ自己申告を読む → 層名から素の描画規則を作って style へ前置 → 再ビルド。
+// 面と線を両方出す＝PMTiles の metadata（vector_layers）は幾何型を宣言しないため（空振りは無害）。
+// 色は紙の上で静かな 2 色だけ＝「どのアーカイブでも とりあえず出る」ための既定であって、作り込みは
+// style を書く側の仕事（bvmap 用 style-gsi.js / style-mono.js が前例）。
+const pmLayers = info => info.layers.flatMap(id => [
+	{ id: `pm-${id}-fill`, type: "fill", "source-layer": id, filter: ["==", ["geometry-type"], "Polygon"], paint: { "fill-color": "#dfe3e8" } },
+	{ id: `pm-${id}-line`, type: "line", "source-layer": id, filter: ["!=", ["geometry-type"], "Polygon"], paint: { "line-color": "#8a929c", "line-width": 1 } },
+]);
+const withPM = s => pmInfo?.layers?.length ? { ...s, layers: [...pmLayers(pmInfo), ...s.layers] } : s;   // テーマ切替でも掛け直す（switchTheme が theme.style へ戻すため）
+if (PM_URL) pmtilesInfo(PM_URL).then(info => {
+	pmInfo = info;   // maxZ（LOD 上限）にも即効く＝次フレームから分割が maxZoom で止まる
+	// 出典：アーカイブが metadata で宣言したものを使う。**他人の置き場の HTML＝非信頼入力**につき
+	// innerHTML の直前で消毒する（docs/geopbf §11 の作法・?pm=<攻撃者URL> を踏んでも script が走らない）。
+	pmAttrHTML = info.attribution ? sanitizeHTML(info.attribution) : null;
+	attrZone = null;   // 圏を無効化＝既に "jp" に居ても次フレームで出典が差し替わる
+	style = withPM(theme.style);
+	setPipelineStyle(style);   // 生成層込みで再ビルド
+	needsDraw = true;
+	console.info(`[pm] ${info.name || PM_SPEC}  z${info.minZoom}-${info.maxZoom}  層 ${info.layers.length}（${info.layers.join(", ") || "metadata なし"}）  bbox ${info.bbox ? info.bbox.map(v => v.toFixed(2)).join(", ") : "全球"}`);
+}).catch(err => console.warn("[pm] PMTiles を読めない", PM_SPEC, err));
+
 dbgHost.__style = () => style;   // 現在の style＝検証フック（t-world：world-water 層が「無い」こと＝湖はエンジン lakes スロットへ移行済 2026-09-03）
 
 // 透視カメラ：center(注視点lon/lat), zoom(web-mercator float), pitch/bearing(rad)
@@ -1677,7 +1717,7 @@ const saveView = () => { saveCam(); try { history.replaceState(null, "", viewHas
 function switchTheme(name) {
 	if (name === themeName || !MAP_THEMES[name]) return;
 	queueMicrotask(() => document.querySelectorAll("#theme-row .lp-theme").forEach(b => b.classList.toggle("on", b.dataset.theme === themeName)));   // 表示パネルのテーマ列同期（themeName確定後＝microtask）
-	themeName = name; theme = MAP_THEMES[name]; style = theme.style;   // 湖はエンジンの lakes スロット（worldPal.sea 直読）＝style 側の世界層前置は廃止（2026-09-03）
+	themeName = name; theme = MAP_THEMES[name]; style = withPM(theme.style);   // 湖はエンジンの lakes スロット（worldPal.sea 直読）＝style 側の世界層前置は廃止（2026-09-03）
 	bg = style.layers.find(L => L.type === "background");
 	land = bg ? parseRGBA(evalExpr(bg.paint?.["background-color"] ?? "#fff", { zoom: 10, props: {}, geom: null, vars: {} })) : [0.96, 0.96, 0.95, 1];
 	atmo = theme.atmo; bldColor = theme.bldColor;
@@ -3097,7 +3137,7 @@ function render() {
 	let tu = null, skipBase = false;
 	if (basemap) {
 		sampleGroundElev();   // 中心の地面標高を追随（非同期・~100m格子メモ）＝groundR の材料
-		tu = tiles.update(cam, size.w, size.h, { tilePx: (moving || !gpuFast || !idleCalm) ? undefined : IDLE_TILE_PX, groundR: groundRNow(), keepFine: keepFineNow() });   // tilePx＝「本当の静止」（settle+550ms）だけ主層を一段細かく（手前の詳細化・GPU格付け fast 限定・undefined=既定560）。groundR＝地形リフト球（チルト×高標高地の手前くさび欠け根治）。keepFine＝ズームアウトの子孫代打（3D限定）。calm が needsDraw を立て、細タイルの ready は requestDraw で連鎖再描画
+		tu = tiles.update(cam, size.w, size.h, { tilePx: (moving || !gpuFast || !idleCalm) ? undefined : IDLE_TILE_PX, groundR: groundRNow(), keepFine: keepFineNow(), maxZ: pmInfo ? pmInfo.maxZoom : undefined });   // maxZ＝PMTiles 基図のときアーカイブの maxZoom で分割を止める（それ以上は最細段を引き伸ばす＝空タイル要求を作らない）   // tilePx＝「本当の静止」（settle+550ms）だけ主層を一段細かく（手前の詳細化・GPU格付け fast 限定・undefined=既定560）。groundR＝地形リフト球（チルト×高標高地の手前くさび欠け根治）。keepFine＝ズームアウトの子孫代打（3D限定）。calm が needsDraw を立て、細タイルの ready は requestDraw で連鎖再描画
 		const o = tu.order, tailNow = "#" + styleSig + "#z" + (cam.zoom >= RAILTR_MINZOOM ? 1 : 0);   // tailNow＝swapScene の署名末尾と同式
 		const merged = !!readySig && readyKeys !== null && readyTail === tailNow && readyKeys.size === o.length && o.every(t => readyKeys.has(t.key));
 		skipBase = tu.covered && merged;
@@ -3131,7 +3171,11 @@ function render() {
 				const worldSrc = A("https://www.naturalearthdata.com/", "Natural Earth") + "・" + A("https://www.gebco.net/", "GEBCO")
 					+ (WORLD_VT ? "・" + A("https://www.gloh2o.org/koppen/", "Beck et al. (CC BY)") : "");
 				const tail = `<br>${t("（各データを加工して作成）")}© 2026 ` + A("https://www.ortho-earth.com/docs/introduction.html", "Kenji Yoshida");
-				attr.innerHTML = zone === "jp" ? attrJPHTML
+				// ?pm= の基図は他人のデータ＝地理院の出典を出したままにしない（義務以前に嘘。2026-09-03 の
+				// 「日本のデータを出していない画面に地理院を並べない」と同じ筋）。宣言が無いアーカイブは
+				// 出所（ホスト名）だけでも出す＝無出典で他人の絵を出さない。
+				const pmAttr = PM_URL ? t("出典：") + (pmAttrHTML || new URL(PM_URL.replace("pmtiles://", "")).host) + tail : null;
+				attr.innerHTML = zone === "jp" ? (pmAttr ?? attrJPHTML)
 					: zone === "world" ? t("出典：") + worldSrc + tail
 					: t("出典：") + A("https://github.com/ofrohn/d3-celestial", "d3-celestial") + "・" + worldSrc + tail;   // sky＝星図が先頭（星空劇場の主役）
 			}

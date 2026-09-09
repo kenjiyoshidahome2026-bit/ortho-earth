@@ -5,11 +5,15 @@
 // ディレクトリのキャッシュを worker 内で使い回す（タイル毎の索引再取得はしない）。
 // pmtiles 本体は動的 import＝pmtiles:// を実際に使う構成（?world=1 等）でだけチャンクが落ちる。
 import { decodeMVT } from "./decode.js";
+import { tileOutsideCoverage } from "./tile.js";
 
 const PREFIX = "pmtiles://";
 const archives = new Map();   // archive url → Promise<PMTiles>
+const infos = new Map();      // archive url → Promise<info>（ヘッダ/metadata の自己申告）
 
 export const isPMTiles = url => url.startsWith(PREFIX);
+const srcOf = url => url.startsWith(PREFIX) ? url.slice(PREFIX.length) : url;
+const archiveOf = src => { let pm = archives.get(src); if (!pm) { pm = openArchive(src); archives.set(src, pm); } return pm; };
 
 // Range 対応の自動判別：1バイトのレンジプローブが 206 ならレンジ直読（従来）、200＝全量返し
 // （Cloudflare Workers Assets が Range を無視する実測 2026-09-01）ならその応答の全量を丸呑みして
@@ -32,11 +36,41 @@ async function openArchive(src) {
 	return new m.PMTiles(src);
 }
 
+// アーカイブの自己申告（ヘッダの bbox とズーム域・metadata の層名/出典）。**範囲制御の正本はここ**＝
+// 呼び出し側に bbox を手で持たせない（GSI の JP_COVERAGE は配信元が黙って 404 を返す HTTP タイル用の
+// 外付け知識だが、PMTiles は「どこを・どのズームで持っているか」を自分で宣言している＝データが先）。
+// 一度読んだヘッダは archive ごとにキャッシュ＝タイル毎の再取得はしない。
+export function pmtilesInfo(url) {
+	const src = srcOf(url);
+	let info = infos.get(src);
+	if (!info) {
+		info = (async () => {
+			const pm = await archiveOf(src);
+			const h = await pm.getHeader();
+			const md = await pm.getMetadata().catch(() => null);   // metadata 欠落は致命ではない（層名が要らない用途もある）
+			// 全球（±180）は bbox 判定を掛けない＝縁のタイルを丸め誤差で落とさないため
+			const full = h.minLon <= -180 && h.maxLon >= 180;
+			return {
+				bbox: full ? null : [h.minLon, h.minLat, h.maxLon, h.maxLat],
+				minZoom: h.minZoom, maxZoom: h.maxZoom,
+				layers: Array.isArray(md?.vector_layers) ? md.vector_layers.map(l => l.id).filter(Boolean) : [],
+				attribution: md?.attribution || null,
+				name: md?.name || null,
+			};
+		})();
+		infos.set(src, info);
+	}
+	return info;
+}
+
 export async function fetchPMTiles(url, z, x, y, signal, need) {
-	const src = url.slice(PREFIX.length);
-	let pm = archives.get(src);
-	if (!pm) { pm = openArchive(src); archives.set(src, pm); }
-	const t = await (await pm).getZxy(z, x, y, signal);
+	const src = srcOf(url);
+	// 範囲の門＝アーカイブ自身のヘッダ。索引を歩く前に落とす（ズーム域外・bbox 外は「そこに無い」が正しい答え）。
+	// 索引ミスでも致命ではないが、日本域アーカイブを全球ビューで開くと毎フレーム無駄な走査が出るため門で止める。
+	const info = await pmtilesInfo(url);
+	if (z < info.minZoom || z > info.maxZoom) return { __empty: true };
+	if (tileOutsideCoverage(x, y, z, info.bbox)) return { __empty: true };
+	const t = await (await archiveOf(src)).getZxy(z, x, y, signal);
 	// 索引に無い＝正当な「そこにタイルが無い」（HTTP 404 と同じ扱い＝空タイルとして ready）
 	if (!t || !t.data || !t.data.byteLength) return { __empty: true };
 	return decodeMVT(new Uint8Array(t.data), need);
