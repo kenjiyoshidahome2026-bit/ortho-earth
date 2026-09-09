@@ -1,7 +1,8 @@
 <!doctype html>
 <!-- E2E回帰：gint 多層プロトコル（map.addGint＝spec §4 の顔）。実アプリを ?gpu=1 で起動し、
-     ①addGint×2 の ack（ready） ②setPaint（buildFidStyle 経路） ③合成 pointermove での hover 往復
-     （app ゲート→gintMove→エンジン識別→layer 付き identify→handle.on('hover')） ④remove を検める。
+     ①addGint×2 の ack（ready＝bake-ahead 焼き着地） ②setPaint（buildFidStyle 経路） ③合成 pointermove での hover 往復
+     （app ゲート→gintMove→エンジン識別→layer 付き identify→handle.on('hover')＋層tip） ④query/queryAll
+     ⑤map.on('click')＝合成 pointerdown/up→JSレイキャスト集約 ⑥remove を検める。
      エンジン内部の多層描画は t-gintmulti が画素で担保済み＝ここはプロトコルと main 側配線の検定。
      WebGPU の無い環境＝GL2 フォールバック＝多層は後追い方針ゆえスキップ扱い PASS。実時間専用（verify-webgpu が回す）。 -->
 <html lang="ja"><head><meta charset="utf-8"><style>html{background:#0b1021}</style><title>t-gintlayers</title></head>
@@ -38,11 +39,12 @@ const buildArcs = (arcs) => {
 	return { arcBuffer, arcMeta };
 };
 // addGint の source 契約は geopbf（unPackGint＋fid整列の getProperties/getFeature）＝ここは同形のダック
-const duckPbf = (gint, n) => ({
+const duckPbf = (gint, n, identifyAt = null) => ({
 	unPackGint: { ...gint, precision: 6 },
 	fmap: { length: n },
 	getProperties: i => ({ fid: i }),
 	getFeature: fid => ({ properties: { fid } }),
+	...(identifyAt ? { identifyAt } : {}),
 });
 import("../app.js").then(async ({ default: orthoJapan }) => {
 	try {
@@ -63,11 +65,13 @@ import("../app.js").then(async ({ default: orthoJapan }) => {
 			[[Cb[0] - d, yN, 1, 0], [Cb[0], yN + d, 0, 30], [Cb[0] + d, yN, 1, 0], [Cb[0] - d, yN, 1, 0]],   // 画面外ダミー面＝pick 構築ガード通し（t-gintmulti と同じ理由）
 		]);
 		// ── ① addGint×2＝ack で搭載確認 ──
-		const la = m.addGint(duckPbf({ arcBuffer: A.arcBuffer, arcMeta: A.arcMeta, polyStream: Int32Array.from([7, 1, 2, 0, ~1]) }, 8),
+		const inA = (lng, lat) => (Math.abs(lng - Ca[0]) < d && lat > Ca[1] - d && lat < Ca[1] + d) ? 7 : null;   // 簡易点in面（ルーティング検定用）
+		const la = m.addGint(duckPbf({ arcBuffer: A.arcBuffer, arcMeta: A.arcMeta, polyStream: Int32Array.from([7, 1, 2, 0, ~1]) }, 8, inA),
 			{ style: { fillColor: [1, 0, 0, 0.6] }, minZoom: 2 });
 		ok("addGint A", !!la && await la.ready === true);
+		let tipSpy = null;   // 層tip（opts.tip=fn）が hover 経路で呼ばれた証拠
 		const lb = m.addGint(duckPbf({ arcBuffer: B.arcBuffer, arcMeta: B.arcMeta, lineStream: Int32Array.from([8, 1, 1, 0]), polyStream: Int32Array.from([9, 1, 1, 1]) }, 10),
-			{ style: { lineWidth: 4 }, minZoom: 2 });
+			{ style: { lineWidth: 4 }, minZoom: 2, tip: pr => { tipSpy = pr.fid; return [`fid:${pr.fid}`]; } });
 		ok("addGint B", !!lb && await lb.ready === true && lb.id !== la.id);
 		// ── ② setPaint（式評価→fid 表→worker への層指名 post）──
 		await lb.setPaint({ "line-color": "#ff00ff", "line-width": 4 });
@@ -87,7 +91,26 @@ import("../app.js").then(async ({ default: orthoJapan }) => {
 			tgt.dispatchEvent(new PointerEvent("pointermove", { clientX: ex, clientY: ey, bubbles: true, pointerId: 1, pointerType: "mouse", isPrimary: true }));
 		const fidB = await hovP;
 		ok(`hover往復 B層(fid=${fidB})`, fidB === 8);
-		// ── ④ remove（プロトコル往復後もアプリが生存）──
+		ok(`層tip(spy=${tipSpy})`, tipSpy === 8);   // opts.tip が hover 経路で props を受けた（表示器は t-providers が担保）
+		// ── ④ query / queryAll（main 同期 JS レイキャスト＝エンジン往復なし・{layer, fid} の対）──
+		const qp = [Ca[0], Ca[1] - d * 0.5];
+		const qa = la.query(qp);
+		ok(`layer.query(fid=${qa?.fid})`, qa?.fid === 7);
+		const hits = m.queryAll(qp);
+		ok(`queryAll(hits=${hits.length} fid=${hits[0]?.fid})`, hits.length === 1 && hits[0].layer === la && hits[0].fid === 7);
+		// ── ⑤ map.on('click')＝合成 pointerdown/up → hits 集約 ──
+		const clkP = new Promise(res => {
+			const tm = setTimeout(() => res("timeout"), 5000);
+			m.on("click", ({ lngLat, hits: hs }) => { clearTimeout(tm); res({ lngLat, hs }); });
+		});
+		const pc = m.projectLL(qp[0], qp[1]);
+		const ccx = rc.left + pc[0], ccy = rc.top + pc[1];
+		const ctgt = document.elementFromPoint(ccx, ccy) || cv;
+		ctgt.dispatchEvent(new PointerEvent("pointerdown", { clientX: ccx, clientY: ccy, bubbles: true, pointerId: 2, pointerType: "mouse", isPrimary: true, button: 0, buttons: 1 }));
+		ctgt.dispatchEvent(new PointerEvent("pointerup", { clientX: ccx, clientY: ccy, bubbles: true, pointerId: 2, pointerType: "mouse", isPrimary: true, button: 0, buttons: 0 }));
+		const clk = await clkP;
+		ok(`map.on click(hits=${clk?.hs?.length} fid=${clk?.hs?.[0]?.fid})`, clk !== "timeout" && clk.hs.length === 1 && clk.hs[0].fid === 7);
+		// ── ⑥ remove（プロトコル往復後もアプリが生存）──
 		lb.remove(); la.remove();
 		await new Promise(r => setTimeout(r, 300));
 		ok("remove", !document.getElementById("fatal"));
