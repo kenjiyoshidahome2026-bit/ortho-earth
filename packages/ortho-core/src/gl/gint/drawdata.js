@@ -1,8 +1,8 @@
 // cam → drawData（mvp/eye/origin/RTE錨/LODランク/視野bbox）。worker（gintworker）と embedded
 // （renderworker 同居＝1canvas統合）の両モードで共用する「site 3 の心室」。
 // 単位は device px 一本（s.width/height は device px、線幅は ×s.dpr 済みで返す）。
-
-import { s } from './state.js';
+// 脱シングルトン（§10.1）：状態は第一引数 s で受ける＝GL2 側は state.js の singleton を渡し（挙動不変）、
+// WebGPU 側はエンジンのビュー状態 V（computeDrawData）/ 層状態 L（zoomInRange）を渡す。
 import { cameraState, unproject, lonlatTo3D } from '../../camera.js';
 import * as mat from '../../mat.js';
 
@@ -11,8 +11,8 @@ const SE = 1e7;
 export function toMortonX(lon) { return (Math.round((lon + 180) * SE)) >>> 0; }
 export function toMortonY(lat) { return (Math.round((lat +  90) * SE)) >>> 0; }
 
-// 現ズームが実描画レンジ内か（データ導出レンジ × style 指定レンジの積）。
-export function zoomInRange(data) {
+// 現ズームが実描画レンジ内か（データ導出レンジ × style 指定レンジの積）。s＝minZoom/maxZoom を持つ状態（層）。
+export function zoomInRange(s, data) {
 	const zoom = data.cam.zoom;
 	const effMin = Math.max(s.minZoom ?? 0,  data.minZoom ?? 0);
 	const effMax = Math.min(s.maxZoom ?? 22, data.maxZoom ?? 22);
@@ -20,8 +20,9 @@ export function zoomInRange(data) {
 }
 
 // data: { cam, lineWidth?, fillColor?, styleTable?, dashTable?, maskColor?, ptRadius?, minZoom?, maxZoom? }
-// 副作用：s.cam（identify の unproject 用）と s.lastViewBbox（可視カリング/JS fallback 絞り込み）を更新。
-export function computeDrawData(data) {
+// s＝width/height/dpr を持つビュー状態。副作用：s.cam（identify の unproject 用）と s.lastViewBbox
+// （可視カリング/JS fallback 絞り込み）を更新。
+export function computeDrawData(s, data) {
 	// ── site 3：cam → mvp/eye/origin（v1 の d3 lastProj の建て替え）──
 	const st = cameraState(data.cam, s.width, s.height);
 	s.cam = st;                                    // identify の unproject 用（site 4）

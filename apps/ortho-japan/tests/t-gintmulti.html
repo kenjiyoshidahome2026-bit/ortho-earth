@@ -1,0 +1,151 @@
+<!doctype html>
+<!-- gint WebGPU 脱シングルトン（gint draw spec §10.1）の回帰：createGintLayerGPU の addLayer() で
+     2層を共存させ、①同一フレームに両層が描かれる ②UBO/スタイルが層別（片方の線幅変更が他方へ漏れない）
+     ③表示切替が層別 ④カーソル（pick）が activate で層をまたいで移る ⑤remove で片方だけ消える、を
+     2D canvas 読み戻しで検める。t-gintgpu（単層 facade）の対＝多層の一号検定。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;width:320px;height:320px}</style><title>t-gintmulti</title></head>
+<body><canvas id="g" width="256" height="256"></canvas>
+<script type="module">
+const t = [], ok = (n, c) => { t.push((c ? "ok:" : "NG:") + n); console.log("[t]", t[t.length - 1]); };
+window.__t = t;
+const fin = () => document.title = t.some(s => s.startsWith("NG")) ? "FAIL " + t.join(" ") : "PASS " + t.join(" ");
+const spread16 = v => { v &= 0xFFFF; v = (v | (v << 8)) & 0xFF00FF; v = (v | (v << 4)) & 0xF0F0F0F; v = (v | (v << 2)) & 0x33333333; v = (v | (v << 1)) & 0x55555555; return v >>> 0; };
+const pack = (lon, lat, terminal, weight = 0) => {
+	const ix = Math.round((lon + 180) * 1e7) >>> 0, iy = Math.round((lat + 90) * 1e7) >>> 0;
+	const lo = (spread16(ix & 0xFFFF) | (spread16(iy & 0xFFFF) << 1)) >>> 0;
+	const hi = (spread16(ix >>> 16) | (spread16(iy >>> 16) << 1)) >>> 0;
+	let v = (BigInt(hi) << 32n) | BigInt(lo);
+	return terminal ? (v | (1n << 63n)) : ((v & ~0x3Fn) | BigInt(weight & 63));
+};
+const e7 = d => Math.round(d * 1e7) >>> 0;
+// 1つの arc 群から arcBuffer/arcMeta を組む（t-gintgpu と同形）
+const buildArcs = (arcs) => {   // arcs: [[ [lon,lat,term,w], ... ], ...]
+	const verts = arcs.flat();
+	const arcBuffer = BigUint64Array.from(verts.map(([lon, lat, term, w]) => pack(lon, lat, !!term, w)));
+	const arcMeta = new Uint32Array(arcs.length * 8);
+	let off = 0;
+	arcs.forEach((a, aid) => {
+		arcMeta[aid * 8] = off; arcMeta[aid * 8 + 1] = a.length;
+		let xm = 4e9, ym = 4e9, xM = 0, yM = 0;
+		for (const [lon, lat] of a) {
+			xm = Math.min(xm, e7(lon + 180)); xM = Math.max(xM, e7(lon + 180));
+			ym = Math.min(ym, e7(lat + 90)); yM = Math.max(yM, e7(lat + 90));
+		}
+		arcMeta[aid * 8 + 4] = xm; arcMeta[aid * 8 + 5] = ym; arcMeta[aid * 8 + 6] = xM; arcMeta[aid * 8 + 7] = yM;
+		off += a.length;
+	});
+	return { arcBuffer, arcMeta };
+};
+try {
+	if (!navigator.gpu) { ok("webgpu-unavailable→スキップ扱いPASS", true); fin(); }
+	else {
+	const { createRendererGPU, createGintLayerGPU } = await import("../../../packages/ortho-core/src/gpu/backend.js");
+	const { cameraState, project } = await import("../../../packages/ortho-core/src/camera.js");
+	const canvas = document.getElementById("g");
+	const r = await createRendererGPU(canvas);
+	const gint = createGintLayerGPU(r, { requestDraw: () => {} });
+	ok("boot(webgpu+gint)", !!r.device);
+	const rd = document.createElement("canvas"); rd.width = 256; rd.height = 256;
+	const rctx = rd.getContext("2d", { willReadFrequently: true });
+	const shot = async (cam) => {   // t-gintgpu と同じ轍回避（present 前の同一タスク drawImage）
+		r.draw(cam, {});
+		gint.draw(cam, r.gintCtx());
+		r.flush();
+		rctx.clearRect(0, 0, 256, 256);
+		rctx.drawImage(canvas, 0, 0);
+		const px = rctx.getImageData(0, 0, 256, 256).data;
+		await new Promise(res => requestAnimationFrame(() => setTimeout(res, 10)));
+		return px;
+	};
+	const count = (a8, cls) => {   // cls: "red"(A層の塗り) / "cyan"(B層の線 #00B4D8)
+		let n = 0;
+		for (let i = 0; i < a8.length; i += 4) {
+			if (cls === "red" && a8[i] > 150 && a8[i + 1] < 130 && a8[i + 2] < 130) n++;
+			if (cls === "cyan" && a8[i + 2] > 150 && a8[i] < 130) n++;
+		}
+		return n;
+	};
+
+	// ── 2層のデータ：A（既定層 facade）＝西のポリゴン fid7 赤塗り／B（addLayer）＝東の∧折れ線 fid8 シアン ──
+	const C = [139.7, 35.7], dx = 0.006, d = 0.004;
+	const Ca = [C[0] - dx, C[1]], Cb = [C[0] + dx, C[1]];
+	{
+		const { arcBuffer, arcMeta } = buildArcs([
+			[[Ca[0] - d, Ca[1] - d, 1, 0], [Ca[0], Ca[1] - d * 0.9, 0, 30], [Ca[0] + d, Ca[1] - d, 1, 0]],
+			[[Ca[0] - d, Ca[1] - d, 1, 0], [Ca[0], Ca[1] + d, 0, 30], [Ca[0] + d, Ca[1] - d, 1, 0]],
+		]);
+		gint.set({ arcBuffer, arcMeta, polyStream: Int32Array.from([7, 1, 2, 0, ~1]), minZoom: 2 });
+		gint.style({ fillColor: [1, 0, 0, 0.6] });
+	}
+	const LB = gint.addLayer();
+	{
+		// ∧折れ線（fid8・画面内）＋ダミー小ポリゴン（fid9・画面外 0.05°北）。ポリゴンを1つ持たせるのは
+		// drawn() の既存ガード「polyBboxByFid 無し＆点無し＝pick 構築しない」（線のみ層は元々 hover 非対応）を
+		// 通すため＝この検定の主眼（カーソルが層をまたぐ）に集中する。
+		const yN = Cb[1] + 0.05;
+		const { arcBuffer, arcMeta } = buildArcs([
+			[[Cb[0] - d, Cb[1] - d, 1, 0], [Cb[0], Cb[1] + d, 0, 30], [Cb[0] + d, Cb[1] - d, 1, 0]],
+			[[Cb[0] - d, yN, 1, 0], [Cb[0], yN + d, 0, 30], [Cb[0] + d, yN, 1, 0], [Cb[0] - d, yN, 1, 0]],
+		]);
+		LB.set({ arcBuffer, arcMeta, lineStream: Int32Array.from([8, 1, 1, 0]), polyStream: Int32Array.from([9, 1, 1, 1]), minZoom: 2 });
+		LB.style({ lineWidth: 3 });
+	}
+	const cam = { center: C, zoom: 13, pitch: 0, bearing: 0, dpr: 1 };
+
+	// ── ① 同一フレームに両層 ──
+	let a8 = await shot(cam);
+	const red1 = count(a8, "red"), cyan1 = count(a8, "cyan");
+	ok(`2層同フレーム(赤=${red1} シアン=${cyan1})`, red1 > 800 && cyan1 > 100);
+
+	// ── ② スタイルは層別（Bの線幅変更がAへ漏れない＝UBO層所有の検札）──
+	LB.style({ lineWidth: 8 });
+	a8 = await shot(cam);
+	const red2 = count(a8, "red"), cyan2 = count(a8, "cyan");
+	ok(`層別スタイル(シアン ${cyan1}→${cyan2}・赤 ${red1}→${red2})`,
+		cyan2 > cyan1 * 1.5 && Math.abs(red2 - red1) < red1 * 0.15);
+
+	// ── ③ 表示切替は層別 ──
+	LB.setVisible(false);
+	a8 = await shot(cam);
+	ok(`B非表示(シアン=${count(a8, "cyan")} 赤=${count(a8, "red")})`, count(a8, "cyan") < 20 && count(a8, "red") > 800);
+	LB.setVisible(true);
+	gint.setVisible(false);
+	a8 = await shot(cam);
+	ok(`A非表示(赤=${count(a8, "red")} シアン=${count(a8, "cyan")})`, count(a8, "red") < 20 && count(a8, "cyan") > 100);
+	gint.setVisible(true);
+	await shot(cam);
+
+	// ── ④ カーソルは activate で層をまたぐ（§4.1 pick1枚のまま）──
+	const st = cameraState(cam, 256, 256);
+	const idOnce = () => new Promise(res => {
+		const h = e => { if (e.data?.action === "identify") { clearTimeout(tm); removeEventListener("message", h); res(e.data.featureId); } };
+		const tm = setTimeout(() => { removeEventListener("message", h); res("timeout"); }, 3000);
+		addEventListener("message", h);
+	});
+	gint.activate();   // カーソル→A層
+	gint.drawn();
+	await r.device.queue.onSubmittedWorkDone();
+	const pa = project(st, Ca[0], Ca[1] - d * 0.2);   // Aポリゴン内部（GPU pick 外＝JS包含判定）
+	let p1 = idOnce(); gint.move({ x: pa[0], y: pa[1] });
+	const fidA = await p1;
+	ok(`pick A層ポリゴン(fid=${fidA})`, fidA === 7);
+	gint.leave();
+	LB.activate();     // カーソル→B層
+	gint.drawn();
+	await r.device.queue.onSubmittedWorkDone();
+	const pb = project(st, Cb[0] - d, Cb[1] - d);     // B折れ線の左端点（GPU pick hit）
+	let p2 = idOnce(); gint.move({ x: pb[0], y: pb[1] });
+	const fidB = await p2;
+	ok(`pick B層折れ線(fid=${fidB})`, fidB === 8);
+	gint.leave();
+
+	// ── ⑤ remove は層別 ──
+	LB.remove();
+	a8 = await shot(cam);
+	ok(`B除去(シアン=${count(a8, "cyan")} 赤=${count(a8, "red")})`, count(a8, "cyan") < 20 && count(a8, "red") > 800);
+	gint.dispose();
+	ok("dispose", true);
+	fin();
+	}
+} catch (e) { ok("boot:" + (e && e.message || e), false); fin(); }
+</script></body></html>

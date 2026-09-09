@@ -50,8 +50,8 @@ try {
 	// ── LOD rank フォールバック回帰：チルトで画面中心が地球を外れる（unproject不能）ビューでは
 	// rank はズーム由来 r=63-3z に落ちる（旧・既定0＝最細＝41万辺フル描画で GPU 200-700ms/frame の実機事故）──
 	{
-		const dHi = computeDrawData({ cam: { center: [139.7, 35.7], zoom: 3, pitch: 1.35, bearing: 0 } });   // 高チルト低ズーム＝中心が空
-		const dLo = computeDrawData({ cam: { center: [139.7, 35.7], zoom: 3, pitch: 0, bearing: 0 } });      // 真俯瞰＝実測経路
+		const dHi = computeDrawData(s, { cam: { center: [139.7, 35.7], zoom: 3, pitch: 1.35, bearing: 0 } });   // 高チルト低ズーム＝中心が空
+		const dLo = computeDrawData(s, { cam: { center: [139.7, 35.7], zoom: 3, pitch: 0, bearing: 0 } });      // 真俯瞰＝実測経路
 		ok(`rankフォールバック(空向き=${dHi.lodRank} 実測=${dLo.lodRank})`, dHi.lodRank >= 50 && dLo.lodRank >= 45);
 	}
 
@@ -71,14 +71,14 @@ try {
 		const cam = { center: C, zoom: 6, pitch: 0, bearing: 0 };
 		gl.viewport(0, 0, 256, 256);
 		const drawWithDepth = d => {
-			const data = computeDrawData({ cam, lineWidth: 4 });
+			const data = computeDrawData(s, { cam, lineWidth: 4 });
 			gl.clearDepth(d); gl.clear(gl.DEPTH_BUFFER_BIT); gl.clearDepth(1);
 			data.depth = { logCoef: logCoefOf(), fogFar: 1e9, elevTex: null, elevBounds: [0, 0, 1, 1], elevScale: 0, hasElev: 0, edgeFade: 0 };
 			renderCleanScene(data, null);   // worker モード＝色/stencil はクリアするが深度は触らない＝仕込みが生きる
 			return stats(readAll());
 		};
 		// コントロール：深度なし（段階A経路）＝実線が必ず出る
-		const data0 = computeDrawData({ cam, lineWidth: 4 });
+		const data0 = computeDrawData(s, { cam, lineWidth: 4 });
 		renderCleanScene(data0, null);
 		const ctl = stats(readAll());
 		const win = drawWithDepth(1);   // 深度に勝つ＝実線
@@ -98,7 +98,7 @@ try {
 		gl.texImage2D(gl.TEXTURE_2D, 0, gl.R32F, 1, 1, 0, gl.RED, gl.FLOAT, Float32Array.from([20000]));   // 20km＝z6の粗い視野でも~20px動く合成値
 		const cam = { center: C, zoom: 6, pitch: 1.0, bearing: 0 };
 		const draw1 = scale => {
-			const data = computeDrawData({ cam, lineWidth: 4 });
+			const data = computeDrawData(s, { cam, lineWidth: 4 });
 			gl.clear(gl.DEPTH_BUFFER_BIT);   // 全面 depth=1＝深度は常に勝つ（ドレープの幾何だけ見る）
 			data.depth = { logCoef: logCoefOf(), fogFar: 1e9, elevTex, elevBounds: [C[0] - 2, C[1] - 2, 4, 4], elevScale: scale, hasElev: 1, edgeFade: 0 };
 			renderCleanScene(data, null);
