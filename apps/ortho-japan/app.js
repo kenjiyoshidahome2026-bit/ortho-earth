@@ -18,6 +18,7 @@ import { createOverlay } from "./overlay.js";
 
 // planets.js / skynames.js は z<4（星空）でしか使わない＝初期バンドルから外し、下の ensureSkyMod で動的読込。
 import { createPipeline, pmtilesInfo } from "ortho-core";
+import { pmLayers, pmRoles } from "./style-pm.js";   // ?pm= の層名→役割→描画規則（静的import＝?pm= を使わない構成でも数百バイト）
 import { sanitizeHTML } from "geopbf/sanitize";   // ?pm= のアーカイブが宣言する出典 HTML は非信頼入力＝出力境界で消毒   // tile/scene worker のスポーンごとエンジン側
 import { createPlateauDb } from "./plateaudb.js";
 import { mountGadgets } from "./gadgets/mount.js";
@@ -673,6 +674,10 @@ let attrZone = null, attrJPHTML = null;   // 出典（#attr）の圏＝"jp"|"wor
 // 旧6.5＝9/2裁定でハイプソ帯の海岸ギザ根治）＝GSI入場前にハイプソが精細化して受け渡す。
 // 星空・星座・太陽系の門は別（STARSKY_Z＝従来の5のまま）。
 const BASEMAP_MINZOOM = WORLD_VT ? 6.5 : 5;
+// タイルの門だけを分ける：BASEMAP_MINZOOM は「日本の基図（GSI）を出す圏」の意味も兼ねており、注記・空港マーク・
+// 出典圏の判定にも使われている。?pm= の基図は日本固有ではない＝タイルを出す下限はアーカイブの持ち分に従う
+// （実際の下限は minZoom で、それ未満はエンジンの門が空タイルを返す）。旧・世界タイルの !WORLD_VT 例外と同じ役割。
+const TILE_MINZOOM = PM_URL ? 0 : BASEMAP_MINZOOM;
 const STARSKY_Z = 5;                       // 星空劇場（星・星座クリック・惑星）の圏＝renderer の worldFade(z<5) と同期
 // 静止時の詳細化＝主層の分割閾を下げる（既定560→この値）。近景ほど画面上のタイルが大きい＝真っ先に
 // 閾を越えて割れる＝チルトで「手前だけズームが上がる」（遠景は小さく閾に届かず据置＝奥のPLATEAUと詳細が拮抗）。
@@ -1619,7 +1624,8 @@ function onSceneApplied(slot, sig) {
 	// main では止められないため、render() が空にした後から道路/鉄道が復活する（ズームアウト中の要求が遅れて届く）。
 	// ack＝着地の合図なので、ここで検知して即座に空へ戻す（sig は確定させない＝復帰時に再結合させる）。
 	// 世界タイル(Protomaps)撤去（2026-09-03 湖のNE化）＝world でも基図の門の下はタイルなし＝例外撤廃。
-	if (cam.zoom < BASEMAP_MINZOOM) {
+	// ?pm= のときだけ門が 0 まで開く（TILE_MINZOOM）＝汎用アーカイブは低ズームを持っていることがある。
+	if (cam.zoom < TILE_MINZOOM) {
 		renderer.set("scene", { origin: [cam.center[0], cam.center[1]], layers: [] }, slot);
 		needsDraw = true;
 		return;
@@ -1635,15 +1641,9 @@ function onSceneApplied(slot, sig) {
 }
 dbgHost.__mergeFail = () => requestMerge.debugFail();   // 次の merge を故意に失敗させ ack 自己修復を実地検証
 dbgHost.__vtPool = () => requestMerge.stats();          // multi_draw 常駐プールの占有を scene worker の console に出す
-// ?pm= のアーカイブ自己申告を読む → 層名から素の描画規則を作って style へ前置 → 再ビルド。
-// 面と線を両方出す＝PMTiles の metadata（vector_layers）は幾何型を宣言しないため（空振りは無害）。
-// 色は紙の上で静かな 2 色だけ＝「どのアーカイブでも とりあえず出る」ための既定であって、作り込みは
-// style を書く側の仕事（bvmap 用 style-gsi.js / style-mono.js が前例）。
-const pmLayers = info => info.layers.flatMap(id => [
-	{ id: `pm-${id}-fill`, type: "fill", "source-layer": id, filter: ["==", ["geometry-type"], "Polygon"], paint: { "fill-color": "#dfe3e8" } },
-	{ id: `pm-${id}-line`, type: "line", "source-layer": id, filter: ["!=", ["geometry-type"], "Polygon"], paint: { "line-color": "#8a929c", "line-width": 1 } },
-]);
-const withPM = s => pmInfo?.layers?.length ? { ...s, layers: [...pmLayers(pmInfo), ...s.layers] } : s;   // テーマ切替でも掛け直す（switchTheme が theme.style へ戻すため）
+// ?pm= のアーカイブ自己申告を読む → 層名を役割へ振って描画規則を組み → style へ前置 → 再ビルド。
+// 規則の中身は style-pm.js（役割表・紙→インクの階調・描かないものの裁定）。ここは配線だけ。
+const withPM = s => pmInfo?.layers?.length ? { ...s, layers: [...pmLayers(pmInfo, theme), ...s.layers] } : s;   // テーマ切替でも掛け直す（switchTheme が theme.style へ戻す・階調は新テーマの紙から作り直る）
 if (PM_URL) pmtilesInfo(PM_URL).then(info => {
 	pmInfo = info;   // maxZ（LOD 上限）にも即効く＝次フレームから分割が maxZoom で止まる
 	// 出典：アーカイブが metadata で宣言したものを使う。**他人の置き場の HTML＝非信頼入力**につき
@@ -1653,7 +1653,7 @@ if (PM_URL) pmtilesInfo(PM_URL).then(info => {
 	style = withPM(theme.style);
 	setPipelineStyle(style);   // 生成層込みで再ビルド
 	needsDraw = true;
-	console.info(`[pm] ${info.name || PM_SPEC}  z${info.minZoom}-${info.maxZoom}  層 ${info.layers.length}（${info.layers.join(", ") || "metadata なし"}）  bbox ${info.bbox ? info.bbox.map(v => v.toFixed(2)).join(", ") : "全球"}`);
+	console.info(`[pm] ${info.name || PM_SPEC}  z${info.minZoom}-${info.maxZoom}  bbox ${info.bbox ? info.bbox.map(v => v.toFixed(2)).join(", ") : "全球"}\n     層→役割: ${pmRoles(info).join(" ") || "metadata なし"}（ground/label は描かない＝decode もしない）`);
 }).catch(err => console.warn("[pm] PMTiles を読めない", PM_SPEC, err));
 
 dbgHost.__style = () => style;   // 現在の style＝検証フック（t-world：world-water 層が「無い」こと＝湖はエンジン lakes スロットへ移行済 2026-09-03）
@@ -3133,7 +3133,7 @@ function render() {
 	// ⚠ 描画命令（下の renderer.draw）の位置は動かさない：この下に基図の門（z<BASEMAP_MINZOOM）の早期 return が
 	// あり、命令をその後ろへ動かすと世界帯で描画要求が一度も出ず frame1 が来ない（前回の t-anno 不安定の正体）。
 	// 判定材料の方を先に作る＝基図圏でだけ tiles.update をここで回す（出典/家具の DOM 処理より僅かに早いだけ）。
-	const basemap = cam.zoom >= BASEMAP_MINZOOM;
+	const basemap = cam.zoom >= TILE_MINZOOM;
 	let tu = null, skipBase = false;
 	if (basemap) {
 		sampleGroundElev();   // 中心の地面標高を追随（非同期・~100m格子メモ）＝groundR の材料
@@ -3173,11 +3173,12 @@ function render() {
 				const tail = `<br>${t("（各データを加工して作成）")}© 2026 ` + A("https://www.ortho-earth.com/docs/introduction.html", "Kenji Yoshida");
 				// ?pm= の基図は他人のデータ＝地理院の出典を出したままにしない（義務以前に嘘。2026-09-03 の
 				// 「日本のデータを出していない画面に地理院を並べない」と同じ筋）。宣言が無いアーカイブは
-				// 出所（ホスト名）だけでも出す＝無出典で他人の絵を出さない。
-				const pmAttr = PM_URL ? t("出典：") + (pmAttrHTML || new URL(PM_URL.replace("pmtiles://", "")).host) + tail : null;
-				attr.innerHTML = zone === "jp" ? (pmAttr ?? attrJPHTML)
-					: zone === "world" ? t("出典：") + worldSrc + tail
-					: t("出典：") + A("https://github.com/ofrohn/d3-celestial", "d3-celestial") + "・" + worldSrc + tail;   // sky＝星図が先頭（星空劇場の主役）
+				// 出所（ホスト名）だけでも出す＝無出典で他人の絵を出さない。門が 0 まで開く＝world/sky 圏でも
+				// アーカイブは描かれている＝そちらにも併記する（球のハイプソの出典と両方が要る）。
+				const pmSrc = PM_URL ? (pmAttrHTML || new URL(PM_URL.replace("pmtiles://", "")).host) : null;
+				attr.innerHTML = zone === "jp" ? (pmSrc ? t("出典：") + pmSrc + tail : attrJPHTML)
+					: zone === "world" ? t("出典：") + (pmSrc ? pmSrc + "・" : "") + worldSrc + tail
+					: t("出典：") + (pmSrc ? pmSrc + "・" : "") + A("https://github.com/ofrohn/d3-celestial", "d3-celestial") + "・" + worldSrc + tail;   // sky＝星図が先頭（星空劇場の主役）
 			}
 		}
 	}
@@ -3191,7 +3192,7 @@ function render() {
 		if (planetTimer) updatePlanets();   // ドーム惑星/月の点灯切替を即時反映
 		if (constelState === 2) constelApply();   // 星座注記の休演/再点灯（裁きは constelApply に一本化）
 	}
-	if (cam.zoom < BASEMAP_MINZOOM) {   // 基図の門の下＝タイルなし（全球ハイプソ＋gint線＋湖スロットの領分。世界タイル撤去 2026-09-03）
+	if (cam.zoom < TILE_MINZOOM) {   // 基図の門の下＝タイルなし（全球ハイプソ＋gint線＋湖スロットの領分。世界タイル撤去 2026-09-03。?pm= のときだけ 0 まで開く）
 		if (!basemapHidden) {
 			const o = [cam.center[0], cam.center[1]];
 			renderer.set("scene", { origin: o, layers: [] }, "main");
@@ -3205,7 +3206,8 @@ function render() {
 	}
 	basemapHidden = false;
 	// 旧・世界帯の選抜cap（maxZ=世界タイルz3・keepFine切り）は世界タイル撤去（2026-09-03）で不要＝
-	// ここへ来るのは z≥BASEMAP_MINZOOM だけ（基図の門の下は上の早期returnでタイルなし）。
+	// ここへ来るのは z≥TILE_MINZOOM だけ（門の下は上の早期returnでタイルなし）。?pm= は maxZ を
+	// アーカイブの maxZoom で掛けている（tiles.update）＝旧・世界帯の cap と同じ役割を汎用化したもの。
 	const { order, coarseOrder, total } = tu;   // 選抜は上（描画命令の前・基図圏のみ）で実施済み
 	if (layerState.facility && cam.zoom >= 14) loadPOI(cam);   // z14+×施設ON＝POI台帳タイル(poi/14/x/y)を可視ぶん先読み（既取得は素通り）
 	dbgHost.__lastOrder = order;   // デバッグ：現在の選択タイル（コンソール/検証スクリプトから確認）
