@@ -320,11 +320,13 @@ export function createOverlay(map, mapEl, getState) {
 			const s0 = pr(st.sketch.coords[0][0], st.sketch.coords[0][1]);
 			if (s0[2] >= 0) dot(s0[0], s0[1], 3.5, COL.handle, COL.sketch);
 		} else if (st.sketch && st.sketch.coords.length) {
-			const cs = st.sketch.cursor ? [...st.sketch.coords, st.sketch.cursor] : st.sketch.coords;
+			const free = st.sketch.kind === "free";   // フリーハンド＝実線の軌跡だけ（頂点ドットは密すぎて描かない）
+			const cs = !free && st.sketch.cursor ? [...st.sketch.coords, st.sketch.cursor] : st.sketch.coords;
 			ctx.beginPath(); tracePts(pr, cs);
-			if (st.sketch.kind !== "line" && cs.length > 2) { const s0 = pr(cs[0][0], cs[0][1]); if (s0[2] >= 0) { const sl = pr(cs[cs.length - 1][0], cs[cs.length - 1][1]); ctx.moveTo(sl[0], sl[1]); ctx.lineTo(s0[0], s0[1]); } }   // 面・穴＝閉じプレビュー
-			ctx.setLineDash([6, 4]); ctx.lineWidth = 2; ctx.strokeStyle = COL.sketch; ctx.stroke(); ctx.setLineDash([]);
-			for (const c of st.sketch.coords) { const s = pr(c[0], c[1]); if (s[2] >= 0) dot(s[0], s[1], 3.5, COL.handle, COL.sketch); }
+			if (st.sketch.kind !== "line" && !free && cs.length > 2) { const s0 = pr(cs[0][0], cs[0][1]); if (s0[2] >= 0) { const sl = pr(cs[cs.length - 1][0], cs[cs.length - 1][1]); ctx.moveTo(sl[0], sl[1]); ctx.lineTo(s0[0], s0[1]); } }   // 面・穴＝閉じプレビュー
+			if (!free) ctx.setLineDash([6, 4]);
+			ctx.lineWidth = 2; ctx.strokeStyle = COL.sketch; ctx.stroke(); ctx.setLineDash([]);
+			if (!free) for (const c of st.sketch.coords) { const s = pr(c[0], c[1]); if (s[2] >= 0) dot(s[0], s[1], 3.5, COL.handle, COL.sketch); }
 		}
 		if (st.snapMark) {
 			const s = pr(st.snapMark[0], st.snapMark[1]);

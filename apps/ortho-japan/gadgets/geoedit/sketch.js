@@ -4,7 +4,8 @@ const t = tr({
 	"頂点が足りません": "Not enough vertices",
 	"穴はポリゴンの内側に描いてください": "Draw the hole inside a polygon",
 });
-// 作図（スケッチ）：線/面/穴＝クリックで頂点を積んで Enter/ダブルクリックで確定、矩形/円＝2クリック。
+// 作図（スケッチ）：線/面/穴＝クリックで頂点を積んで Enter/ダブルクリックで確定、矩形/円＝2クリック、
+// フリーハンド（free）＝pointerdown で掴んで軌跡を積み pointerup で確定（クリックでなくドラッグ＝editClick を通らない）。
 // 状態は st.sketch = { kind, coords, cursor, preview? }（描くのは overlay）。確定は doCmd("add"/"hole") → 選択ツールへ復帰。
 // クリック自体は editClick スロット（エンジンの4px裁定済み）から click(tool, ll) で入る。
 
@@ -19,6 +20,29 @@ export const twoPointRing = (kind, a, b) => {
 	return ring;
 };
 const isTwoPoint = kind => kind === "rect" || kind === "circle";
+
+// フリーハンドの間引き＝Douglas-Peucker（画面px）。保持する添字のマスクを返す（coords と xy は同添字）
+const rdpKeep = (xy, eps) => {
+	const keep = new Uint8Array(xy.length);
+	keep[0] = keep[xy.length - 1] = 1;
+	const stack = [[0, xy.length - 1]];
+	while (stack.length) {
+		const [a, b] = stack.pop();
+		if (b - a < 2) continue;
+		const [ax, ay] = xy[a], [bx, by] = xy[b];
+		const dx = bx - ax, dy = by - ay, len = Math.hypot(dx, dy) || 1;
+		let best = -1, bd = eps;
+		for (let i = a + 1; i < b; i++) {
+			const d = Math.abs((xy[i][0] - ax) * dy - (xy[i][1] - ay) * dx) / len;
+			if (d > bd) { bd = d; best = i; }
+		}
+		if (best >= 0) { keep[best] = 1; stack.push([a, best], [best, b]); }
+	}
+	return keep;
+};
+const FREE_SAMPLE_PX = 2;    // ストローク採取の最小移動
+const FREE_SIMPLIFY_PX = 1.2; // 間引き許容（画面px）
+const FREE_CLOSE_PX = 16;     // 始点にこれ以内で離すと面
 
 export function createSketch(ed) {
 	const { st, map, mapEl, signal, overlay, layer, toast, drawDefaults } = ed;
@@ -67,12 +91,58 @@ export function createSketch(ed) {
 		ed.select(cmd.eid);     // setTool の後＝選択パネルが開く
 	}
 
+	// フリーハンドの確定：間引き→始点回帰なら面/それ以外は線。ツールは free のまま＝連続ストローク（点ツールと同じ流儀）
+	function finishFree() {
+		const sk = st.sketch;
+		st.sketch = null;
+		if (!sk || sk.xy.length < 2) return overlay.redraw();   // クリックだけ＝何も描かない
+		const keep = rdpKeep(sk.xy, FREE_SIMPLIFY_PX);
+		const coords = sk.coords.filter((_, i) => keep[i]);
+		const [ax, ay] = sk.xy[0], [bx, by] = sk.xy[sk.xy.length - 1];
+		const closed = coords.length >= 3 && Math.hypot(bx - ax, by - ay) < FREE_CLOSE_PX;
+		const geometry = closed
+			? { type: "Polygon", coordinates: [[...coords, coords[0]]] }
+			: { type: "LineString", coordinates: coords };
+		const cmd = { op: "add", feature: { type: "Feature", properties: { ...drawDefaults[closed ? "polygon" : "line"] }, geometry } };
+		ed.doCmd(cmd);
+		ed.select(cmd.eid);
+	}
+	// フリーハンドの掴み始め＝capture-phase でエンジンから奪う（drag.js と同じ流儀＝パンは発火しない）。
+	// 選択中フィーチャのハンドル命中は譲る（「作図ツールのまま頂点が動かせない」罠の根治 8/20 を free でも守る）。
+	mapEl.addEventListener("pointerdown", e => {
+		if (st.tool !== "free" || st.busy || !st.model || st.drag || st.sketch || e.shiftKey || e.button !== 0) return;
+		const [x, y] = ed.localXY(e);
+		if (st.selection != null && overlay.handleAt(x, y, e.pointerType === "touch")) return;   // ハンドルは drag.js へ
+		const ll = map.unprojectXY(x, y);
+		if (!ll) return;
+		e.stopPropagation(); e.preventDefault();
+		try { mapEl.setPointerCapture(e.pointerId); } catch { /* 合成イベント（試験）は capture 不可＝move/up は mapEl で拾えるので無害 */ }
+		st.sketch = { kind: "free", coords: [ll], xy: [[x, y]], cursor: null, pointerId: e.pointerId };
+		overlay.redraw();
+	}, { capture: true, signal });
+	mapEl.addEventListener("pointerup", e => {
+		if (st.sketch?.kind === "free" && e.pointerId === st.sketch.pointerId) { e.stopPropagation(); finishFree(); }
+	}, { capture: true, signal });
+	mapEl.addEventListener("pointercancel", e => {
+		if (st.sketch?.kind === "free" && e.pointerId === st.sketch.pointerId) cancel();   // ジェスチャに奪われた＝描き捨て
+	}, { capture: true, signal });
+
 	// ラバーバンドのカーソル頂点＋吸着マーク（矩形/円は確定形をプレビュー）
 	mapEl.addEventListener("pointermove", e => {
 		if (!st.sketch || st.drag) return;
 		const [x, y] = ed.localXY(e);
 		const ll = map.unprojectXY(x, y);
 		if (!ll) return;
+		if (st.sketch.kind === "free") {   // ストローク中＝一定以上動いた点だけ積む（間引きの前段）
+			if (e.pointerId !== st.sketch.pointerId) return;
+			e.stopPropagation();
+			const last = st.sketch.xy[st.sketch.xy.length - 1];
+			if (Math.hypot(x - last[0], y - last[1]) < FREE_SAMPLE_PX) return;
+			st.sketch.xy.push([x, y]);
+			st.sketch.coords.push(ll);
+			overlay.redraw();
+			return;
+		}
 		st.sketch.cursor = ed.snapLL(ll);
 		if (isTwoPoint(st.sketch.kind)) st.sketch.preview = twoPointRing(st.sketch.kind, st.sketch.coords[0], st.sketch.cursor);
 		overlay.redraw();
