@@ -152,6 +152,75 @@ export class gint {
 		};
 		for (let i = 1; i < n - 1; i++) L1arc[i] = this.toL2(L1arc[i], getPhysRank(eff[i]));
 	}
+	// 度アンカー（1°ごとの L1）＝v1 機構の復元（2026-09-10・米加国境49°線の直線チョード逸れ）。
+	// gint は保持頂点間を直線チョードで描く＝LOD 間引きで辺の張りが伸びると、球では経緯度線形の折れ線
+	// （graticule・編集オーバレイ・identify 幾何）から目に見えて逸れる。どの間引き段でも「アンカー間の
+	// 累積経緯度スパン ≤1°」を保証する：累積が 1° を跨ぐ既存頂点は L1 へ昇格（座標は L2 の8単位丸めのまま
+	// 再パック＝無傷）、1° 超の長辺には L1 点を内挿（経度は 360e7 周期の最短側で補間）。
+	// terminal(L1)=rank63 常時保持は両バックエンド既対応（gl/gint/programs.js rank()）＝shader 改修ゼロ。
+	// wasm/JS どちらの組み立て経路の出力にも同じ JS 後処理＝byte-exact 維持。bbox が 1°箱に収まる arc は
+	// 素通り（密データ＝筆/census はスキャン費用もゼロ）。arcSet={count,buffer,meta,mlen} を in-place 更新。
+	static insertDegreeAnchors(arcSet) {
+		const LIMIT = 10000000;   // 1°（e-7 単位）
+		const PERIOD = 3600000000, HALF = 1800000000;   // 経度周期＝360e7（2^32 ではない）
+		const { count, meta, mlen } = arcSet;
+		if (!count) return arcSet;
+		let buffer = arcSet.buffer;
+		const base = meta[0];   // meta offset はグローバル・buffer 添字はローカル（先頭 arc が基準）
+		const jobs = new Map();   // arcIdx → 差し替え頂点列（挿入を含む arc のみ）
+		let extra = 0;
+		for (let a = 0; a < count; a++) {
+			const row = a * mlen, o = meta[row] - base, len = meta[row + 1];
+			if (len < 2) continue;
+			if (meta[row + 6] - meta[row + 4] <= LIMIT && meta[row + 7] - meta[row + 5] <= LIMIT) continue;   // 1°箱＝跨ぎ得ない
+			const xs = new Float64Array(len), ys = new Float64Array(len);
+			for (let i = 0; i < len; i++) { const [x, y] = this.unpackToInt(buffer[o + i]); xs[i] = x; ys[i] = y; }
+			const promo = [], ins = [];   // ins: [エッジ添字, 分割数]
+			let acc = 0, add = 0;
+			for (let i = 0; i < len - 1; i++) {
+				if (i > 0 && (buffer[o + i] & this.TERMINAL_BIT)) acc = 0;   // 既存アンカー＝窓を閉じる
+				let dx = xs[i + 1] - xs[i];
+				if (dx > HALF) dx -= PERIOD; else if (dx < -HALF) dx += PERIOD;
+				const d = Math.max(Math.abs(dx), Math.abs(ys[i + 1] - ys[i]));
+				if (acc + d > LIMIT && acc > 0) { if (i > 0 && !(buffer[o + i] & this.TERMINAL_BIT)) promo.push(i); acc = 0; }
+				if (d > LIMIT) { const n = Math.ceil(d / LIMIT); ins.push(i, n); add += n - 1; acc = d / n; }
+				else acc += d;
+			}
+			if (!promo.length && !add) continue;
+			if (!add) { for (const i of promo) buffer[o + i] = this.packFromInt(xs[i], ys[i]); continue; }   // 昇格のみ＝in-place
+			const isPromo = new Set(promo);
+			const out = new BigUint64Array(len + add);
+			let w = 0, ip = 0;
+			for (let i = 0; i < len; i++) {
+				out[w++] = isPromo.has(i) ? this.packFromInt(xs[i], ys[i]) : buffer[o + i];
+				if (ip < ins.length && ins[ip] === i) {
+					const n = ins[ip + 1]; ip += 2;
+					let dx = xs[i + 1] - xs[i];
+					if (dx > HALF) dx -= PERIOD; else if (dx < -HALF) dx += PERIOD;
+					const dy = ys[i + 1] - ys[i];
+					for (let j = 1; j < n; j++) {
+						const x = (Math.round(xs[i] + dx * j / n) % PERIOD + PERIOD) % PERIOD;
+						out[w++] = this.packFromInt(x, Math.round(ys[i] + dy * j / n));
+					}
+				}
+			}
+			jobs.set(a, out);
+			extra += add;
+		}
+		if (!extra) return arcSet;
+		const grown = new BigUint64Array(buffer.length + extra);
+		let off = 0;
+		for (let a = 0; a < count; a++) {
+			const row = a * mlen, o = meta[row] - base, len = meta[row + 1];
+			const src = jobs.get(a) ?? buffer.subarray(o, o + len);
+			grown.set(src, off);
+			meta[row] = base + off; meta[row + 1] = src.length;
+			off += src.length;
+		}
+		arcSet.buffer = grown;
+		return arcSet;
+	}
+
 	// XY(Int32ペア)連結バッファ → L1 Morton化＋VW簡略化 を wasm 1往復2パスで一括実行。
 	// int32ペアとu64は同サイズ＝XYtoL1はin-place変換なので、アップロード1回→XYtoL1一括→
 	// arcごとL1toL2（wasmメモリ内・memcpyなし）→ダウンロード1回で完結する。
