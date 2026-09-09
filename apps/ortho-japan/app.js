@@ -2081,7 +2081,7 @@ function addGint(pbf, opts = {}) {
 	// tip＝層の属性（§10.3）: true＝全属性の既定整形／fn＝持参整形（props→行配列）／無指定＝出さない（on('hover') でアプリが描く）
 	const tipFmt = opts.tip === true ? pr => Object.entries(pr).map(([k, v]) => `${k}: ${v}`) : (typeof opts.tip === "function" ? opts.tip : null);
 	const h = {
-		id, ready,
+		id, ready, order: opts.order ?? null, _seq: gintLayerSeq,
 		_ack: d => { if (d.error) { console.warn("[addGint] %s: %s (multi-layer requires WebGPU backend)", id, d.error); ackRes(false); } else if (d.cmd === "gint" || d.cmd === "gintBaked") ackRes(true); },
 		_hover: d => {
 			const f = d.featureId != null ? { fid: d.featureId, properties: props(d.featureId) } : null;
@@ -2109,7 +2109,7 @@ function addGint(pbf, opts = {}) {
 		remove: () => { cancelBake(id); extGint.delete(id); if (extActive === id) extActive = null; if (tipFmt) gintHoverTip?.(null); renderer.set("gintRemove", null, undefined, id); needsDraw = true; },
 	};
 	extGint.set(id, h);
-	renderer.set("gintAdd", null, undefined, id);
+	renderer.set("gintAdd", { order: opts.order ?? null }, undefined, id);   // order＝重ね順（小さいほど下・未指定=追加順）＝トグル順に依らない決定的 z-order
 	// bake-ahead（①）＝メタ/tier 梯子を bake worker で焼き切って gintBaked（テクスチャ搭載のみ）＝
 	// render worker の同期ベイクで地図フレームを塞がない。worker 不成立/失敗は同期経路へ自動フォールバック
 	//（legacyGintSend が layer と meta を運ぶ）。ready はどちらの ack でも解決。
@@ -2124,7 +2124,8 @@ function addGint(pbf, opts = {}) {
 // 追加層の後ろに既定スロットのユーザー層（layer:null＝v1 橋渡し）も足す＝census 型の併用期に片方が消えない。
 function queryAllGint(ll) {
 	const hits = [];
-	for (const h of [...extGint.values()].reverse()) {
+	const front = [...extGint.values()].sort((a, b) => ((b.order ?? b._seq) - (a.order ?? a._seq)) || (b._seq - a._seq));   // 手前（上）の層から＝order 降順・同値は追加の逆順
+	for (const h of front) {
 		const f = h.query(ll);
 		if (f) hits.push({ layer: h, fid: f.fid, feature: f });
 	}
@@ -2757,7 +2758,7 @@ const input = createInput({
 		// smallAreaHover＝census2020限定＝estat中は町丁目を点in面で識別し名前tip＋境界太線（ミスは gint へフォールバック）。
 		// デモ（フラグ無し）は従来どおり gint ホバーのみ＝凍結挙動を一切変えない。
 		// tip 持参層（筆＝moj/maff）がホバー可で載っている間は gint が主導＝町丁目tip/太線と排他（本人裁定2026-08-18）。
-		const fudeOwn = userGint?.tip && gintInteractive && gintHover;
+		const fudeOwn = (userGint?.tip && gintInteractive && gintHover) || !!extActive;   // 追加層がカーソル保持中（§4.1 アクティブ層＝主導権）も gint が主
 		if (fudeOwn && estatTipOwn) { estatTipOwn = false; renderer.set("overlayHover", null); needsDraw = true; }   // 跨ぎ瞬間＝残った町丁目tip/太線を掃除（tip本文は直後の識別ackが上書き）
 		if (!fudeOwn && opts.smallAreaHover && overlay.isEstatActive?.() && overlay.hoverAt(x, y)) return;
 		if ((gintInteractive && gintHover) || extActive) wPost({ type: "gintMove", x, y });
@@ -3551,6 +3552,7 @@ async function printCapture({ zoom, cropCss }) {
 // gint系＝ユーザー知性層（単一スロット）の正規口／overlay＝estat小地域・geopbfオーバーレイの手綱。
 map.overlay = overlay;
 map.applyGintData = applyGintData;
+map.clearUserGint = clearUserGint;    // 単一スロットのユーザー層を丸ごと撤去（applyGintData の対＝派生アプリのスロット調停用）
 map.addGint = addGint;              // gint 多層（v2 spec §4 の顔・WebGPU 限定）＝追加であって置換ではない
 map.queryAll = queryAllGint;        // 層をまたぐ照会＝{layer, fid} の対（手前の層から・§10.2）
 map.on = (ev, cb) => { mapOn[ev]?.push(cb); return map; };   // §4＝'click' のみ（hits=queryAll と同型）

@@ -391,6 +391,7 @@ export function createGintLayerGPU(host, { requestDraw, noSB } = {}) {
 		const L = {
 			...emptySlot(),
 			id: null,   // 層の名（worker プロトコルの layer キー。既定層＝null＝従来メッセージと同形）
+			order: 0,   // 重ね順（小さいほど下・同値は追加順）。トグル順に依らない決定的な z-order（§4 追記 2026-09-09）
 			// スロット束・スタイル・表示（層ごと）
 			slots: new Map(), activeKey: null, drawStyle: null, visible: true, stylesDirty: true,
 			idOverlapMode: false, tierGen: 0, sbOn: false,
@@ -650,7 +651,7 @@ export function createGintLayerGPU(host, { requestDraw, noSB } = {}) {
 			staticN = (staticN ?? 0) + 1;
 		}
 		lastMX = NaN; lastMY = NaN;
-		for (const L of layers) drawLayer(L, cam, fr, ctx);   // 追加順＝後の層が上
+		for (const L of layers) drawLayer(L, cam, fr, ctx);   // layers は order 昇順を維持＝後ろの層が上（order 未指定＝追加順）
 	}
 	function mark(L, cam, path) {   // 計器（stats.dbg）＋直近フレームのリング（操作中に何が起きたかを事後に読む）
 		L._dbg = { path, vis: L.visible, z: +(cam.zoom ?? 0).toFixed(2), t: Date.now() % 100000 };
@@ -1043,10 +1044,13 @@ export function createGintLayerGPU(host, { requestDraw, noSB } = {}) {
 			},
 		};
 	}
-	function addLayer({ id = null } = {}) {
+	let orderSeq = 0;
+	function addLayer({ id = null, order = null } = {}) {
 		const L = makeLayer();
 		L.id = id;
-		layers.push(L);
+		L.order = order ?? ++orderSeq;   // 既定＝追加順（従来と同じ重なり）。指定＝トグル順に依らない決定的な重ね順
+		const at = layers.findIndex(x => x.order > L.order);   // 安定挿入（同 order は追加順を保つ）
+		layers.splice(at < 0 ? layers.length : at, 0, L);
 		act = L; activeId = -1;   // 既定のアクティブ＝最後に足した層（§4.1「今載せたデータを見たい」）
 		return layerHandle(L);
 	}
