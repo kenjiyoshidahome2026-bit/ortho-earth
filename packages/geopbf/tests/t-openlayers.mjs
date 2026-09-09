@@ -19,7 +19,7 @@ let fails = 0;
 const ok = (cond, msg) => { if (!cond) { console.error("✗", msg); fails++; } else console.log("✓", msg); };
 
 // ---- 配信データ -------------------------------------------------------------
-const amedas = await readFile(new URL("../../../apps/gishub-jp/public/jma/amedas.geopbf", import.meta.url));
+const amedas = await readFile(new URL("./fixtures/amedas.geopbf", import.meta.url));
 const synthPbf = await new GeoPBF({ name: "synth", attribution: "test-attribution" }).set({
 	type: "FeatureCollection",
 	features: [{ type: "Feature", geometry: { type: "Point", coordinates: [139.75, 35.68] }, properties: { n: 1 } }],

@@ -12,7 +12,16 @@ import path from "node:path";
 import os from "node:os";
 
 const PKG = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
-const PORT = 5247, CHROME = process.env.CHROME || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+const PORT = 5247;
+// Chromium: $CHROME → Playwright の Chromium（devDependency・CI は `npx playwright install chromium`）→ Mac の Chrome
+const CHROME = process.env.CHROME || await (async () => {
+	try { const { chromium } = await import("playwright"); const p = chromium.executablePath(); if (p && (await import("node:fs")).existsSync(p)) return p; } catch {}
+	const fs = await import("node:fs");
+	try { if (fs.existsSync("/opt/pw-browsers/chromium") && !fs.statSync("/opt/pw-browsers/chromium").isDirectory()) return "/opt/pw-browsers/chromium"; } catch {}
+	try { for (const d of fs.readdirSync("/opt/pw-browsers")) for (const sub of ["chrome-linux/chrome", "chrome-linux64/chrome"]) { const p = `/opt/pw-browsers/${d}/${sub}`; if (d.startsWith("chromium") && fs.existsSync(p)) return p; } } catch {}
+	for (const p of ["/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"]) if (fs.existsSync(p)) return p;
+	return "google-chrome";
+})();
 const MIME = { ".js": "text/javascript", ".css": "text/css", ".html": "text/html", ".wasm": "application/wasm", ".json": "application/json" };
 const fail = msg => { console.error(`✗ ${msg}`); process.exit(1); };
 
@@ -62,15 +71,23 @@ const sq = x => ({ type: "Feature", properties: { n: x }, geometry: { type: "Pol
 		// 汎用ローダ（Cesium/D3 レシピの入口）
 		const gl = await import("geopbf/load");
 		const glOk = typeof gl.loadGeopbf === "function" && typeof gl.decodeToGeojson === "function";
-		const ok = !!g && g.polygonCount === 2 && hit != null && rt === 2 && mlOk && lfOk && olOk && ldOk && glOk;
-		document.title = ok ? "PASS geopbf-npm" : \`FAIL polygons=\${g?.polygonCount} hit=\${hit} rt=\${rt} ml=\${mlOk} lf=\${lfOk} ol=\${olOk} ld=\${ldOk} gl=\${glOk}\`;
+		// PMTiles / GeoParquet（exports "./pmtiles" "./geoparquet"）: tile-worker（new Worker(new URL(...))）がバンドラ通過後も
+		// 立ち、gint → MVT → PMTiles と WKB → Parquet が実走するか。GPU は問わない（CPU 経路で同じ出力）
+		const { toPMTiles } = await import("geopbf/pmtiles");
+		const { toGeoParquet } = await import("geopbf/geoparquet");
+		const pm = await toPMTiles(pbf, { maxZoom: 4, gpu: false, workers: 2 });
+		const pq = await toGeoParquet(pbf, { gpu: false, codec: "none" });
+		const pmOk = pm.stats.workers === 2 && pm.stats.tiles > 4 && pm.buffer.length > 127 && pm.buffer[0] === 0x50 && pm.buffer[1] === 0x4d;   // "PM"
+		const pqOk = pq.buffer.length > 8 && pq.buffer[0] === 0x50 && pq.buffer[1] === 0x41 && pq.buffer[2] === 0x52 && pq.buffer[3] === 0x31;   // "PAR1"
+		const ok = !!g && g.polygonCount === 2 && hit != null && rt === 2 && mlOk && lfOk && olOk && ldOk && glOk && pmOk && pqOk;
+		document.title = ok ? "PASS geopbf-npm" : \`FAIL polygons=\${g?.polygonCount} hit=\${hit} rt=\${rt} ml=\${mlOk} lf=\${lfOk} ol=\${olOk} ld=\${ldOk} gl=\${glOk} pm=\${pmOk}(\${pm.stats.workers}w/\${pm.stats.tiles}t) pq=\${pqOk}\`;
 	} catch (e) { document.title = "FAIL " + (e?.message || e); }
 	fetch("/__result?t=" + encodeURIComponent(document.title)).catch(() => {});   // 検定サーバへ自己申告（実時間ビーコン）
 })();
 setTimeout(() => fetch("/__result?t=" + encodeURIComponent(document.title)).catch(() => {}), 45000);   // ハング時も現状を申告
 `);
 console.log("… npm install（tarball＋vite）");
-execFileSync("npm", ["install", tarball, "vite@^5", "--no-audit", "--no-fund", "--silent"], { cwd: WORK, stdio: "inherit" });
+execFileSync("npm", ["install", tarball, "vite@^8", "--no-audit", "--no-fund", "--silent"], { cwd: WORK, stdio: "inherit" });
 console.log("… vite build（消費者バンドラ実通し）");
 execFileSync("npx", ["vite", "build", "--logLevel", "warn"], { cwd: WORK, stdio: "inherit" });
 
@@ -89,7 +106,7 @@ const server = createServer(async (req, res) => {
 	} catch { res.writeHead(404); res.end("nf"); }
 }).listen(PORT);
 
-const chrome = spawn(CHROME, ["--headless=new", `--user-data-dir=/tmp/geopbf-npm-${process.pid}`, "--remote-debugging-port=0",
+const chrome = spawn(CHROME, ["--headless=new", "--no-sandbox", `--user-data-dir=/tmp/geopbf-npm-${process.pid}`, "--remote-debugging-port=0",
 	"--disable-gpu", "--use-angle=swiftshader", "--enable-unsafe-swiftshader", `http://localhost:${PORT}/`], { stdio: "ignore" });
 process.on("exit", () => { chrome.kill(); server.close(); });
 const { setTimeout: sleep } = await import("node:timers/promises");
@@ -98,5 +115,5 @@ while (!result && Date.now() - t0 < 60000) await sleep(500);
 chrome.kill(); server.close();
 if (result !== "PASS geopbf-npm") { console.error(`  現場保存: ${WORK}`); fail(`消費者実走: ${result || "60秒ビーコン無し（ページが起動していない疑い）"}`); }
 rmSync(WORK, { recursive: true, force: true });
-console.log(`ok:consumer（tarball→vite build→FC変換→gint焼き(worker+WASM)→identify 実通し）`);
+console.log(`ok:consumer（tarball→vite build→FC変換→gint焼き(worker+WASM)→identify→PMTiles(tile-worker)→GeoParquet 実通し）`);
 console.log("✓ geopbf npm 配布物の検定PASS");

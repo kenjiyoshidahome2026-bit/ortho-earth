@@ -16,7 +16,7 @@ let fails = 0;
 const ok = (cond, msg) => { if (!cond) { console.error("✗", msg); fails++; } else console.log("✓", msg); };
 
 // ---- 配信データの用意 -------------------------------------------------------
-const amedasPath = new URL("../../../apps/gishub-jp/public/jma/amedas.geopbf", import.meta.url);
+const amedasPath = new URL("./fixtures/amedas.geopbf", import.meta.url);
 const amedas = await readFile(amedasPath);
 const amedasGz = new Uint8Array(await new Response(
 	new Blob([amedas]).stream().pipeThrough(new CompressionStream("gzip"))).arrayBuffer());

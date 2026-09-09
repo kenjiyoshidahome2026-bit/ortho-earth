@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // geopbf CLI ── ブラウザを開かずに GeoJSON ⇄ GeoPBF を往復し、gint の効き目を数字で見るための入口。
 //
-// 依存はこのパッケージ自身と Node 組み込みのみ（pbf / pako は geopbf の既存依存）。
+// 依存はこのパッケージ自身と Node 組み込みのみ（pbf は geopbf の既存依存・圧縮は node:zlib）。
 // Worker と DOM を使う src/index.js は通さず、Node でそのまま動く pbf-base / extension/gint を直に叩く。
 // ImageData は pbf-base のエンコード経路が参照するが Node に無いので、tests/t-loaders.mjs と同じ手で補う。
 import { readFile, writeFile } from "node:fs/promises";
@@ -24,6 +24,28 @@ const USAGE = `geopbf <command>
        [--bench]                   ヘッダ読み/レンダの実測数字（range 本数・coalesce・デコード時間）
   cog  png  <url|file.tif> <out.png>  COG を PNG に描き出す（Range 直読み・低解像度全景が既定）
        [--level N] [--width N]     overview 段（既定=最粗）と出力幅（既定 768）
+  pmtiles <in.geopbf> <out.pmtiles>  GeoPBF を PMTiles（MVT・gzip）へ＝gint の arc/rank でズーム別に間引く
+       [--minzoom N] [--maxzoom N]  ズーム範囲（既定 0-14）
+       [--extent N] [--buffer N]    タイル格子（既定 4096）とはみ出し幅（既定 80）
+       [--layer name]               レイヤ名（既定＝ヘッダの name）
+       [--gint <in.gint>]           焼き済み GintBUF を使う（無ければ wasm でその場で焼く）
+       [--gpu | --no-gpu]           WebGPU（Node は npm の webgpu＝Dawn が要る）。既定＝あれば使う
+       [--workers N]                組立/クリップ/MVT/gzip の worker 数（既定＝コア数・0＝単一スレッド）
+       [--drop-rate R]              点の低ズーム間引き率（tippecanoe -r 相当・既定 2.5・1＝全点保持）
+       [--tiny-polygon A]           タイル座標で面積 A 未満の面成分を落とす（tippecanoe -s 相当・既定 2・0＝無効）
+       [--tiny-line L]              外接が L 未満の線を落とす（既定 0＝無効）
+       [--simplification N|off]     DP 許容差（タイル単位・既定 1＝tippecanoe -S 1 相当・arc 毎にランク閾値を較正・off で固定則）
+       [--lod-bias N]               較正後の閾値をずらす（正で粗く・+3 で 1 ズーム段＝約 2 倍粗い）
+       [--include a,b] [--exclude a,b] [--exclude-all]  属性の選別（tippecanoe -y / -x / -X 相当）
+  parquet <in.geopbf> <out.parquet>  GeoPBF を GeoParquet（WKB・bbox 列・gzip）へ
+       [--compression zstd|gzip|none] [--row-group N] [--gpu | --no-gpu]   （既定 zstd＝Node 22.15+・gzip の半分以下）
+       [--include a,b] [--exclude a,b] [--exclude-all]  列の選別
+  parquet2pbf <in.parquet> <out.geopbf>  GeoParquet（WKB・経緯度）を GeoPBF へ＝逆変換。geopandas / DuckDB / pyarrow の出力も可
+       [--precision N]              座標の小数桁（既定＝geopbf:precision か 6）
+       [--name name] [--geometry col] [--ignore-crs] [--no-gzip]
+       [--include a,b] [--exclude a,b] [--exclude-all]  列の選別
+       [--order str|hilbert|morton|none]  行の空間整列（既定 str＝行グループ bbox が重ならない・none＝入力順）
+       [--no-bbox]                  bbox 覆域列を書かない（点データで半分の大きさ・刈り込みは失う）
 
   入力の gzip は拡張子によらず署名（1f 8b）で判別して透過的に展開する。
 `;
@@ -244,10 +266,73 @@ function encodePNG(rgba, w, h) {
 	]);
 }
 
+// ── pmtiles / parquet ─────────────────────────────────────────────────────────
+// src/convert/*（DOM 非依存）を dynamic import。GPU は navigator.gpu（ブラウザ/Deno）か npm の webgpu（Dawn）＝
+// Node 単体では CPU 経路（同じ契約・同じ出力）で動く。どちらで走ったかは必ず数字と一緒に出す。
+
+const gpuOpt = (opts) => opts["no-gpu"] ? false : opts.gpu ? true : undefined;
+const attrOpts = (opts) => ({ include: opts.include ? opts.include.split(",") : undefined, exclude: opts.exclude ? opts.exclude.split(",") : undefined, excludeAll: !!opts["exclude-all"] });
+const engineNote = (st) => st.engine === "gpu" ? `GPU ${[st.gpu?.vendor, st.gpu?.architecture].filter(Boolean).join(" ") || "webgpu"}` : "CPU";
+
+async function pmtiles(argv) {
+	const { toPMTiles } = await import("../src/convert/tiler.js");
+	const { pos: [inPath, outPath], opts } = parseArgs(argv, ["minzoom", "maxzoom", "extent", "buffer", "layer", "gint", "lod-bias", "workers", "drop-rate", "tiny-polygon", "tiny-line", "include", "exclude", "simplification"]);
+	if (!inPath || !outPath) throw new Error("pmtiles <in.geopbf> <out.pmtiles>");
+	const t0 = Date.now();
+	const pbf = await openPbf(inPath);
+	let gint;
+	if (opts.gint) gint = (await readMaybeGzip(opts.gint)).buffer.slice(0);
+	else { const { bakeGint } = await import("../src/convert/node-gint.js"); gint = await bakeGint(pbf); }
+	const t1 = Date.now();
+	const wantGpu = gpuOpt(opts);
+	if (wantGpu === true) { const { findGPU } = await import("../src/convert/gpu.js"); if (!(await findGPU())) console.error("--gpu: WebGPU が見つからない（Node は `npm i webgpu`）＝CPU 経路で続行"); }
+	const r = await toPMTiles(pbf, { gint, gpu: wantGpu,
+		minZoom: opts.minzoom !== undefined ? +opts.minzoom : 0, maxZoom: opts.maxzoom !== undefined ? +opts.maxzoom : 14,
+		extent: opts.extent ? +opts.extent : undefined, buffer: opts.buffer !== undefined ? +opts.buffer : undefined,
+		layer: opts.layer, lodBias: opts["lod-bias"] !== undefined ? +opts["lod-bias"] : undefined, workers: opts.workers !== undefined ? +opts.workers : undefined, dropRate: opts["drop-rate"] !== undefined ? +opts["drop-rate"] : undefined,
+		simplification: opts.simplification === undefined ? undefined : opts.simplification === "off" ? false : +opts.simplification,
+		tinyPolygon: opts["tiny-polygon"] !== undefined ? +opts["tiny-polygon"] : undefined, tinyLine: opts["tiny-line"] !== undefined ? +opts["tiny-line"] : undefined, ...attrOpts(opts) });
+	await writeFile(outPath, r.buffer);
+	const s = r.stats;
+	console.log(`${inPath}  features ${num(pbf.length)}  gint ${opts.gint ? "読込" : "焼き"} ${t1 - t0} ms（arc ${num(s.arcs)}・頂点 ${num(s.vertices)}）`);
+	console.log(`${outPath}  ${mb(s.bytes)}  タイル ${num(s.tiles)}（内容 ${num(s.contents)} 種）  z${r.metadata.minzoom}-${r.metadata.maxzoom}  ${engineNote(s)}・worker ${s.workers}`);
+	console.log(`  投影+LOD ${s.ms.project_lod.toFixed(0)} ms・較正 ${(s.ms.calibrate ?? 0).toFixed(0)} ms・書き出し ${s.ms.lod_write.toFixed(0)} ms・組立/クリップ/MVT ${s.ms.assemble.toFixed(0)} ms・PMTiles ${s.ms.pmtiles.toFixed(0)} ms・合計 ${s.ms.total.toFixed(0)} ms  （残存頂点 ${num(s.kept)}＝全ズーム合計）`);
+}
+
+async function parquet(argv) {
+	const { toGeoParquet } = await import("../src/convert/geoparquet.js");
+	const { pos: [inPath, outPath], opts } = parseArgs(argv, ["compression", "row-group", "order", "include", "exclude"]);
+	if (!inPath || !outPath) throw new Error("parquet <in.geopbf> <out.parquet>");
+	const pbf = await openPbf(inPath);
+	const wantGpu = gpuOpt(opts);
+	if (wantGpu === true) { const { findGPU } = await import("../src/convert/gpu.js"); if (!(await findGPU())) console.error("--gpu: WebGPU が見つからない（Node は `npm i webgpu`）＝CPU 経路で続行"); }
+	const r = await toGeoParquet(pbf, { gpu: wantGpu, codec: opts.compression || undefined, rowGroupSize: opts["row-group"] ? +opts["row-group"] : undefined, order: opts.order, bboxColumn: opts["no-bbox"] ? false : undefined, ...attrOpts(opts) });
+	await writeFile(outPath, r.buffer);
+	const s = r.stats;
+	console.log(`${inPath}  features ${num(s.features)}  頂点 ${num(s.vertices)}`);
+	console.log(`${outPath}  ${mb(s.bytes)}  ${r.geo.columns.geometry.geometry_types.join("/")}  order ${s.order}  ${s.codec}  ${engineNote(s)}`);
+	console.log(`  復号 ${s.ms.decode.toFixed(0)} ms・double/bbox ${s.ms.kernels.toFixed(0)} ms・WKB ${s.ms.wkb.toFixed(0)} ms・Parquet ${s.ms.parquet.toFixed(0)} ms・合計 ${s.ms.total.toFixed(0)} ms`);
+}
+
+async function parquet2pbf(argv) {
+	const { fromGeoParquet } = await import("../src/convert/geoparquet.js");
+	const { pos: [inPath, outPath], opts } = parseArgs(argv, ["precision", "name", "geometry", "include", "exclude"]);
+	if (!inPath || !outPath) throw new Error("parquet2pbf <in.parquet> <out.geopbf>");
+	const r = await fromGeoParquet(new Uint8Array(await readFile(inPath)), { precision: opts.precision !== undefined ? +opts.precision : undefined, name: opts.name, geometryColumn: opts.geometry, ignoreCrs: !!opts["ignore-crs"], ...attrOpts(opts) });
+	const gzip = !opts["no-gzip"];
+	let out = Buffer.from(r.pbf.arrayBuffer);
+	if (gzip) out = gzipSync(out, { level: 9 });
+	await writeFile(outPath, out);
+	const s = r.stats;
+	console.log(`${inPath}  features ${num(s.features)}  頂点 ${num(s.vertices)}  列 ${s.columns.length}  CRS ${s.crs}  writer ${s.created || "?"}`);
+	if (s.skipped.length) console.log(`  読まなかった列: ${s.skipped.map(k => `${k.name}(${k.reason})`).join(" ")}`);
+	console.log(`${outPath}  ${mb(out.length)}${gzip ? " (gzip)" : ""}  precision ${s.precision}  読込 ${s.ms.read.toFixed(0)} ms・GeoPBF ${s.ms.encode.toFixed(0)} ms`);
+}
+
 // ── entry ─────────────────────────────────────────────────────────────────────
 
 const [cmd, ...argv] = process.argv.slice(2);
-const commands = { enc, dec, info, lod, cog };
+const commands = { enc, dec, info, lod, cog, pmtiles, parquet, parquet2pbf };
 if (!cmd || cmd === "--help" || cmd === "-h") { console.log(USAGE); process.exit(0); }
 if (!commands[cmd]) { console.error(`geopbf: 知らないコマンド "${cmd}"\n`); console.error(USAGE); process.exit(1); }
 try {

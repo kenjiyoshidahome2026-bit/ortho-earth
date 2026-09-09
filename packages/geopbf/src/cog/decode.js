@@ -1,8 +1,8 @@
 // タイルのバイト列 → RGBA8 への道。DOM-free 部分（deflate/LZW/predictor/型変換/stretch）はここで完結し、
 // JPEG/WebP は「ブラウザのネイティブデコーダに渡せる完成バイト列」を返すだけ（createImageBitmap は
-// worker/index 側＝Node では明示スキップ）。deflate は pako の同期 inflate＝小タイル多数で
-// DecompressionStream の生成/切替コストを払わない（decoder/moj.js:381 と同じ判断）。
-import { inflate } from "pako";
+// worker/index 側＝Node では明示スキップ）。deflate は modules/inflate.js＝Node は zlib・ブラウザは
+// DecompressionStream（writer/reader 直叩き）＝pako 不使用。そのため decodeTile は非同期。
+import { inflate } from "../modules/inflate.js";
 
 // ---- TIFF LZW（compression=5・MSB-first・ClearCode=256・early change）約60行 ----------------
 export function lzwDecode(src, sizeHint = 4096) {
@@ -87,14 +87,14 @@ export function mergeJPEGTables(tables, tile) {
 // ---- タイル1枚のデコード（DOM-free 経路）-----------------------------------------------------
 // 戻り: {kind:"raster", data:TypedArray} ＝ none/deflate/LZW（predictor 適用済み・プラットフォーム endian）
 //       {kind:"image", bytes, mime}      ＝ JPEG/WebP（呼び出し側が createImageBitmap）
-export function decodeTile(raw, ifd, le) {
+export async function decodeTile(raw, ifd, le) {
 	const { compression, tileW, tileH, samples, bits } = ifd;
 	const bytesPer = bits[0] >> 3;
 	if (compression === 7) return { kind: "image", bytes: mergeJPEGTables(ifd.jpegTables, raw), mime: "image/jpeg" };
 	if (compression === 50001) return { kind: "image", bytes: raw, mime: "image/webp" };
 	let u8;
 	if (compression === 1) u8 = raw;
-	else if (compression === 8 || compression === 32946) u8 = inflate(raw);   // zlib（TIFF deflate は zlib 包み）
+	else if (compression === 8 || compression === 32946) u8 = await inflate(raw, "deflate");   // zlib（TIFF deflate は zlib 包み）
 	else if (compression === 5) u8 = lzwDecode(raw, tileW * tileH * samples * bytesPer);
 	else throw new Error(`cog: unsupported compression ${compression}`);
 	let data = typedOf(u8, ifd, le);

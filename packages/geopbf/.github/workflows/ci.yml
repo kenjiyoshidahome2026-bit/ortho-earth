@@ -1,0 +1,27 @@
+# geopbf CI ── Node の検定（npm test）・GeoParquet の pyarrow 読み戻し・WebGPU の CPU/GPU bit 一致（Chromium＋SwiftShader）・
+# npm 配布物の消費者ビルド（npm pack → vite build → headless Chromium で worker/WASM/tile-worker 実走）
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install pyarrow            # t-parquet の読み戻し検定（無ければ skip 表示で通るが CI では必ず見る）
+      - run: npm ci
+      - run: npm test
+      - run: npx playwright install --with-deps chromium
+      - run: npm run verify:gpu             # WGSL カーネルの CPU 参照との bit 一致（SwiftShader）
+      - run: npm run verify:npm             # tarball → vite build → 消費者アプリ実走（worker・WASM・tile-worker）

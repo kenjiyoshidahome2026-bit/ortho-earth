@@ -101,7 +101,7 @@ export async function openCog(src, opts = {}) {
 		for (const [k, buf] of raw) {
 			if (!buf) { out.set(k, null); continue; }
 			const d0 = now();
-			const dec = decodeTile(buf, lv, t.littleEndian);
+			const dec = await decodeTile(buf, lv, t.littleEndian);
 			metrics.decodeMs += now() - d0; metrics.tilesDecoded++;
 			if (dec.kind === "image") {
 				if (!opts.imageDecoder) throw new Error(`cog: ${dec.mime} tiles need a browser (createImageBitmap) — use geopbf/cog`);

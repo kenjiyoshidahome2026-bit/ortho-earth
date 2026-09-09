@@ -141,7 +141,7 @@ const reqCount = (path) => log.filter(l => l.path === path).length;
 	ok(m.length === tables.length - 2 + tile.length - 2, "テーブル EOI とタイル SOI が落ちる");
 	let soi = 0; for (let i = 0; i < m.length - 1; i++) if (m[i] === 0xFF && m[i + 1] === 0xD8) soi++;
 	ok(soi === 1, "SOI は1つ");
-	const dec = decodeTile(tile, { compression: 7, jpegTables: tables, tileW: 1, tileH: 1, samples: 3, bits: [8] }, true);
+	const dec = await decodeTile(tile, { compression: 7, jpegTables: tables, tileW: 1, tileH: 1, samples: 3, bits: [8] }, true);
 	ok(dec.kind === "image" && dec.mime === "image/jpeg", "compression=7 は image kind で返る");
 }
 
