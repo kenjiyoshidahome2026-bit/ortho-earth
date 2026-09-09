@@ -557,6 +557,7 @@ let printHold = false;
 let gintLayerSeq = 0;
 const extGint = new Map();   // layer id → handle（identify/click/ack ルーティング先）
 let extActive = null;        // カーソルを持つ追加層の id（null＝既定層＝従来ゲート）
+const mapOn = { click: [] };   // map.on('click') の登録簿（§4＝hits は queryAll と同型・手前の層から）
 renderWorker.onmessage = e => {
 	const d = e.data;
 	// --- gint（知性の層＝render worker に同居）の返信面（action=旧 gint worker と同形） ---
@@ -2077,12 +2078,22 @@ function addGint(pbf, opts = {}) {
 	let ackRes; const ready = new Promise(res => { ackRes = res; });
 	const handlers = { hover: [], click: [] };
 	const props = fid => { try { return (fid != null ? pbf.getFeature(fid)?.properties : null) ?? null; } catch { return null; } };
+	// tip＝層の属性（§10.3）: true＝全属性の既定整形／fn＝持参整形（props→行配列）／無指定＝出さない（on('hover') でアプリが描く）
+	const tipFmt = opts.tip === true ? pr => Object.entries(pr).map(([k, v]) => `${k}: ${v}`) : (typeof opts.tip === "function" ? opts.tip : null);
 	const h = {
 		id, ready,
-		_ack: d => { if (d.error) { console.warn("[addGint] %s: %s (multi-layer requires WebGPU backend)", id, d.error); ackRes(false); } else if (d.cmd === "gint") ackRes(true); },
-		_hover: d => { const f = d.featureId != null ? { fid: d.featureId, properties: props(d.featureId) } : null; for (const cb of handlers.hover) cb(f); },
+		_ack: d => { if (d.error) { console.warn("[addGint] %s: %s (multi-layer requires WebGPU backend)", id, d.error); ackRes(false); } else if (d.cmd === "gint" || d.cmd === "gintBaked") ackRes(true); },
+		_hover: d => {
+			const f = d.featureId != null ? { fid: d.featureId, properties: props(d.featureId) } : null;
+			for (const cb of handlers.hover) cb(f);
+			if (tipFmt && gintHoverTip && !estatTipOwn) { const lines = f?.properties ? tipFmt(f.properties) : null; gintHoverTip(lines?.length ? lines : null); }
+		},
 		_click: d => { for (const cb of handlers.click) cb({ fid: d.featureId, properties: props(d.featureId), lngLat: [d.lng, d.lat] }); },
 		on: (ev, cb) => { handlers[ev]?.push(cb); return h; },
+		query: ll => {   // 明示照会（§4＝interactive に依らず常に効く・main 同期 JS レイキャスト＝エンジン往復なし）
+			const fid = pbf.identifyAt?.(ll[0], ll[1]);
+			return fid == null ? null : { fid, properties: props(fid) };
+		},
 		setPaint: async (paint, filter = null) => {   // 式は main で一度だけ評価→fid 表（§3 restyle 哲学＝再構築ゼロ）
 			if (!paint) { renderer.set("gintPaint", null, undefined, id); needsDraw = true; return; }
 			const feats = fidFeaturesOf(pbf);
@@ -2095,16 +2106,31 @@ function addGint(pbf, opts = {}) {
 		style: o => { renderer.set("gintStyle", o, undefined, id); needsDraw = true; },   // 描画スタイル（fillColor/lineWidth/styleTable 等＝層の drawStyle）
 		setVisible: v => { renderer.set("gintVis", !!v, undefined, id); needsDraw = true; },
 		activate: () => { extActive = id; renderer.set("gintActivate", null, undefined, id); },
-		remove: () => { extGint.delete(id); if (extActive === id) extActive = null; renderer.set("gintRemove", null, undefined, id); needsDraw = true; },
+		remove: () => { cancelBake(id); extGint.delete(id); if (extActive === id) extActive = null; if (tipFmt) gintHoverTip?.(null); renderer.set("gintRemove", null, undefined, id); needsDraw = true; },
 	};
 	extGint.set(id, h);
 	renderer.set("gintAdd", null, undefined, id);
-	renderer.set("gint", { ...g, minZoom: opts.minZoom ?? null, maxZoom: opts.maxZoom ?? null }, undefined, id);
+	// bake-ahead（①）＝メタ/tier 梯子を bake worker で焼き切って gintBaked（テクスチャ搭載のみ）＝
+	// render worker の同期ベイクで地図フレームを塞がない。worker 不成立/失敗は同期経路へ自動フォールバック
+	//（legacyGintSend が layer と meta を運ぶ）。ready はどちらの ack でも解決。
+	bakeAndSend(id, g, { minZoom: opts.minZoom ?? null, maxZoom: opts.maxZoom ?? null, precision: g.precision ?? null }, null, id);
 	if (opts.style) h.style(opts.style);
 	extActive = id;   // エンジンは addLayer で自動アクティブ（§4.1）＝main のゲートも同期
 	if (opts.interactive === false) { extActive = null; renderer.set("gintActivate", null, undefined, null); }   // 明示不干渉＝カーソルを既定層へ返す
 	needsDraw = true;
 	return h;
+}
+// 層をまたぐ照会（§4 queryAll）＝手前の層から（追加の逆順）。fid は層内添字＝**必ず {layer, fid} の対で返す**（§10.2）。
+// 追加層の後ろに既定スロットのユーザー層（layer:null＝v1 橋渡し）も足す＝census 型の併用期に片方が消えない。
+function queryAllGint(ll) {
+	const hits = [];
+	for (const h of [...extGint.values()].reverse()) {
+		const f = h.query(ll);
+		if (f) hits.push({ layer: h, fid: f.fid, feature: f });
+	}
+	const ufid = userGint?.pbf?.identifyAt?.(ll[0], ll[1]);
+	if (ufid != null) hits.push({ layer: null, fid: ufid, feature: { fid: ufid, properties: userGint.pbf.getFeature(ufid)?.properties ?? null } });
+	return hits;
 }
 // 世界海岸線（Natural Earth 10m）を球へ。uploader で事前変換済みの GeoPBF を bucket 名慣習
 // （GIS/pbf/ne_10m_coastline）から load＝初回も zip レンジ取得→shp デコードを払わない（gunzip 直読み→GintBUF 焼き→IDB）。
@@ -2148,7 +2174,7 @@ let coastSent = false;
 // worker 不成立/ベイク失敗は従来の同期経路（renderer.set("gint", raw, key)）へフォールバック。
 let bakeWorker = null, bakeSeq = 0;
 const bakePending = new Map();   // id → { key, raw, meta, onDone, cancelled }
-const legacyGintSend = p => { renderer.set("gint", p.raw, p.key); p.onDone?.(); };
+const legacyGintSend = p => { renderer.set("gint", p.layer != null ? { ...p.raw, ...p.meta } : p.raw, p.key, p.layer); p.onDone?.(); };   // 層指名＝meta(minZoom等)を同期経路にも運ぶ
 function ensureBakeWorker() {
 	if (bakeWorker !== null) return bakeWorker;
 	try { bakeWorker = new Worker(new URL("./gintbakeworker.js", import.meta.url), { type: "module" }); }
@@ -2166,7 +2192,7 @@ function ensureBakeWorker() {
 		collect(d.gint); collect(d.artifacts?.base); collect(d.artifacts?.boundary);
 		if (d.artifacts?.pivot?.px) bufs.add(d.artifacts.pivot.px.buffer);
 		for (const t of d.tiers ?? []) if (t.metaU32) bufs.add(t.metaU32.buffer);
-		wPost({ type: "set", cmd: "gintBaked", prop: p.key,
+		wPost({ type: "set", cmd: "gintBaked", prop: p.key, ...(p.layer != null ? { layer: p.layer } : {}),
 			data: { gint: d.gint, artifacts: d.artifacts, tiers: d.tiers, ...p.meta } }, [...bufs]);
 		p.onDone?.();
 	};
@@ -2181,9 +2207,9 @@ function ensureBakeWorker() {
 const cancelBake = key => { for (const p of bakePending.values()) if (p.key === key) p.cancelled = true; };
 // raw（unPackGint 一式）を焼いて key スロットへ搭載。onDone は「render worker に届いた」後の再調停用。
 // clone は bake worker への1回だけ（main の原本は identify の properties 参照用に生存）。
-function bakeAndSend(key, raw, meta, onDone) {
+function bakeAndSend(key, raw, meta, onDone, layer = null) {
 	const w = ensureBakeWorker();
-	const p = { key, raw, meta, onDone, cancelled: false };
+	const p = { key, raw, meta, onDone, cancelled: false, layer };
 	if (!w) return legacyGintSend(p);
 	const id = ++bakeSeq;
 	bakePending.set(id, p);
@@ -2721,6 +2747,10 @@ const input = createInput({
 		// 旧・全球ビューの画面クリック＝星座線トグルは表示パネルの「星空」チップへ移設（本人裁定 2026-09-02
 		// 「画面クリックの切り替えはいずれ何かとぶつかる」）＝クリックは全ズームで識別に一本化。
 		overlay.identifyAt(x, y); if (gintInteractive || extActive) wPost({ type: "gintClick", x, y });
+		if (mapOn.click.length) {   // §4 map.on('click')＝層をまたぐ照会（main 同期 JS レイキャスト・手前の層から）
+			const ll = unprojectXY(x, y);
+			if (ll) { const hits = queryAllGint(ll); for (const cb of mapOn.click) cb({ lngLat: ll, hits }); }
+		}
 	},
 	onHover: (x, y) => {
 		lastHoverXY = [x, y];
@@ -3522,6 +3552,8 @@ async function printCapture({ zoom, cropCss }) {
 map.overlay = overlay;
 map.applyGintData = applyGintData;
 map.addGint = addGint;              // gint 多層（v2 spec §4 の顔・WebGPU 限定）＝追加であって置換ではない
+map.queryAll = queryAllGint;        // 層をまたぐ照会＝{layer, fid} の対（手前の層から・§10.2）
+map.on = (ev, cb) => { mapOn[ev]?.push(cb); return map; };   // §4＝'click' のみ（hits=queryAll と同型）
 map.standupGint = standupGint;         // liftM=null で解除
 map.gintFeatures = gintFidFeatures;    // fid 整列 properties（式評価・表直書きの入力）
 map.paint = paintGint;                 // Mapbox式 → buildFidStyle

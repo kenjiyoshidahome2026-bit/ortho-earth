@@ -235,7 +235,7 @@ const dispatch = e => {
 			else if (m.cmd === "gintActivate") { (m.layer != null ? gintLs.get(m.layer) : gint)?.activate?.(); }
 			else if (m.cmd === "gint") { const g = gTgt(m); if (g) { g.set(m.data, m.prop); if (m.layer != null) postMessage({ action: "gintAck", cmd: "gint", layer: m.layer, error: null }); } }   // 知性の層のペイロード差し替え（prop=スロットキー "coast"/"user"、null=そのスロットを空化）。層指名はロード完了 ack（bakeBase 同期ゆえこの時点で搭載済み）
 			else if (m.cmd === "gintSlot") { gTgt(m)?.setSlot(m.data); }   // スロット交替（ベイク済み束の差し替えのみ＝z7跨ぎをゼロコスト化。null=何も載せない）
-			else if (m.cmd === "gintBaked") { gTgt(m)?.setBaked(m.data, m.prop); }   // bake worker 完成品の搭載（CPU ベイク無し＝テクスチャのみ・表示は変えない）
+			else if (m.cmd === "gintBaked") { const g = gTgt(m); if (g) { g.setBaked(m.data, m.prop); if (m.layer != null) { g.setSlot(m.prop ?? "user"); postMessage({ action: "gintAck", cmd: "gintBaked", layer: m.layer, error: null }); } } }   // bake worker 完成品の搭載（CPU ベイク無し＝テクスチャのみ）。既定層＝表示は変えない（gintSlot は main の調停）／層指名＝スロット舞踏が無い＝焼き着地で点火＋搭載 ack（main の ready）
 			else if (m.cmd === "gintStyle") { gTgt(m)?.style(m.data); }    // 描画スタイル（styleTable/lineWidth 等）
 			else if (m.cmd === "gintPaint") { gTgt(m)?.paint(m.data); }    // fidスタイル表（コロプレス。main が buildFidStyle 評価済み・null=解除）
 			else if (m.cmd === "gintVis") { gTgt(m)?.setVisible(m.data); } // 表示切替（旧 #gint canvas の display 相当）
