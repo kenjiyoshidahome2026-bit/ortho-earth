@@ -34,7 +34,7 @@ try {
 		await sleep(250);
 	}
 	fail = 0;
-	for (const page of ["t-webgpu", "t-aatrans", "t-gintgpu", "t-gintgpu?gintsb=0", "t-gintmulti", "t-plateaufs", "t-baselane"]) {   // t-aatrans＝遷移時AA（実GPUの実時間必須）。t-plateaufs＝OPFS 実I/O（同期ハンドル）＝実時間必須（仮想時間はタイマー先燃えで偽陽性）。t-gintgpu は storage/テクスチャ両経路
+	for (const page of ["t-webgpu", "t-aatrans", "t-gintgpu", "t-gintgpu?gintsb=0", "t-gintmulti", "t-gintlayers", "t-plateaufs", "t-baselane"]) {   // t-aatrans＝遷移時AA（実GPUの実時間必須）。t-plateaufs＝OPFS 実I/O（同期ハンドル）＝実時間必須（仮想時間はタイマー先燃えで偽陽性）。t-gintgpu は storage/テクスチャ両経路
 		const url = `http://localhost:${PORT}/japan/tests/${page.replace(/(\?|$)/, ".html$1")}`;
 		const target = await (await fetch(`http://127.0.0.1:${CDP}/json/new?${encodeURIComponent(url)}`, { method: "PUT" })).json();
 		ws = new WebSocket(target.webSocketDebuggerUrl);

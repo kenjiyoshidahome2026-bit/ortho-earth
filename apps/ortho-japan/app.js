@@ -521,7 +521,7 @@ renderWorker.postMessage({ type: "init", ctrlPort: ctrlChan.port2, canvas: offsc
 // draw は worker 側で「cam を記録するだけ」に受け、実描画は worker 自前 rAF が最新 cam で回す（worker-driven）。
 // 標高アトラス(terrain)も worker 側に住む＝main はもう視野→セル計算・ダウンサンプルを一切やらない。読込インジケータだけ elevPending で受ける。
 const renderer = {
-	set: (cmd, data, prop) => wPost({ type: "set", cmd, data, prop }),
+	set: (cmd, data, prop, layer) => wPost({ type: "set", cmd, data, prop, ...(layer != null ? { layer } : {}) }),   // layer＝gint 多層（spec §4）の層指名。無指定＝既定層（従来と同形）
 	draw: (cam, opts) => {
 		try { wPost({ type: "draw", cam, opts }); dbgHost.__drawSendN = (dbgHost.__drawSendN || 0) + 1; }
 		catch (e) { dbgHost.__drawSendErr = String(e && e.message); console.error("[boot] draw send failed:", e); }
@@ -553,9 +553,20 @@ if (gpuBackend) setTimeout(() => {
 // 標高アトラスは生かす（真俯瞰 pitch0 なので elevScaleEff=0＝地形サーフェス/陰影/変位は自然に消え、
 // 等高線(ベクタ)だけが敷かれた厳密な正射平面図になる）。noTerrain にすると等高線もアトラスごと消えるので不可。
 let printHold = false;
+// gint 多層（map.addGint）の台帳＝onmessage ルーティングより先に宣言（boot 中の遅着メッセージ TDZ 回避）
+let gintLayerSeq = 0;
+const extGint = new Map();   // layer id → handle（identify/click/ack ルーティング先）
+let extActive = null;        // カーソルを持つ追加層の id（null＝既定層＝従来ゲート）
 renderWorker.onmessage = e => {
 	const d = e.data;
 	// --- gint（知性の層＝render worker に同居）の返信面（action=旧 gint worker と同形） ---
+	// --- gint 多層（map.addGint 層）のルーティング：layer 付きは handle へ・既定層（layer 無し）は従来経路 ---
+	if (d.action === "gintAck") { extGint.get(d.layer)?._ack(d); return; }
+	if ((d.action === "identify" || d.action === "click" || d.action === "tiers") && d.layer != null) {
+		const h = extGint.get(d.layer);
+		if (h) { if (d.action === "identify") h._hover(d); else if (d.action === "click") h._click(d); }
+		return;   // 追加層のメッセージを既定層の tip/click 機構に触らせない（除去済み層の遅着も同様に握る）
+	}
 	if (d.action === "identify") {   // ホバー識別＝当たった feature の全 properties を指先 tip へ。外れ(featureId=null)は消す。
 		if (!gintHoverTip) return;
 		if (estatTipOwn) return;   // 町丁目tipが所有中＝gint側のackでtipを消したり上書きしない（正着は毎moveのhovertipが再設定）
@@ -1906,8 +1917,7 @@ dbgHost.__arakawaFit = async () => {
 // fid 整列の feature 配列（式評価の入力）。identify の tip と同じ真実源＝getProperties(fid)。
 // ※ .geojson は壊れ geometry の feature をスキップして配列を「詰める」＝fid とズレる（札幌 aigid で実証）。
 //    式評価に .geojson を使ってはならない。読めない props は {}＝既定値評価（§6-4）。
-const gintFidFeatures = () => {
-	const pbf = userGint?.pbf;
+const fidFeaturesOf = (pbf) => {
 	const n = pbf?.fmap?.length ?? 0;
 	if (!n) return null;
 	const out = new Array(n);
@@ -1920,6 +1930,7 @@ const gintFidFeatures = () => {
 	if (skipped > 0) console.info("[paint] %d of %d fids missing from .geojson (corrected via fid-aligned read)", skipped, n);
 	return out;
 };
+const gintFidFeatures = () => fidFeaturesOf(userGint?.pbf);
 // fid ズレ診断用：指定 fid だけ赤・他は薄灰でテーブル直書き（式評価を迂回＝純粋に fid 空間を見る）。
 // 使い方: __paintFid(100) → 赤い筆をクリック → console の [gint] fid=… が 100 なら一致、±k ならズレ量 k。
 dbgHost.__paintFid = (...fids) => {
@@ -2050,6 +2061,51 @@ async function paintGint(paint, filter = null) {
 	console.log("[paint] applied to %d features", count);
 }
 dbgHost.__paint = paintGint;
+// ── gint 多層（gint draw spec §4 の顔・2026-09-09）───────────────────────────
+// map.addGint(pbf, opts) ＝**追加**であって置換ではない（§10.2＝applyGintData 系の単一スロット動詞とは別系統・混ぜない）。
+// 層の属性（minZoom/maxZoom/style）は層ごと（§10.3「スタック全体の設定」を作らない）。カーソルは常に1層（§4.1）＝
+// 追加した層が既定でアクティブ（「今載せたデータを見たい」）・activate() で移す・remove() で残る最後の層へ落ちる。
+// WebGPU 限定（エンジン addLayer は gpu/gint.js のみ＝GL2 後追い方針）。GL2 では ready が false に解決＝何も描かない。
+// この段階の制約（栞に記録）: ①ベイクは render worker 同期（bakeBase）＝大きい層は bake-ahead 統合が将来課題
+// ②tip の自動表示は無し（on('hover') で受けてアプリが描く） ③query/queryAll は未実装。
+function addGint(pbf, opts = {}) {
+	if (!pbf?.unPackGint) { console.error("[addGint] invalid source (unPackGint missing) = pass geopbf(…, {gint:true})"); return null; }
+	const id = "gl" + (++gintLayerSeq);
+	const g = pbf.unPackGint;
+	if (opts.fillMaxEdges) g.fillMaxEdges = opts.fillMaxEdges;
+	if (opts.lowFill) g.lowFill = true;
+	let ackRes; const ready = new Promise(res => { ackRes = res; });
+	const handlers = { hover: [], click: [] };
+	const props = fid => { try { return (fid != null ? pbf.getFeature(fid)?.properties : null) ?? null; } catch { return null; } };
+	const h = {
+		id, ready,
+		_ack: d => { if (d.error) { console.warn("[addGint] %s: %s (multi-layer requires WebGPU backend)", id, d.error); ackRes(false); } else if (d.cmd === "gint") ackRes(true); },
+		_hover: d => { const f = d.featureId != null ? { fid: d.featureId, properties: props(d.featureId) } : null; for (const cb of handlers.hover) cb(f); },
+		_click: d => { for (const cb of handlers.click) cb({ fid: d.featureId, properties: props(d.featureId), lngLat: [d.lng, d.lat] }); },
+		on: (ev, cb) => { handlers[ev]?.push(cb); return h; },
+		setPaint: async (paint, filter = null) => {   // 式は main で一度だけ評価→fid 表（§3 restyle 哲学＝再構築ゼロ）
+			if (!paint) { renderer.set("gintPaint", null, undefined, id); needsDraw = true; return; }
+			const feats = fidFeaturesOf(pbf);
+			if (!feats) { console.warn("[addGint] %s: no features for paint", id); return; }
+			const { buildFidStyle } = await import("ortho-core");
+			const { u32, count } = buildFidStyle(paint, feats, { filter, zoom: cam.zoom });
+			renderer.set("gintPaint", { table: u32, count }, undefined, id);
+			needsDraw = true;
+		},
+		style: o => { renderer.set("gintStyle", o, undefined, id); needsDraw = true; },   // 描画スタイル（fillColor/lineWidth/styleTable 等＝層の drawStyle）
+		setVisible: v => { renderer.set("gintVis", !!v, undefined, id); needsDraw = true; },
+		activate: () => { extActive = id; renderer.set("gintActivate", null, undefined, id); },
+		remove: () => { extGint.delete(id); if (extActive === id) extActive = null; renderer.set("gintRemove", null, undefined, id); needsDraw = true; },
+	};
+	extGint.set(id, h);
+	renderer.set("gintAdd", null, undefined, id);
+	renderer.set("gint", { ...g, minZoom: opts.minZoom ?? null, maxZoom: opts.maxZoom ?? null }, undefined, id);
+	if (opts.style) h.style(opts.style);
+	extActive = id;   // エンジンは addLayer で自動アクティブ（§4.1）＝main のゲートも同期
+	if (opts.interactive === false) { extActive = null; renderer.set("gintActivate", null, undefined, null); }   // 明示不干渉＝カーソルを既定層へ返す
+	needsDraw = true;
+	return h;
+}
 // 世界海岸線（Natural Earth 10m）を球へ。uploader で事前変換済みの GeoPBF を bucket 名慣習
 // （GIS/pbf/ne_10m_coastline）から load＝初回も zip レンジ取得→shp デコードを払わない（gunzip 直読み→GintBUF 焼き→IDB）。
 // 2回目以降は IDB 直行＝ネットワークを待たない（ETag 確認は裏で回し新版は次回反映＝激遅会場回線でも即表示）。
@@ -2664,7 +2720,7 @@ const input = createInput({
 		if (editClick) return editClick(x, y);         // 派生アプリ編集モード＝同上（geoedit の選択/作図）
 		// 旧・全球ビューの画面クリック＝星座線トグルは表示パネルの「星空」チップへ移設（本人裁定 2026-09-02
 		// 「画面クリックの切り替えはいずれ何かとぶつかる」）＝クリックは全ズームで識別に一本化。
-		overlay.identifyAt(x, y); if (gintInteractive) wPost({ type: "gintClick", x, y });
+		overlay.identifyAt(x, y); if (gintInteractive || extActive) wPost({ type: "gintClick", x, y });
 	},
 	onHover: (x, y) => {
 		lastHoverXY = [x, y];
@@ -2674,7 +2730,7 @@ const input = createInput({
 		const fudeOwn = userGint?.tip && gintInteractive && gintHover;
 		if (fudeOwn && estatTipOwn) { estatTipOwn = false; renderer.set("overlayHover", null); needsDraw = true; }   // 跨ぎ瞬間＝残った町丁目tip/太線を掃除（tip本文は直後の識別ackが上書き）
 		if (!fudeOwn && opts.smallAreaHover && overlay.isEstatActive?.() && overlay.hoverAt(x, y)) return;
-		if (gintInteractive && gintHover) wPost({ type: "gintMove", x, y });
+		if ((gintInteractive && gintHover) || extActive) wPost({ type: "gintMove", x, y });
 		// 世界ビュー＝admin0 国ポリゴンの国名 tip（本人裁定 2026-08-30「国の認識」）。識別は main 同期
 		// （coastPbf.identifyAt＝findPolygon smallest-wins・エンジン往復なし）。面のみ探索＝点/線半径は0。
 		if (gintSlot === "coast" && coastPbf && gintHoverTip && !fudeOwn) {
@@ -3249,7 +3305,7 @@ const overlay = createOverlay({ renderer, cam, size, dpr, requestDraw: () => { n
 			return;
 		}
 		estatTipOwn = false;
-		if (gintInteractive && gintHover && lastHoverXY) wPost({ type: "gintMove", x: lastHoverXY[0], y: lastHoverXY[1] });
+		if (((gintInteractive && gintHover) || extActive) && lastHoverXY) wPost({ type: "gintMove", x: lastHoverXY[0], y: lastHoverXY[1] });
 	} });
 dbgHost.__loadOverlay = overlay.loadOverlay;   // geopbf 名から（全球等）
 // ?hud=1（旧mem=1）のメモリ台帳HUD 本体は下方の hudSnapshot＋gadgets/hud.js（右下・出典の上・計測器ボタンで開閉）。以下は別計器：
@@ -3465,6 +3521,7 @@ async function printCapture({ zoom, cropCss }) {
 // gint系＝ユーザー知性層（単一スロット）の正規口／overlay＝estat小地域・geopbfオーバーレイの手綱。
 map.overlay = overlay;
 map.applyGintData = applyGintData;
+map.addGint = addGint;              // gint 多層（v2 spec §4 の顔・WebGPU 限定）＝追加であって置換ではない
 map.standupGint = standupGint;         // liftM=null で解除
 map.gintFeatures = gintFidFeatures;    // fid 整列 properties（式評価・表直書きの入力）
 map.paint = paintGint;                 // Mapbox式 → buildFidStyle
