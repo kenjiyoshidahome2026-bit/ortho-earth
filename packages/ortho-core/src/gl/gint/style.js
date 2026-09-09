@@ -58,12 +58,14 @@ const clampU8 = v => Math.max(0, Math.min(255, Math.round(v)));
 //   paint:    { 'fill-color', 'fill-opacity', 'line-color', 'line-opacity', 'line-width',
 //               'circle-color', 'circle-radius' }（各値＝リテラル or §6 サブセット式）
 //   features: FeatureCollection.features（fid = 配列 index。geopbf の .geojson と同一順序）
-//   opts:     { filter, zoom }  zoom＝['zoom'] を含む式の評価スナップショット（既定 0）。
+//   opts:     { filter, zoom, states }  zoom＝['zoom'] を含む式の評価スナップショット（既定 0）。
+//             states＝Map<fid, object>（layer.setFeatureState の実体＝['feature-state', key] が読む。無指定＝undefined）。
 //             zoom×data-driven の毎フレーム追随は初期版非対応＝再評価（本関数の呼び直し）が逃げ道（§6-3）。
 // 戻り値 { u32: Uint32Array(count*4), count }。評価エラーはその feature を既定値へ（throw しない・§6-4）。
 export function buildFidStyle(paint = {}, features = [], opts = {}) {
 	const zoom = opts.zoom ?? 0;
 	const filter = opts.filter ?? null;
+	const states = opts.states ?? null;
 	const count = features.length;
 	const u32 = new Uint32Array(count * 4);
 	const pFillC = paint["fill-color"], pFillO = paint["fill-opacity"];
@@ -71,7 +73,7 @@ export function buildFidStyle(paint = {}, features = [], opts = {}) {
 	const pWidth = paint["line-width"], pRadius = paint["circle-radius"];
 	for (let fid = 0; fid < count; fid++) {
 		const f = features[fid];
-		const ctx = { zoom, props: f?.properties ?? {}, geom: f?.geometry?.type ?? "", vars: {} };
+		const ctx = { zoom, props: f?.properties ?? {}, geom: f?.geometry?.type ?? "", vars: {}, state: states?.get(fid) };
 		let fill = 0, line = 0, w8 = 8, r8 = 6, flags = 1;   // 既定: width 1px, radius 1.5px, visible
 		try {
 			if (filter && !truthy(evalExpr(filter, ctx))) flags = 0;

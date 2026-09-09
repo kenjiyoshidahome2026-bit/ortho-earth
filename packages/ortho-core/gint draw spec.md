@@ -68,13 +68,15 @@ map.on('move' | 'load', cb);    // §10.5-3 の約束どおり実装時に追記
 ### 4.2 実装追記（2026-09-09 §4残②〜⑤・maplibre 移住者対応）
 
 - **重ね順**は `order`（小さいほど下・未指定=追加順）＝トグル順に依らない決定的 z。実行時変更は `setOrder`
-- **ラベル（symbol 相当）**は `opts.label` / `setLabel`。field の v1 サブセット＝文字列リテラル／`['get', key]`／
-  関数(props→string)。錨＝面/線は bbox 中心・点は geometry。描画は基図注記と同じ衝突/フェード/標高投影へ相乗り
-  （エンジン labels2d の利用者チャンネル）。layer の setVisible/remove/zoom 域と連動。filter 連動は未対応（宿題）
+- **ラベル（symbol 相当）**は `opts.label` / `setLabel`。field＝§6 の**式全域**（`concat`/`to-string` 追加）／
+  文字列リテラル／関数(props→string)。錨＝面/線は bbox 中心・点は geometry。描画は基図注記と同じ衝突/フェード/
+  標高投影へ相乗り（labels2d の利用者チャンネル）。setVisible/remove/zoom 域と連動。**filter 連動**＝fid 表の
+  visible ビットを尊重（paint/filter 設定時。未設定＝全通し）（2026-09-09）
 - **zoom×data-driven 合成**（§6-3）＝settle 毎の自動再評価で成立：`['zoom']` を含む paint は、ズームが
   0.5z 動いて静止する度に `setPaint` が自動で呼び直される（式は snapshot 評価・restyle は §8.1 のとおり安い）。
   連続補間（毎フレーム）が要る時だけ将来の fid 列＋シェーダ lerp へ
-- **filter だけの更新**は `setFilter`（paint 設定前は預かり）。feature-state は未対応（宿題）
+- **filter だけの更新**は `setFilter`（paint 設定前は預かり）。**feature-state**＝`setFeatureState(fid, obj|null)` /
+  `removeFeatureState(fid?)` ＋式 `['feature-state', key]`（maplibre 同名・hover 連打は microtask で1フレームに束ね）（2026-09-09）
 
 ### 4.1 アクティブ層 ── **カーソルは1層・照会は層をまたぐ**（裁定 2026-08-19）
 

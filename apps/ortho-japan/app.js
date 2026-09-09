@@ -1771,8 +1771,7 @@ function switchTheme(name) {
 	themes = createThemes(style, { suppressAdmin: !!opts.hideAdminBoundary });   // ★層添字（LI_RAILHI 等）を新テーマの層配列で焼き直す＝hidden(点火ゲート)の添字ズレ根治。
 	// 旧＝boot の style で一度だけ生成→テーマごとに層数/順が違い添字が全ズレ＝「チップOFFなのに rail-hi/road-hi/航路が点き、土台の道路網が消える」（本人報告・実機/本番でも再現・両バックエンド共通）
 	mapEl.classList.add("ui-dark");   // 白抜き家具＝常時ON（本人裁定2026-08-05）＝テーマ生き替えでも外さない（旧＝land輝度で付け外し）
-	if (A0_LAYER()) admin0Layer?.style(admin0DrawStyle());   // admin0 独立層＝新テーマの coastLine で塗り直し
-	else if (gintSlot === "admin0") applyAdmin0Slot();   // 従来スロット＝色の居座り根治（基図タイル再ビルドでは直らない）
+	admin0Layer?.style(admin0DrawStyle());   // admin0 独立層＝新テーマの coastLine で塗り直し（色の居座り根治）
 	if (layerState.rail && n02Loaded) { n02Loaded = false; loadN02(); }   // N02新幹線の芯(land色)を新テーマで引き直す（データは温間）
 	readySig = ""; baseSig = ""; mergeReq.main.sig = ""; mergeReq.base.sig = ""; needsDraw = true; onMove();   // 下地・主層を強制再結合（次のupdateで新styleビルド→順次merge）
 }
@@ -2090,9 +2089,11 @@ function addGint(pbf, opts = {}) {
 	let lastHovFid = null;
 	let lastPaint = null, lastFilter = null, zoomDriven = false, lastEvalZoom = null;   // ③ zoom×data-driven 合成＝settle 再評価（式は snapshot 評価・§6-3 の逃げ道を自動化）
 	let labelOpt = opts.label ?? null;   // ② ラベル（text-field 相当）＝{ field, size?, color?, halo?, haloW?, sort?, minZoom?, maxZoom? }
-	// text-field の v1 サブセット：文字列リテラル／['get', key]／関数(props→string)。式全域は §6 の評価器に future 統合
-	const evalText = (fld, pr) => typeof fld === "function" ? fld(pr)
-		: Array.isArray(fld) && fld[0] === "get" ? pr?.[fld[1]]
+	let lastTable = null;                // 直近の fid 表（setPaint の評価結果）＝ラベルの filter 連動が visible ビット(bit0)を読む
+	const fstates = new Map();           // fid → feature-state（['feature-state', key] の実体・maplibre 同名）
+	// text-field＝§6 の式全域（evalExpr）＋文字列リテラル＋関数(props→string)。式は get/match/case/concat/to-string…
+	const evalText = (fld, pr, evalExpr, fid) => typeof fld === "function" ? fld(pr)
+		: Array.isArray(fld) ? evalExpr(fld, { zoom: cam.zoom, props: pr ?? {}, geom: "", vars: {}, state: fstates.get(fid) })
 		: typeof fld === "string" ? fld : null;
 	const anchorOf = fid => {   // ラベル錨＝面/線は bbox 中心（gint整数→経緯度）・点は geometry 直参照
 		const bb = g.polyBboxByFid?.get(fid) ?? g.lineBboxByFid?.get(fid);
@@ -2100,12 +2101,14 @@ function addGint(pbf, opts = {}) {
 		try { const gm = pbf.getFeature(fid)?.geometry; if (gm?.type === "Point") return gm.coordinates.slice(0, 2); } catch { /* 壊れfeature */ }
 		return null;
 	};
-	const refreshLabels = () => {
-		if (!labelOpt?.field) { renderer.set("gintLabels", { list: null }, undefined, id); return; }
+	const refreshLabels = async () => {
+		if (!labelOpt?.field) { h.labelCount = 0; renderer.set("gintLabels", { list: null }, undefined, id); return 0; }
+		const { evalExpr } = await import("ortho-core");
 		const lb = labelOpt, n = pbf.fmap?.length ?? 0, list = [];
 		for (let i = 0; i < n; i++) {
+			if (lastTable && !(lastTable[i * 4 + 2] & 1)) continue;   // filter 連動＝fid 表の visible ビット（bit0）を尊重（paint/filter 未設定＝全通し）
 			let pr = {}; try { pr = pbf.getProperties(i) ?? {}; } catch { /* 壊れfeature */ }
-			const txt = evalText(lb.field, pr);
+			const txt = evalText(lb.field, pr, evalExpr, i);
 			if (txt == null || txt === "") continue;
 			const a = anchorOf(i);
 			if (!a) continue;
@@ -2113,7 +2116,9 @@ function addGint(pbf, opts = {}) {
 				...(lb.halo ? { halo: lb.halo } : {}), ...(lb.haloW != null ? { haloW: lb.haloW } : {}), ...(lb.sort != null ? { sort: lb.sort } : {}) });
 		}
 		renderer.set("gintLabels", { list, minZoom: lb.minZoom ?? opts.minZoom ?? null, maxZoom: lb.maxZoom ?? opts.maxZoom ?? null }, undefined, id);
+		h.labelCount = list.length;   // 検定/デバッグ窓（t-gintlayers＝filter 連動・式全域の物差し）
 		needsDraw = true;
+		return list.length;
 	};
 	const props = fid => { try { return (fid != null ? pbf.getFeature(fid)?.properties : null) ?? null; } catch { return null; } };
 	// tip＝層の属性（§10.3）: true＝全属性の既定整形／fn＝持参整形（props→行配列）／無指定＝出さない（on('hover') でアプリが描く）
@@ -2144,14 +2149,22 @@ function addGint(pbf, opts = {}) {
 		setPaint: async (paint, filter = lastFilter) => {   // 式は main で一度だけ評価→fid 表（§3 restyle 哲学＝再構築ゼロ）。filter 省略＝現 filter 維持
 			lastPaint = paint ?? null; lastFilter = filter ?? null;
 			zoomDriven = !!paint && JSON.stringify(paint).includes('["zoom"'); lastEvalZoom = cam.zoom;
-			if (!paint) { renderer.set("gintPaint", null, undefined, id); needsDraw = true; return; }
+			if (!paint) { lastTable = null; renderer.set("gintPaint", null, undefined, id); if (labelOpt?.field) await refreshLabels(); needsDraw = true; return; }
 			const feats = fidFeaturesOf(pbf);
 			if (!feats) { console.warn("[addGint] %s: no features for paint", id); return; }
 			const { buildFidStyle } = await import("ortho-core");
-			const { u32, count } = buildFidStyle(paint, feats, { filter: lastFilter, zoom: cam.zoom });
+			const { u32, count } = buildFidStyle(paint, feats, { filter: lastFilter, zoom: cam.zoom, states: fstates });
+			lastTable = u32;
 			renderer.set("gintPaint", { table: u32, count }, undefined, id);
+			if (labelOpt?.field) await refreshLabels();   // filter/式の変化にラベルも追随（await＝setFilter/setPaint の解決時に labelCount 確定）
 			needsDraw = true;
 		},
+		setFeatureState: (fid, st) => {   // 一時状態（hover/選択…）＝['feature-state', key] の実体（maplibre 同名・restyle は §8.1 のとおり安い）
+			if (st == null) fstates.delete(fid);
+			else fstates.set(fid, { ...fstates.get(fid), ...st });
+			if (!h._fsQ) { h._fsQ = true; queueMicrotask(() => { h._fsQ = false; if (lastPaint) h.setPaint(lastPaint, lastFilter); }); }   // 連打（hover毎）を1フレームに束ねる
+		},
+		removeFeatureState: fid => { if (fid == null) fstates.clear(); else fstates.delete(fid); if (lastPaint) h.setPaint(lastPaint, lastFilter); },
 		setFilter: f => {   // ③ 単独動詞（maplibre 同名）＝visibility ビットの再評価（paint 未設定は預かり＝次の setPaint で効く）
 			lastFilter = f ?? null;
 			if (lastPaint) return h.setPaint(lastPaint, lastFilter);
@@ -2173,7 +2186,7 @@ function addGint(pbf, opts = {}) {
 			return p;
 		},
 		setOrder: n => { h.order = n; renderer.set("gintOrder", n, undefined, id); needsDraw = true; },   // ④ moveLayer 相当（実行時の重ね順）
-		setLabel: o => { labelOpt = o ?? null; refreshLabels(); },   // ② text-field の付け替え（null=消す）
+		setLabel: o => { labelOpt = o ?? null; return refreshLabels(); },   // ② text-field の付け替え（null=消す）。await で labelCount 確定
 		style: o => { renderer.set("gintStyle", o, undefined, id); needsDraw = true; },   // 描画スタイル（fillColor/lineWidth/styleTable 等＝層の drawStyle）
 		setVisible: v => { renderer.set("gintVis", !!v, undefined, id); needsDraw = true; },
 		activate: () => { extActive = id; renderer.set("gintActivate", null, undefined, id); },
@@ -2219,12 +2232,10 @@ function queryAllGint(ll) {
 // スロットは単一＝同時表示不可なので「今どちらが載っているか(gintSlot)」を持ち、変更時だけ post。
 // ※小域ユーザー層は checkZoomRange が bbox から minZoom を自動採用＝実表示はさらに絞られる（例:筆データ z≥10）。
 // ── coast/user 二層化（2026-09-09・本人裁定「coast は紛らわしいので admin 層に」）──────────
-// admin0（NE admin_0_countries＝海岸線+国境線）は WebGPU では**独立層**（map.addGint・order 最下・
-// minZoom/maxZoom は層の属性＝エンジンが裁く）＝単一スロットは user 専用になりスロット舞踏が消える。
-// GL2 も addLayer 対応済（2026-09-09 gl/gint 脱シングルトン）＝両バックエンドで独立層。従来スロット調停は
-// ?a0slot=1 の逃げ道と backend 未確定の起動窓だけに残る（最終退場は次の大掃除で）。
-const A0_LAYER = () => !!dbgHost.__backend && !/[?&]a0slot=1/.test(location.search);
-let admin0Layer = null;   // 独立層ハンドル（WebGPU 経路のみ）
+// admin0（NE admin_0_countries＝海岸線+国境線）は**独立層**（map.addGint・order 最下・minZoom/maxZoom は
+// 層の属性＝エンジンが裁く）＝単一スロットは user 専用＝スロット舞踏は消滅。両バックエンド対応
+//（gl/gint 脱シングルトン済み）。従来スロット調停（?a0slot=1 配下）は 2026-09-09 に退場（git 履歴が正）。
+let admin0Layer = null;   // 独立層ハンドル
 let admin0Vis = true;     // 独立層の表示台帳（変更時だけ post＝毎フレーム送らない）
 const USER_GINT_MINZ = 7;
 const ADMIN0_Z = 9;         // 世界海岸線の表示・ロード上限＝これ未満で出す（maxZoom9 と対）
@@ -2245,7 +2256,6 @@ let suppressAdmin0 = false;
 // 以後の交替は "gintSlot" の軽量コマンド＝worker 側のベイク済み束（テクスチャ/LOD梯子/台帳）を差し替えるだけ。
 // 旧・毎交替 set() は z7 跨ぎのたびフルベイク＋梯子リセット＝「LOD/カリング不在の窓」（nps_all 実測で
 // 定常の42倍＝451万辺/フレーム）に落ちていた。内容差し替え時は sent を折って再送させる。
-let admin0Sent = false;
 
 // --- gint bake worker（bake-ahead）---------------------------------------------------------
 // メタ/tier梯子の全ベイクを専用 worker で焼き、完成品を transfer で render worker へ中継する。
@@ -2298,13 +2308,6 @@ function bakeAndSend(key, raw, meta, onDone, layer = null) {
 		pointBuffer: raw.pointBuffer, point: raw.point, polyCompBbox: raw.polyCompBbox, fillMaxEdges: raw.fillMaxEdges, lowFill: raw.lowFill } });
 }
 // 海岸線のベイク発火（初回ロード後と、LOW_MEM で束を破棄した後の再入の両方から）。
-let admin0Baking = false;
-function bakeAdmin0() {
-	if (admin0Baking || admin0Sent || !admin0Gint) return;
-	admin0Baking = true;
-	bakeAndSend("admin0", admin0Gint, { maxZoom: 9 },
-		() => { admin0Baking = false; admin0Sent = true; gintSlot = null; updateGintSlot(); needsDraw = true; });
-}
 // ユーザー層のベイク発火（applyGintData の初回と、LOW_MEM で束を破棄した後の再入の両方から）。
 // 進行フラグは userGint オブジェクト自身に持つ＝層差し替え（新オブジェクト）で自然にリセット。
 function bakeUser() {
@@ -2334,7 +2337,11 @@ function sendGintPaint(p) {
 }
 let gintPaintLast = null;   // 最後に要求された fid→RGBA 表（層差し替えで features 数が合わなくなれば standupGint 側が無視）
 // admin0 の描画スタイル（テーマ台帳 coastLine を読む＝キー名は配色データ互換で coastLine のまま）。
-// moveBudget=Infinity＋outlineZoom=0＝移動中もズーム帯でも常に正表現（applyAdmin0Slot の詳注参照）。
+// moveBudget=Infinity＋outlineZoom=0＝移動中もズーム帯でも常に正表現（本人裁定 2026-09-01「リソースは余裕・
+// gintの見せ場」）。既定のままだと admin0（国境込み）は①移動中の描画予算 ②outlineZoom ヒステリシスの
+// 2つの柵で境界メタへ縮退し、共有arc＝国境そのものが（ドラッグ中だけ）消えて見えた。admin0 は tier 梯子が
+// 効く長arc層＝移動中の実コストは軽い。noDepth＝地形深度に参加しない（常に最前面）：チルト中は内陸の長arc
+// が端点標高しか見ず地形に潜り、隠線パスは静止時のみ＝ドラッグで国境だけ消えた（海岸線は海抜0で無事）。
 function admin0DrawStyle() {
 	const t = new Float32Array(256 * 4);
 	t.set(theme.coastLine);        // style0 = ポリゴン辺（admin0 の海岸線+国境線）
@@ -2345,12 +2352,7 @@ function admin0DrawStyle() {
 // ＝addGint へはダック（unPackGint=admin0Gint・識別面は原本 admin0Pbf）で渡す。interactive:false＝
 // カーソルは触らない（国名 tip は main 同期 identify のまま）。order:-10＝常に最下（user 層や多層の下）。
 function ensureAdmin0Layer() {
-	if (admin0Layer || !A0_LAYER() || !admin0Gint || !admin0Pbf) return;
-	if (gintSlot === "admin0" || admin0Sent) {   // 従来スロットで先に立ち上がっていた（backend 確定前の世界ビュー起動）＝二重描画と VRAM 二重を封じる
-		renderer.set("gint", null, "admin0");     // スロット側の admin0 束を破棄
-		admin0Sent = false;
-		if (gintSlot === "admin0") { renderer.set("gintSlot", null); gintSlot = null; }
-	}
+	if (admin0Layer || !admin0Gint || !admin0Pbf) return;
 	admin0Layer = addGint({ unPackGint: admin0Gint, fmap: admin0Pbf.fmap,
 		getProperties: i => admin0Pbf.getProperties(i), getFeature: f => admin0Pbf.getFeature(f),
 		identifyAt: (...a) => admin0Pbf.identifyAt(...a) },
@@ -2361,27 +2363,6 @@ function syncAdmin0Vis() {   // 飛行中抑制（suppressAdmin0）だけが層�
 	if (!admin0Layer) return;
 	const v = !suppressAdmin0;
 	if (v !== admin0Vis) { admin0Vis = v; admin0Layer.setVisible(v); }
-}
-// 【従来経路（GL2）専用】世界の admin0 スロット（世界図の文脈）を活性化＝スロット交替＋スタイル。
-function applyAdmin0Slot() {
-	if (!admin0Gint) return;
-	if (!admin0Sent) { bakeAdmin0(); return; }   // ベイク中/未ベイク＝焼き上がりの onDone が再調停する
-	// LOW_MEM＝海岸線表示中は user 束（nps級で GPU 100MB超）を眠らせておかない＝破棄（iOS jetsam 対策）。
-	// 再入（z≥minZoom）は bakeUser が非ブロッキング再ベイク＝海岸線を描いたまま焼き上がりで点火。
-	if (LOW_MEM && userGint?.sent) { renderer.set("gint", null, "user"); userGint.sent = false; }
-	renderer.set("gintSlot", "admin0");
-	// admin_0_countries＝ポリゴン辺（styleId=0）＝海岸線+国境線が同色で出る（共有arcは境界メタが一本化）。
-	// moveBudget=Infinity＋outlineZoom=0＝移動中もズーム帯でも常に正表現（本人裁定 2026-09-01「リソースは余裕・
-	// gintの見せ場」）。既定のままだと admin0（国境込み）は2つの柵で縮退した：①移動中の描画予算（25万辺超→
-	// 安表現）②outlineZoom ヒステリシス（moving 中 z<oz+1.5≈5 で境界メタへ）。どちらも縮退先が
-	// 境界メタ＝共有arc正味0排除で、admin0 の共有arc＝国境そのもの＝ドラッグ中だけ国境線が消えて見えた。
-	// admin0 は tier 梯子が効く長arc層＝移動中の実コストは軽い。モバイルは 50m 版（一桁小さい）＝挙動実質不変。
-	// noDepth＝地形深度に参加しない（常に最前面）：チルト中は国境（内陸の長arc＝端点しか標高を見ない）が
-	// 地形に潜り、隠線パスは静止時のみ＝ドラッグで国境だけ消えた（海岸線は海抜0で無事＝症状の非対称の正体）。
-	gintDrawOpts = admin0DrawStyle();
-	gintInteractive = false;   // 海岸線は装飾＝ホバー/クリック識別なし
-	if (gintHoverTip) gintHoverTip(null);   // ユーザー層→海岸線＝残ったホバー tip を消す
-	sendGintStyle(); gintSlot = "admin0"; needsDraw = true;
 }
 function applyUserSlot() {
 	if (!userGint) return;
@@ -2407,39 +2388,24 @@ function clearUserGint() {
 	gintInteractive = false;
 	gintHoverTip?.(null);            // ホバー tip を消す
 	needsDraw = true;
-	updateGintSlot();                // z<USER_GINT_MINZ 等で海岸線が該当すれば戻す
-}
-// gint スロットを空化（海岸線を降ろす）＝軽量交替で「何も載せない」。束（GPU資産）は worker 側に残す＝
-// 再訪で即（suppressAdmin0 は「重いロードを避ける」が目的で、キャッシュ済み束の保持はメモリ十数MB＝許容）。
-// LOW_MEM 端末だけは束ごと破棄（iOS jetsam 対策）＝再訪時は admin0Sent を折って再送。
-function clearGintSlot() {
-	if (LOW_MEM) { renderer.set("gint", null, "admin0"); admin0Sent = false; }
-	else renderer.set("gintSlot", null);
-	if (gintHoverTip) gintHoverTip(null);
-	gintSlot = null; needsDraw = true;
+	updateGintSlot();                // スロット空化の掃除（admin0 は独立層＝触らない）
 }
 // ズームでスロットの中身を選ぶ。onMove から毎回呼ばれるが post は変更時だけ＝安い。海岸線は初回のみ遅延取得。
 function updateGintSlot() {
 	if (WORLD_VT && cam.zoom < ADMIN0_Z) { loadBelowSea(); loadLakes(); }   // 海面下の陸地・湖も世界図の文脈で一度だけ遅延取得（wdepr/lakes＝overlay 系スロット＝gint と独立・自己ガード）
-	if (A0_LAYER()) {   // ── 二層化（WebGPU）＝スロットは user 専用・admin0 は独立層（minZoom/maxZoom はエンジンが裁く）──
-		if (cam.zoom < ADMIN0_Z && !admin0Loading && !admin0Gint && !suppressAdmin0) loadAdmin0();
-		ensureAdmin0Layer();
-		syncAdmin0Vis();
-		if (userGint) { if (gintSlot !== "user") applyUserSlot(); }
-		else if (gintSlot != null) { renderer.set("gintSlot", null); gintSlot = null; needsDraw = true; }   // user 撤去後の掃除（admin0 は層＝触らない）
-		return;
-	}
 	// 国名 tip はズームだけで z5.5 を跨いでも消す（ホバーイベントが来ない＝出しっぱなしになる件の根治 2026-09-02）
 	if (worldTipOn && cam.zoom >= WORLD_TIP_MAXZ) { gintHoverTip?.(null); worldTipOn = false; }
-	if (noGint) return;   // ?nogint=1＝海岸線ロードもスロット適用もしない（gint パスは空データ＝実質ゼロコスト）
-	if (userGint && cam.zoom >= userGint.minZoom) { if (gintSlot !== "user") applyUserSlot(); return; }   // minZoom は層の属性（全国級AI層=2・筆/ドロップ=USER_GINT_MINZ）
-	if (suppressAdmin0) { if (gintSlot === "admin0") clearGintSlot(); return; }   // 飛行中の抑制：既に載っていれば降ろし、ロードもしない（loadAdmin0 へ落とさない）
-	// world 時の低ズーム＝coast（admin0 の海岸線+国境線）を伏せる（本人裁定 2026-09-01「ないほうが自然」・
-	// 「国境線は z=2.5 ぐらいまで出してもいい」）：ハイプソ+海面下+湖が揃った全球ビューの遠景は純粋な地球、
-	// z2.5+ は国境が方位の手掛かりになるので出す。伏せ帯はロードもしない＝純全球の滞在は軽いまま。
-	if (WORLD_VT && cam.zoom < WORLD_ADMIN0_MINZ) { if (gintSlot === "admin0") clearGintSlot(); return; }
-	if (admin0Gint) { if (gintSlot !== "admin0") applyAdmin0Slot(); return; }
-	if (cam.zoom < ADMIN0_Z && !admin0Loading) loadAdmin0();   // 海岸線 未取得＝取得後に updateGintSlot が表示
+	if (noGint) return;   // ?nogint=1＝admin0 ロードもスロット適用もしない（gint パスは空データ＝実質ゼロコスト）
+	// admin0＝独立層（スロット外）：ロード発火・層生成・飛行抑制の同期。表示のズーム域はエンジンが裁く
+	if (cam.zoom < ADMIN0_Z && !admin0Loading && !admin0Gint && !suppressAdmin0) loadAdmin0();
+	ensureAdmin0Layer();
+	syncAdmin0Vis();
+	// LOW_MEM＝user 層が非表示帯（z<minZoom）の間は束を眠らせない＝破棄（iOS jetsam 対策・旧 admin0 スロット
+	// 活性時の退避の後継）。再入は applyUserSlot→bakeUser の非ブロッキング再ベイク＝焼き上がりで点火。
+	if (LOW_MEM && userGint?.sent && cam.zoom < userGint.minZoom) { renderer.set("gint", null, "user"); userGint.sent = false; }
+	// 単一スロット＝user 専用
+	if (userGint) { if (gintSlot !== "user") applyUserSlot(); }
+	else if (gintSlot != null) { renderer.set("gintSlot", null); gintSlot = null; needsDraw = true; }   // user 撤去後の掃除
 }
 // 世界の国ポリゴン（Natural Earth admin_0_countries）を取得しキャッシュ（表示可否は updateGintSlot が決める）。
 // 旧・海岸線(ne_coastline 線)から置換（本人裁定 2026-08-30「admin0_countriesの方が国の認識ができる」）：
@@ -2468,12 +2434,12 @@ async function loadAdmin0() {
 		maxZoom: 9,
 		fillMaxEdges: 0,   // fillOff 強制＝国ポリゴンはアウトライン専用（低ズームのベタ塗り切替に入れない。塗りはハイプソの領分）
 	};
-	// 着地＝経路で分岐：独立層（addGint が bake-ahead で焼く）／従来スロット（bakeAdmin0→onDone で再調停）
-	if (A0_LAYER()) { ensureAdmin0Layer(); syncAdmin0Vis(); console.log("[admin0] loaded as independent layer (z<9 = engine-gated)"); }
-	else { bakeAdmin0(); console.log("[admin0] loaded. auto-shown at z<%d (no user layer / low zoom)", USER_GINT_MINZ); }
+	// 着地＝独立層を生成（addGint が bake-ahead で焼く＝地図は止まらない）
+	ensureAdmin0Layer(); syncAdmin0Vis();
+	console.log("[admin0] loaded as independent layer (z<9 = engine-gated)");
 }
 dbgHost.__admin0 = loadAdmin0;   // 手動リロード用
-dbgHost.__a0 = () => ({ layer: !!admin0Layer, vis: admin0Vis, sent: admin0Sent, slot: gintSlot, ml: A0_LAYER() });   // 二層化の検定/切り分け窓
+dbgHost.__a0 = () => ({ layer: !!admin0Layer, vis: admin0Vis, slot: gintSlot });   // 二層化の検定窓（slot は user 専用＝"admin0" は現れない）
 dbgHost.__gintFix = "cullv2+skysolar 2026-09-02b";   // ビルド世代の目印（コンソールで __gintFix ＝ undefined なら古いコードが動いている）
 // 遅延ロードの門番は updateGintSlot（z<9 で海岸線 未取得なら一度だけ取得）＝高ズーム固定の埋め込みは一生読まない
 //（PLATEAUスイッチと同じ思想＝見えない機能のための通信をしない。既定の世界ビュー起動時に updateGintSlot が即発火＝体験は不変）。
@@ -2878,9 +2844,7 @@ const input = createInput({
 		if ((gintInteractive && gintHover) || extActive) wPost({ type: "gintMove", x, y });
 		// 世界ビュー＝admin0 国ポリゴンの国名 tip（本人裁定 2026-08-30「国の認識」）。識別は main 同期
 		// （admin0Pbf.identifyAt＝findPolygon smallest-wins・エンジン往復なし）。面のみ探索＝点/線半径は0。
-		const a0TipOn = A0_LAYER()
-			? (admin0Layer && admin0Vis && cam.zoom < ADMIN0_Z && !(userGint && cam.zoom >= (userGint.minZoom ?? 0)))
-			: gintSlot === "admin0";
+		const a0TipOn = admin0Layer && admin0Vis && cam.zoom < ADMIN0_Z && !(userGint && cam.zoom >= (userGint.minZoom ?? 0));
 		if (a0TipOn && admin0Pbf && gintHoverTip && !fudeOwn) {
 			// z≥5.5＝国名 tip の圏外（本人裁定 2026-09-02）：基図接近帯は注記が主役＝国名の板は出さない
 			if (cam.zoom >= WORLD_TIP_MAXZ) { if (worldTipOn) { gintHoverTip(null); worldTipOn = false; } return; }
@@ -3341,9 +3305,7 @@ function render() {
 	// 非draped層（ドロップ/AI）＝従来通り真俯瞰でのみ表示（平面=2D筆界／チルト=3D）。海岸線＝z8+で非表示。
 	// drapeFill 層（防災 A33/A31 面）＝チルトでも塗りを消さず描き続ける＝fetchClipDrape が斜面に乗せる（面ドレープ）。
 	// 通常層は従来どおり真俯瞰(pitch<0.02)限定＝チルトは gintBld ドレープ線へ譲る。
-	const gv = A0_LAYER()
-		? (userGint ? (userGint.drapeFill ? true : (drapedOn ? false : (cam.pitch || 0) < 0.02)) : true)   // 二層化＝スロットは user 専用（空なら値は不問）
-		: (gintSlot === "user" ? (userGint?.drapeFill ? true : (drapedOn ? false : (cam.pitch || 0) < 0.02)) : cam.zoom < 9);
+	const gv = userGint ? (userGint.drapeFill ? true : (drapedOn ? false : (cam.pitch || 0) < 0.02)) : true;   // 単一スロット＝user 専用（空なら値は不問）
 	if (gv !== gintVisible) { gintVisible = gv; renderer.set("gintVis", gv); }
 	// パン/チルト中（ズーム不変）は詳細も再結合。ズーム中はLODポップ回避で停止まで待つ。
 	const zoomStable = Math.abs(cam.zoom - zoomAtBuild) < 0.12;
