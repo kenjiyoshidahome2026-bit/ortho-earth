@@ -3879,6 +3879,20 @@ const loadUserFile = async file => {
 		annoCtl?.clear(); clearUserGint();
 		return map.gadget.cog(file).then(c => ({ length: `${c.width}×${c.height}px` })).catch(err => { console.error("[dropFile] cog", file.name, err); return null; });
 	}
+	if (/\.(parquet|geoparquet)$/i.test(file.name)) {   // GeoParquet＝GeoPBF へ落としてから下の本道（gint 焼き→描画→fit）へ合流＝以降の扱いは素の .geopbf と同一。
+		// 本体は動的 import＝.parquet を受けた時だけチャンクが降りる（初期バンドルは不変・ガジェットの遅延ロードと同じ規律）。
+		// 内部圧縮は none/snappy/gzip を自前で読む。zstd だけはブラウザに実装が無く（DecompressionStream("zstd") は
+		// 仕様にあるが全ブラウザ未実装・Node 22.15+ の node:zlib のみ）、素のエラーは "Node" と言って読み手を惑わすので包み直す。
+		const { fromGeoParquet } = await import("geopbf/geoparquet");
+		const r = await fromGeoParquet(new Uint8Array(await file.arrayBuffer())).catch(err => {
+			if (/zstd/i.test(err?.message || "")) throw new Error(tr({ "zstd 圧縮の GeoParquet はブラウザでは読めません（gzip か snappy で書き直してください）": "zstd-compressed GeoParquet cannot be read in a browser (re-write it with gzip or snappy)." })("zstd 圧縮の GeoParquet はブラウザでは読めません（gzip か snappy で書き直してください）"));
+			throw err;   // それ以外（CRS 不一致・幾何列なし等）は geopbf の文面が既に具体的＝そのまま上げてトーストへ
+		});
+		const s = r.stats;
+		if (s?.skipped?.length) console.warn("[dropFile] parquet: 読まなかった列", s.skipped.map(k => `${k.name}(${k.reason})`).join(" "));
+		console.info(`[dropFile] parquet → GeoPBF  ${s?.features ?? "?"} features・頂点 ${s?.vertices ?? "?"}・列 ${s?.columns?.length ?? "?"}・CRS ${s?.crs ?? "?"}・writer ${s?.created || "?"}`);
+		file = new File([r.pbf.arrayBuffer], file.name.replace(/\.[^.]+$/, ".geopbf"));
+	}
 	const pbf = await geopbf(file, { gint: true, name: `drop/${file.name}` }).catch(err => { console.error("[dropFile] geopbf", file.name, err); return null; });
 	if (!pbf?.unPackGint) return null;
 	// 低ズーム描画が速くなった＝先に現在ビューへ図形を描き（カメラは動かさない）、その後 flyTo で寄る。

@@ -19,7 +19,11 @@ export async function findGPU(opts = {}) {
 	if (globalThis.navigator?.gpu) return globalThis.navigator.gpu;
 	if (typeof process !== "undefined" && process.versions?.node) {
 		try {
-			const m = await import(/* @vite-ignore */ "webgpu");
+			// 指定子は変数経由＝裸の literal だとバンドラ（vite/rollup）が静的に解決を試み、`webgpu` 未導入の
+			// 消費者では dev で 500・build で解決不能になる（@vite-ignore は literal には効かない）。Node 専用の
+			// 任意依存はこの形で「バンドラから見えない」ようにするのが定石＝ブラウザ側はそもそもここへ来ない。
+			const spec = "web" + "gpu";
+			const m = await import(/* @vite-ignore */ spec);
 			if (m?.create) { if (m.globals) for (const k of Object.keys(m.globals)) globalThis[k] ??= m.globals[k]; return m.create([]); }
 		} catch { /* 未導入＝CPU */ }
 	}
