@@ -189,14 +189,33 @@ const GSI_TILE_URL = (z, x, y) => `https://cyberjapandata.gsi.go.jp/xyz/optimal_
 // 作り込んだ配色が要るなら style を書く（bvmap 用 style-gsi.js が前例）。
 const PM_SPEC = new URLSearchParams(location.search).get("pm");
 const PM_URL = PM_SPEC ? "pmtiles://" + new URL(PM_SPEC, new URL(import.meta.env?.BASE_URL || "/", location.href)).href : null;
-let pmInfo = null;   // アーカイブの自己申告（非同期に届く＝届くまでは素通しで、エンジンの門が守る）
-let pmAttrHTML = null;   // アーカイブ宣言の出典（消毒済み）
-const TILE_URL = PM_URL ? (() => PM_URL) : GSI_TILE_URL;
 // optimal_bvmap の配信圏（日本域）の外接矩形 [west,south,east,north]。これと全く重ならないタイルは GSI が
 // 常に 404 を返す提供圏外＝pipeline が fetch を省いて空タイル(標高ゲート付き全面水域)扱いにする（無駄な 404 を断つ）。
 // 症状＝縦長のスマホ画面が北海道以北の外洋(z8 y=87/88≈50°N)まで写して 404 を量産（横長のデスクトップでは出にくい）。
 // 保守的に本土＋離島（南鳥島154E/沖ノ鳥島20.4N/与那国123E/宗谷45.5N）を余裕で内包＝実在タイルは絶対に巻き込まない。
 const JP_COVERAGE = [121, 19, 155, 46];
+
+// ── 基図ソースの記述子 ───────────────────────────────────────────────────────
+// 「どこから引くか・どこを持つか・どのズームから出すか・LOD の床・出典」を **一つの物** に束ねる。
+// 旧構造ではこの5つが createPipeline の別々の引数と散在する門に分解されており、ソースを1種類増やすたびに
+// `PM_URL ? A : B` が各所へ増えた（実測 8 箇所・6 つの関心事）。三種類目を足せばまた 8 箇所。
+// 記述子にすれば「増えるのはここだけ」になる＝門は記述子を読むだけの受け身になる。
+//   tileUrl     … (z,x,y)=>URL。pmtiles:// を返せばエンジンが PMTiles 経路へ入る
+//   coverage    … 配信圏 bbox（外は fetch しない）。null＝外から与えない
+//                 ＝PMTiles は自分の bbox をヘッダで宣言するのでエンジンの門に任せる（初めにデータありき）
+//   tileMinZoom … タイルを出す下限。null＝BASEMAP_MINZOOM（「日本の基図を出す圏」と同一）に従う
+//   lodFloor    … LOD の床。bvmap 固有の装置（z8 から海が全面WA）＝他人のアーカイブには当てはまらない
+//   minZ        … タイル z の床（選抜・下地・毛布）
+//   info        … ソース自身の申告（PMTiles のみ・非同期に届く）。maxZoom/層名/出典の出所
+//   attrHTML    … 出典（消毒済み・info 到着時に入る）
+const BASE_SOURCE = PM_URL ? {
+	kind: "pmtiles", url: PM_URL, tileUrl: () => PM_URL,
+	coverage: null, tileMinZoom: 0, lodFloor: null, minZ: 0, info: null, attrHTML: null,
+} : {
+	kind: "gsi", url: null, tileUrl: GSI_TILE_URL,
+	coverage: /[?&]nocov=1/.test(location.search) ? null : JP_COVERAGE,   // ?nocov=1＝A/B 検証ノブ
+	tileMinZoom: null, lodFloor: { minViewZoom: 9, z: 8 }, minZ: undefined, info: null, attrHTML: null,
+};
 const TILE = 512, D2R = Math.PI / 180, R2D = 180 / Math.PI;
 
 // 表示項目の固定（opts.layers）：true/false は状態を焼き付けてチップも出さない。未記述だけが客のトグル。
@@ -677,7 +696,7 @@ const BASEMAP_MINZOOM = WORLD_VT ? 6.5 : 5;
 // タイルの門だけを分ける：BASEMAP_MINZOOM は「日本の基図（GSI）を出す圏」の意味も兼ねており、注記・空港マーク・
 // 出典圏の判定にも使われている。?pm= の基図は日本固有ではない＝タイルを出す下限はアーカイブの持ち分に従う
 // （実際の下限は minZoom で、それ未満はエンジンの門が空タイルを返す）。旧・世界タイルの !WORLD_VT 例外と同じ役割。
-const TILE_MINZOOM = PM_URL ? 0 : BASEMAP_MINZOOM;
+const TILE_MINZOOM = BASE_SOURCE.tileMinZoom ?? BASEMAP_MINZOOM;
 const STARSKY_Z = 5;                       // 星空劇場（星・星座クリック・惑星）の圏＝renderer の worldFade(z<5) と同期
 // 静止時の詳細化＝主層の分割閾を下げる（既定560→この値）。近景ほど画面上のタイルが大きい＝真っ先に
 // 閾を越えて割れる＝チルトで「手前だけズームが上がる」（遠景は小さく閾に届かず据置＝奥のPLATEAUと詳細が拮抗）。
@@ -1598,8 +1617,8 @@ function onMove() {
 // 敷かないと圏外は紙色＝l=terrain の等高線が乗ると「白い偽の陸」に見える）。z≥8・sea.minzoom(z9) ゲート共有。
 style.emptySea = "water";
 const { relayCtl: pipelineRelay, tiles, requestMerge, setStyle: setPipelineStyle, destroy: destroyPipeline } = createPipeline({
-	style, tileUrl: TILE_URL, requestDraw: () => { needsDraw = true; }, scenePort: sceneChan.port1, onTile, ell: ELL_ON,
-	coverage: (PM_URL || /[?&]nocov=1/.test(location.search)) ? null : JP_COVERAGE,   // PMTiles 基図＝範囲はアーカイブの自己申告（エンジンの門）に任せる＝日本域の外付け知識を掛けない   // 配信圏外タイルは fetch せず空タイル(海)扱い＝外洋・国外への無駄な 404 を断つ（縦長スマホの周縁 404 の根治）。?nocov=1 で無効化＝A/B 検証ノブ
+	style, tileUrl: BASE_SOURCE.tileUrl, requestDraw: () => { needsDraw = true; }, scenePort: sceneChan.port1, onTile, ell: ELL_ON,
+	coverage: BASE_SOURCE.coverage,   // 記述子が持つ（GSI=日本域 bbox／PMTiles=null＝アーカイブの自己申告に任せる）
 
 	// LOD下限＝タイルz8（sea gate と同じ閾値）：optbv は z8 から海が全面WA（沖合タイル=WA一枚50B級）、z7以下は
 	// 「陸=AdmArea・海=背景」モデルでWA無し＝チルトの遠景（z5-7混在）だけ海が紙色に抜けてまだらになる。
@@ -1607,8 +1626,8 @@ const { relayCtl: pipelineRelay, tiles, requestMerge, setStyle: setPipelineStyle
 	// PMTiles 基図では床を外す＝この床は「optbv は z8 から海が全面 WA」という bvmap 固有の事情のための装置で、
 	// 他人のアーカイブには当てはまらない。加えて床(z8) と maxZ(アーカイブの maxZoom・例 z3) が矛盾すると
 	// 選抜が空になり高ズームで真っ白になる（実測）。minZ も 0 へ＝低ズームまで選抜・下地・毛布を降ろす。
-	lodFloor: PM_URL ? null : { minViewZoom: 9, z: 8 },
-	minZ: PM_URL ? 0 : undefined,
+	lodFloor: BASE_SOURCE.lodFloor,
+	minZ: BASE_SOURCE.minZ,
 	// 低メモリ端末はタイル予算を絞る：multi_draw の常駐プールは tess 予算の約2倍（idx u32化・線分32B化）を
 	// GPU に占める＝既定の自動予算(48MB)だと従来比で実質メモリが膨らみ、PLATEAU の百MB級が乗った時に
 	// タブごと落ちる（スマホ実機で発生）。24MB でも可視タイル(keep)は余裕で収まり、削るのはパン戻り履歴だけ。
@@ -1643,18 +1662,18 @@ dbgHost.__mergeFail = () => requestMerge.debugFail();   // 次の merge を故�
 dbgHost.__vtPool = () => requestMerge.stats();          // multi_draw 常駐プールの占有を scene worker の console に出す
 // ?pm= のアーカイブ自己申告を読む → 層名を役割へ振って描画規則を組み → style へ前置 → 再ビルド。
 // 規則の中身は style-pm.js（役割表・紙→インクの階調・描かないものの裁定）。ここは配線だけ。
-const withPM = s => pmInfo?.layers?.length ? { ...s, layers: [...pmLayers(pmInfo, theme), ...s.layers] } : s;   // テーマ切替でも掛け直す（switchTheme が theme.style へ戻す・階調は新テーマの紙から作り直る）
-if (PM_URL) pmtilesInfo(PM_URL).then(info => {
-	pmInfo = info;   // maxZ（LOD 上限）にも即効く＝次フレームから分割が maxZoom で止まる
+const withPM = s => BASE_SOURCE.info?.layers?.length ? { ...s, layers: [...pmLayers(BASE_SOURCE.info, theme), ...s.layers] } : s;   // テーマ切替でも掛け直す（switchTheme が theme.style へ戻す・階調は新テーマの紙から作り直る）
+if (BASE_SOURCE.kind === "pmtiles") pmtilesInfo(BASE_SOURCE.url).then(info => {
+	BASE_SOURCE.info = info;   // maxZ（LOD 上限）にも即効く＝次フレームから分割が maxZoom で止まる
 	// 出典：アーカイブが metadata で宣言したものを使う。**他人の置き場の HTML＝非信頼入力**につき
 	// innerHTML の直前で消毒する（docs/geopbf §11 の作法・?pm=<攻撃者URL> を踏んでも script が走らない）。
-	pmAttrHTML = info.attribution ? sanitizeHTML(info.attribution) : null;
+	BASE_SOURCE.attrHTML = info.attribution ? sanitizeHTML(info.attribution) : null;
 	attrZone = null;   // 圏を無効化＝既に "jp" に居ても次フレームで出典が差し替わる
 	style = withPM(theme.style);
 	setPipelineStyle(style);   // 生成層込みで再ビルド
 	needsDraw = true;
 	console.info(`[pm] ${info.name || PM_SPEC}  z${info.minZoom}-${info.maxZoom}  bbox ${info.bbox ? info.bbox.map(v => v.toFixed(2)).join(", ") : "全球"}\n     層→役割: ${pmRoles(info).join(" ") || "metadata なし"}（ground/label は描かない＝decode もしない）`);
-}).catch(err => console.warn("[pm] PMTiles を読めない", PM_SPEC, err));
+}).catch(err => console.warn("[pm] PMTiles を読めない", BASE_SOURCE.url, err));
 
 dbgHost.__style = () => style;   // 現在の style＝検証フック（t-world：world-water 層が「無い」こと＝湖はエンジン lakes スロットへ移行済 2026-09-03）
 
@@ -3137,7 +3156,7 @@ function render() {
 	let tu = null, skipBase = false;
 	if (basemap) {
 		sampleGroundElev();   // 中心の地面標高を追随（非同期・~100m格子メモ）＝groundR の材料
-		tu = tiles.update(cam, size.w, size.h, { tilePx: (moving || !gpuFast || !idleCalm) ? undefined : IDLE_TILE_PX, groundR: groundRNow(), keepFine: keepFineNow(), maxZ: pmInfo ? pmInfo.maxZoom : undefined });   // maxZ＝PMTiles 基図のときアーカイブの maxZoom で分割を止める（それ以上は最細段を引き伸ばす＝空タイル要求を作らない）   // tilePx＝「本当の静止」（settle+550ms）だけ主層を一段細かく（手前の詳細化・GPU格付け fast 限定・undefined=既定560）。groundR＝地形リフト球（チルト×高標高地の手前くさび欠け根治）。keepFine＝ズームアウトの子孫代打（3D限定）。calm が needsDraw を立て、細タイルの ready は requestDraw で連鎖再描画
+		tu = tiles.update(cam, size.w, size.h, { tilePx: (moving || !gpuFast || !idleCalm) ? undefined : IDLE_TILE_PX, groundR: groundRNow(), keepFine: keepFineNow(), maxZ: BASE_SOURCE.info ? BASE_SOURCE.info.maxZoom : undefined });   // maxZ＝PMTiles 基図のときアーカイブの maxZoom で分割を止める（それ以上は最細段を引き伸ばす＝空タイル要求を作らない）   // tilePx＝「本当の静止」（settle+550ms）だけ主層を一段細かく（手前の詳細化・GPU格付け fast 限定・undefined=既定560）。groundR＝地形リフト球（チルト×高標高地の手前くさび欠け根治）。keepFine＝ズームアウトの子孫代打（3D限定）。calm が needsDraw を立て、細タイルの ready は requestDraw で連鎖再描画
 		const o = tu.order, tailNow = "#" + styleSig + "#z" + (cam.zoom >= RAILTR_MINZOOM ? 1 : 0);   // tailNow＝swapScene の署名末尾と同式
 		const merged = !!readySig && readyKeys !== null && readyTail === tailNow && readyKeys.size === o.length && o.every(t => readyKeys.has(t.key));
 		skipBase = tu.covered && merged;
@@ -3175,7 +3194,7 @@ function render() {
 				// 「日本のデータを出していない画面に地理院を並べない」と同じ筋）。宣言が無いアーカイブは
 				// 出所（ホスト名）だけでも出す＝無出典で他人の絵を出さない。門が 0 まで開く＝world/sky 圏でも
 				// アーカイブは描かれている＝そちらにも併記する（球のハイプソの出典と両方が要る）。
-				const pmSrc = PM_URL ? (pmAttrHTML || new URL(PM_URL.replace("pmtiles://", "")).host) : null;
+				const pmSrc = BASE_SOURCE.url ? (BASE_SOURCE.attrHTML || new URL(BASE_SOURCE.url.replace("pmtiles://", "")).host) : null;
 				attr.innerHTML = zone === "jp" ? (pmSrc ? t("出典：") + pmSrc + tail : attrJPHTML)
 					: zone === "world" ? t("出典：") + (pmSrc ? pmSrc + "・" : "") + worldSrc + tail
 					: t("出典：") + (pmSrc ? pmSrc + "・" : "") + A("https://github.com/ofrohn/d3-celestial", "d3-celestial") + "・" + worldSrc + tail;   // sky＝星図が先頭（星空劇場の主役）
@@ -3920,24 +3939,49 @@ map.gadget("stac", function (opts) {
 // @スタイルの見分け＝geopbf のキー表に @属性 があるか（描画系の @キーだけ見る＝他レイヤの誤検知を避ける）
 const ANNO_KEYS = new Set(["@shape", "@icon", "@text", "@size", "@fill", "@stroke", "@width", "@tip", "@pop", "@spline", "@blur", "@poly", "@start", "@end", "@cap0", "@cap1", "@cap"]);
 // ファイル取り込みの一本道（D&D と ?g= の共用）＝geopbf(File,{gint:true})→ @検知で anno 再生 or applyGintData→bboxへ球面フライト
-const loadUserFile = async file => {
-	if (/\.tiff?$/i.test(file.name)) {   // COG/GeoTIFF＝cog ガジェットへ（gint 経路の geopbf() は TIFF 非対応で null 死する）
-		annoCtl?.clear(); clearUserGint();
-		return map.gadget.cog(file).then(c => ({ length: `${c.width}×${c.height}px` })).catch(err => { console.error("[dropFile] cog", file.name, err); return null; });
-	}
-	if (/\.(parquet|geoparquet)$/i.test(file.name)) {   // GeoParquet＝GeoPBF へ落としてから下の本道（gint 焼き→描画→fit）へ合流＝以降の扱いは素の .geopbf と同一。
+// ── 取り込みの表（載せる口）─────────────────────────────────────────────────
+// 形式ごとに1行。行の型は二つだけ：
+//   draw    … その形式が自分で描き切る（GeoPBF 本道へは行かない）。返り値はトーストが使う {length}
+//   convert … File を GeoPBF の File へ変え、下の本道（gint 焼き→識別→ドレープ→fit）へ合流する
+// 旧構造は if の連なりで、形式が増えるたびに本道の手前が一段伸びた。表なら「行を1つ足す」で済む。
+// ⚠ 順序が意味を持つ：上から順に test して最初に当たった行を使う。
+const INTAKE = [
+	{
+		name: "cog",   // COG/GeoTIFF＝cog ガジェットへ（gint 経路の geopbf() は TIFF 非対応で null 死する）
+		test: f => /\.tiff?$/i.test(f.name),
+		draw: async file => {
+			annoCtl?.clear(); clearUserGint();
+			return map.gadget.cog(file).then(c => ({ length: `${c.width}×${c.height}px` })).catch(err => { console.error("[dropFile] cog", file.name, err); return null; });
+		},
+	},
+	{
+		name: "geoparquet",
+		test: f => /\.(parquet|geoparquet)$/i.test(f.name),
 		// 本体は動的 import＝.parquet を受けた時だけチャンクが降りる（初期バンドルは不変・ガジェットの遅延ロードと同じ規律）。
 		// 内部圧縮は none/snappy/gzip を自前で読む。zstd だけはブラウザに実装が無く（DecompressionStream("zstd") は
 		// 仕様にあるが全ブラウザ未実装・Node 22.15+ の node:zlib のみ）、素のエラーは "Node" と言って読み手を惑わすので包み直す。
-		const { fromGeoParquet } = await import("geopbf/geoparquet");
-		const r = await fromGeoParquet(new Uint8Array(await file.arrayBuffer())).catch(err => {
-			if (/zstd/i.test(err?.message || "")) throw new Error(tr({ "zstd 圧縮の GeoParquet はブラウザでは読めません（gzip か snappy で書き直してください）": "zstd-compressed GeoParquet cannot be read in a browser (re-write it with gzip or snappy)." })("zstd 圧縮の GeoParquet はブラウザでは読めません（gzip か snappy で書き直してください）"));
-			throw err;   // それ以外（CRS 不一致・幾何列なし等）は geopbf の文面が既に具体的＝そのまま上げてトーストへ
-		});
-		const s = r.stats;
-		if (s?.skipped?.length) console.warn("[dropFile] parquet: 読まなかった列", s.skipped.map(k => `${k.name}(${k.reason})`).join(" "));
-		console.info(`[dropFile] parquet → GeoPBF  ${s?.features ?? "?"} features・頂点 ${s?.vertices ?? "?"}・列 ${s?.columns?.length ?? "?"}・CRS ${s?.crs ?? "?"}・writer ${s?.created || "?"}`);
-		file = new File([r.pbf.arrayBuffer], file.name.replace(/\.[^.]+$/, ".geopbf"));
+		convert: async file => {
+			const { fromGeoParquet } = await import("geopbf/geoparquet");
+			const r = await fromGeoParquet(new Uint8Array(await file.arrayBuffer())).catch(err => {
+				if (/zstd/i.test(err?.message || "")) throw new Error(tr({ "zstd 圧縮の GeoParquet はブラウザでは読めません（gzip か snappy で書き直してください）": "zstd-compressed GeoParquet cannot be read in a browser (re-write it with gzip or snappy)." })("zstd 圧縮の GeoParquet はブラウザでは読めません（gzip か snappy で書き直してください）"));
+				throw err;   // それ以外（CRS 不一致・幾何列なし等）は geopbf の文面が既に具体的＝そのまま上げてトーストへ
+			});
+			const s = r.stats;
+			if (s?.skipped?.length) console.warn("[dropFile] parquet: 読まなかった列", s.skipped.map(k => `${k.name}(${k.reason})`).join(" "));
+			console.info(`[dropFile] parquet → GeoPBF  ${s?.features ?? "?"} features・頂点 ${s?.vertices ?? "?"}・列 ${s?.columns?.length ?? "?"}・CRS ${s?.crs ?? "?"}・writer ${s?.created || "?"}`);
+			return new File([r.pbf.arrayBuffer], file.name.replace(/\.[^.]+$/, ".geopbf"));
+		},
+	},
+];
+
+// 落とされた/URL で渡された1件を載せる。表で振り分け→（変換行なら）GeoPBF 本道。
+// 本道＝geopbf(gint 焼き) → @スタイル付きなら anno（canvas2D 再生）／それ以外は gint スロット → bbox へ fit。
+const loadUserFile = async file => {
+	for (const fmt of INTAKE) {
+		if (!fmt.test(file)) continue;
+		if (fmt.draw) return fmt.draw(file);
+		file = await fmt.convert(file);   // 変換行＝本道へ合流（以降の扱いは素の .geopbf と同一）
+		break;
 	}
 	const pbf = await geopbf(file, { gint: true, name: `drop/${file.name}` }).catch(err => { console.error("[dropFile] geopbf", file.name, err); return null; });
 	if (!pbf?.unPackGint) return null;
