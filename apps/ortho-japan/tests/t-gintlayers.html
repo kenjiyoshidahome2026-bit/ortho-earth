@@ -52,6 +52,9 @@ import("../app.js").then(async ({ default: orthoJapan }) => {
 		const t0 = performance.now();
 		while (!window.__backend && performance.now() - t0 < 25000) await new Promise(r => setTimeout(r, 200));
 		ok(`boot(${window.__backend})`, !!window.__backend);
+		let moveN = 0; m.on("move", () => { moveN++; });
+		const loadP = new Promise(res => { const tm = setTimeout(() => res("timeout"), 3000); m.on("load", () => { clearTimeout(tm); res(true); }); });
+		ok(`map.on load(${await loadP})`, await loadP === true);   // frame1 後の登録＝即発火（maplibre と同じ耳）
 
 		const C = [139.76, 35.68], dx = 0.006, d = 0.004;
 		const Ca = [C[0] - dx, C[1]], Cb = [C[0] + dx, C[1]], yN = Cb[1] + 0.05;
@@ -77,9 +80,11 @@ import("../app.js").then(async ({ default: orthoJapan }) => {
 		ok("setPaint B", true);
 		// ── ③ hover 往復（B が最後に追加＝アクティブ §4.1）──
 		await new Promise(r => setTimeout(r, 700));   // 追加層の初描画フレームを待つ（needsDraw→rAF）
+		let entFid = null;
 		const hovP = new Promise(res => {
 			const tm = setTimeout(() => res("timeout"), 5000);
 			lb.on("hover", f => { if (f) { clearTimeout(tm); res(f.fid); } });
+			lb.on("mouseenter", f => { entFid = f.fid; });
 		});
 		const pt = m.projectLL(Cb[0] - d, Cb[1] - d);   // B折れ線の左端点（丸キャップ中心）
 		const cv = document.querySelector("canvas");
@@ -91,12 +96,28 @@ import("../app.js").then(async ({ default: orthoJapan }) => {
 		const fidB = await hovP;
 		ok(`hover往復 B層(fid=${fidB})`, fidB === 8);
 		ok(`層tip(spy=${tipSpy})`, tipSpy === 8);   // opts.tip が hover 経路で props を受けた（表示器は t-providers が担保）
+		ok(`mouseenter(fid=${entFid})`, entFid === 8);   // MapLibre 同名の糖衣＝当たりの縁で発火
+		// 空所へ動かす＝mouseleave
+		const lvP = new Promise(res => { const tm = setTimeout(() => res("timeout"), 5000); lb.on("mouseleave", e => { clearTimeout(tm); res(e.fid); } ); });
+		const pEmpty = m.projectLL(C[0], C[1] + 0.02);   // 両層の外
+		tgt.dispatchEvent(new PointerEvent("pointermove", { clientX: rc.left + pEmpty[0], clientY: rc.top + pEmpty[1], bubbles: true, pointerId: 1, pointerType: "mouse", isPrimary: true }));
+		ok(`mouseleave(fid=${await lvP})`, await lvP === 8);
 		// ── ④ query / queryAll（main 同期 JS レイキャスト＝エンジン往復なし・{layer, fid} の対）──
 		const qp = [Ca[0], Ca[1] - d * 0.5];
 		const qa = la.query(qp);
 		ok(`layer.query(fid=${qa?.fid})`, qa?.fid === 7);
 		const hits = m.queryAll(qp);
 		ok(`queryAll(hits=${hits.length} fid=${hits[0]?.fid})`, hits.length === 1 && hits[0].layer === la && hits[0].fid === 7);
+		// ── ④b ライフサイクル動詞：setFilter / setData / setOrder / setLabel ──
+		await lb.setFilter(["==", 1, 1]);   // ③ 単独動詞（paint 設定済み＝visibility 再評価が走る）
+		ok("setFilter", true);
+		const inA5 = (lng, lat) => (Math.abs(lng - Ca[0]) < d && lat > Ca[1] - d && lat < Ca[1] + d) ? 5 : null;
+		const okSD = await la.setData(duckPbf({ arcBuffer: A.arcBuffer, arcMeta: A.arcMeta, polyStream: Int32Array.from([5, 1, 2, 0, ~1]) }, 8, inA5), {});
+		const q5 = la.query([Ca[0], Ca[1] - d * 0.5]);
+		ok(`setData(ack=${okSD} query=${q5?.fid})`, okSD === true && q5?.fid === 5);   // handle 生存のままデータ差し替え（source setData 相当）
+		la.setOrder(99); ok("setOrder", true);   // 画素の証明はエンジン検定（t-gintmulti/t-gintmultigl）
+		lb.setLabel({ field: ["get", "fid"], size: 14 }); ok("setLabel", true);   // 画素の証明は t-gintmultigl（snapshot labels）
+
 		// ── ⑤ map.on('click')＝合成 pointerdown/up → hits 集約 ──
 		const clkP = new Promise(res => {
 			const tm = setTimeout(() => res("timeout"), 5000);
@@ -108,12 +129,13 @@ import("../app.js").then(async ({ default: orthoJapan }) => {
 		ctgt.dispatchEvent(new PointerEvent("pointerdown", { clientX: ccx, clientY: ccy, bubbles: true, pointerId: 2, pointerType: "mouse", isPrimary: true, button: 0, buttons: 1 }));
 		ctgt.dispatchEvent(new PointerEvent("pointerup", { clientX: ccx, clientY: ccy, bubbles: true, pointerId: 2, pointerType: "mouse", isPrimary: true, button: 0, buttons: 0 }));
 		const clk = await clkP;
-		ok(`map.on click(hits=${clk?.hs?.length} fid=${clk?.hs?.[0]?.fid})`, clk !== "timeout" && clk.hs.length === 1 && clk.hs[0].fid === 7);
+		ok(`map.on click(hits=${clk?.hs?.length} fid=${clk?.hs?.[0]?.fid})`, clk !== "timeout" && clk.hs.length === 1 && clk.hs[0].fid === 5);   // ④b setData 後＝A は fid5 のデータ
 		// ── ⑥ admin0 独立層（coast/user 二層化）＝ズームアウトで層が立つ（スロットは admin0 を持たない）──
 		m.flyTo(139.76, 35.68, 5, 0);
 		let a0 = null;
 		for (let i = 0; i < 100 && !(a0 = window.__a0?.())?.layer; i++) await new Promise(r => setTimeout(r, 250));
 		ok(`admin0層(layer=${a0?.layer} slot=${a0?.slot ?? "null"} vis=${a0?.vis})`, a0?.layer === true && a0?.slot !== "admin0" && a0?.vis === true);
+		ok(`map.on move(n=${moveN})`, moveN > 0);   // flyTo（admin0 節）でカメラが動いた＝move が配られている
 		// ── ⑦ remove（プロトコル往復後もアプリが生存）──
 		lb.remove(); la.remove();
 		await new Promise(r => setTimeout(r, 300));

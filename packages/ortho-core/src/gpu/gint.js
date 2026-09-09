@@ -1034,6 +1034,15 @@ export function createGintLayerGPU(host, { requestDraw, noSB } = {}) {
 			style: d => style(L, d), setVisible: v => setVisible(L, v), paint: d => paint(L, d),
 			stats: () => statsFor(L),
 			activate: () => { if (act !== L) { act = L; activeId = -1; } },
+			setOrder: n => {   // 実行時の重ね順変更（moveLayer 相当）＝安定位置へ差し直し
+				const i = layers.indexOf(L);
+				if (i < 0) return;
+				layers.splice(i, 1);
+				L.order = n;
+				const at = layers.findIndex(x => x.order > n);
+				layers.splice(at < 0 ? layers.length : at, 0, L);
+				requestDraw?.();
+			},
 			remove: () => {
 				const i = layers.indexOf(L);
 				if (i < 0) return;

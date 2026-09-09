@@ -5,7 +5,7 @@ import { cameraState, project, unproject, lonlatTo3D } from "./camera.js";
 
 const FONT_STACK = `"Noto Sans JP","Hiragino Sans","Yu Gothic UI","Yu Gothic",sans-serif`;
 const css = (c, op = 1) => `rgba(${Math.round(c[0] * 255)},${Math.round(c[1] * 255)},${Math.round(c[2] * 255)},${c[3] * op})`;
-const keyOf = L => L.text + "@" + L.anchor[0].toFixed(5) + "," + L.anchor[1].toFixed(5);
+const keyOf = L => (L.k ? L.k + "|" : "") + L.text + "@" + L.anchor[0].toFixed(5) + "," + L.anchor[1].toFixed(5);   // k＝利用者層 id（層またぎのキー衝突防止）
 const nowMs = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
 
 // shieldFor(L) → { img:CanvasImageSource, w, h }（CSS px）を返すとテキストの代わりにその絵を描く。
@@ -38,9 +38,34 @@ export function createLabelLayer(canvas, { pad = 5, fade = 0.3, recollideMs = 15
 	let labelByKey = new Map();     // key → L（フェードアウト中ラベルの逆引き。draw 毎の線形探索を排除）
 
 	function setLabels(list) {
-		labels = list.slice().sort((a, b) => a.sort - b.sort);
-		labelByKey = new Map(labels.map(L => [keyOf(L), L]));
+		labels = list.slice();
+		rebuild();
+	}
+	// ── 利用者層のラベル集合（gint 多層の text-field・2026-09-09）＝基図ラベルと同じ衝突/フェード/標高投影に相乗り。
+	// id 別に持ち、層の setVisible/remove と連動。minZoom/maxZoom＝層の属性（ラベルへ焼き込み・collide で裁く）。
+	// sort 既定 -1＝利用者データのラベルが基図注記に勝つ（「今載せたデータを見たい」）。
+	const userSets = new Map();   // id → { list, visible }
+	function rebuild() {
+		const u = [];
+		for (const st of userSets.values()) if (st.visible) u.push(...st.list);
+		const all = [...u, ...labels].sort((a, b) => (a.sort ?? 0) - (b.sort ?? 0));
+		labelByKey = new Map(all.map(L => [keyOf(L), L]));
+		combined = all;
 		dirty = true;
+	}
+	let combined = [];
+	function setUserLabels(id, list, meta = {}) {
+		if (!list?.length) userSets.delete(id);
+		else userSets.set(id, {
+			visible: userSets.get(id)?.visible ?? true,
+			list: list.map(L => ({ sort: -1, size: 12, color: [0.15, 0.18, 0.22, 1], halo: [1, 1, 1, 0.9], haloW: 2, ...L,
+				k: String(id), minZ: meta.minZoom ?? null, maxZ: meta.maxZoom ?? null })),
+		});
+		rebuild();
+	}
+	function setUserVisible(id, v) {
+		const st = userSets.get(id);
+		if (st && st.visible !== !!v) { st.visible = !!v; rebuild(); }
 	}
 	// 星空劇場の注記（星座名・メシエ天体）。データは { constellations:[{cel,name}], messier:[{cel,name,type}] }、
 	// cel＝天球単位ベクトル（RA/Dec焼き込み・アプリが供給）。null＝非表示（星座線のトグルと同期）。
@@ -55,11 +80,12 @@ export function createLabelLayer(canvas, { pad = 5, fade = 0.3, recollideMs = 15
 	}
 
 	// 衝突判定（優先度順の貪欲）。当選集合 winners を更新。
-	function collide(st, dpr, Wc, Hc, eScale, showFlat, fogF) {
+	function collide(st, dpr, Wc, Hc, eScale, showFlat, fogF, zoomV) {
 		const placed = [], w = new Map();
 		let font = "";
-		for (const L of labels) {
-			if (L.flat && !showFlat) continue;   // 傾けたら測量点(真俯瞰の作法)は当選集合から外す＝以降フェードアウト（等高線と対称）
+		for (const L of combined) {
+			if (L.flat && !showFlat) continue;
+			if ((L.minZ != null && zoomV < L.minZ) || (L.maxZ != null && zoomV > L.maxZ)) continue;   // 利用者層＝層の zoom 域で裁く   // 傾けたら測量点(真俯瞰の作法)は当選集合から外す＝以降フェードアウト（等高線と対称）
 			const [dx, dy, front] = project(st, L.anchor[0], L.anchor[1], radiusOf(L, eScale, st, fogF));
 			if (front < 0) continue;
 			const sx = dx / dpr, sy = dy / dpr;
@@ -96,7 +122,7 @@ export function createLabelLayer(canvas, { pad = 5, fade = 0.3, recollideMs = 15
 		const now = nowMs();
 		if (showFlat !== lastShowFlat) { dirty = true; lastShowFlat = showFlat; }   // 閾値跨ぎで即再衝突判定→flat を外す/戻す
 		const fogF = Math.max(st.camDist * 5.0, 0.026 * pfFog);
-		if (dirty || now - lastCollide > recollideMs) { collide(st, dpr, Wc, Hc, eScale, showFlat, fogF); lastCollide = now; dirty = false; }
+		if (dirty || now - lastCollide > recollideMs) { collide(st, dpr, Wc, Hc, eScale, showFlat, fogF, cam.zoom ?? 99); lastCollide = now; dirty = false; }
 
 		ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, W, H); ctx.scale(dpr, dpr);
 		ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.lineJoin = "round"; ctx.miterLimit = 2;
@@ -215,5 +241,5 @@ export function createLabelLayer(canvas, { pad = 5, fade = 0.3, recollideMs = 15
 		}
 	}
 
-	return { setLabels, setSky, setMoon, draw, clear };
+	return { setLabels, setUserLabels, setUserVisible, setSky, setMoon, draw, clear };
 }
