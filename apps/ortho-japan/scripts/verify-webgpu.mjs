@@ -34,8 +34,8 @@ try {
 		await sleep(250);
 	}
 	fail = 0;
-	for (const page of ["t-webgpu", "t-aatrans", "t-gintgpu", "t-plateaufs", "t-baselane"]) {   // t-aatrans＝遷移時AA（実GPUの実時間必須）。t-plateaufs＝OPFS 実I/O（同期ハンドル）＝実時間必須（仮想時間はタイマー先燃えで偽陽性）
-		const url = `http://localhost:${PORT}/japan/tests/${page}.html`;
+	for (const page of ["t-webgpu", "t-aatrans", "t-gintgpu", "t-gintgpu?gintsb=0", "t-plateaufs", "t-baselane"]) {   // t-aatrans＝遷移時AA（実GPUの実時間必須）。t-plateaufs＝OPFS 実I/O（同期ハンドル）＝実時間必須（仮想時間はタイマー先燃えで偽陽性）。t-gintgpu は storage/テクスチャ両経路
+		const url = `http://localhost:${PORT}/japan/tests/${page.replace(/(\?|$)/, ".html$1")}`;
 		const target = await (await fetch(`http://127.0.0.1:${CDP}/json/new?${encodeURIComponent(url)}`, { method: "PUT" })).json();
 		ws = new WebSocket(target.webSocketDebuggerUrl);
 		await new Promise((res, rej) => { ws.onopen = res; ws.onerror = rej; });
@@ -68,7 +68,7 @@ try {
 		}
 		const bad = title.startsWith("PASS") ? 0 : 1;
 		fail += bad;
-		console.log(`${bad ? "FAIL" : "PASS"}  ${page.padEnd(10)} ${title.replace(/^(PASS|FAIL) ?/, "") || "（titleがPASS/FAILにならない＝起動不能）"}`);
+		console.log(`${bad ? "FAIL" : "PASS"}  ${page.padEnd(18)} ${title.replace(/^(PASS|FAIL) ?/, "") || "（titleがPASS/FAILにならない＝起動不能）"}`);
 		try { ws.close(); } catch { /* 次ページへ */ }
 	}
 } catch (e) {

@@ -100,6 +100,9 @@ export function createGintLayerGPU(host, { requestDraw, noSB } = {}) {
 	const stOcc = { ...keepDS, stencilFront: { compare: "equal", failOp: "keep", depthFailOp: "keep", passOp: "replace" }, stencilBack: { compare: "equal", failOp: "keep", depthFailOp: "keep", passOp: "replace" }, stencilReadMask: 0x80, stencilWriteMask: 0x7F };
 	const pickLinePipe = pipe(lineMod, "vsPickLine", "fsPick", { ds: null, blend: undefined, samples: 1, fmt: "rgba8unorm" });
 	const pickPointPipe = pipe(pointMod, "vsPickPoint", "fsPickPoint", { ds: null, blend: undefined, samples: 1, fmt: "rgba8unorm" });
+	// pick は 1x 固定＝pipeSets の外だが、group(2) のレイアウトはパイプラインと bind group で一致必須＝storage 版も対で持つ
+	const pickLinePipeSB = SB ? pipe(lineModSB, "vsPickLine", "fsPick", { ds: null, blend: undefined, samples: 1, fmt: "rgba8unorm", lay: layoutSB }) : null;
+	const pickPointPipeSB = SB ? pipe(pointModSB, "vsPickPoint", "fsPickPoint", { ds: null, blend: undefined, samples: 1, fmt: "rgba8unorm", lay: layoutSB }) : null;
 	// コロプレス ID 塗り（idfill.js）：① winding 和を ID テクスチャへ加算蓄積（fan 幾何・単一サンプル・深度なし）
 	// ② 解決＝ID 画素→fid→スタイル表→色を main パスへ。
 	// ★蓄積は fid+1 の winding 和＝市区町村1919個では fid+1 最大1920＋加算途中和が半精度(rg16float)の整数正確域
@@ -109,11 +112,13 @@ export function createGintLayerGPU(host, { requestDraw, noSB } = {}) {
 	const canIdF32 = !!device.features?.has?.("float32-blendable");
 	const ID_MAX_FID = canIdF32 ? (1 << 20) : 2047, ID_FMT = canIdF32 ? "rg32float" : "rg16float";
 	if (!canIdF32) console.warn("[gint] float32-blendable 無し＝idfill は rg16float（大fid市区町村コロプレスで塗り穴の恐れ）");
-	const idAccumPipe = device.createRenderPipeline({
-		layout, vertex: { module: stencilMod, entryPoint: "vsId" },
-		fragment: { module: stencilMod, entryPoint: "fsId", targets: [{ format: ID_FMT, blend: { color: { srcFactor: "one", dstFactor: "one", operation: "add" }, alpha: { srcFactor: "one", dstFactor: "one", operation: "add" } } }] },
+	const mkIdAccum = (mod, lay) => device.createRenderPipeline({
+		layout: lay, vertex: { module: mod, entryPoint: "vsId" },
+		fragment: { module: mod, entryPoint: "fsId", targets: [{ format: ID_FMT, blend: { color: { srcFactor: "one", dstFactor: "one", operation: "add" }, alpha: { srcFactor: "one", dstFactor: "one", operation: "add" } } }] },
 		primitive: { topology: "triangle-list" }, multisample: { count: 1 },
 	});
+	const idAccumPipe = mkIdAccum(stencilMod, layout);
+	const idAccumPipeSB = SB ? mkIdAccum(stencilModSB, layoutSB) : null;
 	const idResolveMod = mkMod(GINT_IDRESOLVE_WGSL, "idresolve");
 	const bglIdResolve = device.createBindGroupLayout({ entries: [
 		{ binding: 0, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "unfilterable-float" } },   // idTex rg16float
@@ -198,6 +203,8 @@ export function createGintLayerGPU(host, { requestDraw, noSB } = {}) {
 	const bufU32 = raw => { const b = device.createBuffer({ size: Math.max(4, raw.byteLength), usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST }); device.queue.writeBuffer(b, 0, raw); return b; };
 	// raw＝padding 前の生配列（storage は 4096 幅の折り返しが要らない）。128MB を超える層はテクスチャのまま。
 	const regBuf = (tex, raw) => { if (SB && raw && raw.byteLength <= SB_LIMIT) bufOf.set(tex, bufU32(raw)); return tex; };
+	// 破棄はテクスチャと対で（WeakMap の自然回収待ち＝GC まで VRAM を掴む）。buffer の無いテクスチャにも安全
+	const dropTex = tex => { if (!tex) return; const b = bufOf.get(tex); if (b) { b.destroy(); bufOf.delete(tex); } tex.destroy(); };
 	let sbOn = false;   // この層が storage 経路で描けるか（group(2) の全資源に buffer が揃っているか）
 	const sbNow = () => sbOn;
 	const sbReady = () => SB
@@ -252,7 +259,7 @@ export function createGintLayerGPU(host, { requestDraw, noSB } = {}) {
 	function applyArtifacts(art) {
 		const { gintData } = s;
 		const { arcBuffer: ab, pointBuffer: pb } = gintData;
-		if (s.arcTex) s.arcTex.destroy();
+		dropTex(s.arcTex);
 		s.arcTex = null;
 		if (ab?.length) {
 			const arcU32 = new Uint32Array(ab.buffer, ab.byteOffset, ab.byteLength / 4);
@@ -261,7 +268,7 @@ export function createGintLayerGPU(host, { requestDraw, noSB } = {}) {
 			arcPad.set(arcU32);
 			s.arcTex = regBuf(texU32(arcPad, s.TEX_ARC_W, arcH, "rg32uint", 2), arcU32);
 		}
-		if (s.metaTex) s.metaTex.destroy();
+		dropTex(s.metaTex);
 		s.metaTex = null;
 		s.totalEdges = art.base.edgeCount;
 		s.polyEdges = art.base.polyEdgeCount;
@@ -279,7 +286,7 @@ export function createGintLayerGPU(host, { requestDraw, noSB } = {}) {
 			s.pivotTex = texU32(art.pivot.px, art.pivot.w, art.pivot.h, "rgba32uint", 4);
 			s.pivotW = art.pivot.w;
 		}
-		if (s.metaTexB) s.metaTexB.destroy();
+		dropTex(s.metaTexB);
 		s.metaTexB = null;
 		s.totalEdgesB = 0; s.polyEdgesB = 0;
 		if (art.boundary) {
@@ -287,20 +294,21 @@ export function createGintLayerGPU(host, { requestDraw, noSB } = {}) {
 			s.polyEdgesB = art.boundary.polyEdgeCount;
 			s.metaTexB = uploadMetaTex(art.boundary.metaU32, art.boundary.edgeCount);
 		}
-		if (s.ptTex) { s.ptTex.destroy(); s.ptTex = null; }
-		if (s.ptMetaTex) { s.ptMetaTex.destroy(); s.ptMetaTex = null; }
+		dropTex(s.ptTex); s.ptTex = null;
+		dropTex(s.ptMetaTex); s.ptMetaTex = null;
 		if (pb?.length) {
 			const ptU32 = new Uint32Array(pb.buffer, pb.byteOffset, pb.byteLength / 4);
 			s.totalPoints = ptU32.length / 2;
 			const ptH = Math.ceil(s.totalPoints / s.TEX_ARC_W);
 			const ptPad = new Uint32Array(s.TEX_ARC_W * ptH * 2);
 			ptPad.set(ptU32);
-			s.ptTex = texU32(ptPad, s.TEX_ARC_W, ptH, "rg32uint", 2);
+			s.ptTex = regBuf(texU32(ptPad, s.TEX_ARC_W, ptH, "rg32uint", 2), ptU32);
+			const ptMetaRaw = gintData.point.subarray(0, s.totalPoints);
 			const ptMetaPad = new Uint32Array(s.TEX_ARC_W * ptH);
-			ptMetaPad.set(gintData.point.subarray(0, s.totalPoints));
-			s.ptMetaTex = texU32(ptMetaPad, s.TEX_ARC_W, ptH, "r32uint", 1);
+			ptMetaPad.set(ptMetaRaw);
+			s.ptMetaTex = regBuf(texU32(ptMetaPad, s.TEX_ARC_W, ptH, "r32uint", 1), ptMetaRaw);
 		} else s.totalPoints = 0;
-		if (s.lodTiers?.length) s.lodTiers.forEach(t => t.tex.destroy());
+		if (s.lodTiers?.length) s.lodTiers.forEach(t => dropTex(t.tex));
 		s.lodTiers = [];
 		s.tiersDone = false;
 	}
@@ -340,8 +348,8 @@ export function createGintLayerGPU(host, { requestDraw, noSB } = {}) {
 		setTimeout(buildNext, 0);
 	}
 	function deleteTextures() {
-		for (const f of ["arcTex", "metaTex", "metaTexB", "ptTex", "ptMetaTex", "pivotTex"]) if (s[f]) { s[f].destroy(); s[f] = null; }
-		if (s.lodTiers?.length) s.lodTiers.forEach(t => t.tex.destroy());
+		for (const f of ["arcTex", "metaTex", "metaTexB", "ptTex", "ptMetaTex", "pivotTex"]) { dropTex(s[f]); s[f] = null; }
+		if (s.lodTiers?.length) s.lodTiers.forEach(t => dropTex(t.tex));
 		s.lodTiers = [];
 		s.metaChunks = null;
 		s.totalEdgesB = s.polyEdgesB = 0;
@@ -395,8 +403,8 @@ export function createGintLayerGPU(host, { requestDraw, noSB } = {}) {
 	};
 	const deleteBundleTextures = (b) => {
 		for (const f of ["arcTex", "metaTex", "metaTexB", "ptTex", "ptMetaTex", "pivotTex", "fidStyleTex"])
-			if (b[f]) { b[f].destroy(); b[f] = null; }
-		if (b.lodTiers?.length) b.lodTiers.forEach(t => t.tex.destroy());
+			{ dropTex(b[f]); b[f] = null; }
+		if (b.lodTiers?.length) b.lodTiers.forEach(t => dropTex(t.tex));
 		b.lodTiers = [];
 	};
 	function setSlot(key) {
@@ -600,6 +608,7 @@ export function createGintLayerGPU(host, { requestDraw, noSB } = {}) {
 		};
 		const fr = host.frameInfo();
 		if (!fr) { mark("noFrame"); return; }
+		sbOn = sbReady();   // 経路（storage/テクスチャ）はフレーム頭で確定＝pipesFor と texBG が同じ側を向く（フレーム内混在はレイアウト不一致）
 		if (!visible && !s.polyBboxByFid && s.totalPoints === 0) { mark("hidden"); s._inRange = false; s.lastDrawData = null; return; }
 		s.width = fr.w;
 		s.height = fr.h;
@@ -712,7 +721,7 @@ export function createGintLayerGPU(host, { requestDraw, noSB } = {}) {
 			idRCPU[0] = s.fidStyleW || 1; idRCPU[1] = s.fidStyleCount; idRCPU[2] = s.idOverlapMode ? 1 : 0; idRCPU[3] = 0;
 			device.queue.writeBuffer(idRBuf, 0, idRCPU);
 			const idPass = fr.enc.beginRenderPass({ timestampWrites: host.passTS?.("gint"), colorAttachments: [{ view: idTexView, loadOp: "clear", clearValue: { r: 0, g: 0, b: 0, a: 0 }, storeOp: "store" }] });
-			idPass.setPipeline(idAccumPipe);
+			idPass.setPipeline(sbOn ? idAccumPipeSB : idAccumPipe);
 			idPass.setBindGroup(0, frameBG[GF_FILL]); idPass.setBindGroup(1, paramBG[ROLE.stencil]);
 			idPass.setBindGroup(2, texBG(s.arcTex, s.metaTex)); idPass.setBindGroup(3, aux);
 			idPass.draw(s.polyEdges * 3);
@@ -829,6 +838,7 @@ export function createGintLayerGPU(host, { requestDraw, noSB } = {}) {
 			return;
 		}
 		if (!s.polyBboxByFid && s.totalPoints === 0) return;
+		sbOn = sbReady();   // draw と別タスク＝set で資源が入れ替わっていることがある＝再ラッチ
 		if (!pickTex || fboW !== s.width || fboH !== s.height) {
 			if (pickTex) pickTex.destroy();
 			pickTex = device.createTexture({ size: [s.width, s.height], format: "rgba8unorm", usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC });
@@ -852,13 +862,13 @@ export function createGintLayerGPU(host, { requestDraw, noSB } = {}) {
 		pass.setBindGroup(3, aux);
 		if (s.totalEdges > 0 && s.metaTex && s.arcTex) {
 			const pkSel = pickLineTier(data.lodRank ?? 0, s.metaTex, s.totalEdges);
-			pass.setPipeline(pickLinePipe);
+			pass.setPipeline(sbOn ? pickLinePipeSB : pickLinePipe);
 			pass.setBindGroup(1, paramBG[ROLE.pickLine]);
 			pass.setBindGroup(2, texBG(s.arcTex, pkSel.tex));
 			for (const [est, cnt] of (pkSel.runs ?? [[0, pkSel.count]])) pass.draw(cnt * 6, 1, est * 6);
 		}
 		if (s.totalPoints > 0 && s.ptTex && s.ptMetaTex) {
-			pass.setPipeline(pickPointPipe);
+			pass.setPipeline(sbOn ? pickPointPipeSB : pickPointPipe);
 			pass.setBindGroup(1, paramBG[ROLE.pickPoint]);
 			pass.setBindGroup(2, texBG(s.ptTex, s.ptMetaTex));
 			pass.draw(s.totalPoints * 6);
@@ -965,7 +975,7 @@ export function createGintLayerGPU(host, { requestDraw, noSB } = {}) {
 		s.activeId = -1; s.lastDrawData = null;
 	}
 	function stats() {
-		return { drawn: s._pfDrawn ?? 0, fbo: s._pfFbo ?? 0, pickMs: s._pfPickMs ?? 0,
+		return { drawn: s._pfDrawn ?? 0, fbo: s._pfFbo ?? 0, pickMs: s._pfPickMs ?? 0, sb: SB ? (sbOn ? 1 : 0) : -1,
 			rank: s.lastDrawData?.lodRank ?? -1, tierW: s._pfTierW ?? -1, edges: s._pfLineEdges ?? 0, dbg: s._dbg ?? null, ring: (s._dbgRing ?? []).slice(-40).join(" "),
 			style: drawStyle ? { oz: drawStyle.outlineZoom, mb: drawStyle.moveBudget, nd: drawStyle.noDepth, lw: drawStyle.lineWidth } : null,
 			tiers: s.lodTiers?.length ?? 0, tiersDone: !!s.tiersDone, total: s.totalEdges,

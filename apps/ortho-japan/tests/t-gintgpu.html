@@ -26,7 +26,8 @@ try {
 	const { cameraState, project } = await import("../../../packages/ortho-core/src/camera.js");
 	const canvas = document.getElementById("g");
 	const r = await createRendererGPU(canvas);
-	const gint = createGintLayerGPU(r, { requestDraw: () => {} });
+	const noSB = /[?&]gintsb=0/.test(location.search);   // verify が両経路を回す（既定=storage・?gintsb=0=テクスチャ）
+	const gint = createGintLayerGPU(r, { requestDraw: () => {}, noSB });
 	ok("boot(webgpu+gint)", !!r.device);
 	const rd = document.createElement("canvas"); rd.width = 256; rd.height = 256;
 	const rctx = rd.getContext("2d", { willReadFrequently: true });
@@ -85,6 +86,8 @@ try {
 		let px = 0;
 		for (let i = 0; i < a8.length; i += 4) if (a8[i] > 150 && a8[i + 1] < 130) px++;   // 赤fill画素
 		ok(`小データ塗り(px=${px})`, px > 1000 && px < 60000);
+		// 経路の検札：既定＝storage buffer（sb=1）・?gintsb=0＝storage 不可扱い（sb=-1）＝狙った側で描いた事を証す
+		ok(`sb経路(${gint.stats().sb})`, gint.stats().sb === (noSB ? -1 : 1));
 
 		// ── ④ pick識別：折れ線＝GPU hit / ポリゴン中心＝JS fallback（findPolygon）──
 		const st = cameraState(cam, 256, 256);
