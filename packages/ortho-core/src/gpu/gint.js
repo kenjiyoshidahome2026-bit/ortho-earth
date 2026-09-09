@@ -14,14 +14,22 @@ import { checkZoomRange } from "../gl/gint/utility.js";
 import { bakeBase, bakeTier, tierPlan } from "../gl/gint/bake.js";
 import { findPolygon } from "geopbf/identify";
 import { unproject, betaOf, ellipsoidOn } from "../camera.js";
-import { GINT_LINE_WGSL, GINT_STENCIL_WGSL, GINT_POINT_WGSL, GINT_IDRESOLVE_WGSL } from "./gintwgsl.js";
+import { GINT_LINE_WGSL, GINT_STENCIL_WGSL, GINT_POINT_WGSL, GINT_IDRESOLVE_WGSL, toStorageWGSL } from "./gintwgsl.js";
 
 const OUTLINE_ZOOM = 13;   // 既定の切替z（passes.js と同値）
 const GP_SLOT = 256;
 const ROLE = { stencil: 0, fill: 1, line: 2, lineHidden: 3, hilite: 4, maskStencil: 5, maskFill: 6, point: 7, pointHi: 8, pickLine: 9, pickPoint: 10 };
 
-export function createGintLayerGPU(host, { requestDraw } = {}) {
-	const { device, format } = host;   // host＝createRendererGPU（frameInfo() で開いたフレームの的を貸す）
+export function createGintLayerGPU(host, { requestDraw, noSB } = {}) {
+	const { device, format } = host;
+	// ── storage buffer 経路（?gintsb=0 で従来のテクスチャ経路へ）──────────────
+	// group(2)（頂点 arc・辺メタ）だけを storage buffer にする。テクスチャ経路は GL2 の制約の形で、
+	// WebGPU では線形添字の `% w` / `/ w`（整数除算）を頂点シェーダの最内側で毎回払う羽目になる。
+	// 実測: ALU 律速なら 42% 速い／帯域律速なら差なし＝効きはデータ次第ゆえ**両方持って測れる形**にする。
+	// ⚠ group(2) は line/stencil と point が1レイアウトを共有＝arc/meta/tier/pt/ptMeta の6種まとめて切替。
+	// ⚠ storage の binding 上限は 128MB（テクスチャ経路の 268MB より狭い）＝超える層はテクスチャへ落とす。
+	const SB_LIMIT = device.limits?.maxStorageBufferBindingSize ?? 0;
+	const SB = !noSB && SB_LIMIT > 0 && (device.limits?.maxStorageBuffersPerShaderStage ?? 0) >= 2;   // host＝createRendererGPU（frameInfo() で開いたフレームの的を貸す）
 	s.embedded = true;
 	s.requestDraw = requestDraw ?? null;
 	s.gl = null;   // GL は不在（識別の readPixels 等が誤って走らないよう明示）
@@ -43,7 +51,12 @@ export function createGintLayerGPU(host, { requestDraw } = {}) {
 		{ binding: 2, visibility: GPUShaderStage.VERTEX, texture: { sampleType: "float" } },
 		{ binding: 3, visibility: GPUShaderStage.VERTEX, sampler: { type: "filtering" } },
 	] });
+	const bglBuf2 = device.createBindGroupLayout({ entries: [
+		{ binding: 0, visibility: GPUShaderStage.VERTEX, buffer: { type: "read-only-storage" } },
+		{ binding: 1, visibility: GPUShaderStage.VERTEX, buffer: { type: "read-only-storage" } },
+	] });
 	const layout = device.createPipelineLayout({ bindGroupLayouts: [bglFrame, bglParam, bglTex2, bglAux] });
+	const layoutSB = device.createPipelineLayout({ bindGroupLayouts: [bglFrame, bglParam, bglBuf2, bglAux] });
 	const mkMod = (code, label) => {   // WGSL コンパイル失敗の可視化（renderer.js mkMod と同文・host.gpuErrors へ合流）
 		const m = device.createShaderModule({ code });
 		m.getCompilationInfo && m.getCompilationInfo().then(info => {
@@ -54,6 +67,10 @@ export function createGintLayerGPU(host, { requestDraw } = {}) {
 	const lineMod = mkMod(GINT_LINE_WGSL, "line");
 	const stencilMod = mkMod(GINT_STENCIL_WGSL, "stencil");
 	const pointMod = mkMod(GINT_POINT_WGSL, "point");
+	// storage 版は原本の機械変換＝二重管理をしない（toStorageWGSL が変換漏れを例外で知らせる）
+	const lineModSB = SB ? mkMod(toStorageWGSL(GINT_LINE_WGSL), "line-sb") : null;
+	const stencilModSB = SB ? mkMod(toStorageWGSL(GINT_STENCIL_WGSL), "stencil-sb") : null;
+	const pointModSB = SB ? mkMod(toStorageWGSL(GINT_POINT_WGSL), "point-sb") : null;
 	// gint は straight alpha（GL blendFuncSeparate(SRC_ALPHA, 1-SA, ONE, 1-SA) と同じ）
 	const SBLEND = {
 		color: { srcFactor: "src-alpha", dstFactor: "one-minus-src-alpha", operation: "add" },
@@ -61,9 +78,9 @@ export function createGintLayerGPU(host, { requestDraw } = {}) {
 	};
 	const DS = "depth24plus-stencil8";   // renderer と共有する深度・ステンシル
 	const keepDS = { format: DS, depthWriteEnabled: false, depthCompare: "always" };
-	const pipe = (mod, vs, fs, { ds = keepDS, blend = SBLEND, writeMask, samples = host.samples || 4, fmt = format } = {}) =>   // 既定＝renderer の MSAA 段数（?msaa=0＝1x に追随）
+	const pipe = (mod, vs, fs, { ds = keepDS, blend = SBLEND, writeMask, samples = host.samples || 4, fmt = format, lay = layout } = {}) =>   // 既定＝renderer の MSAA 段数（?msaa=0＝1x に追随）
 		device.createRenderPipeline({
-			layout,
+			layout: lay,
 			vertex: { module: mod, entryPoint: vs },
 			fragment: { module: mod, entryPoint: fs, targets: [{ format: fmt, blend, writeMask }] },
 			primitive: { topology: "triangle-list" },
@@ -116,22 +133,24 @@ export function createGintLayerGPU(host, { requestDraw } = {}) {
 	// 静止4x）に multisample count を揃える＝焼き込みゆえセット取替。sampleCount 毎に遅延生成・恒久キャッシュ。
 	// pick 系（別パス・rgba8・非MSAA）と idAccum（rg16/32float 蓄積）は従来どおり 1x 固定＝セット外。
 	// VS_STENCIL_MASK 系は GL 側でも現行パスで未使用（drawHighlight の mask fan は stencilProgram＝レンジ描画）＝パイプライン化しない
-	const buildPipes = sc => ({
-		stencilFan: pipe(stencilMod, "vsStencil", "fsNull", { ds: stFan, blend: undefined, writeMask: 0, samples: sc }),
-		cover: pipe(stencilMod, "vsFull", "fsFill", { ds: stCoverNE, samples: sc }),
-		coverEq: pipe(stencilMod, "vsFull", "fsFill", { ds: stCoverEQ, samples: sc }),
-		zero: pipe(stencilMod, "vsFull", "fsNull", { ds: stZero, blend: undefined, writeMask: 0, samples: sc }),
-		occlude: pipe(stencilMod, "vsFull", "fsNull", { ds: stOcc, blend: undefined, writeMask: 0, samples: sc }),   // 建物 bit7→winding 消し込み
-		line: pipe(lineMod, "vsRender", "fsRender", { samples: sc }),
-		lineTest: pipe(lineMod, "vsRender", "fsRender", { ds: { ...keepDS, depthCompare: "less-equal" }, samples: sc }),
-		lineHidden: pipe(lineMod, "vsRender", "fsRender", { ds: { ...keepDS, depthCompare: "greater" }, samples: sc }),
-		point: pipe(pointMod, "vsPoint", "fsPoint", { samples: sc }),
+	const buildPipes = (sc, sb) => { const [lm, sm, pm, lay] = sb ? [lineModSB, stencilModSB, pointModSB, layoutSB] : [lineMod, stencilMod, pointMod, layout]; return ({
+		stencilFan: pipe(sm, "vsStencil", "fsNull", { ds: stFan, blend: undefined, writeMask: 0, samples: sc, lay }),
+		cover: pipe(sm, "vsFull", "fsFill", { ds: stCoverNE, samples: sc, lay }),
+		coverEq: pipe(sm, "vsFull", "fsFill", { ds: stCoverEQ, samples: sc, lay }),
+		zero: pipe(sm, "vsFull", "fsNull", { ds: stZero, blend: undefined, writeMask: 0, samples: sc, lay }),
+		occlude: pipe(sm, "vsFull", "fsNull", { ds: stOcc, blend: undefined, writeMask: 0, samples: sc, lay }),   // 建物 bit7→winding 消し込み
+		line: pipe(lm, "vsRender", "fsRender", { samples: sc, lay }),
+		lineTest: pipe(lm, "vsRender", "fsRender", { ds: { ...keepDS, depthCompare: "less-equal" }, samples: sc, lay }),
+		lineHidden: pipe(lm, "vsRender", "fsRender", { ds: { ...keepDS, depthCompare: "greater" }, samples: sc, lay }),
+		point: pipe(pm, "vsPoint", "fsPoint", { samples: sc, lay }),
 		idResolve: mkIdResolve(keepDS, sc),
 		idResolveOcc: mkIdResolve(stIdOcc, sc),
-	});
+	}); };
 	const pipeSets = new Map();
-	const pipesFor = sc => { let p = pipeSets.get(sc); if (!p) { p = buildPipes(sc); pipeSets.set(sc, p); } return p; };
-	pipesFor(host.samples || 4);   // 品質段は生成時に先行コンパイル（renderworker の gint init検証スコープで検札）。1x は初の遷移フレームで遅延生成
+	// キーは (storage か) × MSAA 段＝層ごとに経路が変わっても互いのキャッシュを潰さない
+	const pipesFor = (sc, sb = sbNow()) => { const k = `${sb ? "b" : "t"}#${sc}`; let p = pipeSets.get(k); if (!p) { p = buildPipes(sc, sb); pipeSets.set(k, p); } return p; };
+	pipesFor(host.samples || 4, false);
+	if (SB) pipesFor(host.samples || 4, true);   // 品質段は生成時に先行コンパイル（renderworker の gint init検証スコープで検札）。1x は初の遷移フレームで遅延生成
 
 	// ── UBO（GF 4スロット＝(rank, rank0)×(pivot有効, 境界メタ=単一要・カリング無効)・GP 役割別・style表）──
 	// 境界メタは「多数 fid の arc 寄せ集め」＝per-fid 扇要では閉ループが閉じず巻き数が漏れる＝GL 版
@@ -172,9 +191,33 @@ export function createGintLayerGPU(host, { requestDraw } = {}) {
 	// コロプレス塗りが使えるか（idfill.js canUseIdFill）：paint(fid表)あり・ポリゴンあり・fillOff でない・fid が rg16float 上限内。
 	function canUseIdFill() { return !!s.fidStyleTex && s.polyEdges > 0 && !s.fillOff && !!s.arcTex && s.fidStyleCount <= ID_MAX_FID; }
 
+	// ── storage buffer の並走 ────────────────────────────────────────────────
+	// テクスチャ1枚につき同内容の storage buffer を1本持ち、対応表で引く＝描画側 9 箇所の呼び出し
+	// （texBG(s.arcTex, lnSel.tex) 等）を一切書き換えずにモードを切り替えられる。
+	const bufOf = new WeakMap();   // texture → 同内容の storage buffer
+	const bufU32 = raw => { const b = device.createBuffer({ size: Math.max(4, raw.byteLength), usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST }); device.queue.writeBuffer(b, 0, raw); return b; };
+	// raw＝padding 前の生配列（storage は 4096 幅の折り返しが要らない）。128MB を超える層はテクスチャのまま。
+	const regBuf = (tex, raw) => { if (SB && raw && raw.byteLength <= SB_LIMIT) bufOf.set(tex, bufU32(raw)); return tex; };
+	let sbOn = false;   // この層が storage 経路で描けるか（group(2) の全資源に buffer が揃っているか）
+	const sbNow = () => sbOn;
+	const sbReady = () => SB
+		&& (!s.arcTex || bufOf.has(s.arcTex)) && (!s.metaTex || bufOf.has(s.metaTex))
+		&& (!s.metaTexB || bufOf.has(s.metaTexB)) && (!s.ptTex || bufOf.has(s.ptTex))
+		&& (!s.ptMetaTex || bufOf.has(s.ptMetaTex)) && (s.lodTiers ?? []).every(t => bufOf.has(t.tex));
+
 	// group(2)＝(arc|pt, meta|ptMeta) の bind group キャッシュ（テクスチャ差し替えで自然無効化）
-	const texBGs = new WeakMap();
+	const texBGs = new WeakMap(), bufBGs = new WeakMap();
 	const texBG = (a, b) => {
+		if (sbOn) {   // storage 経路＝対応する buffer で bind（レイアウトは bglBuf2・パイプラインも storage 版）
+			const ba = bufOf.get(a), bb = bufOf.get(b);
+			if (ba && bb) {
+				let m = bufBGs.get(ba); if (!m) bufBGs.set(ba, m = new WeakMap());
+				let bg = m.get(bb);
+				if (!bg) m.set(bb, bg = device.createBindGroup({ layout: bglBuf2, entries: [
+					{ binding: 0, resource: { buffer: ba } }, { binding: 1, resource: { buffer: bb } }] }));
+				return bg;
+			}
+		}
 		let m = texBGs.get(a); if (!m) texBGs.set(a, m = new WeakMap());
 		let bg = m.get(b);
 		if (!bg) m.set(b, bg = device.createBindGroup({ layout: bglTex2, entries: [
@@ -204,7 +247,7 @@ export function createGintLayerGPU(host, { requestDraw } = {}) {
 		const h = Math.ceil(edgeCount / s.TEX_META_W);
 		const pad = new Uint32Array(s.TEX_META_W * h * 4);
 		pad.set(metaU32);
-		return texU32(pad, s.TEX_META_W, h, "rgba32uint", 4);
+		return regBuf(texU32(pad, s.TEX_META_W, h, "rgba32uint", 4), metaU32);
 	}
 	function applyArtifacts(art) {
 		const { gintData } = s;
@@ -216,7 +259,7 @@ export function createGintLayerGPU(host, { requestDraw } = {}) {
 			const arcH = Math.ceil(arcU32.length / 2 / s.TEX_ARC_W);
 			const arcPad = new Uint32Array(s.TEX_ARC_W * arcH * 2);
 			arcPad.set(arcU32);
-			s.arcTex = texU32(arcPad, s.TEX_ARC_W, arcH, "rg32uint", 2);
+			s.arcTex = regBuf(texU32(arcPad, s.TEX_ARC_W, arcH, "rg32uint", 2), arcU32);
 		}
 		if (s.metaTex) s.metaTex.destroy();
 		s.metaTex = null;
