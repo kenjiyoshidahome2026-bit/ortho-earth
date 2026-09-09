@@ -42,7 +42,7 @@
 		"wasm/pkg"
 	],
 	"bin": {
-		"geopbf": "./bin/geopbf.mjs"
+		"geopbf": "bin/geopbf.mjs"
 	},
 	"main": "src/index.js",
 	"exports": {
