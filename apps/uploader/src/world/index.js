@@ -2,7 +2,7 @@
 // 原典: packages/world/create.js（旧システム）。移植台帳: packages/world/README.md
 // データ移送＝旧システムから書き出したファイルをこのページへドロップ → bucket GIS/world/ へ保存。
 //   JSON: NationDB.json / CityDB.json / LanguageDB.json / CurrencyDB.json / Conflicts.json / 国名一覧.json
-//   zip : 国旗.zip（svg）/ 音源.zip（mp3）/ geoms.zip（png）
+//   zip : flags.zip（<key>.svg）/ 音源.zip（mp3）/ geoms.zip（png）。旧 国旗.zip（国名.svg）は key 名へ変換して収蔵
 //   csv : Conflicts.csv（→ createConflicts で DB 化）/ 国名一覧.csv
 // 作成系（createNationDB 等）は旧 #inline スニペットの原典待ち＝ボタンは案内のみ。
 import * as d3 from 'd3';
@@ -11,7 +11,7 @@ import { download, thenMap } from "common";
 import { decodeZIP } from "native-bucket";
 import { createGetHeight } from "altpbf/loader";
 import {
-	DIRE, toLangs, SEED, NATION, CITY, LANGUAGE, CURRENCY, FLAG, SOUND, CONFLICT, GEOMS,
+	DIRE, toLangs, SEED, NATION, CITY, LANGUAGE, CURRENCY, FLAG, FLAG_LEGACY, SOUND, CONFLICT, GEOMS, FLAG_KEYS,
 	renames, rename, makeDB, createWiki, addLanguage, removeLanguage, fixLanguage, createConflicts, blob2rows,
 	NATION_KEYS, nationKey, LANG_KEYS,
 } from "./db.js";
@@ -133,13 +133,25 @@ export async function worldUI({ CMD, q, Bucket, Fetch }) {
 			await db.saveConflicts(conflicts);
 			return q.success(`${CONFLICT}: 保存（${conflicts.length} 件）`);
 		}
-		if (name == `${FLAG}.zip`) {
-			var files = (await decodeZIP(file)).filter(t => t.name.match(/\.svg$/) && !t.name.match(/^\./)).sort((p, q) => p.name > q.name ? 1 : -1);
-			// 旧zipの「ジャージー.svg」はNFD名（ジ=シ+濁点）＝国名索引(NFC)から漏れるため名前を正規化して収蔵（2026-08-31実測）
-			files = files.map(t => t.name == t.name.normalize('NFC') ? t : new File([t], t.name.normalize('NFC'), { type: t.type }));
-			files = await thenMap(files, cleanSVG);
+		if (name == `${FLAG}.zip`) {   // 新形式＝<key>.svg のまま収蔵
+			const files = (await decodeZIP(file)).filter(t => t.name.match(/\.svg$/) && !t.name.match(/^\./)).sort((p, q) => p.name > q.name ? 1 : -1);
 			await db.saveFlagDB(files);
 			return q.success(`${FLAG}: 保存（${files.length} 旗）`);
+		}
+		if (name == `${FLAG_LEGACY}.zip`) {   // 旧形式（国名.svg）＝NationDB の key / FLAG_KEYS で <key>.svg に改名して flags.zip へ
+			const nation = await db.loadNationDB();
+			if (!nation) return q.error(`${NATION} が未収蔵＝改名の対応表が作れません（先に NationDB を）`);
+			const key = {}; nation.forEach(t => key[t.name.ja] = t.key); Object.assign(key, FLAG_KEYS);
+			const files = [], miss = [];
+			(await decodeZIP(file)).filter(t => t.name.match(/\.svg$/) && !t.name.match(/^\./)).forEach(t => {
+				const stem = t.name.normalize('NFC').replace(/\.svg$/, ""), k = key[stem];   // NFD 名（ジャージー）も正規化
+				k ? files.push(new File([t], `${k}.svg`, { type: "image/svg+xml" })) : miss.push(stem);
+			});
+			if (!files.some(f => f.name == "B28.svg") && files.some(f => f.name == "EH.svg")) files.push(new File([files.find(f => f.name == "EH.svg")], "B28.svg", { type: "image/svg+xml" }));   // SADR は西サハラと同じ旗
+			files.sort((p, q) => p.name > q.name ? 1 : -1);
+			await db.saveFlagDB(files);
+			miss.length && q.error(`対応キーなし（収蔵せず）: ${miss.join(", ")}`);
+			return q.success(`${FLAG_LEGACY}.zip → ${FLAG}.zip: 保存（${files.length} 旗・<key>.svg に改名）`);
 		}
 		if (name == `${SOUND}.zip`) {
 			const files = (await decodeZIP(file)).filter(t => t.name.match(/\.mp3$/) && !t.name.match(/^\./)).sort((p, q) => p.name > q.name ? 1 : -1);
@@ -151,12 +163,12 @@ export async function worldUI({ CMD, q, Bucket, Fetch }) {
 			await db.saveGeoPNG(files);
 			return q.success(`${GEOMS}: 保存（${files.length} 図形PNG）`);
 		}
-		// 国旗 svg 一枚差し（収蔵済みの旗と同名のときだけ差し替え）
+		// 国旗 svg 一枚差し（ファイル名＝<key>.svg・収蔵済みの旗と同 key のときだけ差し替え）
 		if (name.match(/\.svg$/)) {
 			const target = name.replace(/\.svg$/, "");
 			const files = await db.loadFlagDB();
 			const names = files.map(t => t.name.replace(/\.svg$/, ""));
-			if (!names.includes(target)) return q.error(`${target}: ${FLAG}.zip に同名の旗が無い＝差し替え対象なし`);
+			if (!names.includes(target)) return q.error(`${target}: ${FLAG}.zip に同 key の旗が無い＝差し替え対象なし（ファイル名は <key>.svg）`);
 			const cleaned = await cleanSVG(file);
 			await db.saveFlagDB(files.map(t => t.name.replace(/\.svg$/, "") == target ? cleaned : t));
 			return q.success(`${FLAG}/${target}.svg: 差し替え`);

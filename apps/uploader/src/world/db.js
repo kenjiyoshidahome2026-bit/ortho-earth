@@ -17,7 +17,8 @@ export const NATION = "NationDB";
 export const CITY = "CityDB";
 export const LANGUAGE = "LanguageDB";
 export const CURRENCY = "CurrencyDB";
-export const FLAG = "国旗";
+export const FLAG = "flags";        // 2026-09-09: 国旗.zip（国名.svg）→ flags.zip（<key>.svg）＝キーで整合（Kenji 裁定）
+export const FLAG_LEGACY = "国旗";   // 旧 zip（国名.svg）＝ドロップすると key 名へ変換して flags.zip に収蔵
 export const SOUND = "音源";
 export const CONFLICT = "Conflicts";
 export const GEOMS = "geoms";
@@ -102,7 +103,8 @@ export const rename = s => (renames[s] || s);
 //   通貨      : ISO 4217（NationDB.currency は キー配列 に正規化）
 //   言語      : LANG_KEYS のキー（ISO 639 風・NationDB.languages は キー配列 に正規化）
 //   紛争      : Conflicts の key（NE disputed BRK_A3 の B コード系）
-//   内部参照（territory/conflict/旗/geoPNG/音源のファイル名）: name.ja＝renames の影響を受けない閉じた名前空間
+//   旗        : flags.zip の <key>.svg（国以外は FLAG_KEYS の id）
+//   内部参照（territory/conflict/geoPNG/音源のファイル名）: name.ja＝renames の影響を受けない閉じた名前空間
 export const NATION_KEYS = {
 	"アフガニスタン・イスラム共和国": "AFX",
 	"北キプロス・トルコ共和国": "B20",
@@ -120,6 +122,12 @@ export const NATION_KEYS = {
 	"クリッパートン島": "FR-CP",
 };
 export const nationKey = t => (t.iso ? t.iso[0] : NATION_KEYS[t.name.ja]);
+// 国以外の旗の id（flags.zip の <id>.svg）。UI 用と旧例外地域（NationDB に無い＝ビューアからは参照されない・資産として保持）
+export const FLAG_KEYS = {
+	"国際連合": "UN", "欧州連合": "EU", "NATO": "NATO", "係争中": "DISPUTED",
+	"カタルーニャ": "X-CATALONIA", "クルディスタン": "X-KURDISTAN", "ケルゲレン諸島": "X-KERGUELEN", "ダルフール": "X-DARFUR",
+	"チェチェン共和国": "X-CHECHNYA", "チベット": "X-TIBET", "ブーゲンビル": "X-BOUGAINVILLE", "マデイラ諸島": "X-MADEIRA", "西パプア共和国": "X-WESTPAPUA",
+};
 // 統計 API 側の ISO3 別名（ISO 3166 と符号が違う国）。wb=World Bank / imf=IMF WEO(DBnomics)
 export const ISO3_ALIAS = { KSV: { wb: "XKX", imf: "UVK" } };   // コソボ
 
