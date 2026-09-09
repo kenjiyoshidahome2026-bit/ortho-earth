@@ -68,6 +68,7 @@
 		<li><a href="#integrations">地図ライブラリ統合</a></li>
 		<li><a href="#security">非信頼HTMLと消毒</a></li>
 		<li><a href="#cog">COG — ラスタも同じ流儀で</a></li>
+		<li><a href="#convert">PMTiles と GeoParquet — 出ていく方向</a></li>
 	</ol>
 </div>
 
@@ -652,14 +653,6 @@ el.innerHTML = <span class="fn">sanitizeHTML</span>(feature.properties[<span cla
 <em>表示安全</em>に（マークアップ）。両方使ってください。
 </p>
 
-<hr class="rule">
-
-<div style="font-size:0.72rem;color:var(--dim);font-family:var(--mono);text-align:center">
-	geopbf v1.2.0 · Kenji Yoshida · MIT License · 2026
-</div>
-
-</div>
-
 <h2 id="cog">12. COG — ラスタも同じ流儀で（v1.4）</h2>
 
 <p>
@@ -684,6 +677,85 @@ COG（Cloud Optimized GeoTIFF）は「HTTP Range で部分読みできる静的�
 <code>cog://</code> プロトコル、Leaflet へは <code>geopbf/leaflet-cog</code> の GridLayer を一行で。
 CLI は <code>npx geopbf cog info &lt;url&gt; --bench</code> が構造と実測数字を出します。
 </p>
+
+<h2 id="convert">13. PMTiles と GeoParquet — 出ていく方向（v1.5）</h2>
+
+<p>
+v1.4 までのハブは「読む」側でした。v1.5 で出口が開きます: GeoPBF は Mapbox Vector Tiles の
+<strong>PMTiles</strong> アーカイブとして、あるいは <strong>GeoParquet</strong> ファイルとして出ていき、
+GeoParquet は戻ってきます。依存追加はゼロ——どころか <code>pako</code> を<em>外し</em>ました。圧縮・伸長は
+すべてプラットフォーム側の codec を直接叩きます（ブラウザと worker は <code>CompressionStream</code>、
+Node は <code>node:zlib</code>）。実行時依存は <code>pbf</code> 一本だけです。
+</p>
+
+<pre><code><span class="cm"># CLI — 素の Node で動く（ネイティブビルド不要）</span>
+npx geopbf pmtiles countries.geopbf countries.pmtiles --maxzoom 10
+npx geopbf parquet countries.geopbf countries.parquet
+npx geopbf parquet2pbf countries.parquet back.geopbf     <span class="cm"># 逆変換</span></code></pre>
+
+<pre><code><span class="kw">import</span> { toPMTiles } <span class="kw">from</span> <span class="st">"geopbf/pmtiles"</span>;
+<span class="kw">import</span> { toGeoParquet } <span class="kw">from</span> <span class="st">"geopbf/geoparquet"</span>;
+
+<span class="kw">const</span> pbf = <span class="kw">await</span> <span class="fn">geopbf</span>(file, { gint: <span class="kw">true</span> });
+<span class="kw">const</span> { buffer, stats } = <span class="kw">await</span> <span class="fn">toPMTiles</span>(pbf, { maxZoom: 12 });  <span class="cm">// stats.engine → "gpu" | "cpu"</span>
+<span class="kw">const</span> pq = <span class="kw">await</span> <span class="fn">toGeoParquet</span>(pbf);                      <span class="cm">// pq.buffer, pq.geo</span></code></pre>
+
+<p>
+<strong>タイルは生のフィーチャからでなく Gint から切ります。</strong> ortho-earth が GPU で描いている
+派生バッファそのものです: 共有境界は 1 本の arc として一度だけ存在し、各頂点は
+Visvalingam–Whyatt のランクを持ちます。したがってズーム別の簡略化は
+<code>rank &gt;= 閾値</code> のフィルタ 1 つに落ち、隣り合う 2 つのポリゴンは必然的に<em>同一の</em>
+頂点列へ簡略化されます＝どのズームでも隙間もスリバーも出ません。閾値は arc ごとに
+Douglas–Peucker 分解と突き合わせて較正してあるので頂点数は tippecanoe の約 10% 以内に収まり、
+それでいて<em>どの</em>頂点が残るかはランクが決めるため、境界の両側は歩調を崩しません。
+</p>
+
+<p>
+Natural Earth 10m countries（258 ポリゴン・48万頂点・z0–10・4コア Node）で
+<strong>GeoJSON から約 6.5 秒</strong>・573,896 タイル / 151.0MB。tippecanoe v2.82 は 58 秒・
+573,885 タイル / 147MB＝タイル集合は数枚の差で一致し、内部タイルはレイヤ名と geopbf が書く
+フィーチャ <code>id</code> の分を除けばバイト単位で同じ大きさです。同じ仕事に GDAL の PMTiles
+ドライバ（3.12）は 780 秒かかりました。US Census ZCTA5（33,092 郵便番号エリア・5200万頂点・z0–12）
+では 47 秒・238,322 タイル / 251MB に対し tippecanoe が 251 秒・238,319 タイル / 246MB で、
+MapLibre の z3/z7/z11 では見分けがつきません。
+</p>
+
+<p>
+<strong>Parquet の行は空間順に並んで出ます。</strong> フィーチャ bbox の中心を Sort-Tile-Recursive で
+詰めます（<code>order: "str"</code> が既定）。各 row group の <code>bbox</code> 統計が互いに重ならない
+区画を覆うので、範囲条件を押し下げて読む側（DuckDB・pyarrow datasets・GeoPandas）は本当に交差する
+row group だけを取りに行きます。100万点を 50 row group にした実測で、row group の重なり比は
+無ソート 24.5 → Morton 0.87 → Hilbert 0.28 → STR 0.00、市域サイズの問い合わせが触る row group は
+50 から 1–2 へ。これは井口和裕氏の <em>Spatial sort for well-packed GeoParquet</em>（CNG Japan 2026）
+に倣ったものです。
+</p>
+
+<p>
+<strong>GPU がどこにいるか、正直に。</strong> 投影・ズーム別ランクフィルタ・整数→double 変換・bbox
+リダクションは WebGPU があれば GPU で走り、無ければ<em>同じ整数演算</em>を CPU で走らせます＝どちらでも
+出力はバイト一致で、headless Chromium でカーネル単位に検証しています。ただしこれらの段は、これまで
+実測したどのデータでも仕事全体の 3–6% にすぎません。支配的なのはリング組み立て・クリッピング・
+MVT エンコード・gzip の側です。GPU はブラウザのメインスレッドを空けておくための道具であって、
+この変換器が速い理由ではありません。速さは Gint と組み立て段から来ています。
+</p>
+
+<p>
+<strong>そして戻ってこられます。</strong> <code>fromGeoParquet()</code> は GeoParquet を GeoPBF へ戻します。
+依存ゼロの Parquet リーダ（Thrift compact フッタ・DataPage v1/v2・PLAIN と辞書エンコーディング・
+codec は none / snappy / gzip / zstd）と WKB パーサの組み合わせです。geopbf が書いたファイルは
+ビット単位で戻り、GeoPandas・pyarrow・DuckDB が書いたファイルも同じフィーチャとして読めます。CRS は
+経緯度（CRS84 / EPSG:4326）である必要があり、それ以外は <code>ignoreCrs</code> を渡さない限り断ります。
+PMTiles に同じ逆変換はありません: タイルは簡略化され量子化されているので、できるのは近似的な再構成
+だけで、このパッケージはそれをやったふりをしません。
+</p>
+
+<hr class="rule">
+
+<div style="font-size:0.72rem;color:var(--dim);font-family:var(--mono);text-align:center">
+	geopbf v1.5.0 · Kenji Yoshida · MIT License · 2026
+</div>
+
+</div>
 
 </body>
 </html>

@@ -60,6 +60,7 @@ Lightweight · Universal converter · ArrayBuffer-native — the wire format for
 		<li><a href="#integrations">Map Library Integrations</a></li>
 		<li><a href="#security">Untrusted HTML &amp; Sanitizing</a></li>
 		<li><a href="#cog">COG — Rasters, the Same Way</a></li>
+		<li><a href="#convert">PMTiles &amp; GeoParquet — the Way Out</a></li>
 	</ol>
 </div>
 
@@ -644,14 +645,6 @@ importing it in a worker is safe. Note the division of labor with §10:
 makes them <em>display-safe</em> (markup). Use both.
 </p>
 
-<hr class="rule">
-
-<div style="font-size:0.72rem;color:var(--dim);font-family:var(--mono);text-align:center">
-	geopbf v1.2.0 · Kenji Yoshida · MIT License · 2026
-</div>
-
-</div>
-
 <h2 id="cog">12. COG — Rasters, the Same Way (v1.4)</h2>
 
 <p>
@@ -678,6 +671,86 @@ explicit error pointing to <code>gdal_translate -of COG</code>. One line each fo
 (<code>geopbf/leaflet-cog</code>). The CLI prints structure and measured numbers:
 <code>npx geopbf cog info &lt;url&gt; --bench</code>.
 </p>
+
+<h2 id="convert">13. PMTiles &amp; GeoParquet — the Way Out (v1.5)</h2>
+
+<p>
+Through v1.4 the hub read formats. v1.5 opens the other direction: a GeoPBF leaves as a
+<strong>PMTiles</strong> archive of Mapbox Vector Tiles or as a <strong>GeoParquet</strong> file, and a
+GeoParquet comes back in. Still no new dependencies — in fact <code>pako</code> was <em>removed</em>.
+Every codec now goes through the platform (<code>CompressionStream</code> in browsers and workers,
+<code>node:zlib</code> in Node), leaving <code>pbf</code> as the only runtime dependency.
+</p>
+
+<pre><code><span class="cm"># CLI — plain Node, no native build</span>
+npx geopbf pmtiles countries.geopbf countries.pmtiles --maxzoom 10
+npx geopbf parquet countries.geopbf countries.parquet
+npx geopbf parquet2pbf countries.parquet back.geopbf     <span class="cm"># and back again</span></code></pre>
+
+<pre><code><span class="kw">import</span> { toPMTiles } <span class="kw">from</span> <span class="st">"geopbf/pmtiles"</span>;
+<span class="kw">import</span> { toGeoParquet } <span class="kw">from</span> <span class="st">"geopbf/geoparquet"</span>;
+
+<span class="kw">const</span> pbf = <span class="kw">await</span> <span class="fn">geopbf</span>(file, { gint: <span class="kw">true</span> });
+<span class="kw">const</span> { buffer, stats } = <span class="kw">await</span> <span class="fn">toPMTiles</span>(pbf, { maxZoom: 12 });  <span class="cm">// stats.engine → "gpu" | "cpu"</span>
+<span class="kw">const</span> pq = <span class="kw">await</span> <span class="fn">toGeoParquet</span>(pbf);                      <span class="cm">// pq.buffer, pq.geo</span></code></pre>
+
+<p>
+<strong>Tiles are cut from Gint, not from the raw features.</strong> That is the same derived buffer
+ortho-earth draws on the GPU: a shared border exists once, as a single arc, and every vertex carries its
+Visvalingam–Whyatt rank. Per-zoom simplification is therefore a <code>rank &gt;= threshold</code> filter,
+which means two neighbouring polygons are necessarily reduced to the <em>identical</em> vertex list — no
+slivers, no gaps, at any zoom. The thresholds are calibrated per arc against a Douglas–Peucker
+decomposition, so vertex counts land within roughly 10 % of tippecanoe's while <em>which</em> vertices
+survive is still decided by rank, keeping both sides of a border in step.
+</p>
+
+<p>
+On Natural Earth 10m countries (258 polygons, 480k vertices, z0–10, 4-core Node) that is
+<strong>about 6.5 s from GeoJSON</strong> for 573,896 tiles / 151.0 MB, against tippecanoe v2.82 at 58 s
+for 573,885 tiles / 147 MB — the same tile set within a handful, with interior tiles byte-for-byte the
+same size apart from the layer name and the feature <code>id</code>. GDAL's PMTiles driver (3.12) took
+780 s for the same job. On US Census ZCTA5 (33,092 ZIP areas, 52M vertices, z0–12): 47 s for 238,322
+tiles / 251 MB against tippecanoe's 251 s for 238,319 tiles / 246 MB, indistinguishable in MapLibre at
+z3/z7/z11.
+</p>
+
+<p>
+<strong>Parquet rows come out spatially ordered.</strong> Feature bbox centres are packed
+Sort-Tile-Recursive style (<code>order: "str"</code>, the default), so each row group's <code>bbox</code>
+statistics cover a disjoint patch and any reader that pushes an area filter down — DuckDB, pyarrow
+datasets, GeoPandas — fetches only the row groups that actually intersect it. On 1,000,000 points in 50
+row groups the row-group overlap ratio runs 24.5 unsorted → 0.87 Morton → 0.28 Hilbert → 0.00 STR, and a
+city-sized query touches 1–2 row groups instead of all 50. This follows Kanahiro Iguchi's
+<em>Spatial sort for well-packed GeoParquet</em> (CNG Japan 2026).
+</p>
+
+<p>
+<strong>Where the GPU is, honestly.</strong> Projection, the per-zoom rank filter, the integer→double
+conversion and the bbox reduction run on WebGPU when it is available, with a CPU path performing the
+<em>same integer arithmetic</em> when it is not — the output is byte-identical either way, verified
+kernel by kernel in headless Chromium. But those stages are only 3–6 % of the job on every dataset
+measured so far; ring assembly, clipping, MVT encoding and gzip dominate. The GPU keeps the browser's
+main thread free. It is not the reason the converter is fast — that comes from Gint and from the
+assembly stage.
+</p>
+
+<p>
+<strong>And back again.</strong> <code>fromGeoParquet()</code> turns a GeoParquet into a GeoPBF using a
+dependency-free Parquet reader — Thrift compact footer, DataPage v1/v2, PLAIN and dictionary encodings,
+codecs none / snappy / gzip / zstd — plus a WKB parser. A file geopbf wrote comes back bit-identical, and
+files written by GeoPandas, pyarrow and DuckDB read back to the same features. The CRS must be lon/lat
+(CRS84 / EPSG:4326) unless <code>ignoreCrs</code> is passed. PMTiles has no such inverse: its tiles are
+simplified and quantized, so only an approximate reassembly would be possible, and this package does not
+pretend otherwise.
+</p>
+
+<hr class="rule">
+
+<div style="font-size:0.72rem;color:var(--dim);font-family:var(--mono);text-align:center">
+	geopbf v1.5.0 · Kenji Yoshida · MIT License · 2026
+</div>
+
+</div>
 
 </body>
 </html>
