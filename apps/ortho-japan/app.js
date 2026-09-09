@@ -2067,7 +2067,7 @@ dbgHost.__paint = paintGint;
 // map.addGint(pbf, opts) ＝**追加**であって置換ではない（§10.2＝applyGintData 系の単一スロット動詞とは別系統・混ぜない）。
 // 層の属性（minZoom/maxZoom/style）は層ごと（§10.3「スタック全体の設定」を作らない）。カーソルは常に1層（§4.1）＝
 // 追加した層が既定でアクティブ（「今載せたデータを見たい」）・activate() で移す・remove() で残る最後の層へ落ちる。
-// WebGPU 限定（エンジン addLayer は gpu/gint.js のみ＝GL2 後追い方針）。GL2 では ready が false に解決＝何も描かない。
+// 両バックエンド対応（gpu/gint.js＋gl/gint/embed.js の addLayer・2026-09-09 に GL2 も整合）。
 // この段階の制約（栞に記録）: ①ベイクは render worker 同期（bakeBase）＝大きい層は bake-ahead 統合が将来課題
 // ②tip の自動表示は無し（on('hover') で受けてアプリが描く） ③query/queryAll は未実装。
 function addGint(pbf, opts = {}) {
@@ -2150,9 +2150,9 @@ function queryAllGint(ll) {
 // ── coast/user 二層化（2026-09-09・本人裁定「coast は紛らわしいので admin 層に」）──────────
 // admin0（NE admin_0_countries＝海岸線+国境線）は WebGPU では**独立層**（map.addGint・order 最下・
 // minZoom/maxZoom は層の属性＝エンジンが裁く）＝単一スロットは user 専用になりスロット舞踏が消える。
-// GL2 は addLayer 未対応（後追い方針）＝従来の単一スロット調停（z=USER_GINT_MINZ で相互切替）を温存。
-// ?a0slot=1＝WebGPU でも従来スロットへ強制（A/B・切り分け用の逃げ道）。
-const A0_LAYER = () => dbgHost.__backend === "webgpu" && !/[?&]a0slot=1/.test(location.search);
+// GL2 も addLayer 対応済（2026-09-09 gl/gint 脱シングルトン）＝両バックエンドで独立層。従来スロット調停は
+// ?a0slot=1 の逃げ道と backend 未確定の起動窓だけに残る（最終退場は次の大掃除で）。
+const A0_LAYER = () => !!dbgHost.__backend && !/[?&]a0slot=1/.test(location.search);
 let admin0Layer = null;   // 独立層ハンドル（WebGPU 経路のみ）
 let admin0Vis = true;     // 独立層の表示台帳（変更時だけ post＝毎フレーム送らない）
 const USER_GINT_MINZ = 7;
@@ -3601,7 +3601,7 @@ async function printCapture({ zoom, cropCss }) {
 map.overlay = overlay;
 map.applyGintData = applyGintData;
 map.clearUserGint = clearUserGint;    // 単一スロットのユーザー層を丸ごと撤去（applyGintData の対＝派生アプリのスロット調停用）
-map.addGint = addGint;              // gint 多層（v2 spec §4 の顔・WebGPU 限定）＝追加であって置換ではない
+map.addGint = addGint;              // gint 多層（v2 spec §4 の顔・両バックエンド）＝追加であって置換ではない
 map.queryAll = queryAllGint;        // 層をまたぐ照会＝{layer, fid} の対（手前の層から・§10.2）
 map.on = (ev, cb) => { mapOn[ev]?.push(cb); return map; };   // §4＝'click' のみ（hits=queryAll と同型）
 map.standupGint = standupGint;         // liftM=null で解除

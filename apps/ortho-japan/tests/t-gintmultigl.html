@@ -1,0 +1,131 @@
+<!doctype html>
+<!-- UI回帰：gint 多層の GL2 版（バックエンド間の API 整合＝addLayer が WebGPU 専用でない事の検定）。
+     render worker を直駆動（t-gintembed と同じ pump/snapshot 技法・GL2 経路）し、多層プロトコル
+     （gintAdd ack・層指名 set/gintStyle/gintVis・gintActivate のカーソル層またぎ・gintRemove）を検める。
+     エンジン実体は gl/gint/embed.js addLayer（Object.create(s) 層状態＋状態第一引数化した臓器）。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;width:320px;height:320px}</style><title>t-gintmultigl</title></head>
+<body><canvas id="c" width="256" height="256"></canvas><canvas id="l" width="256" height="256"></canvas>
+<script type="module">
+const t = [], ok = (n, c) => t.push((c ? "ok:" : "NG:") + n);
+const fin = () => document.title = t.some(s => s.startsWith("NG")) ? "FAIL " + t.join(" ") : "PASS " + t.join(" ");
+const spread16 = v => { v &= 0xFFFF; v = (v | (v << 8)) & 0xFF00FF; v = (v | (v << 4)) & 0xF0F0F0F; v = (v | (v << 2)) & 0x33333333; v = (v | (v << 1)) & 0x55555555; return v >>> 0; };
+const pack = (lon, lat, terminal, weight = 0) => {
+	const ix = Math.round((lon + 180) * 1e7) >>> 0, iy = Math.round((lat + 90) * 1e7) >>> 0;
+	const lo = (spread16(ix & 0xFFFF) | (spread16(iy & 0xFFFF) << 1)) >>> 0;
+	const hi = (spread16(ix >>> 16) | (spread16(iy >>> 16) << 1)) >>> 0;
+	let v = (BigInt(hi) << 32n) | BigInt(lo);
+	return terminal ? (v | (1n << 63n)) : ((v & ~0x3Fn) | BigInt(weight & 63));
+};
+const e7 = d => Math.round(d * 1e7) >>> 0;
+const buildArcs = (arcs) => {
+	const verts = arcs.flat();
+	const arcBuffer = BigUint64Array.from(verts.map(([lon, lat, term, w]) => pack(lon, lat, !!term, w)));
+	const arcMeta = new Uint32Array(arcs.length * 8);
+	let off = 0;
+	arcs.forEach((a, aid) => {
+		arcMeta[aid * 8] = off; arcMeta[aid * 8 + 1] = a.length;
+		let xm = 4e9, ym = 4e9, xM = 0, yM = 0;
+		for (const [lon, lat] of a) {
+			xm = Math.min(xm, e7(lon + 180)); xM = Math.max(xM, e7(lon + 180));
+			ym = Math.min(ym, e7(lat + 90)); yM = Math.max(yM, e7(lat + 90));
+		}
+		arcMeta[aid * 8 + 4] = xm; arcMeta[aid * 8 + 5] = ym; arcMeta[aid * 8 + 6] = xM; arcMeta[aid * 8 + 7] = yM;
+		off += a.length;
+	});
+	return { arcBuffer, arcMeta };
+};
+try {
+	const { cameraState, project } = await import("../../../packages/ortho-core/src/camera.js");
+	const worker = new Worker(new URL("../renderworker.js", import.meta.url), { type: "module" });
+	worker.onerror = e => { ok("worker-error:" + (e.message || "?"), false); fin(); };
+	const pump = async (p) => { let done = false; p.then(() => done = true, () => done = true);
+		for (let i = 0; !done; i++) await fetch(`./t-gintmultigl.html?pump=${i}`, { cache: "no-store" }).catch(() => {});
+		return p; };
+	const waitMsg = pred => new Promise(r => { const h = e => { if (pred(e.data)) { worker.removeEventListener("message", h); r(e.data); } }; worker.addEventListener("message", h); });
+	const post = (msg, tr) => worker.postMessage(msg, tr || []);
+	const snapshot = () => { const p = waitMsg(d => d.type === "snapshot"); post({ type: "snapshot", id: 1 }); return pump(p); };
+	const count = (a8, cls) => {
+		let n = 0;
+		for (let i = 0; i < a8.length; i += 4) {
+			if (cls === "red" && a8[i] > 190 && a8[i + 1] < 180 && a8[i + 1] > 30) n++;
+			if (cls === "cyan" && a8[i + 2] > 150 && a8[i] < 130) n++;
+		}
+		return n;
+	};
+
+	const offC = document.getElementById("c").transferControlToOffscreen();
+	const offL = document.getElementById("l").transferControlToOffscreen();
+	const failP = waitMsg(d => d.type === "glfail");
+	post({ type: "init", canvas: offC, labelCanvas: offL, elevBase: 0, terrainExag: 1, earthM: 6371008.8,
+		apiUrl: location.origin + "/nope", noMultiDraw: true }, [offC, offL]);
+	post({ type: "resize", width: 256, height: 256 });
+
+	// ── ① gintAdd×2（ack に error 無し＝GL2 でも多層が生きている）＋層指名 set ──
+	const C = [139.7, 35.7], dx = 0.05, d = 0.03;
+	const Ca = [C[0] - dx, C[1]], Cb = [C[0] + dx, C[1]], yN = Cb[1] + 0.5;
+	const A = buildArcs([
+		[[Ca[0] - d, Ca[1] - d, 1, 0], [Ca[0], Ca[1] - d * 0.9, 0, 50], [Ca[0] + d, Ca[1] - d, 1, 0]],
+		[[Ca[0] - d, Ca[1] - d, 1, 0], [Ca[0], Ca[1] + d, 0, 50], [Ca[0] + d, Ca[1] - d, 1, 0]],
+	]);
+	const B = buildArcs([
+		[[Cb[0] - d, Cb[1] - d, 1, 0], [Cb[0], Cb[1] + d, 0, 50], [Cb[0] + d, Cb[1] - d, 1, 0]],
+		[[Cb[0] - d, yN, 1, 0], [Cb[0], yN + d, 0, 50], [Cb[0] + d, yN, 1, 0], [Cb[0] - d, yN, 1, 0]],   // 画面外ダミー面＝pick 構築ガード通し
+	]);
+	const ackA = waitMsg(d => d.action === "gintAck" && d.cmd === "gintAdd" && d.layer === "A");
+	post({ type: "set", cmd: "gintAdd", layer: "A", data: { order: 10 } });
+	const a1 = await pump(ackA);
+	ok(`gintAdd ack(error=${a1.error})`, a1.error === null);
+	const setA = waitMsg(d => d.action === "gintAck" && d.cmd === "gint" && d.layer === "A");
+	post({ type: "set", cmd: "gint", layer: "A", data: { arcBuffer: A.arcBuffer, arcMeta: A.arcMeta, polyStream: Int32Array.from([7, 1, 2, 0, ~1]), minZoom: 2 } });
+	post({ type: "set", cmd: "gintStyle", layer: "A", data: { fillColor: [1, 0, 0, 0.6] } });
+	await pump(setA);
+	const ackB = waitMsg(d => d.action === "gintAck" && d.cmd === "gint" && d.layer === "B");
+	post({ type: "set", cmd: "gintAdd", layer: "B", data: { order: 20 } });
+	post({ type: "set", cmd: "gint", layer: "B", data: { arcBuffer: B.arcBuffer, arcMeta: B.arcMeta, lineStream: Int32Array.from([8, 1, 1, 0]), polyStream: Int32Array.from([9, 1, 1, 1]), minZoom: 2 } });
+	post({ type: "set", cmd: "gintStyle", layer: "B", data: { lineWidth: 3 } });
+	await pump(ackB);
+
+	// ── ② 2層同フレーム（既定スロットは空のまま）──
+	const cam = { center: C, zoom: 10.5, pitch: 0, bearing: 0, dpr: 1 };
+	post({ type: "draw", cam, opts: { noTerrain: true } });
+	const s1 = await Promise.race([snapshot(), failP.then(dd => { throw new Error("glfail:" + dd.error); })]);
+	const a8 = new Uint8Array(s1.base);
+	const red1 = count(a8, "red"), cyan1 = count(a8, "cyan");
+	ok(`2層同フレーム(赤=${red1} シアン=${cyan1})`, red1 > 400 && cyan1 > 60);
+
+	// ── ③ 層別表示（B 消灯＝A は無傷）──
+	post({ type: "set", cmd: "gintVis", layer: "B", data: false });
+	post({ type: "draw", cam, opts: { noTerrain: true } });
+	const s2 = new Uint8Array((await snapshot()).base);
+	ok(`B非表示(シアン=${count(s2, "cyan")} 赤=${count(s2, "red")})`, count(s2, "cyan") < 10 && count(s2, "red") > 400);
+	post({ type: "set", cmd: "gintVis", layer: "B", data: true });
+	post({ type: "draw", cam, opts: { noTerrain: true } });
+	await snapshot();
+
+	// ── ④ カーソルの層またぎ（B=最後に追加＝アクティブ→GPU pick fid8／activate A→JS包含 fid7）──
+	const st = cameraState(cam, 256, 256);
+	post({ type: "gintDrawn" });
+	const pb = project(st, Cb[0] - d * 0.5, Cb[1]);   // B折れ線の左腕の中腹（w50 辺＝rank 適格）
+	const idB = waitMsg(dd => dd.action === "identify" && dd.featureId != null);
+	post({ type: "gintMove", x: pb[0], y: pb[1] });
+	const rb = await pump(idB);
+	ok(`pick B層(fid=${rb.featureId} layer=${rb.layer})`, rb.featureId === 8 && rb.layer === "B");
+	post({ type: "gintLeave" });
+	post({ type: "set", cmd: "gintActivate", layer: "A" });
+	post({ type: "gintDrawn" });
+	const pa = project(st, Ca[0], Ca[1] - d * 0.2);   // A ポリゴン内部（GPU pick 外＝JS包含判定）
+	const idA = waitMsg(dd => dd.action === "identify" && dd.featureId != null);
+	post({ type: "gintMove", x: pa[0], y: pa[1] });
+	const ra = await pump(idA);
+	ok(`pick A層(fid=${ra.featureId} layer=${ra.layer})`, ra.featureId === 7 && ra.layer === "A");
+
+	// ── ⑤ gintRemove＝層別除去 ──
+	post({ type: "set", cmd: "gintRemove", layer: "B" });
+	post({ type: "draw", cam, opts: { noTerrain: true } });
+	const s3 = new Uint8Array((await snapshot()).base);
+	ok(`B除去(シアン=${count(s3, "cyan")} 赤=${count(s3, "red")})`, count(s3, "cyan") < 10 && count(s3, "red") > 400);
+
+	post({ type: "destroy" });
+} catch (e) { ok("boot:" + (e && e.message || e), false); }
+fin();
+</script></body></html>

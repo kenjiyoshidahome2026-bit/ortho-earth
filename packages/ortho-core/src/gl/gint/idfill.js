@@ -16,7 +16,7 @@
 //   - 向き未正規化データ（外環 CW）は合計が負になる＝解決パスの abs() で拾う（feature 内の向き一貫が前提）。
 //   - 塗りのみ per-fid。線/点の per-fid スタイルは次段（fid 表自体は line 色/width も既に持つ）。
 
-import { s } from './state.js';
+import { s as gS } from './state.js';   // 共有スクラッチ（idFBO/programs/caps＝GLコンテキスト資産）はシングルトン所有。層状態は各関数の引数 s
 import { GLSL_VS_HEADER, VS_FILL, SHARED_UNIFORM_NAMES, DEPTH_UNIFORM_NAMES, linkProgram, getUniforms } from './programs.js';
 import { bindSharedUniforms, bindPivot, bindDepthUniforms } from './utility.js';
 
@@ -94,7 +94,7 @@ void main() {
 
 // ── 能力検出（コンテキストごとに一度）──
 function idCaps(gl) {
-	if (s._idCaps !== undefined) return s._idCaps;
+	if (gS._idCaps !== undefined) return gS._idCaps;
 	const cbf = gl.getExtension('EXT_color_buffer_float');
 	const fb  = gl.getExtension('EXT_float_blend');
 	let caps = null;
@@ -102,7 +102,7 @@ function idCaps(gl) {
 	else if (cbf)   caps = { internal: gl.RG16F,   fmt: gl.RG,   type: gl.HALF_FLOAT, maxFid: 2047,    name: 'RG16F' };
 	else if (gl.getExtension('EXT_color_buffer_half_float'))
 	                caps = { internal: gl.RGBA16F, fmt: gl.RGBA, type: gl.HALF_FLOAT, maxFid: 2047,    name: 'RGBA16F' };
-	s._idCaps = caps;
+	gS._idCaps = caps;
 	console.info('[gint] idFill caps: %s (float_blend=%s)', caps?.name ?? 'なし（stencil単色へ）', !!fb);
 	return caps;
 }
@@ -110,10 +110,10 @@ function idCaps(gl) {
 // ── fid スタイル表（RGBA32UI・1 texel/fid）── style.js の buildFidStyle 出力を受ける。
 // 同寸なら texSubImage2D（restyle の契約＝テクスチャ更新1回のみ・§7.1）。CPU 側データは
 // context restore 用に保持（s._fidStyleData）。
-export function uploadFidStyle(table, count) {
+export function uploadFidStyle(s, table, count) {
 	const gl = s.gl;
 	const u32 = table instanceof Uint32Array ? table : new Uint32Array(table);
-	if (!gl || !count || u32.length < count * 4) { clearFidStyle(); return; }
+	if (!gl || !count || u32.length < count * 4) { clearFidStyle(s); return; }
 	s._fidStyleData = { u32, count };
 	const W = Math.min(4096, s.TEX_ARC_W), H = Math.ceil(count / W);
 	if (s.fidStyleTex && s.fidStyleW === W && s._fidStyleH === H) {
@@ -137,22 +137,22 @@ export function uploadFidStyle(table, count) {
 	s.fidStyleCount = count;
 }
 
-export function clearFidStyle() {
+export function clearFidStyle(s) {
 	if (s.fidStyleTex && s.gl) s.gl.deleteTexture(s.fidStyleTex);
 	s.fidStyleTex = null; s.fidStyleW = 0; s._fidStyleH = 0; s.fidStyleCount = 0;
 	s._fidStyleData = null;
 }
 
 // context restore 時の再構築（worker.js / embed.js の restore ハンドラから呼ぶ）。
-export function restoreFidStyle() {
+export function restoreFidStyle(s) {
 	const d = s._fidStyleData;
 	s.fidStyleTex = null; s.fidStyleW = 0; s._fidStyleH = 0;   // 旧テクスチャはコンテキストごと消滅済み
-	if (d) uploadFidStyle(d.u32, d.count);
+	if (d) uploadFidStyle(s, d.u32, d.count);
 }
 
 // ID 塗りが使えるか（passes.js の分岐条件）。paint 明示＝全ズーム尊重（低ズーム既定塗りと独立）。
 // fillOff（巨大ポリゴン）は stencil と同じ理由（fan 全密度が毎フレーム）で尊重する。
-export function canUseIdFill() {
+export function canUseIdFill(s) {
 	const gl = s.gl;
 	if (!gl || !s.fidStyleTex || s.polyEdges <= 0 || s.fillOff) return false;
 	const caps = idCaps(gl);
@@ -160,29 +160,29 @@ export function canUseIdFill() {
 }
 
 function ensurePrograms(gl) {
-	if (s._idPrograms) return s._idPrograms;
+	if (gS._idPrograms) return gS._idPrograms;
 	const idProgram      = linkProgram(gl, VS_ID,   FS_ID);
 	const resolveProgram = linkProgram(gl, VS_FILL, FS_RESOLVE);
-	s._idPrograms = {
+	gS._idPrograms = {
 		idProgram, resolveProgram,
 		uId:      getUniforms(gl, idProgram, [...SHARED_UNIFORM_NAMES, ...DEPTH_UNIFORM_NAMES,   // 深度＝fetchClipDrape（面ドレープ）
 					'u_pivot_tex', 'u_pivot_w', 'u_has_pivot', 'u_view_bbox', 'u_use_vbb',
 					'u_fid_style', 'u_fidstyle_w', 'u_has_fidstyle']),   // 蓄積で不可視fidを弾く（重複被覆汚染防止）
 		uResolve: getUniforms(gl, resolveProgram, ['u_id_tex', 'u_fid_style', 'u_fid_w', 'u_fid_count', 'u_overlap']),
 	};
-	return s._idPrograms;
+	return gS._idPrograms;
 }
 
 // ID バッファ FBO（canvas と同寸）。embedded の動的解像度ではフレーム毎に寸法が変わり得る＝
 // 不一致時のみ作り直し（解像度段の変化は稀＝churn は実用上無視できる）。
 function ensureIdFBO(gl, caps) {
-	if (s._idFBO && s._idW === s.width && s._idH === s.height) return true;
-	if (s._idFBO) { gl.deleteFramebuffer(s._idFBO); gl.deleteTexture(s._idTex); }
+	if (gS._idFBO && gS._idW === gS.width && gS._idH === gS.height) return true;
+	if (gS._idFBO) { gl.deleteFramebuffer(gS._idFBO); gl.deleteTexture(gS._idTex); }
 	const tex = gl.createTexture();
 	gl.bindTexture(gl.TEXTURE_2D, tex);
 	gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
 	gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
-	gl.texImage2D(gl.TEXTURE_2D, 0, caps.internal, s.width, s.height, 0, caps.fmt, caps.type, null);
+	gl.texImage2D(gl.TEXTURE_2D, 0, caps.internal, gS.width, gS.height, 0, caps.fmt, caps.type, null);
 	const fbo = gl.createFramebuffer();
 	gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
 	gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
@@ -190,30 +190,30 @@ function ensureIdFBO(gl, caps) {
 	gl.bindFramebuffer(gl.FRAMEBUFFER, null);
 	if (!ok) {   // 実機で float 添付が不完全＝能力なし扱いに降格（以後 stencil 単色）
 		gl.deleteFramebuffer(fbo); gl.deleteTexture(tex);
-		s._idCaps = null;
+		gS._idCaps = null;
 		console.warn('[gint] idFill FBO incomplete → stencil 単色へ降格');
 		return false;
 	}
-	s._idFBO = fbo; s._idTex = tex; s._idW = s.width; s._idH = s.height;
+	gS._idFBO = fbo; gS._idTex = tex; gS._idW = gS.width; gS._idH = gS.height;
 	return true;
 }
 
 // ── 本体：ID 蓄積パス → 解決パス（renderCleanScene の stencil+fill 位置から呼ばれる）──
 // 呼び出し時の前提：emptyVAO bind 済み・viewport=canvas 寸・blend 有効（straight alpha）。
 // 終了時：targetFBO を bind し blend を straight alpha に復元して返す。
-export function renderIdFill(data, targetFBO) {
+export function renderIdFill(s, data, targetFBO) {
 	const gl = s.gl;
 	const caps = idCaps(gl);
 	if (!caps || !ensurePrograms(gl) || !ensureIdFBO(gl, caps)) {
 		gl.bindFramebuffer(gl.FRAMEBUFFER, targetFBO ?? null);   // 失敗時も呼び出し元のターゲットへ戻す（stencil 分岐が続行できる状態）
 		return false;
 	}
-	const { idProgram, resolveProgram, uId, uResolve } = s._idPrograms;
+	const { idProgram, resolveProgram, uId, uResolve } = gS._idPrograms;
 	const { arcTex, metaTex, TEX_ARC_W, TEX_META_W, width, height } = s;
 
 	// ① winding 和の蓄積（自前 FBO へ加算）。stencil と同じく全密度（u_lod_rank=0）＝
 	//    LOD 簡略化の自己交差で winding が壊れる斑点を出さない（stencil 塗りと同じ設計判断）。
-	gl.bindFramebuffer(gl.FRAMEBUFFER, s._idFBO);
+	gl.bindFramebuffer(gl.FRAMEBUFFER, gS._idFBO);
 	gl.disable(gl.STENCIL_TEST);
 	gl.clearColor(0, 0, 0, 0);
 	gl.clear(gl.COLOR_BUFFER_BIT);
@@ -221,7 +221,7 @@ export function renderIdFill(data, targetFBO) {
 	gl.useProgram(idProgram);
 	bindSharedUniforms(gl, uId, data, arcTex, metaTex, TEX_ARC_W, TEX_META_W, width, height);
 	bindDepthUniforms(gl, uId, data);   // 面ドレープ＝蓄積扇の辺端点を地形高へ（fetchClipDrape・真俯瞰=全0=無変化）
-	bindPivot(gl, uId);
+	bindPivot(s, gl, uId);
 	// fid スタイル表を蓄積VSへも結線＝不可視fid(filter)を winding から除外（bindFidStyle passes.js:111 と同処理）。
 	gl.uniform1i(uId.u_has_fidstyle, s.fidStyleTex ? 1 : 0);
 	if (s.fidStyleTex) {
@@ -244,7 +244,7 @@ export function renderIdFill(data, targetFBO) {
 		gl.stencilOp(gl.KEEP, gl.KEEP, gl.KEEP);
 	}
 	gl.useProgram(resolveProgram);
-	gl.activeTexture(gl.TEXTURE3); gl.bindTexture(gl.TEXTURE_2D, s._idTex);
+	gl.activeTexture(gl.TEXTURE3); gl.bindTexture(gl.TEXTURE_2D, gS._idTex);
 	gl.activeTexture(gl.TEXTURE4); gl.bindTexture(gl.TEXTURE_2D, s.fidStyleTex);
 	gl.activeTexture(gl.TEXTURE0);
 	gl.uniform1i(uResolve.u_id_tex,    3);
@@ -258,19 +258,19 @@ export function renderIdFill(data, targetFBO) {
 }
 
 // context lost（テクスチャ/FBO はコンテキストごと消滅＝参照だけ捨てる。CPU 側 _fidStyleData は保持）。
-export function idFillContextLost() {
-	s.fidStyleTex = null; s._idFBO = null; s._idTex = null; s._idW = s._idH = 0;
-	s._idPrograms = null; s._idCaps = undefined;
+export function idFillContextLost(s) {
+	s.fidStyleTex = null; gS._idFBO = null; gS._idTex = null; gS._idW = gS._idH = 0;
+	gS._idPrograms = null; gS._idCaps = undefined;
 }
 
-export function disposeIdFill() {
+export function disposeIdFill(s) {
 	const gl = s.gl;
 	if (gl) {
-		if (s._idFBO) gl.deleteFramebuffer(s._idFBO);
-		if (s._idTex) gl.deleteTexture(s._idTex);
-		if (s._idPrograms) { gl.deleteProgram(s._idPrograms.idProgram); gl.deleteProgram(s._idPrograms.resolveProgram); }
+		if (gS._idFBO) gl.deleteFramebuffer(gS._idFBO);
+		if (gS._idTex) gl.deleteTexture(gS._idTex);
+		if (gS._idPrograms) { gl.deleteProgram(gS._idPrograms.idProgram); gl.deleteProgram(gS._idPrograms.resolveProgram); }
 	}
-	clearFidStyle();
-	s._idFBO = null; s._idTex = null; s._idW = s._idH = 0;
-	s._idPrograms = null; s._idCaps = undefined;
+	clearFidStyle(s);
+	gS._idFBO = null; gS._idTex = null; gS._idW = gS._idH = 0;
+	gS._idPrograms = null; gS._idCaps = undefined;
 }

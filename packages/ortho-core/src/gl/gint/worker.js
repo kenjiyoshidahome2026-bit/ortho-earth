@@ -22,10 +22,10 @@ const funcs = { init, set, resize, drawing, drawn, move, leave, click, destroy, 
 // paint（fid スタイル表）の差し替え（gint draw spec.md §7.1）。main が style.js の buildFidStyle で
 // 式を評価済み＝ここは Uint32Array を受けてテクスチャ更新1回のみ。null=解除（従来塗りへ）。
 function paint(data) {
-	if (data.table && data.count > 0) uploadFidStyle(data.table, data.count);
-	else clearFidStyle();
+	if (data.table && data.count > 0) uploadFidStyle(s, data.table, data.count);
+	else clearFidStyle(s);
 	s.idOverlapMode = !!data.overlap;   // 重複可視化モード（品質監査プローブ）
-	if (s.lastDrawData) renderCleanScene(s.lastDrawData, null);   // 静止中の即時反映（次の drawing を待たない）
+	if (s.lastDrawData) renderCleanScene(s, s.lastDrawData, null);   // 静止中の即時反映（次の drawing を待たない）
 }
 
 // 描画コスト計測フック（ベンチハーネス用・通常経路では呼ばれない。v1 gint.js の bench と同形）：
@@ -46,7 +46,7 @@ onmessage = e => (funcs[e.data.type] ?? (() => {}))(e.data);
 // ImageBitmap を返す。lastDrawData が無い（範囲外/未描画）なら透明のまま返る＝main が合成でそのまま重ねる。
 function snapshot(data) {
 	try {
-		if (s.lastDrawData) renderCleanScene(s.lastDrawData, null);   // 今の cam で1枚（無ければ透明のまま）
+		if (s.lastDrawData) renderCleanScene(s, s.lastDrawData, null);   // 今の cam で1枚（無ければ透明のまま）
 		// readPixels＝GLを確実に読む（createImageBitmap/transferToImageBitmap は headless GL で詰まる）。上下反転で返る＝main で戻す。
 		const gl = s.gl, w = s.width, h = s.height;
 		const base = new Uint8Array(w * h * 4);
@@ -88,11 +88,11 @@ function init(data) {
 		s.baseFBO = s.baseColorTex = s.baseDepthStencilRBO = null;
 		s.pickFBO = s.pickColorTex = s.pickDepthStencilRBO = null;
 		s.programs = null; s.lastDrawData = null;
-		idFillContextLost();   // ID塗りの GL 資産も消滅（CPU 側 fid 表は保持＝restore で再上げ）
+		idFillContextLost(s);   // ID塗りの GL 資産も消滅（CPU 側 fid 表は保持＝restore で再上げ）
 	}, false);
 	s.canvas.addEventListener('webglcontextrestored', () => {
 		s.programs = createGintPrograms(s.gl);
-		createFBOs(); uploadGintTextures(); restoreFidStyle();
+		createFBOs(); uploadGintTextures(s); restoreFidStyle(s);
 		postMessage({ action: "redraw" });
 	}, false);
 
@@ -115,7 +115,7 @@ function set(data) {
 			fillMaxEdges: data.data.fillMaxEdges ?? null,   // 同期フォールバックでも層別の塗り上限/低ズーム塗りを落とさない（bakeworker と同じ台帳）
 			lowFill:      data.data.lowFill      ?? false,
 		};
-		uploadGintTextures();
+		uploadGintTextures(s);
 		({ minZoom: s.minZoom, maxZoom: s.maxZoom } = checkZoomRange({
 			arcMeta:   s.gintData.arcMeta,
 			minZoom:   data.data.minZoom   ?? null,
@@ -125,7 +125,7 @@ function set(data) {
 		s.activeId = -1; s.lastDrawData = null;
 	} else if (data.cmd === "gint") {   // data 無し＝gint スロットを空に（ドロップ図形のクリア）。
 		// totalEdges===0 の drawNow はキャンバスを消さず早期 return する＝残像が残るので、ここで明示的に1枚消す。
-		deleteTextures();
+		deleteTextures(s);
 		s.gintData = null; s.polyEdgeByFid = null; s.polyBboxByFid = null; s.outlineZoom = null; s.fillOff = false; s.lowFill = false;
 		s.totalEdges = s.totalPoints = s.polyEdges = 0;
 		s.activeId = -1; s.lastDrawData = null;
@@ -182,7 +182,7 @@ function drawNow(data) {
 
 	// site 3（cam→mvp/eye/origin/RTE錨/LODランク/視野bbox）は drawdata.js（embedded モードと共用）。
 	const drawData = computeDrawData(s, data);
-	renderCleanScene(drawData, null);
+	renderCleanScene(s, drawData, null);
 	s.lastDrawData = drawData;
 }
 
@@ -194,14 +194,14 @@ function drawn() {
 	// 非interactive（識別ジオメトリ無し＝海岸線 lineStream のみ）は baseFBO 再描画/picking/overlay を丸ごと省略。
 	// drawNow が既に canvas へ最終フレームを描いている＝ハイライト機構は不要＝settle 毎の全ジオメトリ2パスを節約。
 	if (!s.polyBboxByFid && s.totalPoints === 0) return;
-	renderCleanScene(s.lastDrawData, s.baseFBO);
-	renderPickingBuffer(s.lastDrawData);
-	drawOverlay();
-	if (s._pendingMove) { const m = s._pendingMove; s._pendingMove = null; doIdentify(m); }
+	renderCleanScene(s, s.lastDrawData, s.baseFBO);
+	renderPickingBuffer(s, s.lastDrawData);
+	drawOverlay(s);
+	if (s._pendingMove) { const m = s._pendingMove; s._pendingMove = null; doIdentify(s, m); }
 }
 
-function move(data) { handleMove(data); }
-function leave()    { handleLeave(); }
+function move(data) { handleMove(s, data); }
+function leave()    { handleLeave(s); }
 
 function click() {
 	if (s.activeId === -1) return;
@@ -212,9 +212,9 @@ function click() {
 }
 
 function destroy() {
-	deleteTextures();
+	deleteTextures(s);
 	deleteFBOs();
-	disposeIdFill();
+	disposeIdFill(s);
 	if (s.gl && s.programs) {
 		const { renderProgram, stencilProgram, fillProgram, maskStencilProgram,
 				pointProgram, pickLineProgram, pickPointProgram, emptyVAO } = s.programs;

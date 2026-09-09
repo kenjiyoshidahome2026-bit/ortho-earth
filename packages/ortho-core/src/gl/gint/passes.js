@@ -4,7 +4,7 @@
 // v1(ortho-map) の gintRenderPasses を移植。site 2 の点bind を mvp/eye/origin へ。
 // 単位は device px 一本（u_dpr=1、線幅/半径は worker が ×dpr 済み、blit は width 直）。
 
-import { s, DEF_STYLE, DEF_DASH, DEF_FILL, DEF_MASK } from './state.js';
+import { DEF_STYLE, DEF_DASH, DEF_FILL, DEF_MASK } from './state.js';
 import { bindSharedUniforms, bindPivot, bindDepthUniforms } from './utility.js';
 import { betaOf, ellipsoidOn } from '../../camera.js';
 import { canUseIdFill, renderIdFill } from './idfill.js';
@@ -21,21 +21,21 @@ const OUTLINE_ZOOM = 13;   // 既定の切替z（256px世界。deriveOutlineZoom
 //   地図フレームを塞ぎ GPU 数百ms/フレーム＝実機で激重＋GPUプロセス膨張を起こした）。
 // 対象は線・ピッキングのみ（stencil 塗りは全密度＝自己交差斑点の根治を維持、overlay は
 // polyEdgeByFid の辺レンジが基準メタ前提のため基準メタ固定）。runs＝可視チャンクだけを描く。
-function pickLineTier(rank, baseTex, baseCount) {
+function pickLineTier(s, rank, baseTex, baseCount) {
 	let nominal = null, finest = null;
 	for (const t of s.lodTiers ?? []) {
 		if (t.minW <= rank && (!nominal || t.edgeCount < nominal.edgeCount)) nominal = t;
 		if (!finest || t.minW < finest.minW) finest = t;
 	}
 	const sel = nominal
-		? { tex: nominal.tex, count: nominal.edgeCount, runs: visibleRuns(nominal.edgeCount, nominal.chunks), minW: nominal.minW }
-		: { tex: baseTex, count: baseCount, runs: visibleRuns(baseCount, s.metaChunks), minW: 0 };
+		? { tex: nominal.tex, count: nominal.edgeCount, runs: visibleRuns(s, nominal.edgeCount, nominal.chunks), minW: nominal.minW }
+		: { tex: baseTex, count: baseCount, runs: visibleRuns(s, baseCount, s.metaChunks), minW: 0 };
 	s._pfRuns = sel.runs.length; s._pfChunks = (nominal ? nominal.chunks : s.metaChunks)?.length ?? 0;   // perf 計測用
 	if (!nominal && finest) {   // 安全弁（適格 tier 無し＝基準メタに落ちた時だけ）
 		let visible = 0;
 		for (const r of sel.runs) visible += r[1];
 		if (visible > finest.edgeCount * 1.5)
-			return { tex: finest.tex, count: finest.edgeCount, runs: visibleRuns(finest.edgeCount, finest.chunks), minW: finest.minW };
+			return { tex: finest.tex, count: finest.edgeCount, runs: visibleRuns(s, finest.edgeCount, finest.chunks), minW: finest.minW };
 	}
 	if (!nominal && !finest) {
 		// ハードキャップ＝梯子が1段も無い窓（初回ロード直後の遅延構築中など）の最後の柵。
@@ -59,7 +59,7 @@ function pickLineTier(rank, baseTex, baseCount) {
 
 // 可視チャンク run（[startEdge, edgeCount] の列）。チャンク台帳や view bbox が無ければ全量1本。
 // マージン: 線幅ぶん bbox を少し広げる（SE=1e7 単位・約 0.001°）。
-function visibleRuns(totalCount, chunks) {
+function visibleRuns(s, totalCount, chunks) {
 	const vb = s.lastViewBbox;
 	if (!chunks?.length || !vb) return [[0, totalCount]];
 	const mg = 10000;
@@ -90,7 +90,7 @@ function bindPivotBoundary(gl, u) {
 
 // per-fid スタイル表（paint 時のみ・unit5）：visibility（filter）/line色/width を VS が引く。
 // u_width_add＝パス都合の幅増分（clean=0 / highlight=+2。表はスタイル正味のみ＝spec §7.1）。
-function bindFidStyle(gl, u, widthAdd = 0) {
+function bindFidStyle(s, gl, u, widthAdd = 0) {
 	gl.uniform1i(u.u_has_fidstyle, s.fidStyleTex ? 1 : 0);
 	if (u.u_width_add) gl.uniform1f(u.u_width_add, widthAdd);
 	if (!s.fidStyleTex) return;
@@ -100,7 +100,7 @@ function bindFidStyle(gl, u, widthAdd = 0) {
 }
 
 // site 2（点）：cam 由来の mvp/eye/origin を点プログラムへ。v1 の rotate/scale/rsincos/jac を建て替え。
-function bindPointUniforms(u, data) {
+function bindPointUniforms(s, u, data) {
 	const { gl, ptTex, ptMetaTex, TEX_ARC_W, width, height } = s;
 	gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, ptTex);
 	gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, ptMetaTex);
@@ -125,7 +125,7 @@ function bindPointUniforms(u, data) {
 	gl.uniform1f(u.u_origin_zr, data.originZr ?? 0.0);
 }
 
-export function renderCleanScene(data, targetFBO = null) {
+export function renderCleanScene(s, data, targetFBO = null) {
 	const { gl, programs, arcTex, metaTex, ptTex, ptMetaTex,
 			totalEdges, totalPoints, TEX_ARC_W, TEX_META_W, width, height } = s;
 	const { renderProgram, stencilProgram, fillProgram,
@@ -179,7 +179,7 @@ export function renderCleanScene(data, targetFBO = null) {
 	const fc = data.fillColor ?? (hasPoly && (lowZoomEff || fillA > 0.004) ? [st[0], st[1], st[2], fillA] : DEF_FILL);
 	// paint（fid スタイル表）が預けられていれば ID バッファ塗り＝per-fid コロプレス（gint draw spec.md §7.2）。
 	// 明示 paint は全ズーム尊重（明示 fillColor と同じ原則）。能力なし/fid 超過/FBO 不成立は従来 stencil へ。
-	const idDone = !data._forceLow && canUseIdFill() && renderIdFill(data, targetFBO);   // 安い表現中は idfill（全密度扇）を止める
+	const idDone = !data._forceLow && canUseIdFill(s) && renderIdFill(s, data, targetFBO);   // 安い表現中は idfill（全密度扇）を止める
 	// 単色 stencil 塗りは常時境界メタ（共有 arc は winding 寄与が正味 0＝落としても数学的に同一で桁違いに軽い）。
 	// ID バッファ塗りは fid 重みのため境界メタ不可＝基準メタ固定（renderIdFill 側）。
 	const hasB = !!(s.metaTexB && s.polyEdgesB > 0);
@@ -197,7 +197,7 @@ export function renderCleanScene(data, targetFBO = null) {
 		gl.useProgram(stencilProgram);
 		bindSharedUniforms(gl, uStencil, data, arcTex, stTex, TEX_ARC_W, TEX_META_W, width, height);
 		bindDepthUniforms(gl, uStencil, data);   // 面ドレープ＝塗り扇の辺端点を地形高へ（fetchClipDrape・真俯瞰=全0=無変化）
-		if (hasB) bindPivotBoundary(gl, uStencil); else bindPivot(gl, uStencil);   // 境界メタ＝単一要・カリング無効（fid混成ループ）
+		if (hasB) bindPivotBoundary(gl, uStencil); else bindPivot(s, gl, uStencil);   // 境界メタ＝単一要・カリング無効（fid混成ループ）
 		gl.uniform1f(uStencil.u_lod_rank, 0);   // 塗りstencilは全密度＝LOD簡略化の自己交差による斑点(winding反転)を防ぐ
 		// ポリゴン辺（メタ先頭連続）のみ winding にファン＝折れ線辺を混ぜない（ortho-map と同規約）
 		gl.drawArrays(gl.TRIANGLES, 0, stCount * 3);
@@ -233,7 +233,7 @@ export function renderCleanScene(data, targetFBO = null) {
 			&& (finestT ? s.totalEdgesB <= finestT.edgeCount * 1.5 : s.totalEdgesB <= 600_000);
 		const lnSel = lnB
 			? { tex: s.metaTexB, count: s.totalEdgesB, runs: null, minW: -2 }   // minW=-2＝perf行で境界パスと分かる印
-			: pickLineTier(data.lodRank ?? 0, metaTex, totalEdges);
+			: pickLineTier(s, data.lodRank ?? 0, metaTex, totalEdges);
 		gl.useProgram(renderProgram);
 		bindSharedUniforms(gl, uRender, data, arcTex, lnSel.tex, TEX_ARC_W, TEX_META_W, width, height);
 		gl.uniform1f(uRender.u_line_width,   data.lineWidth ?? 1.0);   // device px（worker 済み）
@@ -243,8 +243,8 @@ export function renderCleanScene(data, targetFBO = null) {
 		gl.uniform2fv(uRender.u_dash_table,  data.dashTable  ?? DEF_DASH);
 		gl.uniform1i(uRender.u_pass, 0);
 		if (lnB) bindPivotBoundary(gl, uRender);   // 境界メタ＝fidカリング無効（視界外fid帰属arcで外郭が欠けるのを防ぐ）
-		else bindPivot(gl, uRender);               // feature bbox カリング（ポリゴン辺のみ VS が判定）
-		bindFidStyle(gl, uRender, 0);   // per-fid 線スタイル（paint 時のみ有効）
+		else bindPivot(s, gl, uRender);               // feature bbox カリング（ポリゴン辺のみ VS が判定）
+		bindFidStyle(s, gl, uRender, 0);   // per-fid 線スタイル（paint 時のみ有効）
 		// 深度統合（段階B・山岳ビュー z<13 のみ dep 非null）：線を地形深度でテスト（書かない）＝
 		// 尾根の向こうは実線が消え、直後の GREATER パスが「淡い固定破線」で拾う（CAD の隠線表現）。
 		const dep = bindDepthUniforms(gl, uRender, data);
@@ -276,7 +276,7 @@ export function renderCleanScene(data, targetFBO = null) {
 	// ── Points ──
 	if (totalPoints > 0 && ptTex && ptMetaTex) {
 		gl.useProgram(pointProgram);
-		bindPointUniforms(uPoint, data);
+		bindPointUniforms(s, uPoint, data);
 		gl.uniform1i(uPoint.u_active_id, -1);
 		gl.drawArrays(gl.TRIANGLES, 0, totalPoints * 6);
 	}
@@ -284,7 +284,7 @@ export function renderCleanScene(data, targetFBO = null) {
 	gl.bindFramebuffer(gl.FRAMEBUFFER, null);
 }
 
-export function drawOverlay() {
+export function drawOverlay(s) {
 	const { gl, baseFBO, lastDrawData, width, height } = s;
 	if (!baseFBO || !lastDrawData) return;
 
@@ -296,12 +296,12 @@ export function drawOverlay() {
 	gl.stencilMask(0xFF);
 	gl.clear(gl.STENCIL_BUFFER_BIT);
 
-	drawHighlight(lastDrawData);
+	drawHighlight(s, lastDrawData);
 }
 
 // アクティブ地物のハイライト（太線＋黄・点拡大・外側マスク）。blit を含まない純描画＝
 // worker モードは drawOverlay（blit 後）から、embedded モードは毎フレームの gint パス末尾から呼ぶ。
-export function drawHighlight(data) {
+export function drawHighlight(s, data) {
 	const { gl, programs, arcTex, metaTex, ptTex, ptMetaTex,
 			totalEdges, totalPoints, TEX_ARC_W, TEX_META_W, width, height,
 			activeId, polyEdgeByFid } = s;
@@ -322,7 +322,7 @@ export function drawHighlight(data) {
 	gl.useProgram(renderProgram);
 	bindSharedUniforms(gl, uRender, data, arcTex, metaTex, TEX_ARC_W, TEX_META_W, width, height);
 	bindDepthUniforms(gl, uRender, data);
-	bindFidStyle(gl, uRender, 2.0);   // per-fid 幅にもハイライト増分 +2px（表には混ぜない）
+	bindFidStyle(s, gl, uRender, 2.0);   // per-fid 幅にもハイライト増分 +2px（表には混ぜない）
 	gl.uniform1f(uRender.u_line_width,   (data.lineWidth ?? 1.0) + 2.0);
 	gl.uniform1f(uRender.u_dpr,          1.0);
 	gl.uniform1i(uRender.u_active_id,    activeId);
@@ -340,7 +340,7 @@ export function drawHighlight(data) {
 	// Point highlight：大きく＋黄。
 	if (totalPoints > 0 && ptTex && ptMetaTex) {
 		gl.useProgram(pointProgram);
-		bindPointUniforms(uPoint, data);
+		bindPointUniforms(s, uPoint, data);
 		gl.uniform1i(uPoint.u_active_id, activeId);
 		gl.drawArrays(gl.TRIANGLES, 0, totalPoints * 6);
 	}
@@ -357,7 +357,7 @@ export function drawHighlight(data) {
 		gl.stencilOpSeparate(gl.BACK,  gl.KEEP, gl.KEEP, gl.DECR_WRAP);
 		gl.useProgram(stencilProgram);
 		bindSharedUniforms(gl, uStencil, data, arcTex, metaTex, TEX_ARC_W, TEX_META_W, width, height);
-		bindPivot(gl, uStencil);
+		bindPivot(s, gl, uStencil);
 		gl.drawArrays(gl.TRIANGLES, eStart * 3, eCount * 3);
 		gl.colorMask(true, true, true, true);
 		gl.stencilMask(0x00);
@@ -370,7 +370,7 @@ export function drawHighlight(data) {
 	}
 }
 
-export function renderPickingBuffer(data) {
+export function renderPickingBuffer(s, data) {
 	const { gl, programs, arcTex, metaTex, ptTex, ptMetaTex,
 			totalEdges, totalPoints, TEX_ARC_W, TEX_META_W, width, height, pickFBO } = s;
 	if (!pickFBO) return;
@@ -387,10 +387,10 @@ export function renderPickingBuffer(data) {
 		// 見た目の線より太く描いて pick 感度を上げる（~12 device px マージン）。
 		const pickMargin = 12 * (s.dpr ?? 1);
 		if (totalEdges > 0 && metaTex) {
-			const pkSel = pickLineTier(data.lodRank ?? 0, metaTex, totalEdges);
+			const pkSel = pickLineTier(s, data.lodRank ?? 0, metaTex, totalEdges);
 			gl.useProgram(pickLineProgram);
 			bindSharedUniforms(gl, uPickLine, data, arcTex, pkSel.tex, TEX_ARC_W, TEX_META_W, width, height);
-			bindFidStyle(gl, uPickLine);   // filter 非表示の feature を pick からも外す
+			bindFidStyle(s, gl, uPickLine);   // filter 非表示の feature を pick からも外す
 			gl.uniform1f(uPickLine.u_line_width, (data.lineWidth ?? 1.0) + pickMargin);
 			for (const [est, cnt] of (pkSel.runs ?? [[0, pkSel.count]]))
 				gl.drawArrays(gl.TRIANGLES, est * 6, cnt * 6);
@@ -398,7 +398,7 @@ export function renderPickingBuffer(data) {
 
 		if (totalPoints > 0 && ptTex && ptMetaTex) {
 			gl.useProgram(pickPointProgram);
-			bindPointUniforms(uPickPoint, data);
+			bindPointUniforms(s, uPickPoint, data);
 			gl.uniform1f(uPickPoint.u_pt_radius, Math.max(data.ptRadius ?? 1.5, pickMargin * 0.5));
 			gl.drawArrays(gl.TRIANGLES, 0, totalPoints * 6);
 		}
