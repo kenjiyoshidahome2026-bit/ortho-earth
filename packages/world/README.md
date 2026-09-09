@@ -65,7 +65,7 @@ createGeometryPNG + upload_admin の iso 割替え表のみ。理由＝
 | CurrencyDB | `CurrencyDB.json` | 〃 |
 | Conflicts | `Conflicts.json`（または `Conflicts.csv`＝再作成） | 〃 |
 | 国名一覧 | `国名一覧.json`（または `.csv`） | 〃 |
-| 国旗（svg 束） | `国旗.zip` | GIS/world/国旗.zip |
+| 国旗（svg 束） | `flags.zip`（<key>.svg）。旧 `国旗.zip`（国名.svg）をドロップすると key 名へ改名して flags.zip に収蔵 | GIS/world/flags.zip |
 | 音源（mp3 束） | `音源.zip` | 〃 |
 | geoms（png 束） | `geoms.zip` | 〃 |
 
@@ -105,7 +105,8 @@ db.js の `NATION_KEYS` を唯一の正本にし、ビルド時に焼き込む�
 | 通貨 | ISO 4217 | `NationDB.currency` は**キー配列**に正規化（旧: 単一 or "USD\|PAB" の二形） |
 | 言語 | `LANG_KEYS` のキー（ISO 639 風） | `NationDB.languages` は**キー配列**に正規化（旧: 日本語名＝LanguageDB.key が未使用だった） |
 | 紛争 | Conflicts の `key`（B\*\*） | NE disputed BRK_A3 系。列順: `key, type, region, title_en, name_en, title_ja, exist, iso, sovereignt, claim` |
-| 内部参照 | `name.ja` | territory/conflict/旗/geoPNG/音源ファイル名＝renames の影響を受けない閉じた名前空間 |
+| 旗 | `flags.zip/<key>.svg` | 2026-09-09 に 国旗.zip（国名.svg）から改名。国以外は FLAG_KEYS（UN/EU/NATO/DISPUTED・旧例外地域は X-TIBET 等）。SADR=B28.svg は EH と同じ旗の複製 |
+| 内部参照 | `name.ja` | territory/conflict/geoPNG/音源ファイル名＝renames の影響を受けない閉じた名前空間 |
 
 - 外部ソースとの突合（UN/ISO/IOC/sekai-hub/HDI）だけが renames 表を通る＝ここが唯一の名寄せ点
 
@@ -153,3 +154,24 @@ capital=false で残置・標高 0 は未取得）＋ **`capitalNote` フィー�
 zh/ko 欠け4語は名前補完（記事が無いものは wiki id 0）。据え置き＝Conflicts に無い擬似キー "AF"（アフガニスタン二政権用・
 geoPNG は admin1 の AF で描ける）。国旗は全 262 か国カバー（直接 253・領有国代替 8・SADR→西サハラ別名 1・余剰 13 は UI/旧例外用）。
 検札の手口＝scratchpad の audit.py（bucket から JSON を落として鍵/参照/欠測/統計/紛争を機械検札）
+
+## 消費側（ビューア）の移植＝apps/world（2026-09-09・v1）
+
+旧 draw.js + draw.scss を `apps/world/`（vite・`npm run dev:world`）へ移植。見た目は draw.scss そのまま、旧フレームワーク依存を置換:
+
+| 旧 | 新 |
+|---|---|
+| `#inline` HTML パーツ（__HTML__） | main.js 内テンプレート（[name=head]/[name=main]>[name=scroll]/[name=modal]） |
+| selectOptions / selectButtons / inputSearch（旧 d3 拡張） | src/controls.js に自作 |
+| `isox` + ハードコード表 | データ側 `key`（NationDB に焼き込み済）・AU 加盟の名前特例は組織リストへ "B28" |
+| `capitalComment` ハードコード表 | データ側 `capitalNote`（defacto/changed/multi/text） |
+| language_hash[name.ja] / currency.split("\|") | キー結合（LanguageDB.key / 配列） |
+| FlagSVG（ratio/colors/format） | src/flag.js（viewBox 約分・fill/stroke 色の抽出） |
+| makeSpeach / divideSentence / hebon2kana | Web Speech API 直・文末で分割・**hebon2kana は src/hebon2kana.js に新規実装**（ヘボン式→カナ・長音/促音/ヴァ行を任意にした正規表現＝osutoraria でも oosutoraria でも当たる・読み(yomi)も検索対象＝nihon→日本） |
+| WhiteEarth 地図・setupMapGeometories | **作らない**（Kenji 裁定「地図は後から」）＝geoPNG はサムネイルのみ・クリック配線なし |
+| d3.cache（設定の永続化） | native-bucket Cache（world/system）。zip3本は ETag 付き IDB キャッシュ（2回目以降は無通信） |
+
+- 起動: `npm run dev:world` → http://localhost:5173/ 。`?open=国名|key|iso2` で国旗モーダルを開いた状態で起動（ディープリンク）
+- 実描画検証（ヘッドレス Chrome・CDP）: 262か国・一覧表262行・GDP順（アメリカ→中国→ドイツ）・モーダル（首都読み上げ文・縦横比 3:2/2色）・console エラー0
+- 轍①: `const` の関数式を初回呼び出しより後に置くと TDZ（unhide と同じ）＝main.js の makeRegexp は function 宣言に
+- 轍②: **common の d3 拡張は `selection.empty()` を `html("")` に上書き**している＝d3 標準の空判定のつもりで呼ぶと先頭要素の中身を消す（resize の `scroll.select("div").empty()` で1件目のカードが空になった実害）。空判定は `.node()` で
