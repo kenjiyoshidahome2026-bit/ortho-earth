@@ -296,3 +296,17 @@ body [name=scroll].grid { display:grid; grid-template-columns:repeat(auto-fill, 
 }
 html[dir=rtl] body [name=scroll].grid .nation { float:none; }
 @media (max-width: 720px) { body [name=scroll].grid { grid-template-columns:1fr; padding:5px !important; } body [name=scroll].grid .nation { width:auto; margin:0; } }
+
+// ── Wikipedia をアプリ内 iframe で（2026-09-10・census と同じ）。ヘッダの下を全面に覆う。閉じる＝×／Escape、別タブ＝↗ ──
+body [name=wiki] { position:absolute; top:50px; left:0; right:0; bottom:0; z-index:15; background:#eee; display:flex; flex-direction:column;
+	> .bar { flex:0 0 36px; background:#222; color:#fff; display:flex; align-items:center; gap:8px; padding:0 8px; font-size:13px;
+		img { height:22px; width:auto; }
+		.title { flex:1; font-weight:bold; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+		a, button { display:inline-block; color:#fff; fill:#fff; background:#444; border:2px solid #fff; border-radius:3px; line-height:22px; padding:0 0.5em; cursor:pointer; text-decoration:none; font-size:13px;
+			&:hover { background:#000; }
+			svg { width:18px; height:18px; vertical-align:middle; }
+		}
+	}
+	> iframe { flex:1; width:100%; border:none; background:#fff; }
+}
+@media (max-width: 720px) { body [name=wiki] { top:44px; } }

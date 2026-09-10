@@ -5,6 +5,7 @@ import "common/d3/selection.js";
 import "common/d3/tip-pop.js";
 import "common/d3/highlight.js";
 import { escape, download } from "common";
+import { wiki } from "common/wiki.js";
 import "./draw.scss";
 import { loadWorld, loadI18N, refresh, systemStore, ASSET_BASE } from "./data.js";
 import { state, REGIONS, SORTS, FILTERS, LANGUAGES, LANG_LIST, isRTL, trans, collator, buildModel } from "./model.js";
@@ -72,7 +73,7 @@ applyLang();
 const assets = (() => {
 	const flags = {};   // 実在する旗＝data.flags（bucket flags/ 一覧・裏更新で差し替わる）。無い国は model 側で領有国の旗へ代替
 	const flagURL = k => `${ASSET_BASE}flags/${encodeURIComponent(k)}.svg`;
-	return { flagURL, hasFlag: k => data.flags.has(k), flag: k => flags[k] || (flags[k] = makeFlag(flagURL(k))), geomURL: k => `${ASSET_BASE}geoms/${encodeURIComponent(k)}.png` };
+	return { flagURL, hasFlag: k => data.flags.has(k), flag: k => flags[k] || (flags[k] = makeFlag(flagURL(k))), geomURL: k => `${ASSET_BASE}geoms/${encodeURIComponent(k)}.png`, openWiki: (url, name) => showWiki(url, name) };
 })();
 let model = buildModel(data, assets);
 let nations = model.nations;
@@ -127,6 +128,10 @@ body.html(`
 	<div name="flag"></div>
 	<div class="foot left" name="LL"></div><div class="foot center" name="LC"></div><div class="foot right" name="LR"></div>
 	<button name="backward"></button><button name="forward"></button><button name="close"></button><button name="svg"></button>
+</div>
+<div name="wiki" class="hidden">
+	<div class="bar"><img name="logo" alt="Wikipedia"/><span name="title" class="title"></span><a name="newtab" target="_blank" rel="noopener"></a><button name="close"></button></div>
+	<iframe name="frame" title="Wikipedia"></iframe>
 </div>`);
 const head = body.select("[name=head]").slideX(true);
 [...head.selectAll("[name]")].forEach(t => head[t.getAttribute("name")] = d3.select(t));
@@ -134,6 +139,22 @@ const head = body.select("[name=head]").slideX(true);
 const scroll = body.select("[name=scroll]");
 const modal = body.select("[name=modal]");
 [...modal.selectAll("[name]")].forEach(t => modal[t.getAttribute("name")] = d3.select(t));
+// Wikipedia はアプリ内の iframe で（census と同じ・Kenji 2026-09-10）。記事は m. 版＝狭い枠でも読みやすい。別タブは ↗ で
+const wikiPane = body.select("[name=wiki]");
+[...wikiPane.selectAll("[name]")].forEach(t => wikiPane[t.getAttribute("name")] = d3.select(t));
+wikiPane.logo.attr("src", wiki.logo); wikiPane.newtab.html("&nearr;"); wikiPane.close.html(icon.close).on("click", () => closeWiki());
+let modalEscape = null;   // 国旗モーダルの Escape（wiki を閉じた後に復帰させる）
+function showWiki(url, name) {
+	Sound("操作H");
+	wikiPane.title.text(name || ""); wikiPane.newtab.attr("href", url).tip(trans("Open '$1' on Wikipedia", name || ""));
+	wikiPane.close.tip(trans("Back to list"));
+	wikiPane.frame.attr("src", url.replace(/^https:\/\/([a-z-]+)\.wikipedia\.org/, "https://$1.m.wikipedia.org")); wikiPane.show();
+	escape(() => closeWiki());
+}
+function closeWiki() {
+	Sound("リスト"); wikiPane.hide(); wikiPane.frame.attr("src", "about:blank");
+	escape(modal.isVisible() && modalEscape ? modalEscape : null);
+}
 selectOptions(head.areas, REGIONS, v => (state.region = v, drawAll()), state.region, trans);
 selectOptions(head.filter, FILTERS, v => (state.filter = v, drawAll()), state.filter, trans);
 selectButtons(head.sorts, SORTS.index, v => (String(state.sort) == String(v) ? (v = -v) : 0, state.sort = +v || v, drawAll()), Math.abs(state.sort), true, trans);
@@ -355,7 +376,7 @@ async function showFlag(q) {
 	modal.select("audio").tip(trans("Play the anthem of '$1'", q.Name));
 	modal.UL.select("img").tip(mapTip(q));
 	q.capital && setTimeout(() => Speech(trans("The capital of $1 is $2", q.Name, q.capitalName)), 250);
-	escape(() => { close(); escape(null); });
+	modalEscape = () => { close(); escape(null); modalEscape = null; }; escape(modalEscape);
 	function move(i) {
 		const r = sft(i), duration = 500;
 		const translate = i => `translate(${-50 + (110) * i}%,${-50}%)`;
