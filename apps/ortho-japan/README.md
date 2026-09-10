@@ -105,7 +105,7 @@ The library is also published standalone on npm ([`geopbf`](https://www.npmjs.co
 
 ## Developing with AI agents
 
-A one-page canon for AI coding agents (API surface, pitfall ledger, verification recipes) is served at **https://www.ortho-earth.com/japan/llms.txt** and bundled in the package. Drop the bundled `sdk/skill/ortho-earth-sdk/` into your `.claude/skills/` and Claude Code writes against the SDK idiomatically. TypeScript definitions: `dist/lib/ortho-japan.d.ts` (also served at https://www.ortho-earth.com/japan/lib/ortho-japan.d.ts). Data loading goes through the SDK's own `geopbf` export (previous section).
+A one-page canon for AI coding agents (API surface, pitfall ledger, verification recipes) is served at **https://www.ortho-earth.com/japan/llms.txt** and bundled in the package. Drop the bundled `sdk/skill/ortho-earth-sdk/` into your `.claude/skills/` and Claude Code writes against the SDK idiomatically. TypeScript definitions: `dist/lib/ortho-japan.d.ts` (also served at https://www.ortho-earth.com/japan/lib/ortho-japan.d.ts). Data loading goes through the SDK's own `geopbf` export (previous section). `sdk/verify-example.mjs` is a zero-dependency real-time headless-Chrome checker (title PASS/FAIL, screenshot, 4xx ledger) for self-judging test pages.
 
 ## License
 

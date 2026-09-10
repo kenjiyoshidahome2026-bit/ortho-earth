@@ -22,6 +22,7 @@
 		"!dist/lib/**/*.map",
 		"assets",
 		"sdk/example.html",
+		"sdk/verify-example.mjs",
 		"sdk/skill",
 		"README-ja.md"
 	],

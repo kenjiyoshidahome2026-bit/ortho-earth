@@ -31,7 +31,7 @@ map.onGintClick((fid, props) => console.log(props));
 
 AIコーディングエージェント（Claude Code 等）に読ませる1枚正典＝ **https://www.ortho-earth.com/japan/llms.txt**
 （API面・罠台帳・検証作法。SDK zip にも同梱）。zip 同梱の `skill/ortho-earth-sdk/` を `.claude/skills/` に
-置けば Claude Code が SDK の作法を踏まえて書く。型定義は `lib/ortho-japan.d.ts`（https://www.ortho-earth.com/japan/lib/ortho-japan.d.ts でも配信）。データ搭載は SDK 自身の `geopbf` export で行う（前節）。
+置けば Claude Code が SDK の作法を踏まえて書く。型定義は `lib/ortho-japan.d.ts`（https://www.ortho-earth.com/japan/lib/ortho-japan.d.ts でも配信）。データ搭載は SDK 自身の `geopbf` export で行う（前節）。`sdk/verify-example.mjs`＝自己判定ページを実時間の headless Chrome で検める雛形（依存ゼロ・title PASS/FAIL・スクショ・4xx 台帳）。
 
 ## orthoJapan(opts)
 

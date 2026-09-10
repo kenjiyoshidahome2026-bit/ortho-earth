@@ -80,7 +80,8 @@ export interface GintApplyOptions {
 	style?: GintDrawStyle;
 	/**
 	 * この層を描く最小ズーム。未指定＝エンジンがデータ範囲から自動導出（狭域データは 13〜14 等・console に
-	 * "[gint] minZoom auto-set" が出る）。指定すれば自動値を上書き（下げられる）。ただし z<7 は世界海岸線と
+	 * "[gint] minZoom auto-set" が出る）。**自動導出は線/面（arc）を含むデータのみ**＝点だけのデータは自動なし（ログも出ない）
+	 * で z≥7 から描く。指定すれば自動値を上書き（下げられる）。ただし z<7 は世界海岸線と
 	 * 交替する（単一スロットの固定閾値＝この値では変えられない）
 	 */
 	minZoom?: number;
@@ -112,7 +113,7 @@ export interface OrthoJapanMap {
 	readonly gadget: Gadgets;
 
 	// ---- 座標変換・フレーム ----
-	/** 経緯度→画面CSS座標。front<0=裏半球 */
+	/** 経緯度→mapEl（canvas）左上原点の CSS px（ページ座標ではない＝pointer を合成するなら getBoundingClientRect を足す）。unprojectXY と同じ座標系。front<0=裏半球 */
 	projectLL(lon: number, lat: number): [x: number, y: number, front: number];
 	/** canvasローカルCSS座標→経緯度（球外はnull。onClick/setEditClickのx,yと同座標系） */
 	unprojectXY(x: number, y: number): LonLat | null;
@@ -130,7 +131,10 @@ export interface OrthoJapanMap {
 	// ---- gint（現行v1の派生アプリ口＝将来v2 addGint()で置換。薄い1モジュールに封じること）----
 	/** ユーザー知性層の搭載（単一スロット＝呼ぶたび置換）。pbfは gint ベイク済みであること */
 	applyGintData(pbf: GeoPBF, label: string, moveCamera?: boolean, opts?: GintApplyOptions): GeoPBF | null;
-	/** クリック識別（fid・properties・経緯度＝ホバー pick が当たった位置の球面座標。クリックはホバーの識別結果に依存する） */
+	/**
+	 * クリック識別（fid・properties・経緯度）。lnglat＝ホバー pick が当たった**カーソル位置**の球面座標であって
+	 * フィーチャの座標ではない（点をクリックしても同じ。座標が要るなら properties に持たせる）。クリックはホバーの識別結果に依存する
+	 */
 	onGintClick(fn: (fid: number, props: Record<string, unknown>, lnglat: LonLat) => void): void;
 	/** fid整列のproperties配列（式評価・表直書きの入力。.geojsonは詰めズレするので使わない） */
 	gintFeatures(): Array<{ properties: Record<string, unknown> }> | null;
@@ -140,7 +144,8 @@ export interface OrthoJapanMap {
 	 * fid→スタイル表の直書き。u32レコード=4要素/fid:
 	 * [0]=fill RGBA8(r<<24|g<<16|b<<8|a) [1]=line/circle色 [2]=(width*8)<<24|dash<<16|(radius*4)<<8|flags [3]=0。
 	 * flags bit0=visible（フィーチャ単位の表示/非表示）
-	 * Point は [1]（circle 色・α=0 で既定色）と radius（1/4 CSS px・0=描かない）を使う。線は width（1/8px・0=描かない）
+	 * Point は [1]（circle 色・α=0 で既定色）と radius（1/4 CSS px・0=描かない）を使う。線は width（1/8px・0=描かない）。[3]＝予備（0）。
+	 * count＝レコード数（fid 数＝gintFeatures().length）。applyGintData() 直後に同期で呼べる（onReady を待つ必要はない）
 	 */
 	paintTable(u32: Uint32Array, count: number): void;
 	/** 地形沿い線化（liftM=null で解除） */
