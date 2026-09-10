@@ -12,6 +12,7 @@ import { unproject } from '../../camera.js';
 export function doIdentify(s, data) {
 	if (data.x === s.lastMX && data.y === s.lastMY) return;
 	s.lastMX = data.x; s.lastMY = data.y;
+	s.hitMX = data.x; s.hitMY = data.y;   // click 用の座標。lastMX/MY は draw ごとの dedupe リセットで NaN に戻る（hover→再描画→click で lnglat=null になった根因・2026-09-10）
 	if (!s.pickFBO) return;
 
 	const pickX = Math.max(0, Math.min(s.width  - 1, Math.round(data.x * s.dpr)));

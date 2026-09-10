@@ -38,7 +38,7 @@ struct GF {
 struct Styles { style: array<vec4f, 256>, dash: array<vec4f, 256> };   // dash は xy のみ使用（uniform 配列は 16B stride）
 @group(0) @binding(1) var<uniform> S: Styles;
 struct GP {
-	a: vec4f,      // lineWidth(device px), widthAdd, ptRadius(device px), hidden(0/1)
+	a: vec4f,      // lineWidth(device px), widthAdd, ptRadius(device px), hidden(0/1)（点ロールでは w＝dpr）
 	b: vec4i,      // activeId, pass(0=clean/1=highlight), 0, 0
 	color: vec4f,  // fill/mask 色（cover 用）
 };
@@ -504,6 +504,7 @@ export const GINT_POINT_WGSL = /* wgsl */`
 ${GF}
 @group(2) @binding(0) var ptTex: texture_2d<u32>;
 @group(2) @binding(1) var ptMetaTex: texture_2d<u32>;
+@group(3) @binding(1) var fidTex: texture_2d<u32>;   // fid スタイル表（線系と同じ group(3) スロット＝aux bind group を共有）
 const D2R: f32 = 0.017453292519943295;
 fn sinP(x: f32) -> f32 {
 	let x2 = x * x;
@@ -558,6 +559,21 @@ fn fetchPoint(ptId: i32) -> Pt {
 	let ndc = clip.xy / clip.w;
 	return Pt(vec2f((ndc.x * 0.5 + 0.5) * F.viewport.x, (1.0 - (ndc.y * 0.5 + 0.5)) * F.viewport.y), zr);
 }
+// per-fid 点スタイル（paint 時のみ・GL programs.js fidPointStyle と同じ約束）：visible bit0=0 か radius=0 は棄却、
+// radius＝表(1/4 CSS px)×dpr（P.a.w）、色＝G（α=0 は既定色のまま）。
+struct PtStyle { keep: bool, r: f32, col: vec4f, hasCol: bool };
+fn fidPointStyle(featId: i32, r0: f32) -> PtStyle {
+	var s = PtStyle(true, r0, vec4f(0.0), false);
+	if (F.flags.w == 0u) { return s; }
+	let rec = textureLoad(fidTex, vec2i(featId % i32(F.flags.w), featId / i32(F.flags.w)), 0);
+	if ((rec.b & 1u) == 0u) { s.keep = false; return s; }
+	let r4 = (rec.b >> 8u) & 255u;
+	if (r4 == 0u) { s.keep = false; return s; }
+	s.r = f32(r4) * 0.25 * P.a.w;
+	let lc = rec.g;
+	if ((lc & 255u) != 0u) { s.col = vec4f(f32(lc >> 24u), f32((lc >> 16u) & 255u), f32((lc >> 8u) & 255u), f32(lc & 255u)) / 255.0; s.hasCol = true; }
+	return s;
+}
 struct POut {
 	@builtin(position) pos: vec4f,
 	@location(0) zr: f32,
@@ -575,10 +591,13 @@ struct POut {
 	o.uv = vec2f(ox, oy);
 	let tc = vec2i(ptId % F.texw.x, ptId / F.texw.x);
 	let featId = i32(textureLoad(ptMetaTex, tc, 0).r);
+	let fs = fidPointStyle(featId, P.a.z);
+	if (!fs.keep) { return o; }   // per-fid：非表示/半径0＝棄却（o.pos=0 の縮退）
 	let isActive = featId == P.b.x;
-	let r = select(P.a.z, P.a.z * 1.6, isActive);
+	let r = select(fs.r, fs.r * 1.6, isActive);
 	o.pos = vec4f(2.0 * (p.xy.x + ox * r) / F.viewport.x - 1.0, 1.0 - 2.0 * (p.xy.y + oy * r) / F.viewport.y, 0.0, 1.0);
-	o.color = select(vec4f(1.0, 0.420, 0.208, 1.0), vec4f(1.0, 0.9, 0.0, 1.0), isActive);
+	let base = select(vec4f(1.0, 0.420, 0.208, 1.0), fs.col, fs.hasCol);
+	o.color = select(base, vec4f(1.0, 0.9, 0.0, 1.0), isActive);
 	return o;
 }
 @fragment fn fsPoint(in: POut) -> @location(0) vec4f {
@@ -595,9 +614,12 @@ struct POut {
 	let p = fetchPoint(ptId);
 	o.zr = p.zr;
 	o.uv = vec2f(ox, oy);
-	o.pos = vec4f(2.0 * (p.xy.x + ox * P.a.z) / F.viewport.x - 1.0, 1.0 - 2.0 * (p.xy.y + oy * P.a.z) / F.viewport.y, 0.0, 1.0);
 	let tc = vec2i(ptId % F.texw.x, ptId / F.texw.x);
 	let fid1 = textureLoad(ptMetaTex, tc, 0).r + 1u;
+	let fs = fidPointStyle(i32(fid1 - 1u), P.a.z);
+	if (!fs.keep) { return o; }   // filter 非表示の点は pick からも外す（線と同じ）
+	let r = max(fs.r, P.a.z);   // pick 半径＝max(表の半径, マージン)
+	o.pos = vec4f(2.0 * (p.xy.x + ox * r) / F.viewport.x - 1.0, 1.0 - 2.0 * (p.xy.y + oy * r) / F.viewport.y, 0.0, 1.0);
 	o.color = vec4f(f32(fid1 & 255u) / 255.0, f32((fid1 >> 8u) & 255u) / 255.0, f32((fid1 >> 16u) & 255u) / 255.0, 1.0);
 	return o;
 }

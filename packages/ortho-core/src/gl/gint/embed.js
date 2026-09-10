@@ -434,9 +434,9 @@ export function createGintLayer(gl, { requestDraw } = {}) {
 	function click() {
 		const st = actSt();
 		if (st.activeId === -1) return;
-		const geo = s.cam ? unproject(s.cam, st.lastMX * s.dpr, st.lastMY * s.dpr) : null;
+		const geo = s.cam ? unproject(s.cam, st.hitMX * s.dpr, st.hitMY * s.dpr) : null;   // hitMX＝直近 identify の座標（lastMX は毎 draw の dedupe リセットで NaN）
 		postMessage({ action: "click", featureId: st.activeId,
-					  x: st.lastMX, y: st.lastMY,
+					  x: st.hitMX, y: st.hitMY,
 					  lng: geo?.[0] ?? null, lat: geo?.[1] ?? null, layer: act?.id ?? null });
 	}
 

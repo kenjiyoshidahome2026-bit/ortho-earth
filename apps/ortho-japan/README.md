@@ -87,9 +87,25 @@ The built-in `attr` instrument (bottom right) covers this by default. **If you r
 
 > Source: GSI Optimized Vector Tiles (experimental), GSI elevation tiles (DEM10B), MLIT PLATEAU, JAXA AW3D30 (created by processing these data sources)
 
+## Loading your own data (geopbf)
+
+The SDK bundles the GeoPBF library and exports its ready-to-use loader as a named export (1.0.3+) — no second package, no bundler, no import map:
+
+```js
+import orthoJapan, { geopbf } from "/ortho-japan/ortho-japan.js";
+const map = await orthoJapan({ target: "#here", assetBase: "/ortho-japan-assets/" });
+const pbf = await geopbf(featureCollection, { name: "myapp/data" });   // GeoJSON object / File / URL / ArrayBuffer — gint is baked by default
+map.applyGintData(pbf, "mydata", true, { interactive: true });
+map.onGintClick((fid, props) => console.log(props));
+```
+
+`geopbf()` reads GeoJSON, TopoJSON, FlatGeobuf, Shapefile (zip), KML/KMZ, GPX, GML, MOJ (zip) and GeoPBF itself (gzip OK) and writes them back out (`pbf.geojsonFile()`, `pbf.shapeFile()`, …). The workers it uses are the lazy chunks already in `dist/lib/`, so this works from a plain static HTML page. Do not call `createGeopbf` — the SDK has already initialised the instance (it is not exported). Types: `GeoPBF` in `ortho-japan.d.ts`.
+
+The library is also published standalone on npm ([`geopbf`](https://www.npmjs.com/package/geopbf), MIT) for use outside the globe. Do not mix the two on one page: the npm copy is a separate instance and you would ship the library twice. `@ortho-earth/japan` 1.0.2 and earlier did not export `geopbf` — upgrade.
+
 ## Developing with AI agents
 
-A one-page canon for AI coding agents (API surface, pitfall ledger, verification recipes) is served at **https://www.ortho-earth.com/japan/llms.txt** and bundled in the package. Drop the bundled `sdk/skill/ortho-earth-sdk/` into your `.claude/skills/` and Claude Code writes against the SDK idiomatically. TypeScript definitions: `dist/lib/ortho-japan.d.ts`.
+A one-page canon for AI coding agents (API surface, pitfall ledger, verification recipes) is served at **https://www.ortho-earth.com/japan/llms.txt** and bundled in the package. Drop the bundled `sdk/skill/ortho-earth-sdk/` into your `.claude/skills/` and Claude Code writes against the SDK idiomatically. TypeScript definitions: `dist/lib/ortho-japan.d.ts` (also served at https://www.ortho-earth.com/japan/lib/ortho-japan.d.ts). Data loading goes through the SDK's own `geopbf` export (previous section).
 
 ## License
 

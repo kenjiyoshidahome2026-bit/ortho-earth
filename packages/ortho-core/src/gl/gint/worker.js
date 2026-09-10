@@ -205,9 +205,9 @@ function leave()    { handleLeave(s); }
 
 function click() {
 	if (s.activeId === -1) return;
-	const geo = s.cam ? unproject(s.cam, s.lastMX * s.dpr, s.lastMY * s.dpr) : null;
+	const geo = s.cam ? unproject(s.cam, s.hitMX * s.dpr, s.hitMY * s.dpr) : null;   // hitMX＝直近 identify の座標（lastMX は draw で NaN に戻る）
 	postMessage({ action: "click", featureId: s.activeId,
-				  x: s.lastMX, y: s.lastMY,
+				  x: s.hitMX, y: s.hitMY,
 				  lng: geo?.[0] ?? null, lat: geo?.[1] ?? null });
 }
 

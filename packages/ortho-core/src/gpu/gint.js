@@ -170,6 +170,7 @@ export function createGintLayerGPU(host, { requestDraw, noSB } = {}) {
 	const V = { width: 0, height: 0, dpr: 1, cam: null, lastViewBbox: null };
 	// ── カーソル（§4.1 常に1層＝エンジン所有）────────────────────────────
 	let activeId = -1, lastMX = NaN, lastMY = NaN, moveTimer = null, pendingMove = null;
+	let hitMX = NaN, hitMY = NaN;   // 直近 identify の座標（click の unproject 用）。lastMX/MY は draw ごとの dedupe リセットで NaN に戻る
 	let isDrawing = false, staticN = 0, lastSyncCam = null, pickPending = false;
 	// ダミー（未搭載スロットの束縛穴埋め＝layout は常に4テクスチャを要求する）
 	const dummyU32 = device.createTexture({ size: [1, 1], format: "r32uint", usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST });
@@ -612,9 +613,9 @@ export function createGintLayerGPU(host, { requestDraw, noSB } = {}) {
 	}
 	const gpAB = new ArrayBuffer(GP_SLOT * 11);
 	const gpF = new Float32Array(gpAB), gpI = new Int32Array(gpAB);
-	function packGP(role, { width = 0, widthAdd = 0, radius = 0, hidden = 0, activeId = -1, pass = 0, color = null } = {}) {
+	function packGP(role, { width = 0, widthAdd = 0, radius = 0, hidden = 0, dpr = null, activeId = -1, pass = 0, color = null } = {}) {
 		const o = role * (GP_SLOT >> 2);
-		gpF[o] = width; gpF[o + 1] = widthAdd; gpF[o + 2] = radius; gpF[o + 3] = hidden;
+		gpF[o] = width; gpF[o + 1] = widthAdd; gpF[o + 2] = radius; gpF[o + 3] = dpr ?? hidden;   // a.w＝線ロール hidden / 点ロール dpr（表の 1/4px 半径→device px）
 		gpI[o + 4] = activeId; gpI[o + 5] = pass; gpI[o + 6] = 0; gpI[o + 7] = 0;
 		if (color) { gpF[o + 8] = color[0]; gpF[o + 9] = color[1]; gpF[o + 10] = color[2]; gpF[o + 11] = color[3]; }
 		else { gpF[o + 8] = gpF[o + 9] = gpF[o + 10] = gpF[o + 11] = 0; }
@@ -746,8 +747,8 @@ export function createGintLayerGPU(host, { requestDraw, noSB } = {}) {
 		packGP(ROLE.hilite, { width: lw + 2.0, widthAdd: 2.0, radius: data.hiliteWidth || 0, activeId: aId, pass: 1, color: data.hiliteColor });   // radius欄でホバー全幅(device px)を運ぶ＝指定時は shader が lw を上書き（overlay 町丁目線と一致）。hiliteColor＝ホバー線色（未指定＝素の線色を不透明）
 		packGP(ROLE.maskStencil, { activeId: aId });
 		packGP(ROLE.maskFill, { color: data.maskColor ?? DEF_MASK });
-		packGP(ROLE.point, { radius: data.ptRadius ?? 1.5, activeId: -1 });
-		packGP(ROLE.pointHi, { radius: data.ptRadius ?? 1.5, activeId: aId });
+		packGP(ROLE.point, { radius: data.ptRadius ?? 1.5, activeId: -1, dpr: V.dpr });
+		packGP(ROLE.pointHi, { radius: data.ptRadius ?? 1.5, activeId: aId, dpr: V.dpr });
 		device.queue.writeBuffer(L.gpBuf, 0, gpAB);
 
 		const aux = auxGroup(L, ctx?.elevView, ctx?.elevSampler);
@@ -889,7 +890,7 @@ export function createGintLayerGPU(host, { requestDraw, noSB } = {}) {
 		packGF(L, 0, data, data.lodRank ?? 0);   // 非表示層（識別だけ生存）は renderScene が GF を書いていない＝ここで確定
 		device.queue.writeBuffer(L.gfBuf, 0, gfAB, 0, GF_SLOT);
 		packGP(ROLE.pickLine, { width: (data.lineWidth ?? 1.0) + pickMargin });
-		packGP(ROLE.pickPoint, { radius: Math.max(data.ptRadius ?? 1.5, pickMargin * 0.5) });
+		packGP(ROLE.pickPoint, { radius: Math.max(data.ptRadius ?? 1.5, pickMargin * 0.5), dpr: V.dpr });
 		device.queue.writeBuffer(L.gpBuf, ROLE.pickLine * GP_SLOT, gpAB, ROLE.pickLine * GP_SLOT, GP_SLOT * 2);
 		const aux = auxGroup(L, null, null);
 		const enc = device.createCommandEncoder();
@@ -922,6 +923,7 @@ export function createGintLayerGPU(host, { requestDraw, noSB } = {}) {
 	function doIdentify(data) {
 		if (data.x === lastMX && data.y === lastMY) return;
 		lastMX = data.x; lastMY = data.y;
+		hitMX = data.x; hitMY = data.y;
 		if (!pickTex) return;
 		// ★クランプは pickTex の実サイズ(fboW/fboH)で行う＝V.width/V.height（現canvas）ではない。
 		// canvasリサイズ（census2020の6:4パネル開閉等）直後は pickTex が旧サイズのまま（settleで作り直すまで）。
@@ -997,8 +999,8 @@ export function createGintLayerGPU(host, { requestDraw, noSB } = {}) {
 	}
 	function click() {
 		if (activeId === -1) return;
-		const geo = V.cam ? unproject(V.cam, lastMX * V.dpr, lastMY * V.dpr) : null;
-		postMessage({ action: "click", featureId: activeId, x: lastMX, y: lastMY, lng: geo?.[0] ?? null, lat: geo?.[1] ?? null, layer: act?.id ?? null });
+		const geo = V.cam ? unproject(V.cam, hitMX * V.dpr, hitMY * V.dpr) : null;   // hitMX＝直近 identify の座標（lastMX は draw で NaN）
+		postMessage({ action: "click", featureId: activeId, x: hitMX, y: hitMY, lng: geo?.[0] ?? null, lat: geo?.[1] ?? null, layer: act?.id ?? null });
 	}
 	function disposeLayer(L) {
 		saveActive(L);

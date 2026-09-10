@@ -53,23 +53,31 @@ www.ortho-earth.com 配下に置くページなら、CDNのESモジュールを�
 - 出典表記の義務：instrumentsの"attr"を消す場合はページ側で出典明記（README「出典表記」参照）
 
 ## データ知性層（geopbf ＋ gint）
-GeoPBF＝座標svarint差分圧縮のバイナリGIS形式（仕様 /docs/geopbf.html）。パッケージ"geopbf"：
-- createGeopbf(apiBase) を**自分のバンドル内で必ず1回**呼ぶ（罠台帳①参照）
+GeoPBF＝座標svarint差分圧縮のバイナリGIS形式（仕様 https://www.ortho-earth.com/docs/geopbf.html）。
+**入手＝SDK の named export**（1.0.3〜）：`import orthoJapan, { geopbf } from ".../lib/ortho-japan.js"`。同梱・初期化済み＝
+createGeopbf は呼ばない（export していない＝呼ぶと SDK 内部の bucket 設定ごとアクティブインスタンスが差し替わる）。
+バンドラも import map も不要＝同梱の worker チャンクがそのまま動く。npm の geopbf（単体・MIT）は地球儀の外で使う物＝
+同一ページで混ぜない（別インスタンス・二重同梱）。@ortho-earth/japan 1.0.2 以前は未 export＝更新する。
 - geopbf(File|URL|ArrayBuffer|GeoJSONオブジェクト, opts) → pbf。読める形式:
   geopbf/.pbf/geojson/topojson/fgb/shape(zip)/kmz/gpx/gml/moj(zip)/gz
 - 書き出し: pbf.geopbfFile()/geojsonFile()/topojsonFile()/fgbFile()/shapeFile()/kmzFile()/gmlFile()/gpxFile() → File
 - pbf.identifyAt(lng,lat,{point:m,polyline:m})→fid（描画レス識別・点→線→面優先・面はsmallest-wins）
-- オブジェクト入力から作ったpbfは gint が自動ベイクされない → `await pbf.gint()` を明示
+- geopbf() は入力形式を問わず既定で gint を焼く（opts.gint=false で抑止）。`await pbf.gint()` の明示呼びは焼き済みなら no-op＝害なし
 - **Blob/Fileをプロパティ値にそのまま入れられる**：エンコード時にBUFSプールへ一個書き
   （バイナリ等価は自動dedup＋deflate圧縮）、読み戻しはFile復元＋同一参照共有。アイコン等の正道
 
 現行のgint口（単一スロット・v2のmap.addGint()で置換予定＝**必ず薄いモジュール1枚に封じて使う**）:
-- map.applyGintData(pbf, label, moveCamera, {style,minZoom,interactive,hover,drape,tip,fillMaxEdges})
-  ＝ユーザー層の搭載（呼ぶたび置換）。z<7は世界海岸線と交替（minZoomで下げられる）
-- map.onGintClick((fid, props, [lng,lat])=>{}) / map.gintFeatures()＝fid整列properties
+- map.applyGintData(pbf, label, moveCamera, {style,minZoom,interactive,hover,drape,drapeFill,tip,fillMaxEdges,lowFill,onReady})
+  ＝ユーザー層の搭載（呼ぶたび置換）。minZoom 未指定＝データ範囲から自動（狭域は 13〜14・"[gint] minZoom auto-set" ログ）
+  ＝それ未満のズームでは描かれない。指定で上書き（下げられる・1.0.3〜）。z<7 は世界海岸線と交替（固定）。
+  tip=(props)=>string[]（空/null＝tip なし）。style={lineWidth,fillColor:[r,g,b,a],styleTable,dashTable,ptRadius}（型 GintDrawStyle）
+- map.onGintClick((fid, props, [lng,lat])=>{}) / map.gintFeatures()＝fid整列properties。click はホバーの識別結果を使う
+  （pointer 移動なしの合成クリックは拾えない）。[lng,lat]＝当たり位置（1.0.3 で [null,null] になる回帰を修正）
 - map.paint(Mapbox風式|null) / map.paintTable(u32, count)＝fid→スタイル表の直書き。レコード=4×u32/fid：
   [0]=fill RGBA8(r<<24|g<<16|b<<8|a) [1]=line/circle色 [2]=(width*8)<<24|dash<<16|(radius*4)<<8|flags [3]=0。
   flags bit0=visible（フィーチャ単位の表示/非表示はここ）
+  点(Point)＝[1]が circle 色（α=0 は既定 #FF6B35）・[2]の radius(1/4px 単位・0=描かない)・bit0 を使う。線＝width(1/8px・0=描かない)。
+  ※npm @ortho-earth/japan 1.0.2 以前の lib は点だけ表を無視（固定色 1.5px）＝点に色を付けるなら 1.0.3 以降
 - fid⇄自分のid管理：全フィーチャのpropertiesに一意キー（例 __eid）を入れてエンコードすれば
   fid=フィーチャ並び順が保証される（同一プロパティ行は併合される仕様への対策）
 
@@ -79,8 +87,8 @@ properties に `@fill @stroke @width @icon @shape @text @size @tip @pop` を書�
 triangle/diamond/star/flag、@tip=ホバー一言、@pop=常時吹き出し（\nで改行）。ただのプロパティ＝全形式を往復。
 
 ## 罠台帳（実事故由来・順不同）
-1. **createGeopbfの二重インスタンス**：バンドラ使用時、SDK(lib)内のgeopbfと自分のバンドルのgeopbfは別モジュール。
-   自分のバンドル側でも createGeopbf(apiBase) を呼ぶ（本番だけデータ読込が死ぬ）
+1. **geopbf は SDK の export から**（1.0.3〜）。npm の geopbf を自分のバンドルに混ぜると SDK 内とは別インスタンス＝
+   その側で createGeopbf() を呼び忘れると本番だけデータ読込が死ぬ（dev はソース直配信で動く）。混ぜないのが正
 2. viteでCDN libを外部参照する時は rollupOptions.external=["…/ortho-japan.js"] ＋ importはURL変数経由で
    `import(/* @vite-ignore */ LIB)`（リテラルだとdevで解決に行って404）
 3. CSSは自動注入されない＝ ortho-japan.css の<link>をページが貼る
@@ -90,6 +98,7 @@ triangle/diamond/star/flag、@tip=ホバー一言、@pop=常時吹き出し（\n
 7. COOP/COEPは不要（あればSABゼロコピーで速いだけ）。Service Workerは持ち込まない
 8. 大量フィーチャの識別は identifyAt/GPU pickを使う（自前JS全走査を書かない）
 9. ズーム換算：画面px→mは `40075016.686*cos(lat)/(256*2^zoom)` 近似が実用十分（クリック許容量など）
+10. **`npm i geopbf` は不要**＝`import { geopbf } from ".../ortho-japan.js"`（1.0.3〜）。1.0.2 以前の lib は未 export（更新する）
 
 ## 検証の作法（このリポジトリの流儀）
 - 自己判定テストページ：判定結果を<title>にPASS/FAIL+詳細で書く → headless Chromeで--dump-domして読む
@@ -100,4 +109,4 @@ triangle/diamond/star/flag、@tip=ホバー一言、@pop=常時吹き出し（\n
 - README（オプション正典・埋め込み契約・出典義務）: SDK zip同梱 / リポジトリ apps/ortho-japan/README.md
 - 形式仕様: /docs/geopbf.html /docs/gint.html
 - 消費実例: apps/census2020（統計・コロプレス）/ apps/geoedit（編集・@プロパティ・BUFSアイコン）
-- 型定義: lib/ortho-japan.d.ts（SDK zip同梱）
+- 型定義: https://www.ortho-earth.com/japan/lib/ortho-japan.d.ts（SDK zip・npm の dist/lib にも同梱）

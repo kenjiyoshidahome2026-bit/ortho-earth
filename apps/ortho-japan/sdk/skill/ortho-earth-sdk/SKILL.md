@@ -8,7 +8,8 @@ description: ortho-earth（ortho-japan）SDKで3D地球儀アプリを作る時�
 あなたは ortho-earth の 3D 地球儀 SDK（ortho-japan）を使ってアプリを作る。**最初に正典を読む**：
 
 1. `https://www.ortho-earth.com/japan/llms.txt` — API面・罠台帳・検証作法の1枚正典（このスキルより常に新しい）
-2. SDK zip 同梱の `README.md`（オプション表・埋め込み契約・出典義務）と `lib/ortho-japan.d.ts`（型）
+2. SDK zip 同梱の `README.md`（オプション表・埋め込み契約・出典義務）と `lib/ortho-japan.d.ts`（型。CDN＝
+   `https://www.ortho-earth.com/japan/lib/ortho-japan.d.ts` からも読める）
 
 ## 鉄則
 
@@ -18,7 +19,7 @@ description: ortho-earth（ortho-japan）SDKで3D地球儀アプリを作る時�
 - **1ページ1マップ**。容れ物のidは"map"へ正規化される＝サイズ指定は#idセレクタ禁止。
 - **出典表記は義務**。instruments の "attr" を消すならページ側で出典を明記。
 - CSSは自動注入されない＝ `ortho-japan.css` の `<link>` を貼る。
-- バンドラを使うなら：`createGeopbf(apiBase)` を**自分のバンドルでも**呼ぶ（lib内とは別インスタンス）。
+- geopbf は SDK の export を使う。npm の geopbf を自分のバンドルに混ぜない（別インスタンス＝createGeopbf の呼び忘れで本番だけ死ぬ）。
   CDN libは external ＋ URL変数経由 `import(/* @vite-ignore */ LIB)`。
 - ビルド不要が最速：www.ortho-earth.com 配下なら CDN 直import、他ドメインなら SDK zip を self-host。
 
@@ -37,17 +38,18 @@ description: ortho-earth（ortho-japan）SDKで3D地球儀アプリを作る時�
 
 ## データを載せる（GeoPBF/gint）
 
+geopbf は **SDK の named export**（1.0.3〜）＝ `npm i geopbf` も import map も createGeopbf も不要（SDK が初期化済み・出していない）。
+npm の geopbf を同一ページに混ぜない（別インスタンス）。詳細＝llms.txt「データ知性層」。
+
 ```js
-import { geopbf, createGeopbf } from "geopbf";   // self-host/バンドラ時。CDN直の場合はSDK同梱のgeopbfを使う
-createGeopbf("https://api.ortho-earth.com");
-const pbf = await geopbf(fileOrUrlOrGeoJSON, { name: "myapp/data" });
-await pbf.gint();                                 // オブジェクト入力は明示ベイク
+import orthoJapan, { geopbf } from ".../lib/ortho-japan.js";   // 同梱・初期化済み
+const pbf = await geopbf(fileOrUrlOrGeoJSON, { name: "myapp/data" });   // gint は既定で焼かれる（opts.gint=false で抑止）
 map.applyGintData(pbf, "mydata", true, { interactive: true });
 map.onGintClick((fid, props, lnglat) => console.log(props));
 ```
 
 - fid⇄自分のidの整列保証＝全propertiesに一意キーを入れてからエンコード。
-- フィーチャ別スタイル＝`map.paintTable(u32, count)`（4×u32/fid: fill色/線色/(width*8)<<24|(radius*4)<<8|flags、flags bit0=visible）。
+- フィーチャ別スタイル＝`map.paintTable(u32, count)`（4×u32/fid: fill色/線色/(width*8)<<24|(radius*4)<<8|flags、flags bit0=visible）。点は線色欄が circle 色・radius が半径（0=描かない）。
 - 画像アイコン等は **File/Blob をプロパティ値に直接**（BUFSへ一個書き・等価dedup・往復File復元）。
 - スタイルの互換規約＝@プロパティ（@fill @stroke @width @icon @shape @text @size @tip @pop）。
 

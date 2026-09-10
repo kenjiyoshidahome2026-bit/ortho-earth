@@ -46,6 +46,7 @@ export const s = {
 	gintData: null,
 	lastViewBbox: null,
 	cam: null, lastMX: NaN, lastMY: NaN,   // ← v1 の lastProj を cam(cameraState)へ置換
+	hitMX: NaN, hitMY: NaN,                // 直近 identify の座標（click の unproject 用・draw で消えない）
 	_isDrawing: false, _moveTimer: null, _pendingMove: null,
 	_inRange: false,   // 現ズームが [minZoom,maxZoom] 内で実描画されているか＝identify(tip) の可否。描画されない地物にホバー tip を出さない。
 };
