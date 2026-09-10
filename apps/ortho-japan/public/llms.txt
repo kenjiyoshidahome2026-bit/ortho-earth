@@ -33,25 +33,31 @@ www.ortho-earth.com 配下に置くページなら、CDNのESモジュールを�
 |---|---|---|
 | target | 自作 | 埋め込み先（セレクタ/要素）。idは"map"に正規化される（家具規格）。容れ物のサイズ指定は#idでなくclass/inlineで |
 | view | 前回 | 初期視点 "#zoom/lat/lon/45t/30r/l=…/c=…"（t=チルト°・r=回転°） |
-| theme | "mono" | 配色固定（mono/dark/gsi/sepia、またはカスタムオブジェクト）。worldHypso={sea,lowHumid,…,grat}で全球配色も差し替え可（未指定キー=自然色既定） |
+| theme | "mono" | 配色固定（mono/dark/gsi/sepia、またはカスタムオブジェクト）。**指定すると palette ガジェットは載らない**＝利用者が切替できる初期配色は view の c=dark で。worldHypso={sea,lowHumid,…,grat}で全球配色も差し替え可 |
 | layers | — | {place,terrain,rail,road,facility} を true/false で焼き付け/封印。未記述=チップで利用者が選ぶ |
 | chips / instruments | true | 右上チップ帯／下部計器盤の表示制御 |
 | plateau | true | 建物3D機能スイッチ。false=関連通信・workerごと停止（軽量埋め込み） |
-| lang | 自動 | "ja"/"en"（UIの衣のみ。地図中の地名は対象外） |
+| lang | 自動 | "ja"/"en"（UIの衣のみ。地図中の地名は対象外）。live 切替 API なし＝view: map.view.hash を持って destroy()→再生成 |
 | maxPitch | 75° | チルト上限（**ラジアン**）。0=俯瞰固定（編集系アプリ向け） |
-| assetBase | — | 実行時アセット（plateau-sets.json等）の配信ベースURL |
+| assetBase | "./" | 実行時アセット（plateau-sets.json等）の配信ベースURL（既定＝ページと同じ階層） |
+| urlHash | 埋め込みは false | ページ URL のハッシュに視点を書き続ける（1.0.4〜埋め込みでは既定 off＝SPA ルータを汚さない） |
+| debugGlobals | false | window.__cam 等のデバッグ手（target 指定時は既定で生えない） |
 
 ## map（戻り値）の公式面
-- flyTo(lon, lat, zoom, tiltDeg?, bearingDeg?) / getZoom() / view（{center,zoom,pitch,bearing,hash,…}）/ destroy()
+- flyTo(lon, lat, zoom, tiltDeg?, bearingDeg?) / getZoom() / view（{center,zoom,pitch(rad),bearing(rad),theme,hash,…}）/ destroy() / backend（"webgpu"|"webgl2"|null）
+  destroy()＝容れ物を id/子要素/class まで元へ。再生成は view: map.view.hash（lang/theme の変更もこれ）。1.0.3 以前は WebGPU 起動後 20s 以内の destroy でホストが reload（罠⑭）
 - projectLL(lon,lat)→[xCss,yCss,front]（front<0=裏半球）/ unprojectXY(x,y)→[lon,lat]|null（onClickと同座標系）
   ＝いずれも **mapEl（canvas）左上原点の CSS px**（ページ座標ではない＝pointer 合成は getBoundingClientRect を足す）
 - makeProjector()＝カメラ状態を1回束ねた投影関数（多点描画用）/ onFrame(fn)→解除fn / requestDraw()
 - setEditClick(fn|null)＝クリック横取りスロット（編集アプリ用。クリックvsドラッグの4px弁別はエンジンが済ませる）
-- getHeight(lon,lat)→Promise<標高m> / fitZoomForBbox([w,s,e,n])
+- getHeight(lon,lat)→Promise<標高m>（api.ortho-earth.com 経由の DEM タイル・粗い格子＝山頂は低め。1.0.4〜ローダ着荷を待って返す／1.0.3 以前は未着の間 0）
+  / fitZoomForBbox([w,s,e,n]) / makeProjectorH()＝地形込み投影 (lon,lat,liftM=0)（projectLL/makeProjector は海面基準＝チルトで視差）
 - gadget＝オプトインUI部品。map.gadget.search()/zoom()/compass()/full()/shot()/measure()/profile()/contextmenu({items})/
   legend()/palette()/hint()/qr()/print()/cpos()/tip()/pop() など。profile()=断面図（クリックで経路指定→標高グラフ）。contextmenuのitems=[{name,onClick(c)}]、
   c={lng,lat,x,y,map}。全画面のショートカット=Z単キー（⌘Z/⌘⇧Zは編集アプリのundo/redoに空けてある）
 - 出典表記の義務：instrumentsの"attr"を消す場合はページ側で出典明記（README「出典表記」参照）
+- ガジェットの手綱（1.0.4 の d.ts）：shot()→{open(),composite()→Blob} / qr()・print()・palette()→{open,close} / measure()・profile()→{start,stop,stats()}
+  / tip()→setter(rows|null)（自動搭載済み）/ contextmenu({items})→項目差し替え関数。操作系＝measure/profile はクリックで頂点・ダブルクリック確定
 
 ## データ知性層（geopbf ＋ gint）
 GeoPBF＝座標svarint差分圧縮のバイナリGIS形式（仕様 https://www.ortho-earth.com/docs/geopbf）。
@@ -74,6 +80,7 @@ createGeopbf は呼ばない（export していない＝呼ぶと SDK 内部の 
   **点だけのデータは自動なし＝全ズームで描く**。指定で上書き（1.0.3〜）。省メモリ端末だけ z<minZoom（既定 7）で層を眠らせる。
   gintFeatures()/paintTable は applyGintData 直後に同期で呼べる。**自分の値はエンコード前に properties へ**（paint/tip/書き出しは pbf 側を読む）
   tip=(props)=>string[]（空/null＝tip なし）。style={lineWidth,fillColor:[r,g,b,a],styleTable,dashTable,ptRadius}（型 GintDrawStyle）
+  **チルト（pitch>約1°）ではこの層は非表示＝drapeFill:true で地形の上に描き続ける**（スタイル付きの線/塗り）。drape:true＝別描画の細い地形沿い線（固定幅・色は style.fillColor・moj 筆向け）
 - map.onGintClick((fid, props, [lng,lat])=>{}) / map.gintFeatures()＝fid整列properties。click はホバーの識別結果を使う
   （pointer 移動なしの合成クリックは拾えない）。[lng,lat]＝**カーソルの当たり位置**（フィーチャ座標ではない・点でも同じ。1.0.3 で [null,null] になる回帰を修正）。
   **非ヒット（海など）では呼ばれない**＝選択解除は `map.mapEl` の click（4px ドラッグ弁別は自前）＋ `map.unprojectXY(x,y)` ＋ `pbf.contain(ll)===null`
@@ -110,8 +117,17 @@ triangle/diamond/star/flag、@tip=ホバー一言、@pop=常時吹き出し（\n
 10. **`npm i geopbf` は不要**＝`import { geopbf } from ".../ortho-japan.js"`（1.0.3〜）。1.0.2 以前の lib は未 export（更新する）
 11. **geopbf(URL) は api.ortho-earth.com の proxy で check する**（許可ホスト制）。1.0.4〜＝proxy が断れば直 fetch へ自動フォールバック
     （相手ホストの CORS 許可が要る）。**1.0.3 以前は許可ホスト外を 0 件の pbf として黙って返す**＝`fetch(url)`→`new File([blob], "x.topojson")`
-    （拡張子で形式判定）を geopbf() に渡す。自サイトの相対 URL も同じ経路＝File 渡しが確実
+    （拡張子で形式判定）を geopbf() に渡す。**相対パス（"/data/x.gpx"）は 1.0.3 以前は bucket 名と誤認**（api/bucket/GIS/pbf//data/… の 404）＝
+    1.0.4〜は location 基準の URL として読む。1.0.4〜読めなければ例外（0 件を黙って返さない）。GPX＝track→LineString（trkpt の ele/time は残らない＝自前パース）
 12. pbf.getBbox() は引数なしだとフィーチャ別 bbox の**配列**。全体は `pbf.bbox`（fitZoomForBbox に渡すのはこちら）
+13. **チルト時のホバー/クリック識別は海面基準**（GPU pick）＝drapeFill で地形に乗った線とは視差があり当たりにくい。確実なのは
+    setEditClick((x,y)) ＋ makeProjectorH() で頂点を投影して最近傍、または pbf.identifyAt(lng,lat,{polyline:m})
+14. **destroy() の番犬 reload（1.0.3 以前）**：WebGPU 起動後 20 秒以内に destroy すると番犬タイマーがホストページを location.reload()。1.0.4 で解除。
+    それ以前は生成から 21 秒待つか `?stay=1`
+15. **theme を指定すると palette ガジェットは載らない**（console.warn）。contextmenu は既定 2 項目を持ち items は置換。print は pointer:coarse で非搭載・
+    小さな枠では低精細の注意が出る。ガジェット列は 2.5 秒無操作でフェード（ui-idle・スクショ/検証で驚かない）
+16. **PLATEAU/標高の通信量**：建物は R2 焼き（1 区で数〜十数 MB・周辺区も先読み）、標高タイルは plateau:false でも来る（セッションで数十 MB）。
+    読込の合図はコンソール（"[plateau] catalog loaded" → "auto-load -> 区名" → "[plateau] done"、"[boot] frame1 received backend=…"）＝API は未整備
 
 ## 検証の作法（このリポジトリの流儀）
 - 自己判定テストページ：判定結果を<title>にPASS/FAIL+詳細で書く → headless Chromeで--dump-domして読む

@@ -63,7 +63,16 @@ map.onGintClick((fid, props, lnglat) => console.log(props));
 - minZoom：線/面を含むデータは範囲から自動（狭域 13〜14・全国 3）・**点だけは自動なし（全ズームで描く）**。onGintClick の lnglat＝カーソル位置（フィーチャ座標ではない）・**非ヒットでは呼ばれない**（海クリック解除＝mapEl click＋unprojectXY＋pbf.contain()）。
 - 面のコロプレス＝`map.paint({ "fill-color": ["step", ["get","pop"], "#eff3ff", 1,"#bdd7e7", 4,"#3182bd"], "line-width": ["case", ["==",["get","id"], sel], 3.5, 0.9] })`
   （キー fill-*/line-*/circle-*・演算子は get/match/step/case/interpolate 等の Mapbox サブセット・色は #hex/rgb()。詳細＝llms.txt）。自分の値は**エンコード前**に properties へ。
-- **URL 読込は proxy 経由**（罠台帳⑪）：1.0.3 以前は許可ホスト外が 0 件で黙る＝`fetch(url)`→`new File([blob], "data.topojson")` を渡す。1.0.4〜は直 fetch へ自動フォールバック。
+- **URL 読込は proxy 経由**（罠台帳⑪）：1.0.3 以前は許可ホスト外・**自サイトの相対パス**とも 0 件で黙る＝`fetch(url)`→`new File([blob], "data.gpx")` を渡す。1.0.4〜は直 fetch へ自動フォールバック・相対パス可・失敗は例外。
+- **チルトで層が消える**＝applyGintData に `drapeFill: true`（スタイル付き線/塗りを地形の上に描き続ける）。`drape:true` は別物（細い固定幅の地形沿い線）。チルト時の識別は海面基準＝setEditClick＋makeProjectorH の最近傍で。
+- getHeight は 1.0.4〜ローダ着荷を待つ（1.0.3 以前は未着 0＝>0 まで再照会）。ガジェットの手綱＝shot().open()/composite()・qr().open()・measure().start()（llms.txt「map の公式面」）。
+
+## 埋め込み（記事内ウィジェット等）の掟
+
+- 容れ物は class で寸法・id は借りられて destroy() で返る。lang/theme の live 切替 API は無い＝`view: map.view.hash` を持って destroy()→再生成。
+- **1.0.3 以前は WebGPU 起動後 20 秒以内の destroy() でホストページが reload される**（番犬タイマー・1.0.4 で修正）＝古い lib なら 21 秒待つか `?stay=1`。
+- theme を指定すると palette は載らない（切替可にするなら view の c=dark）。contextmenu({items}) は既定 2 項目の**置換**。埋め込みでは URL ハッシュを書かない（urlHash:true で書く）。
+- backend は `map.backend`（1.0.4〜）。PLATEAU の読込合図はコンソール文字列（llms.txt 罠⑯）。
 - 画像アイコン等は **File/Blob をプロパティ値に直接**（BUFSへ一個書き・等価dedup・往復File復元）。
 - スタイルの互換規約＝@プロパティ（@fill @stroke @width @icon @shape @text @size @tip @pop）。
 

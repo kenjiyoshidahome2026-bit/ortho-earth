@@ -63,7 +63,8 @@ export function shot({ requestSnapshot, signal, btn } = {}) {
 	}
 
 	// 各層を1枚へ合成→webp Blob。層重ね（基図→知性→ラベル→計測）は composeLayersToCanvas（printと共用）。
-	async function composite(snap) {
+	async function composite(snap = null) {
+		snap ??= await requestSnapshot();   // 引数省略＝今の画面を撮って合成（プログラム駆動用。旧＝undefined で例外）
 		const out = composeLayersToCanvas(snap, mapEl.querySelector("#measure-lines"));
 		drawAttr(out.getContext("2d"), snap.W, snap.H);
 		return out.convertToBlob({ type: "image/webp", quality: 0.92 });

@@ -546,7 +546,11 @@ let bootT = setTimeout(() => {
 }, 10000);
 // gpu=1 の frame1 不達（20秒）＝WebGPU 経路が固まっている疑い＝WebGL2 で仕切り直し（遅い回線のコールドブート実測
 // 16秒@400kbps を考慮した余裕。present 沈黙故障と対で、実験フラグがどう転んでも WebGL2 の絵に必ず着地させる）。
-if (gpuBackend) setTimeout(() => {
+// ★destroy() で必ず clearTimeout（旧＝生成後 20 秒以内に destroy すると __backend が消えた後に番犬が起き、**ホストページごと reload**＝
+//   SDK ドッグフード 2026-09-10 で発覚。埋め込み先の SPA がタブ切替で destroy する典型で踏む）
+let gpuWatchT = null;
+if (gpuBackend) gpuWatchT = setTimeout(() => {
+	gpuWatchT = null;
 	if (!dbgHost.__backend && !/[?&]stay=1/.test(location.search)) {
 		console.error("[boot] gpu=1: no frame1 in 20s -> restarting as WebGL2");
 		markNoGpu("frame1-20s");
@@ -1747,7 +1751,7 @@ const viewHash = () => {
 	if (!themeFixed && themeName !== "mono" && MAP_THEMES[themeName]) extras.push("c=" + themeName);
 	return buildViewHash(cam, extras);
 };
-const saveView = () => { saveCam(); try { history.replaceState(null, "", viewHash()); } catch { /* file:// 等 */ } };
+const saveView = () => { saveCam(); if (ownMapEl || opts.urlHash) try { history.replaceState(null, "", viewHash()); } catch { /* file:// 等 */ } };   // 埋め込み（target 指定）ではホストページの URL を書かない（1.0.4〜・opts.urlHash=true で従来どおり）
 // 配色テーマの生き替え（reload無し restyle）：基図タイルを新styleで組み直し、静的色・夜家具(ui-dark)・海岸線色・
 // N02芯色を差し替える。★URLは書かない＝呼び出し側が「全状態が揃った後」に1回だけ書く（applyView 末尾の saveView／
 // palette は switchTheme 後に saveView）＝URL⇄状態の一元化・順序取りこぼしの防止。色は dl.ops に焼き込まれるため基図は
@@ -3512,7 +3516,7 @@ function destroy() {
 	flightCtl.cancel();
 	ac.abort();                                  // window/document のリスナー一括解除（offline/online/hashchange/検索の外側クリック）
 	ro.disconnect();
-	clearTimeout(settleT); clearTimeout(calmT); clearTimeout(bootT); clearInterval(planetTimer); clearInterval(skyClockTimer);
+	clearTimeout(settleT); clearTimeout(calmT); clearTimeout(bootT); clearTimeout(gpuWatchT); clearInterval(planetTimer); clearInterval(skyClockTimer);   // gpuWatchT＝WebGPU frame1 番犬（残すとホストページを reload する）
 	destroyPipeline();                           // tile/scene worker
 	renderWorker.terminate();
 	plateauWorkers.forEach(w => w.terminate());
@@ -3521,7 +3525,7 @@ function destroy() {
 	// 生やした名前は全て下ろす（従来は13名だけ＝取りこぼしが閉包を掴んだまま残っていた）。
 	// 埋め込み時は dbgHost が使い捨ての器＝この delete は空振りするが、閉包の錨は器ごと GC される。
 	for (const k of ["__arakawaFit", "__backend", "__budget", "__cam", "__admin0", "__a0", "__drawErr", "__drawHud", "__drawSendErr", "__drawSendN", "__farState", "__fly", "__gload", "__hiddenLi", "__lastOrder", "__loadEstat", "__loadOverlay", "__mergeFail", "__moj", "__mojFile", "__paint", "__paintFid", "__paintOverlap", "__paintParity", "__paintProps", "__plateau", "__plateauPurge", "__sapporo", "__standup", "__style", "__tileCache", "__tileStats", "__tokyo", "__vtPool"]) delete dbgHost[k];
-	mapEl.classList.remove("world");             // 全球ビューの家具フェード状態を預かったdivに残さない
+	mapEl.classList.remove("world", "ui-dark", "ui-idle");   // SDK が付けた class を全部外す（全球フェード・白抜き家具・無操作フェード）＝"as it was" を真に
 	if (ownMapEl) {   // 自前ページを預かった時に入れた inline 寸法を元へ（再起動しても二重に残らない）
 		document.documentElement.style.cssText = pageStyle.html ?? "";
 		document.body.style.cssText = pageStyle.body ?? "";
@@ -3679,7 +3683,8 @@ map.zoomMin = () => zoomMinCur;
 map.userPbf = () => userGint?.pbf ?? null;   // 表示中のユーザー gint（ドロップ/?g=）の geopbf＝編集ガジェットへの受け渡し口（同じデータを一手で編集へ）
 map.onFrame = fn => { frameHooks.add(fn); return () => frameHooks.delete(fn); };
 map.onGintClick = fn => { gintClickHandler = fn; };
-map.getHeight = (lon, lat) => getHeight ? Promise.resolve(getHeight(lon, lat, cam.zoom)).then(h => +h || 0) : Promise.resolve(0);
+Object.defineProperty(map, "backend", { get: () => dbgHost.__backend ?? null, enumerable: true });   // "webgpu"|"webgl2"|null（frame1 前）
+map.getHeight = (lon, lat) => getHeightP.then(f => f(lon, lat, cam.zoom, { wait: true })).then(h => +h || 0);   // ローダ着荷（数秒）を待ってから照会＝初期化中に 0 を返さない（旧＝未着 0。SDK ドッグフード 2026-09-10）。初期化失敗は reject
 map.getZoom = () => cam.zoom;             // 現在ズーム（派生アプリのズーム連動 LOD＝集約⇄市区町村の層切替に）
 // ガジェットの表示宣言（プラットフォームの掟 2026-09-03「アイコン配列は全zで一本」）：搭載時 opts に
 //   zoom: [zmin, zmax)  … このズーム域でだけ表示（旧・solar の showBelow 内蔵と z5 一括退場CSSの置き換え）
