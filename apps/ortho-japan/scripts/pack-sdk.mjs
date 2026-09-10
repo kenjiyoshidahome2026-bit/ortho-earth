@@ -28,7 +28,7 @@ const { version } = JSON.parse(readFileSync(path.join(APP, "package.json"), "utf
 
 // 実行時アセットの正典（app.js / gadgets の ASSET_BASE fetch 全数調査 2026-08-19）。
 // 追加・削除があればここを更新する＝pack が存在検査で fail して教えてくれる。
-const WHITELIST = ["plateau-sets.json", "airports.json", "plateau-landmarks.json", "ai/citycodes.json"];
+const WHITELIST = ["plateau-sets.json", "airports.json", "plateau-landmarks.json", "plateau-exclude.json", "ai/citycodes.json"];   // plateau-exclude＝建物除外表（app.js の ASSET_BASE fetch・2026-09-10 追加）
 const FORBIDDEN = ["lib/sw.js", "assets/sw.js", "assets/moj-local", "assets/plateau-names.json"];
 
 console.log("… build:lib");

@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 
 const APP = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
-const WHITELIST = ["plateau-sets.json", "airports.json", "plateau-landmarks.json", "ai/citycodes.json", "llms.txt"];
+const WHITELIST = ["plateau-sets.json", "airports.json", "plateau-landmarks.json", "plateau-exclude.json", "ai/citycodes.json", "llms.txt"];   // plateau-exclude＝建物除外表（1.2KB・無いと 404 を黙って捨て除外なしで動く＝npm 1.0.3 検札で発見）
 const OUT = path.join(APP, "assets");
 rmSync(OUT, { recursive: true, force: true });
 mkdirSync(OUT, { recursive: true });
