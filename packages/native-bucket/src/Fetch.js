@@ -23,17 +23,21 @@ export async function Fetch(url, opts = {}) {
 
 	try {
 		let cors = false, range = true, knownSize = 0, targetURL = "";
-		const checkRes = await fetch(`${proxy(url)}&mode=check`, { headers: keyHeaders });
-		// check が JSON を返さない（proxy 検問 403 の素通し・CF 障害ページ等）＝存在不明でなく「取れない」扱い
-		const info = await checkRes.json().catch(() => null);
-		if (!info) { silent || console.warn(`proxy check failed (${checkRes.status}): ${url}`); return null; }
-		if (!info.exists && !info.url) {
-			 silent || console.warn(`file is not exist: ${url}`); return null;
-		} else {
+		const checkRes = await fetch(`${proxy(url)}&mode=check`, { headers: keyHeaders }).catch(() => null);
+		// check が JSON を返さない（CF 障害ページ等）／403 の {error}（許可ホスト外＝第三者サイトからの外部 URL）／ネットワーク不通＝
+		// 「proxy が使えない」であって「無い」ではない → ブラウザの CORS に任せて**直 fetch へフォールバック**（2026-09-10・SDK ドッグフードで
+		// raw.githubusercontent が 403→null→0 件 pbf を黙って返した根治）。本当に無い（proxy が転送先に届いて exists:false）時だけ null。
+		const info = checkRes ? await checkRes.json().catch(() => null) : null;
+		if (info && (info.exists || info.url)) {
 			cors = opts.cors !== undefined ? !!opts.cors : info.mustUseProxy;
 			targetURL = cors ? proxy(url) : url;
 			range = info.supportsRange;
 			knownSize = info.contentLength ? parseInt(info.contentLength, 10) : 0;
+		} else if (info && info.exists === false && !info.error) {
+			silent || console.warn(`file is not exist: ${url}`); return null;
+		} else {
+			silent || console.info(`[native-bucket] proxy unavailable (${checkRes ? checkRes.status : "no response"}${info?.error ? ": " + info.error : ""}) → direct fetch (browser CORS applies): ${url}`);
+			cors = false; targetURL = url; range = false; knownSize = 0;
 		}
 		if (range && target != null) {
 			const file = await decodeZIP(targetURL, { target, encoding, eventTarget, totalLength: knownSize });

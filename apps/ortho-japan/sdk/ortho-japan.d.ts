@@ -57,6 +57,19 @@ export interface Gadgets {
 	[name: string]: unknown;
 }
 
+/** paint() の式（リテラルか Mapbox 風の配列式） */
+export type GintExpr = string | number | boolean | unknown[];
+/** paint() が受けるキー（fill-* は面、line-* は線/面の輪郭、circle-* は点） */
+export interface GintPaint {
+	"fill-color"?: GintExpr;
+	"fill-opacity"?: GintExpr;
+	"line-color"?: GintExpr;
+	"line-opacity"?: GintExpr;
+	"line-width"?: GintExpr;
+	"circle-color"?: GintExpr;
+	"circle-radius"?: GintExpr;
+}
+
 /** gint 層の描画スタイル（applyGintData opts.style。未指定＝既定色：面 #FF6B35 / 線 #00B4D8） */
 export interface GintDrawStyle {
 	/** 線幅 CSS px（既定 1） */
@@ -81,8 +94,8 @@ export interface GintApplyOptions {
 	/**
 	 * この層を描く最小ズーム。未指定＝エンジンがデータ範囲から自動導出（狭域データは 13〜14 等・console に
 	 * "[gint] minZoom auto-set" が出る）。**自動導出は線/面（arc）を含むデータのみ**＝点だけのデータは自動なし（ログも出ない）
-	 * で z≥7 から描く。指定すれば自動値を上書き（下げられる）。ただし z<7 は世界海岸線と
-	 * 交替する（単一スロットの固定閾値＝この値では変えられない）
+	 * ＝全ズームで描く。指定すれば自動値を上書き（下げられる）。省メモリ端末（deviceMemory≤4 等）だけは z<minZoom（既定 7）で
+	 * 層を眠らせる（通常の端末には効かない）
 	 */
 	minZoom?: number;
 	/** ホバー/クリック識別を有効に（既定 true） */
@@ -133,13 +146,21 @@ export interface OrthoJapanMap {
 	applyGintData(pbf: GeoPBF, label: string, moveCamera?: boolean, opts?: GintApplyOptions): GeoPBF | null;
 	/**
 	 * クリック識別（fid・properties・経緯度）。lnglat＝ホバー pick が当たった**カーソル位置**の球面座標であって
-	 * フィーチャの座標ではない（点をクリックしても同じ。座標が要るなら properties に持たせる）。クリックはホバーの識別結果に依存する
+	 * フィーチャの座標ではない（点をクリックしても同じ。座標が要るなら properties に持たせる）。クリックはホバーの識別結果に依存する。
+	 * **非ヒット（海など）では呼ばれない**＝選択解除は mapEl の click ＋ unprojectXY ＋ pbf.contain(ll)===null で組む
 	 */
 	onGintClick(fn: (fid: number, props: Record<string, unknown>, lnglat: LonLat) => void): void;
 	/** fid整列のproperties配列（式評価・表直書きの入力。.geojsonは詰めズレするので使わない） */
 	gintFeatures(): Array<{ properties: Record<string, unknown> }> | null;
-	/** Mapbox風paint式（null=解除） */
-	paint(expr: object | null): void;
+	/**
+	 * Mapbox 風 paint 式で fid スタイル表を組む（null=解除）。評価は呼び出し時に一度だけ（zoom 追随は再呼び）。
+	 * 式の演算子サブセット：get has ! all any == != > >= < <= in match step case let var interpolate coalesce
+	 * to-number to-string concat zoom geometry-type feature-state + - * / % ^ min max literal。色は #hex / rgb() / rgba()
+	 * （名前色は transparent/white/black のみ）。filter＝真偽式（偽の feature は非表示）。
+	 * 例：{ "fill-color": ["step", ["get", "pop"], "#eff3ff", 1, "#bdd7e7", 4, "#3182bd"], "fill-opacity": 0.85,
+	 *      "line-width": ["case", ["==", ["get", "id"], 13], 3.5, 0.9] }
+	 */
+	paint(paint: GintPaint | null, filter?: unknown[]): Promise<void>;
 	/**
 	 * fid→スタイル表の直書き。u32レコード=4要素/fid:
 	 * [0]=fill RGBA8(r<<24|g<<16|b<<8|a) [1]=line/circle色 [2]=(width*8)<<24|dash<<16|(radius*4)<<8|flags [3]=0。
@@ -182,7 +203,13 @@ export interface GeoPBF {
 	identifyAt(lng: number, lat: number, opts?: { point?: number; polyline?: number }): number | null;
 	/** 点を含む面の fid（smallest-wins）。該当なし＝null */
 	contain(lnglat: LonLat): number | null;
-	getBbox(): Bbox;
+	/** 全体 bbox [w,s,e,n] */
+	readonly bbox: Bbox;
+	/** フィーチャ別 bbox の配列 */
+	readonly bboxes: Bbox[];
+	/** getBbox(i)＝feature i の bbox。引数なし＝全フィーチャの bbox 配列（全体は .bbox） */
+	getBbox(i: number): Bbox;
+	getBbox(): Bbox[];
 	geopbfFile(opts?: object): Promise<File>;
 	geojsonFile(opts?: object): Promise<File>;
 	topojsonFile(opts?: object): Promise<File>;

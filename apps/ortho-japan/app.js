@@ -180,7 +180,7 @@ const dbgHost = DEBUG_GLOBALS ? window : {};
 const WORLD_VT = !/[&?]world=0/.test(location.search);
 // 気候場テクスチャ（全球ハイプソ cross-blend・Köppen-Geiger/Beck et al. CC-BY 720x360 焼き縮め・public 資産）。
 // boot と switchTheme の両方が worldHypso.clim に積む（再送は両レンダラとも取得済みキャッシュで no-op）
-const CLIM_URL = new URL("koppen-clim.png", new URL(import.meta.env?.BASE_URL || "/", location.href)).href;
+const CLIM_URL = new URL("koppen-clim.png", new URL(ASSET_BASE, location.href)).href;   // 実行時アセット＝assetBase 相対（旧＝ページ相対で埋め込み先では必ず 404・2026-09-10）
 const GSI_TILE_URL = (z, x, y) => `https://cyberjapandata.gsi.go.jp/xyz/optimal_bvmap-v1/${z}/${x}/${y}.pbf`;
 // 汎用 PMTiles 基図（?pm=<URL>）＝任意の PMTiles アーカイブを基図ソースにする口。2026-09-03 に湖の NE 化で
 // 撤去した pmtiles 配管（世界固定・world-z3.pmtiles 専用）を、ソース非依存の形で戻したもの。
@@ -1888,7 +1888,7 @@ function applyGintData(pbf, label, moveCamera = true, opts = {}) {
 	onMove();
 	// moj筆(opts.drape)＝地形沿い境界線を自動発火（0=実標高ぴったり）。非drape層へ切替時は前の draped を消す（層と一蓮托生）。
 	if (opts.drape) standupGint(DRAPE_LIFT_M, { auto: true }); else { renderer.set("gintBld", null); drapedOn = false; needsDraw = true; }
-	console.log("[gint] %s loaded. shown at z>=%d; z<%d shows world coastline", label, USER_GINT_MINZ, USER_GINT_MINZ);
+	console.log("[gint] %s loaded (minZoom=%s%s)", label, opts.minZoom ?? "auto (from data extent; none for point-only data)", LOW_MEM ? `; low-memory device sleeps the layer below z${userGint.minZoom}` : "");   // 旧文言「z<7 shows world coastline」は admin0 二層化前の名残＝通常機では z<7 でも描く
 	return pbf;
 }
 

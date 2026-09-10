@@ -15,9 +15,11 @@ A serverless, dependency-free 3D globe of Japan for any web page. GSI optimized 
 
 ## Install
 
-**npm** — `npm install @ortho-earth/japan`. The package ships a prebuilt, self-contained ESM bundle (`dist/lib/`) and its runtime assets (`assets/`, ~150 KB). It declares **zero runtime dependencies** — check `package.json`, it's empty.
+**npm** — `npm install @ortho-earth/japan`. The package ships a prebuilt, self-contained ESM bundle (`dist/lib/`) and its runtime assets (`assets/`, ~230 KB). It declares **zero runtime dependencies** — check `package.json`, it's empty.
 
 **zip** — grab `ortho-japan-sdk-<version>.zip` from [GitHub Releases](https://github.com/kenjiyoshidahome2026-bit/ortho-earth/releases). Same artifact, plus a runnable `example/`.
+
+**Network footprint.** Map data comes straight from the public providers (GSI, PLATEAU, JAXA). The one ortho-earth host the SDK talks to is `api.ortho-earth.com`: a few global base layers (world coastlines, lakes, borders, stars) and the URL proxy used when you pass a URL to `geopbf()` — if that proxy declines a host, the SDK falls back to a direct browser fetch (1.0.4+; the target must allow CORS). Your own data never leaves the browser otherwise.
 
 Either way, deployment is the same: **serve `dist/lib/` (or the zip's `lib/`) and `assets/` as static files** on your site, import the entry by URL, and point `assetBase` at wherever you put the assets. There is no bundler step — workers and lazy chunks resolve relative to the module, so the SDK works at any path. (From npm, copy `node_modules/@ortho-earth/japan/dist/lib` and `assets` into your public directory, or wire up your bundler's static-copy plugin.)
 
