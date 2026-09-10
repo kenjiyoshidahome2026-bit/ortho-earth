@@ -12,7 +12,7 @@ export interface OrthoJapanOptions {
 	/** 初期視点 "#zoom/lat/lon/45t/30r/l=…/c=…"（t=チルト°・r=回転°） */
 	view?: string;
 	/** 配色の焼き付け（"mono"|"dark"|"gsi"|"sepia" または台帳と同形のカスタム）。**指定すると palette ガジェットは載らない**（固定＝切替不可）。
-	 *  利用者が切り替えられる初期配色は view の "…/c=dark" で */
+	 *  利用者が切り替えられる初期配色は view の "…/c=dark" で。theme をここで渡すと view.hash に c= は入らない＝view: map.view.hash で再生成する時は theme も渡し直す */
 	theme?: string | object;
 	/** 表示項目の固定。true=常時表示・false=封印・未記述=チップで利用者が選ぶ */
 	layers?: Partial<Record<"place" | "terrain" | "rail" | "road" | "facility", boolean>>;
@@ -149,10 +149,11 @@ export interface GintApplyOptions {
 
 export interface OrthoJapanMap {
 	// ---- 基本 ----
-	flyTo(lon: number, lat: number, zoom: number, tiltDeg?: number, bearingDeg?: number): void;
+	/** 飛行（度）。戻り値＝着地または cancel で解決する Promise（1.0.5〜。以前は void＝on("move") の無音で判定していた）。静止の合図は on("settle") */
+	flyTo(lon: number, lat: number, zoom: number, tiltDeg?: number, bearingDeg?: number): Promise<void>;
 	getZoom(): number;
 	/** 現在の視点。pitch/bearing は**ラジアン**（flyTo の tiltDeg/bearingDeg は度）。theme＝現在の配色名。hash＝共有/再生成用の "#z/lat/lon/…" */
-	readonly view: { center: LonLat; zoom: number; pitch: number; bearing: number; theme?: string; hash: string;[k: string]: unknown };
+	readonly view: { center: LonLat; zoom: number; pitch: number; bearing: number; theme?: string; hash: string;[k: string]: unknown };   // 未記載のキー（sky/eye 等）は内部用＝使わない
 	/** 描画バックエンド（初回フレーム前は null） */
 	readonly backend: "webgpu" | "webgl2" | null;
 	/** イベント購読（戻り値＝map・解除 API は無い）。load＝初回フレーム（登録時に済んでいれば即呼ぶ）／move＝カメラ更新／
@@ -161,21 +162,27 @@ export interface OrthoJapanMap {
 	on(ev: "move", cb: (e: { center: LonLat; zoom: number; pitch: number; bearing: number }) => void): OrthoJapanMap;
 	on(ev: "plateau", cb: (e: PlateauEvent) => void): OrthoJapanMap;
 	on(ev: "click", cb: (e: { lngLat: LonLat; hits: Array<{ layer: unknown; fid: number }> }) => void): OrthoJapanMap;
+	/** カメラ静止（移動が 150ms 止まった時・1.0.5〜）。ツアー/オーバレイの「止まった」合図 */
+	on(ev: "settle", cb: (e: { center: LonLat; zoom: number; pitch: number; bearing: number; hash: string }) => void): OrthoJapanMap;
+	/** 購読解除（1.0.5〜） */
+	off(ev: string, cb: (e: any) => void): OrthoJapanMap;
 	destroy(): void;
 	readonly mapEl: HTMLElement;
 	readonly gadget: Gadgets;
 
 	// ---- 座標変換・フレーム ----
-	/** 経緯度→mapEl（canvas）左上原点の CSS px（ページ座標ではない＝pointer を合成するなら getBoundingClientRect を足す）。unprojectXY と同じ座標系。front<0=裏半球。
-	 *  **海面基準**＝チルト時は地形に乗った描画と視差がある（地形込みは makeProjectorH） */
+	/** 経緯度→mapEl（canvas）左上原点の CSS px（ページ座標ではない＝pointer を合成するなら getBoundingClientRect を足す）。unprojectXY と同じ座標系。
+	 *  front<0＝**見えない**（裏半球ではなく「現在のカメラ高度の地平線より外」＝チルト時は数°先でも負）。見えない点は [0,0,-1] を返す＝x,y は無効値。
+	 *  front の絶対値は未正規化＝符号だけ使う。**海面基準**＝チルト時は地形に乗った描画と視差がある（地形込みは makeProjectorH） */
 	projectLL(lon: number, lat: number): [x: number, y: number, front: number];
 	/** canvasローカルCSS座標→経緯度（球外はnull。onClick/setEditClickのx,yと同座標系） */
 	unprojectXY(x: number, y: number): LonLat | null;
 	/** カメラ状態を1回束ねた投影関数（多点を1フレームで投影する時用・海面基準） */
 	makeProjector(): (lon: number, lat: number) => [x: number, y: number, front: number];
-	/** 地形込みの投影（表示中の標高に乗せる）。liftM＝地表からの追加持ち上げ m（0＝地表。標高そのものを渡すと二重に浮く） */
+	/** 地形込みの投影。標高は 100m 格子のメモから引く＝**その地点の初回は 0（海面）で、非同期に取得して次フレームから乗る**（毎フレーム呼ぶ
+	 *  DOM マーカー用途向け。1 回きりの呼び出しには乗らない）。liftM＝地表からの追加持ち上げ m（0＝地表。標高を渡すと二重に浮く） */
 	makeProjectorH(): (lon: number, lat: number, liftM?: number) => [x: number, y: number, front: number];
-	/** 描画フレーム毎フック。戻り値=解除関数 */
+	/** 描画フレーム毎フック（戻り値=解除関数）。**描画はオンデマンド＝静止中は呼ばれない**。オーバレイを載せた/更新した直後は requestDraw() で 1 フレーム点火する */
 	onFrame(fn: () => void): () => void;
 	/** 次フレームの描画を1回点火（オーバレイ更新後に） */
 	requestDraw(): void;

@@ -180,12 +180,14 @@ export function createFlight({ cam, viewW, maxPitch, minZoom = 0, onMove, onFlyi
 	// ≈29fps以上なら dt<上限＝実時間と完全一致＝録画（desktop・pinRes）もエディタの再生ヘッド（行頭で再同期）も実尺のまま。
 	// 35ms＝30Hz外部モニタ（dt≈33ms・tuneRes実測の恒常値）を素通しする下限。50→35（2026-08-12 実機「あまり変わらない」を受け一段強く）
 	const STEP_MAX_MS = 35;
+	// 戻り値＝着地（または cancel）で解決する Promise（2026-09-11・SDK ドッグフード「flyTo の完了を知る方法がない」）。中止も resolve（reject しない）
 	function run(plan) {
 		if (flight) flight.cancel();
-		let cancelled = false;
-		flight = { cancel: () => { cancelled = true; onFlying(false); flight = null; } };
+		let cancelled = false, done = null;
+		const settled = new Promise(res => { done = res; });
+		flight = { cancel: () => { cancelled = true; onFlying(false); flight = null; done(); } };
 		onFlying(true);
-		if (!plan || !(plan.dur > 0)) { onFlying(false); flight = null; return; }   // 変化なし（glide の全チャンネル一致等）＝即着地扱い
+		if (!plan || !(plan.dur > 0)) { onFlying(false); flight = null; done(); return settled; }   // 変化なし（glide の全チャンネル一致等）＝即着地扱い
 		let landed = false;
 		let t = 0, last = performance.now();
 		const step = () => {
@@ -198,13 +200,14 @@ export function createFlight({ cam, viewW, maxPitch, minZoom = 0, onMove, onFlyi
 			if (t < plan.dur) {
 				if (!landed && t >= plan.land) { landed = true; onFlying(false); }   // ③着地＝重い自動ロード解禁（次の onMove から動く。起こしはこの後）
 				requestAnimationFrame(step);
-			} else { if (!landed) onFlying(false); flight = null; onMove(); }
+			} else { if (!landed) onFlying(false); flight = null; onMove(); done(); }
 		};
 		requestAnimationFrame(step);
+		return settled;
 	}
-	function flyTo(lon, lat, zoom, tiltDeg, bearingDeg) { run(flyPlan(snap(), env(), lon, lat, zoom, tiltDeg, bearingDeg)); }
-	function glideTo(lon, lat, zoom, tiltDeg, bearingDeg) { run(glidePlan(snap(), env(), lon, lat, zoom, tiltDeg, bearingDeg)); }
-	function glidePath(pts) { if (Array.isArray(pts) && pts.length >= 1) run(glidePathPlan(snap(), env(), pts)); }
+	function flyTo(lon, lat, zoom, tiltDeg, bearingDeg) { return run(flyPlan(snap(), env(), lon, lat, zoom, tiltDeg, bearingDeg)); }
+	function glideTo(lon, lat, zoom, tiltDeg, bearingDeg) { return run(glidePlan(snap(), env(), lon, lat, zoom, tiltDeg, bearingDeg)); }
+	function glidePath(pts) { return (Array.isArray(pts) && pts.length >= 1) ? run(glidePathPlan(snap(), env(), pts)) : Promise.resolve(); }
 	return { flyTo, glideTo, glidePath, cancel: () => { if (flight) flight.cancel(); }, get active() { return !!flight; }, setMaxPitch: v => { maxPitchCur = v; }, setMinZoom: v => { minZoomCur = v; },
 		plan: {
 			fly: (cam0, lon, lat, zoom, tiltDeg, bearingDeg) => flyPlan(cam0 ?? snap(), env(), lon, lat, zoom, tiltDeg, bearingDeg),

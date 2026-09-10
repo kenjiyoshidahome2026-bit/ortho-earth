@@ -26,16 +26,27 @@ description: ortho-earth（ortho-japan）SDKで3D地球儀アプリを作る時�
 
 ## 最小テンプレ（コピーして始める）
 
+**npm / zip の self-host 版（他ドメイン・localhost はこちら）**。`cp -R node_modules/@ortho-earth/japan/dist/lib public/lib && cp -R node_modules/@ortho-earth/japan/assets public/assets` の後：
+
 ```html
-<link rel="stylesheet" href="https://www.ortho-earth.com/japan/lib/ortho-japan.css">
+<link rel="stylesheet" href="./lib/ortho-japan.css">
 <div id="map" style="width:100%;height:100vh"></div>
 <script type="module">
-  import orthoJapan from "https://www.ortho-earth.com/japan/lib/ortho-japan.js";
-  const map = await orthoJapan({ target: "#map", view: "#13/35.68/139.76",
-                                 assetBase: "https://www.ortho-earth.com/japan/" });
+  import orthoJapan, { geopbf } from "./lib/ortho-japan.js";
+  const map = await orthoJapan({ target: "#map", view: "#13/35.68/139.76", assetBase: "./assets/" });
   map.gadget.search(); map.gadget.zoom(); map.gadget.compass();
 </script>
 ```
+
+CDN 直 import（`https://www.ortho-earth.com/japan/lib/ortho-japan.js`・`assetBase: "https://www.ortho-earth.com/japan/"`）は **www.ortho-earth.com 配下のページ限定**（CORS 未開放＝他ドメイン/localhost では落ちる）。
+
+## 地図の上に自分の DOM を重ねる／カメラを待つ
+
+- マーカー等＝`map.onFrame(() => { const P = map.makeProjector(); … P(lon,lat) → [x,y,front] … })`。座標は mapEl 左上原点の CSS px。**front<0＝見えない（[0,0,-1]・x,y は無効）**＝hidden にする。
+  描画はオンデマンド＝載せた直後に `map.requestDraw()`。500 点でも 0.06ms/frame（`projectLL` の個別呼びはしない）。
+- 飛行の完了＝`await map.flyTo(lon, lat, zoom, tiltDeg, bearingDeg)`（1.0.5〜 Promise）。静止の合図＝`map.on("settle", e => …)`（1.0.5〜）／`off()` で解除。1.0.4 以前は `on("move")` の 300〜400ms 無音で判定。
+- 単位＝`view.pitch`/`view.bearing` は rad、`flyTo` の tilt/bearing は度、`maxPitch` は rad。`theme` をオプションで渡すと hash に c= が入らない＝再生成時は theme を渡し直す。
+- 全球ビュー（z<4）の世界層（海底・湖・国界・星＝約 5MB）は `on("load")` の 3 秒ほど後に着地＝スクショは 8〜10 秒待つ。
 
 ## データを載せる（GeoPBF/gint）
 
@@ -82,5 +93,5 @@ map.onGintClick((fid, props, lnglat) => console.log(props));
 - 自己判定HTML（結果を`<title>`にPASS/FAIL）→ headless Chrome の `--dump-dom` で読む。
 - エンジン起動込みは仮想時間でなく**実時間+CDP**でtitleを監視（worker並走と仮想時計は相性が悪い）。
 - 本番形の検定＝①エンジン再同梱がないこと（lib URL参照の確認）②実走で404ゼロ（worker 内の取得はページの Network に出ないことがある＝サーバ側の台帳も読む）。
-- 雛形＝SDK 同梱 `verify-example.mjs`（npm: `node_modules/@ortho-earth/japan/sdk/`・zip: ルート。依存ゼロ・Node 22+）。
+- 雛形＝SDK 同梱 `verify-example.mjs`（npm: `node_modules/@ortho-earth/japan/sdk/`・zip: ルート。依存ゼロ・Node 22+）。スクショは title 確定＋`SHOT_DELAY_MS`（既定 3000）後＝全球ビューは 8000 に。途中経過の撮影は CDP を自前で。
   `node verify-example.mjs http://127.0.0.1:4174/ 9555`＝title 実時間監視・スクショ・4xx 台帳・console。他プロセスと衝突しない devtools ポートを選ぶ。静的サーバは `npx serve`／Node 製を使う（`python3 -m http.server` は初回応答が ~50s 止まる環境があった）。
