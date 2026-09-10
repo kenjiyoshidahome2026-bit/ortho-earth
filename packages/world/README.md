@@ -134,7 +134,7 @@ db.js の `NATION_KEYS` を唯一の正本にし、ビルド時に焼き込む�
   seed 未収録の古いデータでも careteList が既定行を補完。人口[-1,0]/面積6㎢ は他の無人島と同じ def/rep 表
 - **実データ検分メモ（2026-08-31）**: 国名一覧.csv は **BOM 付き**（blob2rows で剥がす・d3-dsv は剥がさない）・
   ヘッダ行なし 267 行・key 列（8列目）は大半空で稀に NE 名（"W. Sahara" 等）＝読み飛ばしで正解。
-  Conflicts.json は 99 件の完成形（wiki id・4言語名付き）。音源.zip はクイズ用 UI 効果音 11 本（出題/成功/達成…）
+  Conflicts.json は 99 件の完成形（wiki id・4言語名付き）。音源.zip はクイズ用 UI 効果音 9 本（出題/成功/達成…・下記「素材の出所」）
 - 長期課題: wikidata QID の併記（`wiki.id2qid` 移植済み・NE admin1 に wikidataid あり）
 
 ## 精査ログ（2026-09-09・bucket 実データ 262か国を機械検札）
@@ -208,3 +208,12 @@ geoPNG は admin1 の AF で描ける）。国旗は全 262 か国カバー（�
 16. **カードの文字は描画前に幅を測って枠に収める**（main.js `fitScale`・Kenji「はみ出すものはフォントを小さくしてでも枠に入れる」「描画前にサイズを計算」）
    canvas.measureText で行ごとに測り、枠幅 164px（=280−border-spacing 6−旗列 72−td 余白 10−#番号 28−余裕 2）を超える行だけ font-size を縮める（下限 70%・以降は CSS 折り返し）。
    国名は 2 行まで（貪欲折り返しの模擬）・ja は「・/、/および」で折る候補と比べ 5% 以内なら切れ目で折る。結果: en/ja/ar/de の 262 枚が全て 94px で揃う
+
+## 素材の出所（2026-09-10・公開ライセンス整理の一環）
+
+- **効果音 音源.zip＝全 9 本 OtoLogic（https://otologic.jp）CC BY 4.0**。ID3 タグ（TPE1=OtoLogic / TALB=OtoLogic-SE）で確認。
+  素材名: 出題=Quiz-Question01-2・成功=Quiz-Correct_Answer01-2・失敗=Quiz-Wrong_Buzzer01-1・発表=Quiz-Results01-1・達成=Quiz-Results02-1・
+  残念=Onoma-Negative04-1・操作H/M/L=Anime_Motion31-1/2/3。クレジット表記が条件（同梱・再配布可）＝画面はヘッダ地球アイコンのツールチップ、配布物は本節。
+- 出所不明だった 移動.mp3・リスト.mp3（タグ無し・LAME3.100 192kbps 固定＝別ルート入手）は Kenji 裁定「OtoLogic の既存音で代用」で撤去（bucket も差し替え済み）。
+  main.js の Sound は 移動→操作H・リスト→操作L の別名で鳴らす。
+- 未裁定: データ本体のライセンス（Wikipedia 由来＝CC BY-SA 4.0 案）・GPI/PSI（IEP CC BY-NC-ND）を公開データから外すか。

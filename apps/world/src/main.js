@@ -80,7 +80,9 @@ const { nations } = model;
 // 効果音（音源.zip）と読み上げ（Web Speech API）
 const Sound = (() => {
 	const src = {}; Object.entries(data.sounds).forEach(([k, f]) => src[k] = new Audio(URL.createObjectURL(f)));
-	const f = (s, v = 1) => { const a = src[s]; if (!a) return; a.currentTime = 0; a.volume = v; a.play().catch(() => { }); };
+	// 出所不明だった 移動/リスト の 2 本は撤去（2026-09-10 Kenji 裁定「OtoLogic の既存音で代用」）＝音源.zip は全 9 本 OtoLogic（CC BY 4.0）
+	const alias = { 移動: "操作H", リスト: "操作L" };
+	const f = (s, v = 1) => { const a = src[s] || src[alias[s]]; if (!a) return; a.currentTime = 0; a.volume = v; a.play().catch(() => { }); };
 	f.list = Object.keys(src); return f;
 })();
 const Speech = (() => {
@@ -156,6 +158,7 @@ function drawHead() {
 	head.select("[name=search] input").attr("placeholder", trans("search"));
 	head.select("[icon=filter]").tip(FILTERS.tip(state.lang));
 	head.select("[icon=sort]").tip(SORTS.tip(state.lang));
+	head.select("[icon=region]").tip("Sound effects: OtoLogic (CC BY 4.0) https://otologic.jp");   // 素材クレジット（CC BY の表示義務・packages/world/README.md「素材の出所」）
 }
 // 検索＝各言語名・首都名・地域名・ISO・キー を | 連結した search 文字列へ正規表現（大文字小文字無視）
 // 検索語（ローマ字可）→ 正規表現。ローマ字はヘボン式でカタカナ化し「生の文字列 | カナ（長音任意）」で当てる＝英語名にもカナ名にも効く
