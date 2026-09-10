@@ -57,6 +57,8 @@ www.ortho-earth.com 配下に置くページなら、CDNのESモジュールを�
   legend()/palette()/hint()/qr()/print()/cpos()/tip()/pop() など。profile()=断面図（クリックで経路指定→標高グラフ）。contextmenuのitems=[{name,onClick(c)}]、
   c={lng,lat,x,y,map}。全画面のショートカット=Z単キー（⌘Z/⌘⇧Zは編集アプリのundo/redoに空けてある）
 - 出典表記の義務：instrumentsの"attr"を消す場合はページ側で出典明記（README「出典表記」参照）
+- gadget.dropFile({onLoad(pbf,file), loadFile?, clearGint?})→{say(text,sticky),clear(),destroy()}：受け口は map.mapEl のみ。既定＝geopbf(file)→applyGintData（単一スロット＝最後の 1 枚が勝つ）→カメラ寄せ。
+  onLoad で結果を受ける（1.0.5〜。1.0.4 は loadFile を差し替えて横取り）。mapEl に #dropzone/#drop-toast/#dropclear-btn を生やす・二重搭載は no-op
 - ガジェットの手綱（1.0.4 の d.ts）：shot()→{open(),composite()→Blob} / qr()・print()・palette()→{open,close} / measure()・profile()→{start,stop,stats()}
   / tip()→setter(rows|null)（自動搭載済み）/ contextmenu({items})→項目差し替え関数。操作系＝measure/profile はクリックで頂点・ダブルクリック確定
 
@@ -67,8 +69,11 @@ createGeopbf は呼ばない（export していない＝呼ぶと SDK 内部の 
 バンドラも import map も不要＝同梱の worker チャンクがそのまま動く。npm の geopbf（単体・MIT）は地球儀の外で使う物＝
 同一ページで混ぜない（別インスタンス・二重同梱）。@ortho-earth/japan 1.0.2 以前は未 export＝更新する。
 - geopbf(File|URL|ArrayBuffer|GeoJSONオブジェクト, opts) → pbf。読める形式:
-  geopbf/.pbf/geojson/topojson/fgb/shape(zip)/kmz/gpx/gml/moj(zip)/gz
+  geopbf/.pbf/geojson/topojson/fgb/shape(zip)/kml/kmz/gpx/gml/moj(zip)/gz（生 .kml は 1.0.5〜。File の未知拡張子/デコード失敗は 1.0.5〜例外＝
+  1.0.4 以前は console.warn "illegal file" だけで 0 件の pbf）。KML の <name> は feature.id と properties.name（1.0.5〜）
 - 書き出し: pbf.geopbfFile()/geojsonFile()/topojsonFile()/fgbFile()/shapeFile()/kmzFile()/gmlFile()/gpxFile() → File
+  忠実度＝geopbf/geojson：完全（型も）／kmz：件数維持・属性は全て文字列化／gpx：点と線のみ（面は落ちる）・属性は name だけ。
+  File 名は opts.name 由来＝"myapp/data" のような階層名はダウンロード名にスラッシュが入る（表示用の name は階層なしで）
 - pbf.identifyAt(lng,lat,{point:m,polyline:m})→fid（描画レス識別・点→線→面優先・面はsmallest-wins）
 - geopbf() は入力形式を問わず既定で gint を焼く（opts.gint=false で抑止）。`await pbf.gint()` の明示呼びは焼き済みなら no-op＝害なし
 - **Blob/Fileをプロパティ値にそのまま入れられる**：エンコード時にBUFSプールへ一個書き
@@ -90,7 +95,8 @@ createGeopbf は呼ばない（export していない＝呼ぶと SDK 内部の 
   to-string concat zoom geometry-type feature-state + - * / % ^ min max literal。色＝#hex/rgb()/rgba()（名前色は transparent/white/black のみ）。
   コロプレス＋選択枠の例：{ "fill-color": ["step", ["get","pop"], "#eff3ff", 1,"#bdd7e7", 2,"#6baed6", 4,"#3182bd", 8,"#08519c"],
   "fill-opacity": 0.85, "line-color": ["case", ["==", ["get","id"], sel], "#ff2d55", "#1f2a44"], "line-width": ["case", ["==", ["get","id"], sel], 3.5, 0.9] }
-  型＝GintPaint（d.ts）。null＝解除。/ map.paintTable(u32, count)＝fid→スタイル表の直書き。レコード=4×u32/fid：
+  型＝GintPaint（d.ts）。null＝解除。表の色欄は fill と line/circle の 2 つ＝点は circle-color・線/面は line-color（1.0.5〜ジオメトリで選ぶ。
+  1.0.4 以前は line-color があると circle-color 無視・["geometry-type"] は常に空＝混在データの色分けは paintTable で）。/ map.paintTable(u32, count)＝fid→スタイル表の直書き。レコード=4×u32/fid：
   [0]=fill RGBA8(r<<24|g<<16|b<<8|a) [1]=line/circle色 [2]=(width*8)<<24|dash<<16|(radius*4)<<8|flags [3]=0。
   flags bit0=visible（フィーチャ単位の表示/非表示はここ）
   点(Point)＝[1]が circle 色（α=0 は既定 #FF6B35）・[2]の radius(1/4px 単位・0=描かない)・bit0 を使う。線＝width(1/8px・0=描かない)。
@@ -109,7 +115,8 @@ triangle/diamond/star/flag、@tip=ホバー一言、@pop=常時吹き出し（\n
 2. viteでCDN libを外部参照する時は rollupOptions.external=["…/ortho-japan.js"] ＋ importはURL変数経由で
    `import(/* @vite-ignore */ LIB)`（リテラルだとdevで解決に行って404）
 3. CSSは自動注入されない＝ ortho-japan.css の<link>をページが貼る
-4. gintは単一スロット＝applyGintDataは常に置換。複数層が要るならv2待ち（またはfid空間で合成）
+4. gintは単一スロット＝applyGintDataは常に置換（null＝空に）。複数データを 1 画面に出す手順＝各 pbf の .geojson.features を集め、
+   __src/__row 等の一意キーを**エンコード前**に足して 1 FeatureCollection に再エンコード→1 スロットで identify も書き出しも通る（多層は v2 addGint）
 5. 容れ物のサイズをCSSの#idセレクタで当てない（idは"map"へ正規化される）。1ページ1マップ
 6. maxPitchはラジアン（0=俯瞰固定）。共有URLのt=も同じ上限でクランプされる
 7. COOP/COEPは不要（あればSABゼロコピーで速いだけ）。Service Workerは持ち込まない

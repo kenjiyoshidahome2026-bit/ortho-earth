@@ -1896,7 +1896,7 @@ function applyGintData(pbf, label, moveCamera = true, opts = {}) {
 	onMove();
 	// moj筆(opts.drape)＝地形沿い境界線を自動発火（0=実標高ぴったり）。非drape層へ切替時は前の draped を消す（層と一蓮托生）。
 	if (opts.drape) standupGint(DRAPE_LIFT_M, { auto: true }); else { renderer.set("gintBld", null); drapedOn = false; needsDraw = true; }
-	console.log("[gint] %s loaded (minZoom=%s%s)", label, opts.minZoom ?? "auto (from data extent; none for point-only data)", LOW_MEM ? `; low-memory device sleeps the layer below z${userGint.minZoom}` : "");   // 旧文言「z<7 shows world coastline」は admin0 二層化前の名残＝通常機では z<7 でも描く
+	console.log(`[gint] ${label} loaded (minZoom=${opts.minZoom ?? "auto (from data extent; none for point-only data)"}${LOW_MEM ? `; low-memory device sleeps the layer below z${userGint.minZoom}` : ""})`);   // %s 書式は CDP 越しに展開されない＝テンプレ文字列で   // 旧文言「z<7 shows world coastline」は admin0 二層化前の名残＝通常機では z<7 でも描く
 	return pbf;
 }
 
@@ -1946,7 +1946,8 @@ const fidFeaturesOf = (pbf) => {
 	for (let i = 0; i < n; i++) {
 		let p = {};
 		try { p = pbf.getProperties(i) ?? {}; } catch (e) { /* 壊れ feature＝既定値へ */ }
-		out[i] = { properties: p, geometry: null };
+		let gt = null; try { gt = pbf.getType(i) ?? null; } catch (e) { /* 型不明 */ }
+		out[i] = { properties: p, geometry: gt ? { type: gt } : null };   // type だけ（座標は積まない）＝paint の ["geometry-type"]/circle-color 選択と呼び手の型別処理用（2026-09-11）
 	}
 	const skipped = n - (pbf.geojson?.features?.length ?? n);
 	if (skipped > 0) console.info("[paint] %d of %d fids missing from .geojson (corrected via fid-aligned read)", skipped, n);
@@ -2080,7 +2081,7 @@ async function paintGint(paint, filter = null) {
 	const { u32, count } = buildFidStyle(paint, feats, { filter, zoom: cam.zoom });
 	sendGintPaint({ table: u32, count });
 	needsDraw = true;
-	console.log("[paint] applied to %d features", count);
+	console.log(`[paint] applied to ${count} features`);
 }
 dbgHost.__paint = paintGint;
 // ── gint 多層（gint draw spec §4 の顔・2026-09-09）───────────────────────────

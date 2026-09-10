@@ -69,8 +69,12 @@ export interface Gadgets {
 	cpos(): unknown;
 	/** 建物3D データ管理（先読み/削除）。plateau:false では載らない */
 	plateau(): unknown;
-	/** GIS ファイルのドラッグ&ドロップ受け口（GeoJSON/Shapefile/KML/GPX/FGB/GML…） */
-	dropFile(): unknown;
+	/**
+	 * GIS ファイルのドラッグ&ドロップ受け口（geopbf() が読める全形式）。受け口は mapEl のみ（ページ他所は自前）。既定＝geopbf(file)→applyGintData
+	 * （単一スロット＝最後の 1 枚が勝つ）→カメラ寄せ。onLoad(pbf,file)＝読込成功の通知（1.0.5〜）。loadFile を渡すと既定ローダを置換
+	 * （GeoPBF か .length を持つ物を返す・falsy=「読込失敗」表示）。戻り値＝{say,clear,destroy}（二重搭載時は no-op 関数）。mapEl に #dropzone/#drop-toast/#dropclear-btn を生やす
+	 */
+	dropFile(opts?: { onLoad?(pbf: GeoPBF, file: File): void; loadFile?(file: File): Promise<GeoPBF | { length?: number } | null>; clearGint?(): void }): { say(text: string, sticky?: boolean): void; clear(): void; destroy(): void } | (() => void);
 	/** ホバー tip 箱。戻り値＝setter（rows=文字列の配列・null で消す）。orthoJapan() が自動搭載済み＝呼ぶと同じ setter が返る */
 	tip(opts?: object): (rows: string[] | null) => void;
 	pop(opts?: object): unknown;
@@ -82,6 +86,8 @@ export interface Gadgets {
 /** paint() の式（リテラルか Mapbox 風の配列式） */
 export type GintExpr = string | number | boolean | unknown[];
 /** paint() が受けるキー（fill-* は面、line-* は線/面の輪郭、circle-* は点） */
+/** paint() のキー。表の色欄は fill と line/circle の 2 つ＝circle-color は点（Point/MultiPoint）に、line-color は線/面の輪郭に使われる
+ *  （1.0.5〜ジオメトリで選ぶ。1.0.4 以前は line-color があると circle-color が無視された）。["geometry-type"] 式も 1.0.5〜有効 */
 export interface GintPaint {
 	"fill-color"?: GintExpr;
 	"fill-opacity"?: GintExpr;
@@ -182,7 +188,8 @@ export interface OrthoJapanMap {
 
 	// ---- gint（現行v1の派生アプリ口＝将来v2 addGint()で置換。薄い1モジュールに封じること）----
 	/** ユーザー知性層の搭載（単一スロット＝呼ぶたび置換）。pbfは gint ベイク済みであること */
-	applyGintData(pbf: GeoPBF, label: string, moveCamera?: boolean, opts?: GintApplyOptions): GeoPBF | null;
+	/** ユーザー知性層の搭載（単一スロット＝呼ぶたび置換・null＝スロットを空に）。複数データは fid 空間で合成（各 .geojson.features に一意キーを足して 1 本に再エンコード）。pbf は gint ベイク済みであること */
+	applyGintData(pbf: GeoPBF | null, label: string, moveCamera?: boolean, opts?: GintApplyOptions): GeoPBF | null;
 	/**
 	 * クリック識別（fid・properties・経緯度）。lnglat＝ホバー pick が当たった**カーソル位置**の球面座標であって
 	 * フィーチャの座標ではない（点をクリックしても同じ。座標が要るなら properties に持たせる）。クリックはホバーの識別結果に依存する。
@@ -191,7 +198,7 @@ export interface OrthoJapanMap {
 	 */
 	onGintClick(fn: (fid: number, props: Record<string, unknown>, lnglat: LonLat) => void): void;
 	/** fid整列のproperties配列（式評価・表直書きの入力。.geojsonは詰めズレするので使わない） */
-	gintFeatures(): Array<{ properties: Record<string, unknown> }> | null;
+	gintFeatures(): Array<{ properties: Record<string, unknown>; geometry: { type: string } | null }> | null;   // geometry は type のみ（座標なし・1.0.5〜。以前は null）
 	/**
 	 * Mapbox 風 paint 式で fid スタイル表を組む（null=解除）。評価は呼び出し時に一度だけ（zoom 追随は再呼び）。
 	 * 式の演算子サブセット：get has ! all any == != > >= < <= in match step case let var interpolate coalesce
@@ -235,6 +242,11 @@ export interface GeopbfOptions {
 export interface GeoPBF {
 	readonly features: GeoJSONFeature[];
 	readonly geojson: GeoJSONFeatureCollection;
+	/** フィーチャ数 */
+	readonly length: number;
+	/** feature i のジオメトリ型（"Point"…"MultiPolygon"）。引数なし＝全件の配列 */
+	getType(i: number): string;
+	getType(): string[];
 	/** GeoPBF バイナリ（保存・再読込用） */
 	readonly arrayBuffer: ArrayBuffer;
 	/** gint を焼く。geopbf() は既定で焼き済み＝再呼びは no-op（害なし） */
@@ -250,6 +262,8 @@ export interface GeoPBF {
 	/** getBbox(i)＝feature i の bbox。引数なし＝全フィーチャの bbox 配列（全体は .bbox） */
 	getBbox(i: number): Bbox;
 	getBbox(): Bbox[];
+	/** 書き出し（File 名＝opts.name 由来＝"myapp/data" のような階層名はダウンロード名にスラッシュが入る）。忠実度：geopbf/geojson＝完全、
+	 *  kmz＝件数維持・属性は全て文字列化、gpx＝点と線のみ（面は落ちる）・属性は name だけ */
 	geopbfFile(opts?: object): Promise<File>;
 	geojsonFile(opts?: object): Promise<File>;
 	topojsonFile(opts?: object): Promise<File>;

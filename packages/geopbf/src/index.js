@@ -127,6 +127,7 @@ export function createGeopbf(apiBase, options = {}) {
             // 文字列（URL/bucket 名）が読めなかった＝空 pbf を黙って返さず例外（呼び手が features.length を検査せずに済む）。
             // オブジェクト/File は従来どおり空 pbf（0 件の FC は正当な入力）。
             if (isString(data)) throw new Error(`geopbf: could not load ${data}（404/CORS/proxy 拒否＝console の [native-bucket]/[Fetch Error] を参照）`);
+            if (isFile(data)) throw new Error(`geopbf: could not decode ${data.name}（壊れた zip/KML/GPX 等＝console の [kmz]/file decode error を参照）`);   // 1.0.5〜 File も無言の空 pbf にしない
             return new GeoPBF(opts);
         }
         async function _geopbf(q) { // eslint-disable-line no-inner-declarations
@@ -156,10 +157,10 @@ export function createGeopbf(apiBase, options = {}) {
                 if (name.match(/\.(topo)?json$/i)) return _geopbf(await file2json(q));
                 if (name.match(/\.fgb$/i)) return _geopbf(await decoder("fgb", q));
                 if (name.match(/\.zip$/i)) return _geopbf(await decoder(opts.format === "moj" ? "moj" : "shape", q));
-                if (name.match(/\.kmz$/i)) return _geopbf(await decoder("kmz", q));
+                if (name.match(/\.km[lz]$/i)) return _geopbf(await decoder("kmz", q));   // .kml（生）も kmz デコーダが読む（1.0.5〜）
                 if (name.match(/\.gpx$/i)) return _geopbf(await decoder("gpx", q));
                 if (name.match(/\.(gml|xml)$/i)) return _geopbf(await decoder("gml", q));
-                console.warn("illegal file:", name);
+                throw new Error(`geopbf: unsupported file "${name}"（対応: .geopbf .pbf .geojson .json .topojson .fgb .zip(shape/moj) .kml .kmz .gpx .gml .xml .gz）`);   // 旧＝warn して空 pbf（無言の 0 件）
             }
             if (isObject(q)) {
                 q = toFeatureCollection(q);

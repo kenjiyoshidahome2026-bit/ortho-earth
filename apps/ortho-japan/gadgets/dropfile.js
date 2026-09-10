@@ -48,7 +48,8 @@ export async function sniffScene(file) {
 }
 
 // busy＝上映中判定（app が注入・任意）：デモ/シーン再生の上映中はドロップを無視する（上映と積み込み・flyTo が喧嘩しない）。
-export function dropFile({ yieldTo, loadFile, clearGint, playScene, busy, signal } = {}) {
+// opts.onLoad(pbf, file)＝読込成功の通知（埋め込みアプリが結果を受け取る口・1.0.5〜。旧＝loadFile を差し替えて横取りするしかなかった）
+export function dropFile({ yieldTo, loadFile, clearGint, playScene, busy, signal, onLoad } = {}) {
 	const mapEl = this.mapEl;
 	if (mapEl.querySelector("#dropzone")) return () => {};   // 二重搭載は無害
 
@@ -127,6 +128,7 @@ export function dropFile({ yieldTo, loadFile, clearGint, playScene, busy, signal
 				const pbf = await loadFile(file);
 				if (!pbf) { say(t("読込失敗: {0}", file.name)); continue; }
 				showClear(true);   // 図形が載った＝消去ボタンを出す（新しいドロップは前図形を置き換え＝ボタンは出たまま）
+				try { onLoad?.(pbf, file); } catch (e) { console.error("[dropFile] onLoad", e); }
 				say(t("表示: {0}（{1} 地物）— ホバー/クリックで識別", file.name, pbf.length ?? "?"));
 			} catch (err) {
 				console.error("[dropFile]", file.name, err);
