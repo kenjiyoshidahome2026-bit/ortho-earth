@@ -60,7 +60,10 @@ map.onGintClick((fid, props, lnglat) => console.log(props));
                               u32[fid * 4 + 2] = ((8 * 4) << 8) | 1; });   // radius 8px・visible
   map.paintTable(u32, feats.length);
   ```
-- minZoom：線/面を含むデータは範囲から自動（狭域 13〜14）・**点だけは自動なし（z≥7 から描く）**。onGintClick の lnglat＝カーソル位置（フィーチャ座標ではない）。
+- minZoom：線/面を含むデータは範囲から自動（狭域 13〜14・全国 3）・**点だけは自動なし（全ズームで描く）**。onGintClick の lnglat＝カーソル位置（フィーチャ座標ではない）・**非ヒットでは呼ばれない**（海クリック解除＝mapEl click＋unprojectXY＋pbf.contain()）。
+- 面のコロプレス＝`map.paint({ "fill-color": ["step", ["get","pop"], "#eff3ff", 1,"#bdd7e7", 4,"#3182bd"], "line-width": ["case", ["==",["get","id"], sel], 3.5, 0.9] })`
+  （キー fill-*/line-*/circle-*・演算子は get/match/step/case/interpolate 等の Mapbox サブセット・色は #hex/rgb()。詳細＝llms.txt）。自分の値は**エンコード前**に properties へ。
+- **URL 読込は proxy 経由**（罠台帳⑪）：1.0.3 以前は許可ホスト外が 0 件で黙る＝`fetch(url)`→`new File([blob], "data.topojson")` を渡す。1.0.4〜は直 fetch へ自動フォールバック。
 - 画像アイコン等は **File/Blob をプロパティ値に直接**（BUFSへ一個書き・等価dedup・往復File復元）。
 - スタイルの互換規約＝@プロパティ（@fill @stroke @width @icon @shape @text @size @tip @pop）。
 

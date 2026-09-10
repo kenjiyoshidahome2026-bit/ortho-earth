@@ -11,6 +11,8 @@
 </script>
 ```
 
+**通信先。** 地図データは公開元（地理院・PLATEAU・JAXA）から直接。SDK が話す ortho-earth 側のホストは `api.ortho-earth.com` の一つで、全球の基図（世界海岸線・湖・国境・星）と、`geopbf()` に URL を渡した時の proxy に使う。proxy がそのホストを断れば直 fetch へ落ちる（1.0.4〜・相手が CORS を許していること）。自分のデータがそれ以外でブラウザの外へ出ることはない。
+
 ## 自分のデータを載せる（geopbf）
 
 SDK は GeoPBF ライブラリを同梱し、初期化済みのローダーを named export で出している（1.0.3〜）。別パッケージもバンドラも import map も要らない：
@@ -100,7 +102,7 @@ map.gadget("myGadget", function () { /* this = map */ });   // 自作ガジェ�
 
 `npm run build:lib` が `dist/lib/` に出荷形を吐く（`ortho-japan.js` ＋ `ortho-japan.css` ＋ worker/動的importのチャンク）。
 
-**配布物一式は `npm run pack:sdk`** ＝ `dist/sdk/ortho-japan-sdk-<version>.zip`。中身は `lib/`（上記出荷形・sourcemapは非同梱＝実行に不要）・`assets/`（実行時アセット5点・約150KB）・`example/`（動くサンプル＝unzip→HTTP配信→`/example/` で即・地球が回る）・`README.md`・`LICENSE`。これ一つ渡せば埋め込みが完結する：`lib/` と `assets/` をサイトへ置き、`assetBase` に `assets/` の場所を指すだけ。sw.js・開発専用データ・台帳類は混入したら pack が fail する（scripts/pack-sdk.mjs の掟）。
+**配布物一式は `npm run pack:sdk`** ＝ `dist/sdk/ortho-japan-sdk-<version>.zip`。中身は `lib/`（上記出荷形・sourcemapは非同梱＝実行に不要）・`assets/`（実行時アセット6点・約230KB）・`example/`（動くサンプル＝unzip→HTTP配信→`/example/` で即・地球が回る）・`README.md`・`LICENSE`。これ一つ渡せば埋め込みが完結する：`lib/` と `assets/` をサイトへ置き、`assetBase` に `assets/` の場所を指すだけ。sw.js・開発専用データ・台帳類は混入したら pack が fail する（scripts/pack-sdk.mjs の掟）。
 
 ```html
 <link rel="stylesheet" href="/ortho-japan/ortho-japan.css">
@@ -117,7 +119,7 @@ map.gadget("myGadget", function () { /* this = map */ });   // 自作ガジェ�
 | | |
 |---|---|
 | **寸法はクラスか inline style で** | アプリは容れ物の `id` を `map` へ借りる（家具規格）。`#here { … }` のような **id セレクタで書いた指定は改名の瞬間に外れる**。借りる時に console.warn で伝え、`destroy()` で id は返す |
-| **`assetBase`** | `plateau-sets.json` / `airports.json` / `plateau-landmarks.json` / `plateau-exclude.json` / `ai/citycodes.json` は JS に焼き込まない（フォーマット独立・差し替え自由のため）。配布物 zip の `assets/` をサイトの任意の場所へ置き、そこを指す。未指定＝`/` 直下を見る。`plateau: false` なら PLATEAU 系の取得自体が起きない |
+| **`assetBase`** | `plateau-sets.json` / `airports.json` / `plateau-landmarks.json` / `plateau-exclude.json` / `koppen-clim.png` / `ai/citycodes.json` は JS に焼き込まない（フォーマット独立・差し替え自由のため）。配布物 zip の `assets/` をサイトの任意の場所へ置き、そこを指す。未指定＝`/` 直下を見る。`plateau: false` なら PLATEAU 系の取得自体が起きない |
 | **COOP/COEP は要らない** | `crossOriginIsolated` は SharedArrayBuffer（gint バッファのゼロコピー）の点火条件であって動作要件ではない。無ければコピー1回に落ちて同じ結果を出す（`npm run verify:nocoi` で実測・`packages/ortho-core/fallback-ladder.md` §3.5） |
 | **出典表記の義務は消えない** | 下の「出典表記」を参照。`instruments` から `attr` を外すなら埋め込みページ側に同等の記述が要る |
 
