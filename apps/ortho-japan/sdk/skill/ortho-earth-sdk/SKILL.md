@@ -72,7 +72,7 @@ map.onGintClick((fid, props, lnglat) => console.log(props));
 - 容れ物は class で寸法・id は借りられて destroy() で返る。lang/theme の live 切替 API は無い＝`view: map.view.hash` を持って destroy()→再生成。
 - **1.0.3 以前は WebGPU 起動後 20 秒以内の destroy() でホストページが reload される**（番犬タイマー・1.0.4 で修正）＝古い lib なら 21 秒待つか `?stay=1`。
 - theme を指定すると palette は載らない（切替可にするなら view の c=dark）。contextmenu({items}) は既定 2 項目の**置換**。埋め込みでは URL ハッシュを書かない（urlHash:true で書く）。
-- backend は `map.backend`（1.0.4〜）。PLATEAU の読込合図はコンソール文字列（llms.txt 罠⑯）。
+- backend は `map.backend`、PLATEAU の読込合図は `map.on("plateau", e => e.phase)`（catalog→start→done。いずれも 1.0.4〜。1.0.3 以前はコンソール文字列＝llms.txt 罠⑯）。
 - 画像アイコン等は **File/Blob をプロパティ値に直接**（BUFSへ一個書き・等価dedup・往復File復元）。
 - スタイルの互換規約＝@プロパティ（@fill @stroke @width @icon @shape @text @size @tip @pop）。
 
