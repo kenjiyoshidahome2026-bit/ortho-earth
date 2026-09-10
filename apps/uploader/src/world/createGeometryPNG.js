@@ -91,7 +91,7 @@ export async function createGeometryPNG(ctx, q) {
 		draw(geos, "#040");
 		(t.sovereignt || []).forEach(id => draw(geo_tub[id] || [], "#280"));
 		(t.claim || []).forEach(id => draw(geo_tub[id] || [], "#f40"));
-		files.push(new File([await canvas.convertToBlob({ type: "image/png" })], t.name.ja + ".png", { type: "image/png" }));
+		files.push(new File([await canvas.convertToBlob({ type: "image/png" })], (t.key || nationKey(t)) + ".png", { type: "image/png" }));   // <key>.png（2026-09-10・旗と同じ規則）
 		q.log(`${t.name.ja}: [${keys}] ${t.sovereignt ? "支配" + t.sovereignt : ""} ${t.claim ? "係争" + t.claim : ""}`);
 	}
 	await db.saveGeoPNG(files);

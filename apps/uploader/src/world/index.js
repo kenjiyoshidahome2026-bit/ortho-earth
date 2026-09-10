@@ -19,6 +19,7 @@ import { createNationDB } from "./createNationDB.js";
 import { createCityDB } from "./createCityDB.js";
 import { createLanguageDB, createCurrencyDB } from "./createLanguageDB.js";
 import { createGeometryPNG } from "./createGeometryPNG.js";
+import { createI18N } from "./createI18N.js";
 
 // TODO: 旧 FlagSVG.clean の移植待ち＝それまでは素通し（svg はそのまま保存）
 const cleanSVG = async file => file;
@@ -65,6 +66,7 @@ export async function worldUI({ CMD, q, Bucket, Fetch }) {
 	CMD.append("button").text("言語データ作成(createLanguageDB)").on("click", run("createLanguageDB", () => createLanguageDB(ctx, toLangs)));
 	CMD.append("button").text("通貨データ作成(createCurrencyDB)").on("click", run("createCurrencyDB", () => createCurrencyDB(ctx, toLangs)));
 	CMD.append("button").text("geoPNG作成(createGeometryPNG)").on("click", run("createGeometryPNG", () => createGeometryPNG(ctx, q)));
+	CMD.append("button").text("i18n作成(createI18N・26言語)").on("click", run("createI18N", () => createI18N(ctx, q)));
 	CMD.append("button").text(`${SEED}.csv ダウンロード`).on("click", () => downloadSeed());
 	CMD.append("button").text(`${CITY}.csv ダウンロード`).on("click", () => downloadCityDB());
 	CMD.append("button").text(`${CONFLICT}.json ダウンロード`).on("click", async () => download(json2blob(await db.loadConflicts()), `${CONFLICT}.json`));
@@ -200,6 +202,7 @@ export async function worldUI({ CMD, q, Bucket, Fetch }) {
 		createLanguageDB: (langs = toLangs) => createLanguageDB(ctx, langs),
 		createCurrencyDB: (langs = toLangs) => createCurrencyDB(ctx, langs),
 		createGeometryPNG: () => createGeometryPNG(ctx, q),
+		createI18N: () => createI18N(ctx, q),
 	});
 	return db;
 }

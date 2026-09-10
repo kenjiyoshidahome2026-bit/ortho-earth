@@ -1,11 +1,11 @@
 // ── 国旗 svg の小道具（旧 FlagSVG の必要分だけ）── url()/format()/ratio()/colors()
 const gcd = (a, b) => b ? gcd(b, a % b) : a;
-export function makeFlag(file) {
-	let url = null, text = null;
-	const load = async () => text || (text = await file.text());
+// 旗は bucket の個別ファイル（flags/<key>.svg）＝URL を直接 <img> に渡し、本文（縦横比/色/DL）は必要時に fetch
+export function makeFlag(url) {
+	let text = null;
+	const load = async () => text || (text = await fetch(url).then(r => r.ok ? r.text() : "").catch(() => ""));
 	return {
-		name: () => file.name.normalize("NFC").replace(/\.svg$/, ""),
-		url: () => url || (url = URL.createObjectURL(file)),
+		url: () => url,
 		format: async () => new Blob([await load()], { type: "image/svg+xml" }),
 		// 縦横比＝viewBox（無ければ width/height）を最大公約数で約分（例: 3:2）
 		ratio: async () => {
