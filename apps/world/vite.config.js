@@ -16,5 +16,5 @@ export default defineConfig({
 		fs: { allow: ['../..'] },
 		proxy: { '/api': { target: 'https://api.ortho-earth.com', changeOrigin: true, rewrite: p => p.replace(/^\/api/, '') } }
 	},
-	build: { sourcemap: true, target: 'esnext' }
+	build: { sourcemap: true, target: 'esnext', outDir: 'dist/site/world', emptyOutDir: true }   // 配信＝[assets] dist/site（route /world* が URL パスのまま引く）
 });

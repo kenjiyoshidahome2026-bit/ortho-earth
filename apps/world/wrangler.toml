@@ -1,0 +1,15 @@
+# world（国別DBビューア）本番配信：Cloudflare Workers 静的アセットのみ（www.ortho-earth.com/world/）。
+# Worker スクリプト無し＝assets-only（world は d3 の DOM アプリ＝SAB/wasm 不要＝COOP/COEP の薄皮も不要）。
+# データは api.ortho-earth.com（CORS *・GIS/world 公開読み取り）をブラウザ直読み＝この Worker は器だけ。
+# ⚠この route を切った時点で、www トップは /world… で始まるアセット/ページを置けない（japan* と同じ横取り規則）。
+# デプロイ手順は package.json の "deploy"（vite build → wrangler deploy）。
+name = "world"
+compatibility_date = "2025-06-01"
+workers_dev = true   # *.workers.dev の予備URL（検証用）。本番は下の route
+
+routes = [
+	{ pattern = "www.ortho-earth.com/world*", zone_name = "ortho-earth.com" }
+]
+
+[assets]
+directory = "dist/site"
