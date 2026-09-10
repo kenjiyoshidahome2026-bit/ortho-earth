@@ -19,6 +19,8 @@ export default {
 		const h = new Headers(res.headers);
 		h.set("Cross-Origin-Opener-Policy", "same-origin");
 		h.set("Cross-Origin-Embedder-Policy", "credentialless");
+		// lib/ortho-japan.d.ts＝拡張子 .ts をアセット配信が video/mp2t（MPEG-TS）と推定する＝型定義は text/plain で返す（2026-09-10・CDN 配信開始時に実測）
+		if (url.pathname.endsWith(".d.ts")) h.set("Content-Type", "text/plain; charset=utf-8");
 		return new Response(res.body, { status: res.status, statusText: res.statusText, headers: h });
 	},
 };
