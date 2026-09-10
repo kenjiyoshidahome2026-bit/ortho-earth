@@ -11,6 +11,41 @@ import { state, REGIONS, SORTS, FILTERS, LANGUAGES, LANG_LIST, isRTL, trans, col
 import { selectOptions, selectButtons, inputSearch } from "./controls.js";
 import { makeFlag } from "./flag.js";
 import { hebon2kana, kanaPattern } from "./hebon2kana.js";
+// ── カードの文字を枠に収める（Kenji 2026-09-10「はみ出すものは、フォントを小さくしてでも、枠に入れた方が綺麗」「描画前にサイズを計算しておく」）
+//   DOM に入れる前に canvas.measureText で行幅を測り、枠幅を超える行だけ font-size を縮める（レイアウト読み戻し無し＝262 枚でも一瞬）。
+//   下限 FIT_MIN までで収まらない極端な行だけ CSS の折り返し（draw.scss の overflow-wrap）に落ちる
+const meas = document.createElement("canvas").getContext("2d");
+const CARD_PX = 11;                          // .nation の font-size（draw.scss）
+const FIT_W = 280 - 6 - 72 - 10 - 28 - 2;    // カード幅 − table の border-spacing(2px×3) − 旗列(72) − td 余白(5+5) − 右上 #番号の余白(28) − 丸め余裕＝draw.scss の定数と対（実測: div.clientWidth 192 − padding 28 = 164）
+const FIT_MIN = 0.7;
+function fitScale(html, font, { lines = 1, outerSpan = false } = {}) {
+	if (!html) return 1;
+	const px = parseFloat(font.match(/([\d.]+)px/)[1]);   // "bold 13.2px verdana" → 13.2（parseFloat(font) は bold で NaN）
+	const setFont = k => meas.font = font.replace(/[\d.]+px/, (px * k).toFixed(2) + "px");
+	// 行内の付加物: span { padding:0 0.3em }・img.inline（高さ 14px の旗 ≒ 幅 21px + 余白）・.G7/.G20 の :before バッジ
+	const extra = (seg, k) => ((seg.match(/<span/g) || []).length + (outerSpan ? 1 : 0)) * 0.6 * px * k + (seg.match(/<img/g) || []).length * 24 + (/class="G(7|20)"/.test(seg) ? 28 : 0);
+	const text = seg => seg.replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ");
+	// 貪欲な折り返しの模擬: 空白で区切って詰める（空白の無い連＝CJK は任意位置で折れる前提で幅÷枠）
+	const need = (seg, k, allow) => {
+		setFont(k); const space = meas.measureText(" ").width; let n = 1, cur = 0;
+		const perm = (seg.match(/<span class="permanent">([^<]*)<\/span>/) || [])[1];   // .permanent は font-size:80%＝別に測る
+		const body = perm ? seg.replace(perm, "") : seg;
+		const words = text(body).split(/\s+/).filter(Boolean).map(w => meas.measureText(w).width).concat(extra(seg, k) || []);
+		if (perm) { setFont(k * 0.8); words.push(meas.measureText(perm).width + 6); setFont(k); }
+		for (const ww of words) {
+			const add = (cur ? space : 0) + ww;
+			if (cur + add <= allow) cur += add;
+			else if (ww <= allow) { n++; cur = ww; }
+			else { const m = Math.ceil((cur + add) / allow); n += m - 1; cur = cur + add - (m - 1) * allow; }
+		}
+		return n;
+	};
+	const segs = html.split(/<br\s*\/?>/), perSeg = segs.length > 1 ? 1 : lines;   // <br/> で割ってある名前は各片 1 行
+	for (let k = 1; k >= FIT_MIN - 1e-6; k -= 0.025) {   // 収まる最大の倍率（下限 FIT_MIN で打ち切り＝以降は CSS の折り返し）
+		if (segs.every(seg => need(seg, k, FIT_W) <= perSeg)) return k;
+	}
+	return FIT_MIN;
+}
 
 const body = d3.select("body");
 const loading = body.append("div").attr("name", "loading").html("<span>Loading the world…</span>");
@@ -115,16 +150,7 @@ Object.assign(window, { nations, model, state, Sound });   // console からの�
 	t && setTimeout(() => openFlag(t, scroll.select(".nation img.hover").node() || document.body), 300);
 }
 ////-------------------------------------------------------------------------------------------------------------
-function resize() {
-	scroll.css({ padding: 0 });
-	// ⚠ common の拡張は selection.empty() を html("") に上書きしている＝d3 標準の空判定に使うと先頭要素を消す（1件目のカードが空になった実害）
-	if (state.display == "1" && scroll.select("div").node()) {
-		const [X] = scroll.getSize(), [x] = scroll.select("div").getOuterSize();
-		const n = Math.max(1, Math.floor((X - 20) / (x || 1)));
-		const pad = ((X - 20) - n * x) / 2 + "px";
-		scroll.css({ padding: "5px" }); scroll.css({ paddingLeft: pad, paddingRight: pad });   // 左右均等＝RTL（float:right）でも中央に収まる
-	}
-}
+function resize() { /* ブロック表示は CSS Grid（justify-content:center）＝JS での中央寄せ・余白計算は不要になった 2026-09-10 */ }
 function drawHead() {
 	head.selectAll("[trans]").each(function () { this.innerText = trans(this.getAttribute("trans")); });
 	head.select("[name=search] input").attr("placeholder", trans("search"));
@@ -166,18 +192,11 @@ async function drawAll() {
 ////-------------------------------------------------------------------------------------------------------------
 function mapTip(q) { return trans("Show '$1'", q.Name) + (q.geopngurl ? `<br/><img style="width:128px; padding:5px 0 0 20px;" src="${q.geopngurl}" alt=""/>` : ""); }
 function blockView() {
+	scroll.classed("grid", true);   // CSS Grid（draw.scss 末尾）＝float 崩れの根治
 	scroll.selectAll("div.nation").data(nationTub).enter().append("div").each(function (q) { try { draw.call(this, q); } catch (e) { console.error("card失敗:", q && q.name && q.name.ja, e); } });
 	scroll.selectAll(".hover").on("mouseenter", () => Sound("操作M", 0.4));
 	function draw(q) {
 		const node = d3.select(this).classed("nation", true);
-		const jpname = () => {
-			const s = q.Name;
-			if (state.lang == "ja" && s.length > 14) {
-				if (s.match(/および/)) return s.replace(/および/, "<br/>および");
-				if (s.match(/・/)) return s.replace(/・/, "・<br/>");
-			}
-			return s;
-		};
 		const jpcap = () => { const s = q.capitalInfo, cap = q.capitalName; return (state.lang == "ja" && cap.length > 13) ? `<span style="font-size:90%;">${s}</span>` : s; };
 		node.append("div").classed("order", true).html("#" + q.order);
 		q.geopngurl && node.append("img").classed("mapopen", true).attr("src", q.geopngurl).attr("loading", "lazy").attr("alt", "").tip(mapTip(q));   // 地図は後日＝配線なし
@@ -185,13 +204,26 @@ function blockView() {
 		tr.append("td").append("img").attr("src", q.flagURL).attr("alt", q.Name).attr("loading", "lazy").classed("hover", true)
 			.on("click", e => { e.stopPropagation(); openFlag(q, e.target); }).tip(trans("Show the flag of '$1'", q.Name));
 		const td = tr.append("td");
-		td.append("div").append("span").classed("name", true).html(jpname() + q.euFlag + q.natoFlag + q.group)
+		// 各行は描画前に幅を測って枠に収める（fitScale）。行の div に font-size を置く＝.name の 120% はその相対で効く
+		const fitDiv = (html, font, opt) => { const k = fitScale(html, font, opt); const div = td.append("div"); k < 1 && div.css({ fontSize: (CARD_PX * k).toFixed(2) + "px" }); return div; };
+		const F = CARD_PX + "px verdana", FB = "bold " + (CARD_PX * 1.2) + "px verdana";
+		const nameTail = q.euFlag + q.natoFlag + q.group, capHTML = jpcap();
+		// 国名: 1 行に収まればそのまま。収まらなければ 2 行（ja は「・/、/および」の切れ目に <br/> を入れた候補も比べ、同じ倍率なら切れ目で折る＝「アンティグア・バーブー/ダ」を避ける）
+		const nameFit = { lines: 2, outerSpan: true };
+		let nameHTML = q.Name + nameTail;
+		if (fitScale(nameHTML, FB, { lines: 1, outerSpan: true }) < 1) {
+			const cands = [nameHTML];
+			if (state.lang == "ja") for (const m of q.Name.matchAll(/・|、|および/g)) { const i = m.index + (m[0] == "および" ? 0 : m[0].length); cands.push(q.Name.slice(0, i) + "<br/>" + q.Name.slice(i) + nameTail); }
+			const k0 = fitScale(nameHTML, FB, nameFit); let best = k0 - 0.05 - 1e-6;   // 切れ目で折る方が 2 段（5%）までなら小さくてもそちら
+			for (const c of cands.slice(1)) { const k = fitScale(c, FB, nameFit); if (k > best) { best = k; nameHTML = c; } }
+		}
+		fitDiv(nameHTML, FB, nameFit).append("span").classed("name", true).html(nameHTML)
 			.classed("hover", true).on("click", e => { e.stopPropagation(); q.OpenWikipedia(); }).tip(trans("Open '$1' on Wikipedia", q.Name));
-		td.append("div").append("span").html(jpcap()).classed("hover", true)
+		fitDiv(capHTML, F, { outerSpan: true }).append("span").html(capHTML).classed("hover", true)
 			.on("click", e => { e.stopPropagation(); q.capital && q.capital.OpenWikipedia(); }).tip(trans("Open '$1' on Wikipedia", q.capital ? q.capital.Name : ""));
-		td.append("div").html(q.info);
-		td.append("div").html(q.unJoin);
-		td.append("div").html(q.relation);
+		fitDiv(q.info, F).html(q.info);
+		fitDiv(q.unJoin, F).html(q.unJoin);
+		fitDiv(q.relation, F).html(q.relation);
 	}
 }
 ////-------------------------------------------------------------------------------------------------------------
@@ -202,6 +234,7 @@ function inlineView() {
 	const { label, member, year, length, show, dire, format, unit, ref } = SORTS[sort - 1];
 	const Unit = unit ? small(`[${unit}]`) : "";
 	const btns = [...head.selectAll("[name=sorts] button")];
+	scroll.classed("grid", false);
 	const table = scroll.append("div").classed("list", true).append("table");
 	const thead = table.append("thead"), tbody = table.append("tbody");
 	header(thead);
