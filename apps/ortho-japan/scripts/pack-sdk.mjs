@@ -60,6 +60,7 @@ cpSync(path.join(APP, "LICENSE"), path.join(OUT, "LICENSE"));
 // 型定義（lib/ に同居＝エディタ/AIの補完が効く）＋ Claude Code スキル（.claude/skills/ へ置くだけで発動）
 cpSync(path.join(APP, "public/llms.txt"), path.join(OUT, "llms.txt"));
 cpSync(path.join(APP, "sdk/ortho-japan.d.ts"), path.join(OUT, "lib/ortho-japan.d.ts"));
+cpSync(path.join(APP, "sdk/verify-example.mjs"), path.join(OUT, "verify-example.mjs"));   // 実時間 CDP 検証の雛形（AI エージェント向け・依存ゼロ）
 cpSync(path.join(APP, "sdk/skill"), path.join(OUT, "skill"), { recursive: true });
 
 for (const f of FORBIDDEN) if (existsSync(path.join(OUT, f))) { console.error(`✗ 混入禁止物が入っている: ${f}`); process.exit(1); }

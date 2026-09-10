@@ -8,8 +8,9 @@ description: ortho-earth（ortho-japan）SDKで3D地球儀アプリを作る時�
 あなたは ortho-earth の 3D 地球儀 SDK（ortho-japan）を使ってアプリを作る。**最初に正典を読む**：
 
 1. `https://www.ortho-earth.com/japan/llms.txt` — API面・罠台帳・検証作法の1枚正典（このスキルより常に新しい）
-2. SDK zip 同梱の `README.md`（オプション表・埋め込み契約・出典義務）と `lib/ortho-japan.d.ts`（型。CDN＝
-   `https://www.ortho-earth.com/japan/lib/ortho-japan.d.ts` からも読める）
+2. SDK 同梱の `README.md`（オプション表・埋め込み契約・出典義務）と `ortho-japan.d.ts`（型）。置き場所＝
+   npm: `node_modules/@ortho-earth/japan/{README.md,dist/lib/ortho-japan.d.ts}` ／ zip: `{README.md,lib/ortho-japan.d.ts}`（同一物）／
+   CDN: `https://www.ortho-earth.com/japan/lib/ortho-japan.d.ts`
 
 ## 鉄則
 
@@ -21,7 +22,7 @@ description: ortho-earth（ortho-japan）SDKで3D地球儀アプリを作る時�
 - CSSは自動注入されない＝ `ortho-japan.css` の `<link>` を貼る。
 - geopbf は SDK の export を使う。npm の geopbf を自分のバンドルに混ぜない（別インスタンス＝createGeopbf の呼び忘れで本番だけ死ぬ）。
   CDN libは external ＋ URL変数経由 `import(/* @vite-ignore */ LIB)`。
-- ビルド不要が最速：www.ortho-earth.com 配下なら CDN 直import、他ドメインなら SDK zip を self-host。
+- ビルド不要が最速：www.ortho-earth.com 配下なら CDN 直import、他ドメインなら npm/zip の `lib/`＋`assets/` を self-host（静的ファイル・バンドラ不要）。
 
 ## 最小テンプレ（コピーして始める）
 
@@ -50,6 +51,16 @@ map.onGintClick((fid, props, lnglat) => console.log(props));
 
 - fid⇄自分のidの整列保証＝全propertiesに一意キーを入れてからエンコード。
 - フィーチャ別スタイル＝`map.paintTable(u32, count)`（4×u32/fid: fill色/線色/(width*8)<<24|(radius*4)<<8|flags、flags bit0=visible）。点は線色欄が circle 色・radius が半径（0=描かない）。
+  完成形（点をカテゴリ別に色分け・半径 8px。applyGintData 直後に同期で呼べる＝onReady 待ち不要）：
+  ```js
+  const feats = map.gintFeatures();                      // fid 整列の properties
+  const u32 = new Uint32Array(feats.length * 4);
+  const rgba = (r, g, b, a = 255) => ((r << 24) | (g << 16) | (b << 8) | a) >>> 0;
+  feats.forEach((f, fid) => { u32[fid * 4 + 1] = f.properties.category === "jr" ? rgba(30, 136, 229) : rgba(229, 57, 53);
+                              u32[fid * 4 + 2] = ((8 * 4) << 8) | 1; });   // radius 8px・visible
+  map.paintTable(u32, feats.length);
+  ```
+- minZoom：線/面を含むデータは範囲から自動（狭域 13〜14）・**点だけは自動なし（z≥7 から描く）**。onGintClick の lnglat＝カーソル位置（フィーチャ座標ではない）。
 - 画像アイコン等は **File/Blob をプロパティ値に直接**（BUFSへ一個書き・等価dedup・往復File復元）。
 - スタイルの互換規約＝@プロパティ（@fill @stroke @width @icon @shape @text @size @tip @pop）。
 
@@ -57,4 +68,6 @@ map.onGintClick((fid, props, lnglat) => console.log(props));
 
 - 自己判定HTML（結果を`<title>`にPASS/FAIL）→ headless Chrome の `--dump-dom` で読む。
 - エンジン起動込みは仮想時間でなく**実時間+CDP**でtitleを監視（worker並走と仮想時計は相性が悪い）。
-- 本番形の検定＝①エンジン再同梱がないこと（lib URL参照の確認）②実走で404ゼロ。
+- 本番形の検定＝①エンジン再同梱がないこと（lib URL参照の確認）②実走で404ゼロ（worker 内の取得はページの Network に出ないことがある＝サーバ側の台帳も読む）。
+- 雛形＝SDK 同梱 `verify-example.mjs`（npm: `node_modules/@ortho-earth/japan/sdk/`・zip: ルート。依存ゼロ・Node 22+）。
+  `node verify-example.mjs http://127.0.0.1:4174/ 9555`＝title 実時間監視・スクショ・4xx 台帳・console。他プロセスと衝突しない devtools ポートを選ぶ。静的サーバは `npx serve`／Node 製を使う（`python3 -m http.server` は初回応答が ~50s 止まる環境があった）。
