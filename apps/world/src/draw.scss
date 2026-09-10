@@ -278,8 +278,8 @@ body [name=head] {
 	}
 }
 
-// ── カードからはみ出す文字（長い国名・首都名・26言語）: セル内で折り返し、カード幅に収める（2026-09-10）──
-body [name=scroll] .nation { overflow:hidden;
+// ── カードからはみ出す文字（長い国名・首都名・26言語）: 一次対策は main.js の fitScale（描画前に幅を測ってフォントを縮める）。ここは下限を割った行の折り返し（保険）2026-09-10 ──
+body [name=scroll] .nation { overflow:clip;   // hidden だと Grid 項目がスクロールコンテナ扱いになり Chrome で行高が 0 に潰れる（2026-09-10 実測: hidden=3px / clip=95px）
 	table { width:100%; table-layout:fixed; }
 	td:first-child { width:72px; }
 	td:last-child { white-space:normal; overflow-wrap:anywhere; word-break:break-word;
@@ -288,3 +288,11 @@ body [name=scroll] .nation { overflow:hidden;
 	}
 	.name { line-height:1.25em; }
 }
+
+// ── ブロック表示は CSS Grid（2026-09-10）: 26言語で国名が折り返し高さが揃わなくなり float が崩れた（背の高いカードに次行が引っかかる）
+//   列は 280px の自動充填・中央寄せ・行内は高さ揃え・RTL は direction で自動的に右流れ（float:right の上書きは不要）
+body [name=scroll].grid { display:grid; grid-template-columns:repeat(auto-fill, 280px); justify-content:center; align-content:start; gap:10px; padding:10px !important;
+	.nation { float:none; margin:0; width:auto; box-sizing:border-box; }   // 高さは Grid の stretch（既定）で行内が揃う。height:100% は自動行と循環して 0 に潰れる
+}
+html[dir=rtl] body [name=scroll].grid .nation { float:none; }
+@media (max-width: 720px) { body [name=scroll].grid { grid-template-columns:1fr; padding:5px !important; } body [name=scroll].grid .nation { width:auto; margin:0; } }

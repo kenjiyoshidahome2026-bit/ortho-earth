@@ -203,3 +203,8 @@ geoPNG は admin1 の AF で描ける）。国旗は全 262 か国カバー（�
 8. 旗 `<img>` に alt 9. createI18N が言語ごとの国名の欠けを一覧 12. 国連加盟日を `Intl.DateTimeFormat`
 13. 公開経路＝`base:'/world/'`＋`build:all` で `www/dist/world` へ（dev は http://localhost:5174/world/）
 14. JSON も IDB に保存＝ネット不達時は前回分で起動（オフライン）
+15. ブロック表示＝CSS Grid（`[name=scroll].grid`・280px 自動充填・中央寄せ）。float は 26 言語で国名の行数が揃わず崩れた（背の高いカードに次行が引っかかる）。
+   罠: Grid 項目に `overflow:hidden` を付けると Chrome で行高が 0 に潰れる（スクロールコンテナ扱い）→ `overflow:clip`
+16. **カードの文字は描画前に幅を測って枠に収める**（main.js `fitScale`・Kenji「はみ出すものはフォントを小さくしてでも枠に入れる」「描画前にサイズを計算」）
+   canvas.measureText で行ごとに測り、枠幅 164px（=280−border-spacing 6−旗列 72−td 余白 10−#番号 28−余裕 2）を超える行だけ font-size を縮める（下限 70%・以降は CSS 折り返し）。
+   国名は 2 行まで（貪欲折り返しの模擬）・ja は「・/、/および」で折る候補と比べ 5% 以内なら切れ目で折る。結果: en/ja/ar/de の 262 枚が全て 94px で揃う
