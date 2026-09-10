@@ -35,7 +35,7 @@ applyLang();
 // 旗/地図PNG＝bucket の個別ファイル URL（<img loading=lazy> で見えた分だけ取得・edge 1h キャッシュ）。
 // 旗の有無は NationDB の key 集合＋領有国代替で決める（zip を丸ごと落とさない）
 const assets = (() => {
-	const flags = {}, keys = new Set(data.nations.map(t => t.key)); ["UN", "EU", "NATO", "DISPUTED"].forEach(k => keys.add(k));
+	const flags = {}, keys = data.flags;   // 実在する旗（bucket flags/ 一覧）。無い国は model 側で領有国の旗へ代替
 	const flagURL = k => `${ASSET_BASE}flags/${encodeURIComponent(k)}.svg`;
 	return { flagURL, hasFlag: k => keys.has(k), flag: k => flags[k] || (flags[k] = makeFlag(flagURL(k))), geomURL: k => `${ASSET_BASE}geoms/${encodeURIComponent(k)}.png` };
 })();
