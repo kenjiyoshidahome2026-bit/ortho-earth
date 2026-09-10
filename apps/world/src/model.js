@@ -106,11 +106,13 @@ class MultiLanguageWiki {
 	get i18n() { return null; }   // 派生クラスが i18n テーブルの自分の行を返す
 	get Name() { const e = this.i18n; return (e && e.name) || this.name[state.lang] || this.name.en || this.name.ja || ""; }
 	get Wiki() { return this.wiki && this.wiki[state.lang] || 0; }
-	OpenWikipedia() {
+	get wikipediaURL() {
 		const e = this.i18n;
-		if (e && e.wiki) return open(`https://${state.lang}.wikipedia.org/wiki/${encodeURIComponent(e.wiki.replace(/ /g, "_"))}`, "_wiki_");   // 選択言語の記事名
-		const id = this.Wiki || (this.wiki && this.wiki.en); id && open(this.Wiki ? wikiURL(state.lang, this.Wiki) : wikiURL("en", id), "_wiki_");
+		if (e && e.wiki) return `https://${state.lang}.wikipedia.org/wiki/${encodeURIComponent(e.wiki.replace(/ /g, "_"))}`;   // 選択言語の記事名
+		const id = this.Wiki || (this.wiki && this.wiki.en); return id ? (this.Wiki ? wikiURL(state.lang, this.Wiki) : wikiURL("en", id)) : "";
 	}
+	// 記事は別タブでなくアプリ内の iframe（census と同じ・Kenji 2026-09-10）。ctx.openWiki が無ければ別タブ
+	OpenWikipedia() { const url = this.wikipediaURL; url && (ctx && ctx.openWiki ? ctx.openWiki(url, this.Name) : open(url, "_wiki_")); }
 }
 export class Nation extends MultiLanguageWiki {
 	get i18n() { const t = state.i18n; return t && t.nations && t.nations[this.key] || null; }
@@ -220,7 +222,7 @@ export function buildModel(data, assets) {
 	const language_hash = {}; LG.forEach(t => language_hash[t.key] = new Language(t));
 	const uiFlags = {}; Object.entries({ 国際連合: "UN", 欧州連合: "EU", NATO: "NATO", 係争中: "DISPUTED" }).forEach(([t, id]) => uiFlags[t] = assets.flagURL(id));
 	const cityByJa = {}; C.forEach(t => cityByJa[t.name.ja] = city_hash[t.wiki.ja]);
-	ctx = { nation_hash, uiFlags, cityByJa, flag: assets.flag, hasFlag: assets.hasFlag, geom: assets.geomURL };
+	ctx = { nation_hash, uiFlags, cityByJa, flag: assets.flag, hasFlag: assets.hasFlag, geom: assets.geomURL, openWiki: assets.openWiki };
 	const nations = Object.values(nation_hash), cities = Object.values(city_hash);
 	nations.forEach(t => {
 		t.territory && (t.territory = nation_hash[t.territory] || null);

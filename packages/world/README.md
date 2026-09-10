@@ -228,3 +228,7 @@ geoPNG は admin1 の AF で描ける）。国旗は全 262 か国カバー（�
    GIS/world と i18n/ の一覧（ETag）を突合し、変わったファイルだけ取り直して IDB を更新→組み直して再描画（国旗モーダル中は閉じた時に）。
    旗の一覧は flags.zip の ETag が変わった時だけ・音は次回起動から。言語切替も IDB 優先＋裏取り。
    buildModel は生データの `un` 配列を書き換えない（同じ生データから組み直せるように）
+18. **Wikipedia はアプリ内 iframe**（Kenji「census のように iframe 表示の方がいい」）。`[name=wiki]` がヘッダ下を全面に覆い、記事は
+   `xx.m.wikipedia.org`（狭い枠でも読みやすい）。バーに記事名・↗（別タブ）・×。Escape で閉じる（国旗モーダル中に開いた場合は閉じた後に
+   モーダルの Escape を復帰）。model 側は `OpenWikipedia()` が `ctx.openWiki` を呼ぶ＝無ければ従来どおり別タブ。Wikipedia は
+   X-Frame-Options / frame-ancestors を送らないので埋め込み可（2026-09-10 実測）
