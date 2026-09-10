@@ -12,7 +12,7 @@ const kmlToFeatures = (text, nameToRes) => {
 		const props = {};
 		let id;
 		const nm = pm.match(/<name>(.*?)<\/name>/);
-		if (nm) id = unescXML(nm[1].trim()); // <name> becomes the feature id — not stored in props (round-trip symmetric)
+		if (nm) id = unescXML(nm[1].trim()); // <name> becomes the feature id（往復対称）＋ properties.name にも複写（GeoPBF は id を持たない＝1.0.5・SDK ドッグフードで「名前が消える」）
 		const ds = pm.match(/<description>(.*?)<\/description>/);
 		if (ds) props.description = unescXML(ds[1].trim());
 		const sd = pm.match(/<SimpleData name="(.*?)">(.*?)<\/SimpleData>/g);
@@ -25,6 +25,7 @@ const kmlToFeatures = (text, nameToRes) => {
 			const m = t.match(/<Data name="(.*?)">[\s\S]*?<value>(.*?)<\/value>/);
 			if (m) props[unescXML(m[1])] = unescXML(m[2]);
 		});
+		if (id !== undefined && props.name === undefined) props.name = id;
 		const hr = pm.match(/<href>(.*?)<\/href>/);
 		if (hr) {
 			const path = unescXML(hr[1].trim());
@@ -57,8 +58,11 @@ const kmlToFeatures = (text, nameToRes) => {
 
 onmessage = async (e) => {
 	const { file, name, precision } = e.data;
-	const entries = await decodeZIP(file);
-	if (!entries) return;
+	// 生 .kml（zip でない）もここで読む＝1 エントリの疑似 zip として扱う（1.0.5〜。旧＝.kmz のみで .kml は「illegal file」）
+	const isKml = /\.kml$/i.test(file.name || "");
+	let entries = null;
+	try { entries = isKml ? [{ name: file.name, text: () => file.text() }] : await decodeZIP(file); } catch (err) { console.error("[kmz] unzip failed:", err?.message || err); }
+	if (!entries) { postMessage(null); return; }   // 旧＝無応答で geopbf() が永久に解決しなかった
 	const nameToRes = {};
 	entries.forEach(f => {
 		if (!f.name.endsWith(".kml")) nameToRes[f.name] = f;
@@ -70,7 +74,7 @@ onmessage = async (e) => {
 		allFeatures.push(...kmlToFeatures(text, nameToRes));
 	}
 	const [keys, bufs] = await GeoPBF.makeKeys(allFeatures.map(f => f.properties));
-	const pbf = new GeoPBF({ name: name || file.name.replace(/\.kmz$/, ""), precision });
+	const pbf = new GeoPBF({ name: name || file.name.replace(/\.km[lz]$/i, ""), precision });
 	pbf.setHead(keys, bufs);
 	pbf.setBody(() => allFeatures.forEach(f => pbf.setFeature(f)));
 	pbf.close();

@@ -69,7 +69,7 @@ export function buildFidStyle(paint = {}, features = [], opts = {}) {
 	const count = features.length;
 	const u32 = new Uint32Array(count * 4);
 	const pFillC = paint["fill-color"], pFillO = paint["fill-opacity"];
-	const pLineC = paint["line-color"] ?? paint["circle-color"], pLineO = paint["line-opacity"];
+	const pLineC = paint["line-color"], pCircC = paint["circle-color"], pLineO = paint["line-opacity"];   // 表の G 欄は 1 つ＝feature のジオメトリで選ぶ（点=circle-color 優先・他=line-color 優先。2026-09-11）
 	const pWidth = paint["line-width"], pRadius = paint["circle-radius"];
 	for (let fid = 0; fid < count; fid++) {
 		const f = features[fid];
@@ -79,7 +79,9 @@ export function buildFidStyle(paint = {}, features = [], opts = {}) {
 			if (filter && !truthy(evalExpr(filter, ctx))) flags = 0;
 			const num = (e, dflt) => { const v = +evalExpr(e, ctx); return Number.isFinite(v) ? v : dflt; };
 			if (pFillC != null) { const c = evalColor(pFillC, ctx); if (c) fill = packColor(c, pFillO != null ? num(pFillO, 1) : 1); }
-			if (pLineC != null) { const c = evalColor(pLineC, ctx); if (c) line = packColor(c, pLineO != null ? num(pLineO, 1) : 1); }
+			const isPt = ctx.geom === "Point" || ctx.geom === "MultiPoint";
+			const pC = isPt ? (pCircC ?? pLineC) : (pLineC ?? pCircC);
+			if (pC != null) { const c = evalColor(pC, ctx); if (c) line = packColor(c, pLineO != null ? num(pLineO, 1) : 1); }
 			if (pWidth  != null) { const v = +evalExpr(pWidth, ctx);  if (Number.isFinite(v)) w8 = clampU8(v * 8); }
 			if (pRadius != null) { const v = +evalExpr(pRadius, ctx); if (Number.isFinite(v)) r8 = clampU8(v * 4); }
 		} catch (e) { /* 既定値のまま（§6-4） */ }

@@ -78,6 +78,7 @@ map.onGintClick((fid, props, lnglat) => console.log(props));
 
 ## 検証してから納品する
 
+- **最初に** SDK 同梱 `verify-example.mjs` のヘッダを読み、自己判定 title（何が揃えば PASS か・件数や数値を title に含める）を先に設計してから書き始める（KML の欠落が 1 回目で機械的に露見した実績）。
 - 自己判定HTML（結果を`<title>`にPASS/FAIL）→ headless Chrome の `--dump-dom` で読む。
 - エンジン起動込みは仮想時間でなく**実時間+CDP**でtitleを監視（worker並走と仮想時計は相性が悪い）。
 - 本番形の検定＝①エンジン再同梱がないこと（lib URL参照の確認）②実走で404ゼロ（worker 内の取得はページの Network に出ないことがある＝サーバ側の台帳も読む）。
