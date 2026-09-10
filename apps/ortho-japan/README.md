@@ -42,7 +42,9 @@ A working sample ships in the zip (`example/index.html`): serve the unzipped fol
 
 Returns `map` = `{ cam, flyTo, renderer, mapEl, gadget, destroy }`.
 
-`map.destroy()` tears everything down — workers, listeners, render loop, DOM — and returns the container as it was. IndexedDB caches (PLATEAU, elevation) survive as origin assets, so revisits stay fast.
+`map.destroy()` tears everything down — workers, listeners, render loop, timers, DOM — and returns the container as it was (id restored, children removed, SDK classes removed). IndexedDB caches (PLATEAU, elevation) survive as origin assets, so revisits stay fast. Re-create with `view: map.view.hash` to keep the viewpoint — that is also how you change `lang` or `theme`, which have no live-switch API. (1.0.3 and earlier: destroying within 20 s of a WebGPU boot left a watchdog that reloaded the host page — fixed in 1.0.4.)
+
+In an embed (`target` given) the SDK does not touch the page URL; pass `urlHash: true` to keep the view hash in the address bar as the full site does. Elevation tiles for the terrain are fetched on demand from `api.ortho-earth.com` (tens of MB over a session) even with `plateau: false`.
 
 ## Opt-in gadgets (map.gadget.*)
 

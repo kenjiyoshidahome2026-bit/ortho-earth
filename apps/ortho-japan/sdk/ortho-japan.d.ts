@@ -11,7 +11,8 @@ export interface OrthoJapanOptions {
 	target?: string | HTMLElement;
 	/** 初期視点 "#zoom/lat/lon/45t/30r/l=…/c=…"（t=チルト°・r=回転°） */
 	view?: string;
-	/** 配色の焼き付け（"mono"|"dark"|"gsi"|"sepia" または台帳と同形のカスタム） */
+	/** 配色の焼き付け（"mono"|"dark"|"gsi"|"sepia" または台帳と同形のカスタム）。**指定すると palette ガジェットは載らない**（固定＝切替不可）。
+	 *  利用者が切り替えられる初期配色は view の "…/c=dark" で */
 	theme?: string | object;
 	/** 表示項目の固定。true=常時表示・false=封印・未記述=チップで利用者が選ぶ */
 	layers?: Partial<Record<"place" | "terrain" | "rail" | "road" | "facility", boolean>>;
@@ -21,36 +22,52 @@ export interface OrthoJapanOptions {
 	instruments?: boolean | Array<"pos" | "scale" | "attr" | "log">;
 	/** 建物3D（PLATEAU）機能スイッチ。false=関連通信・workerごと停止（既定true） */
 	plateau?: boolean;
-	/** UI言語（地図中の地名は対象外） */
+	/** UI言語（地図中の地名は対象外）。live 切替 API は無い＝変えるなら view: map.view.hash を持って destroy()→再生成 */
 	lang?: "ja" | "en";
 	/** チルト上限（**ラジアン**）。0=俯瞰固定。共有URLのt=も同上限でクランプ（既定 75°） */
 	maxPitch?: number;
-	/** 実行時アセット（plateau-sets.json等）の配信ベースURL */
+	/** 実行時アセット（plateau-sets.json等）の配信ベースURL（既定 "./"＝ページと同じ階層） */
 	assetBase?: string;
+	/** ページ URL のハッシュに視点を書き続ける（history.replaceState）。埋め込み（target 指定）では既定 false（1.0.4〜）＝SPA のルータを汚さない */
+	urlHash?: boolean;
+	/** window.__cam 等のデバッグ手を生やす（target 指定時は既定で生えない） */
+	debugGlobals?: boolean;
 }
 
 /** 右クリックメニュー項目（map.gadget.contextmenu({items})） */
 export interface ContextMenuItem {
 	name: string;
+	/** 任意の HTML（アイコン） */
+	icon?: string;
 	onClick(c: { lng?: number; lat?: number; x: number; y: number; map: OrthoJapanMap }): void;
 }
 
+/** measure/profile の手綱（ガジェットは UI ボタン＝クリックで頂点・ダブルクリック確定・Esc 中断。プログラムからは start/stop） */
+export interface PathGadget { (): void; start(): void; stop(): void; open(): void; close(): void; stats(): Record<string, number> }
 export interface Gadgets {
 	search(opts?: object): unknown;
 	zoom(): unknown;
-	compass(): unknown;
+	compass(): unknown;           // 3D（チルト中）のみ表示
 	full(): unknown;              // 全画面（ショートカット=Z単キー）
-	shot(): unknown;              // 画面保存
-	measure(): unknown;
-	profile(): unknown;           // 断面図（クリックで経路指定→標高プロファイルのグラフ）
-	contextmenu(opts?: { items?: ContextMenuItem[] }): unknown;
+	/** 画面保存（webp・出典焼き込み）。open()＝即保存、composite()＝Blob を返す（引数省略＝今の画面）。
+	 *  戻り値は最初の呼び出しで受け取って保持する（二重搭載・モバイル(coarse pointer)では undefined） */
+	shot(): { open(): void; composite(snap?: unknown): Promise<Blob> } | undefined;
+	measure(): PathGadget;
+	profile(): PathGadget;        // 断面図（経路指定→標高プロファイルのグラフ。stats()={points,total,sampled,min,max}）
+	/** 右クリックメニュー。既定で「この地点へ寄る／座標をコピー」の 2 項目を持ち、items は**置換**（関数形＝クリック位置ごとに組める）。戻り値＝項目差し替え関数（再搭載時は {setItems}） */
+	contextmenu(opts?: { items?: ContextMenuItem[] | ((c: { lng?: number; lat?: number; x: number; y: number; map: OrthoJapanMap }) => ContextMenuItem[]) }): ((items: ContextMenuItem[]) => void) | { setItems(items: ContextMenuItem[]): void };
 	legend(): unknown;
-	palette(): unknown;
+	palette(): { open(): void; close(): void };
 	hint(): unknown;
-	qr(): unknown;
-	print(): unknown;
+	qr(): { open(): void; close(): void };
+	print(): { open(): void; close(): void };
 	cpos(): unknown;
-	tip(opts?: object): unknown;
+	/** 建物3D データ管理（先読み/削除）。plateau:false では載らない */
+	plateau(): unknown;
+	/** GIS ファイルのドラッグ&ドロップ受け口（GeoJSON/Shapefile/KML/GPX/FGB/GML…） */
+	dropFile(): unknown;
+	/** ホバー tip 箱。戻り値＝setter（rows=文字列の配列・null で消す）。orthoJapan() が自動搭載済み＝呼ぶと同じ setter が返る */
+	tip(opts?: object): (rows: string[] | null) => void;
 	pop(opts?: object): unknown;
 	/** 自作ガジェットの登録（this===map で呼ばれる） */
 	(name: string, fn: (this: OrthoJapanMap, ...args: unknown[]) => unknown): void;
@@ -102,9 +119,12 @@ export interface GintApplyOptions {
 	interactive?: boolean;
 	/** ホバー処理（tip・ハイライト）。false＝オフ（クリックは interactive のまま生きる。既定 true） */
 	hover?: boolean;
-	/** 地形沿い線（moj 筆など）を自動で立てる */
+	/**
+	 * 地形沿いの「線」を別描画（standupGint）で立てる＝細い固定幅・色は style.fillColor（paintTable/lineWidth は効かない）。moj 筆向け。
+	 * ⚠ この層自体は海面高で描かれ、**チルト時（pitch>約1°）は非表示**＝スタイル付きの線/塗りをチルトでも出すなら drapeFill
+	 */
 	drape?: boolean;
-	/** ドレープ時も塗りを維持する */
+	/** チルト時もこの層（線・塗り・paintTable のスタイル）を地形の上に描き続ける＝トレイル/区画をチルトで見せる時は true */
 	drapeFill?: boolean;
 	/** ホバー tip の整形：properties→行の配列。空配列/null＝tip を出さない。未指定＝全属性を "key: value" で列挙 */
 	tip?: (props: Record<string, unknown>) => string[] | null | undefined;
@@ -120,24 +140,32 @@ export interface OrthoJapanMap {
 	// ---- 基本 ----
 	flyTo(lon: number, lat: number, zoom: number, tiltDeg?: number, bearingDeg?: number): void;
 	getZoom(): number;
-	readonly view: { center: LonLat; zoom: number; pitch: number; bearing: number; hash: string;[k: string]: unknown };
+	/** 現在の視点。pitch/bearing は**ラジアン**（flyTo の tiltDeg/bearingDeg は度）。theme＝現在の配色名。hash＝共有/再生成用の "#z/lat/lon/…" */
+	readonly view: { center: LonLat; zoom: number; pitch: number; bearing: number; theme?: string; hash: string;[k: string]: unknown };
+	/** 描画バックエンド（初回フレーム前は null） */
+	readonly backend: "webgpu" | "webgl2" | null;
 	destroy(): void;
 	readonly mapEl: HTMLElement;
 	readonly gadget: Gadgets;
 
 	// ---- 座標変換・フレーム ----
-	/** 経緯度→mapEl（canvas）左上原点の CSS px（ページ座標ではない＝pointer を合成するなら getBoundingClientRect を足す）。unprojectXY と同じ座標系。front<0=裏半球 */
+	/** 経緯度→mapEl（canvas）左上原点の CSS px（ページ座標ではない＝pointer を合成するなら getBoundingClientRect を足す）。unprojectXY と同じ座標系。front<0=裏半球。
+	 *  **海面基準**＝チルト時は地形に乗った描画と視差がある（地形込みは makeProjectorH） */
 	projectLL(lon: number, lat: number): [x: number, y: number, front: number];
 	/** canvasローカルCSS座標→経緯度（球外はnull。onClick/setEditClickのx,yと同座標系） */
 	unprojectXY(x: number, y: number): LonLat | null;
-	/** カメラ状態を1回束ねた投影関数（多点を1フレームで投影する時用） */
+	/** カメラ状態を1回束ねた投影関数（多点を1フレームで投影する時用・海面基準） */
 	makeProjector(): (lon: number, lat: number) => [x: number, y: number, front: number];
+	/** 地形込みの投影（表示中の標高に乗せる）。liftM＝地表からの追加持ち上げ m（0＝地表。標高そのものを渡すと二重に浮く） */
+	makeProjectorH(): (lon: number, lat: number, liftM?: number) => [x: number, y: number, front: number];
 	/** 描画フレーム毎フック。戻り値=解除関数 */
 	onFrame(fn: () => void): () => void;
 	/** 次フレームの描画を1回点火（オーバレイ更新後に） */
 	requestDraw(): void;
-	/** クリック横取りスロット（編集アプリ用）。null=解除。クリックvsドラッグ弁別はエンジン側が済ませる */
+	/** クリック横取りスロット（編集アプリ用。gint の onGintClick より優先）。null=解除。クリックvsドラッグ弁別はエンジン側が済ませる */
 	setEditClick(fn: ((x: number, y: number) => void) | null): void;
+	/** 標高 m（GSI DEM10B / AW3D30 のタイルを api.ortho-earth.com 経由で取得・粗い格子＝鋭い山頂は低めに出る）。
+	 *  1.0.4〜ローダ着荷（数秒）を待って返す（初期化失敗は reject）。1.0.3 以前は未着の間 0 を返す＝>0 になるまで再照会 */
 	getHeight(lon: number, lat: number): Promise<number>;
 	fitZoomForBbox(bbox: Bbox): number;
 
@@ -147,6 +175,7 @@ export interface OrthoJapanMap {
 	/**
 	 * クリック識別（fid・properties・経緯度）。lnglat＝ホバー pick が当たった**カーソル位置**の球面座標であって
 	 * フィーチャの座標ではない（点をクリックしても同じ。座標が要るなら properties に持たせる）。クリックはホバーの識別結果に依存する。
+	 * 識別（GPU pick）は**海面基準**＝チルトで地形に乗った線とは視差があり当たりにくい（代替＝setEditClick＋makeProjectorH の最近傍、または pbf.identifyAt）。
 	 * **非ヒット（海など）では呼ばれない**＝選択解除は mapEl の click ＋ unprojectXY ＋ pbf.contain(ll)===null で組む
 	 */
 	onGintClick(fn: (fid: number, props: Record<string, unknown>, lnglat: LonLat) => void): void;

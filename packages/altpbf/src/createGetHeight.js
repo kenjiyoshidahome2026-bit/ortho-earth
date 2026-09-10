@@ -93,25 +93,27 @@ export async function createGetHeight(opts = {}) {
 	if (cache) Promise.resolve(cache(indexName, index)).catch(() => {});
 	const exist = (lng,lat) => index[encodeName(lng, lat)];
 	let isLoading = null;
+	let inflight = null;   // 進行中の読込（wait 呼びが順番待ちに使う）＝return より前に宣言（load は hoist されるが let は TDZ）
 	const level1 = opts.level1||7, level2 = opts.level2||12;
 	const {max, min, floor} = Math;
 	let cname = null, current = null;
 	const worker = new Worker(new URL('./worker.js', import.meta.url), { type: 'module' });
 	worker.onerror = e => console.error("Worker Exception:", e);
 ////---------------------------------------------------------------------------------------
-	return (lng, lat, zoom = Infinity) => {
+	// o.wait=true＝他のタイル読込中でも（描画側の「到着まで 0」縮退でなく）順番を待って値を返す＝公開 API map.getHeight 用（2026-09-10）
+	return (lng, lat, zoom = Infinity, o = {}) => {
 		const n = (zoom < level1)? 0: (zoom < level2)? 1: 2;
 		lng += lng < -180? 360: lng > 180? -360: 0;
 		lat = max(min(lat, 89.999),-89.999);
-		return [hgt90, hgt10, hgt01][n](lng,lat);
+		return [hgt90, hgt10, hgt01][n](lng,lat, !!o.wait);
 	};
 ////---------------------------------------------------------------------------------------
-	async function load(lng, lat, range) {
+	async function load(lng, lat, range, wait = false) {
 		const name = encodeName(lng, lat, range);
 		if (cname == name) return current;
 		const obj = await cache(name); if (obj && obj.data && obj.width && !staleDSM(name, obj)) return obj;   // 形の検札＝Blob混入（loadTile側と同じ地雷）は worker 経路へ
-		if (isLoading) return null;
-		return new Promise(res=>{
+		if (isLoading) return wait && inflight ? inflight.then(() => load(lng, lat, range, wait)) : null;   // 描画側＝落とす（到着まで0）／wait＝待って再試行
+		return inflight = new Promise(res=>{
 			isLoading = performance.now();
 			opts.onstart && opts.onstart(name);
 			worker.postMessage({ name, apiUrl: opts.apiUrl });
@@ -140,19 +142,19 @@ export async function createGetHeight(opts = {}) {
 		const [v00,v01,v10,v11] = [H(x0,y0),H(x0,y1),H(x1,y0),H(x1,y1)];
 		return avg(avg(v00,v10,X-x0), avg(v01,v11,X-x0),Y-y0);
 	}
-	async function hgt90(lng,lat)  { const range = 90;
+	async function hgt90(lng,lat,wait)  { const range = 90;
 		const lng0 = floor(lng/range)*range, lat0 = floor(lat/range)*range;
-		const v = await load(lng0, lat0, range);
+		const v = await load(lng0, lat0, range, wait);
 		return calcHeight((lng-lng0)/range, (lat-lat0)/range, v);
 	}
-	async function hgt10(lng,lat)  { const range = 10;
+	async function hgt10(lng,lat,wait)  { const range = 10;
 		const lng0 = floor(lng/range)*range, lat0 = floor(lat/range)*range;
-		const v = await load(lng0, lat0, range);
-		return calcHeight((lng-lng0)/range, (lat-lat0)/range, v)||hgt90(lng,lat);
+		const v = await load(lng0, lat0, range, wait);
+		return calcHeight((lng-lng0)/range, (lat-lat0)/range, v)||hgt90(lng,lat,wait);
 	}
-	async function hgt01(lng,lat)  { const range = 1;
-		const lng0 = floor(lng), lat0 = floor(lat); if (!exist(lng,lat)) return hgt10(lng,lat);
-		const v = await load(lng0, lat0, range);
-		return calcHeight((lng-lng0), (lat-lat0), v)||hgt10(lng,lat);
+	async function hgt01(lng,lat,wait)  { const range = 1;
+		const lng0 = floor(lng), lat0 = floor(lat); if (!exist(lng,lat)) return hgt10(lng,lat,wait);
+		const v = await load(lng0, lat0, range, wait);
+		return calcHeight((lng-lng0), (lat-lat0), v)||hgt10(lng,lat,wait);
 	}
 };

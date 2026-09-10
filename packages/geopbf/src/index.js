@@ -64,6 +64,9 @@ export function createGeopbf(apiBase, options = {}) {
     _activeGetServer = getServer;
 
     const geopbfFn = async function geopbf(data, opts = {}) { if (isString(opts)) opts = { name: opts };
+        // 相対パス（"/data/x.gpx" "./x.geojson" "../y.zip"）＝自サイトの URL。旧＝bucket 名と誤認して api/bucket/GIS/pbf//data/… を取りに行き
+        // 404→0 件を黙って返した（2026-09-10 SDK ドッグフード）。ブラウザなら location 基準で絶対 URL へ。
+        if (isString(data) && /^\.{0,2}\//.test(data) && typeof location !== "undefined") data = new URL(data, location.href).href;
         const dt = performance.now();
         const isInZip = _ => (isString(_) && _.match(/.+\.zip#.+/i));
         const isPBF = _ => (_ instanceof GeoPBF);
@@ -120,7 +123,12 @@ export function createGeopbf(apiBase, options = {}) {
             delete pbf._staleGint;
             await pbf.fileSize();
             return pbf;
-        } else return new GeoPBF(opts);
+        } else {
+            // 文字列（URL/bucket 名）が読めなかった＝空 pbf を黙って返さず例外（呼び手が features.length を検査せずに済む）。
+            // オブジェクト/File は従来どおり空 pbf（0 件の FC は正当な入力）。
+            if (isString(data)) throw new Error(`geopbf: could not load ${data}（404/CORS/proxy 拒否＝console の [native-bucket]/[Fetch Error] を参照）`);
+            return new GeoPBF(opts);
+        }
         async function _geopbf(q) { // eslint-disable-line no-inner-declarations
             if (!q) return null;
             if (isPBF(q)) return q;

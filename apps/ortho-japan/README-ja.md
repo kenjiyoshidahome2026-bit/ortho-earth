@@ -73,6 +73,8 @@ const map = await orthoJapan({ target: "#here" });
 map.destroy();   // 完全撤収（この後もう一度 orthoJapan() で再起動できる）
 ```
 
+容れ物は id・子要素・SDK が付けた class（ui-dark 等）まで元に戻る。視点を引き継ぐなら `view: map.view.hash` で再生成＝`lang`／`theme` を変える手段もこれ（live 切替 API は無い）。1.0.3 以前は WebGPU 起動後 20 秒以内の destroy で番犬タイマーが残りホストページごと reload した（1.0.4 で修正）。埋め込み（`target` 指定）ではページ URL を書き換えない（`urlHash: true` で本体サイトと同じ挙動）。地形の標高タイルは `plateau: false` でも `api.ortho-earth.com` から必要に応じて取得する（セッションで数十 MB）。
+
 ## オプトインガジェット（map.gadget.*）
 
 呼んだものだけが左上に生える。**呼んだ順＝上からの並び**、非表示のガジェットは上詰め。
@@ -119,7 +121,7 @@ map.gadget("myGadget", function () { /* this = map */ });   // 自作ガジェ�
 | | |
 |---|---|
 | **寸法はクラスか inline style で** | アプリは容れ物の `id` を `map` へ借りる（家具規格）。`#here { … }` のような **id セレクタで書いた指定は改名の瞬間に外れる**。借りる時に console.warn で伝え、`destroy()` で id は返す |
-| **`assetBase`** | `plateau-sets.json` / `airports.json` / `plateau-landmarks.json` / `plateau-exclude.json` / `koppen-clim.png` / `ai/citycodes.json` は JS に焼き込まない（フォーマット独立・差し替え自由のため）。配布物 zip の `assets/` をサイトの任意の場所へ置き、そこを指す。未指定＝`/` 直下を見る。`plateau: false` なら PLATEAU 系の取得自体が起きない |
+| **`assetBase`** | `plateau-sets.json` / `airports.json` / `plateau-landmarks.json` / `plateau-exclude.json` / `koppen-clim.png` / `ai/citycodes.json` は JS に焼き込まない（フォーマット独立・差し替え自由のため）。配布物 zip の `assets/` をサイトの任意の場所へ置き、そこを指す。未指定＝`./`（ページと同じ階層）。`plateau: false` なら PLATEAU 系の取得自体が起きない |
 | **COOP/COEP は要らない** | `crossOriginIsolated` は SharedArrayBuffer（gint バッファのゼロコピー）の点火条件であって動作要件ではない。無ければコピー1回に落ちて同じ結果を出す（`npm run verify:nocoi` で実測・`packages/ortho-core/fallback-ladder.md` §3.5） |
 | **出典表記の義務は消えない** | 下の「出典表記」を参照。`instruments` から `attr` を外すなら埋め込みページ側に同等の記述が要る |
 
