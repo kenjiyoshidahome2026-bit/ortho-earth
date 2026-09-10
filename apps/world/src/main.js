@@ -6,7 +6,7 @@ import "common/d3/tip-pop.js";
 import "common/d3/highlight.js";
 import { escape, download } from "common";
 import "./draw.scss";
-import { loadWorld, loadI18N, systemStore, ASSET_BASE } from "./data.js";
+import { loadWorld, loadI18N, refresh, systemStore, ASSET_BASE } from "./data.js";
 import { state, REGIONS, SORTS, FILTERS, LANGUAGES, LANG_LIST, isRTL, trans, collator, buildModel } from "./model.js";
 import { selectOptions, selectButtons, inputSearch } from "./controls.js";
 import { makeFlag } from "./flag.js";
@@ -64,18 +64,18 @@ const applyLang = () => {   // 文書の言語と書字方向（ar/fa/ur/he は 
 	document.documentElement.dir = isRTL(state.lang) ? "rtl" : "ltr";
 	const u = new URL(location.href); u.searchParams.set("lang", state.lang); history.replaceState(null, "", u);   // 他の ?open= 等は保持
 };
-let data;
-try { [data, state.i18n] = await Promise.all([loadWorld(), loadI18N(state.lang)]); } catch (e) { loading.html(`<span>Failed to load: ${e.message}</span>`); throw e; }
+let data;   // IDB 優先（温＝即）・初回だけ一段並列（冷）。裏の更新は描画後の refresh() で
+try { data = await loadWorld(state.lang); state.i18n = data.i18n; } catch (e) { loading.html(`<span>Failed to load: ${e.message}</span>`); throw e; }
 applyLang();
 // 旗/地図PNG＝bucket の個別ファイル URL（<img loading=lazy> で見えた分だけ取得・edge 1h キャッシュ）。
 // 旗の有無は NationDB の key 集合＋領有国代替で決める（zip を丸ごと落とさない）
 const assets = (() => {
-	const flags = {}, keys = data.flags;   // 実在する旗（bucket flags/ 一覧）。無い国は model 側で領有国の旗へ代替
+	const flags = {};   // 実在する旗＝data.flags（bucket flags/ 一覧・裏更新で差し替わる）。無い国は model 側で領有国の旗へ代替
 	const flagURL = k => `${ASSET_BASE}flags/${encodeURIComponent(k)}.svg`;
-	return { flagURL, hasFlag: k => keys.has(k), flag: k => flags[k] || (flags[k] = makeFlag(flagURL(k))), geomURL: k => `${ASSET_BASE}geoms/${encodeURIComponent(k)}.png` };
+	return { flagURL, hasFlag: k => data.flags.has(k), flag: k => flags[k] || (flags[k] = makeFlag(flagURL(k))), geomURL: k => `${ASSET_BASE}geoms/${encodeURIComponent(k)}.png` };
 })();
-const model = buildModel(data, assets);
-const { nations } = model;
+let model = buildModel(data, assets);
+let nations = model.nations;
 ////-------------------------------------------------------------------------------------------------------------
 // 効果音（音源.zip）と読み上げ（Web Speech API）
 const Sound = (() => {
@@ -139,12 +139,28 @@ selectOptions(head.filter, FILTERS, v => (state.filter = v, drawAll()), state.fi
 selectButtons(head.sorts, SORTS.index, v => (String(state.sort) == String(v) ? (v = -v) : 0, state.sort = +v || v, drawAll()), Math.abs(state.sort), true, trans);
 inputSearch(head.search, v => (state.reg = v, drawAll()), state.reg);
 selectButtons(head.display, [[icon.block, "1"], [icon.inline, "2"]], v => (state.display = v, drawAll()), state.display, false);
-selectOptions(head.langs, LANGUAGES, async v => { state.lang = v; state.i18n = await loadI18N(v); applyLang(); model.rebuildSearch(); drawHead(); drawAll(); }, state.lang);   // 言語切替＝その言語のテーブル1本だけ取得
+const applyI18N = v => { state.i18n = v; applyLang(); model.rebuildSearch(); drawHead(); drawAll(); };
+selectOptions(head.langs, LANGUAGES, async v => { state.lang = v; applyI18N(await loadI18N(v, fresh => state.lang == v && applyI18N(fresh))); }, state.lang);   // 言語切替＝IDB にあれば即・裏で取り直し
 ////-------------------------------------------------------------------------------------------------------------
 let nationTub = [];
 window.addEventListener("resize", resize, false);
 drawHead(); await drawAll(); resize();
 Object.assign(window, { nations, model, state, Sound });   // console からの作業用
+// 裏の更新: 一覧の ETag を突合→変わったファイルだけ取得→差があれば組み直して再描画（国旗モーダル中は閉じた時に）
+let pendingUpdate = null;
+refresh(state.lang, changed => {
+	const f = changed, D = { NationDB: "nations", CityDB: "cities", LanguageDB: "languages", CurrencyDB: "currencies", Conflicts: "conflicts" };
+	Object.entries(D).forEach(([k, m]) => f[k] && (data[m] = f[k]));
+	f[`i18n/${state.lang}`] && (state.i18n = f[`i18n/${state.lang}`]);
+	f.flags && (data.flags = f.flags);
+	const redo = () => {
+		pendingUpdate = null;
+		if (Object.keys(f).some(k => D[k])) { model = buildModel(data, assets); nations = model.nations; Object.assign(window, { nations, model }); }
+		else model.rebuildSearch();
+		drawHead(); drawAll(); console.log("data updated:", Object.keys(f).join(", "));
+	};
+	modal.node().offsetParent === null ? redo() : (pendingUpdate = redo);
+}).catch(e => console.warn("refresh:", e));
 // ディープリンク: ?open=国名（name.ja / key / iso2）で国旗モーダルを開いた状態で起動
 {
 	const q = new URLSearchParams(location.search).get("open");
@@ -320,7 +336,7 @@ function inlineView() {
 async function openFlag(q, target) { await showFlag(q); modal.resumeShow(target, { fallback: () => scroll.hide() }); }
 function closeFlag() {
 	scroll.show();
-	modal.node().animate({ opacity: 0 }, { duration: 500 }).onfinish = () => { modal.hide(); modal.css({ opacity: 1 }); };
+	modal.node().animate({ opacity: 0 }, { duration: 500 }).onfinish = () => { modal.hide(); modal.css({ opacity: 1 }); pendingUpdate && pendingUpdate(); };
 }
 async function showFlag(q) {
 	Sound("移動");

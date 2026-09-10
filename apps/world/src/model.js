@@ -229,7 +229,7 @@ export function buildModel(data, assets) {
 		t.currency && (t.currency = (Array.isArray(t.currency) ? t.currency : String(t.currency).split("|")).map(k => currency_hash[k] || new Currency({ key: k, name: { ja: k } })));
 		t.languages && (t.languages = t.languages.map(k => language_hash[k] || new Language({ key: k, name: { ja: k } })));
 		SORTS.dataLabels.forEach(s => t[s] && (t[s] = new yearData(t[s])));
-		t.un && Array.isArray(t.un[1]) && (t.un[1] = t.un[1].map(n => nation_hash[n]).filter(x => x));
+		t.un && Array.isArray(t.un[1]) && (t.un = [t.un[0], t.un[1].map(n => nation_hash[n]).filter(x => x)].concat(t.un.slice(2)));   // 元配列を書き換えない（裏更新で同じ生データから組み直せるように）
 	});
 	const rebuildSearch = () => nations.forEach(t => {
 		const target = t.territory || t.conflict;

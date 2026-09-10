@@ -222,3 +222,9 @@ geoPNG は admin1 の AF で描ける）。国旗は全 262 か国カバー（�
   ＝`[最新年, 値…2015]` 小数 2 桁・10 万人あたり。viewer のラベルは Homicide／「Intentional homicide rate」（ui.json 26 言語）。
   bucket の NationDB.json と i18n/*.json は 9/10 に直接パッチ済み（次回 createNationDB でも同じ結果になる）
 - 未裁定: データ本体のライセンス（Wikipedia 由来＝CC BY-SA 4.0 案）
+17. **起動は IDB 優先・裏で更新**（data.js 全面改稿・Kenji「IDB があっても遅いのはなぜ」）。旧はネット優先で IDB は不達時の予備＝オンラインでは
+   毎回 Worker（1 本 0.6〜1.4s・一覧→JSON→i18n/zip の 3 段）を待っていた（実測 3.8s・getBucket の競合で一覧が二重）。
+   新: IDB に揃っていれば即描画（温 0.2s）、初回は一段で全部並列（冷 2.3s・Bucket は `lazy` で到達確認の一覧を省く）。描画後に `refresh()` が
+   GIS/world と i18n/ の一覧（ETag）を突合し、変わったファイルだけ取り直して IDB を更新→組み直して再描画（国旗モーダル中は閉じた時に）。
+   旗の一覧は flags.zip の ETag が変わった時だけ・音は次回起動から。言語切替も IDB 優先＋裏取り。
+   buildModel は生データの `un` 配列を書き換えない（同じ生データから組み直せるように）

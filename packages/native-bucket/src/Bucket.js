@@ -140,6 +140,7 @@ class _Bucket {
 export async function Bucket(dir, opts) {
 	const instance = new _Bucket(dir, opts);
 	if (instance.offline()) return instance;
+	if (opts && opts.lazy) return instance;   // lazy: 到達確認の list() を省く（起動時の一覧リクエスト 1 本＝0.7s を節約。apps/world 2026-09-10）
 	try { await instance.list(); return instance;
 	} catch (e) { return null;  }
 }
