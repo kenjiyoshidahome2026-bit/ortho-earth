@@ -38,12 +38,20 @@ export async function loadWorld() {
 		idb && etag && list.length && await idb(name, { etag, files: list }).catch(() => {});
 		return list;
 	};
-	const [nations, cities, languages, currencies, conflicts, soundFiles] = await Promise.all([
-		json("NationDB"), json("CityDB"), json("LanguageDB"), json("CurrencyDB"), json("Conflicts"), files("音源"),
+	// 旗の実在集合＝bucket の flags/ 一覧（領有国の旗で代替する8地域は自分の旗ファイルを持たない＝キー集合では判定できない）。不達時は IDB の前回分
+	const flagSet = async () => {
+		const fb = await Bucket(`${DIRE}/flags`).catch(() => null);
+		const list = fb ? await fb.list().catch(() => []) : [];
+		const keys = list.map(t => t.Key.replace(/\.svg$/, "")).filter(k => k);
+		if (keys.length) { idb && idb("flagSet", keys).catch(() => {}); return new Set(keys); }
+		return new Set((idb && await idb("flagSet").catch(() => null)) || []);
+	};
+	const [nations, cities, languages, currencies, conflicts, soundFiles, flags] = await Promise.all([
+		json("NationDB"), json("CityDB"), json("LanguageDB"), json("CurrencyDB"), json("Conflicts"), files("音源"), flagSet(),
 	]);
 	const stem = f => f.name.normalize("NFC").replace(/\.[^.]+$/, "");
 	const sounds = {}; soundFiles.filter(f => /\.mp3$/.test(f.name)).forEach(f => sounds[stem(f)] = f);
-	return { nations, cities, languages, currencies, conflicts, sounds };
+	return { nations, cities, languages, currencies, conflicts, sounds, flags };
 }
 
 // 設定の永続化（旧 d3.cache("nations.system")）
