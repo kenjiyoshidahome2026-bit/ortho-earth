@@ -46,6 +46,7 @@ www.ortho-earth.com 配下に置くページなら、CDNのESモジュールを�
 ## map（戻り値）の公式面
 - flyTo(lon, lat, zoom, tiltDeg?, bearingDeg?) / getZoom() / view（{center,zoom,pitch(rad),bearing(rad),theme,hash,…}）/ destroy() / backend（"webgpu"|"webgl2"|null）
   destroy()＝容れ物を id/子要素/class まで元へ。再生成は view: map.view.hash（lang/theme の変更もこれ）。1.0.3 以前は WebGPU 起動後 20s 以内の destroy でホストが reload（罠⑭）
+- on("load"|"move"|"plateau"|"click", cb)→map。plateau（1.0.4〜）＝{phase:"catalog",count}→{phase:"start"|"done"|"cancelled"|"failed", name, base}（型 PlateauEvent）
 - projectLL(lon,lat)→[xCss,yCss,front]（front<0=裏半球）/ unprojectXY(x,y)→[lon,lat]|null（onClickと同座標系）
   ＝いずれも **mapEl（canvas）左上原点の CSS px**（ページ座標ではない＝pointer 合成は getBoundingClientRect を足す）
 - makeProjector()＝カメラ状態を1回束ねた投影関数（多点描画用）/ onFrame(fn)→解除fn / requestDraw()
@@ -127,7 +128,7 @@ triangle/diamond/star/flag、@tip=ホバー一言、@pop=常時吹き出し（\n
 15. **theme を指定すると palette ガジェットは載らない**（console.warn）。contextmenu は既定 2 項目を持ち items は置換。print は pointer:coarse で非搭載・
     小さな枠では低精細の注意が出る。ガジェット列は 2.5 秒無操作でフェード（ui-idle・スクショ/検証で驚かない）
 16. **PLATEAU/標高の通信量**：建物は R2 焼き（1 区で数〜十数 MB・周辺区も先読み）、標高タイルは plateau:false でも来る（セッションで数十 MB）。
-    読込の合図はコンソール（"[plateau] catalog loaded" → "auto-load -> 区名" → "[plateau] done"、"[boot] frame1 received backend=…"）＝API は未整備
+    読込の合図＝1.0.4〜 map.on("plateau", e=>…)（1.0.3 以前はコンソール文字列 "[plateau] catalog loaded"→"auto-load -> 区名"→"[plateau] done" をフック）。backend＝map.backend
 
 ## 検証の作法（このリポジトリの流儀）
 - 自己判定テストページ：判定結果を<title>にPASS/FAIL+詳細で書く → headless Chromeで--dump-domして読む

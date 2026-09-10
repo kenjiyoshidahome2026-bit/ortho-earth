@@ -34,6 +34,11 @@ export interface OrthoJapanOptions {
 	debugGlobals?: boolean;
 }
 
+/** map.on("plateau") の合図。catalog＝一覧取得（count=収録自治体数）／start＝区の読込開始／done＝完了（描画済み）／cancelled＝視野離脱で中止／failed＝読めない */
+export type PlateauEvent =
+	| { phase: "catalog"; count: number }
+	| { phase: "start" | "done" | "cancelled" | "failed"; name: string; base: string };
+
 /** 右クリックメニュー項目（map.gadget.contextmenu({items})） */
 export interface ContextMenuItem {
 	name: string;
@@ -144,6 +149,12 @@ export interface OrthoJapanMap {
 	readonly view: { center: LonLat; zoom: number; pitch: number; bearing: number; theme?: string; hash: string;[k: string]: unknown };
 	/** 描画バックエンド（初回フレーム前は null） */
 	readonly backend: "webgpu" | "webgl2" | null;
+	/** イベント購読（戻り値＝map・解除 API は無い）。load＝初回フレーム（登録時に済んでいれば即呼ぶ）／move＝カメラ更新／
+	 *  plateau＝建物3D の読込合図（catalog→start→done|cancelled|failed）／click＝gint 多層の照会（v2） */
+	on(ev: "load", cb: (e: {}) => void): OrthoJapanMap;
+	on(ev: "move", cb: (e: { center: LonLat; zoom: number; pitch: number; bearing: number }) => void): OrthoJapanMap;
+	on(ev: "plateau", cb: (e: PlateauEvent) => void): OrthoJapanMap;
+	on(ev: "click", cb: (e: { lngLat: LonLat; hits: Array<{ layer: unknown; fid: number }> }) => void): OrthoJapanMap;
 	destroy(): void;
 	readonly mapEl: HTMLElement;
 	readonly gadget: Gadgets;

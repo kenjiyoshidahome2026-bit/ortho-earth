@@ -565,7 +565,10 @@ let printHold = false;
 let gintLayerSeq = 0;
 const extGint = new Map();   // layer id → handle（identify/click/ack ルーティング先）
 let extActive = null;        // カーソルを持つ追加層の id（null＝既定層＝従来ゲート）
-const mapOn = { click: [], move: [], load: [] };   // map.on の登録簿（§4: click=hits 同型／move=カメラ更新／load=frame1）
+const mapOn = { click: [], move: [], load: [], plateau: [] };   // map.on の登録簿（§4: click=hits 同型／move=カメラ更新／load=frame1／plateau=建物3D の読込合図）
+// map.on("plateau")：{phase:"catalog",count} → {phase:"start"|"done"|"cancelled"|"failed", name(区名), base(URL)}。旧＝コンソール文字列しか合図が無く
+// 埋め込み側が console.log をフックしていた（SDK ドッグフード 2026-09-10）。
+const emitPlateau = e => { for (const cb of mapOn.plateau) { try { cb(e); } catch (err) { console.error("[map.on plateau]", err); } } };
 let mapLoaded = false;   // 'load' 後の登録は即発火（maplibre 同様の耳）
 renderWorker.onmessage = e => {
 	const d = e.data;
@@ -759,6 +762,7 @@ const plateauCatalogReady = !plateauOn ? Promise.resolve() :
 	fetch(ASSET_BASE + "plateau-sets.json").then(r => r.json()).then(sets => {   // BASE_URL＝サブパス配信(/ortho-japan/)対応
 		if (nlOn) { sets = sets.concat(NL_SETS); console.log("[plateau] added Netherlands 3DBAG to catalog (?nl=1)"); }
 		PLATEAU_SETS = sets; console.log(`[plateau] catalog loaded -> ${sets.length} municipalities`);
+		emitPlateau({ phase: "catalog", count: sets.length });
 		autoPlateau(true);   // 復元ビューが z15+ の街なら起動直後に自動ロード（settled扱い＝起動時の視界は確定している。IDB命中なら即座に街が立つ）
 	}).catch(e => console.warn("[plateau] catalog fetch failed", e));
 // 空港マーク台帳：optbv の空港名注記(441)は z11 以上のタイルにしか無い＝低ズームでは
@@ -2795,11 +2799,13 @@ dbgHost.__plateau = async (nameOrBase, tiles) => {
 // 直結ポートを流れ逐次表示される（main を通らない。ここに返るのは全バッチ完了の ack だけ）。
 // 成功可否 bool＝呼び出し側が plateauActive に加えるかの判断に使う。
 async function loadPlateau(base, tiles, name, wardBbox, brid, ex = {}) {
+	emitPlateau({ phase: "start", name, base });
 	const ok = await workerLoadPlateau(base, tiles, name, wardBbox, brid, ex);
-	if (ok === "cancelled") return ok;   // 視野離脱の協調キャンセル＝呼び出し側（autoPlateau）が残骸掃除する
-	if (!ok) return false;
+	if (ok === "cancelled") { emitPlateau({ phase: "cancelled", name, base }); return ok; }   // 視野離脱の協調キャンセル＝呼び出し側（autoPlateau）が残骸掃除する
+	if (!ok) { emitPlateau({ phase: "failed", name, base }); return false; }
 	needsDraw = true;
 	console.log("[plateau] done", base);
+	emitPlateau({ phase: "done", name, base });
 	return true;
 }
 
