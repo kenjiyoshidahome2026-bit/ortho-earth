@@ -23,7 +23,7 @@ export async function createNationDB(ctx, toLangs) {
 	// WB は頑丈なので3本並列可・DBnomics と sekai-hub は各1レーン直列・レーン同士は並列（iso 完了後＝ISO3 結合が前提）
 	const lane = fs => (async () => { for (const f of fs) await f(nations); })();
 	await Promise.all([population(nations), gni(nations), gnipc(nations), hdi(nations),
-		lane([gdp, gdppc, ppp, ppppc]), lane([gpi, psi])]);
+		lane([gdp, gdppc, ppp, ppppc]), lane([gpi, homicide])]);
 	//	console.log(nations)
 	//	return;
 	const ename = nations.map(t => t.name.en);
@@ -358,12 +358,13 @@ export async function createNationDB(ctx, toLangs) {
 		})
 	}
 	////-------------------------------------------------------------------------------------------------------
-	////	population / gdp / gni / ppp / gpi / psi
+	////	population / gdp / gni / ppp / gpi / homicide
 	////-------------------------------------------------------------------------------------------------------
 	// ── 統計は一次ソースの公式 API へ（2026-08-31・Kenji「sekai-hubよりいい先は?」）──
 	// World Bank: CORS 開放＝ブラウザ直（プロキシ/キー不要）。IMF DataMapper: 公式 JSON・予測年込み（proxy 経由）。
 	// どちらも ISO3 で直結＝日本語名の名寄せ（renames 突合）が統計から消える。単位は旧形式に合わせる（金額=百万USD）。
-	// GPI/PSI（IEP）だけ API が無いので sekai-hub の template を継続。
+	// GPI（IEP）は API が無い＝英語版 Wikipedia の順位表（最新年 1 本）から。旧 PSI（IEP の治安領域スコア・非商用限定）は
+	// World Bank の故意の殺人率（UNODC 由来・CC BY 4.0）へ置換（2026-09-10 Kenji 裁定「2+3」＝公開ライセンス整理）。sekai-hub 依存は消滅
 	function population(nations) { return worldbank(nations, "population", "SP.POP.TOTL", 2010); }        // 出所は UN WPP
 	// GDP 系＝World Bank を主（実績値・2025年まで・CORS直・頑丈）→ IMF WEO(DBnomics) は WB に無い国（台湾等）の穴埋め。
 	// 2026-09-09 精査: 8/31 の実走は DBnomics 停止で全て WB 側に落ちており、DBnomics の "latest" は WEO 2025-04（1年遅れ）と判明
@@ -378,8 +379,30 @@ export async function createNationDB(ctx, toLangs) {
 		await worldbank(nations, title, wbInd, end, wbScale);
 		await imf(nations, title, subject, end, imfScale, { fillOnly: true });
 	}
-	function gpi(nations) { return template(nations, 2024, 2021, "gpi", "global-peace-index-ranking", 3); }
-	function psi(nations) { return template(nations, 2024, 2021, "psi", "security-ranking", 3); }
+	// 殺人率（10万人あたり）: WB VC.IHR.PSRC.P5・小数 2 桁・2015 年以降（イラン/イラク/イエメンは近年欠測＝欠測のまま）。旧 psi は消す
+	async function homicide(nations) { nations.forEach(t => delete t.psi); return worldbank(nations, "homicide", "VC.IHR.PSRC.P5", 2015, 1, 2); }
+	// GPI: en.wikipedia「Global Peace Index」の順位表（Rank/Country/Score・163）→ 国リンクの記事名 → pageid（redirect 解決）→ NationDB.wiki.en で結合
+	// 年は本文見出し「2026 Global Peace Index ranking」から。表は最新年だけ＝t.gpi = [year, score]（複数年は持たない）
+	async function gpi(nations) {
+		const url = "https://en.wikipedia.org/w/api.php?format=json&origin=*&action=parse&page=Global_Peace_Index&prop=text&formatversion=2&_y=" + THIS_YEAR;
+		const v = await statJSON("gpi", "wiki:gpi:" + THIS_YEAR, url);   // 年をキーに含める＝IDB の前年分を翌年に持ち越さない
+		const html = v && v.parse && v.parse.text; if (!html) return console.warn("gpi: en.wikipedia 取得失敗");
+		const doc = new DOMParser().parseFromString(html, "text/html");
+		const table = [...doc.querySelectorAll("table.wikitable")].find(t => /Score/.test(t.tHead ? t.tHead.textContent : t.textContent));
+		if (!table) return console.warn("gpi: 順位表が見つからない（表の構造が変わった？）");
+		const m = doc.body.textContent.match(/(\d{4})\s+Global Peace Index/), year = m ? +m[1] : THIS_YEAR;
+		const rows = [...table.querySelectorAll("tr")].map(tr => {
+			const td = [...tr.querySelectorAll("td")], a = tr.querySelector("td a[href^='/wiki/']");
+			if (td.length < 3 || !a || !/^\d+(\.\d+)?$/.test(td[2].textContent.trim())) return null;
+			return [decodeURIComponent(a.getAttribute("href").slice(6)).replace(/_/g, " "), +td[2].textContent.trim()];
+		}).filter(t => t);
+		const ids = await wiki.title2id(rows.map(t => t[0]), "en");
+		const byEn = {}; nations.forEach(t => t.wiki && t.wiki.en && (byEn[t.wiki.en] = t));
+		let hit = 0; const miss = [];
+		rows.forEach(([title, score], i) => { const t = byEn[ids[i]]; t ? (t.gpi = [year, score], hit++) : miss.push(title); });
+		miss.length && console.warn(`gpi: NationDB 未突合 ${miss.length}件:`, miss.join("|"));
+		console.log(`gpi[wiki.en ${year}]: ${hit}か国`);
+	}
 	////-------------------------------------------------------------------------------------------------------
 	// リトライ3回＋IDB スティッキーキャッシュ＝成功を保存し、不達時は前回取得で続行（DBnomics の一時 504 実測 2026-08-31。
 	// エラー応答は CORS ヘッダ無し＝ブラウザからは CORS エラーに見えるが実体はゲートウェイ瞬断）
@@ -395,13 +418,13 @@ export async function createNationDB(ctx, toLangs) {
 		if (v) { console.warn(`${title}: API 不達＝前回取得（IDB）で続行`); return v; }
 		return null;
 	}
-	async function worldbank(nations, title, indicator, end, scale = 1) {
+	async function worldbank(nations, title, indicator, end, scale = 1, digits = 0) {
 		const url = `https://api.worldbank.org/v2/country/all/indicator/${indicator}?format=json&per_page=20000&date=${end}:${THIS_YEAR}`;
 		const v = await statJSON(title, "wb:" + indicator, url);   // CORS 開放＝素の fetch で直
 		if (!v || !v[1]) return console.warn(`${title}: World Bank(${indicator}) 取得失敗`);
 		const tub = {};
 		(v[1] || []).forEach(r => { if (r.value != null && r.countryiso3code) (tub[r.countryiso3code] = tub[r.countryiso3code] || {})[+r.date] = r.value * scale; });
-		assign(nations, title, tub, end, "wb");
+		assign(nations, title, tub, end, "wb", false, digits);
 	}
 	async function imf(nations, title, subject, end, scale = 1, opts = {}) {
 		// IMF 直（datamapper API）は Akamai が非ブラウザ指紋を 403 で弾く（2026-08-31 実測・UA偽装でも不可）
@@ -420,7 +443,8 @@ export async function createNationDB(ctx, toLangs) {
 		assign(nations, title, tub, end, "imf", opts.fillOnly);
 	}
 	// 旧形式のまま格納: t[title] = [最新年, 最新年値, 前年値, ...]（欠測は undefined→JSONではnull）。結合キーは ISO3（iso[1]）
-	function assign(nations, title, tub, end, src, fillOnly = false) {
+	function assign(nations, title, tub, end, src, fillOnly = false, digits = 0) {
+		const round = v => digits ? +v.toFixed(digits) : Math.round(v);
 		let latest = 0;
 		Object.values(tub).forEach(years => Object.keys(years).forEach(y => { y = +y; if (y <= THIS_YEAR && y > latest) latest = y; }));
 		if (!latest) return console.warn(`${title}: データなし`);
@@ -428,7 +452,7 @@ export async function createNationDB(ctx, toLangs) {
 		nations.forEach(t => {
 			if (fillOnly && t[title]) return;   // 穴埋めモード＝主データが無い国だけ
 			const d = t.iso && (tub[t.iso[1]] || tub[(ISO3_ALIAS[t.iso[1]] || {})[src]]); if (!d) return;
-			const a = []; for (let y = latest; y >= end; y--) a.push(d[y] == null ? undefined : Math.round(d[y]));
+			const a = []; for (let y = latest; y >= end; y--) a.push(d[y] == null ? undefined : round(d[y]));
 			if (a.every(v => v === undefined)) return;
 			t[title] = [latest].concat(a); hit++;
 		});

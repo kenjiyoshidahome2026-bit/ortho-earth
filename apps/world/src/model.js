@@ -21,7 +21,7 @@ const wikiURL = (lang, id) => `https://${lang}.wikipedia.org/w/index.php?curid=$
 ////-------------------------------------------------------------------------------------------------------------
 export const REGIONS = [["Whole World", "0"], ["Asia", "3"], ["Europe", "1"], ["Africa", "2"], ["North America", "4"], ["South America", "5"], ["Oceania/Antarctica", "6"]];
 REGIONS.name = {}; REGIONS.forEach(t => REGIONS.name[t[1]] = t[0]);
-const I = n => fmtInt(n), F = n => (+n).toFixed(3);
+const I = n => fmtInt(n), F = n => (+n).toFixed(3), F2 = n => (+n).toFixed(2);
 export const SORTS = [
 	{ label: "Name", member: "name", dire: true, format: I },
 	{ label: "Area", member: "area", dire: false, format: I, unit: "km²" },
@@ -33,10 +33,10 @@ export const SORTS = [
 	{ label: "PPP", member: "ppp", dire: false, format: I, unit: "M US$", ref: "World Bank / IMF" },
 	{ label: "PPP/C", member: "ppppc", dire: false, format: I, unit: "US$", ref: "World Bank / IMF" },
 	{ label: "HDI", member: "hdi", dire: false, format: F, ref: "Human Development Report from UNDP" },
-	{ label: "GPI", member: "gpi", dire: true, format: F, ref: "Institute for Economics and Peace" },
-	{ label: "PSI", member: "psi", dire: true, format: F, ref: "Institute for Economics and Peace" },
+	{ label: "GPI", member: "gpi", dire: true, format: F, ref: "Institute for Economics and Peace (via Wikipedia)" },
+	{ label: "Homicide", member: "homicide", dire: true, format: F2, show: 5, unit: "/100k", ref: "World Bank (UNODC)" },   // 旧 PSI（IEP 治安領域・非商用）→ 殺人率へ 2026-09-10
 ];
-const SORT_UI = { "GDP": "Nominal GDP", "GDP/C": "GDP per Capita", "GNI": "Nominal GNI", "GNI/C": "GNI per Capita", "PPP": "GDP (PPP)", "PPP/C": "GDP (PPP) per Capita", "HDI": "Human Development Index", "GPI": "Global Peace Index", "PSI": "Public Safety Index" };
+const SORT_UI = { "GDP": "Nominal GDP", "GDP/C": "GDP per Capita", "GNI": "Nominal GNI", "GNI/C": "GNI per Capita", "PPP": "GDP (PPP)", "PPP/C": "GDP (PPP) per Capita", "HDI": "Human Development Index", "GPI": "Global Peace Index", "Homicide": "Intentional homicide rate" };
 SORTS.tip = () => Table(SORTS.map(t => [t.label, ":", SORT_UI[t.label] ? trans(SORT_UI[t.label]) : null]).filter(t => t[2]).sort((p, q) => p[0] > q[0] ? 1 : -1));
 SORTS.dataLabels = SORTS.filter(t => !["name", "area"].includes(t.member)).map(t => t.member);
 SORTS.index = SORTS.map((t, i) => [t.label, i + 1]);
@@ -156,7 +156,7 @@ export class Nation extends MultiLanguageWiki {
 	get ppppcInfo() { return this.ppppc ? span(trans("GDP (PPP) per Capita") + ":") + span("$" + fmtInt(this.ppppc.value)) : ""; }
 	get hdiInfo() { return this.hdi ? span(trans("Human Development Index") + ":") + span(F(this.hdi.value)) : ""; }
 	get gpiInfo() { return this.gpi ? span(trans("Global Peace Index") + ":") + span(F(this.gpi.value)) : ""; }
-	get psiInfo() { return this.psi ? span(trans("Public Safety Index") + ":") + span(F(this.psi.value)) : ""; }
+	get homicideInfo() { return this.homicide ? span(trans("Intentional homicide rate") + ":") + span(F2(this.homicide.value) + "/100k") : ""; }
 	get info() {
 		const m = SORTS[Math.abs(state.sort) - 1].member;
 		return this[m + "Info"] || "";

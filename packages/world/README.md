@@ -86,7 +86,7 @@ createGeometryPNG + upload_admin の iso 割替え表のみ。理由＝
 - **年ガードを動的化**（旧: 2025 固定＝2026 年から今年の人口を全部弾くバグ）
 - **統計を一次ソース API へ移行（2026-08-31）**: population/gni/gnipc=World Bank API（CORS開放＝ブラウザ直・ISO3結合）、
   gdp/gdppc/ppp/ppppc=IMF DataMapper API（予測年込み・proxy経由）。約140ページのスクレイピング→5リクエスト、
-  統計の日本語名寄せが消滅。GPI/PSI のみ sekai-hub 継続（IEP に API なし・起点年自動プローブ・404 はキャッシュしない）
+  統計の日本語名寄せが消滅。**2026-09-10: GPI は en.wikipedia の順位表（最新年 1 本・wiki.en で結合）、PSI は World Bank の殺人率 `homicide` へ置換＝sekai-hub 依存は消滅**
 - wiki 表の隠しソートキー（display:none の読み仮名）は unhide() で除去してから読む（「カンコク 韓国」型の突合失敗の根治）
 - CityDB の人口欠測 sentinel を `[-1, 0]` に統一（旧 `[0,0]`）・yomi 5文字規則にクリッパートンも準拠
 - 首都なし国の TypeError 地雷・fixLanguage の対象消失即死・wiki.en 欠落都市の座標クラッシュ→ warn 縮退
@@ -216,4 +216,9 @@ geoPNG は admin1 の AF で描ける）。国旗は全 262 か国カバー（�
   残念=Onoma-Negative04-1・操作H/M/L=Anime_Motion31-1/2/3。クレジット表記が条件（同梱・再配布可）＝画面はヘッダ地球アイコンのツールチップ、配布物は本節。
 - 出所不明だった 移動.mp3・リスト.mp3（タグ無し・LAME3.100 192kbps 固定＝別ルート入手）は Kenji 裁定「OtoLogic の既存音で代用」で撤去（bucket も差し替え済み）。
   main.js の Sound は 移動→操作H・リスト→操作L の別名で鳴らす。
-- 未裁定: データ本体のライセンス（Wikipedia 由来＝CC BY-SA 4.0 案）・GPI/PSI（IEP CC BY-NC-ND）を公開データから外すか。
+- **GPI/PSI の裁定（2026-09-10 Kenji「2+3」）**: IEP のスコアはどこで取っても非商用ライセンス（sekai-hub の「治安ランキング」も IEP の
+  Societal Safety and Security 領域スコアの転載＝同じ出所）。→ **GPI は英語版 Wikipedia の順位表**（他データと同じ Wikipedia 経路・
+  `gpi=[年, スコア]` の 1 年分・出典表記は IEP）、**PSI は廃止して World Bank の故意の殺人率 `homicide`（VC.IHR.PSRC.P5・UNODC 由来・CC BY 4.0）**
+  ＝`[最新年, 値…2015]` 小数 2 桁・10 万人あたり。viewer のラベルは Homicide／「Intentional homicide rate」（ui.json 26 言語）。
+  bucket の NationDB.json と i18n/*.json は 9/10 に直接パッチ済み（次回 createNationDB でも同じ結果になる）
+- 未裁定: データ本体のライセンス（Wikipedia 由来＝CC BY-SA 4.0 案）
