@@ -5,7 +5,7 @@
 //
 // 使い方 / usage:
 //   node verify-example.mjs http://127.0.0.1:4174/ 9555          # url, devtools port (pick one no other process uses)
-//   CHROME=/path/to/chrome OUT_DIR=./out node verify-example.mjs …
+//   CHROME=/path/to/chrome OUT_DIR=./out SHOT_DELAY_MS=8000 TIMEOUT_MS=120000 node verify-example.mjs …
 // ページ側の約束 / page contract: set document.title to "PASS …" when the map is up and your data is painted,
 //   or "FAIL: reason" on any error (window 'error' / 'unhandledrejection' handlers installed BEFORE the module script).
 // 出力 / prints: title + elapsed, screenshot (shot-loaded.png), responses with status>=400, hosts touched, console lines.
@@ -70,7 +70,7 @@ while (Date.now() - t0 < TIMEOUT_MS) {   // 実時間ポーリング / real-time
 	await sleep(500);
 }
 console.log(`title after ${((Date.now() - t0) / 1000).toFixed(1)}s: ${JSON.stringify(title)}`);
-await sleep(3000);   // タイルの着地を少し待ってから撮る / let tiles settle before the screenshot
+await sleep(Number(process.env.SHOT_DELAY_MS || 3000));   // タイルの着地を待ってから撮る（全球ビューの世界層は +5s 程度＝SHOT_DELAY_MS=8000）/ let tiles settle before the screenshot
 const png = Buffer.from((await send("Page.captureScreenshot", { format: "png" })).data, "base64");
 writeFileSync(join(OUT, "shot-loaded.png"), png); console.log("screenshot:", join(OUT, "shot-loaded.png"));
 

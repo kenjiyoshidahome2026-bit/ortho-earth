@@ -44,9 +44,14 @@ www.ortho-earth.com 配下に置くページなら、CDNのESモジュールを�
 | debugGlobals | false | window.__cam 等のデバッグ手（target 指定時は既定で生えない） |
 
 ## map（戻り値）の公式面
-- flyTo(lon, lat, zoom, tiltDeg?, bearingDeg?) / getZoom() / view（{center,zoom,pitch(rad),bearing(rad),theme,hash,…}）/ destroy() / backend（"webgpu"|"webgl2"|null）
+- flyTo(lon, lat, zoom, tiltDeg?, bearingDeg?)→Promise（着地/中止で解決・1.0.5〜）/ getZoom() / view（{center,zoom,pitch(rad),bearing(rad),theme,hash,…}）/ destroy() / backend（"webgpu"|"webgl2"|null）
   destroy()＝容れ物を id/子要素/class まで元へ。再生成は view: map.view.hash（lang/theme の変更もこれ）。1.0.3 以前は WebGPU 起動後 20s 以内の destroy でホストが reload（罠⑭）
-- on("load"|"move"|"plateau"|"click", cb)→map。plateau（1.0.4〜）＝{phase:"catalog",count}→{phase:"start"|"done"|"cancelled"|"failed", name, base}（型 PlateauEvent）
+- on("load"|"move"|"settle"|"plateau"|"click", cb)→map / off(ev, cb)（1.0.5〜）。settle（1.0.5〜）＝カメラ静止（移動が 150ms 止まった時）{center,zoom,pitch,bearing,hash}。
+  plateau（1.0.4〜）＝{phase:"catalog",count}→{phase:"start"|"done"|"cancelled"|"failed", name, base}（型 PlateauEvent）
+- DOM オーバレイの定型（マーカー等）：`const off = map.onFrame(() => { const P = map.makeProjector(); for (const m of markers) { const [x,y,f] = P(m.lon, m.lat);
+  m.el.hidden = f < 0; if (f >= 0) m.el.style.transform = `translate(${x}px,${y}px)`; } }); map.requestDraw();`
+  ＝座標は mapEl 左上原点の CSS px（自分の層と rect が違えば差を足す）・front<0＝見えない（[0,0,-1]・x,y 無効）・描画はオンデマンドなので載せた直後に requestDraw()。
+  実測 500 点で 0.06ms/frame（projectLL 個別呼びの約 16 倍速）。単位＝view.pitch/bearing は rad・flyTo の tilt/bearing は度・maxPitch は rad
 - projectLL(lon,lat)→[xCss,yCss,front]（front<0=裏半球）/ unprojectXY(x,y)→[lon,lat]|null（onClickと同座標系）
   ＝いずれも **mapEl（canvas）左上原点の CSS px**（ページ座標ではない＝pointer 合成は getBoundingClientRect を足す）
 - makeProjector()＝カメラ状態を1回束ねた投影関数（多点描画用）/ onFrame(fn)→解除fn / requestDraw()
@@ -130,6 +135,9 @@ triangle/diamond/star/flag、@tip=ホバー一言、@pop=常時吹き出し（\n
 12. pbf.getBbox() は引数なしだとフィーチャ別 bbox の**配列**。全体は `pbf.bbox`（fitZoomForBbox に渡すのはこちら）
 13. **チルト時のホバー/クリック識別は海面基準**（GPU pick）＝drapeFill で地形に乗った線とは視差があり当たりにくい。確実なのは
     setEditClick((x,y)) ＋ makeProjectorH() で頂点を投影して最近傍、または pbf.identifyAt(lng,lat,{polyline:m})
+17. **全球スケールの世界層（海面下の陸・湖・国界・星＝約 5MB）は on("load")（初回フレーム）の 3 秒ほど後に着地**＝z<4 のスクショ/検証は 8〜10 秒待つ。
+    星は z<4 でテーマに関係なく描かれる（テーマが変えるのは海/陸/大気の色）
+18. **theme をオプションで渡すと view.hash に c= が入らない**＝`view: map.view.hash` で再生成する時は theme を渡し直す（palette で選んだ時だけ c= が入る）
 14. **destroy() の番犬 reload（1.0.3 以前）**：WebGPU 起動後 20 秒以内に destroy すると番犬タイマーがホストページを location.reload()。1.0.4 で解除。
     それ以前は生成から 21 秒待つか `?stay=1`
 15. **theme を指定すると palette ガジェットは載らない**（console.warn）。contextmenu は既定 2 項目を持ち items は置換。print は pointer:coarse で非搭載・

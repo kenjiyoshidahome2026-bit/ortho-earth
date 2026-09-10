@@ -23,6 +23,15 @@ A serverless, dependency-free 3D globe of Japan for any web page. GSI optimized 
 
 Either way, deployment is the same: **serve `dist/lib/` (or the zip's `lib/`) and `assets/` as static files** on your site, import the entry by URL, and point `assetBase` at wherever you put the assets. There is no bundler step — workers and lazy chunks resolve relative to the module, so the SDK works at any path. (From npm, copy `node_modules/@ortho-earth/japan/dist/lib` and `assets` into your public directory, or wire up your bundler's static-copy plugin.)
 
+From npm, the two copy commands are all you need:
+
+```bash
+cp -R node_modules/@ortho-earth/japan/dist/lib public/lib
+cp -R node_modules/@ortho-earth/japan/assets  public/assets
+```
+
+then `import orthoJapan from "./lib/ortho-japan.js"` and `assetBase: "./assets/"`.
+
 A working sample ships in the zip (`example/index.html`): serve the unzipped folder over HTTP and open `/example/`. `file://` will not work — ES modules.
 
 ## orthoJapan(opts)
@@ -40,7 +49,7 @@ A working sample ships in the zip (`example/index.html`): serve the unzipped fol
 | `lang` | auto | UI language `"ja"` / `"en"`. Unset = `?lang=` → browser language. Applies to UI chrome only — map labels are part of the map data |
 | `assetBase` | `"./"` | Where the runtime assets live (see Install). Relative or absolute URL |
 
-Returns `map` = `{ cam, flyTo, renderer, mapEl, gadget, destroy }`.
+Returns `map` — the full surface is typed in `dist/lib/ortho-japan.d.ts`: `view` / `flyTo` (Promise) / `on`/`off` (load, move, settle, plateau, click) / `projectLL`, `makeProjector`, `onFrame`, `requestDraw` (DOM overlays) / `unprojectXY` / `getHeight` / `gadget.*` / the gint handles (`applyGintData`, `paint`, `paintTable`, `onGintClick`) / `backend` / `destroy`.
 
 `map.destroy()` tears everything down — workers, listeners, render loop, timers, DOM — and returns the container as it was (id restored, children removed, SDK classes removed). IndexedDB caches (PLATEAU, elevation) survive as origin assets, so revisits stay fast. Re-create with `view: map.view.hash` to keep the viewpoint — that is also how you change `lang` or `theme`, which have no live-switch API. (1.0.3 and earlier: destroying within 20 s of a WebGPU boot left a watchdog that reloaded the host page — fixed in 1.0.4.)
 
