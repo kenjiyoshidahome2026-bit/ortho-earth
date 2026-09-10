@@ -4,6 +4,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export default defineConfig({
+	base: '/world/',   // 公開パス＝ortho-earth.com/world/（gishub と同じ配置）
 	resolve: {
 		alias: {
 			'common': path.resolve(__dirname, '../../packages/common/src'),

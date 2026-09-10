@@ -6,21 +6,40 @@ import "common/d3/tip-pop.js";
 import "common/d3/highlight.js";
 import { escape, download } from "common";
 import "./draw.scss";
-import { loadWorld, systemStore } from "./data.js";
-import { state, REGIONS, SORTS, FILTERS, LANGUAGES, trans, buildModel } from "./model.js";
+import { loadWorld, loadI18N, systemStore, ASSET_BASE } from "./data.js";
+import { state, REGIONS, SORTS, FILTERS, LANGUAGES, LANG_LIST, isRTL, trans, collator, buildModel } from "./model.js";
 import { selectOptions, selectButtons, inputSearch } from "./controls.js";
 import { makeFlag } from "./flag.js";
 import { hebon2kana, kanaPattern } from "./hebon2kana.js";
 
 const body = d3.select("body");
-const loading = body.append("div").attr("name", "loading").html("<span>世界の国々を読み込み中…</span>");
+const loading = body.append("div").attr("name", "loading").html("<span>Loading the world…</span>");
 ////-------------------------------------------------------------------------------------------------------------
 const store = await systemStore();
 Object.assign(state, await store.load());
+// ?lang=xx（26言語・langs.json）が最優先。無ければ保存値→ブラウザ言語→en
+{
+	const known = new Set(LANG_LIST.map(l => l.code));
+	const q = new URLSearchParams(location.search).get("lang");
+	const nav = (navigator.language || "en").split("-")[0];
+	state.lang = known.has(q) ? q : known.has(state.lang) ? state.lang : known.has(nav) ? nav : "en";
+}
+const applyLang = () => {   // 文書の言語と書字方向（ar/fa/ur/he は RTL）
+	document.documentElement.lang = state.lang;
+	document.documentElement.dir = isRTL(state.lang) ? "rtl" : "ltr";
+	const u = new URL(location.href); u.searchParams.set("lang", state.lang); history.replaceState(null, "", u);   // 他の ?open= 等は保持
+};
 let data;
-try { data = await loadWorld(); } catch (e) { loading.html(`<span>読み込み失敗: ${e.message}</span>`); throw e; }
-Object.keys(data.flags).forEach(k => data.flags[k] = makeFlag(data.flags[k]));
-const model = buildModel(data);
+try { [data, state.i18n] = await Promise.all([loadWorld(), loadI18N(state.lang)]); } catch (e) { loading.html(`<span>Failed to load: ${e.message}</span>`); throw e; }
+applyLang();
+// 旗/地図PNG＝bucket の個別ファイル URL（<img loading=lazy> で見えた分だけ取得・edge 1h キャッシュ）。
+// 旗の有無は NationDB の key 集合＋領有国代替で決める（zip を丸ごと落とさない）
+const assets = (() => {
+	const flags = {}, keys = new Set(data.nations.map(t => t.key)); ["UN", "EU", "NATO", "DISPUTED"].forEach(k => keys.add(k));
+	const flagURL = k => `${ASSET_BASE}flags/${encodeURIComponent(k)}.svg`;
+	return { flagURL, hasFlag: k => keys.has(k), flag: k => flags[k] || (flags[k] = makeFlag(flagURL(k))), geomURL: k => `${ASSET_BASE}geoms/${encodeURIComponent(k)}.png` };
+})();
+const model = buildModel(data, assets);
 const { nations } = model;
 ////-------------------------------------------------------------------------------------------------------------
 // 効果音（音源.zip）と読み上げ（Web Speech API）
@@ -30,7 +49,8 @@ const Sound = (() => {
 	f.list = Object.keys(src); return f;
 })();
 const Speech = (() => {
-	const tag = { ja: "ja-JP", en: "en-US", zh: "zh-CN", ko: "ko-KR" }; let lang = "ja";
+	const tag = { ja: "ja-JP", en: "en-US", zh: "zh-CN", ko: "ko-KR", fr: "fr-FR", de: "de-DE", es: "es-ES", pt: "pt-BR", it: "it-IT", nl: "nl-NL", pl: "pl-PL", ru: "ru-RU", uk: "uk-UA",
+		hu: "hu-HU", sv: "sv-SE", tr: "tr-TR", el: "el-GR", id: "id-ID", vi: "vi-VN", th: "th-TH", bn: "bn-BD", hi: "hi-IN", ar: "ar-SA", fa: "fa-IR", ur: "ur-PK", he: "he-IL" }; let lang = "en";
 	const f = text => {
 		const synth = window.speechSynthesis; if (!synth || !text) return;
 		synth.cancel(); const u = new SpeechSynthesisUtterance(text); u.lang = tag[lang] || "en-US";
@@ -82,7 +102,7 @@ selectOptions(head.filter, FILTERS, v => (state.filter = v, drawAll()), state.fi
 selectButtons(head.sorts, SORTS.index, v => (String(state.sort) == String(v) ? (v = -v) : 0, state.sort = +v || v, drawAll()), Math.abs(state.sort), true, trans);
 inputSearch(head.search, v => (state.reg = v, drawAll()), state.reg);
 selectButtons(head.display, [[icon.block, "1"], [icon.inline, "2"]], v => (state.display = v, drawAll()), state.display, false);
-selectOptions(head.langs, LANGUAGES, v => (state.lang = v, drawHead(), drawAll()), state.lang);
+selectOptions(head.langs, LANGUAGES, async v => { state.lang = v; state.i18n = await loadI18N(v); applyLang(); model.rebuildSearch(); drawHead(); drawAll(); }, state.lang);   // 言語切替＝その言語のテーブル1本だけ取得
 ////-------------------------------------------------------------------------------------------------------------
 let nationTub = [];
 window.addEventListener("resize", resize, false);
@@ -101,11 +121,13 @@ function resize() {
 	if (state.display == "1" && scroll.select("div").node()) {
 		const [X] = scroll.getSize(), [x] = scroll.select("div").getOuterSize();
 		const n = Math.max(1, Math.floor((X - 20) / (x || 1)));
-		scroll.css({ padding: "5px" }); scroll.css({ paddingLeft: ((X - 20) - n * x) / 2 + "px" });
+		const pad = ((X - 20) - n * x) / 2 + "px";
+		scroll.css({ padding: "5px" }); scroll.css({ paddingLeft: pad, paddingRight: pad });   // 左右均等＝RTL（float:right）でも中央に収まる
 	}
 }
 function drawHead() {
 	head.selectAll("[trans]").each(function () { this.innerText = trans(this.getAttribute("trans")); });
+	head.select("[name=search] input").attr("placeholder", trans("search"));
 	head.select("[icon=filter]").tip(FILTERS.tip(state.lang));
 	head.select("[icon=sort]").tip(SORTS.tip(state.lang));
 }
@@ -125,7 +147,8 @@ async function drawAll() {
 	head.selectAll("[name=sorts] button").each(function () {
 		d3.select(this).text(trans(this.getAttribute("trans")) + (this.value == Math.abs(sort) ? (sort < 0) ? "△" : "▽" : ""));
 	});
-	const sfunc = Math.abs(sort) == 1 ? (p, q) => d * (p.sortName > q.sortName ? 1 : -1) :
+	const cmp = collator();
+	const sfunc = Math.abs(sort) == 1 ? (p, q) => d * cmp.compare(p.sortName, q.sortName) :
 		Math.abs(sort) == 2 ? (p, q) => d * ((p.area || 0) > (q.area || 0) ? 1 : -1) : (p, q) => d * (p[member].value > q[member].value ? 1 : -1);
 	nationTub = nationTub.filter(p => !+region || +region === +p.region);
 	Math.abs(sort) > 2 && (nationTub = nationTub.filter(t => t[member]));
@@ -138,10 +161,10 @@ async function drawAll() {
 	nationTub.length && [blockView, inlineView][display - 1]();
 	if (reg) { const re = makeRegexp(reg); re && scroll.highlight(`/${re.source}/i`, false); }   // highlight は "/…/i" 文字列で正規表現を受ける
 	resize();
-	await store.save({ ...state });
+	{ const { i18n, ...persist } = state; await store.save(persist); }   // i18n テーブル（〜100KB）は保存しない
 }
 ////-------------------------------------------------------------------------------------------------------------
-function mapTip(q) { return trans("_show_", q.Name) + (q.geopngurl ? `<br/><img style="width:128px; padding:5px 0 0 20px;" src="${q.geopngurl}"/>` : ""); }
+function mapTip(q) { return trans("Show '$1'", q.Name) + (q.geopngurl ? `<br/><img style="width:128px; padding:5px 0 0 20px;" src="${q.geopngurl}" alt=""/>` : ""); }
 function blockView() {
 	scroll.selectAll("div.nation").data(nationTub).enter().append("div").each(function (q) { try { draw.call(this, q); } catch (e) { console.error("card失敗:", q && q.name && q.name.ja, e); } });
 	scroll.selectAll(".hover").on("mouseenter", () => Sound("操作M", 0.4));
@@ -157,15 +180,15 @@ function blockView() {
 		};
 		const jpcap = () => { const s = q.capitalInfo, cap = q.capitalName; return (state.lang == "ja" && cap.length > 13) ? `<span style="font-size:90%;">${s}</span>` : s; };
 		node.append("div").classed("order", true).html("#" + q.order);
-		q.geopngurl && node.append("img").classed("mapopen", true).attr("src", q.geopngurl).tip(mapTip(q));   // 地図は後日＝配線なし
+		q.geopngurl && node.append("img").classed("mapopen", true).attr("src", q.geopngurl).attr("loading", "lazy").attr("alt", "").tip(mapTip(q));   // 地図は後日＝配線なし
 		const tr = node.append("table").append("tr");
-		tr.append("td").append("img").attr("src", q.flagURL).classed("hover", true)
-			.on("click", e => { e.stopPropagation(); openFlag(q, e.target); }).tip(trans("_show_flag_", q.Name));
+		tr.append("td").append("img").attr("src", q.flagURL).attr("alt", q.Name).attr("loading", "lazy").classed("hover", true)
+			.on("click", e => { e.stopPropagation(); openFlag(q, e.target); }).tip(trans("Show the flag of '$1'", q.Name));
 		const td = tr.append("td");
 		td.append("div").append("span").classed("name", true).html(jpname() + q.euFlag + q.natoFlag + q.group)
-			.classed("hover", true).on("click", e => { e.stopPropagation(); q.OpenWikipedia(); }).tip(trans("_open_wiki_", q.Name));
+			.classed("hover", true).on("click", e => { e.stopPropagation(); q.OpenWikipedia(); }).tip(trans("Open '$1' on Wikipedia", q.Name));
 		td.append("div").append("span").html(jpcap()).classed("hover", true)
-			.on("click", e => { e.stopPropagation(); q.capital && q.capital.OpenWikipedia(); }).tip(trans("_open_wiki_", q.capital ? q.capital.Name : ""));
+			.on("click", e => { e.stopPropagation(); q.capital && q.capital.OpenWikipedia(); }).tip(trans("Open '$1' on Wikipedia", q.capital ? q.capital.Name : ""));
 		td.append("div").html(q.info);
 		td.append("div").html(q.unJoin);
 		td.append("div").html(q.relation);
@@ -188,22 +211,22 @@ function inlineView() {
 	function header(thead) {
 		let tr = thead.append("tr");
 		tr.append("th").attr("rowspan", 2).html("#");
-		tr.append("th").attr("rowspan", 2).html(trans("国旗"));
-		tr.append("th").attr("rowspan", 2).attr("colspan", 2).html(trans("国名")).classed("hover", true).on("click", () => sortExternal(0));
+		tr.append("th").attr("rowspan", 2).html(trans("National flag"));
+		tr.append("th").attr("rowspan", 2).attr("colspan", 2).html(trans("Country")).classed("hover", true).on("click", () => sortExternal(0));
 		(sort == 2) && tr.append("th").attr("rowspan", 2).html(trans(label) + Unit).classed("hover", true).on("click", () => sortExternal(sort - 1));
 		(sort > 2) && tr.append("th").attr("colspan", show || length).html(trans(label) + Unit + small("(" + ref + ")")).classed("hover", true).on("click", () => sortExternal(sort - 1));
-		tr.append("th").attr("rowspan", 2).html(trans("首都")).classed("hover", true).on("click", () => sortCapital());
-		region || tr.append("th").attr("rowspan", 2).html(trans("地域")).classed("hover", true).on("click", () => sortRegion());
-		tr.append("th").attr("rowspan", 2).html(trans("国際連合")).classed("hover", true).on("click", () => sortOthers("un", 0));
+		tr.append("th").attr("rowspan", 2).html(trans("Capital")).classed("hover", true).on("click", () => sortCapital());
+		region || tr.append("th").attr("rowspan", 2).html(trans("Region")).classed("hover", true).on("click", () => sortRegion());
+		tr.append("th").attr("rowspan", 2).html(trans("United Nations")).classed("hover", true).on("click", () => sortOthers("un", 0));
 		tr.append("th").attr("colspan", 3).html("ISO-3166-1");
 		tr.append("th").attr("colspan", 2).html("IOC");
 		labels.forEach((t, i) => i && (i != sort - 1) && tr.append("th").attr("rowspan", 2).html(t).classed("hover", true).on("click", () => sortExternal(i)));
-		tr.append("th").attr("rowspan", 2).html(trans("通貨"));
-		tr.append("th").attr("rowspan", 2).html(trans("公用語"));
+		tr.append("th").attr("rowspan", 2).html(trans("Currency"));
+		tr.append("th").attr("rowspan", 2).html(trans("Official language"));
 		tr = thead.append("tr");
 		(sort > 2) && [...Array(show || length)].forEach((_, i) => tr.append("th").html(year - i).classed("hover", true).on("click", e => sortYear(e.target, i)));
-		["a2", "a3", "num"].forEach((t, i) => tr.append("th").html(trans(t)).classed("hover", true).on("click", () => sortOthers("iso", i)));
-		["code", "from"].forEach((t, i) => tr.append("th").html(trans(t)).classed("hover", true).on("click", () => sortOthers("ioc", i)));
+		["a2", "a3", "num"].forEach((t, i) => tr.append("th").html(t).classed("hover", true).on("click", () => sortOthers("iso", i)));
+		["code", "from"].forEach((t, i) => tr.append("th").html(t).classed("hover", true).on("click", () => sortOthers("ioc", i)));
 		(sort > 2) && tr.select("th").classed("flip", true);
 		function sortExternal(n) { d3.select(btns[n]).trigger(new MouseEvent("click", { bubbles: true })); }
 		function sortInternal(func) { func && (nationTub = nationTub.slice().sort(func)); tbody.empty().selectAll("tr").data(nationTub).enter().append("tr").each(safeDraw); }
@@ -238,12 +261,12 @@ function inlineView() {
 		value = value.slice(1);
 		const [L, C, R] = [{ textAlign: "start" }, { textAlign: "center" }, { textAlign: "right" }];
 		tr.append("th").css(C).html(q.order);
-		tr.append("td").css(C).append("img").attr("src", q.flagURL).classed("hover", true).tip(trans("_show_flag_", q.Name)).on("click", e => openFlag(q, e.target));
-		const geo = tr.append("td").css(C).css({ padding: 0 }); q.geopngurl && geo.append("img").attr("src", q.geopngurl).css({ height: "30px" }).tip(mapTip(q));
-		tr.append("td").css(L).append("span").html(q.officialName).classed("hover", true).tip(trans("_open_wiki_", q.Name)).on("click", () => q.OpenWikipedia());
+		tr.append("td").css(C).append("img").attr("src", q.flagURL).attr("alt", q.Name).attr("loading", "lazy").classed("hover", true).tip(trans("Show the flag of '$1'", q.Name)).on("click", e => openFlag(q, e.target));
+		const geo = tr.append("td").css(C).css({ padding: 0 }); q.geopngurl && geo.append("img").attr("src", q.geopngurl).attr("loading", "lazy").attr("alt", "").css({ height: "30px" }).tip(mapTip(q));
+		tr.append("td").css(L).append("span").html(q.officialName).classed("hover", true).tip(trans("Open '$1' on Wikipedia", q.Name)).on("click", () => q.OpenWikipedia());
 		data.slice(0, show || length).forEach(t => tr.append("td").css(R).html(t));
 		const td = tr.append("td").css(L);
-		td.append("span").html(q.capitalName).classed("hover", true).on("click", () => q.capital && q.capital.OpenWikipedia()).tip(trans("_open_wiki_", q.capital ? q.capital.Name : ""));
+		td.append("span").html(q.capitalName).classed("hover", true).on("click", () => q.capital && q.capital.OpenWikipedia()).tip(trans("Open '$1' on Wikipedia", q.capital ? q.capital.Name : ""));
 		q.capitalComment && td.classed("mark", true).tip(q.capitalComment);
 		region || tr.append("td").css(C).html(q.regionName);
 		const un = tr.append("td").css(C).html(q.un ? q.un[0] : q.relation);
@@ -267,19 +290,19 @@ async function showFlag(q) {
 	Sound("移動");
 	const sft = i => { const n = nationTub.indexOf(q) + i, len = nationTub.length; return nationTub[n < 0 ? n + len : n >= len ? n - len : n]; };
 	const close = () => { Sound("リスト"); closeFlag(); };
-	const flag = modal.flag.empty().append("img").attr("src", q.flagURL);
+	const flag = modal.flag.empty().append("img").attr("src", q.flagURL).attr("alt", q.Name);
 	modal.UL.html(q.flagTitle + (q.geopngurl ? `<img src="${q.geopngurl}"/>` : ""));
 	modal.UR.html(q.summary).css({ pointerEvents: "none" });
 	modal.LL.html(q.nameInfo || q.relation);
 	modal.LC.html(await q.flagInfo());
 	modal.LR.html(q.anthemPlayer);
-	modal.close.html(icon.close).tip(trans("_close_")).on("click", close);
-	modal.svg.html(icon.download).tip(trans("_flag_svg_", q.Name)).on("click", async () => { Sound("リスト"); q.nationalFlag && download(await q.nationalFlag.format(), q.Name + ".svg"); });
-	modal.backward.html(icon.left).tip(trans("_show_", sft(-1).Name)).on("click", () => move(-1));
-	modal.forward.html(icon.right).tip(trans("_show_", sft(+1).Name)).on("click", () => move(+1));
-	modal.select("audio").tip(trans("_anthem_", q.Name));
+	modal.close.html(icon.close).tip(trans("Back to list")).on("click", close);
+	modal.svg.html(icon.download).tip(trans("Download the flag of $1 (SVG)", q.Name)).on("click", async () => { Sound("リスト"); q.nationalFlag && download(await q.nationalFlag.format(), q.Name + ".svg"); });
+	modal.backward.html(icon.left).tip(trans("Show '$1'", sft(-1).Name)).on("click", () => move(-1));
+	modal.forward.html(icon.right).tip(trans("Show '$1'", sft(+1).Name)).on("click", () => move(+1));
+	modal.select("audio").tip(trans("Play the anthem of '$1'", q.Name));
 	modal.UL.select("img").tip(mapTip(q));
-	q.capital && setTimeout(() => Speech(trans("$1の首都は、$2です", q.Name, q.capitalName)), 250);
+	q.capital && setTimeout(() => Speech(trans("The capital of $1 is $2", q.Name, q.capitalName)), 250);
 	escape(() => { close(); escape(null); });
 	function move(i) {
 		const r = sft(i), duration = 500;

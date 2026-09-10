@@ -259,9 +259,18 @@ export async function createNationDB(ctx, toLangs) {
 			const q = qids[i]; if (!q) continue;
 			const anthem = (await claims(q, "P85"))[0]; if (!anthem || !anthem.id) continue;
 			const file = (await claims(anthem.id, "P51"))[0]; if (typeof file != "string") continue;
-			t.anthem = "https://commons.wikimedia.org/wiki/Special:FilePath/" + encodeURIComponent(file); hit++;
+			t.anthem = await mp3Derivative(file) || "https://commons.wikimedia.org/wiki/Special:FilePath/" + encodeURIComponent(file); hit++;
 		}
 		console.log(`anthem(wikidata): ${hit}/${list.length} 補完`);
+	}
+	// commons のファイル → mp3 派生 URL（videoinfo.derivatives の audio/mpeg）。ogg 原本は Safari/iOS で鳴らない
+	async function mp3Derivative(file) {
+		const url = `https://commons.wikimedia.org/w/api.php?action=query&format=json&origin=*&prop=videoinfo&viprop=derivatives&titles=File:${encodeURIComponent(file)}`;
+		const v = await fetch(url).then(r => r.json()).catch(() => null);
+		const page = v && v.query && Object.values(v.query.pages)[0];
+		const d = page && page.videoinfo && page.videoinfo[0] && page.videoinfo[0].derivatives || [];
+		const mp3 = d.find(x => /audio\/mpeg|mp3/.test(x.type || "") || /\.mp3$/.test(x.src || ""));
+		return mp3 ? mp3.src.replace(/^\/\//, "https://") : null;
 	}
 	////-------------------------------------------------------------------------------------------------------
 	////	UN(国際連合)

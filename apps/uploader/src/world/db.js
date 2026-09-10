@@ -223,9 +223,10 @@ export function makeDB(bucket) {
 		loadLanguageDB: () => loadJSON(LANGUAGE), saveLanguageDB: a => saveJSON(LANGUAGE, a),
 		loadCurrencyDB: () => loadJSON(CURRENCY), saveCurrencyDB: a => saveJSON(CURRENCY, a),
 		loadConflicts: () => loadJSON(CONFLICT), saveConflicts: a => saveJSON(CONFLICT, a),
-		loadFlagDB: () => bucket.gets(FLAG), saveFlagDB: files => bucket.puts(`${FLAG}.zip`, files),
+		// 旗/geoPNG＝zip（保管・一括DL）に加えて個別ファイル（flags/<key>.svg・geoms/<key>.png）も配置＝ビューアは見えた分だけ遅延取得（2026-09-10）
+		loadFlagDB: () => bucket.gets(FLAG), saveFlagDB: async files => { await bucket.puts(`${FLAG}.zip`, files); for (const f of files) await bucket.put(new File([f], `${FLAG}/${f.name}`, { type: "image/svg+xml" })); },
 		loadSoundDB: () => bucket.gets(SOUND), saveSoundDB: files => bucket.puts(`${SOUND}.zip`, files),
-		loadGeoPNG: () => bucket.gets(GEOMS), saveGeoPNG: files => bucket.puts(`${GEOMS}.zip`, files),
+		loadGeoPNG: () => bucket.gets(GEOMS), saveGeoPNG: async files => { await bucket.puts(`${GEOMS}.zip`, files); for (const f of files) await bucket.put(new File([f], `${GEOMS}/${f.name}`, { type: "image/png" })); },
 		loadJSON, saveJSON,
 	};
 }

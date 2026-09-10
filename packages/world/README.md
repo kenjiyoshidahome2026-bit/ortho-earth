@@ -76,7 +76,7 @@ createGeometryPNG + upload_admin の iso 割替え表のみ。理由＝
 
 1. `国名一覧.csv`（seed）と `Conflicts.json`（or `Conflicts.csv`）をドロップ ← **Conflicts が createNationDB の前提**
 2. （年次更新なら）「wikiキャッシュ掃除」ボタン ← 押さないと前回取得の値が返り続ける
-3. createNationDB → createLanguageDB → createCurrencyDB → createCityDB → createGeometryPNG
+3. createNationDB → createLanguageDB → createCurrencyDB → createCityDB → createGeometryPNG → **createI18N（最後＝名前が変わったら再生成）**
 
 ## 2026-08-31 の冪等化・整理（旧実装からの変更点）
 
@@ -175,3 +175,31 @@ geoPNG は admin1 の AF で描ける）。国旗は全 262 か国カバー（�
 - 実描画検証（ヘッドレス Chrome・CDP）: 262か国・一覧表262行・GDP順（アメリカ→中国→ドイツ）・モーダル（首都読み上げ文・縦横比 3:2/2色）・console エラー0
 - 轍①: `const` の関数式を初回呼び出しより後に置くと TDZ（unhide と同じ）＝main.js の makeRegexp は function 宣言に
 - 轍②: **common の d3 拡張は `selection.empty()` を `html("")` に上書き**している＝d3 標準の空判定のつもりで呼ぶと先頭要素の中身を消す（resize の `scroll.select("div").empty()` で1件目のカードが空になった実害）。空判定は `.node()` で
+
+## i18n（2026-09-10・英語基軸 26 言語・サーバー側テーブル・?lang=xx・RTL）
+
+方針（Kenji）: 英語を基軸に 26 言語へ。読み込むデータを増やさないため**言語別テーブルは bucket 側**に置き、クライアントは
+基軸（NationDB の英語名＋英語キーの UI）＋選択言語の1本だけ読む。RTL（ar/fa/ur/he）対応。`?lang=xx` で切替。
+
+| もの | 場所 | 中身 |
+|---|---|---|
+| 言語一覧 | `packages/world/i18n/langs.json`（クライアント同梱・小） | code / native 名 / rtl |
+| UI 辞書（正本） | `packages/world/i18n/ui.json` | 英語キー → 25 言語（53 キー）。uploader の bake が各言語テーブルへ同梱 |
+| 言語別テーブル | bucket `GIS/world/i18n/<lang>.json`（1本 53〜99KB） | `{ nations:{key:{name,wiki}}, cities:{wikiJa:{…}}, languages:{key:{…}}, currencies:{key:{…}}, ui:{英語キー:訳}, rtl }` |
+
+- **名前の出所**: en wiki id → QID → **Wikidata の labels（名前）＋ sitelinks（各言語の記事名）**＝Wikipedia 言語間リンクより網羅が良く、1回の wbgetentities で 26 言語まとめて取れる。uploader「i18n作成(createI18N・26言語)」ボタン（初回は scratchpad の python で seed 済）
+- **クライアント**（apps/world）: `?lang=` → 保存値 → ブラウザ言語 → en の順で決定。`trans(英語キー)`＝テーブルに訳が無ければ英語キーそのもの（英語基軸のフォールバック）。名前は `i18n テーブル → 埋め込み name[lang]（ja/zh/ko）→ en`。Wikipedia リンクは選択言語の記事名 URL。数値は `Intl.NumberFormat`（数字はラテン・区切りは言語）、名前順は `Intl.Collator`
+- **RTL**: `html[dir=rtl]` で物理 left/right を論理方向へ上書き（draw.scss 末尾）。カードは float:inline-end、モーダルの戻る/進む・閉じる・DL ボタンは左右入替
+- 検証: ar=`lang/dir=ar/rtl`・国名 آيسلندا・UI العاصمة、ja/en 正常、console 0
+- 残: 組織の正式名（filter_names）は ja/en/zh/ko のみ（他は英語）・ローマ字検索は日本語カナのみ・extend（正式国名の型）は ja/en のみ
+
+## 精査後の改良（2026-09-10・Kenji「上から着手」）
+
+1. 設定保存から i18n テーブルを除外 2. `?open=` 等の URL パラメータを言語確定時に保持 3. 日本語順＝先頭カナは名前そのもの・先頭漢字だけ読み
+4. 検索文字列を言語切替で作り直し（選択言語の国名で当たる） 5. スマホ幅（≤720px）＝モーダル上下バーを縦積み・カード全幅
+6. **旗/地図PNGは bucket の個別ファイル**（`flags/<key>.svg`・`geoms/<key>.png`）を `<img loading=lazy>` で＝初回 7MB の zip 取得を撤廃
+   （zip は保管・一括DL 用に残す。uploader の save は zip と個別の両方を配置。geoPNG も `<key>.png` 命名へ）
+7. 国歌＝commons の mp3 派生（videoinfo derivatives）を優先（ogg は Safari/iOS で鳴らない）＝次回 createNationDB で反映
+8. 旗 `<img>` に alt 9. createI18N が言語ごとの国名の欠けを一覧 12. 国連加盟日を `Intl.DateTimeFormat`
+13. 公開経路＝`base:'/world/'`＋`build:all` で `www/dist/world` へ（dev は http://localhost:5174/world/）
+14. JSON も IDB に保存＝ネット不達時は前回分で起動（オフライン）

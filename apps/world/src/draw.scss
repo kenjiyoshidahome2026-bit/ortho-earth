@@ -216,3 +216,75 @@ body { position:absolute; inset:0; overflow:hidden; }
 [name=loading] { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:#fff; font-size:16px; background:#000; z-index:20;
 	span { display:inline-block; padding:1em 2em; border:2px solid #666; border-radius:8px; background:#222; }
 }
+
+// ── RTL（ar/fa/ur/he）2026-09-10: 物理 left/right の指定を論理方向へ上書き ──
+html[dir=rtl] {
+	[name=scroll] .nation { float:right; direction:rtl; text-align:start;   // inline-end は環境差で効かない（Kenji 実機で左→右に並んだ）＝物理 right で明示
+		div.order { right:auto; left:5px; }
+		img.mapopen { right:auto; left:5px; }
+	}
+	[name=head] div span { left:auto; right:0.6em; }
+	[name=scroll] > div.list table { thead tr:nth-child(1) th:nth-child(1) { left:auto; right:0; } tbody th { left:auto; right:0; } }
+	[name=modal] {
+		.head.left, .foot.left { text-align:end; } .head.right, .foot.right { text-align:start; }
+		[name=backward] { left:auto; right:0; border-radius:0 5px 5px 0; }
+		[name=forward] { right:auto; left:0; border-radius:5px 0 0 5px; }
+		[name=close], [name=svg] { right:auto; left:0; }
+	}
+	[name=modal] .head, [name=modal] .foot { direction:rtl; }
+	.overlap-tooltip { direction:rtl; }
+}
+// ボタン群（sorts/display）の角丸と縁幅は物理 left/right 指定＝RTL では並びが鏡像になり逆に付く → 論理方向で上書き
+html[dir=rtl] [name=head] div.sel > button {
+	border-radius:0; border-width:2px 1px;
+	&:first-child { border-radius:0 3px 3px 0; border-right-width:2px; border-left-width:1px; }
+	&:last-child { border-radius:3px 0 0 3px; border-left-width:2px; border-right-width:1px; }
+	&:first-child:last-child { border-radius:3px; border-width:2px; }
+}
+// ヘッダの溢れは横方向だけ（overflow:auto だと横バー出現時に縦も溢れて二重バーになる）
+body [name=head] { overflow-x:auto; overflow-y:hidden; }   // 原典の body [name=head]{overflow:auto} と同じ詳細度で上書き（body 無しだと負ける）
+// ヘッダの横スクロールバー＝ホバー時だけ見える（バー領域は常設＝レイアウトが動かない。つまみを透明→ホバーで着色）
+body [name=head] {
+	scrollbar-width:thin; scrollbar-color:transparent transparent;   // Firefox
+	&::-webkit-scrollbar { height:6px; }
+	&::-webkit-scrollbar-track { background:transparent; box-shadow:none; }
+	&::-webkit-scrollbar-thumb { background:transparent; border:none; border-radius:3px; }
+	&:hover { scrollbar-color:#888 #222;
+		&::-webkit-scrollbar-track { background:#222; }
+		&::-webkit-scrollbar-thumb { background:#888; }
+	}
+}
+
+// ── スマホ幅（2026-09-10）: モーダルの上下バーは重ねず縦積み・ヘッダは詰める（原典と同じ詳細度＝body 付き） ──
+@media (max-width: 720px) {
+	body [name=head] { padding:0 4px; line-height:44px; height:44px;
+		select, button, input { font-size:12px; line-height:20px; margin:0 2px; }
+		input { width:110px; }
+	}
+	body [name=main] { top:44px; }
+	body [name=scroll] .nation { width:calc(100% - 10px); float:none; margin:5px auto; }
+	body [name=modal] {
+		.head, .foot { position:absolute; left:6px; right:6px; height:auto; line-height:1.4; font-size:12px;
+			white-space:normal; overflow-wrap:anywhere;   // 概要行（面積/人口/GDP）が右にはみ出さないよう折り返す
+			* { line-height:1.4; } span { display:inline; } img { height:22px; }
+			&.left, &.right, &.center { text-align:center; display:block; }
+		}
+		.head.left { top:4px; } .head.right { top:44px; }
+		.foot.left { bottom:52px; } .foot.center { bottom:30px; } .foot.right { bottom:2px; }
+		[name=flag] { left:24px; right:24px; top:90px; bottom:100px; }
+		[name=backward], [name=forward] { width:24px; top:45%; bottom:45%; }
+		[name=close] { top:0; right:0; } [name=svg] { display:none; }
+		audio { scale:0.7; margin:0 -30px; }
+	}
+}
+
+// ── カードからはみ出す文字（長い国名・首都名・26言語）: セル内で折り返し、カード幅に収める（2026-09-10）──
+body [name=scroll] .nation { overflow:hidden;
+	table { width:100%; table-layout:fixed; }
+	td:first-child { width:72px; }
+	td:last-child { white-space:normal; overflow-wrap:anywhere; word-break:break-word;
+		span { white-space:normal; }
+		> div { padding-inline-end:28px; }   // 右上の #番号と重ならない余白（RTL では左）
+	}
+	.name { line-height:1.25em; }
+}
