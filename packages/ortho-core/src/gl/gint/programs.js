@@ -306,6 +306,10 @@ uniform vec2       u_origin;
 uniform vec4       u_origin_trig; // 原点の三角比 (cosLon,sinLon,cosLat,sinLat)＝RTE角度加算の錨
 uniform vec2       u_viewport;
 uniform float      u_pt_radius;
+uniform usampler2D u_fid_style;    // fid スタイル表（paint 時のみ・unit5。線 VS と同一レイアウト＝§7.1）
+uniform int        u_fidstyle_w;
+uniform int        u_has_fidstyle;
+uniform float      u_dpr;          // 表の circle-radius(1/4 CSS px) → device px
 uniform uint       u_ix_center;
 uniform uint       u_iy_center;
 uniform vec4       u_clipT;      // mvp*[原点3D,1]＝CPU(double)算出＝MVP相殺回避の錨
@@ -355,6 +359,19 @@ float dlonE7(uint a, uint b) {
 	return float(d) * s;
 }
 // pt_id → screen px（zr>0 手前）。
+// per-fid 点スタイル（paint 時のみ）：visible bit0=0 か radius=0 は棄却（false）。radius＝表(1/4 CSS px)×dpr、
+// 色＝G（circle色。α=0 は既定色のまま）。線 VS の per-fid 節と同じ表・同じ約束（幅0=線なし ⇔ 半径0=点なし）。
+bool fidPointStyle(int feat_id, inout float r, inout vec4 col) {
+	if (u_has_fidstyle != 1) return true;
+	uvec4 rec = texelFetch(u_fid_style, ivec2(feat_id % u_fidstyle_w, feat_id / u_fidstyle_w), 0);
+	if ((rec.b & 1u) == 0u) return false;
+	uint r4 = (rec.b >> 8u) & 255u;
+	if (r4 == 0u) return false;
+	r = float(r4) * 0.25 * u_dpr;
+	uint lc = rec.g;
+	if ((lc & 255u) != 0u) col = vec4(float(lc >> 24u), float((lc >> 16u) & 255u), float((lc >> 8u) & 255u), float(lc & 255u)) / 255.0;
+	return true;
+}
 vec3 fetchPoint(int pt_id) {
 	ivec2 tc = ivec2(pt_id % u_pt_w, pt_id / u_pt_w);
 	uvec4 px = texelFetch(u_pt_tex, tc, 0);
@@ -626,10 +643,14 @@ void main() {
 	vec3 p = fetchPoint(pt_id);
 	v_zr = p.z;
 	v_uv = vec2(ox, oy);
-	gl_Position = vec4(2.0*(p.x + ox*u_pt_radius)/u_viewport.x - 1.0,
-					   1.0 - 2.0*(p.y + oy*u_pt_radius)/u_viewport.y, 0.0, 1.0);
 	ivec2 tc = ivec2(pt_id % u_pt_w, pt_id / u_pt_w);
 	uint fid1 = texelFetch(u_pt_meta_tex, tc, 0).r + 1u;
+	float r = u_pt_radius;
+	vec4  dummy = vec4(0.0);
+	if (!fidPointStyle(int(fid1 - 1u), r, dummy)) { gl_Position = vec4(2.0, 0.0, 0.0, 1.0); return; }   // filter 非表示の点は pick からも外す（線と同じ）
+	r = max(r, u_pt_radius);   // pick 半径＝max(表の半径, マージン)＝見た目より広く拾う
+	gl_Position = vec4(2.0*(p.x + ox*r)/u_viewport.x - 1.0,
+					   1.0 - 2.0*(p.y + oy*r)/u_viewport.y, 0.0, 1.0);
 	v_color = vec4(float(fid1 & 255u)/255.0, float((fid1>>8u)&255u)/255.0, float((fid1>>16u)&255u)/255.0, 1.0);
 }`;
 
@@ -661,11 +682,14 @@ void main() {
 	v_uv = vec2(ox, oy);
 	ivec2 tc = ivec2(pt_id % u_pt_w, pt_id / u_pt_w);
 	int feat_id = int(texelFetch(u_pt_meta_tex, tc, 0).r);
+	float r = u_pt_radius;
+	vec4  col = vec4(1.0, 0.420, 0.208, 1.0);
+	if (!fidPointStyle(feat_id, r, col)) { gl_Position = vec4(2.0, 0.0, 0.0, 1.0); return; }   // per-fid：非表示/半径0＝棄却
 	bool isActive = (feat_id == u_active_id);
-	float r = isActive ? u_pt_radius * 1.6 : u_pt_radius;
+	if (isActive) r *= 1.6;
 	gl_Position = vec4(2.0*(p.x + ox*r)/u_viewport.x - 1.0,
 					   1.0 - 2.0*(p.y + oy*r)/u_viewport.y, 0.0, 1.0);
-	v_color = isActive ? vec4(1.0, 0.9, 0.0, 1.0) : vec4(1.0, 0.420, 0.208, 1.0);
+	v_color = isActive ? vec4(1.0, 0.9, 0.0, 1.0) : col;
 }`;
 
 const FS_POINT = `#version 300 es
@@ -713,6 +737,7 @@ const PT_UNIFORM_NAMES = [
 	'u_pt_tex','u_pt_meta_tex','u_pt_w',
 	'u_mvp','u_eye','u_origin','u_origin_trig','u_clipT','u_origin_zr','u_viewport','u_pt_radius',
 	'u_ix_center','u_iy_center','u_ell_trig','u_ell',
+	'u_fid_style','u_fidstyle_w','u_has_fidstyle','u_dpr',   // per-fid 点スタイル（paint）＝描画/pick 両プログラム
 ];
 
 export function createGintPrograms(gl) {

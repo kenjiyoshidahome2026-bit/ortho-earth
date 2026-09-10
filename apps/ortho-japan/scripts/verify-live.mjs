@@ -15,7 +15,7 @@ const files = [];
 	for (const e of readdirSync(d)) {
 		const p = path.join(d, e);
 		if (statSync(p).isDirectory()) { walk(p); continue; }
-		if (/\.(js|css|pmtiles|png|html|json)$/.test(e) && !e.endsWith(".map")) files.push(path.relative(ROOT, p));
+		if (/\.(js|css|pmtiles|png|html|json|ts|txt)$/.test(e) && !e.endsWith(".map")) files.push(path.relative(ROOT, p));   // ts＝lib/ortho-japan.d.ts・txt＝llms.txt（AI 三点セットの配信も検札）
 	}
 })(ROOT);
 let bad = 0, done = 0;

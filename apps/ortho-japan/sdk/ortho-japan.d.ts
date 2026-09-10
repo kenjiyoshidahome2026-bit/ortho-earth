@@ -57,17 +57,49 @@ export interface Gadgets {
 	[name: string]: unknown;
 }
 
+/** gint 層の描画スタイル（applyGintData opts.style。未指定＝既定色：面 #FF6B35 / 線 #00B4D8） */
+export interface GintDrawStyle {
+	/** 線幅 CSS px（既定 1） */
+	lineWidth?: number;
+	/** 塗り色 [r,g,b,a]（0..1） */
+	fillColor?: [number, number, number, number];
+	/** styleId(0..255)→色 [r,g,b,a] の平坦配列（256×4） */
+	styleTable?: Float32Array | number[];
+	/** styleId→[dash, gap] px の平坦配列（256×2・gap 0＝実線） */
+	dashTable?: Float32Array | number[];
+	/** 点の半径 CSS px（既定 1.5。fid 別は paintTable の radius が優先） */
+	ptRadius?: number;
+	/** 表示レンジの上書き（データ導出レンジとの積＝下限は max、上限は min） */
+	minZoom?: number;
+	maxZoom?: number;
+	[k: string]: unknown;
+}
+
 /** gintユーザー層の搭載オプション（現行v1・単一スロット） */
 export interface GintApplyOptions {
-	style?: object;
-	/** この層を出す最小ズーム（既定7＝それ未満は世界海岸線と交替） */
+	style?: GintDrawStyle;
+	/**
+	 * この層を描く最小ズーム。未指定＝エンジンがデータ範囲から自動導出（狭域データは 13〜14 等・console に
+	 * "[gint] minZoom auto-set" が出る）。指定すれば自動値を上書き（下げられる）。ただし z<7 は世界海岸線と
+	 * 交替する（単一スロットの固定閾値＝この値では変えられない）
+	 */
 	minZoom?: number;
+	/** ホバー/クリック識別を有効に（既定 true） */
 	interactive?: boolean;
+	/** ホバー処理（tip・ハイライト）。false＝オフ（クリックは interactive のまま生きる。既定 true） */
 	hover?: boolean;
+	/** 地形沿い線（moj 筆など）を自動で立てる */
 	drape?: boolean;
+	/** ドレープ時も塗りを維持する */
 	drapeFill?: boolean;
-	tip?: unknown;
+	/** ホバー tip の整形：properties→行の配列。空配列/null＝tip を出さない。未指定＝全属性を "key: value" で列挙 */
+	tip?: (props: Record<string, unknown>) => string[] | null | undefined;
+	/** この層だけ塗りの辺数上限を上げる（既定 2M） */
 	fillMaxEdges?: number;
+	/** 低ズーム帯（z<outlineZoom）の単色ベタ塗りだけ生かす（大規模データの遠景用） */
+	lowFill?: boolean;
+	/** 焼きが表示束に着地した瞬間の通知（層差し替えで捨てられた場合は呼ばれない） */
+	onReady?: () => void;
 }
 
 export interface OrthoJapanMap {
@@ -97,8 +129,8 @@ export interface OrthoJapanMap {
 
 	// ---- gint（現行v1の派生アプリ口＝将来v2 addGint()で置換。薄い1モジュールに封じること）----
 	/** ユーザー知性層の搭載（単一スロット＝呼ぶたび置換）。pbfは gint ベイク済みであること */
-	applyGintData(pbf: unknown, label: string, moveCamera?: boolean, opts?: GintApplyOptions): unknown;
-	/** クリック識別（fid・properties・経緯度） */
+	applyGintData(pbf: GeoPBF, label: string, moveCamera?: boolean, opts?: GintApplyOptions): GeoPBF | null;
+	/** クリック識別（fid・properties・経緯度＝ホバー pick が当たった位置の球面座標。クリックはホバーの識別結果に依存する） */
 	onGintClick(fn: (fid: number, props: Record<string, unknown>, lnglat: LonLat) => void): void;
 	/** fid整列のproperties配列（式評価・表直書きの入力。.geojsonは詰めズレするので使わない） */
 	gintFeatures(): Array<{ properties: Record<string, unknown> }> | null;
@@ -108,6 +140,7 @@ export interface OrthoJapanMap {
 	 * fid→スタイル表の直書き。u32レコード=4要素/fid:
 	 * [0]=fill RGBA8(r<<24|g<<16|b<<8|a) [1]=line/circle色 [2]=(width*8)<<24|dash<<16|(radius*4)<<8|flags [3]=0。
 	 * flags bit0=visible（フィーチャ単位の表示/非表示）
+	 * Point は [1]（circle 色・α=0 で既定色）と radius（1/4 CSS px・0=描かない）を使う。線は width（1/8px・0=描かない）
 	 */
 	paintTable(u32: Uint32Array, count: number): void;
 	/** 地形沿い線化（liftM=null で解除） */
@@ -118,3 +151,45 @@ export interface OrthoJapanMap {
 
 /** 1行で地球儀が立ち上がる入口。await 必須 */
 export default function orthoJapan(opts?: OrthoJapanOptions): Promise<OrthoJapanMap>;
+
+// ---- geopbf（SDK 同梱・1.0.3〜 named export）----
+export interface GeoJSONFeature { type: "Feature"; properties: Record<string, unknown>; geometry: { type: string; coordinates: unknown } | null;[k: string]: unknown }
+export interface GeoJSONFeatureCollection { type: "FeatureCollection"; features: GeoJSONFeature[];[k: string]: unknown }
+export type GeopbfInput = File | Blob | ArrayBuffer | string | GeoJSONFeatureCollection | GeoJSONFeature | object;
+export interface GeopbfOptions {
+	/** データ名（キャッシュ鍵・ファイル名の元） */
+	name?: string;
+	/** false＝gint（GPU 可読トポロジ）を焼かない。既定は焼く */
+	gint?: boolean;
+	/** 座標の小数桁（既定 6） */
+	precision?: number;
+	[k: string]: unknown;
+}
+/** GeoPBF＝geopbf() が返す。主要面のみ型付け（全面は https://www.npmjs.com/package/geopbf） */
+export interface GeoPBF {
+	readonly features: GeoJSONFeature[];
+	readonly geojson: GeoJSONFeatureCollection;
+	/** GeoPBF バイナリ（保存・再読込用） */
+	readonly arrayBuffer: ArrayBuffer;
+	/** gint を焼く。geopbf() は既定で焼き済み＝再呼びは no-op（害なし） */
+	gint(opts?: { gint?: boolean; clean?: boolean | object }): Promise<GeoPBF>;
+	/** 描画レス識別：点→線→面の優先・面は smallest-wins。許容半径 m（既定 point 50 / polyline 30）。該当なし＝null */
+	identifyAt(lng: number, lat: number, opts?: { point?: number; polyline?: number }): number | null;
+	/** 点を含む面の fid（smallest-wins）。該当なし＝null */
+	contain(lnglat: LonLat): number | null;
+	getBbox(): Bbox;
+	geopbfFile(opts?: object): Promise<File>;
+	geojsonFile(opts?: object): Promise<File>;
+	topojsonFile(opts?: object): Promise<File>;
+	fgbFile(opts?: object): Promise<File>;
+	shapeFile(opts?: object): Promise<File>;
+	kmzFile(opts?: object): Promise<File>;
+	gmlFile(opts?: object): Promise<File>;
+	gpxFile(opts?: object): Promise<File>;
+	[k: string]: unknown;
+}
+/**
+ * SDK 同梱・初期化済みの geopbf ローダー。GeoJSON オブジェクト / File / URL / ArrayBuffer（geopbf/geojson/topojson/fgb/
+ * shape(zip)/kmz/gpx/gml/moj(zip)/gz）→ GeoPBF。createGeopbf は不要（export していない）。opts を文字列で渡すと name 扱い
+ */
+export function geopbf(data: GeopbfInput, opts?: GeopbfOptions | string): Promise<GeoPBF>;

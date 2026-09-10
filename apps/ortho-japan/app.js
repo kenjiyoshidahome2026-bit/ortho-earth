@@ -12,6 +12,10 @@ import { createGeopbf, geopbf } from "geopbf";
 import { nativeBucket } from "native-bucket";
 import { createGetHeight, setApiUrl as setAltApiUrl } from "altpbf/loader";
 createGeopbf("https://api.ortho-earth.com", { bucket: nativeBucket });   // bucket 基盤（標高と同じ）。読み出しはキー不要・bucket=native-bucket注入（geopbf自体は依存ゼロ化 8/21）
+// SDK 公開面：初期化済みの geopbf を再エクスポート（2026-09-10・npm 利用者が別途 `npm i geopbf` せず、バンドラも import map も無しで
+// データを載せられる＝同梱の worker チャンクがそのまま動く）。createGeopbf は出さない＝利用者が呼び直すと上の bucket 設定ごと
+// アクティブインスタンスが差し替わる（同一モジュールのグローバル）ため。型は sdk/ortho-japan.d.ts。
+export { geopbf };
 import { MAP_THEMES } from "./palettes.js";
 import { createThemes, defaultLayerState, isFacility, isTerrain, CHOME_MINZOOM, CHOME800_MINZOOM, RAILTR_MINZOOM } from "./themes.js";
 import { createOverlay } from "./overlay.js";
@@ -1869,7 +1873,10 @@ function applyGintData(pbf, label, moveCamera = true, opts = {}) {
 	if (opts.lowFill) pbf.unPackGint.lowFill = true;
 	// opts.onReady＝この層の焼きが表示束に着地した瞬間の通知（geoedit 大規模モードの g再送＝編集コミットが
 	// 「旧座標の絵が消えた」タイミングを知るための口）。層差し替えで焼きが捨てられた時は呼ばれない＝呼び出し側がタイムアウトで保険。
-	userGint = { g: pbf.unPackGint, label, pbf, style: opts.style ?? null, minZoom: opts.minZoom ?? USER_GINT_MINZ, interactive: opts.interactive !== false, hover: opts.hover !== false, drapeFill: !!opts.drapeFill, tip: opts.tip ?? null, onReady: opts.onReady ?? null };   // tip＝ホバーtipの持参整形（筆層＝町丁目tipと排他の主導権も取る・census2020限定）
+	userGint = { g: pbf.unPackGint, label, pbf, style: opts.style ?? null, minZoom: opts.minZoom ?? USER_GINT_MINZ, interactive: opts.interactive !== false, hover: opts.hover !== false, drapeFill: !!opts.drapeFill, tip: opts.tip ?? null, onReady: opts.onReady ?? null,
+		// bakeMeta＝焼きに運ぶ表示レンジ。minZoom 未指定＝エンジンがデータ範囲から自動導出（狭域は 13〜14 等）。指定＝自動値を上書き
+		// （以前は {} 固定で opts.minZoom が焼きへ届かず、d.ts の「minZoom で下げられる」が嘘だった＝SDK ドッグフード 2026-09-10 で発覚）
+		bakeMeta: opts.minZoom != null ? { minZoom: opts.minZoom } : {} };   // tip＝ホバーtipの持参整形（筆層＝町丁目tipと排他の主導権も取る・census2020限定）
 	// bake-ahead：メタ/tier梯子を bake worker で焼き切ってから搭載（render worker はテクスチャ搭載のみ＝
 	// ロード時の同期ベイクで地図が固まらない）。焼き上がりの onDone で sent を立てて再調停＝そこで点火。
 	cancelBake("user");
@@ -2264,7 +2271,7 @@ let suppressAdmin0 = false;
 // worker 不成立/ベイク失敗は従来の同期経路（renderer.set("gint", raw, key)）へフォールバック。
 let bakeWorker = null, bakeSeq = 0;
 const bakePending = new Map();   // id → { key, raw, meta, onDone, cancelled }
-const legacyGintSend = p => { renderer.set("gint", p.layer != null ? { ...p.raw, ...p.meta } : p.raw, p.key, p.layer); p.onDone?.(); };   // 層指名＝meta(minZoom等)を同期経路にも運ぶ
+const legacyGintSend = p => { renderer.set("gint", (p.layer != null || Object.keys(p.meta ?? {}).length) ? { ...p.raw, ...p.meta } : p.raw, p.key, p.layer); p.onDone?.(); };   // 層指名 or meta あり（user の minZoom）＝meta を同期経路にも運ぶ
 function ensureBakeWorker() {
 	if (bakeWorker !== null) return bakeWorker;
 	try { bakeWorker = new Worker(new URL("./gintbakeworker.js", import.meta.url), { type: "module" }); }
@@ -2314,7 +2321,7 @@ function bakeUser() {
 	if (!userGint || userGint.sent || userGint.baking) return;
 	userGint.baking = true;
 	const g = userGint.g;
-	bakeAndSend("user", g, {}, () => {
+	bakeAndSend("user", g, userGint.bakeMeta ?? {}, () => {
 		if (userGint?.g !== g) return;   // 焼いている間に別の層へ差し替わった＝結果は捨てられている（cancelBake）
 		userGint.baking = false; userGint.sent = true;
 		gintSlot = null; updateGintSlot(); needsDraw = true;

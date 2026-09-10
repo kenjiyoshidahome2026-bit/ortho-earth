@@ -46,10 +46,10 @@ for (const f of readdirSync(path.join(SITE, "japan/assets")).filter(f => f.endsW
 console.log("ok:fingerprint（全サイトチャンクにエンジン指紋なし）");
 
 // ② SDK実体
-for (const f of ["japan/lib/ortho-japan.js", "japan/lib/ortho-japan.css"]) {
+for (const f of ["japan/lib/ortho-japan.js", "japan/lib/ortho-japan.css", "japan/lib/ortho-japan.d.ts", "japan/llms.txt"]) {   // d.ts＝build:lib が複写（CDN の 404 根治 2026-09-10）・llms.txt＝AI 正典（public/）
 	if (!existsSync(path.join(SITE, f))) fail(`${f} が無い（build:prod の複写漏れ）`);
 }
-console.log("ok:lib（ortho-japan.js/.css 同梱）");
+console.log("ok:lib（ortho-japan.js/.css/.d.ts・llms.txt 同梱）");
 
 // ③ 実走：素の静的サーバ（COOP/COEP＝本番 deploy-worker と同じ頭・SAB経路も点火）
 //    request 台帳＝DOMに出ない故障（worker 404＝黒地図）を捕まえる。base:"/" 事故（2026-08-20）＝

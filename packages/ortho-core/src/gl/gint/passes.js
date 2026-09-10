@@ -113,6 +113,8 @@ function bindPointUniforms(s, u, data) {
 	gl.uniform2f(u.u_origin,   lon, data.origin[1]);
 	gl.uniform2f(u.u_viewport, width, height);
 	gl.uniform1f(u.u_pt_radius, data.ptRadius ?? 1.5);
+	gl.uniform1f(u.u_dpr, s.dpr ?? 1);
+	bindFidStyle(s, gl, u);   // per-fid 点スタイル（paint 時のみ・unit5）：visible/circle色/radius を点 VS が引く（描画・ハイライト・pick 共通）
 	gl.uniform1ui(u.u_ix_center, (Math.round((lon            + 180) * 1e7)) >>> 0);
 	gl.uniform1ui(u.u_iy_center, (Math.round((data.origin[1] +  90) * 1e7)) >>> 0);
 	// RTE の錨＝原点の三角比＋MVP相殺回避の錨（arc 側 bindSharedUniforms と同一）。楕円体＝β三角＋dβ錨。

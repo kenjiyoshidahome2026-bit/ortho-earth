@@ -146,6 +146,8 @@ ID バッファへ layer チャンネルを足すことになり、`renderPickin
 - width は**正味のスタイル幅のみ**を焼く。パス都合の増分（active ハイライト +2px・pick マージン 12px×dpr）は
   uniform で加算し、表には混ぜない（u8 レンジ超過の回避と関心の分離）
 - width=0 は「線を描かない」（VS 棄却）。塗りのみ feature の表現
+- 点（Point）も同じ表を引く：G＝circle 色（α=0 は既定色 #FF6B35）・radius(1/4px)×dpr＝半径・radius=0 は「点を描かない」
+  （width=0 と対）・bit0 は pick からも外す。GL（programs.js fidPointStyle）/ WebGPU（gintwgsl.js 同名）共通・2026-09-10 配線
 - 分解能/レンジが実運用で不足した場合は A 列へ f16 移設可（レイアウト互換の逃げ道＝安い決定）
 - 更新は texSubImage2D 一回のみ。メタ・tier・ジオメトリに触れることを**仕様として禁止**
 - 規模感：1,919 市区町村=31KB / 100万 feature=16MB

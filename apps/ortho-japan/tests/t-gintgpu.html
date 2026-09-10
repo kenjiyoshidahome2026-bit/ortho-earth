@@ -230,6 +230,46 @@ try {
 		ok(`gintBldドレープ線(px=${px})`, px > 40 && px < 3000);   // 1px 線＝細い（面塗りでない事も担保）
 		r.set("gintBld", null);
 	}
+	// ── ⑨ per-fid 点スタイル（paint 表 §7.1）：circle 色(G)/半径(B bits8-15・1/4px)/visible(bit0) を点 VS が引く（t-gintlod ④の WebGPU 対）──
+	{
+		const C = [139.7, 35.7], d = 0.004;
+		const arcBuffer = BigUint64Array.from([pack(C[0] - d, C[1] - d, true), pack(C[0] + d, C[1] - d, true)]);   // 1 本の線（fid8）
+		const arcMeta = new Uint32Array(8); arcMeta[0] = 0; arcMeta[1] = 2;
+		arcMeta[4] = e7(C[0] + 180 - d); arcMeta[5] = e7(C[1] + 90 - d); arcMeta[6] = e7(C[0] + 180 + d); arcMeta[7] = e7(C[1] + 90 - d);
+		gint.set({ arcBuffer, arcMeta, lineStream: Int32Array.from([8, 1, 1, 0]), pointBuffer: BigUint64Array.from([pack(C[0], C[1], true)]), point: Uint32Array.from([9]), minZoom: 2 });
+		const cam = { center: C, zoom: 14, pitch: 0, bearing: 0, dpr: 1 };
+		const green = a8 => { let n = 0; for (let i = 0; i < a8.length; i += 4) if (a8[i + 1] > 150 && a8[i] < 100 && a8[i + 2] < 100) n++; return n; };
+		const table = new Uint32Array(10 * 4);
+		table[8 * 4 + 2] = ((8 << 24) | (6 << 8) | 1) >>> 0;              // fid8 線：既定色・1px・visible
+		table[9 * 4 + 1] = 0x00FF00FF; table[9 * 4 + 2] = ((24 << 8) | 1) >>> 0;   // fid9 点：緑・半径 6px・visible
+		gint.paint({ table, count: 10 });
+		const g1 = green(await shot(cam));
+		ok(`点per-fidスタイル(緑px=${g1})`, g1 > 40 && g1 < 400);   // 半径6px≈113px²（MSAA 縁は除外）
+		// 点の GPU pick：表の半径で拾う／visible=0 は pick からも外れる（線の filter と同じ）
+		const pp = project(cameraState(cam, 256, 256), C[0], C[1]);
+		const idOnce = () => new Promise(res => {
+			const h = e => { if (e.data?.action === "identify") { clearTimeout(tm); removeEventListener("message", h); res(e.data.featureId); } };
+			const tm = setTimeout(() => { removeEventListener("message", h); res("timeout"); }, 3000);
+			addEventListener("message", h);
+		});
+		gint.drawn(); await r.device.queue.onSubmittedWorkDone();
+		let p1 = idOnce(); gint.move({ x: pp[0], y: pp[1] }); const fidPt = await p1;
+		ok(`点pick(fid=${fidPt})`, fidPt === 9);
+		// hover→再描画→click：click の lnglat が出る（draw の dedupe リセットで lastMX が NaN になり [null,null] だった回帰・2026-09-10）
+		await shot(cam);
+		const clk = await new Promise(res => { const h = e => { if (e.data?.action === "click") { removeEventListener("message", h); res(e.data); } }; addEventListener("message", h); gint.click(); });
+		ok(`点click lnglat(${clk.lng?.toFixed?.(4)},${clk.lat?.toFixed?.(4)})`, clk.featureId === 9 && Math.abs(clk.lng - C[0]) < 1e-3 && Math.abs(clk.lat - C[1]) < 1e-3);
+		gint.leave();
+		table[9 * 4 + 2] = (24 << 8) >>> 0;                              // fid9 点：visible=0
+		gint.paint({ table, count: 10 });
+		const g0 = green(await shot(cam));
+		ok(`点visible=0で消える(緑px=${g0})`, g0 === 0);
+		gint.drawn(); await r.device.queue.onSubmittedWorkDone();
+		let p2 = idOnce(); gint.move({ x: pp[0], y: pp[1] }); const fidHid = await p2;
+		ok(`非表示点はpick外(${fidHid})`, fidHid !== 9);
+		gint.leave();
+		gint.paint(null);
+	}
 	gint.dispose(); r.dispose();
 	fin();
 	}

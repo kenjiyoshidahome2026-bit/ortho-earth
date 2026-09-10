@@ -11,11 +11,27 @@
 </script>
 ```
 
+## 自分のデータを載せる（geopbf）
+
+SDK は GeoPBF ライブラリを同梱し、初期化済みのローダーを named export で出している（1.0.3〜）。別パッケージもバンドラも import map も要らない：
+
+```js
+import orthoJapan, { geopbf } from "/ortho-japan/ortho-japan.js";
+const map = await orthoJapan({ target: "#here", assetBase: "/ortho-japan-assets/" });
+const pbf = await geopbf(featureCollection, { name: "myapp/data" });   // GeoJSON オブジェクト / File / URL / ArrayBuffer。gint は既定で焼かれる
+map.applyGintData(pbf, "mydata", true, { interactive: true });
+map.onGintClick((fid, props) => console.log(props));
+```
+
+`geopbf()` は GeoJSON・TopoJSON・FlatGeobuf・Shapefile(zip)・KML/KMZ・GPX・GML・MOJ(zip)・GeoPBF 自身（gzip 可）を読み、書き戻しもできる（`pbf.geojsonFile()`・`pbf.shapeFile()` …）。使う worker は `dist/lib/` に既にある遅延チャンクなので、静的 HTML 1枚から動く。`createGeopbf` は呼ばない（SDK が初期化済み・export していない）。型は `ortho-japan.d.ts` の `GeoPBF`。
+
+ライブラリ単体は npm でも公開している（[`geopbf`](https://www.npmjs.com/package/geopbf)・MIT）＝地球儀の外で使う物。同じページで両方を混ぜない（npm 側は別インスタンス・二重同梱になる）。`@ortho-earth/japan` 1.0.2 以前は `geopbf` を export していない＝更新する。
+
 ## AIエージェントで開発する場合
 
 AIコーディングエージェント（Claude Code 等）に読ませる1枚正典＝ **https://www.ortho-earth.com/japan/llms.txt**
 （API面・罠台帳・検証作法。SDK zip にも同梱）。zip 同梱の `skill/ortho-earth-sdk/` を `.claude/skills/` に
-置けば Claude Code が SDK の作法を踏まえて書く。型定義は `lib/ortho-japan.d.ts`。
+置けば Claude Code が SDK の作法を踏まえて書く。型定義は `lib/ortho-japan.d.ts`（https://www.ortho-earth.com/japan/lib/ortho-japan.d.ts でも配信）。データ搭載は SDK 自身の `geopbf` export で行う（前節）。
 
 ## orthoJapan(opts)
 
