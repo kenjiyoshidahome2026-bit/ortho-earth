@@ -102,4 +102,28 @@ ok(mh.toGeoJSON().features[0].geometry.coordinates.length === 2, "hole の再適
 	ok(mdl.featureGeoJSON(1, false).geometry.coordinates[0].length === 4 && tri, "削除後も3頂点で閉じている");
 }
 
+// ---- antimeridian：縫い目を跨ぐ外環（±179.9 混在の正規化表現）への穴＝part 探索と向き判定は経度を連続化してから ----
+{
+	const am = buildTopology({ type: "FeatureCollection", features: [
+		{ type: "Feature", properties: {}, geometry: { type: "MultiPolygon", coordinates: [
+			[[[179.9, 35.0], [-179.9, 35.0], [-179.9, 35.2], [179.9, 35.2], [179.9, 35.0]]],   // 縫い目跨ぎの片
+			[[[10, 10], [11, 10], [11, 11], [10, 11], [10, 10]]],                              // 無関係な片
+		] } },
+	] }, 6);
+	const ma = createModel(am);
+	const unwrapArea = r => {   // 連続化した経度での符号付き面積（検定側の独立実装）
+		let a = 0, px = 0;
+		const u = r.map((c, i) => { let x = c[0]; if (i) x -= Math.round((x - px) / 360) * 360; px = x; return [x, c[1]]; });
+		for (let i = 0; i < u.length; i++) { const p = u[i], q = u[(i + 1) % u.length]; a += p[0] * q[1] - q[0] * p[1]; }
+		return a / 2;
+	};
+	const hole = [[179.95, 35.05], [-179.95, 35.05], [-179.95, 35.15], [179.95, 35.15], [179.95, 35.05]];
+	ok(!!ma.applyCmd({ op: "hole", eid: 0, ring: hole }), "縫い目跨ぎの片に穴を追加できる");
+	const g = ma.toGeoJSON().features[0].geometry;
+	ok(g.type === "MultiPolygon" && g.coordinates[0].length === 2 && g.coordinates[1].length === 1, "穴は縫い目跨ぎの片（part 0）に入る");
+	const outer = g.coordinates[0][0].slice(0, -1), inner = g.coordinates[0][1].slice(0, -1);
+	ok((unwrapArea(outer) > 0) !== (unwrapArea(inner) > 0), "穴の向きは外環と逆（連続化した経度で判定）");
+	ok(ma.pointInRing(-179.99, 35.1, outer) && ma.pointInRing(179.99, 35.1, outer) && !ma.pointInRing(0, 35.1, outer), "pointInRing＝縫い目の両側が内側・遠方は外");
+}
+
 process.exit(fails ? 1 : 0);

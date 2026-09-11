@@ -18,11 +18,13 @@ export function antimeridianFeature(feature) {
     const calc = a => a == null ? void 0 : (Array.isArray(a) && typeof a[0] !== 'number') ? a.forEach(calc) : (xmin = min(xmin, a[0]), xmax = max(xmax, a[0]));
     (c === undefined) || calc(c);
     // 跨ぎ判定＝範囲外（連続表現）に加えて、範囲内でも「隣接頂点が混符号かつ経度差>180」（±179.9等＝エディタの
-    // normLon 産の正規化表現）。ただし端点が±180ちょうどのペアは除外＝縫い目に**接する**だけ（南極型リング等）で
-    // 跨ぎではない。これを切断器に入れると fix() が +180 を -180 へ書き換え、偽の跨ぎが生まれて形が壊れる。
+    // normLon 産の正規化表現）。ただし**両端とも**±180ちょうどのペア（+180→-180＝同じ子午線上の移動）は除外＝
+    // 縫い目に**接する**だけ（南極型リング等）で跨ぎではない。片端だけが ±180 のペア（-180→+179.99 等）は
+    // 「縫い目上の頂点で跨ぐ」＝跨ぎ（量子化/吸着格子で頂点がちょうど ±180 に載る円等・2026-09-12 geoedit で発覚）。
+    // 切断器の fix() は +180 を保つ（-180 へ書き換えると西側の縫い目頂点が偽の跨ぎになる）。
     const hasJump = a => !Array.isArray(a) || !a.length ? false
         : typeof a[0]?.[0] !== 'number' ? a.some(hasJump)
-        : a.some((pt, i) => i + 1 < a.length && pt[0] * a[i + 1][0] < 0 && abs(a[i + 1][0] - pt[0]) > 180 && abs(pt[0]) !== 180 && abs(a[i + 1][0]) !== 180);
+        : a.some((pt, i) => i + 1 < a.length && pt[0] * a[i + 1][0] < 0 && abs(a[i + 1][0] - pt[0]) > 180 && !(abs(pt[0]) === 180 && abs(a[i + 1][0]) === 180));
     if (xmin >= -180 && xmax <= 180 && !hasJump(c)) return toClockwise(feature);
     c = type.startsWith("Multi") ? c : [c];
     if (type.includes("LineString")) {

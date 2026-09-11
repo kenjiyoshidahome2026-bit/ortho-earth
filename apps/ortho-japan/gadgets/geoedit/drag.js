@@ -1,4 +1,5 @@
 import { tr } from "../../i18n.js";   // UI二言語化（ja正典・en辞書引き＝エンジン i18n.js の流儀。辞書は各モジュール持参）
+import { dLon } from "../anno.js";
 const t = tr({
 	"大規模モードでは頂点の追加/削除はできません（移動のみ）": "Large mode cannot add/delete vertices (move only)",
 	"この頂点は消せません（端点/最小構成）": "This vertex cannot be deleted (endpoint / minimum shape)",
@@ -95,7 +96,7 @@ export function installDrag(ed) {
 		const ll = map.unprojectXY(x, y);
 		if (!ll) return;
 		if (drag.kind === "f") {   // フィーチャ平行移動（適用できた分だけ total へ＝格子量子化と整合）
-			const res = st.model.translateFeature(drag.eid, ll[0] - drag.lastLL[0], ll[1] - drag.lastLL[1], { index: false });   // ドラッグ中は索引追記オフ（終端で一括reindex）
+			const res = st.model.translateFeature(drag.eid, dLon(drag.lastLL[0], ll[0]), ll[1] - drag.lastLL[1], { index: false });   // ドラッグ中は索引追記オフ（終端で一括reindex）。経度差は最短側（縫い目を跨ぐドラッグで ±360 の差にしない）
 			if (res) {
 				drag.total[0] += res.d[0]; drag.total[1] += res.d[1];
 				drag.lastLL = [drag.lastLL[0] + res.d[0], drag.lastLL[1] + res.d[1]];

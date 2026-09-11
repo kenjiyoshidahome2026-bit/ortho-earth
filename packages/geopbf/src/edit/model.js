@@ -17,6 +17,7 @@
 
 import { buildTopology, createExtractor, quantize, quantizeLine } from "./topo-extract.js";
 import { createSnapIndex, buildBase, normLon } from "./snap.js";
+import { unwrapLons } from "./spline.js";
 
 const sidOf = s => (s < 0 ? ~s : s);
 
@@ -327,12 +328,17 @@ export function createModel(topo) {
 	}
 
 	// ---- 穴（内環）：選択ポリゴンへ 1 リング追加/除去。向きは外環と逆へ正規化（winding-sum塗りで穴になる条件）----
+	// 面積/内外判定は経度を連続化（antimeridian 跨ぎ＝±179.9 混在の正規化表現）してから。生の経度だと
+	// 縫い目を跨ぐ外環の向きが逆転し、穴が外環と同回り＝winding 塗りで穴が開かない（2026-09-12）。
 	const shoelace = coords => {   // 符号付き面積（開リング前提）
+		coords = unwrapLons(coords);
 		let a = 0;
 		for (let i = 0, n = coords.length; i < n; i++) { const p = coords[i], q = coords[(i + 1) % n]; a += p[0] * q[1] - q[0] * p[1]; }
 		return a / 2;
 	};
 	const pointInRing = (x, y, coords) => {   // 開リング・偶奇則
+		coords = unwrapLons(coords);
+		if (coords.length) { const d = x - coords[0][0]; x = coords[0][0] + d - Math.round(d / 360) * 360; }   // 点もリング基準の連続表現へ
 		let inside = false;
 		for (let i = 0, n = coords.length, j = n - 1; i < n; j = i++) {
 			const [xi, yi] = coords[i], [xj, yj] = coords[j];
