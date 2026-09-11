@@ -231,18 +231,33 @@ GeoPBF を中心に置くことで任意フォーマット間の相互変換が 
 	<tr><td><strong>GPX</strong></td><td class="good">✓</td><td class="good">✓</td><td class="dim">GPS トラック・ウェイポイント</td></tr>
 	<tr><td><strong>FlatGeoBuf</strong></td><td class="good">✓</td><td class="good">✓</td><td class="dim">高速ストリーミング対応</td></tr>
 	<tr><td><strong>TopoJSON</strong></td><td class="good">✓</td><td class="good">✓</td><td class="dim">トポロジー保持 入出力</td></tr>
+	<tr><td><strong>登記所備付地図</strong>（法務省）</td><td class="good">✓ (.zip)</td><td class="bad">—</td><td class="dim">14条地図・筆ポリゴン。デコード時に JGD2011 平面直角座標（19 系）→ WGS84 を実施。拡張子が <code>.zip</code> で Shapefile と競合するため <code>{ format: "moj" }</code> で明示指定</td></tr>
+	<tr><td><strong>GeoParquet</strong> <span class="dim">(v1.5)</span></td><td class="good">✓</td><td class="good">✓</td><td class="dim">WKB + bbox 覆域列・行は空間順。依存ゼロのリーダは geopandas / pyarrow / DuckDB の出力も読む — §13</td></tr>
+	<tr><td><strong>PMTiles</strong>（MVT）<span class="dim">(v1.5)</span></td><td class="bad">—</td><td class="good">✓</td><td class="dim">タイルは Gint から切るため、ズーム別簡略化はランクのフィルタ 1 つ — §13。逆変換は無い（タイルは簡略化・量子化済み）</td></tr>
 	<tr><td><strong>GeoPBF</strong></td><td class="good">✓ (native)</td><td class="good">✓ (native)</td><td class="good">ネイティブ高速ロード</td></tr>
 	<tr><td><strong>Gint</strong></td><td class="good">✓ (decode)</td><td class="good">✓ (encode)</td><td class="dim">Morton + VW 拡張（後述）</td></tr>
 </table>
 </div>
+
+<p>
+上 8 行は自動判定の入口 <code>geopbf(input)</code> を通る。GeoParquet と PMTiles は規模が大きく必要時に
+読めば足りるため、それぞれ専用のサブパス export（<code>geopbf/geoparquet</code>・<code>geopbf/pmtiles</code>）
+に分けてある（詳細は §13）。ラスタはさらに別経路で、<code>geopbf/cog</code> は Cloud Optimized GeoTIFF を
+HTTP Range で直接読み、変換自体を行わない（§12）。いずれも CLI に対応物があり、
+<code>npx geopbf enc / dec / pmtiles / parquet / parquet2pbf</code> が GDAL 無しの素の Node で動く。
+</p>
 
 <div class="callout callout-note">
 	<div class="callout-head">自動フォーマット判定</div>
 	<p>
 		<code>geopbf(input)</code> に <code>File</code>・<code>Blob</code>・<code>ArrayBuffer</code>・
 		<code>Object</code> のいずれを渡しても、拡張子・MIME タイプ・マジックバイトから
-		フォーマットを自動判定して適切なデコーダを呼び出す。
-		呼び出し側はフォーマットを意識する必要がない。
+		フォーマットを自動判定して適切なデコーダを呼び出す。対応は
+		<code>.geopbf .pbf .geojson .json .topojson .fgb .zip .kml .kmz .gpx .gml .xml</code>
+		（いずれも <code>.gz</code> 可・gzip は署名で判別）。呼び出し側はフォーマットを意識する必要がない。
+		唯一の例外が登記所備付地図で、拡張子 <code>.zip</code> が Shapefile と重なるため
+		<code>{ format: "moj" }</code> で明示する。デコードできない <code>File</code> は黙って空の
+		FeatureCollection を返さず、明示エラーで落とす。
 	</p>
 </div>
 
@@ -250,6 +265,7 @@ GeoPBF を中心に置くことで任意フォーマット間の相互変換が 
 <span class="kw">const</span> pbf = <span class="kw">await</span> <span class="fn">geopbf</span>(file);          <span class="cm">// File（Shapefile .zip, GeoJSON, KMZ ...）</span>
 <span class="kw">const</span> pbf = <span class="kw">await</span> <span class="fn">geopbf</span>(arrayBuffer);    <span class="cm">// ArrayBuffer（fetch 結果など）</span>
 <span class="kw">const</span> pbf = <span class="kw">await</span> <span class="fn">geopbf</span>(geojsonObject);  <span class="cm">// GeoJSON オブジェクト直接</span>
+<span class="kw">const</span> pbf = <span class="kw">await</span> <span class="fn">geopbf</span>(zip, { format: <span class="st">"moj"</span> });   <span class="cm">// 登記所備付地図 .zip（平面直角→WGS84）</span>
 
 <span class="cm">// 各フォーマットへのエクスポート</span>
 <span class="kw">const</span> geojson  = pbf.geojson;    <span class="cm">// → GeoJSON オブジェクト</span>
@@ -258,6 +274,13 @@ GeoPBF を中心に置くことで任意フォーマット間の相互変換が 
 <span class="kw">const</span> kmz      = pbf.<span class="fn">kmz</span>();      <span class="cm">// → KMZ Blob</span>
 <span class="kw">const</span> gml      = pbf.<span class="fn">gml</span>();      <span class="cm">// → GML 文字列</span>
 <span class="kw">const</span> fgb      = <span class="kw">await</span> pbf.<span class="fn">fgb</span>(); <span class="cm">// → FlatGeoBuf ArrayBuffer</span>
+
+<span class="cm">// v1.5 — 大きい 2 形式は専用のサブパス export から（§13）</span>
+<span class="kw">import</span> { toPMTiles } <span class="kw">from</span> <span class="st">"geopbf/pmtiles"</span>;
+<span class="kw">import</span> { toGeoParquet, fromGeoParquet } <span class="kw">from</span> <span class="st">"geopbf/geoparquet"</span>;
+<span class="kw">const</span> { buffer } = <span class="kw">await</span> <span class="fn">toPMTiles</span>(pbf, { maxZoom: 12 });  <span class="cm">// → PMTiles（MVT）バイト列</span>
+<span class="kw">const</span> pq   = <span class="kw">await</span> <span class="fn">toGeoParquet</span>(pbf);                   <span class="cm">// → GeoParquet バイト列</span>
+<span class="kw">const</span> back = <span class="kw">await</span> <span class="fn">fromGeoParquet</span>(u8);                 <span class="cm">// ← GeoParquet（geopandas/DuckDB 出力も可）</span>
 
 <span class="cm">// ネイティブ保存（gzip 済み .geopbf）</span>
 <span class="kw">await</span> pbf.<span class="fn">save</span>(<span class="st">'coastline'</span>);    <span class="cm">// → coastline.geopbf をダウンロード</span></code></pre>
@@ -583,7 +606,7 @@ shapefile は原典の double をそのまま持つが、精度によらず 1 �
 		<td class="dim">要外部ライブラリ</td>
 		<td class="dim">要外部ライブラリ</td>
 		<td class="bad">限定的</td>
-		<td class="good">9 フォーマット内蔵</td>
+		<td class="good">12 フォーマット内蔵</td>
 	</tr>
 	<tr>
 		<td><strong>トポロジー</strong></td>

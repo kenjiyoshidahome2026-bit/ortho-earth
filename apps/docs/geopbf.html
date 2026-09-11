@@ -225,18 +225,35 @@ Placing GeoPBF at the center enables any-to-any format conversion in a single st
 	<tr><td><strong>GPX</strong></td><td class="good">✓</td><td class="good">✓</td><td class="dim">GPS tracks &amp; waypoints</td></tr>
 	<tr><td><strong>FlatGeoBuf</strong></td><td class="good">✓</td><td class="good">✓</td><td class="dim">Streaming-friendly binary</td></tr>
 	<tr><td><strong>TopoJSON</strong></td><td class="good">✓</td><td class="good">✓</td><td class="dim">Topology-preserving I/O</td></tr>
+	<tr><td><strong>MOJ 登記所備付地図</strong></td><td class="good">✓ (.zip)</td><td class="bad">—</td><td class="dim">Japanese cadastral parcels; JGD2011 plane-rectangular (19 zones) → WGS84 on decode. Opt in with <code>{ format: "moj" }</code>, since the extension is also <code>.zip</code></td></tr>
+	<tr><td><strong>GeoParquet</strong> <span class="dim">(v1.5)</span></td><td class="good">✓</td><td class="good">✓</td><td class="dim">WKB + bbox covering column, spatially ordered rows. Dependency-free reader accepts geopandas / pyarrow / DuckDB output — §13</td></tr>
+	<tr><td><strong>PMTiles</strong> (MVT) <span class="dim">(v1.5)</span></td><td class="bad">—</td><td class="good">✓</td><td class="dim">Tiles are cut from Gint, so per-zoom simplification is a rank filter — §13. No inverse: tiles are simplified and quantized</td></tr>
 	<tr><td><strong>GeoPBF</strong></td><td class="good">✓ (native)</td><td class="good">✓ (native)</td><td class="good">Native fast-load</td></tr>
 	<tr><td><strong>Gint</strong></td><td class="good">✓ (decode)</td><td class="good">✓ (encode)</td><td class="dim">Morton + VW extension (see §6)</td></tr>
 </table>
 </div>
+
+<p>
+The first eight rows go through the auto-detecting entry point <code>geopbf(input)</code>. GeoParquet and
+PMTiles are large enough to be worth loading on demand, so they live behind their own subpath exports
+(<code>geopbf/geoparquet</code>, <code>geopbf/pmtiles</code>) and are covered in §13. Rasters travel a
+separate path again: <code>geopbf/cog</code> reads Cloud Optimized GeoTIFF by HTTP Range without converting
+it at all (§12). Everything here also has a CLI equivalent — <code>npx geopbf enc / dec / pmtiles / parquet /
+parquet2pbf</code> — running on plain Node with no GDAL.
+</p>
 
 <div class="callout callout-note">
 	<div class="callout-head">Automatic Format Detection</div>
 	<p>
 		Whatever you pass to <code>geopbf(input)</code> — a <code>File</code>, <code>Blob</code>,
 		<code>ArrayBuffer</code>, or plain <code>Object</code> — the library auto-detects the format
-		from the file extension, MIME type, or magic bytes and routes to the correct decoder.
-		The caller never has to think about format.
+		from the file extension, MIME type, or magic bytes and routes to the correct decoder. Accepted:
+		<code>.geopbf .pbf .geojson .json .topojson .fgb .zip .kml .kmz .gpx .gml .xml</code>, each
+		optionally <code>.gz</code> (gzip is recognised by signature, not extension). The caller never has
+		to think about format. The one exception is the MOJ cadastral archive, whose <code>.zip</code>
+		extension collides with Shapefile and so is selected with <code>{ format: "moj" }</code>. A <code>File</code>
+		that cannot be decoded raises an explicit error rather than silently yielding an empty
+		FeatureCollection.
 	</p>
 </div>
 
@@ -244,6 +261,7 @@ Placing GeoPBF at the center enables any-to-any format conversion in a single st
 <span class="kw">const</span> pbf = <span class="kw">await</span> <span class="fn">geopbf</span>(file);          <span class="cm">// File (Shapefile .zip, GeoJSON, KMZ ...)</span>
 <span class="kw">const</span> pbf = <span class="kw">await</span> <span class="fn">geopbf</span>(arrayBuffer);    <span class="cm">// ArrayBuffer (fetch response, etc.)</span>
 <span class="kw">const</span> pbf = <span class="kw">await</span> <span class="fn">geopbf</span>(geojsonObject);  <span class="cm">// GeoJSON object directly</span>
+<span class="kw">const</span> pbf = <span class="kw">await</span> <span class="fn">geopbf</span>(zip, { format: <span class="st">"moj"</span> });   <span class="cm">// cadastral .zip — plane-rectangular → WGS84</span>
 
 <span class="cm">// Export to any format</span>
 <span class="kw">const</span> geojson  = pbf.geojson;    <span class="cm">// → GeoJSON object</span>
@@ -252,6 +270,13 @@ Placing GeoPBF at the center enables any-to-any format conversion in a single st
 <span class="kw">const</span> kmz      = pbf.<span class="fn">kmz</span>();      <span class="cm">// → KMZ Blob</span>
 <span class="kw">const</span> gml      = pbf.<span class="fn">gml</span>();      <span class="cm">// → GML string</span>
 <span class="kw">const</span> fgb      = <span class="kw">await</span> pbf.<span class="fn">fgb</span>(); <span class="cm">// → FlatGeoBuf ArrayBuffer</span>
+
+<span class="cm">// v1.5 — the two large formats, behind their own subpath exports (§13)</span>
+<span class="kw">import</span> { toPMTiles } <span class="kw">from</span> <span class="st">"geopbf/pmtiles"</span>;
+<span class="kw">import</span> { toGeoParquet, fromGeoParquet } <span class="kw">from</span> <span class="st">"geopbf/geoparquet"</span>;
+<span class="kw">const</span> { buffer } = <span class="kw">await</span> <span class="fn">toPMTiles</span>(pbf, { maxZoom: 12 });  <span class="cm">// → PMTiles (MVT) bytes</span>
+<span class="kw">const</span> pq  = <span class="kw">await</span> <span class="fn">toGeoParquet</span>(pbf);                    <span class="cm">// → GeoParquet bytes</span>
+<span class="kw">const</span> back = <span class="kw">await</span> <span class="fn">fromGeoParquet</span>(u8);                  <span class="cm">// ← GeoParquet, incl. geopandas/DuckDB output</span>
 
 <span class="cm">// Save as native .geopbf (gzip-compressed)</span>
 <span class="kw">await</span> pbf.<span class="fn">save</span>(<span class="st">'coastline'</span>);    <span class="cm">// → downloads coastline.geopbf</span></code></pre>
@@ -578,7 +603,7 @@ directly comparable. The shapefiles hold the original full-precision doubles, bu
 		<td class="dim">External library needed</td>
 		<td class="dim">External library needed</td>
 		<td class="bad">Limited</td>
-		<td class="good">9 formats built-in</td>
+		<td class="good">12 formats built-in</td>
 	</tr>
 	<tr>
 		<td><strong>Topology</strong></td>
