@@ -2,6 +2,8 @@
 
 [![npm](https://img.shields.io/npm/v/ortho-world)](https://www.npmjs.com/package/ortho-world) [![license: MIT](https://img.shields.io/badge/license-MIT-blue)](./LICENSE)
 
+> **Repo layout note** — development happens in the [ortho-earth monorepo](https://github.com/kenjiyoshidahome2026-bit/ortho-earth) (`apps/world`); this standalone repo is a read-only mirror synced on each release. Issues are welcome here; patches land in the monorepo. / 開発はモノレポ側で行い、ここはリリースごとに同期される公開ミラーです（Issue歓迎・変更はモノレポへ）。
+
 **A country selector you can drop into a `<div>`.** 262 countries and territories with flags, capitals,
 ISO / IOC codes, UN membership, area, population, GDP, HDI and more — in 26 languages, searchable,
 sortable, no API keys, no servers.
