@@ -29,7 +29,8 @@
 		"verify:prod": "node scripts/verify-prod.mjs",
 		"verify:npm": "node scripts/verify-npm.mjs",
 		"prepack": "npm run build:lib",
-		"deploy": "npm run verify:prod && find dist -name .DS_Store -delete && wrangler deploy"
+		"deploy": "npm run verify:prod && find dist -name .DS_Store -delete && wrangler deploy",
+		"mirror": "git -C ../.. subtree split --prefix=apps/world -b ortho-world-mirror && git -C ../.. push https://github.com/kenjiyoshidahome2026-bit/ortho-world.git ortho-world-mirror:main --force && git -C ../.. branch -D ortho-world-mirror"
 	},
 	"dependencies": {},
 	"devDependencies": {
