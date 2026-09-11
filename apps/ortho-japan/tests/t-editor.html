@@ -333,6 +333,14 @@ try {
 		ok("amDragMoved", !JSON.stringify(m().featureGeoJSON(amEid, false).geometry.coordinates).includes("[-179.99,0]"));
 		key("z", { metaKey: true }); await sleep(150);
 		key("Escape");
+		// 保存＝切断なし（cut:false）・復元（idbLoad→loadBuffer と同経路）で1つの環のまま戻る＝縫い目の縦線/二重ハンドルが出ない
+		await editor.commitNow();
+		const sv = (await new GeoPBF({}).set(editor.layer.saveBuffer.slice(0))).features[0].geometry;
+		ok("amSaveUncut", sv.type === "Polygon" && sv.coordinates.length === 1 && sv.coordinates[0].some(c => c[0] > 179) && sv.coordinates[0].some(c => c[0] < -179));
+		await editor.loadBuffer(editor.layer.saveBuffer.slice(0), { fly: false, stripEid: true });
+		await sleep(200);
+		const rf = [...m().feats.values()][0];
+		ok("amRestoreOneRing", m().stats().features === 1 && m().stats().arcs === 1 && rf?.type === "Polygon" && m().featureGeoJSON([...m().feats.keys()][0], false).geometry.coordinates[0].length === 37);
 	}
 
 	// ---- 書き出し／クラウドのダイアログ＝同時に1枚（二重開き・積み重なりなし）----

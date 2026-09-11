@@ -45,7 +45,7 @@ export function bakeBase(gintData) {
 	const metaOpts = { orderBbox: polyBboxByFid, chunkEdges: CHUNK_EDGES };
 	let capMinW = 0;
 	let weightHist = null;
-	let base = buildEdgeMeta(am, ps, ls, null, 0, metaOpts);
+	let base = buildEdgeMeta(am, ps, ls, ab, 0, metaOpts);   // ab＝縫い目辺（切断の痕）の除去に使う（minWeight=0 なので LOD キャップは掛からない）
 	if (base.edgeCount > MAX_SAFE_EDGES && ab?.length) {
 		const arcU32 = new Uint32Array(ab.buffer, ab.byteOffset, ab.byteLength / 4);
 		weightHist = buildWeightHist(am, ps, ls, arcU32);

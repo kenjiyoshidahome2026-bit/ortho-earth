@@ -76,10 +76,11 @@ export function buildStyleTable(featsArr, { forceVisible = false } = {}) {   // 
 // 遅延オブジェクトではなく都度生成の素のオブジェクトを渡す。
 // smooth＝表示用の焼き（gint）だけ true＝@spline を密点に細分。保存/書き出しは false＝制御点のまま（＋@splineフラグ）
 // ＝再読込のたびに再細分する多重化を防ぐ（曲線は制御点からの描画時解釈に一本化）。
-export async function encodeModel(model, { withEid = false, name = "geoedit", precision, smooth = false } = {}) {
+// cut＝false でエンコーダの antimeridian 切断を止める（セッション保存専用＝復元で1つの環に戻る）。表示焼き/書き出しは既定（切断）。
+export async function encodeModel(model, { withEid = false, name = "geoedit", precision, smooth = false, cut = true } = {}) {
 	const eids = [...model.feats.keys()].sort((a, b) => a - b);
 	const propsArr = eids.map(e => withEid ? { ...model.feats.get(e).properties, __eid: e } : model.feats.get(e).properties);
-	const pbf = new GeoPBF({ name, precision: precision ?? model.gridExp });
+	const pbf = new GeoPBF({ name, precision: precision ?? model.gridExp, cut });
 	const [keys, bufs] = await makeKeys(propsArr);
 	let reshaped = false;   // 表示焼きで形を変えたか（@spline細分）＝保存バッファは制御点で焼き直しが要る
 	pbf.setHead(keys, bufs).setBody(() => {
@@ -142,8 +143,10 @@ export function createGintLayer(map) {
 			await built.gint();           // gint は明示ベイク（worker/WASM、なければJS）
 			if (g !== gen) return null;   // 後発コミットに追い抜かれた＝破棄
 			pbf = built;
-			// 保存用＝制御点のまま。表示焼きで形を変えていなければ表示用と同一＝再エンコードしない
-			saveBuf = reshaped ? (await encodeModel(model, { withEid: true, name: "geoedit/session" })).pbf.arrayBuffer : built.arrayBuffer;
+			// 保存用＝制御点のまま・切断なし。表示焼きで形を変えていなければ（@spline 細分も antimeridian 切断も無し）
+			// 表示用と同一＝再エンコードしない。切断が入った時（cutCount>0）は cut:false で焼き直す＝復元（idbLoad→loadBuffer）で
+			// 縫い目を跨ぐ図形が2片に割れず1つの環のまま戻る（本人報告 9/12「移動後の復元で線がダブる」の根治）。
+			saveBuf = (reshaped || built.cutCount > 0) ? (await encodeModel(model, { withEid: true, name: "geoedit/session", cut: false })).pbf.arrayBuffer : built.arrayBuffer;
 			if (g !== gen) return null;
 			fidEid = eids;
 			eidFid = new Map(eids.map((e, i) => [e, i]));
