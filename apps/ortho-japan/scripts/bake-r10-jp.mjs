@@ -16,7 +16,7 @@
 // ※クライアント側の追随: altpbf createGetHeight.js の staleDSM を拡張し、日本bboxに掛かる R10 で
 //   source に DEM10B を含まない旧タイルを失効させる（IDB は upload 後の初回訪問で自己修復）。
 
-import Pbf from 'pbf';
+import Pbf from "geopbf/pbf";
 import { deflateRawSync, gzipSync, inflateRawSync, gunzipSync } from 'node:zlib';
 import { mkdirSync, writeFileSync, readFileSync, readdirSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';

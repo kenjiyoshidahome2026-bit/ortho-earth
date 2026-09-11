@@ -1,4 +1,4 @@
-import Pbf from "pbf";
+import Pbf from "../modules/pbf.js";
 import { GeoPBF } from "../pbf-base.js";
 
 onmessage = async ({ data: { buf } }) => {

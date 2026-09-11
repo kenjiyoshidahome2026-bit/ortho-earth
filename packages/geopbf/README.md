@@ -9,8 +9,8 @@ shapes — instead of flattening them into draw-only tiles — plus **Gint**, a 
 vertex shader, that makes the data *answerable*: point-in-polygon identify, shared-edge topology, choropleth painting
 by feature id.
 
-Everything runs in the browser: format conversion in workers, topology baking in WASM, no servers, no API keys. One
-runtime dependency (`pbf`). This is the data layer under [ortho-earth](https://www.ortho-earth.com/), where 1,900+
+Everything runs in the browser: format conversion in workers, topology baking in WASM, no servers, no API keys. Zero
+runtime dependencies. This is the data layer under [ortho-earth](https://www.ortho-earth.com/), where 1,900+
 Japanese municipal polygons identify in 0.5–4 ms on an ordinary laptop.
 
 **Contents** — [1. Data model](#1-data-model) · [2. Quick start](#2-quick-start) · [3. File size](#3-file-size) ·
@@ -611,7 +611,8 @@ Everything else — conversion, Gint, identify — is identical either way.
 
 ## 10. Runtime requirements
 
-Runtime dependency: `pbf` (protobuf reader) only. Compression and decompression everywhere — gzip/deflate for
+No runtime dependencies. The protobuf wire reader/writer is built in (`geopbf/pbf`); the last external package,
+`pbf`, was dropped in 1.6. Compression and decompression everywhere — gzip/deflate for
 GeoPBF, ZIP/Shapefile/MOJ decoders, COG tiles, PMTiles and Parquet — go through the platform's native codecs
 (`CompressionStream`/`DecompressionStream` in browsers and workers, `node:zlib` in Node); pako was removed in 1.5.
 Requires a browser with `CompressionStream` (all evergreen browsers). zstd in Node needs 22.15+.
