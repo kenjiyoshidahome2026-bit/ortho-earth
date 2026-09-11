@@ -786,7 +786,8 @@ Through v1.4 the hub read formats. v1.5 opens the other direction: a GeoPBF leav
 <strong>PMTiles</strong> archive of Mapbox Vector Tiles or as a <strong>GeoParquet</strong> file, and a
 GeoParquet comes back in. Still no new dependencies — in fact <code>pako</code> was <em>removed</em>.
 Every codec now goes through the platform (<code>CompressionStream</code> in browsers and workers,
-<code>node:zlib</code> in Node), leaving <code>pbf</code> as the only runtime dependency.
+<code>node:zlib</code> in Node), leaving <code>pbf</code> as the only runtime dependency — and 1.6 dropped that one
+too, by bringing the protobuf wire reader/writer in-house. The dependency list is now empty.
 </p>
 
 <pre><code><span class="cm"># CLI — plain Node, no native build</span>

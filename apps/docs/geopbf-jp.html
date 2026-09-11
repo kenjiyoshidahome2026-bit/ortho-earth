@@ -787,7 +787,8 @@ v1.4 までの変換ハブは入力側のみを扱っていた。v1.5 で出力�
 <strong>PMTiles</strong> アーカイブ、または <strong>GeoParquet</strong> ファイルとして書き出せる。
 GeoParquet からの逆変換も可能である。依存追加はなく、むしろ <code>pako</code> を<em>削除</em>した。
 圧縮・伸長はすべてプラットフォーム側の codec を直接呼ぶ（ブラウザと worker は
-<code>CompressionStream</code>、Node は <code>node:zlib</code>）。実行時依存は <code>pbf</code> 1 本のみである。
+<code>CompressionStream</code>、Node は <code>node:zlib</code>）。残る実行時依存は <code>pbf</code> 1 本だったが、
+1.6 で protobuf のワイヤ読み書きを自前に持ち込み、これも切った。依存は空である。
 </p>
 
 <pre><code><span class="cm"># CLI — 素の Node で動く（ネイティブビルド不要）</span>

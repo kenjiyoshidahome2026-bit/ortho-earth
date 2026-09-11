@@ -11,7 +11,7 @@
 //   （--cells/--japan に --upload を併記すれば焼いた直後に上げる）
 // 出力: apps/ortho-japan/dem10b-out/（gitignore 済み）
 
-import Pbf from 'pbf';
+import Pbf from "geopbf/pbf";
 import { deflateRawSync, gzipSync, inflateSync } from 'node:zlib';
 import { mkdirSync, writeFileSync, readFileSync, readdirSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';

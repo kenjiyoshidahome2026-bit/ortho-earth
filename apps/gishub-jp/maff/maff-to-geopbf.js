@@ -16,7 +16,7 @@ import { dirname, join } from 'path';
 import { gunzip } from 'zlib';
 const __dir = dirname(fileURLToPath(import.meta.url));
 import { promisify } from 'util';
-import Pbf from 'pbf';
+import Pbf from "geopbf/pbf";
 
 const gunzipAsync = promisify(gunzip);
 import { Bucket } from 'native-bucket';   // workspace解決（アプリ移設で相対深度が壊れた轍・exports封印にも整合）

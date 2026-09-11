@@ -4,7 +4,7 @@
 // 旧 @mapbox/vector-tile の loadGeometry() は毎頂点 {x,y} Point オブジェクトを生成し、消費側(build/buildings)が
 // また flat 配列へ詰め直していた＝二度手間+GC圧。フラット直行でこの中間表現ごと消す。
 // ClosePath はリング先頭点の複製を追記（loadGeometry 互換＝リングは閉じて返る）。
-import Pbf from "pbf";
+import Pbf from "geopbf/pbf";
 
 const GEOM_TYPE = { 1: "Point", 2: "LineString", 3: "Polygon" };
 

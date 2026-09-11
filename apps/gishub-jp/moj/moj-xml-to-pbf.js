@@ -13,7 +13,7 @@ import { readFileSync, existsSync, writeFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { Bucket } from 'native-bucket';   // workspace解決（アプリ移設で相対深度が壊れた轍・exports封印にも整合）
-import Pbf from 'pbf';
+import Pbf from "geopbf/pbf";
 import AdmZip from 'adm-zip';
 const __dir = dirname(fileURLToPath(import.meta.url));
 

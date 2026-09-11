@@ -2,7 +2,7 @@
 // 標高グリッドを「delta 符号化 SVarint の packed 列＋deflate-raw」で持つ軽量タイル形式。
 // タイル名の規約＝ R{範囲2桁}{N|S}{緯度3桁}{E|W}{経度3桁}（例: R01N035E139 ＝ 1°タイル・北緯35・東経139）。
 // ローダ層（bucket/JAXA/IDB＝私有インフラ結線）は ./altpbf.js（npm 非同梱・workspace専用 "altpbf/loader"）。
-import Pbf from 'pbf';
+import Pbf from "geopbf/pbf";
 import { deflateRaw, inflateRaw } from "geopbf/gzip";
 
 const pad = (n, len) => String(n).padStart(len, '0');

@@ -1,5 +1,5 @@
 import { GeoPBF } from "../pbf-base.js";
-import Pbf from "pbf";
+import Pbf from "../modules/pbf.js";
 import { inflate } from "../modules/inflate.js";
 
 // JGD2011 Japan plane rectangular coordinate system → WGS84 (module-level constants)

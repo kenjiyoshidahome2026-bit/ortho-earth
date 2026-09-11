@@ -1,5 +1,5 @@
-// convert/mvt-decode.js ── 検定用の MVT デコーダ（pbf リーダを使う＝bare import があるので worker には持ち込まない）
-import Pbf from "pbf";
+// convert/mvt-decode.js ── 検定用の MVT デコーダ（自前の protobuf リーダ modules/pbf.js を使う＝相対 import のみ）
+import Pbf from "../modules/pbf.js";
 
 // → [{ name, extent, version, features: [{ id, type, props, geometry: [[x,y,…]…] }] }]
 export function decodeTile(buf) {

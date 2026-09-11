@@ -7,7 +7,7 @@
  *
  * PRECISION=7 固定。Point/Line/Polygon/Multi系すべて対応。
  */
-import Pbf from 'pbf';
+import Pbf from "geopbf/pbf";
 
 const TAGS = { NAME:1, KEYS:2, PRECISION:3, FARRAY:5, FEATURE:6, GEOMETRY:7,
     GTYPE:8, LENGTH:9, COORDS:10, VALUE:11, INDEX:12, DESCRIPTION:14, LICENSE:15, ATTRIBUTION:16 };
