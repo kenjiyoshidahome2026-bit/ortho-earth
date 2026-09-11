@@ -1,13 +1,13 @@
 // ── 国別DB（world）の uploader 組み込み（v2・2026-09-11）──
 // 正本は packages/world/seed（key・QID・英語基軸）。組み立ては packages/world/build（Node CLI と共用）。
 // ここは「ブラウザで組み立てて bucket に保存する」入口と、資産（旗・音源・地形PNG）の出し入れ。
-//   全部作る: seed → Wikidata / World Bank / IMF / HDR / en.wikipedia → NationDB・CityDB・TerrainDB・LanguageDB・CurrencyDB・Conflicts・i18n/<lang>・rivers（川の形状 GeoJSON）
+//   全部作る: seed → Wikidata / World Bank / IMF / HDR / en.wikipedia → NationDB・CityDB・TerrainDB・LanguageDB・CurrencyDB・Conflicts・i18n/<lang>・rivers（川の形状 GeoJSON）・range（山脈の軸線 GeoJSON）
 //   zip drop: flags.zip（<key>.svg）/ 音源.zip（mp3）/ geoms.zip（png）。svg 一枚差し（<key>.svg）
 import * as d3 from 'd3';
 import "common/d3/fileio.js";   // dropFiles 拡張
 import { download } from "common";
 import { decodeZIP, Cache } from "native-bucket";
-import { DIRE, DBS, FLAG, SOUND, GEOMS, makeDB, RIVERS } from "./db.js";
+import { DIRE, DBS, FLAG, SOUND, GEOMS, makeDB, RIVERS, RANGES } from "./db.js";
 import { createGeometryPNG } from "./createGeometryPNG.js";
 import { makeEnv } from "../../../../packages/world/build/env.js";
 import { loadSeed, SEED_FILES } from "../../../../packages/world/build/seed.js";
@@ -63,7 +63,8 @@ export async function worldUI({ CMD, q, Bucket, Fetch }) {
 		for (const [lang, v] of Object.entries(r.i18n)) { await db.saveJSON(`i18n/${lang}`, v); }
 		q.log(`i18n: ${Object.keys(r.i18n).length} 言語`);
 		if (r.rivers) { await db.saveJSON(RIVERS, r.rivers); q.log(`${RIVERS}.json: 川の形状 ${r.rivers.features.length} 件`); }
-		return `国 ${r.NationDB.length} / 都市 ${r.CityDB.length} / 地形 ${r.TerrainDB.length}（川の形状 ${r.rivers ? r.rivers.features.length : 0}）/ 言語 ${r.LanguageDB.length} / 通貨 ${r.CurrencyDB.length} / 係争 ${r.Conflicts.length}・warns ${r.report.warns.length}`;
+		if (r.ranges) { await db.saveJSON(RANGES, r.ranges); q.log(`${RANGES}.json: 山脈の軸線 ${r.ranges.features.length} 件`); }
+		return `国 ${r.NationDB.length} / 都市 ${r.CityDB.length} / 地形 ${r.TerrainDB.length}（川の形状 ${r.rivers ? r.rivers.features.length : 0}・山脈の軸線 ${r.ranges ? r.ranges.features.length : 0}）/ 言語 ${r.LanguageDB.length} / 通貨 ${r.CurrencyDB.length} / 係争 ${r.Conflicts.length}・warns ${r.report.warns.length}`;
 	}
 
 	CMD.append("h1").text("国別DB (world)");

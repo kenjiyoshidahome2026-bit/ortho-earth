@@ -6,6 +6,7 @@
 | 各言語の名前・記事名（i18n/） | Wikidata（ラベル・サイトリンク） | 同上 | CC0 1.0 |
 | 都市（座標・人口・標高） | Wikidata | 同上 | CC0 1.0 |
 | 地形（座標・面積・標高・長さ・記事名・26 言語名） | Wikidata | 同上 | CC0 1.0 |
+| 山脈の軸線（range.geojson） | Natural Earth 10m geography_regions_polys v5.1.2 から `build/geom.js` で導出（3 件は seed に手書き） | `build/index.js` | パブリックドメイン |
 | 川の形状（rivers.geojson） | Natural Earth 10m rivers_lake_centerlines_scale_rank v5.1.2 | `build/index.js`（wikidataid で結合） | パブリックドメイン |
 | 人口 / GNI / GDP / PPP / 殺人率 | World Bank Open Data API | `build/stats.js` | CC BY 4.0（人口の原典は UN WPP＝CC BY 3.0 IGO） |
 | GDP 系の穴埋め | IMF World Economic Outlook（DBnomics ミラー） | 同上 | IMF の利用条件（出典表記） |

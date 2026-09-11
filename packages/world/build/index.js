@@ -1,15 +1,18 @@
 // 国別 DB v2 の組み立て（2026-09-11・Kenji「英語と ID 中心に・美しく」）。
 //   正本＝seed/（key・QID・英語名・地域・帰属・例外）。取得＝Wikidata（構造化項目）＋統計 API（stats.js）。合成＝ここ 1 か所。
-//   出力＝NationDB / CityDB / TerrainDB / LanguageDB / CurrencyDB / Conflicts / i18n/<lang>（英語以外の名前・記事名）/ rivers（川の形状 GeoJSON＝Natural Earth）。
+//   出力＝NationDB / CityDB / TerrainDB / LanguageDB / CurrencyDB / Conflicts / i18n/<lang>（英語以外の名前・記事名）/ rivers（川の形状 GeoJSON＝Natural Earth）/ ranges（山脈の軸線 GeoJSON）。
 //   取得元ごとに独立（順番依存なし）・全て QID/ISO で結合（日本語名の名寄せ無し）・保存前に validate。
 import { entities, ids, idsNational, strings, label, nameEn, sitelink, quantity, areaKm2, coord, latestByTime, membershipSince, anthemFile } from "./wikidata.js";
 import { allStats } from "./stats.js";
 import { validate } from "./validate.js";
 import { buildI18N } from "./i18n.js";
+import { rangeAxis, parseAxis } from "./geom.js";
 
 const UN = "Q1065";
 // 川の形状: Natural Earth 10m rivers_lake_centerlines_scale_rank（パブリックドメイン・版固定）。wikidataid で seed の川と結合
 const NE_RIVERS = "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/v5.1.2/geojson/ne_10m_rivers_lake_centerlines_scale_rank.geojson";
+// 山脈の軸線: Natural Earth 10m geography_regions_polys（Range/mtn ポリゴン・属性名は大文字）→ geom.js で 2〜4 点の軸線に
+const NE_REGIONS = "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/v5.1.2/geojson/ne_10m_geography_regions_polys.geojson";
 const wikis = langs => langs.map(l => l + "wiki");
 
 export async function buildAll(seed, env) {
@@ -93,6 +96,21 @@ export async function buildAll(seed, env) {
 		}
 		rivers = { type: "FeatureCollection", source: "Natural Earth 10m rivers_lake_centerlines_scale_rank v5.1.2 (public domain)", features };
 	}
+	// 4d) 山脈の軸線（2〜4 点の LineString）: seed の axis 列（手書き）＞ NE ポリゴン（qid＋ne_extra）から geom.js で自動抽出。表示側で spline＋幅でポリゴン化する
+	const rangeSeeds = seed.terrains.filter(t => t.category == "range");
+	let ranges = null;
+	if (rangeSeeds.length) {
+		log(`Natural Earth: 山脈の軸線（${rangeSeeds.length} 件）`);
+		const ne = await env.json(NE_REGIONS), byQ = {}, byName = {};   // ne_extra の "~名前" は NE の NAME_EN で結合（東サヤンのように wikidataid が無い区画）
+		for (const f of ne.features) { const P = f.properties || {}, q = P.WIKIDATAID || P.wikidataid, n = P.NAME_EN || P.name_en; q && (byQ[q] = byQ[q] || []).push(f); n && (byName["~" + n] = byName["~" + n] || []).push(f); }
+		const features = [];
+		for (const t of rangeSeeds) {
+			const ax = t.axis ? parseAxis(t.axis) : rangeAxis([t.qid, ...t.ne_extra].flatMap(q => byQ[q] || byName[q] || []));
+			if (!ax) continue;
+			features.push({ type: "Feature", properties: clean({ qid: t.qid, name: t.name_en, width: ax.width, length: ax.length, source: t.axis ? "seed" : "ne" }), geometry: { type: "LineString", coordinates: ax.line } });
+		}
+		ranges = { type: "FeatureCollection", source: "axis lines derived from Natural Earth 10m geography_regions_polys v5.1.2 (public domain); some hand-drawn in seed", features };
+	}
 	// 5) 係争地（seed）→ Conflicts と 国側の sovereignt/claim
 	const KE = await entities(seed.conflicts.map(c => c.qid), env, opt);
 	const Conflicts = seed.conflicts.map(c => clean({ key: c.key, qid: c.qid, type: c.type, region: c.region, name: { en: c.name_en }, exist: c.exist, sovereignt: c.sovereignt || undefined, territory: c.territory || undefined, claim: c.claim && c.claim.length ? c.claim : undefined, wiki: { en: sitelink(KE[c.qid], "en") } }));
@@ -138,11 +156,11 @@ export async function buildAll(seed, env) {
 		["languages", "currency"].forEach(f => { if (!t[f] && p[f]) { t[f] = p[f]; t._src[f] = "territory"; } }); });
 	NationDB.forEach(t => Object.keys(t).forEach(k => t[k] === undefined && delete t[k]));
 	// 9) 検札
-	const report = validate({ NationDB, CityDB, TerrainDB, LanguageDB, CurrencyDB, Conflicts, rivers: rivers && new Set(rivers.features.map(f => f.properties.qid)) });
+	const report = validate({ NationDB, CityDB, TerrainDB, LanguageDB, CurrencyDB, Conflicts, rivers: rivers && new Set(rivers.features.map(f => f.properties.qid)), ranges: ranges && new Set(ranges.features.map(f => f.properties.qid)) });
 	report.warns.forEach(s => warn(s)); report.errors.forEach(s => warn("ERROR " + s));
 	// 10) i18n（英語以外の名前・記事名。ja は読み・正式名も）
 	const i18n = buildI18N(seed, { NE, CE, LC, KE, TE }, { NationDB, CityDB, TerrainDB, LanguageDB, CurrencyDB, Conflicts });
-	return { NationDB, CityDB, TerrainDB, LanguageDB, CurrencyDB, Conflicts, i18n, rivers, report };
+	return { NationDB, CityDB, TerrainDB, LanguageDB, CurrencyDB, Conflicts, i18n, rivers, ranges, report };
 }
 // commons のファイル名 → mp3 派生 URL（videoinfo.derivatives）。ogg 原本は Safari/iOS で鳴らない。50 件束
 async function commonsMp3(files, env) {

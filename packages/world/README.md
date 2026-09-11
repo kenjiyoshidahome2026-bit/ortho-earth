@@ -12,7 +12,7 @@ Wikidata の QID、都市は QID、言語は ISO 639、通貨は ISO 4217。日�
 seed/            正本（人が手で持つ・PR の対象）
   nations.csv      key, qid, name_en, official_en（"Republic of _" 型）, region(1..6), territory(key), conflict(key), capital(都市 QID・空なら Wikidata P36)
   cities.csv       qid, nation(key・複数は |), capital(1)          … 首都は build が自動で加える
-  terrains.csv     qid, category(range/peak/peninsula/desert/plain/lake/river/ridge/trench/island/islands), name_en, ne_extra … 座標・面積・標高・長さ・記事名・26 言語名は Wikidata から。ne_extra＝川の形状に結合する Natural Earth 側の別 QID（| 区切り・長江の金沙江/通天河/沱沱河、パラナの下流）
+  terrains.csv     qid, category(range/peak/peninsula/desert/plain/lake/river/ridge/trench/island/islands), name_en, ne_extra, axis … 座標・面積・標高・長さ・記事名・26 言語名は Wikidata から。ne_extra＝形状に結合する Natural Earth 側の別 QID（| 区切り・川＝長江の金沙江/通天河/沱沱河・パラナの下流、山脈＝サヤンの東西。"~名前" は NE の NAME_EN で結合＝wikidataid の無い区画用）。axis＝山脈の軸線の手書き（"lon lat;lon lat;…"・NE にポリゴンが無いアペニン/ペナイン/コルドバ）
   conflicts.json   係争地（key・qid・type・region・name_en・exist・sovereignt・territory・claim）
   overrides.json   例外＝key → { 項目: 値, _why: {項目: 理由} }（最優先。無人地の人口・本土面積・非 ISO 主体の通貨・実効支配域…）
   capital-notes.json 首都の注記（defacto / changed=[年, 都市QID] / multi={legislative,judicial,executive} / text=国key か翻訳キー）
@@ -20,7 +20,8 @@ seed/            正本（人が手で持つ・PR の対象）
   ja.json          日本語固有: 国の official（"_国" 型）と読み・都市の読みと名前の上書き
 i18n/ui.json      UI 文言（英語キー → 25 言語）と言語一覧（langs.json）
 build/            組み立て（Node CLI と uploader で共用・依存なし）
-  index.js         buildAll(seed, env) → { NationDB, CityDB, TerrainDB, LanguageDB, CurrencyDB, Conflicts, i18n, rivers, report }
+  index.js         buildAll(seed, env) → { NationDB, CityDB, TerrainDB, LanguageDB, CurrencyDB, Conflicts, i18n, rivers, ranges, report }
+  geom.js          山脈ポリゴン → 2〜4 点の軸線（内部を格子標本化 → 主成分軸 → 軸に沿った窓の重心。幅＝垂直方向の p10〜p90 の中央値 km）
   wikidata.js      wbgetentities（50 件束）と「現在の値」の取り出し（preferred > 終了日なし normal・P518/P1001＝部分適用の除外）
   stats.js         World Bank（主）/ IMF WEO（穴埋め）/ UNDP HDR / GPI と国連加盟日（en.wikipedia の表）＝すべて ISO3・QID で結合
   validate.js      保存前の機械検札（キー重複・参照切れ・首都の収蔵・キー未収蔵…）errors があれば保存しない
@@ -45,6 +46,7 @@ legacy/           README-v1.md＝v1 の経緯と移植台帳のみ。原典と v
 | NationDB | key | qid, name.en, official, region, iso[2,3,num], ioc, un(加盟日), capital(都市 QID), territory/conflict(key), sovereignt/claim(係争地 key), coord, area, population/gni/gnipc/gdp/gdppc/ppp/ppppc/hdi/homicide(=[最新年, 値…]), gpi(=[年, 値]), languages(ISO 639), currency(ISO 4217), anthem(URL), flag(Commons ファイル名), wiki.en(記事名), capitalNote, `_src`(項目ごとの出所) |
 | CityDB | qid | name.en, nation[key], capital, coords[lon,lat,標高], population[年,値], wiki.en |
 | TerrainDB | qid | category, name.en, coord[lon,lat], area(km²), elevation(m), length(km), wiki.en |
+| range.geojson | qid | 山脈の軸線＝FeatureCollection（properties: qid, name, width(km), length(km), source=ne/seed / LineString 2〜4 点・小数 3 桁）。表示側で spline を通し width でポリゴン化する前提（Kenji 2026-09-11）|
 | rivers.geojson | qid | 川の形状＝FeatureCollection（properties: qid, name, scalerank / MultiLineString・小数 4 桁）。Natural Earth 10m rivers_lake_centerlines_scale_rank v5.1.2 を wikidataid で結合 |
 | LanguageDB / CurrencyDB | ISO 639 / 4217 | qid, name.en, wiki.en |
 | Conflicts | key | qid, type, region, name.en, exist, sovereignt, territory, claim, wiki.en |
