@@ -6,7 +6,7 @@ import "common/dom/highlight.js";
 import { escape, download } from "common";
 import { wiki } from "common/wiki.js";
 import "./draw.scss";
-import { loadWorld, loadI18N, refresh, systemStore, ASSET_BASE } from "./data.js";
+import { loadWorld, loadI18N, refresh, systemStore, dropCache, ASSET_BASE } from "./data.js";
 import { state, REGIONS, SORTS, FILTERS, LANGUAGES, LANG_LIST, isRTL, trans, collator, buildModel } from "./model.js";
 import { selectOptions, selectButtons, inputSearch } from "./controls.js";
 import { makeFlag } from "./flag.js";
@@ -74,7 +74,18 @@ const assets = (() => {
 	const flagURL = k => `${ASSET_BASE}flags/${encodeURIComponent(k)}.svg`;
 	return { flagURL, hasFlag: k => data.flags.has(k), flag: k => flags[k] || (flags[k] = makeFlag(flagURL(k))), geomURL: k => `${ASSET_BASE}geoms/${encodeURIComponent(k)}.png`, openWiki: (url, name) => showWiki(url, name) };
 })();
-let model = buildModel(data, assets);
+// 温起動＝IDB をそのまま食う。そのデータが今のコードと別の版の形だと buildModel が落ちる
+// （例: v1 の CityDB は nation が文字列・v2 は配列）。ここで投げるとモジュールごと死んで下の refresh() に
+// 到達しない＝キャッシュが直る機会が永久に来ない。なので温のときだけ捨てて冷やし直す。
+let model;
+try { model = buildModel(data, assets); }
+catch (e) {
+	if (!data.warm) { loading.html(`<span>Failed to build: ${e.message}</span>`); throw e; }
+	console.warn("cached data is from an older schema; dropping the cache and refetching.", e);
+	await dropCache();
+	data = await loadWorld(state.lang); state.i18n = data.i18n;
+	model = buildModel(data, assets);
+}
 let nations = model.nations;
 ////-------------------------------------------------------------------------------------------------------------
 // 効果音（音源.zip）と読み上げ（Web Speech API）
