@@ -1,9 +1,8 @@
 // ── 国別DB ビューア（旧 draw.js の移植・2026-09-09）──
 // データ=bucket GIS/world（uploader「国別DB (world)」節の成果物）。地図は後日＝geoPNG はサムネイル表示のみ（配線なし）
-import * as d3 from 'd3';
-import "common/d3/selection.js";
-import "common/d3/tip-pop.js";
-import "common/d3/highlight.js";
+import { sel } from "common/dom";
+import "common/dom/tip.js";
+import "common/dom/highlight.js";
 import { escape, download } from "common";
 import { wiki } from "common/wiki.js";
 import "./draw.scss";
@@ -48,7 +47,7 @@ function fitScale(html, font, { lines = 1, outerSpan = false } = {}) {
 	return FIT_MIN;
 }
 
-const body = d3.select("body");
+const body = sel("body");
 const loading = body.append("div").attr("name", "loading").html("<span>Loading the world…</span>");
 ////-------------------------------------------------------------------------------------------------------------
 const store = await systemStore();
@@ -134,14 +133,14 @@ body.html(`
 	<iframe name="frame" title="Wikipedia"></iframe>
 </div>`);
 const head = body.select("[name=head]").slideX(true);
-[...head.selectAll("[name]")].forEach(t => head[t.getAttribute("name")] = d3.select(t));
-[...head.selectAll("[icon]")].forEach(t => d3.select(t).html(icon[t.getAttribute("icon")]));
+[...head.selectAll("[name]")].forEach(t => head[t.getAttribute("name")] = sel(t));
+[...head.selectAll("[icon]")].forEach(t => sel(t).html(icon[t.getAttribute("icon")]));
 const scroll = body.select("[name=scroll]");
 const modal = body.select("[name=modal]");
-[...modal.selectAll("[name]")].forEach(t => modal[t.getAttribute("name")] = d3.select(t));
+[...modal.selectAll("[name]")].forEach(t => modal[t.getAttribute("name")] = sel(t));
 // Wikipedia はアプリ内の iframe で（census と同じ・Kenji 2026-09-10）。記事は m. 版＝狭い枠でも読みやすい。別タブは ↗ で
 const wikiPane = body.select("[name=wiki]");
-[...wikiPane.selectAll("[name]")].forEach(t => wikiPane[t.getAttribute("name")] = d3.select(t));
+[...wikiPane.selectAll("[name]")].forEach(t => wikiPane[t.getAttribute("name")] = sel(t));
 wikiPane.logo.attr("src", wiki.logo); wikiPane.newtab.html("&nearr;"); wikiPane.close.html(icon.close).on("click", () => closeWiki());
 let modalEscape = null;   // 国旗モーダルの Escape（wiki を閉じた後に復帰させる）
 function showWiki(url, name) {
@@ -211,7 +210,7 @@ async function drawAll() {
 	Speech.setLanguage(lang);
 	const d = sort > 0 ? dire ? 1 : -1 : dire ? -1 : 1;
 	head.selectAll("[name=sorts] button").each(function () {
-		d3.select(this).text(trans(this.getAttribute("trans")) + (this.value == Math.abs(sort) ? (sort < 0) ? "△" : "▽" : ""));
+		sel(this).text(trans(this.getAttribute("trans")) + (this.value == Math.abs(sort) ? (sort < 0) ? "△" : "▽" : ""));
 	});
 	const cmp = collator();
 	const sfunc = Math.abs(sort) == 1 ? (p, q) => d * cmp.compare(p.sortName, q.sortName) :
@@ -236,7 +235,7 @@ function blockView() {
 	scroll.selectAll("div.nation").data(nationTub).enter().append("div").each(function (q) { try { draw.call(this, q); } catch (e) { console.error("card失敗:", q && q.key, e); } });
 	scroll.selectAll(".hover").on("mouseenter", () => Sound("操作M", 0.4));
 	function draw(q) {
-		const node = d3.select(this).classed("nation", true);
+		const node = sel(this).classed("nation", true);
 		const jpcap = () => { const s = q.capitalInfo, cap = q.capitalName; return (state.lang == "ja" && cap.length > 13) ? `<span style="font-size:90%;">${s}</span>` : s; };
 		node.append("div").classed("order", true).html("#" + q.order);
 		q.geopngurl && node.append("img").classed("mapopen", true).attr("src", q.geopngurl).attr("loading", "lazy").attr("alt", "").tip(mapTip(q));   // 地図は後日＝配線なし
@@ -301,7 +300,7 @@ function inlineView() {
 		["a2", "a3", "num"].forEach((t, i) => tr.append("th").html(t).classed("hover", true).on("click", () => sortOthers("iso", i)));
 		["code", "from"].forEach((t, i) => tr.append("th").html(t).classed("hover", true).on("click", () => sortOthers("ioc", i)));
 		(sort > 2) && tr.select("th").classed("flip", true);
-		function sortExternal(n) { d3.select(btns[n]).trigger(new MouseEvent("click", { bubbles: true })); }
+		function sortExternal(n) { sel(btns[n]).trigger(new MouseEvent("click", { bubbles: true })); }
 		function sortInternal(func) { func && (nationTub = nationTub.slice().sort(func)); tbody.empty().selectAll("tr").data(nationTub).enter().append("tr").each(safeDraw); }
 		function sortCapital() {
 			const a = nationTub.filter(t => t.capital || t.territory), b = nationTub.filter(t => !(t.capital || t.territory));
@@ -313,7 +312,7 @@ function inlineView() {
 			sortInternal((p, q) => d * (p.region == q.region ? (p.sortName > q.sortName ? 1 : -1) : p.region > q.region ? 1 : -1));
 		}
 		function sortYear(target, i) {
-			thead.selectAll("th").classed("flip", false); d3.select(target).classed("flip", true);
+			thead.selectAll("th").classed("flip", false); sel(target).classed("flip", true);
 			const d = state.sort > 0 ? dire ? 1 : -1 : dire ? -1 : 1;
 			sortInternal((p, q) => d * ((p[member].data[i] || 0) > (q[member].data[i] || 0) ? 1 : -1));
 		}
@@ -325,7 +324,7 @@ function inlineView() {
 		}
 	}
 	function draw(q) {
-		const tr = d3.select(this);
+		const tr = sel(this);
 		const a = [[], [q.area]].concat(SORTS.dataLabels.map(t => q[t]));
 		const formats = SORTS.map(t => t.format);
 		let data = a[sort - 1];
@@ -349,8 +348,8 @@ function inlineView() {
 		value.forEach(t => tr.append("td").css(R).html(t));
 		tr.append("td").css(C).html(q.Currency);
 		tr.append("td").css(L).html(q.Language);
-		[...tr.selectAll("currency")].forEach((t, i) => d3.select(t).tip(q.currency[i].Name).classed("hover", true).on("click", () => q.currency[i].OpenWikipedia()));
-		[...tr.selectAll("language")].forEach((t, i) => d3.select(t).tip(q.languages[i].Name).classed("hover", true).on("click", () => q.languages[i].OpenWikipedia()));
+		[...tr.selectAll("currency")].forEach((t, i) => sel(t).tip(q.currency[i].Name).classed("hover", true).on("click", () => q.currency[i].OpenWikipedia()));
+		[...tr.selectAll("language")].forEach((t, i) => sel(t).tip(q.languages[i].Name).classed("hover", true).on("click", () => q.languages[i].OpenWikipedia()));
 	}
 }
 ////-------------------------------------------------------------------------------------------------------------
