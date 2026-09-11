@@ -8,6 +8,8 @@ npm-debug.log*
 dist/
 dist-tsc/
 build/
+# 国別DB v2 の組み立て（Node CLI と uploader で共用）＝ソースなので追跡
+!packages/world/build/
 stats.html
 # 環境変数
 .env
