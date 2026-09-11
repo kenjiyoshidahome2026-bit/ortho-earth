@@ -1,0 +1,3297 @@
+{
+ "_doc": "手動層。generator（scripts/terrains-from-ne.py）が Natural Earth の閾値選定に重ねる。add=NE 閾値外でも入れる（QID 基軸・category 必須）、drop=QID か NE の name_en で除外、category=分類の上書き（QID か NE name_en）、merge=形状を結合する NE 側の別 QID（川・山脈）、axis=山脈の手書き軸線。drop は QID・NE name_en・enwiki 記事名のいずれでも可。allow_nation=国の QID でも地形として残す（グリーンランド）。alias=NE の wikidataid（英語記事の無い重複項目）→ 正規の QID",
+ "add": [
+  {
+   "qid": "Q130135",
+   "category": "range",
+   "name": "Atlas Mountains"
+  },
+  {
+   "qid": "Q842139",
+   "category": "range",
+   "name": "Annamite Range"
+  },
+  {
+   "qid": "Q12431",
+   "category": "range",
+   "name": "Pyrenees"
+  },
+  {
+   "qid": "Q1286",
+   "category": "range",
+   "name": "Alps"
+  },
+  {
+   "qid": "Q1285",
+   "category": "range",
+   "name": "Apennines"
+  },
+  {
+   "qid": "Q5477",
+   "category": "range",
+   "name": "Caucasus Mountains"
+  },
+  {
+   "qid": "Q167021",
+   "category": "range",
+   "name": "Zagros Mountains"
+  },
+  {
+   "qid": "Q5451",
+   "category": "range",
+   "name": "Himalayas"
+  },
+  {
+   "qid": "Q5463",
+   "category": "range",
+   "name": "Rocky Mountains"
+  },
+  {
+   "qid": "Q5456",
+   "category": "range",
+   "name": "Andes"
+  },
+  {
+   "qid": "Q35647",
+   "category": "range",
+   "name": "Pennines"
+  },
+  {
+   "qid": "Q186547",
+   "category": "range",
+   "name": "Scandinavian Mountains"
+  },
+  {
+   "qid": "Q35600",
+   "category": "range",
+   "name": "Ural Mountains"
+  },
+  {
+   "qid": "Q5474",
+   "category": "range",
+   "name": "Tianshan Mountains"
+  },
+  {
+   "qid": "Q183295",
+   "category": "range",
+   "name": "Drakensberg"
+  },
+  {
+   "qid": "Q192583",
+   "category": "range",
+   "name": "Great Dividing Range"
+  },
+  {
+   "qid": "Q93332",
+   "category": "range",
+   "name": "Appalachian Mountains"
+  },
+  {
+   "qid": "Q5955",
+   "category": "range",
+   "name": "Altai Mountains"
+  },
+  {
+   "qid": "Q187871",
+   "category": "range",
+   "name": "Kunlun Mountains"
+  },
+  {
+   "qid": "Q863798",
+   "category": "range",
+   "name": "Qinling"
+  },
+  {
+   "qid": "Q5472",
+   "category": "range",
+   "name": "Hindu Kush"
+  },
+  {
+   "qid": "Q26777",
+   "category": "range",
+   "name": "Sierra Nevada"
+  },
+  {
+   "qid": "Q156684",
+   "category": "range",
+   "name": "Alaska Range"
+  },
+  {
+   "qid": "Q929910",
+   "category": "range",
+   "name": "Brooks Range"
+  },
+  {
+   "qid": "Q1719533",
+   "category": "range",
+   "name": "Sierras de Córdoba"
+  },
+  {
+   "qid": "Q1288",
+   "category": "range",
+   "name": "Carpathians"
+  },
+  {
+   "qid": "Q1124584",
+   "category": "range",
+   "name": "Sierra Madre Occidental"
+  },
+  {
+   "qid": "Q203239",
+   "category": "range",
+   "name": "Sayan Mountains"
+  },
+  {
+   "qid": "Q214284",
+   "category": "range",
+   "name": "Stanovoy Range"
+  },
+  {
+   "qid": "Q170427",
+   "category": "range",
+   "name": "Balkan Mountains"
+  },
+  {
+   "qid": "Q215917",
+   "category": "range",
+   "name": "Verkhoyansk Range"
+  },
+  {
+   "qid": "Q513",
+   "category": "peak",
+   "name": "Mount Everest"
+  },
+  {
+   "qid": "Q43512",
+   "category": "peak",
+   "name": "K2"
+  },
+  {
+   "qid": "Q82019",
+   "category": "peak",
+   "name": "Kangchenjunga"
+  },
+  {
+   "qid": "Q168702",
+   "category": "peak",
+   "name": "Lhotse"
+  },
+  {
+   "qid": "Q169986",
+   "category": "peak",
+   "name": "Makalu"
+  },
+  {
+   "qid": "Q170089",
+   "category": "peak",
+   "name": "Cho Oyu"
+  },
+  {
+   "qid": "Q165440",
+   "category": "peak",
+   "name": "Dhaulagiri"
+  },
+  {
+   "qid": "Q170070",
+   "category": "peak",
+   "name": "Manaslu"
+  },
+  {
+   "qid": "Q130736",
+   "category": "peak",
+   "name": "Nanga Parbat"
+  },
+  {
+   "qid": "Q16466024",
+   "category": "peak",
+   "name": "Annapurna I"
+  },
+  {
+   "qid": "Q39231",
+   "category": "peak",
+   "name": "Mount Fuji"
+  },
+  {
+   "qid": "Q60967",
+   "category": "peak",
+   "name": "Mount Kinabalu"
+  },
+  {
+   "qid": "Q40758",
+   "category": "peak",
+   "name": "Mount Damavand"
+  },
+  {
+   "qid": "Q72303",
+   "category": "peak",
+   "name": "Mount Ararat"
+  },
+  {
+   "qid": "Q107635",
+   "category": "peak",
+   "name": "Mount Paektu"
+  },
+  {
+   "qid": "Q216059",
+   "category": "peak",
+   "name": "Mount Tai"
+  },
+  {
+   "qid": "Q494645",
+   "category": "peak",
+   "name": "Hallasan"
+  },
+  {
+   "qid": "Q1451",
+   "category": "peak",
+   "name": "Mount Pinatubo"
+  },
+  {
+   "qid": "Q1484",
+   "category": "peak",
+   "name": "Mayon"
+  },
+  {
+   "qid": "Q82613",
+   "category": "peak",
+   "name": "Krakatoa"
+  },
+  {
+   "qid": "Q377485",
+   "category": "peak",
+   "name": "Mount Sinai"
+  },
+  {
+   "qid": "Q1045888",
+   "category": "peak",
+   "name": "Puncak Jaya"
+  },
+  {
+   "qid": "Q210252",
+   "category": "peak",
+   "name": "Klyuchevskaya Sopka"
+  },
+  {
+   "qid": "Q229107",
+   "category": "peak",
+   "name": "Mount Kailash"
+  },
+  {
+   "qid": "Q583",
+   "category": "peak",
+   "name": "Mont Blanc"
+  },
+  {
+   "qid": "Q1374",
+   "category": "peak",
+   "name": "Matterhorn"
+  },
+  {
+   "qid": "Q43105",
+   "category": "peak",
+   "name": "Mount Elbrus"
+  },
+  {
+   "qid": "Q16990",
+   "category": "peak",
+   "name": "Mount Etna"
+  },
+  {
+   "qid": "Q524",
+   "category": "peak",
+   "name": "Mount Vesuvius"
+  },
+  {
+   "qid": "Q80344",
+   "category": "peak",
+   "name": "Mount Olympus"
+  },
+  {
+   "qid": "Q3375",
+   "category": "peak",
+   "name": "Zugspitze"
+  },
+  {
+   "qid": "Q104674",
+   "category": "peak",
+   "name": "Ben Nevis"
+  },
+  {
+   "qid": "Q3388",
+   "category": "peak",
+   "name": "Grossglockner"
+  },
+  {
+   "qid": "Q15312",
+   "category": "peak",
+   "name": "Jungfrau"
+  },
+  {
+   "qid": "Q4425",
+   "category": "peak",
+   "name": "Eiger"
+  },
+  {
+   "qid": "Q7296",
+   "category": "peak",
+   "name": "Mount Kilimanjaro"
+  },
+  {
+   "qid": "Q172070",
+   "category": "peak",
+   "name": "Mount Kenya"
+  },
+  {
+   "qid": "Q190562",
+   "category": "peak",
+   "name": "Mount Cameroon"
+  },
+  {
+   "qid": "Q503433",
+   "category": "peak",
+   "name": "Toubkal"
+  },
+  {
+   "qid": "Q275435",
+   "category": "peak",
+   "name": "Ras Dashen"
+  },
+  {
+   "qid": "Q221666",
+   "category": "peak",
+   "name": "Mount Stanley"
+  },
+  {
+   "qid": "Q213360",
+   "category": "peak",
+   "name": "Table Mountain"
+  },
+  {
+   "qid": "Q130018",
+   "category": "peak",
+   "name": "Denali"
+  },
+  {
+   "qid": "Q120306",
+   "category": "peak",
+   "name": "Mount Logan"
+  },
+  {
+   "qid": "Q194057",
+   "category": "peak",
+   "name": "Mount Rainier"
+  },
+  {
+   "qid": "Q4675",
+   "category": "peak",
+   "name": "Mount St. Helens"
+  },
+  {
+   "qid": "Q235539",
+   "category": "peak",
+   "name": "Mount Whitney"
+  },
+  {
+   "qid": "Q181157",
+   "category": "peak",
+   "name": "Popocatépetl"
+  },
+  {
+   "qid": "Q238147",
+   "category": "peak",
+   "name": "Pico de Orizaba"
+  },
+  {
+   "qid": "Q131230",
+   "category": "peak",
+   "name": "Mauna Kea"
+  },
+  {
+   "qid": "Q159762",
+   "category": "peak",
+   "name": "Mauna Loa"
+  },
+  {
+   "qid": "Q39739",
+   "category": "peak",
+   "name": "Aconcagua"
+  },
+  {
+   "qid": "Q233836",
+   "category": "peak",
+   "name": "Ojos del Salado"
+  },
+  {
+   "qid": "Q14081",
+   "category": "peak",
+   "name": "Chimborazo"
+  },
+  {
+   "qid": "Q181476",
+   "category": "peak",
+   "name": "Cotopaxi"
+  },
+  {
+   "qid": "Q200935",
+   "category": "peak",
+   "name": "Huascarán"
+  },
+  {
+   "qid": "Q5059",
+   "category": "peak",
+   "name": "Aoraki / Mount Cook"
+  },
+  {
+   "qid": "Q178167",
+   "category": "peak",
+   "name": "Mount Kosciuszko"
+  },
+  {
+   "qid": "Q163758",
+   "category": "peak",
+   "name": "Vinson Massif"
+  },
+  {
+   "qid": "Q188982",
+   "category": "peak",
+   "name": "Mount Erebus"
+  },
+  {
+   "qid": "Q31945",
+   "category": "peninsula",
+   "name": "Arabian Peninsula"
+  },
+  {
+   "qid": "Q60140",
+   "category": "peninsula",
+   "name": "Indian subcontinent"
+  },
+  {
+   "qid": "Q84170",
+   "category": "peninsula",
+   "name": "Labrador Peninsula"
+  },
+  {
+   "qid": "Q73169",
+   "category": "peninsula",
+   "name": "Scandinavian Peninsula"
+  },
+  {
+   "qid": "Q12837",
+   "category": "peninsula",
+   "name": "Iberian Peninsula"
+  },
+  {
+   "qid": "Q43467",
+   "category": "peninsula",
+   "name": "Mainland Southeast Asia"
+  },
+  {
+   "qid": "Q51614",
+   "category": "peninsula",
+   "name": "Anatolia"
+  },
+  {
+   "qid": "Q23522",
+   "category": "peninsula",
+   "name": "Balkans"
+  },
+  {
+   "qid": "Q993",
+   "category": "peninsula",
+   "name": "Kamchatka Peninsula"
+  },
+  {
+   "qid": "Q18758",
+   "category": "peninsula",
+   "name": "Malay Peninsula"
+  },
+  {
+   "qid": "Q483134",
+   "category": "peninsula",
+   "name": "Korean Peninsula"
+  },
+  {
+   "qid": "Q233770",
+   "category": "peninsula",
+   "name": "Cape York Peninsula"
+  },
+  {
+   "qid": "Q145694",
+   "category": "peninsula",
+   "name": "Italian Peninsula"
+  },
+  {
+   "qid": "Q178543",
+   "category": "peninsula",
+   "name": "Baja California peninsula"
+  },
+  {
+   "qid": "Q2661894",
+   "category": "peninsula",
+   "name": "Florida Peninsula"
+  },
+  {
+   "qid": "Q893152",
+   "category": "peninsula",
+   "name": "Boothia Peninsula"
+  },
+  {
+   "qid": "Q40556",
+   "category": "peninsula",
+   "name": "Horn of Africa"
+  },
+  {
+   "qid": "Q7835",
+   "category": "peninsula",
+   "name": "Crimea"
+  },
+  {
+   "qid": "Q858306",
+   "category": "peninsula",
+   "name": "Shandong Peninsula"
+  },
+  {
+   "qid": "Q326917",
+   "category": "peninsula",
+   "name": "Liaodong Peninsula"
+  },
+  {
+   "qid": "Q36755",
+   "category": "peninsula",
+   "name": "Sinai Peninsula"
+  },
+  {
+   "qid": "Q78967",
+   "category": "peninsula",
+   "name": "Peloponnese"
+  },
+  {
+   "qid": "Q327",
+   "category": "peninsula",
+   "name": "Brittany"
+  },
+  {
+   "qid": "Q25389",
+   "category": "peninsula",
+   "name": "Jutland"
+  },
+  {
+   "qid": "Q165608",
+   "category": "peninsula",
+   "name": "Kola Peninsula"
+  },
+  {
+   "qid": "Q488266",
+   "category": "peninsula",
+   "name": "Yamal Peninsula"
+  },
+  {
+   "qid": "Q37056",
+   "category": "peninsula",
+   "name": "Taymyr Peninsula"
+  },
+  {
+   "qid": "Q1002",
+   "category": "peninsula",
+   "name": "Chukchi Peninsula"
+  },
+  {
+   "qid": "Q60064",
+   "category": "peninsula",
+   "name": "Alaska Peninsula"
+  },
+  {
+   "qid": "Q130978",
+   "category": "peninsula",
+   "name": "Yucatan Peninsula"
+  },
+  {
+   "qid": "Q329884",
+   "category": "peninsula",
+   "name": "Arnhem Land"
+  },
+  {
+   "qid": "Q185605",
+   "category": "peninsula",
+   "name": "Antarctic Peninsula"
+  },
+  {
+   "qid": "Q213237",
+   "category": "peninsula",
+   "name": "Valdes Peninsula"
+  },
+  {
+   "qid": "Q151559",
+   "category": "peninsula",
+   "name": "Gaspé Peninsula"
+  },
+  {
+   "qid": "Q272514",
+   "category": "desert",
+   "name": "Dasht-e Kavir"
+  },
+  {
+   "qid": "Q172702",
+   "category": "desert",
+   "name": "Karakum Desert"
+  },
+  {
+   "qid": "Q184364",
+   "category": "desert",
+   "name": "Kyzyl Kum"
+  },
+  {
+   "qid": "Q1517734",
+   "category": "desert",
+   "name": "Gurbantünggüt Desert"
+  },
+  {
+   "qid": "Q42070",
+   "category": "desert",
+   "name": "Gobi Desert"
+  },
+  {
+   "qid": "Q339162",
+   "category": "desert",
+   "name": "Syrian Desert"
+  },
+  {
+   "qid": "Q172691",
+   "category": "desert",
+   "name": "Thar Desert"
+  },
+  {
+   "qid": "Q132956",
+   "category": "desert",
+   "name": "Taklamakan"
+  },
+  {
+   "qid": "Q1973934",
+   "category": "desert",
+   "name": "Ad-Dahna Desert"
+  },
+  {
+   "qid": "Q162843",
+   "category": "desert",
+   "name": "Negev"
+  },
+  {
+   "qid": "Q749205",
+   "category": "desert",
+   "name": "An Nafud"
+  },
+  {
+   "qid": "Q939033",
+   "category": "desert",
+   "name": "Badain Jaran Desert"
+  },
+  {
+   "qid": "Q767128",
+   "category": "desert",
+   "name": "Dasht-e Lut"
+  },
+  {
+   "qid": "Q229269",
+   "category": "desert",
+   "name": "Rub' al Khali"
+  },
+  {
+   "qid": "Q2088454",
+   "category": "desert",
+   "name": "Registan Desert"
+  },
+  {
+   "qid": "Q47141",
+   "category": "desert",
+   "name": "Atacama Desert"
+  },
+  {
+   "qid": "Q326896",
+   "category": "desert",
+   "name": "Great Sandy Desert"
+  },
+  {
+   "qid": "Q189429",
+   "category": "desert",
+   "name": "Sonoran Desert"
+  },
+  {
+   "qid": "Q184355",
+   "category": "desert",
+   "name": "Mojave Desert"
+  },
+  {
+   "qid": "Q47700",
+   "category": "desert",
+   "name": "Kalahari Desert"
+  },
+  {
+   "qid": "Q6583",
+   "category": "desert",
+   "name": "Sahara"
+  },
+  {
+   "qid": "Q131377",
+   "category": "desert",
+   "name": "Namib"
+  },
+  {
+   "qid": "Q464909",
+   "category": "desert",
+   "name": "Nubian Desert"
+  },
+  {
+   "qid": "Q181528",
+   "category": "desert",
+   "name": "Libyan Desert"
+  },
+  {
+   "qid": "Q272577",
+   "category": "desert",
+   "name": "Gibson Desert"
+  },
+  {
+   "qid": "Q145165",
+   "category": "desert",
+   "name": "Great Victoria Desert"
+  },
+  {
+   "qid": "Q211839",
+   "category": "desert",
+   "name": "Simpson Desert"
+  },
+  {
+   "qid": "Q674262",
+   "category": "desert",
+   "name": "Tanami Desert"
+  },
+  {
+   "qid": "Q169966",
+   "category": "plateau",
+   "name": "Deccan Plateau"
+  },
+  {
+   "qid": "Q161750",
+   "category": "range",
+   "name": "Pamir Mountains"
+  },
+  {
+   "qid": "Q179842",
+   "category": "plateau",
+   "name": "Tibetan Plateau"
+  },
+  {
+   "qid": "Q237660",
+   "category": "plateau",
+   "name": "Iranian plateau"
+  },
+  {
+   "qid": "Q319288",
+   "category": "plateau",
+   "name": "Ethiopian Highlands"
+  },
+  {
+   "qid": "Q118899",
+   "category": "plateau",
+   "name": "Brazilian Highlands"
+  },
+  {
+   "qid": "Q208347",
+   "category": "plain",
+   "name": "Gran Chaco"
+  },
+  {
+   "qid": "Q26399",
+   "category": "range",
+   "name": "Hoggar Mountains"
+  },
+  {
+   "qid": "Q208807",
+   "category": "plateau",
+   "name": "Guiana Highlands"
+  },
+  {
+   "qid": "Q755001",
+   "category": "basin",
+   "name": "Paris Basin"
+  },
+  {
+   "qid": "Q216622",
+   "category": "basin",
+   "name": "Tarim Basin"
+  },
+  {
+   "qid": "Q932289",
+   "category": "basin",
+   "name": "Congo Basin"
+  },
+  {
+   "qid": "Q191862",
+   "category": "plain",
+   "name": "East European Plain"
+  },
+  {
+   "qid": "Q147304",
+   "category": "plain",
+   "name": "North China Plain"
+  },
+  {
+   "qid": "Q1206587",
+   "category": "plain",
+   "name": "Northeast China Plain"
+  },
+  {
+   "qid": "Q1278613",
+   "category": "plain",
+   "name": "Yangtze Plain"
+  },
+  {
+   "qid": "Q1052867",
+   "category": "delta",
+   "name": "Mekong Delta"
+  },
+  {
+   "qid": "Q192305",
+   "category": "plain",
+   "name": "Indo-Gangetic Plain"
+  },
+  {
+   "qid": "Q191566",
+   "category": "plain",
+   "name": "West Siberian Plain"
+  },
+  {
+   "qid": "Q602925",
+   "category": "plain",
+   "name": "Kazakh Steppe"
+  },
+  {
+   "qid": "Q11767",
+   "category": "plain",
+   "name": "Mesopotamia"
+  },
+  {
+   "qid": "Q560549",
+   "category": "plain",
+   "name": "North European Plain"
+  },
+  {
+   "qid": "Q185032",
+   "category": "basin",
+   "name": "Pannonian Basin"
+  },
+  {
+   "qid": "Q179528",
+   "category": "delta",
+   "name": "Nile Delta"
+  },
+  {
+   "qid": "Q29412",
+   "category": "delta",
+   "name": "Niger Delta"
+  },
+  {
+   "qid": "Q756832",
+   "category": "plain",
+   "name": "Atlantic coastal plain"
+  },
+  {
+   "qid": "Q12707",
+   "category": "plain",
+   "name": "Great Plains"
+  },
+  {
+   "qid": "Q966943",
+   "category": "basin",
+   "name": "Great Basin"
+  },
+  {
+   "qid": "Q184382",
+   "category": "plain",
+   "name": "Pampas"
+  },
+  {
+   "qid": "Q141501",
+   "category": "plain",
+   "name": "Llanos"
+  },
+  {
+   "qid": "Q381050",
+   "category": "plain",
+   "name": "Nullarbor Plain"
+  },
+  {
+   "qid": "Q1124865",
+   "category": "plain",
+   "name": "Kantō Plain"
+  },
+  {
+   "qid": "Q5484",
+   "category": "lake",
+   "name": "Caspian Sea"
+  },
+  {
+   "qid": "Q1066",
+   "category": "lake",
+   "name": "Lake Superior"
+  },
+  {
+   "qid": "Q5505",
+   "category": "lake",
+   "name": "Lake Victoria"
+  },
+  {
+   "qid": "Q1383",
+   "category": "lake",
+   "name": "Lake Huron"
+  },
+  {
+   "qid": "Q1169",
+   "category": "lake",
+   "name": "Lake Michigan"
+  },
+  {
+   "qid": "Q5511",
+   "category": "lake",
+   "name": "Lake Tanganyika"
+  },
+  {
+   "qid": "Q5513",
+   "category": "lake",
+   "name": "Lake Baikal"
+  },
+  {
+   "qid": "Q5525",
+   "category": "lake",
+   "name": "Great Bear Lake"
+  },
+  {
+   "qid": "Q5532",
+   "category": "lake",
+   "name": "Lake Malawi"
+  },
+  {
+   "qid": "Q5539",
+   "category": "lake",
+   "name": "Great Slave Lake"
+  },
+  {
+   "qid": "Q5492",
+   "category": "lake",
+   "name": "Lake Erie"
+  },
+  {
+   "qid": "Q3272",
+   "category": "lake",
+   "name": "Lake Winnipeg"
+  },
+  {
+   "qid": "Q1062",
+   "category": "lake",
+   "name": "Lake Ontario"
+  },
+  {
+   "qid": "Q15288",
+   "category": "lake",
+   "name": "Lake Ladoga"
+  },
+  {
+   "qid": "Q134485",
+   "category": "lake",
+   "name": "Lake Balkhash"
+  },
+  {
+   "qid": "Q152044",
+   "category": "lake",
+   "name": "Lake Vostok"
+  },
+  {
+   "qid": "Q166162",
+   "category": "lake",
+   "name": "Lake Onega"
+  },
+  {
+   "qid": "Q35342",
+   "category": "lake",
+   "name": "Lake Titicaca"
+  },
+  {
+   "qid": "Q173862",
+   "category": "lake",
+   "name": "Lake Nicaragua"
+  },
+  {
+   "qid": "Q272463",
+   "category": "lake",
+   "name": "Lake Athabasca"
+  },
+  {
+   "qid": "Q182719",
+   "category": "lake",
+   "name": "Lake Turkana"
+  },
+  {
+   "qid": "Q1134446",
+   "category": "lake",
+   "name": "Reindeer Lake"
+  },
+  {
+   "qid": "Q42191",
+   "category": "lake",
+   "name": "Issyk-Kul"
+  },
+  {
+   "qid": "Q199551",
+   "category": "lake",
+   "name": "Lake Urmia"
+  },
+  {
+   "qid": "Q173596",
+   "category": "lake",
+   "name": "Vänern"
+  },
+  {
+   "qid": "Q125888",
+   "category": "lake",
+   "name": "Lake Albert"
+  },
+  {
+   "qid": "Q504433",
+   "category": "lake",
+   "name": "Lake Mweru"
+  },
+  {
+   "qid": "Q125309",
+   "category": "lake",
+   "name": "Lake Chad"
+  },
+  {
+   "qid": "Q116685",
+   "category": "lake",
+   "name": "Lake Tana"
+  },
+  {
+   "qid": "Q182137",
+   "category": "lake",
+   "name": "Lake Maracaibo"
+  },
+  {
+   "qid": "Q35883",
+   "category": "lake",
+   "name": "Aral Sea"
+  },
+  {
+   "qid": "Q23883",
+   "category": "lake",
+   "name": "Dead Sea"
+  },
+  {
+   "qid": "Q179970",
+   "category": "lake",
+   "name": "Kati Thanda–Lake Eyre"
+  },
+  {
+   "qid": "Q178741",
+   "category": "lake",
+   "name": "Great Salt Lake"
+  },
+  {
+   "qid": "Q6403",
+   "category": "lake",
+   "name": "Lake Geneva"
+  },
+  {
+   "qid": "Q4127",
+   "category": "lake",
+   "name": "Lake Constance"
+  },
+  {
+   "qid": "Q6414",
+   "category": "lake",
+   "name": "Lake Garda"
+  },
+  {
+   "qid": "Q15523",
+   "category": "lake",
+   "name": "Lake Como"
+  },
+  {
+   "qid": "Q6383",
+   "category": "lake",
+   "name": "Lake Balaton"
+  },
+  {
+   "qid": "Q200239",
+   "category": "lake",
+   "name": "Lake Biwa"
+  },
+  {
+   "qid": "Q201294",
+   "category": "lake",
+   "name": "Qinghai Lake"
+  },
+  {
+   "qid": "Q207690",
+   "category": "lake",
+   "name": "Poyang Lake"
+  },
+  {
+   "qid": "Q216083",
+   "category": "lake",
+   "name": "Dongting Lake"
+  },
+  {
+   "qid": "Q199938",
+   "category": "lake",
+   "name": "Tonle Sap"
+  },
+  {
+   "qid": "Q183360",
+   "category": "lake",
+   "name": "Lake Toba"
+  },
+  {
+   "qid": "Q199903",
+   "category": "lake",
+   "name": "Lake Taupō"
+  },
+  {
+   "qid": "Q126307",
+   "category": "lake",
+   "name": "Lake Van"
+  },
+  {
+   "qid": "Q181932",
+   "category": "lake",
+   "name": "Lake Sevan"
+  },
+  {
+   "qid": "Q125912",
+   "category": "lake",
+   "name": "Lake Kivu"
+  },
+  {
+   "qid": "Q201679",
+   "category": "lake",
+   "name": "Lake Volta"
+  },
+  {
+   "qid": "Q182796",
+   "category": "lake",
+   "name": "Lake Nasser"
+  },
+  {
+   "qid": "Q202905",
+   "category": "lake",
+   "name": "Lake Okeechobee"
+  },
+  {
+   "qid": "Q169962",
+   "category": "lake",
+   "name": "Lake Tahoe"
+  },
+  {
+   "qid": "Q329266",
+   "category": "lake",
+   "name": "Crater Lake"
+  },
+  {
+   "qid": "Q206942",
+   "category": "lake",
+   "name": "Lough Neagh"
+  },
+  {
+   "qid": "Q49650",
+   "category": "lake",
+   "name": "Loch Ness"
+  },
+  {
+   "qid": "Q125211",
+   "category": "lake",
+   "name": "Lake Edward"
+  },
+  {
+   "qid": "Q645901",
+   "category": "lake",
+   "name": "Lake Manitoba"
+  },
+  {
+   "qid": "Q122184",
+   "category": "lake",
+   "name": "Lake Nipigon"
+  },
+  {
+   "qid": "Q201843",
+   "category": "lake",
+   "name": "Lake Khanka"
+  },
+  {
+   "qid": "Q3392",
+   "category": "river",
+   "name": "Nile"
+  },
+  {
+   "qid": "Q882739",
+   "category": "river",
+   "name": "Blue Nile"
+  },
+  {
+   "qid": "Q3503",
+   "category": "river",
+   "name": "Congo"
+  },
+  {
+   "qid": "Q3542",
+   "category": "river",
+   "name": "Niger"
+  },
+  {
+   "qid": "Q43106",
+   "category": "river",
+   "name": "Zambezi"
+  },
+  {
+   "qid": "Q181475",
+   "category": "river",
+   "name": "Orange"
+  },
+  {
+   "qid": "Q173017",
+   "category": "river",
+   "name": "Limpopo"
+  },
+  {
+   "qid": "Q3569",
+   "category": "river",
+   "name": "Senegal"
+  },
+  {
+   "qid": "Q192415",
+   "category": "river",
+   "name": "Volta"
+  },
+  {
+   "qid": "Q188773",
+   "category": "river",
+   "name": "Okavango"
+  },
+  {
+   "qid": "Q5413",
+   "category": "river",
+   "name": "Yangtze"
+  },
+  {
+   "qid": "Q7355",
+   "category": "river",
+   "name": "Yellow River"
+  },
+  {
+   "qid": "Q41179",
+   "category": "river",
+   "name": "Mekong"
+  },
+  {
+   "qid": "Q6862",
+   "category": "river",
+   "name": "Amur"
+  },
+  {
+   "qid": "Q46841",
+   "category": "river",
+   "name": "Lena"
+  },
+  {
+   "qid": "Q973",
+   "category": "river",
+   "name": "Ob"
+  },
+  {
+   "qid": "Q128102",
+   "category": "river",
+   "name": "Irtysh"
+  },
+  {
+   "qid": "Q78707",
+   "category": "river",
+   "name": "Yenisey"
+  },
+  {
+   "qid": "Q7348",
+   "category": "river",
+   "name": "Indus"
+  },
+  {
+   "qid": "Q5089",
+   "category": "river",
+   "name": "Ganges"
+  },
+  {
+   "qid": "Q45403",
+   "category": "river",
+   "name": "Brahmaputra"
+  },
+  {
+   "qid": "Q34589",
+   "category": "river",
+   "name": "Euphrates"
+  },
+  {
+   "qid": "Q35591",
+   "category": "river",
+   "name": "Tigris"
+  },
+  {
+   "qid": "Q26422",
+   "category": "river",
+   "name": "Salween"
+  },
+  {
+   "qid": "Q26076",
+   "category": "river",
+   "name": "Irrawaddy"
+  },
+  {
+   "qid": "Q216941",
+   "category": "river",
+   "name": "Xi River"
+  },
+  {
+   "qid": "Q237901",
+   "category": "river",
+   "name": "Tarim"
+  },
+  {
+   "qid": "Q191314",
+   "category": "river",
+   "name": "Godavari"
+  },
+  {
+   "qid": "Q193499",
+   "category": "river",
+   "name": "Krishna"
+  },
+  {
+   "qid": "Q234004",
+   "category": "river",
+   "name": "Narmada"
+  },
+  {
+   "qid": "Q271044",
+   "category": "river",
+   "name": "Mahanadi"
+  },
+  {
+   "qid": "Q216239",
+   "category": "river",
+   "name": "Kaveri"
+  },
+  {
+   "qid": "Q118850",
+   "category": "river",
+   "name": "Chao Phraya"
+  },
+  {
+   "qid": "Q206850",
+   "category": "river",
+   "name": "Red River"
+  },
+  {
+   "qid": "Q8493",
+   "category": "river",
+   "name": "Amu Darya"
+  },
+  {
+   "qid": "Q483159",
+   "category": "river",
+   "name": "Syr Darya"
+  },
+  {
+   "qid": "Q78879",
+   "category": "river",
+   "name": "Kolyma"
+  },
+  {
+   "qid": "Q82207",
+   "category": "river",
+   "name": "Indigirka"
+  },
+  {
+   "qid": "Q162737",
+   "category": "river",
+   "name": "Angara"
+  },
+  {
+   "qid": "Q75745",
+   "category": "river",
+   "name": "Selenga"
+  },
+  {
+   "qid": "Q80240",
+   "category": "river",
+   "name": "Ural"
+  },
+  {
+   "qid": "Q40059",
+   "category": "river",
+   "name": "Jordan"
+  },
+  {
+   "qid": "Q166966",
+   "category": "river",
+   "name": "Shatt al-Arab"
+  },
+  {
+   "qid": "Q210326",
+   "category": "river",
+   "name": "Songhua"
+  },
+  {
+   "qid": "Q55500",
+   "category": "river",
+   "name": "Han River"
+  },
+  {
+   "qid": "Q875573",
+   "category": "river",
+   "name": "Han River"
+  },
+  {
+   "qid": "Q55498",
+   "category": "river",
+   "name": "Yalu"
+  },
+  {
+   "qid": "Q55501",
+   "category": "river",
+   "name": "Nakdong"
+  },
+  {
+   "qid": "Q177452",
+   "category": "river",
+   "name": "Tone"
+  },
+  {
+   "qid": "Q132726",
+   "category": "river",
+   "name": "Yamuna"
+  },
+  {
+   "qid": "Q626",
+   "category": "river",
+   "name": "Volga"
+  },
+  {
+   "qid": "Q1653",
+   "category": "river",
+   "name": "Danube"
+  },
+  {
+   "qid": "Q40855",
+   "category": "river",
+   "name": "Dnieper"
+  },
+  {
+   "qid": "Q1229",
+   "category": "river",
+   "name": "Don"
+  },
+  {
+   "qid": "Q584",
+   "category": "river",
+   "name": "Rhine"
+  },
+  {
+   "qid": "Q1644",
+   "category": "river",
+   "name": "Elbe"
+  },
+  {
+   "qid": "Q1469",
+   "category": "river",
+   "name": "Loire"
+  },
+  {
+   "qid": "Q1471",
+   "category": "river",
+   "name": "Seine"
+  },
+  {
+   "qid": "Q19686",
+   "category": "river",
+   "name": "Thames"
+  },
+  {
+   "qid": "Q643",
+   "category": "river",
+   "name": "Po"
+  },
+  {
+   "qid": "Q548",
+   "category": "river",
+   "name": "Vistula"
+  },
+  {
+   "qid": "Q552",
+   "category": "river",
+   "name": "Oder"
+  },
+  {
+   "qid": "Q602",
+   "category": "river",
+   "name": "Rhône"
+  },
+  {
+   "qid": "Q5077",
+   "category": "river",
+   "name": "Garonne"
+  },
+  {
+   "qid": "Q14294",
+   "category": "river",
+   "name": "Tagus"
+  },
+  {
+   "qid": "Q10965",
+   "category": "river",
+   "name": "Ebro"
+  },
+  {
+   "qid": "Q14299",
+   "category": "river",
+   "name": "Douro"
+  },
+  {
+   "qid": "Q13712",
+   "category": "river",
+   "name": "Tiber"
+  },
+  {
+   "qid": "Q8168",
+   "category": "river",
+   "name": "Pechora"
+  },
+  {
+   "qid": "Q8187",
+   "category": "river",
+   "name": "Northern Dvina"
+  },
+  {
+   "qid": "Q19682",
+   "category": "river",
+   "name": "Severn"
+  },
+  {
+   "qid": "Q1497",
+   "category": "river",
+   "name": "Mississippi"
+  },
+  {
+   "qid": "Q5419",
+   "category": "river",
+   "name": "Missouri"
+  },
+  {
+   "qid": "Q4915",
+   "category": "river",
+   "name": "Ohio"
+  },
+  {
+   "qid": "Q104437",
+   "category": "river",
+   "name": "Yukon"
+  },
+  {
+   "qid": "Q3411",
+   "category": "river",
+   "name": "Mackenzie"
+  },
+  {
+   "qid": "Q134750",
+   "category": "river",
+   "name": "St. Lawrence"
+  },
+  {
+   "qid": "Q160636",
+   "category": "river",
+   "name": "Rio Grande"
+  },
+  {
+   "qid": "Q2251",
+   "category": "river",
+   "name": "Columbia"
+  },
+  {
+   "qid": "Q1265",
+   "category": "river",
+   "name": "Colorado"
+  },
+  {
+   "qid": "Q272074",
+   "category": "river",
+   "name": "Snake"
+  },
+  {
+   "qid": "Q8319",
+   "category": "river",
+   "name": "Arkansas"
+  },
+  {
+   "qid": "Q193737",
+   "category": "river",
+   "name": "Tennessee"
+  },
+  {
+   "qid": "Q269710",
+   "category": "river",
+   "name": "Fraser"
+  },
+  {
+   "qid": "Q3292",
+   "category": "river",
+   "name": "Nelson"
+  },
+  {
+   "qid": "Q3318",
+   "category": "river",
+   "name": "Churchill"
+  },
+  {
+   "qid": "Q3047",
+   "category": "river",
+   "name": "Saskatchewan"
+  },
+  {
+   "qid": "Q2220",
+   "category": "river",
+   "name": "Peace"
+  },
+  {
+   "qid": "Q3140",
+   "category": "river",
+   "name": "Hudson"
+  },
+  {
+   "qid": "Q335575",
+   "category": "river",
+   "name": "Sacramento"
+  },
+  {
+   "qid": "Q179444",
+   "category": "river",
+   "name": "Potomac"
+  },
+  {
+   "qid": "Q2216",
+   "category": "river",
+   "name": "Athabasca"
+  },
+  {
+   "qid": "Q3783",
+   "category": "river",
+   "name": "Amazon"
+  },
+  {
+   "qid": "Q127892",
+   "category": "river",
+   "name": "Paraná"
+  },
+  {
+   "qid": "Q131792",
+   "category": "river",
+   "name": "Orinoco"
+  },
+  {
+   "qid": "Q118251",
+   "category": "river",
+   "name": "Madeira"
+  },
+  {
+   "qid": "Q26271",
+   "category": "river",
+   "name": "Purus"
+  },
+  {
+   "qid": "Q118771",
+   "category": "river",
+   "name": "Rio Negro"
+  },
+  {
+   "qid": "Q200952",
+   "category": "river",
+   "name": "Ucayali"
+  },
+  {
+   "qid": "Q200174",
+   "category": "river",
+   "name": "Marañón"
+  },
+  {
+   "qid": "Q156054",
+   "category": "river",
+   "name": "Tocantins"
+  },
+  {
+   "qid": "Q142148",
+   "category": "river",
+   "name": "São Francisco"
+  },
+  {
+   "qid": "Q191829",
+   "category": "river",
+   "name": "Magdalena"
+  },
+  {
+   "qid": "Q18278",
+   "category": "river",
+   "name": "Uruguay"
+  },
+  {
+   "qid": "Q49544",
+   "category": "river",
+   "name": "Xingu"
+  },
+  {
+   "qid": "Q752674",
+   "category": "river",
+   "name": "Tapajós"
+  },
+  {
+   "qid": "Q183078",
+   "category": "river",
+   "name": "Murray"
+  },
+  {
+   "qid": "Q181482",
+   "category": "river",
+   "name": "Darling"
+  },
+  {
+   "qid": "Q739751",
+   "category": "river",
+   "name": "Fly"
+  },
+  {
+   "qid": "Q848308",
+   "category": "river",
+   "name": "Sepik"
+  },
+  {
+   "qid": "Q207313",
+   "category": "ridge",
+   "name": "Mid-Atlantic Ridge"
+  },
+  {
+   "qid": "Q604529",
+   "category": "ridge",
+   "name": "East Pacific Rise"
+  },
+  {
+   "qid": "Q190604",
+   "category": "ridge",
+   "name": "Central Indian Ridge"
+  },
+  {
+   "qid": "Q153840",
+   "category": "ridge",
+   "name": "Southwest Indian Ridge"
+  },
+  {
+   "qid": "Q558898",
+   "category": "ridge",
+   "name": "Southeast Indian Ridge"
+  },
+  {
+   "qid": "Q558800",
+   "category": "ridge",
+   "name": "Pacific-Antarctic Ridge"
+  },
+  {
+   "qid": "Q603531",
+   "category": "ridge",
+   "name": "Chile Rise"
+  },
+  {
+   "qid": "Q468239",
+   "category": "ridge",
+   "name": "American–Antarctic Ridge"
+  },
+  {
+   "qid": "Q510",
+   "category": "trench",
+   "name": "Mariana Trench"
+  },
+  {
+   "qid": "Q119294",
+   "category": "trench",
+   "name": "Tonga Trench"
+  },
+  {
+   "qid": "Q656364",
+   "category": "trench",
+   "name": "Philippine Trench"
+  },
+  {
+   "qid": "Q119196",
+   "category": "trench",
+   "name": "Kermadec Trench"
+  },
+  {
+   "qid": "Q118544",
+   "category": "trench",
+   "name": "Izu-Ogasawara Trench"
+  },
+  {
+   "qid": "Q118525",
+   "category": "trench",
+   "name": "Kuril–Kamchatka Trench"
+  },
+  {
+   "qid": "Q1423293",
+   "category": "trench",
+   "name": "Yap Trench"
+  },
+  {
+   "qid": "Q666090",
+   "category": "trench",
+   "name": "Puerto Rico Trench"
+  },
+  {
+   "qid": "Q118518",
+   "category": "trench",
+   "name": "South Sandwich Trench"
+  },
+  {
+   "qid": "Q118873",
+   "category": "trench",
+   "name": "Peru–Chile Trench"
+  },
+  {
+   "qid": "Q118537",
+   "category": "trench",
+   "name": "Japan Trench"
+  },
+  {
+   "qid": "Q119177",
+   "category": "trench",
+   "name": "Aleutian Trench"
+  },
+  {
+   "qid": "Q702908",
+   "category": "trench",
+   "name": "Ryukyu Trench"
+  },
+  {
+   "qid": "Q118394",
+   "category": "trench",
+   "name": "Sunda Trench"
+  },
+  {
+   "qid": "Q164040",
+   "category": "trench",
+   "name": "Middle America Trench"
+  },
+  {
+   "qid": "Q223",
+   "category": "island",
+   "name": "Greenland"
+  },
+  {
+   "qid": "Q40285",
+   "category": "island",
+   "name": "New Guinea"
+  },
+  {
+   "qid": "Q36117",
+   "category": "island",
+   "name": "Borneo"
+  },
+  {
+   "qid": "Q1019",
+   "category": "island",
+   "name": "Madagascar"
+  },
+  {
+   "qid": "Q81178",
+   "category": "island",
+   "name": "Baffin Island"
+  },
+  {
+   "qid": "Q3492",
+   "category": "island",
+   "name": "Sumatra"
+  },
+  {
+   "qid": "Q13989",
+   "category": "island",
+   "name": "Honshu"
+  },
+  {
+   "qid": "Q158129",
+   "category": "island",
+   "name": "Victoria Island"
+  },
+  {
+   "qid": "Q23666",
+   "category": "island",
+   "name": "Great Britain"
+  },
+  {
+   "qid": "Q146841",
+   "category": "island",
+   "name": "Ellesmere Island"
+  },
+  {
+   "qid": "Q3812",
+   "category": "island",
+   "name": "Sulawesi"
+  },
+  {
+   "qid": "Q120755",
+   "category": "island",
+   "name": "South Island"
+  },
+  {
+   "qid": "Q3757",
+   "category": "island",
+   "name": "Java"
+  },
+  {
+   "qid": "Q118863",
+   "category": "island",
+   "name": "North Island"
+  },
+  {
+   "qid": "Q48335",
+   "category": "island",
+   "name": "Newfoundland"
+  },
+  {
+   "qid": "Q241",
+   "category": "island",
+   "name": "Cuba"
+  },
+  {
+   "qid": "Q125384",
+   "category": "island",
+   "name": "Luzon"
+  },
+  {
+   "qid": "Q3740828",
+   "category": "island",
+   "name": "Iceland"
+  },
+  {
+   "qid": "Q124873",
+   "category": "island",
+   "name": "Mindanao"
+  },
+  {
+   "qid": "Q22890",
+   "category": "island",
+   "name": "Ireland"
+  },
+  {
+   "qid": "Q35581",
+   "category": "island",
+   "name": "Hokkaidō"
+  },
+  {
+   "qid": "Q7792",
+   "category": "island",
+   "name": "Sakhalin"
+  },
+  {
+   "qid": "Q25277",
+   "category": "island",
+   "name": "Hispaniola"
+  },
+  {
+   "qid": "Q200226",
+   "category": "island",
+   "name": "Banks Island"
+  },
+  {
+   "qid": "Q854",
+   "category": "island",
+   "name": "Sri Lanka"
+  },
+  {
+   "qid": "Q34366",
+   "category": "island",
+   "name": "Tasmania"
+  },
+  {
+   "qid": "Q186841",
+   "category": "island",
+   "name": "Devon Island"
+  },
+  {
+   "qid": "Q1674067",
+   "category": "island",
+   "name": "Isla Grande de Tierra del Fuego"
+  },
+  {
+   "qid": "Q200223",
+   "category": "island",
+   "name": "Alexander Island"
+  },
+  {
+   "qid": "Q207666",
+   "category": "island",
+   "name": "Axel Heiberg Island"
+  },
+  {
+   "qid": "Q207751",
+   "category": "island",
+   "name": "Southampton Island"
+  },
+  {
+   "qid": "Q193264",
+   "category": "island",
+   "name": "Marajó"
+  },
+  {
+   "qid": "Q21162",
+   "category": "island",
+   "name": "Spitsbergen"
+  },
+  {
+   "qid": "Q13987",
+   "category": "island",
+   "name": "Kyushu"
+  },
+  {
+   "qid": "Q59771",
+   "category": "island",
+   "name": "New Britain"
+  },
+  {
+   "qid": "Q22502",
+   "category": "island",
+   "name": "Taiwan Island"
+  },
+  {
+   "qid": "Q1081204",
+   "category": "island",
+   "name": "Hainan Island"
+  },
+  {
+   "qid": "Q170479",
+   "category": "island",
+   "name": "Vancouver Island"
+  },
+  {
+   "qid": "Q83067",
+   "category": "island",
+   "name": "Timor"
+  },
+  {
+   "qid": "Q1460",
+   "category": "island",
+   "name": "Sicily"
+  },
+  {
+   "qid": "Q1462",
+   "category": "island",
+   "name": "Sardinia"
+  },
+  {
+   "qid": "Q13991",
+   "category": "island",
+   "name": "Shikoku"
+  },
+  {
+   "qid": "Q201398",
+   "category": "island",
+   "name": "Halmahera Island"
+  },
+  {
+   "qid": "Q185532",
+   "category": "island",
+   "name": "Seram"
+  },
+  {
+   "qid": "Q186367",
+   "category": "island",
+   "name": "Sumbawa Island"
+  },
+  {
+   "qid": "Q148440",
+   "category": "island",
+   "name": "Flores Island"
+  },
+  {
+   "qid": "Q219737",
+   "category": "island",
+   "name": "Samar Island"
+  },
+  {
+   "qid": "Q212777",
+   "category": "island",
+   "name": "Negros"
+  },
+  {
+   "qid": "Q1061269",
+   "category": "island",
+   "name": "Palawan"
+  },
+  {
+   "qid": "Q332359",
+   "category": "island",
+   "name": "Panay"
+  },
+  {
+   "qid": "Q206368",
+   "category": "island",
+   "name": "Sumba Island"
+  },
+  {
+   "qid": "Q766",
+   "category": "island",
+   "name": "Jamaica"
+  },
+  {
+   "qid": "Q68740",
+   "category": "island",
+   "name": "Hawaii"
+  },
+  {
+   "qid": "Q208198",
+   "category": "island",
+   "name": "Viti Levu"
+  },
+  {
+   "qid": "Q188489",
+   "category": "island",
+   "name": "Cape Breton Island"
+  },
+  {
+   "qid": "Q201766",
+   "category": "island",
+   "name": "Bougainville Island"
+  },
+  {
+   "qid": "Q211800",
+   "category": "island",
+   "name": "Mindoro"
+  },
+  {
+   "qid": "Q204387",
+   "category": "island",
+   "name": "Kodiak Island"
+  },
+  {
+   "qid": "Q644636",
+   "category": "island",
+   "name": "Cyprus"
+  },
+  {
+   "qid": "Q1183",
+   "category": "island",
+   "name": "Puerto Rico"
+  },
+  {
+   "qid": "Q14112",
+   "category": "island",
+   "name": "Corsica"
+  },
+  {
+   "qid": "Q215089",
+   "category": "island",
+   "name": "New Ireland"
+  },
+  {
+   "qid": "Q504449",
+   "category": "island",
+   "name": "Chiloé Island"
+  },
+  {
+   "qid": "Q34374",
+   "category": "island",
+   "name": "Crete"
+  },
+  {
+   "qid": "Q106594",
+   "category": "island",
+   "name": "Wrangel Island"
+  },
+  {
+   "qid": "Q211377",
+   "category": "island",
+   "name": "Leyte"
+  },
+  {
+   "qid": "Q25535",
+   "category": "island",
+   "name": "Zealand"
+  },
+  {
+   "qid": "Q1978",
+   "category": "island",
+   "name": "Prince Edward Island"
+  },
+  {
+   "qid": "Q4648",
+   "category": "island",
+   "name": "Bali Island"
+  },
+  {
+   "qid": "Q134116",
+   "category": "island",
+   "name": "Melville Island"
+  },
+  {
+   "qid": "Q504763",
+   "category": "island",
+   "name": "Melville Island"
+  },
+  {
+   "qid": "Q1137202",
+   "category": "island",
+   "name": "South Georgia"
+  },
+  {
+   "qid": "Q131347",
+   "category": "island",
+   "name": "Oahu"
+  },
+  {
+   "qid": "Q14452",
+   "category": "island",
+   "name": "Easter Island"
+  },
+  {
+   "qid": "Q29151",
+   "category": "island",
+   "name": "Jeju Island"
+  },
+  {
+   "qid": "Q600614",
+   "category": "island",
+   "name": "Okinawa"
+  },
+  {
+   "qid": "Q185018",
+   "category": "islands",
+   "name": "Franz Josef Land"
+  },
+  {
+   "qid": "Q25231",
+   "category": "islands",
+   "name": "Svalbard"
+  },
+  {
+   "qid": "Q669037",
+   "category": "islands",
+   "name": "West Indies"
+  },
+  {
+   "qid": "Q85377",
+   "category": "islands",
+   "name": "Canadian Arctic Archipelago"
+  },
+  {
+   "qid": "Q208643",
+   "category": "islands",
+   "name": "Malay Archipelago"
+  },
+  {
+   "qid": "Q841337",
+   "category": "islands",
+   "name": "Japanese archipelago"
+  },
+  {
+   "qid": "Q186233",
+   "category": "islands",
+   "name": "Andaman Islands"
+  },
+  {
+   "qid": "Q157286",
+   "category": "islands",
+   "name": "Nicobar Islands"
+  },
+  {
+   "qid": "Q9648",
+   "category": "islands",
+   "name": "Falkland Islands"
+  },
+  {
+   "qid": "Q4628",
+   "category": "islands",
+   "name": "Faroe Islands"
+  },
+  {
+   "qid": "Q119285",
+   "category": "islands",
+   "name": "Aleutian Islands"
+  },
+  {
+   "qid": "Q80389",
+   "category": "islands",
+   "name": "Kuril Islands"
+  },
+  {
+   "qid": "Q6897416",
+   "category": "islands",
+   "name": "Ryukyu Islands"
+  },
+  {
+   "qid": "Q5813",
+   "category": "islands",
+   "name": "Canary Islands"
+  },
+  {
+   "qid": "Q26253",
+   "category": "islands",
+   "name": "Madeira"
+  },
+  {
+   "qid": "Q25263",
+   "category": "islands",
+   "name": "Azores"
+  },
+  {
+   "qid": "Q118350",
+   "category": "islands",
+   "name": "Caroline Islands"
+  },
+  {
+   "qid": "Q38095",
+   "category": "islands",
+   "name": "Galapagos Islands"
+  },
+  {
+   "qid": "Q183963",
+   "category": "islands",
+   "name": "Tuamotus"
+  },
+  {
+   "qid": "Q118920",
+   "category": "islands",
+   "name": "Society Islands"
+  },
+  {
+   "qid": "Q162126",
+   "category": "islands",
+   "name": "Samoan Islands"
+  },
+  {
+   "qid": "Q154628",
+   "category": "islands",
+   "name": "Bismarck Archipelago"
+  },
+  {
+   "qid": "Q159898",
+   "category": "strait",
+   "name": "Strait of Dover"
+  },
+  {
+   "qid": "Q6514",
+   "category": "strait",
+   "name": "Dardanelles"
+  },
+  {
+   "qid": "Q134705",
+   "category": "strait",
+   "name": "Strait of Messina"
+  },
+  {
+   "qid": "Q187890",
+   "category": "strait",
+   "name": "Kerch Strait"
+  },
+  {
+   "qid": "Q104662",
+   "category": "strait",
+   "name": "Øresund"
+  },
+  {
+   "qid": "Q1695",
+   "category": "strait",
+   "name": "Skagerrak"
+  },
+  {
+   "qid": "Q131716",
+   "category": "strait",
+   "name": "Kattegat"
+  },
+  {
+   "qid": "Q79883",
+   "category": "strait",
+   "name": "Strait of Hormuz"
+  },
+  {
+   "qid": "Q83318",
+   "category": "strait",
+   "name": "Bab-el-Mandeb"
+  },
+  {
+   "qid": "Q192790",
+   "category": "strait",
+   "name": "Sunda Strait"
+  },
+  {
+   "qid": "Q745025",
+   "category": "strait",
+   "name": "Lombok Strait"
+  },
+  {
+   "qid": "Q5023",
+   "category": "strait",
+   "name": "Cook Strait"
+  },
+  {
+   "qid": "Q271521",
+   "category": "strait",
+   "name": "Tsugaru Strait"
+  },
+  {
+   "qid": "Q11769",
+   "category": "strait",
+   "name": "Bering Strait"
+  },
+  {
+   "qid": "Q152058",
+   "category": "strait",
+   "name": "Denmark Strait"
+  },
+  {
+   "qid": "Q815831",
+   "category": "strait",
+   "name": "Strait of Belle Isle"
+  },
+  {
+   "qid": "Q1024939",
+   "category": "strait",
+   "name": "Cabot Strait"
+  },
+  {
+   "qid": "Q867627",
+   "category": "strait",
+   "name": "Strait of Juan de Fuca"
+  },
+  {
+   "qid": "Q140265",
+   "category": "strait",
+   "name": "Windward Passage"
+  },
+  {
+   "qid": "Q1418401",
+   "category": "strait",
+   "name": "Mona Passage"
+  },
+  {
+   "qid": "Q48365",
+   "category": "strait",
+   "name": "Strait of Magellan"
+  },
+  {
+   "qid": "Q202671",
+   "category": "strait",
+   "name": "Beagle Channel"
+  },
+  {
+   "qid": "Q186299",
+   "category": "strait",
+   "name": "Palk Strait"
+  },
+  {
+   "qid": "Q110802",
+   "category": "strait",
+   "name": "Strait of Tartary"
+  },
+  {
+   "qid": "Q207911",
+   "category": "strait",
+   "name": "Strait of Bonifacio"
+  },
+  {
+   "qid": "Q206975",
+   "category": "strait",
+   "name": "Strait of Sicily"
+  },
+  {
+   "qid": "Q174731",
+   "category": "bay",
+   "name": "Gulf of Riga"
+  },
+  {
+   "qid": "Q187274",
+   "category": "bay",
+   "name": "Gulf of Sidra"
+  },
+  {
+   "qid": "Q168277",
+   "category": "bay",
+   "name": "Gulf of Suez"
+  },
+  {
+   "qid": "Q81611",
+   "category": "bay",
+   "name": "Gulf of Aqaba"
+  },
+  {
+   "qid": "Q232264",
+   "category": "bay",
+   "name": "San Francisco Bay"
+  },
+  {
+   "qid": "Q141017",
+   "category": "bay",
+   "name": "Tokyo Bay"
+  },
+  {
+   "qid": "Q4085",
+   "category": "cape",
+   "name": "Cape Agulhas"
+  },
+  {
+   "qid": "Q4069",
+   "category": "cape",
+   "name": "North Cape"
+  },
+  {
+   "qid": "Q978032",
+   "category": "cape",
+   "name": "Cape Hatteras"
+  },
+  {
+   "qid": "Q1536418",
+   "category": "cape",
+   "name": "Cape Leeuwin"
+  },
+  {
+   "qid": "Q128097",
+   "category": "cape",
+   "name": "Cape Farewell"
+  },
+  {
+   "qid": "Q650495",
+   "category": "cape",
+   "name": "Cape Dezhnev"
+  },
+  {
+   "qid": "Q837325",
+   "category": "cape",
+   "name": "Cape Chelyuskin"
+  },
+  {
+   "qid": "Q369193",
+   "category": "cape",
+   "name": "Cape Prince of Wales"
+  },
+  {
+   "qid": "Q169141",
+   "category": "cape",
+   "name": "Cape Froward"
+  },
+  {
+   "qid": "Q1136198",
+   "category": "cape",
+   "name": "Cape Finisterre"
+  },
+  {
+   "qid": "Q4103",
+   "category": "cape",
+   "name": "Cape St. Vincent"
+  },
+  {
+   "qid": "Q169532",
+   "category": "cape",
+   "name": "Land's End"
+  },
+  {
+   "qid": "Q1034320",
+   "category": "cape",
+   "name": "Cape Byron"
+  },
+  {
+   "qid": "Q1034494",
+   "category": "cape",
+   "name": "Cape Reinga"
+  },
+  {
+   "qid": "Q1462700",
+   "category": "cape",
+   "name": "Ponta do Seixas"
+  },
+  {
+   "qid": "Q48454",
+   "category": "cape",
+   "name": "Punta Gallinas"
+  },
+  {
+   "qid": "Q917353",
+   "category": "cape",
+   "name": "Cape Morris Jesup"
+  },
+  {
+   "qid": "Q1343019",
+   "category": "cape",
+   "name": "Point Barrow"
+  },
+  {
+   "qid": "Q946721",
+   "category": "cape",
+   "name": "Cape Comorin"
+  },
+  {
+   "qid": "Q899",
+   "category": "canal",
+   "name": "Suez Canal"
+  },
+  {
+   "qid": "Q7350",
+   "category": "canal",
+   "name": "Panama Canal"
+  },
+  {
+   "qid": "Q144825",
+   "category": "canal",
+   "name": "Kiel Canal"
+  },
+  {
+   "qid": "Q571430",
+   "category": "ice",
+   "name": "Antarctic ice sheet"
+  },
+  {
+   "qid": "Q1542432",
+   "category": "ice",
+   "name": "Greenland ice sheet"
+  },
+  {
+   "qid": "Q179734",
+   "category": "ice",
+   "name": "Vatnajökull"
+  },
+  {
+   "qid": "Q367943",
+   "category": "ice",
+   "name": "Perito Moreno Glacier"
+  },
+  {
+   "qid": "Q204658",
+   "category": "ice",
+   "name": "Aletsch Glacier"
+  },
+  {
+   "qid": "Q278245",
+   "category": "ice",
+   "name": "Lambert Glacier"
+  },
+  {
+   "qid": "Q200255",
+   "category": "ice",
+   "name": "Ross Ice Shelf"
+  },
+  {
+   "qid": "Q209976",
+   "category": "ice",
+   "name": "Filchner-Ronne Ice Shelf"
+  },
+  {
+   "qid": "Q580133",
+   "category": "shield",
+   "name": "Baltic Shield",
+   "lon": 25.0,
+   "lat": 64.0
+  },
+  {
+   "qid": "Q9309106",
+   "category": "shield",
+   "name": "Guiana Shield"
+  },
+  {
+   "qid": "Q4824676",
+   "category": "shield",
+   "name": "Australian Shield"
+  },
+  {
+   "qid": "Q12878159",
+   "category": "shield",
+   "name": "Indian Shield",
+   "lon": 78.0,
+   "lat": 20.0
+  },
+  {
+   "qid": "Q597281",
+   "category": "wetland",
+   "name": "Everglades"
+  },
+  {
+   "qid": "Q342451",
+   "category": "delta",
+   "name": "Red River Delta"
+  },
+  {
+   "qid": "Q1195076",
+   "category": "delta",
+   "name": "Yangtze Delta"
+  },
+  {
+   "qid": "Q1144286",
+   "category": "delta",
+   "name": "Pearl River Delta"
+  },
+  {
+   "qid": "Q650872",
+   "category": "delta",
+   "name": "Okavango Delta"
+  },
+  {
+   "qid": "Q923381",
+   "category": "delta",
+   "name": "Rhine–Meuse–Scheldt delta"
+  },
+  {
+   "qid": "Q972008",
+   "category": "delta",
+   "name": "Po Delta"
+  },
+  {
+   "qid": "Q3433305",
+   "category": "delta",
+   "name": "Orinoco Delta"
+  },
+  {
+   "qid": "Q153732",
+   "category": "islands",
+   "name": "Mariana Islands"
+  },
+  {
+   "qid": "Q186822",
+   "category": "islands",
+   "name": "Lofoten"
+  },
+  {
+   "qid": "Q123377",
+   "category": "islands",
+   "name": "Hebrides"
+  },
+  {
+   "qid": "Q131555",
+   "category": "islands",
+   "name": "Dodecanese"
+  },
+  {
+   "qid": "Q171132",
+   "category": "islands",
+   "name": "Cyclades"
+  },
+  {
+   "qid": "Q4991540",
+   "category": "plain",
+   "name": "Serengeti"
+  },
+  {
+   "qid": "Q934",
+   "category": "pole",
+   "name": "North Pole"
+  },
+  {
+   "qid": "Q933",
+   "category": "pole",
+   "name": "South Pole"
+  },
+  {
+   "qid": "Q734455",
+   "category": "river",
+   "name": "Shinano River"
+  },
+  {
+   "qid": "Q179396",
+   "category": "river",
+   "name": "Paraguay River"
+  },
+  {
+   "qid": "Q213576",
+   "category": "river",
+   "name": "Huai River"
+  },
+  {
+   "qid": "Q847641",
+   "category": "river",
+   "name": "Wei River"
+  },
+  {
+   "qid": "Q559661",
+   "category": "river",
+   "name": "Liao River"
+  },
+  {
+   "qid": "Q55499",
+   "category": "river",
+   "name": "Tumen River"
+  },
+  {
+   "qid": "Q79082",
+   "category": "river",
+   "name": "Kama"
+  },
+  {
+   "qid": "Q131210",
+   "category": "river",
+   "name": "Dniester"
+  },
+  {
+   "qid": "Q134350",
+   "category": "river",
+   "name": "Tisza"
+  },
+  {
+   "qid": "Q8197",
+   "category": "river",
+   "name": "Daugava"
+  },
+  {
+   "qid": "Q645",
+   "category": "river",
+   "name": "Neva"
+  },
+  {
+   "qid": "Q41986",
+   "category": "river",
+   "name": "Meuse"
+  },
+  {
+   "qid": "Q37620",
+   "category": "river",
+   "name": "Scheldt"
+  },
+  {
+   "qid": "Q1650",
+   "category": "river",
+   "name": "Weser"
+  },
+  {
+   "qid": "Q192820",
+   "category": "river",
+   "name": "River Shannon"
+  },
+  {
+   "qid": "Q14309",
+   "category": "river",
+   "name": "Guadalquivir"
+  },
+  {
+   "qid": "Q14305",
+   "category": "river",
+   "name": "Guadiana"
+  },
+  {
+   "qid": "Q13696",
+   "category": "river",
+   "name": "Adige"
+  },
+  {
+   "qid": "Q257785",
+   "category": "river",
+   "name": "Kızılırmak"
+  },
+  {
+   "qid": "Q841359",
+   "category": "river",
+   "name": "Kapuas River"
+  },
+  {
+   "qid": "Q739687",
+   "category": "river",
+   "name": "Hooghly River"
+  },
+  {
+   "qid": "Q192567",
+   "category": "river",
+   "name": "Ili River"
+  },
+  {
+   "qid": "Q186541",
+   "category": "river",
+   "name": "Kasai River"
+  },
+  {
+   "qid": "Q171649",
+   "category": "river",
+   "name": "Ubangi River"
+  },
+  {
+   "qid": "Q204806",
+   "category": "river",
+   "name": "Benue River"
+  },
+  {
+   "qid": "Q135477",
+   "category": "river",
+   "name": "Chari River"
+  },
+  {
+   "qid": "Q160819",
+   "category": "river",
+   "name": "Gambia River"
+  },
+  {
+   "qid": "Q209530",
+   "category": "river",
+   "name": "Vaal River"
+  },
+  {
+   "qid": "Q1129218",
+   "category": "river",
+   "name": "Balsas River"
+  },
+  {
+   "qid": "Q1633955",
+   "category": "river",
+   "name": "Lerma River"
+  },
+  {
+   "qid": "Q191635",
+   "category": "river",
+   "name": "Iguazu River"
+  },
+  {
+   "qid": "Q171847",
+   "category": "river",
+   "name": "Araguaia River"
+  },
+  {
+   "qid": "Q853332",
+   "category": "river",
+   "name": "Cauca River"
+  },
+  {
+   "qid": "Q475597",
+   "category": "river",
+   "name": "Murrumbidgee River"
+  },
+  {
+   "qid": "Q1048219",
+   "category": "river",
+   "name": "Waikato River"
+  },
+  {
+   "qid": "Q60974",
+   "category": "river",
+   "name": "Ottawa River"
+  },
+  {
+   "qid": "Q171840",
+   "category": "river",
+   "name": "Japurá River"
+  },
+  {
+   "qid": "Q26428",
+   "category": "river",
+   "name": "Nizhnyaya Tunguska"
+  },
+  {
+   "qid": "Q124653",
+   "category": "river",
+   "name": "Tobol River"
+  },
+  {
+   "qid": "Q1139679",
+   "category": "river",
+   "name": "Usumacinta River"
+  },
+  {
+   "qid": "Q93360",
+   "category": "river",
+   "name": "Biobío River"
+  },
+  {
+   "qid": "Q14383",
+   "category": "river",
+   "name": "Sava"
+  },
+  {
+   "qid": "Q432278",
+   "category": "river",
+   "name": "Cooper Creek"
+  },
+  {
+   "qid": "Q3249284",
+   "category": "trench",
+   "name": "Nankai Trough",
+   "lon": 136.0,
+   "lat": 32.5
+  }
+ ],
+ "drop": [
+  "Q2223479",
+  "Q10362010",
+  "Q2076850",
+  "Q621609",
+  "Q1321316",
+  "Q1472009",
+  "Q31379",
+  "Q817337",
+  "North Aral Sea",
+  "South Aral Sea",
+  "Saint Clair",
+  "Georgian Bay",
+  "North Channel",
+  "Saginaw Bay",
+  "Whitefish Bay",
+  "St. Marys River",
+  "Pihkva",
+  "Baker",
+  "Mackay",
+  "Martre",
+  "Dubawnt",
+  "Wollaston",
+  "Churchill",
+  "Rybinsk",
+  "Milh",
+  "Tharthar",
+  "Oneida",
+  "Kumpupintil",
+  "Iliamna",
+  "Frome",
+  "Päijänne",
+  "Vistula Lagoon",
+  "Geladandong",
+  "Grand Teton",
+  "Mount Katahdin",
+  "Mount Washington",
+  "Muztag Feng",
+  "Cero Raya",
+  "Edwards Plateau",
+  "Fraser Plateau",
+  "Cumberland Plateau",
+  "Allegheny Plateau",
+  "Yukon Plateau",
+  "Laurentian Upland",
+  "Grande Sertão Veredas National Park",
+  "Huíla Plateau",
+  "Aldan Highlands",
+  "Kazakh Uplands",
+  "Bié Plateau",
+  "Crystal Mountain",
+  "Cordillera Occidental",
+  "Cordillera Oriental",
+  "Cordillera Real",
+  "Tarbagatai Mountains",
+  "Borohoro Mountains",
+  "Altyn-Tagh",
+  "Dabie Mountains",
+  "Wuyi Mountains",
+  "Yablonoi Mountains",
+  "Lesser Khingan",
+  "Chugach Mountains",
+  "Anti-Atlas",
+  "Saharan Atlas",
+  "Labrador",
+  "Mainland Tasmania",
+  "Great Nicobar Island",
+  "Middle Andaman",
+  "North Andaman Island",
+  "South Andaman Island",
+  "Bolshoy Begichev Island",
+  "Arkticheskiy Institut Islands",
+  "Schmidt Island",
+  "Komsomolets Island",
+  "Bolshevik Island",
+  "October Revolution Island",
+  "Amundsen Gulf",
+  "Melville Bay",
+  "San Jorge Gulf",
+  "Shelikhov Gulf",
+  "Tikahtnu Inlet",
+  "Viscount Melville Sound",
+  "Ungava Bay",
+  "Bristol Bay",
+  "Bransfield Strait",
+  "Dixon Entrance",
+  "Ronne Entrance",
+  "M'Clure Strait",
+  "Vilkitsky Strait",
+  "Cape Churchill",
+  "Cape May",
+  "Cape Mendocino",
+  "Cap Bon",
+  "Cape Palmas",
+  "Punjab",
+  "Caatinga",
+  "El Djouf",
+  "Erg Chech",
+  "Murzuq Desert",
+  "Betpak-Dala",
+  "Alaska North Slope",
+  "Chaco Austral",
+  "Chaco Boreal",
+  "Marie Byrd Land",
+  "Queen Maud Land",
+  "Wilkes Land",
+  "Moscow Canal",
+  "White Sea – Baltic Canal",
+  "North Magnetic Pole",
+  "South Magnetic Pole",
+  "pole of inaccessibility",
+  "Q5530346",
+  "Melville Island (Northern Territory)",
+  "Lake Winnebago",
+  "Q207925",
+  "Q601637"
+ ],
+ "category": {
+  "Canadian Shield": "shield",
+  "Melanesia": "region",
+  "Micronesia": "region",
+  "Polynesia": "region",
+  "Espiritu Santo": "island",
+  "Guadalcanal": "island",
+  "Isabela Island": "island",
+  "Maui": "island",
+  "Tahiti": "island",
+  "Nova Scotia": "peninsula",
+  "Cape Chelyuskin": "cape",
+  "Cape Cà Mau": "cape",
+  "Central America": "region",
+  "Stanovoy Range": "range",
+  "Iberian Peninsula": "peninsula",
+  "Sudd": "wetland",
+  "Death Valley": "valley"
+ },
+ "merge": {
+  "Q203239": [
+   "Q1974954",
+   "~Eastern Sayan Mountains"
+  ],
+  "Q3392": [
+   "Q4814791",
+   "Q2750140"
+  ],
+  "Q882739": [
+   "Q3501984"
+  ],
+  "Q3503": [
+   "Q836812"
+  ],
+  "Q5413": [
+   "Q1038418",
+   "Q7821148",
+   "Q1538813"
+  ],
+  "Q6862": [
+   "Q26439"
+  ],
+  "Q7348": [
+   "Q7666170"
+  ],
+  "Q45403": [
+   "Q2599627",
+   "Q15954437"
+  ],
+  "Q75745": [
+   "Q26301"
+  ],
+  "Q1653": [
+   "Q12722938",
+   "Q1344617",
+   "Q1668781",
+   "Q1369180"
+  ],
+  "Q5419": [
+   "Q947477"
+  ],
+  "Q4915": [
+   "Q686021"
+  ],
+  "Q104437": [
+   "Q284495"
+  ],
+  "Q3411": [
+   "Q2226"
+  ],
+  "Q134750": [
+   "Q182343",
+   "Q1054325"
+  ],
+  "Q127892": [
+   "Q21847787",
+   "Q776155",
+   "Q386331"
+  ],
+  "Q118251": [
+   "Q117615",
+   "Q916349",
+   "Q1519602"
+  ],
+  "Q181482": [
+   "Q809666",
+   "Q2556345"
+  ],
+  "Q584": [
+   "Q216171",
+   "Q1143852",
+   "Q1152951",
+   "Q217818"
+  ],
+  "Q216941": [
+   "Q1569231",
+   "Q615328",
+   "Q2509519",
+   "Q856509"
+  ],
+  "Q26076": [
+   "Q3334104"
+  ],
+  "Q3569": [
+   "Q180558"
+  ],
+  "Q8187": [
+   "Q82812"
+  ],
+  "Q3047": [
+   "Q2237"
+  ],
+  "Q171847": [
+   "Q639478"
+  ],
+  "Q171649": [
+   "Q171436",
+   "Q1120933"
+  ],
+  "Q483159": [
+   "Q651195"
+  ],
+  "Q8493": [
+   "Q8542",
+   "Q8550"
+  ],
+  "Q78707": [
+   "Q1511505",
+   "Q15277375"
+  ],
+  "Q26399": [
+   "~Ahag"
+  ],
+  "Q432278": [
+   "Q5167806"
+  ]
+ },
+ "axis": {
+  "Q1285": "8.3 44.5;11.0 44.1;13.5 42.4;16.0 39.5",
+  "Q35647": "-2.4 54.9;-1.8 53.3",
+  "Q1719533": "-64.8 -30.3;-64.9 -31.4;-64.8 -32.4"
+ },
+ "add_ne": {
+  "Sudd": "wetland",
+  "Zambezi Delta": "delta"
+ },
+ "allow_nation": [
+  "Q223"
+ ],
+ "alias": {
+  "Q15120268": "Q1978",
+  "Q23945221": "Q66065",
+  "Q27696359": "Q13420030",
+  "Q26787455": "Q2361576",
+  "Q21713615": "Q5363289",
+  "Q28809720": "Q1206587",
+  "Q10905515": "Q6897416",
+  "Q1249802": "Q9648"
+ }
+}

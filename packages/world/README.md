@@ -1,6 +1,6 @@
 # 国別データベース（world）v2
 
-世界の国・地域 262 件の基礎データ（首都・ISO/IOC・国連加盟・面積・人口・経済統計・言語・通貨・国歌・国旗・係争地）と地形 587 件（山脈・単独峰・半島・砂漠・平原・湖・川・海嶺・海溝・島・諸島）、
+世界の国・地域 262 件の基礎データ（首都・ISO/IOC・国連加盟・面積・人口・経済統計・言語・通貨・国歌・国旗・係争地）と地形約 900 件（大陸・海洋・海・湾・海峡・島・半島・岬・山脈・山・高原・平原・盆地・砂漠・デルタ・湖・川・海溝・海嶺など 31 分類）、
 それらの 26 言語の名前テーブル。ビューアは `apps/world`（http://localhost:5174/world/）、配信は bucket `GIS/world/`。
 
 **設計（2026-09-11・v2）**: 英語と ID を基軸にする。国は `key`（ISO 3166-1 alpha-2、非 ISO 主体は Natural Earth 系の B コード、クリッパートンは FR-CP）と
@@ -12,7 +12,8 @@ Wikidata の QID、都市は QID、言語は ISO 639、通貨は ISO 4217。日�
 seed/            正本（人が手で持つ・PR の対象）
   nations.csv      key, qid, name_en, official_en（"Republic of _" 型）, region(1..6), territory(key), conflict(key), capital(都市 QID・空なら Wikidata P36)
   cities.csv       qid, nation(key・複数は |), capital(1)          … 首都は build が自動で加える
-  terrains.csv     qid, category(range/peak/peninsula/desert/plain/lake/river/ridge/trench/island/islands), name_en, ne_extra, axis … 座標・面積・標高・長さ・記事名・26 言語名は Wikidata から。ne_extra＝形状に結合する Natural Earth 側の別 QID（| 区切り・川＝長江の金沙江/通天河/沱沱河・パラナの下流、山脈＝サヤンの東西。"~名前" は NE の NAME_EN で結合＝wikidataid の無い区画用）。axis＝山脈の軸線の手書き（"lon lat;lon lat;…"・NE にポリゴンが無いアペニン/ペナイン/コルドバ）
+  terrains.csv     **生成物**（scripts/terrains-from-ne.py が書く・手で編集しない）。qid, category, name_en(enwiki 記事名), ne_extra, axis, rank(NE scalerank), lon, lat(NE の代表点)
+  terrains-manual.json 地形の手動層（人が持つ）: add（閾値外でも入れる・QID 基軸）/ drop（QID・NE 名・記事名）/ category（分類の上書き）/ merge（形状を結合する NE 側の QID か "~NE 名"）/ axis（山脈の手書き軸線）/ alias（NE の壊れた wikidataid → 正規 QID）/ allow_nation / add_ne
   conflicts.json   係争地（key・qid・type・region・name_en・exist・sovereignt・territory・claim）
   overrides.json   例外＝key → { 項目: 値, _why: {項目: 理由} }（最優先。無人地の人口・本土面積・非 ISO 主体の通貨・実効支配域…）
   capital-notes.json 首都の注記（defacto / changed=[年, 都市QID] / multi={legislative,judicial,executive} / text=国key か翻訳キー）
@@ -28,6 +29,7 @@ build/            組み立て（Node CLI と uploader で共用・依存なし�
   i18n.js          言語別テーブル（英語以外）
   env.js / seed.js / csv.js   実行環境の差の吸収・seed 読み・CSV
   cli.js           node build/cli.js [--fresh] [--out DIR] → out/
+scripts/          terrains-from-ne.py＝地形 seed の生成器（Natural Earth 10m v5.1.2 を .cache/ne/ に取得・Wikidata で記事の有無を確認）
 legacy/           README-v1.md＝v1 の経緯と移植台帳のみ。原典と v1 seed（create*.js・geometryISO.js・draw.js・国名一覧.csv・国旗.zip…）は削除済み＝git 履歴 e544907 に残る（2026-09-11）
 ```
 
@@ -45,7 +47,7 @@ legacy/           README-v1.md＝v1 の経緯と移植台帳のみ。原典と v
 |---|---|---|
 | NationDB | key | qid, name.en, official, region, iso[2,3,num], ioc, un(加盟日), capital(都市 QID), territory/conflict(key), sovereignt/claim(係争地 key), coord, area, population/gni/gnipc/gdp/gdppc/ppp/ppppc/hdi/homicide(=[最新年, 値…]), gpi(=[年, 値]), languages(ISO 639), currency(ISO 4217), anthem(URL), flag(Commons ファイル名), wiki.en(記事名), capitalNote, `_src`(項目ごとの出所) |
 | CityDB | qid | name.en, nation[key], capital, coords[lon,lat,標高], population[年,値], wiki.en |
-| TerrainDB | qid | category, name.en, coord[lon,lat], area(km²), elevation(m), length(km), wiki.en |
+| TerrainDB | qid | category(31 分類), rank(NE scalerank・手動追加は無し), name.en, coord[lon,lat], area(km²), elevation(m), length(km), wiki.en |
 | range.geojson | qid | 山脈の軸線＝FeatureCollection（properties: qid, name, width(km), length(km), source=ne/seed / LineString 2〜4 点・小数 3 桁）。表示側で spline を通し width でポリゴン化する前提（Kenji 2026-09-11）|
 | rivers.geojson | qid | 川の形状＝FeatureCollection（properties: qid, name, scalerank / MultiLineString・小数 4 桁）。Natural Earth 10m rivers_lake_centerlines_scale_rank v5.1.2 を wikidataid で結合 |
 | LanguageDB / CurrencyDB | ISO 639 / 4217 | qid, name.en, wiki.en |
@@ -64,6 +66,12 @@ legacy/           README-v1.md＝v1 の経緯と移植台帳のみ。原典と v
 
 ## 地形（地図用）
 
-`seed/terrains.csv`（11 分類 587 件＝QID・分類・英語名。2026-09-11 追加: peak＝単独峰 60 件（8000m 峰 10・七大陸最高峰・各国の象徴的な山と火山）、lake＝湖 60 件（面積上位・大陸別の主要湖・カスピ海/死海/アラル海などの塩湖・ヴォルタ/ナセルの人造湖）、river＝川 112 件（Natural Earth の scalerank 上位から大陸別に選び、形状は同データの線分を wikidataid で結合して `rivers.geojson` に出す。途中で名前が変わる川は有名な名前の項目に上流区間を ne_extra で結合して全長を取る＝ナイル←白ナイル・カゲラ、長江←金沙江・通天河・沱沱河、ブラマプトラ←ヤルンツァンポ など。Kenji 2026-09-11）を国と同じ経路で組み立て、`TerrainDB.json` と `i18n/<lang>.json` の `terrains` に出す（2026-09-11）。
-旧 `地形.txt`（ja 記事名）→ `scripts/terrain-i18n.py` → `地形.csv` の経路は seed 化に伴い削除（git 履歴 5f5483c に残る）。
-分類は Natural Earth の physical labels に倣った英語キー。ビューアの地図配線は未着手（データは先に揃えた）。
+**基準＝「世界の優秀な高校生が知っている地形」（Kenji 2026-09-11）。** 手作業の名前リストではなく Natural Earth 10m（v5.1.2 固定）の scalerank（地図帳での目立ち度）で機械的に選び、NE の wikidataid で Wikidata に結ぶ。
+英語版 Wikipedia の記事が無いものと位置が特定できないものは入れない（Wikidata P625 → 無ければ NE の代表点）。国そのもの（Japan・Cuba…）は NationDB 側＝島は島の項目で入る（グリーンランドだけ国と同じ QID を許す）。
+
+- 生成: `python3 scripts/terrains-from-ne.py [--review]` → `seed/terrains.csv`（--review で分類別の全名を出す）。NE は `.cache/ne/` に落として再利用
+- 閾値（NE featurecla → 分類・scalerank 上限）: Range/mtn 4・Plateau 4・Desert 4・Pen/cape 4・Island 4・Island group 3・Geoarea 2・Plain/Lowland 3・Delta/Basin/Valley/Isthmus/Wetlands ほぼ全部・海域＝sea 5／gulf・bay 4／strait 5・湖 3・山（elevation points）3・岬 3・川＝QID ごとの最小 scalerank 4（5 は手動層で名指し）。南極は主要なもの以外除外
+- 手動層 `seed/terrains-manual.json`: 閾値外の追加（8000m 峰・各国の象徴的な山・有名湖・海溝/海嶺・海峡・運河・氷床など）、僻地の除外、分類の上書き、形状の結合、手書き軸線、NE の壊れた QID の読み替え
+- 途中で名前が変わる川は有名な名前の項目に上流区間を merge で結合して全長を取る（ナイル←白ナイル・カゲラ、長江←金沙江・通天河・沱沱河、ライン←ワール/レク/ネーデルライン/エイセル、西江←南盤江/紅水河/黔江/潯江 など）。結合先は単独では収蔵しない
+- 形状: 川＝`rivers.geojson`（NE の線分を wikidataid で束ねた MultiLineString・小数 4 桁）、山脈＝`range.geojson`（NE ポリゴンから geom.js で 2〜4 点の軸線＋幅・表示側で spline＋ポリゴン化）。NE に無い川（信濃川・パラグアイ川など）は形状なし＝warn
+- 分類（31）: continent ocean region shield sea bay strait reef island islands peninsula cape isthmus range peak pass plateau plain basin valley desert delta wetland ice lake river waterfall canal trench ridge pole
