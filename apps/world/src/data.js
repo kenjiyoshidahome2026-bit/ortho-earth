@@ -94,6 +94,14 @@ export async function loadI18N(lang, onUpdate) {
 	return fetchIt();
 }
 
+// 版が変わって形が合わなくなった IDB を捨てる（呼び出し側は冷やし直す）。d(k,null)=delete・d()=全キー
+export async function dropCache() {
+	const d = await idb(); if (!d) return 0;
+	const keys = (await d().catch(() => [])) || [];
+	await Promise.all(keys.map(k => d(k, null).catch(() => {})));
+	return keys.length;
+}
+
 // 設定の永続化（旧 d3.cache("nations.system")）
 export async function systemStore() {
 	const idb = await Cache("world/system").catch(() => null);
