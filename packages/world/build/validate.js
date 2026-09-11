@@ -1,5 +1,5 @@
 // 保存前の機械検札。errors があれば保存しない・warns は報告だけ
-const TERRAIN_CATEGORIES = new Set(["range", "peak", "peninsula", "desert", "plain", "ridge", "trench", "island", "islands"]);
+const TERRAIN_CATEGORIES = new Set(["range", "peak", "peninsula", "desert", "plain", "lake", "ridge", "trench", "island", "islands"]);
 export function validate({ NationDB, CityDB, TerrainDB = [], LanguageDB, CurrencyDB, Conflicts }) {
 	const errors = [], warns = [];
 	const E = s => errors.push(s), W = s => warns.push(s);
