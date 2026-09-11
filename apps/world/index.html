@@ -7,9 +7,12 @@
 	<title>Nations of the World - Ortho Earth</title>
 	<meta name="theme-color" content="#000" />
 	<link rel="preconnect" href="https://api.ortho-earth.com">
-	<style>html, body { position:absolute; inset:0; background:#000; margin:0; padding:0; overscroll-behavior:none; }</style>
+	<!-- ページ側の器だけ。中身の意匠は全部 .ortho-world（モジュール）が持つ -->
+	<style>html, body { position:absolute; inset:0; background:#000; margin:0; padding:0; overscroll-behavior:none; }
+	#world { position:absolute; inset:0; }</style>
 </head>
 <body>
+	<div id="world"></div>
 	<script type="module" src="/src/main.js"></script>
 </body>
 </html>

@@ -1,10 +1,16 @@
-*,*:before,*:after { box-sizing:border-box; margin:0;padding:0; appearance:none; -webkit-appearance: none; }
-::-webkit-scrollbar { width:15px; height:15px; }
-::-webkit-scrollbar-track { background:#eee; box-shadow: inset 0 0 3px #444; }
-::-webkit-scrollbar-thumb { background:#222; border-radius:5px; border:2px solid #ccc;  }
-::-webkit-scrollbar-track-piece { background:transparent; }
-::-webkit-scrollbar-corner { background:#222; }
-body { font:10px verdana; //direction: rtl;
+// ── すべて .ortho-world（コンテナ div）の配下に閉じる ──────────────────────────
+// 埋め込み先のページのスタイルを汚さないための境界。body/html への指定は 1 つも残さない
+// （旧: * リセットとスクロールバー意匠が全域に効いていた＝モジュールとしては越権）。
+.ortho-world {
+	position:relative; overflow:hidden; width:100%; height:100%;   // [name=head] 等の absolute の基準＝自分の箱
+	*,*:before,*:after { box-sizing:border-box; margin:0;padding:0; appearance:none; -webkit-appearance: none; }
+	::-webkit-scrollbar { width:15px; height:15px; }
+	::-webkit-scrollbar-track { background:#eee; box-shadow: inset 0 0 3px #444; }
+	::-webkit-scrollbar-thumb { background:#222; border-radius:5px; border:2px solid #ccc;  }
+	::-webkit-scrollbar-track-piece { background:transparent; }
+	::-webkit-scrollbar-corner { background:#222; }
+}
+.ortho-world { font:10px verdana;
 	.overlap-tooltip { white-space:nowrap; max-width:500px;
 		p { text-align:center; font-size:13px; font-weight:bold; }
 		td, th { padding:0 3px; }
@@ -204,19 +210,20 @@ body { font:10px verdana; //direction: rtl;
 //	}
 }
 // ── 移植時の追加（旧 __HTML__ パーツ側にあったレイアウト）2026-09-09 ──
-body { position:absolute; inset:0; overflow:hidden; }
-[name=head] { position:absolute; top:0; left:0; right:0; height:50px; z-index:2; }
-[name=main] { position:absolute; top:50px; bottom:0; left:0; right:0; }
-[name=modal] { position:absolute; inset:0; z-index:10;
-	[name=flag] > img.map { object-fit:contain; background:#cff; border-radius:8px; }
-}
-.hidden { display:none !important; }
-[name=loading] { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:#fff; font-size:16px; background:#000; z-index:20;
-	span { display:inline-block; padding:1em 2em; border:2px solid #666; border-radius:8px; background:#222; }
+.ortho-world {
+	[name=head] { position:absolute; top:0; left:0; right:0; height:50px; z-index:2; }
+	[name=main] { position:absolute; top:50px; bottom:0; left:0; right:0; }
+	[name=modal] { position:absolute; inset:0; z-index:10;
+		[name=flag] > img.map { object-fit:contain; background:#cff; border-radius:8px; }
+	}
+	.hidden { display:none !important; }
+	[name=loading] { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:#fff; font-size:16px; background:#000; z-index:20;
+		span { display:inline-block; padding:1em 2em; border:2px solid #666; border-radius:8px; background:#222; }
+	}
 }
 
 // ── RTL（ar/fa/ur/he）2026-09-10: 物理 left/right の指定を論理方向へ上書き ──
-html[dir=rtl] {
+.ortho-world[dir=rtl] {
 	[name=scroll] .nation { float:right; direction:rtl; text-align:start;   // inline-end は環境差で効かない（Kenji 実機で左→右に並んだ）＝物理 right で明示
 		div.order { right:auto; left:5px; }
 		img.mapopen { right:auto; left:5px; }
@@ -233,16 +240,16 @@ html[dir=rtl] {
 	.overlap-tooltip { direction:rtl; }
 }
 // ボタン群（sorts/display）の角丸と縁幅は物理 left/right 指定＝RTL では並びが鏡像になり逆に付く → 論理方向で上書き
-html[dir=rtl] [name=head] div.sel > button {
+.ortho-world[dir=rtl] [name=head] div.sel > button {
 	border-radius:0; border-width:2px 1px;
 	&:first-child { border-radius:0 3px 3px 0; border-right-width:2px; border-left-width:1px; }
 	&:last-child { border-radius:3px 0 0 3px; border-left-width:2px; border-right-width:1px; }
 	&:first-child:last-child { border-radius:3px; border-width:2px; }
 }
 // ヘッダの溢れは横方向だけ（overflow:auto だと横バー出現時に縦も溢れて二重バーになる）
-body [name=head] { overflow-x:auto; overflow-y:hidden; }   // 原典の body [name=head]{overflow:auto} と同じ詳細度で上書き（body 無しだと負ける）
+.ortho-world [name=head] { overflow-x:auto; overflow-y:hidden; }   // 原典の .ortho-world [name=head]{overflow:auto} と同じ詳細度で上書き（body 無しだと負ける）
 // ヘッダの横スクロールバー＝ホバー時だけ見える（バー領域は常設＝レイアウトが動かない。つまみを透明→ホバーで着色）
-body [name=head] {
+.ortho-world [name=head] {
 	scrollbar-width:thin; scrollbar-color:transparent transparent;   // Firefox
 	&::-webkit-scrollbar { height:6px; }
 	&::-webkit-scrollbar-track { background:transparent; box-shadow:none; }
@@ -255,13 +262,13 @@ body [name=head] {
 
 // ── スマホ幅（2026-09-10）: モーダルの上下バーは重ねず縦積み・ヘッダは詰める（原典と同じ詳細度＝body 付き） ──
 @media (max-width: 720px) {
-	body [name=head] { padding:0 4px; line-height:44px; height:44px;
+	.ortho-world [name=head] { padding:0 4px; line-height:44px; height:44px;
 		select, button, input { font-size:12px; line-height:20px; margin:0 2px; }
 		input { width:110px; }
 	}
-	body [name=main] { top:44px; }
-	body [name=scroll] .nation { width:calc(100% - 10px); float:none; margin:5px auto; }
-	body [name=modal] {
+	.ortho-world [name=main] { top:44px; }
+	.ortho-world [name=scroll] .nation { width:calc(100% - 10px); float:none; margin:5px auto; }
+	.ortho-world [name=modal] {
 		.head, .foot { position:absolute; left:6px; right:6px; height:auto; line-height:1.4; font-size:12px;
 			white-space:normal; overflow-wrap:anywhere;   // 概要行（面積/人口/GDP）が右にはみ出さないよう折り返す
 			* { line-height:1.4; } span { display:inline; } img { height:22px; }
@@ -277,7 +284,7 @@ body [name=head] {
 }
 
 // ── カードからはみ出す文字（長い国名・首都名・26言語）: 一次対策は main.js の fitScale（描画前に幅を測ってフォントを縮める）。ここは下限を割った行の折り返し（保険）2026-09-10 ──
-body [name=scroll] .nation { overflow:clip;   // hidden だと Grid 項目がスクロールコンテナ扱いになり Chrome で行高が 0 に潰れる（2026-09-10 実測: hidden=3px / clip=95px）
+.ortho-world [name=scroll] .nation { overflow:clip;   // hidden だと Grid 項目がスクロールコンテナ扱いになり Chrome で行高が 0 に潰れる（2026-09-10 実測: hidden=3px / clip=95px）
 	table { width:100%; table-layout:fixed; }
 	td:first-child { width:72px; }
 	td:last-child { white-space:normal; overflow-wrap:anywhere; word-break:break-word;
@@ -289,14 +296,16 @@ body [name=scroll] .nation { overflow:clip;   // hidden だと Grid 項目がス
 
 // ── ブロック表示は CSS Grid（2026-09-10）: 26言語で国名が折り返し高さが揃わなくなり float が崩れた（背の高いカードに次行が引っかかる）
 //   列は 280px の自動充填・中央寄せ・行内は高さ揃え・RTL は direction で自動的に右流れ（float:right の上書きは不要）
-body [name=scroll].grid { display:grid; grid-template-columns:repeat(auto-fill, 280px); justify-content:center; align-content:start; gap:10px; padding:10px !important;
+.ortho-world [name=scroll].grid { display:grid; grid-template-columns:repeat(auto-fill, 280px); justify-content:center; align-content:start; gap:10px; padding:10px !important;
 	.nation { float:none; margin:0; width:auto; box-sizing:border-box; }   // 高さは Grid の stretch（既定）で行内が揃う。height:100% は自動行と循環して 0 に潰れる
 }
-html[dir=rtl] body [name=scroll].grid .nation { float:none; }
-@media (max-width: 720px) { body [name=scroll].grid { grid-template-columns:1fr; padding:5px !important; } body [name=scroll].grid .nation { width:auto; margin:0; } }
+.ortho-world[dir=rtl] [name=scroll].grid .nation { float:none; }
+@media (max-width: 720px) { .ortho-world [name=scroll].grid { grid-template-columns:1fr; padding:5px !important; } .ortho-world [name=scroll].grid .nation { width:auto; margin:0; } }
 
-// ── Wikipedia をアプリ内 iframe で（2026-09-10・census と同じ）。ヘッダの下を全面に覆う。閉じる＝×／Escape、別タブ＝↗ ──
-body [name=wiki] { position:absolute; top:50px; left:0; right:0; bottom:0; z-index:15; background:#eee; display:flex; flex-direction:column;
+// ── Wikipedia をアプリ内 iframe で（2026-09-10・census と同じ）。閉じる＝×／Escape、別タブ＝↗ ──
+// モジュールの箱を**全面**覆う（2026-09-12 Kenji 裁定）。旧は top:50px でヘッダを残していたが、
+// 記事を読んでいる間に地域/並べ替えの操作卓が生きて見えるのは嘘＝覆い切って、戻る口は × と Escape の 2 つに絞る。
+.ortho-world [name=wiki] { position:absolute; inset:0; z-index:15; background:#eee; display:flex; flex-direction:column;
 	> .bar { flex:0 0 36px; background:#222; color:#fff; display:flex; align-items:center; gap:8px; padding:0 8px; font-size:13px;
 		img { height:22px; width:auto; }
 		.title { flex:1; font-weight:bold; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -307,4 +316,3 @@ body [name=wiki] { position:absolute; top:50px; left:0; right:0; bottom:0; z-ind
 	}
 	> iframe { flex:1; width:100%; border:none; background:#fff; }
 }
-@media (max-width: 720px) { body [name=wiki] { top:44px; } }
