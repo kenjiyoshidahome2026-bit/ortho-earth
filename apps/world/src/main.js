@@ -1,11 +1,11 @@
 // ── 国別DB ビューア（旧 draw.js の移植・2026-09-09）──
 // データ=bucket GIS/world（uploader「国別DB (world)」節の成果物）。地図は後日＝geoPNG はサムネイル表示のみ（配線なし）
-import { sel } from "common/dom";
-import "common/dom/tip.js";
+import "./draw.scss";                    // 先にリセット（.ortho-world 配下）
+import { sel } from "common/dom";        // 後から部品の意匠＝同詳細度なら部品が勝つ
+import { setTipRoot } from "common/dom/tip.js";
 import "common/dom/highlight.js";
 import { escape, download } from "common";
 import { wiki } from "common/wiki.js";
-import "./draw.scss";
 import { loadWorld, loadI18N, refresh, systemStore, dropCache, ASSET_BASE } from "./data.js";
 import { state, REGIONS, SORTS, FILTERS, LANGUAGES, LANG_LIST, isRTL, trans, collator, buildModel } from "./model.js";
 import { selectOptions, selectButtons, inputSearch } from "./controls.js";
@@ -47,8 +47,15 @@ function fitScale(html, font, { lines = 1, outerSpan = false } = {}) {
 	return FIT_MIN;
 }
 
-const body = sel("body");
-const loading = body.append("div").attr("name", "loading").html("<span>Loading the world…</span>");
+// ── 取り付け先＝コンテナ div。body には一切書かない（Phase②でモジュール化する土台・2026-09-12）──
+// #world が無ければ body 直下に作る＝index.html だけでも動く。CSS は全部 .ortho-world の配下に閉じてある。
+const root = (() => {
+	const el = document.getElementById("world") || document.body.appendChild(Object.assign(document.createElement("div"), { id: "world" }));
+	el.classList.add("ortho-world");
+	setTipRoot(el);   // ツールチップもこの箱の中に生む＝dir/意匠が箱のものに従い、箱ごと片付く
+	return sel(el);
+})();
+const loading = root.append("div").attr("name", "loading").html("<span>Loading the world…</span>");
 ////-------------------------------------------------------------------------------------------------------------
 const store = await systemStore();
 Object.assign(state, await store.load());
@@ -59,9 +66,10 @@ Object.assign(state, await store.load());
 	const nav = (navigator.language || "en").split("-")[0];
 	state.lang = known.has(q) ? q : known.has(state.lang) ? state.lang : known.has(nav) ? nav : "en";
 }
-const applyLang = () => {   // 文書の言語と書字方向（ar/fa/ur/he は RTL）
-	document.documentElement.lang = state.lang;
-	document.documentElement.dir = isRTL(state.lang) ? "rtl" : "ltr";
+const applyLang = () => {   // 言語と書字方向（ar/fa/ur/he は RTL）＝コンテナ自身に置く（html には触らない）
+	const el = root.node();
+	el.lang = state.lang;
+	el.dir = isRTL(state.lang) ? "rtl" : "ltr";
 	const u = new URL(location.href); u.searchParams.set("lang", state.lang); history.replaceState(null, "", u);   // 他の ?open= 等は保持
 };
 let data;   // IDB 優先（温＝即）・初回だけ一段並列（冷）。裏の更新は描画後の refresh() で
@@ -123,7 +131,7 @@ const icon = {
 };
 ////-------------------------------------------------------------------------------------------------------------
 loading.remove();
-body.html(`
+root.html(`
 <div name="head">
 	<span icon="region"></span><div name="areas"></div>
 	<span icon="filter"></span><div name="filter"></div>
@@ -143,14 +151,14 @@ body.html(`
 	<div class="bar"><img name="logo" alt="Wikipedia"/><span name="title" class="title"></span><a name="newtab" target="_blank" rel="noopener"></a><button name="close"></button></div>
 	<iframe name="frame" title="Wikipedia"></iframe>
 </div>`);
-const head = body.select("[name=head]").slideX(true);
+const head = root.select("[name=head]").slideX(true);
 [...head.selectAll("[name]")].forEach(t => head[t.getAttribute("name")] = sel(t));
 [...head.selectAll("[icon]")].forEach(t => sel(t).html(icon[t.getAttribute("icon")]));
-const scroll = body.select("[name=scroll]");
-const modal = body.select("[name=modal]");
+const scroll = root.select("[name=scroll]");
+const modal = root.select("[name=modal]");
 [...modal.selectAll("[name]")].forEach(t => modal[t.getAttribute("name")] = sel(t));
 // Wikipedia はアプリ内の iframe で（census と同じ・Kenji 2026-09-10）。記事は m. 版＝狭い枠でも読みやすい。別タブは ↗ で
-const wikiPane = body.select("[name=wiki]");
+const wikiPane = root.select("[name=wiki]");
 [...wikiPane.selectAll("[name]")].forEach(t => wikiPane[t.getAttribute("name")] = sel(t));
 wikiPane.logo.attr("src", wiki.logo); wikiPane.newtab.html("&nearr;"); wikiPane.close.html(icon.close).on("click", () => closeWiki());
 let modalEscape = null;   // 国旗モーダルの Escape（wiki を閉じた後に復帰させる）
@@ -196,7 +204,7 @@ refresh(state.lang, changed => {
 {
 	const q = new URLSearchParams(location.search).get("open");
 	const t = q && (model.nation_hash[q] || model.key_hash[q] || model.key_hash[q.toUpperCase()]);
-	t && setTimeout(() => openFlag(t, scroll.select(".nation img.hover").node() || document.body), 300);
+	t && setTimeout(() => openFlag(t, scroll.select(".nation img.hover").node() || root.node()), 300);
 }
 ////-------------------------------------------------------------------------------------------------------------
 function resize() { /* ブロック表示は CSS Grid（justify-content:center）＝JS での中央寄せ・余白計算は不要になった 2026-09-10 */ }
@@ -393,6 +401,6 @@ async function showFlag(q) {
 		const dmy = modal.flag.append("img").attr("src", r.flagURL);
 		dmy.node().animate({ transform: [translate(i), translate(0)] }, { duration });
 		flag.node().animate({ transform: [translate(0), translate(-i)] }, { duration })
-			.onfinish = () => { dmy.remove(); showFlag(r); body.select(".overlap-tooltip").show(); };
+			.onfinish = () => { dmy.remove(); showFlag(r); sel(".overlap-tooltip").show(); };
 	}
 }
