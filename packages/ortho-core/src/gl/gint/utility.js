@@ -106,6 +106,66 @@ export function buildEdgeMeta(arcMeta, polyStream, lineStream, arcBuffer = null,
 	const getW = arcU32
 		? (idx) => (arcU32[idx * 2 + 1] & 0x80000000) ? 63 : (arcU32[idx * 2] & 0x3F)
 		: null;
+	// ── 縫い目辺（antimeridian 切断の痕）の除去 ──
+	// エンコーダ（antimeridianFeature）が ±180 で切った MultiPolygon は、同一 fid の2片が縫い目上の辺を逆向きに
+	// 共有する。球面上は境界でない人工スリット＝線パスに出ると「図形を縦に貫く経線180の線」（geoedit 2026-09-12）。
+	// v1（ortho-map gintPrograms isAntimeridianEdge）はシェーダで両端 ix=±180 の辺を落としていた。v2 は辺メタ構築
+	// 時（純JS・両バックエンド共通・描画コストゼロ）で落とす。落とすのは**同一 fid 内で対になる**縫い目辺だけ
+	//（(iy0,iy1) が同じ縫い目辺が2回＝逆向きの対）＝-180 に沿う正規の辺（-180〜-170 の矩形等）は無傷。
+	// 塗りへの影響：対は winding 寄与が相殺（境界メタは元々 net 0 で除外）＝idfill の全密度扇でも数学的に同一。
+	// 費用：arc bbox が縫い目に触れる層だけ per-vertex decode（roads/筆/census 等は bbox 走査 O(arcs) で門前払い）。
+	const IXMAX = 3600000000;
+	const seamU32 = (arcBuffer?.length && hasSeamArc(arcMeta))
+		? (arcU32 ?? new Uint32Array(arcBuffer.buffer, arcBuffer.byteOffset, arcBuffer.byteLength / 4))
+		: null;
+	const v2 = [0, 0];
+	const decodeXY = idx => {   // shader decode と同一の Morton 展開（ringArea2 の decode と同式）
+		const lo = seamU32[idx * 2], hi = seamU32[idx * 2 + 1];
+		const loC = (hi & 0x80000000) ? lo : (lo & 0xFFFFFFC0), hiC = hi & 0x7FFFFFFF;
+		v2[0] = ((_compact16(hiC) << 16) | _compact16(loC)) >>> 0;
+		v2[1] = ((_compact16(hiC >>> 1) << 16) | _compact16(loC >>> 1)) >>> 0;
+		return v2;
+	};
+	const onSeam = ix => ix <= 2 || ix >= IXMAX - 2;
+	const seamKeyOf = (a, b) => {   // 両端が縫い目上なら (iy小,iy大) のキー・でなければ null
+		const pa = decodeXY(a); const ixa = pa[0], iya = pa[1];
+		if (!onSeam(ixa)) return null;
+		const pb = decodeXY(b); const ixb = pb[0], iyb = pb[1];
+		if (!onSeam(ixb) || iya === iyb) return null;
+		return iya < iyb ? iya * 4294967296 + iyb : iyb * 4294967296 + iya;
+	};
+	// fid グループ（polyStream の [start,end)）の縫い目対＝2回以上現れるキー集合（無ければ null＝通常経路）
+	const seamPairsOf = (start, end) => {
+		let touch = false;
+		for (let p = start; p < end && !touch;) {
+			p++; const nr = polyStream[p++];
+			for (let r = 0; r < nr && !touch; r++) { const ac = polyStream[p++];
+				for (let a = 0; a < ac; a++) { const ai = polyStream[p++], aid = ai < 0 ? ~ai : ai, m = aid * 8; if (arcMeta[m + 4] <= 2 || arcMeta[m + 6] >= IXMAX - 2) { touch = true; } }
+			}
+		}
+		if (!touch) return null;
+		const count = new Map();
+		for (let p = start; p < end;) {
+			p++; const nr = polyStream[p++];
+			for (let r = 0; r < nr; r++) { const ac = polyStream[p++];
+				for (let a = 0; a < ac; a++) {
+					const ai = polyStream[p++], aid = ai < 0 ? ~ai : ai, off = arcMeta[aid * 8], len = arcMeta[aid * 8 + 1];
+					let prev = -1;
+					for (let i = 0; i < len; i++) {   // 向きは対称キーなので正方向だけ走査すれば足りる
+						const idx = off + i;
+						if (getW && getW(idx) < minWeight) continue;
+						if (prev !== -1) { const k = seamKeyOf(prev, idx); if (k !== null) count.set(k, (count.get(k) || 0) + 1); }
+						prev = idx;
+					}
+				}
+			}
+		}
+		let pairs = null;
+		for (const [k, n] of count) if (n >= 2) (pairs ??= new Set()).add(k);
+		return pairs;
+	};
+	let seamSkip = null;   // 現在の fid グループの縫い目対（null＝判定コストゼロ）
+	let skipped = 0;
 
 	const arcEdges = (aid) => {
 		const len = arcMeta[aid * 8 + 1];
@@ -158,8 +218,9 @@ export function buildEdgeMeta(arcMeta, polyStream, lineStream, arcBuffer = null,
 		const off = arcMeta[aid * 8], len = arcMeta[aid * 8 + 1], fid = featId >>> 0;
 		if (!getW) {
 			for (let i = 0; i < len - 1; i++) {
-				buf[j++] = arcIdx >= 0 ? off + i     : off + len - 1 - i;
-				buf[j++] = arcIdx >= 0 ? off + i + 1 : off + len - 2 - i;
+				const a = arcIdx >= 0 ? off + i : off + len - 1 - i, b = arcIdx >= 0 ? off + i + 1 : off + len - 2 - i;
+				if (seamSkip) { const k = seamKeyOf(a, b); if (k !== null && seamSkip.has(k)) { skipped++; continue; } }
+				buf[j++] = a; buf[j++] = b;
 				buf[j++] = (styleId & 0xFF) | (i << 8); buf[j++] = fid;
 			}
 		} else {
@@ -170,7 +231,10 @@ export function buildEdgeMeta(arcMeta, polyStream, lineStream, arcBuffer = null,
 			for (let i = iStart; i !== iEnd; i += step) {
 				const idx = off + i;
 				if (getW(idx) >= minWeight) {
-					if (prev !== -1) { buf[j++] = prev; buf[j++] = idx; buf[j++] = (styleId & 0xFF) | (ei++ << 8); buf[j++] = fid; }
+					if (prev !== -1) {
+						if (seamSkip) { const k = seamKeyOf(prev, idx); if (k !== null && seamSkip.has(k)) { skipped++; ei++; prev = idx; continue; } }
+						buf[j++] = prev; buf[j++] = idx; buf[j++] = (styleId & 0xFF) | (ei++ << 8); buf[j++] = fid;
+					}
 					prev = idx;
 				}
 			}
@@ -199,6 +263,7 @@ export function buildEdgeMeta(arcMeta, polyStream, lineStream, arcBuffer = null,
 		}
 		for (const [fid, start, end] of groups) {
 			const eStart = j >> 2;
+			seamSkip = seamU32 ? seamPairsOf(start, end) : null;   // 縫い目対（切断の痕）はこの fid の辺から落とす
 			let p = start;
 			while (p < end) {
 				p++; const numRings = polyStream[p++];
@@ -210,6 +275,7 @@ export function buildEdgeMeta(arcMeta, polyStream, lineStream, arcBuffer = null,
 			polyEdgeByFid.set(fid, [eStart, (j >> 2) - eStart]);
 			closeChunk();
 		}
+		seamSkip = null;   // 折れ線は切断で縫い目辺を持たない（分割されるだけ）＝判定しない
 		closeChunk(true);   // ポリゴン区画の残りを閉じる（stencil の先頭連続規約と揃える）
 	}
 	const polyEdgeCount = j >> 2;
@@ -237,7 +303,19 @@ export function buildEdgeMeta(arcMeta, polyStream, lineStream, arcBuffer = null,
 		}
 		closeChunk(true);
 	}
-	return { metaU32: buf, edgeCount: total, polyEdgeCount, polyEdgeByFid, chunks };
+	return { metaU32: skipped ? buf.subarray(0, j) : buf, edgeCount: j >> 2, polyEdgeCount, polyEdgeByFid, chunks, seamSkipped: skipped };
+}
+
+// arc bbox が ±180（ix=0 または 360e7）に載る arc が1つでもあるか＝縫い目辺の有無の門（v1 hasAntimeridianSeam の写し）。
+// roads/筆/大陸データは ±180 に頂点を持たず false＝per-vertex decode を一切走らせない。
+export function hasSeamArc(arcMeta) {
+	if (!arcMeta) return false;
+	const IXMAX = 3600000000;
+	for (let i = 0, n = (arcMeta.length / 8) | 0; i < n; i++) {
+		const b = i * 8;
+		if (arcMeta[b + 4] <= 2 || arcMeta[b + 6] >= IXMAX - 2) return true;
+	}
+	return false;
 }
 
 // weight レベル別の累積頂点ヒストグラム（静的キャップと段階別メタの minWeight 選定で共用）。

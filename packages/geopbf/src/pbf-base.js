@@ -22,6 +22,10 @@ class GeoPBF {
 		this._maxZoom = options.maxZoom ?? null;
 		this.e = Math.pow(10, this._precision = options.precision || 6);
 		this.noprop = !!options.noprop;
+		// cut:false＝エンコード時の antimeridian 切断（antimeridianFeature）を掛けない＝geopbf を「往復しても形が変わらない
+		// 器」として使う時（geoedit のセッション保存）。既定は切断（表示/識別/相互運用の正典）。cutCount＝切断した feature 数。
+		this.cutCount = 0;
+		this._am = { cut: options.cut !== false, onCut: () => { this.cutCount++; } };
 		this.noeval = !!options.noeval; // FUNC値をnew Functionせず関数ソース文字列のまま返す（CSP unsafe-eval なし環境向け）
 		this.keys = [], this.bufs = [], this.fmap = [], this.bin = {}; this.props = [];
 	}
@@ -180,7 +184,7 @@ class GeoPBF {
 	}
 	setFeature(q) { //if (!q.geometry || !q.geometry.coordinates) return; // <===
 		q.geometry = q.geometry||{}; q.geometry.coordinates = q.geometry.coordinates ||[];
-		antimeridianFeature(q);
+		antimeridianFeature(q, this._am);
 		return this.setMessage(TAGS.FEATURE, () => this.setGeometry(q.geometry).setProperties(q.properties));
 	}
 	setGeometry(q) { return writeGeometry(this, q); }

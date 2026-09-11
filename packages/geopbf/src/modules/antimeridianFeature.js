@@ -4,7 +4,8 @@ import { antimeridianCut } from "./antimeridianCut.js";
 let _tcWarnCount = 0;
 const _tcWarn = (...a) => { if (_tcWarnCount++ < 3) console.warn(...a); else if (_tcWarnCount === 4) console.warn("toClockwise: 以降の同種警告は抑制（データに空リング多数）"); };
 
-export function antimeridianFeature(feature) {
+// opts.cut=false＝切断も向き正規化もしない（座標の掃除だけ）＝往復無変換の器。opts.onCut＝切断した時に呼ぶ（計数用）。
+export function antimeridianFeature(feature, opts = null) {
     const { min, max, abs } = Math;
     const p = feature.properties = feature.properties || {}, geom = feature.geometry, type = geom.type;
     if (type === "Point" || type === "MultiPoint") return feature;
@@ -14,6 +15,7 @@ export function antimeridianFeature(feature) {
         return typeof a[0]?.[0] === 'number' ? cleanRing(a) : a.map(cleanCoords).filter(x => x && x.length);
     };
     if (geom.coordinates) geom.coordinates = cleanCoords(geom.coordinates);
+    if (opts && opts.cut === false) return feature;
     let c = geom.coordinates, xmin = Infinity, xmax = -Infinity;
     const calc = a => a == null ? void 0 : (Array.isArray(a) && typeof a[0] !== 'number') ? a.forEach(calc) : (xmin = min(xmin, a[0]), xmax = max(xmax, a[0]));
     (c === undefined) || calc(c);
@@ -26,6 +28,7 @@ export function antimeridianFeature(feature) {
         : typeof a[0]?.[0] !== 'number' ? a.some(hasJump)
         : a.some((pt, i) => i + 1 < a.length && pt[0] * a[i + 1][0] < 0 && abs(a[i + 1][0] - pt[0]) > 180 && !(abs(pt[0]) === 180 && abs(a[i + 1][0]) === 180));
     if (xmin >= -180 && xmax <= 180 && !hasJump(c)) return toClockwise(feature);
+    if (opts && opts.onCut) opts.onCut();
     c = type.startsWith("Multi") ? c : [c];
     if (type.includes("LineString")) {
         c = c.flatMap(t => antimeridianCut(t, true));
