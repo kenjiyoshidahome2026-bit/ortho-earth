@@ -1,20 +1,40 @@
 {
-	"name": "world",
-	"private": true,
+	"name": "ortho-world",
+	"version": "1.0.0",
+	"description": "A country selector you can drop into a <div>. 262 countries and territories — flags, capitals, ISO/IOC codes, UN membership, area, population, GDP, HDI — in 26 languages. Pairs with your map through signals: ISO 3166-1 is the shared vocabulary. No API keys, no servers.",
+	"keywords": ["country", "countries", "nation", "flags", "iso-3166", "selector", "picker", "geospatial", "gis", "i18n", "component", "browser"],
+	"homepage": "https://www.ortho-earth.com/world/",
+	"repository": { "type": "git", "url": "git+https://github.com/kenjiyoshidahome2026-bit/ortho-earth.git", "directory": "apps/world" },
+	"author": "Kenji Yoshida <kenji.yoshida.home.2026@gmail.com>",
 	"license": "MIT",
 	"type": "module",
+	"main": "./dist/lib/ortho-world.js",
+	"types": "./sdk/ortho-world.d.ts",
+	"exports": {
+		".": { "types": "./sdk/ortho-world.d.ts", "default": "./dist/lib/ortho-world.js" },
+		"./ortho-world.css": "./dist/lib/ortho-world.css",
+		"./package.json": "./package.json"
+	},
+	"files": [
+		"dist/lib",
+		"!dist/lib/**/*.map",
+		"sdk/ortho-world.d.ts",
+		"example.html"
+	],
 	"scripts": {
 		"dev": "vite",
 		"build": "vite build",
+		"build:lib": "vite build --config vite.lib.config.js",
 		"preview": "vite preview",
 		"verify:prod": "node scripts/verify-prod.mjs",
+		"verify:npm": "node scripts/verify-npm.mjs",
+		"prepack": "npm run build:lib",
 		"deploy": "npm run verify:prod && find dist -name .DS_Store -delete && wrangler deploy"
 	},
-	"dependencies": {
-		"common": "*",
-		"native-bucket": "*"
-	},
+	"dependencies": {},
 	"devDependencies": {
+		"common": "*",
+		"native-bucket": "*",
 		"vite": "^6.0.0"
 	}
 }

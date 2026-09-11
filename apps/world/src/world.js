@@ -495,6 +495,7 @@ export default async function world(opts = {}) {
 			setTipRoot(null);
 		},
 	};
-	emit("ready", { lang: state.lang, count: nations.length });
+	// ⚠ "ready" は作らない。world() の中で発火しても、呼び出し側が .on() を張るのは Promise が解決した後＝
+	//    構造的に絶対に受け取れない（npm 検定が捕まえた 2026-09-12）。**Promise の解決がそのまま準備完了の合図**。
 	return api;
 }
