@@ -15,12 +15,14 @@ import { GeoPBF } from "../pbf-base.js";
 import { openSqlite } from "./sqlite.js";
 import { parseWkb } from "./wkb.js";
 import { attrFilter } from "./attrs.js";
+import { crsFromWKT } from "./proj.js";
+import { resolveDatum } from "./filegdb.js";
 
 const now = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
 const R = 6378137, D = 180 / Math.PI;
 
 /** GeoPackage を開いて層の一覧を返す（変換はしない）。 */
-export function readGeoPackage(u8) {
+export function readGeoPackage(u8, opts = {}) {
 	const db = openSqlite(u8);
 	if (!db.tables.has("gpkg_contents")) throw new Error("gpkg: GeoPackage でない（gpkg_contents が無い・ただの SQLite）");
 	const srsById = new Map();
@@ -42,7 +44,7 @@ export function readGeoPackage(u8) {
 		if (!t) { others.push({ ...base, missing: true }); continue; }
 		const srs = srsById.get(g?.srs_id ?? c.srs_id) ?? { id: g?.srs_id ?? c.srs_id, org: "?", code: g?.srs_id ?? c.srs_id, definition: "" };
 		layers.push({ ...base, geometryColumn: g?.column_name ?? t.columns.find(k => /GEOMETRY|POINT|LINESTRING|POLYGON|CURVE|SURFACE/i.test(k.type))?.name ?? null,
-			geometryType: g?.geometry_type_name ?? "GEOMETRY", z: g?.z ?? 0, m: g?.m ?? 0, srs, crs: classifyCrs(srs), columns: t.columns.map(k => ({ name: k.name, type: k.type })), count: db.count(c.table_name) });
+			geometryType: g?.geometry_type_name ?? "GEOMETRY", z: g?.z ?? 0, m: g?.m ?? 0, srs, crs: classifyCrs(srs, opts.datum), columns: t.columns.map(k => ({ name: k.name, type: k.type })), count: db.count(c.table_name) });
 	}
 	return { db, layers, tiles, others, encoding: db.encoding, pageSize: db.pageSize, warnings: db.warnings };
 }
@@ -50,13 +52,14 @@ export function readGeoPackage(u8) {
 /** 1 層を GeoPBF へ。opts: { layer, precision(既定 6), name, ignoreCrs, include/exclude/excludeAll } */
 export async function fromGeoPackage(u8, opts = {}) {
 	const t0 = now();
-	const g = readGeoPackage(u8);
+	const datum = await resolveDatum(opts);
+	const g = readGeoPackage(u8, { datum });
 	if (!g.layers.length) throw new Error(`gpkg: 地物層（data_type='features'）が無い（他: ${g.others.map(o => `${o.table}(${o.dataType})`).join(", ") || "なし"}）`);
 	const layer = opts.layer ? g.layers.find(l => l.table === opts.layer || l.identifier === opts.layer) : g.layers[0];
 	if (!layer) throw new Error(`gpkg: 層 "${opts.layer}" が無い（層: ${g.layers.map(l => l.table).join(", ")}）`);
 	const kind = layer.crs.kind;
 	if (kind === "other" && !opts.ignoreCrs) throw new Error(`gpkg: 層 "${layer.table}" の CRS が経緯度でない（${layer.crs.label}）。GeoPBF は経緯度のみ＝再投影してから、または ignoreCrs`);
-	const xf = kind === "mercator" ? mercToLonLat : null;
+	const xf = kind === "mercator" ? mercToLonLat : layer.crs.toLonLat ?? null;
 	const keep = attrFilter(opts);
 	const gcol = layer.geometryColumn;
 	const props = layer.columns.filter(c => c.name !== gcol && !/^BLOB$/i.test(c.type) && (!keep || keep(c.name)));
@@ -75,7 +78,7 @@ export async function fromGeoPackage(u8, opts = {}) {
 	const t1 = now();
 	const pbf = await new GeoPBF({ name: opts.name ?? layer.identifier ?? layer.table, precision: opts.precision ?? 6, description: opts.description ?? (layer.description || undefined), license: opts.license, attribution: opts.attribution }).set({ type: "FeatureCollection", features });
 	const stats = { layer: layer.table, layers: g.layers.map(l => l.table), features: features.length, vertices: ctx.vertices, columns: props.map(c => c.name), skipped, crs: layer.crs.label,
-		reprojected: kind === "mercator", precision: opts.precision ?? 6, droppedGeometries: ctx.nulls, emptyGeometries: ctx.empty, extendedGeometries: ctx.extended, bigints: ctx.bigint, z: !!layer.z, m: !!layer.m, encoding: g.encoding, warnings: g.warnings,
+		reprojected: !!xf, datumApprox: !!layer.crs.approx, precision: opts.precision ?? 6, droppedGeometries: ctx.nulls, emptyGeometries: ctx.empty, extendedGeometries: ctx.extended, bigints: ctx.bigint, z: !!layer.z, m: !!layer.m, encoding: g.encoding, warnings: g.warnings,
 		ms: { read: t1 - t0, encode: now() - t1, total: now() - t0 } };
 	return { pbf, stats };
 }
@@ -103,14 +106,15 @@ function finish(g, xf) {
 const mapDeep = (c, f) => typeof c[0] === "number" ? f(c) : c.map(x => mapDeep(x, f));
 function mercToLonLat([x, y]) { return [x / R * D, (2 * Math.atan(Math.exp(y / R)) - Math.PI / 2) * D]; }
 
-/** srs → { kind: "lonlat" | "mercator" | "other", label } */
-export function classifyCrs(srs) {
+/** srs → { kind: "lonlat" | "mercator" | "projected" | "datum" | "other", label, toLonLat? }。id/org で分からなければ definition の WKT を convert/proj.js で判定。 */
+export function classifyCrs(srs, datum) {
 	const id = srs?.id, org = String(srs?.org ?? "").toUpperCase(), code = Number(srs?.code);
 	const label = org && org !== "?" ? `${org}:${code}` : `srs_id ${id}`;
 	if (id === 4326 || (org === "EPSG" && code === 4326) || (org === "OGC" && String(srs?.code).toUpperCase() === "CRS84")) return { kind: "lonlat", label };
 	if (id === 0 || (org === "NONE" && code === 0)) return { kind: "lonlat", label: "undefined geographic (srs_id 0)" };
 	if (id === 3857 || (org === "EPSG" && (code === 3857 || code === 900913 || code === 102100 || code === 3785))) return { kind: "mercator", label };
-	if (/GEOGCS\["WGS ?84"|GEOGCRS\["WGS 84"/i.test(srs?.definition || "") && !/PROJCS|PROJCRS/i.test(srs?.definition || "")) return { kind: "lonlat", label: label + " (WGS 84 by definition)" };
+	const def = srs?.definition || "";
+	if (/^\s*(PROJCS|GEOGCS|PROJCRS|GEOGCRS)\b/i.test(def)) { const c = crsFromWKT(def, { datum }); if (c.kind !== "other") return { ...c, label: org && org !== "?" && org !== "NONE" ? `${label} ${c.label}` : c.label }; return { kind: "other", label: `${label} (${c.label})` }; }
 	return { kind: "other", label };
 }
 

@@ -9,6 +9,7 @@ export { openSqlite } from "./sqlite.js";
 export { openMBTiles } from "./mbtiles.js";
 export { openFileGDB, fromFileGDB, gdbSourceFromFiles, gdbSourceFromMap, parseShape } from "./filegdb.js";
 export { crsFromWKT, tmInverse, tmForward, parseWKTTree } from "./proj.js";
+export { loadTKY2JGD, parseTKY2JGD, bakeTKY2JGD, tokyoToJGD, tokyoHelmert } from "./tky2jgd.js";
 export { fromTable, parseCSV, readXLSX, parseWKT, decodeText } from "./table.js";
 export { parseWkb } from "./wkb.js";
 export { getDevice, findGPU, setGPU } from "./gpu.js";

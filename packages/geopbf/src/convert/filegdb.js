@@ -14,6 +14,7 @@
 import { GeoPBF } from "../pbf-base.js";
 import { attrFilter } from "./attrs.js";
 import { crsFromWKT } from "./proj.js";
+import { loadTKY2JGD } from "./tky2jgd.js";
 
 const now = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
 const utf16 = new TextDecoder("utf-16le"), utf8 = new TextDecoder("utf-8");
@@ -201,7 +202,7 @@ async function openTable(source, base) {
 	return { base, ...parseTableHeader(head, fdesc) };
 }
 /** カタログを読み、ユーザー表の一覧（ヘッダのみ・行は読まない）を返す。 */
-export async function openFileGDB(source) {
+export async function openFileGDB(source, opts = {}) {
 	if (!source || !Array.isArray(source.names)) throw new Error("gdb: source は { names, read } が要る");
 	const cat = await openTable(source, "a00000001");
 	if (!cat) throw new Error("gdb: a00000001.gdbtable（GDB_SystemCatalog）が無い＝File Geodatabase でない");
@@ -213,12 +214,12 @@ export async function openFileGDB(source) {
 		let t; try { t = await openTable(source, fileOf(id)); } catch (e) { tables.push({ id, name, file: fileOf(id), error: e.message }); continue; }
 		if (!t) continue;
 		const gf = t.fields.find(f => f.code === 7);
-		tables.push({ id, name, file: fileOf(id), rows: t.validRows, geometryType: gf ? t.geometryType : null, hasZ: t.hasZ, hasM: t.hasM, crs: gf ? classify(gf) : null, srsWKT: gf?.wkt ?? null, fields: t.fields.map(f => ({ name: f.name, type: f.type, alias: f.alias })), _t: t });
+		tables.push({ id, name, file: fileOf(id), rows: t.validRows, geometryType: gf ? t.geometryType : null, hasZ: t.hasZ, hasM: t.hasM, crs: gf ? classify(gf, opts.datum) : null, srsWKT: gf?.wkt ?? null, fields: t.fields.map(f => ({ name: f.name, type: f.type, alias: f.alias })), _t: t });
 	}
 	return { tables, layers: tables.filter(t => t.geometryType && t.geometryType !== "multipatch" && !t.error) };
 }
 /** 幾何フィールドの WKT → CRS。Esri の「不明な座標系」（GUID だけ・空）は、定義の bbox が経緯度の範囲に収まるなら経緯度として素通し（unknown: true）。 */
-function classify(gf) {
+function classify(gf, datum) {
 	const wkt = gf.wkt || "";
 	if (!wkt || /^\{[0-9A-Fa-f-]+\}$/.test(wkt.trim())) {
 		const [x0, y0, x1, y1] = gf.bbox, vals = [x0, y0, x1, y1];
@@ -227,7 +228,13 @@ function classify(gf) {
 		if (!informative || fits) return { kind: "lonlat", label: "unknown SRS (passed through as lon/lat)", name: null, unknown: true };
 		return { kind: "other", label: `unknown SRS (extent ${x0.toFixed(1)}..${x1.toFixed(1)}, ${y0.toFixed(1)}..${y1.toFixed(1)} is not lon/lat)`, name: null, unknown: true };
 	}
-	return crsFromWKT(wkt);
+	return crsFromWKT(wkt, { datum });
+}
+/** opts.tky2jgd（URL | バイト列 | loadTKY2JGD の戻り）→ 格子。無ければ null（Helmert に落ちる）。 */
+export async function resolveDatum(opts) {
+	const g = opts.tky2jgd; if (!g) return null;
+	if (typeof g === "object" && typeof g.toJGD === "function") return g;
+	try { return await loadTKY2JGD(g); } catch (e) { console.warn(`[tky2jgd] 格子を読めない＝Helmert で続行: ${e.message}`); return null; }
 }
 async function* iterRows(source, t) {
 	const tx = parseTablx(await source.read(`${t.base}.gdbtablx`));
@@ -246,7 +253,8 @@ async function readRows(source, t) { const out = []; for await (const r of iterR
 /** 1 フィーチャクラス → GeoPBF。opts: { layer, precision, name, ignoreCrs, include/exclude/excludeAll } */
 export async function fromFileGDB(source, opts = {}) {
 	const t0 = now();
-	const gdb = await openFileGDB(source);
+	const datum = await resolveDatum(opts);
+	const gdb = await openFileGDB(source, { datum });
 	if (!gdb.layers.length) throw new Error(`gdb: フィーチャクラスが無い（表: ${gdb.tables.map(t => `${t.name}${t.geometryType ? `(${t.geometryType})` : ""}`).join(", ") || "なし"}）`);
 	const layer = opts.layer ? gdb.tables.find(t => t.name === opts.layer || t.name.toLowerCase() === String(opts.layer).toLowerCase()) : gdb.layers[0];
 	if (!layer) throw new Error(`gdb: 層 "${opts.layer}" が無い（層: ${gdb.layers.map(l => l.name).join(", ")}）`);
@@ -254,7 +262,7 @@ export async function fromFileGDB(source, opts = {}) {
 	if (!layer.geometryType) throw new Error(`gdb: "${layer.name}" は幾何の無い表`);
 	const crs = layer.crs;
 	if (crs.kind === "other" && !opts.ignoreCrs) throw new Error(`gdb: 層 "${layer.name}" の CRS を経緯度へ戻せない（${crs.label}）。再投影してから、または ignoreCrs`);
-	const xf = crs.kind === "projected" ? crs.toLonLat : null;
+	const xf = crs.toLonLat ?? null;
 	const t = layer._t, gf = t.fields.find(f => f.code === 7);
 	const keep = attrFilter(opts);
 	const props = t.fields.map((f, i) => ({ i, f })).filter(({ f }) => f.code !== 7 && f.code !== 8 && f.code !== 9 && (!keep || keep(f.name)));
@@ -272,5 +280,5 @@ export async function fromFileGDB(source, opts = {}) {
 	const t1 = now();
 	const pbf = await new GeoPBF({ name: opts.name ?? layer.name, precision: opts.precision ?? 6, description: opts.description, license: opts.license, attribution: opts.attribution }).set({ type: "FeatureCollection", features });
 	return { pbf, stats: { layer: layer.name, layers: gdb.layers.map(l => l.name), tables: gdb.tables.filter(t => !t.geometryType).map(t => t.name), features: features.length, rows: layer.rows, vertices: ctx.vertices, droppedGeometries: ctx.nulls, emptyGeometries: ctx.empty, multipatch: ctx.multipatch, curves: ctx.curves,
-		columns: props.map(p => p.f.name), skipped, crs: crs.label, crsUnknown: !!crs.unknown, reprojected: !!xf, geometryType: layer.geometryType, z: layer.hasZ, m: layer.hasM, precision: opts.precision ?? 6, ms: { read: t1 - t0, encode: now() - t1, total: now() - t0 } } };
+		columns: props.map(p => p.f.name), skipped, crs: crs.label, crsUnknown: !!crs.unknown, reprojected: !!xf, datumApprox: !!crs.approx, datum: datum ? { grid: datum.stats.grid, fallback: datum.stats.fallback } : null, geometryType: layer.geometryType, z: layer.hasZ, m: layer.hasM, precision: opts.precision ?? 6, ms: { read: t1 - t0, encode: now() - t1, total: now() - t0 } } };
 }

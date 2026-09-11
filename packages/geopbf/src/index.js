@@ -161,14 +161,14 @@ export function createGeopbf(apiBase, options = {}) {
                 if (name.match(/\.geojson$/i)) return _geopbf(await decoder("json", q));
                 if (name.match(/\.(topo)?json$/i)) return _geopbf(await file2json(q));
                 if (name.match(/\.fgb$/i)) return _geopbf(await decoder("fgb", q));
-                if (name.match(/\.gpkg$/i)) return _geopbf(await decoder("gpkg", q, { layer: opts.layer }));   // GeoPackage＝自前 SQLite リーダ（読み専用・1 層）
+                if (name.match(/\.gpkg$/i)) return _geopbf(await decoder("gpkg", q, { layer: opts.layer, tky2jgd: opts.tky2jgd ?? options.tky2jgd }));   // GeoPackage＝自前 SQLite リーダ（読み専用・1 層）
                 if (name.match(/\.(geo)?parquet$/i)) return _geopbf(await decoder("parquet", q, { geometryColumn: opts.geometryColumn, ignoreCrs: opts.ignoreCrs }));   // GeoParquet（WKB・経緯度）
                 if (name.match(/\.(csv|tsv|xlsx)$/i)) return _geopbf(await decoder("csv", q, { lon: opts.lon, lat: opts.lat, wkt: opts.wkt, sheet: opts.sheet, delimiter: opts.delimiter }));   // 表＝経緯度列か WKT 列
                 if (name.match(/\.zip$/i)) {
                     // zip の中身で振り分け: *.gdbtable があれば FileGDB（.gdb をそのまま zip したもの）。一覧だけ読む（展開しない）
                     let kind = opts.format === "moj" ? "moj" : opts.format === "gdb" ? "gdb" : "shape";
                     if (kind === "shape") { const list = await decodeZIP(q, false).catch(() => null); if (list?.some(e => /\.gdbtable$/i.test(e.name))) kind = "gdb"; }
-                    return _geopbf(await decoder(kind, q, kind === "gdb" ? { layer: opts.layer, ignoreCrs: opts.ignoreCrs } : {}));
+                    return _geopbf(await decoder(kind, q, kind === "gdb" ? { layer: opts.layer, ignoreCrs: opts.ignoreCrs, tky2jgd: opts.tky2jgd ?? options.tky2jgd } : {}));
                 }
                 if (name.match(/\.km[lz]$/i)) return _geopbf(await decoder("kmz", q));   // .kml（生）も kmz デコーダが読む（1.0.5〜）
                 if (name.match(/\.gpx$/i)) return _geopbf(await decoder("gpx", q));
