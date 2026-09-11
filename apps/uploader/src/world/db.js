@@ -5,6 +5,7 @@ export const NATION = "NationDB", CITY = "CityDB", TERRAIN = "TerrainDB", LANGUA
 export const DBS = [NATION, CITY, TERRAIN, LANGUAGE, CURRENCY, CONFLICT];
 export const FLAG = "flags";     // flags.zip（<key>.svg）＋ flags/<key>.svg
 export const SOUND = "音源";      // 音源.zip（mp3・OtoLogic CC BY 4.0）
+export const RIVERS = "rivers";  // rivers.json（川の形状 GeoJSON＝Natural Earth 10m・build が seed の QID で結合）
 export const GEOMS = "geoms";    // geoms.zip（<key>.png）＋ geoms/<key>.png
 // 国以外の旗の id（flags/<id>.svg）。UI 用と旧例外地域（NationDB に無い＝資産として保持）
 export const FLAG_KEYS = ["UN", "EU", "NATO", "DISPUTED", "X-CATALONIA", "X-KURDISTAN", "X-KERGUELEN", "X-DARFUR", "X-CHECHNYA", "X-TIBET", "X-BOUGAINVILLE", "X-MADEIRA", "X-WESTPAPUA"];

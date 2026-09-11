@@ -1,6 +1,6 @@
 // 保存前の機械検札。errors があれば保存しない・warns は報告だけ
-const TERRAIN_CATEGORIES = new Set(["range", "peak", "peninsula", "desert", "plain", "lake", "ridge", "trench", "island", "islands"]);
-export function validate({ NationDB, CityDB, TerrainDB = [], LanguageDB, CurrencyDB, Conflicts }) {
+const TERRAIN_CATEGORIES = new Set(["range", "peak", "peninsula", "desert", "plain", "lake", "river", "ridge", "trench", "island", "islands"]);
+export function validate({ NationDB, CityDB, TerrainDB = [], LanguageDB, CurrencyDB, Conflicts, rivers = null }) {
 	const errors = [], warns = [];
 	const E = s => errors.push(s), W = s => warns.push(s);
 	const keys = new Set(), qids = new Set(), iso2 = new Set();
@@ -38,6 +38,7 @@ export function validate({ NationDB, CityDB, TerrainDB = [], LanguageDB, Currenc
 		if (!t.name || !t.name.en) W(`terrain name.en なし: ${t.qid}`);
 		if (!t.coord) W(`terrain 座標なし: ${t.qid} ${t.name && t.name.en}`);
 		if (t.category == "peak" && t.elevation == null) W(`peak 標高なし: ${t.qid} ${t.name && t.name.en}`);
+		if (t.category == "river" && rivers && !rivers.has(t.qid)) W(`river 形状なし（Natural Earth に wikidataid が無い）: ${t.qid} ${t.name && t.name.en}`);
 	}
 	return { errors, warns };
 }

@@ -1,6 +1,6 @@
 // 国別 DB v2 の組み立て（2026-09-11・Kenji「英語と ID 中心に・美しく」）。
 //   正本＝seed/（key・QID・英語名・地域・帰属・例外）。取得＝Wikidata（構造化項目）＋統計 API（stats.js）。合成＝ここ 1 か所。
-//   出力＝NationDB / CityDB / TerrainDB / LanguageDB / CurrencyDB / Conflicts / i18n/<lang>（英語以外の名前・記事名）。
+//   出力＝NationDB / CityDB / TerrainDB / LanguageDB / CurrencyDB / Conflicts / i18n/<lang>（英語以外の名前・記事名）/ rivers（川の形状 GeoJSON＝Natural Earth）。
 //   取得元ごとに独立（順番依存なし）・全て QID/ISO で結合（日本語名の名寄せ無し）・保存前に validate。
 import { entities, ids, idsNational, strings, label, nameEn, sitelink, quantity, areaKm2, coord, latestByTime, membershipSince, anthemFile } from "./wikidata.js";
 import { allStats } from "./stats.js";
@@ -8,6 +8,8 @@ import { validate } from "./validate.js";
 import { buildI18N } from "./i18n.js";
 
 const UN = "Q1065";
+// 川の形状: Natural Earth 10m rivers_lake_centerlines_scale_rank（パブリックドメイン・版固定）。wikidataid で seed の川と結合
+const NE_RIVERS = "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/v5.1.2/geojson/ne_10m_rivers_lake_centerlines_scale_rank.geojson";
 const wikis = langs => langs.map(l => l + "wiki");
 
 export async function buildAll(seed, env) {
@@ -73,9 +75,24 @@ export async function buildAll(seed, env) {
 	const TE = await entities(seed.terrains.map(t => t.qid), env, opt);
 	const TerrainDB = seed.terrains.map(t => {
 		const e = TE[t.qid]; e || warn(`Wikidata に無い地形 QID: ${t.qid} ${t.name_en}`);
-		const a = areaKm2(e), h = quantity(e, "P2044", { Q11573: 1 });   // 面積（島・砂漠）と標高（単独峰・山脈）は有るものだけ
-		return clean({ qid: t.qid, category: t.category, name: { en: t.name_en || nameEn(e) }, coord: coord(e), area: a == null ? null : a > 10 ? Math.round(a) : +a.toFixed(2), elevation: h == null ? null : Math.round(h), wiki: { en: sitelink(e, "en") } });
+		const a = areaKm2(e), h = quantity(e, "P2044", { Q11573: 1 }), L = quantity(e, "P2043", { Q828224: 1, Q11573: 0.001, Q253276: 1.609344 });   // 面積（島・砂漠・湖）・標高（単独峰）・長さ（川 km）は有るものだけ
+		return clean({ qid: t.qid, category: t.category, name: { en: t.name_en || nameEn(e) }, coord: coord(e), area: a == null ? null : a > 10 ? Math.round(a) : +a.toFixed(2), elevation: h == null ? null : Math.round(h), length: L == null ? null : Math.round(L), wiki: { en: sitelink(e, "en") } });
 	});
+	// 4c) 川の形状（Natural Earth）: seed の川 QID（＋ne_extra）に一致する wikidataid の線分を全部集めて 1 本の MultiLineString に（座標は小数 4 桁）
+	const riverSeeds = seed.terrains.filter(t => t.category == "river");
+	let rivers = null;
+	if (riverSeeds.length) {
+		log(`Natural Earth: 川の形状（${riverSeeds.length} 件）`);
+		const ne = await env.json(NE_RIVERS), byQ = {};
+		for (const f of ne.features) { const q = f.properties && f.properties.wikidataid; if (!q) continue; (byQ[q] = byQ[q] || []).push(f); }
+		const features = [];
+		for (const t of riverSeeds) {
+			const fs = [t.qid, ...t.ne_extra].flatMap(q => byQ[q] || []); if (!fs.length) continue;
+			const lines = fs.flatMap(f => f.geometry.type == "MultiLineString" ? f.geometry.coordinates : [f.geometry.coordinates]).map(l => l.map(([x, y]) => [+x.toFixed(4), +y.toFixed(4)]));
+			features.push({ type: "Feature", properties: { qid: t.qid, name: t.name_en, scalerank: Math.min(...fs.map(f => f.properties.scalerank)) }, geometry: { type: "MultiLineString", coordinates: lines } });
+		}
+		rivers = { type: "FeatureCollection", source: "Natural Earth 10m rivers_lake_centerlines_scale_rank v5.1.2 (public domain)", features };
+	}
 	// 5) 係争地（seed）→ Conflicts と 国側の sovereignt/claim
 	const KE = await entities(seed.conflicts.map(c => c.qid), env, opt);
 	const Conflicts = seed.conflicts.map(c => clean({ key: c.key, qid: c.qid, type: c.type, region: c.region, name: { en: c.name_en }, exist: c.exist, sovereignt: c.sovereignt || undefined, territory: c.territory || undefined, claim: c.claim && c.claim.length ? c.claim : undefined, wiki: { en: sitelink(KE[c.qid], "en") } }));
@@ -121,11 +138,11 @@ export async function buildAll(seed, env) {
 		["languages", "currency"].forEach(f => { if (!t[f] && p[f]) { t[f] = p[f]; t._src[f] = "territory"; } }); });
 	NationDB.forEach(t => Object.keys(t).forEach(k => t[k] === undefined && delete t[k]));
 	// 9) 検札
-	const report = validate({ NationDB, CityDB, TerrainDB, LanguageDB, CurrencyDB, Conflicts });
+	const report = validate({ NationDB, CityDB, TerrainDB, LanguageDB, CurrencyDB, Conflicts, rivers: rivers && new Set(rivers.features.map(f => f.properties.qid)) });
 	report.warns.forEach(s => warn(s)); report.errors.forEach(s => warn("ERROR " + s));
 	// 10) i18n（英語以外の名前・記事名。ja は読み・正式名も）
 	const i18n = buildI18N(seed, { NE, CE, LC, KE, TE }, { NationDB, CityDB, TerrainDB, LanguageDB, CurrencyDB, Conflicts });
-	return { NationDB, CityDB, TerrainDB, LanguageDB, CurrencyDB, Conflicts, i18n, report };
+	return { NationDB, CityDB, TerrainDB, LanguageDB, CurrencyDB, Conflicts, i18n, rivers, report };
 }
 // commons のファイル名 → mp3 派生 URL（videoinfo.derivatives）。ogg 原本は Safari/iOS で鳴らない。50 件束
 async function commonsMp3(files, env) {

@@ -1,4 +1,4 @@
-qid,category,name_en
+qid,category,name_en,ne_extra
 Q130135,range,Atlas Mountains
 Q842139,range,Annamite Range
 Q12431,range,Pyrenees
@@ -266,6 +266,118 @@ Q125211,lake,Lake Edward
 Q645901,lake,Lake Manitoba
 Q122184,lake,Lake Nipigon
 Q201843,lake,Lake Khanka
+Q3392,river,Nile,Q4814791|Q2750140
+Q882739,river,Blue Nile,Q3501984
+Q3503,river,Congo,Q836812
+Q3542,river,Niger,
+Q43106,river,Zambezi,
+Q181475,river,Orange,
+Q173017,river,Limpopo,
+Q3569,river,Senegal,
+Q192415,river,Volta,
+Q188773,river,Okavango,
+Q5413,river,Yangtze,Q1038418|Q7821148|Q1538813
+Q7355,river,Yellow River,
+Q41179,river,Mekong,
+Q6862,river,Amur,Q26439
+Q46841,river,Lena,
+Q973,river,Ob,
+Q128102,river,Irtysh,
+Q78707,river,Yenisey,
+Q7348,river,Indus,Q7666170
+Q5089,river,Ganges,
+Q45403,river,Brahmaputra,Q2599627|Q15954437
+Q34589,river,Euphrates,
+Q35591,river,Tigris,
+Q26422,river,Salween,
+Q26076,river,Irrawaddy,
+Q216941,river,Xi River,
+Q237901,river,Tarim,
+Q191314,river,Godavari,
+Q193499,river,Krishna,
+Q234004,river,Narmada,
+Q271044,river,Mahanadi,
+Q216239,river,Kaveri,
+Q118850,river,Chao Phraya,
+Q206850,river,Red River,
+Q8493,river,Amu Darya,
+Q483159,river,Syr Darya,
+Q78879,river,Kolyma,
+Q82207,river,Indigirka,
+Q162737,river,Angara,
+Q75745,river,Selenga,Q26301
+Q80240,river,Ural,
+Q40059,river,Jordan,
+Q166966,river,Shatt al-Arab,
+Q210326,river,Songhua,
+Q55500,river,Han River,
+Q875573,river,Han River,
+Q55498,river,Yalu,
+Q55501,river,Nakdong,
+Q177452,river,Tone,
+Q1061515,river,Ishikari,
+Q596120,river,Mogami,
+Q132726,river,Yamuna,
+Q626,river,Volga,
+Q1653,river,Danube,Q12722938|Q1344617|Q1668781|Q1369180
+Q40855,river,Dnieper,
+Q1229,river,Don,
+Q584,river,Rhine,
+Q1644,river,Elbe,
+Q1469,river,Loire,
+Q1471,river,Seine,
+Q19686,river,Thames,
+Q643,river,Po,
+Q548,river,Vistula,
+Q552,river,Oder,
+Q602,river,Rhône,
+Q5077,river,Garonne,
+Q14294,river,Tagus,
+Q10965,river,Ebro,
+Q14299,river,Douro,
+Q13712,river,Tiber,
+Q8168,river,Pechora,
+Q8187,river,Northern Dvina,
+Q19682,river,Severn,
+Q1497,river,Mississippi,
+Q5419,river,Missouri,Q947477
+Q4915,river,Ohio,Q686021
+Q104437,river,Yukon,Q284495
+Q3411,river,Mackenzie,Q2226
+Q134750,river,St. Lawrence,Q182343|Q1054325
+Q160636,river,Rio Grande,
+Q2251,river,Columbia,
+Q1265,river,Colorado,
+Q272074,river,Snake,
+Q8319,river,Arkansas,
+Q193737,river,Tennessee,
+Q269710,river,Fraser,
+Q3292,river,Nelson,
+Q3318,river,Churchill,
+Q3047,river,Saskatchewan,
+Q2220,river,Peace,
+Q3140,river,Hudson,
+Q335575,river,Sacramento,
+Q179444,river,Potomac,
+Q2216,river,Athabasca,
+Q3783,river,Amazon,
+Q127892,river,Paraná,Q21847787
+Q131792,river,Orinoco,
+Q118251,river,Madeira,Q117615|Q916349
+Q26271,river,Purus,
+Q118771,river,Rio Negro,
+Q200952,river,Ucayali,
+Q200174,river,Marañón,
+Q156054,river,Tocantins,
+Q142148,river,São Francisco,
+Q191829,river,Magdalena,
+Q18278,river,Uruguay,
+Q49544,river,Xingu,
+Q752674,river,Tapajós,
+Q183078,river,Murray,
+Q181482,river,Darling,Q809666|Q2556345
+Q739751,river,Fly,
+Q848308,river,Sepik,
 Q207313,ridge,Mid-Atlantic Ridge
 Q604529,ridge,East Pacific Rise
 Q190604,ridge,Central Indian Ridge
