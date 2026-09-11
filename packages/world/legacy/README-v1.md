@@ -1,5 +1,8 @@
 # 国別DB（world）移植台帳
 
+> **2026-09-11**: 本文が指す原典（legacy/create.js・create*.js・geometryISO.js・draw.js・draw.scss）と v1 seed（国名一覧.csv・CityDB.csv・Conflicts.json・国旗.zip）は
+> v2 完成に伴い削除した。必要なら git 履歴（コミット e544907 まで）から取り出す。この文書は経緯の記録として残す。
+
 旧システム（bucket プロジェクト `b1qEpPlw`）の国別データベース作成ツールを ortho-earth へ移植する記録。
 このディレクトリの [legacy/create.js](legacy/create.js) は**旧システムの原典**（`#inline` スニペット参照付き・そのままでは動かない）＝読み取り専用の設計図。
 **移植済みの原典は `legacy/` へ退避（2026-09-09）**＝実行には不要だが、Wikipedia 側の変化を追うとき原典との差分が要る（面積0・infobox クラス消滅の調査で実際に読み返した）。

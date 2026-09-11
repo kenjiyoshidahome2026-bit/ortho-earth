@@ -26,8 +26,8 @@ build/            組み立て（Node CLI と uploader で共用・依存なし�
   i18n.js          言語別テーブル（英語以外）
   env.js / seed.js / csv.js   実行環境の差の吸収・seed 読み・CSV
   cli.js           node build/cli.js [--fresh] [--out DIR] → out/
-scripts/          一回限りの移行（migrate-v1.py・diff-v1.py）と地形 i18n（terrain-i18n.py）
-legacy/           v1 の原典と seed（記録）
+scripts/          地形 i18n（terrain-i18n.py）。一回限りの移行（migrate-v1.py・diff-v1.py）は削除済み＝git 履歴 e544907 に残る
+legacy/           README-v1.md＝v1 の経緯と移植台帳のみ。原典と v1 seed（create*.js・geometryISO.js・draw.js・国名一覧.csv・国旗.zip…）は削除済み＝git 履歴 e544907 に残る（2026-09-11）
 ```
 
 ## 組み立てと公開

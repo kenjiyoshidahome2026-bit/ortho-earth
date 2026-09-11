@@ -1,4 +1,4 @@
-// 原典: packages/world/geometryISO.js の createGeometryPNG + upload_admin の iso 割替え表（旧 #inline("7SzWe6GP")）
+// 原典: packages/world/legacy/geometryISO.js（削除済み・git 履歴 e544907）の createGeometryPNG + upload_admin の iso 割替え表（旧 #inline("7SzWe6GP")）
 // 現代化（Kenji 承認＝改良歓迎 2026-08-31）:
 //   - staticOrthoMap → OffscreenCanvas + d3.geoPath（正射投影のclipAngle=90が裏面を自動で落とす＝noFilter/pole判定が不要）
 //   - mergeFeatures（polygonClipping）→ 不要化＝FeatureCollection のまま d3.geoCentroid / fitExtent に食わせる
