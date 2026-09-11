@@ -1,6 +1,6 @@
 // 国別 DB v2 の組み立て（2026-09-11・Kenji「英語と ID 中心に・美しく」）。
 //   正本＝seed/（key・QID・英語名・地域・帰属・例外）。取得＝Wikidata（構造化項目）＋統計 API（stats.js）。合成＝ここ 1 か所。
-//   出力＝NationDB / CityDB / LanguageDB / CurrencyDB / Conflicts / i18n/<lang>（英語以外の名前・記事名）。
+//   出力＝NationDB / CityDB / TerrainDB / LanguageDB / CurrencyDB / Conflicts / i18n/<lang>（英語以外の名前・記事名）。
 //   取得元ごとに独立（順番依存なし）・全て QID/ISO で結合（日本語名の名寄せ無し）・保存前に validate。
 import { entities, ids, idsNational, strings, label, nameEn, sitelink, quantity, areaKm2, coord, latestByTime, membershipSince, anthemFile } from "./wikidata.js";
 import { allStats } from "./stats.js";
@@ -68,6 +68,14 @@ export async function buildAll(seed, env) {
 		const pop = latestByTime(e, "P1082"), elev = quantity(e, "P2044", { Q11573: 1 }), xy = coord(e);
 		return clean({ qid: c.qid, name: { en: nameEn(e) }, nation: c.nation, capital: c.capital || undefined, coords: xy ? (elev != null ? [...xy, Math.round(elev)] : xy) : null, population: pop, wiki: { en: sitelink(e, "en") } });
 	}).sort((a, b) => a.name.en < b.name.en ? -1 : 1);
+	// 4b) 地形（seed/terrains.csv＝QID・分類・英語名）→ 座標・面積・記事名は Wikidata。国と同じ i18n（ラベル＋サイトリンク）
+	log(`Wikidata: 地形 ${seed.terrains.length} 件`);
+	const TE = await entities(seed.terrains.map(t => t.qid), env, opt);
+	const TerrainDB = seed.terrains.map(t => {
+		const e = TE[t.qid]; e || warn(`Wikidata に無い地形 QID: ${t.qid} ${t.name_en}`);
+		const a = areaKm2(e);
+		return clean({ qid: t.qid, category: t.category, name: { en: t.name_en || nameEn(e) }, coord: coord(e), area: a == null ? null : a > 10 ? Math.round(a) : +a.toFixed(2), wiki: { en: sitelink(e, "en") } });
+	});
 	// 5) 係争地（seed）→ Conflicts と 国側の sovereignt/claim
 	const KE = await entities(seed.conflicts.map(c => c.qid), env, opt);
 	const Conflicts = seed.conflicts.map(c => clean({ key: c.key, qid: c.qid, type: c.type, region: c.region, name: { en: c.name_en }, exist: c.exist, sovereignt: c.sovereignt || undefined, territory: c.territory || undefined, claim: c.claim && c.claim.length ? c.claim : undefined, wiki: { en: sitelink(KE[c.qid], "en") } }));
@@ -113,11 +121,11 @@ export async function buildAll(seed, env) {
 		["languages", "currency"].forEach(f => { if (!t[f] && p[f]) { t[f] = p[f]; t._src[f] = "territory"; } }); });
 	NationDB.forEach(t => Object.keys(t).forEach(k => t[k] === undefined && delete t[k]));
 	// 9) 検札
-	const report = validate({ NationDB, CityDB, LanguageDB, CurrencyDB, Conflicts });
+	const report = validate({ NationDB, CityDB, TerrainDB, LanguageDB, CurrencyDB, Conflicts });
 	report.warns.forEach(s => warn(s)); report.errors.forEach(s => warn("ERROR " + s));
 	// 10) i18n（英語以外の名前・記事名。ja は読み・正式名も）
-	const i18n = buildI18N(seed, { NE, CE, LC, KE }, { NationDB, CityDB, LanguageDB, CurrencyDB, Conflicts });
-	return { NationDB, CityDB, LanguageDB, CurrencyDB, Conflicts, i18n, report };
+	const i18n = buildI18N(seed, { NE, CE, LC, KE, TE }, { NationDB, CityDB, TerrainDB, LanguageDB, CurrencyDB, Conflicts });
+	return { NationDB, CityDB, TerrainDB, LanguageDB, CurrencyDB, Conflicts, i18n, report };
 }
 // commons のファイル名 → mp3 派生 URL（videoinfo.derivatives）。ogg 原本は Safari/iOS で鳴らない。50 件束
 async function commonsMp3(files, env) {

@@ -1,7 +1,7 @@
 // ── 国別DB（world）の uploader 組み込み（v2・2026-09-11）──
 // 正本は packages/world/seed（key・QID・英語基軸）。組み立ては packages/world/build（Node CLI と共用）。
 // ここは「ブラウザで組み立てて bucket に保存する」入口と、資産（旗・音源・地形PNG）の出し入れ。
-//   全部作る: seed → Wikidata / World Bank / IMF / HDR / en.wikipedia → NationDB・CityDB・LanguageDB・CurrencyDB・Conflicts・i18n/<lang>
+//   全部作る: seed → Wikidata / World Bank / IMF / HDR / en.wikipedia → NationDB・CityDB・TerrainDB・LanguageDB・CurrencyDB・Conflicts・i18n/<lang>
 //   zip drop: flags.zip（<key>.svg）/ 音源.zip（mp3）/ geoms.zip（png）。svg 一枚差し（<key>.svg）
 import * as d3 from 'd3';
 import "common/d3/fileio.js";   // dropFiles 拡張
@@ -62,7 +62,7 @@ export async function worldUI({ CMD, q, Bucket, Fetch }) {
 		for (const n of DBS) { await db.saveJSON(n, r[n]); q.log(`${n}.json: ${r[n].length} 件`); }
 		for (const [lang, v] of Object.entries(r.i18n)) { await db.saveJSON(`i18n/${lang}`, v); }
 		q.log(`i18n: ${Object.keys(r.i18n).length} 言語`);
-		return `国 ${r.NationDB.length} / 都市 ${r.CityDB.length} / 言語 ${r.LanguageDB.length} / 通貨 ${r.CurrencyDB.length} / 係争 ${r.Conflicts.length}・warns ${r.report.warns.length}`;
+		return `国 ${r.NationDB.length} / 都市 ${r.CityDB.length} / 地形 ${r.TerrainDB.length} / 言語 ${r.LanguageDB.length} / 通貨 ${r.CurrencyDB.length} / 係争 ${r.Conflicts.length}・warns ${r.report.warns.length}`;
 	}
 
 	CMD.append("h1").text("国別DB (world)");

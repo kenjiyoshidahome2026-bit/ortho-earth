@@ -1,0 +1,357 @@
+qid,category,name_en
+Q130135,range,Atlas Mountains
+Q842139,range,Annamite Range
+Q12431,range,Pyrenees
+Q1286,range,Alps
+Q1285,range,Apennines
+Q5477,range,Caucasus Mountains
+Q167021,range,Zagros Mountains
+Q5451,range,Himalayas
+Q5463,range,Rocky Mountains
+Q5456,range,Andes
+Q35647,range,Pennines
+Q186547,range,Scandinavian Mountains
+Q35600,range,Ural Mountains
+Q5474,range,Tianshan Mountains
+Q183295,range,Drakensberg
+Q192583,range,Great Dividing Range
+Q93332,range,Appalachian Mountains
+Q5955,range,Altai Mountains
+Q187871,range,Kunlun Mountains
+Q863798,range,Qinling
+Q5472,range,Hindu Kush
+Q26777,range,Sierra Nevada
+Q156684,range,Alaska Range
+Q765874,range,Maya Mountains
+Q929910,range,Brooks Range
+Q1719533,range,Sierras de Córdoba
+Q1288,range,Carpathians
+Q217202,range,Southern Carpathians
+Q1124584,range,Sierra Madre Occidental
+Q203239,range,Sayan Mountains
+Q214284,range,Stanovoy Range
+Q170427,range,Balkan Mountains
+Q215917,range,Verkhoyansk Range
+Q31945,peninsula,Arabian Peninsula
+Q60140,peninsula,Indian subcontinent
+Q84170,peninsula,Labrador Peninsula
+Q73169,peninsula,Scandinavian Peninsula
+Q12837,peninsula,Iberian Peninsula
+Q43467,peninsula,Mainland Southeast Asia
+Q51614,peninsula,Anatolia
+Q23522,peninsula,Balkans
+Q993,peninsula,Kamchatka Peninsula
+Q18758,peninsula,Malay Peninsula
+Q483134,peninsula,Korean Peninsula
+Q233770,peninsula,Cape York Peninsula
+Q145694,peninsula,Italian Peninsula
+Q178543,peninsula,Baja California peninsula
+Q2661894,peninsula,Florida Peninsula
+Q893152,peninsula,Boothia Peninsula
+Q40556,peninsula,Horn of Africa
+Q1827082,peninsula,San Francisco Peninsula
+Q7835,peninsula,Crimea
+Q849879,peninsula,Cap Bon
+Q858306,peninsula,Shandong Peninsula
+Q326917,peninsula,Liaodong Peninsula
+Q239143,peninsula,Kowloon
+Q875712,peninsula,Leizhou Peninsula
+Q2750823,peninsula,Bataan Peninsula
+Q36755,peninsula,Sinai Peninsula
+Q78967,peninsula,Peloponnese
+Q23148,peninsula,Cornwall
+Q463529,peninsula,Cotentin Peninsula
+Q327,peninsula,Brittany
+Q25389,peninsula,Jutland
+Q506043,peninsula,Angeln
+Q165608,peninsula,Kola Peninsula
+Q819967,peninsula,Kanin Peninsula
+Q488266,peninsula,Yamal Peninsula
+Q601056,peninsula,Gyda Peninsula
+Q37056,peninsula,Taymyr Peninsula
+Q1002,peninsula,Chukchi Peninsula
+Q60064,peninsula,Alaska Peninsula
+Q130978,peninsula,Yucatan Peninsula
+Q1521286,peninsula,Taitao Peninsula
+Q329884,peninsula,Arnhem Land
+Q185605,peninsula,Antarctic Peninsula
+Q1253855,peninsula,King Edward VII Land
+Q213237,peninsula,Valdes Peninsula
+Q151559,peninsula,Gaspé Peninsula
+Q272514,desert,Dasht-e Kavir
+Q172702,desert,Karakum Desert
+Q184364,desert,Kyzyl Kum
+Q1517734,desert,Gurbantünggüt Desert
+Q42070,desert,Gobi Desert
+Q1813864,desert,Saryesik-Atyrau Desert
+Q339162,desert,Syrian Desert
+Q172691,desert,Thar Desert
+Q132956,desert,Taklamakan
+Q1973934,desert,Ad-Dahna Desert
+Q162843,desert,Negev
+Q749205,desert,An Nafud
+Q939033,desert,Badain Jaran Desert
+Q767128,desert,Dasht-e Lut
+Q229269,desert,Rub' al Khali
+Q2088454,desert,Registan Desert
+Q47141,desert,Atacama Desert
+Q326896,desert,Great Sandy Desert
+Q273446,desert,Great Basin Desert
+Q267267,desert,Colorado Desert
+Q189429,desert,Sonoran Desert
+Q880529,desert,Black Rock Desert
+Q184355,desert,Mojave Desert
+Q47700,desert,Kalahari Desert
+Q6583,desert,Sahara
+Q131377,desert,Namib
+Q3279679,desert,Nyiri Desert
+Q464909,desert,Nubian Desert
+Q181528,desert,Libyan Desert
+Q272577,desert,Gibson Desert
+Q145165,desert,Great Victoria Desert
+Q211839,desert,Simpson Desert
+Q674262,desert,Tanami Desert
+Q1430151,desert,Sturt Stony Desert
+Q169966,plain,Deccan Plateau
+Q161750,plain,Pamir Mountains
+Q179842,plain,Tibetan Plateau
+Q237660,plain,Iranian plateau
+Q319288,plain,Ethiopian Highlands
+Q118899,plain,Brazilian Highlands
+Q208347,plain,Gran Chaco
+Q26399,plain,Hoggar Mountains
+Q208807,plain,Guiana Highlands
+Q755001,plain,Paris Basin
+Q216622,plain,Tarim Basin
+Q932289,plain,Congo Basin
+Q191862,plain,East European Plain
+Q147304,plain,North China Plain
+Q1206587,plain,Northeast China Plain
+Q1278613,plain,Yangtze Plain
+Q23867,plain,Chengdu Plain
+Q1052867,plain,Mekong Delta
+Q192305,plain,Indo-Gangetic Plain
+Q191566,plain,West Siberian Plain
+Q602925,plain,Kazakh Steppe
+Q11767,plain,Mesopotamia
+Q560549,plain,North European Plain
+Q185032,plain,Pannonian Basin
+Q179528,plain,Nile Delta
+Q29412,plain,Niger Delta
+Q756832,plain,Atlantic coastal plain
+Q12707,plain,Great Plains
+Q966943,plain,Great Basin
+Q194281,plain,Prairie
+Q184382,plain,Pampas
+Q141501,plain,Llanos
+Q381050,plain,Nullarbor Plain
+Q31059,plain,Chianan Plain
+Q1124865,plain,Kantō Plain
+Q207313,ridge,Mid-Atlantic Ridge
+Q604529,ridge,East Pacific Rise
+Q190604,ridge,Central Indian Ridge
+Q153840,ridge,Southwest Indian Ridge
+Q558898,ridge,Southeast Indian Ridge
+Q558800,ridge,Pacific-Antarctic Ridge
+Q603531,ridge,Chile Rise
+Q468239,ridge,American–Antarctic Ridge
+Q510,trench,Mariana Trench
+Q119294,trench,Tonga Trench
+Q656364,trench,Philippine Trench
+Q119196,trench,Kermadec Trench
+Q118544,trench,Izu-Ogasawara Trench
+Q118525,trench,Kuril–Kamchatka Trench
+Q1423293,trench,Yap Trench
+Q666090,trench,Puerto Rico Trench
+Q118518,trench,South Sandwich Trench
+Q118873,trench,Peru–Chile Trench
+Q118537,trench,Japan Trench
+Q119177,trench,Aleutian Trench
+Q702908,trench,Ryukyu Trench
+Q118394,trench,Sunda Trench
+Q164040,trench,Middle America Trench
+Q223,island,Greenland
+Q40285,island,New Guinea
+Q36117,island,Borneo
+Q1019,island,Madagascar
+Q81178,island,Baffin Island
+Q3492,island,Sumatra
+Q13989,island,Honshu
+Q158129,island,Victoria Island
+Q23666,island,Great Britain
+Q146841,island,Ellesmere Island
+Q3812,island,Sulawesi
+Q120755,island,South Island
+Q3757,island,Java
+Q118863,island,North Island
+Q48335,island,Newfoundland
+Q241,island,Cuba
+Q125384,island,Luzon
+Q3740828,island,Iceland
+Q124873,island,Mindanao
+Q22890,island,Ireland
+Q35581,island,Hokkaidō
+Q7792,island,Sakhalin
+Q25277,island,Hispaniola
+Q200226,island,Banks Island
+Q854,island,Sri Lanka
+Q34366,island,Tasmania
+Q186841,island,Devon Island
+Q217362,island,Severny Island
+Q1674067,island,Isla Grande de Tierra del Fuego
+Q741243,island,Berkner Island
+Q200223,island,Alexander Island
+Q207666,island,Axel Heiberg Island
+Q207751,island,Southampton Island
+Q193264,island,Marajó
+Q21162,island,Spitsbergen
+Q13987,island,Kyushu
+Q59771,island,New Britain
+Q22502,island,Taiwan Island
+Q1081204,island,Hainan Island
+Q207925,island,Prince of Wales Island
+Q601637,island,Prince of Wales Island
+Q212806,island,Yuzhny Island
+Q170479,island,Vancouver Island
+Q83067,island,Timor
+Q1460,island,Sicily
+Q212219,island,Somerset Island
+Q1462,island,Sardinia
+Q648391,island,Kotelny Island
+Q873613,island,Faddeyevsky Peninsula
+Q13991,island,Shikoku
+Q201398,island,Halmahera Island
+Q185532,island,Seram
+Q256293,island,Grande Terre
+Q217369,island,Bathurst Island
+Q213146,island,Prince Patrick Island
+Q583990,island,Thurston Island
+Q186367,island,Sumbawa Island
+Q148440,island,Flores Island
+Q207374,island,Nordaustlandet
+Q217372,island,October Revolution Island
+Q143246,island,King William Island
+Q219737,island,Samar Island
+Q212777,island,Negros
+Q1061269,island,Palawan
+Q329452,island,Kolepom Island
+Q332359,island,Panay
+Q188428,island,Bangka Island
+Q650720,island,Bolshevik Island
+Q215001,island,Ellef Ringnes Island
+Q206368,island,Sumba Island
+Q645180,island,Bylot Island
+Q766,island,Jamaica
+Q68740,island,Hawaii
+Q208198,island,Viti Levu
+Q188489,island,Cape Breton Island
+Q201766,island,Bougainville Island
+Q211800,island,Mindoro
+Q837267,island,Prince Charles Island
+Q271030,island,Buru Island
+Q204387,island,Kodiak Island
+Q644636,island,Cyprus
+Q248654,island,Komsomolets Island
+Q1183,island,Puerto Rico
+Q14112,island,Corsica
+Q215089,island,New Ireland
+Q1228827,island,Disko Island
+Q504449,island,Chiloé Island
+Q34374,island,Crete
+Q575033,island,Anticosti Island
+Q106594,island,Wrangel Island
+Q501337,island,Roosevelt Island
+Q211377,island,Leyte
+Q25535,island,Zealand
+Q674504,island,Cornwallis Island
+Q642226,island,East Falkland
+Q733338,island,West Falkland
+Q1130726,island,Siple Island
+Q1978,island,Prince Edward Island
+Q4648,island,Bali Island
+Q1774076,island,Zhoushan Island
+Q134116,island,Melville Island
+Q504763,island,Melville Island
+Q1048284,island,Wellington Island
+Q14056,island,Jan Mayen
+Q34497,island,Saint Helena
+Q25279,island,Curaçao
+Q21203,island,Aruba
+Q25396,island,Bonaire
+Q46197,island,Ascension Island
+Q220982,island,Tristan da Cunha
+Q161258,island,Clipperton Island
+Q25362,island,Saint Barthélemy
+Q1137202,island,South Georgia
+Q23408,island,Bouvet Island
+Q131347,island,Oahu
+Q14452,island,Easter Island
+Q1427436,island,Chatham Island
+Q1047492,island,Minamitorishima
+Q201633,island,Iwo Jima
+Q29151,island,Jeju Island
+Q600614,island,Okinawa
+Q998623,island,Sado Island
+Q504373,island,Awaji Island
+Q697278,island,Amami Ōshima
+Q242176,island,Yakushima
+Q696228,island,Tanegashima
+Q47863,island,Midway Atoll
+Q185018,islands,Franz Josef Land
+Q35086,islands,South Georgia and the South Sandwich Islands
+Q23635,islands,Bermuda
+Q131198,islands,Heard Island and McDonald Islands
+Q5785,islands,Cayman Islands
+Q25231,islands,Svalbard
+Q669037,islands,West Indies
+Q85377,islands,Canadian Arctic Archipelago
+Q208643,islands,Malay Archipelago
+Q841337,islands,Japanese archipelago
+Q252,islands,Indonesia
+Q928,islands,Philippines
+Q5363289,islands,Lucayan Archipelago
+Q1050549,islands,Thousand Islands
+Q186233,islands,Andaman Islands
+Q157286,islands,Nicobar Islands
+Q757549,islands,Atolls of the Maldives
+Q140510,islands,Alexander Archipelago
+Q1464773,islands,West Estonian archipelago
+Q1140416,islands,Mergui Archipelago
+Q9648,islands,Falkland Islands
+Q4628,islands,Faroe Islands
+Q18221,islands,Turks and Caicos Islands
+Q16644,islands,Northern Mariana Islands
+Q35672,islands,Pitcairn Islands
+Q13383295,islands,Ogasawara Archipelago
+Q864302,islands,Izu Islands
+Q119285,islands,Aleutian Islands
+Q80389,islands,Kuril Islands
+Q6897416,islands,Ryukyu Islands
+Q26988,islands,Cook Islands
+Q154190,islands,Sunda Islands
+Q5813,islands,Canary Islands
+Q26253,islands,Madeira
+Q25263,islands,Azores
+Q271674,islands,Phoenix Islands
+Q118350,islands,Caroline Islands
+Q192188,islands,Chagos Archipelago
+Q38095,islands,Galapagos Islands
+Q172697,islands,Marquesas Islands
+Q183963,islands,Tuamotus
+Q118920,islands,Society Islands
+Q162126,islands,Samoan Islands
+Q672,islands,Tuvalu
+Q709,islands,Marshall Islands
+Q712,islands,Fiji
+Q154628,islands,Bismarck Archipelago
+Q1042,islands,Seychelles
+Q678,islands,Tonga
+Q494869,islands,Barlavento Islands
+Q500453,islands,Sotavento Islands
+Q634740,islands,Comoros Islands
+Q208268,islands,Commander Islands
+Q36004,islands,Cocos (Keeling) Islands
+Q156325,islands,Juan Fernández Islands
+Q114935,islands,Kermadec Islands
+Q46623,islands,Prince Edward Islands
+Q46772,islands,Kerguelen Islands
