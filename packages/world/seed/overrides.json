@@ -120,13 +120,18 @@
   "_why": {
    "area": "v1 の面積既定表（本土のみ等）",
    "currency": "事実上の流通通貨（Kenji 裁定 2026-09-09）",
-   "sovereignt": "非 ISO 主体の実効支配域（Conflicts の B コード）"
+   "sovereignt": "非 ISO 主体の実効支配域（Conflicts の B コード）",
+   "population": "DPR 統計（Главстат ДНР）の 2020 年推計＝ru.wikipedia infobox。Wikidata P1082 は州全域 4,200,461 が deprecated のみ・World Bank 無し。C03 の Wikidata 値（LPR 統計 2021）と同じ「実効支配域の自前統計」基準"
   },
   "currency": [
    "RUB"
   ],
   "sovereignt": [
    "C02"
+  ],
+  "population": [
+   2020,
+   2244547
   ]
  },
  "VI": {
@@ -139,12 +144,11 @@
   "area": 266000,
   "_why": {
    "area": "v1 の面積既定表（本土のみ等）",
-   "languages": "西サハラ（v1 固定値）",
+   "languages": "Wikidata P37 はアラビア語のみ。スペイン語は SADR の第二言語として v1 から維持。v1 の ber（ISO 639-2 の集合コード）は LanguageDB のキー体系（639-1/639-3）に無く西サハラでの話者も乏しいため除去（2026-09-11）",
    "sovereignt": "西サハラ＝B19（モロッコ実効支配）+B28（自由地帯）。主張は EH に帰属させない"
   },
   "languages": [
    "ar",
-   "ber",
    "es"
   ],
   "sovereignt": [
@@ -196,11 +200,13 @@
   ],
   "_why": {
    "currency": "事実上の流通通貨（Kenji 裁定 2026-09-09）",
-   "sovereignt": "非 ISO 主体の実効支配域（Conflicts の B コード）"
+   "sovereignt": "非 ISO 主体の実効支配域（Conflicts の B コード）",
+   "area": "2014〜2022 の実効支配域＝en.wikipedia「Luhansk People's Republic」2021-10 版 infobox の area_km2（侵攻後の版は面積を持たない）。C02 の 8539（v1 表）と同じ基準"
   },
   "sovereignt": [
    "C03"
-  ]
+  ],
+  "area": 8377
  },
  "B89": {
   "currency": [
