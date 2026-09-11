@@ -1,588 +1,913 @@
-qid,category,name_en,ne_extra,axis
-Q130135,range,Atlas Mountains,,
-Q842139,range,Annamite Range,,
-Q12431,range,Pyrenees,,
-Q1286,range,Alps,,
-Q1285,range,Apennines,,8.3 44.5;11.0 44.1;13.5 42.4;16.0 39.5
-Q5477,range,Caucasus Mountains,,
-Q167021,range,Zagros Mountains,,
-Q5451,range,Himalayas,,
-Q5463,range,Rocky Mountains,,
-Q5456,range,Andes,,
-Q35647,range,Pennines,,-2.4 54.9;-1.8 53.3
-Q186547,range,Scandinavian Mountains,,
-Q35600,range,Ural Mountains,,
-Q5474,range,Tianshan Mountains,,
-Q183295,range,Drakensberg,,
-Q192583,range,Great Dividing Range,,
-Q93332,range,Appalachian Mountains,,
-Q5955,range,Altai Mountains,,
-Q187871,range,Kunlun Mountains,,
-Q863798,range,Qinling,,
-Q5472,range,Hindu Kush,,
-Q26777,range,Sierra Nevada,,
-Q156684,range,Alaska Range,,
-Q765874,range,Maya Mountains,,
-Q929910,range,Brooks Range,,
-Q1719533,range,Sierras de Córdoba,,-64.8 -30.3;-64.9 -31.4;-64.8 -32.4
-Q1288,range,Carpathians,,
-Q217202,range,Southern Carpathians,,
-Q1124584,range,Sierra Madre Occidental,,
-Q203239,range,Sayan Mountains,Q1974954|~Eastern Sayan Mountains,
-Q214284,range,Stanovoy Range,,
-Q170427,range,Balkan Mountains,,
-Q215917,range,Verkhoyansk Range,,
-Q513,peak,Mount Everest,,
-Q43512,peak,K2,,
-Q82019,peak,Kangchenjunga,,
-Q168702,peak,Lhotse,,
-Q169986,peak,Makalu,,
-Q170089,peak,Cho Oyu,,
-Q165440,peak,Dhaulagiri,,
-Q170070,peak,Manaslu,,
-Q130736,peak,Nanga Parbat,,
-Q16466024,peak,Annapurna I,,
-Q39231,peak,Mount Fuji,,
-Q60967,peak,Mount Kinabalu,,
-Q40758,peak,Mount Damavand,,
-Q72303,peak,Mount Ararat,,
-Q107635,peak,Mount Paektu,,
-Q216059,peak,Mount Tai,,
-Q494645,peak,Hallasan,,
-Q1451,peak,Mount Pinatubo,,
-Q1484,peak,Mayon,,
-Q82613,peak,Krakatoa,,
-Q377485,peak,Mount Sinai,,
-Q1045888,peak,Puncak Jaya,,
-Q210252,peak,Klyuchevskaya Sopka,,
-Q229107,peak,Mount Kailash,,
-Q583,peak,Mont Blanc,,
-Q1374,peak,Matterhorn,,
-Q43105,peak,Mount Elbrus,,
-Q16990,peak,Mount Etna,,
-Q524,peak,Mount Vesuvius,,
-Q80344,peak,Mount Olympus,,
-Q3375,peak,Zugspitze,,
-Q104674,peak,Ben Nevis,,
-Q3388,peak,Grossglockner,,
-Q15312,peak,Jungfrau,,
-Q4425,peak,Eiger,,
-Q7296,peak,Mount Kilimanjaro,,
-Q172070,peak,Mount Kenya,,
-Q190562,peak,Mount Cameroon,,
-Q503433,peak,Toubkal,,
-Q275435,peak,Ras Dashen,,
-Q221666,peak,Mount Stanley,,
-Q213360,peak,Table Mountain,,
-Q130018,peak,Denali,,
-Q120306,peak,Mount Logan,,
-Q194057,peak,Mount Rainier,,
-Q4675,peak,Mount St. Helens,,
-Q235539,peak,Mount Whitney,,
-Q181157,peak,Popocatépetl,,
-Q238147,peak,Pico de Orizaba,,
-Q131230,peak,Mauna Kea,,
-Q159762,peak,Mauna Loa,,
-Q39739,peak,Aconcagua,,
-Q233836,peak,Ojos del Salado,,
-Q14081,peak,Chimborazo,,
-Q181476,peak,Cotopaxi,,
-Q200935,peak,Huascarán,,
-Q5059,peak,Aoraki / Mount Cook,,
-Q178167,peak,Mount Kosciuszko,,
-Q163758,peak,Vinson Massif,,
-Q188982,peak,Mount Erebus,,
-Q31945,peninsula,Arabian Peninsula,,
-Q60140,peninsula,Indian subcontinent,,
-Q84170,peninsula,Labrador Peninsula,,
-Q73169,peninsula,Scandinavian Peninsula,,
-Q12837,peninsula,Iberian Peninsula,,
-Q43467,peninsula,Mainland Southeast Asia,,
-Q51614,peninsula,Anatolia,,
-Q23522,peninsula,Balkans,,
-Q993,peninsula,Kamchatka Peninsula,,
-Q18758,peninsula,Malay Peninsula,,
-Q483134,peninsula,Korean Peninsula,,
-Q233770,peninsula,Cape York Peninsula,,
-Q145694,peninsula,Italian Peninsula,,
-Q178543,peninsula,Baja California peninsula,,
-Q2661894,peninsula,Florida Peninsula,,
-Q893152,peninsula,Boothia Peninsula,,
-Q40556,peninsula,Horn of Africa,,
-Q1827082,peninsula,San Francisco Peninsula,,
-Q7835,peninsula,Crimea,,
-Q849879,peninsula,Cap Bon,,
-Q858306,peninsula,Shandong Peninsula,,
-Q326917,peninsula,Liaodong Peninsula,,
-Q239143,peninsula,Kowloon,,
-Q875712,peninsula,Leizhou Peninsula,,
-Q2750823,peninsula,Bataan Peninsula,,
-Q36755,peninsula,Sinai Peninsula,,
-Q78967,peninsula,Peloponnese,,
-Q23148,peninsula,Cornwall,,
-Q463529,peninsula,Cotentin Peninsula,,
-Q327,peninsula,Brittany,,
-Q25389,peninsula,Jutland,,
-Q506043,peninsula,Angeln,,
-Q165608,peninsula,Kola Peninsula,,
-Q819967,peninsula,Kanin Peninsula,,
-Q488266,peninsula,Yamal Peninsula,,
-Q601056,peninsula,Gyda Peninsula,,
-Q37056,peninsula,Taymyr Peninsula,,
-Q1002,peninsula,Chukchi Peninsula,,
-Q60064,peninsula,Alaska Peninsula,,
-Q130978,peninsula,Yucatan Peninsula,,
-Q1521286,peninsula,Taitao Peninsula,,
-Q329884,peninsula,Arnhem Land,,
-Q185605,peninsula,Antarctic Peninsula,,
-Q1253855,peninsula,King Edward VII Land,,
-Q213237,peninsula,Valdes Peninsula,,
-Q151559,peninsula,Gaspé Peninsula,,
-Q272514,desert,Dasht-e Kavir,,
-Q172702,desert,Karakum Desert,,
-Q184364,desert,Kyzyl Kum,,
-Q1517734,desert,Gurbantünggüt Desert,,
-Q42070,desert,Gobi Desert,,
-Q1813864,desert,Saryesik-Atyrau Desert,,
-Q339162,desert,Syrian Desert,,
-Q172691,desert,Thar Desert,,
-Q132956,desert,Taklamakan,,
-Q1973934,desert,Ad-Dahna Desert,,
-Q162843,desert,Negev,,
-Q749205,desert,An Nafud,,
-Q939033,desert,Badain Jaran Desert,,
-Q767128,desert,Dasht-e Lut,,
-Q229269,desert,Rub' al Khali,,
-Q2088454,desert,Registan Desert,,
-Q47141,desert,Atacama Desert,,
-Q326896,desert,Great Sandy Desert,,
-Q273446,desert,Great Basin Desert,,
-Q267267,desert,Colorado Desert,,
-Q189429,desert,Sonoran Desert,,
-Q880529,desert,Black Rock Desert,,
-Q184355,desert,Mojave Desert,,
-Q47700,desert,Kalahari Desert,,
-Q6583,desert,Sahara,,
-Q131377,desert,Namib,,
-Q3279679,desert,Nyiri Desert,,
-Q464909,desert,Nubian Desert,,
-Q181528,desert,Libyan Desert,,
-Q272577,desert,Gibson Desert,,
-Q145165,desert,Great Victoria Desert,,
-Q211839,desert,Simpson Desert,,
-Q674262,desert,Tanami Desert,,
-Q1430151,desert,Sturt Stony Desert,,
-Q169966,plain,Deccan Plateau,,
-Q161750,plain,Pamir Mountains,,
-Q179842,plain,Tibetan Plateau,,
-Q237660,plain,Iranian plateau,,
-Q319288,plain,Ethiopian Highlands,,
-Q118899,plain,Brazilian Highlands,,
-Q208347,plain,Gran Chaco,,
-Q26399,plain,Hoggar Mountains,,
-Q208807,plain,Guiana Highlands,,
-Q755001,plain,Paris Basin,,
-Q216622,plain,Tarim Basin,,
-Q932289,plain,Congo Basin,,
-Q191862,plain,East European Plain,,
-Q147304,plain,North China Plain,,
-Q1206587,plain,Northeast China Plain,,
-Q1278613,plain,Yangtze Plain,,
-Q23867,plain,Chengdu Plain,,
-Q1052867,plain,Mekong Delta,,
-Q192305,plain,Indo-Gangetic Plain,,
-Q191566,plain,West Siberian Plain,,
-Q602925,plain,Kazakh Steppe,,
-Q11767,plain,Mesopotamia,,
-Q560549,plain,North European Plain,,
-Q185032,plain,Pannonian Basin,,
-Q179528,plain,Nile Delta,,
-Q29412,plain,Niger Delta,,
-Q756832,plain,Atlantic coastal plain,,
-Q12707,plain,Great Plains,,
-Q966943,plain,Great Basin,,
-Q184382,plain,Pampas,,
-Q141501,plain,Llanos,,
-Q381050,plain,Nullarbor Plain,,
-Q31059,plain,Chianan Plain,,
-Q1124865,plain,Kantō Plain,,
-Q5484,lake,Caspian Sea,,
-Q1066,lake,Lake Superior,,
-Q5505,lake,Lake Victoria,,
-Q1383,lake,Lake Huron,,
-Q1169,lake,Lake Michigan,,
-Q5511,lake,Lake Tanganyika,,
-Q5513,lake,Lake Baikal,,
-Q5525,lake,Great Bear Lake,,
-Q5532,lake,Lake Malawi,,
-Q5539,lake,Great Slave Lake,,
-Q5492,lake,Lake Erie,,
-Q3272,lake,Lake Winnipeg,,
-Q1062,lake,Lake Ontario,,
-Q15288,lake,Lake Ladoga,,
-Q134485,lake,Lake Balkhash,,
-Q152044,lake,Lake Vostok,,
-Q166162,lake,Lake Onega,,
-Q35342,lake,Lake Titicaca,,
-Q173862,lake,Lake Nicaragua,,
-Q272463,lake,Lake Athabasca,,
-Q182719,lake,Lake Turkana,,
-Q1134446,lake,Reindeer Lake,,
-Q42191,lake,Issyk-Kul,,
-Q199551,lake,Lake Urmia,,
-Q173596,lake,Vänern,,
-Q125888,lake,Lake Albert,,
-Q504433,lake,Lake Mweru,,
-Q125309,lake,Lake Chad,,
-Q116685,lake,Lake Tana,,
-Q182137,lake,Lake Maracaibo,,
-Q35883,lake,Aral Sea,,
-Q23883,lake,Dead Sea,,
-Q179970,lake,Kati Thanda–Lake Eyre,,
-Q178741,lake,Great Salt Lake,,
-Q6403,lake,Lake Geneva,,
-Q4127,lake,Lake Constance,,
-Q6414,lake,Lake Garda,,
-Q15523,lake,Lake Como,,
-Q6383,lake,Lake Balaton,,
-Q200239,lake,Lake Biwa,,
-Q201294,lake,Qinghai Lake,,
-Q207690,lake,Poyang Lake,,
-Q216083,lake,Dongting Lake,,
-Q199938,lake,Tonle Sap,,
-Q183360,lake,Lake Toba,,
-Q199903,lake,Lake Taupō,,
-Q126307,lake,Lake Van,,
-Q181932,lake,Lake Sevan,,
-Q125912,lake,Lake Kivu,,
-Q201679,lake,Lake Volta,,
-Q182796,lake,Lake Nasser,,
-Q202905,lake,Lake Okeechobee,,
-Q169962,lake,Lake Tahoe,,
-Q329266,lake,Crater Lake,,
-Q206942,lake,Lough Neagh,,
-Q49650,lake,Loch Ness,,
-Q125211,lake,Lake Edward,,
-Q645901,lake,Lake Manitoba,,
-Q122184,lake,Lake Nipigon,,
-Q201843,lake,Lake Khanka,,
-Q3392,river,Nile,Q4814791|Q2750140,
-Q882739,river,Blue Nile,Q3501984,
-Q3503,river,Congo,Q836812,
-Q3542,river,Niger,,
-Q43106,river,Zambezi,,
-Q181475,river,Orange,,
-Q173017,river,Limpopo,,
-Q3569,river,Senegal,,
-Q192415,river,Volta,,
-Q188773,river,Okavango,,
-Q5413,river,Yangtze,Q1038418|Q7821148|Q1538813,
-Q7355,river,Yellow River,,
-Q41179,river,Mekong,,
-Q6862,river,Amur,Q26439,
-Q46841,river,Lena,,
-Q973,river,Ob,,
-Q128102,river,Irtysh,,
-Q78707,river,Yenisey,,
-Q7348,river,Indus,Q7666170,
-Q5089,river,Ganges,,
-Q45403,river,Brahmaputra,Q2599627|Q15954437,
-Q34589,river,Euphrates,,
-Q35591,river,Tigris,,
-Q26422,river,Salween,,
-Q26076,river,Irrawaddy,,
-Q216941,river,Xi River,,
-Q237901,river,Tarim,,
-Q191314,river,Godavari,,
-Q193499,river,Krishna,,
-Q234004,river,Narmada,,
-Q271044,river,Mahanadi,,
-Q216239,river,Kaveri,,
-Q118850,river,Chao Phraya,,
-Q206850,river,Red River,,
-Q8493,river,Amu Darya,,
-Q483159,river,Syr Darya,,
-Q78879,river,Kolyma,,
-Q82207,river,Indigirka,,
-Q162737,river,Angara,,
-Q75745,river,Selenga,Q26301,
-Q80240,river,Ural,,
-Q40059,river,Jordan,,
-Q166966,river,Shatt al-Arab,,
-Q210326,river,Songhua,,
-Q55500,river,Han River,,
-Q875573,river,Han River,,
-Q55498,river,Yalu,,
-Q55501,river,Nakdong,,
-Q177452,river,Tone,,
-Q1061515,river,Ishikari,,
-Q596120,river,Mogami,,
-Q132726,river,Yamuna,,
-Q626,river,Volga,,
-Q1653,river,Danube,Q12722938|Q1344617|Q1668781|Q1369180,
-Q40855,river,Dnieper,,
-Q1229,river,Don,,
-Q584,river,Rhine,,
-Q1644,river,Elbe,,
-Q1469,river,Loire,,
-Q1471,river,Seine,,
-Q19686,river,Thames,,
-Q643,river,Po,,
-Q548,river,Vistula,,
-Q552,river,Oder,,
-Q602,river,Rhône,,
-Q5077,river,Garonne,,
-Q14294,river,Tagus,,
-Q10965,river,Ebro,,
-Q14299,river,Douro,,
-Q13712,river,Tiber,,
-Q8168,river,Pechora,,
-Q8187,river,Northern Dvina,,
-Q19682,river,Severn,,
-Q1497,river,Mississippi,,
-Q5419,river,Missouri,Q947477,
-Q4915,river,Ohio,Q686021,
-Q104437,river,Yukon,Q284495,
-Q3411,river,Mackenzie,Q2226,
-Q134750,river,St. Lawrence,Q182343|Q1054325,
-Q160636,river,Rio Grande,,
-Q2251,river,Columbia,,
-Q1265,river,Colorado,,
-Q272074,river,Snake,,
-Q8319,river,Arkansas,,
-Q193737,river,Tennessee,,
-Q269710,river,Fraser,,
-Q3292,river,Nelson,,
-Q3318,river,Churchill,,
-Q3047,river,Saskatchewan,,
-Q2220,river,Peace,,
-Q3140,river,Hudson,,
-Q335575,river,Sacramento,,
-Q179444,river,Potomac,,
-Q2216,river,Athabasca,,
-Q3783,river,Amazon,,
-Q127892,river,Paraná,Q21847787,
-Q131792,river,Orinoco,,
-Q118251,river,Madeira,Q117615|Q916349,
-Q26271,river,Purus,,
-Q118771,river,Rio Negro,,
-Q200952,river,Ucayali,,
-Q200174,river,Marañón,,
-Q156054,river,Tocantins,,
-Q142148,river,São Francisco,,
-Q191829,river,Magdalena,,
-Q18278,river,Uruguay,,
-Q49544,river,Xingu,,
-Q752674,river,Tapajós,,
-Q183078,river,Murray,,
-Q181482,river,Darling,Q809666|Q2556345,
-Q739751,river,Fly,,
-Q848308,river,Sepik,,
-Q207313,ridge,Mid-Atlantic Ridge,,
-Q604529,ridge,East Pacific Rise,,
-Q190604,ridge,Central Indian Ridge,,
-Q153840,ridge,Southwest Indian Ridge,,
-Q558898,ridge,Southeast Indian Ridge,,
-Q558800,ridge,Pacific-Antarctic Ridge,,
-Q603531,ridge,Chile Rise,,
-Q468239,ridge,American–Antarctic Ridge,,
-Q510,trench,Mariana Trench,,
-Q119294,trench,Tonga Trench,,
-Q656364,trench,Philippine Trench,,
-Q119196,trench,Kermadec Trench,,
-Q118544,trench,Izu-Ogasawara Trench,,
-Q118525,trench,Kuril–Kamchatka Trench,,
-Q1423293,trench,Yap Trench,,
-Q666090,trench,Puerto Rico Trench,,
-Q118518,trench,South Sandwich Trench,,
-Q118873,trench,Peru–Chile Trench,,
-Q118537,trench,Japan Trench,,
-Q119177,trench,Aleutian Trench,,
-Q702908,trench,Ryukyu Trench,,
-Q118394,trench,Sunda Trench,,
-Q164040,trench,Middle America Trench,,
-Q223,island,Greenland,,
-Q40285,island,New Guinea,,
-Q36117,island,Borneo,,
-Q1019,island,Madagascar,,
-Q81178,island,Baffin Island,,
-Q3492,island,Sumatra,,
-Q13989,island,Honshu,,
-Q158129,island,Victoria Island,,
-Q23666,island,Great Britain,,
-Q146841,island,Ellesmere Island,,
-Q3812,island,Sulawesi,,
-Q120755,island,South Island,,
-Q3757,island,Java,,
-Q118863,island,North Island,,
-Q48335,island,Newfoundland,,
-Q241,island,Cuba,,
-Q125384,island,Luzon,,
-Q3740828,island,Iceland,,
-Q124873,island,Mindanao,,
-Q22890,island,Ireland,,
-Q35581,island,Hokkaidō,,
-Q7792,island,Sakhalin,,
-Q25277,island,Hispaniola,,
-Q200226,island,Banks Island,,
-Q854,island,Sri Lanka,,
-Q34366,island,Tasmania,,
-Q186841,island,Devon Island,,
-Q217362,island,Severny Island,,
-Q1674067,island,Isla Grande de Tierra del Fuego,,
-Q741243,island,Berkner Island,,
-Q200223,island,Alexander Island,,
-Q207666,island,Axel Heiberg Island,,
-Q207751,island,Southampton Island,,
-Q193264,island,Marajó,,
-Q21162,island,Spitsbergen,,
-Q13987,island,Kyushu,,
-Q59771,island,New Britain,,
-Q22502,island,Taiwan Island,,
-Q1081204,island,Hainan Island,,
-Q207925,island,Prince of Wales Island,,
-Q601637,island,Prince of Wales Island,,
-Q212806,island,Yuzhny Island,,
-Q170479,island,Vancouver Island,,
-Q83067,island,Timor,,
-Q1460,island,Sicily,,
-Q212219,island,Somerset Island,,
-Q1462,island,Sardinia,,
-Q648391,island,Kotelny Island,,
-Q873613,island,Faddeyevsky Peninsula,,
-Q13991,island,Shikoku,,
-Q201398,island,Halmahera Island,,
-Q185532,island,Seram,,
-Q256293,island,Grande Terre,,
-Q217369,island,Bathurst Island,,
-Q213146,island,Prince Patrick Island,,
-Q583990,island,Thurston Island,,
-Q186367,island,Sumbawa Island,,
-Q148440,island,Flores Island,,
-Q207374,island,Nordaustlandet,,
-Q217372,island,October Revolution Island,,
-Q143246,island,King William Island,,
-Q219737,island,Samar Island,,
-Q212777,island,Negros,,
-Q1061269,island,Palawan,,
-Q329452,island,Kolepom Island,,
-Q332359,island,Panay,,
-Q188428,island,Bangka Island,,
-Q650720,island,Bolshevik Island,,
-Q215001,island,Ellef Ringnes Island,,
-Q206368,island,Sumba Island,,
-Q645180,island,Bylot Island,,
-Q766,island,Jamaica,,
-Q68740,island,Hawaii,,
-Q208198,island,Viti Levu,,
-Q188489,island,Cape Breton Island,,
-Q201766,island,Bougainville Island,,
-Q211800,island,Mindoro,,
-Q837267,island,Prince Charles Island,,
-Q271030,island,Buru Island,,
-Q204387,island,Kodiak Island,,
-Q644636,island,Cyprus,,
-Q248654,island,Komsomolets Island,,
-Q1183,island,Puerto Rico,,
-Q14112,island,Corsica,,
-Q215089,island,New Ireland,,
-Q1228827,island,Disko Island,,
-Q504449,island,Chiloé Island,,
-Q34374,island,Crete,,
-Q575033,island,Anticosti Island,,
-Q106594,island,Wrangel Island,,
-Q501337,island,Roosevelt Island,,
-Q211377,island,Leyte,,
-Q25535,island,Zealand,,
-Q674504,island,Cornwallis Island,,
-Q642226,island,East Falkland,,
-Q733338,island,West Falkland,,
-Q1130726,island,Siple Island,,
-Q1978,island,Prince Edward Island,,
-Q4648,island,Bali Island,,
-Q1774076,island,Zhoushan Island,,
-Q134116,island,Melville Island,,
-Q504763,island,Melville Island,,
-Q1048284,island,Wellington Island,,
-Q14056,island,Jan Mayen,,
-Q34497,island,Saint Helena,,
-Q25279,island,Curaçao,,
-Q21203,island,Aruba,,
-Q25396,island,Bonaire,,
-Q46197,island,Ascension Island,,
-Q220982,island,Tristan da Cunha,,
-Q161258,island,Clipperton Island,,
-Q25362,island,Saint Barthélemy,,
-Q1137202,island,South Georgia,,
-Q23408,island,Bouvet Island,,
-Q131347,island,Oahu,,
-Q14452,island,Easter Island,,
-Q1427436,island,Chatham Island,,
-Q1047492,island,Minamitorishima,,
-Q201633,island,Iwo Jima,,
-Q29151,island,Jeju Island,,
-Q600614,island,Okinawa,,
-Q998623,island,Sado Island,,
-Q504373,island,Awaji Island,,
-Q697278,island,Amami Ōshima,,
-Q242176,island,Yakushima,,
-Q696228,island,Tanegashima,,
-Q47863,island,Midway Atoll,,
-Q185018,islands,Franz Josef Land,,
-Q35086,islands,South Georgia and the South Sandwich Islands,,
-Q23635,islands,Bermuda,,
-Q131198,islands,Heard Island and McDonald Islands,,
-Q5785,islands,Cayman Islands,,
-Q25231,islands,Svalbard,,
-Q669037,islands,West Indies,,
-Q85377,islands,Canadian Arctic Archipelago,,
-Q208643,islands,Malay Archipelago,,
-Q841337,islands,Japanese archipelago,,
-Q252,islands,Indonesia,,
-Q928,islands,Philippines,,
-Q5363289,islands,Lucayan Archipelago,,
-Q1050549,islands,Thousand Islands,,
-Q186233,islands,Andaman Islands,,
-Q157286,islands,Nicobar Islands,,
-Q757549,islands,Atolls of the Maldives,,
-Q140510,islands,Alexander Archipelago,,
-Q1464773,islands,West Estonian archipelago,,
-Q1140416,islands,Mergui Archipelago,,
-Q9648,islands,Falkland Islands,,
-Q4628,islands,Faroe Islands,,
-Q18221,islands,Turks and Caicos Islands,,
-Q16644,islands,Northern Mariana Islands,,
-Q35672,islands,Pitcairn Islands,,
-Q13383295,islands,Ogasawara Archipelago,,
-Q864302,islands,Izu Islands,,
-Q119285,islands,Aleutian Islands,,
-Q80389,islands,Kuril Islands,,
-Q6897416,islands,Ryukyu Islands,,
-Q26988,islands,Cook Islands,,
-Q154190,islands,Sunda Islands,,
-Q5813,islands,Canary Islands,,
-Q26253,islands,Madeira,,
-Q25263,islands,Azores,,
-Q271674,islands,Phoenix Islands,,
-Q118350,islands,Caroline Islands,,
-Q192188,islands,Chagos Archipelago,,
-Q38095,islands,Galapagos Islands,,
-Q172697,islands,Marquesas Islands,,
-Q183963,islands,Tuamotus,,
-Q118920,islands,Society Islands,,
-Q162126,islands,Samoan Islands,,
-Q672,islands,Tuvalu,,
-Q709,islands,Marshall Islands,,
-Q712,islands,Fiji,,
-Q154628,islands,Bismarck Archipelago,,
-Q1042,islands,Seychelles,,
-Q678,islands,Tonga,,
-Q494869,islands,Barlavento Islands,,
-Q500453,islands,Sotavento Islands,,
-Q634740,islands,Comoros Islands,,
-Q208268,islands,Commander Islands,,
-Q36004,islands,Cocos (Keeling) Islands,,
-Q156325,islands,Juan Fernández Islands,,
-Q114935,islands,Kermadec Islands,,
-Q46623,islands,Prince Edward Islands,,
-Q46772,islands,Kerguelen Islands,,
+qid,category,name_en,ne_extra,axis,rank,lon,lat
+Q15,continent,Africa,,,0,15.397,7.145
+Q48,continent,Asia,,,0,92.733,43.078
+Q3960,continent,Australia,,,0,134.138,-23.251
+Q46,continent,Europe,,,0,27.788,53.669
+Q49,continent,North America,,,0,-105.58,52.524
+Q18,continent,South America,,,0,-64.842,-22.984
+Q788,ocean,Arctic Ocean,,,0,-63.677,80.479
+Q97,ocean,Atlantic Ocean,,,0,-39.045,38.159
+Q1239,ocean,Indian Ocean,,,0,88.391,-14.116
+Q98,ocean,Pacific Ocean,,,0,-111.608,31.43
+Q7354,ocean,Southern Ocean,,,0,10.264,-67.551
+Q37394,region,Melanesia,,,0,148.119,-10.286
+Q3359409,region,Micronesia,,,0,152.173,6.495
+Q35942,region,Polynesia,,,0,-162.24,-12.183
+Q797,region,Alaska,,,1,-157.155,61.776
+Q27611,region,Central America,,,1,-85.911,13.831
+Q866405,region,East Antarctica,,,1,101.746,-72.25
+Q5428,region,Siberia,,,1,115.253,64.206
+Q530917,region,West Antarctica,,,1,-80.114,-74.893
+Q1507,region,Patagonia,,,2,-71.097,-47.408
+Q76034,shield,Canadian Shield,,,1,-74.999,45.629
+Q4824676,shield,Australian Shield,,,,,
+Q580133,shield,Baltic Shield,,,,25.0,64.0
+Q9309106,shield,Guiana Shield,,,,,
+Q12878159,shield,Indian Shield,,,,78.0,20.0
+Q58705,sea,Arabian Sea,,,1,63.779,19.625
+Q131274,sea,Beaufort Sea,,,1,-136.222,70.808
+Q166,sea,Black Sea,,,1,33.532,44.21
+Q1247,sea,Caribbean Sea,,,1,-76.139,15.232
+Q82931,sea,Coral Sea,,,1,154.426,-16.994
+Q184189,sea,Labrador Sea,,,1,-57.385,53.458
+Q4918,sea,Mediterranean Sea,,,1,17.584,36.336
+Q159183,sea,Philippine Sea,,,1,128.488,20.747
+Q23406,sea,Red Sea,,,1,39.001,20.027
+Q164466,sea,Ross Sea,,,1,-149.135,-79.296
+Q27092,sea,Sea of Japan,,,1,136.866,42.045
+Q41602,sea,Sea of Okhotsk,,,1,145.792,52.726
+Q37660,sea,South China Sea,,,1,111.419,10.402
+Q33254,sea,Tasman Sea,,,1,163.11,-40.403
+Q173343,sea,Weddell Sea,,,1,-53.612,-77.487
+Q72154,sea,Amundsen Sea,,,2,-105.551,-74.342
+Q47632,sea,Andaman Sea,,,2,96.863,12.503
+Q128880,sea,Arafura Sea,,,2,135.889,-7.76
+Q545,sea,Baltic Sea,,,2,18.243,57.044
+Q171510,sea,Banda Sea,,,2,124.865,-4.714
+Q45823,sea,Barents Sea,,,2,44.753,74.148
+Q183455,sea,Bellingshausen Sea,,,2,-77.769,-72.054
+Q44725,sea,Bering Sea,,,2,-167.109,61.426
+Q19270,sea,Celebes Sea,,,2,121.253,4.348
+Q159252,sea,Chukchi Sea,,,2,-169.633,68.107
+Q45341,sea,East China Sea,,,2,125.049,29.042
+Q132868,sea,Greenland Sea,,,2,-13.003,74.615
+Q41735,sea,Irish Sea,,,2,-4.667,53.577
+Q49364,sea,Java Sea,,,2,109.998,-5.023
+Q33629,sea,Kara Sea,,,2,80.173,74.708
+Q544914,sea,Laccadive Sea,,,2,75.878,10.185
+Q7988,sea,Laptev Sea,,,2,115.444,75.659
+Q1693,sea,North Sea,,,2,3.266,55.767
+Q47545,sea,Norwegian Sea,,,2,11.598,66.586
+Q169274,sea,Sargasso Sea,,,2,-59.969,27.409
+Q204703,sea,Scotia Sea,,,2,-54.984,-61.147
+Q160194,sea,Sulu Sea,,,2,120.205,8.795
+Q131418,sea,Timor Sea,,,2,128.737,-11.117
+Q37960,sea,Yellow Sea,,,2,123.73,36.763
+Q13924,sea,Adriatic Sea,,,3,16.174,42.951
+Q38882,sea,Tyrrhenian Sea,,,3,12.22,40.349
+Q44133,sea,White Sea,,,3,38.358,66.112
+Q34575,sea,Aegean Sea,,,4,25.269,38.875
+Q200712,sea,Balearic Sea,,,4,1.78,40.077
+Q199436,sea,Bismarck Sea,,,4,148.525,-3.887
+Q181969,sea,Bohai Sea,,,4,120.235,39.074
+Q37495,sea,Ionian Sea,,,4,19.546,38.419
+Q185291,sea,Molucca Sea,,,4,126.078,0.6
+Q1971856,sea,Sea of the Hebrides,,,4,-6.063,56.38
+Q210855,sea,Seram Sea,,,4,130.885,-2.715
+Q231312,sea,Seto Inland Sea,,,4,132.961,33.914
+Q199479,sea,Solomon Sea,,,4,154.3,-7.673
+Q509321,sea,Davis Sea,,,5,95.564,-66.411
+Q163434,sea,East Siberian Sea,,,5,151.864,72.57
+Q42820,sea,Ligurian Sea,,,5,8.861,43.986
+Q243125,sea,Lincoln Sea,,,5,-53.115,82.635
+Q35000,sea,Sea of Azov,,,5,37.151,46.257
+Q193149,sea,Sea of Crete,,,5,24.888,36.478
+Q37040,bay,Baffin Bay,,,1,-70.106,73.415
+Q38684,bay,Bay of Bengal,,,1,88.109,18.365
+Q180531,bay,Gulf of Alaska,,,1,-151.41,58.142
+Q12630,bay,Gulf of Mexico,,,1,-89.566,27.504
+Q3040,bay,Hudson Bay,,,1,-87.148,61.007
+Q34675,bay,Persian Gulf,,,1,51.535,27.08
+Q41573,bay,Bay of Biscay,,,2,-3.186,46.011
+Q61304,bay,Bay of Campeche,,,2,-93.295,19.066
+Q41430,bay,Gulf of Guinea,,,2,3.667,2.993
+Q131217,bay,Gulf of Thailand,,,2,101.743,10.244
+Q186733,bay,Great Australian Bight,,,3,136.123,-36.463
+Q41837,bay,Gulf of Aden,,,3,46.391,12.491
+Q122574,bay,Gulf of Bothnia,,,3,20.998,62.814
+Q132811,bay,Gulf of California,,,3,-111.194,27.366
+Q180844,bay,Gulf of Carpentaria,,,3,138.685,-14.896
+Q795608,bay,Gulf of Honduras,,,3,-88.231,16.099
+Q79948,bay,Gulf of Oman,,,3,58.505,24.717
+Q223810,bay,James Bay,,,3,-80.062,52.63
+Q181857,bay,Bay of Fundy,,,4,-65.453,45.158
+Q140290,bay,Bay of Plenty,,,4,176.722,-37.543
+Q216868,bay,Chesapeake Bay,,,4,-76.427,38.301
+Q14686,bay,Gulf of Finland,,,4,26.691,60.017
+Q844917,bay,Gulf of Kutch,,,4,69.742,22.726
+Q210118,bay,Gulf of Lion,,,4,4.077,43.021
+Q876470,bay,Gulf of Maine,,,4,-68.923,43.81
+Q622811,bay,Gulf of Mannar,,,4,79.257,8.534
+Q645012,bay,Gulf of Panama,,,4,-78.899,8.357
+Q169523,bay,Gulf of St. Lawrence,,,4,-60.068,48.149
+Q212428,bay,Gulf of Tonkin,,,4,108.269,20.502
+Q35827,bay,Río de la Plata,,,4,-57.517,-34.307
+Q81611,bay,Gulf of Aqaba,,,,,
+Q174731,bay,Gulf of Riga,,,,,
+Q187274,bay,Gulf of Sidra,,,,,
+Q168277,bay,Gulf of Suez,,,,,
+Q232264,bay,San Francisco Bay,,,,,
+Q141017,bay,Tokyo Bay,,,,,
+Q189262,strait,Davis Strait,,,2,-57.35,65.711
+Q143650,strait,Drake Passage,,,2,-59.641,-62.374
+Q908741,strait,Luzon Strait,,,2,120.87,22.073
+Q165100,strait,Mozambique Channel,,,2,41.311,-18.12
+Q34640,strait,English Channel,,,3,-1.95,49.928
+Q207702,strait,Hudson Strait,,,3,-71.596,62.636
+Q188203,strait,Bristol Channel,,,4,-4.213,51.228
+Q52052,strait,Korea Strait,,,4,128.663,34.201
+Q194477,strait,Makassar Strait,,,4,118.269,-1.465
+Q81136,strait,Northwest Passage,,,4,-98.75,73.764
+Q205655,strait,Singapore Strait,,,4,104.002,1.273
+Q36124,strait,Strait of Gibraltar,,,4,-5.42,36.142
+Q48359,strait,Strait of Malacca,,,4,100.408,3.754
+Q232912,strait,Straits of Florida,,,4,-80.264,24.532
+Q127031,strait,Taiwan Strait,,,4,118.945,24.328
+Q171846,strait,Bass Strait,,,5,146.25,-39.551
+Q35958,strait,Bosporus,,,5,29.04,41.097
+Q131716,strait,Kattegat,,,5,11.7,56.727
+Q208054,strait,La Pérouse Strait,,,5,141.835,45.452
+Q179188,strait,Torres Strait,,,5,142.254,-9.857
+Q193260,strait,Yucatán Channel,,,5,-86.939,21.505
+Q202671,strait,Beagle Channel,,,,,
+Q11769,strait,Bering Strait,,,,,
+Q1024939,strait,Cabot Strait,,,,,
+Q5023,strait,Cook Strait,,,,,
+Q6514,strait,Dardanelles,,,,,
+Q152058,strait,Denmark Strait,,,,,
+Q187890,strait,Kerch Strait,,,,,
+Q745025,strait,Lombok Strait,,,,,
+Q1418401,strait,Mona Passage,,,,,
+Q186299,strait,Palk Strait,,,,,
+Q1695,strait,Skagerrak,,,,,
+Q83318,strait,Strait of Bab al-Mandab,,,,,
+Q815831,strait,Strait of Belle Isle,,,,,
+Q207911,strait,Strait of Bonifacio,,,,,
+Q159898,strait,Strait of Dover,,,,,
+Q79883,strait,Strait of Hormuz,,,,,
+Q867627,strait,Strait of Juan de Fuca,,,,,
+Q48365,strait,Strait of Magellan,,,,,
+Q134705,strait,Strait of Messina,,,,,
+Q206975,strait,Strait of Sicily,,,,,
+Q110802,strait,Strait of Tartary,,,,,
+Q192790,strait,Sunda Strait,,,,,
+Q271521,strait,Tsugaru Strait,,,,,
+Q140265,strait,Windward Passage,,,,,
+Q104662,strait,Øresund,,,,,
+Q7343,reef,Great Barrier Reef,,,4,147.415,-17.219
+Q223,island,Greenland,,,1,-41.779,72.469
+Q68740,island,Hawaiʻi,,,1,-155.579,19.614
+Q3740828,island,Iceland,,,1,-19.869,65.309
+Q7463928,island,Madagascar,,,1,46.696,-17.853
+Q36117,island,Borneo,,,2,114.803,1.554
+Q23666,island,Great Britain,,,2,-3.61,54.556
+Q13989,island,Honshu,,,2,137.248,36.294
+Q22890,island,Ireland,,,2,-8.452,53.379
+Q40285,island,New Guinea,,,2,140.271,-5.519
+Q118863,island,North Island,,,2,175.132,-37.275
+Q120755,island,South Island,,,2,170.908,-43.501
+Q4526612,island,Sri Lanka,,,2,80.644,8.233
+Q3492,island,Sumatra,,,2,101.463,-0.074
+Q81178,island,Baffin Island,,,3,-73.541,68.301
+Q201766,island,Bougainville Island,,,3,155.261,-6.081
+Q14112,island,Corsica,,,3,9.039,42.24
+Q146841,island,Ellesmere Island,,,3,-79.459,80.04
+Q337524,island,Espiritu Santo,,,3,166.871,-15.182
+Q192767,island,Guadalcanal,,,3,160.136,-9.603
+Q35581,island,Hokkaido,,,3,142.691,43.243
+Q83639,island,Isabela Island,,,3,-91.2,-0.439
+Q3757,island,Java,,,3,109.941,-7.32
+Q13987,island,Kyushu,,,3,130.639,32.641
+Q125384,island,Luzon,,,3,121.884,15.03
+Q188705,island,Maui,,,3,-156.394,20.851
+Q124873,island,Mindanao,,,3,124.597,7.828
+Q59771,island,New Britain,,,3,150.524,-5.409
+Q48335,island,Newfoundland,,,3,-55.437,48.741
+Q7792,island,Sakhalin,,,3,142.854,50.431
+Q1462,island,Sardinia,,,3,8.931,40.136
+Q13991,island,Shikoku,,,3,133.368,33.607
+Q4951156,island,Sicily,,,3,14.185,37.669
+Q3812,island,Sulawesi,,,3,121.477,-1.619
+Q42000,island,Tahiti,,,3,-149.401,-17.684
+Q22502,island,Taiwan,,,3,120.871,23.687
+Q82601,island,Tierra del Fuego,,,3,-69.207,-54.022
+Q170479,island,Vancouver Island,,,3,-126.15,49.696
+Q158129,island,Victoria Island,,,3,-109.296,70.979
+Q208198,island,Viti Levu,,,3,178.021,-17.809
+Q200223,island,Alexander Island,,,4,-71.661,-71.3
+Q200226,island,Banks Island,,,4,-121.884,72.924
+Q6497558,island,Bohol Island,,,4,124.281,9.897
+Q188489,island,Cape Breton Island,,,4,-60.688,46.103
+Q504449,island,Chiloé Island,,,4,-73.876,-42.635
+Q586657,island,Cuba,,,4,-79.296,21.616
+Q644636,island,Cyprus,,,4,33.358,35.077
+Q1081204,island,Hainan Island,,,4,109.93,19.331
+Q201398,island,Halmahera,,,4,128.027,0.794
+Q25277,island,Hispaniola,,,4,-71.371,18.822
+Q2076337,island,Island of Puerto Rico,,,4,-66.461,18.217
+Q27508031,island,Jamaica,,,4,-77.243,18.062
+Q211377,island,Leyte,,,4,124.821,10.82
+Q211800,island,Mindoro,,,4,121.053,12.878
+Q212777,island,Negros,,,4,123.019,10.069
+Q1061269,island,Palawan,,,4,118.803,10.051
+Q332359,island,Panay,,,4,122.569,11.276
+Q1978,island,Prince Edward Island,,,4,-63.362,46.381
+Q219737,island,Samar,,,4,125.198,11.823
+Q185532,island,Seram Island,,,4,129.22,-3.197
+Q83067,island,Timor,,,4,125.118,-9.23
+Q128323,island,Trinidad,,,4,-61.338,10.432
+Q207666,island,Axel Heiberg Island,,,,,
+Q4648,island,Bali,,,,,
+Q34374,island,Crete,,,,,
+Q186841,island,Devon Island,,,,,
+Q14452,island,Easter Island,,,,,
+Q148440,island,Flores,,,,,
+Q1674067,island,Isla Grande de Tierra del Fuego,,,,,
+Q29151,island,Jeju Island,,,,,
+Q204387,island,Kodiak Island,,,,,
+Q193264,island,Marajó,,,,,
+Q134116,island,Melville Island,,,,,
+Q215089,island,New Ireland,,,,,
+Q600614,island,Okinawa Island,,,,,
+Q131347,island,Oʻahu,,,,,
+Q1137202,island,South Georgia,,,,,
+Q207751,island,Southampton Island,,,,,
+Q21162,island,Spitsbergen,,,,,
+Q206368,island,Sumba,,,,,
+Q186367,island,Sumbawa,,,,,
+Q34366,island,Tasmania,,,,,
+Q106594,island,Wrangel Island,,,,,
+Q25535,island,Zealand,,,,,
+Q208643,islands,Malay Archipelago,,,0,111.387,-4.956
+Q85377,islands,Arctic Archipelago,,,1,-90.11,71.405
+Q38272,islands,British Isles,,,1,-5.392,54.436
+Q118350,islands,Caroline Islands,,,1,148.802,4.583
+Q165481,islands,Greater Sunda Islands,,,1,112.993,-1.137
+Q192626,islands,Hawaiian Islands,,,1,-165.154,23.59
+Q234796,islands,Line Islands,,,1,-155.6,-3.381
+Q669037,islands,West Indies,,,1,-68.713,16.037
+Q119285,islands,Aleutian Islands,,,2,-167.567,53.739
+Q186233,islands,Andaman Islands,,,2,92.641,11.589
+Q3827,islands,Maluku Islands,,,2,129.428,-3.441
+Q157286,islands,Nicobar Islands,,,2,93.399,7.638
+Q216533,islands,Queen Elizabeth Islands,,,2,-89.742,77.246
+Q25263,islands,Azores,,,3,-26.787,37.943
+Q5765,islands,Balearic Islands,,,3,2.925,39.426
+Q154628,islands,Bismarck Archipelago,,,3,149.253,-3.733
+Q185018,islands,Franz Josef Land,,,3,56.306,80.627
+Q244978,islands,Grande Comore,,,3,44.427,-12.357
+Q128011,islands,Greater Antilles,,,3,-74.867,19.548
+Q93259,islands,Lesser Antilles,,,3,-63.58,12.694
+Q3803,islands,Lesser Sunda Islands,,,3,122.403,-8.896
+Q5363289,islands,Lucayan Archipelago,,,3,-75.402,23.557
+Q205695,islands,Mascarene Islands,,,3,62.155,-20.319
+Q201012,islands,New Siberian Islands,,,3,143.718,74.6
+Q80413,islands,Novaya Zemlya,,,3,58.491,73.228
+Q6897416,islands,Ryukyu Islands,,,3,128.214,27.511
+Q192281,islands,Severnaya Zemlya,,,3,96.655,80.061
+Q148966,islands,Solomon Islands,,,3,160.866,-8.594
+Q215664,islands,Spratly Islands,,,3,114.727,10.258
+Q25231,islands,Svalbard,,,3,22.072,77.856
+Q183963,islands,Tuamotus,,,3,-142.007,-18.04
+Q5813,islands,Canary Islands,,,,,
+Q171132,islands,Cyclades,,,,,
+Q131555,islands,Dodecanese,,,,,
+Q38095,islands,Galápagos Islands,,,,,
+Q123377,islands,Hebrides,,,,,
+Q841337,islands,Japanese archipelago,,,,,
+Q80389,islands,Kuril Islands,,,,,
+Q186822,islands,Lofoten,,,,,
+Q26253,islands,Madeira,,,,,
+Q153732,islands,Mariana Islands,,,,,
+Q162126,islands,Samoan Islands,,,,,
+Q118920,islands,Society Islands,,,,,
+Q31945,peninsula,Arabian Peninsula,,,1,48.628,22.003
+Q12837,peninsula,Iberian Peninsula,,,1,-5.602,40.351
+Q60140,peninsula,Indian subcontinent,,,1,79.012,19.982
+Q27617163,peninsula,Mainland Southeast Asia,,,1,102.071,14.967
+Q21195,peninsula,Scandinavia,,,1,14.777,63.609
+Q51614,peninsula,Anatolia,,,2,30.753,38.515
+Q23522,peninsula,Balkans,,,2,21.929,41.446
+Q40556,peninsula,Horn of Africa,,,2,45.927,6.956
+Q993,peninsula,Kamchatka Peninsula,,,2,161.421,57.312
+Q18758,peninsula,Malay Peninsula,,,2,101.178,5.643
+Q37056,peninsula,Taymyr Peninsula,,,2,106.64,76.055
+Q488266,peninsula,Yamal Peninsula,,,2,70.377,69.415
+Q60064,peninsula,Alaska Peninsula,,,3,-158.259,56.932
+Q178543,peninsula,Baja California peninsula,,,3,-112.857,27.12
+Q233770,peninsula,Cape York Peninsula,,,3,142.547,-12.799
+Q7835,peninsula,Crimea,,,3,34.474,45.229
+Q812,peninsula,Florida,,,3,-81.613,27.531
+Q165608,peninsula,Kola Peninsula,,,3,36.943,67.751
+Q1952,peninsula,Nova Scotia,,,3,-63.807,44.906
+Q858306,peninsula,Shandong Peninsula,,,3,120.791,36.647
+Q213237,peninsula,Valdés Peninsula,,,3,-64.107,-42.495
+Q130978,peninsula,Yucatán Peninsula,,,3,-88.704,19.355
+Q1002,peninsula,Chukchi Peninsula,,,4,-174.091,66.084
+Q3815319,peninsula,Cumberland Peninsula,,,4,-64.205,66.804
+Q151559,peninsula,Gaspé Peninsula,,,4,-65.36,48.516
+Q1408929,peninsula,Kathiawar,,,4,70.685,22.0
+Q483134,peninsula,Korean Peninsula,,,4,126.716,37.239
+Q875712,peninsula,Leizhou Peninsula,,,4,110.058,20.953
+Q326917,peninsula,Liaodong Peninsula,,,4,122.319,39.679
+Q1352266,peninsula,Melville Peninsula,,,4,-84.0,68.165
+Q84127,peninsula,Ungava Peninsula,,,4,-73.355,60.178
+Q185605,peninsula,Antarctic Peninsula,,,,,
+Q329884,peninsula,Arnhem Land,,,,,
+Q893152,peninsula,Boothia Peninsula,,,,,
+Q327,peninsula,Brittany,,,,,
+Q2661894,peninsula,Florida Peninsula,,,,,
+Q145694,peninsula,Italian Peninsula,,,,,
+Q25389,peninsula,Jutland,,,,,
+Q84170,peninsula,Labrador Peninsula,,,,,
+Q78967,peninsula,Peloponnese,,,,,
+Q73169,peninsula,Scandinavian Peninsula,,,,,
+Q36755,peninsula,Sinai Peninsula,,,,,
+Q1020776,cape,Cabo San Lucas,,,3,-109.97,22.888
+Q216889,cape,Cap-Vert,,,3,-17.472,14.732
+Q193401,cape,Cape Canaveral,,,3,-80.536,28.473
+Q49152,cape,Cape Cod,,,3,-70.037,41.991
+Q1394226,cape,Cape Cà Mau,,,3,104.981,8.872
+Q1145030,cape,Cape Guardafui,,,3,51.258,11.822
+Q4078,cape,Cape Horn,,,3,-67.169,-55.863
+Q4092,cape,Cape of Good Hope,,,3,18.441,-34.307
+Q837325,cape,Cape Chelyuskin,,,4,104.604,77.439
+Q4085,cape,Cape Agulhas,,,,,
+Q1034320,cape,Cape Byron,,,,,
+Q650495,cape,Cape Dezhnyov,,,,,
+Q128097,cape,Cape Farewell,,,,,
+Q1136198,cape,Cape Finisterre,,,,,
+Q169141,cape,Cape Froward,,,,,
+Q978032,cape,Cape Hatteras,,,,,
+Q1536418,cape,Cape Leeuwin,,,,,
+Q917353,cape,Cape Morris Jesup,,,,,
+Q369193,cape,Cape Prince of Wales,,,,,
+Q1034494,cape,Cape Reinga,,,,,
+Q4103,cape,Cape St. Vincent,,,,,
+Q169532,cape,Land's End,,,,,
+Q4069,cape,North Cape,,,,,
+Q1343019,cape,Point Barrow,,,,,
+Q1462700,cape,Ponta do Seixas,,,,,
+Q48454,cape,Punta Gallinas,,,,,
+Q182139,isthmus,Isthmus of Panama,,,3,-78.835,8.948
+Q392250,isthmus,Isthmus of Tehuantepec,,,3,-94.712,16.936
+Q322356,isthmus,Kra Isthmus,,,3,98.886,9.943
+Q1286,range,Alps,,,1,11.05,46.101
+Q5456,range,Andes,,,1,-72.956,-28.82
+Q5477,range,Caucasus Mountains,,,1,43.624,43.104
+Q192583,range,Great Dividing Range,,,1,147.964,-26.807
+Q5451,range,Himalayas,,,1,88.523,29.446
+Q5463,range,Rocky Mountains,,,1,-114.525,45.928
+Q5474,range,Tian Shan,,,1,85.044,42.593
+Q319671,range,Transantarctic Mountains,,,1,164.664,-78.416
+Q35600,range,Ural Mountains,,,1,61.445,62.535
+Q156684,range,Alaska Range,,,2,-148.773,62.506
+Q5955,range,Altai Mountains,,,2,91.767,47.239
+Q842139,range,Annamite Range,,,2,106.413,15.954
+Q93332,range,Appalachian Mountains,,,2,-76.678,42.195
+Q130135,range,Atlas Mountains,,,2,0.266,34.627
+Q929910,range,Brooks Range,,,2,-154.352,69.503
+Q4558,range,Cascade Range,,,2,-121.299,47.263
+Q920070,range,Coast Mountains,,,2,-128.825,54.061
+Q1139110,range,Ellsworth Mountains,,,2,-82.279,-79.02
+Q293713,range,Greater Khingan,,,2,121.546,48.856
+Q5472,range,Hindu Kush,,,2,72.573,35.552
+Q5469,range,Karakoram,,,2,77.488,35.561
+Q187871,range,Kunlun Mountains,,,2,89.099,36.295
+Q161750,range,Pamir Mountains,,,2,73.416,38.126
+Q214284,range,Stanovoy Range,,,2,130.257,56.296
+Q167021,range,Zagros Mountains,,,2,50.673,30.96
+Q484725,range,Alborz,,,3,52.027,36.544
+Q730673,range,Asir Mountains,,,3,42.404,19.214
+Q170383,range,Aïr Mountains,,,3,8.762,18.894
+Q1288,range,Carpathian Mountains,,,3,22.384,47.508
+Q804330,range,Cordillera Blanca,,,3,-76.821,-8.224
+Q183295,range,Drakensberg,,,3,28.37,-29.075
+Q465055,range,Eastern Ghats,,,3,80.594,15.702
+Q584279,range,High Atlas,,,3,-5.801,31.932
+Q1817102,range,Mackenzie Mountains,,,3,-129.042,62.49
+Q1195285,range,Nanling Mountains,,,3,111.581,24.567
+Q660304,range,Pacific Coast Ranges,,,3,-123.555,43.872
+Q12431,range,Pyrenees,,,3,0.12,42.83
+Q1072879,range,Qilian Mountains,,,3,98.195,38.195
+Q186547,range,Scandinavian Mountains,,,3,11.439,63.991
+Q1124584,range,Sierra Madre Occidental,,,3,-106.329,24.717
+Q144040,range,Sierra Madre Oriental,,,3,-100.863,25.556
+Q1029702,range,Sierra Madre del Sur,,,3,-100.742,19.015
+Q26777,range,Sierra Nevada,,,3,-119.955,37.71
+Q155322,range,Sikhote-Alin,,,3,136.968,47.062
+Q206650,range,Southern Alps,,,3,169.136,-44.079
+Q309104,range,Tibesti Mountains,,,3,17.905,21.808
+Q215917,range,Verkhoyansk Range,,,3,132.047,66.267
+Q271435,range,Vindhya Range,,,3,76.507,23.017
+Q4527,range,Western Ghats,,,3,74.768,15.441
+Q625425,range,Arakan Mountains,,,4,94.169,19.547
+Q170427,range,Balkan Mountains,,,4,24.99,43.252
+Q208076,range,Cantabrian Mountains,,,4,-4.767,43.065
+Q683923,range,Chersky Range,,,4,142.074,66.139
+Q2597340,range,Chin Hills,,,4,92.855,22.616
+Q1158071,range,Dalou Mountains,,,4,106.197,28.13
+Q189915,range,Dinaric Alps,,,4,17.451,43.78
+Q939398,range,Dângrêk Mountains,,,4,103.178,14.693
+Q1517159,range,Hadhramaut,,,4,49.192,14.986
+Q5644542,range,Hamgyong Mountains,,,4,128.529,41.206
+Q747843,range,Khangai Mountains,,,4,99.423,47.028
+Q3182012,range,Khasi Hills,,,4,92.225,25.853
+Q1245603,range,Kolyma Mountains,,,4,159.919,63.241
+Q644145,range,Koryak Mountains,,,4,170.592,62.222
+Q216593,range,Lesser Caucasus,,,4,44.464,40.815
+Q1538623,range,Lüliang Mountains,,,4,112.01,37.237
+Q3109835,range,Naga Hills,,,4,94.62,24.998
+Q2961771,range,New Guinea Highlands,,,4,143.701,-6.452
+Q519263,range,Pontic Mountains,,,4,38.303,41.254
+Q863798,range,Qinling,,,4,110.741,33.563
+Q1145416,range,Satpura Range,,,4,77.658,21.943
+Q7448930,range,Selwyn Mountains,,,4,-128.649,61.901
+Q559784,range,Serra do Mar,,,4,-48.898,-26.544
+Q27036,range,Sierra Madre de Chiapas,,,4,-92.447,16.632
+Q686362,range,Sierra Morena,,,4,-4.776,38.188
+Q26955,range,Sierra Nevada (Spain),,,4,-3.326,37.282
+Q1429556,range,Sredinny Range,,,4,160.527,57.424
+Q284226,range,Taihang Mountains,,,4,113.915,39.001
+Q620493,range,Tannu-Ola mountains,,,4,93.165,50.416
+Q1839756,range,Torngat Mountains,,,4,-63.844,59.239
+Q1152132,range,Yin Mountains,,,4,109.051,41.464
+Q1285,range,Apennine Mountains,,8.3 44.5;11.0 44.1;13.5 42.4;16.0 39.5,,,
+Q26399,range,Hoggar Mountains,~Ahag,,,,
+Q35647,range,Pennines,,-2.4 54.9;-1.8 53.3,,,
+Q203239,range,Sayan Mountains,Q1974954|~Eastern Sayan Mountains,,,,
+Q1719533,range,Sierras de Córdoba,,-64.8 -30.3;-64.9 -31.4;-64.8 -32.4,,,
+Q513,peak,Mount Everest,,,1,86.881,27.98
+Q39739,peak,Aconcagua,,,2,-70.016,-32.656
+Q130018,peak,Denali,,,2,-151.007,63.069
+Q43512,peak,K2,,,2,76.513,35.882
+Q43105,peak,Mount Elbrus,,,2,42.439,43.355
+Q229107,peak,Mount Kailash,,,2,81.313,31.067
+Q7296,peak,Mount Kilimanjaro,,,2,37.353,-3.076
+Q178167,peak,Mount Kosciuszko,,,2,148.263,-36.456
+Q235539,peak,Mount Whitney,,,2,-118.292,36.583
+Q1560829,peak,Ulugh Muztagh,,,2,87.413,36.417
+Q724367,peak,Belukha Mountain,,,3,86.606,49.807
+Q165440,peak,Dhaulagiri,,,3,83.495,28.696
+Q583,peak,Mont Blanc,,,3,6.865,45.834
+Q1537157,peak,Mount Gongga,,,3,101.879,29.596
+Q275662,peak,Mount Hood,,,3,-121.697,45.384
+Q748355,peak,Mount Shasta,,,3,-122.195,41.409
+Q16466024,peak,Annapurna,,,,,
+Q5059,peak,Aoraki / Mount Cook,,,,,
+Q104674,peak,Ben Nevis,,,,,
+Q14081,peak,Chimborazo,,,,,
+Q170089,peak,Cho Oyu,,,,,
+Q181476,peak,Cotopaxi,,,,,
+Q4425,peak,Eiger,,,,,
+Q3388,peak,Grossglockner,,,,,
+Q494645,peak,Hallasan,,,,,
+Q200935,peak,Huascarán,,,,,
+Q15312,peak,Jungfrau,,,,,
+Q82019,peak,Kangchenjunga,,,,,
+Q210252,peak,Klyuchevskaya Sopka,,,,,
+Q82613,peak,Krakatoa,,,,,
+Q168702,peak,Lhotse,,,,,
+Q169986,peak,Makalu,,,,,
+Q170070,peak,Manaslu,,,,,
+Q1374,peak,Matterhorn,,,,,
+Q131230,peak,Mauna Kea,,,,,
+Q159762,peak,Mauna Loa,,,,,
+Q1484,peak,Mayon,,,,,
+Q72303,peak,Mount Ararat,,,,,
+Q190562,peak,Mount Cameroon,,,,,
+Q40758,peak,Mount Damavand,,,,,
+Q188982,peak,Mount Erebus,,,,,
+Q16990,peak,Mount Etna,,,,,
+Q39231,peak,Mount Fuji,,,,,
+Q172070,peak,Mount Kenya,,,,,
+Q60967,peak,Mount Kinabalu,,,,,
+Q120306,peak,Mount Logan,,,,,
+Q80344,peak,Mount Olympus,,,,,
+Q107635,peak,Mount Paektu,,,,,
+Q1451,peak,Mount Pinatubo,,,,,
+Q194057,peak,Mount Rainier,,,,,
+Q377485,peak,Mount Sinai,,,,,
+Q4675,peak,Mount St. Helens,,,,,
+Q221666,peak,Mount Stanley,,,,,
+Q216059,peak,Mount Tai,,,,,
+Q524,peak,Mount Vesuvius,,,,,
+Q130736,peak,Nanga Parbat,,,,,
+Q233836,peak,Ojos del Salado,,,,,
+Q238147,peak,Pico de Orizaba,,,,,
+Q181157,peak,Popocatépetl,,,,,
+Q1045888,peak,Puncak Jaya,,,,,
+Q275435,peak,Ras Dashen,,,,,
+Q213360,peak,Table Mountain,,,,,
+Q503433,peak,Toubkal,,,,,
+Q163758,peak,Vinson Massif,,,,,
+Q3375,peak,Zugspitze,,,,,
+Q191333,pass,Khyber Pass,,,2,71.098,34.098
+Q1001294,plateau,Antarctic Plateau,,,1,18.77,-83.261
+Q179842,plateau,Tibetan Plateau,,,1,90.76,33.505
+Q604846,plateau,Western Plateau,,,1,127.878,-24.702
+Q118899,plateau,Brazilian Highlands,,,2,-44.053,-13.28
+Q155197,plateau,Central Siberian Plateau,,,2,116.758,63.415
+Q169966,plateau,Deccan Plateau,,,2,77.65,16.662
+Q319288,plateau,Ethiopian Highlands,,,2,39.027,9.673
+Q1908889,plateau,Mato Grosso Plateau,,,2,-56.283,-13.156
+Q560198,plateau,Mongolian Plateau,,,2,107.075,46.912
+Q118574,plateau,Altiplano,,,3,-68.007,-19.882
+Q1126906,plateau,Central Russian Upland,,,3,36.979,52.415
+Q925906,plateau,Colorado Plateau,,,3,-109.671,37.165
+Q401815,plateau,Columbia Plateau,,,3,-116.579,44.864
+Q208807,plateau,Guiana Highlands,,,3,-58.506,5.099
+Q1108926,plateau,Katanga plateau,,,3,26.958,-11.439
+Q874816,plateau,Khorat Plateau,,,3,102.336,16.579
+Q1753873,plateau,Mexican Plateau,,,3,-103.187,24.421
+Q277576,plateau,Putorana Plateau,,,3,103.185,68.138
+Q13420030,plateau,Shan Hills,,,3,96.84,21.599
+Q604329,plateau,Yunnan–Guizhou Plateau,,,3,102.74,26.492
+Q482274,plateau,Adamawa Plateau,,,4,11.713,6.776
+Q293730,plateau,Loess Plateau,,,4,107.96,36.202
+Q1321468,plateau,Ozarks,,,4,-91.82,36.475
+Q913329,plateau,Ustyurt Plateau,,,4,55.276,43.88
+Q237660,plateau,Iranian plateau,,,,,
+Q12707,plain,Great Plains,,,1,-104.192,42.679
+Q602925,plain,Kazakh Steppe,,,1,70.316,50.89
+Q147304,plain,North China Plain,,,1,118.652,34.662
+Q560549,plain,North European Plain,,,1,27.181,58.681
+Q756832,plain,Atlantic coastal plain,,,2,-85.047,30.805
+Q208347,plain,Gran Chaco,,,2,-60.584,-25.757
+Q192305,plain,Indo-Gangetic Plain,,,2,86.951,24.064
+Q141501,plain,Llanos,,,2,-68.867,6.907
+Q1206587,plain,Northeast China Plain,,,2,123.643,44.265
+Q184382,plain,Pampas,,,2,-62.199,-34.724
+Q599529,plain,Pontic–Caspian steppe,,,2,39.849,46.737
+Q66065,plain,Sahel,,,2,13.547,15.299
+Q575516,plain,Turan Depression,,,2,60.858,40.87
+Q737789,plain,Caspian Depression,,,3,50.601,46.524
+Q1347148,plain,North Siberian Lowland,,,3,110.435,72.128
+Q381050,plain,Nullarbor Plain,,,3,128.558,-31.34
+Q191566,plain,West Siberian Plain,,,3,79.971,63.652
+Q191862,plain,East European Plain,,,,,
+Q1124865,plain,Kantō Plain,,,,,
+Q11767,plain,Mesopotamia,,,,,
+Q4991540,plain,Serengeti,,,,,
+Q1278613,plain,Yangtze Plain,,,,,
+Q244451,basin,Amazon basin,,,1,-56.355,-2.932
+Q932289,basin,Congo Basin,,,1,18.481,-2.84
+Q656985,basin,Great Artesian Basin,,,2,141.275,-26.456
+Q966943,basin,Great Basin,,,2,-116.363,39.457
+Q534290,basin,Murray–Darling basin,,,3,145.262,-31.594
+Q271294,basin,Sichuan Basin,,,3,105.697,30.655
+Q216622,basin,Tarim Basin,,,3,83.197,39.164
+Q1156656,basin,Junggar Basin,,,4,85.628,44.772
+Q34709,basin,Qaidam Basin,,,4,94.819,36.9
+Q4778813,basin,Aoukar,,,5,-9.606,16.327
+Q619802,basin,Bodélé Depression,,,5,16.756,16.994
+Q185032,basin,Pannonian Basin,,,,,
+Q755001,basin,Paris Basin,,,,,
+Q486324,valley,Fergana Valley,,,2,71.653,40.515
+Q81591,valley,Great Rift Valley,,,3,38.882,6.306
+Q27026,valley,Central Valley,,,4,-121.193,38.009
+Q1031793,valley,Chilean Central Valley,,,4,-72.436,-38.978
+Q118841,valley,Grand Canyon,,,4,-112.717,36.187
+Q673287,valley,Three Gorges,,,4,109.732,30.715
+Q19742,valley,Yarlung Tsangpo Grand Canyon,,,4,95.252,28.826
+Q2361576,valley,Kashmir Valley,,,5,76.364,33.164
+Q42070,desert,Gobi Desert,,,1,104.573,41.527
+Q6583,desert,Sahara,,,1,13.981,18.729
+Q47700,desert,Kalahari Desert,,,2,19.369,-23.636
+Q229269,desert,Rub' al Khali,,,2,50.334,20.249
+Q47141,desert,Atacama Desert,,,3,-70.032,-23.567
+Q326896,desert,Great Sandy Desert,,,3,125.26,-20.63
+Q145165,desert,Great Victoria Desert,,,3,127.612,-28.487
+Q172702,desert,Karakum Desert,,,3,61.715,41.373
+Q184364,desert,Kyzylkum Desert,,,3,62.073,41.63
+Q181528,desert,Libyan Desert,,,3,26.363,22.6
+Q131377,desert,Namib,,,3,13.684,-20.084
+Q464909,desert,Nubian Desert,,,3,33.817,19.938
+Q339162,desert,Syrian desert,,,3,40.315,32.194
+Q172691,desert,Thar Desert,,,3,71.901,27.383
+Q14314106,desert,Western Desert,,,3,29.844,27.675
+Q855658,desert,Chihuahuan Desert,,,4,-105.102,30.076
+Q272577,desert,Gibson Desert,,,4,125.041,-24.454
+Q1537020,desert,Grand Erg Occidental,,,4,0.731,30.873
+Q307143,desert,Grand Erg Oriental,,,4,7.081,30.161
+Q1548386,desert,Great Salt Lake Desert,,,4,-113.488,40.657
+Q767128,desert,Lut Desert,,,4,58.152,31.458
+Q1670841,desert,Ordos Desert,,,4,108.32,38.939
+Q189429,desert,Sonoran Desert,,,4,-113.418,31.255
+Q132956,desert,Taklamakan Desert,,,4,81.854,38.778
+Q190048,desert,Tassili n'Ajjer,,,4,7.99,25.648
+Q272521,desert,Ténéré,,,4,11.978,19.865
+Q1973934,desert,Ad-Dahna Desert,,,,,
+Q939033,desert,Badain Jaran Desert,,,,,
+Q272514,desert,Great Salt Desert,,,,,
+Q1517734,desert,Gurbantünggüt Desert,,,,,
+Q184355,desert,Mojave Desert,,,,,
+Q749205,desert,Nafud desert,,,,,
+Q162843,desert,Negev,,,,,
+Q2088454,desert,Registan Desert,,,,,
+Q211839,desert,Simpson Desert,,,,,
+Q674262,desert,Tanami Desert,,,,,
+Q10264912,delta,Amazon Delta,,,3,-50.024,-1.06
+Q184429,delta,Danube Delta,,,3,29.179,45.082
+Q1052867,delta,Mekong Delta,,,3,106.087,10.172
+Q1528035,delta,Mississippi River Delta,,,3,-89.343,29.217
+Q29412,delta,Niger Delta,,,3,6.077,5.068
+Q1431507,delta,Volga Delta,,,3,48.196,46.168
+Q1163759,delta,Ganges Delta,,,4,89.4,22.529
+Q1277365,delta,Indus River Delta,,,4,67.917,24.105
+Q3705234,delta,Irrawaddy Delta,,,4,95.337,16.502
+Q179528,delta,Nile Delta,,,4,31.047,31.101
+Q650872,delta,Okavango Delta,,,,,
+Q3433305,delta,Orinoco Delta,,,,,
+Q1144286,delta,Pearl River Delta,,,,,
+Q342451,delta,Red River Delta,,,,,
+Q923381,delta,Rhine–Meuse–Scheldt Delta,,,,,
+Q1195076,delta,Yangtze Delta,,,,,
+Q157603,wetland,Pantanal,,,3,-57.451,-17.95
+Q654544,wetland,Sudd,,,3,31.35,8.55
+Q4526,wetland,Sundarbans,,,5,89.155,22.117
+Q597281,wetland,Everglades,,,,,
+Q204658,ice,Aletsch Glacier,,,,,
+Q571430,ice,Antarctic ice sheet,,,,,
+Q209976,ice,Filchner–Ronne Ice Shelf,,,,,
+Q1542432,ice,Greenland ice sheet,,,,,
+Q278245,ice,Lambert Glacier,,,,,
+Q367943,ice,Perito Moreno Glacier,,,,,
+Q200255,ice,Ross Ice Shelf,,,,,
+Q179734,ice,Vatnajökull,,,,,
+Q5525,lake,Great Bear Lake,,,0,-120.537,66.015
+Q5539,lake,Great Slave Lake,,,0,-113.664,61.963
+Q125888,lake,Lake Albert,,,0,30.888,1.627
+Q5513,lake,Lake Baikal,,,0,107.984,53.669
+Q134485,lake,Lake Balkhash,,,0,75.787,46.278
+Q5492,lake,Lake Erie,,,0,-81.449,42.141
+Q1383,lake,Lake Huron,,,0,-81.92,45.192
+Q15288,lake,Lake Ladoga,,,0,31.193,60.935
+Q5532,lake,Lake Malawi,,,0,34.573,-12.188
+Q1169,lake,Lake Michigan,,,0,-86.633,44.655
+Q1062,lake,Lake Ontario,,,0,-77.182,43.917
+Q1066,lake,Lake Superior,,,0,-87.662,47.642
+Q5511,lake,Lake Tanganyika,,,0,30.03,-6.462
+Q5505,lake,Lake Victoria,,,0,33.063,-1.263
+Q3272,lake,Lake Winnipeg,,,0,-97.608,52.496
+Q5484,lake,Caspian Sea,,,1,50.669,42.656
+Q178741,lake,Great Salt Lake,,,1,-112.537,41.251
+Q876280,lake,Lagoon Mirim,,,1,-53.219,-32.921
+Q125309,lake,Lake Chad,,,1,14.469,13.047
+Q173862,lake,Lake Nicaragua,,,1,-85.413,11.584
+Q202905,lake,Lake Okeechobee,,,1,-80.863,26.906
+Q166162,lake,Lake Onega,,,1,35.092,61.925
+Q116685,lake,Lake Tana,,,1,37.308,11.955
+Q35342,lake,Lake Titicaca,,,1,-69.343,-15.918
+Q173596,lake,Vänern,,,1,13.222,58.943
+Q4121,lake,IJsselmeer,,,2,5.344,52.647
+Q42191,lake,Issyk-Kul,,,2,77.313,42.478
+Q272463,lake,Lake Athabasca,,,2,-109.294,59.086
+Q645901,lake,Lake Manitoba,,,2,-98.866,51.213
+Q1458051,lake,Lake Mistassini,,,2,-73.554,50.78
+Q122184,lake,Lake Nipigon,,,2,-88.581,49.793
+Q934638,lake,Lake Winnipegosis,,,2,-100.147,52.47
+Q845876,lake,Lake of the Woods,,,2,-94.64,49.396
+Q756106,lake,Manicouagan Reservoir,,,2,-68.7,51.518
+Q184492,lake,Mälaren,,,2,17.269,59.51
+Q1134446,lake,Reindeer Lake,,,2,-102.475,57.175
+Q192770,lake,Saimaa,,,2,28.239,62.238
+Q23883,lake,Dead Sea,,,3,35.487,31.506
+Q503842,lake,General Carrera Lake,,,3,-72.138,-46.572
+Q31845950,lake,Hongze Lake,,,3,118.362,33.184
+Q68467,lake,Lake Champlain,,,3,-73.323,44.543
+Q965973,lake,Lake Gairdner,,,3,135.883,-31.674
+Q201843,lake,Lake Khanka,,,3,132.32,44.88
+Q192215,lake,Lake Khövsgöl,,,3,100.463,50.985
+Q504433,lake,Lake Mweru,,,3,28.629,-9.185
+Q169962,lake,Lake Tahoe,,,3,-120.018,39.106
+Q163855,lake,Lake Torrens,,,3,137.71,-31.098
+Q182719,lake,Lake Turkana,,,3,36.21,3.577
+Q216621,lake,Lake Zaysan,,,3,83.782,48.714
+Q826464,lake,Llanquihue Lake,,,3,-72.822,-41.125
+Q1132211,lake,Nettilling Lake,,,3,-70.357,66.464
+Q201294,lake,Qinghai Lake,,,3,100.214,36.855
+Q503301,lake,Salton Sea,,,3,-115.814,33.315
+Q199938,lake,Tonle Sap,,,3,104.192,12.748
+Q81150,lake,Uvs Lake,,,3,92.844,50.337
+Q182137,lake,Lake Maracaibo,,,6,-71.56,9.858
+Q35883,lake,Aral Sea,,,,,
+Q329266,lake,Crater Lake,,,,,
+Q216083,lake,Dongting Lake,,,,,
+Q179970,lake,Kati Thanda–Lake Eyre,,,,,
+Q6383,lake,Lake Balaton,,,,,
+Q200239,lake,Lake Biwa,,,,,
+Q15523,lake,Lake Como,,,,,
+Q4127,lake,Lake Constance,,,,,
+Q125211,lake,Lake Edward,,,,,
+Q6414,lake,Lake Garda,,,,,
+Q6403,lake,Lake Geneva,,,,,
+Q125912,lake,Lake Kivu,,,,,
+Q182796,lake,Lake Nasser,,,,,
+Q181932,lake,Lake Sevan,,,,,
+Q199903,lake,Lake Taupō,,,,,
+Q183360,lake,Lake Toba,,,,,
+Q199551,lake,Lake Urmia,,,,,
+Q126307,lake,Lake Van,,,,,
+Q201679,lake,Lake Volta,,,,,
+Q152044,lake,Lake Vostok,,,,,
+Q49650,lake,Loch Ness,,,,,
+Q206942,lake,Lough Neagh,,,,,
+Q207690,lake,Poyang Lake,,,,,
+Q3783,river,Amazon River,,,1,-54.264,-2.253
+Q26076,river,Irrawaddy River,Q3334104,,1,95.859,16.662
+Q46841,river,Lena River,,,1,108.069,54.252
+Q1497,river,Mississippi River,,,1,-89.414,28.928
+Q5419,river,Missouri River,Q947477,,1,-111.594,46.562
+Q3392,river,Nile,Q4814791|Q2750140,,1,33.695,18.443
+Q200952,river,Ucayali River,,,1,-71.586,-15.142
+Q5413,river,Yangtze,Q1038418|Q7821148|Q1538813,,1,116.208,29.779
+Q162737,river,Angara,,,2,102.182,58.893
+Q45403,river,Brahmaputra River,Q2599627|Q15954437,,2,95.039,29.174
+Q3503,river,Congo River,Q836812,,2,26.859,-7.497
+Q1653,river,Danube,Q12722938|Q1344617|Q1668781|Q1369180,,2,28.109,44.458
+Q128102,river,Irtysh,,,2,83.565,48.941
+Q3411,river,Mackenzie River,Q2226,,2,-115.907,61.046
+Q41179,river,Mekong,,,2,97.185,31.321
+Q973,river,Ob,,,2,67.743,66.788
+Q2220,river,Peace River,,,2,-123.382,56.008
+Q75745,river,Selenga,Q26301,,2,100.85,49.291
+Q134750,river,St. Lawrence River,Q182343|Q1054325,,2,-75.016,44.966
+Q6862,river,Amur,Q26439,,3,136.87,50.102
+Q882739,river,Blue Nile,Q3501984,,3,36.963,11.265
+Q2251,river,Columbia River,,,3,-117.726,51.814
+Q181482,river,Darling River,Q809666|Q2556345,,3,146.19,-29.946
+Q34589,river,Euphrates,,,3,45.02,31.427
+Q5089,river,Ganges,,,3,88.854,22.818
+Q7348,river,Indus River,Q7666170,,3,67.723,23.997
+Q186541,river,Kasai River,,,3,22.243,-11.078
+Q118251,river,Madeira River,Q117615|Q916349|Q1519602,,3,-64.759,-9.373
+Q183078,river,Murray River,,,3,141.368,-34.137
+Q3542,river,Niger River,,,3,-3.717,15.738
+Q4915,river,Ohio River,Q686021,,3,-80.252,40.67
+Q131792,river,Orinoco,,,3,-63.727,2.267
+Q118771,river,Rio Negro,,,3,-70.252,2.062
+Q166966,river,Shatt al-Arab,,,3,48.192,30.332
+Q2279579,river,Shire River,,,3,35.241,-14.664
+Q171649,river,Ubangi River,Q171436|Q1120933,,3,18.246,2.519
+Q626,river,Volga,,,3,36.757,56.762
+Q7355,river,Yellow River,,,3,96.534,35.096
+Q104437,river,Yukon River,Q284495,,3,-163.998,61.854
+Q43106,river,Zambezi,,,3,27.641,-17.198
+Q191832,river,Aldan,,,4,123.463,56.545
+Q171847,river,Araguaia River,Q639478,,4,-50.614,-12.441
+Q8319,river,Arkansas River,,,4,-106.308,39.113
+Q204806,river,Benue River,,,4,13.706,7.981
+Q40855,river,Dnieper,,,4,30.506,51.025
+Q78879,river,Kolyma,,,4,145.398,61.865
+Q191829,river,Magdalena River,,,4,-76.223,1.883
+Q3292,river,Nelson River,,,4,-97.615,55.12
+Q8187,river,Northern Dvina,Q82812,,4,46.564,61.081
+Q552,river,Oder,,,4,17.848,49.653
+Q181475,river,Orange River,,,4,23.198,-29.315
+Q127892,river,Paraná River,Q21847787|Q776155|Q386331,,4,-54.628,-25.409
+Q8168,river,Pechora,,,4,59.182,62.021
+Q584,river,Rhine,Q216171|Q1143852|Q1152951|Q217818,,4,9.552,47.529
+Q160636,river,Rio Grande,,,4,-107.164,33.26
+Q26422,river,Salween River,,,4,92.033,31.416
+Q3047,river,Saskatchewan River,Q2237,,4,-103.688,53.563
+Q1471,river,Seine,,,4,4.6,47.741
+Q3569,river,Senegal River,Q180558,,4,-11.242,14.078
+Q272074,river,Snake River,,,4,-111.136,43.301
+Q142148,river,São Francisco River,,,4,-45.125,-18.908
+Q35591,river,Tigris,,,4,39.463,38.519
+Q156054,river,Tocantins River,,,4,-49.406,-4.956
+Q80240,river,Ural,,,4,58.791,51.938
+Q209530,river,Vaal River,,,4,28.386,-26.933
+Q216941,river,Xi River,Q1569231|Q615328|Q2509519|Q856509,,4,113.342,22.681
+Q78707,river,Yenisei,Q1511505|Q15277375,,4,91.736,58.888
+Q8493,river,Amu Darya,Q8542|Q8550,,5,65.502,37.673
+Q2216,river,Athabasca River,,,5,-111.184,58.697
+Q93360,river,Biobío River,,,5,-71.144,-38.62
+Q1265,river,Colorado River,,,5,-105.834,40.171
+Q8197,river,Daugava,,,5,32.256,56.812
+Q10965,river,Ebro,,,5,-3.963,42.821
+Q1644,river,Elbe,,,5,10.053,53.529
+Q269710,river,Fraser River,,,5,-118.339,52.549
+Q191314,river,Godavari River,,,5,73.967,19.983
+Q82207,river,Indigirka,,,5,144.827,62.628
+Q171840,river,Japurá River,,,5,-76.542,1.205
+Q1469,river,Loire,,,5,3.049,47.067
+Q200174,river,Marañón River,,,5,-76.645,-9.798
+Q645,river,Neva,,,5,31.279,60.043
+Q26428,river,Nizhnyaya Tunguska,,,5,105.778,58.007
+Q335575,river,Sacramento River,,,5,-122.386,40.827
+Q483159,river,Syr Darya,Q651195,,5,68.205,41.112
+Q14294,river,Tagus,,,5,-2.67,40.647
+Q752674,river,Tapajós,,,5,-58.579,-8.91
+Q193737,river,Tennessee River,,,5,-87.3,34.767
+Q124653,river,Tobol,,,5,60.937,51.557
+Q1139679,river,Usumacinta River,,,5,-92.322,18.442
+Q548,river,Vistula,,,5,18.867,49.936
+Q192415,river,Volta River,,,5,0.241,7.313
+Q49544,river,Xingu River,,,5,-52.086,-8.905
+Q135477,river,Chari River,,,6,18.656,8.889
+Q131210,river,Dniester,,,6,30.341,46.242
+Q1229,river,Don,,,6,43.624,48.893
+Q14299,river,Douro,,,6,-2.468,41.819
+Q5077,river,Garonne,,,6,1.312,43.748
+Q875573,river,Han River (Hubei and Shaanxi),,,6,111.248,32.635
+Q3140,river,Hudson River,,,6,-74.068,43.979
+Q40059,river,Jordan River,,,6,35.597,32.801
+Q79082,river,Kama,,,6,56.434,59.883
+Q841359,river,Kapuas River,,,6,113.287,1.047
+Q193499,river,Krishna River,,,6,79.233,16.331
+Q559661,river,Liao River,,,6,122.43,41.183
+Q173017,river,Limpopo River,,,6,27.783,-23.155
+Q271044,river,Mahanadi,,,6,80.653,20.759
+Q234004,river,Narmada River,,,6,81.408,22.843
+Q188773,river,Okavango River,,,6,23.34,-19.555
+Q60974,river,Ottawa River,,,6,-79.439,47.257
+Q643,river,Po,,,6,10.399,44.991
+Q179444,river,Potomac River,,,6,-79.492,38.502
+Q26271,river,Purus River,,,6,-72.193,-10.886
+Q206850,river,Red River,,,6,100.235,25.385
+Q602,river,Rhône,,,6,6.332,46.402
+Q19686,river,River Thames,,,6,-1.818,51.657
+Q210326,river,Songhua River,,,6,127.076,46.018
+Q237901,river,Tarim River,,,6,85.84,41.469
+Q134350,river,Tisza,,,6,24.349,48.251
+Q18278,river,Uruguay River,,,6,-50.025,-28.477
+Q1048219,river,Waikato River,,,6,176.024,-38.779
+Q132726,river,Yamuna,,,6,78.131,30.794
+Q1129218,river,Balsas River,,,7,-98.196,18.954
+Q118850,river,Chao Phraya River,,,7,100.44,14.846
+Q739751,river,Fly River,,,7,141.757,-5.602
+Q160819,river,Gambia River,,,7,-12.129,11.477
+Q14305,river,Guadiana,,,7,-4.952,39.381
+Q55500,river,Han River (Korea),,,7,127.017,37.54
+Q213576,river,Huai River,,,7,113.823,32.423
+Q192567,river,Ili River,,,7,77.746,43.828
+Q216239,river,Kaveri,,,7,76.469,12.467
+Q257785,river,Kızılırmak River,,,7,37.479,39.869
+Q14383,river,Sava,,,7,15.474,45.995
+Q848308,river,Sepik,,,7,144.359,-3.845
+Q13712,river,Tiber,,,7,12.163,43.531
+Q1650,river,Weser,,,7,10.895,50.418
+Q13696,river,Adige,,,8,10.561,46.821
+Q14309,river,Guadalquivir,,,8,-2.865,38.2
+Q1633955,river,Lerma River,,,8,-100.207,20.06
+Q41986,river,Meuse,,,8,5.625,48.257
+Q55501,river,Nakdong River,,,8,129.025,36.933
+Q19682,river,River Severn,,,8,-3.438,52.476
+Q192820,river,River Shannon,,,8,-7.974,53.866
+Q37620,river,Scheldt,,,8,3.241,50.107
+Q177452,river,Tone River,,,8,138.991,36.802
+Q847641,river,Wei River,,,8,104.116,35.067
+Q55498,river,Yalu River,,,8,125.119,40.566
+Q853332,river,Cauca River,,,9,-76.642,2.482
+Q432278,river,Cooper Creek,Q5167806,,,,
+Q739687,river,Hooghly River,,,,,
+Q191635,river,Iguazu River,,,,,
+Q475597,river,Murrumbidgee River,,,,,
+Q179396,river,Paraguay River,,,,,
+Q734455,river,Shinano River,,,,,
+Q55499,river,Tumen River,,,9,128.326,41.97
+Q80299,waterfall,Angel Falls,,,2,-62.062,5.687
+Q36332,waterfall,Iguazu Falls,,,2,-54.583,-25.568
+Q34221,waterfall,Niagara Falls,,,2,-79.044,43.088
+Q43278,waterfall,Victoria Falls,,,3,25.853,-17.928
+Q7350,canal,Panama Canal,,,6,-79.809,9.158
+Q899,canal,Suez Canal,,,6,32.507,30.266
+Q144825,canal,Kiel Canal,,,,,
+Q119177,trench,Aleutian Trench,,,,,
+Q118544,trench,Izu–Ogasawara Trench,,,,,
+Q118537,trench,Japan Trench,,,,,
+Q119196,trench,Kermadec Trench,,,,,
+Q118525,trench,Kuril–Kamchatka Trench,,,,,
+Q510,trench,Mariana Trench,,,,,
+Q164040,trench,Middle America Trench,,,,,
+Q3249284,trench,Nankai Trough,,,,136.0,32.5
+Q118873,trench,Peru–Chile Trench,,,,,
+Q656364,trench,Philippine Trench,,,,,
+Q666090,trench,Puerto Rico Trench,,,,,
+Q702908,trench,Ryukyu Trench,,,,,
+Q118518,trench,South Sandwich Trench,,,,,
+Q118394,trench,Sunda Trench,,,,,
+Q119294,trench,Tonga Trench,,,,,
+Q1423293,trench,Yap Trench,,,,,
+Q190604,ridge,Central Indian Ridge,,,,,
+Q603531,ridge,Chile Ridge,,,,,
+Q604529,ridge,East Pacific Rise,,,,,
+Q207313,ridge,Mid-Atlantic Ridge,,,,,
+Q558800,ridge,Pacific–Antarctic Ridge,,,,,
+Q468239,ridge,South American–Antarctic Ridge,,,,,
+Q558898,ridge,Southeast Indian Ridge,,,,,
+Q153840,ridge,Southwest Indian Ridge,,,,,
+Q934,pole,North Pole,,,,,
+Q933,pole,South Pole,,,,,

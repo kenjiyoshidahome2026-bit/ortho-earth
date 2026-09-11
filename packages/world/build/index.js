@@ -78,19 +78,22 @@ export async function buildAll(seed, env) {
 	const TE = await entities(seed.terrains.map(t => t.qid), env, opt);
 	const TerrainDB = seed.terrains.map(t => {
 		const e = TE[t.qid]; e || warn(`Wikidata に無い地形 QID: ${t.qid} ${t.name_en}`);
+		if (!sitelink(e, "en")) { warn(`地形: 英語版 Wikipedia の記事なし＝除外 ${t.qid} ${t.name_en}`); return null; }   // Kenji 2026-09-11「wiki に無いものはいらない」
 		const a = areaKm2(e), h = quantity(e, "P2044", { Q11573: 1 }), L = quantity(e, "P2043", { Q828224: 1, Q11573: 0.001, Q253276: 1.609344 });   // 面積（島・砂漠・湖）・標高（単独峰）・長さ（川 km）は有るものだけ
-		return clean({ qid: t.qid, category: t.category, name: { en: t.name_en || nameEn(e) }, coord: coord(e), area: a == null ? null : a > 10 ? Math.round(a) : +a.toFixed(2), elevation: h == null ? null : Math.round(h), length: L == null ? null : Math.round(L), wiki: { en: sitelink(e, "en") } });
-	});
+		const xy = coord(e) || (t.lon != null && t.lat != null ? [t.lon, t.lat] : null);   // Wikidata P625 → 無ければ NE の代表点（seed の lon/lat）
+		if (!xy) { warn(`地形: 位置なし＝除外 ${t.qid} ${t.name_en}`); return null; }   // 「場所が特定できないものはいらない」
+		return clean({ qid: t.qid, category: t.category, rank: t.rank, name: { en: t.name_en || nameEn(e) }, coord: xy, area: a == null ? null : a > 10 ? Math.round(a) : +a.toFixed(2), elevation: h == null ? null : Math.round(h), length: L == null ? null : Math.round(L), wiki: { en: sitelink(e, "en") } });
+	}).filter(Boolean);
 	// 4c) 川の形状（Natural Earth）: seed の川 QID（＋ne_extra）に一致する wikidataid の線分を全部集めて 1 本の MultiLineString に（座標は小数 4 桁）
 	const riverSeeds = seed.terrains.filter(t => t.category == "river");
 	let rivers = null;
 	if (riverSeeds.length) {
 		log(`Natural Earth: 川の形状（${riverSeeds.length} 件）`);
-		const ne = await env.json(NE_RIVERS), byQ = {};
-		for (const f of ne.features) { const q = f.properties && f.properties.wikidataid; if (!q) continue; (byQ[q] = byQ[q] || []).push(f); }
+		const ne = await env.json(NE_RIVERS), byQ = {}, byName = {};   // ne_extra の "~名前" は NE の name_en で結合（wikidataid が無い/壊れている線分）
+		for (const f of ne.features) { const P = f.properties || {}, q = P.wikidataid, n = P.name_en || P.name; q && (byQ[q] = byQ[q] || []).push(f); n && (byName["~" + n] = byName["~" + n] || []).push(f); }
 		const features = [];
 		for (const t of riverSeeds) {
-			const fs = [t.qid, ...t.ne_extra].flatMap(q => byQ[q] || []); if (!fs.length) continue;
+			const fs = [t.qid, ...t.ne_extra].flatMap(q => byQ[q] || byName[q] || []); if (!fs.length) continue;
 			const lines = fs.flatMap(f => f.geometry.type == "MultiLineString" ? f.geometry.coordinates : [f.geometry.coordinates]).map(l => l.map(([x, y]) => [+x.toFixed(4), +y.toFixed(4)]));
 			features.push({ type: "Feature", properties: { qid: t.qid, name: t.name_en, scalerank: Math.min(...fs.map(f => f.properties.scalerank)) }, geometry: { type: "MultiLineString", coordinates: lines } });
 		}

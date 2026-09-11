@@ -1,5 +1,6 @@
 // 保存前の機械検札。errors があれば保存しない・warns は報告だけ
-const TERRAIN_CATEGORIES = new Set(["range", "peak", "peninsula", "desert", "plain", "lake", "river", "ridge", "trench", "island", "islands"]);
+// 地形の分類（scripts/terrains-from-ne.py の ORDER と対）
+const TERRAIN_CATEGORIES = new Set(["continent", "ocean", "region", "shield", "sea", "bay", "strait", "reef", "island", "islands", "peninsula", "cape", "isthmus", "range", "peak", "pass", "plateau", "plain", "basin", "valley", "desert", "delta", "wetland", "ice", "lake", "river", "waterfall", "canal", "trench", "ridge", "pole"]);
 export function validate({ NationDB, CityDB, TerrainDB = [], LanguageDB, CurrencyDB, Conflicts, rivers = null, ranges = null }) {
 	const errors = [], warns = [];
 	const E = s => errors.push(s), W = s => warns.push(s);
