@@ -74,7 +74,8 @@ export function topology(self) {
 						const stream = (type >= 4) ? xyStream(n || 4096) : gint.XY2L1(n || 4096);
 						const grab = () => {
 							let dx = pbf.readSVarint(), dy = pbf.readSVarint();
-							if (dx || dy) { x += dx, y += dy;
+							// ゼロデルタ＝連続重複点は棄却。ただし1点目は必ず採用（差分の原点が(0,0)＝先頭が null island だと差分0で落ちていた）
+							if (dx || dy || prevGX === null) { x += dx, y += dy;
 								updateBbox(x, y);
 								const gx = fit(x) + OFFSET_X, gy = fit(y) + OFFSET_Y;
 								if (prevGX !== null) {
