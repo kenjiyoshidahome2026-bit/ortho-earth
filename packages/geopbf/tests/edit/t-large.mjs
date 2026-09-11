@@ -22,8 +22,8 @@ let fails = 0;
 const ok = (cond, msg) => { if (!cond) { console.error("✗", msg); fails++; } else console.log("✓", msg); };
 
 const sq = (x0, y0, x1, y1) => [[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]];
-// ⚠(0,0)を含む形は避ける＝gint位相（JS/WASM両経路）に「null island が環始点/junctionキーだと頂点が落ちる」
-//   既知バグあり（キー0=空セル番兵の衝突・8/26実測）。実データではほぼ踏まないが検定データでは踏んでいた。
+// (0,0)を避けているのは経緯: 8/26 に「先頭頂点が null island だと落ちる」バグを踏んだため（9/12 根治＝
+//   差分符号化の原点(0,0)と「ゼロデルタ棄却」の衝突・JS/WASM両経路。回帰検定は tests/t-null-island.mjs）。
 const fc = {
 	type: "FeatureCollection",
 	features: [

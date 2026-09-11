@@ -644,7 +644,7 @@ struct ReadCtx {
 
 // 1本ぶんのデコード（n=Some(頂点数) or None=ブロック終端 cend まで）。
 // out_xy=Some なら XY(u32) を、out_m=Some なら L1 Morton(u64) を積む。
-// JS read() と同一：呼び出し1回＝elem3++、採用 grab ごとに elem3++・ゼロデルタ棄却・densify 1度刻み。
+// JS read() と同一：呼び出し1回＝elem3++、採用 grab ごとに elem3++・ゼロデルタ棄却（1点目は除く）・densify 1度刻み。
 fn read_line(p: &mut Pbf, cend: usize, n: Option<usize>, ctx: &mut ReadCtx,
              mut out_xy: Option<&mut Vec<u32>>, mut out_m: Option<&mut Vec<u64>>) {
     const SCALE_E_F: f64 = 10_000_000.0;
@@ -664,7 +664,8 @@ fn read_line(p: &mut Pbf, cend: usize, n: Option<usize>, ctx: &mut ReadCtx,
         () => {{
             let dx = p.svarint();
             let dy = p.svarint();
-            if dx != 0 || dy != 0 {
+            // ゼロデルタ棄却。ただし1点目は必ず採用（差分の原点が(0,0)＝先頭が null island だと差分0で落ちていた）
+            if dx != 0 || dy != 0 || prev.is_none() {
                 x += dx;
                 y += dy;
                 let (xf, yf) = (x as f64, y as f64);
