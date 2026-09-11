@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<!-- t-drop: ブラウザ経路の検定＝File(.parquet / .csv / .xlsx) → 各 worker → GeoPBF（自己判定式・<title> に PASS/FAIL）。
+     実行: リポジトリルートで `npx vite --port 5199` を起こし、http://localhost:5199/packages/geopbf/tests/t-drop.html の <title> を読む。 -->
+<html>
+<head><meta charset="utf-8"><title>RUNNING</title></head>
+<body>
+<script>
+	addEventListener("error", e => { if (document.title === "RUNNING") document.title = `FAIL uncaught: ${e.message}`; });
+	addEventListener("unhandledrejection", e => { if (document.title === "RUNNING") document.title = `FAIL rejection: ${e.reason?.message || e.reason}`; });
+</script>
+<script type="module">
+	import { createGeopbf } from "../src/index.js";
+	import { GeoPBF } from "../src/pbf-base.js";
+	import { toGeoParquet } from "../src/convert/geoparquet.js";
+	import { encodeXLSX } from "../src/modules/encodeXLSX.js";
+	const done = s => document.title = s;
+	setTimeout(() => document.title === "RUNNING" && done("FAIL timeout 30s"), 30000);
+	try {
+		const geopbf = createGeopbf();
+		const warnings = [];
+		addEventListener("ConvertWarning", e => warnings.push(e.detail?.warning || ""));
+		const fc = { type: "FeatureCollection", features: [
+			{ type: "Feature", properties: { n: "A", v: 1 }, geometry: { type: "Polygon", coordinates: [[[139.5, 35.5], [139.8, 35.5], [139.8, 35.8], [139.5, 35.8], [139.5, 35.5]]] } },
+			{ type: "Feature", properties: { n: "B", v: 2 }, geometry: { type: "Point", coordinates: [135.5, 34.7] } },
+			{ type: "Feature", properties: { n: "none" }, geometry: null },
+		] };
+		// parquet: ブラウザで toGeoParquet（CPU）→ File → .parquet ドロップ
+		const src = await new GeoPBF({ name: "fx" }).set(structuredClone(fc));
+		const pq = await toGeoParquet(src, { gpu: false, order: "none" });
+		const p = await geopbf(new File([pq.buffer], "fx.parquet"), { nocache: true });
+		if (p.geojson.features.length !== 2) throw new Error(`parquet features ${p.geojson.features.length}`);
+		// csv（Shift_JIS 相当は Node 側で検定済＝ここは UTF-8 BOM）
+		const csv = new File(["﻿名前,経度,緯度,code\n東京駅,139.767125,35.681236,01\nnone,,,\n"], "pts.csv");
+		const c = await geopbf(csv, { nocache: true });
+		if (c.geojson.features.length !== 1 || c.geojson.features[0].properties.code !== "01") throw new Error(`csv ${JSON.stringify(c.geojson.features.map(f => f.properties))}`);
+		// xlsx: 自前 encodeXLSX → File → .xlsx ドロップ（WKT 列）
+		const blob = await encodeXLSX([["id", "wkt"], [1, "LINESTRING(0 0, 1 1)"], [2, "POINT(139.7 35.6)"]], null, { sheetName: "S" });
+		const x = await geopbf(new File([blob], "shapes.xlsx"), { nocache: true });
+		if (x.geojson.features.length !== 2 || x.geojson.features[0].geometry.type !== "LineString") throw new Error(`xlsx ${x.geojson.features.length}`);
+		// parquet 側の幾何 null は書く前に GeoPBF.set が落とす（pbf.dropped）ので parquet には行が無い＝警告は csv 側の 1 件だけ
+		if (src.dropped !== 1 || !warnings.some(w => /座標の無い行 1/.test(w))) throw new Error(`warnings ${JSON.stringify(warnings)} dropped=${src.dropped}`);
+		done(`PASS parquet=2 csv=1 xlsx=2 warnings=${warnings.length}`);
+	} catch (e) { done(`FAIL ${e.message}`); }
+</script>
+</body>
+</html>

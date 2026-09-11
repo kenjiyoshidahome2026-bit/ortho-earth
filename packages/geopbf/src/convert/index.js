@@ -6,6 +6,8 @@ export { toGeoParquet, fromGeoParquet } from "./geoparquet.js";
 export { readParquet } from "./parquet-read.js";
 export { fromGeoPackage, readGeoPackage, openGpkgTiles } from "./gpkg.js";
 export { openSqlite } from "./sqlite.js";
+export { openMBTiles } from "./mbtiles.js";
+export { fromTable, parseCSV, readXLSX, parseWKT, decodeText } from "./table.js";
 export { parseWkb } from "./wkb.js";
 export { getDevice, findGPU, setGPU } from "./gpu.js";
 export { createEngine, cpuEngine } from "./engine.js";

@@ -65,10 +65,11 @@ class Db {
 			yield o;
 		}
 	}
-	/** 先頭 limit 列だけ復号した { rowid, values } を順に返す（タイル表の索引作り＝BLOB 列を触らない）。 */
-	*rowsProjected(name, limit) {
+	/** 一部の列だけ復号した { rowid, values } を順に返す（タイル表の索引作り＝BLOB 列を触らない）。
+	 *  want＝数値なら先頭 want 列で打ち切り、配列なら列番号の集合（他の列は null・バイトは読み飛ばす）。 */
+	*rowsProjected(name, want) {
 		const t = this.table(name);
-		yield* this._rows(t.rootpage, t, limit);
+		yield* this._rows(t.rootpage, t, Array.isArray(want) ? new Set(want) : want);
 	}
 	/** rowid 直引き（表 B-tree を鍵で降りる）。無ければ null。 */
 	get(name, rowid) {
@@ -165,13 +166,15 @@ class Db {
 		}
 		return out;
 	}
-	/** record → 値の配列（limit＝先頭何列で打ち切るか）。 */
-	_record(b, limit = Infinity) {
+	/** record → 値の配列（want＝先頭何列で打ち切るか・または復号する列番号の Set＝他は null で読み飛ばす）。 */
+	_record(b, want = Infinity) {
 		const dv = new DataView(b.buffer, b.byteOffset, b.byteLength), vi = { v: 0, p: 0 };
 		varint(b, 0, vi); const hend = vi.v; let hp = vi.p, p = hend;
 		const out = [];
+		const pick = want instanceof Set ? want : null, limit = pick ? Math.max(...pick) + 1 : want;
 		while (hp < hend && out.length < limit) {
 			varint(b, hp, vi); const s = vi.v; hp = vi.p;
+			if (pick && !pick.has(out.length)) { out.push(null); p += s === 0 || s === 8 || s === 9 ? 0 : s <= 4 ? s : s === 5 ? 6 : s <= 7 ? 8 : (s - 12) >> 1; continue; }
 			switch (s) {
 				case 0: out.push(null); break;
 				case 1: out.push(dv.getInt8(p)); p += 1; break;

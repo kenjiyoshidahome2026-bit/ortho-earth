@@ -5,6 +5,7 @@
 #               shapes（全ジオメトリ種・穴・Z・null・empty フラグ・BE envelope）・merc（EPSG:3857）・attrs_only（非地物表）
 #               ＋ view・rtree 索引（GDAL が書くのと同じ影表）・gpkg_extensions
 #   utf16.gpkg  PRAGMA encoding=UTF-16le・INTEGER PRIMARY KEY を明示 id で
+#   tiny.mbtiles / view.mbtiles  MBTiles（tiles 実表 PNG・TMS 行／map+images+tiles ビュー・gzip 疑似 MVT）
 #   tiny.gpkg   ラスタ（タイル表）＝3857 全世界格子の単色 PNG 7 枚（歯抜け）＋ 4326 世界格子 2 枚。地理院タイルの実物は make-raster.py
 import os, sqlite3, struct, math
 
@@ -182,4 +183,34 @@ def raster():
     c.commit(); c.execute("VACUUM"); c.close()
     print(path, os.path.getsize(path), "bytes")
 
-mixed(); utf16(); raster()
+def mbtiles():
+    import gzip
+    # tiny.mbtiles: tiles 実表・PNG・TMS 行（z1 の XYZ (1,0) は tile_row=1）
+    path = os.path.join(HERE, "tiny.mbtiles")
+    if os.path.exists(path): os.remove(path)
+    c = sqlite3.connect(path)
+    c.executescript("""
+    CREATE TABLE metadata (name TEXT, value TEXT);
+    CREATE TABLE tiles (zoom_level INTEGER, tile_column INTEGER, tile_row INTEGER, tile_data BLOB);
+    CREATE UNIQUE INDEX tile_index ON tiles (zoom_level, tile_column, tile_row);
+    """)
+    c.executemany("INSERT INTO metadata VALUES (?,?)", [("name", "tiny"), ("format", "png"), ("bounds", "-180,-85.0511,180,85.0511"), ("minzoom", "0"), ("maxzoom", "1"), ("type", "overlay"), ("version", "1")])
+    for z, x, yxyz, rgb in [(0, 0, 0, (255, 0, 0)), (1, 0, 0, (0, 255, 0)), (1, 1, 0, (0, 0, 255)), (1, 1, 1, (9, 9, 9))]:
+        c.execute("INSERT INTO tiles VALUES (?,?,?,?)", (z, x, (2 ** z) - 1 - yxyz, png_solid(256, 256, rgb)))
+    c.commit(); c.close(); print(path, os.path.getsize(path), "bytes")
+    # view.mbtiles: map + images + tiles ビュー・gzip 包みの疑似 MVT（中身は検定用のダミー）・重複タイルは同じ tile_id を共有
+    path = os.path.join(HERE, "view.mbtiles")
+    if os.path.exists(path): os.remove(path)
+    c = sqlite3.connect(path)
+    c.executescript("""
+    CREATE TABLE metadata (name TEXT, value TEXT);
+    CREATE TABLE map (zoom_level INTEGER, tile_column INTEGER, tile_row INTEGER, tile_id TEXT);
+    CREATE TABLE images (tile_data BLOB, tile_id TEXT);
+    CREATE VIEW tiles AS SELECT map.zoom_level AS zoom_level, map.tile_column AS tile_column, map.tile_row AS tile_row, images.tile_data AS tile_data FROM map JOIN images ON images.tile_id = map.tile_id;
+    """)
+    c.executemany("INSERT INTO metadata VALUES (?,?)", [("name", "view"), ("format", "pbf"), ("bounds", "139.0,35.0,140.0,36.0"), ("json", '{"vector_layers":[{"id":"roads"}]}')])
+    c.executemany("INSERT INTO images VALUES (?,?)", [(gzip.compress(b"MVT-A"), "a"), (gzip.compress(b"MVT-B"), "b")])
+    c.executemany("INSERT INTO map VALUES (?,?,?,?)", [(2, 3, (2 ** 2) - 1 - 1, "a"), (2, 3, (2 ** 2) - 1 - 2, "a"), (3, 7, (2 ** 3) - 1 - 3, "b"), (3, 0, 0, "missing")])
+    c.commit(); c.close(); print(path, os.path.getsize(path), "bytes")
+
+mixed(); utf16(); raster(); mbtiles()
