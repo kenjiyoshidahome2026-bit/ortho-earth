@@ -30,7 +30,7 @@ const pbf = await new GeoPBF({ name: "fix", precision: 6, attribution: "t-parque
 const gj = pbf.geojson;
 const r = await toGeoParquet(pbf, { gpu: false, order: "none" });   // 行順の検定は入力順で（空間整列は後段で別に検定）
 const buf = r.buffer;
-ok(r.stats.engine === "cpu" && r.stats.features === 8 && r.stats.vertices === 29, `toGeoParquet: ${buf.length} B・頂点 ${r.stats.vertices}`);
+ok(pbf.dropped === 1 && pbf.length === 7 && r.stats.engine === "cpu" && r.stats.features === 7 && r.stats.vertices === 29, `toGeoParquet: ${buf.length} B・頂点 ${r.stats.vertices}（幾何 null の 1 件は set() が落として数える）`);
 const magic = (o) => String.fromCharCode(...buf.subarray(o, o + 4));
 ok(magic(0) === "PAR1" && magic(buf.length - 4) === "PAR1", "PAR1 の骨格");
 const footLen = new DataView(buf.buffer, buf.byteOffset).getUint32(buf.length - 8, true);
@@ -224,11 +224,11 @@ print(json.dumps(out))
 	for (const codec of ["none", "gzip", ...(await (await import("../src/convert/gzip.js")).hasZstd() ? ["zstd"] : [])]) {
 		const w = await toGeoParquet(pbf, { gpu: false, codec, order: "none" });
 		const r = await fromGeoParquet(w.buffer);
-		ok(norm(r.pbf) === want && r.pbf.precision() === 6 && r.pbf.name() === "fix" && r.pbf.attribution() === "t-parquet", `往復 ${codec}: 幾何（GC・穴・多部・null）・属性（Date・JSON・入れ子 a.b・真偽・負数）・ヘッダが一致`);
+		ok(norm(r.pbf) === want && r.pbf.precision() === 6 && r.pbf.name() === "fix" && r.pbf.attribution() === "t-parquet", `往復 ${codec}: 幾何（GC・穴・多部）・属性（Date・JSON・入れ子 a.b・真偽・負数）・ヘッダが一致`);
 	}
 	const w2 = await toGeoParquet(pbf, { gpu: false, codec: "none", order: "str", pageSize: 64, rowGroupSize: 3 });
 	const r2 = await fromGeoParquet(w2.buffer);
-	ok(r2.stats.features === 8 && JSON.stringify(r2.pbf.geojson.features.map(f => f.properties.n).sort()) === JSON.stringify(pbf.geojson.features.map(f => f.properties.n).sort()) && r2.stats.skipped.length === 0, `往復（複数ページ・3 行グループ・STR 順）: 8 feature・bbox 覆域列は黙って省く`);
+	ok(r2.stats.features === 7 && r2.stats.rows === 7 && r2.stats.droppedGeometries === 0 && JSON.stringify(r2.pbf.geojson.features.map(f => f.properties.n).sort()) === JSON.stringify(pbf.geojson.features.map(f => f.properties.n).sort()) && r2.stats.skipped.length === 0, `往復（複数ページ・3 行グループ・STR 順）: 7 feature・bbox 覆域列は黙って省く`);
 	const r3 = await fromGeoParquet(w2.buffer, { include: ["n"], precision: 3 });
 	ok(Object.keys(r3.pbf.getProperties(0)).join() === "n" && r3.pbf.precision() === 3, "逆変換の include と precision");
 	let threw = false; try { await fromGeoParquet(w2.buffer, { geometryColumn: "nope" }); } catch { threw = true; } ok(threw, "幾何列が無ければ例外");
@@ -265,12 +265,12 @@ const CLI = new URL("../bin/geopbf.mjs", import.meta.url).pathname;
 const run = (...args) => execFileSync(process.execPath, [CLI, ...args], { encoding: "utf8" });
 const inPath = join(dir, "fix.geopbf"); writeFileSync(inPath, Buffer.from(pbf.arrayBuffer));
 const out = run("parquet", inPath, join(dir, "cli.parquet"), "--no-gpu", "--compression", "none", "--order", "none");
-ok(/features 8/.test(out) && /CPU/.test(out) && /Polygon/.test(out), "CLI parquet: 実行報告");
+ok(/features 7/.test(out) && /CPU/.test(out) && /Polygon/.test(out), "CLI parquet: 実行報告");
 const cliBuf = readFileSync(join(dir, "cli.parquet"));
 ok(cliBuf.subarray(0, 4).toString() === "PAR1" && cliBuf.length === r0.buffer.length, "CLI parquet: 出力（無圧縮）がライブラリ経路と同じ長さ");
 const out2 = run("parquet2pbf", join(dir, "cli.parquet"), join(dir, "back.geopbf"), "--no-gzip");
 const back = await new GeoPBF().set(new Uint8Array(readFileSync(join(dir, "back.geopbf"))));
-ok(/features 8/.test(out2) && back.length === 8 && back.precision() === 6 && JSON.stringify(back.geojson.features.map(f => [f.geometry, f.properties])) === JSON.stringify(pbf.geojson.features.map(f => [f.geometry, f.properties])), "CLI parquet2pbf: GeoParquet → GeoPBF が元と一致");
+ok(/features 7/.test(out2) && back.length === 7 && back.precision() === 6 && JSON.stringify(back.geojson.features.map(f => [f.geometry, f.properties])) === JSON.stringify(pbf.geojson.features.map(f => [f.geometry, f.properties])), "CLI parquet2pbf: GeoParquet → GeoPBF が元と一致");
 
 console.log(fails ? `\n${fails} 件失敗` : "\n全件通過");
 process.exit(fails ? 1 : 0);

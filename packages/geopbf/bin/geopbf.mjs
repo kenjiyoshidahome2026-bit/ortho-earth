@@ -46,6 +46,10 @@ const USAGE = `geopbf <command>
        [--include a,b] [--exclude a,b] [--exclude-all]  列の選別
        [--order str|hilbert|morton|none]  行の空間整列（既定 str＝行グループ bbox が重ならない・none＝入力順）
        [--no-bbox]                  bbox 覆域列を書かない（点データで半分の大きさ・刈り込みは失う）
+  gpkg2pbf <in.gpkg> [out.geopbf]   GeoPackage の 1 層を GeoPBF へ（自前 SQLite リーダ・GDAL 不要・読み専用）。out を省くと層（地物/タイル）の一覧
+       [--layer name]               層（表名か identifier・既定＝最初の地物層）
+       [--precision N] [--name name] [--ignore-crs] [--no-gzip]
+       [--include a,b] [--exclude a,b] [--exclude-all]  列の選別
 
   入力の gzip は拡張子によらず署名（1f 8b）で判別して透過的に展開する。
 `;
@@ -338,15 +342,42 @@ async function parquet2pbf(argv) {
 	if (gzip) out = gzipSync(out, { level: 9 });
 	await writeFile(outPath, out);
 	const s = r.stats;
-	console.log(`${inPath}  features ${num(s.features)}  頂点 ${num(s.vertices)}  列 ${s.columns.length}  CRS ${s.crs}  writer ${s.created || "?"}`);
+	console.log(`${inPath}  features ${num(s.features)}${s.droppedGeometries ? `（幾何なしで落とした行 ${num(s.droppedGeometries)}）` : ""}  頂点 ${num(s.vertices)}  列 ${s.columns.length}  CRS ${s.crs}  writer ${s.created || "?"}`);
 	if (s.skipped.length) console.log(`  読まなかった列: ${s.skipped.map(k => `${k.name}(${k.reason})`).join(" ")}`);
+	console.log(`${outPath}  ${mb(out.length)}${gzip ? " (gzip)" : ""}  precision ${s.precision}  読込 ${s.ms.read.toFixed(0)} ms・GeoPBF ${s.ms.encode.toFixed(0)} ms`);
+}
+
+async function gpkg2pbf(argv) {
+	const { fromGeoPackage, readGeoPackage } = await import("../src/convert/gpkg.js");
+	const { pos: [inPath, outPath], opts } = parseArgs(argv, ["precision", "name", "layer", "include", "exclude"]);
+	if (!inPath) throw new Error("gpkg2pbf <in.gpkg> [out.geopbf] [--layer name]");
+	const u8 = new Uint8Array(await readFile(inPath));
+	if (!outPath) {
+		const g = readGeoPackage(u8);
+		console.log(`${inPath}  ${g.encoding}  page ${g.pageSize}  地物層 ${g.layers.length}`);
+		for (const l of g.layers) console.log(`  ${l.table}${l.identifier && l.identifier !== l.table ? ` (${l.identifier})` : ""}  ${l.geometryType}${l.z ? "Z" : ""}${l.m ? "M" : ""}  ${l.crs.label}${l.crs.kind === "other" ? " ⚠経緯度でない" : ""}  ${num(l.count)} 件  列 ${l.columns.filter(c => c.name !== l.geometryColumn).map(c => c.name).join(",")}`);
+		for (const t of g.tiles) console.log(`  ${t.table}${t.identifier && t.identifier !== t.table ? ` (${t.identifier})` : ""}  tiles  ${t.crs.label}  z${t.zooms[0]}–${t.zooms[t.zooms.length - 1]}  ${num(t.count)} 枚${t.description ? `  ${t.description}` : ""}`);
+		for (const o of g.others) console.log(`  ${o.table}  (${o.dataType}${o.missing ? "・表が無い" : ""})`);
+		for (const w of g.warnings) console.log(`  ⚠ ${w}`);
+		return;
+	}
+	const r = await fromGeoPackage(u8, { layer: opts.layer, precision: opts.precision !== undefined ? +opts.precision : undefined, name: opts.name, ignoreCrs: !!opts["ignore-crs"], ...attrOpts(opts) });
+	const gzip = !opts["no-gzip"];
+	let out = Buffer.from(r.pbf.arrayBuffer);
+	if (gzip) out = gzipSync(out, { level: 9 });
+	await writeFile(outPath, out);
+	const s = r.stats;
+	console.log(`${inPath}  層 ${s.layer}${s.layers.length > 1 ? `（他 ${s.layers.filter(l => l !== s.layer).join(", ")}）` : ""}  features ${num(s.features)}  頂点 ${num(s.vertices)}  列 ${s.columns.length}  CRS ${s.crs}${s.reprojected ? "→経緯度" : ""}`);
+	if (s.skipped.length) console.log(`  読まなかった列: ${s.skipped.map(k => `${k.name}(${k.reason})`).join(" ")}`);
+	if (s.droppedGeometries || s.z || s.m || s.bigints) console.log(`  幾何なしで落とした地物 ${s.droppedGeometries}（NULL/空 ${s.droppedGeometries - s.extendedGeometries}・拡張型 ${s.extendedGeometries}）${s.z || s.m ? "・Z/M は落とした" : ""}${s.bigints ? `・巨大整数→文字列 ${s.bigints}` : ""}`);
+	for (const w of s.warnings) console.log(`  ⚠ ${w}`);
 	console.log(`${outPath}  ${mb(out.length)}${gzip ? " (gzip)" : ""}  precision ${s.precision}  読込 ${s.ms.read.toFixed(0)} ms・GeoPBF ${s.ms.encode.toFixed(0)} ms`);
 }
 
 // ── entry ─────────────────────────────────────────────────────────────────────
 
 const [cmd, ...argv] = process.argv.slice(2);
-const commands = { enc, dec, info, lod, cog, pmtiles, parquet, parquet2pbf };
+const commands = { enc, dec, info, lod, cog, pmtiles, parquet, parquet2pbf, gpkg2pbf };
 if (!cmd || cmd === "--help" || cmd === "-h") { console.log(USAGE); process.exit(0); }
 if (!commands[cmd]) { console.error(`geopbf: 知らないコマンド "${cmd}"\n`); console.error(USAGE); process.exit(1); }
 try {

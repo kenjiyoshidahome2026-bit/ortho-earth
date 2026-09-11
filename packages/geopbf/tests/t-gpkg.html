@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<!-- t-gpkg: ブラウザ経路の検定＝File(.gpkg) → decoder/gpkg.js worker → GeoPBF（自己判定式・判定は <title> に PASS/FAIL）。
+     実行: リポジトリルートで `npx vite --port 5199` を起こし、headless Chrome で
+       chrome --headless=new --dump-dom http://localhost:5199/packages/geopbf/tests/t-gpkg.html
+     の <title> を読む。 -->
+<html>
+<head><meta charset="utf-8"><title>RUNNING</title></head>
+<body>
+<script>
+	addEventListener("error", e => { if (document.title === "RUNNING") document.title = `FAIL uncaught: ${e.message}`; });
+	addEventListener("unhandledrejection", e => { if (document.title === "RUNNING") document.title = `FAIL rejection: ${e.reason?.message || e.reason}`; });
+</script>
+<script type="module">
+	import { createGeopbf } from "../src/index.js";
+	const done = s => document.title = s;
+	setTimeout(() => document.title === "RUNNING" && done("FAIL timeout 30s"), 30000);
+	try {
+		const geopbf = createGeopbf();
+		const warnings = [];
+		addEventListener("ConvertWarning", e => warnings.push(e.detail?.warning || ""));
+		const blob = await (await fetch("./fixtures/gpkg/mixed.gpkg")).blob();
+		const file = new File([blob], "mixed.gpkg", { type: "application/geopackage+sqlite3" });
+		const shapes = await geopbf(file, { layer: "shapes", nocache: true });
+		const gj = shapes.geojson;
+		if (gj.features.length !== 8) throw new Error(`shapes features ${gj.features.length}`);
+		const hole = gj.features.find(f => f.properties.kind === "polygon+hole");
+		if (!hole || hole.geometry.coordinates.length !== 2) throw new Error("polygon+hole not restored");
+		const places = await geopbf(new File([blob], "mixed.gpkg"), { nocache: true });   // layer 省略＝先頭層 places
+		if (places.geojson.features.length !== 1200 || places.geojson.features[0].properties.name !== "東京駅") throw new Error(`places ${places.geojson.features.length}`);
+		if (!warnings.some(w => /3 層/.test(w))) throw new Error(`no multi-layer warning: ${JSON.stringify(warnings)}`);
+		// ラスタ: タイル表を直引きして createImageBitmap で復号（地理院タイルの実物があればそれ・無ければ合成 tiny）
+		const { openGpkgTiles } = await import("../src/convert/gpkg.js");
+		const gsiRes = await fetch("./fixtures/gpkg/gsi-tokyo.gpkg");
+		const ras = gsiRes.ok ? { u8: new Uint8Array(await gsiRes.arrayBuffer()), table: "photo", z: 12, x: 3638, y: 1612 } : { u8: new Uint8Array(await (await fetch("./fixtures/gpkg/tiny.gpkg")).arrayBuffer()), table: "tiny", z: 1, x: 1, y: 0 };
+		const t = openGpkgTiles(ras.u8, ras.table);
+		const bytes = t.get(ras.z, ras.x, ras.y);
+		if (!bytes) throw new Error(`tile ${ras.table} ${ras.z}/${ras.x}/${ras.y} missing`);
+		const bm = await createImageBitmap(new Blob([bytes], { type: t.mimeOf(bytes) }));
+		if (bm.width !== 256 || bm.height !== 256) throw new Error(`bitmap ${bm.width}x${bm.height}`);
+		done(`PASS shapes=8 places=1200 gint=${!!places.gint || "n/a"} raster=${ras.table}:${t.mimeOf(bytes)}:${bm.width}`);
+	} catch (e) { done(`FAIL ${e.message}`); }
+</script>
+</body>
+</html>
