@@ -1,0 +1,1293 @@
+[
+ {
+  "key": "B35",
+  "qid": "Q31354462",
+  "type": "Breakaway",
+  "region": 3,
+  "name_en": "Abkhazia",
+  "exist": true,
+  "sovereignt": "B35",
+  "territory": "",
+  "claim": [
+   "GE"
+  ]
+ },
+ {
+  "key": "B36",
+  "qid": "Q907112",
+  "type": "Breakaway",
+  "region": 1,
+  "name_en": "Transnistria",
+  "exist": true,
+  "sovereignt": "B36",
+  "territory": "",
+  "claim": [
+   "MD"
+  ]
+ },
+ {
+  "key": "B37",
+  "qid": "Q23427",
+  "type": "Breakaway",
+  "region": 3,
+  "name_en": "South Ossetia",
+  "exist": true,
+  "sovereignt": "B37",
+  "territory": "",
+  "claim": [
+   "GE"
+  ]
+ },
+ {
+  "key": "B38",
+  "qid": "Q44302",
+  "type": "Breakaway",
+  "region": 3,
+  "name_en": "Nagorno-Karabakh",
+  "exist": true,
+  "sovereignt": "B38",
+  "territory": "",
+  "claim": [
+   "AZ"
+  ]
+ },
+ {
+  "key": "C02",
+  "qid": "Q16150196",
+  "type": "Breakaway",
+  "region": 1,
+  "name_en": "Donetsk People's Republic",
+  "exist": true,
+  "sovereignt": "C02",
+  "territory": "",
+  "claim": [
+   "UA"
+  ]
+ },
+ {
+  "key": "C03",
+  "qid": "Q16746854",
+  "type": "Breakaway",
+  "region": 1,
+  "name_en": "Luhansk People's Republic",
+  "exist": true,
+  "sovereignt": "C03",
+  "territory": "",
+  "claim": [
+   "UA"
+  ]
+ },
+ {
+  "key": "C04",
+  "qid": "Q1147441",
+  "type": "Breakaway",
+  "region": 3,
+  "name_en": "North Borneo",
+  "exist": false,
+  "sovereignt": "MY",
+  "territory": "",
+  "claim": []
+ },
+ {
+  "key": "B19",
+  "qid": "Q6250",
+  "type": "Disputed",
+  "region": 2,
+  "name_en": "Western Sahara",
+  "exist": true,
+  "sovereignt": "MA",
+  "territory": "",
+  "claim": [
+   "B28"
+  ]
+ },
+ {
+  "key": "B20",
+  "qid": "Q23681",
+  "type": "Disputed",
+  "region": 3,
+  "name_en": "Turkish Republic of Northern Cyprus",
+  "exist": true,
+  "sovereignt": "B20",
+  "territory": "",
+  "claim": [
+   "CY"
+  ]
+ },
+ {
+  "key": "B30",
+  "qid": "Q34754",
+  "type": "Disputed",
+  "region": 2,
+  "name_en": "Somaliland",
+  "exist": true,
+  "sovereignt": "B30",
+  "territory": "",
+  "claim": [
+   "SO"
+  ]
+ },
+ {
+  "key": "B53",
+  "qid": "Q39760",
+  "type": "Disputed",
+  "region": 3,
+  "name_en": "Gaza Strip",
+  "exist": true,
+  "sovereignt": "PS",
+  "territory": "",
+  "claim": [
+   "IL"
+  ]
+ },
+ {
+  "key": "B54",
+  "qid": "Q36678",
+  "type": "Disputed",
+  "region": 3,
+  "name_en": "West Bank",
+  "exist": true,
+  "sovereignt": "PS",
+  "territory": "",
+  "claim": [
+   "IL"
+  ]
+ },
+ {
+  "key": "B57",
+  "qid": "Q1246",
+  "type": "Disputed",
+  "region": 1,
+  "name_en": "Kosovo",
+  "exist": true,
+  "sovereignt": "XK",
+  "territory": "",
+  "claim": [
+   "RS"
+  ]
+ },
+ {
+  "key": "B77",
+  "qid": "Q865",
+  "type": "Disputed",
+  "region": 3,
+  "name_en": "Taiwan",
+  "exist": true,
+  "sovereignt": "TW",
+  "territory": "",
+  "claim": [
+   "CN"
+  ]
+ },
+ {
+  "key": "B89",
+  "qid": "Q7835",
+  "type": "Disputed",
+  "region": 1,
+  "name_en": "Crimean Peninsula",
+  "exist": true,
+  "sovereignt": "RU",
+  "territory": "",
+  "claim": [
+   "UA"
+  ]
+ },
+ {
+  "key": "B91",
+  "qid": "Q801",
+  "type": "Disputed",
+  "region": 3,
+  "name_en": "Israel",
+  "exist": true,
+  "sovereignt": "IL",
+  "territory": "",
+  "claim": []
+ },
+ {
+  "key": "B12",
+  "qid": "Q9648",
+  "type": "Disputed",
+  "region": 5,
+  "name_en": "Falkland Islands",
+  "exist": false,
+  "sovereignt": "GB",
+  "territory": "FK",
+  "claim": [
+   "AR"
+  ]
+ },
+ {
+  "key": "B22",
+  "qid": "Q17063",
+  "type": "Disputed",
+  "region": 2,
+  "name_en": "Mayotte",
+  "exist": false,
+  "sovereignt": "FR",
+  "territory": "YT",
+  "claim": [
+   "KM"
+  ]
+ },
+ {
+  "key": "B55",
+  "qid": "Q1410",
+  "type": "Disputed",
+  "region": 1,
+  "name_en": "Gibraltar",
+  "exist": false,
+  "sovereignt": "GB",
+  "territory": "GI",
+  "claim": [
+   "ES"
+  ]
+ },
+ {
+  "key": "B69",
+  "qid": "Q43448",
+  "type": "Disputed",
+  "region": 3,
+  "name_en": "British Indian Ocean Territory",
+  "exist": false,
+  "sovereignt": "GB",
+  "territory": "IO",
+  "claim": [
+   "MU",
+   "SC"
+  ]
+ },
+ {
+  "key": "B00",
+  "qid": "Q1162",
+  "type": "Disputed",
+  "region": 3,
+  "name_en": "Arunachal Pradesh",
+  "exist": false,
+  "sovereignt": "IN",
+  "territory": "",
+  "claim": [
+   "CN"
+  ]
+ },
+ {
+  "key": "B01",
+  "qid": "Q5308408",
+  "type": "Disputed",
+  "region": 3,
+  "name_en": "Tirpani Valleys",
+  "exist": false,
+  "sovereignt": "IN",
+  "territory": "",
+  "claim": [
+   "CN"
+  ]
+ },
+ {
+  "key": "B02",
+  "qid": "Q5308408",
+  "type": "Disputed",
+  "region": 3,
+  "name_en": "Bara Hotii Valleys",
+  "exist": false,
+  "sovereignt": "IN",
+  "territory": "",
+  "claim": [
+   "CN"
+  ]
+ },
+ {
+  "key": "B03",
+  "qid": "Q1185266",
+  "type": "Disputed",
+  "region": 3,
+  "name_en": "Demchok",
+  "exist": false,
+  "sovereignt": "IN",
+  "territory": "",
+  "claim": [
+   "CN"
+  ]
+ },
+ {
+  "key": "B04",
+  "qid": "Q5308408",
+  "type": "Disputed",
+  "region": 3,
+  "name_en": "Samdu Valleys",
+  "exist": false,
+  "sovereignt": "IN",
+  "territory": "",
+  "claim": [
+   "CN"
+  ]
+ },
+ {
+  "key": "B05",
+  "qid": "Q2746364",
+  "type": "Disputed",
+  "region": 3,
+  "name_en": "Jammu and Kashmir",
+  "exist": false,
+  "sovereignt": "IN",
+  "territory": "",
+  "claim": [
+   "PK"
+  ]
+ },
+ {
+  "key": "B06",
+  "qid": "Q1819167",
+  "type": "Disputed",
+  "region": 3,
+  "name_en": "Trans-Karakoram Tract",
+  "exist": false,
+  "sovereignt": "CN",
+  "territory": "",
+  "claim": [
+   "IN"
+  ]
+ },
+ {
+  "key": "B07",
+  "qid": "Q230830",
+  "type": "Disputed",
+  "region": 3,
+  "name_en": "Aksai Chin",
+  "exist": false,
+  "sovereignt": "CN",
+  "territory": "",
+  "claim": [
+   "IN"
+  ]
+ },
+ {
+  "key": "B08",
+  "qid": "Q200697",
+  "type": "Disputed",
+  "region": 3,
+  "name_en": "Gilgit-Baltistan",
+  "exist": false,
+  "sovereignt": "PK",
+  "territory": "",
+  "claim": [
+   "IN"
+  ]
+ },
+ {
+  "key": "B09",
+  "qid": "Q200130",
+  "type": "Disputed",
+  "region": 3,
+  "name_en": "Azad Kashmir",
+  "exist": false,
+  "sovereignt": "PK",
+  "territory": "",
+  "claim": [
+   "IN"
+  ]
+ },
+ {
+  "key": "B13",
+  "qid": "Q336494",
+  "type": "Disputed",
+  "region": 2,
+  "name_en": "Abyei",
+  "exist": false,
+  "sovereignt": "SD",
+  "territory": "",
+  "claim": [
+   "SS"
+  ]
+ },
+ {
+  "key": "B14",
+  "qid": "Q2545638",
+  "type": "Disputed",
+  "region": 5,
+  "name_en": "Lawa Headwaters",
+  "exist": false,
+  "sovereignt": "FR",
+  "territory": "GF",
+  "claim": [
+   "SR"
+  ]
+ },
+ {
+  "key": "B15",
+  "qid": "Q5671580",
+  "type": "Disputed",
+  "region": 5,
+  "name_en": "Tigri Area",
+  "exist": false,
+  "sovereignt": "GY",
+  "territory": "",
+  "claim": [
+   "SR"
+  ]
+ },
+ {
+  "key": "B17",
+  "qid": "Q973527",
+  "type": "Disputed",
+  "region": 2,
+  "name_en": "Ilemi Triangle",
+  "exist": false,
+  "sovereignt": "KE",
+  "territory": "",
+  "claim": [
+   "SS"
+  ]
+ },
+ {
+  "key": "B18",
+  "qid": "Q29460",
+  "type": "Disputed",
+  "region": 3,
+  "name_en": "Senkaku Islands",
+  "exist": false,
+  "sovereignt": "JP",
+  "territory": "",
+  "claim": [
+   "CN",
+   "TW"
+  ]
+ },
+ {
+  "key": "B21",
+  "qid": "Q681389",
+  "type": "Disputed",
+  "region": 4,
+  "name_en": "Hans Island",
+  "exist": false,
+  "sovereignt": "DK",
+  "territory": "GL",
+  "claim": [
+   "CA"
+  ]
+ },
+ {
+  "key": "B29",
+  "qid": "Q80389",
+  "type": "Disputed",
+  "region": 3,
+  "name_en": "Kuril Islands",
+  "exist": false,
+  "sovereignt": "RU",
+  "territory": "",
+  "claim": [
+   "JP"
+  ]
+ },
+ {
+  "key": "B31",
+  "qid": "Q206137",
+  "type": "Disputed",
+  "region": 1,
+  "name_en": "Rockall Island",
+  "exist": false,
+  "sovereignt": "GB",
+  "territory": "",
+  "claim": [
+   "IE",
+   "DK",
+   "IS"
+  ]
+ },
+ {
+  "key": "B48",
+  "qid": "Q790669",
+  "type": "Disputed",
+  "region": 4,
+  "name_en": "Aves (Bird) Island",
+  "exist": false,
+  "sovereignt": "VE",
+  "territory": "",
+  "claim": [
+   "DM"
+  ]
+ },
+ {
+  "key": "B51",
+  "qid": "Q242",
+  "type": "Disputed",
+  "region": 4,
+  "name_en": "Belize",
+  "exist": false,
+  "sovereignt": "BZ",
+  "territory": "",
+  "claim": []
+ },
+ {
+  "key": "B52",
+  "qid": "Q3557016",
+  "type": "Disputed",
+  "region": 2,
+  "name_en": "Mbane Island",
+  "exist": false,
+  "sovereignt": "GA",
+  "territory": "",
+  "claim": [
+   "GQ"
+  ]
+ },
+ {
+  "key": "B56",
+  "qid": "Q124061083",
+  "type": "Disputed",
+  "region": 5,
+  "name_en": "Guayana Esequiba",
+  "exist": false,
+  "sovereignt": "GY",
+  "territory": "",
+  "claim": [
+   "VE"
+  ]
+ },
+ {
+  "key": "B58",
+  "qid": "Q1133272",
+  "type": "Disputed",
+  "region": 3,
+  "name_en": "Shebaa farms",
+  "exist": false,
+  "sovereignt": "IL",
+  "territory": "",
+  "claim": [
+   "LB"
+  ]
+ },
+ {
+  "key": "B62",
+  "qid": "Q191750",
+  "type": "Disputed",
+  "region": 2,
+  "name_en": "Perejil Island",
+  "exist": false,
+  "sovereignt": "ES",
+  "territory": "",
+  "claim": [
+   "MA"
+  ]
+ },
+ {
+  "key": "B63",
+  "qid": "Q191146",
+  "type": "Disputed",
+  "region": 2,
+  "name_en": "Peñón de Vélez de la Gomera",
+  "exist": false,
+  "sovereignt": "ES",
+  "territory": "",
+  "claim": [
+   "MA"
+  ]
+ },
+ {
+  "key": "B64",
+  "qid": "Q1184963",
+  "type": "Disputed",
+  "region": 2,
+  "name_en": "Peñón de Alhucemas",
+  "exist": false,
+  "sovereignt": "ES",
+  "territory": "",
+  "claim": [
+   "MA"
+  ]
+ },
+ {
+  "key": "B65",
+  "qid": "Q130574",
+  "type": "Disputed",
+  "region": 2,
+  "name_en": "Chafarinas Islands",
+  "exist": false,
+  "sovereignt": "ES",
+  "territory": "",
+  "claim": [
+   "MA"
+  ]
+ },
+ {
+  "key": "B66",
+  "qid": "Q1909475",
+  "type": "Disputed",
+  "region": 6,
+  "name_en": "Matthew Island and Hunter Island",
+  "exist": false,
+  "sovereignt": "FR",
+  "territory": "NC",
+  "claim": [
+   "VU"
+  ]
+ },
+ {
+  "key": "B67",
+  "qid": "Q488052",
+  "type": "Disputed",
+  "region": 1,
+  "name_en": "Olivenza",
+  "exist": false,
+  "sovereignt": "ES",
+  "territory": "",
+  "claim": [
+   "PT"
+  ]
+ },
+ {
+  "key": "B68",
+  "qid": "Q598889",
+  "type": "Disputed",
+  "region": 2,
+  "name_en": "Tiran and Sanafir Island",
+  "exist": false,
+  "sovereignt": "EG",
+  "territory": "",
+  "claim": [
+   "SA"
+  ]
+ },
+ {
+  "key": "B71",
+  "qid": "Q1128488",
+  "type": "Disputed",
+  "region": 6,
+  "name_en": "Swains Island",
+  "exist": false,
+  "sovereignt": "US",
+  "territory": "AS",
+  "claim": [
+   "TK"
+  ]
+ },
+ {
+  "key": "B73",
+  "qid": "Q167217",
+  "type": "Disputed",
+  "region": 3,
+  "name_en": "Abu Musa Island",
+  "exist": false,
+  "sovereignt": "IR",
+  "territory": "",
+  "claim": [
+   "AE"
+  ]
+ },
+ {
+  "key": "B74",
+  "qid": "Q973527",
+  "type": "Disputed",
+  "region": 2,
+  "name_en": "Ilemi Triangle",
+  "exist": false,
+  "sovereignt": "SS",
+  "territory": "",
+  "claim": [
+   "KE"
+  ]
+ },
+ {
+  "key": "B75",
+  "qid": "Q2018902",
+  "type": "Disputed",
+  "region": 3,
+  "name_en": "Northwest Valleys (Bhutan)",
+  "exist": false,
+  "sovereignt": "BT",
+  "territory": "",
+  "claim": [
+   "CN"
+  ]
+ },
+ {
+  "key": "B76",
+  "qid": "Q2578921",
+  "type": "Disputed",
+  "region": 3,
+  "name_en": "Chumbi Valley (Bhutan)",
+  "exist": false,
+  "sovereignt": "BT",
+  "territory": "",
+  "claim": [
+   "CN"
+  ]
+ },
+ {
+  "key": "B78",
+  "qid": "Q1670976",
+  "type": "Disputed",
+  "region": 3,
+  "name_en": "No Man's Land (Fort Latrun)",
+  "exist": false,
+  "sovereignt": "IL",
+  "territory": "",
+  "claim": [
+   "PS"
+  ]
+ },
+ {
+  "key": "B79",
+  "qid": "Q1218",
+  "type": "Disputed",
+  "region": 3,
+  "name_en": "No Man's Land (Jerusalem)",
+  "exist": false,
+  "sovereignt": "IL",
+  "territory": "",
+  "claim": [
+   "PS"
+  ]
+ },
+ {
+  "key": "B80",
+  "qid": "Q766270",
+  "type": "Disputed",
+  "region": 4,
+  "name_en": "Sapodilla Cayes",
+  "exist": false,
+  "sovereignt": "BZ",
+  "territory": "",
+  "claim": [
+   "HN",
+   "GT"
+  ]
+ },
+ {
+  "key": "B82",
+  "qid": "Q788452",
+  "type": "Disputed",
+  "region": 1,
+  "name_en": "Dragonja River",
+  "exist": false,
+  "sovereignt": "HR",
+  "territory": "",
+  "claim": [
+   "SI"
+  ]
+ },
+ {
+  "key": "B87",
+  "qid": "Q1252656",
+  "type": "Disputed",
+  "region": 2,
+  "name_en": "Doumeira Islands",
+  "exist": false,
+  "sovereignt": "ER",
+  "territory": "",
+  "claim": [
+   "DJ"
+  ]
+ },
+ {
+  "key": "B88",
+  "qid": "Q3595348",
+  "type": "Disputed",
+  "region": 3,
+  "name_en": "Om Parvat",
+  "exist": false,
+  "sovereignt": "IN",
+  "territory": "",
+  "claim": [
+   "NP"
+  ]
+ },
+ {
+  "key": "B92",
+  "qid": "Q2456673",
+  "type": "Disputed",
+  "region": 5,
+  "name_en": "Corner of Artigas",
+  "exist": false,
+  "sovereignt": "BR",
+  "territory": "",
+  "claim": [
+   "UY"
+  ]
+ },
+ {
+  "key": "B93",
+  "qid": "Q796684",
+  "type": "Disputed",
+  "region": 2,
+  "name_en": "Hala'ib Triangle",
+  "exist": false,
+  "sovereignt": "EG",
+  "territory": "",
+  "claim": [
+   "SD"
+  ]
+ },
+ {
+  "key": "B95",
+  "qid": "Q391205",
+  "type": "Disputed",
+  "region": 1,
+  "name_en": "Šarengrad Island",
+  "exist": false,
+  "sovereignt": "RS",
+  "territory": "",
+  "claim": [
+   "HR"
+  ]
+ },
+ {
+  "key": "B96",
+  "qid": "Q560385",
+  "type": "Disputed",
+  "region": 1,
+  "name_en": "Vukovar Island",
+  "exist": false,
+  "sovereignt": "RS",
+  "territory": "",
+  "claim": [
+   "HR"
+  ]
+ },
+ {
+  "key": "B98",
+  "qid": "Q212938",
+  "type": "Disputed",
+  "region": 3,
+  "name_en": "East Jerusalem",
+  "exist": false,
+  "sovereignt": "IL",
+  "territory": "",
+  "claim": [
+   "PS"
+  ]
+ },
+ {
+  "key": "B99",
+  "qid": "Q312818",
+  "type": "Disputed",
+  "region": 3,
+  "name_en": "Mount Scopus",
+  "exist": false,
+  "sovereignt": "IL",
+  "territory": "",
+  "claim": [
+   "PS"
+  ]
+ },
+ {
+  "key": "C01",
+  "qid": "Q14491604",
+  "type": "Disputed",
+  "region": 3,
+  "name_en": "Junagadh State",
+  "exist": false,
+  "sovereignt": "IN",
+  "territory": "",
+  "claim": [
+   "PK"
+  ]
+ },
+ {
+  "key": "B32",
+  "qid": "Q1137202",
+  "type": "Geo subunit",
+  "region": 5,
+  "name_en": "South Georgia",
+  "exist": false,
+  "sovereignt": "GB",
+  "territory": "GS",
+  "claim": [
+   "AR"
+  ]
+ },
+ {
+  "key": "B33",
+  "qid": "Q118223",
+  "type": "Geo subunit",
+  "region": 5,
+  "name_en": "South Sandwich Islands",
+  "exist": false,
+  "sovereignt": "GB",
+  "territory": "GS",
+  "claim": [
+   "AR"
+  ]
+ },
+ {
+  "key": "B23",
+  "qid": "Q237034",
+  "type": "Geo subunit",
+  "region": 2,
+  "name_en": "Juan de Nova Island",
+  "exist": false,
+  "sovereignt": "FR",
+  "territory": "TF",
+  "claim": [
+   "MG"
+  ]
+ },
+ {
+  "key": "B24",
+  "qid": "Q236601",
+  "type": "Geo subunit",
+  "region": 2,
+  "name_en": "Glorioso Islands",
+  "exist": false,
+  "sovereignt": "FR",
+  "territory": "TF",
+  "claim": [
+   "MG"
+  ]
+ },
+ {
+  "key": "B25",
+  "qid": "Q234208",
+  "type": "Geo subunit",
+  "region": 2,
+  "name_en": "Tromelin Island",
+  "exist": false,
+  "sovereignt": "FR",
+  "territory": "TF",
+  "claim": [
+   "MU",
+   "SC"
+  ]
+ },
+ {
+  "key": "B26",
+  "qid": "Q193089",
+  "type": "Geo subunit",
+  "region": 2,
+  "name_en": "Europa Island",
+  "exist": false,
+  "sovereignt": "FR",
+  "territory": "TF",
+  "claim": [
+   "MG"
+  ]
+ },
+ {
+  "key": "B27",
+  "qid": "Q220601",
+  "type": "Geo subunit",
+  "region": 2,
+  "name_en": "Bassas da India",
+  "exist": false,
+  "sovereignt": "FR",
+  "territory": "TF",
+  "claim": [
+   "MG"
+  ]
+ },
+ {
+  "key": "B39",
+  "qid": "Q20317",
+  "type": "Geo subunit",
+  "region": 3,
+  "name_en": "Liancourt Rocks",
+  "exist": false,
+  "sovereignt": "KR",
+  "territory": "",
+  "claim": [
+   "JP"
+  ]
+ },
+ {
+  "key": "B60",
+  "qid": "Q5823",
+  "type": "Geo subunit",
+  "region": 2,
+  "name_en": "Ceuta",
+  "exist": false,
+  "sovereignt": "ES",
+  "territory": "",
+  "claim": []
+ },
+ {
+  "key": "B61",
+  "qid": "Q5831",
+  "type": "Geo subunit",
+  "region": 2,
+  "name_en": "Melilla",
+  "exist": false,
+  "sovereignt": "ES",
+  "territory": "",
+  "claim": []
+ },
+ {
+  "key": "B34",
+  "qid": "Q25359",
+  "type": "Geo unit",
+  "region": 4,
+  "name_en": "Navassa Island",
+  "exist": false,
+  "sovereignt": "US",
+  "territory": "UM",
+  "claim": [
+   "HT"
+  ]
+ },
+ {
+  "key": "B47",
+  "qid": "Q274388",
+  "type": "Geo unit",
+  "region": 3,
+  "name_en": "Paracel Islands",
+  "exist": false,
+  "sovereignt": "CN",
+  "territory": "",
+  "claim": [
+   "VN",
+   "TW"
+  ]
+ },
+ {
+  "key": "B59",
+  "qid": "Q43296",
+  "type": "Geo unit",
+  "region": 6,
+  "name_en": "Wake Island",
+  "exist": false,
+  "sovereignt": "US",
+  "territory": "UM",
+  "claim": [
+   "MH"
+  ]
+ },
+ {
+  "key": "B28",
+  "qid": "Q6250",
+  "type": "Indeterminate",
+  "region": 2,
+  "name_en": "Western Sahara",
+  "exist": true,
+  "sovereignt": "B28",
+  "territory": "",
+  "claim": [
+   "MA"
+  ]
+ },
+ {
+  "key": "B16",
+  "qid": "Q83210",
+  "type": "Indeterminate",
+  "region": 3,
+  "name_en": "Golan Heights",
+  "exist": false,
+  "sovereignt": "IL",
+  "territory": "",
+  "claim": [
+   "SY"
+  ]
+ },
+ {
+  "key": "B41",
+  "qid": "Q1257783",
+  "type": "Indeterminate",
+  "region": 4,
+  "name_en": "Bajo Nuevo Bank",
+  "exist": false,
+  "sovereignt": "US",
+  "territory": "UM",
+  "claim": [
+   "CO",
+   "JM",
+   "NI"
+  ]
+ },
+ {
+  "key": "B42",
+  "qid": "Q1169008",
+  "type": "Indeterminate",
+  "region": 4,
+  "name_en": "Serranilla Bank",
+  "exist": false,
+  "sovereignt": "US",
+  "territory": "UM",
+  "claim": [
+   "CO",
+   "HN",
+   "NI"
+  ]
+ },
+ {
+  "key": "B43",
+  "qid": "Q116970",
+  "type": "Indeterminate",
+  "region": 3,
+  "name_en": "United Nations Buffer Zone in Cyprus",
+  "exist": false,
+  "sovereignt": "CY",
+  "territory": "",
+  "claim": []
+ },
+ {
+  "key": "B45",
+  "qid": "Q333946",
+  "type": "Indeterminate",
+  "region": 3,
+  "name_en": "Siachen Glacier",
+  "exist": false,
+  "sovereignt": "",
+  "territory": "",
+  "claim": [
+   "PK",
+   "IN"
+  ]
+ },
+ {
+  "key": "B46",
+  "qid": "Q215664",
+  "type": "Indeterminate",
+  "region": 3,
+  "name_en": "Spratly Islands",
+  "exist": false,
+  "sovereignt": "",
+  "territory": "",
+  "claim": [
+   "CN",
+   "TW",
+   "MY",
+   "PH",
+   "BN",
+   "VN"
+  ]
+ },
+ {
+  "key": "B70",
+  "qid": "Q628716",
+  "type": "Indeterminate",
+  "region": 3,
+  "name_en": "Scarborough Reef",
+  "exist": false,
+  "sovereignt": "CN",
+  "territory": "",
+  "claim": [
+   "PH",
+   "TW"
+  ]
+ },
+ {
+  "key": "B85",
+  "qid": "Q2093778",
+  "type": "Indeterminate",
+  "region": 5,
+  "name_en": "Brazilian Island",
+  "exist": false,
+  "sovereignt": "",
+  "territory": "",
+  "claim": [
+   "BR",
+   "UY"
+  ]
+ },
+ {
+  "key": "B94",
+  "qid": "Q620634",
+  "type": "Indeterminate",
+  "region": 2,
+  "name_en": "Bir Tawil",
+  "exist": false,
+  "sovereignt": "",
+  "territory": "",
+  "claim": [
+   "EG",
+   "SD"
+  ]
+ },
+ {
+  "key": "B97",
+  "qid": "Q1031467",
+  "type": "Indeterminate",
+  "region": 5,
+  "name_en": "Southern Patagonian Ice Field",
+  "exist": false,
+  "sovereignt": "",
+  "territory": "",
+  "claim": [
+   "CL",
+   "AR"
+  ]
+ },
+ {
+  "key": "B40",
+  "qid": "Q165413",
+  "type": "Lease",
+  "region": 3,
+  "name_en": "Baikonur",
+  "exist": false,
+  "sovereignt": "RU",
+  "territory": "",
+  "claim": [
+   "KZ"
+  ]
+ },
+ {
+  "key": "B50",
+  "qid": "Q762570",
+  "type": "Lease",
+  "region": 4,
+  "name_en": "Guantanamo Bay Naval Base",
+  "exist": false,
+  "sovereignt": "US",
+  "territory": "",
+  "claim": [
+   "CU"
+  ]
+ },
+ {
+  "key": "B44",
+  "qid": "Q184851",
+  "type": "Overlay",
+  "region": 3,
+  "name_en": "Diego Garcia Navy Airport",
+  "exist": false,
+  "sovereignt": "GB",
+  "territory": "IO",
+  "claim": [
+   "MU",
+   "SC"
+  ]
+ },
+ {
+  "key": "B10",
+  "qid": "Q331990",
+  "type": "Overlay",
+  "region": 3,
+  "name_en": "South Korean Demilitarized Zone",
+  "exist": false,
+  "sovereignt": "KR",
+  "territory": "",
+  "claim": []
+ },
+ {
+  "key": "B11",
+  "qid": "Q331990",
+  "type": "Overlay",
+  "region": 3,
+  "name_en": "North Korean Demilitarized Zone",
+  "exist": false,
+  "sovereignt": "KP",
+  "territory": "",
+  "claim": []
+ },
+ {
+  "key": "B49",
+  "qid": "Q1428532",
+  "type": "Overlay",
+  "region": 3,
+  "name_en": "United Nations Disengagement Observer Force",
+  "exist": false,
+  "sovereignt": "SY",
+  "territory": "",
+  "claim": []
+ },
+ {
+  "key": "B84",
+  "qid": "Q482854",
+  "type": "Overlay",
+  "region": 3,
+  "name_en": "Korean Northern Limit Line",
+  "exist": false,
+  "sovereignt": "KR",
+  "territory": "",
+  "claim": [
+   "KP"
+  ]
+ }
+]

@@ -7,7 +7,8 @@ import { nativeBucket, Cache } from "native-bucket";
 
 const API_BASE = import.meta.env.DEV ? `${location.origin}/api` : "https://api.ortho-earth.com";
 const { Bucket } = nativeBucket(API_BASE);
-const DIRE = "GIS/world";
+const DIRE = "GIS/world";                                        // 資産（flags/ geoms/ 音源.zip）
+const DATA = import.meta.env.VITE_WORLD_DATA || DIRE;             // DB と i18n（検証用に別ディレクトリへ向けられる: VITE_WORLD_DATA=GIS/world-v2）
 export const ASSET_BASE = `${API_BASE}/bucket/${DIRE}/`;   // 旗/地図PNGは個別ファイル（flags/<key>.svg・geoms/<key>.png）＝見えた分だけ <img loading=lazy>
 
 const JSONS = ["NationDB", "CityDB", "LanguageDB", "CurrencyDB", "Conflicts"];
@@ -19,16 +20,18 @@ const unwrap = v => (v && v.items !== undefined) ? v.items : v;
 
 // Bucket は lazy＝到達確認の list() を省く（旧: getBucket の競合で一覧を 2 本取っていた）
 let _b = null, _fb = null, _ib = null, _idb = null;
-const bucket = async () => _b || (_b = await Bucket(DIRE, { lazy: true, silent: true }));
+let _ab = null;
+const bucket = async () => _b || (_b = await Bucket(DATA, { lazy: true, silent: true }));                 // DB/i18n
+const assetBucket = async () => _ab || (_ab = await Bucket(DIRE, { lazy: true, silent: true }));           // 音源.zip
 const flagsBucket = async () => _fb || (_fb = await Bucket(`${DIRE}/flags`, { lazy: true, silent: true }));
-const i18nBucket = async () => _ib || (_ib = await Bucket(`${DIRE}/i18n`, { lazy: true, silent: true }));
-const idb = async () => _idb !== null ? _idb : (_idb = await Cache("world/files").catch(() => false));
+const i18nBucket = async () => _ib || (_ib = await Bucket(`${DATA}/i18n`, { lazy: true, silent: true }));
+const idb = async () => _idb !== null ? _idb : (_idb = await Cache(DATA == DIRE ? "world/files" : "world/files-" + DATA.replace(/\W/g, "_")).catch(() => false));
 const read = async k => { const d = await idb(); return d ? await d(k).catch(() => null) : null; };
 const write = async (k, v) => { const d = await idb(); d && await d(k, v).catch(() => {}); };
 const getJSON = async k => (await bucket()).get(`${k}.json?_t=${Date.now()}`, "json");   // ?_t= で edge(1h)/ブラウザ(4h) キャッシュ回避
 // 一覧は再帰しない＝GIS/world（JSON/zip）と i18n/（言語表）を別々に取り、末尾名→ETag に併合（言語が en なら i18n/ は省く）
 const listETags = async lang => {
-	const m = {}, dirs = [bucket()].concat(needI18N(lang) ? [i18nBucket()] : []);
+	const m = {}, dirs = [bucket(), assetBucket()].concat(needI18N(lang) ? [i18nBucket()] : []);
 	(await Promise.all(dirs.map(async b => (await b).list()))).flat().forEach(t => m[t.Key] = t.ETag);
 	return Object.keys(m).length ? m : null;
 };
@@ -51,9 +54,8 @@ export async function loadWorld(lang) {
 		return pack(files, cached[n].files, cached[n + 1].keys, lang, true);
 	}
 	// 冷（初回・IDB 欠け）: 一段で全部並列。一覧の ETag も同時に取って保存に添える（次回の refresh が突合できる）
-	const b = await bucket();
 	const [etags, sounds, flags, ...jsons] = await Promise.all([
-		listETags(lang).catch(() => null), b.gets(SFX).catch(() => []), listFlags().catch(() => []), ...want.map(k => getJSON(k).catch(() => null))]);
+		listETags(lang).catch(() => null), (await assetBucket()).gets(SFX).catch(() => []), listFlags().catch(() => []), ...want.map(k => getJSON(k).catch(() => null))]);
 	want.forEach((k, i) => {
 		const v = jsons[i] || (cached[i] && cached[i].v);
 		if (!v) throw new Error(`${k} を取得できません（オフライン・未キャッシュ）`);
@@ -77,7 +79,7 @@ export async function refresh(lang, onUpdate) {
 		if (!c || !same(c.v, v)) changed[k] = unwrap(v);   // ETag 無し（言語切替で取った分）は中身で比較
 	}));
 	const s = await read(SFX), se = etags[SFX + ".zip"];
-	if (se && (!s || s.etag !== se)) { const f = await (await bucket()).gets(SFX).catch(() => []); f.length && await write(SFX, { etag: se, files: f }); }
+	if (se && (!s || s.etag !== se)) { const f = await (await assetBucket()).gets(SFX).catch(() => []); f.length && await write(SFX, { etag: se, files: f }); }
 	const fs = await read(FLAGSET), fe = etags["flags.zip"];
 	if (!fs || (fe && fs.etag !== fe)) { const keys = await listFlags().catch(() => []); if (keys.length) { await write(FLAGSET, { etag: fe || null, keys }); (!fs || !same(fs.keys, keys)) && (changed.flags = new Set(keys)); } }
 	Object.keys(changed).length && onUpdate && onUpdate(changed);

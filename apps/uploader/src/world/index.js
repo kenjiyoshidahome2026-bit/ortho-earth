@@ -1,25 +1,20 @@
-// ── 国別DB（world）の uploader 組み込み ──
-// 原典: packages/world/create.js（旧システム）。移植台帳: packages/world/README.md
-// データ移送＝旧システムから書き出したファイルをこのページへドロップ → bucket GIS/world/ へ保存。
-//   JSON: NationDB.json / CityDB.json / LanguageDB.json / CurrencyDB.json / Conflicts.json / 国名一覧.json
-//   zip : flags.zip（<key>.svg）/ 音源.zip（mp3）/ geoms.zip（png）。旧 国旗.zip（国名.svg）は key 名へ変換して収蔵
-//   csv : Conflicts.csv（→ createConflicts で DB 化）/ 国名一覧.csv
-// 作成系（createNationDB 等）は旧 #inline スニペットの原典待ち＝ボタンは案内のみ。
+// ── 国別DB（world）の uploader 組み込み（v2・2026-09-11）──
+// 正本は packages/world/seed（key・QID・英語基軸）。組み立ては packages/world/build（Node CLI と共用）。
+// ここは「ブラウザで組み立てて bucket に保存する」入口と、資産（旗・音源・地形PNG）の出し入れ。
+//   全部作る: seed → Wikidata / World Bank / IMF / HDR / en.wikipedia → NationDB・CityDB・LanguageDB・CurrencyDB・Conflicts・i18n/<lang>
+//   zip drop: flags.zip（<key>.svg）/ 音源.zip（mp3）/ geoms.zip（png）。svg 一枚差し（<key>.svg）
 import * as d3 from 'd3';
-import "common/d3/fileio.js";   // dropFiles 拡張（main.js が読む selection.js には入っていない＝ここで明示ロード）
-import { download, thenMap } from "common";
-import { decodeZIP } from "native-bucket";
-import { createGetHeight } from "altpbf/loader";
-import {
-	DIRE, toLangs, SEED, NATION, CITY, LANGUAGE, CURRENCY, FLAG, FLAG_LEGACY, SOUND, CONFLICT, GEOMS, FLAG_KEYS,
-	renames, rename, makeDB, createWiki, addLanguage, removeLanguage, fixLanguage, createConflicts, blob2rows,
-	NATION_KEYS, nationKey, LANG_KEYS,
-} from "./db.js";
-import { createNationDB } from "./createNationDB.js";
-import { createCityDB } from "./createCityDB.js";
-import { createLanguageDB, createCurrencyDB } from "./createLanguageDB.js";
+import "common/d3/fileio.js";   // dropFiles 拡張
+import { download } from "common";
+import { decodeZIP, Cache } from "native-bucket";
+import { DIRE, DBS, FLAG, SOUND, GEOMS, makeDB } from "./db.js";
 import { createGeometryPNG } from "./createGeometryPNG.js";
-import { createI18N } from "./createI18N.js";
+import { makeEnv } from "../../../../packages/world/build/env.js";
+import { loadSeed, SEED_FILES } from "../../../../packages/world/build/seed.js";
+import { buildAll } from "../../../../packages/world/build/index.js";
+// seed は同梱（ビルド時に取り込む＝repo の seed/ が正本・将来はデータ用リポジトリの submodule）
+const SEEDS = import.meta.glob("../../../../packages/world/seed/*", { query: "?raw", import: "default", eager: true });
+import uiJSON from "../../../../packages/world/i18n/ui.json?raw";
 
 // TODO: 旧 FlagSVG.clean の移植待ち＝それまでは素通し（svg はそのまま保存）
 const cleanSVG = async file => file;
@@ -28,16 +23,9 @@ export async function worldUI({ CMD, q, Bucket, Fetch }) {
 	const bucket = await Bucket(DIRE);   // 疎通不能時は null（native-bucket の仕様）
 	if (!bucket) throw new Error(`Bucket(${DIRE}) に到達できない＝国別DB節は無効`);
 	const db = makeDB(bucket);
-	const jsonNames = [SEED, NATION, CITY, LANGUAGE, CURRENCY, CONFLICT];
-	// 標高サンプラは初回要求時に一度だけ構築（worker 起動＝重い）。都市の coords[2] にだけ使う。
-	let _gh = null;
-	const getHeight = (...a) => (_gh = _gh || createGetHeight({})).then(f => f(...a));
-	const ctx = { db, Fetch, getHeight };
-	// 作成系＝ボタン一発。実行中の console.warn（＝突合失敗の検札ログ）を収集して最後に一覧表示
-	//（長時間ジョブで console に散った warn を見落とすのが旧ツールの弱点だった）
+	// 実行中の console.warn/error を集めて最後に一覧（長時間ジョブで console に散った検札を見落とさない）
 	const run = (name, func) => async () => {
 		q.clear(); q.title(name); q.log("実行中…（進捗は console）");
-		// 同一メッセージは畳んで「×N 種類」で出す＝生の洪水を見せない（詳細は console に残る）
 		const str = t => typeof t === "string" ? t : (() => { try { return JSON.stringify(t); } catch { return String(t); } })();
 		const tally = kind => { const m = new Map(); return Object.assign((...a) => { const s = a.map(str).join(" "); m.set(s, (m.get(s) || 0) + 1); }, { m, kind }); };
 		const W = tally("⚠"), E = tally("✖");
@@ -48,161 +36,81 @@ export async function worldUI({ CMD, q, Bucket, Fetch }) {
 			const total = [...t.m.values()].reduce((p, c) => p + c, 0); if (!total) return;
 			const list = [...t.m.entries()].sort((p, q2) => q2[1] - p[1]);
 			q.log(`── 検札: ${t.kind} ${total} 件 / ${t.m.size} 種 ──`);
-			list.slice(0, 30).forEach(([s, n]) => q.log(`${t.kind}${n > 1 ? ` ×${n}` : ""} ${s.slice(0, 180)}`));
-			list.length > 30 && q.log(`…他 ${list.length - 30} 種（console 参照）`);
+			list.slice(0, 40).forEach(([s, n]) => q.log(`${t.kind}${n > 1 ? ` ×${n}` : ""} ${s.slice(0, 200)}`));
+			list.length > 40 && q.log(`…他 ${list.length - 40} 種（console 参照）`);
 		};
-		try { const v = await func(); q.success(`${name}: 完了（${Array.isArray(v) ? v.length + " 件" : "ok"}）`); }
+		try { const v = await func(); q.success(`${name}: 完了（${Array.isArray(v) ? v.length + " 件" : typeof v == "string" ? v : "ok"}）`); }
 		catch (e) { q.error(`${name}: 失敗 — ${e.message}`); origE(e); }
 		finally { console.warn = origW; console.error = origE; report(E); report(W); }
 	};
+	// ブラウザ用 env: Wikidata/World Bank/DBnomics/wikipedia/commons は CORS 開放＝素の fetch、HDR の CSV だけ proxy（Fetch）経由。キャッシュは IDB
+	const idb = await Cache("worldBuild/cache").catch(() => null);   // 取得キャッシュ（viewer の "world" DB とは別名）
+	const env = makeEnv({
+		fetchJSON: async url => { const r = await fetch(url); if (!r.ok) throw new Error(`${r.status} ${url}`); return r.json(); },
+		fetchText: async (url, { proxy } = {}) => proxy ? Fetch(url, { type: "text" }) : (async () => { const r = await fetch(url); if (!r.ok) throw new Error(`${r.status} ${url}`); return r.text(); })(),
+		cache: async (k, v) => idb ? (v === undefined ? idb(k) : idb(k, v)) : undefined,
+		log: s => console.log(s), warn: s => console.warn(s),
+	});
+	const seed = await loadSeed(name => {
+		if (name == "../i18n/ui.json") return uiJSON;
+		const hit = Object.entries(SEEDS).find(([p]) => p.endsWith("/" + name)); if (!hit) throw new Error(`seed が無い: ${name}`);
+		return hit[1];
+	});
+	async function buildAndSave() {
+		const r = await buildAll(seed, env);
+		if (r.report.errors.length) throw new Error(`検札で errors ${r.report.errors.length} 件＝保存しない（${r.report.errors.slice(0, 3).join(" / ")}）`);
+		for (const n of DBS) { await db.saveJSON(n, r[n]); q.log(`${n}.json: ${r[n].length} 件`); }
+		for (const [lang, v] of Object.entries(r.i18n)) { await db.saveJSON(`i18n/${lang}`, v); }
+		q.log(`i18n: ${Object.keys(r.i18n).length} 言語`);
+		return `国 ${r.NationDB.length} / 都市 ${r.CityDB.length} / 言語 ${r.LanguageDB.length} / 通貨 ${r.CurrencyDB.length} / 係争 ${r.Conflicts.length}・warns ${r.report.warns.length}`;
+	}
 
 	CMD.append("h1").text("国別DB (world)");
 	CMD.append("button").text(`一覧 (${DIRE})`).on("click", async () => {
-		q.clear(); q.title(DIRE);
-		(await bucket.list()).forEach(t => q.log(`${t.Key}: ${(t.Size || 0).toLocaleString()} bytes（${(t.LastModified || "").slice(0, 10)}）`));
+		q.clear(); q.title(`一覧 (${DIRE})`);
+		(await bucket.list()).forEach(t => q.log(`${t.Key}  ${(t.Size / 1024).toFixed(1)}KB  ${t.LastModified}`));
 	});
-	CMD.append("button").text("国データ作成(createNationDB)").on("click", run("createNationDB", () => createNationDB(ctx, toLangs)));
-	CMD.append("button").text("都市データ作成(createCityDB)").on("click", run("createCityDB", () => createCityDB(ctx, toLangs)));
-	CMD.append("button").text("言語データ作成(createLanguageDB)").on("click", run("createLanguageDB", () => createLanguageDB(ctx, toLangs)));
-	CMD.append("button").text("通貨データ作成(createCurrencyDB)").on("click", run("createCurrencyDB", () => createCurrencyDB(ctx, toLangs)));
-	CMD.append("button").text("geoPNG作成(createGeometryPNG)").on("click", run("createGeometryPNG", () => createGeometryPNG(ctx, q)));
-	CMD.append("button").text("i18n作成(createI18N・26言語)").on("click", run("createI18N", () => createI18N(ctx, q)));
-	CMD.append("button").text(`${SEED}.csv ダウンロード`).on("click", () => downloadSeed());
-	CMD.append("button").text(`${CITY}.csv ダウンロード`).on("click", () => downloadCityDB());
-	CMD.append("button").text(`${CONFLICT}.json ダウンロード`).on("click", async () => download(json2blob(await db.loadConflicts()), `${CONFLICT}.json`));
+	CMD.append("button").text("全部作る（seed → Wikidata/統計 API → 全 DB + i18n を保存）").on("click", run("build", buildAndSave));
+	CMD.append("button").text("geoPNG作成(createGeometryPNG)").on("click", run("createGeometryPNG", () => createGeometryPNG({ db }, q)));
 	CMD.append("button").text(`${FLAG}.zip ダウンロード`).on("click", async () => download(await bucket.get(`${FLAG}.zip`), `${FLAG}.zip`));
 	CMD.append("button").text(`${SOUND}.zip ダウンロード`).on("click", async () => download(await bucket.get(`${SOUND}.zip`), `${SOUND}.zip`));
-	// wiki 系 IDB キャッシュ（getContent/extract/sekai-hub html）は無期限＝掃除しない限り再ビルドしても
-	// 前回取得の値が返り続ける。年次更新の前にこれを押してから作成系を回す。
-	CMD.append("button").text("wikiキャッシュ掃除（年次更新前に）").on("click", () => {
-		q.clear(); q.title("wikiキャッシュ掃除");
-		["wikiDB", "wikiExtract"].forEach(name => {
-			const req = indexedDB.deleteDatabase(name);
-			req.onsuccess = () => q.success(`${name}: 削除`);
-			req.onblocked = () => q.error(`${name}: 他タブが掴んでいて削除待ち＝他の uploader タブを閉じてください`);
-			req.onerror = () => q.error(`${name}: 削除失敗`);
-		});
+	CMD.append("button").text("取得キャッシュ掃除（年次更新前に）").on("click", () => {
+		q.clear(); q.title("取得キャッシュ掃除");
+		const req = indexedDB.deleteDatabase("worldBuild");
+		req.onsuccess = () => q.success("worldBuild: 削除（次の「全部作る」は全部取り直し）");
+		req.onblocked = () => q.error("worldBuild: 他タブが掴んでいて削除待ち＝他の uploader タブを閉じてください");
+		req.onerror = () => q.error("worldBuild: 削除失敗");
 	});
+	CMD.append("p").html(`seed: ${SEED_FILES.join(" / ")}（packages/world/seed・${seed.nations.length} 国 / ${seed.cities.length} 都市 / ${seed.conflicts.length} 係争地）`);
 
-	// 一括投入可＝旧データ一式（NationDB.json + 国旗.zip + …）をまとめてドロップできる
 	d3.select("body").dropFiles(async files => {
 		q.clear(); q.title(`drop: ${files.length} ファイル`);
 		for (const file of files) {
 			try { await route(file); } catch (e) { q.error(`${file.name}: 失敗 — ${e.message}`); console.error(e); }
 		}
 	});
+	const svgs = async file => (await decodeZIP(file)).filter(t => t.name.match(/\.svg$/) && !t.name.match(/^\./)).sort((p, q) => p.name > q.name ? 1 : -1);
 	async function route(file) {
 		const name = file.name.normalize('NFC');
-		const stem = name.replace(/\.[^.]+$/, "");
-		// 旧システムから書き出した DB(JSON) をそのまま収蔵＝データ移送の本線
-		if (name.endsWith(".json") && jsonNames.includes(stem)) {
-			let v = JSON.parse(await file.text());   // 破損検知＝parse できないものは保存しない
-			v = (v && v.items !== undefined) ? v.items : v;   // 版スタンプ包みの再ドロップも受ける
-			// NationDB は最終化経由で収蔵＝旧システムの「loadでパッチ」時代のデータ（クリッパートン重複等）もここで正規化
-			if (stem == NATION) { await db.saveNationDB(v); }
-			else await db.saveJSON(stem, v);
-			return q.success(`${stem}.json: 保存（${(Array.isArray(v) ? v.length + " 件" : "object")}）`);
-		}
-		if (name == `${SEED}.csv`) {
-			// seed はヘッダ行なしの生行列（列順: name.ja, extend.ja, capital.ja, name.en, extend.en, capital.en, region, key, wiki.ja, territory, conflict, yomi）
-			const v = await blob2rows(file);
-			await db.saveSeed(v);
-			return q.success(`${SEED}: 保存（${v.length} 件）→ createNationDB → Language → Currency → CityDB の順で再作成`);
-		}
-		// CityDB.csv＝downloadCityDB の書き出しの逆変換（旧ツールは書き出し専用だったが、完成済みデータの
-		// 移送路として取り込みを新設 2026-08-31）。列順: name.ja,en,zh,ko, nation, capital, coords[0..2],
-		// population[0..1], wiki.ja,en,zh,ko, yomi（先頭はヘッダ行）
-		if (name == `${CITY}.csv`) {
-			const rows = (await blob2rows(file)).slice(1);
-			const cities = rows.filter(t => t[0]).map(t => {
-				const c = { name: { ja: t[0], en: t[1], zh: t[2], ko: t[3] } };
-				// 首都共有国は旧書き出しで JSON 配列文字列 '["a","b"]'（2026-09-09 精査: カンマ分割では '["a"' に壊れていた）
-				c.nation = (typeof t[4] == "string" && /^\[/.test(t[4])) ? JSON.parse(t[4]) : (typeof t[4] == "string" && t[4].includes(",")) ? t[4].split(",") : t[4];
-				if (t[5] === true) c.capital = true;
-				if (t[6] !== "" && t[7] !== "") c.coords = [t[6], t[7], t[8] === "" ? 0 : t[8]];
-				c.population = [t[9] === "" ? -1 : t[9], t[10] === "" ? 0 : t[10]];
-				c.wiki = { ja: t[11], en: t[12], zh: t[13], ko: t[14] };
-				if (t[15]) c.yomi = t[15];
-				return c;
-			});
-			await db.saveCityDB(cities);
-			return q.success(`${CITY}: 保存（${cities.length} 都市）← CSV 逆変換`);
-		}
-		if (name == `${CONFLICT}.csv`) {
-			const nation = await db.loadNationDB();
-			if (!nation) return q.error(`${NATION} が未収蔵＝先に ${NATION}.json をドロップしてください`);
-			const conflicts = await createConflicts(await blob2rows(file), nation);
-			await db.saveConflicts(conflicts);
-			return q.success(`${CONFLICT}: 保存（${conflicts.length} 件）`);
-		}
-		if (name == `${FLAG}.zip`) {   // 新形式＝<key>.svg のまま収蔵
-			const files = (await decodeZIP(file)).filter(t => t.name.match(/\.svg$/) && !t.name.match(/^\./)).sort((p, q) => p.name > q.name ? 1 : -1);
-			await db.saveFlagDB(files);
-			return q.success(`${FLAG}: 保存（${files.length} 旗）`);
-		}
-		if (name == `${FLAG_LEGACY}.zip`) {   // 旧形式（国名.svg）＝NationDB の key / FLAG_KEYS で <key>.svg に改名して flags.zip へ
-			const nation = await db.loadNationDB();
-			if (!nation) return q.error(`${NATION} が未収蔵＝改名の対応表が作れません（先に NationDB を）`);
-			const key = {}; nation.forEach(t => key[t.name.ja] = t.key); Object.assign(key, FLAG_KEYS);
-			const files = [], miss = [];
-			(await decodeZIP(file)).filter(t => t.name.match(/\.svg$/) && !t.name.match(/^\./)).forEach(t => {
-				const stem = t.name.normalize('NFC').replace(/\.svg$/, ""), k = key[stem];   // NFD 名（ジャージー）も正規化
-				k ? files.push(new File([t], `${k}.svg`, { type: "image/svg+xml" })) : miss.push(stem);
-			});
-			if (!files.some(f => f.name == "B28.svg") && files.some(f => f.name == "EH.svg")) files.push(new File([files.find(f => f.name == "EH.svg")], "B28.svg", { type: "image/svg+xml" }));   // SADR は西サハラと同じ旗
-			files.sort((p, q) => p.name > q.name ? 1 : -1);
-			await db.saveFlagDB(files);
-			miss.length && q.error(`対応キーなし（収蔵せず）: ${miss.join(", ")}`);
-			return q.success(`${FLAG_LEGACY}.zip → ${FLAG}.zip: 保存（${files.length} 旗・<key>.svg に改名）`);
-		}
+		if (name == `${FLAG}.zip`) { const files = await svgs(file); await db.saveFlagDB(files); return q.success(`${FLAG}: 保存（${files.length} 旗）`); }
 		if (name == `${SOUND}.zip`) {
 			const files = (await decodeZIP(file)).filter(t => t.name.match(/\.mp3$/) && !t.name.match(/^\./)).sort((p, q) => p.name > q.name ? 1 : -1);
-			await db.saveSoundDB(files);
-			return q.success(`${SOUND}: 保存（${files.length} 音源）`);
+			await db.saveSoundDB(files); return q.success(`${SOUND}: 保存（${files.length} 音源）`);
 		}
 		if (name == `${GEOMS}.zip`) {
 			const files = (await decodeZIP(file)).filter(t => t.name.match(/\.png$/) && !t.name.match(/^\./)).sort((p, q) => p.name > q.name ? 1 : -1);
-			await db.saveGeoPNG(files);
-			return q.success(`${GEOMS}: 保存（${files.length} 図形PNG）`);
+			await db.saveGeoPNG(files); return q.success(`${GEOMS}: 保存（${files.length} 図形PNG）`);
 		}
-		// 国旗 svg 一枚差し（ファイル名＝<key>.svg・収蔵済みの旗と同 key のときだけ差し替え）
-		if (name.match(/\.svg$/)) {
-			const target = name.replace(/\.svg$/, "");
-			const files = await db.loadFlagDB();
-			const names = files.map(t => t.name.replace(/\.svg$/, ""));
-			if (!names.includes(target)) return q.error(`${target}: ${FLAG}.zip に同 key の旗が無い＝差し替え対象なし（ファイル名は <key>.svg）`);
+		if (name.match(/\.svg$/)) {   // 国旗 svg 一枚差し（ファイル名＝<key>.svg・収蔵済みの旗と同 key のときだけ差し替え）
+			const target = name.replace(/\.svg$/, ""), files = await db.loadFlagDB();
+			if (!files.some(t => t.name.replace(/\.svg$/, "") == target)) return q.error(`${target}: ${FLAG}.zip に同 key の旗が無い＝差し替え対象なし（ファイル名は <key>.svg）`);
 			const cleaned = await cleanSVG(file);
 			await db.saveFlagDB(files.map(t => t.name.replace(/\.svg$/, "") == target ? cleaned : t));
 			return q.success(`${FLAG}/${target}.svg: 差し替え`);
 		}
-		q.log(`${name}: 対象外（何もしない）`);
+		q.log(`${name}: 対象外（DB は「全部作る」で seed から組み立てる）`);
 	}
-
-	async function downloadSeed() {
-		const seed = await db.loadSeed();   // ヘッダ行なしの生行列（drop 側と対称）
-		download(new Blob([d3.csvFormatRows(seed)], { type: "text/csv" }), `${SEED}.csv`);
-	}
-	async function downloadCityDB() {
-		const cities = await db.loadCityDB();
-		const head = ["name.ja", "name.en", "name.zh", "name.ko", "nation", "capital", "coords[0]", "coords[1]", "coords[2]",
-			"population[0]", "population[1]", "wiki.ja", "wiki.en", "wiki.zh", "wiki.ko", "yomi"];
-		const a = cities.map(t => [t.name.ja, t.name.en, t.name.zh, t.name.ko, t.nation, !!t.capital, t.coords[0], t.coords[1], t.coords[2],
-		t.population[0], t.population[1], t.wiki.ja, t.wiki.en, t.wiki.zh, t.wiki.ko, t.yomi]);
-		download(new Blob([d3.csvFormatRows([head].concat(a))], { type: "text/csv" }), `${CITY}.csv`);
-	}
-	const json2blob = v => new Blob([JSON.stringify(v)], { type: "application/json" });
-
-	// 旧ツール同様、console から直接叩けるように一式を window へ（uploader は作業台＝これが流儀）
-	Object.assign(window, {
-		worldBucket: bucket, ...db,
-		renames, rename, toLangs, createWiki, addLanguage, removeLanguage, fixLanguage, createConflicts,
-		NATION_KEYS, nationKey, LANG_KEYS,
-		createNationDB: (langs = toLangs) => createNationDB(ctx, langs),
-		createCityDB: (langs = toLangs) => createCityDB(ctx, langs),
-		createLanguageDB: (langs = toLangs) => createLanguageDB(ctx, langs),
-		createCurrencyDB: (langs = toLangs) => createCurrencyDB(ctx, langs),
-		createGeometryPNG: () => createGeometryPNG(ctx, q),
-		createI18N: () => createI18N(ctx, q),
-	});
+	// console から直接叩けるように（uploader は作業台）
+	Object.assign(window, { worldBucket: bucket, worldDB: db, worldSeed: seed, worldEnv: env, buildAll: () => buildAll(seed, env), buildAndSave });
 	return db;
 }

@@ -1,0 +1,51 @@
+{
+ "IO": {
+  "text": "SC"
+ },
+ "CI": {
+  "defacto": "Q1515"
+ },
+ "SJ": {
+  "text": "Svalbard"
+ },
+ "LK": {
+  "changed": [
+   1985,
+   "Q35381"
+  ]
+ },
+ "TZ": {
+  "changed": [
+   1996,
+   "Q1960"
+  ]
+ },
+ "BI": {
+  "changed": [
+   2019,
+   "Q3854"
+  ]
+ },
+ "BJ": {
+  "defacto": "Q43595"
+ },
+ "BO": {
+  "defacto": "Q1491"
+ },
+ "MM": {
+  "changed": [
+   2006,
+   "Q37995"
+  ]
+ },
+ "GQ": {
+  "defacto": "Q3818"
+ },
+ "ZA": {
+  "multi": {
+   "legislative": "Q5465",
+   "judicial": "Q37701",
+   "executive": "Q3926"
+  }
+ }
+}
