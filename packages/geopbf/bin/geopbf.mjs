@@ -48,11 +48,13 @@ const USAGE = `geopbf <command>
        [--no-bbox]                  bbox 覆域列を書かない（点データで半分の大きさ・刈り込みは失う）
   gpkg2pbf <in.gpkg> [out.geopbf]   GeoPackage の 1 層を GeoPBF へ（自前 SQLite リーダ・GDAL 不要・読み専用）。out を省くと層（地物/タイル）の一覧
        [--layer name]               層（表名か identifier・既定＝最初の地物層）
+       [--tky2jgd <file|url>]       日本測地系の層に使う TKY2JGD 格子（無ければ Helmert ±10 m）
        [--precision N] [--name name] [--ignore-crs] [--no-gzip]
        [--include a,b] [--exclude a,b] [--exclude-all]  列の選別
 
   gdb2pbf <in.gdb|in.zip> [out.geopbf]   File Geodatabase の 1 フィーチャクラスを GeoPBF へ（ディレクトリか、それを zip したもの）。out を省くと一覧
        [--layer name] [--precision N] [--name name] [--ignore-crs] [--no-gzip]
+       [--tky2jgd <file|url>]       日本測地系の層に使う TKY2JGD 格子（scripts/bake-tky2jgd.mjs の出力）。無ければ Helmert ±10 m
        [--include a,b] [--exclude a,b] [--exclude-all]  列の選別
   csv2pbf <in.csv|tsv|xlsx> <out.geopbf>   表を GeoPBF へ（経緯度の 2 列＝点、または WKT の 1 列＝点/線/面）。列名は自動検出
        [--lon col] [--lat col] [--wkt col]  列の名指し（自動検出より優先）
@@ -64,6 +66,8 @@ const USAGE = `geopbf <command>
 `;
 
 // ── 共通ヘルパ ────────────────────────────────────────────────────────────────
+
+const tkyArg = async (v) => !v ? undefined : /^https?:\/\//.test(v) ? v : new Uint8Array(await readFile(v));
 
 const readMaybeGzip = async (path) => {
 	const buf = await readFile(path);
@@ -358,7 +362,7 @@ async function parquet2pbf(argv) {
 
 async function gpkg2pbf(argv) {
 	const { fromGeoPackage, readGeoPackage } = await import("../src/convert/gpkg.js");
-	const { pos: [inPath, outPath], opts } = parseArgs(argv, ["precision", "name", "layer", "include", "exclude"]);
+	const { pos: [inPath, outPath], opts } = parseArgs(argv, ["precision", "name", "layer", "include", "exclude", "tky2jgd"]);
 	if (!inPath) throw new Error("gpkg2pbf <in.gpkg> [out.geopbf] [--layer name]");
 	const u8 = new Uint8Array(await readFile(inPath));
 	if (!outPath) {
@@ -370,7 +374,7 @@ async function gpkg2pbf(argv) {
 		for (const w of g.warnings) console.log(`  ⚠ ${w}`);
 		return;
 	}
-	const r = await fromGeoPackage(u8, { layer: opts.layer, precision: opts.precision !== undefined ? +opts.precision : undefined, name: opts.name, ignoreCrs: !!opts["ignore-crs"], ...attrOpts(opts) });
+	const r = await fromGeoPackage(u8, { layer: opts.layer, precision: opts.precision !== undefined ? +opts.precision : undefined, name: opts.name, ignoreCrs: !!opts["ignore-crs"], tky2jgd: await tkyArg(opts.tky2jgd), ...attrOpts(opts) });
 	const gzip = !opts["no-gzip"];
 	let out = Buffer.from(r.pbf.arrayBuffer);
 	if (gzip) out = gzipSync(out, { level: 9 });
@@ -400,7 +404,7 @@ async function csv2pbf(argv) {
 
 async function gdb2pbf(argv) {
 	const { openFileGDB, fromFileGDB, gdbSourceFromFiles } = await import("../src/convert/filegdb.js");
-	const { pos: [inPath, outPath], opts } = parseArgs(argv, ["precision", "name", "layer", "include", "exclude"]);
+	const { pos: [inPath, outPath], opts } = parseArgs(argv, ["precision", "name", "layer", "include", "exclude", "tky2jgd"]);
 	if (!inPath) throw new Error("gdb2pbf <in.gdb|in.zip> [out.geopbf] [--layer name]");
 	const { statSync, readdirSync, openSync, readSync, closeSync } = await import("node:fs");
 	const { join } = await import("node:path");
@@ -420,13 +424,15 @@ async function gdb2pbf(argv) {
 		for (const t of g.tables) console.log(`  ${t.name}  ${t.error ? `⚠ ${t.error}` : t.geometryType ? `${t.geometryType}${t.hasZ ? "Z" : ""}${t.hasM ? "M" : ""}  ${t.crs.label}${t.crs.kind === "other" ? " ⚠経緯度へ戻せない" : ""}` : "(table)"}  ${num(t.rows)} 行  列 ${t.fields.filter(f => f.type !== "geometry").map(f => f.name).join(",")}`);
 		return;
 	}
-	const r = await fromFileGDB(source, { layer: opts.layer, precision: opts.precision !== undefined ? +opts.precision : undefined, name: opts.name, ignoreCrs: !!opts["ignore-crs"], ...attrOpts(opts) });
+	const r = await fromFileGDB(source, { layer: opts.layer, precision: opts.precision !== undefined ? +opts.precision : undefined, name: opts.name, ignoreCrs: !!opts["ignore-crs"], tky2jgd: await tkyArg(opts.tky2jgd), ...attrOpts(opts) });
 	const gzip = !opts["no-gzip"];
 	let out = Buffer.from(r.pbf.arrayBuffer);
 	if (gzip) out = gzipSync(out, { level: 9 });
 	await writeFile(outPath, out);
 	const s = r.stats;
 	console.log(`${inPath}  層 ${s.layer}${s.layers.length > 1 ? `（他 ${s.layers.filter(l => l !== s.layer).join(", ")}）` : ""}  ${s.geometryType}  行 ${num(s.rows)}  features ${num(s.features)}  頂点 ${num(s.vertices)}  列 ${s.columns.length}  CRS ${s.crs}${s.reprojected ? "→経緯度" : ""}`);
+	if (s.datumApprox) console.log("  ⚠ 日本測地系を Helmert 近似で変換（±10 m 級）。--tky2jgd <格子> で 0.2 m 級になる");
+	if (s.datum) console.log(`  TKY2JGD 格子: ${num(s.datum.grid)} 点・格子外で Helmert ${num(s.datum.fallback)} 点`);
 	if (s.droppedGeometries || s.curves || s.z || s.m || s.skipped.length) console.log(`  落とした地物 ${s.droppedGeometries}（空 ${s.emptyGeometries}・多パッチ ${s.multipatch}）${s.curves ? `・曲線→直線 ${s.curves}` : ""}${s.z || s.m ? "・Z/M は落とした" : ""}${s.skipped.length ? `・読まなかった列: ${s.skipped.map(k => `${k.name}(${k.reason})`).join(" ")}` : ""}`);
 	console.log(`${outPath}  ${mb(out.length)}${gzip ? " (gzip)" : ""}  precision ${s.precision}  読込 ${s.ms.read.toFixed(0)} ms・GeoPBF ${s.ms.encode.toFixed(0)} ms`);
 }

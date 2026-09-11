@@ -10,6 +10,9 @@ import { GeoPBF } from "../src/pbf-base.js";
 import { decodeZIP } from "../src/modules/decodeZIP.js";
 import { openFileGDB, fromFileGDB, gdbSourceFromFiles, gdbSourceFromMap, parseTablx } from "../src/convert/filegdb.js";
 import { crsFromWKT, tmInverse, tmForward, parseWKTTree } from "../src/convert/proj.js";
+import { bakeTKY2JGD, parseTKY2JGD, loadTKY2JGD, tokyoToJGD, tokyoHelmert } from "../src/convert/tky2jgd.js";
+import { classifyCrs } from "../src/convert/gpkg.js";
+import { gzipSync as gz } from "node:zlib";
 
 let fails = 0;
 const ok = (cond, msg) => { if (!cond) { console.error("✗", msg); fails++; } else console.log("✓", msg); };
@@ -110,13 +113,49 @@ ok(gdb.tables.find(t => t.name === "big_layer").geometryType === null && gdb.tab
 	const ft = crsFromWKT(`PROJCS["X",GEOGCS["GCS_North_American_1983",DATUM["D_North_American_1983",SPHEROID["GRS_1980",6378137,298.257222101]],PRIMEM["Greenwich",0],UNIT["Degree",0.0174532925199433]],PROJECTION["Transverse_Mercator"],PARAMETER["False_Easting",1640416.666666667],PARAMETER["False_Northing",0],PARAMETER["Central_Meridian",-75],PARAMETER["Scale_Factor",0.9999],PARAMETER["Latitude_Of_Origin",40],UNIT["Foot_US",0.3048006096012192]]`);
 	ok(ft.kind === "projected" && near(ft.toLonLat([1640416.666666667, 0])[0], -75, 1e-9) && near(ft.toLonLat([1640416.666666667, 0])[1], 40, 1e-9), "単位がフィートでも原点が戻る");
 	ok(crsFromWKT(`GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137.0,298.257223563]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]]`).kind === "lonlat" && crsFromWKT(`GEOGCS["GCS_JGD_2000",DATUM["D_JGD_2000",SPHEROID["GRS_1980",6378137,298.257222101]]]`).kind === "lonlat", "GEOGCS WGS84 / JGD2000 は経緯度");
-	ok(crsFromWKT(`GEOGCS["GCS_Tokyo",DATUM["D_Tokyo",SPHEROID["Bessel_1841",6377397.155,299.1528128]]]`).kind === "other" && crsFromWKT(`PROJCS["Tokyo_Japan_Zone_9",GEOGCS["GCS_Tokyo",DATUM["D_Tokyo",SPHEROID["Bessel_1841",6377397.155,299.1528128]]],PROJECTION["Transverse_Mercator"],PARAMETER["Central_Meridian",139.8333]]`).kind === "other", "旧測地系（Tokyo）は経緯度でも平面直角でも拒否");
+	ok(crsFromWKT(`GEOGCS["GCS_Tokyo",DATUM["D_Tokyo",SPHEROID["Bessel_1841",6377397.155,299.1528128]]]`).kind === "datum" && crsFromWKT(`PROJCS["Tokyo_Japan_Zone_9",GEOGCS["GCS_Tokyo",DATUM["D_Tokyo",SPHEROID["Bessel_1841",6377397.155,299.1528128]]],PROJECTION["Transverse_Mercator"],PARAMETER["Central_Meridian",139.8333]]`).approx === true && crsFromWKT(`GEOGCS["GCS_Pulkovo_1942",DATUM["D_Pulkovo_1942",SPHEROID["Krasovsky_1940",6378245,298.3]]]`).kind === "other", "旧測地系: Tokyo は測地系変換（格子なし＝近似）・Pulkovo 等は拒否");
 	const wm = crsFromWKT(`PROJCS["WGS_1984_Web_Mercator_Auxiliary_Sphere",GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137.0,298.257223563]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]],PROJECTION["Mercator_Auxiliary_Sphere"],PARAMETER["False_Easting",0.0],PARAMETER["False_Northing",0.0],PARAMETER["Central_Meridian",0.0],PARAMETER["Standard_Parallel_1",0.0],PARAMETER["Auxiliary_Sphere_Type",0.0],UNIT["Meter",1.0]]`);
 	ok(wm.kind === "projected" && near(wm.toLonLat([15557880, 4257870])[0], 139.7593, 1e-3) && near(wm.toLonLat([0, 0])[1], 0, 1e-12), "Web メルカトル（Esri 名）");
 	ok(crsFromWKT("").kind === "other" && crsFromWKT("{B286C06B-0879-11D2-AACA-00C04FA33C20}").kind === "other" && crsFromWKT(`PROJCS["LCC",GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137.0,298.257223563]]],PROJECTION["Lambert_Conformal_Conic"]]`).kind === "other", "空・GUID・未対応投影は other");
 	const tree = parseWKTTree(`A["x",B[1,2.5,"y"],C]`);
 	ok(tree.name === "A" && tree.args[0] === "x" && tree.args[1].name === "B" && tree.args[1].args[1] === 2.5 && tree.args[2].name === "C", "parseWKTTree");
 }
+// ── 日本測地系（TKY2JGD 格子 / Helmert）────────────────────────────────────────
+const parText = readFileSync(new URL("./fixtures/tky/tky2jgd-tokyo.par", import.meta.url), "utf8");
+const baked = bakeTKY2JGD(parText);
+{
+	ok(baked.meta.version === "JGD2000-TokyoDatum Ver.2.1.2" && baked.meta.cells === 400 && baked.meta.blocks === 4 && baked.maxResidualArcsec < 3.2, `bakeTKY2JGD: 抜粋 400 セル・4 ブロック・最大残差 ${baked.maxResidualArcsec}"`);
+	const grid = parseTKY2JGD(baked.bytes);
+	// 3 次メッシュ 53394550 の南西端では par の値そのもの（量子化 1e-3″ 以内）
+	const lat = 53 / 1.5 + 4 * 5 / 60 + 5 * 30 / 3600, lon = 139 + 5 * 7.5 / 60;
+	const [, dB, dL] = parText.split("\n").find(l => l.startsWith("53394550")).trim().split(/\s+/);
+	const r = grid.toJGD([lon + 1e-9, lat + 1e-9]);
+	ok(near((r[1] - lat) * 3600, +dB, 6e-4) && near((r[0] - lon) * 3600, +dL, 6e-4), `格子: メッシュ南西端で par の値（dB ${dB} dL ${dL}）に 1e-3″ 以内`);
+	const p = [139.7669, 35.6812], g = grid.toJGD(p), h = tokyoHelmert(p);
+	ok(g && near((g[0] - p[0]) * 3600, -11.6, 0.2) && near((g[1] - p[1]) * 3600, 11.6, 0.2), "格子: 東京で経度 −11.6″・緯度 +11.6″（≈ 西 290 m・北 360 m）");
+	ok(near(g[0], h[0], 1 / 90000) && near(g[1], h[1], 1 / 111000), "Helmert（内蔵）は東京で格子と 1 m 以内");
+	ok(grid.toJGD([100, 10]) === null && grid.toJGD([141.35, 43.06]) === null, "格子外（抜粋に無い札幌・海外）は null");
+	ok(tokyoToJGD([141.35, 43.06], grid)[0] > 141.34 && grid.stats.fallback === 1 && tokyoToJGD(p, grid)[0] === g[0] && grid.stats.grid === 1, "tokyoToJGD: 格子外は Helmert に落ちて数える");
+	const viaGz = await loadTKY2JGD(new Uint8Array(gz(baked.bytes)));
+	ok(viaGz.blocks === 4 && viaGz.toJGD(p)[0] === g[0], "loadTKY2JGD: gzip のバイト列を署名で展開");
+	let threw = ""; try { parseTKY2JGD(new Uint8Array(64)); } catch (e) { threw = e.message; } ok(/形式が違う/.test(threw), "形式違いは拒否");
+	// WKT 経由: GEOGCS Tokyo（格子なし＝Helmert 近似・格子あり＝格子）
+	const geogTokyo = `GEOGCS["GCS_Tokyo",DATUM["D_Tokyo",SPHEROID["Bessel_1841",6377397.155,299.1528128]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]]`;
+	const c0 = crsFromWKT(geogTokyo), c1 = crsFromWKT(geogTokyo, { datum: grid });
+	ok(c0.kind === "datum" && c0.approx && /Helmert/.test(c0.label) && near(c0.toLonLat(p)[1], h[1], 1e-12), "GCS_Tokyo（格子なし）＝Helmert 近似で経緯度へ");
+	ok(c1.kind === "datum" && !c1.approx && /TKY2JGD/.test(c1.label) && c1.toLonLat(p)[1] === g[1], "GCS_Tokyo（格子あり）＝格子で経緯度へ");
+	// 旧測地系の平面直角座標系 IX（Bessel の TM → 測地系変換）: 東京駅付近の座標 → JGD で東京駅付近に戻る
+	const zone9Tokyo = `PROJCS["Tokyo_Japan_Zone_9",${geogTokyo},PROJECTION["Transverse_Mercator"],PARAMETER["False_Easting",0.0],PARAMETER["False_Northing",0.0],PARAMETER["Central_Meridian",139.8333333333333],PARAMETER["Scale_Factor",0.9999],PARAMETER["Latitude_Of_Origin",36.0],UNIT["Meter",1.0]]`;
+	const fwdBessel = tmForward({ a: 6377397.155, f: 1 / 299.1528128, k0: 0.9999, lat0: 36, lon0: 139 + 50 / 60, fe: 0, fn: 0 });
+	const xy = fwdBessel(p);   // 日本測地系の経緯度 p を旧系 IX の平面直角へ
+	const c2 = crsFromWKT(zone9Tokyo, { datum: grid }), back = c2.toLonLat(xy);
+	ok(c2.kind === "projected" && /TKY2JGD/.test(c2.label) && near(back[0], g[0], 1e-9) && near(back[1], g[1], 1e-9), "Tokyo_Japan_Zone_9: Bessel で逆変換してから格子で JGD へ");
+	// GeoPackage の gpkg_spatial_ref_sys.definition（PROJCS）も同じ口で判定
+	const c3 = classifyCrs({ id: 6677, org: "EPSG", code: 6677, definition: `PROJCS["JGD2011 / Japan Plane Rectangular CS IX",GEOGCS["JGD2011",DATUM["Japanese_Geodetic_Datum_2011",SPHEROID["GRS 1980",6378137,298.257222101]],PRIMEM["Greenwich",0],UNIT["degree",0.0174532925199433]],PROJECTION["Transverse_Mercator"],PARAMETER["latitude_of_origin",36],PARAMETER["central_meridian",139.833333333333],PARAMETER["scale_factor",0.9999],PARAMETER["false_easting",0],PARAMETER["false_northing",0],UNIT["metre",1]]` });
+	ok(c3.kind === "projected" && /EPSG:6677/.test(c3.label) && near(c3.toLonLat([0, 0])[0], 139 + 50 / 60, 1e-9) && near(c3.toLonLat([0, 0])[1], 36, 1e-9), "gpkg の definition（EPSG:6677 平面直角 IX）を逆変換");
+	ok(classifyCrs({ id: 4301, org: "EPSG", code: 4301, definition: geogTokyo }).kind === "datum", "gpkg の EPSG:4301（Tokyo）＝測地系変換");
+}
+
 // ── CLI ───────────────────────────────────────────────────────────────────────
 {
 	const CLI = new URL("../bin/geopbf.mjs", import.meta.url).pathname;
@@ -131,7 +170,8 @@ ok(gdb.tables.find(t => t.name === "big_layer").geometryType === null && gdb.tab
 	// ディレクトリ形（zip を展開して .gdb ディレクトリに）
 	const gdbDir = join(dir, "x.gdb"); mkdirSync(gdbDir);
 	for (const e of entries) writeFileSync(join(gdbDir, e.name.split("/").pop()), Buffer.from(await e.arrayBuffer()));
-	const log2 = run("gdb2pbf", gdbDir, join(dir, "pt.geopbf"), "--layer", "point", "--no-gzip");
+	const binPath = join(dir, "tky.bin"); writeFileSync(binPath, baked.bytes);
+	const log2 = run("gdb2pbf", gdbDir, join(dir, "pt.geopbf"), "--layer", "point", "--no-gzip", "--tky2jgd", binPath);
 	ok(/features 5/.test(log2) && (await new GeoPBF().set(new Uint8Array(readFileSync(join(dir, "pt.geopbf"))))).geojson.features.length === 5, "CLI gdb2pbf .gdb ディレクトリ（range 読み）");
 }
 

@@ -67,7 +67,7 @@ const mixed = fx("mixed.gpkg"), utf16 = fx("utf16.gpkg");
 	const g = readGeoPackage(mixed);
 	ok(g.layers.map(l => `${l.table}:${l.geometryType}:${l.crs.label}:${l.count}`).join() === "places:POINT:EPSG:4326:1200,shapes:GEOMETRY:EPSG:4326:10,merc:POINT:EPSG:3857:2", "層一覧（表・幾何型・CRS・件数）");
 	ok(g.others.length === 1 && g.others[0].dataType === "attributes" && g.layers[0].identifier === "Places" && g.layers[0].description === "1200 points", "非地物表と identifier/description");
-	ok(classifyCrs({ id: 0, org: "NONE", code: 0 }).kind === "lonlat" && classifyCrs({ id: 6668, org: "EPSG", code: 6668, definition: 'GEOGCS["JGD2011"]' }).kind === "other" && classifyCrs({ id: 900913, org: "EPSG", code: 900913 }).kind === "mercator", "classifyCrs");
+	ok(classifyCrs({ id: 0, org: "NONE", code: 0 }).kind === "lonlat" && classifyCrs({ id: 6668, org: "EPSG", code: 6668, definition: 'GEOGCS["JGD2011",DATUM["Japanese_Geodetic_Datum_2011",SPHEROID["GRS 1980",6378137,298.257222101]]]' }).kind === "lonlat" && classifyCrs({ id: 4284, org: "EPSG", code: 4284, definition: 'GEOGCS["Pulkovo 1942",DATUM["Pulkovo_1942",SPHEROID["Krassowsky 1940",6378245,298.3]]]' }).kind === "other" && classifyCrs({ id: 900913, org: "EPSG", code: 900913 }).kind === "mercator", "classifyCrs");
 }
 const places = await fromGeoPackage(mixed, { layer: "places" });
 {

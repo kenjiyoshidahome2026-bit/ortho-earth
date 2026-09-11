@@ -71,6 +71,7 @@
 		"./mbtiles": "./src/convert/mbtiles.js",
 		"./filegdb": "./src/convert/filegdb.js",
 		"./proj": "./src/convert/proj.js",
+		"./tky2jgd": "./src/convert/tky2jgd.js",
 		"./table": "./src/convert/table.js",
 		"./convert/node-gint": "./src/convert/node-gint.js",
 		"./maplibre-cog": "./src/maplibre-cog.js",

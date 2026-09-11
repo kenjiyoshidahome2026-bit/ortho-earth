@@ -2,17 +2,17 @@
 import { fromGeoPackage } from "../convert/gpkg.js";
 
 onmessage = async (e) => {
-	const { file, name, precision, description, license, attribution, layer } = e.data;
+	const { file, name, precision, description, license, attribution, layer, tky2jgd } = e.data;
 	try {
 		const u8 = new Uint8Array(await file.arrayBuffer());
-		const { pbf, stats } = await fromGeoPackage(u8, { name, precision, description, license, attribution, layer });
+		const { pbf, stats } = await fromGeoPackage(u8, { name, precision, description, license, attribution, layer, tky2jgd });
 		const res = pbf.arrayBuffer;
 		const msg = { type: "gpkgdec", data: res };
 		const notes = [];
 		if (stats.layers.length > 1 && !layer) notes.push(`GeoPackage に ${stats.layers.length} 層（${stats.layers.join(", ")}）＝先頭の "${stats.layer}" を読んだ。他の層は opts.layer で`);
 		if (stats.skipped.length) notes.push(`読まなかった列: ${stats.skipped.map(k => `${k.name}(${k.reason})`).join(" ")}`);
 		if (stats.z || stats.m) notes.push("Z/M 値は落とした（GeoPBF は 2D）");
-		if (stats.reprojected) notes.push(`${stats.crs} を経緯度へ戻した`);
+		if (stats.reprojected) notes.push(`${stats.crs} を経緯度へ戻した${stats.datumApprox ? "（日本測地系は Helmert 近似＝±10 m 級。TKY2JGD 格子を opts.tky2jgd で渡すと 0.2 m 級）" : ""}`);
 		for (const w of stats.warnings) notes.push(w);
 		if (notes.length) msg.warning = notes.join("・");
 		postMessage(msg, [res]);

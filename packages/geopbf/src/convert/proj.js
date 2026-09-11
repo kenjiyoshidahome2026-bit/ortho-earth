@@ -3,9 +3,14 @@
 //   ・GEOGCS: WGS84 / JGD2011 / JGD2000 / ITRF / ETRS89 / NAD83 / GDA 系＝そのまま経緯度（測地系差は m 未満〜1m 級・GCS_Tokyo 等の旧測地系は不可）
 //   ・PROJCS Transverse_Mercator（平面直角座標系 I〜XIX・UTM・Gauss-Krüger）＝Krüger 級数の逆変換（GSI の式・mm 級）
 //   ・PROJCS Mercator_Auxiliary_Sphere / Popular Visualisation Pseudo Mercator（Web メルカトル）＝球の逆変換
-//   crsFromWKT(wkt) → { kind: "lonlat" | "projected" | "other", label, name, toLonLat?: ([x, y]) => [lon, lat] }
+//   ・日本測地系（GCS_Tokyo / D_Tokyo）＝経緯度でも平面直角でも、convert/tky2jgd.js で JGD2000 へ（格子があれば 0.2 m 級・無ければ Helmert 10 m 級）
+//   crsFromWKT(wkt, { datum }) → { kind: "lonlat" | "projected" | "datum" | "other", label, name, approx?, toLonLat?: ([x, y]) => [lon, lat] }
+//     toLonLat があれば変換が要る（projected＝投影の逆変換・datum＝測地系変換・両方のこともある）。datum＝loadTKY2JGD() の戻り（省略＝Helmert）
+
+import { tokyoToJGD } from "./tky2jgd.js";
 
 const D = 180 / Math.PI, R = 6378137;
+const TOKYO = /D_Tokyo|^Tokyo\b|GCS_Tokyo|Tokyo Datum|Tokyo_Datum/i;
 
 /** WKT を木にする: NAME["str", child, 1.5, …] → { name, args: [ string | number | node ] } */
 export function parseWKTTree(wkt) {
@@ -33,7 +38,7 @@ const children = (n, name) => n?.args.filter(a => a && typeof a === "object" && 
 const LONLAT_DATUMS = /WGS_?1984|WGS_?84|JGD_?2011|JGD_?2000|Japanese_Geodetic_Datum|ITRF|ETRS_?(19)?89|European_Terrestrial|NAD_?(19)?83|North_American_1983|GDA_?(19)?94|GDA_?2020|Geocentric_Datum_of_Australia|CGCS2000|China_2000|Korea_2000|KGD2002|SIRGAS|Hartebeesthoek94|NZGD_?2000|PZ-?90|CH1903\+|Swiss/i;
 
 /** WKT → 判定と逆変換。 */
-export function crsFromWKT(wkt) {
+export function crsFromWKT(wkt, opts = {}) {
 	const t = parseWKTTree(wkt);
 	if (!t) return { kind: "other", label: String(wkt || "").slice(0, 40) || "unknown", name: null };
 	const root = t.name === "PROJCS" || t.name === "GEOGCS" || t.name === "GEOGCRS" || t.name === "PROJCRS" ? t : (child(t, "PROJCS") || child(t, "GEOGCS") || t);
@@ -41,8 +46,15 @@ export function crsFromWKT(wkt) {
 	const auth = child(root, "AUTHORITY"); const label = auth && auth.args.length >= 2 ? `${auth.args[0]}:${auth.args[1]}` : (name || root.name);
 	const geog = root.name === "GEOGCS" || root.name === "GEOGCRS" ? root : (child(root, "GEOGCS") || child(root, "BASEGEOGCRS") || child(root, "GEOGCRS"));
 	const datum = child(geog, "DATUM"); const datumName = (datum && typeof datum.args[0] === "string" ? datum.args[0] : "") + " " + (geog && typeof geog.args[0] === "string" ? geog.args[0] : "");
-	const geogOK = LONLAT_DATUMS.test(datumName);
-	if (root.name === "GEOGCS" || root.name === "GEOGCRS") return geogOK ? { kind: "lonlat", label, name } : { kind: "other", label: `${label} (datum ${datumName.trim() || "?"})`, name };
+	const geogOK = LONLAT_DATUMS.test(datumName), isTokyo = !geogOK && TOKYO.test(datumName);
+	const grid = opts.datum || null;
+	const shift = isTokyo ? (p => tokyoToJGD(p, grid)) : null;
+	const shiftLabel = isTokyo ? (grid ? "Tokyo→JGD2000 (TKY2JGD ±0.2 m)" : "Tokyo→JGD2000 (Helmert ±10 m)") : "";
+	if (root.name === "GEOGCS" || root.name === "GEOGCRS") {
+		if (geogOK) return { kind: "lonlat", label, name };
+		if (isTokyo) return { kind: "datum", label: `${label} → ${shiftLabel}`, name, approx: !grid, toLonLat: shift };
+		return { kind: "other", label: `${label} (datum ${datumName.trim() || "?"})`, name };
+	}
 	if (root.name !== "PROJCS" && root.name !== "PROJCRS") return { kind: "other", label, name };
 	// 楕円体
 	const sph = child(datum, "SPHEROID") || child(datum, "ELLIPSOID");
@@ -54,13 +66,14 @@ export function crsFromWKT(wkt) {
 	const params = {}; for (const pn of children(root, "PARAMETER").concat(children(child(root, "CONVERSION"), "PARAMETER"))) if (typeof pn.args[0] === "string") params[pn.args[0].toLowerCase().replace(/[\s_]+/g, "_")] = pn.args[1];
 	const P = (...names) => { for (const n of names) { const k = n.toLowerCase().replace(/[\s_]+/g, "_"); if (params[k] !== undefined) return +params[k]; } return undefined; };
 	const unit = child(root, "UNIT") || child(root, "LENGTHUNIT"); const toM = unit && typeof unit.args[1] === "number" ? unit.args[1] : 1;
-	if (!geogOK) return { kind: "other", label: `${label} (datum ${datumName.trim() || "?"})`, name };
+	if (!geogOK && !isTokyo) return { kind: "other", label: `${label} (datum ${datumName.trim() || "?"})`, name };
+	const wrap = (fn) => isTokyo ? { kind: "projected", label: `${label} → ${shiftLabel}`, name, approx: !grid, toLonLat: p => shift(fn(p)) } : { kind: "projected", label, name, toLonLat: fn };
 	if (/transverse_?mercator|gauss_?kruger/i.test(method) && !/south_orientated/i.test(method)) {
-		const inv = tmInverse({ a, f, k0: P("scale_factor", "Scale factor at natural origin") ?? 1, lat0: P("latitude_of_origin", "Latitude of natural origin", "latitude_of_center") ?? 0, lon0: P("central_meridian", "Longitude of natural origin", "longitude_of_center") ?? 0, fe: (P("false_easting") ?? 0) * toM, fn: (P("false_northing") ?? 0) * toM });   // 原点移動も投影の単位（フィート等）で書かれている
-		return { kind: "projected", label, name, toLonLat: ([x, y]) => inv(x * toM, y * toM) };
+		const inv = tmInverse({ a, f, k0: P("scale_factor", "Scale factor at natural origin") ?? 1, lat0: P("latitude_of_origin", "Latitude of natural origin", "latitude_of_center") ?? 0, lon0: P("central_meridian", "Longitude of natural origin", "longitude_of_center") ?? 0, fe: (P("false_easting") ?? 0) * toM, fn: (P("false_northing") ?? 0) * toM });   // 原点移動も投影の単位（フィート等）で書かれている。Tokyo なら Bessel の楕円体で逆変換してから測地系変換
+		return wrap(([x, y]) => inv(x * toM, y * toM));
 	}
 	if (/mercator_auxiliary_sphere|pseudo_?mercator|popular_visualisation|mercator_1sp/i.test(method) && Math.abs(P("central_meridian", "Longitude of natural origin") ?? 0) < 1e-9) {
-		return { kind: "projected", label, name, toLonLat: ([x, y]) => [x * toM / R * D, (2 * Math.atan(Math.exp(y * toM / R)) - Math.PI / 2) * D] };
+		return wrap(([x, y]) => [x * toM / R * D, (2 * Math.atan(Math.exp(y * toM / R)) - Math.PI / 2) * D]);
 	}
 	return { kind: "other", label: `${label} (${method || "projection ?"})`, name };
 }

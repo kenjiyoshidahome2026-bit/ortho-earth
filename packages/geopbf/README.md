@@ -499,10 +499,12 @@ const { pbf, stats } = await fromFileGDB(source, { layer: "筆界" });
 | Geometry | point, multipoint, polyline, polygon (rings regrouped into Polygon/MultiPolygon by orientation and containment); Z/M dropped; curves are flattened to their vertices and counted (`stats.curves`); multipatch and empty shapes are dropped and counted |
 | CRS | read from the field definition's WKT: WGS 84 / JGD2011 / JGD2000 / ITRF / ETRS89 / NAD83 / GDA pass through; **Transverse Mercator (平面直角座標系 I–XIX, UTM) and Web Mercator are converted to lon/lat** with `geopbf/proj` (Krüger series, mm-level); other projections and old datums (Tokyo) are refused unless `ignoreCrs` |
 | Unknown SRS | passed through as lon/lat when the extent fits, and reported as `crsUnknown` |
+| Tokyo Datum (日本測地系) | converted to JGD2000 — with the GSI **TKY2JGD** grid (0.2 m) when you pass it as `tky2jgd` (URL or bytes; bake it once from `TKY2JGD.par` with `scripts/bake-tky2jgd.mjs`, ≈0.6 MB gzipped), or with the built-in 3-parameter Helmert (≈10 m) otherwise — `stats.datumApprox` says which. Works for GCS_Tokyo and for the old-datum plane rectangular zones (Bessel TM) alike |
 | Rows | deleted rows skipped; sparse 1024-row blocks handled; only the catalog and the chosen layer's two files are read |
 
 `geopbf/proj` is small on purpose: it answers "can this be put back on the globe without a library?" for the
-projections that cover Japanese administrative data, and nothing more.
+projections that cover Japanese administrative data, and nothing more. The same classifier reads a GeoPackage's
+`gpkg_spatial_ref_sys.definition`, so a `.gpkg` in EPSG:6677 or EPSG:4301 comes back on the globe too.
 
 ---
 
