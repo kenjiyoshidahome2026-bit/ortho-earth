@@ -7,7 +7,8 @@
 		"dev": "vite",
 		"build": "vite build",
 		"preview": "vite preview",
-		"deploy": "vite build && find dist -name .DS_Store -delete && wrangler deploy"
+		"verify:prod": "node scripts/verify-prod.mjs",
+		"deploy": "npm run verify:prod && find dist -name .DS_Store -delete && wrangler deploy"
 	},
 	"dependencies": {
 		"common": "*",
