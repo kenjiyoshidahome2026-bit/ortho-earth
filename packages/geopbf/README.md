@@ -14,7 +14,7 @@ runtime dependencies. This is the data layer under [ortho-earth](https://www.ort
 Japanese municipal polygons identify in 0.5–4 ms on an ordinary laptop.
 
 **Contents** — [1. Data model](#1-data-model) · [2. Quick start](#2-quick-start) · [3. File size](#3-file-size) ·
-[4. Command line](#4-command-line) · [5. Vector tiles and GeoParquet](#5-vector-tiles-and-geoparquet) ·
+[4. Command line](#4-command-line) · [5. Vector tiles, GeoParquet, GeoPackage](#5-vector-tiles-and-geoparquet) ·
 [6. COG](#6-cog--cloud-optimized-geotiff) · [7. Editing](#7-editing) · [8. Map library integrations](#8-map-library-integrations) ·
 [9. Storage injection](#9-storage-injection) · [10. Runtime requirements](#10-runtime-requirements)
 
@@ -192,12 +192,14 @@ npx geopbf lod countries.geopbf                                    # what Gint w
 npx geopbf pmtiles countries.geopbf countries.pmtiles --maxzoom 10 # → PMTiles (MVT), simplified per zoom from Gint
 npx geopbf parquet countries.geopbf countries.parquet              # → GeoParquet (WKB + bbox)
 npx geopbf parquet2pbf in.parquet out.geopbf                       # ← GeoParquet, from anyone's writer
+npx geopbf gpkg2pbf roads.gpkg                                     # list the layers of a GeoPackage
+npx geopbf gpkg2pbf roads.gpkg roads.geopbf --layer roads          # ← GeoPackage, one layer (own SQLite reader, no GDAL)
 npx geopbf cog info https://…/TCI.tif                              # remote COG structure over HTTP Range
 ```
 
 Output is gzipped by default, matching the GDAL driver's `COMPRESS=GZIP` and the usual distribution form; pass
 `--no-gzip` for a raw file. Gzip input is detected by signature, not by extension, for every command including
-`enc`. For inputs other than GeoJSON and GeoParquet — Shapefile, GPKG, PostGIS, FlatGeobuf and everything else GDAL
+`enc`. For inputs other than GeoJSON, GeoParquet and GeoPackage — Shapefile, PostGIS, and everything else GDAL
 reads — use the [GDAL/OGR driver](https://github.com/kenjiyoshidahome2026-bit/gdal-geopbf) (`ogr2ogr -f GeoPBF`,
 needs GDAL ≥ 3.12), or the browser workers in `src/index.js`.
 
@@ -361,7 +363,9 @@ file geopbf wrote comes back bit-identical — coordinates are `round(x·10^prec
 the file — and files written by geopandas, pyarrow (v2 pages, zstd) and DuckDB read back to the same features
 (Natural Earth: all 258 identical across the three writers). ZCTA5 2010 (33,092 features, 52M vertices, zstd) comes back
 in 72 s — 12 s to read, 60 s to encode — with every feature identical to the original. The CRS must be lon/lat
-(CRS84 / EPSG:4326); anything else is refused unless `ignoreCrs`. PMTiles has no such inverse: tiles are simplified
+(CRS84 / EPSG:4326); anything else is refused unless `ignoreCrs`. Rows without a geometry are dropped and counted
+(`stats.droppedGeometries`) — a GeoPBF feature always carries a shape, as it does on the GeoPackage, FlatGeobuf and KML
+paths. PMTiles has no such inverse: tiles are simplified
 and quantized, so the best one could do is an approximate reassembly, which this package does not attempt.
 
 ### 5.5 Where the GPU is, honestly
@@ -406,6 +410,43 @@ toGeoParquet(pbf, { codec, level = 9, rowGroupSize = 65536, pageSize, order = "s
 `codec` is `"zstd"` / `"gzip"` / `"none"` and defaults to zstd where the runtime has it (Node 22.15+) and gzip
 otherwise. `include` / `exclude` / `excludeAll` select attributes — tiles and Parquet columns alike — and correspond
 to tippecanoe's `-y` / `-x` / `-X`.
+
+---
+
+### 5.7 GeoPackage in (read-only)
+
+`geopbf/gpkg` reads a `.gpkg` directly — in the browser (drop the file, or `geopbf(file)`) and in Node — with a
+small **read-only SQLite reader of its own** (`geopbf/sqlite`, ~200 lines: B-tree pages, overflow chains, record
+serial types, UTF-8/UTF-16). No sql.js, no WASM, still zero dependencies. It walks the table B-tree of one feature
+layer, unwraps the GeoPackageBinary header and hands the WKB to the same decoder GeoParquet uses.
+
+```js
+import { readGeoPackage, fromGeoPackage } from "geopbf/gpkg";
+const { layers } = readGeoPackage(u8);                        // [{ table, geometryType, crs, count, columns }]
+const { pbf, stats } = await fromGeoPackage(u8, { layer: "roads" });   // layer omitted → first feature layer
+```
+
+| | |
+| :-- | :-- |
+| CRS | EPSG:4326 / CRS84 / undefined-geographic pass through; EPSG:3857 is converted back to lon/lat; anything else throws unless `ignoreCrs` (GeoPBF is lon/lat only — reproject first) |
+| Geometry | all seven WKB types, either byte order, with or without envelope; Z/M dropped; NULL / empty / extension geometries are dropped and counted (`stats.droppedGeometries`) |
+| Attributes | SQLite values as they are; declared `BOOLEAN` → bool, `DATE`/`DATETIME`/`TIMESTAMP` → Date; `BLOB` columns skipped (`stats.skipped`); integers beyond 2^53 kept as strings |
+| Not read | indexes and R-trees (not needed for a full scan), views, `WITHOUT ROWID` tables, un-checkpointed WAL |
+
+Raster GeoPackages (tile pyramids) are opened as what they are — a z/x/y tile store — rather than converted:
+
+```js
+import { openGpkgTiles } from "geopbf/gpkg";
+const t = openGpkgTiles(u8, "std");     // { zooms, xyz, count, bboxLonLat, matrices, get(z,x,y), has(z,x,y), mimeOf }
+const png = t.get(14, 14553, 6452);     // Uint8Array — createImageBitmap(new Blob([png])) in the browser
+```
+
+`xyz` is true when the matrix set is the EPSG:3857 world grid (256 px, 2^z × 2^z), in which case `tile_row` equals the
+XYZ `y`; other grids expose their `matrices` for the caller to map. The index (z/x/y → rowid) is built once by decoding
+only the first columns of each row, so the tile blobs are never copied until `get` asks for one.
+
+Writing GeoPackage is deliberately not here — `ogr2ogr -f GPKG` from the GDAL driver does it, and building a SQLite
+file by hand is where a dependency would start to earn its keep.
 
 ---
 

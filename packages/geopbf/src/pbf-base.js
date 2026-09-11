@@ -21,6 +21,7 @@ class GeoPBF {
 		this._minZoom = options.minZoom ?? null;
 		this._maxZoom = options.maxZoom ?? null;
 		this.e = Math.pow(10, this._precision = options.precision || 6);
+		this.dropped = 0;   // setFeature が幾何なしで落とした地物数
 		this.noprop = !!options.noprop;
 		// cut:false＝エンコード時の antimeridian 切断（antimeridianFeature）を掛けない＝geopbf を「往復しても形が変わらない
 		// 器」として使う時（geoedit のセッション保存）。既定は切断（表示/識別/相互運用の正典）。cutCount＝切断した feature 数。
@@ -182,8 +183,10 @@ class GeoPBF {
 		const func = (obj instanceof Function) ? obj : () => obj.features.forEach(t => this.setFeature(t))
 		return this.setMessage(TAGS.FARRAY, func);
 	}
-	setFeature(q) { //if (!q.geometry || !q.geometry.coordinates) return; // <===
-		q.geometry = q.geometry||{}; q.geometry.coordinates = q.geometry.coordinates ||[];
+	setFeature(q) {
+		// 幾何なし（null / 型不明）の地物はワイヤに載せられない＝書かずに数える（旧＝GTYPE 抜けの壊れたレコードを書き、読み側が TypeError で飛ばしていた）
+		if (!q.geometry || geometryMap[q.geometry.type] == null) { if (!this.dropped++) console.warn(`GeoPBF: feature without geometry dropped (type: ${q.geometry?.type})`); return this; }
+		q.geometry.coordinates = q.geometry.coordinates ||[];
 		antimeridianFeature(q, this._am);
 		return this.setMessage(TAGS.FEATURE, () => this.setGeometry(q.geometry).setProperties(q.properties));
 	}

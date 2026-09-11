@@ -7,6 +7,7 @@ const decoderWorkers = {
     fgb:   () => new Worker(new URL('./decoder/fgb.js',   import.meta.url), { type: 'module' }),
     gint:  () => new Worker(new URL('./decoder/gint.js',  import.meta.url), { type: 'module' }),
     gml:   () => new Worker(new URL('./decoder/gml.js',   import.meta.url), { type: 'module' }),
+    gpkg:  () => new Worker(new URL('./decoder/gpkg.js',  import.meta.url), { type: 'module' }),
     gpx:   () => new Worker(new URL('./decoder/gpx.js',   import.meta.url), { type: 'module' }),
     json:  () => new Worker(new URL('./decoder/json.js',  import.meta.url), { type: 'module' }),
     kmz:   () => new Worker(new URL('./decoder/kmz.js',   import.meta.url), { type: 'module' }),
@@ -156,11 +157,12 @@ export function createGeopbf(apiBase, options = {}) {
                 if (name.match(/\.geojson$/i)) return _geopbf(await decoder("json", q));
                 if (name.match(/\.(topo)?json$/i)) return _geopbf(await file2json(q));
                 if (name.match(/\.fgb$/i)) return _geopbf(await decoder("fgb", q));
+                if (name.match(/\.gpkg$/i)) return _geopbf(await decoder("gpkg", q, { layer: opts.layer }));   // GeoPackage＝自前 SQLite リーダ（読み専用・1 層）
                 if (name.match(/\.zip$/i)) return _geopbf(await decoder(opts.format === "moj" ? "moj" : "shape", q));
                 if (name.match(/\.km[lz]$/i)) return _geopbf(await decoder("kmz", q));   // .kml（生）も kmz デコーダが読む（1.0.5〜）
                 if (name.match(/\.gpx$/i)) return _geopbf(await decoder("gpx", q));
                 if (name.match(/\.(gml|xml)$/i)) return _geopbf(await decoder("gml", q));
-                throw new Error(`geopbf: unsupported file "${name}"（対応: .geopbf .pbf .geojson .json .topojson .fgb .zip(shape/moj) .kml .kmz .gpx .gml .xml .gz）`);   // 旧＝warn して空 pbf（無言の 0 件）
+                throw new Error(`geopbf: unsupported file "${name}"（対応: .geopbf .pbf .geojson .json .topojson .fgb .gpkg .zip(shape/moj) .kml .kmz .gpx .gml .xml .gz）`);   // 旧＝warn して空 pbf（無言の 0 件）
             }
             if (isObject(q)) {
                 q = toFeatureCollection(q);
