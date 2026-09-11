@@ -1,6 +1,6 @@
 # 国別データベース（world）v2
 
-世界の国・地域 262 件の基礎データ（首都・ISO/IOC・国連加盟・面積・人口・経済統計・言語・通貨・国歌・国旗・係争地）と地形 416 件（山脈・単独峰・半島・砂漠・平原・海嶺・海溝・島・諸島）、
+世界の国・地域 262 件の基礎データ（首都・ISO/IOC・国連加盟・面積・人口・経済統計・言語・通貨・国歌・国旗・係争地）と地形 476 件（山脈・単独峰・半島・砂漠・平原・湖・海嶺・海溝・島・諸島）、
 それらの 26 言語の名前テーブル。ビューアは `apps/world`（http://localhost:5174/world/）、配信は bucket `GIS/world/`。
 
 **設計（2026-09-11・v2）**: 英語と ID を基軸にする。国は `key`（ISO 3166-1 alpha-2、非 ISO 主体は Natural Earth 系の B コード、クリッパートンは FR-CP）と
@@ -12,7 +12,7 @@ Wikidata の QID、都市は QID、言語は ISO 639、通貨は ISO 4217。日�
 seed/            正本（人が手で持つ・PR の対象）
   nations.csv      key, qid, name_en, official_en（"Republic of _" 型）, region(1..6), territory(key), conflict(key), capital(都市 QID・空なら Wikidata P36)
   cities.csv       qid, nation(key・複数は |), capital(1)          … 首都は build が自動で加える
-  terrains.csv     qid, category(range/peak/peninsula/desert/plain/ridge/trench/island/islands), name_en … 座標・面積・標高・記事名・26 言語名は Wikidata から
+  terrains.csv     qid, category(range/peak/peninsula/desert/plain/lake/ridge/trench/island/islands), name_en … 座標・面積・標高・記事名・26 言語名は Wikidata から
   conflicts.json   係争地（key・qid・type・region・name_en・exist・sovereignt・territory・claim）
   overrides.json   例外＝key → { 項目: 値, _why: {項目: 理由} }（最優先。無人地の人口・本土面積・非 ISO 主体の通貨・実効支配域…）
   capital-notes.json 首都の注記（defacto / changed=[年, 都市QID] / multi={legislative,judicial,executive} / text=国key か翻訳キー）
@@ -61,6 +61,6 @@ legacy/           README-v1.md＝v1 の経緯と移植台帳のみ。原典と v
 
 ## 地形（地図用）
 
-`seed/terrains.csv`（9 分類 416 件＝QID・分類・英語名。peak＝単独峰 60 件は 2026-09-11 に追加＝8000m 峰 10・七大陸最高峰・各国の象徴的な山と火山）を国と同じ経路で組み立て、`TerrainDB.json` と `i18n/<lang>.json` の `terrains` に出す（2026-09-11）。
+`seed/terrains.csv`（10 分類 476 件＝QID・分類・英語名。2026-09-11 追加: peak＝単独峰 60 件（8000m 峰 10・七大陸最高峰・各国の象徴的な山と火山）、lake＝湖 60 件（面積上位・大陸別の主要湖・カスピ海/死海/アラル海などの塩湖・ヴォルタ/ナセルの人造湖）を国と同じ経路で組み立て、`TerrainDB.json` と `i18n/<lang>.json` の `terrains` に出す（2026-09-11）。
 旧 `地形.txt`（ja 記事名）→ `scripts/terrain-i18n.py` → `地形.csv` の経路は seed 化に伴い削除（git 履歴 5f5483c に残る）。
 分類は Natural Earth の physical labels に倣った英語キー。ビューアの地図配線は未着手（データは先に揃えた）。
