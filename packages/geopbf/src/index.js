@@ -8,6 +8,7 @@ const decoderWorkers = {
     gint:  () => new Worker(new URL('./decoder/gint.js',  import.meta.url), { type: 'module' }),
     gml:   () => new Worker(new URL('./decoder/gml.js',   import.meta.url), { type: 'module' }),
     gpkg:  () => new Worker(new URL('./decoder/gpkg.js',  import.meta.url), { type: 'module' }),
+    gdb:   () => new Worker(new URL('./decoder/gdb.js',   import.meta.url), { type: 'module' }),
     parquet: () => new Worker(new URL('./decoder/parquet.js', import.meta.url), { type: 'module' }),
     csv:   () => new Worker(new URL('./decoder/csv.js',   import.meta.url), { type: 'module' }),
     gpx:   () => new Worker(new URL('./decoder/gpx.js',   import.meta.url), { type: 'module' }),
@@ -35,6 +36,7 @@ import { topology } from "./extension/topology.js";
 import { gint } from "./extension/gint.js";
 import { topo2geo } from "./modules/topo2geo.js";
 import { gunzip, isGzip } from "./modules/gzip.js";
+import { decodeZIP } from "./modules/decodeZIP.js";
 import { isString, isURL, isFile, isObject, isBuffer } from "./modules/utility.js"
 
 // prototype メソッドとレガシー geopbf が使うアクティブインスタンス
@@ -162,11 +164,16 @@ export function createGeopbf(apiBase, options = {}) {
                 if (name.match(/\.gpkg$/i)) return _geopbf(await decoder("gpkg", q, { layer: opts.layer }));   // GeoPackage＝自前 SQLite リーダ（読み専用・1 層）
                 if (name.match(/\.(geo)?parquet$/i)) return _geopbf(await decoder("parquet", q, { geometryColumn: opts.geometryColumn, ignoreCrs: opts.ignoreCrs }));   // GeoParquet（WKB・経緯度）
                 if (name.match(/\.(csv|tsv|xlsx)$/i)) return _geopbf(await decoder("csv", q, { lon: opts.lon, lat: opts.lat, wkt: opts.wkt, sheet: opts.sheet, delimiter: opts.delimiter }));   // 表＝経緯度列か WKT 列
-                if (name.match(/\.zip$/i)) return _geopbf(await decoder(opts.format === "moj" ? "moj" : "shape", q));
+                if (name.match(/\.zip$/i)) {
+                    // zip の中身で振り分け: *.gdbtable があれば FileGDB（.gdb をそのまま zip したもの）。一覧だけ読む（展開しない）
+                    let kind = opts.format === "moj" ? "moj" : opts.format === "gdb" ? "gdb" : "shape";
+                    if (kind === "shape") { const list = await decodeZIP(q, false).catch(() => null); if (list?.some(e => /\.gdbtable$/i.test(e.name))) kind = "gdb"; }
+                    return _geopbf(await decoder(kind, q, kind === "gdb" ? { layer: opts.layer, ignoreCrs: opts.ignoreCrs } : {}));
+                }
                 if (name.match(/\.km[lz]$/i)) return _geopbf(await decoder("kmz", q));   // .kml（生）も kmz デコーダが読む（1.0.5〜）
                 if (name.match(/\.gpx$/i)) return _geopbf(await decoder("gpx", q));
                 if (name.match(/\.(gml|xml)$/i)) return _geopbf(await decoder("gml", q));
-                throw new Error(`geopbf: unsupported file "${name}"（対応: .geopbf .pbf .geojson .json .topojson .fgb .gpkg .parquet .csv .tsv .xlsx .zip(shape/moj) .kml .kmz .gpx .gml .xml .gz）`);   // 旧＝warn して空 pbf（無言の 0 件）
+                throw new Error(`geopbf: unsupported file "${name}"（対応: .geopbf .pbf .geojson .json .topojson .fgb .gpkg .parquet .csv .tsv .xlsx .zip(shape/moj/gdb) .kml .kmz .gpx .gml .xml .gz）`);   // 旧＝warn して空 pbf（無言の 0 件）
             }
             if (isObject(q)) {
                 q = toFeatureCollection(q);
