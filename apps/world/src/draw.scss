@@ -217,6 +217,9 @@
 		[name=flag] > img.map { object-fit:contain; background:#cff; border-radius:8px; }
 	}
 	.hidden { display:none !important; }
+	// 外（地図）から差されている国＝remote hover。自前のホバーとは別物なので枠で示す
+	.remote-hover { outline:2px solid #f80; outline-offset:-2px; }
+	[name=scroll] > div.list table tbody tr.remote-hover > * { background:#432; }
 	[name=loading] { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:#fff; font-size:16px; background:#000; z-index:20;
 		span { display:inline-block; padding:1em 2em; border:2px solid #666; border-radius:8px; background:#222; }
 	}

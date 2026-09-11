@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>ortho-world — 埋め込みの例（国のセレクタ × 地図）</title>
+<style>
+	html, body { margin:0; height:100%; font:13px/1.5 system-ui, sans-serif; background:#1a1a1a; color:#ddd; }
+	#page { display:grid; grid-template-columns:1fr 380px; grid-template-rows:auto 1fr; gap:10px; height:100%; padding:10px; box-sizing:border-box; }
+	h1 { grid-column:1/-1; margin:0; font-size:15px; font-weight:600; color:#fff; }
+	h1 small { font-weight:400; color:#888; margin-inline-start:1em; }
+	/* ← モジュールの取り付け先。大きさはページ側が決める */
+	#selector { position:relative; border:2px solid #444; border-radius:6px; overflow:hidden; }
+	#side { display:flex; flex-direction:column; gap:10px; min-width:0; }
+	#map { flex:1; border:2px solid #444; border-radius:6px; background:#223; display:flex; align-items:center; justify-content:center; flex-direction:column; gap:8px; text-align:center; padding:10px; }
+	#map img { max-width:100%; max-height:70%; object-fit:contain; background:#cff; border-radius:4px; }
+	#log { height:150px; overflow:auto; background:#000; border:2px solid #444; border-radius:6px; padding:6px; font:11px/1.4 ui-monospace, monospace; white-space:pre; }
+	#probe { display:flex; gap:6px; }
+	#probe input { flex:1; min-width:0; background:#333; color:#fff; border:1px solid #666; border-radius:4px; padding:4px 6px; }
+	#probe button { background:#444; color:#fff; border:1px solid #888; border-radius:4px; padding:4px 10px; cursor:pointer; }
+</style>
+</head>
+<body>
+<div id="page">
+	<h1>ortho-world <small>左＝モジュール（国のセレクタ）／右＝ページ側が持つ「地図」。合図だけでつながる</small></h1>
+	<div id="selector"></div>
+	<div id="side">
+		<div id="map"><span style="color:#889">地図アイコン（カードの小さな地図）を押すか、下で国コードを入れて select</span></div>
+		<div id="probe">
+			<input id="q" value="JP" placeholder="JP / JPN / 392 / Q17 / JPN(IOC)" />
+			<button id="hoverBtn">hover</button><button id="selectBtn">select</button>
+		</div>
+		<div id="log"></div>
+	</div>
+</div>
+<script type="module">
+import world from "./src/world.js";
+
+const log = (...a) => { const el = document.getElementById("log"); el.textContent += a.join(" ") + "\n"; el.scrollTop = el.scrollHeight; };
+
+// ① 取り付け＝div を渡すだけ。target を渡すと「埋め込み」扱い＝URL も window も触らない
+const w = await world({ target: "#selector", lang: "ja" });
+log("ready:", w.list().length, "か国");
+
+// ② world → ページ（地図を出したい／選ばれた／ホバー）
+w.on("map", e => {
+	log("map:", e.iso2 || e.key, e.label);
+	document.getElementById("map").innerHTML = `<img src="${e.url}" alt=""><b>${e.label}</b><small>${e.iso2} / ${e.iso3} / ${e.isoNum ?? "-"}</small>`;
+});
+w.on("select", e => log("select:", e.iso2 || e.key, e.iso3, e.name));
+w.on("hover", e => e && log("hover:", e.iso2 || e.key));
+w.on("lang", e => log("lang:", e.lang, e.rtl ? "(RTL)" : ""));
+
+// ③ ページ（地図）→ world。地図の上でホバー/クリックされた国を一覧に映す
+const q = () => document.getElementById("q").value.trim();
+document.getElementById("hoverBtn").onclick = () => { w.hover(q()); log("→ hover(", q(), ")"); };
+document.getElementById("selectBtn").onclick = () => { w.select(q()); log("→ select(", q(), ")"); };
+
+Object.assign(window, { w });
+</script>
+</body>
+</html>
