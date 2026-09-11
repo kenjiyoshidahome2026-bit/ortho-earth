@@ -138,7 +138,7 @@ A GeoPBF file consists of two parts: a <strong>Header Section</strong> and a <st
 <p>
 Storing coordinates as floating-point text like GeoJSON means the longitude
 <code>139.7412345</code> alone costs 11 bytes.
-GeoPBF reduces this dramatically with two stages of compression.
+GeoPBF reduces this in two stages.
 </p>
 
 <div class="delta-table">
@@ -197,8 +197,10 @@ Varint encodes small integers in fewer bytes, giving GeoPBF a property that is i
 		A GeoJSON <code>"coordinates":[139.741234,35.681234]</code> pair is roughly 30 bytes (text).
 		GeoPBF's delta-Varint representation costs 8 bytes for the first vertex and
 		<strong>2–3 bytes</strong> for every subsequent one.
-		Real-world coastline data typically sees a <strong>60–80% size reduction</strong>.
-		Layering gzip via <code>CompressionStream</code> adds another 30–50%.
+		Across the three datasets measured in §8.1 that is a <strong>75–92% reduction</strong>
+		against raw GeoJSON. Layering gzip via <code>CompressionStream</code> removes a further
+		18–29% — comparatively little, precisely because the redundancy gzip looks for has already
+		been squeezed out by the encoding.
 	</p>
 </div>
 
@@ -440,6 +442,86 @@ both spatial queries and LOD filtering reduce to simple integer arithmetic.
 
 <!-- ──────────────────────────────────────────────────── -->
 <h2 id="comparison">8. Comparison with Other Formats</h2>
+
+<h3 id="size">8.1 Measured File Size</h3>
+
+<p>
+Three public datasets of different shape and scale, each converted and measured end to end on one
+machine. Every row holds the same features; sizes are decimal MB.
+</p>
+
+<table>
+	<tr>
+		<th>Format</th>
+		<th>NE 10m admin_0<br><span class="dim">countries, v5.1.1</span></th>
+		<th>KSJ N03 (2026)<br><span class="dim">Japanese municipalities</span></th>
+		<th>TIGER 2024 ZCTA5<br><span class="dim">US ZIP code areas</span></th>
+	</tr>
+	<tr><td class="dim">features</td><td class="dim">258</td><td class="dim">125,130</td><td class="dim">33,791</td></tr>
+	<tr><td class="dim">vertices</td><td class="dim">548,469</td><td class="dim">15,669,416</td><td class="dim">51,258,797</td></tr>
+	<tr><td class="dim">coordinate grid</td><td class="dim">10⁻⁶° (0.11 m)</td><td class="dim">10⁻⁶° (0.11 m)</td><td class="dim">10⁻⁵° (1.1 m)</td></tr>
+	<tr><td><strong>Shapefile</strong> (.shp+.dbf+.shx)</td><td>9.7</td><td>282.8</td><td>825.3</td></tr>
+	<tr><td class="dim">&nbsp;&nbsp;└ +.prj, zipped −9</td><td class="dim">4.9</td><td class="dim">174.8</td><td class="dim">530.5</td></tr>
+	<tr><td><strong>GML</strong> (.xml)</td><td>—</td><td>580.7</td><td>—</td></tr>
+	<tr><td class="dim">&nbsp;&nbsp;└ + gzip −9</td><td class="dim">—</td><td class="dim">123.2</td><td class="dim">—</td></tr>
+	<tr><td><strong>GeoJSON</strong></td><td>13.3</td><td>579.6</td><td>1,089.6</td></tr>
+	<tr><td class="dim">&nbsp;&nbsp;└ + gzip −9</td><td class="dim">4.7</td><td class="dim">138.6</td><td class="dim">265.8</td></tr>
+	<tr><td><strong>FlatGeobuf</strong></td><td>9.3</td><td>266.9</td><td>826.8</td></tr>
+	<tr><td class="dim">&nbsp;&nbsp;└ + gzip −9</td><td class="dim">5.4</td><td class="dim">156.3</td><td class="dim">421.9</td></tr>
+	<tr><td><strong>GeoParquet</strong> (WKB, zstd, bbox)</td><td>4.5</td><td>124.5</td><td>333.7</td></tr>
+	<tr><td><strong>GeoPBF</strong></td><td class="good">3.3</td><td class="good">48.6</td><td class="good">117.8</td></tr>
+	<tr><td><strong>GeoPBF + gzip −9</strong> <span class="dim">(distribution form)</span></td><td class="good"><strong>2.7</strong></td><td class="good"><strong>34.4</strong></td><td class="good"><strong>95.2</strong></td></tr>
+</table>
+
+<p>
+Per vertex, raw → compressed. This is where the formats separate:
+</p>
+
+<table>
+	<tr><th>Bytes per vertex</th><th>NE 10m admin_0</th><th>KSJ N03</th><th>TIGER ZCTA5</th></tr>
+	<tr><td>Shapefile</td><td class="dim">17.7 → 9.0</td><td class="dim">18.1 → 11.2</td><td class="dim">16.1 → 10.3</td></tr>
+	<tr><td>GeoJSON</td><td class="bad">24.2 → 8.6</td><td class="bad">37.0 → 8.8</td><td class="bad">21.3 → 5.2</td></tr>
+	<tr><td>FlatGeobuf</td><td class="dim">17.0 → 9.8</td><td class="dim">17.0 → 10.0</td><td class="dim">16.1 → 8.2</td></tr>
+	<tr><td>GeoPBF</td><td class="good">6.0 → 4.9</td><td class="good">3.1 → 2.2</td><td class="good">2.3 → 1.9</td></tr>
+</table>
+
+<div class="callout callout-key">
+	<div class="callout-head">Shapefile and FlatGeobuf land in the same place</div>
+	<p>
+		Both spend 16–18 bytes per vertex, for the same reason: two IEEE-754 doubles per point,
+		whatever the geometry looks like. The spread between them is record headers and attribute
+		encoding, not coordinates — two decades of format design separate the two, and the geometry
+		section did not move. GeoPBF stores a delta on an integer grid instead, so its cost
+		<em>falls</em> with vertex density: 2–3 bytes per vertex on a boundary sampled every few metres,
+		more on sparse geometry with many attribute columns.
+	</p>
+</div>
+
+<div class="callout callout-note">
+	<div class="callout-head">Compare like with like</div>
+	<p>
+		Gzipped against gzipped, GeoPBF is 1.8–4.0× smaller than GeoJSON — not the 5–17× the raw rows
+		suggest, and every format here is normally shipped compressed. Compression does most of its work
+		on text (GeoJSON keeps 24–36% of its bytes, GML 21%), a fair amount on the double-based binaries
+		(shapefile 51–64%, FlatGeobuf 51–59%: consecutive coordinates share the high-order bytes of their
+		doubles, even though the low mantissa bits are incompressible noise), and least on GeoPBF
+		(71–82%), which has already removed by construction the redundancy the compressor goes looking
+		for. The uncompressed rows are what a decoder walks through in memory; the compressed rows are
+		what crosses the network.
+	</p>
+</div>
+
+<p class="dim" style="font-size:0.82rem">
+Reproduce with <code>npx geopbf enc</code> and <code>npx geopbf parquet</code>; the FlatGeobuf rows use the
+official <code>flatgeobuf</code> npm writer on the same features, and the zipped-shapefile row is
+.shp+.dbf+.shx+.prj packed at deflate −9 so that all three datasets are measured the same way — the shipped
+archives differ in what else they carry (Natural Earth 4.9 MB with an HTML README, TIGER 528.8 MB with ISO
+metadata XML, KSJ N03 803.2 MB with GML <em>and</em> shapefile <em>and</em> GeoJSON in one archive) and are not
+directly comparable. The shapefiles hold the original full-precision doubles, but a shapefile spends a fixed
+16 bytes per point whatever the precision, so its size rows are unaffected.
+</p>
+
+<h3 id="matrix">8.2 Capability Matrix</h3>
 
 <table>
 	<tr>
