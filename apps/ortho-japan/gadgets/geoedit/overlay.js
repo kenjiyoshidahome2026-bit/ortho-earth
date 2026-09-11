@@ -6,7 +6,7 @@
 // ★図形/帯/曲線のプリミティブ（PICTO/SHAPE_SCALE/smoothRing/buildLinePath）の正本は
 //   エンジンの anno ガジェット（apps/ortho-japan/gadgets/anno.js）＝ビューア再生と単一実装（pop/tip 共有と同じ型）。
 //   ここは import して再輸出するだけ（styleform 等の既存 import 先を維持）。
-import { SHAPE_NAMES, SHAPE_SCALE, PICTO, buildLinePath, smoothRing, sanitizeHTML } from "../anno.js";
+import { SHAPE_NAMES, SHAPE_SCALE, PICTO, buildLinePath, smoothRing, sanitizeHTML, dLon, wrapLon } from "../anno.js";
 export { SHAPE_NAMES, SHAPE_SCALE, PICTO, buildLinePath, sanitizeHTML };
 
 const COL = {
@@ -79,13 +79,13 @@ export function createOverlay(map, mapEl, getState) {
 
 	let handles = [];   // 描画時キャッシュ：{x,y,kind:"v"|"m"|"p", arcId?,idx?, eid?,ptIdx?}
 	let symHits = [];   // 描画時キャッシュ：シンボルの当たり矩形 {x0,y0,x1,y1,eid}＝「見えている絵」で選択するための真実源
-	const seg = (pr, a, b) => {   // 大圏分割つき線分（編集ズームでは大抵1分割）
-		const dx = Math.abs(a[0] - b[0]), dy = Math.abs(a[1] - b[1]);
+	const seg = (pr, a, b) => {   // 大圏分割つき線分（編集ズームでは大抵1分割）。経度は最短側＝antimeridian 跨ぎで裏側回りにしない
+		const dl = dLon(a[0], b[0]), dx = Math.abs(dl), dy = Math.abs(a[1] - b[1]);
 		const n = Math.min(32, Math.max(1, Math.ceil(Math.max(dx, dy) / 0.5)));
 		const out = [];
 		for (let i = 0; i <= n; i++) {
 			const t = i / n;
-			out.push(pr(a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t));
+			out.push(pr(wrapLon(a[0] + dl * t), a[1] + (b[1] - a[1]) * t));
 		}
 		return out;
 	};
@@ -279,7 +279,7 @@ export function createOverlay(map, mapEl, getState) {
 			}
 			if (st.model.large) continue;   // 大規模モード＝中点（挿入）ハンドル無し（arc数を変える操作はPhase2対象外）
 			for (let i = 0; i < n - 1; i++) {   // 中点＝挿入ハンドル
-				const mx = (arc.pts[i * 2] + arc.pts[i * 2 + 2]) / 2, my = (arc.pts[i * 2 + 1] + arc.pts[i * 2 + 3]) / 2;
+				const mx = wrapLon(arc.pts[i * 2] + dLon(arc.pts[i * 2], arc.pts[i * 2 + 2]) / 2), my = (arc.pts[i * 2 + 1] + arc.pts[i * 2 + 3]) / 2;   // 中点も最短側
 				const sc = pr(mx, my);
 				if (sc[2] < 0) continue;
 				dot(sc[0], sc[1], 3, COL.mid, COL.midRing);

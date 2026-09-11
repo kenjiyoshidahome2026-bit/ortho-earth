@@ -39,8 +39,11 @@ export { sanitizeHTML };
 //   このモジュールにローカル束縛を作らない＝下の set() が smoothRing を呼んだ瞬間 ReferenceError。
 //   輸入側（geoedit）は再輸出でも解決できるため、エディタでは曲線が出るのにビューアだけ落ちる
 //   ＝WYSIWYG の担保が壊れる形の非対称バグだった（2026-09-01 発見・8/29 の正典昇格からの潜伏）。
-import { smoothRing, smoothGeom } from "geopbf/edit/spline";
-export { smoothRing, smoothGeom };
+import { smoothRing, smoothGeom, wrapLon } from "geopbf/edit/spline";
+export { smoothRing, smoothGeom, wrapLon };
+// 経度の最短差（antimeridian 跨ぎ）：線分の内挿・中点・平行移動の差分は必ずこれを通す（正典・geoedit も import）。
+// 生の差 b-a で内挿すると ±179.9 の混在（normLon 産）が「地球の裏側回り」の帯になる（2026-09-12・geoedit の円で発覚）。
+export const dLon = (from, to) => { const d = to - from; return d - Math.round(d / 360) * 360; };
 
 // ---- @poly（ポリゴン化した線＝帯）＝折れ線を「幅 w の帯＋端形状」の単一閉路として ctx へパス構築（正典）。
 // 塗り(+alpha)が矢じり込みで均一・輪郭が端形状まで一周。capS/capE ∈ ""(butt)/"square"/"round"/"arrow"。
@@ -141,10 +144,10 @@ export function createAnno(map, { signal } = {}) {
 
 	// 大圏分割つき投影（geoedit overlay と同じ規約）
 	const seg = (pr, a, b) => {
-		const dx = Math.abs(a[0] - b[0]), dy = Math.abs(a[1] - b[1]);
+		const dl = dLon(a[0], b[0]), dx = Math.abs(dl), dy = Math.abs(a[1] - b[1]);   // 経度は最短側（antimeridian）
 		const n = Math.min(32, Math.max(1, Math.ceil(Math.max(dx, dy) / 0.5)));
 		const out = [];
-		for (let i = 0; i <= n; i++) { const t = i / n; out.push(pr(a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t)); }
+		for (let i = 0; i <= n; i++) { const t = i / n; out.push(pr(wrapLon(a[0] + dl * t), a[1] + (b[1] - a[1]) * t)); }
 		return out;
 	};
 	const tracePts = (pr, coords) => {

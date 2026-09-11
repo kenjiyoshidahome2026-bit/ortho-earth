@@ -78,7 +78,7 @@
 		"test": "node tests/t-pbf.mjs && node tests/t-maplibre.mjs && node tests/t-leaflet.mjs && node tests/t-openlayers.mjs && node tests/t-loaders.mjs && node tests/t-cli.mjs && node tests/t-cog.mjs && node tests/t-cog-proj.mjs && node tests/t-cog-cli.mjs && node tests/t-moj.mjs && node tests/t-antimeridian.mjs && node tests/t-anchors.mjs && node tests/t-null-island.mjs && npm run test:convert && npm run test:edit",
 		"test:convert": "node tests/t-convert.mjs && node tests/t-pmtiles.mjs && node tests/t-parquet.mjs",
 		"verify:gpu": "node scripts/verify-convert-gpu.mjs",
-		"test:edit": "node tests/edit/t-model.mjs && node tests/edit/t-snap.mjs && node tests/edit/t-roundtrip.mjs && node tests/edit/t-history.mjs && node tests/edit/t-combine.mjs && node tests/edit/t-large.mjs && node tests/edit/t-large-edit.mjs",
+		"test:edit": "node tests/edit/t-model.mjs && node tests/edit/t-spline.mjs && node tests/edit/t-snap.mjs && node tests/edit/t-roundtrip.mjs && node tests/edit/t-history.mjs && node tests/edit/t-combine.mjs && node tests/edit/t-large.mjs && node tests/edit/t-large-edit.mjs",
 		"summary": "repomix --style markdown --output project_summary.md",
 		"verify:npm": "node scripts/verify-npm.mjs",
 		"verify:all": "npm test && npm run verify:gpu && npm run verify:npm",

@@ -2,7 +2,7 @@ export function antimeridianCut(points, isLine = false) {
 	const { PI, sin, cos, sqrt, atan2, abs } = Math, d2r = PI / 180, tub = [];
 	if (!points?.length) return tub;
 	const is_ring = _ => _.length > 1 && _[0][0] === _[_.length - 1][0] && _[0][1] === _[_.length - 1][1];
-	const fix = x => ((((x + 180) % 360) + 360) % 360) - 180;
+	const fix = x => x === 180 ? 180 : ((((x + 180) % 360) + 360) % 360) - 180;   // +180 は保つ（-180 へ書き換えると西側の縫い目頂点が偽の跨ぎになる）
 	const pts = points.filter(t => t && typeof t[0] === 'number').map(t => [fix(t[0]), t[1]]);
 	const north = (pts.reduce((s, t) => s + t[1], 0) / pts.length) > 0;
 	const straddles = p => {

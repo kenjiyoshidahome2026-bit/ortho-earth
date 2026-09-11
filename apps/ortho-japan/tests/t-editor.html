@@ -300,6 +300,41 @@ try {
 		ok("anchorSaveRaw", saved.length === 4);   // 自動保存＝制御点のまま
 	}
 
+	// ---- antimeridian：縫い目を跨ぐ円＝オーバレイ（選択の塗り/辺/中点）は最短側で描く・gint 入口はエンコード時の ±180 切断（2片）。
+	//      壊れていた姿＝±179.9 混在（normLon 産）を生の経度で内挿→「地球の裏側回り」の帯が円を横切る（本人スクショ 9/12）----
+	{
+		const ring = []; for (let i = 0; i <= 36; i++) { const a = i / 36 * Math.PI * 2, x = 180 + 0.01 * Math.cos(a); ring.push([x >= 180 ? x - 360 : x, 0.01 * Math.sin(a)]); }
+		await editor.loadFC({ type: "FeatureCollection", features: [{ type: "Feature", properties: { n: "am" }, geometry: { type: "Polygon", coordinates: [ring] } }] }, { fly: false });
+		location.hash = "#14/0/180";   // hashchange＝applyView 即時（縫い目を画面中央へ）
+		await sleep(400);
+		await editor.commitNow();
+		ok("amView", Math.abs(Math.abs(map.view.center[0]) - 180) < 0.01 && Math.abs(map.view.center[1]) < 0.01);
+		const g = editor.layer.pbf.features[0].geometry;
+		ok("amCut", g.type === "MultiPolygon" && g.coordinates.length === 2);   // gint 入口＝切断済み（各片が縫い目の同じ側）
+		const amEid = [...m().feats.keys()][0];
+		const c0 = map.projectLL(179.998, 0.001);   // 円の内側（西側の片）
+		click(c0[0], c0[1]);
+		await sleep(250);
+		ok("amSelect", editor.state.selection === amEid);
+		const ov = document.querySelector("#map .ge-overlay"), octx = ov.getContext("2d"), d = devicePixelRatio || 1;
+		const alphaAt = (lng, lat) => { const s = map.projectLL(lng, lat); return octx.getImageData(Math.round(s[0] * d), Math.round(s[1] * d), 1, 1).data[3]; };
+		ok("amFillInside", alphaAt(180, 0) > 0 && alphaAt(179.995, 0.002) > 0 && alphaAt(-179.995, -0.002) > 0);   // 円の内側（縫い目の両側）＝選択の塗り
+		ok("amNoBand", alphaAt(-179.97, 0) === 0 && alphaAt(179.97, 0) === 0 && alphaAt(179.97, 0.003) === 0);     // 同じ緯度帯の円の外＝裏側回りの帯が無い
+		// ドラッグ中＝gint は消灯・オーバレイが唯一の絵（本人報告「ドラッグ中の表示がおかしい」の再現経路）：東端の頂点を掴んで動かしたまま検分
+		const v0 = map.projectLL(-179.99, 0);   // 東端の頂点（ring[0]）
+		C().dispatchEvent(new PointerEvent("pointerdown", ev(v0[0], v0[1], 13)));
+		M().dispatchEvent(new PointerEvent("pointermove", ev(v0[0] + 12, v0[1] + 5, 13)));
+		await sleep(120);   // frame フック＝オーバレイ再描画
+		ok("amDragState", !!editor.state.drag && !!editor.state.dragEids?.has(amEid));
+		ok("amDragFill", alphaAt(180, 0) > 0 && alphaAt(179.995, 0.002) > 0 && alphaAt(-179.995, -0.002) > 0);
+		ok("amDragNoBand", alphaAt(-179.97, 0) === 0 && alphaAt(179.97, 0) === 0 && alphaAt(179.97, 0.003) === 0);
+		M().dispatchEvent(new PointerEvent("pointerup", ev(v0[0] + 12, v0[1] + 5, 13)));
+		await sleep(150);
+		ok("amDragMoved", !JSON.stringify(m().featureGeoJSON(amEid, false).geometry.coordinates).includes("[-179.99,0]"));
+		key("z", { metaKey: true }); await sleep(150);
+		key("Escape");
+	}
+
 	// ---- 書き出し／クラウドのダイアログ＝同時に1枚（二重開き・積み重なりなし）----
 	document.querySelector('#ge-toolbar button[data-tip^="書き出し"]').click();
 	document.querySelector('#ge-toolbar button[data-tip^="書き出し"]').click();

@@ -49,5 +49,20 @@ const mixed = [[[179.9, 35.0], [-179.9, 35.0], [-179.9, 35.2], [179.9, 35.2], [1
 	ok(f.geometry.type === "Polygon" && span(lons(f.geometry)) < 0.02, "縫い目と無関係なポリゴンは素通り");
 }
 
+// ⑥ 縫い目上の頂点で跨ぐリング（量子化で経度ちょうど ±180 に載った円＝geoedit 2026-09-12）＝2片に切れる。
+//    片端だけ ±180 のペア（-180→+179.99）は跨ぎ・両端 ±180（④）だけが接触。
+{
+	// 1e-6 格子へ量子化した円。頂点9（北端）は -180・頂点27（南端）は +180 に**ちょうど**載せる＝両側の縫い目頂点で跨ぐ
+	const ring = []; for (let i = 0; i <= 36; i++) { const a = i / 36 * Math.PI * 2; let x = 180 + 0.01 * Math.cos(a); x = x >= 180 ? x - 360 : x; ring.push([Math.round(x * 1e6) / 1e6, Math.round(0.01 * Math.sin(a) * 1e6) / 1e6]); }
+	ring[27][0] = 180;
+	ok(ring.some(c => c[0] === -180) && ring.some(c => c[0] === 180), "検定データ：頂点が +180 と -180 の両方にちょうど載っている");
+	const [f] = await enc([F("Polygon", [ring])]);
+	const g = f.geometry;
+	ok(g.type === "MultiPolygon" && g.coordinates.length === 2, `縫い目上の頂点で跨ぐ円＝2片（実際: ${g.type}×${g.coordinates.length ?? "?"}）`);
+	const spans = (g.coordinates || []).map(p => span(lons({ coordinates: p })));
+	ok(spans.every(s => s <= 0.011), `各片は局所的（span ${spans.map(s => s.toFixed(4)).join("/")}）`);
+	ok(lons(g).every(x => x >= -180 && x <= 180), "全経度が [-180,180] 内");
+}
+
 console.log(fails ? `FAIL (${fails})` : "PASS");
 process.exit(fails ? 1 : 0);
