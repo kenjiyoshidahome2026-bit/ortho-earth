@@ -1,13 +1,13 @@
 // ── head バーの部品（旧 file I/O スニペットにあった d3 拡張の代替）──
 // selectOptions(list,[label,value]) / selectButtons(list) / inputSearch(cb)
-import * as d3 from 'd3';
+import { sel } from "common/dom";
 
 export function selectOptions(target, list, cb, current, trans = s => s) {
-	const sel = target.empty().append("select");
-	sel.selectAll("option").data(list).enter().append("option").attr("value", t => t[1]).attr("trans", t => t[0]).text(t => trans(t[0]));
-	current != null && sel.property("value", current);
-	sel.on("change", function () { cb(this.value); });
-	return sel;
+	const select = target.empty().append("select");   // ローカル名は sel（common/dom の入口）と衝突させない
+	select.selectAll("option").data(list).enter().append("option").attr("value", t => t[1]).attr("trans", t => t[0]).text(t => trans(t[0]));
+	current != null && select.property("value", current);
+	select.on("change", function () { cb(this.value); });
+	return select;
 }
 export function selectButtons(target, list, cb, current, isText = true, trans = s => s) {
 	const div = target.empty().append("div").classed("sel", true);
@@ -15,7 +15,7 @@ export function selectButtons(target, list, cb, current, isText = true, trans = 
 		.classed("flip", t => String(t[1]) == String(current));
 	isText ? btn.attr("trans", t => t[0]).text(t => trans(t[0])) : btn.html(t => t[0]);
 	btn.on("click", function (e, t) {
-		div.selectAll("button").classed("flip", false); d3.select(this).classed("flip", true);
+		div.selectAll("button").classed("flip", false); sel(this).classed("flip", true);
 		cb(t[1]);
 	});
 	return div;

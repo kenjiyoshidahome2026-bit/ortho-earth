@@ -6,6 +6,7 @@
 	"main": "src/index.js",
 	"exports": {
 		".": "./src/index.js",
+		"./dom": "./src/dom/index.js",
 		"./screenLogger": "./src/screenLogger.js",
 		"./geoExec": "./src/geoExec.js",
 		"./*": "./src/*"

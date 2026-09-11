@@ -1,0 +1,6 @@
+// common/dom の表示切り替え（common/d3/selection.scss と同じ内容。v1/v2 並行のため複製）
+.hidden { display:none!important; }
+// ⚠ shrinkHide/resumeShow が付ける .overlay-fullbody はここでは**意図的に無スタイル**。
+//    v1 では common/d3/overlays.scss 側が定義していて、それを読むアプリと読まないアプリで見え方が違う。
+//    覆いは中身（複製された本体）自身の CSS で配置され、この div は transform の器でしかない＝
+//    ここで position を与えると getBoundingClientRect が変わり transform-origin がずれる。
