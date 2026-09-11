@@ -39,7 +39,11 @@
 		if (x.geojson.features.length !== 2 || x.geojson.features[0].geometry.type !== "LineString") throw new Error(`xlsx ${x.geojson.features.length}`);
 		// parquet 側の幾何 null は書く前に GeoPBF.set が落とす（pbf.dropped）ので parquet には行が無い＝警告は csv 側の 1 件だけ
 		if (src.dropped !== 1 || !warnings.some(w => /座標の無い行 1/.test(w))) throw new Error(`warnings ${JSON.stringify(warnings)} dropped=${src.dropped}`);
-		done(`PASS parquet=2 csv=1 xlsx=2 warnings=${warnings.length}`);
+		// FileGDB: GDAL の検定資料（zip のまま）を .zip としてドロップ＝中身の *.gdbtable で gdb に振り分く
+		const gz = await (await fetch("./fixtures/gdb/testopenfilegdb.gdb.zip")).blob();
+		const gdb = await geopbf(new File([gz], "testopenfilegdb.gdb.zip"), { layer: "multipolygon", nocache: true });
+		if (gdb.geojson.features.length !== 5 || gdb.geojson.features[0].geometry.type !== "MultiPolygon") throw new Error(`gdb ${gdb.geojson.features.length} ${gdb.geojson.features[0]?.geometry.type}`);
+		done(`PASS parquet=2 csv=1 xlsx=2 gdb=5 warnings=${warnings.length}`);
 	} catch (e) { done(`FAIL ${e.message}`); }
 </script>
 </body>

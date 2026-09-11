@@ -51,6 +51,9 @@ const USAGE = `geopbf <command>
        [--precision N] [--name name] [--ignore-crs] [--no-gzip]
        [--include a,b] [--exclude a,b] [--exclude-all]  列の選別
 
+  gdb2pbf <in.gdb|in.zip> [out.geopbf]   File Geodatabase の 1 フィーチャクラスを GeoPBF へ（ディレクトリか、それを zip したもの）。out を省くと一覧
+       [--layer name] [--precision N] [--name name] [--ignore-crs] [--no-gzip]
+       [--include a,b] [--exclude a,b] [--exclude-all]  列の選別
   csv2pbf <in.csv|tsv|xlsx> <out.geopbf>   表を GeoPBF へ（経緯度の 2 列＝点、または WKT の 1 列＝点/線/面）。列名は自動検出
        [--lon col] [--lat col] [--wkt col]  列の名指し（自動検出より優先）
        [--sheet name] [--encoding sjis] [--delimiter ,]   xlsx のシート・CSV の文字コード（既定＝UTF-8 で読めなければ Shift_JIS）・区切り
@@ -395,10 +398,43 @@ async function csv2pbf(argv) {
 	console.log(`${outPath}  ${mb(out.length)}${gzip ? " (gzip)" : ""}  precision ${s.precision}  読込 ${s.ms.read.toFixed(0)} ms・GeoPBF ${s.ms.encode.toFixed(0)} ms`);
 }
 
+async function gdb2pbf(argv) {
+	const { openFileGDB, fromFileGDB, gdbSourceFromFiles } = await import("../src/convert/filegdb.js");
+	const { pos: [inPath, outPath], opts } = parseArgs(argv, ["precision", "name", "layer", "include", "exclude"]);
+	if (!inPath) throw new Error("gdb2pbf <in.gdb|in.zip> [out.geopbf] [--layer name]");
+	const { statSync, readdirSync, openSync, readSync, closeSync } = await import("node:fs");
+	const { join } = await import("node:path");
+	let source;
+	if (statSync(inPath).isDirectory()) {
+		const names = readdirSync(inPath);
+		source = { names, read: async (name, offset = 0, length) => { const p = join(inPath, names.find(n => n.toLowerCase() === name.toLowerCase()) ?? name); const size = statSync(p).size; const n = length === undefined ? size - offset : Math.min(length, size - offset); const buf = Buffer.alloc(Math.max(0, n)); const fd = openSync(p, "r"); try { readSync(fd, buf, 0, buf.length, offset); } finally { closeSync(fd); } return new Uint8Array(buf.buffer, buf.byteOffset, buf.length); } };
+	} else {
+		const { decodeZIP } = await import("../src/modules/decodeZIP.js");
+		const entries = await decodeZIP(new Blob([await readFile(inPath)]));
+		if (!entries) throw new Error("zip を開けない");
+		source = gdbSourceFromFiles(entries);
+	}
+	if (!outPath) {
+		const g = await openFileGDB(source);
+		console.log(`${inPath}  フィーチャクラス ${g.layers.length}・表 ${g.tables.length - g.layers.length}`);
+		for (const t of g.tables) console.log(`  ${t.name}  ${t.error ? `⚠ ${t.error}` : t.geometryType ? `${t.geometryType}${t.hasZ ? "Z" : ""}${t.hasM ? "M" : ""}  ${t.crs.label}${t.crs.kind === "other" ? " ⚠経緯度へ戻せない" : ""}` : "(table)"}  ${num(t.rows)} 行  列 ${t.fields.filter(f => f.type !== "geometry").map(f => f.name).join(",")}`);
+		return;
+	}
+	const r = await fromFileGDB(source, { layer: opts.layer, precision: opts.precision !== undefined ? +opts.precision : undefined, name: opts.name, ignoreCrs: !!opts["ignore-crs"], ...attrOpts(opts) });
+	const gzip = !opts["no-gzip"];
+	let out = Buffer.from(r.pbf.arrayBuffer);
+	if (gzip) out = gzipSync(out, { level: 9 });
+	await writeFile(outPath, out);
+	const s = r.stats;
+	console.log(`${inPath}  層 ${s.layer}${s.layers.length > 1 ? `（他 ${s.layers.filter(l => l !== s.layer).join(", ")}）` : ""}  ${s.geometryType}  行 ${num(s.rows)}  features ${num(s.features)}  頂点 ${num(s.vertices)}  列 ${s.columns.length}  CRS ${s.crs}${s.reprojected ? "→経緯度" : ""}`);
+	if (s.droppedGeometries || s.curves || s.z || s.m || s.skipped.length) console.log(`  落とした地物 ${s.droppedGeometries}（空 ${s.emptyGeometries}・多パッチ ${s.multipatch}）${s.curves ? `・曲線→直線 ${s.curves}` : ""}${s.z || s.m ? "・Z/M は落とした" : ""}${s.skipped.length ? `・読まなかった列: ${s.skipped.map(k => `${k.name}(${k.reason})`).join(" ")}` : ""}`);
+	console.log(`${outPath}  ${mb(out.length)}${gzip ? " (gzip)" : ""}  precision ${s.precision}  読込 ${s.ms.read.toFixed(0)} ms・GeoPBF ${s.ms.encode.toFixed(0)} ms`);
+}
+
 // ── entry ─────────────────────────────────────────────────────────────────────
 
 const [cmd, ...argv] = process.argv.slice(2);
-const commands = { enc, dec, info, lod, cog, pmtiles, parquet, parquet2pbf, gpkg2pbf, csv2pbf };
+const commands = { enc, dec, info, lod, cog, pmtiles, parquet, parquet2pbf, gpkg2pbf, csv2pbf, gdb2pbf };
 if (!cmd || cmd === "--help" || cmd === "-h") { console.log(USAGE); process.exit(0); }
 if (!commands[cmd]) { console.error(`geopbf: 知らないコマンド "${cmd}"\n`); console.error(USAGE); process.exit(1); }
 try {

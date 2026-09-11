@@ -194,6 +194,8 @@ npx geopbf parquet countries.geopbf countries.parquet              # → GeoParq
 npx geopbf parquet2pbf in.parquet out.geopbf                       # ← GeoParquet, from anyone's writer
 npx geopbf gpkg2pbf roads.gpkg                                     # list the layers of a GeoPackage
 npx geopbf gpkg2pbf roads.gpkg roads.geopbf --layer roads          # ← GeoPackage, one layer (own SQLite reader, no GDAL)
+npx geopbf gdb2pbf city.gdb                                        # list the feature classes of a File Geodatabase
+npx geopbf gdb2pbf city.gdb.zip parcels.geopbf --layer 筆界         # ← FileGDB (directory or zip), 平面直角座標系/UTM → lon/lat
 npx geopbf csv2pbf stations.csv stations.geopbf                    # ← CSV/TSV/XLSX with lon/lat or WKT columns (Shift_JIS auto)
 npx geopbf csv2pbf book.xlsx parcels.geopbf --sheet 筆 --wkt geometry
 npx geopbf cog info https://…/TCI.tif                              # remote COG structure over HTTP Range
@@ -201,7 +203,7 @@ npx geopbf cog info https://…/TCI.tif                              # remote CO
 
 Output is gzipped by default, matching the GDAL driver's `COMPRESS=GZIP` and the usual distribution form; pass
 `--no-gzip` for a raw file. Gzip input is detected by signature, not by extension, for every command including
-`enc`. For inputs other than GeoJSON, GeoParquet, GeoPackage and tables — PostGIS, File Geodatabase, and everything
+`enc`. For inputs other than GeoJSON, GeoParquet, GeoPackage, File Geodatabase and tables — PostGIS and everything
 else GDAL reads — use the [GDAL/OGR driver](https://github.com/kenjiyoshidahome2026-bit/gdal-geopbf) (`ogr2ogr -f GeoPBF`,
 needs GDAL ≥ 3.12), or the browser workers in `src/index.js`.
 
@@ -474,6 +476,33 @@ const { pbf, stats } = await fromTable(u8, { lon: "経度", lat: "緯度" });   
 | XLSX | first sheet or `sheet`; sharedStrings, inline strings, numbers, booleans, formula cached values; dates stay as serial numbers |
 | Values | numeric-looking strings become numbers except those with a leading zero (`"01"` stays a string — municipality codes survive), `true`/`false` become booleans, empty cells are absent; dates are never guessed |
 | Rows without a usable geometry | dropped and counted (`stats.droppedGeometries`) |
+
+---
+
+### 5.9 File Geodatabase (read-only)
+
+The format most government data actually lives in. `geopbf/filegdb` reads an Esri File Geodatabase — the `.gdb`
+directory, or that directory zipped, which is how it travels — with no SDK and no GDAL: the `.gdbtable` /
+`.gdbtablx` layout as documented by the OpenFileGDB work (ArcGIS 10.x files, version 3 and 4). Drop the zip in the
+browser, or `geopbf gdb2pbf`.
+
+```js
+import { openFileGDB, fromFileGDB, gdbSourceFromFiles } from "geopbf/filegdb";
+const source = gdbSourceFromFiles(zipEntries);            // File objects, or { names, read(name, offset?, length?) }
+const { layers } = await openFileGDB(source);             // feature classes: name, geometryType, crs, rows, fields
+const { pbf, stats } = await fromFileGDB(source, { layer: "筆界" });
+```
+
+| | |
+| :-- | :-- |
+| Fields | int16/32/64, float32/64, string, datetime (→ Date), OBJECTID, GUID/GlobalID (→ `{…}` string), XML; `binary` columns skipped; raster tables refused |
+| Geometry | point, multipoint, polyline, polygon (rings regrouped into Polygon/MultiPolygon by orientation and containment); Z/M dropped; curves are flattened to their vertices and counted (`stats.curves`); multipatch and empty shapes are dropped and counted |
+| CRS | read from the field definition's WKT: WGS 84 / JGD2011 / JGD2000 / ITRF / ETRS89 / NAD83 / GDA pass through; **Transverse Mercator (平面直角座標系 I–XIX, UTM) and Web Mercator are converted to lon/lat** with `geopbf/proj` (Krüger series, mm-level); other projections and old datums (Tokyo) are refused unless `ignoreCrs` |
+| Unknown SRS | passed through as lon/lat when the extent fits, and reported as `crsUnknown` |
+| Rows | deleted rows skipped; sparse 1024-row blocks handled; only the catalog and the chosen layer's two files are read |
+
+`geopbf/proj` is small on purpose: it answers "can this be put back on the globe without a library?" for the
+projections that cover Japanese administrative data, and nothing more.
 
 ---
 
