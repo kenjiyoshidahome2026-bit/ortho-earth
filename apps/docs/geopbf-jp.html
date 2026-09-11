@@ -76,7 +76,7 @@
 <h2 id="why">1. なぜ GeoPBF か</h2>
 
 <p>
-GeoJSON は読みやすく扱いやすいが、大規模データでは致命的な問題がある。
+GeoJSON は可読性が高く扱いやすいが、大規模データではスケールしない。
 テキスト形式のため転送量が大きく、パースに CPU 時間がかかり、
 ブラウザのメインスレッドをブロックする。
 Shapefile は広く普及しているが複数ファイル構成で Web に向かず、
@@ -146,7 +146,7 @@ GeoPBF ファイルは <strong>Header Section</strong> と <strong>Body Section�
 <p>
 座標を GeoJSON のように浮動小数点テキストで記録すると、
 経度 <code>139.7412345</code> だけで 11 バイト消費する。
-GeoPBF は 2 段階の圧縮でこれを劇的に削減する。
+GeoPBF は 2 段階の変換でこれを削減する。
 </p>
 
 <div class="delta-table">
@@ -196,7 +196,7 @@ GeoPBF は 2 段階の圧縮でこれを劇的に削減する。
 隣接する頂点間の座標差は数百メートル程度（地図スケール次第）であり、
 整数化後の差分は小さな値になる。
 Varint は小さな整数を少ないバイト数で表現するため、
-<strong>密集した頂点ほど圧縮率が高い</strong> という地理データに最適な特性を持つ。
+<strong>頂点が密なほど 1 頂点あたりのコストが下がる</strong>。地理データでは有利に働く性質である。
 </p>
 
 <div class="callout callout-key">
@@ -204,8 +204,9 @@ Varint は小さな整数を少ないバイト数で表現するため、
 	<p>
 		GeoJSON の <code>"coordinates":[139.741234,35.681234]</code> は約 30 バイト（テキスト）。
 		GeoPBF のデルタ Varint 表現では初回 8 バイト、以降の頂点は <strong>2〜3 バイト</strong>。
-		実際の海岸線データでは <strong>60〜80% のサイズ削減</strong> が典型的。
-		さらに gzip 圧縮（<code>CompressionStream</code>）を組み合わせることで追加 30〜50% 削減。
+		§8.1 で実測した 3 データセットでは、無圧縮 GeoJSON 比で <strong>75〜92% の削減</strong>。
+		さらに gzip（<code>CompressionStream</code>）で 18〜29% 減る。この上積みが小さいのは、
+		gzip が探す冗長性を構造の側で先に除いてあるためである。
 	</p>
 </div>
 
@@ -450,6 +451,83 @@ GeoPBF に gint エンコードを適用すると、各頂点の座標が
 <!-- ──────────────────────────────────────────────────── -->
 <h2 id="comparison">8. 他フォーマットとの比較</h2>
 
+<h3 id="size">8.1 実測ファイルサイズ</h3>
+
+<p>
+性格と規模の異なる公開データ 3 種を、同一マシンで端から端まで変換して実測した。
+どの行も同じ地物を保持している。単位は 10 進 MB。
+</p>
+
+<table>
+	<tr>
+		<th>フォーマット</th>
+		<th>NE 10m admin_0<br><span class="dim">世界の国界 v5.1.1</span></th>
+		<th>国土数値情報 N03（2026）<br><span class="dim">全国市区町村界</span></th>
+		<th>TIGER 2024 ZCTA5<br><span class="dim">米国 ZIP コード区域</span></th>
+	</tr>
+	<tr><td class="dim">地物数</td><td class="dim">258</td><td class="dim">125,130</td><td class="dim">33,791</td></tr>
+	<tr><td class="dim">頂点数</td><td class="dim">548,469</td><td class="dim">15,669,416</td><td class="dim">51,258,797</td></tr>
+	<tr><td class="dim">座標格子</td><td class="dim">10⁻⁶°（0.11 m）</td><td class="dim">10⁻⁶°（0.11 m）</td><td class="dim">10⁻⁵°（1.1 m）</td></tr>
+	<tr><td><strong>Shapefile</strong>（.shp+.dbf+.shx）</td><td>9.7</td><td>282.8</td><td>825.3</td></tr>
+	<tr><td class="dim">&nbsp;&nbsp;└ +.prj を zip −9</td><td class="dim">4.9</td><td class="dim">174.8</td><td class="dim">530.5</td></tr>
+	<tr><td><strong>GML</strong>（.xml）</td><td>—</td><td>580.7</td><td>—</td></tr>
+	<tr><td class="dim">&nbsp;&nbsp;└ + gzip −9</td><td class="dim">—</td><td class="dim">123.2</td><td class="dim">—</td></tr>
+	<tr><td><strong>GeoJSON</strong></td><td>13.3</td><td>579.6</td><td>1,089.6</td></tr>
+	<tr><td class="dim">&nbsp;&nbsp;└ + gzip −9</td><td class="dim">4.7</td><td class="dim">138.6</td><td class="dim">265.8</td></tr>
+	<tr><td><strong>FlatGeobuf</strong></td><td>9.3</td><td>266.9</td><td>826.8</td></tr>
+	<tr><td class="dim">&nbsp;&nbsp;└ + gzip −9</td><td class="dim">5.4</td><td class="dim">156.3</td><td class="dim">421.9</td></tr>
+	<tr><td><strong>GeoParquet</strong>（WKB・zstd・bbox 列）</td><td>4.5</td><td>124.5</td><td>333.7</td></tr>
+	<tr><td><strong>GeoPBF</strong></td><td class="good">3.3</td><td class="good">48.6</td><td class="good">117.8</td></tr>
+	<tr><td><strong>GeoPBF + gzip −9</strong> <span class="dim">（配布形）</span></td><td class="good"><strong>2.7</strong></td><td class="good"><strong>34.4</strong></td><td class="good"><strong>95.2</strong></td></tr>
+</table>
+
+<p>
+頂点あたりのバイト数（無圧縮 → 圧縮後）。フォーマットの差はここに出る。
+</p>
+
+<table>
+	<tr><th>頂点あたり（バイト）</th><th>NE 10m admin_0</th><th>N03</th><th>ZCTA5</th></tr>
+	<tr><td>Shapefile</td><td class="dim">17.7 → 9.0</td><td class="dim">18.1 → 11.2</td><td class="dim">16.1 → 10.3</td></tr>
+	<tr><td>GeoJSON</td><td class="bad">24.2 → 8.6</td><td class="bad">37.0 → 8.8</td><td class="bad">21.3 → 5.2</td></tr>
+	<tr><td>FlatGeobuf</td><td class="dim">17.0 → 9.8</td><td class="dim">17.0 → 10.0</td><td class="dim">16.1 → 8.2</td></tr>
+	<tr><td>GeoPBF</td><td class="good">6.0 → 4.9</td><td class="good">3.1 → 2.2</td><td class="good">2.3 → 1.9</td></tr>
+</table>
+
+<div class="callout callout-key">
+	<div class="callout-head">Shapefile と FlatGeobuf は同じ場所に着地する</div>
+	<p>
+		どちらも頂点あたり 16〜18 バイト。理由も同じで、1 点につき IEEE-754 の double を 2 本、
+		ジオメトリの形によらず置くからである。両者の差はレコードヘッダと属性の持ち方であって座標ではない。
+		1998 年の Shapefile と 2019 年の FlatGeobuf のあいだに 20 年あって、ジオメトリ部は動かなかった。
+		GeoPBF は代わりに整数格子上のデルタを置くので、コストは頂点密度とともに <em>下がる</em>。
+		数メートル刻みの境界線なら頂点あたり 2〜3 バイト、属性列の多い疎なジオメトリならもう少し多い。
+	</p>
+</div>
+
+<div class="callout callout-note">
+	<div class="callout-head">同じ条件で比べる</div>
+	<p>
+		gzip 同士で比べると、GeoPBF は GeoJSON の 1.8〜4.0 分の 1 である。無圧縮の行が示す 5〜17 倍ではない。
+		どのフォーマットも実際は圧縮して配るのだから、こちらが正味の数字になる。
+		圧縮が一番効くのはテキスト（GeoJSON は元の 24〜36%、GML は 21% まで落ちる）、
+		double 系のバイナリは中庸（shapefile 51〜64%・FlatGeobuf 51〜59%＝隣り合う座標は double の上位バイトを
+		共有するので効く。効かないのは下位の仮数ビットだけ）、
+		そして GeoPBF が一番効かない（71〜82%）。圧縮器が探す冗長性を、構造の側で先に潰してあるからである。
+		無圧縮の行はデコーダがメモリ上で歩く量、圧縮後の行が回線を渡る量にあたる。
+	</p>
+</div>
+
+<p class="dim" style="font-size:0.82rem">
+再現は <code>npx geopbf enc</code> と <code>npx geopbf parquet</code>。FlatGeobuf の行は公式の
+<code>flatgeobuf</code> npm ライタで同じ地物を書いたもの。zip 行は .shp+.dbf+.shx+.prj を deflate −9 で
+こちらで固め直しており、3 データセットを同じ手順で測るためである — 配布 zip は中身がまちまちで
+（Natural Earth 4.9 MB は HTML README 入り、TIGER 528.8 MB は ISO メタデータ XML 入り、
+国土数値情報 N03 803.2 MB は GML と shapefile と GeoJSON が全部入り）そのままでは比較にならない。
+shapefile は原典の double をそのまま持つが、精度によらず 1 点 16 バイト固定なのでサイズ行は影響を受けない。
+</p>
+
+<h3 id="matrix">8.2 能力比較</h3>
+
 <table>
 	<tr>
 		<th>指標</th>
@@ -553,12 +631,12 @@ pbf.<span class="fn">draw</span>(canvasCtx, { fill: <span class="st">'#5a8050'</
 <h2 id="integrations">10. 地図ライブラリ統合（v1.1）</h2>
 
 <p>
-v1.1.0 から、npm パッケージに主要 Web 地図ライブラリ向けのアダプタを同梱しています。
-いずれもホスト側ライブラリを import しない<strong>依存ゼロのサブパス export</strong> で、
-共通ローダの上に載っています: ファイル全体 gzip はマジックバイトで透過、デコードは
+v1.1.0 以降、npm パッケージは主要 Web 地図ライブラリ向けのアダプタを同梱する。
+いずれもホスト側ライブラリを import しない<strong>依存ゼロのサブパス export</strong> であり、
+共通ローダの上に載る。ファイル全体 gzip はマジックバイトで判別して透過的に展開し、デコードは
 <code>new Function</code> を使わない CSP セーフの <code>noeval</code> モード、properties は
-JSON-safe に写像（<code>Date</code> → ISO 文字列、bbox → 素の配列、バイナリ値は除去）されるため、
-各ライブラリの worker 受け渡しを壊しません。
+JSON-safe へ写像する（<code>Date</code> → ISO 文字列、bbox → 素の配列、バイナリ値は除去）。
+各ライブラリの worker 受け渡しを壊さないための処置である。
 </p>
 
 <table>
@@ -618,23 +696,23 @@ L.<span class="fn">geoPBF</span>(<span class="st">"geopbf://https://…"</span>)
 viewer.dataSources.<span class="fn">add</span>(<span class="kw">await</span> Cesium.GeoJsonDataSource.<span class="fn">load</span>(r.geojson));</code></pre>
 
 <p>
-出典表記はファイルの中を旅します（§2）。アダプタはそれを尊重し、Leaflet と OpenLayers は
-ヘッダの <code>attribution</code> を地図のクレジット表示へ自動配線（明示指定が優先）、
-<code>loadGeopbf</code> はヘッダメタデータ一式を返すので手動配線もできます。
-契約が1つだけ: MapLibre では内側 URL を<strong>絶対で</strong>書くこと
+出典表記はファイル内部に格納される（§2）。Leaflet と OpenLayers のアダプタはヘッダの
+<code>attribution</code> を地図のクレジット表示へ自動配線する（明示指定が優先）。
+<code>loadGeopbf</code> はヘッダメタデータ一式を返すため、手動配線も可能である。
+呼び出し側の制約は 1 点のみで、MapLibre では内側 URL を<strong>絶対形</strong>で記述する
 （<code>geopbf://https://…</code>、pmtiles と同じ流儀）。MapLibre はソース URL を
-<code>new URL()</code> で正規化するため、相対形は壊れます。
+<code>new URL()</code> で正規化するため、相対形は復元できない。
 </p>
 
 <h2 id="security">11. 非信頼HTMLと消毒（v1.2）</h2>
 
 <p>
-GeoPBF は開いたフォーマットです。ファイルは誰でも作れて、URL ひとつで届きます。したがって表示用
-プロパティ — <code>@tip</code>・<code>@pop</code>、あるいはビューアが HTML として描画するあらゆる
-プロパティ — は<strong>非信頼入力</strong>として扱わなければなりません。さもなければ、細工された
-ファイルがツールチップや吹き出しの開いた瞬間にページ内で script を実行できます（XSS）。守り方は
-定石どおり: 文字列が <code>innerHTML</code> に入る直前、<em>出力側の境界</em>で消毒すること。
-「保存側で消毒済みのはず」は信用しない — ファイルはエディタを経由せずビューアへ届くからです。
+GeoPBF は開いたフォーマットであり、ファイルは誰でも生成でき、URL 1 つで配布できる。したがって表示用
+プロパティ — <code>@tip</code>・<code>@pop</code>、およびビューアが HTML として描画するあらゆる
+プロパティ — は<strong>非信頼入力</strong>として扱う必要がある。扱いを誤れば、細工されたファイルが
+ツールチップや吹き出しを開いた時点でページ内 script を実行できる（XSS）。対処は定石どおり、文字列が
+<code>innerHTML</code> に入る直前、すなわち<em>出力側の境界</em>で消毒する。保存側での消毒済みを
+前提にはできない。ファイルはエディタを経由せずビューアへ到達しうるためである。
 </p>
 
 <pre><code><span class="cm">// 出力側の境界＝innerHTML の直前で消毒する</span>
@@ -642,26 +720,26 @@ GeoPBF は開いたフォーマットです。ファイルは誰でも作れて�
 el.innerHTML = <span class="fn">sanitizeHTML</span>(feature.properties[<span class="st">"@pop"</span>]);</code></pre>
 
 <p>
-<code>sanitizeHTML</code> は依存ゼロの許可リスト式フィルタです。整形タグ・リスト・表・画像・リンクは
-通り、<code>script</code>・<code>iframe</code>・<code>svg</code> 等は中身ごと廃棄、未知タグは殻だけ
-剥いで中身を残します。イベント属性と <code>style</code> は決して生き残りません。<code>href</code> は
+<code>sanitizeHTML</code> は依存ゼロの許可リスト式フィルタである。整形タグ・リスト・表・画像・リンクは
+通過し、<code>script</code>・<code>iframe</code>・<code>svg</code> 等は中身ごと破棄、未知タグは殻だけを
+剥いで中身を残す。イベント属性と <code>style</code> は通過しない。<code>href</code> は
 <code>http(s)</code>/<code>mailto</code>、<code>img src</code> は
-<code>http(s)</code>/<code>data:image</code> のみ。リンクには
-<code>target="_blank" rel="noopener noreferrer"</code> が強制されます。DOM に触るのは呼び出し時
-だけなので worker からの import も安全です。§10 との役割分担に注意:
-<code>sanitizeProperties</code> は値を <em>JSON安全</em>に（型）、<code>sanitizeHTML</code> は
-<em>表示安全</em>に（マークアップ）。両方使ってください。
+<code>http(s)</code>/<code>data:image</code> のみを許可する。リンクには
+<code>target="_blank" rel="noopener noreferrer"</code> を強制する。DOM に触れるのは呼び出し時のみで、
+worker からの import も安全である。§10 との役割分担は明確で、
+<code>sanitizeProperties</code> は値を <em>JSON 安全</em>に（型の問題）、<code>sanitizeHTML</code> は
+<em>表示安全</em>に（マークアップの問題）する。両者は併用する。
 </p>
 
 <h2 id="cog">12. COG — ラスタも同じ流儀で（v1.4）</h2>
 
 <p>
-COG（Cloud Optimized GeoTIFF）は「HTTP Range で部分読みできる静的ファイル」＝GeoPBF と同じ
-サーバー不要の思想をラスタでやる形式です。v1.4 の <code>geopbf/cog</code> は依存追加ゼロの
-自前リーダ: ヘッダは <strong>16KB の range 一発</strong>で読み、タイル要求はオフセット順に
-整列して隣接 range を<strong>1リクエストへ合体</strong>（coalesce）、解凍と再投影は worker
-プール、JPEG/WebP はブラウザのネイティブデコーダに直行します。数字は
-<code>cog.metrics()</code> がいつでも出します（range 本数・coalesce 圧縮率・デコード時間）。
+COG（Cloud Optimized GeoTIFF）は HTTP Range で部分読みできる静的ファイルであり、GeoPBF と同じ
+「サーバー不要」の構成をラスタへ適用した形式である。v1.4 の <code>geopbf/cog</code> は依存追加ゼロの
+自前リーダで、ヘッダは <strong>16KB の range 1 本</strong>で読み、タイル要求はオフセット順に
+整列して隣接 range を<strong>1 リクエストへ合体</strong>（coalesce）する。解凍と再投影は worker
+プール、JPEG/WebP はブラウザのネイティブデコーダへ渡す。実測値は
+<code>cog.metrics()</code> が随時返す（range 本数・coalesce 圧縮率・デコード時間）。
 </p>
 
 <pre><code><span class="kw">import</span> { openCog } <span class="kw">from</span> <span class="st">"geopbf/cog"</span>;
@@ -669,23 +747,24 @@ COG（Cloud Optimized GeoTIFF）は「HTTP Range で部分読みできる静的�
 <span class="kw">const</span> bm  = <span class="kw">await</span> cog.<span class="fn">renderXYZ</span>(14, x, y);          <span class="cm">// Web メルカトルへ warp 済み ImageBitmap</span></code></pre>
 
 <p>
-対応サブセットは公共 COG 配信の実勢に合わせています: タイル/ストリップ両レイアウト・BigTIFF・
+対応サブセットは公共 COG 配信の実勢に合わせてある。タイル/ストリップ両レイアウト・BigTIFF・
 圧縮 none/deflate/LZW/JPEG/WebP・predictor 2・uint8 RGB(A)/パレット/単バンド uint16/int16/float32
 （自動パーセンタイル・ストレッチ、<code>GDAL_NODATA</code>→透明）・CRS は EPSG:4326/3857/UTM
-（Krüger n 級数 6 次＝nm 精度の自前実装）。これを外れるファイルは黙って壊れず明示エラーで断り、
-<code>gdal_translate -of COG</code> を案内します。MapLibre へは <code>geopbf/maplibre-cog</code> の
-<code>cog://</code> プロトコル、Leaflet へは <code>geopbf/leaflet-cog</code> の GridLayer を一行で。
-CLI は <code>npx geopbf cog info &lt;url&gt; --bench</code> が構造と実測数字を出します。
+（Krüger n 級数 6 次＝nm 精度の自前実装）。これを外れるファイルは黙って壊れるのではなく明示エラーで
+拒否し、<code>gdal_translate -of COG</code> による事前変換を案内する。MapLibre へは
+<code>geopbf/maplibre-cog</code> の <code>cog://</code> プロトコル、Leaflet へは
+<code>geopbf/leaflet-cog</code> の GridLayer を、それぞれ 1 行で接続する。
+CLI は <code>npx geopbf cog info &lt;url&gt; --bench</code> が構造と実測値を出力する。
 </p>
 
 <h2 id="convert">13. PMTiles と GeoParquet — 出ていく方向（v1.5）</h2>
 
 <p>
-v1.4 までのハブは「読む」側でした。v1.5 で出口が開きます: GeoPBF は Mapbox Vector Tiles の
-<strong>PMTiles</strong> アーカイブとして、あるいは <strong>GeoParquet</strong> ファイルとして出ていき、
-GeoParquet は戻ってきます。依存追加はゼロ——どころか <code>pako</code> を<em>外し</em>ました。圧縮・伸長は
-すべてプラットフォーム側の codec を直接叩きます（ブラウザと worker は <code>CompressionStream</code>、
-Node は <code>node:zlib</code>）。実行時依存は <code>pbf</code> 一本だけです。
+v1.4 までの変換ハブは入力側のみを扱っていた。v1.5 で出力側が開き、GeoPBF は Mapbox Vector Tiles の
+<strong>PMTiles</strong> アーカイブ、または <strong>GeoParquet</strong> ファイルとして書き出せる。
+GeoParquet からの逆変換も可能である。依存追加はなく、むしろ <code>pako</code> を<em>削除</em>した。
+圧縮・伸長はすべてプラットフォーム側の codec を直接呼ぶ（ブラウザと worker は
+<code>CompressionStream</code>、Node は <code>node:zlib</code>）。実行時依存は <code>pbf</code> 1 本のみである。
 </p>
 
 <pre><code><span class="cm"># CLI — 素の Node で動く（ネイティブビルド不要）</span>
@@ -701,52 +780,52 @@ npx geopbf parquet2pbf countries.parquet back.geopbf     <span class="cm"># 逆�
 <span class="kw">const</span> pq = <span class="kw">await</span> <span class="fn">toGeoParquet</span>(pbf);                      <span class="cm">// pq.buffer, pq.geo</span></code></pre>
 
 <p>
-<strong>タイルは生のフィーチャからでなく Gint から切ります。</strong> ortho-earth が GPU で描いている
-派生バッファそのものです: 共有境界は 1 本の arc として一度だけ存在し、各頂点は
-Visvalingam–Whyatt のランクを持ちます。したがってズーム別の簡略化は
-<code>rank &gt;= 閾値</code> のフィルタ 1 つに落ち、隣り合う 2 つのポリゴンは必然的に<em>同一の</em>
-頂点列へ簡略化されます＝どのズームでも隙間もスリバーも出ません。閾値は arc ごとに
-Douglas–Peucker 分解と突き合わせて較正してあるので頂点数は tippecanoe の約 10% 以内に収まり、
-それでいて<em>どの</em>頂点が残るかはランクが決めるため、境界の両側は歩調を崩しません。
+<strong>タイルは生のフィーチャではなく Gint から切る。</strong> ortho-earth が GPU で描いている
+派生バッファそのものであり、共有境界は 1 本の arc として一度だけ存在し、各頂点は
+Visvalingam–Whyatt のランクを持つ。したがってズーム別の簡略化は
+<code>rank &gt;= 閾値</code> のフィルタ 1 つに帰着し、隣り合う 2 つのポリゴンは必然的に<em>同一の</em>
+頂点列へ簡略化される。どのズームでも隙間もスリバーも生じない。閾値は arc ごとに
+Douglas–Peucker 分解と突き合わせて較正してあるため、頂点数は tippecanoe の約 10% 以内に収まる。
+かつ<em>どの</em>頂点が残るかはランクが決めるので、境界の両側は同一の結果になる。
 </p>
 
 <p>
-Natural Earth 10m countries（258 ポリゴン・48万頂点・z0–10・4コア Node）で
-<strong>GeoJSON から約 6.5 秒</strong>・573,896 タイル / 151.0MB。tippecanoe v2.82 は 58 秒・
-573,885 タイル / 147MB＝タイル集合は数枚の差で一致し、内部タイルはレイヤ名と geopbf が書く
-フィーチャ <code>id</code> の分を除けばバイト単位で同じ大きさです。同じ仕事に GDAL の PMTiles
-ドライバ（3.12）は 780 秒かかりました。US Census ZCTA5（33,092 郵便番号エリア・5200万頂点・z0–12）
-では 47 秒・238,322 タイル / 251MB に対し tippecanoe が 251 秒・238,319 タイル / 246MB で、
-MapLibre の z3/z7/z11 では見分けがつきません。
+Natural Earth 10m countries（258 ポリゴン・48 万頂点・z0–10・4 コア Node）では、
+<strong>GeoJSON から約 6.5 秒</strong>で 573,896 タイル / 151.0MB。tippecanoe v2.82 は 58 秒で
+573,885 タイル / 147MB であり、タイル集合は数枚の差で一致する。内部タイルはレイヤ名と geopbf が書く
+フィーチャ <code>id</code> の分を除けばバイト単位で同じ大きさになる。同じ処理に GDAL の PMTiles
+ドライバ（3.12）は 780 秒を要した。US Census ZCTA5（33,092 郵便番号エリア・5,200 万頂点・z0–12）
+では 47 秒で 238,322 タイル / 251MB、tippecanoe は 251 秒で 238,319 タイル / 246MB。
+MapLibre の z3/z7/z11 で描き比べても差は判別できない。
 </p>
 
 <p>
-<strong>Parquet の行は空間順に並んで出ます。</strong> フィーチャ bbox の中心を Sort-Tile-Recursive で
-詰めます（<code>order: "str"</code> が既定）。各 row group の <code>bbox</code> 統計が互いに重ならない
-区画を覆うので、範囲条件を押し下げて読む側（DuckDB・pyarrow datasets・GeoPandas）は本当に交差する
-row group だけを取りに行きます。100万点を 50 row group にした実測で、row group の重なり比は
+<strong>Parquet の行は空間順に並べて出力する。</strong> フィーチャ bbox の中心を Sort-Tile-Recursive で
+詰める（<code>order: "str"</code> が既定）。各 row group の <code>bbox</code> 統計が互いに重ならない
+区画を覆うため、範囲条件を押し下げて読む側（DuckDB・pyarrow datasets・GeoPandas）は実際に交差する
+row group だけを取得する。100 万点を 50 row group にした実測では、row group の重なり比が
 無ソート 24.5 → Morton 0.87 → Hilbert 0.28 → STR 0.00、市域サイズの問い合わせが触る row group は
-50 から 1–2 へ。これは井口和裕氏の <em>Spatial sort for well-packed GeoParquet</em>（CNG Japan 2026）
-に倣ったものです。
+50 から 1–2 へ減る。井口和裕氏の <em>Spatial sort for well-packed GeoParquet</em>（CNG Japan 2026）
+に倣った実装である。
 </p>
 
 <p>
-<strong>GPU がどこにいるか、正直に。</strong> 投影・ズーム別ランクフィルタ・整数→double 変換・bbox
-リダクションは WebGPU があれば GPU で走り、無ければ<em>同じ整数演算</em>を CPU で走らせます＝どちらでも
-出力はバイト一致で、headless Chromium でカーネル単位に検証しています。ただしこれらの段は、これまで
-実測したどのデータでも仕事全体の 3–6% にすぎません。支配的なのはリング組み立て・クリッピング・
-MVT エンコード・gzip の側です。GPU はブラウザのメインスレッドを空けておくための道具であって、
-この変換器が速い理由ではありません。速さは Gint と組み立て段から来ています。
+<strong>GPU が担う範囲。</strong> 投影・ズーム別ランクフィルタ・整数→double 変換・bbox
+リダクションは、WebGPU があれば GPU で走り、無ければ<em>同じ整数演算</em>を CPU で走らせる。
+どちらの経路でも出力はバイト一致であり、headless Chromium でカーネル単位に検証している。
+ただしこれらの段が占めるのは、実測したどのデータでも仕事全体の 3–6% にすぎない。支配的なのは
+リング組み立て・クリッピング・MVT エンコード・gzip の側である。GPU はブラウザのメインスレッドを
+空けておくための手段であって、この変換器が速い理由ではない。速度は Gint と組み立て段に由来する。
 </p>
 
 <p>
-<strong>そして戻ってこられます。</strong> <code>fromGeoParquet()</code> は GeoParquet を GeoPBF へ戻します。
+<strong>逆変換。</strong> <code>fromGeoParquet()</code> は GeoParquet を GeoPBF へ戻す。
 依存ゼロの Parquet リーダ（Thrift compact フッタ・DataPage v1/v2・PLAIN と辞書エンコーディング・
-codec は none / snappy / gzip / zstd）と WKB パーサの組み合わせです。geopbf が書いたファイルは
-ビット単位で戻り、GeoPandas・pyarrow・DuckDB が書いたファイルも同じフィーチャとして読めます。CRS は
-経緯度（CRS84 / EPSG:4326）である必要があり、それ以外は <code>ignoreCrs</code> を渡さない限り断ります。
-PMTiles に同じ逆変換はありません: タイルは簡略化され量子化されているので、できるのは近似的な再構成
-だけで、このパッケージはそれをやったふりをしません。
+codec は none / snappy / gzip / zstd）と WKB パーサの組み合わせである。geopbf が書いたファイルは
+ビット単位で復元され、GeoPandas・pyarrow・DuckDB が書いたファイルも同じフィーチャとして読める。CRS は
+経緯度（CRS84 / EPSG:4326）に限り、それ以外は <code>ignoreCrs</code> を渡さない限り拒否する。
+PMTiles に同等の逆変換は用意していない。タイルは簡略化され量子化されているため、可能なのは近似的な
+再構成だけであり、それを逆変換と称することはしない。
 </p>
 
 <hr class="rule">
