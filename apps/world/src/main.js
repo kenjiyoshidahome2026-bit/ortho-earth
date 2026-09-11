@@ -182,7 +182,7 @@ refresh(state.lang, changed => {
 	};
 	modal.node().offsetParent === null ? redo() : (pendingUpdate = redo);
 }).catch(e => console.warn("refresh:", e));
-// ディープリンク: ?open=国名（name.ja / key / iso2）で国旗モーダルを開いた状態で起動
+// ディープリンク: ?open=key（iso2 か台帳キー）で国旗モーダルを開いた状態で起動
 {
 	const q = new URLSearchParams(location.search).get("open");
 	const t = q && (model.nation_hash[q] || model.key_hash[q] || model.key_hash[q.toUpperCase()]);
@@ -233,7 +233,7 @@ async function drawAll() {
 function mapTip(q) { return trans("Show '$1'", q.Name) + (q.geopngurl ? `<br/><img style="width:128px; padding:5px 0 0 20px;" src="${q.geopngurl}" alt=""/>` : ""); }
 function blockView() {
 	scroll.classed("grid", true);   // CSS Grid（draw.scss 末尾）＝float 崩れの根治
-	scroll.selectAll("div.nation").data(nationTub).enter().append("div").each(function (q) { try { draw.call(this, q); } catch (e) { console.error("card失敗:", q && q.name && q.name.ja, e); } });
+	scroll.selectAll("div.nation").data(nationTub).enter().append("div").each(function (q) { try { draw.call(this, q); } catch (e) { console.error("card失敗:", q && q.key, e); } });
 	scroll.selectAll(".hover").on("mouseenter", () => Sound("操作M", 0.4));
 	function draw(q) {
 		const node = d3.select(this).classed("nation", true);
@@ -280,7 +280,7 @@ function inlineView() {
 	header(thead);
 	tbody.selectAll("tr").data(nationTub).enter().append("tr").each(safeDraw);
 	scroll.selectAll(".hover").on("mouseenter", () => Sound("操作M", 0.4));
-	function safeDraw(q) { try { draw.call(this, q); } catch (e) { console.error("row失敗:", q && q.name && q.name.ja, e); } }
+	function safeDraw(q) { try { draw.call(this, q); } catch (e) { console.error("row失敗:", q && q.key, e); } }
 	function header(thead) {
 		let tr = thead.append("tr");
 		tr.append("th").attr("rowspan", 2).html("#");
@@ -290,9 +290,9 @@ function inlineView() {
 		(sort > 2) && tr.append("th").attr("colspan", show || length).html(trans(label) + Unit + small("(" + ref + ")")).classed("hover", true).on("click", () => sortExternal(sort - 1));
 		tr.append("th").attr("rowspan", 2).html(trans("Capital")).classed("hover", true).on("click", () => sortCapital());
 		region || tr.append("th").attr("rowspan", 2).html(trans("Region")).classed("hover", true).on("click", () => sortRegion());
-		tr.append("th").attr("rowspan", 2).html(trans("United Nations")).classed("hover", true).on("click", () => sortOthers("un", 0));
+		tr.append("th").attr("rowspan", 2).html(trans("United Nations")).classed("hover", true).on("click", () => sortOthers("un"));
 		tr.append("th").attr("colspan", 3).html("ISO-3166-1");
-		tr.append("th").attr("colspan", 2).html("IOC");
+		tr.append("th").attr("rowspan", 2).html("IOC");
 		labels.forEach((t, i) => i && (i != sort - 1) && tr.append("th").attr("rowspan", 2).html(t).classed("hover", true).on("click", () => sortExternal(i)));
 		tr.append("th").attr("rowspan", 2).html(trans("Currency"));
 		tr.append("th").attr("rowspan", 2).html(trans("Official language"));
@@ -317,10 +317,11 @@ function inlineView() {
 			const d = state.sort > 0 ? dire ? 1 : -1 : dire ? -1 : 1;
 			sortInternal((p, q) => d * ((p[member].data[i] || 0) > (q[member].data[i] || 0) ? 1 : -1));
 		}
-		function sortOthers(key, n) {
+		function sortOthers(key, n) {   // n 省略＝値そのもの（un は加盟日の文字列）
+			const v = t => n == null ? t[key] : t[key][n];
 			const a = nationTub.filter(t => t[key]); if (!a.length) return;
-			const d = a[0][key][n] > a[a.length - 1][key][n] ? 1 : -1;
-			nationTub = a.sort((p, q) => d * (p[key][n] > q[key][n] ? 1 : -1)).concat(nationTub.filter(t => !t[key])); sortInternal();
+			const d = v(a[0]) > v(a[a.length - 1]) ? 1 : -1;
+			nationTub = a.sort((p, q) => d * (v(p) > v(q) ? 1 : -1)).concat(nationTub.filter(t => !t[key])); sortInternal();
 		}
 	}
 	function draw(q) {
@@ -342,10 +343,9 @@ function inlineView() {
 		td.append("span").html(q.capitalName).classed("hover", true).on("click", () => q.capital && q.capital.OpenWikipedia()).tip(trans("Open '$1' on Wikipedia", q.capital ? q.capital.Name : ""));
 		q.capitalComment && td.classed("mark", true).tip(q.capitalComment);
 		region || tr.append("td").css(C).html(q.regionName);
-		const un = tr.append("td").css(C).html(q.un ? q.un[0] : q.relation);
-		q.un && q.un[1] && q.un[1].length && un.classed("mark", true).tip(q.unapproved);
-		(q.iso || ["", "", ""]).forEach(t => tr.append("td").css(C).html(t));
-		(q.ioc || ["", ""]).forEach(t => tr.append("td").css(C).html(t));
+		tr.append("td").css(C).html(q.un ? q.unDate : q.relation);
+		(q.iso || ["", "", ""]).forEach(t => tr.append("td").css(C).html(t == null ? "" : t));
+		tr.append("td").css(C).html(q.ioc || "");
 		value.forEach(t => tr.append("td").css(R).html(t));
 		tr.append("td").css(C).html(q.Currency);
 		tr.append("td").css(L).html(q.Language);

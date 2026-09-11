@@ -1,0 +1,12 @@
+{
+	"name": "world-data",
+	"version": "2.0.0",
+	"private": true,
+	"description": "国別データベース（seed＝正本・build＝Wikidata/統計 API からの組み立て・データは CC BY-SA 4.0）",
+	"type": "module",
+	"scripts": {
+		"build": "node build/cli.js",
+		"build:fresh": "node build/cli.js --fresh"
+	},
+	"engines": { "node": ">=22" }
+}

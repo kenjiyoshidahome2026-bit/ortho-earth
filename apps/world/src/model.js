@@ -10,14 +10,13 @@ export const isRTL = lang => !!(LANGS.find(l => l.code == lang) || {}).rtl;
 // 数値は選択言語の区切りで（数字そのものはラテン＝言語をまたいで比較しやすく）
 const locale = () => ({ zh: "zh-CN", pt: "pt-BR", ar: "ar-EG", bn: "bn-BD" })[state.lang] || state.lang;
 export const fmtInt = n => { try { return new Intl.NumberFormat(locale(), { numberingSystem: "latn", maximumFractionDigits: 0 }).format(n); } catch { return String(Math.round(n)); } };
-export const fmtDate = s => { const m = /^(\d{4})\/(\d{2})\/(\d{2})$/.exec(s || ""); if (!m) return s || "";
+export const fmtDate = s => { const m = /^(\d{4})[-\/](\d{2})[-\/](\d{2})$/.exec(s || ""); if (!m) return s || "";
 	try { return new Intl.DateTimeFormat(locale(), { year: "numeric", month: "short", day: "numeric", numberingSystem: "latn" }).format(new Date(+m[1], +m[2] - 1, +m[3])); } catch { return s; } };
 export const collator = () => { try { return new Intl.Collator(locale()); } catch { return new Intl.Collator("en"); } };
 const td = s => `<td>${s}</td>`, tr = a => `<tr>${a.join("")}</tr>`;
 const Table = a => `<table>${a.map(t => tr(t.map(td))).join("")}</table>`;
 const span = s => `<span>${s || ""}</span>`, p = s => `<p>${s}</p>`, th = s => `<th>${s}</th>`, table = s => `<table>${s || ""}</table>`;
 const inlineFlag = src => `<img class="inline" src="${src}"/>`;
-const wikiURL = (lang, id) => `https://${lang}.wikipedia.org/w/index.php?curid=${id}`;
 ////-------------------------------------------------------------------------------------------------------------
 export const REGIONS = [["Whole World", "0"], ["Asia", "3"], ["Europe", "1"], ["Africa", "2"], ["North America", "4"], ["South America", "5"], ["Oceania/Antarctica", "6"]];
 REGIONS.name = {}; REGIONS.forEach(t => REGIONS.name[t[1]] = t[0]);
@@ -100,34 +99,35 @@ export const trans = (key, t1, t2) => {
 };
 trans.names = key => { const ui = state.i18n && state.i18n.ui; return [key, ui && ui[key]].filter(t => t); };   // 検索用（英語+選択言語）
 ////-------------------------------------------------------------------------------------------------------------
-let ctx = null;   // buildModel が設定: { flags, geoms, nation_hash, uiFlags }
+let ctx = null;   // buildModel が設定: { nation_hash, city_hash, uiFlags, flag, hasFlag, geom, openWiki }
+// v2 データ（2026-09-11）: 名前は英語基軸（name.en）＋ i18n/<lang>.json（name/wiki/official/yomi）。内部参照は key（国）と QID（都市）
 class MultiLanguageWiki {
 	constructor(obj) { Object.assign(this, obj); }
 	get i18n() { return null; }   // 派生クラスが i18n テーブルの自分の行を返す
-	get Name() { const e = this.i18n; return (e && e.name) || this.name[state.lang] || this.name.en || this.name.ja || ""; }
-	get Wiki() { return this.wiki && this.wiki[state.lang] || 0; }
+	get Name() { const e = this.i18n; return (e && e.name) || (this.name && this.name.en) || ""; }
 	get wikipediaURL() {
-		const e = this.i18n;
-		if (e && e.wiki) return `https://${state.lang}.wikipedia.org/wiki/${encodeURIComponent(e.wiki.replace(/ /g, "_"))}`;   // 選択言語の記事名
-		const id = this.Wiki || (this.wiki && this.wiki.en); return id ? (this.Wiki ? wikiURL(state.lang, this.Wiki) : wikiURL("en", id)) : "";
+		const e = this.i18n, title = (e && e.wiki) ? [state.lang, e.wiki] : (this.wiki && this.wiki.en) ? ["en", this.wiki.en] : null;   // 選択言語の記事名 → 英語版
+		return title ? `https://${title[0]}.wikipedia.org/wiki/${encodeURIComponent(title[1].replace(/ /g, "_"))}` : "";
 	}
+	// ja: 先頭がカナなら名前そのもの・先頭が漢字（日本/中華…/南アフリカ・東京）は i18n の読み。他言語は選択言語の名前を Collator で
+	get sortName() { if (state.lang != "ja") return this.Name; const e = this.i18n, n = this.Name; return /^[ァ-ヶー]/.test(n) ? n : ((e && e.yomi) || n); }
 	// 記事は別タブでなくアプリ内の iframe（census と同じ・Kenji 2026-09-10）。ctx.openWiki が無ければ別タブ
 	OpenWikipedia() { const url = this.wikipediaURL; url && (ctx && ctx.openWiki ? ctx.openWiki(url, this.Name) : open(url, "_wiki_")); }
 }
 export class Nation extends MultiLanguageWiki {
 	get i18n() { const t = state.i18n; return t && t.nations && t.nations[this.key] || null; }
-	get officialName() { const ext = this.extend ? this.extend[state.lang] : ""; return ext ? ext.replace("_", this.Name) : this.Name; }
+	get officialName() { const e = this.i18n, ext = (e && e.official) || (state.lang == "en" ? this.official : ""); return ext ? ext.replace("_", this.Name) : this.Name; }
 	get capitalName() { return this.capital ? this.capital.Name : this.territory ? "(" + this.territory.capitalName + ")" : ""; }
 	get capitalInfo() { const cap = this.capitalName; return cap ? trans(this.territory ? "Seat of government" : "Capital") + ":" + span(cap) : ""; }
 	// 首都の注記＝データ側 capitalNote（defacto/changed/multi/text）。旧 draw.js のハードコード表を撤去
 	get capitalComment() {
 		const n = this.capitalNote; if (!n) return "";
-		const local = ja => (ctx.cityByJa[ja] && ctx.cityByJa[ja].Name) || (ctx.nation_hash[ja] && ctx.nation_hash[ja].Name) || trans(ja);   // 内部参照（name.ja）→ 選択言語
-		const ROLE = { 立法: "Legislature", 司法: "Judiciary", 行政: "Executive" };
+		const local = id => (ctx.city_hash[id] && ctx.city_hash[id].Name) || (ctx.nation_hash[id] && ctx.nation_hash[id].Name) || trans(id);   // 都市 QID / 国 key → 選択言語
+		const ROLE = { legislative: "Legislature", judicial: "Judiciary", executive: "Executive" };
 		if (n.defacto) return span(trans("de facto capital") + ":") + span(local(n.defacto));
 		if (n.changed) return span("⬅︎ ") + span(local(n.changed[1])) + span("(" + n.changed[0] + ")");
 		if (n.multi) return Table(Object.entries(n.multi).map(([k, v]) => [trans(ROLE[k] || k), ":", local(v)]));
-		if (n.text) return ctx.nation_hash[n.text] ? ctx.nation_hash[n.text].Name : trans(({ "スヴァールバル諸島": "Svalbard" })[n.text] || n.text);
+		if (n.text) return local(n.text);
 		return "";
 	}
 	get iso2() { return this.iso ? this.iso[0] : ""; }
@@ -173,33 +173,20 @@ export class Nation extends MultiLanguageWiki {
 	get group() { return this.is("G7") ? `<span class="G7"></span>` : this.is("G20") ? `<span class="G20"></span>` : ""; }
 	get flagTitle() { return span(`【 ${this.regionName} 】`) + span(this.officialName) + span("(") + this.capitalInfo + ")"; }
 	get summary() { return [this.areaInfo, this.populationInfo, this.gdpInfo].filter(t => t).join("<span>/</span> "); }
-	get unJoin() { const perm = this.is("UN5") ? `<span class="permanent">${trans("Permanent member")}</span>` : ""; return this.un ? this.unFlag + span(fmtDate(this.un[0])) + perm : ""; }
-	get unapproved() {
-		return !(this.un && this.un[1]) ? null :
-			p(inlineFlag(ctx.uiFlags.係争中) + trans("Unrecognized by")) + table(this.un[1].map(t => tr([th(t.inlineFlag) + td(t.Name)])).join(""));
-	}
+	get unDate() { return this.un ? fmtDate(this.un) : ""; }
+	get unJoin() { const perm = this.is("UN5") ? `<span class="permanent">${trans("Permanent member")}</span>` : ""; return this.un ? this.unFlag + span(this.unDate) + perm : ""; }
 	get relation() {
-		if (this.name.ja == "西サハラ") {
-			const a = ctx.nation_hash["モロッコ"], b = ctx.nation_hash["サハラ・アラブ民主共和国"];
+		if (this.key == "EH") {   // 西サハラ＝モロッコ（MA）と SADR（B28）の係争（ISO 準拠整理 2026-08-31）
+			const a = ctx.nation_hash.MA, b = ctx.nation_hash.B28;
 			return (a ? inlineFlag(a.flagURL) : "") + inlineFlag(ctx.uiFlags.係争中) + (b ? inlineFlag(b.flagURL) : "");
 		}
 		const status = this.is("conflict") ? inlineFlag(ctx.uiFlags.係争中) : this.is("territory") ? span("⊂ ") : "";
 		const target = this.conflict || this.territory;
 		return target ? status + inlineFlag(target.flagURL) + span(target.Name) : "";
 	}
-	// ja: 先頭がカナなら名前そのもの（「アフガニスタン・イスラム共和国」も丸ごと比較＝seed の5文字読みでは「アフガニ」に潰れて順が狂う）・先頭が漢字（日本/中華…/南アフリカ）だけ読み。他言語は選択言語の名前を Collator で
-	get sortName() { return state.lang == "ja" ? (/^[ァ-ヶー]/.test(this.name.ja) ? this.name.ja : (this.yomi || this.name.ja)) : this.Name; }
 	get sortCapital() { return this.capital ? this.capital.sortName : this.territory && this.territory.capital ? this.territory.capital.sortName : ""; }
-	async abstracts() {
-		const id = this.wiki[state.lang] || this.wiki.en, lang = this.wiki[state.lang] ? state.lang : "en";
-		const s = (await wiki.extract(id, lang)) || "";
-		return s.split(/(?<=[。．.!?！？])\s*/).map(t => t.trim()).filter(t => t);
-	}
 }
-export class City extends MultiLanguageWiki {
-	get i18n() { const t = state.i18n; return t && t.cities && t.cities[String(this.wiki && this.wiki.ja)] || null; }
-	get sortName() { return state.lang == "ja" ? (/^[ァ-ヶー]/.test(this.name.ja) ? this.name.ja : (this.yomi || this.name.ja)) : this.Name; }
-}
+export class City extends MultiLanguageWiki { get i18n() { const t = state.i18n; return t && t.cities && t.cities[this.qid] || null; } }
 export class Currency extends MultiLanguageWiki { get i18n() { const t = state.i18n; return t && t.currencies && t.currencies[this.key] || null; } }
 export class Language extends MultiLanguageWiki { get i18n() { const t = state.i18n; return t && t.languages && t.languages[this.key] || null; } }
 // 統計系列 [年, 最新値, 前年値, …]（欠測は null）。value=最新の有効値・at=その年・data=欠測を前年値で埋めた配列
@@ -216,30 +203,29 @@ export class yearData {
 ////-------------------------------------------------------------------------------------------------------------
 export function buildModel(data, assets) {
 	const { nations: N, cities: C, languages: LG, currencies: CU } = data;
-	const nation_hash = {}; N.forEach(t => nation_hash[t.name.ja] = new Nation(t));
-	const city_hash = {}; C.forEach(t => city_hash[t.wiki.ja] = new City(t));
+	const nation_hash = {}; N.forEach(t => nation_hash[t.key] = new Nation(t));
+	const city_hash = {}; C.forEach(t => city_hash[t.qid] = new City(t));
 	const currency_hash = {}; CU.forEach(t => currency_hash[t.key] = new Currency(t));
 	const language_hash = {}; LG.forEach(t => language_hash[t.key] = new Language(t));
 	const uiFlags = {}; Object.entries({ 国際連合: "UN", 欧州連合: "EU", NATO: "NATO", 係争中: "DISPUTED" }).forEach(([t, id]) => uiFlags[t] = assets.flagURL(id));
-	const cityByJa = {}; C.forEach(t => cityByJa[t.name.ja] = city_hash[t.wiki.ja]);
-	ctx = { nation_hash, uiFlags, cityByJa, flag: assets.flag, hasFlag: assets.hasFlag, geom: assets.geomURL, openWiki: assets.openWiki };
+	ctx = { nation_hash, city_hash, uiFlags, flag: assets.flag, hasFlag: assets.hasFlag, geom: assets.geomURL, openWiki: assets.openWiki };
 	const nations = Object.values(nation_hash), cities = Object.values(city_hash);
 	nations.forEach(t => {
 		t.territory && (t.territory = nation_hash[t.territory] || null);
 		t.conflict && (t.conflict = nation_hash[t.conflict] || null);
-		t.capital && (t.capital = city_hash[t.capital.wiki && t.capital.wiki.ja] || new City(t.capital));   // CityDB 未収蔵の首都は素の City
-		t.currency && (t.currency = (Array.isArray(t.currency) ? t.currency : String(t.currency).split("|")).map(k => currency_hash[k] || new Currency({ key: k, name: { ja: k } })));
-		t.languages && (t.languages = t.languages.map(k => language_hash[k] || new Language({ key: k, name: { ja: k } })));
+		t.capital && (t.capital = city_hash[t.capital] || null);   // 首都＝CityDB の QID（build が首都を必ず収蔵）
+		t.currency && (t.currency = t.currency.map(k => currency_hash[k] || new Currency({ key: k, name: { en: k } })));
+		t.languages && (t.languages = t.languages.map(k => language_hash[k] || new Language({ key: k, name: { en: k } })));
 		SORTS.dataLabels.forEach(s => t[s] && (t[s] = new yearData(t[s])));
-		t.un && Array.isArray(t.un[1]) && (t.un = [t.un[0], t.un[1].map(n => nation_hash[n]).filter(x => x)].concat(t.un.slice(2)));   // 元配列を書き換えない（裏更新で同じ生データから組み直せるように）
 	});
 	const rebuildSearch = () => nations.forEach(t => {
 		const target = t.territory || t.conflict;
-		t.search = [Object.values(t.name), t.Name, t.yomi || "", Object.values((t.capital || {}).name || {}), t.capital ? t.capital.Name : "", t.regionNames,
-			(t.iso || []).slice(0, 2), t.key, target ? [...Object.values(target.name), target.Name] : []].flat().filter(x => x).join("|");
+		const e = t.i18n, c = t.capital;
+		t.search = [t.name.en, t.Name, (e && e.yomi) || "", c ? [c.name.en, c.Name] : [], t.regionNames,
+			(t.iso || []).slice(0, 2), t.key, target ? [target.name.en, target.Name] : []].flat().filter(x => x).join("|");
 	});
 	cities.forEach(t => {
-		t.nation = (Array.isArray(t.nation) ? t.nation : [t.nation]).map(n => nation_hash[n]).filter(x => x);
+		t.nation = (t.nation || []).map(k => nation_hash[k]).filter(x => x);
 	});
 	// 統計の年と長さはデータから（旧 SORTS のハードコード年を撤去）
 	SORTS.forEach(s => {
@@ -250,6 +236,5 @@ export function buildModel(data, assets) {
 		s.show = Math.min(s.show || s.length, s.length);
 	});
 	rebuildSearch();
-	const key_hash = {}; nations.forEach(t => key_hash[t.key] = t);
-	return { nations, cities, nation_hash, key_hash, searchByKey: k => key_hash[k], rebuildSearch };
+	return { nations, cities, nation_hash, city_hash, key_hash: nation_hash, searchByKey: k => nation_hash[k], rebuildSearch };
 }

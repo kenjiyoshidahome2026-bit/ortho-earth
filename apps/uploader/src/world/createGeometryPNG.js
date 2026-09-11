@@ -7,7 +7,6 @@
 // 出力は原典と同じ: 256x256 @2x PNG（水色#cff 地#ffc 対象#040 実効支配#280 係争#f40）→ GIS/world/geoms.zip
 import * as d3 from 'd3';
 import { geopbf } from "geopbf";
-import { nationKey } from "./db.js";
 
 const NE = res => `https://naturalearth.s3.amazonaws.com/10m_cultural/${res}.zip`;
 
@@ -46,7 +45,7 @@ function fixISO(p) {
 
 export async function createGeometryPNG(ctx, q) {
 	const { db } = ctx;
-	const ndb = await db.loadNationDB();
+	const ndb = await db.loadJSON("NationDB");   // v2: key/sovereignt/claim は build 済み
 	if (!ndb) return q.error("NationDB が未収蔵＝先に NationDB.json をドロップするか createNationDB を実行");
 	q.log("世界背景 (ne_50m_admin_0_countries) 読込…");
 	const world = (await geopbf("ne_50m_admin_0_countries", { gint: false })).geojson.features;
@@ -69,11 +68,11 @@ export async function createGeometryPNG(ctx, q) {
 	const g = canvas.getContext("2d");
 	const files = [];
 	for (const t of ndb) {
-		// 正キー key（キー台帳=db.js NATION_KEYS）で直に引く。key の地物が無い国（AFX 等）は係争地（B**）経由へ縮退
-		const key = t.key || nationKey(t);
+		// 正キー key で直に引く。key の地物が無い国（AFX 等）は係争地（B**）経由へ縮退
+		const key = t.key;
 		const keys = geo_tub[key] ? [key] : (t.sovereignt || t.claim || []);
 		const geos = keys.map(k => geo_tub[k] || []).flat();
-		if (!geos.length) { q.error(`${t.name.ja}: 形状なし（keys=[${keys}]）`); continue; }
+		if (!geos.length) { q.error(`${t.key} ${t.name.en}: 形状なし（keys=[${keys}]）`); continue; }
 		const fc = { type: "FeatureCollection", features: geos };
 		const coords = d3.geoCentroid(fc);
 		const proj = d3.geoOrthographic().rotate([-coords[0], -coords[1], 0])
@@ -91,8 +90,8 @@ export async function createGeometryPNG(ctx, q) {
 		draw(geos, "#040");
 		(t.sovereignt || []).forEach(id => draw(geo_tub[id] || [], "#280"));
 		(t.claim || []).forEach(id => draw(geo_tub[id] || [], "#f40"));
-		files.push(new File([await canvas.convertToBlob({ type: "image/png" })], (t.key || nationKey(t)) + ".png", { type: "image/png" }));   // <key>.png（2026-09-10・旗と同じ規則）
-		q.log(`${t.name.ja}: [${keys}] ${t.sovereignt ? "支配" + t.sovereignt : ""} ${t.claim ? "係争" + t.claim : ""}`);
+		files.push(new File([await canvas.convertToBlob({ type: "image/png" })], t.key + ".png", { type: "image/png" }));   // <key>.png（旗と同じ規則）
+		q.log(`${t.key} ${t.name.en}: [${keys}] ${t.sovereignt ? "支配" + t.sovereignt : ""} ${t.claim ? "係争" + t.claim : ""}`);
 	}
 	await db.saveGeoPNG(files);
 	q.success(`geoms.zip: 保存（${files.length} 国）`);

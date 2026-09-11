@@ -1,0 +1,318 @@
+{
+ "FR-CP": {
+  "population": [
+   -1,
+   0
+  ],
+  "_why": {
+   "population": "無人・非常駐（v1 既定表）",
+   "area": "v1 の面積既定表（本土のみ等）",
+   "iso": "ISO 3166-1 の CP は例外的予約＝正式割当ではない（キー台帳は FR-CP）"
+  },
+  "area": 6,
+  "iso": null
+ },
+ "TK": {
+  "population": [
+   2016,
+   1499
+  ],
+  "_why": {
+   "population": "無人・非常駐（v1 既定表）",
+   "area": "v1 の面積既定表（本土のみ等）"
+  },
+  "area": 10
+ },
+ "IO": {
+  "population": [
+   -1,
+   3500
+  ],
+  "_why": {
+   "population": "無人・非常駐（v1 既定表）"
+  }
+ },
+ "SJ": {
+  "population": [
+   -1,
+   2630
+  ],
+  "_why": {
+   "population": "無人・非常駐（v1 既定表）"
+  }
+ },
+ "HM": {
+  "population": [
+   -1,
+   0
+  ],
+  "_why": {
+   "population": "無人・非常駐（v1 既定表）"
+  }
+ },
+ "BV": {
+  "population": [
+   -1,
+   0
+  ],
+  "_why": {
+   "population": "無人・非常駐（v1 既定表）"
+  }
+ },
+ "TF": {
+  "population": [
+   -1,
+   140
+  ],
+  "_why": {
+   "population": "無人・非常駐（v1 既定表）",
+   "area": "v1 の面積既定表（本土のみ等）"
+  },
+  "area": 7781
+ },
+ "UM": {
+  "population": [
+   2009,
+   300
+  ],
+  "_why": {
+   "population": "無人・非常駐（v1 既定表）",
+   "pole": "極域を含む（地図描画用）"
+  },
+  "pole": true
+ },
+ "GS": {
+  "population": [
+   -1,
+   0
+  ],
+  "_why": {
+   "population": "無人・非常駐（v1 既定表）"
+  }
+ },
+ "AQ": {
+  "population": [
+   -1,
+   1000
+  ],
+  "_why": {
+   "population": "無人・非常駐（v1 既定表）",
+   "pole": "極域を含む（地図描画用）"
+  },
+  "pole": true
+ },
+ "B38": {
+  "area": 3170,
+  "_why": {
+   "area": "v1 の面積既定表（本土のみ等）",
+   "currency": "事実上の流通通貨（Kenji 裁定 2026-09-09）",
+   "sovereignt": "非 ISO 主体の実効支配域（Conflicts の B コード）"
+  },
+  "currency": [
+   "AMD"
+  ],
+  "sovereignt": [
+   "B38"
+  ]
+ },
+ "C02": {
+  "area": 8539,
+  "_why": {
+   "area": "v1 の面積既定表（本土のみ等）",
+   "currency": "事実上の流通通貨（Kenji 裁定 2026-09-09）",
+   "sovereignt": "非 ISO 主体の実効支配域（Conflicts の B コード）"
+  },
+  "currency": [
+   "RUB"
+  ],
+  "sovereignt": [
+   "C02"
+  ]
+ },
+ "VI": {
+  "area": 347,
+  "_why": {
+   "area": "v1 の面積既定表（本土のみ等）"
+  }
+ },
+ "EH": {
+  "area": 266000,
+  "_why": {
+   "area": "v1 の面積既定表（本土のみ等）",
+   "languages": "西サハラ（v1 固定値）",
+   "sovereignt": "西サハラ＝B19（モロッコ実効支配）+B28（自由地帯）。主張は EH に帰属させない"
+  },
+  "languages": [
+   "ar",
+   "ber",
+   "es"
+  ],
+  "sovereignt": [
+   "B19",
+   "B28"
+  ]
+ },
+ "NL": {
+  "area": 37354,
+  "_why": {
+   "area": "v1 の面積既定表（本土のみ等）",
+   "iso": "Wikidata では P298/P299 が王国の項目（Q29999）側にある"
+  },
+  "iso": [
+   "NL",
+   "NLD",
+   528
+  ]
+ },
+ "DK": {
+  "area": 43094,
+  "_why": {
+   "area": "v1 の面積既定表（本土のみ等）",
+   "un": "en.wikipedia の加盟国表は「Danish Realm」で結ぶ＝QID が王国側（Q756617）になり突合できない"
+  },
+  "un": "1945-10-24"
+ },
+ "NO": {
+  "area": 323802,
+  "_why": {
+   "area": "v1 の面積既定表（本土のみ等）"
+  }
+ },
+ "AFX": {
+  "currency": [
+   "AFN"
+  ],
+  "_why": {
+   "currency": "事実上の流通通貨（Kenji 裁定 2026-09-09）",
+   "claim": "v1"
+  },
+  "claim": [
+   "AF"
+  ]
+ },
+ "C03": {
+  "currency": [
+   "RUB"
+  ],
+  "_why": {
+   "currency": "事実上の流通通貨（Kenji 裁定 2026-09-09）",
+   "sovereignt": "非 ISO 主体の実効支配域（Conflicts の B コード）"
+  },
+  "sovereignt": [
+   "C03"
+  ]
+ },
+ "B89": {
+  "currency": [
+   "RUB"
+  ],
+  "_why": {
+   "currency": "事実上の流通通貨（Kenji 裁定 2026-09-09）",
+   "sovereignt": "非 ISO 主体の実効支配域（Conflicts の B コード）"
+  },
+  "sovereignt": [
+   "B89"
+  ]
+ },
+ "B28": {
+  "currency": [
+   "MAD",
+   "DZD"
+  ],
+  "_why": {
+   "currency": "事実上の流通通貨（Kenji 裁定 2026-09-09）",
+   "sovereignt": "非 ISO 主体の実効支配域（Conflicts の B コード）",
+   "claim": "SADR の主張域（v1・西サハラの ISO 準拠整理 2026-08-31）"
+  },
+  "sovereignt": [
+   "B28"
+  ],
+  "claim": [
+   "B19"
+  ]
+ },
+ "B20": {
+  "sovereignt": [
+   "B20"
+  ],
+  "_why": {
+   "sovereignt": "非 ISO 主体の実効支配域（Conflicts の B コード）"
+  }
+ },
+ "B30": {
+  "sovereignt": [
+   "B30"
+  ],
+  "_why": {
+   "sovereignt": "非 ISO 主体の実効支配域（Conflicts の B コード）"
+  }
+ },
+ "B35": {
+  "sovereignt": [
+   "B35"
+  ],
+  "_why": {
+   "sovereignt": "非 ISO 主体の実効支配域（Conflicts の B コード）"
+  }
+ },
+ "B36": {
+  "sovereignt": [
+   "B36"
+  ],
+  "_why": {
+   "sovereignt": "非 ISO 主体の実効支配域（Conflicts の B コード）"
+  }
+ },
+ "B37": {
+  "sovereignt": [
+   "B37"
+  ],
+  "_why": {
+   "sovereignt": "非 ISO 主体の実効支配域（Conflicts の B コード）"
+  }
+ },
+ "XK": {
+  "sovereignt": [
+   "B57"
+  ],
+  "_why": {
+   "sovereignt": "非 ISO 主体の実効支配域（Conflicts の B コード）",
+   "iso": "コソボ＝ISO 未割当の暫定コード（v1）"
+  },
+  "iso": [
+   "XK",
+   "KSV",
+   111
+  ]
+ },
+ "US": {
+  "pole": true,
+  "_why": {
+   "pole": "極域を含む（地図描画用）",
+   "languages": "連邦の法定公用語は無い（Wikidata P37 は州単位のみ）＝事実上の英語"
+  },
+  "languages": [
+   "en"
+  ]
+ },
+ "CA": {
+  "pole": true,
+  "_why": {
+   "pole": "極域を含む（地図描画用）"
+  }
+ },
+ "RU": {
+  "pole": true,
+  "_why": {
+   "pole": "極域を含む（地図描画用）"
+  }
+ },
+ "UY": {
+  "languages": [
+   "es"
+  ],
+  "_why": {
+   "languages": "法定公用語なし（Wikidata P37 空）＝事実上のスペイン語"
+  }
+ }
+}
