@@ -1,5 +1,6 @@
 // 保存前の機械検札。errors があれば保存しない・warns は報告だけ
-export function validate({ NationDB, CityDB, LanguageDB, CurrencyDB, Conflicts }) {
+const TERRAIN_CATEGORIES = new Set(["range", "peninsula", "desert", "plain", "ridge", "trench", "island", "islands"]);
+export function validate({ NationDB, CityDB, TerrainDB = [], LanguageDB, CurrencyDB, Conflicts }) {
 	const errors = [], warns = [];
 	const E = s => errors.push(s), W = s => warns.push(s);
 	const keys = new Set(), qids = new Set(), iso2 = new Set();
@@ -29,6 +30,13 @@ export function validate({ NationDB, CityDB, LanguageDB, CurrencyDB, Conflicts }
 		c.nation.forEach(k => keys.has(k) || E(`city の国が無い: ${c.qid} → ${k}`));
 		if (!c.name || !c.name.en) W(`city name.en なし: ${c.qid}`);
 		if (!c.coords) W(`city 座標なし: ${c.qid} ${c.name && c.name.en}`);
+	}
+	const tq = new Set();
+	for (const t of TerrainDB) {
+		if (tq.has(t.qid)) E(`terrain qid 重複: ${t.qid}`); tq.add(t.qid);
+		TERRAIN_CATEGORIES.has(t.category) || E(`terrain category 不正: ${t.qid} ${t.category}`);
+		if (!t.name || !t.name.en) W(`terrain name.en なし: ${t.qid}`);
+		if (!t.coord) W(`terrain 座標なし: ${t.qid} ${t.name && t.name.en}`);
 	}
 	return { errors, warns };
 }

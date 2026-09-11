@@ -1,8 +1,8 @@
 // 国別 DB（world）の bucket 入出力。データの正本と組み立ては packages/world（seed/ + build/）＝ここは保存と資産（旗・音源・地形PNG）だけ。
-//   キー体系: 国=key（iso2 か B コード・FR-CP）、都市=Wikidata QID、言語=ISO 639、通貨=ISO 4217、係争地=Conflicts の key、旗=flags/<key>.svg
+//   キー体系: 国=key（iso2 か B コード・FR-CP）、都市/地形=Wikidata QID、言語=ISO 639、通貨=ISO 4217、係争地=Conflicts の key、旗=flags/<key>.svg
 export const DIRE = "GIS/world";
-export const NATION = "NationDB", CITY = "CityDB", LANGUAGE = "LanguageDB", CURRENCY = "CurrencyDB", CONFLICT = "Conflicts";
-export const DBS = [NATION, CITY, LANGUAGE, CURRENCY, CONFLICT];
+export const NATION = "NationDB", CITY = "CityDB", TERRAIN = "TerrainDB", LANGUAGE = "LanguageDB", CURRENCY = "CurrencyDB", CONFLICT = "Conflicts";
+export const DBS = [NATION, CITY, TERRAIN, LANGUAGE, CURRENCY, CONFLICT];
 export const FLAG = "flags";     // flags.zip（<key>.svg）＋ flags/<key>.svg
 export const SOUND = "音源";      // 音源.zip（mp3・OtoLogic CC BY 4.0）
 export const GEOMS = "geoms";    // geoms.zip（<key>.png）＋ geoms/<key>.png
