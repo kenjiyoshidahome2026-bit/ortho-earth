@@ -16,7 +16,7 @@ export function validate({ NationDB, CityDB, TerrainDB = [], LanguageDB, Currenc
 		(t.currency || []).forEach(k => curK.has(k) || W(`通貨キー未収蔵: ${t.key} ${k}`));
 		(t.sovereignt || []).forEach(k => confK.has(k) || keySet.has(k) || W(`sovereignt が Conflicts にも国にも無い: ${t.key} ${k}`));   // 国 key も可（AFX→AF 全域）
 		(t.claim || []).forEach(k => confK.has(k) || keySet.has(k) || W(`claim が Conflicts にも国にも無い: ${t.key} ${k}`));
-		if (!t.capital && !t.territory) W(`首都なし: ${t.key}`);
+		if (!t.capital && !t.territory && t.key != "AQ") W(`首都なし: ${t.key}`);   // 南極（AQ）は首都が存在しない＝warn 対象外（2026-09-11）
 		if (!t.population) W(`人口なし: ${t.key}`);
 		if (!t.area) W(`面積なし: ${t.key}`);
 	}
