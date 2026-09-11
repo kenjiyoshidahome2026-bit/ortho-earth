@@ -1,6 +1,6 @@
 # 国別データベース（world）v2
 
-世界の国・地域 262 件の基礎データ（首都・ISO/IOC・国連加盟・面積・人口・経済統計・言語・通貨・国歌・国旗・係争地）と地形 475 件（山脈・単独峰・半島・砂漠・平原・湖・海嶺・海溝・島・諸島）、
+世界の国・地域 262 件の基礎データ（首都・ISO/IOC・国連加盟・面積・人口・経済統計・言語・通貨・国歌・国旗・係争地）と地形 587 件（山脈・単独峰・半島・砂漠・平原・湖・川・海嶺・海溝・島・諸島）、
 それらの 26 言語の名前テーブル。ビューアは `apps/world`（http://localhost:5174/world/）、配信は bucket `GIS/world/`。
 
 **設計（2026-09-11・v2）**: 英語と ID を基軸にする。国は `key`（ISO 3166-1 alpha-2、非 ISO 主体は Natural Earth 系の B コード、クリッパートンは FR-CP）と
@@ -12,7 +12,7 @@ Wikidata の QID、都市は QID、言語は ISO 639、通貨は ISO 4217。日�
 seed/            正本（人が手で持つ・PR の対象）
   nations.csv      key, qid, name_en, official_en（"Republic of _" 型）, region(1..6), territory(key), conflict(key), capital(都市 QID・空なら Wikidata P36)
   cities.csv       qid, nation(key・複数は |), capital(1)          … 首都は build が自動で加える
-  terrains.csv     qid, category(range/peak/peninsula/desert/plain/lake/ridge/trench/island/islands), name_en … 座標・面積・標高・記事名・26 言語名は Wikidata から
+  terrains.csv     qid, category(range/peak/peninsula/desert/plain/lake/river/ridge/trench/island/islands), name_en, ne_extra … 座標・面積・標高・長さ・記事名・26 言語名は Wikidata から。ne_extra＝川の形状に結合する Natural Earth 側の別 QID（| 区切り・長江の金沙江/通天河/沱沱河、パラナの下流）
   conflicts.json   係争地（key・qid・type・region・name_en・exist・sovereignt・territory・claim）
   overrides.json   例外＝key → { 項目: 値, _why: {項目: 理由} }（最優先。無人地の人口・本土面積・非 ISO 主体の通貨・実効支配域…）
   capital-notes.json 首都の注記（defacto / changed=[年, 都市QID] / multi={legislative,judicial,executive} / text=国key か翻訳キー）
@@ -20,7 +20,7 @@ seed/            正本（人が手で持つ・PR の対象）
   ja.json          日本語固有: 国の official（"_国" 型）と読み・都市の読みと名前の上書き
 i18n/ui.json      UI 文言（英語キー → 25 言語）と言語一覧（langs.json）
 build/            組み立て（Node CLI と uploader で共用・依存なし）
-  index.js         buildAll(seed, env) → { NationDB, CityDB, TerrainDB, LanguageDB, CurrencyDB, Conflicts, i18n, report }
+  index.js         buildAll(seed, env) → { NationDB, CityDB, TerrainDB, LanguageDB, CurrencyDB, Conflicts, i18n, rivers, report }
   wikidata.js      wbgetentities（50 件束）と「現在の値」の取り出し（preferred > 終了日なし normal・P518/P1001＝部分適用の除外）
   stats.js         World Bank（主）/ IMF WEO（穴埋め）/ UNDP HDR / GPI と国連加盟日（en.wikipedia の表）＝すべて ISO3・QID で結合
   validate.js      保存前の機械検札（キー重複・参照切れ・首都の収蔵・キー未収蔵…）errors があれば保存しない
@@ -44,7 +44,8 @@ legacy/           README-v1.md＝v1 の経緯と移植台帳のみ。原典と v
 |---|---|---|
 | NationDB | key | qid, name.en, official, region, iso[2,3,num], ioc, un(加盟日), capital(都市 QID), territory/conflict(key), sovereignt/claim(係争地 key), coord, area, population/gni/gnipc/gdp/gdppc/ppp/ppppc/hdi/homicide(=[最新年, 値…]), gpi(=[年, 値]), languages(ISO 639), currency(ISO 4217), anthem(URL), flag(Commons ファイル名), wiki.en(記事名), capitalNote, `_src`(項目ごとの出所) |
 | CityDB | qid | name.en, nation[key], capital, coords[lon,lat,標高], population[年,値], wiki.en |
-| TerrainDB | qid | category, name.en, coord[lon,lat], area(km²), elevation(m), wiki.en |
+| TerrainDB | qid | category, name.en, coord[lon,lat], area(km²), elevation(m), length(km), wiki.en |
+| rivers.geojson | qid | 川の形状＝FeatureCollection（properties: qid, name, scalerank / MultiLineString・小数 4 桁）。Natural Earth 10m rivers_lake_centerlines_scale_rank v5.1.2 を wikidataid で結合 |
 | LanguageDB / CurrencyDB | ISO 639 / 4217 | qid, name.en, wiki.en |
 | Conflicts | key | qid, type, region, name.en, exist, sovereignt, territory, claim, wiki.en |
 | i18n/<lang>.json | — | nations/cities/terrains/languages/currencies/conflicts の { name, wiki[, official, yomi] } と ui。英語は DB 側が基軸＝テーブル無し |
@@ -61,6 +62,6 @@ legacy/           README-v1.md＝v1 の経緯と移植台帳のみ。原典と v
 
 ## 地形（地図用）
 
-`seed/terrains.csv`（10 分類 475 件＝QID・分類・英語名。2026-09-11 追加: peak＝単独峰 60 件（8000m 峰 10・七大陸最高峰・各国の象徴的な山と火山）、lake＝湖 60 件（面積上位・大陸別の主要湖・カスピ海/死海/アラル海などの塩湖・ヴォルタ/ナセルの人造湖）を国と同じ経路で組み立て、`TerrainDB.json` と `i18n/<lang>.json` の `terrains` に出す（2026-09-11）。
+`seed/terrains.csv`（11 分類 587 件＝QID・分類・英語名。2026-09-11 追加: peak＝単独峰 60 件（8000m 峰 10・七大陸最高峰・各国の象徴的な山と火山）、lake＝湖 60 件（面積上位・大陸別の主要湖・カスピ海/死海/アラル海などの塩湖・ヴォルタ/ナセルの人造湖）、river＝川 112 件（Natural Earth の scalerank 上位から大陸別に選び、形状は同データの線分を wikidataid で結合して `rivers.geojson` に出す。途中で名前が変わる川は有名な名前の項目に上流区間を ne_extra で結合して全長を取る＝ナイル←白ナイル・カゲラ、長江←金沙江・通天河・沱沱河、ブラマプトラ←ヤルンツァンポ など。Kenji 2026-09-11）を国と同じ経路で組み立て、`TerrainDB.json` と `i18n/<lang>.json` の `terrains` に出す（2026-09-11）。
 旧 `地形.txt`（ja 記事名）→ `scripts/terrain-i18n.py` → `地形.csv` の経路は seed 化に伴い削除（git 履歴 5f5483c に残る）。
 分類は Natural Earth の physical labels に倣った英語キー。ビューアの地図配線は未着手（データは先に揃えた）。

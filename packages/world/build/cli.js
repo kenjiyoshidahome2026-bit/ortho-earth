@@ -17,6 +17,7 @@ const today = new Date().toISOString().slice(0, 10);
 for (const n of ["NationDB", "CityDB", "TerrainDB", "LanguageDB", "CurrencyDB", "Conflicts"])
 	await fs.writeFile(path.join(outDir, n + ".json"), JSON.stringify({ updated: today, count: r[n].length, items: r[n] }));
 for (const [lang, v] of Object.entries(r.i18n)) await fs.writeFile(path.join(outDir, "i18n", lang + ".json"), JSON.stringify(v));
-console.log(`\n出力: ${outDir}  国 ${r.NationDB.length} 都市 ${r.CityDB.length} 地形 ${r.TerrainDB.length} 言語 ${r.LanguageDB.length} 通貨 ${r.CurrencyDB.length} 係争 ${r.Conflicts.length} i18n ${Object.keys(r.i18n).length} 言語（${((Date.now() - t0) / 1000).toFixed(1)}s）`);
+r.rivers && await fs.writeFile(path.join(outDir, "rivers.geojson"), JSON.stringify(r.rivers));
+console.log(`\n出力: ${outDir}  国 ${r.NationDB.length} 都市 ${r.CityDB.length} 地形 ${r.TerrainDB.length}（川の形状 ${r.rivers ? r.rivers.features.length : 0}）言語 ${r.LanguageDB.length} 通貨 ${r.CurrencyDB.length} 係争 ${r.Conflicts.length} i18n ${Object.keys(r.i18n).length} 言語（${((Date.now() - t0) / 1000).toFixed(1)}s）`);
 console.log(`検札: errors ${r.report.errors.length} / warns ${r.report.warns.length}`);
 process.exit(r.report.errors.length ? 1 : 0);
