@@ -107,7 +107,7 @@ body { font:10px verdana; //direction: rtl;
 					img.hover:hover { scale:1.1; }
 				//	img.hover2:hover { scale:4; z-index:5; }
 					.mark {
-						&:before { content:""; position:absolute; top:0; right:0;　width:12px; aspect-ratio:1;
+						&:before { content:""; position:absolute; top:0; right:0; width:12px; aspect-ratio:1;
 							background:#a00; clip-path: polygon(0 0,100% 0,100% 100%);
 						}
 					}
@@ -132,7 +132,7 @@ body { font:10px verdana; //direction: rtl;
 			.title { display:inline-block; margin:0 0.2em; font-weight:700; vertical-align:top; }
 			&.head { top:0; } &.foot { bottom:0;}
 			&.left { text-align:start; } &.center { text-align:center; } &.right { text-align:end; }
-			svg { display:inline-block; background:transparent; fill:#fff; hight:24px; width:24px; }
+			svg { display:inline-block; background:transparent; fill:#fff; height:24px; width:24px; }
 		}
 		[name=flag] { position:absolute; left:50px; top:50px; bottom:50px; right:50px;
 			> img { position: absolute; width:95%; max-height:95%; overflow:hidden; animation-duration:500ms;
@@ -195,8 +195,6 @@ body { font:10px verdana; //direction: rtl;
 		
 		}
 		[name=overlays] {
-			.legend { 
-			}
 			.caption { pointer-events:auto; position:absolute; bottom:50px; text-align:center; left:0; right:0;
 				> div { display:inline-block; background:rgba(0,0,0,0.3); color:#fff; font-size:13px;border-radius:3px; max-width:50%;
 					>span { line-height:1.6em; padding:0 1em;  }
