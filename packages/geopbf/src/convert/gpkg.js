@@ -171,5 +171,6 @@ export function mimeOf(b) {
 	if (b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return "image/jpeg";
 	if (b[0] === 0x52 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x46 && b[8] === 0x57 && b[9] === 0x45 && b[10] === 0x42 && b[11] === 0x50) return "image/webp";
 	if ((b[0] === 0x49 && b[1] === 0x49 && b[2] === 0x2a) || (b[0] === 0x4d && b[1] === 0x4d && b[2] === 0x00 && b[3] === 0x2a)) return "image/tiff";
+	if (b[0] === 0x1f && b[1] === 0x8b) return "application/gzip";   // MBTiles の MVT は gzip 包みが通例
 	return "application/octet-stream";
 }

@@ -51,6 +51,12 @@ const USAGE = `geopbf <command>
        [--precision N] [--name name] [--ignore-crs] [--no-gzip]
        [--include a,b] [--exclude a,b] [--exclude-all]  列の選別
 
+  csv2pbf <in.csv|tsv|xlsx> <out.geopbf>   表を GeoPBF へ（経緯度の 2 列＝点、または WKT の 1 列＝点/線/面）。列名は自動検出
+       [--lon col] [--lat col] [--wkt col]  列の名指し（自動検出より優先）
+       [--sheet name] [--encoding sjis] [--delimiter ,]   xlsx のシート・CSV の文字コード（既定＝UTF-8 で読めなければ Shift_JIS）・区切り
+       [--precision N] [--name name] [--no-gzip]
+       [--include a,b] [--exclude a,b] [--exclude-all]  列の選別
+
   入力の gzip は拡張子によらず署名（1f 8b）で判別して透過的に展開する。
 `;
 
@@ -374,10 +380,25 @@ async function gpkg2pbf(argv) {
 	console.log(`${outPath}  ${mb(out.length)}${gzip ? " (gzip)" : ""}  precision ${s.precision}  読込 ${s.ms.read.toFixed(0)} ms・GeoPBF ${s.ms.encode.toFixed(0)} ms`);
 }
 
+async function csv2pbf(argv) {
+	const { fromTable } = await import("../src/convert/table.js");
+	const { pos: [inPath, outPath], opts } = parseArgs(argv, ["precision", "name", "lon", "lat", "wkt", "sheet", "encoding", "delimiter", "include", "exclude"]);
+	if (!inPath || !outPath) throw new Error("csv2pbf <in.csv|tsv|xlsx> <out.geopbf>");
+	const r = await fromTable(new Uint8Array(await readFile(inPath)), { precision: opts.precision !== undefined ? +opts.precision : undefined, name: opts.name ?? inPath.replace(/^.*[\\/]/, "").replace(/\.[^.]+$/, ""), lon: opts.lon, lat: opts.lat, wkt: opts.wkt, sheet: opts.sheet, encoding: opts.encoding, delimiter: opts.delimiter, ...attrOpts(opts) });
+	const gzip = !opts["no-gzip"];
+	let out = Buffer.from(r.pbf.arrayBuffer);
+	if (gzip) out = gzipSync(out, { level: 9 });
+	await writeFile(outPath, out);
+	const s = r.stats;
+	const geom = s.geometry.wkt ? `WKT 列 ${s.geometry.wkt}` : `経度 ${s.geometry.lon}・緯度 ${s.geometry.lat}`;
+	console.log(`${inPath}  ${s.kind}${s.sheet ? `  シート ${s.sheet}${s.sheets?.length > 1 ? `（他 ${s.sheets.filter(x => x !== s.sheet).join(", ")}）` : ""}` : ""}  行 ${num(s.rows)}  features ${num(s.features)}${s.droppedGeometries ? `（座標なし ${num(s.droppedGeometries)} を落とした）` : ""}  頂点 ${num(s.vertices)}  ${geom}  列 ${s.columns.length}`);
+	console.log(`${outPath}  ${mb(out.length)}${gzip ? " (gzip)" : ""}  precision ${s.precision}  読込 ${s.ms.read.toFixed(0)} ms・GeoPBF ${s.ms.encode.toFixed(0)} ms`);
+}
+
 // ── entry ─────────────────────────────────────────────────────────────────────
 
 const [cmd, ...argv] = process.argv.slice(2);
-const commands = { enc, dec, info, lod, cog, pmtiles, parquet, parquet2pbf, gpkg2pbf };
+const commands = { enc, dec, info, lod, cog, pmtiles, parquet, parquet2pbf, gpkg2pbf, csv2pbf };
 if (!cmd || cmd === "--help" || cmd === "-h") { console.log(USAGE); process.exit(0); }
 if (!commands[cmd]) { console.error(`geopbf: 知らないコマンド "${cmd}"\n`); console.error(USAGE); process.exit(1); }
 try {

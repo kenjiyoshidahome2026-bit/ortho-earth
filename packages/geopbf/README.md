@@ -194,13 +194,15 @@ npx geopbf parquet countries.geopbf countries.parquet              # → GeoParq
 npx geopbf parquet2pbf in.parquet out.geopbf                       # ← GeoParquet, from anyone's writer
 npx geopbf gpkg2pbf roads.gpkg                                     # list the layers of a GeoPackage
 npx geopbf gpkg2pbf roads.gpkg roads.geopbf --layer roads          # ← GeoPackage, one layer (own SQLite reader, no GDAL)
+npx geopbf csv2pbf stations.csv stations.geopbf                    # ← CSV/TSV/XLSX with lon/lat or WKT columns (Shift_JIS auto)
+npx geopbf csv2pbf book.xlsx parcels.geopbf --sheet 筆 --wkt geometry
 npx geopbf cog info https://…/TCI.tif                              # remote COG structure over HTTP Range
 ```
 
 Output is gzipped by default, matching the GDAL driver's `COMPRESS=GZIP` and the usual distribution form; pass
 `--no-gzip` for a raw file. Gzip input is detected by signature, not by extension, for every command including
-`enc`. For inputs other than GeoJSON, GeoParquet and GeoPackage — Shapefile, PostGIS, and everything else GDAL
-reads — use the [GDAL/OGR driver](https://github.com/kenjiyoshidahome2026-bit/gdal-geopbf) (`ogr2ogr -f GeoPBF`,
+`enc`. For inputs other than GeoJSON, GeoParquet, GeoPackage and tables — PostGIS, File Geodatabase, and everything
+else GDAL reads — use the [GDAL/OGR driver](https://github.com/kenjiyoshidahome2026-bit/gdal-geopbf) (`ogr2ogr -f GeoPBF`,
 needs GDAL ≥ 3.12), or the browser workers in `src/index.js`.
 
 ---
@@ -445,8 +447,33 @@ const png = t.get(14, 14553, 6452);     // Uint8Array — createImageBitmap(new 
 XYZ `y`; other grids expose their `matrices` for the caller to map. The index (z/x/y → rowid) is built once by decoding
 only the first columns of each row, so the tile blobs are never copied until `get` asks for one.
 
+**MBTiles** is the same idea with a TMS row order: `openMBTiles(u8)` from `geopbf/mbtiles` returns the same store
+shape (`xyz` is always true, rows are flipped for you), reads both the plain `tiles` table and the `map` + `images`
+view layout, and hands MVT tiles back as the gzip-wrapped bytes they are stored as.
+
 Writing GeoPackage is deliberately not here — `ogr2ogr -f GPKG` from the GDAL driver does it, and building a SQLite
 file by hand is where a dependency would start to earn its keep.
+
+---
+
+### 5.8 Tables: CSV, TSV, XLSX
+
+Most files people actually have are spreadsheets. `geopbf/table` turns one into features when it has either two
+coordinate columns or one WKT column — in the browser (drop a `.csv` / `.tsv` / `.xlsx`) or with `geopbf csv2pbf`.
+
+```js
+import { fromTable } from "geopbf/table";
+const { pbf, stats } = await fromTable(u8, { lon: "経度", lat: "緯度" });   // or { wkt: "geometry" }, or let it detect
+```
+
+| | |
+| :-- | :-- |
+| Columns | detected by name (`lon`/`lng`/`longitude`/`経度`/`x` and `lat`/`latitude`/`緯度`/`y`; `wkt`/`geometry`/`geom`/`shape`), or by a first-row value that starts with `POINT(`…; name them explicitly to override |
+| Text | UTF-8 with or without BOM, UTF-16 with BOM; anything that fails strict UTF-8 is read as Shift_JIS (the browser's own `TextDecoder`, no dependency) |
+| CSV | RFC 4180 quoting, quoted newlines, delimiter sniffed among `, \t ; \|` |
+| XLSX | first sheet or `sheet`; sharedStrings, inline strings, numbers, booleans, formula cached values; dates stay as serial numbers |
+| Values | numeric-looking strings become numbers except those with a leading zero (`"01"` stays a string — municipality codes survive), `true`/`false` become booleans, empty cells are absent; dates are never guessed |
+| Rows without a usable geometry | dropped and counted (`stats.droppedGeometries`) |
 
 ---
 
