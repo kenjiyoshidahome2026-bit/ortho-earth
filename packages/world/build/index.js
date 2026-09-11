@@ -73,8 +73,8 @@ export async function buildAll(seed, env) {
 	const TE = await entities(seed.terrains.map(t => t.qid), env, opt);
 	const TerrainDB = seed.terrains.map(t => {
 		const e = TE[t.qid]; e || warn(`Wikidata に無い地形 QID: ${t.qid} ${t.name_en}`);
-		const a = areaKm2(e);
-		return clean({ qid: t.qid, category: t.category, name: { en: t.name_en || nameEn(e) }, coord: coord(e), area: a == null ? null : a > 10 ? Math.round(a) : +a.toFixed(2), wiki: { en: sitelink(e, "en") } });
+		const a = areaKm2(e), h = quantity(e, "P2044", { Q11573: 1 });   // 面積（島・砂漠）と標高（単独峰・山脈）は有るものだけ
+		return clean({ qid: t.qid, category: t.category, name: { en: t.name_en || nameEn(e) }, coord: coord(e), area: a == null ? null : a > 10 ? Math.round(a) : +a.toFixed(2), elevation: h == null ? null : Math.round(h), wiki: { en: sitelink(e, "en") } });
 	});
 	// 5) 係争地（seed）→ Conflicts と 国側の sovereignt/claim
 	const KE = await entities(seed.conflicts.map(c => c.qid), env, opt);

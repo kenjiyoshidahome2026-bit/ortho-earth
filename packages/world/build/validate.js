@@ -1,5 +1,5 @@
 // 保存前の機械検札。errors があれば保存しない・warns は報告だけ
-const TERRAIN_CATEGORIES = new Set(["range", "peninsula", "desert", "plain", "ridge", "trench", "island", "islands"]);
+const TERRAIN_CATEGORIES = new Set(["range", "peak", "peninsula", "desert", "plain", "ridge", "trench", "island", "islands"]);
 export function validate({ NationDB, CityDB, TerrainDB = [], LanguageDB, CurrencyDB, Conflicts }) {
 	const errors = [], warns = [];
 	const E = s => errors.push(s), W = s => warns.push(s);
@@ -37,6 +37,7 @@ export function validate({ NationDB, CityDB, TerrainDB = [], LanguageDB, Currenc
 		TERRAIN_CATEGORIES.has(t.category) || E(`terrain category 不正: ${t.qid} ${t.category}`);
 		if (!t.name || !t.name.en) W(`terrain name.en なし: ${t.qid}`);
 		if (!t.coord) W(`terrain 座標なし: ${t.qid} ${t.name && t.name.en}`);
+		if (t.category == "peak" && t.elevation == null) W(`peak 標高なし: ${t.qid} ${t.name && t.name.en}`);
 	}
 	return { errors, warns };
 }
