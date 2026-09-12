@@ -2,10 +2,10 @@
 import { fromGeoPackage } from "../convert/gpkg.js";
 
 onmessage = async (e) => {
-	const { file, name, precision, description, license, attribution, layer, tky2jgd } = e.data;
+	const { file, name, precision, description, license, attribution, layer, tky2jgd, patchjgd } = e.data;
 	try {
 		const u8 = new Uint8Array(await file.arrayBuffer());
-		const { pbf, stats } = await fromGeoPackage(u8, { name, precision, description, license, attribution, layer, tky2jgd });
+		const { pbf, stats } = await fromGeoPackage(u8, { name, precision, description, license, attribution, layer, tky2jgd, patchjgd });
 		const res = pbf.arrayBuffer;
 		const msg = { type: "gpkgdec", data: res };
 		const notes = [];

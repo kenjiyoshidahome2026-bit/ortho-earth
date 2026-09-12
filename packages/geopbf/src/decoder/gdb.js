@@ -3,12 +3,12 @@ import { decodeZIP } from "../modules/decodeZIP.js";
 import { fromFileGDB, gdbSourceFromFiles } from "../convert/filegdb.js";
 
 onmessage = async (e) => {
-	const { file, name, precision, description, license, attribution, layer, ignoreCrs, tky2jgd } = e.data;
+	const { file, name, precision, description, license, attribution, layer, ignoreCrs, tky2jgd, patchjgd } = e.data;
 	try {
 		const entries = await decodeZIP(file);
 		if (!entries) throw new Error("zip を開けない");
 		const source = gdbSourceFromFiles(entries);
-		const { pbf, stats } = await fromFileGDB(source, { precision, description, license, attribution, layer, ignoreCrs, tky2jgd });
+		const { pbf, stats } = await fromFileGDB(source, { precision, description, license, attribution, layer, ignoreCrs, tky2jgd, patchjgd });
 		const res = pbf.arrayBuffer;
 		const msg = { type: "gdbdec", data: res };
 		const notes = [];
