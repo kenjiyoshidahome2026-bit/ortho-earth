@@ -10,11 +10,11 @@
 // フィールド型: int16/int32/float32/float64/datetime(OLE 日数→Date)/objectid(行番号)/string(UTF-8)/geometry/binary(読み飛ばし)/UUID・GlobalID(文字列)/XML/int64/date/time。
 // 幾何: point / multipoint / polyline / polygon（Z・M は落とす・曲線は頂点を直線で結ぶ＝stats.curves）。多パッチと空は落として数える。
 // 多面の環は Esri 流（外環=時計回り・穴=反時計回りが平坦に並ぶ）→ 面積符号で外環/穴を分け、穴は最初の頂点を含む外環へ入れて Multi/Polygon に組む。
-// CRS: フィールド定義の WKT を convert/proj.js で判定（経緯度はそのまま・平面直角座標系/UTM/Web メルカトルは逆変換・他は ignoreCrs 無しで拒否）。
+// CRS: フィールド定義の WKT を convert/proj.js で判定（経緯度はそのまま・平面直角座標系/UTM/Web メルカトルは逆変換・日本測地系や JGD2000 は convert/datum.js で測地系変換・他は ignoreCrs 無しで拒否）。
 import { GeoPBF } from "../pbf-base.js";
 import { attrFilter } from "./attrs.js";
 import { crsFromWKT } from "./proj.js";
-import { loadTKY2JGD } from "./tky2jgd.js";
+import { resolveDatum, datumStats } from "./datum.js";
 
 const now = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
 const utf16 = new TextDecoder("utf-16le"), utf8 = new TextDecoder("utf-8");
@@ -230,12 +230,6 @@ function classify(gf, datum) {
 	}
 	return crsFromWKT(wkt, { datum });
 }
-/** opts.tky2jgd（URL | バイト列 | loadTKY2JGD の戻り）→ 格子。無ければ null（Helmert に落ちる）。 */
-export async function resolveDatum(opts) {
-	const g = opts.tky2jgd; if (!g) return null;
-	if (typeof g === "object" && typeof g.toJGD === "function") return g;
-	try { return await loadTKY2JGD(g); } catch (e) { console.warn(`[tky2jgd] 格子を読めない＝Helmert で続行: ${e.message}`); return null; }
-}
 async function* iterRows(source, t) {
 	const tx = parseTablx(await source.read(`${t.base}.gdbtablx`));
 	const body = await source.read(`${t.base}.gdbtable`);
@@ -280,5 +274,5 @@ export async function fromFileGDB(source, opts = {}) {
 	const t1 = now();
 	const pbf = await new GeoPBF({ name: opts.name ?? layer.name, precision: opts.precision ?? 6, description: opts.description, license: opts.license, attribution: opts.attribution }).set({ type: "FeatureCollection", features });
 	return { pbf, stats: { layer: layer.name, layers: gdb.layers.map(l => l.name), tables: gdb.tables.filter(t => !t.geometryType).map(t => t.name), features: features.length, rows: layer.rows, vertices: ctx.vertices, droppedGeometries: ctx.nulls, emptyGeometries: ctx.empty, multipatch: ctx.multipatch, curves: ctx.curves,
-		columns: props.map(p => p.f.name), skipped, crs: crs.label, crsUnknown: !!crs.unknown, reprojected: !!xf, datumApprox: !!crs.approx, datum: datum ? { grid: datum.stats.grid, fallback: datum.stats.fallback } : null, geometryType: layer.geometryType, z: layer.hasZ, m: layer.hasM, precision: opts.precision ?? 6, ms: { read: t1 - t0, encode: now() - t1, total: now() - t0 } } };
+		columns: props.map(p => p.f.name), skipped, crs: crs.label, crsUnknown: !!crs.unknown, reprojected: !!xf, datumApprox: !!crs.approx, datum: datumStats(datum), geometryType: layer.geometryType, z: layer.hasZ, m: layer.hasM, precision: opts.precision ?? 6, ms: { read: t1 - t0, encode: now() - t1, total: now() - t0 } } };
 }

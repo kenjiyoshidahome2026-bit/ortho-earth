@@ -196,6 +196,7 @@ npx geopbf gpkg2pbf roads.gpkg                                     # list the la
 npx geopbf gpkg2pbf roads.gpkg roads.geopbf --layer roads          # ← GeoPackage, one layer (own SQLite reader, no GDAL)
 npx geopbf gdb2pbf city.gdb                                        # list the feature classes of a File Geodatabase
 npx geopbf gdb2pbf city.gdb.zip parcels.geopbf --layer 筆界         # ← FileGDB (directory or zip), 平面直角座標系/UTM → lon/lat
+npx geopbf gdb2pbf old.gdb out.geopbf --tky2jgd tky2jgd.bin.gz --patchjgd patchjgd.bin.gz   # 日本測地系 → JGD2011
 npx geopbf csv2pbf stations.csv stations.geopbf                    # ← CSV/TSV/XLSX with lon/lat or WKT columns (Shift_JIS auto)
 npx geopbf csv2pbf book.xlsx parcels.geopbf --sheet 筆 --wkt geometry
 npx geopbf cog info https://…/TCI.tif                              # remote COG structure over HTTP Range
@@ -432,7 +433,7 @@ const { pbf, stats } = await fromGeoPackage(u8, { layer: "roads" });   // layer 
 
 | | |
 | :-- | :-- |
-| CRS | EPSG:4326 / CRS84 / undefined-geographic pass through; EPSG:3857 is converted back to lon/lat; anything else throws unless `ignoreCrs` (GeoPBF is lon/lat only — reproject first) |
+| CRS | EPSG:4326 / CRS84 / undefined-geographic pass through; EPSG:3857 is converted back to lon/lat; otherwise `gpkg_spatial_ref_sys.definition` goes through the same WKT classifier as FileGDB ([§5.9](#59-file-geodatabase-read-only), [§5.10](#510-datum-shifts-japan)), so plane-rectangular and Tokyo Datum files work; anything left throws unless `ignoreCrs` |
 | Geometry | all seven WKB types, either byte order, with or without envelope; Z/M dropped; NULL / empty / extension geometries are dropped and counted (`stats.droppedGeometries`) |
 | Attributes | SQLite values as they are; declared `BOOLEAN` → bool, `DATE`/`DATETIME`/`TIMESTAMP` → Date; `BLOB` columns skipped (`stats.skipped`); integers beyond 2^53 kept as strings |
 | Not read | indexes and R-trees (not needed for a full scan), views, `WITHOUT ROWID` tables, un-checkpointed WAL |
@@ -499,12 +500,39 @@ const { pbf, stats } = await fromFileGDB(source, { layer: "筆界" });
 | Geometry | point, multipoint, polyline, polygon (rings regrouped into Polygon/MultiPolygon by orientation and containment); Z/M dropped; curves are flattened to their vertices and counted (`stats.curves`); multipatch and empty shapes are dropped and counted |
 | CRS | read from the field definition's WKT: WGS 84 / JGD2011 / JGD2000 / ITRF / ETRS89 / NAD83 / GDA pass through; **Transverse Mercator (平面直角座標系 I–XIX, UTM) and Web Mercator are converted to lon/lat** with `geopbf/proj` (Krüger series, mm-level); other projections and old datums (Tokyo) are refused unless `ignoreCrs` |
 | Unknown SRS | passed through as lon/lat when the extent fits, and reported as `crsUnknown` |
-| Tokyo Datum (日本測地系) | converted to JGD2000 — with the GSI **TKY2JGD** grid (0.2 m) when you pass it as `tky2jgd` (URL or bytes; bake it once from `TKY2JGD.par` with `scripts/bake-tky2jgd.mjs`, ≈0.6 MB gzipped), or with the built-in 3-parameter Helmert (≈10 m) otherwise — `stats.datumApprox` says which. Works for GCS_Tokyo and for the old-datum plane rectangular zones (Bessel TM) alike |
+| Datum | Tokyo Datum and JGD2000 are shifted onto JGD2011 — see below |
 | Rows | deleted rows skipped; sparse 1024-row blocks handled; only the catalog and the chosen layer's two files are read |
 
 `geopbf/proj` is small on purpose: it answers "can this be put back on the globe without a library?" for the
 projections that cover Japanese administrative data, and nothing more. The same classifier reads a GeoPackage's
 `gpkg_spatial_ref_sys.definition`, so a `.gpkg` in EPSG:6677 or EPSG:4301 comes back on the globe too.
+
+### 5.10 Datum shifts (Japan)
+
+Old Japanese data is not only in a different projection but on a different **datum**, and the difference is far
+larger than the projection error: 400 m for Tokyo Datum, up to 5.7 m in Tohoku between JGD2000 and JGD2011.
+`geopbf/datum` handles both with the GSI mesh parameter files, in one small binary format:
+
+| Chain | Parameter file | Accuracy | Outside its area |
+| :-- | :-- | :-- | :-- |
+| Tokyo Datum → JGD2000 | `TKY2JGD.par` | 10–20 cm | falls back to the built-in 3-parameter Helmert (≈10 m) |
+| JGD2000 → JGD2011 | `touhokutaiheiyouoki2011.par` (2011 Tohoku earthquake) | cm | no shift — the two are identical there by definition |
+
+```bash
+node scripts/bake-datum-grid.mjs TKY2JGD.par                 tky2jgd.bin    # 1.97 MB, 0.63 MB gzipped
+node scripts/bake-datum-grid.mjs touhokutaiheiyouoki2011.par patchjgd.bin   # 0.75 MB, 0.44 MB gzipped
+```
+
+Host the two `.bin.gz` files anywhere and pass their URLs (or the bytes) as `tky2jgd` / `patchjgd` — to
+`fromFileGDB`, `fromGeoPackage`, `createGeopbf`, or as `--tky2jgd` / `--patchjgd` on the CLI. They are loaded only
+when a layer actually needs them. Without them nothing fails: Tokyo Datum still converts by Helmert (and
+`stats.datumApprox` says so), and JGD2000 stays JGD2000. The chains compose, so a Tokyo Datum plane-rectangular
+layer with both grids present goes Bessel TM → lon/lat → JGD2000 → JGD2011 in one call, and `stats.datum` reports
+how many vertices each grid actually covered.
+
+The baked format is a 2nd-mesh block index plus Int16 residuals, with the residual step chosen from the data
+(1e-5″ for PatchJGD, 1e-3″ for nationwide TKY2JGD, whose island-to-island jumps are large). Values are read by
+bilinear interpolation of the 3rd-mesh corners, exactly as GSI's own tools do.
 
 ---
 

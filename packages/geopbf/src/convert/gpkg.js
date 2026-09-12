@@ -16,7 +16,7 @@ import { openSqlite } from "./sqlite.js";
 import { parseWkb } from "./wkb.js";
 import { attrFilter } from "./attrs.js";
 import { crsFromWKT } from "./proj.js";
-import { resolveDatum } from "./filegdb.js";
+import { resolveDatum, datumStats } from "./datum.js";
 
 const now = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
 const R = 6378137, D = 180 / Math.PI;
@@ -78,7 +78,7 @@ export async function fromGeoPackage(u8, opts = {}) {
 	const t1 = now();
 	const pbf = await new GeoPBF({ name: opts.name ?? layer.identifier ?? layer.table, precision: opts.precision ?? 6, description: opts.description ?? (layer.description || undefined), license: opts.license, attribution: opts.attribution }).set({ type: "FeatureCollection", features });
 	const stats = { layer: layer.table, layers: g.layers.map(l => l.table), features: features.length, vertices: ctx.vertices, columns: props.map(c => c.name), skipped, crs: layer.crs.label,
-		reprojected: !!xf, datumApprox: !!layer.crs.approx, precision: opts.precision ?? 6, droppedGeometries: ctx.nulls, emptyGeometries: ctx.empty, extendedGeometries: ctx.extended, bigints: ctx.bigint, z: !!layer.z, m: !!layer.m, encoding: g.encoding, warnings: g.warnings,
+		reprojected: !!xf, datumApprox: !!layer.crs.approx, datum: datumStats(datum), precision: opts.precision ?? 6, droppedGeometries: ctx.nulls, emptyGeometries: ctx.empty, extendedGeometries: ctx.extended, bigints: ctx.bigint, z: !!layer.z, m: !!layer.m, encoding: g.encoding, warnings: g.warnings,
 		ms: { read: t1 - t0, encode: now() - t1, total: now() - t0 } };
 	return { pbf, stats };
 }
