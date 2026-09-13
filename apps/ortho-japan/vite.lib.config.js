@@ -1,5 +1,6 @@
 import { defineConfig } from "vite";
-import { resolve } from "node:path";
+import { resolve, dirname } from "node:path";
+import { readFile } from "node:fs/promises";
 import { transform } from "esbuild";
 
 // lib×ES では vite が esbuild/terser とも whitespace minify を強制スキップする（v5.4 実装確認・下流バンドラ向け
@@ -11,6 +12,25 @@ const forceMinifyWhitespace = {
 	renderChunk: {
 		order: "post",
 		handler: (code) => transform(code, { minifyWhitespace: true, sourcemap: true, charset: "utf8" }),
+	},
+};
+
+// .wasm を base64 で JS に埋めない（処方①・#12）。vite 5 の lib モードは資産を大きさに関わらず必ず inline する
+// （shouldInline: `if (config.build.lib) return true`）ため、wasm-pack glue の `new URL('gint_wasm_bg.wasm', import.meta.url)`
+// が 126 KB → 173 KB の data: URI になり、glue を抱える 7 チャンク全部に複製されていた（2026-09-14 計量＝−855 KB の元凶）。
+// ここで .wasm を rollup の asset として emit し、参照を import.meta.ROLLUP_FILE_URL_ に差し替える＝assets/ に実体 1 つ・
+// 各チャンクは相対 URL で指す（同じ内容＝同じハッシュ名＝worker の別ビルドが何本あってもファイルは 1 つ）。ブラウザキャッシュも効く。
+// worker ビルドは `worker.plugins` でしか plugin が効かないので、主ビルドと worker の両方へ挿す。
+const wasmAsFile = {
+	name: "wasm-as-file",
+	enforce: "pre",
+	async transform(code, id) {
+		if (!/\/wasm\/pkg\/gint_wasm\.js$/.test(id)) return;
+		const wasmPath = resolve(dirname(id), "gint_wasm_bg.wasm");
+		const ref = this.emitFile({ type: "asset", name: "gint_wasm_bg.wasm", source: await readFile(wasmPath) });
+		const from = "new URL('gint_wasm_bg.wasm', import.meta.url)";
+		if (!code.includes(from)) throw new Error("wasm-as-file: glue の .wasm 参照が見つからない（wasm-pack の出力形式が変わった？）");
+		return { code: code.replace(from, `new URL(import.meta.ROLLUP_FILE_URL_${ref})`), map: null };
 	},
 };
 
@@ -29,7 +49,7 @@ const forceMinifyWhitespace = {
 //  - worker は ES module 形式固定（vite 既定の iife は worker 内 code-splitting を弾く＝サイトビルドと同じ理由）
 //  - COOP/COEP は要求しない：SAB が無ければ geopbf がコピー経路へ落ちる（fallback-ladder.md §3.5・verify:nocoi で実測）
 export default defineConfig({
-	plugins: [forceMinifyWhitespace],
+	plugins: [wasmAsFile, forceMinifyWhitespace],
 	build: {
 		outDir: "dist/lib",
 		emptyOutDir: true,
@@ -55,7 +75,9 @@ export default defineConfig({
 	//   （本体は index.html が登録する＝スタンドアロン専用の作法。ライブラリ経路は一切登録しない）。
 	// 利用者へ渡すアセットは apps/ortho-japan/public/ からアプリ側で配る（README の assetBase 節）。
 	publicDir: false,
-	worker: { format: "es" },
+	// worker の別ビルドには `plugins` が効かない（vite 5：build では worker.plugins のみ）＝.wasm 実体化と空白 minify を両方ここにも挿す。
+	// 空白 minify を worker に入れ忘れていた実測（2026-09-14）：renderworker 6,380 行・plateauworker 11,377 行のまま配っていた。
+	worker: { format: "es", plugins: () => [wasmAsFile, forceMinifyWhitespace] },
 	// ★base は必ず相対（"./"）＝worker・チャンクのURLが import.meta.url 起点になり、lib を**どこに置いても**動く。
 	//   base:"/" だと worker がドメイン直下 /assets/ を指す＝/japan/lib/ 配下に置いた本番で worker 全滅
 	//   （2026-08-20 本番事故の真因。www の SPA フォールバックが HTML を 200 で返し、module worker の

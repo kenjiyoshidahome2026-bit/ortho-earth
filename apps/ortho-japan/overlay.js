@@ -54,7 +54,7 @@ export function createOverlay({ renderer, cam, size, dpr, requestDraw, tip }) {
 	let identifyHandler = null;   // identify結果の派生アプリ受け口（setIdentifyHandler）。未登録なら従来の say パネル
 	let highlightWait = null;     // highlightKey の完了待ち（worker 返信は直列＝最後の呼びが勝つで足りる）
 
-	const estatWorker = new Worker(new URL("./estatworker.js", import.meta.url), { type: "module" });
+	const estatWorker = new Worker(new URL("./worker.js", import.meta.url), { type: "module", name: "estat" });
 	estatWorker.onmessage = e => {
 		const m = e.data;
 		if (m.type === "loaded") {

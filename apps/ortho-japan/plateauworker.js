@@ -472,7 +472,7 @@ function ensureDecoders() {
 	if (decWorkers || !DEC_POOL) return decWorkers;
 	try {
 		decWorkers = Array.from({ length: DEC_POOL }, () => {
-			const w = new Worker(new URL("./plateaudecoder.js", import.meta.url), { type: "module" });
+			const w = new Worker(new URL("./worker.js", import.meta.url), { type: "module", name: "plateaudecoder" });   // 同じ入口＝同じ worker ビルド（loaders.gl を二重に持たない）
 			w.postMessage({ init: { ell: ELL, exclude: excludeMap } });
 			w.onmessage = e => {
 				const d = e.data;
