@@ -181,7 +181,7 @@ export interface OrthoJapanMap {
 	makeProjector(): (lon: number, lat: number) => [x: number, y: number, front: number];
 	/** 地形込みの投影。標高は 100m 格子のメモから引く＝**その地点の初回は 0（海面）で、非同期に取得して次フレームから乗る**（毎フレーム呼ぶ
 	 *  DOM マーカー用途向け。1 回きりの呼び出しには乗らない）。liftM＝地表からの追加持ち上げ m（0＝地表。標高を渡すと二重に浮く） */
-	makeProjectorH(): (lon: number, lat: number, liftM?: number) => [x: number, y: number, front: number];
+	makeProjectorH(opts?: { terrain?: boolean }): (lon: number, lat: number, liftM?: number) => [x: number, y: number, front: number];   // liftM<0＝地中。terrain:false＝地形リフト無し（海面球＋liftM）＝**数百点以上を毎フレーム投影する overlay は必ずこちら**（既定の地形リフトは点ごとに標高照会を起こす）
 	/** 描画フレーム毎フック（戻り値=解除関数）。**描画はオンデマンド＝静止中は呼ばれない**。オーバレイを載せた/更新した直後は requestDraw() で 1 フレーム点火する */
 	onFrame(fn: () => void): () => void;
 	/** 次フレームの描画を1回点火（オーバレイ更新後に） */

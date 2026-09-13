@@ -3582,12 +3582,18 @@ const map = { cam, flyTo, renderer, mapEl, destroy,
 // 表示中の地形変位と同式（TERR_EXAG/EARTH_M × pitchフェード＝renderer elevScaleEff と同形・cityFlatは撤去済み）。
 // 標高は getHeight を100m格子でメモ（非同期＝到着まで0m、次フレームで乗る。キーはマーカー/pop地点のみ＝有界）。
 const elevMemo = new Map();
+// ★有界化（2026-09-13）：makeProjectorH を大量点（地震 overlay 2300点×3/フレーム）で呼ぶと、未メモの点ごとに getHeight が一斉発射され
+//   renderer が SIGTRAP で落ちた（実測・エラーコード5）。同時在庫を ELEV_INFLIGHT_MAX に絞り、溢れた点は「今回は 0m」（メモに残さない＝次回また試す）。
+//   マーカー/pop の数点なら従来どおり即照会。needsDraw も 1 回に束ねる。
+const ELEV_INFLIGHT_MAX = 64; let elevInflight = 0, elevDrawPending = false;
 const elevOf = (lon, lat) => {
 	const k = Math.round(lon * 1000) + "," + Math.round(lat * 1000);
 	const hit = elevMemo.get(k);
 	if (hit !== undefined) return typeof hit === "number" ? hit : 0;
-	elevMemo.set(k, null);
-	if (getHeight) Promise.resolve(getHeight(lon, lat, cam.zoom)).then(h => { elevMemo.set(k, +h || 0); needsDraw = true; }).catch(() => elevMemo.set(k, 0));
+	if (!getHeight || elevInflight >= ELEV_INFLIGHT_MAX) return 0;   // 溢れ＝照会しない（メモ未登録のまま）
+	elevMemo.set(k, null); elevInflight++;
+	Promise.resolve(getHeight(lon, lat, cam.zoom)).then(h => { elevMemo.set(k, +h || 0); }, () => elevMemo.set(k, 0))
+		.then(() => { elevInflight--; if (!elevDrawPending) { elevDrawPending = true; requestAnimationFrame(() => { elevDrawPending = false; needsDraw = true; }); } });
 	return 0;
 };
 const dispRadius = (lon, lat) => {
@@ -3601,7 +3607,7 @@ const unprojectAt = (clientX, clientY) => { const r = canvas.getBoundingClientRe
 const makeProjector = () => { const st = cameraState(cam, size.w, size.h); return (lon, lat) => { const [sx, sy, f] = project(st, lon, lat, dispRadius(lon, lat)); return [sx / dpr, sy / dpr, f]; }; };
 // makeProjectorH＝高度付き投影（注釈の3Dピン用）：地表（地形持ち上げ込み）から hメートル 上の点を画面へ。
 // 真俯瞰では鉛直変位が画面上ほぼ消える＝ピンは自然に「円」へ縮退・チルトで立つ（annoガジェットが使用）。
-const makeProjectorH = () => { const st = cameraState(cam, size.w, size.h); return (lon, lat, hM) => { const [sx, sy, f] = project(st, lon, lat, dispRadius(lon, lat) + (hM || 0) * (TERR_EXAG / EARTH_M)); return [sx / dpr, sy / dpr, f]; }; };
+const makeProjectorH = ({ terrain = true } = {}) => { const st = cameraState(cam, size.w, size.h); return (lon, lat, hM) => { const [sx, sy, f] = project(st, lon, lat, (terrain ? dispRadius(lon, lat) : 1) + (hM || 0) * (TERR_EXAG / EARTH_M)); return [sx / dpr, sy / dpr, f]; }; };   // terrain:false＝地形リフト無し（海面球＋hM）＝大量点の overlay 用（getHeight を叩かない・2026-09-13）
 const unprojectXY = (x, y) => unproject(cameraState(cam, size.w, size.h), x * dpr, y * dpr);
 // shot（画面保存）用スナップショット：render worker（GLは別スレッド＝mainから読めない）に「今の1枚」を
 // 出させる。gint は 1canvas統合で基図と同じ1枚に写り込む＝旧・別撮り合成（wantGint）は消滅。
