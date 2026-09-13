@@ -99,7 +99,7 @@ export function getBbox(self, i) {
 	if (self._bboxes) return self._bboxes;
 	let xmin = Infinity, ymin = Infinity, xmax = -Infinity, ymax = -Infinity;
 	self._bboxes = self.each(idx => {
-		const b = self.getBbox(idx);
+		const b = getBbox(self, idx);   // prototype（pbf.js）経由でなく自己完結＝pbf-base だけの GeoPBF でも動く
 		if (isBbox(b)) {
 			if (b[0] < xmin) xmin = b[0]; if (b[1] < ymin) ymin = b[1];
 			if (b[2] > xmax) xmax = b[2]; if (b[3] > ymax) ymax = b[3];
@@ -110,5 +110,5 @@ export function getBbox(self, i) {
 	return self._bboxes;
 }
 
-export function bboxes(self) { return self._bboxes || (self.getBbox(), self._bboxes); }
-export function bbox(self) { return self._bbox || (self.getBbox(), self._bbox); }
+export function bboxes(self) { return self._bboxes || (getBbox(self), self._bboxes); }
+export function bbox(self) { return self._bbox || (getBbox(self), self._bbox); }
