@@ -39,6 +39,7 @@
 		"deploy": "npm run verify:editor && npm run verify:prod && rm -rf dist/site/japan/moj-local dist/site/japan/plateau-names.json && find dist/site -name .DS_Store -delete && wrangler deploy && node scripts/verify-live.mjs",
 		"preview:prod": "npm run build:prod && rm -rf dist/site/japan/moj-local && wrangler dev",
 		"verify:nocoi": "node scripts/verify-nocoi.mjs",
+		"verify:elevburst": "node scripts/verify-elevburst.mjs",
 		"build:lib": "vite build --config vite.lib.config.js && cp sdk/ortho-japan.d.ts dist/lib/",
 		"verify:lib": "node scripts/verify-lib.mjs",
 		"pack:sdk": "node scripts/pack-sdk.mjs",

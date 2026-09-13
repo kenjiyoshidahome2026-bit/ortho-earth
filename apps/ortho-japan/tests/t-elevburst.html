@@ -1,0 +1,33 @@
+<!doctype html>
+<!-- 回帰：makeProjectorH を大量点×チルトで毎フレーム叩いても renderer が落ちないこと（elevOf 有界化・2026-09-13）。
+     なぜ要るか＝pitch>0.06 で dispRadius が点ごとに elevOf → getHeight（非同期照会）を通る。旧実装は未メモの点数だけ
+     一斉発射し、2300点×3/フレームの overlay をチルトすると約7,000照会が飛んで renderer が SIGTRAP（エラーコード5）。
+     本番の anno（3Dピン）も同じ穴＝ここが赤なら「大量点の overlay がチルトで死ぬ」が再発している。
+     実時間で回す（verify-elevburst.mjs）＝仮想時計では rAF/照会の実挙動が出ない。落ちた場合は title が PASS/FAIL にならない＝runner が FAIL 扱い。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;width:640px;height:480px}</style><title>t-elevburst</title></head>
+<body>
+<script type="module">
+import orthoJapan from "../app.js";
+const t = [], ok = (n, c) => t.push((c ? "ok:" : "NG:") + n);
+const fin = () => document.title = t.some(s => s.startsWith("NG")) ? "FAIL " + t.join(" ") : "PASS " + t.join(" ");
+try {
+	const map = await orthoJapan({ view: "#12.2/32.2/138/60t", plateau: false, chips: false });
+	await new Promise(r => { let done = false; const h = () => { if (!done) { done = true; map.off?.("settle", h); r(); } }; map.on?.("settle", h); setTimeout(h, 8000); });
+	const pitchDeg = map.view.pitch * 180 / Math.PI;
+	ok(`pitch=${pitchDeg.toFixed(0)}°`, map.view.pitch > 0.1);   // dispRadius→elevOf を通る前提（真俯瞰では検定にならない）
+	// 2300 点を視野周辺にばらまき、毎フレーム 3 投影（地中・地中+1km・接線1km）＝地震 overlay と同じ負荷
+	const N = 2300, P = Array.from({ length: N }, (_, i) => [138 + ((i * 7919) % 2000) / 1000 - 1, 32.2 + ((i * 104729) % 2000) / 1000 - 1]);
+	let frames = 0, calls = 0; const t0 = performance.now();
+	await new Promise(res => { const step = () => {
+		const H = map.makeProjectorH();
+		for (const [lon, lat] of P) { H(lon, lat, -100000); H(lon, lat, -99000); H(lon, lat + 0.009, -100000); calls += 3; }
+		map.requestDraw(); if (++frames < 90) requestAnimationFrame(step); else res(); }; requestAnimationFrame(step); });
+	ok(`burst frames=${frames} calls=${calls} ${((performance.now() - t0) / frames).toFixed(1)}ms/frame`, frames === 90);
+	await new Promise(r => setTimeout(r, 1500));   // 照会の返り（有界化後は最大64在庫）が捌ける間も生きている
+	ok("alive after burst", true);
+	const H2 = map.makeProjectorH({ terrain: false }), p = H2(138, 32.2, -100000);
+	ok("terrain:false projector", Array.isArray(p) && p.length === 3 && Number.isFinite(p[0]));
+} catch (e) { ok("exception " + (e?.message || e), false); }
+fin();
+</script>
+</body></html>
