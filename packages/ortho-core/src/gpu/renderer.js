@@ -371,7 +371,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 	// UBO：Frame 4スロット / DrawP N_ROLESスロット / globe 専用 / PLATEAU per-batch（dynamic offset）
 	const frameBuf = device.createBuffer({ size: FRAME_SLOT * 5, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });   // 5スロット目=terrainFar（遠景メッシュパス）
 	const paramBuf = device.createBuffer({ size: PARAM_SLOT * N_ROLES, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
-	const globeBuf = device.createBuffer({ size: 176, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });   // mat4+land+atmo+elevBounds+whP+seaC+farBounds+farP
+	const globeBuf = device.createBuffer({ size: 192, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });   // mat4+land+atmo+elevBounds+whP+seaC+farBounds+farP+misc(globeAlpha)
 	const worldPalBuf = device.createBuffer({ size: 160, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });   // WorldPal（10×vec4f・globe/terrain 両パイプラインで共有＝knob 変化時のみ書込）
 	let globeBG = null;   // rebuildGlobeBG() が生成（elev/clim テクスチャ差し替えで作り直し。明示レイアウト＝1x/4x 両セット互換）
 	const paramBG = [];   // 役割別（静的オフセット＝dynamic offset 不要）
@@ -507,7 +507,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 	function drawLakes(pass, packF, st, whK) {
 		if (!lakes || !lakes.fanCount) return;
 		const sc = worldPal().sea;   // globe u_seaC と単一の出所（テーマの worldHypso.sea が両方へ届く）
-		const [fOff, pOff] = stencilWorldFan(pass, packF, st, lakes, LK_SLOT, [sc[0], sc[1], sc[2], whK]);
+		const [fOff, pOff] = stencilWorldFan(pass, packF, st, lakes, LK_SLOT, [sc[0], sc[1], sc[2], whK * (view.globeAlpha ?? 1)]);   // 湖も球体の不透明度に従う
 		pass.setPipeline(P.ovCover);
 		pass.setBindGroup(0, ovFrameBG, [fOff]); pass.setBindGroup(1, ovParamBG, [pOff]);
 		pass.draw(3);
@@ -992,7 +992,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 		const hy = view.hypso;
 		at(ROLE.terrain, [land[0], land[1], land[2], 0,
 			hy ? hy.color[0] : 0, hy ? hy.color[1] : 0, hy ? hy.color[2] : 0, hy ? (hy.amount ?? 0.5) : 0,
-			hy ? 1 / (hy.max || 3000) : 0, worldHypsoK, hasClim, 0]);   // p2.y=全球ハイプソ出現度 p2.z=気候場到着（gl 側 u_whK/u_hasClim と同義）
+			hy ? 1 / (hy.max || 3000) : 0, worldHypsoK, hasClim, view.globeAlpha ?? 1]);   // p2.y=全球ハイプソ出現度 p2.z=気候場到着 p2.w=球体の不透明度（gl 側 u_whK/u_hasClim/u_globeAlpha と同義）
 		at(ROLE.bld, [bldColor[0], bldColor[1], bldColor[2], 1]);
 		at(ROLE.contour, [contour.color[0], contour.color[1], contour.color[2], contour.interval,
 			contour.major, contour.alpha, 0, 0]);
@@ -1099,7 +1099,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 			worldHypsoK, hasClim: climTexView ? 1 : 0,
 		}));
 		if (!flat2d) {
-			const g = new Float32Array(44);   // +farBounds/farP（far床＝タイラーのバグ根治 9/2）
+			const g = new Float32Array(48);   // +farBounds/farP（far床＝タイラーのバグ根治 9/2）+misc（球体の不透明度 9/13）
 			g.set(st.invMvp, 0);
 			g[16] = land[0]; g[17] = land[1]; g[18] = land[2]; g[19] = land[3];
 			g[20] = atmo[0]; g[21] = atmo[1]; g[22] = atmo[2]; g[23] = atmo[3];
@@ -1111,6 +1111,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 			g[35] = view.graticule ? Math.max(0, Math.min(1, (cam.zoom - 1.7) / 0.5)) * Math.max(0, Math.min(1, (6.5 - cam.zoom) / 0.5)) * 0.5 : 0;
 			g[36] = far.bounds[0]; g[37] = far.bounds[1]; g[38] = far.bounds[2]; g[39] = far.bounds[3];   // far床（世界帯z<8=R90全球固定窓）
 			g[40] = far.has; g[41] = elev.edgeFade || 0;   // farP=(hasFar, 近窓縁フェード幅deg, 0, 0)
+			g[44] = view.globeAlpha ?? 1;   // misc.x＝球体の不透明度（globe/wdepr/terrain(p2.w)/湖/夜面に一括）
 			device.queue.writeBuffer(globeBuf, 0, g);
 		}
 		// 星空劇場（z<5）：星/夜面共通の出現フェード（gl/renderer.js と同式）。恒星時 GMST の天球回転・太陽方位も。
@@ -1135,7 +1136,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 			s[34] = starFade; s[35] = skyK;
 			s[36] = W; s[37] = H;
 			s[40] = cs * Math.cos(sunLng); s[41] = Math.sin(sunLat); s[42] = cs * Math.sin(sunLng);
-			s[43] = 0.5 * worldFade;   // 夜面 50% × 出現フェード
+			s[43] = 0.5 * worldFade * (view.globeAlpha ?? 1);   // 夜面 50% × 出現フェード × 球体の不透明度
 			device.queue.writeBuffer(skyBuf, 0, skyCPU);
 		}
 

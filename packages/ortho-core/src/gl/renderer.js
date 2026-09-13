@@ -713,6 +713,7 @@ export function createRenderer(canvas, rOpts = {}) {
 		gl.uniform1f(loc(gl, wdCoverProg, "u_hasFar"), far.has);
 		gl.uniform1f(loc(gl, wdCoverProg, "u_ell"), ellipsoidOn() ? 1 : 0);
 		gl.uniform1f(loc(gl, wdCoverProg, "u_whK"), whK);
+		gl.uniform1f(loc(gl, wdCoverProg, "u_globeAlpha"), view.globeAlpha ?? 1);
 		bindClim(wdCoverProg);   // 気候場 unit12（未着は u_hasClim=0＝緯度近似フォールバック・globe と同じ）
 		bindWorldPal(wdCoverProg);   // globe と同一フレーム・同一パレット＝縫い目の色 bit 一致
 		gl.uniform3f(loc(gl, wdCoverProg, "u_whDeep"), ...worldPal().belowSea);
@@ -734,7 +735,7 @@ export function createRenderer(canvas, rOpts = {}) {
 		stencilWorldFan(o, st, land);
 		gl.useProgram(coverProg);
 		const sc = worldPal().sea;
-		gl.uniform4f(loc(gl, coverProg, "u_fill"), sc[0], sc[1], sc[2], whK);
+		gl.uniform4f(loc(gl, coverProg, "u_fill"), sc[0], sc[1], sc[2], whK * (view.globeAlpha ?? 1));   // 湖も球体の不透明度に従う
 		gl.stencilFunc(gl.NOTEQUAL, 0, 0xFF); gl.stencilOp(gl.KEEP, gl.KEEP, gl.ZERO);   // 内側を塗り 0 へ後始末
 		gl.bindVertexArray(emptyVAO); gl.drawArrays(gl.TRIANGLES, 0, 3);
 		gl.clearStencil(0); gl.clear(gl.STENCIL_BUFFER_BIT);   // 縮退スライバー残渣の掃除（wdepr と同じ）
@@ -810,6 +811,7 @@ export function createRenderer(canvas, rOpts = {}) {
 		gl.clear(gl.COLOR_BUFFER_BIT);
 		gl.enable(gl.BLEND);
 		gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+		const globeA = view.globeAlpha ?? 1;   // 球体の不透明度（globe/terrain/海面下/湖/夜面に一括＝表示パネル「基図」の拡張・本人裁定 2026-09-13）
 		gl.disable(gl.DEPTH_TEST);
 		gl.clear(gl.DEPTH_BUFFER_BIT);
 
@@ -866,6 +868,7 @@ export function createRenderer(canvas, rOpts = {}) {
 			gl.uniformMatrix4fv(loc(gl, globeProg, "u_invMvp"), false, Float32Array.from(st.invMvp));
 			gl.uniform4f(loc(gl, globeProg, "u_land"), land[0], land[1], land[2], land[3]);
 			gl.uniform4f(loc(gl, globeProg, "u_atmo"), atmo[0], atmo[1], atmo[2], atmo[3]);
+			gl.uniform1f(loc(gl, globeProg, "u_globeAlpha"), globeA);
 			// 全球ハイプソ（view.worldHypso＝テーマ/アプリのknob）：z5.5 まで全開→z6.3 で消灯。
 			// 終端 6.3＝R90 全球窓の終わり（z6.5 でアトラスがビュー窓へ切替＝窓の外の陸が「標高0＝海」に化ける）
 			// より手前。地形面（TERRAIN_FS u_whK）と同じ係数＝チルトでも色が連続。
@@ -962,6 +965,7 @@ export function createRenderer(canvas, rOpts = {}) {
 			gl.uniform3f(loc(gl, terrainProg, "u_hypso"), hy ? hy.color[0] : 0, hy ? hy.color[1] : 0, hy ? hy.color[2] : 0);
 			gl.uniform2f(loc(gl, terrainProg, "u_hypsoP"), hy ? 1 / (hy.max || 3000) : 0, hy ? (hy.amount ?? 0.5) : 0);
 			gl.uniform1f(loc(gl, terrainProg, "u_whK"), worldHypsoK);   // 全球ハイプソ（低ズーム帯）＝globe パスと同色
+			gl.uniform1f(loc(gl, terrainProg, "u_globeAlpha"), globeA);
 			if (worldHypsoK > 0) { ensureClimTex(view.worldHypso.clim); bindClim(terrainProg); bindWorldPal(terrainProg); }
 			else { gl.uniform1i(loc(gl, terrainProg, "u_climTex"), 12); gl.uniform1f(loc(gl, terrainProg, "u_hasClim"), 0); }   // サンプラは常時unit12へ（未設定=unit0整数テクスチャの轍）
 			bindCog(terrainProg);   // ユーザ COG（陰影の上・フォグの下＝TERRAIN_FS 側で合成）
@@ -1275,7 +1279,7 @@ export function createRenderer(canvas, rOpts = {}) {
 			gl.useProgram(nightProg);
 			gl.uniformMatrix4fv(loc(gl, nightProg, "u_invMvp"), false, Float32Array.from(st.invMvp));
 			gl.uniform3f(loc(gl, nightProg, "u_sun"), cs * Math.cos(sunLng), Math.sin(sunLat), cs * Math.sin(sunLng));
-			gl.uniform1f(loc(gl, nightProg, "u_alpha"), 0.5 * worldFade);   // v1 の夜面 50% × 出現フェード
+			gl.uniform1f(loc(gl, nightProg, "u_alpha"), 0.5 * worldFade * globeA);   // v1 の夜面 50% × 出現フェード × 球体の不透明度
 			gl.bindVertexArray(emptyVAO);
 			gl.drawArrays(gl.TRIANGLES, 0, 3);
 		}
