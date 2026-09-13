@@ -42,6 +42,7 @@
 		"verify:elevburst": "node scripts/verify-elevburst.mjs",
 		"build:lib": "vite build --config vite.lib.config.js && cp sdk/ortho-japan.d.ts dist/lib/",
 		"verify:lib": "node scripts/verify-lib.mjs",
+		"measure:lib": "node scripts/measure-lib.mjs",
 		"pack:sdk": "node scripts/pack-sdk.mjs",
 		"prepack": "npm run build:lib && node scripts/stage-npm-assets.mjs",
 		"verify:npm": "node scripts/verify-npm.mjs"
