@@ -4,7 +4,7 @@
 export async function createPool(n) {
 	const isNode = typeof process !== "undefined" && !!process.versions?.node && typeof Worker === "undefined";
 	let NodeWorker = null;
-	if (isNode) ({ Worker: NodeWorker } = await import("node:worker_threads"));
+	if (isNode) ({ Worker: NodeWorker } = await import(/* @vite-ignore */ "node:" + "worker_threads"));   // 組み立て式＋@vite-ignore＝バンドラに node: を解決させない（modules/inflate.js と同じ）
 	const spawn = () => {
 		const w = isNode ? new NodeWorker(new URL("./tile-worker.js", import.meta.url)) : new Worker(new URL("./tile-worker.js", import.meta.url), { type: "module" });
 		const lane = { w, busy: false, pending: null };
@@ -39,7 +39,7 @@ export async function createPool(n) {
 }
 export async function defaultWorkers() {
 	let n = (typeof navigator !== "undefined" && navigator.hardwareConcurrency) || 0;
-	if (!n && typeof process !== "undefined" && process.versions?.node) { try { n = (await import("node:os")).availableParallelism(); } catch { n = 4; } }
+	if (!n && typeof process !== "undefined" && process.versions?.node) { try { n = (await import(/* @vite-ignore */ "node:" + "os")).availableParallelism(); } catch { n = 4; } }
 	// 既定＝コア数（上限 8）。4 コアでの実測（NE z0-10 組立段）: 1→15.3s 2→7.9s 3→5.2s 4→4.5s 5→4.8s 6→4.9s 7→5.3s
 	//＝main は job の複製と結果の寄せ集めだけで空きが多く、コア数ぶん worker を立てた時が最速。過剰申込みは僅かに損。
 	return Math.max(1, Math.min(8, n || 4));

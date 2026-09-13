@@ -16,6 +16,6 @@ async function handle(m) {
 if (typeof self !== "undefined" && typeof self.postMessage === "function") {
 	self.onmessage = (e) => handle(e.data).then(r => self.postMessage(r.msg, r.transfers), err => self.postMessage({ id: e.data.id, error: String(err?.stack || err) }));
 } else {
-	const { parentPort } = await import("node:worker_threads");
+	const { parentPort } = await import(/* @vite-ignore */ "node:" + "worker_threads");   // 組み立て式＋@vite-ignore＝バンドラに node: を解決させない（modules/inflate.js と同じ）
 	parentPort.on("message", (m) => handle(m).then(r => parentPort.postMessage(r.msg, r.transfers), err => parentPort.postMessage({ id: m.id, error: String(err?.stack || err) })));
 }
