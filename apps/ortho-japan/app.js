@@ -404,7 +404,7 @@ canvas.width = size.w; canvas.height = size.h;             // transfer 前に初
 labelCanvas.width = size.w; labelCanvas.height = size.h;
 const offscreen = canvas.transferControlToOffscreen();
 const labelOffscreen = labelCanvas.transferControlToOffscreen();
-const renderWorker = new Worker(new URL("./renderworker.js", import.meta.url), { type: "module" });
+const renderWorker = new Worker(new URL("./worker.js", import.meta.url), { type: "module", name: "render" });   // 入口 1 本（worker.js）＝役割は name で指名
 // scene worker → render worker の直結パイプ（main を経由しない geometry）。両端を各 worker へ渡す。
 const sceneChan = new MessageChannel();
 // ?maxact=N / ?tbudget=N ＝低メモリ端末の安全側の絞りを実機で緩めて jetsam 完走を A/B する数値ノブ（?nomd と同格）。
@@ -1036,7 +1036,7 @@ const plateauMemW = [];   // ?hud=1（旧mem=1）：worker index → {cache, liv
 let plateauReqId = 0;
 let plateauCamSent = 0;   // カメラ放送のスロットル（ロード中のみ~4Hz）
 for (let i = 0; plateauOn && i < PLATEAU_NW; i++) {   // plateau OFF＝workerを1本も起こさない
-	const w = new Worker(new URL("./plateauworker.js", import.meta.url), { type: "module" });
+	const w = new Worker(new URL("./worker.js", import.meta.url), { type: "module", name: "plateau" });
 	const meshChan = new MessageChannel();   // この worker → render worker のメッシュ直結パイプ
 	w.postMessage({ type: "init", meshPort: meshChan.port1, lowMem: LOW_MEM, mid: MID_TIER, hi: HI_TIER, dec: PLATEAU_DEC, mem: hudOn, noOpfs: /[?&]noopfs=1/.test(location.search), farH: FAR_H, ell: ELL_ON, noBake: /[?&]nobake=1/.test(location.search), bakeUrl: PLATEAU_BAKE_URL }, [meshChan.port1]);   // noBake/bakeUrl＝R2 焼き（第三の入口）の封印/置き場差し替え   // ?noopfs=1＝バッチ本体のOPFS置きを無効化（従来IDB）＝A/B・切り分け用。farH＝遠景far-DBの高さ閾値
 	wPost({ type: "plateauPort", port: meshChan.port2 }, [meshChan.port2]);
@@ -2284,7 +2284,7 @@ const bakePending = new Map();   // id → { key, raw, meta, onDone, cancelled }
 const legacyGintSend = p => { renderer.set("gint", (p.layer != null || Object.keys(p.meta ?? {}).length) ? { ...p.raw, ...p.meta } : p.raw, p.key, p.layer); p.onDone?.(); };   // 層指名 or meta あり（user の minZoom）＝meta を同期経路にも運ぶ
 function ensureBakeWorker() {
 	if (bakeWorker !== null) return bakeWorker;
-	try { bakeWorker = new Worker(new URL("./gintbakeworker.js", import.meta.url), { type: "module" }); }
+	try { bakeWorker = new Worker(new URL("./worker.js", import.meta.url), { type: "module", name: "gintbake" }); }
 	catch (e) { console.warn("[gint] bake worker start failed = using sync path", e); return (bakeWorker = false); }
 	bakeWorker.onmessage = e => {
 		const d = e.data, p = bakePending.get(d.id);

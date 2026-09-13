@@ -30,7 +30,7 @@
 		"dev": "vite",
 		"test": "node demo/samples/test-scene-adapter.mjs",
 		"build": "vite build",
-		"build:prod": "npm run build:lib && vite build && cp -R dist/lib dist/site/japan/lib",
+		"build:prod": "npm run build:lib && vite build && cp -R dist/lib dist/site/japan/lib && find dist/site/japan/lib -name '*.map' -delete",
 		"verify:ui": "node scripts/verify-ui.mjs",
 		"verify:webgpu": "node scripts/verify-webgpu.mjs",
 		"verify:prod": "node scripts/verify-prod.mjs",
