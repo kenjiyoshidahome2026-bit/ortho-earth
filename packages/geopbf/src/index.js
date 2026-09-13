@@ -78,7 +78,7 @@ export function createGeopbf(apiBase, options = {}) {
         const isInZip = _ => (isString(_) && _.match(/.+\.zip#.+/i));
         const isPBF = _ => (_ instanceof GeoPBF);
         let eventTarget = opts.eventTarget || (typeof window !== 'undefined' ? window : (typeof self !== 'undefined' ? self : null));
-        if (typeof CustomEvent === 'undefined' || !eventTarget.dispatchEvent) eventTarget = null;
+        if (typeof CustomEvent === 'undefined' || !eventTarget?.dispatchEvent) eventTarget = null;   // Node（window/self 無し）で null を参照して落ちていた（1.8.0 tarball 検査で発見・2026-09-14）
         const throwEvent = (type, detail) => eventTarget && eventTarget.dispatchEvent(new CustomEvent(type, { detail }));
         const decoder = async (type, file, extra = {}) => {
             const name = opts.name || file.name.replace(/\.[^\.]+$/, "");
