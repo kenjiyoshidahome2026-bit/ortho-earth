@@ -1,7 +1,7 @@
 // e-Stat 小地域 worker：fetch→gunzip→行単位JSON.parse→fan/線ジオメトリ生成、までを main から追い出す。
 // 東京23区で数千ポリゴン＝main でやると数百ms ブロックしていた。identify（点in面）もここで実行＝
 // feature 実体は worker に住み、main へは typed array（transfer）とヒット時の properties しか渡らない。
-import { buildGeoJSONOverlay, pointInFeature } from "ortho-core";
+import { buildGeoJSONOverlay, pointInFeature } from "ortho-core/geojson";   // index.js 経由だと gl/renderer.js→glsl.js（60 KB）が worker ビルドの共有チャンクに乗り WebGPU 機でも起動時に読まれる（2026-09-14）
 
 let features = null, origin = [138, 37];
 let featBBoxes = null;   // 地物ごとの外接bbox＝identify/hovertip の point-in-poly 前の即棄却（毎ホバー安価に）

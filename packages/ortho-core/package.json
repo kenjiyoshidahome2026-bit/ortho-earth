@@ -8,6 +8,11 @@
 	"exports": {
 		".": "./src/index.js",
 		"./gpu": "./src/gpu/backend.js",
+		"./gl": "./src/gl/backend.js",
+		"./labels": "./src/labels2d.js",
+		"./terrain": "./src/terrain.js",
+		"./camera": "./src/camera.js",
+		"./geojson": "./src/geojson.js",
 		"./decode": "./src/decode.js",
 		"./geodesic": "./src/geodesic.js"
 	},

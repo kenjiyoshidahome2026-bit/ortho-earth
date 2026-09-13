@@ -2,7 +2,12 @@
 // worker-driven：自前 rAF で「最新の cam から mvp 生成 → 地図→ラベルを同じ frame で描画」。
 // main は cam を投げるだけ（往復待ちを排し、溜まった draw は最新一枚に畳む＝低レイテンシ）。
 // 描画フレームは軽い処理のみ（mvp生成+draw）。重い生成は main/他worker が停止後に行い set で渡す。
-import { createRenderer, createLabelLayer, createTerrain, createGintLayer, setEllipsoid } from "ortho-core";
+// バックエンド（WebGL2 / WebGPU）は init で選んだ片方だけを dynamic import する（ortho-core/gl・ortho-core/gpu）。
+// index.js（createRenderer 等を静的に束ねる）を経由すると GL2 のレンダラが常に同梱されるので、ここは subpath だけを使う
+// （WebGPU 機で GL2 の約 106 KB を読まない＝起動ロードの計量 2026-09-14）。
+import { createLabelLayer } from "ortho-core/labels";
+import { createTerrain } from "ortho-core/terrain";
+import { setEllipsoid } from "ortho-core/camera";
 import { shieldFor } from "./shields.js";   // 地図記号＝日本の語彙。この静的importがある限り renderworker は app の合成点
 
 let renderer = null, labelLayer = null, canvas = null, labelCanvas = null;
@@ -94,9 +99,14 @@ function tqFeed(tag, ms) {
 	}
 }
 
-// WebGL2 バックエンドの起動（従来経路そのまま）：renderer＋gint＋timer query＋標高(terrain)。
+// WebGL2 バックエンドの起動：renderer＋gint＋timer query＋標高(terrain)。レンダラ本体は ortho-core/gl を dynamic import
+// （WebGPU 経路と同じ形＝init は非同期・その間のメッセージは initQueue へ待避）。
 // GL 初期化失敗（WebGL2不可・GPUブロックリスト等）は黙って死なず main へ通知＝案内を出させる。
-function bootWebGL(m) {
+async function bootWebGL(m) {
+	let createRenderer, createGintLayer;
+	bootStage = "awaiting gl import";
+	try { ({ createRenderer, createGintLayer } = await import("ortho-core/gl")); }
+	catch (err) { postMessage({ type: "glfail", error: "gl backend import failed: " + String(err && err.message || err) }); return; }
 	try { renderer = createRenderer(canvas, { noMD: !!m.noMultiDraw, msaa1: !!m.msaa1, requestDraw: () => { dirty = true; armRaf(); } }); }
 	catch (err) { postMessage({ type: "glfail", error: String(err && err.message || err) }); return; }
 	console.log(`[render] multi_draw ${renderer.md ? "enabled (tiles GPU-resident)" : "absent (CPU merge fallback)"}`);
@@ -175,12 +185,11 @@ const dispatch = e => {
 			noBld = !!m.noBld;
 			drawHudOn = !!m.drawHud;
 			self.__perfElev = perfOn;   // renderer の標高パイプライン計器（[elev] 行）を点灯
-			if (m.gpu) {
-				// 実験フラグ ?gpu=1＝WebGPU バックエンド（Phase 1: globe+基図 fill/line・classic merge）。
-				// init は非同期（adapter/device 取得）＝その間のメッセージは initQueue へ待避し順序ごと再投入。
-				// 失敗（非対応・adapter無し）は WebGL2 へフォールバック＝既定経路と同一挙動。
-				initQueue = []; bootStage = "awaiting import";
-				import("ortho-core/gpu")
+			// バックエンドの起動は両経路とも非同期（選んだ片方だけを dynamic import）＝その間のメッセージは initQueue へ
+			// 待避し順序ごと再投入。WebGPU（?gpu=1）は adapter/device 取得も非同期・失敗（非対応・adapter無し）は WebGL2 へ
+			// フォールバック。WebGL2 は ortho-core/gl の import のみが非同期（従来は同期起動だった・2026-09-14）。
+			initQueue = []; bootStage = "awaiting import";
+			(m.gpu ? import("ortho-core/gpu")
 					.then(({ createRendererGPU, createGintLayerGPU }) => createRendererGPU(canvas, { noTQ: !!m.noTQ, noFade: !!m.noFade, msaa1: !!m.msaa1, requestDraw: () => { dirty = true; armRaf(); } }).then(r => {
 						renderer = r; backendName = "webgpu"; bootStage = "renderer ready"; hudGpuName = String(r.gpuInfo || "");   // ?hud=1 状態盤のGPU名
 						aaDyn = !m.msaa1 && !m.msaa4;   // 遷移時AA（?msaa=0＝常時1x／?msaa=1＝常時4x のときは固定＝無効）
@@ -199,8 +208,9 @@ const dispatch = e => {
 					}))
 					.catch(err => {
 						console.warn("[render] WebGPU init failed → WebGL2 fallback:", err && (err.message || err));
-						bootWebGL(m);
+						return bootWebGL(m);
 					})
+				: bootWebGL(m))
 					.then(() => {
 						bootStage = "pre-finishInit";
 						if (renderer) finishInit(m);
@@ -209,10 +219,6 @@ const dispatch = e => {
 						if (q) for (const qm of q) dispatch({ data: qm });   // 待避分を順序どおり再投入
 						bootStage = "queue released(" + (q ? q.length : 0) + ")";
 					});
-				break;
-			}
-			bootWebGL(m);
-			if (renderer) finishInit(m);
 			break;
 		case "plateauPort":                                      // plateau worker → ここ のメッシュ直結パイプ（workerプール1本につき1ポート）
 			m.port.onmessage = ev => { plateauInbox.push({ ...ev.data, port: m.port }); dirty = true; };   // 受信は貯めるだけ＝GPU転送は frame() が1件/フレームで平準化（下の drainUploads）。port＝消化ack（クレジット）の返送先
