@@ -1,4 +1,4 @@
-import {GeoPBF} from "../pbf-base.js";
+import { GeoPBF } from "../pbf.js";   // pbf-base ではなく pbf.js＝bbox / getBbox の prototype が要る（pbf-base 直 import だと shapeFile() が永久 hang・2026-09-14 根治）
 import { encodeZIP } from "../modules/encodeZIP.js";
 const getEncoder = async (encoding) => {
 	if (encoding === "sjis") {
@@ -181,6 +181,7 @@ function writeDbf(pbf, name, farray, encoding, encoder) {
 	return new File([DBF.buffer()], name + '.dbf', {type:"application/octet-stream"});
 }
 onmessage = async (e) => {
+	try {
 	const {buf, name, opts} = e.data, encoding = opts && opts.encoding || "utf8";
 	const encoder = await getEncoder(encoding);
 	const prj  = `GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137.0,298.257223563]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]]`;
@@ -206,4 +207,8 @@ onmessage = async (e) => {
 	const file = await encodeZIP(zipFiles, name+".zip");
 	console.log(" => Done : ", file.name, "size: " + file.size.toLocaleString() + " bytes");
 	postMessage(file);
+	} catch (err) {
+		console.error("Shape encode Worker Error:", err);   // 失敗は必ず null で返す＝呼び手の Promise を hang させない
+		postMessage(null);
+	}
 };

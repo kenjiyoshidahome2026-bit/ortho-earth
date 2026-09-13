@@ -1,4 +1,4 @@
-import { GeoPBF } from "../pbf-base.js";
+import { GeoPBF } from "../pbf.js";   // pbf-base ではなく pbf.js＝bbox / getBbox の prototype が要る（pbf-base 直 import だと getBbox 不在で TypeError→永久 hang・2026-09-14 根治）
 import { getBbox } from "../extension/spatial.js";
 
 // FlatGeobuf v3 magic bytes.
@@ -148,7 +148,7 @@ class FlatBufferBuilder {
 // Official FlatGeobuf Header schema: name=0, envelope=1, geometry_type=2, columns=7, features_count=8, index_node_size=9.
 function buildFGBHeader(pbf) {
 	const keys = pbf.keys;
-	getBbox(pbf); // bbox getter is not available in workers that import pbf-base directly; use the extension function
+	getBbox(pbf);   // bbox を先に確定（pbf.js の GeoPBF なら prototype 経由でも同じ。extension 関数は自己完結に直した）
 	const bbox = pbf._bbox;
 	const builder = new FlatBufferBuilder();
 
@@ -277,6 +277,8 @@ onmessage = async (e) => {
 		const out = gz ? readable.pipeThrough(new CompressionStream("gzip")) : readable;
 		const bPromise = new Response(out).blob();
 
+		// 書き手の失敗は必ず stream を abort する＝bPromise が reject して下の catch へ落ち、postMessage(null) で呼び手に返る。
+		// 旧＝IIFE の例外が unhandled rejection のまま bPromise が永遠に解決せず、fgbFile() が settle しなかった（2026-09-14）。
 		(async () => {
 			await writer.write(MAGIC);
 
@@ -291,13 +293,14 @@ onmessage = async (e) => {
 			}
 
 			await writer.close();
-		})();
+		})().catch(err => writer.abort(err).catch(() => {}));
 
 		const b = await bPromise;
 		postMessage(new File([b], `${name}.fgb${gz ? ".gz" : ""}`, {
 			type: gz ? "application/gzip" : "application/octet-stream"
 		}));
 	} catch (err) {
+		console.error("FGB encode Worker Error:", err);
 		postMessage(null);
 	}
 };
