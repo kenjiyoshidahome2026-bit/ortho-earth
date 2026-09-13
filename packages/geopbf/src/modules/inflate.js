@@ -8,7 +8,9 @@
 // 同じ時間で半分以下（level 9 で 0.38）＝GeoParquet は Node では zstd を既定にする。
 let zlib = null, probed = null;
 const probe = () => probed ??= (async () => {
-	if (typeof process !== "undefined" && process.versions?.node) { try { zlib = await import("node:zlib"); } catch { zlib = null; } }
+	// 指定子を組み立て式＋@vite-ignore にする＝バンドラ（vite）に "node:zlib" を解決させない。リテラルだと Node 判定の内側でも
+	// 静的に拾われ「Module "node:zlib" has been externalized for browser compatibility」を全 worker ビルドで吐く（2026-09-14）。
+	if (typeof process !== "undefined" && process.versions?.node) { try { zlib = await import(/* @vite-ignore */ "node:" + "zlib"); } catch { zlib = null; } }
 })();
 const pipe = async (u8, ts) => {
 	const w = ts.writable.getWriter(); w.write(u8); w.close();
