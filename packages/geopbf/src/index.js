@@ -1,35 +1,36 @@
 import { GeoPBF } from "./pbf.js";
 import { createPbfio } from "./pbf-io.js";
-// Dynamic template literals new URL(`./decoder/${type}.js`, ...) cannot be statically analyzed by Vite
-// and are copied as-is without bundling, making relative imports unresolvable in production.
-// Listing each decoder/encoder statically allows Vite to bundle them correctly.
+// 変換 worker は入口 1 本（./worker.js）＝形式は Worker の name で指名する（処方②・ortho-earth#12・2026-09-14）。
+// 形式ごとに worker ファイルを分けると、バンドラ（vite）が worker ごとに独立ビルドして核（pbf-base 等）を 25〜29 回複製した。
+// 各エントリを直書きで並べるのは、vite が静的に検出できる形＝「new Worker(new URL('…', import.meta.url), {静的 options})」
+// を保つため（URL を変数に貯めたり ?query を足すとビルドで壊れる）。同じ URL なので worker ビルドは 1 つに束ねられる。
 const decoderWorkers = {
-    fgb:   () => new Worker(new URL('./decoder/fgb.js',   import.meta.url), { type: 'module' }),
-    gint:  () => new Worker(new URL('./decoder/gint.js',  import.meta.url), { type: 'module' }),
-    gml:   () => new Worker(new URL('./decoder/gml.js',   import.meta.url), { type: 'module' }),
-    gpkg:  () => new Worker(new URL('./decoder/gpkg.js',  import.meta.url), { type: 'module' }),
-    gdb:   () => new Worker(new URL('./decoder/gdb.js',   import.meta.url), { type: 'module' }),
-    parquet: () => new Worker(new URL('./decoder/parquet.js', import.meta.url), { type: 'module' }),
-    csv:   () => new Worker(new URL('./decoder/csv.js',   import.meta.url), { type: 'module' }),
-    gpx:   () => new Worker(new URL('./decoder/gpx.js',   import.meta.url), { type: 'module' }),
-    json:  () => new Worker(new URL('./decoder/json.js',  import.meta.url), { type: 'module' }),
-    kmz:   () => new Worker(new URL('./decoder/kmz.js',   import.meta.url), { type: 'module' }),
-    moj:   () => new Worker(new URL('./decoder/moj.js',   import.meta.url), { type: 'module' }),
-    pbf:   () => new Worker(new URL('./decoder/pbf.js',   import.meta.url), { type: 'module' }),
-    shape: () => new Worker(new URL('./decoder/shape.js', import.meta.url), { type: 'module' }),
+    fgb:     () => new Worker(new URL('./worker.js', import.meta.url), { type: 'module', name: 'decoder:fgb' }),
+    gint:    () => new Worker(new URL('./worker.js', import.meta.url), { type: 'module', name: 'decoder:gint' }),
+    gml:     () => new Worker(new URL('./worker.js', import.meta.url), { type: 'module', name: 'decoder:gml' }),
+    gpkg:    () => new Worker(new URL('./worker.js', import.meta.url), { type: 'module', name: 'decoder:gpkg' }),
+    gdb:     () => new Worker(new URL('./worker.js', import.meta.url), { type: 'module', name: 'decoder:gdb' }),
+    parquet: () => new Worker(new URL('./worker.js', import.meta.url), { type: 'module', name: 'decoder:parquet' }),
+    csv:     () => new Worker(new URL('./worker.js', import.meta.url), { type: 'module', name: 'decoder:csv' }),
+    gpx:     () => new Worker(new URL('./worker.js', import.meta.url), { type: 'module', name: 'decoder:gpx' }),
+    json:    () => new Worker(new URL('./worker.js', import.meta.url), { type: 'module', name: 'decoder:json' }),
+    kmz:     () => new Worker(new URL('./worker.js', import.meta.url), { type: 'module', name: 'decoder:kmz' }),
+    moj:     () => new Worker(new URL('./worker.js', import.meta.url), { type: 'module', name: 'decoder:moj' }),
+    pbf:     () => new Worker(new URL('./worker.js', import.meta.url), { type: 'module', name: 'decoder:pbf' }),
+    shape:   () => new Worker(new URL('./worker.js', import.meta.url), { type: 'module', name: 'decoder:shape' }),
 };
 const encoderWorkers = {
-    fgb:      () => new Worker(new URL('./encoder/fgb.js',      import.meta.url), { type: 'module' }),
-    geojson:  () => new Worker(new URL('./encoder/geojson.js',  import.meta.url), { type: 'module' }),
-    geopbf:   () => new Worker(new URL('./encoder/geopbf.js',   import.meta.url), { type: 'module' }),
-    gint:     () => new Worker(new URL('./encoder/gint.js',     import.meta.url), { type: 'module' }),
-    gml:      () => new Worker(new URL('./encoder/gml.js',      import.meta.url), { type: 'module' }),
-    gpx:      () => new Worker(new URL('./encoder/gpx.js',      import.meta.url), { type: 'module' }),
-    kmz:      () => new Worker(new URL('./encoder/kmz.js',      import.meta.url), { type: 'module' }),
-    preview:  () => new Worker(new URL('./encoder/preview.js',  import.meta.url), { type: 'module' }),
-    profile:  () => new Worker(new URL('./encoder/profile.js',  import.meta.url), { type: 'module' }),
-    shape:    () => new Worker(new URL('./encoder/shape.js',    import.meta.url), { type: 'module' }),
-    topojson: () => new Worker(new URL('./encoder/topojson.js', import.meta.url), { type: 'module' }),
+    fgb:      () => new Worker(new URL('./worker.js', import.meta.url), { type: 'module', name: 'encoder:fgb' }),
+    geojson:  () => new Worker(new URL('./worker.js', import.meta.url), { type: 'module', name: 'encoder:geojson' }),
+    geopbf:   () => new Worker(new URL('./worker.js', import.meta.url), { type: 'module', name: 'encoder:geopbf' }),
+    gint:     () => new Worker(new URL('./worker.js', import.meta.url), { type: 'module', name: 'encoder:gint' }),
+    gml:      () => new Worker(new URL('./worker.js', import.meta.url), { type: 'module', name: 'encoder:gml' }),
+    gpx:      () => new Worker(new URL('./worker.js', import.meta.url), { type: 'module', name: 'encoder:gpx' }),
+    kmz:      () => new Worker(new URL('./worker.js', import.meta.url), { type: 'module', name: 'encoder:kmz' }),
+    preview:  () => new Worker(new URL('./worker.js', import.meta.url), { type: 'module', name: 'encoder:preview' }),
+    profile:  () => new Worker(new URL('./worker.js', import.meta.url), { type: 'module', name: 'encoder:profile' }),
+    shape:    () => new Worker(new URL('./worker.js', import.meta.url), { type: 'module', name: 'encoder:shape' }),
+    topojson: () => new Worker(new URL('./worker.js', import.meta.url), { type: 'module', name: 'encoder:topojson' }),
 };
 
 import { topology } from "./extension/topology.js";
@@ -54,11 +55,12 @@ export function createGeopbf(apiBase, options = {}) {
     // その worker 版（decoder/pbf.js・decoder/gint.js）は元々用意されているのに配線されていなかった。
     // decoderWorkers 同様 import.meta.url 起点で束ねる＝呼び出し側のバンドラに依存しない。options.worker===false で明示的にオフ可。
     if (options.worker !== false) {
-        // 重要：バンドラ(vite)が worker チャンクとして静的検出できるのは「new Worker(new URL('…', import.meta.url))」の
+        // 重要：バンドラ(vite)が worker チャンクとして静的検出できるのは「new Worker(new URL('…', import.meta.url), {静的 options})」の
         // 直書きだけ。URL を変数に貯める旧方式はビルドで data:URL にインライン化され、worker 内の相対 import が
         // 解決できず本番ビルドだけ黙って死ぬ（devはソース直配信なので動く＝発見が遅れる罠）。ファクトリで直書きを保つ。
-        GeoPBF._workerFactory     ??= () => new Worker(new URL('./decoder/pbf.js',  import.meta.url), { type: 'module' });
-        GeoPBF._gintWorkerFactory ??= () => new Worker(new URL('./decoder/gint.js', import.meta.url), { type: 'module' });
+        // 入口は ./worker.js 1 本・形式は name で指名（decoderWorkers と同じ理由＝核の複製を消す）。
+        GeoPBF._workerFactory     ??= () => new Worker(new URL('./worker.js', import.meta.url), { type: 'module', name: 'decoder:pbf' });
+        GeoPBF._gintWorkerFactory ??= () => new Worker(new URL('./worker.js', import.meta.url), { type: 'module', name: 'decoder:gint' });
     }
     const pbfio = createPbfio(apiBase, options);
     let _server = null;
