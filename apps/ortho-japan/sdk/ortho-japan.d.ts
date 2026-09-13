@@ -186,6 +186,8 @@ export interface OrthoJapanMap {
 	onFrame(fn: () => void): () => void;
 	/** 次フレームの描画を1回点火（オーバレイ更新後に） */
 	requestDraw(): void;
+	/** 不透明度（0..1）。base＝紙と線（塗り/線）・globe＝球体（globe/terrain/海面下/湖/夜面）。表示パネル「基図」スライダーは両方を一緒に動かす。globe<1 で地中に置いた overlay（makeProjectorH の負の高さ）が透けて見える */
+	setOpacity(o: { base?: number; globe?: number }): void;
 	/** クリック横取りスロット（編集アプリ用。gint の onGintClick より優先）。null=解除。クリックvsドラッグ弁別はエンジン側が済ませる */
 	setEditClick(fn: ((x: number, y: number) => void) | null): void;
 	/** 標高 m（GSI DEM10B / AW3D30 のタイルを api.ortho-earth.com 経由で取得・粗い格子＝鋭い山頂は低めに出る）。

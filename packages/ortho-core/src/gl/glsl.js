@@ -406,6 +406,7 @@ uniform vec3 u_fogColor;
 uniform vec3 u_land;
 uniform vec3 u_hypso;    // 標高ティント色（高所を land からこの色へ寄せる＝控えめな標高彩色）
 uniform vec2 u_hypsoP;   // x=1/最大標高(m)（この高さで寄せ切る） y=寄せ量(0=無効…1=全置換)
+uniform float u_globeAlpha;   // 球体の不透明度（globe パスと同じ値＝地形面も一緒に透ける）
 uniform float u_farPass;   // 1=遠景メッシュパス：近窓の内側は近メッシュの担当＝discard（二重描画・z-fight回避）
 ${ELEV}
 ${WORLD_HYPSO}
@@ -443,7 +444,7 @@ void main() {
 	// 深度は VS の applyLogDepth() が焼き済み（plateau/building と一貫。FSで書くと early-Z が死ぬ）
 	vec3 colBase = cogTexMix(landC * shade, v_cuv);   // ユーザ COG＝陰影の上・フォグの下（画像は自前の陰影を持つ）
 	vec3 col = mix(colBase, u_fogColor, v_fog);
-	fragColor = vec4(col * t, t);           // premultiplied（globe基色→地形へ滑らかに）
+	fragColor = vec4(col * t * u_globeAlpha, t * u_globeAlpha);   // premultiplied（globe基色→地形へ滑らかに）× 球体の不透明度
 }`;
 
 // stencil-then-cover の塗り（earcut不要でロバスト）。ortho-map の 2-sided winding を透視mat4へ移植。
@@ -544,6 +545,7 @@ float elevAt(vec2 ll) {
 ${WORLD_HYPSO}
 ${COG}
 uniform vec4 u_cogBbox;   // [west,south,spanLon,spanLat] 絶対deg（globe の低ズーム床専用）
+uniform float u_globeAlpha;   // 球体の不透明度（表示パネル「基図」を globe/terrain まで拡張＝本人裁定 2026-09-13。1=不透明・premultiplied なので rgb にも掛ける）
 void main() {
 	vec4 np = u_invMvp * vec4(v_ndc, -1.0, 1.0);
 	vec4 fp = u_invMvp * vec4(v_ndc, 1.0, 1.0);
@@ -600,7 +602,7 @@ void main() {
 	float ndv = clamp(dot(P, viewDir), 0.0, 1.0);
 	float haze = pow(1.0 - ndv, 3.0);             // 縁ほど強い内側リムの霞
 	vec3 col = mix(base, u_atmo.rgb, haze * u_atmo.a * 0.9);
-	fragColor = vec4(col, 1.0);
+	fragColor = vec4(col * u_globeAlpha, u_globeAlpha);   // 球体の不透明度（地中の震源等を透かす）
 }`;
 
 // 海面下の陸地（wdepr）カバー：stencil-then-cover の cover 側をフラット色でなく「landK=1 強制のハイプソ本体」で
@@ -646,6 +648,7 @@ float elevAt(vec2 ll) {
 ${WORLD_HYPSO}
 ${COG}
 uniform vec4 u_cogBbox;   // [west,south,spanLon,spanLat] 絶対deg（globe の低ズーム床専用）
+uniform float u_globeAlpha;   // 球体の不透明度（表示パネル「基図」を globe/terrain まで拡張＝本人裁定 2026-09-13。1=不透明・premultiplied なので rgb にも掛ける）
 void main() {
 	vec4 np = u_invMvp * vec4(v_ndc, -1.0, 1.0);
 	vec4 fp = u_invMvp * vec4(v_ndc, 1.0, 1.0);
@@ -674,7 +677,7 @@ void main() {
 	vec3 viewDir = normalize(A - P);
 	float ndv = clamp(dot(P, viewDir), 0.0, 1.0);
 	float haze = pow(1.0 - ndv, 3.0);
-	fragColor = vec4(mix(base, u_atmo.rgb, haze * u_atmo.a * 0.9), 1.0);
+	fragColor = vec4(mix(base, u_atmo.rgb, haze * u_atmo.a * 0.9) * u_globeAlpha, u_globeAlpha);   // 球体の不透明度に従う
 }`;
 
 // 10度レチクル（v1 ortho-map の geoGraticule10/Canvas2D 移植・2026-09-01 本人指名「v1と同じ」）：

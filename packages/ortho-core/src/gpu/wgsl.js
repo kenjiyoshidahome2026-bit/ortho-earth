@@ -401,7 +401,7 @@ struct TerrOut {
 	}
 	let colBase = cogTexMix0(landC * shade, in.cuv);   // ユーザ COG＝陰影の上・フォグの下（画像は自前の陰影を持つ）
 	let col = mix(colBase, F.fogColor, in.fog);
-	return vec4f(col * t, t);   // premultiplied（globe基色→地形へ滑らかに）
+	return vec4f(col * t * P.p2.w, t * P.p2.w);   // premultiplied（globe基色→地形へ滑らかに）× 球体の不透明度（p2.w）
 }
 `;
 
@@ -714,6 +714,7 @@ struct Globe {
 	seaC: vec4f,         // 海の平色（NE流の淡青）
 	farBounds: vec4f,    // far床（世界帯z<8=R90全球固定窓）の被覆＝近窓の外を受ける（タイラーのバグ根治 9/2）
 	farP: vec4f,         // (hasFar, 近窓縁フェード幅deg, 0, 0)
+	misc: vec4f,         // (globeAlpha=球体の不透明度・本人裁定 2026-09-13, 0, 0, 0)
 };
 @group(0) @binding(0) var<uniform> G: Globe;
 // 全球ハイプソ：標高（R90全球窓）＋気候場。未着/K=0 は dummy（whP が使用をゲート）
@@ -803,7 +804,7 @@ struct GOut { @builtin(position) pos: vec4f, @location(0) ndc: vec2f };
 	let ndv = clamp(dot(Pt, viewDir), 0.0, 1.0);
 	let haze = pow(1.0 - ndv, 3.0);
 	let col = mix(base, G.atmo.rgb, haze * G.atmo.a * 0.9);
-	return vec4f(col, 1.0);
+	return vec4f(col * G.misc.x, G.misc.x);   // 球体の不透明度（地中の震源等を透かす）
 }
 // 海面下の陸地（wdepr）カバー：stencil-then-cover の cover 側を「landK=1 強制のハイプソ本体」で塗る＝
 // 海→海面下→陸の描画順（2026-09-01 本人設計・gl/glsl.js WDEPR_FS と対）。同モジュール＝globe と同一バインド
@@ -838,7 +839,7 @@ struct GOut { @builtin(position) pos: vec4f, @location(0) ndc: vec2f };
 	let viewDir = normalize(A - Pt);
 	let ndv = clamp(dot(Pt, viewDir), 0.0, 1.0);
 	let haze = pow(1.0 - ndv, 3.0);
-	return vec4f(mix(base, G.atmo.rgb, haze * G.atmo.a * 0.9), 1.0);
+	return vec4f(mix(base, G.atmo.rgb, haze * G.atmo.a * 0.9) * G.misc.x, G.misc.x);   // 球体の不透明度に従う
 }
 // 10度レチクル（v1 ortho-map geoGraticule10/Canvas2D の移植・gl GRAT_FS と対）：レイ→球→測地経緯度→
 // 10°格子への画素距離を fwidth で解析AA（≈0.7px 白細線）。度距離の上限ゲート＝極（経線収束）と atan 継ぎ目で
