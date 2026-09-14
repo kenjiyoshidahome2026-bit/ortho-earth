@@ -217,10 +217,37 @@ uniform int        u_use_vbb;     // 1＝bboxカリング有効（bboxテクス�
 uvec4 fetchFidBbox(uint fid) {
 	return texelFetch(u_pivot_tex, ivec2(int(fid) % u_pivot_w, int(fid) / u_pivot_w), 0);
 }
+// 球面キャップの可視判定（renderer stencilWorldFan の CPU 二段構え①を GPU で）：feature bbox（経緯度矩形）を囲む
+// 小円 (C, rad) が可視キャップ（中心 Ê・半径 hor＝acos(1/|E|)）と交わらなければ完全に裏＝頂点ごと捨てる。
+// 交差条件 dot(C,Ê) > cos(hor+rad)（cos 加法）。rad＝矩形内で C から最遠の点＝緯線上は角、経線上は Δλ>90° で
+// cos d(φ)=A sinφ+B cosφ（B<0）のくぼみが角より遠くなり得る＝解析的に取る。3.5° の余裕＝標高で地平線の向こうが
+// 覗く分と bbox 中心≒キャップ中心の粗さ。Δλ≥180°（縫い目跨ぎ bbox）は rad が 180° へ伸びる＝自然に「常に可視」。
+// 対蹠点を囲む面は horizonClamp だけだと環が地平円を一周＝全面 ±1 になる（2026-09-02 実測）＝この棄却が要。
+bool capVisible(uvec4 bb) {
+	uint cx = bb.x + (bb.z - bb.x) / 2u, cy = bb.y + (bb.w - bb.y) / 2u;
+	float latC = (u_origin.y + float(int(cy - u_iy_center)) * 1e-7) * D2R;
+	float lat0 = (u_origin.y + float(int(bb.y - u_iy_center)) * 1e-7) * D2R;
+	float lat1 = (u_origin.y + float(int(bb.w - u_iy_center)) * 1e-7) * D2R;
+	float dl = min(float(bb.z - bb.x) * 0.5e-7, 180.0) * D2R;   // 中心経線→縁の経線
+	float A = sin(latC), B = cos(latC) * cos(dl);              // 縁の経線上：cos d(φ) = A sinφ + B cosφ
+	float cr = min(A * sin(lat0) + B * cos(lat0), A * sin(lat1) + B * cos(lat1));   // 角（cos rad の候補）
+	if (B < 0.0) {   // くぼみ（最遠）が緯度範囲内なら -R
+		float phiT = atan(A, B); phiT += phiT > 0.0 ? -3.141592653589793 : 3.141592653589793;
+		if (phiT >= lat0 && phiT <= lat1) cr = -sqrt(A * A + B * B);
+	}
+	cr = clamp(cr, -1.0, 1.0);
+	float sr = sqrt(1.0 - cr * cr);
+	float crm = cr * 0.998135 - sr * 0.061049;                  // cos(rad + 3.5°)
+	float srm = sqrt(max(1.0 - crm * crm, 0.0));
+	float el = length(u_eye), ch = min(1.0, 1.0 / el), sh = sqrt(max(1.0 - ch * ch, 0.0));   // cos/sin hor
+	vec3 C = normalize(u_origin_pt + deltaToRel(dlonE7(cx, u_ix_center) * 1e-7, float(int(cy - u_iy_center)) * 1e-7));
+	return dot(C, u_eye) / el > ch * crm - sh * srm;
+}
 bool bboxVisible(uint fid) {
-	if (u_use_vbb == 0) return true;
+	if (u_has_pivot == 0) return true;   // bbox テクスチャ無し（境界メタ＝fid 混成ループ）＝カリング不可
 	uvec4 bb = fetchFidBbox(fid);
-	return !(bb.z < u_view_bbox.x || bb.x > u_view_bbox.z || bb.w < u_view_bbox.y || bb.y > u_view_bbox.w);
+	if (u_use_vbb != 0 && (bb.z < u_view_bbox.x || bb.x > u_view_bbox.z || bb.w < u_view_bbox.y || bb.y > u_view_bbox.w)) return false;
+	return capVisible(bb);
 }
 vec4 pivotClip(uint fid) {
 	if (u_has_pivot == 0) return vec4(0.0, 0.0, 0.0, 1.0);
@@ -235,8 +262,21 @@ vec4 pivotClip(uint fid) {
 // スクリーン化(fetchProject)は後方頂点を画面中央へ潰す＝ファン三角形が歪み winding が壊れ、
 // チルトで図形の一部が視野外に出ると塗りが「中央へ向かう楔」でフラッドする（実写バグ）。
 // クリップ空間の三角形はクリッピング後も可視画素の巻き数が厳密に保たれる＝部分表示でも正しい塗り。
+// 裏半球の頂点を地平円（可視半球の縁：中心 E/|E|²・半径 √(1-1/|E|²)）へ射影クランプ＝renderer STENCIL_VS
+// u_sphereClip と同式。塗り扇の端点だけに使う（巻き数は環が閉じていれば形を問わない）：裏側の面は円周上に
+// 縮退＝巻き数 0 で消え、地平線を跨ぐ面は可視部だけを囲む。無しだと球を透かした投影の折返しが
+// 「裏の面のゴースト」と「跨ぎ面の表側が塗れない（±1 相殺）」を作る（geoedit 本人報告 2026-09-15）。
+vec3 horizonClamp(vec3 relW) {
+	vec3 P = u_origin_pt + relW;
+	float e2 = dot(u_eye, u_eye);
+	if (dot(P, u_eye) >= 1.0) return relW;   // 手前＝そのまま（RTE の精度を保つ）
+	vec3 Pp = P - u_eye * (dot(P, u_eye) / e2);
+	float lp = length(Pp);
+	vec3 t = lp > 1e-6 ? Pp / lp : normalize(vec3(-u_eye.z, 0.0, u_eye.x));
+	return u_eye / e2 + sqrt(max(1.0 - 1.0 / e2, 0.0)) * t - u_origin_pt;
+}
 vec4 fetchClip(uint idx) {
-	return u_clipT + u_mvp * vec4(decodeRel(idx), 0.0);
+	return u_clipT + u_mvp * vec4(horizonClamp(decodeRel(idx)), 0.0);
 }
 
 // 塗り扇(stencil/idfill)を地形にドレープ＝projectDrape と同じ標高変位のクリップ座標版（WebGPU fetchClipDrape と対・
@@ -254,7 +294,7 @@ vec4 fetchClipDrape(uint idx) {
 		if (u_ell > 0.5) { float p = ll.y * D2R, l = ll.x * D2R, cp = cos(p); dir = vec3(cp * cos(l), sin(p) * ELL_INV_R, cp * sin(l)); }
 		relW = rel + h * dir;
 	}
-	return u_clipT + u_mvp * vec4(relW, 0.0);
+	return u_clipT + u_mvp * vec4(horizonClamp(relW), 0.0);
 }
 
 vec4 toNDC(vec2 p) {

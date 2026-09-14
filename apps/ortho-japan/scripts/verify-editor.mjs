@@ -9,6 +9,8 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 
 const APP = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
+const PAGE = process.argv[2] || "t-editor";   // 省略＝t-editor。同型の実時間ページ（t-backfill 等）を引数で回せる
+const SHOT = process.env.SHOT || "";          // 判定後の画面を PNG で残す（目視の手すり・任意）
 const PORT = 5244, CDP = 9344;
 const CHROME = process.env.CHROME || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 
@@ -32,7 +34,7 @@ try {
 		if (i > 60) throw new Error("chrome devtools が起動しない");
 		await sleep(250);
 	}
-	const url = `http://localhost:${PORT}/japan/tests/t-editor.html?gl2=1&lang=ja`;
+	const url = `http://localhost:${PORT}/japan/tests/${PAGE}.html?gl2=1&lang=ja`;
 	const target = await (await fetch(`http://127.0.0.1:${CDP}/json/new?${encodeURIComponent(url)}`, { method: "PUT" })).json();
 	const ws = new WebSocket(target.webSocketDebuggerUrl);
 	await new Promise((res, rej) => { ws.onopen = res; ws.onerror = rej; });
@@ -48,10 +50,11 @@ try {
 		title = r?.result?.value || "";
 		if (title.startsWith("PASS") || title.startsWith("FAIL")) break;
 	}
+	if (SHOT) { const r = await send("Page.captureScreenshot", { format: "png" }); if (r?.data) (await import("node:fs")).writeFileSync(SHOT, Buffer.from(r.data, "base64")); }
 	ws.close();
 	const pass = title.startsWith("PASS");
 	fail = pass ? 0 : 1;
-	console.log(`${pass ? "PASS" : "FAIL"}  t-editor  ${(title || "（title未確定＝タイムアウト）").replace(/^(PASS|FAIL) ?/, "")}`);
+	console.log(`${pass ? "PASS" : "FAIL"}  ${PAGE}  ${(title || "（title未確定＝タイムアウト）").replace(/^(PASS|FAIL) ?/, "")}`);
 } catch (e) {
 	console.error("✗", e.message || e);
 }

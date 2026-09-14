@@ -177,8 +177,20 @@ fn projectDrape(idx: u32) -> Proj {
 	return Proj(vec2f((ndc.x * 0.5 + 0.5) * F.viewport.x, (1.0 - (ndc.y * 0.5 + 0.5)) * F.viewport.y), zr, clip.w);
 }
 // stencil 用：クリップ座標のまま（部分表示でも巻き数が壊れない）。z は GL[-w,w]→WebGPU[0,w] へ等価写像
+// 裏半球の頂点を地平円へ射影クランプ（GL horizonClamp・wgsl.js OVERLAY vsStencil p0.z と同式）＝塗り扇の端点専用。
+// 裏の面は円周上に縮退（巻き数 0）・跨ぎ面は可視部だけを囲む＝球を透かしたゴースト/±1 相殺の根治（2026-09-15）。
+fn horizonClamp(relW: vec3f) -> vec3f {
+	let Pt = F.originPt + relW;
+	let e2 = dot(F.eye, F.eye);
+	if (dot(Pt, F.eye) >= 1.0) { return relW; }
+	let Pp = Pt - F.eye * (dot(Pt, F.eye) / e2);
+	let lp = length(Pp);
+	var t = normalize(vec3f(-F.eye.z, 0.0, F.eye.x));
+	if (lp > 1e-6) { t = Pp / lp; }
+	return F.eye / e2 + sqrt(max(1.0 - 1.0 / e2, 0.0)) * t - F.originPt;
+}
 fn fetchClip(idx: u32) -> vec4f {
-	let c = F.clipT + F.mvp * vec4f(decodeRel(idx), 0.0);
+	let c = F.clipT + F.mvp * vec4f(horizonClamp(decodeRel(idx)), 0.0);
 	return vec4f(c.xy, (c.z + c.w) * 0.5, c.w);
 }
 // 塗り扇(stencil/idfill)を地形にドレープ＝projectDrape と同じ標高変位のクリップ座標版。elevScale=0(真俯瞰)なら fetchClip と同一
@@ -196,7 +208,7 @@ fn fetchClipDrape(idx: u32) -> vec4f {
 		if (F.elevP.w > 0.5) { let p = ll.y * D2R; let l = ll.x * D2R; let cp = cos(p); dir = vec3f(cp * cos(l), sin(p) * 1.0033640898209764, cp * sin(l)); }
 		relW = rel + h * dir;
 	}
-	let c = F.clipT + F.mvp * vec4f(relW, 0.0);
+	let c = F.clipT + F.mvp * vec4f(horizonClamp(relW), 0.0);
 	return vec4f(c.xy, (c.z + c.w) * 0.5, c.w);
 }
 fn toNDC(p: vec2f) -> vec4f {
@@ -214,10 +226,34 @@ fn fetchFidBbox(fid: u32) -> vec4u {
 	return textureLoad(pivotTex, vec2i(i32(fid) % i32(F.flags.z), i32(fid) / i32(F.flags.z)), 0);
 }
 // feature 単位 GPU bbox カリング
+// 球面キャップの可視判定（GL capVisible と同式）：bbox を囲む小円 (C, rad) が可視キャップ（Ê, hor）と交わらなければ
+// 完全に裏＝捨てる。rad＝矩形内の最遠点（緯線上は角・経線上は Δλ>90° のくぼみを解析的に）＋3.5° の余裕。
+fn capVisible(bb: vec4u) -> bool {
+	let cx = bb.x + (bb.z - bb.x) / 2u; let cy = bb.y + (bb.w - bb.y) / 2u;
+	let latC = (F.origin.y + f32(i32(cy - F.centers.y)) * 1e-7) * D2R;
+	let lat0 = (F.origin.y + f32(i32(bb.y - F.centers.y)) * 1e-7) * D2R;
+	let lat1 = (F.origin.y + f32(i32(bb.w - F.centers.y)) * 1e-7) * D2R;
+	let dl = min(f32(bb.z - bb.x) * 0.5e-7, 180.0) * D2R;
+	let A = sin(latC); let B = cos(latC) * cos(dl);
+	var cr = min(A * sin(lat0) + B * cos(lat0), A * sin(lat1) + B * cos(lat1));
+	if (B < 0.0) {
+		var phiT = atan2(A, B);
+		phiT += select(3.141592653589793, -3.141592653589793, phiT > 0.0);
+		if (phiT >= lat0 && phiT <= lat1) { cr = -sqrt(A * A + B * B); }
+	}
+	cr = clamp(cr, -1.0, 1.0);
+	let sr = sqrt(1.0 - cr * cr);
+	let crm = cr * 0.998135 - sr * 0.061049;
+	let srm = sqrt(max(1.0 - crm * crm, 0.0));
+	let el = length(F.eye); let ch = min(1.0, 1.0 / el); let sh = sqrt(max(1.0 - ch * ch, 0.0));
+	let C = normalize(F.originPt + deltaToRel(dlonE7(cx, F.centers.x) * 1e-7, f32(i32(cy - F.centers.y)) * 1e-7));
+	return dot(C, F.eye) / el > ch * crm - sh * srm;
+}
 fn bboxVisible(fid: u32) -> bool {
-	if (F.flags.y == 0u) { return true; }
+	if (F.flags.x == 0u) { return true; }   // bbox テクスチャ無し（境界メタ＝fid 混成ループ）＝カリング不可
 	let bb = fetchFidBbox(fid);
-	return !(bb.z < F.vbb.x || bb.x > F.vbb.z || bb.w < F.vbb.y || bb.y > F.vbb.w);
+	if (F.flags.y != 0u && (bb.z < F.vbb.x || bb.x > F.vbb.z || bb.w < F.vbb.y || bb.y > F.vbb.w)) { return false; }
+	return capVisible(bb);
 }
 // stencil 塗りの扇要（feature bbox 中心）＝TBDR パラメータバッファ対策。無し＝クリップ原点（z01写像済み）
 fn pivotClip(fid: u32) -> vec4f {
