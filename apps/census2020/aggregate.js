@@ -8,8 +8,10 @@
 // 1feature 参照のみ残す＝内部境界が消えて外周だけ＝そのまま geopbf({gint:true}) で新しい gint 層に焼き直す。
 import { geopbf } from "geopbf";
 import { PREFS, DESIGNATED_CITIES, wardParent, SHICHO, GUN } from "./jp/codes.js";
-import { DATA, ensureCensusData } from "./census/data.js";   // 統計本体は遅延（入口チャンクに焼かない・2026-09-14）
+import POP2020 from "./census/2020-pop.json" with { type: "json" };
 import CENSUS_MANIFEST from "./census/manifest.json" with { type: "json" };
+import STATS2015 from "./census/2015-stats.json" with { type: "json" };
+import AGES2020 from "./census/2020-ages.json" with { type: "json" };
 
 const NAME_BY_CODE = new Map(CENSUS_MANIFEST.map(e => [e.code, e.name]));
 const MB = new Map(CENSUS_MANIFEST.map(e => [e.code, e]));
@@ -97,7 +99,6 @@ export async function buildLevel(adminPbf, groups, { partitionIslands = false, m
 }
 
 export async function initAggregate(adminPbf) {
-	await ensureCensusData();   // 集約の値関数（AGG_VALUE）は同期＝ここで統計本体を先に取っておく
 	const codesInfo = [];
 	const n = adminPbf.fmap?.length ?? 0, seen = new Set();
 	for (let i = 0; i < n; i++) {
@@ -120,11 +121,11 @@ export async function initAggregate(adminPbf) {
 // --- 集約値：メンバ市区町村の census を各指標の合算則で畳む（同じパーツ＝同じ指標を"足す"だけ） ---
 // choropleth の INDICATORS と同じキー・同じ元データ＝トグルで pref を選ぶと「県版の同じ指標」が出る。
 export const AGG_VALUE = {
-	pop:     m => { let s = 0, a = false; for (const c of m) { const v = DATA.CENSUS_2020_POP?.[c]?.[0]; if (v != null) { s += v; a = true; } } return a ? s : null; },
+	pop:     m => { let s = 0, a = false; for (const c of m) { const v = POP2020[c]?.[0]; if (v != null) { s += v; a = true; } } return a ? s : null; },
 	hh:      m => { let s = 0, a = false; for (const c of m) { const v = MB.get(c)?.hh; if (v != null) { s += v; a = true; } } return a ? s : null; },
-	density: m => { let p = 0, ar = 0; for (const c of m) { const pop = DATA.CENSUS_2020_POP?.[c]?.[0], d = MB.get(c)?.density; if (pop != null && d > 0) { p += pop; ar += pop / d; } } return ar > 0 ? p / ar : null; },   // Σ人口/Σ面積
-	change:  m => { let a = 0, b = 0; for (const c of m) { const x = DATA.CENSUS_2020_POP?.[c]?.[0], y = DATA.CENSUS_2015_STATS?.[c]?.pop?.[0]; if (x != null && y != null) { a += x; b += y; } } return b > 0 ? (a - b) / b : null; },
-	aging:   m => { let t = 0, o = 0; for (const c of m) { const g = DATA.CENSUS_2020_AGES?.[c]; if (g?.length === 32) { t += g.reduce((z, x) => z + x, 0); o += g[13] + g[14] + g[15] + g[29] + g[30] + g[31]; } } return t > 0 ? o / t : null; },
+	density: m => { let p = 0, ar = 0; for (const c of m) { const pop = POP2020[c]?.[0], d = MB.get(c)?.density; if (pop != null && d > 0) { p += pop; ar += pop / d; } } return ar > 0 ? p / ar : null; },   // Σ人口/Σ面積
+	change:  m => { let a = 0, b = 0; for (const c of m) { const x = POP2020[c]?.[0], y = STATS2015[c]?.pop?.[0]; if (x != null && y != null) { a += x; b += y; } } return b > 0 ? (a - b) / b : null; },
+	aging:   m => { let t = 0, o = 0; for (const c of m) { const g = AGES2020[c]; if (g?.length === 32) { t += g.reduce((z, x) => z + x, 0); o += g[13] + g[14] + g[15] + g[29] + g[30] + g[31]; } } return t > 0 ? o / t : null; },
 };
 export const sumPop = g => AGG_VALUE.pop(g.members);   // 実証用エイリアス
 

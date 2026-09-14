@@ -1,7 +1,14 @@
 import CENSUS_MANIFEST    from './manifest.json'    with { type: 'json' };
-import { DATA, ensureCensusData, censusDataReady } from './data.js';   // 統計本体は遅延（入口チャンクに焼かない・2026-09-14）
+import CENSUS_2025_POP    from './2025-pop.json'    with { type: 'json' };
+import CENSUS_2020_POP    from './2020-pop.json'    with { type: 'json' };
+import CENSUS_2020_STATS  from './2020-stats.json'  with { type: 'json' };
+import CENSUS_2015_STATS  from './2015-stats.json'  with { type: 'json' };
+import CENSUS_2020_AGES   from './2020-ages.json'   with { type: 'json' };
+import CENSUS_2020_HOUSEHOLD from './2020-household.json' with { type: 'json' };
+import CENSUS_2015_AGES      from './2015-ages.json'      with { type: 'json' };
+import CENSUS_2015_HOUSEHOLD from './2015-household.json' with { type: 'json' };
 import SMALL_AREA_DIFF        from './small-area-diff.json' with { type: 'json' };   // 2015↔2020 小地域区分が変わった市区町村: code → [n2015, n2020]
-// CITY_HISTORY は DATA.CITY_HISTORY（遅延・census/data.js）   // [YYYYMMDD, "5桁コード", 説明] × 963件（2024-1980）
+import CITY_HISTORY from '../history.json' with { type: 'json' };   // [YYYYMMDD, "5桁コード", 説明] × 963件（2024-1980）
 import CENSUS_KANA        from './kana.json'        with { type: 'json' };
 import ESTAT_MANIFEST     from '../estat/manifest.json' with { type: 'json' };
 // 政令市・振興局・郡などの行政コード知識は jp/codes.js が正本（1か所管理）
@@ -30,8 +37,8 @@ const _wardName = code => WARD_NAME.get(code) || code;
 // 参考「全国平均」の年齢構成（32要素）を年別に返す。
 // ★2025基本集計が出たら: 2025-ages.json を import し、この _NAT_AGES に '2025' を1行足すだけで
 //   _fullChartHtml / _levelDisplayHtml のピラミッド参考線が 2025 に自動対応する。
-const _NAT_AGES = () => ({ '2015': DATA.CENSUS_2015_AGES, '2020': DATA.CENSUS_2020_AGES });   // 遅延データ＝呼ばれた時に引く
-const _natAges = year => (_NAT_AGES()[year] || DATA.CENSUS_2020_AGES)['_national'];
+const _NAT_AGES = { '2015': CENSUS_2015_AGES, '2020': CENSUS_2020_AGES };
+const _natAges = year => (_NAT_AGES[year] || CENSUS_2020_AGES)['_national'];
 
 // ---- 地図バインド用フック（census2020 移植での追記・gishub-jp 正本には無い） --------------
 // 各レベルの描画完了（setDetailHtml 後）を通知する。地図側（bind.js/wiki.js）が購読して
@@ -42,7 +49,6 @@ function _emit(e) { for (const fn of _drillListeners) { try { fn(e); } catch (er
 
 // 地図クリック→パネル遷移（プログラム航法）。code: 2桁=都道府県 / 5桁=市区町村（政令市は区一覧へ）
 export function drillTo(code, year = '2020') {
-    if (!censusDataReady()) { ensureCensusData().then(() => drillTo(code, year)); return; }   // 統計本体の初回取得を待ってから（同期 API は維持）
     const Y = DRILL_YEARS[year] || DRILL_YEARS['2020'];
     const c = String(code);
     if (c.length === 2) return _dPref(Y, c);
@@ -55,7 +61,6 @@ export function drillTo(code, year = '2020') {
 // 小地域 KEY_CODE（9/11桁）へ直行（地図の小地域クリック・?area= 復元用）。
 // 全国CSV 未取得時は市区町村止まり＝取得ゲートを踏み越えない。
 export async function drillToArea(keyCode, year = '2020') {
-    await ensureCensusData();
     const key = String(keyCode);
     const cityCode = key.slice(0, 5);
     if (key.length <= 5 || !(await isSmallAreaReady(year))) return drillTo(cityCode, year);
@@ -87,12 +92,10 @@ export async function drillToArea(keyCode, year = '2020') {
 // 3世代とも共通骨格 _dNational（下方の年度アダプタ DRILL_YEARS 参照）に入る
 
 export function renderCensus2025List() {
-    if (!censusDataReady()) { ensureCensusData().then(renderCensus2025List); return; }
     loadPopHistory();
     _dNational(DRILL_YEARS['2025']);
 }
 export function renderCensus2015List() {
-    if (!censusDataReady()) { ensureCensusData().then(renderCensus2015List); return; }
     loadPopHistory();
     _dNational(DRILL_YEARS['2015']);
 }
@@ -104,7 +107,6 @@ export function renderCensus2020List() { return renderCensusSmall2020(); }
 // 各レベル: そのレベルのデータ（人口・チャート）+ 子リスト
 
 export async function renderCensusSmall2020() {
-    await ensureCensusData();   // 統計本体（遅延チャンク）＝全国ビューの初回に取る
     loadPopHistory();   // 人口推移データを先読み（初回の全国トレンドを速く）
     const ready = await isSmallAreaReady();
     if (!ready) { _csDrillFetch(); return; }
@@ -322,19 +324,14 @@ function _fillTrends() {
 
 // ── 市区町村の沿革（合併・市制施行・政令市/中核市移行・区新設） ──────────────
 // コードは5桁文字列（旧整数でも padStart で吸収）。過去は不変・append-only。
-let _cityHist = null;   // 遅延データ（DATA.CITY_HISTORY）から初回参照時に組む＝モジュール評価時には触らない
-function _cityHistMap() {
-    if (_cityHist) return _cityHist;
-    _cityHist = new Map();
-    for (const [date, code, desc] of DATA.CITY_HISTORY || []) {
-        const c = String(code).padStart(5, '0');
-        if (!_cityHist.has(c)) _cityHist.set(c, []);
-        _cityHist.get(c).push({ date, desc });
-    }
-    return _cityHist;
+const _cityHist = new Map();
+for (const [date, code, desc] of CITY_HISTORY) {
+    const c = String(code).padStart(5, '0');
+    if (!_cityHist.has(c)) _cityHist.set(c, []);
+    _cityHist.get(c).push({ date, desc });
 }
 function _cityHistoryHtml(code) {
-    const h = code && _cityHistMap().get(code);
+    const h = code && _cityHist.get(code);
     if (!h?.length) return '';
     const fmt = d => { const s = String(d); return `${s.slice(0, 4)}.${s.slice(4, 6)}.${s.slice(6, 8)}`; };
     const items = [...h].sort((a, b) => b.date - a.date).map(e =>
@@ -367,24 +364,24 @@ function _levelDisplayHtml(statsHtml, opts, year = '2020') {
 
 // pred(code) を満たす市区町村を積み上げ（人口・世帯・面積・年齢・就業/世帯経済）
 // 人口推移は pop-history.json（長期時系列）から trendCode で別途描画
-// 葉ノードは DATA.CENSUS_2020_POP のキー集合（集計コードを含まない）を正準とする
+// 葉ノードは CENSUS_2020_POP のキー集合（集計コードを含まない）を正準とする
 function _aggForLevel(pred) {
-    const leaf = Object.keys(DATA.CENSUS_2020_POP).filter(pred);
+    const leaf = Object.keys(CENSUS_2020_POP).filter(pred);
     const p20 = [0, 0, 0], p25 = [0, 0, 0], ages = new Array(32).fill(0);
     let hh = 0, area = 0, has25 = false, hasHh = false, hasArea = false, hasAges = false;
     const stat = {};
     for (const c of leaf) {
-        const v20 = DATA.CENSUS_2020_POP[c]; p20[0] += v20[0]; p20[1] += v20[1]; p20[2] += v20[2];
+        const v20 = CENSUS_2020_POP[c]; p20[0] += v20[0]; p20[1] += v20[1]; p20[2] += v20[2];
         const m = MANIFEST_BY_CODE.get(c); if (m?.area) { area += m.area; hasArea = true; }
-        const v25 = DATA.CENSUS_2025_POP[c];
+        const v25 = CENSUS_2025_POP[c];
         if (v25?.pop) { p25[0] += v25.pop[0]; p25[1] += v25.pop[1]; p25[2] += v25.pop[2]; has25 = true; if (v25.hh2020) { hh += v25.hh2020; hasHh = true; } }
-        const a = DATA.CENSUS_2020_AGES[c]; if (a?.length === 32) { a.forEach((x, i) => { ages[i] += x; }); hasAges = true; }
-        const s = DATA.CENSUS_2020_STATS[c];
+        const a = CENSUS_2020_AGES[c]; if (a?.length === 32) { a.forEach((x, i) => { ages[i] += x; }); hasAges = true; }
+        const s = CENSUS_2020_STATS[c];
         if (s) for (const k of ['ind', 'occ', 'eco']) if (s[k]) {
             if (!stat[k]) stat[k] = new Array(s[k].length).fill(0);
             s[k].forEach((x, i) => { stat[k][i] += x; });
         }
-        const hhd = DATA.CENSUS_2020_HOUSEHOLD[c];
+        const hhd = CENSUS_2020_HOUSEHOLD[c];
         if (hhd) for (const k of ['fam', 'dwell', 'own']) if (hhd[k]) {
             if (!stat[k]) stat[k] = new Array(hhd[k].length).fill(0);
             hhd[k].forEach((x, i) => { stat[k][i] += x; });
@@ -412,9 +409,9 @@ function _aggKvHtml(agg) {
 // manifest（現行境界）ではなく各年データのキーから作るので、政令市の区割り再編
 // （例: 浜松市 2024年 7区→3区）があっても年ごとに正しい区が並ぶ。
 function _wardsForYear(cityCode, year) {
-    const data = year === '2025' ? DATA.CENSUS_2025_POP
-               : year === '2015' ? DATA.CENSUS_2015_STATS
-               : DATA.CENSUS_2020_POP;
+    const data = year === '2025' ? CENSUS_2025_POP
+               : year === '2015' ? CENSUS_2015_STATS
+               : CENSUS_2020_POP;
     // 東京都区部(13100)は特別区13101..23（_wardParent は政令市専用で写さない）／政令市は区の親一致
     const belong = cityCode === '13100' ? (k => +k >= 13101 && +k <= 13123) : (k => _wardParent(k) === cityCode);
     return Object.keys(data)
@@ -432,12 +429,12 @@ function _popLabel(pop) {
 }
 
 // 市区町村コードの2020人口 [総数, 男, 女]（無ければ null）
-// 政令市集計コードは区の合算（DATA.CENSUS_2020_POP は葉ノードのみ＝集計コードを持たない）
+// 政令市集計コードは区の合算（CENSUS_2020_POP は葉ノードのみ＝集計コードを持たない）
 function _cityPop2020(code) {
-    if (DATA.CENSUS_2020_POP[code]) return DATA.CENSUS_2020_POP[code];
+    if (CENSUS_2020_POP[code]) return CENSUS_2020_POP[code];
     if (DESIGNATED_CITIES.has(code)) {
         const s = [0, 0, 0];
-        for (const [k, v] of Object.entries(DATA.CENSUS_2020_POP))
+        for (const [k, v] of Object.entries(CENSUS_2020_POP))
             if (_wardParent(k) === code) { s[0] += v[0]; s[1] += v[1]; s[2] += v[2]; }
         return s[0] ? s : null;
     }
@@ -473,26 +470,26 @@ const DRILL_YEARS = {
     '2020': {
         year: '2020',
         notice: '',
-        get nationalOpts() { return { ages: DATA.CENSUS_2020_AGES['_national'], refAges: null }; },   // 全国は precomputed（参考線なし）。getter＝遅延データをモジュール評価時に触らない
+        nationalOpts: { ages: CENSUS_2020_AGES['_national'], refAges: null },   // 全国は precomputed（参考線なし）
         hasCity: () => true,
-        leafPops: () => Object.entries(DATA.CENSUS_2020_POP).map(([c, v]) => [c, v[0]]),
+        leafPops: () => Object.entries(CENSUS_2020_POP).map(([c, v]) => [c, v[0]]),
         chipSub: code => _popLabel(_cityPop2020(code)?.[0]),
         chipExtra: () => '',
         aggChartHtml(pred, { trendCode, histCode, ages, refAges }) {
             const agg = _aggForLevel(pred);
             return _levelDisplayHtml(_aggKvHtml(agg), {
                 ages: ages || agg.ages,
-                refAges: refAges !== undefined ? refAges : DATA.CENSUS_2020_AGES['_national'],
+                refAges: refAges !== undefined ? refAges : CENSUS_2020_AGES['_national'],
                 trendCode, histCode, stat: agg.stat,
             });
         },
         cityBody(cityCode) {
             const entry = MANIFEST_BY_CODE.get(cityCode);
-            const statsHtml = `<div class="cs-kv-grid">${_cityStatsRows(DATA.CENSUS_2020_POP[cityCode], DATA.CENSUS_2025_POP[cityCode], entry)}</div>`;
+            const statsHtml = `<div class="cs-kv-grid">${_cityStatsRows(CENSUS_2020_POP[cityCode], CENSUS_2025_POP[cityCode], entry)}</div>`;
             return {
                 display: _levelDisplayHtml(statsHtml, {
-                    ages: DATA.CENSUS_2020_AGES[cityCode], refAges: DATA.CENSUS_2020_AGES['_national'],
-                    trendCode: cityCode, histCode: cityCode, stat: DATA.CENSUS_2020_STATS[cityCode],
+                    ages: CENSUS_2020_AGES[cityCode], refAges: CENSUS_2020_AGES['_national'],
+                    trendCode: cityCode, histCode: cityCode, stat: CENSUS_2020_STATS[cityCode],
                 }),
                 saYear: '2020', saAvailable: ESTAT_CODE_SET.has(cityCode),
                 diffNote: _smallAreaDiffNoteHtml(cityCode),
@@ -503,12 +500,12 @@ const DRILL_YEARS = {
         year: '2015',
         notice: '',
         nationalOpts: {},
-        hasCity: code => !!(DATA.CENSUS_2015_STATS[code] || DESIGNATED_CITIES.has(code)),
-        leafPops: () => Object.entries(DATA.CENSUS_2015_STATS).map(([c, t]) => [c, t.pop[0]]),
+        hasCity: code => !!(CENSUS_2015_STATS[code] || DESIGNATED_CITIES.has(code)),
+        leafPops: () => Object.entries(CENSUS_2015_STATS).map(([c, t]) => [c, t.pop[0]]),
         chipSub(code) {
-            let pop = DATA.CENSUS_2015_STATS[code]?.pop?.[0];
+            let pop = CENSUS_2015_STATS[code]?.pop?.[0];
             if (!pop && DESIGNATED_CITIES.has(code)) {   // 政令市は区コードを合算
-                for (const [k, t] of Object.entries(DATA.CENSUS_2015_STATS))
+                for (const [k, t] of Object.entries(CENSUS_2015_STATS))
                     if (_wardParent(k) === code) pop = (pop || 0) + t.pop[0];
             }
             return pop ? _popLabel(pop) : '';
@@ -520,13 +517,13 @@ const DRILL_YEARS = {
         },
         cityBody(cityCode) {
             const entry = MANIFEST_BY_CODE.get(cityCode);
-            const stat  = DATA.CENSUS_2015_STATS[cityCode];
-            const hhd15 = DATA.CENSUS_2015_HOUSEHOLD[cityCode];
+            const stat  = CENSUS_2015_STATS[cityCode];
+            const hhd15 = CENSUS_2015_HOUSEHOLD[cityCode];
             const chartStat = stat ? { ...stat } : null;
             if (chartStat && hhd15) for (const k of ['fam', 'dwell', 'own']) if (hhd15[k]) chartStat[k] = hhd15[k];
             const statsHtml = `<div class="cs-kv-grid">${_city15StatsRows(stat, entry)}</div>`;
             return {
-                display: _levelDisplayHtml(statsHtml, { trendCode: cityCode, histCode: cityCode, stat: chartStat, ages: DATA.CENSUS_2015_AGES[cityCode] }, '2015'),
+                display: _levelDisplayHtml(statsHtml, { trendCode: cityCode, histCode: cityCode, stat: chartStat, ages: CENSUS_2015_AGES[cityCode] }, '2015'),
                 saYear: '2015', saAvailable: true, diffNote: '',
             };
         },
@@ -538,16 +535,16 @@ const DRILL_YEARS = {
         year: '2025',
         notice: `<p class="cs-notice">速報集計（人口・世帯）のみ公開中。人口等基本集計（年齢・世帯・住居）は 2026年9月、就業状態等基本集計は 2027年3月 公表予定。</p>`,
         nationalOpts: {},
-        hasCity: code => !!DATA.CENSUS_2025_POP[code],
+        hasCity: code => !!CENSUS_2025_POP[code],
         leafPops() {   // 集約行（政令市20市+特別区部）を除外＝二重計上ガードの正本（_agg25ForLevel と同一集合）
             const out = [];
-            for (const [c, p] of Object.entries(DATA.CENSUS_2025_POP))
+            for (const [c, p] of Object.entries(CENSUS_2025_POP))
                 if (!c.endsWith('000') && !_AGG25_ROWS.has(c)) out.push([c, p.pop[0]]);
             return out;
         },
-        chipSub(code) { const p = DATA.CENSUS_2025_POP[code]; return p ? _popLabel(p.pop[0]) : ''; },
+        chipSub(code) { const p = CENSUS_2025_POP[code]; return p ? _popLabel(p.pop[0]) : ''; },
         chipExtra(code) {
-            const p = DATA.CENSUS_2025_POP[code];
+            const p = CENSUS_2025_POP[code];
             return p ? `<span class="pop-chg ${p.popChange >= 0 ? 'pos' : 'neg'} cs-chip-sub">${p.popChange >= 0 ? '+' : ''}${p.popChange.toFixed(1)}%</span>` : '';
         },
         aggChartHtml(pred, { trendCode, histCode }) {
@@ -556,22 +553,22 @@ const DRILL_YEARS = {
         },
         cityBody(cityCode) {
             const entry = MANIFEST_BY_CODE.get(cityCode);
-            const p25   = DATA.CENSUS_2025_POP[cityCode];
+            const p25   = CENSUS_2025_POP[cityCode];
             const popTrend = [];
-            const pop2015 = DATA.CENSUS_2015_STATS[cityCode];
-            const pop2020 = DATA.CENSUS_2020_POP[cityCode];
+            const pop2015 = CENSUS_2015_STATS[cityCode];
+            const pop2020 = CENSUS_2020_POP[cityCode];
             if (pop2015?.pop) popTrend.push({ year: 2015, male: pop2015.pop[1], female: pop2015.pop[2] });
             if (pop2020)      popTrend.push({ year: 2020, male: pop2020[1], female: pop2020[2] });
             if (p25?.pop)     popTrend.push({ year: 2025, male: p25.pop[1], female: p25.pop[2] });
-            const ages2020 = DATA.CENSUS_2020_AGES[cityCode];
-            const stat2020 = { ...(DATA.CENSUS_2020_STATS[cityCode] || {}), ...(DATA.CENSUS_2020_HOUSEHOLD[cityCode] || {}) };
+            const ages2020 = CENSUS_2020_AGES[cityCode];
+            const stat2020 = { ...(CENSUS_2020_STATS[cityCode] || {}), ...(CENSUS_2020_HOUSEHOLD[cityCode] || {}) };
             const has2020  = ages2020?.length === 32 || Object.keys(stat2020).length > 0;
             const statsHtml = `<div class="cs-kv-grid">${_city25StatsRows(p25, entry)}</div>`;
             return {
                 display: _level25DisplayHtml(statsHtml, {
                     trendCode: cityCode, histCode: cityCode,
                     popTrend: popTrend.length >= 2 ? popTrend : null,
-                    ref2020: has2020 ? { stat: stat2020, ages: ages2020, natAges: DATA.CENSUS_2020_AGES['_national'] } : null,
+                    ref2020: has2020 ? { stat: stat2020, ages: ages2020, natAges: CENSUS_2020_AGES['_national'] } : null,
                 }),
                 saYear: null, saAvailable: false, diffNote: '',
             };
@@ -994,14 +991,14 @@ async function _populateSmallAreaBody(bodyEl, code, { withPyramid = true, preIte
 
 // ---- 国勢調査 2015 ドリルダウン -------------------------------------------
 // 全国 → 都道府県 → 市区町村（小地域なし）
-// データ: DATA.CENSUS_2015_STATS[code] = { pop:[t,m,f], hh, ind:[], occ:[], eco:[] }
+// データ: CENSUS_2015_STATS[code] = { pop:[t,m,f], hh, ind:[], occ:[], eco:[] }
 
 function _agg15ForLevel(pred) {
     const pop = [0, 0, 0];
     const ages = new Array(32).fill(0);
     let hh = 0, area = 0, hasHh = false, hasArea = false, hasAges = false;
     const stat = {};
-    for (const [code, s] of Object.entries(DATA.CENSUS_2015_STATS)) {
+    for (const [code, s] of Object.entries(CENSUS_2015_STATS)) {
         if (!pred(code)) continue;
         pop[0] += s.pop[0]; pop[1] += s.pop[1]; pop[2] += s.pop[2];
         if (s.hh) { hh += s.hh; hasHh = true; }
@@ -1011,9 +1008,9 @@ function _agg15ForLevel(pred) {
             if (!stat[k]) stat[k] = new Array(s[k].length).fill(0);
             s[k].forEach((x, i) => { stat[k][i] += x; });
         }
-        const a = DATA.CENSUS_2015_AGES[code];
+        const a = CENSUS_2015_AGES[code];
         if (a?.length === 32) { a.forEach((x, i) => { ages[i] += x; }); hasAges = true; }
-        const hhd = DATA.CENSUS_2015_HOUSEHOLD[code];
+        const hhd = CENSUS_2015_HOUSEHOLD[code];
         if (hhd) for (const k of ['fam', 'dwell', 'own']) if (hhd[k]) {
             if (!stat[k]) stat[k] = new Array(hhd[k].length).fill(0);
             hhd[k].forEach((x, i) => { stat[k][i] += x; });
@@ -1058,7 +1055,7 @@ function _city15StatsRows(stat, entry) {
 }
 
 // ---- 国勢調査 2025 集計・表示（ナビ骨格は DRILL_YEARS['2025'] が駆動） ------
-// データ: DATA.CENSUS_2025_POP[code] = { pop:[t,m,f], pop2020, popChange, hh, hh2020 }
+// データ: CENSUS_2025_POP[code] = { pop:[t,m,f], pop2020, popChange, hh, hh2020 }
 // 政令市の区割り（浜松市 新3区）は _wardsForYear が 2025 データから自動生成済みで対応不要。
 
 // 2025-pop.json は 2020/2015 と違い葉のみでない：政令市20市と東京特別区部(13100)の
@@ -1069,7 +1066,7 @@ function _agg25ForLevel(pred) {
     const pop = [0, 0, 0];
     let hh = 0, hh20 = 0, pop20 = 0, area = 0;
     let hasHh = false, hasArea = false, hasPop20 = false;
-    for (const [code, p] of Object.entries(DATA.CENSUS_2025_POP)) {
+    for (const [code, p] of Object.entries(CENSUS_2025_POP)) {
         if (code.endsWith('000') || _AGG25_ROWS.has(code)) continue;
         if (!pred(code)) continue;
         pop[0] += p.pop[0]; pop[1] += p.pop[1]; pop[2] += p.pop[2];
