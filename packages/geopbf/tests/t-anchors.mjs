@@ -6,6 +6,7 @@ globalThis.ImageData ??= class ImageData { };
 import { GeoPBF } from "../src/pbf-base.js";
 import { topology, unPackGintBuffer } from "../src/extension/topology.js";
 import { gint } from "../src/extension/gint.js";
+import { identifyAt } from "../src/extension/identify.js";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 {
@@ -87,5 +88,25 @@ const maxAnchorGap = vs => { let acc = 0, worst = 0; const ds = spans(vs); for (
 	ok(p.arcCount >= 1 && p.bbox[3] >= 89.999 && p.bbox[0] <= -179.999 && p.bbox[2] >= 179.999, `極を囲む環＝gint に載る（bbox ${p.bbox.map(v => v.toFixed(1)).join(",")}）`);
 }
 
+// ⑨ 縫い目辺のアンカー＝+180 の枝に留まる（縫い目跨ぎの矩形・大きい円が「内側で掴めず外側で掴める」9/15 の根治）
+//   東片の縫い目辺（+180・長さ 2°）に打たれる L1 が x=0（−180）へ落ちるとレイキャストの偶奇が壊れる
+{
+	const PERIOD = 3600000000, onW = ix => ix <= 2, onE = ix => ix >= PERIOD - 2;
+	const rect = [[179, 34], [-179, 34], [-179, 36], [179, 36], [179, 34]];   // 縫い目を跨ぐ矩形（縦辺 2°）
+	const p = await new GeoPBF({ name: "t-anchors" }).set({ type: "FeatureCollection", features: [F("Polygon", [rect])] });
+	ok(p.features[0].geometry.type === "MultiPolygon" && p.features[0].geometry.coordinates.length === 2, "エンコーダが2片に切っている（前提）");
+	const d = unPackGintBuffer(topology(p));
+	let mixed = 0, seamE = 0, seamW = 0;
+	for (let a = 0; a < d.arcMeta.length / 8; a++) {
+		const vs = arcVerts(d, a), seam = vs.filter(v => onW(v.xy[0]) || onE(v.xy[0]));
+		const e = seam.filter(v => onE(v.xy[0])).length, w = seam.filter(v => onW(v.xy[0])).length;
+		if (e && w) mixed++;
+		seamE += e; seamW += w;
+	}
+	ok(mixed === 0 && seamE >= 3 && seamW >= 3, `縫い目頂点は片ごとに同じ枝（E=${seamE} W=${seamW} 混在arc=${mixed}）`);
+	const self = { unPackGint: d };
+	ok(identifyAt(self, -179.5, 35) === 0 && identifyAt(self, 179.5, 35.5) === 0 && identifyAt(self, -179.9, 34.2) === 0 && identifyAt(self, 179.9, 35.9) === 0, "矩形の内側（両片・縫い目近く）で identify が当たる");
+	ok(identifyAt(self, -178.5, 35) === null && identifyAt(self, 178.5, 35) === null && identifyAt(self, -179.5, 36.5) === null, "矩形の外側では当たらない");
+}
 console.log(fails ? `FAIL (${fails})` : "PASS");
 process.exit(fails ? 1 : 0);
