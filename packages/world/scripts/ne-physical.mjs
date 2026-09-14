@@ -195,6 +195,22 @@ if (needP625.length) {
 	log(`火山フラグ volcano:true = ${n} 地物（分類 volcano 以外にも peak などに付く）`);
 }
 
+// 多言語名: TerrainDB に入らない絵（wiki:false）と地理線は Wikidata のラベルを name_<lang> で持つ（TerrainDB の項目は i18n/<lang>.json 側＝重複させない）
+const LANGS = JSON.parse(await readFile(path.join(ROOT, "i18n/ui.json"), "utf8")).langs.map(l => l.code);
+async function wikidataLabels(qids) {
+	const cachePath = path.join(ROOT, ".cache/wikidata-labels.json"), cache = existsSync(cachePath) ? JSON.parse(await readFile(cachePath, "utf8")) : {};
+	const ask = [...new Set(qids)].filter(q => q && !(q in cache));
+	for (let i = 0; i < ask.length; i += 50) { const v = await fetchJSON("https://www.wikidata.org/w/api.php?action=wbgetentities&format=json&props=labels&languages=" + LANGS.join("|") + "&ids=" + ask.slice(i, i + 50).join("|")); for (const [q, e] of Object.entries(v.entities || {})) cache[e.redirects?.from || q] = Object.fromEntries(Object.entries(e.labels || {}).map(([l, x]) => [l, x.value])); await sleep(200); }
+	if (ask.length) await writeFile(cachePath, JSON.stringify(cache));
+	return cache;
+}
+const withNames = (props, labels) => { for (const [l, v] of Object.entries(labels || {})) if (l !== "en") props["name_" + l] = v; return props; };
+{
+	const pics = features.filter(f => f.properties.wiki === false), labels = await wikidataLabels(pics.map(f => f.properties.qid));
+	for (const f of pics) withNames(f.properties, labels[f.properties.qid]);
+	if (pics.length) log(`絵の多言語名: ${pics.length} 件（${pics.map(f => `${f.properties.name}=${f.properties.name_ja || "-"}`).join("・")}）`);
+}
+
 // ── 書き出し ──────────────────────────────────────────────────────────────────────────────────────
 await mkdir(path.dirname(OUT), { recursive: true });
 const fc = { type: "FeatureCollection", name: "ne-physical", features };
@@ -219,6 +235,7 @@ const summary = { source: `Natural Earth 10m ${NE_TAG}`, generated: new Date().t
 		gf.push({ type: "Feature", properties: { name, kind, lat: +lat.toFixed(4), epoch: EPOCH, ...meta(name) }, geometry: circle(lat) });
 	const idl = glines.find(f => f.properties.featurecla === "Date line");
 	if (idl) gf.push({ type: "Feature", properties: { name: "International Date Line", kind: "dateline", source: "ne", ...meta("International Date Line") }, geometry: idl.geometry });
+	{ const labels = await wikidataLabels(gf.map(f => f.properties.wikidataid)); for (const f of gf) withNames(f.properties, labels[f.properties.wikidataid]); }   // 地理線の多言語名
 	const gp = await new GeoPBF({ name: "ne-physical-lines", precision: 4, attribution: `circles of latitude computed for ${EPOCH} (IAU 2006 obliquity); International Date Line from Natural Earth 10m ${NE_TAG} (public domain)`, description: "equator, tropics, polar circles, date line (properties name / kind / lat / epoch)" }).set({ type: "FeatureCollection", name: "ne-physical-lines", features: gf });
 	const gb = gzipSync(Buffer.from(gp.arrayBuffer), { level: 9 });
 	await writeFile(path.join(path.dirname(OUT), "ne-physical-lines.geopbf"), gb);

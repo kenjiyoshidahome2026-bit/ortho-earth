@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // ケッペン気候区分＝ out/climate-koppen.geopbf（Beck et al. 2023, Scientific Data 10:724・CC BY 4.0・1991–2020・0.1°）。Kenji 2026-09-15「30 区分は属性に残して塗りは大区分」
 //   ラスタ（ラベル 1..30・0=海）を区分ごとに面にする: 区分の境界となるセル辺を集め、環に繋ぎ、共線の頂点を落とす（隣り合う区分同士は同じ辺を共有＝隙間も重なりも無い）。
-//   1 区分 1 地物（MultiPolygon）。属性 id / code（Af…EF）/ group（A B C D E）/ name / color（Beck の RGB）/ period
+//   1 区分 1 地物（MultiPolygon）。属性 id / code（Af…EF）/ group（A B C D E）/ name / color（Beck の RGB）/ period / wikidataid・name_<lang>（最も近い Wikidata 項目のラベル・i18n-classes.mjs）
 //   TIFF は geopbf の COG 読み口（tiff.js / decode.js＝LZW・タイル）で読む＝GDAL 不要。
 //   使い方: node scripts/koppen.mjs [--period 1991_2020] [--res 0p1] [--out PATH(拡張子なし)] [--geojson]
 import { readFile, writeFile, mkdir } from "node:fs/promises";
@@ -84,11 +84,14 @@ function vectorize(c) {
 	const toLL = pts => { const r = pts.map(([x, y]) => [lon(x), lat(y)]); r.push(r[0]); return r; };
 	return outers.map(o => [toLL(o.pts), ...o.holes.map(h => toLL(h.pts))]);
 }
+const clsPath = path.join(ROOT, ".cache/wikidata-labels-classes.json");
+const KL = existsSync(clsPath) ? JSON.parse(await readFile(clsPath, "utf8")).koppen : {};   // scripts/i18n-classes.mjs の出力＝区分ごとの Wikidata 項目と多言語ラベル
 const features = [];
 for (let c = 1; c <= 30; c++) {
 	if (!hist[c]) continue;
 	const polys = vectorize(c), lg = legend[c];
-	features.push({ type: "Feature", properties: { id: c, code: lg.code, group: lg.code[0], name: lg.name, color: lg.color, period: PERIOD.replace("_", "–"), cells: hist[c] }, geometry: { type: "MultiPolygon", coordinates: polys } });
+	const kl = KL[lg.code] || {}, names = Object.fromEntries(Object.entries(kl).filter(([k]) => k !== "qid" && k !== "en").map(([k, v]) => ["name_" + k, v]));
+	features.push({ type: "Feature", properties: { id: c, code: lg.code, group: lg.code[0], name: lg.name, wikidataid: kl.qid, name_en: kl.en, ...names, color: lg.color, period: PERIOD.replace("_", "–"), cells: hist[c] }, geometry: { type: "MultiPolygon", coordinates: polys } });
 	log(`${lg.code.padEnd(4)} ${lg.name.padEnd(38)} cells ${String(hist[c]).padStart(7)} polygons ${polys.length}`);
 }
 const pbf = await new GeoPBF({ name: "climate-koppen", precision: 4, attribution: "Köppen–Geiger climate classification: Beck, H. E. et al. (2023) High-resolution (1 km) Köppen–Geiger maps for 1901–2099 based on constrained CMIP6 projections, Scientific Data 10, 724 (CC BY 4.0)", description: `Köppen–Geiger ${PERIOD.replace("_", "–")} at ${RES.replace("p", ".")}°: one MultiPolygon per class (id/code/group/name/color)` }).set({ type: "FeatureCollection", name: "climate-koppen", features });
