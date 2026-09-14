@@ -17,7 +17,7 @@
 //     sw.js       … SDK がホストのオリジンへ Service Worker を持ち込む口になる（vite.lib.config.js の掟）
 //     moj-local/  … 開発専用（123MB）
 //     plateau-names.json … 台帳＝plateau-landmarks.json を焼く原料であり実行時には読まれない（2.8MB）
-//     ogp.png / favicon / apple-touch-icon … サイトの顔＝SDK の顔ではない
+//     ogp.jpg / favicon / apple-touch-icon … サイトの顔＝SDK の顔ではない
 import { execFileSync } from "node:child_process";
 import { cpSync, mkdirSync, rmSync, existsSync, readFileSync, writeFileSync, statSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";

@@ -9,7 +9,7 @@ import { parseScenes, compileVias } from "./scene-adapter.js";
 import { sniffScene } from "../gadgets/dropfile.js";
 import { cloudPanel } from "../gadgets/cloud.js";   // クラウド保存（共通の器＝geoedit と同じ account Worker /me/files）
 import { composeLayersToCanvas } from "../gadgets/compose.js";   // 行サムネ（生スナップの合成＝shot/cloud と同じ核）
-import { parseViewHash } from "ortho-core";   // 行のレイヤー(l=)・配色(c=) チップ＝共有URLの正典パーサ
+import { parseViewHash } from "ortho-core/viewurl";   // 行のレイヤー(l=)・配色(c=) チップ＝共有URLの正典パーサ。index.js 経由だとサイトビルドにエンジン一式（worker・WASM）が二重に出る（2026-09-14）
 import { tr } from "../i18n.js";   // UI二言語化（ja正典・en辞書引き＝エンジンと同じ ?lang= / ブラウザ言語の解決）。台本の中身は訳さない
 const t = tr({
 	"Scene エディタ": "Scene editor", "作品タイトル": "Title", "画角": "Frame", "自由": "Free",
