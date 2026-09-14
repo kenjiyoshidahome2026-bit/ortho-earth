@@ -412,6 +412,20 @@ try {
 		await sleep(200);
 		const rf = [...m().feats.values()][0];
 		ok("amRestoreOneRing", m().stats().features === 1 && m().stats().arcs === 1 && rf?.type === "Polygon" && m().featureGeoJSON([...m().feats.keys()][0], false).geometry.coordinates[0].length === 37);
+		// 縫い目を跨ぐ矩形（縦辺 2°＝縫い目辺に度アンカーが入る）＝内側で掴めて外側は素通し（9/15「内側で掴めず外側で掴める」の根治）
+		await editor.loadFC({ type: "FeatureCollection", features: [{ type: "Feature", properties: { n: "amRect" }, geometry: { type: "Polygon", coordinates: [[[179, 34], [-179, 34], [-179, 36], [179, 36], [179, 34]]] } }] }, { fly: false });
+		location.hash = "#8/35/180";
+		await sleep(400);
+		await editor.commitNow();
+		const rEid2 = [...m().feats.keys()][0], z2 = map.getZoom();
+		ok("amRectInside", [[-179.5, 35], [179.5, 35.5], [-179.9, 34.2], [179.9, 35.9]].every(([lo, la]) => editor.layer.identify(lo, la, z2) === rEid2));
+		ok("amRectOutside", [[-178.5, 35], [178.5, 35], [-179.5, 36.5]].every(([lo, la]) => editor.layer.identify(lo, la, z2) == null));
+		document.querySelector('#ge-toolbar button[data-tip^="要素を移動"]').click();
+		const ri = map.projectLL(179.6, 35.3);
+		click(ri[0], ri[1]);
+		await sleep(200);
+		ok("amRectGrab", editor.state.selection === rEid2);
+		key("Escape");
 	}
 
 	// ---- 書き出し／クラウドのダイアログ＝同時に1枚（二重開き・積み重なりなし）----

@@ -180,7 +180,12 @@ export class gint {
 				const t = s / n, ka = Math.sin((1 - t) * w) / sw, kb = Math.sin(t * w) / sw;
 				const vx = a[0] * ka + b[0] * kb, vy = a[1] * ka + b[1] * kb, vz = a[2] * ka + b[2] * kb;
 				const lon = Math.atan2(vy, vx) / D2R, lat = Math.atan2(vz, Math.hypot(vx, vy)) / D2R;
-				const x = (Math.round((lon + 180) * S) % PERIOD + PERIOD) % PERIOD, y = Math.round((lat + 90) * S);
+				let x = (Math.round((lon + 180) * S) % PERIOD + PERIOD) % PERIOD;
+				const y = Math.round((lat + 90) * S);
+				// 縫い目辺（±180 の縦辺＝切断の痕）では atan2 が +180 を返し、剰余で x=0（−180 側）へ落ちる＝東片の縫い目辺が
+				// x=3.6e9⇄0 のジグザグになり identify のレイキャスト偶奇が壊れる（縫い目跨ぎの矩形/大きい円が「内側で掴めず外側で掴める」9/15）。
+				// 前の点に近い枝（x±PERIOD）を選ぶ＝縫い目辺は +180（PERIOD）に留まる。[0,PERIOD] の外に出る枝は採らない（極越えの経度跳びは剰余のまま）
+				if (x - px > HALF && x - PERIOD >= 0) x -= PERIOD; else if (px - x > HALF && x + PERIOD <= PERIOD) x += PERIOD;
 				if (!nearPole(py, y) && span(px, py, x, y) > LIMIT) good = false;
 				pts.push([x, y]); px = x; py = y;
 			}
