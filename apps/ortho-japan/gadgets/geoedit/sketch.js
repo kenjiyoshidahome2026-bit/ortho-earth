@@ -1,5 +1,5 @@
 import { tr } from "../../i18n.js";   // UI二言語化（ja正典・en辞書引き＝エンジン i18n.js の流儀。辞書は各モジュール持参）
-import { gcDistanceDeg, smallCircle } from "geopbf/edit/sphere";   // 完全球体＝円は球面上の小円（本人裁定 9/14）
+import { gcDistanceDeg, smallCircle, gcRect } from "geopbf/edit/sphere";   // 完全球体＝円は球面上の小円（本人裁定 9/14）・矩形は対角線から球面上で 4 角（9/15）
 const t = tr({
 	"大きさがありません": "No size",
 	"頂点が足りません": "Not enough vertices",
@@ -11,9 +11,10 @@ const t = tr({
 // クリック自体は editClick スロット（エンジンの4px裁定済み）から click(tool, ll) で入る。
 
 // 矩形/円のリング生成。円＝球面上の小円（中心 a から中心角 r の 36 角形）＝極付近でも縫い目跨ぎでも真円。
-// 出力経度は [-180,180)（toLL が畳む）＝モデルの正規化表現（normLon 産と同じ）。矩形は経緯度の角 4 点（辺は大円で結ばれる）。
+// 矩形＝対角線 a→b の大円中点 M の接平面（心射図法）で a・b と点対称な 4 角（gcRect）＝経緯度の角だと「メルカトルの
+// 矩形を球に貼った姿」になる（本人指摘 9/15）。辺は大円で結ばれる。出力経度は [-180,180)（toLL が畳む）＝モデルの正規化表現。
 export const twoPointRing = (kind, a, b) => {
-	if (kind === "rect") return [a, [b[0], a[1]], b, [a[0], b[1]], a];
+	if (kind === "rect") return gcRect(a, b);
 	const r = gcDistanceDeg(a, b);
 	if (r <= 0) return null;
 	const ring = smallCircle(a, r, 36);
@@ -63,7 +64,7 @@ export function createSketch(ed) {
 	function finishTwoPoint(a, b) {
 		const kind = st.sketch.kind, ring = twoPointRing(kind, a, b);
 		st.sketch = null; st.snapMark = null;
-		const degenerate = !ring || (kind === "rect" && (ring[0][0] === ring[1][0] || ring[0][1] === ring[3][1]));   // 縮退（矩形＝幅/高さゼロ・円＝半径ゼロ）
+		const degenerate = !ring;   // 縮退（矩形＝幅/高さゼロ・対角線≥180°／円＝半径ゼロ）＝生成側が null
 		if (degenerate) { overlay.redraw(); return toast(t("大きさがありません")); }
 		const cmd = { op: "add", feature: { type: "Feature", properties: { ...drawDefaults.polygon }, geometry: { type: "Polygon", coordinates: [ring] } } };
 		ed.doCmd(cmd);

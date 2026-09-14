@@ -614,7 +614,7 @@ Granular imports: `geopbf/edit/model`, `geopbf/edit/large-model`, `geopbf/edit/t
 
 **Edge semantics (Gint v5).** Consecutive vertices are joined by **great circles on a perfect sphere**: the Gint bake inserts
 great-circle anchors so that no rendered chord spans more than 1°, the antimeridian cut already uses the spherical crossing, and
-the editor draws, snaps and moves on the same sphere (moving = rotation about the globe center, circles = spherical small circles).
+the editor draws, snaps and moves on the same sphere (moving = rotation about the globe center, circles = spherical small circles, rectangles = the four corners are taken on the sphere from the diagonal — point-symmetric about the diagonal's great-circle midpoint in its gnomonic tangent plane, so they lie on one small circle and opposite sides are equal — not lon/lat corners).
 This differs from RFC 7946, which defines segments as straight lines in longitude/latitude — a two-vertex "parallel" such as a 49°N
 border will bow poleward; add intermediate vertices if you need a rhumb-like edge. Rings that enclose a pole (they cross the
 antimeridian once) are closed through the pole on encode (`[±180,lat] → [±180,±90] → [∓180,±90] → [∓180,lat]`, the RFC 7946
