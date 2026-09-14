@@ -7,18 +7,25 @@
 import { decodeBatch, setDecodeEnv } from "./plateaudecode.js";
 
 const stopped = new Set();
-self.onmessage = async e => {
-	const d = e.data;
+let out = self;   // 返信先：main が渡した MessagePort（区 worker 直結）。port 未受領の間は self（互換）
+const handle = async d => {
 	if (d.init) { setDecodeEnv({ ell: !!d.init.ell, exclude: d.init.exclude ?? undefined }); return; }
 	if ("exclude" in d && !d.init) { setDecodeEnv({ exclude: d.exclude }); return; }   // タイル並行は既定8/デコーダ＝プール本数×8が区の実効並行
 	if (d.stopJobs) { for (const j of d.stopJobs) stopped.add(j); return; }
 	const stop = () => stopped.has(d.job);
 	let mesh = null;
-	try { mesh = await decodeBatch(d.base, d.leaves, null, d.wardBbox, () => self.postMessage({ tick: d.job }), d.brid, stop, null); }
+	try { mesh = await decodeBatch(d.base, d.leaves, null, d.wardBbox, () => out.postMessage({ tick: d.job }), d.brid, stop, null); }
 	catch (err) { console.warn("[plateau] pooled batch failed", d.base, err?.message ?? err); }
 	const dropped = stop(); stopped.delete(d.job);
-	if (dropped || !mesh) { self.postMessage({ job: d.job, mesh: null }); return; }
+	if (dropped || !mesh) { out.postMessage({ job: d.job, mesh: null }); return; }
 	const tr = [mesh.pos.buffer, mesh.nrm.buffer, mesh.idx.buffer];   // transfer＝バッチ実体のコピーを作らない
 	if (mesh.maskCells) tr.push(mesh.maskCells.buffer);
-	self.postMessage({ job: d.job, mesh }, tr);
+	out.postMessage({ job: d.job, mesh }, tr);
+};
+// main からの最初の便＝{init:{port}}：以後の会話（init/exclude/job/stopJobs → tick/job）は全部その port（区 worker 直結）。
+// 入れ子 worker（区 worker が直接 new Worker）は使わない＝worker の所有者は main（2026-09-14）。
+self.onmessage = e => {
+	const d = e.data;
+	if (d.init?.port) { out = d.init.port; out.onmessage = ev => handle(ev.data); return; }
+	handle(d);
 };

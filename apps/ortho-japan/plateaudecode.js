@@ -4,8 +4,11 @@
 // 呼び出し元は2系統＝plateauworker（従来の直列経路・lowMem/mid/slow/preload）と plateaudecoder（ハイスペック機の
 // 並列プール経路）。経路差はゼロ＝同じ関数を別コアで回すだけ。区単位の状態（IDB/OPFS・far-DB・クレジット・
 // レーン）は一切持たない。環境（楕円体・タイル並行数）は setDecodeEnv で注入＝各workerのinitが責任を持つ。
-import { parse as loadParse } from "@loaders.gl/core";
-import { Tiles3DLoader } from "@loaders.gl/3d-tiles";
+// loaders.gl（core＋3d-tiles＋gltf＋draco ≈ 220 KB）は最初のタイルを解く時に読む（処方②・ortho-earth#12・2026-09-14）。
+// 静的 import だと plateauworker / plateaudecoder の起動（z4 の初期ロード・本番既定は PLATEAU オン）でプール本数分の
+// 起動ベースラインとして丸ごと乗っていた。デコード以外（葉走査・fetch・接地・マスク）はこのファイルの軽い部分だけで動く。
+let _loaders = null;
+const loaders = () => _loaders ??= import("./plateau-loaders.js");   // 名前付き再輸出の薄い入口＝遅延チャンク内で tree-shaking が効く
 import { weldMesh } from "./plateauq.js";   // 頂点溶接（焼きと共用）
 
 const R2D = 180 / Math.PI;
@@ -304,6 +307,7 @@ export async function decodeBatch(base, leaves, wardMask, wardBbox, onTile = nul
 				// EXT_texture_webp＝webpテクスチャ版アセット（2025 re-publish以降のbrid等）が extensionsRequired に
 				// 宣言するだけで preprocess が throw する（worker内はwebp判定不能）。テクスチャは不使用＝安全に除外。
 				// loadImages:false: テクスチャ版しか無い区(約35)でJPEGデコードを丸ごと省く（色は使わない）。
+				const { loadParse, Tiles3DLoader } = await loaders();
 				const tile = await loadParse(fixMeshoptGlb(ab), Tiles3DLoader, { "3d-tiles": { loadGLTF: true }, gltf: { loadImages: false, excludeExtensions: { EXT_mesh_features: false, EXT_structural_metadata: false, EXT_texture_webp: false } } });
 				mergeTile(tile);
 			} catch (e) { console.warn("[plateau] tile failed", t.uri, e.message); }

@@ -757,7 +757,8 @@ const NL_SETS = [
 // 入口は /nl/（本番＝deploy-worker が japan の資産をそのまま出す独立URL）と ?nl=1（開発・japanに重ねて確認する時）。
 // pathname 判定＝アドレス欄が /nl/ のまま＝共有URLとして日本と混ざらない。
 const nlOn = /[?&]nl=1/.test(location.search) || /^\/nl(\/|$)/.test(location.pathname);
-if (plateauOn) fetch(ASSET_BASE + "plateau-exclude.json").then(r => r.ok ? r.json() : null).then(map => { if (map) plateauWorkers.forEach(w => w.postMessage({ type: "exclude", map })); }).catch(() => {});   // 捨てる地物（精査で不要と裁定した gml_id）＝生経路も焼きと同じ
+let plateauExcludeMap = null;   // 除外マップ＝起動後に来ても、後から起きる worker（遅延生成）にも配れるよう保持
+if (plateauOn) fetch(ASSET_BASE + "plateau-exclude.json").then(r => r.ok ? r.json() : null).then(map => { if (map) { plateauExcludeMap = map; plateauWorkers.forEach(w => w.postMessage({ type: "exclude", map })); } }).catch(() => {});   // 捨てる地物（精査で不要と裁定した gml_id）＝生経路も焼きと同じ
 const plateauCatalogReady = !plateauOn ? Promise.resolve() :
 	fetch(ASSET_BASE + "plateau-sets.json").then(r => r.json()).then(sets => {   // BASE_URL＝サブパス配信(/ortho-japan/)対応
 		if (nlOn) { sets = sets.concat(NL_SETS); console.log("[plateau] added Netherlands 3DBAG to catalog (?nl=1)"); }
@@ -924,6 +925,7 @@ function farBakeNext() {
 	// 一時ゴミ高水位が段階的に積み上がる（本人実測「FlyToで+1GB→14.5GB」2026-08-04夜）。移動/飛行中は退いて再試行
 	if (moving || flying) { setTimeout(farBakeNext, 3000); return; }
 	farBaking = farBakeQ.shift();
+	spawnPlateauWorkers();
 	plateauWorkers[hashStr(farBaking.base) % PLATEAU_NW].postMessage({ type: "farBake", base: farBaking.base, ward: farBaking.name });
 }
 dbgHost.__farState = () => ({ shown: [...farShown], missed: [...farMissed], baking: farBaking?.name ?? null, q: farBakeQ.length, tried: [...farBakeTried],
@@ -1030,15 +1032,31 @@ function plateauRetain(name, set) {   // 常駐登録＋LRU touch。予算超過
 // MID_TIER は 2本上限＝各 worker が loaders.gl(Draco wasm/3d-tiles) を丸ごと抱える起動ベースラインが、
 // コールドの山にそのまま人数分加算されるため（8GB実機では 1→2 本でも 2D 段階で落ちた実測＝上のコメント）。
 const PLATEAU_NW = LOW_MEM ? 1 : (Math.min(MID_TIER ? 2 : PLATEAU_MAX_ACTIVE, (navigator.hardwareConcurrency || 4) - 1) || 1);
-const plateauWorkers = [], plateauPending = new Map();
+const plateauWorkers = [], plateauDecoders = [], plateauPending = new Map();   // plateauDecoders＝区 worker 配下のデコーダ（main が生成・所有）
 const PLATEAU_BAKE_URL = (location.search.match(/[?&]bake=([^&]+)/) || [])[1] ? decodeURIComponent(location.search.match(/[?&]bake=([^&]+)/)[1]) : null;   // ?bake=URL＝R2 焼きの置き場差し替え（ローカル検証）・既定は worker 側の api.ortho-earth.com
 const plateauMemW = [];   // ?hud=1（旧mem=1）：worker index → {cache, live}＝HUD の「過渡」行（常駐台帳に乗らないRAM）
 let plateauReqId = 0;
 let plateauCamSent = 0;   // カメラ放送のスロットル（ロード中のみ~4Hz）
-for (let i = 0; plateauOn && i < PLATEAU_NW; i++) {   // plateau OFF＝workerを1本も起こさない
+// PLATEAU worker プールは初回必要時に起こす（処方②・ortho-earth#12・2026-09-14）。旧＝起動時に PLATEAU_NW 本を無条件生成＝
+// z4 の初期ロードで worker 起動＋IDB/OPFS open＋init が人数分走っていた。今は autoPlateau の暖機（z≥AUTO_Z−2 でチルト）か
+// 最初の要求（ロード／遠景／IDB 管理／焼き）で立てる。plateau OFF＝1 本も起こさない（従来どおり）。
+function spawnPlateauWorkers() {
+	if (plateauWorkers.length || !plateauOn) return;
+	for (let i = 0; i < PLATEAU_NW; i++) {
 	const w = new Worker(new URL("./worker.js", import.meta.url), { type: "module", name: "plateau" });
 	const meshChan = new MessageChannel();   // この worker → render worker のメッシュ直結パイプ
-	w.postMessage({ type: "init", meshPort: meshChan.port1, lowMem: LOW_MEM, mid: MID_TIER, hi: HI_TIER, dec: PLATEAU_DEC, mem: hudOn, noOpfs: /[?&]noopfs=1/.test(location.search), farH: FAR_H, ell: ELL_ON, noBake: /[?&]nobake=1/.test(location.search), bakeUrl: PLATEAU_BAKE_URL }, [meshChan.port1]);   // noBake/bakeUrl＝R2 焼き（第三の入口）の封印/置き場差し替え   // ?noopfs=1＝バッチ本体のOPFS置きを無効化（従来IDB）＝A/B・切り分け用。farH＝遠景far-DBの高さ閾値
+	// ②区内デコード並列プール（PLATEAU_DEC 本／区 worker）は **main が生成して MessagePort で渡す**。旧＝区 worker が入れ子で
+	// new Worker していたが、入口 1 本化（worker.js・name で役割指名）後は vite が入れ子生成を new Worker(self.location.href,…) に
+	// 書き換え、環境によって子が一度も走らず（in-app 3/3・headless 稀）ライブデコードが永久 STALL した（2026-09-14 実測）。
+	// worker の所有者を main に一本化＝入れ子 worker を使わない。デコーダは区 worker と同時に起きる（遅延生成の暖機に乗る）。
+	const decPorts = [];
+	for (let k = 0; k < PLATEAU_DEC; k++) {
+		const d = new Worker(new URL("./worker.js", import.meta.url), { type: "module", name: "plateaudecoder" });
+		const ch = new MessageChannel();
+		d.postMessage({ init: { port: ch.port1 } }, [ch.port1]);   // 以後の会話（init/exclude/job/tick）は全部この port で区 worker と直結
+		plateauDecoders.push(d); decPorts.push(ch.port2);
+	}
+	w.postMessage({ type: "init", meshPort: meshChan.port1, decPorts, lowMem: LOW_MEM, mid: MID_TIER, hi: HI_TIER, dec: PLATEAU_DEC, mem: hudOn, noOpfs: /[?&]noopfs=1/.test(location.search), farH: FAR_H, ell: ELL_ON, noBake: /[?&]nobake=1/.test(location.search), bakeUrl: PLATEAU_BAKE_URL }, [meshChan.port1, ...decPorts]);   // noBake/bakeUrl＝R2 焼き（第三の入口）の封印/置き場差し替え   // ?noopfs=1＝バッチ本体のOPFS置きを無効化（従来IDB）＝A/B・切り分け用。farH＝遠景far-DBの高さ閾値
 	wPost({ type: "plateauPort", port: meshChan.port2 }, [meshChan.port2]);
 	w.onmessage = e => {
 		if (e.data.prog) { const p = e.data.prog; const old = plateauProg.get(p.name); if (old?.stall && (old.done ?? -1) === (p.done ?? -2)) p.stall = old.stall; plateauProg.set(p.name, p); renderPlateauProg(); return; }   // タイル/走査進捗（ネットワーク経路のみ）。停滞印は進捗が動くまで残す
@@ -1090,6 +1108,8 @@ for (let i = 0; plateauOn && i < PLATEAU_NW; i++) {   // plateau OFF＝workerを
 		else p.resolve(e.data.ok);   // ok=false は0三角形など soft failure（worker側でconsole.error済み）。メッシュ本体は直結ポートで render worker へ送付済み
 	};
 	plateauWorkers.push(w);
+	if (plateauExcludeMap) w.postMessage({ type: "exclude", map: plateauExcludeMap });   // 起動前に届いていた除外マップを配る
+	}
 }
 // base URL のハッシュで固定の worker へルーティング＝同じ地区は毎回同じ worker が受ける→worker内蔵cacheが再訪で効く。
 function hashStr(s) { let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0; return h >>> 0; }
@@ -1107,6 +1127,7 @@ function plateauSortAnchor() {
 	return foot ? [wrapLon(foot[0]), foot[1]] : [cam.center[0], cam.center[1]];
 }
 function workerLoadPlateau(base, tiles, name, wardBbox, brid, ex = {}) {
+	spawnPlateauWorkers();
 	const id = ++plateauReqId, w = plateauWorkers[hashStr(base) % PLATEAU_NW];
 	// wardBbox＝区単位の被覆マスク座標系。camCenter＝バッチのカメラ近傍優先ソート（目の前から立ち始める）。
 	// brid＝橋梁モード：バッチ接地（桁が海面へ沈まない）＋両面描画（ケーブル等の開いた薄面が裏から消えない）。
@@ -1138,8 +1159,8 @@ function renderPlateauProg() {
 // --- 建物3D（PLATEAU）データ管理モーダル：カタログ×IDB。worker 配線だけ渡し、DOMはモジュール側が組む。
 const plateauListPending = [];        // idbList 応答待ち（FIFO。IDBは全workerで共有＝worker0固定で聞く）
 const plateauDeletePending = new Map();   // base → resolver（削除は base ルーティング＝メモリキャッシュの持ち主に届く）
-const plateauIdbList = () => new Promise(res => { plateauListPending.push(res); plateauWorkers[0].postMessage({ type: "idbList" }); });
-const plateauIdbDelete = base => new Promise(res => { plateauDeletePending.set(base, res); plateauWorkers[hashStr(base) % PLATEAU_NW].postMessage({ type: "idbDelete", base }); })
+const plateauIdbList = () => new Promise(res => { spawnPlateauWorkers(); plateauListPending.push(res); plateauWorkers[0].postMessage({ type: "idbList" }); });
+const plateauIdbDelete = base => new Promise(res => { spawnPlateauWorkers(); plateauDeletePending.set(base, res); plateauWorkers[hashStr(base) % PLATEAU_NW].postMessage({ type: "idbDelete", base }); })
 	.then(n => {   // GPU常駐コピーも道連れ（表示中は従来どおり残す）＝「削除」した区が常駐ヒットで蘇らないように
 		const name = [...plateauResident.entries()].find(([, s]) => s.base === base)?.[0];
 		if (name && !plateauActive.has(name)) plateauEvict(name);
@@ -1270,6 +1291,7 @@ async function runPrefetch(wanted, how, onProgress) {   // 戻り値＝対象区
 function plateauPreload(set) {   // プレロード＝IDBに貯めるだけ（描画へ送らない）。表示中/読込中の地区はそのまま成功扱い
 	if (plateauLoading.has(set.name) || plateauActive.has(set.name)) return Promise.resolve(true);
 	plateauLoading.add(set.name);
+	spawnPlateauWorkers();
 	const id = ++plateauReqId, w = plateauWorkers[hashStr(set.base) % PLATEAU_NW];
 	// レーンは fast のまま（lowMem も）。slow（並行1本＋250ms間隔）を一度試したが、港区級（数百タイル）が
 	// デモ1周かかっても終わらない実測＝「故意に遅い」。lowMem の jetsam 余裕は BATCH_TILES=16・並行4・
@@ -1352,6 +1374,7 @@ function autoFar() {
 		if (!bboxIntersects(s.bbox, view)) continue;
 		farShown.add(s.name);
 		renderer.set("plateauVis", true, s.name + "#far");   // 冪等unhide＝evict後の残りhideフラグ/消灯帯で届いたバッチの両方を掃除
+		spawnPlateauWorkers();
 		plateauWorkers[hashStr(s.base) % PLATEAU_NW].postMessage({ type: "far", base: s.base, ward: s.name });
 	}
 }
@@ -1370,6 +1393,7 @@ function autoPlateau(settled = false) {
 	if (!plateauOn) return;   // 機能ごと停止（opts.plateau=false）
 	if (flying) { showResidentInFlight(); return; }   // フライト中は新規ロード/解放はしない（原spec＝ジッタ対策）が、既に常駐する区の点灯（=ロードでない）だけは通す＝グライドのリビールで基図の箱を出さない
 	if (printHold) return;   // 印刷（平面図）撮影中＝印刷カメラで自動ロード/解放をしない（帯域と現ロード状態を乱さない）
+	if (cam.zoom >= PLATEAU_AUTO_Z - 2 && (cam.pitch || 0) >= 0.02) spawnPlateauWorkers();   // 暖機＝街に寄り始めたら先に worker を起こす（初回ロードの待ちを短く）
 	autoFar();   // 遠景枠は本流のゲート（zoom/pitch/視界）と独立に毎パス選抜
 	// 「完全に離れた」常駐区の本削除：区bboxへの点距離が閾値超。ズームアウトだけでは落とさない＝同じ街への戻りはタダのまま。
 	for (const [name, s] of plateauResident) {
@@ -3528,6 +3552,7 @@ function destroy() {
 	destroyPipeline();                           // tile/scene worker
 	renderWorker.terminate();
 	plateauWorkers.forEach(w => w.terminate());
+	plateauDecoders.forEach(w => w.terminate());   // デコーダも main 所有＝道連れ
 	overlay.destroy();                           // e-Stat worker（createOverlay内で常時起動しているため忘れずに）
 	// デバッグ手はこのインスタンスの閉包を掴んだまま＝GCの錨になるので窓から下ろす
 	// 生やした名前は全て下ろす（従来は13名だけ＝取りこぼしが閉包を掴んだまま残っていた）。

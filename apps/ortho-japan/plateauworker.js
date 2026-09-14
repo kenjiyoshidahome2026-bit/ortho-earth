@@ -461,32 +461,30 @@ async function idbPurge() {
 // （1区=1worker=1コアの直列）がプール本数で割れる＝ハイスペック機の遊んでいるコアを使う。
 // ・lazy起動：デコーダは loaders.gl(Draco wasm) を丸ごと抱える＝ベースラインが重い。ネットワーク経路の初バッチまで起こさない。
 // ・過渡メモリ勘定：1バッチ(32タイル)の変換過渡 ×プール本数が新たに乗る＝HI_TIER（16GB+級を想定）限定にする理由。
-// ・入れ子Worker不能環境（古いSafari等）：起動失敗を一度だけwarnして DEC_POOL=0＝従来の直列へ縮退（沈黙失敗禁止）。
+// ・デコーダは main が生成し MessagePort で渡す（入れ子 Worker は使わない・2026-09-14）。port が無ければ DEC_POOL=0＝従来の直列。
 let DEC_POOL = 0;           // init で受領（0=プール無し）
 let excludeMap = null;      // 捨てる地物（base → gml_id[]）＝デコーダ起動時にも配る
-let decWorkers = null;      // [{w, busy}]（この区worker専属。同worker同時2区＝hashルーティング衝突時は busy で分け合う）
+let decWorkers = null;      // [{w:MessagePort, busy}]（この区worker専属。同worker同時2区＝hashルーティング衝突時は busy で分け合う）
+let decPorts = [];          // init で main から受領したデコーダ直結 port（DEC_POOL 本）
 let decJobSeq = 0;
 const decJobs = new Map();  // job → { tick, done }
 const decFreeWaiters = [];  // プール全占有時の空き待ち（別ロードの解放が起こす）
 function ensureDecoders() {
 	if (decWorkers || !DEC_POOL) return decWorkers;
-	try {
-		decWorkers = Array.from({ length: DEC_POOL }, () => {
-			const w = new Worker(new URL("./worker.js", import.meta.url), { type: "module", name: "plateaudecoder" });   // 同じ入口＝同じ worker ビルド（loaders.gl を二重に持たない）
-			w.postMessage({ init: { ell: ELL, exclude: excludeMap } });
-			w.onmessage = e => {
-				const d = e.data;
-				if (d.tick) { decJobs.get(d.tick)?.tick(); return; }   // タイル1枚の歩数（進捗の分母は発注元が持つ）
-				const j = decJobs.get(d.job);
-				if (j) { decJobs.delete(d.job); j.done(d.mesh); }
-			};
-			return { w, busy: false };
-		});
-		console.log(`[plateau] decode pool up (${DEC_POOL} workers)`);
-	} catch (err) {
-		console.warn("[plateau] decode pool unavailable -> inline decode", err?.message ?? err);
-		DEC_POOL = 0; decWorkers = null;
-	}
+	// デコーダ本体は main が生成済み（app.js spawnPlateauWorkers）＝ここは init で受領した MessagePort を束ねるだけ。
+	// 旧＝ここで入れ子 new Worker していたが、入口 1 本化後に vite が new Worker(self.location.href,…) へ書き換え、環境によって
+	// 子が一度も走らずライブデコードが永久 STALL した（2026-09-14）。入れ子 worker は使わない（worker の所有者は main）。
+	decWorkers = decPorts.map(port => {
+		port.onmessage = e => {
+			const d = e.data;
+			if (d.tick) { decJobs.get(d.tick)?.tick(); return; }   // タイル1枚の歩数（進捗の分母は発注元が持つ）
+			const j = decJobs.get(d.job);
+			if (j) { decJobs.delete(d.job); j.done(d.mesh); }
+		};
+		port.postMessage({ init: { ell: ELL, exclude: excludeMap } });
+		return { w: port, busy: false };
+	});
+	console.log(`[plateau] decode pool up (${decWorkers.length} workers)`);
 	return decWorkers;
 }
 
@@ -886,7 +884,8 @@ self.onmessage = async (e) => {
 		if (e.data.mid) CACHE_MAX = 0;   // 非力機（内蔵GPU/低コア）＝worker内キャッシュなし＝ロード中の全量保持(keep)も同時に消える（送ったら手放す）。再訪はOPFS
 		if (e.data.lowMem) { CACHE_MAX = 0; BATCH_TILES = 8; setDecodeEnv({ tileConcurrency: 4 }); }   // 低メモリ端末＝worker内キャッシュなし（区一式の常駐がタブ落ちの下駄になる。再訪はIDB）＋バッチ8タイル＝デコード過渡・IDBレコード（1書込のcommitバースト）・送信ペイロードの粒度を半減（Kenji指定 2026-07-29「IDB書き込みの粒度を下げる」。draw call 増は LOW_MEM=同時1区で相殺）
 		else if (e.data.hi) setDecodeEnv({ tileConcurrency: 16 });   // ハイスペック機（app.js HI_TIER＝12コア+デスクトップ）：太い回線で並行8が先に尽きる分を倍へ。過渡メモリはBATCH_TILES支配＝据置で増えない
-		DEC_POOL = Math.min(4, e.data.dec | 0);   // ②区内デコード並列プール本数（app.jsが裁定：HI_TIER=2〜3・?dec=N上書き・0=従来直列）
+		decPorts = e.data.decPorts || [];
+		DEC_POOL = Math.min(4, e.data.dec | 0, decPorts.length);   // ②区内デコード並列プール本数（app.jsが裁定：HI_TIER=2〜3・?dec=N上書き・0=従来直列）＝port の本数が上限
 		return;
 	}
 	if (e.data.type === "exclude") { excludeMap = e.data.map || null; setDecodeEnv({ exclude: excludeMap }); if (decWorkers) for (const h of decWorkers) h.w.postMessage({ exclude: excludeMap }); return; }   // 捨てる地物（public/plateau-exclude.json）＝生経路も焼きと同じ地物を捨てる
