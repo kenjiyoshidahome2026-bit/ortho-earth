@@ -25,8 +25,9 @@ export function createTip(ed) {
 	mapEl.addEventListener("pointermove", e => {
 		if (st.drag || st.sketch) return;   // ドラッグ/作図中は drag.js / sketch.js の担当
 		const [x, y] = ed.localXY(e);
-		if (st.selection != null && !st.busy)   // ハンドルにホバー＝掴めることをカーソルで示す
-			mapEl.style.cursor = overlay.handleAt(x, y, e.pointerType === "touch") ? "grab" : "";
+		const onHandle = st.selection != null && !st.busy && overlay.handleAt(x, y, e.pointerType === "touch");   // ハンドルにホバー＝掴めることをカーソルで示す
+		const moveHover = !onHandle && st.tool === "move" && !st.busy && !!st.model && ed.pick(x, y, undefined, true) != null;   // 移動ツール＝掴める要素の上でも grab（広い当たり幅で判定）
+		mapEl.style.cursor = onHandle || moveHover ? "grab" : "";
 		if (st.busy || !st.model || !anyTip()) return hide();
 		const eid = ed.pick(x, y);
 		const tip = eid != null ? st.model.feats.get(eid)?.properties?.["@tip"] : null;

@@ -15,7 +15,7 @@ const t = tr({
 	"矩形を描く（2クリック） (R)": "Draw a rectangle (2 clicks) (R)",
 	"円を描く（中心→半径の2クリック） (C)": "Draw a circle (center → radius, 2 clicks) (C)",
 	"穴を開ける（ポリゴンの内側に描いてEnter） (H)": "Cut a hole (draw inside a polygon, then Enter) (H)",
-	"要素を移動（クリックで選択→ドラッグ） (M)": "Move a feature (click to select → drag) (M)",
+	"要素を移動（クリックで選択→ドラッグ・掴んだままホイール＝重心まわりに回転・⌥/Alt+ホイール＝掴まずに回転・Shift＝15°刻み） (M)": "Move a feature (click to select → drag; wheel while holding = rotate about its centroid, ⌥/Alt+wheel = rotate without grabbing, Shift = 15° steps) (M)",
 	"束ねる（同族の面/線をクリックで選び Enter で multi 化・Esc取消） (G)": "Combine (click polygons/lines of the same kind, Enter → multi, Esc cancels) (G)",
 	"ばらす（選択中の multi を単体へ分解）": "Split (break the selected multi into parts)",
 	"スナップ格子（度）": "Snap grid (degrees)",
@@ -85,7 +85,7 @@ export function initToolbar(el, api, signal) {
 		rect: btn("rect", t("矩形を描く（2クリック） (R)"), () => api.setTool("rect")),
 		circle: btn("circle", t("円を描く（中心→半径の2クリック） (C)"), () => api.setTool("circle")),
 		hole: btn("hole", t("穴を開ける（ポリゴンの内側に描いてEnter） (H)"), () => api.setTool("hole")),
-		move: btn("move", t("要素を移動（クリックで選択→ドラッグ） (M)"), () => api.setTool("move")),
+		move: btn("move", t("要素を移動（クリックで選択→ドラッグ・掴んだままホイール＝重心まわりに回転・⌥/Alt+ホイール＝掴まずに回転・Shift＝15°刻み） (M)"), () => api.setTool("move")),
 		bundle: btn("bundle", t("束ねる（同族の面/線をクリックで選び Enter で multi 化・Esc取消） (G)"), () => api.setTool("bundle")),
 	};
 	btn("explode", t("ばらす（選択中の multi を単体へ分解）"), () => api.explode());   // ツールでなく即時アクション
