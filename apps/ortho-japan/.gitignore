@@ -4,3 +4,8 @@ plateau-names-out/
 /assets/
 *.tgz
 plateau-bake-out/
+
+# 開発専用の登記所地図ローカルデータ（123 MB・6 ファイル）＝git 管理外（2026-09-14）。
+# 使うのは app.js の __sapporo/__arakawaFit と edit.html（任意座標系ツール）だけ＝利用者には配らない（deploy でも除外済み）。
+# 必要な機体では bucket から取り直す（scripts/bake-arbitrary.mjs が生成元）。
+public/moj-local/
