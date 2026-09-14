@@ -5,11 +5,52 @@ Q3960,continent,Australia,,,0,134.138,-23.251
 Q46,continent,Europe,,,0,27.788,53.669
 Q49,continent,North America,,,0,-105.58,52.524
 Q18,continent,South America,,,0,-64.842,-22.984
+Q203548,plate,African plate,~PB2002:AF,,,-3.565,4.172
+Q501705,plate,Antarctic plate,~PB2002:AN,,,56.484,-82.111
+Q331093,plate,Arabian plate,~PB2002:AR,,,48.69,20.959
+Q783056,plate,Australian plate,~PB2002:AU,,,141.871,-30.386
+Q673071,plate,Caribbean plate,~PB2002:CA,,,-73.768,13.796
+Q386615,plate,Cocos plate,~PB2002:CO,,,-95.601,8.512
+Q188521,plate,Eurasian plate,~PB2002:EU,,,23.208,65.487
+Q499481,plate,Indian plate,~PB2002:IN,,,74.905,13.31
+Q860385,plate,Juan de Fuca plate,~PB2002:JF,,,-127.52,45.732
+Q538867,plate,Nazca plate,~PB2002:NZ,,,-94.57,-15.52
+Q220305,plate,North American plate,~PB2002:NA,,,-67.73,61.632
+Q205411,plate,Pacific plate,~PB2002:PA,,,-159.695,-8.729
+Q339748,plate,Philippine Sea plate,~PB2002:PS,,,134.023,18.64
+Q1046074,plate,Scotia plate,~PB2002:SC,,,-48.386,-57.922
+Q1415528,plate,Somali plate,~PB2002:SO,,,50.416,-10.272
+Q119490,plate,South American plate,~PB2002:SA,,,-43.66,-20.984
 Q788,ocean,Arctic Ocean,,,0,-63.677,80.479
 Q97,ocean,Atlantic Ocean,,,0,-39.045,38.159
 Q1239,ocean,Indian Ocean,,,0,88.391,-14.116
 Q98,ocean,Pacific Ocean,,,0,-111.608,31.43
 Q7354,ocean,Southern Ocean,,,0,10.264,-67.551
+Q398548,current,Agulhas Current,,43 -23;38 -28;34 -33;29 -37;23 -40|47 -25;42 -30;38 -35;33 -39;27 -42,,34.0,-33.0
+Q1902975,current,Alaska Current,,-136 46;-141 51;-146 55;-152 57;-158 56;-164 54|-140 44;-146 49;-150 53;-156 54;-162 52,,-152.0,57.0
+Q55828,current,Antarctic Circumpolar Current,,0 -50;30 -50;60 -52;90 -54;120 -55;150 -55;180 -56.5|-180 -56.5;-150 -58;-120 -57;-95 -58;-75 -60.5;-62 -59.5;-45 -55;-30 -52;0 -50|0 -44;30 -45;60 -46;90 -48;120 -49;150 -48;180 -50|-180 -50;-150 -52;-120 -50;-100 -50;-86 -48|-58 -50;-45 -48;-30 -46;0 -44,,90.0,-54.0
+Q59676,current,Benguela Current,,13 -36;11 -31;9 -26;7 -19;5 -13|8 -33;6 -28;4 -22;2 -16;0 -10,,9.0,-26.0
+Q677292,current,Brazil Current,,-33 -10;-35 -15;-37 -22;-42 -28;-47 -34;-51 -39|-27 -13;-30 -19;-34 -25;-39 -31;-43 -37,,-42.0,-28.0
+Q281655,current,California Current,,-131 46;-129 40;-125 34;-121 29;-116 24;-111 20|-136 44;-134 38;-130 32;-126 27;-121 22,,-121.0,29.0
+Q213197,current,Canary Current,,-13 38;-16 32;-19 26;-21 20;-23 15|-18 36;-21 30;-24 24;-26 18;-28 13,,-19.0,26.0
+Q143917,current,East Australian Current,,154 -20;155 -25;155.5 -30;154.5 -35;152.5 -39|158 -22;159 -28;159 -33;158 -38;155.5 -42,,155.5,-30.0
+Q143660,current,East Greenland Current,,-14 77;-18 72;-27 67;-38 62;-44 59,,-27.0,67.0
+Q143936,current,Equatorial Counter Current,,140 5.5;160 6.5;180 5.5;-160 6.5;-140 5.5;-120 6.5;-100 6,,-160.0,6.5
+Q143920,current,Falkland Current,,-64 -54;-61 -50;-57 -45;-54 -40,,-57.0,-45.0
+Q1257727,current,Guinea Current,,-18 4;-10 3;-2 2.5;5 2,,-2.0,2.5
+Q130905,current,Gulf Stream,,-81 23.5;-79 26.5;-76 31;-72 35;-66 38;-58 40;-50 42,,-72.0,35.0
+Q143888,current,Humboldt Current,,-79 -42;-77 -35;-75 -28;-74 -22;-80 -13;-84 -7;-87 -3|-83 -38;-81 -30;-80 -22;-85 -14;-89 -8,,-74.0,-22.0
+Q600069,current,Indian Monsoon Current,,50 8;60 10;70 8.5;80 10;88 11,,70.0,8.5
+Q53842,current,Kuroshio Current,,123 19;127 23;131 27.5;136 30.5;141 32.5;146 34.5;151 36|124 17;128 21;133 25;138 28;143 31,,136.0,30.5
+Q47954,current,Labrador Current,,-59 62;-56 58;-53 54;-51 50;-49 46|-55 60;-52 56;-49 52;-47 48,,-53.0,54.0
+Q58708,current,Mozambique Current,,43 -13;42 -17;41 -21;40.5 -24,,41.0,-21.0
+Q211798,current,North Atlantic Current,,-50 42;-40 46;-30 50;-20 54;-10 57;-2 61|-45 45;-35 50;-25 55;-15 60;-5 64|-45 40;-35 38;-25 36;-18 34,,-20.0,54.0
+Q867775,current,North Equatorial Current,,-105 13;-125 14;-145 12.5;-165 13.5;180 12.5;160 13.5;140 12.5;125 13|-22 14;-35 12.5;-48 13.5;-62 13|-108 10;-128 11;-148 9.5;-168 10.5;172 9.5;152 10.5;135 10|-20 10;-33 9;-46 10;-58 9.5;-64 10,,180.0,12.5
+Q143663,current,North Pacific Current,,150 37;165 40;180 42;-165 43;-150 44;-135 45|150 33;165 35;180 37;-165 38;-150 39;-138 40,,-165.0,43.0
+Q1126449,current,Norwegian Current,,-3 61;1 65;7 69;14 72;22 74,,7.0,69.0
+Q58440,current,Oyashio Current,,163 54;158 50;152 46;147 43;145 40.5;144 38.5|166 52;161 48;156 45;150 42;147 40,,147.0,43.0
+Q1072306,current,South Equatorial Current,,-85 -5;-105 -7;-125 -5.5;-145 -8;-165 -6.5;175 -9;158 -11|5 -3;-10 -5;-22 -4;-33 -6|100 -12;85 -10.5;70 -11.5;55 -10.5;45 -12|-90 -2;-110 -3.5;-130 -2.5;-150 -4.5;-170 -3;170 -5;158 -6|8 -8;-3 -10;-15 -9;-27 -10;-33 -11|105 -16;90 -14;75 -15;60 -14;48 -16,,-145.0,-8.0
+Q924509,current,West Australian Current,,110 -36;108 -30;108 -25;110 -20|104 -35;102 -29;102 -23;104 -18,,108.0,-25.0
 Q37394,region,Melanesia,,,0,148.119,-10.286
 Q3359409,region,Micronesia,,,0,152.173,6.495
 Q35942,region,Polynesia,,,0,-162.24,-12.183
@@ -165,6 +206,12 @@ Q271521,strait,Tsugaru Strait,,,,,
 Q140265,strait,Windward Passage,,,,,
 Q104662,strait,Øresund,,,,,
 Q7343,reef,Great Barrier Reef,,,4,147.415,-17.219
+Q445786,reef,Apo Reef,,,,,
+Q28361,reef,Belize Barrier Reef,,,,,
+Q5461566,reef,Florida Reef,,,,,
+Q1330981,reef,New Caledonian barrier reef,,,,,
+Q1541665,reef,Ningaloo Coast,,,,,
+Q927108,reef,Tubbataha Reef,,,,,
 Q223,island,Greenland,,,1,-41.779,72.469
 Q68740,island,Hawaiʻi,,,1,-155.579,19.614
 Q3740828,island,Iceland,,,1,-19.869,65.309
@@ -442,11 +489,11 @@ Q284226,range,Taihang Mountains,,,4,113.915,39.001
 Q620493,range,Tannu-Ola mountains,,,4,93.165,50.416
 Q1839756,range,Torngat Mountains,,,4,-63.844,59.239
 Q1152132,range,Yin Mountains,,,4,109.051,41.464
-Q1285,range,Apennine Mountains,,8.3 44.5;11.0 44.1;13.5 42.4;16.0 39.5,,,
+Q1285,range,Apennine Mountains,Q377264,,,,
 Q26399,range,Hoggar Mountains,~Ahag,,,,
-Q35647,range,Pennines,,-2.4 54.9;-1.8 53.3,,,
+Q35647,range,Pennines,,-2.4 54.9;-1.8 53.3,,-1.8,53.3
 Q203239,range,Sayan Mountains,Q1974954|~Eastern Sayan Mountains,,,,
-Q1719533,range,Sierras de Córdoba,,-64.8 -30.3;-64.9 -31.4;-64.8 -32.4,,,
+Q1719533,range,Sierras de Córdoba,,-64.8 -30.3;-64.9 -31.4;-64.8 -32.4,,-64.9,-31.4
 Q513,peak,Mount Everest,,,1,86.881,27.98
 Q39739,peak,Aconcagua,,,2,-70.016,-32.656
 Q130018,peak,Denali,,,2,-151.007,63.069
@@ -512,7 +559,46 @@ Q213360,peak,Table Mountain,,,,,
 Q503433,peak,Toubkal,,,,,
 Q163758,peak,Vinson Massif,,,,,
 Q3375,peak,Zugspitze,,,,,
+Q39651,volcano,Eyjafjallajökull,,,,,
+Q184975,volcano,Hekla,,,,,
+Q201914,volcano,Katla,,,,,
+Q188698,volcano,Kīlauea,,,,,
+Q859354,volcano,Lassen Peak,,,,,
+Q158470,volcano,Mount Agung,,,,,
+Q733710,volcano,Mount Aso,,,,,
+Q679590,volcano,Mount Bromo,,,,,
+Q134108,volcano,Mount Merapi,,,,,
+Q214696,volcano,Mount Nyiragongo,,,,,
+Q76309,volcano,Mount Pelée,,,,,
+Q207284,volcano,Mount Ruapehu,,,,,
+Q31445600,volcano,Mount Stromboli,,,,,
+Q168714,volcano,Mount Tambora,,,,,
+Q850051,volcano,Mount Taranaki,,,,,
+Q620860,volcano,Mount Unzen,,,,,
+Q233351,volcano,Nevado del Ruiz,,,,,
+Q746787,volcano,Ol Doinyo Lengai,,,,,
+Q231620,volcano,Parícutin,,,,,
+Q1049644,volcano,Piton de la Fournaise,,,,,
+Q128841,volcano,Sakurajima,,,,,
+Q129296,volcano,Santorini,,,,,
+Q270158,volcano,Semeru,,,,,
+Q845239,volcano,Soufrière Hills,,,,,
+Q818475,volcano,Taal Volcano,,,,,
+Q38954,volcano,Teide,,,,,
+Q650836,volcano,Yellowstone Caldera,,,,,
 Q191333,pass,Khyber Pass,,,2,71.098,34.098
+Q891257,pass,Bolan Pass,,,,,
+Q212946,pass,Brenner Pass,,,,,
+Q2113165,pass,Donner Pass,,,,,
+Q25233,pass,Gotthard Pass,,,,,
+Q623424,pass,Great St Bernard Pass,,,,,
+Q784798,pass,Karakoram Pass,,,,,
+Q1137017,pass,Khunjerab Pass,,,,,
+Q499714,pass,Nathu La,,,,,
+Q1194223,pass,Salang Pass,,,,,
+Q471166,pass,Simplon Pass,,,,,
+Q1779610,pass,South Pass,,,,,
+Q1334855,pass,Stelvio Pass,,,,,
 Q1001294,plateau,Antarctic Plateau,,,1,18.77,-83.261
 Q179842,plateau,Tibetan Plateau,,,1,90.76,33.505
 Q604846,plateau,Western Plateau,,,1,127.878,-24.702
@@ -582,6 +668,7 @@ Q673287,valley,Three Gorges,,,4,109.732,30.715
 Q19742,valley,Yarlung Tsangpo Grand Canyon,,,4,95.252,28.826
 Q2361576,valley,Kashmir Valley,,,5,76.364,33.164
 Q42070,desert,Gobi Desert,,,1,104.573,41.527
+Q272514,desert,Great Salt Desert,,,1,55.132,34.435
 Q6583,desert,Sahara,,,1,13.981,18.729
 Q47700,desert,Kalahari Desert,,,2,19.369,-23.636
 Q229269,desert,Rub' al Khali,,,2,50.334,20.249
@@ -600,7 +687,6 @@ Q855658,desert,Chihuahuan Desert,,,4,-105.102,30.076
 Q272577,desert,Gibson Desert,,,4,125.041,-24.454
 Q1537020,desert,Grand Erg Occidental,,,4,0.731,30.873
 Q307143,desert,Grand Erg Oriental,,,4,7.081,30.161
-Q1548386,desert,Great Salt Lake Desert,,,4,-113.488,40.657
 Q767128,desert,Lut Desert,,,4,58.152,31.458
 Q1670841,desert,Ordos Desert,,,4,108.32,38.939
 Q189429,desert,Sonoran Desert,,,4,-113.418,31.255
@@ -609,7 +695,6 @@ Q190048,desert,Tassili n'Ajjer,,,4,7.99,25.648
 Q272521,desert,Ténéré,,,4,11.978,19.865
 Q1973934,desert,Ad-Dahna Desert,,,,,
 Q939033,desert,Badain Jaran Desert,,,,,
-Q272514,desert,Great Salt Desert,,,,,
 Q1517734,desert,Gurbantünggüt Desert,,,,,
 Q184355,desert,Mojave Desert,,,,,
 Q749205,desert,Nafud desert,,,,,
@@ -617,6 +702,15 @@ Q162843,desert,Negev,,,,,
 Q2088454,desert,Registan Desert,,,,,
 Q211839,desert,Simpson Desert,,,,,
 Q674262,desert,Tanami Desert,,,,,
+Q1548386,saltflat,Great Salt Lake Desert,,,1,-113.514,40.774
+Q4026866,saltflat,Rann of Kutch,,,1,69.105,23.942
+Q76122,saltflat,Salar de Uyuni,,,1,-67.669,-20.187
+Q1081023,saltflat,Bonneville Salt Flats,,,,,
+Q849143,saltflat,Chott el Djerid,,,,,
+Q280231,saltflat,Etosha Pan,,,,,
+Q319412,saltflat,Lop Nur,,,,,
+Q533041,saltflat,Makgadikgadi Pan,,,,,
+Q1142015,saltflat,Salar de Atacama,,,,,
 Q10264912,delta,Amazon Delta,,,3,-50.024,-1.06
 Q184429,delta,Danube Delta,,,3,29.179,45.082
 Q1052867,delta,Mekong Delta,,,3,106.087,10.172
@@ -638,13 +732,36 @@ Q654544,wetland,Sudd,,,3,31.35,8.55
 Q4526,wetland,Sundarbans,,,5,89.155,22.117
 Q597281,wetland,Everglades,,,,,
 Q204658,ice,Aletsch Glacier,,,,,
-Q571430,ice,Antarctic ice sheet,,,,,
-Q209976,ice,Filchner–Ronne Ice Shelf,,,,,
-Q1542432,ice,Greenland ice sheet,,,,,
+Q470201,ice,Amery Ice Shelf,~Amery Ice Shelf,,,,
+Q571430,ice,Antarctic ice sheet,~Antarctic Ice Sheet,,,,
+Q285768,ice,Austfonna,,,,,
+Q805806,ice,Baltoro Glacier,,,,,
+Q2669909,ice,Bering Glacier,~Bering Glacier,,,,
+Q1112319,ice,Columbia Icefield,~Columbia Icefield,,,,
+Q5267726,ice,Devon Ice Cap,~Devon Ice Cap,,,,
+Q209976,ice,Filchner–Ronne Ice Shelf,~Ronne Ice Shelf|~Filchner Ice Shelf,,,,
+Q673150,ice,Franz Josef Glacier,,,,,
+Q1542432,ice,Greenland ice sheet,~Greenland Ice Sheet,,,,
+Q554383,ice,Hofsjökull,~Hofsjökull,,,,
+Q1632936,ice,Hubbard Glacier,,,,,
+Q770424,ice,Jakobshavn Glacier,,,,,
+Q654352,ice,Jostedal Glacier,~Jostedalsbreen,,,,
+Q1518380,ice,Juneau Icefield,~Juneau Icefield,,,,
+Q1471716,ice,Khumbu Glacier,,,,,
 Q278245,ice,Lambert Glacier,,,,,
+Q737657,ice,Langjökull,~Langjökull,,,,
+Q776909,ice,Larsen Ice Shelf,~Larsen Ice Shelf|~Larsen B Ice Shelf,,,,
+Q617835,ice,Malaspina Glacier,~Malaspina Glacier,,,,
+Q214818,ice,Mýrdalsjökull,~Mýrdalsjökull,,,,
+Q1031462,ice,Northern Patagonian Ice Field,~Northern Patagonian Ice Field,,,,
 Q367943,ice,Perito Moreno Glacier,,,,,
-Q200255,ice,Ross Ice Shelf,,,,,
-Q179734,ice,Vatnajökull,,,,,
+Q1514989,ice,Pine Island Glacier,,,,,
+Q200255,ice,Ross Ice Shelf,~Ross Ice Shelf,,,,
+Q333946,ice,Siachen Glacier,,,,,
+Q1031467,ice,Southern Patagonian Ice Field,~Southern Patagonian Ice Field,,,,
+Q7799533,ice,Thwaites Glacier,~Thwaites Glacier Tongue,,,,
+Q631789,ice,Vanch-Yakh Glacier,,,,,
+Q179734,ice,Vatnajökull,~Vatnajökull,,,,
 Q5525,lake,Great Bear Lake,,,0,-120.537,66.015
 Q5539,lake,Great Slave Lake,,,0,-113.664,61.963
 Q125888,lake,Lake Albert,,,0,30.888,1.627
@@ -814,7 +931,7 @@ Q193737,river,Tennessee River,,,5,-87.3,34.767
 Q124653,river,Tobol,,,5,60.937,51.557
 Q1139679,river,Usumacinta River,,,5,-92.322,18.442
 Q548,river,Vistula,,,5,18.867,49.936
-Q192415,river,Volta River,,,5,0.241,7.313
+Q192415,river,Volta River,Q1256528,,5,0.241,7.313
 Q49544,river,Xingu River,,,5,-52.086,-8.905
 Q135477,river,Chari River,,,6,18.656,8.889
 Q131210,river,Dniester,,,6,30.341,46.242
@@ -872,16 +989,30 @@ Q847641,river,Wei River,,,8,104.116,35.067
 Q55498,river,Yalu River,,,8,125.119,40.566
 Q853332,river,Cauca River,,,9,-76.642,2.482
 Q432278,river,Cooper Creek,Q5167806,,,,
-Q739687,river,Hooghly River,,,,,
-Q191635,river,Iguazu River,,,,,
+Q739687,river,Hooghly River,,87.9 24.8;88.27 24.2;88.35 23.4;88.35 22.57;88.2 22.2;88.1 21.6,,88.35,22.57
+Q191635,river,Iguazu River,,-49.2 -25.5;-51.0 -25.6;-52.5 -25.5;-53.5 -25.6;-54.6 -25.6,,-52.5,-25.5
 Q475597,river,Murrumbidgee River,,,,,
-Q179396,river,Paraguay River,,,,,
-Q734455,river,Shinano River,,,,,
+Q179396,river,Paraguay River,,-57.4 -14.4;-57.7 -16.1;-57.65 -19.0;-57.9 -21.5;-57.8 -23.5;-57.6 -25.3;-58.3 -26.5;-58.8 -27.4,,-57.8,-23.5
+Q734455,river,Shinano River,,138.7 35.92;138.5 36.2;138.25 36.4;138.2 36.65;138.35 36.85;138.75 37.13;138.85 37.45;139.05 37.95,,138.35,36.85
 Q55499,river,Tumen River,,,9,128.326,41.97
 Q80299,waterfall,Angel Falls,,,2,-62.062,5.687
 Q36332,waterfall,Iguazu Falls,,,2,-54.583,-25.568
 Q34221,waterfall,Niagara Falls,,,2,-79.044,43.088
 Q43278,waterfall,Victoria Falls,,,3,25.853,-17.928
+Q983252,waterfall,Ban Gioc–Detian Falls,,,,,
+Q1266055,waterfall,Blue Nile Falls,,,,,
+Q210280,waterfall,Dettifoss,,,,,
+Q38519,waterfall,Gullfoss,,,,,
+Q38432,waterfall,Huangguoshu Waterfall,,,,,
+Q672241,waterfall,Jog Falls,,,,,
+Q38120,waterfall,Kaieteur Falls,,,,,
+Q37580,waterfall,Kegon Falls,,,,,
+Q495475,waterfall,Murchison Falls,,,,,
+Q1365882,waterfall,Nachi Falls,,,,,
+Q214924,waterfall,Rhine Falls,,,,,
+Q38408,waterfall,Sutherland Falls,,,,,
+Q223649,waterfall,Tugela Falls,,,,,
+Q491677,waterfall,Yosemite Falls,,,,,
 Q7350,canal,Panama Canal,,,6,-79.809,9.158
 Q899,canal,Suez Canal,,,6,32.507,30.266
 Q144825,canal,Kiel Canal,,,,,

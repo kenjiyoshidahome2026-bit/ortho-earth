@@ -1,5 +1,5 @@
 {
- "_doc": "手動層。generator（scripts/terrains-from-ne.py）が Natural Earth の閾値選定に重ねる。add=NE 閾値外でも入れる（QID 基軸・category 必須）、drop=QID か NE の name_en で除外、category=分類の上書き（QID か NE name_en）、merge=形状を結合する NE 側の別 QID（川・山脈）、axis=山脈の手書き軸線。drop は QID・NE name_en・enwiki 記事名のいずれでも可。allow_nation=国の QID でも地形として残す（グリーンランド）。alias=NE の wikidataid（英語記事の無い重複項目）→ 正規の QID",
+ "_doc": "手動層。generator（scripts/terrains-from-ne.py）が Natural Earth の閾値選定に重ねる。add=NE 閾値外でも入れる（QID 基軸・category 必須）、drop=QID か NE の name_en で除外、category=分類の上書き（QID か NE name_en）、merge=形状を結合する NE 側の別 QID（川・山脈）、axis=山脈の手書き軸線。drop は QID・NE name_en・enwiki 記事名のいずれでも可。allow_nation=国の QID でも地形として残す（グリーンランド）。alias=NE の wikidataid（英語記事の無い重複項目）→ 正規の QID。noshape=NE の形を使わない QID（形状台帳では Wikidata P625 の点だけ。NE のポリゴンが誤っているもの＝Cordillera Blanca）。2026-09-15 ②分類の穴埋め: pass/waterfall/reef/ice を手動層で肉付け・saltflat（塩原）を新設（generator が NE playas scalerank≤1 を拾う＋手動で Etosha/Djerid/Lop Nur/Atacama/Makgadikgadi/Bonneville）・氷河/棚氷の形は merge の \"~NE 名\" で glaciated_areas / antarctic_ice_shelves から結ぶ。alias_geo=位置条件付きの wikidataid 読み替え [{from,to,latMin/latMax/lonMin/lonMax}]（NE が別の同名河川の QID を付けている区間を直す）。current=海流（category current・axis に手書きの線＝向きは流れ・\"|\" で複数の線・flow={qid: warm|cold}）（Kenji 2026-09-15）。picture=true の add は英語記事が無くても seed/terrains-pictures.csv に書く＝形状台帳に絵として載る（TerrainDB には入れない・Kenji 2026-09-15「wiki に無いものも絵として収録」）。axis は全分類で使える（NE に形が無い川の手書き線など）。volcano=火山（新分類・既に peak にある山は peak のまま・火山かどうかは台帳が Wikidata P31 で volcano:true を付ける）。plate=プレート（主要 16 枚・面は merge の \"~PB2002:記号\" で PB2002（Bird 2003）から・全 52 枚と境界線は scripts/plates.mjs → out/plates.geopbf）",
  "add": [
   {
    "qid": "Q130135",
@@ -3016,6 +3016,657 @@
    "name": "Nankai Trough",
    "lon": 136.0,
    "lat": 32.5
+  },
+  {
+   "qid": "Q212946",
+   "category": "pass",
+   "name": "Brenner Pass"
+  },
+  {
+   "qid": "Q25233",
+   "category": "pass",
+   "name": "Gotthard Pass"
+  },
+  {
+   "qid": "Q623424",
+   "category": "pass",
+   "name": "Great St Bernard Pass"
+  },
+  {
+   "qid": "Q471166",
+   "category": "pass",
+   "name": "Simplon Pass"
+  },
+  {
+   "qid": "Q1334855",
+   "category": "pass",
+   "name": "Stelvio Pass"
+  },
+  {
+   "qid": "Q1137017",
+   "category": "pass",
+   "name": "Khunjerab Pass"
+  },
+  {
+   "qid": "Q499714",
+   "category": "pass",
+   "name": "Nathu La"
+  },
+  {
+   "qid": "Q891257",
+   "category": "pass",
+   "name": "Bolan Pass"
+  },
+  {
+   "qid": "Q784798",
+   "category": "pass",
+   "name": "Karakoram Pass"
+  },
+  {
+   "qid": "Q1194223",
+   "category": "pass",
+   "name": "Salang Pass"
+  },
+  {
+   "qid": "Q1779610",
+   "category": "pass",
+   "name": "South Pass"
+  },
+  {
+   "qid": "Q2113165",
+   "category": "pass",
+   "name": "Donner Pass"
+  },
+  {
+   "qid": "Q491677",
+   "category": "waterfall",
+   "name": "Yosemite Falls"
+  },
+  {
+   "qid": "Q38120",
+   "category": "waterfall",
+   "name": "Kaieteur Falls"
+  },
+  {
+   "qid": "Q223649",
+   "category": "waterfall",
+   "name": "Tugela Falls"
+  },
+  {
+   "qid": "Q210280",
+   "category": "waterfall",
+   "name": "Dettifoss"
+  },
+  {
+   "qid": "Q214924",
+   "category": "waterfall",
+   "name": "Rhine Falls"
+  },
+  {
+   "qid": "Q38432",
+   "category": "waterfall",
+   "name": "Huangguoshu Waterfall"
+  },
+  {
+   "qid": "Q983252",
+   "category": "waterfall",
+   "name": "Ban Gioc–Detian Falls"
+  },
+  {
+   "qid": "Q38408",
+   "category": "waterfall",
+   "name": "Sutherland Falls"
+  },
+  {
+   "qid": "Q37580",
+   "category": "waterfall",
+   "name": "Kegon Falls"
+  },
+  {
+   "qid": "Q1365882",
+   "category": "waterfall",
+   "name": "Nachi Falls"
+  },
+  {
+   "qid": "Q672241",
+   "category": "waterfall",
+   "name": "Jog Falls"
+  },
+  {
+   "qid": "Q1266055",
+   "category": "waterfall",
+   "name": "Blue Nile Falls"
+  },
+  {
+   "qid": "Q495475",
+   "category": "waterfall",
+   "name": "Murchison Falls"
+  },
+  {
+   "qid": "Q28361",
+   "category": "reef",
+   "name": "Belize Barrier Reef"
+  },
+  {
+   "qid": "Q1330981",
+   "category": "reef",
+   "name": "New Caledonia Barrier Reef"
+  },
+  {
+   "qid": "Q1541665",
+   "category": "reef",
+   "name": "Ningaloo Reef"
+  },
+  {
+   "qid": "Q5461566",
+   "category": "reef",
+   "name": "Florida Reef"
+  },
+  {
+   "qid": "Q927108",
+   "category": "reef",
+   "name": "Tubbataha Reef"
+  },
+  {
+   "qid": "Q445786",
+   "category": "reef",
+   "name": "Apo Reef"
+  },
+  {
+   "qid": "Q654352",
+   "category": "ice",
+   "name": "Jostedalsbreen"
+  },
+  {
+   "qid": "Q737657",
+   "category": "ice",
+   "name": "Langjökull"
+  },
+  {
+   "qid": "Q554383",
+   "category": "ice",
+   "name": "Hofsjökull"
+  },
+  {
+   "qid": "Q214818",
+   "category": "ice",
+   "name": "Mýrdalsjökull"
+  },
+  {
+   "qid": "Q631789",
+   "category": "ice",
+   "name": "Fedchenko Glacier"
+  },
+  {
+   "qid": "Q333946",
+   "category": "ice",
+   "name": "Siachen Glacier"
+  },
+  {
+   "qid": "Q805806",
+   "category": "ice",
+   "name": "Baltoro Glacier"
+  },
+  {
+   "qid": "Q1471716",
+   "category": "ice",
+   "name": "Khumbu Glacier"
+  },
+  {
+   "qid": "Q1632936",
+   "category": "ice",
+   "name": "Hubbard Glacier"
+  },
+  {
+   "qid": "Q617835",
+   "category": "ice",
+   "name": "Malaspina Glacier"
+  },
+  {
+   "qid": "Q2669909",
+   "category": "ice",
+   "name": "Bering Glacier"
+  },
+  {
+   "qid": "Q1112319",
+   "category": "ice",
+   "name": "Columbia Icefield"
+  },
+  {
+   "qid": "Q1518380",
+   "category": "ice",
+   "name": "Juneau Icefield"
+  },
+  {
+   "qid": "Q770424",
+   "category": "ice",
+   "name": "Jakobshavn Glacier"
+  },
+  {
+   "qid": "Q5267726",
+   "category": "ice",
+   "name": "Devon Ice Cap"
+  },
+  {
+   "qid": "Q285768",
+   "category": "ice",
+   "name": "Austfonna"
+  },
+  {
+   "qid": "Q1031467",
+   "category": "ice",
+   "name": "Southern Patagonian Ice Field"
+  },
+  {
+   "qid": "Q1031462",
+   "category": "ice",
+   "name": "Northern Patagonian Ice Field"
+  },
+  {
+   "qid": "Q673150",
+   "category": "ice",
+   "name": "Franz Josef Glacier"
+  },
+  {
+   "qid": "Q776909",
+   "category": "ice",
+   "name": "Larsen Ice Shelf"
+  },
+  {
+   "qid": "Q470201",
+   "category": "ice",
+   "name": "Amery Ice Shelf"
+  },
+  {
+   "qid": "Q7799533",
+   "category": "ice",
+   "name": "Thwaites Glacier"
+  },
+  {
+   "qid": "Q1514989",
+   "category": "ice",
+   "name": "Pine Island Glacier"
+  },
+  {
+   "qid": "Q533041",
+   "category": "saltflat",
+   "name": "Makgadikgadi Pan"
+  },
+  {
+   "qid": "Q1081023",
+   "category": "saltflat",
+   "name": "Bonneville Salt Flats"
+  },
+  {
+   "qid": "Q38519",
+   "category": "waterfall",
+   "name": "Gullfoss"
+  },
+  {
+   "qid": "Q280231",
+   "category": "saltflat",
+   "name": "Etosha Pan"
+  },
+  {
+   "qid": "Q849143",
+   "category": "saltflat",
+   "name": "Chott el Djerid"
+  },
+  {
+   "qid": "Q319412",
+   "category": "saltflat",
+   "name": "Lop Nur"
+  },
+  {
+   "qid": "Q1142015",
+   "category": "saltflat",
+   "name": "Salar de Atacama"
+  },
+  {
+   "qid": "Q53842",
+   "category": "current",
+   "name": "Kuroshio Current"
+  },
+  {
+   "qid": "Q495355",
+   "category": "current",
+   "name": "Tsushima Current",
+   "picture": true
+  },
+  {
+   "qid": "Q58440",
+   "category": "current",
+   "name": "Oyashio Current"
+  },
+  {
+   "qid": "Q143663",
+   "category": "current",
+   "name": "North Pacific Current"
+  },
+  {
+   "qid": "Q1902975",
+   "category": "current",
+   "name": "Alaska Current"
+  },
+  {
+   "qid": "Q281655",
+   "category": "current",
+   "name": "California Current"
+  },
+  {
+   "qid": "Q867775",
+   "category": "current",
+   "name": "North Equatorial Current"
+  },
+  {
+   "qid": "Q143936",
+   "category": "current",
+   "name": "Equatorial Counter Current"
+  },
+  {
+   "qid": "Q1072306",
+   "category": "current",
+   "name": "South Equatorial Current"
+  },
+  {
+   "qid": "Q143917",
+   "category": "current",
+   "name": "East Australian Current"
+  },
+  {
+   "qid": "Q143888",
+   "category": "current",
+   "name": "Humboldt Current"
+  },
+  {
+   "qid": "Q55828",
+   "category": "current",
+   "name": "Antarctic Circumpolar Current"
+  },
+  {
+   "qid": "Q130905",
+   "category": "current",
+   "name": "Gulf Stream"
+  },
+  {
+   "qid": "Q211798",
+   "category": "current",
+   "name": "North Atlantic Current"
+  },
+  {
+   "qid": "Q1126449",
+   "category": "current",
+   "name": "Norwegian Current"
+  },
+  {
+   "qid": "Q47954",
+   "category": "current",
+   "name": "Labrador Current"
+  },
+  {
+   "qid": "Q143660",
+   "category": "current",
+   "name": "East Greenland Current"
+  },
+  {
+   "qid": "Q213197",
+   "category": "current",
+   "name": "Canary Current"
+  },
+  {
+   "qid": "Q1257727",
+   "category": "current",
+   "name": "Guinea Current"
+  },
+  {
+   "qid": "Q677292",
+   "category": "current",
+   "name": "Brazil Current"
+  },
+  {
+   "qid": "Q143920",
+   "category": "current",
+   "name": "Falkland Current"
+  },
+  {
+   "qid": "Q59676",
+   "category": "current",
+   "name": "Benguela Current"
+  },
+  {
+   "qid": "Q398548",
+   "category": "current",
+   "name": "Agulhas Current"
+  },
+  {
+   "qid": "Q58708",
+   "category": "current",
+   "name": "Mozambique Current"
+  },
+  {
+   "qid": "Q924509",
+   "category": "current",
+   "name": "West Australian Current"
+  },
+  {
+   "qid": "Q600069",
+   "category": "current",
+   "name": "Indian Monsoon Current"
+  },
+  {
+   "qid": "Q31445600",
+   "category": "volcano",
+   "name": "Stromboli"
+  },
+  {
+   "qid": "Q129296",
+   "category": "volcano",
+   "name": "Santorini"
+  },
+  {
+   "qid": "Q168714",
+   "category": "volcano",
+   "name": "Mount Tambora"
+  },
+  {
+   "qid": "Q134108",
+   "category": "volcano",
+   "name": "Mount Merapi"
+  },
+  {
+   "qid": "Q818475",
+   "category": "volcano",
+   "name": "Taal Volcano"
+  },
+  {
+   "qid": "Q188698",
+   "category": "volcano",
+   "name": "Kīlauea"
+  },
+  {
+   "qid": "Q233351",
+   "category": "volcano",
+   "name": "Nevado del Ruiz"
+  },
+  {
+   "qid": "Q39651",
+   "category": "volcano",
+   "name": "Eyjafjallajökull"
+  },
+  {
+   "qid": "Q184975",
+   "category": "volcano",
+   "name": "Hekla"
+  },
+  {
+   "qid": "Q650836",
+   "category": "volcano",
+   "name": "Yellowstone Caldera"
+  },
+  {
+   "qid": "Q214696",
+   "category": "volcano",
+   "name": "Mount Nyiragongo"
+  },
+  {
+   "qid": "Q128841",
+   "category": "volcano",
+   "name": "Sakurajima"
+  },
+  {
+   "qid": "Q733710",
+   "category": "volcano",
+   "name": "Mount Aso"
+  },
+  {
+   "qid": "Q620860",
+   "category": "volcano",
+   "name": "Mount Unzen"
+  },
+  {
+   "qid": "Q38954",
+   "category": "volcano",
+   "name": "Teide"
+  },
+  {
+   "qid": "Q76309",
+   "category": "volcano",
+   "name": "Mount Pelée"
+  },
+  {
+   "qid": "Q845239",
+   "category": "volcano",
+   "name": "Soufrière Hills"
+  },
+  {
+   "qid": "Q1049644",
+   "category": "volcano",
+   "name": "Piton de la Fournaise"
+  },
+  {
+   "qid": "Q207284",
+   "category": "volcano",
+   "name": "Mount Ruapehu"
+  },
+  {
+   "qid": "Q850051",
+   "category": "volcano",
+   "name": "Mount Taranaki"
+  },
+  {
+   "qid": "Q679590",
+   "category": "volcano",
+   "name": "Mount Bromo"
+  },
+  {
+   "qid": "Q158470",
+   "category": "volcano",
+   "name": "Mount Agung"
+  },
+  {
+   "qid": "Q270158",
+   "category": "volcano",
+   "name": "Semeru"
+  },
+  {
+   "qid": "Q746787",
+   "category": "volcano",
+   "name": "Ol Doinyo Lengai"
+  },
+  {
+   "qid": "Q201914",
+   "category": "volcano",
+   "name": "Katla"
+  },
+  {
+   "qid": "Q231620",
+   "category": "volcano",
+   "name": "Parícutin"
+  },
+  {
+   "qid": "Q859354",
+   "category": "volcano",
+   "name": "Lassen Peak"
+  },
+  {
+   "qid": "Q205411",
+   "category": "plate",
+   "name": "Pacific Plate"
+  },
+  {
+   "qid": "Q220305",
+   "category": "plate",
+   "name": "North American Plate"
+  },
+  {
+   "qid": "Q188521",
+   "category": "plate",
+   "name": "Eurasian Plate"
+  },
+  {
+   "qid": "Q203548",
+   "category": "plate",
+   "name": "African Plate"
+  },
+  {
+   "qid": "Q501705",
+   "category": "plate",
+   "name": "Antarctic Plate"
+  },
+  {
+   "qid": "Q783056",
+   "category": "plate",
+   "name": "Australian Plate"
+  },
+  {
+   "qid": "Q499481",
+   "category": "plate",
+   "name": "Indian Plate"
+  },
+  {
+   "qid": "Q119490",
+   "category": "plate",
+   "name": "South American Plate"
+  },
+  {
+   "qid": "Q538867",
+   "category": "plate",
+   "name": "Nazca Plate"
+  },
+  {
+   "qid": "Q339748",
+   "category": "plate",
+   "name": "Philippine Sea Plate"
+  },
+  {
+   "qid": "Q331093",
+   "category": "plate",
+   "name": "Arabian Plate"
+  },
+  {
+   "qid": "Q673071",
+   "category": "plate",
+   "name": "Caribbean Plate"
+  },
+  {
+   "qid": "Q386615",
+   "category": "plate",
+   "name": "Cocos Plate"
+  },
+  {
+   "qid": "Q1046074",
+   "category": "plate",
+   "name": "Scotia Plate"
+  },
+  {
+   "qid": "Q860385",
+   "category": "plate",
+   "name": "Juan de Fuca Plate"
+  },
+  {
+   "qid": "Q1415528",
+   "category": "plate",
+   "name": "Somali Plate"
   }
  ],
  "drop": [
@@ -3270,12 +3921,154 @@
   ],
   "Q432278": [
    "Q5167806"
+  ],
+  "Q1285": [
+   "Q377264"
+  ],
+  "Q179734": [
+   "~Vatnajökull"
+  ],
+  "Q654352": [
+   "~Jostedalsbreen"
+  ],
+  "Q737657": [
+   "~Langjökull"
+  ],
+  "Q554383": [
+   "~Hofsjökull"
+  ],
+  "Q214818": [
+   "~Mýrdalsjökull"
+  ],
+  "Q1112319": [
+   "~Columbia Icefield"
+  ],
+  "Q1518380": [
+   "~Juneau Icefield"
+  ],
+  "Q617835": [
+   "~Malaspina Glacier"
+  ],
+  "Q2669909": [
+   "~Bering Glacier"
+  ],
+  "Q5267726": [
+   "~Devon Ice Cap"
+  ],
+  "Q1031467": [
+   "~Southern Patagonian Ice Field"
+  ],
+  "Q1031462": [
+   "~Northern Patagonian Ice Field"
+  ],
+  "Q1542432": [
+   "~Greenland Ice Sheet"
+  ],
+  "Q571430": [
+   "~Antarctic Ice Sheet"
+  ],
+  "Q200255": [
+   "~Ross Ice Shelf"
+  ],
+  "Q209976": [
+   "~Ronne Ice Shelf",
+   "~Filchner Ice Shelf"
+  ],
+  "Q776909": [
+   "~Larsen Ice Shelf",
+   "~Larsen B Ice Shelf"
+  ],
+  "Q470201": [
+   "~Amery Ice Shelf"
+  ],
+  "Q7799533": [
+   "~Thwaites Glacier Tongue"
+  ],
+  "Q192415": [
+   "Q1256528"
+  ],
+  "Q205411": [
+   "~PB2002:PA"
+  ],
+  "Q220305": [
+   "~PB2002:NA"
+  ],
+  "Q188521": [
+   "~PB2002:EU"
+  ],
+  "Q203548": [
+   "~PB2002:AF"
+  ],
+  "Q501705": [
+   "~PB2002:AN"
+  ],
+  "Q783056": [
+   "~PB2002:AU"
+  ],
+  "Q499481": [
+   "~PB2002:IN"
+  ],
+  "Q119490": [
+   "~PB2002:SA"
+  ],
+  "Q538867": [
+   "~PB2002:NZ"
+  ],
+  "Q339748": [
+   "~PB2002:PS"
+  ],
+  "Q331093": [
+   "~PB2002:AR"
+  ],
+  "Q673071": [
+   "~PB2002:CA"
+  ],
+  "Q386615": [
+   "~PB2002:CO"
+  ],
+  "Q1046074": [
+   "~PB2002:SC"
+  ],
+  "Q860385": [
+   "~PB2002:JF"
+  ],
+  "Q1415528": [
+   "~PB2002:SO"
   ]
  },
  "axis": {
-  "Q1285": "8.3 44.5;11.0 44.1;13.5 42.4;16.0 39.5",
   "Q35647": "-2.4 54.9;-1.8 53.3",
-  "Q1719533": "-64.8 -30.3;-64.9 -31.4;-64.8 -32.4"
+  "Q1719533": "-64.8 -30.3;-64.9 -31.4;-64.8 -32.4",
+  "Q53842": "123 19;127 23;131 27.5;136 30.5;141 32.5;146 34.5;151 36|124 17;128 21;133 25;138 28;143 31",
+  "Q495355": "128.5 31.5;130 34.5;133 37.5;136.5 40;139 42.5",
+  "Q58440": "163 54;158 50;152 46;147 43;145 40.5;144 38.5|166 52;161 48;156 45;150 42;147 40",
+  "Q143663": "150 37;165 40;180 42;-165 43;-150 44;-135 45|150 33;165 35;180 37;-165 38;-150 39;-138 40",
+  "Q1902975": "-136 46;-141 51;-146 55;-152 57;-158 56;-164 54|-140 44;-146 49;-150 53;-156 54;-162 52",
+  "Q281655": "-131 46;-129 40;-125 34;-121 29;-116 24;-111 20|-136 44;-134 38;-130 32;-126 27;-121 22",
+  "Q867775": "-105 13;-125 14;-145 12.5;-165 13.5;180 12.5;160 13.5;140 12.5;125 13|-22 14;-35 12.5;-48 13.5;-62 13|-108 10;-128 11;-148 9.5;-168 10.5;172 9.5;152 10.5;135 10|-20 10;-33 9;-46 10;-58 9.5;-64 10",
+  "Q143936": "140 5.5;160 6.5;180 5.5;-160 6.5;-140 5.5;-120 6.5;-100 6",
+  "Q1072306": "-85 -5;-105 -7;-125 -5.5;-145 -8;-165 -6.5;175 -9;158 -11|5 -3;-10 -5;-22 -4;-33 -6|100 -12;85 -10.5;70 -11.5;55 -10.5;45 -12|-90 -2;-110 -3.5;-130 -2.5;-150 -4.5;-170 -3;170 -5;158 -6|8 -8;-3 -10;-15 -9;-27 -10;-33 -11|105 -16;90 -14;75 -15;60 -14;48 -16",
+  "Q143917": "154 -20;155 -25;155.5 -30;154.5 -35;152.5 -39|158 -22;159 -28;159 -33;158 -38;155.5 -42",
+  "Q143888": "-79 -42;-77 -35;-75 -28;-74 -22;-80 -13;-84 -7;-87 -3|-83 -38;-81 -30;-80 -22;-85 -14;-89 -8",
+  "Q55828": "0 -50;30 -50;60 -52;90 -54;120 -55;150 -55;180 -56.5|-180 -56.5;-150 -58;-120 -57;-95 -58;-75 -60.5;-62 -59.5;-45 -55;-30 -52;0 -50|0 -44;30 -45;60 -46;90 -48;120 -49;150 -48;180 -50|-180 -50;-150 -52;-120 -50;-100 -50;-86 -48|-58 -50;-45 -48;-30 -46;0 -44",
+  "Q130905": "-81 23.5;-79 26.5;-76 31;-72 35;-66 38;-58 40;-50 42",
+  "Q211798": "-50 42;-40 46;-30 50;-20 54;-10 57;-2 61|-45 45;-35 50;-25 55;-15 60;-5 64|-45 40;-35 38;-25 36;-18 34",
+  "Q1126449": "-3 61;1 65;7 69;14 72;22 74",
+  "Q47954": "-59 62;-56 58;-53 54;-51 50;-49 46|-55 60;-52 56;-49 52;-47 48",
+  "Q143660": "-14 77;-18 72;-27 67;-38 62;-44 59",
+  "Q213197": "-13 38;-16 32;-19 26;-21 20;-23 15|-18 36;-21 30;-24 24;-26 18;-28 13",
+  "Q1257727": "-18 4;-10 3;-2 2.5;5 2",
+  "Q677292": "-33 -10;-35 -15;-37 -22;-42 -28;-47 -34;-51 -39|-27 -13;-30 -19;-34 -25;-39 -31;-43 -37",
+  "Q143920": "-64 -54;-61 -50;-57 -45;-54 -40",
+  "Q59676": "13 -36;11 -31;9 -26;7 -19;5 -13|8 -33;6 -28;4 -22;2 -16;0 -10",
+  "Q398548": "43 -23;38 -28;34 -33;29 -37;23 -40|47 -25;42 -30;38 -35;33 -39;27 -42",
+  "Q58708": "43 -13;42 -17;41 -21;40.5 -24",
+  "Q924509": "110 -36;108 -30;108 -25;110 -20|104 -35;102 -29;102 -23;104 -18",
+  "Q600069": "50 8;60 10;70 8.5;80 10;88 11",
+  "Q734455": "138.7 35.92;138.5 36.2;138.25 36.4;138.2 36.65;138.35 36.85;138.75 37.13;138.85 37.45;139.05 37.95",
+  "Q179396": "-57.4 -14.4;-57.7 -16.1;-57.65 -19.0;-57.9 -21.5;-57.8 -23.5;-57.6 -25.3;-58.3 -26.5;-58.8 -27.4",
+  "Q739687": "87.9 24.8;88.27 24.2;88.35 23.4;88.35 22.57;88.2 22.2;88.1 21.6",
+  "Q191635": "-49.2 -25.5;-51.0 -25.6;-52.5 -25.5;-53.5 -25.6;-54.6 -25.6"
  },
  "add_ne": {
   "Sudd": "wetland",
@@ -3293,5 +4086,44 @@
   "Q28809720": "Q1206587",
   "Q10905515": "Q6897416",
   "Q1249802": "Q9648"
+ },
+ "noshape": [
+  "Q804330"
+ ],
+ "alias_geo": [
+  {
+   "from": "Q270627",
+   "to": "Q1265",
+   "latMin": 0,
+   "_why": "NE の rivers は米国コロラド川本流にアルゼンチンのコロラド川の QID を付けている（Q1265 は貯水池の湖心線のみ）。北半球の区間だけ読み替える（2026-09-15）"
+  }
+ ],
+ "flow": {
+  "Q53842": "warm",
+  "Q495355": "warm",
+  "Q58440": "cold",
+  "Q143663": "warm",
+  "Q1902975": "warm",
+  "Q281655": "cold",
+  "Q867775": "warm",
+  "Q143936": "warm",
+  "Q1072306": "warm",
+  "Q143917": "warm",
+  "Q143888": "cold",
+  "Q55828": "cold",
+  "Q130905": "warm",
+  "Q211798": "warm",
+  "Q1126449": "warm",
+  "Q47954": "cold",
+  "Q143660": "cold",
+  "Q213197": "cold",
+  "Q1257727": "warm",
+  "Q677292": "warm",
+  "Q143920": "cold",
+  "Q59676": "cold",
+  "Q398548": "warm",
+  "Q58708": "warm",
+  "Q924509": "cold",
+  "Q600069": "warm"
  }
 }

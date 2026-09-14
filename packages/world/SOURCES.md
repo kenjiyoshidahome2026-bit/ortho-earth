@@ -6,8 +6,13 @@
 | 各言語の名前・記事名（i18n/） | Wikidata（ラベル・サイトリンク） | 同上 | CC0 1.0 |
 | 都市（座標・人口・標高） | Wikidata | 同上 | CC0 1.0 |
 | 地形（座標・面積・標高・長さ・記事名・26 言語名） | Wikidata | 同上 | CC0 1.0 |
-| 地形の選定（scalerank・分類・代表点・wikidataid） | Natural Earth 10m v5.1.2: geography_regions_polys / _points / _elevation_points, geography_marine_polys, lakes, rivers_lake_centerlines_scale_rank | `scripts/terrains-from-ne.py` | パブリックドメイン |
+| 地形の選定（scalerank・分類・代表点・wikidataid） | Natural Earth 10m v5.1.2: geography_regions_polys / _points / _elevation_points, geography_marine_polys, lakes, rivers_lake_centerlines_scale_rank | `scripts/terrains-from-ne.mjs` | パブリックドメイン |
 | 山脈の軸線（range.geojson） | Natural Earth 10m geography_regions_polys v5.1.2 から `build/geom.js` で導出（3 件は seed に手書き） | `build/index.js` | パブリックドメイン |
+| 地形の形状台帳（Physical・out/ne-physical.geopbf・ne-physical-lines.geopbf） | Natural Earth 10m v5.1.2: geography_regions_polys / _points / _elevation_points, geography_marine_polys, lakes, rivers_lake_centerlines_scale_rank ＋ Wikidata P625（形の無い 116 件の位置） | `scripts/ne-physical.mjs` | パブリックドメイン / CC0 |
+| プレート境界・プレート面（out/plates.geopbf・台帳の plate） | PB2002: Bird, P. (2003) An updated digital model of plate boundaries, G³ 4(3) 1027（peterbird.name） | `scripts/plates.mjs` | 自由利用・要引用 |
+| 気候区分（out/climate-koppen.geopbf） | Beck, H. E. et al. (2023) High-resolution (1 km) Köppen–Geiger maps for 1901–2099, Scientific Data 10:724（figshare 21789074） | `scripts/koppen.mjs` | CC BY 4.0（要出典表記） |
+| 海流・NE に無い川の線（台帳の current / 手書き axis） | 手作業（教科書の模式図の水準・Wikidata の項目に結ぶ） | `seed/terrains-manual.json` | CC BY-SA 4.0（本リポジトリ） |
+| 火山フラグ（台帳の volcano:true） | Wikidata P31（volcano の下位クラス） | `scripts/ne-physical.mjs` | CC0 1.0 |
 | 川の形状（rivers.geojson） | Natural Earth 10m rivers_lake_centerlines_scale_rank v5.1.2 | `build/index.js`（wikidataid で結合） | パブリックドメイン |
 | 人口 / GNI / GDP / PPP / 殺人率 | World Bank Open Data API | `build/stats.js` | CC BY 4.0（人口の原典は UN WPP＝CC BY 3.0 IGO） |
 | GDP 系の穴埋め | IMF World Economic Outlook（DBnomics ミラー） | 同上 | IMF の利用条件（出典表記） |
@@ -17,6 +22,7 @@
 | 国歌の音源（Wikidata に無い国） | 英語版 Wikipedia の記事の infobox（Commons のファイル） | 同上 | 各ファイルの Commons 記載 |
 | 係争地（seed/conflicts.csv）・地域分け・帰属・例外（seed/） | 手作業（Natural Earth の disputed areas の B コード体系を基礎） | — | CC BY-SA 4.0（本リポジトリ） |
 | 国旗 SVG（flags/） | Wikimedia Commons（NationDB.flag にファイル名） | uploader | 各ファイルの Commons 記載（多くはパブリックドメイン） |
+| 国別の鉄道・道路・市街地・湖・人口密集地・admin1（Cultural・out/ne-cultural.geopbf） | Natural Earth 10m v5.1.2: railroads / roads / urban_areas / lakes / populated_places / admin_1_states_provinces / admin_0_disputed_areas | `scripts/ne-cultural.mjs` | パブリックドメイン |
 | 地形 PNG（geoms/） | Natural Earth 10m/50m | `apps/uploader/src/world/createGeometryPNG.js` | パブリックドメイン |
 | 効果音（音源.zip） | OtoLogic | — | CC BY 4.0（クレジット必須） |
 
