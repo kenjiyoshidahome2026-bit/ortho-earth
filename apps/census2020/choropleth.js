@@ -6,20 +6,18 @@ import { geopbf } from "geopbf";
 import { belongsTo } from "./jp/codes.js";
 import { initAggregate, AGG_VALUE } from "./aggregate.js";
 import CENSUS_MANIFEST from "./census/manifest.json" with { type: "json" };
-import POP2020 from "./census/2020-pop.json" with { type: "json" };
-import STATS2015 from "./census/2015-stats.json" with { type: "json" };
-import AGES2020 from "./census/2020-ages.json" with { type: "json" };
+import { DATA, ensureCensusData } from "./census/data.js";   // 統計本体は遅延（入口チャンクに焼かない・2026-09-14）
 
 const MB = new Map(CENSUS_MANIFEST.map(e => [e.code, e]));
 
 // 指標定義：value(code)→数値|null（null＝データ欠損＝透明）。diverging は増減率のみ（固定級）
 const INDICATORS = {
 	density: { label: "人口密度", unit: "人/km²", fmt: v => Math.round(v).toLocaleString(), value: c => MB.get(c)?.density || null },
-	pop:     { label: "人口",     unit: "人",     fmt: v => v.toLocaleString(),              value: c => POP2020[c]?.[0] || null },
+	pop:     { label: "人口",     unit: "人",     fmt: v => v.toLocaleString(),              value: c => DATA.CENSUS_2020_POP?.[c]?.[0] || null },
 	change:  { label: "増減率",   unit: "",       fmt: v => `${v > 0 ? "+" : ""}${(v * 100).toFixed(1)}%`, diverging: true,
-		value: c => { const a = POP2020[c]?.[0], b = STATS2015[c]?.pop?.[0]; return a && b ? (a - b) / b : null; } },
+		value: c => { const a = DATA.CENSUS_2020_POP?.[c]?.[0], b = DATA.CENSUS_2015_STATS?.[c]?.pop?.[0]; return a && b ? (a - b) / b : null; } },
 	aging:   { label: "高齢化率", unit: "",       fmt: v => `${(v * 100).toFixed(1)}%`,
-		value: c => { const g = AGES2020[c]; if (g?.length !== 32) return null;
+		value: c => { const g = DATA.CENSUS_2020_AGES?.[c]; if (g?.length !== 32) return null;
 			const t = g.reduce((s, x) => s + x, 0); if (!t) return null;
 			return (g[13] + g[14] + g[15] + g[29] + g[30] + g[31]) / t; } },   // 65+＝男女とも末尾3ビン（65-69/70-74/75+）
 	hh:      { label: "世帯数",   unit: "世帯",   fmt: v => v.toLocaleString(),              value: c => MB.get(c)?.hh || null },
@@ -148,6 +146,7 @@ export function initChoropleth(map, { legend } = {}) {
 		// ズーム毎に鋭く・gap無し）。CPU 事前間引き（旧・simplified+小島落とし）は gint の心臓を殺し、
 		// カクカク境界＋隙間を生んでいた（2026-08-12 実測・本人指摘）＝撤去。塗り(idfill)は本質的に全密度
 		// ＝FILL_MAX_EDGES(2M) を踏むので、この層だけ fillMaxEdges で上限を上げて全密度塗りを通す。
+		await ensureCensusData();   // 統計本体（遅延チャンク）を admin_all と並べて取る＝値関数は同期のまま
 		pbf = await geopbf("admin_all", { gint: true });   // bucket 名慣習＝IDBファースト（2回目はネットワーク0）
 		if (!pbf?.unPackGint) throw new Error("admin_all の読込に失敗");
 		window.__adminPbf = pbf;   // console 検証用（ortho作法の window デバッグ手すり）
@@ -203,7 +202,7 @@ export function initChoropleth(map, { legend } = {}) {
 			n = feats.length;
 			codeOf = i => feats[i].properties?.code;
 			valueOf = i => def.value(feats[i].properties?.code);
-			existsOf = i => !!POP2020[feats[i].properties?.code]?.[0];   // 人口なし＝振興局集約/北方領土＝不可視（idfill winding を汚さない）
+			existsOf = i => !!DATA.CENSUS_2020_POP?.[feats[i].properties?.code]?.[0];   // 人口なし＝振興局集約/北方領土＝不可視（idfill winding を汚さない）
 		}
 		if (!def) { lastTable = null; lastCount = 0; map.paint(null); legend?.(lastLegend = null); return; }   // legend＝gadgetの戻り値＝setter関数そのもの（塗りなし＝凡例も消す）
 		if (def.categorical) {   // 色分け＝定性パレットで領域を識別（Wikipediaの市区町村色分け地図風・値の大小なし）

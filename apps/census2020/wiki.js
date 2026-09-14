@@ -6,7 +6,9 @@
 import { onDrill } from "./census/ui.js";
 import { escHtml } from "./ui/shared.js";
 import { nativeBucket } from "native-bucket";
-import WIKI_TITLES from "./data/wiki-titles.json" with { type: "json" };
+// 記事題名の表（48 KB）は初回ドリルで import()＝入口チャンクに焼かない（2026-09-14）
+let _titlesP = null;
+const titles = () => _titlesP ??= import("./data/wiki-titles.json", { with: { type: "json" } }).then(m => m.default);
 
 const TTL = 30 * 24 * 3600 * 1000;
 let _cacheP = null;
@@ -16,8 +18,7 @@ export function initWiki() {
 	onDrill(e => {
 		closeFrame();   // ドリル遷移＝開いている記事は閉じる（古い記事が地図に残らない・本人要望2026-08-14）
 		if (e.level !== "pref" && e.level !== "city" && e.level !== "designated") return;
-		const title = WIKI_TITLES[e.code];
-		if (title) inject(title);
+		titles().then(t => { const title = t[e.code]; if (title) inject(title); });
 	});
 	// 右パネルでの操作（チップ/ドリル等のクリック）でも閉じる。capture＝wikiカード自身のクリックより先に走る
 	// ＝「閉じてから開く」の順になり、カードから開く動作は壊れない。
