@@ -11,7 +11,7 @@ import { rangeAxis, parseAxis } from "./geom.js";
 const UN = "Q1065";
 // 川の形状: Natural Earth 10m rivers_lake_centerlines_scale_rank（パブリックドメイン・版固定）。wikidataid で seed の川と結合
 const NE_RIVERS = "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/v5.1.2/geojson/ne_10m_rivers_lake_centerlines_scale_rank.geojson";
-// 山脈の軸線: Natural Earth 10m geography_regions_polys（Range/mtn ポリゴン・属性名は大文字）→ geom.js で 2〜4 点の軸線に
+// 山脈の軸線: Natural Earth 10m geography_regions_polys（Range/mtn ポリゴン・属性名は大文字）→ geom.js で軸線に（格子の測地距離帯の重心・9/15）
 const NE_REGIONS = "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/v5.1.2/geojson/ne_10m_geography_regions_polys.geojson";
 const wikis = langs => langs.map(l => l + "wiki");
 
@@ -99,7 +99,7 @@ export async function buildAll(seed, env) {
 		}
 		rivers = { type: "FeatureCollection", source: "Natural Earth 10m rivers_lake_centerlines_scale_rank v5.1.2 (public domain)", features };
 	}
-	// 4d) 山脈の軸線（2〜4 点の LineString）: seed の axis 列（手書き）＞ NE ポリゴン（qid＋ne_extra）から geom.js で自動抽出。表示側で spline＋幅でポリゴン化する
+	// 4d) 山脈の軸線（約 120 km 間隔・3〜40 点の LineString＝geom.js の測地距離帯法）: seed の axis 列（手書き）＞ NE ポリゴン（qid＋ne_extra）から geom.js で自動抽出。表示側で spline＋幅でポリゴン化する
 	const rangeSeeds = seed.terrains.filter(t => t.category == "range");
 	let ranges = null;
 	if (rangeSeeds.length) {
