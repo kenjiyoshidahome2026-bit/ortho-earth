@@ -1,0 +1,71 @@
+<!doctype html>
+<!-- gint 塗り扇の球体カリング回帰：裏半球の面が「球を透かして」表へ写らない・地平線を跨ぐ面は可視部だけ塗る・
+     対蹠点を囲む面は全面塗りにならない（本人報告 2026-09-15「裏面の塗りつぶしが表面に出ています」）。
+     視点 (-90,0)・z3＝全球が画面内。判定はスナップショット（map.requestSnapshot＝gint 込みの基図）の画素色。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021;width:900px;height:650px}#map{width:900px;height:650px}</style><title>t-backfill</title></head>
+<body>
+<div id="map"></div>
+<script>
+window.requestAnimationFrame = cb => setTimeout(() => cb(performance.now()), 16);
+localStorage.setItem("oj.hint", "closed");
+window.confirm = () => false;
+</script>
+<script type="module">
+import { createGeopbf } from "geopbf";
+createGeopbf("https://api.ortho-earth.com");
+import orthoJapan from "../app.js";
+import { initEditor } from "../gadgets/geoedit/controller.js";
+import { composeLayersToCanvas } from "../gadgets/compose.js";
+
+const t = [], ok = (n, c) => t.push((c ? "ok:" : "NG:") + n);
+window.addEventListener("error", e => t.push("ERR:" + String(e.message).replace(/\s+/g, "_")));
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const sq = (x0, y0, x1, y1) => [[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]];
+const poly = (n, ring) => ({ type: "Feature", properties: { n, "@fill": "#ff00ff", "@stroke": "#ff00ff" }, geometry: { type: "Polygon", coordinates: [ring] } });
+// 視点 (-90,0)：表＝lon -100..-80 lat 20..40／裏（対蹠点 (90,0) を囲む）＝lon 60..120 lat -30..30（ゴーストは lon -120..-60 lat -30..30 に写る）
+// 裏（小・対蹠点を囲まない）＝lon 120..140 lat 20..40（ゴーストは lon -140..-120）／跨ぎ＝lon -30..30 lat -10..10（表側は lon -30..-90+hor）
+const FC = { type: "FeatureCollection", features: [
+	poly("front", sq(-100, 20, -80, 40)),
+	poly("backBig", sq(60, -30, 120, 30)),
+	poly("backSmall", sq(120, 20, 140, 40)),
+	poly("straddle", sq(-30, -10, 30, 10)),
+] };
+
+try {
+	const map = await orthoJapan({ view: "#3/0/-90", maxPitch: 0 });
+	const editor = initEditor(map);
+	for (let i = 0; i < 200 && !editor.model; i++) await sleep(100);
+	ok("boot", !!editor.model);
+	await editor.loadFC(FC, { fly: false });
+	await sleep(300);
+	await editor.commitNow();
+	const mapEl = document.getElementById("map");
+	const shot = async () => { const s = await map.requestSnapshot(); const c = composeLayersToCanvas(s); return { ctx: c.getContext("2d"), sx: c.width / mapEl.clientWidth, sy: c.height / mapEl.clientHeight }; };
+	const px = (S, lng, lat) => { const p = map.projectLL(lng, lat); if (!p) return null; const d = S.ctx.getImageData(Math.round(p[0] * S.sx), Math.round(p[1] * S.sy), 1, 1).data; return [d[0], d[1], d[2]]; };
+	const magenta = c => !!c && c[0] > 150 && c[2] > 150 && c[1] < 110;
+	// 表の面が写るまで待つ（bake→描画の着地）
+	let S = null;
+	for (let i = 0; i < 60; i++) { S = await shot(); if (magenta(px(S, -90, 30))) break; await sleep(250); }
+	ok("frontFilled", magenta(px(S, -90, 30)) && magenta(px(S, -95, 25)));
+	ok("viewWhole", !!map.projectLL(-90, 0) && Math.abs(map.getZoom() - 3) < 0.01);
+	// 裏の面（対蹠点を囲む大）＝球を透かして表に写らない（旧＝ゴースト／クランプだけ＝全面塗り）
+	const ghostBig = [[-90, 0], [-100, 10], [-70, -20], [-115, 25], [-65, 25]].map(([a, b]) => px(S, a, b));
+	ok("backBigNoGhost", ghostBig.every(c => !magenta(c)), JSON.stringify(ghostBig));
+	// 裏の面（小）＝ゴースト無し
+	const ghostSmall = [[-130, 30], [-125, 25], [-135, 35]].map(([a, b]) => px(S, a, b));
+	ok("backSmallNoGhost", ghostSmall.every(c => !magenta(c)));
+	// 全面塗りになっていない（面の無い場所＝素の基図）
+	const bare = [[-90, -60], [-150, 0], [-40, -50], [-90, 70]].map(([a, b]) => px(S, a, b));
+	ok("bareNotFilled", bare.every(c => !magenta(c)));
+	// 地平線を跨ぐ面＝表側の部分は塗れている（旧＝裏側の折返しで巻き数が相殺され塗れない）。
+	// z3 の透視では地平線は中心から約 70°（hor=acos(1/|E|)）＝検分点は 65° 以内（lon ≥ -25）に置く
+	const strad = [[-25, 0], [-27, 5], [-26, -5]].map(([a, b]) => px(S, a, b));
+	ok("straddleFilled", strad.every(magenta));
+	ok("straddleOutside", !magenta(px(S, -40, 0)) && !magenta(px(S, -35, 15)));
+	// 見た目の記録（デバッグ手すり）
+	window.__shot = S;
+	editor.destroy();
+} catch (e) { t.push("ERR:" + String(e?.stack || e).replace(/\s+/g, "_").slice(0, 300)); }
+document.title = (t.some(x => !x.startsWith("ok:")) ? "FAIL " : "PASS ") + t.join(" ");
+</script>
+</body></html>
