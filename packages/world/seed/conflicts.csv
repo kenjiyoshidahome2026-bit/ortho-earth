@@ -1,0 +1,100 @@
+key,qid,type,region,name_en,exist,sovereignt,territory,claim
+B00,Q1162,Disputed,3,Arunachal Pradesh,false,IN,,CN
+B01,Q5308408,Disputed,3,Tirpani Valleys,false,IN,,CN
+B02,Q5308408,Disputed,3,Bara Hotii Valleys,false,IN,,CN
+B03,Q1185266,Disputed,3,Demchok,false,IN,,CN
+B04,Q5308408,Disputed,3,Samdu Valleys,false,IN,,CN
+B05,Q2746364,Disputed,3,Jammu and Kashmir,false,IN,,PK
+B06,Q1819167,Disputed,3,Trans-Karakoram Tract,false,CN,,IN
+B07,Q230830,Disputed,3,Aksai Chin,false,CN,,IN
+B08,Q200697,Disputed,3,Gilgit-Baltistan,false,PK,,IN
+B09,Q200130,Disputed,3,Azad Kashmir,false,PK,,IN
+B10,Q331990,Overlay,3,South Korean Demilitarized Zone,false,KR,,
+B11,Q331990,Overlay,3,North Korean Demilitarized Zone,false,KP,,
+B12,Q9648,Disputed,5,Falkland Islands,false,GB,FK,AR
+B13,Q336494,Disputed,2,Abyei,false,SD,,SS
+B14,Q2545638,Disputed,5,Lawa Headwaters,false,FR,GF,SR
+B15,Q5671580,Disputed,5,Tigri Area,false,GY,,SR
+B16,Q83210,Indeterminate,3,Golan Heights,false,IL,,SY
+B17,Q973527,Disputed,2,Ilemi Triangle,false,KE,,SS
+B18,Q29460,Disputed,3,Senkaku Islands,false,JP,,CN|TW
+B19,Q6250,Disputed,2,Western Sahara,true,MA,,B28
+B20,Q23681,Disputed,3,Turkish Republic of Northern Cyprus,true,B20,,CY
+B21,Q681389,Disputed,4,Hans Island,false,DK,GL,CA
+B22,Q17063,Disputed,2,Mayotte,false,FR,YT,KM
+B23,Q237034,Geo subunit,2,Juan de Nova Island,false,FR,TF,MG
+B24,Q236601,Geo subunit,2,Glorioso Islands,false,FR,TF,MG
+B25,Q234208,Geo subunit,2,Tromelin Island,false,FR,TF,MU|SC
+B26,Q193089,Geo subunit,2,Europa Island,false,FR,TF,MG
+B27,Q220601,Geo subunit,2,Bassas da India,false,FR,TF,MG
+B28,Q6250,Indeterminate,2,Western Sahara,true,B28,,MA
+B29,Q80389,Disputed,3,Kuril Islands,false,RU,,JP
+B30,Q34754,Disputed,2,Somaliland,true,B30,,SO
+B31,Q206137,Disputed,1,Rockall Island,false,GB,,IE|DK|IS
+B32,Q1137202,Geo subunit,5,South Georgia,false,GB,GS,AR
+B33,Q118223,Geo subunit,5,South Sandwich Islands,false,GB,GS,AR
+B34,Q25359,Geo unit,4,Navassa Island,false,US,UM,HT
+B35,Q31354462,Breakaway,3,Abkhazia,true,B35,,GE
+B36,Q907112,Breakaway,1,Transnistria,true,B36,,MD
+B37,Q23427,Breakaway,3,South Ossetia,true,B37,,GE
+B38,Q44302,Breakaway,3,Nagorno-Karabakh,true,B38,,AZ
+B39,Q20317,Geo subunit,3,Liancourt Rocks,false,KR,,JP
+B40,Q165413,Lease,3,Baikonur,false,RU,,KZ
+B41,Q1257783,Indeterminate,4,Bajo Nuevo Bank,false,US,UM,CO|JM|NI
+B42,Q1169008,Indeterminate,4,Serranilla Bank,false,US,UM,CO|HN|NI
+B43,Q116970,Indeterminate,3,United Nations Buffer Zone in Cyprus,false,CY,,
+B44,Q184851,Overlay,3,Diego Garcia Navy Airport,false,GB,IO,MU|SC
+B45,Q333946,Indeterminate,3,Siachen Glacier,false,,,PK|IN
+B46,Q215664,Indeterminate,3,Spratly Islands,false,,,CN|TW|MY|PH|BN|VN
+B47,Q274388,Geo unit,3,Paracel Islands,false,CN,,VN|TW
+B48,Q790669,Disputed,4,Aves (Bird) Island,false,VE,,DM
+B49,Q1428532,Overlay,3,United Nations Disengagement Observer Force,false,SY,,
+B50,Q762570,Lease,4,Guantanamo Bay Naval Base,false,US,,CU
+B51,Q242,Disputed,4,Belize,false,BZ,,
+B52,Q3557016,Disputed,2,Mbane Island,false,GA,,GQ
+B53,Q39760,Disputed,3,Gaza Strip,true,PS,,IL
+B54,Q36678,Disputed,3,West Bank,true,PS,,IL
+B55,Q1410,Disputed,1,Gibraltar,false,GB,GI,ES
+B56,Q124061083,Disputed,5,Guayana Esequiba,false,GY,,VE
+B57,Q1246,Disputed,1,Kosovo,true,XK,,RS
+B58,Q1133272,Disputed,3,Shebaa farms,false,IL,,LB
+B59,Q43296,Geo unit,6,Wake Island,false,US,UM,MH
+B60,Q5823,Geo subunit,2,Ceuta,false,ES,,
+B61,Q5831,Geo subunit,2,Melilla,false,ES,,
+B62,Q191750,Disputed,2,Perejil Island,false,ES,,MA
+B63,Q191146,Disputed,2,Peñón de Vélez de la Gomera,false,ES,,MA
+B64,Q1184963,Disputed,2,Peñón de Alhucemas,false,ES,,MA
+B65,Q130574,Disputed,2,Chafarinas Islands,false,ES,,MA
+B66,Q1909475,Disputed,6,Matthew Island and Hunter Island,false,FR,NC,VU
+B67,Q488052,Disputed,1,Olivenza,false,ES,,PT
+B68,Q598889,Disputed,2,Tiran and Sanafir Island,false,EG,,SA
+B69,Q43448,Disputed,3,British Indian Ocean Territory,false,GB,IO,MU|SC
+B70,Q628716,Indeterminate,3,Scarborough Reef,false,CN,,PH|TW
+B71,Q1128488,Disputed,6,Swains Island,false,US,AS,TK
+B73,Q167217,Disputed,3,Abu Musa Island,false,IR,,AE
+B74,Q973527,Disputed,2,Ilemi Triangle,false,SS,,KE
+B75,Q2018902,Disputed,3,Northwest Valleys (Bhutan),false,BT,,CN
+B76,Q2578921,Disputed,3,Chumbi Valley (Bhutan),false,BT,,CN
+B77,Q865,Disputed,3,Taiwan,true,TW,,CN
+B78,Q1670976,Disputed,3,No Man's Land (Fort Latrun),false,IL,,PS
+B79,Q1218,Disputed,3,No Man's Land (Jerusalem),false,IL,,PS
+B80,Q766270,Disputed,4,Sapodilla Cayes,false,BZ,,HN|GT
+B82,Q788452,Disputed,1,Dragonja River,false,HR,,SI
+B84,Q482854,Overlay,3,Korean Northern Limit Line,false,KR,,KP
+B85,Q2093778,Indeterminate,5,Brazilian Island,false,,,BR|UY
+B87,Q1252656,Disputed,2,Doumeira Islands,false,ER,,DJ
+B88,Q3595348,Disputed,3,Om Parvat,false,IN,,NP
+B89,Q7835,Disputed,1,Crimean Peninsula,true,RU,,UA
+B91,Q801,Disputed,3,Israel,true,IL,,
+B92,Q2456673,Disputed,5,Corner of Artigas,false,BR,,UY
+B93,Q796684,Disputed,2,Hala'ib Triangle,false,EG,,SD
+B94,Q620634,Indeterminate,2,Bir Tawil,false,,,EG|SD
+B95,Q391205,Disputed,1,Šarengrad Island,false,RS,,HR
+B96,Q560385,Disputed,1,Vukovar Island,false,RS,,HR
+B97,Q1031467,Indeterminate,5,Southern Patagonian Ice Field,false,,,CL|AR
+B98,Q212938,Disputed,3,East Jerusalem,false,IL,,PS
+B99,Q312818,Disputed,3,Mount Scopus,false,IL,,PS
+C01,Q14491604,Disputed,3,Junagadh State,false,IN,,PK
+C02,Q16150196,Breakaway,1,Donetsk People's Republic,true,C02,,UA
+C03,Q16746854,Breakaway,1,Luhansk People's Republic,true,C03,,UA
+C04,Q1147441,Breakaway,3,North Borneo,false,MY,,

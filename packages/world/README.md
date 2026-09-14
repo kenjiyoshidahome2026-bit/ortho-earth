@@ -14,7 +14,7 @@ seed/            正本（人が手で持つ・PR の対象）
   cities.csv       qid, nation(key・複数は |), capital(1)          … 首都は build が自動で加える
   terrains.csv     **生成物**（scripts/terrains-from-ne.py が書く・手で編集しない）。qid, category, name_en(enwiki 記事名), ne_extra, axis, rank(NE scalerank), lon, lat(NE の代表点)
   terrains-manual.json 地形の手動層（人が持つ）: add（閾値外でも入れる・QID 基軸）/ drop（QID・NE 名・記事名）/ category（分類の上書き）/ merge（形状を結合する NE 側の QID か "~NE 名"）/ axis（山脈の手書き軸線）/ alias（NE の壊れた wikidataid → 正規 QID）/ allow_nation / add_ne
-  conflicts.json   係争地（key・qid・type・region・name_en・exist・sovereignt・territory・claim）
+  conflicts.csv    係争地（key, qid, type, region, name_en, exist(true/false), sovereignt(key), territory(key), claim(key・複数は |)）
   overrides.json   例外＝key → { 項目: 値, _why: {項目: 理由} }（最優先。無人地の人口・本土面積・非 ISO 主体の通貨・実効支配域…）
   capital-notes.json 首都の注記（defacto / changed=[年, 都市QID] / multi={legislative,judicial,executive} / text=国key か翻訳キー）
   aliases.json     Wikidata にコードが無い項目のキー（Greek → el）

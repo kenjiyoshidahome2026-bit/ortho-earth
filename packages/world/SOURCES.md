@@ -15,7 +15,7 @@
 | 世界平和度指数 GPI | Institute for Economics & Peace（英語版 Wikipedia の順位表経由） | 同上 | IEP のデータ＝出典表記。数値は事実 |
 | 国連加盟日 | 英語版 Wikipedia「Member states of the United Nations」 | 同上 | CC BY-SA 4.0 |
 | 国歌の音源（Wikidata に無い国） | 英語版 Wikipedia の記事の infobox（Commons のファイル） | 同上 | 各ファイルの Commons 記載 |
-| 係争地（seed/conflicts.json）・地域分け・帰属・例外（seed/） | 手作業（Natural Earth の disputed areas の B コード体系を基礎） | — | CC BY-SA 4.0（本リポジトリ） |
+| 係争地（seed/conflicts.csv）・地域分け・帰属・例外（seed/） | 手作業（Natural Earth の disputed areas の B コード体系を基礎） | — | CC BY-SA 4.0（本リポジトリ） |
 | 国旗 SVG（flags/） | Wikimedia Commons（NationDB.flag にファイル名） | uploader | 各ファイルの Commons 記載（多くはパブリックドメイン） |
 | 地形 PNG（geoms/） | Natural Earth 10m/50m | `apps/uploader/src/world/createGeometryPNG.js` | パブリックドメイン |
 | 効果音（音源.zip） | OtoLogic | — | CC BY 4.0（クレジット必須） |
