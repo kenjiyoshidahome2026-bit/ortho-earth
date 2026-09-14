@@ -40,6 +40,7 @@ export { sanitizeHTML };
 //   輸入側（geoedit）は再輸出でも解決できるため、エディタでは曲線が出るのにビューアだけ落ちる
 //   ＝WYSIWYG の担保が壊れる形の非対称バグだった（2026-09-01 発見・8/29 の正典昇格からの潜伏）。
 import { smoothRing, smoothGeom, wrapLon } from "geopbf/edit/spline";
+import { toVec, toLL, slerp, angleBetween } from "geopbf/edit/sphere";   // 完全球体＝辺は大円で結ぶ（geoedit overlay / gint 度アンカーと同じ線・9/14）
 export { smoothRing, smoothGeom, wrapLon };
 // 経度の最短差（antimeridian 跨ぎ）：線分の内挿・中点・平行移動の差分は必ずこれを通す（正典・geoedit も import）。
 // 生の差 b-a で内挿すると ±179.9 の混在（normLon 産）が「地球の裏側回り」の帯になる（2026-09-12・geoedit の円で発覚）。
@@ -142,12 +143,12 @@ export function createAnno(map, { signal } = {}) {
 	let tipRaw = null, tipClean = null;   // 消毒キャッシュ（毎 move の DOMParser を避ける）
 	const openedPops = new Map();   // fid → pop div
 
-	// 大圏分割つき投影（geoedit overlay と同じ規約）
+	// 大円分割つき投影（geoedit overlay と同じ規約＝中心角 0.5° 刻みの slerp。最短側＝antimeridian 跨ぎで裏側回りにしない）
 	const seg = (pr, a, b) => {
-		const dl = dLon(a[0], b[0]), dx = Math.abs(dl), dy = Math.abs(a[1] - b[1]);   // 経度は最短側（antimeridian）
-		const n = Math.min(32, Math.max(1, Math.ceil(Math.max(dx, dy) / 0.5)));
+		const va = toVec(a[0], a[1]), vb = toVec(b[0], b[1]);
+		const n = Math.min(256, Math.max(1, Math.ceil(angleBetween(va, vb) * 180 / Math.PI / 0.5)));
 		const out = [];
-		for (let i = 0; i <= n; i++) { const t = i / n; out.push(pr(wrapLon(a[0] + dl * t), a[1] + (b[1] - a[1]) * t)); }
+		for (let i = 0; i <= n; i++) { const p = toLL(slerp(va, vb, i / n)); out.push(pr(p[0], p[1])); }
 		return out;
 	};
 	const tracePts = (pr, coords) => {

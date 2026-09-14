@@ -6,7 +6,8 @@
 // ★図形/帯/曲線のプリミティブ（PICTO/SHAPE_SCALE/smoothRing/buildLinePath）の正本は
 //   エンジンの anno ガジェット（apps/ortho-japan/gadgets/anno.js）＝ビューア再生と単一実装（pop/tip 共有と同じ型）。
 //   ここは import して再輸出するだけ（styleform 等の既存 import 先を維持）。
-import { SHAPE_NAMES, SHAPE_SCALE, PICTO, buildLinePath, smoothRing, sanitizeHTML, dLon, wrapLon } from "../anno.js";
+import { SHAPE_NAMES, SHAPE_SCALE, PICTO, buildLinePath, smoothRing, sanitizeHTML } from "../anno.js";
+import { toVec, toLL, slerp, angleBetween, gcMidpoint } from "geopbf/edit/sphere";   // 完全球体＝辺は大円で結ぶ（本人裁定 9/14）
 export { SHAPE_NAMES, SHAPE_SCALE, PICTO, buildLinePath, sanitizeHTML };
 
 const COL = {
@@ -79,14 +80,11 @@ export function createOverlay(map, mapEl, getState) {
 
 	let handles = [];   // 描画時キャッシュ：{x,y,kind:"v"|"m"|"p", arcId?,idx?, eid?,ptIdx?}
 	let symHits = [];   // 描画時キャッシュ：シンボルの当たり矩形 {x0,y0,x1,y1,eid}＝「見えている絵」で選択するための真実源
-	const seg = (pr, a, b) => {   // 大圏分割つき線分（編集ズームでは大抵1分割）。経度は最短側＝antimeridian 跨ぎで裏側回りにしない
-		const dl = dLon(a[0], b[0]), dx = Math.abs(dl), dy = Math.abs(a[1] - b[1]);
-		const n = Math.min(32, Math.max(1, Math.ceil(Math.max(dx, dy) / 0.5)));
+	const seg = (pr, a, b) => {   // 大円分割つき線分（編集ズームでは大抵1分割）＝gint の度アンカー（大円）と同じ線を描く。最短側＝antimeridian 跨ぎで裏側回りにしない
+		const va = toVec(a[0], a[1]), vb = toVec(b[0], b[1]);
+		const n = Math.min(256, Math.max(1, Math.ceil(angleBetween(va, vb) * 180 / Math.PI / 0.5)));   // 中心角 0.5° 刻み
 		const out = [];
-		for (let i = 0; i <= n; i++) {
-			const t = i / n;
-			out.push(pr(wrapLon(a[0] + dl * t), a[1] + (b[1] - a[1]) * t));
-		}
+		for (let i = 0; i <= n; i++) { const p = toLL(slerp(va, vb, i / n)); out.push(pr(p[0], p[1])); }
 		return out;
 	};
 	const tracePts = (pr, coords) => {   // coords（経緯度列）→ 現在パスへ
@@ -279,7 +277,7 @@ export function createOverlay(map, mapEl, getState) {
 			}
 			if (st.model.large) continue;   // 大規模モード＝中点（挿入）ハンドル無し（arc数を変える操作はPhase2対象外）
 			for (let i = 0; i < n - 1; i++) {   // 中点＝挿入ハンドル
-				const mx = wrapLon(arc.pts[i * 2] + dLon(arc.pts[i * 2], arc.pts[i * 2 + 2]) / 2), my = (arc.pts[i * 2 + 1] + arc.pts[i * 2 + 3]) / 2;   // 中点も最短側
+				const [mx, my] = gcMidpoint([arc.pts[i * 2], arc.pts[i * 2 + 1]], [arc.pts[i * 2 + 2], arc.pts[i * 2 + 3]]);   // 中点＝大円の中点（描いた辺の上に乗る）
 				const sc = pr(mx, my);
 				if (sc[2] < 0) continue;
 				dot(sc[0], sc[1], 3, COL.mid, COL.midRing);
@@ -323,7 +321,7 @@ export function createOverlay(map, mapEl, getState) {
 			const free = st.sketch.kind === "free";   // フリーハンド＝実線の軌跡だけ（頂点ドットは密すぎて描かない）
 			const cs = !free && st.sketch.cursor ? [...st.sketch.coords, st.sketch.cursor] : st.sketch.coords;
 			ctx.beginPath(); tracePts(pr, cs);
-			if (st.sketch.kind !== "line" && !free && cs.length > 2) { const s0 = pr(cs[0][0], cs[0][1]); if (s0[2] >= 0) { const sl = pr(cs[cs.length - 1][0], cs[cs.length - 1][1]); ctx.moveTo(sl[0], sl[1]); ctx.lineTo(s0[0], s0[1]); } }   // 面・穴＝閉じプレビュー
+			if (st.sketch.kind !== "line" && !free && cs.length > 2) tracePts(pr, [cs[cs.length - 1], cs[0]]);   // 面・穴＝閉じプレビュー（大円）
 			if (!free) ctx.setLineDash([6, 4]);
 			ctx.lineWidth = 2; ctx.strokeStyle = COL.sketch; ctx.stroke(); ctx.setLineDash([]);
 			if (!free) for (const c of st.sketch.coords) { const s = pr(c[0], c[1]); if (s[2] >= 0) dot(s[0], s[1], 3.5, COL.handle, COL.sketch); }

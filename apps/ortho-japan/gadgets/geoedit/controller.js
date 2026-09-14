@@ -26,6 +26,7 @@ import { geopbf } from "geopbf";
 import { GeoPBF } from "geopbf/pbf-base";
 import { dockStack } from "../stack.js";   // 左下ドック（#log/#pos と同じ容れ物＝重なりを構造で排除）
 import css from "./editor.scss?inline";    // CSS自給（ガジェット三戒）＝遅延chunkに同乗・初回搭載で <style> を1枚
+import { ellipsoidOn } from "ortho-core";
 import { tr } from "../../i18n.js";   // UI二言語化（ja正典・en辞書引き＝エンジン i18n.js の流儀。辞書は各モジュール持参）
 const t = tr({
 	"テキスト": "Text",
@@ -50,6 +51,7 @@ const t = tr({
 	"分解する要素を選択してください": "Select a feature to split",
 	"パネルに文字を入れてから置いてください": "Enter the text in the panel first",
 	"束ね取消": "Combine cancelled",
+	"編集は完全球体（ell=0）として行います＝?ell=1 の楕円体表示とはわずかにずれます": "Editing assumes a perfect sphere (ell=0); it differs slightly from the ?ell=1 ellipsoid view",
 	"大規模モード＝選択と属性・スタイル編集のみ（作図・頂点編集は不可）": "Large mode: selection and attribute/style editing only (no drawing or vertex editing)",
 	"束ねる要素をクリック→Enterで確定（Escで取消）": "Click features to combine → Enter to confirm (Esc to cancel)",
 	"スナップ格子: 1e-{0} 度": "Snap grid: 1e-{0} degrees",
@@ -131,9 +133,13 @@ export function initEditor(map, { adopt = true, setDropOwner = null } = {}) {   
 
 	// ---- 共有文脈（入力モジュールへ渡す。関数は後で足す＝呼ばれる時点で揃っていればよい）----
 	const localXY = e => { const r = mapEl.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
+	// 地図面への押下か＝mapEl の capture 監視は「ツールバー/パネル/確定バー/エンジン家具」の押下も見えてしまう。
+	// 家具の上で奪うと setPointerCapture で click の宛先が mapEl に化け、ボタンが押せなくなる（free から抜けられない 9/14）。
+	// エンジン自身は canvas に直接 listen＝家具を見ない。ここも同じ土俵に揃える（overlay canvas は pointer-events:none＝地図 canvas が target）
+	const onSurface = e => e.target instanceof HTMLCanvasElement;
 	// 画面座標→eid：①シンボルの見た目（アイコンは足元アンカー＝絵の位置と実座標がずれるため画面矩形で）②gint識別
 	const pick = (x, y, ll = map.unprojectXY(x, y)) => ll ? (overlay.symbolAt(x, y) ?? layer.identify(ll[0], ll[1], map.getZoom())) : null;
-	const ed = { map, mapEl, signal, st, hist, layer, overlay, popLayer, toast, drawDefaults, localXY, pick };
+	const ed = { map, mapEl, signal, st, hist, layer, overlay, popLayer, toast, drawDefaults, localXY, pick, onSurface };
 
 	// Shift+クリック＝その要素の @pop を開く。エンジンは shift を tilt/回転扱いにして onClick を出さない（input.js）ため、
 	// editClick 経由でなく mapEl で直接拾う。動いた時（shift+ドラッグ＝回転）はエンジンに委ねる（pop にしない）。
@@ -446,7 +452,13 @@ export function initEditor(map, { adopt = true, setDropOwner = null } = {}) {   
 		if (typing() || st.busy) return;
 		const mod = e.metaKey || e.ctrlKey;
 		if (mod && e.key.toLowerCase() === "z") { e.preventDefault(); e.shiftKey ? redo() : undo(); return; }
-		if (e.key === "Escape") { sketch.cancel(); if (st.bundle) { st.bundle = null; overlay.redraw(); toast(t("束ね取消")); } select(null); return; }
+		if (e.key === "Escape") {   // 二段＝①描きかけがあれば描画だけ取り消す（ツールは残る）②無ければ選択ツールへ戻る（本人裁定 9/14「描画後も Esc で抜けられる方が自然」）
+			if (st.sketch) { sketch.cancel(); return; }
+			if (st.bundle) toast(t("束ね取消"));   // 選集合は setTool("select") が捨てる
+			select(null);
+			if (st.tool !== "select") setTool("select");
+			return;
+		}
 		if (e.key === "Enter") { if (st.sketch) { e.preventDefault(); sketch.finish(); } else if (st.tool === "bundle") { e.preventDefault(); confirmBundle(); } return; }
 		if ((e.key === "Delete" || e.key === "Backspace") && st.selection != null) {
 			e.preventDefault();
@@ -472,6 +484,7 @@ export function initEditor(map, { adopt = true, setDropOwner = null } = {}) {   
 		bar.syncTool(next);
 	};
 	ed.setTool = setTool;
+	if (ellipsoidOn()) toast(t("編集は完全球体（ell=0）として行います＝?ell=1 の楕円体表示とはわずかにずれます"));   // 幾何は球面（大円・回転・小円）＝楕円体表示（?ell=1）では告知だけ
 	const getPbf = () => st.model && (st.model.large ? st.model.toPbf() : layer.exportPbf(st.model));   // 書き出し/クラウド共通の口（大規模＝ストリーム置換複写：幾何はバイト複写・属性だけ再エンコード）
 	const bar = initToolbar(toolbarEl, {
 		setTool, undo, redo, explode,
