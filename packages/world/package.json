@@ -6,7 +6,17 @@
 	"type": "module",
 	"scripts": {
 		"build": "node build/cli.js",
-		"build:fresh": "node build/cli.js --fresh"
+		"build:fresh": "node build/cli.js --fresh",
+		"ne:cultural": "node scripts/ne-cultural.mjs",
+		"terrains": "node scripts/terrains-from-ne.mjs",
+		"ne:physical": "node scripts/ne-physical.mjs",
+		"plates": "node scripts/plates.mjs",
+		"koppen": "node scripts/koppen.mjs"
 	},
-	"engines": { "node": ">=22" }
+	"engines": {
+		"node": ">=22"
+	},
+	"devDependencies": {
+		"polygon-clipping": "^0.15.7"
+	}
 }
