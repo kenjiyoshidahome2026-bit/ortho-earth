@@ -4,6 +4,7 @@
 // map.gadget.cog へ＝球にドレープ。シーン切替は fit:false＝カメラ据え置き（同じ場所の別日を見比べる道具）。
 // 四戒: 独立（注入 loadCog/clearCog のみ）／遅延（stac-stub が初回クリックで import）／抽象アクセス／UI はこのパネルのみ。
 import { tr } from "../i18n.js";
+import { gcInterpolate } from "geopbf/edit/sphere";   // 完全球体＝辺は大円で結ぶ（経緯度線形の内挿は禁止・9/15 の canvas2D 総点検）
 const t = tr({
 	"衛星画像を探す": "Find satellite imagery",
 	"この地点で検索": "Search at this spot",
@@ -84,14 +85,14 @@ export function stac({ btn, loadCog, clearCog, signal } = {}) {
 		ctx.lineWidth = 4.5; ctx.strokeStyle = "rgba(255,255,255,.9)"; ctx.stroke();   // 白フチ＝衛星画像の上でも読める
 		ctx.lineWidth = 2; ctx.strokeStyle = "#3f4757"; ctx.stroke();
 	};
-	// ホバー開始＝辺を16分割した標本点列を作り、標高（map.getHeight＝非同期）を一括プリフェッチ→到着で差し替え再描画。
-	// 未着の間は海抜0で即描き＝反応の速さを落とさない（数百msで地形へ吸い付く）。
+	// ホバー開始＝辺を16分割した標本点列（大円＝slerp。経緯度線形だと広いシーンで辺が緯線寄りに曲がる）を作り、
+	// 標高（map.getHeight＝非同期）を一括プリフェッチ→到着で差し替え再描画。未着の間は海抜0で即描き＝反応の速さを落とさない。
 	const setHover = (ring) => {
 		if (!ring) { hoverPts = null; hoverH = null; footOff(); drawFoot(); return; }
 		const pts = [];
 		for (let i = 0; i < ring.length; i++) {
 			const a = ring[i], b = ring[(i + 1) % ring.length];
-			for (let k = 0; k < 16; k++) pts.push([a[0] + (b[0] - a[0]) * k / 16, a[1] + (b[1] - a[1]) * k / 16]);
+			for (let k = 0; k < 16; k++) pts.push(gcInterpolate(a, b, k / 16));
 		}
 		hoverPts = pts; hoverH = null; footOn();
 		const seq = ++hoverSeq;
