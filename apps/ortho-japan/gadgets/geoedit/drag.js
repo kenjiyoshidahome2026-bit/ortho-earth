@@ -1,10 +1,10 @@
 import { tr } from "../../i18n.js";   // UI二言語化（ja正典・en辞書引き＝エンジン i18n.js の流儀。辞書は各モジュール持参）
-import { dLon } from "../anno.js";
+import { toVec, quatBetween, quatAngle } from "geopbf/edit/sphere";   // 移動＝球の中心まわりの回転（本人裁定 9/14「球体上の図形として角度で移動」）
 const t = tr({
 	"大規模モードでは頂点の追加/削除はできません（移動のみ）": "Large mode cannot add/delete vertices (move only)",
 	"この頂点は消せません（端点/最小構成）": "This vertex cannot be deleted (endpoint / minimum shape)",
 });
-// ドラッグ：頂点（v）／点フィーチャの点（p）／中点挿入（m→v）／移動ツールのフィーチャ平行移動（f）。
+// ドラッグ：頂点（v）／点フィーチャの点（p）／中点挿入（m→v）／移動ツールのフィーチャ回転移動（f＝掴んだ点→今の点の球面回転を全頂点へ）。
 // capture-phase pointerdown で命中時だけエンジンから奪う（パンは発火しない）。Alt+クリック＝頂点削除もここ。
 // ドラッグ中はモデルを直接動かし（履歴なし）、終端で1コマンドを push＝「適用済み・pushのみ」の規約。
 // dragEids/hidden は終端で解除しない＝この編集を含むコミットが着地するまでオーバレイが現在形を描き続け、
@@ -53,7 +53,7 @@ export function installDrag(ed) {
 	mapEl.addEventListener("pointerdown", e => {
 		// ツール不問＝選択中フィーチャのハンドル命中なら常にドラッグ（「作図ツールのまま頂点が動かせない」罠の根治 8/20）。
 		// スケッチ中だけは除外（クリック＝頂点追加が主導）。Shift 押下は @pop 開き専用＝ここでは掴まない。
-		if (st.busy || !st.model || st.sketch || e.shiftKey) return;
+		if (st.busy || !st.model || st.sketch || e.shiftKey || !ed.onSurface(e)) return;   // 家具の押下は奪わない（同族＝sketch.js free）
 		const [x, y] = ed.localXY(e);
 		if (st.tool === "move") {   // 移動モード＝「押した場所の要素」を掴んで平行移動（自動選択）。何も無い場所は素通し＝パン
 			const ll0 = map.unprojectXY(x, y);
@@ -62,7 +62,7 @@ export function installDrag(ed) {
 			if (target == null) return;
 			if (st.selection !== target) ed.select(target);
 			e.stopPropagation(); e.preventDefault();
-			st.drag = { kind: "f", eid: target, lastLL: ll0, total: [0, 0], pointerId: e.pointerId, moved: false };
+			st.drag = { kind: "f", eid: target, a: toVec(ll0[0], ll0[1]), base: st.model.featureVerts(target), q: null, pointerId: e.pointerId, moved: false };   // base＝掴み始めの頂点列（毎回ここから回す）
 			begin(e, moveTargets(st.model, target));
 			return;
 		}
@@ -95,12 +95,11 @@ export function installDrag(ed) {
 		const [x, y] = ed.localXY(e);
 		const ll = map.unprojectXY(x, y);
 		if (!ll) return;
-		if (drag.kind === "f") {   // フィーチャ平行移動（適用できた分だけ total へ＝格子量子化と整合）
-			const res = st.model.translateFeature(drag.eid, dLon(drag.lastLL[0], ll[0]), ll[1] - drag.lastLL[1], { index: false });   // ドラッグ中は索引追記オフ（終端で一括reindex）。経度差は最短側（縫い目を跨ぐドラッグで ±360 の差にしない）
-			if (res) {
-				drag.total[0] += res.d[0]; drag.total[1] += res.d[1];
-				drag.lastLL = [drag.lastLL[0] + res.d[0], drag.lastLL[1] + res.d[1]];
-				if (res.d[0] || res.d[1]) { drag.moved = true; st.editGen++; }
+		if (drag.kind === "f") {   // フィーチャ回転移動＝掴んだ点 a → 今の点 b の最小回転（軸 a×b）を base 全頂点へ（球面上で形が保たれる・極付近/縫い目でも歪まない）
+			const q = quatBetween(drag.a, toVec(ll[0], ll[1]));
+			if (quatAngle(q) > 0) {
+				st.model.rotateFeature(drag.eid, q, drag.base, { index: false });   // ドラッグ中は索引追記オフ（終端で一括reindex）
+				drag.q = q; drag.moved = true; st.editGen++;
 			}
 			overlay.redraw();
 			return;
@@ -124,7 +123,7 @@ export function installDrag(ed) {
 		if (d.moved) {
 			if (d.kind === "f") st.model.reindexFeature(d.eid);   // translate終端＝スナップ索引へ一括追記
 			const cmd = d.kind === "f"
-				? { op: "tr", eid: d.eid, d: d.total }
+				? { op: "rot", eid: d.eid, q: d.q, base: d.base, restore: false }   // undo＝restore:true＝base へ厳密復元
 				: d.kind === "p"
 					? { op: "movePt", eid: d.eid, ptIdx: d.ptIdx, from: d.start, to: d.last }
 					: { op: "move", addr: st.model.addrOf(d.arcId, d.idx), from: d.start, to: d.last };

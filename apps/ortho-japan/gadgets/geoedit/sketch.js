@@ -1,5 +1,5 @@
 import { tr } from "../../i18n.js";   // UI二言語化（ja正典・en辞書引き＝エンジン i18n.js の流儀。辞書は各モジュール持参）
-import { dLon, wrapLon } from "../anno.js";
+import { gcDistanceDeg, smallCircle } from "geopbf/edit/sphere";   // 完全球体＝円は球面上の小円（本人裁定 9/14）
 const t = tr({
 	"大きさがありません": "No size",
 	"頂点が足りません": "Not enough vertices",
@@ -10,15 +10,14 @@ const t = tr({
 // 状態は st.sketch = { kind, coords, cursor, preview? }（描くのは overlay）。確定は doCmd("add"/"hole") → 選択ツールへ復帰。
 // クリック自体は editClick スロット（エンジンの4px裁定済み）から click(tool, ll) で入る。
 
-// 矩形/円のリング生成（円＝36角形・経度は cos(lat) 補正＝画面上で円に見える）。
-// 半径の経度差は最短側・出力経度は [-180,180) へ畳む＝縫い目を跨ぐ円もモデルの正規化表現（normLon 産と同じ）で持つ。
+// 矩形/円のリング生成。円＝球面上の小円（中心 a から中心角 r の 36 角形）＝極付近でも縫い目跨ぎでも真円。
+// 出力経度は [-180,180)（toLL が畳む）＝モデルの正規化表現（normLon 産と同じ）。矩形は経緯度の角 4 点（辺は大円で結ばれる）。
 export const twoPointRing = (kind, a, b) => {
 	if (kind === "rect") return [a, [b[0], a[1]], b, [a[0], b[1]], a];
-	const k = Math.max(0.2, Math.cos(a[1] * Math.PI / 180));
-	const r = Math.hypot(dLon(a[0], b[0]) * k, b[1] - a[1]);
+	const r = gcDistanceDeg(a, b);
 	if (r <= 0) return null;
-	const ring = [];
-	for (let i = 0; i <= 36; i++) { const t = i / 36 * Math.PI * 2; ring.push([wrapLon(a[0] + r * Math.cos(t) / k), a[1] + r * Math.sin(t)]); }
+	const ring = smallCircle(a, r, 36);
+	ring.push([ring[0][0], ring[0][1]]);
 	return ring;
 };
 const isTwoPoint = kind => kind === "rect" || kind === "circle";
@@ -62,9 +61,10 @@ export function createSketch(ed) {
 	const cancel = () => { if (st.sketch) { st.sketch = null; st.snapMark = null; overlay.redraw(); } };
 
 	function finishTwoPoint(a, b) {
-		const ring = twoPointRing(st.sketch.kind, a, b);
+		const kind = st.sketch.kind, ring = twoPointRing(kind, a, b);
 		st.sketch = null; st.snapMark = null;
-		if (!ring || (ring[0][0] === ring[2][0] && ring[0][1] === ring[2][1]) || ring[0][0] === ring[1][0] || ring[0][1] === ring[3][1]) { overlay.redraw(); return toast(t("大きさがありません")); }   // 縮退（幅/高さゼロも）
+		const degenerate = !ring || (kind === "rect" && (ring[0][0] === ring[1][0] || ring[0][1] === ring[3][1]));   // 縮退（矩形＝幅/高さゼロ・円＝半径ゼロ）
+		if (degenerate) { overlay.redraw(); return toast(t("大きさがありません")); }
 		const cmd = { op: "add", feature: { type: "Feature", properties: { ...drawDefaults.polygon }, geometry: { type: "Polygon", coordinates: [ring] } } };
 		ed.doCmd(cmd);
 		ed.setTool("select");
@@ -112,7 +112,7 @@ export function createSketch(ed) {
 	// フリーハンドの掴み始め＝capture-phase でエンジンから奪う（drag.js と同じ流儀＝パンは発火しない）。
 	// 選択中フィーチャのハンドル命中は譲る（「作図ツールのまま頂点が動かせない」罠の根治 8/20 を free でも守る）。
 	mapEl.addEventListener("pointerdown", e => {
-		if (st.tool !== "free" || st.busy || !st.model || st.drag || st.sketch || e.shiftKey || e.button !== 0) return;
+		if (st.tool !== "free" || st.busy || !st.model || st.drag || st.sketch || e.shiftKey || e.button !== 0 || !ed.onSurface(e)) return;   // 家具（ツールバー等）の押下は奪わない
 		const [x, y] = ed.localXY(e);
 		if (st.selection != null && overlay.handleAt(x, y, e.pointerType === "touch")) return;   // ハンドルは drag.js へ
 		const ll = map.unprojectXY(x, y);

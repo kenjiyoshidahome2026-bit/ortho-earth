@@ -11,6 +11,7 @@ window.confirm = () => false;   // クラウド削除等の確認＝試験では
 </script>
 <script type="module">
 import { createGeopbf } from "geopbf";
+import { gcDistanceDeg } from "geopbf/edit/sphere";
 createGeopbf("https://api.ortho-earth.com");
 import orthoJapan from "../app.js";
 import { GeoPBF } from "geopbf/pbf-base";
@@ -190,6 +191,16 @@ try {
 		ok("freeLine", flEid != null && m().feats.get(flEid)?.type === "LineString" && m().featureGeoJSON(flEid, false).geometry.coordinates.length >= 3);
 		ok("freeNoPan", JSON.stringify(map.view.center) === cenF);
 		ok("freeToolStays", document.querySelector('#ge-toolbar button[data-tip^="フリーハンド"]').classList.contains("on"));
+		{   // ツールバーの実ポインタ押下（mapEl の capture 監視に見える経路）で free から抜けられる＝ボタン上で stroke を始めない（9/14 の「抜けられない」）
+			const selB = document.querySelector('#ge-toolbar button[data-tip^="選択"]');
+			const r = selB.getBoundingClientRect(), bx = r.left + r.width / 2, by = r.top + r.height / 2;
+			selB.dispatchEvent(new PointerEvent("pointerdown", { clientX: bx, clientY: by, pointerId: 13, button: 0, bubbles: true, cancelable: true }));
+			ok("freeBtnNoStroke", editor.state.sketch == null);
+			selB.dispatchEvent(new PointerEvent("pointerup", { clientX: bx, clientY: by, pointerId: 13, button: 0, bubbles: true, cancelable: true }));
+			selB.click();
+			ok("freeExitByBtn", editor.state.tool === "select" && selB.classList.contains("on"));
+			document.querySelector('#ge-toolbar button[data-tip^="フリーハンド"]').click();   // 次の閉じストロークのため free へ戻す
+		}
 		const g0 = map.projectLL(139.735, 35.6755);   // 閉じストローク＝始点の16px以内で離す→面
 		C().dispatchEvent(new PointerEvent("pointerdown", ev(g0[0], g0[1], 12)));
 		for (const [dx, dy] of [[20, 0], [40, 0], [40, 20], [40, 40], [20, 40], [0, 40], [0, 20], [2, 4]]) M().dispatchEvent(new PointerEvent("pointermove", ev(g0[0] + dx, g0[1] + dy, 12)));
@@ -197,10 +208,17 @@ try {
 		await sleep(200);
 		const fpEid = editor.state.selection;
 		ok("freePolygon", fpEid != null && fpEid !== flEid && m().feats.get(fpEid)?.type === "Polygon");
-		key("Escape");   // 後続の試験へ影響を残さない＝2ストロークとも undo
+		key("Escape");   // 描画後（描きかけ無し）の Esc＝選択ツールへ抜ける（本人裁定 9/14）。後続の試験へ影響を残さない＝2ストロークとも undo
+		ok("freeEscExit", editor.state.tool === "select" && editor.state.sketch == null);
 		key("z", { metaKey: true }); key("z", { metaKey: true });
 		await sleep(300);
 		ok("freeUndo", !m().feats.has(flEid) && !m().feats.has(fpEid));
+		key("l");   // 二段 Esc：描きかけあり＝描画だけ取り消してツールは残る／描きかけ無し＝選択ツールへ
+		const e1 = map.projectLL(139.74, 35.69); click(e1[0], e1[1]);
+		key("Escape");
+		ok("escCancelKeepsTool", editor.state.sketch == null && editor.state.tool === "line");
+		key("Escape");
+		ok("escExitTool", editor.state.tool === "select");
 	}
 
 	// ---- 穴あけツール：Aの内側に三角リング→リング2本→undoで1本 ----
@@ -240,6 +258,10 @@ try {
 	await sleep(250);
 	const cEid = editor.state.selection;
 	ok("circle", cEid != null && m().featureGeoJSON(cEid, false).geometry.coordinates[0].length >= 20);
+	{   // 円＝球面上の小円＝全点が中心から等しい中心角（格子 1e-6 の丸め込み）
+		const cr = m().featureGeoJSON(cEid, false).geometry.coordinates[0], ds = cr.map(p => gcDistanceDeg([139.7455, 35.6715], p));
+		ok("circleSpherical", Math.max(...ds) - Math.min(...ds) < 5e-6 && Math.abs(ds[0] - 0.003 * Math.cos(35.6715 * Math.PI / 180)) < 1e-4);
+	}
 	await editor.commitNow();   // 識別（クリック選択）の真実源を最新化
 	document.querySelector('#ge-toolbar button[data-tip^="要素を移動"]').click();
 	const rc = map.projectLL(139.7455, 35.678);
@@ -252,6 +274,11 @@ try {
 	M().dispatchEvent(new PointerEvent("pointerup", ev(rc[0] + 30, rc[1] + 10, 8)));
 	await sleep(150);
 	ok("moveDrag", JSON.stringify(m().featureGeoJSON(rEid, false)) !== beforeMv && m().featureGeoJSON(rEid, false).geometry.coordinates[0].length === 5);
+	{   // 移動＝球面回転＝各辺の中心角が保たれる（平行移動なら cos(lat) で東西辺が伸縮する）
+		const r0 = JSON.parse(beforeMv).geometry.coordinates[0], r1 = m().featureGeoJSON(rEid, false).geometry.coordinates[0];
+		const err = Math.max(...r0.slice(1).map((p, i) => Math.abs(gcDistanceDeg(r0[i], p) - gcDistanceDeg(r1[i], r1[i + 1]))));
+		ok("moveRigid", err < 5e-6);
+	}
 	key("z", { metaKey: true });
 	await sleep(150);
 	ok("moveUndo", JSON.stringify(m().featureGeoJSON(rEid, false)) === beforeMv);
