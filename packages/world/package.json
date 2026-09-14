@@ -11,7 +11,8 @@
 		"terrains": "node scripts/terrains-from-ne.mjs",
 		"ne:physical": "node scripts/ne-physical.mjs",
 		"plates": "node scripts/plates.mjs",
-		"koppen": "node scripts/koppen.mjs"
+		"koppen": "node scripts/koppen.mjs",
+		"i18n:classes": "node scripts/i18n-classes.mjs"
 	},
 	"engines": {
 		"node": ">=22"

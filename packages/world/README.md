@@ -18,8 +18,8 @@ seed/            正本（人が手で持つ・PR の対象）
   overrides.json   例外＝key → { 項目: 値, _why: {項目: 理由} }（最優先。無人地の人口・本土面積・非 ISO 主体の通貨・実効支配域…）
   capital-notes.json 首都の注記（defacto / changed=[年, 都市QID] / multi={legislative,judicial,executive} / text=国key か翻訳キー）
   aliases.json     Wikidata にコードが無い項目のキー（Greek → el）
-  ja.json          日本語固有: 国の official（"_国" 型）と読み・都市の読みと名前の上書き
-i18n/ui.json      UI 文言（英語キー → 25 言語）と言語一覧（langs.json）
+  ja.json          日本語固有: 国の official（"_国" 型）と読み・都市の読みと名前の上書き・terrains＝Wikidata に日本語ラベルの無い地形の名前（22 件・2026-09-15）
+i18n/ui.json      UI 文言（英語キー → 25 言語）と言語一覧（langs.json）。categories（地形 35 分類）と plateBoundaries（PB2002 の 7 種別）は Wikidata のクラス項目のラベル＝scripts/i18n-classes.mjs が埋める（2026-09-15）
 build/            組み立て（Node CLI と uploader で共用・依存なし）
   index.js         buildAll(seed, env) → { NationDB, CityDB, TerrainDB, LanguageDB, CurrencyDB, Conflicts, i18n, rivers, ranges, report }
   geom.js          山脈ポリゴン → 軸線（内部を格子標本化 → 格子グラフの測地距離で最遠の 2 端 → 一端からの距離の等値帯ごとの重心＝弧や鉤に追従・約 120 km 間隔・3〜40 点。幅＝帯ごとの直交方向 p10〜p90 の中央値 km）
@@ -30,6 +30,7 @@ build/            組み立て（Node CLI と uploader で共用・依存なし�
   env.js / seed.js / csv.js   実行環境の差の吸収・seed 読み・CSV
   cli.js           node build/cli.js [--fresh] [--out DIR] → out/
 scripts/          terrains-from-ne.mjs＝地形 seed の生成器（Natural Earth 10m v5.1.2 を .cache/ne/ に取得・Wikidata で記事の有無を確認・Python 版から 2026-09-15 移植＝出力バイト一致）
+                  i18n-classes.mjs＝分類名・境界種別・気候区分の多言語名を Wikidata のクラスから ui.json と .cache へ（npm run i18n:classes）
                   ne-cultural.mjs＝Natural Earth Cultural＝鉄道・道路・市街地・湖・人口密集地・admin1 を key ごとに切り分ける（→ out/ne-cultural.geopbf・--split で国別ファイル）
                   ne-physical.mjs＝Natural Earth Physical＝地形の形状台帳（→ out/ne-physical.geopbf＋ne-physical-lines.geopbf・NE の面/線/点＋Wikidata 位置＋山脈軸線・地理線）
 legacy/           README-v1.md＝v1 の経緯と移植台帳のみ。原典と v1 seed（create*.js・geometryISO.js・draw.js・国名一覧.csv・国旗.zip…）は削除済み＝git 履歴 e544907 に残る（2026-09-11）
