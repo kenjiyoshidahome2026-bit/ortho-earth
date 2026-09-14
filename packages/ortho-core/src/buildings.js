@@ -95,18 +95,21 @@ export function buildDrapedGeometry(features, origin, { liftM = 1, exag = EXAG }
 	// 山を貫く/浮く（米加国境状態）。目標区間 ≈0.001°（≈100m）＝地形メッシュのセル級で中間点を挿し、各点が
 	// elevQ（案A＝描画メッシュの折れ線面）に乗る＝線が面の折れ目どおりに折れる。1辺上限 256 分割（500km 級でも
 	// 2km 刻み＝主要な起伏は拾う）・全体予算 60万頂点（≈14MB・超過後は端点のみ＝従来動作へ静かに縮退）。
-	const SUB_STEP = 0.001, SUB_EDGE_MAX = 256;
+	const SUB_STEP = 0.001, SUB_EDGE_MAX = 256, D2R = Math.PI / 180;
 	let subBudget = 600000;
+	// 中間点は大円上（完全球体＝頂点は大円で結ぶ・2026-09-14）。細分数は地形追従（≈100m）と大円追従（≈0.5°）の多い方。
+	const gcvec = (lon, lat) => { const c = Math.cos(lat * D2R); return [c * Math.cos(lon * D2R), c * Math.sin(lon * D2R), Math.sin(lat * D2R)]; };
 	const edge = (a, b) => {
-		const cs = Math.cos((a[1] + b[1]) * 0.5 * Math.PI / 180);
+		const cs = Math.cos((a[1] + b[1]) * 0.5 * D2R);
 		const len = Math.hypot((b[0] - a[0]) * cs, b[1] - a[1]);
-		const n = (len > SUB_STEP && subBudget > 0) ? Math.min(Math.ceil(len / SUB_STEP), SUB_EDGE_MAX) : 1;
+		const va = gcvec(a[0], a[1]), vb = gcvec(b[0], b[1]);
+		const cx = va[1] * vb[2] - va[2] * vb[1], cy = va[2] * vb[0] - va[0] * vb[2], cz = va[0] * vb[1] - va[1] * vb[0];
+		const w = Math.atan2(Math.hypot(cx, cy, cz), va[0] * vb[0] + va[1] * vb[1] + va[2] * vb[2]), sw = Math.sin(w);
+		let n = (subBudget > 0) ? Math.min(Math.max(Math.ceil(len / SUB_STEP), Math.ceil(w / (0.5 * D2R))), SUB_EDGE_MAX) : 1;
+		if (n < 1) n = 1;
 		if (n > 1) subBudget -= (n - 1) * 2;
-		for (let k = 0; k < n; k++) {
-			const t0 = k / n, t1 = (k + 1) / n;
-			vtx(L, a[0] + (b[0] - a[0]) * t0, a[1] + (b[1] - a[1]) * t0);
-			vtx(L, a[0] + (b[0] - a[0]) * t1, a[1] + (b[1] - a[1]) * t1);
-		}
+		const at = (k) => { if (sw < 1e-9) return [a[0] + (b[0] - a[0]) * (k / n), a[1] + (b[1] - a[1]) * (k / n)]; const t = k / n, ka = Math.sin((1 - t) * w) / sw, kb = Math.sin(t * w) / sw; const vx = va[0] * ka + vb[0] * kb, vy = va[1] * ka + vb[1] * kb, vz = va[2] * ka + vb[2] * kb; let lon = Math.atan2(vy, vx) / D2R; const lat = Math.atan2(vz, Math.hypot(vx, vy)) / D2R; while (lon - a[0] > 180) lon -= 360; while (lon - a[0] < -180) lon += 360; return [lon, lat]; };
+		for (let k = 0; k < n; k++) { const p0 = at(k), p1 = at(k + 1); vtx(L, p0[0], p0[1]); vtx(L, p1[0], p1[1]); }
 	};
 	const polyline = (pts, closeLoop) => {   // closeLoop=true＝ポリゴン環（末尾→先頭も結ぶ）、false＝LineString（開いた線）
 		const n = pts?.length | 0; if (n < 2) return;

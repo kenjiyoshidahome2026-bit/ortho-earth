@@ -16,6 +16,31 @@ function unwrapRing(ring) {
 	return out;
 }
 
+// 完全球体：隣接頂点は大円で結ぶ（塗り扇/境界線が弦にならない・gint の度アンカーと同じ線・2026-09-14）。
+// 長辺（中心角 > GC_STEP）だけ大円上の中間点を挿す＝密な小ポリゴン（census 町丁目等）は素通り（n=1）でゼロ費用。
+// 入力は unwrapRing 済み（lon 連続）。中間点も直前の出力に対して連続化＝縫い目跨ぎでも一本のまま。
+const D2R = Math.PI / 180, R2D = 180 / Math.PI, GC_STEP = 2 * D2R;   // 2°刻み（塗り境界の滑らかさ）
+const toVec = (lon, lat) => { const c = Math.cos(lat * D2R); return [c * Math.cos(lon * D2R), c * Math.sin(lon * D2R), Math.sin(lat * D2R)]; };
+function densifyGC(ring) {
+	if (ring.length < 2) return ring;
+	const out = [ring[0]]; let prev = ring[0][0];
+	for (let i = 1; i < ring.length; i++) {
+		const a = ring[i - 1], b = ring[i], va = toVec(a[0], a[1]), vb = toVec(b[0], b[1]);
+		const cx = va[1] * vb[2] - va[2] * vb[1], cy = va[2] * vb[0] - va[0] * vb[2], cz = va[0] * vb[1] - va[1] * vb[0];
+		const w = Math.atan2(Math.hypot(cx, cy, cz), va[0] * vb[0] + va[1] * vb[1] + va[2] * vb[2]);
+		const n = Math.max(1, Math.ceil(w / GC_STEP)), sw = Math.sin(w);
+		for (let s = 1; s < n; s++) {   // 中間点（端点 b は下でそのまま積む＝弦浮きを避けつつ端点は制御点のまま）
+			const t = s / n, ka = Math.sin((1 - t) * w) / sw, kb = Math.sin(t * w) / sw;
+			const vx = va[0] * ka + vb[0] * kb, vy = va[1] * ka + vb[1] * kb, vz = va[2] * ka + vb[2] * kb;
+			let lon = Math.atan2(vy, vx) * R2D; const lat = Math.atan2(vz, Math.hypot(vx, vy)) * R2D;
+			while (lon - prev > 180) lon -= 360; while (lon - prev < -180) lon += 360;
+			out.push([lon, lat]); prev = lon;
+		}
+		out.push(b); prev = b[0];   // b は unwrapRing 済みの連続 lon
+	}
+	return out;
+}
+
 // stencil-then-cover 用：ポリゴンを fan 三角形(anchor, v_i, v_{i+1})に。earcut不要（凹/穴は巻き数が処理）。
 // 塗りの被覆は境界の巻き数で決まるので fan の形は問わない＝球面で扇にならない。境界線も併せて出す。
 export function buildGeoJSONOverlay(features, origin, opts = {}) {
@@ -31,7 +56,7 @@ export function buildGeoJSONOverlay(features, origin, opts = {}) {
 		}
 	};
 	const fanPolygon = rings => {
-		const uw = rings.map(unwrapRing);
+		const uw = rings.map(r => densifyGC(unwrapRing(r)));   // 大円で密化＝塗り扇/境界線が弦にならない
 		const ax = uw[0][0][0] - ox, ay = uw[0][0][1] - oy;   // ポリゴンの anchor（外周先頭）。全リング共通で穴を巻き数減算
 		for (const ring of uw) {
 			for (let i = 0; i + 1 < ring.length; i++) fan.push(ax, ay, ring[i][0] - ox, ring[i][1] - oy, ring[i + 1][0] - ox, ring[i + 1][1] - oy);
@@ -42,14 +67,13 @@ export function buildGeoJSONOverlay(features, origin, opts = {}) {
 	// 全球スケールの層（wdepr）の球体カリング用：完全裏側の feature は CPU 側でレンジごと描かない
 	//（対蹠点付近はVSの地平円クランプがリング一周巻きになり全面+1化する＝クランプだけでは守れない）。
 	const feats = opts.ranges ? [] : null;
-	const D2R = Math.PI / 180;
 	features.forEach(f => {
 		const g = f && f.geometry; if (!g) return;
 		const vStart = fan.length / 2;
 		if (g.type === "Polygon") fanPolygon(g.coordinates);
 		else if (g.type === "MultiPolygon") g.coordinates.forEach(fanPolygon);
-		else if (g.type === "LineString") pushRingLines(unwrapRing(g.coordinates));
-		else if (g.type === "MultiLineString") g.coordinates.forEach(r => pushRingLines(unwrapRing(r)));
+		else if (g.type === "LineString") pushRingLines(densifyGC(unwrapRing(g.coordinates)));
+		else if (g.type === "MultiLineString") g.coordinates.forEach(r => pushRingLines(densifyGC(unwrapRing(r))));
 		if (!feats) return;
 		const count = fan.length / 2 - vStart;
 		if (!count) return;
