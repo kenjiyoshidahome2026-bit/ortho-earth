@@ -24,7 +24,9 @@ export function antimeridianCut(points, isLine = false) {
 	function splitPolygon(p) {
 		let s = 0; for (let i = 0; i < p.length - 1; i++) s += (p[i + 1][0] - p[i][0]) * (p[i + 1][1] + p[i][1]);
 		if (s < 0) p.reverse();
-		const cr = straddles(p); if (!cr[0].length) return tub.push(p);
+		const cr = straddles(p);
+		if (cr[0].length + cr[1].length === 1) return tub.push(poleRing(p, cr[0].length ? [cr[0][0], 1] : [cr[1][0], -1]));   // 縫い目を1回だけ跨ぐ環＝極を囲む（球面では閉じているが経緯度では極が特異点）
+		if (!cr[0].length) return tub.push(p);
 		const c0 = cr[0].map(i => [intersect(p[i], p[i + 1], 1), i]).sort(([a], [b]) => north ? a - b : b - a);
 		const c1 = cr[1].map(i => [intersect(p[i], p[i + 1], -1), i]).sort(([a], [b]) => north ? b - a : a - b);
 		const start = c0[0], end = c0[1], rev = c1[0];
@@ -38,6 +40,15 @@ export function antimeridianCut(points, isLine = false) {
 			while (i !== eP[1]) a.push(p[i = (i < len - 1) ? i + 1 : 0]);
 			a.push([eF ? deg : 0, eP[0]], [...a[0]]); tub.push(a);
 		}
+	}
+	// 極を囲む環（縫い目跨ぎ1回）＝跨ぎ辺 p[i]→p[i+1] を切り [±180,lat]→[±180,±90]→[∓180,±90]→[∓180,lat] の柱で閉じる（RFC 7946 の極表現）。
+	// 極の側は環の平均緯度（north）。球面編集（回転で極を越える・極を囲む作図）で生まれる環はこれで初めて GeoJSON/gint に載る（9/14）。
+	function poleRing(p, [i, f]) {
+		const lat = intersect(p[i], p[i + 1], f), pole = north ? 90 : -90, len = p.length - 1;
+		const d0 = 180 * (p[i][0] < 0 ? -1 : 1), d1 = -d0, a = [];
+		for (let k = 1; k <= len; k++) a.push(p[(i + k) % len]);   // p[i+1] … p[i]（閉じ重複を除く1周）
+		a.push([d0, lat], [d0, pole], [d1, pole], [d1, lat], [...a[0]]);
+		return a;
 	}
 	function splitPloyLine(p) {
 		let i = 0; for (; i < p.length - 1; i++) if (p[i][0] * p[i + 1][0] < 0 && abs(p[i][0] - p[i + 1][0]) > 180) break;

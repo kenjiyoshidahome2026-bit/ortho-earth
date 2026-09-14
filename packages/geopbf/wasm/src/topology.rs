@@ -587,7 +587,7 @@ fn polygons_core(xy: &[u32], ring_ranges: &[(usize, usize)], comps: &[(i32, usiz
 
 // ── 全量経路：PBF 生バイト → GintBUF 完成品 ─────────────────────────────────
 // JS は feature 台帳（[fid, type, geomPos]×n）を組むだけ。デルタ復号（readSVarint）→
-// fit（精度変換）→ densify（1度刻み中間点＝米加国境の弦浮き対策）→ 位相 → GintBUF
+// fit（精度変換）→ 位相 → GintBUF（長辺の度アンカーは JS 後処理 insertDegreeAnchors が大円で打つ＝v5）
 // レイアウト組立まで全部ここ。JS topology() の parse ループと同一の数値経路
 //（f64 の演算順・ゼロデルタ棄却・ToUint32 截断・elemCount の数え方）を保つ。
 
@@ -644,7 +644,7 @@ struct ReadCtx {
 
 // 1本ぶんのデコード（n=Some(頂点数) or None=ブロック終端 cend まで）。
 // out_xy=Some なら XY(u32) を、out_m=Some なら L1 Morton(u64) を積む。
-// JS read() と同一：呼び出し1回＝elem3++、採用 grab ごとに elem3++・ゼロデルタ棄却（1点目は除く）・densify 1度刻み。
+// JS read() と同一：呼び出し1回＝elem3++、採用 grab ごとに elem3++・ゼロデルタ棄却（1点目は除く）。densify は v5 で撤去（度アンカーは JS 後処理が大円で打つ）。
 fn read_line(p: &mut Pbf, cend: usize, n: Option<usize>, ctx: &mut ReadCtx,
              mut out_xy: Option<&mut Vec<u32>>, mut out_m: Option<&mut Vec<u64>>) {
     const SCALE_E_F: f64 = 10_000_000.0;
@@ -677,15 +677,7 @@ fn read_line(p: &mut Pbf, cend: usize, n: Option<usize>, ctx: &mut ReadCtx,
                 let vy = if ctx.fit_round { (yf * ctx.factor).round() } else { yf * ctx.factor };
                 let gx = vx + OFFSET_X;
                 let gy = vy + OFFSET_Y;
-                if let Some((pgx, pgy)) = prev {
-                    let dgx = gx - pgx;
-                    let dgy = gy - pgy;
-                    let steps = (dgx.abs().max(dgy.abs()) / SCALE_E_F).ceil();
-                    let stepsi = steps as i64;
-                    for s in 1..stepsi {
-                        push!((pgx + dgx * s as f64 / steps).round(), (pgy + dgy * s as f64 / steps).round());
-                    }
-                }
+                // 長辺の細分はここでしない（v5）＝位相後の JS insertDegreeAnchors が大円で内挿する唯一の場所（JS read() と同一）
                 push!(gx, gy);
                 prev = Some((gx, gy));
                 ctx.elem3 += 1;

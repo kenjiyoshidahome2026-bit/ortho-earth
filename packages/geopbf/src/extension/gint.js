@@ -160,6 +160,46 @@ export class gint {
 	// terminal(L1)=rank63 常時保持は両バックエンド既対応（gl/gint/programs.js rank()）＝shader 改修ゼロ。
 	// wasm/JS どちらの組み立て経路の出力にも同じ JS 後処理＝byte-exact 維持。bbox が 1°箱に収まる arc は
 	// 素通り（密データ＝筆/census はスキャン費用もゼロ）。arcSet={count,buffer,meta,mlen} を in-place 更新。
+	// 長辺（経緯度スパン d>1°）の大円内挿：始点→終点の大円（最短側）上に、中心角 ≤1° かつ隣接スパン ≤1° を満たす等分点を打つ。
+	// 入力/出力は gint 整数格子（e-7・オフセット済）。返すのは内挿点だけ（端点は含まない）。
+	// 完全球体＝頂点は大円で結ぶ（本人裁定 2026-09-14）。エンコーダの antimeridian 切断（球面交点）とも同じ大円に乗る＝縫い目で折れない。
+	static gcAnchors(x0, y0, x1, y1, d) {
+		const S = this.SCALE_E, LIMIT = 10000000, PERIOD = 3600000000, HALF = 1800000000, D2R = Math.PI / 180;
+		const vec = (x, y) => { const lon = (x / S - 180) * D2R, lat = (y / S - 90) * D2R, c = Math.cos(lat); return [c * Math.cos(lon), c * Math.sin(lon), Math.sin(lat)]; };
+		const a = vec(x0, y0), b = vec(x1, y1);
+		const cx = a[1] * b[2] - a[2] * b[1], cy = a[2] * b[0] - a[0] * b[2], cz = a[0] * b[1] - a[1] * b[0];
+		const w = Math.atan2(Math.hypot(cx, cy, cz), a[0] * b[0] + a[1] * b[1] + a[2] * b[2]), sw = Math.sin(w);
+		if (w < 1e-9) return [];   // 球面上で同一点（極の柱 (180,90)→(-180,90) 等）＝弦長ゼロ＝内挿不要
+		const PN = Math.round(179.99 * S), PS = Math.round(0.01 * S);   // 極から 0.01° 以内＝経度の特異点＝経緯度スパンの検査を免除（極を越える大円は経度が 180° 跳ぶ）
+		const nearPole = (py, qy) => py >= PN || qy >= PN || py <= PS || qy <= PS;
+		const span = (px, py, qx, qy) => { let dx = qx - px; if (dx > HALF) dx -= PERIOD; else if (dx < -HALF) dx += PERIOD; return Math.max(Math.abs(dx), Math.abs(qy - py)); };
+		let n = Math.max(Math.ceil(d / LIMIT), Math.ceil(w / D2R), 2);
+		for (let iter = 0; ; iter++) {
+			const pts = []; let px = x0, py = y0, good = true;
+			for (let s = 1; s < n; s++) {
+				const t = s / n, ka = Math.sin((1 - t) * w) / sw, kb = Math.sin(t * w) / sw;
+				const vx = a[0] * ka + b[0] * kb, vy = a[1] * ka + b[1] * kb, vz = a[2] * ka + b[2] * kb;
+				const lon = Math.atan2(vy, vx) / D2R, lat = Math.atan2(vz, Math.hypot(vx, vy)) / D2R;
+				const x = (Math.round((lon + 180) * S) % PERIOD + PERIOD) % PERIOD, y = Math.round((lat + 90) * S);
+				if (!nearPole(py, y) && span(px, py, x, y) > LIMIT) good = false;
+				pts.push([x, y]); px = x; py = y;
+			}
+			if (!nearPole(py, y1) && span(px, py, x1, y1) > LIMIT) good = false;
+			if (good || iter >= 4) return pts;   // 安全弁＝最後の分割の全列を返す（部分列は返さない）
+			n = Math.ceil(n * 1.5);
+		}
+	}
+	// arcSet の各 arc bbox（meta[4..7]）を bbox[x0,y0,x1,y1]（整数格子）へ合流（度アンカーの膨らみを全体 bbox に反映）
+	static unionArcBbox(arcSet, bbox) {
+		const { count, meta, mlen } = arcSet;
+		for (let a = 0; a < count; a++) {
+			const row = a * mlen;
+			if (meta[row + 1] < 1) continue;
+			if (meta[row + 4] < bbox[0]) bbox[0] = meta[row + 4]; if (meta[row + 5] < bbox[1]) bbox[1] = meta[row + 5];
+			if (meta[row + 6] > bbox[2]) bbox[2] = meta[row + 6]; if (meta[row + 7] > bbox[3]) bbox[3] = meta[row + 7];
+		}
+		return bbox;
+	}
 	static insertDegreeAnchors(arcSet) {
 		const LIMIT = 10000000;   // 1°（e-7 単位）
 		const PERIOD = 3600000000, HALF = 1800000000;   // 経度周期＝360e7（2^32 ではない）
@@ -183,7 +223,15 @@ export class gint {
 				if (dx > HALF) dx -= PERIOD; else if (dx < -HALF) dx += PERIOD;
 				const d = Math.max(Math.abs(dx), Math.abs(ys[i + 1] - ys[i]));
 				if (acc + d > LIMIT && acc > 0) { if (i > 0 && !(buffer[o + i] & this.TERMINAL_BIT)) promo.push(i); acc = 0; }
-				if (d > LIMIT) { const n = Math.ceil(d / LIMIT); ins.push(i, n); add += n - 1; acc = d / n; }
+				if (d > LIMIT) {   // 長辺＝大円で内挿（中心角≤1° かつ各辺の経緯度スパン≤1°）。acc＝最後の内挿点→終点のスパン
+					const pts = this.gcAnchors(xs[i], ys[i], xs[i + 1], ys[i + 1], d);
+					if (!pts.length) acc = 0;   // 球面上で同一点（極の柱）＝内挿なし
+					else {
+						ins.push(i, pts); add += pts.length;
+						const lp = pts[pts.length - 1]; let ldx = xs[i + 1] - lp[0]; if (ldx > HALF) ldx -= PERIOD; else if (ldx < -HALF) ldx += PERIOD;
+						acc = Math.max(Math.abs(ldx), Math.abs(ys[i + 1] - lp[1]));
+					}
+				}
 				else acc += d;
 			}
 			if (!promo.length && !add) continue;
@@ -194,13 +242,11 @@ export class gint {
 			for (let i = 0; i < len; i++) {
 				out[w++] = isPromo.has(i) ? this.packFromInt(xs[i], ys[i]) : buffer[o + i];
 				if (ip < ins.length && ins[ip] === i) {
-					const n = ins[ip + 1]; ip += 2;
-					let dx = xs[i + 1] - xs[i];
-					if (dx > HALF) dx -= PERIOD; else if (dx < -HALF) dx += PERIOD;
-					const dy = ys[i + 1] - ys[i];
-					for (let j = 1; j < n; j++) {
-						const x = (Math.round(xs[i] + dx * j / n) % PERIOD + PERIOD) % PERIOD;
-						out[w++] = this.packFromInt(x, Math.round(ys[i] + dy * j / n));
+					const pts = ins[ip + 1]; ip += 2;
+					for (const [x, y] of pts) {
+						out[w++] = this.packFromInt(x, y);
+						if (x < meta[row + 4]) meta[row + 4] = x; if (x > meta[row + 6]) meta[row + 6] = x;   // 大円の膨らみ＝arc bbox を広げる（極側へ弧が張り出す）
+						if (y < meta[row + 5]) meta[row + 5] = y; if (y > meta[row + 7]) meta[row + 7] = y;
 					}
 				}
 			}
