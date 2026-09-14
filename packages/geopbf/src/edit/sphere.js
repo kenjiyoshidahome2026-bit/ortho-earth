@@ -1,6 +1,6 @@
 // geopbf/edit/sphere.js — 完全球体の純幾何（DOM なし・worker 安全・Node 試験可）。
 // 編集モデル（回転移動）・エディタのオーバレイ/作図・gint 焼きの度アンカーが共有する正典。
-// 方針（本人裁定 2026-09-14）: ①頂点は大円で結ぶ ②図形の移動は球の中心まわりの回転 ③円は球面上の小円。
+// 方針（本人裁定 2026-09-14）: ①頂点は大円で結ぶ ②図形の移動は球の中心まわりの回転 ③円は球面上の小円 ④矩形は対角線から球面上で 4 角を決める（9/15）。
 // 楕円体は使わない（geoedit は ell=0 の完全球体として編集。計測だけが WGS84＝ortho-core geodesic.js）。
 // 単位ベクトル [x,y,z]（x=経度0°赤道・z=北極）と四元数 [x,y,z,w] だけを使う。
 const D2R = Math.PI / 180, R2D = 180 / Math.PI;
@@ -63,6 +63,24 @@ export const gcCentroid = lists => {
 	const L = Math.hypot(sx, sy, sz);
 	if (!(L > 1e-12)) return first ? toLL(first) : null;
 	return toLL([sx / L, sy / L, sz / L]);
+};
+// 対角線 a→b から作る球面上の矩形（本人裁定 2026-09-15「矩形も大円ベース・対角線から4点を決めて繋ぐ」）。
+// 経緯度の角（メルカトルの矩形を球に貼った姿）ではなく、対角線の大円中点 M の接平面＝心射図法（大円が直線に写る）で
+// a・b と点対称な 4 角を取る：a=(x,y)・(−x,y)・b=(−x,−y)・(x,−y)（x=M の東・y=M の北）。性質＝4 角は M から等しい中心角
+// （M まわりの小円上）・対辺の中心角が等しい・a/b はそのまま角・M まわりの 180° 回転で自分に重なる。辺は呼び手が大円で結ぶ。
+// 返り値＝閉じたリング [a, (−x,y), b, (x,−y), a]（経緯度・順序は旧 [a,[b0,a1],b,[a0,b1],a] と同じ）。
+// 幅/高さゼロ・対角線 ≥180°（M の接平面に写らない）は null。M が極なら東は任意の基底（smallCircle と同じ）
+export const gcRect = (a, b) => {
+	const A = toVec(a[0], a[1]), B = toVec(b[0], b[1]);
+	const M = slerp(A, B, 0.5), dm = dot(A, M);
+	if (!(dm > 1e-9)) return null;
+	let e = cross([0, 0, 1], M);
+	e = Math.hypot(e[0], e[1], e[2]) < 1e-12 ? [1, 0, 0] : norm(e);
+	const n = cross(M, e);
+	const x = dot(A, e) / dm, y = dot(A, n) / dm;   // 心射座標（b は (−x,−y)）
+	if (!(Math.abs(x) > 1e-12 && Math.abs(y) > 1e-12)) return null;
+	const P = (px, py) => toLL(norm([M[0] + px * e[0] + py * n[0], M[1] + px * e[1] + py * n[1], M[2] + px * e[2] + py * n[2]]));
+	return [[a[0], a[1]], P(-x, y), [b[0], b[1]], P(x, -y), [a[0], a[1]]];
 };
 // 球面上の小円：中心 center から中心角 rDeg の n 点（閉じない・東から反時計回り＝経緯度の cos 補正円と同じ向き）
 export const smallCircle = (center, rDeg, n = 36) => {

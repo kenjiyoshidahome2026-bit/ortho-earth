@@ -11,7 +11,7 @@ window.confirm = () => false;   // クラウド削除等の確認＝試験では
 </script>
 <script type="module">
 import { createGeopbf } from "geopbf";
-import { gcDistanceDeg } from "geopbf/edit/sphere";
+import { gcDistanceDeg, gcMidpoint } from "geopbf/edit/sphere";
 createGeopbf("https://api.ortho-earth.com");
 import orthoJapan from "../app.js";
 import { GeoPBF } from "geopbf/pbf-base";
@@ -252,6 +252,11 @@ try {
 	await sleep(250);
 	const rEid = editor.state.selection;
 	ok("rect", rEid != null && m().featureGeoJSON(rEid, false).geometry.coordinates[0].length === 5);
+	{   // 矩形＝球面上の 4 角（本人裁定 9/15）＝対角線の大円中点から等距離（格子 1e-6 の丸め込み）・a/b は角そのまま
+		const rr = m().featureGeoJSON(rEid, false).geometry.coordinates[0], mid = gcMidpoint([139.744, 35.677], [139.747, 35.679]);
+		const ds = rr.slice(0, 4).map(p => gcDistanceDeg(mid, p));
+		ok("rectSpherical", Math.max(...ds) - Math.min(...ds) < 5e-6 && Math.abs(rr[0][0] - 139.744) < 2e-6 && Math.abs(rr[2][1] - 35.679) < 2e-6);
+	}
 	document.querySelector('#ge-toolbar button[data-tip^="円"]').click();
 	const c1 = map.projectLL(139.7455, 35.6715), c2 = map.projectLL(139.7485, 35.6715);
 	click(c1[0], c1[1]); click(c2[0], c2[1]);

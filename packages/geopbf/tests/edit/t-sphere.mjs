@@ -1,7 +1,7 @@
 // t-sphere: 完全球体の幾何（geopbf/edit/sphere）＋モデルの球面回転 rotateFeature（node tests/edit/t-sphere.mjs）
 //   ①slerp/gcMidpoint/gcDistance の基本性質 ②quatBetween/rotateVec＝a→b・距離保存・逆回転 ③smallCircle＝全点等距離
 //   ④rotateFeature＝隣接ポリゴンの共有ノードが一緒に動く・辺の中心角が保たれる・restore で厳密復元・applyCmd/invertCmd 往復
-import { toVec, toLL, slerp, gcMidpoint, gcInterpolate, gcDistanceDeg, quatBetween, quatInverse, quatMul, quatAngle, quatFromAxisAngle, rotateVec, rotateLL, smallCircle, gcCentroid } from "../../src/edit/sphere.js";
+import { toVec, toLL, slerp, gcMidpoint, gcInterpolate, gcDistanceDeg, quatBetween, quatInverse, quatMul, quatAngle, quatFromAxisAngle, rotateVec, rotateLL, smallCircle, gcCentroid, gcRect } from "../../src/edit/sphere.js";
 import { buildTopology } from "../../src/edit/topo-extract.js";
 import { createModel } from "../../src/edit/model.js";
 
@@ -44,6 +44,26 @@ const near = (a, b, eps = 1e-9) => Math.abs(a - b) < eps;
 	ok(ring.length === 36 && Math.max(...ds) - Math.min(...ds) < 1e-12, "小円＝全点が中心から等しい中心角");
 	const polar = smallCircle([10, 89.5], 2, 36), dp = polar.map(p => gcDistanceDeg([10, 89.5], p));
 	ok(Math.max(...dp) - Math.min(...dp) < 1e-9 && polar.some(p => p[0] < -170 || p[0] > 170), "極を跨ぐ小円も真円（経度が縫い目を跨ぐ）");
+}
+// ③′ 球面矩形（対角線から 4 角）
+{
+	const a = [0, 0], b = [60, 40], r = gcRect(a, b), M = gcMidpoint(a, b);
+	ok(r.length === 5 && r[0][0] === a[0] && r[0][1] === a[1] && r[2][0] === b[0] && r[2][1] === b[1] && r[4] !== r[0] && r[4][0] === a[0], "矩形＝閉リング・a/b はそのまま角");
+	const dM = r.slice(0, 4).map(p => gcDistanceDeg(M, p));
+	ok(Math.max(...dM) - Math.min(...dM) < 1e-9, `4 角は対角線の大円中点から等距離（${dM[0].toFixed(4)}°＝小円上）`);
+	const side = i => gcDistanceDeg(r[i], r[i + 1]);
+	ok(near(side(0), side(2), 1e-9) && near(side(1), side(3), 1e-9), "対辺の中心角が等しい");
+	ok(!(near(r[1][0], b[0], 1e-6) && near(r[1][1], a[1], 1e-6)), `角は経緯度の角 (b.lon,a.lat) ではない（${r[1].map(v => v.toFixed(3))}）`);
+	// a が赤道上だと a を通る辺（M の東向き＝水平）は赤道そのもの＝角の緯度は 0 のまま・経度が 60→51.25 にずれる。赤道を外すと緯度もずれる
+	const r2 = gcRect([0, 10], [60, 50]);
+	ok(Math.hypot(r2[1][0] - 60, r2[1][1] - 10) > 1 && Math.hypot(r2[3][0] - 0, r2[3][1] - 50) > 1, `幅 60° の矩形＝角は経緯度の角から 1° 以上ずれる（${r2[1].map(v => v.toFixed(2))}／${r2[3].map(v => v.toFixed(2))}）`);
+	const small = gcRect([139.744, 35.677], [139.747, 35.679]);
+	ok(Math.abs(small[1][0] - 139.747) < 1e-5 && Math.abs(small[1][1] - 35.677) < 1e-5, "小さい矩形は経緯度の角とほぼ一致");
+	const seam = gcRect([179, 10], [-179, 12]);
+	ok(seam && seam.every(p => p[0] >= -180 && p[0] < 180) && seam.some(p => p[0] > 178) && seam.some(p => p[0] < -178), "縫い目跨ぎ＝経度は [-180,180) に畳まれ両側に角");
+	const polar = gcRect([-10, 88], [170, 88]);   // 対角線が極を通る
+	ok(polar && polar.slice(0, 4).every(p => Math.abs(gcDistanceDeg([0, 90], p) - 2) < 1e-9), "極を通る対角線＝4 角は極から等距離");
+	ok(gcRect([0, 0], [10, 0]) === null && gcRect([0, 0], [0, 10]) === null && gcRect([0, 0], [180, 0]) === null, "幅/高さゼロ・対蹠は null");
 }
 // ④ モデルの球面回転
 {
