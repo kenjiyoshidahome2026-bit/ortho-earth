@@ -330,6 +330,19 @@ export function createOverlay(map, mapEl, getState) {
 			const s = pr(st.snapMark[0], st.snapMark[1]);
 			if (s[2] >= 0) { ctx.beginPath(); ctx.arc(s[0], s[1], 9, 0, Math.PI * 2); ctx.lineWidth = 2.5; ctx.strokeStyle = COL.snap; ctx.stroke(); }
 		}
+		if (st.rot) {   // ホイール回転中＝軸（重心）の十字と現在角（時計回り正・Shift＝15°刻み）
+			const s = pr(st.rot.c[0], st.rot.c[1]);
+			if (s[2] >= 0) {
+				ctx.beginPath(); ctx.moveTo(s[0] - 9, s[1]); ctx.lineTo(s[0] + 9, s[1]); ctx.moveTo(s[0], s[1] - 9); ctx.lineTo(s[0], s[1] + 9);
+				ctx.lineWidth = 1.5; ctx.strokeStyle = COL.sketch; ctx.stroke();
+				ctx.beginPath(); ctx.arc(s[0], s[1], 4, 0, Math.PI * 2); ctx.stroke();
+				const label = `${st.rot.deg > 0 ? "+" : ""}${st.rot.deg.toFixed(st.rot.snapped ? 0 : 1)}°`;
+				ctx.font = `12px "Noto Sans JP","Hiragino Sans",sans-serif`; ctx.textAlign = "left"; ctx.textBaseline = "middle";
+				const tw = ctx.measureText(label).width + 8;
+				ctx.fillStyle = "rgba(0,0,0,.72)"; ctx.fillRect(s[0] + 12, s[1] - 9, tw, 18);
+				ctx.fillStyle = "#fff"; ctx.fillText(label, s[0] + 16, s[1]);
+			}
+		}
 	}
 
 	// frameHooks は render() の中＝ここで投げるとエンジンの描画ループごと止まる。オーバレイ1枚の不具合を地図の死に昇格させない
@@ -350,10 +363,10 @@ export function createOverlay(map, mapEl, getState) {
 			}
 			return null;
 		},
-		symbolAt(x, y) {   // 「見えている絵」で点フィーチャを選ぶ（後勝ち＝上に描かれた方）。±4pxのゆとり付き
+		symbolAt(x, y, pad = 4) {   // 「見えている絵」で点フィーチャを選ぶ（後勝ち＝上に描かれた方）。±pad px のゆとり付き（既定4・移動ツール10）
 			for (let i = symHits.length - 1; i >= 0; i--) {
 				const r = symHits[i];
-				if (x >= r.x0 - 4 && x <= r.x1 + 4 && y >= r.y0 - 4 && y <= r.y1 + 4) return r.eid;
+				if (x >= r.x0 - pad && x <= r.x1 + pad && y >= r.y0 - pad && y <= r.y1 + pad) return r.eid;
 			}
 			return null;
 		},

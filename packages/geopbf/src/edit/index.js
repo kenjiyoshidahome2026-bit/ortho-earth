@@ -13,4 +13,4 @@ export { createLargeModel } from "./large-model.js";   // listsOf は model 側�
 export { createSnapIndex, buildBase, normLon } from "./snap.js";
 export { createHistory } from "./history.js";
 export { smoothRing, smoothGeom } from "./spline.js";
-export { toVec, toLL, slerp, gcInterpolate, gcMidpoint, gcDistanceDeg, angleBetween, quatBetween, quatFromAxisAngle, quatMul, quatInverse, quatAngle, rotateVec, rotateLL, smallCircle } from "./sphere.js";   // 完全球体の幾何（大円・回転・小円）
+export { toVec, toLL, slerp, gcInterpolate, gcMidpoint, gcDistanceDeg, angleBetween, quatBetween, quatFromAxisAngle, quatMul, quatInverse, quatAngle, rotateVec, rotateLL, smallCircle, gcCentroid } from "./sphere.js";   // 完全球体の幾何（大円・回転・小円）

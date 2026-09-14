@@ -282,6 +282,50 @@ try {
 	key("z", { metaKey: true });
 	await sleep(150);
 	ok("moveUndo", JSON.stringify(m().featureGeoJSON(rEid, false)) === beforeMv);
+	// ---- ホイール回転（本人裁定 9/14）：掴んでいる間のホイール＝重心まわり／Alt+ホイール＝掴まずに回す／Shift＝15°刻み ----
+	{
+		const wheel = (x, y, deltaY, o = {}) => C().dispatchEvent(new WheelEvent("wheel", { bubbles: true, cancelable: true, clientX: x, clientY: y, deltaY, deltaMode: 0, ...o }));
+		const ring = () => m().featureGeoJSON(rEid, false).geometry.coordinates[0];
+		const near = (a, b, tol) => Math.abs(a[0] - b[0]) <= tol && Math.abs(a[1] - b[1]) <= tol;
+		const edgeErr = (r0, r1) => Math.max(...r0.slice(1).map((p, i) => Math.abs(gcDistanceDeg(r0[i], p) - gcDistanceDeg(r1[i], r1[i + 1]))));
+		const r0 = ring(), c0 = editor.model ? [139.7455, 35.678] : null;   // 矩形の中心＝重心
+		const z0 = map.getZoom();
+		// 掴む→ホイール（500＝10°）→少し動かす→離す＝1手（q_move∘q_spin）
+		C().dispatchEvent(new PointerEvent("pointerdown", ev(rc[0], rc[1], 8)));
+		wheel(rc[0], rc[1], 500);
+		ok("rotLive", editor.state.rot != null && Math.abs(editor.state.rot.deg - 10) < 1e-9 && near(editor.state.rot.c, c0, 2e-4) && ring()[0][0] !== r0[0][0]);
+		ok("rotNoZoom", Math.abs(map.getZoom() - z0) < 1e-9);   // 掴み中のホイールは地図ズームに流れない
+		M().dispatchEvent(new PointerEvent("pointermove", ev(rc[0] + 30, rc[1], 8)));
+		const cLive = editor.state.rot?.c;
+		M().dispatchEvent(new PointerEvent("pointerup", ev(rc[0] + 30, rc[1], 8)));
+		await sleep(150);
+		const r1 = ring();
+		ok("rotDragMove", editor.state.rot == null && r1.length === 5 && cLive && cLive[0] > c0[0] + 1e-4 && edgeErr(r0, r1) < 5e-6 && Math.abs(r1[1][1] - r1[0][1]) > 1e-5);   // 軸も右へ・辺の中心角不変・辺が傾いた（軸平行でない）
+		key("z", { metaKey: true });
+		await sleep(150);
+		ok("rotUndo", JSON.stringify(ring()) === JSON.stringify(r0));   // base への厳密復元
+		key("Z", { metaKey: true, shiftKey: true });
+		await sleep(150);
+		ok("rotRedo", JSON.stringify(ring()) === JSON.stringify(r1));
+		key("z", { metaKey: true });
+		await sleep(150);
+		// Alt+ホイール（掴まず）＋Shift＝15°刻み：520 → 10.4° → 15° へ吸着。手が止まって 500ms で1手に確定
+		wheel(rc[0], rc[1], 520, { altKey: true, shiftKey: true });
+		ok("rotAlt", editor.state.rot != null && editor.state.rot.deg === 15 && editor.state.rot.snapped === true && Math.abs(map.getZoom() - z0) < 1e-9);
+		ok("rotPivot", near(editor.state.rot.c, c0, 2e-4));   // 軸＝重心（動かしていないので開始時と同じ）
+		await sleep(700);
+		const r2 = ring();
+		ok("rotAltCommit", editor.state.rot == null && edgeErr(r0, r2) < 5e-6 && r2[0][0] !== r0[0][0]);
+		key("z", { metaKey: true });
+		await sleep(150);
+		ok("rotAltUndo", JSON.stringify(ring()) === JSON.stringify(r0));
+		// 無修飾ホイール（掴んでいない）＝地図ズームのまま・図形は動かない
+		wheel(rc[0], rc[1], 100);
+		await sleep(50);
+		ok("wheelZoomKept", editor.state.rot == null && Math.abs(map.getZoom() - z0) > 1e-6 && JSON.stringify(ring()) === JSON.stringify(r0));
+		wheel(rc[0], rc[1], -100); await sleep(50);   // 同じ錨で戻す＝以降の試験は元の構図
+		ok("wheelZoomBack", Math.abs(map.getZoom() - z0) < 1e-6);
+	}
 
 	// ---- 束ね（bundle）：A と B をクリック→画面上の「合成を確定」→ MultiPolygon 1件・undo で戻る ----
 	{

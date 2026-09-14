@@ -91,7 +91,7 @@ export function initEditor(map, { adopt = true, setDropOwner = null } = {}) {   
 	mapEl.append(toolbarEl);
 	// 可変状態は全部ここ（各入力モジュールと共有）
 	const st = {
-		model: null, selection: null, dragEids: null, hidden: null, sketch: null, snapMark: null, busy: false, bundle: null, focus: null,
+		model: null, selection: null, dragEids: null, hidden: null, sketch: null, snapMark: null, rot: null, busy: false, bundle: null, focus: null,
 		tool: "select",
 		drag: null,        // ドラッグ中の記述（drag.js）
 		editGen: 0,        // 編集世代＝「このコミットは最新の編集を含むか」の判定（含むなら隠し/オーバレイを引き継ぐ）
@@ -138,7 +138,9 @@ export function initEditor(map, { adopt = true, setDropOwner = null } = {}) {   
 	// エンジン自身は canvas に直接 listen＝家具を見ない。ここも同じ土俵に揃える（overlay canvas は pointer-events:none＝地図 canvas が target）
 	const onSurface = e => e.target instanceof HTMLCanvasElement;
 	// 画面座標→eid：①シンボルの見た目（アイコンは足元アンカー＝絵の位置と実座標がずれるため画面矩形で）②gint識別
-	const pick = (x, y, ll = map.unprojectXY(x, y)) => ll ? (overlay.symbolAt(x, y) ?? layer.identify(ll[0], ll[1], map.getZoom())) : null;
+	// wide＝移動ツールの掴み（シンボル±10px・点20px・線14px＝通常の約1.7倍。「掴みにくい」本人指摘 9/14）
+	const PICK_WIDE = { point: 20, polyline: 14 };
+	const pick = (x, y, ll = map.unprojectXY(x, y), wide = false) => ll ? (overlay.symbolAt(x, y, wide ? 10 : 4) ?? layer.identify(ll[0], ll[1], map.getZoom(), wide ? PICK_WIDE : undefined)) : null;
 	const ed = { map, mapEl, signal, st, hist, layer, overlay, popLayer, toast, drawDefaults, localXY, pick, onSurface };
 
 	// Shift+クリック＝その要素の @pop を開く。エンジンは shift を tilt/回転扱いにして onClick を出さない（input.js）ため、
@@ -303,13 +305,13 @@ export function initEditor(map, { adopt = true, setDropOwner = null } = {}) {   
 	ed.snapLL = snapLL;
 
 	// ---- 履歴経由の適用（undo/redo・構造操作共通）----
-	const GEOM_ONLY = new Set(["move", "movePt", "tr", "insert", "delete"]);   // 顔ぶれ（点/blur/帯の集合）を変えない操作
+	const GEOM_ONLY = new Set(["move", "movePt", "tr", "rot", "insert", "delete"]);   // 顔ぶれ（点/blur/帯の集合）を変えない操作
 	const affectedEids = (cmd, res) => {   // このコマンドで gint 表示が古くなるフィーチャ群
 		const out = new Set();
 		const arcRefs = aid => { const a = st.model.arcs.get(aid); if (a) for (const e of a.refs) out.add(e); };
 		if (cmd.op === "move" && res?.dirty) for (const aid of res.dirty) arcRefs(aid);
 		else if (cmd.op === "movePt" || cmd.op === "del" || cmd.op === "add" || cmd.op === "hole" || cmd.op === "unhole") out.add(cmd.eid);
-		else if (cmd.op === "tr") for (const e of moveTargets(st.model, cmd.eid)) out.add(e);
+		else if (cmd.op === "tr" || cmd.op === "rot") for (const e of moveTargets(st.model, cmd.eid)) out.add(e);   // rot＝移動ツール（回転移動/ホイール回転）の undo/redo でも隣ごと隠す
 		else if (cmd.op === "insert" || cmd.op === "delete") { const r = st.model.resolveAddr(cmd.addr); if (r) arcRefs(r.arcId); }
 		else if (cmd.op === "combine") for (const e of cmd.eids) out.add(e);
 		else if (cmd.op === "uncombine") for (const p of cmd.parts) out.add(p.eid);
@@ -378,6 +380,7 @@ export function initEditor(map, { adopt = true, setDropOwner = null } = {}) {   
 		return hood;
 	};
 	const select = eid => {
+		ed.flushRot?.();   // 選択替え＝進行中のホイール回転（Alt+ホイール）を先に1手へ確定
 		st.selection = eid; st.sketch = null;
 		if (st.model?.large) { st.focus = focusHood(eid); layer.focus(st.focus); }   // 編集近傍＝gint消灯・オーバレイ描画へ
 		eid != null && st.tool === "select" ? props.render(eid) : props.close();   // パネルは選択ツール時のみ（作図中は既定スタイルパネルが主役）。選択表示はオーバレイ一本（大規模も同じ＝gint橙強調は撤去 8/26）
@@ -473,6 +476,7 @@ export function initEditor(map, { adopt = true, setDropOwner = null } = {}) {   
 	// ---- ツールバー結線 ----
 	const setTool = next => {
 		if (st.model?.large && next !== "select") { toast(t("大規模モード＝選択と属性・スタイル編集のみ（作図・頂点編集は不可）")); next = "select"; }
+		ed.flushRot?.();   // ツール替え＝進行中のホイール回転を先に確定
 		const wasBundle = st.tool === "bundle";
 		st.tool = next;
 		sketch.cancel();

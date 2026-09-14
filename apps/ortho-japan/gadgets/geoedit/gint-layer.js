@@ -190,9 +190,10 @@ export function createGintLayer(map) {
 		// クリック座標（経緯度）→ eid。gint識別（点→線→面優先・smallest-wins）。
 		// 許容量はメートル固定でなく**画面ピクセル基準**（点12px・線8px）をズームからmへ換算＝
 		// 浅いズームで「見えているのにクリックできない」を防ぐ（identifyAt既定の50m/30mは深ズーム前提）。
-		identify(lng, lat, zoom = 14) {
+		// px＝当たり幅（画面px）。移動ツールは広め（点20/線14＝「掴みにくい」本人指摘 9/14）＝呼び手が渡す
+		identify(lng, lat, zoom = 14, px = { point: 12, polyline: 8 }) {
 			const mpp = 40075016.686 * Math.cos(lat * Math.PI / 180) / (256 * Math.pow(2, zoom));   // Webメルカトル近似のm/px＝許容量換算用
-			const fid = pbf?.identifyAt?.(lng, lat, { point: Math.max(50, 12 * mpp), polyline: Math.max(30, 8 * mpp) });
+			const fid = pbf?.identifyAt?.(lng, lat, { point: Math.max(50, px.point * mpp), polyline: Math.max(30, px.polyline * mpp) });
 			return fid == null || fid < 0 ? null : fidEid[fid] ?? null;
 		},
 		hide(eids) { hidden = new Set(eids); push(); },

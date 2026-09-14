@@ -44,6 +44,26 @@ export const rotateVec = (q, v) => {   // v' = q v q*
 	return [v[0] + w * tx + (y * tz - z * ty), v[1] + w * ty + (z * tx - x * tz), v[2] + w * tz + (x * ty - y * tx)];
 };
 export const rotateLL = (q, lon, lat) => toLL(rotateVec(q, toVec(lon, lat)));
+// 重心（ホイール回転の軸）＝折れ線列の辺長（中心角）重み球面平均（頂点密度の偏りに引かれない）。lists＝[[lon,lat],…] の配列（環は閉じ点込みでよい）。
+// 辺が無い（全て単点/同一点）なら点の単純平均。退化（全点対蹠で打ち消し）は先頭点
+export const gcCentroid = lists => {
+	let sx = 0, sy = 0, sz = 0, first = null;
+	const add = (v, w) => { sx += v[0] * w; sy += v[1] * w; sz += v[2] * w; };
+	let edges = 0;
+	for (const pts of lists) {
+		let prev = null;
+		for (const p of pts) {
+			const v = toVec(p[0], p[1]);
+			first ??= v;
+			if (prev) { const w = Math.hypot(v[0] - prev[0], v[1] - prev[1], v[2] - prev[2]); if (w > 0) { add(slerp(prev, v, 0.5), w); edges++; } }   // 大円中点×弦長(=2sin(ω/2))＝弧上の単位ベクトル積分そのもの＝辺を細分しても同じ重心
+			prev = v;
+		}
+	}
+	if (!edges || Math.hypot(sx, sy, sz) < 1e-12) { sx = sy = sz = 0; for (const pts of lists) for (const p of pts) add(toVec(p[0], p[1]), 1); }
+	const L = Math.hypot(sx, sy, sz);
+	if (!(L > 1e-12)) return first ? toLL(first) : null;
+	return toLL([sx / L, sy / L, sz / L]);
+};
 // 球面上の小円：中心 center から中心角 rDeg の n 点（閉じない・東から反時計回り＝経緯度の cos 補正円と同じ向き）
 export const smallCircle = (center, rDeg, n = 36) => {
 	const c = toVec(center[0], center[1]);

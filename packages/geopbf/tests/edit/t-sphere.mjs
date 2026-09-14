@@ -1,7 +1,7 @@
 // t-sphere: 完全球体の幾何（geopbf/edit/sphere）＋モデルの球面回転 rotateFeature（node tests/edit/t-sphere.mjs）
 //   ①slerp/gcMidpoint/gcDistance の基本性質 ②quatBetween/rotateVec＝a→b・距離保存・逆回転 ③smallCircle＝全点等距離
 //   ④rotateFeature＝隣接ポリゴンの共有ノードが一緒に動く・辺の中心角が保たれる・restore で厳密復元・applyCmd/invertCmd 往復
-import { toVec, toLL, slerp, gcMidpoint, gcDistanceDeg, quatBetween, quatInverse, quatMul, quatAngle, rotateVec, rotateLL, smallCircle } from "../../src/edit/sphere.js";
+import { toVec, toLL, slerp, gcMidpoint, gcInterpolate, gcDistanceDeg, quatBetween, quatInverse, quatMul, quatAngle, quatFromAxisAngle, rotateVec, rotateLL, smallCircle, gcCentroid } from "../../src/edit/sphere.js";
 import { buildTopology } from "../../src/edit/topo-extract.js";
 import { createModel } from "../../src/edit/model.js";
 
@@ -82,6 +82,24 @@ const near = (a, b, eps = 1e-9) => Math.abs(a - b) < eps;
 	ok(pa[0][0] !== 139.75 && Math.abs(gcDistanceDeg(pa[0], pa[1]) - gcDistanceDeg([139.75, 35.65], [139.77, 35.66])) < 3e-6, "点列も回転（間隔保持）");
 	model.rotateFeature(P, null, bp);
 	ok(JSON.stringify(model.featureGeoJSON(P, false)) === pb, "点列の restore も厳密");
+}
+// ⑤ 重心（ホイール回転の軸）＝辺長重み・頂点密度に引かれない／軸まわり回転で重心が不動
+{
+	const sq = [[10, 70], [11, 70], [11, 70.4], [10, 70.4], [10, 70]];
+	const c = gcCentroid([sq]);
+	ok(Math.abs(c[0] - 10.5) < 1e-3 && Math.abs(c[1] - 70.2) < 1e-3, `矩形の重心≈中心（${c.map(v => v.toFixed(4))}）`);
+	const dense = [...Array.from({ length: 10 }, (_, i) => gcInterpolate([10, 70], [11, 70], i / 10)), [11, 70], [11, 70.4], [10, 70.4], [10, 70]];   // 南辺だけ大円上に頂点が密（緯線上に刻むと別の形＝大円は極側へ膨らむ）
+	const cd = gcCentroid([dense]);
+	ok(Math.abs(cd[0] - c[0]) < 1e-9 && Math.abs(cd[1] - c[1]) < 1e-9, "頂点密度が偏っても重心は同じ（弧上の積分＝細分不変）");
+	ok(JSON.stringify(gcCentroid([[[0, 0], [2, 0]]]).map(v => +v.toFixed(9))) === "[1,0]", "2点線分の重心＝中点");
+	const one = gcCentroid([[[5, 5]]]);
+	ok(Math.abs(one[0] - 5) < 1e-9 && Math.abs(one[1] - 5) < 1e-9, "単点＝自身");
+	const q = quatFromAxisAngle(toVec(c[0], c[1]), -37 * Math.PI / 180);   // 重心を軸に時計回り 37°
+	const rq = sq.map(p => rotateLL(q, p[0], p[1])), cq = gcCentroid([rq]);
+	ok(Math.abs(cq[0] - c[0]) < 1e-9 && Math.abs(cq[1] - c[1]) < 1e-9, "重心を軸に回すと重心は動かない");
+	ok(Math.abs(gcDistanceDeg(rq[0], rq[1]) - gcDistanceDeg(sq[0], sq[1])) < 1e-9, "高緯度でも辺の中心角が保たれる（lon/lat 平面回転なら潰れる）");
+	const e = rotateLL(quatFromAxisAngle(toVec(0, 0), -Math.PI / 2), 1, 0);
+	ok(Math.abs(e[0]) < 1e-9 && Math.abs(e[1] + 1) < 1e-9, "軸=外向き法線・負の角＝画面で時計回り（東→南）");
 }
 console.log(fails ? `FAIL (${fails})` : "PASS");
 process.exit(fails ? 1 : 0);
