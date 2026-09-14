@@ -4,7 +4,7 @@ import { gint } from "./gint.js";
 // GintBUF のフォーマット版。レイアウトを変えたら必ず上げる：unPackGintBuffer が版不一致を拒否し、
 // pbf-io.load が「キャッシュのPBFから再焼き」で自己修復する（版なし時代、polyStream/lineStream 導入(v2レイアウト)を
 // 旧版キャッシュが新リーダで読まれて海岸線が全端末で黙って消えた——ETag はソース PBF の版であって派生物の版ではない）。
-topology.FORMAT_VERSION = 4;   // v4: 度アンカー（1°ごとの L1）挿入＝内容が変わる＝旧キャッシュは再焼き。v3: 接合点判定を出現回数→neighbor-pair方式に
+topology.FORMAT_VERSION = 5;   // v5: 度アンカーを大円補間に（完全球体＝頂点は大円で結ぶ・parse 時の経緯度線形 densify は撤去）＝旧キャッシュは再焼き。v4: 度アンカー（1°ごとの L1）挿入。v3: 接合点判定を出現回数→neighbor-pair方式に
 
 // V8 Map limit (~16M entries) workaround: distribute keys across multiple bucket Maps.
 class BigMap {
@@ -67,7 +67,6 @@ export function topology(self) {
 				else if (tag === GeoPBF.TAGS.COORDS) {
 					const end = pbf.readVarint() + pbf.pos;
 					let x = 0, y = 0;
-					const DENSIFY = gint.SCALE_E; // insert intermediate L1 nodes every degree
 					const read = (n) => { elemCount[3]++;
 						let x = 0, y = 0;
 						let prevGX = null, prevGY = null;
@@ -78,12 +77,7 @@ export function topology(self) {
 							if (dx || dy || prevGX === null) { x += dx, y += dy;
 								updateBbox(x, y);
 								const gx = fit(x) + OFFSET_X, gy = fit(y) + OFFSET_Y;
-								if (prevGX !== null) {
-									const dgx = gx - prevGX, dgy = gy - prevGY;
-									const steps = Math.ceil(Math.max(Math.abs(dgx), Math.abs(dgy)) / DENSIFY);
-									for (let s = 1; s < steps; s++)
-										stream.push(Math.round(prevGX + dgx * s / steps), Math.round(prevGY + dgy * s / steps));
-								}
+								// 長辺の細分はここでしない（v5）＝位相後の insertDegreeAnchors が大円で内挿する唯一の場所（Rust read_line と同一）
 								stream.push(gx, gy);
 								prevGX = gx; prevGY = gy;
 								elemCount[3]++;
@@ -123,10 +117,10 @@ export function topology(self) {
 	// ポリゴン経路：wasm 一括版（cutPolygon→meta→buildArcs→stream を1往復）が使えれば使う。
 	// wasm 不在（フォールバック）は従来の JS 経路＝structures[0] に .arcs が生える。
 	const polygon = gint.buildPolygonsWasm(structures[0]) ?? buildPolygons(structures[0]);
-	if (polygon) gint.insertDegreeAnchors(polygon);   // 度アンカー＝1°ごとの L1（buffer 伸長＝polyline の頂点オフセット計算より先）
+	if (polygon) { gint.insertDegreeAnchors(polygon); gint.unionArcBbox(polygon, bbox); }   // 度アンカー＝1°ごとの L1・大円（buffer 伸長＝polyline の頂点オフセット計算より先）。大円の膨らみを全体 bbox にも合流
 	// （polyline は下の buildPolylines 直後。全wasm経路は anchorFullGintBuf が同じ後処理を GintBUF 丸ごとに掛ける）
 	const polyline = buildPolylines(structures[1], polygon? polygon.count: 0, polygon?.buffer.length ?? 0);
-	if (polyline) gint.insertDegreeAnchors(polyline);
+	if (polyline) { gint.insertDegreeAnchors(polyline); gint.unionArcBbox(polyline, bbox); }
 	const point = buildPoints(structures[2]);
 	const pointCount = point? point.count: 0; if(pointCount) elemCount[2] = pointCount;
 	// Build flat binary topology streams (v2: no JSON)
@@ -218,6 +212,11 @@ function anchorFullGintBuf(full) {
 	const set = { count: d.arcCount, buffer: d.arcBuffer, meta: d.arcMeta, mlen };
 	gint.insertDegreeAnchors(set);
 	d.arcBuffer = set.buffer;
+	{   // 大円アンカーの膨らみ（極側）を全体 bbox（度）にも合流
+		const S = gint.SCALE_E, bb = [Infinity, Infinity, -Infinity, -Infinity];
+		gint.unionArcBbox(set, bb);
+		if (bb[0] !== Infinity) d.bbox = [Math.min(d.bbox[0], bb[0] / S - 180), Math.min(d.bbox[1], bb[1] / S - 90), Math.max(d.bbox[2], bb[2] / S - 180), Math.max(d.bbox[3], bb[3] / S - 90)];
+	}
 	return repackGintBuffer(d);
 }
 

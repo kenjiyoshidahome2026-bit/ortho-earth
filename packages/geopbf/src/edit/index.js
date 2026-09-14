@@ -5,6 +5,7 @@
 //   createLargeModel: 大規模モード＝GeoPBF バイト列+GintBUF を真実源のまま in-place 編集（数千万頂点・OOM 回避）
 //   createSnapIndex: スナップ索引（格子 10^-gridExp 連動）／createHistory: undo/redo コマンド台帳
 //   smoothRing/smoothGeom: @spline の Catmull-Rom 細分（エディタと再生の共通幾何）
+//   sphere         : 完全球体の幾何＝大円補間・球面回転（四元数）・小円。頂点は大円で結ぶ／移動は回転（本人裁定 2026-09-14）
 // 個別 import は geopbf/edit/<name>（model / large-model / topo-extract / snap / history / spline）。
 export { buildTopology, createExtractor, quantize, quantizeLine } from "./topo-extract.js";
 export { createModel, rebuildModel, adoptRebuilt, retopoTopo, topoToTransfer, topoFromTransfer, stitchGeometry, listsOf } from "./model.js";
@@ -12,3 +13,4 @@ export { createLargeModel } from "./large-model.js";   // listsOf は model 側�
 export { createSnapIndex, buildBase, normLon } from "./snap.js";
 export { createHistory } from "./history.js";
 export { smoothRing, smoothGeom } from "./spline.js";
+export { toVec, toLL, slerp, gcInterpolate, gcMidpoint, gcDistanceDeg, angleBetween, quatBetween, quatFromAxisAngle, quatMul, quatInverse, quatAngle, rotateVec, rotateLL, smallCircle } from "./sphere.js";   // 完全球体の幾何（大円・回転・小円）

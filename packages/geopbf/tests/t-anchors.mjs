@@ -1,4 +1,4 @@
-// t-anchors: 度アンカー（1°ごとの L1）＝insertDegreeAnchors（v1機構の復元・米加国境49°線）。
+// t-anchors: 度アンカー（1°ごとの L1）＝insertDegreeAnchors（v1機構の復元・米加国境49°線）。v5＝内挿は大円（完全球体）。
 // gint は保持頂点間を直線チョードで描く＝LOD後も「アンカー間の累積経緯度スパン≤1°」を保証する：
 //   ①長辺（>1°）＝L1点の内挿 ②密な低rank頂点列＝1°窓ごとの既存頂点L1昇格 ③1°箱内のarc＝完全無変換。
 // wasm 全量経路（topologyFullWasm→anchorFullGintBuf）で検定＝本番と同経路。
@@ -58,6 +58,33 @@ const maxAnchorGap = vs => { let acc = 0, worst = 0; const ds = spans(vs); for (
 	const d = await bake([F("Polygon", [ring])]);
 	const vs = arcVerts(d, 0);
 	ok(vs.length === 41 && vs.slice(1, -1).every(v => v.w < 63), `1°箱内は素通り（頂点 ${vs.length}・内部昇格なし）`);
+}
+// ⑤ 極付近の長辺（65°N・経度 100°）＝内挿点は始点→終点の大円面上（法線との内積≈0）・極側へ膨らむ・arc bbox も膨らみを含む
+{
+	const d = await bake([F("LineString", [[100, 65], [-160, 65]])]);
+	const vs = arcVerts(d, 0);
+	const S = 1e7, D2R = Math.PI / 180;
+	const vec = ([x, y]) => { const lon = (x / S - 180) * D2R, lat = (y / S - 90) * D2R, c = Math.cos(lat); return [c * Math.cos(lon), c * Math.sin(lon), Math.sin(lat)]; };
+	const a = vec(vs[0].xy), b = vec(vs[vs.length - 1].xy);
+	const n = [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]], nl = Math.hypot(...n);
+	const off = Math.max(...vs.map(v => { const p = vec(v.xy); return Math.abs((p[0] * n[0] + p[1] * n[1] + p[2] * n[2]) / nl); }));
+	const maxLat = Math.max(...vs.map(v => v.xy[1] / S - 90));
+	ok(off < 1e-6, `内挿点は大円面上（面からの最大ずれ ${off.toExponential(2)} < 1e-6）`);
+	ok(maxLat > 70, `大円は極側へ膨らむ（最大緯度 ${maxLat.toFixed(2)}° > 70°）`);
+	ok(spans(vs).every(s => s <= LIMIT) && vs.every(v => v.w >= 63), "極付近でも全辺 ≤1°・全点アンカー");
+	ok(d.arcMeta[7] >= Math.round((maxLat + 90) * S), "arc bbox が大円の膨らみを含む");
+	ok(d.bbox[3] >= maxLat - 1e-6, `全体 bbox も膨らみを含む（${d.bbox[3].toFixed(3)}）`);
+}
+// ⑥ 極を越える辺（[0,80]→[180,80]＝大円は北極を通る）＝経度が 0→±180 に跳ぶ特異点を免除して両側に内挿・極の点を含む・膨らまない点数
+{
+	const d = await bake([F("LineString", [[0, 80], [180, 80]])]);
+	const vs = arcVerts(d, 0), S = 1e7;
+	const lats = vs.map(v => v.xy[1] / S - 90), lons = vs.map(v => v.xy[0] / S - 180);
+	ok(Math.max(...lats) >= 89.999, `極を通る（最大緯度 ${Math.max(...lats).toFixed(3)}）`);
+	ok(lons.some(l => Math.abs(l) < 1e-6) && lons.some(l => Math.abs(Math.abs(l) - 180) < 1e-6), "極の両側（lon 0 側と ±180 側）に内挿点");
+	ok(vs.length >= 21 && vs.length <= 400, `点数は妥当（${vs.length}）`);
+	const p = await bake([F("Polygon", [[[0, 80], [90, 80], [180, 80], [-90, 80], [0, 80]]])]);   // 極を囲む環（エンコーダが柱で閉じる）＝極の柱 (180,90)→(-180,90) に内挿なし
+	ok(p.arcCount >= 1 && p.bbox[3] >= 89.999 && p.bbox[0] <= -179.999 && p.bbox[2] >= 179.999, `極を囲む環＝gint に載る（bbox ${p.bbox.map(v => v.toFixed(1)).join(",")}）`);
 }
 
 console.log(fails ? `FAIL (${fails})` : "PASS");

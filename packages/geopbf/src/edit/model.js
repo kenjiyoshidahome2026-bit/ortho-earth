@@ -16,6 +16,7 @@
 // v0はこれで進め、M8の実測で苦しければ TypedArray 化（arc毎の並行配列）に置換する。
 
 import { buildTopology, createExtractor, quantize, quantizeLine } from "./topo-extract.js";
+import { rotateLL } from "./sphere.js";
 import { createSnapIndex, buildBase, normLon } from "./snap.js";
 import { unwrapLons } from "./spline.js";
 
@@ -256,6 +257,38 @@ export function createModel(topo) {
 			for (let i = 1; i < n - 1; i++) setArcVertex(aid, i, quantize(normLon(arc.pts[i * 2] + dx), e), quantize(arc.pts[i * 2 + 1] + dy, e), dirty);
 		}
 		return { d: [dx, dy] };
+		} finally { indexing = wasIndexing; }
+	}
+
+	// ---- 球面回転（移動ツール）：図形を球の中心まわりの回転で動かす（本人裁定 9/14「球体上の図形として角度で移動」）。
+	//      base＝掴み始めの頂点列（featureVerts＝安定アドレス eid/path/vi 順）。毎回 base から回すので量子化誤差が積まない。
+	//      q=null＝恒等＝base をそのまま戻す（undo は厳密復元）。共有ノード/共有arcは moveVertex 経由＝隣も一緒に動く。
+	//      base は arc id を持たない＝commit の再抽出（rebuildModel/adoptRebuilt）を跨いでも undo/redo が効く。
+	function featureVerts(eid) {   // → { coords } | { rings:[{path, pts:[[x,y],…]}] }（継ぎ目頂点は次arcの0番＝resolveAddr と同じ vi 規約）
+		const f = m.feats.get(eid);
+		if (!f) return null;
+		if (f.coords) return { coords: f.coords.map(c => [c[0], c[1]]) };
+		const rings = [];
+		for (const { path, list } of listsOf(f)) {
+			const pts = [];
+			list.forEach((s, k) => {
+				const arc = m.arcs.get(sidOf(s)), n = arc.pts.length / 2, take = k === list.length - 1 ? n : n - 1;
+				for (let local = 0; local < take; local++) { const i = s < 0 ? n - 1 - local : local; pts.push([arc.pts[i * 2], arc.pts[i * 2 + 1]]); }
+			});
+			rings.push({ path, pts });
+		}
+		return { rings };
+	}
+	function rotateFeature(eid, q, base, { index = true } = {}) {
+		const f = m.feats.get(eid);
+		if (!f || !base) return null;
+		const rot = (x, y) => q ? rotateLL(q, x, y) : [x, y];
+		const wasIndexing = indexing;
+		indexing = index;
+		try {
+			if (f.coords) { base.coords.forEach((c, i) => { const p = rot(c[0], c[1]); movePoint(eid, i, p[0], p[1]); }); return true; }
+			for (const { path, pts } of base.rings) pts.forEach((c, vi) => { const r = resolveAddr({ eid, path, vi }); if (r) { const p = rot(c[0], c[1]); moveVertex(r.arcId, r.idx, p[0], p[1]); } });
+			return true;
 		} finally { indexing = wasIndexing; }
 	}
 
@@ -500,6 +533,7 @@ export function createModel(topo) {
 		if (cmd.op === "move") { const r = resolveAddrExpect(cmd.addr, cmd.from); return moveVertex(r.arcId, r.idx, cmd.to[0], cmd.to[1]); }
 		if (cmd.op === "movePt") return movePoint(cmd.eid, cmd.ptIdx, cmd.to[0], cmd.to[1]);
 		if (cmd.op === "tr") return translateFeature(cmd.eid, cmd.d[0], cmd.d[1]);
+		if (cmd.op === "rot") return rotateFeature(cmd.eid, cmd.restore ? null : cmd.q, cmd.base);   // restore＝base へ厳密復元（undo）
 		if (cmd.op === "insert") {
 			const r = resolveAddr(cmd.addr);
 			const res = insertVertex(r.arcId, r.idx, cmd.ll[0], cmd.ll[1]);
@@ -531,6 +565,7 @@ export function createModel(topo) {
 	function invertCmd(cmd) {
 		if (cmd.op === "move" || cmd.op === "movePt" || cmd.op === "props") return { ...cmd, from: cmd.to, to: cmd.from };
 		if (cmd.op === "tr") return { op: "tr", eid: cmd.eid, d: [-cmd.d[0], -cmd.d[1]] };
+		if (cmd.op === "rot") return { ...cmd, restore: !cmd.restore };
 		if (cmd.op === "insert") return { op: "delete", addr: cmd.addrNew, ll: cmd.ll };
 		if (cmd.op === "hole") return { op: "unhole", eid: cmd.eid, path: cmd.path, ring: cmd.ring };
 		if (cmd.op === "unhole") return { op: "hole", eid: cmd.eid, ring: cmd.ring };
@@ -553,7 +588,7 @@ export function createModel(topo) {
 	for (const arc of m.arcs.values()) vcount += arc.pts.length / 2;
 
 	return Object.assign(m, {
-		snap, moveVertex, insertVertex, deleteVertex, movePoint, translateFeature, reindexFeature, addFeature, deleteFeature, addHole, removeRing, pointInRing,
+		snap, moveVertex, insertVertex, deleteVertex, movePoint, translateFeature, featureVerts, rotateFeature, reindexFeature, addFeature, deleteFeature, addHole, removeRing, pointInRing,
 		toGeoJSON, featureGeoJSON, addrOf, resolveAddr, applyCmd, invertCmd, setGrid, stitch, arcCoords, listsOf, familyOf,
 		endNodeOf: (aid, end) => endNode.get(aid)?.[end],
 		stats: () => ({ features: m.feats.size, arcs: m.arcs.size, vertices: vcount }),

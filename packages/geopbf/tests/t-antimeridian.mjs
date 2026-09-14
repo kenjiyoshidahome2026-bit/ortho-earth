@@ -64,5 +64,22 @@ const mixed = [[[179.9, 35.0], [-179.9, 35.0], [-179.9, 35.2], [179.9, 35.2], [1
 	ok(lons(g).every(x => x >= -180 && x <= 180), "全経度が [-180,180] 内");
 }
 
+// ④ 極を囲む環（縫い目跨ぎ1回）＝縫い目→極→縫い目の柱で閉じる（RFC 7946 の極表現）。球面編集（回転で極を越える）で生まれる形
+{
+	const ring = [[0, 80], [90, 80], [180, 80], [-90, 80], [0, 80]];   // 北極を囲む（頂点の1つが縫い目上）
+	const [f] = await enc([F("Polygon", [ring])]);
+	const r = f?.geometry?.coordinates?.[0] ?? [];
+	const hasPole = r.some(p => p[1] === 90 && p[0] === 180) && r.some(p => p[1] === 90 && p[0] === -180);
+	ok(f && f.geometry.type === "Polygon" && hasPole, `極を囲む環＝1面のまま [±180,90] の柱で閉じる（${f?.geometry?.type} ${r.length}点）`);
+	ok(r.length === ring.length + 3 && r[0][0] === r[r.length - 1][0] && r[0][1] === r[r.length - 1][1], "閉じた環（元の頂点＋柱3点）");
+	const ring2 = [[-48.5, 88.9], [88.5, 88.9], [176, 88.3], [-136, 88.3], [-48.5, 88.9]];   // 回転で極を囲んだ環（跨ぎ辺 176→-136）
+	const [g] = await enc([F("Polygon", [ring2])]);
+	const r2 = g?.geometry?.coordinates?.[0] ?? [];
+	ok(g && g.geometry.type === "Polygon" && r2.some(p => p[1] === 90) && span(lons(g.geometry)) === 360, `回転産の極囲み環も柱で閉じる（${r2.length}点・経度スパン ${span(lons(g.geometry))}）`);
+	const south = [[0, -80], [-90, -80], [180, -80], [90, -80], [0, -80]];
+	const [h] = await enc([F("Polygon", [south])]);
+	ok(h && (h.geometry.coordinates[0] ?? []).some(p => p[1] === -90), "南極を囲む環＝[±180,-90] の柱");
+}
+
 console.log(fails ? `FAIL (${fails})` : "PASS");
 process.exit(fails ? 1 : 0);

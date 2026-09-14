@@ -607,9 +607,18 @@ model.stats();                                      // → { features, arcs, ver
 | `createSnapIndex(gridExp, deref)` | grid-linked snapping |
 | `createHistory()` | undo/redo stack |
 | `smoothRing` / `smoothGeom` | Catmull-Rom subdivision, shared by the editor and `@spline` playback so the curve is the same everywhere |
+| `geopbf/edit/sphere` | perfect-sphere geometry: `slerp` / `gcMidpoint` / `gcDistanceDeg` (great circles), `quatBetween` / `rotateLL` (rotation about the globe center), `smallCircle`. `createModel` exposes `featureVerts` + `rotateFeature(eid, q, base)` = move a feature as a rigid figure on the sphere (command `{op:"rot"}`; undo restores the snapshot exactly) |
 
 Granular imports: `geopbf/edit/model`, `geopbf/edit/large-model`, `geopbf/edit/topo-extract`, `geopbf/edit/snap`,
-`geopbf/edit/history`, `geopbf/edit/spline`.
+`geopbf/edit/history`, `geopbf/edit/spline`, `geopbf/edit/sphere`.
+
+**Edge semantics (Gint v5).** Consecutive vertices are joined by **great circles on a perfect sphere**: the Gint bake inserts
+great-circle anchors so that no rendered chord spans more than 1°, the antimeridian cut already uses the spherical crossing, and
+the editor draws, snaps and moves on the same sphere (moving = rotation about the globe center, circles = spherical small circles).
+This differs from RFC 7946, which defines segments as straight lines in longitude/latitude — a two-vertex "parallel" such as a 49°N
+border will bow poleward; add intermediate vertices if you need a rhumb-like edge. Rings that enclose a pole (they cross the
+antimeridian once) are closed through the pole on encode (`[±180,lat] → [±180,±90] → [∓180,±90] → [∓180,lat]`, the RFC 7946
+pole convention), and an edge whose great circle passes over the pole gets anchors on both sides of the longitude jump.
 
 ---
 
