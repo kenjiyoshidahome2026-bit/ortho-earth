@@ -1,0 +1,62 @@
+<!doctype html>
+<!-- geoedit の確定層（gint）＝長辺（>1°）は度アンカーで大円に沿うか：識別（gint 幾何）と塗り（画素）の両方で見る。
+     本人スクショ 9/15「まだ大円以外が残っている」＝塗りの縁が角と角の直線チョード・オーバレイ（大円）と食い違う。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021;width:900px;height:650px}#map{width:900px;height:650px}</style><title>t-anchorfill</title></head>
+<body>
+<div id="map"></div>
+<script>
+window.requestAnimationFrame = cb => setTimeout(() => cb(performance.now()), 16);
+localStorage.setItem("oj.hint", "closed");
+window.confirm = () => false;
+</script>
+<script type="module">
+import { createGeopbf } from "geopbf";
+createGeopbf("https://api.ortho-earth.com");
+import orthoJapan from "../app.js";
+import { initEditor } from "../gadgets/geoedit/controller.js";
+import { idbClear } from "../gadgets/geoedit/io.js";   // 前のページの自動保存（同一プロファイル）を復元させない＝視点/データの上書き競合を封じる
+import { composeLayersToCanvas } from "../gadgets/compose.js";
+import { gcMidpoint } from "geopbf/edit/sphere";
+
+const t = [], ok = (n, c) => t.push((c ? "ok:" : "NG:") + n);
+window.addEventListener("error", e => t.push("ERR:" + String(e.message).replace(/\s+/g, "_")));
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const sq = (x0, y0, x1, y1) => [[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]];
+// 幅 20°×高さ 6°（lon 125..145・lat 30..36）＝上辺の大円中点は lat≈36.41（チョードは 36.0）
+const FC = { type: "FeatureCollection", features: [{ type: "Feature", properties: { n: "wide", "@fill": "#ff00ff", "@stroke": "#ff00ff" }, geometry: { type: "Polygon", coordinates: [sq(125, 30, 145, 36)] } }] };
+
+try {
+	const map = await orthoJapan({ view: "#5/36/135", maxPitch: 0 });
+	await idbClear();
+	const editor = initEditor(map);
+	for (let i = 0; i < 200 && !editor.model; i++) await sleep(100);
+	ok("boot", !!editor.model);
+	await editor.loadFC(FC, { fly: false });
+	await sleep(300);
+	await editor.commitNow();
+	const eid = [...editor.model.feats.keys()][0], z = map.getZoom();
+	const mid = gcMidpoint([125, 36], [145, 36]);
+	ok("gcMid", Math.abs(mid[0] - 135) < 1e-6 && mid[1] > 36.3, `mid=${mid}`);
+	// 識別＝gint 幾何そのもの：大円の膨らみの内側（lat 36.2）は中・チョードの外側だがアンカー無しだと外
+	ok("identifyBulge", editor.layer.identify(135, 36.2, z) === eid);
+	ok("identifyInside", editor.layer.identify(135, 33, z) === eid);
+	ok("identifyOutside", editor.layer.identify(135, 36.6, z) == null && editor.layer.identify(135, 29.8, z) == null);
+	// 塗り＝画素：膨らみの内側が塗られているか
+	const mapEl = document.getElementById("map");
+	const shot = async () => { const s = await map.requestSnapshot(); const c = composeLayersToCanvas(s); return { ctx: c.getContext("2d"), sx: c.width / mapEl.clientWidth, sy: c.height / mapEl.clientHeight }; };
+	const px = (S, lng, lat) => { const p = map.projectLL(lng, lat); if (!p) return null; const d = S.ctx.getImageData(Math.round(p[0] * S.sx), Math.round(p[1] * S.sy), 1, 1).data; return [d[0], d[1], d[2]]; };
+	const magenta = c => !!c && c[0] > 150 && c[2] > 150 && c[1] < 110;
+	let S = null;
+	for (let i = 0; i < 60; i++) { S = await shot(); if (magenta(px(S, 135, 33))) break; await sleep(250); }
+	ok("fillInside", magenta(px(S, 135, 33)));
+	ok("fillBulge", magenta(px(S, 135, 36.2)) && magenta(px(S, 130, 36.15)) && magenta(px(S, 140, 36.15)), JSON.stringify([px(S, 135, 36.2), px(S, 130, 36.15)]));
+	ok("fillOutside", !magenta(px(S, 135, 36.6)));
+	// 下辺（lat 30）＝大円は南へ（赤道側へ）膨らむ？ いいえ：北半球では両辺とも極側（北）へ膨らむ＝下辺の大円中点 lat>30＝チョードより内側
+	const midS = gcMidpoint([125, 30], [145, 30]);
+	ok("bottomBulgeInward", midS[1] > 30.2 && editor.layer.identify(135, 30.1, z) == null && !magenta(px(S, 135, 30.1)));
+	window.__editor = editor;
+	editor.destroy();
+} catch (e) { t.push("ERR:" + String(e?.stack || e).replace(/\s+/g, "_").slice(0, 300)); }
+document.title = (t.some(x => !x.startsWith("ok:")) ? "FAIL " : "PASS ") + t.join(" ");
+</script>
+</body></html>
