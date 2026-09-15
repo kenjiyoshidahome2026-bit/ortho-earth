@@ -24,6 +24,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 const C = () => document.getElementById("c");
 const M = () => document.getElementById("map");
 const ev = (x, y, id = 7) => ({ bubbles: true, cancelable: true, clientX: x, clientY: y, pointerId: id, button: 0, pointerType: "mouse" });
+const key = (k, o = {}) => window.dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true, ...o }));
 const click = (x, y) => { C().dispatchEvent(new PointerEvent("pointerdown", ev(x, y, 1))); C().dispatchEvent(new PointerEvent("pointerup", ev(x, y, 1))); };
 
 try {
@@ -97,6 +98,29 @@ try {
 		if (!f || !id) badZ.push(`z${zq}:${f ? "" : "nofill"}${id ? "" : "noid"}(${(px(S2, c2[0], c2[1]) || []).join(",")})`);
 	}
 	if (ZS.length) ok("zoomSweep" + (badZ.length ? ":" + badZ.join("_") : ""), badZ.length === 0);
+	// 探針（?probe=x,y）＝その画素の経緯度・識別・画素色を title に出す（穴の正体調べ）。あわせて図形内の未塗り画素を粗く走査して塊の中心を報告
+	const PR = (Q.get("probe") || "").split(",").map(Number);
+	if (PR.length === 2 && PR[0] > 0) {
+		const S3 = await shot(); const ll = map.unprojectXY(PR[0], PR[1]);
+		ok(`probe(${ll?.map(v => v.toFixed(3))},id=${editor.layer.identify(ll[0], ll[1], map.getZoom())},px=${(px(S3, ll[0], ll[1]) || []).join(",")})`, true);
+		const holes = [];
+		const ringPx = [];   // 環（大円 2° 刻み）の画面点＝縁の AA/線幅の除外用
+		for (let i = 0; i < ring.length - 1; i++) for (let k = 0; k < 8; k++) { const q = gcInterpolate(ring[i], ring[i + 1], k / 8); const p = map.projectLL(q[0], q[1]); if (p && p[2] >= 0) ringPx.push(p); }
+		const EX = +(Q.get("ex") || 24);   // 縁の除外半径（px）＝経緯線/AA/識別の縁許容を除く
+		const nearRing = (x, y) => ringPx.some(p => Math.hypot(p[0] - x, p[1] - y) < EX);
+		const furniture = [...document.querySelectorAll("#ge-toolbar, .ge-panel, .ge-toast, .ge-banner")].map(el => el.getBoundingClientRect());   // 家具の下は塗りが見えない＝除外
+		const underUI = (x, y) => furniture.some(r => x >= r.left - 2 && x <= r.right + 2 && y >= r.top - 2 && y <= r.bottom + 2);
+		for (let y = 10; y < mapEl.clientHeight; y += 6) for (let x = 10; x < mapEl.clientWidth; x += 6) {
+			const q = map.unprojectXY(x, y); if (!q) continue;
+			if (editor.layer.identify(q[0], q[1], map.getZoom()) !== eid) continue;   // 幾何では図形の内側
+			if (nearRing(x, y) || underUI(x, y)) continue;
+			const d = S3.ctx.getImageData(Math.round(x * S3.sx), Math.round(y * S3.sy), 1, 1).data;
+			if (!(d[0] > 150 && d[2] > 150 && d[0] - d[1] > 40)) holes.push([x, y]);   // 「桃色系」なら塗りあり（経緯線 1px の白が乗った画素も可）。海/紙の素色＝塗り残し
+		}
+		if (holes.length) { const cx = holes.reduce((a, h) => a + h[0], 0) / holes.length, cy = holes.reduce((a, h) => a + h[1], 0) / holes.length; const hl = map.unprojectXY(cx, cy); ok(`holes(pts=${holes.slice(0, 12).map(h => h.join("/")).join(";")},n=${holes.length},center=${hl?.map(v => v.toFixed(3))},minmax=${Math.min(...holes.map(h => h[0]))}-${Math.max(...holes.map(h => h[0]))},${Math.min(...holes.map(h => h[1]))}-${Math.max(...holes.map(h => h[1]))})`, holes.length < 12); }   // 図形の内側に塗り残しの塊＝NG（縫い目跨ぎの円盤 40px で ~40 点・切断の縦線）。縁の AA 由来の散発は許容
+		else ok("holes(none)", true);
+	}
+	if (Q.get("audit") === "1") { key("Escape"); window.__paintOverlap?.(); await sleep(2500); ok("audit", true); }   // 巻き数監査（塗り無し・異常画素だけ色分け）＝SHOT で見る
 	window.__probes = probes; window.__editor = editor;   // 眺める用＝destroy しない（SHOT にオーバレイを残す）
 } catch (e) { t.push("ERR:" + String(e?.stack || e).replace(/\s+/g, "_").slice(0, 300)); }
 document.title = (t.some(x => !x.startsWith("ok:")) ? "FAIL " : "PASS ") + t.join(" ");

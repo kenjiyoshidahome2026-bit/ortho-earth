@@ -144,6 +144,14 @@ fn decodeRel(idx: u32) -> vec3f {
 	let dLL = decodeDLL(idx);
 	return deltaToRel(dLL.x, dLL.y);
 }
+// 縫い目上の頂点か（ix が ±180 ちょうど）＝切断の痕。両端が縫い目上の辺は線パスで描かない（GL onSeam と同じ・9/15）
+fn onSeam(idx: u32) -> bool {
+	let px = textureLoad(arcTex, vec2i(i32(idx) % F.texw.x, i32(idx) / F.texw.x), 0);
+	let lo = px.r; let hi = px.g;
+	let lo_c = select(lo & 0xFFFFFFC0u, lo, (hi >> 31u) != 0u);
+	let ix = (compact16(hi & 0x7FFFFFFFu) << 16u) | compact16(lo_c);
+	return ix == 0u || ix == 3600000000u;
+}
 struct Proj { xy: vec2f, zr: f32, w: f32 };
 // gint 整数 → screen px（zr>0 手前半球）
 fn fetchProject(idx: u32) -> Proj {
@@ -261,6 +269,7 @@ fn bboxVisible(fid: u32) -> bool {
 fn pivotClip(fid: u32) -> vec4f {
 	if (F.flags.x == 0u) { return vec4f(0.0, 0.0, 0.5, 1.0); }   // クリップ原点（z は WebGPU [0,w] の中央）
 	let bb = fetchFidBbox(fid);
+	if (bb.z - bb.x >= 1800000000u) { return vec4f(0.0, 0.0, 0.5, 1.0); }   // 縫い目跨ぎ＝bbox 中心が裏側＝遠クリップの円盤が塗り残る→クリップ原点（GL と同じ・9/15）
 	let cx = bb.x + (bb.z - bb.x) / 2u; let cy = bb.y + (bb.w - bb.y) / 2u;
 	let dlon = dlonE7(cx, F.centers.x) * 1e-7;
 	let dlat = f32(i32(cy - F.centers.y)) * 1e-7;
@@ -311,6 +320,7 @@ struct LineOut {
 	if ((em.b & 255u) == 0u && !bboxVisible(em.a)) { return o; }
 	let sn = lodSnap(em.r, em.g, edgeId);
 	if (!sn.keep) { return o; }
+	if ((em.b & 255u) == 0u && onSeam(sn.a) && onSeam(sn.b)) { return o; }   // 切断の縦線（縫い目辺）は描かない
 	if (P.b.y == 0 && featId == P.b.x) { return o; }   // clean パス＝アクティブ除外
 	if (P.b.y == 1 && featId != P.b.x) { return o; }   // highlight パス＝アクティブのみ
 	// per-fid スタイル（paint 時のみ）：visibility=filter・width=0=非表示・線色上書き
@@ -522,19 +532,30 @@ struct FOut { @builtin(position) pos: vec4f };
 		if (ag > 1.5) { return vec4f(1.0, 0.55, 0.0, 0.85); }                    // 橙＝同一筆の多重登記
 		discard;
 	}
-	if (abs(t.g) < 0.5) { discard; }        // 被覆なし（穴・外）。G の符号は外環 CW も吸収
-	var q = t.r / t.g;                      // 多重登記は約分で消える（R=k(fid+1),G=k → q=fid+1）
-	// 重複（|G|≥2 or R/G 非整数）＝A（前向き扇の最大 fid+1）で後勝ち（GL FS_RESOLVE と同じ・2026-09-15）。A 無しは従来どおり
-	let multi = abs(t.g) > 1.5 || abs(q - round(q)) > 0.25;
-	if (multi && t.a >= 0.5) { q = t.a; }
-	else if (abs(q - round(q)) > 0.25) { discard; }
-	let fid = i32(round(q)) - 1;
-	if (fid < 0 || fid >= i32(R.y)) { discard; }
-	let rec = textureLoad(fidTex, vec2i(fid % i32(R.x), fid / i32(R.x)), 0);
-	if ((rec.b & 1u) == 0u) { discard; }    // flags bit0 = visible（filter）
-	let c = rec.r;                          // R = fill 色 RGBA8
-	let col = vec4f(f32(c >> 24u), f32((c >> 16u) & 255u), f32((c >> 8u) & 255u), f32(c & 255u)) / 255.0;
-	if (col.a <= 0.0) { discard; }
+	var g = t.g; var r = t.r;
+	if (g < 0.0) { g = -g; r = -r; }       // 外環 CW＝符号ごと反転
+	if (g < 0.5) { discard; }               // 被覆なし（穴・外）
+	var q = r / g;                          // 多重登記は約分で消える（R=k(fid+1),G=k → q=fid+1）
+	var multi = g > 1.5 || abs(q - round(q)) > 0.25;   // 重複＝A（扇が触れた最大 fid+1）で後勝ち（GL FS_RESOLVE と同じ）
+	var fid = -1;
+	if (multi && t.a >= 0.5) { fid = i32(round(t.a)) - 1; }
+	else if (!multi) { fid = i32(round(q)) - 1; }
+	else { discard; }
+	// 上側に塗りが無ければ 1 枚剥がして下を出す（2 重なりまで厳密・GL と同じ）
+	var col = vec4f(0.0);
+	for (var peel = 0; peel < 3; peel++) {
+		if (fid < 0 || fid >= i32(R.y)) { discard; }
+		let rec = textureLoad(fidTex, vec2i(fid % i32(R.x), fid / i32(R.x)), 0);
+		let c = rec.r;                          // R = fill 色 RGBA8
+		col = vec4f(f32(c >> 24u), f32((c >> 16u) & 255u), f32((c >> 8u) & 255u), f32(c & 255u)) / 255.0;
+		if ((rec.b & 1u) != 0u && col.a > 0.0) { break; }
+		if (!multi || g < 1.5) { discard; }
+		r -= f32(fid + 1); g -= 1.0;
+		q = r / g;
+		if (g < 0.5 || abs(q - round(q)) > 0.25) { discard; }
+		fid = i32(round(q)) - 1;
+		multi = g > 1.5;
+	}
 	return vec4f(col.rgb, col.a);           // straight alpha（blend が SRC_ALPHA/1-SRC_ALPHA）
 }
 `;
