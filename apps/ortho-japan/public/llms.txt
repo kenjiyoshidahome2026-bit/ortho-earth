@@ -55,6 +55,7 @@ www.ortho-earth.com 配下に置くページなら、CDNのESモジュールを�
 - projectLL(lon,lat)→[xCss,yCss,front]（front<0=裏半球）/ unprojectXY(x,y)→[lon,lat]|null（onClickと同座標系）
   ＝いずれも **mapEl（canvas）左上原点の CSS px**（ページ座標ではない＝pointer 合成は getBoundingClientRect を足す）
 - makeProjector()＝カメラ状態を1回束ねた投影関数（多点描画用）/ onFrame(fn)→解除fn / requestDraw()
+  投影の front<0＝見えない点。その x,y は地平線（可視キャップの縁）へクランプした位置＝面の塗りはそのまま結ぶ（切ると環が割れ evenodd で相殺）・線は符号で切る
 - setEditClick(fn|null)＝クリック横取りスロット（編集アプリ用。クリックvsドラッグの4px弁別はエンジンが済ませる）
 - getHeight(lon,lat)→Promise<標高m>（api.ortho-earth.com 経由の DEM タイル・粗い格子＝山頂は低め。1.0.4〜ローダ着荷を待って返す／1.0.3 以前は未着の間 0）
   / fitZoomForBbox([w,s,e,n]) / makeProjectorH()＝地形込み投影 (lon,lat,liftM=0)（projectLL/makeProjector は海面基準＝チルトで視差）

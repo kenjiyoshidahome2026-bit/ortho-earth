@@ -21,6 +21,7 @@ import { composeLayersToCanvas } from "../gadgets/compose.js";
 const t = [], ok = (n, c) => t.push((c ? "ok:" : "NG:") + n);
 window.addEventListener("error", e => t.push("ERR:" + String(e.message).replace(/\s+/g, "_")));
 const sleep = ms => new Promise(r => setTimeout(r, ms));
+const C = () => document.getElementById("c");
 const sq = (x0, y0, x1, y1) => [[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]];
 const poly = (n, ring) => ({ type: "Feature", properties: { n, "@fill": "#ff00ff", "@stroke": "#ff00ff" }, geometry: { type: "Polygon", coordinates: [ring] } });
 // 視点 (-90,0)：表＝lon -100..-80 lat 20..40／裏（対蹠点 (90,0) を囲む）＝lon 60..120 lat -30..30（ゴーストは lon -120..-60 lat -30..30 に写る）
@@ -64,6 +65,24 @@ try {
 	const strad = [[-25, 0], [-27, 5], [-26, -5]].map(([a, b]) => px(S, a, b));
 	ok("straddleFilled", strad.every(magenta));
 	ok("straddleOutside", !magenta(px(S, -40, 0)) && !magenta(px(S, -35, 15)));
+	// オーバレイ（canvas2D）の選択塗り＝地平線を跨ぐ面を選ぶと、旧実装は見えない点で path を切り環が 2 本の subpath に割れて
+	// evenodd で相殺（本人スクショ 9/15「Canvas2D 側の塗りに問題」）。新＝projector が見えない点を地平円へクランプ＝可視部が全部塗れる
+	{
+		const sel = map.projectLL(-25, 0);
+		C().dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, cancelable: true, clientX: sel[0], clientY: sel[1], pointerId: 1, button: 0, pointerType: "mouse" }));
+		C().dispatchEvent(new PointerEvent("pointerup", { bubbles: true, cancelable: true, clientX: sel[0], clientY: sel[1], pointerId: 1, button: 0, pointerType: "mouse" }));
+		await sleep(300);
+		const stradEid = [...editor.model.feats.entries()].find(([, f]) => f.properties?.n === "straddle")?.[0];
+		ok("straddleSelect", editor.state.selection === stradEid);
+		const ov = document.querySelector("#map .ge-overlay"), octx = ov.getContext("2d"), d = devicePixelRatio || 1;
+		const alphaAt = (lng, lat) => { const p = map.projectLL(lng, lat); return octx.getImageData(Math.round(p[0] * d), Math.round(p[1] * d), 1, 1).data[3]; };
+		ok("ovFillWhole", alphaAt(-25, 5) > 0 && alphaAt(-25, -5) > 0 && alphaAt(-28, 0) > 0);   // 旧＝(-25,-5) は相殺で 0
+		ok("ovFillOutside", alphaAt(-40, 0) === 0 && alphaAt(-35, 15) === 0);
+		// 見えない点のクランプ＝projector の契約（front<0 でも x,y は地平線上）
+		const hid = map.projectLL(30, 0);   // 裏側（視点 -90 から 120°）
+		const vis = map.projectLL(-90, 0);
+		ok("projClamp", hid[2] < 0 && Math.hypot(hid[0] - vis[0], hid[1] - vis[1]) > 100 && !!map.unprojectXY(hid[0] - 3, hid[1]));   // 円盤の縁の内側に写る
+	}
 	// 見た目の記録（デバッグ手すり）
 	window.__shot = S;
 	editor.destroy();

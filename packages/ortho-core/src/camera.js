@@ -112,7 +112,24 @@ export function project(state, lon, lat, radius = 1) {
 		: (m => [u[0] + (radius - 1) * m[0], u[1] + (radius - 1) * m[1], u[2] + (radius - 1) * m[2]])(ellNormal3D(lon, lat));
 	const c = mat.transform(state.mvp, [w[0], w[1], w[2], 1]);
 	const frontHemi = mat.dot(u, state.eye) - 1;                     // >0 手前半球（基準球方向で判定）
-	if (c[3] <= 1e-6 || frontHemi < 0) return [0, 0, -1];
+	if (c[3] <= 1e-6 || frontHemi < 0) {
+		// 見えない点（地平線の向こう＝dot(u,E)<1・カメラ後方）は捨てずに、可視キャップの縁（地平円：中心 E/|E|²・半径 √(1−1/|E|²)）
+		// の少し内側へ射影クランプして写す＝符号は負のまま（呼び手は符号で可視判定＝従来どおり）、x,y は「地平線上の最寄り点」。
+		// 塗りの経路（geoedit オーバレイ/注記/計測）はこれで可視部＋地平線沿いの一本の閉路になる＝旧 [0,0,-1] で path を
+		// 切ると環が 2 本の subpath に割れ evenodd で相殺（本人スクショ 2026-09-15 の帯）。gint の horizonClamp と同じ幾何。
+		const E = state.eye, e2 = mat.dot(E, E), el = Math.sqrt(e2);
+		const k = mat.dot(u, E) / e2;
+		let t = [u[0] - E[0] * k, u[1] - E[1] * k, u[2] - E[2] * k];
+		const lt = Math.hypot(t[0], t[1], t[2]);
+		if (lt > 1e-9) t = [t[0] / lt, t[1] / lt, t[2] / lt];
+		else { const q = mat.cross(E, Math.abs(E[1]) < 0.9 ? [0, 1, 0] : [1, 0, 0]), lq = Math.hypot(q[0], q[1], q[2]) || 1; t = [q[0] / lq, q[1] / lq, q[2] / lq]; }   // u∥E（対蹠/直下）＝任意の直交基底
+		const hor = Math.acos(Math.min(1, 1 / el)) - 1e-3;         // 地平角（rad）− 0.057°＝縁の内側（front を確実に正側で写す）
+		const ch = Math.cos(hor) / el, sh = Math.sin(hor);
+		const P = [E[0] * ch + t[0] * sh, E[1] * ch + t[1] * sh, E[2] * ch + t[2] * sh];
+		const c2 = mat.transform(state.mvp, [P[0], P[1], P[2], 1]);
+		if (c2[3] <= 1e-6) return [0, 0, -1];
+		return [(c2[0] / c2[3] * 0.5 + 0.5) * state.W, (1 - (c2[1] / c2[3] * 0.5 + 0.5)) * state.H, Math.min(frontHemi, -1e-9)];
+	}
 	const sx = (c[0] / c[3] * 0.5 + 0.5) * state.W;
 	const sy = (1 - (c[1] / c[3] * 0.5 + 0.5)) * state.H;
 	return [sx, sy, frontHemi];
