@@ -157,6 +157,16 @@ vec2 decodeDLL(uint idx) {
 	// 中心(=シーン原点)からの delta を整数空間で計算（精度確保・antimeridian 対応）。
 	return vec2(dlonE7(ix, u_ix_center) * 1e-7, float(int(iy - u_iy_center)) * 1e-7);
 }
+// 縫い目上の頂点か（ix が経度 ±180 ちょうど）＝antimeridian 切断の痕。両端が縫い目上の辺は「切断で生えた縦線」＝線パスでは描かない
+//（塗りの巻き数には必要＝塗り扇は素通し）。本人スクショ 2026-09-15（切断された円の中を走る縦線）
+bool onSeam(uint idx) {
+	ivec2 tc = ivec2(int(idx) % u_arc_w, int(idx) / u_arc_w);
+	uvec4 px = texelFetch(u_arc_tex, tc, 0);
+	uint lo = px.r, hi = px.g;
+	uint lo_c = ((hi >> 31u) != 0u) ? lo : (lo & 0xFFFFFFC0u);
+	uint ix = (compact16(hi & 0x7FFFFFFFu) << 16u) | compact16(lo_c);
+	return ix == 0u || ix == 3600000000u;
+}
 // gint 整数 → 原点相対 rel（fetchProject / fetchClip が共用）。
 vec3 decodeRel(uint idx) {
 	vec2 dLL = decodeDLL(idx);
@@ -255,6 +265,9 @@ bool bboxVisible(uint fid) {
 vec4 pivotClip(uint fid) {
 	if (u_has_pivot == 0) return vec4(0.0, 0.0, 0.0, 1.0);
 	uvec4 bb = fetchFidBbox(fid);
+	// 縫い目跨ぎ（bbox 経度全幅）＝bbox 中心は経度 0°＝地球の裏側。裏側の要から手前の辺へ張る扇は遠クリップ面で深い側が切られ、
+	// 要の投影位置を中心に環の大きさ比例の円盤が塗り残る（本人スクショ 2026-09-15「自分自身の影」）。要はクリップ原点（常に手前）へ
+	if (bb.z - bb.x >= 1800000000u) return vec4(0.0, 0.0, 0.0, 1.0);
 	uint cx = bb.x + (bb.z - bb.x) / 2u, cy = bb.y + (bb.w - bb.y) / 2u;   // 中点（和は u32 を溢れる＝差分で）
 	float dlon = dlonE7(cx, u_ix_center) * 1e-7;
 	float dlat = float(int(cy - u_iy_center)) * 1e-7;
@@ -509,6 +522,7 @@ void main() {
 	if ((meta.b & 255u) == 0u && !bboxVisible(meta.a)) { gl_Position = vec4(2.0, 0.0, 0.0, 1.0); return; }
 	uint lodA = meta.r, lodB = meta.g;
 	if (!lodSnap(lodA, lodB, edge_id)) { gl_Position = vec4(2.0, 0.0, 0.0, 1.0); return; }
+	if ((meta.b & 255u) == 0u && onSeam(lodA) && onSeam(lodB)) { gl_Position = vec4(2.0, 0.0, 0.0, 1.0); return; }   // 切断の縦線（縫い目辺）は描かない
 
 	if (u_pass == 0 && feat_id == u_active_id) { gl_Position = vec4(2.0, 0.0, 0.0, 1.0); return; }
 	if (u_pass == 1 && feat_id != u_active_id) { gl_Position = vec4(2.0, 0.0, 0.0, 1.0); return; }

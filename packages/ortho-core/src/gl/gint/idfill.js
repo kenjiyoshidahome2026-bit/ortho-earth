@@ -83,19 +83,32 @@ void main() {
 		if (ag > 1.5)                   { fragColor = vec4(1.0, 0.55, 0.0, 0.85); return; }   // 橙＝同一筆の多重登記（k重・fid は約分で整数）
 		discard;                                                                              // 単被覆＝正常
 	}
-	if (abs(t.g) < 0.5) discard;        // 被覆なし（穴・外）。G の符号は外環 CW（向き未正規化）も吸収
-	float q = t.r / t.g;                // 多重登記は約分で消える（R=k(fid+1), G=k → q=fid+1）
-	// 重複（|G|≥2＝2 者以上 or 多重登記／R/G 非整数＝別 feature の重なり）＝A（前向き扇の最大 fid+1）で後勝ち。A 無し（CW 環のみ）は従来の q
-	bool multi = abs(t.g) > 1.5 || abs(q - round(q)) > 0.25;
-	if (multi && t.a >= 0.5) q = t.a;
-	else if (abs(q - round(q)) > 0.25) discard;
-	int fid = int(round(q)) - 1;
-	if (fid < 0 || fid >= u_fid_count) discard;
-	uvec4 rec = texelFetch(u_fid_style, ivec2(fid % u_fid_w, fid / u_fid_w), 0);
-	if ((rec.b & 1u) == 0u) discard;    // flags bit0 = visible（filter の実体）
-	uint c = rec.r;                     // R = fill 色 RGBA8
-	vec4 col = vec4(float(c >> 24u), float((c >> 16u) & 255u), float((c >> 8u) & 255u), float(c & 255u)) / 255.0;
-	if (col.a <= 0.0) discard;
+	float g = t.g, r = t.r;
+	if (g < 0.0) { g = -g; r = -r; }    // 外環 CW（向き未正規化）＝符号ごと反転して正に揃える
+	if (g < 0.5) discard;               // 被覆なし（穴・外）
+	float q = r / g;                    // 多重登記は約分で消える（R=k(fid+1), G=k → q=fid+1）
+	// 重複（|G|≥2＝2 者以上 or 多重登記／R/G 非整数＝別 feature の重なり）＝A（扇が触れた最大 fid+1）で後勝ち。A 無しは従来の q
+	bool multi = g > 1.5 || abs(q - round(q)) > 0.25;
+	int fid;
+	if (multi && t.a >= 0.5) fid = int(round(t.a)) - 1;
+	else if (!multi) fid = int(round(q)) - 1;
+	else discard;
+	// 上側の feature に塗りが無い（非表示・濃さ 0）なら 1 枚剥がして下を出す＝2 重なりまで厳密（R−(fid+1) が残りの fid+1）。
+	// 剥がさないと「上に透明な図形を置いた所だけ下の塗りが抜けて穴」（本人スクショ 2026-09-15）。3 重以上は残りの比が非整数＝塗らない
+	vec4 col = vec4(0.0);
+	for (int peel = 0; peel < 3; peel++) {
+		if (fid < 0 || fid >= u_fid_count) discard;
+		uvec4 rec = texelFetch(u_fid_style, ivec2(fid % u_fid_w, fid / u_fid_w), 0);
+		uint c = rec.r;                 // R = fill 色 RGBA8
+		col = vec4(float(c >> 24u), float((c >> 16u) & 255u), float((c >> 8u) & 255u), float(c & 255u)) / 255.0;
+		if ((rec.b & 1u) != 0u && col.a > 0.0) break;   // flags bit0 = visible（filter の実体）＋塗りあり＝採用
+		if (!multi || g < 1.5) discard;
+		r -= float(fid + 1); g -= 1.0;
+		q = r / g;
+		if (g < 0.5 || abs(q - round(q)) > 0.25) discard;
+		fid = int(round(q)) - 1;
+		multi = g > 1.5;
+	}
 	fragColor = col;
 }`;
 
