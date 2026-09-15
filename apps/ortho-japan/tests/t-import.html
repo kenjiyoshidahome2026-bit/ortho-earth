@@ -15,6 +15,7 @@ createGeopbf("https://api.ortho-earth.com");
 import orthoJapan from "../app.js";
 import { initEditor } from "../gadgets/geoedit/controller.js";
 import { idbClear } from "../gadgets/geoedit/io.js";
+import { GeoPBF, makeKeys } from "geopbf/pbf-base";
 
 const t = [], ok = (n, c) => t.push((c ? "ok:" : "NG:") + n);
 window.addEventListener("error", e => t.push("ERR:" + String(e.message).replace(/\s+/g, "_")));
@@ -57,6 +58,23 @@ try {
 	// ⑤ 縫い目を跨ぐデータ（フィジー付近）＝飛行先が経度 0 に化けないこと
 	const am = { type: "FeatureCollection", features: [{ type: "Feature", properties: { n: "am" }, geometry: { type: "Polygon", coordinates: [sq(178, -19, 182, -16)] } }, { type: "Feature", properties: { n: "am2" }, geometry: { type: "Polygon", coordinates: [sq(-179, -20, -177, -18)] } }] };
 	await run("seamGeojson", new File([JSON.stringify(am)], "fiji.geojson"), 2, [180, -18.5, 4]);
+	// ⑥ 壊れ幾何入り geopbf（coordinates 無し＝moj 実データに在る）＝Worker の頂点数の門で「c is not iterable」→取込全体が失敗（本人報告 9/15 札幌市中央区 筆R_2025）
+	{
+		errs.length = 0; toasts.length = 0;
+		const feats = [
+			{ type: "Feature", properties: { n: "ok" }, geometry: { type: "Polygon", coordinates: [sq(139.75, 35.68, 139.76, 35.69)] } },
+			{ type: "Feature", properties: { n: "broken" }, geometry: { type: "Polygon", coordinates: null } },
+			{ type: "Feature", properties: { n: "pt" }, geometry: { type: "Point", coordinates: [139.77, 35.70] } },
+		];
+		const [keys, bufs] = await makeKeys(feats.map(f => f.properties));
+		const pbf = new GeoPBF({ name: "broken", precision: 6 });
+		pbf.setHead(keys, bufs).setBody(() => { for (const f of feats) pbf.setFeature(f); }).close();
+		await pbf.getPosition();
+		await editor.loadBuffer(pbf.arrayBuffer.slice(0), { fly: false });
+		for (let i = 0; i < 50 && (editor.model?.feats.size ?? 0) < 2; i++) await sleep(100);
+		const bad = errs.filter(e => !/favicon|404|bucket_provider_not_injected/.test(e));
+		ok(`brokenGeom(feats=${editor.model?.feats.size}${bad.length ? ",err=" + bad[0] : ""})`, editor.model?.feats.size === 2 && !bad.length && !toasts.some(x => /失敗/.test(x)));
+	}
 	window.__editor = editor;
 } catch (e) { t.push("ERR:" + String(e?.stack || e).replace(/\s+/g, "_").slice(0, 300)); }
 document.title = (t.some(x => !x.startsWith("ok:")) ? "FAIL " : "PASS ") + t.join(" ");
