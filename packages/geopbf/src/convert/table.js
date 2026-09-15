@@ -74,17 +74,24 @@ export function parseCSV(text, opts = {}) {
 	const head = text.slice(0, 4096).split(/\r?\n/)[0] ?? "";
 	const delimiter = opts.delimiter ?? [",", "\t", ";", "|"].map(d => [d, (head.match(new RegExp("\\" + d, "g")) || []).length]).sort((a, b) => b[1] - a[1])[0][0];
 	const rows = []; let row = [], cell = "", q = false, i = 0;
-	const n = text.length;
+	const n = text.length, dc = delimiter.charCodeAt(0);
+	// 特殊文字（区切り・引用・改行）までを 1 回の slice で取る＝旧は全文字を 1 文字ずつ `cell += c`（1GB 級で数十秒〜GC 破綻・俯瞰レビュー 2026-09-15）
 	while (i < n) {
-		const c = text[i];
 		if (q) {
-			if (c === '"') { if (text[i + 1] === '"') { cell += '"'; i += 2; continue; } q = false; i++; continue; }
-			cell += c; i++; continue;
+			const j = text.indexOf('"', i);
+			if (j < 0) { cell += text.slice(i); i = n; break; }
+			cell += text.slice(i, j); i = j;
+			if (text[i + 1] === '"') { cell += '"'; i += 2; continue; }
+			q = false; i++; continue;
 		}
+		let j = i;
+		while (j < n) { const cc = text.charCodeAt(j); if (cc === dc || cc === 34 || cc === 10 || cc === 13) break; j++; }
+		if (j > i) cell += text.slice(i, j);
+		i = j; if (i >= n) break;
+		const c = text[i];
 		if (c === '"') { q = true; i++; continue; }
 		if (c === delimiter) { row.push(cell); cell = ""; i++; continue; }
-		if (c === "\n" || c === "\r") { row.push(cell); cell = ""; rows.push(row); row = []; i += (c === "\r" && text[i + 1] === "\n") ? 2 : 1; continue; }
-		cell += c; i++;
+		row.push(cell); cell = ""; rows.push(row); row = []; i += (c === "\r" && text[i + 1] === "\n") ? 2 : 1;   // 改行
 	}
 	if (cell !== "" || row.length) { row.push(cell); rows.push(row); }
 	while (rows.length && rows[rows.length - 1].every(v => v === "")) rows.pop();
@@ -144,21 +151,24 @@ const unesc = s => s.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;
 function cellRef(ref) { const m = ref.match(/^([A-Z]+)(\d+)$/); let c = 0; for (const ch of m[1]) c = c * 26 + (ch.charCodeAt(0) - 64); return { r: +m[2] - 1, c: c - 1 }; }
 
 // ───────────────────────────── WKT ─────────────────────────────
+const WKT_WORD = /[A-Za-z]+/y, WKT_NUM = /[-+]?(\d+\.?\d*|\.\d+)([eE][-+]?\d+)?/y, WKT_ZM = /(ZM|Z|M)\b/iy, WKT_EMPTY = /EMPTY\b/iy;
 export function parseWKT(text) {
 	if (typeof text !== "string") return null;
 	let p = 0; const s = text.trim(); if (!s) return null;
-	const ws = () => { while (p < s.length && /\s/.test(s[p])) p++; };
-	const word = () => { ws(); const m = s.slice(p).match(/^[A-Za-z]+/); if (!m) return null; p += m[0].length; return m[0].toUpperCase(); };
+	// sticky 正規表現（lastIndex=p）＝旧 `s.slice(p).match(/^…/)` はトークンごとに残り全文を複製＝MULTIPOLYGON 数万文字で O(len²)（俯瞰レビュー 2026-09-15）
+	const ws = () => { while (p < s.length) { const c = s.charCodeAt(p); if (c === 32 || c === 9 || c === 10 || c === 13) p++; else break; } };
+	const at = re => { re.lastIndex = p; return re.exec(s); };
+	const word = () => { ws(); const m = at(WKT_WORD); if (!m) return null; p += m[0].length; return m[0].toUpperCase(); };
 	const expect = ch => { ws(); if (s[p] !== ch) throw new Error(`WKT: "${ch}" が要る（${p} 文字目）`); p++; };
-	const num = () => { ws(); const m = s.slice(p).match(/^[-+]?(\d+\.?\d*|\.\d+)([eE][-+]?\d+)?/); if (!m) throw new Error(`WKT: 数値が要る（${p} 文字目）`); p += m[0].length; return +m[0]; };
+	const num = () => { ws(); const m = at(WKT_NUM); if (!m) throw new Error(`WKT: 数値が要る（${p} 文字目）`); p += m[0].length; return +m[0]; };
 	let dims = 2;
 	const pt = () => { const c = [num(), num()]; for (let k = 2; k < dims; k++) num(); return c; };
 	const seq = () => { expect("("); const out = [pt()]; ws(); while (s[p] === ",") { p++; out.push(pt()); ws(); } expect(")"); return out; };
 	const list = f => { expect("("); const out = [f()]; ws(); while (s[p] === ",") { p++; out.push(f()); ws(); } expect(")"); return out; };
 	const geom = () => {
 		const t = word(); if (!t) throw new Error("WKT: 型名が無い");
-		ws(); const zm = s.slice(p).match(/^(ZM|Z|M)\b/i); dims = 2; if (zm) { p += zm[0].length; dims = zm[0].toUpperCase() === "ZM" ? 4 : 3; }
-		ws(); if (/^EMPTY\b/i.test(s.slice(p))) { p += 5; return null; }
+		ws(); const zm = at(WKT_ZM); dims = 2; if (zm) { p += zm[0].length; dims = zm[0].toUpperCase() === "ZM" ? 4 : 3; }
+		ws(); if (at(WKT_EMPTY)) { p += 5; return null; }
 		switch (t) {
 			case "POINT": { expect("("); const c = pt(); expect(")"); return { type: "Point", coordinates: c }; }
 			case "LINESTRING": return { type: "LineString", coordinates: seq() };

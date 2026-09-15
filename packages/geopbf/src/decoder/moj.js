@@ -210,7 +210,7 @@ function* parseXml(text, defaultSysNum) {
 	  const c = curveMap.get(cid);
 	  if (!c || !c.pts.length) continue;
 	  const cp = c.ori === '-' ? c.pts.slice().reverse() : c.pts;
-	  pts.push(...(pts.length ? cp.slice(1) : cp));
+	  for (let k = pts.length ? 1 : 0; k < cp.length; k++) pts.push(cp[k]);   // 旧＝push(...cp.slice(1))＝スプレッド（65k 超で落ちる）＋コピー
 	}
 	if (pts.length > 1) {
 	  const f = pts[0], l = pts[pts.length - 1];
@@ -227,19 +227,20 @@ function* parseXml(text, defaultSysNum) {
 	const XOL  = XOP.length, YOL = YOP.length;
 
 	let cursor = 0;
+	// 目印ごとの「次の出現位置」をキャッシュ＝反復ごとに 4 本を cursor から探し直さない。旧＝GM_Point→GM_Curve→GM_Surface→筆 の並びでは
+	// Point/Curve の各反復が毎回文書末尾近くの最初の <筆 まで全走査＝タグ数×文書長の O(n²)（俯瞰レビュー 2026-09-15）。
+	// キャッシュが cursor より前に来た（消費済み区間に入った）目印だけ再検索
+	const TAGS4 = [[T_PT, C_PT], [T_CV, C_CV], [T_SF, C_SF], [T_FT, C_FT]];
+	const next = TAGS4.map(([t]) => text.indexOf(t, 0));
 
 	while (cursor < len) {
 	// Pick the earliest-occurring tag among the four types.
-	let pos = len, tag = null, close = null, p;
-
-	p = text.indexOf(T_PT, cursor);
-	if (p !== -1 && p < pos) { pos = p; tag = T_PT; close = C_PT; }
-	p = text.indexOf(T_CV, cursor);
-	if (p !== -1 && p < pos) { pos = p; tag = T_CV; close = C_CV; }
-	p = text.indexOf(T_SF, cursor);
-	if (p !== -1 && p < pos) { pos = p; tag = T_SF; close = C_SF; }
-	p = text.indexOf(T_FT, cursor);
-	if (p !== -1 && p < pos) { pos = p; tag = T_FT; close = C_FT; }
+	let pos = len, tag = null, close = null;
+	for (let k = 0; k < 4; k++) {
+		if (next[k] !== -1 && next[k] < cursor) next[k] = text.indexOf(TAGS4[k][0], cursor);
+		const p = next[k];
+		if (p !== -1 && p < pos) { pos = p; tag = TAGS4[k][0]; close = TAGS4[k][1]; }
+	}
 
 	if (!tag) break;
 
