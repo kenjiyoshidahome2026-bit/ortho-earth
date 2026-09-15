@@ -291,9 +291,7 @@ export function repackGintBuffer(d) {
 function buildPoints(topo) { if (!topo.length) return null;
 	const a = topo.map(({ id, coords })=>[coords, id]).sort((a, b) => a[0] > b[0] ? 1 : -1), count = a.length;
 	const buffer = new BigUint64Array(count), meta = new Uint32Array(count);
-	a.forEach(([coords, id], i) => { buffer[i] = coords; meta[i] = id;
-		const [x, y] = gint.unpackToInt(coords);
-	});
+	a.forEach(([coords, id], i) => { buffer[i] = coords; meta[i] = id; });   // 旧＝ここで unpackToInt を呼んで結果を捨てていた（点数ぶんの配列生成）
 	return { count, buffer, meta };
 }
 

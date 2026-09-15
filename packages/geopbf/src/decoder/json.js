@@ -49,11 +49,8 @@ onmessage = async (e) => {
 		await pbf.getPosition();
 	}
 
-	console.time("dissolve");
 	await dissolve(pbf);
-	console.timeEnd("dissolve");
-	console.log(pbf, pbf.arrayBuffer);
-	const res = pbf.arrayBuffer;
+	const res = pbf.arrayBuffer;   // 旧＝直前に console.log(pbf, pbf.arrayBuffer)＝全バッファをもう 1 回複製（DevTools が保持）。2026-09-15 撤去
 	postMessage({ type: "jsondec", data: res }, [res]);
 	} catch (err) {
 		console.error("[json decoder] failed:", err, "\nfile:", file?.name, file?.size, "\ncontent preview:", await file?.slice(0, 200).text().catch(() => "(unreadable)"));

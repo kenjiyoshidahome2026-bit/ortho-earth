@@ -128,7 +128,7 @@ export function createGeopbf(apiBase, options = {}) {
                 }
             }
             delete pbf._staleGint;
-            await pbf.fileSize();
+            // 旧＝ここで await pbf.fileSize()＝ロードごとに Blob 複製＋全量 gzip（消費者は encoder/profile だけ＝あちらが遅延で呼ぶ）。2026-09-15 撤去
             return pbf;
         } else {
             // 文字列（URL/bucket 名）が読めなかった＝空 pbf を黙って返さず例外（呼び手が features.length を検査せずに済む）。
