@@ -672,7 +672,7 @@ export function topoToTransfer(topo, { snap: withSnap = true } = {}) {
 	const feats = [...topo.feats].map(([eid, f]) => [eid, { type: f.type, arcs: f.arcs, coords: f.coords, properties: f.properties }]);
 	return {
 		payload: { flat, meta, order, feats, snap, gridExp: topo.gridExp, nextEid: topo.nextEid, warnings: topo.warnings },
-		transfer: snap ? [flat.buffer, snap.codes.buffer, snap.refA.buffer, snap.refB.buffer] : [flat.buffer],
+		transfer: snap ? [flat.buffer, meta.buffer, snap.hi.buffer, snap.lo.buffer, snap.refA.buffer, snap.refB.buffer] : [flat.buffer, meta.buffer],   // meta も transfer（旧＝構造化クローン）
 	};
 }
 export function topoFromTransfer(p) {
