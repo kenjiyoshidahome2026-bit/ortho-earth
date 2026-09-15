@@ -517,6 +517,11 @@ export function normalizeRingOrientation(arcBuffer, arcMeta, polyStream) {
 }
 
 // feature毎の bbox Map（Morton整数空間）。JS polygon identify fallback 用。
+// 縫い目（±180）を跨いで切断された feature（片が両側）は素朴な min/max だと経度全幅 [0,360e7] に潰れ、中心（扇の要）が
+// 反対側・キャップ判定が不能・fit の重心が 0° に化ける（2026-09-15 の一連）。ここで**周期対応の合流**＝arc bbox の中心が現在の
+// bbox 中心から 180° 以上離れていれば片方を +360e7 して合流（x は 360e7 を超え得る＝消費側 pivotClip/capVisible/bboxVisible/
+// findPolygon は周期で読む）。u32 に収まらない（西片が縫い目から 69° 超）時だけ従来の全幅（消費側の全幅フォールバックが効く）。
+const PERIOD_E7 = 3600000000, HALF_E7 = 1800000000, U32_MAX = 0xFFFFFFFF;
 export function buildPolyBboxByFid(polyStream, arcMeta) {
 	if (!polyStream || !arcMeta || !polyStream.length) return null;
 	const byFid = new Map(); let p = 0;
@@ -526,8 +531,14 @@ export function buildPolyBboxByFid(polyStream, arcMeta) {
 		for (let r = 0; r < numRings; r++) { const ac = polyStream[p++];
 			for (let a = 0; a < ac; a++) {
 				const ai = polyStream[p++], aid = ai < 0 ? ~ai : ai, m = aid * 8;
-				if (arcMeta[m+4] < bb[0]) bb[0] = arcMeta[m+4]; if (arcMeta[m+5] < bb[1]) bb[1] = arcMeta[m+5];
-				if (arcMeta[m+6] > bb[2]) bb[2] = arcMeta[m+6]; if (arcMeta[m+7] > bb[3]) bb[3] = arcMeta[m+7];
+				let x0 = arcMeta[m+4], x1 = arcMeta[m+6];
+				if (bb[2] >= bb[0]) {   // 既に何か入っている＝周期で近い側へ寄せる
+					const d = (x0 + x1) / 2 - (bb[0] + bb[2]) / 2;
+					if (d < -HALF_E7 && x1 + PERIOD_E7 <= U32_MAX) { x0 += PERIOD_E7; x1 += PERIOD_E7; }             // arc が西端側＝+360 で東へ
+					else if (d > HALF_E7 && bb[2] + PERIOD_E7 <= U32_MAX) { bb[0] += PERIOD_E7; bb[2] += PERIOD_E7; }   // 既存が東端側＝bbox を +360 で
+				}
+				if (x0 < bb[0]) bb[0] = x0; if (arcMeta[m+5] < bb[1]) bb[1] = arcMeta[m+5];
+				if (x1 > bb[2]) bb[2] = x1; if (arcMeta[m+7] > bb[3]) bb[3] = arcMeta[m+7];
 			}
 		}
 	}

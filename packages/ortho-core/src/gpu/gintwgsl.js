@@ -238,8 +238,8 @@ fn fetchFidBbox(fid: u32) -> vec4u {
 // 球面キャップの可視判定（GL capVisible と同式）：bbox を囲む小円 (C, rad) が可視キャップ（Ê, hor）と交わらなければ
 // 完全に裏＝捨てる。rad＝矩形内の最遠点（緯線上は角・経線上は Δλ>90° のくぼみを解析的に）＋3.5° の余裕。
 fn capVisible(bb: vec4u) -> bool {
-	if (bb.z - bb.x >= 1800000000u) { return true; }   // 縫い目跨ぎ（bbox 経度全幅）＝中心が反対側に化ける＝免除（GL と同じ・9/15）
-	let cx = bb.x + (bb.z - bb.x) / 2u; let cy = bb.y + (bb.w - bb.y) / 2u;
+	if (bb.z - bb.x >= 1800000000u) { return true; }   // 経度全幅（周期合流できなかった巨大 feature）＝免除（GL と同じ・9/15）
+	let cx = (bb.x + (bb.z - bb.x) / 2u) % 3600000000u; let cy = bb.y + (bb.w - bb.y) / 2u;   // 周期対応 bbox＝中心を [0,360e7) へ
 	let latC = (F.origin.y + f32(i32(cy - F.centers.y)) * 1e-7) * D2R;
 	let lat0 = (F.origin.y + f32(i32(bb.y - F.centers.y)) * 1e-7) * D2R;
 	let lat1 = (F.origin.y + f32(i32(bb.w - F.centers.y)) * 1e-7) * D2R;
@@ -262,15 +262,19 @@ fn capVisible(bb: vec4u) -> bool {
 fn bboxVisible(fid: u32) -> bool {
 	if (F.flags.x == 0u) { return true; }   // bbox テクスチャ無し（境界メタ＝fid 混成ループ）＝カリング不可
 	let bb = fetchFidBbox(fid);
-	if (F.flags.y != 0u && (bb.z < F.vbb.x || bb.x > F.vbb.z || bb.w < F.vbb.y || bb.y > F.vbb.w)) { return false; }
+	if (F.flags.y != 0u) {   // 縫い目跨ぎ（x>360e7）＝東片 [0, bb.z−360e7] と西片 [bb.x, 360e7] の 2 区間（GL と同じ）
+		if (bb.w < F.vbb.y || bb.y > F.vbb.w) { return false; }
+		let xi = select(!(bb.z < F.vbb.x || bb.x > F.vbb.z), (F.vbb.x <= bb.z - 3600000000u || F.vbb.z >= bb.x), bb.z > 3600000000u);
+		if (!xi) { return false; }
+	}
 	return capVisible(bb);
 }
 // stencil 塗りの扇要（feature bbox 中心）＝TBDR パラメータバッファ対策。無し＝クリップ原点（z01写像済み）
 fn pivotClip(fid: u32) -> vec4f {
 	if (F.flags.x == 0u) { return vec4f(0.0, 0.0, 0.5, 1.0); }   // クリップ原点（z は WebGPU [0,w] の中央）
 	let bb = fetchFidBbox(fid);
-	if (bb.z - bb.x >= 1800000000u) { return vec4f(0.0, 0.0, 0.5, 1.0); }   // 縫い目跨ぎ＝bbox 中心が裏側＝遠クリップの円盤が塗り残る→クリップ原点（GL と同じ・9/15）
-	let cx = bb.x + (bb.z - bb.x) / 2u; let cy = bb.y + (bb.w - bb.y) / 2u;
+	if (bb.z - bb.x >= 1800000000u) { return vec4f(0.0, 0.0, 0.5, 1.0); }   // 経度全幅＝中心が裏側＝遠クリップの円盤→クリップ原点（GL と同じ・9/15）
+	let cx = (bb.x + (bb.z - bb.x) / 2u) % 3600000000u; let cy = bb.y + (bb.w - bb.y) / 2u;   // 周期対応 bbox＝中心を [0,360e7) へ
 	let dlon = dlonE7(cx, F.centers.x) * 1e-7;
 	let dlat = f32(i32(cy - F.centers.y)) * 1e-7;
 	let c = F.clipT + F.mvp * vec4f(deltaToRel(dlon, dlat), 0.0);
