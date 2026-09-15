@@ -97,7 +97,7 @@ try {
 	click(q2[0] - 2, q2[1] + 2);
 	click(q3[0], q3[1]);
 	key("Enter");
-	await sleep(300);   // add→同期rebuild
+	await editor.commitNow();   // add→再抽出（デバウンス）を flush で着地
 	ok("draw3rd", m().stats().features === 3);
 	const sharedAC = [...m().arcs.values()].some(a => a.refs.size === 2 && a.refs.has(0) && a.refs.has(2));
 	ok("sharedNew", sharedAC);

@@ -169,7 +169,7 @@ export function initEditor(map, { adopt = true, setDropOwner = null } = {}) {   
 		commitTimer = setTimeout(() => { commitTimer = 0; commit(); }, force ? 0 : big ? 2000 : 300);
 	};
 	ed.scheduleCommit = scheduleCommit;
-	const flushCommit = () => { clearTimeout(commitTimer); commitTimer = 0; return commit(false); };   // 明示フラッシュ（試験・保存前・全消去前）
+	const flushCommit = async () => { await flushRebuild(); clearTimeout(commitTimer); commitTimer = 0; return commit(false); };   // 明示フラッシュ（試験・保存前・全消去前）＝保留中の再抽出も先に着地
 	// タブを隠した時（モバイルのアプリ切替・タブ切替）＝デバウンス待ちのコミットを即流す（pagehide では bake が間に合わない）
 	document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden" && commitTimer) { clearTimeout(commitTimer); commitTimer = 0; commit(); } }, { signal });
 	// 閉じる直前＝未着地のコミット or 大規模モードの未保存編集があれば確認（自動保存は着地後にしか書けない）
@@ -204,7 +204,12 @@ export function initEditor(map, { adopt = true, setDropOwner = null } = {}) {   
 	}
 
 	// ---- 再抽出（構造操作の後始末＝共有回復）----
-	let rebuilding = false, rebuildQueued = false;
+	// デバウンス＝add/del/hole の連打を 1 回に畳む（旧＝多重実行ガードだけで、点を 1 個置くたびに全量再抽出が同期で走っていた＝
+	// 効率レビュー C-3・2026-09-15）。flushCommit（試験・保存・全消去）は先に flushRebuild で着地させる
+	let rebuilding = false, rebuildQueued = false, rebuildTimer = 0;
+	const REBUILD_MS = 250;
+	const scheduleRebuild = () => { clearTimeout(rebuildTimer); rebuildTimer = setTimeout(() => { rebuildTimer = 0; rebuild(); }, REBUILD_MS); };
+	const flushRebuild = async () => { if (rebuildTimer) { clearTimeout(rebuildTimer); rebuildTimer = 0; await rebuild(); } while (rebuilding) await new Promise(r => setTimeout(r, 10)); };
 	async function rebuild() {
 		if (!st.model) return;
 		if (rebuilding) { rebuildQueued = true; return; }
@@ -329,7 +334,7 @@ export function initEditor(map, { adopt = true, setDropOwner = null } = {}) {   
 			const aff = affectedEids(cmd, res);
 			if (aff.size) { st.dragEids = new Set([...(st.dragEids || []), ...aff]); st.hidden = st.dragEids; layer.hide(st.dragEids); }
 		}
-		if (cmd.op === "add" || cmd.op === "del" || cmd.op === "hole" || cmd.op === "unhole") { if (st.selection === cmd.eid && cmd.op === "del") { st.selection = null; props.close(); } rebuild(); }
+		if (cmd.op === "add" || cmd.op === "del" || cmd.op === "hole" || cmd.op === "unhole") { if (st.selection === cmd.eid && cmd.op === "del") { st.selection = null; props.close(); } scheduleRebuild(); }
 		if (st.selection != null && !st.model.feats.has(st.selection)) { st.selection = null; props.close(); }   // 束ね等で消えた選択の後始末
 		if (cmd.op === "props" && props.eid === cmd.eid) props.render(cmd.eid);   // undo/redo でもパネルを追随
 		scheduleCommit();
@@ -559,7 +564,7 @@ export function initEditor(map, { adopt = true, setDropOwner = null } = {}) {   
 
 	return {
 		destroy() {
-			ac.abort(); map.setEditClick(null); overlay.destroy(); popLayer.destroy(); clearTimeout(commitTimer); tip.hide(); rpc.terminate(); unsubConfirm();
+			ac.abort(); map.setEditClick(null); overlay.destroy(); popLayer.destroy(); clearTimeout(commitTimer); clearTimeout(rebuildTimer); tip.hide(); rpc.terminate(); unsubConfirm();
 			confirmBar.remove(); toolbarEl.remove(); props.close(); mapEl.querySelectorAll(".ge-panel, .ge-toast, .ge-banner").forEach(el => el.remove());
 			map.setMaxPitch?.(prevMaxPitch ?? null); map.setZoomMin?.(prevZoomMin ?? null); setDropOwner?.(false); ctxRestore?.(); mapEl.classList.remove("ge-on");
 		},
