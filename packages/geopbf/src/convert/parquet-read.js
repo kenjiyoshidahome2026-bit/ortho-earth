@@ -4,6 +4,7 @@
 // 型: BOOLEAN / INT32 / INT64 / FLOAT / DOUBLE / BYTE_ARRAY / FIXED_LEN_BYTE_ARRAY。平坦な列（optional/required）だけ＝
 // 入れ子の group は葉ごとの列として path で返し、repeated（list/map）は読まずに飛ばす。
 // 戻り: { numRows, keyValue, created, columns: [{ path: string[], name, type, logical, values: Array(numRows) | null }] }
+const DEC = new TextDecoder();   // 呼び出しごとの new TextDecoder を撤去（2026-09-15）
 import { inflate } from "../modules/inflate.js";
 
 // ── Thrift compact ──
@@ -15,7 +16,7 @@ class TReader {
 	i64() { return this.zig(); }
 	double() { const v = new DataView(this.u8.buffer, this.u8.byteOffset + this.pos).getFloat64(0, true); this.pos += 8; return v; }
 	binary() { const n = this.varint(), b = this.u8.subarray(this.pos, this.pos + n); this.pos += n; return b; }
-	string() { return new TextDecoder().decode(this.binary()); }
+	string() { return DEC.decode(this.binary()); }
 	// struct を { fieldId: value } に。type 別の読み手 spec[fieldId] = fn(reader, type) が無ければ汎用
 	struct(spec = {}) {
 		this.stack.push(this.last); this.last = 0;

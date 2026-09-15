@@ -23,7 +23,7 @@ export class TWriter {
 	i64(id, v) { this.header(id, CT.I64); this.zig(v); }
 	double(id, v) { this.header(id, CT.DOUBLE); this.need(8); new DataView(this.buf.buffer, this.buf.byteOffset).setFloat64(this.pos, v, true); this.pos += 8; }
 	binary(id, u8) { this.header(id, CT.BINARY); this.varint(u8.length); this.need(u8.length); this.buf.set(u8, this.pos); this.pos += u8.length; }
-	string(id, s) { this.binary(id, new TextEncoder().encode(s)); }
+	string(id, s) { this.binary(id, enc.encode(s)); }
 	struct(id) { this.header(id, CT.STRUCT); this.structBegin(); }
 	list(id, elemType, size) { this.header(id, CT.LIST); this.listHeader(elemType, size); }
 	listHeader(elemType, size) { if (size < 15) this.byte((size << 4) | elemType); else { this.byte(0xF0 | elemType); this.varint(size); } }
@@ -67,12 +67,12 @@ const toBytes = (v) => v instanceof Uint8Array ? v : enc.encode(String(v));
 function cmpBytes(a, b) { const n = Math.min(a.length, b.length); for (let i = 0; i < n; i++) if (a[i] !== b[i]) return a[i] - b[i]; return a.length - b.length; }
 
 // 値の PLAIN 符号化。vals: 非 null の値だけ（順序保持）
-function encodeValues(type, vals) {
+function encodeValues(type, vals, bs = null) {   // bs＝BYTE_ARRAY の事前 UTF-8 化（vals と同添字）
 	if (type === PT.BOOLEAN) { const out = new Uint8Array((vals.length + 7) >> 3); for (let i = 0; i < vals.length; i++) if (vals[i]) out[i >> 3] |= 1 << (i & 7); return out; }
 	if (type === PT.DOUBLE) { const out = new Uint8Array(vals.length * 8), dv = new DataView(out.buffer); for (let i = 0; i < vals.length; i++) dv.setFloat64(i * 8, vals[i], true); return out; }
 	if (type === PT.INT64) { const out = new Uint8Array(vals.length * 8), dv = new DataView(out.buffer); for (let i = 0; i < vals.length; i++) { const v = vals[i], hi = Math.floor(v / 4294967296); dv.setUint32(i * 8, v - hi * 4294967296, true); dv.setInt32(i * 8 + 4, hi, true); } return out; }
 	if (type === PT.BYTE_ARRAY) {
-		const bs = vals.map(toBytes);
+		bs ??= vals.map(toBytes);
 		let n = 0; for (const b of bs) n += 4 + b.length;
 		const out = new Uint8Array(n), dv = new DataView(out.buffer); let p = 0;
 		for (const b of bs) { dv.setUint32(p, b.length, true); out.set(b, p + 4); p += 4 + b.length; }
@@ -110,27 +110,28 @@ function encodeHybrid(idx, n, w) {
 }
 
 // 行グループ内の辞書化：異なり値が半分以下（先頭 4096 個で 2048 を超えたら諦める）で辞書が 1 MB 以下なら { dict, idx }
-function tryDictionary(type, vals) {
+function tryDictionary(type, vals, bs = null) {   // bs＝BYTE_ARRAY の事前 UTF-8 化（辞書サイズの集計に使う＝再エンコードしない）
 	const n = vals.length;
 	if (n < 2) return null;
 	const map = new Map(), dict = [], idx = new Uint32Array(n);
+	let bytes = 0;
 	for (let i = 0; i < n; i++) {
 		const v = vals[i];
 		let d = map.get(v);
-		if (d === undefined) { d = dict.length; map.set(v, d); dict.push(v); if ((i === 4095 && d > 2047) || d > (n >> 1)) return null; }
+		if (d === undefined) { d = dict.length; map.set(v, d); dict.push(v); if (bs) bytes += 4 + bs[i].length; if ((i === 4095 && d > 2047) || d > (n >> 1)) return null; }
 		idx[i] = d;
 	}
 	if (dict.length > (n >> 1)) return null;
-	if (type === PT.BYTE_ARRAY) { let bytes = 0; for (const v of dict) bytes += 4 + toBytes(v).length; if (bytes > (1 << 20)) return null; }
+	if (type === PT.BYTE_ARRAY) { if (!bs) for (const v of dict) bytes += 4 + toBytes(v).length; if (bytes > (1 << 20)) return null; }
 	return { dict, idx };
 }
 
 // 列の統計（min/max のバイト表現）。BYTE_ARRAY は符号なしバイト列の辞書順・128 B を超える値があれば統計なし
-function statsOf(type, vals) {
+function statsOf(type, vals, bs = null) {
 	if (!vals.length) return null;
 	if (type === PT.BYTE_ARRAY) {
 		let mn = null, mx = null;
-		for (const v of vals) { const b = toBytes(v); if (b.length > 128) return null; if (mn === null || cmpBytes(b, mn) < 0) mn = b; if (mx === null || cmpBytes(b, mx) > 0) mx = b; }
+		for (let i = 0; i < vals.length; i++) { const b = bs ? bs[i] : toBytes(vals[i]); if (b.length > 128) return null; if (mn === null || cmpBytes(b, mn) < 0) mn = b; if (mx === null || cmpBytes(b, mx) > 0) mx = b; }
 		return { min: mn, max: mx };
 	}
 	let mn = Infinity, mx = -Infinity;
@@ -164,8 +165,9 @@ export async function writeParquet({ schema, columns, numRows }, opts = {}) {
 				if (v === null || v === undefined) { nulls++; continue; }
 				levels[i] = 1; vals.push(v);
 			}
-			const st = col.stats === false ? null : statsOf(col.type, vals);
-			const dic = col.dict === false || col.type === PT.BOOLEAN ? null : tryDictionary(col.type, vals);
+			const bs = col.type === PT.BYTE_ARRAY ? vals.map(toBytes) : null;   // 文字列列の UTF-8 化は列ごとに 1 回（旧＝統計・辞書・ページ分割・符号化で 3〜4 回）
+			const st = col.stats === false ? null : statsOf(col.type, vals, bs);
+			const dic = col.dict === false || col.type === PT.BOOLEAN ? null : tryDictionary(col.type, vals, bs);
 			let unc = 0, cmp = 0, dictOff = null;
 			const page = async (kind, body, numValues, encoding) => {   // ページを書き、(unc, cmp) を積む
 				const comp = await compress(body);
@@ -182,13 +184,13 @@ export async function writeParquet({ schema, columns, numRows }, opts = {}) {
 				return off;
 			};
 			// データページ分割：値のバイト量が pageSize を超えない行範囲ごとに 1 ページ（読み手のストリーミング・巨大 1 ページ回避）
-			const bytesOf = col.type === PT.BYTE_ARRAY ? (v) => 4 + toBytes(v).length : col.type === PT.BOOLEAN ? () => 0.125 : () => 8;
+			const bytesOf = col.type === PT.BYTE_ARRAY ? (v, i) => 4 + bs[i].length : col.type === PT.BOOLEAN ? () => 0.125 : () => 8;
 			const ranges = [];   // [row0, row1, val0, val1]
 			{
 				let r0i = 0, v0 = 0, acc = 0, vi = 0;
 				for (let i = 0; i < n; i++) {
 					if (!levels[i]) continue;
-					const b = dic ? 1 : bytesOf(vals[vi]);
+					const b = dic ? 1 : bytesOf(vals[vi], vi);
 					if (acc + b > pageSize && vi > v0) { ranges.push([r0i, i, v0, vi]); r0i = i; v0 = vi; acc = 0; }
 					acc += b; vi++;
 				}
@@ -205,7 +207,7 @@ export async function writeParquet({ schema, columns, numRows }, opts = {}) {
 				}
 			} else {
 				for (const [a, b, va, vb] of ranges) {
-					const lv = encodeDefLevels(levels.subarray(a, b)), vbytes = encodeValues(col.type, vals.slice(va, vb));
+					const lv = encodeDefLevels(levels.subarray(a, b)), vbytes = encodeValues(col.type, vals.slice(va, vb), bs ? bs.slice(va, vb) : null);
 					const raw = new Uint8Array(lv.length + vbytes.length); raw.set(lv, 0); raw.set(vbytes, lv.length);
 					const off = await page(0, raw, b - a, 0); pageOff ??= off;   // PLAIN
 				}

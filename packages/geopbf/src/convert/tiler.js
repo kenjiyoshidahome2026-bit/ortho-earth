@@ -198,9 +198,40 @@ export async function toPMTiles(pbf, opts = {}) {
 			for (let s = 0; s < shards; s++) {
 				const txFrom = Math.floor(ntx * s / shards), txTo = Math.floor(ntx * (s + 1) / shards) - 1;
 				const makeJob = () => {   // worker が空いた時に複製を作る＝同時に NW 個まで
-					const offs = zo.slice(); for (let i = 0; i < offs.length; i++) offs[i] -= zStart;
-					const o = out.slice(zStart * 2, zEnd * 2);
-					const J = { z, txFrom, txTo, counts: zc.slice(), bbox: zb.slice(), offs, out: o };
+					// shard の列範囲 [txFrom,txTo] に掛かる feature の arc だけを詰め直す（旧＝shard ごとに このズームの全頂点を slice＝shards 倍のコピー・
+					// 俯瞰レビュー 2026-09-15）。判定は assembleZoom の外環先読みと同じ式（bbox は extent 単位・buffer 込み）。面は外環の bbox で決め、
+					// 通れば全環の arc を含める（クリップは環全体が要る）。線は set ごと。外れた arc は counts=0＝assemble が素通し
+					const need = new Uint8Array(A);
+					const hitX = (x0, x1) => !(x1 < 0 || (x1 + buffer) / extent < txFrom || (x0 - buffer) / extent >= txTo + 1);
+					const markStream = (st, poly) => {
+						if (!st) return;
+						for (let p = 0; p < st.length;) {
+							const nr = st[p + 1]; p += 2;
+							const p0 = p;
+							let keep = !poly;
+							for (let r = 0; r < nr; r++) {
+								const ac = st[p++];
+								if (poly ? r === 0 : true) {
+									let x0 = Infinity, x1 = -Infinity;
+									for (let k = 0; k < ac; k++) { const ai = st[p + k], aid = ai < 0 ? ~ai : ai; if (!zc[aid]) continue; if (zb[aid * 4] < x0) x0 = zb[aid * 4]; if (zb[aid * 4 + 2] > x1) x1 = zb[aid * 4 + 2]; }
+									const h = x0 !== Infinity && hitX(x0, x1);
+									if (poly) keep = h; else if (h) for (let k = 0; k < ac; k++) { const ai = st[p + k]; need[ai < 0 ? ~ai : ai] = 1; }
+								}
+								p += ac;
+							}
+							if (poly && keep) { let q = p0; for (let r = 0; r < nr; r++) { const ac = st[q++]; for (let k = 0; k < ac; k++) { const ai = st[q + k]; need[ai < 0 ? ~ai : ai] = 1; } q += ac; } }
+						}
+					};
+					markStream(S.polyStream, true); markStream(S.lineStream, false);
+					for (let a = A - nPts; a < A; a++) need[a] = 1;   // 点＝arc の後ろに並ぶ疑似 arc（A = arcCount + nPts）＝全部含める（軽い・列外は assemble の put が捨てる）
+					let total = 0; for (let a = 0; a < A; a++) if (need[a]) total += zc[a];
+					const counts = new Uint32Array(A), offs = new Uint32Array(A), o = new Uint32Array(total * 2);
+					for (let a = 0, w = 0; a < A; a++) {
+						if (!need[a] || !zc[a]) continue;
+						const src = zo[a] * 2, n2 = zc[a] * 2;   // zo＝この束の out 内の絶対頂点オフセット（旧は zStart で slice してから相対化していた）
+						o.set(out.subarray(src, src + n2), w * 2); counts[a] = zc[a]; offs[a] = w; w += zc[a];
+					}
+					const J = { z, txFrom, txTo, counts, bbox: zb.slice(), offs, out: o };
 					return { msg: { type: "job", J, gzip: tileGzip }, transfers: [J.counts.buffer, J.bbox.buffer, offs.buffer, o.buffer] };
 				};
 				if (pool) pending.push(pool.run(makeJob).then(r => { merge(r); opts.onProgress?.({ zoom: z, tiles: tileCount }); }));
