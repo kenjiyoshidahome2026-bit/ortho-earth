@@ -16,6 +16,7 @@ import orthoJapan from "../app.js";
 import { initEditor } from "../gadgets/geoedit/controller.js";
 import { idbClear } from "../gadgets/geoedit/io.js";
 import { composeLayersToCanvas } from "../gadgets/compose.js";
+import { smallCircle } from "geopbf/edit/sphere";
 
 const t = [], ok = (n, c) => t.push((c ? "ok:" : "NG:") + n);
 window.addEventListener("error", e => t.push("ERR:" + String(e.message).replace(/\s+/g, "_")));
@@ -25,6 +26,8 @@ const FC = { type: "FeatureCollection", features: [
 	{ type: "Feature", properties: { n: "big", "@fill": "#ff00ff", "@stroke": "#ff00ff" }, geometry: { type: "Polygon", coordinates: [sq(130, 30, 140, 40)] } },        // 10°（z≤8 で画面内）
 	{ type: "Feature", properties: { n: "mid", "@fill": "#00ffff", "@stroke": "#00ffff" }, geometry: { type: "Polygon", coordinates: [sq(139.746, 35.667, 139.756, 35.677)] } },   // 1.1km・中心の東隣（big の中＝重なり・後勝ちでシアン）
 	{ type: "Feature", properties: { n: "tiny", "@fill": "#ff00ff", "@stroke": "#ff00ff" }, geometry: { type: "Polygon", coordinates: [sq(139.7452, 35.6712, 139.7458, 35.6718)] } },   // 55m・中心
+	{ type: "Feature", properties: { n: "circ", "@fill": "#ff00ff", "@stroke": "#ff00ff" }, geometry: { type: "Polygon", coordinates: [(() => { const r = smallCircle([146, 35.5], 1.5, 36); r.push([r[0][0], r[0][1]]); return r; })()] } },   // 円ツール相当（36 角・r=1.5°）＝本人報告「z≈6 以下で円だけ消える」
+	{ type: "Feature", properties: { n: "circS", "@fill": "#ff00ff", "@stroke": "#ff00ff" }, geometry: { type: "Polygon", coordinates: [(() => { const r = smallCircle([139.70, 35.60], 0.03, 36); r.push([r[0][0], r[0][1]]); return r; })()] } },   // 小さい円（r=0.03°≈3km）
 ] };
 
 try {
@@ -43,12 +46,12 @@ try {
 	const px = (S, lng, lat) => { const p = map.projectLL(lng, lat); if (!p || p[2] < 0) return null; const d = S.ctx.getImageData(Math.round(p[0] * S.sx), Math.round(p[1] * S.sy), 1, 1).data; return [d[0], d[1], d[2]]; };
 	const magenta = c => !!c && c[0] > 150 && c[2] > 150 && c[1] < 110;
 	const cyan = c => !!c && c[1] > 150 && c[2] > 150 && c[0] < 110;
-	const want = { big: magenta, mid: cyan, tiny: magenta };   // 重なり＝作図順で後（fid 大）が上：mid は big の中でもシアン、tiny は big の中でマゼンタ
+	const want = { big: magenta, mid: cyan, tiny: magenta, circ: magenta, circS: magenta };   // 重なり＝作図順で後（fid 大）が上：mid は big の中でもシアン、tiny は big の中でマゼンタ
 	// 各ズームで「画面内にある図形の中心は塗られ・識別が当たる」。ズームは掃引（上り→下り）＝突然消える箇所を z 名で特定
-	const PTS = [["big", 135, 35, 0], ["mid", 139.7465, 35.6715, 1], ["tiny", 139.7455, 35.6715, 2]];
-	const MINZ = { big: 3, mid: 11, tiny: 15 };   // これ未満は小さすぎて画素判定しない
+	const PTS = [["big", 135, 35, 0], ["mid", 139.7465, 35.6715, 1], ["tiny", 139.7455, 35.6715, 2], ["circ", 146, 35.5, 3], ["circS", 139.70, 35.60, 4]];
+	const MINZ = { big: 3, mid: 11, tiny: 15, circ: 3, circS: 9 };   // これ未満は小さすぎて画素判定しない
 	const bad = [];
-	for (const z of [3, 7, 11, 14, 16, 18, 19, 16, 12, 7, 3]) {
+	for (const z of [3, 4, 5, 6, 7, 9, 11, 14, 16, 18, 19, 16, 12, 9, 7, 6, 5, 4, 3]) {
 		location.hash = `#${z}/35.6715/139.7455`;
 		await sleep(600);
 		let S = null;
