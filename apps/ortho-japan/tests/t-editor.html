@@ -332,12 +332,12 @@ try {
 		ok("wheelZoomBack", Math.abs(map.getZoom() - z0) < 1e-6);
 	}
 
-	// ---- 束ね（bundle）：A と B をクリック→画面上の「合成を確定」→ MultiPolygon 1件・undo で戻る ----
+	// ---- グループ化（bundle）：A と B をクリック→画面上の「グループ化を確定」→ MultiPolygon 1件・undo で戻る ----
 	{
 		key("Escape");
 		await editor.commitNow();
 		const n0 = m().stats().features;
-		document.querySelector('#ge-toolbar button[data-tip^="束ねる"]').click();
+		document.querySelector('#ge-toolbar button[data-tip^="グループ化（"]').click();
 		const a = map.projectLL(139.7515, 35.688), b = map.projectLL(139.7635, 35.6825);   // 点シンボル（139.754,35.6835）とテキスト（139.768,35.6865）の当たり矩形を避けた位置
 		click(a[0], a[1]); click(b[0], b[1]);
 		await sleep(80);
