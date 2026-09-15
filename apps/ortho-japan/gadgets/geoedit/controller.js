@@ -43,22 +43,22 @@ const t = tr({
 	"対応していない形式です": "Unsupported format",
 	"取込失敗: {0}": "Import failed: {0}",
 	"大規模モードでは属性・スタイルと頂点移動ができます（追加/削除はまだ）": "Large mode allows attributes, style and vertex moves (add/delete not yet)",
-	"点は束ねられません（面/線のみ）": "Points cannot be combined (polygons/lines only)",
-	"同じ種類（面同士／線同士）だけ束ねられます": "Only the same kind can be combined (polygons with polygons, lines with lines)",
-	"束ね: {0}件（Enterで確定・Escで取消）": "Combine: {0} selected (Enter to confirm, Esc to cancel)",
+	"点はグループ化できません（面/線のみ）": "Points cannot be grouped (polygons/lines only)",
+	"同じ種類（面同士／線同士）だけグループ化できます": "Only the same kind can be grouped (polygons with polygons, lines with lines)",
+	"グループ化: {0}件（Enterで確定・Escで取消）": "Group: {0} selected (Enter to confirm, Esc to cancel)",
 	"2つ以上選んでください": "Select two or more",
 	"これは multi ではありません": "This is not a multi",
 	"分解する要素を選択してください": "Select a feature to split",
 	"パネルに文字を入れてから置いてください": "Enter the text in the panel first",
-	"束ね取消": "Combine cancelled",
+	"グループ化取消": "Group cancelled",
 	"編集は完全球体（ell=0）として行います＝?ell=1 の楕円体表示とはわずかにずれます": "Editing assumes a perfect sphere (ell=0); it differs slightly from the ?ell=1 ellipsoid view",
 	"大規模モード＝選択と属性・スタイル編集のみ（作図・頂点編集は不可）": "Large mode: selection and attribute/style editing only (no drawing or vertex editing)",
-	"束ねる要素をクリック→Enterで確定（Escで取消）": "Click features to combine → Enter to confirm (Esc to cancel)",
+	"グループ化する要素をクリック→Enterで確定（Escで取消）": "Click features to group → Enter to confirm (Esc to cancel)",
 	"スナップ格子: 1e-{0} 度": "Snap grid: 1e-{0} degrees",
 	"消すものがありません": "Nothing to clear",
 	"全て消去しました": "Everything cleared",
 	"元に戻す": "Undo",
-	"合成を確定（{0}件）": "Confirm combine ({0})",
+	"グループ化を確定（{0}件）": "Confirm group ({0})",
 	"確定": "Done",
 	"取消": "Cancel",
 	"GISファイルをドロップ、またはツールで作図を始めてください": "Drop a GIS file, or start drawing with the tools",
@@ -395,13 +395,13 @@ export function initEditor(map, { adopt = true, setDropOwner = null } = {}) {   
 		else {
 			const f = st.model.feats.get(eid); if (!f) return;
 			const fam = st.model.familyOf(f.type);
-			if (fam === "point") return toast(t("点は束ねられません（面/線のみ）"));
+			if (fam === "point") return toast(t("点はグループ化できません（面/線のみ）"));
 			const first = st.bundle.values().next().value;
-			if (first != null) { const ff = st.model.feats.get(first); if (ff && st.model.familyOf(ff.type) !== fam) return toast(t("同じ種類（面同士／線同士）だけ束ねられます")); }
+			if (first != null) { const ff = st.model.feats.get(first); if (ff && st.model.familyOf(ff.type) !== fam) return toast(t("同じ種類（面同士／線同士）だけグループ化できます")); }
 			st.bundle.add(eid);
 		}
 		overlay.redraw();
-		if (st.bundle.size) toast(t("束ね: {0}件（Enterで確定・Escで取消）", st.bundle.size));
+		if (st.bundle.size) toast(t("グループ化: {0}件（Enterで確定・Escで取消）", st.bundle.size));
 	};
 	const confirmBundle = () => {
 		const eids = st.bundle ? [...st.bundle] : [];
@@ -457,7 +457,7 @@ export function initEditor(map, { adopt = true, setDropOwner = null } = {}) {   
 		if (mod && e.key.toLowerCase() === "z") { e.preventDefault(); e.shiftKey ? redo() : undo(); return; }
 		if (e.key === "Escape") {   // 二段＝①描きかけがあれば描画だけ取り消す（ツールは残る）②無ければ選択ツールへ戻る（本人裁定 9/14「描画後も Esc で抜けられる方が自然」）
 			if (st.sketch) { sketch.cancel(); return; }
-			if (st.bundle) toast(t("束ね取消"));   // 選集合は setTool("select") が捨てる
+			if (st.bundle) toast(t("グループ化取消"));   // 選集合は setTool("select") が捨てる
 			select(null);
 			if (st.tool !== "select") setTool("select");
 			return;
@@ -481,7 +481,7 @@ export function initEditor(map, { adopt = true, setDropOwner = null } = {}) {   
 		st.tool = next;
 		sketch.cancel();
 		if (wasBundle && next !== "bundle" && st.bundle) { st.bundle = null; overlay.redraw(); }   // 束ねツールを抜けたら選集合を捨てる
-		if (next === "bundle") { select(null); st.bundle = new Set(); toast(t("束ねる要素をクリック→Enterで確定（Escで取消）")); overlay.redraw(); }
+		if (next === "bundle") { select(null); st.bundle = new Set(); toast(t("グループ化する要素をクリック→Enterで確定（Escで取消）")); overlay.redraw(); }
 		else if (next === "line" || next === "polygon" || next === "free" || next === "hole" || next === "rect" || next === "circle") select(null);   // 作図モードに選択は残さない（最初の一打がハンドルドラッグに化ける競合の根治）
 		else if (next === "select" && st.selection != null) props.render(st.selection);
 		else props.close();               // 点/テキスト/移動ツール＝パネルは出さない or 既定スタイルが主役
@@ -540,7 +540,7 @@ export function initEditor(map, { adopt = true, setDropOwner = null } = {}) {   
 		confirmBar.hidden = !sig;
 		if (!sig) return;
 		okB.hidden = sig === "two";   // 2点作図＝2打目が確定＝「確定」は出さない
-		okB.textContent = sig.startsWith("bundle") ? t("合成を確定（{0}件）", st.bundle?.size || 0) : t("確定");
+		okB.textContent = sig.startsWith("bundle") ? t("グループ化を確定（{0}件）", st.bundle?.size || 0) : t("確定");
 		ngB.textContent = t("取消");
 	};
 	const unsubConfirm = map.onFrame(syncConfirm);

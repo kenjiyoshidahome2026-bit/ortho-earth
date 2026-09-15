@@ -3,10 +3,10 @@ const t = tr({
 	"吹き出し(pop)を表示": "Show popup",
 	"この要素を選択": "Select this feature",
 	"座標をコピー": "Copy coordinates",
-	"合成を確定（{0}件・Enter）": "Confirm combine ({0}, Enter)",
-	"合成を取消（Esc）": "Cancel combine (Esc)",
-	"合成（束ねる）を始める": "Start combining",
-	"ばらす（multiを解除）": "Split (break up the multi)",
+	"グループ化を確定（{0}件・Enter）": "Confirm group ({0}, Enter)",
+	"グループ化を取消（Esc）": "Cancel group (Esc)",
+	"グループ化を始める": "Start grouping",
+	"グループ化解除": "Ungroup",
 	"要素座標をコピー": "Copy feature coordinates",
 	"選択中の要素を削除": "Delete selected feature",
 	"ここに点を置く": "Place a point here",
@@ -36,14 +36,14 @@ export function installContextMenu(ed) {   // 戻り値＝項目を搭載前（�
 				return out;
 			}
 			if (st.tool === "bundle") {   // 束ね中＝確定/取消を最上段
-				out.push({ name: t("合成を確定（{0}件・Enter）", st.bundle?.size || 0), onClick: () => ed.confirmBundle() });
-				out.push({ name: t("合成を取消（Esc）"), onClick: () => ed.setTool("select") });
+				out.push({ name: t("グループ化を確定（{0}件・Enter）", st.bundle?.size || 0), onClick: () => ed.confirmBundle() });
+				out.push({ name: t("グループ化を取消（Esc）"), onClick: () => ed.setTool("select") });
 			} else {
 				const start = st.selection != null ? st.selection : under;   // 選択優先・無ければ指した要素
 				const fam = start != null ? m?.familyOf(m.feats.get(start)?.type || "") : null;
-				if (fam === "poly" || fam === "line") out.push({ name: t("合成（束ねる）を始める"), onClick: () => ed.startBundleWith(start) });
+				if (fam === "poly" || fam === "line") out.push({ name: t("グループ化を始める"), onClick: () => ed.startBundleWith(start) });
 				const mEid = ed.isMulti(under) ? under : ed.isMulti(st.selection) ? st.selection : null;
-				if (mEid != null) out.push({ name: t("ばらす（multiを解除）"), onClick: () => ed.explodeEid(mEid) });
+				if (mEid != null) out.push({ name: t("グループ化解除"), onClick: () => ed.explodeEid(mEid) });
 			}
 			if (under != null && under !== st.selection) out.push(selectItem);   // 指した要素があれば
 			const uc = under != null ? m?.feats.get(under)?.coords?.[0] : null;   // 点なら要素そのものの座標
