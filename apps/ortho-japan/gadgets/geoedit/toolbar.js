@@ -16,8 +16,6 @@ const t = tr({
 	"円を描く（中心→半径の2クリック） (C)": "Draw a circle (center → radius, 2 clicks) (C)",
 	"穴を開ける（ポリゴンの内側に描いてEnter） (H)": "Cut a hole (draw inside a polygon, then Enter) (H)",
 	"要素を移動（クリックで選択→ドラッグ・掴んだままホイール＝重心まわりに回転・⌥/Alt+ホイール＝掴まずに回転・Shift＝15°刻み） (M)": "Move a feature (click to select → drag; wheel while holding = rotate about its centroid, ⌥/Alt+wheel = rotate without grabbing, Shift = 15° steps) (M)",
-	"グループ化（同族の面/線をクリックで選び Enter で 1 つに・Esc取消） (G)": "Group (click polygons/lines of the same kind, Enter → one multi, Esc cancels) (G)",
-	"グループ化解除（選択中のグループを単体へ分解）": "Ungroup (break the selected multi into parts)",
 	"スナップ格子（度）": "Snap grid (degrees)",
 	"GISファイルを取り込む（ドロップも可）": "Import a GIS file (or drop it)",
 	"書き出し（8形式）": "Export (8 formats)",
@@ -47,9 +45,6 @@ const ICONS = {
 	polygon: S('<path d="M12 3.5l8.5 6.2-3.2 10H6.7l-3.2-10z"/><circle cx="12" cy="3.5" r="1.5"/><circle cx="20.5" cy="9.7" r="1.5"/><circle cx="17.3" cy="19.7" r="1.5"/><circle cx="6.7" cy="19.7" r="1.5"/><circle cx="3.5" cy="9.7" r="1.5"/>'),
 	free: S('<path d="M3 17c2.5-7 4.5-9.5 5.5-6.5s.8 8 3 5.5 3.5-9.5 5.5-8 2 6.5 4 8.5"/>'),   // フリーハンド＝一筆書きの波
 	hole: S('<circle cx="6" cy="6" r="2.8"/><circle cx="6" cy="18" r="2.8"/><path d="M20 4L8.2 15.9M8.2 8.1L20 20"/>'),   // 鋏＝旧ツールバー準拠（本人裁定 8/20）
-	// グループ化＝破線の囲み（選択枠）の中に 2 つの図形／解除＝囲みが割れて図形が離れる（本人依頼 9/15「もっとわかりやすいアイコン」）
-	bundle: S('<rect x="3" y="3" width="18" height="18" rx="2" stroke-dasharray="3 2.2"/><circle cx="9" cy="9" r="3"/><rect x="12" y="12" width="6.5" height="6.5" rx="0.8"/>'),
-	explode: S('<path d="M10 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h5" stroke-dasharray="3 2.2"/><path d="M14 3h5a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-5" stroke-dasharray="3 2.2"/><circle cx="7" cy="12" r="2.6"/><rect x="14.5" y="9.3" width="5.4" height="5.4" rx="0.7"/>'),   // 解除＝囲みが左右に割れ、図形が 1 つずつ
 	imp: S('<path d="M3 7h6l2 2h10v11H3z"/><path d="M12 11v6m0 0l-2.5-2.5M12 17l2.5-2.5"/>'),
 	exp: S('<path d="M12 14V3m0 0L8.5 6.5M12 3l3.5 3.5"/><path d="M4 15v5h16v-5"/>'),
 	cloud: S('<path d="M7 17a4 4 0 1 1 .7-7.95A5.5 5.5 0 0 1 18.5 10 3.5 3.5 0 0 1 18 17z"/><path d="M12 21v-7m0 0l-2.5 2.5M12 14l2.5 2.5"/>'),
@@ -76,7 +71,7 @@ export function initToolbar(el, api, signal) {
 	sep();
 
 	// ---- ツール ----
-	// 並び＝選択・点・文字・線・自由曲線・矩形・円・多角形・くり抜き・グループ化・グループ化解除・移動（本人裁定 9/15）
+	// 並び＝選択・点・文字・線・自由曲線・矩形・円・多角形・くり抜き・移動（本人裁定 9/15）。グループ化/解除はツールバーに置かず右クリックメニュー（複数選択＝⌘/Ctrl+クリック）
 	const tools = {
 		select: btn("select", t("選択・頂点編集 (V)"), () => api.setTool("select")),
 		point: btn("point", t("点を置く（アイコン/図形） (A)"), () => api.setTool("point")),
@@ -87,9 +82,7 @@ export function initToolbar(el, api, signal) {
 		circle: btn("circle", t("円を描く（中心→半径の2クリック） (C)"), () => api.setTool("circle")),
 		polygon: btn("polygon", t("面を描く (P)"), () => api.setTool("polygon")),
 		hole: btn("hole", t("穴を開ける（ポリゴンの内側に描いてEnter） (H)"), () => api.setTool("hole")),
-		bundle: btn("bundle", t("グループ化（同族の面/線をクリックで選び Enter で 1 つに・Esc取消） (G)"), () => api.setTool("bundle")),
 	};
-	btn("explode", t("グループ化解除（選択中のグループを単体へ分解）"), () => api.explode());   // ツールでなく即時アクション
 	tools.move = btn("move", t("要素を移動（クリックで選択→ドラッグ・掴んだままホイール＝重心まわりに回転・⌥/Alt+ホイール＝掴まずに回転・Shift＝15°刻み） (M)"), () => api.setTool("move"));
 	const syncTool = t => { for (const [k, b] of Object.entries(tools)) b.classList.toggle("on", k === t); symPanel(t); };
 
