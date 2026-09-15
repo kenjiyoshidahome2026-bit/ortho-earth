@@ -267,9 +267,12 @@ vec4 pivotClip(uint fid) {
 // 縮退＝巻き数 0 で消え、地平線を跨ぐ面は可視部だけを囲む。無しだと球を透かした投影の折返しが
 // 「裏の面のゴースト」と「跨ぎ面の表側が塗れない（±1 相殺）」を作る（geoedit 本人報告 2026-09-15）。
 vec3 horizonClamp(vec3 relW) {
+	// 可視判定は RTE 形（fetchProject の zr と同式）＝u_origin_zr(CPU double)＋dot(rel,eye)。絶対座標 dot(origin_pt+rel, eye) を
+	// float で組むと ≈1 同士の相殺で高ズーム（|E|−1≈1e-6・z18+）に可視頂点が「向こう側」へ化け地平円へ飛ぶ＝図形が突然消える／塗り崩壊
+	//（本人報告 2026-09-15「zoom-in/out で突然消える」＝この版の初日に踏んだ）。
+	if (u_origin_zr + dot(relW, u_eye) >= 0.0) return relW;   // 手前＝そのまま（RTE の精度を保つ）
 	vec3 P = u_origin_pt + relW;
 	float e2 = dot(u_eye, u_eye);
-	if (dot(P, u_eye) >= 1.0) return relW;   // 手前＝そのまま（RTE の精度を保つ）
 	vec3 Pp = P - u_eye * (dot(P, u_eye) / e2);
 	float lp = length(Pp);
 	vec3 t = lp > 1e-6 ? Pp / lp : normalize(vec3(-u_eye.z, 0.0, u_eye.x));

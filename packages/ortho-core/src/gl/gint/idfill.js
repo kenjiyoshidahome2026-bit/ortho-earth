@@ -45,13 +45,17 @@ void main() {
 // R = Σ±(fid+1)（fid 重み付き winding 和）、G = Σ±1（winding カウント＝被覆多重度）。
 // 同一 feature の多重登記（MOJ 名物＝同一リング2回登記で winding ±2）は R=k(fid+1), G=k と
 // なり R/G で fid が正確に復元される＝stencil NOTEQUAL 0 の多重度耐性を ID 塗りでも保つ。
+// A = max(fid+1)（扇の全断片・blend は α のみ MAX）＝重複画素の「後勝ち」候補。別 feature の真の重複（R/G 非整数 or |G|≥2）は
+// 従来 discard（塗らない）だったが、エディタでは図形の重なりが日常＝重なった側が消える／偶然 R/G が整数だと第三者の色が出る
+//（本人報告 2026-09-15「塗りがうまく行っていない・zoom で消える」）。重複画素は A の fid（作図順で後）で塗る＝ペインター順。
+// 限界＝凹多角形の扇は自分の外にも張る（前後で相殺）ため、他の 2 者が重なる画素に凹図形の fid が漏れ得る（稀・容認）。凸＝扇の面積＝図形そのもの。
 const FS_ID = `#version 300 es
 precision highp float;
 flat in float v_fid1;
 out vec4 fragColor;
 void main() {
 	float sgn = gl_FrontFacing ? 1.0 : -1.0;
-	fragColor = vec4(sgn * v_fid1, sgn, 0.0, 0.0);
+	fragColor = vec4(sgn * v_fid1, sgn, 0.0, v_fid1);   // A は向きに依らず（CW 環＝内側が後向き扇・G の符号で吸収している流儀と同じ）
 }`;
 
 // 解決パス：ID バッファの画素値 → fid → スタイル表 → 色（straight alpha で現ターゲットへ blend）。
@@ -66,7 +70,7 @@ uniform int u_fid_count;
 uniform int u_overlap;   // 1＝重複可視化モード（データ品質監査）：通常塗りせず異常画素だけ色分け
 out vec4 fragColor;
 void main() {
-	vec2 t = texelFetch(u_id_tex, ivec2(gl_FragCoord.xy), 0).rg;
+	vec4 t = texelFetch(u_id_tex, ivec2(gl_FragCoord.xy), 0);
 	if (u_overlap == 1) {
 		// 監査プローブ（STENCIL_DEBUG と同思想）：winding 和の異常だけを色分けして残す。
 		float ar = abs(t.r), ag = abs(t.g);
@@ -81,7 +85,10 @@ void main() {
 	}
 	if (abs(t.g) < 0.5) discard;        // 被覆なし（穴・外）。G の符号は外環 CW（向き未正規化）も吸収
 	float q = t.r / t.g;                // 多重登記は約分で消える（R=k(fid+1), G=k → q=fid+1）
-	if (abs(q - round(q)) > 0.25) discard;   // 別 feature 同士の真の重複＝fid が定まらない＝塗らない（デタラメ色を出さない。union 経路の担当）
+	// 重複（|G|≥2＝2 者以上 or 多重登記／R/G 非整数＝別 feature の重なり）＝A（前向き扇の最大 fid+1）で後勝ち。A 無し（CW 環のみ）は従来の q
+	bool multi = abs(t.g) > 1.5 || abs(q - round(q)) > 0.25;
+	if (multi && t.a >= 0.5) q = t.a;
+	else if (abs(q - round(q)) > 0.25) discard;
 	int fid = int(round(q)) - 1;
 	if (fid < 0 || fid >= u_fid_count) discard;
 	uvec4 rec = texelFetch(u_fid_style, ivec2(fid % u_fid_w, fid / u_fid_w), 0);
@@ -98,8 +105,9 @@ function idCaps(gl) {
 	const cbf = gl.getExtension('EXT_color_buffer_float');
 	const fb  = gl.getExtension('EXT_float_blend');
 	let caps = null;
-	if (cbf && fb)  caps = { internal: gl.RG32F,   fmt: gl.RG,   type: gl.FLOAT,      maxFid: 1 << 24, name: 'RG32F' };
-	else if (cbf)   caps = { internal: gl.RG16F,   fmt: gl.RG,   type: gl.HALF_FLOAT, maxFid: 2047,    name: 'RG16F' };
+	// RGBA＝α に「前向き扇の最大 fid+1」（MAX blend）を持つ（重複画素の後勝ち・2026-09-15）
+	if (cbf && fb)  caps = { internal: gl.RGBA32F, fmt: gl.RGBA, type: gl.FLOAT,      maxFid: 1 << 24, name: 'RGBA32F' };
+	else if (cbf)   caps = { internal: gl.RGBA16F, fmt: gl.RGBA, type: gl.HALF_FLOAT, maxFid: 2047,    name: 'RGBA16F' };
 	else if (gl.getExtension('EXT_color_buffer_half_float'))
 	                caps = { internal: gl.RGBA16F, fmt: gl.RGBA, type: gl.HALF_FLOAT, maxFid: 2047,    name: 'RGBA16F' };
 	gS._idCaps = caps;
@@ -217,7 +225,8 @@ export function renderIdFill(s, data, targetFBO) {
 	gl.disable(gl.STENCIL_TEST);
 	gl.clearColor(0, 0, 0, 0);
 	gl.clear(gl.COLOR_BUFFER_BIT);
-	gl.blendFunc(gl.ONE, gl.ONE);   // 加算（equation は既定 FUNC_ADD のまま）
+	gl.blendFuncSeparate(gl.ONE, gl.ONE, gl.ONE, gl.ONE);
+	gl.blendEquationSeparate(gl.FUNC_ADD, gl.MAX);   // RGB＝winding 和の加算・α＝前向き扇の最大 fid+1（MAX は WebGL2 コア）
 	gl.useProgram(idProgram);
 	bindSharedUniforms(gl, uId, data, arcTex, metaTex, TEX_ARC_W, TEX_META_W, width, height);
 	bindDepthUniforms(gl, uId, data);   // 面ドレープ＝蓄積扇の辺端点を地形高へ（fetchClipDrape・真俯瞰=全0=無変化）
@@ -234,6 +243,7 @@ export function renderIdFill(s, data, targetFBO) {
 
 	// ② 解決（fid→スタイル表→色）を本来のターゲットへ straight alpha で。
 	gl.bindFramebuffer(gl.FRAMEBUFFER, targetFBO);
+	gl.blendEquation(gl.FUNC_ADD);
 	gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
 	// 面ドレープの深度統合（2026-08-14）：チルト時は建物 bit7(0x80・renderer が刻む)の画素をスキップ＝ビルが塗りから立ち上がる
 	const occ = !targetFBO && !!(data.depth && (data.depth.elevScale ?? 0) > 0 && data.depth.hasElev);

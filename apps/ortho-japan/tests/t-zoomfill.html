@@ -1,0 +1,68 @@
+<!doctype html>
+<!-- 高ズームでの gint 塗り＝小さな面（東京・0.01° 角）を z14→z16→z18→z19.5 で見て、塗りと識別が消えないこと。
+     本人報告 9/15「書いた図形が zoom-in/out で突然消える・塗りがうまく行っていない」＝horizonClamp の float 相殺（|E|−1≈1e-6）の回帰。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021;width:900px;height:650px}#map{width:900px;height:650px}</style><title>t-zoomfill</title></head>
+<body>
+<div id="map"></div>
+<script>
+window.requestAnimationFrame = cb => setTimeout(() => cb(performance.now()), 16);
+localStorage.setItem("oj.hint", "closed");
+window.confirm = () => false;
+</script>
+<script type="module">
+import { createGeopbf } from "geopbf";
+createGeopbf("https://api.ortho-earth.com");
+import orthoJapan from "../app.js";
+import { initEditor } from "../gadgets/geoedit/controller.js";
+import { idbClear } from "../gadgets/geoedit/io.js";
+import { composeLayersToCanvas } from "../gadgets/compose.js";
+
+const t = [], ok = (n, c) => t.push((c ? "ok:" : "NG:") + n);
+window.addEventListener("error", e => t.push("ERR:" + String(e.message).replace(/\s+/g, "_")));
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const sq = (x0, y0, x1, y1) => [[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]];
+const FC = { type: "FeatureCollection", features: [
+	{ type: "Feature", properties: { n: "big", "@fill": "#ff00ff", "@stroke": "#ff00ff" }, geometry: { type: "Polygon", coordinates: [sq(130, 30, 140, 40)] } },        // 10°（z≤8 で画面内）
+	{ type: "Feature", properties: { n: "mid", "@fill": "#00ffff", "@stroke": "#00ffff" }, geometry: { type: "Polygon", coordinates: [sq(139.746, 35.667, 139.756, 35.677)] } },   // 1.1km・中心の東隣（big の中＝重なり・後勝ちでシアン）
+	{ type: "Feature", properties: { n: "tiny", "@fill": "#ff00ff", "@stroke": "#ff00ff" }, geometry: { type: "Polygon", coordinates: [sq(139.7452, 35.6712, 139.7458, 35.6718)] } },   // 55m・中心
+] };
+
+try {
+	const map = await orthoJapan({ view: "#14/35.6715/139.7455", maxPitch: 0 });
+	await idbClear();
+	const editor = initEditor(map);
+	for (let i = 0; i < 200 && !editor.model; i++) await sleep(100);
+	ok("boot", !!editor.model);
+	await editor.loadFC(FC, { fly: false });
+	await sleep(300);
+	await editor.commitNow();
+	const eids = [...editor.model.feats.keys()];
+	const mapEl = document.getElementById("map");
+	const shot = async () => { const s = await map.requestSnapshot(); const c = composeLayersToCanvas(s); return { ctx: c.getContext("2d"), sx: c.width / mapEl.clientWidth, sy: c.height / mapEl.clientHeight }; };
+	const onScreen = (lng, lat) => { const p = map.projectLL(lng, lat); return !!p && p[2] >= 0 && p[0] > 4 && p[1] > 4 && p[0] < mapEl.clientWidth - 4 && p[1] < mapEl.clientHeight - 4; };
+	const px = (S, lng, lat) => { const p = map.projectLL(lng, lat); if (!p || p[2] < 0) return null; const d = S.ctx.getImageData(Math.round(p[0] * S.sx), Math.round(p[1] * S.sy), 1, 1).data; return [d[0], d[1], d[2]]; };
+	const magenta = c => !!c && c[0] > 150 && c[2] > 150 && c[1] < 110;
+	const cyan = c => !!c && c[1] > 150 && c[2] > 150 && c[0] < 110;
+	const want = { big: magenta, mid: cyan, tiny: magenta };   // 重なり＝作図順で後（fid 大）が上：mid は big の中でもシアン、tiny は big の中でマゼンタ
+	// 各ズームで「画面内にある図形の中心は塗られ・識別が当たる」。ズームは掃引（上り→下り）＝突然消える箇所を z 名で特定
+	const PTS = [["big", 135, 35, 0], ["mid", 139.7465, 35.6715, 1], ["tiny", 139.7455, 35.6715, 2]];
+	const MINZ = { big: 3, mid: 11, tiny: 15 };   // これ未満は小さすぎて画素判定しない
+	const bad = [];
+	for (const z of [3, 7, 11, 14, 16, 18, 19, 16, 12, 7, 3]) {
+		location.hash = `#${z}/35.6715/139.7455`;
+		await sleep(600);
+		let S = null;
+		for (let i = 0; i < 8; i++) { S = await shot(); if (i >= 2 && (z < 15 || magenta(px(S, 139.7455, 35.6715)))) break; await sleep(250); }
+		const zz = map.getZoom();
+		for (const [n, lng, lat, k] of PTS) {
+			if (z < MINZ[n] || !onScreen(lng, lat)) continue;
+			const f = want[n](px(S, lng, lat)), id = editor.layer.identify(lng, lat, zz) === eids[k];
+			if (!f || !id) bad.push(`${n}@z${z}:${f ? "" : "nofill"}${id ? "" : "noid"}(${(px(S, lng, lat) || []).join(",")})`);
+		}
+	}
+	ok("sweep" + (bad.length ? ":" + bad.join("_") : ""), bad.length === 0);
+	window.__editor = editor;
+} catch (e) { t.push("ERR:" + String(e?.stack || e).replace(/\s+/g, "_").slice(0, 300)); }
+document.title = (t.some(x => !x.startsWith("ok:")) ? "FAIL " : "PASS ") + t.join(" ");
+</script>
+</body></html>

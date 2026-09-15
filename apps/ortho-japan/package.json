@@ -35,7 +35,7 @@
 		"verify:webgpu": "node scripts/verify-webgpu.mjs",
 		"verify:prod": "node scripts/verify-prod.mjs",
 		"verify:cloud": "node scripts/verify-cloud.mjs",
-		"verify:editor": "node scripts/verify-editor.mjs && node scripts/verify-editor.mjs t-backfill",
+		"verify:editor": "node scripts/verify-editor.mjs && node scripts/verify-editor.mjs t-backfill && node scripts/verify-editor.mjs t-zoomfill",
 		"deploy": "npm run verify:editor && npm run verify:prod && rm -rf dist/site/japan/moj-local dist/site/japan/plateau-names.json && find dist/site -name .DS_Store -delete && wrangler deploy && node scripts/verify-live.mjs",
 		"preview:prod": "npm run build:prod && rm -rf dist/site/japan/moj-local && wrangler dev",
 		"verify:nocoi": "node scripts/verify-nocoi.mjs",
