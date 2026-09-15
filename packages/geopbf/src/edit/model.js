@@ -228,41 +228,6 @@ export function createModel(topo) {
 			for (let i = 0, u = uniqCount(arc); i < u; i++) snap.addRef(aid, i, arc.pts[i * 2], arc.pts[i * 2 + 1]);
 		}
 	}
-	function translateFeature(eid, dx, dy, { index = true } = {}) {
-		const e = Math.pow(10, m.gridExp);
-		dx = Math.round(dx * e) / e; dy = Math.round(dy * e) / e;   // 格子上を保つ（デルタも格子倍数へ）
-		if (!dx && !dy) return { d: [0, 0] };
-		const f = m.feats.get(eid);
-		if (!f) return null;
-		const wasIndexing = indexing;
-		indexing = index;
-		try {
-		if (f.coords) { f.coords.forEach((c, i) => movePoint(eid, i, c[0] + dx, c[1] + dy)); return { d: [dx, dy] }; }
-		const dirty = new Set(), seenArc = new Set(), seenNode = new Set();
-		for (const { list } of listsOf(f)) for (const s of list) {
-			const aid = sidOf(s);
-			if (seenArc.has(aid)) continue;
-			seenArc.add(aid);
-			const arc = m.arcs.get(aid), n = arc.pts.length / 2;
-			for (const end of arc.closed ? [0] : [0, 1]) {
-				const nid = endNode.get(aid)?.[end];
-				if (nid == null || seenNode.has(nid)) continue;
-				seenNode.add(nid);
-				const nd = m.nodes.get(nid);
-				nodeAt.delete(nkey(nd.x, nd.y));
-				const nx = quantize(normLon(nd.x + dx), e), ny = quantize(nd.y + dy, e);
-				for (const [aid2, end2] of nd.ends) {
-					const a2 = m.arcs.get(aid2);
-					setArcVertex(aid2, end2 === 0 ? 0 : a2.pts.length / 2 - 1, nx, ny, dirty);
-				}
-				nd.x = nx; nd.y = ny;
-				nodeAt.set(nkey(nx, ny), nid);
-			}
-			for (let i = 1; i < n - 1; i++) setArcVertex(aid, i, quantize(normLon(arc.pts[i * 2] + dx), e), quantize(arc.pts[i * 2 + 1] + dy, e), dirty);
-		}
-		return { d: [dx, dy] };
-		} finally { indexing = wasIndexing; }
-	}
 
 	// ---- 球面回転（移動ツール）：図形を球の中心まわりの回転で動かす（本人裁定 9/14「球体上の図形として角度で移動」）。
 	//      base＝掴み始めの頂点列（featureVerts＝安定アドレス eid/path/vi 順）。毎回 base から回すので量子化誤差が積まない。
@@ -552,7 +517,6 @@ export function createModel(topo) {
 	function applyCmd(cmd) {
 		if (cmd.op === "move") { const r = resolveAddrExpect(cmd.addr, cmd.from); return moveVertex(r.arcId, r.idx, cmd.to[0], cmd.to[1]); }
 		if (cmd.op === "movePt") return movePoint(cmd.eid, cmd.ptIdx, cmd.to[0], cmd.to[1]);
-		if (cmd.op === "tr") return translateFeature(cmd.eid, cmd.d[0], cmd.d[1]);
 		if (cmd.op === "rot") return rotateFeature(cmd.eid, cmd.restore ? null : cmd.q, cmd.base);   // restore＝base へ厳密復元（undo）
 		if (cmd.op === "insert") {
 			const r = resolveAddr(cmd.addr);
@@ -584,7 +548,6 @@ export function createModel(topo) {
 	}
 	function invertCmd(cmd) {
 		if (cmd.op === "move" || cmd.op === "movePt" || cmd.op === "props") return { ...cmd, from: cmd.to, to: cmd.from };
-		if (cmd.op === "tr") return { op: "tr", eid: cmd.eid, d: [-cmd.d[0], -cmd.d[1]] };
 		if (cmd.op === "rot") return { ...cmd, restore: !cmd.restore };
 		if (cmd.op === "insert") return { op: "delete", addr: cmd.addrNew, ll: cmd.ll };
 		if (cmd.op === "hole") return { op: "unhole", eid: cmd.eid, path: cmd.path, ring: cmd.ring };
@@ -611,7 +574,7 @@ export function createModel(topo) {
 	const vdirty = () => { vcount = -1; };
 
 	return Object.assign(m, {
-		snap, moveVertex, insertVertex, deleteVertex, movePoint, translateFeature, featureVerts, rotateFeature, reindexFeature, addFeature, deleteFeature, addHole, removeRing, pointInRing,
+		snap, moveVertex, insertVertex, deleteVertex, movePoint, featureVerts, rotateFeature, reindexFeature, addFeature, deleteFeature, addHole, removeRing, pointInRing,
 		toGeoJSON, featureGeoJSON, addrOf, resolveAddr, applyCmd, invertCmd, setGrid, stitch, arcCoords, listsOf, familyOf,
 		endNodeOf: (aid, end) => endNode.get(aid)?.[end],
 		stats: () => ({ features: m.feats.size, arcs: m.arcs.size, vertices: vertexCount() }),

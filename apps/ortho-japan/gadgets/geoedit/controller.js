@@ -49,7 +49,6 @@ const t = tr({
 	"グループ化しました（{0}件）": "Grouped ({0})",
 	"2つ以上選んでください": "Select two or more",
 	"これは multi ではありません": "This is not a multi",
-	"分解する要素を選択してください": "Select a feature to split",
 	"パネルに文字を入れてから置いてください": "Enter the text in the panel first",
 	"編集は完全球体（ell=0）として行います＝?ell=1 の楕円体表示とはわずかにずれます": "Editing assumes a perfect sphere (ell=0); it differs slightly from the ?ell=1 ellipsoid view",
 	"大規模モード＝選択と属性・スタイル編集のみ（作図・頂点編集は不可）": "Large mode: selection and attribute/style editing only (no drawing or vertex editing)",
@@ -311,14 +310,14 @@ export function initEditor(map, { adopt = true, setDropOwner = null } = {}) {   
 	ed.snapLL = snapLL;
 
 	// ---- 履歴経由の適用（undo/redo・構造操作共通）----
-	const GEOM_ONLY = new Set(["move", "movePt", "tr", "rot", "insert", "delete"]);   // 顔ぶれ（点/blur/帯の集合）を変えない操作
+	const GEOM_ONLY = new Set(["move", "movePt", "rot", "insert", "delete"]);   // 顔ぶれ（点/blur/帯の集合）を変えない操作
 	const ENV_KEYS = ["@blur", "@poly", "@spline", "@icon", "@shape", "@text", "@size", "@tip", "@pop"];   // 顔ぶれ/描画リストに効く鍵（色・線幅は表だけ）
 	const affectedEids = (cmd, res) => {   // このコマンドで gint 表示が古くなるフィーチャ群
 		const out = new Set();
 		const arcRefs = aid => { const a = st.model.arcs.get(aid); if (a) for (const e of a.refs) out.add(e); };
 		if (cmd.op === "move" && res?.dirty) for (const aid of res.dirty) arcRefs(aid);
 		else if (cmd.op === "movePt" || cmd.op === "del" || cmd.op === "add" || cmd.op === "hole" || cmd.op === "unhole") out.add(cmd.eid);
-		else if (cmd.op === "tr" || cmd.op === "rot") for (const e of moveTargets(st.model, cmd.eid)) out.add(e);   // rot＝移動ツール（回転移動/ホイール回転）の undo/redo でも隣ごと隠す
+		else if (cmd.op === "rot") for (const e of moveTargets(st.model, cmd.eid)) out.add(e);   // rot＝移動ツール（回転移動/ホイール回転）の undo/redo でも隣ごと隠す
 		else if (cmd.op === "insert" || cmd.op === "delete") { const r = st.model.resolveAddr(cmd.addr); if (r) arcRefs(r.arcId); }
 		else if (cmd.op === "combine") for (const e of cmd.eids) out.add(e);
 		else if (cmd.op === "uncombine") for (const p of cmd.parts) out.add(p.eid);
@@ -429,7 +428,6 @@ export function initEditor(map, { adopt = true, setDropOwner = null } = {}) {   
 		doCmd({ op: "split", eid });
 		select(eid);
 	};
-	const explode = () => { st.selection == null ? toast(t("分解する要素を選択してください")) : explodeEid(st.selection); };
 	Object.assign(ed, { toggleMulti, groupMulti, isMulti, explodeEid });
 
 	// ---- 入力モジュール（作図・ドラッグ・ホバー・右クリック）----
