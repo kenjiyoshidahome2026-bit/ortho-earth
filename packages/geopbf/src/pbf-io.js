@@ -49,7 +49,7 @@ class PBFIO {
                 const res = await fetch(`${this.bucket.url}${name}`, { cache: 'default' });
                 if (res.ok) {
                     const ETag = res.headers.get("etag"); if (ETag == val.ETag) return;
-                    const PBF = await gunzip(await res.blob()).arrayBuffer();
+                    const PBF = await (await gunzip(await res.blob())).arrayBuffer();   // 旧＝Promise に .arrayBuffer()＝常に例外→catch で握り潰し（sync が一度も効いていなかった・2026-09-15）
                     await this.cache(name, { ETag, PBF });
                 }
             } catch (e) { console.error(`Sync failed:`, e); }

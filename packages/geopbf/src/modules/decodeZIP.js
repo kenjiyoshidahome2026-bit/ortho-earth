@@ -97,13 +97,15 @@ export async function decodeZIP(source, target = null, encoding = null) {
 		const cv = new DataView(cd.buffer);
 		const entries = [];
 
+		// 名前のデコーダは 2 本だけ用意（旧＝エントリごとに new TextDecoder、しかも `encoding || (flags & 0x0800) ? …` の優先順位で encoding 指定が常に utf-8 になっていた・2026-09-15）
+		const decUtf8 = new TextDecoder(encoding || "utf-8"), decSjis = encoding ? decUtf8 : new TextDecoder("shift-jis");
 		for (let i = 0, off = 0; i < count; i++) {
 			const flags = cv.getUint16(off + 8, true), meth = cv.getUint16(off + 10, true);
 			const time = cv.getUint16(off + 12, true), date = cv.getUint16(off + 14, true);
 			const crc = cv.getUint32(off + 16, true), cSiz = cv.getUint32(off + 20, true), uSiz = cv.getUint32(off + 24, true);
 			const nLen = cv.getUint16(off + 28, true), eLen = cv.getUint16(off + 30, true), cLen = cv.getUint16(off + 32, true);
 			const loc = cv.getUint32(off + 42, true);
-			const name = new TextDecoder(encoding || (flags & 0x0800) ? 'utf-8' : 'shift-jis').decode(cd.subarray(off + 46, off + 46 + nLen)).normalize("NFC");
+			const name = ((flags & 0x0800) ? decUtf8 : decSjis).decode(cd.subarray(off + 46, off + 46 + nLen)).normalize("NFC");
 
 			off += 46 + nLen + eLen + cLen;
 			if (name.endsWith('/')) continue;

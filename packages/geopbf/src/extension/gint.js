@@ -22,12 +22,14 @@ export class gint {
 		}
 	}
 
-	static _ensureBufferSize(requiredBytes) { if (requiredBytes <= sharedWasmSize) return sharedWasmPtr;
-		if (typeof free_wasm_memory === 'function' && sharedWasmPtr !== 0) {
-			free_wasm_memory(sharedWasmPtr, sharedWasmSize);
-		}
+	// keepBytes＞0＝成長時に旧領域の先頭 keepBytes を新領域へ写す（XY2L1 の push 途中の成長用）。旧＝free→alloc で旧内容を写さず、
+	// 推定点数を超えて成長すると既存頂点が消えていた（2026-09-15 効率レビューで発見）。順序＝新規確保→複写→旧解放
+	static _ensureBufferSize(requiredBytes, keepBytes = 0) { if (requiredBytes <= sharedWasmSize) return sharedWasmPtr;
+		const oldPtr = sharedWasmPtr, oldSize = sharedWasmSize;
 		sharedWasmSize = Math.pow(2, Math.ceil(Math.log2(requiredBytes)));
 		sharedWasmPtr = alloc_wasm_memory(sharedWasmSize);
+		if (keepBytes > 0 && oldPtr !== 0) new Uint8Array(wasmMemoryBuffer.buffer).copyWithin(sharedWasmPtr, oldPtr, oldPtr + Math.min(keepBytes, oldSize));   // alloc で memory が伸びた後のビューで写す
+		if (typeof free_wasm_memory === 'function' && oldPtr !== 0) free_wasm_memory(oldPtr, oldSize);
 		return sharedWasmPtr;
 	}
 	
@@ -145,9 +147,9 @@ export class gint {
 			* area A_1e7 = (L * 1e7)^2  [(1e-7 deg)^2 units]
 			* Rank = 1.5 * log2(A_1e7) - 8.2365
 			*       = 1.5 * log2(area * 1e14) - 8.2365
-			*       = 1.5 * log2(area) + 61.51
+			*       = 1.5 * log2(area) + 61.524   （1.5·log2(1e14)=69.761 − 8.2365。旧 61.51 は丸めすぎ＝Rust lib.rs と不一致で経路によりランクが 1 段ずれた・2026-09-15）
 			* ------------------------------------------------ */
-			const rank = Math.floor(1.5 * Math.log2(area) + 61.51);
+			const rank = Math.floor(1.5 * Math.log2(area) + 61.524);
 			return Math.min(63, Math.max(0, rank));
 		};
 		for (let i = 1; i < n - 1; i++) L1arc[i] = this.toL2(L1arc[i], getPhysRank(eff[i]));
@@ -428,7 +430,7 @@ export class gint {
 		return {
 			push(x, y) {
 				if (i32Idx + 2 >= view.length) { bufSize *= 2;
-					ptr = gint._ensureBufferSize(bufSize * 4);
+					ptr = gint._ensureBufferSize(bufSize * 4, i32Idx * 4);   // 既存の頂点を新領域へ写す
 					view = new Int32Array(wasmMemoryBuffer.buffer, ptr, bufSize);
 				}
 				view[i32Idx++] = x; view[i32Idx++] = y; count++;
