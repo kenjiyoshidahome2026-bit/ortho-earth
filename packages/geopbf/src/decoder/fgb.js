@@ -1,5 +1,4 @@
 import { GeoPBF } from "../pbf-base.js";
-import { dissolve } from "../extension/dissolve.js";
 
 // Conforms to the official FlatGeobuf GeometryType enum (must match encoder).
 const GeometryTypes = ["Unknown", "Point", "LineString", "Polygon", "MultiPoint", "MultiLineString", "MultiPolygon", "GeometryCollection"];
@@ -206,7 +205,6 @@ onmessage = async (e) => {
 		});
 
 		pbf.close();
-		await dissolve(pbf);
 		const res = pbf.arrayBuffer;
 		postMessage({ type: "fgbdec", data: res }, [res]);
 	} catch (err) {

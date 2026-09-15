@@ -6,8 +6,8 @@
 // 経緯度で回すと「メルカトルの曲線を球に貼った」形（東西が cos(lat) で潰れ・縫い目/極で破綻）になる。
 // 標本点同士は呼び手が大円で結ぶ（overlay/anno の seg・gint の度アンカー）。制御点は標本点にそのまま含まれる（t=0 は原値）。
 // unwrapLons/wrapLon は経緯度の平行移動（model の tr）等の別用途で残す（球面版の補間には不要）。
-import { toVec, toLL } from "./sphere.js";
-export const wrapLon = x => (x >= -180 && x < 180) ? x : ((x + 180) % 360 + 360) % 360 - 180;
+import { toVec, toLL, wrapLon } from "./sphere.js";
+export { wrapLon };   // 正典は sphere.js（旧＝同じ式をここにも定義＝二重定義）
 export const unwrapLons = pts => {
 	const out = new Array(pts.length);
 	for (let i = 0, prev = 0; i < pts.length; i++) {

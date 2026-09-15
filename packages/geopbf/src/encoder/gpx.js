@@ -1,6 +1,6 @@
 import { GeoPBF } from "../pbf-base.js";
 const enc = new TextEncoder();
-const escXML = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+import { escXML } from "../modules/xml.js";   // " も逃がす（旧＝逃がさず属性値の " で壊れた）
 
 onmessage = async (e) => {
 	const { buf, name, opts } = e.data, gz = opts && opts.gz;
