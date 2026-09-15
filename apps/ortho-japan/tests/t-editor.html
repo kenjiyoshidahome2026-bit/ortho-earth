@@ -332,23 +332,20 @@ try {
 		ok("wheelZoomBack", Math.abs(map.getZoom() - z0) < 1e-6);
 	}
 
-	// ---- グループ化（bundle）：A と B をクリック→画面上の「グループ化を確定」→ MultiPolygon 1件・undo で戻る ----
+	// ---- グループ化（右クリック）：A を選択→⌘+クリックで B を追加（複数選択）→右クリック「グループ化（2件）」→ MultiPolygon 1件→右クリック「グループ化解除」→戻る（本人裁定 9/15＝ツールバー無し）----
 	{
 		key("Escape");
 		await editor.commitNow();
 		const n0 = m().stats().features;
-		document.querySelector('#ge-toolbar button[data-tip^="グループ化（"]').click();
 		const a = map.projectLL(139.7515, 35.688), b = map.projectLL(139.7635, 35.6825);   // 点シンボル（139.754,35.6835）とテキスト（139.768,35.6865）の当たり矩形を避けた位置
-		click(a[0], a[1]); click(b[0], b[1]);
-		await sleep(80);
-		const bar = document.querySelector(".ge-confirm");
-		ok("bundleBar", !bar.hidden && bar.querySelector(".ge-ok").textContent.includes("2件"));
-		if (bar.hidden || !bar.querySelector(".ge-ok").textContent.includes("2件")) t.push("DBG:bundle=" + (editor.state.bundle ? [...editor.state.bundle].join("/") : "null") + ":identB=" + editor.layer.identify(139.7635, 35.6825, map.getZoom()) + ":identA=" + editor.layer.identify(139.7515, 35.688, map.getZoom()));
-		bar.querySelector(".ge-ok").click();
-		await sleep(300);
-		ok("bundleCombine", m().stats().features === n0 - 1 && m().feats.get(editor.state.selection)?.type === "MultiPolygon");
-		key("z", { metaKey: true });
-		await sleep(300);
+		click(a[0], a[1]); await sleep(150);
+		C().dispatchEvent(new PointerEvent("pointerdown", { ...ev(b[0], b[1], 1), metaKey: true })); C().dispatchEvent(new PointerEvent("pointerup", { ...ev(b[0], b[1], 1), metaKey: true }));
+		await sleep(150);
+		ok("multiSelect", editor.state.multi?.size === 2 && !document.querySelector(".ge-confirm:not([hidden])") && !document.querySelector('#ge-toolbar button[data-tip^="グループ化"]'));
+		const ctxItem = async (prefix, x, y) => { C().dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: x, clientY: y })); await sleep(120); const it = [...document.querySelectorAll("#ctxmenu .ctxmenu-item")].find(el => el.textContent.startsWith(prefix)); if (!it) t.push("DBG:ctx=" + [...document.querySelectorAll("#ctxmenu .ctxmenu-item")].map(el => el.textContent).join("|")); it?.click(); await sleep(300); return !!it; };
+		ok("bundleCombine", await ctxItem("グループ化（2", b[0], b[1]) && m().stats().features === n0 - 1 && m().feats.get(editor.state.selection)?.type === "MultiPolygon");
+		ok("bundleUngroup", await ctxItem("グループ化解除", b[0], b[1]) && m().stats().features === n0);
+		key("z", { metaKey: true }); await sleep(200); key("z", { metaKey: true }); await sleep(300);
 		ok("bundleUndo", m().stats().features === n0);
 	}
 

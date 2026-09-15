@@ -1,4 +1,4 @@
-// 編集コントローラ＝状態機械と結線の中枢（読込/コミット/再抽出のパイプライン・コマンド適用と履歴・選択/束ね・ツール・鍵盤）。
+// 編集コントローラ＝状態機械と結線の中枢（読込/コミット/再抽出のパイプライン・コマンド適用と履歴・選択/複数選択・ツール・鍵盤）。
 // 入力の各面は独立モジュールへ分割（9/4）＝ drag.js（頂点/フィーチャのドラッグ）・sketch.js（作図）・tip.js（ホバー）・
 // contextmenu.js（右クリック）・worker-rpc.js（Worker 往復）。各モジュールは共有文脈 ed（下の initEditor 冒頭）を受け取り、
 // 可変状態は全て st に置く（tool/drag/editGen も）＝モジュール間で閉包変数を共有しない。
@@ -45,20 +45,18 @@ const t = tr({
 	"大規模モードでは属性・スタイルと頂点移動ができます（追加/削除はまだ）": "Large mode allows attributes, style and vertex moves (add/delete not yet)",
 	"点はグループ化できません（面/線のみ）": "Points cannot be grouped (polygons/lines only)",
 	"同じ種類（面同士／線同士）だけグループ化できます": "Only the same kind can be grouped (polygons with polygons, lines with lines)",
-	"グループ化: {0}件（Enterで確定・Escで取消）": "Group: {0} selected (Enter to confirm, Esc to cancel)",
+	"選択: {0}件（⌘/Ctrl+クリックで追加・右クリックでグループ化）": "Selected: {0} (⌘/Ctrl+click to add, right-click to group)",
+	"グループ化しました（{0}件）": "Grouped ({0})",
 	"2つ以上選んでください": "Select two or more",
 	"これは multi ではありません": "This is not a multi",
 	"分解する要素を選択してください": "Select a feature to split",
 	"パネルに文字を入れてから置いてください": "Enter the text in the panel first",
-	"グループ化取消": "Group cancelled",
 	"編集は完全球体（ell=0）として行います＝?ell=1 の楕円体表示とはわずかにずれます": "Editing assumes a perfect sphere (ell=0); it differs slightly from the ?ell=1 ellipsoid view",
 	"大規模モード＝選択と属性・スタイル編集のみ（作図・頂点編集は不可）": "Large mode: selection and attribute/style editing only (no drawing or vertex editing)",
-	"グループ化する要素をクリック→Enterで確定（Escで取消）": "Click features to group → Enter to confirm (Esc to cancel)",
 	"スナップ格子: 1e-{0} 度": "Snap grid: 1e-{0} degrees",
 	"消すものがありません": "Nothing to clear",
 	"全て消去しました": "Everything cleared",
 	"元に戻す": "Undo",
-	"グループ化を確定（{0}件）": "Confirm group ({0})",
 	"確定": "Done",
 	"取消": "Cancel",
 	"GISファイルをドロップ、またはツールで作図を始めてください": "Drop a GIS file, or start drawing with the tools",
@@ -91,7 +89,7 @@ export function initEditor(map, { adopt = true, setDropOwner = null } = {}) {   
 	mapEl.append(toolbarEl);
 	// 可変状態は全部ここ（各入力モジュールと共有）
 	const st = {
-		model: null, selection: null, dragEids: null, hidden: null, sketch: null, snapMark: null, rot: null, busy: false, bundle: null, focus: null,
+		model: null, selection: null, dragEids: null, hidden: null, sketch: null, snapMark: null, rot: null, busy: false, multi: null, focus: null,   // multi＝複数選択（⌘/Ctrl+クリックで累積・selection は最後の1件）
 		tool: "select",
 		drag: null,        // ドラッグ中の記述（drag.js）
 		editGen: 0,        // 編集世代＝「このコミットは最新の編集を含むか」の判定（含むなら隠し/オーバレイを引き継ぐ）
@@ -146,7 +144,8 @@ export function initEditor(map, { adopt = true, setDropOwner = null } = {}) {   
 	// Shift+クリック＝その要素の @pop を開く。エンジンは shift を tilt/回転扱いにして onClick を出さない（input.js）ため、
 	// editClick 経由でなく mapEl で直接拾う。動いた時（shift+ドラッグ＝回転）はエンジンに委ねる（pop にしない）。
 	let shiftDown = null;   // shift 押下の開始点 [x,y]／非shift は null
-	mapEl.addEventListener("pointerdown", e => { shiftDown = e.shiftKey ? localXY(e) : null; }, { capture: true, signal });
+	let modDown = false;    // ⌘/Ctrl 押下でのクリック＝複数選択（editClick には修飾が来ない＝pointerdown で控える）
+	mapEl.addEventListener("pointerdown", e => { shiftDown = e.shiftKey ? localXY(e) : null; modDown = !!(e.metaKey || e.ctrlKey); }, { capture: true, signal });
 	mapEl.addEventListener("pointerup", e => {
 		const d = shiftDown; shiftDown = null;
 		if (!d || st.busy || !st.model) return;
@@ -272,7 +271,7 @@ export function initEditor(map, { adopt = true, setDropOwner = null } = {}) {   
 			const model = createLargeModel(built);
 			for (const w of model.warnings) console.warn("[geoedit]", w);
 			hist.clear();
-			st.selection = null; st.sketch = null; st.bundle = null; st.dragEids = null; st.hidden = null; st.focus = null;
+			st.selection = null; st.sketch = null; st.multi = null; st.dragEids = null; st.hidden = null; st.focus = null;
 			props.close();
 			popLayer.clear();
 			st.model = model; st.largeDirty = false; st.envGen++;
@@ -379,47 +378,46 @@ export function initEditor(map, { adopt = true, setDropOwner = null } = {}) {   
 			for (const nb of (st.model.arcs.get(sref < 0 ? ~sref : sref)?.refs ?? [])) { hood.add(nb); if (hood.size > 64) return new Set([eid]); }
 		return hood;
 	};
-	const select = eid => {
+	const select = (eid, { keepMulti = false } = {}) => {
 		ed.flushRot?.();   // 選択替え＝進行中のホイール回転（Alt+ホイール）を先に1手へ確定
 		st.selection = eid; st.sketch = null;
+		if (!keepMulti) st.multi = null;
 		if (st.model?.large) { st.focus = focusHood(eid); layer.focus(st.focus); }   // 編集近傍＝gint消灯・オーバレイ描画へ
 		eid != null && st.tool === "select" ? props.render(eid) : props.close();   // パネルは選択ツール時のみ（作図中は既定スタイルパネルが主役）。選択表示はオーバレイ一本（大規模も同じ＝gint橙強調は撤去 8/26）
 		overlay.redraw();
 	};
 	ed.select = select;
 
-	// ---- 束ね（multi化）：束ねツールでクリック累積→Enterで確定。同族（面同士/線同士）のみ。----
-	const toggleBundle = eid => {
-		if (!st.bundle) st.bundle = new Set();
-		if (st.bundle.has(eid)) st.bundle.delete(eid);
-		else {
-			const f = st.model.feats.get(eid); if (!f) return;
-			const fam = st.model.familyOf(f.type);
-			if (fam === "point") return toast(t("点はグループ化できません（面/線のみ）"));
-			const first = st.bundle.values().next().value;
-			if (first != null) { const ff = st.model.feats.get(first); if (ff && st.model.familyOf(ff.type) !== fam) return toast(t("同じ種類（面同士／線同士）だけグループ化できます")); }
-			st.bundle.add(eid);
-		}
+	// ---- 複数選択とグループ化（本人裁定 9/15＝ツールバーから外し右クリックへ）：⌘/Ctrl+クリックで選択に足す/外す（selection＝最後の1件・
+	//      multi＝全員）。右クリック「グループ化（n件）」＝同族（面同士/線同士）の multi 化。グループ（Multi*）を指して「グループ化解除」。----
+	const toggleMulti = eid => {
+		if (eid == null) return;
+		if (!st.multi) st.multi = new Set(st.selection != null ? [st.selection] : []);
+		if (st.multi.has(eid) && st.multi.size > 1) { st.multi.delete(eid); if (st.selection === eid) st.selection = [...st.multi].pop(); }
+		else st.multi.add(eid), st.selection = eid;
+		if (st.model?.large) { st.focus = focusHood(st.selection); layer.focus(st.focus); }
+		st.multi.size > 1 ? props.close() : props.render(st.selection);   // 2件以上＝パネルは閉じる（どの1件の属性か曖昧）
 		overlay.redraw();
-		if (st.bundle.size) toast(t("グループ化: {0}件（Enterで確定・Escで取消）", st.bundle.size));
+		if (st.multi.size > 1) toast(t("選択: {0}件（⌘/Ctrl+クリックで追加・右クリックでグループ化）", st.multi.size));
 	};
-	const confirmBundle = () => {
-		const eids = st.bundle ? [...st.bundle] : [];
+	const groupMulti = () => {
+		const eids = st.multi ? [...st.multi] : [];
 		if (eids.length < 2) return toast(t("2つ以上選んでください"));
+		const fams = eids.map(e => st.model.familyOf(st.model.feats.get(e)?.type || ""));
+		if (fams.includes("point")) return toast(t("点はグループ化できません（面/線のみ）"));
+		if (new Set(fams).size > 1) return toast(t("同じ種類（面同士／線同士）だけグループ化できます"));
 		doCmd({ op: "combine", eids });   // 代表=先頭。プロパティは代表を継承
-		st.bundle = null;
-		setTool("select");
 		select(eids[0]);
+		toast(t("グループ化しました（{0}件）", eids.length));
 	};
 	const isMulti = eid => { const f = eid != null ? st.model?.feats.get(eid) : null; return !!f && (f.type === "MultiPolygon" || f.type === "MultiLineString"); };
-	const explodeEid = eid => {   // ばらす：指定 multi を単体へ分解（先頭は同eidを再利用）
+	const explodeEid = eid => {   // グループ化解除：指定 multi を単体へ分解（先頭は同eidを再利用）
 		if (!isMulti(eid)) return toast(t("これは multi ではありません"));
 		doCmd({ op: "split", eid });
 		select(eid);
 	};
 	const explode = () => { st.selection == null ? toast(t("分解する要素を選択してください")) : explodeEid(st.selection); };
-	const startBundleWith = eid => { setTool("bundle"); if (eid != null) toggleBundle(eid); };   // 合成開始＝束ねモードに入り、指定要素を最初の仲間に
-	Object.assign(ed, { confirmBundle, isMulti, explodeEid, startBundleWith });
+	Object.assign(ed, { toggleMulti, groupMulti, isMulti, explodeEid });
 
 	// ---- 入力モジュール（作図・ドラッグ・ホバー・右クリック）----
 	const sketch = createSketch(ed);
@@ -434,13 +432,8 @@ export function initEditor(map, { adopt = true, setDropOwner = null } = {}) {   
 		const ll = map.unprojectXY(x, y);
 		if (!ll) return;
 		const tool = st.tool;
-		if (tool === "bundle") {   // 束ね＝クリックで対象を選集合へ足す/外す（Enterで確定）
-			const eid = pick(x, y, ll);
-			if (eid != null) toggleBundle(eid);
-			return;
-		}
 		if (tool === "free") return;   // フリーハンド＝ドラッグ作図（sketch.js が pointer 直取り）。クリックでは何も置かない
-		if (tool === "select" || tool === "move") return select(pick(x, y, ll));   // 移動ツール＝クリックで対象選択（ドラッグは drag.js）
+		if (tool === "select" || tool === "move") { const e = pick(x, y, ll); return modDown ? toggleMulti(e) : select(e); }   // ⌘/Ctrl+クリック＝複数選択。移動ツール＝クリックで対象選択（ドラッグは drag.js）
 		if (tool === "point" || tool === "text") {
 			if (tool === "text" && !drawDefaults.text["@text"]) return toast(t("パネルに文字を入れてから置いてください"));
 			return placePointAt(ll, drawDefaults[tool]);
@@ -450,24 +443,26 @@ export function initEditor(map, { adopt = true, setDropOwner = null } = {}) {   
 
 	// ---- キーボード ----
 	const typing = () => { const t = document.activeElement?.tagName; return t === "INPUT" || t === "TEXTAREA" || document.activeElement?.isContentEditable; };
-	const KEY_TOOL = { v: "select", a: "point", t: "text", l: "line", p: "polygon", f: "free", r: "rect", c: "circle", h: "hole", m: "move", g: "bundle" };
+	const KEY_TOOL = { v: "select", a: "point", t: "text", l: "line", p: "polygon", f: "free", r: "rect", c: "circle", h: "hole", m: "move" };
 	addEventListener("keydown", e => {
 		if (typing() || st.busy) return;
 		const mod = e.metaKey || e.ctrlKey;
 		if (mod && e.key.toLowerCase() === "z") { e.preventDefault(); e.shiftKey ? redo() : undo(); return; }
 		if (e.key === "Escape") {   // 二段＝①描きかけがあれば描画だけ取り消す（ツールは残る）②無ければ選択ツールへ戻る（本人裁定 9/14「描画後も Esc で抜けられる方が自然」）
 			if (st.sketch) { sketch.cancel(); return; }
-			if (st.bundle) toast(t("グループ化取消"));   // 選集合は setTool("select") が捨てる
-			select(null);
+			select(null);   // multi も捨てる
 			if (st.tool !== "select") setTool("select");
 			return;
 		}
-		if (e.key === "Enter") { if (st.sketch) { e.preventDefault(); sketch.finish(); } else if (st.tool === "bundle") { e.preventDefault(); confirmBundle(); } return; }
+		if (e.key === "Enter") { if (st.sketch) { e.preventDefault(); sketch.finish(); } return; }
 		if ((e.key === "Delete" || e.key === "Backspace") && st.selection != null) {
 			e.preventDefault();
-			doCmd({ op: "del", eid: st.selection });
+			const eids = st.multi && st.multi.size > 1 ? [...st.multi] : [st.selection];   // 複数選択＝全部消す（1件ずつのコマンド＝undo も1件ずつ）
+			for (const eid of eids) doCmd({ op: "del", eid });
+			st.multi = null;
 			return;
 		}
+		if (!mod && !e.altKey && e.key.toLowerCase() === "g") { groupMulti(); return; }   // G＝複数選択をグループ化（右クリックと同じ）
 		if (mod || e.altKey) return;   // ⌘C/⌘V/⌘A/⌘L/⌘P/⌘G 等のブラウザ操作をツール切替に化けさせない
 		const kt = KEY_TOOL[e.key.toLowerCase()];
 		if (kt) setTool(kt);
@@ -477,12 +472,9 @@ export function initEditor(map, { adopt = true, setDropOwner = null } = {}) {   
 	const setTool = next => {
 		if (st.model?.large && next !== "select") { toast(t("大規模モード＝選択と属性・スタイル編集のみ（作図・頂点編集は不可）")); next = "select"; }
 		ed.flushRot?.();   // ツール替え＝進行中のホイール回転を先に確定
-		const wasBundle = st.tool === "bundle";
 		st.tool = next;
 		sketch.cancel();
-		if (wasBundle && next !== "bundle" && st.bundle) { st.bundle = null; overlay.redraw(); }   // 束ねツールを抜けたら選集合を捨てる
-		if (next === "bundle") { select(null); st.bundle = new Set(); toast(t("グループ化する要素をクリック→Enterで確定（Escで取消）")); overlay.redraw(); }
-		else if (next === "line" || next === "polygon" || next === "free" || next === "hole" || next === "rect" || next === "circle") select(null);   // 作図モードに選択は残さない（最初の一打がハンドルドラッグに化ける競合の根治）
+		if (next === "line" || next === "polygon" || next === "free" || next === "hole" || next === "rect" || next === "circle") select(null);   // 作図モードに選択は残さない（最初の一打がハンドルドラッグに化ける競合の根治）
 		else if (next === "select" && st.selection != null) props.render(st.selection);
 		else props.close();               // 点/テキスト/移動ツール＝パネルは出さない or 既定スタイルが主役
 		bar.syncTool(next);
@@ -491,7 +483,7 @@ export function initEditor(map, { adopt = true, setDropOwner = null } = {}) {   
 	if (ellipsoidOn()) toast(t("編集は完全球体（ell=0）として行います＝?ell=1 の楕円体表示とはわずかにずれます"));   // 幾何は球面（大円・回転・小円）＝楕円体表示（?ell=1）では告知だけ
 	const getPbf = () => st.model && (st.model.large ? st.model.toPbf() : layer.exportPbf(st.model));   // 書き出し/クラウド共通の口（大規模＝ストリーム置換複写：幾何はバイト複写・属性だけ再エンコード）
 	const bar = initToolbar(toolbarEl, {
-		setTool, undo, redo, explode,
+		setTool, undo, redo,
 		gridExp: () => gridExp,
 		setGrid: exp => { gridExp = exp; st.model?.setGrid(exp); toast(t("スナップ格子: 1e-{0} 度", exp)); },
 		getDefaults: t => drawDefaults[t === "rect" || t === "circle" ? "polygon" : t === "free" ? "line" : t],   // 矩形/円＝面・フリーハンド＝線の既定スタイルを共有
@@ -520,7 +512,7 @@ export function initEditor(map, { adopt = true, setDropOwner = null } = {}) {   
 	const ctxRestore = installContextMenu(ed);   // 本体地図＝既定メニューの項目を差し替え（destroy で戻す）
 	initDrop(mapEl, importFile, signal);   // 取り込み（ドロップ）
 
-	// ---- 画面上の「確定／取消」バー（タッチ端末＝Enter/Esc が無い）：作図中（頂点1つ以上）と束ね中だけ出す。
+	// ---- 画面上の「確定／取消」バー（タッチ端末＝Enter/Esc が無い）：作図中（頂点1つ以上）だけ出す。
 	//      状態変化は全て overlay.redraw()→frame を通るので、frame フックで差分だけ DOM に反映（gadget の _update と同型）----
 	const confirmBar = document.createElement("div");
 	confirmBar.className = "ge-confirm"; confirmBar.hidden = true;
@@ -528,19 +520,18 @@ export function initEditor(map, { adopt = true, setDropOwner = null } = {}) {   
 	okB.className = "ge-ok"; ngB.className = "ge-cancel";
 	confirmBar.append(okB, ngB);
 	mapEl.append(confirmBar);
-	okB.addEventListener("click", () => { if (st.sketch) sketch.finish(); else if (st.tool === "bundle") confirmBundle(); }, { signal });
-	ngB.addEventListener("click", () => { if (st.sketch) sketch.cancel(); else if (st.tool === "bundle") setTool("select"); }, { signal });
+	okB.addEventListener("click", () => { if (st.sketch) sketch.finish(); }, { signal });
+	ngB.addEventListener("click", () => { if (st.sketch) sketch.cancel(); }, { signal });
 	let confirmSig = "";
 	const syncConfirm = () => {
 		let sig = "";
 		if (st.sketch && st.sketch.coords.length && st.sketch.kind !== "free") sig = st.sketch.kind === "rect" || st.sketch.kind === "circle" ? "two" : `draw:${st.sketch.coords.length}`;   // free＝pointerup が確定＝バー不要
-		else if (st.tool === "bundle") sig = `bundle:${st.bundle?.size || 0}`;
 		if (sig === confirmSig) return;
 		confirmSig = sig;
 		confirmBar.hidden = !sig;
 		if (!sig) return;
 		okB.hidden = sig === "two";   // 2点作図＝2打目が確定＝「確定」は出さない
-		okB.textContent = sig.startsWith("bundle") ? t("グループ化を確定（{0}件）", st.bundle?.size || 0) : t("確定");
+		okB.textContent = t("確定");
 		ngB.textContent = t("取消");
 	};
 	const unsubConfirm = map.onFrame(syncConfirm);

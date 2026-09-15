@@ -2,21 +2,23 @@ import { tr } from "../../i18n.js";   // UI二言語化（ja正典・en辞書引
 const t = tr({
 	"吹き出し(pop)を表示": "Show popup",
 	"この要素を選択": "Select this feature",
+	"選択に追加": "Add to selection",
+	"選択から外す": "Remove from selection",
 	"座標をコピー": "Copy coordinates",
-	"グループ化を確定（{0}件・Enter）": "Confirm group ({0}, Enter)",
-	"グループ化を取消（Esc）": "Cancel group (Esc)",
-	"グループ化を始める": "Start grouping",
+	"グループ化（{0}件）": "Group ({0})",
 	"グループ化解除": "Ungroup",
 	"要素座標をコピー": "Copy feature coordinates",
 	"選択中の要素を削除": "Delete selected feature",
+	"選択中の {0} 要素を削除": "Delete {0} selected features",
 	"ここに点を置く": "Place a point here",
 	"ここにテキストを置く": "Place text here",
 	"ここから線を描く": "Start a line here",
 	"ここから面を描く": "Start a polygon here",
 	"ここに穴を開ける": "Cut a hole here",
 });
-// 右クリックメニュー＝文脈連動（開くたびに「指した要素／選択／束ね中」で項目を組む）。
-// 上段＝要素への操作（選択/削除/合成/ばらす）を文脈で出し分け、下段＝「ここに〜」の作図＋座標コピー。
+
+// 右クリックメニュー＝文脈連動（開くたびに「指した要素／選択／複数選択」で項目を組む）。
+// 上段＝要素への操作（選択/追加/削除/グループ化/解除）を文脈で出し分け、下段＝「ここに〜」の作図＋座標コピー。
 const copyLL = c => c.lng != null && navigator.clipboard?.writeText(`${c.lat.toFixed(6)}, ${c.lng.toFixed(6)}`);
 
 export function installContextMenu(ed) {   // 戻り値＝項目を搭載前（既定）へ戻す関数（本体地図に載った時の後片付け）
@@ -35,21 +37,20 @@ export function installContextMenu(ed) {   // 戻り値＝項目を搭載前（�
 				out.push({ name: t("座標をコピー"), onClick: copyLL });
 				return out;
 			}
-			if (st.tool === "bundle") {   // 束ね中＝確定/取消を最上段
-				out.push({ name: t("グループ化を確定（{0}件・Enter）", st.bundle?.size || 0), onClick: () => ed.confirmBundle() });
-				out.push({ name: t("グループ化を取消（Esc）"), onClick: () => ed.setTool("select") });
-			} else {
-				const start = st.selection != null ? st.selection : under;   // 選択優先・無ければ指した要素
-				const fam = start != null ? m?.familyOf(m.feats.get(start)?.type || "") : null;
-				if (fam === "poly" || fam === "line") out.push({ name: t("グループ化を始める"), onClick: () => ed.startBundleWith(start) });
-				const mEid = ed.isMulti(under) ? under : ed.isMulti(st.selection) ? st.selection : null;
-				if (mEid != null) out.push({ name: t("グループ化解除"), onClick: () => ed.explodeEid(mEid) });
-			}
-			if (under != null && under !== st.selection) out.push(selectItem);   // 指した要素があれば
+			// 複数選択（⌘/Ctrl+クリック or ここ）→「グループ化（n件）」。グループ（Multi*）を指す/選んでいる→「グループ化解除」（本人裁定 9/15＝ツールバーから右クリックへ）
+			const inMulti = under != null && st.multi?.has(under);
+			if (under != null && under !== st.selection && !inMulti) {
+				out.push(selectItem);
+				if (st.selection != null) out.push({ name: t("選択に追加"), onClick: () => { ed.setTool("select"); ed.toggleMulti(under); } });
+			} else if (inMulti && st.multi.size > 1) out.push({ name: t("選択から外す"), onClick: () => ed.toggleMulti(under) });
+			if (st.multi && st.multi.size > 1) out.push({ name: t("グループ化（{0}件）", st.multi.size), onClick: () => ed.groupMulti() });
+			const mEid = ed.isMulti(under) ? under : ed.isMulti(st.selection) ? st.selection : null;
+			if (mEid != null) out.push({ name: t("グループ化解除"), onClick: () => ed.explodeEid(mEid) });
 			const uc = under != null ? m?.feats.get(under)?.coords?.[0] : null;   // 点なら要素そのものの座標
 			if (uc) out.push({ name: t("要素座標をコピー"), onClick: () => navigator.clipboard?.writeText(`${uc[1].toFixed(6)}, ${uc[0].toFixed(6)}`) });
 			if (pop != null && pop !== "") out.push(popItem);
-			if (st.selection != null) out.push({ name: t("選択中の要素を削除"), onClick: () => ed.doCmd({ op: "del", eid: st.selection }) });   // 選択があれば
+			if (st.multi && st.multi.size > 1) out.push({ name: t("選択中の {0} 要素を削除", st.multi.size), onClick: () => { for (const e of [...st.multi]) ed.doCmd({ op: "del", eid: e }); st.multi = null; } });
+			else if (st.selection != null) out.push({ name: t("選択中の要素を削除"), onClick: () => ed.doCmd({ op: "del", eid: st.selection }) });   // 選択があれば
 			out.push(
 				{ name: t("ここに点を置く"), onClick: c => c.lng != null && ed.placePointAt([c.lng, c.lat], drawDefaults.point) },
 				{ name: t("ここにテキストを置く"), onClick: c => c.lng != null && ed.placePointAt([c.lng, c.lat], drawDefaults.text) },

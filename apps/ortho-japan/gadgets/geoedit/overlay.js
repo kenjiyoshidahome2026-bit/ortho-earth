@@ -317,7 +317,7 @@ export function createOverlay(map, mapEl, getState) {
 			drawFeature(pr, st, eid, { fill: false });
 		}
 		if (st.dragEids) for (const eid of st.dragEids) drawFeature(pr, st, eid, { fill: true });
-		if (st.bundle && st.bundle.size) for (const eid of st.bundle) drawBundleHi(pr, st, eid);   // 束ね選集合＝紫のハイライト
+		if (st.multi && st.multi.size > 1) for (const eid of st.multi) if (eid !== st.selection) drawBundleHi(pr, st, eid);   // 複数選択＝主選択以外を紫のハイライト
 		if (st.selection != null && st.model.feats.has(st.selection)) {
 			drawFeature(pr, st, st.selection, { fill: st.dragEids == null });
 			drawHandles(pr, st, st.selection);
