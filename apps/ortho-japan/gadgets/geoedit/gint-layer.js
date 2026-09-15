@@ -1,8 +1,8 @@
 // 確定層＝gint 現行6ハンドル（applyGintData/paintTable…）の封じ込め（gint draw spec.md §10.2）。
 // v2 の map.addGint() が来たら差し替えるのはこのファイルだけ、が設計契約。
 //
-// コミット＝model.toGeoJSON({eid:true}) → geopbf(fc,{gint:true}) → applyGintData。__eid が全フィーチャで
-// 一意＝topology() の propTub 併合が起きない＝fid はコミットfcの並び（eid昇順）と1:1。
+// コミット＝encodeModel（モデル→GeoPBF 直列エンコード・GeoJSON 中間なし）→ pbf.gint() → applyGintData。__eid が全フィーチャで
+// 一意＝topology() の propTub 併合が起きない＝fid はコミット列の並び（eid昇順）と1:1。
 // スタイル＝@fill/@stroke/@width をコミット時に fid→RGBA32UI 表へ焼く（前処理で吸収＝エンジン改修ゼロ）。
 // 表レコード（ortho-core style.js §7.1）: R=fill RGBA8 / G=line・circle色 / B=width(1/8px)<<24|dash<<16|radius(1/4px)<<8|flags / flags bit0=visible
 import { geopbf } from "geopbf";                      // side-effect込み＝GeoPBF.prototype に gint()/identifyAt/*File が載る
@@ -137,7 +137,6 @@ export function createGintLayer(map) {
 	return {
 		get pbf() { return pbf; },
 		get saveBuffer() { return saveBuf; },
-		eidOf: fid => fidEid[fid],
 		async commit(model, { moveCamera = false } = {}) {
 			const g = ++gen;
 			large = false; focusEids = null;   // 通常コミット＝大規模モードの終了（全消去→新規セッション等）
