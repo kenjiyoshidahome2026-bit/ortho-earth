@@ -34,7 +34,7 @@ try {
 		if (i > 60) throw new Error("chrome devtools が起動しない");
 		await sleep(250);
 	}
-	const url = `http://localhost:${PORT}/japan/tests/${PAGE}.html?gl2=1&lang=ja`;
+	const url = `http://localhost:${PORT}/japan/tests/${PAGE.replace(/(\?|$)/, ".html$1")}${PAGE.includes("?") ? "&" : "?"}gl2=1&lang=ja`;   // ページ名に ?query を付けられる（t-rectlook の視点差し替え等）
 	const target = await (await fetch(`http://127.0.0.1:${CDP}/json/new?${encodeURIComponent(url)}`, { method: "PUT" })).json();
 	const ws = new WebSocket(target.webSocketDebuggerUrl);
 	await new Promise((res, rej) => { ws.onopen = res; ws.onerror = rej; });

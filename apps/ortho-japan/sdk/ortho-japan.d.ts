@@ -172,7 +172,8 @@ export interface OrthoJapanMap {
 
 	// ---- 座標変換・フレーム ----
 	/** 経緯度→mapEl（canvas）左上原点の CSS px（ページ座標ではない＝pointer を合成するなら getBoundingClientRect を足す）。unprojectXY と同じ座標系。
-	 *  front<0＝**見えない**（裏半球ではなく「現在のカメラ高度の地平線より外」＝チルト時は数°先でも負）。見えない点は [0,0,-1] を返す＝x,y は無効値。
+	 *  front<0＝**見えない**（裏半球ではなく「現在のカメラ高度の地平線より外」＝チルト時は数°先でも負）。見えない点の x,y は**地平線（可視キャップの縁）へ射影クランプした位置**
+	 *  ＝塗りの経路はそのまま結んでよい（可視部＋地平線沿いで閉じる）。線は符号で切る。カメラ後方など写せない時だけ [0,0,-1]。
 	 *  front の絶対値は未正規化＝符号だけ使う。**海面基準**＝チルト時は地形に乗った描画と視差がある（地形込みは makeProjectorH） */
 	projectLL(lon: number, lat: number): [x: number, y: number, front: number];
 	/** canvasローカルCSS座標→経緯度（球外はnull。onClick/setEditClickのx,yと同座標系） */

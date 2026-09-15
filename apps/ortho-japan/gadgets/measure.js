@@ -160,17 +160,19 @@ export function measure({ makeProjector, unprojectXY, setClick, requestDraw, sig
 
 		// 面積の塗り（閉じている時）：境界は辺と同じ大圏弧に沿わせる＝弦で結ぶと弧との隙間が白帯になる
 		// （大領域ほど顕著＝辺の弧が膨らみ塗りの直線境界が内側に残る）。gcPoints で各辺を細分し、共有端点は重複させない。
+		// 見えない点（地平線の向こう）は projector が地平円へクランプした位置を返す＝捨てずに結ぶ（可視部＋地平線沿いの一本の閉路）。
+		// 切ると環が subpath に割れて塗りが相殺/欠ける（geoedit overlay と同じ根治・9/15）。全点不可視なら塗らない
 		if (closed) {
-			ctx.fillStyle = FILL; ctx.beginPath(); let pen = false;
+			const pts = [];
 			for (let i = 0; i + 1 < pp.length; i++) {
 				const arc = gcPoints(pp[i], pp[i + 1]);
-				for (let k = i === 0 ? 0 : 1; k < arc.length; k++) {   // 2辺目以降は先頭（前辺の終点）を飛ばす
-					const [x, y, f] = pr(arc[k][0], arc[k][1]);
-					if (f < 0) { pen = false; continue; }
-					pen ? ctx.lineTo(x, y) : ctx.moveTo(x, y); pen = true;
-				}
+				for (let k = i === 0 ? 0 : 1; k < arc.length; k++) pts.push(pr(arc[k][0], arc[k][1]));   // 2辺目以降は先頭（前辺の終点）を飛ばす
 			}
-			ctx.closePath(); ctx.fill();
+			if (pts.some(p => p[2] >= 0)) {
+				ctx.fillStyle = FILL; ctx.beginPath();
+				pts.forEach((p, i) => i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1]));
+				ctx.closePath(); ctx.fill();
+			}
 		}
 		// 辺（大圏弧・実線）
 		ctx.strokeStyle = LINE; ctx.lineWidth = W; ctx.lineJoin = "round"; ctx.lineCap = "round";

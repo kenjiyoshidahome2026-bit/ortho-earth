@@ -87,7 +87,17 @@ export function createOverlay(map, mapEl, getState) {
 		for (let i = 0; i <= n; i++) { const p = toLL(slerp(va, vb, i / n)); out.push(pr(p[0], p[1])); }
 		return out;
 	};
-	const tracePts = (pr, coords) => {   // coords（経緯度列）→ 現在パスへ
+	// coords（経緯度列）→ 現在パスへ。fill＝塗り用：見えない点（地平線の向こう）は捨てずに地平円へクランプした位置（projector が返す）で
+	// 結ぶ＝可視部＋地平線沿いの一本の閉路（切ると環が 2 本の subpath に割れ evenodd で相殺＝本人スクショ 9/15 の帯）。全点不可視の環は描かない。
+	// 線（fill=false）は従来どおり見えない区間で切る（地平線沿いに線を引かない）
+	const tracePts = (pr, coords, fill = false) => {
+		if (fill) {
+			const pts = [];
+			for (let i = 0; i < coords.length - 1; i++) for (const p of seg(pr, coords[i], coords[i + 1])) pts.push(p);
+			if (!pts.some(p => p[2] >= 0)) return;
+			pts.forEach((p, i) => i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1]));
+			return;
+		}
 		let started = false;
 		for (let i = 0; i < coords.length - 1; i++) {
 			for (const p of seg(pr, coords[i], coords[i + 1])) {
@@ -187,7 +197,7 @@ export function createOverlay(map, mapEl, getState) {
 			ctx.save();
 			ctx.filter = `blur(${blur}px)`;
 			ctx.beginPath();
-			for (const { list } of rings) { tracePts(pr, spline ? smoothRing(st.model.stitch(list), true) : st.model.stitch(list)); ctx.closePath(); }
+			for (const { list } of rings) { tracePts(pr, spline ? smoothRing(st.model.stitch(list), true) : st.model.stitch(list), true); ctx.closePath(); }
 			ctx.fillStyle = f.properties["@fill"] || "rgba(120,170,221,.5)";
 			ctx.fill("evenodd");
 			ctx.restore();
@@ -236,7 +246,7 @@ export function createOverlay(map, mapEl, getState) {
 		if (fill) {   // 塗りは外環＋穴を一本のパスに入れて一度だけ＝evenoddで穴(内環)は塗られない
 			ctx.beginPath();
 			let any = false;
-			for (const { list, ring } of lists) if (ring) { tracePts(pr, coordsOf(list, ring)); ctx.closePath(); any = true; }
+			for (const { list, ring } of lists) if (ring) { tracePts(pr, coordsOf(list, ring), true); ctx.closePath(); any = true; }
 			if (any) { ctx.fillStyle = COL.fill; ctx.fill("evenodd"); }
 		}
 		if (spline) {   // 曲線＝環/線ごとに一本のストローク（共有arcのアクセントは省く）
@@ -256,7 +266,7 @@ export function createOverlay(map, mapEl, getState) {
 		if (f.coords) { for (const c of f.coords) { const s = pr(c[0], c[1]); if (s[2] >= 0) dot(s[0], s[1], 7, COL.bundleHi, "#fff"); } return; }
 		const lists = st.model.listsOf(f);
 		ctx.beginPath(); let any = false;
-		for (const { list, ring } of lists) if (ring) { tracePts(pr, st.model.stitch(list)); ctx.closePath(); any = true; }
+		for (const { list, ring } of lists) if (ring) { tracePts(pr, st.model.stitch(list), true); ctx.closePath(); any = true; }
 		if (any) { ctx.fillStyle = COL.bundleFill; ctx.fill("evenodd"); }
 		for (const { list } of lists) { ctx.beginPath(); tracePts(pr, st.model.stitch(list)); ctx.lineWidth = 3.5; ctx.strokeStyle = COL.bundleHi; ctx.stroke(); }
 	}

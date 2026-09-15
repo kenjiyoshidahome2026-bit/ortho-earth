@@ -27,14 +27,16 @@ const ev = (x, y, id = 7) => ({ bubbles: true, cancelable: true, clientX: x, cli
 const click = (x, y) => { C().dispatchEvent(new PointerEvent("pointerdown", ev(x, y, 1))); C().dispatchEvent(new PointerEvent("pointerup", ev(x, y, 1))); };
 
 try {
-	const map = await orthoJapan({ view: "#5/36/135", maxPitch: 0 });
+	const Q = new URLSearchParams(location.search);   // ?v=#z/lat/lng[/bearing r]&a=lon,lat&b=lon,lat＝視点と対角を差し替えて本人の URL を再現できる
+	const A = (Q.get("a") || "120,27").split(",").map(Number), B = (Q.get("b") || "150,44").split(",").map(Number);
+	const map = await orthoJapan({ view: Q.get("v") || "#5/36/135", maxPitch: 0 });
 	await idbClear();
 	const editor = initEditor(map);
 	for (let i = 0; i < 200 && !editor.model; i++) await sleep(100);
 	ok("boot", !!editor.model);
 	// 矩形ツール＝2クリック（対角 (120,27)→(150,44)）
 	document.querySelector('#ge-toolbar button[data-tip^="矩形"]').click();
-	const a = map.projectLL(120, 27), b = map.projectLL(150, 44);
+	const a = map.projectLL(A[0], A[1]), b = map.projectLL(B[0], B[1]);
 	click(a[0], a[1]); await sleep(120); click(b[0], b[1]);
 	await sleep(300);
 	const eid = editor.state.selection;

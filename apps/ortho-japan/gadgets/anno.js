@@ -151,7 +151,16 @@ export function createAnno(map, { signal } = {}) {
 		for (let i = 0; i <= n; i++) { const p = toLL(slerp(va, vb, i / n)); out.push(pr(p[0], p[1])); }
 		return out;
 	};
-	const tracePts = (pr, coords) => {
+	// fill＝塗り用：見えない点は地平円へクランプした位置（projector が返す）で結ぶ＝可視部＋地平線沿いの一本の閉路（geoedit overlay と同じ規約・9/15）。
+	// 全点不可視の環は描かない。線は従来どおり見えない区間で切る
+	const tracePts = (pr, coords, fill = false) => {
+		if (fill) {
+			const pts = [];
+			for (let i = 0; i < coords.length - 1; i++) for (const p of seg(pr, coords[i], coords[i + 1])) pts.push(p);
+			if (!pts.some(p => p[2] >= 0)) return;
+			pts.forEach((p, i) => i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1]));
+			return;
+		}
 		let started = false;
 		for (let i = 0; i < coords.length - 1; i++) for (const p of seg(pr, coords[i], coords[i + 1])) {
 			if (p[2] < 0) { started = false; continue; }
@@ -230,7 +239,7 @@ export function createAnno(map, { signal } = {}) {
 			if (!(blur > 0)) continue;
 			ctx.save(); ctx.filter = `blur(${blur}px)`;
 			ctx.beginPath();
-			for (const r of it.rings) { tracePts(pr, r); ctx.closePath(); }
+			for (const r of it.rings) { tracePts(pr, r, true); ctx.closePath(); }
 			ctx.fillStyle = it.p["@fill"] || "rgba(120,170,221,.5)"; ctx.fill("evenodd");
 			ctx.restore();
 		}
@@ -238,8 +247,10 @@ export function createAnno(map, { signal } = {}) {
 		for (const it of items) {
 			if (!it?.rings || +it.p["@blur"] > 0) continue;
 			ctx.beginPath();
-			for (const r of it.rings) { tracePts(pr, r); ctx.closePath(); }
+			for (const r of it.rings) { tracePts(pr, r, true); ctx.closePath(); }   // 塗り＝地平円クランプで閉じる
 			ctx.fillStyle = it.p["@fill"] || DEF_FILL; ctx.fill("evenodd");
+			ctx.beginPath();
+			for (const r of it.rings) tracePts(pr, r);   // 線＝見えない区間で切る（地平線沿いに輪郭を引かない）
 			ctx.lineWidth = +it.p["@width"] > 0 ? +it.p["@width"] : 1.5;
 			ctx.lineJoin = "round"; ctx.strokeStyle = it.p["@stroke"] || DEF_STROKE; ctx.stroke();
 		}
