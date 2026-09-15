@@ -1,0 +1,64 @@
+<!doctype html>
+<!-- geoedit の取込（ツールバー/ドロップ＝importFile）：GeoJSON（File）・geopbf・FileGDB(zip) を実経路で読み、フィーチャ数・エラー無し・
+     読込後の視点がデータへ飛ぶ（fly）ことを見る（本人報告 2026-09-15「GIS ファイルの読み込みに失敗する／初期画面遷移にバグ？」）。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021;width:900px;height:650px}#map{width:900px;height:650px}</style><title>t-import</title></head>
+<body>
+<div id="map"></div>
+<script>
+window.requestAnimationFrame = cb => setTimeout(() => cb(performance.now()), 16);
+localStorage.setItem("oj.hint", "closed");
+window.confirm = () => false;
+</script>
+<script type="module">
+import { createGeopbf } from "geopbf";
+createGeopbf("https://api.ortho-earth.com");
+import orthoJapan from "../app.js";
+import { initEditor } from "../gadgets/geoedit/controller.js";
+import { idbClear } from "../gadgets/geoedit/io.js";
+
+const t = [], ok = (n, c) => t.push((c ? "ok:" : "NG:") + n);
+window.addEventListener("error", e => t.push("ERR:" + String(e.message).replace(/\s+/g, "_")));
+const errs = []; const ce = console.error; console.error = (...a) => { errs.push(a.map(x => x?.message || String(x)).join(" ").replace(/\s+/g, "_").slice(0, 160)); ce(...a); };
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const toasts = []; new MutationObserver(() => { const el = document.querySelector(".ge-toast"); if (el && !el.classList.contains("gone")) toasts.push(el.textContent); }).observe(document.body, { subtree: true, childList: true, characterData: true, attributes: true });
+
+try {
+	const map = await orthoJapan({ view: "#14/35.6715/139.7455", maxPitch: 0 });
+	await idbClear();
+	const editor = initEditor(map);
+	for (let i = 0; i < 200 && !editor.model; i++) await sleep(100);
+	ok("boot", !!editor.model);
+	const center = () => map.view.center.map(v => +v.toFixed(2));
+	const run = async (label, file, expectFeats, near) => {
+		errs.length = 0; toasts.length = 0;
+		const c0 = center();
+		await editor.importFile(file);
+		for (let i = 0; i < 100 && (editor.model?.feats.size ?? 0) < expectFeats; i++) await sleep(100);
+		for (let i = 0, prev = ""; i < 60; i++) { const cur = center().join() + "/" + map.getZoom().toFixed(2); if (cur === prev && i > 3) break; prev = cur; await sleep(200); }   // 飛行の着地を待つ
+		const n = editor.model?.feats.size ?? 0, c1 = center(), z = map.getZoom();
+		const bad = errs.filter(e => !/favicon|404|bucket_provider_not_injected/.test(e));   // 世界レイヤの bucket 未注入（試験環境）は無関係
+		const failToast = toasts.some(x => /失敗|対応していない/.test(x));
+		const dl = near ? Math.abs(((c1[0] - near[0]) % 360 + 540) % 360 - 180) : 0;   // 経度差は周期で（縫い目跨ぎ）
+		const moved = near ? dl < near[2] && Math.abs(c1[1] - near[1]) < near[2] : true;
+		ok(`${label}(feats=${n},center=${c1},z=${z.toFixed(1)}${bad.length ? ",err=" + bad[0] : ""}${failToast ? ",toast=" + toasts.filter(x => /失敗|対応/.test(x))[0] : ""})`, n >= expectFeats && !bad.length && !failToast && moved);
+	};
+	// ① GeoJSON（File）＝札幌近辺の 3 面
+	const sq = (x0, y0, x1, y1) => [[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]];
+	const fc = { type: "FeatureCollection", features: [0, 1, 2].map(i => ({ type: "Feature", properties: { n: "s" + i }, geometry: { type: "Polygon", coordinates: [sq(141.3 + i * 0.02, 43.05, 141.31 + i * 0.02, 43.06)] } })) };
+	await run("geojson", new File([JSON.stringify(fc)], "sapporo.geojson", { type: "application/geo+json" }), 3, [141.32, 43.055, 0.2]);
+	// ② geopbf（アメダス観測点＝点 1300 件・全国）
+	await run("geopbf", new File([await (await fetch("./fixtures/amedas.geopbf")).arrayBuffer()], "amedas.geopbf"), 1000, [137, 36, 8]);
+	// ③ FileGDB zip（OpenFileGDB のテストデータ）
+	await run("gdbzip", new File([await (await fetch("./fixtures/testopenfilegdb.gdb.zip")).arrayBuffer()], "testopenfilegdb.gdb.zip"), 1, null);
+	// ④ 重めの GeoJSON（3 万面・約 5MB）＝Worker 経路（位相抽出）と飛行
+	const big = { type: "FeatureCollection", features: [] };
+	for (let i = 0; i < 30000; i++) { const x = 130 + (i % 200) * 0.05, y = 31 + Math.floor(i / 200) * 0.05; big.features.push({ type: "Feature", properties: { i, name: "f" + i }, geometry: { type: "Polygon", coordinates: [sq(x, y, x + 0.04, y + 0.04)] } }); }
+	await run("bigGeojson", new File([JSON.stringify(big)], "big.geojson"), 30000, [135, 34.7, 3]);
+	// ⑤ 縫い目を跨ぐデータ（フィジー付近）＝飛行先が経度 0 に化けないこと
+	const am = { type: "FeatureCollection", features: [{ type: "Feature", properties: { n: "am" }, geometry: { type: "Polygon", coordinates: [sq(178, -19, 182, -16)] } }, { type: "Feature", properties: { n: "am2" }, geometry: { type: "Polygon", coordinates: [sq(-179, -20, -177, -18)] } }] };
+	await run("seamGeojson", new File([JSON.stringify(am)], "fiji.geojson"), 2, [180, -18.5, 4]);
+	window.__editor = editor;
+} catch (e) { t.push("ERR:" + String(e?.stack || e).replace(/\s+/g, "_").slice(0, 300)); }
+document.title = (t.some(x => !x.startsWith("ok:")) ? "FAIL " : "PASS ") + t.join(" ");
+</script>
+</body></html>
