@@ -6,6 +6,7 @@
 // 使い方: apps/ortho-japan で `npm run verify:webgpu`。要ローカルChrome（パスは環境変数 CHROME で上書き可）。
 // WebGPU の無い環境では WebGL2 フォールバックで PASS（このテストの主眼は「gpu 旗でどの環境でも起動が壊れない」）。
 import { spawn } from "node:child_process";
+import fsSync from "node:fs";
 import { setTimeout as sleep } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -19,7 +20,7 @@ const chrome = spawn(CHROME, [
 	"--headless=new", `--remote-debugging-port=${CDP}`, "--enable-unsafe-webgpu",
 	"--no-first-run", `--user-data-dir=/tmp/oj-webgpu-profile-${process.pid}`, "about:blank",
 ], { stdio: "ignore" });
-process.on("exit", () => { vite.kill(); chrome.kill(); });
+process.on("exit", () => { vite.kill(); chrome.kill(); try { fsSync.rmSync(`/tmp/oj-webgpu-profile-${process.pid}`, { recursive: true, force: true }); } catch { /* 掃除失敗は無害 */ } });   // per-pid プロファイルを残さない（/tmp 満杯の轍・2026-09-15）
 
 let ws = null, fail = 1;
 try {
