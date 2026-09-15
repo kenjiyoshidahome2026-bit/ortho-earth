@@ -606,7 +606,7 @@ model.stats();                                      // → { features, arcs, ver
 | `createLargeModel(pbf)` | edit tens of millions of vertices in place on the GeoPBF bytes + Gint buffer — no full extraction, no OOM |
 | `createSnapIndex(gridExp, deref)` | grid-linked snapping |
 | `createHistory()` | undo/redo stack |
-| `smoothRing` / `smoothGeom` | Catmull-Rom subdivision, shared by the editor and `@spline` playback so the curve is the same everywhere |
+| `smoothRing` / `smoothGeom` | Spherical Catmull-Rom subdivision (control points as unit vectors, interpolated in 3D and renormalized — rotation-invariant, no pole/antimeridian artifacts), shared by the editor and `@spline` playback so the curve is the same everywhere |
 | `geopbf/edit/sphere` | perfect-sphere geometry: `slerp` / `gcMidpoint` / `gcDistanceDeg` (great circles), `quatBetween` / `rotateLL` (rotation about the globe center), `smallCircle`, `gcCentroid` (edge-weighted spherical centroid = the axis the editor's wheel-rotation spins about). `createModel` exposes `featureVerts` + `rotateFeature(eid, q, base)` = move a feature as a rigid figure on the sphere (command `{op:"rot"}`; undo restores the snapshot exactly) |
 
 Granular imports: `geopbf/edit/model`, `geopbf/edit/large-model`, `geopbf/edit/topo-extract`, `geopbf/edit/snap`,
