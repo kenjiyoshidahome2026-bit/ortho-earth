@@ -273,6 +273,7 @@ try {
 	click(rc[0], rc[1]);
 	await sleep(120);
 	ok("moveSelect", editor.state.selection === rEid);
+	ok("moveNoHandles", !document.querySelector(".ge-overlay") || (() => { const h = map.projectLL(139.744, 35.677); C().dispatchEvent(new PointerEvent("pointerdown", ev(h[0], h[1], 22))); const isV = editor.state.drag?.kind === "v"; M().dispatchEvent(new PointerEvent("pointerup", ev(h[0], h[1], 22))); return !isV; })());   // 移動ツール＝角を押しても頂点ドラッグにならない（図形ごと掴む）
 	const beforeMv = JSON.stringify(m().featureGeoJSON(rEid, false));
 	C().dispatchEvent(new PointerEvent("pointerdown", ev(rc[0], rc[1], 8)));
 	M().dispatchEvent(new PointerEvent("pointermove", ev(rc[0] + 30, rc[1] + 10, 8)));
