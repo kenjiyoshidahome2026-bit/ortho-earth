@@ -12,6 +12,8 @@
 // 使い方: apps/ortho-japan で `npm run verify:livedecode`（内部で build:lib）。要ローカル Chrome（環境変数 CHROME）・要ネット
 //（api.plateauview.mlit.go.jp からタイル実取得＝40 秒前後）。区は環境変数 VIEW で変更可（既定＝那覇 z15 45°）。
 import { spawn, execFileSync } from "node:child_process";
+import fsSync from "node:fs";
+const LD_PROFILE = `/tmp/oj-livedecode-${process.pid}`;
 import { setTimeout as sleep } from "node:timers/promises";
 import { createServer } from "node:http";
 import { fileURLToPath } from "node:url";
@@ -43,7 +45,7 @@ const server = createServer(async (req, res) => {
 	} catch { res.writeHead(404); res.end("not found"); }
 }).listen(PORT);
 const chrome = spawn(CHROME, ["--headless=new", `--remote-debugging-port=${CDP}`, "--enable-unsafe-webgpu", "--enable-unsafe-swiftshader", "--use-angle=swiftshader",
-	"--no-first-run", `--user-data-dir=/tmp/oj-livedecode-${Date.now()}`, "about:blank"], { stdio: "ignore" });
+	"--no-first-run", `--user-data-dir=${LD_PROFILE}`, "about:blank"], { stdio: "ignore" });
 process.on("exit", () => { server.close(); chrome.kill(); });
 const page = `http://127.0.0.1:${PORT}/?dec=3&bake=${encodeURIComponent(`http://127.0.0.1:${PORT}/nobake/`)}&view=${encodeURIComponent(VIEW)}`;
 
@@ -94,3 +96,5 @@ try {
 	server.close(); chrome.kill();
 }
 process.exit(fail);
+
+process.on("exit", () => { try { fsSync.rmSync(LD_PROFILE, { recursive: true, force: true }); } catch { /* 無害 */ } });   // プロファイルの掃除（2026-09-15）

@@ -11,6 +11,7 @@
 //   ④実クリック: 遅延ロードのガジェット（qr/print/measure/profile/shot/palette/hint/plateau）を生CDPで実際に押し、
 //          動的importチャンクの疎通と console エラーゼロを確認（QR/print が押した瞬間に死ぬ事故クラス・2026-08-20）
 import { spawn, execFileSync } from "node:child_process";
+import fsSync from "node:fs";
 import { createServer } from "node:http";
 import { fileURLToPath } from "node:url";
 import { readFile, readFileSync, readdirSync, existsSync, statSync } from "node:fs";
@@ -168,3 +169,6 @@ const notFound = requests.filter(r => r.startsWith("404 ") && !r.includes("/favi
 if (notFound.length) fail(`実走: 404が${notFound.length}件＝${[...new Set(notFound)].slice(0, 5).join(" / ")}`);
 console.log(`ok:ledger（クリック中の動的importチャンク含め404ゼロ / 総要求${requests.length}件）`);
 console.log("✓ 本番組立の検定PASS（入口=SDK・エンジン非再バンドル・実走OK・ガジェット実クリックOK）");
+
+// per-pid の Chrome プロファイル（scene/geoedit/click＝各 ~500MB）は終了時に掃除（/tmp 満杯の轍・2026-09-15）
+process.on("exit", () => { for (const k of ["scene", "geoedit", "click"]) { try { fsSync.rmSync(`/tmp/oj-vprod-${k}-${process.pid}`, { recursive: true, force: true }); } catch { /* 無害 */ } } });

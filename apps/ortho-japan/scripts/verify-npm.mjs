@@ -5,6 +5,7 @@
 //   ②実走: 展開物を静的サーバで配り、embed ページから import → 起動（canvas・#map）＋ request台帳404ゼロ
 // verify:prod と同族＝「置き場所が変わると死ぬ」クラス（base:"/"事故の型）を npm 経路でも封じる。
 import { spawn, execFileSync } from "node:child_process";
+import fsSync from "node:fs";
 import { createServer } from "node:http";
 import { fileURLToPath } from "node:url";
 import { readFile, readFileSync, existsSync, rmSync, mkdirSync } from "node:fs";

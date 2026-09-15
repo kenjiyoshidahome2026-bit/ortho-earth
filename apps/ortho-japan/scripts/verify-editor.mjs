@@ -7,6 +7,7 @@ import { spawn } from "node:child_process";
 import { setTimeout as sleep } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import fsSync from "node:fs";
 
 const APP = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const PAGE = process.argv[2] || "t-editor";   // 省略＝t-editor。同型の実時間ページ（t-backfill 等）を引数で回せる
@@ -20,7 +21,8 @@ const chrome = spawn(CHROME, [
 	"--disable-gpu", "--use-angle=swiftshader", "--enable-unsafe-swiftshader",
 	"--no-first-run", `--user-data-dir=/tmp/oj-veditor-${process.pid}`, "about:blank",
 ], { stdio: "ignore" });
-process.on("exit", () => { vite.kill(); chrome.kill(); });
+const PROFILE = `/tmp/oj-veditor-${process.pid}`;
+process.on("exit", () => { vite.kill(); chrome.kill(); try { fsSync.rmSync(PROFILE, { recursive: true, force: true }); } catch { /* 掃除失敗は無害 */ } });   // per-pid プロファイル（~500MB）を残さない＝289 個で /tmp が満杯になった（2026-09-15）
 
 let fail = 1;
 try {
