@@ -10,23 +10,30 @@ const getEncoder = async (encoding) => {
 };
 const sum = a => { let s = 0; a.forEach(t=>s+=t); return s; };
 class WBUF {
-	constructor(len) {
-		this.buff = new ArrayBuffer(len); this.pos = 0;
+	constructor(len, growable = false) {
+		this.buff = new ArrayBuffer(len); this.pos = 0; this.growable = growable;
 		this.bytes = new Uint8Array(this.buff);
 		this.view = new DataView(this.buff);
 	}
-	buffer() { return this.buff; }
+	buffer() { return this.growable ? this.bytes.subarray(0, this.pos) : this.buff; }   // growable は書いた分だけのビュー（File/Blob がコピーするので slice 不要）
+	ensure(n) {   // growable のみ：足りなければ倍々で伸ばす
+		if (this.pos + n <= this.bytes.byteLength) return;
+		const nb = new ArrayBuffer(Math.max(this.pos + n, this.bytes.byteLength * 2));
+		new Uint8Array(nb).set(this.bytes.subarray(0, this.pos));
+		this.buff = nb; this.bytes = new Uint8Array(nb); this.view = new DataView(nb);
+	}
 	position(i) { if (i != null) { this.pos = i; return this; } return this.pos; }
 	skip(bytes) { this.pos += (bytes + 0); return this; }
-	writeUint8(val) { this.bytes[this.pos++] = val; return this; }
-	writeInt8(val) { this.view.setInt8(this.pos++, val); return this; }
-	writeUint16(val, le) { this.view.setUint16(this.pos, val, le); this.pos += 2; return this; }
-	writeInt16(val, le) { this.view.setInt16(this.pos, val, le); this.pos += 2; return this; }
-	writeUint32(val, le) { this.view.setUint32(this.pos, val, le); this.pos += 4; return this; }
-	writeInt32(val, le) { this.view.setInt32(this.pos, val, le); this.pos += 4; return this; }
-	writeFloat64(val, le) { this.view.setFloat64(this.pos, val, le); this.pos += 8; return this; }
+	writeUint8(val) { if (this.growable) this.ensure(1); this.bytes[this.pos++] = val; return this; }
+	writeInt8(val) { if (this.growable) this.ensure(1); this.view.setInt8(this.pos++, val); return this; }
+	writeUint16(val, le) { if (this.growable) this.ensure(2); this.view.setUint16(this.pos, val, le); this.pos += 2; return this; }
+	writeInt16(val, le) { if (this.growable) this.ensure(2); this.view.setInt16(this.pos, val, le); this.pos += 2; return this; }
+	writeUint32(val, le) { if (this.growable) this.ensure(4); this.view.setUint32(this.pos, val, le); this.pos += 4; return this; }
+	writeInt32(val, le) { if (this.growable) this.ensure(4); this.view.setInt32(this.pos, val, le); this.pos += 4; return this; }
+	writeFloat64(val, le) { if (this.growable) this.ensure(8); this.view.setFloat64(this.pos, val, le); this.pos += 8; return this; }
 	writeBuffer(buf, bytes, spos = 0) {
-		const src = new Uint8Array(buf);
+		const src = buf instanceof Uint8Array ? buf : new Uint8Array(buf);   // Uint8Array はコピーせずそのまま
+		if (this.growable) this.ensure(bytes || src.byteLength - spos);
 		const len = Math.min(bytes || src.byteLength - spos, this.bytes.byteLength - this.pos);
 		this.bytes.set(src.subarray(spos, spos + len), this.pos);
 		this.pos += len;
@@ -37,57 +44,52 @@ function writeShp(pbf, name, farray, type) {
 	var bbox = pbf.bbox;
 	var shxBytes = 100 + farray.length * 8;
 	var SHX = new WBUF(shxBytes).position(100); // jump to record section
-	var fileBytes = 100;
 	var id = 1;
 	var func = type == 1? point: type == 8? multipoint :poly;
-	var shapeBuffers = farray.map(n=> {
-		const geom = Array.isArray(n)? pbf.getGeometry(...n): pbf.getGeometry(n);
-		const bb = pbf.getBbox(Array.isArray(n)? n[0]: n);
-		var rec = func(geom, bb).buffer();
-		var recBytes = rec.byteLength;
-		SHX.writeInt32(fileBytes / 2).writeInt32(recBytes / 2 - 4);
-		fileBytes += recBytes;
-		return rec;
-	});
-	var SHP = new WBUF(fileBytes)
-	.writeInt32(9994).skip(5 * 4).writeInt32(fileBytes / 2)
+	// レコードは伸長バッファへ直書き（旧＝レコードごとに WBUF を作って後で SHP へ複写＝2 倍ピーク＋地物数だけの小バッファ）
+	var SHP = new WBUF(100 + farray.length * (type == 1 ? 28 : 256), true)
+	.writeInt32(9994).skip(5 * 4).writeInt32(0)   // file length は最後に埋める
 	.writeInt32(1000, true).writeInt32(type, true);
 	bbox? bbox.forEach(t=>SHP.writeFloat64(t, true)):SHP.skip(4 * 8);
 	SHP.skip(4 * 8); // skip Z & M type bbox;
-	shapeBuffers.forEach(t=>SHP.writeBuffer(t));
+	farray.forEach(n=> {
+		const geom = Array.isArray(n)? pbf.getGeometry(...n): pbf.getGeometry(n);
+		const bb = pbf.getBbox(Array.isArray(n)? n[0]: n);
+		const start = SHP.position();
+		func(SHP, geom, bb);
+		SHX.writeInt32(start / 2).writeInt32((SHP.position() - start) / 2 - 4);
+	});
+	var fileBytes = SHP.position();
+	SHP.position(24).writeInt32(fileBytes / 2).position(fileBytes);
 	SHX.position(0).writeBuffer(SHP.buffer(), 100).position(24).writeInt32(shxBytes/2);
 	return [new File([SHP.buffer()], name + '.shp', {type:"application/octet-stream"}),
 			new File([SHX.buffer()], name + '.shx', {type:"application/octet-stream"})];
-	function point(g) { const c = g.coordinates;
-		return new WBUF(28)
-		.writeInt32(id++).writeInt32(10)
+	function point(bin, g) { const c = g.coordinates;
+		bin.writeInt32(id++).writeInt32(10)
 		.writeInt32(type,true)
 		.writeFloat64(c[0],true).writeFloat64(c[1],true);
 	}
-	function multipoint(g, bbox) { const c = g.coordinates;
-		const bin = new WBUF(48 + c.length*16)
-		.writeInt32(id++).writeInt32(20 + c.length*8)
+	function multipoint(bin, g, bbox) { const c = g.coordinates;
+		bin.writeInt32(id++).writeInt32(20 + c.length*8)
 		.writeInt32(type, true)
 		.writeFloat64(bbox[0],true).writeFloat64(bbox[1],true).writeFloat64(bbox[2],true).writeFloat64(bbox[3],true)
 		.writeInt32(c.length, true);
 		c.forEach(t=>bin.writeFloat64(t[0],true).writeFloat64(t[1],true));
-		return bin;
 	}
-	function poly(g, bbox) { 
+	function poly(bin, g, bbox) { 
 		const p0 = c => [c], p1 = c => c, p2 = c => c.flat();
 		const coords = (g.type.match(/Polygon/)? g.type.match(/Multi/)? p2:p1:g.type.match(/Multi/)? p1:p0)(g.coordinates);
 		const lengths = coords.map(t=>t.length);
 		const coordsCount = sum(lengths);
 		const pathCount = lengths.length;
 		const pos = []; let i = 0; lengths.forEach(t=>{pos.push(i); i += t});
-		const bin = new WBUF(52 + 4 * pathCount + 16 * coordsCount)
-		.writeInt32(id++).writeInt32(22 + 2 * pathCount + 8 * coordsCount)
+		bin.ensure(52 + 4 * pathCount + 16 * coordsCount);   // 1 レコード分をまとめて確保（以降の書き込みは伸長判定だけ）
+		bin.writeInt32(id++).writeInt32(22 + 2 * pathCount + 8 * coordsCount)
 		.writeInt32(type, true)
 		.writeFloat64(bbox[0], true).writeFloat64(bbox[1], true).writeFloat64(bbox[2], true).writeFloat64(bbox[3], true)
 		.writeInt32(pathCount, true).writeInt32(coordsCount, true);
 			pos.forEach(t=>bin.writeInt32(t, true));
 			coords.forEach(t=>t.forEach(u=>u&&bin.writeFloat64(u[0], true).writeFloat64(u[1], true)));
-			return bin;
 	}
 }
 function writeDbf(pbf, name, farray, encoding, encoder) {

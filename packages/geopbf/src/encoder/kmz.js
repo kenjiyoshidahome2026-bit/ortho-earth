@@ -19,59 +19,68 @@ onmessage = async (e) => {
 	try {
 		const pbf = await new GeoPBF().name(name).set(buf);
 		const embeddedFiles = [];
+		// 逐次書き出し（gpx/geojson と同じ TransformStream 流儀）＝全文を 1 本の JS 文字列（UTF-16・2 倍）で抱えない
+		const enc = new TextEncoder();
+		const { readable, writable } = new TransformStream();
+		const writer = writable.getWriter();
+		const bPromise = new Response(readable).blob();
+		(async () => {
+			let kml = `<?xml version="1.0" encoding="UTF-8"?>\n<kml xmlns="http://www.opengis.net/kml/2.2">\n<Document>\n`;
 
-		let kml = `<?xml version="1.0" encoding="UTF-8"?>\n<kml xmlns="http://www.opengis.net/kml/2.2">\n<Document>\n`;
-
-		// Shared style definition (batching styles saves memory).
-		kml += `  <Style id="defaultStyle">\n    <LineStyle><color>ff0000ff</color><width>2</width></LineStyle>\n    <PolyStyle><color>400000ff</color></PolyStyle>\n  </Style>\n`;
-
-		for (let i = 0, len = pbf.length; i < len; i++) {
-			const f = pbf.getFeature(i);
-			const { type, coordinates: c } = f.geometry;
-			const { color, fillOpacity, iconData, iconName } = f.properties;
-
-			kml += `  <Placemark>\n    <name>${escXML(f.id ?? i)}</name>\n`;
-
-			if (color) {
-				const kmlColor = toKMLColor(color, fillOpacity || 1);
-				kml += `    <Style><LineStyle><color>${kmlColor}</color></LineStyle><PolyStyle><color>${kmlColor}</color></PolyStyle></Style>\n`;
-			} else {
-				kml += `    <styleUrl>#defaultStyle</styleUrl>\n`;
-			}
-
-			if (iconData && iconName) {
-				const iconPath = `files/${iconName}`;
-				kml += `    <Style><IconStyle><Icon><href>${escXML(iconPath)}</href></Icon></IconStyle></Style>\n`;
-				// Retain Blob/ArrayBuffer icon data so it can be bundled into the ZIP later.
-				embeddedFiles.push(new File([iconData], iconPath));
-			}
-
-			kml += `    <ExtendedData>\n`;
-			for (const [k, v] of Object.entries(f.properties)) {
-				if (v !== null && typeof v !== 'object' && !['iconData', 'iconName'].includes(k)) {
-					kml += `      <Data name="${escXML(k)}"><value>${escXML(v)}</value></Data>\n`;
-				}
-			}
-			kml += `    </ExtendedData>\n`;
+			// Shared style definition (batching styles saves memory).
+			kml += `  <Style id="defaultStyle">\n    <LineStyle><color>ff0000ff</color><width>2</width></LineStyle>\n    <PolyStyle><color>400000ff</color></PolyStyle>\n  </Style>\n`;
+			await writer.write(enc.encode(kml));
 
 			// Coordinates in KML are longitude,latitude,altitude.
 			const pos = pt => `${pt[0]},${pt[1]},0`;
 			const posList = r => r.map(pos).join(" ");
-			if (type === "Point") kml += `    <Point><coordinates>${pos(c)}</coordinates></Point>\n`;
-			else if (type === "LineString") kml += `    <LineString><coordinates>${posList(c)}</coordinates></LineString>\n`;
-			else if (type === "Polygon") {
-				kml += `    <Polygon>\n`;
-				c.forEach((r, j) => {
-					const t = j === 0 ? "outerBoundaryIs" : "innerBoundaryIs";
-					kml += `      <${t}><LinearRing><coordinates>${posList(r)}</coordinates></LinearRing></${t}>\n`;
-				});
-				kml += `    </Polygon>\n`;
-			}
-			kml += `  </Placemark>\n`;
-		}
-		kml += `</Document>\n</kml>`;
+			for (let i = 0, len = pbf.length; i < len; i++) {
+				const f = pbf.getFeature(i);
+				const { type, coordinates: c } = f.geometry;
+				const { color, fillOpacity, iconData, iconName } = f.properties;
 
-		const kmlFile = new File([kml], `doc.kml`, { type: "application/vnd.google-earth.kml+xml" });
+				kml = `  <Placemark>\n    <name>${escXML(f.id ?? i)}</name>\n`;
+
+				if (color) {
+					const kmlColor = toKMLColor(color, fillOpacity || 1);
+					kml += `    <Style><LineStyle><color>${kmlColor}</color></LineStyle><PolyStyle><color>${kmlColor}</color></PolyStyle></Style>\n`;
+				} else {
+					kml += `    <styleUrl>#defaultStyle</styleUrl>\n`;
+				}
+
+				if (iconData && iconName) {
+					const iconPath = `files/${iconName}`;
+					kml += `    <Style><IconStyle><Icon><href>${escXML(iconPath)}</href></Icon></IconStyle></Style>\n`;
+					// Retain Blob/ArrayBuffer icon data so it can be bundled into the ZIP later.
+					embeddedFiles.push(new File([iconData], iconPath));
+				}
+
+				kml += `    <ExtendedData>\n`;
+				for (const [k, v] of Object.entries(f.properties)) {
+					if (v !== null && typeof v !== 'object' && !['iconData', 'iconName'].includes(k)) {
+						kml += `      <Data name="${escXML(k)}"><value>${escXML(v)}</value></Data>\n`;
+					}
+				}
+				kml += `    </ExtendedData>\n`;
+
+				if (type === "Point") kml += `    <Point><coordinates>${pos(c)}</coordinates></Point>\n`;
+				else if (type === "LineString") kml += `    <LineString><coordinates>${posList(c)}</coordinates></LineString>\n`;
+				else if (type === "Polygon") {
+					kml += `    <Polygon>\n`;
+					c.forEach((r, j) => {
+						const t = j === 0 ? "outerBoundaryIs" : "innerBoundaryIs";
+						kml += `      <${t}><LinearRing><coordinates>${posList(r)}</coordinates></LinearRing></${t}>\n`;
+					});
+					kml += `    </Polygon>\n`;
+				}
+				kml += `  </Placemark>\n`;
+				await writer.write(enc.encode(kml));
+			}
+			await writer.write(enc.encode(`</Document>\n</kml>`));
+			await writer.close();
+		})().catch(err => writer.abort(err));
+
+		const kmlFile = new File([await bPromise], `doc.kml`, { type: "application/vnd.google-earth.kml+xml" });
 
 		if (kmz) {
 			// Package as KMZ: bundle doc.kml together with any files/ entries.

@@ -1,7 +1,8 @@
 import { GeoPBF } from "../pbf-base.js";
 
+const TAG_RE = Object.create(null);   // タグ名ごとに 1 回だけコンパイル（g 無し＝lastIndex 状態を持たないので使い回せる）
 const tagContent = (src, tag) => {
-	const m = new RegExp(`<${tag}>([\\s\\S]*?)<\\/${tag}>`, 'i').exec(src);
+	const m = (TAG_RE[tag] ??= new RegExp(`<${tag}>([\\s\\S]*?)<\\/${tag}>`, 'i')).exec(src);
 	return m ? m[1].trim() : null;
 };
 

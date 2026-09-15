@@ -89,11 +89,16 @@ class PBFIO {
             // meta 不達は素の GET（縮退＝従来挙動・オフライン等）。revalidate と同じ理屈（CDN s-maxage=1h/ブラウザ max-age=4h 対策）。
             const meta = await fetch(`${this.bucket.url}${name}?meta=1&v=${Date.now()}`).then(r => r.ok ? r.json() : null).catch(() => null);
             const cur = normETag(meta?.data?.ETag);
-            const res = await fetch(`${this.bucket.url}${name}${cur ? `?v=${encodeURIComponent(cur)}` : ""}`, { cache: 'default' });
-            if (!res.ok) throw new Error(`Failed to fetch: ${name} (HTTP ${res.status})`);
-            const blob = await gunzip(await res.blob());
-            const pbf = await new GeoPBF().set(await blob.arrayBuffer());
-            pbf._etag = res.headers.get("etag");
+            let ab, etag;
+            if (val?.PBF && cur && cur === normETag(val.ETag)) {   // 版一致＝本体は IDB の PBF を使い、GINT（派生物）だけ焼き直す（旧＝一致でも全量 fetch）
+                ab = val.PBF; etag = val.ETag;
+            } else {
+                const res = await fetch(`${this.bucket.url}${name}${cur ? `?v=${encodeURIComponent(cur)}` : ""}`, { cache: 'default' });
+                if (!res.ok) throw new Error(`Failed to fetch: ${name} (HTTP ${res.status})`);
+                ab = await (await gunzip(await res.blob())).arrayBuffer(); etag = res.headers.get("etag");
+            }
+            const pbf = await new GeoPBF().set(ab);
+            pbf._etag = etag;
             await pbf.gint({ gint: opts.gint });
             await this.put(pbf);
             return pbf;
