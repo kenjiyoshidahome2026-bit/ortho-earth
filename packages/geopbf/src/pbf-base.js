@@ -68,7 +68,9 @@ class GeoPBF {
 		} else return (console.error("PBF set: setting illegal value", q), this);
 		return await this.getPosition();
 	}
-	async getPosition() {
+	// skipProps＝VALUE/INDEX を読み飛ばす（props は空のまま＝main が遅延復号）。decoder:pbf Worker の毎ロード経路用＝旧は全 feature の
+	// 全値を復号して捨てていた（decoder→main→decoder:pbf で最大 3 回の同じ全復号・俯瞰レビュー 2026-09-15）。dissolve を使う変換 Worker は従来どおり
+	async getPosition({ skipProps = false } = {}) {
 		this.init();
 		const pbf = this.pbf, keys = this.keys, fmap = this.fmap, props = this.props;
 		const bufsReader = new readBufs();
@@ -90,10 +92,11 @@ class GeoPBF {
 		this.end = pbf.pos;
 		if (!bodyPos) return this;
 		pbf.pos = bodyPos;
+		const nkeys = keys.length;
 		pbf.readMessage(tag => {
 			if (tag !== TAGS.FEATURE) return;
-			var fpos, gpos, type, garray = [], tarray = [];
-			const values = [], q = new Array(keys.length);
+			var fpos, gpos, type, garray = null, tarray = null;   // GeometryCollection（type 6）の時だけ確保
+			const values = skipProps ? null : [], q = skipProps ? undefined : new Array(nkeys);
 			fpos = pbf.pos;
 			pbf.readMessage(ftag => {
 				if (ftag === TAGS.GEOMETRY) {
@@ -102,18 +105,19 @@ class GeoPBF {
 						if (gtag === TAGS.GTYPE) type = pbf.readVarint();
 						else if (gtag === TAGS.GARRAY) pbf.readMessage(gatag => {
 							if (gatag === TAGS.GEOMETRY) {
-								garray.push(pbf.pos);
+								(garray ??= []).push(pbf.pos); tarray ??= [];
 								pbf.readMessage(gaatag => (gaatag === TAGS.GTYPE) && tarray.push(pbf.readVarint()));
 							}
 						});
 					});
-				} else if (ftag === TAGS.VALUE) { pbf.readVarint(); values.push(readValue(this));
+				} else if (ftag === TAGS.VALUE) { if (skipProps) pbf.pos = pbf.readVarint() + pbf.pos; else { pbf.readVarint(); values.push(readValue(this)); }   // 長さを先に読む（`pos += readVarint()` は左辺の pos を先に読む＝varint 分ずれる罠）
 				} else if (ftag === TAGS.INDEX) {
-					const end = pbf.readVarint() + pbf.pos; let vpos = 0;
-					while (pbf.pos < end) q[pbf.readVarint()] = values[vpos++];
+					const end = pbf.readVarint() + pbf.pos;
+					if (skipProps) pbf.pos = end;
+					else { let vpos = 0; while (pbf.pos < end) q[pbf.readVarint()] = values[vpos++]; }
 				}
 			});
-			fmap.push(type == 6 ? [fpos, gpos, type, garray, tarray] : [fpos, gpos, type]);
+			fmap.push(type == 6 ? [fpos, gpos, type, garray ?? [], tarray ?? []] : [fpos, gpos, type]);
 			props.push(q);
 		});
 		return this;
