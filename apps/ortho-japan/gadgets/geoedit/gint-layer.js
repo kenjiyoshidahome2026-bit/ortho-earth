@@ -22,10 +22,16 @@ export function hexColor(s) {
 // CSS色全般（色名 red / rgb() / hsl() …）→ u32。ブラウザのfillStyle正規化に委譲＝手書き色名表を持たない。
 // 「#hexしか効かない＝redと書くと黙って既定色」の罠対策（本人報告 8/20）。不正値は null（既定色へ）。
 let colCtx = null;
+const colMemo = new Map();   // 文字列→u32|null（canvas fillStyle 往復は µs 級＝全 feature 再焼きで効く。効率レビュー C-1）
 export function cssColor(s) {
 	const hx = hexColor(s);
 	if (hx != null) return hx;
 	if (typeof s !== "string" || !s.trim()) return null;
+	if (colMemo.has(s)) return colMemo.get(s);
+	if (colMemo.size > 4096) colMemo.clear();
+	const v0 = cssColorSlow(s); colMemo.set(s, v0); return v0;
+}
+function cssColorSlow(s) {
 	colCtx ??= document.createElement("canvas").getContext("2d");
 	colCtx.fillStyle = "#010203";               // 番兵：不正値は代入が無視される＝これが残ったら不正
 	colCtx.fillStyle = s;
@@ -45,25 +51,27 @@ export const DEF = {   // styleform（素人向けUI）が初期値表示に使�
 	radiusPx: 5,         // gint circle はシンボルオーバレイのフォールバック
 };
 
+// 1 feature 分の表（4 語）を u32 の i 行へ書く＝全件再構築（buildStyleTable）と 1 件差し替え（restyleOne）の共通部
+export function writeStyleRow(u32, i, f, forceVisible) {
+	const p = f?.properties || {};
+	const fill = cssColor(p["@fill"]) ?? DEF.fill;
+	const stroke = cssColor(p["@stroke"]) ?? DEF.stroke;
+	const w = Math.max(1, Math.min(255, Math.round((+p["@width"] > 0 ? +p["@width"] : DEF.widthPx) * 8)));
+	const r = Math.max(1, Math.min(255, Math.round(DEF.radiusPx * 4)));
+	// 点＝overlayのシンボルが唯一の描画。@blur＝overlay(canvas2D)のぼかし塗り（stroke無し）。
+	// @poly＝ポリゴン化した線（帯＝塗り+輪郭+端形状）＝overlay(canvas2D)が描く。
+	// いずれも gint は描かない（visible bit を落とす）。識別は幾何ベースで生きる。
+	// forceVisible＝大規模モード（オーバレイ無し＝gint が唯一の描画）は全て点灯。
+	const isPoint = f?.type === "Point" || f?.type === "MultiPoint";
+	const blurred = +p["@blur"] > 0;
+	const banded = !!p["@poly"] && (f?.type === "LineString" || f?.type === "MultiLineString");   // 端形状=@start/@end（旧@cap0/1）
+	u32[i * 4] = fill;
+	u32[i * 4 + 1] = stroke;
+	u32[i * 4 + 2] = (w << 24) | (r << 8) | ((!forceVisible && (isPoint || blurred || banded)) ? 0 : 1);
+}
 export function buildStyleTable(featsArr, { forceVisible = false } = {}) {   // featsArr＝fid順の feature 参照列（type と properties を見る）
 	const n = featsArr.length, u32 = new Uint32Array(n * 4);
-	for (let i = 0; i < n; i++) {
-		const f = featsArr[i], p = f?.properties || {};
-		const fill = cssColor(p["@fill"]) ?? DEF.fill;
-		const stroke = cssColor(p["@stroke"]) ?? DEF.stroke;
-		const w = Math.max(1, Math.min(255, Math.round((+p["@width"] > 0 ? +p["@width"] : DEF.widthPx) * 8)));
-		const r = Math.max(1, Math.min(255, Math.round(DEF.radiusPx * 4)));
-		// 点＝overlayのシンボルが唯一の描画。@blur＝overlay(canvas2D)のぼかし塗り（stroke無し）。
-		// @poly＝ポリゴン化した線（帯＝塗り+輪郭+端形状）＝overlay(canvas2D)が描く。
-		// いずれも gint は描かない（visible bit を落とす）。識別は幾何ベースで生きる。
-		// forceVisible＝大規模モード（オーバレイ無し＝gint が唯一の描画）は全て点灯。
-		const isPoint = f?.type === "Point" || f?.type === "MultiPoint";
-		const blurred = +p["@blur"] > 0;
-		const banded = !!p["@poly"] && (f?.type === "LineString" || f?.type === "MultiLineString");   // 端形状=@start/@end（旧@cap0/1）
-		u32[i * 4] = fill;
-		u32[i * 4 + 1] = stroke;
-		u32[i * 4 + 2] = (w << 24) | (r << 8) | ((!forceVisible && (isPoint || blurred || banded)) ? 0 : 1);
-	}
+	for (let i = 0; i < n; i++) writeStyleRow(u32, i, featsArr[i], forceVisible);
 	return u32;
 }
 
@@ -199,12 +207,17 @@ export function createGintLayer(map) {
 		hide(eids) { hidden = new Set(eids); push(); },
 		focus(eids) { focusEids = eids && eids.size ? new Set(eids) : null; if (large) push(); },   // 大規模モードの編集近傍消灯（null=解除）
 		unhide() { if (hidden.size) { hidden = new Set(); push(); } },
-		restyleProps(model) {   // @スタイルだけ即時再焼き（再コミット不要＝色変更のワンテンポ遅れの根治）
+		restyleProps(model) {   // @スタイルだけ即時再焼き（再コミット不要＝色変更のワンテンポ遅れの根治）＝全件
 			if (!fidEid.length) return;
 			baseTable = buildStyleTable(fidEid.map(e => model.feats.get(e)), { forceVisible: large });
 			push();
 		},
-		restyle() { push(); },   // 表の再送（スロット切替で剥がれた疑いがある時の再点火にも）
+		restyleOne(model, eid) {   // 1 件だけ差し替え（props プレビュー＝input 60Hz・undo/redo の props）＝表の 4 語だけ書いて再送。効率レビュー C-1
+			const fid = eidFid.get(eid);
+			if (!baseTable || fid === undefined) return this.restyleProps(model);
+			writeStyleRow(baseTable, fid, model.feats.get(eid), large);
+			push();
+		},
 		async exportPbf(model) {   // エクスポート用＝__eid 無しの直列エンコード（precision=格子段・FCなし）
 			const { pbf: out } = await encodeModel(model, { withEid: false, name: "geoedit-export", precision: model.gridExp });
 			return out;

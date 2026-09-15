@@ -312,6 +312,7 @@ export function initEditor(map, { adopt = true, setDropOwner = null } = {}) {   
 
 	// ---- 履歴経由の適用（undo/redo・構造操作共通）----
 	const GEOM_ONLY = new Set(["move", "movePt", "tr", "rot", "insert", "delete"]);   // 顔ぶれ（点/blur/帯の集合）を変えない操作
+	const ENV_KEYS = ["@blur", "@poly", "@spline", "@icon", "@shape", "@text", "@size", "@tip", "@pop"];   // 顔ぶれ/描画リストに効く鍵（色・線幅は表だけ）
 	const affectedEids = (cmd, res) => {   // このコマンドで gint 表示が古くなるフィーチャ群
 		const out = new Set();
 		const arcRefs = aid => { const a = st.model.arcs.get(aid); if (a) for (const e of a.refs) out.add(e); };
@@ -329,7 +330,7 @@ export function initEditor(map, { adopt = true, setDropOwner = null } = {}) {   
 		if (cmd.op === "delete" && !res) return false;   // 消せない頂点（端点/最小構成）＝何も起きていない＝隠しも履歴も付けない
 		st.editGen++;
 		if (!GEOM_ONLY.has(cmd.op)) st.envGen++;
-		if (cmd.op === "props") layer.restyleProps(st.model);   // スタイルは表の即時再焼き＝コミットを待たない
+		if (cmd.op === "props") layer.restyleOne(st.model, cmd.eid);   // スタイルは表の即時再焼き（1 件）＝コミットを待たない
 		else {
 			const aff = affectedEids(cmd, res);
 			if (aff.size) { st.dragEids = new Set([...(st.dragEids || []), ...aff]); st.hidden = st.dragEids; layer.hide(st.dragEids); }
@@ -358,7 +359,12 @@ export function initEditor(map, { adopt = true, setDropOwner = null } = {}) {   
 		getFeature: eid => st.model?.feats.get(eid),
 		applyProps: (eid, next, { history = true, from = null } = {}) => {
 			if (history) doCmd({ op: "props", eid, from: from ?? st.model.feats.get(eid).properties, to: next });
-			else { st.model.feats.get(eid).properties = next; st.editGen++; st.envGen++; layer.restyleProps(st.model); scheduleCommit(); overlay.redraw(); popLayer.sync(); }   // input中の即プレビュー（表の即時再焼き＋@pop箱の追随）
+			else {   // input中の即プレビュー（表は 1 件差し替え＋@pop箱の追随）。顔ぶれ（点/blur/帯の集合）に効く鍵が変わった時だけ envGen を進める（全件走査を 60Hz で起こさない）
+				const f = st.model.feats.get(eid), prev = f.properties || {};
+				f.properties = next; st.editGen++;
+				if (ENV_KEYS.some(k => (prev[k] ?? "") !== (next[k] ?? ""))) st.envGen++;
+				layer.restyleOne(st.model, eid); scheduleCommit(); overlay.redraw(); popLayer.sync();
+			}
 		},
 		onDelete: eid => { if (eid != null) doCmd({ op: "del", eid }); },   // パネルの🗑
 		toast,
