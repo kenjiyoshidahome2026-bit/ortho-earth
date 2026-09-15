@@ -79,7 +79,7 @@ const near = (a, b, eps = 1e-9) => Math.abs(a - b) < eps;
 	const before = JSON.stringify(model.toGeoJSON());
 	const ringA0 = model.featureGeoJSON(A, false).geometry.coordinates[0];
 	const base = model.featureVerts(A);
-	ok(base.rings.length === 1 && base.rings[0].pts.length === 5, `featureVerts＝安定アドレス順の頂点列（${base.rings[0].pts.length} 点）`);
+	ok(base.rings.length === 1 && base.rings[0].pts.length === 10 && base.rings[0].pts instanceof Float64Array, `featureVerts＝安定アドレス順の頂点列（${base.rings[0].pts.length / 2} 点・Float64Array）`);
 	const q = quatBetween(toVec(139.75, 35.65), toVec(139.76, 35.67));
 	ok(model.rotateFeature(A, q, base) === true, "rotateFeature 適用");
 	const ringA1 = model.featureGeoJSON(A, false).geometry.coordinates[0], ringB1 = model.featureGeoJSON(B, false).geometry.coordinates[0];

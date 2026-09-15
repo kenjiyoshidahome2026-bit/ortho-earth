@@ -154,11 +154,15 @@ export function createModel(topo) {
 		dirty.add(aid);
 	};
 	function moveVertex(arcId, idx, lon, lat) {
-		const e = Math.pow(10, m.gridExp);
+		const arc = m.arcs.get(arcId);
+		const from = [arc.pts[idx * 2], arc.pts[idx * 2 + 1]], dirty = new Set();
+		const to = moveVertexInto(arcId, idx, lon, lat, dirty, Math.pow(10, m.gridExp));
+		return { from, to, dirty };
+	}
+	// 割り当て無し版＝rotateFeature の全頂点ループ用（dirty と格子係数 e を共有・from を作らない）。効率レビュー M-1
+	function moveVertexInto(arcId, idx, lon, lat, dirty, e) {
 		const x = quantize(normLon(lon), e), y = quantize(lat, e);
 		const arc = m.arcs.get(arcId), n = arc.pts.length / 2;
-		const dirty = new Set();
-		const from = [arc.pts[idx * 2], arc.pts[idx * 2 + 1]];
 		const isEnd = idx === 0 || idx === n - 1;
 		if (isEnd) {
 			const nid = endNode.get(arcId)[idx === 0 ? 0 : 1];
@@ -173,7 +177,7 @@ export function createModel(topo) {
 		} else {
 			setArcVertex(arcId, idx, x, y, dirty);
 		}
-		return { from, to: [x, y], dirty };
+		return [x, y];
 	}
 
 	// ---- 頂点挿入/削除。索引は「挿入点＋末尾一意頂点」の追記だけ（中間のidxずれは基底参照が
@@ -264,17 +268,25 @@ export function createModel(topo) {
 	//      base＝掴み始めの頂点列（featureVerts＝安定アドレス eid/path/vi 順）。毎回 base から回すので量子化誤差が積まない。
 	//      q=null＝恒等＝base をそのまま戻す（undo は厳密復元）。共有ノード/共有arcは moveVertex 経由＝隣も一緒に動く。
 	//      base は arc id を持たない＝commit の再抽出（rebuildModel/adoptRebuilt）を跨いでも undo/redo が効く。
-	function featureVerts(eid) {   // → { coords } | { rings:[{path, pts:[[x,y],…]}] }（継ぎ目頂点は次arcの0番＝resolveAddr と同じ vi 規約）
+	// 環の頂点を安定アドレス順（vi）に 1 周する＝featureVerts と rotateFeature の共通走査（継ぎ目頂点は次arcの0番＝resolveAddr と同じ vi 規約）。
+	// fn(arcId, idx, vi)。旧 rotateFeature は頂点ごとに resolveAddr（list を先頭から走査）＝環全体で O(V·arcs) だった（効率レビュー M-1）
+	const walkRing = (list, fn) => {
+		let vi = 0;
+		for (let k = 0; k < list.length; k++) {
+			const s = list[k], aid = sidOf(s), n = m.arcs.get(aid).pts.length / 2, take = k === list.length - 1 ? n : n - 1;
+			for (let local = 0; local < take; local++) fn(aid, s < 0 ? n - 1 - local : local, vi++);
+		}
+		return vi;
+	};
+	function featureVerts(eid) {   // → { coords } | { rings:[{path, pts:Float64Array(x0,y0,x1,y1,…)}] }（16B/頂点＝履歴に残る base の軽量化・M-2）
 		const f = m.feats.get(eid);
 		if (!f) return null;
 		if (f.coords) return { coords: f.coords.map(c => [c[0], c[1]]) };
 		const rings = [];
 		for (const { path, list } of listsOf(f)) {
-			const pts = [];
-			list.forEach((s, k) => {
-				const arc = m.arcs.get(sidOf(s)), n = arc.pts.length / 2, take = k === list.length - 1 ? n : n - 1;
-				for (let local = 0; local < take; local++) { const i = s < 0 ? n - 1 - local : local; pts.push([arc.pts[i * 2], arc.pts[i * 2 + 1]]); }
-			});
+			let n = 0; for (let k = 0; k < list.length; k++) n += m.arcs.get(sidOf(list[k])).pts.length / 2 - (k === list.length - 1 ? 0 : 1);
+			const pts = new Float64Array(n * 2);
+			walkRing(list, (aid, idx, vi) => { const p = m.arcs.get(aid).pts; pts[vi * 2] = p[idx * 2]; pts[vi * 2 + 1] = p[idx * 2 + 1]; });
 			rings.push({ path, pts });
 		}
 		return { rings };
@@ -282,12 +294,20 @@ export function createModel(topo) {
 	function rotateFeature(eid, q, base, { index = true } = {}) {
 		const f = m.feats.get(eid);
 		if (!f || !base) return null;
-		const rot = (x, y) => q ? rotateLL(q, x, y) : [x, y];
 		const wasIndexing = indexing;
 		indexing = index;
 		try {
-			if (f.coords) { base.coords.forEach((c, i) => { const p = rot(c[0], c[1]); movePoint(eid, i, p[0], p[1]); }); return true; }
-			for (const { path, pts } of base.rings) pts.forEach((c, vi) => { const r = resolveAddr({ eid, path, vi }); if (r) { const p = rot(c[0], c[1]); moveVertex(r.arcId, r.idx, p[0], p[1]); } });
+			if (f.coords) { base.coords.forEach((c, i) => { const p = q ? rotateLL(q, c[0], c[1]) : c; movePoint(eid, i, p[0], p[1]); }); return true; }
+			const e = Math.pow(10, m.gridExp), dirty = new Set();
+			for (const { path, pts } of base.rings) {
+				const list = listAtPath(f, path);
+				if (!list) continue;
+				walkRing(list, (aid, idx, vi) => {
+					if (vi * 2 + 1 >= pts.length) return;   // 再抽出で頂点数が変わった base（保険）
+					const x = pts[vi * 2], y = pts[vi * 2 + 1];
+					if (q) { const p = rotateLL(q, x, y); moveVertexInto(aid, idx, p[0], p[1], dirty, e); } else moveVertexInto(aid, idx, x, y, dirty, e);
+				});
+			}
 			return true;
 		} finally { indexing = wasIndexing; }
 	}
