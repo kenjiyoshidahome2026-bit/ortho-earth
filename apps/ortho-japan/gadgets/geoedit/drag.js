@@ -19,7 +19,7 @@ const DEG = Math.PI / 180;
 const wheelDeg = e => (e.deltaMode === 1 ? e.deltaY * 33 : e.deltaMode === 2 ? e.deltaY * 800 : e.deltaY) * 0.02;   // 1ノッチ(≈100)＝2°。行/ページ単位（Firefox）は px 相当へ
 const snapDeg = (raw, shift) => shift ? Math.round(raw / 15) * 15 : raw;
 const ROT_IDLE_MS = 500;   // Alt+ホイールの「手が止まった」＝1手として確定
-const baseLists = base => base.coords ? [base.coords] : base.rings.map(r => r.pts);   // featureVerts → 重心用の点列群
+const baseLists = base => base.coords ? [base.coords] : base.rings.map(r => { const p = r.pts, out = new Array(p.length / 2); for (let i = 0; i < out.length; i++) out[i] = [p[i * 2], p[i * 2 + 1]]; return out; });   // featureVerts（Float64Array）→ 重心用の点列群（掴み始めに 1 回）
 const spinQ = (cVec, deg) => quatFromAxisAngle(cVec, -deg * DEG);   // 外向き法線まわりの右手系は反時計回り＝時計回りを正にするため符号反転
 
 // 移動ツール＝一緒に動く/隠すフィーチャ集合（自分＋共有arc・共有ノードでつながる隣）。affectedEids（controller）とも共用
