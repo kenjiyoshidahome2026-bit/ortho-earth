@@ -207,8 +207,7 @@ function anchorFullGintBuf(full) {
 		if (meta[r + 1] >= 2 && (meta[r + 6] - meta[r + 4] > LIMIT || meta[r + 7] - meta[r + 5] > LIMIT)) hit = true;
 	}
 	if (!hit) return full;
-	const d = unPackGintBuffer(full);
-	if (!d) return full;
+	const d = unpackRawViews(full);   // 旧＝unPackGintBuffer＝GintBUF を丸ごと slice し、捨てるネスト配列と bbox 台帳まで構築していた
 	const set = { count: d.arcCount, buffer: d.arcBuffer, meta: d.arcMeta, mlen };
 	gint.insertDegreeAnchors(set);
 	d.arcBuffer = set.buffer;
@@ -220,6 +219,41 @@ function anchorFullGintBuf(full) {
 	return repackGintBuffer(d);
 }
 
+// polygon/polyline/neighbors（ネスト配列）は遅延生成＝読まれた時に stream から組む（非列挙の accessor＝structured clone に乗らない・
+// Worker 越しは受け側で attachLazyStreams を掛け直す）。消費者は topojson/clean/large-model だけで、描画側（ortho-core）は stream しか読まない
+// ＝旧は毎 unpack で全 feature ぶんのネスト配列を組み、gint Worker からの返り便で structured clone までしていた（俯瞰レビュー 2026-09-15）。
+// setter は clean.js の再代入（gintData.polygon = …）用
+export function attachLazyStreams(d) {
+	if (!d) return d;
+	const lazy = (name, stream, build) => {
+		let v, done = false;
+		Object.defineProperty(d, name, { configurable: true, enumerable: false,
+			get() { if (!done) { v = build(d[stream]); done = true; } return v; },
+			set(x) { v = x; done = true; } });
+	};
+	if (!Object.getOwnPropertyDescriptor(d, "polygon")?.get) lazy("polygon", "polyStream", streamToPolygon);
+	if (!Object.getOwnPropertyDescriptor(d, "polyline")?.get) lazy("polyline", "lineStream", streamToPolyline);
+	if (!Object.getOwnPropertyDescriptor(d, "neighbors")?.get) lazy("neighbors", "neighborStream", streamToNeighbors);
+	return d;
+}
+// GintBUF の生ビュー（コピーなし・ネスト配列も bbox 台帳も作らない）＝anchorFullGintBuf 用。repackGintBuffer が読む項目だけを返す
+function unpackRawViews(full) {
+	let ptr = 0;
+	const header = new Uint32Array(full, 0, 16), mlen = 8, SCALE = gint.SCALE_E; ptr += 64;
+	const polygonCount = header[2], polylineCount = header[3], pointCount = header[4], nodeCount = header[5];
+	const arcLength = header[6], arcCount = header[7], bbox = [...header.slice(8, 12)];
+	bbox[0] = (bbox[0] - 180 * SCALE) / SCALE; bbox[1] = (bbox[1] - 90 * SCALE) / SCALE;
+	bbox[2] = (bbox[2] - 180 * SCALE) / SCALE; bbox[3] = (bbox[3] - 90 * SCALE) / SCALE;
+	const arcBuffer   = arcLength  ? new BigUint64Array(full, ptr, arcLength)    : null; ptr += arcLength * 8;
+	const pointBuffer = pointCount ? new BigUint64Array(full, ptr, pointCount)   : null; ptr += pointCount * 8;
+	const arcMeta     = arcCount   ? new Uint32Array(full, ptr, arcCount * mlen) : null; ptr += arcCount * mlen * 4;
+	const point       = pointCount ? new Uint32Array(full, ptr, pointCount)      : null; ptr += pointCount * 4;
+	const psLen = header[12], lsLen = header[13], nbLen = header[14];
+	const polyStream     = psLen ? new Int32Array(full, ptr, psLen) : null; ptr += psLen * 4;
+	const lineStream     = lsLen ? new Int32Array(full, ptr, lsLen) : null; ptr += lsLen * 4;
+	const neighborStream = nbLen ? new Int32Array(full, ptr, nbLen) : null;
+	return { polygonCount, polylineCount, pointCount, nodeCount, arcCount, bbox, arcBuffer, arcMeta, polyStream, lineStream, neighborStream, pointBuffer, point };
+}
 export function unPackGintBuffer(GintBUF) {
 	try { let ptr = 0;
 		const buf = new Uint8Array(GintBUF).slice().buffer, mlen = 8, SCALE = gint.SCALE_E;
@@ -240,16 +274,12 @@ export function unPackGintBuffer(GintBUF) {
 		const polyStream     = psLen ? new Int32Array(buf, ptr, psLen) : null; ptr += psLen * 4;
 		const lineStream     = lsLen ? new Int32Array(buf, ptr, lsLen) : null; ptr += lsLen * 4;
 		const neighborStream = nbLen ? new Int32Array(buf, ptr, nbLen) : null; ptr += nbLen * 4;
-		const polygon   = streamToPolygon(polyStream);
-		const polyline  = streamToPolyline(lineStream);
-		const neighbors = streamToNeighbors(neighborStream);
 		const polyBboxByFid = buildFeatureBboxes(polyStream, arcMeta);
 		const lineBboxByFid = buildFeatureBboxes(lineStream, arcMeta);
 		const polyCompBbox  = buildCompBboxes(polyStream, arcMeta);
-		return { polygonCount, polylineCount, pointCount, nodeCount, arcCount, bbox,
+		return attachLazyStreams({ polygonCount, polylineCount, pointCount, nodeCount, arcCount, bbox,
 			arcBuffer, arcMeta, polyStream, lineStream, neighborStream,
-			polygon, polyline, neighbors,
-			pointBuffer, point, polyBboxByFid, lineBboxByFid, polyCompBbox }
+			pointBuffer, point, polyBboxByFid, lineBboxByFid, polyCompBbox });
 	} catch (e) { console.error("Failed to unpack Gint buffer:", e); return null; }
 }
 

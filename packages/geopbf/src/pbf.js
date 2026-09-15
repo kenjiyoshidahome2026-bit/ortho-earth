@@ -5,7 +5,7 @@ import { dissolve } from "./extension/dissolve.js";
 import { topojson, neighbors, mesh, merge } from "./extension/topojson.js";
 import { identify, identifyAt, contain } from "./extension/identify.js";
 import { simplified } from "./extension/simplify.js";
-import { unPackGintBuffer } from "./extension/topology.js";
+import { unPackGintBuffer, attachLazyStreams } from "./extension/topology.js";
 import { cleanTopology } from "./extension/clean.js";
 import { precision } from "./extension/precision.js";
 
@@ -59,7 +59,7 @@ GeoPBF.setPrototype("setGintBUF", async function(buf) {
 	if (GeoPBF._gintWorkerFactory || GeoPBF._gintWorkerUrl) {
 		this.unPackGint = await new Promise((resolve, reject) => {
 			const w = GeoPBF._gintWorkerFactory ? GeoPBF._gintWorkerFactory() : new Worker(GeoPBF._gintWorkerUrl, { type: "module" });
-			w.onmessage = e => { w.terminate(); resolve(e.data); };
+			w.onmessage = e => { w.terminate(); resolve(attachLazyStreams(e.data)); };   // Worker 越し＝遅延 accessor（非列挙）は clone に乗らない＝掛け直す
 			w.onerror  = e => { w.terminate(); reject(e); };
 			w.postMessage({ sab: payload });   // AB の場合は structured clone（unpack は内部でコピーする設計＝どちらでも正しい）
 		});
