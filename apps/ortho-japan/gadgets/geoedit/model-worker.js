@@ -10,15 +10,16 @@ import { GeoPBF } from "geopbf/pbf-base";
 import { buildTopology, createExtractor } from "geopbf/edit/topo-extract";
 import { topoToTransfer, topoFromTransfer, stitchGeometry } from "geopbf/edit/model";
 
-const countVerts = g => {   // GeoJSON 幾何の座標数（環の閉点込み）
+const countVerts = g => {   // GeoJSON 幾何の座標数（環の閉点込み）。壊れ幾何（coordinates 無し/非配列＝moj 実データに在る）は 0＝extractor が warning で skip する
 	if (!g) return 0;
 	const c = g.coordinates;
+	if (g.type === "GeometryCollection") { let n = 0; for (const x of Array.isArray(g.geometries) ? g.geometries : []) n += countVerts(x); return n; }
+	if (!Array.isArray(c)) return 0;   // 旧＝ここで「c is not iterable」＝取込全体が失敗（本人報告 2026-09-15 札幌市中央区 筆R_2025）
 	switch (g.type) {
 		case "Point": return 1;
 		case "MultiPoint": case "LineString": return c.length;
-		case "MultiLineString": case "Polygon": { let n = 0; for (const r of c) n += r.length; return n; }
-		case "MultiPolygon": { let n = 0; for (const p of c) for (const r of p) n += r.length; return n; }
-		case "GeometryCollection": { let n = 0; for (const x of g.geometries || []) n += countVerts(x); return n; }
+		case "MultiLineString": case "Polygon": { let n = 0; for (const r of c) n += Array.isArray(r) ? r.length : 0; return n; }
+		case "MultiPolygon": { let n = 0; for (const p of c) if (Array.isArray(p)) for (const r of p) n += Array.isArray(r) ? r.length : 0; return n; }
 	}
 	return 0;
 };
