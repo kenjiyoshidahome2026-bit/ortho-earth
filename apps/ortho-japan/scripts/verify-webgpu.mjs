@@ -15,6 +15,10 @@ const APP = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const PORT = 5238, CDP = 9335;
 const CHROME = process.env.CHROME || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 
+
+// 起動時に前回までの per-pid プロファイル（同じ接頭辞・別 pid）を掃く＝exit 時の削除は Chrome の後書きで残ることがある（/tmp 満杯の轍・2026-09-15）
+const sweepProfiles = prefix => { try { for (const d of fsSync.readdirSync("/tmp")) if (d.startsWith(prefix) && d !== `${prefix}${process.pid}`) fsSync.rmSync(`/tmp/${d}`, { recursive: true, force: true }); } catch { /* 無害 */ } };
+sweepProfiles("oj-webgpu-profile-");
 const vite = spawn("npx", ["vite", "--port", String(PORT), "--strictPort"], { cwd: APP, stdio: "ignore" });
 const chrome = spawn(CHROME, [
 	"--headless=new", `--remote-debugging-port=${CDP}`, "--enable-unsafe-webgpu",

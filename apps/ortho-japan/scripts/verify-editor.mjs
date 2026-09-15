@@ -15,6 +15,10 @@ const SHOT = process.env.SHOT || "";          // 判定後の画面を PNG で�
 const PORT = 5244, CDP = 9344;
 const CHROME = process.env.CHROME || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 
+
+// 起動時に前回までの per-pid プロファイル（同じ接頭辞・別 pid）を掃く＝exit 時の削除は Chrome の後書きで残ることがある（/tmp 満杯の轍・2026-09-15）
+const sweepProfiles = prefix => { try { for (const d of fsSync.readdirSync("/tmp")) if (d.startsWith(prefix) && d !== `${prefix}${process.pid}`) fsSync.rmSync(`/tmp/${d}`, { recursive: true, force: true }); } catch { /* 無害 */ } };
+sweepProfiles("oj-veditor-");
 const vite = spawn("npx", ["vite", "--port", String(PORT), "--strictPort"], { cwd: APP, stdio: "ignore" });
 const chrome = spawn(CHROME, [
 	"--headless=new", `--remote-debugging-port=${CDP}`,
