@@ -180,9 +180,10 @@ fn projectDrape(idx: u32) -> Proj {
 // 裏半球の頂点を地平円へ射影クランプ（GL horizonClamp・wgsl.js OVERLAY vsStencil p0.z と同式）＝塗り扇の端点専用。
 // 裏の面は円周上に縮退（巻き数 0）・跨ぎ面は可視部だけを囲む＝球を透かしたゴースト/±1 相殺の根治（2026-09-15）。
 fn horizonClamp(relW: vec3f) -> vec3f {
+	// 可視判定は RTE 形（F.originZr＋dot(rel,eye)）＝絶対座標の内積は高ズームで相殺し可視頂点が地平円へ飛ぶ（GL 版と同じ根治 9/15）
+	if (F.originZr + dot(relW, F.eye) >= 0.0) { return relW; }
 	let Pt = F.originPt + relW;
 	let e2 = dot(F.eye, F.eye);
-	if (dot(Pt, F.eye) >= 1.0) { return relW; }
 	let Pp = Pt - F.eye * (dot(Pt, F.eye) / e2);
 	let lp = length(Pp);
 	var t = normalize(vec3f(-F.eye.z, 0.0, F.eye.x));
@@ -494,7 +495,7 @@ struct IdOut { @builtin(position) pos: vec4f, @location(0) @interpolate(flat) fi
 }
 @fragment fn fsId(in: IdOut, @builtin(front_facing) ff: bool) -> @location(0) vec4f {
 	let sgn = select(-1.0, 1.0, ff);
-	return vec4f(sgn * in.fid1, sgn, 0.0, 0.0);   // rg16float＝rg のみ格納。blend 加算(ONE,ONE)
+	return vec4f(sgn * in.fid1, sgn, 0.0, in.fid1);   // rg＝加算(ONE,ONE)・a＝MAX＝扇が触れた最大 fid+1（重複の後勝ち・向きに依らず＝CW 環も）
 }
 `;
 
@@ -511,7 +512,7 @@ struct FOut { @builtin(position) pos: vec4f };
 	return o;
 }
 @fragment fn fs(in: FOut) -> @location(0) vec4f {
-	let t = textureLoad(idTex, vec2i(floor(in.pos.xy)), 0).rg;
+	let t = textureLoad(idTex, vec2i(floor(in.pos.xy)), 0);
 	if (R.z == 1u) {   // 監査プローブ（品質監査）：winding 和の異常だけ色分け
 		let ar = abs(t.r); let ag = abs(t.g);
 		if (ag < 0.5) { if (ar > 0.5) { return vec4f(0.0, 0.9, 1.0, 0.85); } discard; }   // シアン＝向き矛盾
@@ -521,8 +522,11 @@ struct FOut { @builtin(position) pos: vec4f };
 		discard;
 	}
 	if (abs(t.g) < 0.5) { discard; }        // 被覆なし（穴・外）。G の符号は外環 CW も吸収
-	let q = t.r / t.g;                      // 多重登記は約分で消える（R=k(fid+1),G=k → q=fid+1）
-	if (abs(q - round(q)) > 0.25) { discard; }   // 別 feature の真の重複＝fid 不定＝塗らない
+	var q = t.r / t.g;                      // 多重登記は約分で消える（R=k(fid+1),G=k → q=fid+1）
+	// 重複（|G|≥2 or R/G 非整数）＝A（前向き扇の最大 fid+1）で後勝ち（GL FS_RESOLVE と同じ・2026-09-15）。A 無しは従来どおり
+	let multi = abs(t.g) > 1.5 || abs(q - round(q)) > 0.25;
+	if (multi && t.a >= 0.5) { q = t.a; }
+	else if (abs(q - round(q)) > 0.25) { discard; }
 	let fid = i32(round(q)) - 1;
 	if (fid < 0 || fid >= i32(R.y)) { discard; }
 	let rec = textureLoad(fidTex, vec2i(fid % i32(R.x), fid / i32(R.x)), 0);

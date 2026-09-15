@@ -162,8 +162,8 @@ ID バッファへ layer チャンネルを足すことになり、`renderPickin
 | 被覆 | fill-color の式 | 機構 |
 | :--- | :--- | :--- |
 | 非重複 | 任意（連続 `interpolate` 可） | **winding 和 ID バッファ**：fan 三角形を FS で `gl_FrontFacing ? +(fid+1) : -(fid+1)`、R32F 加算 → 画素値=fid+1 → 解決パスで fid→スタイル表。2パス・色数非依存 |
-| 重複あり | 離散（literal / match / step / case、出力クラス ≤16） | **クラス別 nonzero OR**：クラス k の feature だけ stencil に巻き（fid表の class で VS 判定）NOTEQUAL 0 で塗る × クラス数パス。優先順=パス順（後勝ち） |
-| 重複あり | 連続（interpolate × get） | **仕様エラー**（重畳画素の色が意味論として定義不能）。step/match 化を促すメッセージを返す |
+| 重複あり | 任意 | **ID バッファの後勝ち（実装 2026-09-15）**：ID テクスチャの α に「扇が触れた最大 fid+1」を MAX ブレンドで蓄積し、重複画素（|G|≥2 or R/G 非整数）は α の fid（＝fid 大＝geoedit では作図順で後）の色で塗る。限界＝凹多角形の扇は自分の外にも張るため、他の 2 者が重なる画素へ凹図形の fid が漏れ得る（稀・容認）。旧「塗らない（discard）」はエディタの重なりで図形の塗りが消え、偶然 R/G が整数だと第三者の色が出た |
+| 重複あり（将来） | 離散（≤16 クラス） | クラス別 nonzero OR（未実装＝上の後勝ちで代替） |
 
 - 被覆の判定：layer option `overlap: true | false | 'auto'`（既定 'auto'）。'auto' は**初回ロード時に
   winding プローブで実測**（被覆数>1 の画素の有無。v1 STENCIL_DEBUG の自動化）し、IDB メタへ焼く
