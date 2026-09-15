@@ -339,9 +339,10 @@ try {
 		const n0 = m().stats().features;
 		const a = map.projectLL(139.7515, 35.688), b = map.projectLL(139.7635, 35.6825);   // 点シンボル（139.754,35.6835）とテキスト（139.768,35.6865）の当たり矩形を避けた位置
 		click(a[0], a[1]); await sleep(150);
-		C().dispatchEvent(new PointerEvent("pointerdown", { ...ev(b[0], b[1], 1), metaKey: true })); C().dispatchEvent(new PointerEvent("pointerup", { ...ev(b[0], b[1], 1), metaKey: true }));
+		C().dispatchEvent(new PointerEvent("pointerdown", { ...ev(b[0], b[1], 1), shiftKey: true })); C().dispatchEvent(new PointerEvent("pointerup", { ...ev(b[0], b[1], 1), shiftKey: true }));   // Shift+クリック＝選択に追加
 		await sleep(150);
 		ok("multiSelect", editor.state.multi?.size === 2 && !document.querySelector(".ge-confirm:not([hidden])") && !document.querySelector('#ge-toolbar button[data-tip^="グループ化"]'));
+		ok("multiNoHandles", !document.querySelector(".ge-panel input[type=color]") && !(await (async () => { const h = map.projectLL(139.7635, 35.6825); C().dispatchEvent(new PointerEvent("pointerdown", ev(h[0], h[1], 21))); M().dispatchEvent(new PointerEvent("pointermove", ev(h[0] + 20, h[1], 21))); M().dispatchEvent(new PointerEvent("pointerup", ev(h[0] + 20, h[1], 21))); await sleep(120); return !!editor.state.drag; })()));   // 2件以上＝パネル無し・頂点ドラッグ無し
 		const ctxItem = async (prefix, x, y) => { C().dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: x, clientY: y })); await sleep(120); const it = [...document.querySelectorAll("#ctxmenu .ctxmenu-item")].find(el => el.textContent.startsWith(prefix)); if (!it) t.push("DBG:ctx=" + [...document.querySelectorAll("#ctxmenu .ctxmenu-item")].map(el => el.textContent).join("|")); it?.click(); await sleep(300); return !!it; };
 		ok("bundleCombine", await ctxItem("グループ化（2", b[0], b[1]) && m().stats().features === n0 - 1 && m().feats.get(editor.state.selection)?.type === "MultiPolygon");
 		ok("bundleUngroup", await ctxItem("グループ化解除", b[0], b[1]) && m().stats().features === n0);

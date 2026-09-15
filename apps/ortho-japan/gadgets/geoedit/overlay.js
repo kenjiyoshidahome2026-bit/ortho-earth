@@ -273,6 +273,7 @@ export function createOverlay(map, mapEl, getState) {
 	function drawHandles(pr, st, eid) {
 		const f = st.model.feats.get(eid);
 		if (!f || f.coords) return;
+		if (st.multi && st.multi.size > 1) return;   // 複数選択中＝頂点編集は無し（本人裁定 9/15）＝ハンドルを出さない（drag.js の命中も無くなる）
 		const seen = new Set();
 		for (const { list } of st.model.listsOf(f)) for (const s of list) {
 			const aid = s < 0 ? ~s : s;

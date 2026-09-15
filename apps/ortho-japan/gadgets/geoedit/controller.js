@@ -45,7 +45,7 @@ const t = tr({
 	"大規模モードでは属性・スタイルと頂点移動ができます（追加/削除はまだ）": "Large mode allows attributes, style and vertex moves (add/delete not yet)",
 	"点はグループ化できません（面/線のみ）": "Points cannot be grouped (polygons/lines only)",
 	"同じ種類（面同士／線同士）だけグループ化できます": "Only the same kind can be grouped (polygons with polygons, lines with lines)",
-	"選択: {0}件（⌘/Ctrl+クリックで追加・右クリックでグループ化）": "Selected: {0} (⌘/Ctrl+click to add, right-click to group)",
+	"選択: {0}件（Shift+クリックで追加・右クリックでグループ化）": "Selected: {0} (Shift+click to add, right-click to group)",
 	"グループ化しました（{0}件）": "Grouped ({0})",
 	"2つ以上選んでください": "Select two or more",
 	"これは multi ではありません": "This is not a multi",
@@ -89,7 +89,7 @@ export function initEditor(map, { adopt = true, setDropOwner = null } = {}) {   
 	mapEl.append(toolbarEl);
 	// 可変状態は全部ここ（各入力モジュールと共有）
 	const st = {
-		model: null, selection: null, dragEids: null, hidden: null, sketch: null, snapMark: null, rot: null, busy: false, multi: null, focus: null,   // multi＝複数選択（⌘/Ctrl+クリックで累積・selection は最後の1件）
+		model: null, selection: null, dragEids: null, hidden: null, sketch: null, snapMark: null, rot: null, busy: false, multi: null, focus: null,   // multi＝複数選択（Shift+クリックで累積・selection は最後の1件・2件以上で頂点編集は無し）
 		tool: "select",
 		drag: null,        // ドラッグ中の記述（drag.js）
 		editGen: 0,        // 編集世代＝「このコミットは最新の編集を含むか」の判定（含むなら隠し/オーバレイを引き継ぐ）
@@ -102,7 +102,7 @@ export function initEditor(map, { adopt = true, setDropOwner = null } = {}) {   
 	const layer = createGintLayer(map);
 	const overlay = createOverlay(map, mapEl, () => st);
 	// @pop の再生＝エンジンの pop ガジェットへ委譲（v2 ビューアと同一実装＝動きが一致）。
-	// 常時表示でなくクリックで開く（編集は選択とかぶるので shift+click）。× は箱を閉じるだけ。
+	// 常時表示でなくクリックで開く（編集は選択とかぶるので右クリック「吹き出しを表示」）。× は箱を閉じるだけ。
 	const popLayer = createPopLayer(map, () => st);
 	// 作図ツールの既定スタイル（=「次に描くもの」の@プロパティ。styleform が toolbar 経由で書く）
 	const drawDefaults = { point: {}, text: { "@text": t("テキスト") }, line: {}, polygon: {} };
@@ -141,19 +141,20 @@ export function initEditor(map, { adopt = true, setDropOwner = null } = {}) {   
 	const pick = (x, y, ll = map.unprojectXY(x, y), wide = false) => ll ? (overlay.symbolAt(x, y, wide ? 10 : 4) ?? layer.identify(ll[0], ll[1], map.getZoom(), wide ? PICK_WIDE : undefined)) : null;
 	const ed = { map, mapEl, signal, st, hist, layer, overlay, popLayer, toast, drawDefaults, localXY, pick, onSurface };
 
-	// Shift+クリック＝その要素の @pop を開く。エンジンは shift を tilt/回転扱いにして onClick を出さない（input.js）ため、
-	// editClick 経由でなく mapEl で直接拾う。動いた時（shift+ドラッグ＝回転）はエンジンに委ねる（pop にしない）。
+	// Shift+クリック＝複数選択（選択に足す/外す・本人裁定 9/15「複数選択は +shift の方がいい」）。エンジンは shift を tilt/回転扱いにして onClick を
+	// 出さない（input.js）ため、editClick 経由でなく mapEl で直接拾う。動いた時（shift+ドラッグ＝回転）はエンジンに委ねる。
+	// ⌘/Ctrl+クリックも同じ（editClick に修飾が来ないので pointerdown で控える）。@pop は右クリック「吹き出しを表示」で開く（旧＝shift+クリック）。
 	let shiftDown = null;   // shift 押下の開始点 [x,y]／非shift は null
-	let modDown = false;    // ⌘/Ctrl 押下でのクリック＝複数選択（editClick には修飾が来ない＝pointerdown で控える）
+	let modDown = false;    // ⌘/Ctrl 押下でのクリック＝複数選択（別名）
 	mapEl.addEventListener("pointerdown", e => { shiftDown = e.shiftKey ? localXY(e) : null; modDown = !!(e.metaKey || e.ctrlKey); }, { capture: true, signal });
 	mapEl.addEventListener("pointerup", e => {
 		const d = shiftDown; shiftDown = null;
-		if (!d || st.busy || !st.model) return;
+		if (!d || st.busy || !st.model || !onSurface(e)) return;
+		if (st.tool !== "select" && st.tool !== "move") return;
 		const [x, y] = localXY(e);
-		if (Math.hypot(x - d[0], y - d[1]) >= 4) return;   // shift+ドラッグ＝回転はエンジンへ（pop にしない）
-		const ll = map.unprojectXY(x, y);
-		const eid = pick(x, y, ll);
-		if (eid != null) popLayer.open(eid, { x, y, ll });   // クリック点＝tip の場所に開く／ll＝参照点（面=クリック点・線=最寄り線分上）
+		if (Math.hypot(x - d[0], y - d[1]) >= 4) return;   // shift+ドラッグ＝回転はエンジンへ
+		const eid = pick(x, y, map.unprojectXY(x, y));
+		if (eid != null) toggleMulti(eid);
 	}, { capture: true, signal });
 
 	// ---- Worker（構築/再抽出）----
@@ -388,7 +389,7 @@ export function initEditor(map, { adopt = true, setDropOwner = null } = {}) {   
 	};
 	ed.select = select;
 
-	// ---- 複数選択とグループ化（本人裁定 9/15＝ツールバーから外し右クリックへ）：⌘/Ctrl+クリックで選択に足す/外す（selection＝最後の1件・
+	// ---- 複数選択とグループ化（本人裁定 9/15＝ツールバーから外し右クリックへ）：Shift（⌘/Ctrl も可）+クリックで選択に足す/外す（selection＝最後の1件・
 	//      multi＝全員）。右クリック「グループ化（n件）」＝同族（面同士/線同士）の multi 化。グループ（Multi*）を指して「グループ化解除」。----
 	const toggleMulti = eid => {
 		if (eid == null) return;
@@ -398,7 +399,7 @@ export function initEditor(map, { adopt = true, setDropOwner = null } = {}) {   
 		if (st.model?.large) { st.focus = focusHood(st.selection); layer.focus(st.focus); }
 		st.multi.size > 1 ? props.close() : props.render(st.selection);   // 2件以上＝パネルは閉じる（どの1件の属性か曖昧）
 		overlay.redraw();
-		if (st.multi.size > 1) toast(t("選択: {0}件（⌘/Ctrl+クリックで追加・右クリックでグループ化）", st.multi.size));
+		if (st.multi.size > 1) toast(t("選択: {0}件（Shift+クリックで追加・右クリックでグループ化）", st.multi.size));
 	};
 	const groupMulti = () => {
 		const eids = st.multi ? [...st.multi] : [];
