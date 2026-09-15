@@ -230,6 +230,7 @@ fn fetchFidBbox(fid: u32) -> vec4u {
 // 球面キャップの可視判定（GL capVisible と同式）：bbox を囲む小円 (C, rad) が可視キャップ（Ê, hor）と交わらなければ
 // 完全に裏＝捨てる。rad＝矩形内の最遠点（緯線上は角・経線上は Δλ>90° のくぼみを解析的に）＋3.5° の余裕。
 fn capVisible(bb: vec4u) -> bool {
+	if (bb.z - bb.x >= 1800000000u) { return true; }   // 縫い目跨ぎ（bbox 経度全幅）＝中心が反対側に化ける＝免除（GL と同じ・9/15）
 	let cx = bb.x + (bb.z - bb.x) / 2u; let cy = bb.y + (bb.w - bb.y) / 2u;
 	let latC = (F.origin.y + f32(i32(cy - F.centers.y)) * 1e-7) * D2R;
 	let lat0 = (F.origin.y + f32(i32(bb.y - F.centers.y)) * 1e-7) * D2R;

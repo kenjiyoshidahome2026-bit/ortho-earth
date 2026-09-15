@@ -224,6 +224,9 @@ uvec4 fetchFidBbox(uint fid) {
 // 覗く分と bbox 中心≒キャップ中心の粗さ。Δλ≥180°（縫い目跨ぎ bbox）は rad が 180° へ伸びる＝自然に「常に可視」。
 // 対蹠点を囲む面は horizonClamp だけだと環が地平円を一周＝全面 ±1 になる（2026-09-02 実測）＝この棄却が要。
 bool capVisible(uvec4 bb) {
+	// 縫い目（±180）を跨ぐ feature＝切断後の bbox が経度全幅＝中心が反対側（lon 0）に化けて裏と誤判定＝丸ごと消える
+	//（本人報告 2026-09-15「z≈6 以下で円だけ消える」＝縫い目を跨ぐ円）。スパン ≥180° はキャップが半球級＝判定の意味も無い＝免除
+	if (bb.z - bb.x >= 1800000000u) return true;
 	uint cx = bb.x + (bb.z - bb.x) / 2u, cy = bb.y + (bb.w - bb.y) / 2u;
 	float latC = (u_origin.y + float(int(cy - u_iy_center)) * 1e-7) * D2R;
 	float lat0 = (u_origin.y + float(int(bb.y - u_iy_center)) * 1e-7) * D2R;

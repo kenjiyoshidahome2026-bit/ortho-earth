@@ -34,13 +34,14 @@ try {
 	const editor = initEditor(map);
 	for (let i = 0; i < 200 && !editor.model; i++) await sleep(100);
 	ok("boot", !!editor.model);
-	// 矩形ツール＝2クリック（対角 (120,27)→(150,44)）
-	document.querySelector('#ge-toolbar button[data-tip^="矩形"]').click();
+	// 矩形ツール＝2クリック（対角 (120,27)→(150,44)）。?tool=circle なら円ツール（中心 a→半径点 b・36 角）＝本人報告「z≈6 以下で円だけ消える」の再現用
+	const TOOL = Q.get("tool") === "circle" ? "円" : "矩形";
+	document.querySelector(`#ge-toolbar button[data-tip^="${TOOL}"]`).click();
 	const a = map.projectLL(A[0], A[1]), b = map.projectLL(B[0], B[1]);
 	click(a[0], a[1]); await sleep(120); click(b[0], b[1]);
 	await sleep(300);
 	const eid = editor.state.selection;
-	ok("rect", eid != null && editor.model.featureGeoJSON(eid, false).geometry.coordinates[0].length === 5);
+	ok("rect", eid != null && editor.model.featureGeoJSON(eid, false).geometry.coordinates[0].length === (TOOL === "円" ? 37 : 5));
 	// 色を付けて確定（画素判定用）
 	editor.model.feats.get(eid).properties = { ...editor.model.feats.get(eid).properties, "@fill": "#ff00ff", "@stroke": "#2b5f8f" };
 	await editor.commitNow();
@@ -80,8 +81,22 @@ try {
 		const outward = gcInterpolate(m, c2, -0.03);
 		probes.push({ i, m, inHit: editor.layer.identify(inward[0], inward[1], z) === eid, outHit: editor.layer.identify(outward[0], outward[1], z) === eid, inPx: magenta(px(S, inward[0], inward[1])), outPx: magenta(px(S, outward[0], outward[1])) });
 	}
-	ok("bulgeIdentify", probes.every(p => p.inHit && !p.outHit), JSON.stringify(probes.map(p => [p.inHit, p.outHit])));
-	ok("bulgeFill", probes.every(p => p.inPx && !p.outPx), JSON.stringify(probes.map(p => [p.inPx, p.outPx])));
+	if (TOOL === "矩形") {
+		ok("bulgeIdentify", probes.every(p => p.inHit && !p.outHit), JSON.stringify(probes.map(p => [p.inHit, p.outHit])));
+		ok("bulgeFill", probes.every(p => p.inPx && !p.outPx), JSON.stringify(probes.map(p => [p.inPx, p.outPx])));
+	}
+	// ズーム掃引（?zs=6,5.5,5,4,3）＝各ズームで図形の重心が塗られ識別が当たる（「z≈6 以下で消える」の再現）
+	const ZS = (Q.get("zs") || "").split(",").map(Number).filter(v => v > 0);
+	const badZ = [];
+	for (const zq of ZS) {
+		location.hash = `#${zq}/${c2[1]}/${c2[0]}`;
+		await sleep(600);
+		let S2 = null;
+		for (let i = 0; i < 8; i++) { S2 = await shot(); if (i >= 2 && magenta(px(S2, c2[0], c2[1]))) break; await sleep(250); }
+		const f = magenta(px(S2, c2[0], c2[1])), id = editor.layer.identify(c2[0], c2[1], map.getZoom()) === eid;
+		if (!f || !id) badZ.push(`z${zq}:${f ? "" : "nofill"}${id ? "" : "noid"}(${(px(S2, c2[0], c2[1]) || []).join(",")})`);
+	}
+	if (ZS.length) ok("zoomSweep" + (badZ.length ? ":" + badZ.join("_") : ""), badZ.length === 0);
 	window.__probes = probes; window.__editor = editor;   // 眺める用＝destroy しない（SHOT にオーバレイを残す）
 } catch (e) { t.push("ERR:" + String(e?.stack || e).replace(/\s+/g, "_").slice(0, 300)); }
 document.title = (t.some(x => !x.startsWith("ok:")) ? "FAIL " : "PASS ") + t.join(" ");

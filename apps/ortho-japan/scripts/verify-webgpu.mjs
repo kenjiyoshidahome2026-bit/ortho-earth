@@ -35,7 +35,7 @@ try {
 	}
 	fail = 0;
 	const ALL = ["t-webgpu", "t-aatrans", "t-gintgpu", "t-gintgpu?gintsb=0", "t-gintmulti", "t-gintlayers", "t-gintlayers?gl2=1", "t-plateaufs", "t-baselane", "t-backfill", "t-anchorfill", "t-rectlook", "t-zoomfill"];
-	const PAGES = process.argv.length > 2 ? ALL.filter(p => process.argv.slice(2).includes(p)) : ALL;   // 引数＝ページ名の絞り込み（verify-ui と同じ）。SHOT=path で最後のページの画面を PNG に
+	const PAGES = process.argv.length > 2 ? process.argv.slice(2) : ALL;   // 引数＝ページ名（?query 付き可＝t-rectlook の視点差し替え等）。SHOT=path で最後のページの画面を PNG に
 	for (const page of PAGES) {   // t-backfill＝gint 塗り扇の球体カリング（裏半球のゴースト/跨ぎ面）＝WGSL 側の実 GPU 検分   // t-aatrans＝遷移時AA（実GPUの実時間必須）。t-plateaufs＝OPFS 実I/O（同期ハンドル）＝実時間必須（仮想時間はタイマー先燃えで偽陽性）。t-gintgpu は storage/テクスチャ両経路
 		const url = `http://localhost:${PORT}/japan/tests/${page.replace(/(\?|$)/, ".html$1")}`;
 		const target = await (await fetch(`http://127.0.0.1:${CDP}/json/new?${encodeURIComponent(url)}`, { method: "PUT" })).json();
