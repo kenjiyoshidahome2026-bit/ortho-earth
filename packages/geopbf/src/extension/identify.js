@@ -208,11 +208,12 @@ export function findPolygon(buffer, meta, polyStream, mix, miy, polyBboxByFid, v
 					const mIdx = aid * 8;
 					if (mix > meta[mIdx + 6] || miy < meta[mIdx + 5] || miy > meta[mIdx + 7]) continue;
 					const off = meta[mIdx], len = meta[mIdx + 1];
-					for (let k = 0; k < len - 1; k++) {
-						const [ix1, iy1] = gint.unpackToInt(buffer[off + k]);
-						const [ix2, iy2] = gint.unpackToInt(buffer[off + k + 1]);
+					let [ix1, iy1] = gint.unpackToInt(buffer[off]);   // 各頂点の unpack（BigInt）は 1 回だけ（旧＝辺ごとに両端＝2 回）
+					for (let k = 1; k < len; k++) {
+						const [ix2, iy2] = gint.unpackToInt(buffer[off + k]);
 						if (((iy1 > miy) !== (iy2 > miy)) &&
 							(mix < (ix2 - ix1) * (miy - iy1) / (iy2 - iy1) + ix1)) inside = !inside;
+						ix1 = ix2; iy1 = iy2;
 					}
 				}
 			}
