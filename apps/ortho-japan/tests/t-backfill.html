@@ -15,6 +15,7 @@ import { createGeopbf } from "geopbf";
 createGeopbf("https://api.ortho-earth.com");
 import orthoJapan from "../app.js";
 import { initEditor } from "../gadgets/geoedit/controller.js";
+import { idbClear } from "../gadgets/geoedit/io.js";   // 前のページの自動保存（同一プロファイル）を復元させない＝視点/データの上書き競合を封じる
 import { composeLayersToCanvas } from "../gadgets/compose.js";
 
 const t = [], ok = (n, c) => t.push((c ? "ok:" : "NG:") + n);
@@ -33,6 +34,7 @@ const FC = { type: "FeatureCollection", features: [
 
 try {
 	const map = await orthoJapan({ view: "#3/0/-90", maxPitch: 0 });
+	await idbClear();
 	const editor = initEditor(map);
 	for (let i = 0; i < 200 && !editor.model; i++) await sleep(100);
 	ok("boot", !!editor.model);

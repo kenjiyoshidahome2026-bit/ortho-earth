@@ -1,0 +1,87 @@
+<!doctype html>
+<!-- 本人スクショ 9/15 の再現：z5 で矩形ツール（2クリック・幅 30° 級）→移動ツールで掴んでホイール回転→選択して眺める。
+     確定層（gint）の縁が大円（度アンカー）に沿うか＝識別と画素で検分。SHOT で画面を残し本人スクショと見比べる。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021;width:900px;height:650px}#map{width:900px;height:650px}</style><title>t-rectlook</title></head>
+<body>
+<div id="map"></div>
+<script>
+window.requestAnimationFrame = cb => setTimeout(() => cb(performance.now()), 16);
+localStorage.setItem("oj.hint", "closed");
+window.confirm = () => false;
+</script>
+<script type="module">
+import { createGeopbf } from "geopbf";
+createGeopbf("https://api.ortho-earth.com");
+import orthoJapan from "../app.js";
+import { initEditor } from "../gadgets/geoedit/controller.js";
+import { idbClear } from "../gadgets/geoedit/io.js";
+import { composeLayersToCanvas } from "../gadgets/compose.js";
+import { gcMidpoint, gcInterpolate, gcCentroid } from "geopbf/edit/sphere";
+
+const t = [], ok = (n, c) => t.push((c ? "ok:" : "NG:") + n);
+window.addEventListener("error", e => t.push("ERR:" + String(e.message).replace(/\s+/g, "_")));
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const C = () => document.getElementById("c");
+const M = () => document.getElementById("map");
+const ev = (x, y, id = 7) => ({ bubbles: true, cancelable: true, clientX: x, clientY: y, pointerId: id, button: 0, pointerType: "mouse" });
+const click = (x, y) => { C().dispatchEvent(new PointerEvent("pointerdown", ev(x, y, 1))); C().dispatchEvent(new PointerEvent("pointerup", ev(x, y, 1))); };
+
+try {
+	const map = await orthoJapan({ view: "#5/36/135", maxPitch: 0 });
+	await idbClear();
+	const editor = initEditor(map);
+	for (let i = 0; i < 200 && !editor.model; i++) await sleep(100);
+	ok("boot", !!editor.model);
+	// 矩形ツール＝2クリック（対角 (120,27)→(150,44)）
+	document.querySelector('#ge-toolbar button[data-tip^="矩形"]').click();
+	const a = map.projectLL(120, 27), b = map.projectLL(150, 44);
+	click(a[0], a[1]); await sleep(120); click(b[0], b[1]);
+	await sleep(300);
+	const eid = editor.state.selection;
+	ok("rect", eid != null && editor.model.featureGeoJSON(eid, false).geometry.coordinates[0].length === 5);
+	// 色を付けて確定（画素判定用）
+	editor.model.feats.get(eid).properties = { ...editor.model.feats.get(eid).properties, "@fill": "#ff00ff", "@stroke": "#2b5f8f" };
+	await editor.commitNow();
+	await sleep(500);
+	// 移動ツールで掴んでホイール回転 7°（本人スクショ＝グリッドに対し傾いた矩形）
+	document.querySelector('#ge-toolbar button[data-tip^="要素を移動"]').click();
+	const ring0 = editor.model.featureGeoJSON(eid, false).geometry.coordinates[0];
+	const cen = gcCentroid([ring0]);
+	const rc = map.projectLL(cen[0], cen[1]);
+	click(rc[0], rc[1]); await sleep(150);
+	C().dispatchEvent(new PointerEvent("pointerdown", ev(rc[0], rc[1], 8)));
+	C().dispatchEvent(new WheelEvent("wheel", { bubbles: true, cancelable: true, clientX: rc[0], clientY: rc[1], deltaY: 350, deltaMode: 0 }));
+	M().dispatchEvent(new PointerEvent("pointermove", ev(rc[0] + 3, rc[1], 8)));
+	M().dispatchEvent(new PointerEvent("pointerup", ev(rc[0] + 3, rc[1], 8)));
+	await sleep(400);
+	await editor.commitNow();
+	await sleep(800);
+	// 選択ツールで選び直し＝オーバレイ（大円の辺＋ハンドル）を出す
+	document.querySelector('#ge-toolbar button[data-tip^="選択"]').click();
+	click(rc[0], rc[1]); await sleep(300);
+	ok("selected", editor.state.selection === eid && editor.state.tool === "select");
+	const ring = editor.model.featureGeoJSON(eid, false).geometry.coordinates[0], z = map.getZoom();
+	ok("rotated", JSON.stringify(ring) !== JSON.stringify(ring0));
+	// 各辺：大円中点 m と弦（経緯度平均）c。m から重心側へ 0.3° 入った点＝アンカー有りなら内側（識別ヒット・塗りあり）
+	const mapEl = document.getElementById("map");
+	const shot = async () => { const s = await map.requestSnapshot(); const c = composeLayersToCanvas(s); return { ctx: c.getContext("2d"), sx: c.width / mapEl.clientWidth, sy: c.height / mapEl.clientHeight }; };
+	const px = (S, lng, lat) => { const p = map.projectLL(lng, lat); if (!p) return null; const d = S.ctx.getImageData(Math.round(p[0] * S.sx), Math.round(p[1] * S.sy), 1, 1).data; return [d[0], d[1], d[2]]; };
+	const magenta = c => !!c && c[0] > 150 && c[2] > 150 && c[1] < 110;
+	let S = null;
+	for (let i = 0; i < 60; i++) { S = await shot(); if (magenta(px(S, cen[0], cen[1]))) break; await sleep(250); }
+	ok("fillCenter", magenta(px(S, cen[0], cen[1])));
+	const c2 = gcCentroid([ring]);
+	const probes = [];
+	for (let i = 0; i < 4; i++) {
+		const m = gcMidpoint(ring[i], ring[i + 1]);
+		const inward = gcInterpolate(m, c2, 0.03);   // 中点から重心へ 3%（辺長 30° で ~0.5°）
+		const outward = gcInterpolate(m, c2, -0.03);
+		probes.push({ i, m, inHit: editor.layer.identify(inward[0], inward[1], z) === eid, outHit: editor.layer.identify(outward[0], outward[1], z) === eid, inPx: magenta(px(S, inward[0], inward[1])), outPx: magenta(px(S, outward[0], outward[1])) });
+	}
+	ok("bulgeIdentify", probes.every(p => p.inHit && !p.outHit), JSON.stringify(probes.map(p => [p.inHit, p.outHit])));
+	ok("bulgeFill", probes.every(p => p.inPx && !p.outPx), JSON.stringify(probes.map(p => [p.inPx, p.outPx])));
+	window.__probes = probes; window.__editor = editor;   // 眺める用＝destroy しない（SHOT にオーバレイを残す）
+} catch (e) { t.push("ERR:" + String(e?.stack || e).replace(/\s+/g, "_").slice(0, 300)); }
+document.title = (t.some(x => !x.startsWith("ok:")) ? "FAIL " : "PASS ") + t.join(" ");
+</script>
+</body></html>
