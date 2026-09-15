@@ -1,4 +1,3 @@
-import { thenMap } from "../modules/utility.js";
 import { GeoPBF } from "../pbf-base.js";
 import { dissolve } from "../extension/dissolve.js";
 import { decodeZIP } from "../modules/decodeZIP.js";

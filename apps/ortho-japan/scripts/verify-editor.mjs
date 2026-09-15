@@ -46,7 +46,11 @@ try {
 	await new Promise((res, rej) => { ws.onopen = res; ws.onerror = rej; });
 	let id = 0; const pending = new Map();
 	const send = (method, params = {}) => new Promise(res => { const i = ++id; pending.set(i, res); ws.send(JSON.stringify({ id: i, method, params })); });
-	ws.onmessage = ev => { const m = JSON.parse(ev.data); if (m.id && pending.has(m.id)) { pending.get(m.id)(m.result); pending.delete(m.id); } };
+	ws.onmessage = ev => { const m = JSON.parse(ev.data); if (m.id && pending.has(m.id)) { pending.get(m.id)(m.result); pending.delete(m.id); }
+		if (process.env.DEBUG) {   // DEBUG=1＝ページの例外と console.error/warn を標準出力へ（起動しない原因の特定用・2026-09-15）
+			if (m.method === "Runtime.exceptionThrown") console.log("[page exception]", m.params.exceptionDetails?.exception?.description ?? m.params.exceptionDetails?.text);
+			if (m.method === "Runtime.consoleAPICalled" && /error|warning/.test(m.params.type)) console.log(`[page ${m.params.type}]`, m.params.args.map(a => a.value ?? a.description ?? "").join(" ").slice(0, 300));
+		} };
 	await send("Runtime.enable");
 	const t0 = Date.now();
 	let title = "";

@@ -1,7 +1,7 @@
 import { GeoPBF } from "../pbf-base.js";
 import { encodeZIP } from "../modules/encodeZIP.js";
 
-const escXML = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+import { escXML } from "../modules/xml.js";
 
 onmessage = async (e) => {
 	const { buf, name, opts } = e.data, gz = opts && opts.gz;

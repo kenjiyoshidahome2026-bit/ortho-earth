@@ -1,5 +1,4 @@
 import { GeoPBF } from "../pbf-base.js";
-import { dissolve } from "../extension/dissolve.js";
 
 const tagContent = (src, tag) => {
 	const m = new RegExp(`<${tag}>([\\s\\S]*?)<\\/${tag}>`, 'i').exec(src);
@@ -72,7 +71,6 @@ onmessage = async (e) => {
 		});
 
 		pbf.close();
-		await dissolve(pbf);
 		const res = pbf.arrayBuffer;
 		postMessage({ type: "gpxdec", data: res }, [res]);
 	} catch (err) {

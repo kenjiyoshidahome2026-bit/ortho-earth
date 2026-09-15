@@ -1,8 +1,7 @@
 import { GeoPBF } from "../pbf-base.js";
-import { dissolve } from "../extension/dissolve.js";
 import { decodeZIP } from "../modules/decodeZIP.js";
 
-const unescXML = s => s.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'");
+import { unescXML } from "../modules/xml.js";
 
 function* getTags(src, tag) {
 	const regex = new RegExp(`<${tag}[^>]*>([\\s\\S]*?)<\\/${tag}>`, 'gi');
@@ -164,7 +163,6 @@ onmessage = async (e) => {
 	});
 
 	pbf.close();
-	await dissolve(pbf);
 	const res = pbf.arrayBuffer;
 	postMessage({ type: "gmldec", data: res }, [res]);
 };
