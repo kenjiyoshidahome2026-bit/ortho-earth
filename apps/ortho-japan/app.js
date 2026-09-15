@@ -1872,8 +1872,12 @@ function fitBboxOf(g) {
 	for (const m of [g.polyBboxByFid, g.lineBboxByFid]) {
 		if (!m) continue;
 		for (const bb of m.values()) {   // gint整数単位＝(lon+180)*1e7 / (lat+90)*1e7
-			const lng = (bb[0] + bb[2]) / 2e7 - 180, lat = (bb[1] + bb[3]) / 2e7 - 90;
-			cs.push([lng, lat, (bb[2] - bb[0]) / 2e7, (bb[3] - bb[1]) / 2e7]);   // 中心＋半幅
+			// 縫い目を跨いで切断された feature（MultiPolygon の片が両側）は fid 別 bbox 自体が経度全幅＝中心 0° に化ける
+			//（geoedit で縫い目を跨ぐ円を取り込むと経度 0・z2.5 へ飛ぶ＝本人報告 2026-09-15「初期画面遷移にバグ」）。
+			// 全幅級（≥180°）は「中心 180°・半幅 0」の点として重心へ寄与させる（幅は他の fid が決める）
+			const wide = bb[2] - bb[0] >= 1800000000;
+			const lng = wide ? 180 : (bb[0] + bb[2]) / 2e7 - 180, lat = (bb[1] + bb[3]) / 2e7 - 90;
+			cs.push([lng, lat, wide ? 0 : (bb[2] - bb[0]) / 2e7, (bb[3] - bb[1]) / 2e7]);   // 中心＋半幅
 			sx += Math.cos(lng * D2R); sy += Math.sin(lng * D2R);
 			n++;
 		}
