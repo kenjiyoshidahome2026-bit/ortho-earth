@@ -49,6 +49,11 @@ const contains = (ring, pt) => {
 	}
 	return inside;
 };
+const DBF_PARSE = {
+	B: v => +v.trim(), F: v => +v.trim(), N: v => +v.trim(),
+	L: v => /^[yt]$/i.test(v), D: v => new Date(v.replace(/(....)(..)(..)/, "$1-$2-$3")),
+	C: v => { v = v.trim().replace(/\x00/g, ""); return v.length ? v : null; }
+};
 class DBF {
 	constructor(s, enc) {
 		const h = view(s.subarray(0, 32)), l = h.getUint16(8, true);
@@ -67,36 +72,32 @@ class DBF {
 	read() {
 		const value = this.source.subarray(0, this.len); this.source = this.source.subarray(this.len);
 		if (!value || value[0] === 0x1a) return null;
-		const q = {}, parse = {
-			B: v => +v.trim(), F: v => +v.trim(), N: v => +v.trim(),
-			L: v => /^[yt]$/i.test(v), D: v => new Date(v.replace(/(....)(..)(..)/, "$1-$2-$3")),
-			C: v => { v = v.trim().replace(/\x00/g, ""); return v.length ? v : null; }
-		};
-		let i = 1;
-		this.fields.forEach(f => {
-			const raw = this.dec.decode(value.subarray(i, i += f.length));
-			const v = (parse[f.type] || parse.C)(raw);
+		const q = {}, fields = this.fields;
+		for (let k = 0, i = 1; k < fields.length; k++) {   // レコードごとに parse 表（6 クロージャ）を作らない
+			const f = fields[k], raw = this.dec.decode(value.subarray(i, i += f.length));
+			const v = (DBF_PARSE[f.type] || DBF_PARSE.C)(raw);
 			if (v !== null) q[f.name] = v;
-		});
+		}
 		return q;
 	}
 }
-const Point = q => ({ type: "Point", coordinates: [q.getFloat64(4, true), q.getFloat64(12, true)] });
-const MultiPoint = q => {
-	const n = q.getInt32(36, true), pts = [];
-	for (let i = 0, p = 40; i < n; i++, p += 16) pts.push([q.getFloat64(p, true), q.getFloat64(p + 8, true)]);
+// 各 parser は (DataView, o)＝o はレコード内容（shape type 欄）の絶対オフセット。レコードごとに DataView/subarray を作らない。
+const Point = (q, o) => ({ type: "Point", coordinates: [q.getFloat64(o + 4, true), q.getFloat64(o + 12, true)] });
+const MultiPoint = (q, o) => {
+	const n = q.getInt32(o + 36, true), pts = [];
+	for (let i = 0, p = o + 40; i < n; i++, p += 16) pts.push([q.getFloat64(p, true), q.getFloat64(p + 8, true)]);
 	return { type: "MultiPoint", coordinates: pts };
 };
-const PolyLine = q => {
-	let p = 44, n = q.getInt32(36, true), m = q.getInt32(40, true);
+const PolyLine = (q, o) => {
+	let p = o + 44, n = q.getInt32(o + 36, true), m = q.getInt32(o + 40, true);
 	const parts = [], pts = [];
 	for (let i = 0; i < n; i++, p += 4) parts.push(q.getInt32(p, true));
 	for (let i = 0; i < m; i++, p += 16) pts.push([q.getFloat64(p, true), q.getFloat64(p + 8, true)]);
 	const lines = parts.map((st, i) => pts.slice(st, parts[i + 1]));
 	return n === 1 ? { type: "LineString", coordinates: lines[0] } : { type: "MultiLineString", coordinates: lines };
 };
-const Polygon = q => {
-	let p = 44, n = q.getInt32(36, true), m = q.getInt32(40, true);
+const Polygon = (q, o) => {
+	let p = o + 44, n = q.getInt32(o + 36, true), m = q.getInt32(o + 40, true);
 	const parts = [], pts = [], polys = [], holes = [];
 	for (let i = 0; i < n; i++, p += 4) parts.push(q.getInt32(p, true));
 	for (let i = 0; i < m; i++, p += 16) pts.push([q.getFloat64(p, true), q.getFloat64(p + 8, true)]);
@@ -120,18 +121,21 @@ const Polygon = q => {
 };
 class SHP {
 	constructor(s, transform = null) {
-		const h = view(s.subarray(0, 100));
-		this.type = h.getInt32(32, true); this.source = s.subarray(100);
+		this.view = view(s); this.pos = 100; this.end = s.byteLength;   // 1 本の DataView をオフセットで歩く
+		this.type = this.view.getInt32(32, true);
 		this.xform = transform;
 		this.parse = { 1: Point, 3: PolyLine, 5: Polygon, 8: MultiPoint, 11: Point, 13: PolyLine, 15: Polygon }[this.type];
 	}
 	read() {
-		if (!this.source.byteLength) return null;
-		const len = view(this.source.subarray(4, 8)).getInt32(0, false) * 2;
-		const type = view(this.source.subarray(8, 12)).getInt32(0, true);
-		const s = this.source.subarray(8, 8 + len); this.source = this.source.subarray(8 + len);
-		const geom = type === this.type ? this.parse(view(s)) : this.read();
-		return (this.xform && geom) ? applyTransform(geom, this.xform) : geom;
+		const v = this.view;
+		while (this.pos + 12 <= this.end) {
+			const p = this.pos, len = v.getInt32(p + 4, false) * 2, type = v.getInt32(p + 8, true);
+			this.pos = p + 8 + len;
+			if (type !== this.type) continue;   // null shape 等は読み飛ばす（従来どおり）
+			const geom = this.parse(v, p + 8);
+			return (this.xform && geom) ? applyTransform(geom, this.xform) : geom;
+		}
+		return null;
 	}
 }
 onmessage = async (e) => {

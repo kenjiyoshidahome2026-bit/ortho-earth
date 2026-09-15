@@ -9,41 +9,49 @@ onmessage = async (e) => {
 		const pbf = await new GeoPBF().name(name).set(buf);
 		const pos = c => `${c[1]} ${c[0]}`;
 		const posList = r => r.map(pos).join(" ");
+		// 逐次書き出し（gpx/geojson と同じ TransformStream 流儀）＝全文を 1 本の JS 文字列で抱えない
+		const enc = new TextEncoder();
+		const { readable, writable } = new TransformStream();
+		const writer = writable.getWriter();
+		const bPromise = new Response(readable).blob();
+		(async () => {
+			// Explicit srsName fixes axis-order detection in the decoder.
+			await writer.write(enc.encode(`<?xml version="1.0" encoding="UTF-8"?>\n<gml:FeatureCollection xmlns:gml="http://www.opengis.net/gml/3.2" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" srsName="urn:ogc:def:crs:EPSG::4326">\n`));
 
-		// Explicit srsName fixes axis-order detection in the decoder.
-		let xml = `<?xml version="1.0" encoding="UTF-8"?>\n<gml:FeatureCollection xmlns:gml="http://www.opengis.net/gml/3.2" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" srsName="urn:ogc:def:crs:EPSG::4326">\n`;
+			for (let i = 0, len = pbf.length; i < len; i++) {
+				const f = pbf.getFeature(i);
+				const { type, coordinates: c } = f.geometry;
+				const fid = f.id ?? `f${i}`;
 
-		for (let i = 0, len = pbf.length; i < len; i++) {
-			const f = pbf.getFeature(i);
-			const { type, coordinates: c } = f.geometry;
-			const fid = f.id ?? `f${i}`;
-
-			xml += `  <gml:featureMember>\n    <gml:GenericFeature gml:id="${escXML(fid)}">\n      <gml:geometryProperty>\n`;
-			if (type === "Point") {
-				xml += `        <gml:Point gml:id="p${i}"><gml:pos>${pos(c)}</gml:pos></gml:Point>\n`;
-			} else if (type === "LineString") {
-				xml += `        <gml:LineString gml:id="l${i}"><gml:posList>${posList(c)}</gml:posList></gml:LineString>\n`;
-			} else if (type === "Polygon") {
-				xml += `        <gml:Polygon gml:id="s${i}">\n`;
-				c.forEach((ring, j) => {
-					const tag = j === 0 ? "exterior" : "interior";
-					xml += `          <gml:${tag}><gml:LinearRing><gml:posList>${posList(ring)}</gml:posList></gml:LinearRing></gml:${tag}>\n`;
-				});
-				xml += `        </gml:Polygon>\n`;
-			}
-			xml += `      </gml:geometryProperty>\n`;
-
-			for (const [k, v] of Object.entries(f.properties)) {
-				if (v !== null && typeof v !== 'object' && k !== "id") {
-					const sk = k.replace(/[^a-zA-Z0-9_]/g, '_');
-					xml += `      <${sk}>${escXML(v)}</${sk}>\n`;
+				let xml = `  <gml:featureMember>\n    <gml:GenericFeature gml:id="${escXML(fid)}">\n      <gml:geometryProperty>\n`;
+				if (type === "Point") {
+					xml += `        <gml:Point gml:id="p${i}"><gml:pos>${pos(c)}</gml:pos></gml:Point>\n`;
+				} else if (type === "LineString") {
+					xml += `        <gml:LineString gml:id="l${i}"><gml:posList>${posList(c)}</gml:posList></gml:LineString>\n`;
+				} else if (type === "Polygon") {
+					xml += `        <gml:Polygon gml:id="s${i}">\n`;
+					c.forEach((ring, j) => {
+						const tag = j === 0 ? "exterior" : "interior";
+						xml += `          <gml:${tag}><gml:LinearRing><gml:posList>${posList(ring)}</gml:posList></gml:LinearRing></gml:${tag}>\n`;
+					});
+					xml += `        </gml:Polygon>\n`;
 				}
-			}
-			xml += `    </gml:GenericFeature>\n  </gml:featureMember>\n`;
-		}
-		xml += `</gml:FeatureCollection>`;
+				xml += `      </gml:geometryProperty>\n`;
 
-		const gmlFile = new File([xml], `${name}.gml`, { type: "application/gml+xml" });
+				for (const [k, v] of Object.entries(f.properties)) {
+					if (v !== null && typeof v !== 'object' && k !== "id") {
+						const sk = k.replace(/[^a-zA-Z0-9_]/g, '_');
+						xml += `      <${sk}>${escXML(v)}</${sk}>\n`;
+					}
+				}
+				xml += `    </gml:GenericFeature>\n  </gml:featureMember>\n`;
+				await writer.write(enc.encode(xml));
+			}
+			await writer.write(enc.encode(`</gml:FeatureCollection>`));
+			await writer.close();
+		})().catch(err => writer.abort(err));
+
+		const gmlFile = new File([await bPromise], `${name}.gml`, { type: "application/gml+xml" });
 
 		if (gz) {
 			const zip = await encodeZIP([gmlFile], `${name}_gml.zip`);

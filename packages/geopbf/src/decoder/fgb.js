@@ -20,6 +20,7 @@ function calcTreeSize(numItems, nodeSize) {
 	return numNodes * NODE_ITEM_BYTE_LEN;
 }
 
+const TD = new TextDecoder();   // 文字列/属性ごとに TextDecoder を作らない
 // FlatBuffers reader helpers (standard wire format, alignment-independent).
 class FlatBufferReader {
 	constructor(arrayBuffer) {
@@ -52,7 +53,7 @@ class FlatBufferReader {
 		if (!fieldPos) return "";
 		const p = this.indirect(fieldPos);
 		const len = this.view.getInt32(p, true);
-		return new TextDecoder().decode(this.u8.subarray(p + 4, p + 4 + len));
+		return TD.decode(this.u8.subarray(p + 4, p + 4 + len));
 	}
 
 	// Read element-by-element via DataView so alignment is irrelevant.
@@ -89,16 +90,15 @@ class FlatBufferReader {
 	}
 }
 
-function parseFGBProperties(u8, keys) {
-	const props = {};
-	const view = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
-	const decoder = new TextDecoder();
-	let pos = 0;
-	while (pos < u8.byteLength) {
+// 地物ごとに DataView/TextDecoder を作らず reader の view を絶対位置で読む（u8 は reader.u8 の subarray＝byteOffset が絶対位置）
+function parseFGBProperties(reader, u8, keys) {
+	const props = {}, view = reader.view, all = reader.u8;
+	let pos = u8.byteOffset;
+	const end = pos + u8.byteLength;
+	while (pos < end) {
 		const keyIdx = view.getUint16(pos, true);
 		const len = view.getUint32(pos + 2, true);
-		const valStr = decoder.decode(u8.subarray(pos + 6, pos + 6 + len));
-		props[keys[keyIdx]] = valStr;
+		props[keys[keyIdx]] = TD.decode(all.subarray(pos + 6, pos + 6 + len));
 		pos += 6 + len;
 	}
 	return props;
@@ -194,7 +194,7 @@ onmessage = async (e) => {
 
 				const geometry = geomField ? restoreGeometry(reader, reader.indirect(geomField)) : null;
 				const propBytes = propsField ? reader.readByteVector(propsField) : null;
-				const properties = propBytes ? parseFGBProperties(propBytes, keys) : {};
+				const properties = propBytes ? parseFGBProperties(reader, propBytes, keys) : {};
 
 				if (geometry) {
 					pbf.setFeature({ type: "Feature", geometry, properties });

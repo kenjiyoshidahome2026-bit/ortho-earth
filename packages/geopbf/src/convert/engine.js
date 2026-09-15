@@ -1,5 +1,6 @@
 // convert/engine.js ── カーネルの GPU 実行面。CPU 参照（kernels.js の *CPU）と同じ入出力契約を GPU で満たす。
 // dispatch は maxComputeWorkgroupsPerDimension（既定 65535）× WG を超えたら base をずらして分割する。
+// dispatch ごとの uniform は submit 直後に destroy（投入済みコマンドが済むまで GPU 側が保持＝安全）。旧＝未解放で dispatch 数だけ漏れた。
 import { createContext } from "./gpu.js";
 import { mercTable, YT_LEN } from "./merc.js";
 import { PROJECT_WGSL, LOD_WGSL, WKB_WGSL, BBOX_WGSL, WG, lodUniform, packArcThresholds, projectCPU, lodCPU, wkbCPU, bboxCPU } from "./kernels.js";
@@ -21,7 +22,7 @@ export function createEngine(device) {
 			const pipe = ctx.pipeline(PROJECT_WGSL);
 			for (let base = 0; base < n; base += chunk) {
 				const cnt = Math.min(chunk, n - base);
-				ctx.run(pipe, [ctx.uniform(u4(n, base)), arc, ytab(), xy, rk], [Math.ceil(cnt / WG)]);
+				const u = ctx.uniform(u4(n, base)); ctx.run(pipe, [u, arc, ytab(), xy, rk], [Math.ceil(cnt / WG)]); u.destroy();
 			}
 			arc.destroy();
 			return { xy, rk, n, async read() { return { xy: new Uint32Array(await ctx.readback(xy, n * 8)), rk: new Uint32Array(await ctx.readback(rk, n * 4)) }; }, destroy() { xy.destroy(); rk.destroy(); } };
@@ -35,7 +36,7 @@ export function createEngine(device) {
 			const pipe = ctx.pipeline(LOD_WGSL);
 			for (let base = 0; base < arcCount; base += chunk) {
 				const cnt = Math.min(chunk, arcCount - base);
-				ctx.run(pipe, [ctx.uniform(lodUniform({ ...params, base, mode: 0 })), proj.xy, proj.rk, arcsBuf, d1, counts, bbox, d2, thBuf], [Math.ceil(cnt / WG), zoomCount]);
+				const u = ctx.uniform(lodUniform({ ...params, base, mode: 0 })); ctx.run(pipe, [u, proj.xy, proj.rk, arcsBuf, d1, counts, bbox, d2, thBuf], [Math.ceil(cnt / WG), zoomCount]); u.destroy();
 			}
 			const out = { counts: new Uint32Array(await ctx.readback(counts, zoomCount * arcCount * 4)), bbox: new Uint32Array(await ctx.readback(bbox, zoomCount * arcCount * 16)) };
 			arcsBuf.destroy(); counts.destroy(); bbox.destroy(); d1.destroy(); d2.destroy(); thBuf.destroy();
@@ -51,7 +52,7 @@ export function createEngine(device) {
 			// slot = k·arcCount + a は「部分ズーム」の k で数えるので offsets も部分を渡す（呼び出し側で slice 済み前提）
 			for (let base = 0; base < arcCount; base += chunk) {
 				const cnt = Math.min(chunk, arcCount - base);
-				ctx.run(pipe, [ctx.uniform(lodUniform({ ...sub, base, mode: 1 })), proj.xy, proj.rk, arcsBuf, offBuf, d1, d2, outBuf, thBuf], [Math.ceil(cnt / WG), sub.zoomCount]);
+				const u = ctx.uniform(lodUniform({ ...sub, base, mode: 1 })); ctx.run(pipe, [u, proj.xy, proj.rk, arcsBuf, offBuf, d1, d2, outBuf, thBuf], [Math.ceil(cnt / WG), sub.zoomCount]); u.destroy();
 			}
 			const out = new Uint32Array(await ctx.readback(outBuf, total * 8));
 			arcsBuf.destroy(); offBuf.destroy(); outBuf.destroy(); d1.destroy(); d2.destroy(); thBuf.destroy();
@@ -64,7 +65,7 @@ export function createEngine(device) {
 			const pipe = ctx.pipeline(WKB_WGSL);
 			for (let base = 0; base < n; base += chunk) {
 				const cnt = Math.min(chunk, n - base);
-				ctx.run(pipe, [ctx.uniform(u4(n, base, d)), inBuf, outBuf], [Math.ceil(cnt / WG)]);
+				const u = ctx.uniform(u4(n, base, d)); ctx.run(pipe, [u, inBuf, outBuf], [Math.ceil(cnt / WG)]); u.destroy();
 			}
 			const out = new Uint32Array(await ctx.readback(outBuf, n * 8));
 			inBuf.destroy(); outBuf.destroy();
@@ -77,7 +78,7 @@ export function createEngine(device) {
 			const pipe = ctx.pipeline(BBOX_WGSL);
 			for (let base = 0; base < p; base += chunk) {
 				const cnt = Math.min(chunk, p - base);
-				ctx.run(pipe, [ctx.uniform(u4(p, base)), inBuf, pBuf, outBuf], [Math.ceil(cnt / WG)]);
+				const u = ctx.uniform(u4(p, base)); ctx.run(pipe, [u, inBuf, pBuf, outBuf], [Math.ceil(cnt / WG)]); u.destroy();
 			}
 			const out = new Int32Array(await ctx.readback(outBuf, p * 16));
 			inBuf.destroy(); pBuf.destroy(); outBuf.destroy();
