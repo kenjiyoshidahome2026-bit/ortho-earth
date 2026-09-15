@@ -279,18 +279,24 @@ export function createOverlay(map, mapEl, getState) {
 			const aid = s < 0 ? ~s : s;
 			if (seen.has(aid)) continue;
 			seen.add(aid);
+			// 頂点を 1 回だけ投影して配列に持ち、画面外（余白 12px）は描かない／当たり判定にも載せない（旧＝裏半球だけ除外＝全頂点で描画＋オブジェクト生成。効率レビュー H-2）
 			const arc = st.model.arcs.get(aid), n = arc.pts.length / 2, u = n - (arc.closed ? 1 : 0);
+			const scr = new Float64Array(n * 3);
+			for (let i = 0; i < n; i++) { const sc = pr(arc.pts[i * 2], arc.pts[i * 2 + 1]); scr[i * 3] = sc[0]; scr[i * 3 + 1] = sc[1]; scr[i * 3 + 2] = sc[2]; }
+			const onScreen = i => scr[i * 3 + 2] >= 0 && scr[i * 3] >= -12 && scr[i * 3] <= W + 12 && scr[i * 3 + 1] >= -12 && scr[i * 3 + 1] <= H + 12;
 			for (let i = 0; i < u; i++) {
-				const sc = pr(arc.pts[i * 2], arc.pts[i * 2 + 1]);
-				if (sc[2] < 0) continue;
-				dot(sc[0], sc[1], 5, COL.handle, COL.handleRing);
-				handles.push({ x: sc[0], y: sc[1], kind: "v", arcId: aid, idx: i });
+				if (!onScreen(i)) continue;
+				dot(scr[i * 3], scr[i * 3 + 1], 5, COL.handle, COL.handleRing);
+				handles.push({ x: scr[i * 3], y: scr[i * 3 + 1], kind: "v", arcId: aid, idx: i });
 			}
 			if (st.model.large) continue;   // 大規模モード＝中点（挿入）ハンドル無し（arc数を変える操作はPhase2対象外）
-			for (let i = 0; i < n - 1; i++) {   // 中点＝挿入ハンドル
-				const [mx, my] = gcMidpoint([arc.pts[i * 2], arc.pts[i * 2 + 1]], [arc.pts[i * 2 + 2], arc.pts[i * 2 + 3]]);   // 中点＝大円の中点（描いた辺の上に乗る）
+			for (let i = 0; i < n - 1; i++) {   // 中点＝挿入ハンドル。両端とも画面外、または両端が 28px 未満（重なって見えない）なら省く＝大円中点の計算もしない
+				const j = i + 1;
+				if (!onScreen(i) && !onScreen(j)) continue;
+				if (Math.hypot(scr[i * 3] - scr[j * 3], scr[i * 3 + 1] - scr[j * 3 + 1]) < 28) continue;
+				const [mx, my] = gcMidpoint([arc.pts[i * 2], arc.pts[i * 2 + 1]], [arc.pts[j * 2], arc.pts[j * 2 + 1]]);   // 中点＝大円の中点（描いた辺の上に乗る）
 				const sc = pr(mx, my);
-				if (sc[2] < 0) continue;
+				if (sc[2] < 0 || sc[0] < -12 || sc[0] > W + 12 || sc[1] < -12 || sc[1] > H + 12) continue;
 				dot(sc[0], sc[1], 3, COL.mid, COL.midRing);
 				handles.push({ x: sc[0], y: sc[1], kind: "m", arcId: aid, idx: i, ll: [mx, my] });
 			}
