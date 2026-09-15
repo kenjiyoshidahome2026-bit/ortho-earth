@@ -6,6 +6,10 @@
 // verify:prod と同族＝「置き場所が変わると死ぬ」クラス（base:"/"事故の型）を npm 経路でも封じる。
 import { spawn, execFileSync } from "node:child_process";
 import fsSync from "node:fs";
+// 起動時に前回までの per-pid プロファイル（同じ接頭辞・別 pid）を掃く＝exit 時の削除は Chrome の後書きで残ることがある（/tmp 満杯の轍・2026-09-15）
+const sweepProfiles = prefix => { try { for (const d of fsSync.readdirSync("/tmp")) if (d.startsWith(prefix) && d !== `${prefix}${process.pid}`) fsSync.rmSync(`/tmp/${d}`, { recursive: true, force: true }); } catch { /* 無害 */ } };
+sweepProfiles("oj-npm-");
+
 import { createServer } from "node:http";
 import { fileURLToPath } from "node:url";
 import { readFile, readFileSync, existsSync, rmSync, mkdirSync } from "node:fs";

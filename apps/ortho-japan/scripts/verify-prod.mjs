@@ -12,6 +12,10 @@
 //          動的importチャンクの疎通と console エラーゼロを確認（QR/print が押した瞬間に死ぬ事故クラス・2026-08-20）
 import { spawn, execFileSync } from "node:child_process";
 import fsSync from "node:fs";
+// 起動時に前回までの per-pid プロファイル（同じ接頭辞・別 pid）を掃く＝exit 時の削除は Chrome の後書きで残ることがある（/tmp 満杯の轍・2026-09-15）
+const sweepProfiles = prefix => { try { for (const d of fsSync.readdirSync("/tmp")) if (d.startsWith(prefix) && d !== `${prefix}${process.pid}`) fsSync.rmSync(`/tmp/${d}`, { recursive: true, force: true }); } catch { /* 無害 */ } };
+for (const k of ["scene", "geoedit", "click"]) sweepProfiles(`oj-vprod-${k}-`);
+
 import { createServer } from "node:http";
 import { fileURLToPath } from "node:url";
 import { readFile, readFileSync, readdirSync, existsSync, statSync } from "node:fs";
