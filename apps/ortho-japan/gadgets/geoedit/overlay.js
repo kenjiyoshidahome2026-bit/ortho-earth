@@ -6,8 +6,8 @@
 // ★図形/帯/曲線のプリミティブ（PICTO/SHAPE_SCALE/smoothRing/buildLinePath）の正本は
 //   エンジンの anno ガジェット（apps/ortho-japan/gadgets/anno.js）＝ビューア再生と単一実装（pop/tip 共有と同じ型）。
 //   ここは import して再輸出するだけ（styleform 等の既存 import 先を維持）。
-import { SHAPE_NAMES, SHAPE_SCALE, PICTO, buildLinePath, smoothRing, sanitizeHTML } from "../anno.js";
-import { toVec, toLL, slerp, angleBetween, gcMidpoint } from "geopbf/edit/sphere";   // 完全球体＝辺は大円で結ぶ（本人裁定 9/14）
+import { SHAPE_NAMES, SHAPE_SCALE, PICTO, BOTTOM_ANCHOR, buildLinePath, smoothRing, sanitizeHTML, makeTracer } from "../anno.js";
+import { gcMidpoint } from "geopbf/edit/sphere";   // 完全球体＝辺は大円で結ぶ（本人裁定 9/14）。線分の内挿は anno.js の makeTracer
 export { SHAPE_NAMES, SHAPE_SCALE, PICTO, buildLinePath, sanitizeHTML };
 
 const COL = {
@@ -80,39 +80,13 @@ export function createOverlay(map, mapEl, getState) {
 
 	let handles = [];   // 描画時キャッシュ：{x,y,kind:"v"|"m"|"p", arcId?,idx?, eid?,ptIdx?}
 	let symHits = [];   // 描画時キャッシュ：シンボルの当たり矩形 {x0,y0,x1,y1,eid}＝「見えている絵」で選択するための真実源
-	const seg = (pr, a, b) => {   // 大円分割つき線分（編集ズームでは大抵1分割）＝gint の度アンカー（大円）と同じ線を描く。最短側＝antimeridian 跨ぎで裏側回りにしない
-		const va = toVec(a[0], a[1]), vb = toVec(b[0], b[1]);
-		const n = Math.min(256, Math.max(1, Math.ceil(angleBetween(va, vb) * 180 / Math.PI / 0.5)));   // 中心角 0.5° 刻み
-		const out = [];
-		for (let i = 0; i <= n; i++) { const p = toLL(slerp(va, vb, i / n)); out.push(pr(p[0], p[1])); }
-		return out;
-	};
-	// coords（経緯度列）→ 現在パスへ。fill＝塗り用：見えない点（地平線の向こう）は捨てずに地平円へクランプした位置（projector が返す）で
-	// 結ぶ＝可視部＋地平線沿いの一本の閉路（切ると環が 2 本の subpath に割れ evenodd で相殺＝本人スクショ 9/15 の帯）。全点不可視の環は描かない。
-	// 線（fill=false）は従来どおり見えない区間で切る（地平線沿いに線を引かない）
-	const tracePts = (pr, coords, fill = false) => {
-		if (fill) {
-			const pts = [];
-			for (let i = 0; i < coords.length - 1; i++) for (const p of seg(pr, coords[i], coords[i + 1])) pts.push(p);
-			if (!pts.some(p => p[2] >= 0)) return;
-			pts.forEach((p, i) => i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1]));
-			return;
-		}
-		let started = false;
-		for (let i = 0; i < coords.length - 1; i++) {
-			for (const p of seg(pr, coords[i], coords[i + 1])) {
-				if (p[2] < 0) { started = false; continue; }
-				if (!started) { ctx.moveTo(p[0], p[1]); started = true; } else ctx.lineTo(p[0], p[1]);
-			}
-		}
-	};
+	const { seg, tracePts, projLine } = makeTracer(ctx);   // 大円分割つき投影＝anno.js と単一実装（n=1 早道・toVec 使い回し・塗りは地平円クランプで一本）
 
 	const dot = (x, y, r, fill, ring) => {
 		ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2);
 		ctx.fillStyle = fill; ctx.fill();
 		ctx.lineWidth = 1.5; ctx.strokeStyle = ring; ctx.stroke();
 	};
-	const BOTTOM_ANCHOR = new Set(["marker", "flag"]);   // 足元＝座標にアンカー（pin=3Dピンは球=中心／他も中心）
 	const shapePath = (kind, x, y, r) => {
 		ctx.beginPath();
 		if (kind === "square") ctx.rect(x - r, y - r, r * 2, r * 2);
@@ -217,8 +191,7 @@ export function createOverlay(map, mapEl, getState) {
 			const capS = p["@start"] || p["@cap0"] || "", capE = p["@end"] || p["@cap1"] || "";   // @cap0/1＝旧名の後方互換（正名=@start/@end・本人裁定）
 			for (const { list } of lists) {
 				const cs = p["@spline"] ? smoothRing(st.model.stitch(list), false) : st.model.stitch(list);
-				const q = [];   // 画面座標の折れ線（大圏分割込み・裏半球は落とす）
-				for (let i = 0; i < cs.length - 1; i++) for (const s of seg(pr, cs[i], cs[i + 1])) if (s[2] >= 0) q.push(s);
+				const q = projLine(pr, cs);   // 画面座標の折れ線（大圏分割込み・裏半球は落とす）
 				if (q.length < 2) continue;
 				ctx.beginPath();
 				buildLinePath(ctx, q, w, capS, capE);

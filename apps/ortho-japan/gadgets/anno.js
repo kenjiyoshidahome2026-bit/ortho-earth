@@ -42,6 +42,42 @@ export { sanitizeHTML };
 import { smoothRing, smoothGeom, wrapLon } from "geopbf/edit/spline";
 import { toVec, toLL, slerp, angleBetween } from "geopbf/edit/sphere";   // 完全球体＝辺は大円で結ぶ（geoedit overlay / gint 度アンカーと同じ線・9/14）
 export { smoothRing, smoothGeom, wrapLon };
+
+// ---- 大円分割つき投影のトレーサ（canvas2D 1 枚に束ねる）＝geoedit overlay とビューア再生の単一実装（効率レビュー H-1/§5）----
+// seg: a→b を中心角 0.5° 刻みの大円（最短側＝antimeridian 跨ぎで裏側回りにしない）で分割して投影。n=1（編集ズームの大半）は
+// slerp/toLL を通さず端点を直接投影＝経緯度の往復丸めもしない。walk は前辺の vb を次辺の va に使い回す（toVec は 1 頂点 1 回）。
+// tracePts(fill=true)＝見えない点（projector が地平円へクランプした位置）でも切らずに一本で結ぶ＝可視部＋地平線沿いの閉路（全点不可視は描かない）。
+// fill=false＝見えない区間で切る（地平線沿いに線を引かない）。projLine＝帯用の画面座標列（裏半球は落とす）。
+export function makeTracer(ctx) {
+	const segEmit = (pr, a, b, va, vb, emit) => {
+		const n = Math.min(256, Math.max(1, Math.ceil(angleBetween(va, vb) * 180 / Math.PI / 0.5)));
+		emit(pr(a[0], a[1]));
+		for (let i = 1; i < n; i++) { const p = toLL(slerp(va, vb, i / n)); emit(pr(p[0], p[1])); }
+		emit(pr(b[0], b[1]));
+	};
+	const walk = (pr, coords, emit) => {
+		if (!coords || coords.length < 2) return;
+		let va = toVec(coords[0][0], coords[0][1]);
+		for (let i = 0; i < coords.length - 1; i++) { const b = coords[i + 1], vb = toVec(b[0], b[1]); segEmit(pr, coords[i], b, va, vb, emit); va = vb; }
+	};
+	const seg = (pr, a, b) => { const out = []; segEmit(pr, a, b, toVec(a[0], a[1]), toVec(b[0], b[1]), q => out.push(q)); return out; };
+	const tracePts = (pr, coords, fill = false) => {
+		if (fill) {
+			const pts = []; let any = false;
+			walk(pr, coords, q => { if (q[2] >= 0) any = true; pts.push(q); });
+			if (!any) return;
+			for (let i = 0; i < pts.length; i++) i ? ctx.lineTo(pts[i][0], pts[i][1]) : ctx.moveTo(pts[i][0], pts[i][1]);
+			return;
+		}
+		let started = false;
+		walk(pr, coords, q => {
+			if (q[2] < 0) { started = false; return; }
+			if (!started) { ctx.moveTo(q[0], q[1]); started = true; } else ctx.lineTo(q[0], q[1]);
+		});
+	};
+	const projLine = (pr, coords) => { const q = []; walk(pr, coords, s => { if (s[2] >= 0) q.push(s); }); return q; };
+	return { seg, tracePts, projLine, walk };
+}
 // 経度の最短差（antimeridian 跨ぎ）：線分の内挿・中点・平行移動の差分は必ずこれを通す（正典・geoedit も import）。
 // 生の差 b-a で内挿すると ±179.9 の混在（normLon 産）が「地球の裏側回り」の帯になる（2026-09-12・geoedit の円で発覚）。
 export const dLon = (from, to) => { const d = to - from; return d - Math.round(d / 360) * 360; };
@@ -143,35 +179,7 @@ export function createAnno(map, { signal } = {}) {
 	let tipRaw = null, tipClean = null;   // 消毒キャッシュ（毎 move の DOMParser を避ける）
 	const openedPops = new Map();   // fid → pop div
 
-	// 大円分割つき投影（geoedit overlay と同じ規約＝中心角 0.5° 刻みの slerp。最短側＝antimeridian 跨ぎで裏側回りにしない）
-	const seg = (pr, a, b) => {
-		const va = toVec(a[0], a[1]), vb = toVec(b[0], b[1]);
-		const n = Math.min(256, Math.max(1, Math.ceil(angleBetween(va, vb) * 180 / Math.PI / 0.5)));
-		const out = [];
-		for (let i = 0; i <= n; i++) { const p = toLL(slerp(va, vb, i / n)); out.push(pr(p[0], p[1])); }
-		return out;
-	};
-	// fill＝塗り用：見えない点は地平円へクランプした位置（projector が返す）で結ぶ＝可視部＋地平線沿いの一本の閉路（geoedit overlay と同じ規約・9/15）。
-	// 全点不可視の環は描かない。線は従来どおり見えない区間で切る
-	const tracePts = (pr, coords, fill = false) => {
-		if (fill) {
-			const pts = [];
-			for (let i = 0; i < coords.length - 1; i++) for (const p of seg(pr, coords[i], coords[i + 1])) pts.push(p);
-			if (!pts.some(p => p[2] >= 0)) return;
-			pts.forEach((p, i) => i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1]));
-			return;
-		}
-		let started = false;
-		for (let i = 0; i < coords.length - 1; i++) for (const p of seg(pr, coords[i], coords[i + 1])) {
-			if (p[2] < 0) { started = false; continue; }
-			if (!started) { ctx.moveTo(p[0], p[1]); started = true; } else ctx.lineTo(p[0], p[1]);
-		}
-	};
-	const projLine = (pr, coords) => {   // 帯用＝画面座標列（裏半球は落とす）
-		const q = [];
-		for (let i = 0; i < coords.length - 1; i++) for (const s of seg(pr, coords[i], coords[i + 1])) if (s[2] >= 0) q.push(s);
-		return q;
-	};
+	const { seg, tracePts, projLine } = makeTracer(ctx);   // 大円分割つき投影＝geoedit overlay と単一実装（下の makeTracer）
 
 	const pictoCache = new Map();
 	const getPicto = n => pictoCache.get(n) || (pictoCache.set(n, new Path2D(PICTO[n])), pictoCache.get(n));
