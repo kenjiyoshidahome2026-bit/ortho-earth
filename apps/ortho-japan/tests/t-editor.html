@@ -40,6 +40,7 @@ try {
 	const editor = initEditor(map);
 	for (let i = 0; i < 200 && !editor.model; i++) await sleep(100);   // 復元IIFE（confirm=false→空loadFC）の完了を待つ
 	ok("boot", !!editor.model);
+	ok("noSkyClock", document.getElementById("map").classList.contains("ge-on") && (!document.getElementById("sky-clock") || getComputedStyle(document.getElementById("sky-clock")).display === "none"));   // 編集中は右上の日時計を出さない
 	await editor.loadFC(FC, { fly: false });
 	await sleep(200);
 	const m = () => editor.model;

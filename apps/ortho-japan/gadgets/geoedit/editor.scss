@@ -292,3 +292,6 @@
 	transition: opacity .25s ease;
 }
 .ge-toast.gone { opacity: 0; }
+
+// 編集中（#map.ge-on）＝星空劇場の日時計（右上 #sky-clock）は出さない（本人裁定 9/15「geoedit では右上の日付を表示しない」）
+#map.ge-on #sky-clock { display: none; }

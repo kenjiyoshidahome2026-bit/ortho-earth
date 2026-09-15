@@ -82,6 +82,7 @@ export function initEditor(map, { adopt = true, setDropOwner = null } = {}) {   
 	const prevMaxPitch = map.maxPitch?.(), prevZoomMin = map.zoomMin?.();
 	map.setMaxPitch?.(0);
 	map.setZoomMin?.(2.5);   // 編集の縮尺は z>2.5（本人裁定 9/4）＝編集ボタンの出現域（z>2.5）から下へ落ちない
+	mapEl.classList.add("ge-on");   // 編集中の印＝星空劇場の家具（右上の日時計 #sky-clock）を出さない（本人裁定 9/15）。CSS は editor.scss
 	setDropOwner?.(true);
 	// ツールバー＝mapEl 直下（DOM順＝エンジン家具の後＝上に重なる。z-index 不使用の掟）
 	const toolbarEl = document.createElement("div");
@@ -560,7 +561,7 @@ export function initEditor(map, { adopt = true, setDropOwner = null } = {}) {   
 		destroy() {
 			ac.abort(); map.setEditClick(null); overlay.destroy(); popLayer.destroy(); clearTimeout(commitTimer); tip.hide(); rpc.terminate(); unsubConfirm();
 			confirmBar.remove(); toolbarEl.remove(); props.close(); mapEl.querySelectorAll(".ge-panel, .ge-toast, .ge-banner").forEach(el => el.remove());
-			map.setMaxPitch?.(prevMaxPitch ?? null); map.setZoomMin?.(prevZoomMin ?? null); setDropOwner?.(false); ctxRestore?.();
+			map.setMaxPitch?.(prevMaxPitch ?? null); map.setZoomMin?.(prevZoomMin ?? null); setDropOwner?.(false); ctxRestore?.(); mapEl.classList.remove("ge-on");
 		},
 		get state() { return st; },
 		get model() { return st.model; },
