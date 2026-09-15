@@ -186,7 +186,7 @@ export function createModel(topo) {
 		pts.set(arc.pts.subarray(0, (afterIdx + 1) * 2), 0);
 		pts[(afterIdx + 1) * 2] = x; pts[(afterIdx + 1) * 2 + 1] = y;
 		pts.set(arc.pts.subarray((afterIdx + 1) * 2), (afterIdx + 2) * 2);
-		arc.pts = pts;
+		arc.pts = pts; vdirty();
 		snap.addRef(arcId, afterIdx + 1, x, y);
 		const u = uniqCount(arc);
 		snap.addRef(arcId, u - 1, arc.pts[(u - 1) * 2], arc.pts[(u - 1) * 2 + 1]);   // 伸びた分＝末尾一意頂点も索引到達可能に
@@ -205,7 +205,7 @@ export function createModel(topo) {
 		const pts = new Float64Array((n - 1) * 2);
 		pts.set(arc.pts.subarray(0, idx * 2), 0);
 		pts.set(arc.pts.subarray((idx + 1) * 2), idx * 2);
-		arc.pts = pts;
+		arc.pts = pts; vdirty();
 		return { removed };
 	}
 
@@ -398,7 +398,7 @@ export function createModel(topo) {
 		pts[open.length * 2] = open[0][0]; pts[open.length * 2 + 1] = open[0][1];   // 閉じる（先頭=末尾）
 		const aid = nextArcId++;
 		const arc = { pts, closed: true, refs: new Set([eid]) };
-		m.arcs.set(aid, arc);
+		vdirty(); m.arcs.set(aid, arc);
 		for (let i = 0, u = uniqCount(arc); i < u; i++) snap.addRef(aid, i, pts[i * 2], pts[i * 2 + 1]);
 		// ノード接続（閉arc＝両端が同一ノード。既存ノード座標に一致すれば合流）
 		const x = pts[0], y = pts[1];
@@ -427,7 +427,7 @@ export function createModel(topo) {
 			if (!nd.ends.length) { m.nodes.delete(nid); nodeAt.delete(nkey(nd.x, nd.y)); }
 		}
 		endNode.delete(aid);
-		m.arcs.delete(aid);
+		vdirty(); m.arcs.delete(aid);
 	};
 	function removeRing(eid, path) {   // path＝addHole の戻り（[ringIdx] / [part, ringIdx]）。外環(0)は対象外
 		const f = m.feats.get(eid);
@@ -451,7 +451,7 @@ export function createModel(topo) {
 			const nid = nextArcId++;
 			remap.set(aid, nid);
 			arc.refs = new Set([eid]);
-			m.arcs.set(nid, arc);
+			vdirty(); m.arcs.set(nid, arc);
 			for (let i = 0, u = uniqCount(arc); i < u; i++) snap.addRef(nid, i, arc.pts[i * 2], arc.pts[i * 2 + 1]);
 		}
 		const f = sub.feats.values().next().value;
@@ -495,7 +495,7 @@ export function createModel(topo) {
 					if (!nd.ends.length) { m.nodes.delete(nid); nodeAt.delete(nkey(nd.x, nd.y)); }
 				}
 				endNode.delete(aid);
-				m.arcs.delete(aid);
+				vdirty(); m.arcs.delete(aid);
 			}
 		}
 		m.feats.delete(eid);   // ポイント索引も deref 自動失効
@@ -584,14 +584,17 @@ export function createModel(topo) {
 		snap.setGrid(gridExp);   // セル寸変更＝基底を allRefs から焼き直し
 	}
 
-	let vcount = 0;
-	for (const arc of m.arcs.values()) vcount += arc.pts.length / 2;
+	// 頂点数＝遅延再集計（pts 長が変わる操作＝insert/delete/addHole/removeRing/addFeature/deleteFeature で dirty）。
+	// 旧＝生成時に一度数えるだけ＝空セッションから描くと常に 0 で、コミット遅延の 2 段判定と再抽出の Worker 振り分けが効かなかった（効率レビュー C-4）
+	let vcount = -1;
+	const vertexCount = () => { if (vcount < 0) { vcount = 0; for (const arc of m.arcs.values()) vcount += arc.pts.length / 2; } return vcount; };
+	const vdirty = () => { vcount = -1; };
 
 	return Object.assign(m, {
 		snap, moveVertex, insertVertex, deleteVertex, movePoint, translateFeature, featureVerts, rotateFeature, reindexFeature, addFeature, deleteFeature, addHole, removeRing, pointInRing,
 		toGeoJSON, featureGeoJSON, addrOf, resolveAddr, applyCmd, invertCmd, setGrid, stitch, arcCoords, listsOf, familyOf,
 		endNodeOf: (aid, end) => endNode.get(aid)?.[end],
-		stats: () => ({ features: m.feats.size, arcs: m.arcs.size, vertices: vcount }),
+		stats: () => ({ features: m.feats.size, arcs: m.arcs.size, vertices: vertexCount() }),
 	});
 }
 
