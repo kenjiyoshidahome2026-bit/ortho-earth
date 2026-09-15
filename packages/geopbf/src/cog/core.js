@@ -56,19 +56,21 @@ export async function openCog(src, opts = {}) {
 		if (Array.isArray(opts.stretch)) return opts.stretch;
 		const lv = t.ifds[t.ifds.length - 1];
 		const raster = await getRasterTiles(t.ifds.length - 1, allTiles(lv));
-		const vals = [];
+		let vals = new Float64Array(1 << 15), cnt = 0;   // 型付き配列＋ネイティブ数値 sort（旧＝JS 配列＋比較関数 sort）
 		for (const r of raster.values()) {
 			if (!r) continue;
 			const stride = Math.max(1, (r.data.length / 20000) | 0);
 			for (let i = 0; i < r.data.length; i += stride) {
 				const v = r.data[i];
 				if (t.nodata !== null && v === t.nodata) continue;
-				if (Number.isFinite(v)) vals.push(v);
+				if (!Number.isFinite(v)) continue;
+				if (cnt === vals.length) { const g = new Float64Array(vals.length * 2); g.set(vals); vals = g; }
+				vals[cnt++] = v;
 			}
 		}
-		if (!vals.length) return [0, 1];
-		vals.sort((a, b) => a - b);
-		return [vals[(vals.length * 0.02) | 0], vals[Math.min(vals.length - 1, (vals.length * 0.98) | 0)]];
+		if (!cnt) return [0, 1];
+		vals = vals.subarray(0, cnt).sort();
+		return [vals[(cnt * 0.02) | 0], vals[Math.min(cnt - 1, (cnt * 0.98) | 0)]];
 	})();
 
 	const key = (lv, tx, ty) => `${lv}/${tx}/${ty}`;
@@ -78,13 +80,14 @@ export async function openCog(src, opts = {}) {
 	const rawTiles = async (level, list, signal) => {
 		const lv = t.ifds[level];
 		const out = new Map(), need = [];
-		for (const [tx, ty] of list) {
-			const i = ty * lv.tilesX + tx;
-			if (tx < 0 || ty < 0 || tx >= lv.tilesX || ty >= lv.tilesY || !lv.offsets[i] || !lv.counts[i]) { out.set(key(level, tx, ty), null); continue; }
-			const hit = s.wholeFile ? null : await cache2.get(key2(level, tx, ty));
-			if (hit) { out.set(key(level, tx, ty), hit); metrics.cacheHits++; continue; }
+		const items = list.map(([tx, ty]) => { const i = ty * lv.tilesX + tx; return { tx, ty, i, empty: tx < 0 || ty < 0 || tx >= lv.tilesX || ty >= lv.tilesY || !lv.offsets[i] || !lv.counts[i] }; });
+		const hits = s.wholeFile ? null : await Promise.all(items.map(it => it.empty ? null : cache2.get(key2(level, it.tx, it.ty))));   // IDB 照会はまとめて（旧＝タイルごとに直列 await）
+		items.forEach(({ tx, ty, i, empty }, j) => {
+			if (empty) { out.set(key(level, tx, ty), null); return; }
+			const hit = hits ? hits[j] : null;
+			if (hit) { out.set(key(level, tx, ty), hit); metrics.cacheHits++; return; }
 			need.push({ tx, ty, from: lv.offsets[i], len: lv.counts[i] });
-		}
+		});
 		const bufs = await s.readMany(need.map(r => ({ from: r.from, len: r.len })), signal);
 		need.forEach((r, i) => {
 			out.set(key(level, r.tx, r.ty), bufs[i]);
@@ -97,17 +100,20 @@ export async function openCog(src, opts = {}) {
 	const getRasterTiles = async (level, list, signal) => {
 		const lv = t.ifds[level];
 		const raw = await rawTiles(level, list, signal);
-		const out = new Map();
-		for (const [k, buf] of raw) {
-			if (!buf) { out.set(k, null); continue; }
+		const entries = [...raw];
+		const decoded = await Promise.all(entries.map(async ([, buf]) => {   // デコードは並列（旧＝タイルごとに直列 await＝DecompressionStream/createImageBitmap の待ちが足し算）
+			if (!buf) return null;
 			const d0 = now();
 			const dec = await decodeTile(buf, lv, t.littleEndian);
 			metrics.decodeMs += now() - d0; metrics.tilesDecoded++;
 			if (dec.kind === "image") {
 				if (!opts.imageDecoder) throw new Error(`cog: ${dec.mime} tiles need a browser (createImageBitmap) — use geopbf/cog`);
-				out.set(k, { image: await opts.imageDecoder(dec.bytes, dec.mime, lv.tileW, lv.tileH) });
-			} else out.set(k, { data: dec.data });
-		}
+				return { image: await opts.imageDecoder(dec.bytes, dec.mime, lv.tileW, lv.tileH) };
+			}
+			return { data: dec.data };
+		}));
+		const out = new Map();
+		entries.forEach(([k], i) => out.set(k, decoded[i]));
 		return out;
 	};
 
