@@ -237,7 +237,7 @@ bool capVisible(uvec4 bb) {
 	// 縫い目（±180）を跨ぐ feature＝切断後の bbox が経度全幅＝中心が反対側（lon 0）に化けて裏と誤判定＝丸ごと消える
 	//（本人報告 2026-09-15「z≈6 以下で円だけ消える」＝縫い目を跨ぐ円）。スパン ≥180° はキャップが半球級＝判定の意味も無い＝免除
 	if (bb.z - bb.x >= 1800000000u) return true;
-	uint cx = bb.x + (bb.z - bb.x) / 2u, cy = bb.y + (bb.w - bb.y) / 2u;
+	uint cx = (bb.x + (bb.z - bb.x) / 2u) % 3600000000u, cy = bb.y + (bb.w - bb.y) / 2u;   // 周期対応 bbox（x>360e7）＝中心を [0,360e7) へ
 	float latC = (u_origin.y + float(int(cy - u_iy_center)) * 1e-7) * D2R;
 	float lat0 = (u_origin.y + float(int(bb.y - u_iy_center)) * 1e-7) * D2R;
 	float lat1 = (u_origin.y + float(int(bb.w - u_iy_center)) * 1e-7) * D2R;
@@ -256,10 +256,15 @@ bool capVisible(uvec4 bb) {
 	vec3 C = normalize(u_origin_pt + deltaToRel(dlonE7(cx, u_ix_center) * 1e-7, float(int(cy - u_iy_center)) * 1e-7));
 	return dot(C, u_eye) / el > ch * crm - sh * srm;
 }
+// 縫い目跨ぎ feature の bbox は x が 360e7 を超える（bake の周期対応合流）＝東片 [0, bb.z−360e7] と西片 [bb.x, 360e7] の 2 区間として視野と交差判定
 bool bboxVisible(uint fid) {
 	if (u_has_pivot == 0) return true;   // bbox テクスチャ無し（境界メタ＝fid 混成ループ）＝カリング不可
 	uvec4 bb = fetchFidBbox(fid);
-	if (u_use_vbb != 0 && (bb.z < u_view_bbox.x || bb.x > u_view_bbox.z || bb.w < u_view_bbox.y || bb.y > u_view_bbox.w)) return false;
+	if (u_use_vbb != 0) {
+		if (bb.w < u_view_bbox.y || bb.y > u_view_bbox.w) return false;
+		bool xi = bb.z > 3600000000u ? (u_view_bbox.x <= bb.z - 3600000000u || u_view_bbox.z >= bb.x) : !(bb.z < u_view_bbox.x || bb.x > u_view_bbox.z);
+		if (!xi) return false;
+	}
 	return capVisible(bb);
 }
 vec4 pivotClip(uint fid) {
@@ -268,7 +273,7 @@ vec4 pivotClip(uint fid) {
 	// 縫い目跨ぎ（bbox 経度全幅）＝bbox 中心は経度 0°＝地球の裏側。裏側の要から手前の辺へ張る扇は遠クリップ面で深い側が切られ、
 	// 要の投影位置を中心に環の大きさ比例の円盤が塗り残る（本人スクショ 2026-09-15「自分自身の影」）。要はクリップ原点（常に手前）へ
 	if (bb.z - bb.x >= 1800000000u) return vec4(0.0, 0.0, 0.0, 1.0);
-	uint cx = bb.x + (bb.z - bb.x) / 2u, cy = bb.y + (bb.w - bb.y) / 2u;   // 中点（和は u32 を溢れる＝差分で）
+	uint cx = (bb.x + (bb.z - bb.x) / 2u) % 3600000000u, cy = bb.y + (bb.w - bb.y) / 2u;   // 中点（和は u32 を溢れる＝差分で）。周期対応 bbox＝[0,360e7) へ
 	float dlon = dlonE7(cx, u_ix_center) * 1e-7;
 	float dlat = float(int(cy - u_iy_center)) * 1e-7;
 	return u_clipT + u_mvp * vec4(deltaToRel(dlon, dlat), 0.0);

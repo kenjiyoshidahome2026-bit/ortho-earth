@@ -35,7 +35,7 @@
 		"verify:webgpu": "node scripts/verify-webgpu.mjs",
 		"verify:prod": "node scripts/verify-prod.mjs",
 		"verify:cloud": "node scripts/verify-cloud.mjs",
-		"verify:editor": "node scripts/verify-editor.mjs && node scripts/verify-editor.mjs t-backfill && node scripts/verify-editor.mjs t-zoomfill && node scripts/verify-editor.mjs \"t-rectlook?tool=circle&v=%235/9/-175&a=-178,9&b=-170,9&zs=7,6,5,4,3\" && node scripts/verify-editor.mjs \"t-rectlook?tool=circle&v=%235/9/-175&a=-178,9&b=-162,9&zs=6&probe=450,325\" && node scripts/verify-editor.mjs t-import",
+		"verify:editor": "node scripts/verify-editor.mjs && node scripts/verify-editor.mjs t-backfill && node scripts/verify-editor.mjs t-zoomfill && node scripts/verify-editor.mjs \"t-rectlook?tool=circle&v=%235/9/-175&a=-178,9&b=-170,9&zs=7,6,5,4,3\" && node scripts/verify-editor.mjs \"t-rectlook?tool=circle&v=%235/9/-175&a=-178,9&b=-162,9&zs=6&probe=450,325&far=2,-9,3\" && node scripts/verify-editor.mjs t-import",
 		"deploy": "npm run verify:editor && npm run verify:prod && rm -rf dist/site/japan/moj-local dist/site/japan/plateau-names.json && find dist/site -name .DS_Store -delete && wrangler deploy && node scripts/verify-live.mjs",
 		"preview:prod": "npm run build:prod && rm -rf dist/site/japan/moj-local && wrangler dev",
 		"verify:nocoi": "node scripts/verify-nocoi.mjs",

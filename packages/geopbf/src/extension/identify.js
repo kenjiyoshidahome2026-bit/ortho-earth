@@ -181,8 +181,11 @@ export function findPolygon(buffer, meta, polyStream, mix, miy, polyBboxByFid, v
 		if (polyBboxByFid) {
 			const bb = polyBboxByFid.get(fid);
 			if (bb) {
-				const skip = (vb && (bb[2] < vb[0] || bb[0] > vb[2] || bb[3] < vb[1] || bb[1] > vb[3]))
-				          || mix < bb[0] || mix > bb[2] || miy < bb[1] || miy > bb[3];
+				// bbox は縫い目跨ぎだと x が 360e7 を超える（ortho-core bake の周期対応合流）＝東片 [0, bb2−360e7] と西片 [bb0, 360e7] の 2 区間で見る
+				const P = 3600000000, wrap = bb[2] > P;
+				const inX = wrap ? (mix <= bb[2] - P || mix >= bb[0]) : (mix >= bb[0] && mix <= bb[2]);
+				const vbX = !vb ? true : wrap ? (vb[0] <= bb[2] - P || vb[2] >= bb[0]) : !(bb[2] < vb[0] || bb[0] > vb[2]);
+				const skip = !vbX || (vb && (bb[3] < vb[1] || bb[1] > vb[3])) || !inX || miy < bb[1] || miy > bb[3];
 				if (skip) {
 					while (p < polyStream.length && polyStream[p] === fid) {
 						p++; const nr = polyStream[p++];

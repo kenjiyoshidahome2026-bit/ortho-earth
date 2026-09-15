@@ -120,6 +120,16 @@ try {
 		if (holes.length) { const cx = holes.reduce((a, h) => a + h[0], 0) / holes.length, cy = holes.reduce((a, h) => a + h[1], 0) / holes.length; const hl = map.unprojectXY(cx, cy); ok(`holes(pts=${holes.slice(0, 12).map(h => h.join("/")).join(";")},n=${holes.length},center=${hl?.map(v => v.toFixed(3))},minmax=${Math.min(...holes.map(h => h[0]))}-${Math.max(...holes.map(h => h[0]))},${Math.min(...holes.map(h => h[1]))}-${Math.max(...holes.map(h => h[1]))})`, holes.length < 12); }   // 図形の内側に塗り残しの塊＝NG（縫い目跨ぎの円盤 40px で ~40 点・切断の縦線）。縁の AA 由来の散発は許容
 		else ok("holes(none)", true);
 	}
+	// 反対側から見る（?far=lon,lat,z）＝図形が裏側＝塗りが一切出ない（縫い目跨ぎの円を反対側から見ると円盤全面が塗られた＝本人報告 9/15）
+	const FAR = (Q.get("far") || "").split(",").map(Number).filter(v => Number.isFinite(v));
+	if (FAR.length === 3) {
+		location.hash = `#${FAR[2]}/${FAR[1]}/${FAR[0]}`;
+		await sleep(900);
+		let S4 = null; for (let i = 0; i < 4; i++) { S4 = await shot(); await sleep(250); }
+		const pts = [[FAR[0], FAR[1]], [FAR[0] + 20, FAR[1]], [FAR[0] - 20, FAR[1]], [FAR[0], FAR[1] + 20], [FAR[0], FAR[1] - 20]];
+		const lit = pts.filter(q => magenta(px(S4, q[0], q[1])));
+		ok(`farNoFill(${lit.length ? lit.map(q => q.join("/")).join(";") : "none"})`, lit.length === 0 && editor.layer.identify(FAR[0], FAR[1], map.getZoom()) == null);
+	}
 	if (Q.get("audit") === "1") { key("Escape"); window.__paintOverlap?.(); await sleep(2500); ok("audit", true); }   // 巻き数監査（塗り無し・異常画素だけ色分け）＝SHOT で見る
 	window.__probes = probes; window.__editor = editor;   // 眺める用＝destroy しない（SHOT にオーバレイを残す）
 } catch (e) { t.push("ERR:" + String(e?.stack || e).replace(/\s+/g, "_").slice(0, 300)); }
