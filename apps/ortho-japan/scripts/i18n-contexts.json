@@ -1,0 +1,16 @@
+{
+  "_note": "衝突の手当て＝同じ英語になる別々の日本語に文脈を足す（gettext の msgctxt）。表示は ' ##' より前だけ＝英語も日本語も見た目は変えない。file 単位で引き、'*' は全体。",
+  "gadgets/print.js": {
+    "北緯": "N ##latitude", "南緯": "S ##latitude", "東経": "E ##longitude", "西経": "W ##longitude",
+    "題": "Title ##print"
+  },
+  "gadgets/geoedit/styleform.js": {
+    "小": "S ##size", "中": "M ##size", "大": "L ##size",
+    "文字": "Text ##label", "面の色": "Fill color ##polygon", "塗り色": "Fill color ##band"
+  },
+  "gadgets/geoedit/controller.js": { "テキスト": "Text ##default content" },
+  "gadgets/geoedit/properties.js": { "閉じる（Esc）": "Close (Esc) ##panel" },
+  "gadgets/close.js": { "閉じる (Esc)": "Close (Esc) ##map" },
+  "demo/editor.js": { "作品タイトル": "Title ##work" },
+  "gadgets/cloud.js": { "題名": "Title ##publish" }
+}

@@ -29,7 +29,7 @@ const S_BTN = "width:100%;margin-top:2px";
 
 export function poiedit({ getPOI, getOvr, setOvr, setClick, unprojectXY, makeProjector, distM, apiBase, name, signal } = {}) {
 	const mapEl = this.mapEl;
-	if (window.matchMedia("(pointer: coarse)").matches) { console.warn("[poiedit] デスクトップ専用（§12.2）"); return; }
+	if (window.matchMedia("(pointer: coarse)").matches) { console.warn("[poiedit] desktop only (§12.2)"); return; }
 	if (mapEl.querySelector("#poiedit-panel")) return;   // 二重搭載は無害
 
 	// ── パネル（右上）──

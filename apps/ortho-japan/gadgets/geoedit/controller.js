@@ -27,42 +27,8 @@ import { GeoPBF } from "geopbf/pbf-base";
 import { dockStack } from "../stack.js";   // 左下ドック（#log/#pos と同じ容れ物＝重なりを構造で排除）
 import css from "./editor.scss?inline";    // CSS自給（ガジェット三戒）＝遅延chunkに同乗・初回搭載で <style> を1枚
 import { ellipsoidOn } from "ortho-core";
-import { tr } from "../../i18n.js";   // UI二言語化（ja正典・en辞書引き＝エンジン i18n.js の流儀。辞書は各モジュール持参）
-const t = tr({
-	"テキスト": "Text",
-	"閉じる": "Close",
-	"トポロジ再抽出中…": "Rebuilding topology…",
-	"読込完了：{0}フィーチャ・{1}arc・{2}頂点": "Loaded: {0} features, {1} arcs, {2} vertices",
-	"トポロジ抽出中…（{0}フィーチャ）": "Extracting topology… ({0} features)",
-	"読み込みに失敗しました": "Failed to load",
-	"トポロジ抽出中…": "Extracting topology…",
-	"頂点数が {0} を超えるため大規模モードで開きます": "More than {0} vertices — opening in large mode",
-	"大規模モード：GPUデータを焼いています…（{0}フィーチャ）": "Large mode: baking GPU data… ({0} features)",
-	"大規模モード：{0}フィーチャ（属性・スタイル・頂点移動／追加削除と自動保存はまだ）": "Large mode: {0} features (attributes, style, vertex moves; add/delete and autosave not yet)",
-	"変換中… {0}": "Converting… {0}",
-	"対応していない形式です": "Unsupported format",
-	"取込失敗: {0}": "Import failed: {0}",
-	"大規模モードでは属性・スタイルと頂点移動ができます（追加/削除はまだ）": "Large mode allows attributes, style and vertex moves (add/delete not yet)",
-	"点はグループ化できません（面/線のみ）": "Points cannot be grouped (polygons/lines only)",
-	"同じ種類（面同士／線同士）だけグループ化できます": "Only the same kind can be grouped (polygons with polygons, lines with lines)",
-	"選択: {0}件（Shift+クリックで追加・右クリックでグループ化）": "Selected: {0} (Shift+click to add, right-click to group)",
-	"グループ化しました（{0}件）": "Grouped ({0})",
-	"2つ以上選んでください": "Select two or more",
-	"これは multi ではありません": "This is not a multi",
-	"パネルに文字を入れてから置いてください": "Enter the text in the panel first",
-	"編集は完全球体（ell=0）として行います＝?ell=1 の楕円体表示とはわずかにずれます": "Editing assumes a perfect sphere (ell=0); it differs slightly from the ?ell=1 ellipsoid view",
-	"大規模モード＝選択と属性・スタイル編集のみ（作図・頂点編集は不可）": "Large mode: selection and attribute/style editing only (no drawing or vertex editing)",
-	"スナップ格子: 1e-{0} 度": "Snap grid: 1e-{0} degrees",
-	"消すものがありません": "Nothing to clear",
-	"全て消去しました": "Everything cleared",
-	"元に戻す": "Undo",
-	"確定": "Done",
-	"取消": "Cancel",
-	"GISファイルをドロップ、またはツールで作図を始めてください": "Drop a GIS file, or start drawing with the tools",
-	"前回の編集を復元しました": "Previous session restored",
-	"新規で始める": "Start fresh",
-	"表示中のデータを編集に取り込みました": "Opened the data shown in the viewer for editing",
-});
+import { tr } from "../../i18n.js";   // UI 多言語化（英語キー＝既定値・訳は i18n/<lang>.json＝i18n.js）
+const t = tr();
 
 const BIG = 100_000;          // これ以上の頂点数＝コミットをアイドル寄せ
 const SYNC_REBUILD = 200_000; // これ未満＝再抽出は main 同期（Worker往復より速い）
@@ -105,7 +71,7 @@ export function initEditor(map, { adopt = true, setDropOwner = null } = {}) {   
 	// 常時表示でなくクリックで開く（編集は選択とかぶるので右クリック「吹き出しを表示」）。× は箱を閉じるだけ。
 	const popLayer = createPopLayer(map, () => st);
 	// 作図ツールの既定スタイル（=「次に描くもの」の@プロパティ。styleform が toolbar 経由で書く）
-	const drawDefaults = { point: {}, text: { "@text": t("テキスト") }, line: {}, polygon: {} };
+	const drawDefaults = { point: {}, text: { "@text": t("Text ##default content") }, line: {}, polygon: {} };
 
 	// ---- トースト ----
 	let toastEl = null, toastT = 0;
@@ -123,7 +89,7 @@ export function initEditor(map, { adopt = true, setDropOwner = null } = {}) {   
 		el.className = "ge-banner";
 		el.append(Object.assign(document.createElement("span"), { textContent: text }));
 		if (action) { const b = document.createElement("button"); b.textContent = action; b.onclick = () => { el.remove(); onAction(); }; el.append(b); }
-		const x = document.createElement("button"); x.className = "ge-x"; x.textContent = "×"; x.title = t("閉じる"); x.onclick = () => el.remove(); el.append(x);
+		const x = document.createElement("button"); x.className = "ge-x"; x.textContent = "×"; x.title = t("Close"); x.onclick = () => el.remove(); el.append(x);
 		dockStack(mapEl).append(el);   // display:none は詰むのでドックの掟＝出す/消すは append/remove
 		if (ttl) setTimeout(() => el.remove(), ttl);
 		return el;
@@ -216,7 +182,7 @@ export function initEditor(map, { adopt = true, setDropOwner = null } = {}) {   
 		try {
 			if (st.model.stats().vertices < SYNC_REBUILD) st.model = rebuildModel(st.model);
 			else {
-				st.busy = true; toast(t("トポロジ再抽出中…"));
+				st.busy = true; toast(t("Rebuilding topology…"));
 				const { payload: out, transfer } = topoToTransfer(st.model, { snap: false });   // 送り便＝基底ソート不要
 				const res = await rpc.call({ mode: "retopo", payload: out, gridExp: st.model.gridExp }, transfer);
 				st.model = adoptRebuilt(topoFromTransfer(res), res.eids, st.model);
@@ -237,19 +203,19 @@ export function initEditor(map, { adopt = true, setDropOwner = null } = {}) {   
 		st.selection = null; st.sketch = null;
 		await commit(fly && model.feats.size > 0);
 		const stat = model.stats();
-		if (stat.features) toast(t("読込完了：{0}フィーチャ・{1}arc・{2}頂点", stat.features, stat.arcs, stat.vertices));
+		if (stat.features) toast(t("Loaded: $1 features, $2 arcs, $3 vertices", stat.features, stat.arcs, stat.vertices));
 		bar.syncHist(hist.canUndo, hist.canRedo);
 	}
 	async function loadFC(fc, { fly = true } = {}) {   // GeoJSON入口（試験・API互換。大規模の正規経路は loadBuffer）
 		try {
 			st.busy = true;
 			const n = fc.features.length;
-			if (n) toast(t("トポロジ抽出中…（{0}フィーチャ）", n));
+			if (n) toast(t("Extracting topology… ($1 features)", n));
 			const model = n >= 2000
 				? createModel(topoFromTransfer(await rpc.call({ mode: "fc", fc, gridExp })))
 				: createModel(buildTopology(fc, gridExp));
 			await finishLoad(model, { fly });
-		} catch (e) { console.error("[geoedit] load failed", e); toast(t("読み込みに失敗しました")); }
+		} catch (e) { console.error("[geoedit] load failed", e); toast(t("Failed to load")); }
 		finally { st.busy = false; overlay.redraw(); }
 	}
 	async function loadBuffer(buffer, { fly = true, stripEid = false } = {}) {   // geopbfバイト列＝正規経路（GeoJSON中間なし）
@@ -257,14 +223,14 @@ export function initEditor(map, { adopt = true, setDropOwner = null } = {}) {   
 			return loadLarge(await new GeoPBF({}).set(buffer), { fly });
 		try {
 			st.busy = true;
-			toast(t("トポロジ抽出中…"));
+			toast(t("Extracting topology…"));
 			const res = await rpc.call({ mode: "pbf", buffer, gridExp, maxVerts: LARGE_VERTS }, [buffer]);
 			if (res.large) {   // 取込ルーター②頂点数：Worker が数えて打ち切った＝バッファは返却便で戻る
-				toast(t("頂点数が {0} を超えるため大規模モードで開きます", LARGE_VERTS.toLocaleString()));
+				toast(t("More than $1 vertices — opening in large mode", LARGE_VERTS.toLocaleString()));
 				return await loadLarge(await new GeoPBF({}).set(res.buffer), { fly });
 			}
 			await finishLoad(createModel(topoFromTransfer(res)), { fly, stripEid });
-		} catch (e) { console.error("[geoedit] load failed", e); toast(t("読み込みに失敗しました")); }
+		} catch (e) { console.error("[geoedit] load failed", e); toast(t("Failed to load")); }
 		finally { st.busy = false; overlay.redraw(); }
 	}
 	// 大規模モード（Phase1＝8/25設計）：gint直表示・identifyAt選択・属性/スタイル/tip/pop編集のみ。
@@ -272,7 +238,7 @@ export function initEditor(map, { adopt = true, setDropOwner = null } = {}) {   
 	async function loadLarge(built, { fly = true } = {}) {
 		try {
 			st.busy = true;
-			toast(t("大規模モード：GPUデータを焼いています…（{0}フィーチャ）", built.length.toLocaleString()));
+			toast(t("Large mode: baking GPU data… ($1 features)", built.length.toLocaleString()));
 			await built.gint();   // GintBUF＝表示と編集背骨の真実源（facade が polygon/polyline 位相を読む＝model 生成より先）
 			const model = createLargeModel(built);
 			for (const w of model.warnings) console.warn("[geoedit]", w);
@@ -283,21 +249,21 @@ export function initEditor(map, { adopt = true, setDropOwner = null } = {}) {   
 			st.model = model; st.largeDirty = false; st.envGen++;
 			setTool("select");
 			await layer.applyLarge(built, model.featsArr, { moveCamera: fly });
-			toast(t("大規模モード：{0}フィーチャ（属性・スタイル・頂点移動／追加削除と自動保存はまだ）", model.feats.size.toLocaleString()));
+			toast(t("Large mode: $1 features (attributes, style, vertex moves; add/delete and autosave not yet)", model.feats.size.toLocaleString()));
 			bar.syncHist(false, false);
-		} catch (e) { console.error("[geoedit] large load failed", e); toast(t("読み込みに失敗しました")); }
+		} catch (e) { console.error("[geoedit] large load failed", e); toast(t("Failed to load")); }
 		finally { st.busy = false; overlay.redraw(); }
 	}
 	async function importFile(file) {
 		try {
-			toast(t("変換中… {0}", file.name));
+			toast(t("Converting… $1", file.name));
 			const pbf = await geopbf(file, { name: "drop/" + file.name });   // 任意形式→geopbfバイト列（デコードworker）。.geojson は呼ばない
-			if (!pbf) return toast(t("対応していない形式です"));
+			if (!pbf) return toast(t("Unsupported format"));
 			if (pbf.size >= LARGE_BYTES) return loadLarge(pbf);   // 大規模＝この解析済みインスタンスをそのまま真実源に（arrayBufferコピーもしない）
 			const buffer = pbf.arrayBuffer;
 			pbf.destroy?.();   // デコード器の即時解放（旧世代を残さない）
 			await loadBuffer(buffer);
-		} catch (e) { console.error("[geoedit] import failed", e); toast(t("取込失敗: {0}", file.name)); }
+		} catch (e) { console.error("[geoedit] import failed", e); toast(t("Import failed: $1", file.name)); }
 	}
 
 	// ---- スナップ ----
@@ -343,7 +309,7 @@ export function initEditor(map, { adopt = true, setDropOwner = null } = {}) {   
 		return res;
 	};
 	const doCmd = cmd => {
-		if (st.model?.large && cmd.op !== "props" && cmd.op !== "move") { toast(t("大規模モードでは属性・スタイルと頂点移動ができます（追加/削除はまだ）")); return false; }   // 構造操作（arc数が変わる）はPhase3
+		if (st.model?.large && cmd.op !== "props" && cmd.op !== "move") { toast(t("Large mode allows attributes, style and vertex moves (add/delete not yet)")); return false; }   // 構造操作（arc数が変わる）はPhase3
 		if (applyR(cmd) === false) return false;
 		if (st.model.large) st.largeDirty = true;
 		hist.push(cmd); bar.syncHist(hist.canUndo, hist.canRedo);
@@ -410,21 +376,21 @@ export function initEditor(map, { adopt = true, setDropOwner = null } = {}) {   
 		if (st.model?.large) { st.focus = focusHood(st.selection); layer.focus(st.focus); }
 		st.multi.size > 1 ? props.close() : props.render(st.selection);   // 2件以上＝パネルは閉じる（どの1件の属性か曖昧）
 		overlay.redraw();
-		if (st.multi.size > 1) toast(t("選択: {0}件（Shift+クリックで追加・右クリックでグループ化）", st.multi.size));
+		if (st.multi.size > 1) toast(t("Selected: $1 (Shift+click to add, right-click to group)", st.multi.size));
 	};
 	const groupMulti = () => {
 		const eids = st.multi ? [...st.multi] : [];
-		if (eids.length < 2) return toast(t("2つ以上選んでください"));
+		if (eids.length < 2) return toast(t("Select two or more"));
 		const fams = eids.map(e => st.model.familyOf(st.model.feats.get(e)?.type || ""));
-		if (fams.includes("point")) return toast(t("点はグループ化できません（面/線のみ）"));
-		if (new Set(fams).size > 1) return toast(t("同じ種類（面同士／線同士）だけグループ化できます"));
+		if (fams.includes("point")) return toast(t("Points cannot be grouped (polygons/lines only)"));
+		if (new Set(fams).size > 1) return toast(t("Only the same kind can be grouped (polygons with polygons, lines with lines)"));
 		doCmd({ op: "combine", eids });   // 代表=先頭。プロパティは代表を継承
 		select(eids[0]);
-		toast(t("グループ化しました（{0}件）", eids.length));
+		toast(t("Grouped ($1)", eids.length));
 	};
 	const isMulti = eid => { const f = eid != null ? st.model?.feats.get(eid) : null; return !!f && (f.type === "MultiPolygon" || f.type === "MultiLineString"); };
 	const explodeEid = eid => {   // グループ化解除：指定 multi を単体へ分解（先頭は同eidを再利用）
-		if (!isMulti(eid)) return toast(t("これは multi ではありません"));
+		if (!isMulti(eid)) return toast(t("This is not a multi"));
 		doCmd({ op: "split", eid });
 		select(eid);
 	};
@@ -446,7 +412,7 @@ export function initEditor(map, { adopt = true, setDropOwner = null } = {}) {   
 		if (tool === "free") return;   // フリーハンド＝ドラッグ作図（sketch.js が pointer 直取り）。クリックでは何も置かない
 		if (tool === "select" || tool === "move") { const e = pick(x, y, ll); return modDown ? toggleMulti(e) : select(e); }   // ⌘/Ctrl+クリック＝複数選択。移動ツール＝クリックで対象選択（ドラッグは drag.js）
 		if (tool === "point" || tool === "text") {
-			if (tool === "text" && !drawDefaults.text["@text"]) return toast(t("パネルに文字を入れてから置いてください"));
+			if (tool === "text" && !drawDefaults.text["@text"]) return toast(t("Enter the text in the panel first"));
 			return placePointAt(ll, drawDefaults[tool]);
 		}
 		sketch.click(tool, ll);   // line / polygon / hole / rect / circle
@@ -481,7 +447,7 @@ export function initEditor(map, { adopt = true, setDropOwner = null } = {}) {   
 
 	// ---- ツールバー結線 ----
 	const setTool = next => {
-		if (st.model?.large && next !== "select") { toast(t("大規模モード＝選択と属性・スタイル編集のみ（作図・頂点編集は不可）")); next = "select"; }
+		if (st.model?.large && next !== "select") { toast(t("Large mode: selection and attribute/style editing only (no drawing or vertex editing)")); next = "select"; }
 		ed.flushRot?.();   // ツール替え＝進行中のホイール回転を先に確定
 		st.tool = next;
 		sketch.cancel();
@@ -491,12 +457,12 @@ export function initEditor(map, { adopt = true, setDropOwner = null } = {}) {   
 		bar.syncTool(next);
 	};
 	ed.setTool = setTool;
-	if (ellipsoidOn()) toast(t("編集は完全球体（ell=0）として行います＝?ell=1 の楕円体表示とはわずかにずれます"));   // 幾何は球面（大円・回転・小円）＝楕円体表示（?ell=1）では告知だけ
+	if (ellipsoidOn()) toast(t("Editing assumes a perfect sphere (ell=0); it differs slightly from the ?ell=1 ellipsoid view"));   // 幾何は球面（大円・回転・小円）＝楕円体表示（?ell=1）では告知だけ
 	const getPbf = () => st.model && (st.model.large ? st.model.toPbf() : layer.exportPbf(st.model));   // 書き出し/クラウド共通の口（大規模＝ストリーム置換複写：幾何はバイト複写・属性だけ再エンコード）
 	const bar = initToolbar(toolbarEl, {
 		setTool, undo, redo,
 		gridExp: () => gridExp,
-		setGrid: exp => { gridExp = exp; st.model?.setGrid(exp); toast(t("スナップ格子: 1e-{0} 度", exp)); },
+		setGrid: exp => { gridExp = exp; st.model?.setGrid(exp); toast(t("Snap grid: 1e-$1 degrees", exp)); },
 		getDefaults: t => drawDefaults[t === "rect" || t === "circle" ? "polygon" : t === "free" ? "line" : t],   // 矩形/円＝面・フリーハンド＝線の既定スタイルを共有
 		setDefaults: (t, partial) => { const k = t === "rect" || t === "circle" ? "polygon" : t === "free" ? "line" : t; drawDefaults[k] = mergeProps(drawDefaults[k], partial); },
 		importFile,
@@ -508,13 +474,13 @@ export function initEditor(map, { adopt = true, setDropOwner = null } = {}) {   
 		}, toast),
 		// 全消去＝確認ダイアログなし（本人裁定 9/4）。代わりに直前の姿を控え、左下バナー「元に戻す」で15秒間だけ復帰できる
 		clearAll: async () => {
-			if (!st.model?.feats.size) return toast(t("消すものがありません"));
+			if (!st.model?.feats.size) return toast(t("Nothing to clear"));
 			await flushCommit();   // デバウンス待ちの編集も控えに含める
 			const keep = layer.saveBuffer ? layer.saveBuffer.slice(0) : (await getPbf())?.arrayBuffer?.slice(0);   // 大規模モード＝自動保存が無いので書き出しの口から
 			const grid = gridExp;
 			await idbClear();
 			await loadFC({ type: "FeatureCollection", features: [] });
-			banner(t("全て消去しました"), t("元に戻す"), () => { gridExp = grid; if (keep) loadBuffer(keep, { fly: false, stripEid: true }); });
+			banner(t("Everything cleared"), t("Undo"), () => { gridExp = grid; if (keep) loadBuffer(keep, { fly: false, stripEid: true }); });
 		},
 	}, signal);
 	ed.bar = bar;
@@ -542,19 +508,19 @@ export function initEditor(map, { adopt = true, setDropOwner = null } = {}) {   
 		confirmBar.hidden = !sig;
 		if (!sig) return;
 		okB.hidden = sig === "two";   // 2点作図＝2打目が確定＝「確定」は出さない
-		okB.textContent = t("確定");
-		ngB.textContent = t("取消");
+		okB.textContent = t("Done");
+		ngB.textContent = t("Cancel");
 	};
 	const unsubConfirm = map.onFrame(syncConfirm);
 
 	// ---- セッション復元 or 空モデルで開始 ----
 	// 前回分があれば黙って復元し、左下バナーで告知＋「新規で始める」を添える（起動のたびに confirm() で答えを迫らない＝本人裁定 9/4）。
-	const startEmpty = async () => { await loadFC({ type: "FeatureCollection", features: [] }); toast(t("GISファイルをドロップ、またはツールで作図を始めてください")); };
+	const startEmpty = async () => { await loadFC({ type: "FeatureCollection", features: [] }); toast(t("Drop a GIS file, or start drawing with the tools")); };
 	(async () => {
 		const viewer = adopt ? map.userPbf?.() : null;   // ビューアで開いているデータ（ドロップ/?g=）＝そのまま編集へ（自動保存より優先＝「見ている物を編む」）
 		if (viewer) {
 			if (viewer.size >= LARGE_BYTES) await loadLarge(viewer); else await loadBuffer(viewer.arrayBuffer.slice(0), { stripEid: true });   // 自分の焼き（__eid 入り）を拾い直す場合もある＝剥がす（他人のデータには無害）
-			banner(t("表示中のデータを編集に取り込みました"), null, null);
+			banner(t("Opened the data shown in the viewer for editing"), null, null);
 			return;
 		}
 		const rec = await idbLoad();
@@ -563,7 +529,7 @@ export function initEditor(map, { adopt = true, setDropOwner = null } = {}) {   
 		if (rec.view) location.hash = rec.view;
 		await loadBuffer(rec.buf, { fly: !rec.view, stripEid: true });   // コミット由来の__eidは剥がす
 		const when = rec.t ? new Date(rec.t).toLocaleString(undefined, { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "";
-		banner(t("前回の編集を復元しました") + (when ? `（${when}）` : ""), t("新規で始める"), async () => { await idbClear(); startEmpty(); });
+		banner(t("Previous session restored") + (when ? `（${when}）` : ""), t("Start fresh"), async () => { await idbClear(); startEmpty(); });
 	})();
 
 	return {

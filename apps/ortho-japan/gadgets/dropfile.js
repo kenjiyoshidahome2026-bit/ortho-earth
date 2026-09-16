@@ -10,18 +10,7 @@
 // signal＝destroy 時のリスナ解除。DOMは自給＝#map直下の後置（z-index全廃＝DOM順の裁き）。
 
 import { tr } from "../i18n.js";
-const t = tr({
-	"GISファイル / シーンをここにドロップ\nGeoJSON / Shapefile(zip) / KML / GPX / FlatGeobuf / GeoParquet / COG(GeoTIFF) / .scenes": "Drop GIS files / scenes here\nGeoJSON / Shapefile(zip) / KML / GPX / FlatGeobuf / GeoParquet / COG(GeoTIFF) / .scenes",
-	"✕ 図形を消去": "✕ Clear shapes",
-	"図形を消去しました": "Shapes cleared",
-	"🎬 上映中はドロップ無効": "🎬 Drop disabled during playback",
-	"🎬 シーン再生: {0}": "🎬 Playing scene: {0}",
-	"読込中: {0} …": "Loading: {0} …",
-	"読込失敗: {0}": "Failed to load: {0}",
-	"表示: {0}（{1} 地物）— ホバー/クリックで識別": "Showing: {0} ({1} features) — hover/click to identify",
-	"エラー: {0}\n{1}": "Error: {0}\n{1}",
-	"変換中 {0}%…": "Converting {0}%…",
-});
+const t = tr();
 
 // 落としたファイルが共有シーン台本(type:"scenes")か嗅ぎ分ける（demo/scene-format.md §0）。
 //   .scenes / .scenes.gz（正典・単一サフィックス＋gzip）は確定／.json・.geojson は先頭64KBに discriminator があるか覗いてから全 parse（巨大 geojson を無駄に読まない）。
@@ -69,7 +58,7 @@ export function dropFile({ yieldTo, loadFile, clearGint, playScene, busy, signal
 		textAlign: "center", whiteSpace: "pre-line",
 		font: "600 15px/1.6 system-ui, sans-serif", color: "#fff",
 	});
-	card.textContent = t("GISファイル / シーンをここにドロップ\nGeoJSON / Shapefile(zip) / KML / GPX / FlatGeobuf / GeoParquet / COG(GeoTIFF) / .scenes");
+	card.textContent = t("Drop GIS files / scenes here\nGeoJSON / Shapefile(zip) / KML / GPX / FlatGeobuf / GeoParquet / COG(GeoTIFF) / .scenes");
 	zone.append(card);
 	mapEl.append(zone);
 
@@ -93,7 +82,7 @@ export function dropFile({ yieldTo, loadFile, clearGint, playScene, busy, signal
 	// クリアボタン（右上・図形が載っている間だけ表示）。押すと gint スロットを空にしドロップ図形を消す。
 	const clearBtn = document.createElement("button");
 	clearBtn.id = "dropclear-btn"; clearBtn.type = "button";
-	clearBtn.textContent = t("✕ 図形を消去");
+	clearBtn.textContent = t("✕ Clear shapes");
 	Object.assign(clearBtn.style, {
 		position: "absolute", top: "12px", right: "150px", display: "none",   // 右上の #chips 帯（right:10px・縦積み）の左へ寄せる
 		padding: "7px 12px", borderRadius: "8px", border: "none", cursor: "pointer",
@@ -102,7 +91,7 @@ export function dropFile({ yieldTo, loadFile, clearGint, playScene, busy, signal
 	});
 	mapEl.append(clearBtn);
 	const showClear = on => { clearBtn.style.display = on ? "block" : "none"; };
-	clearBtn.addEventListener("click", () => { clearGint?.(); showClear(false); say(t("図形を消去しました")); }, { signal });
+	clearBtn.addEventListener("click", () => { clearGint?.(); showClear(false); say(t("Shapes cleared")); }, { signal });
 
 	// Files を含むドラッグだけ受ける（テキスト等の巻き込みを弾く）。
 	const hasFiles = e => Array.from(e.dataTransfer?.types || []).includes("Files");
@@ -119,20 +108,20 @@ export function dropFile({ yieldTo, loadFile, clearGint, playScene, busy, signal
 		const files = Array.from(e.dataTransfer.files || []);
 		if (!files.length) return;
 		if (yieldTo?.()) return;   // 編集ガジェットが載っている＝ドロップはエディタの取込へ（ビューアは黙って譲る）
-		if (busy?.()) { say(t("🎬 上映中はドロップ無効")); return; }   // デモ中はドロップ禁止（無視）＝台本もGISファイルも受けない
+		if (busy?.()) { say(t("🎬 Drop disabled during playback")); return; }   // デモ中はドロップ禁止（無視）＝台本もGISファイルも受けない
 		for (const file of files) {   // 単一スロット置き換え＝順に読み最後の1枚が残る
 			const scene = playScene ? await sniffScene(file) : null;   // シーン台本(.scenes / type:"scenes")＝プレーヤーへ回す（geopbf に渡さない）
-			if (scene) { say(t("🎬 シーン再生: {0}", scene.title || file.name)); playScene(scene); continue; }
-			say(t("読込中: {0} …", file.name), true);
+			if (scene) { say(t("🎬 Playing scene: $1", scene.title || file.name)); playScene(scene); continue; }
+			say(t("Loading: $1 …", file.name), true);
 			try {
 				const pbf = await loadFile(file);
-				if (!pbf) { say(t("読込失敗: {0}", file.name)); continue; }
+				if (!pbf) { say(t("Failed to load: $1", file.name)); continue; }
 				showClear(true);   // 図形が載った＝消去ボタンを出す（新しいドロップは前図形を置き換え＝ボタンは出たまま）
 				try { onLoad?.(pbf, file); } catch (e) { console.error("[dropFile] onLoad", e); }
-				say(t("表示: {0}（{1} 地物）— ホバー/クリックで識別", file.name, pbf.length ?? "?"));
+				say(t("Showing: $1 ($2 features) — hover/click to identify", file.name, pbf.length ?? "?"));
 			} catch (err) {
 				console.error("[dropFile]", file.name, err);
-				say(t("エラー: {0}\n{1}", file.name, err?.message || err));
+				say(t("Error: $1\n$2", file.name, err?.message || err));
 			}
 		}
 	}, { signal });
@@ -140,7 +129,7 @@ export function dropFile({ yieldTo, loadFile, clearGint, playScene, busy, signal
 	// 変換進捗（大きな Shapefile 等で効く）。バイト比＝loaded/total。
 	window.addEventListener("ConvertProgress", e => {
 		const d = e.detail || {};
-		if (d.total) say(t("変換中 {0}%…", Math.round((d.loaded / d.total) * 100)), true);
+		if (d.total) say(t("Converting $1%…", Math.round((d.loaded / d.total) * 100)), true);
 	}, { signal });
 
 	return { say, clear: () => { clearGint?.(); showClear(false); }, destroy: () => { zone.remove(); toast.remove(); clearBtn.remove(); } };

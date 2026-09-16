@@ -2,8 +2,11 @@
 <!-- UI回帰：狭画面（スマホ縦）。headless Chrome は窓を480px未満にできないため、375px の iframe で
      媒体クエリ環境を作り、内側ページ（t-narrow-inner.html）の判定結果を自分の title へ転記する。 -->
 <html><head><meta charset="utf-8"><title>t-narrow</title></head>
-<body><iframe id="f" src="./t-narrow-inner.html" style="width:375px;height:667px;border:0"></iframe>
+<body><iframe id="f" style="width:375px;height:667px;border:0"></iframe>
 <script>
+// 検定フラグ（?gl2=1&lang=ja）を内側へ引き継ぐ＝渡さないと内側は WebGPU 既定で起動し、headless では boot の番犬
+// （no frame1 in 20s → WebGL2 で再起動）が iframe を自己リロード→進行中の fetch が取り消され、virtual-time が進まなくなる（9/16 bisect）。
+document.getElementById("f").src = "./t-narrow-inner.html" + location.search;
 setTimeout(() => {
 	const inner = document.getElementById("f").contentDocument.title;
 	document.title = /^PASS/.test(inner) ? "PASS narrow " + inner : "FAIL narrow " + inner;

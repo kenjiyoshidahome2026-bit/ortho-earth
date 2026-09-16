@@ -1,0 +1,80 @@
+#!/usr/bin/env node
+// i18n の常設検定＝「訳が機械で検められる正解の定義」。ja キー期／英語キー期のどちらでも同じ目で回る。
+//
+//   ① コードが呼ぶ英語キーが全て i18n/ui.json にある（無ければ ERROR）
+//   ② ja は必ず 1 列ある（無ければ ERROR）。値 "" ＝意図して英語のまま＝正常（欠落と区別する）
+//   ③ プレースホルダ（$1 $2 …）の顔ぶれがキーと各訳で一致（ずれは ERROR＝実行時に穴が開く）
+//   ④ 訳文に文脈標識 " ##" が混ざっていない（ERROR＝文脈は訳す対象でなく、キーを分けるための印）
+//   ⑤ 各言語の未訳件数（WARN）・使われなくなったキー（WARN）・辞書にない t() 呼び（WARN/ERROR）
+//
+// 使い方: npm run verify:i18n [-- --strict]   （--strict＝未訳の WARN も落とす＝訳が揃った後の門）
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { scanApp, placeholders, CTX_SEP } from "./lib/i18n-scan.mjs";
+
+const APP = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
+const strict = process.argv.includes("--strict");
+const ctx = JSON.parse(fs.readFileSync(path.join(APP, "scripts/i18n-contexts.json"), "utf8"));
+const langs = JSON.parse(fs.readFileSync(path.join(APP, "../../packages/world/i18n/langs.json"), "utf8"));
+const uiPath = path.join(APP, "i18n/ui.json");
+if (!fs.existsSync(uiPath)) { console.error(`ERROR  ${path.relative(APP, uiPath)} is missing — run: npm run i18n:extract`); process.exit(1); }
+const ui = JSON.parse(fs.readFileSync(uiPath, "utf8")).ui ?? {};
+const r = scanApp(APP, ctx);
+const jaEra = [...r.perFile.values()].some(m => m.size > 0);   // ja キー期＝まだ持参辞書が生きている
+
+let err = 0, warn = 0;
+const E = (why, rows = []) => { err++; console.error(`ERROR  ${why}`); for (const x of rows.slice(0, 25)) console.error("       " + x); };
+const W = (why, rows = []) => { warn++; console.warn(`WARN   ${why}`); for (const x of rows.slice(0, 10)) console.warn("       " + x); };
+
+if (r.dictErrors.length) E(`${r.dictErrors.length} dictionary literal(s) could not be read`, r.dictErrors.map(e => `${e.rel}: ${e.why}`));
+if (r.collisions.size) E(`${r.collisions.size} English key(s) claimed by different Japanese strings`, [...r.collisions].map(([k, v]) => `"${k}" <= ${[...v].join(" | ")}`));
+
+// ① コードのキーが正本にあるか
+const missing = [...r.keys.keys()].filter(k => !(k in ui));
+if (missing.length) E(`${missing.length} key(s) used in code are not in i18n/ui.json (run: npm run i18n:extract)`,
+	missing.map(k => `${JSON.stringify(k)}  (${[...r.keys.get(k).files].join(", ")})`));
+
+// ②③④ 正本の中身
+const noJa = [], phBad = [], ctxLeak = [];
+for (const [key, row] of Object.entries(ui)) {
+	if (!("ja" in row)) noJa.push(key);
+	for (const [lang, text] of Object.entries(row)) {
+		if (typeof text !== "string") { phBad.push(`${JSON.stringify(key)} [${lang}] is not a string`); continue; }
+		if (text === "") continue;                                     // "" ＝意図して英語のまま
+		if (text.includes(CTX_SEP)) ctxLeak.push(`${JSON.stringify(key)} [${lang}] contains "${CTX_SEP}"`);
+		if (placeholders(text) !== placeholders(key)) phBad.push(`${JSON.stringify(key)} [${lang}] has ${placeholders(text) || "none"}, key has ${placeholders(key) || "none"}`);
+	}
+}
+if (noJa.length) E(`${noJa.length} key(s) have no ja column`, noJa);
+if (phBad.length) E(`${phBad.length} placeholder mismatch(es)`, phBad);
+if (ctxLeak.length) E(`${ctxLeak.length} translation(s) carry the context marker`, ctxLeak);
+
+// ⑤ 未訳・死にキー・辞書にない呼び出し
+const dead = Object.keys(ui).filter(k => !r.keys.has(k) && !r.literals.has(k));   // 表/配列に置かれたキーは生きている
+if (dead.length) W(`${dead.length} key(s) in ui.json are no longer used in code`, dead.map(k => JSON.stringify(k)));
+if (r.untranslated.length) {
+	const rows = r.untranslated.map(u => `${u.rel}:${u.line}  ${JSON.stringify(u.value)}`);
+	if (jaEra) W(`${r.untranslated.length} t() call(s) have no dictionary entry (they stay Japanese in the English UI)`, rows);
+	else E(`${r.untranslated.length} t() call(s) use a key that is not in ui.json`, rows);
+}
+
+const total = Object.keys(ui).length;
+console.log(`\nkeys ${total}   era ${jaEra ? "ja-key (pre Phase 1)" : "English-key"}\n`);
+console.log("lang  translated  intentionally-English  missing   note");
+const short = [];
+for (const { code, name, rtl } of langs) {
+	if (code === "en") { console.log(`${code.padEnd(5)} ${String(total).padStart(9)} ${"-".padStart(22)} ${"0".padStart(8)}   base language (key itself)`); continue; }
+	const have = Object.values(ui).filter(row => row[code] !== undefined);
+	const eng = have.filter(t => t[code] === "").length;
+	const miss = total - have.length;
+	if (miss) short.push(`${code} ${miss}`);
+	console.log(`${code.padEnd(5)} ${String(have.length - eng).padStart(9)} ${String(eng).padStart(22)} ${String(miss).padStart(8)}   ${name}${rtl ? " (RTL)" : ""}`);
+}
+if (short.length) {
+	const msg = `${short.length} language(s) are incomplete: ${short.join(", ")} — those keys fall back to English`;
+	strict ? E(msg) : W(msg);
+}
+
+console.log(err ? `\nFAIL  ${err} error(s), ${warn} warning(s)` : `\nPASS  ${warn} warning(s)`);
+process.exit(err ? 1 : 0);

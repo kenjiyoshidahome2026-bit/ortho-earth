@@ -65,7 +65,7 @@ export function initBind(map, { choro, legend }) {
 		cityCode = null;
 		estatReady = Promise.resolve(false);
 		bousai.leaveCity();     // スタック解除 → onStackCleared → admin 復帰
-		overlay.clearPlan();    // estat 境界とハイライトを消す
+		overlay.clearOverlay();   // estat 境界とハイライトを消す
 	}
 	async function highlightAndFly(key) {
 		const noFly = suppressFly;   // 呼び出し時点の値を捕まえる（onDrill 末尾の suppressFly=false が await より先に走るため）

@@ -9,34 +9,8 @@ import { DATASETS, defaultRange, searchScenes, getScene, cogUrl, cogOpts, renewi
 import { createFootprint } from "./gadgets/footprint.js";
 import { openCog, lonlatTarget } from "geopbf/cog/core";   // クイックルック＝DOM 不要経路（worker 無し・最粗 overview だけ）
 
-const t = tr({
-	"衛星データを、サーバなしで地球儀へ": "Satellite data on a 3D globe, with no server",
-	"地図をクリックすると、その地点が写っているシーンを探します。": "Click the map to find scenes that cover that spot.",
-	"全球 1 枚のデータです。◀▶ で日付を進めると海の季節が動きます。": "One global sheet per date. Step ◀▶ to watch the seasons move across the sea.",
-	"期間": "Period",
-	"検索中…": "Searching…",
-	"シーンが見つかりません（期間を広げるか、別の地点をクリック）": "No scenes found (widen the period or click elsewhere)",
-	"検索に失敗しました": "Search failed",
-	"読込中…": "Loading…",
-	"件": "scenes",
-	"前の日付": "Previous date", "次の日付": "Next date",
-	"この場所に寄る": "Zoom to scene",
-	"画像を消す": "Remove imagery",
-	"地図の線": "Map lines",
-	"表示": "Render",
-	"偽色 HH·HV": "False colour HH·HV", "HH グレー": "HH grey",
-	"共有リンクをコピー": "Copy share link",
-	"コピーしました": "Copied",
-	"この画面の裏側": "How this works",
-	"次のステップ（Tellus へのお願い）": "Next steps (asks for Tellus)",
-	"雲": "cloud", "上昇": "asc", "下降": "desc", "8日平均": "8-day mean",
-	"L バンド SAR・HH/HV 偏波・オルソ補正済（2016〜）": "L-band SAR, HH/HV polarisation, ortho-corrected (2016–)",
-	"だいち（ALOS）の L バンド SAR（2006〜2011）": "L-band SAR on ALOS (2006–2011)",
-	"光学 10 m・真色（2006〜2011）": "Optical 10 m, true colour (2006–2011)",
-	"しきさい 海面水温・8 日平均・全球（2018〜）": "SGLI sea surface temperature, 8-day mean, global (2018–)",
-	"Range 要求": "Range requests", "受信": "Received", "ヘッダ": "Header", "キャッシュ": "cache",
-});
-const DESC = { palsar2: "L バンド SAR・HH/HV 偏波・オルソ補正済（2016〜）", palsar: "だいち（ALOS）の L バンド SAR（2006〜2011）", avnir2: "光学 10 m・真色（2006〜2011）", sst: "しきさい 海面水温・8 日平均・全球（2018〜）" };
+const t = tr();
+const DESC = { palsar2: "L-band SAR, HH/HV polarisation, ortho-corrected (2016–)", palsar: "L-band SAR on ALOS (2006–2011)", avnir2: "Optical 10 m, true colour (2006–2011)", sst: "SGLI sea surface temperature, 8-day mean, global (2018–)" };
 
 const BACK = {
 	ja: [
@@ -131,23 +105,23 @@ export async function mountTellus(map, side) {
 	let pol = q.get("pol") === "gray" ? "gray" : "color";   // PALSAR-2 の見せ方（偽色 HH·HV／HH グレー）＝共有 URL に乗る
 
 	side.insertAdjacentHTML("beforeend", `
-		<h1>Tellus × ortho-earth<small>${t("衛星データを、サーバなしで地球儀へ")}</small></h1>
+		<h1>Tellus × ortho-earth<small>${t("Satellite data on a 3D globe, with no server")}</small></h1>
 		<div class="tabs">${Object.values(DATASETS).map(d => `<button class="tab" data-k="${d.key}"><b>${d.label}</b><span>${t(DESC[d.key])}</span></button>`).join("")}</div>
-		<div class="row"><label>${t("期間")}</label><input type="date" id="tl-from"><span>–</span><input type="date" id="tl-to"></div>
-		<div class="row" id="tl-polrow"><label>${t("表示")}</label><button class="seg" data-pol="color">${t("偽色 HH·HV")}</button><button class="seg" data-pol="gray">${t("HH グレー")}</button></div>
+		<div class="row"><label>${t("Period")}</label><input type="date" id="tl-from"><span>–</span><input type="date" id="tl-to"></div>
+		<div class="row" id="tl-polrow"><label>${t("Render")}</label><button class="seg" data-pol="color">${t("False colour HH·HV")}</button><button class="seg" data-pol="gray">${t("HH grey")}</button></div>
 		<div class="hint" id="tl-hint"></div>
 		<div class="status" id="tl-status"></div>
 		<div class="list" id="tl-list"></div>
 		<div class="nav">
-			<button id="tl-prev" title="${t("前の日付")} (←)" aria-label="${t("前の日付")}">◀</button>
+			<button id="tl-prev" title="${t("Previous date")} (←)" aria-label="${t("Previous date")}">◀</button>
 			<span class="n" id="tl-n"></span>
-			<button id="tl-next" title="${t("次の日付")} (→)" aria-label="${t("次の日付")}">▶</button>
-			<button id="tl-fit">${t("この場所に寄る")}</button>
+			<button id="tl-next" title="${t("Next date")} (→)" aria-label="${t("Next date")}">▶</button>
+			<button id="tl-fit">${t("Zoom to scene")}</button>
 		</div>
-		<div class="opac"><span>${t("地図の線")}</span><input type="range" id="tl-opac" min="0" max="100" value="55"></div>
-		<details><summary>${t("この画面の裏側")}</summary><ul>${BACK[lang].map(x => `<li>${x}</li>`).join("")}</ul><div class="metrics" id="tl-metrics"></div></details>
-		<details><summary>${t("次のステップ（Tellus へのお願い）")}</summary><ul>${NEXT[lang].map(x => `<li>${x}</li>`).join("")}</ul></details>
-		<div class="foot"><span id="tl-credit"></span><span><button class="share" id="tl-share">${t("共有リンクをコピー")}</button> <button id="tl-clear">${t("画像を消す")}</button></span></div>
+		<div class="opac"><span>${t("Map lines")}</span><input type="range" id="tl-opac" min="0" max="100" value="55"></div>
+		<details><summary>${t("How this works")}</summary><ul>${BACK[lang].map(x => `<li>${x}</li>`).join("")}</ul><div class="metrics" id="tl-metrics"></div></details>
+		<details><summary>${t("Next steps (asks for Tellus)")}</summary><ul>${NEXT[lang].map(x => `<li>${x}</li>`).join("")}</ul></details>
+		<div class="foot"><span id="tl-credit"></span><span><button class="share" id="tl-share">${t("Copy share link")}</button> <button id="tl-clear">${t("Remove imagery")}</button></span></div>
 		<div class="toast" id="tl-toast"></div>`);
 	const $ = (id) => side.querySelector(id);
 	const status = (s) => { $("#tl-status").textContent = s; };
@@ -171,14 +145,14 @@ export async function mountTellus(map, side) {
 		const [a, b] = defaultRange(src); $("#tl-from").value = a; $("#tl-to").value = b;
 		$("#tl-credit").textContent = src.credit;
 		$("#tl-polrow").hidden = !src.pol;
-		$("#tl-hint").textContent = t(src.global ? "全球 1 枚のデータです。◀▶ で日付を進めると海の季節が動きます。" : "地図をクリックすると、その地点が写っているシーンを探します。");
+		$("#tl-hint").textContent = t(src.global ? "One global sheet per date. Step ◀▶ to watch the seasons move across the sea." : "Click the map to find scenes that cover that spot.");
 		applyPol(pol);
 		if (!keepItems) { items = []; sel = -1; $("#tl-list").replaceChildren(); nav(); }
 	};
 	const applyPol = (p) => { pol = p; side.querySelectorAll(".seg").forEach(b => b.classList.toggle("on", b.dataset.pol === p)); };
 	const nav = () => {
 		$("#tl-prev").disabled = !(sel > 0); $("#tl-next").disabled = !(sel >= 0 && sel < items.length - 1);
-		$("#tl-n").textContent = items.length ? `${sel + 1} / ${items.length} ${t("件")}` : "";
+		$("#tl-n").textContent = items.length ? `${sel + 1} / ${items.length} ${t("scenes")}` : "";
 		$("#tl-fit").disabled = sel < 0;
 	};
 	// 選択＝class の付け替えだけ（⚠一覧を作り直さない＝描き終わったサムネイルの canvas を捨てない・進行中の描画が外れた canvas に向かない）
@@ -222,7 +196,7 @@ export async function mountTellus(map, side) {
 		items.forEach((it, i) => {
 			const row = document.createElement("button");
 			row.className = "scene" + (i === sel ? " on" : "");
-			const sub = src.cloud ? `${t("雲")} ${it.cloud >= 0 ? Math.round(it.cloud) + "%" : "?"}` : [src.sub ? t(src.sub) : it.sub, orbitLabel(it.props, t)].filter(Boolean).join(" ");
+			const sub = src.cloud ? `${t("cloud")} ${it.cloud >= 0 ? Math.round(it.cloud) + "%" : "?"}` : [src.sub ? t(src.sub) : it.sub, orbitLabel(it.props, t)].filter(Boolean).join(" ");
 			row.innerHTML = `<canvas width="56" height="56"></canvas><span><span class="d">${it.date}</span><br><span class="c">${sub}</span></span>`;
 			row.addEventListener("mouseenter", () => { if (!src.global) foot.set(it.geometry); });   // 全球 1 枚は枠を出さない（画面全部が枠）
 			row.addEventListener("mouseleave", () => foot.set(null));
@@ -244,19 +218,19 @@ export async function mountTellus(map, side) {
 	const search = async (ll, { autoLoad = true, fit = false } = {}) => {
 		lastClick = ll;
 		ac?.abort(); ac = new AbortController();
-		status(t("検索中…")); items = []; sel = -1; render();
+		status(t("Searching…")); items = []; sel = -1; render();
 		try {
 			items = (await searchScenes(src, { c: ll, from: $("#tl-from").value, to: $("#tl-to").value, signal: ac.signal })).slice(0, 12);
-			status(items.length ? "" : t("シーンが見つかりません（期間を広げるか、別の地点をクリック）"));
+			status(items.length ? "" : t("No scenes found (widen the period or click elsewhere)"));
 			render();
 			if (items.length && autoLoad) load(0, { fit });
 			thumbs();
-		} catch (e) { if (e?.name !== "AbortError") { console.warn("[tellus] search", e); status(t("検索に失敗しました")); } }
+		} catch (e) { if (e?.name !== "AbortError") { console.warn("[tellus] search", e); status(t("Search failed")); } }
 	};
 
 	const load = async (i, { fit = false } = {}) => {
 		if (!items[i]) return;
-		select(i); status(t("読込中…"));
+		select(i); status(t("Loading…"));
 		const it = items[i];
 		try {
 			const url = await freshUrl(it);
@@ -267,11 +241,11 @@ export async function mountTellus(map, side) {
 			status(""); shareUrl(it);
 			if (!metricsTimer) metricsTimer = setInterval(showMetrics, 1000);
 			showMetrics();
-		} catch (e) { if (sel === i) status(t("検索に失敗しました") + ": " + e.message); }
+		} catch (e) { if (sel === i) status(t("Search failed") + ": " + e.message); }
 	};
 	const showMetrics = () => {
 		const m = cogCtl?.metrics?.(); if (!m) return;
-		$("#tl-metrics").textContent = `${t("Range 要求")} ${m.rangeRequests}・${t("受信")} ${(m.bytesFetched / 1e6).toFixed(1)} MB・${t("ヘッダ")} ${Math.round(m.ttfhMs)} ms・${t("キャッシュ")} ${m.cacheHits}/${((m.rawCacheBytes || 0) / 1e6).toFixed(0)} MB`;
+		$("#tl-metrics").textContent = `${t("Range requests")} ${m.rangeRequests}・${t("Received")} ${(m.bytesFetched / 1e6).toFixed(1)} MB・${t("Header")} ${Math.round(m.ttfhMs)} ms・${t("cache")} ${m.cacheHits}/${((m.rawCacheBytes || 0) / 1e6).toFixed(0)} MB`;
 	};
 	const shareUrl = (it) => {
 		const u = new URL(location.href); u.searchParams.set("ds", src.key); u.searchParams.set("scene", it.id);
@@ -305,7 +279,7 @@ export async function mountTellus(map, side) {
 	$("#tl-opac").addEventListener("input", e => map.setOpacity?.({ base: (+e.target.value) / 100 }));
 	map.setOpacity?.({ base: 0.55 });   // 衛星画像を主役に＝基図の線は少し引く（スライダーで戻せる）
 	$("#tl-share").addEventListener("click", async () => {
-		try { await navigator.clipboard.writeText(location.href); toast(t("コピーしました")); } catch { prompt("URL", location.href); }
+		try { await navigator.clipboard.writeText(location.href); toast(t("Copied")); } catch { prompt("URL", location.href); }
 	});
 	side.querySelectorAll("#tl-from, #tl-to").forEach(el => el.addEventListener("change", () => { if (lastClick) search(lastClick); }));
 	// 地図クリック＝その地点で検索（エンジンのクリック横取り＝4px のドラッグ弁別は済んでいる）
@@ -320,7 +294,7 @@ export async function mountTellus(map, side) {
 			items = [it]; render(); lastClick = null;
 			await load(0, { fit: !location.hash });
 			thumbs();
-		} catch (e) { console.warn("[tellus] share restore", e); status(t("検索に失敗しました")); }
+		} catch (e) { console.warn("[tellus] share restore", e); status(t("Search failed")); }
 	} else {   // 初回＝画面中心（東京）で検索し、最新のシーンをそのまま載せる（視点は据え置き＝傾けた初期視点のまま立体で見せる）
 		const c = map.unprojectXY(mapEl.clientWidth / 2, mapEl.clientHeight / 2) || [139.75, 35.68];
 		search(c, { autoLoad: true, fit: false });

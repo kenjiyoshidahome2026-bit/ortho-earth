@@ -4,7 +4,7 @@
 // 選んだシーンの COG（TCI）を map.gadget.cog へ渡す＝日付と雲量で選ぶ衛星画像の入口。
 import { gadgetStack } from "./stack.js";
 import { tr } from "../i18n.js";
-const t = tr({ "衛星画像を探す（日付・雲量）": "Find satellite imagery (date, clouds)" });
+const t = tr();
 
 // 衛星グリフ（本体と共有＝スタブがボタンを作る担当）。線色は本線インク直書き＝quiet-mono の夜節が自動反転。
 export const ICON = `
@@ -19,7 +19,7 @@ export function stac(opts = {}) {
 	const map = this, mapEl = this.mapEl;
 	if (mapEl.querySelector("#stac-btn")) return () => {};   // 二重搭載は無害
 	const btn = document.createElement("button");
-	btn.id = "stac-btn"; btn.dataset.tip = t("衛星画像を探す（日付・雲量）"); btn.setAttribute("aria-label", t("衛星画像を探す（日付・雲量）"));
+	btn.id = "stac-btn"; btn.dataset.tip = t("Find satellite imagery (date, clouds)"); btn.setAttribute("aria-label", t("Find satellite imagery (date, clouds)"));
 	btn.innerHTML = ICON;
 	gadgetStack(mapEl).append(btn);
 

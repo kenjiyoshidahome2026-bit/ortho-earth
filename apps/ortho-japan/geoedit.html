@@ -62,7 +62,7 @@
 				map.gadget.search(); map.gadget.zoom(); map.gadget.compass(); map.gadget.full(); map.gadget.shot();   // 編集に要る最小限（右クリックメニューはエディタ本体が編集アクション付きで載せる）
 				if (/[?&]verify=1/.test(location.search)) return;   // 検定ゲート（verify-prod）＝エンジン起動だけを見る静穏モード
 				window.__editor = await map.gadget.geoedit();
-			} catch (e) { console.error("[geoedit] エンジン起動失敗", e); dismissBoot(); }
+			} catch (e) { console.error("[geoedit] engine startup failed", e); dismissBoot(); }
 		})();
 	</script>
 </body>

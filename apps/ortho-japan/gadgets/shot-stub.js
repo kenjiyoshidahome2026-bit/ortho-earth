@@ -5,7 +5,7 @@
 import { gadgetStack } from "./stack.js";
 import { keyBusy } from "./keys.js";
 import { tr } from "../i18n.js";
-const t = tr({ "画面を画像で保存 ({0})": "Save view as image ({0})", "画面を画像で保存": "Save view as image" });
+const t = tr();
 
 // カメラ（レンズ+本体）グリフ（本体 shot.js と同一＝スタブがボタンを作る担当）。線色は本線インク直書き＝夜節が自動反転。
 const ICON = `
@@ -19,7 +19,7 @@ export function shot(opts = {}) {
 	if (mapEl.querySelector("#shot-btn")) return;   // 二重搭載は無害
 	const mac = /Mac|iP(hone|ad|od)/.test(navigator.platform || "");
 	const btn = document.createElement("button");
-	btn.id = "shot-btn"; btn.dataset.tip = t("画面を画像で保存 ({0})", mac ? "⌘S" : "Ctrl+S"); btn.setAttribute("aria-label", t("画面を画像で保存"));
+	btn.id = "shot-btn"; btn.dataset.tip = t("Save view as image ($1)", mac ? "⌘S" : "Ctrl+S"); btn.setAttribute("aria-label", t("Save view as image"));
 	btn.innerHTML = ICON;
 	gadgetStack(mapEl).append(btn);
 

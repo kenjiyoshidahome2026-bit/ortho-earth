@@ -10,17 +10,12 @@ import { gadgetStack } from "./stack.js";
 import { keyBusy } from "./keys.js";
 import { composeLayersToCanvas } from "./compose.js";   // 層重ねの実体は compose.js（shot/print/palette 共用）
 import { tr } from "../i18n.js";
-const t = tr({
-	"出典：国土地理院最適化ベクトルタイル（提供実験）": "Source: GSI optimized vector tiles (experimental)",
-	"国土交通省 PLATEAU・JAXA AW3D30（各データを加工して作成）": "MLIT PLATEAU / JAXA AW3D30 (created by processing these data)",
-	"画面を画像で保存 ({0})": "Save view as image ({0})",
-	"画面を画像で保存": "Save view as image"
-});
+const t = tr();
 
 // 出典の既定文（instruments.js の #attr と同義＝#attr が無い画面でもライセンス表記を残す）。
 const DEFAULT_ATTR = [
-	"出典：国土地理院最適化ベクトルタイル（提供実験）",
-	"国土交通省 PLATEAU・JAXA AW3D30（各データを加工して作成）"];
+	"Source: GSI optimized vector tiles (experimental)",
+	"MLIT PLATEAU / JAXA AW3D30 (created by processing these data)"];
 
 // 出典の文面（#attr があればその文面／無ければ既定）＝shot の焼き込みと print の下帯で共用。
 export function attrLines(mapEl) {
@@ -37,7 +32,7 @@ export function shot({ requestSnapshot, signal, btn } = {}) {
 		const mac = /Mac|iP(hone|ad|od)/.test(navigator.platform || "");
 		const keyLabel = mac ? "⌘S" : "Ctrl+S";   // ショートカット表記（低解像度でボタンが隠れても撮れる手綱）
 		btn = document.createElement("button");
-		btn.id = "shot-btn"; btn.dataset.tip = t("画面を画像で保存 ({0})", keyLabel); btn.setAttribute("aria-label", t("画面を画像で保存"));
+		btn.id = "shot-btn"; btn.dataset.tip = t("Save view as image ($1)", keyLabel); btn.setAttribute("aria-label", t("Save view as image"));
 		btn.innerHTML = `
 			<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#3f4757" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true">
 				<path d="M4 8h3l1.5-2h7L17 8h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z"/>

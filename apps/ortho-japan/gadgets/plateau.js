@@ -5,16 +5,13 @@
 import { gadgetStack } from "./stack.js";
 import { keyBusy } from "./keys.js";
 import { tr } from "../i18n.js";
-const t = tr({
-	"建物3D（PLATEAU）の管理 ({0})": "Manage 3D buildings (PLATEAU) ({0})",
-	"建物3D（PLATEAU）のプレロードと削除": "Preload and delete 3D buildings (PLATEAU)",
-});
+const t = tr();
 export function plateau({ onOpen, signal } = {}) {
 	const mapEl = this.mapEl;
 	if (mapEl.querySelector("#plateau-btn")) return;   // 二重搭載は無害（搭載済みのまま）
 	const mac = /Mac|iP(hone|ad|od)/.test(navigator.platform || "");
 	const btn = document.createElement("button");
-	btn.id = "plateau-btn"; btn.dataset.tip = t("建物3D（PLATEAU）の管理 ({0})", mac ? "⌘⇧P" : "Ctrl+⇧P"); btn.setAttribute("aria-label", t("建物3D（PLATEAU）のプレロードと削除"));
+	btn.id = "plateau-btn"; btn.dataset.tip = t("Manage 3D buildings (PLATEAU) ($1)", mac ? "⌘⇧P" : "Ctrl+⇧P"); btn.setAttribute("aria-label", t("Preload and delete 3D buildings (PLATEAU)"));
 	btn.innerHTML = `
 		<svg viewBox="0 0 20 30" width="14" height="21" fill="#463C64" aria-hidden="true">
 			<path d="M9.70269 11.7457L7.49993 10.452L0 6.04688V17.4448L20 29.1918V17.7939L16.0001 15.4446L14.8514 14.7698L12 13.0951L9.70269 11.7457Z"/>

@@ -1,10 +1,6 @@
-import { tr } from "../../i18n.js";   // UI二言語化（ja正典・en辞書引き＝エンジン i18n.js の流儀。辞書は各モジュール持参）
+import { tr } from "../../i18n.js";   // UI 多言語化（英語キー＝既定値・訳は i18n/<lang>.json＝i18n.js）
 import { gcDistanceDeg, smallCircle, gcRect } from "geopbf/edit/sphere";   // 完全球体＝円は球面上の小円（本人裁定 9/14）・矩形は対角線から球面上で 4 角（9/15）
-const t = tr({
-	"大きさがありません": "No size",
-	"頂点が足りません": "Not enough vertices",
-	"穴はポリゴンの内側に描いてください": "Draw the hole inside a polygon",
-});
+const t = tr();
 // 作図（スケッチ）：線/面/穴＝クリックで頂点を積んで Enter/ダブルクリックで確定、矩形/円＝2クリック、
 // フリーハンド（free）＝pointerdown で掴んで軌跡を積み pointerup で確定（クリックでなくドラッグ＝editClick を通らない）。
 // 状態は st.sketch = { kind, coords, cursor, preview? }（描くのは overlay）。確定は doCmd("add"/"hole") → 選択ツールへ復帰。
@@ -65,7 +61,7 @@ export function createSketch(ed) {
 		const kind = st.sketch.kind, ring = twoPointRing(kind, a, b);
 		st.sketch = null; st.snapMark = null;
 		const degenerate = !ring;   // 縮退（矩形＝幅/高さゼロ・対角線≥180°／円＝半径ゼロ）＝生成側が null
-		if (degenerate) { overlay.redraw(); return toast(t("大きさがありません")); }
+		if (degenerate) { overlay.redraw(); return toast(t("No size")); }
 		const cmd = { op: "add", feature: { type: "Feature", properties: { ...drawDefaults.polygon }, geometry: { type: "Polygon", coordinates: [ring] } } };
 		ed.doCmd(cmd);
 		ed.setTool("select");
@@ -75,11 +71,11 @@ export function createSketch(ed) {
 		const sk = st.sketch;
 		if (!sk) return;
 		st.sketch = null; st.snapMark = null;
-		if (sk.kind === "line" ? sk.coords.length < 2 : sk.coords.length < 3) { overlay.redraw(); return toast(t("頂点が足りません")); }
+		if (sk.kind === "line" ? sk.coords.length < 2 : sk.coords.length < 3) { overlay.redraw(); return toast(t("Not enough vertices")); }
 		if (sk.kind === "hole") {   // 穴＝描いたリングを「その1点目を含むポリゴン」の内環として追加（gint識別で対象決定）
 			const eid = layer.identify(sk.coords[0][0], sk.coords[0][1], map.getZoom());
 			const f = eid != null ? st.model.feats.get(eid) : null;
-			if (!f || !f.type.includes("Poly")) { overlay.redraw(); return toast(t("穴はポリゴンの内側に描いてください")); }
+			if (!f || !f.type.includes("Poly")) { overlay.redraw(); return toast(t("Draw the hole inside a polygon")); }
 			ed.doCmd({ op: "hole", eid, ring: sk.coords });
 			ed.setTool("select");
 			ed.select(eid);

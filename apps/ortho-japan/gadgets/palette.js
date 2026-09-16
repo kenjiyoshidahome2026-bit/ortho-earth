@@ -10,25 +10,17 @@
 import { gadgetStack } from "./stack.js";
 import { composeLayersToCanvas } from "./compose.js";
 import { tr } from "../i18n.js";
-const t = tr({
-	"白地図": "Blank map",
-	"ダーク": "Dark",
-	"地理院": "GSI",
-	"セピア": "Sepia",
-	"配色テーマ": "Color themes",
-	"配色テーマを選ぶ": "Choose a color theme",
-	"{0}に切替": "Switch to {0}",
-});
+const t = tr();
 
 // 見本色＝palettes.js / style-*.js の実色（paper=紙・ink=注記・water=海(WA一律)・water2=水系点火(WA面/河川)・
 // bldg=建物・roads=[幹線1, 幹線2, 一般]・contour=等高線・admin=界線）。地図に見える最小構成の色だけ持つ。
 // ★実色写像（remapTheme）の分類語彙も兼ねる＝代表値でなく style-*.js の実色そのままにする事
 // （水色をずらすと海が「幹線2の淡青」に最近傍で吸われ、地理院見本の海がオレンジ #e69212 になる実害があった）。
 const THEMES = [
-	{ k: "mono", name: "白地図", paper: "#f6f6f4", ink: "#86867f", water: "#e2e6ea", water2: "#aecbe6", bldg: "#ececea", roads: ["#2f6cad", "#8fb2d6", "#cececb"], contour: "#b28f5e", admin: "#aa7878" },
-	{ k: "dark", name: "ダーク", paper: "#191d24", ink: "#9aa1a9", water: "#090c12", water2: "#2b6d80", bldg: "#21252d", roads: ["#5595dc", "#46688f", "#565c66"], contour: "#b89466", admin: "#a03a42" },
-	{ k: "gsi", name: "地理院", paper: "#fefeff", ink: "#555555", water: "#bed2ff", water2: "#00b0ec", bldg: "#ffe6be", roads: ["#3d9738", "#e69212", "#b8b8b8"], contour: "#c8a03c", admin: "#440080" },
-	{ k: "sepia", name: "セピア", paper: "#f0e6d3", ink: "#6a5c46", water: "#d6ddd7", water2: "#b9c8c1", bldg: "#e6d7bd", roads: ["#5f82a0", "#93a8bd", "#cab896"], contour: "#8c6b45", admin: "#a4685a" },
+	{ k: "mono", name: "Blank map", paper: "#f6f6f4", ink: "#86867f", water: "#e2e6ea", water2: "#aecbe6", bldg: "#ececea", roads: ["#2f6cad", "#8fb2d6", "#cececb"], contour: "#b28f5e", admin: "#aa7878" },
+	{ k: "dark", name: "Dark", paper: "#191d24", ink: "#9aa1a9", water: "#090c12", water2: "#2b6d80", bldg: "#21252d", roads: ["#5595dc", "#46688f", "#565c66"], contour: "#b89466", admin: "#a03a42" },
+	{ k: "gsi", name: "GSI", paper: "#fefeff", ink: "#555555", water: "#bed2ff", water2: "#00b0ec", bldg: "#ffe6be", roads: ["#3d9738", "#e69212", "#b8b8b8"], contour: "#c8a03c", admin: "#440080" },
+	{ k: "sepia", name: "Sepia", paper: "#f0e6d3", ink: "#6a5c46", water: "#d6ddd7", water2: "#b9c8c1", bldg: "#e6d7bd", roads: ["#5f82a0", "#93a8bd", "#cab896"], contour: "#8c6b45", admin: "#a4685a" },
 ];
 
 // 実写見本を出す最小ズーム。これ未満＝正射の球体の陰影（周縁減光）＋大気が画面全体に緩い明暗グラデを乗せ、
@@ -141,7 +133,7 @@ export function palette({ current, onPick, requestSnapshot, getZoom, getCurrent,
 	if (!btn) {   // 直搭載（palette-stub 非経由＝単体でも動く＝独立）＝自前でボタン生成。stub 経由は btn 持参で再利用
 		if (mapEl.querySelector("#palette-btn")) return;   // 二重搭載は無害
 		btn = document.createElement("button");
-		btn.id = "palette-btn"; btn.dataset.tip = t("配色テーマ"); btn.setAttribute("aria-label", t("配色テーマを選ぶ"));
+		btn.id = "palette-btn"; btn.dataset.tip = t("Color themes"); btn.setAttribute("aria-label", t("Choose a color theme"));
 		btn.innerHTML = ICON;
 		gadgetStack(mapEl).append(btn);   // 置き場所はスタック（搭載順＝縦の並び）
 	}
@@ -149,7 +141,7 @@ export function palette({ current, onPick, requestSnapshot, getZoom, getCurrent,
 	const picker = document.createElement("div");
 	picker.id = "theme-picker";
 	let curr = current;   // 現在テーマ＝生き替え(reload無し)で変わる＝pick後に更新＝見本の「自分以外」を追従させる
-	const cardHTML = th => `<button class="tp-card" data-theme="${th.k}" aria-label="${t("{0}に切替", t(th.name))}">${sampleSVG(th)}<canvas aria-hidden="true"></canvas><span class="tp-name">${t(th.name)}</span></button>`;
+	const cardHTML = th => `<button class="tp-card" data-theme="${th.k}" aria-label="${t("Switch to $1", t(th.name))}">${sampleSVG(th)}<canvas aria-hidden="true"></canvas><span class="tp-name">${t(th.name)}</span></button>`;
 	const buildCards = () => { picker.querySelector(".tp-grid").innerHTML = THEMES.filter(t => t.k !== curr).map(cardHTML).join(""); };   // curr以外を3枚（生き替え後は reload しないので手で組み直す）
 	picker.innerHTML = `<div class="tp-grid"></div>`;
 	mapEl.append(picker);   // 末尾append＝DOM順で最上面（z-index全廃の裁き）

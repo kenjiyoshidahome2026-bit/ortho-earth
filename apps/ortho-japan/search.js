@@ -4,11 +4,7 @@
 // APIの素性が悪い（同名の真の重複・全国散在の同名・並びの癖）ので、全件を前処理してから候補にする。
 const API = "https://msearch.gsi.go.jp/address-search/AddressSearch?q=";
 import { tr } from "./i18n.js";
-const t = tr({
-	"検索できませんでした（通信状態をご確認ください）": "Search failed (please check your connection)",
-	"見つかりませんでした": "No results",
-	"最近の検索": "Recent searches",
-});
+const t = tr();
 
 // addressCode（JIS市区町村コード）先頭2桁→都道府県名。'' は市区町村に属さない広域地物（本物の富士山等）。
 // export＝PLATEAUデータ管理モーダル（plateaudb.js）の都道府県ブロック見出しでも使う。
@@ -101,9 +97,9 @@ export function createSearch({ onGo, signal }) {   // signal＝map.destroy() で
 
 	function render(hits, isHist = false) {
 		list.innerHTML = ""; items = hits || []; sel = -1;
-		if (!hits) list.innerHTML = `<div class="search-empty">${t("検索できませんでした（通信状態をご確認ください）")}</div>`;
-		else if (!hits.length) list.innerHTML = `<div class="search-empty">${t("見つかりませんでした")}</div>`;
-		else if (isHist) { const h = document.createElement("div"); h.className = "search-empty"; h.textContent = t("最近の検索"); list.appendChild(h); }
+		if (!hits) list.innerHTML = `<div class="search-empty">${t("Search failed (please check your connection)")}</div>`;
+		else if (!hits.length) list.innerHTML = `<div class="search-empty">${t("No results")}</div>`;
+		else if (isHist) { const h = document.createElement("div"); h.className = "search-empty"; h.textContent = t("Recent searches"); list.appendChild(h); }
 		if (hits?.length) hits.forEach((c, i) => {
 			const d = document.createElement("div");
 			d.className = "search-item"; d.textContent = c.title;

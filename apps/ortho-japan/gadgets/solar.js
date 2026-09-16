@@ -6,10 +6,7 @@
 // 地図(天動説の劇場)と太陽系(地動説の劇場)の縫い目は URL＝アプリは疎のまま（プラットフォーム＝プロトコルの流儀）。
 import { gadgetStack } from "./stack.js";
 import { tr, getLang } from "../i18n.js";
-const t = tr({
-	"太陽系へ（ortho-solar）": "To the Solar System (ortho-solar)",
-	"太陽系へ": "To the Solar System",
-});
+const t = tr();
 export function solar({ url } = {}) {
 	const mapEl = this.mapEl;
 	if (mapEl.querySelector("#solar")) return;   // 二重搭載は無害（搭載済みのまま）
@@ -18,7 +15,7 @@ export function solar({ url } = {}) {
 	const dest = url ?? (["localhost", "127.0.0.1"].includes(location.hostname) ? "http://localhost:5199/" : "/solar/");
 	const href = dest + (dest.includes("?") ? "&" : "?") + "lang=" + getLang();
 	const btn = document.createElement("button");
-	btn.id = "solar"; btn.dataset.tip = t("太陽系へ（ortho-solar）"); btn.setAttribute("aria-label", t("太陽系へ"));
+	btn.id = "solar"; btn.dataset.tip = t("To the Solar System (ortho-solar)"); btn.setAttribute("aria-label", t("To the Solar System"));
 	// 土星のシルエット（塗り惑星＋傾いた環＝一目で宇宙。初案の「太陽+軌道+惑星の点」は18pxで目玉に見えた実測 2026-09-03）。
 	// インクは他ガジェットと同じ #3f4757 属性直書き＝ui-dark の夜インク差し替えに自動で乗る。
 	// 環の線は惑星の上を同色で横切る＝塗りと溶けて自然にシルエット化（白抜き線を別に描かない）

@@ -5,7 +5,7 @@
 // opts.permanent＝×ボタンを出さない（畳めない常設）。opts.width＝最大幅(px)。
 import { gadgetStack, dockStack } from "./stack.js";
 import { tr } from "../i18n.js";
-const t = tr({ "閉じる": "Close", "凡例を閉じる": "Close legend", "凡例": "Legend", "凡例を開く": "Open legend" });
+const t = tr();
 export function legend({ permanent, width } = {}) {
 	const mapEl = this.mapEl;
 	if (mapEl.querySelector("#legend")) return () => {};   // 二重搭載は無害
@@ -19,13 +19,13 @@ export function legend({ permanent, width } = {}) {
 	let reopen = null, hasContent = false;
 	if (!permanent) {
 		const close = document.createElement("button");
-		close.className = "panel-close"; close.textContent = "×"; close.title = t("閉じる"); close.setAttribute("aria-label", t("凡例を閉じる"));
+		close.className = "panel-close"; close.textContent = "×"; close.title = t("Close"); close.setAttribute("aria-label", t("Close legend"));
 		close.addEventListener("click", () => collapse());
 		div.append(close);
 		// 畳んだ時の再表示ボタン＝スタック（搭載順＝縦の並び）。内容がある間だけ意味を持つ。
 		reopen = document.createElement("button");
-		reopen.id = "legend-btn"; reopen.textContent = t("凡例"); reopen.title = t("凡例"); reopen.setAttribute("aria-label", t("凡例を開く"));
-		reopen.dataset.tip = t("凡例"); reopen.style.display = "none";
+		reopen.id = "legend-btn"; reopen.textContent = t("Legend"); reopen.title = t("Legend"); reopen.setAttribute("aria-label", t("Open legend"));
+		reopen.dataset.tip = t("Legend"); reopen.style.display = "none";
 		reopen.addEventListener("click", () => expand());
 		gadgetStack(mapEl).append(reopen);
 	}
