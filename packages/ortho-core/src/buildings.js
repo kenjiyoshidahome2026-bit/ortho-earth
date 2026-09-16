@@ -5,22 +5,26 @@ import earcut from "earcut";
 import { tileLocalToLonLat } from "./tile.js";
 import { polygons } from "./decode.js";   // フラットgeom({coords,ends})→[flat, holes]（build と共用）
 
-// vt_code(建物種別) → 概略高さ(m)。3101普通/3102堅ろう/3103高層/3111無壁舎 など。
-const HEIGHT_M = { 3101: 9, 3102: 16, 3103: 34, 3104: 22, 3111: 5, 3112: 5 };
 import { worldRadiusM } from "./camera.js";
 const EARTH_M = () => worldRadiusM(), EXAG = 1.6;   // 単位球スケール換算（球6371000／楕円体a＝camera.js のノブに追随）＋見栄えの誇張
 const ROOF = 1.0, WALL = 0.76;             // 陰影（屋根明／壁暗）
 
-export function buildBuildings({ layers, z, x, y }, origin) {
-	const src = layers.BldA;
+// 建物の押し出し。**どの層のどの属性が建物の種別と階層を表すかは style が申告する**（style.schema.buildings）。
+// エンジンはソースの名乗り方を知らない＝申告の無いソース（?pm= の任意アーカイブ等）では建物を出さない。
+//   schema.buildings = { layer, levelKey, codeKey, heightByCode:{コード:高さm}, defaultHeight }
+// 地理院 optimal_bvmap の申告は apps/ortho-japan/style-mono.js（3101 普通/3102 堅ろう/3103 高層/3111 無壁舎 など・2026-09-17）。
+export function buildBuildings({ layers, z, x, y }, origin, schema = null) {
+	const B = schema && schema.buildings;
+	if (!B) return null;                     // 語彙の申告が無いソース＝建物は立てない
+	const src = layers[B.layer];
 	if (!src || z < 14) return null;         // 建物は近景(高z)タイルのみ
 	const [ox, oy] = origin;
 	const pos = [], shade = [], anchor = [];
 	const toLL = (px, py) => tileLocalToLonLat(x, y, z, px, py, src.extent);
 
 	for (const f of src.features) {
-		if (f.props.vt_lvorder !== 0) continue;                       // 地上レベルのみ
-		const h = (HEIGHT_M[f.props.vt_code] || 10) * EXAG / EARTH_M();
+		if (B.levelKey && f.props[B.levelKey] !== 0) continue;        // 地上レベルのみ（階層の属性は申告側が指名）
+		const h = ((B.heightByCode && B.heightByCode[f.props[B.codeKey]]) || B.defaultHeight || 10) * EXAG / EARTH_M();
 		for (const [flat, holes] of polygons(f.geom)) {
 			const nv = flat.length / 2;
 			const ll = new Array(nv);

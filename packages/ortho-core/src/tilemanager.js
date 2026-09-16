@@ -43,7 +43,7 @@ export function createTileManager({ style, tileUrl, onChange, cap = 256, buildTi
 		// 図郭外（404/図郭縁の WA スライバ）＝標高ゲート付き全面水域（worker 経路 tileworker.js と同処置）
 		const seaOps = buildEmptySeaOps(layers, { z: t.z, x: t.x, y: t.y }, style, origin); if (seaOps) dl.ops.unshift(...seaOps);
 		const { labels } = buildLabels({ layers, z: t.z, x: t.x, y: t.y }, style);
-		const buildings = buildBuildings({ layers, z: t.z, x: t.x, y: t.y }, origin);
+		const buildings = buildBuildings({ layers, z: t.z, x: t.x, y: t.y }, origin, style.schema);
 		return { origin, dl, labels, buildings, z: t.z, bytes: dlBytes(dl, buildings) };
 	}
 	const build = buildTile || defaultBuildTile;

@@ -33,7 +33,7 @@ self.onmessage = async (e) => {
 		// 図郭外（404/図郭縁の WA スライバ）＝標高ゲート付き全面水域を敷く（詳細は buildEmptySeaOps。style.emptySea 未設定なら不発）
 		const seaOps = buildEmptySeaOps(layers, { z, x, y }, style, origin); if (seaOps) dl.ops.unshift(...seaOps);
 		const { labels } = buildLabels({ layers, z, x, y }, style);
-		const buildings = buildBuildings({ layers, z, x, y }, origin);
+		const buildings = buildBuildings({ layers, z, x, y }, origin, style.schema);
 		const bufs = collectBuffers(dl, buildings);
 		let bytes = 0; for (const b of bufs) bytes += b.byteLength;   // scene worker が保持する geometry の実バイト＝main のメモリ予算/退避の基準
 		self.postMessage({ id, ok: true, origin, dl, labels, buildings, z, bytes }, bufs);
