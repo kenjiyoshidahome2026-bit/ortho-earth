@@ -93,11 +93,14 @@ export async function proxy(req, env = {}) {
 			//  ・UA 無しの素朴なリクエストを WAF が 403 で落とす先がある（geospatial.jp 実測 2026-08-29）
 			const r = await followed(first.url.toString(), {
 				method: 'GET',
-				headers: { 'User-Agent': 'nativeBucket-Proxy/1.2', 'Range': 'bytes=0-0' }
+				// 呼び出し元の Origin を添えて探る＝S3 系は Origin が無いと ACAO を返さない（無いと「CORS 不可」の偽陰性）
+				headers: { 'User-Agent': 'nativeBucket-Proxy/1.2', 'Range': 'bytes=0-0', ...(origin ? { 'Origin': origin } : {}) }
 			});
 			if (r.headers.get('X-Proxy-Deny')) return r;   // 検問で止めた応答はそのまま返す（上流 403 は下の JSON に包む）
 			try { await r.body?.cancel(); } catch { /* 既読み・切断は無視 */ }
-			const hasCors = r.headers.has('access-control-allow-origin');
+			// ACAO は値まで見る＝有無だけだと Tellus storage（ACAO=https://www.tellusxdp.com 固定）を「CORS 可」と誤判定（2026-09-16 実測）
+			const acao = r.headers.get('access-control-allow-origin');
+			const hasCors = acao === '*' || (!!origin && acao === origin);
 			// Range を無視する鯖は 200 で全長を返す。206 なら Content-Range "bytes 0-0/全長" から長さを拾う。
 			const total = r.status === 206
 				? (r.headers.get('content-range') || '').split('/')[1] || null
