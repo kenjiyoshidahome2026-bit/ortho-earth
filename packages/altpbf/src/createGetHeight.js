@@ -17,6 +17,27 @@ const staleDSM = (name, obj) => {
 	return true;   // GSI 銘なし（ALOS 明記・無記名・noBake とも）＝失効 → bucket(DEM10B) を再確認
 };
 
+// AW3D30 一覧（index_alos）の取得＝JAXA が落ちていても標高系を止めない。IDB 命中はそれを使い、取れなければ空の一覧で続行
+//（日本域は bucket の DEM10B、海外は R90/R10 のまま・R01 だけ一覧到着まで無し）し、裏で指数バックオフ再取得＝届いたら差し替え。
+// IDB には成功した一覧だけ保存。旧＝一覧の 503 が createTileLoader/createGetHeight ごと reject＝terrain は 8 回再試行の末に打ち切り、
+// profile 等は未捕捉例外＝JAXA 停止中（2026-09-16 実測 503）は日本の山まで平らになっていた。
+async function loadAlosIndex(cache, onUpdate) {
+	const cached = cache ? await Promise.resolve(cache("index_alos")).catch(() => null) : null;
+	if (cached) return cached;
+	const fetchAndStore = async () => { const idx = await index_alos(); if (cache) Promise.resolve(cache("index_alos", idx)).catch(() => {}); return idx; };
+	try { return await fetchAndStore(); }
+	catch (e) {
+		console.warn(`[altpbf] AW3D30 一覧が取れない（${e?.message ?? e}）＝一覧なしで続行・裏で再取得`);
+		let wait = 30000, tries = 0;
+		const again = () => setTimeout(async () => {
+			try { onUpdate(await fetchAndStore()); }
+			catch { if (++tries < 8) { wait = Math.min(wait * 2, 600000); again(); } }
+		}, wait);
+		again();
+		return {};
+	}
+}
+
 // ラスタタイルを返すローダー（点サンプラでなく生タイル）。ortho-japan の GPU アトラス用。
 // R90/R10=bucket・R01=JAXA（ALOS）を worker で読み、IDB キャッシュ。R01 は ALOS 未整備域では null。
 export async function createTileLoader(opts = {}) {
@@ -25,8 +46,7 @@ export async function createTileLoader(opts = {}) {
 	//（旧・素の await は reject が createTileLoader ごと落とし、山が永久に平らになる＝iPhone私的モード実症状）。
 	// worker 側（altpbf.js load）は元から getCache().catch(()=>null) で同じ縮退＝これで経路が揃う。
 	const cache = await Cache("GIS/alt").catch(e => { console.warn("[tileLoader] IDB無効（キャッシュ無しで続行）", e?.message ?? e); return null; });
-	let index = cache ? await Promise.resolve(cache("index_alos")).catch(() => null) : null;
-	if (!index) { index = await index_alos(); if (cache) Promise.resolve(cache("index_alos", index)).catch(() => {}); }
+	let index = await loadAlosIndex(cache, i => { index = i; });
 	const existAlos = (lng, lat) => index[encodeName(lng, lat)];
 	// worker プール：1本直列だと初訪問時に視野分のセル（R10で最大64枚）が1枚ずつ順番待ちになり
 	// 地形の立ち上がりが数倍遅い。各workerは従来通り1件ずつ直列（応答FIFO＝取りこぼさない）で、
@@ -88,9 +108,7 @@ export async function createGetHeight(opts = {}) {
 	const dire = `GIS/alt`;
 	// createTileLoader と同じ縮退（IDB無し環境で標高取得ごと死なない）
 	const cache = await Cache(dire).catch(() => null);
-	const indexName = "index_alos";
-	const index = (cache ? await Promise.resolve(cache(indexName)).catch(() => null) : null) || (await index_alos());
-	if (cache) Promise.resolve(cache(indexName, index)).catch(() => {});
+	let index = await loadAlosIndex(cache, i => { index = i; });
 	const exist = (lng,lat) => index[encodeName(lng, lat)];
 	let isLoading = null;
 	let inflight = null;   // 進行中の読込（wait 呼びが順番待ちに使う）＝return より前に宣言（load は hoist されるが let は TDZ）
