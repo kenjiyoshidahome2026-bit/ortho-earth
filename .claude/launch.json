@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "ortho-japan",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "-w", "@ortho-earth/japan", "--", "--port", "5173", "--strictPort"],
+      "port": 5173
+    },
+    {
+      "name": "native-bucket-worker",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["--prefix", "packages/native-bucket", "wrangler", "dev", "--config", "packages/native-bucket/wrangler.toml", "--port", "8787"],
+      "port": 8787
+    }
+  ]
+}

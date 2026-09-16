@@ -85,9 +85,11 @@ export function createCog(map, { setCogTex, fit, lowMem, signal } = {}) {
 	};
 
 	return {
-		async load(src, { fit: doFit = true } = {}) {   // fit=false＝カメラ据え置き（stac のシーン切替＝同じ場所の別日を見比べる用）
+		// fit=false＝カメラ据え置き（stac のシーン切替＝同じ場所の別日を見比べる用）。
+		// fetch＝読み口の差し替え（stac の Tellus 経路＝署名 URL が 1 時間で失効するので 403 で再発行して読み直す包み）
+		async load(src, { fit: doFit = true, fetch: f = null } = {}) {
 			this.clear();
-			cog = await openCog(src, { signal });
+			cog = await openCog(src, { signal, ...(f ? { fetch: f } : {}) });
 			await renderWindow(cog.bboxLL.slice());   // 全域＝最粗 overview（ヘッダ直後に連続＝実質 range 1-2 本）
 			if (doFit) fit?.(cog.bboxLL);
 			timer = setInterval(tick, 200);

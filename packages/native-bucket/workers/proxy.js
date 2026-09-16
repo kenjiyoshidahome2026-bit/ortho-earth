@@ -33,6 +33,20 @@ const isInternalHost = host =>
 const deny = (msg, status = 403) =>
 	new Response(JSON.stringify({ error: msg }), { status, headers: { "Content-Type": "application/json", "X-Proxy-Deny": "1" } });
 
+// 信頼された呼び出し元＝Origin 一致（ブラウザは Origin を偽装できない）または API キー一致（Node バッチ）。
+// Origin は URL として解いてから突き合わせる（生文字列の includes だと "https://evil.com/www.ortho-earth.com"
+// 型のパスに書いただけの偽装が通る）。ALLOWED_DOMAINS には "localhost:5173" のようなポート付きの項目が
+// 混ざるため、host（ポート込み）と hostname（ポート無し）の両方で見る＝どちらの書き方も効く。
+// /proxy の門②と /tellus（tellus.js）が共用。
+export const isTrusted = (req, env = {}) => {
+	const allowedOrigins = (env.ALLOWED_DOMAINS || "").split(",").filter(Boolean);
+	const origin = req.headers.get("Origin") || "";
+	let originHost = "", originHostPort = "";
+	try { if (origin) { const u = new URL(origin); originHost = u.hostname.toLowerCase(); originHostPort = u.host.toLowerCase(); } } catch { /* Origin: null 等 */ }
+	return (!!originHost && (hostMatches(originHost, allowedOrigins) || hostMatches(originHostPort, allowedOrigins)))
+		|| (!!env.API_KEY && req.headers.get("X-API-Key") === env.API_KEY);
+};
+
 export async function proxy(req, env = {}) {
 	const url = new URL(req.url);
 	const target = url.searchParams.get('url');
@@ -40,16 +54,8 @@ export async function proxy(req, env = {}) {
 	if (!target) return new Response('URL required', { status: 400 });
 
 	const allowedHosts = (env.PROXY_ALLOWED_HOSTS || "").split(",").filter(Boolean);
-	const allowedOrigins = (env.ALLOWED_DOMAINS || "").split(",").filter(Boolean);
 	const origin = req.headers.get("Origin") || "";
-	// 信頼された呼び出し元＝Origin 一致（ブラウザは Origin を偽装できない）または API キー一致（Node バッチ）。
-	// Origin は URL として解いてから突き合わせる（生文字列の includes だと "https://evil.com/www.ortho-earth.com"
-	// 型のパスに書いただけの偽装が通る）。ALLOWED_DOMAINS には "localhost:5173" のようなポート付きの項目が
-	// 混ざるため、host（ポート込み）と hostname（ポート無し）の両方で見る＝どちらの書き方も効く。
-	let originHost = "", originHostPort = "";
-	try { if (origin) { const u = new URL(origin); originHost = u.hostname.toLowerCase(); originHostPort = u.host.toLowerCase(); } } catch { /* Origin: null 等 */ }
-	const trusted = (!!originHost && (hostMatches(originHost, allowedOrigins) || hostMatches(originHostPort, allowedOrigins)))
-		|| (!!env.API_KEY && req.headers.get("X-API-Key") === env.API_KEY);
+	const trusted = isTrusted(req, env);
 
 	// 転送先の検問（リダイレクト先にも同じものを掛ける）
 	const gate = (raw) => {
