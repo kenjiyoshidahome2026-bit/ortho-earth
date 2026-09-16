@@ -14,6 +14,7 @@ const decoderWorkers = {
     csv:     () => new Worker(new URL('./worker.js', import.meta.url), { type: 'module', name: 'decoder:csv' }),
     gpx:     () => new Worker(new URL('./worker.js', import.meta.url), { type: 'module', name: 'decoder:gpx' }),
     json:    () => new Worker(new URL('./worker.js', import.meta.url), { type: 'module', name: 'decoder:json' }),
+    ndjson:  () => new Worker(new URL('./worker.js', import.meta.url), { type: 'module', name: 'decoder:ndjson' }),
     kmz:     () => new Worker(new URL('./worker.js', import.meta.url), { type: 'module', name: 'decoder:kmz' }),
     moj:     () => new Worker(new URL('./worker.js', import.meta.url), { type: 'module', name: 'decoder:moj' }),
     pbf:     () => new Worker(new URL('./worker.js', import.meta.url), { type: 'module', name: 'decoder:pbf' }),
@@ -160,6 +161,7 @@ export function createGeopbf(apiBase, options = {}) {
                     }
                 }
                 if (name.match(/\.(geo)?pbf$/i)) return _geopbf(await q.arrayBuffer());
+                if (name.match(/\.(ndjson|geojsonl|geojsons|jsonl)$/i)) return _geopbf(await decoder("ndjson", q));   // 1 行 1 地物 / GeoJSON Text Sequence（2026-09-16）
                 if (name.match(/\.geojson$/i)) return _geopbf(await decoder("json", q));
                 if (name.match(/\.(topo)?json$/i)) return _geopbf(await file2json(q));
                 if (name.match(/\.fgb$/i)) return _geopbf(await decoder("fgb", q));

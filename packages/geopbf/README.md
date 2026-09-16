@@ -79,7 +79,7 @@ const geopbf = createGeopbf();
 
 // From anything: GeoJSON object, File (drag & drop), or URL
 const pbf = await geopbf(featureCollection, { gint: true });
-const pbf2 = await geopbf(file);        // .geojson .zip(shp) .kml .kmz .gpx .gml .fgb .topojson (.gz OK)
+const pbf2 = await geopbf(file);        // .geojson .ndjson/.geojsonl .zip(shp) .kml .kmz .gpx .gml .fgb .topojson (.gz OK)
 const pbf3 = await geopbf("https://example.com/data.zip#layer.shp");
 
 pbf.geojson         // → FeatureCollection (round-trip)
@@ -90,7 +90,7 @@ pbf.contain(lng, lat)   // → which feature contains this point (smallest-wins)
 
 | | |
 | :-- | :-- |
-| **Converters** (worker per format, lazily loaded) | GeoJSON · Shapefile (zip) · KML/KMZ · GPX · GML · FlatGeobuf · TopoJSON · MOJ 登記所備付地図 — in, and back out (`geojsonFile`, `kmzFile`, `gpxFile`, `gmlFile`, `fgbFile`, `shapeFile`, `topojsonFile`) |
+| **Converters** (worker per format, lazily loaded) | GeoJSON · NDJSON / GeoJSON Text Sequence · Shapefile (zip) · KML/KMZ · GPX · GML · FlatGeobuf · TopoJSON · MOJ 登記所備付地図 — in, and back out (`geojsonFile`, `kmzFile`, `gpxFile`, `gmlFile`, `fgbFile`, `shapeFile`, `topojsonFile`) |
 | **Topology** (`{ gint: true }`) | typed-array buffer of arcs, features and neighbour topology, baked in WASM; usable from a GPU vertex shader or from plain JS |
 | **Feature ops** | `centroid`, `area`, `lineLength`, `getBbox`, `classify`, `map`/`filter` clones, CSV/property tables |
 | **Export** | PMTiles (MVT), GeoParquet, GeoJSON, TopoJSON, FlatGeobuf, KMZ, GPX, GML, Shapefile |

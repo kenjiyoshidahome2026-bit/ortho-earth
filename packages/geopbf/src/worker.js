@@ -19,6 +19,7 @@ const MODULES = {
 	"decoder:csv":     () => import("./decoder/csv.js"),
 	"decoder:gpx":     () => import("./decoder/gpx.js"),
 	"decoder:json":    () => import("./decoder/json.js"),
+	"decoder:ndjson":  () => import("./decoder/ndjson.js"),
 	"decoder:kmz":     () => import("./decoder/kmz.js"),
 	"decoder:moj":     () => import("./decoder/moj.js"),
 	"decoder:pbf":     () => import("./decoder/pbf.js"),
