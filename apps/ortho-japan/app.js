@@ -12,7 +12,7 @@ import { createGeopbf, geopbf } from "geopbf";
 import { nativeBucket } from "native-bucket";
 import { createGetHeight, setApiUrl as setAltApiUrl } from "altpbf/loader";
 import { JP_REGION } from "./jp/region.js";   // 地域宣言＝その国の知識の正本（エンジンと altpbf は地域を知らない）
-import { NL_REGION, isNL } from "./nl/region.js";
+import { NL_REGION, nlEntry } from "./nl/region.js";
 createGeopbf("https://api.ortho-earth.com", { bucket: nativeBucket });   // bucket 基盤（標高と同じ）。読み出しはキー不要・bucket=native-bucket注入（geopbf自体は依存ゼロ化 8/21）
 // SDK 公開面：初期化済みの geopbf を再エクスポート（2026-09-10・npm 利用者が別途 `npm i geopbf` せず、バンドラも import map も無しで
 // データを載せられる＝同梱の worker チャンクがそのまま動く）。createGeopbf は出さない＝利用者が呼び直すと上の bucket 設定ごと
@@ -84,11 +84,15 @@ export default async function orthoJapan(opts = {}) {
 // この入口で有効な地域宣言（**使う所より前で決める**＝render worker の init が最初の利用者・TDZ の轍 2026-09-17）。
 // オランダは**日本に足す**形＝?nl=1 のまま日本へ飛べば日本の建物も出る
 // （移設 2026-09-17 でこの振る舞いは変えていない）。中身は jp/region.js と nl/region.js が持つ。
-const nlOn = isNL();
-const REGIONS = nlOn ? [JP_REGION, NL_REGION] : [JP_REGION];
+const nlMode = nlEntry();                                            // "only"=/nl/（独立）／"with-jp"=?nl=1（重ね）／null=日本
+const nlOn = !!nlMode;
+const REGIONS = nlMode === "only" ? [NL_REGION] : nlMode === "with-jp" ? [JP_REGION, NL_REGION] : [JP_REGION];
 const REGION_DTM = REGIONS.find(r => r.dtm)?.dtm ?? null;            // 裸地標高の申告（今は日本だけが持つ）
 const REGION_SETS = REGIONS.flatMap(r => r.buildings?.sets ?? []);   // その場で配る建物台帳（オランダ 3 件）
 const REGION_CATALOG = REGIONS.map(r => r.buildings?.catalog).filter(Boolean);   // 取得する台帳（日本の 336 件）
+const REGION_EXCLUDE = REGIONS.map(r => r.buildings?.exclude).filter(Boolean);   // 除外タイル表
+const REGION_LANDMARK = REGIONS.map(r => r.buildings?.landmarks).filter(Boolean);   // ランドマークの名札
+const REGION_ATTR = REGIONS.map(r => r.attribution).filter(Boolean);   // 出典（表示義務）＝入口ごとに差し替わる
 // UI言語を最初に確定（opts.lang > ?lang= > ブラウザ言語）。以降のfatal/トースト/ガジェットが全て従う。
 await setLang(opts.lang);   // 訳の用意まで待つ（ja/en は静的＝即返り・他言語は 1 本取る）
 // 起動の容れ物：target指定（selector/要素）→ 無ければ既存#map → それも無ければbody直下に自作。
@@ -158,7 +162,6 @@ const WORLD_VT = !/[&?]world=0/.test(location.search);
 // 気候場テクスチャ（全球ハイプソ cross-blend・Köppen-Geiger/Beck et al. CC-BY 720x360 焼き縮め・public 資産）。
 // boot と switchTheme の両方が worldHypso.clim に積む（再送は両レンダラとも取得済みキャッシュで no-op）
 const CLIM_URL = new URL("koppen-clim.png", new URL(ASSET_BASE, location.href)).href;   // 実行時アセット＝assetBase 相対（旧＝ページ相対で埋め込み先では必ず 404・2026-09-10）
-const GSI_TILE_URL = (z, x, y) => `https://cyberjapandata.gsi.go.jp/xyz/optimal_bvmap-v1/${z}/${x}/${y}.pbf`;
 // 汎用 PMTiles 基図（?pm=<URL>）＝任意の PMTiles アーカイブを基図ソースにする口。2026-09-03 に湖の NE 化で
 // 撤去した pmtiles 配管（世界固定・world-z3.pmtiles 専用）を、ソース非依存の形で戻したもの。
 // **範囲の制御はアーカイブの自己申告に任せる**：bbox もズーム域も層名も PMTiles のヘッダ/metadata が持って
@@ -170,11 +173,6 @@ const GSI_TILE_URL = (z, x, y) => `https://cyberjapandata.gsi.go.jp/xyz/optimal_
 // 作り込んだ配色が要るなら style を書く（bvmap 用 style-gsi.js が前例）。
 const PM_SPEC = new URLSearchParams(location.search).get("pm");
 const PM_URL = PM_SPEC ? "pmtiles://" + new URL(PM_SPEC, new URL(import.meta.env?.BASE_URL || "/", location.href)).href : null;
-// optimal_bvmap の配信圏（日本域）の外接矩形 [west,south,east,north]。これと全く重ならないタイルは GSI が
-// 常に 404 を返す提供圏外＝pipeline が fetch を省いて空タイル(標高ゲート付き全面水域)扱いにする（無駄な 404 を断つ）。
-// 症状＝縦長のスマホ画面が北海道以北の外洋(z8 y=87/88≈50°N)まで写して 404 を量産（横長のデスクトップでは出にくい）。
-// 保守的に本土＋離島（南鳥島154E/沖ノ鳥島20.4N/与那国123E/宗谷45.5N）を余裕で内包＝実在タイルは絶対に巻き込まない。
-const JP_COVERAGE = [121, 19, 155, 46];
 
 // ── 基図ソースの記述子 ───────────────────────────────────────────────────────
 // 「どこから引くか・どこを持つか・どのズームから出すか・LOD の床・出典」を **一つの物** に束ねる。
@@ -189,13 +187,22 @@ const JP_COVERAGE = [121, 19, 155, 46];
 //   minZ        … タイル z の床（選抜・下地・毛布）
 //   info        … ソース自身の申告（PMTiles のみ・非同期に届く）。maxZoom/層名/出典の出所
 //   attrHTML    … 出典（消毒済み・info 到着時に入る）
+// 記述子の出所は三通り：①?pm=（客が持ち込むアーカイブ）②地域宣言の basemap（日本＝地理院）
+// ③宣言が basemap を持たない地域（オランダ）＝タイルを一枚も要求しない空ソース＝図郭外と同じ扱い
+// （＝標高ゲート付き全面水域。日本の配信圏の外なので移設前の見え方と同じ・2026-09-17）。
+const REGION_BASEMAP = REGIONS.map(r => r.basemap).find(Boolean) ?? null;
 const BASE_SOURCE = PM_URL ? {
 	kind: "pmtiles", url: PM_URL, tileUrl: () => PM_URL,
 	coverage: null, tileMinZoom: 0, lodFloor: null, minZ: 0, info: null, attrHTML: null,
+} : REGION_BASEMAP ? {
+	kind: REGION_BASEMAP.kind, url: null, tileUrl: REGION_BASEMAP.tileUrl,
+	coverage: /[?&]nocov=1/.test(location.search) ? null : REGION_BASEMAP.coverage,   // ?nocov=1＝A/B 検証ノブ
+	tileMinZoom: REGION_BASEMAP.tileMinZoom, lodFloor: REGION_BASEMAP.lodFloor, minZ: REGION_BASEMAP.minZ,
+	info: null, attrHTML: null,
 } : {
-	kind: "gsi", url: null, tileUrl: GSI_TILE_URL,
-	coverage: /[?&]nocov=1/.test(location.search) ? null : JP_COVERAGE,   // ?nocov=1＝A/B 検証ノブ
-	tileMinZoom: null, lodFloor: { minViewZoom: 9, z: 8 }, minZ: undefined, info: null, attrHTML: null,
+	kind: "none", url: null, tileUrl: () => null,
+	coverage: [0, 0, 0, 0],   // どのタイルとも重ならない＝fetch せず空タイル扱い
+	tileMinZoom: null, lodFloor: null, minZ: undefined, info: null, attrHTML: null,
 };
 const TILE = 512, D2R = Math.PI / 180, R2D = 180 / Math.PI;
 
@@ -225,7 +232,7 @@ let theme = typeof opts.theme === "object" ? { ...MAP_THEMES.mono, ...opts.theme
 let style = theme.style;
 // 旧・世界層前置（withWorld＝world-water 湖タイル層）は撤去（2026-09-03 湖のNE化）＝style はテーマの素のまま。
 // 湖の色は worldPal.sea をレンダラが直接読む（u_seaC と単一の出所＝テーマの worldHypso.sea が両方へ届く）。
-mountGadgets(mapEl, { chips: opts.chips, instruments: opts.instruments, fixedLayers });   // UI を #map に生やす＝以降の getElementById が実体を掴めるよう、全lookupの前で
+mountGadgets(mapEl, { chips: opts.chips, instruments: opts.instruments, fixedLayers, attribution: REGION_ATTR });   // UI を #map に生やす＝以降の getElementById が実体を掴めるよう、全lookupの前で
 // 非搭載（chips:false / instruments:false）でも配線コードは無改造＝繋ぎ先が無ければ宙のdiv（どこにも描画されない）へ。
 const orDetached = el => el || document.createElement("div");
 const canvas = document.getElementById("c");
@@ -721,7 +728,7 @@ const plateauOn = opts.plateau !== false && !/[?&]nopl=1/.test(location.search);
 let PLATEAU_SETS = [];
 // カタログ到着の合図＝デモの先読み（prefetchPlateauForViews）が待つ。到着時の自動ロードは従来どおり。
 let plateauExcludeMap = null;   // 除外マップ＝起動後に来ても、後から起きる worker（遅延生成）にも配れるよう保持
-if (plateauOn && JP_REGION.buildings.exclude) fetch(ASSET_BASE + JP_REGION.buildings.exclude).then(r => r.ok ? r.json() : null).then(map => { if (map) { plateauExcludeMap = map; plateauWorkers.forEach(w => w.postMessage({ type: "exclude", map })); } }).catch(() => {});   // 捨てる地物（精査で不要と裁定した gml_id）＝生経路も焼きと同じ
+if (plateauOn && REGION_EXCLUDE.length) fetch(ASSET_BASE + REGION_EXCLUDE[0]).then(r => r.ok ? r.json() : null).then(map => { if (map) { plateauExcludeMap = map; plateauWorkers.forEach(w => w.postMessage({ type: "exclude", map })); } }).catch(() => {});   // 捨てる地物（精査で不要と裁定した gml_id）＝生経路も焼きと同じ
 const plateauCatalogReady = !plateauOn ? Promise.resolve() :
 	Promise.all(REGION_CATALOG.map(name => fetch(ASSET_BASE + name).then(r => r.json()))).then(lists => {   // BASE_URL＝サブパス配信(/ortho-japan/)対応
 		let sets = lists.flat();
@@ -752,7 +759,8 @@ const landmarkMinH = z => { let h = Infinity; for (const [lz, lh] of LANDMARK_LA
 let landmarks = null, landmarkReq = null;
 function loadLandmarks() {
 	if (landmarkReq) return landmarkReq;   // 一度だけ（失敗しても再試行しない＝名札は無くても地図は成立する）
-	return landmarkReq = fetch(ASSET_BASE + JP_REGION.buildings.landmarks).then(r => r.json()).then(j => {
+	if (!REGION_LANDMARK.length) return landmarkReq = Promise.resolve();   // 名札を宣言しない地域（オランダ）＝取りに行かない
+	return landmarkReq = fetch(ASSET_BASE + REGION_LANDMARK[0]).then(r => r.json()).then(j => {
 		landmarks = j.f.map(([text, lon, lat, h, pair]) => ({ text, anchor: [lon, lat], h, pair }));
 		console.log(`[landmark] ledger loaded -> ${landmarks.length} buildings (h>=${j.h}m)`);
 		readySig = ""; mergeReq.main.sig = ""; needsDraw = true;   // 到着＝ラベル再結合（空港台帳と同じ作法）

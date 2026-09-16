@@ -1,0 +1,50 @@
+<!doctype html>
+<!-- 実描画の検分：基図の建物（bvmap LOD1 押し出し）が z≥14 で立っているか。語彙が style の申告へ
+     移った後も立ち続けることを見る門（2026-09-17）。判定はページ内・結果は<title>。
+     ⚠ verify:ui（虚時間）ではなく **verify:webgpu（実時間）** 側に載せる：描画は render worker の
+     OffscreenCanvas＝main からは読めず、絵を取るには shot の snapshot 往復が要る。この往復は
+     虚時間では返らない（composite timeout を実測）＝t-webgpu 一族と同じ理由。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html{background:#0b1021}</style><title>t-bld</title></head>
+<body>
+<script>
+localStorage.setItem("oj.hint", "closed");
+</script>
+<script type="module">
+import orthoJapan from "../app.js";
+const t = [], ok = (n, c, x = "") => t.push((c ? "ok:" : "NG:") + n + (x ? "(" + x + ")" : ""));
+const mark = s => { document.title = "… " + s; };   // 途中で止まっても最後に着いた段が title に残る
+try {
+	mark("boot");
+	// 東京駅前・z16・チルト。plateau は切る（見たいのは基図の建物＝BldA の押し出し）。
+	const map = await orthoJapan({ view: "#16/35.6812/139.7671/55t", plateau: false, chips: false });
+	mark("booted");
+	await new Promise(r => setTimeout(r, 12000));   // タイル到着＋結合（実時間）
+	mark("waited");
+	const c = document.getElementById("c");
+	ok("canvas", !!c && c.width > 0, c ? `${c.width}x${c.height}` : "none");
+	// 描画は render worker の OffscreenCanvas＝main からは読めない。エンジンの shot（1 枚描いて
+	// ImageBitmap で返す snapshot 経路）を借りて絵を取り、2D へ写して数える。
+	const shot = map.gadget.shot();
+	mark("shot-mounted");
+	const blob = await Promise.race([shot.composite(), new Promise((_, x) => setTimeout(() => x(new Error("composite timeout")), 30000))]);
+	mark("composited");
+	const bmp = await createImageBitmap(blob);
+	const cv = Object.assign(document.createElement("canvas"), { width: bmp.width, height: bmp.height });
+	const cx = cv.getContext("2d");
+	cx.drawImage(bmp, 0, 0);
+	const W = Math.min(bmp.width, 600), H = Math.min(bmp.height, 400);
+	const px = cx.getImageData((bmp.width - W) >> 1, (bmp.height - H) >> 1, W, H).data;
+	let bld = 0, ink = 0, total = 0;
+	for (let i = 0; i < px.length; i += 4) {
+		const r = px[i], g = px[i + 1], b = px[i + 2];
+		total++;
+		if (Math.abs(r - 236) < 10 && Math.abs(g - 236) < 10 && Math.abs(b - 234) < 10) bld++;   // 建物の面（#ececea）
+		else if (r < 200 && g < 200 && b < 200) ink++;                                            // 線・注記
+	}
+	ok("pixels", total > 0, `${bmp.width}x${bmp.height}`);
+	ok("buildings", bld > 200, `bld=${bld}`);
+	ok("map", ink > 200, `ink=${ink}`);
+	document.title = (t.every(x => x.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
+} catch (e) { document.title = "FAIL " + document.title.replace(/^… /, "@") + " " + (e && e.message || e); }
+</script>
+</body></html>

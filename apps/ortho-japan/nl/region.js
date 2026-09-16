@@ -22,8 +22,24 @@ export const NL_REGION = {
 			{ key: "amsterdam", name: "アムステルダム（3DBAG）", bbox: [4.869, 52.360, 4.925, 52.386] },
 		].map(s => ({ name: s.name, bbox: s.bbox, base: `nl-3dbag-${s.key}/`, tilesetUrl: TILESET, clip: s.bbox })),
 	},
+	// 自前のベクタ基図は持たない＝タイルを要求せず、図郭外と同じ「標高ゲート付き全面水域」を敷く
+	// （日本の配信圏の外なので、これは移設前の見え方と同じ）。世界の下地（ハイプソ・国界・湖）はズーム域で別に出る。
+	basemap: null,
+	// 3DBAG は CC BY 4.0＝表示が義務。日本のデータを出していない画面に地理院・PLATEAU を並べるのは、
+	// 義務以前に嘘になる（だから入口ごとに出典を差し替える）。
+	attribution: {
+		lines: [
+			[{ href: "https://3dbag.nl/", key: "3DBAG (TU Delft), CC BY 4.0" }],
+			[{ key: "Auto-generated from BAG (building registry) and AHN (national LiDAR)" }],
+		],
+		note: "(Created by processing the data)",
+	},
 	view: "#16/52.0116/4.3571/45t",   // 裸で開いた時はデルフト上空へ
 };
 
-// この入口が当地域か（アドレス欄が /nl/ のまま＝共有 URL として日本と混ざらない）
-export const isNL = () => /[?&]nl=1/.test(location.search) || /^\/nl(\/|$)/.test(location.pathname);
+// この入口がどの形でオランダを求めているか。
+//   "only"    … /nl/ ＝独立の入口。**この地域だけ**（日本の台帳も基図も持ち込まない）。アドレス欄が /nl/ のまま
+//                ＝共有 URL として日本と混ざらない。基図を宣言しない地域の既定（＝全面水域）はこの道で効く。
+//   "with-jp" … ?nl=1 ＝開発の重ね確認。日本に**足す**（そのまま日本へ飛べば日本の建物も出る）。
+export const nlEntry = () => /^\/nl(\/|$)/.test(location.pathname) ? "only"
+	: /[?&]nl=1/.test(location.search) ? "with-jp" : null;
