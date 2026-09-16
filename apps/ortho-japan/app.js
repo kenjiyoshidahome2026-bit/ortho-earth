@@ -11,7 +11,8 @@ import {
 import { createGeopbf, geopbf } from "geopbf";
 import { nativeBucket } from "native-bucket";
 import { createGetHeight, setApiUrl as setAltApiUrl } from "altpbf/loader";
-import { JP_DTM } from "./jp/dtm.js";   // 裸地標高(DTM)の申告＝日本の知識の正本（エンジンと altpbf は地域を知らない）
+import { JP_REGION } from "./jp/region.js";   // 地域宣言＝その国の知識の正本（エンジンと altpbf は地域を知らない）
+import { NL_REGION, isNL } from "./nl/region.js";
 createGeopbf("https://api.ortho-earth.com", { bucket: nativeBucket });   // bucket 基盤（標高と同じ）。読み出しはキー不要・bucket=native-bucket注入（geopbf自体は依存ゼロ化 8/21）
 // SDK 公開面：初期化済みの geopbf を再エクスポート（2026-09-10・npm 利用者が別途 `npm i geopbf` せず、バンドラも import map も無しで
 // データを載せられる＝同梱の worker チャンクがそのまま動く）。createGeopbf は出さない＝利用者が呼び直すと上の bucket 設定ごと
@@ -80,6 +81,14 @@ const t = tr();
 //   検索・操作説明はオプトインガジェット＝ map.gadget.search() / map.gadget.hint() で画面ごとに追加（v1 ortho-map の作法）
 // ============================================================================================
 export default async function orthoJapan(opts = {}) {
+// この入口で有効な地域宣言（**使う所より前で決める**＝render worker の init が最初の利用者・TDZ の轍 2026-09-17）。
+// オランダは**日本に足す**形＝?nl=1 のまま日本へ飛べば日本の建物も出る
+// （移設 2026-09-17 でこの振る舞いは変えていない）。中身は jp/region.js と nl/region.js が持つ。
+const nlOn = isNL();
+const REGIONS = nlOn ? [JP_REGION, NL_REGION] : [JP_REGION];
+const REGION_DTM = REGIONS.find(r => r.dtm)?.dtm ?? null;            // 裸地標高の申告（今は日本だけが持つ）
+const REGION_SETS = REGIONS.flatMap(r => r.buildings?.sets ?? []);   // その場で配る建物台帳（オランダ 3 件）
+const REGION_CATALOG = REGIONS.map(r => r.buildings?.catalog).filter(Boolean);   // 取得する台帳（日本の 336 件）
 // UI言語を最初に確定（opts.lang > ?lang= > ブラウザ言語）。以降のfatal/トースト/ガジェットが全て従う。
 await setLang(opts.lang);   // 訳の用意まで待つ（ja/en は静的＝即返り・他言語は 1 本取る）
 // 起動の容れ物：target指定（selector/要素）→ 無ければ既存#map → それも無ければbody直下に自作。
@@ -126,7 +135,7 @@ for (const cid of ["c", "labels"]) { const cv = document.createElement("canvas")
 const undergroundEl = mapEl.appendChild(document.createElement("div"));
 undergroundEl.id = "underground";
 
-// 実行時アセット（plateau-sets.json / airports.json / plateau-landmarks.json / ai/citycodes.json）の置き場。
+// 実行時アセット（plateau-sets.json / airports.json / plateau-landmarks.json）の置き場。
 // 既定＝自分の配信ベース（vite の BASE_URL＝"/japan/"）。★SDK として第三者のビルドへ取り込まれると
 // import.meta.env.BASE_URL は「相手のベース」に置換される＝これらのファイルは相手のサイトに存在しない。
 // opts.assetBase で指し直せる口を開けておく（相対でも絶対URLでもよい・末尾スラッシュは自動で整える）。
@@ -488,7 +497,7 @@ const wPost = (msg, transfer) => {
 	}
 	ctrlChan.port1.postMessage(msg, transfer || []);
 };
-renderWorker.postMessage({ type: "init", ctrlPort: ctrlChan.port2, canvas: offscreen, labelCanvas: labelOffscreen, elevBase: TERR_EXAG / EARTH_M, terrainExag: TERR_EXAG, earthM: EARTH_M, apiUrl: "https://api.ortho-earth.com", scenePort: sceneChan.port2, noMultiDraw, perf: perfLog, mem: hudOn, lowMem: LOW_MEM, noMixed: noMixedR01, noFarTerr, dtm: JP_DTM, noBld: /[?&]nobld=1/.test(location.search), gpu: gpuBackend, noTQ: /[?&]notq=1/.test(location.search), noGint: /[?&]nogint=1/.test(location.search), noGintSB: /[?&]gintsb=0/.test(location.search), noFade: /[?&]nofade=1/.test(location.search), msaa1: MSAA_OFF, msaa4: MSAA_PIN, drawHud: drawHud, stay: /[?&]stay=1/.test(location.search), noTerr, ell: ELL_ON }, [ctrlChan.port2, offscreen, labelOffscreen, sceneChan.port2]);
+renderWorker.postMessage({ type: "init", ctrlPort: ctrlChan.port2, canvas: offscreen, labelCanvas: labelOffscreen, elevBase: TERR_EXAG / EARTH_M, terrainExag: TERR_EXAG, earthM: EARTH_M, apiUrl: "https://api.ortho-earth.com", scenePort: sceneChan.port2, noMultiDraw, perf: perfLog, mem: hudOn, lowMem: LOW_MEM, noMixed: noMixedR01, noFarTerr, dtm: REGION_DTM, noBld: /[?&]nobld=1/.test(location.search), gpu: gpuBackend, noTQ: /[?&]notq=1/.test(location.search), noGint: /[?&]nogint=1/.test(location.search), noGintSB: /[?&]gintsb=0/.test(location.search), noFade: /[?&]nofade=1/.test(location.search), msaa1: MSAA_OFF, msaa4: MSAA_PIN, drawHud: drawHud, stay: /[?&]stay=1/.test(location.search), noTerr, ell: ELL_ON }, [ctrlChan.port2, offscreen, labelOffscreen, sceneChan.port2]);
 // 薄いプロキシ：有線(関数呼び)を無線(postMessage)に載せ替え。set/draw 統一済なので pipeline/overlay は無改造。
 // draw は worker 側で「cam を記録するだけ」に受け、実描画は worker 自前 rAF が最新 cam で回す（worker-driven）。
 // 標高アトラス(terrain)も worker 側に住む＝main はもう視野→セル計算・ダウンサンプルを一切やらない。読込インジケータだけ elevPending で受ける。
@@ -711,25 +720,12 @@ let moving = false, settleT = null;
 const plateauOn = opts.plateau !== false && !/[?&]nopl=1/.test(location.search);   // ?nopl=1＝建物3D層別切り（iOS診断）
 let PLATEAU_SETS = [];
 // カタログ到着の合図＝デモの先読み（prefetchPlateauForViews）が待つ。到着時の自動ロードは従来どおり。
-// 実験：オランダ 3DBAG（?nl=1 で登録簿に追加）。TU Delft が BAG(建物登記)＋AHN(国土LiDAR)から自動生成した
-// 全国1000万棟の LoD2.2・CC BY 4.0。PLATEAU と違い「国土まるごと1枚のタイルセット」（外部tileset 474本）
-// なので、街ごとの矩形(clip)で走査を枝刈りして「区」相当の粒度に切る。
-// base は識別キー（worker振り分け・キャッシュ・OPFSのファイル名）＝同じ tileset を街ごとに別枠で持つため
-// 実URLは tilesetUrl で別に渡す。中身は 3D Tiles 1.1 の glb＝頂点が int16 量子化（plateauworker が解除）。
-const NL_TILESET = "https://data.3dbag.nl/v20250903/cesium3dtiles/lod22/tileset.json";
-const NL_SETS = [
-	{ key: "delft", name: "デルフト（3DBAG）", bbox: [4.336, 51.978, 4.393, 52.026] },
-	{ key: "rotterdam", name: "ロッテルダム（3DBAG）", bbox: [4.452, 51.905, 4.510, 51.935] },
-	{ key: "amsterdam", name: "アムステルダム（3DBAG）", bbox: [4.869, 52.360, 4.925, 52.386] },
-].map(s => ({ name: s.name, bbox: s.bbox, base: `nl-3dbag-${s.key}/`, tilesetUrl: NL_TILESET, clip: s.bbox }));
-// 入口は /nl/（本番＝deploy-worker が japan の資産をそのまま出す独立URL）と ?nl=1（開発・japanに重ねて確認する時）。
-// pathname 判定＝アドレス欄が /nl/ のまま＝共有URLとして日本と混ざらない。
-const nlOn = /[?&]nl=1/.test(location.search) || /^\/nl(\/|$)/.test(location.pathname);
 let plateauExcludeMap = null;   // 除外マップ＝起動後に来ても、後から起きる worker（遅延生成）にも配れるよう保持
-if (plateauOn) fetch(ASSET_BASE + "plateau-exclude.json").then(r => r.ok ? r.json() : null).then(map => { if (map) { plateauExcludeMap = map; plateauWorkers.forEach(w => w.postMessage({ type: "exclude", map })); } }).catch(() => {});   // 捨てる地物（精査で不要と裁定した gml_id）＝生経路も焼きと同じ
+if (plateauOn && JP_REGION.buildings.exclude) fetch(ASSET_BASE + JP_REGION.buildings.exclude).then(r => r.ok ? r.json() : null).then(map => { if (map) { plateauExcludeMap = map; plateauWorkers.forEach(w => w.postMessage({ type: "exclude", map })); } }).catch(() => {});   // 捨てる地物（精査で不要と裁定した gml_id）＝生経路も焼きと同じ
 const plateauCatalogReady = !plateauOn ? Promise.resolve() :
-	fetch(ASSET_BASE + "plateau-sets.json").then(r => r.json()).then(sets => {   // BASE_URL＝サブパス配信(/ortho-japan/)対応
-		if (nlOn) { sets = sets.concat(NL_SETS); console.log("[plateau] added Netherlands 3DBAG to catalog (?nl=1)"); }
+	Promise.all(REGION_CATALOG.map(name => fetch(ASSET_BASE + name).then(r => r.json()))).then(lists => {   // BASE_URL＝サブパス配信(/ortho-japan/)対応
+		let sets = lists.flat();
+		if (REGION_SETS.length) { sets = sets.concat(REGION_SETS); console.log(`[plateau] added ${REGION_SETS.length} set(s) declared by region ${REGIONS.map(r => r.code).join("+")}`); }
 		PLATEAU_SETS = sets; console.log(`[plateau] catalog loaded -> ${sets.length} municipalities`);
 		emitPlateau({ phase: "catalog", count: sets.length });
 		autoPlateau(true);   // 復元ビューが z15+ の街なら起動直後に自動ロード（settled扱い＝起動時の視界は確定している。IDB命中なら即座に街が立つ）
@@ -756,7 +752,7 @@ const landmarkMinH = z => { let h = Infinity; for (const [lz, lh] of LANDMARK_LA
 let landmarks = null, landmarkReq = null;
 function loadLandmarks() {
 	if (landmarkReq) return landmarkReq;   // 一度だけ（失敗しても再試行しない＝名札は無くても地図は成立する）
-	return landmarkReq = fetch(ASSET_BASE + "plateau-landmarks.json").then(r => r.json()).then(j => {
+	return landmarkReq = fetch(ASSET_BASE + JP_REGION.buildings.landmarks).then(r => r.json()).then(j => {
 		landmarks = j.f.map(([text, lon, lat, h, pair]) => ({ text, anchor: [lon, lat], h, pair }));
 		console.log(`[landmark] ledger loaded -> ${landmarks.length} buildings (h>=${j.h}m)`);
 		readySig = ""; mergeReq.main.sig = ""; needsDraw = true;   // 到着＝ラベル再結合（空港台帳と同じ作法）
@@ -1726,7 +1722,7 @@ function applyCamView(v) {
 	cam.pitch = Math.max(0, Math.min(maxPitchCur, v.pitch || 0));   // 共有hashのtiltも派生アプリの上限に従う（geoedit=0）
 	cam.bearing = Number.isFinite(v.bearing) ? v.bearing : 0;
 }
-const bootView = parseViewHash(opts.view || location.hash || (nlOn ? "#16/52.0116/4.3571/45t" : ""));   // /nl/ を裸で開いた時はデルフト上空へ（日本アプリの既定は日本のまま）
+const bootView = parseViewHash(opts.view || location.hash || REGIONS.map(r => r.view).filter(Boolean).pop() || "");   // 裸で開いた時の視点は地域宣言が持つ（/nl/ ＝デルフト上空・日本は既定のまま）
 // 前回ビューの復元（ortho-earth 本体と同じ流儀）：settle 毎に localStorage へ保存し、起動時にそこから立ち上がる。
 // IDBのPLATEAUキャッシュと合わさると「開いた瞬間に前回の街が数秒で立ち上がる」起動になる。
 const CAM_KEY = "ortho-japan.cam256";   // 256px世界のz移行(2026-07-26)でキー更新＝旧512世界の保存ビュー（zが1小さい）を読まない
@@ -2910,7 +2906,7 @@ posEl.innerHTML = `<table><thead><tr><th>${t("Lon")}</th><th>${t("Lat")}</th><th
 const posCells = [...posEl.querySelectorAll("td")];   // [経度, 緯度, 標高, z値, 回転, 傾度]（毎フレームはtextContent更新のみ＝DOM再構築しない）
 let posMouse = null, posElev = null, posElevId = 0, posElevAt = 0, posRaf = false, getHeight = null;
 setAltApiUrl("https://api.ortho-earth.com");
-const getHeightP = createGetHeight({ apiUrl: "https://api.ortho-earth.com", dtm: JP_DTM, onend: () => { posElevAt = 0; schedulePos(); } });   // Promiseも保持＝断面図はローダ到着を待って照会（起動直後でも0mに化けない）
+const getHeightP = createGetHeight({ apiUrl: "https://api.ortho-earth.com", dtm: REGION_DTM, onend: () => { posElevAt = 0; schedulePos(); } });   // Promiseも保持＝断面図はローダ到着を待って照会（起動直後でも0mに化けない）
 getHeightP.then(f => { getHeight = f; });
 // 距離スケール（真俯瞰=2Dのみ）：ortho-map Accessories draw_scale() と同じ1-2-5系列。
 // d256m＝256px当たりの実距離[m]。当アプリも256px世界(2026-07-26統一)＝本家と同じ zoom がそのまま使える。
