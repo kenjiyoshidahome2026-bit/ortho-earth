@@ -115,7 +115,7 @@ export function createGeopbf(apiBase, options = {}) {
             console.log(`[geopbf] 📥 ${pbf.name()} (${pbf.size.toLocaleString()} bytes) ${(performance.now()-dt).toFixed(2)} msec`);
             // _staleGint＝キャッシュのGINTが版検札で弾かれた印。上の gint() が再焼き済み＝ここで上書き保存して自己修復完了
             //（これが無いと旧v1が居座り、毎回「Failed to unpack … 旧キャッシュ」＋全量再エンコードを払い続ける。2026-08-20実地）。
-            if (pbf._staleGint) console.warn(`[geopbf] ${pbf.name()}: 旧版GINTキャッシュを再焼きして上書き保存（次回からこの警告は消える）`);
+            if (pbf._staleGint) console.warn(`[geopbf] ${pbf.name()}: rebaking old GINT cache and overwriting (this warning disappears from next time)`);
             if (isURL(data) && (!pbf.originalURL || pbf._staleGint)) {
                 const server = await getServer();
                 if (server) {

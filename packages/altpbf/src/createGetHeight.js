@@ -27,7 +27,7 @@ async function loadAlosIndex(cache, onUpdate) {
 	const fetchAndStore = async () => { const idx = await index_alos(); if (cache) Promise.resolve(cache("index_alos", idx)).catch(() => {}); return idx; };
 	try { return await fetchAndStore(); }
 	catch (e) {
-		console.warn(`[altpbf] AW3D30 一覧が取れない（${e?.message ?? e}）＝一覧なしで続行・裏で再取得`);
+		console.warn(`[altpbf] AW3D30 index unavailable (${e?.message ?? e}) = continuing without index, refetching in background`);
 		let wait = 30000, tries = 0;
 		const again = () => setTimeout(async () => {
 			try { onUpdate(await fetchAndStore()); }
@@ -45,7 +45,7 @@ export async function createTileLoader(opts = {}) {
 	// IDB 不可（プライベートブラウズ/破損）は「キャッシュ無しで続行」へ縮退＝標高システムを一発死させない
 	//（旧・素の await は reject が createTileLoader ごと落とし、山が永久に平らになる＝iPhone私的モード実症状）。
 	// worker 側（altpbf.js load）は元から getCache().catch(()=>null) で同じ縮退＝これで経路が揃う。
-	const cache = await Cache("GIS/alt").catch(e => { console.warn("[tileLoader] IDB無効（キャッシュ無しで続行）", e?.message ?? e); return null; });
+	const cache = await Cache("GIS/alt").catch(e => { console.warn("[tileLoader] IDB disabled (continuing without cache)", e?.message ?? e); return null; });
 	let index = await loadAlosIndex(cache, i => { index = i; });
 	const existAlos = (lng, lat) => index[encodeName(lng, lat)];
 	// worker プール：1本直列だと初訪問時に視野分のセル（R10で最大64枚）が1枚ずつ順番待ちになり
@@ -77,7 +77,7 @@ export async function createTileLoader(opts = {}) {
 		};
 		const onmsg = e => { const obj = e.data; if (obj) cache(name, obj); finish(obj); };
 		const onerr = () => {   // worker死＝作り直し（次の要求は新workerで正常化）。この要求は null＝欠けは次の窓替えで再挑戦
-			console.warn("[tileLoader] worker応答不能 → 作り直し:", name);
+			console.warn("[tileLoader] worker unresponsive -> recreating:", name);
 			try { s.w.terminate(); } catch { /* 既に死んでいる */ }
 			s.w = mkWorker();
 			finish(null);

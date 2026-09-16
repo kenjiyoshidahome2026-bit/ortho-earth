@@ -11,7 +11,7 @@ export async function gunzip(file) {
 	try { const blob = await new Response(stream).blob();
 		return name? new File([blob], name, { type: fname2mime(name) }): blob;
 	} catch (e) {
-		console.error("解凍エラー: メモリ不足の可能性があります", e);
+		console.error("decompression error: possibly out of memory", e);
 		throw e;
 	}
 }
@@ -21,7 +21,7 @@ export async function gzip(file) {
 	try { const blob = await new Response(stream).blob();
 		return new File([blob], file.name + ".gz", { type: "application/gzip" });
 	} catch (e) {
-		console.error("圧縮エラー: メモリ不足の可能性があります", e);
+		console.error("compression error: possibly out of memory", e);
 		throw e;
 	}
 }

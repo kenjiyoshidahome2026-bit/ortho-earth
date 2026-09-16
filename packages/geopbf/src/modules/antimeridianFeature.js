@@ -3,7 +3,7 @@ import { pointInRing as pointInRingCore } from "./geom.js";
 
 // toClockwise 警告のスパム抑制：空リング多発データ（NE海岸線等）で数十万件出て console を潰すのを数件に絞る。
 let _tcWarnCount = 0;
-const _tcWarn = (...a) => { if (_tcWarnCount++ < 3) console.warn(...a); else if (_tcWarnCount === 4) console.warn("toClockwise: 以降の同種警告は抑制（データに空リング多数）"); };
+const _tcWarn = (...a) => { if (_tcWarnCount++ < 3) console.warn(...a); else if (_tcWarnCount === 4) console.warn("toClockwise: further warnings of this kind suppressed (many empty rings in data)"); };
 
 // opts.cut=false＝切断も向き正規化もしない（座標の掃除だけ）＝往復無変換の器。opts.onCut＝切断した時に呼ぶ（計数用）。
 export function antimeridianFeature(feature, opts = null) {

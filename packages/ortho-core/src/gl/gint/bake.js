@@ -66,7 +66,7 @@ export function bakeBase(gintData) {
 	// フル解像度の行政界コロプレス(admin_all 437万辺)は呼び出し側が明示的に budget を上げて全密度塗りを通す。
 	const fillCap = gintData.fillMaxEdges ?? FILL_MAX_EDGES;
 	const fillOff = base.polyEdgeCount > fillCap;
-	if (fillOff) console.info('[gint] polyEdges=%d > %d＝自動ベタ塗りOFF（アウトラインのみ）', base.polyEdgeCount, fillCap);
+	if (fillOff) console.info('[gint] polyEdges=%d > %d = auto solid fill OFF (outline only)', base.polyEdgeCount, fillCap);
 
 	// 境界メタ（正味参照≠0 の arc のみ＋折れ線全量）。ライン専用（polyStream 無し）はスキップ。
 	let boundary = null;
