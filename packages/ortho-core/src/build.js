@@ -156,7 +156,7 @@ export function buildEmptySeaOps(layers, { z, x, y }, style, origin) {
 	const idxs = [];
 	style.layers.forEach((L, i) => { if (L.type === "fill" && L["source-layer"] === src) idxs.push(i); });
 	if (!idxs.length) return null;
-	const sq = { [src]: { extent: 4096, features: [{ type: "Polygon", id: 0, props: { vt_code: 5101 },   // 5101＝海（色式が vt_code を見る style でも水色に転ぶ）
+	const sq = { [src]: { extent: 4096, features: [{ type: "Polygon", id: 0, props: style.schema && style.schema.seaProps || {},   // 申告された「海の名乗り」（色式が属性を見る style でも水色に転ぶ）
 		geom: { coords: new Int32Array([0, 0, 4096, 0, 4096, 4096, 0, 4096, 0, 0]), ends: [10] } }] } };
 	const dl = buildTileDrawList({ layers: sq, z, x, y }, { layers: idxs.map(i => style.layers[i]) }, origin);
 	for (const op of dl.ops) { op.li = SEA_FB_BASE + idxs[op.li]; op.id = "empty-sea:" + op.id; }   // sub-style の li(0..)→実li→擬似帯

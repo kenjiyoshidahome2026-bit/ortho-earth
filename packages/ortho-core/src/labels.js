@@ -10,6 +10,7 @@ const num = (v, d) => (typeof v === "number" && !isNaN(v)) ? v : d;
 
 // style の symbol層から点・横書きラベルを抽出。anchor は絶対経緯度[lon,lat]（タイル跨ぎ共通原点）。
 export function buildLabels({ layers, z, x, y }, style) {
+	const codeKey = style.schema && style.schema.labelCode;   // 注記の分類コードの属性名＝style の申告（themes の絞り込みと路線記号がこれを見る）
 	const out = [];
 	const codepoints = new Set();
 	const seen = new Set();   // 同一地物が複数層に出るため (text+anchor) で重複排除
@@ -38,7 +39,7 @@ export function buildLabels({ layers, z, x, y }, style) {
 			const haloW = num(evalExpr(L.paint?.["text-halo-width"] ?? 0, ctx), 0);
 			const sort = num(evalExpr(lo["symbol-sort-key"] ?? 0, ctx), 0);
 			for (const ch of text) codepoints.add(ch.codePointAt(0));
-			out.push({ anchor: [lon, lat], text, size, font: M1_FONT, color, halo, haloW, sort, code: num(f.props.vt_code, 0) });
+			out.push({ anchor: [lon, lat], text, size, font: M1_FONT, color, halo, haloW, sort, code: codeKey ? num(f.props[codeKey], 0) : 0 });   // 分類コードの属性名は style の申告（無ければ 0＝分類なし）
 		}
 	}
 	return { labels: out, codepoints, font: M1_FONT };

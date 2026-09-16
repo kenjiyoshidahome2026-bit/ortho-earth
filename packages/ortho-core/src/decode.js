@@ -8,11 +8,13 @@ import Pbf from "geopbf/pbf";
 
 const GEOM_TYPE = { 1: "Point", 2: "LineString", 3: "Polygon" };
 
-// style が実際に参照する source-layer 集合（fill/line/symbol の source-layer ∪ 建物の BldA）。
+// style が実際に参照する source-layer 集合（fill/line/symbol の source-layer ∪ 申告された建物層）。
 // これ以外の層（等高線 Cntr・未使用注記など optimal_bvmap は層が多い）は features どころか
 // keys/values の文字列デコードごと素通りできる（旧実装は未使用層でも keys/values を全デコードしていた）。
 export function neededSourceLayers(style) {
-	const set = new Set(["BldA"]);   // buildings.js は layers.BldA を直接参照
+	const set = new Set();
+	const bl = style.schema && style.schema.buildings && style.schema.buildings.layer;
+	if (bl) set.add(bl);             // 建物層は style 側の申告（buildings.js が直に引く層＝style.layers には現れない）
 	for (const L of style.layers) {
 		if ((L.type === "fill" || L.type === "line" || L.type === "symbol") && L["source-layer"]) set.add(L["source-layer"]);
 	}

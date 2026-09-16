@@ -5,6 +5,20 @@ export default {
 	version: 8,
 	name: "Quiet Mono",
 	sources: { v: { type: "vector" } },
+	// ソースの語彙＝この style が書かれている相手（地理院 optimal_bvmap）の名乗り方をエンジンへ申告する。
+	// エンジンは層名も属性名も知らない＝申告の無いソース（?pm= の任意アーカイブ）では建物が立たず、
+	// 注記の分類も付かない（絞り込みと路線記号が効かないだけで地図は出る）。2026-09-17 にエンジンから移設。
+	//   buildings … 建物をどの層から、どの属性の種別で、どの高さに立てるか（3101 普通/3102 堅ろう/3103 高層/3111 無壁舎 等）
+	//   labelCode … 注記の分類コードの属性名（themes.js の主題チップ絞り込み・shields.js の路線記号がこれを見る）
+	//   seaProps  … 図郭外に敷く合成水域が名乗る属性（色式が属性を見る style でも水色に転ぶための保険）
+	schema: {
+		buildings: {
+			layer: "BldA", levelKey: "vt_lvorder", codeKey: "vt_code",
+			heightByCode: { 3101: 9, 3102: 16, 3103: 34, 3104: 22, 3111: 5, 3112: 5 }, defaultHeight: 10,
+		},
+		labelCode: "vt_code",
+		seaProps: { vt_code: 5101 },
+	},
 	layers: [
 		{ id: "bg", type: "background", paint: { "background-color": "#f6f6f4" } },
 
