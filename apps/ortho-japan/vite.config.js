@@ -53,7 +53,7 @@ export default defineConfig({
 	server: { proxy: { "/auth": "http://localhost:8787", "/me": "http://localhost:8787" } },
 	// Workers assets は「リクエストのパス名＝assets ディレクトリ内の相対パス」で引くため、
 	// dist/site/ をルートに japan/ サブフォルダへ出力（wrangler.toml の directory = dist/site）。
-	// マルチページ：scene.html＝scenes エディタ（/japan/scene.html・最初のアプリ）。tellus.html＝Tellus 衛星データ専用ビューア（/japan/tellus）。edit.html（任意座標系）は dev 専用のまま。
+	// マルチページ：scene.html＝scenes エディタ（/japan/scene.html・最初のアプリ）。tellus.html＝Tellus 衛星データ専用ビューア（/japan/tellus）。
 	// external＝SDK二重構成（site.js 冒頭）の本番側 import はバンドルせず実行時URLのまま残す（build:prod が dist/lib を複写する）。
 	build: { outDir: "dist/site/japan", emptyOutDir: true, rollupOptions: {
 		input: { main: resolve(import.meta.dirname, "index.html"), scene: resolve(import.meta.dirname, "scene.html"), geoedit: resolve(import.meta.dirname, "geoedit.html"), tellus: resolve(import.meta.dirname, "tellus.html") },
