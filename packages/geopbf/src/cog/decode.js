@@ -112,13 +112,45 @@ export async function decodeTile(raw, ifd, le) {
 	return { kind: "raster", data };
 }
 
+// ---- カラーマップ（単バンドの描画用 LUT）--------------------------------------------------------
+// 名前（内蔵）か Uint8Array(256×3) を受けて Uint8Array(768) に正規化。null なら無し（グレー）。
+// thermal＝Google turbo の 9 点標本を区分線形で（海面水温・気温向け・低温=紫青・高温=赤）。
+const STOPS = {
+	thermal: [[48, 18, 59], [70, 98, 215], [54, 170, 249], [26, 228, 182], [114, 254, 94], [200, 239, 52], [250, 186, 57], [246, 107, 25], [122, 4, 3]],
+	gray: [[0, 0, 0], [255, 255, 255]],
+};
+export function makeLut(spec) {
+	if (!spec) return null;
+	if (spec instanceof Uint8Array || spec instanceof Uint8ClampedArray) { if (spec.length !== 768) throw new Error("cog: colormap must be 256×3 bytes"); return spec; }
+	const stops = typeof spec === "string" ? STOPS[spec] : Array.isArray(spec) ? spec : null;
+	if (!stops) throw new Error(`cog: unknown colormap ${spec}`);
+	const lut = new Uint8Array(768);
+	for (let i = 0; i < 256; i++) {
+		const f = i / 255 * (stops.length - 1), k = Math.min(stops.length - 2, f | 0), a = f - k;
+		for (let c = 0; c < 3; c++) lut[i * 3 + c] = stops[k][c] * (1 - a) + stops[k + 1][c] * a;
+	}
+	return lut;
+}
+
 // ---- RGBA8 化（gray/RGB(A)/palette・stretch・nodata→alpha0）--------------------------------
-// stretch=[lo,hi] は u16/i16/f32 単バンド用。u8 は恒等。edge タイルも tileW×tileH のまま返す
+// stretch=[lo,hi] は単バンド用（u8 も auto＝core が最粗 overview の percentile を渡す）。edge タイルも tileW×tileH のまま返す
 // （TIFF はタイルを常にフル寸で持つ＝切り詰めは warp 側が画像境界で行う）。
-export function toRGBA8(data, ifd, { stretch = null, nodata = null } = {}) {
+// composite="dualpol"（samples≥2）＝R:b0・G:b1・B:b0−b1 の偽色合成（2 偏波 SAR の定番＝森が緑・市街が紫・水が黒）。
+//   stretch は [[lo,hi]×3]（core の auto が 3 本ぶん出す）。lut（makeLut）は単バンドのグレーを色に置く。
+export function toRGBA8(data, ifd, { stretch = null, nodata = null, composite = null, lut = null } = {}) {
 	const { tileW, tileH, samples, photometric, palette, extraSamples } = ifd;
 	const n = tileW * tileH;
 	const out = new Uint8ClampedArray(n * 4);
+	if (composite === "dualpol" && samples >= 2 && !palette) {
+		const S = samples, st = Array.isArray(stretch?.[0]) ? stretch : [stretch || [0, 255], stretch || [0, 255], stretch || [0, 255]];
+		const k = st.map(([lo, hi]) => 255 / Math.max(hi - lo, 1e-9));
+		for (let i = 0; i < n; i++) {
+			const a = data[i * S], b = data[i * S + 1];
+			if (nodata !== null && a === nodata) { out[i * 4 + 3] = 0; continue; }
+			out[i * 4] = (a - st[0][0]) * k[0]; out[i * 4 + 1] = (b - st[1][0]) * k[1]; out[i * 4 + 2] = (a - b - st[2][0]) * k[2]; out[i * 4 + 3] = 255;
+		}
+		return out;
+	}
 	if (photometric === 3 && palette) {          // palette
 		for (let i = 0; i < n; i++) {
 			const b = data[i] * 4;
@@ -142,14 +174,16 @@ export function toRGBA8(data, ifd, { stretch = null, nodata = null } = {}) {
 	// 単バンド → グレー（stretch は f32 のまま計算＝バンディング回避）。
 	// samples=2 は「グレー＋追加バンド」＝先頭バンドを描く（Tellus の PALSAR-2 webcog は HH/HV 2 バンド u8＝
 	// 画素インターリーブなので stride を跨がないと横縞になる・2026-09-16 実測）
-	const [lo, hi] = stretch || [0, 255];
+	const [lo, hi] = Array.isArray(stretch?.[0]) ? stretch[0] : (stretch || [0, 255]);
 	const k = 255 / Math.max(hi - lo, 1e-9);
 	const S = samples || 1;
 	for (let i = 0; i < n; i++) {
 		const v = data[i * S];
 		if (nodata !== null && v === nodata) { out[i * 4 + 3] = 0; continue; }
 		const g = (v - lo) * k;
-		out[i * 4] = g; out[i * 4 + 1] = g; out[i * 4 + 2] = g; out[i * 4 + 3] = alphaIdx >= 0 ? data[i * S + alphaIdx] : 255;
+		if (lut) { const gi = g <= 0 ? 0 : g >= 255 ? 255 : g | 0; out[i * 4] = lut[gi * 3]; out[i * 4 + 1] = lut[gi * 3 + 1]; out[i * 4 + 2] = lut[gi * 3 + 2]; }
+		else { out[i * 4] = g; out[i * 4 + 1] = g; out[i * 4 + 2] = g; }
+		out[i * 4 + 3] = alphaIdx >= 0 ? data[i * S + alphaIdx] : 255;
 	}
 	return out;
 }

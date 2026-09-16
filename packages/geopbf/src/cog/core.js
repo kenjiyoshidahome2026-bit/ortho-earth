@@ -5,7 +5,7 @@
 import { openSource } from "./source.js";
 import { parseTiff } from "./tiff.js";
 import { projFor } from "./proj.js";
-import { decodeTile, toRGBA8 } from "./decode.js";
+import { decodeTile, toRGBA8, makeLut } from "./decode.js";
 import { warpRGBA, geoAtLevel, geoPx, xyzTarget, lonlatTarget } from "./warp.js";
 import { makeLRU, noopCache } from "./cache.js";
 
@@ -14,7 +14,9 @@ export { xyzTarget, lonlatTarget };
 export async function openCog(src, opts = {}) {
 	const t0 = now();
 	const s = await openSource(src, opts);
-	const cache2 = opts.cache || noopCache;
+	// 二層目キャッシュ（圧縮バイト）は鍵が刻めるとき＝cacheKey か ETag があるときだけ（どちらも無い読み口＝署名 URL の proxy 等で
+	// 鍵が "cog::lv/tx/ty" に潰れて別ファイル同士が衝突する）。全量モードも素通し。
+	const cache2 = opts.cache && (opts.cacheKey || s.etag) ? opts.cache : noopCache;
 	const lru = makeLRU(opts.memBudget ?? 128 << 20);
 	const metrics = { ttfhMs: 0, tilesDecoded: 0, decodeMs: 0, cacheHits: 0 };
 
@@ -48,30 +50,40 @@ export async function openCog(src, opts = {}) {
 		}
 	}
 
+	// 描画オプション（単バンド/2 バンドの見せ方）: composite="dualpol"（samples≥2＝R:b0・G:b1・B:b0−b1）・colormap（単バンド LUT）。
+	const composite = full.samples >= 2 && full.samples < 3 && !full.palette && opts.composite === "dualpol" ? "dualpol" : null;
+	const lut = full.samples < 3 && !full.palette ? makeLut(opts.colormap) : null;
+
 	// stretch（単バンド全般＝u8 も含む）: 明示 [lo,hi] か auto＝最粗 overview の 2–98 percentile を f32 で。
-	// u8 も既定 auto＝SAR 振幅（低域偏重）や淡いグレー画がそのまま見える（恒等が欲しければ stretch:[0,255]）
+	// u8 も既定 auto＝SAR 振幅（低域偏重）や淡いグレー画がそのまま見える（恒等が欲しければ stretch:[0,255]）。
+	// dualpol は 3 本ぶん [[lo,hi]×3]（b0・b1・b0−b1）＝明示は 3 本でも 1 本（3 本に複製）でも可。
+	// ⚠標本化は画像の実領域だけ＝最粗段は 1 タイルに収まり、タイルの余白（ゼロ詰め）が値域を支配する
+	//（GCOM-C SST f32＝nodata −9999 で余白 0 が 98% を占め stretch が [0,0] に化けた・2026-09-16 実測）
 	let stretchP = null;
 	const needStretch = full.samples < 3 && !full.palette;
 	const ensureStretch = () => stretchP ??= (async () => {
-		if (Array.isArray(opts.stretch)) return opts.stretch;
-		const lv = t.ifds[t.ifds.length - 1];
-		const raster = await getRasterTiles(t.ifds.length - 1, allTiles(lv));
-		let vals = new Float64Array(1 << 15), cnt = 0;   // 型付き配列＋ネイティブ数値 sort（旧＝JS 配列＋比較関数 sort）
-		for (const r of raster.values()) {
-			if (!r) continue;
-			const S = lv.samples || 1;   // 画素インターリーブ＝先頭バンドだけを標本化（samples=2 の PALSAR-2 で HV を混ぜない）
-			const stride = Math.max(1, ((r.data.length / S) / 20000) | 0) * S;
-			for (let i = 0; i < r.data.length; i += stride) {
+		if (Array.isArray(opts.stretch)) return composite && !Array.isArray(opts.stretch[0]) ? [opts.stretch, opts.stretch, opts.stretch] : opts.stretch;
+		const L = t.ifds.length - 1, lv = t.ifds[L];
+		const raster = await getRasterTiles(L, allTiles(lv));
+		const cols = Array.from({ length: composite ? 3 : 1 }, () => ({ v: new Float64Array(1 << 15), n: 0 }));   // 型付き配列＋ネイティブ数値 sort
+		const push = (c, x) => { if (c.n === c.v.length) { const g = new Float64Array(c.v.length * 2); g.set(c.v); c.v = g; } c.v[c.n++] = x; };
+		const S = lv.samples || 1;
+		const step = Math.max(1, ((lv.width * lv.height) / 20000) | 0);   // 全体で 2 万標本の目安
+		for (const [k, r] of raster) {
+			if (!r?.data) continue;   // image（JPEG）段は標本化しない
+			const [, tx, ty] = k.split("/").map(Number);
+			const w = Math.min(lv.tileW, lv.width - tx * lv.tileW), h = Math.min(lv.tileH, lv.height - ty * lv.tileH);
+			for (let p = 0; p < w * h; p += step) {
+				const y = (p / w) | 0, i = (y * lv.tileW + (p - y * w)) * S;   // 画素インターリーブ＝先頭バンド（samples=2 の PALSAR-2 で HV を混ぜない）
 				const v = r.data[i];
-				if (t.nodata !== null && v === t.nodata) continue;
-				if (!Number.isFinite(v)) continue;
-				if (cnt === vals.length) { const g = new Float64Array(vals.length * 2); g.set(vals); vals = g; }
-				vals[cnt++] = v;
+				if (!Number.isFinite(v) || (t.nodata !== null && v === t.nodata)) continue;
+				push(cols[0], v);
+				if (composite) { const u = r.data[i + 1]; push(cols[1], u); push(cols[2], v - u); }
 			}
 		}
-		if (!cnt) return [0, 1];
-		vals = vals.subarray(0, cnt).sort();
-		return [vals[(cnt * 0.02) | 0], vals[Math.min(cnt - 1, (cnt * 0.98) | 0)]];
+		const pct = (c) => { if (!c.n) return [0, 1]; const a = c.v.subarray(0, c.n).sort(); return [a[(c.n * 0.02) | 0], a[Math.min(c.n - 1, (c.n * 0.98) | 0)]]; };
+		const out = cols.map(pct);
+		return composite ? out : out[0];
 	})();
 
 	const key = (lv, tx, ty) => `${lv}/${tx}/${ty}`;
@@ -130,7 +142,7 @@ export async function openCog(src, opts = {}) {
 			const stretch = needStretch ? await ensureStretch() : null;
 			const raster = await getRasterTiles(level, miss, signal);
 			for (const [k, r] of raster) {
-				const rgba = r === null ? null : r.image ? r.image : toRGBA8(r.data, lv, { stretch, nodata: t.nodata });
+				const rgba = r === null ? null : r.image ? r.image : toRGBA8(r.data, lv, { stretch, nodata: t.nodata, composite, lut });
 				lru.set(k, rgba === null ? 0 : rgba, rgba ? rgba.byteLength ?? lv.tileW * lv.tileH * 4 : 16);   // null は 0 を番人に
 				out.set(k, rgba);
 			}
@@ -187,6 +199,7 @@ export async function openCog(src, opts = {}) {
 		ifdOf: (level) => t.ifds[level],
 		littleEndian: t.littleEndian,
 		ensureStretch: () => needStretch ? ensureStretch() : Promise.resolve(null),
+		drawOpts: { composite, lut },   // ブラウザ層（index.js）が worker へそのまま運ぶ描画オプション（stretch は ensureStretch）
 		metrics: () => ({ ...metrics, ...s.metrics, lruBytes: lru.bytes }),
 		close: () => { lru.clear(); },
 	};

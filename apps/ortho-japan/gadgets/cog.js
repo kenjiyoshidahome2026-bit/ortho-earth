@@ -6,8 +6,21 @@
 // 発火させない一般則）。lowMem はアトラス半辺（2048→1024）＝メモリと帯域の両方が半分以下。
 import { openCog } from "geopbf/cog";
 
+// 生タイル（圧縮バイト）の共有メモリキャッシュ＝シーンを載せ替えても同じ Range を撃ち直さない（Tellus の ◀▶ 往復・偽色⇄グレー切替が無通信に）。
+// 鍵は core が cacheKey（呼び出し側が渡すシーン id）か ETag で刻む＝どちらも無い読み口は core 側で素通し（衝突しない）。
+// set は複製して持つ（core が渡す buf は coalesce 塊の subarray＝そのまま持つと親 4MB が居座る）。予算超過は古い順に落とす。
+function rawCache(budget) {
+	const m = new Map(); let bytes = 0;
+	return {
+		async get(k) { const v = m.get(k); if (v) { m.delete(k); m.set(k, v); } return v || null; },   // 触った鍵を末尾へ＝LRU
+		async set(k, buf) { if (m.has(k)) return; const c = buf.slice(); m.set(k, c); bytes += c.byteLength; while (bytes > budget && m.size) { const [k0, v0] = m.entries().next().value; m.delete(k0); bytes -= v0.byteLength; } },
+		get bytes() { return bytes; },
+	};
+}
+
 export function createCog(map, { setCogTex, fit, lowMem, signal } = {}) {
 	const ATLAS_W = lowMem ? 1024 : 2048;
+	const cache = rawCache(lowMem ? 24 << 20 : 96 << 20);
 	let cog = null, timer = null, busy = false, cur = null;   // cur＝現アトラスが覆う bbox
 	let last = null, still = 0, rc = null;                    // rc＝進行中レンダの AbortController
 
@@ -86,10 +99,11 @@ export function createCog(map, { setCogTex, fit, lowMem, signal } = {}) {
 
 	return {
 		// fit=false＝カメラ据え置き（stac のシーン切替＝同じ場所の別日を見比べる用）。
-		// fetch＝読み口の差し替え（stac の Tellus 経路＝署名 URL が 1 時間で失効するので 403 で再発行して読み直す包み）
-		async load(src, { fit: doFit = true, fetch: f = null } = {}) {
+		// fetch＝読み口の差し替え（stac の Tellus 経路＝署名 URL が 1 時間で失効するので 403 で再発行して読み直す包み）。
+		// 残り（stretch/composite/colormap/cacheKey）は geopbf/cog の openCog へそのまま＝見せ方はデータ側（tellus-api の cogOpts）が決める。
+		async load(src, { fit: doFit = true, fetch: f = null, ...cogOpts } = {}) {
 			this.clear();
-			cog = await openCog(src, { signal, ...(f ? { fetch: f } : {}) });
+			cog = await openCog(src, { signal, cache, ...cogOpts, ...(f ? { fetch: f } : {}) });
 			await renderWindow(cog.bboxLL.slice());   // 全域＝最粗 overview（ヘッダ直後に連続＝実質 range 1-2 本）
 			if (doFit) fit?.(cog.bboxLL);
 			timer = setInterval(tick, 200);
@@ -101,6 +115,6 @@ export function createCog(map, { setCogTex, fit, lowMem, signal } = {}) {
 			cog?.close(); cog = null; cur = null; last = null; still = 0;
 			setCogTex(null); map.requestDraw?.();
 		},
-		metrics: () => cog?.metrics() ?? null,
+		metrics: () => cog ? { ...cog.metrics(), rawCacheBytes: cache.bytes } : null,
 	};
 }
