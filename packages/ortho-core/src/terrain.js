@@ -6,7 +6,21 @@ import { unproject, cameraState, lonlatTo3D, WORLD_PX } from "./camera.js";
 import { downsampleFlipped } from "./elevation.js";
 import { createTileLoader } from "altpbf/loader";
 
-export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onPending, lowMem = false, noMixed = false, noFar = false }) {
+// 申告された裸地標高(DTM)域と、リフト窓の重なりを取る（[lng0,lat0,spanLng,spanLat]・重なり無し=null）。
+// 純関数＝Node で検定できる（tests/t-dtm.mjs）。dtm 未申告＝裸地の保証がない＝リフトしない。
+export function clipToDTM(box, dtm) {
+	if (!box || !dtm) return null;
+	const x0 = Math.max(box[0], dtm[0]), y0 = Math.max(box[1], dtm[1]);
+	const x1 = Math.min(box[0] + box[2], dtm[2]), y1 = Math.min(box[1] + box[3], dtm[3]);
+	return (x1 > x0 && y1 > y0) ? [x0, y0, x1 - x0, y1 - y0] : null;
+}
+
+// dtm＝呼び出し側が申告する裸地標高の域 { bbox:[西,南,東,北], range, brand }。段(range)だけでは
+// その段が裸地か表層かを決められない＝日本の R01 は DEM10B(裸地) だが国外の R01 は AW3D30(表層)。
+// 未申告＝保証なし＝接地リフトをしない（建物は海面高に置く）。地域の知識はアプリが持つ（2026-09-17）。
+export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onPending, lowMem = false, noMixed = false, noFar = false, dtm = null }) {
+	const dtmDecl = dtm || null, dtmBounds = dtmDecl?.bbox || null;
+	console.log(`[terrain] DTM declared: ${dtmBounds ? dtmBounds.join(",") + " (" + dtmDecl.brand + ")" : "none (no ground lift)"}`);
 	let atlasKey = "", loadedCells = new Set();
 	let cellFails = new Map();   // ck → 取得失敗回数（窓の世代ごとにリセット。上限内は次の ensure で再挑戦）
 	// 遠景層（far）＝近窓が R01 級（cap4=4°）へ縮む深ズーム×チルトで、粗い R10 を第2アトラスへ常設。
@@ -43,7 +57,7 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 	// を指数バックオフで再試行。成立時の requestDraw → 次の settle の ensure が自然に拾って自己回復する。
 	let loaderTries = 0;
 	let loaderStat = "初期化中…";   // ⛰トーストに出す自己申告（借り物端末＝インスペクタ不可でも画面から死因が読める）
-	const setupLoader = () => createTileLoader({ apiUrl })
+	const setupLoader = () => createTileLoader({ apiUrl, dtm: dtmDecl })   // dtm＝古い表層キャッシュの失効判定（申告が無ければ判定しない）
 		.then(fn => { loadTile = fn; loaderStat = null; onPending && onPending(0, 0, null); requestDraw(); })   // stat トーストの残留も消す
 		.catch(e => {
 			const retry = loaderTries++ < 8;
@@ -283,13 +297,14 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 			// R10/R01窓は「窓の外＝標高0」との崖と陰影の切れ目（地球の淵の標高抜け）をこの幅で馴染ませる。
 			// 窓選定（票×√解像度・掠りは制約外）はそのまま＝中心の解像度は犠牲にしない、見た目だけの解。
 			const edgeFade = EDGE_FADE(range);
-			// liftBounds＝「DTM(裸地=DEM10B)が保証される経緯度域」。PLATEAU 接地リフトはこの中でだけ有効：
-			// R10/R90=ALOS(DSM=ビル天端込み)でリフトすると屋根が斜面に裂ける（東新橋/汐留 z<13 高チルトで実測）。
-			// 純R01窓=全域 / 混成窓=近傍3×3（nearCam=camセル±1）のみ / R10・R90窓=なし(null)。
+			// liftBounds＝「裸地標高(DTM)が保証される経緯度域」。PLATEAU 接地リフトはこの中でだけ有効：
+			// R10/R90 や国外の R01＝表層(DSM・ビル天端込み)でリフトすると屋根が斜面に裂ける（東新橋/汐留 z<13 高チルトで実測）。
+			// 純R01窓=窓全域 / 混成窓=近傍3×3（nearCam=camセル±1）/ R10・R90窓=なし(null)。最後に申告域(dtmBounds)で切る。
 			// ※混成の近傍セルは R01 到着までの数秒だけ R10 切り出しが入る＝過渡の歪みは許容（すぐ直る）。
 			const c1x = Math.floor(cam.center[0]), c1y = Math.floor(cam.center[1]);
-			const liftBounds = mixed ? [c1x - 1, c1y - 1, 3, 3]
-				: range === 1 ? [r.originCX, r.originCY, r.cellsX, r.cellsY] : null;
+			// 窓は段が R01 の時だけ裸地になり得る＝そのうえで申告域と重なった分だけがリフト可。
+			const liftBounds = clipToDTM(mixed ? [c1x - 1, c1y - 1, 3, 3]
+				: range === 1 ? [r.originCX, r.originCY, r.cellsX, r.cellsY] : null, dtmBounds);
 			// gMax＝地形メッシュ格子の上限（renderer が窓形状から G を決める時の天井）。lowMem=1024 で
 			// 頂点+index を 75MB→33.5MB（-42MB）。メッシュは GPU 固定常駐の最大項＝3GB 機の一番効く一枠。
 			// 見た目の代償＝quad が 1.5 倍粗くなるが、スマホ/タブレットの画面密度では絵の破綻はない側。

@@ -21,6 +21,7 @@ import { deflateRawSync, gzipSync, inflateRawSync, gunzipSync } from 'node:zlib'
 import { mkdirSync, writeFileSync, readFileSync, readdirSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+import { JP_BOX } from "../jp/dtm.js";
 
 const DIR = path.dirname(fileURLToPath(import.meta.url));
 const OUT = path.join(DIR, '..', 'r10-out');
@@ -28,7 +29,7 @@ const SRC = path.join(DIR, '..', 'r10-src');   // R01/R10 ダウンロードキ�
 mkdirSync(OUT, { recursive: true });
 mkdirSync(SRC, { recursive: true });
 
-const JP = { lngMin: 122, lngMax: 154, latMin: 20, latMax: 46 };   // bake-dem10b.mjs / bakedJapan と同一
+const JP = JP_BOX;   // 焼き対象の箱＝jp/dtm.js が正本（複製禁止・実行時の申告と同じ数字）
 const R10W = 2400, R01W = 3600, SUB = 240, BLK = 15;               // 240=2400/10（1°分）・15=3600/240
 const L3 = n => String(n).padStart(3, '0');
 const cellName = (lng, lat) => `${lat < 0 ? 'S' : 'N'}${L3(Math.abs(lat))}${lng < 0 ? 'W' : 'E'}${L3(Math.abs(lng))}`;

@@ -1,6 +1,6 @@
 // ALTPBF ローダ層（workspace 専用＝npm 非同梱・入口は "altpbf/loader"）。
 // フォーマット本体（encode/decode/名前規約/altpbf2png）は ./format.js＝npm 公開面。
-// ここは私有インフラ結線＝native-bucket（R2バケツ・IDBキャッシュ・JAXA CORS proxy）と焼き済み日本域の知識。
+// ここは私有インフラ結線＝native-bucket（R2バケツ・IDBキャッシュ・JAXA CORS proxy）。地域の知識は持たない（2026-09-17）。
 // 兄弟モジュール（worker/createGetHeight/gebco）の輸入面を保つため、フォーマット関数はここから再輸出する。
 import { L3 } from "common";
 import { nativeBucket } from "native-bucket";
@@ -26,19 +26,19 @@ export async function index_alos() {
 	});
 	return tub;
 }
-// 日本域の R01 は DTM（GSI DEM10B・bake-dem10b.mjs で焼いて bucket 常備）。bbox は焼き対象と同じ。
-// DSM(AW3D30)はビル天端・水面ノイズを含み「都市のテント」「湖の偽の島」の根源＝日本は裸地へ移行。
-export const bakedJapan = (lng, lat) => lng >= 122 && lng < 154 && lat >= 20 && lat < 46;
+// 地域の申告（どの域のどの段を裸地標高に焼き直したか）は呼び出し側が持つ＝ここには置かない。
+// このパッケージが知っているのは「R01 は bucket を先に見る・無ければ JAXA」という段の規則だけ（2026-09-17）。
+export const inBbox = (bbox, lng, lat) => !!bbox && lng >= bbox[0] && lng < bbox[2] && lat >= bbox[1] && lat < bbox[3];
 
 export async function load(name) {
 	const [lng, lat, range] = decodeName(name);
 	if (range !== 1) return load_gepco(name);
-	// R01: bucket（日本域＝GSI DEM10B 焼き済み）優先 → 無ければ JAXA（AW3D30 DSM・海外）
+	// R01: bucket（焼き直し済みの域＝裸地 DTM）優先 → 無ければ JAXA（AW3D30 DSM＝表層）
 	const baked = await load_gepco(name).catch(() => null);
 	if (baked) return baked;
 	const alos = await load_alos(lng, lat);
-	// bucket 未収録の印＝bbox 内でも外国陸地（韓国・台湾等）は DEM10B 範囲外で JAXA が正
-	// → staleDSM の失効対象から外す（これが無いと毎セッション再取得ループ）
+	// bucket 未収録の印＝申告域の内側でも収録外の土地（日本の bbox 内の韓国・台湾等）は JAXA が正
+	// → 失効判定の対象から外す手掛かり（これが無いと毎セッション再取得ループ）
 	if (alos) alos.noBake = 1;
 	return alos;
 }
