@@ -20,27 +20,52 @@ const eq = (name, got, want) => {
 };
 const yes = (name, cond) => eq(name, !!cond, true);
 
-// app.js と同じ合成（宣言の並びから台帳の材料を作る）
+// app.js と同じ合成（宣言の並びから材料を作る）
 const compose = regions => ({
 	dtm: regions.find(r => r.dtm)?.dtm ?? null,
 	sets: regions.flatMap(r => r.buildings?.sets ?? []),
 	catalog: regions.map(r => r.buildings?.catalog).filter(Boolean),
+	basemap: regions.map(r => r.basemap).find(Boolean) ?? null,
+	attr: regions.map(r => r.attribution).filter(Boolean),
 });
+// app.js と同じ入口の裁き（"only"=/nl/ 独立／"with-jp"=?nl=1 重ね／null=日本）
+const pick = mode => mode === "only" ? [NL_REGION] : mode === "with-jp" ? [JP_REGION, NL_REGION] : [JP_REGION];
 
 // ── ① 日本だけ（既定の入口） ─────────────────────────────────────────────
-const jp = compose([JP_REGION]);
+const jp = compose(pick(null));
 eq("日本の台帳は取得する 1 本", jp.catalog, ["plateau-sets.json"]);
 eq("その場で足す台帳は無い", jp.sets.length, 0);
 yes("裸地標高の申告を持つ", jp.dtm && jp.dtm.brand === "GSI");
 eq("裸で開いた時の視点はアプリ既定", JP_REGION.view, null);
 
 // ── ② ?nl=1 / /nl/（オランダを足す） ────────────────────────────────────
-const both = compose([JP_REGION, NL_REGION]);
+const both = compose(pick("with-jp"));
 eq("取得する台帳は日本の 1 本のまま", both.catalog, ["plateau-sets.json"]);
 eq("足すのはオランダの 3 件", both.sets.length, 3);
 eq("裸地標高の申告は日本のものが残る（オランダは持たない）", both.dtm, JP_REGION.dtm);
 eq("オランダは裸地標高を宣言しない＝接地リフトしない", NL_REGION.dtm, null);
 eq("裸で開いた時はデルフト上空", NL_REGION.view, "#16/52.0116/4.3571/45t");
+
+// 基図と出典（第二段・2026-09-17）
+yes("日本は基図を宣言する", jp.basemap && jp.basemap.kind === "gsi");
+eq("配信圏は本土＋離島を内包", jp.basemap.coverage, [121, 19, 155, 46]);
+eq("タイル URL は地理院の最適化ベクトルタイル", jp.basemap.tileUrl(12, 3637, 1612), "https://cyberjapandata.gsi.go.jp/xyz/optimal_bvmap-v1/12/3637/1612.pbf");
+eq("出典は日本のもの 1 組", jp.attr.length, 1);
+yes("出典の 1 行目は地理院の正式名称", jp.attr[0].lines[0][0].key.includes("Geospatial Information Authority"));
+
+// ── ②' /nl/ ＝独立の入口（この地域だけ） ────────────────────────────────
+const only = compose(pick("only"));
+eq("取得する台帳は無い（日本の 336 件を持ち込まない）", only.catalog, []);
+eq("建物はオランダの 3 件だけ", only.sets.length, 3);
+eq("裸地標高の申告は無い＝接地リフトしない", only.dtm, null);
+eq("基図を宣言しない＝タイルを要求しない（図郭外と同じ全面水域）", only.basemap, null);
+eq("出典はオランダのものだけ", only.attr.length, 1);
+yes("出典に 3DBAG と CC BY 4.0", only.attr[0].lines[0][0].key.includes("3DBAG") && only.attr[0].lines[0][0].key.includes("CC BY 4.0"));
+yes("日本の出典は混ざらない", !JSON.stringify(only.attr).includes("GSI"));
+
+// ?nl=1（重ね）は日本の基図と出典のまま＝開発の重ね確認
+yes("?nl=1 は日本の基図を使う", both.basemap && both.basemap.kind === "gsi");
+eq("?nl=1 は出典を両方出す", both.attr.length, 2);
 
 // ── ③ 台帳 1 件の形（日本の 336 件とオランダの 3 件に同じ物差しを当てる） ──
 const jpSets = JSON.parse(fs.readFileSync(path.join(APP, "public/plateau-sets.json"), "utf8"));

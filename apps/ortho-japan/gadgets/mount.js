@@ -9,7 +9,7 @@
 //   instruments＝下部の計器盤（true=全部／配列=選択的（例: ["scale","attr"]）／false=出さない）
 import { mountChips } from "./chips.js";
 import { mountInstruments } from "./instruments.js";
-export function mountGadgets(mapEl, { chips = true, instruments = true, fixedLayers = {} } = {}) {
+export function mountGadgets(mapEl, { chips = true, instruments = true, fixedLayers = {}, attribution = [] } = {}) {
 	if (chips) mountChips(mapEl, chips, fixedLayers);
-	if (instruments) mountInstruments(mapEl, instruments);
+	if (instruments) mountInstruments(mapEl, instruments, attribution);   // attribution＝地域宣言が持つ出典（入口ごとに差し替わる）
 }

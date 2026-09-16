@@ -7,7 +7,7 @@ import { tr } from "../i18n.js";
 import { dockStack } from "./stack.js";
 const t = tr();
 const KEYS = ["log", "pos", "scale", "attr"];
-export function mountInstruments(mapEl, keys = true) {
+export function mountInstruments(mapEl, keys = true, attribution = []) {
 	if (Array.isArray(keys))   // typo は黙って0個になる＝開発時の迷子防止に一声
 		for (const k of keys) if (!KEYS.includes(k)) console.warn(`[instruments] unknown key "${k}" (valid: ${KEYS.join(", ")})`);
 	const want = k => keys === true || (Array.isArray(keys) && keys.includes(k));
@@ -36,18 +36,15 @@ export function mountInstruments(mapEl, keys = true) {
 		const boot = document.querySelector("#attr[data-boot]");
 		const attr = boot || document.createElement("div");
 		if (boot) boot.removeAttribute("data-boot"); else attr.id = "attr";
-		// 行割りは iPhone 幅（375px・11px 字）で折り返さないことを基準に3行固定：
-		//   1行目=長い正式名称を単独で／2行目=残りのデータ源3つ／3行目=加工注記+©。#attr の text-wrap:balance は超狭幅の保険
-		// オランダの入口（/nl/）では出典もオランダのものに差し替える＝3DBAG は CC BY 4.0＝表示が義務。
-		// 日本のデータを出していない画面に地理院・PLATEAU を並べるのは、義務以前に嘘になる。
-		const nl = /^\/nl(\/|$)/.test(location.pathname) || /[?&]nl=1/.test(location.search);
-		attr.innerHTML = nl
-			? `${t("Sources: ")}<a href="https://3dbag.nl/" target="_blank" rel="noopener">${t("3DBAG (TU Delft), CC BY 4.0")}</a><br>
-			${t("Auto-generated from BAG (building registry) and AHN (national LiDAR)")}<br>
-			${t("(Created by processing the data)")}© 2026 <a href="https://www.ortho-earth.com/docs/introduction.html" target="_blank" rel="noopener">Kenji Yoshida</a>`
-			: `${t("Sources: ")}<a href="https://maps.gsi.go.jp/development/ichiran.html#optbv" target="_blank" rel="noopener">${t("Optimized Vector Tiles (experimental), Geospatial Information Authority of Japan (GSI)")}</a><br>
-			<a href="https://maps.gsi.go.jp/development/ichiran.html#dem" target="_blank" rel="noopener">${t("Elevation Tiles (DEM10B)")}</a>・<a href="https://www.mlit.go.jp/plateau/" target="_blank" rel="noopener">${t("MLIT PLATEAU")}</a>・<a href="https://www.eorc.jaxa.jp/ALOS/jp/dataset/aw3d30/aw3d30_j.htm" target="_blank" rel="noopener">JAXA AW3D30</a><br>
-			${t("(Created by processing these data sources)")}© 2026 <a href="https://www.ortho-earth.com/docs/introduction.html" target="_blank" rel="noopener">Kenji Yoshida</a>`;
+		// 中身は**地域宣言が持つ**（jp/region.js・nl/region.js の attribution）＝この gadget は組み立てるだけ。
+		// 入口ごとに出典が差し替わる理由：日本のデータを出していない画面に地理院・PLATEAU を並べるのは、
+		// 表示義務以前に嘘になる（3DBAG は CC BY 4.0＝表示が義務）。2026-09-17 に宣言へ移設。
+		// 行割りは iPhone 幅（375px・11px 字）で折り返さないことを基準＝宣言側が行で分ける。#attr の
+		// text-wrap:balance は超狭幅の保険。末尾は加工注記＋© を必ず付ける（地域に依らない）。
+		const A = (href, label) => href ? `<a href="${href}" target="_blank" rel="noopener">${label}</a>` : label;
+		const render = at => at.lines.map((line, i) => (i ? "" : t("Sources: ")) + line.map(x => A(x.href, x.key ? t(x.key) : x.text)).join("・")).join("<br>")
+			+ `<br>${t(at.note)}© 2026 ` + A("https://www.ortho-earth.com/docs/introduction.html", "Kenji Yoshida");
+		attr.innerHTML = attribution.map(render).join("<br>");
 		els.push(attr);
 	} else document.querySelector("#attr[data-boot]")?.remove();   // 出典を出さない構成＝静的版も残さない（埋め込み側の出典明記義務は README どおり）
 	mapEl.append(...els);
