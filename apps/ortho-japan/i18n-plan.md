@@ -46,7 +46,7 @@
 - 辞書 52 本・554 項目・ja ユニーク 519・en ユニーク 513。全辞書がリテラルとして機械解析できた（未解析 0）。
 - 反転（ja キー→英語キー）の衝突 5 件。実害は 1 件だけ＝`"S"`（南緯 / 小）。残り 4 件は同義（Title / Close (Esc) / Text / Fill color）で統合してよい。
 - 反転後に ja の語が 1 対多になる箇所は 0＝ja 訳は反転そのもので確定する。
-- t() が無い日本語リテラルが残る面：`gadgets/poiedit.js`（本人道具・対象外）・`demo/scenes.js`（台本＝scene[lang]・対象外）・`skynames.js`/`planets.js`（地図の中身）・`style-mono.js`（基図スタイル）・各 `*.html` の殻（index / geoedit / tellus / edit）。
+- t() が無い日本語リテラルが残る面：`gadgets/poiedit.js`（本人道具・対象外）・`demo/scenes.js`（台本＝scene[lang]・対象外）・`skynames.js`/`planets.js`（地図の中身）・`style-mono.js`（基図スタイル）・各 `*.html` の殻（index / geoedit / tellus）。
 - 物理方向の CSS（left/right/margin-left 等）はガジェット全体で 11 箇所＝RTL の鏡像化は小工事。
 - ラベル描画は canvas2D `fillText`＝bidi/アラビア字形連結はブラウザ任せで通る（GPU テキスト無し）。RTL で自前 shaping は不要。
 
