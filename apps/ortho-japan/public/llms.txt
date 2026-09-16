@@ -75,7 +75,7 @@ createGeopbf は呼ばない（export していない＝呼ぶと SDK 内部の 
 バンドラも import map も不要＝同梱の worker チャンクがそのまま動く。npm の geopbf（単体・MIT）は地球儀の外で使う物＝
 同一ページで混ぜない（別インスタンス・二重同梱）。@ortho-earth/japan 1.0.2 以前は未 export＝更新する。
 - geopbf(File|URL|ArrayBuffer|GeoJSONオブジェクト, opts) → pbf。読める形式:
-  geopbf/.pbf/geojson/ndjson・geojsonl（1 行 1 地物）/topojson/fgb/shape(zip)/kml/kmz/gpx/gml/moj(zip)/gz（生 .kml は 1.0.5〜。File の未知拡張子/デコード失敗は 1.0.5〜例外＝
+  geopbf/.pbf/geojson/ndjson・geojsonl（1 行 1 地物）/topojson/fgb/shape(zip)/kml/kmz/gpx/gml/moj(zip)/gpkg/sqlite（SpatiaLite）/gz（生 .kml は 1.0.5〜。File の未知拡張子/デコード失敗は 1.0.5〜例外＝
   1.0.4 以前は console.warn "illegal file" だけで 0 件の pbf）。KML の <name> は feature.id と properties.name（1.0.5〜）
 - 書き出し: pbf.geopbfFile()/geojsonFile()/topojsonFile()/fgbFile()/shapeFile()/kmzFile()/gmlFile()/gpxFile() → File
   忠実度＝geopbf/geojson：完全（型も）／kmz：件数維持・属性は全て文字列化／gpx：点と線のみ（面は落ちる）・属性は name だけ。

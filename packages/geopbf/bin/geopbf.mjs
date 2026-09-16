@@ -54,6 +54,10 @@ const USAGE = `geopbf <command>
        [--precision N] [--name name] [--ignore-crs] [--no-gzip]
        [--include a,b] [--exclude a,b] [--exclude-all]  列の選別
 
+  spatialite2pbf <in.sqlite> [out.geopbf]   SpatiaLite の 1 層を GeoPBF へ（自前 SQLite リーダ・幾何 BLOB は圧縮/TinyPoint 込み・GDAL 不要）。out を省くと層の一覧
+       [--layer name] [--precision N] [--name name] [--ignore-crs] [--no-gzip]
+       [--tky2jgd <file|url>] [--patchjgd <file|url>]   日本測地系の層の格子変換（gpkg2pbf と同じ）
+       [--include a,b] [--exclude a,b] [--exclude-all]  列の選別
   gdb2pbf <in.gdb|in.zip> [out.geopbf]   File Geodatabase の 1 フィーチャクラスを GeoPBF へ（ディレクトリか、それを zip したもの）。out を省くと一覧
        [--layer name] [--precision N] [--name name] [--ignore-crs] [--no-gzip]
        [--tky2jgd <file|url>]       日本測地系の層に使う TKY2JGD 格子（scripts/bake-datum-grid.mjs の出力）。無ければ Helmert ±10 m
@@ -398,6 +402,32 @@ async function gpkg2pbf(argv) {
 	console.log(`${outPath}  ${mb(out.length)}${gzip ? " (gzip)" : ""}  precision ${s.precision}  読込 ${s.ms.read.toFixed(0)} ms・GeoPBF ${s.ms.encode.toFixed(0)} ms`);
 }
 
+async function spatialite2pbf(argv) {
+	const { fromSpatiaLite, readSpatiaLite } = await import("../src/convert/spatialite.js");
+	const { pos: [inPath, outPath], opts } = parseArgs(argv, ["precision", "name", "layer", "include", "exclude", "tky2jgd", "patchjgd"]);
+	if (!inPath) throw new Error("spatialite2pbf <in.sqlite> [out.geopbf] [--layer name]");
+	const u8 = new Uint8Array(await readFile(inPath));
+	if (!outPath) {
+		const g = readSpatiaLite(u8);
+		console.log(`${inPath}  ${g.encoding}  page ${g.pageSize}  地物層 ${g.layers.length}`);
+		for (const l of g.layers) console.log(`  ${l.table}${l.identifier && l.identifier !== l.table ? ` (${l.identifier})` : ""}  ${l.geometryType}${l.z ? "Z" : ""}${l.m ? "M" : ""}  ${l.crs.label}${l.crs.kind === "other" ? " ⚠経緯度でない" : ""}  ${num(l.count)} 件  列 ${l.columns.filter(c => c.name !== l.geometryColumn).map(c => c.name).join(",")}`);
+		for (const m of g.missing) console.log(`  ${m}  ⚠ geometry_columns にあるが表が無い`);
+		for (const w of g.warnings) console.log(`  ⚠ ${w}`);
+		return;
+	}
+	const r = await fromSpatiaLite(u8, { layer: opts.layer, precision: opts.precision !== undefined ? +opts.precision : undefined, name: opts.name, ignoreCrs: !!opts["ignore-crs"], tky2jgd: await tkyArg(opts.tky2jgd), patchjgd: await tkyArg(opts.patchjgd), ...attrOpts(opts) });
+	const gzip = !opts["no-gzip"];
+	let out = Buffer.from(r.pbf.arrayBuffer);
+	if (gzip) out = gzipSync(out, { level: 9 });
+	await writeFile(outPath, out);
+	const s = r.stats;
+	console.log(`${inPath}  層 ${s.layer}${s.layers.length > 1 ? `（他 ${s.layers.filter(l => l !== s.layer).join(", ")}）` : ""}  features ${num(s.features)}  頂点 ${num(s.vertices)}  列 ${s.columns.length}  CRS ${s.crs}${s.reprojected ? "→経緯度" : ""}`);
+	if (s.skipped.length) console.log(`  読まなかった列: ${s.skipped.map(k => `${k.name}(${k.reason})`).join(" ")}`);
+	if (s.droppedGeometries || s.z || s.m || s.bigints) console.log(`  幾何なしで落とした地物 ${s.droppedGeometries}（NULL/空 ${s.droppedGeometries - s.extendedGeometries}・拡張型 ${s.extendedGeometries}）${s.z || s.m ? "・Z/M は落とした" : ""}${s.bigints ? `・巨大整数→文字列 ${s.bigints}` : ""}`);
+	for (const w of s.warnings) console.log(`  ⚠ ${w}`);
+	console.log(`${outPath}  ${mb(out.length)}${gzip ? " (gzip)" : ""}  precision ${s.precision}  読込 ${s.ms.read.toFixed(0)} ms・GeoPBF ${s.ms.encode.toFixed(0)} ms`);
+}
+
 async function csv2pbf(argv) {
 	const { fromTable } = await import("../src/convert/table.js");
 	const { pos: [inPath, outPath], opts } = parseArgs(argv, ["precision", "name", "lon", "lat", "wkt", "sheet", "encoding", "delimiter", "include", "exclude"]);
@@ -452,7 +482,7 @@ async function gdb2pbf(argv) {
 // ── entry ─────────────────────────────────────────────────────────────────────
 
 const [cmd, ...argv] = process.argv.slice(2);
-const commands = { enc, dec, info, lod, cog, pmtiles, parquet, parquet2pbf, gpkg2pbf, csv2pbf, gdb2pbf };
+const commands = { enc, dec, info, lod, cog, pmtiles, parquet, parquet2pbf, gpkg2pbf, spatialite2pbf, csv2pbf, gdb2pbf };
 if (!cmd || cmd === "--help" || cmd === "-h") { console.log(USAGE); process.exit(0); }
 if (!commands[cmd]) { console.error(`geopbf: 知らないコマンド "${cmd}"\n`); console.error(USAGE); process.exit(1); }
 try {

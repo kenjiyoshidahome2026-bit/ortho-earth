@@ -6,6 +6,7 @@ export { toGeoParquet, fromGeoParquet } from "./geoparquet.js";
 export { readParquet, openParquet } from "./parquet-read.js";
 export { fromGeoPackage, readGeoPackage, openGpkgTiles } from "./gpkg.js";
 export { openSqlite } from "./sqlite.js";
+export { fromSpatiaLite, readSpatiaLite, parseSpatiaLiteBlob } from "./spatialite.js";
 export { openMBTiles } from "./mbtiles.js";
 export { openFileGDB, fromFileGDB, gdbSourceFromFiles, gdbSourceFromMap, parseShape } from "./filegdb.js";
 export { crsFromWKT, tmInverse, tmForward, parseWKTTree } from "./proj.js";
